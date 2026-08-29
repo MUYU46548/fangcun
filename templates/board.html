@@ -94,6 +94,16 @@
   .acts .warn{background:#e8a34a;color:#fff}
   .acts .danger{background:#d98a8a;color:#fff}
   .acts .ghost{background:#eee;color:#333}
+  #poverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:center;justify-content:center;z-index:50}
+  #pmodal{background:#fff;border-radius:16px;padding:18px 20px;width:480px;max-height:88vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
+  #pmodal h3{margin:0 0 12px;font-size:16px;color:var(--ink)}
+  #pBody .pv{margin-bottom:10px}
+  #pBody .pv .k{color:var(--muted);font-weight:600;font-size:12px;display:block;margin-bottom:2px}
+  #pBody .pv .val{white-space:pre-wrap;word-break:break-word}
+  #pBody ul{margin:2px 0 0 18px;padding:0}
+  #pBody li{margin:2px 0}
 </style>
 </head>
 <body>
@@ -158,11 +168,24 @@
     </div>
   </div>
 </div>
+<div id="poverlay" onclick="if(event.target===this)closeP()">
+  <div id="pmodal">
+    <h3 id="pTitle">任务详情</h3>
+    <div id="pBody" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
+    <div class="acts">
+      <button class="ghost" onclick="closeP()">关闭</button>
+      <button class="pri" onclick="toEdit()">编辑</button>
+    </div>
+  </div>
+</div>
 <script>
 const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","驳回"];
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
 let TASKS=[]; let curId=null; let curProj="__all__"; let curView="active";
+const LS_KEY="tegula_ui";
+function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
+function saveUI(){try{localStorage.setItem(LS_KEY,JSON.stringify({view:curView,proj:curProj,sort:el("sortMode").value,group:el("groupMode").value}));}catch(e){}}
 function pname(id){return REGISTRY[id]?REGISTRY[id].name:id;}
 function el(id){return document.getElementById(id);}
 function sv(v){return (v||"").split(",").map(s=>s.trim()).filter(Boolean);}
@@ -184,10 +207,14 @@ function fmtAbs(ts){
   return "更新于 "+d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
 }
 (function init(){
+  const ui=loadUI();
+  if(ui.view&&["active","archive","trash"].includes(ui.view))curView=ui.view;
+  if(ui.proj)curProj=ui.proj;
   const pf=el("projFilter");
   let h='<option value="__all__">全部项目</option>';
   Object.entries(REGISTRY).forEach(([id,p])=>{h+='<option value="'+id+'">'+p.name+'</option>';});
-  pf.innerHTML=h; pf.onchange=()=>{curProj=pf.value; load();};
+  pf.innerHTML=h; pf.value=curProj;
+  pf.onchange=()=>{curProj=pf.value; saveUI(); load();};
   el("f_status").innerHTML=STATUSES.map(s=>"<option>"+s+"</option>").join("");
   const pbox=el("f_project");
   Object.entries(REGISTRY).forEach(([id,p])=>{
@@ -196,14 +223,19 @@ function fmtAbs(ts){
     lab.appendChild(cb);lab.appendChild(document.createTextNode(p.name));
     pbox.appendChild(lab);
   });
-  el("search").oninput=render; el("groupMode").onchange=render;
-  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openCard(c.dataset.id);});
+  if(ui.sort)el("sortMode").value=ui.sort;
+  if(ui.group)el("groupMode").value=ui.group;
+  el("search").oninput=render;
+  el("groupMode").onchange=()=>{saveUI();render();};
+  el("sortMode").onchange=()=>{saveUI();render();};
+  document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===curView));
+  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openPreview(c.dataset.id);});
   let dragId=null;
   el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
   el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
   el("board").addEventListener("drop",e=>{const col=e.target.closest(".col"); if(!col||!dragId) return; e.preventDefault(); const st=col.dataset.status; if(st&&curView==="active"){ moveStatus(dragId,st); }});
 })();
-function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));load();}
+function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));saveUI();load();}
 async function load(){
   try{
     const url="/tasks.json?view="+encodeURIComponent(curView)+(curProj!=="__all__"?("&project="+encodeURIComponent(curProj)):"");
@@ -258,7 +290,29 @@ function render(){
 }
 function setProjChecks(list){document.querySelectorAll("#f_project input").forEach(cb=>cb.checked=list.includes(cb.value));}
 function getProjChecks(){return Array.from(document.querySelectorAll("#f_project input:checked")).map(cb=>cb.value);}
-function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openEdit(t);else openRestore(t);}
+function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openPreview(t);else openRestore(t);}
+function pv(k,v){return '<div class="pv"><span class="k">'+k+'</span><div class="val">'+v+'</div></div>';}
+function openPreview(t){
+  curId=t.id;
+  el("pTitle").textContent=t.id;
+  const projTags=(t.项目||[]).map(pname).join("、")|| "—";
+  const res=t.资源||{};
+  const planHtml=(t.方案&&t.方案.length)?("<ul>"+t.方案.map(s=>"<li>"+s.replace(/</g,"&lt;")+"</li>").join("")+"</ul>"):"—";
+  const body=
+    pv("标题",(t.标题||"—").replace(/</g,"&lt;"))+
+    pv("状态 / 批次",(t.状态||"草稿")+" · 批"+(t.批次||"?"))+
+    pv("项目",projTags)+
+    pv("指派 / 验收",(t.指派||"—")+" / "+(t.验收||"—"))+
+    pv("资源 · 资料",(res.资料||"—").replace(/</g,"&lt;"))+
+    pv("资源 · 工具",(res.工具&&res.工具.length)?res.工具.join("、"):"—")+
+    pv("方案",planHtml)+
+    pv("结果记录",(t.结果记录||"—").replace(/</g,"&lt;"))+
+    pv("最近更新",fmtAbs(t.mtime));
+  el("pBody").innerHTML=body;
+  el("poverlay").style.display="flex";
+}
+function closeP(){el("poverlay").style.display="none";}
+function toEdit(){const t=TASKS.find(x=>x.id===curId);if(!t)return;closeP();openEdit(t);}
 function openEdit(t){curId=t.id;
   el("mTitle").textContent="编辑 "+t.id;
   f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
