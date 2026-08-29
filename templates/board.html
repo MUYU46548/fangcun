@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方寸 tegula</title>
+<style>
+  :root{
+    --bg:#eef0f4;
+    --ink:#3c4150;
+    --muted:#6b7180;
+    --accent:#9b8fc4;
+    --accent-soft:#c3bce0;
+    --card:#ffffff;
+    --border:#e4e2ee;
+    --shadow:0 8px 32px rgba(90,90,130,0.12);
+    --radius:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",system-ui,-apple-system,sans-serif;
+    background:var(--bg);color:var(--ink);min-height:100vh;position:relative;
+  }
+  .blob{position:fixed;border-radius:50%;filter:blur(70px);opacity:.38;z-index:0;pointer-events:none}
+  .blob.b1{width:460px;height:460px;background:#cfc6ec;top:-140px;left:-100px}
+  .blob.b2{width:420px;height:420px;background:#cdd9ee;bottom:-130px;right:-90px}
+  #bar{position:relative;z-index:2;padding:10px 16px;background:rgba(255,255,255,.72);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--border);display:flex;justify-content:space-between;
+    align-items:center;flex-wrap:wrap;gap:8px}
+  #bar .title{font-weight:700;letter-spacing:.02em;color:var(--ink);font-size:15px}
+  #bar .title small{color:var(--accent);font-weight:600;margin-left:6px;font-size:13px}
+  #bar .ctrls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  #bar select,#bar input{padding:4px 8px;border:1px solid var(--border);border-radius:8px;
+    font-size:12px;background:#fff;color:var(--ink);outline:none;font-family:inherit}
+  #bar input#search{width:140px}
+  #bar button{cursor:pointer;padding:4px 12px;border:0;border-radius:8px;font-size:12px;
+    font-weight:600;background:var(--accent);color:#fff}
+  #bar button.ghost{background:#fff;color:var(--ink);border:1px solid var(--border)}
+  #views{position:relative;z-index:2;padding:6px 16px;display:flex;gap:6px;background:rgba(255,255,255,.5);
+    border-bottom:1px solid var(--border)}
+  .vbtn{font-size:12px;cursor:pointer;padding:4px 14px;border:1px solid var(--border);border-radius:999px;
+    background:#fff;color:var(--muted);font-weight:600}
+  .vbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #board{position:relative;z-index:1;display:flex;gap:12px;padding:14px;align-items:flex-start;
+    overflow-x:auto;min-height:60vh}
+  .col{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    min-width:240px;padding:10px;flex:1;box-shadow:var(--shadow)}
+  .col h3{margin:4px 0 10px;font-size:13px;color:var(--muted);font-weight:700;
+    display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .col h3 .n{background:var(--accent-soft);color:#4a4368;border-radius:999px;
+    padding:0 8px;font-size:11px;font-weight:600}
+  .card{border:1px solid var(--border);border-radius:12px;padding:8px 10px;margin-bottom:8px;
+    background:#fbfbfe;cursor:pointer;transition:background .15s,box-shadow .15s}
+  .card:hover{background:#f1eefb;box-shadow:0 4px 14px rgba(120,110,170,.14)}
+  .card.dragover{outline:2px dashed var(--accent);background:#f1eefb}
+  .card .ttl{font-size:13px;font-weight:600;line-height:1.4}
+  .card .batch{display:inline-block;background:var(--accent-soft);color:#4a4368;
+    border-radius:6px;font-size:10px;padding:1px 6px;margin-right:5px;font-weight:600}
+  .card .ptags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
+  .ptag{background:#eef0fb;color:#5b5478;border-radius:6px;font-size:10px;padding:1px 6px}
+  .card small{color:var(--muted);display:block;margin-top:4px;font-size:11px}
+  /* 状态色标（低饱和，契合雾灰紫） */
+  .st{display:inline-block;font-size:10px;padding:1px 7px;border-radius:999px;font-weight:600;margin-left:auto}
+  .st-draft{background:#e9e4f5;color:#5b4b86}
+  .st-review{background:#ece8f7;color:#6a5b95}
+  .st-todo{background:#e3edf6;color:#3f5b78}
+  .st-doing{background:#e1f0e8;color:#3c6b54}
+  .st-verify{background:#f6ecdc;color:#7a5a2e}
+  .st-done{background:#e3f1de;color:#3f6b3a}
+  .st-reject{background:#f6e2e2;color:#8a4343}
+  /* 模态框 */
+  #overlay,#roverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);
+    backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:50}
+  #modal,#rmodal{background:#fff;border-radius:16px;padding:18px 20px;width:460px;max-height:88vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
+  #modal h3,#rmodal h3{margin:0 0 12px;font-size:16px;color:var(--ink)}
+  #modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;font-weight:600}
+  #modal input,#modal select,#modal textarea{width:100%;box-sizing:border-box;padding:6px 8px;
+    border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--ink);outline:none;
+    font-family:inherit}
+  #modal textarea{height:64px;resize:vertical}
+  #modal .row2{display:flex;gap:10px}
+  #modal .row2>div{flex:1}
+  .projbox{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .projbox label{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:12px;
+    font-weight:500;color:var(--ink);background:#f5f4fa;border:1px solid var(--border);
+    border-radius:8px;padding:3px 8px;cursor:pointer}
+  .projbox input{width:auto;margin:0}
+  .acts{margin-top:16px;display:flex;gap:6px;justify-content:flex-end}
+  .acts button{padding:6px 14px;border:0;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+  .acts .pri{background:var(--accent);color:#fff}
+  .acts .warn{background:#e8a34a;color:#fff}
+  .acts .danger{background:#d98a8a;color:#fff}
+  .acts .ghost{background:#eee;color:#333}
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div>
+<div id="bar">
+  <span class="title">方寸 tegula<small id="count">0</small></span>
+  <span class="ctrls">
+    <select id="projFilter"></select>
+    <select id="groupMode">
+      <option value="status">按状态</option>
+      <option value="batch">按批次</option>
+      <option value="project">按项目</option>
+    </select>
+    <input id="search" placeholder="搜索标题/编号">
+    <button onclick="openNew()">+ 新建</button>
+    <button class="ghost" onclick="load()">刷新</button>
+  </span>
+</div>
+<div id="views">
+  <button class="vbtn on" data-view="active" onclick="setView('active')">看板</button>
+  <button class="vbtn" data-view="archive" onclick="setView('archive')">归档</button>
+  <button class="vbtn" data-view="trash" onclick="setView('trash')">回收站</button>
+</div>
+<div id="board"></div>
+<div id="overlay" onclick="if(event.target===this)closeModal()">
+  <div id="modal">
+    <h3 id="mTitle">编辑</h3>
+    <label>标题<input id="f_title"></label>
+    <div class="row2">
+      <div><label>状态<select id="f_status"></select></label></div>
+      <div><label>批次<input id="f_batch"></label></div>
+    </div>
+    <label>项目（勾选，可多归属）</label>
+    <div class="projbox" id="f_project"></div>
+    <div class="row2">
+      <div><label>指派<input id="f_assignee"></label></div>
+      <div><label>验收<input id="f_accept"></label></div>
+    </div>
+    <label>资源 · 资料（路径）<input id="f_resdoc"></label>
+    <label>资源 · 工具（逗号分隔）<input id="f_restool"></label>
+    <label>方案（每行一项，支持 - [ ] / - [x]）<textarea id="f_plan"></textarea></label>
+    <label>结果记录<textarea id="f_result"></textarea></label>
+    <div class="acts">
+      <button class="ghost" onclick="closeModal()">取消</button>
+      <button class="danger" onclick="doDelete()">删除</button>
+      <button class="warn" onclick="doArchive()">归档</button>
+      <button class="pri" onclick="save()">保存</button>
+    </div>
+  </div>
+</div>
+<div id="roverlay" onclick="if(event.target===this)closeR()">
+  <div id="rmodal">
+    <h3 id="rTitle">还原</h3>
+    <div id="rInfo" style="font-size:13px;color:#444"></div>
+    <div class="acts">
+      <button class="ghost" onclick="closeR()">取消</button>
+      <button class="pri" onclick="doRestore()">还原到看板</button>
+    </div>
+  </div>
+</div>
+<script>
+const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","驳回"];
+const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
+const REGISTRY=__REGISTRY__;
+let TASKS=[]; let curId=null; let curProj="__all__"; let curView="active";
+function pname(id){return REGISTRY[id]?REGISTRY[id].name:id;}
+function el(id){return document.getElementById(id);}
+function sv(v){return (v||"").split(",").map(s=>s.trim()).filter(Boolean);}
+(function init(){
+  const pf=el("projFilter");
+  let h='<option value="__all__">全部项目</option>';
+  Object.entries(REGISTRY).forEach(([id,p])=>{h+='<option value="'+id+'">'+p.name+'</option>';});
+  pf.innerHTML=h; pf.onchange=()=>{curProj=pf.value; load();};
+  el("f_status").innerHTML=STATUSES.map(s=>"<option>"+s+"</option>").join("");
+  const pbox=el("f_project");
+  Object.entries(REGISTRY).forEach(([id,p])=>{
+    const lab=document.createElement("label");
+    const cb=document.createElement("input");cb.type="checkbox";cb.value=id;
+    lab.appendChild(cb);lab.appendChild(document.createTextNode(p.name));
+    pbox.appendChild(lab);
+  });
+  el("search").oninput=render; el("groupMode").onchange=render;
+  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openCard(c.dataset.id);});
+  let dragId=null;
+  el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
+  el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
+  el("board").addEventListener("drop",e=>{const col=e.target.closest(".col"); if(!col||!dragId) return; e.preventDefault(); const st=col.dataset.status; if(st&&curView==="active"){ moveStatus(dragId,st); }});
+})();
+function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));load();}
+async function load(){
+  try{
+    const url="/tasks.json?view="+encodeURIComponent(curView)+(curProj!=="__all__"?("&project="+encodeURIComponent(curProj)):"");
+    const r=await fetch(url);const d=await r.json();TASKS=d;
+    el("count").textContent=d.length;
+    render();
+  }catch(err){console.error("load failed",err);}
+}
+function render(){
+  const q=(el("search").value||"").trim().toLowerCase();
+  const mode=el("groupMode").value;
+  const filtered=TASKS.filter(t=>!q || (t.标题||"").toLowerCase().includes(q) || (t.id||"").toLowerCase().includes(q) || (t.项目||[]).join(" ").toLowerCase().includes(q));
+  const cols={}; const order=[];
+  function push(gv,t){if(!(gv in cols)){cols[gv]=[];order.push(gv);}cols[gv].push(t);}
+  filtered.forEach(t=>{
+    let keys;
+    if(mode==="batch")keys=[t.批次||"未分批次"];
+    else if(mode==="project")keys=(t.项目&&t.项目.length)?t.项目:["未归属"];
+    else keys=[t.状态||"草稿"];
+    keys.forEach(k=>push(k,t));
+  });
+  const colOrder = (mode==="status") ? STATUSES.filter(s=>s in cols) : order.slice().sort();
+  const board=el("board");board.innerHTML="";
+  colOrder.forEach(gv=>{
+    const items=cols[gv]||[];
+    const col=document.createElement("div");col.className="col";
+    if(mode==="status")col.dataset.status=gv;
+    const h3=document.createElement("h3");
+    const nm=document.createElement("span");nm.textContent=gv;
+    const n=document.createElement("span");n.className="n";n.textContent=items.length;
+    h3.appendChild(nm);h3.appendChild(n);col.appendChild(h3);
+    items.forEach(t=>{
+      const c=document.createElement("div");c.className="card";c.dataset.id=t.id;c.draggable=true;
+      const head=document.createElement("div");head.style.display="flex";head.style.alignItems="center";head.style.gap="6px";
+      const b=document.createElement("b");b.className="ttl";
+      const bt=document.createElement("span");bt.className="batch";bt.textContent="批"+(t.批次||"?");
+      b.appendChild(bt);b.appendChild(document.createTextNode(" "+t.标题));
+      head.appendChild(b);
+      const st=document.createElement("span");st.className="st st-"+STCLASS[t.状态||"草稿"];st.textContent=t.状态||"草稿";
+      head.appendChild(st);
+      const tags=document.createElement("div");tags.className="ptags";
+      (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
+      const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+t.指派;
+      c.appendChild(head);c.appendChild(tags);c.appendChild(sm);col.appendChild(c);
+    });
+    board.appendChild(col);
+  });
+}
+function setProjChecks(list){document.querySelectorAll("#f_project input").forEach(cb=>cb.checked=list.includes(cb.value));}
+function getProjChecks(){return Array.from(document.querySelectorAll("#f_project input:checked")).map(cb=>cb.value);}
+function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openEdit(t);else openRestore(t);}
+function openEdit(t){curId=t.id;
+  el("mTitle").textContent="编辑 "+t.id;
+  f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
+  setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
+  const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
+  f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
+  el("overlay").style.display="flex";}
+function openNew(){curId=null;
+  el("mTitle").textContent="新建任务";
+  f_title.value="";f_status.value="草稿";f_batch.value="";
+  setProjChecks(["fangcun-base"]);f_assignee.value="hermes";f_accept.value="human";
+  f_resdoc.value="";f_restool.value="";f_plan.value="- [ ] ";f_result.value="";
+  el("overlay").style.display="flex";}
+function closeModal(){el("overlay").style.display="none";}
+function openRestore(t){el("rTitle").textContent="还原 "+t.id;
+  el("rInfo").innerHTML="<b>"+(t.标题||"")+"</b><br>当前位于："+(curView==="archive"?"归档":"回收站")+"<br><small>"+t.id+"</small>";
+  el("roverlay").style.display="flex";}
+function closeR(){el("roverlay").style.display="none";}
+async function post(body){const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json();if(!j.ok)alert("失败："+j.msg);return j;}
+async function save(){const fields={
+  标题:f_title.value,状态:f_status.value,批次:f_batch.value,
+  项目:getProjChecks(),指派:f_assignee.value,验收:f_accept.value,
+  资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
+  方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
+  结果记录:f_result.value};
+  const body=curId?{action:"edit",id:curId,fields}:{action:"new",fields};
+  await post(body);closeModal();load();}
+async function doArchive(){if(!curId)return;await post({action:"archive",id:curId});closeModal();load();}
+async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();load();}
+async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();load();}
+async function moveStatus(id,status){await post({action:"edit",id:id,fields:{状态:status}});load();}
+load();setInterval(load,2000);
+</script>
+</body>
+</html>
