@@ -182,7 +182,7 @@
 const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","驳回"];
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
-let TASKS=[]; let curId=null; let curProj="__all__"; let curView="active";
+let TASKS=[]; let curId=null; let curTask=null; let curProj="__all__"; let curView="active";
 const LS_KEY="tegula_ui";
 function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
 function saveUI(){try{localStorage.setItem(LS_KEY,JSON.stringify({view:curView,proj:curProj,sort:el("sortMode").value,group:el("groupMode").value}));}catch(e){}}
@@ -293,7 +293,9 @@ function getProjChecks(){return Array.from(document.querySelectorAll("#f_project
 function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openPreview(t);else openRestore(t);}
 function pv(k,v){return '<div class="pv"><span class="k">'+k+'</span><div class="val">'+v+'</div></div>';}
 function openPreview(t){
-  curId=t.id;
+  if(typeof t==="string"){t=TASKS.find(x=>x.id===t);}
+  if(!t)return;
+  curId=t.id; curTask=t;
   el("pTitle").textContent=t.id;
   const projTags=(t.项目||[]).map(pname).join("、")|| "—";
   const res=t.资源||{};
@@ -312,7 +314,7 @@ function openPreview(t){
   el("poverlay").style.display="flex";
 }
 function closeP(){el("poverlay").style.display="none";}
-function toEdit(){const t=TASKS.find(x=>x.id===curId);if(!t)return;closeP();openEdit(t);}
+function toEdit(){if(!curTask){const t=TASKS.find(x=>x.id===curId);curTask=t;}if(!curTask)return;closeP();openEdit(curTask);}
 function openEdit(t){curId=t.id;
   el("mTitle").textContent="编辑 "+t.id;
   f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
