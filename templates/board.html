@@ -108,6 +108,10 @@
       <option value="project">按项目</option>
     </select>
     <input id="search" placeholder="搜索标题/编号">
+    <select id="sortMode" title="排序方式" onchange="render()">
+      <option value="id">按编号</option>
+      <option value="mtime">按最近更新</option>
+    </select>
     <button onclick="openNew()">+ 新建</button>
     <button class="ghost" onclick="load()">刷新</button>
   </span>
@@ -174,6 +178,11 @@ function fmtTime(ts){
   if(diff<86400*7) return Math.floor(diff/86400)+" 天前";
   return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
 }
+function fmtAbs(ts){
+  if(!ts) return "无更新时间";
+  const d=new Date(ts*1000), pad=n=>String(n).padStart(2,"0");
+  return "更新于 "+d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
 (function init(){
   const pf=el("projFilter");
   let h='<option value="__all__">全部项目</option>';
@@ -207,6 +216,9 @@ function render(){
   const q=(el("search").value||"").trim().toLowerCase();
   const mode=el("groupMode").value;
   const filtered=TASKS.filter(t=>!q || (t.标题||"").toLowerCase().includes(q) || (t.id||"").toLowerCase().includes(q) || (t.项目||[]).join(" ").toLowerCase().includes(q));
+  const sortMode=el("sortMode").value;
+  if(sortMode==="mtime") filtered.sort((a,b)=>(b.mtime||0)-(a.mtime||0));
+  else filtered.sort((a,b)=>((a.id||"")<(b.id||"")?-1:1));
   const cols={}; const order=[];
   function push(gv,t){if(!(gv in cols)){cols[gv]=[];order.push(gv);}cols[gv].push(t);}
   filtered.forEach(t=>{
@@ -238,6 +250,7 @@ function render(){
       const tags=document.createElement("div");tags.className="ptags";
       (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
       const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+t.指派+" · "+fmtTime(t.mtime);
+      c.title=fmtAbs(t.mtime);
       c.appendChild(head);c.appendChild(tags);c.appendChild(sm);col.appendChild(c);
     });
     board.appendChild(col);

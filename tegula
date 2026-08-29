@@ -1,3 +1,23 @@
 #!/bin/bash
 # 方寸 (tegula) 命令别名包装：./tegula <subcommand>
-exec python "$(dirname "$0")/tegula.py" "$@"
+# 额外便利：./tegula serve 会在启动后自动打开默认浏览器。
+if [ "$1" = "serve" ]; then
+  port="${3:-8753}"
+  python "$(dirname "$0")/tegula.py" "$@" &
+  PY_PID=$!
+  # 等端口就绪后开浏览器
+  for i in $(seq 1 20); do
+    if command -v curl >/dev/null 2>&1 && curl -s -o /dev/null "http://127.0.0.1:${port}/"; then
+      break
+    fi
+    sleep 0.3
+  done
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "http://127.0.0.1:${port}/"
+  elif command -v open >/dev/null 2>&1; then
+    open "http://127.0.0.1:${port}/"
+  fi
+  wait "$PY_PID"
+else
+  exec python "$(dirname "$0")/tegula.py" "$@"
+fi
