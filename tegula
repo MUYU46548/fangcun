@@ -1,0 +1,3 @@
+#!/bin/bash
+# 方寸 (tegula) 命令别名包装：./tegula <subcommand>
+exec python "$(dirname "$0")/tegula.py" "$@"
