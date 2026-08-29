@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TASK_DIR = os.path.join(ROOT, "task-data")
 REGISTRY_PATH = os.path.join(ROOT, "registry.yaml")
+REGISTRY_BAK = os.path.join(ROOT, "registry.yaml.bak")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
 
 
@@ -62,6 +63,88 @@ def parse_registry(path):
 
 def load_registry():
     return parse_registry(REGISTRY_PATH)
+
+
+def load_members():
+    """读取 members 段（纯字符串列表），零依赖。"""
+    if not os.path.exists(REGISTRY_PATH):
+        return []
+    try:
+        with open(REGISTRY_PATH, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except Exception:
+        return []
+    members = []
+    in_members = False
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if not raw.startswith(" "):
+            m = re.match(r"^([A-Za-z_]+):\s*$", line)
+            in_members = bool(m and m.group(1) == "members")
+            continue
+        if not in_members:
+            continue
+        if line.strip().startswith("- "):
+            members.append(line.strip()[2:].strip())
+    return members
+
+
+def save_registry_block(section, block_text):
+    """纯文本块替换 registry.yaml 的某个顶层段（section: ...），保留其它注释。
+    写前备份为 registry.yaml.bak。block_text 为段体（不含 'section:' 行）。"""
+    try:
+        with open(REGISTRY_PATH, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except Exception as e:
+        return False, f"读取失败: {e}"
+    if os.path.exists(REGISTRY_PATH):
+        shutil.copy(REGISTRY_PATH, REGISTRY_BAK)
+    out = []
+    i = 0
+    n = len(lines)
+    replaced = False
+    while i < n:
+        raw = lines[i]
+        stripped = raw.strip()
+        # 命中顶层段标题
+        m = re.match(r"^([A-Za-z_]+):\s*$", stripped)
+        if m and m.group(1) == section and not raw.startswith(" "):
+            out.append(raw)
+            replaced = True
+            i += 1
+            # 跳过原段体（缩进行/列表项），直到下一个顶层键或文件结束
+            while i < n and (lines[i].startswith(" ") or lines[i].strip().startswith("- ") or lines[i].strip() == ""):
+                # 跳过空行直到遇到非缩进内容也算段外？保守：仅跳过缩进行与列表项
+                if lines[i].strip() == "":
+                    # 空行：看下一个顶层键则停止
+                    if i + 1 < n and not lines[i + 1].startswith(" ") and not lines[i + 1].strip().startswith("- "):
+                        break
+                if not (lines[i].startswith(" ") or lines[i].strip().startswith("- ")):
+                    break
+                i += 1
+            # 写入新段体
+            for bl in block_text.splitlines():
+                out.append(bl)
+            # 段间补一个空行
+            out.append("")
+            continue
+        out.append(raw)
+        i += 1
+    if not replaced:
+        # 段不存在则追加到末尾
+        if out and out[-1].strip():
+            out.append("")
+        out.append(f"{section}:")
+        for bl in block_text.splitlines():
+            out.append(bl)
+    try:
+        with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+            f.write("\n".join(out).rstrip() + "\n")
+        return True, ""
+    except Exception as e:
+        return False, f"写入失败: {e}"
 
 
 # ---------- 解析 / 序列化 ----------
@@ -274,6 +357,89 @@ def api_restore(id, subdir):
     return True, "restored"
 
 
+def api_reg_save(req):
+    """保存注册表变更：成员整块替换；项目按 id 精细增删（保留注释）。"""
+    # --- 成员：整块替换（members 段无重要注释）---
+    if "members" in req:
+        members = req["members"]
+        if not isinstance(members, list):
+            return False, "members 需为列表"
+        cleaned = [str(m).strip() for m in members if str(m).strip()]
+        block = "\n".join(f"  - {m}" for m in cleaned)
+        ok, err = save_registry_block("members", block)
+        if not ok:
+            return False, f"成员保存失败: {err}"
+
+    # --- 项目：精细增删（保留段内注释）---
+    if "del_projects" in req or "add_projects" in req:
+        try:
+            with open(REGISTRY_PATH, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except Exception as e:
+            return False, f"读取失败: {e}"
+        shutil.copy(REGISTRY_PATH, REGISTRY_BAK)
+        out = []
+        i = 0
+        n = len(lines)
+        in_projects = False
+        del_ids = set(req.get("del_projects", []))
+        skip_block = False
+        while i < n:
+            raw = lines[i]
+            stripped = raw.strip()
+            m = re.match(r"^([A-Za-z_]+):\s*$", stripped) if not raw.startswith(" ") else None
+            if m and m.group(1) == "projects":
+                in_projects = True
+                out.append(raw)
+                i += 1
+                continue
+            if in_projects:
+                if stripped.startswith("- ") and re.match(r"^id:\s*", stripped[2:].strip()):
+                    # 一个项目条目起始
+                    pid = _coerce(stripped[2:].strip()[3:].strip()) if stripped[2:].strip().startswith("id:") else ""
+                    if pid in del_ids:
+                        skip_block = True
+                        i += 1
+                        continue
+                    else:
+                        skip_block = False
+                        out.append(raw)
+                        i += 1
+                        continue
+                if skip_block:
+                    # 跳过该项目条目的后续属性行（缩进且非顶层键）
+                    i += 1
+                    continue
+                # 顶层键出现 -> 离开 projects 段
+                if m and not raw.startswith(" "):
+                    in_projects = False
+            out.append(raw)
+            i += 1
+        # 追加新增项目
+        for p in req.get("add_projects", []):
+            pid = str(p.get("id", "")).strip()
+            if not pid or " " in pid:
+                return False, f"项目 id 非法: '{pid}'"
+            name = str(p.get("name", pid)).strip()
+            repo = str(p.get("repo", "")).strip()
+            tools = p.get("tools", [])
+            if isinstance(tools, str):
+                tools = [t.strip() for t in tools.split(",") if t.strip()]
+            out.append(f"  - id: {pid}")
+            out.append(f"    name: {name}")
+            out.append(f"    tasks: \"\"")
+            out.append(f"    repo: {repo}")
+            out.append(f"    tools: [{', '.join(tools)}]")
+            out.append(f"    sources: []")
+        try:
+            with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+                f.write("\n".join(out).rstrip() + "\n")
+        except Exception as e:
+            return False, f"项目保存失败: {e}"
+
+    return True, "saved"
+
+
 # ---------- Hermes 联动（单向：方寸 -> Hermes 注册/派活；不做反向同步）----------
 def _active_hermes_profile():
     """返回当前激活的 Hermes profile id（无覆盖时）；无法判定时返回 None。"""
@@ -425,6 +591,8 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = api_delete(req.get("id"))
             elif action == "restore":
                 ok, msg = api_restore(req.get("id"), req.get("from", "trash"))
+            elif action == "reg_save":
+                ok, msg = api_reg_save(req)
             else:
                 ok, msg = False, "unknown action"
         except Exception as e:
@@ -437,6 +605,7 @@ class Handler(BaseHTTPRequestHandler):
         reg_map = {p["id"]: {"name": p.get("name", p["id"]), "repo": p.get("repo", "")}
                    for p in load_registry()}
         reg_js = json.dumps(reg_map, ensure_ascii=False)
+        mem_js = json.dumps(load_members(), ensure_ascii=False)
         tpl_path = os.path.join(ROOT, "templates", "board.html")
         try:
             with open(tpl_path, encoding="utf-8") as f:
@@ -444,6 +613,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             page = "<h1>模板缺失：templates/board.html</h1>"
         page = page.replace("__REGISTRY__", reg_js)
+        page = page.replace("__MEMBERS__", mem_js)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()

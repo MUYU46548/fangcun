@@ -104,6 +104,19 @@
   #pBody .pv .val{white-space:pre-wrap;word-break:break-word}
   #pBody ul{margin:2px 0 0 18px;padding:0}
   #pBody li{margin:2px 0}
+  #soverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
+  #smodal{background:#fff;border-radius:16px;padding:18px 22px;width:560px;max-height:90vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
+  #smodal h3{margin:0 0 14px;font-size:17px;color:var(--ink)}
+  #smodal .sect{border-top:1px solid var(--border);padding:14px 0;margin-top:6px}
+  #smodal .sect h4{margin:0 0 10px;font-size:14px;color:var(--accent)}
+  #smodal .memlist,#smodal .projlist{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  #smodal .memrow{display:flex;align-items:center;justify-content:space-between;background:var(--bg);
+    border:1px solid var(--border);border-radius:10px;padding:6px 12px;font-size:13px}
+  #smodal .memrow .x{background:transparent;border:none;color:#b35;font-size:16px;cursor:pointer;line-height:1}
+  #smodal .newproj{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+  #smodal .newproj input{font-size:12px}
 </style>
 </head>
 <body>
@@ -124,6 +137,7 @@
     </select>
     <button onclick="openNew()">+ 新建</button>
     <button class="ghost" onclick="load()">刷新</button>
+    <button class="ghost" onclick="openSettings()">设置</button>
   </span>
 </div>
 <div id="views">
@@ -143,8 +157,8 @@
     <label>项目（勾选，可多归属）</label>
     <div class="projbox" id="f_project"></div>
     <div class="row2">
-      <div><label>指派<input id="f_assignee"></label></div>
-      <div><label>验收<input id="f_accept"></label></div>
+      <div><label>指派<select id="f_assignee"></select></label></div>
+      <div><label>验收<select id="f_accept"></select></label></div>
     </div>
     <label>资源 · 资料（路径）<input id="f_resdoc"></label>
     <label>资源 · 工具（逗号分隔）<input id="f_restool"></label>
@@ -178,10 +192,41 @@
     </div>
   </div>
 </div>
+<div id="soverlay" onclick="if(event.target===this)closeSettings()">
+  <div id="smodal">
+    <h3>设置 · 管理</h3>
+    <div class="sect">
+      <h4>成员（指派/验收下拉选项）</h4>
+      <div id="memList" class="memlist"></div>
+      <div class="row2">
+        <input id="memNew" placeholder="新增成员名">
+        <button class="ghost" onclick="memAdd()">+ 添加</button>
+      </div>
+      <button class="pri" onclick="memSave()">保存成员</button>
+    </div>
+    <div class="sect">
+      <h4>项目（registry.yaml）</h4>
+      <div id="projList" class="projlist"></div>
+      <div class="newproj">
+        <input id="np_id" placeholder="id（英文，无空格）">
+        <input id="np_name" placeholder="显示名">
+        <input id="np_repo" placeholder="仓库路径">
+        <input id="np_tools" placeholder="tools（逗号分隔，可选）">
+        <button class="ghost" onclick="projAdd()">+ 新增项目</button>
+      </div>
+      <button class="pri" onclick="projSave()">保存项目变更</button>
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="closeSettings()">关闭</button>
+    </div>
+    <div id="sMsg" style="font-size:12px;color:#b35;min-height:16px;"></div>
+  </div>
+</div>
 <script>
 const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","驳回"];
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
+const MEMBERS=__MEMBERS__;
 let TASKS=[]; let curId=null; let curTask=null; let curProj="__all__"; let curView="active";
 const LS_KEY="tegula_ui";
 function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
@@ -216,6 +261,7 @@ function fmtAbs(ts){
   pf.innerHTML=h; pf.value=curProj;
   pf.onchange=()=>{curProj=pf.value; saveUI(); load();};
   el("f_status").innerHTML=STATUSES.map(s=>"<option>"+s+"</option>").join("");
+  fillAssigneeSelects();
   const pbox=el("f_project");
   Object.entries(REGISTRY).forEach(([id,p])=>{
     const lab=document.createElement("label");
@@ -229,7 +275,7 @@ function fmtAbs(ts){
   el("groupMode").onchange=()=>{saveUI();render();};
   el("sortMode").onchange=()=>{saveUI();render();};
   document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===curView));
-  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openPreview(c.dataset.id);});
+  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openCard(c.dataset.id);});
   let dragId=null;
   el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
   el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
@@ -314,6 +360,58 @@ function openPreview(t){
   el("poverlay").style.display="flex";
 }
 function closeP(){el("poverlay").style.display="none";}
+function fillAssigneeSelects(){
+  const opts='<option value=""></option>'+MEMBERS.map(m=>'<option>'+m.replace(/</g,"&lt;")+'</option>').join("");
+  el("f_assignee").innerHTML=opts;
+  el("f_accept").innerHTML=opts;
+}
+function openSettings(){
+  const ml=el("memList"); ml.innerHTML="";
+  MEMBERS.forEach((m,idx)=>{
+    const row=document.createElement("div");row.className="memrow";
+    const sp=document.createElement("span");sp.textContent=m;
+    const del=document.createElement("button");del.className="x";del.textContent="×";
+    del.onclick=()=>{MEMBERS.splice(idx,1);openSettings();};
+    row.appendChild(sp);row.appendChild(del);ml.appendChild(row);
+  });
+  const pl=el("projList"); pl.innerHTML="";
+  Object.entries(REGISTRY).forEach(([id,p])=>{
+    const row=document.createElement("div");row.className="memrow";
+    const sp=document.createElement("span");sp.innerHTML="<b>"+id+"</b> · "+p.name.replace(/</g,"&lt;");
+    const del=document.createElement("button");del.className="x";del.textContent="×";
+    del.onclick=()=>{ if(!confirm("删除项目 "+id+"？（仅从方寸注册表移除，不删仓库）"))return; pendingDelProjects.push(id); row.style.opacity=0.4; del.disabled=true; };
+    row.appendChild(sp);row.appendChild(del);pl.appendChild(row);
+  });
+  el("sMsg").textContent="";
+  el("soverlay").style.display="flex";
+}
+let pendingDelProjects=[];
+function closeSettings(){el("soverlay").style.display="none";}
+function memAdd(){
+  const v=el("memNew").value.trim();
+  if(!v)return;
+  if(MEMBERS.includes(v)){el("sMsg").textContent="已存在："+v;return;}
+  MEMBERS.push(v);el("memNew").value="";openSettings();
+}
+async function memSave(){
+  const r=await post({action:"reg_save",members:MEMBERS.slice()});
+  if(r.ok){el("sMsg").style.color="#3a8";el("sMsg").textContent="成员已保存";}
+  else{el("sMsg").style.color="#b35";el("sMsg").textContent="失败："+r.msg;}
+}
+function projAdd(){
+  const id=el("np_id").value.trim(),name=el("np_name").value.trim(),repo=el("np_repo").value.trim(),tools=el("np_tools").value.trim();
+  if(!id||!name||!repo){el("sMsg").textContent="id/显示名/仓库路径 必填";return;}
+  if(REGISTRY[id]){el("sMsg").textContent="id 已存在："+id;return;}
+  pendingAddProjects.push({id,name,repo,tools});
+  el("np_id").value="";el("np_name").value="";el("np_repo").value="";el("np_tools").value="";
+  el("sMsg").style.color="#3a8";el("sMsg").textContent="已加入待添加："+id+"（点保存项目变更生效）";
+}
+let pendingAddProjects=[];
+async function projSave(){
+  const r=await post({action:"reg_save",del_projects:pendingDelProjects.slice(),add_projects:pendingAddProjects.slice()});
+  if(r.ok){pendingDelProjects=[];pendingAddProjects=[];el("sMsg").style.color="#3a8";el("sMsg").textContent="项目已保存，刷新看板生效";load();}
+  else{el("sMsg").style.color="#b35";el("sMsg").textContent="失败："+r.msg;}
+}
 function toEdit(){if(!curTask){const t=TASKS.find(x=>x.id===curId);curTask=t;}if(!curTask)return;closeP();openEdit(curTask);}
 function openEdit(t){curId=t.id;
   el("mTitle").textContent="编辑 "+t.id;
