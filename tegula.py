@@ -171,6 +171,11 @@ def load_tasks(project=None, view="active"):
             if d:
                 if project and project not in (d.get("项目") or []):
                     continue
+                # 最近更新时间：取自文件 mtime，不改 md 数据格式。
+                try:
+                    d["mtime"] = int(os.path.getmtime(full))
+                except Exception:
+                    d["mtime"] = 0
                 tasks.append(d)
     return tasks
 

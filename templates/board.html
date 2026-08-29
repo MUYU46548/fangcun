@@ -162,6 +162,18 @@ let TASKS=[]; let curId=null; let curProj="__all__"; let curView="active";
 function pname(id){return REGISTRY[id]?REGISTRY[id].name:id;}
 function el(id){return document.getElementById(id);}
 function sv(v){return (v||"").split(",").map(s=>s.trim()).filter(Boolean);}
+function fmtTime(ts){
+  if(!ts) return "—";
+  const now=Date.now(), d=new Date(ts*1000), diff=(now-ts*1000)/1000;
+  const pad=n=>String(n).padStart(2,"0");
+  const hh=pad(d.getHours()), mm=pad(d.getMinutes());
+  if(diff<60) return "刚刚";
+  if(diff<3600) return Math.floor(diff/60)+" 分钟前";
+  if(diff<86400 && d.getDate()===new Date(now).getDate()) return "今天 "+hh+":"+mm;
+  if(diff<86400*2) return "昨天 "+hh+":"+mm;
+  if(diff<86400*7) return Math.floor(diff/86400)+" 天前";
+  return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+}
 (function init(){
   const pf=el("projFilter");
   let h='<option value="__all__">全部项目</option>';
@@ -225,7 +237,7 @@ function render(){
       head.appendChild(st);
       const tags=document.createElement("div");tags.className="ptags";
       (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
-      const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+t.指派;
+      const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+t.指派+" · "+fmtTime(t.mtime);
       c.appendChild(head);c.appendChild(tags);c.appendChild(sm);col.appendChild(c);
     });
     board.appendChild(col);
