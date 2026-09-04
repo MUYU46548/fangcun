@@ -47,6 +47,9 @@
     overflow-x:auto;min-height:60vh}
   .col{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
     min-width:240px;padding:10px;flex:1;box-shadow:var(--shadow)}
+  .col.empty{border-style:dashed;opacity:.62;box-shadow:none;background:#fbfbfe}
+  .emptyhint{color:var(--muted);font-size:11px;text-align:center;padding:16px 0;
+    border:1px dashed var(--border);border-radius:10px;margin-top:2px}
   .col h3{margin:4px 0 10px;font-size:13px;color:var(--muted);font-weight:700;
     display:flex;justify-content:space-between;align-items:center;gap:8px}
   .col h3 .n{background:var(--accent-soft);color:#4a4368;border-radius:999px;
@@ -54,13 +57,22 @@
   .card{border:1px solid var(--border);border-radius:12px;padding:8px 10px;margin-bottom:8px;
     background:#fbfbfe;cursor:pointer;transition:background .15s,box-shadow .15s}
   .card:hover{background:#f1eefb;box-shadow:0 4px 14px rgba(120,110,170,.14)}
+  .card.active-t{border-left:3px solid var(--accent);background:#f4f1fc}
+  .card.overdue{border-left:3px solid #c96a6a;background:#faf3f3}
+  .prio-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;flex:none}
+  .prio-高{background:#c96a6a}.prio-中{background:#d9a44a}.prio-低{background:#7a9e6b}
   .card.dragover{outline:2px dashed var(--accent);background:#f1eefb}
   .card .ttl{font-size:13px;font-weight:600;line-height:1.4}
   .card .batch{display:inline-block;background:var(--accent-soft);color:#4a4368;
     border-radius:6px;font-size:10px;padding:1px 6px;margin-right:5px;font-weight:600}
-  .card .ptags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px}
+  .card .ptags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   .ptag{background:#eef0fb;color:#5b5478;border-radius:6px;font-size:10px;padding:1px 6px}
+  .prog{background:#e7f0ea;color:#3c6b54;border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600}
   .card small{color:var(--muted);display:block;margin-top:4px;font-size:11px}
+  .mv{opacity:0;transition:opacity .12s;background:transparent;border:0;cursor:pointer;
+    font-size:11px;color:var(--muted);padding:0 3px;line-height:1}
+  .card:hover .mv{opacity:1}
+  .mv:hover{color:var(--accent)}
   /* 状态色标（低饱和，契合雾灰紫） */
   .st{display:inline-block;font-size:10px;padding:1px 7px;border-radius:999px;font-weight:600;margin-left:auto}
   .st-draft{background:#e9e4f5;color:#5b4b86}
@@ -104,6 +116,12 @@
   #pBody .pv .val{white-space:pre-wrap;word-break:break-word}
   #pBody ul{margin:2px 0 0 18px;padding:0}
   #pBody li{margin:2px 0}
+  .planrow{display:flex;gap:7px;align-items:flex-start;cursor:pointer;padding:3px 6px;
+    border-radius:6px;line-height:1.5}
+  .planrow:hover{background:#f5f4fa}
+  .planrow .chk{flex:none;font-size:13px}
+  .planrow .ptxt{word-break:break-word}
+  .planrow.done .ptxt{text-decoration:line-through;color:var(--muted)}
   #soverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
     display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
   #smodal{background:#fff;border-radius:16px;padding:18px 22px;width:560px;max-height:90vh;
@@ -130,13 +148,14 @@
       <option value="batch">按批次</option>
       <option value="project">按项目</option>
     </select>
-    <input id="search" placeholder="搜索标题/编号">
+    <input id="search" placeholder="搜索标题/编号/内容">
     <select id="sortMode" title="排序方式" onchange="render()">
+      <option value="active">活跃优先</option>
       <option value="id">按编号</option>
       <option value="mtime">按最近更新</option>
     </select>
     <button onclick="openNew()">+ 新建</button>
-    <button class="ghost" onclick="load()">刷新</button>
+    <button class="ghost" onclick="load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
 </div>
@@ -153,6 +172,10 @@
     <div class="row2">
       <div><label>状态<select id="f_status"></select></label></div>
       <div><label>批次<input id="f_batch"></label></div>
+    </div>
+    <div class="row2">
+      <div><label>截止（如 09-10）<input id="f_due" placeholder="可选"></label></div>
+      <div><label>优先级（高中低）<input id="f_prio" placeholder="可选"></label></div>
     </div>
     <label>项目（勾选，可多归属）</label>
     <div class="projbox" id="f_project"></div>
@@ -188,6 +211,7 @@
     <div id="pBody" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
     <div class="acts">
       <button class="ghost" onclick="closeP()">关闭</button>
+      <button class="ghost" onclick="copyDispatch()">复制派活命令</button>
       <button class="pri" onclick="toEdit()">编辑</button>
     </div>
   </div>
@@ -228,12 +252,14 @@ const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中"
 const REGISTRY=__REGISTRY__;
 const MEMBERS=__MEMBERS__;
 let TASKS=[]; let curId=null; let curTask=null; let curProj="__all__"; let curView="active";
+let lastHash="";
 const LS_KEY="tegula_ui";
 function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
 function saveUI(){try{localStorage.setItem(LS_KEY,JSON.stringify({view:curView,proj:curProj,sort:el("sortMode").value,group:el("groupMode").value}));}catch(e){}}
 function pname(id){return REGISTRY[id]?REGISTRY[id].name:id;}
 function el(id){return document.getElementById(id);}
 function sv(v){return (v||"").split(",").map(s=>s.trim()).filter(Boolean);}
+function esc(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function fmtTime(ts){
   if(!ts) return "—";
   const now=Date.now(), d=new Date(ts*1000), diff=(now-ts*1000)/1000;
@@ -257,9 +283,9 @@ function fmtAbs(ts){
   if(ui.proj)curProj=ui.proj;
   const pf=el("projFilter");
   let h='<option value="__all__">全部项目</option>';
-  Object.entries(REGISTRY).forEach(([id,p])=>{h+='<option value="'+id+'">'+p.name+'</option>';});
+  Object.entries(REGISTRY).forEach(([id,p])=>{h+='<option value="'+esc(id)+'">'+esc(p.name)+'</option>';});
   pf.innerHTML=h; pf.value=curProj;
-  pf.onchange=()=>{curProj=pf.value; saveUI(); load();};
+  pf.onchange=()=>{curProj=pf.value; saveUI(); load(true);};
   el("f_status").innerHTML=STATUSES.map(s=>"<option>"+s+"</option>").join("");
   fillAssigneeSelects();
   const pbox=el("f_project");
@@ -269,7 +295,7 @@ function fmtAbs(ts){
     lab.appendChild(cb);lab.appendChild(document.createTextNode(p.name));
     pbox.appendChild(lab);
   });
-  if(ui.sort)el("sortMode").value=ui.sort;
+  if(ui.sort)el("sortMode").value=ui.sort; else el("sortMode").value="active";
   if(ui.group)el("groupMode").value=ui.group;
   el("search").oninput=render;
   el("groupMode").onchange=()=>{saveUI();render();};
@@ -280,64 +306,158 @@ function fmtAbs(ts){
   el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
   el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
   el("board").addEventListener("drop",e=>{const col=e.target.closest(".col"); if(!col||!dragId) return; e.preventDefault(); const st=col.dataset.status; if(st&&curView==="active"){ moveStatus(dragId,st); }});
+  document.addEventListener("keydown",e=>{
+    if(e.key!=="Escape")return;
+    if(el("soverlay").style.display==="flex")closeSettings();
+    else if(el("roverlay").style.display==="flex")closeR();
+    else if(el("poverlay").style.display==="flex")closeP();
+    else if(el("overlay").style.display==="flex")closeModal();
+  });
 })();
-function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));saveUI();load();}
-async function load(){
+function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));saveUI();load(true);}
+async function load(force){
   try{
     const url="/tasks.json?view="+encodeURIComponent(curView)+(curProj!=="__all__"?("&project="+encodeURIComponent(curProj)):"");
-    const r=await fetch(url);const d=await r.json();TASKS=d;
+    const r=await fetch(url);const d=await r.json();
     el("count").textContent=d.length;
-    render();
+    const h=JSON.stringify(d);
+    if(force||h!==lastHash){
+      lastHash=h; TASKS=d; render();
+      refreshPreviewIfOpen();
+    }
   }catch(err){console.error("load failed",err);}
+}
+function refreshPreviewIfOpen(){
+  if(el("poverlay").style.display==="flex"&&curId){
+    const t=TASKS.find(x=>x.id===curId);
+    if(t)openPreview(t);
+  }
 }
 function render(){
   const q=(el("search").value||"").trim().toLowerCase();
   const mode=el("groupMode").value;
-  const filtered=TASKS.filter(t=>!q || (t.标题||"").toLowerCase().includes(q) || (t.id||"").toLowerCase().includes(q) || (t.项目||[]).join(" ").toLowerCase().includes(q));
+  const filtered=TASKS.filter(t=>!q ||
+    (t.标题||"").toLowerCase().includes(q) ||
+    (t.id||"").toLowerCase().includes(q) ||
+    (t.项目||[]).join(" ").toLowerCase().includes(q) ||
+    (t.方案||[]).join(" ").toLowerCase().includes(q) ||
+    (t.结果记录||"").toLowerCase().includes(q));
   const sortMode=el("sortMode").value;
   if(sortMode==="mtime") filtered.sort((a,b)=>(b.mtime||0)-(a.mtime||0));
+  else if(sortMode==="active"){
+    const w=s=>({待审批:4,待办:4,进行中:5,待验收:4,草稿:1,完成:0,驳回:0}[s]||1);
+    const pv2=t=>{const pr=(t.优先级||"");return pr==="高"?2:(pr==="中"?1:0);};
+    filtered.sort((a,b)=>{
+      const wa=w(a.状态||"草稿"), wb=w(b.状态||"草稿");
+      if(wa!==wb)return wb-wa;
+      if(pv2(a)!==pv2(b))return pv2(b)-pv2(a);
+      return ((a.id||"")<(b.id||"")?-1:1);
+    });
+  }
   else filtered.sort((a,b)=>((a.id||"")<(b.id||"")?-1:1));
-  const cols={}; const order=[];
-  function push(gv,t){if(!(gv in cols)){cols[gv]=[];order.push(gv);}cols[gv].push(t);}
-  filtered.forEach(t=>{
-    let keys;
-    if(mode==="batch")keys=[t.批次||"未分批次"];
-    else if(mode==="project")keys=(t.项目&&t.项目.length)?t.项目:["未归属"];
-    else keys=[t.状态||"草稿"];
-    keys.forEach(k=>push(k,t));
-  });
-  const colOrder = (mode==="status") ? STATUSES.filter(s=>s in cols) : order.slice().sort();
-  const board=el("board");board.innerHTML="";
+  const cols={}; let colOrder=[];
+  if(mode==="status"){
+    filtered.forEach(t=>{const k=t.状态||"草稿";(cols[k]=cols[k]||[]).push(t);});
+    colOrder=STATUSES.slice();  // 七列常驻，空列也可作为拖拽目标
+    Object.keys(cols).forEach(k=>{if(!colOrder.includes(k))colOrder.push(k);}); // 兜底：非标准状态也显示
+  }else{
+    const order=[];
+    function push(gv,t){if(!(gv in cols)){cols[gv]=[];order.push(gv);}cols[gv].push(t);}
+    filtered.forEach(t=>{
+      let keys;
+      if(mode==="batch")keys=[t.批次||"未分批次"];
+      else keys=(t.项目&&t.项目.length)?t.项目:["未归属"];
+      keys.forEach(k=>push(k,t));
+    });
+    colOrder=order.slice().sort();
+  }
+  const board=el("board");
+  const sl=board.scrollLeft;   // 保留横向滚动位置，重绘不再拽回起点
+  board.innerHTML="";
   colOrder.forEach(gv=>{
     const items=cols[gv]||[];
     const col=document.createElement("div");col.className="col";
-    if(mode==="status")col.dataset.status=gv;
+    if(mode==="status"){
+      col.dataset.status=gv;
+      if(!items.length)col.classList.add("empty");
+    }
     const h3=document.createElement("h3");
     const nm=document.createElement("span");nm.textContent=gv;
     const n=document.createElement("span");n.className="n";n.textContent=items.length;
     h3.appendChild(nm);h3.appendChild(n);col.appendChild(h3);
+    if(!items.length){
+      const hint=document.createElement("div");hint.className="emptyhint";
+      hint.textContent=(mode==="status")?"拖入任务":"（空）";
+      col.appendChild(hint);
+    }
     items.forEach(t=>{
       const c=document.createElement("div");c.className="card";c.dataset.id=t.id;c.draggable=true;
+      const stv=t.状态||"草稿";
+      if(["进行中","待验收","待审批","待办"].includes(stv))c.classList.add("active-t");
+      const today=new Date(), pad2=n=>String(n).padStart(2,"0");
+      const todayStr=String(today.getFullYear()).slice(2)+"-"+pad2(today.getMonth()+1)+"-"+pad2(today.getDate());
+      if(t.截止 && stv!=="完成" && stv!=="驳回" && String(t.截止)<=todayStr)c.classList.add("overdue");
       const head=document.createElement("div");head.style.display="flex";head.style.alignItems="center";head.style.gap="6px";
       const b=document.createElement("b");b.className="ttl";
-      const bt=document.createElement("span");bt.className="batch";bt.textContent="批"+(t.批次||"?");
-      b.appendChild(bt);b.appendChild(document.createTextNode(" "+t.标题));
+      if(t.批次){
+        const bt=document.createElement("span");bt.className="batch";bt.textContent="批"+t.批次;
+        b.appendChild(bt);
+      }
+      b.appendChild(document.createTextNode(" "+(t.标题||"")));
       head.appendChild(b);
-      const st=document.createElement("span");st.className="st st-"+STCLASS[t.状态||"草稿"];st.textContent=t.状态||"草稿";
-      head.appendChild(st);
+      if(mode==="status"){
+        const i=STATUSES.indexOf(t.状态||"草稿");
+        const stCls=STCLASS[t.状态]||"draft";
+        const st=document.createElement("span");st.className="st st-"+stCls;st.textContent=t.状态||"草稿";
+        head.appendChild(st);
+        if(i>0){
+          const bp=document.createElement("button");bp.className="mv";bp.textContent="◀";
+          bp.title="退回 "+STATUSES[i-1];
+          bp.onclick=ev=>{ev.stopPropagation();moveStatus(t.id,STATUSES[i-1]);};
+          head.appendChild(bp);
+        }
+        if(i<STATUSES.length-1){
+          const bn=document.createElement("button");bn.className="mv";bn.textContent="▶";
+          bn.title="推进到 "+STATUSES[i+1];
+          bn.onclick=ev=>{ev.stopPropagation();moveStatus(t.id,STATUSES[i+1]);};
+          head.appendChild(bn);
+        }
+      }else{
+        const stCls=STCLASS[t.状态]||"draft";
+        const st=document.createElement("span");st.className="st st-"+stCls;st.textContent=t.状态||"草稿";
+        head.appendChild(st);
+      }
+      if(t.优先级){
+        const pd=document.createElement("span");pd.className="prio-dot prio-"+t.优先级;pd.title="优先级 "+t.优先级;
+        head.appendChild(pd);
+      }
       const tags=document.createElement("div");tags.className="ptags";
+      const plan=t.方案||[];
+      const markable=plan.filter(s=>/\[[ xX]\]/.test(s)).length;
+      if(markable){
+        const done=plan.filter(s=>/\[x\]/i.test(s)).length;
+        const pr=document.createElement("span");pr.className="prog";pr.textContent="方案 "+done+"/"+markable;
+        tags.appendChild(pr);
+      }
       (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
-      const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+t.指派+" · "+fmtTime(t.mtime);
+      const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+(t.指派||"—")+" · "+fmtTime(t.mtime);
       c.title=fmtAbs(t.mtime);
       c.appendChild(head);c.appendChild(tags);c.appendChild(sm);col.appendChild(c);
     });
     board.appendChild(col);
   });
+  board.scrollLeft=sl;
 }
 function setProjChecks(list){document.querySelectorAll("#f_project input").forEach(cb=>cb.checked=list.includes(cb.value));}
 function getProjChecks(){return Array.from(document.querySelectorAll("#f_project input:checked")).map(cb=>cb.value);}
 function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openPreview(t);else openRestore(t);}
 function pv(k,v){return '<div class="pv"><span class="k">'+k+'</span><div class="val">'+v+'</div></div>';}
+function planRow(t,i,s){
+  const checked=/\[x\]/i.test(s);
+  const txt=esc(s.replace(/\[[ xX]\]/,"").replace(/^-\s*/,"").trim());
+  return '<div class="planrow'+(checked?" done":"")+'" onclick="togglePlan(event,'+i+')">'
+    +'<span class="chk">'+(checked?"☑":"☐")+'</span><span class="ptxt">'+(txt||"—")+'</span></div>';
+}
 function openPreview(t){
   if(typeof t==="string"){t=TASKS.find(x=>x.id===t);}
   if(!t)return;
@@ -345,23 +465,50 @@ function openPreview(t){
   el("pTitle").textContent=t.id;
   const projTags=(t.项目||[]).map(pname).join("、")|| "—";
   const res=t.资源||{};
-  const planHtml=(t.方案&&t.方案.length)?("<ul>"+t.方案.map(s=>"<li>"+s.replace(/</g,"&lt;")+"</li>").join("")+"</ul>"):"—";
+  const planHtml=(t.方案&&t.方案.length)?("<div>"+t.方案.map((s,i)=>planRow(t,i,s)).join("")+"</div>"):"—";
   const body=
-    pv("标题",(t.标题||"—").replace(/</g,"&lt;"))+
-    pv("状态 / 批次",(t.状态||"草稿")+" · 批"+(t.批次||"?"))+
-    pv("项目",projTags)+
-    pv("指派 / 验收",(t.指派||"—")+" / "+(t.验收||"—"))+
-    pv("资源 · 资料",(res.资料||"—").replace(/</g,"&lt;"))+
-    pv("资源 · 工具",(res.工具&&res.工具.length)?res.工具.join("、"):"—")+
+    pv("标题",esc(t.标题||"—"))+
+    pv("状态 / 批次",(t.状态||"草稿")+" · "+(t.批次?("批"+esc(t.批次)):"未分批")
+      +(t.优先级?" · 优先级 "+esc(t.优先级):"")+(t.截止?" · 截止 "+esc(t.截止):""))+
+    pv("项目",esc(projTags))+
+    pv("指派 / 验收",esc(t.指派||"—")+" / "+esc(t.验收||"—"))+
+    pv("资源 · 资料",esc(res.资料||"—"))+
+    pv("资源 · 工具",(res.工具&&res.工具.length)?esc(res.工具.join("、")):"—")+
     pv("方案",planHtml)+
-    pv("结果记录",(t.结果记录||"—").replace(/</g,"&lt;"))+
+    pv("结果记录",esc(t.结果记录||"—"))+
     pv("最近更新",fmtAbs(t.mtime));
   el("pBody").innerHTML=body;
   el("poverlay").style.display="flex";
 }
 function closeP(){el("poverlay").style.display="none";}
+async function togglePlan(ev,i){
+  ev.stopPropagation();
+  const t=TASKS.find(x=>x.id===curId);
+  if(!t)return;
+  const arr=(t.方案||[]).slice();
+  const s=arr[i]||"";
+  if(/\[x\]/i.test(s)) arr[i]=s.replace(/\[[xX]\]/,"[ ]");
+  else if(/\[ \]/.test(s)) arr[i]=s.replace("[ ]","[x]");
+  else return;
+  t.方案=arr;
+  openPreview(t);
+  const r=await post({action:"edit",id:t.id,fields:{方案:arr}});
+  if(r.ok)load();
+}
+function copyDispatch(){
+  const t=TASKS.find(x=>x.id===curId);
+  if(!t)return;
+  const pid=(t.项目||[])[0];
+  const repo=(REGISTRY[pid]&&REGISTRY[pid].repo)||"";
+  const cmd='hermes chat --in "'+repo+'" -z "执行方寸任务 '+t.id+'：'+(t.标题||"")+'"';
+  if(!repo){alert("该项目在 registry 中未配置 repo 路径。");return;}
+  navigator.clipboard.writeText(cmd).then(
+    ()=>{alert("已复制派活命令：\n"+cmd);},
+    ()=>{alert("复制失败，请手动复制：\n"+cmd);}
+  );
+}
 function fillAssigneeSelects(){
-  const opts='<option value=""></option>'+MEMBERS.map(m=>'<option>'+m.replace(/</g,"&lt;")+'</option>').join("");
+  const opts='<option value=""></option>'+MEMBERS.map(m=>'<option>'+esc(m)+'</option>').join("");
   el("f_assignee").innerHTML=opts;
   el("f_accept").innerHTML=opts;
 }
@@ -377,7 +524,7 @@ function openSettings(){
   const pl=el("projList"); pl.innerHTML="";
   Object.entries(REGISTRY).forEach(([id,p])=>{
     const row=document.createElement("div");row.className="memrow";
-    const sp=document.createElement("span");sp.innerHTML="<b>"+id+"</b> · "+p.name.replace(/</g,"&lt;");
+    const sp=document.createElement("span");sp.innerHTML="<b>"+esc(id)+"</b> · "+esc(p.name);
     const del=document.createElement("button");del.className="x";del.textContent="×";
     del.onclick=()=>{ if(!confirm("删除项目 "+id+"？（仅从方寸注册表移除，不删仓库）"))return; pendingDelProjects.push(id); row.style.opacity=0.4; del.disabled=true; };
     row.appendChild(sp);row.appendChild(del);pl.appendChild(row);
@@ -409,43 +556,44 @@ function projAdd(){
 let pendingAddProjects=[];
 async function projSave(){
   const r=await post({action:"reg_save",del_projects:pendingDelProjects.slice(),add_projects:pendingAddProjects.slice()});
-  if(r.ok){pendingDelProjects=[];pendingAddProjects=[];el("sMsg").style.color="#3a8";el("sMsg").textContent="项目已保存，刷新看板生效";load();}
+  if(r.ok){pendingDelProjects=[];pendingAddProjects=[];el("sMsg").style.color="#3a8";el("sMsg").textContent="项目已保存，刷新看板生效";load(true);}
   else{el("sMsg").style.color="#b35";el("sMsg").textContent="失败："+r.msg;}
 }
 function toEdit(){if(!curTask){const t=TASKS.find(x=>x.id===curId);curTask=t;}if(!curTask)return;closeP();openEdit(curTask);}
 function openEdit(t){curId=t.id;
   el("mTitle").textContent="编辑 "+t.id;
   f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
+  f_due.value=t.截止||"";f_prio.value=t.优先级||"";
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
-  f_title.value="";f_status.value="草稿";f_batch.value="";
+  f_title.value="";f_status.value="草稿";f_batch.value="";f_due.value="";f_prio.value="";
   setProjChecks(["fangcun-base"]);f_assignee.value="hermes";f_accept.value="human";
   f_resdoc.value="";f_restool.value="";f_plan.value="- [ ] ";f_result.value="";
   el("overlay").style.display="flex";}
 function closeModal(){el("overlay").style.display="none";}
 function openRestore(t){el("rTitle").textContent="还原 "+t.id;
-  el("rInfo").innerHTML="<b>"+(t.标题||"")+"</b><br>当前位于："+(curView==="archive"?"归档":"回收站")+"<br><small>"+t.id+"</small>";
+  el("rInfo").innerHTML="<b>"+esc(t.标题||"")+"</b><br>当前位于："+(curView==="archive"?"归档":"回收站")+"<br><small>"+esc(t.id)+"</small>";
   el("roverlay").style.display="flex";}
 function closeR(){el("roverlay").style.display="none";}
 async function post(body){const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json();if(!j.ok)alert("失败："+j.msg);return j;}
 async function save(){const fields={
-  标题:f_title.value,状态:f_status.value,批次:f_batch.value,
+  标题:f_title.value,状态:f_status.value,批次:f_batch.value,截止:f_due.value,优先级:f_prio.value,
   项目:getProjChecks(),指派:f_assignee.value,验收:f_accept.value,
   资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
   结果记录:f_result.value};
   const body=curId?{action:"edit",id:curId,fields}:{action:"new",fields};
-  await post(body);closeModal();load();}
-async function doArchive(){if(!curId)return;await post({action:"archive",id:curId});closeModal();load();}
-async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();load();}
-async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();load();}
-async function moveStatus(id,status){await post({action:"edit",id:id,fields:{状态:status}});load();}
-load();setInterval(load,2000);
+  await post(body);closeModal();lastHash="";load();}
+async function doArchive(){if(!curId)return;await post({action:"archive",id:curId});closeModal();lastHash="";load();}
+async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();}
+async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();}
+async function moveStatus(id,status){const r=await post({action:"edit",id:id,fields:{状态:status}});if(r.ok)load(true);}
+load(true);setInterval(load,2000);
 </script>
 </body>
 </html>

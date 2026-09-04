@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) — 本地优先多 agent 任务地图
 # 零依赖：仅用 Python 标准库。视图服务用 http.server + 轮询 + 编辑 API。
-import argparse, os, re, json, shutil, datetime, subprocess
+import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -215,6 +215,8 @@ def render_task(d):
         f"项目: {proj}\n"
         f"状态: {d.get('状态','草稿')}\n"
         f"批次: {d.get('批次','')}\n"
+        f"截止: {d.get('截止','')}\n"
+        f"优先级: {d.get('优先级','')}\n"
         f"来源: {d.get('来源','human')}\n"
         f"指派: {d.get('指派','hermes')}\n"
         f"验收: {d.get('验收','human')}\n"
@@ -281,7 +283,7 @@ def api_edit(id, fields):
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
-    for k in ["标题", "状态", "批次", "来源", "指派", "验收"]:
+    for k in ["标题", "状态", "批次", "截止", "优先级", "来源", "指派", "验收"]:
         if k in fields and fields[k] is not None:
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):
@@ -309,6 +311,8 @@ def api_new(fields):
         "项目": fields.get("项目") or ["fangcun-base"],
         "状态": fields.get("状态", "草稿"),
         "批次": fields.get("批次", ""),
+        "截止": fields.get("截止", ""),
+        "优先级": fields.get("优先级", ""),
         "来源": fields.get("来源", "human"),
         "指派": fields.get("指派", "hermes"),
         "验收": fields.get("验收", "human"),
@@ -530,27 +534,59 @@ def cmd_hermes_open(args):
     p = reg.get(proj_id) if proj_id else None
     repo = p.get("repo") if p else None
     if not repo:
-        print(f"任务 {args.id} 的项目 {proj_id} 在 registry 中无 repo 路径，无法定位仓库。")
+        print(f"任务 {args.id} 的项目 {proj_id} 在 registry 中无 repo 路径，无法定位干活仓库。")
         return
-    prompt = f'执行方寸任务 {args.id}：{d.get("标题","")}'
-    # 用 list 参数直调，避开 shell 对中文路径/特殊字符的转译（os.system 风险）。
+    # 回写指令自包含在派活 prompt 里：Hermes 干完活调用方寸 done 命令闭环。
+    done_cmd = f'python "E:/CODE/CangKu/fangcun/tegula.py" done {args.id}'
+    prompt = (f"执行方寸任务 {args.id}：{d.get('标题','')}\n"
+              f"完成后必须回写：执行 {done_cmd} --结果 \"<一句话结果>\"，"
+              f"结果会写入任务文件的结果记录并置为待验收。")
+    # 用 list 参数直调，避开 shell 对中文路径/自特殊字符的转译（os.system 风险）。
     cmd = ["hermes", "chat", "--in", repo, "-z", prompt]
     print("# 在仓库上下文中派活给 Hermes：")
     print(" ".join(cmd))
+    print(f"# 回写命令：{done_cmd} --结果 \"<一句话结果>\"")
     if args.go:
         print("\n>>> 正在拉起 hermes chat（退出后回到此处）...")
         subprocess.run(cmd)
 
 
+def cmd_done(args):
+    """执行方（Hermes 等）完工回写：填结果记录 + 置待验收。幂等、异常不中断。"""
+    fn = os.path.join(TASK_DIR, args.id + ".md")
+    if not os.path.exists(fn):
+        print(f"任务不存在: {args.id}")
+        return
+    d = parse_task(fn)
+    if d is None:
+        print("解析失败")
+        return
+    if args.结果:
+        old = (d.get("结果记录") or "").strip()
+        d["结果记录"] = (old + "\n" if old else "") + args.结果.strip()
+    d["状态"] = "待验收"
+    write_task_file(fn, d)
+    print(f"OK: {args.id} 已回写结果并置为待验收")
+
+
 # ---------- HTTP ----------
+LAST_REQUEST = time.time()   # 最近一次请求时刻：open 模式靠它判定窗口是否还开着
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global LAST_REQUEST
+        LAST_REQUEST = time.time()
         if self.path.startswith("/tasks.json"):
             self._json()
+        elif self.path.startswith("/ping"):
+            self._send_json({"ok": True, "app": "tegula"})
         else:
             self._html()
 
     def do_POST(self):
+        global LAST_REQUEST
+        LAST_REQUEST = time.time()
         if self.path == "/api":
             self._api()
         else:
@@ -624,6 +660,94 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+# ---------- open：一键打开，随关随停 ----------
+def find_free_port(start, end=8790):
+    for p in range(start, end + 1):
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    return None
+
+
+def tegula_alive(port):
+    """该端口上是否已是一个活着的方寸看板（防止多开、也避免误杀别人的服务）。"""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=1.5) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def find_edge():
+    for p in (
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def cmd_open(args):
+    """双击入口：服务随进程起，Edge 应用窗口打开，窗口全关服务自退。"""
+    port = args.port
+    reuse = False
+    if tegula_alive(port):
+        reuse = True          # 已有看板在跑：直接聚焦，不再起第二个
+    else:
+        free = find_free_port(port)
+        if free is None:
+            print(f"[错误] {port}-{8790} 端口均被占用。")
+            return
+        port = free
+
+    edge = find_edge()
+    if not edge:
+        print("[错误] 未找到 Edge，无法打开应用窗口。")
+        return
+    # --app 模式：无浏览器框的独立窗口；不同 port 用不同 profile 目录，避免多实例互相顶掉
+    user_dir = os.path.join(os.environ.get("TEMP", "."), f"tegula_edge_{port}")
+    subprocess.Popen([edge, f"--app=http://127.0.0.1:{port}/", f"--user-data-dir={user_dir}",
+                      "--window-size=1280,860"],
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    if reuse:
+        return                # 服务已在别处运行，这边只负责唤窗
+
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    stop = threading.Event()
+
+    def watch_window():
+        # 阶段一：等首请求（Edge 冷启动可能较慢，宽限至少 60s）
+        t0 = LAST_REQUEST
+        grace = max(args.wait, 60)
+        while time.time() - t0 < grace:
+            if LAST_REQUEST != t0:
+                break
+            time.sleep(1)
+        # 阶段二：稳态运行中，90s 无任何请求 = 窗口已关，服务自退
+        while not stop.is_set():
+            if time.time() - LAST_REQUEST > 90:
+                stop.set()
+                break
+            time.sleep(2)
+
+    threading.Thread(target=watch_window, daemon=True).start()
+    print(f"方寸看板: http://127.0.0.1:{port}/  （窗口全关后自动退出）")
+    try:
+        while not stop.is_set():
+            srv.timeout = 1
+            srv.handle_request()   # 逐个处理请求，同时能秒级响应退出信号
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+
+
 # ---------- CLI ----------
 def cmd_new(args):
     tid, msg = api_new({
@@ -657,12 +781,20 @@ def main():
     s = sub.add_parser("serve", help="启动本地看板视图（零依赖）")
     s.add_argument("--port", type=int, default=8753)
     s.set_defaults(func=cmd_serve)
+    o = sub.add_parser("open", help="一键打开：服务随进程起，Edge 应用窗口打开，关窗自退")
+    o.add_argument("--port", type=int, default=8753)
+    o.add_argument("--wait", type=int, default=15, help="窗口端冷静期秒数（首个请求前的宽限）")
+    o.set_defaults(func=cmd_open)
     hs = sub.add_parser("hermes-sync", help="把 registry.yaml 里的项目注册进 Hermes（幂等）")
     hs.set_defaults(func=cmd_hermes_sync)
     ho = sub.add_parser("hermes-open", help="为某任务生成在仓库里派活给 Hermes 的命令")
     ho.add_argument("id", help="任务 id，如 task-20260828-003")
     ho.add_argument("--go", action="store_true", help="真正拉起 hermes chat")
     ho.set_defaults(func=cmd_hermes_open)
+    dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
+    dn.add_argument("id", help="任务 id，如 task-20260828-003")
+    dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
+    dn.set_defaults(func=cmd_done)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
