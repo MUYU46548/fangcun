@@ -1,5 +1,5 @@
 @echo off
-rem 方寸 tegula 一键打开：pythonw 无窗口运行 open 模式，服务随进程起、关窗自退
+rem tegula one-click launcher: pythonw runs open mode (no console), auto-exit on window close
 setlocal
 set DIR=%~dp0
 set PYW=
