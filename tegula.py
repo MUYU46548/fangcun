@@ -828,7 +828,8 @@ def cmd_dispatch(args):
         print(("[ok] " if ok else "[fail] ") + f"{args.id}: {msg}")
         return
     tasks = load_tasks(None, "active")
-    cands = [t for t in tasks if t.get("状态") == "待办" and (t.get("指派") or "hermes") == "hermes"]
+    cands = [t for t in tasks if t.get("状态") == "待办" and (t.get("指派") or "hermes") == "hermes"
+             and not blockers_of(t.get("id", ""))]   # 与看板顶栏⚡同口径：被阻塞的不进自动挑单
     def pv(t):
         pr = t.get("优先级") or ""
         return 2 if pr == "高" else (1 if pr == "中" else 0)
