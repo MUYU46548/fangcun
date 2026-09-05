@@ -533,7 +533,9 @@ async function quickDispatch(id){
     id=cands[0].id;
   }
   const t=TASKS.find(x=>x.id===id);
-  if(t&&(t.状态==="完成"||t.状态==="驳回")){alert("该任务已是终态，不派活。");return;}
+  if(!t)return;
+  if(t.状态==="完成"||t.状态==="驳回"){alert("该任务已是终态，不派活。");return;}
+  if(!confirm("派活 "+t.id+"《"+(t.标题||"")+"》？\n将新开终端窗口执行 hermes chat，任务状态置为「进行中」。"))return;
   const r=await post({action:"dispatch",id:id});
   if(r.ok){lastHash="";load(true);}
 }
@@ -623,7 +625,7 @@ async function save(){const fields={
   const r=await post(body);
   if(!r.ok&&String(r.msg||"").includes("mtime-conflict")){closeModal();lastHash="";load(true);return;}
   closeModal();lastHash="";load();}
-async function doArchive(){if(!curId)return;await post({action:"archive",id:curId});closeModal();lastHash="";load();}
+async function doArchive(){if(!curId)return;if(!confirm("归档 "+curId+"？\n（任务移入归档视图，可随时还原）"))return;await post({action:"archive",id:curId});closeModal();lastHash="";load();}
 async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();}
 async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();}
 async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
