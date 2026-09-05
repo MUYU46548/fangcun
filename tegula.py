@@ -26,8 +26,11 @@ def _coerce(v):
     return v
 
 
-def parse_registry(path):
-    """极简 YAML 解析，仅适配 registry.yaml 的 projects 列表结构（零依赖）。"""
+def parse_registry(path, include_released=True):
+    """极简 YAML 解析，适配 registry.yaml 的 projects / released 列表结构（零依赖）。
+
+    released 段的项目会加 _released=True 标记，供报告折叠分组用。
+    """
     if not os.path.exists(path):
         return []
     try:
@@ -37,21 +40,26 @@ def parse_registry(path):
         return []
     projects = []
     cur = None
-    in_projects = False
+    in_section = None
+    want = {"projects"}
+    if include_released:
+        want.add("released")
     for raw in lines:
         line = raw.rstrip()
         if not line.strip():
             continue
         if not raw.startswith(" "):
             m = re.match(r"^([A-Za-z_]+):\s*$", line)
-            in_projects = bool(m and m.group(1) == "projects")
+            in_section = m.group(1) if m and m.group(1) in want else None
             cur = None
             continue
-        if not in_projects:
+        if in_section is None:
             continue
         if line.strip().startswith("- "):
             rest = line.strip()[2:].strip()
             cur = {"id": "", "name": "", "tasks": "", "repo": "", "tools": [], "sources": []}
+            if in_section == "released":
+                cur["_released"] = True
             projects.append(cur)
             kv = re.match(r"^([^:]+):\s*(.*)$", rest)
             if kv:
@@ -64,8 +72,9 @@ def parse_registry(path):
     return projects
 
 
-def load_registry():
-    return parse_registry(REGISTRY_PATH)
+def load_all_projects():
+    """返回全部项目（含 released 段），供 status / report 使用。"""
+    return parse_registry(REGISTRY_PATH, include_released=True)
 
 
 def load_members():
@@ -692,7 +701,7 @@ def cmd_hermes_sync(args):
               f"        若确需在 '{active}' 下注册，请改 ALLOWED_SYNC_PROFILE 或切换 profile："
               f"hermes profile use {ALLOWED_SYNC_PROFILE}")
         return
-    reg = load_registry()
+    reg = load_all_projects()
     if not reg:
         print("registry.yaml 为空或不存在，跳过。")
         return
@@ -780,7 +789,7 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
     """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
     输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。"""
     proj_id = (d.get("项目") or [None])[0]
-    p = {q["id"]: q for q in load_registry()}.get(proj_id) if proj_id else None
+    p = {q["id"]: q for q in load_all_projects()}.get(proj_id) if proj_id else None
     proj_name = (p or {}).get("name") or proj_id or "?"
     plan = "\n".join(d.get("方案") or []) or "- [ ]（方案为空）"
     res = d.get("资源", {}) if isinstance(d.get("资源"), dict) else {}
@@ -816,7 +825,7 @@ def prepare_dispatch(tid):
     if d is None:
         return None, "解析失败"
     proj_id = (d.get("项目") or [None])[0]
-    reg = {p["id"]: p for p in load_registry()}
+    reg = {p["id"]: p for p in load_all_projects()}
     p = reg.get(proj_id) if proj_id else None
     repo = p.get("repo") if p else None
     if not repo:
@@ -846,12 +855,16 @@ def dispatch_task(tid, launch=True, force=False):
     if d.get("状态") == "进行中" and not force:
         return False, ("任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
                        "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认")
-    cmd = _hermes_cmd(["chat", "--in", info["repo"], "-z", info["prompt"]])
+    cmd = _hermes_cmd(["-z", info["prompt"], "chat", "--in", info["repo"]])
     if cmd is None:
         return False, "未找到 hermes 命令（PATH 里没有 hermes）"
     if launch:
+        # CREATE_NO_WINDOW：后台静默运行，不弹黑窗口；用户可在 Hermes 桌面端会话列表里直接查看进度
         try:
-            subprocess.Popen(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+            subprocess.Popen(
+                cmd,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         except Exception as e:
             return False, f"拉起失败: {e}"
         # 派单快照：本次实际下发的完整指令留底（使用数据不入 git），审计可回放
@@ -870,7 +883,7 @@ def dispatch_task(tid, launch=True, force=False):
     write_task_file(fn, d)
     log_activity("dispatch" if launch else "dry-dispatch", tid,
                  f"{os.path.basename(info['snapshot'])} · {(d.get('标题') or '')[:40]}")
-    return True, ("已在新终端窗口派活" if launch else "已生成派活命令（dry-run 不拉起）")
+    return True, ("已静默派活（桌面端会话列表可追踪）" if launch else "已生成派活命令（dry-run 不拉起）")
 
 
 def api_dispatch(id, force=False):
@@ -923,7 +936,7 @@ def cmd_hermes_open(args):
     if err:
         print(err)
         return
-    cmd = ["hermes", "chat", "--in", info["repo"], "-z", info["prompt"]]
+    cmd = ["hermes", "-z", info["prompt"], "chat", "--in", info["repo"]]
     print("# 在仓库上下文中派活给 Hermes：")
     print(" \n".join(cmd[:4]) + " …")
     print(f"# 回写命令：{info['done_cmd']} --结果 \"<一句话结果>\"")
@@ -1009,6 +1022,38 @@ def cmd_done(args):
 # ---------- HTTP ----------
 LAST_REQUEST = time.time()   # 最近一次请求时刻：open 模式靠它判定窗口是否还开着
 
+# 项目视图缓存（/status.json）：TTL 内复用扫描结果；任何写操作后立即失效。
+# scan 全 registry 要跑十几条 git 子进程（每个项目 4 条），不能跟着看板 2s 轮询走。
+_STATUS_CACHE = {"data": None, "ts": 0.0}
+STATUS_TTL = 20.0            # 秒：项目状态 freshness 粒度，非实时要求
+WRITE_ACTIONS = {"edit", "new", "archive", "delete", "restore", "dispatch", "reg_save"}
+
+
+def project_status_payload(force=False):
+    """供 /status.json 的项目状态负载（含建议层），带 TTL 缓存。
+
+    released 项目排到末尾；活跃区按 stuck > active > idle > dormant > unknown 排序，
+    让有卡点、有动静的项目先出现在看板上。
+    """
+    now = time.time()
+    if not force and _STATUS_CACHE["data"] is not None and now - _STATUS_CACHE["ts"] < STATUS_TTL:
+        return _STATUS_CACHE["data"]
+    reg = load_all_projects()
+    statuses = [scan_project_status(p) for p in reg]
+    order = {"stuck": 0, "active": 1, "idle": 2, "dormant": 3, "unknown": 4, "released": 5}
+    statuses.sort(key=lambda s: (order.get(s["health"], 9), (s["git"]["last_commit_days"] or 9999)))
+    all_sugs = []
+    for s in statuses:
+        for u in suggest_actions(s):
+            all_sugs.append({"project": s["name"], "text": u})
+    if len(statuses) > 1:
+        for u in suggest_cross_project(statuses):
+            all_sugs.append({"project": None, "text": u})
+    payload = {"statuses": statuses, "suggestions": all_sugs, "ts": int(now)}
+    _STATUS_CACHE["data"] = payload
+    _STATUS_CACHE["ts"] = now
+    return payload
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -1016,6 +1061,8 @@ class Handler(BaseHTTPRequestHandler):
         LAST_REQUEST = time.time()
         if self.path.startswith("/tasks.json"):
             self._json()
+        elif self.path.startswith("/status.json"):
+            self._status_json()
         elif self.path.startswith("/ping"):
             self._send_json({"ok": True, "app": "tegula"})
         else:
@@ -1034,6 +1081,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
         self.wfile.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+
+    def _status_json(self):
+        """项目视图数据（GET /status.json）。携带 ?refresh=1 时绕过缓存重扫。"""
+        force = "refresh=1" in self.path
+        self._send_json(project_status_payload(force=force))
 
     def _json(self):
         proj = None
@@ -1075,13 +1127,15 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = False, "unknown action"
         except Exception as e:
             ok, msg = False, str(e)
+        if ok and action in WRITE_ACTIONS:
+            _STATUS_CACHE["data"] = None   # 写后失效：下次 /status.json 重扫，项目视图立即反映
         self._send_json({"ok": ok, "msg": msg})
 
     def _html(self):
         # 看板页面从独立模板渲染，便于维护与主题重涂；
         # 仅注册表需动态注入（registry.yaml 的项目列表）。
         reg_map = {p["id"]: {"name": p.get("name", p["id"]), "repo": p.get("repo", "")}
-                   for p in load_registry()}
+                   for p in load_all_projects() if not p.get("_released")}
         reg_js = json.dumps(reg_map, ensure_ascii=False)
         mem_js = json.dumps(load_members(), ensure_ascii=False)
         tpl_path = os.path.join(ROOT, "templates", "board.html")
@@ -1103,6 +1157,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ---------- open：一键打开，随关随停 ----------
+class QServer(ThreadingHTTPServer):
+    # Windows 上 SO_REUSEADDR 允许两个进程同时绑同一端口（HTTP 请求随机落到旧进程，
+    # 新端点 /status.json 静默 404→回落 HTML）。关掉复用：第二个绑定直接 EADDRINUSE 失败。
+    allow_reuse_address = False
+
+
 def find_free_port(start, end=8790):
     for p in range(start, end + 1):
         import socket
@@ -1160,7 +1220,7 @@ def cmd_open(args):
     if reuse:
         return                # 服务已在别处运行，这边只负责唤窗
 
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = QServer(("127.0.0.1", port), Handler)
     stop = threading.Event()
 
     def watch_window():
@@ -1231,6 +1291,291 @@ def cmd_doctor(args):
     return 2 if errs else 0
 
 
+# ---------- 项目状态感知（P0）----------
+
+def _relative_time(days):
+    """将天数差转成人类可读的相对时间。"""
+    if days is None:
+        return "无"
+    if days == 0:
+        return "今天"
+    if days == 1:
+        return "昨天"
+    if days < 7:
+        return f"{days}天前"
+    if days < 30:
+        return f"{days // 7}周前"
+    return f"{days // 30}月前"
+
+
+def scan_project_status(p):
+    """扫描单个项目，返回结构化状态 dict。
+
+    released 段的项目直接跳过扫描，健康度标 released。
+    感知层（仅非 released）：
+    - git 活动：近 7 天提交数、最后提交天数、未提交改动数、当前分支
+    - 任务关联：活跃任务数、进行中/待办/阻塞数、阻塞任务标题
+    """
+    pid = p.get("id", "")
+    repo = p.get("repo", "")
+    name = p.get("name", pid)
+    is_released = p.get("_released", False)
+
+    s = {
+        "id": pid,
+        "name": name,
+        "repo": repo,
+        "released": is_released,
+        "git": {"recent_commits": 0, "last_commit_days": None, "uncommitted": 0, "active_branch": None},
+        "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0},
+        "health": "released" if is_released else "unknown",
+        "summary": "已发布 / 无后续计划" if is_released else "",
+    }
+
+    if is_released:
+        return s
+
+    # --- git 活动 ---
+    if repo and os.path.isdir(os.path.join(repo, ".git")):
+        try:
+            r = subprocess.run(["git", "log", "--since=7 days ago", "--oneline"],
+                                capture_output=True, text=True, timeout=10, cwd=repo)
+            commits = [l for l in r.stdout.strip().splitlines() if l.strip()]
+            s["git"]["recent_commits"] = len(commits)
+
+            r = subprocess.run(["git", "log", "-1", "--format=%ct"],
+                                capture_output=True, text=True, timeout=10, cwd=repo)
+            if r.stdout.strip():
+                days_ago = int((time.time() - int(r.stdout.strip())) / 86400)
+                s["git"]["last_commit_days"] = days_ago
+
+            r = subprocess.run(["git", "status", "--porcelain"],
+                                capture_output=True, text=True, timeout=10, cwd=repo)
+            changes = [l for l in r.stdout.strip().splitlines() if l.strip()]
+            s["git"]["uncommitted"] = len(changes)
+
+            r = subprocess.run(["git", "branch", "--show-current"],
+                                capture_output=True, text=True, timeout=10, cwd=repo)
+            s["git"]["active_branch"] = r.stdout.strip()
+        except Exception:
+            pass
+
+    # --- 任务关联 ---
+    for t in load_tasks(project=pid, view="active"):
+        s["tasks"]["total"] += 1
+        st = t.get("状态", "")
+        if st == "进行中":
+            s["tasks"]["active"] += 1
+        elif st == "待办":
+            s["tasks"]["pending"] += 1
+        elif st in ("完成", "驳回"):
+            s["tasks"]["done"] += 1
+
+        blk = blockers_of(t.get("id", ""))
+        if blk:
+            s["tasks"]["blocked"] += 1
+            for b in blk:
+                s["tasks"]["blocked_names"].append(b.get("标题") or b.get("id", ""))
+
+    # --- 健康度判定 ---
+    git, tasks = s["git"], s["tasks"]
+    if tasks["blocked"] > 0:
+        s["health"] = "stuck"
+    elif git["recent_commits"] > 0 or tasks["active"] > 0:
+        s["health"] = "active"
+    elif tasks["total"] == 0 and (git["last_commit_days"] is None or git["last_commit_days"] > 30):
+        s["health"] = "dormant"
+    elif tasks["total"] > 0:
+        s["health"] = "idle"
+    else:
+        s["health"] = "unknown"
+
+    # --- 摘要 ---
+    parts = [f"最近提交: {_relative_time(git['last_commit_days'])}"]
+    parts.append(f"未提交改动: {git['uncommitted']}文件" if git["uncommitted"] else "未提交改动: 0")
+
+    if tasks["blocked"] > 0:
+        bn = "、".join(tasks["blocked_names"][:3])
+        if len(tasks["blocked_names"]) > 3:
+            bn += f" 等{len(tasks['blocked_names'])}项"
+        parts.append(f"阻塞: {bn}")
+    else:
+        parts.append("阻塞: 无")
+
+    s["summary"] = "  ".join(parts)
+    return s
+
+
+def suggest_actions(s):
+    """从单个项目状态推导出可执行建议（被动展示，不主动派活）。"""
+    git, tasks = s["git"], s["tasks"]
+    sugs = []
+
+    if s["health"] == "stuck" and tasks["blocked_names"]:
+        bn = tasks["blocked_names"][0]
+        sugs.append(f"解除阻塞：「{bn}」完成后可解锁下游任务")
+
+    if git["uncommitted"] > 5 and tasks["active"] == 0 and s["health"] != "released":
+        sugs.append(f"整理 {git['uncommitted']} 个未提交改动：建「整理并提交」任务？")
+
+    if s["health"] == "dormant" and tasks["total"] == 0:
+        sugs.append("停滞 >30 天且无任务：建议标记 released 或建激活任务")
+
+    if tasks["total"] > 0 and tasks["active"] == 0 and tasks["blocked"] == 0 and tasks["pending"] > 0:
+        sugs.append(f"有 {tasks['pending']} 个待办但无进行中：可激活一项")
+
+    return sugs
+
+
+def suggest_cross_project(statuses):
+    """跨项目建议：哪些该关注、哪些该激活。"""
+    sugs = []
+    stuck = [s for s in statuses if s["health"] == "stuck"]
+    dormant = [s for s in statuses if s["health"] == "dormant"]
+    uncommitted_heavy = [s for s in statuses
+                         if s["git"]["uncommitted"] > 10 and s["health"] != "released"]
+
+    if stuck:
+        names = "、".join(s["name"] for s in stuck)
+        sugs.append(f"优先处理卡住项目：{names}")
+
+    if dormant:
+        names = "、".join(s["name"] for s in dormant)
+        sugs.append(f"长期停滞项目需决策（继续/挂起）：{names}")
+
+    if uncommitted_heavy:
+        names = "、".join(s["name"] for s in uncommitted_heavy)
+        sugs.append(f"大量未提交改动需关注：{names}")
+
+    return sugs
+
+
+def cmd_status(args):
+    """显示项目健康状态：全部或指定项目。"""
+    reg = load_all_projects()
+    if not reg:
+        print("registry.yaml 为空或不存在。")
+        return
+
+    target = getattr(args, "id", None)
+    if target:
+        reg = [p for p in reg if p.get("id") == target]
+        if not reg:
+            print(f"项目不存在: {target}")
+            return
+
+    statuses = [scan_project_status(p) for p in reg]
+
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(statuses, ensure_ascii=False, indent=2))
+        return
+
+    icons = {"active": "●", "stuck": "◎", "dormant": "○", "idle": "△", "unknown": "?", "released": "✅"}
+    for s in statuses:
+        print(f"{icons.get(s['health'], '?')} {s['name']:<14} {s['summary']}")
+
+    # --- 建议层 ---
+    all_sugs = []
+    for s in statuses:
+        sugs = suggest_actions(s)
+        for u in sugs:
+            all_sugs.append(f"- {s['name']}：{u}")
+
+    if len(statuses) > 1:
+        cross = suggest_cross_project(statuses)
+        for u in cross:
+            all_sugs.append(f"- {u}")
+
+    if all_sugs:
+        print(f"\n💡 建议：")
+        for u in all_sugs:
+            print(f"  {u}")
+
+
+def cmd_report(args):
+    """生成项目状态报告文件（project-status.md）。"""
+    reg = load_all_projects()
+    if not reg:
+        print("registry.yaml 为空或不存在。")
+        return
+
+    statuses = [scan_project_status(p) for p in reg]
+    health_order = {"active": 0, "stuck": 1, "idle": 2, "dormant": 3, "unknown": 4}
+    released = [s for s in statuses if s["health"] == "released"]
+    active = [s for s in statuses if s["health"] != "released"]
+    active.sort(key=lambda s: (health_order.get(s["health"], 5), s["name"]))
+
+    brief = getattr(args, "brief", False)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = ["# 方寸项目状态报告", f"- 生成时间: {now}", f"- 活跃项目: {len(active)}", ""]
+
+    if not brief and released:
+        lines += [f"- 已发布: {len(released)}", ""]
+
+    if not brief:
+        lines += ["## 概览", "", "| 项目 | 健康度 | 最近提交 | 未提交改动 | 任务 | 阻塞 |",
+                  "|------|--------|----------|------------|------|------|"]
+        labels = {"active": "🟢 活跃", "stuck": "🔴 卡住", "dormant": "⚪ 停滞",
+                  "idle": "🟡 空闲", "unknown": "❓ 未知", "released": "✅ 已发布"}
+        for s in active:
+            g, t = s["git"], s["tasks"]
+            lc = _relative_time(g["last_commit_days"])
+            lines.append(f"| {s['name']} | {labels.get(s['health'], '❓')} | {lc} | "
+                         f"{g['uncommitted']}文件 | {t['total']}个 | {t['blocked']} |")
+        lines.append("")
+
+    if not brief:
+        lines.append("## 详情")
+    lines.append("")
+
+    for s in active:
+        if brief:
+            icons = {"active": "🟢", "stuck": "🔴", "dormant": "⚪", "idle": "🟡", "unknown": "❓"}
+            parts = [f"{icons.get(s['health'], '❓')} {s['name']}"]
+            g, t = s["git"], s["tasks"]
+            if g["last_commit_days"] is not None:
+                parts.append(f"最近提交: {_relative_time(g['last_commit_days'])}")
+            if g["uncommitted"]:
+                parts.append(f"未提交: {g['uncommitted']}文件")
+            if t["total"]:
+                tp = []
+                if t["active"]: tp.append(f"{t['active']}进行中")
+                if t["pending"]: tp.append(f"{t['pending']}待办")
+                if t["blocked"]: tp.append(f"{t['blocked']}阻塞")
+                if t["done"]: tp.append(f"{t['done']}待验收")
+                if tp:
+                    parts.append(f"任务: {', '.join(tp)}")
+            lines.append("- " + " | ".join(parts))
+        else:
+            lines += [f"### {s['name']} (`{s['id']}`)",
+                      f"- 仓库: `{s['repo']}`",
+                      f"- 分支: `{s['git']['active_branch'] or 'N/A'}`",
+                      f"- 健康度: **{s['health']}**",
+                      f"- {s['summary']}", ""]
+
+    # --- 已发布项目（折叠/隔离）---
+    if released:
+        if brief:
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            for s in released:
+                lines.append(f"✅ {s['name']} — {s['summary']}")
+        else:
+            lines += ["", "---", "", "## 已发布", ""]
+            for s in released:
+                lines.append(f"- **{s['name']}** — 已发布 / 无后续计划")
+
+    out = os.path.join(ROOT, "project-status.md")
+    if getattr(args, "output", None):
+        out = args.output
+
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"报告已生成: {out}")
+
+
 # ---------- CLI ----------
 def cmd_new(args):
     ok, tid = api_new({
@@ -1249,7 +1594,15 @@ def cmd_new(args):
 
 def cmd_serve(args):
     port = args.port
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    if tegula_alive(port):
+        print(f"[提示] 方寸看板已在 http://127.0.0.1:{port}/ 运行（单飞保护，不再起第二个）。")
+        return
+    try:
+        srv = QServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        print(f"[错误] 端口 {port} 被其他程序占用（非方寸看板）：{e}")
+        print("       可指定别的端口：python tegula.py serve --port 8754")
+        return
     print(f"方寸看板已启动: http://127.0.0.1:{port}/  (Ctrl+C 退出)")
     try:
         srv.serve_forever()
@@ -1304,6 +1657,14 @@ def main():
     bk.set_defaults(func=cmd_backup)
     dc = sub.add_parser("doctor", help="文件健康自检：frontmatter/锁字段/阻塞引用（只读）")
     dc.set_defaults(func=cmd_doctor)
+    st = sub.add_parser("status", help="项目健康状态：git 活动 + 任务关联")
+    st.add_argument("id", nargs="?", default=None, help="项目 id（可选，不指定则显示全部）")
+    st.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
+    st.set_defaults(func=cmd_status)
+    rp = sub.add_parser("report", help="生成项目状态报告（project-status.md）")
+    rp.add_argument("--brief", action="store_true", help="简报模式（单文件列表，适合 cron 推送）")
+    rp.add_argument("--output", default=None, help="输出文件路径（默认 project-status.md）")
+    rp.set_defaults(func=cmd_report)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
