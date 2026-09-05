@@ -268,6 +268,93 @@ finally:
     teg._hermes_cmd, teg.subprocess.Popen = _teg_hermes, _real_popen
     teg.TASK_DIR = _saved_td
 
+# ---- 9. 项目感知与视图（registry released 段 / git 活动扫描 / 建议 / 报告 / 负载排序）----
+import json as _json
+import subprocess as _sp
+saved_reg, teg.REGISTRY_PATH = teg.REGISTRY_PATH, os.path.join(tmpdir, "reg-proj.yaml")
+saved_std_td, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "proj-tasks")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+
+def _wp(tid, title, status, blk=None):
+    body = (f"---\nid: {tid}\n标题: {title}\n项目: [proj-tasks]\n状态: {status}\n"
+            + (f"阻塞: [{', '.join(blk)}]\n" if blk else "")
+            + f"创建: 1000\n更新: 1000\n---\n## 方案\n- [ ] x\n## 结果记录\n")
+    with open(os.path.join(teg.TASK_DIR, tid + ".md"), "w", encoding="utf-8") as f:
+        f.write(body)
+
+def _mkrepo(name, days_ago):
+    repo = os.path.join(tmpdir, name)
+    os.makedirs(repo)
+    _sp.run(["git", "init", "-q"], cwd=repo, capture_output=True)
+    with open(os.path.join(repo, "f.txt"), "w", encoding="utf-8") as f:
+        f.write("x\n")
+    iso = (teg.datetime.datetime.now() - teg.datetime.timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%S")
+    _sp.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t.local", "add", "."], capture_output=True)
+    _sp.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t.local", "commit", "-q", "-m", "init"],
+            capture_output=True, env={**os.environ, "GIT_AUTHOR_DATE": iso, "GIT_COMMITTER_DATE": iso})
+    return repo
+
+_fresh = _mkrepo("repo-fresh", 0)
+_stale = _mkrepo("repo-stale", 40)
+_wp("task-20990101-930", "进行中", "进行中")
+_wp("task-20990101-931", "被下游", "待办", blk=["task-20990101-930"])
+
+reg_yaml = (f"members:\n  - 暮雨\n  - hermes\nprojects:\n"
+            f"  - id: proj-fresh\n    name: 新鲜项目\n    tasks: \"\"\n    repo: {_fresh}\n"
+            f"  - id: proj-stale\n    name: 陈旧项目\n    tasks: \"\"\n    repo: {_stale}\n"
+            f"  - id: proj-tasks\n    name: 任务项目\n    tasks: \"\"\n    repo: {tmpdir}\n"
+            f"released:\n  - id: yijucanxiang\n    name: 弈局残响\n    tasks: \"\"\n"
+            f"    repo: E:/nowhere/yjc\n    tools: []\n")
+with open(teg.REGISTRY_PATH, "w", encoding="utf-8") as f:
+    f.write(reg_yaml)
+
+try:
+    allp = teg.parse_registry(teg.REGISTRY_PATH, include_released=True)
+    check("registry released 段解析", len(allp) == 4 and all(p.get("_released") for p in allp if p["id"] == "yijucanxiang"))
+    check("include_released=False 剔除已发布", len(teg.parse_registry(teg.REGISTRY_PATH, include_released=False)) == 3)
+    check("load_all_projects 含 released", any(p.get("_released") for p in teg.load_all_projects()))
+
+    sm = {s["id"]: s for s in (teg.scan_project_status(p) for p in teg.load_all_projects())}
+    rel = sm["yijucanxiang"]
+    check("released 扫描跳过 git", rel["health"] == "released" and rel["git"]["recent_commits"] == 0
+          and rel["summary"] == "已发布 / 无后续计划", str(rel))
+    check("git 活动感知（今天提交=活跃）", sm["proj-fresh"]["health"] == "active"
+          and sm["proj-fresh"]["git"]["recent_commits"] >= 1
+          and sm["proj-fresh"]["git"]["last_commit_days"] == 0, str(sm["proj-fresh"]["git"]))
+    check("停滞感知（40 天前提交且无任务）", sm["proj-stale"]["health"] == "dormant"
+          and sm["proj-stale"]["git"]["last_commit_days"] >= 30, str(sm["proj-stale"]["git"]))
+    st = sm["proj-tasks"]
+    check("任务关联与 stuck 判定", st["health"] == "stuck" and st["tasks"]["blocked"] == 1
+          and st["tasks"]["blocked_names"], str(st["tasks"]))
+    check("阻塞建议生成", any("解除阻塞" in u for u in teg.suggest_actions(st)), str(teg.suggest_actions(st)))
+    cross = teg.suggest_cross_project([st, sm["proj-stale"], sm["proj-fresh"]])
+    check("跨项目建议", any("卡住" in u for u in cross) and any("停滞" in u for u in cross), str(cross))
+
+    class RS: pass
+    rs = RS(); rs.id = None; rs.format = "json"
+    buf5 = _io.StringIO()
+    with _cl.redirect_stdout(buf5):
+        teg.cmd_status(rs)
+    js = _json.loads(buf5.getvalue())
+    check("status json 全量与段序", len(js) == 4 and js[-1]["health"] == "released"
+          and js[2]["health"] == "stuck", str([s["health"] for s in js]))
+
+    class RP: pass
+    rp = RP(); rp.brief = True; rp.output = os.path.join(tmpdir, "ps-brief.md")
+    with _cl.redirect_stdout(_io.StringIO()):
+        teg.cmd_report(rp)
+    brief_txt = open(rp.output, encoding="utf-8").read()
+    check("report brief 含 released 隔离", "✅ 弈局残响" in brief_txt and "🔴 任务项目" in brief_txt, brief_txt[:300])
+
+    payload = teg.project_status_payload(force=True)
+    check("payload 排序与建议层", len(payload["statuses"]) == 4
+          and payload["statuses"][0]["health"] == "stuck"
+          and payload["statuses"][-1]["health"] == "released"
+          and isinstance(payload.get("suggestions"), list), str([s["health"] for s in payload["statuses"]]))
+    teg._STATUS_CACHE["data"] = None
+finally:
+    teg.REGISTRY_PATH, teg.TASK_DIR = saved_reg, saved_std_td
+
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:

@@ -46,13 +46,6 @@ projects:
     tools: [python]
     sources: []
 
-  - id: yijucanxiang
-    name: 弈局残响
-    tasks: ""
-    repo: E:/CODE/CangKu/yijucanxiang
-    tools: [python]
-    sources: []
-
   # 明鉴仓库在 Hermes 中已注册为 project-3，沿用其 slug 不重复创建
   - id: project-3
     name: 明鉴
@@ -94,5 +87,15 @@ projects:
     name: ROSA RAG
     tasks: ""
     repo: E:/AI/rosa_rag
+    tools: [python]
+    sources: []
+
+# 已发布 / 历史项目：已稳定运行、无后续开发计划的项目移此段。
+# 报告里会折叠为独立小节，健康度统一标 released，不参与活跃排序。
+released:
+  - id: yijucanxiang
+    name: 弈局残响
+    tasks: ""
+    repo: E:/CODE/CangKu/yijucanxiang
     tools: [python]
     sources: []
