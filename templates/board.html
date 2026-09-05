@@ -68,6 +68,7 @@
   .card .ptags{margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   .ptag{background:#eef0fb;color:#5b5478;border-radius:6px;font-size:10px;padding:1px 6px}
   .prog{background:#e7f0ea;color:#3c6b54;border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600}
+  .blktag{background:#f6e2e2;color:#8a4343;border-radius:6px;font-size:10px;padding:1px 6px;font-weight:600}
   .card small{color:var(--muted);display:block;margin-top:4px;font-size:11px}
   .mv{opacity:0;transition:opacity .12s;background:transparent;border:0;cursor:pointer;
     font-size:11px;color:var(--muted);padding:0 3px;line-height:1}
@@ -186,6 +187,7 @@
       <div><label>截止（如 09-10）<input id="f_due" placeholder="可选"></label></div>
       <div><label>优先级（高中低）<input id="f_prio" placeholder="可选"></label></div>
     </div>
+    <label>阻塞（前置任务 id，逗号分隔，如 task-20260828-003）<input id="f_blk" placeholder="可选，前置未完成时本任务不可派活"></label>
     <label>项目（勾选，可多归属）</label>
     <div class="projbox" id="f_project"></div>
     <div class="row2">
@@ -457,6 +459,13 @@ function render(){
         const pr=document.createElement("span");pr.className="prog";pr.textContent="方案 "+done+"/"+markable;
         tags.appendChild(pr);
       }
+      const blocked=(t.阻塞||[]).filter(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";});
+      if(blocked.length){
+        const bd=document.createElement("span");bd.className="blktag";
+        bd.title="被阻塞：\n"+blocked.map(b=>{const x=TASKS.find(y=>y.id===b);return "· "+b+"《"+(x?x.标题||"":"")+"》"+(x?x.状态:"");}).join("\n")+"\n前置完成并验收后自动解锁";
+        bd.textContent="⛔ 阻塞×"+blocked.length;
+        tags.appendChild(bd);
+      }
       (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
       if(isStale(t)){
         const sb=document.createElement("span");sb.className="stalebadge";sb.textContent="搁置 "+taskAgeDays(t)+" 天";
@@ -500,6 +509,7 @@ async function openPreview(t){
     pv("状态 / 批次",(t.状态||"草稿")+" · "+(t.批次?("批"+esc(t.批次)):"未分批")
       +(t.优先级?" · 优先级 "+esc(t.优先级):"")+(t.截止?" · 截止 "+esc(t.截止):""))+
     pv("项目",esc(projTags))+
+    ((t.阻塞&&t.阻塞.length)?pv("阻塞",esc(t.阻塞.map(b=>{const x=TASKS.find(y=>y.id===b);return b+"（《"+(x?x.标题||"":"")+"》"+(x?x.状态:"已不在看板");}).join("、"))):"")+
     pv("指派 / 验收",esc(t.指派||"—")+" / "+esc(t.验收||"—"))+
     pv("资源 · 资料",esc(res.资料||"—"))+
     pv("资源 · 工具",(res.工具&&res.工具.length)?esc(res.工具.join("、")):"—")+
@@ -536,7 +546,7 @@ async function togglePlan(ev,i){
 }
 async function quickDispatch(id){
   if(!id){   // 顶栏 ⚡：自动挑最高优先级的待办一个
-    const cands=TASKS.filter(t=>t.状态==="待办");
+    const cands=TASKS.filter(t=>t.状态==="待办"&&!(t.阻塞||[]).some(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";}));
     if(!cands.length){alert("没有「待办」状态的任务可派。");return;}
     const pv=t=>t.优先级==="高"?2:(t.优先级==="中"?1:0);
     cands.sort((a,b)=>pv(b)-pv(a)||((a.id||"")<(b.id||"")?-1:1));
@@ -545,6 +555,8 @@ async function quickDispatch(id){
   const t=TASKS.find(x=>x.id===id);
   if(!t)return;
   if(t.状态==="完成"||t.状态==="驳回"){alert("该任务已是终态，不派活。");return;}
+  const blocked=(t.阻塞||[]).filter(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";});
+  if(blocked.length){alert("该任务被阻塞：\n"+blocked.map(b=>{const x=TASKS.find(y=>y.id===b);return "· "+b+"《"+(x?x.标题||"":"")+"》"+(x?x.状态:"");}).join("\n")+"\n前置完成并验收后自动解锁。");return;}
   if(!confirm("派活 "+t.id+"《"+(t.标题||"")+"》？\n将新开终端窗口执行 hermes chat，任务状态置为「进行中」。"))return;
   const r=await post({action:"dispatch",id:id});
   if(r.ok){lastHash="";load(true);}
@@ -606,6 +618,7 @@ function openEdit(t){curId=t.id;
   el("mTitle").textContent="编辑 "+t.id;
   f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
   f_due.value=t.截止||"";f_prio.value=t.优先级||"";
+  f_blk.value=(t.阻塞||[]).join(", ");
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
@@ -613,7 +626,7 @@ function openEdit(t){curId=t.id;
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
-  f_title.value="";f_status.value="草稿";f_batch.value="";f_due.value="";f_prio.value="";
+  f_title.value="";f_status.value="草稿";f_batch.value="";f_due.value="";f_prio.value="";f_blk.value="";
   setProjChecks(["fangcun-base"]);f_assignee.value="hermes";f_accept.value="human";
   f_resdoc.value="";f_restool.value="";f_plan.value="- [ ] ";f_result.value="";
   el("overlay").style.display="flex";}
@@ -628,6 +641,7 @@ async function save(){const fields={
   标题:f_title.value,状态:f_status.value,批次:f_batch.value,截止:f_due.value,优先级:f_prio.value,
   项目:getProjChecks(),指派:f_assignee.value,验收:f_accept.value,
   资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
+  阻塞:sv(f_blk.value),
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
   结果记录:f_result.value};
   if(curId){fields.expected_update=curEditVer;   // 乐观锁：版本不符拒绝写入

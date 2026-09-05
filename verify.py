@@ -152,7 +152,69 @@ if os.path.exists(real):
 # ---- 6. 模板缺失防御 ----
 check("parse_task 对无 frontmatter 返回 None", teg.parse_task(os.path.join(ROOT, "registry.yaml")) is None)
 
-print("\n===== 汇总 =====")
+# ---- 7. 依赖/阻塞（受管渲染 / dispatch 拦截 / done 提示 / doctor）----
+import io as _io, contextlib as _cl
+dep_dir = os.path.join(tmpdir, "dep-task-data")
+os.makedirs(os.path.join(dep_dir, "archive"), exist_ok=True)
+os.makedirs(os.path.join(dep_dir, ".trash"), exist_ok=True)
+_saved_td, teg.TASK_DIR = teg.TASK_DIR, dep_dir
+
+def _w(tid, title, status, blk=None, sub=""):
+    body = (f"---\nid: {tid}\n标题: {title}\n项目: [fangcun-base]\n状态: {status}\n"
+            + (f"阻塞: [{', '.join(blk)}]\n" if blk else "")
+            + f"创建: 1000\n更新: 1000\n---\n## 方案\n- [ ] x\n## 结果记录\n")
+    with open(os.path.join(dep_dir, sub, tid + ".md"), "w", encoding="utf-8") as f:
+        f.write(body)
+
+_w("task-20990101-900", "前置任务", "进行中")
+_w("task-20990101-901", "下游任务", "待办", blk=["task-20990101-900"])
+_w("task-20990101-902", "归档前置", "待办", sub="archive")
+_w("task-20990101-903", "下游引用归档", "待办", blk=["task-20990101-902"])
+_w("task-20990101-904", "悬空引用", "待办", blk=["task-20990101-999"])
+_w("task-20990101-905", "第二下游", "待办", blk=["task-20990101-900"])
+_w("task-20990101-906", "回收站前置引用", "待办", blk=["task-20990101-907"])
+_w("task-20990101-907", "进回收站", "待办", sub=".trash")
+check("阻塞字段受管往返", teg.parse_task(os.path.join(dep_dir, "task-20990101-901.md")).get("阻塞") == ["task-20990101-900"])
+blk = teg.blockers_of("task-20990101-901")
+check("未完成前置算阻塞", len(blk) == 1 and blk[0]["id"] == "task-20990101-900", str(blk))
+ok, msg = teg.dispatch_task("task-20990101-901", launch=False)
+check("dispatch 被阻塞拒绝", ok is False and "被阻塞" in msg, msg)
+check("dispatch 拒绝不留痕", all(r["kind"] != "dispatch" for r in teg.read_activity("task-20990101-901")))
+# 前置完成 → 自动解锁（零状态变更：下游文件未被动过）
+fn900 = os.path.join(dep_dir, "task-20990101-900.md")
+d900 = teg.parse_task(fn900); d900["状态"] = "完成"; teg.write_task_file(fn900, d900)
+check("前置完成后 blockers 清空", teg.blockers_of("task-20990101-901") == [])
+d901b = teg.parse_task(os.path.join(dep_dir, "task-20990101-901.md"))
+check("解锁零状态变更（下游文件未动）", d901b.get("状态") == "待办" and d901b.get("更新") == "1000")
+ok, msg = teg.dispatch_task("task-20990101-901", launch=False)   # 走完整流程：不再是阻塞拒绝
+check("解锁后 dispatch 不再因阻塞拒绝", "被阻塞" not in msg, msg)
+check("归档前置不算阻塞", teg.blockers_of("task-20990101-903") == [])
+check("回收站前置不算阻塞", teg.blockers_of("task-20990101-906") == [])
+# done 解锁提示（捕获 stdout）
+class DA: pass
+da = DA(); da.id = "task-20990101-900"; da.结果 = "前置完工"; da.expected_mtime = None
+buf = _io.StringIO()
+with _cl.redirect_stdout(buf):
+    teg.cmd_done(da)
+out = buf.getvalue()
+check("done 打印下游引用", "task-20990101-901" in out and "task-20990101-905" in out and "引用了本任务" in out, out)
+check("done 主流程不受影响", "已回写结果并置为待验收" in out)
+# doctor：悬空/自环报 error
+class DD: pass
+dd = DD()
+buf2 = _io.StringIO()
+with _cl.redirect_stdout(buf2):
+    teg.cmd_doctor(dd)
+check("doctor 悬空阻塞报 error", "[error] task-20990101-904: 阻塞引用不存在的任务 task-20990101-999" in buf2.getvalue(), buf2.getvalue())
+_w("task-20990101-908", "自环", "待办", blk=["task-20990101-908"])
+buf3 = _io.StringIO()
+with _cl.redirect_stdout(buf3):
+    teg.cmd_doctor(dd)
+check("doctor 自环报 error", "阻塞自己" in buf3.getvalue(), buf3.getvalue())
+os.remove(os.path.join(dep_dir, "task-20990101-908.md"))
+teg.TASK_DIR = _saved_td   # 还原，后续用例不受影响
+
+# ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))

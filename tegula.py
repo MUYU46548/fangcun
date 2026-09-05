@@ -228,7 +228,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "资源", "方案", "结果记录"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "资源", "方案", "结果记录"}
 
 
 def render_task(d):
@@ -255,6 +255,9 @@ def render_task(d):
         f"指派: {d.get('指派','hermes')}",
         f"验收: {d.get('验收','human')}",
     ]
+    blk = d.get("阻塞") or []
+    if blk:                               # 依赖受管：非空才渲染，空值不留残迹
+        lines.append(f"阻塞: [{', '.join(str(x) for x in blk)}]")
     for k, v in unknown.items():          # 未知字段透传，键序稳定（P0-1）
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
@@ -316,6 +319,60 @@ def _all_task_dirs():
     return [TASK_DIR,
             os.path.join(TASK_DIR, "archive"),
             os.path.join(TASK_DIR, ".trash")]
+
+
+# ---------- 依赖/阻塞（文件即数据：只扫文件，零新状态、零双向索引）----------
+def locate_task(tid):
+    """跨 活跃/归档/回收站 定位任务文件；找不到返回 None。"""
+    for base in _all_task_dirs():
+        fn = os.path.join(base, tid + ".md")
+        if os.path.exists(fn):
+            return fn
+    return None
+
+
+def blockers_of(tid):
+    """谁阻塞了 tid：读 tid 的 阻塞 列表，过滤掉已终态（完成/驳回）或已归档的前置。
+    返回 [{id, 状态, 标题}, ...]，空列表 = 无阻塞。"""
+    fn = locate_task(tid)
+    d = parse_task(fn) if fn else None
+    if not d:
+        return []
+    out, seen = [], set()
+    for dep in [str(x).strip() for x in (d.get("阻塞") or []) if str(x).strip()]:
+        if dep in seen:
+            continue
+        dep_fn = locate_task(dep)
+        dd = parse_task(dep_fn) if dep_fn else None
+        if dd is None:
+            continue
+        if (dd.get("状态") in ("完成", "驳回")
+                or os.path.dirname(dep_fn) in (os.path.join(TASK_DIR, "archive"),
+                                               os.path.join(TASK_DIR, ".trash"))):
+            continue
+        seen.add(dep)
+        out.append({"id": dep, "状态": dd.get("状态") or "?", "标题": (dd.get("标题") or "")[:40]})
+    return out
+
+
+TASKFN = re.compile(r"^task-\d{8}-\d{3}\.md$")   # task-data 根目录还住着简报/清单等非任务 md
+
+
+def find_blockers(tid):
+    """谁引用了 tid（下游）：跨 活跃/归档/回收站 扫描各任务的 阻塞 字段。
+    用于 done 回写后的解锁提示。返回 [{id, 状态, 标题}, ...]。"""
+    out = []
+    for base in _all_task_dirs():
+        if not os.path.isdir(base):
+            continue
+        for fn0 in sorted(os.listdir(base)):
+            if not TASKFN.match(fn0) or fn0[:-3] == tid:
+                continue
+            dd = parse_task(os.path.join(base, fn0))
+            if dd and tid in [str(x).strip() for x in (dd.get("阻塞") or [])]:
+                out.append({"id": dd.get("id") or fn0[:-3], "状态": dd.get("状态") or "?",
+                            "标题": (dd.get("标题") or "")[:40]})
+    return out
 
 
 def gen_id():
@@ -394,7 +451,7 @@ def api_edit(id, fields):
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
-    for k in ["标题", "状态", "批次", "截止", "优先级", "来源", "指派", "验收"]:
+    for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "来源", "指派", "验收"]:
         if k in fields and fields[k] is not None:
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):
@@ -451,6 +508,7 @@ def api_new(fields):
         "批次": val("批次", ""),
         "截止": val("截止", ""),
         "优先级": val("优先级", ""),
+        "阻塞": fields.get("阻塞") or [],
         "来源": val("来源", "human"),
         "指派": val("指派", "hermes"),
         "验收": val("验收", "human"),
@@ -736,6 +794,10 @@ def dispatch_task(tid, launch=True):
     d, fn = info["d"], info["fn"]
     if d.get("状态") in ("完成", "驳回"):
         return False, "任务已终态，不派活"
+    blk = blockers_of(tid)
+    if blk:
+        who = "、".join(f"{b['id']}《{b['标题']}》{b['状态']}" for b in blk)
+        return False, f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）"
     cmd = _hermes_cmd(["chat", "--in", info["repo"], "-z", info["prompt"]])
     if cmd is None:
         return False, "未找到 hermes 命令（PATH 里没有 hermes）"
@@ -854,6 +916,13 @@ def cmd_done(args):
     write_task_file(fn, d)
     log_activity("done", args.id, (args.结果 or "")[:80])
     print(f"OK: {args.id} 已回写结果并置为待验收")
+    down = find_blockers(args.id)
+    if down:
+        print(f"提示：{len(down)} 个任务引用了本任务（当前仍被阻塞，验收置「完成」后自动解锁）：")
+        for t in down:
+            print(f"  - {t['id']}《{t['标题']}》[{t['状态']}]")
+    else:
+        print("提示：无下游任务引用本任务。")
 
 
 # ---------- HTTP ----------
@@ -1040,6 +1109,47 @@ def cmd_open(args):
         srv.server_close()
 
 
+# ---------- doctor：文件健康自检 ----------
+def cmd_doctor(args):
+    """只读体检：frontmatter 可解析性 / 锁版本字段 / 阻塞引用完整性。0 error 才算健康。"""
+    errs, warns, n_active, n_meta = [], [], 0, 0
+    ids = set()
+    for base in _all_task_dirs():
+        if not os.path.isdir(base):
+            continue
+        for fn0 in sorted(os.listdir(base)):
+            if not TASKFN.match(fn0):
+                if fn0.endswith(".md") and not fn0.startswith("_"):
+                    n_meta += 1          # 简报/清单等非任务文件，不体检也不算错
+                continue
+            tid = fn0[:-3]
+            d = parse_task(os.path.join(base, fn0))
+            if d is None:
+                errs.append(f"{tid}: frontmatter 无法解析")
+                continue
+            ids.add(tid)
+            if base == TASK_DIR:
+                n_active += 1
+            if not str(d.get("创建") or "").strip():
+                warns.append(f"{tid}: 缺 创建 时间戳")
+            if not str(d.get("更新") or "").strip():
+                warns.append(f"{tid}: 缺 更新 时间戳（乐观锁回退 mtime）")
+            for dep in [str(x).strip() for x in (d.get("阻塞") or []) if str(x).strip()]:
+                if dep == tid:
+                    errs.append(f"{tid}: 阻塞自己（自环）")
+                elif dep not in ids and locate_task(dep) is None:
+                    errs.append(f"{tid}: 阻塞引用不存在的任务 {dep}")
+    print(f"doctor：扫描 {len(ids)} 个任务（活跃 {n_active}，含归档/回收站）"
+          + (f"，跳过 {n_meta} 个非任务 md" if n_meta else ""))
+    for e in errs:
+        print(f"[error] {e}")
+    for w in warns:
+        print(f"[warn]  {w}")
+    if not errs and not warns:
+        print("全部健康。")
+    return 2 if errs else 0
+
+
 # ---------- CLI ----------
 def cmd_new(args):
     ok, tid = api_new({
@@ -1105,6 +1215,8 @@ def main():
     dn.set_defaults(func=cmd_done)
     bk = sub.add_parser("backup", help="备份 task-data/ 到 backups/（zip，保留最近 10 份）")
     bk.set_defaults(func=cmd_backup)
+    dc = sub.add_parser("doctor", help="文件健康自检：frontmatter/锁字段/阻塞引用（只读）")
+    dc.set_defaults(func=cmd_doctor)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
