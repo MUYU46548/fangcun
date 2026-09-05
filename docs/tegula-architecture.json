@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "方寸 (tegula) 代码架构",
+    "locale": "zh-CN",
+    "output": "tegula-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1030, 430]
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "暮雨", "sublabel": "验收人 · 看板操作", "tag": "human", "pos": [30, 50], "size": [115, 52] },
+    { "id": "agent", "type": "external", "label": "执行 Agent", "sublabel": "Hermes · 直读文件", "tag": "多终端", "pos": [30, 180], "size": [115, 52] },
+    { "id": "hermes", "type": "external", "label": "hermes chat", "sublabel": "新终端 · --in repo", "tag": "执行引擎", "pos": [30, 320], "size": [115, 52] },
+    { "id": "bat", "type": "backend", "label": "方寸看板.bat", "sublabel": "pythonw open", "tag": "一键入口", "pos": [195, 110], "size": [125, 52] },
+    { "id": "cli", "type": "backend", "label": "tegula CLI", "sublabel": "派发与回写", "tag": "零依赖标准库", "pos": [195, 180], "size": [125, 80] },
+    { "id": "board", "type": "frontend", "label": "看板前端", "sublabel": "templates/board.html", "tag": "雾灰紫单页", "pos": [370, 40], "size": [150, 56] },
+    { "id": "http", "type": "backend", "label": "本地 HTTP 服务", "sublabel": "ThreadingHTTPServer", "tag": "127.0.0.1:8753", "pos": [370, 125], "size": [150, 80] },
+    { "id": "fdata", "type": "database", "label": "task-data/*.md", "sublabel": "一个任务 = 一个文件", "tag": "活跃+归档+回收站", "pos": [580, 125], "size": [160, 80] },
+    { "id": "guard", "type": "security", "label": "时间戳乐观锁", "sublabel": "更新 优先 / mtime 兜底", "tag": "expected_update", "pos": [580, 255], "size": [160, 52] },
+    { "id": "actlog", "type": "database", "label": "审计日志 · 备份", "sublabel": ".activity.log + zip", "tag": "×10 轮换", "pos": [580, 350], "size": [160, 52] },
+    { "id": "guardian", "type": "security", "label": "verify.py · doctor", "sublabel": "42 项回归 · 只读体检", "tag": "守护层", "pos": [795, 40], "size": [200, 72] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "方寸仓库 E:/CODE/CangKu/fangcun（零第三方依赖）", "wraps": ["bat", "cli", "board", "http", "fdata", "guard", "actlog", "guardian"] }
+  ],
+  "connections": [
+    { "id": "c_user_bat", "from": "user", "to": "bat", "label": "双击启动", "variant": "emphasis" },
+    { "id": "c_user_board", "from": "user", "to": "board", "label": "看板操作" },
+    { "id": "c_bat_http", "from": "bat", "to": "http", "label": "拉起" },
+    { "id": "c_board_http", "from": "board", "to": "http", "label": "2s 轮询+/api", "variant": "emphasis", "labelDy": 26 },
+    { "id": "c_agent_cli", "from": "agent", "to": "cli", "label": "done 回写", "variant": "emphasis" },
+    { "id": "c_cli_fdata", "from": "cli", "to": "fdata", "label": "读写任务文件", "labelAt": [545, 224] },
+    { "id": "c_cli_actlog", "from": "cli", "to": "actlog", "label": "审计·备份" },
+    { "id": "c_cli_hermes", "from": "cli", "to": "hermes", "label": "dispatch 拉起", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "c_http_fdata", "from": "http", "to": "fdata", "label": "GET/POST" },
+    { "id": "c_fdata_guard", "from": "fdata", "to": "guard", "label": "写前校验", "variant": "security", "labelDy": 26 },
+    { "id": "c_guardian_fdata", "from": "guardian", "to": "fdata", "label": "回归·体检", "variant": "security", "labelDy": 26 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "一条主链", "items": ["双击 bat → cmd_open：HTTP 服务 + Edge 应用窗口，看板 2s 轮询自刷新", "CLI dispatch 拉起 hermes chat；done <id> --结果 回写闭环"] },
+    { "dot": "emerald", "title": "数据层 · 守护层", "items": ["tegula.py :180 parse_task :234 render_task :279 原子写 :418 乐观锁 :334 依赖阻塞", "verify.py 42 项回归基线；doctor 只读体检（frontmatter / 锁字段 / 悬空阻塞）"] },
+    { "dot": "amber", "title": "边界纪律", "items": ["零第三方依赖、文件即数据、不上数据库/网关", "不碰执行引擎：Hermes 只被拉起不被监控（AGENTS.md 协议接入）"] }
+  ]
+}
