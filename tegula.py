@@ -148,6 +148,32 @@ def save_registry_block(section, block_text):
 
 
 # ---------- 解析 / 序列化 ----------
+def _split_body(body):
+    """把正文拆成受管的 方案/结果记录 与需原样保留的其余内容（P0-2）。
+    返回 (plan_lines, result_text, extra_body_text)。"""
+    matches = list(re.finditer(r"^##\s*(.+?)\s*$", body, re.M))
+    plan, result, extra = [], "", []
+    lead = body[:matches[0].start()] if matches else body   # 首个标题前的散文字样，也保留
+    if lead.strip():
+        extra.append(lead.strip("\n"))
+    secs = []
+    for i, m in enumerate(matches):
+        name = m.group(1).strip()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+        secs.append((name, body[m.end():end].strip("\n")))
+    first_plan = first_result = True
+    for name, c in secs:
+        if name == "方案" and first_plan:
+            plan = [ln.rstrip() for ln in c.splitlines() if ln.strip()]
+            first_plan = False
+        elif name == "结果记录" and first_result:
+            result = c
+            first_result = False
+        else:
+            extra.append(f"## {name}\n{c}")
+    return plan, result.strip("\n"), ("\n\n".join(extra).rstrip() if extra else "")
+
+
 def parse_task(path):
     """完整解析：frontmatter 标量 + 列表 + 资源子项 + 正文 方案/结果记录。无第三方依赖。"""
     try:
@@ -188,17 +214,18 @@ def parse_task(path):
             d[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
         else:
             d[k] = v.strip("'\"")
-    plan = []
-    mp = re.search(r"##\s*方案\s*\n(.*?)(?:\n##\s*结果记录\s|\Z)", body, re.S)
-    if mp:
-        plan = [ln.rstrip() for ln in mp.group(1).splitlines() if ln.strip()]
-    result = ""
-    mr = re.search(r"##\s*结果记录\s*\n(.*)$", body, re.S)
-    if mr:
-        result = mr.group(1).strip("\n")
+    plan, result, extra = _split_body(body)
     d["方案"] = plan
     d["结果记录"] = result
+    d["_extra"] = extra          # 正文非受管内容原样保留（P0-2）
+    d["_unknown"] = {            # frontmatter 未知标量/列表字段原样保留（P0-1）
+        k: v for k, v in d.items()
+        if k not in MANAGED_KEYS and not k.startswith("_")
+    }
     return d
+
+
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "来源", "指派", "验收", "资源", "方案", "结果记录"}
 
 
 def render_task(d):
@@ -208,25 +235,37 @@ def render_task(d):
     tools = "[" + ", ".join(res.get("工具", [])) + "]"
     plan = "\n".join(d.get("方案", [])) or "- [ ] "
     result = d.get("结果记录", "") or ""
-    return (
-        f"---\n"
-        f"id: {d.get('id','')}\n"
-        f"标题: {d.get('标题','')}\n"
-        f"项目: {proj}\n"
-        f"状态: {d.get('状态','草稿')}\n"
-        f"批次: {d.get('批次','')}\n"
-        f"截止: {d.get('截止','')}\n"
-        f"优先级: {d.get('优先级','')}\n"
-        f"来源: {d.get('来源','human')}\n"
-        f"指派: {d.get('指派','hermes')}\n"
-        f"验收: {d.get('验收','human')}\n"
-        f"资源:\n"
-        f"  资料: {ziliao}\n"
-        f"  工具: {tools}\n"
-        f"---\n"
-        f"## 方案\n{plan}\n"
-        f"## 结果记录\n{result}\n"
-    )
+    extra = d.get("_extra", "") or ""
+    unknown = d.get("_unknown", {}) or {}
+    lines = [
+        "---",
+        f"id: {d.get('id','')}",
+        f"标题: {d.get('标题','')}",
+        f"项目: {proj}",
+        f"状态: {d.get('状态','草稿')}",
+        f"批次: {d.get('批次','')}",
+        f"截止: {d.get('截止','')}",
+        f"优先级: {d.get('优先级','')}",
+        f"来源: {d.get('来源','human')}",
+        f"指派: {d.get('指派','hermes')}",
+        f"验收: {d.get('验收','human')}",
+    ]
+    for k, v in unknown.items():          # 未知字段透传，键序稳定（P0-1）
+        if isinstance(v, list):
+            lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
+        else:
+            lines.append(f"{k}: {v}")
+    lines += [
+        "资源:",
+        f"  资料: {ziliao}",
+        f"  工具: {tools}",
+        "---",
+        f"## 方案\n{plan}",
+        f"## 结果记录\n{result}",
+    ]
+    if extra:
+        lines.append(extra)               # 非受管正文小节原样回插（P0-2）
+    return "\n".join(lines) + "\n"
 
 
 def write_task_file(path, d):
@@ -265,21 +304,60 @@ def load_tasks(project=None, view="active"):
     return tasks
 
 
+def _all_task_dirs():
+    return [TASK_DIR,
+            os.path.join(TASK_DIR, "archive"),
+            os.path.join(TASK_DIR, ".trash")]
+
+
 def gen_id():
+    """取当日最大序号 +1，且跨 活跃/归档/回收站 三个目录查重（防还原/复用后碰撞覆盖）。"""
     today = datetime.date.today().strftime("%Y%m%d")
-    n = 1
-    if os.path.isdir(TASK_DIR):
-        for fn in os.listdir(TASK_DIR):
-            if fn.startswith(f"task-{today}-"):
-                n += 1
-    return f"task-{today}-{n:03d}"
+    prefix = f"task-{today}-"
+    n = 0
+    pat = re.compile(r"^task-%s-(\d{3,})\.md$" % today)
+    for base in _all_task_dirs():
+        if not os.path.isdir(base):
+            continue
+        for fn in os.listdir(base):
+            m = pat.match(fn)
+            if m:
+                n = max(n, int(m.group(1)))
+    tid = f"{prefix}{n + 1:03d}"
+    # 极端兜底：理论上不会触发，万一仍撞则跳号
+    while any(os.path.exists(os.path.join(b, tid + ".md")) for b in _all_task_dirs()):
+        n += 1
+        tid = f"{prefix}{n + 1:03d}"
+    return tid
 
 
 # ---------- 编辑 API 后端 ----------
+def _mtime_guard(fn, fields):
+    """乐观锁：fields 带 expected_mtime 时，与磁盘当前 mtime 不符则拒绝写入。
+    返回 None=通过（或未要求校验）；字符串=拒绝原因。"""
+    em = fields.get("expected_mtime")
+    if em in (None, ""):
+        return None
+    try:
+        cur = int(os.path.getmtime(fn))
+    except Exception:
+        cur = 0
+    try:
+        em = int(em)
+    except (TypeError, ValueError):
+        return "bad expected_mtime"
+    if cur != em:
+        return "mtime-conflict：文件已被其他方更新，请刷新后重试"
+    return None
+
+
 def api_edit(id, fields):
     fn = os.path.join(TASK_DIR, id + ".md")
     if not os.path.exists(fn):
         return False, "not found"
+    guard = _mtime_guard(fn, fields)
+    if guard:
+        return False, guard
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
@@ -302,26 +380,49 @@ def api_edit(id, fields):
     return True, "ok"
 
 
+def load_template():
+    """读 _template.md 的 frontmatter 作为新任务底稿；不存在则返回空 dict。"""
+    tp = os.path.join(TASK_DIR, "_template.md")
+    d = parse_task(tp) if os.path.exists(tp) else None
+    return d or {}
+
+
 def api_new(fields):
     os.makedirs(TASK_DIR, exist_ok=True)
     tid = gen_id()
+    tpl = load_template()
+    tres = tpl.get("资源", {}) if isinstance(tpl.get("资源"), dict) else {}
+
+    def val(key, fallback):
+        """字段默认值链：调用方显式值 > _template.md 有效值 > 内置兜底。
+        模板占位文字（全角括号开头，如『（执行后由执行方填写）』）不算有效值。"""
+        v = fields.get(key)
+        if v not in (None, "", []):
+            return v
+        tv = tpl.get(key)
+        if tv not in (None, "", []):
+            if isinstance(tv, str) and tv.strip().startswith("（"):
+                return fallback
+            return tv
+        return fallback
+
     d = {
         "id": tid,
         "标题": fields.get("标题", "新任务"),
-        "项目": fields.get("项目") or ["fangcun-base"],
+        "项目": val("项目", ["fangcun-base"]),
         "状态": fields.get("状态", "草稿"),
-        "批次": fields.get("批次", ""),
-        "截止": fields.get("截止", ""),
-        "优先级": fields.get("优先级", ""),
-        "来源": fields.get("来源", "human"),
-        "指派": fields.get("指派", "hermes"),
-        "验收": fields.get("验收", "human"),
+        "批次": val("批次", ""),
+        "截止": val("截止", ""),
+        "优先级": val("优先级", ""),
+        "来源": val("来源", "human"),
+        "指派": val("指派", "hermes"),
+        "验收": val("验收", "human"),
         "资源": {
-            "资料": fields.get("资源资料", ""),
+            "资料": fields.get("资源资料") or (tres.get("资料") or ""),
             "工具": fields.get("资源工具") or [],
         },
-        "方案": fields.get("方案") or ["- [ ] "],
-        "结果记录": fields.get("结果记录", ""),
+        "方案": val("方案", ["- [ ] "]),
+        "结果记录": val("结果记录", ""),
     }
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
@@ -519,33 +620,98 @@ def cmd_hermes_sync(args):
             print(f"[fail] {pid}: {r.stderr.strip() or r.stdout.strip()}")
 
 
-def cmd_hermes_open(args):
-    """为某任务生成『在对应仓库里派活给 Hermes』的命令；--go 才真正拉起。"""
-    reg = {p["id"]: p for p in load_registry()}
-    fn = os.path.join(TASK_DIR, args.id + ".md")
+# ---------- 派活（看板一键 / CLI 共用）----------
+def _hermes_cmd(extra_args):
+    """解析 hermes 可执行文件真实路径，返回可直接 Popen 的命令列表。
+    Windows 上 npm shim 常是 .cmd，CreateProcess 不认，需经 cmd.exe /c 包装。"""
+    exe = shutil.which("hermes")
+    if not exe:
+        return None
+    if exe.lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", exe] + extra_args
+    return [exe] + extra_args
+
+
+def prepare_dispatch(tid):
+    """解析任务并组装派活要素。返回 (info, err)：info 为 dict，err 非空即失败。"""
+    fn = os.path.join(TASK_DIR, tid + ".md")
     if not os.path.exists(fn):
-        print(f"任务不存在: {args.id}")
-        return
+        return None, f"任务不存在: {tid}"
     d = parse_task(fn)
     if d is None:
-        print("解析失败")
-        return
+        return None, "解析失败"
     proj_id = (d.get("项目") or [None])[0]
+    reg = {p["id"]: p for p in load_registry()}
     p = reg.get(proj_id) if proj_id else None
     repo = p.get("repo") if p else None
     if not repo:
-        print(f"任务 {args.id} 的项目 {proj_id} 在 registry 中无 repo 路径，无法定位干活仓库。")
-        return
-    # 回写指令自包含在派活 prompt 里：Hermes 干完活调用方寸 done 命令闭环。
-    done_cmd = f'python "E:/CODE/CangKu/fangcun/tegula.py" done {args.id}'
-    prompt = (f"执行方寸任务 {args.id}：{d.get('标题','')}\n"
+        return None, f"任务 {tid} 的项目 {proj_id} 在 registry 中无 repo 路径"
+    done_cmd = f'python "{ROOT}/tegula.py" done {tid}'
+    prompt = (f"执行方寸任务 {tid}：{d.get('标题','')}\n"
               f"完成后必须回写：执行 {done_cmd} --结果 \"<一句话结果>\"，"
               f"结果会写入任务文件的结果记录并置为待验收。")
-    # 用 list 参数直调，避开 shell 对中文路径/自特殊字符的转译（os.system 风险）。
-    cmd = ["hermes", "chat", "--in", repo, "-z", prompt]
+    return {"d": d, "fn": fn, "repo": repo, "prompt": prompt, "done_cmd": done_cmd}, ""
+
+
+def dispatch_task(tid, launch=True):
+    """派活：新控制台窗口拉起 hermes chat（清单参数直调，无转义问题），状态置进行中。"""
+    info, err = prepare_dispatch(tid)
+    if err:
+        return False, err
+    d, fn = info["d"], info["fn"]
+    if d.get("状态") in ("完成", "驳回"):
+        return False, "任务已终态，不派活"
+    cmd = _hermes_cmd(["chat", "--in", info["repo"], "-z", info["prompt"]])
+    if cmd is None:
+        return False, "未找到 hermes 命令（PATH 里没有 hermes）"
+    if launch:
+        try:
+            subprocess.Popen(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+        except Exception as e:
+            return False, f"拉起失败: {e}"
+    if d.get("状态") != "进行中":
+        d["状态"] = "进行中"
+        write_task_file(fn, d)
+    return True, ("已在新终端窗口派活" if launch else "已生成派活命令（dry-run 不拉起）")
+
+
+def api_dispatch(id):
+    return dispatch_task(id)
+
+
+def cmd_dispatch(args):
+    """CLI 派活：指定 id 派单个；无 id 默认派最高优先级的待办一个；--all 派全部待办。"""
+    if args.id:
+        ok, msg = dispatch_task(args.id)
+        print(("[ok] " if ok else "[fail] ") + f"{args.id}: {msg}")
+        return
+    tasks = load_tasks(None, "active")
+    cands = [t for t in tasks if t.get("状态") == "待办" and (t.get("指派") or "hermes") == "hermes"]
+    def pv(t):
+        pr = t.get("优先级") or ""
+        return 2 if pr == "高" else (1 if pr == "中" else 0)
+    cands.sort(key=lambda t: (-pv(t), t.get("id", "")))
+    if not cands:
+        print("没有「待办 + 指派 hermes」的任务可派。")
+        return
+    picks = cands if args.all else cands[:1]
+    for t in picks:
+        ok, msg = dispatch_task(t["id"])
+        print(("[ok] " if ok else "[fail] ") + f"{t['id']} {t.get('标题','')}: {msg}")
+    if not args.all and len(cands) > 1:
+        print(f"（还有 {len(cands) - 1} 个待办未派，加 --all 全派）")
+
+
+def cmd_hermes_open(args):
+    """为某任务生成『在对应仓库里派活给 Hermes』的命令；--go 才真正拉起（前台）。"""
+    info, err = prepare_dispatch(args.id)
+    if err:
+        print(err)
+        return
+    cmd = ["hermes", "chat", "--in", info["repo"], "-z", info["prompt"]]
     print("# 在仓库上下文中派活给 Hermes：")
-    print(" ".join(cmd))
-    print(f"# 回写命令：{done_cmd} --结果 \"<一句话结果>\"")
+    print(" \n".join(cmd[:4]) + " …")
+    print(f"# 回写命令：{info['done_cmd']} --结果 \"<一句话结果>\"")
     if args.go:
         print("\n>>> 正在拉起 hermes chat（退出后回到此处）...")
         subprocess.run(cmd)
@@ -556,6 +722,10 @@ def cmd_done(args):
     fn = os.path.join(TASK_DIR, args.id + ".md")
     if not os.path.exists(fn):
         print(f"任务不存在: {args.id}")
+        return
+    guard = _mtime_guard(fn, {"expected_mtime": args.expected_mtime})
+    if guard:
+        print(f"[拒绝] {guard}")
         return
     d = parse_task(fn)
     if d is None:
@@ -627,6 +797,8 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = api_delete(req.get("id"))
             elif action == "restore":
                 ok, msg = api_restore(req.get("id"), req.get("from", "trash"))
+            elif action == "dispatch":
+                ok, msg = api_dispatch(req.get("id"))
             elif action == "reg_save":
                 ok, msg = api_reg_save(req)
             else:
@@ -750,11 +922,16 @@ def cmd_open(args):
 
 # ---------- CLI ----------
 def cmd_new(args):
-    tid, msg = api_new({
+    ok, tid = api_new({
         "标题": args.title,
         "项目": args.项目 or ["fangcun-base"],
+        "状态": args.状态,
+        "批次": args.批次,
+        "截止": args.截止,
+        "优先级": args.优先级,
         "来源": args.来源,
         "指派": args.指派,
+        "验收": args.验收,
     })
     print(f"已创建任务: {tid}")
 
@@ -775,8 +952,13 @@ def main():
     n = sub.add_parser("new", help="新建任务")
     n.add_argument("--title", required=True)
     n.add_argument("--项目", "--project", dest="项目", nargs="*", default=[])
+    n.add_argument("--状态", default="")
+    n.add_argument("--批次", default="")
+    n.add_argument("--截止", default="")
+    n.add_argument("--优先级", default="", choices=["", "高", "中", "低"])
     n.add_argument("--来源", default="human")
     n.add_argument("--指派", default="hermes")
+    n.add_argument("--验收", default="human")
     n.set_defaults(func=cmd_new)
     s = sub.add_parser("serve", help="启动本地看板视图（零依赖）")
     s.add_argument("--port", type=int, default=8753)
@@ -785,6 +967,10 @@ def main():
     o.add_argument("--port", type=int, default=8753)
     o.add_argument("--wait", type=int, default=15, help="窗口端冷静期秒数（首个请求前的宽限）")
     o.set_defaults(func=cmd_open)
+    dp = sub.add_parser("dispatch", help="派活：无 id 派最高优先级待办一个，--all 全派")
+    dp.add_argument("id", nargs="?", default=None, help="任务 id（可选）")
+    dp.add_argument("--all", action="store_true", help="派全部待办（每个一个新终端窗口）")
+    dp.set_defaults(func=cmd_dispatch)
     hs = sub.add_parser("hermes-sync", help="把 registry.yaml 里的项目注册进 Hermes（幂等）")
     hs.set_defaults(func=cmd_hermes_sync)
     ho = sub.add_parser("hermes-open", help="为某任务生成在仓库里派活给 Hermes 的命令")
@@ -794,6 +980,8 @@ def main():
     dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
+    dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
+                    help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.set_defaults(func=cmd_done)
     args = p.parse_args()
     if not getattr(args, "func", None):

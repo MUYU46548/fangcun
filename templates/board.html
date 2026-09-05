@@ -82,6 +82,14 @@
   .st-verify{background:#f6ecdc;color:#7a5a2e}
   .st-done{background:#e3f1de;color:#3f6b3a}
   .st-reject{background:#f6e2e2;color:#8a4343}
+  /* 待验收醒目（done 回写后的验收引导） */
+  .st-verify.pulse{animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(190,132,58,.45)}50%{box-shadow:0 0 0 5px rgba(190,132,58,0)}}
+  /* 搁置提示：待办/草稿超 3 天灰显 + 角标 */
+  .card.stale{opacity:.52;filter:saturate(.55)}
+  .card.stale:hover{opacity:.8;filter:none}
+  .stalebadge{display:inline-block;background:#e3e5ea;color:#7a7f8c;border-radius:6px;
+    font-size:10px;padding:1px 6px;margin-left:5px;font-weight:600}
   /* 模态框 */
   #overlay,#roverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);
     backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:50}
@@ -155,6 +163,7 @@
       <option value="mtime">按最近更新</option>
     </select>
     <button onclick="openNew()">+ 新建</button>
+    <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务给 Hermes（新终端窗口）">⚡ 派活</button>
     <button class="ghost" onclick="load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
@@ -211,7 +220,7 @@
     <div id="pBody" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
     <div class="acts">
       <button class="ghost" onclick="closeP()">关闭</button>
-      <button class="ghost" onclick="copyDispatch()">复制派活命令</button>
+      <button class="ghost" onclick="quickDispatch(curId)">⚡ 派活</button>
       <button class="pri" onclick="toEdit()">编辑</button>
     </div>
   </div>
@@ -252,6 +261,7 @@ const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中"
 const REGISTRY=__REGISTRY__;
 const MEMBERS=__MEMBERS__;
 let TASKS=[]; let curId=null; let curTask=null; let curProj="__all__"; let curView="active";
+let curEditMtime=0;
 let lastHash="";
 const LS_KEY="tegula_ui";
 function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
@@ -333,6 +343,17 @@ function refreshPreviewIfOpen(){
     if(t)openPreview(t);
   }
 }
+function taskAgeDays(t){   // 从 id 日期推算任务年龄（task-YYYYMMDD-NNN）
+  try{
+    const ds=(t.id||"").split("-")[1];
+    if(!ds||ds.length!==8)return 0;
+    const d=new Date(+ds.slice(0,4),+ds.slice(4,6)-1,+ds.slice(6,8));
+    return Math.floor((Date.now()-d.getTime())/86400000);
+  }catch(e){return 0;}
+}
+function isStale(t){
+  return ["待办","草稿"].includes(t.状态||"") && taskAgeDays(t)>=3;
+}
 function render(){
   const q=(el("search").value||"").trim().toLowerCase();
   const mode=el("groupMode").value;
@@ -394,6 +415,7 @@ function render(){
       const c=document.createElement("div");c.className="card";c.dataset.id=t.id;c.draggable=true;
       const stv=t.状态||"草稿";
       if(["进行中","待验收","待审批","待办"].includes(stv))c.classList.add("active-t");
+      if(isStale(t))c.classList.add("stale");
       const today=new Date(), pad2=n=>String(n).padStart(2,"0");
       const todayStr=String(today.getFullYear()).slice(2)+"-"+pad2(today.getMonth()+1)+"-"+pad2(today.getDate());
       if(t.截止 && stv!=="完成" && stv!=="驳回" && String(t.截止)<=todayStr)c.classList.add("overdue");
@@ -405,11 +427,11 @@ function render(){
       }
       b.appendChild(document.createTextNode(" "+(t.标题||"")));
       head.appendChild(b);
+      const i=STATUSES.indexOf(stv);
+      const stCls=STCLASS[stv]||"draft";
+      const st=document.createElement("span");st.className="st st-"+stCls+(stv==="待验收"?" pulse":"");st.textContent=stv;
+      head.appendChild(st);
       if(mode==="status"){
-        const i=STATUSES.indexOf(t.状态||"草稿");
-        const stCls=STCLASS[t.状态]||"draft";
-        const st=document.createElement("span");st.className="st st-"+stCls;st.textContent=t.状态||"草稿";
-        head.appendChild(st);
         if(i>0){
           const bp=document.createElement("button");bp.className="mv";bp.textContent="◀";
           bp.title="退回 "+STATUSES[i-1];
@@ -422,10 +444,6 @@ function render(){
           bn.onclick=ev=>{ev.stopPropagation();moveStatus(t.id,STATUSES[i+1]);};
           head.appendChild(bn);
         }
-      }else{
-        const stCls=STCLASS[t.状态]||"draft";
-        const st=document.createElement("span");st.className="st st-"+stCls;st.textContent=t.状态||"草稿";
-        head.appendChild(st);
       }
       if(t.优先级){
         const pd=document.createElement("span");pd.className="prio-dot prio-"+t.优先级;pd.title="优先级 "+t.优先级;
@@ -440,6 +458,16 @@ function render(){
         tags.appendChild(pr);
       }
       (t.项目||[]).forEach(id=>{const sp=document.createElement("span");sp.className="ptag";sp.textContent=pname(id);tags.appendChild(sp);});
+      if(isStale(t)){
+        const sb=document.createElement("span");sb.className="stalebadge";sb.textContent="搁置 "+taskAgeDays(t)+" 天";
+        tags.appendChild(sb);
+      }
+      if(["草稿","待审批","待办"].includes(stv)){
+        const dp=document.createElement("button");dp.className="mv";dp.style.marginLeft="auto";dp.textContent="⚡";
+        dp.title="一键派活：新终端窗口执行（hermes chat），状态自动置进行中";
+        dp.onclick=ev=>{ev.stopPropagation();quickDispatch(t.id);};
+        tags.appendChild(dp);
+      }
       const sm=document.createElement("small");sm.textContent=t.id+" · 指派 "+(t.指派||"—")+" · "+fmtTime(t.mtime);
       c.title=fmtAbs(t.mtime);
       c.appendChild(head);c.appendChild(tags);c.appendChild(sm);col.appendChild(c);
@@ -492,20 +520,22 @@ async function togglePlan(ev,i){
   else return;
   t.方案=arr;
   openPreview(t);
-  const r=await post({action:"edit",id:t.id,fields:{方案:arr}});
-  if(r.ok)load();
+  const r=await post({action:"edit",id:t.id,fields:{方案:arr,expected_mtime:t.mtime||0}});
+  if(!r.ok){lastHash="";load(true);}
+  else load();
 }
-function copyDispatch(){
-  const t=TASKS.find(x=>x.id===curId);
-  if(!t)return;
-  const pid=(t.项目||[])[0];
-  const repo=(REGISTRY[pid]&&REGISTRY[pid].repo)||"";
-  const cmd='hermes chat --in "'+repo+'" -z "执行方寸任务 '+t.id+'：'+(t.标题||"")+'"';
-  if(!repo){alert("该项目在 registry 中未配置 repo 路径。");return;}
-  navigator.clipboard.writeText(cmd).then(
-    ()=>{alert("已复制派活命令：\n"+cmd);},
-    ()=>{alert("复制失败，请手动复制：\n"+cmd);}
-  );
+async function quickDispatch(id){
+  if(!id){   // 顶栏 ⚡：自动挑最高优先级的待办一个
+    const cands=TASKS.filter(t=>t.状态==="待办");
+    if(!cands.length){alert("没有「待办」状态的任务可派。");return;}
+    const pv=t=>t.优先级==="高"?2:(t.优先级==="中"?1:0);
+    cands.sort((a,b)=>pv(b)-pv(a)||((a.id||"")<(b.id||"")?-1:1));
+    id=cands[0].id;
+  }
+  const t=TASKS.find(x=>x.id===id);
+  if(t&&(t.状态==="完成"||t.状态==="驳回")){alert("该任务已是终态，不派活。");return;}
+  const r=await post({action:"dispatch",id:id});
+  if(r.ok){lastHash="";load(true);}
 }
 function fillAssigneeSelects(){
   const opts='<option value=""></option>'+MEMBERS.map(m=>'<option>'+esc(m)+'</option>').join("");
@@ -567,6 +597,7 @@ function openEdit(t){curId=t.id;
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
+  curEditMtime=t.mtime||0;
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
@@ -587,12 +618,18 @@ async function save(){const fields={
   资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
   结果记录:f_result.value};
+  if(curId)fields.expected_mtime=curEditMtime;   // 乐观锁：防止覆盖他人并发修改
   const body=curId?{action:"edit",id:curId,fields}:{action:"new",fields};
-  await post(body);closeModal();lastHash="";load();}
+  const r=await post(body);
+  if(!r.ok&&String(r.msg||"").includes("mtime-conflict")){closeModal();lastHash="";load(true);return;}
+  closeModal();lastHash="";load();}
 async function doArchive(){if(!curId)return;await post({action:"archive",id:curId});closeModal();lastHash="";load();}
 async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();}
 async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();}
-async function moveStatus(id,status){const r=await post({action:"edit",id:id,fields:{状态:status}});if(r.ok)load(true);}
+async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
+  const fields={状态:status};if(t)fields.expected_mtime=t.mtime||0;
+  const r=await post({action:"edit",id:id,fields});
+  if(r.ok)load(true);else{lastHash="";load(true);}}
 load(true);setInterval(load,2000);
 </script>
 </body>
