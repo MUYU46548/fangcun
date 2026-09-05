@@ -188,6 +188,7 @@
       <div><label>优先级（高中低）<input id="f_prio" placeholder="可选"></label></div>
     </div>
     <label>阻塞（前置任务 id，逗号分隔，如 task-20260828-003）<input id="f_blk" placeholder="可选，前置未完成时本任务不可派活"></label>
+    <label>附言（本次派单的精确指令，随任务书下发给执行方）<input id="f_msg" placeholder="可选，如：只复查遗留 3 项，勿动归档"></label>
     <label>项目（勾选，可多归属）</label>
     <div class="projbox" id="f_project"></div>
     <div class="row2">
@@ -515,8 +516,10 @@ async function openPreview(t){
     pv("资源 · 工具",(res.工具&&res.工具.length)?esc(res.工具.join("、")):"—")+
     pv("方案",planHtml)+
     pv("结果记录",esc(t.结果记录||"—"))+
+    ((t.附言&&String(t.附言).trim())?pv("附言（下次派单随任务书下发）",esc(t.附言)):"")+
     (createdStr?pv("创建",createdStr):"")+
     pv("最近更新",fmtAbs(t.mtime))+
+    (t.prompt?'<div class="pv"><span class="k">派单任务书（执行方将收到的完整指令）</span><div class="val" style="white-space:pre-wrap;font-size:12px;background:#f5f4fa;border:1px solid var(--border);border-radius:8px;padding:8px">'+esc(t.prompt)+'</div></div>':"")+
     '<div class="pv"><span class="k">派活记录</span><div class="val" id="pAct">加载中…</div></div>';
   el("pBody").innerHTML=body;
   el("poverlay").style.display="flex";
@@ -544,7 +547,7 @@ async function togglePlan(ev,i){
   if(!r.ok){lastHash="";load(true);}
   else load();
 }
-async function quickDispatch(id){
+async function quickDispatch(id,forceConfirm){
   if(!id){   // 顶栏 ⚡：自动挑最高优先级的待办一个
     const cands=TASKS.filter(t=>t.状态==="待办"&&!(t.阻塞||[]).some(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";}));
     if(!cands.length){alert("没有「待办」状态的任务可派。");return;}
@@ -557,8 +560,13 @@ async function quickDispatch(id){
   if(t.状态==="完成"||t.状态==="驳回"){alert("该任务已是终态，不派活。");return;}
   const blocked=(t.阻塞||[]).filter(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";});
   if(blocked.length){alert("该任务被阻塞：\n"+blocked.map(b=>{const x=TASKS.find(y=>y.id===b);return "· "+b+"《"+(x?x.标题||"":"")+"》"+(x?x.状态:"");}).join("\n")+"\n前置完成并验收后自动解锁。");return;}
-  if(!confirm("派活 "+t.id+"《"+(t.标题||"")+"》？\n将新开终端窗口执行 hermes chat，任务状态置为「进行中」。"))return;
-  const r=await post({action:"dispatch",id:id});
+  const inst=(t.prompt||"").trim();
+  const shown=inst?(inst.length<=1200?inst:inst.slice(0,1200)+"\n…（完整任务书见详情面板）"):"（任务书预览未就绪，刷新后重试可查看完整指令）";
+  let msg="即将派活 "+t.id+"《"+(t.标题||"")+"》\n\n── 执行方将收到的任务书 ──\n"+shown+"\n\n确认按此指令派活？（指令可在详情面板「派单任务书」核对）";
+  if(t.状态==="进行中"&&!forceConfirm)msg+="\n\n⚠ 该任务已在进行中：重派会开出第二个并发会话，同时写同一仓库有风险。确认上次执行已中断才继续。";
+  if(!confirm(msg))return;
+  if(t.状态==="进行中"&&!forceConfirm&&!confirm("再次确认：确要在「进行中」状态重派 "+t.id+"？"))return;
+  const r=await post({action:"dispatch",id:id,force:t.状态==="进行中"});
   if(r.ok){lastHash="";load(true);}
 }
 function fillAssigneeSelects(){
@@ -619,6 +627,7 @@ function openEdit(t){curId=t.id;
   f_title.value=t.标题||"";f_status.value=t.状态||"草稿";f_batch.value=t.批次||"";
   f_due.value=t.截止||"";f_prio.value=t.优先级||"";
   f_blk.value=(t.阻塞||[]).join(", ");
+  f_msg.value=t.附言||"";
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
@@ -626,7 +635,7 @@ function openEdit(t){curId=t.id;
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
-  f_title.value="";f_status.value="草稿";f_batch.value="";f_due.value="";f_prio.value="";f_blk.value="";
+  f_title.value="";f_status.value="草稿";f_batch.value="";f_due.value="";f_prio.value="";f_blk.value="";f_msg.value="";
   setProjChecks(["fangcun-base"]);f_assignee.value="hermes";f_accept.value="human";
   f_resdoc.value="";f_restool.value="";f_plan.value="- [ ] ";f_result.value="";
   el("overlay").style.display="flex";}
@@ -642,6 +651,7 @@ async function save(){const fields={
   项目:getProjChecks(),指派:f_assignee.value,验收:f_accept.value,
   资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
   阻塞:sv(f_blk.value),
+  附言:f_msg.value,
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
   结果记录:f_result.value};
   if(curId){fields.expected_update=curEditVer;   // 乐观锁：版本不符拒绝写入

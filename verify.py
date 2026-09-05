@@ -192,7 +192,7 @@ check("归档前置不算阻塞", teg.blockers_of("task-20990101-903") == [])
 check("回收站前置不算阻塞", teg.blockers_of("task-20990101-906") == [])
 # done 解锁提示（捕获 stdout）
 class DA: pass
-da = DA(); da.id = "task-20990101-900"; da.结果 = "前置完工"; da.expected_mtime = None
+da = DA(); da.id = "task-20990101-900"; da.结果 = "前置完工"; da.证据 = ""; da.expected_mtime = None
 buf = _io.StringIO()
 with _cl.redirect_stdout(buf):
     teg.cmd_done(da)
@@ -212,7 +212,61 @@ with _cl.redirect_stdout(buf3):
     teg.cmd_doctor(dd)
 check("doctor 自环报 error", "阻塞自己" in buf3.getvalue(), buf3.getvalue())
 os.remove(os.path.join(dep_dir, "task-20990101-908.md"))
-teg.TASK_DIR = _saved_td   # 还原，后续用例不受影响
+
+# ---- 8. 派活契约（任务书/附言/门槛/快照/证据）----
+def _wt(tid, title, status, plan=None, fy="", blk=None, st=""):
+    plan_lines = "\n".join(plan) if plan else "- [ ]"
+    body = (f"---\nid: {tid}\n标题: {title}\n项目: [fangcun-base]\n状态: {status}\n"
+            + (f"阻塞: [{', '.join(blk)}]\n" if blk else "")
+            + (f"附言: {fy}\n" if fy else "")
+            + f"创建: 1000\n更新: 1000\n---\n## 方案\n{plan_lines}\n## 结果记录\n")
+    with open(os.path.join(dep_dir, st, tid + ".md"), "w", encoding="utf-8") as f:
+        f.write(body)
+
+_teg_hermes, teg._hermes_cmd = teg._hermes_cmd, (lambda extra: ["hermes"] + extra)   # 打桩：不真拉起
+_real_popen, teg.subprocess.Popen = teg.subprocess.Popen, None
+class _NoPopen:
+    def __call__(self, *a, **k): return None
+teg.subprocess.Popen = _NoPopen()
+try:
+    _wt("task-20990101-920", "空白方案", "待办", plan=["- [ ]"])
+    ok, msg = teg.dispatch_task("task-20990101-920", launch=False)
+    check("空方案不派", ok is False and "方案为空" in msg, msg)
+    _wt("task-20990101-921", "正常下游", "待办", plan=["- [ ] 复查三项"], fy="只复查遗留 3 项，勿动归档")
+    info, _ = teg.prepare_dispatch("task-20990101-921")
+    check("任务书含方案原文", "复查三项" in info["prompt"] and "验收对照表" in info["prompt"])
+    check("任务书含附言", "只复查遗留 3 项" in info["prompt"] and "本次附言" in info["prompt"])
+    check("任务书含回写命令与证据用法", "--证据" in info["prompt"] and "done task-20990101-921" in info["prompt"])
+    check("任务书含任务卡路径", "task-20990101-921.md" in info["prompt"])
+    ok, msg = teg.dispatch_task("task-20990101-921", launch=False)   # dry-run：预览即所得，附言不消费
+    check("dry-run 派活通过", ok is True, msg)
+    check("dry-run 不消费附言", teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")).get("附言") == "只复查遗留 3 项，勿动归档")
+    d921 = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")); d921["状态"] = "待办"
+    teg.write_task_file(os.path.join(dep_dir, "task-20990101-921.md"), d921)
+    ok, msg = teg.dispatch_task("task-20990101-921", launch=True)    # 真实拉起（Popen 已打桩）
+    check("真实派活通过", ok is True, msg)
+    snap = [f for f in os.listdir(dep_dir) if f.startswith(".dispatch-task-20990101-921-")]
+    check("派单快照留底", len(snap) == 1 and "只复查遗留 3 项" in open(os.path.join(dep_dir, snap[0]), encoding="utf-8").read())
+    check("真实派单消费附言", teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")).get("附言", "").strip() == "")
+    d921b = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
+    check("进行中重派默认拒绝", teg.dispatch_task("task-20990101-921", launch=True)[0] is False)
+    ok, msg = teg.dispatch_task("task-20990101-921", launch=True, force=True)
+    check("force 显式放行重派", ok is True, msg)
+    # done：--证据 + 附言归档
+    class DA2: pass
+    da2 = DA2(); da2.id = "task-20990101-921"; da2.结果 = "三项复查完毕"; da2.证据 = "reports/check-3items.md"; da2.expected_mtime = None
+    d921c = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")); d921c["附言"] = "下次注意备份"
+    teg.write_task_file(os.path.join(dep_dir, "task-20990101-921.md"), d921c)
+    buf4 = _io.StringIO()
+    with _cl.redirect_stdout(buf4):
+        teg.cmd_done(da2)
+    d921d = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
+    check("done 证据进结果记录", "证据：reports/check-3items.md" in d921d.get("结果记录", ""))
+    check("done 附言归档并清空", "附言归档：下次注意备份" in d921d.get("结果记录", "") and not str(d921d.get("附言") or "").strip())
+    check("done 后置待验收", d921d.get("状态") == "待验收")
+finally:
+    teg._hermes_cmd, teg.subprocess.Popen = _teg_hermes, _real_popen
+    teg.TASK_DIR = _saved_td
 
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")

@@ -228,7 +228,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "资源", "方案", "结果记录"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录"}
 
 
 def render_task(d):
@@ -258,6 +258,9 @@ def render_task(d):
     blk = d.get("阻塞") or []
     if blk:                               # 依赖受管：非空才渲染，空值不留残迹
         lines.append(f"阻塞: [{', '.join(str(x) for x in blk)}]")
+    fy = str(d.get("附言") or "").strip()
+    if fy:                                # 本次派单的精确指令；done 归档后清空，非空才渲染
+        lines.append(f"附言: {fy}")
     for k, v in unknown.items():          # 未知字段透传，键序稳定（P0-1）
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
@@ -311,6 +314,13 @@ def load_tasks(project=None, view="active"):
                 # 乐观锁版本号：frontmatter 更新 优先，旧文件回退 mtime
                 if not str(d.get("更新") or "").strip():
                     d["更新"] = str(d["mtime"])
+                # 派单任务书随 payload 下发：GUI 确认弹窗展示真实指令（仅未终态任务）
+                if str(d.get("状态") or "") not in ("完成", "驳回"):
+                    try:
+                        info_p, _errp = prepare_dispatch(d.get("id", ""))
+                        d["prompt"] = (info_p or {}).get("prompt", "")
+                    except Exception:
+                        d["prompt"] = ""
                 tasks.append(d)
     return tasks
 
@@ -451,7 +461,7 @@ def api_edit(id, fields):
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
-    for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "来源", "指派", "验收"]:
+    for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "附言", "来源", "指派", "验收"]:
         if k in fields and fields[k] is not None:
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):
@@ -509,6 +519,7 @@ def api_new(fields):
         "截止": val("截止", ""),
         "优先级": val("优先级", ""),
         "阻塞": fields.get("阻塞") or [],
+        "附言": fields.get("附言") or "",
         "来源": val("来源", "human"),
         "指派": val("指派", "hermes"),
         "验收": val("验收", "human"),
@@ -765,9 +776,40 @@ def _hermes_cmd(extra_args):
     return [exe] + extra_args
 
 
+def _build_prompt(d, tid, repo, done_cmd, fn):
+    """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
+    输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。"""
+    proj_id = (d.get("项目") or [None])[0]
+    p = {q["id"]: q for q in load_registry()}.get(proj_id) if proj_id else None
+    proj_name = (p or {}).get("name") or proj_id or "?"
+    plan = "\n".join(d.get("方案") or []) or "- [ ]（方案为空）"
+    res = d.get("资源", {}) if isinstance(d.get("资源"), dict) else {}
+    ziliao = str(res.get("资料") or "").strip()
+    tools = res.get("工具") or []
+    fy = str(d.get("附言") or "").strip()
+    lines = [
+        f"执行方寸任务 {tid}：{d.get('标题','')}",
+        f"项目：{proj_name}（{proj_id}）· 仓库：{repo}",
+        f"任务卡：{fn}（先完整阅读再动手）",
+        "## 方案（验收对照表，完成后逐项核销）",
+        plan,
+    ]
+    if ziliao:
+        lines.append(f"资料：{ziliao}")
+    if tools:
+        lines.append(f"工具提示：{', '.join(tools)}")
+    if fy:
+        lines.append(f"## 本次附言（优先级最高；与本任务既往记录冲突时以本条为准）\n{fy}")
+    lines.append(
+        "## 回写（必须，自包含闭环）\n"
+        f'完成后执行：{done_cmd} --结果 "<一句话结果>" [--证据 "<改动清单/验证输出路径>"]\n'
+        "证据路径让验收人能顺着看到实物；回写后任务置为待验收，由人验收。")
+    return "\n".join(lines)
+
+
 def prepare_dispatch(tid):
     """解析任务并组装派活要素。返回 (info, err)：info 为 dict，err 非空即失败。"""
-    fn = os.path.join(TASK_DIR, tid + ".md")
+    fn = locate_task(tid) or os.path.join(TASK_DIR, tid + ".md")   # 归档任务也可回看任务书
     if not os.path.exists(fn):
         return None, f"任务不存在: {tid}"
     d = parse_task(fn)
@@ -780,14 +822,14 @@ def prepare_dispatch(tid):
     if not repo:
         return None, f"任务 {tid} 的项目 {proj_id} 在 registry 中无 repo 路径"
     done_cmd = f'python "{ROOT}/tegula.py" done {tid}'
-    prompt = (f"执行方寸任务 {tid}：{d.get('标题','')}\n"
-              f"完成后必须回写：执行 {done_cmd} --结果 \"<一句话结果>\"，"
-              f"结果会写入任务文件的结果记录并置为待验收。")
-    return {"d": d, "fn": fn, "repo": repo, "prompt": prompt, "done_cmd": done_cmd}, ""
+    prompt = _build_prompt(d, tid, repo, done_cmd, fn)
+    return {"d": d, "fn": fn, "repo": repo, "prompt": prompt, "done_cmd": done_cmd,
+            "snapshot": os.path.join(TASK_DIR, f".dispatch-{tid}-{_now_ts()}.txt")}, ""
 
 
-def dispatch_task(tid, launch=True):
-    """派活：新控制台窗口拉起 hermes chat（清单参数直调，无转义问题），状态置进行中。"""
+def dispatch_task(tid, launch=True, force=False):
+    """派活：新控制台窗口拉起 hermes chat（清单参数直调，无转义问题），状态置进行中。
+    派单门槛：方案为空不派、进行中默认不重派（--force 显式放行）；完整任务书落快照留底。"""
     info, err = prepare_dispatch(tid)
     if err:
         return False, err
@@ -798,6 +840,12 @@ def dispatch_task(tid, launch=True):
     if blk:
         who = "、".join(f"{b['id']}《{b['标题']}》{b['状态']}" for b in blk)
         return False, f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）"
+    plan_ok = [s for s in (d.get("方案") or []) if str(s).strip() and str(s).strip() != "- [ ]"]
+    if not plan_ok:
+        return False, "方案为空（只剩占位符）：空白任务书会让执行方自行猜测目标，先补方案再派"
+    if d.get("状态") == "进行中" and not force:
+        return False, ("任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
+                       "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认")
     cmd = _hermes_cmd(["chat", "--in", info["repo"], "-z", info["prompt"]])
     if cmd is None:
         return False, "未找到 hermes 命令（PATH 里没有 hermes）"
@@ -806,25 +854,49 @@ def dispatch_task(tid, launch=True):
             subprocess.Popen(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
         except Exception as e:
             return False, f"拉起失败: {e}"
+        # 派单快照：本次实际下发的完整指令留底（使用数据不入 git），审计可回放
+        try:
+            with open(info["snapshot"], "w", encoding="utf-8") as f:
+                f.write(info["prompt"])
+        except Exception:
+            pass
     if d.get("状态") != "进行中":
         d["状态"] = "进行中"
-        if not str(d.get("创建") or "").strip():
-            d["创建"] = _now_ts()
-        d["更新"] = _now_ts()
-        write_task_file(fn, d)
+    if launch and str(d.get("附言") or "").strip():
+        d["附言"] = ""            # 附言随真实派单下发并消费；dry-run/preview 不消费（预览即所得）
+    if not str(d.get("创建") or "").strip():
+        d["创建"] = _now_ts()
+    d["更新"] = _now_ts()
+    write_task_file(fn, d)
     log_activity("dispatch" if launch else "dry-dispatch", tid,
-                 (d.get("标题") or "")[:60])
+                 f"{os.path.basename(info['snapshot'])} · {(d.get('标题') or '')[:40]}")
     return True, ("已在新终端窗口派活" if launch else "已生成派活命令（dry-run 不拉起）")
 
 
-def api_dispatch(id):
-    return dispatch_task(id)
+def api_dispatch(id, force=False):
+    return dispatch_task(id, force=force)
 
 
 def cmd_dispatch(args):
-    """CLI 派活：指定 id 派单个；无 id 默认派最高优先级的待办一个；--all 派全部待办。"""
+    """CLI 派活：--msg 先写附言；--preview 打印完整任务书不拉起；指定 id 派单个；无 id 自动挑待办；--all 全派。"""
+    if args.msg:
+        if not args.id:
+            print("[fail] --msg 需要指定任务 id")
+            return
+        okw, mw = api_edit(args.id, {"附言": args.msg})
+        if not okw:
+            print(f"[fail] 附言写入失败: {mw}")
+            return
+        print(f"[ok] 附言已写入 {args.id}（随本次任务书下发）")
+    if args.preview and args.id:
+        info, err = prepare_dispatch(args.id)
+        if err:
+            print(f"[fail] {err}")
+            return
+        print(info["prompt"])
+        return
     if args.id:
-        ok, msg = dispatch_task(args.id)
+        ok, msg = dispatch_task(args.id, force=args.force)
         print(("[ok] " if ok else "[fail] ") + f"{args.id}: {msg}")
         return
     tasks = load_tasks(None, "active")
@@ -839,7 +911,7 @@ def cmd_dispatch(args):
         return
     picks = cands if args.all else cands[:1]
     for t in picks:
-        ok, msg = dispatch_task(t["id"])
+        ok, msg = dispatch_task(t["id"], force=args.force)
         print(("[ok] " if ok else "[fail] ") + f"{t['id']} {t.get('标题','')}: {msg}")
     if not args.all and len(cands) > 1:
         print(f"（还有 {len(cands) - 1} 个待办未派，加 --all 全派）")
@@ -910,6 +982,14 @@ def cmd_done(args):
     if args.结果:
         old = (d.get("结果记录") or "").strip()
         d["结果记录"] = (old + "\n" if old else "") + args.结果.strip()
+    if args.证据:
+        old = (d.get("结果记录") or "").strip()
+        d["结果记录"] = (old + "\n" if old else "") + f"证据：{args.证据.strip()}"
+    fy = str(d.get("附言") or "").strip()
+    if fy:
+        old = (d.get("结果记录") or "").strip()
+        d["结果记录"] = (old + "\n" if old else "") + f"附言归档：{fy}"
+        d["附言"] = ""            # 附言随 done 归档清空，下次派单是干净状态
     d["状态"] = "待验收"
     if not str(d.get("创建") or "").strip():
         d["创建"] = _now_ts()
@@ -988,7 +1068,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "restore":
                 ok, msg = api_restore(req.get("id"), req.get("from", "trash"))
             elif action == "dispatch":
-                ok, msg = api_dispatch(req.get("id"))
+                ok, msg = api_dispatch(req.get("id"), bool(req.get("force")))
             elif action == "reg_save":
                 ok, msg = api_reg_save(req)
             else:
@@ -1201,6 +1281,10 @@ def main():
     dp = sub.add_parser("dispatch", help="派活：无 id 派最高优先级待办一个，--all 全派")
     dp.add_argument("id", nargs="?", default=None, help="任务 id（可选）")
     dp.add_argument("--all", action="store_true", help="派全部待办（每个一个新终端窗口）")
+    dp.add_argument("--preview", action="store_true", help="打印将下发给执行方的完整任务书，不拉起")
+    dp.add_argument("--msg", "--附言", dest="msg", default="",
+                    help="本次派单的精确指令，先写入附言字段再随任务书下发（需指定 id）")
+    dp.add_argument("--force", action="store_true", help="进行中任务确要重派时放行（双会话风险自担）")
     dp.set_defaults(func=cmd_dispatch)
     hs = sub.add_parser("hermes-sync", help="把 registry.yaml 里的项目注册进 Hermes（幂等）")
     hs.set_defaults(func=cmd_hermes_sync)
@@ -1211,6 +1295,8 @@ def main():
     dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
+    dn.add_argument("--证据", "--evidence", dest="证据", default="",
+                    help="改动清单/验证输出的路径，追加为「证据：…」行，供验收时查看实物")
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.set_defaults(func=cmd_done)
