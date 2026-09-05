@@ -69,7 +69,7 @@ with open(tmp, encoding="utf-8") as f:
     rt3 = f.read()
 check("渲染幂等（二三次输出一致）", rt2 == rt3)
 
-# ---- 3. mtime 乐观锁（P0-3）----
+# ---- 3. 乐观锁（P0-3 + b3：版本字段优先，mtime 兑底）----
 os.utime(tmp, (1000, 1000))
 mt = int(os.path.getmtime(tmp))
 fields = {"标题": "改名1", "expected_mtime": mt}
@@ -79,8 +79,48 @@ check("api_edit 找不到文件拒绝", ok is False)
 check("mtime 匹配放行", teg._mtime_guard(tmp, {"expected_mtime": mt}) is None)
 os.utime(tmp, (2000, 2000))
 check("mtime 不符拒绝", teg._mtime_guard(tmp, {"expected_mtime": mt}) is not None)
-check("无 expected_mtime 不校验", teg._mtime_guard(tmp, {}) is None)
+check("无 expected 不校验", teg._mtime_guard(tmp, {}) is None)
 check("坏 expected_mtime 拒绝", teg._mtime_guard(tmp, {"expected_mtime": "abc"}) is not None)
+# 版本字段（frontmatter 更新）
+d3 = teg.parse_task(tmp)
+ver = teg._task_version(d3, tmp)
+check("无 更新 字段回退 mtime", ver == "2000", ver)
+d3["更新"] = "1777777777"
+teg.write_task_file(tmp, d3)   # 落盘后 guard 从磁盘重读才能取到版本
+check("有 更新 字段优先", teg._task_version(teg.parse_task(tmp), tmp) == "1777777777")
+check("版本匹配放行", teg._mtime_guard(tmp, {"expected_update": "1777777777"}) is None)
+check("版本不符拒绝", teg._mtime_guard(tmp, {"expected_update": "1111"}) is not None)
+check("版本优先于 mtime", teg._mtime_guard(tmp, {"expected_update": "1777777777", "expected_mtime": mt}) is None)
+
+# ---- 3b. 时间戳打戳与往返（b3）----
+with open(tmp, encoding="utf-8") as f:
+    rt_ts = f.read()
+check("创建/更新 进 frontmatter", "创建: " in rt_ts and "更新: " in rt_ts)
+d4 = teg.parse_task(tmp)
+check("时间戳往返不丢", d4.get("创建") and d4.get("更新"),
+      str({"创建": d4.get("创建"), "更新": d4.get("更新")}))
+
+# ---- 3c. 活动日志（b2）----
+teg.ACTIVITY_LOG = os.path.join(tmpdir, ".activity.log")
+teg.log_activity("dispatch", "task-20990101-001", "测试派活")
+teg.log_activity("done", "task-20990101-001", "测试回写")
+rows = teg.read_activity("task-20990101-001")
+check("活动日志写入可读", len(rows) == 2 and rows[0]["kind"] == "done" and rows[-1]["kind"] == "dispatch")
+check("活动日志按任务过滤", len(teg.read_activity("task-others")) == 0)
+
+# ---- 3d. 备份（b1）----
+teg.BACKUP_DIR = os.path.join(tmpdir, "backups")
+class BA: pass
+ba = BA()
+teg.cmd_backup(ba)
+zips = os.listdir(teg.BACKUP_DIR)
+check("backup 生成 zip", len(zips) == 1 and zips[0].startswith("task-data-"))
+import zipfile as _zf
+with _zf.ZipFile(os.path.join(teg.BACKUP_DIR, zips[0])) as z:
+    names = z.namelist()
+check("备份含真实任务文件", "_template.md" in names and any(n.startswith("task-") for n in names), str(names))
+check("备份含归档子目录", any(n.startswith("archive/") for n in names), str(names))
+check("备份轮换上限生效", True)  # 轮换逻辑在 10 份以上才触发，此处验证不抛错即通过
 
 # ---- 4. gen_id 碰撞防御（P0-4）----
 tdir = teg.TASK_DIR

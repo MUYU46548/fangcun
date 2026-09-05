@@ -260,8 +260,8 @@ const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
 const MEMBERS=__MEMBERS__;
-let TASKS=[]; let curId=null; let curTask=null; let curProj="__all__"; let curView="active";
-let curEditMtime=0;
+let TASKS=[]; let curId=null; let curTask=null; let curEditVer=0; let curProj="__all__"; let curView="active";
+let curEditMtime=0;   // 兼容字段（旧服务端响应时用）
 let lastHash="";
 const LS_KEY="tegula_ui";
 function loadUI(){try{const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");return s;}catch(e){return {};}}
@@ -486,7 +486,7 @@ function planRow(t,i,s){
   return '<div class="planrow'+(checked?" done":"")+'" onclick="togglePlan(event,'+i+')">'
     +'<span class="chk">'+(checked?"☑":"☐")+'</span><span class="ptxt">'+(txt||"—")+'</span></div>';
 }
-function openPreview(t){
+async function openPreview(t){
   if(typeof t==="string"){t=TASKS.find(x=>x.id===t);}
   if(!t)return;
   curId=t.id; curTask=t;
@@ -494,6 +494,7 @@ function openPreview(t){
   const projTags=(t.项目||[]).map(pname).join("、")|| "—";
   const res=t.资源||{};
   const planHtml=(t.方案&&t.方案.length)?("<div>"+t.方案.map((s,i)=>planRow(t,i,s)).join("")+"</div>"):"—";
+  const createdStr=t.创建?fmtAbs(+t.创建):"";
   const body=
     pv("标题",esc(t.标题||"—"))+
     pv("状态 / 批次",(t.状态||"草稿")+" · "+(t.批次?("批"+esc(t.批次)):"未分批")
@@ -504,9 +505,18 @@ function openPreview(t){
     pv("资源 · 工具",(res.工具&&res.工具.length)?esc(res.工具.join("、")):"—")+
     pv("方案",planHtml)+
     pv("结果记录",esc(t.结果记录||"—"))+
-    pv("最近更新",fmtAbs(t.mtime));
+    (createdStr?pv("创建",createdStr):"")+
+    pv("最近更新",fmtAbs(t.mtime))+
+    '<div class="pv"><span class="k">派活记录</span><div class="val" id="pAct">加载中…</div></div>';
   el("pBody").innerHTML=body;
   el("poverlay").style.display="flex";
+  try{
+    const r=await fetch("/tasks.json?tid="+encodeURIComponent(t.id));
+    const acts=await r.json();
+    const box=el("pAct"); if(!box)return;
+    if(!acts.length){box.textContent="无";return;}
+    box.innerHTML=acts.map(a=>"<div>"+esc(a.ts)+" · "+esc(a.kind)+(a.detail?" · "+esc(a.detail):"")+"</div>").join("");
+  }catch(e){}
 }
 function closeP(){el("poverlay").style.display="none";}
 async function togglePlan(ev,i){
@@ -520,7 +530,7 @@ async function togglePlan(ev,i){
   else return;
   t.方案=arr;
   openPreview(t);
-  const r=await post({action:"edit",id:t.id,fields:{方案:arr,expected_mtime:t.mtime||0}});
+  const r=await post({action:"edit",id:t.id,fields:{方案:arr,expected_update:String(t.更新||""),expected_mtime:t.mtime||0}});
   if(!r.ok){lastHash="";load(true);}
   else load();
 }
@@ -599,7 +609,7 @@ function openEdit(t){curId=t.id;
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
-  curEditMtime=t.mtime||0;
+  curEditVer=String(t.更新||t.mtime||0);
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
@@ -620,16 +630,20 @@ async function save(){const fields={
   资源资料:f_resdoc.value,资源工具:sv(f_restool.value),
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
   结果记录:f_result.value};
-  if(curId)fields.expected_mtime=curEditMtime;   // 乐观锁：防止覆盖他人并发修改
+  if(curId){fields.expected_update=curEditVer;   // 乐观锁：版本不符拒绝写入
+    fields.expected_mtime=curEditMtime;}          // 兼容旧服务端（无版本字段时）
   const body=curId?{action:"edit",id:curId,fields}:{action:"new",fields};
   const r=await post(body);
-  if(!r.ok&&String(r.msg||"").includes("mtime-conflict")){closeModal();lastHash="";load(true);return;}
+  if(!r.ok&&/conflict/.test(String(r.msg||""))){   // 冲突：保留表单，让用户自行取舍
+    alert("保存被拒："+r.msg+"\n\n你编辑的内容还在表单里，刷新看板核对最新内容后，可把需要的部分粘回再存。");
+    return;}
   closeModal();lastHash="";load();}
 async function doArchive(){if(!curId)return;if(!confirm("归档 "+curId+"？\n（任务移入归档视图，可随时还原）"))return;await post({action:"archive",id:curId});closeModal();lastHash="";load();}
 async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();}
 async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();}
 async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
-  const fields={状态:status};if(t)fields.expected_mtime=t.mtime||0;
+  const fields={状态:status};
+  if(t){fields.expected_update=String(t.更新||"");fields.expected_mtime=t.mtime||0;}
   const r=await post({action:"edit",id:id,fields});
   if(r.ok)load(true);else{lastHash="";load(true);}}
 load(true);setInterval(load,2000);

@@ -5,3 +5,6 @@ registry.yaml.bak
 
 # 使用数据与代码本体分割：任务内容不入代码库 git
 task-data/
+
+# 备份产物（zip 内是使用数据，同样不入库）
+backups/

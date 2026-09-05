@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) — 本地优先多 agent 任务地图
 # 零依赖：仅用 Python 标准库。视图服务用 http.server + 轮询 + 编辑 API。
-import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request
+import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request, zipfile
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -9,6 +9,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 TASK_DIR = os.path.join(ROOT, "task-data")
 REGISTRY_PATH = os.path.join(ROOT, "registry.yaml")
 REGISTRY_BAK = os.path.join(ROOT, "registry.yaml.bak")
+BACKUP_DIR = os.path.join(ROOT, "backups")
+BACKUP_KEEP = 10
+ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
 
 
@@ -225,7 +228,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "来源", "指派", "验收", "资源", "方案", "结果记录"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "资源", "方案", "结果记录"}
 
 
 def render_task(d):
@@ -246,6 +249,8 @@ def render_task(d):
         f"批次: {d.get('批次','')}",
         f"截止: {d.get('截止','')}",
         f"优先级: {d.get('优先级','')}",
+        f"创建: {d.get('创建','')}",
+        f"更新: {d.get('更新','')}",
         f"来源: {d.get('来源','human')}",
         f"指派: {d.get('指派','hermes')}",
         f"验收: {d.get('验收','human')}",
@@ -300,6 +305,9 @@ def load_tasks(project=None, view="active"):
                     d["mtime"] = int(os.path.getmtime(full))
                 except Exception:
                     d["mtime"] = 0
+                # 乐观锁版本号：frontmatter 更新 优先，旧文件回退 mtime
+                if not str(d.get("更新") or "").strip():
+                    d["更新"] = str(d["mtime"])
                 tasks.append(d)
     return tasks
 
@@ -332,9 +340,34 @@ def gen_id():
 
 
 # ---------- 编辑 API 后端 ----------
+def _now_ts():
+    return str(int(time.time()))
+
+
+def _task_version(d, path=None):
+    """任务版本号：frontmatter 更新 字段优先，为空回退文件 mtime。
+    载入（tasks.json payload）与写前校验必须同源，否则会出现假冲突。"""
+    v = ((d or {}).get("更新") or "").strip()
+    if v:
+        return v
+    if path:
+        try:
+            return str(int(os.path.getmtime(path)))
+        except Exception:
+            pass
+    return "0"
+
+
 def _mtime_guard(fn, fields):
-    """乐观锁：fields 带 expected_mtime 时，与磁盘当前 mtime 不符则拒绝写入。
-    返回 None=通过（或未要求校验）；字符串=拒绝原因。"""
+    """乐观锁：expected_update（版本字段，优先）或 expected_mtime（mtime 兑底）
+    与当前不符则拒绝写入。返回 None=通过；字符串=拒绝原因。"""
+    eu = fields.get("expected_update")
+    if eu not in (None, ""):
+        d_now = parse_task(fn)
+        cur = _task_version(d_now, fn)
+        if str(eu) != cur:
+            return "update-conflict：任务已被其他方更新（版本不符），请刷新后重试"
+        return None
     em = fields.get("expected_mtime")
     if em in (None, ""):
         return None
@@ -376,6 +409,10 @@ def api_edit(id, fields):
     if isinstance(fields.get("资源工具"), list):
         res["工具"] = fields["资源工具"]
     d["资源"] = res
+    # 时间戳：创建 只补缺，更新 每次写入都打（乐观锁版本源）
+    if not str(d.get("创建") or "").strip():
+        d["创建"] = _now_ts()
+    d["更新"] = _now_ts()
     write_task_file(fn, d)
     return True, "ok"
 
@@ -423,6 +460,8 @@ def api_new(fields):
         },
         "方案": val("方案", ["- [ ] "]),
         "结果记录": val("结果记录", ""),
+        "创建": _now_ts(),
+        "更新": _now_ts(),
     }
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
@@ -620,7 +659,43 @@ def cmd_hermes_sync(args):
             print(f"[fail] {pid}: {r.stderr.strip() or r.stdout.strip()}")
 
 
-# ---------- 派活（看板一键 / CLI 共用）----------
+# ---------- 派活/回写活动日志（审计可回溯） ----------
+def log_activity(kind, tid, detail=""):
+    """追加一行活动记录：ISO时间 | 动作 | 任务id | 详情。纯审计用，读失败不影响主流程。"""
+    try:
+        os.makedirs(TASK_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        with open(ACTIVITY_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{ts} | {kind} | {tid} | {detail}\n")
+    except Exception:
+        pass
+
+
+def read_activity(tid=None, limit=200):
+    """读活动日志（倒序）。tid 给定则只筛该任务。"""
+    if not os.path.exists(ACTIVITY_LOG):
+        return []
+    rows = []
+    try:
+        with open(ACTIVITY_LOG, encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                parts = [p.strip() for p in ln.split("|", 3)]
+                if len(parts) < 3:
+                    continue
+                if tid and parts[2] != tid:
+                    continue
+                rows.append({"ts": parts[0], "kind": parts[1], "id": parts[2],
+                             "detail": parts[3] if len(parts) > 3 else ""})
+    except Exception:
+        return []
+    rows.reverse()
+    return rows[:limit]
+
+
+# ---------- 派活（看板一键 / CLI 共用） ----------
 def _hermes_cmd(extra_args):
     """解析 hermes 可执行文件真实路径，返回可直接 Popen 的命令列表。
     Windows 上 npm shim 常是 .cmd，CreateProcess 不认，需经 cmd.exe /c 包装。"""
@@ -671,7 +746,12 @@ def dispatch_task(tid, launch=True):
             return False, f"拉起失败: {e}"
     if d.get("状态") != "进行中":
         d["状态"] = "进行中"
+        if not str(d.get("创建") or "").strip():
+            d["创建"] = _now_ts()
+        d["更新"] = _now_ts()
         write_task_file(fn, d)
+    log_activity("dispatch" if launch else "dry-dispatch", tid,
+                 (d.get("标题") or "")[:60])
     return True, ("已在新终端窗口派活" if launch else "已生成派活命令（dry-run 不拉起）")
 
 
@@ -717,6 +797,39 @@ def cmd_hermes_open(args):
         subprocess.run(cmd)
 
 
+def cmd_backup(args):
+    """把 task-data/ 打 zip 到 backups/，按 KEEP 轮换，防手滑防盘坏（git 永久排除使用数据）。"""
+    if not os.path.isdir(TASK_DIR):
+        print("task-data/ 不存在，无事可备。")
+        return
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = os.path.join(BACKUP_DIR, f"task-data-{stamp}.zip")
+    n = 0
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk(TASK_DIR):
+            dirs[:] = [d for d in dirs if d != ".trash"]   # 回收站不入备份
+            for f in files:
+                if f.endswith(".tmp"):                     # 原子写临时文件不入备份
+                    continue
+                p = os.path.join(root, f)
+                arc = os.path.relpath(p, TASK_DIR)
+                z.write(p, arc)
+                n += 1
+    keep = sorted(os.listdir(BACKUP_DIR))
+    removed = 0
+    while len(keep) > BACKUP_KEEP:
+        old = os.path.join(BACKUP_DIR, keep.pop(0))
+        try:
+            os.remove(old)
+            removed += 1
+        except OSError:
+            break
+    size = os.path.getsize(dest) / 1024
+    print(f"OK: {dest}（{n} 个文件，{size:.1f} KB）" + (f"，轮换删除 {removed} 个旧备份" if removed else ""))
+    log_activity("backup", "-", f"{os.path.basename(dest)} {n} files")
+
+
 def cmd_done(args):
     """执行方（Hermes 等）完工回写：填结果记录 + 置待验收。幂等、异常不中断。"""
     fn = os.path.join(TASK_DIR, args.id + ".md")
@@ -735,7 +848,11 @@ def cmd_done(args):
         old = (d.get("结果记录") or "").strip()
         d["结果记录"] = (old + "\n" if old else "") + args.结果.strip()
     d["状态"] = "待验收"
+    if not str(d.get("创建") or "").strip():
+        d["创建"] = _now_ts()
+    d["更新"] = _now_ts()
     write_task_file(fn, d)
+    log_activity("done", args.id, (args.结果 or "")[:80])
     print(f"OK: {args.id} 已回写结果并置为待验收")
 
 
@@ -775,6 +892,9 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(self.path.split("?", 1)[1])
             proj = qs.get("project", [""])[0] or None
             view = qs.get("view", ["active"])[0]
+            if "tid" in qs:
+                self._send_json(read_activity(qs["tid"][0]))
+                return
         self._send_json(load_tasks(proj, view))
 
     def _api(self):
@@ -983,6 +1103,8 @@ def main():
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.set_defaults(func=cmd_done)
+    bk = sub.add_parser("backup", help="备份 task-data/ 到 backups/（zip，保留最近 10 份）")
+    bk.set_defaults(func=cmd_backup)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
