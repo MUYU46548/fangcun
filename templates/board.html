@@ -190,6 +190,16 @@
   .blk-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pcsugs{margin-top:6px;border-top:1px solid var(--border);padding-top:6px}
   .pcsugs .sugrow{font-size:11px;color:var(--muted);line-height:1.5}
+  .pcremote{margin-top:6px;border-top:1px solid var(--border);padding-top:6px;display:flex;flex-wrap:wrap;gap:4px;font-size:10.5px}
+  .rm-badge{padding:1px 6px;border-radius:6px;font-weight:600;flex:none}
+  .rm-none{background:#f6e2e2;color:#8a4343}
+  .rm-local{background:#f6ecdc;color:#7a5a2e}
+  .rm-remote{background:#e1f0e8;color:#3c6b54}
+  .rm-synced{background:#e1f0e8;color:#3c6b54}
+  .rm-ahead{background:#f6ecdc;color:#7a5a2e}
+  .rm-behind{background:#f6e2e2;color:#8a4343}
+  .rm-diverge{background:#ece8f7;color:#6a5b95}
+  .rm-push{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -604,6 +614,37 @@ function projCard(s){
     stats.appendChild(mk("待办 "+(tk.pending||0)));
     if(tk.blocked)stats.appendChild(mk("⛔ 阻塞 "+tk.blocked,"blk","被阻塞的任务数"));
     c.appendChild(stats);
+
+    // 远程仓库状态
+    if(s.remote){
+      const rm=document.createElement("div");rm.className="pcremote";
+      const r=s.remote;
+      if(!r.has_git){
+        rm.innerHTML='<span class="rm-badge rm-none">无 git</span>';
+      }else if(!r.has_remote){
+        rm.innerHTML='<span class="rm-badge rm-local">本地仓库</span>';
+      }else{
+        const parts=[];
+        parts.push('<span class="rm-badge rm-remote">'+esc(r.remote_url||'origin')+'</span>');
+        if(r.upstream_branch){
+          if(r.ahead>0&&r.behind>0){
+            parts.push('<span class="rm-diverge">↕ ↑'+r.ahead+' ↓'+r.behind+'</span>');
+          }else if(r.ahead>0){
+            parts.push('<span class="rm-ahead">↑'+r.ahead+' 未推</span>');
+          }else if(r.behind>0){
+            parts.push('<span class="rm-behind">↓'+r.behind+' 落后</span>');
+          }else{
+            parts.push('<span class="rm-synced">✓ 已同步</span>');
+          }
+        }
+        if(r.last_push_days!==null){
+          const lp=r.last_push_days===0?'今天':(r.last_push_days===1?'昨天':(r.last_push_days+'天前'));
+          parts.push('<span class="rm-push">推送 '+lp+'</span>');
+        }
+        rm.innerHTML=parts.join(' ');
+      }
+      c.appendChild(rm);
+    }
 
     // 进行中任务摘要
     if(s.active_tasks && s.active_tasks.length){

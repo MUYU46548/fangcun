@@ -1404,6 +1404,72 @@ def _relative_time(days):
     return f"{days // 30}月前"
 
 
+def _scan_git_remote(repo):
+    """扫描远程仓库状态。返回 dict，无 git/无远程时返回最小信息。"""
+    remote = {
+        "has_git": False,
+        "has_remote": False,
+        "remote_url": None,
+        "upstream_branch": None,
+        "ahead": 0,
+        "behind": 0,
+        "last_push_days": None,
+        "unpushed_commits": 0,
+    }
+
+    if not repo or not os.path.isdir(os.path.join(repo, ".git")):
+        return remote
+
+    remote["has_git"] = True
+
+    # 检查是否有远程
+    try:
+        r = subprocess.run(["git", "remote", "get-url", "origin"],
+                            capture_output=True, text=True, timeout=10, cwd=repo)
+        if r.returncode != 0 or not r.stdout.strip():
+            return remote
+        remote["has_remote"] = True
+        remote["remote_url"] = r.stdout.strip()
+    except Exception:
+        return remote
+
+    # 检查上游分支
+    try:
+        r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"],
+                            capture_output=True, text=True, timeout=10, cwd=repo)
+        if r.returncode == 0 and r.stdout.strip():
+            remote["upstream_branch"] = r.stdout.strip()
+    except Exception:
+        pass
+
+    # ahead/behind
+    try:
+        r = subprocess.run(["git", "rev-list", "--left-right", "--count", "@{u}...HEAD"],
+                            capture_output=True, text=True, timeout=10, cwd=repo)
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split()
+            if len(parts) == 2:
+                remote["behind"] = int(parts[0])
+                remote["ahead"] = int(parts[1])
+                remote["unpushed_commits"] = int(parts[1])
+    except Exception:
+        pass
+
+    # 最后推送时间（通过 reflog 或 push 引用）
+    try:
+        r = subprocess.run(
+            ["git", "for-each-ref", "--format=%(push:committerdate:unix)",
+             "refs/heads"],
+            capture_output=True, text=True, timeout=10, cwd=repo)
+        if r.returncode == 0 and r.stdout.strip() and r.stdout.strip() != "0":
+            push_ts = int(r.stdout.strip())
+            remote["last_push_days"] = int((time.time() - push_ts) / 86400)
+    except Exception:
+        pass
+
+    return remote
+
+
 def scan_project_status(p):
     """扫描单个项目，返回结构化状态 dict。
 
@@ -1412,6 +1478,7 @@ def scan_project_status(p):
     - git 活动：近 7 天提交数、最后提交天数、未提交改动数、当前分支
     - 任务关联：活跃任务数、进行中/待办/阻塞数、阻塞任务标题
     - 增强信息：进行中任务详情、阻塞详情、卡片建议
+    - 远程仓库：是否关联远程、分支跟踪、ahead/behind、最后推送时间
     """
     pid = p.get("id", "")
     repo = p.get("repo", "")
@@ -1431,6 +1498,7 @@ def scan_project_status(p):
         "active_tasks": [],       # 进行中任务列表 [{id, title, plan_done, plan_total}]
         "blocked_detail": [],     # 阻塞详情 [{id, title, blocker_title}]
         "suggestions": [],        # 卡片内嵌建议
+        "remote": None,           # 远程仓库状态
     }
 
     if is_released:
@@ -1460,6 +1528,9 @@ def scan_project_status(p):
             s["git"]["active_branch"] = r.stdout.strip()
         except Exception:
             pass
+
+    # --- 远程仓库状态 ---
+    s["remote"] = _scan_git_remote(repo)
 
     # --- 任务关联 ---
     for t in load_tasks(project=pid, view="active"):

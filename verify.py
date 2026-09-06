@@ -408,6 +408,38 @@ try:
 finally:
     teg.REGISTRY_PATH = saved_reg2
 
+# ---- 11. 远程仓库扫描 ----
+import subprocess as _sp2
+import tempfile as _tf
+# 测试无 git 路径
+no_git = teg._scan_git_remote(None)
+check("无 git 路径", no_git["has_git"] is False and no_git["has_remote"] is False, str(no_git))
+# 测试有 git 无远程
+tmp_repo = _tf.mkdtemp()
+_sp2.run(["git", "init", "-q"], cwd=tmp_repo, capture_output=True)
+with open(os.path.join(tmp_repo, "f.txt"), "w") as f:
+    f.write("x")
+_sp2.run(["git", "add", "."], cwd=tmp_repo, capture_output=True)
+_sp2.run(["git", "-c", "user.name=t", "-c", "user.email=t@t.local", "commit", "-q", "-m", "init"],
+          cwd=tmp_repo, capture_output=True)
+local_only = teg._scan_git_remote(tmp_repo)
+check("有 git 无远程", local_only["has_git"] is True and local_only["has_remote"] is False, str(local_only))
+# 测试有 git 有远程（模拟）
+remote_repo = _tf.mkdtemp()
+_sp2.run(["git", "init", "-q"], cwd=remote_repo, capture_output=True)
+with open(os.path.join(remote_repo, "f.txt"), "w") as f:
+    f.write("x")
+_sp2.run(["git", "add", "."], cwd=remote_repo, capture_output=True)
+_sp2.run(["git", "-c", "user.name=t", "-c", "user.email=t@t.local", "commit", "-q", "-m", "init"],
+          cwd=remote_repo, capture_output=True)
+_sp2.run(["git", "remote", "add", "origin", "https://github.com/test/repo.git"],
+          cwd=remote_repo, capture_output=True)
+_sp2.run(["git", "branch", "--set-upstream-to", "origin/main", "main"],
+          cwd=remote_repo, capture_output=True)
+with_remote = teg._scan_git_remote(remote_repo)
+check("有 git 有远程", with_remote["has_git"] is True and with_remote["has_remote"] is True
+      and with_remote["remote_url"] == "https://github.com/test/repo.git", str(with_remote))
+
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
