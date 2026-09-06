@@ -177,6 +177,19 @@
   .pstat.blk{background:#f6e2e2;color:#8a4343;border-color:#eed0d0}
   .pstat.git{background:#eef2f8;color:#41567a}
   .pcblk{margin-top:6px;font-size:11.5px;color:#8a4343}
+  /* 项目视图增强 */
+  .pcactive{margin-top:8px;border-top:1px solid var(--border);padding-top:6px}
+  .activerow{display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px}
+  .active-title{flex:none;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+  .active-prog{flex:1;height:6px;background:#e4e2ee;border-radius:3px;overflow:hidden;min-width:40px}
+  .active-bar{display:block;height:100%;background:#9b8fc4;border-radius:3px;transition:width .3s}
+  .active-pct{flex:none;font-size:10px;color:var(--muted)}
+  .pcblkdetail{margin-top:6px;border-top:1px solid var(--border);padding-top:6px}
+  .blkrow{display:flex;gap:6px;align-items:center;font-size:11px;color:#8a4343;margin-bottom:3px}
+  .blk-icon{flex:none}
+  .blk-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pcsugs{margin-top:6px;border-top:1px solid var(--border);padding-top:6px}
+  .pcsugs .sugrow{font-size:11px;color:var(--muted);line-height:1.5}
 </style>
 </head>
 <body>
@@ -197,7 +210,7 @@
       <option value="mtime">按最近更新</option>
     </select>
     <button onclick="openNew()">+ 新建</button>
-    <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务给 Hermes（新终端窗口）">⚡ 派活</button>
+    <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务（模式 B：生成命令，你掌控执行时机）">⚡ 派活</button>
     <button class="ghost" onclick="load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
@@ -257,7 +270,7 @@
     <div id="pBody" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
     <div class="acts">
       <button class="ghost" onclick="closeP()">关闭</button>
-      <button class="ghost" onclick="quickDispatch(curId)">⚡ 派活</button>
+      <button class="ghost" onclick="quickDispatch(curId)">⚡ 派活（模式 B）</button>
       <button class="pri" onclick="toEdit()">编辑</button>
     </div>
   </div>
@@ -521,7 +534,7 @@ function render(){
       }
       if(["草稿","待审批","待办"].includes(stv)){
         const dp=document.createElement("button");dp.className="mv";dp.style.marginLeft="auto";dp.textContent="⚡";
-        dp.title="一键派活：新终端窗口执行（hermes chat），状态自动置进行中";
+        dp.title="一键派活（模式 B：生成命令，你掌控执行时机）";
         dp.onclick=ev=>{ev.stopPropagation();quickDispatch(t.id);};
         tags.appendChild(dp);
       }
@@ -591,7 +604,42 @@ function projCard(s){
     stats.appendChild(mk("待办 "+(tk.pending||0)));
     if(tk.blocked)stats.appendChild(mk("⛔ 阻塞 "+tk.blocked,"blk","被阻塞的任务数"));
     c.appendChild(stats);
-    if(s.summary){const sm=document.createElement("div");sm.className="pcblk";sm.textContent=s.summary;c.appendChild(sm);}
+
+    // 进行中任务摘要
+    if(s.active_tasks && s.active_tasks.length){
+      const at=document.createElement("div");at.className="pcactive";
+      s.active_tasks.forEach(t=>{
+        const row=document.createElement("div");row.className="activerow";
+        const prog=t.plan_total?Math.round(t.plan_done/t.plan_total*100):0;
+        row.innerHTML=`<span class="active-title">《${esc(t.title)}》</span>`+
+          `<span class="active-prog"><span class="active-bar" style="width:${prog}%"></span></span>`+
+          `<span class="active-pct">${t.plan_done}/${t.plan_total}</span>`;
+        at.appendChild(row);
+      });
+      c.appendChild(at);
+    }
+
+    // 阻塞详情
+    if(s.blocked_detail && s.blocked_detail.length){
+      const bd=document.createElement("div");bd.className="pcblkdetail";
+      s.blocked_detail.forEach(b=>{
+        const row=document.createElement("div");row.className="blkrow";
+        row.innerHTML=`<span class="blk-icon">⛔</span><span class="blk-text">《${esc(b.title)}》被《${esc(b.blocker_title)}》阻塞</span>`;
+        bd.appendChild(row);
+      });
+      c.appendChild(bd);
+    }
+
+    // 卡片内嵌建议
+    if(s.suggestions && s.suggestions.length){
+      const sg=document.createElement("div");sg.className="pcsugs";
+      s.suggestions.forEach(u=>{
+        const row=document.createElement("div");row.className="sugrow";
+        row.textContent="💡 "+u;sg.appendChild(row);
+      });
+      c.appendChild(sg);
+    }
+
     c.onclick=()=>{ // 跳回看板并按该项目过滤，衔接卡片操作
       el("projFilter").value=s.id;curProj=s.id;saveUI();setView("active");
     };
@@ -672,14 +720,49 @@ async function quickDispatch(id,forceConfirm){
   if(t.状态==="完成"||t.状态==="驳回"){alert("该任务已是终态，不派活。");return;}
   const blocked=(t.阻塞||[]).filter(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";});
   if(blocked.length){alert("该任务被阻塞：\n"+blocked.map(b=>{const x=TASKS.find(y=>y.id===b);return "· "+b+"《"+(x?x.标题||"":"")+"》"+(x?x.状态:"");}).join("\n")+"\n前置完成并验收后自动解锁。");return;}
-  const inst=(t.prompt||"").trim();
-  const shown=inst?(inst.length<=1200?inst:inst.slice(0,1200)+"\n…（完整任务书见详情面板）"):"（任务书预览未就绪，刷新后重试可查看完整指令）";
-  let msg="即将派活 "+t.id+"《"+(t.标题||"")+"》\n\n── 执行方将收到的任务书 ──\n"+shown+"\n\n确认按此指令派活？（指令可在详情面板「派单任务书」核对）";
-  if(t.状态==="进行中"&&!forceConfirm)msg+="\n\n⚠ 该任务已在进行中：重派会开出第二个并发会话，同时写同一仓库有风险。确认上次执行已中断才继续。";
-  if(!confirm(msg))return;
-  if(t.状态==="进行中"&&!forceConfirm&&!confirm("再次确认：确要在「进行中」状态重派 "+t.id+"？"))return;
-  const r=await post({action:"dispatch",id:id,force:t.状态==="进行中"});
-  if(r.ok){lastHash="";load(true);}
+  // 模式 B：调用后端 dry-run，获取命令展示给用户
+  const r=await post({action:"dispatch",id:id,force:t.状态==="进行中",dry_run:true});
+  if(!r.ok){alert("生成命令失败："+(r.msg||"未知错误"));return;}
+  showDispatchModal(t,r.cmd);
+}
+
+function showDispatchModal(t,cmd){
+  const cmdText=cmd.join(" ");
+  const box=document.createElement("div");
+  box.id="dispatchModal";
+  box.style.cssText="position:fixed;inset:0;background:rgba(60,65,80,.4);z-index:80;display:flex;align-items:center;justify-content:center";
+  box.innerHTML=`
+    <div style="background:#fff;border-radius:16px;padding:20px 22px;width:620px;max-height:85vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+      <h3 style="margin:0 0 12px;font-size:16px">⚡ 派活 — ${esc(t.id)}《${esc(t.标题||"")}》</h3>
+      <p style="font-size:12px;color:#666;margin-bottom:10px">复制以下命令在终端执行（模式 B：你掌控执行时机）：</p>
+      <div style="background:#f5f4fa;border:1px solid #e4e2ee;border-radius:8px;padding:10px;font-family:monospace;font-size:12px;word-break:break-all;white-space:pre-wrap;max-height:200px;overflow:auto;line-height:1.6" id="cmdBox">${esc(cmdText)}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <button id="copyCmdBtn" style="padding:6px 14px;border:0;border-radius:8px;background:#9b8fc4;color:#fff;cursor:pointer;font-weight:600;font-size:13px">📋 复制命令</button>
+        <span id="copyMsg" style="font-size:12px;color:#3c6b54;display:none">已复制</span>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eee">
+        <p style="font-size:12px;color:#666;margin-bottom:8px">执行完成后回写：</p>
+        <div style="background:#f5f4fa;border:1px solid #e4e2ee;border-radius:8px;padding:8px;font-family:monospace;font-size:11px;word-break:break-all">python tegula.py done ${esc(t.id)} --结果 "&lt;一句话结果&gt;"</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button id="markDoingBtn" style="padding:6px 14px;border:0;border-radius:8px;background:#e8a34a;color:#fff;cursor:pointer;font-weight:600;font-size:13px">标记进行中</button>
+        <button id="closeDmBtn" style="padding:6px 14px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:13px">关闭</button>
+      </div>
+    </div>`;
+  document.body.appendChild(box);
+  document.getElementById("copyCmdBtn").onclick=()=>{
+    navigator.clipboard.writeText(cmdText).then(()=>{
+      const m=document.getElementById("copyMsg");m.style.display="inline";
+      setTimeout(()=>{m.style.display="none";},2000);
+    });
+  };
+  document.getElementById("closeDmBtn").onclick=()=>box.remove();
+  document.getElementById("markDoingBtn").onclick=async()=>{
+    const mr=await post({action:"edit",id:t.id,fields:{状态:"进行中"}});
+    if(mr.ok){box.remove();lastHash="";load(true);}
+    else alert("标记失败："+(mr.msg||""));
+  };
+  box.onclick=e=>{if(e.target===box)box.remove();};
 }
 function fillAssigneeSelects(){
   const opts='<option value=""></option>'+MEMBERS.map(m=>'<option>'+esc(m)+'</option>').join("");

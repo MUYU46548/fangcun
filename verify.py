@@ -177,7 +177,7 @@ _w("task-20990101-907", "进回收站", "待办", sub=".trash")
 check("阻塞字段受管往返", teg.parse_task(os.path.join(dep_dir, "task-20990101-901.md")).get("阻塞") == ["task-20990101-900"])
 blk = teg.blockers_of("task-20990101-901")
 check("未完成前置算阻塞", len(blk) == 1 and blk[0]["id"] == "task-20990101-900", str(blk))
-ok, msg = teg.dispatch_task("task-20990101-901", launch=False)
+ok, msg, _ = teg.dispatch_task("task-20990101-901", launch=False)
 check("dispatch 被阻塞拒绝", ok is False and "被阻塞" in msg, msg)
 check("dispatch 拒绝不留痕", all(r["kind"] != "dispatch" for r in teg.read_activity("task-20990101-901")))
 # 前置完成 → 自动解锁（零状态变更：下游文件未被动过）
@@ -186,7 +186,7 @@ d900 = teg.parse_task(fn900); d900["状态"] = "完成"; teg.write_task_file(fn9
 check("前置完成后 blockers 清空", teg.blockers_of("task-20990101-901") == [])
 d901b = teg.parse_task(os.path.join(dep_dir, "task-20990101-901.md"))
 check("解锁零状态变更（下游文件未动）", d901b.get("状态") == "待办" and d901b.get("更新") == "1000")
-ok, msg = teg.dispatch_task("task-20990101-901", launch=False)   # 走完整流程：不再是阻塞拒绝
+ok, msg, _ = teg.dispatch_task("task-20990101-901", launch=False)   # 走完整流程：不再是阻塞拒绝
 check("解锁后 dispatch 不再因阻塞拒绝", "被阻塞" not in msg, msg)
 check("归档前置不算阻塞", teg.blockers_of("task-20990101-903") == [])
 check("回收站前置不算阻塞", teg.blockers_of("task-20990101-906") == [])
@@ -230,7 +230,7 @@ class _NoPopen:
 teg.subprocess.Popen = _NoPopen()
 try:
     _wt("task-20990101-920", "空白方案", "待办", plan=["- [ ]"])
-    ok, msg = teg.dispatch_task("task-20990101-920", launch=False)
+    ok, msg, _ = teg.dispatch_task("task-20990101-920", launch=False)
     check("空方案不派", ok is False and "方案为空" in msg, msg)
     _wt("task-20990101-921", "正常下游", "待办", plan=["- [ ] 复查三项"], fy="只复查遗留 3 项，勿动归档")
     info, _ = teg.prepare_dispatch("task-20990101-921")
@@ -238,19 +238,19 @@ try:
     check("任务书含附言", "只复查遗留 3 项" in info["prompt"] and "本次附言" in info["prompt"])
     check("任务书含回写命令与证据用法", "--证据" in info["prompt"] and "done task-20990101-921" in info["prompt"])
     check("任务书含任务卡路径", "task-20990101-921.md" in info["prompt"])
-    ok, msg = teg.dispatch_task("task-20990101-921", launch=False)   # dry-run：预览即所得，附言不消费
+    ok, msg, _ = teg.dispatch_task("task-20990101-921", launch=False)   # dry-run：预览即所得，附言不消费
     check("dry-run 派活通过", ok is True, msg)
     check("dry-run 不消费附言", teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")).get("附言") == "只复查遗留 3 项，勿动归档")
     d921 = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")); d921["状态"] = "待办"
     teg.write_task_file(os.path.join(dep_dir, "task-20990101-921.md"), d921)
-    ok, msg = teg.dispatch_task("task-20990101-921", launch=True)    # 真实拉起（Popen 已打桩）
+    ok, msg, _ = teg.dispatch_task("task-20990101-921", launch=True)    # 真实拉起（Popen 已打桩）
     check("真实派活通过", ok is True, msg)
     snap = [f for f in os.listdir(dep_dir) if f.startswith(".dispatch-task-20990101-921-")]
     check("派单快照留底", len(snap) == 1 and "只复查遗留 3 项" in open(os.path.join(dep_dir, snap[0]), encoding="utf-8").read())
     check("真实派单消费附言", teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")).get("附言", "").strip() == "")
     d921b = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
     check("进行中重派默认拒绝", teg.dispatch_task("task-20990101-921", launch=True)[0] is False)
-    ok, msg = teg.dispatch_task("task-20990101-921", launch=True, force=True)
+    ok, msg, _ = teg.dispatch_task("task-20990101-921", launch=True, force=True)
     check("force 显式放行重派", ok is True, msg)
     # done：--证据 + 附言归档
     class DA2: pass
@@ -264,9 +264,27 @@ try:
     check("done 证据进结果记录", "证据：reports/check-3items.md" in d921d.get("结果记录", ""))
     check("done 附言归档并清空", "附言归档：下次注意备份" in d921d.get("结果记录", "") and not str(d921d.get("附言") or "").strip())
     check("done 后置待验收", d921d.get("状态") == "待验收")
+    # 派活时间记录
+    d921e = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
+    check("dispatch 记录派活时间", d921e.get("派活时间") is not None and float(d921e["派活时间"]) > 0)
 finally:
     teg._hermes_cmd, teg.subprocess.Popen = _teg_hermes, _real_popen
     teg.TASK_DIR = _saved_td
+
+# ---- 9. 超时预警 ----
+# 创建一个"派活时间"在 25 小时前的任务
+saved_td2, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "timeout-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    old_ts = str(time.time() - 25 * 3600)
+    fn950 = os.path.join(teg.TASK_DIR, "task-20990101-950.md")
+    with open(fn950, "w", encoding="utf-8") as f:
+        f.write(f"---\nid: task-20990101-950\n标题: 超时任务\n项目: [fangcun-base]\n状态: 进行中\n创建: 1000\n更新: 1000\n派活时间: {old_ts}\n---\n## 方案\n- [ ] x\n## 结果记录\n")
+    timeouts = teg.find_timeout_tasks()
+    check("超时检测命中", len(timeouts) == 1 and timeouts[0]["id"] == "task-20990101-950", str(timeouts))
+    check("超时小时数正确", timeouts[0]["hours"] >= 25, str(timeouts[0]))
+finally:
+    teg.TASK_DIR = saved_td2
 
 # ---- 9. 项目感知与视图（registry released 段 / git 活动扫描 / 建议 / 报告 / 负载排序）----
 import json as _json
@@ -281,6 +299,11 @@ def _wp(tid, title, status, blk=None):
             + f"创建: 1000\n更新: 1000\n---\n## 方案\n- [ ] x\n## 结果记录\n")
     with open(os.path.join(teg.TASK_DIR, tid + ".md"), "w", encoding="utf-8") as f:
         f.write(body)
+
+def scan_with_tasks(name, tmpdir):
+    return teg.scan_project_status({
+        "id": name, "name": name, "repo": os.path.join(tmpdir, name),
+    })
 
 def _mkrepo(name, days_ago):
     repo = os.path.join(tmpdir, name)
@@ -327,6 +350,20 @@ try:
     check("任务关联与 stuck 判定", st["health"] == "stuck" and st["tasks"]["blocked"] == 1
           and st["tasks"]["blocked_names"], str(st["tasks"]))
     check("阻塞建议生成", any("解除阻塞" in u for u in teg.suggest_actions(st)), str(teg.suggest_actions(st)))
+    # 增强字段：进行中任务详情 + 阻塞详情 + 卡片建议
+    _wp("task-20990101-990", "进行中样本", "进行中")
+    fn990 = os.path.join(teg.TASK_DIR, "task-20990101-990.md")
+    d990 = teg.parse_task(fn990); d990["方案"] = ["- [x] 步骤一", "- [ ] 步骤二", "- [ ] 步骤三"]
+    teg.write_task_file(fn990, d990)
+    st2 = scan_with_tasks("proj-tasks", tmpdir)
+    # 有 2 个进行中任务：930（方案 0/1）和 990（方案 1/3）
+    check("进行中任务增强", len(st2["active_tasks"]) == 2
+          and any(a["plan_done"] == 1 and a["plan_total"] == 3 for a in st2["active_tasks"]),
+          str(st2["active_tasks"]))
+    check("阻塞详情增强", len(st2["blocked_detail"]) >= 1 and "blocker_title" in st2["blocked_detail"][0],
+          str(st2["blocked_detail"]))
+    check("卡片内嵌建议", isinstance(st2["suggestions"], list), str(st2["suggestions"]))
+    os.remove(fn990)
     cross = teg.suggest_cross_project([st, sm["proj-stale"], sm["proj-fresh"]])
     check("跨项目建议", any("卡住" in u for u in cross) and any("停滞" in u for u in cross), str(cross))
 
@@ -354,6 +391,22 @@ try:
     teg._STATUS_CACHE["data"] = None
 finally:
     teg.REGISTRY_PATH, teg.TASK_DIR = saved_reg, saved_std_td
+
+# ---- 10. registry 一致性校验 ----
+# 测试路径失效检测
+saved_reg2, teg.REGISTRY_PATH = teg.REGISTRY_PATH, os.path.join(tmpdir, "reg-consistency.yaml")
+with open(teg.REGISTRY_PATH, "w", encoding="utf-8") as f:
+    f.write("members:\n  - hermes\n  - human\nprojects:\n  - id: valid-project\n    name: Valid Project\n    repo: " + tmpdir + "\n  - id: invalid-path\n    name: Invalid Path\n    repo: E:/This/Path/Does/Not/Exist/12345\n")
+try:
+    issues = teg.check_registry_consistency()
+    path_issues = [i for i in issues if i.startswith("[路径失效]")]
+    check("路径失效检测", len(path_issues) == 1 and "invalid-path" in path_issues[0], str(issues))
+    # Hermes 对比：valid-project 和 invalid-path 都不在 Hermes 中（测试环境无 Hermes）
+    # 所以会有 [待注册] 提示
+    reg_issues = [i for i in issues if i.startswith("[待注册]")]
+    check("待注册检测", len(reg_issues) == 2, str(issues))
+finally:
+    teg.REGISTRY_PATH = saved_reg2
 
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")

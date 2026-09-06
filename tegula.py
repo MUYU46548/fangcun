@@ -237,7 +237,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间"}
 
 
 def render_task(d):
@@ -270,6 +270,9 @@ def render_task(d):
     fy = str(d.get("附言") or "").strip()
     if fy:                                # 本次派单的精确指令；done 归档后清空，非空才渲染
         lines.append(f"附言: {fy}")
+    pd = str(d.get("派活时间") or "").strip()
+    if pd:
+        lines.append(f"派活时间: {pd}")
     for k, v in unknown.items():          # 未知字段透传，键序稳定（P0-1）
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
@@ -836,28 +839,33 @@ def prepare_dispatch(tid):
             "snapshot": os.path.join(TASK_DIR, f".dispatch-{tid}-{_now_ts()}.txt")}, ""
 
 
-def dispatch_task(tid, launch=True, force=False):
-    """派活：新控制台窗口拉起 hermes chat（清单参数直调，无转义问题），状态置进行中。
-    派单门槛：方案为空不派、进行中默认不重派（--force 显式放行）；完整任务书落快照留底。"""
+def dispatch_task(tid, launch=True, force=False, dry_run=False):
+    """派活：生成完整任务书及 hermes 启动命令。
+
+    launch=True 时后台静默拉起 hermes chat（旧行为，保留给 --go 用）；
+    dry_run=True 时不拉起、不改变状态，只返回命令字符串供用户复制。
+    """
     info, err = prepare_dispatch(tid)
     if err:
-        return False, err
+        return False, err, None
     d, fn = info["d"], info["fn"]
     if d.get("状态") in ("完成", "驳回"):
-        return False, "任务已终态，不派活"
+        return False, "任务已终态，不派活", None
     blk = blockers_of(tid)
     if blk:
         who = "、".join(f"{b['id']}《{b['标题']}》{b['状态']}" for b in blk)
-        return False, f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）"
+        return False, f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）", None
     plan_ok = [s for s in (d.get("方案") or []) if str(s).strip() and str(s).strip() != "- [ ]"]
     if not plan_ok:
-        return False, "方案为空（只剩占位符）：空白任务书会让执行方自行猜测目标，先补方案再派"
-    if d.get("状态") == "进行中" and not force:
+        return False, "方案为空（只剩占位符）：空白任务书会让执行方自行猜测目标，先补方案再派", None
+    if d.get("状态") == "进行中" and not force and (launch or dry_run):
         return False, ("任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
-                       "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认")
+                       "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认"), None
     cmd = _hermes_cmd(["-z", info["prompt"], "chat", "--in", info["repo"]])
     if cmd is None:
-        return False, "未找到 hermes 命令（PATH 里没有 hermes）"
+        return False, "未找到 hermes 命令（PATH 里没有 hermes）", None
+    if dry_run:
+        return True, "dry-run", cmd
     if launch:
         # CREATE_NO_WINDOW：后台静默运行，不弹黑窗口；用户可在 Hermes 桌面端会话列表里直接查看进度
         try:
@@ -866,7 +874,7 @@ def dispatch_task(tid, launch=True, force=False):
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except Exception as e:
-            return False, f"拉起失败: {e}"
+            return False, f"拉起失败: {e}", None
         # 派单快照：本次实际下发的完整指令留底（使用数据不入 git），审计可回放
         try:
             with open(info["snapshot"], "w", encoding="utf-8") as f:
@@ -875,6 +883,7 @@ def dispatch_task(tid, launch=True, force=False):
             pass
     if d.get("状态") != "进行中":
         d["状态"] = "进行中"
+        d["派活时间"] = _now_ts()  # 记录派活时间戳（用于超时预警）
     if launch and str(d.get("附言") or "").strip():
         d["附言"] = ""            # 附言随真实派单下发并消费；dry-run/preview 不消费（预览即所得）
     if not str(d.get("创建") or "").strip():
@@ -883,15 +892,24 @@ def dispatch_task(tid, launch=True, force=False):
     write_task_file(fn, d)
     log_activity("dispatch" if launch else "dry-dispatch", tid,
                  f"{os.path.basename(info['snapshot'])} · {(d.get('标题') or '')[:40]}")
-    return True, ("已静默派活（桌面端会话列表可追踪）" if launch else "已生成派活命令（dry-run 不拉起）")
+    return True, ("已静默派活（桌面端会话列表可追踪）" if launch else "已生成派活命令"), cmd
 
 
-def api_dispatch(id, force=False):
-    return dispatch_task(id, force=force)
+def api_dispatch(id, force=False, dry_run=False):
+    ok, msg, cmd = dispatch_task(id, force=force, dry_run=dry_run)
+    if ok and dry_run and cmd:
+        return ok, msg, cmd
+    return ok, msg, None
 
 
 def cmd_dispatch(args):
-    """CLI 派活：--msg 先写附言；--preview 打印完整任务书不拉起；指定 id 派单个；无 id 自动挑待办；--all 全派。"""
+    """CLI 派活：默认模式 B（只生成命令，不拉起），--go 保留旧自动拉起行为。
+
+    --msg  先写附言再派；
+    --preview 打印完整任务书不拉起；
+    --go 自动拉起 hermes chat（旧行为）；
+    指定 id 派单个，无 id 自动挑待办，--all 全派。
+    """
     if args.msg:
         if not args.id:
             print("[fail] --msg 需要指定任务 id")
@@ -909,12 +927,20 @@ def cmd_dispatch(args):
         print(info["prompt"])
         return
     if args.id:
-        ok, msg = dispatch_task(args.id, force=args.force)
-        print(("[ok] " if ok else "[fail] ") + f"{args.id}: {msg}")
+        ok, msg, cmd = dispatch_task(args.id, launch=args.go, force=args.force,
+                                     dry_run=not args.go)
+        if ok and not args.go:
+            # 模式 B：只输出命令，不拉起
+            print(f"[task] {args.id}")
+            print(f"# 复制以下命令在终端执行：")
+            print(" ".join(f'"{c}"' if " " in c else c for c in cmd))
+            print(f"# 回写命令：python \"{ROOT}/tegula.py\" done {args.id} --结果 \"<一句话结果>\"")
+        else:
+            print(("[ok] " if ok else "[fail] ") + f"{args.id}: {msg}")
         return
     tasks = load_tasks(None, "active")
     cands = [t for t in tasks if t.get("状态") == "待办" and (t.get("指派") or "hermes") == "hermes"
-             and not blockers_of(t.get("id", ""))]   # 与看板顶栏⚡同口径：被阻塞的不进自动挑单
+             and not blockers_of(t.get("id", ""))]
     def pv(t):
         pr = t.get("优先级") or ""
         return 2 if pr == "高" else (1 if pr == "中" else 0)
@@ -924,8 +950,14 @@ def cmd_dispatch(args):
         return
     picks = cands if args.all else cands[:1]
     for t in picks:
-        ok, msg = dispatch_task(t["id"], force=args.force)
-        print(("[ok] " if ok else "[fail] ") + f"{t['id']} {t.get('标题','')}: {msg}")
+        ok, msg, cmd = dispatch_task(t["id"], launch=args.go, force=args.force,
+                                      dry_run=not args.go)
+        if ok and not args.go:
+            print(f"[task] {t['id']} {t.get('标题','')}")
+            print(" ".join(f'"{c}"' if " " in c else c for c in cmd))
+            print(f"# 回写：python \"{ROOT}/tegula.py\" done {t['id']} --结果 \"<结果>\"")
+        else:
+            print(("[ok] " if ok else "[fail] ") + f"{t['id']} {t.get('标题','')}: {msg}")
     if not args.all and len(cands) > 1:
         print(f"（还有 {len(cands) - 1} 个待办未派，加 --all 全派）")
 
@@ -1049,7 +1081,8 @@ def project_status_payload(force=False):
     if len(statuses) > 1:
         for u in suggest_cross_project(statuses):
             all_sugs.append({"project": None, "text": u})
-    payload = {"statuses": statuses, "suggestions": all_sugs, "ts": int(now)}
+    payload = {"statuses": statuses, "suggestions": all_sugs, "ts": int(now),
+               "timeouts": find_timeout_tasks()}
     _STATUS_CACHE["data"] = payload
     _STATUS_CACHE["ts"] = now
     return payload
@@ -1108,6 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "bad json"})
             return
         action = req.get("action")
+        cmd = None
         try:
             if action == "edit":
                 ok, msg = api_edit(req.get("id"), req.get("fields", {}))
@@ -1120,7 +1154,8 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "restore":
                 ok, msg = api_restore(req.get("id"), req.get("from", "trash"))
             elif action == "dispatch":
-                ok, msg = api_dispatch(req.get("id"), bool(req.get("force")))
+                ok, msg, cmd = api_dispatch(req.get("id"), bool(req.get("force")),
+                                            bool(req.get("dry_run")))
             elif action == "reg_save":
                 ok, msg = api_reg_save(req)
             else:
@@ -1129,7 +1164,10 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = False, str(e)
         if ok and action in WRITE_ACTIONS:
             _STATUS_CACHE["data"] = None   # 写后失效：下次 /status.json 重扫，项目视图立即反映
-        self._send_json({"ok": ok, "msg": msg})
+        resp = {"ok": ok, "msg": msg}
+        if action == "dispatch" and cmd:
+            resp["cmd"] = cmd
+        self._send_json(resp)
 
     def _html(self):
         # 看板页面从独立模板渲染，便于维护与主题重涂；
@@ -1251,8 +1289,57 @@ def cmd_open(args):
 
 
 # ---------- doctor：文件健康自检 ----------
+def check_registry_consistency():
+    """检查 registry.yaml 与 Hermes 侧项目的一致性。只报告，不自动修复。
+
+    三项检查：
+    1. 路径有效性：每个 registry 条目的 repo 是否存在
+    2. 待注册项：registry 中有但 Hermes 中没有
+    3. 漂移项：Hermes 中有但 registry 中没有（手动创建/已删除残留）
+    """
+    issues = []
+    reg = load_all_projects()
+
+    # 1. 路径有效性
+    for p in reg:
+        repo = p.get("repo", "")
+        if repo and not os.path.isdir(repo):
+            issues.append(f"[路径失效] {p.get('id', '?')} 的 repo 不存在：{repo}")
+
+    # 2 & 3. 与 Hermes 侧对比
+    try:
+        out = subprocess.run(["hermes", "project", "list"],
+                             capture_output=True, text=True, timeout=30)
+    except Exception as e:
+        issues.append(f"[hermes 不可达] 无法获取 Hermes 项目列表：{e}")
+        return issues
+
+    hermes_ids = set()
+    for line in out.stdout.splitlines():
+        s = line.strip()
+        if s.startswith("*"):
+            s = s[1:].strip()
+        parts = s.split()
+        if parts:
+            hermes_ids.add(parts[0])
+
+    # registry → Hermes：缺少
+    for p in reg:
+        pid = p.get("id", "")
+        if pid and pid not in hermes_ids:
+            issues.append(f"[待注册] {pid} 在 registry 中但未注册到 Hermes（ tegula hermes-sync 可注册）")
+
+    # Hermes → registry：漂移
+    reg_ids = {p.get("id", "") for p in reg}
+    for hpid in hermes_ids:
+        if hpid not in reg_ids:
+            issues.append(f"[漂移] {hpid} 在 Hermes 中存在但不在 registry 中（可能手动创建或已删除残留）")
+
+    return issues
+
+
 def cmd_doctor(args):
-    """只读体检：frontmatter 可解析性 / 锁版本字段 / 阻塞引用完整性。0 error 才算健康。"""
+    """只读体检：frontmatter 可解析性 / 锁版本字段 / 阻塞引用完整性 / registry 一致性。0 error 才算健康。"""
     errs, warns, n_active, n_meta = [], [], 0, 0
     ids = set()
     for base in _all_task_dirs():
@@ -1280,6 +1367,15 @@ def cmd_doctor(args):
                     errs.append(f"{tid}: 阻塞自己（自环）")
                 elif dep not in ids and locate_task(dep) is None:
                     errs.append(f"{tid}: 阻塞引用不存在的任务 {dep}")
+
+    # --- registry 一致性检查 ---
+    reg_issues = check_registry_consistency()
+    for ri in reg_issues:
+        if ri.startswith("[hermes 不可达]"):
+            errs.append(ri)
+        else:
+            warns.append(ri)
+
     print(f"doctor：扫描 {len(ids)} 个任务（活跃 {n_active}，含归档/回收站）"
           + (f"，跳过 {n_meta} 个非任务 md" if n_meta else ""))
     for e in errs:
@@ -1315,6 +1411,7 @@ def scan_project_status(p):
     感知层（仅非 released）：
     - git 活动：近 7 天提交数、最后提交天数、未提交改动数、当前分支
     - 任务关联：活跃任务数、进行中/待办/阻塞数、阻塞任务标题
+    - 增强信息：进行中任务详情、阻塞详情、卡片建议
     """
     pid = p.get("id", "")
     repo = p.get("repo", "")
@@ -1330,6 +1427,10 @@ def scan_project_status(p):
         "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0},
         "health": "released" if is_released else "unknown",
         "summary": "已发布 / 无后续计划" if is_released else "",
+        # 增强字段
+        "active_tasks": [],       # 进行中任务列表 [{id, title, plan_done, plan_total}]
+        "blocked_detail": [],     # 阻塞详情 [{id, title, blocker_title}]
+        "suggestions": [],        # 卡片内嵌建议
     }
 
     if is_released:
@@ -1364,18 +1465,37 @@ def scan_project_status(p):
     for t in load_tasks(project=pid, view="active"):
         s["tasks"]["total"] += 1
         st = t.get("状态", "")
+        tid = t.get("id", "")
+        title = t.get("标题", tid)
+
         if st == "进行中":
             s["tasks"]["active"] += 1
+            # 计算方案进度
+            plan = t.get("方案", [])
+            plan_total = len(plan)
+            plan_done = sum(1 for p in plan if re.search(r'\[x\]', p, re.I))
+            s["active_tasks"].append({
+                "id": tid,
+                "title": title,
+                "plan_done": plan_done,
+                "plan_total": plan_total,
+            })
         elif st == "待办":
             s["tasks"]["pending"] += 1
         elif st in ("完成", "驳回"):
             s["tasks"]["done"] += 1
 
-        blk = blockers_of(t.get("id", ""))
+        blk = blockers_of(tid)
         if blk:
             s["tasks"]["blocked"] += 1
             for b in blk:
-                s["tasks"]["blocked_names"].append(b.get("标题") or b.get("id", ""))
+                btitle = b.get("标题") or b.get("id", "")
+                s["tasks"]["blocked_names"].append(btitle)
+                s["blocked_detail"].append({
+                    "id": tid,
+                    "title": title,
+                    "blocker_title": btitle,
+                })
 
     # --- 健康度判定 ---
     git, tasks = s["git"], s["tasks"]
@@ -1403,6 +1523,10 @@ def scan_project_status(p):
         parts.append("阻塞: 无")
 
     s["summary"] = "  ".join(parts)
+
+    # --- 卡片内嵌建议 ---
+    s["suggestions"] = suggest_actions(s)
+
     return s
 
 
@@ -1450,6 +1574,31 @@ def suggest_cross_project(statuses):
     return sugs
 
 
+def find_timeout_tasks(threshold_hours=24):
+    """查找进行中但超过 threshold_hours 未回写的任务。"""
+    timeouts = []
+    for t in load_tasks(view="active"):
+        if t.get("状态") != "进行中":
+            continue
+        dispatched = t.get("派活时间")
+        if not dispatched:
+            continue
+        try:
+            ts = float(dispatched)
+        except (ValueError, TypeError):
+            continue
+        hours = (time.time() - ts) / 3600
+        if hours >= threshold_hours:
+            timeouts.append({
+                "id": t["id"],
+                "title": t.get("标题", ""),
+                "project": (t.get("项目") or ["?"])[0],
+                "hours": int(hours),
+            })
+    timeouts.sort(key=lambda x: -x["hours"])
+    return timeouts
+
+
 def cmd_status(args):
     """显示项目健康状态：全部或指定项目。"""
     reg = load_all_projects()
@@ -1473,6 +1622,13 @@ def cmd_status(args):
     icons = {"active": "●", "stuck": "◎", "dormant": "○", "idle": "△", "unknown": "?", "released": "✅"}
     for s in statuses:
         print(f"{icons.get(s['health'], '?')} {s['name']:<14} {s['summary']}")
+
+    # --- 超时预警 ---
+    timeouts = find_timeout_tasks()
+    if timeouts:
+        print(f"\n⚠️ 超时未回写（>{24}h）：")
+        for t in timeouts:
+            print(f"  - {t['id']}《{t['title']}》{t['hours']}h")
 
     # --- 建议层 ---
     all_sugs = []
@@ -1631,13 +1787,14 @@ def main():
     o.add_argument("--port", type=int, default=8753)
     o.add_argument("--wait", type=int, default=15, help="窗口端冷静期秒数（首个请求前的宽限）")
     o.set_defaults(func=cmd_open)
-    dp = sub.add_parser("dispatch", help="派活：无 id 派最高优先级待办一个，--all 全派")
+    dp = sub.add_parser("dispatch", help="派活：默认模式 B（只生成命令，不拉起），--go 保留旧自动拉起行为")
     dp.add_argument("id", nargs="?", default=None, help="任务 id（可选）")
     dp.add_argument("--all", action="store_true", help="派全部待办（每个一个新终端窗口）")
     dp.add_argument("--preview", action="store_true", help="打印将下发给执行方的完整任务书，不拉起")
     dp.add_argument("--msg", "--附言", dest="msg", default="",
                     help="本次派单的精确指令，先写入附言字段再随任务书下发（需指定 id）")
     dp.add_argument("--force", action="store_true", help="进行中任务确要重派时放行（双会话风险自担）")
+    dp.add_argument("--go", action="store_true", help="自动拉起 hermes chat（旧行为，默认只生成命令）")
     dp.set_defaults(func=cmd_dispatch)
     hs = sub.add_parser("hermes-sync", help="把 registry.yaml 里的项目注册进 Hermes（幂等）")
     hs.set_defaults(func=cmd_hermes_sync)
