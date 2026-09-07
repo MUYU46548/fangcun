@@ -13,6 +13,9 @@ BACKUP_DIR = os.path.join(ROOT, "backups")
 BACKUP_KEEP = 10
 ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
+# pythonw（无控制台）拉起子进程时，Windows 会为每个子进程新建控制台窗口 → 黑窗风暴。
+# 所有服务端/后台子进程必须带 creationflags=_NOWIN；仅交互式 CLI 拉起（dispatch --go）除外。
+_NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 # ---------- 注册表（让 registry.yaml 真正生效）----------
@@ -676,7 +679,8 @@ def _active_hermes_profile():
     # 解析 `hermes profile list`：当前 profile 行以 ◆ 标记
     try:
         out = subprocess.run(["hermes", "profile", "list"],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, timeout=30,
+                             creationflags=_NOWIN)
     except Exception:
         return None
     for line in out.stdout.splitlines():
@@ -710,7 +714,8 @@ def cmd_hermes_sync(args):
         return
     try:
         out = subprocess.run(["hermes", "project", "list"],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, timeout=30,
+                             creationflags=_NOWIN)
     except Exception as e:
         print(f"调用 hermes 失败: {e}")
         return
@@ -733,7 +738,7 @@ def cmd_hermes_sync(args):
         name = p.get("name") or pid
         r = subprocess.run(
             ["hermes", "project", "create", name, repo, "--slug", pid],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, creationflags=_NOWIN)
         if r.returncode == 0:
             print(f"[ok]   注册 {pid} -> {name} ({repo})")
         else:
@@ -1309,7 +1314,8 @@ def check_registry_consistency():
     # 2 & 3. 与 Hermes 侧对比
     try:
         out = subprocess.run(["hermes", "project", "list"],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, timeout=30,
+                             creationflags=_NOWIN)
     except Exception as e:
         issues.append(f"[hermes 不可达] 无法获取 Hermes 项目列表：{e}")
         return issues
@@ -1425,7 +1431,8 @@ def _scan_git_remote(repo):
     # 检查是否有远程
     try:
         r = subprocess.run(["git", "remote", "get-url", "origin"],
-                            capture_output=True, text=True, timeout=10, cwd=repo)
+                            capture_output=True, text=True, timeout=10, cwd=repo,
+                            creationflags=_NOWIN)
         if r.returncode != 0 or not r.stdout.strip():
             return remote
         remote["has_remote"] = True
@@ -1436,7 +1443,8 @@ def _scan_git_remote(repo):
     # 检查上游分支
     try:
         r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"],
-                            capture_output=True, text=True, timeout=10, cwd=repo)
+                            capture_output=True, text=True, timeout=10, cwd=repo,
+                            creationflags=_NOWIN)
         if r.returncode == 0 and r.stdout.strip():
             remote["upstream_branch"] = r.stdout.strip()
     except Exception:
@@ -1445,7 +1453,8 @@ def _scan_git_remote(repo):
     # ahead/behind
     try:
         r = subprocess.run(["git", "rev-list", "--left-right", "--count", "@{u}...HEAD"],
-                            capture_output=True, text=True, timeout=10, cwd=repo)
+                            capture_output=True, text=True, timeout=10, cwd=repo,
+                            creationflags=_NOWIN)
         if r.returncode == 0 and r.stdout.strip():
             parts = r.stdout.strip().split()
             if len(parts) == 2:
@@ -1460,7 +1469,8 @@ def _scan_git_remote(repo):
         r = subprocess.run(
             ["git", "for-each-ref", "--format=%(push:committerdate:unix)",
              "refs/heads"],
-            capture_output=True, text=True, timeout=10, cwd=repo)
+            capture_output=True, text=True, timeout=10, cwd=repo,
+            creationflags=_NOWIN)
         if r.returncode == 0 and r.stdout.strip() and r.stdout.strip() != "0":
             push_ts = int(r.stdout.strip())
             remote["last_push_days"] = int((time.time() - push_ts) / 86400)
@@ -1508,23 +1518,27 @@ def scan_project_status(p):
     if repo and os.path.isdir(os.path.join(repo, ".git")):
         try:
             r = subprocess.run(["git", "log", "--since=7 days ago", "--oneline"],
-                                capture_output=True, text=True, timeout=10, cwd=repo)
+                                capture_output=True, text=True, timeout=10, cwd=repo,
+                                creationflags=_NOWIN)
             commits = [l for l in r.stdout.strip().splitlines() if l.strip()]
             s["git"]["recent_commits"] = len(commits)
 
             r = subprocess.run(["git", "log", "-1", "--format=%ct"],
-                                capture_output=True, text=True, timeout=10, cwd=repo)
+                                capture_output=True, text=True, timeout=10, cwd=repo,
+                                creationflags=_NOWIN)
             if r.stdout.strip():
                 days_ago = int((time.time() - int(r.stdout.strip())) / 86400)
                 s["git"]["last_commit_days"] = days_ago
 
             r = subprocess.run(["git", "status", "--porcelain"],
-                                capture_output=True, text=True, timeout=10, cwd=repo)
+                                capture_output=True, text=True, timeout=10, cwd=repo,
+                                creationflags=_NOWIN)
             changes = [l for l in r.stdout.strip().splitlines() if l.strip()]
             s["git"]["uncommitted"] = len(changes)
 
             r = subprocess.run(["git", "branch", "--show-current"],
-                                capture_output=True, text=True, timeout=10, cwd=repo)
+                                capture_output=True, text=True, timeout=10, cwd=repo,
+                                creationflags=_NOWIN)
             s["git"]["active_branch"] = r.stdout.strip()
         except Exception:
             pass
