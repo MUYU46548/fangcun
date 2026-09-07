@@ -478,6 +478,24 @@ try:
 finally:
     teg.TASK_DIR = saved_td3
 
+# ---- 12b. 状态快照（冷启动秒显）----
+saved_td4, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "snap-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    # 落盘→读回往返
+    fake = {"statuses": [{"id": "p1", "health": "active", "git": {}, "tasks": {}}],
+            "suggestions": [], "timeouts": []}
+    teg._save_status_snapshot(fake)
+    snap = teg._load_status_snapshot()
+    check("快照写读往返", snap is not None and snap["statuses"][0]["id"] == "p1", str(snap))
+    check("快照 ts 用 mtime", snap and snap["ts"] > 0)
+    # 损坏文件不炸
+    with open(teg._status_snapshot_path(), "w", encoding="utf-8") as f:
+        f.write("{broken json")
+    check("快照损坏安全回退", teg._load_status_snapshot() is None)
+finally:
+    teg.TASK_DIR = saved_td4
+
 # ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
 # 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
 # 窗口（每 20s 扫描一轮 ≈ 88 个黑窗，2026-09-07 闪窗事故）。

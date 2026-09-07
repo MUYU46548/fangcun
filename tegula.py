@@ -1099,13 +1099,45 @@ STATUS_TTL = 20.0            # 秒：项目状态 freshness 粒度，非实时�
 WRITE_ACTIONS = {"edit", "new", "archive", "delete", "restore", "dispatch", "reg_save", "review"}
 
 
+def _status_snapshot_path():
+    """扫描快照落盘路径（task-data/ 使用数据，不入 git）。"""
+    return os.path.join(TASK_DIR, ".status-cache.json")
+
+
+def _load_status_snapshot():
+    """读上次扫描快照；损坏/不存在返回 None。用 mtime 当缓存时间戳。"""
+    try:
+        with open(_status_snapshot_path(), encoding="utf-8") as f:
+            snap = json.load(f)
+        ts = os.path.getmtime(_status_snapshot_path())
+        if isinstance(snap.get("statuses"), list) and snap["statuses"]:
+            snap["ts"] = int(ts)
+            return snap
+    except Exception:
+        pass
+    return None
+
+
+def _save_status_snapshot(payload):
+    """扫描完成落盘（原子写）；失败静默（快照只是加速，不兜底不报错）。"""
+    try:
+        os.makedirs(TASK_DIR, exist_ok=True)
+        tmp = _status_snapshot_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, _status_snapshot_path())
+    except Exception:
+        pass
+
+
 def project_status_payload(force=False):
-    """供 /status.json 的项目状态负载（含建议层），带 TTL 缓存。
+    """供 /status.json 的项目状态负载（含建议层），带 TTL 缓存 + SWR + 快照。
 
     released 项目排到末尾；活跃区按 stuck > active > idle > dormant > unknown 排序，
     让有卡点、有动静的项目先出现在看板上。
-    SWR（stale-while-revalidate）：缓存过期时立即返回旧数据（stale 标记），
-    后台线程重扫——项目视图切换永远秒开，几秒后轮询自然拿到新数据。
+    冷启动三级数据源（消除首进等待）：
+      ① 内存 TTL 缓存（20s 内）→ ② 磁盘快照（上次扫描结果，读盘 <10ms 秒显）
+      → ③ 同步全扫（并行，~0.7s）。命中 ② 时后台自动重扫换新（SWR）。
     """
     now = time.time()
     has_cache = _STATUS_CACHE["data"] is not None
@@ -1113,24 +1145,34 @@ def project_status_payload(force=False):
         return _STATUS_CACHE["data"]
     if has_cache and not force:
         # 过期但有旧数据：先给旧数据（标 stale），后台重扫，不阻塞响应
-        _STATUS_CACHE["scanning"] = True
         threading.Thread(target=_rescan_status_bg, daemon=True).start()
         out = dict(_STATUS_CACHE["data"])
         out["stale"] = True
         return out
-    # 无缓存（冷启动）或强制刷新：同步扫（扫描本身已并行化）
+    # 冷启动：先试磁盘快照（秒显），后台重扫；无快照才同步扫
+    if not force:
+        snap = _load_status_snapshot()
+        if snap:
+            _STATUS_CACHE["data"] = snap
+            _STATUS_CACHE["ts"] = now   # 快照视为"当前已知数据"，随后台重扫更新
+            threading.Thread(target=_rescan_status_bg, daemon=True).start()
+            snap["stale"] = True
+            return snap
     return _scan_status_now()
 
 
+_STATUS_SCAN_LOCK = threading.Lock()   # 防止 SWR 后台重扫重复起线程
+
+
 def _rescan_status_bg():
-    """后台重扫 /status.json 数据；完成前再来的请求拿旧缓存，不重复起线程。"""
+    """后台重扫 /status.json 数据；持锁判定，完成前再来的请求拿旧缓存。"""
+    if not _STATUS_SCAN_LOCK.acquire(blocking=False):
+        return   # 已有线程在扫
     try:
-        if _STATUS_CACHE.get("scanning"):
-            return   # 已有线程在扫
-        _STATUS_CACHE["scanning"] = True
         _scan_status_now()
     finally:
         _STATUS_CACHE["scanning"] = False
+        _STATUS_SCAN_LOCK.release()
 
 
 def _scan_status_now():
@@ -1160,6 +1202,7 @@ def _scan_status_now():
                "timeouts": find_timeout_tasks()}
     _STATUS_CACHE["data"] = payload
     _STATUS_CACHE["ts"] = now
+    _save_status_snapshot(payload)   # 快照落盘：下次冷启动秒显
     return payload
 
 
