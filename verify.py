@@ -440,6 +440,24 @@ with_remote = teg._scan_git_remote(remote_repo)
 check("有 git 有远程", with_remote["has_git"] is True and with_remote["has_remote"] is True
       and with_remote["remote_url"] == "https://github.com/test/repo.git", str(with_remote))
 
+# ---- 12. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
+# 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
+# 窗口（每 20s 扫描一轮 ≈ 88 个黑窗，2026-09-07 闪窗事故）。
+# 语义规则：capture_output=True（或 stdout=PIPE）= 后台数据调用，必须 CREATE_NO_WINDOW；
+# 交互式拉起（如 dispatch --go，不捕获输出）豁免，必须继承控制台。
+import ast as _ast
+with open(os.path.join(ROOT, "tegula.py"), encoding="utf-8") as f:
+    _src = f.read()
+_bad = []
+for _node in _ast.walk(_ast.parse(_src)):
+    if isinstance(_node, _ast.Call) and isinstance(_node.func, _ast.Attribute):
+        if _node.func.attr in ("run", "Popen", "check_output", "check_call"):
+            _kw = {kw.arg for kw in _node.keywords if kw.arg}
+            _capturing = "capture_output" in _kw or "stdout" in _kw
+            if _capturing and "creationflags" not in _kw:
+                _bad.append(_node.lineno)
+check("子进程黑窗防线（捕获输出的调用必须带 creationflags）", not _bad, f"裸调用行: {_bad}")
+
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
