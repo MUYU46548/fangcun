@@ -102,11 +102,11 @@
   .stalebadge{display:inline-block;background:#e3e5ea;color:#7a7f8c;border-radius:6px;
     font-size:10px;padding:1px 6px;margin-left:5px;font-weight:600}
   /* 模态框 */
-  #overlay,#roverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);
+  #overlay,#roverlay,#joverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);
     backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:50}
-  #modal,#rmodal{background:#fff;border-radius:16px;padding:18px 20px;width:460px;max-height:88vh;
+  #modal,#rmodal,#jmodal{background:#fff;border-radius:16px;padding:18px 20px;width:460px;max-height:88vh;
     overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
-  #modal h3,#rmodal h3{margin:0 0 12px;font-size:16px;color:var(--ink)}
+  #modal h3,#rmodal h3,#jmodal h3{margin:0 0 12px;font-size:16px;color:var(--ink)}
   #modal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;font-weight:600}
   #modal input,#modal select,#modal textarea{width:100%;box-sizing:border-box;padding:6px 8px;
     border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--ink);outline:none;
@@ -156,62 +156,57 @@
   #smodal .memrow .x{background:transparent;border:none;color:#b35;font-size:16px;cursor:pointer;line-height:1}
   #smodal .newproj{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
   #smodal .newproj input{font-size:12px}
-  /* ── 项目视图（健康度仪表盘，消费 /status.json）── */
-  #board.pv{flex-direction:column;overflow-x:hidden}
-  .pvpanel{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
-    padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow)}
-  .pvpanel .sughead{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px}
-  .pvpanel .sughead small{color:var(--muted);font-weight:500;margin-left:8px}
+  /* ── 项目视图（模块架构，消费 /status.json）──
+     设计契约（2026-09-07 驳回评审后重做）：
+     一屏全览零滚动 / 大数字代替胶囊 / 异常才显示（无异常=干净白卡）
+     路径·URL·阻塞·建议 全收进点击展开的抽屉 */
+  #board.pv{flex-direction:column;overflow-x:hidden;align-items:stretch}
+  .alertbar{display:flex;align-items:center;gap:10px;background:#fdf6f6;border:1px solid #eedcdc;
+    border-radius:12px;padding:8px 14px;margin-bottom:12px;font-size:12.5px;min-width:0;box-shadow:var(--shadow)}
+  .alertbar .ico{flex:none}
+  .alertbar b{color:#8a4343}
+  .alertbar .sep{color:var(--border)}
+  .alertbar .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;
+    width:100%}
+  .tile{position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;
+    padding:10px 12px 8px 15px;cursor:pointer;transition:box-shadow .15s,transform .15s;
+    overflow:hidden;box-shadow:var(--shadow)}
+  .tile:hover{box-shadow:0 4px 16px rgba(120,110,170,.16);transform:translateY(-1px)}
+  .tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px 0 0 4px}
+  .t-active::before{background:#5e9154}.t-stuck::before{background:#c2706f}
+  .t-dormant::before{background:#b6b2c4}.t-idle::before{background:#d9b87a}
+  .t-unknown::before{background:#9a95ad}.t-released::before{background:#b9d4c0}
+  .trow{display:flex;align-items:center;gap:6px;min-width:0}
+  .tname{font-size:13.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thealth{margin-left:auto;flex:none;font-size:10px;color:var(--muted)}
+  .tstats{display:flex;gap:14px;margin-top:7px}
+  .ts{text-align:left;min-width:0}
+  .ts .n{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1;color:var(--ink)}
+  .ts .n.warn{color:#c99a4e}.ts .n.bad{color:#c2706f}
+  .ts .l{font-size:9.5px;color:var(--muted)}
+  .tflags{display:flex;gap:5px;margin-top:7px;min-height:20px;flex-wrap:wrap;align-items:center}
+  .flag{font-size:10px;font-weight:600;border-radius:6px;padding:1px 7px;flex:none}
+  .f-blk{background:#f6e2e2;color:#8a4343}.f-dirty{background:#f6ecdc;color:#7a5a2e}
+  .f-sug{background:#eef0fb;color:#5b5478}.f-remote{background:#e1f0e8;color:#3c6b54}
+  .relrow{margin:12px 2px 4px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center}
+  .relrow .ln{flex:1;height:1px;background:var(--border)}
+  .drawer{display:none;background:#fff;border:1px solid var(--border);border-radius:12px;
+    padding:14px 16px;margin-top:10px;box-shadow:var(--shadow)}
+  .drawer.on{display:block}
+  .drawer h4{font-size:13px;margin-bottom:8px;color:var(--ink)}
+  .drow{display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px dashed #eee;align-items:flex-start}
+  .drow:last-child{border-bottom:0}
+  .drow .k{flex:none;width:86px;color:var(--muted)}
+  .drow .v{min-width:0;word-break:break-all}
+  .dclose{float:right;font-size:11px;color:var(--muted);cursor:pointer}
+  .dclose:hover{color:var(--accent)}
+  .djump{margin-top:8px;font-size:11px;color:var(--muted)}
+  .djump button{background:#eef0fb;color:#5b5478;border:0;border-radius:8px;padding:4px 12px;
+    font-size:11px;font-weight:600;cursor:pointer}
+  .djump button:hover{background:var(--accent);color:#fff}
   .sugrow{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.55;
     padding:3px 0;color:var(--ink)}
-  .sugrow .sugproj{flex:none;background:#eef0fb;color:#5b5478;border-radius:6px;
-    font-size:10.5px;padding:1px 7px;font-weight:600;margin-top:2px}
-  .pvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
-  .projcard{background:#fff;border:1px solid var(--border);border-radius:14px;padding:10px 12px;
-    cursor:pointer;transition:background .15s,box-shadow .15s;box-shadow:var(--shadow)}
-  .projcard:hover{background:#f1eefb;box-shadow:0 4px 14px rgba(120,110,170,.14)}
-  .projcard.released{opacity:.66;cursor:default}
-  .projcard.released:hover{background:#fff}
-  .pchead{display:flex;align-items:center;gap:8px}
-  .pcname{font-size:14px;font-weight:700;color:var(--ink)}
-  .hbadge{display:inline-block;font-size:10.5px;padding:1px 8px;border-radius:999px;font-weight:600;flex:none}
-  .h-active{background:#e1f0e8;color:#3c6b54}
-  .h-stuck{background:#f6e2e2;color:#8a4343}
-  .h-idle{background:#f6ecdc;color:#7a5a2e}
-  .h-dormant{background:#e3e5ea;color:#7a7f8c}
-  .h-unknown{background:#ece8f7;color:#6a5b95}
-  .h-released{background:#e3f1de;color:#3f6b3a}
-  .pcrepo{color:var(--muted);font-size:11px;margin-top:4px;word-break:break-all;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .pcstats{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
-  .pstat{background:#f5f4fa;border:1px solid var(--border);color:#5b5478;border-radius:6px;
-    font-size:10.5px;padding:1px 7px;font-weight:600}
-  .pstat.blk{background:#f6e2e2;color:#8a4343;border-color:#eed0d0}
-  .pstat.git{background:#eef2f8;color:#41567a}
-  .pcblk{margin-top:6px;font-size:11.5px;color:#8a4343}
-  /* 项目视图增强 */
-  .pcactive{margin-top:8px;border-top:1px solid var(--border);padding-top:6px}
-  .activerow{display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px}
-  .active-title{flex:none;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
-  .active-prog{flex:1;height:6px;background:#e4e2ee;border-radius:3px;overflow:hidden;min-width:40px}
-  .active-bar{display:block;height:100%;background:#9b8fc4;border-radius:3px;transition:width .3s}
-  .active-pct{flex:none;font-size:10px;color:var(--muted)}
-  .pcblkdetail{margin-top:6px;border-top:1px solid var(--border);padding-top:6px}
-  .blkrow{display:flex;gap:6px;align-items:center;font-size:11px;color:#8a4343;margin-bottom:3px}
-  .blk-icon{flex:none}
-  .blk-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pcsugs{margin-top:6px;border-top:1px solid var(--border);padding-top:6px}
-  .pcsugs .sugrow{font-size:11px;color:var(--muted);line-height:1.5}
-  .pcremote{margin-top:6px;border-top:1px solid var(--border);padding-top:6px;display:flex;flex-wrap:wrap;gap:4px;font-size:10.5px}
-  .rm-badge{padding:1px 6px;border-radius:6px;font-weight:600;flex:none}
-  .rm-none{background:#f6e2e2;color:#8a4343}
-  .rm-local{background:#f6ecdc;color:#7a5a2e}
-  .rm-remote{background:#e1f0e8;color:#3c6b54}
-  .rm-synced{background:#e1f0e8;color:#3c6b54}
-  .rm-ahead{background:#f6ecdc;color:#7a5a2e}
-  .rm-behind{background:#f6e2e2;color:#8a4343}
-  .rm-diverge{background:#ece8f7;color:#6a5b95}
-  .rm-push{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -244,6 +239,7 @@
   <button class="vbtn" data-view="trash" onclick="setView('trash')">回收站</button>
 </div>
 <div id="board"></div>
+<div id="pvDrawer" class="drawer"></div>
 <div id="overlay" onclick="if(event.target===this)closeModal()">
   <div id="modal">
     <h3 id="mTitle">编辑</h3>
@@ -600,129 +596,92 @@ function renderPv(){
   board.innerHTML="";
   if(!PV)return;
   const sts=PV.statuses||[], sugs=PV.suggestions||[];
-  // 建议面板（跨项目排前，被动展示不派活）
-  if(sugs.length){
-    const panel=document.createElement("div");panel.className="pvpanel";
-    const h=document.createElement("div");h.className="sughead";
-    h.textContent="💡 建议";const c=document.createElement("small");c.textContent="（系统提示，决策在人；跨项目项在前）";
-    h.appendChild(c);panel.appendChild(h);
-    sugs.slice().sort((a,b)=>(a.project==null?-1:0)-(b.project==null?-1:0)).forEach(u=>{
-      const row=document.createElement("div");row.className="sugrow";
-      if(u.project){const sp=document.createElement("span");sp.className="sugproj";sp.textContent=u.project;row.appendChild(sp);}
-      const tx=document.createElement("span");tx.textContent=u.text;row.appendChild(tx);
-      panel.appendChild(row);
-    });
-    board.appendChild(panel);
-  }
   const active=sts.filter(s=>s.health!=="released"), rel=sts.filter(s=>s.health==="released");
-  const gridWrap=(items,title)=>{
-    if(!items.length)return;
-    const grid=document.createElement("div");grid.className="pvgrid";
-    items.forEach(s=>grid.appendChild(projCard(s)));
-    if(title){
-      const sec=document.createElement("div");sec.className="pvpanel";
-      const h=document.createElement("div");h.className="sughead";h.textContent=title;
-      sec.appendChild(h);sec.appendChild(grid);board.appendChild(sec);
-    }else board.appendChild(grid);
-  };
-  gridWrap(active,"");
-  gridWrap(rel,"已发布 / 无后续计划");
+  PVtiles=active;   // 模块卡数据缓存，供抽屉展开
+  // 异常摘要条：只点名卡住项目，其余建议折进各模块（💡n）
+  const stuck=active.filter(s=>s.health==="stuck");
+  if(stuck.length){
+    const bar=document.createElement("div");bar.className="alertbar";
+    const parts=stuck.map(s=>s.blocked_detail&&s.blocked_detail[0]
+      ?s.name+"："+s.blocked_detail.map(b=>"《"+b.blocker_title+"》未完成").join("、")
+      :s.name+"卡住");
+    bar.innerHTML='<span class="ico">⛔</span><b>'+parts.map(esc).join("；")+'</b>'+
+      '<span class="grow"></span><span style="color:var(--muted)">'+sugs.length+' 条建议已折进各模块 💡</span>';
+    board.appendChild(bar);
+  }
+  const grid=document.createElement("div");grid.className="pvgrid";
+  active.forEach((s,i)=>grid.appendChild(projTile(s,i)));
+  board.appendChild(grid);
+  if(rel.length){
+    const rr=document.createElement("div");rr.className="relrow";
+    rr.innerHTML='<span class="ln"></span><span>已发布：'+rel.map(s=>esc(s.name)).join(" · ")+'</span><span class="ln"></span>';
+    board.appendChild(rr);
+  }
   el("count").textContent=active.length;   // 顶栏计数显示活跃项目数
 }
-function projCard(s){
-  const c=document.createElement("div");c.className="projcard"+(s.released?" released":"");
-  const head=document.createElement("div");head.className="pchead";
-  const nm=document.createElement("span");nm.className="pcname";nm.textContent=s.name;
-  const hb=document.createElement("span");
-  hb.className="hbadge h-"+s.health;
-  hb.textContent=(HICON[s.health]||"")+" "+(HLABEL[s.health]||s.health);
+let PVtiles=[];
+function projTile(s,i){
+  const c=document.createElement("div");c.className="tile t-"+s.health;
+  const head=document.createElement("div");head.className="trow";
+  const nm=document.createElement("span");nm.className="tname";nm.textContent=s.name;nm.title=s.name;
+  const hb=document.createElement("span");hb.className="thealth";hb.textContent=HLABEL[s.health]||s.health;
   head.appendChild(nm);head.appendChild(hb);c.appendChild(head);
-  const repo=document.createElement("div");repo.className="pcrepo";
-  repo.textContent=s.repo||"—";repo.title=s.repo||"";c.appendChild(repo);
-  if(!s.released){
-    const stats=document.createElement("div");stats.className="pcstats";
-    const mk=(txt,cls,title)=>{const sp=document.createElement("span");sp.className="pstat"+(cls?" "+cls:"");sp.textContent=txt;if(title)sp.title=title;return sp;};
-    const g=s.git||{},tk=s.tasks||{};
-    stats.appendChild(mk("7天提交 "+(g.recent_commits||0),null,"近 7 天 git 提交数"));
-    stats.appendChild(mk("最后提交 "+relDays(g.last_commit_days),"git"));
-    stats.appendChild(mk("未提交 "+(g.uncommitted||0),g.uncommitted>5?"blk":"","未提交改动文件数（>5 提示整理）"));
-    stats.appendChild(mk("进行中 "+(tk.active||0)));
-    stats.appendChild(mk("待办 "+(tk.pending||0)));
-    if(tk.blocked)stats.appendChild(mk("⛔ 阻塞 "+tk.blocked,"blk","被阻塞的任务数"));
-    c.appendChild(stats);
-
-    // 远程仓库状态
-    if(s.remote){
-      const rm=document.createElement("div");rm.className="pcremote";
-      const r=s.remote;
-      if(!r.has_git){
-        rm.innerHTML='<span class="rm-badge rm-none">无 git</span>';
-      }else if(!r.has_remote){
-        rm.innerHTML='<span class="rm-badge rm-local">本地仓库</span>';
-      }else{
-        const parts=[];
-        parts.push('<span class="rm-badge rm-remote">'+esc(r.remote_url||'origin')+'</span>');
-        if(r.upstream_branch){
-          if(r.ahead>0&&r.behind>0){
-            parts.push('<span class="rm-diverge">↕ ↑'+r.ahead+' ↓'+r.behind+'</span>');
-          }else if(r.ahead>0){
-            parts.push('<span class="rm-ahead">↑'+r.ahead+' 未推</span>');
-          }else if(r.behind>0){
-            parts.push('<span class="rm-behind">↓'+r.behind+' 落后</span>');
-          }else{
-            parts.push('<span class="rm-synced">✓ 已同步</span>');
-          }
-        }
-        if(r.last_push_days!==null){
-          const lp=r.last_push_days===0?'今天':(r.last_push_days===1?'昨天':(r.last_push_days+'天前'));
-          parts.push('<span class="rm-push">推送 '+lp+'</span>');
-        }
-        rm.innerHTML=parts.join(' ');
-      }
-      c.appendChild(rm);
-    }
-
-    // 进行中任务摘要
-    if(s.active_tasks && s.active_tasks.length){
-      const at=document.createElement("div");at.className="pcactive";
-      s.active_tasks.forEach(t=>{
-        const row=document.createElement("div");row.className="activerow";
-        const prog=t.plan_total?Math.round(t.plan_done/t.plan_total*100):0;
-        row.innerHTML=`<span class="active-title">《${esc(t.title)}》</span>`+
-          `<span class="active-prog"><span class="active-bar" style="width:${prog}%"></span></span>`+
-          `<span class="active-pct">${t.plan_done}/${t.plan_total}</span>`;
-        at.appendChild(row);
-      });
-      c.appendChild(at);
-    }
-
-    // 阻塞详情
-    if(s.blocked_detail && s.blocked_detail.length){
-      const bd=document.createElement("div");bd.className="pcblkdetail";
-      s.blocked_detail.forEach(b=>{
-        const row=document.createElement("div");row.className="blkrow";
-        row.innerHTML=`<span class="blk-icon">⛔</span><span class="blk-text">《${esc(b.title)}》被《${esc(b.blocker_title)}》阻塞</span>`;
-        bd.appendChild(row);
-      });
-      c.appendChild(bd);
-    }
-
-    // 卡片内嵌建议
-    if(s.suggestions && s.suggestions.length){
-      const sg=document.createElement("div");sg.className="pcsugs";
-      s.suggestions.forEach(u=>{
-        const row=document.createElement("div");row.className="sugrow";
-        row.textContent="💡 "+u;sg.appendChild(row);
-      });
-      c.appendChild(sg);
-    }
-
-    c.onclick=()=>{ // 跳回看板并按该项目过滤，衔接卡片操作
-      el("projFilter").value=s.id;curProj=s.id;saveUI();setView("active");
-    };
-  }
+  const g=s.git||{},tk=s.tasks||{};
+  const uc=g.uncommitted||0;
+  const stats=document.createElement("div");stats.className="tstats";
+  const mk=(n,l,cls)=>{const d=document.createElement("div");d.className="ts";
+    d.innerHTML='<div class="n'+(cls?" "+cls:"")+'">'+n+'</div><div class="l">'+l+'</div>';return d;};
+  stats.appendChild(mk(g.recent_commits||0,"7天提交"));
+  stats.appendChild(mk(uc,"未提交",uc>=5?"warn":null));
+  const tasksN=(tk.pending||0)+(tk.active||0);
+  stats.appendChild(mk(tasksN,"任务"));
+  stats.appendChild(mk(tk.blocked||0,"阻塞",tk.blocked?"bad":null));
+  c.appendChild(stats);
+  const flags=document.createElement("div");flags.className="tflags";
+  if(tk.blocked)flags.innerHTML+='<span class="flag f-blk">⛔阻塞'+tk.blocked+'</span>';
+  if(uc>=5)flags.innerHTML+='<span class="flag f-dirty">⚠未提交'+uc+'</span>';
+  if(s.remote&&!s.remote.has_git)flags.innerHTML+='<span class="flag f-dirty">无 git</span>';
+  else if(s.remote&&!s.remote.has_remote)flags.innerHTML+='<span class="flag f-dirty">本地仓库</span>';
+  else if(s.remote&&s.remote.ahead>0)flags.innerHTML+='<span class="flag f-remote">↑'+s.remote.ahead+' 未推</span>';
+  if(s.suggestions&&s.suggestions.length)flags.innerHTML+='<span class="flag f-sug">💡'+s.suggestions.length+'</span>';
+  c.appendChild(flags);
+  c.onclick=()=>openPvDrawer(i);
   return c;
 }
+function openPvDrawer(i){
+  const s=PVtiles[i];if(!s)return;
+  const d=el("pvDrawer"),g=s.git||{},tk=s.tasks||{},r=s.remote||{};
+  let h='<span class="dclose" onclick="closePvDrawer()">收起 ×</span><h4>'+esc(s.name)+' · '+(HLABEL[s.health]||s.health)+'</h4>';
+  h+='<div class="drow"><span class="k">仓库</span><span class="v">'+esc(s.repo||"—")+'</span></div>';
+  if(r.has_git!==false){
+    let rv="本地仓库（无 remote）";
+    if(r.has_remote){
+      rv=esc(r.remote_url||"origin")+" · ";
+      if(r.ahead>0&&r.behind>0)rv+="↕ ↑"+r.ahead+" ↓"+r.behind;
+      else if(r.ahead>0)rv+="↑"+r.ahead+" 未推";
+      else if(r.behind>0)rv+="↓"+r.behind+" 落后";
+      else rv+="✓ 已同步";
+      if(r.last_push_days!==null)rv+=" · 推送 "+relDays(r.last_push_days);
+    }
+    h+='<div class="drow"><span class="k">远程</span><span class="v">'+rv+'</span></div>';
+  }
+  h+='<div class="drow"><span class="k">git 活动</span><span class="v">7 天提交 '+(g.recent_commits||0)+
+     ' · 最后提交 '+relDays(g.last_commit_days)+' · 未提交 '+(g.uncommitted||0)+
+     (g.active_branch?" · 分支 "+esc(g.active_branch):"")+'</span></div>';
+  h+='<div class="drow"><span class="k">任务</span><span class="v">待办 '+(tk.pending||0)+' · 进行中 '+
+     (tk.active||0)+' · 阻塞 '+(tk.blocked||0)+'</span></div>';
+  (s.blocked_detail||[]).forEach(b=>{h+='<div class="drow"><span class="k">阻塞</span><span class="v" style="color:#8a4343">《'+
+     esc(b.title)+'》被《'+esc(b.blocker_title)+'》阻塞</span></div>';});
+  (s.active_tasks||[]).forEach(a=>{const p=a.plan_total?Math.round(a.plan_done/a.plan_total*100):0;
+    h+='<div class="drow"><span class="k">进行中</span><span class="v">《'+esc(a.title)+'》 '+
+     a.plan_done+'/'+a.plan_total+'（'+p+'%）</span></div>';});
+  (s.suggestions||[]).forEach(u=>{h+='<div class="drow"><span class="k">建议</span><span class="v">'+esc(u.text||u)+'</span></div>';});
+  h+='<div class="djump"><button onclick="jumpProject('+i+')">→ 看板查看该项目的任务</button></div>';
+  d.innerHTML=h;d.classList.add("on");
+}
+function closePvDrawer(){el("pvDrawer").classList.remove("on");}
+function jumpProject(i){const s=PVtiles[i];if(!s)return;closePvDrawer();
+  el("projFilter").value=s.id;curProj=s.id;saveUI();setView("active");}
 function setProjChecks(list){document.querySelectorAll("#f_project input").forEach(cb=>cb.checked=list.includes(cb.value));}
 function getProjChecks(){return Array.from(document.querySelectorAll("#f_project input:checked")).map(cb=>cb.value);}
 function openCard(id){const t=TASKS.find(x=>x.id===id);if(!t)return;curId=id; if(curView==="active")openPreview(t);else openRestore(t);}

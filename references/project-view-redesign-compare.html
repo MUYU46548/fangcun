@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>方寸项目视图 · 对比图（BEFORE / AFTER）</title>
+<style>
+  :root{
+    --bg:#f2f0f7; --card:#fff; --ink:#3a3550; --muted:#8a85a0; --border:#e2dfee;
+    --accent:#7a6fae; --shadow:0 2px 10px rgba(120,110,170,.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.6 "Microsoft YaHei UI","PingFang SC",sans-serif;padding:0 0 40px}
+  .wrap{max-width:1400px;margin:0 auto;padding:0 18px}
+  h1{font-size:17px;padding:14px 0 4px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:12px}
+  /* 模式切换 */
+  .modes{display:flex;gap:8px;margin-bottom:14px}
+  .modes button{padding:6px 18px;border:1px solid var(--border);border-radius:999px;background:#fff;
+    color:var(--muted);font-weight:600;font-size:13px;cursor:pointer}
+  .modes button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .pane{display:none}
+  .pane.on{display:block}
+  .pane-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:6px 0 8px}
+  .pane-title b{color:var(--ink)}
+
+  /* ════════ BEFORE：现状复刻（信息墙） ════════ */
+  .before-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .before-panel .h{font-size:13px;font-weight:700;margin-bottom:8px}
+  .sugrow{display:flex;gap:8px;font-size:12.5px;padding:3px 0}
+  .sugrow .tag{flex:none;background:#eef0fb;color:#5b5478;border-radius:6px;font-size:10.5px;
+    padding:1px 7px;font-weight:600;margin-top:2px}
+  .bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .bcard{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:10px 12px;box-shadow:var(--shadow)}
+  .bcard .hd{display:flex;align-items:center;gap:8px}
+  .bcard .nm{font-size:14px;font-weight:700}
+  .badge{font-size:10.5px;padding:1px 8px;border-radius:999px;font-weight:600}
+  .bd-active{background:#e1f0e8;color:#3c6b54}.bd-stuck{background:#f6e2e2;color:#8a4343}
+  .bd-unknown{background:#ece8f7;color:#6a5b95}.bd-released{background:#e3f1de;color:#3f6b3a}
+  .repo{color:var(--muted);font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;color:#4a8a5a}
+  .caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+  .cap{background:#f5f4fa;border:1px solid var(--border);color:#5b5478;border-radius:6px;
+    font-size:10.5px;padding:1px 7px;font-weight:600}
+  .cap.red{background:#f6e2e2;color:#8a4343;border-color:#eed0d0}
+  .cap.blue{background:#eef2f8;color:#41567a}
+  .rmrow{margin-top:7px;font-size:11px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .rmurl{color:#4a8a5a;font-size:10.5px;background:#eef7f0;border-radius:6px;padding:1px 7px;
+    max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rmsync{color:#3c6b54;background:#e1f0e8;border-radius:6px;padding:1px 7px;font-weight:600;font-size:10.5px}
+  .actrow{margin-top:8px;border-top:1px solid var(--border);padding-top:6px;display:flex;
+    align-items:center;gap:6px;font-size:11px}
+  .abar{flex:1;height:6px;background:#e4e2ee;border-radius:3px;min-width:40px}
+  .abar i{display:block;height:100%;background:#9b8fc4;border-radius:3px}
+  .blkdetail{margin-top:6px;font-size:11.5px;color:#8a4343}
+  .cardsug{margin-top:6px;font-size:11.5px;color:#7a5a2e}
+  .bsec{margin-top:14px}
+
+  /* ════════ AFTER：模块架构提案 ════════ */
+  .alertbar{display:flex;align-items:center;gap:10px;background:#fdf6f6;border:1px solid #eedcdc;
+    border-radius:12px;padding:8px 14px;margin-bottom:12px;font-size:12.5px;min-width:0}
+  .alertbar .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .alertbar .ico{flex:none}
+  .alertbar b{color:#8a4343}
+  .alertbar .sep{color:var(--border)}
+  .agrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .tile{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:10px 12px 8px 14px;cursor:pointer;transition:box-shadow .15s,transform .15s;overflow:hidden}
+  .tile:hover{box-shadow:0 4px 16px rgba(120,110,170,.16);transform:translateY(-1px)}
+  .tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px 0 0 4px}
+  .t-active::before{background:#5e9154}.t-stuck::before{background:#c2706f}
+  .t-unknown::before{background:#9a95ad}.t-released::before{background:#b9d4c0}
+  .trow{display:flex;align-items:center;gap:6px;min-width:0}
+  .tname{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thealth{margin-left:auto;flex:none;font-size:10px;color:var(--muted)}
+  .tstats{display:flex;gap:12px;margin-top:7px}
+  .ts{text-align:left}
+  .ts .n{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  .ts .l{font-size:9.5px;color:var(--muted)}
+  .ts .n.warn{color:#c99a4e}.ts .n.bad{color:#c2706f}
+  .tflags{display:flex;gap:5px;margin-top:7px;min-height:20px;flex-wrap:wrap}
+  .flag{font-size:10px;font-weight:600;border-radius:6px;padding:1px 7px}
+  .f-blk{background:#f6e2e2;color:#8a4343}.f-dirty{background:#f6ecdc;color:#7a5a2e}
+  .f-sug{background:#eef0fb;color:#5b5478}
+  .relrow{margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center}
+  .relrow .ln{flex:1;height:1px;background:var(--border)}
+  /* 展开抽屉 */
+  .drawer{display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:14px 16px;margin-top:10px;box-shadow:var(--shadow)}
+  .drawer.on{display:block}
+  .drawer h4{font-size:13px;margin-bottom:8px}
+  .drow{display:flex;gap:8px;font-size:12px;padding:3px 0;border-bottom:1px dashed #eee}
+  .drow .k{flex:none;width:90px;color:var(--muted)}
+  .dclose{float:right;font-size:11px;color:var(--muted);cursor:pointer}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  .compare .pane{display:block!important}
+  .footnote{margin-top:16px;font-size:12px;color:var(--muted);line-height:1.8;
+    border-top:1px solid var(--border);padding-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>方寸项目视图改版对比</h1>
+  <div class="sub">同一份真实数据（2026-09-07 22:10 扫描，12 项目）· 左=现状，右=模块架构提案 · 提案卡片可点击展开详情</div>
+  <div class="modes">
+    <button class="on" data-m="split" onclick="setMode('split')">并排对比</button>
+    <button data-m="before" onclick="setMode('before')">现状 BEFORE</button>
+    <button data-m="after" onclick="setMode('after')">提案 AFTER</button>
+  </div>
+
+  <div class="compare" id="m-split">
+    <div>
+      <div class="pane-title"><b>BEFORE 现状</b> · 建议文字墙 + 3列高卡片 ≈ 4 屏滚动</div>
+      <div id="beforePane"></div>
+    </div>
+    <div>
+      <div class="pane-title"><b>AFTER 提案</b> · 异常摘要条 + 4列模块 · 一屏全览零滚动</div>
+      <div id="afterPane"></div>
+      <div class="drawer" id="drawer"></div>
+    </div>
+  </div>
+  <div class="pane" id="m-before"><div id="beforePane2"></div></div>
+  <div class="pane" id="m-after"><div id="afterPane2"></div><div class="drawer" id="drawer2"></div></div>
+
+  <div class="footnote">
+    <b>提案要点（对应"阅读疲劳"根因）：</b><br>
+    ① <b>一屏全览</b>：12 项目收进 4 列固定高度模块，1440 宽下零滚动；已发布项目折叠成一行小字。<br>
+    ② <b>数字代替胶囊</b>：7d提交 / 未提交 / 待办 用「大数字+小灰字」，删掉 5-6 个彩色胶囊行。<br>
+    ③ <b>异常才说话</b>：健康度只留左缘 4px 色条；只有阻塞/未提交≥5/未推送 才出小旗子；无异常的模块干净如白纸。<br>
+    ④ <b>建议面板降级</b>：11 行文字 dump → 顶部一条异常摘要（只列卡住项目）+ 每模块 💡n 角标，完整文字点开才看。<br>
+    ⑤ <b>路径/URL 收进抽屉</b>：卡片上不再裸露 E:/… 和 GitHub URL，点模块展开后才见。
+  </div>
+</div>
+<script>
+const DATA = {"statuses": [{"id": "project-2", "name": "绒花墨坊", "repo": "E:/CODE/CangKu/NovelForge", "released": false, "git": {"recent_commits": 1, "last_commit_days": 4, "uncommitted": 1, "active_branch": "main"}, "tasks": {"total": 1, "active": 0, "blocked": 1, "blocked_names": ["《留下你的歌》Obsidian 设定稿全面审查"], "pending": 1, "done": 0}, "health": "stuck", "summary": "最近提交: 4天前  未提交改动: 1文件  阻塞: 《留下你的歌》Obsidian 设定稿全面审查", "active_tasks": [], "blocked_detail": [{"id": "task-20260828-007", "title": "编写《留下你的歌》新作", "blocker_title": "《留下你的歌》Obsidian 设定稿全面审查"}], "suggestions": ["解除阻塞：「《留下你的歌》Obsidian 设定稿全面审查」完成后可解锁下游任务"], "remote": {"has_git": true, "has_remote": true, "remote_url": "git@github.com:MUYU46548/ronghuamofang.git", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "rosa-chuangzuo", "name": "ROSA 创作", "repo": "E:/图书馆/ROSA", "released": false, "git": {"recent_commits": 2, "last_commit_days": 1, "uncommitted": 0, "active_branch": "main"}, "tasks": {"total": 5, "active": 0, "blocked": 0, "blocked_names": [], "pending": 4, "done": 1}, "health": "active", "summary": "最近提交: 昨天  未提交改动: 0  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["有 4 个待办但无进行中：可激活一项"], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/rosa-backup-auto", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "memory-sanctuary", "name": "记忆圣所", "repo": "E:/CODE/CangKu/memory-sanctuary", "released": false, "git": {"recent_commits": 28, "last_commit_days": 1, "uncommitted": 15, "active_branch": "main"}, "tasks": {"total": 2, "active": 0, "blocked": 0, "blocked_names": [], "pending": 2, "done": 0}, "health": "active", "summary": "最近提交: 昨天  未提交改动: 15文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 15 个未提交改动：建「整理并提交」任务？", "有 2 个待办但无进行中：可激活一项"], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/memory-sanctuary.git", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "sitian", "name": "司天", "repo": "E:/CODE/CangKu/SiTian", "released": false, "git": {"recent_commits": 4, "last_commit_days": 2, "uncommitted": 4, "active_branch": "main"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "active", "summary": "最近提交: 2天前  未提交改动: 4文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": [], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/si-tian.git", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "quartz", "name": "Quartz", "repo": "E:/图书馆/quartz", "released": false, "git": {"recent_commits": 2, "last_commit_days": 5, "uncommitted": 1058, "active_branch": "v5"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "active", "summary": "最近提交: 5天前  未提交改动: 1058文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 1058 个未提交改动：建「整理并提交」任务？"], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/ronghua-wiki.git", "upstream_branch": "origin/v5", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "fangcun-base", "name": "方寸", "repo": "E:/CODE/CangKu/fangcun", "released": false, "git": {"recent_commits": 17, "last_commit_days": 0, "uncommitted": 0, "active_branch": "main"}, "tasks": {"total": 3, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 2}, "health": "active", "summary": "最近提交: 今天  未提交改动: 0  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": [], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/fangcun.git", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "zhizhen-chiming", "name": "滞针迟鸣", "repo": "E:/CODE/CangKu/renpy-8.5.3-sdk/zhizhen-chiming", "released": false, "git": {"recent_commits": 26, "last_commit_days": 0, "uncommitted": 10, "active_branch": "main"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "active", "summary": "最近提交: 今天  未提交改动: 10文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 10 个未提交改动：建「整理并提交」任务？"], "remote": {"has_git": true, "has_remote": false, "remote_url": null, "upstream_branch": null, "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "bianjishi", "name": "设定资料工具库", "repo": "E:/图书馆/编辑室/设定资料维护工具库", "released": false, "git": {"recent_commits": 0, "last_commit_days": 9, "uncommitted": 0, "active_branch": "main"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "unknown", "summary": "最近提交: 1周前  未提交改动: 0  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": [], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/ocs-toolkit", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "rosa-rag", "name": "ROSA RAG", "repo": "E:/AI/rosa_rag", "released": false, "git": {"recent_commits": 0, "last_commit_days": 15, "uncommitted": 6, "active_branch": "master"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "unknown", "summary": "最近提交: 2周前  未提交改动: 6文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 6 个未提交改动：建「整理并提交」任务？"], "remote": {"has_git": true, "has_remote": false, "remote_url": null, "upstream_branch": null, "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "project-3", "name": "明鉴", "repo": "E:/CODE/CangKu/MingJian", "released": false, "git": {"recent_commits": 0, "last_commit_days": 22, "uncommitted": 7, "active_branch": "main"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "unknown", "summary": "最近提交: 3周前  未提交改动: 7文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 7 个未提交改动：建「整理并提交」任务？"], "remote": {"has_git": true, "has_remote": false, "remote_url": null, "upstream_branch": null, "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "python-workspace", "name": "Python工作区", "repo": "E:/CODE/CangKu/Python_Workspace", "released": false, "git": {"recent_commits": 0, "last_commit_days": 23, "uncommitted": 11, "active_branch": "main"}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "unknown", "summary": "最近提交: 3周前  未提交改动: 11文件  阻塞: 无", "active_tasks": [], "blocked_detail": [], "suggestions": ["整理 11 个未提交改动：建「整理并提交」任务？"], "remote": {"has_git": true, "has_remote": true, "remote_url": "https://github.com/MUYU46548/Private-Script.git", "upstream_branch": "origin/main", "ahead": 0, "behind": 0, "last_push_days": null, "unpushed_commits": 0}}, {"id": "yijucanxiang", "name": "弈局残响", "repo": "E:/CODE/CangKu/yijucanxiang", "released": true, "git": {"recent_commits": 0, "last_commit_days": null, "uncommitted": 0, "active_branch": null}, "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0}, "health": "released", "summary": "已发布 / 无后续计划", "active_tasks": [], "blocked_detail": [], "suggestions": [], "remote": null}], "suggestions": [{"project": "绒花墨坊", "text": "解除阻塞：「《留下你的歌》Obsidian 设定稿全面审查」完成后可解锁下游任务"}, {"project": "ROSA 创作", "text": "有 4 个待办但无进行中：可激活一项"}, {"project": "记忆圣所", "text": "整理 15 个未提交改动：建「整理并提交」任务？"}, {"project": "记忆圣所", "text": "有 2 个待办但无进行中：可激活一项"}, {"project": "Quartz", "text": "整理 1058 个未提交改动：建「整理并提交」任务？"}, {"project": "滞针迟鸣", "text": "整理 10 个未提交改动：建「整理并提交」任务？"}, {"project": "ROSA RAG", "text": "整理 6 个未提交改动：建「整理并提交」任务？"}, {"project": "明鉴", "text": "整理 7 个未提交改动：建「整理并提交」任务？"}, {"project": "Python工作区", "text": "整理 11 个未提交改动：建「整理并提交」任务？"}, {"project": null, "text": "优先处理卡住项目：绒花墨坊"}, {"project": null, "text": "大量未提交改动需关注：记忆圣所、Quartz、Python工作区"}], "ts": 1788790796, "timeouts": []};
+const HL={"active":"活跃","stuck":"卡住","dormant":"停滞","idle":"空闲","unknown":"未知","released":"已发布"};
+const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* ── BEFORE：现状复刻 ── */
+function renderBefore(el){
+  const sugs=DATA.suggestions||[];
+  let h='<div class="before-panel"><div class="h">💡 建议 <small style="color:#8a85a0;font-weight:500">（系统提示，决策在人；跨项目项在前）</small></div>';
+  sugs.forEach(u=>{h+='<div class="sugrow">'+(u.project?'<span class="tag">'+esc(u.project)+'</span>':'')+'<span>'+esc(u.text)+'</span></div>';});
+  h+='</div>';
+  const act=DATA.statuses.filter(s=>s.health!=="released"),rel=DATA.statuses.filter(s=>s.health==="released");
+  h+='<div class="bgrid">';
+  act.forEach(s=>{
+    const g=s.git||{},t=s.tasks||{},r=s.remote||{};
+    h+='<div class="bcard"><div class="hd"><span class="nm">'+esc(s.name)+'</span><span class="badge bd-'+s.health+'">'+(s.health==="stuck"?"◎ ":"")+HL[s.health]+'</span></div>';
+    h+='<div class="repo">'+esc(s.repo||"—")+'</div>';
+    h+='<div class="caps"><span class="cap">7天提交 '+(g.recent_commits||0)+'</span><span class="cap">最后提交 '+
+      (g.last_commit_days==null?"—":(g.last_commit_days===0?"今天":g.last_commit_days+"天前"))+
+      '</span><span class="cap'+((g.uncommitted||0)>5?" red":"")+'">未提交 '+(g.uncommitted||0)+'</span>'+
+      '<span class="cap">进行中 '+(t.active||0)+'</span><span class="cap">待办 '+(t.pending||0)+'</span>'+
+      ((t.blocked)?"<span class='cap red'>⛔ 阻塞 "+t.blocked+"</span>":"")+'</div>';
+    if(r.has_git!==false){
+      h+='<div class="rmrow">';
+      h+=r.has_remote?'<span class="rmurl">'+esc(r.remote_url||"origin")+'</span><span class="rmsync">✓ 已同步</span>'
+                     :'<span class="rmsync" style="background:#f6ecdc;color:#7a5a2e">本地仓库</span>';
+      h+='</div>';
+    }
+    if(s.active_tasks&&s.active_tasks.length){
+      s.active_tasks.forEach(a=>{const p=a.plan_total?Math.round(a.plan_done/a.plan_total*100):0;
+        h+='<div class="actrow"><span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">《'+esc(a.title)+'》</span><span class="abar"><i style="width:'+p+'%"></i></span><span style="color:#8a85a0;font-size:10px">'+a.plan_done+'/'+a.plan_total+'</span></div>';});
+    }
+    if(s.blocked_detail&&s.blocked_detail.length){
+      s.blocked_detail.forEach(b=>{h+='<div class="blkdetail">⛔ 《'+esc(b.title)+'》被《'+esc(b.blocker_title)+'》阻塞</div>';});
+    }
+    const cs=(s.suggestions||[]);
+    if(cs.length){h+='<div class="cardsug">💡 '+esc(cs[cs.length-1].text||cs[0].text||"")+'</div>';}
+    h+='</div>';
+  });
+  h+='</div>';
+  if(rel.length){h+='<div class="bsec before-panel"><div class="h">已发布 / 无后续计划</div>';
+    rel.forEach(s=>{h+='<div class="sugrow"><span class="tag">'+esc(s.name)+'</span><span>已发布 · 无后续计划</span></div>';});
+    h+='</div>';}
+  el.innerHTML=h;
+}
+
+/* ── AFTER：模块架构 ── */
+let drawerData=null,drawerEl=null;
+function renderAfter(el,drawer){
+  const act=DATA.statuses.filter(s=>s.health!=="released"),rel=DATA.statuses.filter(s=>s.health==="released");
+  const stuck=act.filter(s=>s.health==="stuck");
+  let h='';
+  if(stuck.length){
+    h+='<div class="alertbar"><span class="ico">⛔</span><b>'+stuck.map(s=>esc(s.name)).join("、")+'</b>卡住'+
+      '<span class="sep">|</span><span>'+esc(stuck[0].blocked_detail&&stuck[0].blocked_detail[0]?("《"+stuck[0].blocked_detail[0].blocker_title+"》未完成"):"需解除阻塞")+'</span>'+
+      '<span class="grow"></span><span style="color:#8a85a0">'+(DATA.suggestions||[]).length+' 条建议已折进各模块 💡</span></div>';
+  }
+  h+='<div class="agrid">';
+  act.forEach((s,i)=>{
+    const g=s.git||{},t=s.tasks||{},r=s.remote||{};
+    const uc=g.uncommitted||0;
+    const flags=[];
+    if(t.blocked)flags.push('<span class="flag f-blk">⛔阻塞'+t.blocked+'</span>');
+    if(uc>=5)flags.push('<span class="flag f-dirty">⚠未提交'+uc+'</span>');
+    if(s.suggestions&&s.suggestions.length)flags.push('<span class="flag f-sug">💡'+s.suggestions.length+'</span>');
+    h+='<div class="tile t-'+s.health+'" onclick="openDrawer('+i+',this.dataset.el)"><div class="trow">'+
+      '<span class="tname">'+esc(s.name)+'</span><span class="thealth">'+HL[s.health]+'</span></div>'+
+      '<div class="tstats">'+
+      '<div class="ts"><div class="n">'+(g.recent_commits||0)+'</div><div class="l">7天提交</div></div>'+
+      '<div class="ts"><div class="n'+(uc>=5?" warn":"")+'">'+uc+'</div><div class="l">未提交</div></div>'+
+      '<div class="ts"><div class="n">'+((t.pending||0)+(t.active||0))+'</div><div class="l">任务</div></div>'+
+      '<div class="ts"><div class="n'+(t.blocked?" bad":"")+'">'+(t.blocked||0)+'</div><div class="l">阻塞</div></div>'+
+      '</div><div class="tflags">'+(flags.join("")||"")+'</div></div>';
+  });
+  h+='</div>';
+  if(rel.length){h+='<div class="relrow"><span class="ln"></span><span>已发布：'+rel.map(s=>esc(s.name)).join(" · ")+'</span><span class="ln"></span></div>';}
+  el.innerHTML=h;
+  window._tiles=act; window._drawerMap={};
+}
+function openDrawer(i,paneId){
+  const s=window._tiles[i],g=s.git||{},t=s.tasks||{},r=s.remote||{};
+  const d=document.getElementById(paneId==="afterPane"?"drawer":"drawer2");
+  document.querySelectorAll(".drawer").forEach(x=>x.classList.remove("on"));
+  let h='<span class="dclose" onclick="this.parentElement.classList.remove(\'on\')">收起 ×</span><h4>'+esc(s.name)+' · 详情</h4>';
+  h+='<div class="drow"><span class="k">仓库</span><span>'+esc(s.repo||"—")+'</span></div>';
+  h+='<div class="drow"><span class="k">远程</span><span>'+(r.has_remote?esc(r.remote_url||"origin")+" · "+(r.ahead?"↑"+r.ahead+" 未推":"已同步")+(r.last_push_days!=null?" · 推送"+(r.last_push_days===0?"今天":r.last_push_days+"天前"):""):"本地仓库（无 remote）")+'</span></div>';
+  h+='<div class="drow"><span class="k">任务</span><span>待办 '+(t.pending||0)+' · 进行中 '+(t.active||0)+' · 阻塞 '+(t.blocked||0)+'</span></div>';
+  (s.blocked_detail||[]).forEach(b=>{h+='<div class="drow"><span class="k">阻塞</span><span style="color:#8a4343">《'+esc(b.title)+'》被《'+esc(b.blocker_title)+'》阻塞</span></div>';});
+  (s.suggestions||[]).forEach(u=>{h+='<div class="drow"><span class="k">建议</span><span>'+esc(u.text||u)+'</span></div>';});
+  if(s.active_tasks&&s.active_tasks.length){
+    s.active_tasks.forEach(a=>{const p=a.plan_total?Math.round(a.plan_done/a.plan_total*100):0;
+      h+='<div class="drow"><span class="k">进行中</span><span>《'+esc(a.title)+'》 '+a.plan_done+'/'+a.plan_total+'（'+p+'%）</span></div>';});
+  }
+  d.innerHTML=h;d.classList.add("on");
+}
+function setMode(m){
+  document.querySelectorAll(".modes button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));
+  document.getElementById("m-split").style.display=m==="split"?"grid":"none";
+  document.getElementById("m-before").classList.toggle("on",m==="before");
+  document.getElementById("m-after").classList.toggle("on",m==="after");
+}
+renderBefore(document.getElementById("beforePane"));
+renderBefore(document.getElementById("beforePane2"));
+renderAfter(document.getElementById("afterPane"));window._drawerMap.a="drawer";
+renderAfter(document.getElementById("afterPane2"));
+</script>
+</body>
+</html>
