@@ -1104,12 +1104,48 @@ def project_status_payload(force=False):
 
     released 项目排到末尾；活跃区按 stuck > active > idle > dormant > unknown 排序，
     让有卡点、有动静的项目先出现在看板上。
+    SWR（stale-while-revalidate）：缓存过期时立即返回旧数据（stale 标记），
+    后台线程重扫——项目视图切换永远秒开，几秒后轮询自然拿到新数据。
     """
     now = time.time()
-    if not force and _STATUS_CACHE["data"] is not None and now - _STATUS_CACHE["ts"] < STATUS_TTL:
+    has_cache = _STATUS_CACHE["data"] is not None
+    if has_cache and now - _STATUS_CACHE["ts"] < STATUS_TTL:
         return _STATUS_CACHE["data"]
+    if has_cache and not force:
+        # 过期但有旧数据：先给旧数据（标 stale），后台重扫，不阻塞响应
+        _STATUS_CACHE["scanning"] = True
+        threading.Thread(target=_rescan_status_bg, daemon=True).start()
+        out = dict(_STATUS_CACHE["data"])
+        out["stale"] = True
+        return out
+    # 无缓存（冷启动）或强制刷新：同步扫（扫描本身已并行化）
+    return _scan_status_now()
+
+
+def _rescan_status_bg():
+    """后台重扫 /status.json 数据；完成前再来的请求拿旧缓存，不重复起线程。"""
+    try:
+        if _STATUS_CACHE.get("scanning"):
+            return   # 已有线程在扫
+        _STATUS_CACHE["scanning"] = True
+        _scan_status_now()
+    finally:
+        _STATUS_CACHE["scanning"] = False
+
+
+def _scan_status_now():
+    """同步全量扫描：并行跑 git（每项目一个线程，IO 等待为主，12 项目×4 线程级提速）。"""
     reg = load_all_projects()
-    statuses = [scan_project_status(p) for p in reg]
+    results = [None] * len(reg)
+    workers = []
+    def _one(i, p):
+        results[i] = scan_project_status(p)
+    for i, p in enumerate(reg):
+        th = threading.Thread(target=_one, args=(i, p), daemon=True)
+        th.start(); workers.append(th)
+    for th in workers:
+        th.join()
+    statuses = [s for s in results if s is not None]
     order = {"stuck": 0, "active": 1, "idle": 2, "dormant": 3, "unknown": 4, "released": 5}
     statuses.sort(key=lambda s: (order.get(s["health"], 9), (s["git"]["last_commit_days"] or 9999)))
     all_sugs = []
@@ -1119,6 +1155,7 @@ def project_status_payload(force=False):
     if len(statuses) > 1:
         for u in suggest_cross_project(statuses):
             all_sugs.append({"project": None, "text": u})
+    now = time.time()
     payload = {"statuses": statuses, "suggestions": all_sugs, "ts": int(now),
                "timeouts": find_timeout_tasks()}
     _STATUS_CACHE["data"] = payload

@@ -228,7 +228,7 @@
     </select>
     <button onclick="openNew()">+ 新建</button>
     <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务（模式 B：生成命令，你掌控执行时机）">⚡ 派活</button>
-    <button class="ghost" onclick="load(true)">刷新</button>
+    <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
 </div>
@@ -408,9 +408,27 @@ function fmtAbs(ts){
   });
 })();
 function setView(v){curView=v;document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));saveUI();
-  if(v==="projects"){el("board").classList.add("pv");loadPv(true);}
+  if(v==="projects"){el("board").classList.add("pv");loadPv();}   // 不再强制 refresh：走 20s TTL 缓存，秒开
   else{el("board").classList.remove("pv");load(true);}}
+function pvSkeleton(){
+  const board=el("board");board.innerHTML="";
+  const bar=document.createElement("div");bar.className="alertbar";bar.style.background="#f4f2fa";bar.style.borderColor="var(--border)";
+  bar.innerHTML='<span class="ico">⏳</span><span style="color:var(--muted)">正在扫描各项目状态…（首次进入需几秒）</span>';
+  board.appendChild(bar);
+  const grid=document.createElement("div");grid.className="pvgrid";
+  for(let i=0;i<8;i++){
+    const t=document.createElement("div");t.className="tile";
+    t.innerHTML='<div class="trow"><span class="tname" style="background:#efedf6;border-radius:6px;width:96px;height:14px;display:inline-block"></span></div>'+
+      '<div class="tstats"><div class="ts"><div class="n" style="color:#d8d4e6">··</div><div class="l">7天提交</div></div>'+
+      '<div class="ts"><div class="n" style="color:#d8d4e6">··</div><div class="l">未提交</div></div>'+
+      '<div class="ts"><div class="n" style="color:#d8d4e6">··</div><div class="l">任务</div></div>'+
+      '<div class="ts"><div class="n" style="color:#d8d4e6">··</div><div class="l">阻塞</div></div></div>';
+    grid.appendChild(t);
+  }
+  board.appendChild(grid);
+}
 async function loadPv(force){
+  if(force&&curView==="projects"&&!el("board").querySelector(".tile .tstats"))pvSkeleton();  // 等数据时先铺骨架，不留旧视图
   try{
     const r=await fetch("/status.json"+(force?"?refresh=1":""));
     const d=await r.json();
