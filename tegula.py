@@ -499,6 +499,39 @@ def api_edit(id, fields):
     return True, "ok"
 
 
+def api_review(id, verdict, reason=""):
+    """验收裁决（看板验收按钮 / CLI 共用）：仅「待验收」任务可操作。
+    accept → 完成；reject → 驳回，理由必填并追加进结果记录留痕（验收可追溯）。
+    乐观锁同 api_edit：调用方带 expected_update / expected_mtime 则先校验。"""
+    fn = os.path.join(TASK_DIR, id + ".md")
+    if not os.path.exists(fn):
+        return False, "not found"
+    d = parse_task(fn)
+    if d is None:
+        return False, "parse fail"
+    if d.get("状态") != "待验收":
+        return False, f"当前状态为「{d.get('状态') or '未知'}」，仅「待验收」可验收"
+    verdict = (verdict or "").strip()
+    if verdict == "accept":
+        d["状态"] = "完成"
+    elif verdict == "reject":
+        reason = (reason or "").strip()
+        if not reason:
+            return False, "驳回理由必填（写入结果记录，留痕可追溯）"
+        d["状态"] = "驳回"
+        prev = (d.get("结果记录") or "").strip()
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        line = f"[{ts}] 验收驳回：{reason}"
+        d["结果记录"] = (prev + "\n" + line).strip() if prev else line
+    else:
+        return False, "verdict 必须是 accept 或 reject"
+    d["更新"] = _now_ts()
+    write_task_file(fn, d)
+    log_activity("验收" + ("通过" if verdict == "accept" else "驳回"), id,
+                 reason if verdict == "reject" else "")
+    return True, "ok"
+
+
 def load_template():
     """读 _template.md 的 frontmatter 作为新任务底稿；不存在则返回空 dict。"""
     tp = os.path.join(TASK_DIR, "_template.md")
@@ -1063,7 +1096,7 @@ LAST_REQUEST = time.time()   # 最近一次请求时刻：open 模式靠它判�
 # scan 全 registry 要跑十几条 git 子进程（每个项目 4 条），不能跟着看板 2s 轮询走。
 _STATUS_CACHE = {"data": None, "ts": 0.0}
 STATUS_TTL = 20.0            # 秒：项目状态 freshness 粒度，非实时要求
-WRITE_ACTIONS = {"edit", "new", "archive", "delete", "restore", "dispatch", "reg_save"}
+WRITE_ACTIONS = {"edit", "new", "archive", "delete", "restore", "dispatch", "reg_save", "review"}
 
 
 def project_status_payload(force=False):
@@ -1150,6 +1183,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if action == "edit":
                 ok, msg = api_edit(req.get("id"), req.get("fields", {}))
+            elif action == "review":
+                ok, msg = api_review(req.get("id"), req.get("verdict"),
+                                     req.get("reason", ""))
             elif action == "new":
                 ok, msg = api_new(req.get("fields", {}))
             elif action == "archive":

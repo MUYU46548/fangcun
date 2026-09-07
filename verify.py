@@ -440,7 +440,45 @@ with_remote = teg._scan_git_remote(remote_repo)
 check("有 git 有远程", with_remote["has_git"] is True and with_remote["has_remote"] is True
       and with_remote["remote_url"] == "https://github.com/test/repo.git", str(with_remote))
 
-# ---- 12. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
+# ---- 12. 验收裁决 api_review ----
+saved_td3, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "review-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    def _wr(tid, status, result=""):
+        fn = os.path.join(teg.TASK_DIR, tid + ".md")
+        with open(fn, "w", encoding="utf-8") as f:
+            f.write(f"---\nid: {tid}\n标题: 验收测试\n项目: [fangcun-base]\n状态: {status}\n"
+                    f"创建: 1000\n更新: 1000\n---\n## 方案\n- [x] x\n## 结果记录\n{result}\n")
+        return fn
+    # 非待验收拒审
+    _wr("task-20990101-961", "进行中")
+    ok, msg = teg.api_review("task-20990101-961", "accept")
+    check("非待验收拒审", not ok and "待验收" in msg, msg)
+    # 驳回理由必填
+    _wr("task-20990101-962", "待验收")
+    ok, msg = teg.api_review("task-20990101-962", "reject", "")
+    check("驳回理由必填", not ok and "必填" in msg, msg)
+    # 驳回：状态 + 结果记录留痕
+    ok, msg = teg.api_review("task-20990101-962", "reject", "方案第三步与设定冲突")
+    d962 = teg.parse_task(os.path.join(teg.TASK_DIR, "task-20990101-962.md"))
+    check("驳回置状态", ok and d962.get("状态") == "驳回", str(d962.get("状态")))
+    check("驳回理由留痕", "验收驳回：方案第三步与设定冲突" in d962.get("结果记录", ""))
+    # accept：置完成
+    _wr("task-20990101-963", "待验收")
+    ok, msg = teg.api_review("task-20990101-963", "accept")
+    d963 = teg.parse_task(os.path.join(teg.TASK_DIR, "task-20990101-963.md"))
+    check("验收通过置完成", ok and d963.get("状态") == "完成")
+    # 完成/驳回为终态：完成后不可再审
+    ok, msg = teg.api_review("task-20990101-963", "accept")
+    check("终态不可再审", not ok and "待验收" in msg, msg)
+    # verdict 非法值
+    _wr("task-20990101-964", "待验收")
+    ok, msg = teg.api_review("task-20990101-964", "nonsense")
+    check("非法 verdict 拒绝", not ok and "accept" in msg, msg)
+finally:
+    teg.TASK_DIR = saved_td3
+
+# ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
 # 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
 # 窗口（每 20s 扫描一轮 ≈ 88 个黑窗，2026-09-07 闪窗事故）。
 # 语义规则：capture_output=True（或 stdout=PIPE）= 后台数据调用，必须 CREATE_NO_WINDOW；

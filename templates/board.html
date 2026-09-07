@@ -74,6 +74,16 @@
     font-size:11px;color:var(--muted);padding:0 3px;line-height:1}
   .card:hover .mv{opacity:1}
   .mv:hover{color:var(--accent)}
+  /* 验收按钮：待验收卡片常显（验收动作不藏 hover），详情面板同款 */
+  .rvbtn{background:transparent;border:1px solid var(--border);border-radius:8px;cursor:pointer;
+    font-size:11px;font-weight:600;padding:2px 9px;margin-left:5px;color:var(--muted)}
+  .rvbtn:hover{border-color:var(--accent);color:var(--accent);background:#f5f4fa}
+  .rvbtn.ok{color:#3f6b3a;border-color:#bcd4b4}
+  .rvbtn.ok:hover{background:#e3f1de;border-color:#3f6b3a}
+  .rvbtn.no{color:#8a4343;border-color:#e2c4c4}
+  .rvbtn.no:hover{background:#f6e2e2;border-color:#8a4343}
+  #roverlay .rinput{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border);
+    border-radius:8px;font:inherit;font-size:13px;margin-top:8px}
   /* 状态色标（低饱和，契合雾灰紫） */
   .st{display:inline-block;font-size:10px;padding:1px 7px;border-radius:999px;font-weight:600;margin-left:auto}
   .st-draft{background:#e9e4f5;color:#5b4b86}
@@ -112,6 +122,8 @@
   .acts{margin-top:16px;display:flex;gap:6px;justify-content:flex-end}
   .acts button{padding:6px 14px;border:0;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
   .acts .pri{background:var(--accent);color:#fff}
+  .acts .ok{background:#5e9154;color:#fff}
+  .acts .no{background:#c2706f;color:#fff}
   .acts .warn{background:#e8a34a;color:#fff}
   .acts .danger{background:#d98a8a;color:#fff}
   .acts .ghost{background:#eee;color:#333}
@@ -274,6 +286,17 @@
     </div>
   </div>
 </div>
+<div id="joverlay" onclick="if(event.target===this)closeJudge()">
+  <div id="jmodal">
+    <h3 id="jTitle">验收驳回</h3>
+    <div id="jInfo" style="font-size:13px;color:#444"></div>
+    <input id="jReason" class="rinput" placeholder="驳回理由（必填，写入任务的结果记录留痕）">
+    <div class="acts">
+      <button class="ghost" onclick="closeJudge()">取消</button>
+      <button class="danger" onclick="doReject()">确认驳回</button>
+    </div>
+  </div>
+</div>
 <div id="poverlay" onclick="if(event.target===this)closeP()">
   <div id="pmodal">
     <h3 id="pTitle">任务详情</h3>
@@ -281,6 +304,8 @@
     <div class="acts">
       <button class="ghost" onclick="closeP()">关闭</button>
       <button class="ghost" onclick="quickDispatch(curId)">⚡ 派活（模式 B）</button>
+      <button class="ok" id="btnAccept" style="display:none" onclick="doAccept(curId)">✅ 验收通过</button>
+      <button class="no" id="btnReject" style="display:none" onclick="curTask&&openJudge(curTask)">↩ 驳回</button>
       <button class="pri" onclick="toEdit()">编辑</button>
     </div>
   </div>
@@ -380,6 +405,7 @@ function fmtAbs(ts){
   document.addEventListener("keydown",e=>{
     if(e.key!=="Escape")return;
     if(el("soverlay").style.display==="flex")closeSettings();
+    else if(el("joverlay").style.display==="flex")closeJudge();
     else if(el("roverlay").style.display==="flex")closeR();
     else if(el("poverlay").style.display==="flex")closeP();
     else if(el("overlay").style.display==="flex")closeModal();
@@ -517,6 +543,16 @@ function render(){
           bn.onclick=ev=>{ev.stopPropagation();moveStatus(t.id,STATUSES[i+1]);};
           head.appendChild(bn);
         }
+      }
+      if(stv==="待验收"){
+        const ok=document.createElement("button");ok.className="rvbtn ok";ok.textContent="✅ 通过";
+        ok.title="验收通过：任务置为完成";
+        ok.onclick=ev=>{ev.stopPropagation();doAccept(t.id);};
+        head.appendChild(ok);
+        const no=document.createElement("button");no.className="rvbtn no";no.textContent="↩ 驳回";
+        no.title="验收驳回：任务置为驳回，理由写入结果记录";
+        no.onclick=ev=>{ev.stopPropagation();openJudge(t);};
+        head.appendChild(no);
       }
       if(t.优先级){
         const pd=document.createElement("span");pd.className="prio-dot prio-"+t.优先级;pd.title="优先级 "+t.优先级;
@@ -723,6 +759,10 @@ async function openPreview(t){
     (t.prompt?'<div class="pv"><span class="k">派单任务书（执行方将收到的完整指令）</span><div class="val" style="white-space:pre-wrap;font-size:12px;background:#f5f4fa;border:1px solid var(--border);border-radius:8px;padding:8px">'+esc(t.prompt)+'</div></div>':"")+
     '<div class="pv"><span class="k">派活记录</span><div class="val" id="pAct">加载中…</div></div>';
   el("pBody").innerHTML=body;
+  // 验收按钮：仅待验收任务显示（详情面板同款）
+  const isVerifying=t.状态==="待验收";
+  el("btnAccept").style.display=isVerifying?"":"none";
+  el("btnReject").style.display=isVerifying?"":"none";
   el("poverlay").style.display="flex";
   try{
     const r=await fetch("/tasks.json?tid="+encodeURIComponent(t.id));
@@ -902,10 +942,31 @@ async function doArchive(){if(!curId)return;if(!confirm("归档 "+curId+"？\n�
 async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();}
 async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();}
 async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
+  // 验收裁决走专用按钮；◀▶/拖拽把任务从待验收移走时先提醒，防手滑跳过验收
+  if(t&&t.状态==="待验收"&&status!=="待验收"&&status!=="完成"&&status!=="驳回"){
+    if(!confirm("《"+(t.标题||t.id)+"》处于待验收，直接改状态会跳过验收。\n继续吗？（建议用卡片上的 ✅ 通过 / ↩ 驳回）"))return;}
   const fields={状态:status};
   if(t){fields.expected_update=String(t.更新||"");fields.expected_mtime=t.mtime||0;}
   const r=await post({action:"edit",id:id,fields});
   if(r.ok)load(true);else{lastHash="";load(true);}}
+/* ── 验收：待验收卡片/详情面板的 ✅ 通过 / ↩ 驳回（后端 action=review）── */
+async function doAccept(id){
+  const t=TASKS.find(x=>x.id===id);if(!t)return;
+  if(!confirm("验收通过《"+(t.标题||id)+"》？\n（任务置为「完成」）"))return;
+  const r=await post({action:"review",id:id,verdict:"accept"});
+  if(r.ok){lastHash="";if(el("poverlay").style.display==="flex")closeP();load(true);}}
+let judgeId=null;
+function openJudge(t){judgeId=t.id;
+  el("jInfo").innerHTML="<b>"+esc(t.标题||t.id)+"</b><br><small>"+esc(t.id)+" · 当前结果记录 "+(t.结果记录?"已有内容，理由将追加":"为空")+"</small>";
+  el("jReason").value="";el("joverlay").style.display="flex";
+  setTimeout(()=>el("jReason").focus(),50);}
+function closeJudge(){el("joverlay").style.display="none";judgeId=null;}
+async function doReject(){
+  if(!judgeId)return;
+  const reason=el("jReason").value.trim();
+  if(!reason){alert("驳回理由必填（写入任务的结果记录，留痕可追溯）。");return;}
+  const r=await post({action:"review",id:judgeId,verdict:"reject",reason:reason});
+  if(r.ok){closeJudge();lastHash="";if(el("poverlay").style.display==="flex")closeP();load(true);}}
 setInterval(()=>{if(curView==="projects")loadPv();else load();},2000);
 if(location.hash==="#view=projects"&&curView!=="projects")curView="projects";   // 深链：报告/书签直达项目视图
 if(curView==="projects"){document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view==="projects"));el("board").classList.add("pv");loadPv(true);}
