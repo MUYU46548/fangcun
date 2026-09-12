@@ -2469,6 +2469,7 @@ class TrayManager:
     - 双击打开看板
     - 窗口关闭 → 最小化到托盘（不退出）
     - 退出时清理端口文件 + 停服务
+    - 后台自动检查更新（每 30 分钟）
     """
 
     def __init__(self, srv, port):
@@ -2476,6 +2477,19 @@ class TrayManager:
         self.port = port
         self.icon = None
         self.window = None
+        self.last_commit = None
+        self.build_running = False
+        self._update_event = threading.Event()
+        # 初始提交
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, cwd=ROOT,
+                creationflags=_NOWIN
+            )
+            self.last_commit = r.stdout.strip()[:8] if r.returncode == 0 else "unknown"
+        except:
+            self.last_commit = "unknown"
 
     def _open_board(self, *a):
         """打开看板窗口。"""
@@ -2538,8 +2552,93 @@ class TrayManager:
         except FileNotFoundError:
             return False
 
+    def _check_update_worker(self):
+        """后台线程：检查新提交并自动打包。"""
+        import time
+        CHECK_INTERVAL = 30 * 60  # 30 分钟
+        while not self._update_event.is_set():
+            try:
+                self._check_and_build()
+            except Exception as e:
+                print(f"[warn] 更新检查失败：{e}")
+            self._update_event.wait(timeout=CHECK_INTERVAL)
+
+    def _check_and_build(self):
+        """检查是否有新提交，有则自动打包。"""
+        # 检查是否有 git 仓库
+        if not os.path.isdir(os.path.join(ROOT, ".git")):
+            return
+        if self.build_running:
+            return
+
+        # fetch 最新
+        r = subprocess.run(
+            ["git", "fetch", "origin", "main"],
+            capture_output=True, text=True, cwd=ROOT,
+            creationflags=_NOWIN, timeout=30
+        )
+
+        # 比较本地 vs 远程
+        r = subprocess.run(
+            ["git", "log", "HEAD..origin/main", "--oneline"],
+            capture_output=True, text=True, cwd=ROOT,
+            creationflags=_NOWIN
+        )
+        if not r.stdout.strip():
+            return
+
+        new_commits = r.stdout.strip().splitlines()
+        print(f"[更新] 发现 {len(new_commits)} 个新提交")
+
+        # 拉取
+        subprocess.run(
+            ["git", "pull", "origin", "main"],
+            capture_output=True, text=True, cwd=ROOT,
+            creationflags=_NOWIN, timeout=30
+        )
+
+        # 打包
+        self.build_running = True
+        try:
+            success, info = self._run_build()
+            if success:
+                msg = f"新构建已就绪（{len(new_commits)} 个更新）\n{info}"
+                print(f"[更新] {msg}")
+                if self.icon:
+                    self.icon.notify(msg, "方寸自动构建")
+            else:
+                print(f"[warn] 构建失败：{info}")
+        finally:
+            self.build_running = False
+
+    def _run_build(self):
+        """运行 PyInstaller 打包。"""
+        import shutil
+        dist = os.path.join(ROOT, "dist")
+        build = os.path.join(ROOT, "build")
+        for d in [dist, build]:
+            if os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)
+        r = subprocess.run(
+            [sys.executable, "-m", "PyInstaller", "--noconfirm", "方寸.spec"],
+            capture_output=True, text=True, cwd=ROOT,
+            creationflags=_NOWIN, timeout=300
+        )
+        if r.returncode != 0:
+            return False, r.stderr[-300:] if r.stderr else "未知错误"
+        exe = os.path.join(dist, "方寸", "方寸.exe")
+        if not os.path.exists(exe):
+            return False, "方寸.exe 未生成"
+        size = os.path.getsize(exe) / 1024 / 1024
+        return True, f"{size:.1f} MB"
+
+    def _manual_check_update(self, *a):
+        """手动检查更新。"""
+        threading.Thread(target=self._check_and_build, daemon=True).start()
+
     def _quit(self, *a):
         """退出：停服务 + 清理 + 退出进程。"""
+        self._update_event.set()
         try:
             if self.srv:
                 self.srv.shutdown()
@@ -2552,10 +2651,15 @@ class TrayManager:
 
     def run(self):
         """启动托盘（阻塞）。"""
+        # 启动更新检查线程
+        self._update_thread = threading.Thread(target=self._check_update_worker, daemon=True)
+        self._update_thread.start()
+
         menu_items = [
             pystray.MenuItem("打开看板", self._open_board),
             pystray.MenuItem("启动台", self._open_startpage),
             pystray.MenuItem("立即备份", self._do_backup),
+            pystray.MenuItem("检查更新", self._manual_check_update),
             pystray.MenuItem(
                 "开机自启动",
                 self._toggle_autostart,
@@ -2565,7 +2669,8 @@ class TrayManager:
             pystray.MenuItem("退出", self._quit),
         ]
         menu = pystray.Menu(*menu_items)
-        self.icon = pystray.Icon("方寸", _create_tray_icon(), "方寸 tegula", menu)
+        self.icon = pystray.Icon("方寸", _create_tray_icon(), f"方寸 tegula [{self.last_commit}]", menu)
+        self.icon.notify("已启动（每 30 分钟自动检查更新）", "方寸 tegula")
         self.icon.run()
 
 
