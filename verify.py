@@ -496,8 +496,179 @@ try:
 finally:
     teg.TASK_DIR = saved_td4
 
-# ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
-# 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
+import json as _json2
+
+# ---- 14. 标签系统（P0-2：受管字段 / 非空才渲染 / 往返保真）----
+_saved_td5, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "tag-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    ok, ttag = teg.api_new({"标题": "标签任务", "状态": "待办",
+                            "项目": ["fangcun-base"], "标签": ["bug", "文档"]})
+    fn_tag = os.path.join(teg.TASK_DIR, ttag + ".md")
+    d_tag = teg.parse_task(fn_tag)
+    check("标签写入往返", d_tag.get("标签") == ["bug", "文档"], str(d_tag.get("标签")))
+    check("标签进 frontmatter 原文", "标签: [bug, 文档]" in open(fn_tag, encoding="utf-8").read())
+    ok, _ = teg.api_edit(ttag, {"标签": ["单一"]})
+    check("标签可编辑替换", teg.parse_task(fn_tag).get("标签") == ["单一"])
+    teg.api_edit(ttag, {"标签": ["  ", ""]})
+    check("标签空值归一为不出现在 frontmatter",
+          "标签:" not in open(fn_tag, encoding="utf-8").read())
+    # 行被整体移除 → 字段不存在（None），前端按 (t.标签||[]) 兜底
+    check("清空标签后字段不存在（非空列表）", teg.parse_task(fn_tag).get("标签") is None,
+          repr(teg.parse_task(fn_tag).get("标签")))
+    teg.api_edit(ttag, {"标签": ["x"]})
+    check("标签在 MANAGED_KEYS 内（不被当未知字段透传）", "标签" in teg.MANAGED_KEYS)
+finally:
+    teg.TASK_DIR = _saved_td5
+
+# ---- 15. 资料路径白名单（P0-3：越权拦截 / 回溯拦截 / 变量不展开）----
+ok, err = teg.validate_open_path(os.path.join(ROOT, "tegula.py"))
+check("白名单内绝对路径放行", ok is not None and not err, str(err))
+ok, err = teg.validate_open_path("templates/board.html")
+check("相对路径基于项目根解析", ok is not None and not err, str(err))
+ok, err = teg.validate_open_path("")
+check("空路径拒绝", ok is None and "路径为空" in err, str(err))
+ok, err = teg.validate_open_path("a\x00b")
+check("控制字符路径拒绝", ok is None and "控制字符" in err, str(err))
+ok, err = teg.validate_open_path("../outside.txt")
+check("路径回溯拦截（../）", ok is None and "回溯" in err, str(err))
+ok, err = teg.validate_open_path("..\\..\\windows\\win.ini")
+check("路径回溯拦截（..\\ 反斜杠）", ok is None and "回溯" in err, str(err))
+ok, err = teg.validate_open_path("E:/Windows/win.ini")
+check("registry 外路径拒绝", ok is None and "允许范围" in err, str(err))
+ok, err = teg.validate_open_path("%WINDIR%/win.ini")
+check("环境变量路径拒绝（不展开、不误放行）", ok is None and "环境变量" in err, str(err))
+check("allowed_roots 覆盖 registry 项目", len(teg.allowed_roots()) >= 1, str(teg.allowed_roots()[:2]))
+
+# ---- 16. 快速添加语法（P1-1）----
+q, e = teg.parse_quick_add("Fix login p1 #backend @hermes due:09-15")
+check("快速添加全字段解析",
+      q and q["标题"] == "Fix login" and q["优先级"] == "中" and q["标签"] == ["backend"]
+      and q["指派"] == "hermes" and q["截止"] == "09-15" and q["状态"] == "待办", str(q))
+check("快速添加 p0→高", teg.parse_quick_add("x p0")[0]["优先级"] == "高")
+check("快速添加 p2→低", teg.parse_quick_add("x p2")[0]["优先级"] == "低")
+check("快速添加 标签去重", teg.parse_quick_add("x #a #a #b")[0]["标签"] == ["a", "b"])
+check("快速添加 to: 合法状态", teg.parse_quick_add("x to:待验收")[0]["状态"] == "待验收")
+q, e = teg.parse_quick_add("x to:乱写")
+check("快速添加 to: 非法状态报错", q is None and "未知状态" in e, str(e))
+q, e = teg.parse_quick_add("p1 #a")
+check("快速添加 标题为空报错", q is None and "标题为空" in e, str(e))
+q, e = teg.parse_quick_add("   ")
+check("快速添加 空白输入报错", q is None, str(e))
+
+# ---- 17. 自动化规则（P2-1）----
+_saved_td6, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "rules-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    check("默认规则两条", len(teg.load_rules()) == 2, str(len(teg.load_rules())))
+    check("默认规则文件落盘", os.path.exists(teg._rules_path()))
+    # 方案全完成 + 进行中 → 待验收
+    ok, tr = teg.api_new({"标题": "规则", "状态": "进行中", "项目": ["fangcun-base"],
+                          "方案": ["- [ ] 一", "- [ ] 二"]})
+    ok, msg = teg.api_edit(tr, {"方案": ["- [x] 一", "- [x] 二"]})
+    check("规则1：全勾选自动推进待验收",
+          teg.parse_task(os.path.join(teg.TASK_DIR, tr + ".md"))["状态"] == "待验收", msg)
+    check("规则1：触发名回给前端", "已触发规则" in msg, msg)
+    # 部分勾选不触发
+    ok, tr2 = teg.api_new({"标题": "规则2", "状态": "进行中", "项目": ["fangcun-base"],
+                           "方案": ["- [ ] 一", "- [ ] 二"]})
+    ok, msg2 = teg.api_edit(tr2, {"方案": ["- [x] 一", "- [ ] 二"]})
+    check("规则1：部分勾选不误触发",
+          teg.parse_task(os.path.join(teg.TASK_DIR, tr2 + ".md"))["状态"] == "进行中"
+          and "已触发规则" not in msg2, msg2)
+    # 非「进行中」不触发（草稿完成任务不该被推走）
+    ok, tr3 = teg.api_new({"标题": "规则3", "状态": "待办", "项目": ["fangcun-base"],
+                           "方案": ["- [ ] 一"]})
+    teg.api_edit(tr3, {"方案": ["- [x] 一"]})
+    check("规则1：状态门拦住待办任务",
+          teg.parse_task(os.path.join(teg.TASK_DIR, tr3 + ".md"))["状态"] == "待办")
+    # 禁用后不触发
+    teg.save_rules([{"id": "rule-1", "name": "方案全完成自动推进", "trigger": "field_change",
+                     "condition": {"field": "方案", "all_checked": True, "status": "进行中"},
+                     "action": {"type": "set_status", "value": "待验收"}, "enabled": False}])
+    ok, tr4 = teg.api_new({"标题": "规则4", "状态": "进行中", "项目": ["fangcun-base"],
+                           "方案": ["- [ ] 一"]})
+    teg.api_edit(tr4, {"方案": ["- [x] 一"]})
+    check("规则1：禁用后不触发",
+          teg.parse_task(os.path.join(teg.TASK_DIR, tr4 + ".md"))["状态"] == "进行中")
+    teg.save_rules(teg.DEFAULT_RULES)
+    # 规则文件损坏 → 安全回退，且不影响 api_edit 主流程
+    with open(teg._rules_path(), "w", encoding="utf-8") as f:
+        f.write("{broken json")
+    check("规则文件损坏安全回退默认", len(teg.load_rules()) == 2)
+    check("规则损坏后 api_edit 仍可用", teg.api_edit(tr2, {"标题": "改名"})[0] is True)
+    # 超时徽章阈值
+    _old = str(time.time() - 50 * 3600)
+    check("超时徽章命中", teg.timeout_badge_hours({"状态": "进行中", "派活时间": _old}) == 48)
+    check("超时徽章未达阈值不命中",
+          teg.timeout_badge_hours({"状态": "进行中", "派活时间": str(time.time() - 3600)}) is None)
+    check("非进行中不算超时",
+          teg.timeout_badge_hours({"状态": "待办", "派活时间": _old}) is None)
+finally:
+    teg.TASK_DIR = _saved_td6
+
+# ---- 18. MCP 只读接口（P3-2：握手 / 工具面 / 敏感字段不泄露 / 拒绝写）----
+_saved_td7, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "mcp-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    teg.api_new({"标题": "MCP 可见任务", "状态": "待办", "项目": ["fangcun-base"],
+                 "标签": ["可见"], "方案": ["- [x] 一", "- [ ] 二"], "附言": "这是内部指令不该外泄"})
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    check("MCP initialize 握手", resp["result"]["serverInfo"]["name"] == "tegula"
+          and "tools" in resp["result"]["capabilities"], str(resp))
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    names = sorted(t["name"] for t in resp["result"]["tools"])
+    check("MCP 暴露 5 个只读工具",
+          names == ["get_project_status", "get_task", "list_projects", "list_tasks", "search_tasks"],
+          str(names))
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                           "params": {"name": "list_tasks", "arguments": {}}})
+    body = _json2.loads(resp["result"]["content"][0]["text"])
+    check("MCP list_tasks 返回任务", isinstance(body, list) and len(body) >= 1, str(len(body)))
+    check("MCP 任务带方案进度", "方案进度" in body[0] and body[0]["方案进度"] == "1/2", str(body[0].get("方案进度")))
+    check("MCP 过滤附言（敏感字段不外泄）", all("附言" not in t for t in body), "附言 泄露")
+    check("MCP 过滤内部下划线字段", all(not any(k.startswith("_") for k in t) for t in body))
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                           "params": {"name": "get_task", "arguments": {"id": "task-不存在"}}})
+    check("MCP get_task 不存在返回 error",
+          "error" in _json2.loads(resp["result"]["content"][0]["text"]))
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                           "params": {"name": "delete_task", "arguments": {}}})
+    check("MCP 拒绝写操作工具", "error" in resp and "未知工具" in resp["error"]["message"], str(resp))
+    for _bad in ("edit_task", "dispatch_task", "new_task", "archive_task"):
+        _r = teg.mcp_handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                             "params": {"name": _bad, "arguments": {}}})
+        check("MCP 无写工具 " + _bad, "error" in _r)
+    check("MCP 通知无响应",
+          teg.mcp_handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None)
+    check("MCP 未知方法报错",
+          "error" in teg.mcp_handle({"jsonrpc": "2.0", "id": 8, "method": "nope", "params": {}}))
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                           "params": {"name": "list_tasks", "arguments": {"tag": "可见"}}})
+    check("MCP 标签过滤", all("可见" in (t.get("标签") or [])
+                            for t in _json2.loads(resp["result"]["content"][0]["text"])))
+finally:
+    teg.TASK_DIR = _saved_td7
+
+# ---- 19. 乐观锁版本同秒递增（回归防线：秒级时间戳做版本会撞车）----
+_saved_td8, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "ver-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    check("_bump_version 同秒递增", int(teg._bump_version("1789133904")) >= 1789133904
+          and teg._bump_version("9999999999") == "10000000000", teg._bump_version("9999999999"))
+    ok, tv = teg.api_new({"标题": "版本", "状态": "进行中", "项目": ["fangcun-base"],
+                          "方案": ["- [ ] 一"]})
+    fnv = os.path.join(teg.TASK_DIR, tv + ".md")
+    v1 = teg.parse_task(fnv)["更新"]
+    teg.api_edit(tv, {"方案": ["- [x] 一"], "expected_update": str(v1)})
+    v2 = teg.parse_task(fnv)["更新"]
+    check("连续写入版本严格递增", int(v2) > int(v1), f"{v1} -> {v2}")
+    ok, msg = teg.api_edit(tv, {"标题": "重放", "expected_update": str(v1)})
+    check("过期版本号写入被拒（同秒也挡住）", ok is False and "conflict" in msg, msg)
+finally:
+    teg.TASK_DIR = _saved_td8
+
+# ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----# 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
 # 窗口（每 20s 扫描一轮 ≈ 88 个黑窗，2026-09-07 闪窗事故）。
 # 语义规则：capture_output=True（或 stdout=PIPE）= 后台数据调用，必须 CREATE_NO_WINDOW；
 # 交互式拉起（如 dispatch --go，不捕获输出）豁免，必须继承控制台。

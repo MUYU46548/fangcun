@@ -44,7 +44,14 @@ projects:
     tasks: ""
     repo: E:/CODE/CangKu/NovelForge
     tools: [python]
+    app: E:/CODE/CangKu/NovelForge/console/启动控制台.bat
     sources: []
+    services:
+      - name: NovelForge API
+        port: 8765
+        url: http://127.0.0.1:8765
+        start_cmd: E:/CODE/CangKu/NovelForge/.venv/Scripts/python.exe E:/CODE/CangKu/NovelForge/scripts/nf_api.py --port 8765
+        stop_cmd: ""
 
   # 明鉴仓库在 Hermes 中已注册为 project-3，沿用其 slug 不重复创建
   - id: project-3
@@ -72,6 +79,13 @@ projects:
     name: 设定资料工具库
     tasks: ""
     repo: E:/图书馆/编辑室/设定资料维护工具库
+    tools: [python]
+    sources: []
+
+  - id: songtao-zhenyun
+    name: 松涛真韵
+    tasks: ""
+    repo: E:/CODE/CangKu/SongTaoZhenYun
     tools: [python]
     sources: []
 

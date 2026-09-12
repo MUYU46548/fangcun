@@ -1,18 +1,57 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) — 本地优先多 agent 任务地图
 # 零依赖：仅用 Python 标准库。视图服务用 http.server + 轮询 + 编辑 API。
-import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request, zipfile
+import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request, zipfile, sys
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-TASK_DIR = os.path.join(ROOT, "task-data")
-REGISTRY_PATH = os.path.join(ROOT, "registry.yaml")
-REGISTRY_BAK = os.path.join(ROOT, "registry.yaml.bak")
-BACKUP_DIR = os.path.join(ROOT, "backups")
+# ── 双目录分离：代码目录 vs 用户数据目录 ──
+# 支持 PyInstaller 打包（sys.frozen）和便携模式（exe 同级有 registry.yaml）
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(sys.executable)      # PyInstaller → exe 所在目录
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))  # 源码运行 → .py 所在目录
+
+# 数据目录：便携检测 > AppData 默认
+_legacy_reg = os.path.join(APP_DIR, "registry.yaml")
+_legacy_task = os.path.join(APP_DIR, "task-data")
+if os.path.exists(_legacy_reg) or os.path.isdir(_legacy_task):
+    DATA_DIR = APP_DIR                              # 便携模式（兼容当前用户）
+else:
+    _appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+    DATA_DIR = os.path.join(_appdata, "Fangcun")    # 规范模式（%APPDATA%\Fangcun）
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# 兼容旧引用（内部代码统一用新名，但 ROOT 仍指向代码目录供模板加载）
+ROOT = APP_DIR
+TASK_DIR = os.path.join(DATA_DIR, "task-data")
+REGISTRY_PATH = os.path.join(DATA_DIR, "registry.yaml")
+REGISTRY_BAK = os.path.join(DATA_DIR, "registry.yaml.bak")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 BACKUP_KEEP = 10
 ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
+
+
+# ── 首次启动初始化 ──
+def _init_data_dir():
+    """首次启动时创建默认数据文件。"""
+    # 默认 registry.yaml
+    if not os.path.exists(REGISTRY_PATH):
+        default_src = os.path.join(APP_DIR, "registry-default.yaml")
+        if not os.path.exists(default_src) and getattr(sys, "frozen", False):
+            default_src = os.path.join(sys._MEIPASS, "registry-default.yaml")
+        if os.path.exists(default_src):
+            shutil.copy(default_src, REGISTRY_PATH)
+        else:
+            # 没有模板则写入空注册表
+            with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+                f.write("members: []\nprojects: []\nreleased: []\n")
+    # 默认 task-data/
+    os.makedirs(TASK_DIR, exist_ok=True)
+
+_init_data_dir()
 # pythonw（无控制台）拉起子进程时，Windows 会为每个子进程新建控制台窗口 → 黑窗风暴。
 # 所有服务端/后台子进程必须带 creationflags=_NOWIN；仅交互式 CLI 拉起（dispatch --go）除外。
 _NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -30,10 +69,6 @@ def _coerce(v):
 
 
 def parse_registry(path, include_released=True):
-    """极简 YAML 解析，适配 registry.yaml 的 projects / released 列表结构（零依赖）。
-
-    released 段的项目会加 _released=True 标记，供报告折叠分组用。
-    """
     if not os.path.exists(path):
         return []
     try:
@@ -47,16 +82,22 @@ def parse_registry(path, include_released=True):
     want = {"projects"}
     if include_released:
         want.add("released")
-    for raw in lines:
+    i = 0
+    n = len(lines)
+    while i < n:
+        raw = lines[i]
         line = raw.rstrip()
         if not line.strip():
+            i += 1
             continue
         if not raw.startswith(" "):
             m = re.match(r"^([A-Za-z_]+):\s*$", line)
             in_section = m.group(1) if m and m.group(1) in want else None
             cur = None
+            i += 1
             continue
         if in_section is None:
+            i += 1
             continue
         if line.strip().startswith("- "):
             rest = line.strip()[2:].strip()
@@ -67,17 +108,233 @@ def parse_registry(path, include_released=True):
             kv = re.match(r"^([^:]+):\s*(.*)$", rest)
             if kv:
                 cur[kv.group(1).strip()] = _coerce(kv.group(2))
+            i += 1
             continue
         if cur is not None:
             kv = re.match(r"^([^:]+):\s*(.*)$", line.strip())
             if kv:
-                cur[kv.group(1).strip()] = _coerce(kv.group(2))
+                key = kv.group(1).strip()
+                val = kv.group(2).strip()
+                # Special handling for services: nested list of dicts
+                if key == "services" and val == "":
+                    services = []
+                    i += 1
+                    current_svc = None
+                    # 记录 services 键的缩进级别，只解析更深层的行
+                    services_indent = len(raw) - len(raw.lstrip())
+                    while i < n:
+                        ln = lines[i]
+                        ln_stripped = ln.rstrip()
+                        if not ln_stripped.strip():
+                            i += 1
+                            continue
+                        # 当前行缩进
+                        ln_indent = len(ln) - len(ln.lstrip())
+                        # 如果缩进 <= services 缩进，说明已离开 services 段
+                        if ln_indent <= services_indent:
+                            break
+                        # 列表项开始：创建新服务字典
+                        if ln_stripped.strip().startswith("- "):
+                            svc_rest = ln_stripped.strip()[2:].strip()
+                            current_svc = {}
+                            svc_kv = re.match(r"^([^:]+):\s*(.*)$", svc_rest)
+                            if svc_kv:
+                                current_svc[svc_kv.group(1).strip()] = _coerce(svc_kv.group(2))
+                            services.append(current_svc)
+                        # 属性行：添加到当前服务字典
+                        elif current_svc is not None:
+                            svc_kv = re.match(r"^([^:]+):\s*(.*)$", ln_stripped.strip())
+                            if svc_kv:
+                                current_svc[svc_kv.group(1).strip()] = _coerce(svc_kv.group(2))
+                        i += 1
+                    cur["services"] = services
+                    continue
+                cur[key] = _coerce(val)
+        i += 1
     return projects
 
 
 def load_all_projects():
-    """返回全部项目（含 released 段），供 status / report 使用。"""
+    """返回全部项目（含 released 段），供 status / report / workbench 使用。"""
     return parse_registry(REGISTRY_PATH, include_released=True)
+
+
+# ---------- 工作台：统一管理所有项目的本地服务端口 ----------
+
+def scan_services():
+    """扫描所有项目声明的 services，返回 [{project, name, port, url, start_cmd, running}]"""
+    reg = load_all_projects()
+    services = []
+    for p in reg:
+        pid = p.get("id", "")
+        pname = p.get("name", pid)
+        for svc in p.get("services", []):
+            # Handle both flat dict and nested structure from YAML parser
+            if isinstance(svc, dict):
+                # Direct dict: {name: ..., port: ..., ...}
+                port = svc.get("port")
+                url = svc.get("url", "")
+                start_cmd = svc.get("start_cmd", "")
+                stop_cmd = svc.get("stop_cmd", "")
+                name = svc.get("name", "未命名服务")
+            else:
+                # Nested structure from parser - find the actual service dict
+                # The parser may nest under the first key
+                port = p.get("port")
+                url = p.get("url", "")
+                start_cmd = p.get("start_cmd", "")
+                stop_cmd = p.get("stop_cmd", "")
+                name = svc if isinstance(svc, str) else "未命名服务"
+            # YAML 解析可能返回字符串，统一转整数
+            try:
+                port = int(port) if port is not None else None
+            except (ValueError, TypeError):
+                port = None
+            if not url and port:
+                url = f"http://127.0.0.1:{port}"
+            services.append({
+                "project": pname,
+                "project_id": pid,
+                "name": name,
+                "port": port,
+                "url": url,
+                "start_cmd": start_cmd,
+                "stop_cmd": stop_cmd,
+                "repo": p.get("repo", ""),
+                "running": False,
+            })
+    # 检测存活
+    for s in services:
+        if s["port"]:
+            s["running"] = _port_in_use(s["port"])
+    return services
+
+
+def _port_in_use(port):
+    """检测端口是否被占用"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
+def start_service(port, cmd, cwd=None):
+    """启动服务：后台执行 start_cmd。返回 (ok, msg)。"""
+    if _port_in_use(port):
+        return False, f"端口 {port} 已被占用"
+    if not cmd:
+        return False, f"未配置启动命令"
+    try:
+        import os
+        if cwd and not os.path.isdir(cwd):
+            cwd = None
+        # 用 shell=False + CREATE_NO_WINDOW 避免 UnicodeDecodeError
+        subprocess.Popen(
+            cmd,
+            shell=False,
+            cwd=cwd,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # 等待端口就绪（最多 10 秒）
+        import time
+        for _ in range(20):
+            time.sleep(0.5)
+            if _port_in_use(port):
+                return True, f"服务已启动 (端口 {port})"
+        return False, f"启动超时 (端口 {port} 未就绪)"
+    except Exception as e:
+        return False, f"启动失败: {e}"
+
+
+def stop_service(port, cmd=""):
+    """停止服务：优先用 stop_cmd，否则找占用端口的进程并 kill。返回 (ok, msg)。"""
+    if cmd:
+        try:
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=10,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return True, f"服务已停止 (执行 stop_cmd)"
+        except Exception as e:
+            return False, f"执行 stop_cmd 失败: {e}"
+    # 无 stop_cmd：尝试找占用端口的进程
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        # Windows 上 netstat 输出是 GBK 编码
+        output = result.stdout.decode("gbk", errors="replace")
+        pid = None
+        for line in output.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                pid = line.strip().split()[-1]
+                break
+        if pid:
+            subprocess.run(
+                ["taskkill", "/F", "/PID", pid],
+                capture_output=True, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return True, f"服务已停止 (PID {pid})"
+        return False, f"端口 {port} 未被占用"
+    except Exception as e:
+        return False, f"停止失败: {e}"
+
+
+def cmd_workbench(args):
+    """工作台：查看所有服务状态 / 启停服务。
+    
+    用法：
+      python tegula.py workbench          # 列出所有服务状态
+      python tegula.py workbench --start 8765  # 启动端口 8765 的服务
+      python tegula.py workbench --stop 8765   # 停止端口 8765 的服务
+    """
+    services = scan_services()
+    if not services:
+        print("暂无服务声明。在 registry.yaml 中添加 services 字段来声明服务。")
+        return
+    
+    action = getattr(args, "action", "list")
+    port = getattr(args, "port", None)
+    
+    if action == "list":
+        print(f"\n{'='*60}")
+        print(f"工作台 · 共 {len(services)} 个服务")
+        print(f"{'='*60}")
+        for s in [s for s in services if s["running"]] + [s for s in services if not s["running"]]:
+            icon = "🟢" if s["running"] else "🔴"
+            print(f"  {icon} {s['name']:<20} {s['project']:<12} :{s['port']}")
+            if s["url"]:
+                print(f"     {s['url']}")
+        print()
+    elif action == "start":
+        target = next((s for s in services if s["port"] == port), None)
+        if not target:
+            print(f"未找到端口 {port} 对应的服务声明")
+            return
+        cwd = target.get("repo", "")
+        cmd = target["start_cmd"]
+        # 如果 cmd 是字符串且 shell=False，需要转成列表
+        if isinstance(cmd, str):
+            import shlex
+            try:
+                cmd = shlex.split(cmd)
+            except ValueError:
+                pass
+        ok, msg = start_service(port, cmd, cwd=cwd if cwd and cwd != "." else None)
+        print(f"{'✓' if ok else '✗'} {msg}")
+    elif action == "stop":
+        target = next((s for s in services if s["port"] == port), None)
+        if not target:
+            print(f"未找到端口 {port} 对应的服务声明")
+            return
+        ok, msg = stop_service(port, target["stop_cmd"])
+        print(f"{'✓' if ok else '✗'} {msg}")
 
 
 def load_members():
@@ -240,7 +497,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签"}
 
 
 def render_task(d):
@@ -267,6 +524,9 @@ def render_task(d):
         f"指派: {d.get('指派','hermes')}",
         f"验收: {d.get('验收','human')}",
     ]
+    tg = d.get("标签") or []
+    if tg:                                 # 标签受管：非空才渲染，空值不留残迹
+        lines.append(f"标签: [{', '.join(str(x) for x in tg)}]")
     blk = d.get("阻塞") or []
     if blk:                               # 依赖受管：非空才渲染，空值不留残迹
         lines.append(f"阻塞: [{', '.join(str(x) for x in blk)}]")
@@ -329,6 +589,13 @@ def load_tasks(project=None, view="active"):
                 # 乐观锁版本号：frontmatter 更新 优先，旧文件回退 mtime
                 if not str(d.get("更新") or "").strip():
                     d["更新"] = str(d["mtime"])
+                # 超时徽章（自动化规则 rule-2）：进行中超阈值未回写，下发实际小时数供卡片告警
+                _th = timeout_badge_hours(d)
+                if _th is not None:
+                    try:
+                        d["stale"] = int((time.time() - float(d.get("派活时间"))) / 3600)
+                    except (TypeError, ValueError):
+                        d["stale"] = int(_th)
                 # 派单任务书随 payload 下发：GUI 确认弹窗展示真实指令（仅未终态任务）
                 if str(d.get("状态") or "") not in ("完成", "驳回"):
                     try:
@@ -423,7 +690,25 @@ def gen_id():
 
 # ---------- 编辑 API 后端 ----------
 def _now_ts():
+    """秒级 unix 时间戳（人类可读，用于 创建/更新 展示）。
+    注意：秒级精度不足以做乐观锁版本——同一秒内两次写入会撞成同值，
+    锁会形同虚设。版本号请用 _bump_version()。"""
     return str(int(time.time()))
+
+
+def _bump_version(prev):
+    """乐观锁版本号：单调递增的秒级时间戳。
+
+    同秒内连续写入时 +1，保证「每次写入都产生新版本」。
+    这是同秒并发下版本不撞车的唯一防线（历史缺陷：两次勾选落在同一秒，
+    版本相同 → 第二次写入被误判为"版本匹配"而静默覆盖）。
+    """
+    try:
+        p = int(str(prev or "").strip() or 0)
+    except (TypeError, ValueError):
+        p = 0
+    now = int(time.time())
+    return str(now if now > p else p + 1)
 
 
 def _task_version(d, path=None):
@@ -481,6 +766,8 @@ def api_edit(id, fields):
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):
         d["项目"] = fields["项目"]
+    if isinstance(fields.get("标签"), list):
+        d["标签"] = [str(x).strip() for x in fields["标签"] if str(x).strip()]
     if isinstance(fields.get("方案"), list):
         d["方案"] = fields["方案"]
     if "结果记录" in fields:
@@ -491,12 +778,18 @@ def api_edit(id, fields):
     if isinstance(fields.get("资源工具"), list):
         res["工具"] = fields["资源工具"]
     d["资源"] = res
-    # 时间戳：创建 只补缺，更新 每次写入都打（乐观锁版本源）
+    # 时间戳：创建 只补缺，更新 每次写入都打（乐观锁版本源，同秒递增防撞车）
     if not str(d.get("创建") or "").strip():
         d["创建"] = _now_ts()
-    d["更新"] = _now_ts()
+    d["更新"] = _bump_version(d.get("更新"))
+    # 自动化规则（P2）：仅在方案被改动时评估「方案全完成 → 待验收」
+    fired = []
+    if isinstance(fields.get("方案"), list):
+        fired = evaluate_rules(d, "field_change", {"id": id})
     write_task_file(fn, d)
-    return True, "ok"
+    if fired:
+        log_activity("rule", id, "、".join(fired))
+    return True, ("ok|已触发规则：" + "、".join(fired)) if fired else "ok"
 
 
 def api_review(id, verdict, reason=""):
@@ -525,7 +818,7 @@ def api_review(id, verdict, reason=""):
         d["结果记录"] = (prev + "\n" + line).strip() if prev else line
     else:
         return False, "verdict 必须是 accept 或 reject"
-    d["更新"] = _now_ts()
+    d["更新"] = _bump_version(d.get("更新"))
     write_task_file(fn, d)
     log_activity("验收" + ("通过" if verdict == "accept" else "驳回"), id,
                  reason if verdict == "reject" else "")
@@ -547,10 +840,13 @@ def api_new(fields):
 
     def val(key, fallback):
         """字段默认值链：调用方显式值 > _template.md 有效值 > 内置兜底。
-        模板占位文字（全角括号开头，如『（执行后由执行方填写）』）不算有效值。"""
+        模板占位文字（全角括号开头，如『（执行后由执行方填写）』）不算有效值。
+        空「状态」按内置默认走（调用方传 "" 是"没填"，不是"要空状态"）。"""
         v = fields.get(key)
         if v not in (None, "", []):
             return v
+        if key == "状态":
+            return fallback
         tv = tpl.get(key)
         if tv not in (None, "", []):
             if isinstance(tv, str) and tv.strip().startswith("（"):
@@ -560,12 +856,13 @@ def api_new(fields):
 
     d = {
         "id": tid,
-        "标题": fields.get("标题", "新任务"),
+        "标题": fields.get("标题") or "新任务",
         "项目": val("项目", ["fangcun-base"]),
-        "状态": fields.get("状态", "草稿"),
+        "状态": val("状态", "草稿"),
         "批次": val("批次", ""),
         "截止": val("截止", ""),
         "优先级": val("优先级", ""),
+        "标签": val("标签", []),
         "阻塞": fields.get("阻塞") or [],
         "附言": fields.get("附言") or "",
         "来源": val("来源", "human"),
@@ -699,6 +996,30 @@ def api_reg_save(req):
             return False, f"项目保存失败: {e}"
 
     return True, "saved"
+
+
+def api_export():
+    """导出所有任务为 JSON 数据（供前端下载）。返回 (ok, msg, data)。"""
+    tasks = load_tasks(None, "active") + load_tasks(None, "archive") + load_tasks(None, "trash")
+    reg = load_all_projects()
+    members = load_members()
+    data = {
+        "version": 1,
+        "exported_at": _now_ts(),
+        "registry": {p["id"]: p.get("name", p["id"]) for p in reg},
+        "members": members,
+        "tasks": tasks,
+    }
+    return True, "ok", data
+
+
+def api_backup():
+    """在 HTTP 处理流程中调用 cmd_backup，返回 (ok, msg)。"""
+    try:
+        cmd_backup(argparse.Namespace())
+        return True, "backup done"
+    except Exception as e:
+        return False, str(e)
 
 
 # ---------- Hermes 联动（单向：方寸 -> Hermes 注册/派活；不做反向同步）----------
@@ -926,7 +1247,7 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False):
         d["附言"] = ""            # 附言随真实派单下发并消费；dry-run/preview 不消费（预览即所得）
     if not str(d.get("创建") or "").strip():
         d["创建"] = _now_ts()
-    d["更新"] = _now_ts()
+    d["更新"] = _bump_version(d.get("更新"))
     write_task_file(fn, d)
     log_activity("dispatch" if launch else "dry-dispatch", tid,
                  f"{os.path.basename(info['snapshot'])} · {(d.get('标题') or '')[:40]}")
@@ -1076,7 +1397,7 @@ def cmd_done(args):
     d["状态"] = "待验收"
     if not str(d.get("创建") or "").strip():
         d["创建"] = _now_ts()
-    d["更新"] = _now_ts()
+    d["更新"] = _bump_version(d.get("更新"))
     write_task_file(fn, d)
     log_activity("done", args.id, (args.结果 or "")[:80])
     print(f"OK: {args.id} 已回写结果并置为待验收")
@@ -1087,6 +1408,178 @@ def cmd_done(args):
             print(f"  - {t['id']}《{t['标题']}》[{t['状态']}]")
     else:
         print("提示：无下游任务引用本任务。")
+
+
+# ---------- 资料路径：白名单校验 + 系统默认程序打开（看板可点击） ----------
+
+def allowed_roots():
+    """打开文件的白名单根：registry 中全部项目的 repo 路径。
+    这是唯一授权面——看板/浏览器来的任意路径都必须落在这些根之内。"""
+    roots = []
+    for p in load_all_projects():
+        r = str(p.get("repo") or "").strip()
+        if r:
+            roots.append(os.path.normcase(os.path.abspath(r)))
+    return roots
+
+
+def validate_open_path(path):
+    """校验待打开路径是否在白名单内，返回 (abs_path, err)。err 非空即拒绝。
+
+    拒绝面（安全优先，任何一条命中即拒）：
+      1. 空路径 / 非法类型
+      2. 含 NUL 或换行等控制字符（防命令拼接）
+      3. 路径回溯：raw 含 .. 片段，或 realpath 后逃出所有白名单根
+      4. 不在任何 registry 项目 repo 之内
+    """
+    raw = str(path or "").strip().strip('"').strip("'")
+    if not raw:
+        return None, "路径为空"
+    if any(c in raw for c in ("\x00", "\n", "\r", "\t")):
+        return None, "路径含非法控制字符"
+    # 环境变量/变量展开一律不认：`%WINDIR%`、`${HOME}` 会被当成普通文件名，
+    # abspath 后"恰好"落在项目根内 —— 是误放行，不是真包含。直接拒绝，
+    # 避免将来有同名文件时被打开（当前数据用的是 ~，见下方展开）。
+    if re.search(r"%[^/\\]*%|\$\{?[A-Za-z_]+\}?", raw):
+        return None, "路径含环境变量或变量引用，不支持（请写展开后的绝对/相对路径）"
+    if raw == "~" or raw.startswith("~/") or raw.startswith("~\\"):
+        raw = os.path.join(os.path.expanduser("~"), raw[2:]) if len(raw) > 1 else os.path.expanduser("~")
+    # 统一分隔符后按片段查回溯（兼容 / 与 \）
+    if ".." in re.split(r"[/\\]+", raw):
+        return None, "路径回溯（..）被拦截"
+    ap = os.path.abspath(os.path.join(ROOT, raw)) if not os.path.isabs(raw) else os.path.abspath(raw)
+    real = os.path.normcase(os.path.realpath(ap))
+    roots = allowed_roots()
+    if not roots:
+        return None, "registry 中没有可用项目路径"
+    for root in roots:
+        rreal = os.path.normcase(os.path.realpath(root))
+        if real == rreal or real.startswith(rreal + os.sep):
+            return ap, ""
+    return None, "路径不在允许范围内（仅限已注册项目的仓库内文件）"
+
+
+def api_open_file(path):
+    """用系统默认程序打开资料路径。先用白名单校验，再交给系统。
+    目录用 explorer 打开（保持资源管理器窗口），文件用 cmd start（走默认关联程序）。"""
+    ap, err = validate_open_path(path)
+    if err:
+        return False, err
+    if not os.path.exists(ap):
+        return False, f"路径不存在: {ap}"
+    try:
+        if os.path.isdir(ap):
+            subprocess.Popen(["explorer", os.path.normpath(ap)],
+                             creationflags=_NOWIN)
+        else:
+            # cmd start：第一个 "" 是窗口标题占位，避免带空格路径被当成标题
+            subprocess.Popen(["cmd", "/c", "start", "", os.path.normpath(ap)],
+                             shell=False, creationflags=_NOWIN)
+        return True, "opened"
+    except Exception as e:
+        return False, f"打开失败: {e}"
+
+
+# ---------- 自动化规则（P2：.rules.json + 内置两条，零依赖） ----------
+RULES_PATH = os.path.join(TASK_DIR, ".rules.json")
+DEFAULT_RULES = [
+    {
+        "id": "rule-1",
+        "name": "方案全完成自动推进",
+        "trigger": "field_change",
+        "condition": {"field": "方案", "all_checked": True, "status": "进行中"},
+        "action": {"type": "set_status", "value": "待验收"},
+        "enabled": True,
+    },
+    {
+        "id": "rule-2",
+        "name": "超时任务提醒（48h 未回写）",
+        "trigger": "timeout_check",
+        "condition": {"status": "进行中", "hours_since_dispatch": 48},
+        "action": {"type": "warn_badge"},
+        "enabled": True,
+    },
+]
+
+
+def _rules_path():
+    """规则文件路径随 task-data/ 走（verify.py 会改 TASK_DIR，需动态取）。"""
+    return os.path.join(TASK_DIR, ".rules.json")
+
+
+def load_rules():
+    """读规则；文件不存在则落盘默认规则；损坏则安全回退默认（不影响主流程）。"""
+    p = _rules_path()
+    if not os.path.exists(p):
+        save_rules(DEFAULT_RULES)
+        return [dict(r) for r in DEFAULT_RULES]
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+    except Exception:
+        pass
+    return [dict(r) for r in DEFAULT_RULES]
+
+
+def save_rules(rules):
+    """原子写规则文件（临时文件 + os.replace）。失败静默：规则不是主流程的硬依赖。"""
+    try:
+        os.makedirs(TASK_DIR, exist_ok=True)
+        p = _rules_path()
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rules, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def _plan_all_checked(plan):
+    """方案是否"全勾选"：至少有一项，且不存在未勾选项。"""
+    items = [str(s) for s in (plan or []) if str(s).strip()]
+    if not items:
+        return False
+    return all(re.search(r"\[x\]", s, re.I) for s in items)
+
+
+def evaluate_rules(task, trigger, context=None):
+    """按触发器执行匹配的启用规则，返回已执行规则名的列表。
+
+    仅支持内置两种动作（任务书红线：不做复杂规则引擎）：
+      - set_status：满足条件时改状态（写回文件的调用方负责落盘）
+      - warn_badge：只做标记，不改状态
+    规则文件损坏不影响主流程（load_rules 已兜底）。
+    """
+    ctx = context or {}
+    fired = []
+    for r in load_rules():
+        if not r.get("enabled", True):
+            continue
+        if r.get("trigger") != trigger:
+            continue
+        cond = r.get("condition") or {}
+        act = r.get("action") or {}
+        if cond.get("all_checked"):
+            if not _plan_all_checked(task.get("方案")):
+                continue
+            # 状态门：condition.status 显式声明才比对；未声明则默认只允许「进行中」
+            # （自动推进的本质是「执行方干完了」，草稿/待办/已终态都不该被推走）
+            want_status = cond.get("status", "进行中")
+            if want_status and task.get("状态") != want_status:
+                continue
+            if act.get("type") == "set_status" and act.get("value"):
+                task["状态"] = act["value"]
+                fired.append(r.get("name") or r.get("id") or "未命名规则")
+    return fired
+
+
+# ---------- HTML 工具 ----------
+def esc(s):
+    """HTML 实体转义"""
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 # ---------- HTTP ----------
@@ -1206,6 +1699,98 @@ def _scan_status_now():
     return payload
 
 
+# ---------- 快速添加语法（P1）：一行解析 优先级/标签/指派/截止/状态 ----------
+QUICK_PRIO = {"p0": "高", "p1": "中", "p2": "低", "p3": "低"}
+
+
+def parse_quick_add(text):
+    """解析快速添加语法，返回 (fields, err)。
+
+    语法示例：`Fix login p1 #backend @hermes due:09-10 to:待办`
+      - p0/p1/p2/p3 → 优先级（高/中/低）
+      - #tag        → 标签（可多个，自动去重）
+      - @user       → 指派
+      - due:MM-DD   → 截止（当年）
+      - to:状态      → 初始状态（必须是合法状态值）
+    未被识别的 token 原样拼回标题。
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return None, "内容为空"
+    fields = {"标题": "", "状态": "待办", "优先级": "", "标签": [], "指派": "", "截止": ""}
+    title_tokens, tags = [], []
+    toks = raw.split()
+    for tk in toks:
+        low = tk.lower()
+        if low in QUICK_PRIO and not fields["优先级"]:
+            fields["优先级"] = QUICK_PRIO[low]
+        elif tk.startswith("#") and len(tk) > 1:
+            t = tk[1:].strip()
+            if t and t not in tags:
+                tags.append(t)
+        elif tk.startswith("@") and len(tk) > 1:
+            fields["指派"] = tk[1:].strip()
+        elif low.startswith("due:") and len(tk) > 4:
+            fields["截止"] = tk[4:].strip()
+        elif low.startswith("to:") and len(tk) > 3:
+            sv_ = tk[3:].strip()
+            if sv_ in STATUSES:
+                fields["状态"] = sv_
+            else:
+                return None, f"未知状态「{sv_}」（可选：{'/'.join(STATUSES)}）"
+        else:
+            title_tokens.append(tk)
+    fields["标签"] = tags
+    fields["标题"] = " ".join(title_tokens).strip()
+    if not fields["标题"]:
+        return None, "标题为空：语法 token 之外还要有任务标题"
+    return fields, ""
+
+
+def api_quick_add(text):
+    fields, err = parse_quick_add(text)
+    if err:
+        return False, err
+    return api_new(fields)
+
+
+def api_rules(req):
+    """规则读写：无 op 时返回当前规则列表；op=save 时整表替换。"""
+    if req.get("op") == "save":
+        rules = req.get("rules")
+        if not isinstance(rules, list):
+            return False, "rules 需为列表", None
+        ok, err = save_rules(rules)
+        return (ok, "saved" if ok else err, rules if ok else None)
+    return True, "ok", load_rules()
+
+
+def timeout_badge_hours(task, rules=None):
+    """该任务是否命中「超时未回写」规则；命中返回阈值小时数，否则 None。"""
+    if str(task.get("状态") or "") != "进行中":
+        return None
+    pd = task.get("派活时间")
+    if not pd:
+        return None
+    try:
+        hours = (time.time() - float(pd)) / 3600
+    except (TypeError, ValueError):
+        return None
+    for r in (rules if rules is not None else load_rules()):
+        if not r.get("enabled", True) or r.get("trigger") != "timeout_check":
+            continue
+        cond = r.get("condition") or {}
+        if str(cond.get("status") or "进行中") != str(task.get("状态") or ""):
+            continue
+        try:
+            th = float(cond.get("hours_since_dispatch") or 48)
+        except (TypeError, ValueError):
+            th = 48.0
+        if hours >= th:
+            return th
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         global LAST_REQUEST
@@ -1214,6 +1799,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json()
         elif self.path.startswith("/status.json"):
             self._status_json()
+        elif self.path.startswith("/startpage"):
+            self._startpage()
         elif self.path.startswith("/ping"):
             self._send_json({"ok": True, "app": "tegula"})
         else:
@@ -1268,6 +1855,8 @@ class Handler(BaseHTTPRequestHandler):
                                      req.get("reason", ""))
             elif action == "new":
                 ok, msg = api_new(req.get("fields", {}))
+            elif action == "quick_add":
+                ok, msg = api_quick_add(req.get("text", ""))
             elif action == "archive":
                 ok, msg = api_archive(req.get("id"))
             elif action == "delete":
@@ -1279,6 +1868,30 @@ class Handler(BaseHTTPRequestHandler):
                                             bool(req.get("dry_run")))
             elif action == "reg_save":
                 ok, msg = api_reg_save(req)
+            elif action == "export":
+                ok, msg, data = api_export()
+                if ok:
+                    self._send_json({"ok": True, "data": data})
+                    return
+            elif action == "backup":
+                ok, msg = api_backup()
+            elif action == "open_file":
+                ok, msg = api_open_file(req.get("path"))
+            elif action == "rules":
+                ok, msg, data = api_rules(req)
+                if ok:
+                    self._send_json({"ok": True, "msg": msg, "data": data})
+                    return
+            elif action == "launch":
+                app_path = req.get("app", "")
+                if app_path and os.path.exists(app_path):
+                    try:
+                        subprocess.Popen([app_path], cwd=os.path.dirname(app_path))
+                        ok, msg = True, "launched"
+                    except Exception as e:
+                        ok, msg = False, f"启动失败: {e}"
+                else:
+                    ok, msg = False, f"应用路径不存在: {app_path}"
             else:
                 ok, msg = False, "unknown action"
         except Exception as e:
@@ -1297,7 +1910,12 @@ class Handler(BaseHTTPRequestHandler):
                    for p in load_all_projects() if not p.get("_released")}
         reg_js = json.dumps(reg_map, ensure_ascii=False)
         mem_js = json.dumps(load_members(), ensure_ascii=False)
-        tpl_path = os.path.join(ROOT, "templates", "board.html")
+        # PyInstaller 打包后模板在 sys._MEIPASS 临时目录
+        if getattr(sys, "frozen", False):
+            tpl_base = sys._MEIPASS
+        else:
+            tpl_base = ROOT
+        tpl_path = os.path.join(tpl_base, "templates", "board.html")
         try:
             with open(tpl_path, encoding="utf-8") as f:
                 page = f.read()
@@ -1314,12 +1932,119 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _startpage(self):
+        """全项目统一启动台：动态读取 registry.yaml 生成入口页面"""
+        reg = load_all_projects()
+        projects = [p for p in reg if not p.get("_released")]
+        released = [p for p in reg if p.get("_released")]
+
+        cards = []
+        for p in projects:
+            pid = p["id"]
+            name = p.get("name", pid)
+            repo = p.get("repo", "")
+            tools = p.get("tools", [])
+            app = p.get("app", "")
+            link = p.get("link", "")
+            tools_str = "、".join(tools) if tools else "通用"
+
+            action_btns = ""
+            if app:
+                action_btns += f'<button class="app-btn" onclick="event.stopPropagation();launchApp(\'{esc(app)}\')" title="启动应用">▶</button>'
+            if link:
+                action_btns += f'<a class="app-btn" href="{esc(link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="打开链接">🔗</a>'
+
+            cards.append(f"""
+            <a class="tool" href="http://127.0.0.1:8753/?project={esc(pid)}" target="_blank" rel="noopener">
+                <div class="ico">📁</div>
+                <div class="body">
+                    <h2>{esc(name)}</h2>
+                    <p>{esc(repo)}</p>
+                </div>
+                <span class="port">{esc(tools_str)}</span>
+                <span class="app-btns">{action_btns}</span>
+            </a>""")
+
+        rel_html = ""
+        if released:
+            rel_names = " · ".join(esc(p.get("name", p["id"])) for p in released)
+            rel_html = f'<div class="relrow"><span class="ln"></span><span>已发布：{rel_names}</span><span class="ln"></span></div>'
+
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作台 · 方寸</title>
+<style>
+:root{{--bg:#eef0f4;--ink:#3c4150;--muted:#6b7180;--accent:#9b8fc4;--accent-soft:#c3bce0;--card:#ffffff;--border:#e4e2ee;--shadow:0 8px 32px rgba(90,90,130,.12);--radius:18px}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{height:100%}}
+body{{background:var(--bg);color:var(--ink);min-height:100vh;min-width:480px;font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-weight:500;line-height:1.55}}
+body::before,body::after{{content:"";position:fixed;border-radius:50%;filter:blur(70px);opacity:.38;z-index:0;pointer-events:none}}
+body::before{{width:420px;height:420px;background:#cfc6ec;top:-120px;left:-100px}}
+body::after{{width:380px;height:380px;background:#cdd9ee;bottom:-120px;right:-80px}}
+.wrap{{position:relative;z-index:1;max-width:640px;min-width:460px;margin:0 auto;padding:42px 20px}}
+.head{{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:22px}}
+h1{{font-size:20px;font-weight:700;letter-spacing:.5px}}
+.sub{{color:var(--muted);font-size:12.5px;margin-bottom:24px}}
+.grid{{display:grid;gap:12px}}
+.tool{{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:16px 18px;display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .15s;cursor:pointer;position:relative}}
+.tool:hover{{transform:translateY(-2px);box-shadow:0 12px 36px rgba(90,90,130,.16)}}
+.tool .ico{{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;background:#eef0fb;color:#5b5478}}
+.tool .body{{flex:1;min-width:0;overflow:hidden}}
+.tool h2{{font-size:14.5px;font-weight:700;margin-bottom:2px;white-space:nowrap}}
+.tool p{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.tool .port{{font-family:Consolas,monospace;font-size:11px;color:var(--muted);margin-left:auto;flex:none}}
+.tool .app-btns{{display:flex;gap:4px;flex:none}}
+.app-btn{{background:#eef0fb;color:#5b5478;border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;line-height:1;transition:all .12s}}
+.app-btn:hover{{background:var(--accent);color:#fff;border-color:var(--accent)}}
+.relrow{{margin:12px 2px 4px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center}}
+.relrow .ln{{flex:1;height:1px;background:var(--border)}}
+.foot{{margin-top:22px;color:var(--muted);font-size:11.5px;text-align:center}}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="head"><h1>工作台</h1></div>
+    <div class="sub">方寸管理 · 点击项目直达看板筛选 · ▶ 启动应用 · 🔗 打开链接</div>
+    <div class="grid">
+        <a class="tool" href="http://127.0.0.1:8753/" target="_blank" rel="noopener">
+            <div class="ico">📋</div>
+            <div class="body"><h2>方寸 看板</h2><p>全部项目 · 任务总览</p></div>
+            <span class="port">8753</span>
+        </a>
+        {"".join(cards)}
+    </div>
+    {rel_html}
+    <div class="foot">共 {len(projects)} 个活跃项目 · 由 tegula.py 动态生成</div>
+</div>
+<script>
+async function launchApp(appPath){{
+    const r=await fetch("/api",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{action:"launch",app:appPath}})}});
+    const d=await r.json();
+    if(!d.ok)alert("启动失败："+(d.msg||"未知错误"));
+}}
+</script>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(html.encode("utf-8"))
+
 
 # ---------- open：一键打开，随关随停 ----------
 class QServer(ThreadingHTTPServer):
     # Windows 上 SO_REUSEADDR 允许两个进程同时绑同一端口（HTTP 请求随机落到旧进程，
     # 新端点 /status.json 静默 404→回落 HTML）。关掉复用：第二个绑定直接 EADDRINUSE 失败。
     allow_reuse_address = False
+    daemon_threads = True
+
+    def shutdown(self):
+        """停止服务。"""
+        self.server_close()
+        super().shutdown()
 
 
 def find_free_port(start, end=8790):
@@ -1354,59 +2079,42 @@ def find_edge():
 
 
 def cmd_open(args):
-    """双击入口：服务随进程起，Edge 应用窗口打开，窗口全关服务自退。"""
+    """双击入口：服务随进程起，pywebview 原生窗口打开，窗口全关服务自退。"""
     port = args.port
     reuse = False
     if tegula_alive(port):
-        reuse = True          # 已有看板在跑：直接聚焦，不再起第二个
+        reuse = True
     else:
         free = find_free_port(port)
         if free is None:
-            print(f"[错误] {port}-{8790} 端口均被占用。")
+            print(f"[错误] {port}-8790 端口均被占用。")
             return
         port = free
 
-    edge = find_edge()
-    if not edge:
-        print("[错误] 未找到 Edge，无法打开应用窗口。")
-        return
-    # --app 模式：无浏览器框的独立窗口；不同 port 用不同 profile 目录，避免多实例互相顶掉
-    user_dir = os.path.join(os.environ.get("TEMP", "."), f"tegula_edge_{port}")
-    subprocess.Popen([edge, f"--app=http://127.0.0.1:{port}/", f"--user-data-dir={user_dir}",
-                      "--window-size=1280,860"],
-                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-
     if reuse:
-        return                # 服务已在别处运行，这边只负责唤窗
+        # 已有看板在跑：直接唤窗（新建一个 webview 窗口连到同一端口）
+        import webview
+        webview.create_window("方寸 tegula", f"http://127.0.0.1:{port}/",
+                              width=1280, height=860, min_size=(1024, 640))
+        webview.start()
+        return
 
+    # 后台启动 HTTP 服务
     srv = QServer(("127.0.0.1", port), Handler)
-    stop = threading.Event()
+    server_thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    server_thread.start()
+    # 等待服务就绪
+    for _ in range(20):
+        time.sleep(0.5)
+        if tegula_alive(port):
+            break
 
-    def watch_window():
-        # 阶段一：等首请求（Edge 冷启动可能较慢，宽限至少 60s）
-        t0 = LAST_REQUEST
-        grace = max(args.wait, 60)
-        while time.time() - t0 < grace:
-            if LAST_REQUEST != t0:
-                break
-            time.sleep(1)
-        # 阶段二：稳态运行中，90s 无任何请求 = 窗口已关，服务自退
-        while not stop.is_set():
-            if time.time() - LAST_REQUEST > 90:
-                stop.set()
-                break
-            time.sleep(2)
-
-    threading.Thread(target=watch_window, daemon=True).start()
-    print(f"方寸看板: http://127.0.0.1:{port}/  （窗口全关后自动退出）")
-    try:
-        while not stop.is_set():
-            srv.timeout = 1
-            srv.handle_request()   # 逐个处理请求，同时能秒级响应退出信号
-    except KeyboardInterrupt:
-        pass
-    finally:
-        srv.server_close()
+    import webview
+    webview.create_window("方寸 tegula", f"http://127.0.0.1:{port}/",
+                          width=1280, height=860, min_size=(1024, 640))
+    webview.start()
+    # 窗口关闭后停止服务
+    srv.shutdown()
 
 
 # ---------- doctor：文件健康自检 ----------
@@ -1949,6 +2657,181 @@ def cmd_new(args):
     print(f"已创建任务: {tid}")
 
 
+# ---------- MCP 只读接口（P3）：零依赖手写 JSON-RPC 2.0 over stdio ----------
+MCP_PROTOCOL_VERSION = "2024-11-05"
+# 安全红线：只读。edit/delete/dispatch/new 一律不暴露。
+MCP_TOOLS = [
+    {"name": "list_tasks", "description": "列出方寸任务（可按状态/项目/标签过滤）",
+     "inputSchema": {"type": "object", "properties": {
+         "status": {"type": "string", "description": "任务状态，如 待办/进行中/待验收/完成"},
+         "project": {"type": "string", "description": "项目 id，如 fangcun-base"},
+         "tag": {"type": "string", "description": "标签名"},
+         "view": {"type": "string", "description": "active(默认)/archive/trash"}},
+         "required": []}},
+    {"name": "get_task", "description": "按 id 获取任务详情",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string", "description": "任务 id，如 task-20260911-001"}},
+         "required": ["id"]}},
+    {"name": "get_project_status", "description": "获取项目健康度（git 活动 + 任务关联 + 阻塞）",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string", "description": "项目 id，留空返回全部"}},
+         "required": []}},
+    {"name": "list_projects", "description": "列出 registry 中所有项目",
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "search_tasks", "description": "全文搜索任务（标题/方案/结果记录）",
+     "inputSchema": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "搜索关键词"}},
+         "required": ["query"]}},
+]
+MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
+
+
+def _mcp_task_view(t):
+    """任务对外视图：过滤敏感字段（附言/内部键），只留可公开的只读信息。"""
+    out = {}
+    for k, v in (t or {}).items():
+        if k in MCP_HIDDEN_KEYS or str(k).startswith("_"):
+            continue
+        out[k] = v
+    plan = [str(s) for s in (t.get("方案") or [])]
+    total = len([s for s in plan if re.search(r"\[[ xX]\]", s)])
+    done = len([s for s in plan if re.search(r"\[x\]", s, re.I)])
+    out["方案进度"] = f"{done}/{total}" if total else ""
+    return out
+
+
+def mcp_list_tasks(params):
+    p = params or {}
+    tid = str(p.get("id") or "").strip()
+    if tid:
+        return mcp_get_task(p)
+    tasks = load_tasks(p.get("project") or None, p.get("view") or "active")
+    if p.get("status"):
+        tasks = [t for t in tasks if t.get("状态") == p["status"]]
+    if p.get("tag"):
+        tasks = [t for t in tasks if p["tag"] in (t.get("标签") or [])]
+    return [_mcp_task_view(t) for t in tasks]
+
+
+def mcp_get_task(params):
+    tid = str((params or {}).get("id") or "").strip()
+    if not tid:
+        return {"error": "缺少 id"}
+    fn = locate_task(tid)
+    if not fn:
+        return {"error": f"任务不存在: {tid}"}
+    d = parse_task(fn)
+    if not d:
+        return {"error": f"解析失败: {tid}"}
+    return _mcp_task_view(d)
+
+
+def mcp_get_project_status(params):
+    pid = str((params or {}).get("id") or "").strip()
+    reg = load_all_projects()
+    if pid:
+        reg = [p for p in reg if p.get("id") == pid]
+        if not reg:
+            return {"error": f"项目不存在: {pid}"}
+    out = []
+    for p in reg:
+        s = scan_project_status(p)
+        out.append({k: v for k, v in s.items() if k != "suggestions"})
+    return out[0] if pid else out
+
+
+def mcp_list_projects(params):
+    return [{"id": p.get("id", ""), "name": p.get("name", ""), "repo": p.get("repo", ""),
+             "released": bool(p.get("_released"))} for p in load_all_projects()]
+
+
+def mcp_search_tasks(params):
+    q = str((params or {}).get("query") or "").strip().lower()
+    if not q:
+        return []
+    hits = []
+    for t in load_tasks(None, "active") + load_tasks(None, "archive"):
+        hay = " ".join([str(t.get("标题") or ""), str(t.get("id") or ""),
+                        " ".join(t.get("项目") or []), " ".join(t.get("标签") or []),
+                        " ".join(t.get("方案") or []), str(t.get("结果记录") or "")]).lower()
+        if q in hay:
+            hits.append(_mcp_task_view(t))
+    return hits
+
+
+MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
+               "get_project_status": mcp_get_project_status,
+               "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks}
+
+
+def mcp_handle(req):
+    """处理一条 JSON-RPC 请求，返回响应 dict（通知类返回 None）。"""
+    rid = req.get("id")
+    method = req.get("method")
+    params = req.get("params") or {}
+    def ok(result):   return {"jsonrpc": "2.0", "id": rid, "result": result}
+    def err(code, msg): return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": msg}}
+    if method == "initialize":
+        return ok({"protocolVersion": MCP_PROTOCOL_VERSION,
+                   "capabilities": {"tools": {}},
+                   "serverInfo": {"name": "tegula", "version": "1.0.0"}})
+    if method in ("notifications/initialized", "initialized"):
+        return None                       # 通知无响应
+    if method == "ping":
+        return ok({})
+    if method == "tools/list":
+        return ok({"tools": MCP_TOOLS})
+    if method == "tools/call":
+        name = params.get("name")
+        fn = MCP_METHODS.get(name)
+        if not fn:
+            return err(-32602, f"未知工具: {name}（仅支持只读工具：{'/'.join(MCP_METHODS)}）")
+        try:
+            result = fn(params.get("arguments") or {})
+        except Exception as e:
+            return err(-32603, f"工具执行失败: {e}")
+        return ok({"content": [{"type": "text",
+                                "text": json.dumps(result, ensure_ascii=False, indent=2)}]})
+    return err(-32601, f"未知方法: {method}")
+
+
+def cmd_mcp(args):
+    """MCP server：从 stdin 逐行读 JSON-RPC，向 stdout 写响应（阻塞式，供外部 AI 工具调用）。
+    只读：任何写操作（edit/delete/dispatch/new）都不在此暴露。"""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except Exception:
+            print(json.dumps({"jsonrpc": "2.0", "id": None,
+                              "error": {"code": -32700, "message": "JSON 解析失败"}},
+                             ensure_ascii=False), flush=True)
+            continue
+        try:
+            resp = mcp_handle(req if isinstance(req, dict) else {})
+        except Exception as e:
+            resp = {"jsonrpc": "2.0", "id": req.get("id") if isinstance(req, dict) else None,
+                    "error": {"code": -32603, "message": str(e)}}
+        if resp is not None:
+            print(json.dumps(resp, ensure_ascii=False), flush=True)
+
+
+def cmd_startpage(args):
+    """打开全项目统一启动台（动态读取 registry.yaml）"""
+    port = args.port
+    if not tegula_alive(port):
+        print(f"[提示] 方寸看板未运行，先启动：python tegula.py serve")
+        return
+    url = f"http://127.0.0.1:{port}/startpage"
+    try:
+        subprocess.Popen(["cmd", "/c", "start", url])
+        print(f"启动台已打开: {url}")
+    except Exception as e:
+        print(f"打开失败: {e}")
+
+
 def cmd_serve(args):
     port = args.port
     if tegula_alive(port):
@@ -1984,6 +2867,9 @@ def main():
     s = sub.add_parser("serve", help="启动本地看板视图（零依赖）")
     s.add_argument("--port", type=int, default=8753)
     s.set_defaults(func=cmd_serve)
+    sp = sub.add_parser("startpage", help="打开全项目统一启动台（动态读取 registry.yaml）")
+    sp.add_argument("--port", type=int, default=8753)
+    sp.set_defaults(func=cmd_startpage)
     o = sub.add_parser("open", help="一键打开：服务随进程起，Edge 应用窗口打开，关窗自退")
     o.add_argument("--port", type=int, default=8753)
     o.add_argument("--wait", type=int, default=15, help="窗口端冷静期秒数（首个请求前的宽限）")
@@ -2003,6 +2889,11 @@ def main():
     ho.add_argument("id", help="任务 id，如 task-20260828-003")
     ho.add_argument("--go", action="store_true", help="真正拉起 hermes chat")
     ho.set_defaults(func=cmd_hermes_open)
+    wb = sub.add_parser("workbench", help="工作台：统一管理所有项目的本地服务端口")
+    wb.add_argument("action", nargs="?", default="list", choices=["list", "start", "stop"],
+                      help="操作：list（列出）/ start（启动）/ stop（停止）")
+    wb.add_argument("--port", type=int, default=None, help="指定端口号（start/stop 时必填）")
+    wb.set_defaults(func=cmd_workbench)
     dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
@@ -2023,6 +2914,8 @@ def main():
     rp.add_argument("--brief", action="store_true", help="简报模式（单文件列表，适合 cron 推送）")
     rp.add_argument("--output", default=None, help="输出文件路径（默认 project-status.md）")
     rp.set_defaults(func=cmd_report)
+    mc = sub.add_parser("mcp", help="MCP 只读接口：JSON-RPC 2.0 over stdio（供外部 AI 工具读取）")
+    mc.set_defaults(func=cmd_mcp)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()

@@ -1,0 +1,32 @@
+[package]
+name = "fangcun"
+version = "0.1.0"
+description = "方寸 tegula - 本地优先的 AI Agent 任务调度台"
+authors = ["暮雨"]
+edition = "2024"
+
+[lib]
+name = "fangcun_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "sync"] }
+url = "2"
+reqwest = { version = "0.12", features = ["blocking"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-shell = "2"
+
+[[bin]]
+name = "fangcun"
+path = "src/main.rs"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

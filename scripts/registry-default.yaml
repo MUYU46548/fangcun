@@ -1,0 +1,17 @@
+# 方寸默认注册表模板
+# 首次启动时如果数据目录没有 registry.yaml，会复制此文件
+
+members:
+  - hermes
+  - human
+  - 暮雨
+
+projects:
+  - id: fangcun-base
+    name: 方寸
+    tasks: ""
+    repo: ""
+    tools: [python]
+    sources: []
+
+released: []
