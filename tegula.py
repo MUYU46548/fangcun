@@ -497,7 +497,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent"}
 
 
 def render_task(d):
@@ -806,6 +806,13 @@ def api_review(id, verdict, reason=""):
         return False, f"当前状态为「{d.get('状态') or '未知'}」，仅「待验收」可验收"
     verdict = (verdict or "").strip()
     if verdict == "accept":
+        # 阶段门控：验收清单检查
+        checklist = d.get("验收清单") or []
+        if checklist:
+            unmet = [item for item in checklist if not str(item).strip().startswith(("[x]", "[X]", "✓", "✅"))]
+            if unmet:
+                unmet_str = "、".join(str(u) for u in unmet[:5])
+                return False, f"验收清单有 {len(unmet)} 项未通过（{unmet_str}），请先完成或更新验收清单"
         d["状态"] = "完成"
     elif verdict == "reject":
         reason = (reason or "").strip()
@@ -823,6 +830,60 @@ def api_review(id, verdict, reason=""):
     log_activity("验收" + ("通过" if verdict == "accept" else "驳回"), id,
                  reason if verdict == "reject" else "")
     return True, "ok"
+
+
+# ---------- 阶段门控（gate）：验收清单管理 ----------
+_GATES = {}  # 内存中的门控状态 {gate_id: {title, items, status, conclusion}}
+
+
+def gate_open(gate_id, title, items=None, stage=None):
+    """创建验收门。items 为验收项列表，每项为字符串。"""
+    if not gate_id or not isinstance(gate_id, str):
+        return False, "gate_id 必须是非空字符串"
+    _GATES[gate_id] = {
+        "title": title or gate_id,
+        "items": items or [],
+        "stage": stage,
+        "status": "open",
+        "conclusion": None,
+        "created_at": _now_ts(),
+    }
+    return True, f"gate {gate_id} opened"
+
+
+def gate_check(gate_id, items):
+    """检查验收门。items 为完整验收项列表，每项为 met/unmet/n/a + evidence。"""
+    g = _GATES.get(gate_id)
+    if not g:
+        return False, f"gate {gate_id} not found", None
+    if g["status"] == "closed":
+        return False, f"gate {gate_id} is closed", None
+    if not items:
+        return False, "items 不能为空", None
+    unmet = [i for i in items if i.get("status") == "unmet"]
+    if unmet:
+        g["status"] = "blocked"
+        g["conclusion"] = "blocked"
+        unmet_names = "、".join(i.get("name", "?") for i in unmet[:5])
+        return True, f"BLOCKED: {len(unmet)} 项未通过（{unmet_names}）", g
+    g["status"] = "passed"
+    g["conclusion"] = "passed"
+    return True, "PASSED", g
+
+
+def gate_list():
+    """列出所有验收门。"""
+    return list(_GATES.values())
+
+
+def gate_close(gate_id, reason=""):
+    """关闭验收门。"""
+    g = _GATES.get(gate_id)
+    if not g:
+        return False, f"gate {gate_id} not found"
+    g["status"] = "closed"
+    g["conclusion"] = "closed"
+    return True, f"gate {gate_id} closed"
 
 
 def load_template():
@@ -1147,6 +1208,51 @@ def _hermes_cmd(extra_args):
     return [exe] + extra_args
 
 
+def _claude_cmd(extra_args):
+    """Claude Code 命令生成。"""
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    if exe.lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", exe] + extra_args
+    return [exe] + extra_args
+
+
+def _codex_cmd(extra_args):
+    """Codex CLI 命令生成。"""
+    exe = shutil.which("codex")
+    if not exe:
+        return None
+    if exe.lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", exe] + extra_args
+    return [exe] + extra_args
+
+
+def _kun_cmd(extra_args):
+    """Kun CLI 命令生成。"""
+    exe = shutil.which("kun")
+    if not exe:
+        return None
+    if exe.lower().endswith((".cmd", ".bat")):
+        return ["cmd.exe", "/c", exe] + extra_args
+    return [exe] + extra_args
+
+
+# agent → 命令生成器映射
+_AGENT_CMD_MAP = {
+    "hermes": _hermes_cmd,
+    "claude": _claude_cmd,
+    "codex": _codex_cmd,
+    "kun": _kun_cmd,
+}
+
+
+def _agent_cmd(agent, extra_args):
+    """根据 agent 选择命令生成器，回退到 hermes。"""
+    fn = _AGENT_CMD_MAP.get(agent, _hermes_cmd)
+    return fn(extra_args)
+
+
 def _build_prompt(d, tid, repo, done_cmd, fn):
     """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
     输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。"""
@@ -1198,11 +1304,12 @@ def prepare_dispatch(tid):
             "snapshot": os.path.join(TASK_DIR, f".dispatch-{tid}-{_now_ts()}.txt")}, ""
 
 
-def dispatch_task(tid, launch=True, force=False, dry_run=False):
-    """派活：生成完整任务书及 hermes 启动命令。
+def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
+    """派活：生成完整任务书及 agent 启动命令。
 
-    launch=True 时后台静默拉起 hermes chat（旧行为，保留给 --go 用）；
-    dry_run=True 时不拉起、不改变状态，只返回命令字符串供用户复制。
+    launch=True 时后台静默拉起 agent（旧行为，保留给 --go 用）；
+    dry_run=True 时不拉起、不改变状态，只返回命令字符串供用户复制；
+    agent 指定执行后端（hermes/claude/codex/kun），None 时从任务 frontmatter 读取。
     """
     info, err = prepare_dispatch(tid)
     if err:
@@ -1220,9 +1327,12 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False):
     if d.get("状态") == "进行中" and not force and (launch or dry_run):
         return False, ("任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
                        "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认"), None
-    cmd = _hermes_cmd(["-z", info["prompt"], "chat", "--in", info["repo"]])
+    # 确定执行后端
+    if agent is None:
+        agent = (d.get("agent") or "hermes").strip()
+    cmd = _agent_cmd(agent, ["-z", info["prompt"], "chat", "--in", info["repo"]])
     if cmd is None:
-        return False, "未找到 hermes 命令（PATH 里没有 hermes）", None
+        return False, f"未找到 {agent} 命令（PATH 里没有 {agent}）", None
     if dry_run:
         return True, "dry-run", cmd
     if launch:
@@ -1389,6 +1499,18 @@ def cmd_done(args):
     if args.证据:
         old = (d.get("结果记录") or "").strip()
         d["结果记录"] = (old + "\n" if old else "") + f"证据：{args.证据.strip()}"
+    if args.成本:
+        cost_str = str(args.成本).strip()
+        old = (d.get("结果记录") or "").strip()
+        d["结果记录"] = (old + "\n" if old else "") + f"实际成本：{cost_str}"
+        try:
+            budget = d.get("预算") or {}
+            if isinstance(budget, dict):
+                budget["actual_cost"] = cost_str
+                d["预算"] = budget
+        except Exception:
+            pass
+
     fy = str(d.get("附言") or "").strip()
     if fy:
         old = (d.get("结果记录") or "").strip()
@@ -3133,6 +3255,25 @@ MCP_TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "project": {"type": "string", "description": "项目 id，留空返回全部"}},
          "required": []}},
+    {"name": "gate_open", "description": "创建验收门（定义验收清单）",
+     "inputSchema": {"type": "object", "properties": {
+         "gate_id": {"type": "string", "description": "门控 id"},
+         "title": {"type": "string", "description": "门控标题"},
+         "items": {"type": "array", "items": {"type": "string"}, "description": "验收项列表"},
+         "stage": {"type": "string", "description": "阶段名（可选）"}},
+         "required": ["gate_id"]}},
+    {"name": "gate_check", "description": "检查验收门（逐项验证）",
+     "inputSchema": {"type": "object", "properties": {
+         "gate_id": {"type": "string", "description": "门控 id"},
+         "items": {"type": "array", "items": {"type": "object"}, "description": "验收项状态列表"}},
+         "required": ["gate_id", "items"]}},
+    {"name": "gate_list", "description": "列出所有验收门",
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "gate_close", "description": "关闭验收门",
+     "inputSchema": {"type": "object", "properties": {
+         "gate_id": {"type": "string", "description": "门控 id"},
+         "reason": {"type": "string", "description": "关闭原因"}},
+         "required": ["gate_id"]}},
 ]
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 
@@ -3210,13 +3351,6 @@ def mcp_search_tasks(params):
     return hits
 
 
-MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
-               "get_project_status": mcp_get_project_status,
-               "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks,
-               "get_roadmap": mcp_get_roadmap,
-               "get_roadmap_full": mcp_get_roadmap_full}
-
-
 def mcp_handle(req):
     """处理一条 JSON-RPC 请求，返回响应 dict（通知类返回 None）。"""
     rid = req.get("id")
@@ -3246,6 +3380,35 @@ def mcp_handle(req):
         return ok({"content": [{"type": "text",
                                 "text": json.dumps(result, ensure_ascii=False, indent=2)}]})
     return err(-32601, f"未知方法: {method}")
+
+
+def mcp_gate_open(params):
+    ok, msg = gate_open(params.get("gate_id"), params.get("title"),
+                        params.get("items"), params.get("stage"))
+    return {"ok": ok, "message": msg}
+
+
+def mcp_gate_check(params):
+    ok, msg, g = gate_check(params.get("gate_id"), params.get("items"))
+    return {"ok": ok, "message": msg, "gate": g}
+
+
+def mcp_gate_list(params):
+    return {"gates": gate_list()}
+
+
+def mcp_gate_close(params):
+    ok, msg = gate_close(params.get("gate_id"), params.get("reason", ""))
+    return {"ok": ok, "message": msg}
+
+
+MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
+               "get_project_status": mcp_get_project_status,
+               "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks,
+               "get_roadmap": mcp_get_roadmap,
+               "get_roadmap_full": mcp_get_roadmap_full,
+               "gate_open": mcp_gate_open, "gate_check": mcp_gate_check,
+               "gate_list": mcp_gate_list, "gate_close": mcp_gate_close}
 
 
 def cmd_mcp(args):
@@ -3334,7 +3497,8 @@ def main():
     dp.add_argument("--msg", "--附言", dest="msg", default="",
                     help="本次派单的精确指令，先写入附言字段再随任务书下发（需指定 id）")
     dp.add_argument("--force", action="store_true", help="进行中任务确要重派时放行（双会话风险自担）")
-    dp.add_argument("--go", action="store_true", help="自动拉起 hermes chat（旧行为，默认只生成命令）")
+    dp.add_argument("--go", action="store_true", help="自动拉起 agent（旧行为，默认只生成命令）")
+    dp.add_argument("--agent", default=None, help="执行后端（hermes/claude/codex/kun），覆盖任务默认值")
     dp.set_defaults(func=cmd_dispatch)
     hs = sub.add_parser("hermes-sync", help="把 registry.yaml 里的项目注册进 Hermes（幂等）")
     hs.set_defaults(func=cmd_hermes_sync)
@@ -3361,6 +3525,8 @@ def main():
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
     dn.add_argument("--证据", "--evidence", dest="证据", default="",
                     help="改动清单/验证输出的路径，追加为「证据：…」行，供验收时查看实物")
+    dn.add_argument("--成本", "--cost", dest="成本", default="",
+                    help="实际成本（如 $0.05 或 50k tokens），追加到结果记录")
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.set_defaults(func=cmd_done)

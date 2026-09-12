@@ -192,7 +192,7 @@ check("归档前置不算阻塞", teg.blockers_of("task-20990101-903") == [])
 check("回收站前置不算阻塞", teg.blockers_of("task-20990101-906") == [])
 # done 解锁提示（捕获 stdout）
 class DA: pass
-da = DA(); da.id = "task-20990101-900"; da.结果 = "前置完工"; da.证据 = ""; da.expected_mtime = None
+da = DA(); da.id = "task-20990101-900"; da.结果 = "前置完工"; da.证据 = ""; da.成本 = ""; da.expected_mtime = None
 buf = _io.StringIO()
 with _cl.redirect_stdout(buf):
     teg.cmd_done(da)
@@ -254,7 +254,7 @@ try:
     check("force 显式放行重派", ok is True, msg)
     # done：--证据 + 附言归档
     class DA2: pass
-    da2 = DA2(); da2.id = "task-20990101-921"; da2.结果 = "三项复查完毕"; da2.证据 = "reports/check-3items.md"; da2.expected_mtime = None
+    da2 = DA2(); da2.id = "task-20990101-921"; da2.结果 = "三项复查完毕"; da2.证据 = "reports/check-3items.md"; da2.成本 = ""; da2.expected_mtime = None
     d921c = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md")); d921c["附言"] = "下次注意备份"
     teg.write_task_file(os.path.join(dep_dir, "task-20990101-921.md"), d921c)
     buf4 = _io.StringIO()
@@ -618,8 +618,10 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = sorted(t["name"] for t in resp["result"]["tools"])
-    check("MCP 暴露 7 个只读工具",
-          names == ["get_project_status", "get_roadmap", "get_roadmap_full", "get_task", "list_projects", "list_tasks", "search_tasks"],
+    check("MCP 暴露 11 个只读工具",
+          names == ["gate_check", "gate_close", "gate_list", "gate_open",
+                    "get_project_status", "get_roadmap", "get_roadmap_full",
+                    "get_task", "list_projects", "list_tasks", "search_tasks"],
           str(names))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                            "params": {"name": "list_tasks", "arguments": {}}})
