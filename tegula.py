@@ -2523,6 +2523,10 @@ def find_timeout_tasks(threshold_hours=24):
 _ROADMAP_CACHE = {"data": None, "ts": 0.0}
 ROADMAP_TTL = 20  # 秒
 
+# 历史趋势：路线图快照环形缓冲区（保留最近 30 个快照）
+_ROADMAP_HISTORY = []
+ROADMAP_HISTORY_MAX = 30
+
 
 def _batch_status(tasks_in_batch):
     """根据批次内任务状态分布判定批次状态"""
@@ -2744,6 +2748,207 @@ def mcp_get_roadmap(params):
     return get_roadmap_cached(pid)
 
 
+def _record_roadmap_snapshot(data):
+    """记录路线图快照（环形缓冲，保留 ROADMAP_HISTORY_MAX 个）。"""
+    global _ROADMAP_HISTORY
+    # 仅保留轻量摘要（避免内存膨胀）
+    snapshot = {
+        "ts": data.get("generated_at", int(time.time())),
+        "summary": {
+            p["id"]: {
+                "name": p["name"],
+                "health": p["health"],
+                "active_batches": sum(1 for b in p["batches"] if b["status"] == "active"),
+                "completed_batches": sum(1 for b in p["batches"] if b["status"] == "completed"),
+                "blockers": len(p["blockers"]),
+            }
+            for p in data.get("projects", [])
+        },
+    }
+    _ROADMAP_HISTORY.append(snapshot)
+    if len(_ROADMAP_HISTORY) > ROADMAP_HISTORY_MAX:
+        _ROADMAP_HISTORY.pop(0)
+
+
+def get_roadmap_trend(days=7):
+    """返回路线图历史趋势（活跃/完成/阻塞的天级序列）。"""
+    cutoff = time.time() - days * 86400
+    trend = {}
+    for snap in _ROADMAP_HISTORY:
+        if snap["ts"] < cutoff:
+            continue
+        for pid, info in snap["summary"].items():
+            if pid not in trend:
+                trend[pid] = []
+            trend[pid].append({
+                "ts": snap["ts"],
+                "name": info["name"],
+                "active": info["active_batches"],
+                "completed": info["completed_batches"],
+                "blocked": info["blockers"],
+            })
+    return trend
+
+
+def _detect_parallel_opportunities(roadmap):
+    """识别可并行推进的任务。"""
+    sugs = []
+    active_projs = [p for p in roadmap["projects"] if p["health"] == "active"]
+    if len(active_projs) >= 2:
+        names = "、".join(p["name"] for p in active_projs)
+        sugs.append({
+            "type": "parallel",
+            "projects": [p["id"] for p in active_projs],
+            "reason": f"{names} 均在活跃推进中，可考虑交替进行防止单项目阻塞",
+        })
+    for p in roadmap["projects"]:
+        pending = [b for b in p["batches"] if b["status"] == "pending"]
+        if len(pending) >= 2:
+            sugs.append({
+                "type": "parallel_batches",
+                "project": p["id"],
+                "batches": [b["name"] for b in pending],
+                "reason": f"{p['name']} 的 {len(pending)} 个待办批次无阻塞，可并行推进",
+            })
+    return sugs
+
+
+def _suggest_milestones(roadmap):
+    """基于批次模式自动建议里程碑。"""
+    milestones = []
+    batch_phase_map = {"P0": "核心", "P1": "功能", "P2": "打磨", "P3": "扩展"}
+    for p in roadmap["projects"]:
+        if p["health"] == "released":
+            continue
+        batches = p["batches"]
+        phase_stats = {}
+        for b in batches:
+            prefix = b["name"][:2] if b["name"][:1] == "P" else "其他"
+            if prefix not in phase_stats:
+                phase_stats[prefix] = {"total": 0, "done": 0}
+            phase_stats[prefix]["total"] += b["total"]
+            phase_stats[prefix]["done"] += b["done"]
+        for phase, stats in sorted(phase_stats.items()):
+            phase_name = batch_phase_map.get(phase, phase)
+            if stats["total"] > 0 and stats["done"] == stats["total"]:
+                milestones.append({
+                    "project": p["id"], "project_name": p["name"],
+                    "phase": phase, "milestone": f"{phase_name}阶段完成",
+                    "status": "completed",
+                    "tasks_done": stats["done"], "tasks_total": stats["total"],
+                })
+            elif stats["done"] > 0:
+                progress = round(stats["done"] / stats["total"] * 100)
+                milestones.append({
+                    "project": p["id"], "project_name": p["name"],
+                    "phase": phase, "milestone": f"{phase_name}阶段进行中",
+                    "status": "in_progress", "progress": progress,
+                    "tasks_done": stats["done"], "tasks_total": stats["total"],
+                })
+        total_tasks = sum(b["total"] for b in batches)
+        done_tasks = sum(b["done"] for b in batches)
+        if total_tasks > 0 and done_tasks == total_tasks:
+            milestones.append({
+                "project": p["id"], "project_name": p["name"],
+                "phase": "all", "milestone": f"{p['name']} 可发布候选",
+                "status": "ready",
+                "tasks_done": done_tasks, "tasks_total": total_tasks,
+            })
+    return milestones
+
+
+def get_roadmap_full(project_id=None):
+    """获取完整路线图（含趋势、里程碑、并行建议）。"""
+    base = aggregate_roadmap(project_id)
+    _record_roadmap_snapshot(base)
+    trend = get_roadmap_trend()
+    milestones = _suggest_milestones(base)
+    parallel = _detect_parallel_opportunities(base)
+    extended_cross = list(base.get("cross_project", []))
+    if parallel:
+        for pp in parallel:
+            extended_cross.append(f"💡 并行建议：{pp['reason']}")
+    if milestones:
+        completed = [m for m in milestones if m["status"] == "completed"]
+        ready = [m for m in milestones if m["status"] == "ready"]
+        if completed:
+            names = ", ".join(m["project_name"] + " " + m["milestone"] for m in completed[:3])
+            extended_cross.append(f"🎯 已完成里程碑：{len(completed)} 个（{names}）")
+        if ready:
+            extended_cross.append(f"🚀 可发布：{', '.join(m['project_name'] for m in ready)}")
+    base["milestones"] = milestones
+    base["parallel_suggestions"] = parallel
+    base["trend"] = trend
+    base["cross_project"] = extended_cross
+    return base
+
+
+def mcp_get_roadmap_full(params):
+    """MCP 接口：获取增强路线图"""
+    pid = str((params or {}).get("project") or "").strip() or None
+    return get_roadmap_full(pid)
+
+
+def cmd_roadmap_full(args):
+    """查看增强路线图：含历史趋势、里程碑追踪、并行建议。"""
+    project = getattr(args, "project", None)
+    fmt = getattr(args, "format", "text")
+    data = get_roadmap_full(project)
+    if fmt == "json":
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"方寸路线图（增强版）· {now}")
+    print("═" * 60)
+    for p in data["projects"]:
+        icon = "🟢" if p["health"] == "active" else "🟡" if p["health"] == "stuck" else "⚪"
+        print(f"{icon} {p['name']} ({p['id']}) — {p['health']}")
+        for b in p["batches"]:
+            bicon = {"active": "▶", "pending": "○", "blocked": "⛔", "completed": "✓"}.get(b["status"], "?")
+            bar_len = 10
+            filled = round(b["done"] / b["total"] * bar_len) if b["total"] else 0
+            bar = "█" * filled + "░" * (bar_len - filled)
+            pct = round(b["done"] / b["total"] * 100) if b["total"] else 0
+            print(f"   {bicon} {b['name']:<12} [{b['status']}] {bar} {b['done']}/{b['total']} ({pct}%)")
+        if p["blockers"]:
+            print(f"   ⛔ 阻塞：")
+            for blk in p["blockers"][:2]:
+                print(f"      {blk['task_id']}《{blk['title']}」被 {blk['blocker_id']} 阻塞")
+        if p["next_actions"]:
+            print(f"   💡 下一动作：")
+            for act in p["next_actions"][:2]:
+                print(f"      {act['task_id']}《{act['title']}」[{act.get('batch', '')}] P={act.get('priority', '')}")
+        print()
+    if data["milestones"]:
+        print("─" * 60)
+        print("🎯 里程碑追踪：")
+        for m in data["milestones"][:10]:
+            if m["status"] == "completed":
+                print(f"   ✅ {m['project_name']} · {m['milestone']}（{m['tasks_done']}/{m['tasks_total']}）")
+            elif m["status"] == "in_progress":
+                print(f"   ▶ {m['project_name']} · {m['milestone']}（{m['progress']}%）")
+            elif m["status"] == "ready":
+                print(f"   🚀 {m['project_name']} · {m['milestone']}（{m['tasks_done']}/{m['tasks_total']}）")
+    if data["parallel_suggestions"]:
+        print()
+        print("💡 并行建议：")
+        for s in data["parallel_suggestions"]:
+            print(f"   · {s['reason']}")
+    if data["trend"]:
+        print()
+        print("📈 历史趋势（近 7 天快照）：")
+        for pid, snaps in data["trend"].items():
+            if snaps:
+                latest = snaps[-1]
+                print(f"   {latest['name']}：活跃={latest['active']} 完成={latest['completed']} 阻塞={latest['blocked']}（{len(snaps)} 个快照）")
+    if data["cross_project"]:
+        print()
+        print("─" * 60)
+        print("跨项目建议：")
+        for s in data["cross_project"]:
+            print(f"   {s}")
+    print()
+
 
 def cmd_status(args):
     """显示项目健康状态：全部或指定项目。"""
@@ -2924,6 +3129,10 @@ MCP_TOOLS = [
          "project": {"type": "string", "description": "项目 id，留空返回全部"},
          "format": {"type": "string", "description": "text 或 json", "enum": ["text", "json"]}},
          "required": []}},
+    {"name": "get_roadmap_full", "description": "获取增强路线图（含历史趋势、里程碑追踪、并行建议）",
+     "inputSchema": {"type": "object", "properties": {
+         "project": {"type": "string", "description": "项目 id，留空返回全部"}},
+         "required": []}},
 ]
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 
@@ -3004,7 +3213,8 @@ def mcp_search_tasks(params):
 MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "get_project_status": mcp_get_project_status,
                "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks,
-               "get_roadmap": mcp_get_roadmap}
+               "get_roadmap": mcp_get_roadmap,
+               "get_roadmap_full": mcp_get_roadmap_full}
 
 
 def mcp_handle(req):
@@ -3142,6 +3352,10 @@ def main():
     rm.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
     rm.add_argument("--brief", action="store_true", help="简报模式（单行摘要）")
     rm.set_defaults(func=cmd_roadmap)
+    rmf = sub.add_parser("roadmap-full", help="增强路线图：含历史趋势、里程碑追踪、并行建议")
+    rmf.add_argument("project", nargs="?", default=None, help="项目 id（可选，不指定则显示全部）")
+    rmf.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
+    rmf.set_defaults(func=cmd_roadmap_full)
     dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")

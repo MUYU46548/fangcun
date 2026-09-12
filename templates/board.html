@@ -272,6 +272,7 @@
   .calunsched .items{display:flex;flex-wrap:wrap;gap:6px}
   /* ── 列表视图 ── */
   #board.list{flex-direction:column;overflow-x:hidden;align-items:stretch}
+  #board.rm{flex-direction:column;overflow-x:hidden;align-items:stretch;padding:18px}
   table.lt{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);
     border-radius:12px;overflow:hidden;font-size:12.5px}
   table.lt th{background:#f5f4fa;text-align:left;padding:7px 9px;font-size:11px;color:var(--muted);
@@ -367,6 +368,7 @@
   <button class="vbtn on" data-view="active" onclick="setView('active')">看板</button>
   <button class="vbtn" data-view="calendar" onclick="setView('calendar')">日历</button>
   <button class="vbtn" data-view="list" onclick="setView('list')">列表</button>
+  <button class="vbtn" data-view="roadmap" onclick="setView('roadmap')">路线图</button>
   <button class="vbtn" data-view="projects" onclick="setView('projects')">项目</button>
   <button class="vbtn" data-view="archive" onclick="setView('archive')">归档</button>
   <button class="vbtn" data-view="trash" onclick="setView('trash')">回收站</button>
@@ -776,10 +778,12 @@ function applyViewMode(v){
   b.classList.toggle("pv",v==="projects");
   b.classList.toggle("cal",v==="calendar");
   b.classList.toggle("list",v==="list");
+  b.classList.toggle("rm",v==="roadmap");
   /* 日历仅按日期排布，隐藏分组选择器 */
   el("groupMode").style.display=(v==="calendar")?"none":"";
   el("sortMode").style.display=(v==="calendar")?"none":"";
   if(v==="projects")loadPv(true);
+  else if(v==="roadmap")loadRoadmap(true);
   else load(true);
 }
 function goBack(){
@@ -828,6 +832,55 @@ async function load(force){
       refreshPreviewIfOpen();
     }
   }catch(err){console.error("load failed",err);}
+}
+async function loadRoadmap(force){
+  const board=el("board");
+  try{
+    const r=await fetch("/roadmap.json");const d=await r.json();
+    if(!d||!d.projects||!d.projects.length){
+      board.innerHTML="<div style='text-align:center;color:var(--muted);padding:40px;font-size:14px'>暂无路线图数据，请先创建任务</div>";
+      return;
+    }
+    let html='';
+    for(const p of d.projects){
+      const icon=p.health==="active"?"🟢":p.health==="stuck"?"🟡":"⚪";
+      html+=`<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">`;
+      html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:18px">${icon}</span><strong style="font-size:15px">${esc(p.name)}</strong><span style="color:var(--muted);font-size:12px">${esc(p.id)}</span></div>`;
+      html+='<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+      html+='<tr style="color:var(--muted);font-size:11px"><th style="text-align:left;padding:4px 6px">批次</th><th style="text-align:left;padding:4px 6px">状态</th><th style="text-align:left;padding:4px 6px">进度</th><th style="text-align:right;padding:4px 6px">任务</th></tr>';
+      for(const b of p.batches){
+        const bicon={"active":"▶","pending":"○","blocked":"⛔","completed":"✓"}[b.status]||"?";
+        const pct=b.total?Math.round(b.done/b.total*100):0;
+        const barWidth=80;
+        const filled=b.total?Math.round(b.done/b.total*barWidth):0;
+        const color=b.status==="completed"?"#22c55e":b.status==="active"?"#6366f1":b.status==="blocked"?"#ef4444":"#94a3b8";
+        html+='<tr style="border-top:1px solid #f2f1f7">';
+        html+=`<td style="padding:5px 6px;white-space:nowrap">${bicon} ${esc(b.name)}</td>`;
+        html+=`<td style="padding:5px 6px;color:var(--muted)">${esc(b.status)}</td>`;
+        html+=`<td style="padding:5px 6px"><div style="background:#eee;border-radius:4px;height:8px;width:${barWidth}px;overflow:hidden"><div style="background:${color};height:100%;width:${filled}px"></div></div></td>`;
+        html+=`<td style="padding:5px 6px;text-align:right;font-weight:600">${b.done}/${b.total}</td>`;
+        html+='</tr>';
+      }
+      html+='</table>';
+      if(p.blockers&&p.blockers.length){
+        html+=`<div style="margin-top:8px;font-size:12px;color:#b91c1c">⛔ 阻塞：${p.blockers.slice(0,2).map(b=>esc(b.task_id)+"《"+esc(b.title)+"」被 "+esc(b.blocker_id)).join("；")}</div>`;
+      }
+      if(p.next_actions&&p.next_actions.length){
+        html+=`<div style="margin-top:6px;font-size:12px;color:#6366f1">💡 下一动作：${p.next_actions.slice(0,2).map(a=>esc(a.task_id)+"《"+esc(a.title)+"」").join("；")}</div>`;
+      }
+      html+='</div>';
+    }
+    if(d.cross_project&&d.cross_project.length){
+      html+=`<div style="background:#fafafa;border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:8px"><strong style="font-size:14px">跨项目建议</strong><ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted)">`;
+      for(const s of d.cross_project) html+=`<li style="margin-bottom:4px">${esc(s)}</li>`;
+      html+='</ul></div>';
+    }
+    board.innerHTML=html;
+    el("count").textContent=d.projects.length+" 个项目";
+  }catch(err){
+    console.error("loadRoadmap failed",err);
+    board.innerHTML="<div style='text-align:center;color:#ef4444;padding:40px;font-size:14px'>加载路线图失败</div>";
+  }
 }
 /* 标签筛选下拉：选项来自当前任务集去重排序；已选标签消失时回落到全部 */
 function refreshTagFilter(){

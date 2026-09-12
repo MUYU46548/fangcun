@@ -618,8 +618,8 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = sorted(t["name"] for t in resp["result"]["tools"])
-    check("MCP 暴露 6 个只读工具",
-          names == ["get_project_status", "get_roadmap", "get_task", "list_projects", "list_tasks", "search_tasks"],
+    check("MCP 暴露 7 个只读工具",
+          names == ["get_project_status", "get_roadmap", "get_roadmap_full", "get_task", "list_projects", "list_tasks", "search_tasks"],
           str(names))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                            "params": {"name": "list_tasks", "arguments": {}}})
@@ -744,6 +744,43 @@ try:
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     tool_names = [t["name"] for t in resp["result"]["tools"]]
     check("MCP tools/list 含 get_roadmap", "get_roadmap" in tool_names)
+
+    # 17f. get_roadmap_full 包含扩展信息
+    teg._ROADMAP_HISTORY.clear()
+    full_rm = teg.get_roadmap_full()
+    check("roadmap_full 含 milestones 字段", "milestones" in full_rm, str(full_rm.keys()))
+    check("roadmap_full 含 parallel_suggestions 字段", "parallel_suggestions" in full_rm, str(full_rm.keys()))
+    check("roadmap_full 含 trend 字段", "trend" in full_rm, str(full_rm.keys()))
+    check("roadmap_full 记录了一个快照", len(teg._ROADMAP_HISTORY) == 1, str(len(teg._ROADMAP_HISTORY)))
+
+    # 17g. 多次调用累积快照
+    teg.get_roadmap_full()
+    teg.get_roadmap_full()
+    check("roadmap_full 累积 3 个快照", len(teg._ROADMAP_HISTORY) == 3, str(len(teg._ROADMAP_HISTORY)))
+
+    # 17h. 快照环形缓冲不超限
+    for _ in range(35):
+        teg.get_roadmap_full()
+    check("快照环形缓冲上限 30", len(teg._ROADMAP_HISTORY) == 30, str(len(teg._ROADMAP_HISTORY)))
+
+    # 17i. get_roadmap_trend 返回结构
+    trend = teg.get_roadmap_trend(days=7)
+    check("roadmap_trend 返回 dict", isinstance(trend, dict), str(type(trend)))
+
+    # 17j. _suggest_milestones 返回 list
+    ms = teg._suggest_milestones(full_rm)
+    check("_suggest_milestones 返回 list", isinstance(ms, list), str(type(ms)))
+
+    # 17k. _detect_parallel_opportunities 返回 list
+    par = teg._detect_parallel_opportunities(full_rm)
+    check("_detect_parallel_opportunities 返回 list", isinstance(par, list), str(type(par)))
+
+    # 17l. MCP get_roadmap_full
+    mcp_full = teg.mcp_get_roadmap_full({})
+    check("MCP get_roadmap_full 返回 milestones", "milestones" in mcp_full, str(mcp_full.keys()))
+
+    # 17m. MCP tools/list 含 get_roadmap_full
+    check("MCP tools/list 含 get_roadmap_full", "get_roadmap_full" in tool_names)
 
 finally:
     teg.TASK_DIR = _saved_td_rm
