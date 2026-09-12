@@ -618,8 +618,8 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = sorted(t["name"] for t in resp["result"]["tools"])
-    check("MCP 暴露 5 个只读工具",
-          names == ["get_project_status", "get_task", "list_projects", "list_tasks", "search_tasks"],
+    check("MCP 暴露 6 个只读工具",
+          names == ["get_project_status", "get_roadmap", "get_task", "list_projects", "list_tasks", "search_tasks"],
           str(names))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                            "params": {"name": "list_tasks", "arguments": {}}})
@@ -684,6 +684,69 @@ for _node in _ast.walk(_ast.parse(_src)):
             if _capturing and "creationflags" not in _kw:
                 _bad.append(_node.lineno)
 check("子进程黑窗防线（捕获输出的调用必须带 creationflags）", not _bad, f"裸调用行: {_bad}")
+
+# ---- 17. 路线图（P4）：聚合逻辑 / CLI / MCP / HTTP ----
+# 17a. 聚合结构完整性
+_saved_td_rm, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "roadmap-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    # 创建测试任务
+    ok1, t1 = teg.api_new({"标题": "路线图测试1", "状态": "进行中", "项目": ["fangcun-base"],
+                           "批次": "P1", "方案": ["- [ ] 步骤1", "- [ ] 步骤2"]})
+    ok2, t2 = teg.api_new({"标题": "路线图测试2", "状态": "完成", "项目": ["fangcun-base"],
+                           "批次": "P1", "方案": ["- [x] 已完成"]})
+    ok3, t3 = teg.api_new({"标题": "路线图测试3", "状态": "待办", "项目": ["sitian"],
+                           "批次": "P2"})
+
+    rm = teg.aggregate_roadmap()
+    check("roadmap 返回结构含 generated_at", "generated_at" in rm)
+    check("roadmap 返回 projects 列表", isinstance(rm["projects"], list))
+    check("roadmap 返回 cross_project 列表", isinstance(rm["cross_project"], list))
+
+    # 检查项目聚合
+    proj_ids = [p["id"] for p in rm["projects"]]
+    check("roadmap 包含 fangcun-base 项目", "fangcun-base" in proj_ids)
+    check("roadmap 包含 sitian 项目", "sitian" in proj_ids)
+
+    # 检查 fangcun-base 的批次
+    fc_proj = next(p for p in rm["projects"] if p["id"] == "fangcun-base")
+    check("fangcun-base 有 1 个批次", len(fc_proj["batches"]) == 1)
+    check("fangcun-base P1 批次 total=2", fc_proj["batches"][0]["total"] == 2)
+    check("fangcun-base P1 批次 done=1", fc_proj["batches"][0]["done"] == 1)
+    check("fangcun-base P1 批次 status=active", fc_proj["batches"][0]["status"] == "active")
+    check("fangcun-base health=active", fc_proj["health"] == "active")
+
+    # 检查 sitian 的批次
+    st_proj = next(p for p in rm["projects"] if p["id"] == "sitian")
+    check("sitian P2 批次 status=pending", st_proj["batches"][0]["status"] == "pending")
+
+    # 检查 next_actions
+    check("fangcun-base next_actions 非空", len(fc_proj["next_actions"]) > 0)
+    check("next_actions 含进行中任务", fc_proj["next_actions"][0]["task_id"] == t1)
+
+    # 17b. 按项目过滤
+    rm_fangcun = teg.aggregate_roadmap(project_id="fangcun-base")
+    check("roadmap 按项目过滤有效", len(rm_fangcun["projects"]) == 1)
+    check("roadmap 按项目过滤 id 正确", rm_fangcun["projects"][0]["id"] == "fangcun-base")
+
+    # 17c. TTL 缓存
+    rm1 = teg.get_roadmap_cached()
+    rm2 = teg.get_roadmap_cached()
+    check("roadmap 缓存命中（同一对象）", rm1 is rm2)
+
+    # 17d. MCP get_roadmap
+    mcp_rm = teg.mcp_get_roadmap({})
+    check("MCP get_roadmap 返回 projects", "projects" in mcp_rm)
+    mcp_rm_fc = teg.mcp_get_roadmap({"project": "fangcun-base"})
+    check("MCP get_roadmap 按项目过滤", len(mcp_rm_fc["projects"]) == 1)
+
+    # 17e. MCP tools/list 含 get_roadmap
+    resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    tool_names = [t["name"] for t in resp["result"]["tools"]]
+    check("MCP tools/list 含 get_roadmap", "get_roadmap" in tool_names)
+
+finally:
+    teg.TASK_DIR = _saved_td_rm
 
 # ---- 汇总 ----
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")

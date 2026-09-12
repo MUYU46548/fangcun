@@ -1799,6 +1799,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json()
         elif self.path.startswith("/status.json"):
             self._status_json()
+        elif self.path.startswith("/roadmap.json"):
+            self._roadmap_json()
         elif self.path.startswith("/startpage"):
             self._startpage()
         elif self.path.startswith("/ping"):
@@ -1824,6 +1826,14 @@ class Handler(BaseHTTPRequestHandler):
         """项目视图数据（GET /status.json）。携带 ?refresh=1 时绕过缓存重扫。"""
         force = "refresh=1" in self.path
         self._send_json(project_status_payload(force=force))
+
+    def _roadmap_json(self):
+        """路线图 JSON 端点（GET /roadmap.json）"""
+        project = None
+        if "?" in self.path:
+            qs = parse_qs(self.path.split("?", 1)[1])
+            project = qs.get("project", [""])[0] or None
+        self._send_json(get_roadmap_cached(project))
 
     def _json(self):
         proj = None
@@ -2508,6 +2518,233 @@ def find_timeout_tasks(threshold_hours=24):
     return timeouts
 
 
+
+# ---------- 路线图（P4）：自动从任务聚合的战略视图 ----------
+_ROADMAP_CACHE = {"data": None, "ts": 0.0}
+ROADMAP_TTL = 20  # 秒
+
+
+def _batch_status(tasks_in_batch):
+    """根据批次内任务状态分布判定批次状态"""
+    total = len(tasks_in_batch)
+    done = sum(1 for t in tasks_in_batch if t.get("状态") == "完成")
+    in_progress = sum(1 for t in tasks_in_batch if t.get("状态") == "进行中")
+    rejected = sum(1 for t in tasks_in_batch if t.get("状态") == "驳回")
+    
+    # 检查是否有任务被阻塞
+    blocked = False
+    for t in tasks_in_batch:
+        if blockers_of(t.get("id", "")):
+            blocked = True
+            break
+    
+    if in_progress > 0:
+        return "active"
+    elif blocked:
+        return "blocked"
+    elif done == total:
+        return "completed"
+    else:
+        return "pending"
+
+
+def aggregate_roadmap(project_id=None):
+    """从任务文件聚合路线图。返回结构化 dict。"""
+    tasks = load_tasks(view="active")
+    
+    # 按项目分组
+    projects_map = {}
+    for t in tasks:
+        proj = (t.get("项目") or [None])[0]
+        if not proj:
+            continue
+        if proj not in projects_map:
+            projects_map[proj] = []
+        projects_map[proj].append(t)
+    
+    # 获取项目元数据
+    reg = {p["id"]: p for p in load_all_projects()}
+    
+    result_projects = []
+    for proj_id, proj_tasks in projects_map.items():
+        proj_meta = reg.get(proj_id, {})
+        proj_name = proj_meta.get("name", proj_id)
+        
+        # 按批次分组
+        batches = {}
+        for t in proj_tasks:
+            batch = t.get("批次") or "未分类"
+            if batch not in batches:
+                batches[batch] = []
+            batches[batch].append(t)
+        
+        batch_list = []
+        for bname, btasks in sorted(batches.items()):
+            bstatus = _batch_status(btasks)
+            btasks_sorted = sorted(btasks, key=lambda x: x.get("状态", ""))
+            batch_list.append({
+                "name": bname,
+                "status": bstatus,
+                "total": len(btasks),
+                "done": sum(1 for t in btasks if t.get("状态") == "完成"),
+                "tasks": [{"id": t.get("id"), "title": t.get("标题", ""), "status": t.get("状态", "")}
+                          for t in btasks_sorted]
+            })
+        
+        # 项目健康度
+        health = "idle"
+        if any(b["status"] == "active" for b in batch_list):
+            health = "active"
+        elif any(b["status"] == "blocked" for b in batch_list):
+            health = "stuck"
+        
+        # 阻塞详情
+        blockers = []
+        for t in proj_tasks:
+            blks = blockers_of(t.get("id", ""))
+            for b in blks:
+                blockers.append({
+                    "task_id": t.get("id"),
+                    "title": t.get("标题", ""),
+                    "blocker_id": b["id"],
+                    "blocker_title": b["标题"]
+                })
+        
+        # 下一动作：进行中的任务优先
+        next_actions = []
+        for t in sorted(proj_tasks, key=lambda x: (0 if x.get("状态") == "进行中" else 1)):
+            if t.get("状态") in ("进行中", "待办"):
+                next_actions.append({
+                    "task_id": t.get("id"),
+                    "title": t.get("标题", ""),
+                    "priority": t.get("优先级", "中"),
+                    "batch": t.get("批次", "")
+                })
+                if len(next_actions) >= 3:
+                    break
+        
+        result_projects.append({
+            "id": proj_id,
+            "name": proj_name,
+            "health": health,
+            "batches": batch_list,
+            "blockers": blockers,
+            "next_actions": next_actions,
+            "task_count": len(proj_tasks)
+        })
+    
+    # 过滤指定项目
+    if project_id:
+        result_projects = [p for p in result_projects if p["id"] == project_id]
+    
+    # 跨项目建议
+    cross_sugs = []
+    stuck = [p for p in result_projects if p["health"] == "stuck"]
+    idle = [p for p in result_projects if p["health"] == "idle"]
+    
+    if stuck:
+        names = "、".join(p["name"] for p in stuck)
+        cross_sugs.append(f"优先处理卡住项目：{names}")
+    if idle:
+        names = "、".join(p["name"] for p in idle)
+        cross_sugs.append(f"空闲项目可激活：{names}")
+    
+    return {
+        "generated_at": int(time.time()),
+        "projects": result_projects,
+        "cross_project": cross_sugs
+    }
+
+
+def get_roadmap_cached(project_id=None):
+    """带 TTL 缓存的路线图获取"""
+    global _ROADMAP_CACHE
+    now = time.time()
+    cache_key = project_id or "__all__"
+    
+    if _ROADMAP_CACHE["data"] is not None and _ROADMAP_CACHE["key"] == cache_key:
+        if now - _ROADMAP_CACHE["ts"] < ROADMAP_TTL:
+            return _ROADMAP_CACHE["data"]
+    
+    data = aggregate_roadmap(project_id)
+    _ROADMAP_CACHE["data"] = data
+    _ROADMAP_CACHE["ts"] = now
+    _ROADMAP_CACHE["key"] = cache_key
+    return data
+
+
+def cmd_roadmap(args):
+    """查看路线图：自动从任务聚合的战略视图。"""
+    project = getattr(args, "project", None)
+    fmt = getattr(args, "format", "text")
+    brief = getattr(args, "brief", False)
+    
+    data = get_roadmap_cached(project)
+    
+    if fmt == "json":
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    
+    if brief:
+        # 简报模式：每项目一行
+        for p in data["projects"]:
+            active_batches = [b["name"] for b in p["batches"] if b["status"] == "active"]
+            pending = [b["name"] for b in p["batches"] if b["status"] == "pending"]
+            blockers = len(p["blockers"])
+            print(f"{p['name']:<12} {'🟢' if p['health'] == 'active' else '🟡' if p['health'] == 'stuck' else '⚪'} "
+                  f"进行中: {', '.join(active_batches) or '无'} | "
+                  f"待办: {', '.join(pending) or '无'} | "
+                  f"阻塞: {blockers}")
+        if data["cross_project"]:
+            print(f"跨项目：{' | '.join(data['cross_project'])}")
+        return
+    
+    # text 模式（详细输出）
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"方寸路线图 · {now}")
+    print("═" * 55)
+    
+    for p in data["projects"]:
+        icon = "🟢" if p["health"] == "active" else "🟡" if p["health"] == "stuck" else "⚪"
+        print(f"{icon} {p['name']} ({p['id']}) — {p['health']}")
+        
+        # 批次列表
+        for b in p["batches"]:
+            bicon = {"active": "▶", "pending": "○", "blocked": "⛔", "completed": "✓"}.get(b["status"], "?")
+            print(f"   {bicon} {b['name']:<12} [{b['status']}] {b['done']}/{b['total']}")
+            for t in b["tasks"]:
+                print(f"      - [{t['status']}] {t['id']} {t['title']}")
+        
+        # 阻塞
+        if p["blockers"]:
+            print(f"   ⛔ 阻塞：")
+            for blk in p["blockers"][:3]:
+                print(f"      {blk['task_id']}《{blk['title']}」被 {blk['blocker_id']} 阻塞")
+        
+        # 建议
+        if p["next_actions"]:
+            print(f"   💡 下一动作：")
+            for act in p["next_actions"][:2]:
+                print(f"      {act['task_id']}《{act['title']}」[{act['batch']}] P={act['priority']}")
+        
+        print()
+    
+    # 跨项目建议
+    if data["cross_project"]:
+        print("─" * 55)
+        print("跨项目建议：")
+        for i, s in enumerate(data["cross_project"], 1):
+            print(f"  {i}. {s}")
+        print()
+
+
+def mcp_get_roadmap(params):
+    """MCP 接口：获取项目路线图"""
+    pid = str((params or {}).get("project") or "").strip() or None
+    return get_roadmap_cached(pid)
+
+
+
 def cmd_status(args):
     """显示项目健康状态：全部或指定项目。"""
     reg = load_all_projects()
@@ -2682,6 +2919,11 @@ MCP_TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string", "description": "搜索关键词"}},
          "required": ["query"]}},
+    {"name": "get_roadmap", "description": "获取项目路线图（自动从任务聚合，含批次/阻塞/建议）",
+     "inputSchema": {"type": "object", "properties": {
+         "project": {"type": "string", "description": "项目 id，留空返回全部"},
+         "format": {"type": "string", "description": "text 或 json", "enum": ["text", "json"]}},
+         "required": []}},
 ]
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 
@@ -2761,7 +3003,8 @@ def mcp_search_tasks(params):
 
 MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "get_project_status": mcp_get_project_status,
-               "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks}
+               "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks,
+               "get_roadmap": mcp_get_roadmap}
 
 
 def mcp_handle(req):
@@ -2894,6 +3137,11 @@ def main():
                       help="操作：list（列出）/ start（启动）/ stop（停止）")
     wb.add_argument("--port", type=int, default=None, help="指定端口号（start/stop 时必填）")
     wb.set_defaults(func=cmd_workbench)
+    rm = sub.add_parser("roadmap", help="路线图：自动从任务聚合的战略视图")
+    rm.add_argument("project", nargs="?", default=None, help="项目 id（可选，不指定则显示全部）")
+    rm.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
+    rm.add_argument("--brief", action="store_true", help="简报模式（单行摘要）")
+    rm.set_defaults(func=cmd_roadmap)
     dn = sub.add_parser("done", help="执行方完工回写：填结果记录并置为待验收")
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
