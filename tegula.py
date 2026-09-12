@@ -2328,6 +2328,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _startpage(self):
         """全项目统一启动台：动态读取 registry.yaml 生成入口页面"""
+        # 读端口文件获取实际端口
+        port = _read_port_file() or 8753
         reg = load_all_projects()
         projects = [p for p in reg if not p.get("_released")]
         released = [p for p in reg if p.get("_released")]
@@ -2349,7 +2351,7 @@ class Handler(BaseHTTPRequestHandler):
                 action_btns += f'<a class="app-btn" href="{esc(link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="打开链接">🔗</a>'
 
             cards.append(f"""
-            <a class="tool" href="http://127.0.0.1:8753/?project={esc(pid)}" target="_blank" rel="noopener">
+            <a class="tool" href="http://127.0.0.1:{port}/?project={esc(pid)}" target="_blank" rel="noopener">
                 <div class="ico">📁</div>
                 <div class="body">
                     <h2>{esc(name)}</h2>
@@ -2403,10 +2405,10 @@ h1{{font-size:20px;font-weight:700;letter-spacing:.5px}}
     <div class="head"><h1>工作台</h1></div>
     <div class="sub">方寸管理 · 点击项目直达看板筛选 · ▶ 启动应用 · 🔗 打开链接</div>
     <div class="grid">
-        <a class="tool" href="http://127.0.0.1:8753/" target="_blank" rel="noopener">
+        <a class="tool" href="http://127.0.0.1:{port}/" target="_blank" rel="noopener">
             <div class="ico">📋</div>
             <div class="body"><h2>方寸 看板</h2><p>全部项目 · 任务总览</p></div>
-            <span class="port">8753</span>
+            <span class="port">{port}</span>
         </a>
         {"".join(cards)}
     </div>
@@ -2453,8 +2455,100 @@ def find_free_port(start, end=8790):
     return None
 
 
+# ── 端口文件：解决端口冲突 + 客户端自动发现 ──
+PORT_FILE = os.path.join(DATA_DIR, ".tegula-port")
+
+
+def _write_port_file(port):
+    """写入端口文件：端口 | PID | 时间戳"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        data = f"{port}\n{os.getpid()}\n{int(time.time())}"
+        tmp = PORT_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(data)
+        os.replace(tmp, PORT_FILE)
+    except Exception:
+        pass
+
+
+def _read_port_file():
+    """读取端口文件并校验服务是否活着。返回 port 或 None。"""
+    try:
+        with open(PORT_FILE, encoding="utf-8") as f:
+            lines = f.read().strip().splitlines()
+        if len(lines) < 2:
+            return None
+        port = int(lines[0].strip())
+        pid = int(lines[1].strip())
+        # 校验 PID 是否活着（Windows: tasklist）
+        if pid:
+            try:
+                r = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=_NOWIN
+                )
+                # tasklist 找不到进程时输出 "信息: 没有运行的任务匹配指定标准。"
+                if "没有运行" in r.stdout or "no task" in r.stdout.lower():
+                    _clear_port_file()
+                    return None
+            except Exception:
+                pass
+        # 校验端口是否响应
+        if tegula_alive(port):
+            return port
+        else:
+            # 端口文件过期
+            _clear_port_file()
+            return None
+    except Exception:
+        return None
+
+
+def _clear_port_file():
+    """清理端口文件。"""
+    try:
+        if os.path.exists(PORT_FILE):
+            os.remove(PORT_FILE)
+    except Exception:
+        pass
+
+
+def _diagnose_port_conflict(port):
+    """诊断端口冲突，返回占用者信息。"""
+    try:
+        r = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, timeout=10,
+            creationflags=_NOWIN
+        )
+        output = r.stdout.decode("gbk", errors="replace")
+        for line in output.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.strip().split()
+                pid = parts[-1]
+                # 获取进程名
+                r2 = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=_NOWIN
+                )
+                pname = pid
+                for l2 in r2.stdout.splitlines():
+                    if l2.strip():
+                        cols = l2.strip().split(",")
+                        if len(cols) >= 2:
+                            pname = cols[0].strip('"')
+                            break
+                return pid, pname
+    except Exception:
+        pass
+    return None, None
+
+
 def tegula_alive(port):
-    """该端口上是否已是一个活着的方寸看板（防止多开、也避免误杀别人的服务）。"""
+    """该端口上是否已是一个活着的方寸看板。"""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping", timeout=1.5) as r:
             return r.status == 200
@@ -2474,6 +2568,16 @@ def find_edge():
 
 def cmd_open(args):
     """双击入口：服务随进程起，pywebview 原生窗口打开，窗口全关服务自退。"""
+    # 优先读端口文件找已有服务
+    existing = _read_port_file()
+    if existing:
+        # 已有服务在跑，直接连
+        import webview
+        webview.create_window("方寸 tegula", f"http://127.0.0.1:{existing}/",
+                              width=1280, height=860, min_size=(1024, 640))
+        webview.start()
+        return
+
     port = args.port
     reuse = False
     if tegula_alive(port):
@@ -2486,7 +2590,8 @@ def cmd_open(args):
         port = free
 
     if reuse:
-        # 已有看板在跑：直接唤窗（新建一个 webview 窗口连到同一端口）
+        # 已有看板在跑：直接唤窗
+        _write_port_file(port)
         import webview
         webview.create_window("方寸 tegula", f"http://127.0.0.1:{port}/",
                               width=1280, height=860, min_size=(1024, 640))
@@ -2495,6 +2600,7 @@ def cmd_open(args):
 
     # 后台启动 HTTP 服务
     srv = QServer(("127.0.0.1", port), Handler)
+    _write_port_file(port)
     server_thread = threading.Thread(target=srv.serve_forever, daemon=True)
     server_thread.start()
     # 等待服务就绪
@@ -2509,6 +2615,7 @@ def cmd_open(args):
     webview.start()
     # 窗口关闭后停止服务
     srv.shutdown()
+    _clear_port_file()
 
 
 # ---------- doctor：文件健康自检 ----------
@@ -3771,7 +3878,9 @@ def _detect_events(event_type):
 
 def cmd_startpage(args):
     """打开全项目统一启动台（动态读取 registry.yaml）"""
-    port = args.port
+    # 优先读端口文件找已有服务
+    existing = _read_port_file()
+    port = existing or args.port
     if not tegula_alive(port):
         print(f"[提示] 方寸看板未运行，先启动：python tegula.py serve")
         return
@@ -3784,21 +3893,59 @@ def cmd_startpage(args):
 
 
 def cmd_serve(args):
+    """启动本地看板视图。自动处理端口冲突。"""
     port = args.port
+
+    # 检查已有服务
+    existing = _read_port_file()
+    if existing:
+        print(f"[提示] 方寸看板已在 http://127.0.0.1:{existing}/ 运行（单飞保护，不再起第二个）。")
+        return
+
+    # 尝试绑定首选端口
     if tegula_alive(port):
         print(f"[提示] 方寸看板已在 http://127.0.0.1:{port}/ 运行（单飞保护，不再起第二个）。")
+        _write_port_file(port)
         return
+
+    # 首选端口被占，诊断并自动换
+    actual_port = port
+    test_sock = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM)
     try:
-        srv = QServer(("127.0.0.1", port), Handler)
+        test_sock.bind(("127.0.0.1", port))
+        test_sock.close()
+    except OSError:
+        test_sock.close()
+        # 诊断冲突
+        pid, pname = _diagnose_port_conflict(port)
+        if pid:
+            print(f"[warn] 端口 {port} 被 {pname} (PID {pid}) 占用")
+        else:
+            print(f"[warn] 端口 {port} 被占用（无法识别占用者）")
+        # 自动找端口
+        free = find_free_port(port + 1)
+        if free is None:
+            print(f"[错误] {port}-8790 端口均被占用。")
+            print("       可手动指定：python tegula.py serve --port 9999")
+            return
+        actual_port = free
+        print(f"[warn] 已自动改用端口 {actual_port}")
+
+    # 起服务
+    try:
+        srv = QServer(("127.0.0.1", actual_port), Handler)
     except OSError as e:
-        print(f"[错误] 端口 {port} 被其他程序占用（非方寸看板）：{e}")
-        print("       可指定别的端口：python tegula.py serve --port 8754")
+        print(f"[错误] 绑定端口 {actual_port} 失败: {e}")
         return
-    print(f"方寸看板已启动: http://127.0.0.1:{port}/  (Ctrl+C 退出)")
+
+    _write_port_file(actual_port)
+    print(f"方寸看板已启动: http://127.0.0.1:{actual_port}/  (Ctrl+C 退出)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        _clear_port_file()
 
 
 def main():
