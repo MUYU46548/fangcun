@@ -2443,6 +2443,132 @@ class QServer(ThreadingHTTPServer):
         super().shutdown()
 
 
+# ── 系统托盘（pystray）：常驻后台 + 右键菜单 + 最小化到托盘 ──
+try:
+    import pystray
+    from PIL import Image, ImageDraw, ImageFont
+    _PYSTRAY_AVAILABLE = True
+except ImportError:
+    _PYSTRAY_AVAILABLE = False
+
+
+def _create_tray_icon():
+    """生成托盘图标（16x16 PNG 字节）。"""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle([1, 1, 15, 15], radius=3, fill="#9b8fc4")
+    draw.text((8, 8), "寸", fill="white", anchor="mm")
+    return img
+
+
+class TrayManager:
+    """系统托盘管理器。
+
+    功能：
+    - 托盘图标 + 右键菜单
+    - 双击打开看板
+    - 窗口关闭 → 最小化到托盘（不退出）
+    - 退出时清理端口文件 + 停服务
+    """
+
+    def __init__(self, srv, port):
+        self.srv = srv
+        self.port = port
+        self.icon = None
+        self.window = None
+
+    def _open_board(self, *a):
+        """打开看板窗口。"""
+        if self.window is None:
+            self.window = self._create_window()
+        # pywebview 窗口重开需要重新 create_window
+
+    def _create_window(self):
+        import webview
+        return webview.create_window(
+            "方寸 tegula",
+            f"http://127.0.0.1:{self.port}/",
+            width=1280, height=860, min_size=(1024, 640)
+        )
+
+    def _open_startpage(self, *a):
+        """在浏览器打开启动台。"""
+        import webbrowser
+        webbrowser.open(f"http://127.0.0.1:{self.port}/startpage")
+
+    def _do_backup(self, *a):
+        """执行备份。"""
+        try:
+            import io, contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_backup(type('A', (), {})())
+            print(f"[ok] 托盘备份：{buf.getvalue().strip()}")
+        except Exception as e:
+            print(f"[warn] 备份失败：{e}")
+
+    def _toggle_autostart(self, item):
+        """切换开机自启动。"""
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
+            try:
+                winreg.DeleteValue(key, "方寸")
+                winreg.CloseKey(key)
+                print("[ok] 已取消开机自启动")
+            except FileNotFoundError:
+                exe = getattr(sys, "executable", os.path.join(ROOT, "方寸.exe"))
+                winreg.SetValueEx(key, "方寸", 0, winreg.REG_SZ, f'"{exe}" --tray')
+                winreg.CloseKey(key)
+                print("[ok] 已设置开机自启动")
+        except Exception as e:
+            print(f"[warn] 自启动设置失败：{e}")
+
+    def _is_autostart(self):
+        """检查是否已设置开机自启动。"""
+        import winreg
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Run",
+                                 0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, "方寸")
+            winreg.CloseKey(key)
+            return True
+        except FileNotFoundError:
+            return False
+
+    def _quit(self, *a):
+        """退出：停服务 + 清理 + 退出进程。"""
+        try:
+            if self.srv:
+                self.srv.shutdown()
+            _clear_port_file()
+            if self.icon:
+                self.icon.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    def run(self):
+        """启动托盘（阻塞）。"""
+        menu_items = [
+            pystray.MenuItem("打开看板", self._open_board),
+            pystray.MenuItem("启动台", self._open_startpage),
+            pystray.MenuItem("立即备份", self._do_backup),
+            pystray.MenuItem(
+                "开机自启动",
+                self._toggle_autostart,
+                checked=self._is_autostart
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出", self._quit),
+        ]
+        menu = pystray.Menu(*menu_items)
+        self.icon = pystray.Icon("方寸", _create_tray_icon(), "方寸 tegula", menu)
+        self.icon.run()
+
+
 def find_free_port(start, end=8790):
     for p in range(start, end + 1):
         import socket
@@ -2570,7 +2696,7 @@ def cmd_open(args):
     """双击入口：服务随进程起，pywebview 原生窗口打开，窗口全关服务自退。"""
     # 优先读端口文件找已有服务
     existing = _read_port_file()
-    if existing:
+    if existing and not getattr(args, "tray", False):
         # 已有服务在跑，直接连
         import webview
         webview.create_window("方寸 tegula", f"http://127.0.0.1:{existing}/",
@@ -2579,6 +2705,7 @@ def cmd_open(args):
         return
 
     port = args.port
+    tray_mode = getattr(args, "tray", False)
     reuse = False
     if tegula_alive(port):
         reuse = True
@@ -2589,7 +2716,7 @@ def cmd_open(args):
             return
         port = free
 
-    if reuse:
+    if reuse and not tray_mode:
         # 已有看板在跑：直接唤窗
         _write_port_file(port)
         import webview
@@ -2608,6 +2735,17 @@ def cmd_open(args):
         time.sleep(0.5)
         if tegula_alive(port):
             break
+
+    if tray_mode and _PYSTRAY_AVAILABLE:
+        print(f"[托盘] 已进入系统托盘模式")
+        tray = TrayManager(srv, port)
+        try:
+            tray.run()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _clear_port_file()
+        return
 
     import webview
     webview.create_window("方寸 tegula", f"http://127.0.0.1:{port}/",
@@ -3895,6 +4033,7 @@ def cmd_startpage(args):
 def cmd_serve(args):
     """启动本地看板视图。自动处理端口冲突。"""
     port = args.port
+    tray_mode = getattr(args, "tray", False)
 
     # 检查已有服务
     existing = _read_port_file()
@@ -3940,6 +4079,19 @@ def cmd_serve(args):
 
     _write_port_file(actual_port)
     print(f"方寸看板已启动: http://127.0.0.1:{actual_port}/  (Ctrl+C 退出)")
+
+    if tray_mode and _PYSTRAY_AVAILABLE:
+        print(f"[托盘] 已进入系统托盘模式")
+        # 托盘阻塞运行
+        tray = TrayManager(srv, actual_port)
+        try:
+            tray.run()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            _clear_port_file()
+        return
+
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -3964,6 +4116,7 @@ def main():
     n.set_defaults(func=cmd_new)
     s = sub.add_parser("serve", help="启动本地看板视图（零依赖）")
     s.add_argument("--port", type=int, default=8753)
+    s.add_argument("--tray", action="store_true", help="系统托盘模式（常驻后台）")
     s.set_defaults(func=cmd_serve)
     sp = sub.add_parser("startpage", help="打开全项目统一启动台（动态读取 registry.yaml）")
     sp.add_argument("--port", type=int, default=8753)
