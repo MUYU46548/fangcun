@@ -562,6 +562,100 @@ def write_task_file(path, d):
     os.replace(tmp, path)
 
 
+# ---------- 自然语言查询（搜索框语义解析） ----------
+def parse_natural_query(q):
+    """解析自然语言查询，返回过滤后的任务列表。
+
+    支持语法：
+      - 精确搜索：标题/标签/项目/id 匹配
+      - 状态过滤：待办、进行中、待验收、完成、驳回
+      - 优先级过滤：高/中/低
+      - 标签过滤：#标签名
+      - 项目过滤：@项目id
+      - 时间：超时的、卡住的
+      - 组合：待办 高、#bug 待办
+    """
+    q = (q or "").strip()
+    if not q:
+        return None, "查询为空"
+
+    # 提取标签过滤
+    tags = re.findall(r'#(\S+)', q)
+    # 提取项目过滤
+    projects = re.findall(r'@(\S+)', q)
+    # 移除标签/项目标记后的剩余文本
+    remaining = re.sub(r'[#@]\S+', '', q).strip()
+
+    # 状态关键词
+    status_map = {
+        "待办": "待办", "进行中": "进行中", "待验收": "待验收",
+        "完成": "完成", "驳回": "驳回", "草稿": "草稿", "待审批": "待审批",
+    }
+    # 优先级关键词
+    prio_map = {"高": "高", "中": "中", "低": "低", "高优先级": "高", "中优先级": "中", "低优先级": "低"}
+
+    # 从剩余文本中提取状态和优先级
+    target_status = None
+    target_prio = None
+    for kw, val in status_map.items():
+        if kw in remaining:
+            target_status = val
+            remaining = remaining.replace(kw, "").strip()
+            break
+    for kw, val in prio_map.items():
+        if kw in remaining:
+            target_prio = val
+            remaining = remaining.replace(kw, "").strip()
+            break
+
+    # 特殊查询
+    special = None
+    if "超时" in remaining or "超期" in remaining:
+        special = "timeout"
+        remaining = remaining.replace("超时", "").replace("超期", "").strip()
+    elif "卡住" in remaining or "阻塞" in remaining:
+        special = "blocked"
+        remaining = remaining.replace("卡住", "").replace("阻塞", "").strip()
+
+    # 剩余文本作为标题模糊匹配
+    title_q = remaining.strip()
+
+    # 执行过滤
+    tasks = load_tasks(view="active")
+
+    # 标签过滤
+    if tags:
+        tasks = [t for t in tasks if all(tag in (t.get("标签") or []) for tag in tags)]
+
+    # 项目过滤
+    if projects:
+        tasks = [t for t in tasks if all(p in (t.get("项目") or []) for p in projects)]
+
+    # 状态过滤
+    if target_status:
+        tasks = [t for t in tasks if t.get("状态") == target_status]
+
+    # 优先级过滤
+    if target_prio:
+        tasks = [t for t in tasks if t.get("优先级") == target_prio]
+
+    # 特殊过滤
+    if special == "timeout":
+        tasks = [t for t in tasks if t.get("stale")]
+    elif special == "blocked":
+        tasks = [t for t in tasks if t.get("阻塞") and any(
+            b for b in t.get("阻塞", [])
+            if locate_task(b) and parse_task(locate_task(b)) and parse_task(locate_task(b)).get("状态") not in ("完成", "驳回")
+        )]
+
+    # 标题模糊匹配
+    if title_q:
+        tasks = [t for t in tasks if title_q.lower() in (t.get("标题") or "").lower()
+                 or title_q.lower() in (t.get("id") or "").lower()]
+
+    return tasks, None
+
+
 def load_tasks(project=None, view="active"):
     if view == "archive":
         base = os.path.join(TASK_DIR, "archive")
@@ -1059,8 +1153,47 @@ def api_reg_save(req):
     return True, "saved"
 
 
-def api_export():
-    """导出所有任务为 JSON 数据（供前端下载）。返回 (ok, msg, data)。"""
+def api_batch_edit(ids, fields):
+    """批量编辑多个任务。返回 (成功数, 失败列表)。
+
+    用于批量状态变更、批量归档、批量标签等。
+    每个任务独立写，失败不阻塞其他。
+    """
+    ok_count = 0
+    fails = []
+    for tid in ids:
+        ok, msg = api_edit(tid, fields)
+        if ok:
+            ok_count += 1
+        else:
+            fails.append({"id": tid, "error": msg})
+    return ok_count, fails
+
+
+def api_batch_archive(ids):
+    """批量归档。返回 (成功数, 失败列表)。"""
+    ok_count = 0
+    fails = []
+    for tid in ids:
+        ok, msg = api_archive(tid)
+        if ok:
+            ok_count += 1
+        else:
+            fails.append({"id": tid, "error": msg})
+    return ok_count, fails
+
+
+def api_batch_delete(ids):
+    """批量移入回收站。返回 (成功数, 失败列表)。"""
+    ok_count = 0
+    fails = []
+    for tid in ids:
+        ok, msg = api_delete(tid)
+        if ok:
+            ok_count += 1
+        else:
+            fails.append({"id": tid, "error": msg})
+    return ok_count, fails
     tasks = load_tasks(None, "active") + load_tasks(None, "archive") + load_tasks(None, "trash")
     reg = load_all_projects()
     members = load_members()
@@ -1194,6 +1327,57 @@ def read_activity(tid=None, limit=200):
         return []
     rows.reverse()
     return rows[:limit]
+
+
+# ---------- Agent 执行日志（可观测性：每次 dispatch → done 的耗时/成本/状态） ----------
+AGENT_RUNS_LOG = os.path.join(TASK_DIR, ".agent-runs.jsonl")
+
+
+def _gen_run_id(tid):
+    """生成执行 run_id：run-{tid}-{timestamp}"""
+    return f"run-{tid}-{int(time.time())}"
+
+
+def log_agent_run(run_id, tid, agent, status, cost=None, duration=None, detail=""):
+    """记录 agent 一次执行的状态变更。
+
+    status: started / completed / failed
+    cost: 字符串，如 "$0.05" 或 "50k tokens"
+    duration: 秒数（从 started 到 completed 的耗时）
+    """
+    try:
+        os.makedirs(TASK_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        row = {"ts": ts, "run_id": run_id, "tid": tid, "agent": agent,
+               "status": status, "cost": cost, "duration": duration, "detail": detail}
+        with open(AGENT_RUNS_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def read_agent_runs(tid=None):
+    """读 agent 执行日志（倒序）。tid 给定则只筛该任务。"""
+    if not os.path.exists(AGENT_RUNS_LOG):
+        return []
+    rows = []
+    try:
+        with open(AGENT_RUNS_LOG, encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    row = json.loads(ln)
+                except Exception:
+                    continue
+                if tid and row.get("tid") != tid:
+                    continue
+                rows.append(row)
+    except Exception:
+        return []
+    rows.reverse()
+    return rows
 
 
 # ---------- 派活（看板一键 / CLI 共用） ----------
@@ -1335,6 +1519,9 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
         return False, f"未找到 {agent} 命令（PATH 里没有 {agent}）", None
     if dry_run:
         return True, "dry-run", cmd
+    # 生成 run_id 并记录执行开始
+    run_id = _gen_run_id(tid)
+    log_agent_run(run_id, tid, agent, "started", detail=d.get("标题", "")[:40])
     if launch:
         # CREATE_NO_WINDOW：后台静默运行，不弹黑窗口；用户可在 Hermes 桌面端会话列表里直接查看进度
         try:
@@ -1343,6 +1530,7 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except Exception as e:
+            log_agent_run(run_id, tid, agent, "failed", detail=f"拉起失败: {e}")
             return False, f"拉起失败: {e}", None
         # 派单快照：本次实际下发的完整指令留底（使用数据不入 git），审计可回放
         try:
@@ -1353,6 +1541,7 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
     if d.get("状态") != "进行中":
         d["状态"] = "进行中"
         d["派活时间"] = _now_ts()  # 记录派活时间戳（用于超时预警）
+        d["_run_id"] = run_id  # 关联执行记录，done 时回写耗时
     if launch and str(d.get("附言") or "").strip():
         d["附言"] = ""            # 附言随真实派单下发并消费；dry-run/preview 不消费（预览即所得）
     if not str(d.get("创建") or "").strip():
@@ -1480,7 +1669,10 @@ def cmd_backup(args):
 
 
 def cmd_done(args):
-    """执行方（Hermes 等）完工回写：填结果记录 + 置待验收。幂等、异常不中断。"""
+    """执行方（Hermes 等）完工回写：填结果记录 + 置待验收。幂等、异常不中断。
+
+    新增：自动关联 _run_id 计算执行耗时，记录到 agent_runs 日志。
+    """
     fn = os.path.join(TASK_DIR, args.id + ".md")
     if not os.path.exists(fn):
         print(f"任务不存在: {args.id}")
@@ -1510,6 +1702,25 @@ def cmd_done(args):
                 d["预算"] = budget
         except Exception:
             pass
+
+    # 关联 run_id，计算执行耗时
+    run_id = d.get("_run_id")
+    if run_id:
+        # 查找 started 记录
+        runs = read_agent_runs(args.id)
+        for r in runs:
+            if r.get("run_id") == run_id and r.get("status") == "started":
+                try:
+                    start_ts = datetime.datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%S")
+                    duration = (datetime.datetime.now() - start_ts).total_seconds()
+                    cost = args.成本 or r.get("cost")
+                    log_agent_run(run_id, args.id, r.get("agent", "hermes"), "completed",
+                                  cost=cost, duration=duration,
+                                  detail=args.结果 or "")
+                except Exception:
+                    pass
+                break
+        d.pop("_run_id", None)  # 清理临时字段
 
     fy = str(d.get("附言") or "").strip()
     if fy:
@@ -1876,6 +2087,19 @@ def api_quick_add(text):
     return api_new(fields)
 
 
+def api_natural_query(q):
+    """自然语言查询接口。返回 (ok, msg, tasks)。"""
+    tasks, err = parse_natural_query(q)
+    if err:
+        return False, err, None
+    return True, f"找到 {len(tasks)} 个任务", tasks
+
+
+def api_agent_runs(tid=None):
+    """获取 agent 执行日志。"""
+    return True, "ok", read_agent_runs(tid)
+
+
 def api_rules(req):
     """规则读写：无 op 时返回当前规则列表；op=save 时整表替换。"""
     if req.get("op") == "save":
@@ -2009,6 +2233,32 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = api_backup()
             elif action == "open_file":
                 ok, msg = api_open_file(req.get("path"))
+            elif action == "agent_runs":
+                ok, msg, data = api_agent_runs(req.get("tid"))
+                self._send_json({"ok": ok, "msg": msg, "data": data})
+                return
+            elif action == "natural_query":
+                ok, msg, data = api_natural_query(req.get("q", ""))
+                if ok:
+                    self._send_json({"ok": True, "msg": msg, "data": data})
+                    return
+                else:
+                    ok, msg = False, msg
+            elif action == "notify":
+                event = req.get("event")
+                msg = _detect_events(event) if event else None
+                if msg:
+                    # 推送到 hermes
+                    hermes_exe = shutil.which("hermes")
+                    if hermes_exe:
+                        cmd = [hermes_exe, "-z", f"方寸通知：{msg}"]
+                        subprocess.Popen(cmd, creationflags=_NOWIN)
+                        self._send_json({"ok": True, "msg": msg})
+                    else:
+                        self._send_json({"ok": True, "msg": msg, "note": "hermes 未找到，仅返回消息"})
+                else:
+                    self._send_json({"ok": True, "msg": "无事件需要推送"})
+                return
             elif action == "rules":
                 ok, msg, data = api_rules(req)
                 if ok:
@@ -2024,6 +2274,18 @@ class Handler(BaseHTTPRequestHandler):
                         ok, msg = False, f"启动失败: {e}"
                 else:
                     ok, msg = False, f"应用路径不存在: {app_path}"
+            elif action == "batch_edit":
+                ok_count, fails = api_batch_edit(req.get("ids", []), req.get("fields", {}))
+                self._send_json({"ok": True, "ok_count": ok_count, "fails": fails})
+                return
+            elif action == "batch_archive":
+                ok_count, fails = api_batch_archive(req.get("ids", []))
+                self._send_json({"ok": True, "ok_count": ok_count, "fails": fails})
+                return
+            elif action == "batch_delete":
+                ok_count, fails = api_batch_delete(req.get("ids", []))
+                self._send_json({"ok": True, "ok_count": ok_count, "fails": fails})
+                return
             else:
                 ok, msg = False, "unknown action"
         except Exception as e:
@@ -3434,6 +3696,79 @@ def cmd_mcp(args):
             print(json.dumps(resp, ensure_ascii=False), flush=True)
 
 
+def cmd_notify(args):
+    """推送通知到 Hermes（进而推送到 QQ）。
+
+    用法：
+      python tegula.py notify "任务 task-xxx 已超时 24h"
+      python tegula.py notify --event timeout
+      python tegula.py notify --event stuck
+
+    事件类型：
+      timeout  — 进行中任务超时未回写
+      stuck    — 项目卡住（有阻塞任务）
+      all      — 检查所有事件并推送摘要
+    """
+    event = getattr(args, "event", None)
+    msg = getattr(args, "message", None)
+
+    if event:
+        msg = _detect_events(event)
+        if not msg:
+            print("无事件需要推送。")
+            return
+
+    if not msg:
+        print("请提供消息内容或事件类型。")
+        return
+
+    # 通过 hermes 推送
+    try:
+        hermes_exe = shutil.which("hermes")
+        if hermes_exe:
+            cmd = [hermes_exe, "-z", f"方寸通知：{msg}"]
+            subprocess.Popen(cmd, creationflags=_NOWIN)
+            print(f"已推送: {msg}")
+        else:
+            # 无 hermes，直接打印
+            print(f"[通知] {msg}")
+    except Exception as e:
+        print(f"推送失败: {e}")
+
+
+def _detect_events(event_type):
+    """检测事件，返回通知消息字符串。无事件返回 None。"""
+    if event_type == "timeout":
+        timeouts = find_timeout_tasks()
+        if not timeouts:
+            return None
+        parts = [f"《{t['title']}》{t['hours']}h" for t in timeouts[:5]]
+        return f"⚠️ {len(timeouts)} 个任务超时未回写：{'、'.join(parts)}"
+
+    if event_type == "stuck":
+        statuses = [scan_project_status(p) for p in load_all_projects()]
+        stuck = [s for s in statuses if s["health"] == "stuck"]
+        if not stuck:
+            return None
+        names = "、".join(s["name"] for s in stuck)
+        return f"⛔ {len(stuck)} 个项目卡住：{names}"
+
+    if event_type == "all":
+        parts = []
+        timeouts = find_timeout_tasks()
+        if timeouts:
+            parts.append(f"{len(timeouts)} 个超时任务")
+        statuses = [scan_project_status(p) for p in load_all_projects()]
+        stuck = [s for s in statuses if s["health"] == "stuck"]
+        if stuck:
+            parts.append(f"{len(stuck)} 个卡住项目")
+        if not parts:
+            return None
+        return "方寸日报：" + "、".join(parts)
+
+    return None
+
+
 def cmd_startpage(args):
     """打开全项目统一启动台（动态读取 registry.yaml）"""
     port = args.port
@@ -3544,6 +3879,10 @@ def main():
     rp.set_defaults(func=cmd_report)
     mc = sub.add_parser("mcp", help="MCP 只读接口：JSON-RPC 2.0 over stdio（供外部 AI 工具读取）")
     mc.set_defaults(func=cmd_mcp)
+    nf = sub.add_parser("notify", help="推送事件通知到 Hermes（进而推送到 QQ）")
+    nf.add_argument("message", nargs="?", default=None, help="通知消息（省略时用 --event 自动检测）")
+    nf.add_argument("--event", choices=["timeout", "stuck", "all"], default=None, help="事件类型：自动检测并推送")
+    nf.set_defaults(func=cmd_notify)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()

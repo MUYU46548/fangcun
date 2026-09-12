@@ -335,7 +335,39 @@
   .rulesrow .cond{color:var(--muted);font-size:11px;margin-top:2px}
   .rulesrow button{background:#fff;border:1px solid var(--border);border-radius:8px;cursor:pointer;
     font-size:11px;padding:3px 9px;font-weight:600;color:var(--ink);flex:none}
-  .rulesrow button:hover{border-color:var(--accent);color:var(--accent)}
+  /* ── 批量操作 ── */
+  .batch-bar{display:none;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);
+    border-radius:12px;padding:6px 12px;margin-bottom:10px;box-shadow:var(--shadow)}
+  .batch-bar.on{display:flex}
+  .batch-bar .seln{font-weight:600;font-size:13px;color:var(--accent)}
+  .batch-bar button{background:transparent;border:1px solid var(--border);border-radius:8px;cursor:pointer;
+    font-size:11px;font-weight:600;padding:3px 9px;color:var(--ink)}
+  .batch-bar button:hover{border-color:var(--accent);color:var(--accent)}
+  .batch-bar button.danger{color:#8a4343;border-color:#e2c4c4}
+  .batch-bar button.danger:hover{background:#f6e2e2}
+  .batch-bar .grow{flex:1}
+  .card .batch-chk{position:absolute;top:6px;left:6px;z-index:3;accent-color:var(--accent);
+    width:15px;height:15px;cursor:pointer;opacity:0;transition:opacity .12s}
+  .card:hover .batch-chk,.card .batch-chk.checked,.batch-mode .card .batch-chk{opacity:1}
+  .card.batched{outline:2px solid var(--accent);outline-offset:1px}
+  /* ── 执行日志 ── */
+  .run-timeline{border-left:2px solid var(--border);margin:4px 0 4px 6px;padding:4px 0 4px 12px}
+  .run-node{position:relative;font-size:11.5px;color:var(--muted);line-height:1.6;padding:2px 0}
+  .run-node::before{content:"";position:absolute;left:-15px;top:8px;width:7px;height:7px;
+    border-radius:50%;background:var(--accent-soft);border:2px solid #fff;box-shadow:0 0 0 1px var(--border)}
+  .run-node.started::before{background:#d9a44a}.run-node.completed::before{background:#5e9154}
+  .run-node.failed::before{background:#c96a6a}
+  .run-node .rts{font-weight:600;color:var(--ink);margin-right:5px}
+  .run-node .rag{font-size:10px;background:#eef0fb;color:#5b5478;border-radius:4px:padding:0 4px;margin-right:5px}
+  .run-node .rcost{color:#7a5a2e;font-weight:600}
+  /* ── 搜索提示 ── */
+  #searchHint{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:20;
+    background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;
+    width:420px;box-shadow:0 12px 40px rgba(90,90,130,.18);font-size:11.5px;line-height:1.7}
+  #searchHint.show{display:block}
+  #searchHint b{color:var(--ink)}
+  #searchHint code{background:#f5f4fa;border-radius:4px:padding:1px 5px;font-size:11px;color:#5b5478}
+  #searchHint .sh-title{font-weight:700;margin-bottom:4px;font-size:12px;color:var(--accent)}
 </style>
 </head>
 <body>
@@ -360,6 +392,8 @@
     </select>
     <button onclick="openNew()">+ 新建</button>
     <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务">⚡ 派活</button>
+    <button class="ghost" onclick="toggleBatchMode()" id="btnBatch" title="批量操作模式">☑ 批量</button>
+    <button class="ghost" onclick="sendTestNotify()" title="测试推送通知">🔔</button>
     <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
@@ -377,6 +411,25 @@
   <button class="vbtn" id="btnBack" onclick="goBack()" title="返回上一个视图" style="display:none">◀ 返回</button>
 </div>
 <div id="board"></div>
+<div id="batchBar" class="batch-bar">
+  <span class="seln" id="batchCount">已选 0 个</span>
+  <button onclick="batchMove('进行中')">→ 进行中</button>
+  <button onclick="batchMove('待验收')">→ 待验收</button>
+  <button onclick="batchMove('完成')">→ 完成</button>
+  <button onclick="batchArchive()">归档</button>
+  <button class="danger" onclick="batchDelete()">删除</button>
+  <span class="grow"></span>
+  <button onclick="exitBatchMode()">退出</button>
+</div>
+<div id="searchHint">
+  <div class="sh-title">搜索语法</div>
+  <div><b>#标签</b> 按标签筛选（如 <code>#bug</code>）</div>
+  <div><b>@项目</b> 按项目筛选（如 <code>@fangcun-base</code>）</div>
+  <div><b>状态名</b>：待办、进行中、待验收、完成、驳回</div>
+  <div><b>优先级</b>：高、中、低</div>
+  <div><b>特殊词</b>：超时、卡住</div>
+  <div>组合：<b>待办 高</b>、<b>#bug 待办</b></div>
+</div>
 <div id="pvDrawer" class="drawer"></div>
 <div id="overlay" onclick="if(event.target===this)closeModal()">
   <div id="modal">
@@ -527,6 +580,9 @@ const LS_KEY="tegula_ui";
 let viewHistory=[];
 /* ── P0 新增状态 ── */
 let selectedCardId=null;              // 键盘选中的卡片
+let batchMode=false;                   // 批量操作模式
+let batchSelected=new Set();           // 已选任务 id
+let searchNatural=false;               // 是否自然语言查询
 let curTag="__all__";                 // 标签筛选
 let TAGCOLORS={};                     // 标签名 -> 颜色
 let curYear=new Date().getFullYear(); // 日历当前年
@@ -634,7 +690,9 @@ function clearTagFilter(){applyTagFilter("__all__");}
   });
   if(ui.sort)el("sortMode").value=ui.sort; else el("sortMode").value="active";
   if(ui.group)el("groupMode").value=ui.group;
-  el("search").oninput=render;
+  el("search").oninput=handleSearchInput;
+  el("search").onfocus=()=>handleSearchInput();
+  el("search").onblur=()=>setTimeout(()=>showSearchHint(false),200);
   el("groupMode").onchange=()=>{saveUI();render();};
   el("sortMode").onchange=()=>{saveUI();render();};
   /* 快速添加：输入即预览，回车直接创建 */
@@ -909,21 +967,63 @@ function taskAgeDays(t){
 function isStale(t){
   return ["待办","草稿"].includes(t.状态||"") && taskAgeDays(t)>=3;
 }
-function render(){
+function applyNaturalFilter(tasks, q){
+  /* 前端自然语言筛选：标签/项目/状态/优先级/特殊词 */
+  if(!q||!q.match(/[\#\@待办进行中待验收完成驳回草稿高低超时卡住]/))return tasks;
+  let tags=[],projects=[],rem=q;
+  const tagm=q.match(/(\#[^\s]+)/g);
+  if(tagm){tags=tagm.map(s=>s.slice(1));rem=rem.replace(/(\#[^\s]+)/g,'');}
+  const projm=q.match(/(\@[^\s]+)/g);
+  if(projm){projects=projm.map(s=>s.slice(1));rem=rem.replace(/(\@[^\s]+)/g,'');}
+  let targetStatus=null,prio=null,special=null;
+  const smap={待办:'待办',进行中:'进行中',待验收:'待验收',完成:'完成',驳回:'驳回',草稿:'草稿',待审批:'待审批'};
+  for(const k in smap){if(rem.includes(k)){targetStatus=smap[k];rem=rem.replace(k,'');break;}}
+  if(rem.includes('高'))prio='高';
+  else if(rem.includes('中'))prio='中';
+  else if(rem.includes('低'))prio='低';
+  if(rem.includes('超时')||rem.includes('超期'))special='timeout';
+  else if(rem.includes('卡住')||rem.includes('阻塞'))special='blocked';
+  rem=rem.replace(/超时|超期|卡住|阻塞/g,'').trim();
+  return tasks.filter(t=>{
+    if(tags.length&&!tags.every(x=>(t.标签||[]).includes(x)))return false;
+    if(projects.length&&!projects.every(x=>(t.项目||[]).includes(x)))return false;
+    if(targetStatus&&t.状态!==targetStatus)return false;
+    if(prio&&t.优先级!==prio)return false;
+    if(special==='timeout'&&!t.stale)return false;
+    if(special==='blocked'){
+      const blk=t.阻塞||[];
+      const has=blk.some(b=>{const fn=locate?locate(b):null;return fn;});
+      if(!has)return false;
+    }
+    if(rem){const tl=(t.标题||'').toLowerCase();return tl.includes(rem)||(t.id||'').toLowerCase().includes(rem);}
+    return true;
+  });
+}
+
+function render() {
   const q=(el("search").value||"").trim().toLowerCase();
   const mode=el("groupMode").value;
-  /* 三个筛选器 AND：搜索词 × 项目 × 标签 */
-  const filtered=TASKS.filter(t=>{
+  /* 标签筛选 */
+  let filtered=TASKS.filter(t=>{
     if(curTag!=="__all__"&&!(t.标签||[]).includes(curTag))return false;
-    if(!q)return true;
-    return (t.标题||"").toLowerCase().includes(q) ||
-      (t.id||"").toLowerCase().includes(q) ||
-      (t.项目||[]).join(" ").toLowerCase().includes(q) ||
-      (t.标签||[]).join(" ").toLowerCase().includes(q) ||
-      (t.方案||[]).join(" ").toLowerCase().includes(q) ||
-      (t.结果记录||"").toLowerCase().includes(q) ||
-      (t.附言||"").toLowerCase().includes(q);
+    return true;
   });
+  /* 自然语言或精确搜索 */
+  if(q){
+    if(q.match(/[\#\@待办进行中待验收完成驳回草稿高低超时卡住]/)){
+      filtered=applyNaturalFilter(filtered,q);
+    }else{
+      filtered=filtered.filter(t=>
+        (t.标题||"").toLowerCase().includes(q)||
+        (t.id||"").toLowerCase().includes(q)||
+        (t.项目||[]).join(" ").toLowerCase().includes(q)||
+        (t.标签||[]).join(" ").toLowerCase().includes(q)||
+        (t.方案||[]).join(" ").toLowerCase().includes(q)||
+        (t.结果记录||"").toLowerCase().includes(q)||
+        (t.附言||"").toLowerCase().includes(q)
+      );
+    }
+  }
   el("count").textContent=filtered.length;
   if(curView==="calendar"){renderCalendar(filtered);return;}
   if(curView==="list"){renderList(filtered);return;}
@@ -978,6 +1078,11 @@ function render(){
     }
     items.forEach(t=>{
       const c=document.createElement("div");c.className="card";c.dataset.id=t.id;c.draggable=true;
+      /* 批量操作复选框 */
+      const chk=document.createElement("input");chk.type="checkbox";chk.className="batch-chk";
+      chk.checked=batchSelected.has(t.id);chk.onclick=ev=>{ev.stopPropagation();toggleBatchCard(t.id);};
+      c.appendChild(chk);
+      if(batchSelected.has(t.id))c.classList.add("batched");
       if(t.id===selectedCardId)c.classList.add("selected");
       const stv=t.状态||"草稿";
       if(["进行中","待验收","待审批","待办"].includes(stv))c.classList.add("active-t");
@@ -1416,6 +1521,18 @@ async function openPreview(t){
     const box=el("pAct"); if(!box)return;
     if(!acts.length){box.textContent="无";return;}
     box.innerHTML=acts.map(a=>"<div>"+esc(a.ts)+" · "+esc(a.kind)+(a.detail?" · "+esc(a.detail):"")+"</div>").join("");
+    // 加载 agent 执行日志
+    const r2=await post({action:"agent_runs",tid:t.id});
+    if(r2.ok&&r2.data&&r2.data.length){
+      const runsHtml=r2.data.slice(0,10).map(r=>{
+        const cls=r.status||"started";
+        const dur=r.duration?(" · "+Math.round(r.duration)+"s"):"";
+        const cost=r.cost?("<span class=\"rcost\">"+esc(r.cost)+"</span>"):"";
+        const agent=r.agent?("<span class=\"rag\">"+esc(r.agent)+"</span>")":"";
+        return "<div class=\"run-node "+cls+"\"><span class=\"rts\">"+esc(r.ts)+"</span>"+agent+" "+esc(cls)+dur+cost+(r.detail?" · "+esc(r.detail):"")+"</div>";
+      }).join("");
+      box.innerHTML+="<div style=\"margin-top:8px;border-top:1px dashed var(--border);padding-top:6px\"><div style=\"font-weight:600;font-size:12px;margin-bottom:4px\">执行时间线</div><div class=\"run-timeline\">"+runsHtml+"</div></div>";
+    }
   }catch(e){}
 }
 function closeP(){el("poverlay").style.display="none";}
@@ -1610,6 +1727,76 @@ function paletteExec(){
   closePalette();
   it.run();
 }
+/* ═══ 批量操作 ═══ */
+function toggleBatchMode(){
+  batchMode=!batchMode;
+  batchSelected.clear();
+  document.body.classList.toggle('batch-mode', batchMode);
+  el('btnBatch').classList.toggle('on', batchMode);
+  updateBatchBar();
+  render();
+}
+function exitBatchMode(){
+  batchMode=false;
+  batchSelected.clear();
+  document.body.classList.remove('batch-mode');
+  el('btnBatch').classList.remove('on');
+  updateBatchBar();
+  render();
+}
+function toggleBatchCard(id){
+  if(batchSelected.has(id)) batchSelected.delete(id);
+  else batchSelected.add(id);
+  updateBatchBar();
+  render();
+}
+function updateBatchBar(){
+  const bar=el('batchBar');
+  if(batchMode){bar.classList.add('on');el('batchCount').textContent='已选 '+batchSelected.size+' 个';}
+  else bar.classList.remove('on');
+}
+async function batchMove(st){
+  if(!batchSelected.size)return;
+  const ids=[...batchSelected];
+  if(!confirm('将 '+ids.length+' 个任务移动到「'+st+'」？'))return;
+  const r=await post({action:'batch_edit',ids,fields:{状态:st}});
+  if(r.ok){toast('已更新 '+r.ok_count+' 个任务','success');exitBatchMode();lastHash='';load(true);}
+  else toast('失败：'+(r.msg||''),'error');
+}
+async function batchArchive(){
+  if(!batchSelected.size)return;
+  const ids=[...batchSelected];
+  if(!confirm('归档 '+ids.length+' 个任务？'))return;
+  const r=await post({action:'batch_archive',ids});
+  if(r.ok){toast('已归档 '+r.ok_count+' 个任务','success');exitBatchMode();lastHash='';load(true);}
+  else toast('失败：'+(r.msg||''),'error');
+}
+async function batchDelete(){
+  if(!batchSelected.size)return;
+  const ids=[...batchSelected];
+  if(!confirm('将 '+ids.length+' 个任务移入回收站？'))return;
+  const r=await post({action:'batch_delete',ids});
+  if(r.ok){toast('已删除 '+r.ok_count+' 个任务','success');exitBatchMode();lastHash='';load(true);}
+  else toast('失败：'+(r.msg||''),'error');
+}
+
+/* ═══ 搜索提示 ═══ */
+function showSearchHint(show){
+  el('searchHint').classList.toggle('show', show);
+}
+function handleSearchInput(){
+  const q=el('search').value.trim();
+  showSearchHint(q.length>0 && q[0]==='#' || q.includes('@') || /待办|进行中|待验收|完成|驳回|高|低|超时|卡住/.test(q));
+  render();
+}
+
+/* ═══ 通知 ═══ */
+async function sendTestNotify(){
+  const r=await post({action:'notify',event:'all'});
+  if(r.ok) toast('已推送通知','success');
+  else toast('推送失败','error');
+}
+
 /* ═══ 自动化规则（P2）═══ */
 async function loadRules(){
   try{
