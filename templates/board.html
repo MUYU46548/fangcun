@@ -387,7 +387,7 @@
   .run-node.started::before{background:#d9a44a}.run-node.completed::before{background:#5e9154}
   .run-node.failed::before{background:#c96a6a}
   .run-node .rts{font-weight:600;color:var(--ink);margin-right:5px}
-  .run-node .rag{font-size:10px;background:#eef0fb;color:#5b5478;border-radius:4px:padding:0 4px;margin-right:5px}
+  .run-node .rag{font-size:10px;background:#eef0fb;color:#5b5478;border-radius:4px;padding:0 4px;margin-right:5px}
   .run-node .rcost{color:#7a5a2e;font-weight:600}
   /* ── 搜索提示 ── */
   #searchHint{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:20;
@@ -1657,11 +1657,11 @@ async function openPreview(t){
       const runsHtml=r2.data.slice(0,10).map(r=>{
         const cls=r.status||"started";
         const dur=r.duration?(" · "+Math.round(r.duration)+"s"):"";
-        const cost=r.cost?("<span class=\"rcost\">"+esc(r.cost)+"</span>"):"";
-        const agent=r.agent?("<span class=\"rag\">"+esc(r.agent)+"</span>")":"";
-        return "<div class=\"run-node "+cls+"\"><span class=\"rts\">"+esc(r.ts)+"</span>"+agent+" "+esc(cls)+dur+cost+(r.detail?" · "+esc(r.detail):"")+"</div>";
-      }).join("");
-      box.innerHTML+="<div style=\"margin-top:8px;border-top:1px dashed var(--border);padding-top:6px\"><div style=\"font-weight:600;font-size:12px;margin-bottom:4px\">执行时间线</div><div class=\"run-timeline\">"+runsHtml+"</div></div>";
+        const cost=r.cost?('<span class="rcost">'+esc(r.cost)+'</span>'):'';
+        const agent=r.agent?('<span class="rag">'+esc(r.agent)+'</span>'):'';
+        return '<div class="run-node '+cls+'"><span class="rts">'+esc(r.ts)+'</span>'+agent+' '+esc(cls)+dur+cost+(r.detail?' · '+esc(r.detail):'')+'</div>';
+      }).join('');
+      box.innerHTML+='<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:6px"><div style="font-weight:600;font-size:12px;margin-bottom:4px">执行时间线</div><div class="run-timeline">'+runsHtml+'</div></div>';
     }
   }catch(e){}
 }
@@ -2150,6 +2150,22 @@ function showConflictDialog(msg){
 setInterval(()=>{if(curView==="projects")loadPv();else load();},2000);
 if(location.hash==="#view=projects"&&curView!=="projects")curView="projects";
 applyViewMode(curView);
+
+// ═══ Debug: capture JS errors and display on page ═══
+window.onerror=function(msg,url,line,col){
+  var d=document.createElement("div");
+  d.style.cssText="position:fixed;top:0;left:0;right:0;z-index:9999;background:#fee2e2;color:#991b1b;padding:8px 12px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;border-bottom:2px solid #ef4444";
+  d.textContent="JS ERROR: "+msg+"\nLine: "+line+":"+col;
+  document.body.appendChild(d);
+  setTimeout(function(){d.remove()},15000);
+};
+window.addEventListener("unhandledrejection",function(e){
+  var d=document.createElement("div");
+  d.style.cssText="position:fixed;top:40px;left:0;right:0;z-index:9999;background:#fef3c7;color:#92400e;padding:8px 12px;font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:100px;overflow:auto;border-bottom:2px solid #f59e0b";
+  d.textContent="PROMISE ERROR: "+(e.reason&&e.reason.message?e.reason.message:e.reason);
+  document.body.appendChild(d);
+  setTimeout(function(){d.remove()},15000);
+});
 </script>
 </body>
 </html>
