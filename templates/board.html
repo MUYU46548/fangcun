@@ -273,6 +273,35 @@
   /* ── 列表视图 ── */
   #board.list{flex-direction:column;overflow-x:hidden;align-items:stretch}
   #board.rm{flex-direction:column;overflow-x:hidden;align-items:stretch;padding:18px}
+  #board.plan{flex-direction:column;overflow-x:hidden;align-items:stretch;padding:18px}
+  /* ── 规划视图 ── */
+  .plan-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+  .plan-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .plan-title{font-size:15px;font-weight:600;color:var(--ink)}
+  .plan-status{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;flex:none}
+  .plan-status-draft{background:#e9e4f5;color:#5b4b86}
+  .plan-status-active{background:#dbeafe;color:#1e40af}
+  .plan-status-achieved{background:#dcfce7;color:#166534}
+  .plan-status-abandoned{background:#f3f4f6;color:#6b7280}
+  .plan-objective{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5}
+  .plan-section{margin-top:10px}
+  .plan-section h4{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 6px}
+  .plan-ms-list,.plan-risk-list{list-style:none;padding:0;margin:0}
+  .plan-ms-list li{font-size:12.5px;padding:4px 0;border-bottom:1px solid #f9fafb;display:flex;justify-content:space-between}
+  .plan-ms-list li:last-child{border-bottom:none}
+  .plan-ms-deadline{color:var(--muted);font-size:11px}
+  .plan-dp-item{background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+  .plan-dp-q{font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px}
+  .plan-dp-options{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+  .plan-dp-opt{font-size:11px;padding:2px 8px;border-radius:6px;background:#f3f4f6;color:#6b7280;cursor:pointer;border:1px solid transparent}
+  .plan-dp-opt:hover{border-color:var(--accent);color:var(--accent)}
+  .plan-dp-opt.selected{background:#e8e4f8;color:#4a4368;font-weight:600;border-color:var(--accent)}
+  .plan-dp-opt.decided{background:#dcfce7;color:#166534;border-color:#86efac}
+  .plan-dp-status{font-size:10px;font-weight:600;color:var(--accent);margin-top:4px}
+  .plan-risk-list li{font-size:12px;color:#b91c1c;padding:3px 0}
+  .plan-actions{display:flex;gap:6px;margin-top:10px}
+  .plan-actions button{padding:5px 12px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer}
+  .plan-actions button:hover{border-color:var(--accent);color:var(--accent)}
   table.lt{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);
     border-radius:12px;overflow:hidden;font-size:12.5px}
   table.lt th{background:#f5f4fa;text-align:left;padding:7px 9px;font-size:11px;color:var(--muted);
@@ -403,6 +432,7 @@
   <button class="vbtn" data-view="calendar" onclick="setView('calendar')">日历</button>
   <button class="vbtn" data-view="list" onclick="setView('list')">列表</button>
   <button class="vbtn" data-view="roadmap" onclick="setView('roadmap')">路线图</button>
+  <button class="vbtn" data-view="plan" onclick="setView('plan')">规划</button>
   <button class="vbtn" data-view="projects" onclick="setView('projects')">项目</button>
   <button class="vbtn" data-view="archive" onclick="setView('archive')">归档</button>
   <button class="vbtn" data-view="trash" onclick="setView('trash')">回收站</button>
@@ -572,7 +602,7 @@ const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
 const MEMBERS=__MEMBERS__;
-let TASKS=[]; let curId=null; let curTask=null; let curEditVer=0; let curProj="__all__"; let curView="active";
+let TASKS=[]; let PLANS_CACHE=[]; let curId=null; let curTask=null; let curEditVer=0; let curProj="__all__"; let curView="active";
 let curEditMtime=0;
 let lastHash="";
 let PV=null; let lastPvHash="";
@@ -837,11 +867,13 @@ function applyViewMode(v){
   b.classList.toggle("cal",v==="calendar");
   b.classList.toggle("list",v==="list");
   b.classList.toggle("rm",v==="roadmap");
+  b.classList.toggle("plan",v==="plan");
   /* 日历仅按日期排布，隐藏分组选择器 */
   el("groupMode").style.display=(v==="calendar")?"none":"";
   el("sortMode").style.display=(v==="calendar")?"none":"";
   if(v==="projects")loadPv(true);
   else if(v==="roadmap")loadRoadmap(true);
+  else if(v==="plan")loadPlan(true);
   else load(true);
 }
 function goBack(){
@@ -938,6 +970,104 @@ async function loadRoadmap(force){
   }catch(err){
     console.error("loadRoadmap failed",err);
     board.innerHTML="<div style='text-align:center;color:#ef4444;padding:40px;font-size:14px'>加载路线图失败</div>";
+  }
+}
+async function loadPlan(force){
+  const board=el("board");
+  try{
+    const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:"plan_list"})});
+    const d=await r.json();
+    if(!d||!d.plans||!d.plans.length){
+      board.innerHTML="<div style='text-align:center;color:var(--muted);padding:40px;font-size:14px'>暂无规划，请先使用 tegula plan new 创建</div>";
+      return;
+    }
+    PLANS_CACHE=d.plans;
+    let html='';
+    for(const p of d.plans){
+      const plan=p.plan||{};
+      const icon=plan.status==="active"?"▶":plan.status==="achieved"?"✓":plan.status==="abandoned"?"⛔":"✏️";
+      html+='<div class="plan-card">';
+      html+='<div class="plan-header"><span style="font-size:18px">'+icon+'</span><span class="plan-title">'+esc(p.标题)+'</span><span class="plan-status plan-status-'+(plan.status||'draft')+'">'+esc(plan.status||'draft')+'</span><span style="color:var(--muted);font-size:12px">'+esc(p.id)+'</span></div>';
+      if(plan.objective){
+        html+='<div class="plan-objective">'+esc(plan.objective)+'</div>';
+      }
+      if(plan.milestones&&plan.milestones.length){
+        html+='<div class="plan-section"><h4>里程碑 ('+plan.milestones.length+')</h4><ul class="plan-ms-list">';
+        for(const ms of plan.milestones){
+          html+='<li><span>'+esc(ms.name||'')+'</span><span class="plan-ms-deadline">'+esc(ms.deadline||'未设定')+'</span></li>';
+        }
+        html+='</ul></div>';
+      }
+      if(plan.decisions&&plan.decisions.length){
+        const decidedCount=plan.decisions.filter(d=>d.status==='decided').length;
+        html+='<div class="plan-section"><h4>决策点 ('+decidedCount+'/'+plan.decisions.length+')</h4>';
+        for(const dp of plan.decisions){
+          html+='<div class="plan-dp-item">';
+          html+='<div class="plan-dp-q">'+esc(dp.question||'')+'</div>';
+          if(dp.options&&dp.options.length){
+            html+='<div class="plan-dp-options">';
+            for(const opt of dp.options){
+              const cls=dp.status==='decided'&&dp.chosen===opt?'decided':dp.status==='decided'?'':'';
+              html+='<span class="plan-dp-opt '+cls+'" data-tid="'+esc(p.id)+'" data-dp="'+esc(dp.id)+'" data-opt="'+esc(opt)+'">'+esc(opt)+'</span>';
+            }
+            html+='</div>';
+          }
+          html+='<div class="plan-dp-status">状态: '+esc(dp.status||'pending')+(dp.chosen?' · 已选: '+esc(dp.chosen):'')+'</div>';
+          html+='</div>';
+        }
+        html+='</div>';
+      }
+      if(plan.risks&&plan.risks.length){
+        html+='<div class="plan-section"><h4>风险 ('+plan.risks.length+')</h4><ul class="plan-risk-list">';
+        for(const risk of plan.risks){
+          html+='<li>'+esc(risk)+'</li>';
+        }
+        html+='</ul></div>';
+      }
+      html+='<div class="plan-actions">';
+      html+='<button onclick="toggleEdit(\''+esc(p.id)+'\')">编辑</button>';
+      html+='<button onclick="showDecisionDetail(\''+esc(p.id)+'\')">做决策</button>';
+      html+='</div>';
+      html+='</div>';
+    }
+    board.innerHTML=html;
+    el("count").textContent=d.plans.length+" 个规划";
+    bindPlanOptionClicks();
+  }catch(err){
+    console.error("loadPlan failed",err);
+    board.innerHTML="<div style='text-align:center;color:#ef4444;padding:40px;font-size:14px'>加载规划失败</div>";
+  }
+}
+function bindPlanOptionClicks(){
+  document.querySelectorAll('.plan-dp-opt').forEach(opt=>{
+    opt.addEventListener('click',async function(){
+      const tid=this.dataset.tid;
+      const dpId=this.dataset.dp;
+      const choice=this.dataset.opt;
+      const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({action:"plan_decide",tid,dp_id:dpId,choice})});
+      if(r.ok){loadPlan(true);toast("已决策: "+choice,"success");}
+      else{toast("决策失败","error");}
+    });
+  });
+}
+function toggleEdit(tid){
+  const t=TASKS.find(x=>x.id===tid)||PLANS_CACHE.find(x=>x.id===tid);
+  if(t){curId=t.id;curTask=t;openEdit(t);}
+}
+function showDecisionDetail(tid){
+  if(!PLANS_CACHE)return;
+  const p=PLANS_CACHE.find(x=>x.id===tid);
+  const plan=p?.plan||{};
+  if(!p||!plan.decisions||!plan.decisions.length){alert("无决策点");return;}
+  const dp=plan.decisions.find(d=>d.status==='pending');
+  if(!dp){alert("所有决策点已完成");return;}
+  const info="规划: "+p.标题+"\n决策点: "+dp.question+"\n选项:\n"+(dp.options||[]).map((o,i)=>"  "+(i+1)+". "+o).join("\n");
+  const input=prompt(info+"\n\n输入选项内容做决策:");
+  if(input&&input.trim()){
+    fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:"plan_decide",tid:tid,dp_id:dp.id,choice:input.trim()})}).then(r=>{if(r.ok){loadPlan(true);toast("决策已保存","success");}});
   }
 }
 /* 标签筛选下拉：选项来自当前任务集去重排序；已选标签消失时回落到全部 */
@@ -1649,6 +1779,8 @@ const PALETTE_CMDS=[
   {ic:"📋",t:"切换到看板",sub:"",run:()=>setView("active")},
   {ic:"📅",t:"切换到日历",sub:"",run:()=>setView("calendar")},
   {ic:"📄",t:"切换到列表",sub:"",run:()=>setView("list")},
+  {ic:"🗺",t:"切换到路线图",sub:"",run:()=>setView("roadmap")},
+  {ic:"🎯",t:"切换到规划",sub:"",run:()=>setView("plan")},
   {ic:"🗂",t:"切换到项目",sub:"",run:()=>setView("projects")},
   {ic:"📦",t:"切换到归档",sub:"",run:()=>setView("archive")},
   {ic:"🗑",t:"切换到回收站",sub:"",run:()=>setView("trash")},
