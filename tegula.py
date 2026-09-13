@@ -484,6 +484,12 @@ def parse_task(path):
         if v.startswith("[") and v.endswith("]"):
             inner = v[1:-1].strip()
             d[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
+        elif v.startswith("{") and v.endswith("}"):
+            # JSON object (for plan field)
+            try:
+                d[k] = json.loads(v)
+            except:
+                d[k] = v.strip("'\"")
         else:
             d[k] = v.strip("'\"")
     plan, result, extra = _split_body(body)
@@ -497,7 +503,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan"}
 
 
 def render_task(d):
@@ -525,18 +531,27 @@ def render_task(d):
         f"验收: {d.get('验收','human')}",
     ]
     tg = d.get("标签") or []
-    if tg:                                 # 标签受管：非空才渲染，空值不留残迹
+    if tg:
         lines.append(f"标签: [{', '.join(str(x) for x in tg)}]")
     blk = d.get("阻塞") or []
-    if blk:                               # 依赖受管：非空才渲染，空值不留残迹
+    if blk:
         lines.append(f"阻塞: [{', '.join(str(x) for x in blk)}]")
     fy = str(d.get("附言") or "").strip()
-    if fy:                                # 本次派单的精确指令；done 归档后清空，非空才渲染
+    if fy:
         lines.append(f"附言: {fy}")
     pd = str(d.get("派活时间") or "").strip()
     if pd:
         lines.append(f"派活时间: {pd}")
-    for k, v in unknown.items():          # 未知字段透传，键序稳定（P0-1）
+    # Plan-specific: type and plan fields
+    tp = d.get("type", "")
+    if tp:
+        lines.append(f"type: {tp}")
+    plan_data = d.get("plan")
+    if plan_data:
+        # plan_data 是 dict，序列化为 JSON 字符串
+        plan_json = json.dumps(plan_data, ensure_ascii=False)
+        lines.append(f"plan: {plan_json}")
+    for k, v in unknown.items():
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
         else:
@@ -550,7 +565,7 @@ def render_task(d):
         f"## 结果记录\n{result}",
     ]
     if extra:
-        lines.append(extra)               # 非受管正文小节原样回插（P0-2）
+        lines.append(extra)
     return "\n".join(lines) + "\n"
 
 
@@ -1034,6 +1049,275 @@ def api_new(fields):
     }
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
+
+
+# ---------- 规划（Plan）----------
+
+def _parse_decision_points(plan_text):
+    """从正文解析决策点（## 决策点 小节）。
+    
+    格式：
+    ## 决策点
+    ### dp_001
+    - 问题: xxx
+    - 选项: A / B / C
+    - 状态: pending
+    - 已选: 
+    - 决策时间: 
+    """
+    decisions = []
+    if not plan_text:
+        return decisions
+    # 按 ### 分割
+    sections = re.split(r'^###\s+', plan_text, flags=re.M)
+    for sec in sections[1:]:  # 跳过第一个空段
+        lines = sec.strip().splitlines()
+        if not lines:
+            continue
+        dp_id = lines[0].strip()
+        dp = {'id': dp_id, 'question': '', 'options': [], 'status': 'pending', 'chosen': '', 'decided_at': ''}
+        current_key = None
+        for line in lines[1:]:
+            m = re.match(r'^-\s+(\w+):\s*(.*)$', line)
+            if m:
+                key, val = m.group(1), m.group(2).strip()
+                current_key = key
+                if key == '问题':
+                    dp['question'] = val
+                elif key == '选项':
+                    dp['options'] = [x.strip() for x in val.split('/') if x.strip()]
+                elif key == '状态':
+                    dp['status'] = val
+                elif key == '已选':
+                    dp['chosen'] = val
+                elif key == '决策时间':
+                    dp['decided_at'] = val
+            elif current_key == '选项' and line.strip().startswith('-'):
+                dp['options'].append(line.strip()[1:].strip())
+        decisions.append(dp)
+    return decisions
+
+
+def _render_decision_points(decisions):
+    """渲染决策点回正文。"""
+    if not decisions:
+        return ""
+    lines = ["", "## 决策点"]
+    for dp in decisions:
+        lines.append(f"### {dp.get('id', 'unknown')}")
+        lines.append(f"- 问题: {dp.get('question', '')}")
+        lines.append(f"- 选项: {' / '.join(dp.get('options', []))}")
+        lines.append(f"- 状态: {dp.get('status', 'pending')}")
+        lines.append(f"- 已选: {dp.get('chosen', '')}")
+        lines.append(f"- 决策时间: {dp.get('decided_at', '')}")
+    return "\n".join(lines)
+
+
+def api_plan_new(fields):
+    """创建规划任务。
+    
+    fields: 标题, 项目, 目标, 里程碑(JSON字符串), 决策点(JSON字符串), etc.
+    返回: (ok, tid_or_msg)
+    """
+    os.makedirs(TASK_DIR, exist_ok=True)
+    tid = gen_id()
+    
+    # 解析里程碑
+    milestones_raw = fields.get('里程碑', '[]')
+    try:
+        if isinstance(milestones_raw, str):
+            milestones = json.loads(milestones_raw)
+        else:
+            milestones = milestones_raw
+    except:
+        milestones = []
+    
+    # 解析决策点
+    decisions_raw = fields.get('决策点', '[]')
+    try:
+        if isinstance(decisions_raw, str):
+            decisions = json.loads(decisions_raw)
+        else:
+            decisions = decisions_raw
+    except:
+        decisions = []
+    
+    # 确保每个决策点都有必要字段
+    for i, dp in enumerate(decisions):
+        if 'id' not in dp:
+            dp['id'] = f'dp_{i+1:03d}'
+        if 'question' not in dp:
+            dp['question'] = ''
+        if 'options' not in dp:
+            dp['options'] = []
+        if 'status' not in dp:
+            dp['status'] = 'pending'
+        if 'chosen' not in dp:
+            dp['chosen'] = ''
+        if 'decided_at' not in dp:
+            dp['decided_at'] = ''
+    
+    # 解析风险
+    risks_raw = fields.get('风险', '[]')
+    try:
+        if isinstance(risks_raw, str):
+            risks = json.loads(risks_raw)
+        else:
+            risks = risks_raw
+    except:
+        risks = []
+    
+    objective = fields.get('目标', '')
+    status = fields.get('plan_status', 'draft')
+    
+    d = {
+        "id": tid,
+        "标题": fields.get('标题') or "新规划",
+        "项目": fields.get('项目', ['fangcun-base']),
+        "状态": "草稿",
+        "批次": fields.get('批次', ''),
+        "截止": fields.get('截止', ''),
+        "优先级": fields.get('优先级', ''),
+        "标签": fields.get('标签', []),
+        "阻塞": [],
+        "附言": fields.get('附言', ''),
+        "来源": "human",
+        "指派": "human",
+        "验收": "human",
+        "资源": {
+            "资料": fields.get('资料', ''),
+            "工具": [],
+        },
+        "方案": [f"- [ ] 确认规划目标与约束", f"- [ ] 完成决策点，明确方向"],
+        "结果记录": "",
+        "创建": _now_ts(),
+        "更新": _now_ts(),
+        # Plan-specific fields
+        "type": "plan",
+        "plan": {
+            "objective": objective,
+            "status": status,  # draft/active/achieved/abandoned
+            "milestones": milestones,
+            "decisions": decisions,
+            "risks": risks,
+        }
+    }
+    
+    # 生成带决策点的正文
+    decision_text = _render_decision_points(decisions)
+    milestone_lines = []
+    if milestones:
+        milestone_lines = ["", "## 里程碑"]
+        for ms in milestones:
+            milestone_lines.append(f"- {ms.get('name', '')} (截止: {ms.get('deadline', '未设定')})")
+    risk_lines = []
+    if risks:
+        risk_lines = ["", "## 风险"]
+        for r in risks:
+            risk_lines.append(f"- {r}")
+    
+    extra_parts = [decision_text, "\n".join(milestone_lines) if milestone_lines else "", "\n".join(risk_lines) if risk_lines else ""]
+    d["_extra"] = "\n".join(x for x in extra_parts if x).strip()
+    
+    write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
+    return True, tid
+
+
+def api_plan_decide(tid, dp_id, choice, note=""):
+    """对规划的某个决策点做决策。
+    
+    返回: (ok, msg)
+    """
+    fn = locate_task(tid)
+    if not fn:
+        return False, f"任务不存在: {tid}"
+    d = parse_task(fn)
+    if not d:
+        return False, "解析失败"
+    if d.get("type") != "plan":
+        return False, f"任务 {tid} 不是规划"
+    
+    plan = d.get("plan")
+    if not plan:
+        return False, "规划数据缺失"
+    
+    decisions = plan.get("decisions", [])
+    found = False
+    for dp in decisions:
+        if dp['id'] == dp_id:
+            dp['status'] = 'decided'
+            dp['chosen'] = choice
+            dp['decided_at'] = _now_ts()
+            found = True
+            break
+    
+    if not found:
+        return False, f"决策点 {dp_id} 不存在"
+    
+    # 检查是否所有决策点都已完成
+    all_decided = all(dp['status'] in ('decided', 'skipped') for dp in decisions)
+    if all_decided and plan.get('status') == 'draft':
+        plan['status'] = 'active'
+        d["状态"] = "进行中"
+    
+    d["plan"] = plan
+    d["更新"] = _now_ts()
+    
+    # 更新正文中的决策点
+    d["_extra"] = _render_decision_points(decisions)
+    # 追加里程碑/风险回来
+    milestones = plan.get("milestones", [])
+    risks = plan.get("risks", [])
+    extra_parts = [d["_extra"]]
+    if milestones:
+        milestone_lines = ["", "## 里程碑"]
+        for ms in milestones:
+            milestone_lines.append(f"- {ms.get('name', '')} (截止: {ms.get('deadline', '未设定')})")
+        extra_parts.append("\n".join(milestone_lines))
+    if risks:
+        risk_lines = ["", "## 风险"]
+        for r in risks:
+            risk_lines.append(f"- {r}")
+        extra_parts.append("\n".join(risk_lines))
+    d["_extra"] = "\n".join(x for x in extra_parts if x).strip()
+    
+    write_task_file(fn, d)
+    return True, f"决策已记录: {dp_id} = {choice}"
+
+
+def api_plan_list(view="active"):
+    """列出所有规划任务。"""
+    tasks = load_tasks(None, view)
+    plans = [t for t in tasks if t.get("type") == "plan"]
+    return plans
+
+
+def api_plan_get(tid):
+    """获取规划详情（含决策点状态）。"""
+    fn = locate_task(tid)
+    if not fn:
+        return None
+    d = parse_task(fn)
+    if not d or d.get("type") != "plan":
+        return None
+    plan = d.get("plan", {})
+    decisions = plan.get("decisions", [])
+    pending = [dp for dp in decisions if dp.get('status') == 'pending']
+    decided = [dp for dp in decisions if dp.get('status') == 'decided']
+    return {
+        'id': d.get('id'),
+        '标题': d.get('标题'),
+        '项目': d.get('项目'),
+        '状态': d.get('状态'),
+        'plan_status': plan.get('status'),
+        'objective': plan.get('objective'),
+        'milestones': plan.get('milestones', []),
+        'decisions': decisions,
+        'pending_decisions': pending,
+        'decided_count': len(decided),
+        'total_decisions': len(decisions),
+        'risks': plan.get('risks', []),
+    }
 
 
 def _move_to(id, subdir, label):
@@ -2285,6 +2569,28 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "batch_delete":
                 ok_count, fails = api_batch_delete(req.get("ids", []))
                 self._send_json({"ok": True, "ok_count": ok_count, "fails": fails})
+                return
+            elif action == "plan_new":
+                ok, msg = api_plan_new(req.get("fields", {}))
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
+            elif action == "plan_decide":
+                ok, msg = api_plan_decide(req.get("tid"), req.get("dp_id"), req.get("choice"), req.get("note", ""))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "plan_get":
+                detail = api_plan_get(req.get("tid"))
+                if not detail:
+                    self._send_json({"ok": False, "error": "not found"})
+                else:
+                    self._send_json({"ok": True, "plan": detail})
+                return
+            elif action == "plan_list":
+                plans = api_plan_list(req.get("view", "active"))
+                self._send_json({"ok": True, "plans": plans})
                 return
             else:
                 ok, msg = False, "unknown action"
@@ -3886,6 +4192,16 @@ MCP_TOOLS = [
          "gate_id": {"type": "string", "description": "门控 id"},
          "reason": {"type": "string", "description": "关闭原因"}},
          "required": ["gate_id"]}},
+    {"name": "plan_list", "description": "列出所有规划（含决策点状态）",
+     "inputSchema": {"type": "object", "properties": {
+         "view": {"type": "string", "description": "视图：active(默认)/archive/trash"}},
+         "required": []}},
+    {"name": "plan_get", "description": "获取规划详情（含决策点、里程碑、风险）",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string", "description": "规划任务 id"}},
+         "required": ["id"]}},
+    {"name": "plan_pending_decisions", "description": "列出所有待决策的规划决策点",
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
 ]
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 
@@ -4014,13 +4330,47 @@ def mcp_gate_close(params):
     return {"ok": ok, "message": msg}
 
 
+def mcp_plan_list(params):
+    plans = api_plan_list(params.get("view", "active"))
+    return {"plans": [_mcp_task_view(t) for t in plans]}
+
+
+def mcp_plan_get(params):
+    tid = str((params or {}).get("id") or "").strip()
+    if not tid:
+        return {"error": "缺少 id"}
+    detail = api_plan_get(tid)
+    if not detail:
+        return {"error": f"规划不存在: {tid}"}
+    return detail
+
+
+def mcp_plan_pending_decisions(params):
+    plans = api_plan_list()
+    results = []
+    for t in plans:
+        plan = t.get("plan", {})
+        decisions = plan.get("decisions", [])
+        pending = [dp for dp in decisions if dp.get('status') == 'pending']
+        if pending:
+            results.append({
+                "id": t["id"],
+                "标题": t["标题"],
+                "项目": t.get("项目", []),
+                "pending_decisions": pending,
+            })
+    return {"pending_decisions": results}
+
+
 MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "get_project_status": mcp_get_project_status,
                "list_projects": mcp_list_projects, "search_tasks": mcp_search_tasks,
                "get_roadmap": mcp_get_roadmap,
                "get_roadmap_full": mcp_get_roadmap_full,
                "gate_open": mcp_gate_open, "gate_check": mcp_gate_check,
-               "gate_list": mcp_gate_list, "gate_close": mcp_gate_close}
+               "gate_list": mcp_gate_list, "gate_close": mcp_gate_close,
+               "plan_list": mcp_plan_list, "plan_get": mcp_plan_get,
+               "plan_pending_decisions": mcp_plan_pending_decisions}
 
 
 def cmd_mcp(args):
@@ -4116,6 +4466,125 @@ def _detect_events(event_type):
             return None
         return "方寸日报：" + "、".join(parts)
 
+    return None
+
+
+# ---------- Plan CLI handlers ----------
+
+def cmd_plan_new(args):
+    """创建规划。"""
+    if not args.title:
+        print("错误：请提供 --title 或使用交互式输入")
+        return
+    ok, result = api_plan_new({
+        "标题": args.title,
+        "项目": args.项目,
+        "目标": args.目标,
+        "里程碑": args.里程碑,
+        "决策点": args.决策点,
+        "风险": args.风险,
+        "批次": args.批次,
+        "截止": args.截止,
+        "优先级": args.优先级,
+        "资料": args.资料,
+        "附言": args.附言,
+    })
+    if ok:
+        print(f"已创建规划: {result}")
+    else:
+        print(f"创建失败: {result}")
+
+
+def cmd_plan_decide(args):
+    """对决策点做决策。"""
+    ok, msg = api_plan_decide(args.tid, args.dp_id, args.choice, getattr(args, "note", ""))
+    if ok:
+        print(f"✓ {msg}")
+    else:
+        print(f"✗ {msg}")
+
+
+def cmd_plan_decisions(args):
+    """列出待决策项。"""
+    if args.tid:
+        detail = api_plan_get(args.tid)
+        if not detail:
+            print(f"规划不存在: {args.tid}")
+            return
+        print(f"规划: {detail['标题']} ({detail['plan_status']})")
+        if detail['pending_decisions']:
+            print(f"待决策 ({len(detail['pending_decisions'])}/{detail['total_decisions']}):")
+            for dp in detail['pending_decisions']:
+                print(f"  - {dp['id']}: {dp['question']}")
+                print(f"    选项: {' / '.join(dp['options'])}")
+        else:
+            print("所有决策点已完成。")
+    else:
+        plans = api_plan_list()
+        found = False
+        for t in plans:
+            plan = t.get("plan", {})
+            decisions = plan.get("decisions", [])
+            pending = [dp for dp in decisions if dp.get('status') == 'pending']
+            if pending:
+                found = True
+                print(f"\n{t['id']}: {t['标题']}")
+                for dp in pending:
+                    print(f"  - {dp['id']}: {dp['question']}")
+        if not found:
+            print("无待决策项。")
+
+
+def cmd_plan_list(args):
+    """列出所有规划。"""
+    plans = api_plan_list(args.view)
+    if not plans:
+        print("无规划。")
+        return
+    print(f"共 {len(plans)} 个规划：\n")
+    for t in plans:
+        plan = t.get("plan", {})
+        decisions = plan.get("decisions", [])
+        pending = len([dp for dp in decisions if dp.get('status') == 'pending'])
+        total = len(decisions)
+        ms_count = len(plan.get("milestones", []))
+        status_mark = {"draft": "✏️", "active": "▶", "achieved": "✅", "abandoned": "⛔"}.get(plan.get("status", ""), "?")
+        print(f"{status_mark} {t['id']}: {t['标题']}")
+        print(f"   状态: {t['状态']} | 决策: {total - pending}/{total} | 里程碑: {ms_count}")
+        if plan.get("objective"):
+            print(f"   目标: {plan['objective']}")
+
+
+def cmd_plan_get(args):
+    """获取规划详情。"""
+    detail = api_plan_get(args.tid)
+    if not detail:
+        print(f"规划不存在: {args.tid}")
+        return
+    print(f"{'='*50}")
+    print(f"规划: {detail['标题']} ({detail['id']})")
+    print(f"{'='*50}")
+    print(f"状态: {detail['状态']} | 规划状态: {detail['plan_status']}")
+    print(f"项目: {', '.join(detail['项目'])}")
+    print(f"目标: {detail['objective']}")
+    if detail['milestones']:
+        print(f"\n里程碑 ({len(detail['milestones'])}):")
+        for ms in detail['milestones']:
+            print(f"  - {ms.get('name', '')} (截止: {ms.get('deadline', '未设定')})")
+    if detail['decisions']:
+        print(f"\n决策点 ({detail['decided_count']}/{detail['total_decisions']}):")
+        for dp in detail['decisions']:
+            mark = "✓" if dp.get('status') == 'decided' else "○"
+            print(f"  {mark} {dp['id']}: {dp['question']}")
+            if dp.get('options'):
+                print(f"    选项: {' / '.join(dp['options'])}")
+            if dp.get('chosen'):
+                print(f"    已选: {dp['chosen']} ({dp.get('decided_at', '')})")
+    if detail['risks']:
+        print(f"\n风险 ({len(detail['risks'])}):")
+        for r in detail['risks']:
+            print(f"  ⚠️ {r}")
+    print(f"{'='*50}")
     return None
 
 
@@ -4288,6 +4757,36 @@ def main():
     nf.add_argument("message", nargs="?", default=None, help="通知消息（省略时用 --event 自动检测）")
     nf.add_argument("--event", choices=["timeout", "stuck", "all"], default=None, help="事件类型：自动检测并推送")
     nf.set_defaults(func=cmd_notify)
+    pl = sub.add_parser("plan", help="规划管理：创建规划、做决策、查看决策点")
+    pl_sub = pl.add_subparsers(dest="plan_cmd")
+    pl_new = pl_sub.add_parser("new", help="创建规划（交互式或参数式）")
+    pl_new.add_argument("--title", default="", help="规划标题")
+    pl_new.add_argument("--目标", default="", help="规划目标")
+    pl_new.add_argument("--项目", nargs="*", default=[], help="项目 id")
+    pl_new.add_argument("--里程碑", default="[]", help='JSON 数组，如 \'[{"name":"M1","deadline":"2026-10-01"}]\'')
+    pl_new.add_argument("--决策点", default="[]", help='JSON 数组，如 \'[{"id":"dp_001","question":"...","options":["A","B"]}]\'')
+    pl_new.add_argument("--风险", default="[]", help='JSON 数组，如 \'["风险1","风险2"]\'')
+    pl_new.add_argument("--批次", default="", help="批次")
+    pl_new.add_argument("--截止", default="", help="截止日期")
+    pl_new.add_argument("--优先级", default="", choices=["", "高", "中", "低"], help="优先级")
+    pl_new.add_argument("--资料", default="", help="资料路径")
+    pl_new.add_argument("--附言", default="", help="附言")
+    pl_new.set_defaults(func=cmd_plan_new)
+    pl_decide = pl_sub.add_parser("decide", help="对规划的决策点做决策")
+    pl_decide.add_argument("tid", help="规划任务 id")
+    pl_decide.add_argument("dp_id", help="决策点 id")
+    pl_decide.add_argument("choice", help="选择的选项")
+    pl_decide.add_argument("--note", default="", help="决策备注")
+    pl_decide.set_defaults(func=cmd_plan_decide)
+    pl_decisions = pl_sub.add_parser("decisions", help="列出待决策项")
+    pl_decisions.add_argument("tid", nargs="?", default=None, help="规划 id（省略则列出全部）")
+    pl_decisions.set_defaults(func=cmd_plan_decisions)
+    pl_list = pl_sub.add_parser("list", help="列出所有规划")
+    pl_list.add_argument("--view", default="active", help="视图：active/archive/trash")
+    pl_list.set_defaults(func=cmd_plan_list)
+    pl_get = pl_sub.add_parser("get", help="获取规划详情")
+    pl_get.add_argument("tid", help="规划任务 id")
+    pl_get.set_defaults(func=cmd_plan_get)
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
