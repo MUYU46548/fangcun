@@ -1989,7 +1989,7 @@ function updateBatchBar(){
     el('batchCount').textContent='已选 '+batchSelected.size+' 个';
     const hasCards=document.querySelectorAll('#board .card').length>0;
     el('btnBatchAll').style.display=hasCards?'':'none';
-    el('btnBatchInvert').style.display=(hasCards&&batchSelected.size>0)?':'none';
+    el('btnBatchInvert').style.display=(hasCards&&batchSelected.size>0)?'':'none';
     el('batchHint').style.display=hasCards?'':'none';
   } else {
     bar.classList.remove('on');
