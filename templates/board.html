@@ -178,10 +178,16 @@
   #smodal .memlist,#smodal .projlist{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
   #smodal .memrow{display:flex;align-items:center;justify-content:space-between;background:var(--bg);
     border:1px solid var(--border);border-radius:10px;padding:6px 12px;font-size:13px}
-  #smodal .memrow .x{background:transparent;border:none;color:#b35;font-size:16px;cursor:pointer;line-height:1}
-  #smodal .newproj{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
-  #smodal .newproj input{font-size:12px}
+  #smodal .memrow .x{background:transparent;border:none;color:var(--muted);font-size:16px;cursor:pointer;line-height:1;
+    padding:2px 6px;border-radius:4px}
+  #smodal .memrow .x:hover{color:var(--danger);background:#f6e2e2}
+  #smodal .newproj{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;align-items:end}
+  #smodal .newproj input{font-size:12px;margin:0}
+  #smodal .newproj button{grid-column:span 1}
   #smodal .hint{font-size:11px;color:var(--muted);margin-top:4px}
+  #smodal .sect .priPri{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:6px 14px;
+    font-size:12px;font-weight:600;cursor:pointer;margin-top:8px}
+  #smodal .sect .priPri:hover{filter:brightness(0.94)}
   #board.pv{flex-direction:column;overflow-x:hidden;align-items:stretch}
   .alertbar{display:flex;align-items:center;gap:10px;background:#fdf6f6;border:1px solid #eedcdc;
     border-radius:12px;padding:8px 14px;margin-bottom:12px;font-size:12.5px;min-width:0;box-shadow:var(--shadow)}
@@ -375,6 +381,23 @@
   .batch-bar button.danger{color:#8a4343;border-color:#e2c4c4}
   .batch-bar button.danger:hover{background:#f6e2e2}
   .batch-bar .grow{flex:1}
+  /* ── 规划模态框 ── */
+  #planOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh;overflow:auto}
+  #planModal{background:#fff;border-radius:16px;padding:18px 22px;width:560px;max-height:90vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border);margin-bottom:5vh}
+  #planModal h3{margin:0 0 14px;font-size:17px;color:var(--ink)}
+  #planModal label{display:block;font-size:12px;color:var(--muted);margin:10px 0 3px;font-weight:600}
+  #planModal input,#planModal select,#planModal textarea{width:100%;box-sizing:border-box;padding:6px 8px;
+    border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--ink);outline:none;font-family:inherit}
+  #planModal textarea{height:64px;resize:vertical}
+  #planModal textarea.tall{height:120px}
+  #planModal .row2{display:flex;gap:10px}
+  #planModal .row2>div{flex:1}
+  #planModal .acts{margin-top:16px;display:flex;gap:6px;justify-content:flex-end}
+  #planModal .acts button{padding:6px 14px;border:0;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+  #planModal .acts .pri{background:var(--accent);color:#fff}
+  #planModal .acts .ghost{background:#eee;color:#333}
   .card .batch-chk{position:absolute;top:6px;left:6px;z-index:3;accent-color:var(--accent);
     width:15px;height:15px;cursor:pointer;opacity:0;transition:opacity .12s}
   .card:hover .batch-chk,.card .batch-chk.checked,.batch-mode .card .batch-chk{opacity:1}
@@ -422,6 +445,7 @@
     <button onclick="openNew()">+ 新建</button>
     <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务">⚡ 派活</button>
     <button class="ghost" onclick="toggleBatchMode()" id="btnBatch" title="批量操作模式">☑ 批量</button>
+    <button class="ghost" onclick="openPlanNew()" title="新建规划">➕ 新建规划</button>
     <button class="ghost" onclick="sendTestNotify()" title="测试推送通知">🔔</button>
     <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
@@ -660,12 +684,12 @@ function fmtAbs(ts){
 }
 /* ── Toast 通知 ── */
 let toastTimer=null;
-function toast(msg,type="info"){
+function toast(msg,type="info",duration=2500){
   const t=el("toast");
   t.textContent=msg;
   t.className="show "+type;
   if(toastTimer) clearTimeout(toastTimer);
-  toastTimer=setTimeout(()=>{t.className="";},2500);
+  toastTimer=setTimeout(()=>{t.className="";},duration);
 }
 /* ── 筛选标签 ── */
 function renderFilterBadge(){
@@ -730,7 +754,13 @@ function clearTagFilter(){applyTagFilter("__all__");}
   qin.oninput=()=>renderQuickPreview();
   qin.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();saveQuick();}};
   document.querySelectorAll("#views .vbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===curView));
-  el("board").addEventListener("click",e=>{const c=e.target.closest(".card"); if(!c) return; openCard(c.dataset.id);});
+  el("board").addEventListener("click",e=>{
+    const c=e.target.closest(".card");
+    if(!c) return;
+    // 批量模式下点击卡片 = 切换选中
+    if(batchMode){toggleBatchCard(c.dataset.id);return;}
+    openCard(c.dataset.id);
+  });
   let dragId=null;
   el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
   el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
@@ -1045,12 +1075,45 @@ function bindPlanOptionClicks(){
       const tid=this.dataset.tid;
       const dpId=this.dataset.dp;
       const choice=this.dataset.opt;
+      if(!confirm("确认选择「"+choice+"」？"))return;
       const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({action:"plan_decide",tid,dp_id:dpId,choice})});
       if(r.ok){loadPlan(true);toast("已决策: "+choice,"success");}
       else{toast("决策失败","error");}
     });
   });
+}
+
+// ── 批量操作：全选/取消全选 ──
+function batchSelectAll(){
+  const cards = document.querySelectorAll('#board .card');
+  cards.forEach(c=>{
+    batchSelected.add(c.dataset.id);
+    c.classList.add('batched');
+    const chk=c.querySelector('.batch-chk');
+    if(chk)chk.checked=true;
+  });
+  updateBatchBar();
+  render();
+}
+function batchInvertSelection(){
+  const cards = document.querySelectorAll('#board .card');
+  cards.forEach(c=>{
+    const id=c.dataset.id;
+    if(batchSelected.has(id)){
+      batchSelected.delete(id);
+      c.classList.remove('batched');
+      const chk=c.querySelector('.batch-chk');
+      if(chk)chk.checked=false;
+    } else {
+      batchSelected.add(id);
+      c.classList.add('batched');
+      const chk=c.querySelector('.batch-chk');
+      if(chk)chk.checked=true;
+    }
+  });
+  updateBatchBar();
+  render();
 }
 function toggleEdit(tid){
   const t=TASKS.find(x=>x.id===tid)||PLANS_CACHE.find(x=>x.id===tid);
@@ -1867,6 +1930,7 @@ function toggleBatchMode(){
   el('btnBatch').classList.toggle('on', batchMode);
   updateBatchBar();
   render();
+  if(batchMode) toast("批量模式：勾选卡片后操作","info",1500);
 }
 function exitBatchMode(){
   batchMode=false;
@@ -1880,12 +1944,37 @@ function toggleBatchCard(id){
   if(batchSelected.has(id)) batchSelected.delete(id);
   else batchSelected.add(id);
   updateBatchBar();
-  render();
+  // Update card outline without full render
+  const card=document.querySelector(`.card[data-id="${id}"]`);
+  if(card){
+    card.classList.toggle('batched',batchSelected.has(id));
+    const chk=card.querySelector('.batch-chk');
+    if(chk)chk.checked=batchSelected.has(id);
+  }
 }
 function updateBatchBar(){
   const bar=el('batchBar');
-  if(batchMode){bar.classList.add('on');el('batchCount').textContent='已选 '+batchSelected.size+' 个';}
-  else bar.classList.remove('on');
+  if(batchMode){
+    bar.classList.add('on');
+    el('batchCount').textContent='已选 '+batchSelected.size+' 个';
+    // Show select all/invert buttons
+    let extraBtns='';
+    if(document.querySelectorAll('#board .card').length>0){
+      extraBtns='<button onclick="batchSelectAll()">全选</button>';
+      if(batchSelected.size>0) extraBtns+='<button onclick="batchInvertSelection()">反选</button>';
+    }
+    // Insert after count
+    const existing=bar.querySelector('.batch-extra');
+    if(existing) existing.remove();
+    const div=document.createElement('span');
+    div.className='batch-extra';
+    div.innerHTML=extraBtns;
+    bar.insertBefore(div, bar.querySelector('.grow'));
+  } else {
+    bar.classList.remove('on');
+    const existing=bar.querySelector('.batch-extra');
+    if(existing) existing.remove();
+  }
 }
 async function batchMove(st){
   if(!batchSelected.size)return;
@@ -2166,6 +2255,59 @@ window.addEventListener("unhandledrejection",function(e){
   document.body.appendChild(d);
   setTimeout(function(){d.remove()},15000);
 });
+
+// ── 规划模态框 ──
+function openPlanNew(){
+  el("planModalTitle").textContent="新建规划";
+  el("planTitle").value="";
+  el("planObjective").value="";
+  el("planBatch").value="";
+  el("planPrio").value="";
+  el("planDeadline").value="";
+  el("planMilestones").value="";
+  el("planDecisions").value="";
+  el("planRisks").value="";
+  // 填充项目下拉
+  let h='<option value="fangcun-base">方寸 (fangcun-base)</option>';
+  Object.entries(REGISTRY).forEach(([id,p])=>{ if(id!=='fangcun-base') h+='<option value="'+esc(id)+'">'+esc(p.name)+'</option>'; });
+  el("planProject").innerHTML=h;
+  el("planOverlay").style.display="flex";
+}
+function closePlanModal(){el("planOverlay").style.display="none";}
+async function savePlan(){
+  const title=el("planTitle").value.trim();
+  if(!title){alert("标题不能为空");return;}
+  const objective=el("planObjective").value.trim();
+  const batch=el("planBatch").value.trim();
+  const prio=el("planPrio").value;
+  const deadline=el("planDeadline").value.trim();
+  const proj=el("planProject").value;
+  // 解析里程碑
+  const milestones=[];
+  el("planMilestones").value.split("\n").forEach(line=>{
+    line=line.trim();
+    if(!line)return;
+    const parts=line.split("|");
+    milestones.push({name:parts[0].trim(),deadline:parts[1]?parts[1].trim():"未设定"});
+  });
+  // 解析决策点
+  const decisions=[];
+  el("planDecisions").value.split("\n").forEach((line,i)=>{
+    line=line.trim();
+    if(!line)return;
+    const parts=line.split("|");
+    decisions.push({id:"dp_"+(i+1),question:parts[0].trim(),options:parts.slice(1).map(s=>s.trim()).filter(Boolean)});
+  });
+  // 解析风险
+  const risks=el("planRisks").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const fields={
+    标题:title,项目:[proj],目标:objective,批次:batch,优先级:prio,
+    截止:deadline,milestones,decisions,risks
+  };
+  const r=await post({action:"plan_new",fields});
+  if(r.ok){closePlanModal();toast("规划已创建: "+r.id,"success");loadPlan(true);}
+  else toast("创建失败："+r.msg,"error");
+}
 </script>
 </body>
 </html>
