@@ -422,8 +422,55 @@
     width:420px;box-shadow:0 12px 40px rgba(90,90,130,.18);font-size:11.5px;line-height:1.7}
   #searchHint.show{display:block}
   #searchHint b{color:var(--ink)}
-  #searchHint code{background:#f5f4fa;border-radius:4px:padding:1px 5px;font-size:11px;color:#5b5478}
+  #searchHint code{background:#f5f4fa;border-radius:4px;padding:1px 5px;font-size:11px;color:#5b5478}
   #searchHint .sh-title{font-weight:700;margin-bottom:4px;font-size:12px;color:var(--accent)}
+  /* ── 看板列头固定 + 彩色状态边线 ── */
+  #board{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 150px)}
+  .col[data-status]{border-top:3px solid var(--border)}
+  .col[data-status="待办"]{border-top-color:#6366f1}
+  .col[data-status="进行中"]{border-top-color:#d9a44a}
+  .col[data-status="待验收"]{border-top-color:#e8a34a}
+  .col[data-status="完成"]{border-top-color:#5e9154}
+  .col[data-status="草稿"]{border-top-color:#b6b2c4}
+  .col[data-status="驳回"]{border-top-color:#c96a6a}
+  .col[data-status="待审批"]{border-top-color:#9b8fc4}
+  .col h3{position:sticky;top:0;background:#fff;z-index:2;padding:4px 0;margin-top:0;border-bottom:1px solid var(--border)}
+  /* ── 通知面板 ── */
+  #notifyOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:flex-end;z-index:60;padding:60px 16px 0 0}
+  #notifyPanel{background:#fff;border-radius:16px;padding:18px 22px;width:420px;max-height:80vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
+  #notifyPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px}
+  #notifyPanel .notify-item{padding:10px 0;border-bottom:1px solid #f2f1f7;font-size:12.5px;line-height:1.6}
+  #notifyPanel .notify-item:last-child{border-bottom:none}
+  #notifyPanel .notify-item .ts{color:var(--muted);font-size:11px;margin-bottom:2px}
+  #notifyPanel .notify-item.warn{color:#7a5a2e}
+  #notifyPanel .notify-item.error{color:#8a4343}
+  #notifyPanel .notify-item.info{color:#3f5b78}
+  #notifyPanel .empty{color:var(--muted);text-align:center;padding:20px;font-size:12px}
+  #notifyPanel .acts{margin-top:12px;display:flex;gap:6px;justify-content:flex-end}
+  /* ── 日志面板 ── */
+  #logOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
+  #logPanel{background:#fff;border-radius:16px;padding:18px 22px;width:700px;max-height:90vh;
+    overflow:auto;box-shadow:var(--shadow);border:1px solid var(--border)}
+  #logPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink)}
+  #logPanel .log-filter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  #logPanel .log-filter button{background:#fff;border:1px solid var(--border);border-radius:6px;
+    padding:3px 10px;font-size:11px;cursor:pointer;font-weight:600;color:var(--muted)}
+  #logPanel .log-filter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #logPanel .log-item{padding:8px 0;border-bottom:1px solid #f9fafb;font-size:12px;line-height:1.5}
+  #logPanel .log-item:last-child{border-bottom:none}
+  #logPanel .log-item .ts{color:var(--muted);font-size:10px;font-family:monospace}
+  #logPanel .log-item .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-right:6px}
+  #logPanel .log-item .tag-op{background:#eef0fb;color:#5b5478}
+  #logPanel .log-item .tag-err{background:#f6e2e2;color:#8a4343}
+  #logPanel .log-item .tag-sys{background:#e7f0ea;color:#3c6b54}
+  #logPanel .log-item .stack{font-family:monospace;font-size:10.5px;color:#8a4343;background:#faf3f3;
+    padding:6px 8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow:auto}
+  #logPanel .empty{color:var(--muted);text-align:center;padding:20px;font-size:12px}
+  #logPanel .acts{margin-top:12px;display:flex;gap:8px;align-items:center}
+  #logPanel .acts .grow{flex:1}
 </style>
 </head>
 <body>
@@ -450,7 +497,8 @@
     <button class="ghost" onclick="quickDispatch()" title="派最高优先级的待办任务">⚡ 派活</button>
     <button class="ghost" onclick="toggleBatchMode()" id="btnBatch" title="批量操作模式">☑ 批量</button>
     <button class="ghost" onclick="openPlanNew()" title="新建规划">➕ 新建规划</button>
-    <button class="ghost" onclick="sendTestNotify()" title="测试推送通知">🔔</button>
+    <button class="ghost" onclick="openNotify()" title="通知中心">🔔</button>
+    <button class="ghost" onclick="openLog()" title="日志">📋</button>
     <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
@@ -470,17 +518,18 @@
 </div>
 <div id="board"></div>
 <div id="batchBar" class="batch-bar">
-  <span class="hint" id="batchHint">点击卡片勾选，或</span>
+  <span class="hint">点击卡片勾选</span>
   <button onclick="batchSelectAll()" id="btnBatchAll">全选</button>
   <button onclick="batchInvertSelection()" id="btnBatchInvert" style="display:none">反选</button>
   <span class="sel" id="batchCount">已选 0 个</span>
+  <span class="grow"></span>
   <button onclick="batchMove('进行中')">→ 进行中</button>
   <button onclick="batchMove('待验收')">→ 待验收</button>
   <button onclick="batchMove('完成')">→ 完成</button>
   <button onclick="batchArchive()">归档</button>
   <button class="danger" onclick="batchDelete()">删除</button>
   <span class="grow"></span>
-  <button onclick="exitBatchMode()">退出</button>
+  <button onclick="exitBatchMode()">退出批量模式</button>
 </div>
 <div id="searchHint">
   <div class="sh-title">搜索语法</div>
@@ -626,9 +675,36 @@
       <button class="ghost" onclick="closeSettings()">关闭</button>
     </div>
     <div id="sMsg" style="font-size:12px;color:#b35;min-height:16px;"></div>
-  </div>
-</div>
-<script>
+    </div>
+    </div>
+    <div id="notifyOverlay" onclick="if(event.target===this)closeNotify()">
+    <div id="notifyPanel">
+      <h3>🔔 通知中心</h3>
+      <div id="notifyList"></div>
+      <div class="acts">
+        <button class="ghost" onclick="clearNotify()">清空</button>
+        <button class="ghost" onclick="closeNotify()">关闭</button>
+      </div>
+    </div>
+    </div>
+    <div id="logOverlay" onclick="if(event.target===this)closeLog()">
+    <div id="logPanel">
+      <h3>📋 系统日志</h3>
+      <div class="log-filter">
+        <button onclick="filterLog('all')" class="on" data-filter="all">全部</button>
+        <button onclick="filterLog('op')" data-filter="op">操作</button>
+        <button onclick="filterLog('err')" data-filter="err">错误</button>
+        <button onclick="filterLog('sys')" data-filter="sys">系统</button>
+      </div>
+      <div id="logList"></div>
+      <div class="acts">
+        <span class="grow"></span>
+        <button class="ghost" onclick="clearLog()">清空</button>
+        <button class="ghost" onclick="closeLog()">关闭</button>
+      </div>
+    </div>
+    </div>
+    <script>
 const STATUSES=["草稿","待审批","待办","进行中","待验收","完成","驳回"];
 const STCLASS={"草稿":"draft","待审批":"review","待办":"todo","进行中":"doing","待验收":"verify","完成":"done","驳回":"reject"};
 const REGISTRY=__REGISTRY__;
@@ -650,6 +726,7 @@ let curYear=new Date().getFullYear(); // 日历当前年
 let curMonth=new Date().getMonth();   // 日历当前月（0-11）
 let listSort={key:"mtime",dir:-1};    // 列表视图排序
 let RULES=[];                         // 自动化规则
+let NOTIFY_CACHE=JSON.parse(localStorage.getItem("tegula_notify")||"[]");
 const TAG_PALETTE=[
   {bg:"#eef0fb",fg:"#5b5478"},{bg:"#e7f0ea",fg:"#3c6b54"},{bg:"#f6ecdc",fg:"#7a5a2e"},
   {bg:"#f6e2e2",fg:"#8a4343"},{bg:"#e9e4f5",fg:"#5b4b86"},{bg:"#e3edf6",fg:"#3f5b78"},
@@ -2327,6 +2404,107 @@ async function savePlan(){
   if(r.ok){closePlanModal();toast("规划已创建: "+r.id,"success");loadPlan(true);}
   else toast("创建失败："+r.msg,"error");
 }
+
+// ── 通知中心 ──
+function openNotify(){
+  renderNotify();
+  el("notifyOverlay").style.display="flex";
+}
+function closeNotify(){el("notifyOverlay").style.display="none";}
+function renderNotify(){
+  const list=el("notifyList");
+  const items=NOTIFY_CACHE;
+  if(!items.length){
+    list.innerHTML='<div class="empty">暂无通知</div>';
+    return;
+  }
+  list.innerHTML="";
+  items.forEach(n=>{
+    const div=document.createElement("div");
+    div.className="notify-item "+n.type;
+    div.innerHTML='<div class="ts">'+esc(n.ts)+'</div>'+esc(n.msg);
+    list.appendChild(div);
+  });
+}
+function clearNotify(){
+  NOTIFY_CACHE=[];
+  localStorage.setItem("tegula_notify","[]");
+  renderNotify();
+}
+function addNotify(msg,type="info"){
+  const ts=new Date().toLocaleTimeString("zh-CN",{hour12:false});
+  NOTIFY_CACHE.unshift({ts,msg,type});
+  if(NOTIFY_CACHE.length>50) NOTIFY_CACHE.pop();
+  localStorage.setItem("tegula_notify",JSON.stringify(NOTIFY_CACHE));
+}
+
+// ── 系统日志 ──
+let LOG_CACHE=[];
+function openLog(){
+  loadLogs();
+  el("logOverlay").style.display="flex";
+}
+function closeLog(){el("logOverlay").style.display="none";}
+async function loadLogs(){
+  try{
+    const r=await fetch("/logs.json");
+    const d=await r.json();
+    LOG_CACHE=d.logs||[];
+    renderLog();
+  }catch(e){
+    LOG_CACHE=[];
+    renderLog();
+  }
+}
+let LOG_FILTER="all";
+function filterLog(f){
+  LOG_FILTER=f;
+  document.querySelectorAll("#logPanel .log-filter button").forEach(b=>{
+    b.classList.toggle("on",b.dataset.filter===f);
+  });
+  renderLog();
+}
+function renderLog(){
+  const list=el("logList");
+  let items=LOG_CACHE;
+  if(LOG_FILTER!=="all") items=LOG_CACHE.filter(l=>l.tag===LOG_FILTER);
+  if(!items.length){
+    list.innerHTML='<div class="empty">暂无日志</div>';
+    return;
+  }
+  list.innerHTML="";
+  items.forEach(l=>{
+    const div=document.createElement("div");
+    div.className="log-item";
+    let html='<span class="ts">'+esc(l.ts||"")+'</span> ';
+    html+='<span class="tag tag-'+(l.tag||"op")+'">'+(l.tag_label||l.tag||"op")+'</span> ';
+    html+=esc(l.msg||"");
+    if(l.stack) html+='<div class="stack">'+esc(l.stack)+"</div>";
+    div.innerHTML=html;
+    list.appendChild(div);
+  });
+}
+function clearLog(){
+  if(!confirm("清空所有日志？"))return;
+  LOG_CACHE=[];
+  renderLog();
+  addLog("日志已清空","sys");
+}
+function addLog(msg,tag="op",stack=""){
+  const ts=new Date().toISOString().replace("T"," ").slice(0,19);
+  LOG_CACHE.unshift({ts,msg,tag,stack});
+  if(LOG_CACHE.length>200) LOG_CACHE.pop();
+}
+
+// 全局错误捕获也写入日志
+window.addEventListener("error",function(e){
+  addLog(e.message+" (L"+e.lineno+")","err");
+});
+window.addEventListener("unhandledrejection",function(e){
+  const msg=e.reason&&(e.reason.message||e.reason)||"未知Promise错误";
+  addLog(msg,"err",e.reason&&e.reason.stack||"");
+});
+
 </script>
 </body>
 </html>

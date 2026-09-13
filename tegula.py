@@ -2431,6 +2431,8 @@ class Handler(BaseHTTPRequestHandler):
             self._status_json()
         elif self.path.startswith("/roadmap.json"):
             self._roadmap_json()
+        elif self.path.startswith("/logs.json"):
+            self._logs_json()
         elif self.path.startswith("/startpage"):
             self._startpage()
         elif self.path.startswith("/ping"):
@@ -2464,6 +2466,18 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(self.path.split("?", 1)[1])
             project = qs.get("project", [""])[0] or None
         self._send_json(get_roadmap_cached(project))
+
+    def _logs_json(self):
+        """日志 JSON 端点（GET /logs.json）"""
+        log_file = os.path.join(TASK_DIR, ".tegula-logs.json")
+        logs = []
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, encoding="utf-8") as f:
+                    logs = json.loads(f.read())
+            except:
+                logs = []
+        self._send_json({"logs": logs[-200:]})  # 最多返回200条
 
     def _json(self):
         proj = None
