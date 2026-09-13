@@ -64,7 +64,7 @@
   .card.overdue{border-left:3px solid var(--danger);background:#faf3f3}
   .prio-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px;flex:none}
   .prio-高{background:#c96a6a}.prio-中{background:#d9a44a}.prio-低{background:#7a9e6b}
-  .card.dragover{outline:2px dashed var(--accent);background:#f1eefb}
+  .card.dragging{opacity:0.35;transform:scale(0.97)}
   .card .ttl{font-size:13px;font-weight:600;line-height:1.4}
   .card .batch{display:inline-block;background:var(--accent-soft);color:#4a4368;
     border-radius:6px;font-size:10px;padding:1px 6px;margin-right:5px;font-weight:600}
@@ -185,9 +185,12 @@
   #smodal .newproj input{font-size:12px;margin:0}
   #smodal .newproj button{grid-column:span 1}
   #smodal .hint{font-size:11px;color:var(--muted);margin-top:4px}
-  #smodal .sect .priPri{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:6px 14px;
+  #smodal .sect .pri{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:6px 14px;
     font-size:12px;font-weight:600;cursor:pointer;margin-top:8px}
-  #smodal .sect .priPri:hover{filter:brightness(0.94)}
+  #smodal .sect .pri:hover{filter:brightness(0.94)}
+  #smodal .sect .ghost{background:#fff;color:var(--ink);border:1px solid var(--border);border-radius:8px;
+    padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer}
+  #smodal .sect .ghost:hover{border-color:var(--accent);color:var(--accent)}
   #board.pv{flex-direction:column;overflow-x:hidden;align-items:stretch}
   .alertbar{display:flex;align-items:center;gap:10px;background:#fdf6f6;border:1px solid #eedcdc;
     border-radius:12px;padding:8px 14px;margin-bottom:12px;font-size:12.5px;min-width:0;box-shadow:var(--shadow)}
@@ -374,9 +377,10 @@
   .batch-bar{display:none;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);
     border-radius:12px;padding:6px 12px;margin-bottom:10px;box-shadow:var(--shadow)}
   .batch-bar.on{display:flex}
-  .batch-bar .seln{font-weight:600;font-size:13px;color:var(--accent)}
+  .batch-bar .sel{font-weight:600;font-size:13px;color:var(--accent);margin:0 8px}
+  .batch-bar .hint{font-size:12px;color:var(--muted)}
   .batch-bar button{background:transparent;border:1px solid var(--border);border-radius:8px;cursor:pointer;
-    font-size:11px;font-weight:600;padding:3px 9px;color:var(--ink)}
+    font-size:11px;font-weight:600;padding:3px 9px;color:var(--ink);white-space:nowrap}
   .batch-bar button:hover{border-color:var(--accent);color:var(--accent)}
   .batch-bar button.danger{color:#8a4343;border-color:#e2c4c4}
   .batch-bar button.danger:hover{background:#f6e2e2}
@@ -466,7 +470,10 @@
 </div>
 <div id="board"></div>
 <div id="batchBar" class="batch-bar">
-  <span class="seln" id="batchCount">已选 0 个</span>
+  <span class="hint" id="batchHint">点击卡片勾选，或</span>
+  <button onclick="batchSelectAll()" id="btnBatchAll">全选</button>
+  <button onclick="batchInvertSelection()" id="btnBatchInvert" style="display:none">反选</button>
+  <span class="sel" id="batchCount">已选 0 个</span>
   <button onclick="batchMove('进行中')">→ 进行中</button>
   <button onclick="batchMove('待验收')">→ 待验收</button>
   <button onclick="batchMove('完成')">→ 完成</button>
@@ -762,9 +769,32 @@ function clearTagFilter(){applyTagFilter("__all__");}
     openCard(c.dataset.id);
   });
   let dragId=null;
-  el("board").addEventListener("dragstart",e=>{const c=e.target.closest(".card"); if(!c)return; dragId=c.dataset.id; e.dataTransfer.setData("text/plain",dragId);});
-  el("board").addEventListener("dragover",e=>{const col=e.target.closest(".col"); if(col){e.preventDefault();}});
-  el("board").addEventListener("drop",e=>{const col=e.target.closest(".col"); if(!col||!dragId) return; e.preventDefault(); const st=col.dataset.status; if(st&&curView==="active"){ moveStatus(dragId,st); }});
+  el("board").addEventListener("dragstart",e=>{
+    const c=e.target.closest(".card");
+    if(!c)return;
+    dragId=c.dataset.id;
+    e.dataTransfer.setData("text/plain",dragId);
+    // 隐藏默认拖拽幻影，用自定义轻量占位
+    const img=new Image();
+    img.src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    e.dataTransfer.setDragImage(img,0,0);
+    c.classList.add("dragging");
+  });
+  el("board").addEventListener("dragend",e=>{
+    document.querySelectorAll(".card.dragging").forEach(c=>c.classList.remove("dragging"));
+  });
+  el("board").addEventListener("dragover",e=>{
+    e.preventDefault();
+    const col=e.target.closest(".col");
+    if(col) col.querySelectorAll(".card").forEach(c=>c.classList.remove("dragover"));
+  });
+  el("board").addEventListener("drop",e=>{
+    const col=e.target.closest(".col");
+    if(!col||!dragId) return;
+    e.preventDefault();
+    const st=col.dataset.status;
+    if(st&&curView==="active"){ moveStatus(dragId,st); }
+  });
   document.addEventListener("keydown",onKeydown);
   el("kinput").addEventListener("input",()=>renderPalette(el("kinput").value));
   loadRules();
@@ -1957,23 +1987,12 @@ function updateBatchBar(){
   if(batchMode){
     bar.classList.add('on');
     el('batchCount').textContent='已选 '+batchSelected.size+' 个';
-    // Show select all/invert buttons
-    let extraBtns='';
-    if(document.querySelectorAll('#board .card').length>0){
-      extraBtns='<button onclick="batchSelectAll()">全选</button>';
-      if(batchSelected.size>0) extraBtns+='<button onclick="batchInvertSelection()">反选</button>';
-    }
-    // Insert after count
-    const existing=bar.querySelector('.batch-extra');
-    if(existing) existing.remove();
-    const div=document.createElement('span');
-    div.className='batch-extra';
-    div.innerHTML=extraBtns;
-    bar.insertBefore(div, bar.querySelector('.grow'));
+    const hasCards=document.querySelectorAll('#board .card').length>0;
+    el('btnBatchAll').style.display=hasCards?'':'none';
+    el('btnBatchInvert').style.display=(hasCards&&batchSelected.size>0)?':'none';
+    el('batchHint').style.display=hasCards?'':'none';
   } else {
     bar.classList.remove('on');
-    const existing=bar.querySelector('.batch-extra');
-    if(existing) existing.remove();
   }
 }
 async function batchMove(st){
