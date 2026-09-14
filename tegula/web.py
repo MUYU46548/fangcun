@@ -9,7 +9,7 @@ from tegula.core import (
     ALLOWED_SYNC_PROFILE, AGENT_RUNS_LOG, _AGENT_CMD_MAP, RULES_PATH,
     DEFAULT_RULES, LAST_REQUEST, _STATUS_CACHE, STATUS_TTL, WRITE_ACTIONS,
     _STATUS_SCAN_LOCK, QUICK_PRIO, PORT_FILE, _NOTES_DIR, _NOTES_INDEX,
-    _PERSONAL_PROJECT, _INBOX_TAG, _RECURRING_FIELD, _ROADMAP_CACHE,
+    _ROADMAP_CACHE,
     ROADMAP_TTL, _ROADMAP_HISTORY, ROADMAP_HISTORY_MAX, MCP_METHODS,
     _init_data_dir, _coerce, parse_registry, load_all_projects,
     scan_services, _port_in_use, start_service, stop_service,
@@ -34,9 +34,8 @@ from tegula.core import (
     find_timeout_tasks, _ensure_notes_dir, _load_notes_index,
     _save_notes_index, _gen_note_id, api_note_create, api_note_get,
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
-    api_notes_for_task, api_note_import_file, api_note_import_content, _parse_cron,
-    _should_fire_cron, check_recurring_tasks, _match_context,
-    api_inbox_add, api_inbox_dismiss, api_inbox_promote, api_inbox_import_file, api_inbox_import_content, _batch_status,
+    api_notes_for_task, api_note_import_file, api_note_import_content,
+    api_export_tasks, api_export_notes, api_import_tasks, api_import_notes,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,
@@ -234,39 +233,7 @@ class Handler(BaseHTTPRequestHandler):
                 plans = api_plan_list(req.get("view", "active"))
                 self._send_json({"ok": True, "plans": plans})
                 return
-            elif action == "inbox_add":
-                ok, msg = api_inbox_add(req.get("text", ""))
-                if not ok:
-                    self._send_json({"ok": False, "error": msg})
-                    return
-                self._send_json({"ok": True, "id": msg})
-                return
-            elif action == "inbox_dismiss":
-                ok, msg = api_inbox_dismiss(req.get("id"))
-                self._send_json({"ok": ok, "msg": msg})
-                return
-            elif action == "inbox_promote":
-                ok, msg = api_inbox_promote(req.get("id"))
-                self._send_json({"ok": ok, "msg": msg})
-                return
-            elif action == "inbox_edit":
-                ok, msg = api_edit(req.get("id"), req.get("fields", {}))
-                self._send_json({"ok": ok, "msg": msg})
-                return
-            elif action == "inbox_import_file":
-                ok, msg = api_inbox_import_file(req.get("path", ""))
-                if not ok:
-                    self._send_json({"ok": False, "error": msg})
-                    return
-                self._send_json({"ok": True, "id": msg})
-                return
-            elif action == "inbox_import_content":
-                ok, msg = api_inbox_import_content(req.get("filename", ""), req.get("content", ""))
-                if not ok:
-                    self._send_json({"ok": False, "error": msg})
-                    return
-                self._send_json({"ok": True, "id": msg})
-                return
+
             elif action == "cron_check":
                 reactivated = check_recurring_tasks()
                 self._send_json({"ok": True, "reactivated": reactivated})
@@ -334,6 +301,24 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": msg})
                     return
                 self._send_json({"ok": True, "id": msg})
+                return
+            elif action == "export_tasks":
+                result = api_export_tasks(req.get("project_id"))
+                self._send_json(result)
+                return
+            elif action == "export_notes":
+                result = api_export_notes()
+                self._send_json(result)
+                return
+            elif action == "import_tasks":
+                data = req.get("data", [])
+                result = api_import_tasks(data)
+                self._send_json(result)
+                return
+            elif action == "import_notes":
+                data = req.get("data", [])
+                result = api_import_notes(data)
+                self._send_json(result)
                 return
             else:
                 ok, msg = False, "unknown action"

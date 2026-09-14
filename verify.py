@@ -826,75 +826,6 @@ finally:
     teg.TASK_DIR = _saved_td_rm
 
 
-# ---- 18. 个人待办模块 ----
-_saved_td_personal = teg.TASK_DIR
-_personal_tmpdir = tempfile.mkdtemp(prefix='tegula_test_')
-_personal_taskdir = os.path.join(_personal_tmpdir, 'task-data')
-os.makedirs(_personal_taskdir)
-teg.TASK_DIR = _personal_taskdir
-
-try:
-    # 18a. api_inbox_add
-    ok, tid = teg.api_inbox_add('测试捕获')
-    check("api_inbox_add 返回 ok", ok, str(tid))
-    
-    d = teg.parse_task(os.path.join(_personal_taskdir, tid + '.md'))
-    check("inbox 任务有 inbox 标签", 'inbox' in (d.get('标签') or []), str(d.get('标签')))
-    check("inbox 任务状态为待办", d.get('状态') == '待办', str(d.get('状态')))
-    check("inbox 任务来源为 capture", d.get('来源') == 'capture', str(d.get('来源')))
-    
-    # 18b. api_inbox_promote
-    ok, msg = teg.api_inbox_promote(tid)
-    check("api_inbox_promote 成功", ok, msg)
-    d2 = teg.parse_task(os.path.join(_personal_taskdir, tid + '.md'))
-    check("inbox 提升后移除 inbox 标签", 'inbox' not in (d2.get('标签') or []), str(d2.get('标签')))
-    
-    # 18c. api_inbox_dismiss
-    ok2, tid2 = teg.api_inbox_add('测试删除')
-    check("api_inbox_add 创建第二个任务", ok2, str(tid2))
-    ok2d, msg2d = teg.api_inbox_dismiss(tid2)
-    check("api_inbox_dismiss 返回 deleted", ok2d and msg2d == 'deleted', str(msg2d))
-    
-    # 18d. _parse_cron
-    check("_parse_cron daily 09:00", teg._parse_cron('daily 09:00').get('type') == 'daily', str(teg._parse_cron('daily 09:00')))
-    check("_parse_cron weekly mon", teg._parse_cron('weekly mon').get('type') == 'weekly', str(teg._parse_cron('weekly mon')))
-    check("_parse_cron monthly 1", teg._parse_cron('monthly 1').get('type') == 'monthly', str(teg._parse_cron('monthly 1')))
-    check("_parse_cron */30", teg._parse_cron('*/30').get('type') == 'interval', str(teg._parse_cron('*/30')))
-    check("_parse_cron invalid", teg._parse_cron('invalid') is None, str(teg._parse_cron('invalid')))
-    
-    # 18e. api_new with cron and context
-    ok3, tid3 = teg.api_new({'标题': '周期任务', 'cron': 'daily 09:00', 'context': ['@home', '@work']})
-    check("api_new 带 cron/context", ok3, str(tid3))
-    d3 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
-    check("api_new cron 写入", d3.get('cron') == 'daily 09:00', str(d3.get('cron')))
-    check("api_new context 写入", d3.get('context') == ['@home', '@work'], str(d3.get('context')))
-    
-    # 18f. render_task 往返
-    rendered = teg.render_task(d3)
-    check("render_task cron 往返", 'cron: daily 09:00' in rendered, rendered[:200])
-    check("render_task context 往返", 'context: [@home, @work]' in rendered, rendered[:200])
-    
-    # 18g. api_edit cron
-    ok4, msg4 = teg.api_edit(tid3, {'cron': 'weekly mon 09:00'})
-    check("api_edit cron 修改", ok4, msg4)
-    d4 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
-    check("api_edit cron 更新", d4.get('cron') == 'weekly mon 09:00', str(d4.get('cron')))
-    
-    # 18h. check_recurring_tasks（模拟完成后的周期重激活）
-    # 使用 daily 00:00 确保任何时间测试都能触发
-    teg.api_edit(tid3, {'状态': '完成', 'cron': 'daily 00:00'})
-    state_file = os.path.join(_personal_taskdir, '.cron-state.json')
-    if os.path.exists(state_file):
-        os.remove(state_file)
-    reactivated = teg.check_recurring_tasks()
-    check("check_recurring_tasks 重激活", tid3 in reactivated, str(reactivated))
-    d5 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
-    check("重激活后状态为待办", d5.get('状态') == '待办', str(d5.get('状态')))
-
-finally:
-    teg.TASK_DIR = _saved_td_personal
-    shutil.rmtree(_personal_tmpdir, ignore_errors=True)
-
 # ---- 19. 笔记模块 ----
 _saved_td_notes = teg.TASK_DIR
 _notes_tmpdir = tempfile.mkdtemp(prefix='tegula_note_test_')
@@ -982,53 +913,7 @@ _next = teg.find_free_port()
 _probe.close()
 check("首选被占用时跳到下一个", isinstance(_next, int) and _next > teg.PORT_POOL_START)
 
-# ---- 21. 文件导入待办 (inbox_import_file) ----
-_saved_td, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "inbox-import-test")
-os.makedirs(teg.TASK_DIR, exist_ok=True)
-try:
-    _md_path = os.path.join(tmpdir, "test-import.md")
-    with open(_md_path, "w", encoding="utf-8") as f:
-        f.write("# 测试导入标题\n\n这是正文内容\n第二行")
-    ok, tid = teg.api_inbox_import_file(_md_path)
-    check("api_inbox_import_file 成功", ok, str(tid))
-    if ok:
-        _d = teg.parse_task(os.path.join(teg.TASK_DIR, tid + ".md"))
-        check("导入后标题正确", _d.get("标题") == "测试导入标题", str(_d.get("标题")))
-        check("导入后状态待办", _d.get("状态") == "待办")
-        check("导入后有inbox标签", "inbox" in (_d.get("标签") or []))
-        check("导入后有file标签", "file" in (_d.get("标签") or []))
-        check("导入后附言为正文", "这是正文内容" in (_d.get("附言") or ""), str(_d.get("附言"))[:80])
-    # 不存在的文件返回错误
-    ok2, err = teg.api_inbox_import_file(os.path.join(tmpdir, "nonexistent.md"))
-    check("不存在的文件返回False", not ok2)
-    # 无 # 标题的文件用文件名
-    _txt_path = os.path.join(tmpdir, "plain-file.txt")
-    with open(_txt_path, "w", encoding="utf-8") as f:
-        f.write("plain text content")
-    ok3, tid3 = teg.api_inbox_import_file(_txt_path)
-    check("txt 文件导入成功", ok3, str(tid3))
-    if ok3:
-        _d3 = teg.parse_task(os.path.join(teg.TASK_DIR, tid3 + ".md"))
-        check("txt 标题来自文件名", _d3.get("标题") == "plain-file", str(_d3.get("标题")))
-
-    # 测试 content-based API（浏览器场景）
-    ok4, tid4 = teg.api_inbox_import_content("浏览器测试.md", "# 浏览器导入\n\n这是浏览器拖入的内容")
-    check("api_inbox_import_content 成功", ok4, str(tid4))
-    if ok4:
-        _d4 = teg.parse_task(os.path.join(teg.TASK_DIR, tid4 + ".md"))
-        check("content导入标题从heading提取", _d4.get("标题") == "浏览器导入", str(_d4.get("标题")))
-        check("content导入正文正确", "浏览器拖入的内容" in (_d4.get("附言") or ""))
-
-    # 测试 note_import_content
-    ok5, nid5 = teg.api_note_import_content("测试笔记.txt", "# 笔记标题\n\n笔记正文内容")
-    check("api_note_import_content 成功", ok5, str(nid5))
-    if ok5:
-        _n5 = teg.api_note_get(nid5)
-        check("content导入笔记标题", _n5["title"] == "笔记标题", _n5["title"])
-        check("content导入笔记正文", "笔记正文内容" in _n5["content"], _n5["content"][:50])
-
-finally:
-    teg.TASK_DIR = _saved_td
+teg.TASK_DIR = _saved_td
 
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:

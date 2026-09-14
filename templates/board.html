@@ -463,7 +463,6 @@
   #logPanel .log-item{padding:8px 0;border-bottom:1px solid #f9fafb;font-size:12px;line-height:1.5}
   #logPanel .log-item:last-child{border-bottom:none}
   #logPanel .log-item .ts{color:var(--muted);font-size:10px;font-family:monospace}
-  /* ── 个人待办 Inbox ── */
   .inbox-badge{background:#ef4444;color:#fff;font-size:9px;padding:1px 5px;border-radius:9px;font-weight:700;vertical-align:super}
   /* ── 全局拖放落区（外部文件导入待办）── */
   .global-dropzone{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
@@ -476,30 +475,6 @@
   .global-dropzone-icon{font-size:56px;margin-bottom:16px}
   .global-dropzone-text{font-size:22px;font-weight:600;color:#fff;margin-bottom:8px}
   .global-dropzone-hint{font-size:13px;color:rgba(255,255,255,.65)}
-  #inboxOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
-    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
-  #inboxPanel{background:#fff;border-radius:16px;padding:18px 22px;width:540px;max-height:80vh;
-    box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column}
-  #inboxPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px;flex:none}
-  #inboxPanel .inbox-list{flex:1;overflow:auto}
-  #inboxPanel .inbox-item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f2f1f7;font-size:13px}
-  #inboxPanel .inbox-item:last-child{border-bottom:none}
-  #inboxPanel .inbox-item .txt{flex:1;line-height:1.4}
-  #inboxPanel .inbox-item .id{font-size:11px;color:var(--muted);font-family:monospace;flex:none;width:90px}
-  #inboxPanel .inbox-item .acts{display:flex;gap:4px;flex:none}
-  #inboxPanel .inbox-item .acts button{background:transparent;border:1px solid var(--border);border-radius:6px;
-    width:26px;height:26px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  #inboxPanel .inbox-item .acts button:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
-  #inboxPanel .inbox-item .acts button.del:hover{background:#ef4444;border-color:#ef4444}
-  #inboxPanel .empty{color:var(--muted);text-align:center;padding:30px;font-size:12px}
-  #inboxPanel .inbox-input{display:flex;gap:8px;margin-bottom:12px;flex:none}
-  #inboxPanel .inbox-input input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px}
-  #inboxPanel .inbox-input input:focus{border-color:var(--accent);outline:none}
-  #inboxPanel .inbox-input button{padding:8px 16px;background:var(--accent);color:#fff;border:0;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600}
-  #inboxPanel .inbox-input button:hover{opacity:.9}
-  #inboxPanel .inbox-footer{margin-top:12px;padding-top:12px;border-top:1px solid #f2f1f7;display:flex;justify-content:space-between;font-size:11px;color:var(--muted);flex:none}
-  #inboxPanel .inbox-footer button{background:transparent;border:0;color:var(--accent);cursor:pointer;font-size:11px}
-  #inboxPanel .inbox-footer button:hover{text-decoration:underline}
   /* ── 笔记模块 ── */
   #notesOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
     display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
@@ -571,7 +546,6 @@
     <button class="ghost" onclick="openPlanNew()" title="新建规划">➕ 新建规划</button>
     <button class="ghost" onclick="openNotify()" title="通知中心">🔔</button>
     <button class="ghost" onclick="openLog()" title="日志">📋</button>
-    <button class="ghost" onclick="openInbox()" title="个人待办 Inbox">📥 <span id="inboxBadge" class="inbox-badge" style="display:none">0</span></button>
     <button class="ghost" onclick="openNotes()" title="笔记管理">📝 <span id="notesBadge" class="inbox-badge" style="display:none">0</span></button>
     <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
@@ -591,7 +565,6 @@
   <button class="vbtn" id="btnBack" onclick="goBack()" title="返回上一个视图" style="display:none">◀ 返回</button>
 </div>
 <div id="board"></div>
-<div id="globalDropzone" class="global-dropzone">
   <div class="global-dropzone-inner">
     <div class="global-dropzone-icon">📥</div>
     <div class="global-dropzone-text">松开鼠标，导入为待办</div>
@@ -789,24 +762,10 @@
       </div>
     </div>
     </div>
-    <div id="inboxOverlay" onclick="if(event.target===this)closeInbox()">
-      <div id="inboxPanel">
-        <h3>📥 个人待办 Inbox</h3>
-        <div class="inbox-input">
-          <input id="inboxInput" placeholder="输入待办内容，回车快速捕获..." onkeydown="if(event.key==='Enter')addInbox()">
-          <button onclick="addInbox()">捕获</button>
-        </div>
-        <div class="inbox-list" id="inboxList"></div>
-        <div class="inbox-footer">
-          <span id="inboxHint">提示：提升后任务进入看板正式流转</span>
           <button onclick="cronCheck()">🔄 检查周期任务</button>
         </div>
       </div>
     </div>
-    <div id="viewInboxOverlay" onclick="if(event.target===this)closeViewInbox()" style="display:none;position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);z-index:70;align-items:center;justify-content:center">
-      <div style="background:#fff;border-radius:16px;padding:24px;width:520px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.2)">
-        <h3 style="margin:0 0 16px;font-size:16px">查看 / 编辑待办</h3>
-        <div id="viewInboxContent"></div>
       </div>
     </div>
     <div id="planOverlay" onclick="if(event.target===this)closePlanModal()">
@@ -996,7 +955,6 @@ function clearTagFilter(){applyTagFilter("__all__");}
     openCard(c.dataset.id);
   });
   let dragId=null;
-  let externalDragCounter=0; // 嵌套 dragenter/dragleave 计数器
   el("board").addEventListener("dragstart",e=>{
     const c=e.target.closest(".card");
     if(!c)return;
@@ -1032,47 +990,6 @@ function clearTagFilter(){applyTagFilter("__all__");}
 
   // ── 外部文件拖入（文档级）──
   document.addEventListener("dragenter",e=>{
-    if(!e.dataTransfer.types.includes("Files")) return;
-    externalDragCounter++;
-    el("globalDropzone").classList.add("active");
-  });
-  document.addEventListener("dragleave",e=>{
-    if(!e.dataTransfer.types.includes("Files")) return;
-    externalDragCounter=Math.max(0,externalDragCounter-1);
-    if(externalDragCounter===0){
-      el("globalDropzone").classList.remove("active");
-    }
-  });
-  document.addEventListener("dragover",e=>{
-    if(e.dataTransfer.types.includes("Files")) e.preventDefault();
-  });
-  document.addEventListener("drop",async e=>{
-    if(!e.dataTransfer.types.includes("Files")) return;
-    e.preventDefault();
-    externalDragCounter=0;
-    el("globalDropzone").classList.remove("active");
-    const files=e.dataTransfer.files;
-    if(!files||files.length===0) return;
-    let imported=0, failed=0;
-    for(const file of files){
-      try {
-        const text = await file.text();
-        const r = await post({action:"inbox_import_content", filename:file.name, content:text});
-        if(r.ok) imported++;
-        else { failed++; console.error("import failed:", r.error||r.msg); }
-      } catch(ex) {
-        failed++; console.error("read file error:", ex);
-      }
-    }
-    if(imported>0) toast("已导入 "+imported+" 个文件到待办","success");
-    if(failed>0) toast(failed+" 个文件导入失败","error");
-    if(imported>0) load();
-  });
-  document.addEventListener("keydown",onKeydown);
-  el("kinput").addEventListener("input",()=>renderPalette(el("kinput").value));
-  loadRules();
-})();
-/* ── 快捷键系统（P0）── */
 function isTyping(e){
   const t=e.target||{};
   const tag=(t.tagName||"").toUpperCase();
@@ -1253,8 +1170,7 @@ async function load(force){
     if(force||h!==lastHash){
       lastHash=h; TASKS=d; refreshTagFilter(); render();
       refreshPreviewIfOpen();
-      updateInboxBadge();
-    }
+      }
   }catch(err){console.error("load failed",err);}
 }
 async function loadRoadmap(force){
@@ -2638,156 +2554,8 @@ function addNotify(msg,type="info"){
   if(NOTIFY_CACHE.length>50) NOTIFY_CACHE.pop();
   localStorage.setItem("tegula_notify",JSON.stringify(NOTIFY_CACHE));
 }
-
-// ── 个人待办 Inbox ──
-let INBOX_CACHE=[];
-function openInbox(){
-  loadInbox();
-  el("inboxOverlay").style.display="flex";
-  setTimeout(()=>el("inboxInput").focus(),50);
-}
-function closeInbox(){el("inboxOverlay").style.display="none";}
-async function loadInbox(){
-  try{
-    const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"inbox_list"})});
-    const d=await r.json();
-    INBOX_CACHE=d.inbox||[];
-    renderInbox();
-    updateInboxBadge();
-  }catch(e){
-    INBOX_CACHE=[];
-    renderInbox();
-  }
-}
-function renderInbox(){
-  const list=el("inboxList");
-  if(!INBOX_CACHE.length){
-    list.innerHTML='<div class="empty">Inbox 为空，快速捕获你的想法...</div>';
-    return;
-  }
-  list.innerHTML="";
-  INBOX_CACHE.forEach(t=>{
-    const div=document.createElement("div");
-    div.className="inbox-item";
-    div.innerHTML='<span class="id" title="点击复制ID" style="cursor:pointer" onclick="copyText(\''+esc(t.id)+'\')">'+esc(t.id)+'</span>'+
-      '<span class="txt" style="cursor:pointer" onclick="viewInbox(\''+esc(t.id)+'\')" title="点击查看">'+esc(t.标题||"(无标题)")+'</span>'+
-      '<span class="acts">'+
-      '<button onclick="viewInbox(\''+esc(t.id)+'\')" title="查看/编辑">✎</button>'+
-      '<button onclick="inboxPromote(\''+esc(t.id)+'\')" title="提升为正式任务">⬆</button>'+
-      '<button class="del" onclick="inboxDismiss(\''+esc(t.id)+'\')" title="删除">✕</button>'+
-      '</span>';
-    list.appendChild(div);
-  });
-}
-async function addInbox(){
-  const inp=el("inboxInput");
-  const v=(inp.value||"").trim();
-  if(!v)return;
-  const r=await post({action:"inbox_add",text:v},{silent:true});
-  if(!r.ok){toast("添加失败："+(r.msg||"未知错误"),"error");return}
-  inp.value="";
-  toast("已捕获到 inbox","success");
-  loadInbox();
-  addLog("Inbox 捕获: "+v,"op");
-}
-async function inboxPromote(id){
-  const r=await post({action:"inbox_promote",id});
-  if(r.ok){toast("已提升为正式任务","success");loadInbox();addLog("Inbox 提升: "+id,"op");}
-  else{toast("提升失败："+r.msg,"error");}
-}
-async function inboxDismiss(id){
-  if(!confirm("删除此待办？"))return;
-  const r=await post({action:"inbox_dismiss",id});
-  if(r.ok){toast("已删除","success");loadInbox();addLog("Inbox 删除: "+id,"op");}
-  else{toast("删除失败："+r.msg,"error");}
-}
-function copyText(text){
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(()=>{
-      toast("已复制: "+text,"success");
-    }).catch(()=>{
-      fallbackCopy(text);
-    });
-  }else{
-    fallbackCopy(text);
-  }
-}
-function fallbackCopy(text){
-  const ta=document.createElement("textarea");
-  ta.value=text;
-  ta.style.position="fixed";
-  ta.style.opacity="0";
-  document.body.appendChild(ta);
-  ta.select();
-  try{document.execCommand("copy");toast("已复制: "+text,"success");}
-  catch(e){toast("复制失败","error");}
-  document.body.removeChild(ta);
-}
-function viewInbox(id){
-  const t=INBOX_CACHE.find(x=>x.id===id);
-  if(!t)return;
-  const html='<div style="padding:8px">'+
-    '<div style="margin-bottom:12px">'+
-    '<label style="display:block;font-size:11px;color:#666;margin-bottom:4px">任务编号</label>'+
-    '<div style="display:flex;gap:6px;align-items:center">'+
-    '<code style="flex:1;padding:6px 10px;background:#f5f5f5;border-radius:4px;font-size:12px">'+esc(t.id)+'</code>'+
-    '<button onclick="copyText(\''+esc(t.id)+'\')" title="复制ID" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;cursor:pointer">📋</button>'+
-    '</div></div>'+
-    '<div style="margin-bottom:12px">'+
-    '<label style="display:block;font-size:11px;color:#666;margin-bottom:4px">标题</label>'+
-    '<input id="viewInboxTitle" value="'+esc(t.标题||"")+'" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:13px">'+
-    '</div>'+
-    '<div style="margin-bottom:12px">'+
-    '<label style="display:block;font-size:11px;color:#666;margin-bottom:4px">内容（附言）</label>'+
-    '<textarea id="viewInboxBody" style="width:100%;min-height:120px;padding:8px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:13px;resize:vertical">'+esc(t.附言||"")+'</textarea>'+
-    '</div>'+
-    '<div style="display:flex;gap:8px;justify-content:flex-end">'+
-    '<button onclick="closeViewInbox()" style="padding:6px 14px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer">关闭</button>'+
-    '<button onclick="copyInboxForAgent(\''+esc(t.id)+'\')" style="padding:6px 14px;border:1px solid #6366f1;border-radius:4px;background:#6366f1;color:#fff;cursor:pointer">📎 复制给Agent</button>'+
-    '<button onclick="saveViewInbox(\''+esc(t.id)+'\')" style="padding:6px 14px;border:none;border-radius:4px;background:#10b981;color:#fff;cursor:pointer">保存修改</button>'+
-    '</div>'+
-    '</div>';
-  el("viewInboxContent").innerHTML=html;
-  el("viewInboxOverlay").style.display="flex";
-}
-function closeViewInbox(){el("viewInboxOverlay").style.display="none";}
-async function saveViewInbox(id){
-  const title=el("viewInboxTitle").value;
-  const body=el("viewInboxBody").value;
-  const r=await post({action:"inbox_edit",id,fields:{标题:title,附言:body}});
-  if(r.ok){toast("已保存","success");closeViewInbox();loadInbox();}
-  else{toast("保存失败: "+r.msg,"error");}
-}
-function copyInboxForAgent(id){
-  const t=INBOX_CACHE.find(x=>x.id===id);
-  if(!t)return;
-  const text="任务 "+t.id+"《"+t.标题+"》\n\n"+(t.附言||"");
-  copyText(text);
-}
-async function cronCheck(){
-  const r=await post({action:"cron_check"});
-  if(r.ok){
-    if(r.reactivated&&r.reactivated.length){
-      toast("已重新激活 "+r.reactivated.length+" 个周期任务","success");
-      addLog("周期任务重新激活: "+r.reactivated.join(", "),"sys");
-    }else{
-      toast("无周期任务需要触发","info");
-    }
-  }
-}
-function updateInboxBadge(){
-  const badge=el("inboxBadge");
-  const n=INBOX_CACHE.length;
-  if(n>0){badge.style.display="";badge.textContent=n>99?"99+":n;}
   else{badge.style.display="none";}
 }
-// 回车添加
-document.addEventListener("keydown",function(e){
-  if(e.key==="Enter"&&document.activeElement&&document.activeElement.id==="inboxInput"){
-    e.preventDefault();addInbox();
-  }
-});
-
 // ── 笔记模块 ──
 let NOTES_CACHE = [];
 let CUR_NOTE_ID = null;

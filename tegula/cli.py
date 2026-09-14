@@ -8,7 +8,7 @@ from tegula.core import (
     ALLOWED_SYNC_PROFILE, AGENT_RUNS_LOG, _AGENT_CMD_MAP, RULES_PATH,
     DEFAULT_RULES, LAST_REQUEST, _STATUS_CACHE, STATUS_TTL, WRITE_ACTIONS,
     _STATUS_SCAN_LOCK, QUICK_PRIO, PORT_FILE, _NOTES_DIR, _NOTES_INDEX,
-    _PERSONAL_PROJECT, _INBOX_TAG, _RECURRING_FIELD, _ROADMAP_CACHE,
+    _ROADMAP_CACHE,
     ROADMAP_TTL, _ROADMAP_HISTORY, ROADMAP_HISTORY_MAX, MCP_METHODS,
     _init_data_dir, _coerce, parse_registry, load_all_projects,
     scan_services, _port_in_use, start_service, stop_service,
@@ -34,9 +34,7 @@ from tegula.core import (
     find_timeout_tasks, _ensure_notes_dir, _load_notes_index,
     _save_notes_index, _gen_note_id, api_note_create, api_note_get,
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
-    api_notes_for_task, api_note_import_file, _parse_cron,
-    _should_fire_cron, check_recurring_tasks, _match_context,
-    api_inbox_add, api_inbox_dismiss, api_inbox_promote, api_inbox_import_file, _batch_status,
+    api_notes_for_task, api_note_import_file,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,
@@ -976,48 +974,7 @@ def cmd_plan_get(args):
     return None
 
 
-# ---------- 个人待办模块 CLI 命令 ----------
 
-def cmd_inbox_add(args):
-    """快速捕获一行文字进 inbox。"""
-    ok, result = api_inbox_add(args.text)
-    if ok:
-        print(f"已捕获到 inbox: {result}")
-    else:
-        print(f"捕获失败: {result}")
-
-
-def cmd_inbox_list(args):
-    """列出 inbox 中的待办。"""
-    inbox_tasks = []
-    for t in load_tasks(view="active"):
-        tags = t.get("标签") or []
-        if "inbox" in tags:
-            inbox_tasks.append(t)
-    if not inbox_tasks:
-        print("Inbox 为空")
-        return
-    print(f"Inbox 待办 ({len(inbox_tasks)}):")
-    for t in inbox_tasks:
-        print(f"  {t['id']} | {t.get('标题', '(无标题)')}")
-
-
-def cmd_inbox_promote(args):
-    """将 inbox 任务提升为正式任务。"""
-    ok, msg = api_inbox_promote(args.id)
-    if ok:
-        print(f"已提升 {args.id} 为正式任务")
-    else:
-        print(f"提升失败: {msg}")
-
-
-def cmd_inbox_dismiss(args):
-    """删除 inbox 中的任务。"""
-    ok, msg = api_inbox_dismiss(args.id)
-    if ok:
-        print(f"已删除 {args.id}")
-    else:
-        print(f"删除失败: {msg}")
 
 
 def cmd_cron_check(args):
@@ -1079,6 +1036,63 @@ def cmd_note(args):
             print(f"已导入: {msg}")
         else:
             print(f"导入失败: {msg}")
+
+
+def cmd_export_tasks(args):
+    """导出任务到 JSON 文件。"""
+    import json
+    project_id = getattr(args, "project", None)
+    result = api_export_tasks(project_id)
+    if not result.get("ok"):
+        print(f"导出失败: {result.get('msg')}")
+        return
+    output = args.output or f"tasks-export-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(result["data"], f, ensure_ascii=False, indent=2)
+    print(f"已导出 {result['count']} 个任务到: {output}")
+
+
+def cmd_import_tasks(args):
+    """从 JSON 文件导入任务。"""
+    import json
+    if not os.path.exists(args.path):
+        print(f"文件不存在: {args.path}")
+        return
+    with open(args.path, encoding="utf-8") as f:
+        data = json.load(f)
+    result = api_import_tasks(data)
+    if result.get("ok"):
+        print(f"已导入 {result['imported']} 个任务")
+    else:
+        print(f"导入失败: {result.get('msg')}")
+
+
+def cmd_export_notes(args):
+    """导出笔记到 JSON 文件。"""
+    import json
+    result = api_export_notes()
+    if not result.get("ok"):
+        print(f"导出失败: {result.get('msg')}")
+        return
+    output = args.output or f"notes-export-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(result["data"], f, ensure_ascii=False, indent=2)
+    print(f"已导出 {result['count']} 条笔记到: {output}")
+
+
+def cmd_import_notes(args):
+    """从 JSON 文件导入笔记。"""
+    import json
+    if not os.path.exists(args.path):
+        print(f"文件不存在: {args.path}")
+        return
+    with open(args.path, encoding="utf-8") as f:
+        data = json.load(f)
+    result = api_import_notes(data)
+    if result.get("ok"):
+        print(f"已导入 {result['imported']} 条笔记")
+    else:
+        print(f"导入失败: {result.get('msg')}")
 
 
 def cmd_startpage(args):
@@ -1396,21 +1410,7 @@ def main():
     pl_get.add_argument("tid", help="规划任务 id")
     pl_get.set_defaults(func=cmd_plan_get)
     
-    # 个人待办模块 CLI
-    ib = sub.add_parser("inbox", help="个人待办：快速捕获/查看/提升/删除")
-    ib_sub = ib.add_subparsers(dest="inbox_cmd")
-    ib_add = ib_sub.add_parser("add", help="快速捕获一行文字进 inbox")
-    ib_add.add_argument("text", help="待办内容")
-    ib_add.set_defaults(func=cmd_inbox_add)
-    ib_list = ib_sub.add_parser("list", help="列出 inbox 中的待办")
-    ib_list.set_defaults(func=cmd_inbox_list)
-    ib_promote = ib_sub.add_parser("promote", help="将 inbox 任务提升为正式任务")
-    ib_promote.add_argument("id", help="任务 id")
-    ib_promote.set_defaults(func=cmd_inbox_promote)
-    ib_dismiss = ib_sub.add_parser("dismiss", help="删除 inbox 中的任务")
-    ib_dismiss.add_argument("id", help="任务 id")
-    ib_dismiss.set_defaults(func=cmd_inbox_dismiss)
-    
+
     ck = sub.add_parser("cron", help="检查并触发周期任务")
     ck.set_defaults(func=cmd_cron_check)
     
@@ -1443,6 +1443,26 @@ def main():
     nt_import.add_argument("path", help="文件路径")
     nt_import.add_argument("--task", default=None, help="关联的任务 ID")
     nt_import.set_defaults(func=cmd_note)
+    
+    # 数据导出/导入
+    ex = sub.add_parser("export", help="导出数据（JSON）")
+    ex_sub = ex.add_subparsers(dest="ex_cmd")
+    ex_tasks = ex_sub.add_parser("tasks", help="导出任务")
+    ex_tasks.add_argument("--project", default=None, help="按项目过滤")
+    ex_tasks.add_argument("--output", default=None, help="输出文件路径")
+    ex_tasks.set_defaults(func=cmd_export_tasks)
+    ex_notes = ex_sub.add_parser("notes", help="导出笔记")
+    ex_notes.add_argument("--output", default=None, help="输出文件路径")
+    ex_notes.set_defaults(func=cmd_export_notes)
+    
+    im = sub.add_parser("import", help="导入数据（JSON）")
+    im_sub = im.add_subparsers(dest="im_cmd")
+    im_tasks = im_sub.add_parser("tasks", help="导入任务")
+    im_tasks.add_argument("path", help="JSON 文件路径")
+    im_tasks.set_defaults(func=cmd_import_tasks)
+    im_notes = im_sub.add_parser("notes", help="导入笔记")
+    im_notes.add_argument("path", help="JSON 文件路径")
+    im_notes.set_defaults(func=cmd_import_notes)
     
     args = p.parse_args()
     if not getattr(args, "func", None):

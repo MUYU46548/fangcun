@@ -2834,20 +2834,6 @@ def api_note_import_file(file_path=None, task_id=None, content=None, filename=No
     return api_note_create(title, content, task_id)
 
 
-def api_inbox_import_content(filename, content):
-    """浏览器端：从文件内容导入为 inbox 任务。"""
-    title = os.path.splitext(filename)[0] if filename else "导入的文件"
-    if content.startswith("# "):
-        lines = content.split("\n", 1)
-        title = lines[0][2:].strip() or title
-        body = lines[1].strip() if len(lines) > 1 else ""
-    else:
-        body = content.strip()
-    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
-    ok, tid = api_new(fields)
-    return (ok, tid) if ok else (ok, tid)
-
-
 def api_note_import_content(filename, content, task_id=None):
     """浏览器端：从文件内容导入笔记。"""
     title = os.path.splitext(filename or "untitled")[0]
@@ -2857,292 +2843,79 @@ def api_note_import_content(filename, content, task_id=None):
         content = lines[1].strip() if len(lines) > 1 else ""
     return api_note_create(title, content, task_id)
 
-# ---------- 个人待办模块（P0）：快速捕获 + 周期任务 + 情境感知 ----------
-_PERSONAL_PROJECT = "personal"
-_INBOX_TAG = "inbox"
-_RECURRING_FIELD = "cron"
 
-def _parse_cron(cron_str):
-    """解析简单的 cron 表达式。
-    
-    支持的格式：
-      - "daily" / "weekly" / "monthly"
-      - "daily 09:00" / "weekly mon 09:00" / "monthly 1 09:00"
-      - "*/30" (每30分钟)
-    
-    返回 dict: {type: daily/weekly/monthly/interval, hour: int|None, minute: int|None, weekday: int|0-6, day: int|1-31, interval_min: int|None}
-    解析失败返回 None。
-    """
-    if not cron_str or not isinstance(cron_str, str):
-        return None
-    s = cron_str.strip().lower()
-    if not s:
-        return None
-    
-    # 简单间隔：*/30
-    m = re.match(r"^\*/(\d+)$", s)
-    if m:
-        return {"type": "interval", "interval_min": int(m.group(1)), "hour": None, "minute": None}
-    
-    parts = s.split()
-    if not parts:
-        return None
-    
-    cron_type = parts[0]
-    if cron_type == "daily":
-        result = {"type": "daily", "hour": 9, "minute": 0}
-        if len(parts) >= 2:
-            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[1])
-            if hm:
-                result["hour"] = int(hm.group(1))
-                result["minute"] = int(hm.group(2))
-        return result
-    elif cron_type == "weekly":
-        result = {"type": "weekly", "weekday": 0, "hour": 9, "minute": 0}
-        weekdays = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-        if len(parts) >= 2 and parts[1] in weekdays:
-            result["weekday"] = weekdays[parts[1]]
-        if len(parts) >= 3:
-            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[2])
-            if hm:
-                result["hour"] = int(hm.group(1))
-                result["minute"] = int(hm.group(2))
-        return result
-    elif cron_type == "monthly":
-        result = {"type": "monthly", "day": 1, "hour": 9, "minute": 0}
-        if len(parts) >= 2 and parts[1].isdigit():
-            result["day"] = min(int(parts[1]), 28)
-        if len(parts) >= 3:
-            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[2])
-            if hm:
-                result["hour"] = int(hm.group(1))
-                result["minute"] = int(hm.group(2))
-        return result
-    return None
-
-
-def _should_fire_cron(cron_cfg, now=None):
-    """检查 cron 配置是否应该在当前时刻触发（基于 last_fired 时间）。
-    
-    由于方寸是文件存储，我们使用一个 JSON 文件记录上次触发时间。
-    触发条件：当前时间 >= 下次触发时间。
-    """
-    if not cron_cfg:
-        return False
-    now = now or datetime.datetime.now()
-    cron_type = cron_cfg.get("type")
-    
-    # 读取上次触发时间
-    state_file = os.path.join(TASK_DIR, ".cron-state.json")
+def api_export_tasks(project_id=None):
+    """导出任务为 JSON 格式。"""
     try:
-        with open(state_file, encoding="utf-8") as f:
-            state = json.load(f)
-    except Exception:
-        state = {}
-    
-    if cron_type == "interval":
-        interval = cron_cfg.get("interval_min", 60)
-        last = state.get("interval_last")
-        if not last:
-            # 首次触发
-            state["interval_last"] = now.isoformat()
-            try:
-                with open(state_file, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False)
-            except Exception:
-                pass
-            return True
-        try:
-            last_dt = datetime.datetime.fromisoformat(last)
-            if (now - last_dt).total_seconds() >= interval * 60:
-                state["interval_last"] = now.isoformat()
-                try:
-                    with open(state_file, "w", encoding="utf-8") as f:
-                        json.dump(state, f, ensure_ascii=False)
-                except Exception:
-                    pass
-                return True
-        except Exception:
-            pass
-        return False
-    
-    elif cron_type == "daily":
-        target_hour = cron_cfg.get("hour", 9)
-        target_minute = cron_cfg.get("minute", 0)
-        last_key = f"daily_{target_hour}_{target_minute}"
-        last = state.get(last_key)
-        today_trigger = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-        if now >= today_trigger:
-            if not last or last != now.strftime("%Y-%m-%d"):
-                state[last_key] = now.strftime("%Y-%m-%d")
-                try:
-                    with open(state_file, "w", encoding="utf-8") as f:
-                        json.dump(state, f, ensure_ascii=False)
-                except Exception:
-                    pass
-                return True
-        return False
-    
-    elif cron_type == "weekly":
-        target_weekday = cron_cfg.get("weekday", 0)
-        target_hour = cron_cfg.get("hour", 9)
-        target_minute = cron_cfg.get("minute", 0)
-        if now.weekday() != target_weekday:
-            return False
-        last_key = f"weekly_{target_weekday}_{target_hour}_{target_minute}"
-        last = state.get(last_key)
-        today_str = now.strftime("%Y-%m-%d")
-        if not last or last != today_str:
-            state[last_key] = today_str
-            try:
-                with open(state_file, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False)
-            except Exception:
-                pass
-            return True
-        return False
-    
-    elif cron_type == "monthly":
-        target_day = cron_cfg.get("day", 1)
-        target_hour = cron_cfg.get("hour", 9)
-        target_minute = cron_cfg.get("minute", 0)
-        if now.day != target_day:
-            return False
-        last_key = f"monthly_{target_day}_{target_hour}_{target_minute}"
-        last = state.get(last_key)
-        month_str = now.strftime("%Y-%m")
-        if not last or last != month_str:
-            state[last_key] = month_str
-            try:
-                with open(state_file, "w", encoding="utf-8") as f:
-                    json.dump(state, f, ensure_ascii=False)
-            except Exception:
-                pass
-            return True
-        return False
-    
-    return False
-
-
-def check_recurring_tasks():
-    """检查所有带有 cron 字段的已完成任务，如果需要则重新激活。
-    
-    返回被重新激活的任务 id 列表。
-    """
-    reactivated = []
-    for base in _all_task_dirs():
-        if not os.path.isdir(base):
-            continue
-        for fn in os.listdir(base):
-            if not fn.endswith(".md") or fn.startswith("_"):
-                continue
-            full = os.path.join(base, fn)
-            if not os.path.isfile(full):
-                continue
-            d = parse_task(full)
-            if not d:
-                continue
-            cron_str = d.get("cron")
-            if not cron_str:
-                continue
-            cron_cfg = _parse_cron(cron_str)
-            if not cron_cfg:
-                continue
-            
-            status = d.get("状态")
-            if status == "完成" and _should_fire_cron(cron_cfg):
-                # 重新激活：重置状态为待办，清空方案勾选
-                d["状态"] = "待办"
-                d["更新"] = _bump_version(d.get("更新"))
-                plan = d.get("方案") or []
-                if plan:
-                    d["方案"] = [re.sub(r"\[x\]", "[ ]", s, flags=re.I) for s in plan]
-                write_task_file(full, d)
-                reactivated.append(d.get("id"))
-                log_activity("cron_reactivate", d.get("id"), cron_str)
-    
-    return reactivated
-
-
-def _match_context(task_contexts, current_contexts):
-    """检查任务的情境是否与当前情境匹配。
-    
-    task_contexts: list of str, e.g. ["@home", "@work"]
-    current_contexts: list of str, e.g. ["@work"]
-    
-    如果任务没有 context 字段或为空，则默认匹配所有情境。
-    """
-    if not task_contexts:
-        return True
-    if not current_contexts:
-        return True
-    return any(ctx in current_contexts for ctx in task_contexts)
-
-
-def api_inbox_add(text):
-    """快速捕获：一行文字直接进 inbox（待办状态 + inbox 标签）。
-    
-    返回 (ok, tid_or_err)。
-    """
-    fields = {"标题": text.strip(), "状态": "待办", "标签": [_INBOX_TAG], "来源": "capture"}
-    return api_new(fields)
-
-
-def api_inbox_dismiss(tid):
-    """将 inbox 中的任务从待办移到回收站（标记删除）。"""
-    return api_delete(tid)
-
-
-def api_inbox_import_file(file_path):
-    """从文件导入为 inbox 任务（CLI/Electron 传路径版）。"""
-    if not os.path.exists(file_path):
-        return False, "file not found"
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            content = f.read()
+        tasks = load_tasks(view="active")
+        if project_id:
+            tasks = [t for t in tasks if project_id in (t.get("项目") or [])]
+        cleaned = []
+        for t in tasks:
+            cleaned.append({k: v for k, v in t.items() if not k.startswith("_")})
+        return {"ok": True, "data": cleaned, "count": len(cleaned)}
     except Exception as e:
-        return False, str(e)
-    title = os.path.splitext(os.path.basename(file_path))[0]
-    if content.startswith("# "):
-        lines = content.split("\n", 1)
-        title = lines[0][2:].strip()
-        body = lines[1].strip() if len(lines) > 1 else ""
-    else:
-        body = content.strip()
-    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
-    ok, tid = api_new(fields)
-    return (ok, tid) if ok else (ok, tid)
+        return {"ok": False, "msg": str(e)}
 
 
-def api_inbox_import_content(filename, content):
-    """浏览器端：从文件内容导入为 inbox 任务。"""
-    title = os.path.splitext(filename)[0] if filename else "导入的文件"
-    if content.startswith("# "):
-        lines = content.split("\n", 1)
-        title = lines[0][2:].strip() or title
-        body = lines[1].strip() if len(lines) > 1 else ""
-    else:
-        body = content.strip()
-    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
-    ok, tid = api_new(fields)
-    return (ok, tid) if ok else (ok, tid)
+def api_export_notes():
+    """导出所有笔记为 JSON 格式。"""
+    try:
+        notes = []
+        for nid in _load_notes_index().get("__all__", []):
+            n = api_note_get(nid)
+            if n:
+                notes.append(n)
+        if os.path.isdir(_NOTES_DIR):
+            for fn in os.listdir(_NOTES_DIR):
+                if fn.endswith(".md"):
+                    nid = fn[:-3]
+                    if not any(n["id"] == nid for n in notes):
+                        n = api_note_get(nid)
+                        if n:
+                            notes.append(n)
+        return {"ok": True, "data": notes, "count": len(notes)}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
 
 
-def api_inbox_promote(tid):
-    """将 inbox 中的任务提升为正式任务（去掉 inbox 标签，保持待办）。"""
-    fn = locate_task(tid)
-    if not fn:
-        return False, "not found"
-    d = parse_task(fn)
-    if not d:
-        return False, "parse fail"
-    tags = d.get("标签") or []
-    if _INBOX_TAG in tags:
-        tags = [t for t in tags if t != _INBOX_TAG]
-        d["标签"] = tags
-    d["更新"] = _bump_version(d.get("更新"))
-    write_task_file(fn, d)
-    return True, "ok"
+def api_import_tasks(data):
+    """从 JSON 数据导入任务。"""
+    if not isinstance(data, list):
+        return {"ok": False, "msg": "data must be a list"}
+    imported = 0
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("id"):
+            item["id"] = gen_id()
+        if not item.get("标题"):
+            item["标题"] = "(无标题)"
+        if not item.get("状态"):
+            item["状态"] = "待办"
+        ok, _ = api_new(item)
+        if ok:
+            imported += 1
+    return {"ok": True, "imported": imported}
+
+
+def api_import_notes(data):
+    """从 JSON 数据导入笔记。"""
+    if not isinstance(data, list):
+        return {"ok": False, "msg": "data must be a list"}
+    imported = 0
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title", "")
+        content = item.get("content", "")
+        task_id = item.get("task_id")
+        ok, _ = api_note_create(title, content, task_id)
+        if ok:
+            imported += 1
+    return {"ok": True, "imported": imported}
+
+
 
 
 # ---------- 路线图（P4）：自动从任务聚合的战略视图 ----------
