@@ -50,8 +50,24 @@
     overflow-x:auto;min-height:60vh}
   .col{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
     min-width:240px;padding:10px;flex:1;box-shadow:var(--shadow)}
+  /* 列状态色（边框左侧加粗彩条）*/
+  .col[data-status="待办"]{border-left:4px solid #9ca3af}
+  .col[data-status="进行中"]{border-left:4px solid #6366f1;background:#fafaff}
+  .col[data-status="待验收"]{border-left:4px solid #f59e0b;background:#fffdf5}
+  .col[data-status="完成"]{border-left:4px solid #10b981;background:#f5fdf8}
+  .col[data-status="驳回"]{border-left:4px solid #ef4444;background:#fdf5f5}
+  .col[data-status="草稿"]{border-left:4px solid #9ca3af}
+  .col[data-status="待审批"]{border-left:4px solid #f59e0b}
   .col.empty{border-style:dashed;opacity:.62;box-shadow:none;background:#fbfbfe}
   .col.dragover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(155,143,196,.22);background:#f4f1fc}
+  /* 列头状态标签 */
+  .col .status-label{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--ink)}
+  .col .status-dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .col[data-status="进行中"] .status-dot{background:#6366f1}
+  .col[data-status="待验收"] .status-dot{background:#f59e0b}
+  .col[data-status="完成"] .status-dot{background:#10b981}
+  .col[data-status="驳回"] .status-dot{background:#ef4444}
+  .col[data-status="待办"] .status-dot{background:#9ca3af}
   .emptyhint{color:var(--muted);font-size:11px;text-align:center;padding:16px 0;
     border:1px dashed var(--border);border-radius:10px;margin-top:2px}
   .col h3{margin:4px 0 10px;font-size:13px;color:var(--muted);font-weight:700;
@@ -82,6 +98,15 @@
   .tag-badge{background:#eef0fb;color:#5b5478;border-radius:6px;font-size:10px;padding:1px 6px;
     font-weight:600;cursor:pointer}
   .tag-badge:hover{filter:brightness(.94)}
+  /* 拖拽状态浮层 */
+  .drag-status-picker{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:999;
+    background:#fff;border:2px solid var(--accent);border-radius:16px;padding:16px 14px;
+    box-shadow:0 8px 32px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:6px}
+  .drag-status-picker .sp-title{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px;text-align:center}
+  .sp-bucket{display:flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid var(--border);
+    border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+  .sp-bucket:hover,.sp-bucket.dragover{background:#f4f1fc;border-color:var(--accent);box-shadow:0 0 0 2px rgba(155,143,196,.22)}
+  .sp-dot{width:12px;height:12px;border-radius:50%;flex:none}
   .doclink{color:#3a6ea5;text-decoration:underline;text-underline-offset:2px;cursor:pointer;
     word-break:break-all}
   .doclink:hover{color:var(--accent);background:#f2effb;border-radius:4px}
@@ -221,6 +246,12 @@
   .flag{font-size:10px;font-weight:600;border-radius:6px;padding:1px 7px;flex:none}
   .f-blk{background:#f6e2e2;color:#8a4343}.f-dirty{background:#f6ecdc;color:#7a5a2e}
   .f-sug{background:#eef0fb;color:#5b5478}.f-remote{background:#e1f0e8;color:#3c6b54}
+  /* 项目页签 - 添加项目卡片 */
+  .tile-add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    border:2px dashed var(--border);background:#fafafa;cursor:pointer;transition:all .15s;min-height:140px}
+  .tile-add:hover{border-color:var(--accent);background:#f4f1fc}
+  .tile-add .add-icon{font-size:32px;color:var(--muted);font-weight:300}
+  .tile-add .add-text{font-size:12px;color:var(--muted);font-weight:600}
   .relrow{margin:12px 2px 4px;font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center}
   .relrow .ln{flex:1;height:1px;background:var(--border)}
   .drawer{display:none;background:#fff;border:1px solid var(--border);border-radius:12px;
@@ -564,13 +595,6 @@
   <button class="vbtn" onclick="openHelp()" title="快捷键帮助">? 快捷键</button>
   <button class="vbtn" id="btnBack" onclick="goBack()" title="返回上一个视图" style="display:none">◀ 返回</button>
 </div>
-<div id="board"></div>
-  <div class="global-dropzone-inner">
-    <div class="global-dropzone-icon">📥</div>
-    <div class="global-dropzone-text">松开鼠标，导入为待办</div>
-    <div class="global-dropzone-hint">支持 .md / .txt 等文本文件</div>
-  </div>
-</div>
 <div id="batchBar" class="batch-bar">
   <span class="hint">点击卡片勾选</span>
   <button onclick="batchSelectAll()" id="btnBatchAll">全选</button>
@@ -682,6 +706,7 @@
     <h3 id="pTitle">任务详情</h3>
     <div id="pBody" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
     <div class="acts">
+      <button class="ghost" onclick="copyTaskId()">📋 复制ID</button>
       <button class="ghost" onclick="closeP()">关闭</button>
       <button class="ghost" onclick="quickDispatch(curId)">⚡ 派活（模式 B）</button>
       <button class="ok" id="btnAccept" style="display:none" onclick="doAccept(curId)">✅ 验收通过</button>
@@ -957,29 +982,47 @@ function clearTagFilter(){applyTagFilter("__all__");}
     openCard(c.dataset.id);
   });
   let dragId=null;
+  let statusPickerEl=null;
+  /* ── 拖拽时显示状态分类桶（右侧浮层，解决目标被遮挡问题）── */
+  function showStatusPicker(){
+    if(statusPickerEl)return;
+    const picker=document.createElement("div");
+    picker.className="drag-status-picker";
+    picker.innerHTML="<div class="sp-title">拖到目标状态</div>"+
+      STATUSES.map(s=>{
+        return '<div class="sp-bucket" data-status="'+esc(s)+'">'+
+          '<span class="sp-dot" style="background:var(--accent)"></span>'+
+          esc(s)+'</div>';
+      }).join("");
+    document.body.appendChild(picker);
+    statusPickerEl=picker;
+  }
+  function hideStatusPicker(){
+    if(statusPickerEl){
+      statusPickerEl.remove();
+      statusPickerEl=null;
+    }
+  }
   el("board").addEventListener("dragstart",e=>{
     const c=e.target.closest(".card");
     if(!c)return;
     dragId=c.dataset.id;
     e.dataTransfer.setData("text/plain",dragId);
-    // 隐藏默认拖拽幻影，用自定义轻量占位
     const img=new Image();
     img.src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     e.dataTransfer.setDragImage(img,0,0);
     c.classList.add("dragging");
+    showStatusPicker();
   });
   el("board").addEventListener("dragend",e=>{
     document.querySelectorAll(".card.dragging").forEach(c=>c.classList.remove("dragging"));
+    hideStatusPicker();
   });
   el("board").addEventListener("dragover",e=>{
     e.preventDefault();
     const col=e.target.closest(".col");
     document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
     if(col) col.classList.add("dragover");
-    // 如果有外部文件，不显示列高亮（而是显示全局落区）
-    if(e.dataTransfer.types.includes("Files")){
-      document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
-    }
   });
   el("board").addEventListener("drop",e=>{
     const col=e.target.closest(".col");
@@ -988,10 +1031,20 @@ function clearTagFilter(){applyTagFilter("__all__");}
     document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
     const st=col.dataset.status;
     if(st&&curView==="active"){ moveStatus(dragId,st); }
+    dragId=null;
+    hideStatusPicker();
   });
-
-  // ── 外部文件拖入（文档级）──
-  document.addEventListener("dragenter",e=>{
+  // 拖拽浮层内的状态桶点击处理
+  document.addEventListener("click",e=>{
+    const bucket=e.target.closest(".sp-bucket");
+    if(!bucket||!dragId)return;
+    const st=bucket.dataset.status;
+    if(st&&curView==="active"&&typeof moveStatus==="function"){
+      moveStatus(dragId,st);
+    }
+    dragId=null;
+    hideStatusPicker();
+  });
 function isTyping(e){
   const t=e.target||{};
   const tag=(t.tagName||"").toUpperCase();
@@ -1483,9 +1536,13 @@ function render() {
       if(!items.length)col.classList.add("empty");
     }
     const h3=document.createElement("h3");
-    const nm=document.createElement("span");nm.textContent=gv;
+    const nm=document.createElement("span");nm.className="status-label";
+    const dot=document.createElement("span");dot.className="status-dot";
+    nm.appendChild(dot);
+    nm.appendChild(document.createTextNode(" " + gv));
     const n=document.createElement("span");n.className="n";n.textContent=items.length;
-    h3.appendChild(nm);h3.appendChild(n);col.appendChild(h3);
+    h3.appendChild(nm);h3.appendChild(n);
+    col.appendChild(h3);
     if(!items.length){
       const hint=document.createElement("div");hint.className="emptyhint";
       hint.textContent=(mode==="status")?"拖入任务":"（空）";
@@ -1783,6 +1840,11 @@ function renderPv(){
   }
   const grid=document.createElement("div");grid.className="pvgrid";
   active.forEach((s,i)=>grid.appendChild(projTile(s,i)));
+  // 添加项目按钮
+  const addBtn=document.createElement("div");addBtn.className="tile tile-add";
+  addBtn.innerHTML='<div class="add-icon">＋</div><div class="add-text">添加项目</div>';
+  addBtn.onclick=()=>{closePvDrawer();openSettings();};
+  grid.appendChild(addBtn);
   board.appendChild(grid);
   if(rel.length){
     const rr=document.createElement("div");rr.className="relrow";
@@ -1951,6 +2013,30 @@ async function openPreview(t){
   }catch(e){}
 }
 function closeP(){el("poverlay").style.display="none";}
+function copyTaskId(){
+  if(!curId)return;
+  const text=curId;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>{
+      toast("已复制: "+text,"success");
+    }).catch(()=>{
+      fallbackCopy(text);
+    });
+  }else{
+    fallbackCopy(text);
+  }
+}
+function fallbackCopy(text){
+  const ta=document.createElement("textarea");
+  ta.value=text;
+  ta.style.position="fixed";
+  ta.style.opacity="0";
+  document.body.appendChild(ta);
+  ta.select();
+  try{document.execCommand("copy");toast("已复制: "+text,"success");}
+  catch(e){toast("复制失败","error");}
+  document.body.removeChild(ta);
+}
 async function togglePlan(ev,i){
   ev.stopPropagation();
   const t=TASKS.find(x=>x.id===curId);
