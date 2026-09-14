@@ -16,6 +16,8 @@ projects:
     repo: E:/CODE/CangKu/fangcun
     tools: [python, grep]
     sources: []
+    状态: 活跃开发中（启动台+看板增强）
+    路线图: 任务调度台核心能力完善，CLI 先行验证
 
   - id: rosa-chuangzuo
     name: ROSA 创作
@@ -23,6 +25,8 @@ projects:
     repo: E:/图书馆/ROSA
     tools: [grep, python]
     sources: []
+    状态: 内容创作期
+    路线图: 世界观IP持续积累
 
   - id: sitian
     name: 司天
@@ -30,6 +34,8 @@ projects:
     repo: E:/CODE/CangKu/SiTian
     tools: [node, python]
     sources: []
+    状态: 活跃开发中
+    路线图: 地图可视化核心功能
 
   - id: memory-sanctuary
     name: 记忆圣所
@@ -37,6 +43,8 @@ projects:
     repo: E:/CODE/CangKu/memory-sanctuary
     tools: [node, python]
     sources: []
+    状态: 维护期
+    路线图: 待规划
 
   # NovelForge 仓库在 Hermes 中已注册为 project-2（显示名：绒花墨坊），沿用其 slug 不重复创建
   - id: project-2
@@ -52,6 +60,8 @@ projects:
         url: http://127.0.0.1:8765
         start_cmd: E:/CODE/CangKu/NovelForge/.venv/Scripts/python.exe E:/CODE/CangKu/NovelForge/scripts/nf_api.py --port 8765
         stop_cmd: ""
+    状态: API已上线，GUI控制台开发中
+    路线图: 桌面控制台+发布流程完善
 
   # 明鉴仓库在 Hermes 中已注册为 project-3，沿用其 slug 不重复创建
   - id: project-3
@@ -60,6 +70,8 @@ projects:
     repo: E:/CODE/CangKu/MingJian
     tools: [python]
     sources: []
+    状态: 功能开发中
+    路线图: 文章修订工作台
 
   - id: python-workspace
     name: Python工作区
@@ -67,6 +79,8 @@ projects:
     repo: E:/CODE/CangKu/Python_Workspace
     tools: [python]
     sources: []
+    状态: 低频维护
+    路线图: 脚本工具集
 
   - id: zhizhen-chiming
     name: 滞针迟鸣
@@ -74,6 +88,8 @@ projects:
     repo: E:/CODE/CangKu/renpy-8.5.3-sdk/zhizhen-chiming
     tools: [renpy, python]
     sources: []
+    状态: 内容填充期
+    路线图: Ren'Py视觉小说
 
   - id: bianjishi
     name: 设定资料工具库
@@ -81,6 +97,8 @@ projects:
     repo: E:/图书馆/编辑室/设定资料维护工具库
     tools: [python]
     sources: []
+    状态: 低频维护
+    路线图: 编辑工具集
 
   - id: songtao-zhenyun
     name: 松涛真韵
@@ -88,6 +106,8 @@ projects:
     repo: E:/CODE/CangKu/SongTaoZhenYun
     tools: [python]
     sources: []
+    状态: 早期开发
+    路线图: 程序化音频/MIDI生成
 
   # 以下两项 Hermes 中已存在，列于此仅让方寸筛选下拉包含它们（sync 会跳过）。
   - id: quartz
@@ -96,6 +116,8 @@ projects:
     repo: E:/图书馆/quartz
     tools: [node]
     sources: []
+    状态: 已部署（rosawiki.com）
+    路线图: 静态站点维护
 
   - id: rosa-rag
     name: ROSA RAG
@@ -103,6 +125,8 @@ projects:
     repo: E:/AI/rosa_rag
     tools: [python]
     sources: []
+    状态: 运行中
+    路线图: RAG索引+检索优化
 
 # 已发布 / 历史项目：已稳定运行、无后续开发计划的项目移此段。
 # 报告里会折叠为独立小节，健康度统一标 released，不参与活跃排序。

@@ -2759,14 +2759,21 @@ class Handler(BaseHTTPRequestHandler):
             if link:
                 action_btns += f'<a class="app-btn" href="{esc(link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="打开链接">🔗</a>'
 
+            status = p.get("状态", "")
+            roadmap = p.get("路线图", "")
+            status_html = f'<span class="status">{esc(status)}</span>' if status else ""
+            roadmap_html = f'<span class="roadmap">{esc(roadmap)}</span>' if roadmap else ""
+
             cards.append(f"""
             <a class="tool" href="http://127.0.0.1:{port}/?project={esc(pid)}" target="_blank" rel="noopener">
                 <div class="ico">📁</div>
                 <div class="body">
                     <h2>{esc(name)}</h2>
                     <p>{esc(repo)}</p>
+                    {roadmap_html}
                 </div>
                 <span class="port">{esc(tools_str)}</span>
+                <span class="status-tag">{status_html}</span>
                 <span class="app-btns">{action_btns}</span>
             </a>""")
 
@@ -2801,6 +2808,9 @@ h1{{font-size:20px;font-weight:700;letter-spacing:.5px}}
 .tool h2{{font-size:14.5px;font-weight:700;margin-bottom:2px;white-space:nowrap}}
 .tool p{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .tool .port{{font-family:Consolas,monospace;font-size:11px;color:var(--muted);margin-left:auto;flex:none}}
+.tool .status-tag{{flex:none}}
+.tool .status{{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;background:#eef0fb;color:#5b5478;margin-left:6px}}
+.tool .roadmap{{display:block;font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .tool .app-btns{{display:flex;gap:4px;flex:none}}
 .app-btn{{background:#eef0fb;color:#5b5478;border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;line-height:1;transition:all .12s}}
 .app-btn:hover{{background:var(--accent);color:#fff;border-color:var(--accent)}}
