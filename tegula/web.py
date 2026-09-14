@@ -34,7 +34,7 @@ from tegula.core import (
     find_timeout_tasks, _ensure_notes_dir, _load_notes_index,
     _save_notes_index, _gen_note_id, api_note_create, api_note_get,
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
-    api_notes_for_task, api_note_import_file, _parse_cron,
+    api_notes_for_task, api_note_import_file, api_note_import_content, _parse_cron,
     _should_fire_cron, check_recurring_tasks, _match_context,
     api_inbox_add, api_inbox_dismiss, api_inbox_promote, api_inbox_import_file, api_inbox_import_content, _batch_status,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
