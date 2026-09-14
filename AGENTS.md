@@ -1,6 +1,6 @@
 # AGENTS.md — 方寸 (tegula)
 
-**零依赖本地多 agent 任务看板**（Python stdlib，约 2000 行单文件 CLI `tegula.py` + http.server 看板视图，端口 8753）。暮雨全部项目的统一任务入口。
+**零依赖本地多 agent 任务看板**（Python stdlib，约 5500 行单文件 CLI `tegula.py` + http.server 看板视图，端口 8753）。暮雨全部项目的统一任务入口。
 
 ## 技术栈
 
@@ -20,7 +20,7 @@
 
 > 慢变量事实层。运行期产物（project-status.md 等）会变，不在此维护。
 
-- **单文件架构**: 主逻辑几乎全部在 `tegula.py`（~2000 行，cmd_* 函数按子命令命名），无 src 树
+- **单文件架构**: 主逻辑几乎全部在 `tegula.py`（~5500 行，cmd_* 函数按子命令命名），无 src 树
 - **数据流**: `registry.yaml`（项目登记）+ `task-data/*.md`（任务，frontmatter 含 状态/成员/expected_update 锁）→ `tegula.py` 读写 → 看板 `templates/board.html`（零依赖轮询渲染）+ `project-status.md`（`tegula report` 覆盖式生成）
 - **状态机**: 草稿→待审批→待办→进行中→待验收→完成（+驳回），定义在 `tegula.py` 顶部 `STATUSES`
 - **并发纪律**: mtime 乐观锁 + `expected_update` 版本字段（verify.py 检查项 3）；无数据库，文件即数据
@@ -34,8 +34,8 @@
 
 | 锚点 | 期望值 | 核对命令 |
 |---|---|---|
-| 主文件行数 | ~2034 | `wc -l tegula.py` |
-| 子命令数 | 11 | `grep -c "add_parser" tegula.py` |
+| 主文件行数 | ~5500 | `wc -l tegula.py` |
+| 子命令数 | 37 | `grep -c "add_parser" tegula.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量 |
 | registry 项目数 | 12（projects 10 + released 2） | `grep -c "id:" registry.yaml` |
 | 回归用例组 | ≥8 | `grep -c "def check" verify.py` |
@@ -70,5 +70,5 @@
 
 - `docs/tegula-architecture.*` = Archify 架构图生成物（HTML/JSON/视觉验证快照）
 - `docs/pv-check*` = 项目视图手动验证产物；`references/` = 重设计对比稿
-- `verify.py` ~522 行 = 数据层回归（10 个检查组）
+- `verify.py` ~938 行 = 数据层回归（10 个检查组）
 - `scripts/smoke_pythonw.py` = 看板冒烟测试（pythonw 场景）
