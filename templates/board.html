@@ -465,6 +465,17 @@
   #logPanel .log-item .ts{color:var(--muted);font-size:10px;font-family:monospace}
   /* ── 个人待办 Inbox ── */
   .inbox-badge{background:#ef4444;color:#fff;font-size:9px;padding:1px 5px;border-radius:9px;font-weight:700;vertical-align:super}
+  /* ── 全局拖放落区（外部文件导入待办）── */
+  .global-dropzone{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;
+    background:rgba(60,65,80,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    pointer-events:none;transition:opacity .15s;opacity:0}
+  .global-dropzone.active{display:flex;opacity:1}
+  .global-dropzone-inner{text-align:center;padding:48px 64px;border-radius:24px;
+    background:rgba(255,255,255,.10);border:2px dashed rgba(255,255,255,.35);
+    box-shadow:0 8px 32px rgba(0,0,0,.25)}
+  .global-dropzone-icon{font-size:56px;margin-bottom:16px}
+  .global-dropzone-text{font-size:22px;font-weight:600;color:#fff;margin-bottom:8px}
+  .global-dropzone-hint{font-size:13px;color:rgba(255,255,255,.65)}
   #inboxOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
     display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
   #inboxPanel{background:#fff;border-radius:16px;padding:18px 22px;width:540px;max-height:80vh;
@@ -580,6 +591,13 @@
   <button class="vbtn" id="btnBack" onclick="goBack()" title="返回上一个视图" style="display:none">◀ 返回</button>
 </div>
 <div id="board"></div>
+<div id="globalDropzone" class="global-dropzone">
+  <div class="global-dropzone-inner">
+    <div class="global-dropzone-icon">📥</div>
+    <div class="global-dropzone-text">松开鼠标，导入为待办</div>
+    <div class="global-dropzone-hint">支持 .md / .txt 等文本文件</div>
+  </div>
+</div>
 <div id="batchBar" class="batch-bar">
   <span class="hint">点击卡片勾选</span>
   <button onclick="batchSelectAll()" id="btnBatchAll">全选</button>
@@ -972,6 +990,7 @@ function clearTagFilter(){applyTagFilter("__all__");}
     openCard(c.dataset.id);
   });
   let dragId=null;
+  let externalDragCounter=0; // 嵌套 dragenter/dragleave 计数器
   el("board").addEventListener("dragstart",e=>{
     const c=e.target.closest(".card");
     if(!c)return;
@@ -991,6 +1010,10 @@ function clearTagFilter(){applyTagFilter("__all__");}
     const col=e.target.closest(".col");
     document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
     if(col) col.classList.add("dragover");
+    // 如果有外部文件，不显示列高亮（而是显示全局落区）
+    if(e.dataTransfer.types.includes("Files")){
+      document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
+    }
   });
   el("board").addEventListener("drop",e=>{
     const col=e.target.closest(".col");
@@ -999,6 +1022,40 @@ function clearTagFilter(){applyTagFilter("__all__");}
     document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
     const st=col.dataset.status;
     if(st&&curView==="active"){ moveStatus(dragId,st); }
+  });
+
+  // ── 外部文件拖入（文档级）──
+  document.addEventListener("dragenter",e=>{
+    if(!e.dataTransfer.types.includes("Files")) return;
+    externalDragCounter++;
+    el("globalDropzone").classList.add("active");
+  });
+  document.addEventListener("dragleave",e=>{
+    if(!e.dataTransfer.types.includes("Files")) return;
+    externalDragCounter=Math.max(0,externalDragCounter-1);
+    if(externalDragCounter===0){
+      el("globalDropzone").classList.remove("active");
+    }
+  });
+  document.addEventListener("dragover",e=>{
+    if(e.dataTransfer.types.includes("Files")) e.preventDefault();
+  });
+  document.addEventListener("drop",async e=>{
+    if(!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    externalDragCounter=0;
+    el("globalDropzone").classList.remove("active");
+    const files=e.dataTransfer.files;
+    if(!files||files.length===0) return;
+    let imported=0, failed=0;
+    for(const file of files){
+      const r=await post({action:"inbox_import_file",path:file.path});
+      if(r.ok) imported++;
+      else { failed++; console.error("import failed:",r.error||r.msg); }
+    }
+    if(imported>0) toast("已导入 "+imported+" 个文件到待办","success");
+    if(failed>0) toast(failed+" 个文件导入失败","error");
+    if(imported>0) load();
   });
   document.addEventListener("keydown",onKeydown);
   el("kinput").addEventListener("input",()=>renderPalette(el("kinput").value));

@@ -3064,6 +3064,43 @@ def api_inbox_dismiss(tid):
     return api_delete(tid)
 
 
+def api_inbox_import_file(file_path):
+    """从文件导入为 inbox 任务。
+
+    返回 (ok, tid_or_err)。
+    """
+    if not os.path.exists(file_path):
+        return False, "file not found"
+
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return False, str(e)
+
+    # 从文件名提取标题
+    title = os.path.splitext(os.path.basename(file_path))[0]
+
+    # 如果内容以 # 标题 开头，提取它
+    if content.startswith("# "):
+        lines = content.split("\n", 1)
+        title = lines[0][2:].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+    else:
+        body = content.strip()
+
+    # 创建 inbox 任务：标题 + 附言（文件原文）
+    fields = {
+        "标题": title,
+        "状态": "待办",
+        "标签": [_INBOX_TAG, "file"],
+        "来源": "import",
+        "附言": body,
+    }
+    ok, tid = api_new(fields)
+    return (ok, tid) if ok else (ok, tid)
+
+
 def api_inbox_promote(tid):
     """将 inbox 中的任务提升为正式任务（去掉 inbox 标签，保持待办）。"""
     fn = locate_task(tid)

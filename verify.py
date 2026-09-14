@@ -982,6 +982,37 @@ _next = teg.find_free_port()
 _probe.close()
 check("首选被占用时跳到下一个", isinstance(_next, int) and _next > teg.PORT_POOL_START)
 
+# ---- 21. 文件导入待办 (inbox_import_file) ----
+_saved_td, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "inbox-import-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+try:
+    _md_path = os.path.join(tmpdir, "test-import.md")
+    with open(_md_path, "w", encoding="utf-8") as f:
+        f.write("# 测试导入标题\n\n这是正文内容\n第二行")
+    ok, tid = teg.api_inbox_import_file(_md_path)
+    check("api_inbox_import_file 成功", ok, str(tid))
+    if ok:
+        _d = teg.parse_task(os.path.join(teg.TASK_DIR, tid + ".md"))
+        check("导入后标题正确", _d.get("标题") == "测试导入标题", str(_d.get("标题")))
+        check("导入后状态待办", _d.get("状态") == "待办")
+        check("导入后有inbox标签", "inbox" in (_d.get("标签") or []))
+        check("导入后有file标签", "file" in (_d.get("标签") or []))
+        check("导入后附言为正文", "这是正文内容" in (_d.get("附言") or ""), str(_d.get("附言"))[:80])
+    # 不存在的文件返回错误
+    ok2, err = teg.api_inbox_import_file(os.path.join(tmpdir, "nonexistent.md"))
+    check("不存在的文件返回False", not ok2)
+    # 无 # 标题的文件用文件名
+    _txt_path = os.path.join(tmpdir, "plain-file.txt")
+    with open(_txt_path, "w", encoding="utf-8") as f:
+        f.write("plain text content")
+    ok3, tid3 = teg.api_inbox_import_file(_txt_path)
+    check("txt 文件导入成功", ok3, str(tid3))
+    if ok3:
+        _d3 = teg.parse_task(os.path.join(teg.TASK_DIR, tid3 + ".md"))
+        check("txt 标题来自文件名", _d3.get("标题") == "plain-file", str(_d3.get("标题")))
+finally:
+    teg.TASK_DIR = _saved_td
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))
