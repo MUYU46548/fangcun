@@ -249,6 +249,10 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = api_inbox_promote(req.get("id"))
                 self._send_json({"ok": ok, "msg": msg})
                 return
+            elif action == "inbox_edit":
+                ok, msg = api_edit(req.get("id"), req.get("fields", {}))
+                self._send_json({"ok": ok, "msg": msg})
+                return
             elif action == "inbox_import_file":
                 ok, msg = api_inbox_import_file(req.get("path", ""))
                 if not ok:
