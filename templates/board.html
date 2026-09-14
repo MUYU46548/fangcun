@@ -724,7 +724,9 @@
     <div class="sect">
       <h4>数据管理</h4>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="ghost" onclick="doExport()">📤 导出任务数据</button>
+        <button class="ghost" onclick="doExportTasks()">📤 导出任务</button>
+        <button class="ghost" onclick="doExportNotes()">📤 导出笔记</button>
+        <button class="ghost" onclick="doImport()">📥 导入数据</button>
         <button class="ghost" onclick="doBackup()">💾 立即备份</button>
       </div>
       <div class="hint">导出：下载所有任务为 JSON 文件｜备份：在本地 backups/ 创建 zip 快照</div>
@@ -2284,19 +2286,61 @@ async function projSave(){
   if(r.ok){pendingDelProjects=[];pendingAddProjects=[];el("sMsg").style.color="#3a8";el("sMsg").textContent="项目已保存，刷新看板生效";load(true);}
   else{el("sMsg").style.color="#b35";el("sMsg").textContent="失败："+r.msg;}
 }
-async function doExport(){
-  try{
-    const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"export"})});
-    const d=await r.json();
-    if(!d.ok){toast("导出失败："+(d.msg||"未知错误"),"error");return;}
-    const blob=new Blob([JSON.stringify(d.data,null,2)],{type:"application/json"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download="tegula-export-"+new Date().toISOString().slice(0,10)+".json";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast("导出成功","success");
-  }catch(e){toast("导出出错："+e,"error");}
+async function doExportTasks(){
+  fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"export_tasks"})})
+  .then(r=>r.json()).then(d=>{
+    if(d.ok){
+      const blob=new Blob([JSON.stringify(d.data,null,2)],{type:"application/json"});
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download="tegula-tasks-"+new Date().toISOString().slice(0,10)+".json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast("导出成功","success");
+    }else{
+      toast("导出失败："+d.msg,"error");
+    }
+  }).catch(e=>toast("导出出错："+e,"error"));
+}
+function doExportNotes(){
+  fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"export_notes"})})
+  .then(r=>r.json()).then(d=>{
+    if(d.ok){
+      const blob=new Blob([JSON.stringify(d.data,null,2)],{type:"application/json"});
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download="tegula-notes-"+new Date().toISOString().slice(0,10)+".json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast("导出成功","success");
+    }else{
+      toast("导出失败："+d.msg,"error");
+    }
+  }).catch(e=>toast("导出出错："+e,"error"));
+}
+function doImport(){
+  const input=document.createElement("input");
+  input.type="file";
+  input.accept=".json";
+  input.onchange=async e=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    const text=await file.text();
+    let data;
+    try{ data=JSON.parse(text); }catch(err){ toast("JSON 解析失败","error");return; }
+    const isNotes = Array.isArray(data)&&data[0]&&"title" in data[0];
+    const action = isNotes?"import_notes":"import_tasks";
+    fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,data})})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){
+        toast("导入成功："+d.imported+" 项","success");
+        load();
+      }else{
+        toast("导入失败："+d.msg,"error");
+      }
+    }).catch(err=>toast("导入出错："+err,"error"));
+  };
+  input.click();
 }
 async function doBackup(){
   const r=await post({action:"backup"});

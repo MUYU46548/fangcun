@@ -915,6 +915,63 @@ check("首选被占用时跳到下一个", isinstance(_next, int) and _next > te
 
 teg.TASK_DIR = _saved_td
 
+# ---- 21. 导入导出功能 ----
+import tempfile as _tf
+
+# Create test tasks for export
+_saved_td2, teg.TASK_DIR = teg.TASK_DIR, os.path.join(tmpdir, "export-test")
+os.makedirs(teg.TASK_DIR, exist_ok=True)
+teg.api_new({"标题": "导出测试1", "状态": "待办", "项目": ["fangcun-base"]})
+teg.api_new({"标题": "导出测试2", "状态": "进行中", "项目": ["fangcun-base"]})
+teg.api_new({"标题": "其他项目任务", "状态": "待办", "项目": ["other-proj"]})
+
+# Export by project
+_export_result = teg.api_export_tasks("fangcun-base")
+check("export_tasks 返回 ok", _export_result.get("ok"), str(_export_result.get("msg", "")))
+if _export_result.get("ok"):
+    check("export_tasks 数量正确", _export_result["count"] == 2, str(_export_result["count"]))
+    check("export_tasks 数据是列表", isinstance(_export_result["data"], list))
+
+# Export all tasks (no project filter)
+_export_all = teg.api_export_tasks()
+check("export_tasks 全部", _export_all.get("ok"), str(_export_all.get("msg", "")))
+if _export_all.get("ok"):
+    check("export_tasks 全部数量 >= 3", _export_all["count"] >= 3, str(_export_all["count"]))
+
+# Test import_tasks
+_import_data = [
+    {"标题": "导入测试1", "状态": "待办", "项目": ["test-proj"]},
+    {"标题": "导入测试2", "状态": "进行中", "项目": ["test-proj"]},
+    {"标题": "导入测试3", "状态": "完成", "项目": ["test-proj"]},
+]
+_import_result = teg.api_import_tasks(_import_data)
+check("api_import_tasks 返回 ok", _import_result.get("ok"), str(_import_result.get("msg", "")))
+if _import_result.get("ok"):
+    check("api_import_tasks 数量正确", _import_result["imported"] == 3, str(_import_result["imported"]))
+
+# Test invalid data
+_bad_import = teg.api_import_tasks("not a list")
+check("非列表数据被拒绝", not _bad_import.get("ok"))
+
+# Test export_notes
+_notes_export = teg.api_export_notes()
+check("api_export_notes 返回 ok", _notes_export.get("ok"), str(_notes_export.get("msg", "")))
+
+# Test import_notes
+_notes_import = teg.api_import_notes([
+    {"title": "测试笔记1", "content": "笔记内容1"},
+    {"title": "测试笔记2", "content": "笔记内容2"},
+])
+check("api_import_notes 返回 ok", _notes_import.get("ok"), str(_notes_import.get("msg", "")))
+if _notes_import.get("ok"):
+    check("api_import_notes 数量正确", _notes_import["imported"] == 2, str(_notes_import["imported"]))
+
+# Verify imported notes can be read
+_notes_after = teg.api_export_notes()
+check("导出包含导入的笔记", _notes_after.get("ok") and _notes_after["count"] >= 2)
+
+teg.TASK_DIR = _saved_td2
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))
