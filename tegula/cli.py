@@ -27,7 +27,8 @@ from tegula.core import (
     api_dispatch, allowed_roots, validate_open_path, api_open_file,
     _rules_path, load_rules, save_rules, _plan_all_checked, evaluate_rules,
     esc, _status_snapshot_path, _load_status_snapshot, _read_port_file,
-    _clear_port_file, _diagnose_port_conflict, tegula_alive, find_edge,
+    _write_port_file, _clear_port_file, _diagnose_port_conflict, tegula_alive, find_edge,
+    PORT_POOL_START, PORT_POOL_END, find_free_port,
     check_registry_consistency, _relative_time, _scan_git_remote,
     scan_project_status, suggest_actions, suggest_cross_project,
     find_timeout_tasks, _ensure_notes_dir, _load_notes_index,
@@ -353,9 +354,9 @@ def cmd_open(args):
     if tegula_alive(port):
         reuse = True
     else:
-        free = find_free_port(port)
+        free = find_free_port(PORT_POOL_START, PORT_POOL_END)
         if free is None:
-            print(f"[错误] {port}-8790 端口均被占用。")
+            print(f"[错误] 端口池 [{PORT_POOL_START}-{PORT_POOL_END}] 全部占满。")
             return
         port = free
 
@@ -1198,7 +1199,14 @@ def cmd_launch(args):
 
 
 def cmd_serve(args):
-    """启动本地看板视图。自动处理端口冲突。"""
+    """启动本地看板视图。自动处理端口冲突。
+
+    端口分配策略：
+      1. 读端口文件 → 已有活着的服务就直接复用
+      2. 尝试 --port（默认 8753）→ 空闲就用它
+      3. 被占 → 从端口池 [8753, 8853] 顺序扫描第一个空闲端口
+      4. 全满 → 报错并提示手动指定 --port
+    """
     port = args.port
     tray_mode = getattr(args, "tray", False)
 
@@ -1208,34 +1216,37 @@ def cmd_serve(args):
         print(f"[提示] 方寸看板已在 http://127.0.0.1:{existing}/ 运行（单飞保护，不再起第二个）。")
         return
 
+    actual_port = port
     # 尝试绑定首选端口
     if tegula_alive(port):
+        actual_port = port
         print(f"[提示] 方寸看板已在 http://127.0.0.1:{port}/ 运行（单飞保护，不再起第二个）。")
         _write_port_file(port)
         return
-
-    # 首选端口被占，诊断并自动换
-    actual_port = port
-    test_sock = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM)
-    try:
-        test_sock.bind(("127.0.0.1", port))
-        test_sock.close()
-    except OSError:
-        test_sock.close()
-        # 诊断冲突
-        pid, pname = _diagnose_port_conflict(port)
-        if pid:
-            print(f"[warn] 端口 {port} 被 {pname} (PID {pid}) 占用")
-        else:
-            print(f"[warn] 端口 {port} 被占用（无法识别占用者）")
-        # 自动找端口
-        free = find_free_port(port + 1)
-        if free is None:
-            print(f"[错误] {port}-8790 端口均被占用。")
-            print("       可手动指定：python tegula.py serve --port 9999")
-            return
-        actual_port = free
-        print(f"[warn] 已自动改用端口 {actual_port}")
+    else:
+        # 首选端口是否被其他进程占用？
+        import socket
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind(("127.0.0.1", port))
+            probe.close()
+            # 空闲，直接用
+            actual_port = port
+        except OSError:
+            probe.close()
+            # 被占 → 从端口池自动找
+            pid, pname = _diagnose_port_conflict(port)
+            if pid:
+                print(f"[warn] 端口 {port} 被 {pname} (PID {pid}) 占用，正在自动分配...")
+            else:
+                print(f"[warn] 端口 {port} 被占用（无法识别占用者），正在自动分配...")
+            free = find_free_port(PORT_POOL_START, PORT_POOL_END)
+            if free is None:
+                print(f"[错误] 端口池 [{PORT_POOL_START}-{PORT_POOL_END}] 全部占满。")
+                print("       可手动指定：python tegula.py serve --port 9999")
+                return
+            actual_port = free
+            print(f"[warn] 已自动改用端口 {actual_port}")
 
     # 起服务
     try:

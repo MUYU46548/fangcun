@@ -2168,9 +2168,15 @@ def _create_tray_icon():
     return img
 
 
-def find_free_port(start, end=8790):
+# 端口池：方寸看板自动分配的端口范围（共 101 个端口）
+PORT_POOL_START = 8753
+PORT_POOL_END = 8853
+
+
+def find_free_port(start=PORT_POOL_START, end=PORT_POOL_END):
+    """在 [start, end] 范围内找第一个空闲端口。"""
+    import socket
     for p in range(start, end + 1):
-        import socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
                 s.bind(("127.0.0.1", p))

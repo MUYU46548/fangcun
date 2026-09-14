@@ -966,6 +966,21 @@ finally:
     teg.DATA_DIR = _orig_data_dir
     shutil.rmtree(_notes_tmpdir, ignore_errors=True)
 
+# ---- 20. 端口自动分配 ----
+check("PORT_POOL 起点 8753", teg.PORT_POOL_START == 8753)
+check("PORT_POOL 终点 8853", teg.PORT_POOL_END == 8853)
+check("PORT_POOL 大小 101", teg.PORT_POOL_END - teg.PORT_POOL_START + 1 == 101)
+# 正常找端口
+_free = teg.find_free_port()
+check("find_free_port 返回端口", isinstance(_free, int) and teg.PORT_POOL_START <= _free <= teg.PORT_POOL_END)
+# 占用一个后能找到下一个
+import socket as _sock
+_probe = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+_probe.bind(("127.0.0.1", teg.PORT_POOL_START))
+_probe.listen(1)
+_next = teg.find_free_port()
+_probe.close()
+check("首选被占用时跳到下一个", isinstance(_next, int) and _next > teg.PORT_POOL_START)
 
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
