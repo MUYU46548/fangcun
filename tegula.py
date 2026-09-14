@@ -503,7 +503,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id"}
 
 
 def render_task(d):
@@ -551,6 +551,13 @@ def render_task(d):
         # plan_data 是 dict，序列化为 JSON 字符串
         plan_json = json.dumps(plan_data, ensure_ascii=False)
         lines.append(f"plan: {plan_json}")
+    # Personal module: cron and context fields
+    cron_val = d.get("cron", "")
+    if cron_val:
+        lines.append(f"cron: {cron_val}")
+    ctx_val = d.get("context") or []
+    if ctx_val:
+        lines.append(f"context: [{', '.join(str(x) for x in ctx_val)}]")
     for k, v in unknown.items():
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
@@ -881,6 +888,10 @@ def api_edit(id, fields):
         d["方案"] = fields["方案"]
     if "结果记录" in fields:
         d["结果记录"] = fields["结果记录"]
+    if "cron" in fields:
+        d["cron"] = fields["cron"]
+    if isinstance(fields.get("context"), list):
+        d["context"] = [str(x).strip() for x in fields["context"] if str(x).strip()]
     res = d.get("资源", {}) if isinstance(d.get("资源"), dict) else {}
     if "资源资料" in fields:
         res["资料"] = fields["资源资料"]
@@ -1044,6 +1055,8 @@ def api_new(fields):
         },
         "方案": val("方案", ["- [ ] "]),
         "结果记录": val("结果记录", ""),
+        "cron": fields.get("cron") or "",
+        "context": fields.get("context") or [],
         "创建": _now_ts(),
         "更新": _now_ts(),
     }
@@ -2606,6 +2619,82 @@ class Handler(BaseHTTPRequestHandler):
                 plans = api_plan_list(req.get("view", "active"))
                 self._send_json({"ok": True, "plans": plans})
                 return
+            elif action == "inbox_add":
+                ok, msg = api_inbox_add(req.get("text", ""))
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
+            elif action == "inbox_dismiss":
+                ok, msg = api_inbox_dismiss(req.get("id"))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "inbox_promote":
+                ok, msg = api_inbox_promote(req.get("id"))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "cron_check":
+                reactivated = check_recurring_tasks()
+                self._send_json({"ok": True, "reactivated": reactivated})
+                return
+            elif action == "inbox_list":
+                inbox_tasks = []
+                for t in load_tasks(view="active"):
+                    tags = t.get("标签") or []
+                    if "inbox" in tags:
+                        inbox_tasks.append(t)
+                self._send_json({"ok": True, "inbox": inbox_tasks})
+                return
+            elif action == "note_create":
+                ok, msg = api_note_create(
+                    req.get("title", ""),
+                    req.get("content", ""),
+                    req.get("task_id")
+                )
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
+            elif action == "note_get":
+                note = api_note_get(req.get("id"))
+                if not note:
+                    self._send_json({"ok": False, "error": "not found"})
+                    return
+                self._send_json({"ok": True, "note": note})
+                return
+            elif action == "note_update":
+                ok, msg = api_note_update(
+                    req.get("id"),
+                    req.get("title"),
+                    req.get("content")
+                )
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "note_delete":
+                ok, msg = api_note_delete(req.get("id"))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "note_attach":
+                ok, msg = api_note_attach(req.get("id"), req.get("task_id"))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "note_detach":
+                ok, msg = api_note_detach(req.get("id"), req.get("task_id"))
+                self._send_json({"ok": ok, "msg": msg})
+                return
+            elif action == "notes_for_task":
+                notes = api_notes_for_task(req.get("task_id"))
+                self._send_json({"ok": True, "notes": notes})
+                return
+            elif action == "note_import_file":
+                ok, msg = api_note_import_file(req.get("path"), req.get("task_id"))
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
             else:
                 ok, msg = False, "unknown action"
         except Exception as e:
@@ -3571,6 +3660,450 @@ def find_timeout_tasks(threshold_hours=24):
     timeouts.sort(key=lambda x: -x["hours"])
     return timeouts
 
+
+# ---------- 笔记模块（P0）：文本文件管理 + 任务关联 ----------
+_NOTES_DIR = os.path.join(DATA_DIR, "notes")
+_NOTES_INDEX = os.path.join(TASK_DIR, ".notes-index.json")
+
+def _ensure_notes_dir():
+    """确保笔记目录存在。"""
+    os.makedirs(_NOTES_DIR, exist_ok=True)
+    os.makedirs(TASK_DIR, exist_ok=True)
+
+def _load_notes_index():
+    """加载笔记索引（任务id -> 笔记文件列表的映射）。"""
+    _ensure_notes_dir()
+    if not os.path.exists(_NOTES_INDEX):
+        return {}
+    try:
+        with open(_NOTES_INDEX, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_notes_index(index):
+    """保存笔记索引。"""
+    _ensure_notes_dir()
+    try:
+        tmp = _NOTES_INDEX + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _NOTES_INDEX)
+    except Exception:
+        pass
+
+def _gen_note_id():
+    """生成笔记文件名（时间戳 + 随机后缀）。"""
+    import uuid
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"note_{ts}_{uuid.uuid4().hex[:6]}"
+
+def api_note_create(title="", content="", task_id=None):
+    """创建新笔记。
+    
+    返回 (ok, note_id_or_err)。
+    """
+    _ensure_notes_dir()
+    note_id = _gen_note_id()
+    note_file = os.path.join(_NOTES_DIR, f"{note_id}.md")
+    
+    # 写入笔记文件
+    try:
+        with open(note_file, "w", encoding="utf-8") as f:
+            f.write(f"# {title}\n\n{content}")
+    except Exception as e:
+        return False, str(e)
+    
+    # 更新索引
+    index = _load_notes_index()
+    if task_id:
+        if task_id not in index:
+            index[task_id] = []
+        if note_id not in index[task_id]:
+            index[task_id].append(note_id)
+        _save_notes_index(index)
+    
+    return True, note_id
+
+def api_note_get(note_id):
+    """获取笔记内容。"""
+    note_file = os.path.join(_NOTES_DIR, f"{note_id}.md")
+    if not os.path.exists(note_file):
+        return None
+    try:
+        with open(note_file, encoding="utf-8") as f:
+            text = f.read()
+        # 解析 frontmatter 和正文
+        title = ""
+        content = text
+        if text.startswith("# "):
+            lines = text.split("\n", 2)
+            title = lines[0][2:].strip()
+            content = lines[2].strip() if len(lines) > 2 else ""
+        return {
+            "id": note_id,
+            "title": title,
+            "content": content,
+            "file": note_file,
+            "mtime": int(os.path.getmtime(note_file)),
+        }
+    except Exception:
+        return None
+
+def api_note_update(note_id, title=None, content=None):
+    """更新笔记内容。"""
+    note_file = os.path.join(_NOTES_DIR, f"{note_id}.md")
+    if not os.path.exists(note_file):
+        return False, "not found"
+    
+    try:
+        existing = api_note_get(note_id)
+        if not existing:
+            return False, "not found"
+        
+        new_title = title if title is not None else existing["title"]
+        new_content = content if content is not None else existing["content"]
+        
+        with open(note_file, "w", encoding="utf-8") as f:
+            f.write(f"# {new_title}\n\n{new_content}")
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+def api_note_delete(note_id):
+    """删除笔记。"""
+    note_file = os.path.join(_NOTES_DIR, f"{note_id}.md")
+    if os.path.exists(note_file):
+        try:
+            os.remove(note_file)
+        except Exception:
+            pass
+    
+    # 从索引中移除
+    index = _load_notes_index()
+    for tid in list(index.keys()):
+        if note_id in index[tid]:
+            index[tid].remove(note_id)
+            if not index[tid]:
+                del index[tid]
+    _save_notes_index(index)
+    return True, "ok"
+
+def api_note_attach(note_id, task_id):
+    """将笔记关联到任务。"""
+    index = _load_notes_index()
+    if task_id not in index:
+        index[task_id] = []
+    if note_id not in index[task_id]:
+        index[task_id].append(note_id)
+    _save_notes_index(index)
+    return True, "ok"
+
+def api_note_detach(note_id, task_id):
+    """取消笔记与任务的关联。"""
+    index = _load_notes_index()
+    if task_id in index and note_id in index[task_id]:
+        index[task_id].remove(note_id)
+        if not index[task_id]:
+            del index[task_id]
+    _save_notes_index(index)
+    return True, "ok"
+
+def api_notes_for_task(task_id=None):
+    """获取任务关联的所有笔记（task_id=None 或 '__all__' 返回全部）。"""
+    index = _load_notes_index()
+    notes = []
+    if task_id and task_id != "__all__":
+        note_ids = index.get(task_id, [])
+    else:
+        # 扫描笔记目录获取所有笔记
+        _ensure_notes_dir()
+        note_ids = []
+        for fn in os.listdir(_NOTES_DIR):
+            if fn.endswith('.md'):
+                note_ids.append(fn[:-3])
+    for nid in note_ids:
+        n = api_note_get(nid)
+        if n:
+            notes.append(n)
+    return notes
+
+def api_note_import_file(file_path, task_id=None):
+    """从文件导入笔记。
+    
+    返回 (ok, note_id_or_err)。
+    """
+    if not os.path.exists(file_path):
+        return False, "file not found"
+    
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        return False, str(e)
+    
+    # 从文件名提取标题
+    title = os.path.splitext(os.path.basename(file_path))[0]
+    
+    # 如果内容以 # 标题 开头，提取它
+    if content.startswith("# "):
+        lines = content.split("\n", 1)
+        title = lines[0][2:].strip()
+        content = lines[1].strip() if len(lines) > 1 else ""
+    
+    return api_note_create(title, content, task_id)
+
+# ---------- 个人待办模块（P0）：快速捕获 + 周期任务 + 情境感知 ----------
+_PERSONAL_PROJECT = "personal"
+_INBOX_TAG = "inbox"
+_RECURRING_FIELD = "cron"
+
+def _parse_cron(cron_str):
+    """解析简单的 cron 表达式。
+    
+    支持的格式：
+      - "daily" / "weekly" / "monthly"
+      - "daily 09:00" / "weekly mon 09:00" / "monthly 1 09:00"
+      - "*/30" (每30分钟)
+    
+    返回 dict: {type: daily/weekly/monthly/interval, hour: int|None, minute: int|None, weekday: int|0-6, day: int|1-31, interval_min: int|None}
+    解析失败返回 None。
+    """
+    if not cron_str or not isinstance(cron_str, str):
+        return None
+    s = cron_str.strip().lower()
+    if not s:
+        return None
+    
+    # 简单间隔：*/30
+    m = re.match(r"^\*/(\d+)$", s)
+    if m:
+        return {"type": "interval", "interval_min": int(m.group(1)), "hour": None, "minute": None}
+    
+    parts = s.split()
+    if not parts:
+        return None
+    
+    cron_type = parts[0]
+    if cron_type == "daily":
+        result = {"type": "daily", "hour": 9, "minute": 0}
+        if len(parts) >= 2:
+            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[1])
+            if hm:
+                result["hour"] = int(hm.group(1))
+                result["minute"] = int(hm.group(2))
+        return result
+    elif cron_type == "weekly":
+        result = {"type": "weekly", "weekday": 0, "hour": 9, "minute": 0}
+        weekdays = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+        if len(parts) >= 2 and parts[1] in weekdays:
+            result["weekday"] = weekdays[parts[1]]
+        if len(parts) >= 3:
+            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[2])
+            if hm:
+                result["hour"] = int(hm.group(1))
+                result["minute"] = int(hm.group(2))
+        return result
+    elif cron_type == "monthly":
+        result = {"type": "monthly", "day": 1, "hour": 9, "minute": 0}
+        if len(parts) >= 2 and parts[1].isdigit():
+            result["day"] = min(int(parts[1]), 28)
+        if len(parts) >= 3:
+            hm = re.match(r"^(\d{1,2}):(\d{2})$", parts[2])
+            if hm:
+                result["hour"] = int(hm.group(1))
+                result["minute"] = int(hm.group(2))
+        return result
+    return None
+
+
+def _should_fire_cron(cron_cfg, now=None):
+    """检查 cron 配置是否应该在当前时刻触发（基于 last_fired 时间）。
+    
+    由于方寸是文件存储，我们使用一个 JSON 文件记录上次触发时间。
+    触发条件：当前时间 >= 下次触发时间。
+    """
+    if not cron_cfg:
+        return False
+    now = now or datetime.datetime.now()
+    cron_type = cron_cfg.get("type")
+    
+    # 读取上次触发时间
+    state_file = os.path.join(TASK_DIR, ".cron-state.json")
+    try:
+        with open(state_file, encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:
+        state = {}
+    
+    if cron_type == "interval":
+        interval = cron_cfg.get("interval_min", 60)
+        last = state.get("interval_last")
+        if not last:
+            # 首次触发
+            state["interval_last"] = now.isoformat()
+            try:
+                with open(state_file, "w", encoding="utf-8") as f:
+                    json.dump(state, f, ensure_ascii=False)
+            except Exception:
+                pass
+            return True
+        try:
+            last_dt = datetime.datetime.fromisoformat(last)
+            if (now - last_dt).total_seconds() >= interval * 60:
+                state["interval_last"] = now.isoformat()
+                try:
+                    with open(state_file, "w", encoding="utf-8") as f:
+                        json.dump(state, f, ensure_ascii=False)
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            pass
+        return False
+    
+    elif cron_type == "daily":
+        target_hour = cron_cfg.get("hour", 9)
+        target_minute = cron_cfg.get("minute", 0)
+        last_key = f"daily_{target_hour}_{target_minute}"
+        last = state.get(last_key)
+        today_trigger = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+        if now >= today_trigger:
+            if not last or last != now.strftime("%Y-%m-%d"):
+                state[last_key] = now.strftime("%Y-%m-%d")
+                try:
+                    with open(state_file, "w", encoding="utf-8") as f:
+                        json.dump(state, f, ensure_ascii=False)
+                except Exception:
+                    pass
+                return True
+        return False
+    
+    elif cron_type == "weekly":
+        target_weekday = cron_cfg.get("weekday", 0)
+        target_hour = cron_cfg.get("hour", 9)
+        target_minute = cron_cfg.get("minute", 0)
+        if now.weekday() != target_weekday:
+            return False
+        last_key = f"weekly_{target_weekday}_{target_hour}_{target_minute}"
+        last = state.get(last_key)
+        today_str = now.strftime("%Y-%m-%d")
+        if not last or last != today_str:
+            state[last_key] = today_str
+            try:
+                with open(state_file, "w", encoding="utf-8") as f:
+                    json.dump(state, f, ensure_ascii=False)
+            except Exception:
+                pass
+            return True
+        return False
+    
+    elif cron_type == "monthly":
+        target_day = cron_cfg.get("day", 1)
+        target_hour = cron_cfg.get("hour", 9)
+        target_minute = cron_cfg.get("minute", 0)
+        if now.day != target_day:
+            return False
+        last_key = f"monthly_{target_day}_{target_hour}_{target_minute}"
+        last = state.get(last_key)
+        month_str = now.strftime("%Y-%m")
+        if not last or last != month_str:
+            state[last_key] = month_str
+            try:
+                with open(state_file, "w", encoding="utf-8") as f:
+                    json.dump(state, f, ensure_ascii=False)
+            except Exception:
+                pass
+            return True
+        return False
+    
+    return False
+
+
+def check_recurring_tasks():
+    """检查所有带有 cron 字段的已完成任务，如果需要则重新激活。
+    
+    返回被重新激活的任务 id 列表。
+    """
+    reactivated = []
+    for base in _all_task_dirs():
+        if not os.path.isdir(base):
+            continue
+        for fn in os.listdir(base):
+            if not fn.endswith(".md") or fn.startswith("_"):
+                continue
+            full = os.path.join(base, fn)
+            if not os.path.isfile(full):
+                continue
+            d = parse_task(full)
+            if not d:
+                continue
+            cron_str = d.get("cron")
+            if not cron_str:
+                continue
+            cron_cfg = _parse_cron(cron_str)
+            if not cron_cfg:
+                continue
+            
+            status = d.get("状态")
+            if status == "完成" and _should_fire_cron(cron_cfg):
+                # 重新激活：重置状态为待办，清空方案勾选
+                d["状态"] = "待办"
+                d["更新"] = _bump_version(d.get("更新"))
+                plan = d.get("方案") or []
+                if plan:
+                    d["方案"] = [re.sub(r"\[x\]", "[ ]", s, flags=re.I) for s in plan]
+                write_task_file(full, d)
+                reactivated.append(d.get("id"))
+                log_activity("cron_reactivate", d.get("id"), cron_str)
+    
+    return reactivated
+
+
+def _match_context(task_contexts, current_contexts):
+    """检查任务的情境是否与当前情境匹配。
+    
+    task_contexts: list of str, e.g. ["@home", "@work"]
+    current_contexts: list of str, e.g. ["@work"]
+    
+    如果任务没有 context 字段或为空，则默认匹配所有情境。
+    """
+    if not task_contexts:
+        return True
+    if not current_contexts:
+        return True
+    return any(ctx in current_contexts for ctx in task_contexts)
+
+
+def api_inbox_add(text):
+    """快速捕获：一行文字直接进 inbox（待办状态 + inbox 标签）。
+    
+    返回 (ok, tid_or_err)。
+    """
+    fields = {"标题": text.strip(), "状态": "待办", "标签": [_INBOX_TAG], "来源": "capture"}
+    return api_new(fields)
+
+
+def api_inbox_dismiss(tid):
+    """将 inbox 中的任务从待办移到回收站（标记删除）。"""
+    return api_delete(tid)
+
+
+def api_inbox_promote(tid):
+    """将 inbox 中的任务提升为正式任务（去掉 inbox 标签，保持待办）。"""
+    fn = locate_task(tid)
+    if not fn:
+        return False, "not found"
+    d = parse_task(fn)
+    if not d:
+        return False, "parse fail"
+    tags = d.get("标签") or []
+    if _INBOX_TAG in tags:
+        tags = [t for t in tags if t != _INBOX_TAG]
+        d["标签"] = tags
+    d["更新"] = _bump_version(d.get("更新"))
+    write_task_file(fn, d)
+    return True, "ok"
 
 
 # ---------- 路线图（P4）：自动从任务聚合的战略视图 ----------
@@ -4602,6 +5135,111 @@ def cmd_plan_get(args):
     return None
 
 
+# ---------- 个人待办模块 CLI 命令 ----------
+
+def cmd_inbox_add(args):
+    """快速捕获一行文字进 inbox。"""
+    ok, result = api_inbox_add(args.text)
+    if ok:
+        print(f"已捕获到 inbox: {result}")
+    else:
+        print(f"捕获失败: {result}")
+
+
+def cmd_inbox_list(args):
+    """列出 inbox 中的待办。"""
+    inbox_tasks = []
+    for t in load_tasks(view="active"):
+        tags = t.get("标签") or []
+        if "inbox" in tags:
+            inbox_tasks.append(t)
+    if not inbox_tasks:
+        print("Inbox 为空")
+        return
+    print(f"Inbox 待办 ({len(inbox_tasks)}):")
+    for t in inbox_tasks:
+        print(f"  {t['id']} | {t.get('标题', '(无标题)')}")
+
+
+def cmd_inbox_promote(args):
+    """将 inbox 任务提升为正式任务。"""
+    ok, msg = api_inbox_promote(args.id)
+    if ok:
+        print(f"已提升 {args.id} 为正式任务")
+    else:
+        print(f"提升失败: {msg}")
+
+
+def cmd_inbox_dismiss(args):
+    """删除 inbox 中的任务。"""
+    ok, msg = api_inbox_dismiss(args.id)
+    if ok:
+        print(f"已删除 {args.id}")
+    else:
+        print(f"删除失败: {msg}")
+
+
+def cmd_cron_check(args):
+    """检查并触发周期任务。"""
+    reactivated = check_recurring_tasks()
+    if reactivated:
+        print(f"已重新激活 {len(reactivated)} 个周期任务:")
+        for tid in reactivated:
+            print(f"  {tid}")
+    else:
+        print("无周期任务需要触发")
+
+
+def cmd_note(args):
+    """笔记管理 CLI。"""
+    if args.note_cmd == "create":
+        ok, msg = api_note_create(args.title or "", args.content or "", args.task_id)
+        if ok:
+            print(f"已创建笔记: {msg}")
+        else:
+            print(f"创建失败: {msg}")
+    elif args.note_cmd == "get":
+        note = api_note_get(args.id)
+        if note:
+            print(f"标题: {note['title']}")
+            print(f"文件: {note['file']}")
+            print(f"内容:\n{note['content']}")
+        else:
+            print("笔记不存在")
+    elif args.note_cmd == "list":
+        notes = api_notes_for_task(args.task_id)
+        if not notes:
+            print("无关联笔记")
+            return
+        print(f"关联笔记 ({len(notes)}):")
+        for n in notes:
+            print(f"  {n['id']} | {n['title']}")
+    elif args.note_cmd == "delete":
+        ok, msg = api_note_delete(args.id)
+        if ok:
+            print(f"已删除 {args.id}")
+        else:
+            print(f"删除失败: {msg}")
+    elif args.note_cmd == "attach":
+        ok, msg = api_note_attach(args.id, args.task_id)
+        if ok:
+            print(f"已关联 {args.id} -> {args.task_id}")
+        else:
+            print(f"关联失败: {msg}")
+    elif args.note_cmd == "detach":
+        ok, msg = api_note_detach(args.id, args.task_id)
+        if ok:
+            print(f"已取消关联 {args.id} <- {args.task_id}")
+        else:
+            print(f"取消关联失败: {msg}")
+    elif args.note_cmd == "import":
+        ok, msg = api_note_import_file(args.path, args.task_id)
+        if ok:
+            print(f"已导入: {msg}")
+        else:
+            print(f"导入失败: {msg}")
+
+
 def cmd_startpage(args):
     """打开全项目统一启动台（动态读取 registry.yaml）"""
     # 优先读端口文件找已有服务
@@ -4616,6 +5254,107 @@ def cmd_startpage(args):
         print(f"启动台已打开: {url}")
     except Exception as e:
         print(f"打开失败: {e}")
+
+
+def cmd_launch(args):
+    """一键启动所有该在的服务（auto_start=true）。
+    崩溃后重建命令：python tegula.py launch all
+    """
+    import json
+    apps_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps.json")
+    if not os.path.exists(apps_path):
+        print(f"未找到 apps.json，先在项目根目录创建应用注册表。")
+        print(f"模板：{apps_path}.example")
+        return
+    
+    with open(apps_path, encoding="utf-8") as f:
+        registry = json.load(f)
+    
+    apps = registry.get("apps", [])
+    if not apps:
+        print("apps.json 中无应用声明。")
+        return
+    
+    action = getattr(args, "action", "all")
+    
+    if action == "all":
+        # 启动所有 auto_start=true 的服务
+        started = []
+        skipped = []
+        failed = []
+        
+        for app in apps:
+            if not app.get("auto_start", False):
+                continue
+            
+            name = app.get("name", "未命名")
+            port = app.get("port")
+            
+            if not port:
+                skipped.append(f"{name}（无端口声明）")
+                continue
+            
+            if _port_in_use(port):
+                skipped.append(f"{name}（端口 {port} 已运行）")
+                continue
+            
+            cmd = app.get("start_cmd", [])
+            if not cmd:
+                skipped.append(f"{name}（无启动命令）")
+                continue
+            
+            cwd = app.get("cwd", None)
+            if cwd and not os.path.isdir(cwd):
+                cwd = None
+            
+            ok, msg = start_service(port, cmd, cwd=cwd)
+            if ok:
+                started.append(f"{name} (:{port})")
+            else:
+                failed.append(f"{name} - {msg}")
+        
+        print(f"\n{'='*60}")
+        print(f"启动台 · 共 {len([a for a in apps if a.get('auto_start')])} 个自动启动应用")
+        print(f"{'='*60}")
+        
+        if started:
+            print(f"\n✓ 已启动 ({len(started)}):")
+            for s in started:
+                print(f"  ✓ {s}")
+        
+        if skipped:
+            print(f"\n○ 跳过 ({len(skipped)}):")
+            for s in skipped:
+                print(f"  ○ {s}")
+        
+        if failed:
+            print(f"\n✗ 失败 ({len(failed)}):")
+            for s in failed:
+                print(f"  ✗ {s}")
+        
+        print()
+    
+    elif action == "status":
+        # 显示所有应用状态
+        print(f"\n{'='*60}")
+        print(f"启动台 · 共 {len(apps)} 个应用")
+        print(f"{'='*60}")
+        
+        for app in apps:
+            name = app.get("name", "未命名")
+            port = app.get("port")
+            auto = "自动" if app.get("auto_start") else "手动"
+            
+            if port:
+                running = _port_in_use(port)
+                icon = "🟢" if running else "🔴"
+                print(f"  {icon} {name:<20} :{port:<6} [{auto}]")
+                health = app.get("health_url")
+                if health and running:
+                    print(f"     {health}")
+            else:
+                print(f"  ⚪ {name:<20} [无端口] [{auto}]")
+        print()
 
 
 def cmd_serve(args):
@@ -4709,6 +5448,10 @@ def main():
     sp = sub.add_parser("startpage", help="打开全项目统一启动台（动态读取 registry.yaml）")
     sp.add_argument("--port", type=int, default=8753)
     sp.set_defaults(func=cmd_startpage)
+    la = sub.add_parser("launch", help="启动台：一键拉起所有该在的应用（auto_start=true）")
+    la.add_argument("action", nargs="?", default="all", choices=["all", "status"],
+                     help="all=启动所有 | status=仅查看状态")
+    la.set_defaults(func=cmd_launch)
     o = sub.add_parser("open", help="一键打开：服务随进程起，Edge 应用窗口打开，关窗自退")
     o.add_argument("--port", type=int, default=8753)
     o.add_argument("--wait", type=int, default=15, help="窗口端冷静期秒数（首个请求前的宽限）")
@@ -4801,6 +5544,55 @@ def main():
     pl_get = pl_sub.add_parser("get", help="获取规划详情")
     pl_get.add_argument("tid", help="规划任务 id")
     pl_get.set_defaults(func=cmd_plan_get)
+    
+    # 个人待办模块 CLI
+    ib = sub.add_parser("inbox", help="个人待办：快速捕获/查看/提升/删除")
+    ib_sub = ib.add_subparsers(dest="inbox_cmd")
+    ib_add = ib_sub.add_parser("add", help="快速捕获一行文字进 inbox")
+    ib_add.add_argument("text", help="待办内容")
+    ib_add.set_defaults(func=cmd_inbox_add)
+    ib_list = ib_sub.add_parser("list", help="列出 inbox 中的待办")
+    ib_list.set_defaults(func=cmd_inbox_list)
+    ib_promote = ib_sub.add_parser("promote", help="将 inbox 任务提升为正式任务")
+    ib_promote.add_argument("id", help="任务 id")
+    ib_promote.set_defaults(func=cmd_inbox_promote)
+    ib_dismiss = ib_sub.add_parser("dismiss", help="删除 inbox 中的任务")
+    ib_dismiss.add_argument("id", help="任务 id")
+    ib_dismiss.set_defaults(func=cmd_inbox_dismiss)
+    
+    ck = sub.add_parser("cron", help="检查并触发周期任务")
+    ck.set_defaults(func=cmd_cron_check)
+    
+    # 笔记模块 CLI
+    nt = sub.add_parser("note", help="笔记管理：创建/查看/关联/导入")
+    nt_sub = nt.add_subparsers(dest="note_cmd")
+    nt_create = nt_sub.add_parser("create", help="创建新笔记")
+    nt_create.add_argument("--title", default="", help="笔记标题")
+    nt_create.add_argument("--content", default="", help="笔记内容")
+    nt_create.add_argument("--task", default=None, help="关联的任务 ID")
+    nt_create.set_defaults(func=cmd_note)
+    nt_get = nt_sub.add_parser("get", help="查看笔记详情")
+    nt_get.add_argument("id", help="笔记 ID")
+    nt_get.set_defaults(func=cmd_note)
+    nt_list = nt_sub.add_parser("list", help="列出任务关联的笔记")
+    nt_list.add_argument("task_id", help="任务 ID")
+    nt_list.set_defaults(func=cmd_note)
+    nt_delete = nt_sub.add_parser("delete", help="删除笔记")
+    nt_delete.add_argument("id", help="笔记 ID")
+    nt_delete.set_defaults(func=cmd_note)
+    nt_attach = nt_sub.add_parser("attach", help="关联笔记到任务")
+    nt_attach.add_argument("id", help="笔记 ID")
+    nt_attach.add_argument("task_id", help="任务 ID")
+    nt_attach.set_defaults(func=cmd_note)
+    nt_detach = nt_sub.add_parser("detach", help="取消笔记与任务的关联")
+    nt_detach.add_argument("id", help="笔记 ID")
+    nt_detach.add_argument("task_id", help="任务 ID")
+    nt_detach.set_defaults(func=cmd_note)
+    nt_import = nt_sub.add_parser("import", help="从文件导入笔记")
+    nt_import.add_argument("path", help="文件路径")
+    nt_import.add_argument("--task", default=None, help="关联的任务 ID")
+    nt_import.set_defaults(func=cmd_note)
+    
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()

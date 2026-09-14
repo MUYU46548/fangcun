@@ -1,0 +1,14 @@
+{
+  "port_range": [20000, 21000],
+  "apps": [
+    {
+      "name": "NovelForge API",
+      "project": "project-2",
+      "start_cmd": ["python", "console\\nf_api.py"],
+      "cwd": "E:/CODE/CangKu/NovelForge",
+      "health_url": "http://127.0.0.1:8765/health",
+      "port": 8765,
+      "auto_start": true
+    }
+  ]
+}
