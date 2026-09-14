@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) 数据层验证脚本 — 往返保真 / 并发防护 / ID 碰撞 / 旧文件兼容
 # 用法：python verify.py   （只读代码层 + 临时目录写样例，不碰 task-data/）
-import importlib.util, os, sys, tempfile, time
+import importlib.util, os, sys, tempfile, time, shutil
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("tegula", os.path.join(ROOT, "tegula.py"))
@@ -789,7 +789,148 @@ try:
 finally:
     teg.TASK_DIR = _saved_td_rm
 
-# ---- 汇总 ----
+
+# ---- 18. 个人待办模块 ----
+_saved_td_personal = teg.TASK_DIR
+_personal_tmpdir = tempfile.mkdtemp(prefix='tegula_test_')
+_personal_taskdir = os.path.join(_personal_tmpdir, 'task-data')
+os.makedirs(_personal_taskdir)
+teg.TASK_DIR = _personal_taskdir
+
+try:
+    # 18a. api_inbox_add
+    ok, tid = teg.api_inbox_add('测试捕获')
+    check("api_inbox_add 返回 ok", ok, str(tid))
+    
+    d = teg.parse_task(os.path.join(_personal_taskdir, tid + '.md'))
+    check("inbox 任务有 inbox 标签", 'inbox' in (d.get('标签') or []), str(d.get('标签')))
+    check("inbox 任务状态为待办", d.get('状态') == '待办', str(d.get('状态')))
+    check("inbox 任务来源为 capture", d.get('来源') == 'capture', str(d.get('来源')))
+    
+    # 18b. api_inbox_promote
+    ok, msg = teg.api_inbox_promote(tid)
+    check("api_inbox_promote 成功", ok, msg)
+    d2 = teg.parse_task(os.path.join(_personal_taskdir, tid + '.md'))
+    check("inbox 提升后移除 inbox 标签", 'inbox' not in (d2.get('标签') or []), str(d2.get('标签')))
+    
+    # 18c. api_inbox_dismiss
+    ok2, tid2 = teg.api_inbox_add('测试删除')
+    check("api_inbox_add 创建第二个任务", ok2, str(tid2))
+    ok2d, msg2d = teg.api_inbox_dismiss(tid2)
+    check("api_inbox_dismiss 返回 deleted", ok2d and msg2d == 'deleted', str(msg2d))
+    
+    # 18d. _parse_cron
+    check("_parse_cron daily 09:00", teg._parse_cron('daily 09:00').get('type') == 'daily', str(teg._parse_cron('daily 09:00')))
+    check("_parse_cron weekly mon", teg._parse_cron('weekly mon').get('type') == 'weekly', str(teg._parse_cron('weekly mon')))
+    check("_parse_cron monthly 1", teg._parse_cron('monthly 1').get('type') == 'monthly', str(teg._parse_cron('monthly 1')))
+    check("_parse_cron */30", teg._parse_cron('*/30').get('type') == 'interval', str(teg._parse_cron('*/30')))
+    check("_parse_cron invalid", teg._parse_cron('invalid') is None, str(teg._parse_cron('invalid')))
+    
+    # 18e. api_new with cron and context
+    ok3, tid3 = teg.api_new({'标题': '周期任务', 'cron': 'daily 09:00', 'context': ['@home', '@work']})
+    check("api_new 带 cron/context", ok3, str(tid3))
+    d3 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
+    check("api_new cron 写入", d3.get('cron') == 'daily 09:00', str(d3.get('cron')))
+    check("api_new context 写入", d3.get('context') == ['@home', '@work'], str(d3.get('context')))
+    
+    # 18f. render_task 往返
+    rendered = teg.render_task(d3)
+    check("render_task cron 往返", 'cron: daily 09:00' in rendered, rendered[:200])
+    check("render_task context 往返", 'context: [@home, @work]' in rendered, rendered[:200])
+    
+    # 18g. api_edit cron
+    ok4, msg4 = teg.api_edit(tid3, {'cron': 'weekly mon 09:00'})
+    check("api_edit cron 修改", ok4, msg4)
+    d4 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
+    check("api_edit cron 更新", d4.get('cron') == 'weekly mon 09:00', str(d4.get('cron')))
+    
+    # 18h. check_recurring_tasks（模拟完成后的周期重激活）
+    # 使用 daily 00:00 确保任何时间测试都能触发
+    teg.api_edit(tid3, {'状态': '完成', 'cron': 'daily 00:00'})
+    state_file = os.path.join(_personal_taskdir, '.cron-state.json')
+    if os.path.exists(state_file):
+        os.remove(state_file)
+    reactivated = teg.check_recurring_tasks()
+    check("check_recurring_tasks 重激活", tid3 in reactivated, str(reactivated))
+    d5 = teg.parse_task(os.path.join(_personal_taskdir, tid3 + '.md'))
+    check("重激活后状态为待办", d5.get('状态') == '待办', str(d5.get('状态')))
+
+finally:
+    teg.TASK_DIR = _saved_td_personal
+    shutil.rmtree(_personal_tmpdir, ignore_errors=True)
+
+# ---- 19. 笔记模块 ----
+_saved_td_notes = teg.TASK_DIR
+_notes_tmpdir = tempfile.mkdtemp(prefix='tegula_note_test_')
+_notes_taskdir = os.path.join(_notes_tmpdir, 'task-data')
+os.makedirs(_notes_taskdir)
+# 设置 DATA_DIR 到临时目录
+_orig_data_dir = teg.DATA_DIR
+teg.DATA_DIR = _notes_tmpdir
+teg.TASK_DIR = _notes_taskdir
+# 重新计算 NOTES_DIR 和 NOTES_INDEX
+teg._NOTES_DIR = os.path.join(_notes_tmpdir, 'notes')
+teg._NOTES_INDEX = os.path.join(_notes_taskdir, '.notes-index.json')
+
+try:
+    # 19a. api_note_create
+    ok, nid = teg.api_note_create('测试笔记', '测试内容')
+    check("api_note_create 返回 ok", ok, str(nid))
+    check("api_note_create id 格式正确", nid.startswith('note_'), str(nid))
+    
+    # 19b. api_note_get
+    note = teg.api_note_get(nid)
+    check("api_note_get 返回 note", note is not None, str(note))
+    check("api_note_get 标题正确", note['title'] == '测试笔记', str(note['title']))
+    check("api_note_get 内容正确", note['content'] == '测试内容', str(note['content'][:50]))
+    
+    # 19c. api_note_update
+    ok, msg = teg.api_note_update(nid, title='更新标题', content='更新内容')
+    check("api_note_update 成功", ok, msg)
+    note2 = teg.api_note_get(nid)
+    check("api_note_update 标题更新", note2['title'] == '更新标题', str(note2['title']))
+    
+    # 19d. api_note_delete
+    ok, msg = teg.api_note_delete(nid)
+    check("api_note_delete 成功", ok, msg)
+    note3 = teg.api_note_get(nid)
+    check("api_note_delete 后找不到", note3 is None, str(note3))
+    
+    # 19e. note_attach / detach
+    ok, nid2 = teg.api_note_create('关联笔记', '关联内容', task_id='task-test-001')
+    check("api_note_create 带 task_id", ok, str(nid2))
+    notes = teg.api_notes_for_task('task-test-001')
+    check("notes_for_task 返回 1 个", len(notes) == 1, str(len(notes)))
+    
+    ok, msg = teg.api_note_detach(nid2, 'task-test-001')
+    check("api_note_detach 成功", ok, msg)
+    notes2 = teg.api_notes_for_task('task-test-001')
+    check("detach 后为空", len(notes2) == 0, str(len(notes2)))
+    
+    # 19f. notes_for_task __all__ (返回目录下所有笔记)
+    ok, nid3 = teg.api_note_create('独立笔记1', '内容1')
+    ok, nid4 = teg.api_note_create('独立笔记2', '内容2')
+    all_notes = teg.api_notes_for_task('__all__')
+    check("notes_for_task __all__ 返回 >=2 个", len(all_notes) >= 2, str(len(all_notes)))
+    
+    # 19g. note_import_file (创建临时文件)
+    import tempfile as tf
+    with tf.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8', dir=_notes_tmpdir) as f:
+        f.write('# 导入标题\n\n导入内容')
+        import_path = f.name
+    ok, nid5 = teg.api_note_import_file(import_path, task_id='task-import-001')
+    check("api_note_import_file 成功", ok, str(nid5))
+    os.unlink(import_path)
+    
+    imported = teg.api_note_get(nid5)
+    check("导入笔记标题解析", imported['title'] == '导入标题', str(imported['title']))
+
+finally:
+    teg.TASK_DIR = _saved_td_notes
+    teg.DATA_DIR = _orig_data_dir
+    shutil.rmtree(_notes_tmpdir, ignore_errors=True)
+
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))

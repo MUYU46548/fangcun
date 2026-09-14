@@ -51,6 +51,7 @@
   .col{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
     min-width:240px;padding:10px;flex:1;box-shadow:var(--shadow)}
   .col.empty{border-style:dashed;opacity:.62;box-shadow:none;background:#fbfbfe}
+  .col.dragover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(155,143,196,.22);background:#f4f1fc}
   .emptyhint{color:var(--muted);font-size:11px;text-align:center;padding:16px 0;
     border:1px dashed var(--border);border-radius:10px;margin-top:2px}
   .col h3{margin:4px 0 10px;font-size:13px;color:var(--muted);font-weight:700;
@@ -462,6 +463,66 @@
   #logPanel .log-item{padding:8px 0;border-bottom:1px solid #f9fafb;font-size:12px;line-height:1.5}
   #logPanel .log-item:last-child{border-bottom:none}
   #logPanel .log-item .ts{color:var(--muted);font-size:10px;font-family:monospace}
+  /* ── 个人待办 Inbox ── */
+  .inbox-badge{background:#ef4444;color:#fff;font-size:9px;padding:1px 5px;border-radius:9px;font-weight:700;vertical-align:super}
+  #inboxOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
+  #inboxPanel{background:#fff;border-radius:16px;padding:18px 22px;width:540px;max-height:80vh;
+    box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column}
+  #inboxPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink);display:flex;align-items:center;gap:8px;flex:none}
+  #inboxPanel .inbox-list{flex:1;overflow:auto}
+  #inboxPanel .inbox-item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f2f1f7;font-size:13px}
+  #inboxPanel .inbox-item:last-child{border-bottom:none}
+  #inboxPanel .inbox-item .txt{flex:1;line-height:1.4}
+  #inboxPanel .inbox-item .id{font-size:11px;color:var(--muted);font-family:monospace;flex:none;width:90px}
+  #inboxPanel .inbox-item .acts{display:flex;gap:4px;flex:none}
+  #inboxPanel .inbox-item .acts button{background:transparent;border:1px solid var(--border);border-radius:6px;
+    width:26px;height:26px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #inboxPanel .inbox-item .acts button:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #inboxPanel .inbox-item .acts button.del:hover{background:#ef4444;border-color:#ef4444}
+  #inboxPanel .empty{color:var(--muted);text-align:center;padding:30px;font-size:12px}
+  #inboxPanel .inbox-input{display:flex;gap:8px;margin-bottom:12px;flex:none}
+  #inboxPanel .inbox-input input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px}
+  #inboxPanel .inbox-input input:focus{border-color:var(--accent);outline:none}
+  #inboxPanel .inbox-input button{padding:8px 16px;background:var(--accent);color:#fff;border:0;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600}
+  #inboxPanel .inbox-input button:hover{opacity:.9}
+  #inboxPanel .inbox-footer{margin-top:12px;padding-top:12px;border-top:1px solid #f2f1f7;display:flex;justify-content:space-between;font-size:11px;color:var(--muted);flex:none}
+  #inboxPanel .inbox-footer button{background:transparent;border:0;color:var(--accent);cursor:pointer;font-size:11px}
+  #inboxPanel .inbox-footer button:hover{text-decoration:underline}
+  /* ── 笔记模块 ── */
+  #notesOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:60;padding-top:5vh}
+  #notesPanel{background:#fff;border-radius:16px;padding:18px 22px;width:700px;max-height:80vh;
+    box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column}
+  #notesPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink);flex:none}
+  .notes-toolbar{display:flex;gap:8px;margin-bottom:12px;flex:none;flex-wrap:wrap}
+  .notes-toolbar input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;min-width:200px}
+  .notes-toolbar input:focus{border-color:var(--accent);outline:none}
+  .notes-toolbar button{padding:8px 14px;background:var(--accent);color:#fff;border:0;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+  .notes-toolbar button:hover{opacity:.9}
+  .notes-list{flex:1;overflow:auto}
+  .notes-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f2f1f7;cursor:pointer}
+  .notes-item:last-child{border-bottom:none}
+  .notes-item:hover{background:#f8f7fb}
+  .notes-item .ntitle{flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .notes-item .nmeta{font-size:11px;color:var(--muted);flex:none}
+  .notes-item .nacts{display:flex;gap:4px;flex:none;opacity:0;transition:opacity .15s}
+  .notes-item:hover .nacts{opacity:1}
+  .notes-item .nacts button{background:transparent;border:1px solid var(--border);border-radius:6px;
+    width:28px;height:28px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .notes-item .nacts button:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .notes-empty{color:var(--muted);text-align:center;padding:40px;font-size:12px}
+  /* 笔记编辑器 */
+  #noteEditorOverlay{position:fixed;inset:0;background:rgba(60,65,80,.32);backdrop-filter:blur(4px);
+    display:none;align-items:flex-start;justify-content:center;z-index:65;padding-top:5vh}
+  #noteEditorPanel{background:#fff;border-radius:16px;padding:18px 22px;width:600px;max-height:80vh;
+    box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column}
+  #noteEditorPanel h3{margin:0 0 14px;font-size:17px;color:var(--ink);flex:none}
+  #noteEditorPanel input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:10px;flex:none}
+  #noteEditorPanel input:focus{border-color:var(--accent);outline:none}
+  #noteEditorPanel textarea{flex:1;min-height:200px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.6}
+  #noteEditorPanel textarea:focus{border-color:var(--accent);outline:none}
+  #noteEditorPanel .acts{margin-top:12px;display:flex;gap:6px;justify-content:flex-end;flex:none}
   #logPanel .log-item .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-right:6px}
   #logPanel .log-item .tag-op{background:#eef0fb;color:#5b5478}
   #logPanel .log-item .tag-err{background:#f6e2e2;color:#8a4343}
@@ -499,6 +560,8 @@
     <button class="ghost" onclick="openPlanNew()" title="新建规划">➕ 新建规划</button>
     <button class="ghost" onclick="openNotify()" title="通知中心">🔔</button>
     <button class="ghost" onclick="openLog()" title="日志">📋</button>
+    <button class="ghost" onclick="openInbox()" title="个人待办 Inbox">📥 <span id="inboxBadge" class="inbox-badge" style="display:none">0</span></button>
+    <button class="ghost" onclick="openNotes()" title="笔记管理">📝 <span id="notesBadge" class="inbox-badge" style="display:none">0</span></button>
     <button class="ghost" onclick="curView==='projects'?loadPv(true):load(true)">刷新</button>
     <button class="ghost" onclick="openSettings()">设置</button>
   </span>
@@ -558,6 +621,10 @@
       <div><label>优先级（高中低）<input id="f_prio" placeholder="可选"></label></div>
     </div>
     <label>标签（逗号分隔，可多选）<input id="f_tag" placeholder="可选，如 bug, 文档"></label>
+    <label>周期（cron 表达式）<input id="f_cron" placeholder="可选，如 daily 09:00 / weekly mon 09:00 / monthly 1 09:00 / */30"></label>
+    <div class="hint">周期任务完成后会自动重新激活。支持：daily / weekly mon-fri / monthly 1-28 / */分钟</div>
+    <label>情境（逗号分隔）<input id="f_ctx" placeholder="可选，如 @home, @work"></label>
+    <div class="hint">情境感知：仅匹配当前情境时显示在待办列表</div>
     <label>阻塞（前置任务 id，逗号分隔）<input id="f_blk" placeholder="可选，如 task-20260828-003"></label>
     <div class="hint">填写前置任务的编号，前置未完成时本任务不可派活</div>
     <label>附言<textarea id="f_msg" class="medium" placeholder="补充说明..."></textarea></label>
@@ -701,6 +768,65 @@
         <span class="grow"></span>
         <button class="ghost" onclick="clearLog()">清空</button>
         <button class="ghost" onclick="closeLog()">关闭</button>
+      </div>
+    </div>
+    </div>
+    <div id="inboxOverlay" onclick="if(event.target===this)closeInbox()">
+    <div id="inboxPanel">
+      <h3>📥 个人待办 Inbox</h3>
+      <div class="inbox-input">
+        <input id="inboxInput" placeholder="快速捕获...（回车添加）" autocomplete="off">
+        <button onclick="addInbox()">添加</button>
+      </div>
+      <div class="inbox-list" id="inboxList"></div>
+      <div class="inbox-footer">
+        <span id="inboxHint">提示：提升后任务进入看板正式流转</span>
+        <button onclick="cronCheck()">🔄 检查周期任务</button>
+      </div>
+    </div>
+    </div>
+    <div id="planOverlay" onclick="if(event.target===this)closePlanModal()">
+    <div id="planModal">
+      <h3 id="planModalTitle">新建规划</h3>
+      <label>标题<input id="planTitle" placeholder="规划标题"></label>
+      <label>目标<textarea id="planObjective" placeholder="规划目标..."></textarea></label>
+      <div class="row2">
+        <div><label>批次<input id="planBatch" placeholder="可选"></label></div>
+        <div><label>优先级<select id="planPrio"><option value="">无</option><option value="高">高</option><option value="中">中</option><option value="低">低</option></select></label></div>
+      </div>
+      <div class="row2">
+        <div><label>截止<input id="planDeadline" placeholder="可选，如 09-10"></label></div>
+        <div><label>项目<select id="planProject"></select></label></div>
+      </div>
+      <label>里程碑（每行一项：名称 | 截止）<textarea id="planMilestones" placeholder="M1 设计完成 | 09-15&#10;M2 开发完成 | 10-01"></textarea></label>
+      <label>决策点（每行一项：问题 | 选项1/选项2/选项3）<textarea id="planDecisions" placeholder="技术方案？ | Vue/React/Svelte&#10;部署方式？ | 本地/云端"></textarea></label>
+      <label>风险（每行一项）<textarea id="planRisks" placeholder="时间紧张&#10;人员不足"></textarea></label>
+      <div class="acts">
+        <button class="ghost" onclick="closePlanModal()">取消</button>
+        <button class="pri" onclick="savePlan()">创建规划</button>
+      </div>
+    </div>
+    </div>
+    <div id="notesOverlay" onclick="if(event.target===this)closeNotes()">
+    <div id="notesPanel">
+      <h3>📝 笔记管理</h3>
+      <div class="notes-toolbar">
+        <input id="notesSearch" placeholder="搜索笔记..." oninput="renderNotesList()">
+        <button onclick="openNoteEditor()" title="新建笔记">+ 新建</button>
+        <button onclick="document.getElementById('notesFileInput').click()" title="导入文件">📁 导入</button>
+        <input type="file" id="notesFileInput" style="display:none" multiple accept=".md,.txt,.markdown" onchange="handleNotesImport(this.files)">
+      </div>
+      <div id="notesList" class="notes-list"></div>
+    </div>
+    </div>
+    <div id="noteEditorOverlay" onclick="if(event.target===this)closeNoteEditor()">
+    <div id="noteEditorPanel">
+      <h3 id="noteEditorTitle">新建笔记</h3>
+      <input id="noteTitleInput" placeholder="笔记标题">
+      <textarea id="noteContentInput" placeholder="开始写作..."></textarea>
+      <div class="acts">
+        <button class="ghost" onclick="closeNoteEditor()">取消</button>
+        <button class="pri" onclick="saveNote()">保存</button>
       </div>
     </div>
     </div>
@@ -863,12 +989,14 @@ function clearTagFilter(){applyTagFilter("__all__");}
   el("board").addEventListener("dragover",e=>{
     e.preventDefault();
     const col=e.target.closest(".col");
-    if(col) col.querySelectorAll(".card").forEach(c=>c.classList.remove("dragover"));
+    document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
+    if(col) col.classList.add("dragover");
   });
   el("board").addEventListener("drop",e=>{
     const col=e.target.closest(".col");
     if(!col||!dragId) return;
     e.preventDefault();
+    document.querySelectorAll(".col.dragover").forEach(c=>c.classList.remove("dragover"));
     const st=col.dataset.status;
     if(st&&curView==="active"){ moveStatus(dragId,st); }
   });
@@ -1057,6 +1185,7 @@ async function load(force){
     if(force||h!==lastHash){
       lastHash=h; TASKS=d; refreshTagFilter(); render();
       refreshPreviewIfOpen();
+      updateInboxBadge();
     }
   }catch(err){console.error("load failed",err);}
 }
@@ -2203,6 +2332,7 @@ function openEdit(t){curId=t.id;curTask=t;
   setProjChecks(t.项目||[]);f_assignee.value=t.指派||"";f_accept.value=t.验收||"";
   const res=t.资源||{};f_resdoc.value=res.资料||"";f_restool.value=(res.工具||[]).join(", ");
   f_plan.value=(t.方案||[]).join("\n");f_result.value=t.结果记录||"";
+  f_cron.value=t.cron||"";f_ctx.value=(t.context||[]).join(", ");
   curEditVer=String(t.更新||t.mtime||0);
   curEditMtime=t.mtime||0;
   el("overlay").style.display="flex";}
@@ -2213,6 +2343,7 @@ function openNew(){curId=null;
   f_title.value="";f_status.value="待办";f_batch.value="";f_due.value="";f_prio.value="";f_tag.value="";f_blk.value="";f_msg.value="";
   setProjChecks([Object.keys(REGISTRY)[0]||"fangcun-base"]);f_assignee.value="";f_accept.value="";
   f_resdoc.value="";f_restool.value="";f_plan.value="";f_result.value="";
+  f_cron.value="";f_ctx.value="";
   curEditVer="0";curEditMtime=0;
   el("overlay").style.display="flex";
   setTimeout(()=>el("f_quick").focus(),50);}
@@ -2269,7 +2400,9 @@ async function save(){const fields={
   阻塞:sv(f_blk.value),
   附言:f_msg.value,
   方案:f_plan.value.split("\n").map(s=>s.trim()).filter(Boolean),
-  结果记录:f_result.value};
+  结果记录:f_result.value,
+  cron:f_cron.value,
+  context:sv(f_ctx.value)};
   if(curId){fields.expected_update=curEditVer;
     fields.expected_mtime=curEditMtime;}
   const body=curId?{action:"edit",id:curId,fields}:{action:"new",fields};
@@ -2436,6 +2569,188 @@ function addNotify(msg,type="info"){
   NOTIFY_CACHE.unshift({ts,msg,type});
   if(NOTIFY_CACHE.length>50) NOTIFY_CACHE.pop();
   localStorage.setItem("tegula_notify",JSON.stringify(NOTIFY_CACHE));
+}
+
+// ── 个人待办 Inbox ──
+let INBOX_CACHE=[];
+function openInbox(){
+  loadInbox();
+  el("inboxOverlay").style.display="flex";
+  setTimeout(()=>el("inboxInput").focus(),50);
+}
+function closeInbox(){el("inboxOverlay").style.display="none";}
+async function loadInbox(){
+  try{
+    const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"inbox_list"})});
+    const d=await r.json();
+    INBOX_CACHE=d.inbox||[];
+    renderInbox();
+    updateInboxBadge();
+  }catch(e){
+    INBOX_CACHE=[];
+    renderInbox();
+  }
+}
+function renderInbox(){
+  const list=el("inboxList");
+  if(!INBOX_CACHE.length){
+    list.innerHTML='<div class="empty">Inbox 为空，快速捕获你的想法...</div>';
+    return;
+  }
+  list.innerHTML="";
+  INBOX_CACHE.forEach(t=>{
+    const div=document.createElement("div");
+    div.className="inbox-item";
+    div.innerHTML='<span class="id">'+esc(t.id)+'</span>'+
+      '<span class="txt">'+esc(t.标题||"(无标题)")+'</span>'+
+      '<span class="acts">'+
+      '<button onclick="inboxPromote(\''+esc(t.id)+'\')" title="提升为正式任务">⬆</button>'+
+      '<button class="del" onclick="inboxDismiss(\''+esc(t.id)+'\')" title="删除">✕</button>'+
+      '</span>';
+    list.appendChild(div);
+  });
+}
+async function addInbox(){
+  const inp=el("inboxInput");
+  const v=(inp.value||"").trim();
+  if(!v)return;
+  const r=await post({action:"inbox_add",text:v},{silent:true});
+  if(!r.ok){toast("添加失败："+(r.msg||"未知错误"),"error");return}
+  inp.value="";
+  toast("已捕获到 inbox","success");
+  loadInbox();
+  addLog("Inbox 捕获: "+v,"op");
+}
+async function inboxPromote(id){
+  const r=await post({action:"inbox_promote",id});
+  if(r.ok){toast("已提升为正式任务","success");loadInbox();addLog("Inbox 提升: "+id,"op");}
+  else{toast("提升失败："+r.msg,"error");}
+}
+async function inboxDismiss(id){
+  if(!confirm("删除此待办？"))return;
+  const r=await post({action:"inbox_dismiss",id});
+  if(r.ok){toast("已删除","success");loadInbox();addLog("Inbox 删除: "+id,"op");}
+  else{toast("删除失败："+r.msg,"error");}
+}
+async function cronCheck(){
+  const r=await post({action:"cron_check"});
+  if(r.ok){
+    if(r.reactivated&&r.reactivated.length){
+      toast("已重新激活 "+r.reactivated.length+" 个周期任务","success");
+      addLog("周期任务重新激活: "+r.reactivated.join(", "),"sys");
+    }else{
+      toast("无周期任务需要触发","info");
+    }
+  }
+}
+function updateInboxBadge(){
+  const badge=el("inboxBadge");
+  const n=INBOX_CACHE.length;
+  if(n>0){badge.style.display="";badge.textContent=n>99?"99+":n;}
+  else{badge.style.display="none";}
+}
+// 回车添加
+document.addEventListener("keydown",function(e){
+  if(e.key==="Enter"&&document.activeElement&&document.activeElement.id==="inboxInput"){
+    e.preventDefault();addInbox();
+  }
+});
+
+// ── 笔记模块 ──
+let NOTES_CACHE = [];
+let CUR_NOTE_ID = null;
+function openNotes() {
+  el("notesOverlay").style.display = "flex";
+  loadNotes();
+}
+function closeNotes(){ el("notesOverlay").style.display = "none"; }
+function closeNoteEditor(){ el("noteEditorOverlay").style.display = "none"; }
+async function loadNotes() {
+  try {
+    const r = await fetch("/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "notes_for_task", task_id: "__all__" }) });
+    const d = await r.json();
+    NOTES_CACHE = d.notes || [];
+    renderNotesList();
+    updateNotesBadge();
+  } catch(e) {
+    NOTES_CACHE = [];
+    renderNotesList();
+  }
+}
+function renderNotesList() {
+  const list = el("notesList");
+  const q = (el("notesSearch").value || "").toLowerCase();
+  let items = NOTES_CACHE;
+  if (q) items = items.filter(n => (n.title || "").toLowerCase().includes(q) || (n.content || "").toLowerCase().includes(q));
+  if (!items.length) {
+    list.innerHTML = '<div class="notes-empty">暂无笔记，点击「+ 新建」或「📁 导入」开始</div>';
+    return;
+  }
+  list.innerHTML = "";
+  items.forEach(n => {
+    const div = document.createElement("div");
+    div.className = "notes-item";
+    const dt = new Date(n.mtime * 1000);
+    const ts = dt.getFullYear() + "-" + String(dt.getMonth()+1).padStart(2,"0") + "-" + String(dt.getDate()).padStart(2,"0");
+    div.innerHTML = '<span class="ntitle">' + esc(n.title || "(无标题)") + '</span>' +
+      '<span class="nmeta">' + ts + '</span>' +
+      '<span class="nacts">' +
+        '<button onclick="event.stopPropagation(); openNoteEditor(\'' + esc(n.id) + '\')" title="编辑">✏️</button>' +
+        '<button onclick="event.stopPropagation(); deleteNote(\'' + esc(n.id) + '\')" title="删除">🗑</button>' +
+      '</span>';
+    div.onclick = () => openNoteEditor(n.id);
+    list.appendChild(div);
+  });
+}
+function updateNotesBadge() {
+  const badge = el("notesBadge");
+  const n = NOTES_CACHE.length;
+  if (n > 0) { badge.style.display = ""; badge.textContent = n > 99 ? "99+" : n; }
+  else { badge.style.display = "none"; }
+}
+function openNoteEditor(noteId) {
+  CUR_NOTE_ID = noteId;
+  const inp = el("noteTitleInput");
+  const ta = el("noteContentInput");
+  const titleEl = el("noteEditorTitle");
+  if (noteId) {
+    const n = NOTES_CACHE.find(x => x.id === noteId);
+    titleEl.textContent = "编辑笔记";
+    inp.value = n ? n.title : "";
+    ta.value = n ? n.content : "";
+  } else {
+    titleEl.textContent = "新建笔记";
+    inp.value = "";
+    ta.value = "";
+  }
+  el("noteEditorOverlay").style.display = "flex";
+  setTimeout(() => inp.focus(), 50);
+}
+async function saveNote() {
+  const title = (el("noteTitleInput").value || "").trim() || "(无标题)";
+  const content = el("noteContentInput").value || "";
+  const r = CUR_NOTE_ID
+    ? await post({ action: "note_update", id: CUR_NOTE_ID, title, content })
+    : await post({ action: "note_create", title, content });
+  if (!r.ok) { toast("保存失败: " + (r.msg || r.error || "未知"), "error"); return; }
+  closeNoteEditor();
+  loadNotes();
+  toast("笔记已保存", "success");
+}
+async function deleteNote(noteId) {
+  if (!confirm("删除此笔记？")) return;
+  const r = await post({ action: "note_delete", id: noteId });
+  if (r.ok) { toast("已删除", "success"); loadNotes(); }
+  else { toast("删除失败: " + r.msg, "error"); }
+}
+async function handleNotesImport(files) {
+  for (const file of files) {
+    const r = await post({ action: "note_import_file", path: file.path });
+    if (r.ok) toast("已导入: " + (file.name || r.id), "success");
+    else { toast("导入失败: " + (r.error || r.msg), "error"); break; }
+  }
+  el("notesFileInput").value = "";
+  loadNotes();
 }
 
 // ── 系统日志 ──
