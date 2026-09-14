@@ -1,12 +1,30 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) 数据层验证脚本 — 往返保真 / 并发防护 / ID 碰撞 / 旧文件兼容
 # 用法：python verify.py   （只读代码层 + 临时目录写样例，不碰 task-data/）
-import importlib.util, os, sys, tempfile, time, shutil
+import os, sys, tempfile, time, shutil
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("tegula", os.path.join(ROOT, "tegula.py"))
-teg = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(teg)
+# 包结构：tegula.core（数据层+API） ← tegula.cli（命令行入口）
+# verify 用代理对象统一读/写；写时双写以覆盖 cli 的 from-import 绑定
+import tegula.core as _core
+import tegula.cli  as _cli
+
+class _TegProxy:
+    """把 core + cli 粘成一个 `teg` 命名空间。
+    读：core 优先，cli 兜底（cmd_* 在 cli）。
+    写：双写——cli 用 from-import 缓存了 TASK_DIR / REGISTRY_PATH 等名字，
+    只写 core 的话 cli 模块仍读旧值，导致 cmd_* 走到错误目录。"""
+    def __getattr__(self, name):
+        if hasattr(_core, name):
+            return getattr(_core, name)
+        if hasattr(_cli, name):
+            return getattr(_cli, name)
+        raise AttributeError(f"'teg' has no attribute '{name}'")
+    def __setattr__(self, name, value):
+        setattr(_core, name, value)
+        setattr(_cli, name, value)
+
+teg = _TegProxy()
 
 PASS, FAIL = [], []
 def check(name, cond, detail=""):
@@ -223,6 +241,20 @@ def _wt(tid, title, status, plan=None, fy="", blk=None, st=""):
     with open(os.path.join(dep_dir, st, tid + ".md"), "w", encoding="utf-8") as f:
         f.write(body)
 
+# 为派活测试准备一个含 repo 的临时 registry
+_saved_reg, teg.REGISTRY_PATH = teg.REGISTRY_PATH, os.path.join(tmpdir, "reg-dispatch.yaml")
+import subprocess as _sp_reg
+_repo_probe = os.path.join(tmpdir, "fangcun-base-repo")
+os.makedirs(_repo_probe, exist_ok=True)
+_sp_reg.run(["git", "init", "-q"], cwd=_repo_probe, capture_output=True)
+with open(os.path.join(_repo_probe, "init.txt"), "w") as f:
+    f.write("x")
+_sp_reg.run(["git", "add", "."], cwd=_repo_probe, capture_output=True)
+_sp_reg.run(["git", "-c", "user.name=t", "-c", "user.email=t@t.local", "commit", "-q", "-m", "init"],
+            cwd=_repo_probe, capture_output=True)
+with open(teg.REGISTRY_PATH, "w", encoding="utf-8") as f:
+    f.write(f"members:\n  - 暮雨\n  - hermes\nprojects:\n  - id: fangcun-base\n    name: 方寸\n    repo: {_repo_probe}\n")
+
 _teg_hermes, teg._hermes_cmd = teg._hermes_cmd, (lambda extra: ["hermes"] + extra)   # 打桩：不真拉起
 _real_popen, teg.subprocess.Popen = teg.subprocess.Popen, None
 class _NoPopen:
@@ -270,6 +302,7 @@ try:
 finally:
     teg._hermes_cmd, teg.subprocess.Popen = _teg_hermes, _real_popen
     teg.TASK_DIR = _saved_td
+    teg.REGISTRY_PATH = _saved_reg
 
 # ---- 9. 超时预警 ----
 # 创建一个"派活时间"在 25 小时前的任务
@@ -672,22 +705,25 @@ try:
 finally:
     teg.TASK_DIR = _saved_td8
 
-# ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----# 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
+# ---- 13. 黑窗风暴防线：捕获输出的子进程调用必须带 creationflags ----
+# 背景：pythonw 启动看板后，服务端裸 subprocess.run 每次拉起 git/hermes 都会新建控制台
 # 窗口（每 20s 扫描一轮 ≈ 88 个黑窗，2026-09-07 闪窗事故）。
 # 语义规则：capture_output=True（或 stdout=PIPE）= 后台数据调用，必须 CREATE_NO_WINDOW；
 # 交互式拉起（如 dispatch --go，不捕获输出）豁免，必须继承控制台。
 import ast as _ast
-with open(os.path.join(ROOT, "tegula.py"), encoding="utf-8") as f:
-    _src = f.read()
+# 拆分后需检查 core.py + cli.py（tegula.py 已是薄入口，无子进程调用）
 _bad = []
-for _node in _ast.walk(_ast.parse(_src)):
-    if isinstance(_node, _ast.Call) and isinstance(_node.func, _ast.Attribute):
-        if _node.func.attr in ("run", "Popen", "check_output", "check_call"):
-            _kw = {kw.arg for kw in _node.keywords if kw.arg}
-            _capturing = "capture_output" in _kw or "stdout" in _kw
-            if _capturing and "creationflags" not in _kw:
-                _bad.append(_node.lineno)
-check("子进程黑窗防线（捕获输出的调用必须带 creationflags）", not _bad, f"裸调用行: {_bad}")
+for _fname in ("tegula/core.py", "tegula/cli.py"):
+    with open(os.path.join(ROOT, _fname), encoding="utf-8") as f:
+        _src = f.read()
+    for _node in _ast.walk(_ast.parse(_src)):
+        if isinstance(_node, _ast.Call) and isinstance(_node.func, _ast.Attribute):
+            if _node.func.attr in ("run", "Popen", "check_output", "check_call"):
+                _kw = {kw.arg for kw in _node.keywords if kw.arg}
+                _capturing = "capture_output" in _kw or "stdout" in _kw
+                if _capturing and "creationflags" not in _kw:
+                    _bad.append(f"{_fname}:{_node.lineno}")
+check("子进程黑窗防线（捕获输出的调用必须带 creationflags）", not _bad, f"裸调用: {_bad}")
 
 # ---- 17. 路线图（P4）：聚合逻辑 / CLI / MCP / HTTP ----
 # 17a. 聚合结构完整性
