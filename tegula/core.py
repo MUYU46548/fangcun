@@ -2803,29 +2803,58 @@ def api_notes_for_task(task_id=None):
             notes.append(n)
     return notes
 
-def api_note_import_file(file_path, task_id=None):
-    """从文件导入笔记。
+def api_note_import_file(file_path=None, task_id=None, content=None, filename=None):
+    """从文件导入笔记（CLI/Electron 传路径版）。
     
+    browser: api_note_import_file(content=<text>, filename="xxx.md")
+    CLI:    api_note_import_file("/path/to/file.md")
     返回 (ok, note_id_or_err)。
     """
-    if not os.path.exists(file_path):
-        return False, "file not found"
-    
-    try:
-        with open(file_path, encoding="utf-8") as f:
-            content = f.read()
-    except Exception as e:
-        return False, str(e)
+    if content is None:
+        # 路径模式（CLI/Electron）
+        if not file_path or not os.path.exists(file_path):
+            return False, "file not found"
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            return False, str(e)
+        if filename is None:
+            filename = os.path.basename(file_path)
     
     # 从文件名提取标题
-    title = os.path.splitext(os.path.basename(file_path))[0]
+    title = os.path.splitext(filename or "untitled")[0]
     
     # 如果内容以 # 标题 开头，提取它
     if content.startswith("# "):
         lines = content.split("\n", 1)
-        title = lines[0][2:].strip()
+        title = lines[0][2:].strip() or title
         content = lines[1].strip() if len(lines) > 1 else ""
     
+    return api_note_create(title, content, task_id)
+
+
+def api_inbox_import_content(filename, content):
+    """浏览器端：从文件内容导入为 inbox 任务。"""
+    title = os.path.splitext(filename)[0] if filename else "导入的文件"
+    if content.startswith("# "):
+        lines = content.split("\n", 1)
+        title = lines[0][2:].strip() or title
+        body = lines[1].strip() if len(lines) > 1 else ""
+    else:
+        body = content.strip()
+    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
+    ok, tid = api_new(fields)
+    return (ok, tid) if ok else (ok, tid)
+
+
+def api_note_import_content(filename, content, task_id=None):
+    """浏览器端：从文件内容导入笔记。"""
+    title = os.path.splitext(filename or "untitled")[0]
+    if content.startswith("# "):
+        lines = content.split("\n", 1)
+        title = lines[0][2:].strip() or title
+        content = lines[1].strip() if len(lines) > 1 else ""
     return api_note_create(title, content, task_id)
 
 # ---------- 个人待办模块（P0）：快速捕获 + 周期任务 + 情境感知 ----------
@@ -3065,38 +3094,36 @@ def api_inbox_dismiss(tid):
 
 
 def api_inbox_import_file(file_path):
-    """从文件导入为 inbox 任务。
-
-    返回 (ok, tid_or_err)。
-    """
+    """从文件导入为 inbox 任务（CLI/Electron 传路径版）。"""
     if not os.path.exists(file_path):
         return False, "file not found"
-
     try:
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
         return False, str(e)
-
-    # 从文件名提取标题
     title = os.path.splitext(os.path.basename(file_path))[0]
-
-    # 如果内容以 # 标题 开头，提取它
     if content.startswith("# "):
         lines = content.split("\n", 1)
         title = lines[0][2:].strip()
         body = lines[1].strip() if len(lines) > 1 else ""
     else:
         body = content.strip()
+    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
+    ok, tid = api_new(fields)
+    return (ok, tid) if ok else (ok, tid)
 
-    # 创建 inbox 任务：标题 + 附言（文件原文）
-    fields = {
-        "标题": title,
-        "状态": "待办",
-        "标签": [_INBOX_TAG, "file"],
-        "来源": "import",
-        "附言": body,
-    }
+
+def api_inbox_import_content(filename, content):
+    """浏览器端：从文件内容导入为 inbox 任务。"""
+    title = os.path.splitext(filename)[0] if filename else "导入的文件"
+    if content.startswith("# "):
+        lines = content.split("\n", 1)
+        title = lines[0][2:].strip() or title
+        body = lines[1].strip() if len(lines) > 1 else ""
+    else:
+        body = content.strip()
+    fields = {"标题": title, "状态": "待办", "标签": [_INBOX_TAG, "file"], "来源": "import", "附言": body}
     ok, tid = api_new(fields)
     return (ok, tid) if ok else (ok, tid)
 

@@ -36,7 +36,7 @@ from tegula.core import (
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
     api_notes_for_task, api_note_import_file, _parse_cron,
     _should_fire_cron, check_recurring_tasks, _match_context,
-    api_inbox_add, api_inbox_dismiss, api_inbox_promote, api_inbox_import_file, _batch_status,
+    api_inbox_add, api_inbox_dismiss, api_inbox_promote, api_inbox_import_file, api_inbox_import_content, _batch_status,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,
@@ -256,6 +256,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send_json({"ok": True, "id": msg})
                 return
+            elif action == "inbox_import_content":
+                ok, msg = api_inbox_import_content(req.get("filename", ""), req.get("content", ""))
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
             elif action == "cron_check":
                 reactivated = check_recurring_tasks()
                 self._send_json({"ok": True, "reactivated": reactivated})
@@ -312,6 +319,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             elif action == "note_import_file":
                 ok, msg = api_note_import_file(req.get("path"), req.get("task_id"))
+                if not ok:
+                    self._send_json({"ok": False, "error": msg})
+                    return
+                self._send_json({"ok": True, "id": msg})
+                return
+            elif action == "note_import_content":
+                ok, msg = api_note_import_content(req.get("filename", ""), req.get("content", ""), req.get("task_id"))
                 if not ok:
                     self._send_json({"ok": False, "error": msg})
                     return

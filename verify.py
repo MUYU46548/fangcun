@@ -1010,6 +1010,23 @@ try:
     if ok3:
         _d3 = teg.parse_task(os.path.join(teg.TASK_DIR, tid3 + ".md"))
         check("txt 标题来自文件名", _d3.get("标题") == "plain-file", str(_d3.get("标题")))
+
+    # 测试 content-based API（浏览器场景）
+    ok4, tid4 = teg.api_inbox_import_content("浏览器测试.md", "# 浏览器导入\n\n这是浏览器拖入的内容")
+    check("api_inbox_import_content 成功", ok4, str(tid4))
+    if ok4:
+        _d4 = teg.parse_task(os.path.join(teg.TASK_DIR, tid4 + ".md"))
+        check("content导入标题从heading提取", _d4.get("标题") == "浏览器导入", str(_d4.get("标题")))
+        check("content导入正文正确", "浏览器拖入的内容" in (_d4.get("附言") or ""))
+
+    # 测试 note_import_content
+    ok5, nid5 = teg.api_note_import_content("测试笔记.txt", "# 笔记标题\n\n笔记正文内容")
+    check("api_note_import_content 成功", ok5, str(nid5))
+    if ok5:
+        _n5 = teg.api_note_get(nid5)
+        check("content导入笔记标题", _n5["title"] == "笔记标题", _n5["title"])
+        check("content导入笔记正文", "笔记正文内容" in _n5["content"], _n5["content"][:50])
+
 finally:
     teg.TASK_DIR = _saved_td
 
