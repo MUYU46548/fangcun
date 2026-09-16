@@ -57,4 +57,17 @@ contextBridge.exposeInMainWorld('tegula', {
   launchpadOpenFolder: (folderPath: string) => ipcRenderer.invoke('launchpad:openFolder', folderPath),
   launchpadOpenUrl: (url: string) => ipcRenderer.invoke('launchpad:openUrl', url),
   launchpadGetConfigPath: () => ipcRenderer.invoke('launchpad:getConfigPath'),
+
+  // Data directory
+  setDataDir: (newDir: string) => ipcRenderer.invoke('setDataDir', newDir),
+
+  // Updater
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateQuitAndInstall: () => ipcRenderer.invoke('update:quitAndInstall'),
+  onUpdateAvailable: (callback: any) => ipcRenderer.on('update:available', (_e, data) => callback(data)),
+  onUpdateNotAvailable: (callback: any) => ipcRenderer.on('update:not-available', (_e, data) => callback(data)),
+  onUpdateProgress: (callback: any) => ipcRenderer.on('update:progress', (_e, data) => callback(data)),
+  onUpdateDownloaded: (callback: any) => ipcRenderer.on('update:downloaded', (_e, data) => callback(data)),
+  onUpdateError: (callback: any) => ipcRenderer.on('update:error', (_e, data) => callback(data)),
 })

@@ -1,6 +1,6 @@
 {
   "name": "fangcun-desktop",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "方寸 — 本地优先多 agent 任务地图",
   "main": "dist/index.js",
   "bin": {
@@ -60,7 +60,7 @@
       "createStartMenuShortcut": true,
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico",
-      "license": "LICENSE"
+      "license": "LICENSE.txt"
     }
   }
 }

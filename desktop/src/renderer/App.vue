@@ -76,7 +76,7 @@
           :data-id="t.id"
           draggable="true"
           @dragstart="onDragStart($event, t.id)"
-          @dragend="draggingId = null"
+          @dragend=""
           @click="openCard(t)"
         >
           <input
@@ -258,6 +258,10 @@
         <div class="sect">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
+          <div class="sect-btns">
+            <button class="ghost" @click="changeDataDir">修改目录…</button>
+            <button class="ghost" @click="openDataDir">打开目录</button>
+          </div>
         </div>
         <div class="sect">
           <h4>项目列表</h4>
@@ -365,17 +369,24 @@ const boardClass = computed(() => ({
   pv: curView.value === 'projects',
 }))
 
+// Normalize project field: array → first element, or empty string
+function normProject(p: any): string {
+  if (!p) return ''
+  if (Array.isArray(p)) return p[0] || ''
+  return p
+}
+
 const filteredTasks = computed(() => {
   let result = tasks.value
   if (curProj.value !== '__all__') {
-    result = result.filter(t => t.project === curProj.value)
+    result = result.filter(t => normProject(t.project) === curProj.value)
   }
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     result = result.filter(t =>
       t.title?.toLowerCase().includes(q) ||
       t.id?.toLowerCase().includes(q) ||
-      t.project?.toLowerCase().includes(q) ||
+      normProject(t.project).toLowerCase().includes(q) ||
       t.tags?.join(' ').toLowerCase().includes(q)
     )
   }
@@ -412,7 +423,7 @@ const columns = computed(() => {
 
   const groups: Record<string, Task[]> = {}
   filtered.forEach(t => {
-    const k = t.project || '未归属'
+    const k = normProject(t.project) || '未归属'
     if (!groups[k]) groups[k] = []
     groups[k].push(t)
   })
@@ -423,7 +434,7 @@ const columns = computed(() => {
 
 const projectStats = computed(() => {
   return projects.value.map(p => {
-    const projTasks = tasks.value.filter(t => t.project === p.id)
+    const projTasks = tasks.value.filter(t => normProject(t.project) === p.id)
     const active = projTasks.filter(t => t.status !== '完成' && t.status !== '驳回')
     const completed = projTasks.filter(t => t.status === '完成')
     let lastActivity: string | null = null
@@ -528,6 +539,29 @@ async function loadLaunchpad() {
   }
 }
 
+async function changeDataDir() {
+  const newDir = prompt('输入新数据目录路径（需包含 registry.yaml 或 task-data/）')
+  if (!newDir) return
+  const result = await window.tegula.setDataDir(newDir)
+  if (result.ok) {
+    dataDir.value = result.dir
+    await loadAll()
+    toast.msg = '数据目录已切换'
+    toast.type = 'success'
+    toast.show = true
+    setTimeout(() => (toast.show = false), 2000)
+  } else {
+    toast.msg = `切换失败: ${result.error}`
+    toast.type = 'error'
+    toast.show = true
+    setTimeout(() => (toast.show = false), 3000)
+  }
+}
+
+async function openDataDir() {
+  await window.tegula.launchpadOpenFolder(dataDir.value)
+}
+
 function switchView(v: string) {
   curView.value = v
   if (v === 'launchpad') {
@@ -602,18 +636,33 @@ async function copyId(id: string) {
 function onDragStart(e: DragEvent, id: string) {
   draggingId.value = id
   e.dataTransfer?.setData('text/plain', id)
+  // Set effectAllowed for Electron compatibility
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+  }
 }
 
-function onDragOver(_e: DragEvent, status: string) {
+function onDragOver(e: DragEvent, status: string) {
   dragoverCol.value = status
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move'
+  }
 }
 
 async function onDrop(e: DragEvent, status: string) {
   e.preventDefault()
-  const id = e.dataTransfer?.getData('text/plain')
+  const id = draggingId.value || e.dataTransfer?.getData('text/plain')
   if (id) {
-    await window.tegula.moveStatus(id, status)
-    showToast(`已移动到「${status}」`, 'success')
+    try {
+      const result = await window.tegula.moveStatus(id, status)
+      if (result.ok) {
+        showToast(`已移动到「${status}」`, 'success')
+      } else {
+        showToast(`移动失败: ${result.error || '未知错误'}`, 'error')
+      }
+    } catch (err) {
+      showToast(`移动失败: ${err}`, 'error')
+    }
   }
   draggingId.value = null
   dragoverCol.value = null

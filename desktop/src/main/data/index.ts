@@ -17,16 +17,30 @@ let BACKUP_DIR: string
 let ACTIVITY_LOG: string
 
 export function initPaths(): void {
-  // Portable: if registry.yaml exists next to exe, use it
   const exeDir = path.dirname(app.getPath('exe'))
-  const portableReg = path.join(exeDir, 'registry.yaml')
-  const portableTask = path.join(exeDir, 'task-data')
+  const cwd = process.cwd()
+  const userData = app.getPath('userData')
 
+  // 1. cwd 下有 registry.yaml → 源码目录启动
+  // 2. exe 旁有 registry.yaml → 便携模式
+  // 3. userData 下有 registry.yaml → 安装版已配置
+  // 4. 常见开发路径 fallback（E:\CODE\CangKu\fangcun）
+  // 5. 最后才用 userData（空目录）
   let baseDir: string
-  if (fs.existsSync(portableReg) || fs.existsSync(portableTask)) {
+  if (fs.existsSync(path.join(cwd, 'registry.yaml')) || fs.existsSync(path.join(cwd, 'task-data'))) {
+    baseDir = cwd
+  } else if (fs.existsSync(path.join(exeDir, 'registry.yaml')) || fs.existsSync(path.join(exeDir, 'task-data'))) {
     baseDir = exeDir
+  } else if (fs.existsSync(path.join(userData, 'registry.yaml'))) {
+    baseDir = userData
   } else {
-    baseDir = path.join(app.getPath('userData'))
+    // Fallback: 检查常见源码位置
+    const candidates = [
+      'E:\\CODE\\CangKu\\fangcun',
+      'E:\\CODE\\CangKu\\fangcun\\cli',
+      path.join(userData, '..', 'fangcun'),
+    ]
+    baseDir = candidates.find(d => fs.existsSync(path.join(d, 'registry.yaml'))) || userData
   }
 
   DATA_DIR = baseDir
@@ -35,6 +49,20 @@ export function initPaths(): void {
   BACKUP_DIR = path.join(DATA_DIR, 'backups')
   ACTIVITY_LOG = path.join(TASK_DIR, '.activity.log')
 
+  fs.mkdirSync(TASK_DIR, { recursive: true })
+  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+}
+
+// 允许运行时切换数据目录（首次配置 / 设置页调用）
+export function setDataDir(newDir: string): void {
+  if (!fs.existsSync(path.join(newDir, 'registry.yaml')) && !fs.existsSync(path.join(newDir, 'task-data'))) {
+    throw new Error(`目标目录没有 registry.yaml 或 task-data: ${newDir}`)
+  }
+  DATA_DIR = newDir
+  TASK_DIR = path.join(DATA_DIR, 'task-data')
+  REGISTRY_PATH = path.join(DATA_DIR, 'registry.yaml')
+  BACKUP_DIR = path.join(DATA_DIR, 'backups')
+  ACTIVITY_LOG = path.join(TASK_DIR, '.activity.log')
   fs.mkdirSync(TASK_DIR, { recursive: true })
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
 }
@@ -139,22 +167,62 @@ function coerce(v: string): any {
 
 // ── Task File I/O ───────────────────────────────────────────────────────
 
+// Chinese → English field name mapping (Python tegula compat)
+const FIELD_MAP: Record<string, string> = {
+  '标题': 'title',
+  '项目': 'project',
+  '状态': 'status',
+  '批次': 'batch',
+  '截止': 'deadline',
+  '优先级': 'priority',
+  '创建': 'created',
+  '更新': 'updated',
+  '来源': 'source',
+  '指派': 'assignee',
+  '验收': 'review',
+  '阻塞': 'blockers',
+  '附言': 'memo',
+  '资源': 'resources',
+  '方案': 'plan',
+  '结果记录': 'result_log',
+  '派活时间': 'dispatch_time',
+  'agent': 'agent',
+  '验收清单': 'review_checklist',
+  '预算': 'budget',
+  'cron': 'cron',
+  'context': 'context',
+  'id': 'id',
+  'tags': 'tags',
+}
+
+// English → Chinese field name mapping (for renderTask compat with Python CLI)
+const REVERSE_FIELD_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(FIELD_MAP).map(([zh, en]) => [en, zh])
+)
+
 export function parseTask(filePath: string): Task | null {
   if (!fs.existsSync(filePath)) return null
 
   const content = fs.readFileSync(filePath, 'utf-8')
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
+  // Support mixed delimiters: ---...---, ===...===, ---...===, ===...---
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/) ||
+                 content.match(/^===\r?\n([\s\S]*?)\r?\n===\r?\n([\s\S]*)$/) ||
+                 content.match(/^---\r?\n([\s\S]*?)\r?\n===\r?\n([\s\S]*)$/) ||
+                 content.match(/^===\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
   if (!fmMatch) return null
 
   const fmText = fmMatch[1]
   const body = fmMatch[2]
   const fm: TaskFrontmatter = { id: '' }
 
-  for (const line of fmText.split('\n')) {
+  for (const rawLine of fmText.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
     const m = line.match(/^([^:]+):\s*(.*)$/)
     if (m) {
-      const key = m[1].trim()
+      const rawKey = m[1].trim()
       const val = m[2].trim()
+      // Normalize Chinese field names to English
+      const key = FIELD_MAP[rawKey] || rawKey
       if (val.startsWith('[')) {
         fm[key] = coerce(val)
       } else {
@@ -164,6 +232,15 @@ export function parseTask(filePath: string): Task | null {
   }
 
   fm.id = fm.id || path.basename(filePath, '.md')
+  
+  // Normalize Unix timestamps to ISO format
+  if (fm.created && /^\d+$/.test(fm.created)) {
+    fm.created = new Date(parseInt(fm.created) * 1000).toISOString()
+  }
+  if (fm.updated && /^\d+$/.test(fm.updated)) {
+    fm.updated = new Date(parseInt(fm.updated) * 1000).toISOString()
+  }
+  
   return { id: fm.id, fm, body, path: filePath }
 }
 
@@ -171,10 +248,14 @@ export function renderTask(task: Task): string {
   const lines = ['---']
   for (const [k, v] of Object.entries(task.fm)) {
     if (v === undefined || v === null) continue
+    // Map back to Chinese field names for Python CLI compat
+    const outKey = REVERSE_FIELD_MAP[k] || k
     if (Array.isArray(v)) {
-      lines.push(`${k}: [${v.join(', ')}]`)
+      lines.push(`${outKey}: [${v.join(', ')}]`)
+    } else if (typeof v === 'object') {
+      lines.push(`${outKey}: ${JSON.stringify(v)}`)
     } else {
-      lines.push(`${k}: ${v}`)
+      lines.push(`${outKey}: ${v}`)
     }
   }
   lines.push('---')
@@ -186,20 +267,34 @@ export function loadTasks(view = 'active'): Task[] {
   if (!fs.existsSync(TASK_DIR)) return []
 
   const tasks: Task[] = []
-  for (const entry of fs.readdirSync(TASK_DIR)) {
-    if (!entry.endsWith('.md')) continue
-    const filePath = path.join(TASK_DIR, entry)
-    const task = parseTask(filePath)
-    if (!task) continue
+  
+  function scanDir(dir: string) {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        // Skip archive directory for active view
+        if (view === 'active' && entry.name === 'archive') continue
+        scanDir(fullPath)
+      } else if (entry.name.endsWith('.md')) {
+        // Skip template files
+        if (entry.name.startsWith('_')) continue
+        const task = parseTask(fullPath)
+        if (!task) continue
 
-    // Filter by view
-    if (view === 'active') {
-      const status = task.fm.status
-      if (status === '完成' || status === '驳回') continue
+        if (view === 'active') {
+          const status = task.fm.status
+          if (status === '完成' || status === '驳回') continue
+        } else if (view === 'archive') {
+          const status = task.fm.status
+          if (status !== '完成' && status !== '驳回') continue
+        }
+        tasks.push(task)
+      }
     }
-    tasks.push(task)
   }
 
+  scanDir(TASK_DIR)
   return tasks
 }
 

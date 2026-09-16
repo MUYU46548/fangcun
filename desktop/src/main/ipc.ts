@@ -73,8 +73,15 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('moveStatus', (_event, id: string, status: string) => {
-    const task = tasks.moveStatus(id, status as any)
-    return { ok: !!task, id }
+    try {
+      const task = tasks.moveStatus(id, status as any)
+      if (!task) {
+        return { ok: false, id, error: `任务不存在或无法读取: ${id}` }
+      }
+      return { ok: true, id }
+    } catch (e: any) {
+      return { ok: false, id, error: e.message }
+    }
   })
 
   ipcMain.handle('deleteTask', (_event, id: string) => {
@@ -139,6 +146,15 @@ export function registerIpcHandlers(): void {
   // ── Data directory info ───────────────────────────────────────────
   ipcMain.handle('getDataDir', () => {
     return data.getDataDir()
+  })
+
+  ipcMain.handle('setDataDir', (_event, newDir: string) => {
+    try {
+      data.setDataDir(newDir)
+      return { ok: true, dir: data.getDataDir() }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
   })
 
   // ── Notes ────────────────────────────────────────────────────────

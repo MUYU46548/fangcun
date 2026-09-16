@@ -1,6 +1,10 @@
-# 方寸 (tegula)
+# 方寸 (Tegula)
+
+本项目**使用AI辅助开发**。
 
 本地优先的多 Agent 任务调度台。管理多项目任务、启动本地应用、对接 LLM。
+
+如果喜欢本项目，欢迎到[爱发电](https://afdian.com/a/muyu46548B?utm_source=copylink&utm_medium=link)支持我们！
 
 ## 项目结构
 
@@ -26,6 +30,8 @@ fangcun/
 ## 快速开始
 
 ### 桌面版
+
+推荐优先使用桌面版，以下命令仅供开发调试使用：
 
 ```bash
 cd desktop

@@ -59,12 +59,21 @@ export function createTask(fields: NewTaskFields): Task {
 
 export function readTask(id: string): Task | null {
   const taskDir = getTaskDir()
-  for (const entry of fs.readdirSync(taskDir)) {
-    if (entry.endsWith('.md') && entry.startsWith(id)) {
-      return parseTask(path.join(taskDir, entry))
+  // Search in main directory and subdirectories
+  function searchInDir(dir: string): Task | null {
+    if (!fs.existsSync(dir)) return null
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        const found = searchInDir(fullPath)
+        if (found) return found
+      } else if (entry.name.endsWith('.md') && entry.name.startsWith(id)) {
+        return parseTask(fullPath)
+      }
     }
+    return null
   }
-  return null
+  return searchInDir(taskDir)
 }
 
 export function updateTask(id: string, fields: Partial<TaskFrontmatter>): Task | null {
@@ -85,7 +94,16 @@ export function updateTask(id: string, fields: Partial<TaskFrontmatter>): Task |
 }
 
 export function moveStatus(id: string, newStatus: Status): Task | null {
-  return updateTask(id, { status: newStatus })
+  const task = readTask(id)
+  if (!task) return null
+  
+  task.fm.status = newStatus
+  task.fm.updated = new Date().toISOString()
+  task.fm.expected_update = genId('lock')
+  
+  atomicWrite(task.path, renderTask(task))
+  logActivity(id, 'move_status', newStatus)
+  return task
 }
 
 export function deleteTask(id: string): boolean {
@@ -121,7 +139,13 @@ export function scanProjectStatus(): ProjectStatus[] {
   const tasks = loadAllTasks()
 
   return projects.map(proj => {
-    const projTasks = tasks.filter(t => t.fm.project === proj.id)
+    const projId = proj.id
+    const projTasks = tasks.filter(t => {
+      const p = t.fm.project
+      if (!p) return false
+      if (Array.isArray(p)) return p.includes(projId)
+      return p === projId
+    })
     const active = projTasks.filter(t => t.fm.status !== '完成' && t.fm.status !== '驳回')
     const completed = projTasks.filter(t => t.fm.status === '完成')
 

@@ -1,6 +1,7 @@
 import { spawn, exec } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
+import { shell } from 'electron'
 import { LaunchApp } from './config'
 
 export interface LaunchResult {
@@ -46,7 +47,7 @@ export function launchApp(appConfig: LaunchApp): LaunchResult {
 
 export function openFolder(folderPath: string): LaunchResult {
   try {
-    exec(`start "" "${folderPath}"`, { windowsHide: true })
+    shell.openPath(folderPath)
     return { ok: true, message: `已打开: ${folderPath}` }
   } catch (e) {
     return { ok: false, message: `打开失败: ${(e as Error).message}` }
@@ -55,7 +56,7 @@ export function openFolder(folderPath: string): LaunchResult {
 
 export function openUrl(url: string): LaunchResult {
   try {
-    exec(`start "" "${url}"`, { windowsHide: true })
+    shell.openExternal(url)
     return { ok: true, message: `已打开: ${url}` }
   } catch (e) {
     return { ok: false, message: `打开失败: ${(e as Error).message}` }

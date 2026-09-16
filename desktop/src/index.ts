@@ -2,6 +2,7 @@ import { app, BrowserWindow, Tray, Menu } from 'electron'
 import * as path from 'path'
 import { registerIpcHandlers } from './main/ipc'
 import { startMCPServer, stopMCPServer } from './main/mcp'
+import { initUpdater, registerUpdaterIpc } from './main/updater'
 
 const isDev = !app.isPackaged
 
@@ -67,6 +68,10 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   startMCPServer()
+  
+  // Initialize auto-updater
+  initUpdater(mainWindow)
+  registerUpdaterIpc()
 })
 
 app.on('window-all-closed', () => {
