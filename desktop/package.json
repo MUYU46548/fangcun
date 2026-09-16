@@ -1,0 +1,66 @@
+{
+  "name": "fangcun-desktop",
+  "version": "0.1.0",
+  "description": "方寸 — 本地优先多 agent 任务地图",
+  "main": "dist/index.js",
+  "bin": {
+    "tegula-mcp": "dist/cli/tegula-mcp.js"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n RENDERER,MAIN,ELECTRON -c magenta,cyan,yellow \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development electron .",
+    "dev:debug": "concurrently -k -n RENDERER,MAIN,ELECTRON -c magenta,cyan,yellow \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron:debug\"",
+    "dev:electron:debug": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development OPEN_DEVTOOLS=1 electron .",
+    "build": "vite build && tsc -p tsconfig.main.json && tsc -p tsconfig.cli.json",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "keywords": ["kanban", "project-management", "electron"],
+  "author": "暮雨",
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "gray-matter": "^4.0.3",
+    "marked": "^18.0.9",
+    "pinia": "^2.1.7",
+    "typescript": "^7.0.2",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^10.1.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^5.0.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.muyu.fangcun",
+    "productName": "方寸",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "license": "LICENSE"
+    }
+  }
+}

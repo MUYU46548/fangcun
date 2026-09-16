@@ -1,0 +1,28 @@
+{
+  "apps": [
+    {
+      "name": "司天 SiTian",
+      "path": "E:/CODE/CangKu/SiTian",
+      "cmd": "E:/CODE/CangKu/SiTian/SiTian.exe",
+      "description": "地图可视化工具"
+    },
+    {
+      "name": "墨坊 NovelForge",
+      "path": "E:/CODE/CangKu/NovelForge",
+      "cmd": "E:/CODE/CangKu/NovelForge/console/启动控制台.bat",
+      "description": "小说创作控制台"
+    },
+    {
+      "name": "明鉴 MingJian",
+      "path": "E:/CODE/CangKu/MingJian",
+      "cmd": "E:/CODE/CangKu/MingJian/启动.bat",
+      "description": "文章修订工作台"
+    },
+    {
+      "name": "ROSA 资源库",
+      "path": "E:/图书馆/ROSA",
+      "cmd": "E:/图书馆/ROSA",
+      "description": "世界观IP知识库 (Obsidian)"
+    }
+  ]
+}

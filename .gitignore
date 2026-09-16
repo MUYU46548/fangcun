@@ -1,33 +1,37 @@
+# ── 通用 ──
 __pycache__/
 *.pyc
 .DS_Store
+Thumbs.db
+*.log
+*.local
+.vite/
+*.tsbuildinfo
+.vscode/
+.idea/
+
+# ── CLI / Python ──
 registry.yaml.bak
-
-# 使用数据与代码本体分割：任务内容不入代码库 git
 task-data/
-
-# 备份产物（zip 内是使用数据，同样不入库）
 backups/
-
-# 运行期生成物（报告覆盖式重生，不入库）
 project-status.md
-
-# PyInstaller 构建产物（临时文件，不入库）
+方寸-app/
 build/
 dist/
+*.spec
+apps.json
 
-# Tauri 构建产物（仅 dist 输出）
-fangcun-desktop/dist/
+# ── Desktop (Electron) ──
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+desktop/.vite/
 
-# 一次性分析报告 / 外派提示词（过程产物，非产品部分）
+# ── 一次性产物 ──
 docs/*-report.md
 docs/*-prompt.md
 docs/*_PLAN.md
 docs/TASK_BREAKDOWN.md
 docs/DEV_LOG.md
-
-# 工作记录（不入代码库）
 开发日志.md
-
-# Hermes 会话遥测（时间戳_hex 命名的大文件，误提交会撑爆仓库）
 [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9a-f]*
