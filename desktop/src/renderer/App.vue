@@ -197,7 +197,7 @@
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
-          <button v-if="curView === 'archive' || previewTask._archived" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
+          <button v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
           <button v-else class="warning" @click="archiveTask(previewTask)">归档</button>
           <button class="danger" @click="deleteTask(previewTask.id)">删除</button>
         </div>
@@ -724,20 +724,16 @@ function toggleCheck(el: HTMLInputElement) {
   if (!li || !previewTask.value) return
   const body = previewTask.value.body || ''
   const lines = body.split('\n')
-  // Find the line index by looking at the text content
-  const liText = li.textContent?.trim().replace(/^\s*/, '') || ''
+  const liText = (li.textContent || '').replace(/^\s+|\s+$/g, '').replace(/^-\s*\[[ x]\]\s*/, '')
   const lineIdx = lines.findIndex(l => {
-    // Match by checking if the line ends with the text after the checkbox marker
-    const m = l.match(/^- \[[ x]\] (.+)$/)
-    return m && liText.endsWith(m[1].trim())
+    const m = l.match(/^- \[[ x]\]\s*(.*)$/)
+    return m && m[1].trim() === liText.trim()
   })
   if (lineIdx === -1) return
   const checked = el.checked
   lines[lineIdx] = `- [${checked ? 'x' : ' '}] ${liText}`
   const newBody = lines.join('\n')
-  // Update local state immediately for responsiveness
   previewTask.value = { ...previewTask.value, body: newBody }
-  // Debounced save
   saveCheckChange(previewTask.value.id, newBody)
 }
 
@@ -759,8 +755,8 @@ function renderBody(body: string): string {
   // ## heading
   html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
   // - [ ] unchecked / - [x] checked — interactive
-  html = html.replace(/^- \[ \] (.+)$/gm, '<li class="check-item"><input type="checkbox" data-check="unchecked"> $1</li>')
-  html = html.replace(/^- \[x\] (.+)$/gm, '<li class="check-item"><input type="checkbox" data-check="checked" checked> $1</li>')
+  html = html.replace(/^- \[ \] ?(.*)$/gm, '<li class="check-item"><input type="checkbox" data-check="unchecked"> $1</li>')
+  html = html.replace(/^- \[x\] ?(.*)$/gm, '<li class="check-item"><input type="checkbox" data-check="checked" checked> $1</li>')
   // - bullet
   html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
   // wrap li's in ul
