@@ -192,12 +192,12 @@
         </div>
         <div class="body" v-if="previewTask.body">
           <label>正文</label>
-          <div class="body-text markdown" v-html="renderBody(previewTask.body)"></div>
+          <div class="body-text markdown" v-html="renderBody(previewTask.body)" @change="onBodyChange"></div>
         </div>
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
-          <button v-if="previewTask._archived" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
+          <button v-if="curView === 'archive' || previewTask._archived" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
           <button v-else class="warning" @click="archiveTask(previewTask)">归档</button>
           <button class="danger" @click="deleteTask(previewTask.id)">删除</button>
         </div>
@@ -712,6 +712,44 @@ async function restoreTask(t: Task) {
   }
 }
 
+function onBodyChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  if (target.tagName === 'INPUT' && target.type === 'checkbox') {
+    toggleCheck(target)
+  }
+}
+
+function toggleCheck(el: HTMLInputElement) {
+  const li = el.closest('li')
+  if (!li || !previewTask.value) return
+  const body = previewTask.value.body || ''
+  const lines = body.split('\n')
+  // Find the line index by looking at the text content
+  const liText = li.textContent?.trim().replace(/^\s*/, '') || ''
+  const lineIdx = lines.findIndex(l => {
+    // Match by checking if the line ends with the text after the checkbox marker
+    const m = l.match(/^- \[[ x]\] (.+)$/)
+    return m && liText.endsWith(m[1].trim())
+  })
+  if (lineIdx === -1) return
+  const checked = el.checked
+  lines[lineIdx] = `- [${checked ? 'x' : ' '}] ${liText}`
+  const newBody = lines.join('\n')
+  // Update local state immediately for responsiveness
+  previewTask.value = { ...previewTask.value, body: newBody }
+  // Debounced save
+  saveCheckChange(previewTask.value.id, newBody)
+}
+
+let _checkSaveTimers: Record<string, number> = {}
+function saveCheckChange(id: string, body: string) {
+  if (_checkSaveTimers[id]) clearTimeout(_checkSaveTimers[id])
+  _checkSaveTimers[id] = setTimeout(async () => {
+    await window.tegula.editTask(id, { body })
+    loadAll()
+  }, 300)
+}
+
 function renderBody(body: string): string {
   if (!body) return ''
   let html = body
@@ -720,9 +758,9 @@ function renderBody(body: string): string {
     .replace(/>/g, '&gt;')
   // ## heading
   html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
-  // - [ ] unchecked / - [x] checked
-  html = html.replace(/^- \[ \] (.+)$/gm, '<li class="check-item"><input type="checkbox" disabled> $1</li>')
-  html = html.replace(/^- \[x\] (.+)$/gm, '<li class="check-item"><input type="checkbox" disabled checked> $1</li>')
+  // - [ ] unchecked / - [x] checked — interactive
+  html = html.replace(/^- \[ \] (.+)$/gm, '<li class="check-item"><input type="checkbox" data-check="unchecked"> $1</li>')
+  html = html.replace(/^- \[x\] (.+)$/gm, '<li class="check-item"><input type="checkbox" data-check="checked" checked> $1</li>')
   // - bullet
   html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
   // wrap li's in ul
