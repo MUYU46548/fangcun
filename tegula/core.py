@@ -413,7 +413,7 @@ def parse_task(path):
             text = f.read()
     except Exception:
         return None
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, re.S)
+    m = re.match(r"^---\s*\n(.*?)\n(?:---|\===)\s*\n?(.*)$", text, re.S)
     if not m:
         return None
     fm_raw, body = m.group(1), m.group(2)

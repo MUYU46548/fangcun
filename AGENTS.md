@@ -66,6 +66,15 @@
 - **回归铁律**：改 tegula.py 解析/写入逻辑 → 必跑 `python verify.py` 全绿才算完
 - fangcun 本体未正式投用/未公开（2026-09），结构改动自由度高，但仍走 verify.py 基线
 
+## 开工流程（铁律）
+
+每次会话开工，**必须先执行**：
+1. `read_file(E:/CODE/CangKu/fangcun/开发日志.md)` — 读末条，了解上次做到哪
+2. 本次工作中，完成阶段性进展后，**回填开发日志**
+3. 不另立 STATUS.md，开发日志是唯一的过程记录
+
+
+
 ## docs/ 与杂项
 
 - `docs/tegula-architecture.*` = Archify 架构图生成物（HTML/JSON/视觉验证快照）

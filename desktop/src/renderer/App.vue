@@ -307,6 +307,70 @@
         {{ s }}
       </div>
     </div>
+
+    <!-- First-run wizard -->
+    <div v-if="showWizard" class="overlay wizard-overlay">
+      <div class="wizard">
+        <div class="wizard-header">
+          <h2>{{ wizardSteps[wizardStep].title }}</h2>
+          <p class="wizard-step-indicator">步骤 {{ wizardStep + 1 }} / {{ wizardSteps.length }}</p>
+        </div>
+        <div class="wizard-body">
+          <div v-if="wizardStep === 0">
+            <p class="wizard-desc">欢迎使用方寸！请先选择数据目录。</p>
+            <div class="wizard-field">
+              <label>数据目录</label>
+              <div class="wizard-input-row">
+                <input v-model="wizardDataDir" placeholder="选择数据目录路径" />
+                <button class="ghost" @click="browseWizardDir">浏览…</button>
+              </div>
+              <small class="wizard-hint">方寸将在此目录下创建 task-data/ 和 registry.yaml</small>
+            </div>
+          </div>
+          <div v-if="wizardStep === 1">
+            <p class="wizard-desc">选择初始化方式：</p>
+            <div class="wizard-options">
+              <label class="wizard-option" :class="{ selected: wizardInitMode === 'fresh' }">
+                <input type="radio" v-model="wizardInitMode" value="fresh" />
+                <div>
+                  <strong>新建空白看板</strong>
+                  <small>从零开始，创建全新的任务看板</small>
+                </div>
+              </label>
+              <label class="wizard-option" :class="{ selected: wizardInitMode === 'import' }">
+                <input type="radio" v-model="wizardInitMode" value="import" />
+                <div>
+                  <strong>从 Python tegula 导入</strong>
+                  <small>复制现有任务数据和项目注册表</small>
+                </div>
+              </label>
+            </div>
+            <div v-if="wizardInitMode === 'import'" class="wizard-field">
+              <label>Python tegula 目录</label>
+              <div class="wizard-input-row">
+                <input v-model="wizardPythonDir" placeholder="E:\CODE\CangKu\fangcun" />
+                <button class="ghost" @click="browsePythonDir">浏览…</button>
+              </div>
+            </div>
+          </div>
+          <div v-if="wizardStep === 2">
+            <p class="wizard-desc">确认配置：</p>
+            <div class="wizard-summary">
+              <div class="wizard-summary-row"><span>数据目录</span><code>{{ wizardDataDir }}</code></div>
+              <div class="wizard-summary-row"><span>初始化方式</span><span>{{ wizardInitMode === 'fresh' ? '新建空白看板' : '从 Python tegula 导入' }}</span></div>
+              <div v-if="wizardInitMode === 'import'" class="wizard-summary-row"><span>Python tegula 目录</span><code>{{ wizardPythonDir }}</code></div>
+            </div>
+          </div>
+        </div>
+        <div class="wizard-footer">
+          <button v-if="wizardStep > 0" class="ghost" @click="wizardStep--">上一步</button>
+          <div class="wizard-footer-right">
+            <button v-if="wizardStep < wizardSteps.length - 1" class="pri" @click="wizardNext" :disabled="!wizardCanNext">下一步</button>
+            <button v-else class="pri" @click="wizardFinish" :disabled="wizardFinishing">{{ wizardFinishing ? '初始化中…' : '完成' }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -350,6 +414,24 @@ const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 const searchQuery = ref('')
 const searchIncludeArchive = ref(true)
 const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
+
+// First-run wizard state
+const showWizard = ref(false)
+const wizardStep = ref(0)
+const wizardInitMode = ref<'fresh' | 'import'>('fresh')
+const wizardDataDir = ref('')
+const wizardPythonDir = ref('')
+const wizardFinishing = ref(false)
+const wizardSteps = [
+  { title: '选择数据目录' },
+  { title: '初始化方式' },
+  { title: '确认配置' },
+]
+const wizardCanNext = computed(() => {
+  if (wizardStep.value === 0) return wizardDataDir.value.trim().length > 0
+  if (wizardStep.value === 1 && wizardInitMode.value === 'import') return wizardPythonDir.value.trim().length > 0
+  return true
+})
 
 watch(searchIncludeArchive, () => { loadAll() })
 const draggingId = ref<string | null>(null)
@@ -865,7 +947,52 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
 
 // ── Mount ───────────────────────────────────────────────────────────────
 
-onMounted(loadAll)
+async function checkFirstRun() {
+  try {
+    const first = await window.tegula.isFirstRun()
+    if (first) {
+      showWizard.value = true
+      wizardDataDir.value = await window.tegula.getDataDir()
+    }
+  } catch { /* ignore */ }
+}
+
+async function browseWizardDir() {
+  const result = await window.tegula.browseDirectory()
+  if (result) wizardDataDir.value = result
+}
+
+async function browsePythonDir() {
+  const result = await window.tegula.browseDirectory()
+  if (result) wizardPythonDir.value = result
+}
+
+function wizardNext() {
+  if (wizardStep.value < wizardSteps.length - 1) wizardStep.value++
+}
+
+async function wizardFinish() {
+  wizardFinishing.value = true
+  try {
+    if (wizardInitMode.value === 'fresh') {
+      await window.tegula.createFreshSetup(wizardDataDir.value)
+    } else {
+      await window.tegula.createFreshSetup(wizardDataDir.value)
+      await window.tegula.importFromPythonTegula(wizardDataDir.value, wizardPythonDir.value)
+    }
+    showWizard.value = false
+    loadAll()
+  } catch (e: any) {
+    showToast('初始化失败: ' + (e.message || e), 'error')
+  } finally {
+    wizardFinishing.value = false
+  }
+}
+
+onMounted(() => {
+  checkFirstRun()
+  loadAll()
+})
 </script>
 
 <style>
@@ -1133,4 +1260,32 @@ body {
 
 /* Warning button (archive) */
 .acts .warning { background: #f0a83a; color: #fff; }
+
+/* Wizard */
+.wizard-overlay { z-index: 100; }
+.wizard { background: #fff; border-radius: 18px; padding: 28px 32px; width: 560px; max-width: 90vw; box-shadow: 0 12px 48px rgba(90,90,130,0.2); border: 1px solid var(--border); }
+.wizard-header { margin-bottom: 20px; }
+.wizard-header h2 { font-size: 20px; color: var(--ink); margin: 0; }
+.wizard-step-indicator { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.wizard-desc { font-size: 14px; color: var(--ink); margin: 0 0 16px; }
+.wizard-field { margin-bottom: 16px; }
+.wizard-field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+.wizard-input-row { display: flex; gap: 8px; }
+.wizard-input-row input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--ink); outline: none; font-family: inherit; background: #fff; }
+.wizard-input-row button { flex: none; }
+.wizard-hint { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.wizard-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.wizard-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.15s; }
+.wizard-option:hover { border-color: var(--accent-soft); }
+.wizard-option.selected { border-color: var(--accent); background: #f4f1fc; }
+.wizard-option input { margin-top: 2px; }
+.wizard-option strong { display: block; font-size: 13px; color: var(--ink); }
+.wizard-option small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.wizard-summary { background: var(--bg); border-radius: 10px; padding: 14px 16px; }
+.wizard-summary-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.wizard-summary-row:last-child { border-bottom: 0; }
+.wizard-summary-row span:first-child { color: var(--muted); }
+.wizard-summary-row code { background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+.wizard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
+.wizard-footer-right { margin-left: auto; }
 </style>

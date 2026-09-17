@@ -68,6 +68,41 @@ export function setDataDir(newDir: string): void {
 }
 
 export function getDataDir(): string { return DATA_DIR }
+export function isFirstRun(): boolean {
+  return !fs.existsSync(REGISTRY_PATH) && !fs.existsSync(path.join(TASK_DIR, '..', 'registry.yaml'))
+}
+
+export function createFreshSetup(targetDir: string): void {
+  fs.mkdirSync(targetDir, { recursive: true })
+  TASK_DIR = path.join(targetDir, 'task-data')
+  REGISTRY_PATH = path.join(targetDir, 'registry.yaml')
+  BACKUP_DIR = path.join(targetDir, 'backups')
+  ACTIVITY_LOG = path.join(TASK_DIR, '.activity.log')
+  fs.mkdirSync(TASK_DIR, { recursive: true })
+  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+  if (!fs.existsSync(REGISTRY_PATH)) {
+    fs.writeFileSync(REGISTRY_PATH, '# 方寸 registry\nprojects:\n  - id: fangcun\n    name: 方寸\n    repo: .\n', 'utf-8')
+  }
+}
+
+export function importFromPythonTegula(targetDir: string, pythonTegulaDir: string): void {
+  const srcTask = path.join(pythonTegulaDir, 'task-data')
+  const srcReg = path.join(pythonTegulaDir, 'registry.yaml')
+  if (fs.existsSync(srcReg)) {
+    fs.copyFileSync(srcReg, path.join(targetDir, 'registry.yaml'))
+  }
+  if (fs.existsSync(srcTask)) {
+    fs.mkdirSync(targetDir, { recursive: true })
+    const destTask = path.join(targetDir, 'task-data')
+    fs.mkdirSync(destTask, { recursive: true })
+    for (const f of fs.readdirSync(srcTask)) {
+      if (f.endsWith('.md')) {
+        fs.copyFileSync(path.join(srcTask, f), path.join(destTask, f))
+      }
+    }
+  }
+}
+
 export function getTaskDir(): string { return TASK_DIR }
 export function getRegistryPath(): string { return REGISTRY_PATH }
 

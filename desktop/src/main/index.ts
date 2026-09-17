@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Tray, Menu } from 'electron'
+import { app, BrowserWindow, Tray, Menu, dialog } from 'electron'
 import * as path from 'path'
 import { registerIpcHandlers } from './ipc'
+import { isFirstRun } from './data'
 
 const isDev = !app.isPackaged
 

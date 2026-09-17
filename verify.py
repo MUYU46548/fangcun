@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) 数据层验证脚本 — 往返保真 / 并发防护 / ID 碰撞 / 旧文件兼容
 # 用法：python verify.py   （只读代码层 + 临时目录写样例，不碰 task-data/）
-import os, sys, tempfile, time, shutil
+import os, sys, json, tempfile, time, shutil
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 包结构：tegula.core（数据层+API） ← tegula.cli（命令行入口）
@@ -971,6 +971,85 @@ _notes_after = teg.api_export_notes()
 check("导出包含导入的笔记", _notes_after.get("ok") and _notes_after["count"] >= 2)
 
 teg.TASK_DIR = _saved_td2
+
+# ---- 22. Python↔TypeScript 往返校验（P0-4）----
+print("\n---- 22. Python↔TypeScript 往返 ----")
+
+# Python core.py 写 → TS 解析
+py_sample = """---
+id: task-roundtrip-001
+标题: 往返测试
+项目: [test-proj]
+状态: 进行中
+优先级: 高
+创建: 2026-09-18
+更新: 2026-09-18
+标签: [cross-lang]
+---
+## 方案
+- [x] Python 写入
+- [ ] TS 读取
+## 结果记录
+跨语言 roundtrip 测试。
+"""
+py_path = os.path.join(tmpdir, "roundtrip-test.md")
+with open(py_path, "w", encoding="utf-8") as f:
+    f.write(py_sample)
+
+# 用 TS 解析器读
+import subprocess
+ts_result = subprocess.run(
+    ["node", os.path.join(ROOT, "scripts", "ts-parse.mjs"), py_path],
+    capture_output=True, text=True, timeout=10
+)
+if ts_result.returncode == 0 and ts_result.stdout.strip() != "null":
+    ts_parsed = json.loads(ts_result.stdout)
+    check("TS 读 Python 写 标题一致", ts_parsed.get("title") == "往返测试", str(ts_parsed.get("title")))
+    check("TS 读 Python 写 状态一致", ts_parsed.get("status") == "进行中", str(ts_parsed.get("status")))
+    check("TS 读 Python 写 项目一致", ts_parsed.get("project") == ["test-proj"], str(ts_parsed.get("project")))
+    check("TS 读 Python 写 标签一致", ts_parsed.get("tags") == ["cross-lang"], str(ts_parsed.get("tags")))
+    check("TS 读 Python 写 正文保留", "Python 写入" in (ts_parsed.get("body") or ""), "")
+else:
+    check("TS 解析器可用", False, ts_result.stderr[:200])
+
+# TS 格式写 → Python 读（用 parse_task 读 TS 风格文件）
+ts_style_sample = """---
+id: task-ts-style-002
+标题: TS 风格文件
+项目: [ts-proj]
+状态: 待办
+优先级: 中
+创建: 2026-09-18T10:00:00
+更新: 2026-09-18T10:00:00
+---
+## 方案
+- [ ] 待办事项
+## 结果记录
+TS 格式。
+"""
+ts_style_path = os.path.join(tmpdir, "ts-style-test.md")
+with open(ts_style_path, "w", encoding="utf-8") as f:
+    f.write(ts_style_sample)
+d_ts = teg.parse_task(ts_style_path)
+check("Python 读 TS 格式 标题一致", d_ts.get("标题") == "TS 风格文件", str(d_ts.get("标题")))
+check("Python 读 TS 格式 状态一致", d_ts.get("状态") == "待办", str(d_ts.get("状态")))
+check("Python 读 TS 格式 项目一致", d_ts.get("项目") == ["ts-proj"], str(d_ts.get("项目")))
+check("Python 读 TS 格式 正文保留", "TS 格式" in (d_ts.get("_body") or ""), "")
+
+# 混合分隔符测试
+mixed_sample = """---
+id: task-mixed-003
+标题: 混合分隔符
+状态: 完成
+===
+## 正文
+混合分隔符测试。
+"""
+mixed_path = os.path.join(tmpdir, "mixed-test.md")
+with open(mixed_path, "w", encoding="utf-8") as f:
+    f.write(mixed_sample)
+d_mixed = teg.parse_task(mixed_path)
+check("Python 读混合分隔符", d_mixed and d_mixed.get("标题") == "混合分隔符", str(d_mixed.get("标题") if d_mixed else None))
 
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:

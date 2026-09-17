@@ -21,10 +21,14 @@ contextBridge.exposeInMainWorld('tegula', {
   // Registry
   regSave: (payload: any) => ipcRenderer.invoke('regSave', payload),
   
-  // Backup
+  // ── Backup
   backup: () => ipcRenderer.invoke('backup'),
   restore: (backupPath: string) => ipcRenderer.invoke('restore', backupPath),
   listBackups: () => ipcRenderer.invoke('listBackups'),
+  isFirstRun: () => ipcRenderer.invoke('isFirstRun'),
+  createFreshSetup: (targetDir: string) => ipcRenderer.invoke('createFreshSetup', targetDir),
+  importFromPythonTegula: (targetDir: string, pythonDir: string) => ipcRenderer.invoke('importFromPythonTegula', targetDir, pythonDir),
+  browseDirectory: () => ipcRenderer.invoke('browseDirectory'),
   
   // Activity
   loadActivity: (limit = 50) => ipcRenderer.invoke('loadActivity', limit),

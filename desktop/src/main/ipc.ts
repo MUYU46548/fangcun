@@ -3,7 +3,7 @@
  * Connects renderer (Vue) to main process (data layer)
  */
 
-import { ipcMain, app } from 'electron'
+import { ipcMain, app, dialog } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
 import * as services from './services'
@@ -247,6 +247,36 @@ export function registerIpcHandlers(): void {
     } catch {
       return []
     }
+  })
+
+  // ── First run setup ───────────────────────────────────────────────
+  ipcMain.handle('isFirstRun', () => {
+    return data.isFirstRun()
+  })
+
+  ipcMain.handle('createFreshSetup', (_event, targetDir: string) => {
+    try {
+      data.createFreshSetup(targetDir)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: String(e.message || e) }
+    }
+  })
+
+  ipcMain.handle('importFromPythonTegula', (_event, targetDir: string, pythonDir: string) => {
+    try {
+      data.importFromPythonTegula(targetDir, pythonDir)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: String(e.message || e) }
+    }
+  })
+
+  ipcMain.handle('browseDirectory', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return result.canceled ? null : result.filePaths[0] ?? null
   })
 
   // ── Activity Log ──────────────────────────────────────────────────
