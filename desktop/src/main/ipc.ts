@@ -7,6 +7,7 @@ import { ipcMain, app, dialog } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
 import * as services from './services'
+import * as todosService from './services/todos'
 import * as path from 'path'
 import * as fs from 'fs'
 import { execSync } from 'child_process'
@@ -494,4 +495,158 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('launchpad:getConfigPath', () => {
     return launchpad.getAppConfigPath()
   })
+
+  // ── Todos ──────────────────────────────────────────────────────────
+  ipcMain.handle('todos:list', (_event, filter?) => {
+    return todosService.listTodos(filter)
+  })
+
+  ipcMain.handle('todos:create', (_event: any, title: string, priority?: string, due?: string) => {
+    try {
+      const todo = todosService.createTodo(title, priority as any, due)
+      return { ok: true, todo }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('todos:update', (_event: any, id: string, updates: any) => {
+    try {
+      const todo = todosService.updateTodo(id, updates)
+      return { ok: !!todo, todo }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('todos:toggle', (_event: any, id: string) => {
+    const todo = todosService.toggleTodo(id)
+    return { ok: !!todo, todo }
+  })
+
+  ipcMain.handle('todos:delete', (_event: any, id: string) => {
+    const ok = todosService.deleteTodo(id)
+    return { ok }
+  })
+
+  // ── Dispatch ────────────────────────────────────────────────────────
+  ipcMain.handle('dispatch:preview', (_event: any, id: string) => {
+    try {
+      const task = tasks.readTask(id)
+      if (!task) return { ok: false, error: '任务不存在' }
+      const prompt = buildDispatchPrompt(task)
+      return { ok: true, prompt, status: task.fm.status }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('dispatch:execute', (_event: any, id: string) => {
+    try {
+      const result = executeDispatch(id)
+      return result
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  // ── Review ──────────────────────────────────────────────────────────
+  ipcMain.handle('review:accept', (_event: any, id: string) => {
+    try {
+      const result = reviewTask(id, 'accept')
+      return result
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('review:reject', (_event: any, id: string, reason: string) => {
+    try {
+      const result = reviewTask(id, 'reject', reason)
+      return result
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  // ── File open (path whitelist) ─────────────────────────────────────
+  ipcMain.handle('openFile', (_event: any, filePath: string) => {
+    return validateAndOpenFile(filePath)
+  })
+}
+
+// ── Dispatch helpers ─────────────────────────────────────────────────────
+
+function buildDispatchPrompt(task: any): string {
+  const title = task.fm.title || task.id
+  const project = task.fm.project || '未归属'
+  const body = task.body || ''
+  return [
+    `执行方寸任务 ${task.id}：${title}`,
+    `项目：${project}`,
+    `任务卡：${task.path}`,
+    '## 任务正文',
+    body,
+  ].join('\n')
+}
+
+function executeDispatch(id: string): { ok: boolean; error?: string; command?: string } {
+  const task = tasks.readTask(id)
+  if (!task) return { ok: false, error: '任务不存在' }
+  if (task.fm.status === '完成' || task.fm.status === '驳回') {
+    return { ok: false, error: '任务已终态，不派活' }
+  }
+  if (task.fm.status === '进行中') {
+    return { ok: false, error: '任务已在进行中（重复派活风险），请先完成或等待当前执行结束' }
+  }
+  // Check blockers
+  if (task.fm.blockers && task.fm.blockers.length > 0) {
+    return { ok: false, error: `被阻塞：前置任务 ${task.fm.blockers.join(', ')} 未完成` }
+  }
+  // Move to 进行中
+  tasks.moveStatus(id, '进行中')
+  const prompt = buildDispatchPrompt(task)
+  return { ok: true, command: prompt }
+}
+
+function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): { ok: boolean; error?: string } {
+  const task = tasks.readTask(id)
+  if (!task) return { ok: false, error: '任务不存在' }
+  if (task.fm.status !== '待验收') {
+    return { ok: false, error: `当前状态为「${task.fm.status || '未知'}」，仅「待验收」可验收` }
+  }
+  if (verdict === 'accept') {
+    tasks.moveStatus(id, '完成')
+    return { ok: true }
+  } else {
+    if (!reason || !reason.trim()) {
+      return { ok: false, error: '驳回理由必填（写入结果记录，留痕可追溯）' }
+    }
+    tasks.moveStatus(id, '驳回')
+    // Append rejection reason to result log
+    const ts = new Date().toISOString().replace('T', ' ').slice(0, 16)
+    const logLine = `[${ts}] 验收驳回：${reason}`
+    const prevLog = (task.fm as any).result_log || ''
+    ;(task.fm as any).result_log = (prevLog + '\n' + logLine).trim()
+    tasks.updateTask(id, { result_log: (task.fm as any).result_log } as any)
+    return { ok: true }
+  }
+}
+
+function validateAndOpenFile(filePath: string): { ok: boolean; error?: string } {
+  const raw = String(filePath || '').trim().replace(/^["']|["']$/g, '')
+  if (!raw) return { ok: false, error: '路径为空' }
+  // Simple existence check for now
+  if (!fs.existsSync(raw)) return { ok: false, error: `路径不存在: ${raw}` }
+  try {
+    const { execFileSync } = require('child_process')
+    if (fs.statSync(raw).isDirectory()) {
+      execFileSync('explorer', [raw])
+    } else {
+      execFileSync('cmd', ['/c', 'start', '', raw])
+    }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: `打开失败: ${e.message}` }
+  }
 }

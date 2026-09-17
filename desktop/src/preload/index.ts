@@ -91,6 +91,24 @@ contextBridge.exposeInMainWorld('tegula', {
   launchpadOpenUrl: (url: string) => ipcRenderer.invoke('launchpad:openUrl', url),
   launchpadGetConfigPath: () => ipcRenderer.invoke('launchpad:getConfigPath'),
 
+  // ── Todos ─────────────────────────────────────────────────────────
+  todosList: (filter?: any) => ipcRenderer.invoke('todos:list', filter),
+  todosCreate: (title: string, priority?: string, due?: string) => ipcRenderer.invoke('todos:create', title, priority, due),
+  todosUpdate: (id: string, updates: any) => ipcRenderer.invoke('todos:update', id, updates),
+  todosToggle: (id: string) => ipcRenderer.invoke('todos:toggle', id),
+  todosDelete: (id: string) => ipcRenderer.invoke('todos:delete', id),
+
+  // ── Dispatch ───────────────────────────────────────────────────────
+  dispatchPreview: (id: string) => ipcRenderer.invoke('dispatch:preview', id),
+  dispatchExecute: (id: string) => ipcRenderer.invoke('dispatch:execute', id),
+
+  // ── Review ─────────────────────────────────────────────────────────
+  reviewAccept: (id: string) => ipcRenderer.invoke('review:accept', id),
+  reviewReject: (id: string, reason: string) => ipcRenderer.invoke('review:reject', id, reason),
+
+  // ── File open ─────────────────────────────────────────────────────
+  openFile: (filePath: string) => ipcRenderer.invoke('openFile', filePath),
+
   // Data directory
   setDataDir: (newDir: string) => ipcRenderer.invoke('setDataDir', newDir),
 

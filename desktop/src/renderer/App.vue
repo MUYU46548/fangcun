@@ -214,6 +214,48 @@
       </div>
     </main>
 
+    <!-- Todos view -->
+    <main id="board" class="todos-view" v-else-if="curView === 'todos'">
+      <div class="todos-header">
+        <h3>待办</h3>
+        <div class="todos-ctrls">
+          <input
+            v-model="todoInput"
+            placeholder="快速添加待办（Enter 添加）"
+            class="todo-input"
+            @keydown.enter="executeTodoAdd"
+          />
+          <select v-model="todoFilter" class="todo-filter">
+            <option value="all">全部</option>
+            <option value="active">未完成</option>
+            <option value="done">已完成</option>
+          </select>
+        </div>
+      </div>
+      <div class="todos-list">
+        <div v-if="!filteredTodos.length" class="empty-state">
+          <div class="empty-icon">✓</div>
+          <div class="empty-text">暂无待办</div>
+        </div>
+        <div
+          v-for="todo in filteredTodos"
+          :key="todo.id"
+          class="todo-item"
+          :class="{ done: todo.done, prio: todo.priority === 'high' }"
+        >
+          <input
+            type="checkbox"
+            class="todo-chk"
+            :checked="todo.done"
+            @change="toggleTodo(todo.id)"
+          />
+          <span class="todo-title">{{ todo.title }}</span>
+          <span v-if="todo.priority === 'high'" class="todo-prio">高</span>
+          <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
+        </div>
+      </div>
+    </main>
+
     <!-- Notes view -->
     <main id="board" class="notes-view" v-else-if="curView === 'notes'">
       <div class="notes-header">
@@ -287,6 +329,43 @@
       </div>
     </main>
 
+    <!-- Dispatch modal -->
+    <div id="dispatch-overlay" class="overlay" v-if="dispatchModal" @click.self="dispatchModal = null">
+      <div id="dispatch-modal">
+        <h3>⚡ 派活</h3>
+        <div class="dispatch-info">
+          <div class="dispatch-task-title">{{ dispatchModal.title }}</div>
+          <div class="dispatch-task-id">{{ dispatchModal.id }}</div>
+          <div class="dispatch-status">当前状态：{{ dispatchModal.status }}</div>
+        </div>
+        <label>任务书（复制给 agent 执行）</label>
+        <textarea class="dispatch-prompt" readonly>{{ dispatchModal.prompt }}</textarea>
+        <div class="acts">
+          <button class="ghost" @click="dispatchModal = null">取消</button>
+          <button class="ghost" @click="copyDispatchPrompt">📋 复制任务书</button>
+          <button class="pri" @click="executeDispatchClick">▶ 派活</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Review modal -->
+    <div id="review-overlay" class="overlay" v-if="reviewModal" @click.self="reviewModal = null">
+      <div id="review-modal">
+        <h3>✅ 验收裁决</h3>
+        <div class="review-info">
+          <div class="review-task-title">{{ reviewModal.title }}</div>
+          <div class="review-task-id">{{ reviewModal.id }}</div>
+        </div>
+        <label>驳回理由（驳回时必填）</label>
+        <textarea v-model="reviewReason" class="review-reason" placeholder="驳回时填写理由..."></textarea>
+        <div class="acts">
+          <button class="ghost" @click="reviewModal = null">取消</button>
+          <button class="danger" @click="rejectTask">↩ 驳回</button>
+          <button class="ok" @click="acceptTask">✅ 通过</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Task preview modal -->
     <div id="roverlay" class="overlay" v-if="previewTask" @click.self="previewTask = null">
       <div id="rmodal">
@@ -317,6 +396,8 @@
           <button class="add-note-btn" @click="openAddNoteForTask(previewTask.id)">+ 添加笔记</button>
         </div>
         <div class="acts">
+          <button class="ghost" @click="dispatchTaskClick(previewTask.id)" v-if="previewTask.status !== '完成' && previewTask.status !== '驳回'">⚡ 派活</button>
+          <button class="ok" @click="openReview(previewTask)" v-if="previewTask.status === '待验收'">✅ 验收</button>
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ghost" @click="copyTaskClick(previewTask.id)">📑 复制任务</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
@@ -883,6 +964,26 @@ const modelHistory = ref<string[]>(JSON.parse(localStorage.getItem('tegula_llm_m
 const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
 const dataDir = ref('')
+
+// ── Todos ─────────────────────────────────────────────────────────
+interface Todo {
+  id: string
+  title: string
+  done: boolean
+  priority: 'high' | 'normal' | 'low'
+  due?: string
+  createdAt: string
+  updatedAt: string
+}
+const todos = ref<Todo[]>([])
+const todoInput = ref('')
+const todoFilter = ref('all')
+
+// ── Dispatch ───────────────────────────────────────────────────────
+const dispatchModal = ref<{ id: string; title: string; prompt: string; status: string } | null>(null)
+
+// ── Review ─────────────────────────────────────────────────────────
+const reviewModal = ref<{ id: string; title: string } | null>(null)
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
 const noteEdit_ = ref<any>(null)
@@ -1001,6 +1102,7 @@ watch(showNotifyPanel, (val) => {
 
 const views = [
   { id: 'active', label: '看板' },
+  { id: 'todos', label: '待办' },
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
   { id: 'plans', label: '规划' },
@@ -1200,6 +1302,8 @@ function switchView(v: string) {
     loadPlans()
   } else if (v === 'roadmap') {
     loadRoadmap()
+  } else if (v === 'todos') {
+    loadTodos()
   } else {
     loadAll()
   }
@@ -1643,6 +1747,119 @@ async function copyTaskClick(id: string) {
     loadAll()
   } else {
     showToast('复制失败', 'error')
+  }
+}
+
+// ── Todos ─────────────────────────────────────────────────────────
+
+const filteredTodos = computed(() => {
+  if (todoFilter.value === 'active') return todos.value.filter(t => !t.done)
+  if (todoFilter.value === 'done') return todos.value.filter(t => t.done)
+  return todos.value
+})
+
+async function loadTodos() {
+  try {
+    todos.value = await window.tegula.todosList()
+  } catch {
+    todos.value = []
+  }
+}
+
+async function executeTodoAdd() {
+  const text = todoInput.value.trim()
+  if (!text) return
+  const result = await window.tegula.todosCreate(text, 'normal')
+  if (result.ok) {
+    todoInput.value = ''
+    showToast('已添加', 'success')
+    loadTodos()
+  } else {
+    showToast('添加失败', 'error')
+  }
+}
+
+async function toggleTodo(id: string) {
+  const result = await window.tegula.todosToggle(id)
+  if (result.ok) {
+    loadTodos()
+  }
+}
+
+async function deleteTodo(id: string) {
+  if (!confirm('确定删除此待办？')) return
+  await window.tegula.todosDelete(id)
+  showToast('已删除', 'success')
+  loadTodos()
+}
+
+// ── Dispatch ───────────────────────────────────────────────────────
+
+async function dispatchTaskClick(id: string) {
+  const result = await window.tegula.dispatchPreview(id)
+  if (result.ok) {
+    dispatchModal.value = { id, title: previewTask.value?.title || id, prompt: result.prompt, status: result.status }
+    previewTask.value = null
+  } else {
+    showToast(result.error || '获取任务书失败', 'error')
+  }
+}
+
+function copyDispatchPrompt() {
+  if (dispatchModal.value) {
+    navigator.clipboard.writeText(dispatchModal.value.prompt)
+    showToast('已复制任务书', 'success')
+  }
+}
+
+async function executeDispatchClick() {
+  if (!dispatchModal.value) return
+  if (!confirm('确认派活？任务状态将变为「进行中」。')) return
+  const result = await window.tegula.dispatchExecute(dispatchModal.value.id)
+  if (result.ok) {
+    showToast('已派活', 'success')
+    dispatchModal.value = null
+    loadAll()
+  } else {
+    showToast(result.error || '派活失败', 'error')
+  }
+}
+
+// ── Review ─────────────────────────────────────────────────────────
+
+const reviewReason = ref('')
+
+function openReview(t: Task) {
+  reviewModal.value = { id: t.id, title: t.title || t.id }
+  reviewReason.value = ''
+  previewTask.value = null
+}
+
+async function acceptTask() {
+  if (!reviewModal.value) return
+  const result = await window.tegula.reviewAccept(reviewModal.value.id)
+  if (result.ok) {
+    showToast('已通过', 'success')
+    reviewModal.value = null
+    loadAll()
+  } else {
+    showToast(result.error || '操作失败', 'error')
+  }
+}
+
+async function rejectTask() {
+  if (!reviewModal.value) return
+  if (!reviewReason.value.trim()) {
+    showToast('驳回理由必填', 'error')
+    return
+  }
+  const result = await window.tegula.reviewReject(reviewModal.value.id, reviewReason.value)
+  if (result.ok) {
+    showToast('已驳回', 'success')
+    reviewModal.value = null
+    loadAll()
+  } else {
+    showToast(result.error || '操作失败', 'error')
   }
 }
 
@@ -2842,5 +3059,42 @@ body {
 .dp-id-auto {
   font-size: 11px; color: var(--muted); font-style: italic;
 }
+
+/* Todos view */
+.todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.todos-header h3 { font-size: 16px; font-weight: 700; }
+.todos-ctrls { display: flex; gap: 8px; align-items: center; }
+.todo-input { width: 320px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+.todo-input::placeholder { color: #9ca3af; font-size: 10.5px; }
+.todo-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+.todos-list { display: flex; flex-direction: column; gap: 6px; }
+.todo-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); transition: background 0.15s; }
+.todo-item:hover { background: #f4f1fc; }
+.todo-item.prio { border-left: 3px solid var(--danger); }
+.todo-item.done { opacity: 0.5; }
+.todo-item.done .todo-title { text-decoration: line-through; }
+.todo-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
+.todo-title { flex: 1; font-size: 13px; font-weight: 500; }
+.todo-prio { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 600; }
+.todo-del { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 4px; border-radius: 4px; }
+.todo-del:hover { color: var(--danger); background: #fce4e4; }
+
+/* Dispatch modal */
+#dispatch-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#dispatch-modal h3 { margin: 0 0 12px; font-size: 16px; }
+.dispatch-info { margin-bottom: 12px; }
+.dispatch-task-title { font-size: 14px; font-weight: 700; }
+.dispatch-task-id { font-size: 11px; color: var(--muted); }
+.dispatch-status { font-size: 11px; color: var(--warning); margin-top: 4px; }
+.dispatch-prompt { width: 100%; box-sizing: border-box; min-height: 200px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 11.5px; font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--bg); resize: vertical; line-height: 1.5; }
+
+/* Review modal */
+#review-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#review-modal h3 { margin: 0 0 12px; font-size: 16px; }
+.review-info { margin-bottom: 12px; }
+.review-task-title { font-size: 14px; font-weight: 700; }
+.review-task-id { font-size: 11px; color: var(--muted); }
+.review-reason { width: 100%; box-sizing: border-box; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.5; }
 
 </style>
