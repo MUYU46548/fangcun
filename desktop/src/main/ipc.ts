@@ -416,6 +416,30 @@ export function registerIpcHandlers(): void {
     return tasks.suggestCrossProject()
   })
 
+  ipcMain.handle('copyTask', (_event, id: string) => {
+    return tasks.copyTask(id)
+  })
+
+  ipcMain.handle('getRoadmapTrend', (_event, days?: number) => {
+    return tasks.getRoadmapTrend(days)
+  })
+
+  ipcMain.handle('detectParallelOpportunities', () => {
+    return tasks.detectParallelOpportunities()
+  })
+
+  ipcMain.handle('suggestMilestones', () => {
+    return tasks.suggestMilestones()
+  })
+
+  ipcMain.handle('detectEvents', (_event, eventType: string) => {
+    return tasks.detectEvents(eventType)
+  })
+
+  ipcMain.handle('cronCheck', () => {
+    return tasks.cronCheck()
+  })
+
   // ── Services / Workbench ──────────────────────────────────────────
   ipcMain.handle('scanServices', () => {
     return services.scanServices()

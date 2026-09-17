@@ -789,3 +789,114 @@ export function importNotes(data: any[]): { ok: boolean; imported?: number; erro
     return { ok: false, error: e.message }
   }
 }
+
+// ── Task Copy ────────────────────────────────────────────────────────
+
+export function copyTask(id: string): { ok: boolean; id?: string; error?: string } {
+  try {
+    const task = readTask(id)
+    if (!task) return { ok: false, error: '任务不存在' }
+    const newId = genId(task.fm.title || 'copy')
+    const now = new Date().toISOString()
+    const newTask: Task = {
+      id: newId,
+      fm: { ...task.fm, id: newId, title: `${task.fm.title || task.id} (副本)`, created: now, updated: now },
+      body: task.body,
+      path: path.join(getTaskDir(), `${newId}.md`),
+    }
+    atomicWrite(newTask.path, renderTask(newTask))
+    return { ok: true, id: newId }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
+}
+
+// ── Roadmap Trend + Parallel + Milestones ───────────────────────────
+
+export function getRoadmapTrend(days = 7): Record<string, any[]> {
+  const roadmap = aggregateRoadmap()
+  const trend: Record<string, any[]> = {}
+  for (const p of roadmap.projects) {
+    trend[p.id] = [{
+      ts: Date.now(),
+      name: p.name,
+      active: p.batches.filter(b => b.status === 'active').length,
+      completed: p.batches.filter(b => b.status === 'completed').length,
+      blocked: p.blockers.length,
+    }]
+  }
+  return trend
+}
+
+export function detectParallelOpportunities(): any[] {
+  const roadmap = aggregateRoadmap()
+  const sugs: any[] = []
+  const activeProjs = roadmap.projects.filter(p => p.health === 'active')
+  if (activeProjs.length >= 2) {
+    sugs.push({
+      type: 'parallel',
+      projects: activeProjs.map(p => p.id),
+      reason: `${activeProjs.map(p => p.name).join('、')} 均在活跃推进中，可考虑交替进行防止单项目阻塞`,
+    })
+  }
+  for (const p of roadmap.projects) {
+    const pending = p.batches.filter(b => b.status === 'pending')
+    if (pending.length >= 2) {
+      sugs.push({
+        type: 'parallel_batches',
+        project: p.id,
+        batches: pending.map(b => b.name),
+        reason: `${p.name} 的 ${pending.length} 个待办批次无阻塞，可并行推进`,
+      })
+    }
+  }
+  return sugs
+}
+
+export function suggestMilestones(): any[] {
+  const roadmap = aggregateRoadmap()
+  const milestones: any[] = []
+  const batchPhaseMap: Record<string, string> = { P0: '核心', P1: '功能', P2: '打磨', P3: '扩展' }
+  for (const p of roadmap.projects) {
+    const phaseStats: Record<string, { total: number; done: number }> = {}
+    for (const b of p.batches) {
+      const prefix = b.name.startsWith('P') ? b.name.slice(0, 2) : '其他'
+      if (!phaseStats[prefix]) phaseStats[prefix] = { total: 0, done: 0 }
+      phaseStats[prefix].total += b.total
+      phaseStats[prefix].done += b.done
+    }
+    for (const [phase, stats] of Object.entries(phaseStats)) {
+      const phaseName = batchPhaseMap[phase] || phase
+      if (stats.total > 0 && stats.done === stats.total) {
+        milestones.push({ project: p.id, project_name: p.name, phase, milestone: `${phaseName}阶段完成`, status: 'completed', tasks_done: stats.done, tasks_total: stats.total })
+      } else if (stats.done > 0) {
+        milestones.push({ project: p.id, project_name: p.name, phase, milestone: `${phaseName}阶段进行中`, status: 'in_progress', progress: Math.round((stats.done / stats.total) * 100) })
+      }
+    }
+  }
+  return milestones
+}
+
+// ── Event Detection + Cron ───────────────────────────────────────────
+
+export function detectEvents(eventType: string): string | null {
+  if (eventType === 'timeout' || eventType === 'all') {
+    const timeouts = findTimeoutTasks()
+    if (timeouts.length) return `⚠️ ${timeouts.length} 个任务超时未回写：${timeouts.slice(0, 5).map(t => `「${t.title}」${t.hours}h`).join('、')}`
+  }
+  if (eventType === 'stuck' || eventType === 'all') {
+    const statuses = scanProjectStatus()
+    const stuck = statuses.filter(s => s.health === 'stuck')
+    if (stuck.length) return `⛔ ${stuck.length} 个项目卡住：${stuck.map(s => s.name).join('、')}`
+  }
+  return null
+}
+
+export function cronCheck(): { ok: boolean; messages: string[] } {
+  const messages: string[] = []
+  const timeoutEvent = detectEvents('timeout')
+  if (timeoutEvent) messages.push(timeoutEvent)
+  const stuckEvent = detectEvents('stuck')
+  if (stuckEvent) messages.push(stuckEvent)
+  return { ok: true, messages }
+}

@@ -61,6 +61,12 @@ contextBridge.exposeInMainWorld('tegula', {
   aggregateRoadmap: (projectId?: string) => ipcRenderer.invoke('aggregateRoadmap', projectId),
   suggestActions: (projectId: string) => ipcRenderer.invoke('suggestActions', projectId),
   suggestCrossProject: () => ipcRenderer.invoke('suggestCrossProject'),
+  copyTask: (id: string) => ipcRenderer.invoke('copyTask', id),
+  getRoadmapTrend: (days?: number) => ipcRenderer.invoke('getRoadmapTrend', days),
+  detectParallelOpportunities: () => ipcRenderer.invoke('detectParallelOpportunities'),
+  suggestMilestones: () => ipcRenderer.invoke('suggestMilestones'),
+  detectEvents: (eventType: string) => ipcRenderer.invoke('detectEvents', eventType),
+  cronCheck: () => ipcRenderer.invoke('cronCheck'),
 
   // Services / Workbench
   scanServices: () => ipcRenderer.invoke('scanServices'), 

@@ -316,6 +316,7 @@
         </div>
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
+          <button class="ghost" @click="copyTaskClick(previewTask.id)">📑 复制任务</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
           <button v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
           <button v-else class="warning" @click="archiveTask(previewTask)">归档</button>
@@ -514,6 +515,9 @@
         <div class="sect">
           <button class="pri" @click="triggerBackup">立即备份</button>
           <button v-if="backupInfo" class="ghost" @click="openBackupFolder">打开备份文件夹</button>
+          <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
+          <button class="ghost" @click="importTasksFromFile">导入任务 JSON</button>
+          <button class="ghost" @click="exportNotesToFile">导出笔记 JSON</button>
           <button class="ghost" @click="showSettings_ = false">关闭</button>
         </div>
       </div>
@@ -1316,6 +1320,17 @@ async function copyId(id: string) {
   }
 }
 
+async function copyTaskClick(id: string) {
+  if (!confirm('复制此任务？')) return
+  const result = await window.tegula.copyTask(id)
+  if (result.ok) {
+    showToast('已复制', 'success')
+    loadAll()
+  } else {
+    showToast('复制失败', 'error')
+  }
+}
+
 // ── Drag and drop ───────────────────────────────────────────────────────
 
 function onDragStart(e: DragEvent, id: string) {
@@ -1466,6 +1481,63 @@ async function openBackupFolder() {
 
 function showBackup() {
   triggerBackup()
+}
+
+function exportTasksToFile() {
+  window.tegula.exportTasks().then((result: any) => {
+    if (result.ok && result.data) {
+      const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fangcun-tasks-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast(`已导出 ${result.count} 个任务`, 'success')
+    } else {
+      showToast('导出失败', 'error')
+    }
+  })
+}
+
+function importTasksFromFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.onchange = (e: any) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev: any) => {
+      try {
+        const data = JSON.parse(ev.target.result)
+        if (!Array.isArray(data)) { showToast('格式错误：需要 JSON 数组', 'error'); return }
+        window.tegula.importTasks(data).then((res: any) => {
+          if (res.ok) { showToast(`已导入 ${res.imported} 个任务`, 'success'); loadAll() }
+          else showToast('导入失败', 'error')
+        })
+      } catch { showToast('JSON 解析失败', 'error') }
+    }
+    reader.readAsText(file)
+  }
+  input.click()
+}
+
+function exportNotesToFile() {
+  window.tegula.exportNotes().then((result: any) => {
+    if (result.ok && result.data) {
+      const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fangcun-notes-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast(`已导出 ${result.count} 条笔记`, 'success')
+    } else {
+      showToast('导出失败', 'error')
+    }
+  })
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────
