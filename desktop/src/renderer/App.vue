@@ -742,6 +742,12 @@ function saveCheckChange(id: string, body: string) {
   if (_checkSaveTimers[id]) clearTimeout(_checkSaveTimers[id])
   _checkSaveTimers[id] = setTimeout(async () => {
     await window.tegula.editTask(id, { body })
+    // 所有勾选框都已勾选 → 自动标记完成
+    const hasCheckbox = /^- \[[ x]\]/gm.test(body)
+    const hasUnchecked = /^- \[ \]/gm.test(body)
+    if (hasCheckbox && !hasUnchecked) {
+      await window.tegula.moveStatus(id, '完成')
+    }
     loadAll()
   }, 300)
 }
