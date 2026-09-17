@@ -27,7 +27,7 @@
         </select>
         <input
           v-model="quickAddInput"
-          placeholder="快速添加: 标题 p1 #tag @user to:待办"
+          placeholder="快速添加: 标题 p1 #tag @user to:待办 due:MM-DD"
           class="quick-add"
           @keydown.enter="executeQuickAdd"
           @input="quickAddError = ''"
@@ -262,6 +262,7 @@
         <h3>笔记</h3>
         <div class="notes-ctrls">
           <button @click="openNewNote">+ 新建笔记</button>
+          <button class="ghost" @click="importNoteFromFile">导入 .md</button>
           <button class="ghost" @click="exportNotesToFile">导出全部</button>
         </div>
       </div>
@@ -1000,6 +1001,39 @@ const toast = reactive({ show: false, msg: '', type: 'info' })
 // ── Notification system ───────────────────────────────────────────────
 const NOTIFY_CACHE_KEY = 'tegula_notify'
 const NOTIFY_MAX = 50
+const NOTIFY_RULES_KEY = 'tegula_notify_rules'
+
+interface NotifyRule {
+  id: string
+  name: string
+  enabled: boolean
+  type: 'timeout' | 'stuck' | 'event'
+  threshold?: number
+}
+
+function loadNotifyRules(): NotifyRule[] {
+  try {
+    const raw = localStorage.getItem(NOTIFY_RULES_KEY)
+    if (!raw) return getDefaultNotifyRules()
+    return JSON.parse(raw)
+  } catch {
+    return getDefaultNotifyRules()
+  }
+}
+
+function getDefaultNotifyRules(): NotifyRule[] {
+  return [
+    { id: 'rule-timeout', name: '超时任务提醒', enabled: true, type: 'timeout', threshold: 48 },
+    { id: 'rule-stuck', name: '卡住项目提醒', enabled: true, type: 'stuck' },
+    { id: 'rule-event', name: '事件提醒', enabled: true, type: 'event' },
+  ]
+}
+
+function saveNotifyRules(rules: NotifyRule[]): void {
+  localStorage.setItem(NOTIFY_RULES_KEY, JSON.stringify(rules))
+}
+
+const notifyRules = ref<NotifyRule[]>(loadNotifyRules())
 
 interface NotifyItem {
   ts: string
@@ -1628,6 +1662,23 @@ async function deleteNoteItem(noteId: string) {
   await loadNotes()
 }
 
+async function importNoteFromFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.md,.txt'
+  input.onchange = async (e: any) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const result = await window.tegula.importNoteFromFile(file.path)
+    if (result.ok) {
+      showToast('已导入', 'success')
+      loadNotes()
+    } else {
+      showToast('导入失败', 'error')
+    }
+  }
+  input.click()
+}
 
 function saveCheckChange(id: string, body: string) {
   if (_checkSaveTimers[id]) clearTimeout(_checkSaveTimers[id])

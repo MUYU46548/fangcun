@@ -51,8 +51,11 @@ contextBridge.exposeInMainWorld('tegula', {
   updateNote: (noteId: string, updates: any) => ipcRenderer.invoke('updateNote', noteId, updates),
   listNotes: () => ipcRenderer.invoke('listNotes'),
   deleteNote: (noteId: string) => ipcRenderer.invoke('deleteNote', noteId),
+  attachNote: (noteId: string, taskId: string) => ipcRenderer.invoke('attachNote', noteId, taskId),
+  detachNote: (noteId: string) => ipcRenderer.invoke('detachNote', noteId),
   exportNotes: () => ipcRenderer.invoke('exportNotes'),
   importNotes: (data: any[]) => ipcRenderer.invoke('importNotes', data),
+  importNoteFromFile: (filePath: string, taskId?: string) => ipcRenderer.invoke('importNoteFromFile', filePath, taskId),
 
   // Blockers
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),

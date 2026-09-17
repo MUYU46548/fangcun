@@ -47,6 +47,7 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
   let priority = ''
   let assignee = ''
   let status: Status = '待办'
+  let deadline = ''
 
   for (const tk of raw.split(/\s+/)) {
     const low = tk.toLowerCase()
@@ -64,6 +65,14 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
       } else {
         return { ok: false, error: `未知状态「${sv}」` }
       }
+    } else if (low.startsWith('due:') && tk.length > 4) {
+      const dv = tk.slice(4).trim()
+      // Validate MM-DD format
+      if (/^\d{1,2}-\d{1,2}$/.test(dv)) {
+        deadline = dv
+      } else {
+        return { ok: false, error: `截止日期格式错误「${dv}」，应为 MM-DD（如 due:12-31）` }
+      }
     } else {
       titleTokens.push(tk)
     }
@@ -72,7 +81,7 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
   const title = titleTokens.join(' ').trim()
   if (!title) return { ok: false, error: '标题为空' }
 
-  const task = createTask({ title, status, priority: priority || undefined, assignee: assignee || undefined, tags })
+  const task = createTask({ title, status, priority: priority || undefined, assignee: assignee || undefined, tags, deadline })
   return { ok: true, id: task.id }
 }
 
@@ -169,6 +178,7 @@ export interface NewTaskFields {
   tags?: string[]
   body?: string
   blockers?: string[]
+  deadline?: string
 }
 
 export function createTask(fields: NewTaskFields): Task {
@@ -186,6 +196,7 @@ export function createTask(fields: NewTaskFields): Task {
     created: now,
     updated: now,
     blockers: fields.blockers || [],
+    deadline: fields.deadline || undefined,
   }
 
   const task: Task = {

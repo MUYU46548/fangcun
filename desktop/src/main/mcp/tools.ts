@@ -1,7 +1,30 @@
 import { MCPTool, MCPRequest, MCPResponse, MCPToolResult } from './types'
-import { loadTasks, parseRegistry, getDataDir } from '../data'
+import { loadTasks, parseRegistry, getDataDir, getTaskDir, parseTask } from '../data'
 import * as tasks from '../data/tasks'
 import * as services from '../services'
+import type { Task } from '../data'
+
+function loadAllTasks(): Task[] {
+  const taskDir = getTaskDir()
+  const fs = require('fs')
+  const path = require('path')
+  const all: Task[] = []
+  function scanDir(dir: string) {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'archive' || entry.name === '.backup' || entry.name === '.trash') continue
+        scanDir(fullPath)
+      } else if (entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
+        const task = parseTask(fullPath)
+        if (task) all.push(task)
+      }
+    }
+  }
+  scanDir(taskDir)
+  return all
+}
 
 // ── Tool Definitions ────────────────────────────────────────────────────
 
@@ -16,6 +39,17 @@ export const MCP_TOOLS: MCPTool[] = [
         project: { type: 'string', description: 'Filter by project ID' },
         status: { type: 'string', description: 'Filter by status' },
       },
+    },
+  },
+  {
+    name: 'search_tasks',
+    description: 'Full-text search across task titles, bodies, and tags',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query string' },
+      },
+      required: ['query'],
     },
   },
   {
@@ -120,6 +154,32 @@ export const MCP_TOOLS: MCPTool[] = [
     description: 'Get current data directory path',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'plan_list',
+    description: 'List all plans',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'plan_get',
+    description: 'Get a single plan by task ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Plan task ID' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'plan_pending',
+    description: 'List plans with pending decisions',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'gate_list',
+    description: 'List all acceptance gates',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ]
 
 // ── Tool Handler ────────────────────────────────────────────────────────
@@ -213,7 +273,49 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     case 'get_data_dir': {
       return { content: [{ type: 'text', text: getDataDir() }] }
     }
-    
+
+    case 'search_tasks': {
+      const query = args.query || ''
+      const tasks = loadAllTasks()
+      const results = tasks.filter((t: any) => {
+        const q = query.toLowerCase()
+        return (t.fm.title || '').toLowerCase().includes(q) ||
+          t.body.toLowerCase().includes(q) ||
+          (t.fm.tags || []).some((tag: string) => tag.toLowerCase().includes(q))
+      })
+      return { content: [{ type: 'text', text: JSON.stringify(results.map((t: any) => ({
+        id: t.id, title: t.fm.title, status: t.fm.status, project: t.fm.project
+      })), null, 2) }] }
+    }
+
+    case 'plan_list': {
+      const plans = tasks.listPlans()
+      return { content: [{ type: 'text', text: JSON.stringify(plans.map((t: any) => ({
+        id: t.id, title: t.fm.title, status: t.fm.status, plan_status: t.fm.plan_status
+      })), null, 2) }] }
+    }
+
+    case 'plan_get': {
+      const result = tasks.getPlan(args.id)
+      if (!result) return { content: [{ type: 'text', text: `Plan not found: ${args.id}` }], isError: true }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        id: result.task.id, title: result.task.fm.title, plan: result.plan
+      }, null, 2) }] }
+    }
+
+    case 'plan_pending': {
+      const plans = tasks.listPlans()
+      const pending = plans.filter((t: any) => (t.fm as any).plan_status === 'draft' || (t.fm as any).plan_status === 'active')
+      return { content: [{ type: 'text', text: JSON.stringify(pending.map((t: any) => ({
+        id: t.id, title: t.fm.title, plan_status: t.fm.plan_status
+      })), null, 2) }] }
+    }
+
+    case 'gate_list': {
+      // Gates are in-memory only in Python version; return empty for now
+      return { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] }
+    }
+
     default:
       return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
   }

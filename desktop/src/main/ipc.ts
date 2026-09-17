@@ -398,6 +398,25 @@ export function registerIpcHandlers(): void {
     return { ok }
   })
 
+  ipcMain.handle('importNoteFromFile', (_event, filePath: string, taskId?: string) => {
+    try {
+      const note = services.importNoteFromFile(filePath, taskId)
+      return { ok: !!note, note }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('attachNote', (_event, noteId: string, taskId: string) => {
+    const ok = services.attachNote(noteId, taskId)
+    return { ok }
+  })
+
+  ipcMain.handle('detachNote', (_event, noteId: string) => {
+    const ok = services.detachNote(noteId)
+    return { ok }
+  })
+
   // ── Blocker chains ─────────────────────────────────────────────────
   ipcMain.handle('getBlockerChains', () => {
     return tasks.getBlockerChains()

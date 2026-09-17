@@ -130,22 +130,22 @@
 
 ## 四、开发路线图
 
-### 第一批次 (P0 阻塞) — 2-3 天
+### 第一批次 (P0 阻塞) — 2-3 天 ✅ 已完成
 
 ```
-1. 待办模块完整实现
+1. 待办模块完整实现 ✅
    - 新建 src/main/services/todos.ts（Todo CRUD + index.json）
    - App.vue 新增 views 数组 {id:'todos', label:'待办'}
    - 新增 <main id="board" class="todos-view"> 模板
    - 顶栏 views 中加入待办按钮
 
-2. 派活 Dispatch
-   - 任务书生成 _build_prompt（从 tasks.ts 抽取）
+2. 派活 Dispatch ✅
+   - 任务书生成 buildDispatchPrompt（从 tasks.ts 抽取）
    - 详情面板增加「⚡ 派活」按钮
-   - 模态框展示任务书 + 回写命令
+   - 模态框展示任务书 + 回写命令 + 确认派活
 
-3. 验收裁决
-   - 待验收卡片增加「✅ 通过 / ↩ 驳回」按钮
+3. 验收裁决 ✅
+   - 待验收卡片增加「✅ 验收」按钮
    - 驳回理由必填弹窗
    - 结果记录追加
 ```

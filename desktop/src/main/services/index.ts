@@ -135,3 +135,34 @@ export function getNotesForTask(taskId: string): Note[] {
 export function listNotes(): Note[] {
   return loadNotesIndex()
 }
+
+export function importNoteFromFile(filePath: string, taskId?: string): Note | null {
+  if (!fs.existsSync(filePath)) return null
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    let title = ''
+    let body = content
+    if (content.startsWith('# ')) {
+      const lines = content.split('\n', 2)
+      title = lines[0].slice(2).trim()
+      body = lines.slice(1).join('\n').trim()
+    }
+    return createNote(title, body, taskId)
+  } catch {
+    return null
+  }
+}
+
+export function attachNote(noteId: string, taskId: string): boolean {
+  const note = getNote(noteId)
+  if (!note) return false
+  updateNote(noteId, { taskId })
+  return true
+}
+
+export function detachNote(noteId: string): boolean {
+  const note = getNote(noteId)
+  if (!note) return false
+  updateNote(noteId, { taskId: undefined })
+  return true
+}
