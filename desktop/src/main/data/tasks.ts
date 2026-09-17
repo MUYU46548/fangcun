@@ -15,6 +15,149 @@ import {
 export { STATUSES }
 export type { Task, TaskFrontmatter, Status }
 
+export function batchEdit(ids: string[], fields: Partial<TaskFrontmatter>): { ok: number; fails: { id: string; error: string }[] } {
+  let ok = 0
+  const fails: { id: string; error: string }[] = []
+  for (const id of ids) {
+    try {
+      const t = updateTask(id, fields)
+      if (t) ok++
+      else fails.push({ id, error: '任务不存在' })
+    } catch (e: any) {
+      fails.push({ id, error: e.message })
+    }
+  }
+  return { ok, fails }
+}
+
+export function batchArchive(ids: string[]): { ok: number; fails: { id: string; error: string }[] } {
+  return batchEdit(ids, { status: '完成' })
+}
+
+// ── Quick Add ─────────────────────────────────────────────────────────
+
+const QUICK_PRIO: Record<string, string> = { p0: '高', p1: '中', p2: '低', p3: '低' }
+
+export function quickAdd(text: string): { ok: boolean; id?: string; error?: string } {
+  const raw = (text || '').trim()
+  if (!raw) return { ok: false, error: '内容为空' }
+
+  const titleTokens: string[] = []
+  const tags: string[] = []
+  let priority = ''
+  let assignee = ''
+  let status: Status = '待办'
+
+  for (const tk of raw.split(/\s+/)) {
+    const low = tk.toLowerCase()
+    if (low in QUICK_PRIO && !priority) {
+      priority = QUICK_PRIO[low]
+    } else if (tk.startsWith('#') && tk.length > 1) {
+      const t = tk.slice(1).trim()
+      if (t && !tags.includes(t)) tags.push(t)
+    } else if (tk.startsWith('@') && tk.length > 1) {
+      assignee = tk.slice(1).trim()
+    } else if (low.startsWith('to:') && tk.length > 3) {
+      const sv = tk.slice(3).trim()
+      if ((STATUSES as readonly string[]).includes(sv)) {
+        status = sv as Status
+      } else {
+        return { ok: false, error: `未知状态「${sv}」` }
+      }
+    } else {
+      titleTokens.push(tk)
+    }
+  }
+
+  const title = titleTokens.join(' ').trim()
+  if (!title) return { ok: false, error: '标题为空' }
+
+  const task = createTask({ title, status, priority: priority || undefined, assignee: assignee || undefined, tags })
+  return { ok: true, id: task.id }
+}
+
+// ── Natural Query ─────────────────────────────────────────────────────
+
+export function parseNaturalQuery(q: string): { tasks: Task[]; error?: string } {
+  const raw = (q || '').trim()
+  if (!raw) return { tasks: [], error: '查询为空' }
+
+  const tags = [...raw.matchAll(/#(\S+)/g)].map(m => m[1])
+  const projects = [...raw.matchAll(/@(\S+)/g)].map(m => m[1])
+  let remaining = raw.replace(/[#@]\S+/g, '').trim()
+
+  const statusMap: Record<string, string> = {
+    '待办': '待办', '进行中': '进行中', '待验收': '待验收',
+    '完成': '完成', '驳回': '驳回', '草稿': '草稿', '待审批': '待审批',
+  }
+  const prioMap: Record<string, string> = { '高': '高', '中': '中', '低': '低', '高优先级': '高', '中优先级': '中', '低优先级': '低' }
+
+  let targetStatus: string | null = null
+  let targetPrio: string | null = null
+  for (const [kw, val] of Object.entries(statusMap)) {
+    if (remaining.includes(kw)) {
+      targetStatus = val
+      remaining = remaining.replace(kw, '').trim()
+      break
+    }
+  }
+  for (const [kw, val] of Object.entries(prioMap)) {
+    if (remaining.includes(kw)) {
+      targetPrio = val
+      remaining = remaining.replace(kw, '').trim()
+      break
+    }
+  }
+
+  let special: string | null = null
+  if (remaining.includes('超时') || remaining.includes('超期')) {
+    special = 'timeout'
+    remaining = remaining.replace(/超时|超期/g, '').trim()
+  } else if (remaining.includes('卡住') || remaining.includes('阻塞')) {
+    special = 'blocked'
+    remaining = remaining.replace(/卡住|阻塞/g, '').trim()
+  }
+
+  const titleQ = remaining.trim()
+  let tasks = loadAllTasks()
+
+  if (tags.length) {
+    tasks = tasks.filter(t => tags.every(tag => (t.fm.tags || []).includes(tag)))
+  }
+  if (projects.length) {
+    tasks = tasks.filter(t => {
+      const p = t.fm.project
+      if (!p) return false
+      if (Array.isArray(p)) return projects.every(pid => p.includes(pid))
+      return projects.includes(p)
+    })
+  }
+  if (targetStatus) {
+    tasks = tasks.filter(t => t.fm.status === targetStatus)
+  }
+  if (targetPrio) {
+    tasks = tasks.filter(t => t.fm.priority === targetPrio)
+  }
+  if (special === 'timeout') {
+    tasks = tasks.filter(t => {
+      if (!t.fm.updated) return false
+      const days = (Date.now() - new Date(t.fm.updated).getTime()) / (1000 * 60 * 60 * 24)
+      return days > 14 && ['进行中', '待验收', '待审批', '待办'].includes(t.fm.status || '')
+    })
+  } else if (special === 'blocked') {
+    tasks = tasks.filter(t => (t.fm.blockers || []).length > 0)
+  }
+  if (titleQ) {
+    const lower = titleQ.toLowerCase()
+    tasks = tasks.filter(t =>
+      (t.fm.title || '').toLowerCase().includes(lower) ||
+      t.id.toLowerCase().includes(lower)
+    )
+  }
+
+  return { tasks }
+}
+
 // ── Task CRUD ───────────────────────────────────────────────────────────
 
 export interface NewTaskFields {
@@ -187,11 +330,20 @@ function loadAllTasks(): Task[] {
   if (!fs.existsSync(taskDir)) return []
 
   const tasks: Task[] = []
-  for (const entry of fs.readdirSync(taskDir)) {
-    if (!entry.endsWith('.md')) continue
-    const task = parseTask(path.join(taskDir, entry))
-    if (task) tasks.push(task)
+  function scanDir(dir: string) {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'archive' || entry.name === '.backup' || entry.name === '.trash') continue
+        scanDir(fullPath)
+      } else if (entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
+        const task = parseTask(fullPath)
+        if (task) tasks.push(task)
+      }
+    }
   }
+  scanDir(taskDir)
   return tasks
 }
 

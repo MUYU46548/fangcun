@@ -17,7 +17,15 @@
           <option value="project">按项目</option>
           <option value="priority">按优先级</option>
         </select>
-        <input v-model="searchQuery" placeholder="搜索..." class="search" />
+        <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
+        <input
+          v-model="quickAddInput"
+          placeholder="快速添加: 标题 p1 #tag @user to:待办"
+          class="quick-add"
+          @keydown.enter="executeQuickAdd"
+          @input="quickAddError = ''"
+        />
+        <span v-if="quickAddError" class="qa-error">{{ quickAddError }}</span>
         <label class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
         <select v-model="sortMode">
           <option value="active">活跃优先</option>
@@ -43,6 +51,21 @@
         {{ v.label }}
       </button>
     </nav>
+
+    <!-- Batch action bar -->
+    <div v-if="batchMode && selectedBatch.length" class="batch-bar">
+      <span class="batch-count">已选 {{ selectedBatch.length }}</span>
+      <button class="ghost" @click="toggleSelectAll">{{ selectedBatch.length === filteredTasks.length ? '取消全选' : '全选' }}</button>
+      <div class="batch-actions">
+        <button class="ghost" @click="batchSetStatus('待办')">待办</button>
+        <button class="ghost" @click="batchSetStatus('进行中')">进行中</button>
+        <button class="ghost" @click="batchSetStatus('待验收')">待验收</button>
+        <button class="ghost" @click="batchSetStatus('完成')">完成</button>
+        <button class="ghost" @click="batchSetStatus('驳回')">驳回</button>
+        <button class="ghost" @click="executeBatchArchive">归档</button>
+      </div>
+      <button class="ghost" @click="selectedBatch = []; batchMode = false">取消</button>
+    </div>
 
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
@@ -413,6 +436,10 @@ const sortMode = ref('active')
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 const searchQuery = ref('')
 const searchIncludeArchive = ref(true)
+const quickAddInput = ref('')
+const quickAddError = ref('')
+const isNaturalQuery = ref(false)
+const naturalResults = ref<Task[]>([])
 const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
 
 // First-run wizard state
@@ -641,6 +668,77 @@ function switchView(v: string) {
   }
 }
 
+// ── Quick Add ─────────────────────────────────────────────────────────
+
+async function executeQuickAdd() {
+  const text = quickAddInput.value.trim()
+  if (!text) return
+  const result = await window.tegula.quickAdd(text)
+  if (result.ok) {
+    quickAddInput.value = ''
+    quickAddError.value = ''
+    showToast('已创建', 'success')
+    loadAll()
+  } else {
+    quickAddError.value = result.error || '创建失败'
+  }
+}
+
+// ── Batch Ops ─────────────────────────────────────────────────────────
+
+function batchSetStatus(status: string) {
+  if (selectedBatch.value.length === 0) return
+  executeBatchStatus(status)
+}
+
+async function executeBatchStatus(status: string) {
+  const ids = [...selectedBatch.value]
+  const result = await window.tegula.batchEdit(ids, { status })
+  if (result.fails.length === 0) {
+    showToast(`已将 ${result.ok} 个任务设为「${status}」`, 'success')
+  } else {
+    showToast(`${result.ok} 成功，${result.fails.length} 失败`, 'error')
+  }
+  selectedBatch.value = []
+  batchMode.value = false
+  naturalResults.value = []
+  isNaturalQuery.value = false
+  loadAll()
+}
+
+async function executeBatchArchive() {
+  const ids = [...selectedBatch.value]
+  if (ids.length === 0) return
+  if (!confirm(`批量归档 ${ids.length} 个任务？`)) return
+  const result = await window.tegula.batchArchive(ids)
+  if (result.fails.length === 0) {
+    showToast(`已归档 ${result.ok} 个任务`, 'success')
+  } else {
+    showToast(`${result.ok} 成功，${result.fails.length} 失败`, 'error')
+  }
+  selectedBatch.value = []
+  batchMode.value = false
+  loadAll()
+}
+
+// ── Natural Query ─────────────────────────────────────────────────────
+
+async function executeNaturalQuery() {
+  const q = searchQuery.value.trim()
+  if (!q) {
+    isNaturalQuery.value = false
+    naturalResults.value = []
+    return
+  }
+  const result = await window.tegula.naturalQuery(q)
+  if (result.error) {
+    showToast(result.error, 'error')
+    return
+  }
+  naturalResults.value = result.tasks
+  isNaturalQuery.value = true
+}
+
 // ── Task operations ─────────────────────────────────────────────────────
 
 function openNew() {
@@ -800,6 +898,9 @@ async function loadAll() {
 }
 
 const filteredTasks = computed(() => {
+  if (isNaturalQuery.value && naturalResults.value.length > 0) {
+    return naturalResults.value
+  }
   let result = [...tasks.value]
   if (searchIncludeArchive.value && archivedTasks.value.length > 0) {
     result = [...result, ...archivedTasks.value]
@@ -808,12 +909,22 @@ const filteredTasks = computed(() => {
     result = result.filter(t => normProject(t.project) === curProj.value)
   }
   if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
+    const q = searchQuery.value
+    // Auto-detect natural query syntax (#tag @project)
+    if (q.includes('#') || q.includes('@')) {
+      const nq = naturalResults.value
+      if (isNaturalQuery.value && nq.length > 0) {
+        const nqIds = new Set(nq.map(t => t.id))
+        result = result.filter(t => nqIds.has(t.id))
+        return result
+      }
+    }
+    const lq = q.toLowerCase()
     result = result.filter(t =>
-      t.title?.toLowerCase().includes(q) ||
-      t.id?.toLowerCase().includes(q) ||
-      normProject(t.project).toLowerCase().includes(q) ||
-      t.tags?.join(' ').toLowerCase().includes(q)
+      t.title?.toLowerCase().includes(lq) ||
+      t.id?.toLowerCase().includes(lq) ||
+      normProject(t.project).toLowerCase().includes(lq) ||
+      t.tags?.join(' ').toLowerCase().includes(lq)
     )
   }
   return result
@@ -881,6 +992,14 @@ function toggleBatchSelect(id: string) {
   const idx = selectedBatch.value.indexOf(id)
   if (idx >= 0) selectedBatch.value.splice(idx, 1)
   else selectedBatch.value.push(id)
+}
+
+function toggleSelectAll() {
+  if (selectedBatch.value.length === filteredTasks.value.length) {
+    selectedBatch.value = []
+  } else {
+    selectedBatch.value = filteredTasks.value.map(t => t.id)
+  }
 }
 
 // ── Project view ────────────────────────────────────────────────────────
@@ -1289,6 +1408,24 @@ body {
 /* Search checkbox */
 #bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 #bar .chk input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+/* Quick add input */
+#bar input.quick-add { width: 260px; font-size: 11px; color: var(--ink); background: #fff; border: 1px solid var(--border); }
+#bar input.quick-add::placeholder { color: #9ca3af; font-size: 10.5px; }
+
+/* QA error */
+.qa-error { position: absolute; right: 16px; top: 42px; font-size: 11px; color: var(--danger); background: #fff; padding: 2px 8px; border-radius: 6px; border: 1px solid #eedcdc; z-index: 10; white-space: nowrap; }
+
+/* Batch bar */
+.batch-bar { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: #fffdf5; border-bottom: 1px solid #f0e8d0; font-size: 12px; }
+.batch-count { font-weight: 600; color: var(--ink); flex: none; }
+.batch-actions { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+.batch-actions button { padding: 3px 10px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; }
+.batch-actions button:hover { background: #f4f1fc; border-color: var(--accent); }
+.batch-bar .ghost { padding: 3px 10px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
+
+/* Natural query badge */
+.nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
 
 /* Archive hint */
 .archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }

@@ -109,6 +109,25 @@ export function registerIpcHandlers(): void {
     return tasks.findBlockers()
   })
 
+  // ── Batch Ops ──────────────────────────────────────────────────────
+  ipcMain.handle('batchEdit', (_event, ids: string[], fields: any) => {
+    return tasks.batchEdit(ids, fields)
+  })
+
+  ipcMain.handle('batchArchive', (_event, ids: string[]) => {
+    return tasks.batchArchive(ids)
+  })
+
+  // ── Quick Add ───────────────────────────────────────────────────────
+  ipcMain.handle('quickAdd', (_event, text: string) => {
+    return tasks.quickAdd(text)
+  })
+
+  // ── Natural Query ───────────────────────────────────────────────────
+  ipcMain.handle('naturalQuery', (_event, q: string) => {
+    return tasks.parseNaturalQuery(q)
+  })
+
   // ── Registry ──────────────────────────────────────────────────────
   ipcMain.handle('regSave', (_event: any, payload: any) => {
     return { ok: true }

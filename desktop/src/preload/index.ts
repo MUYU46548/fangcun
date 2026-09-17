@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('tegula', {
   loadProjects: () => ipcRenderer.invoke('loadProjects'),
   scanProjectStatus: () => ipcRenderer.invoke('scanProjectStatus'),
   findBlockers: () => ipcRenderer.invoke('findBlockers'),
+  batchEdit: (ids: string[], fields: any) => ipcRenderer.invoke('batchEdit', ids, fields),
+  batchArchive: (ids: string[]) => ipcRenderer.invoke('batchArchive', ids),
+  quickAdd: (text: string) => ipcRenderer.invoke('quickAdd', text),
+  naturalQuery: (q: string) => ipcRenderer.invoke('naturalQuery', q),
   
   // Registry
   regSave: (payload: any) => ipcRenderer.invoke('regSave', payload),
