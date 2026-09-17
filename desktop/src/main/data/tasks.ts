@@ -574,6 +574,176 @@ export function getBlockerChains(): BlockerChain[] {
   return chains
 }
 
+// ── Roadmap Aggregation ──────────────────────────────────────────────
+
+export interface RoadmapBatch {
+  name: string
+  status: 'active' | 'completed' | 'pending' | 'blocked'
+  total: number
+  done: number
+  tasks: { id: string; title: string; status: string }[]
+}
+
+export interface RoadmapProject {
+  id: string
+  name: string
+  health: 'active' | 'stuck' | 'idle'
+  batches: RoadmapBatch[]
+  blockers: { taskId: string; title: string; blockerId: string; blockerTitle: string }[]
+  nextActions: { taskId: string; title: string; priority: string; batch: string }[]
+  taskCount: number
+}
+
+export function aggregateRoadmap(projectId?: string): { projects: RoadmapProject[]; generatedAt: number } {
+  const allTasks = loadAllTasks()
+  const projects = parseRegistry()
+  const projMeta = new Map(projects.map(p => [p.id, p]))
+  const projTasks: Record<string, Task[]> = {}
+
+  for (const t of allTasks) {
+    const p = t.fm.project
+    if (!p) continue
+    const pid = Array.isArray(p) ? p[0] : p
+    if (!pid) continue
+    if (!projTasks[pid]) projTasks[pid] = []
+    projTasks[pid].push(t)
+  }
+
+  const result: RoadmapProject[] = []
+  for (const [pid, tasks] of Object.entries(projTasks)) {
+    if (projectId && pid !== projectId) continue
+    const meta = projMeta.get(pid)
+    const name = meta?.name || pid
+    const batches: Record<string, Task[]> = {}
+    for (const t of tasks) {
+      const b = (t.fm as any).batch || '未分类'
+      if (!batches[b]) batches[b] = []
+      batches[b].push(t)
+    }
+    const batchList: RoadmapBatch[] = Object.entries(batches).map(([bname, btasks]) => {
+      const done = btasks.filter(t => t.fm.status === '完成').length
+      const hasBlocked = btasks.some(t => t.fm.blockers && t.fm.blockers.length > 0)
+      const hasActive = btasks.some(t => t.fm.status === '进行中')
+      const status: RoadmapBatch['status'] = done === btasks.length ? 'completed' : hasActive ? 'active' : hasBlocked ? 'blocked' : 'pending'
+      return {
+        name: bname,
+        status,
+        total: btasks.length,
+        done,
+        tasks: btasks.map(t => ({ id: t.id, title: t.fm.title || t.id, status: t.fm.status || '草稿' })),
+      }
+    })
+    const health: RoadmapProject['health'] = batchList.some(b => b.status === 'active') ? 'active' : batchList.some(b => b.status === 'blocked') ? 'stuck' : 'idle'
+    const blockers: RoadmapProject['blockers'] = []
+    for (const t of tasks) {
+      if (t.fm.blockers) {
+        for (const bid of t.fm.blockers) {
+          const dep = allTasks.find(x => x.id === bid)
+          if (dep && dep.fm.status !== '完成' && dep.fm.status !== '驳回') {
+            blockers.push({ taskId: t.id, title: t.fm.title || t.id, blockerId: dep.id, blockerTitle: dep.fm.title || dep.id })
+          }
+        }
+      }
+    }
+    const nextActions = tasks
+      .filter(t => t.fm.status === '进行中' || t.fm.status === '待办')
+      .sort((a, b) => (a.fm.status === '进行中' ? 0 : 1) - (b.fm.status === '进行中' ? 0 : 1))
+      .slice(0, 3)
+      .map(t => ({ taskId: t.id, title: t.fm.title || t.id, priority: t.fm.priority || '中', batch: (t.fm as any).batch || '' }))
+    result.push({ id: pid, name, health, batches: batchList, blockers, nextActions, taskCount: tasks.length })
+  }
+  return { projects: result, generatedAt: Date.now() }
+}
+
+// ── Suggestions ───────────────────────────────────────────────────────
+
+export function suggestActions(projectId: string): string[] {
+  const tasks = loadAllTasks().filter(t => {
+    const p = t.fm.project
+    if (!p) return false
+    return Array.isArray(p) ? p.includes(projectId) : p === projectId
+  })
+  if (tasks.length === 0) return ['无任务 — 建议创建第一个任务']
+  const sugs: string[] = []
+  const blocked = tasks.filter(t => t.fm.blockers && t.fm.blockers.length > 0)
+  if (blocked.length) sugs.push(`${blocked.length} 个任务存在阻塞依赖，优先解除`)
+  const pending = tasks.filter(t => t.fm.status === '待办')
+  const active = tasks.filter(t => t.fm.status === '进行中')
+  if (pending.length && !active.length) sugs.push(`有 ${pending.length} 个待办但无进行中任务，可激活一项`)
+  const stale = tasks.filter(t => {
+    if (!t.fm.updated || t.fm.status === '完成') return false
+    return (Date.now() - new Date(t.fm.updated).getTime()) / 86400000 > 14
+  })
+  if (stale.length) sugs.push(`${stale.length} 个任务超过 14 天未更新`)
+  return sugs.length ? sugs : ['项目运行正常']
+}
+
+export function suggestCrossProject(): string[] {
+  const statuses = scanProjectStatus()
+  const sugs: string[] = []
+  const stuck = statuses.filter(s => s.health === 'stuck')
+  const idle = statuses.filter(s => s.health === 'idle')
+  if (stuck.length) sugs.push(`优先处理卡住项目：${stuck.map(s => s.name).join('、')}`)
+  if (idle.length) sugs.push(`空闲项目可激活：${idle.map(s => s.name).join('、')}`)
+  return sugs
+}
+
+// ── Task Import/Export ───────────────────────────────────────────────
+
+export function exportTasks(): { ok: boolean; data?: any[]; count?: number; error?: string } {
+  try {
+    const tasks = loadAllTasks().map(t => ({
+      id: t.id,
+      title: t.fm.title,
+      project: t.fm.project,
+      status: t.fm.status,
+      priority: t.fm.priority,
+      assignee: t.fm.assignee,
+      tags: t.fm.tags,
+      created: t.fm.created,
+      updated: t.fm.updated,
+      blockers: t.fm.blockers,
+      body: t.body,
+    }))
+    return { ok: true, data: tasks, count: tasks.length }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
+}
+
+export function importTasks(data: any[]): { ok: boolean; imported?: number; error?: string } {
+  try {
+    if (!Array.isArray(data)) return { ok: false, error: 'data must be array' }
+    let imported = 0
+    for (const item of data) {
+      if (!item || typeof item !== 'object') continue
+      const id = item.id || genId(item.title || '(无标题)')
+      const task: Task = {
+        id,
+        fm: {
+          id,
+          title: item.title || '(无标题)',
+          project: item.project || '',
+          status: item.status || '待办',
+          priority: item.priority || '',
+          assignee: item.assignee || '',
+          tags: item.tags || [],
+          created: item.created || new Date().toISOString(),
+          updated: new Date().toISOString(),
+          blockers: item.blockers || [],
+        },
+        body: item.body || '',
+        path: path.join(getTaskDir(), `${id}.md`),
+      }
+      atomicWrite(task.path, renderTask(task))
+      imported++
+    }
+    return { ok: true, imported }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
+}
+
 // ── Notes Import/Export ──────────────────────────────────────────────
 
 export function exportNotes(): { ok: boolean; data?: any[]; count?: number; error?: string } {

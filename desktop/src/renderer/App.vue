@@ -17,7 +17,13 @@
           <option value="project">按项目</option>
           <option value="priority">按优先级</option>
         </select>
-        <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
+        <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
+        <select v-model="dueFilter" class="due-filter">
+          <option value="">全部时间</option>
+          <option value="overdue">已逾期</option>
+          <option value="today">今天到期</option>
+          <option value="week">本周到期</option>
+        </select>
         <input
           v-model="quickAddInput"
           placeholder="快速添加: 标题 p1 #tag @user to:待办"
@@ -158,6 +164,10 @@
             <div class="ts">
               <div class="n">{{ p.taskCount }}</div>
               <div class="l">总任务</div>
+            </div>
+            <div class="ts">
+              <div class="progress-bar"><div class="progress-fill" :style="{width: projectProgress[p.id] ? projectProgress[p.id].percent + '%' : '0%'}"></div></div>
+              <div class="l">{{ projectProgress[p.id] ? projectProgress[p.id].percent + '%' : '—' }} 完成</div>
             </div>
             <div class="ts">
               <div class="n warn" v-if="p.health === 'stuck'">⚠</div>
@@ -356,6 +366,55 @@
         </div>
       </div>
     </div>
+
+    <!-- Roadmap view -->
+    <main id="board" class="roadmap-view" v-else-if="curView === 'roadmap'">
+      <div class="roadmap-header">
+        <h3>路线图</h3>
+        <div class="roadmap-ctrls">
+          <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
+        </div>
+      </div>
+      <div class="roadmap-content">
+        <div v-if="!roadmapData.projects || !roadmapData.projects.length" class="empty-state">
+          <div class="empty-icon">🗺️</div>
+          <div class="empty-text">暂无路线图数据</div>
+        </div>
+        <div v-for="proj in (roadmapData.projects || [])" :key="proj.id" class="roadmap-project">
+          <div class="rp-header">
+            <span class="rp-name">{{ proj.name }}</span>
+            <span class="rp-health st" :class="'st-' + proj.health">{{ roadmapHealthLabel(proj.health) }}</span>
+          </div>
+          <div class="rp-batches">
+            <div v-for="batch in proj.batches" :key="batch.name" class="rp-batch" :class="'rb-' + batch.status">
+              <div class="rb-header">
+                <span class="rb-name">{{ batch.name }}</span>
+                <span class="rb-count">{{ batch.done }}/{{ batch.total }}</span>
+              </div>
+              <div class="rb-tasks">
+                <div v-for="t in batch.tasks" :key="t.id" class="rb-task">
+                  <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+                  <span class="rb-title">{{ t.title }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="rp-next" v-if="proj.nextActions && proj.nextActions.length">
+            <label>下一步</label>
+            <div class="rp-actions">
+              <div v-for="a in proj.nextActions" :key="a.taskId" class="rp-action">
+                <span class="st small" :class="a.priority === '高' ? 'st-review' : 'st-todo'">{{ a.priority }}</span>
+                {{ a.title }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="roadmap-suggestions" v-if="crossSugs && crossSugs.length">
+          <h4>跨项目建议</h4>
+          <ul><li v-for="s in crossSugs" :key="s">{{ s }}</li></ul>
+        </div>
+      </div>
+    </main>
 
     <!-- Edit modal -->
     <div id="modal-overlay" class="overlay" v-if="editTask_" @click.self="editTask_ = null">
@@ -584,6 +643,7 @@ const sortMode = ref('active')
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 const searchQuery = ref('')
 const searchIncludeArchive = ref(true)
+const dueFilter = ref('')
 const quickAddInput = ref('')
 const quickAddError = ref('')
 const isNaturalQuery = ref(false)
@@ -624,6 +684,8 @@ const blockerChains = ref<any[]>([])
 const notes = ref<any[]>([])
 const plans = ref<any[]>([])
 const planDetail_ = ref<any>(null)
+const roadmapData = ref<any>({ projects: [] })
+const crossSugs = ref<string[]>([])
 const projectProgress = ref<Record<string, any>>({})
 
 const toast = reactive({ show: false, msg: '', type: 'info' })
@@ -634,6 +696,7 @@ const views = [
   { id: 'blockers', label: '阻塞' },
   { id: 'plans', label: '规划' },
   { id: 'notes', label: '笔记' },
+  { id: 'roadmap', label: '路线图' },
   { id: 'archive', label: '归档' },
   { id: 'launchpad', label: '启动台' },
 ]
@@ -825,6 +888,8 @@ function switchView(v: string) {
     loadBlockerChains()
   } else if (v === 'plans') {
     loadPlans()
+  } else if (v === 'roadmap') {
+    loadRoadmap()
   } else {
     loadAll()
   }
@@ -844,6 +909,21 @@ async function loadPlans() {
   } catch {
     plans.value = []
   }
+}
+
+async function loadRoadmap() {
+  try {
+    const result = await window.tegula.aggregateRoadmap()
+    roadmapData.value = result
+    crossSugs.value = await window.tegula.suggestCrossProject()
+  } catch {
+    roadmapData.value = { projects: [] }
+    crossSugs.value = []
+  }
+}
+
+function roadmapHealthLabel(h: string): string {
+  return { active: '活跃', stuck: '卡住', idle: '空闲' }[h] || h
 }
 
 async function loadProjectProgressMap() {
@@ -1205,6 +1285,21 @@ const filteredTasks = computed(() => {
       t.tags?.join(' ').toLowerCase().includes(lq)
     )
   }
+  if (dueFilter.value) {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const weekLater = new Date(today.getTime() + 7 * 86400000)
+    result = result.filter(t => {
+      const due = (t as any).deadline || t.fm.deadline
+      if (!due) return false
+      const dueDate = new Date(due)
+      if (isNaN(dueDate.getTime())) return false
+      if (dueFilter.value === 'overdue') return dueDate < today && t.status !== '完成' && t.status !== '驳回'
+      if (dueFilter.value === 'today') return dueDate >= today && dueDate < new Date(today.getTime() + 86400000)
+      if (dueFilter.value === 'week') return dueDate >= today && dueDate <= weekLater
+      return true
+    })
+  }
   return result
 })
 
@@ -1459,12 +1554,6 @@ body {
 
 #app { display: flex; flex-direction: column; height: 100vh; }
 
-/* 无边框窗口（titleBarStyle: 'hidden'）：顶部 38px 空条作为可拖动标题区，
-   系统的最小化/最大化/关闭按钮浮在该区域右侧（透明覆盖）。 */
-#app::before {
-  content: ''; display: block; flex: 0 0 38px; -webkit-app-region: drag;
-}
-
 .blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: 0.38; z-index: 0; pointer-events: none; }
 .blob.b1 { width: 460px; height: 460px; background: #cfc6ec; top: -140px; left: -100px; }
 .blob.b2 { width: 420px; height: 420px; background: #cdd9ee; bottom: -130px; right: -90px; }
@@ -1474,11 +1563,6 @@ body {
   background: rgba(255,255,255,0.72); backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border); display: flex;
   justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
-  -webkit-app-region: drag;   /* 无边框窗口：顶栏空白处可拖动窗口 */
-}
-/* 顶栏内的交互元素必须排除出拖动区，否则点击会被当成拖动 */
-#bar .ctrls, #bar .ctrls *, #bar select, #bar input, #bar button, #bar label {
-  -webkit-app-region: no-drag;
 }
 #bar .title { font-weight: 700; font-size: 15px; }
 #bar .title small { color: var(--accent); font-weight: 600; margin-left: 6px; font-size: 13px; }
@@ -1816,6 +1900,43 @@ body {
 /* Archive hint */
 .archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }
 .archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; flex: none; }
+
+/* Roadmap view */
+.roadmap-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.roadmap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.roadmap-header h3 { font-size: 16px; font-weight: 700; }
+.roadmap-ctrls { display: flex; gap: 6px; }
+.roadmap-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
+.roadmap-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+.roadmap-content { display: flex; flex-direction: column; gap: 14px; }
+.roadmap-project { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+.rp-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.rp-name { font-size: 14px; font-weight: 700; flex: 1; }
+.rp-batches { display: flex; flex-direction: column; gap: 8px; }
+.rp-batch { background: var(--bg); border-radius: 8px; padding: 8px 10px; border-left: 4px solid #9ca3af; }
+.rp-batch.rb-active { border-left-color: #6366f1; background: #fafaff; }
+.rp-batch.rb-completed { border-left-color: #10b981; background: #f5fdf8; }
+.rp-batch.rb-blocked { border-left-color: #ef4444; background: #fdf5f5; }
+.rb-header { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.rb-count { color: var(--muted); }
+.rb-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+.rb-task { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.rb-title { color: var(--ink); }
+.rp-next { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.rp-next label { font-size: 11px; color: var(--muted); font-weight: 600; }
+.rp-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.rp-action { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.roadmap-suggestions { background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; padding: 10px 14px; }
+.roadmap-suggestions h4 { font-size: 13px; color: var(--accent); margin-bottom: 6px; }
+.roadmap-suggestions ul { padding-left: 18px; }
+.roadmap-suggestions li { font-size: 12px; margin-bottom: 4px; }
+
+/* Progress bar */
+.progress-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin: 4px 0; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
+
+/* Due filter */
+#bar select.due-filter { width: 90px; }
 
 /* Archived card */
 .card._archived { opacity: 0.55; filter: saturate(0.5); }

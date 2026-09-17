@@ -394,6 +394,28 @@ export function registerIpcHandlers(): void {
     return tasks.importNotes(data)
   })
 
+  // ── Task Import/Export ────────────────────────────────────────────
+  ipcMain.handle('exportTasks', () => {
+    return tasks.exportTasks()
+  })
+
+  ipcMain.handle('importTasks', (_event, data: any[]) => {
+    return tasks.importTasks(data)
+  })
+
+  // ── Roadmap + Suggestions ─────────────────────────────────────────
+  ipcMain.handle('aggregateRoadmap', (_event, projectId?: string) => {
+    return tasks.aggregateRoadmap(projectId)
+  })
+
+  ipcMain.handle('suggestActions', (_event, projectId: string) => {
+    return tasks.suggestActions(projectId)
+  })
+
+  ipcMain.handle('suggestCrossProject', () => {
+    return tasks.suggestCrossProject()
+  })
+
   // ── Services / Workbench ──────────────────────────────────────────
   ipcMain.handle('scanServices', () => {
     return services.scanServices()

@@ -69,7 +69,8 @@ def create_icon():
         # 画一个紫色圆角方块（方寸的主题色）
         draw.rounded_rectangle([8, 8, 248, 248], radius=40, fill="#9b8fc4")
         
-        # 写一个"方"字
+        # 写一个"寸"字 —— 这是品牌原始设计，不要改成「方」：
+        # 历史上曾被误改成「方」，导致 16px 与其它尺寸出现两个字，勿重蹈覆辙。
         try:
             # 优先用 Noto Sans SC（Apache 2.0），回退系统字体
             font = ImageFont.truetype("C:/Windows/Fonts/NotoSansSC-VF.ttf", 140)
@@ -79,7 +80,7 @@ def create_icon():
             except Exception:
                 font = ImageFont.load_default()
         
-        draw.text((128, 128), "方", fill="white", font=font, anchor="mm")
+        draw.text((128, 128), "寸", fill="white", font=font, anchor="mm")
         
         # 完整尺寸集：Windows 在 125%/150% DPI 下会取用 20/24/40/48，缺失即触发缩放锯齿
         img.save(icon_path, format="ICO", sizes=[

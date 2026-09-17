@@ -17,13 +17,6 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: '方寸',
-    // 无边框窗口：移除原生标题栏（左上角图标随之消失），
-    // 再用 titleBarOverlay 把 最小化/最大化/关闭 按钮还原到右上角。
-    // color 用全透明，让应用自身背景透上来。
-    titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' ? {
-      titleBarOverlay: { color: '#00000000', symbolColor: '#5a5566', height: 38 },
-    } : {}),
     icon: path.join(__dirname, '../public/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload/index.js'),

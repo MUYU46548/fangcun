@@ -57,9 +57,13 @@ contextBridge.exposeInMainWorld('tegula', {
   // Blockers
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),
   
+  // Roadmap + Suggestions
+  aggregateRoadmap: (projectId?: string) => ipcRenderer.invoke('aggregateRoadmap', projectId),
+  suggestActions: (projectId: string) => ipcRenderer.invoke('suggestActions', projectId),
+  suggestCrossProject: () => ipcRenderer.invoke('suggestCrossProject'),
+
   // Services / Workbench
-  scanServices: () => ipcRenderer.invoke('scanServices'),
-  
+  scanServices: () => ipcRenderer.invoke('scanServices'), 
   // LLM
   llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
