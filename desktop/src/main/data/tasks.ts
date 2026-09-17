@@ -347,20 +347,188 @@ function loadAllTasks(): Task[] {
   return tasks
 }
 
-export function findBlockers(): { id: string; title: string; blockers: string[] }[] {
-  const tasks = loadAllTasks()
-  const result: { id: string; title: string; blockers: string[] }[] = []
+export interface DecisionPoint {
+  id: string
+  question: string
+  options: string[]
+  status: 'pending' | 'decided' | 'skipped'
+  chosen: string
+  decidedAt: string
+}
 
-  for (const task of tasks) {
-    if (task.fm.blockers && task.fm.blockers.length > 0) {
-      result.push({
-        id: task.id,
-        title: task.fm.title || task.id,
-        blockers: task.fm.blockers,
+export interface PlanData {
+  objective: string
+  status: 'draft' | 'active' | 'achieved' | 'abandoned'
+  milestones: { name: string; deadline: string }[]
+  decisions: DecisionPoint[]
+  risks: string[]
+}
+
+export function createPlan(fields: {
+  title: string
+  project?: string
+  objective?: string
+  milestones?: PlanData['milestones']
+  decisions?: DecisionPoint[]
+  risks?: string[]
+}): { id: string; task: Task } {
+  const id = genId(fields.title)
+  const now = new Date().toISOString()
+  const plan: PlanData = {
+    objective: fields.objective || '',
+    status: 'draft',
+    milestones: fields.milestones || [],
+    decisions: fields.decisions || [],
+    risks: fields.risks || [],
+  }
+  // ensure DP ids
+  plan.decisions.forEach((dp, i) => { if (!dp.id) dp.id = `dp_${String(i + 1).padStart(3, '0')}` })
+  const fm: TaskFrontmatter = {
+    id,
+    title: fields.title,
+    project: fields.project || '',
+    status: '草稿',
+    priority: '',
+    assignee: '',
+    tags: [],
+    created: now,
+    updated: now,
+    blockers: [],
+    type: 'plan',
+    plan_status: 'draft',
+  }
+  const task: Task = { id, fm, body: renderPlanBody(plan), path: path.join(getTaskDir(), `${id}.md`) }
+  atomicWrite(task.path, renderTask(task))
+  logActivity(id, 'created_plan', fields.title)
+  return { id, task }
+}
+
+export function renderPlanBody(plan: PlanData): string {
+  const lines: string[] = []
+  if (plan.objective) lines.push(`## 目标\n${plan.objective}`)
+  if (plan.milestones.length) {
+    lines.push('## 里程碑')
+    plan.milestones.forEach(m => lines.push(`- [ ] ${m.name} (截止: ${m.deadline || '未设定'})`))
+  }
+  if (plan.decisions.length) {
+    lines.push('## 决策点')
+    plan.decisions.forEach(dp => {
+      lines.push(`### ${dp.id}`)
+      lines.push(`- 问题: ${dp.question}`)
+      lines.push(`- 选项: ${dp.options.join(' / ')}`)
+      lines.push(`- 状态: ${dp.status === 'pending' ? '待定' : dp.status === 'decided' ? '已决策' : '跳过'}`)
+      lines.push(`- 已选: ${dp.chosen}`)
+      lines.push(`- 决策时间: ${dp.decidedAt}`)
+    })
+  }
+  if (plan.risks.length) {
+    lines.push('## 风险')
+    plan.risks.forEach(r => lines.push(`- ${r}`))
+  }
+  return lines.join('\n')
+}
+
+export function parsePlanFromTask(task: Task): PlanData | null {
+  if ((task.fm as any).type !== 'plan') return null
+  const body = task.body || ''
+  const plan: PlanData = { objective: '', status: 'draft', milestones: [], decisions: [], risks: [] }
+  // parse sections by ## headers
+  const sections = body.split(/^##\s+/m)
+  for (const sec of sections) {
+    const lines = sec.trim().split('\n')
+    const heading = lines[0]?.trim() || ''
+    const content = lines.slice(1).join('\n')
+    if (heading === '目标') plan.objective = content.trim()
+    else if (heading === '里程碑') {
+      plan.milestones = content.split('\n').filter(l => l.trim().startsWith('- [')).map(l => {
+        const m = l.match(/^- \[[ x]\]\s*(.+?)\s*\(截止:\s*(.+?)\)\s*$/)
+        return m ? { name: m[1], deadline: m[2] } : { name: l.replace(/^- \[[ x]\]\s*/, ''), deadline: '' }
       })
+    } else if (heading === '决策点') {
+      const dpSections = content.split(/^###\s+/m).filter(Boolean)
+      plan.decisions = dpSections.map(dpSec => {
+        const dLines = dpSec.trim().split('\n')
+        const dpId = dLines[0]?.trim() || `dp_${String(plan.decisions.length + 1).padStart(3, '0')}`
+        const dp: DecisionPoint = { id: dpId, question: '', options: [], status: 'pending', chosen: '', decidedAt: '' }
+        for (const dl of dLines.slice(1)) {
+          const m = dl.match(/^-\s*(.+?):\s*(.*)$/)
+          if (!m) continue
+          const k = m[1].trim()
+          const v = m[2].trim()
+          if (k === '问题') dp.question = v
+          else if (k === '选项') dp.options = v.split('/').map(s => s.trim())
+          else if (k === '状态') dp.status = v === '已决策' ? 'decided' : v === '跳过' ? 'skipped' : 'pending'
+          else if (k === '已选') dp.chosen = v
+          else if (k === '决策时间') dp.decidedAt = v
+        }
+        return dp
+      })
+    } else if (heading === '风险') {
+      plan.risks = content.split('\n').filter(l => l.trim().startsWith('-')).map(l => l.replace(/^-\s*/, ''))
     }
   }
-  return result
+  plan.status = ((task.fm as any).plan_status as PlanData['status']) || 'draft'
+  return plan
+}
+
+export function decidePlanPoint(id: string, dpId: string, choice: string): { ok: boolean; error?: string } {
+  const task = readTask(id)
+  if (!task) return { ok: false, error: '任务不存在' }
+  const plan = parsePlanFromTask(task)
+  if (!plan) return { ok: false, error: '不是规划任务' }
+  const dp = plan.decisions.find(d => d.id === dpId)
+  if (!dp) return { ok: false, error: `决策点 ${dpId} 不存在` }
+  dp.status = 'decided'
+  dp.chosen = choice
+  dp.decidedAt = new Date().toISOString()
+  // update task body
+  task.body = renderPlanBody(plan)
+  // check if all decided
+  if (plan.decisions.every(d => d.status !== 'pending') && plan.status === 'draft') {
+    plan.status = 'active'
+    ;(task.fm as any).plan_status = 'active'
+    task.fm.status = '进行中'
+  }
+  ;(task.fm as any).plan_status = plan.status
+  task.fm.updated = new Date().toISOString()
+  atomicWrite(task.path, renderTask(task))
+  return { ok: true }
+}
+
+export function listPlans(view = 'active'): Task[] {
+  return loadAllTasks().filter(t => (t.fm as any).type === 'plan')
+}
+
+export function getPlan(id: string): { task: Task; plan: PlanData } | null {
+  const task = readTask(id)
+  if (!task) return null
+  const plan = parsePlanFromTask(task)
+  if (!plan) return null
+  return { task, plan }
+}
+
+export function findTimeoutTasks(thresholdHours = 24): { id: string; title: string; hours: number }[] {
+  const nowTs = Date.now() / 1000
+  return loadAllTasks()
+    .filter(t => t.fm.status === '进行中' && (t.fm as any).dispatch_time)
+    .map(t => {
+      const ts = parseFloat((t.fm as any).dispatch_time)
+      const hours = Math.floor((nowTs - ts) / 3600)
+      return hours >= thresholdHours ? { id: t.id, title: t.fm.title || t.id, hours } : null
+    })
+    .filter(Boolean) as any
+}
+
+export function getProjectProgress(projectId: string): { total: number; completed: number; percent: number } {
+  const projTasks = loadAllTasks().filter(t => {
+    const p = t.fm.project
+    if (!p) return false
+    if (Array.isArray(p)) return p.includes(projectId)
+    return p === projectId
+  })
+  const total = projTasks.length
+  const completed = projTasks.filter(t => t.fm.status === '完成').length
+  return { total, completed: total ? completed : 0, percent: total ? Math.round((completed / total) * 100) : 0 }
 }
 
 // ── Blocker Chain Visualization ──────────────────────────────────────

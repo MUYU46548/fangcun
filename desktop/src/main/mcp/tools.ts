@@ -185,7 +185,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     }
     
     case 'find_blockers': {
-      const blockers = tasks.findBlockers()
+      const blockers = tasks.getBlockerChains()
       return { content: [{ type: 'text', text: JSON.stringify(blockers, null, 2) }] }
     }
     

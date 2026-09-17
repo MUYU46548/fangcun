@@ -106,7 +106,38 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('findBlockers', () => {
-    return tasks.findBlockers()
+    return tasks.getBlockerChains().map(c => ({ id: c.id, title: c.title, blockers: c.blockers.map(b => b.id) }))
+  })
+
+  // ── Plan System ─────────────────────────────────────────────────────
+  ipcMain.handle('createPlan', (_event, fields: any) => {
+    try {
+      const result = tasks.createPlan(fields)
+      return { ok: true, id: result.id }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('listPlans', () => {
+    return tasks.listPlans()
+  })
+
+  ipcMain.handle('getPlan', (_event, id: string) => {
+    return tasks.getPlan(id)
+  })
+
+  ipcMain.handle('decidePlanPoint', (_event, id: string, dpId: string, choice: string) => {
+    return tasks.decidePlanPoint(id, dpId, choice)
+  })
+
+  // ── Timeout + Progress ──────────────────────────────────────────────
+  ipcMain.handle('findTimeoutTasks', (_event, threshold?: number) => {
+    return tasks.findTimeoutTasks(threshold)
+  })
+
+  ipcMain.handle('getProjectProgress', (_event, projectId: string) => {
+    return tasks.getProjectProgress(projectId)
   })
 
   // ── Batch Ops ──────────────────────────────────────────────────────

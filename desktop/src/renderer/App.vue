@@ -254,6 +254,27 @@
       </div>
     </main>
 
+    <!-- Plans view -->
+    <main id="board" class="plans-view" v-else-if="curView === 'plans'">
+      <div class="plans-header">
+        <h3>规划</h3>
+        <button @click="openNewPlan">+ 新建规划</button>
+      </div>
+      <div class="plans-grid">
+        <div v-if="!plans.length" class="empty-state">
+          <div class="empty-icon">📋</div>
+          <div class="empty-text">暂无规划</div>
+        </div>
+        <div v-for="plan in plans" :key="plan.id" class="plan-card" @click="openPlan(plan.id)">
+          <div class="plan-card-head">
+            <span class="plan-title">{{ plan.fm.title || plan.id }}</span>
+            <span class="st plan-status" :class="planStatusClass((plan.fm as any).plan_status)">{{ planStatusLabel((plan.fm as any).plan_status) }}</span>
+          </div>
+          <div class="plan-body-preview">{{ truncate(plan.body, 80) }}</div>
+        </div>
+      </div>
+    </main>
+
     <!-- Task preview modal -->
     <div id="roverlay" class="overlay" v-if="previewTask" @click.self="previewTask = null">
       <div id="rmodal">
@@ -289,6 +310,49 @@
           <button v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
           <button v-else class="warning" @click="archiveTask(previewTask)">归档</button>
           <button class="danger" @click="deleteTask(previewTask.id)">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Plan detail modal -->
+    <div id="plan-detail-overlay" class="overlay" v-if="planDetail_" @click.self="planDetail_ = null">
+      <div id="plan-detail-modal">
+        <h3>{{ planDetail_.title }}</h3>
+        <div class="plan-detail-status">
+          <span class="st plan-status" :class="planStatusClass(planDetail_.plan?.status)">{{ planStatusLabel(planDetail_.plan?.status) }}</span>
+        </div>
+        <div class="plan-detail-section" v-if="planDetail_.plan?.objective">
+          <label>目标</label>
+          <div>{{ planDetail_.plan.objective }}</div>
+        </div>
+        <div class="plan-detail-section" v-if="planDetail_.plan?.milestones?.length">
+          <label>里程碑 ({{ planDetail_.plan.milestones.length }})</label>
+          <ul>
+            <li v-for="ms in planDetail_.plan.milestones" :key="ms.name">{{ ms.name }} <span class="deadline">(截止: {{ ms.deadline || '未设定' }})</span></li>
+          </ul>
+        </div>
+        <div class="plan-detail-section" v-if="planDetail_.plan?.decisions?.length">
+          <label>决策点 ({{ planDetail_.plan.decisions.length }})</label>
+          <div class="dp-list">
+            <div v-for="dp in planDetail_.plan.decisions" :key="dp.id" class="dp-item" :class="'dp-' + dp.status">
+              <div class="dp-header">
+                <span class="dp-id">{{ dp.id }}</span>
+                <span class="dp-status-badge" :class="'dp-' + dp.status">{{ dp.status === 'pending' ? '待定' : dp.status === 'decided' ? '已决策' : '跳过' }}</span>
+              </div>
+              <div class="dp-question">{{ dp.question }}</div>
+              <div class="dp-options" v-if="dp.status === 'pending'">
+                <button v-for="opt in dp.options" :key="opt" @click="decideDP(planDetail_.id, dp.id, opt)">{{ opt }}</button>
+              </div>
+              <div v-else class="dp-chosen">已选: {{ dp.chosen }} <span v-if="dp.decidedAt">({{ formatDate(dp.decidedAt) }})</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="plan-detail-section" v-if="planDetail_.plan?.risks?.length">
+          <label>风险</label>
+          <ul><li v-for="r in planDetail_.plan.risks" :key="r">{{ r }}</li></ul>
+        </div>
+        <div class="acts">
+          <button class="ghost" @click="planDetail_ = null">关闭</button>
         </div>
       </div>
     </div>
@@ -555,10 +619,12 @@ const selectedBatch = ref<string[]>([])
 const dataDir = ref('')
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
-const editApp_ = ref<any>(null)
+const noteEdit_ = ref<any>(null)
 const blockerChains = ref<any[]>([])
 const notes = ref<any[]>([])
-const noteEdit_ = ref<any>(null)
+const plans = ref<any[]>([])
+const planDetail_ = ref<any>(null)
+const projectProgress = ref<Record<string, any>>({})
 
 const toast = reactive({ show: false, msg: '', type: 'info' })
 
@@ -566,6 +632,7 @@ const views = [
   { id: 'active', label: '看板' },
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
+  { id: 'plans', label: '规划' },
   { id: 'notes', label: '笔记' },
   { id: 'archive', label: '归档' },
   { id: 'launchpad', label: '启动台' },
@@ -756,8 +823,61 @@ function switchView(v: string) {
     loadNotes()
   } else if (v === 'blockers') {
     loadBlockerChains()
+  } else if (v === 'plans') {
+    loadPlans()
   } else {
     loadAll()
+  }
+}
+
+function planStatusClass(status: string): string {
+  return status === 'active' ? 'doing' : status === 'achieved' ? 'done' : status === 'abandoned' ? 'reject' : 'draft'
+}
+
+function planStatusLabel(status: string): string {
+  return status === 'active' ? '进行中' : status === 'achieved' ? '已完成' : status === 'abandoned' ? '已放弃' : '草稿'
+}
+
+async function loadPlans() {
+  try {
+    plans.value = await window.tegula.listPlans()
+  } catch {
+    plans.value = []
+  }
+}
+
+async function loadProjectProgressMap() {
+  try {
+    const result: Record<string, any> = {}
+    for (const p of projects.value) {
+      result[p.id] = await window.tegula.getProjectProgress(p.id)
+    }
+    projectProgress.value = result
+  } catch {
+    projectProgress.value = {}
+  }
+}
+
+async function loadAll() {
+  const [t, p, b, dd] = await Promise.all([
+    window.tegula.loadTasks(curView.value),
+    window.tegula.loadProjects(),
+    window.tegula.findBlockers(),
+    window.tegula.getDataDir(),
+  ])
+  tasks.value = t
+  projects.value = p
+  blockers.value = b
+  dataDir.value = dd
+  // also load progress and notes for task preview
+  await loadProjectProgressMap()
+  if (searchIncludeArchive.value) {
+    try {
+      const arch = await window.tegula.loadTasks('archive')
+      archivedTasks.value = arch.map((a: Task) => ({ ...a, _archived: true }))
+    } catch { archivedTasks.value = [] }
+  } else {
+    archivedTasks.value = []
   }
 }
 
@@ -767,6 +887,38 @@ function openNote(note: any) {
 
 function openNewNote() {
   noteEdit_.value = { title: '', content: '', taskId: '' }
+}
+
+function openNewPlan() {
+  const title = prompt('规划标题：')
+  if (!title) return
+  const objective = prompt('规划目标：') || ''
+  window.tegula.createPlan({ title, objective }).then((result: any) => {
+    if (result.ok) {
+      showToast('已创建', 'success')
+      loadPlans()
+    } else {
+      showToast('创建失败', 'error')
+    }
+  })
+}
+
+async function openPlan(id: string) {
+  const result = await window.tegula.getPlan(id)
+  if (result) {
+    planDetail_.value = { id, title: result.task.fm.title || result.task.id, ...result }
+  }
+}
+
+async function decideDP(planId: string, dpId: string, choice: string) {
+  const result = await window.tegula.decidePlanPoint(planId, dpId, choice)
+  if (result.ok) {
+    await openPlan(planId)
+    await loadPlans()
+    showToast(`已决策: ${dpId} = ${choice}`, 'success')
+  } else {
+    showToast('决策失败', 'error')
+  }
 }
 
 
@@ -1328,6 +1480,12 @@ body {
 
 #app { display: flex; flex-direction: column; height: 100vh; }
 
+/* 无边框窗口（titleBarStyle: 'hidden'）：顶部 38px 空条作为可拖动标题区，
+   系统的最小化/最大化/关闭按钮浮在该区域右侧（透明覆盖）。 */
+#app::before {
+  content: ''; display: block; flex: 0 0 38px; -webkit-app-region: drag;
+}
+
 .blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: 0.38; z-index: 0; pointer-events: none; }
 .blob.b1 { width: 460px; height: 460px; background: #cfc6ec; top: -140px; left: -100px; }
 .blob.b2 { width: 420px; height: 420px; background: #cdd9ee; bottom: -130px; right: -90px; }
@@ -1337,6 +1495,11 @@ body {
   background: rgba(255,255,255,0.72); backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border); display: flex;
   justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+  -webkit-app-region: drag;   /* 无边框窗口：顶栏空白处可拖动窗口 */
+}
+/* 顶栏内的交互元素必须排除出拖动区，否则点击会被当成拖动 */
+#bar .ctrls, #bar .ctrls *, #bar select, #bar input, #bar button, #bar label {
+  -webkit-app-region: no-drag;
 }
 #bar .title { font-weight: 700; font-size: 15px; }
 #bar .title small { color: var(--accent); font-weight: 600; margin-left: 6px; font-size: 13px; }
@@ -1628,6 +1791,43 @@ body {
 #note-edit-modal input, #note-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--ink); outline: none; font-family: inherit; }
 #note-edit-modal textarea { height: 80px; resize: vertical; }
 #note-edit-modal textarea.tall { height: 120px; }
+
+/* Plans view */
+.plans-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.plans-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.plans-header h3 { font-size: 16px; font-weight: 700; }
+.plans-header button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
+.plans-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.plan-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: box-shadow 0.15s; box-shadow: var(--shadow); }
+.plan-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); }
+.plan-card-head { display: flex; align-items: center; gap: 8px; }
+.plan-title { font-size: 13px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-status { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.plan-body-preview { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+
+/* Plan detail modal */
+#plan-detail-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#plan-detail-modal h3 { margin: 0 0 12px; font-size: 16px; }
+.plan-detail-status { margin-bottom: 14px; }
+.plan-detail-section { margin-bottom: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.plan-detail-section label { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+.plan-detail-section ul { padding-left: 18px; }
+.plan-detail-section li { font-size: 12px; margin-bottom: 4px; }
+.deadline { color: var(--muted); font-size: 11px; }
+.dp-item { background: var(--bg); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; border: 1px solid var(--border); }
+.dp-item.dp-decided { background: #f0f7ee; border-color: #d4e8d0; }
+.dp-item.dp-skipped { opacity: 0.6; }
+.dp-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dp-id { font-size: 11px; color: var(--muted); }
+.dp-status-badge { font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 700; }
+.dp-status-badge.dp-pending { background: #fef3c7; color: #92400e; }
+.dp-status-badge.dp-decided { background: #d1fae5; color: #065f46; }
+.dp-status-badge.dp-skipped { background: #eceded; color: #7a7f8c; }
+.dp-question { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.dp-options { display: flex; gap: 6px; flex-wrap: wrap; }
+.dp-options button { padding: 4px 10px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.dp-options button:hover { background: #f4f1fc; border-color: var(--accent); }
+.dp-chosen { font-size: 11px; color: var(--success); font-weight: 500; }
 
 /* Empty state */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; }
