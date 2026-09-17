@@ -69,15 +69,22 @@ def create_icon():
         # 画一个紫色圆角方块（方寸的主题色）
         draw.rounded_rectangle([8, 8, 248, 248], radius=40, fill="#9b8fc4")
         
-        # 写一个"寸"字
+        # 写一个"方"字
         try:
-            font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 140)
+            # 优先用 Noto Sans SC（Apache 2.0），回退系统字体
+            font = ImageFont.truetype("C:/Windows/Fonts/NotoSansSC-VF.ttf", 140)
         except Exception:
-            font = ImageFont.load_default()
+            try:
+                font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 140)
+            except Exception:
+                font = ImageFont.load_default()
         
-        draw.text((128, 128), "寸", fill="white", font=font, anchor="mm")
+        draw.text((128, 128), "方", fill="white", font=font, anchor="mm")
         
-        img.save(icon_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+        # 完整尺寸集：Windows 在 125%/150% DPI 下会取用 20/24/40/48，缺失即触发缩放锯齿
+        img.save(icon_path, format="ICO", sizes=[
+            (16, 16), (20, 20), (24, 24), (32, 32), (40, 40),
+            (48, 48), (64, 64), (96, 96), (128, 128), (256, 256)])
         print(f"  ✓ 创建图标: {icon_path}")
         return icon_path
     except ImportError:

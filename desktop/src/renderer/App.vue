@@ -1175,27 +1175,6 @@ function renderBody(body: string): string {
 
 const archivedTasks = ref<Task[]>([])
 
-async function loadAll() {
-  const [t, p, b, dd] = await Promise.all([
-    window.tegula.loadTasks(curView.value),
-    window.tegula.loadProjects(),
-    window.tegula.findBlockers(),
-    window.tegula.getDataDir(),
-  ])
-  tasks.value = t
-  projects.value = p
-  blockers.value = b
-  dataDir.value = dd
-  if (searchIncludeArchive.value) {
-    try {
-      const arch = await window.tegula.loadTasks('archive')
-      archivedTasks.value = arch.map((a: Task) => ({ ...a, _archived: true }))
-    } catch { archivedTasks.value = [] }
-  } else {
-    archivedTasks.value = []
-  }
-}
-
 const filteredTasks = computed(() => {
   if (isNaturalQuery.value && naturalResults.value.length > 0) {
     return naturalResults.value
