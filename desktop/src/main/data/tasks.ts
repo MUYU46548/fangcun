@@ -362,3 +362,92 @@ export function findBlockers(): { id: string; title: string; blockers: string[] 
   }
   return result
 }
+
+// ── Blocker Chain Visualization ──────────────────────────────────────
+
+export interface BlockerChain {
+  id: string
+  title: string
+  status: string
+  blockers: {
+    id: string
+    title: string
+    status: string
+    isDone: boolean
+  }[]
+}
+
+export function getBlockerChains(): BlockerChain[] {
+  const allTasks = loadAllTasks()
+  const taskMap = new Map(allTasks.map(t => [t.id, t]))
+  const chains: BlockerChain[] = []
+
+  for (const task of allTasks) {
+    if (!task.fm.blockers || task.fm.blockers.length === 0) continue
+    const blockers = task.fm.blockers
+      .map(bid => {
+        const dep = taskMap.get(bid)
+        if (!dep) return null
+        const status = dep.fm.status || '草稿'
+        const isDone = status === '完成' || status === '驳回'
+        return { id: dep.id, title: dep.fm.title || dep.id, status, isDone }
+      })
+      .filter(Boolean) as BlockerChain['blockers']
+
+    if (blockers.length > 0) {
+      chains.push({
+        id: task.id,
+        title: task.fm.title || task.id,
+        status: task.fm.status || '草稿',
+        blockers,
+      })
+    }
+  }
+  return chains
+}
+
+// ── Notes Import/Export ──────────────────────────────────────────────
+
+export function exportNotes(): { ok: boolean; data?: any[]; count?: number; error?: string } {
+  try {
+    const notesDir = path.join(getDataDir(), 'notes')
+    if (!fs.existsSync(notesDir)) return { ok: true, data: [], count: 0 }
+    const notes: any[] = []
+    for (const fn of fs.readdirSync(notesDir)) {
+      if (!fn.endsWith('.md')) continue
+      const content = fs.readFileSync(path.join(notesDir, fn), 'utf-8')
+      let title = ''
+      let body = content
+      if (content.startsWith('# ')) {
+        const lines = content.split('\n', 2)
+        title = lines[0].slice(2).trim()
+        body = lines.slice(1).join('\n').trim()
+      }
+      notes.push({ id: fn.slice(0, -3), title, content: body })
+    }
+    return { ok: true, data: notes, count: notes.length }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
+}
+
+export function importNotes(data: any[]): { ok: boolean; imported?: number; error?: string } {
+  try {
+    if (!Array.isArray(data)) return { ok: false, error: 'data must be array' }
+    const notesDir = path.join(getDataDir(), 'notes')
+    fs.mkdirSync(notesDir, { recursive: true })
+    let imported = 0
+    for (const item of data) {
+      if (!item || typeof item !== 'object') continue
+      const id = item.id || `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const title = item.title || ''
+      const content = item.content || ''
+      const notePath = path.join(notesDir, `${id}.md`)
+      fs.writeFileSync(notePath, `# ${title}\n\n${content}`, 'utf-8')
+      imported++
+    }
+    return { ok: true, imported }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
+}

@@ -73,7 +73,7 @@
       <button @click="showArchiveHint = false; localStorage.setItem('fc_archive_hint_seen','1')">知道了</button>
     </div>
 
-    <!-- Kanban board -->
+
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
       <div
         v-for="col in columns"
@@ -172,6 +172,61 @@
       </div>
     </main>
 
+    <!-- Blockers view -->
+    <main id="board" class="blockers-view" v-else-if="curView === 'blockers'">
+      <div class="blockers-header">
+        <h3>阻塞链</h3>
+        <span class="blockers-count">{{ blockerChains.length }} 条活跃阻塞链</span>
+      </div>
+      <div class="blocker-chains">
+        <div v-if="!blockerChains.length" class="empty-state">
+          <div class="empty-icon">✓</div>
+          <div class="empty-text">没有阻塞链 — 所有任务畅通</div>
+        </div>
+        <div v-for="chain in blockerChains" :key="chain.id" class="chain-card">
+          <div class="chain-main">
+            <span class="chain-id">{{ chain.id }}</span>
+            <span class="chain-title">{{ chain.title }}</span>
+            <span class="st" :class="'st-' + statusClass(chain.status)">{{ chain.status }}</span>
+          </div>
+          <div class="chain-arrow">↓ 等待</div>
+          <div class="chain-blockers">
+            <div v-for="b in chain.blockers" :key="b.id" class="chain-blocker" :class="{ done: b.isDone }">
+              <span class="cb-status">{{ b.isDone ? '✓' : '◌' }}</span>
+              <span class="cb-id">{{ b.id }}</span>
+              <span class="cb-title">{{ b.title }}</span>
+              <span class="st small" :class="'st-' + statusClass(b.status)">{{ b.status }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Notes view -->
+    <main id="board" class="notes-view" v-else-if="curView === 'notes'">
+      <div class="notes-header">
+        <h3>笔记</h3>
+        <div class="notes-ctrls">
+          <button @click="openNewNote">+ 新建笔记</button>
+          <button class="ghost" @click="exportNotesToFile">导出全部</button>
+        </div>
+      </div>
+      <div class="notes-grid">
+        <div v-if="!notes.length" class="empty-state">
+          <div class="empty-icon">📝</div>
+          <div class="empty-text">暂无笔记</div>
+        </div>
+        <div v-for="note in notes" :key="note.id" class="note-card" @click="openNote(note)">
+          <div class="note-card-title">{{ note.title || '(无标题)' }}</div>
+          <div class="note-card-content">{{ truncate(note.content, 100) }}</div>
+          <div class="note-card-meta">
+            <span v-if="note.taskId" class="note-task">📍 {{ note.taskId }}</span>
+            <span class="note-date">{{ formatDate(note.updatedAt) }}</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
     <!-- Launchpad view -->
     <main id="board" class="launchpad" v-else-if="curView === 'launchpad'">
       <div class="lp-header">
@@ -217,6 +272,17 @@
           <label>正文</label>
           <div class="body-text markdown" v-html="renderBody(previewTask.body)" @change="onBodyChange"></div>
         </div>
+        <div class="notes-section" v-if="previewTask">
+          <label>笔记 ({{ taskNotes.length }})</label>
+          <div class="notes-list">
+            <div v-for="note in taskNotes" :key="note.id" class="note-item">
+              <div class="note-item-title">{{ note.title || '(无标题)' }}</div>
+              <div class="note-item-content">{{ truncate(note.content, 80) }}</div>
+              <button class="note-del" @click.stop="deleteNoteItem(note.id)">×</button>
+            </div>
+          </div>
+          <button class="add-note-btn" @click="openAddNoteForTask(previewTask.id)">+ 添加笔记</button>
+        </div>
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
@@ -261,6 +327,24 @@
         <div class="acts">
           <button class="ghost" @click="editTask_ = null">取消</button>
           <button class="pri" @click="saveEdit">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Note edit modal -->
+    <div id="note-edit-overlay" class="overlay" v-if="noteEdit_" @click.self="noteEdit_ = null">
+      <div id="note-edit-modal">
+        <h3>{{ noteEdit_.id ? '编辑笔记' : '新建笔记' }}</h3>
+        <label>标题</label>
+        <input v-model="noteEdit_.title" placeholder="笔记标题" />
+        <label>内容</label>
+        <textarea v-model="noteEdit_.content" class="tall" placeholder="笔记内容..."></textarea>
+        <label>关联任务 ID（可选）</label>
+        <input v-model="noteEdit_.taskId" placeholder="留空则不关联" />
+        <div class="acts">
+          <button class="ghost" @click="noteEdit_ = null">取消</button>
+          <button v-if="noteEdit_.id" class="danger" @click="deleteNoteItem(noteEdit_.id)">删除</button>
+          <button class="pri" @click="saveNoteEdit">{{ noteEdit_.id ? '保存' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -472,12 +556,17 @@ const dataDir = ref('')
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
 const editApp_ = ref<any>(null)
+const blockerChains = ref<any[]>([])
+const notes = ref<any[]>([])
+const noteEdit_ = ref<any>(null)
 
 const toast = reactive({ show: false, msg: '', type: 'info' })
 
 const views = [
   { id: 'active', label: '看板' },
   { id: 'projects', label: '项目' },
+  { id: 'blockers', label: '阻塞' },
+  { id: 'notes', label: '笔记' },
   { id: 'archive', label: '归档' },
   { id: 'launchpad', label: '启动台' },
 ]
@@ -663,10 +752,24 @@ function switchView(v: string) {
   curView.value = v
   if (v === 'launchpad') {
     loadLaunchpad()
+  } else if (v === 'notes') {
+    loadNotes()
+  } else if (v === 'blockers') {
+    loadBlockerChains()
   } else {
     loadAll()
   }
 }
+
+function openNote(note: any) {
+  noteEdit_.value = { ...note }
+}
+
+function openNewNote() {
+  noteEdit_.value = { title: '', content: '', taskId: '' }
+}
+
+
 
 // ── Quick Add ─────────────────────────────────────────────────────────
 
@@ -835,7 +938,51 @@ function toggleCheck(el: HTMLInputElement) {
   saveCheckChange(previewTask.value.id, newBody)
 }
 
-let _checkSaveTimers: Record<string, number> = {}
+const _checkSaveTimers: Record<string, number> = {}
+const taskNotes = ref<any[]>([])
+
+async function loadNotesForTask(taskId: string) {
+  try {
+    taskNotes.value = await window.tegula.notesForTask(taskId)
+  } catch {
+    taskNotes.value = []
+  }
+}
+
+function openAddNoteForTask(taskId: string) {
+  noteEdit_.value = { title: '', content: '', taskId }
+}
+
+async function saveNoteEdit() {
+  const e = noteEdit_.value
+  if (!e.title?.trim() && !e.content?.trim()) {
+    showToast('标题和内容不能同时为空', 'error')
+    return
+  }
+  try {
+    if (e.id) {
+      await window.tegula.updateNote(e.id, { title: e.title, content: e.content, taskId: e.taskId || undefined })
+      showToast('已更新', 'success')
+    } else {
+      await window.tegula.createNote({ title: e.title, content: e.content, taskId: e.taskId || undefined })
+      showToast('已创建', 'success')
+    }
+    noteEdit_.value = null
+    await loadNotesForTask(e.taskId)
+    await loadNotes()
+  } catch (err: any) {
+    showToast(`保存失败: ${err.message || err}`, 'error')
+  }
+}
+
+async function deleteNoteItem(noteId: string) {
+  if (!confirm('确定删除此笔记？')) return
+  await window.tegula.deleteNote(noteId)
+  showToast('已删除', 'success')
+  await loadNotes()
+}
+
+
 function saveCheckChange(id: string, body: string) {
   if (_checkSaveTimers[id]) clearTimeout(_checkSaveTimers[id])
   _checkSaveTimers[id] = setTimeout(async () => {
@@ -1424,8 +1571,68 @@ body {
 .batch-actions button:hover { background: #f4f1fc; border-color: var(--accent); }
 .batch-bar .ghost { padding: 3px 10px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
 
-/* Natural query badge */
+
 .nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
+
+/* Blockers view */
+.blockers-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.blockers-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.blockers-header h3 { font-size: 16px; font-weight: 700; }
+.blockers-count { font-size: 12px; color: var(--muted); }
+.blocker-chains { display: flex; flex-direction: column; gap: 12px; }
+.chain-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.chain-main { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.chain-id { font-size: 11px; color: var(--muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
+.chain-title { font-weight: 600; flex: 1; }
+.chain-arrow { font-size: 11px; color: var(--muted); padding: 4px 0; text-align: center; }
+.chain-blockers { display: flex; flex-wrap: wrap; gap: 8px; }
+.chain-blocker { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #faf3f3; border: 1px solid #eedcdc; border-radius: 8px; font-size: 12px; }
+.chain-blocker.done { background: #f0f7ee; border-color: #d4e8d0; opacity: 0.7; }
+.cb-status { font-weight: 700; }
+.chain-blocker .cb-status { color: var(--danger); }
+.chain-blocker.done .cb-status { color: var(--success); }
+.cb-id { font-size: 10px; color: var(--muted); }
+.cb-title { font-weight: 500; }
+
+/* Notes view */
+.notes-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.notes-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.notes-header h3 { font-size: 16px; font-weight: 700; }
+.notes-ctrls { display: flex; gap: 6px; }
+.notes-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
+.notes-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+.notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.note-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: box-shadow 0.15s; box-shadow: var(--shadow); }
+.note-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); }
+.note-card-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.note-card-content { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.note-card-meta { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; color: var(--muted); }
+.note-task { background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 4px; }
+
+/* Notes section in preview */
+.notes-section { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.notes-section label { font-size: 11px; color: var(--muted); font-weight: 600; display: block; margin-bottom: 4px; }
+.notes-list { margin-bottom: 6px; }
+.note-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg); border-radius: 6px; margin-bottom: 4px; }
+.note-item-title { font-size: 12px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-item-content { font-size: 10.5px; color: var(--muted); flex: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-del { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 4px; }
+.note-del:hover { color: var(--danger); }
+.add-note-btn { background: none; border: 1px dashed var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); cursor: pointer; width: 100%; }
+.add-note-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Note edit modal */
+#note-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#note-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
+#note-edit-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
+#note-edit-modal input, #note-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--ink); outline: none; font-family: inherit; }
+#note-edit-modal textarea { height: 80px; resize: vertical; }
+#note-edit-modal textarea.tall { height: 120px; }
+
+/* Empty state */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; }
+.empty-icon { font-size: 36px; opacity: 0.5; }
+.empty-text { font-size: 13px; color: var(--muted); }
 
 /* Archive hint */
 .archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }

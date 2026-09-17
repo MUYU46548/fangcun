@@ -317,7 +317,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // ── Notes ────────────────────────────────────────────────────────
+  // ── Notes ─────────────────────────────────────────────────────────
   ipcMain.handle('notesForTask', (_event, taskId: string) => {
     return services.getNotesForTask(taskId)
   })
@@ -331,6 +331,15 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('updateNote', (_event, noteId: string, updates: any) => {
+    try {
+      const result = services.updateNote(noteId, updates)
+      return { ok: !!result, note: result }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  })
+
   ipcMain.handle('listNotes', () => {
     return services.listNotes()
   })
@@ -338,6 +347,20 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('deleteNote', (_event, noteId: string) => {
     const ok = services.deleteNote(noteId)
     return { ok }
+  })
+
+  // ── Blocker chains ─────────────────────────────────────────────────
+  ipcMain.handle('getBlockerChains', () => {
+    return tasks.getBlockerChains()
+  })
+
+  // ── Notes Import/Export ────────────────────────────────────────────
+  ipcMain.handle('exportNotes', () => {
+    return tasks.exportNotes()
+  })
+
+  ipcMain.handle('importNotes', (_event, data: any[]) => {
+    return tasks.importNotes(data)
   })
 
   // ── Services / Workbench ──────────────────────────────────────────
