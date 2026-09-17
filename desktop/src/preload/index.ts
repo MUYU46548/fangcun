@@ -23,7 +23,8 @@ contextBridge.exposeInMainWorld('tegula', {
   
   // Backup
   backup: () => ipcRenderer.invoke('backup'),
-  restore: (path: string) => ipcRenderer.invoke('restore', path),
+  restore: (backupPath: string) => ipcRenderer.invoke('restore', backupPath),
+  listBackups: () => ipcRenderer.invoke('listBackups'),
   
   // Activity
   loadActivity: (limit = 50) => ipcRenderer.invoke('loadActivity', limit),

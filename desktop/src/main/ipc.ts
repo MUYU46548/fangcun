@@ -9,6 +9,8 @@ import * as tasks from './data/tasks'
 import * as services from './services'
 import * as path from 'path'
 import * as fs from 'fs'
+import { execSync } from 'child_process'
+import * as os from 'os'
 import { registerLlmIpcHandlers } from './llm-ipc'
 import * as launchpad from './launchpad'
 
@@ -115,27 +117,136 @@ export function registerIpcHandlers(): void {
   // ── Backup / Restore ──────────────────────────────────────────────
   ipcMain.handle('backup', () => {
     try {
+      const taskDir = data.getTaskDir()
+      const regFile = data.getRegistryPath()
       const backupDir = path.join(data.getDataDir(), 'backups')
       fs.mkdirSync(backupDir, { recursive: true })
       const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
       const backupPath = path.join(backupDir, `backup-${stamp}.zip`)
-      
-      // Simple backup: copy task-data manifest
-      const taskDir = data.getTaskDir()
-      const files = fs.readdirSync(taskDir).filter(f => f.endsWith('.md'))
-      const manifest = files.map(f => {
-        const p = path.join(taskDir, f)
-        return { file: f, size: fs.statSync(p).size, mtime: fs.statSync(p).mtime.toISOString() }
-      })
-      fs.writeFileSync(backupPath + '.json', JSON.stringify(manifest, null, 2))
-      return { ok: true, path: backupPath + '.json' }
-    } catch (e) {
-      return { ok: false, error: String(e) }
+      const tempDir = path.join(os.tmpdir(), `fc-backup-${stamp}`)
+
+      // 1. robocopy task-data → temp (exclude .tmp, .bak, .trash, .backup)
+      try {
+        execSync(
+          `robocopy "${taskDir}" "${tempDir}${path.sep}task-data" /E /XF *.tmp *.bak /XD .trash .backup backups /NJH /NJS`,
+          { timeout: 30000 }
+        )
+      } catch (e: any) {
+        // robocopy exit 0-7 = success, 8+ = real error
+        if (e.status && e.status >= 8) throw e
+      }
+
+      // 2. copy registry.yaml
+      if (fs.existsSync(regFile)) {
+        fs.copyFileSync(regFile, path.join(tempDir, 'registry.yaml'))
+      }
+
+      // 3. compress
+      execSync(
+        `powershell -Command "Compress-Archive -Path '${tempDir}${path.sep}*' -DestinationPath '${backupPath}' -Force"`,
+        { timeout: 60000 }
+      )
+
+      // 4. cleanup temp
+      fs.rmSync(tempDir, { recursive: true, force: true })
+
+      // 5. rotate (keep 10)
+      const backups = fs.readdirSync(backupDir).filter(f => f.endsWith('.zip')).sort()
+      let removed = 0
+      while (backups.length > 10) {
+        const old = backups.shift()!
+        try { fs.unlinkSync(path.join(backupDir, old)); removed++ } catch {}
+      }
+
+      const sizeKB = fs.statSync(backupPath).size / 1024
+      return { ok: true, path: backupPath, sizeKB: Math.round(sizeKB), removed }
+    } catch (e: any) {
+      return { ok: false, error: String(e.message || e) }
     }
   })
 
-  ipcMain.handle('restore', (_event, backupPath: string) => {
-    return { ok: true }
+  ipcMain.handle('restore', async (_event, backupPath: string) => {
+    try {
+      if (!fs.existsSync(backupPath)) {
+        return { ok: false, error: '备份文件不存在: ' + backupPath }
+      }
+      const dataDir = data.getDataDir()
+      const taskDir = data.getTaskDir()
+      const regFile = data.getRegistryPath()
+      const tempDir = path.join(os.tmpdir(), `fc-restore-${Date.now()}`)
+
+      // 1. extract to temp
+      execSync(
+        `powershell -Command "Expand-Archive -Path '${backupPath}' -DestinationPath '${tempDir}' -Force"`,
+        { timeout: 60000 }
+      )
+
+      // 2. snapshot current (rename task-data → task-data.snapshot)
+      const snapshotDir = path.join(dataDir, `task-data.snapshot-${Date.now()}`)
+      if (fs.existsSync(taskDir)) {
+        fs.renameSync(taskDir, snapshotDir)
+      }
+      const snapshotReg = regFile + '.snapshot'
+      if (fs.existsSync(regFile)) {
+        fs.copyFileSync(regFile, snapshotReg)
+      }
+
+      try {
+        // 3. move extracted data into place
+        const extractedTaskDir = path.join(tempDir, 'task-data')
+        if (fs.existsSync(extractedTaskDir)) {
+          fs.renameSync(extractedTaskDir, taskDir)
+        } else {
+          throw new Error('备份中缺少 task-data 目录')
+        }
+        const extractedReg = path.join(tempDir, 'registry.yaml')
+        if (fs.existsSync(extractedReg)) {
+          fs.copyFileSync(extractedReg, regFile)
+        }
+
+        // 4. cleanup temp + snapshot
+        fs.rmSync(tempDir, { recursive: true, force: true })
+        if (fs.existsSync(snapshotDir)) {
+          fs.rmSync(snapshotDir, { recursive: true, force: true })
+        }
+        if (fs.existsSync(snapshotReg)) {
+          fs.unlinkSync(snapshotReg)
+        }
+
+        return { ok: true }
+      } catch (innerErr: any) {
+        // rollback snapshot
+        if (fs.existsSync(snapshotDir) && !fs.existsSync(taskDir)) {
+          fs.renameSync(snapshotDir, taskDir)
+        }
+        if (fs.existsSync(snapshotReg) && !fs.existsSync(regFile)) {
+          fs.copyFileSync(snapshotReg, regFile)
+          fs.unlinkSync(snapshotReg)
+        }
+        throw innerErr
+      }
+    } catch (e: any) {
+      return { ok: false, error: String(e.message || e) }
+    }
+  })
+
+  // ── List backups ──────────────────────────────────────────────────
+  ipcMain.handle('listBackups', () => {
+    try {
+      const backupDir = path.join(data.getDataDir(), 'backups')
+      if (!fs.existsSync(backupDir)) return []
+      const files = fs.readdirSync(backupDir)
+        .filter(f => f.endsWith('.zip'))
+        .map(f => {
+          const p = path.join(backupDir, f)
+          const stat = fs.statSync(p)
+          return { name: f, path: p, size: stat.size, mtime: stat.mtime.toISOString() }
+        })
+        .sort((a, b) => b.mtime.localeCompare(a.mtime))
+      return files
+    } catch {
+      return []
+    }
   })
 
   // ── Activity Log ──────────────────────────────────────────────────

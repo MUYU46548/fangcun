@@ -18,6 +18,7 @@
           <option value="priority">按优先级</option>
         </select>
         <input v-model="searchQuery" placeholder="搜索..." class="search" />
+        <label class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
         <select v-model="sortMode">
           <option value="active">活跃优先</option>
           <option value="updated">最近更新</option>
@@ -42,6 +43,12 @@
         {{ v.label }}
       </button>
     </nav>
+
+    <!-- Archive hint -->
+    <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
+      <span>📋 归档视图：此处仅显示已完成/驳回的任务。归档操作只能由你亲自判定，不会自动执行。</span>
+      <button @click="showArchiveHint = false; localStorage.setItem('fc_archive_hint_seen','1')">知道了</button>
+    </div>
 
     <!-- Kanban board -->
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
@@ -190,6 +197,7 @@
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
+          <button v-if="!previewTask._archived" class="warning" @click="archiveTask(previewTask)">归档</button>
           <button class="danger" @click="deleteTask(previewTask.id)">删除</button>
         </div>
       </div>
@@ -318,6 +326,7 @@ interface Task {
   updated?: string
   blockers?: string[]
   batch?: string
+  _archived?: boolean
 }
 
 interface Project {
@@ -335,7 +344,9 @@ const curView = ref('active')
 const curProj = ref('__all__')
 const groupMode = ref('status')
 const sortMode = ref('active')
+const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 const searchQuery = ref('')
+const searchIncludeArchive = ref(true)
 const draggingId = ref<string | null>(null)
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
@@ -376,22 +387,7 @@ function normProject(p: any): string {
   return p
 }
 
-const filteredTasks = computed(() => {
-  let result = tasks.value
-  if (curProj.value !== '__all__') {
-    result = result.filter(t => normProject(t.project) === curProj.value)
-  }
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    result = result.filter(t =>
-      t.title?.toLowerCase().includes(q) ||
-      t.id?.toLowerCase().includes(q) ||
-      normProject(t.project).toLowerCase().includes(q) ||
-      t.tags?.join(' ').toLowerCase().includes(q)
-    )
-  }
-  return result
-})
+// filteredTasks defined after archiveTask below
 
 const columns = computed(() => {
   const filtered = filteredTasks.value
@@ -517,19 +513,6 @@ function relativeTime(d: string): string {
 
 // ── Data loading ────────────────────────────────────────────────────────
 
-async function loadAll() {
-  const [t, p, b, dd] = await Promise.all([
-    window.tegula.loadTasks(curView.value),
-    window.tegula.loadProjects(),
-    window.tegula.findBlockers(),
-    window.tegula.getDataDir(),
-  ])
-  tasks.value = t
-  projects.value = p
-  blockers.value = b
-  dataDir.value = dd
-}
-
 async function loadLaunchpad() {
   try {
     launchpadApps.value = await window.tegula.launchpadLoadApps()
@@ -617,6 +600,61 @@ async function deleteTask(id: string) {
   showToast('已删除', 'success')
   loadAll()
 }
+
+async function archiveTask(t: Task) {
+  if (!confirm(`确认归档「${t.title}」？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
+  const result = await window.tegula.archiveTask(t.id)
+  if (result.ok) {
+    previewTask.value = null
+    showToast('已归档', 'success')
+    loadAll()
+  } else {
+    showToast(`归档失败: ${result.error || '未知错误'}`, 'error')
+  }
+}
+
+const archivedTasks = ref<Task[]>([])
+
+async function loadAll() {
+  const [t, p, b, dd] = await Promise.all([
+    window.tegula.loadTasks(curView.value),
+    window.tegula.loadProjects(),
+    window.tegula.findBlockers(),
+    window.tegula.getDataDir(),
+  ])
+  tasks.value = t
+  projects.value = p
+  blockers.value = b
+  dataDir.value = dd
+  if (searchIncludeArchive.value) {
+    try {
+      const arch = await window.tegula.loadTasks('archive')
+      archivedTasks.value = arch.map((a: Task) => ({ ...a, _archived: true }))
+    } catch { archivedTasks.value = [] }
+  } else {
+    archivedTasks.value = []
+  }
+}
+
+const filteredTasks = computed(() => {
+  let result = [...tasks.value]
+  if (searchIncludeArchive.value && archivedTasks.value.length > 0) {
+    result = [...result, ...archivedTasks.value]
+  }
+  if (curProj.value !== '__all__') {
+    result = result.filter(t => normProject(t.project) === curProj.value)
+  }
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter(t =>
+      t.title?.toLowerCase().includes(q) ||
+      t.id?.toLowerCase().includes(q) ||
+      normProject(t.project).toLowerCase().includes(q) ||
+      t.tags?.join(' ').toLowerCase().includes(q)
+    )
+  }
+  return result
+})
 
 function openCard(t: Task) {
   previewTask.value = t
@@ -828,6 +866,15 @@ body {
   font-size: 12px; font-weight: 600; background: var(--accent); color: #fff;
 }
 #bar button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+#bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+
+.archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; }
+.archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; }
+
+.card._archived { opacity: 0.55; filter: saturate(0.5); }
+.card._archived:hover { opacity: 0.85; filter: none; }
+
+.acts .warning { background: #f0a83a; color: #fff; }
 
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
