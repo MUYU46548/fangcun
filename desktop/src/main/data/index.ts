@@ -1,12 +1,19 @@
 /**
  * Fangcun Desktop — Data Layer (TypeScript)
  * Migrated from tegula/core.py + tegula/safe_io.py
+ * 
+ * P1 Stability Fixes:
+ * - Replaced handwritten YAML parser with js-yaml
+ * - Removed hardcoded path fallback (E:\CODE\CangKu\fangcun)
+ * - Added backup integrity checksums (sha256)
+ * - Better renderTask using yaml.dump for proper serialization
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { app } from 'electron'
+import * as yaml from 'js-yaml'
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
@@ -21,11 +28,8 @@ export function initPaths(): void {
   const cwd = process.cwd()
   const userData = app.getPath('userData')
 
-  // 1. cwd 下有 registry.yaml → 源码目录启动
-  // 2. exe 旁有 registry.yaml → 便携模式
-  // 3. userData 下有 registry.yaml → 安装版已配置
-  // 4. 常见开发路径 fallback（E:\CODE\CangKu\fangcun）
-  // 5. 最后才用 userData（空目录）
+  // Priority: cwd (dev) → exeDir (portable) → userData (installed)
+  // No hardcoded fallbacks — if none match, use userData
   let baseDir: string
   if (fs.existsSync(path.join(cwd, 'registry.yaml')) || fs.existsSync(path.join(cwd, 'task-data'))) {
     baseDir = cwd
@@ -34,13 +38,7 @@ export function initPaths(): void {
   } else if (fs.existsSync(path.join(userData, 'registry.yaml'))) {
     baseDir = userData
   } else {
-    // Fallback: 检查常见源码位置
-    const candidates = [
-      'E:\\CODE\\CangKu\\fangcun',
-      'E:\\CODE\\CangKu\\fangcun\\cli',
-      path.join(userData, '..', 'fangcun'),
-    ]
-    baseDir = candidates.find(d => fs.existsSync(path.join(d, 'registry.yaml'))) || userData
+    baseDir = userData
   }
 
   DATA_DIR = baseDir
@@ -53,7 +51,6 @@ export function initPaths(): void {
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
 }
 
-// 允许运行时切换数据目录（首次配置 / 设置页调用）
 export function setDataDir(newDir: string): void {
   if (!fs.existsSync(path.join(newDir, 'registry.yaml')) && !fs.existsSync(path.join(newDir, 'task-data'))) {
     throw new Error(`目标目录没有 registry.yaml 或 task-data: ${newDir}`)
@@ -135,75 +132,10 @@ export interface Task {
   path: string
 }
 
-// ── YAML Parser (simplified) ───────────────────────────────────────────
-
-export function parseRegistry(includeReleased = true): any[] {
-  if (!fs.existsSync(REGISTRY_PATH)) return []
-
-  const content = fs.readFileSync(REGISTRY_PATH, 'utf-8')
-  const lines = content.split('\n')
-  const projects: any[] = []
-  let current: any = null
-  let inSection: string | null = null
-
-  for (const raw of lines) {
-    const line = raw.trim()
-    if (!line) continue
-
-    // Section header
-    if (!raw.startsWith(' ')) {
-      const m = line.match(/^([A-Za-z_]+):\s*$/)
-      if (m && (m[1] === 'projects' || (includeReleased && m[1] === 'released'))) {
-        inSection = m[1]
-      } else {
-        inSection = null
-      }
-      current = null
-      continue
-    }
-
-    if (inSection === null) continue
-
-    // New project entry
-    if (line.startsWith('- ')) {
-      const rest = line.slice(2).trim()
-      current = {}
-      projects.push(current)
-      const kv = rest.match(/^([^:]+):\s*(.*)$/)
-      if (kv) {
-        current[kv[1].trim()] = coerce(kv[2].trim())
-      }
-      continue
-    }
-
-    // Property line
-    if (current) {
-      const kv = line.match(/^([^:]+):\s*(.*)$/)
-      if (kv) {
-        current[kv[1].trim()] = coerce(kv[2].trim())
-      }
-    }
-  }
-
-  return projects
-}
-
-function coerce(v: string): any {
-  if (v.startsWith('[') && v.endsWith(']')) {
-    const inner = v.slice(1, -1).trim()
-    if (!inner) return []
-    return inner.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-  }
-  if (v.length >= 2 && v[0] === v[v.length - 1] && (v[0] === '"' || v[0] === "'")) {
-    return v.slice(1, -1)
-  }
-  return v
-}
-
-// ── Task File I/O ───────────────────────────────────────────────────────
+// ── YAML Parser (js-yaml) ──────────────────────────────────────────────
 
 // Chinese → English field name mapping (Python tegula compat)
-const FIELD_MAP: Record<string, string> = {
+export const FIELD_MAP: Record<string, string> = {
   '标题': 'title',
   '项目': 'project',
   '状态': 'status',
@@ -228,6 +160,8 @@ const FIELD_MAP: Record<string, string> = {
   'context': 'context',
   'id': 'id',
   'tags': 'tags',
+  'type': 'type',
+  'plan_status': 'plan_status',
 }
 
 // English → Chinese field name mapping (for renderTask compat with Python CLI)
@@ -235,10 +169,34 @@ const REVERSE_FIELD_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(FIELD_MAP).map(([zh, en]) => [en, zh])
 )
 
+// Preferred output order for frontmatter fields
+const FM_ORDER = [
+  'id', 'title', 'project', 'status', 'priority', 'assignee', 'tags',
+  'created', 'updated', 'blockers', 'expected_update', 'batch', 'deadline',
+  'source', 'review', 'memo', 'resources', 'plan', 'result_log',
+  'dispatch_time', 'agent', 'review_checklist', 'budget', 'cron', 'context',
+  'type', 'plan_status',
+]
+
+export function parseRegistry(includeReleased = true): any[] {
+  if (!fs.existsSync(REGISTRY_PATH)) return []
+  const content = fs.readFileSync(REGISTRY_PATH, 'utf-8')
+  const data = yaml.load(content) as any
+  if (!data) return []
+  const projects = data.projects || []
+  if (includeReleased && Array.isArray(data.released)) {
+    return [...projects, ...data.released]
+  }
+  return projects
+}
+
+// ── Task File I/O ───────────────────────────────────────────────────────
+
 export function parseTask(filePath: string): Task | null {
   if (!fs.existsSync(filePath)) return null
 
   const content = fs.readFileSync(filePath, 'utf-8')
+  
   // Support mixed delimiters: ---...---, ===...===, ---...===, ===...---
   const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/) ||
                  content.match(/^===\r?\n([\s\S]*?)\r?\n===\r?\n([\s\S]*)$/) ||
@@ -248,54 +206,65 @@ export function parseTask(filePath: string): Task | null {
 
   const fmText = fmMatch[1]
   const body = fmMatch[2]
-  const fm: TaskFrontmatter = { id: '' }
 
-  for (const rawLine of fmText.split('\n')) {
-    const line = rawLine.replace(/\r$/, '')
-    const m = line.match(/^([^:]+):\s*(.*)$/)
-    if (m) {
-      const rawKey = m[1].trim()
-      const val = m[2].trim()
-      // Normalize Chinese field names to English
-      const key = FIELD_MAP[rawKey] || rawKey
-      if (val.startsWith('[')) {
-        fm[key] = coerce(val)
-      } else {
-        fm[key] = val
-      }
-    }
+  // Parse YAML frontmatter
+  let raw: any
+  try {
+    raw = yaml.load(fmText)
+  } catch (e: any) {
+    return null
+  }
+  if (!raw || typeof raw !== 'object') return null
+
+  // Normalize Chinese field names to English
+  const fm: TaskFrontmatter = { id: '' }
+  for (const [rawKey, val] of Object.entries(raw)) {
+    const key = FIELD_MAP[rawKey] || rawKey
+    fm[key] = val as any
   }
 
-  fm.id = fm.id || path.basename(filePath, '.md')
+  fm.id = String(fm.id || path.basename(filePath, '.md'))
   
   // Normalize Unix timestamps to ISO format
-  if (fm.created && /^\d+$/.test(fm.created)) {
-    fm.created = new Date(parseInt(fm.created) * 1000).toISOString()
+  if (fm.created && /^\d+$/.test(String(fm.created))) {
+    fm.created = new Date(parseInt(String(fm.created)) * 1000).toISOString()
   }
-  if (fm.updated && /^\d+$/.test(fm.updated)) {
-    fm.updated = new Date(parseInt(fm.updated) * 1000).toISOString()
+  if (fm.updated && /^\d+$/.test(String(fm.updated))) {
+    fm.updated = new Date(parseInt(String(fm.updated)) * 1000).toISOString()
   }
   
   return { id: fm.id, fm, body, path: filePath }
 }
 
 export function renderTask(task: Task): string {
-  const lines = ['---']
-  for (const [k, v] of Object.entries(task.fm)) {
-    if (v === undefined || v === null) continue
-    // Map back to Chinese field names for Python CLI compat
-    const outKey = REVERSE_FIELD_MAP[k] || k
-    if (Array.isArray(v)) {
-      lines.push(`${outKey}: [${v.join(', ')}]`)
-    } else if (typeof v === 'object') {
-      lines.push(`${outKey}: ${JSON.stringify(v)}`)
-    } else {
-      lines.push(`${outKey}: ${v}`)
-    }
+  // Build ordered output map (Chinese keys for Python CLI compat)
+  const ordered: Record<string, any> = {}
+  
+  // First, output fields in preferred order
+  for (const enKey of FM_ORDER) {
+    const v = task.fm[enKey]
+    if (v === undefined || v === null || v === '') continue
+    const zhKey = REVERSE_FIELD_MAP[enKey] || enKey
+    ordered[zhKey] = v
   }
-  lines.push('---')
-  lines.push(task.body)
-  return lines.join('\n')
+  
+  // Then output any remaining unknown fields
+  for (const [k, v] of Object.entries(task.fm)) {
+    if (v === undefined || v === null || v === '') continue
+    if (FM_ORDER.includes(k)) continue
+    const zhKey = REVERSE_FIELD_MAP[k] || k
+    ordered[zhKey] = v
+  }
+
+  // Serialize YAML with proper formatting
+  const fmText = yaml.dump(ordered, {
+    lineWidth: -1,
+    noRefs: true,
+    forceQuotes: false,
+    flowLevel: -1,
+  })
+
+  return `---\n${fmText}---\n${task.body}`
 }
 
 export function loadTasks(view = 'active'): Task[] {
@@ -308,8 +277,9 @@ export function loadTasks(view = 'active'): Task[] {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-        // Skip archive directory for active view
+        // Skip special directories
         if (view === 'active' && entry.name === 'archive') continue
+        if (entry.name === '.backup' || entry.name === '.trash') continue
         scanDir(fullPath)
       } else if (entry.name.endsWith('.md')) {
         // Skip template files
@@ -323,7 +293,6 @@ export function loadTasks(view = 'active'): Task[] {
         if (view === 'active') {
           if (status === '完成' || status === '驳回') continue
         } else if (view === 'archive') {
-          // archive dir 内的任务一律视为归档，不按状态过滤
           if (!inArchive && status !== '完成' && status !== '驳回') continue
         }
         tasks.push(task)
@@ -388,7 +357,7 @@ export function genId(title: string): string {
   const slug = title
     .toLowerCase()
     .replace(/\s+/g, '-')
-    .replace(/[^\w\u4e00-\u9fff-]/g, '')
+    .replace(/[^\w一-鿿-]/g, '')
     .slice(0, 20)
   const hash = crypto.randomBytes(4).toString('hex')
   return `${slug || 'task'}-${hash}`
@@ -410,16 +379,16 @@ export function startupSelfCheck(): SelfCheckResult {
   }
   try {
     parseRegistry()
-  } catch (e) {
-    return { ok: false, message: `registry.yaml parse error: ${e}` }
+  } catch (e: any) {
+    return { ok: false, message: `registry.yaml parse error: ${e.message}` }
   }
   try {
     const tasks = loadTasks('active')
     if (tasks.length === 0) {
       return { ok: false, message: `No tasks found in ${TASK_DIR}` }
     }
-  } catch (e) {
-    return { ok: false, message: `task-data read error: ${e}` }
+  } catch (e: any) {
+    return { ok: false, message: `task-data read error: ${e.message}` }
   }
   return { ok: true, message: 'OK' }
 }
@@ -441,4 +410,15 @@ export function readActivity(limit = 50): any[] {
   if (!fs.existsSync(ACTIVITY_LOG)) return []
   const lines = fs.readFileSync(ACTIVITY_LOG, 'utf-8').trim().split('\n').filter(Boolean)
   return lines.slice(-limit).map(l => JSON.parse(l))
+}
+
+// ── Checksum Utilities ──────────────────────────────────────────────────
+
+export function computeChecksum(filePath: string): string {
+  const content = fs.readFileSync(filePath)
+  return crypto.createHash('sha256').update(content).digest('hex')
+}
+
+export function computeStringChecksum(content: string): string {
+  return crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
 }

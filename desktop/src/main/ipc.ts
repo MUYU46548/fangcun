@@ -200,16 +200,22 @@ export function registerIpcHandlers(): void {
       // 4. cleanup temp
       fs.rmSync(tempDir, { recursive: true, force: true })
 
-      // 5. rotate (keep 10)
+      // 5. write checksum sidecar
+      const checksum = data.computeChecksum(backupPath)
+      const checksumPath = backupPath + '.sha256'
+      fs.writeFileSync(checksumPath, checksum, 'utf-8')
+
+      // 6. rotate (keep 10)
       const backups = fs.readdirSync(backupDir).filter(f => f.endsWith('.zip')).sort()
       let removed = 0
       while (backups.length > 10) {
         const old = backups.shift()!
         try { fs.unlinkSync(path.join(backupDir, old)); removed++ } catch {}
+        try { fs.unlinkSync(path.join(backupDir, old + '.sha256')) } catch {}
       }
 
       const sizeKB = fs.statSync(backupPath).size / 1024
-      return { ok: true, path: backupPath, sizeKB: Math.round(sizeKB), removed }
+      return { ok: true, path: backupPath, sizeKB: Math.round(sizeKB), removed, checksum }
     } catch (e: any) {
       return { ok: false, error: String(e.message || e) }
     }
@@ -220,6 +226,17 @@ export function registerIpcHandlers(): void {
       if (!fs.existsSync(backupPath)) {
         return { ok: false, error: '备份文件不存在: ' + backupPath }
       }
+
+      // Verify checksum if sidecar exists
+      const checksumPath = backupPath + '.sha256'
+      if (fs.existsSync(checksumPath)) {
+        const expected = fs.readFileSync(checksumPath, 'utf-8').trim()
+        const actual = data.computeChecksum(backupPath)
+        if (expected !== actual) {
+          return { ok: false, error: `备份文件校验失败: 期望 ${expected}, 实际 ${actual}` }
+        }
+      }
+
       const dataDir = data.getDataDir()
       const taskDir = data.getTaskDir()
       const regFile = data.getRegistryPath()

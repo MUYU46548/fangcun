@@ -18,6 +18,7 @@
           <option value="priority">按优先级</option>
         </select>
         <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
+        <button class="ghost suggest-btn" @click="openSuggestModal">💡</button>
         <select v-model="dueFilter" class="due-filter">
           <option value="">全部时间</option>
           <option value="overdue">已逾期</option>
@@ -41,6 +42,7 @@
         <button @click="openNew">+ 新建</button>
         <button class="ghost" @click="showBackup">💾</button>
         <button class="ghost" @click="toggleBatchMode">☑</button>
+        <button class="ghost notify-btn" @click="toggleNotifyPanel">🔔<span v-if="unreadCount" class="notify-badge">{{ unreadCount }}</span></button>
         <button class="ghost" @click="showSettings">⚙</button>
       </span>
     </header>
@@ -115,14 +117,14 @@
           @dragend=""
           @click="openCard(t)"
         >
-          <input
-            v-if="batchMode"
-            type="checkbox"
-            class="batch-chk"
-            :checked="selectedBatch.includes(t.id)"
-            @click.stop="toggleBatchSelect(t.id)"
-          />
           <div class="card-head">
+            <input
+              v-show="batchMode"
+              type="checkbox"
+              class="batch-chk"
+              :checked="selectedBatch.includes(t.id)"
+              @click.stop="toggleBatchSelect(t.id)"
+            />
             <b class="ttl">
               <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
               {{ t.title || t.id }}
@@ -506,11 +508,28 @@
         <div class="sect">
           <h4>项目列表</h4>
           <div class="projlist">
-            <div class="memrow" v-for="p in projects" :key="p.id">
-              <span>{{ p.name || p.id }}</span>
-              <small>{{ p.id }}</small>
+            <div class="proj-row" v-for="p in projects" :key="p.id" :title="p.repo || ''" @click="openProjectInSettings(p)">
+              <span class="proj-row-name">{{ p.name || p.id }}</span>
+              <small class="proj-row-id">{{ p.id }}</small>
+              <span class="proj-row-desc">{{ p['状态'] || '' }}<template v-if="p['路线图']"> · {{ p['路线图'] }}</template></span>
             </div>
           </div>
+        </div>
+        <div class="sect">
+          <h4>💡 AI 建议</h4>
+          <div class="sect-btns">
+            <button class="pri" @click="openSuggestModal()">打开建议面板</button>
+          </div>
+          <div class="hint" v-if="curProj !== '__all__'">当前选中项目：{{ getProjName(curProj) }}</div>
+          <div class="hint" v-else>当前选中项目：全部（跨项目建议无需选择）</div>
+        </div>
+        <div class="sect">
+          <h4>🎯 项目设计规划</h4>
+          <div class="sect-btns">
+            <button class="pri" @click="openLlmPlanning">打开规划面板</button>
+            <button class="ghost" @click="openLlmConfig">LLM 配置</button>
+          </div>
+          <div class="hint">支持 audit / decompose / decide-dp / review / roadmap-gen</div>
         </div>
         <div class="sect">
           <button class="pri" @click="triggerBackup">立即备份</button>
@@ -523,7 +542,162 @@
       </div>
     </div>
 
-    <!-- Toast -->
+    <!-- Notification panel -->
+    <div v-if="showNotifyPanel" class="notify-overlay" @click.self="showNotifyPanel = false">
+      <div class="notify-panel">
+        <div class="notify-header">
+          <h3>🔔 通知</h3>
+          <div class="notify-ctrls">
+            <button class="ghost" @click="refreshNotifications">⟳ 刷新</button>
+            <button class="ghost" @click="clearNotifications">清空</button>
+            <button class="ghost" @click="showNotifyPanel = false">✕</button>
+          </div>
+        </div>
+        <div class="notify-list">
+          <div v-if="!notifyCache.length" class="notify-empty">暂无通知</div>
+          <div
+            v-for="(n, i) in notifyCache"
+            :key="n.ts + i"
+            class="notify-item"
+            :class="['nt-' + n.type, { expanded: n.expanded }]"
+            @click="toggleNotify(i)"
+          >
+            <span class="notify-icon">{{ n.type === 'success' ? '✅' : n.type === 'error' ? '❌' : 'ℹ️' }}</span>
+            <div class="notify-body">
+              <div class="notify-msg">{{ n.msg }}</div>
+              <div class="notify-time">{{ formatRelativeTime(n.timestamp) }}</div>
+            </div>
+            <button class="notify-del" @click.stop="deleteNotify(i)" title="删除">×</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Suggestion Modal (direct access from top bar 💡) -->
+    <div v-if="suggestModal" class="overlay" @click.self="suggestModal = null">
+      <div class="suggest-modal">
+        <div class="suggest-header">
+          <h3>💡 AI 建议</h3>
+          <button class="ghost" @click="suggestModal = null">✕</button>
+        </div>
+        <div class="suggest-controls">
+          <select v-model="suggestProjectId" class="suggest-proj-select">
+            <option value="__all__">全部项目（跨项目建议）</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+          </select>
+          <button class="pri" :disabled="suggestLoading || suggestProjectId === '__all__'" @click="openSuggestActions">项目建议</button>
+          <button class="ghost" :disabled="suggestLoading" @click="openSuggestCrossProject">跨项目建议</button>
+        </div>
+        <div class="suggest-body">
+          <div v-if="!suggestLoading && !suggestError && !suggestResults.length" class="suggest-hint">选择项目后点击「项目建议」，或点击「跨项目建议」获取跨项目建议</div>
+          <div v-if="suggestLoading" class="suggest-loading">⏳ 加载中...</div>
+          <div v-else-if="suggestError" class="suggest-error">❌ {{ suggestError }}</div>
+          <ul v-else-if="suggestResults.length">
+            <li v-for="(s, i) in suggestResults" :key="i">{{ s }}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- LLM Planning Modal -->
+    <div v-if="llmPlanning_" class="overlay" @click.self="llmPlanning_ = false">
+      <div id="llm-planning-modal">
+        <h3>🎯 项目设计规划</h3>
+        <div class="hint">选择规划命令并填写参数，调用 LLM 生成结构化建议</div>
+        <label>命令</label>
+        <select v-model="llmCmd" @change="onLlmCmdChange">
+          <option value="audit">audit — 项目健康度审计</option>
+          <option value="decompose">decompose — 智能任务拆解</option>
+          <option value="decide-dp">decide-dp — 决策支持</option>
+          <option value="review">review — 季度复盘</option>
+          <option value="roadmap-gen">roadmap-gen — 路线图生成</option>
+        </select>
+
+        <!-- Common: project -->
+        <label v-if="llmCmd !== 'decide-dp'">项目 ID（可选）</label>
+        <select v-model="llmParams.projectId" v-if="['audit', 'decompose', 'review', 'roadmap-gen'].includes(llmCmd)">
+          <option value="">全部 / 未指定</option>
+          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+        </select>
+
+        <!-- decompose: goal -->
+        <label v-if="llmCmd === 'decompose'">目标描述 *</label>
+        <textarea v-if="llmCmd === 'decompose'" v-model="llmParams.goal" rows="3" placeholder="需要拆解的项目目标…"></textarea>
+
+        <!-- roadmap-gen: goal -->
+        <label v-if="llmCmd === 'roadmap-gen'">目标（可选）</label>
+        <input v-if="llmCmd === 'roadmap-gen'" v-model="llmParams.goal" placeholder="路线图目标（留空则基于当前任务生成）" />
+
+        <!-- decide-dp: simplified fields -->
+        <template v-if="llmCmd === 'decide-dp'">
+          <label>问题 *</label>
+          <textarea v-model="llmParams.dpQuestion" rows="2" placeholder="需要决策的问题…"></textarea>
+          <label>选项（每行一个）*</label>
+          <textarea v-model="llmParams.dpOptions" rows="3" placeholder="选项 A&#10;选项 B&#10;选项 C"></textarea>
+          <div class="dp-id-row">
+            <label>决策点 ID</label>
+            <span class="dp-id-auto">{{ llmParams.dpId || '(自动生成)' }}</span>
+          </div>
+        </template>
+
+        <!-- Model override with chips -->
+        <label>模型（可选，留空用全局配置）</label>
+        <input v-model="llmParams.model" list="llm-model-history" placeholder="如 gpt-4o-mini" />
+        <datalist id="llm-model-history">
+          <option v-for="m in modelHistory" :key="m" :value="m" />
+        </datalist>
+        <div class="model-chips">
+          <span class="chip" @click="llmParams.model = 'gpt-4o-mini'">gpt-4o-mini</span>
+          <span class="chip" @click="llmParams.model = 'gpt-4o'">gpt-4o</span>
+          <span class="chip" @click="llmParams.model = 'deepseek-chat'">deepseek-chat</span>
+          <span class="chip" @click="llmParams.model = 'qwen-turbo'">qwen-turbo</span>
+          <span class="chip" @click="llmParams.model = 'moonshot-v1-8k'">moonshot-v1-8k</span>
+          <span class="chip" @click="llmParams.model = 'claude-3-haiku-20240307'">claude-3-haiku</span>
+        </div>
+
+        <div class="acts">
+          <button class="ghost" @click="llmPlanning_ = false">取消</button>
+          <button class="pri" :disabled="llmRunning" @click="executeLlmCmd">
+            {{ llmRunning ? '执行中…' : '▶ 执行' }}
+          </button>
+        </div>
+
+        <!-- Result -->
+        <div v-if="llmResult || llmError || llmRunning" class="llm-result-section">
+          <div v-if="llmRunning" class="llm-running">⏳ 正在调用 LLM，请稍候…</div>
+          <div v-else-if="llmError" class="llm-error">❌ {{ llmError }}</div>
+          <div v-else class="llm-result markdown" v-html="renderLlmMarkdown(llmResult)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LLM Config Modal -->
+    <div v-if="llmConfig_" class="overlay" @click.self="llmConfig_ = false">
+      <div id="llm-config-modal">
+        <h3>LLM 配置</h3>
+        <div class="hint">配置 OpenAI 兼容 API（支持 DeepSeek / Moonshot / 通义千问 等）</div>
+        <label>Base URL</label>
+        <input v-model="llmConfigForm.baseUrl" placeholder="https://api.openai.com/v1" />
+        <label>API Key</label>
+        <input v-model="llmConfigForm.apiKey" type="password" placeholder="sk-..." />
+        <label>默认模型</label>
+        <input v-model="llmConfigForm.model" placeholder="gpt-4o-mini" />
+        <label>超时（秒）</label>
+        <input v-model.number="llmConfigForm.timeout" type="number" min="10" max="600" />
+        <div class="acts">
+          <button class="ghost" @click="llmConfig_ = false">取消</button>
+          <button class="ghost" @click="resetLlmConfigInForm">恢复默认</button>
+          <button class="ghost" :disabled="llmTestRunning" @click="testLlmConnection">
+            {{ llmTestRunning ? '测试中…' : '🔌 测试连接' }}
+          </button>
+          <button class="pri" @click="saveLlmConfig">保存</button>
+        </div>
+        <div v-if="llmConfigMsg" :class="'llm-config-msg ' + llmConfigMsgType">{{ llmConfigMsg }}</div>
+        <div v-if="llmTestResult" :class="'llm-config-msg ' + (llmTestResult.ok ? 'success' : 'error')">
+          {{ llmTestResult.ok ? '✅ ' + llmTestResult.msg : '❌ ' + llmTestResult.msg }}
+        </div>
+      </div>
+    </div>
     <div id="toast" :class="[toast.type, { show: toast.show }]">{{ toast.msg }}</div>
 
     <!-- Drag status picker -->
@@ -610,6 +784,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -633,6 +809,8 @@ interface Project {
   id: string
   name?: string
   repo?: string
+  ['状态']?: string
+  ['路线图']?: string
 }
 
 // ── State ───────────────────────────────────────────────────────────────
@@ -678,6 +856,30 @@ const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
 const editTask_ = ref<any>(null)
 const showSettings_ = ref(false)
+const suggestModal = ref<'actions' | 'cross' | null>(null)
+const suggestProjectId = ref<string>('__all__')
+const suggestTitle = ref('')
+const suggestResults = ref<string[]>([])
+const suggestLoading = ref(false)
+const suggestError = ref('')
+
+// ── LLM Planning ────────────────────────────────────────────────────
+const llmPlanning_ = ref(false)
+const llmConfig_ = ref(false)
+const llmCmd = ref('audit')
+const llmParams = ref<{ projectId: string; goal: string; model: string; dpId: string; dpQuestion: string; dpOptions: string; dpStatus: string }>({
+  projectId: '', goal: '', model: '', dpId: '', dpQuestion: '', dpOptions: '', dpStatus: 'pending'
+})
+const llmRunning = ref(false)
+const llmResult = ref('')
+const llmError = ref('')
+const llmConfigForm = ref({ baseUrl: '', apiKey: '', model: '', timeout: 60 })
+const llmConfigMsg = ref('')
+const llmConfigMsgType = ref('info')
+const llmTestRunning = ref(false)
+const llmTestResult = ref<{ ok: boolean; msg: string } | null>(null)
+const modelHistory = ref<string[]>(JSON.parse(localStorage.getItem('tegula_llm_model_history') || '[]'))
+
 const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
 const dataDir = ref('')
@@ -693,6 +895,109 @@ const crossSugs = ref<string[]>([])
 const projectProgress = ref<Record<string, any>>({})
 
 const toast = reactive({ show: false, msg: '', type: 'info' })
+
+// ── Notification system ───────────────────────────────────────────────
+const NOTIFY_CACHE_KEY = 'tegula_notify'
+const NOTIFY_MAX = 50
+
+interface NotifyItem {
+  ts: string
+  timestamp: number
+  msg: string
+  type: 'success' | 'error' | 'info'
+  read: boolean
+  expanded: boolean
+}
+
+function loadNotifyCache(): NotifyItem[] {
+  try {
+    const raw = localStorage.getItem(NOTIFY_CACHE_KEY)
+    if (!raw) return []
+    const items: any[] = JSON.parse(raw)
+    return items.map((n: any) => ({
+      ...n,
+      timestamp: n.timestamp ?? Date.now(),
+      expanded: n.expanded ?? false,
+    }))
+  } catch {
+    return []
+  }
+}
+
+function saveNotifyCache(items: NotifyItem[]) {
+  localStorage.setItem(NOTIFY_CACHE_KEY, JSON.stringify(items))
+}
+
+const notifyCache = ref<NotifyItem[]>(loadNotifyCache())
+const showNotifyPanel = ref(false)
+
+const unreadCount = computed(() => notifyCache.value.filter(n => !n.read).length)
+
+function formatRelativeTime(ts: number): string {
+  if (!ts) return ''
+  const diff = Date.now() - ts
+  const sec = Math.floor(diff / 1000)
+  if (sec < 60) return `${sec}秒前`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  const day = Math.floor(hr / 24)
+  return `${day}天前`
+}
+
+function addNotify(msg: string, type: 'success' | 'error' | 'info' = 'info') {
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  // Deduplication: skip if same ts+msg already exists
+  const exists = notifyCache.value.some(n => n.ts === ts && n.msg === msg)
+  if (exists) return
+  notifyCache.value.unshift({ ts, timestamp: Date.now(), msg, type, read: false, expanded: false })
+  if (notifyCache.value.length > NOTIFY_MAX) notifyCache.value.pop()
+  saveNotifyCache(notifyCache.value)
+}
+
+function toggleNotify(index: number) {
+  notifyCache.value[index].expanded = !notifyCache.value[index].expanded
+  saveNotifyCache(notifyCache.value)
+}
+
+function deleteNotify(index: number) {
+  notifyCache.value.splice(index, 1)
+  saveNotifyCache(notifyCache.value)
+}
+
+async function toggleNotifyPanel() {
+  showNotifyPanel.value = !showNotifyPanel.value
+  if (showNotifyPanel.value) {
+    await refreshNotifications()
+  }
+}
+
+async function refreshNotifications() {
+  try {
+    const result = await window.tegula.detectEvents('all')
+    if (result) {
+      addNotify(result, 'info')
+    } else {
+      addNotify('未检测到异常事件', 'success')
+    }
+  } catch (err: any) {
+    addNotify(`刷新失败: ${err.message || err}`, 'error')
+  }
+}
+
+function clearNotifications() {
+  notifyCache.value = []
+  saveNotifyCache(notifyCache.value)
+}
+
+// Mark all as read when panel is opened
+watch(showNotifyPanel, (val) => {
+  if (val) {
+    notifyCache.value.forEach(n => { n.read = true })
+    saveNotifyCache(notifyCache.value)
+  }
+})
 
 const views = [
   { id: 'active', label: '看板' },
@@ -715,6 +1020,7 @@ const pickerStyle = {
 
 const boardClass = computed(() => ({
   pv: curView.value === 'projects',
+  'batch-mode': batchMode.value,
 }))
 
 // Normalize project field: array → first element, or empty string
@@ -1235,25 +1541,34 @@ function saveCheckChange(id: string, body: string) {
 
 function renderBody(body: string): string {
   if (!body) return ''
-  let html = body
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  // ## heading
-  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
-  // - [ ] unchecked / - [x] checked — interactive
-  html = html.replace(/^- \[ \] ?(.*)$/gm, '<li class="check-item"><input type="checkbox" data-check="unchecked"> $1</li>')
-  html = html.replace(/^- \[x\] ?(.*)$/gm, '<li class="check-item"><input type="checkbox" data-check="checked" checked> $1</li>')
-  // - bullet
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
-  // wrap li's in ul
-  html = html.replace(/(<li[^>]*>.*?<\/li>\n?)+/gs, '<ul>$&</ul>')
-  // **bold**
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  // `code`
-  html = html.replace(/`(.+?)`/g, '<code>$1</code>')
-  // newlines
-  html = html.replace(/\n/g, '<br>')
+  let html = marked.parse(body, { breaks: true, gfm: true }) as string
+  // Sanitize HTML to prevent XSS — allow <input> for checkboxes, data-check attr
+  html = DOMPurify.sanitize(html, {
+    ADD_TAGS: ['input'],
+    ADD_ATTR: ['data-check'],
+    ALLOWED_TAGS: [
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'p', 'br', 'hr',
+      'ul', 'ol', 'li',
+      'strong', 'em', 'b', 'i',
+      'code', 'pre',
+      'blockquote',
+      'a', 'img',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'input', 'del'
+    ],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'type', 'checked', 'disabled', 'data-check']
+  })
+  // Make checkboxes interactive (replace marked's disabled inputs with clickable ones)
+  html = html.replace(
+    /<input[^>]*disabled[^>]*type="checkbox"[^>]*>/g,
+    (match) => {
+      const isChecked = /checked/.test(match)
+      return `<input type="checkbox" data-check="${isChecked ? 'checked' : 'unchecked'}" ${isChecked ? 'checked' : ''}>`
+    }
+  )
+  // Add check-item class to li elements containing checkboxes
+  html = html.replace(/<li>(<input type="checkbox")/g, '<li class="check-item">$1')
   return html
 }
 
@@ -1397,6 +1712,12 @@ function openProject(p: any) {
   curView.value = 'active'
 }
 
+function openProjectInSettings(p: Project) {
+  curProj.value = p.id
+  curView.value = 'active'
+  showToast(`已切换项目：${p.name || p.id}`, 'info')
+}
+
 function openNewProject() {
   const name = prompt('项目名称：')
   if (name) {
@@ -1457,10 +1778,231 @@ async function launchAppClick(app: any) {
   }
 }
 
+function getProjName(id: string): string {
+  const p = projects.value.find(p => p.id === id)
+  return p ? (p.name || p.id) : id
+}
+
+function openSuggestModal() {
+  suggestProjectId.value = curProj.value === '__all__' ? '' : curProj.value
+  suggestModal.value = 'actions'
+  suggestResults.value = []
+  suggestError.value = ''
+  suggestLoading.value = false
+}
+
+async function openSuggestActions() {
+  const proj = suggestProjectId.value
+  if (!proj || proj === '__all__') {
+    showToast('请先选择具体项目', 'error')
+    return
+  }
+  suggestLoading.value = true
+  suggestError.value = ''
+  suggestResults.value = []
+  try {
+    const result = await window.tegula.suggestActions(proj)
+    suggestResults.value = result || []
+  } catch (e: any) {
+    suggestError.value = e.message || '获取建议失败'
+  } finally {
+    suggestLoading.value = false
+  }
+}
+
+async function openSuggestCrossProject() {
+  suggestLoading.value = true
+  suggestError.value = ''
+  suggestResults.value = []
+  try {
+    const result = await window.tegula.suggestCrossProject()
+    suggestResults.value = result || []
+  } catch (e: any) {
+    suggestError.value = e.message || '获取建议失败'
+  } finally {
+    suggestLoading.value = false
+  }
+}
+
 // ── Settings / Backup ──────────────────────────────────────────────────
 
 function showSettings() {
   showSettings_.value = true
+}
+
+// ── LLM Planning ────────────────────────────────────────────────────
+
+function openLlmPlanning() {
+  llmPlanning_.value = true
+  llmResult.value = ''
+  llmError.value = ''
+  onLlmCmdChange()
+}
+
+function openLlmConfig() {
+  llmConfig_.value = true
+  llmConfigMsg.value = ''
+  window.tegula.llmGetConfig().then((cfg: any) => {
+    llmConfigForm.value = { ...cfg }
+  })
+}
+
+function onLlmCmdChange() {
+  llmParams.value = { projectId: '', goal: '', model: '', dpId: '', dpQuestion: '', dpOptions: '', dpStatus: 'pending' }
+  llmResult.value = ''
+  llmError.value = ''
+}
+
+async function executeLlmCmd() {
+  llmRunning.value = true
+  llmResult.value = ''
+  llmError.value = ''
+  try {
+    const cmd = llmCmd.value
+    const p = llmParams.value
+    const model = p.model || undefined
+    let result: any
+
+    // Save model to history (deduplicated, max 10)
+    if (p.model?.trim()) {
+      const m = p.model.trim()
+      const idx = modelHistory.value.indexOf(m)
+      if (idx !== -1) modelHistory.value.splice(idx, 1)
+      modelHistory.value.unshift(m)
+      if (modelHistory.value.length > 10) modelHistory.value.pop()
+      localStorage.setItem('tegula_llm_model_history', JSON.stringify(modelHistory.value))
+    }
+
+    switch (cmd) {
+      case 'audit':
+        if (!p.projectId) {
+          llmError.value = '请选择项目'
+          llmRunning.value = false
+          return
+        }
+        result = await window.tegula.llmAudit(p.projectId, model)
+        break
+      case 'decompose':
+        if (!p.goal?.trim()) {
+          llmError.value = '请填写目标描述'
+          llmRunning.value = false
+          return
+        }
+        result = await window.tegula.llmDecompose(p.goal, p.projectId || undefined, model)
+        break
+      case 'decide-dp':
+        if (!p.dpQuestion?.trim() || !p.dpOptions?.trim()) {
+          llmError.value = '问题和选项均为必填'
+          llmRunning.value = false
+          return
+        }
+        const dpId = p.dpId?.trim() || 'dp-' + Date.now().toString(36)
+        const options = p.dpOptions.split('\n').map(s => s.trim()).filter(Boolean)
+        const dp = { id: dpId, question: p.dpQuestion, options, status: p.dpStatus }
+        result = await window.tegula.llmDecide(dp, model)
+        break
+      case 'review':
+        result = await window.tegula.llmReview(p.projectId || undefined, model)
+        break
+      case 'roadmap-gen':
+        result = await window.tegula.llmRoadmap(p.goal || undefined, p.projectId || undefined, model)
+        break
+      default:
+        llmError.value = '未知命令: ' + cmd
+        llmRunning.value = false
+        return
+    }
+
+    if (result?.ok) {
+      llmResult.value = result.content || '(空结果)'
+    } else {
+      llmError.value = result?.error || '调用失败'
+    }
+  } catch (e: any) {
+    llmError.value = e.message || '调用异常'
+  } finally {
+    llmRunning.value = false
+  }
+}
+
+function renderLlmMarkdown(text: string): string {
+  if (!text) return ''
+  let html = marked.parse(text, { breaks: true, gfm: true }) as string
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'p', 'br', 'hr',
+      'ul', 'ol', 'li',
+      'strong', 'em', 'b', 'i',
+      'code', 'pre',
+      'blockquote',
+      'a', 'img',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'del'
+    ],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class']
+  })
+}
+
+async function saveLlmConfig() {
+  const f = llmConfigForm.value
+  if (!f.baseUrl || !f.apiKey) {
+    llmConfigMsg.value = 'Base URL 和 API Key 均为必填'
+    llmConfigMsgType.value = 'error'
+    return
+  }
+  const result = await window.tegula.llmSetConfig({
+    baseUrl: f.baseUrl,
+    apiKey: f.apiKey,
+    model: f.model || 'gpt-4o-mini',
+    timeout: f.timeout || 60
+  })
+  if (result.ok) {
+    llmConfigMsg.value = '已保存'
+    llmConfigMsgType.value = 'success'
+  } else {
+    llmConfigMsg.value = '保存失败'
+    llmConfigMsgType.value = 'error'
+  }
+}
+
+function resetLlmConfigInForm() {
+  window.tegula.llmResetConfig().then((result: any) => {
+    if (result.ok) {
+      window.tegula.llmGetConfig().then((cfg: any) => {
+        llmConfigForm.value = { ...cfg }
+        llmConfigMsg.value = '已恢复默认配置'
+        llmConfigMsgType.value = 'success'
+      })
+    }
+  })
+}
+
+async function testLlmConnection() {
+  const f = llmConfigForm.value
+  if (!f.baseUrl || !f.apiKey) {
+    llmTestResult.value = { ok: false, msg: '请先填写 Base URL 和 API Key' }
+    return
+  }
+  llmTestRunning.value = true
+  llmTestResult.value = null
+  try {
+    const result = await window.tegula.llmChat('ping', {
+      baseUrl: f.baseUrl,
+      apiKey: f.apiKey,
+      model: f.model || 'gpt-4o-mini',
+      timeout: Math.min(f.timeout || 60, 30)
+    })
+    if (result.ok) {
+      llmTestResult.value = { ok: true, msg: '连接成功' }
+    } else {
+      llmTestResult.value = { ok: false, msg: result.error || '连接失败' }
+    }
+  } catch (e: any) {
+    llmTestResult.value = { ok: false, msg: e.message || '连接异常' }
+  } finally {
+    llmTestRunning.value = false
+  }
 }
 
 async function triggerBackup() {
@@ -1727,8 +2269,8 @@ body {
 .ptags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .ptag { background: #eef0fb; color: #5b5478; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
 
-.batch-chk { position: absolute; top: 6px; left: 6px; z-index: 3; accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
-.card:hover .batch-chk, .batch-chk.checked, .batch-mode .card .batch-chk { opacity: 1; }
+.batch-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); margin-right: 6px; flex-shrink: 0; }
+.batch-chk:checked { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Overlay */
 .overlay { position: fixed; inset: 0; background: rgba(60,65,80,0.32); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 60; }
@@ -1796,7 +2338,11 @@ body {
 #smodal .sect .pri { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 #smodal .sect .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .projlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.memrow { display: flex; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; font-size: 13px; }
+.proj-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.proj-row:hover { background: #f4f1fc; border-color: var(--accent); }
+.proj-row-name { font-weight: 600; color: var(--ink); }
+.proj-row-id { margin-left: auto; font-size: 11px; color: var(--muted); flex: none; }
+.proj-row-desc { width: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 
 /* Toast */
 #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.18); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.3s; max-width: 90vw; text-align: center; }
@@ -1964,6 +2510,63 @@ body {
 .dp-options button:hover { background: #f4f1fc; border-color: var(--accent); }
 .dp-chosen { font-size: 11px; color: var(--success); font-weight: 500; }
 
+/* Notification system */
+.notify-btn { position: relative; }
+.notify-badge {
+  position: absolute; top: -4px; right: -4px;
+  background: #e5484d; color: #fff; font-size: 9px; font-weight: 700;
+  min-width: 16px; height: 16px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; line-height: 1;
+}
+.notify-overlay {
+  position: fixed; inset: 0; background: rgba(60,65,80,0.32);
+  backdrop-filter: blur(4px); display: flex; align-items: flex-start;
+  justify-content: flex-end; z-index: 100; padding: 50px 20px 0 0;
+}
+.notify-panel {
+  background: #fff; border-radius: 16px; width: 420px; max-height: 70vh;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18); border: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.notify-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.notify-header h3 { margin: 0; font-size: 15px; color: var(--ink); }
+.notify-ctrls { display: flex; gap: 6px; }
+.notify-ctrls button {
+  padding: 4px 10px; font-size: 11px; border: 1px solid var(--border);
+  border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer;
+  font-weight: 600;
+}
+.notify-ctrls button:hover { background: #f4f1fc; border-color: var(--accent); }
+.notify-list { overflow-y: auto; flex: 1; padding: 8px; }
+.notify-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 30px 0; }
+.notify-item {
+  display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px;
+  border-left: 3px solid var(--border); background: #fafafa; margin-bottom: 6px;
+  transition: background 0.15s;
+  cursor: pointer; position: relative;
+}
+.notify-item:hover { background: #f4f1fc; }
+.notify-item.nt-success { border-left-color: var(--success); }
+.notify-item.nt-error { border-left-color: var(--danger); }
+.notify-item.nt-info { border-left-color: var(--accent); }
+.notify-icon { font-size: 14px; flex: none; }
+.notify-body { flex: 1; min-width: 0; }
+.notify-msg { font-size: 12px; color: var(--ink); line-height: 1.4; word-break: break-word; }
+.notify-time { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.notify-item.expanded .notify-msg {
+  white-space: pre-wrap; overflow: visible;
+}
+.notify-del {
+  flex: none; background: none; border: none; font-size: 16px;
+  color: var(--muted); cursor: pointer; padding: 0 4px; line-height: 1;
+  border-radius: 4px; align-self: flex-start; margin-top: 2px;
+}
+.notify-del:hover { color: var(--danger); background: #fce4e4; }
+
 /* Empty state */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; }
 .empty-icon { font-size: 36px; opacity: 0.5; }
@@ -2002,6 +2605,124 @@ body {
 .roadmap-suggestions h4 { font-size: 13px; color: var(--accent); margin-bottom: 6px; }
 .roadmap-suggestions ul { padding-left: 18px; }
 .roadmap-suggestions li { font-size: 12px; margin-bottom: 4px; }
+
+/* Suggest button in top bar */
+.suggest-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.suggest-btn:hover {
+  background: #f4f1fc;
+  border-color: var(--accent);
+}
+
+/* Suggest modal */
+.suggest-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 520px;
+  max-height: 75vh;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.suggest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.suggest-header h3 { margin: 0; font-size: 16px; color: var(--ink); }
+.suggest-header .ghost {
+  padding: 4px 10px;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.suggest-header .ghost:hover { background: #f4f1fc; border-color: var(--accent); }
+.suggest-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: #fafafa;
+}
+.suggest-controls .suggest-proj-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  font-family: inherit;
+}
+.suggest-controls .pri {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.suggest-controls .pri:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.suggest-controls .ghost {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.suggest-controls .ghost:hover { background: #f4f1fc; border-color: var(--accent); }
+.suggest-controls .ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+.suggest-hint {
+  text-align: center;
+  padding: 20px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.suggest-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.suggest-loading { text-align: center; padding: 24px; color: var(--muted); font-size: 14px; }
+.suggest-error { padding: 16px; background: #fdf5f5; border: 1px solid #eedcdc; border-radius: 8px; color: #8a4343; font-size: 13px; }
+.suggest-empty { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; }
+.suggest-body ul { list-style: none; padding: 0; margin: 0; }
+.suggest-body li {
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.suggest-body li:last-child { margin-bottom: 0; }
 
 /* Progress bar */
 .progress-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin: 4px 0; }
@@ -2044,4 +2765,82 @@ body {
 .wizard-summary-row code { background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
 .wizard-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; }
 .wizard-footer-right { margin-left: auto; }
+
+/* LLM Planning Modal */
+#llm-planning-modal {
+  background: #fff; border-radius: 16px; padding: 18px 20px;
+  width: 580px; max-height: 88vh; overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18); border: 1px solid var(--border);
+}
+#llm-planning-modal h3 { margin: 0 0 4px; font-size: 16px; color: var(--ink); }
+#llm-planning-modal label {
+  display: block; font-size: 12px; color: var(--muted);
+  margin: 10px 0 3px; font-weight: 600;
+}
+#llm-planning-modal input,
+#llm-planning-modal select,
+#llm-planning-modal textarea {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+  color: var(--ink); outline: none; font-family: inherit;
+}
+#llm-planning-modal textarea { height: 64px; resize: vertical; }
+.llm-result-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.llm-result-section .llm-running { text-align: center; padding: 16px; color: var(--muted); font-size: 13px; }
+.llm-result-section .llm-error { padding: 12px; background: #fdf5f5; border: 1px solid #eedcdc; border-radius: 8px; color: #8a4343; font-size: 13px; }
+.llm-result-section .llm-result {
+  font-size: 12.5px; line-height: 1.65; color: var(--ink);
+  background: var(--bg); border-radius: 8px; padding: 12px 14px;
+  max-height: 400px; overflow-y: auto;
+}
+.llm-result h2 { font-size: 14px; margin: 10px 0 6px; color: var(--accent); }
+.llm-result h3 { font-size: 13px; margin: 8px 0 4px; color: var(--ink); }
+.llm-result ul { padding-left: 18px; margin: 4px 0; }
+.llm-result li { margin-bottom: 3px; list-style: disc; }
+.llm-result p { margin: 4px 0; }
+.llm-result code { background: #eee; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+.llm-result strong { color: var(--ink); }
+
+/* LLM Config Modal */
+#llm-config-modal {
+  background: #fff; border-radius: 16px; padding: 18px 20px;
+  width: 460px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); border: 1px solid var(--border);
+}
+#llm-config-modal h3 { margin: 0 0 4px; font-size: 16px; color: var(--ink); }
+#llm-config-modal label {
+  display: block; font-size: 12px; color: var(--muted);
+  margin: 10px 0 3px; font-weight: 600;
+}
+#llm-config-modal input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+  color: var(--ink); outline: none; font-family: inherit;
+}
+.llm-config-msg { margin-top: 10px; font-size: 12px; padding: 6px 10px; border-radius: 6px; }
+.llm-config-msg.success { background: #e3f1de; color: #3f6b3a; border: 1px solid #bcd4b4; }
+.llm-config-msg.error { background: #f6e2e2; color: #8a4343; border: 1px solid #e2c4c4; }
+.llm-config-msg.info { background: #eef0fb; color: #5b5478; border: 1px solid #c3bce0; }
+
+/* Model chips */
+.model-chips {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+}
+.model-chips .chip {
+  display: inline-block; padding: 3px 8px; font-size: 11px;
+  background: #f4f1fc; color: #5b5478; border: 1px solid #c3bce0;
+  border-radius: 12px; cursor: pointer; transition: all 0.15s;
+}
+.model-chips .chip:hover {
+  background: #e4def8; border-color: var(--accent);
+}
+
+/* Decision point auto ID */
+.dp-id-row {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px;
+}
+.dp-id-row label { margin: 0 !important; }
+.dp-id-auto {
+  font-size: 11px; color: var(--muted); font-style: italic;
+}
+
 </style>
