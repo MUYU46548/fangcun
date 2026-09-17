@@ -282,12 +282,14 @@ export function loadTasks(view = 'active'): Task[] {
         const task = parseTask(fullPath)
         if (!task) continue
 
+        const status = task.fm.status
+        const inArchive = entry.name !== undefined && fullPath.includes(`${path.sep}archive${path.sep}`)
+
         if (view === 'active') {
-          const status = task.fm.status
           if (status === '完成' || status === '驳回') continue
         } else if (view === 'archive') {
-          const status = task.fm.status
-          if (status !== '完成' && status !== '驳回') continue
+          // archive dir 内的任务一律视为归档，不按状态过滤
+          if (!inArchive && status !== '完成' && status !== '驳回') continue
         }
         tasks.push(task)
       }

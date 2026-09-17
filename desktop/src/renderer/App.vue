@@ -192,12 +192,13 @@
         </div>
         <div class="body" v-if="previewTask.body">
           <label>正文</label>
-          <div class="body-text">{{ previewTask.body }}</div>
+          <div class="body-text markdown" v-html="renderBody(previewTask.body)"></div>
         </div>
         <div class="acts">
           <button class="ghost" @click="copyId(previewTask.id)">📋 复制ID</button>
           <button class="ok" @click="openEdit(previewTask)">编辑</button>
-          <button v-if="!previewTask._archived" class="warning" @click="archiveTask(previewTask)">归档</button>
+          <button v-if="previewTask._archived" class="ok" @click="restoreTask(previewTask)">↩ 还原</button>
+          <button v-else class="warning" @click="archiveTask(previewTask)">归档</button>
           <button class="danger" @click="deleteTask(previewTask.id)">删除</button>
         </div>
       </div>
@@ -282,6 +283,7 @@
         </div>
         <div class="sect">
           <button class="pri" @click="triggerBackup">立即备份</button>
+          <button v-if="backupInfo" class="ghost" @click="openBackupFolder">打开备份文件夹</button>
           <button class="ghost" @click="showSettings_ = false">关闭</button>
         </div>
       </div>
@@ -309,7 +311,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -347,6 +349,9 @@ const sortMode = ref('active')
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 const searchQuery = ref('')
 const searchIncludeArchive = ref(true)
+const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
+
+watch(searchIncludeArchive, () => { loadAll() })
 const draggingId = ref<string | null>(null)
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
@@ -613,6 +618,42 @@ async function archiveTask(t: Task) {
   }
 }
 
+async function restoreTask(t: Task) {
+  if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态。`)) return
+  const result = await window.tegula.moveStatus(t.id, '待办')
+  if (result.ok) {
+    previewTask.value = null
+    showToast('已还原', 'success')
+    loadAll()
+  } else {
+    showToast(`还原失败: ${result.error || '未知错误'}`, 'error')
+  }
+}
+
+function renderBody(body: string): string {
+  if (!body) return ''
+  let html = body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  // ## heading
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>')
+  // - [ ] unchecked / - [x] checked
+  html = html.replace(/^- \[ \] (.+)$/gm, '<li class="check-item"><input type="checkbox" disabled> $1</li>')
+  html = html.replace(/^- \[x\] (.+)$/gm, '<li class="check-item"><input type="checkbox" disabled checked> $1</li>')
+  // - bullet
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
+  // wrap li's in ul
+  html = html.replace(/(<li[^>]*>.*?<\/li>\n?)+/gs, '<ul>$&</ul>')
+  // **bold**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // `code`
+  html = html.replace(/`(.+?)`/g, '<code>$1</code>')
+  // newlines
+  html = html.replace(/\n/g, '<br>')
+  return html
+}
+
 const archivedTasks = ref<Task[]>([])
 
 async function loadAll() {
@@ -795,7 +836,18 @@ function showSettings() {
 
 async function triggerBackup() {
   const res = await window.tegula.backup()
-  showToast(res.ok ? '备份成功' : '备份失败', res.ok ? 'success' : 'error')
+  if (res.ok) {
+    backupInfo.value = { path: res.path, sizeKB: res.sizeKB }
+    showToast(`备份成功 (${res.sizeKB} KB)`, 'success')
+  } else {
+    showToast('备份失败', 'error')
+  }
+}
+
+async function openBackupFolder() {
+  if (backupInfo.value) {
+    await window.tegula.launchpadOpenFolder(backupInfo.value.path.substring(0, backupInfo.value.path.lastIndexOf('\\')))
+  }
 }
 
 function showBackup() {
@@ -867,14 +919,6 @@ body {
 }
 #bar button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 #bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
-
-.archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; }
-.archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; }
-
-.card._archived { opacity: 0.55; filter: saturate(0.5); }
-.card._archived:hover { opacity: 0.85; filter: none; }
-
-.acts .warning { background: #f0a83a; color: #fff; }
 
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
@@ -1063,4 +1107,30 @@ body {
 #app-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #app-edit-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
 #app-edit-modal input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--ink); outline: none; font-family: inherit; }
+
+/* Markdown body */
+.body-text.markdown { font-size: 12.5px; line-height: 1.65; }
+.body-text.markdown h3 { font-size: 13px; margin: 8px 0 4px; color: var(--ink); }
+.body-text.markdown ul { padding-left: 18px; margin: 4px 0; }
+.body-text.markdown li { margin-bottom: 2px; list-style: disc; }
+.body-text.markdown li.check-item { list-style: none; margin-left: -18px; display: flex; align-items: center; gap: 5px; }
+.body-text.markdown li.check-item input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+.body-text.markdown code { background: #eee; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+.body-text.markdown strong { color: var(--ink); }
+.body-text.markdown br { display: block; content: ""; margin: 3px 0; }
+
+/* Search checkbox */
+#bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+#bar .chk input { width: 14px; height: 14px; accent-color: var(--accent); }
+
+/* Archive hint */
+.archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }
+.archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; flex: none; }
+
+/* Archived card */
+.card._archived { opacity: 0.55; filter: saturate(0.5); }
+.card._archived:hover { opacity: 0.85; filter: none; }
+
+/* Warning button (archive) */
+.acts .warning { background: #f0a83a; color: #fff; }
 </style>
