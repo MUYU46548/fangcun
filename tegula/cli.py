@@ -35,6 +35,12 @@ from tegula.core import (
     _save_notes_index, _gen_note_id, api_note_create, api_note_get,
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
     api_notes_for_task, api_note_import_file,
+    _LOGS_DIR, _ensure_logs_dir, _gen_log_id, _parse_log, _render_log,
+    _log_path, _read_log, _write_log,
+    api_log_create, api_log_get, api_log_list, api_log_update,
+    api_log_complete, api_log_archive, api_log_destroy,
+    api_log_search, api_log_link_task, api_log_unlink_task,
+    api_log_inject, api_log_cleanup,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,
@@ -225,24 +231,59 @@ def cmd_hermes_open(args):
 
 
 def cmd_backup(args):
-    """把 task-data/ 打 zip 到 backups/，按 KEEP 轮换，防手滑防盘坏（git 永久排除使用数据）。"""
-    if not os.path.isdir(TASK_DIR):
-        print("task-data/ 不存在，无事可备。")
-        return
+    """备份所有数据文件到 backups/ 目录（zip，保留 10 份）。"""
     os.makedirs(BACKUP_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = os.path.join(BACKUP_DIR, f"task-data-{stamp}.zip")
+    dest = os.path.join(BACKUP_DIR, f"fangcun-data-{stamp}.zip")
+    
+    # 推导 ROOT（兼容 verify.py 等测试环境只设 TASK_DIR 的场景）
+    root = os.path.dirname(TASK_DIR) if TASK_DIR else ROOT
+    
     n = 0
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(TASK_DIR):
-            dirs[:] = [d for d in dirs if d != ".trash"]   # 回收站不入备份
-            for f in files:
-                if f.endswith(".tmp"):                     # 原子写临时文件不入备份
-                    continue
-                p = os.path.join(root, f)
-                arc = os.path.relpath(p, TASK_DIR)
-                z.write(p, arc)
-                n += 1
+        # 1. task-data/（排除 .trash, .tmp, .backup）
+        if os.path.isdir(TASK_DIR):
+            for root_dir, dirs, files in os.walk(TASK_DIR):
+                dirs[:] = [d for d in dirs if d != ".trash" and d != ".backup"]
+                for f in files:
+                    if f.endswith(".tmp") or f.endswith(".bak"):
+                        continue
+                    p = os.path.join(root_dir, f)
+                    arc = "task-data/" + os.path.relpath(p, TASK_DIR)
+                    z.write(p, arc)
+                    n += 1
+
+        # 2. docs/执行日志/
+        logs_dir = os.path.join(root, "docs", "执行日志")
+        if os.path.isdir(logs_dir):
+            for root_dir, dirs, files in os.walk(logs_dir):
+                dirs[:] = [d for d in dirs if d != ".backup"]
+                for f in files:
+                    if f.endswith(".tmp") or f.endswith(".bak"):
+                        continue
+                    p = os.path.join(root_dir, f)
+                    arc = "docs/执行日志/" + os.path.relpath(p, logs_dir)
+                    z.write(p, arc)
+                    n += 1
+
+        # 3. registry.yaml
+        reg_path = os.path.join(root, "registry.yaml")
+        if os.path.exists(reg_path):
+            z.write(reg_path, "registry.yaml")
+            n += 1
+
+        # 4. 桌面版数据（如果存在）
+        desktop_data = os.path.join(root, "desktop", "userdata")
+        if os.path.isdir(desktop_data):
+            for root_dir, dirs, files in os.walk(desktop_data):
+                for f in files:
+                    if f.endswith(".tmp"):
+                        continue
+                    p = os.path.join(root_dir, f)
+                    arc = "desktop/userdata/" + os.path.relpath(p, desktop_data)
+                    z.write(p, arc)
+                    n += 1
+
     keep = sorted(os.listdir(BACKUP_DIR))
     removed = 0
     while len(keep) > BACKUP_KEEP:
@@ -253,8 +294,60 @@ def cmd_backup(args):
         except OSError:
             break
     size = os.path.getsize(dest) / 1024
-    print(f"OK: {dest}（{n} 个文件，{size:.1f} KB）" + (f"，轮换删除 {removed} 个旧备份" if removed else ""))
-    log_activity("backup", "-", f"{os.path.basename(dest)} {n} files")
+    print(f"✓ 备份完成: {os.path.basename(dest)}")
+    print(f"  共 {n} 个文件，{size:.1f} KB")
+    print(f"  范围: task-data/ + docs/执行日志/ + registry.yaml")
+    if removed:
+        print(f"  轮换删除 {removed} 个旧备份")
+    log_activity("backup", "-", f"{os.path.basename(dest)} {n} files {size:.1f}KB")
+
+
+def cmd_restore(args):
+    """从备份 zip 恢复数据。"""
+    if not args.path:
+        print("请指定备份文件路径: tegula restore <备份文件.zip>")
+        return
+    if not os.path.exists(args.path):
+        print(f"备份文件不存在: {args.path}")
+        return
+
+    # 校验备份文件
+    try:
+        with zipfile.ZipFile(args.path, "r") as z:
+            names = z.namelist()
+            print(f"备份内容: {len(names)} 个文件")
+            
+            # 恢复
+            restored = 0
+            for name in names:
+                # 确定目标路径
+                if name.startswith("task-data/"):
+                    dest_path = os.path.join(TASK_DIR, name[len("task-data/"):])
+                elif name.startswith("docs/执行日志/"):
+                    dest_path = os.path.join(ROOT, "docs", "执行日志", name[len("docs/执行日志/"):])
+                elif name == "registry.yaml":
+                    dest_path = REGISTRY_PATH
+                elif name.startswith("desktop/userdata/"):
+                    dest_path = os.path.join(ROOT, "desktop", "userdata", name[len("desktop/userdata/"):])
+                else:
+                    continue  # 未知路径，跳过
+                
+                # 确保目录存在
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                
+                # 读取并写入
+                data = z.read(name)
+                with open(dest_path, "wb") as f:
+                    f.write(data)
+                restored += 1
+            
+            print(f"✓ 恢复完成: {restored} 个文件")
+            print(f"  已恢复到: {ROOT}")
+            log_activity("restore", "-", f"{os.path.basename(args.path)} {restored} files")
+    except zipfile.BadZipFile:
+        print("备份文件损坏")
+    except Exception as e:
+        print(f"恢复失败: {e}")
 
 
 def cmd_done(args):
@@ -1038,6 +1131,99 @@ def cmd_note(args):
             print(f"导入失败: {msg}")
 
 
+def cmd_log(args):
+    """执行日志管理 CLI。"""
+    if args.log_cmd == "create":
+        ok, msg = api_log_create(args.project, args.title, args.content or "", args.task)
+        if ok:
+            print(f"已创建执行日志: {msg}")
+        else:
+            print(f"创建失败: {msg}")
+    elif args.log_cmd == "get":
+        entry = api_log_get(args.id)
+        if entry:
+            fm = entry["fm"]
+            print(f"ID: {fm.get('id', '')}")
+            print(f"标题: {fm.get('title', '')}")
+            print(f"项目: {fm.get('project', '')}")
+            print(f"状态: {fm.get('status', '')}")
+            print(f"创建: {fm.get('created', '')}")
+            print(f"完成: {fm.get('completed', '未完成')}")
+            print(f"保留天数: {fm.get('retain_days', '默认7')}")
+            print(f"保留至: {fm.get('retain_until', '未设置')}")
+            print(f"关联任务: {', '.join(fm.get('tasks', []) or [])}")
+            print(f"标签: {', '.join(fm.get('tags', []) or [])}")
+            print(f"\n正文:\n{entry['body']}")
+        else:
+            print("日志不存在")
+    elif args.log_cmd == "list":
+        logs = api_log_list(args.project, args.status, args.limit or 20)
+        if not logs:
+            print("无执行日志")
+            return
+        print(f"执行日志 ({len(logs)}):")
+        for l in logs:
+            print(f"  {l['id']} | {l['status']:<8} | {l['project']:<16} | {l['title']}")
+    elif args.log_cmd == "edit":
+        ok, msg = api_log_update(args.id, args.title, args.content, args.next_steps)
+        if ok:
+            print(f"已更新 {args.id}")
+        else:
+            print(f"更新失败: {msg}")
+    elif args.log_cmd == "complete":
+        ok, msg = api_log_complete(args.id, args.retain_days, args.note)
+        if ok:
+            print(f"已完成 {args.id}（保留 {args.retain_days or '默认7'} 天）")
+        else:
+            print(f"完成失败: {msg}")
+    elif args.log_cmd == "archive":
+        ok, msg = api_log_archive(args.id, args.note)
+        if ok:
+            print(f"已归档 {args.id}")
+        else:
+            print(f"归档失败: {msg}")
+    elif args.log_cmd == "destroy":
+        ok, msg = api_log_destroy(args.id)
+        if ok:
+            print(f"已销毁 {args.id}")
+        else:
+            print(f"销毁失败: {msg}")
+    elif args.log_cmd == "search":
+        results = api_log_search(args.query)
+        if not results:
+            print("无匹配结果")
+            return
+        print(f"搜索结果 ({len(results)}):")
+        for r in results:
+            print(f"  {r['id']} | {r['status']:<8} | {r['project']:<16} | {r['title']}")
+    elif args.log_cmd == "link":
+        ok, msg = api_log_link_task(args.id, args.task_id)
+        if ok:
+            print(f"已关联 {args.id} -> {args.task_id}")
+        else:
+            print(f"关联失败: {msg}")
+    elif args.log_cmd == "unlink":
+        ok, msg = api_log_unlink_task(args.id, args.task_id)
+        if ok:
+            print(f"已取消关联 {args.id} <- {args.task_id}")
+        else:
+            print(f"取消关联失败: {msg}")
+    elif args.log_cmd == "inject":
+        text = api_log_inject(args.id)
+        if text:
+            print(text)
+        else:
+            print("日志不存在")
+    elif args.log_cmd == "cleanup":
+        archived = api_log_cleanup()
+        if archived:
+            print(f"已归档 {len(archived)} 条超期日志:")
+            for aid in archived:
+                print(f"  {aid}")
+        else:
+            print("无超期日志")
+
+
 def cmd_export_tasks(args):
     """导出任务到 JSON 文件。"""
     import json
@@ -1361,8 +1547,11 @@ def main():
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.set_defaults(func=cmd_done)
-    bk = sub.add_parser("backup", help="备份 task-data/ 到 backups/（zip，保留最近 10 份）")
+    bk = sub.add_parser("backup", help="备份所有数据文件（zip，保留最近 10 份）")
     bk.set_defaults(func=cmd_backup)
+    rs = sub.add_parser("restore", help="从备份 zip 恢复数据")
+    rs.add_argument("path", help="备份文件路径 (.zip)")
+    rs.set_defaults(func=cmd_restore)
     dc = sub.add_parser("doctor", help="文件健康自检：frontmatter/锁字段/阻塞引用（只读）")
     dc.set_defaults(func=cmd_doctor)
     st = sub.add_parser("status", help="项目健康状态：git 活动 + 任务关联")
@@ -1443,7 +1632,59 @@ def main():
     nt_import.add_argument("path", help="文件路径")
     nt_import.add_argument("--task", default=None, help="关联的任务 ID")
     nt_import.set_defaults(func=cmd_note)
-    
+
+    # 执行日志 CLI
+    lg = sub.add_parser("log", help="执行日志：高频工作记录/暂存/销毁")
+    lg_sub = lg.add_subparsers(dest="log_cmd")
+    lg_create = lg_sub.add_parser("create", help="创建执行日志")
+    lg_create.add_argument("--project", required=True, help="项目 id")
+    lg_create.add_argument("--title", required=True, help="日志标题")
+    lg_create.add_argument("--content", default="", help="执行内容（正文）")
+    lg_create.add_argument("--task", default=None, help="关联的任务 ID")
+    lg_create.set_defaults(func=cmd_log)
+    lg_get = lg_sub.add_parser("get", help="查看日志详情")
+    lg_get.add_argument("id", help="日志 ID")
+    lg_get.set_defaults(func=cmd_log)
+    lg_list = lg_sub.add_parser("list", help="列出执行日志")
+    lg_list.add_argument("--project", default=None, help="按项目筛选")
+    lg_list.add_argument("--status", default=None, choices=["active", "completed", "archived"], help="按状态筛选")
+    lg_list.add_argument("--limit", default=20, type=int, help="最多显示条数")
+    lg_list.set_defaults(func=cmd_log)
+    lg_edit = lg_sub.add_parser("edit", help="编辑日志（仅 active）")
+    lg_edit.add_argument("id", help="日志 ID")
+    lg_edit.add_argument("--title", default=None, help="新标题")
+    lg_edit.add_argument("--content", default=None, help="执行内容（整段替换）")
+    lg_edit.add_argument("--next-steps", default=None, help="下一步（整段替换）")
+    lg_edit.set_defaults(func=cmd_log)
+    lg_complete = lg_sub.add_parser("complete", help="手动确认完成")
+    lg_complete.add_argument("id", help="日志 ID")
+    lg_complete.add_argument("--retain-days", default=None, help="保留天数：7/14/0或never/具体数字")
+    lg_complete.add_argument("--note", default="", help="完成备注")
+    lg_complete.set_defaults(func=cmd_log)
+    lg_archive = lg_sub.add_parser("archive", help="手动归档（进暂存区）")
+    lg_archive.add_argument("id", help="日志 ID")
+    lg_archive.add_argument("--note", default="", help="归档备注")
+    lg_archive.set_defaults(func=cmd_log)
+    lg_destroy = lg_sub.add_parser("destroy", help="手动销毁")
+    lg_destroy.add_argument("id", help="日志 ID")
+    lg_destroy.set_defaults(func=cmd_log)
+    lg_search = lg_sub.add_parser("search", help="搜索日志")
+    lg_search.add_argument("query", help="搜索关键词")
+    lg_search.set_defaults(func=cmd_log)
+    lg_link = lg_sub.add_parser("link", help="关联任务")
+    lg_link.add_argument("id", help="日志 ID")
+    lg_link.add_argument("task_id", help="任务 ID")
+    lg_link.set_defaults(func=cmd_log)
+    lg_unlink = lg_sub.add_parser("unlink", help="取消关联任务")
+    lg_unlink.add_argument("id", help="日志 ID")
+    lg_unlink.add_argument("task_id", help="任务 ID")
+    lg_unlink.set_defaults(func=cmd_log)
+    lg_inject = lg_sub.add_parser("inject", help="生成注入文本（新会话提示词）")
+    lg_inject.add_argument("id", help="日志 ID")
+    lg_inject.set_defaults(func=cmd_log)
+    lg_cleanup = lg_sub.add_parser("cleanup", help="检查超期日志，标记归档（不自动删）")
+    lg_cleanup.set_defaults(func=cmd_log)
+
     # 数据导出/导入
     ex = sub.add_parser("export", help="导出数据（JSON）")
     ex_sub = ex.add_subparsers(dest="ex_cmd")

@@ -15,6 +15,8 @@ registry.yaml.bak
 task-data/
 backups/
 project-status.md
+docs/执行日志/
+docs/阶段总结/*.md~
 方寸-app/
 build/
 dist/
@@ -28,6 +30,7 @@ desktop/release/
 desktop/.vite/
 
 # ── 一次性产物 ──
+.workbuddy/
 docs/*-report.md
 docs/*-prompt.md
 docs/*_PLAN.md

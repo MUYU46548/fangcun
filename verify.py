@@ -132,13 +132,16 @@ class BA: pass
 ba = BA()
 teg.cmd_backup(ba)
 zips = os.listdir(teg.BACKUP_DIR)
-check("backup 生成 zip", len(zips) == 1 and zips[0].startswith("task-data-"))
+check("backup 生成 zip", len(zips) == 1 and zips[0].startswith("fangcun-data-"))
 import zipfile as _zf
 with _zf.ZipFile(os.path.join(teg.BACKUP_DIR, zips[0])) as z:
     names = z.namelist()
-check("备份含真实任务文件", "_template.md" in names and any(n.startswith("task-") for n in names), str(names))
-check("备份含归档子目录", any(n.startswith("archive/") for n in names), str(names))
-check("备份轮换上限生效", True)  # 轮换逻辑在 10 份以上才触发，此处验证不抛错即通过
+# 归档路径允许带 task-data/ 前缀（cli.py cmd_backup 统一加前缀，便于恢复时区分来源目录）
+_bases = [n.replace("\\", "/").rsplit("/", 1)[-1] for n in names]
+check("备份含真实任务文件", "_template.md" in _bases and any(b.startswith("task-") for b in _bases), str(names))
+check("备份含归档子目录", any("archive/" in n.replace("\\", "/") for n in names), str(names))
+check("备份含 registry.yaml", "registry.yaml" in names, str(names))
+check("备份轮换上限生效", True)
 
 # ---- 4. gen_id 碰撞防御（P0-4）----
 tdir = teg.TASK_DIR

@@ -3,16 +3,18 @@
  * Connects renderer (Vue) to main process (data layer)
  */
 
-import { ipcMain, app, dialog } from 'electron'
+import { ipcMain, app, dialog, BrowserWindow } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
 import * as services from './services'
 import * as todosService from './services/todos'
+import * as logsService from './services/logs'
 import * as path from 'path'
 import * as fs from 'fs'
 import { execSync } from 'child_process'
 import * as os from 'os'
 import { registerLlmIpcHandlers } from './llm-ipc'
+import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 
 export function registerIpcHandlers(): void {
@@ -28,41 +30,36 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Tasks CRUD ────────────────────────────────────────────────────
-  ipcMain.handle('loadTasks', (_event, view = 'active') => {
-    const all = data.loadTasks(view)
-    return all.map(t => ({
+
+  /**
+   * Task → 渲染层视图对象。
+   *
+   * 用展开而不是手写字段列表：之前两处各写一份，都漏了 deadline/memo，
+   * 直接后果是「截止日期筛选」永远拿不到值。新增字段不需要再来改这里。
+   * 同时保留 fm 与 path，供需要完整 frontmatter / 文件路径的场景使用。
+   */
+  function flattenTask(t: data.Task) {
+    return {
+      ...t.fm,
       id: t.id,
-      title: t.fm.title,
-      project: t.fm.project,
-      status: t.fm.status,
-      priority: t.fm.priority,
-      assignee: t.fm.assignee,
-      tags: t.fm.tags,
-      created: t.fm.created,
-      updated: t.fm.updated,
-      blockers: t.fm.blockers,
+      fm: t.fm,
       body: t.body,
-      batch: t.fm.batch,
-    }))
+      path: t.path,
+      // 归档按路径判定 —— 完成/驳回的任务可能仍在活跃区，只看 status 会误判
+      archived: tasks.isArchivedPath(t.path),
+    }
+  }
+
+  ipcMain.handle('loadTasks', (_event, view = 'active') => {
+    return data.loadTasks(view).map(flattenTask)
   })
+
+  // 解析失败的任务文件：以前是静默跳过（任务"人间蒸发"），现在交给界面显性提示
+  ipcMain.handle('parseErrors', () => data.getParseErrors())
 
   ipcMain.handle('getTask', (_event, id: string) => {
     const task = tasks.readTask(id)
-    if (!task) return null
-    return {
-      id: task.id,
-      title: task.fm.title,
-      project: task.fm.project,
-      status: task.fm.status,
-      priority: task.fm.priority,
-      assignee: task.fm.assignee,
-      tags: task.fm.tags,
-      created: task.fm.created,
-      updated: task.fm.updated,
-      blockers: task.fm.blockers,
-      body: task.body,
-      batch: task.fm.batch,
-    }
+    return task ? flattenTask(task) : null
   })
 
   ipcMain.handle('newTask', (_event, fields: tasks.NewTaskFields) => {
@@ -141,6 +138,11 @@ export function registerIpcHandlers(): void {
     return tasks.getProjectProgress(projectId)
   })
 
+  // 一次扫描出全部项目进度：前端原先逐项目调用 = 项目数 × 全量扫描
+  ipcMain.handle('allProjectProgress', () => {
+    return tasks.getAllProjectProgress()
+  })
+
   // ── Batch Ops ──────────────────────────────────────────────────────
   ipcMain.handle('batchEdit', (_event, ids: string[], fields: any) => {
     return tasks.batchEdit(ids, fields)
@@ -156,13 +158,33 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Natural Query ───────────────────────────────────────────────────
-  ipcMain.handle('naturalQuery', (_event, q: string) => {
-    return tasks.parseNaturalQuery(q)
+  // ── Task metadata（新建/编辑表单的唯一字段来源） ────────────────────
+  ipcMain.handle('taskFieldSpecs', () => data.TASK_FIELD_SPECS)
+
+  ipcMain.handle('taskEnums', () => ({
+    statuses: data.STATUSES,
+    priorities: data.PRIORITIES,
+  }))
+
+  /** 取某任务的表单值（数组字段转逗号串）。id 为 null 时返回空表单。 */
+  ipcMain.handle('taskFormValues', (_event, id: string | null) => {
+    const task = id ? tasks.readTask(id) : null
+    return data.taskToFormValues(task)
+  })
+
+  ipcMain.handle('naturalQuery', (_event, q: string, opts?: { includeArchive?: boolean }) => {
+    return tasks.parseNaturalQuery(q, opts || {})
   })
 
   // ── Registry ──────────────────────────────────────────────────────
-  ipcMain.handle('regSave', (_event: any, payload: any) => {
-    return { ok: true }
+  // 原 regSave 是 `return { ok: true }` 的空实现：前端拿到成功、实际什么都没写，
+  // 属于「假成功」，已移除。新建项目改走 registry:addProject（真写入 + 写前自校验）。
+  ipcMain.handle('registry:addProject', (_event, fields: data.NewProjectFields) => {
+    try {
+      return data.addProjectToRegistry(fields || { id: '' })
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
   })
 
   // ── Backup / Restore ──────────────────────────────────────────────
@@ -340,11 +362,43 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('browseDirectory', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory', 'createDirectory'],
-    })
-    return result.canceled ? null : result.filePaths[0] ?? null
+  /**
+   * 目录选择。
+   * 必须传父窗口：不传时 Windows 上对话框不置顶，用户点「浏览…」看不到任何变化，
+   * 表现得就像按钮坏了。同时加 try/catch —— 对话框异常不应把 IPC 变成静默挂起。
+   */
+  ipcMain.handle('browseDirectory', async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const opts = {
+        title: '选择目录',
+        properties: ['openDirectory' as const, 'createDirectory' as const],
+      }
+      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      return result.canceled ? null : result.filePaths[0] ?? null
+    } catch (e) {
+      console.warn('[browseDirectory]', (e as Error).message)
+      return null
+    }
+  })
+
+  ipcMain.handle('browseFile', async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const opts = {
+        title: '选择程序',
+        properties: ['openFile' as const],
+        filters: [
+          { name: '可执行文件', extensions: ['exe', 'bat', 'cmd'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      }
+      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      return result.canceled ? null : result.filePaths[0] ?? null
+    } catch (e) {
+      console.warn('[browseFile]', (e as Error).message)
+      return null
+    }
   })
 
   // ── Activity Log ──────────────────────────────────────────────────
@@ -363,6 +417,68 @@ export function registerIpcHandlers(): void {
       return { ok: true, dir: data.getDataDir() }
     } catch (e: any) {
       return { ok: false, error: e.message }
+    }
+  })
+
+  /** 数据目录体检（只读）：判断目标能否迁入、里面已有多少数据 */
+  ipcMain.handle('data:inspect', (_event, dir: string) => {
+    try {
+      return { ok: true, info: data.inspectDataDir(dir) }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
+  /**
+   * 搬迁数据目录：备份 → 复制 → 切换指针。
+   *
+   * 关键纪律：
+   *  - 用「复制」而非「移动」，源目录原样保留，出问题数据还在
+   *  - 备份失败直接中止（没有回滚点的写操作不做）
+   *  - 目标已有数据时必须显式 allowExisting，不静默覆盖
+   */
+  ipcMain.handle('data:migrate', async (
+    _event,
+    targetDir: string,
+    opts?: { allowExisting?: boolean; skipBackup?: boolean }
+  ) => {
+    try {
+      const from = data.getDataDir()
+      const info = data.inspectDataDir(targetDir)
+
+      if (info.isCurrent) return { ok: false, error: '目标就是当前数据目录' }
+      if (info.insideCurrent) return { ok: false, error: '目标位于当前数据目录内部，不能迁入' }
+      if (!info.empty && !opts?.allowExisting && info.exists) {
+        return {
+          ok: false,
+          error: `目标目录已存在方寸数据（${info.taskCount} 个任务文件），需显式确认才能迁入`,
+          needsConfirm: true,
+          info,
+        }
+      }
+
+      // ① 迁移前备份：拿不到回滚点就不动手
+      let backupPath: string | null = null
+      if (!opts?.skipBackup) {
+        const r = await runBackup({ trigger: 'manual', localOnly: true })
+        if (!r.ok) {
+          return { ok: false, error: `迁移前备份失败，已中止：${r.errors[0] || '未知错误'}` }
+        }
+        backupPath = r.localPath
+      }
+
+      // ② 复制数据
+      const migrated = data.migrateDataDir(targetDir, { allowExisting: !!opts?.allowExisting })
+      if (!migrated.ok) {
+        return { ok: false, error: migrated.errors.join('；'), backupPath, migrated }
+      }
+
+      // ③ 切换指针
+      data.setDataDir(targetDir)
+
+      return { ok: true, from, to: data.getDataDir(), backupPath, migrated }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
     }
   })
 
@@ -546,6 +662,73 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('todos:delete', (_event: any, id: string) => {
     const ok = todosService.deleteTodo(id)
     return { ok }
+  })
+
+  // ── Logs ────────────────────────────────────────────────────────────
+  ipcMain.handle('logs:list', (_event, filter?) => {
+    return logsService.listLogs(filter)
+  })
+
+  /** 反向索引：任务详情面板展示该任务的关联日志 */
+  ipcMain.handle('logs:forTask', (_event, taskId: string) => {
+    return logsService.logsForTask(taskId)
+  })
+
+  ipcMain.handle('logs:get', (_event, id: string) => {
+    return logsService.getLog(id)
+  })
+
+  ipcMain.handle('logs:create', (_event, title: string, project: string, content: string, taskId?: string) => {
+    try {
+      const log = logsService.createLog(title, project, content, taskId)
+      return { ok: true, log }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('logs:update', (_event, id: string, updates: any) => {
+    try {
+      const log = logsService.updateLog(id, updates)
+      return { ok: !!log, log }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {
+    try {
+      const log = logsService.completeLog(id, retainDays, note)
+      return { ok: !!log, log }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('logs:archive', (_event, id: string, note?: string) => {
+    try {
+      const log = logsService.archiveLog(id, note)
+      return { ok: !!log, log }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('logs:destroy', (_event, id: string) => {
+    const ok = logsService.destroyLog(id)
+    return { ok }
+  })
+
+  ipcMain.handle('logs:search', (_event, query: string) => {
+    return logsService.searchLogs(query)
+  })
+
+  ipcMain.handle('logs:inject', (_event, id: string) => {
+    return logsService.injectLog(id)
+  })
+
+  ipcMain.handle('logs:cleanup', () => {
+    return logsService.cleanupLogs()
   })
 
   // ── Dispatch ────────────────────────────────────────────────────────

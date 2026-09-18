@@ -72,7 +72,7 @@ export const MCP_TOOLS: MCPTool[] = [
         title: { type: 'string', description: 'Task title' },
         status: { type: 'string', description: 'Initial status', default: '待办' },
         project: { type: 'string', description: 'Project ID' },
-        priority: { type: 'string', description: 'Priority: high, normal, low', default: 'normal' },
+        priority: { type: 'string', description: '优先级：高 / 中 / 低（也接受 high/medium/low，写入前会自动归一）', default: '中' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
         body: { type: 'string', description: 'Task body/content' },
       },

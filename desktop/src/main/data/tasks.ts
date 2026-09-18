@@ -8,11 +8,12 @@ import * as path from 'path'
 import {
   Task, TaskFrontmatter, Status, STATUSES,
   parseTask, renderTask, atomicWrite, genId, logActivity,
-  getTaskDir, getDataDir, parseRegistry, loadTasks
+  getTaskDir, getDataDir, parseRegistry, loadTasks, loadAllTasksRaw,
+  normalizePriority, PRIORITIES
 } from './index'
 
 // Re-export for convenience
-export { STATUSES }
+export { STATUSES, PRIORITIES, normalizePriority }
 export type { Task, TaskFrontmatter, Status }
 
 export function batchEdit(ids: string[], fields: Partial<TaskFrontmatter>): { ok: number; fails: { id: string; error: string }[] } {
@@ -87,13 +88,42 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
 
 // ── Natural Query ─────────────────────────────────────────────────────
 
-export function parseNaturalQuery(q: string): { tasks: Task[]; error?: string } {
+export function parseNaturalQuery(
+  q: string,
+  opts: { includeArchive?: boolean } = {}
+): { tasks: Task[]; error?: string } {
   const raw = (q || '').trim()
   if (!raw) return { tasks: [], error: '查询为空' }
 
   const tags = [...raw.matchAll(/#(\S+)/g)].map(m => m[1])
   const projects = [...raw.matchAll(/@(\S+)/g)].map(m => m[1])
-  let remaining = raw.replace(/[#@]\S+/g, '').trim()
+  let remaining = raw.replace(/[#@]\S+/g, ' ').trim()
+
+  // ── 精确筛选语法 ──────────────────────────────────────────────────
+  // status:完成 / prio:高 / 归档 —— 先于中文关键词扫描处理，避免被误吞。
+  let exactStatus: string | null = null
+  let exactPrio: string | null = null
+  let onlyArchived = false
+
+  remaining = remaining
+    .replace(/(?:status|state|状态):(\S+)/gi, (_m, v: string) => {
+      const s = v.trim()
+      if ((STATUSES as readonly string[]).includes(s)) exactStatus = s
+      return ' '
+    })
+    .replace(/(?:prio|priority|优先级):(\S+)/gi, (_m, v: string) => {
+      const p = normalizePriority(v.trim())
+      if (p) exactPrio = p
+      return ' '
+    })
+    .trim()
+
+  if (/(?:^|\s)(?:归档|archived)(?=\s|$)/i.test(remaining)) {
+    onlyArchived = true
+    remaining = remaining.replace(/(?:^|\s)(?:归档|archived)(?=\s|$)/gi, ' ').trim()
+  }
+
+  const wantsArchive = !!opts.includeArchive || onlyArchived
 
   const statusMap: Record<string, string> = {
     '待办': '待办', '进行中': '进行中', '待验收': '待验收',
@@ -128,7 +158,7 @@ export function parseNaturalQuery(q: string): { tasks: Task[]; error?: string } 
   }
 
   const titleQ = remaining.trim()
-  let tasks = loadAllTasks()
+  let tasks = loadAllTasks(wantsArchive)
 
   if (tags.length) {
     tasks = tasks.filter(t => tags.every(tag => (t.fm.tags || []).includes(tag)))
@@ -141,11 +171,16 @@ export function parseNaturalQuery(q: string): { tasks: Task[]; error?: string } 
       return projects.includes(p)
     })
   }
-  if (targetStatus) {
-    tasks = tasks.filter(t => t.fm.status === targetStatus)
+  const wantStatus = exactStatus || targetStatus
+  if (wantStatus) {
+    tasks = tasks.filter(t => t.fm.status === wantStatus)
   }
-  if (targetPrio) {
-    tasks = tasks.filter(t => t.fm.priority === targetPrio)
+  const wantPrio = exactPrio || targetPrio
+  if (wantPrio) {
+    tasks = tasks.filter(t => normalizePriority(t.fm.priority) === wantPrio)
+  }
+  if (onlyArchived) {
+    tasks = tasks.filter(t => isArchivedPath(t.path))
   }
   if (special === 'timeout') {
     tasks = tasks.filter(t => {
@@ -190,7 +225,7 @@ export function createTask(fields: NewTaskFields): Task {
     title: fields.title,
     project: fields.project || '',
     status: fields.status || '待办',
-    priority: fields.priority || 'normal',
+    priority: normalizePriority(fields.priority) || '中',
     assignee: fields.assignee || '',
     tags: fields.tags || [],
     created: now,
@@ -230,12 +265,18 @@ export function readTask(id: string): Task | null {
   return searchInDir(taskDir)
 }
 
-export function updateTask(id: string, fields: Partial<TaskFrontmatter>): Task | null {
+export function updateTask(id: string, rawFields: Partial<TaskFrontmatter>): Task | null {
   const task = readTask(id)
   if (!task) return null
 
-  if (fields.expected_update && task.fm.expected_update !== fields.expected_update) {
+  if (rawFields.expected_update && task.fm.expected_update !== rawFields.expected_update) {
     throw new Error('optimistic lock conflict')
+  }
+
+  // 写入前归一：防止 normal/high 这类历史别名被重新写回文件
+  const fields: Partial<TaskFrontmatter> = { ...rawFields }
+  if (fields.priority !== undefined) {
+    fields.priority = normalizePriority(fields.priority) as any
   }
 
   const now = new Date().toISOString()
@@ -336,26 +377,20 @@ function computeHealth(tasks: Task[], lastActivity: string | null): ProjectStatu
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function loadAllTasks(): Task[] {
-  const taskDir = getTaskDir()
-  if (!fs.existsSync(taskDir)) return []
+/**
+ * 扫描任务目录。
+ * includeArchive=true 时才进 archive/ —— 自然查询此前是硬跳过归档，
+ * 导致用户勾了「含归档」也搜不到归档任务，与界面开关语义不符。
+ */
+function loadAllTasks(includeArchive = false): Task[] {
+  // 委托到带签名缓存的全量扫描（data/index.ts）——
+  // 这里原本每次自建一次完整扫描，是「一次刷新扫 15 遍」的一大来源。
+  return loadAllTasksRaw(includeArchive ? 'all' : 'active')
+}
 
-  const tasks: Task[] = []
-  function scanDir(dir: string) {
-    if (!fs.existsSync(dir)) return
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name === 'archive' || entry.name === '.backup' || entry.name === '.trash') continue
-        scanDir(fullPath)
-      } else if (entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
-        const task = parseTask(fullPath)
-        if (task) tasks.push(task)
-      }
-    }
-  }
-  scanDir(taskDir)
-  return tasks
+/** 任务是否位于归档目录（按路径判定，不按状态 —— 完成/驳回的任务可能仍在活跃区） */
+export function isArchivedPath(p: string | undefined): boolean {
+  return !!p && /[\\/]archive[\\/]/i.test(p)
 }
 
 export interface DecisionPoint {
@@ -528,6 +563,36 @@ export function findTimeoutTasks(thresholdHours = 24): { id: string; title: stri
       return hours >= thresholdHours ? { id: t.id, title: t.fm.title || t.id, hours } : null
     })
     .filter(Boolean) as any
+}
+
+export interface ProgressEntry { total: number; completed: number; percent: number }
+
+/**
+ * 全部项目的进度，**一次全量扫描出结果**。
+ *
+ * 原先是前端循环调 getProjectProgress(id)，每个项目各扫一遍全量任务 ——
+ * 12 个项目 = 12 次全量扫描，压测里 5000 任务档这一项独占 76% 耗时（13.9s/18.4s）。
+ * 这里改成扫一次、按项目累加，结果与逐个调用完全等价。
+ */
+export function getAllProjectProgress(): Record<string, ProgressEntry> {
+  const all = loadAllTasks()
+  const acc: Record<string, { total: number; completed: number }> = {}
+  for (const t of all) {
+    const p = t.fm.project
+    if (!p) continue
+    const ids = Array.isArray(p) ? p : [p]
+    for (const id of ids) {
+      if (!id) continue
+      if (!acc[id]) acc[id] = { total: 0, completed: 0 }
+      acc[id].total++
+      if (t.fm.status === '完成') acc[id].completed++
+    }
+  }
+  const out: Record<string, ProgressEntry> = {}
+  for (const [id, v] of Object.entries(acc)) {
+    out[id] = { total: v.total, completed: v.completed, percent: v.total ? Math.round((v.completed / v.total) * 100) : 0 }
+  }
+  return out
 }
 
 export function getProjectProgress(projectId: string): { total: number; completed: number; percent: number } {

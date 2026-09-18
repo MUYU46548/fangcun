@@ -406,6 +406,19 @@ def _split_body(body):
     return plan, result.strip("\n"), ("\n\n".join(extra).rstrip() if extra else "")
 
 
+_TASK_SCHEMA_VERSION = 1
+
+
+def _migrate_task_v0_to_v1(d):
+    """迁移旧格式任务（无 schema_version）到 v1。
+
+    v0 → v1: 新增 schema_version 字段。
+    未来版本可在此链式调用：v1→v2, v2→v3 ...
+    """
+    d["schema_version"] = _TASK_SCHEMA_VERSION
+    return d
+
+
 def parse_task(path):
     """完整解析：frontmatter 标量 + 列表 + 资源子项 + 正文 方案/结果记录。无第三方依赖。"""
     try:
@@ -413,7 +426,7 @@ def parse_task(path):
             text = f.read()
     except Exception:
         return None
-    m = re.match(r"^---\s*\n(.*?)\n(?:---|\===)\s*\n?(.*)$", text, re.S)
+    m = re.match(r"^---\s*\n(.*?)\n(?:---|===)\s*\n?(.*)$", text, re.S)
     if not m:
         return None
     fm_raw, body = m.group(1), m.group(2)
@@ -428,10 +441,9 @@ def parse_task(path):
                 k = kv.group(1).strip()
                 v = kv.group(2).strip()
                 if v.startswith("[") and v.endswith("]"):
-                    inner = v[1:-1].strip()
-                    d.setdefault("资源", {})[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
+                    d.setdefault("资源", {})[k] = split_flow_list(v[1:-1].strip())
                 else:
-                    d.setdefault("资源", {})[k] = v.strip("'\"")
+                    d.setdefault("资源", {})[k] = unquote_scalar(v)
             continue
         kv = re.match(r"^([^:]+):\s*(.*)$", line)
         if not kv:
@@ -442,16 +454,18 @@ def parse_task(path):
             continue
         in_resource = False
         if v.startswith("[") and v.endswith("]"):
-            inner = v[1:-1].strip()
-            d[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
+            # split_flow_list 会跳过引号内的逗号 —— 标签值 `a,b` 不再被误拆成两项
+            d[k] = split_flow_list(v[1:-1].strip())
         elif v.startswith("{") and v.endswith("}"):
             # JSON object (for plan field)
             try:
                 d[k] = json.loads(v)
             except:
-                d[k] = v.strip("'\"")
+                d[k] = unquote_scalar(v)
         else:
-            d[k] = v.strip("'\"")
+            # unquote_scalar 只在首尾同为引号时才剥离（旧版 strip("'\"") 会误伤
+            # 以引号结尾的普通值），并还原 yaml_scalar 写入的转义
+            d[k] = unquote_scalar(v)
     plan, result, extra = _split_body(body)
     d["方案"] = plan
     d["结果记录"] = result
@@ -460,72 +474,184 @@ def parse_task(path):
         k: v for k, v in d.items()
         if k not in MANAGED_KEYS and not k.startswith("_")
     }
+    # Schema 版本迁移（旧文件无 schema_version → 自动升级）
+    if "schema_version" not in d:
+        d = _migrate_task_v0_to_v1(d)
     return d
 
 
 MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id"}
 
+# YAML 标量转义 ----------------------------------------------------------
+# 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
+# 桌面版（TS）用严格 js-yaml 解析，解析失败即返回 null 并被 loadTasks 静默跳过 ——
+# 表现为「用 Python CLI 写的任务在桌面版整个消失」。高危取值：
+#   标题含 ": "（`fix: xxx` 高频）、标题以 [ 或 # 开头、标签/阻塞含 #、资源值含 ": "
+# 转义规则必须与 js-yaml 的双引号风格一致，且 parse_task 侧要能对称还原。
+
+# 首字符是这些指示符时必须加引号（- ? : , [ ] { } # & * ! | > ' " % @ `）
+_YAML_LEADING = "-?:,[]{}#&*!|>'\"%@`"
+_YAML_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def yaml_scalar(v, in_flow=False):
+    """把标量渲染成安全的 YAML 片段。仅在会被误解析时才加双引号。
+
+    故意保持「不必要时不加引号」——避免给数字/日期类值加引号改变解析类型。
+
+    in_flow=True 用于 flow 列表/映射内的元素（`[...]`）：此时逗号和方括号
+    都是结构字符，值里出现就必须引号，否则 `标签: [a,b]` 会被拆成两个标签。
+    """
+    s = "" if v is None else str(v)
+    if s == "":
+        return ""
+    need = (
+        s[0] in _YAML_LEADING
+        or ": " in s
+        or s.endswith(":")
+        or " #" in s
+        or any(ch in s for ch in "\n\r\t")
+        or s != s.strip()
+    )
+    if in_flow and any(ch in s for ch in ",[]{}"):
+        need = True
+    if not need:
+        return s
+    out = []
+    for ch in s:
+        out.append(_YAML_ESCAPES.get(ch, ch))
+    return '"' + "".join(out) + '"'
+
+
+def unquote_scalar(v):
+    """yaml_scalar 的逆操作：剥掉双引号并反转义；单引号只处理 '' 转义。"""
+    if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+        body = v[1:-1]
+        out, i = [], 0
+        while i < len(body):
+            c = body[i]
+            if c == "\\" and i + 1 < len(body):
+                nxt = body[i + 1]
+                if nxt == "n":
+                    out.append("\n")
+                elif nxt == "r":
+                    out.append("\r")
+                elif nxt == "t":
+                    out.append("\t")
+                elif nxt == '"':
+                    out.append('"')
+                elif nxt == "\\":
+                    out.append("\\")
+                else:
+                    out.append(c)
+                    out.append(nxt)
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+        return "".join(out)
+    if len(v) >= 2 and v[0] == "'" and v[-1] == "'":
+        return v[1:-1].replace("''", "'")
+    return v
+
+
+def split_flow_list(inner):
+    """按逗号拆 flow 列表，跳过引号内的逗号 —— 让 `标签: [a,b]` 不被误拆成两项。"""
+    items, buf, quote = [], [], None
+    i = 0
+    while i < len(inner):
+        c = inner[i]
+        if quote:
+            buf.append(c)
+            if c == "\\" and quote == '"' and i + 1 < len(inner):
+                buf.append(inner[i + 1])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "\"'":
+            quote = c
+            buf.append(c)
+            i += 1
+            continue
+        if c == ",":
+            items.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(c)
+        i += 1
+    items.append("".join(buf))
+    return [x for x in (unquote_scalar(s.strip()) for s in items) if x != ""]
+
 
 def render_task(d):
-    proj = "[" + ", ".join(d.get("项目", [])) + "]"
+    proj = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in d.get("项目", [])) + "]"
     res = d.get("资源", {}) if isinstance(d.get("资源"), dict) else {}
     ziliao = res.get("资料", "")
-    tools = "[" + ", ".join(res.get("工具", [])) + "]"
+    tools = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in res.get("工具", [])) + "]"
     plan = "\n".join(d.get("方案", [])) or "- [ ] "
     result = d.get("结果记录", "") or ""
     extra = d.get("_extra", "") or ""
     unknown = d.get("_unknown", {}) or {}
     lines = [
         "---",
-        f"id: {d.get('id','')}",
-        f"标题: {d.get('标题','')}",
+        f"id: {yaml_scalar(d.get('id',''))}",
+        f"标题: {yaml_scalar(d.get('标题',''))}",
         f"项目: {proj}",
-        f"状态: {d.get('状态','草稿')}",
-        f"批次: {d.get('批次','')}",
-        f"截止: {d.get('截止','')}",
-        f"优先级: {d.get('优先级','')}",
-        f"创建: {d.get('创建','')}",
-        f"更新: {d.get('更新','')}",
-        f"来源: {d.get('来源','human')}",
-        f"指派: {d.get('指派','hermes')}",
-        f"验收: {d.get('验收','human')}",
+        f"状态: {yaml_scalar(d.get('状态','草稿'))}",
+        f"批次: {yaml_scalar(d.get('批次',''))}",
+        f"截止: {yaml_scalar(d.get('截止',''))}",
+        f"优先级: {yaml_scalar(d.get('优先级',''))}",
+        f"创建: {yaml_scalar(d.get('创建',''))}",
+        f"更新: {yaml_scalar(d.get('更新',''))}",
+        f"来源: {yaml_scalar(d.get('来源','human'))}",
+        f"指派: {yaml_scalar(d.get('指派','hermes'))}",
+        f"验收: {yaml_scalar(d.get('验收','human'))}",
     ]
     tg = d.get("标签") or []
     if tg:
-        lines.append(f"标签: [{', '.join(str(x) for x in tg)}]")
+        lines.append(f"标签: [{', '.join(yaml_scalar(x, in_flow=True) for x in tg)}]")
     blk = d.get("阻塞") or []
     if blk:
-        lines.append(f"阻塞: [{', '.join(str(x) for x in blk)}]")
+        lines.append(f"阻塞: [{', '.join(yaml_scalar(x, in_flow=True) for x in blk)}]")
     fy = str(d.get("附言") or "").strip()
     if fy:
-        lines.append(f"附言: {fy}")
+        lines.append(f"附言: {yaml_scalar(fy)}")
     pd = str(d.get("派活时间") or "").strip()
     if pd:
-        lines.append(f"派活时间: {pd}")
+        lines.append(f"派活时间: {yaml_scalar(pd)}")
     # Plan-specific: type and plan fields
     tp = d.get("type", "")
     if tp:
-        lines.append(f"type: {tp}")
+        lines.append(f"type: {yaml_scalar(tp)}")
     plan_data = d.get("plan")
     if plan_data:
-        # plan_data 是 dict，序列化为 JSON 字符串
+        # plan_data 是 dict，序列化为 JSON 字符串。
+        # 不加引号：两侧解析器都把它按对象吃（Python parse_task 有 json.loads 分支，
+        # js-yaml 按 flow mapping 解析），加引号反而破坏现有行为。
         plan_json = json.dumps(plan_data, ensure_ascii=False)
         lines.append(f"plan: {plan_json}")
     # Personal module: cron and context fields
     cron_val = d.get("cron", "")
     if cron_val:
-        lines.append(f"cron: {cron_val}")
+        lines.append(f"cron: {yaml_scalar(cron_val)}")
     ctx_val = d.get("context") or []
     if ctx_val:
-        lines.append(f"context: [{', '.join(str(x) for x in ctx_val)}]")
+        lines.append(f"context: [{', '.join(yaml_scalar(x, in_flow=True) for x in ctx_val)}]")
     for k, v in unknown.items():
         if isinstance(v, list):
-            lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
-        else:
+            lines.append(f"{k}: [{', '.join(yaml_scalar(x, in_flow=True) for x in v)}]")
+        elif isinstance(v, dict):
+            # 未知对象字段原样透传（少见，保持历史行为，不擅自改写用户手写内容）
             lines.append(f"{k}: {v}")
+        else:
+            lines.append(f"{k}: {yaml_scalar(v)}")
     lines += [
         "资源:",
-        f"  资料: {ziliao}",
+        f"  资料: {yaml_scalar(ziliao)}",
         f"  工具: {tools}",
         "---",
         f"## 方案\n{plan}",
@@ -537,10 +663,22 @@ def render_task(d):
 
 
 def write_task_file(path, d):
-    """原子写：临时文件 + os.replace。"""
+    """原子写 + 滚动备份：临时文件 + os.replace。"""
+    # 写入前备份已有文件
+    if os.path.exists(path):
+        _rotate_backup(path)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(render_task(d))
+    # 读回验证
+    with open(tmp, encoding="utf-8") as f:
+        verify = f.read()
+    if not verify:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        raise RuntimeError(f"Atomic write verification failed for {path}")
     os.replace(tmp, path)
 
 
@@ -2842,6 +2980,465 @@ def api_note_import_content(filename, content, task_id=None):
         title = lines[0][2:].strip() or title
         content = lines[1].strip() if len(lines) > 1 else ""
     return api_note_create(title, content, task_id)
+
+
+# ---------- 执行日志（log P0）：高频细颗粒度工作记录 ----------
+_LOGS_DIR = os.path.join(ROOT, "docs", "执行日志")
+
+
+def _ensure_logs_dir():
+    """确保日志目录存在。"""
+    os.makedirs(_LOGS_DIR, exist_ok=True)
+
+
+def _gen_log_id():
+    """生成日志 ID：log_YYYYMMDD_HHMMSS_uuid6。"""
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    import uuid
+    return f"log_{ts}_{uuid.uuid4().hex[:6]}"
+
+
+_LOG_SCHEMA_VERSION = 1
+
+
+def _migrate_log_v0_to_v1(fm, body):
+    """迁移旧格式日志（无 schema_version）到 v1。"""
+    # v0 → v1: 新增 schema_version，将 body sections 中的 content/next_steps 提取到 frontmatter
+    fm["schema_version"] = _LOG_SCHEMA_VERSION
+    
+    # 如果 frontmatter 中有 _content/_next_steps，说明是实验版格式，转为标准字段
+    if "_content" in fm:
+        fm["content"] = fm.pop("_content")
+    if "_next_steps" in fm:
+        fm["next_steps"] = fm.pop("_next_steps")
+    
+    return fm, body
+
+
+def _parse_log(text):
+    """解析日志文件 → (frontmatter_dict, body_text)。支持 schema_version 迁移。"""
+    m = re.match(r"^---\s*\n(.*?)\n(?:---|===)\s*\n?(.*)$", text, re.S)
+    if not m:
+        return {}, text
+    fm_raw, body = m.group(1), m.group(2)
+    fm = {}
+    for line in fm_raw.splitlines():
+        if not line.strip():
+            continue
+        kv = re.match(r"^([^:]+):\s*(.*)$", line)
+        if kv:
+            k, v = kv.group(1).strip(), kv.group(2).strip()
+            # 解析列表 [a, b] 和空值
+            if v.startswith("[") and v.endswith("]"):
+                inner = v[1:-1].strip()
+                fm[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
+            elif v.lower() in ("null", "~", "none"):
+                fm[k] = None
+            else:
+                fm[k] = v.strip("'\"")
+    # 从 frontmatter 中提取内部字段（下划线前缀）
+    # 这些字段存储结构化数据，body 中的 ## 节只是人类可读副本
+    if "_content" in fm:
+        fm["content"] = fm.pop("_content")
+    if "_next_steps" in fm:
+        fm["next_steps"] = fm.pop("_next_steps")
+    
+    # Schema 版本迁移
+    if "schema_version" not in fm:
+        fm, body = _migrate_log_v0_to_v1(fm, body)
+    
+    return fm, body
+
+
+def _render_log(fm):
+    """序列化 frontmatter dict → YAML-ish 文本。"""
+    # 确保 schema_version 存在
+    if "schema_version" not in fm:
+        fm["schema_version"] = _LOG_SCHEMA_VERSION
+    
+    # 将内部字段转换为下划线前缀（不污染 frontmatter）
+    export_fm = {}
+    for k, v in fm.items():
+        if k == "content":
+            export_fm["_content"] = v
+        elif k == "next_steps":
+            export_fm["_next_steps"] = v
+        else:
+            export_fm[k] = v
+    lines = ["---"]
+    for k, v in export_fm.items():
+        if v is None:
+            lines.append(f"{k}: null")
+        elif isinstance(v, list):
+            lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
+        else:
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def _log_filename(log_id):
+    return f"{log_id}.md"
+
+
+def _log_path(log_id):
+    return os.path.join(_LOGS_DIR, _log_filename(log_id))
+
+
+def _read_log(log_id):
+    """读取日志 → {id, file, fm, body} 或 None。"""
+    path = _log_path(log_id)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        fm, body = _parse_log(text)
+        fm["id"] = log_id
+        fm["_file"] = path
+        return {"id": log_id, "file": path, "fm": fm, "body": body}
+    except Exception:
+        return None
+
+
+def _rotate_backup(target_path):
+    """单文件滚动备份（保留最近 10 份）。"""
+    if not os.path.exists(target_path):
+        return
+    backup_dir = os.path.join(os.path.dirname(target_path), ".backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    base = os.path.basename(target_path)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = os.path.join(backup_dir, f"{base}.{stamp}.bak")
+    try:
+        shutil.copy2(target_path, backup_path)
+        # 清理旧备份（保留 10 份）
+        backups = sorted([f for f in os.listdir(backup_dir) if f.startswith(base) and f.endswith(".bak")])
+        while len(backups) > 10:
+            old = backups.pop(0)
+            try:
+                os.remove(os.path.join(backup_dir, old))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _write_log(log_id, fm, body):
+    """原子写入日志文件（含滚动备份）。"""
+    _ensure_logs_dir()
+    target = _log_path(log_id)
+    text = _render_log(fm) + "\n\n" + body
+    tmp = target + ".tmp"
+    try:
+        # 写入前备份（已有文件才备份）
+        if os.path.exists(target):
+            _rotate_backup(target)
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        # 读回验证
+        with open(tmp, encoding="utf-8") as f:
+            verify = f.read()
+        if verify != text:
+            raise IOError("read-back mismatch")
+        os.replace(tmp, target)
+    except Exception as e:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def api_log_create(project, title, content="", task_id=None):
+    """创建执行日志。返回 (ok, log_id_or_err)。"""
+    _ensure_logs_dir()
+    log_id = _gen_log_id()
+    now = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    fm = {
+        "type": "execution-log",
+        "id": log_id,
+        "project": project,
+        "title": title,
+        "status": "active",
+        "created": now,
+        "completed": None,
+        "retain_days": None,
+        "retain_until": None,
+        "model": None,
+        "provider": None,
+        "tags": [],
+        "tasks": [task_id] if task_id else [],
+        "content": content,
+        "next_steps": "",
+    }
+    body = f"# {title}\n\n## 执行内容\n\n{content or '（待填写）'}\n\n## 下一步\n\n（待填写）"
+    try:
+        _write_log(log_id, fm, body)
+        return True, log_id
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_get(log_id):
+    """获取日志详情。"""
+    return _read_log(log_id)
+
+
+def api_log_list(project=None, status=None, limit=20):
+    """列出执行日志（倒序，最新在前）。"""
+    _ensure_logs_dir()
+    logs = []
+    try:
+        files = sorted(os.listdir(_LOGS_DIR), reverse=True)
+    except Exception:
+        files = []
+    for fn in files:
+        if not fn.endswith(".md"):
+            continue
+        entry = _read_log(fn[:-3])
+        if not entry:
+            continue
+        fm = entry["fm"]
+        if project and fm.get("project") != project:
+            continue
+        if status and fm.get("status") != status:
+            continue
+        logs.append({
+            "id": entry["id"],
+            "title": fm.get("title", ""),
+            "project": fm.get("project", ""),
+            "status": fm.get("status", "active"),
+            "created": fm.get("created", ""),
+            "completed": fm.get("completed"),
+        })
+        if len(logs) >= limit:
+            break
+    return logs
+
+
+def api_log_update(log_id, title=None, content=None, next_steps=None):
+    """编辑日志（仅 active 状态可编辑）。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return False, "not found"
+    fm = entry["fm"]
+    if fm.get("status") != "active":
+        return False, "仅 active 状态可编辑"
+    if title is not None:
+        fm["title"] = title
+    if content is not None:
+        fm["content"] = content
+    if next_steps is not None:
+        fm["next_steps"] = next_steps
+
+    # 重建 body（人类可读镜像）
+    body = f"# {fm.get('title', '')}\n\n## 执行内容\n\n{fm.get('content', '') or '（待填写）'}\n\n## 下一步\n\n{fm.get('next_steps', '') or '（待填写）'}"
+
+    try:
+        _write_log(log_id, fm, body)
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_complete(log_id, retain_days=None, note=None):
+    """手动确认完成 → completed 状态，设置保留天数。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return False, "not found"
+    fm = entry["fm"]
+    fm["status"] = "completed"
+    fm["completed"] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    fm["retain_days"] = retain_days  # None=默认7, 0/"never"=永不, N=具体天数
+    if retain_days in (0, "never"):
+        fm["retain_until"] = None
+    elif retain_days is not None:
+        try:
+            days = int(retain_days)
+            dt = datetime.datetime.now() + datetime.timedelta(days=days)
+            fm["retain_until"] = dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        except (ValueError, TypeError):
+            pass
+    note_text = f"\n\n## 完成确认\n\n{note}" if note else ""
+    try:
+        _write_log(log_id, fm, entry["body"].rstrip() + note_text)
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_archive(log_id, note=None):
+    """手动归档 → archived 状态（暂存区）。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return False, "not found"
+    fm = entry["fm"]
+    fm["status"] = "archived"
+    note_text = f"\n\n## 归档备注\n\n{note}" if note else ""
+    try:
+        _write_log(log_id, fm, entry["body"].rstrip() + note_text)
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_destroy(log_id):
+    """手动销毁（从暂存区删除文件，带审计日志）。"""
+    path = _log_path(log_id)
+    if not os.path.exists(path):
+        return False, "not found"
+    try:
+        os.remove(path)
+        log_activity("log_destroy", log_id, "manual destroy")
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_search(query):
+    """全文搜索日志（标题 + 正文 + tags + project）。"""
+    _ensure_logs_dir()
+    results = []
+    q = query.lower()
+    try:
+        files = sorted(os.listdir(_LOGS_DIR), reverse=True)
+    except Exception:
+        files = []
+    for fn in files:
+        if not fn.endswith(".md"):
+            continue
+        entry = _read_log(fn[:-3])
+        if not entry:
+            continue
+        fm = entry["fm"]
+        text = f"{fm.get('title', '')} {fm.get('tags', [])} {fm.get('project', '')} {entry['body']}".lower()
+        if q in text:
+            results.append({
+                "id": entry["id"],
+                "title": fm.get("title", ""),
+                "project": fm.get("project", ""),
+                "status": fm.get("status", "active"),
+                "created": fm.get("created", ""),
+            })
+    return results
+
+
+def api_log_link_task(log_id, task_id):
+    """关联任务。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return False, "not found"
+    fm = entry["fm"]
+    tasks = fm.get("tasks", []) or []
+    if not isinstance(tasks, list):
+        tasks = [tasks]
+    if task_id not in tasks:
+        tasks.append(task_id)
+    fm["tasks"] = tasks
+    try:
+        _write_log(log_id, fm, entry["body"])
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_unlink_task(log_id, task_id):
+    """取消关联。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return False, "not found"
+    fm = entry["fm"]
+    tasks = fm.get("tasks", []) or []
+    if not isinstance(tasks, list):
+        tasks = [tasks]
+    fm["tasks"] = [t for t in tasks if t != task_id]
+    try:
+        _write_log(log_id, fm, entry["body"])
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def api_log_inject(log_id):
+    """生成注入文本（用于新会话提示词）。"""
+    entry = _read_log(log_id)
+    if not entry:
+        return None
+    fm = entry["fm"]
+
+    # 截断过长内容
+    def _trunc(text, max_len=2000):
+        if not text:
+            return ''
+        return text[:max_len] + ('...' if len(text) > max_len else '')
+
+    parts = []
+    parts.append(f"## 上次执行日志（来源：方寸执行日志 {log_id}）")
+    parts.append(f"**项目**：{fm.get('project', '')}")
+    parts.append(f"**时间**：{fm.get('created', '')}")
+    if fm.get("completed"):
+        parts.append(f"**完成时间**：{fm['completed']}")
+    parts.append(f"**状态**：{fm.get('status', '')}")
+
+    # 优先使用 frontmatter 字段，其次 sections
+    content = fm.get('content', '') or ''
+    next_steps = fm.get('next_steps', '') or ''
+    if not content and entry["body"]:
+        # fallback: try to extract from body
+        for line in entry["body"].splitlines():
+            if line.startswith("## 执行内容"):
+                content = entry["body"].split("## 下一步")[0].split("\n", 2)[2].strip() if "## 下一步" in entry["body"] else ''
+                break
+    if not next_steps and entry["body"]:
+        for line in entry["body"].splitlines():
+            if line.startswith("## 下一步"):
+                idx = entry["body"].index(line)
+                next_steps = entry["body"][idx:].split("\n", 2)[2].strip()
+                break
+
+    if content:
+        parts.append(f"\n### 做了什么\n{_trunc(content)}")
+    if next_steps:
+        parts.append(f"\n### 下一步\n{_trunc(next_steps)}")
+
+    if fm.get("tasks"):
+        parts.append(f"\n### 关联任务\n{', '.join(fm['tasks'])}")
+
+    return "\n".join(parts)
+
+
+def api_log_cleanup():
+    """检查超期日志，标记为 archived（不自动删除）。使用 epoch 整数比较避免时区问题。"""
+    _ensure_logs_dir()
+    archived = []
+    try:
+        files = sorted(os.listdir(_LOGS_DIR))
+    except Exception:
+        files = []
+    now_epoch = int(time.time())
+    for fn in files:
+        if not fn.endswith(".md"):
+            continue
+        entry = _read_log(fn[:-3])
+        if not entry:
+            continue
+        fm = entry["fm"]
+        if fm.get("status") == "completed" and fm.get("retain_until"):
+            try:
+                # 解析 retain_until 为 epoch
+                until_str = fm["retain_until"]
+                # 格式: 2026-09-25T13:03:09+08:00
+                dt = datetime.datetime.fromisoformat(until_str)
+                until_epoch = int(dt.timestamp())
+                if now_epoch > until_epoch:
+                    fm["status"] = "archived"
+                    try:
+                        _write_log(fm["id"], fm, entry["body"])
+                        archived.append(fm["id"])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    return archived
 
 
 def api_export_tasks(project_id=None):

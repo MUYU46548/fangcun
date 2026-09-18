@@ -1,6 +1,8 @@
 import { app, BrowserWindow, Tray, Menu, dialog } from 'electron'
 import * as path from 'path'
 import { registerIpcHandlers } from './ipc'
+import { registerBackupIpcHandlers } from './backup-ipc'
+import { startScheduler } from './backup/scheduler'
 import { isFirstRun } from './data'
 
 const isDev = !app.isPackaged
@@ -23,8 +25,6 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   })
-
-  registerIpcHandlers()
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
@@ -64,8 +64,17 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
+  // IPC 只注册一次 —— 放在 createWindow 之外，避免重复注册抛 handler 冲突
+  registerIpcHandlers()
+  registerBackupIpcHandlers()
   createWindow()
   createTray()
+  // 静默备份调度：启动后延迟执行，失败会广播到窗口并（连续失败时）弹系统通知
+  try {
+    startScheduler()
+  } catch (e) {
+    console.error('[backup] 调度启动失败:', (e as Error).message)
+  }
 })
 
 app.on('window-all-closed', () => {
