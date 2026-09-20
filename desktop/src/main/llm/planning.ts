@@ -75,13 +75,29 @@ interface TaskSummary {
   title?: string
   status?: string
   priority?: string
-  project?: string
+  project?: string | string[]
   tags?: string[]
   blockers?: string[]
   body?: string
   created?: string
   updated?: string
   batch?: string
+}
+
+/** loadTasks() 返回原始 Task（字段全在 t.fm 下且 project 可能是数组）；
+ *  规划层必须先扁平化再读字段，否则全是 undefined（2026-09-20 修复）。 */
+function loadTaskSummaries(): TaskSummary[] {
+  return (loadTasks('active') as any[]).map(t => ({
+    ...t.fm,
+    id: t.id,
+    body: t.body,
+  }))
+}
+
+/** project 字段兼容单值与数组两种形态（`项目: [xxx]` 是数组） */
+function taskInProject(t: TaskSummary, projectId: string): boolean {
+  if (Array.isArray(t.project)) return t.project.includes(projectId)
+  return t.project === projectId
 }
 
 function formatTasksForAudit(tasks: TaskSummary[]): string {
@@ -99,8 +115,8 @@ function getProjectSummary(projectId: string): { project: any; tasks: TaskSummar
   const project = projects.find(p => p.id === projectId)
   if (!project) return { project: {}, tasks: [], error: `项目 ${projectId} 不存在` }
 
-  const allTasks = loadTasks('active') as TaskSummary[]
-  const tasks = allTasks.filter(t => t.project === projectId)
+  const allTasks = loadTaskSummaries()
+  const tasks = allTasks.filter(t => taskInProject(t, projectId))
   return { project, tasks }
 }
 
@@ -185,7 +201,7 @@ export async function quarterlyReview(projectId?: string, model?: string): Promi
     ? projects.filter(p => p.id === projectId)
     : projects.filter(p => (p as any).status !== 'released')
 
-  const allTasks = loadTasks('active') as TaskSummary[]
+  const allTasks = loadTaskSummaries()
 
   let userMsg = `当前日期：${now.toISOString().slice(0, 10)}
 复盘区间：${q90.toISOString().slice(0, 10)} ~ ${now.toISOString().slice(0, 10)}
@@ -194,7 +210,7 @@ export async function quarterlyReview(projectId?: string, model?: string): Promi
 
   for (const proj of targetProjects) {
     const pid = proj.id
-    const projTasks = allTasks.filter(t => t.project === pid)
+    const projTasks = allTasks.filter(t => taskInProject(t, pid))
     const delivered = projTasks.filter(t => t.status === '完成' && t.updated && new Date(t.updated) > q90)
     const stuck = projTasks.filter(t => ['进行中', '待办'].includes(t.status || ''))
     const unplanned = projTasks.filter(t => !t.batch || t.batch === '临时')
@@ -218,7 +234,7 @@ export async function quarterlyReview(projectId?: string, model?: string): Promi
 // ── 5. Roadmap Generation ───────────────────────────────────────────────
 
 export async function generateRoadmap(goal?: string, projectId?: string, model?: string): Promise<string> {
-  const allTasks = loadTasks('active') as TaskSummary[]
+  const allTasks = loadTaskSummaries()
 
   let roadmapText = ''
   const projects = projectId
@@ -226,7 +242,7 @@ export async function generateRoadmap(goal?: string, projectId?: string, model?:
     : parseRegistry().map(p => ({ id: p.id, name: p.name || p.id }))
 
   for (const proj of projects) {
-    const projTasks = allTasks.filter(t => t.project === proj.id)
+    const projTasks = allTasks.filter(t => taskInProject(t, proj.id))
     if (projTasks.length === 0) continue
 
     roadmapText += `\n## ${proj.name}\n`

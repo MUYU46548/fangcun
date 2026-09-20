@@ -9,6 +9,8 @@ import * as tasks from './data/tasks'
 import * as services from './services'
 import * as todosService from './services/todos'
 import * as logsService from './services/logs'
+import * as notificationsService from './services/notifications'
+import * as notifierService from './services/notifier'
 import * as path from 'path'
 import * as fs from 'fs'
 import { execSync } from 'child_process'
@@ -587,6 +589,35 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('detectEvents', (_event, eventType: string) => {
     return tasks.detectEvents(eventType)
+  })
+
+  // ── Notifications（通知中心） ─────────────────────────────────────
+  ipcMain.handle('notifications:list', (_event, filter?: { unreadOnly?: boolean }) => {
+    return notificationsService.listNotifications(filter)
+  })
+
+  ipcMain.handle('notifications:unreadCount', () => {
+    return notificationsService.getUnreadCount()
+  })
+
+  ipcMain.handle('notifications:markRead', (_event, id: string) => {
+    return notificationsService.markRead(id)
+  })
+
+  ipcMain.handle('notifications:markAllRead', () => {
+    return notificationsService.markAllRead()
+  })
+
+  ipcMain.handle('notifications:delete', (_event, id: string) => {
+    return notificationsService.deleteNotification(id)
+  })
+
+  ipcMain.handle('notifications:clear', () => {
+    return notificationsService.clearAll()
+  })
+
+  ipcMain.handle('notifications:scan', () => {
+    return notifierService.scanOnce()
   })
 
   ipcMain.handle('cronCheck', () => {

@@ -114,8 +114,17 @@ contextBridge.exposeInMainWorld('tegula', {
   getRoadmapTrend: (days?: number) => ipcRenderer.invoke('getRoadmapTrend', days),
   detectParallelOpportunities: () => ipcRenderer.invoke('detectParallelOpportunities'),
   suggestMilestones: () => ipcRenderer.invoke('suggestMilestones'),
-  detectEvents: (eventType: string) => ipcRenderer.invoke('detectEvents', eventType),
+
   cronCheck: () => ipcRenderer.invoke('cronCheck'),
+
+  // ── Notifications（通知中心） ──
+  notificationsList: (filter?: { unreadOnly?: boolean }) => ipcRenderer.invoke('notifications:list', filter),
+  notificationsUnreadCount: () => ipcRenderer.invoke('notifications:unreadCount'),
+  notificationsMarkRead: (id: string) => ipcRenderer.invoke('notifications:markRead', id),
+  notificationsMarkAllRead: () => ipcRenderer.invoke('notifications:markAllRead'),
+  notificationsDelete: (id: string) => ipcRenderer.invoke('notifications:delete', id),
+  notificationsClear: () => ipcRenderer.invoke('notifications:clear'),
+  notificationsScan: () => ipcRenderer.invoke('notifications:scan'),
 
   // Services / Workbench
   scanServices: () => ipcRenderer.invoke('scanServices'), 

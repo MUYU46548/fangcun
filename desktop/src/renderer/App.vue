@@ -48,11 +48,14 @@
           <span v-else>💾</span>
           <span v-if="bkAlert" class="bk-alert-dot"></span>
         </button>
+        <button v-if="ncReady" class="ghost nc-bell" title="通知中心" @click.stop="ncToggle">
+          <span>🔔</span>
+          <span v-if="ncUnread > 0" class="nc-badge">{{ ncUnread > 99 ? '99+' : ncUnread }}</span>
+        </button>
         <button class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
           <span v-if="!batchMode">☑</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
-        <button class="ghost notify-btn" @click="toggleNotifyPanel">🔔<span v-if="unreadCount" class="notify-badge">{{ unreadCount }}</span></button>
         <button class="ghost" @click="showSettings">⚙</button>
       </span>
     </header>
@@ -802,6 +805,66 @@
       </div>
     </div>
 
+    <!-- ═══════════ Notification Center（通知中心，原型规格移植） ═══════════ -->
+    <div v-if="ncOpen" class="nc-wrap" @mousedown.self="closePanel">
+      <div class="nc-panel">
+        <header class="nc-head">
+          <div class="nc-head-title">
+            <h1>通知中心 <span v-if="ncUnread > 0" class="nc-count">{{ ncUnread }}</span></h1>
+            <p>{{ ncHeadSub }}</p>
+          </div>
+          <div class="nc-head-act">
+            <button class="nc-icon-btn" :class="{ spin: ncLoading }" title="刷新" @click="ncRefresh">
+              <span class="nc-ico">⟳</span>
+            </button>
+            <button class="nc-btn-primary" :disabled="ncUnread === 0" @click="ncMarkAllRead">✓ 全部标为已读</button>
+            <button class="nc-icon-btn" title="关闭" @click="closePanel">✕</button>
+          </div>
+        </header>
+
+        <div class="nc-filters">
+          <div class="nc-seg">
+            <button :class="{ on: ncFilter === 'all' }" @click="ncSetFilter('all')">全部<span class="n">{{ ncCounts.all }}</span></button>
+            <button :class="{ on: ncFilter === 'unread' }" @click="ncSetFilter('unread')">未读<span class="n">{{ ncCounts.unread }}</span></button>
+            <button :class="{ on: ncFilter === 'read' }" @click="ncSetFilter('read')">已读<span class="n">{{ ncCounts.read }}</span></button>
+          </div>
+        </div>
+
+        <div class="nc-list">
+          <div v-for="n in ncVisible" :key="n.id" class="nc-item" :class="n.read ? 'read' : 'unread'" @click="ncClickItem(n)">
+            <div class="nc-av" :class="'nc-av-' + (NC_TYPE_META[n.type]?.icon || 'system')">
+              {{ NC_TYPE_META[n.type]?.glyph || '•' }}
+            </div>
+            <div class="nc-body">
+              <div class="nc-meta">
+                <span class="nc-tag" :class="'nc-t-' + (NC_TYPE_META[n.type]?.icon || 'system')">{{ NC_TYPE_META[n.type]?.label || n.type }}</span>
+                <span v-if="n.level === 'error'" class="nc-prio">紧急</span>
+              </div>
+              <div class="nc-row1">
+                <div class="nc-title">{{ n.title }}</div>
+                <div class="nc-time">{{ ncRelTime(n.updatedAt) }}</div>
+              </div>
+              <div v-if="n.body" class="nc-content">{{ n.body }}</div>
+            </div>
+            <div class="nc-acts">
+              <button class="nc-act keep" :title="n.read ? '标为已读' : '标为已读'" @click.stop="ncToggleRead(n)">✓</button>
+              <button class="nc-act danger" title="删除通知" @click.stop="ncDelete(n)">🗑</button>
+            </div>
+          </div>
+          <div v-if="ncVisible.length === 0" class="nc-empty">
+            <div class="nc-empty-ic">🔔</div>
+            <h3>{{ ncFilter === 'unread' ? '没有未读通知' : '暂无通知' }}</h3>
+            <p>这里会显示待办到期、任务逾期、解析失败与备份失败等事件</p>
+          </div>
+        </div>
+
+        <footer class="nc-foot">
+          <div class="stat">共 <b>{{ ncCounts.all }}</b> 条 · 未读 <b>{{ ncCounts.unread }}</b> 条</div>
+          <button class="nc-link" @click="ncClearAll">清空历史 →</button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Settings modal -->
     <div id="soverlay" class="overlay" v-if="showSettings_" @click.self="showSettings_ = false">
       <div id="smodal">
@@ -971,36 +1034,7 @@
       </div>
     </div>
 
-    <!-- Notification panel -->
-    <div v-if="showNotifyPanel" class="notify-overlay" @click.self="showNotifyPanel = false">
-      <div class="notify-panel">
-        <div class="notify-header">
-          <h3>🔔 通知</h3>
-          <div class="notify-ctrls">
-            <button class="ghost" @click="refreshNotifications">⟳ 刷新</button>
-            <button class="ghost" @click="clearNotifications">清空</button>
-            <button class="ghost" @click="showNotifyPanel = false">✕</button>
-          </div>
-        </div>
-        <div class="notify-list">
-          <div v-if="!notifyCache.length" class="notify-empty">暂无通知</div>
-          <div
-            v-for="(n, i) in notifyCache"
-            :key="n.ts + i"
-            class="notify-item"
-            :class="['nt-' + n.type, { expanded: n.expanded }]"
-            @click="toggleNotify(i)"
-          >
-            <span class="notify-icon">{{ n.type === 'success' ? '✅' : n.type === 'error' ? '❌' : 'ℹ️' }}</span>
-            <div class="notify-body">
-              <div class="notify-msg">{{ n.msg }}</div>
-              <div class="notify-time">{{ formatRelativeTime(n.timestamp) }}</div>
-            </div>
-            <button class="notify-del" @click.stop="deleteNotify(i)" title="删除">×</button>
-          </div>
-        </div>
-      </div>
-    </div>
+
 
     <!-- Suggestion Modal (direct access from top bar 💡) -->
     <div v-if="suggestModal" class="overlay" @click.self="suggestModal = null">
@@ -1231,7 +1265,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -1723,143 +1757,147 @@ const roadmapData = ref<any>({ projects: [] })
 const crossSugs = ref<string[]>([])
 const projectProgress = ref<Record<string, any>>({})
 
+// ── 通知中心（Notification Center）─────────────────────────────────
+// UI 按用户原型 notification-center.html 移植；数据走 notifications:* IPC
+const NC_TYPE_META: Record<string, { icon: string; label: string; glyph: string }> = {
+  'todo-due':      { icon: 'calendar', label: '待办到期', glyph: '📅' },
+  'task-deadline': { icon: 'task',     label: '任务逾期', glyph: '📋' },
+  'task-timeout':  { icon: 'approve',  label: '超时未回写', glyph: '⏱' },
+  'parse-error':   { icon: 'security', label: '解析失败', glyph: '⚠' },
+  'backup-failed': { icon: 'storage',  label: '备份失败', glyph: '💾' },
+}
+const ncOpen = ref(false)
+const ncReady = ref(false)
+const ncLoading = ref(false)
+const ncUnread = ref(0)
+const ncItems = ref<any[]>([])
+const ncFilter = ref<'all' | 'unread' | 'read'>('all')
+let ncTimer: number | null = null
+
+const ncCounts = computed(() => {
+  const unread = ncItems.value.filter(n => !n.read).length
+  return { all: ncItems.value.length, unread, read: ncItems.value.length - unread }
+})
+const ncVisible = computed(() => {
+  return ncItems.value.filter(n => {
+    if (ncFilter.value === 'unread' && n.read) return false
+    if (ncFilter.value === 'read' && !n.read) return false
+    return true
+  })
+})
+const ncHeadSub = computed(() => ncUnread.value
+  ? `你有 ${ncUnread.value} 条未读通知`
+  : '全部通知均已读')
+
+function ncRelTime(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (isNaN(t)) return ''
+  const diff = Date.now() - t
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return `${Math.floor(diff / 86_400_000)} 天前`
+}
+
+async function ncLoad(): Promise<void> {
+  try {
+    const [list, unread] = await Promise.all([
+      (window as any).tegula.notificationsList(),
+      (window as any).tegula.notificationsUnreadCount(),
+    ])
+    ncItems.value = list || []
+    ncUnread.value = unread || 0
+  } catch { /* IPC 失败静默，ncReady 已做入口探测 */ }
+}
+
+async function ncRefresh(): Promise<void> {
+  if (ncLoading.value) return
+  ncLoading.value = true
+  try {
+    await (window as any).tegula.notificationsScan()
+    await ncLoad()
+  } catch { /* ignore */ }
+  setTimeout(() => { ncLoading.value = false }, 400)
+}
+
+function ncToggle(): void {
+  if (ncOpen.value) { closePanel(); return }
+  ncOpen.value = true
+  ncLoad()
+}
+
+function closePanel(): void {
+  ncOpen.value = false
+}
+
+function ncSetFilter(f: 'all' | 'unread' | 'read'): void {
+  ncFilter.value = f
+}
+
+async function ncClickItem(n: any): Promise<void> {
+  if (!n.read) {
+    try {
+      await (window as any).tegula.notificationsMarkRead(n.id)
+      n.read = true
+      ncUnread.value = Math.max(0, ncUnread.value - 1)
+    } catch { /* ignore */ }
+  }
+}
+
+async function ncToggleRead(n: any): Promise<void> {
+  try {
+    await (window as any).tegula.notificationsMarkRead(n.id)
+    if (!n.read) { n.read = true; ncUnread.value = Math.max(0, ncUnread.value - 1) }
+  } catch { /* ignore */ }
+}
+
+async function ncMarkAllRead(): Promise<void> {
+  try {
+    await (window as any).tegula.notificationsMarkAllRead()
+    await ncLoad()
+  } catch { /* ignore */ }
+}
+
+async function ncDelete(n: any): Promise<void> {
+  try {
+    await (window as any).tegula.notificationsDelete(n.id)
+    await ncLoad()
+  } catch { /* ignore */ }
+}
+
+async function ncClearAll(): Promise<void> {
+  try {
+    await (window as any).tegula.notificationsClear()
+    await ncLoad()
+  } catch { /* ignore */ }
+}
+
+function onDocumentClick(e: MouseEvent): void {
+  if (!ncOpen.value) return
+  const wrap = (e.target as HTMLElement).closest('.nc-wrap, .nc-panel, .nc-bell')
+  if (!wrap) closePanel()
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && ncOpen.value) closePanel()
+}
+
+function ncInit(): void {
+  const t = (window as any).tegula
+  ncReady.value = !!(t && typeof t.notificationsList === 'function')
+  if (!ncReady.value) return  // preload 未暴露通知 IPC → 隐藏铃铛（防僵尸按钮）
+  document.addEventListener('mousedown', onDocumentClick)
+  document.addEventListener('keydown', onKeydown)
+  ncLoad()
+  // 30s 轮询未读数（轻量，只拉计数）
+  ncTimer = window.setInterval(() => {
+    (window as any).tegula.notificationsUnreadCount().then((c: number) => { ncUnread.value = c || 0 }).catch(() => {})
+  }, 30_000)
+}
+
 const toast = reactive({ show: false, msg: '', type: 'info' })
 
-// ── Notification system ───────────────────────────────────────────────
-const NOTIFY_CACHE_KEY = 'tegula_notify'
-const NOTIFY_MAX = 50
-const NOTIFY_RULES_KEY = 'tegula_notify_rules'
 
-interface NotifyRule {
-  id: string
-  name: string
-  enabled: boolean
-  type: 'timeout' | 'stuck' | 'event'
-  threshold?: number
-}
-
-function loadNotifyRules(): NotifyRule[] {
-  try {
-    const raw = localStorage.getItem(NOTIFY_RULES_KEY)
-    if (!raw) return getDefaultNotifyRules()
-    return JSON.parse(raw)
-  } catch {
-    return getDefaultNotifyRules()
-  }
-}
-
-function getDefaultNotifyRules(): NotifyRule[] {
-  return [
-    { id: 'rule-timeout', name: '超时任务提醒', enabled: true, type: 'timeout', threshold: 48 },
-    { id: 'rule-stuck', name: '卡住项目提醒', enabled: true, type: 'stuck' },
-    { id: 'rule-event', name: '事件提醒', enabled: true, type: 'event' },
-  ]
-}
-
-function saveNotifyRules(rules: NotifyRule[]): void {
-  localStorage.setItem(NOTIFY_RULES_KEY, JSON.stringify(rules))
-}
-
-const notifyRules = ref<NotifyRule[]>(loadNotifyRules())
-
-interface NotifyItem {
-  ts: string
-  timestamp: number
-  msg: string
-  type: 'success' | 'error' | 'info'
-  read: boolean
-  expanded: boolean
-}
-
-function loadNotifyCache(): NotifyItem[] {
-  try {
-    const raw = localStorage.getItem(NOTIFY_CACHE_KEY)
-    if (!raw) return []
-    const items: any[] = JSON.parse(raw)
-    return items.map((n: any) => ({
-      ...n,
-      timestamp: n.timestamp ?? Date.now(),
-      expanded: n.expanded ?? false,
-    }))
-  } catch {
-    return []
-  }
-}
-
-function saveNotifyCache(items: NotifyItem[]) {
-  localStorage.setItem(NOTIFY_CACHE_KEY, JSON.stringify(items))
-}
-
-const notifyCache = ref<NotifyItem[]>(loadNotifyCache())
-const showNotifyPanel = ref(false)
-
-const unreadCount = computed(() => notifyCache.value.filter(n => !n.read).length)
-
-function formatRelativeTime(ts: number): string {
-  if (!ts) return ''
-  const diff = Date.now() - ts
-  const sec = Math.floor(diff / 1000)
-  if (sec < 60) return `${sec}秒前`
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}分钟前`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}小时前`
-  const day = Math.floor(hr / 24)
-  return `${day}天前`
-}
-
-function addNotify(msg: string, type: 'success' | 'error' | 'info' = 'info') {
-  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-  // Deduplication: skip if same ts+msg already exists
-  const exists = notifyCache.value.some(n => n.ts === ts && n.msg === msg)
-  if (exists) return
-  notifyCache.value.unshift({ ts, timestamp: Date.now(), msg, type, read: false, expanded: false })
-  if (notifyCache.value.length > NOTIFY_MAX) notifyCache.value.pop()
-  saveNotifyCache(notifyCache.value)
-}
-
-function toggleNotify(index: number) {
-  notifyCache.value[index].expanded = !notifyCache.value[index].expanded
-  saveNotifyCache(notifyCache.value)
-}
-
-function deleteNotify(index: number) {
-  notifyCache.value.splice(index, 1)
-  saveNotifyCache(notifyCache.value)
-}
-
-async function toggleNotifyPanel() {
-  showNotifyPanel.value = !showNotifyPanel.value
-  if (showNotifyPanel.value) {
-    await refreshNotifications()
-  }
-}
-
-async function refreshNotifications() {
-  try {
-    const result = await window.tegula.detectEvents('all')
-    if (result) {
-      addNotify(result, 'info')
-    } else {
-      addNotify('未检测到异常事件', 'success')
-    }
-  } catch (err: any) {
-    addNotify(`刷新失败: ${err.message || err}`, 'error')
-  }
-}
-
-function clearNotifications() {
-  notifyCache.value = []
-  saveNotifyCache(notifyCache.value)
-}
-
-// Mark all as read when panel is opened
-watch(showNotifyPanel, (val) => {
-  if (val) {
-    notifyCache.value.forEach(n => { n.read = true })
-    saveNotifyCache(notifyCache.value)
-  }
-})
 
 // Logs polling: refresh logs list every 5s when viewing logs
 watch(curView, (val) => {
@@ -3635,6 +3673,13 @@ onMounted(() => {
   loadAll()
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
   bkInitBackup()
+  ncInit()
+})
+
+onUnmounted(() => {
+  if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
+  document.removeEventListener('mousedown', onDocumentClick)
+  document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -4084,61 +4129,7 @@ body {
 .dp-chosen { font-size: 11px; color: var(--success); font-weight: 500; }
 
 /* Notification system */
-.notify-btn { position: relative; }
-.notify-badge {
-  position: absolute; top: -4px; right: -4px;
-  background: #e5484d; color: #fff; font-size: 9px; font-weight: 700;
-  min-width: 16px; height: 16px; border-radius: 999px;
-  display: flex; align-items: center; justify-content: center;
-  padding: 0 4px; line-height: 1;
-}
-.notify-overlay {
-  position: fixed; inset: 0; background: rgba(60,65,80,0.32);
-  backdrop-filter: blur(4px); display: flex; align-items: flex-start;
-  justify-content: flex-end; z-index: 100; padding: 50px 20px 0 0;
-}
-.notify-panel {
-  background: #fff; border-radius: 16px; width: 420px; max-height: 70vh;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18); border: 1px solid var(--border);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-.notify-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 14px 16px; border-bottom: 1px solid var(--border);
-}
-.notify-header h3 { margin: 0; font-size: 15px; color: var(--ink); }
-.notify-ctrls { display: flex; gap: 6px; }
-.notify-ctrls button {
-  padding: 4px 10px; font-size: 11px; border: 1px solid var(--border);
-  border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer;
-  font-weight: 600;
-}
-.notify-ctrls button:hover { background: #f4f1fc; border-color: var(--accent); }
-.notify-list { overflow-y: auto; flex: 1; padding: 8px; }
-.notify-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 30px 0; }
-.notify-item {
-  display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px;
-  border-left: 3px solid var(--border); background: #fafafa; margin-bottom: 6px;
-  transition: background 0.15s;
-  cursor: pointer; position: relative;
-}
-.notify-item:hover { background: #f4f1fc; }
-.notify-item.nt-success { border-left-color: var(--success); }
-.notify-item.nt-error { border-left-color: var(--danger); }
-.notify-item.nt-info { border-left-color: var(--accent); }
-.notify-icon { font-size: 14px; flex: none; }
-.notify-body { flex: 1; min-width: 0; }
-.notify-msg { font-size: 12px; color: var(--ink); line-height: 1.4; word-break: break-word; }
-.notify-time { font-size: 10px; color: var(--muted); margin-top: 3px; }
-.notify-item.expanded .notify-msg {
-  white-space: pre-wrap; overflow: visible;
-}
-.notify-del {
-  flex: none; background: none; border: none; font-size: 16px;
-  color: var(--muted); cursor: pointer; padding: 0 4px; line-height: 1;
-  border-radius: 4px; align-self: flex-start; margin-top: 2px;
-}
-.notify-del:hover { color: var(--danger); background: #fce4e4; }
+
 
 /* Empty state */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; }
@@ -4610,5 +4601,165 @@ body {
 .review-task-title { font-size: 14px; font-weight: 700; }
 .review-task-id { font-size: 11px; color: var(--muted); }
 .review-reason { width: 100%; box-sizing: border-box; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.5; }
+
+/* ============ Notification Center（原型 notification-center.html 移植） ============ */
+.nc-bell { position: relative; }
+.nc-badge {
+  position: absolute; top: -4px; right: -4px;
+  background: #FF3B30; color: #fff; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 99px; min-width: 16px; text-align: center;
+  box-shadow: 0 2px 7px rgba(255,59,48,.36);
+  animation: nc-pop .5s cubic-bezier(.34,1.4,.64,1) both;
+}
+@keyframes nc-pop { from { transform: scale(.4); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+
+.nc-wrap {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(30,30,40,.32); backdrop-filter: blur(4px);
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 60px 24px 24px;
+}
+.nc-panel {
+  width: 460px; max-width: calc(100vw - 48px); max-height: calc(100vh - 120px);
+  background: #fff; border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: nc-in .34s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes nc-in { from { opacity: 0; transform: translateY(-10px) scale(.98) } to { opacity: 1; transform: none } }
+
+.nc-head { padding: 16px 18px 0; border-bottom: 1px solid var(--border); }
+.nc-head-title h1 { font-size: 17px; font-weight: 700; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
+.nc-count {
+  background: #FF3B30; color: #fff; font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 99px; min-width: 20px; text-align: center;
+  box-shadow: 0 2px 7px rgba(255,59,48,.36);
+}
+.nc-head-title p { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.nc-head-act { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.nc-icon-btn {
+  width: 30px; height: 30px; padding: 0; border-radius: 8px;
+  border: 1px solid var(--border); background: rgba(255,255,255,.6); color: var(--muted);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; transition: background .16s, color .16s;
+}
+.nc-icon-btn:hover { background: #fff; color: var(--ink); }
+.nc-icon-btn.spin .nc-ico { display: inline-block; animation: nc-spin .7s cubic-bezier(.16,1,.3,1); }
+@keyframes nc-spin { to { transform: rotate(360deg) } }
+.nc-btn-primary {
+  height: 30px; padding: 0 12px; border-radius: 8px; border: 0;
+  background: var(--ink); color: #fff; font-size: 12px; font-weight: 600;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+  font-family: inherit; transition: opacity .16s;
+}
+.nc-btn-primary:disabled { opacity: .35; cursor: default; }
+
+.nc-filters { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+.nc-seg { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(0,0,0,.05); }
+.nc-seg button {
+  border: 0; background: transparent; font-family: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--muted); cursor: pointer; padding: 4px 12px; border-radius: 7px;
+  display: inline-flex; align-items: center; gap: 6px; transition: color .2s; white-space: nowrap;
+}
+.nc-seg button:hover { color: var(--ink); }
+.nc-seg button.on { color: var(--ink); background: #fff; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.nc-seg .n { font-size: 11px; font-weight: 600; color: var(--muted); }
+.nc-seg button.on .n { color: var(--accent); }
+
+.nc-list { flex: 1; overflow-y: auto; padding: 4px 0 8px; }
+.nc-item {
+  position: relative; display: grid; grid-template-columns: auto 1fr auto;
+  gap: 12px; padding: 12px 18px 12px 22px;
+  border-bottom: 1px solid rgba(0,0,0,.04); cursor: pointer; overflow: hidden;
+  transition: background .18s;
+  animation: nc-item-in .4s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes nc-item-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+.nc-item:hover { background: rgba(0,0,0,.028); }
+.nc-item.unread { background: rgba(155,143,196,.06); }
+.nc-item.unread:hover { background: rgba(155,143,196,.11); }
+.nc-item.unread::before {
+  content: ''; position: absolute; left: 10px; top: 20px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 3.5px rgba(155,143,196,.15);
+}
+.nc-av {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 3px 9px rgba(0,0,0,.08);
+  transition: transform .3s cubic-bezier(.34,1.4,.64,1);
+}
+.nc-item:hover .nc-av { transform: scale(1.06); }
+.nc-av-system { background: linear-gradient(140deg,#9b8fc4,#6d5fa8); }
+.nc-av-calendar { background: linear-gradient(140deg,#FF2D55,#C41E3A); }
+.nc-av-task { background: linear-gradient(140deg,#34C759,#2AA148); }
+.nc-av-approve { background: linear-gradient(140deg,#FF9500,#D97706); }
+.nc-av-security { background: linear-gradient(140deg,#FF3B30,#C41E3A); }
+.nc-av-storage { background: linear-gradient(140deg,#FFCC00,#FF9500); }
+
+.nc-body { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 1px; }
+.nc-meta { display: flex; align-items: center; gap: 7px; }
+.nc-tag { font-size: 10.5px; font-weight: 600; padding: 1.5px 6.5px; border-radius: 5px; white-space: nowrap; }
+.nc-t-system { color: #6d5fa8; background: rgba(155,143,196,.15); }
+.nc-t-calendar { color: #C41E3A; background: rgba(255,45,85,.12); }
+.nc-t-task { color: #1E8E3E; background: rgba(52,199,89,.15); }
+.nc-t-approve { color: #B26700; background: rgba(255,149,0,.15); }
+.nc-t-security { color: #C41E3A; background: rgba(255,59,48,.12); }
+.nc-t-storage { color: #9A6B00; background: rgba(255,204,0,.2); }
+.nc-prio {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+  color: #fff; background: #FF3B30; padding: 1.5px 5.5px; border-radius: 5px;
+}
+.nc-row1 { display: flex; align-items: baseline; gap: 9px; }
+.nc-title {
+  font-size: 13px; font-weight: 600; line-height: 1.4; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nc-item.read .nc-title { color: var(--muted); font-weight: 500; }
+.nc-time { font-size: 11px; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.nc-content {
+  font-size: 12.5px; color: var(--ink); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-all;
+}
+.nc-item.read .nc-content { color: var(--muted); }
+
+.nc-acts {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0; align-self: center; padding-left: 6px;
+  opacity: 0; transform: translateX(7px); pointer-events: none;
+  transition: opacity .2s, transform .24s;
+}
+.nc-item:hover .nc-acts, .nc-item:focus-within .nc-acts { opacity: 1; transform: none; pointer-events: auto; }
+.nc-act {
+  width: 27px; height: 27px; border-radius: 7px; border: 0; background: transparent;
+  color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; transition: background .16s, color .16s;
+}
+.nc-act:hover { background: rgba(0,0,0,.07); color: var(--ink); }
+.nc-act.danger:hover { background: rgba(255,59,48,.12); color: #FF3B30; }
+.nc-act.keep { color: var(--success); }
+
+.nc-empty { padding: 56px 24px; text-align: center; }
+.nc-empty-ic {
+  width: 52px; height: 52px; border-radius: 14px; margin: 0 auto 12px;
+  background: rgba(0,0,0,.04); color: var(--muted);
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+}
+.nc-empty h3 { font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+.nc-empty p { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+.nc-foot {
+  padding: 10px 18px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: rgba(255,255,255,.4);
+}
+.nc-foot .stat { font-size: 12px; color: var(--muted); }
+.nc-foot .stat b { color: var(--ink); font-weight: 600; }
+.nc-link {
+  color: var(--accent); border: 0; background: transparent; cursor: pointer;
+  font-size: 12.5px; font-weight: 500; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.nc-link:hover { text-decoration: underline; }
 
 </style>

@@ -3,6 +3,8 @@ import * as path from 'path'
 import { registerIpcHandlers } from './main/ipc'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
+import { startScheduler } from './main/backup/scheduler'
+import { startScanner, stopScanner } from './main/services/notifier'
 
 const isDev = !app.isPackaged
 
@@ -26,6 +28,9 @@ function createWindow(): void {
   })
 
   registerIpcHandlers()
+
+  // 24 寸显示器默认最大化
+  mainWindow.maximize()
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
@@ -68,6 +73,8 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   startMCPServer()
+  startScheduler()
+  startScanner()
   
   // Initialize auto-updater
   initUpdater(mainWindow)
@@ -88,4 +95,5 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   stopMCPServer()
+  stopScanner()
 })

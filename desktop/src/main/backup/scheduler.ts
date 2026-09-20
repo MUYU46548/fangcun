@@ -10,6 +10,7 @@
 import { BrowserWindow, Notification } from 'electron'
 import { getBackupConfig, getBackupState, appendBackupLog, BackupState } from './config'
 import { runBackup, RunResult } from './index'
+import * as notifier from '../services/notifier'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -93,6 +94,10 @@ async function tick(trigger: 'manual' | 'scheduled' | 'startup'): Promise<RunRes
       if (st.failStreak >= FAIL_NOTIFY_THRESHOLD && st.failStreak > lastFailNotifiedStreak) {
         lastFailNotifiedStreak = st.failStreak
         notify('方寸备份失败', `${st.failStreak} 次连续失败：${first}`)
+        // 同步写入通知中心（铃铛面板可见、可消解）
+        try {
+          notifier.reportBackupFailure(st.failStreak, first)
+        } catch { /* 通知中心写入失败不阻塞备份流程 */ }
       }
     }
   } catch (e) {
