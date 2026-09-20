@@ -6,6 +6,15 @@ import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
 import { startScanner, stopScanner } from './main/services/notifier'
 
+// ── userData 目录统一（发版阻塞项，2026-09-20 修复）──
+// Electron 默认 userData 在打包态取 productName（= %APPDATA%/方寸），
+// dev 态取 package.json name（= %APPDATA%/fangcun-desktop）——
+// 两侧不一致会让安装版的 LLM 配置/通知/备份状态读不到或重新初始化。
+// 统一固定为 fangcun-desktop（dev 态真实数据所在，保持连续性）。
+// 必须在 app ready 之前执行；已核实全部消费方（llm/config、backup/config、
+// launchpad/config、data/index）均为函数内懒调用 getPath，import 阶段无读取。
+app.setPath('userData', path.join(app.getPath('appData'), 'fangcun-desktop'))
+
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
