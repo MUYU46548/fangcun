@@ -232,10 +232,11 @@
         <div class="todos-ctrls">
           <input
             v-model="todoInput"
-            placeholder="添加待办（Enter，尾缀 p0/p1/p2 定优先级）；也可直接拖入 txt/md"
+            placeholder="添加待办（尾缀 p0/p1/p2 定优先级）；也可直接拖入 txt/md"
             class="todo-input"
             @keydown.enter="executeTodoAdd"
           />
+          <button class="pri" @click="executeTodoAdd">+ 添加</button>
           <select v-model="todoProjectFilter" class="todo-filter" title="项目联动：筛选后新增待办自动归属该项目">
             <option value="__all__">全部项目</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
@@ -452,6 +453,44 @@
     </div>
 
     <!-- Roadmap view -->
+    <!-- Calendar view -->
+    <main id="board" class="calendar-view" v-else-if="curView === 'calendar'">
+      <div class="calhead">
+        <button class="ghost" @click="calMove(-1)">&#9664; 上月</button>
+        <span class="m">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
+        <button class="ghost" @click="calMove(1)">下月 &#9654;</button>
+        <button class="ghost" @click="calToday">回到本月</button>
+        <span class="cal-hint">拖拽任务到日期格可改截止</span>
+      </div>
+      <div class="calgrid">
+        <div v-for="d in CAL_DOW" :key="d" class="caldow">{{ d }}</div>
+        <div v-for="(cell, i) in calCells" :key="i" class="calcell"
+          :class="{ blank: !cell, today: cell && cell.isToday, past: cell && cell.isPast, dragover: cell && cell.day === calDragOverDay }"
+          @dragover.prevent="cell && (calDragOverDay = cell.day)"
+          @dragleave="calDragOverDay = null"
+          @drop="onCalDrop($event, cell)"
+        >
+          <template v-if="cell">
+            <div class="dnum">{{ cell.day }}</div>
+            <div v-for="t in cell.tasks" :key="t.id" class="cev" draggable="true"
+              @dragstart="onCalDragStart($event, t.id)" @click="openCard(t)">
+              <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
+              <span class="t">{{ t.title || t.id }}</span>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="calunsched">
+        <h4>未安排（{{ calUnscheduled.length }} 个，无截止或本月之外）</h4>
+        <div class="items">
+          <span v-for="t in calUnscheduled" :key="t.id" class="cev" @click="openCard(t)">
+            <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
+            <span class="t">{{ t.title || t.id }}</span>
+          </span>
+        </div>
+      </div>
+    </main>
+
     <main id="board" class="roadmap-view" v-else-if="curView === 'roadmap'">
       <div class="roadmap-header">
         <h3>路线图</h3>
@@ -1706,6 +1745,7 @@ const views = [
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
   { id: 'roadmap', label: '路线图' },
+  { id: 'calendar', label: '日历' },
   { id: 'archive', label: '归档' },
   { id: 'launchpad', label: '启动台' },
 ]
@@ -1940,6 +1980,8 @@ function switchView(v: string) {
     loadTodos()
   } else if (v === 'logs') {
     loadLogs()
+  } else if (v === 'calendar') {
+    loadAll()
   } else {
     loadAll()
   }
@@ -2209,10 +2251,11 @@ function toggleCheck(el: HTMLInputElement) {
   const li = el.closest('li')
   if (!li || !previewTask.value) return
   const body = previewTask.value.body || ''
-  const lines = body.split('\n')
+  // CRLF defense: strip trailing CR from each line before matching
+  const lines = body.split('\n').map(l => l.replace(/\r$/, ''))
   const liText = (li.textContent || '').replace(/^\s+|\s+$/g, '').replace(/^-\s*\[[ x]\]\s*/, '')
   const lineIdx = lines.findIndex(l => {
-    const m = l.match(/^- \[[ x]\]\s*(.*)$/)
+    const m = l.match(/^- \[[ x]\]s*(.*)$/)
     return m && m[1].trim() === liText.trim()
   })
   if (lineIdx === -1) return
@@ -2450,6 +2493,101 @@ async function copyTaskClick(id: string) {
 }
 
 // ── Todos ─────────────────────────────────────────────────────────
+
+// ── Calendar view（从老版 board.html 移植，2026-09-21）──
+const CAL_DOW = ['一', '二', '三', '四', '五', '六', '日']
+const calYear = ref(new Date().getFullYear())
+const calMonth = ref(new Date().getMonth())
+const calDragOverDay = ref<number | null>(null)
+let calDragTaskId: string | null = null
+
+function calMove(delta: number) {
+  let m = calMonth.value + delta
+  let y = calYear.value
+  if (m < 0) { m = 11; y-- } else if (m > 11) { m = 0; y++ }
+  calMonth.value = m; calYear.value = y
+}
+function calToday() {
+  calYear.value = new Date().getFullYear()
+  calMonth.value = new Date().getMonth()
+}
+
+/** 解析截止值：MM-DD / YYYY-MM-DD / ISO；无效返回 null */
+function calParseDue(v: unknown): Date | null {
+  if (!v) return null
+  const s = String(v).trim()
+  let d: Date
+  if (/^\d{1,2}-\d{1,2}$/.test(s)) {
+    const now = new Date()
+    d = new Date(now.getFullYear(), Number(s.split('-')[0]) - 1, Number(s.split('-')[1]))
+    if (d.getTime() < now.getTime() - 180 * 86400000) d.setFullYear(d.getFullYear() + 1)
+  } else {
+    d = new Date(s)
+  }
+  return isNaN(d.getTime()) ? null : d
+}
+
+const calCells = computed(() => {
+  const y = calYear.value, m = calMonth.value
+  const first = new Date(y, m, 1)
+  const lead = (first.getDay() + 6) % 7  // 周一为第一格
+  const days = new Date(y, m + 1, 0).getDate()
+  const today = new Date()
+  // 按日聚合：非终态任务，截止在本月的
+  const byDay: Record<number, Task[]> = {}
+  const base = filteredTasks.value.filter(t => t.status !== '完成' && t.status !== '驳回')
+  for (const t of base) {
+    const d = calParseDue((t as any).deadline || (t as any).fm?.deadline)
+    if (!d) continue
+    if (d.getFullYear() === y && d.getMonth() === m) {
+      (byDay[d.getDate()] = byDay[d.getDate()] || []).push(t)
+    }
+  }
+  const cells: ({ day: number; isToday: boolean; isPast: boolean; tasks: Task[] } | null)[] = []
+  for (let i = 0; i < lead; i++) cells.push(null)
+  for (let d = 1; d <= days; d++) {
+    const isToday = today.getFullYear() === y && today.getMonth() === m && today.getDate() === d
+    const isPast = new Date(y, m, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    cells.push({ day: d, isToday, isPast, tasks: byDay[d] || [] })
+  }
+  return cells
+})
+
+const calUnscheduled = computed(() => {
+  return filteredTasks.value.filter(t => {
+    if (t.status === '完成' || t.status === '驳回') return false
+    const d = calParseDue((t as any).deadline || (t as any).fm?.deadline)
+    return !d || d.getFullYear() !== calYear.value || d.getMonth() !== calMonth.value
+  })
+})
+
+function prioColor(p: any): string {
+  const s = localPriority(p)
+  return s === '高' ? '#c96a6a' : s === '中' ? '#d9a44a' : s === '低' ? '#7a9e6b' : '#d5d3e0'
+}
+
+function onCalDragStart(e: DragEvent, id: string) {
+  calDragTaskId = id
+  e.dataTransfer?.setData('text/plain', id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
+  e.preventDefault()
+  calDragOverDay.value = null
+  if (!cell) return
+  const id = calDragTaskId || e.dataTransfer?.getData('text/plain')
+  calDragTaskId = null
+  if (!id) return
+  const nd = String(cell.day).padStart(2, '0') + '-' + String(calMonth.value + 1).padStart(2, '0')
+  const r = await window.tegula.editTask(id, { deadline: nd })
+  if (r?.ok) {
+    showToast('截止已改为 ' + nd, 'success')
+    loadAll()
+  } else {
+    showToast('修改失败：' + (r?.error || '未知错误'), 'error')
+  }
+}
 
 const filteredTodos = computed(() => {
   let list = todos.value
@@ -3941,6 +4079,28 @@ body {
 .dp-id-auto {
   font-size: 11px; color: var(--muted); font-style: italic;
 }
+
+/* Calendar view（移植自老版 board.html） */
+.calendar-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.calhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.calhead .m { font-size: 15px; font-weight: 700; min-width: 120px; }
+.cal-hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+.calgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.caldow { font-size: 11px; color: var(--muted); text-align: center; font-weight: 700; padding: 3px 0; }
+.calcell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 82px; padding: 4px 5px; overflow: hidden; }
+.calcell.blank { background: transparent; border: 0; }
+.calcell.today { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
+.calcell.past .dnum { color: var(--muted); }
+.calcell.dragover { border-color: var(--accent); background: rgba(155,143,196,.08); }
+.dnum { font-size: 11px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.cev { display: flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 2px 4px; border-radius: 6px; cursor: pointer; overflow: hidden; white-space: nowrap; }
+.cev:hover { background: var(--bg); }
+.cev .pd { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.cev .t { overflow: hidden; text-overflow: ellipsis; }
+.calunsched { margin-top: 12px; }
+.calunsched h4 { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.calunsched .items { display: flex; flex-wrap: wrap; gap: 6px; }
+.calunsched .cev { background: #fff; border: 1px solid var(--border); min-width: 120px; }
 
 /* Todos view */
 .todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
