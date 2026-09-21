@@ -28,14 +28,6 @@
           <option value="today">今天到期</option>
           <option value="week">本周到期</option>
         </select>
-        <input
-          v-model="quickAddInput"
-          placeholder="快速添加: 标题 p1 #tag @user to:待办 due:MM-DD"
-          class="quick-add"
-          @keydown.enter="executeQuickAdd"
-          @input="quickAddError = ''"
-        />
-        <span v-if="quickAddError" class="qa-error">{{ quickAddError }}</span>
         <label class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
         <select v-model="sortMode">
           <option value="active">活跃优先</option>
@@ -398,25 +390,6 @@
       </div>
     </main>
 
-    <!-- Dispatch modal -->
-    <div id="dispatch-overlay" class="overlay" v-if="dispatchModal" @click.self="dispatchModal = null">
-      <div id="dispatch-modal">
-        <h3>⚡ 派活</h3>
-        <div class="dispatch-info">
-          <div class="dispatch-task-title">{{ dispatchModal.title }}</div>
-          <div class="dispatch-task-id">{{ dispatchModal.id }}</div>
-          <div class="dispatch-status">当前状态：{{ dispatchModal.status }}</div>
-        </div>
-        <label>任务书（复制给 agent 执行）</label>
-        <textarea class="dispatch-prompt" readonly>{{ dispatchModal.prompt }}</textarea>
-        <div class="acts">
-          <button class="ghost" @click="dispatchModal = null">取消</button>
-          <button class="ghost" @click="copyDispatchPrompt">📋 复制任务书</button>
-          <button class="pri" @click="executeDispatchClick">▶ 派活</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Review modal -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @click.self="reviewModal = null">
       <div id="review-modal">
@@ -492,29 +465,28 @@
           <div class="acts-group">
             <span class="acts-label">流转</span>
             <button
-              v-if="previewTask.status !== '完成' && previewTask.status !== '驳回'"
-              class="ghost"
-              title="生成本任务的派活命令，并把状态置为「进行中」"
-              @click="dispatchTaskClick(previewTask.id)"
-            >⚡ 派活</button>
-            <button
-              v-if="previewTask.status === '待验收'"
-              class="ok"
-              title="验收通过 → 完成；驳回需填写理由并留痕"
-              @click="openReview(previewTask)"
-            >✅ 验收</button>
-            <button
               v-if="previewTask.status === '完成' || previewTask.status === '驳回'"
               class="ok"
               title="从归档/终态还原回「待办」"
               @click="restoreTask(previewTask)"
             >↩ 还原</button>
-            <button
-              v-else
-              class="warning"
-              title="移入归档视图。仅手动触发，不会自动归档"
-              @click="archiveTask(previewTask)"
-            >📦 归档</button>
+            <template v-else>
+              <button
+                class="ok"
+                title="直接标记完成（跳过验收，适用于挂死/废弃任务）"
+                @click="forceCloseTask(previewTask, '完成')"
+              >✓ 完成</button>
+              <button
+                class="danger"
+                title="直接驳回（跳过验收，适用于挂死/废弃任务）"
+                @click="forceCloseTask(previewTask, '驳回')"
+              >✕ 驳回</button>
+              <button
+                class="warning"
+                title="移入归档视图。仅手动触发，不会自动归档"
+                @click="archiveTask(previewTask)"
+              >📦 归档</button>
+            </template>
           </div>
           <div class="acts-group">
             <span class="acts-label">操作</span>
@@ -1341,8 +1313,6 @@ const searchQuery = ref('')
 const parseErrors = ref<string[]>([])
 const searchIncludeArchive = ref(true)
 const dueFilter = ref('')
-const quickAddInput = ref('')
-const quickAddError = ref('')
 const isNaturalQuery = ref(false)
 const naturalResults = ref<Task[]>([])
 const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
@@ -1740,9 +1710,6 @@ interface Todo {
 const todos = ref<Todo[]>([])
 const todoInput = ref('')
 const todoFilter = ref('all')
-
-// ── Dispatch ───────────────────────────────────────────────────────
-const dispatchModal = ref<{ id: string; title: string; prompt: string; status: string } | null>(null)
 
 // ── Review ─────────────────────────────────────────────────────────
 const reviewModal = ref<{ id: string; title: string } | null>(null)
@@ -2309,23 +2276,7 @@ async function decideDP(planId: string, dpId: string, choice: string) {
 
 
 
-// ── Quick Add ─────────────────────────────────────────────────────────
 
-async function executeQuickAdd() {
-  const text = quickAddInput.value.trim()
-  if (!text) return
-  const result = await window.tegula.quickAdd(text)
-  if (result.ok) {
-    quickAddInput.value = ''
-    quickAddError.value = ''
-    showToast('已创建', 'success')
-    loadAll()
-  } else {
-    quickAddError.value = result.error || '创建失败'
-  }
-}
-
-// ── Batch Ops ─────────────────────────────────────────────────────────
 
 function batchSetStatus(status: string) {
   if (selectedBatch.value.length === 0) return
@@ -2489,6 +2440,20 @@ async function archiveTask(t: Task) {
     loadAll()
   } else {
     showToast(`归档失败: ${result.error || '未知错误'}`, 'error')
+  }
+}
+
+/** 非终态直达完成/驳回：挂死任务（如超时未回写）没有验收方可走，必须给终结入口 */
+async function forceCloseTask(t: Task, status: '完成' | '驳回') {
+  const word = status === '完成' ? '标记完成' : '驳回'
+  if (!confirm(`确认将「${t.title}」直接${word}？\n此操作跳过验收流程（适用于挂死/废弃任务），留痕于结果记录。`)) return
+  const result = await window.tegula.moveStatus(t.id, status)
+  if (result.ok) {
+    previewTask.value = null
+    showToast(`已${word}`, 'success')
+    loadAll()
+  } else {
+    showToast(`${word}失败: ${result.error || '未知错误'}`, 'error')
   }
 }
 
@@ -3005,38 +2970,6 @@ async function executeLogCleanup() {
     await loadLogs()
   } catch {
     showToast('清理失败', 'error')
-  }
-}
-
-// ── Dispatch ───────────────────────────────────────────────────────
-
-async function dispatchTaskClick(id: string) {
-  const result = await window.tegula.dispatchPreview(id)
-  if (result.ok) {
-    dispatchModal.value = { id, title: previewTask.value?.title || id, prompt: result.prompt, status: result.status }
-    previewTask.value = null
-  } else {
-    showToast(result.error || '获取任务书失败', 'error')
-  }
-}
-
-function copyDispatchPrompt() {
-  if (dispatchModal.value) {
-    navigator.clipboard.writeText(dispatchModal.value.prompt)
-    showToast('已复制任务书', 'success')
-  }
-}
-
-async function executeDispatchClick() {
-  if (!dispatchModal.value) return
-  if (!confirm('确认派活？任务状态将变为「进行中」。')) return
-  const result = await window.tegula.dispatchExecute(dispatchModal.value.id)
-  if (result.ok) {
-    showToast('已派活', 'success')
-    dispatchModal.value = null
-    loadAll()
-  } else {
-    showToast(result.error || '派活失败', 'error')
   }
 }
 
@@ -4009,12 +3942,7 @@ body {
 #bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 #bar .chk input { width: 14px; height: 14px; accent-color: var(--accent); }
 
-/* Quick add input */
-#bar input.quick-add { width: 260px; font-size: 11px; color: var(--ink); background: #fff; border: 1px solid var(--border); }
-#bar input.quick-add::placeholder { color: #9ca3af; font-size: 10.5px; }
 
-/* QA error */
-.qa-error { position: absolute; right: 16px; top: 42px; font-size: 11px; color: var(--danger); background: #fff; padding: 2px 8px; border-radius: 6px; border: 1px solid #eedcdc; z-index: 10; white-space: nowrap; }
 
 /* 解析失败提示：任务文件坏掉时必须在界面上可见，不能静默跳过 */
 .parse-warn { font-size: 11px; color: var(--danger); background: #fff; border: 1px solid #eedcdc; border-radius: 6px; padding: 3px 8px; margin-left: 10px; cursor: pointer; white-space: nowrap; flex: none; }
@@ -4586,13 +4514,6 @@ body {
 #log-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
 /* Dispatch modal */
-#dispatch-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
-#dispatch-modal h3 { margin: 0 0 12px; font-size: 16px; }
-.dispatch-info { margin-bottom: 12px; }
-.dispatch-task-title { font-size: 14px; font-weight: 700; }
-.dispatch-task-id { font-size: 11px; color: var(--muted); }
-.dispatch-status { font-size: 11px; color: var(--warning); margin-top: 4px; }
-.dispatch-prompt { width: 100%; box-sizing: border-box; min-height: 200px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 11.5px; font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--bg); resize: vertical; line-height: 1.5; }
 
 /* Review modal */
 #review-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; box-shadow: var(--shadow); border: 1px solid var(--border); }
