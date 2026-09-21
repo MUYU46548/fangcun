@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu } from 'electron'
 import * as path from 'path'
 import { registerIpcHandlers } from './main/ipc'
+import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
@@ -37,6 +38,9 @@ function createWindow(): void {
   })
 
   registerIpcHandlers()
+  // 备份 IPC 此前只注册在假入口 src/main/index.ts（从不被加载）——
+  // 真实入口漏注册导致设置页全部备份按钮是僵尸（2026-09-21 用户实测暴露）
+  registerBackupIpcHandlers()
 
   // 24 寸显示器默认最大化
   mainWindow.maximize()

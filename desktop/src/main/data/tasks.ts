@@ -265,7 +265,7 @@ export function readTask(id: string): Task | null {
   return searchInDir(taskDir)
 }
 
-export function updateTask(id: string, rawFields: Partial<TaskFrontmatter>): Task | null {
+export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { body?: string }): Task | null {
   const task = readTask(id)
   if (!task) return null
 
@@ -274,9 +274,16 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter>): Tas
   }
 
   // 写入前归一：防止 normal/high 这类历史别名被重新写回文件
-  const fields: Partial<TaskFrontmatter> = { ...rawFields }
+  const fields: Partial<TaskFrontmatter> & { body?: string } = { ...rawFields }
   if (fields.priority !== undefined) {
     fields.priority = normalizePriority(fields.priority) as any
+  }
+
+  // body 不属于 frontmatter，单独落到 task.body —— 此前它被合并进 fm 后
+  // 被 renderTask 静默丢弃（renderTask 只输出 task.body），勾选保存全部失效
+  if (fields.body !== undefined) {
+    task.body = String(fields.body)
+    delete fields.body
   }
 
   const now = new Date().toISOString()
