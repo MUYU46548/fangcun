@@ -18,6 +18,7 @@ import * as os from 'os'
 import { registerLlmIpcHandlers } from './llm-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
+import * as policies from './services/policies'
 
 export function registerIpcHandlers(): void {
   // Initialize paths
@@ -152,6 +153,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('batchArchive', (_event, ids: string[]) => {
     return tasks.batchArchive(ids)
+  })
+
+  ipcMain.handle('batchDelete', (_event, ids: string[]) => {
+    return tasks.batchDelete(ids)
   })
 
   // ── Quick Add ───────────────────────────────────────────────────────
@@ -630,6 +635,24 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Launchpad ─────────────────────────────────────────────────────
+  // ── Policies（方针区）──────────────────────────────────────────────
+  ipcMain.handle('policy:get', (_event, projectId: string) => {
+    try { return { ok: true, policy: policies.getPolicy(projectId) } }
+    catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  ipcMain.handle('policy:save', (_event, p: any) => {
+    try { return policies.savePolicy(p) }
+    catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  ipcMain.handle('policy:text', (_event, projectId: string) => {
+    try {
+      const p = policies.getPolicy(projectId)
+      return p ? { ok: true, text: policies.policyToText(p) } : { ok: false, error: '方针卡不存在' }
+    } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
   ipcMain.handle('launchpad:loadApps', () => {
     return launchpad.loadApps()
   })

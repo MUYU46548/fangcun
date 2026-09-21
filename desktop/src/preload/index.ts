@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('tegula', {
   findBlockers: () => ipcRenderer.invoke('findBlockers'),
   batchEdit: (ids: string[], fields: any) => ipcRenderer.invoke('batchEdit', ids, fields),
   batchArchive: (ids: string[]) => ipcRenderer.invoke('batchArchive', ids),
+  batchDelete: (ids: string[]) => ipcRenderer.invoke('batchDelete', ids),
   quickAdd: (text: string) => ipcRenderer.invoke('quickAdd', text),
   naturalQuery: (q: string, opts?: any) => ipcRenderer.invoke('naturalQuery', q, opts),
   // 表单字段清单（唯一来源在主进程 data/index.ts）
@@ -141,6 +142,9 @@ contextBridge.exposeInMainWorld('tegula', {
   llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
 
   // Launchpad
+  policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),
+  policySave: (p: any) => ipcRenderer.invoke('policy:save', p),
+  policyText: (projectId: string) => ipcRenderer.invoke('policy:text', projectId),
   launchpadLoadApps: () => ipcRenderer.invoke('launchpad:loadApps'),
   launchpadAddApp: (app: any) => ipcRenderer.invoke('launchpad:addApp', app),
   launchpadUpdateApp: (id: string, updates: any) => ipcRenderer.invoke('launchpad:updateApp', id, updates),

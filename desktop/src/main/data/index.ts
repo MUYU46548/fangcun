@@ -28,17 +28,29 @@ export function initPaths(): void {
   const cwd = process.cwd()
   const userData = app.getPath('userData')
 
-  // Priority: cwd (dev) → exeDir (portable) → userData (installed)
-  // No hardcoded fallbacks — if none match, use userData
+  // Priority: cwd (dev) → parent dirs (monorepo) → exeDir (portable) → userData (installed)
+  // Walk up from cwd to find registry.yaml or task-data (monorepo: desktop/ → project root)
   let baseDir: string
-  if (fs.existsSync(path.join(cwd, 'registry.yaml')) || fs.existsSync(path.join(cwd, 'task-data'))) {
-    baseDir = cwd
-  } else if (fs.existsSync(path.join(exeDir, 'registry.yaml')) || fs.existsSync(path.join(exeDir, 'task-data'))) {
-    baseDir = exeDir
-  } else if (fs.existsSync(path.join(userData, 'registry.yaml'))) {
-    baseDir = userData
-  } else {
-    baseDir = userData
+  let searchDir = cwd
+  let found = false
+  for (let i = 0; i < 5; i++) {
+    if (fs.existsSync(path.join(searchDir, 'registry.yaml')) || fs.existsSync(path.join(searchDir, 'task-data'))) {
+      baseDir = searchDir
+      found = true
+      break
+    }
+    const parent = path.dirname(searchDir)
+    if (parent === searchDir) break
+    searchDir = parent
+  }
+  if (!found) {
+    if (fs.existsSync(path.join(exeDir, 'registry.yaml')) || fs.existsSync(path.join(exeDir, 'task-data'))) {
+      baseDir = exeDir
+    } else if (fs.existsSync(path.join(userData, 'registry.yaml'))) {
+      baseDir = userData
+    } else {
+      baseDir = userData
+    }
   }
 
   DATA_DIR = baseDir

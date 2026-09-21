@@ -64,7 +64,7 @@
       </button>
     </nav>
 
-    <!-- Batch action bar -->
+    <!-- Batch action bar：固定悬浮在内容区顶部居中，紧邻右上角批量按钮的视线范围 -->
     <div v-if="batchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedBatch.length }}</span>
       <button class="ghost" title="全选 / 取消全选当前视图内的任务" @click="toggleSelectAll">{{ selectedBatch.length === filteredTasks.length ? '取消全选' : '全选' }}</button>
@@ -236,7 +236,7 @@
             class="todo-input"
             @keydown.enter="executeTodoAdd"
           />
-          <button class="pri" @click="executeTodoAdd">+ 添加</button>
+          <button class="ghost" @click="executeTodoAdd">+ 添加</button>
           <select v-model="todoProjectFilter" class="todo-filter" title="项目联动：筛选后新增待办自动归属该项目">
             <option value="__all__">全部项目</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
@@ -291,7 +291,7 @@
             <option value="completed">已完成</option>
             <option value="archived">已归档</option>
           </select>
-          <button @click="openNewLog">+ 新建日志</button>
+          <button class="ghost" @click="openNewLog">+ 新建日志</button>
           <button class="ghost" @click="executeLogCleanup">清理超期</button>
         </div>
       </div>
@@ -304,7 +304,7 @@
           v-for="log in filteredLogs"
           :key="log.id"
           class="log-card"
-          :class="{ completed: log.status === 'completed', archived: log.status === 'archived' }"
+          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived' }"
           @click="openLog(log)"
         >
           <div class="log-card-head">
@@ -314,7 +314,7 @@
           </div>
           <div class="log-card-body">{{ truncate(log.content, 120) }}</div>
           <div class="log-card-meta">
-            <span v-if="log.project" class="log-project">{{ log.project }}</span>
+            <span v-if="log.project" class="log-project">{{ (projects.find(p => p.id === log.project)?.name) || log.project }}</span>
             <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           </div>
@@ -572,6 +572,25 @@
     </div>
 
     <!-- Log edit modal -->
+    <!-- Policy edit modal -->
+    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @click.self="policyEdit_ = null">
+      <div id="policy-modal">
+        <h3>项目方针：{{ policyEdit_.name }}</h3>
+        <label>使命（一句话：这项目是干嘛的）</label>
+        <textarea v-model="policyEdit_.mission" placeholder="例：本地优先的多 agent 任务调度台"></textarea>
+        <label>当前目标（本阶段要达成什么 + 完成判据）</label>
+        <textarea v-model="policyEdit_.goal" placeholder="例：稳定可用、承接真实业务数据"></textarea>
+        <label>应用场景（给谁用、在哪用）</label>
+        <textarea v-model="policyEdit_.scenario" placeholder="例：暮雨个人，桌面日常使用"></textarea>
+        <label>方针边界（怎么干、不干什么）</label>
+        <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
+        <div class="acts">
+          <button class="ghost" @click="policyEdit_ = null">取消</button>
+          <button class="pri" @click="savePolicyEdit">保存方针卡</button>
+        </div>
+      </div>
+    </div>
+
     <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @click.self="logEdit_ = null">
       <div id="log-edit-modal">
         <h3>{{ logCompleting ? '完成日志' : logArchiveMode ? '归档日志' : logEdit_.id ? '编辑日志' : '新建日志' }}</h3>
@@ -892,6 +911,18 @@
 
           <button class="ghost bk-log-toggle" @click="bkToggleLog">📋 {{ bkShowLog ? '收起日志' : '查看备份日志' }}</button>
           <pre v-if="bkShowLog" class="bk-log">{{ bkLogLines.length ? bkLogLines.join('\n') : '(暂无日志)' }}</pre>
+
+          <div class="sect">
+            <label>项目方针</label>
+            <div class="hint" style="margin-bottom:8px">每项目一张方针卡（使命/目标/场景/边界）。派活或开新会话时复制给 agent，替代口头交代。</div>
+            <div class="policy-list">
+              <div v-for="p in projects" :key="'pol-' + p.id" class="policy-row" @click="openPolicyEdit(p.id)">
+                <span class="policy-name">{{ p.name || p.id }}</span>
+                <span class="policy-state" :class="{ has: policyMap[p.id] }">{{ policyMap[p.id] ? '已立' : '未立' }}</span>
+                <button v-if="policyMap[p.id]" class="ghost" title="复制方针文本（粘给 agent）" @click.stop="copyPolicyText(p.id)">复制</button>
+              </div>
+            </div>
+          </div>
 
           <div class="sect-btns" style="margin-top: 12px">
             <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
@@ -2263,6 +2294,9 @@ function toggleCheck(el: HTMLInputElement) {
   lines[lineIdx] = `- [${checked ? 'x' : ' '}] ${liText}`
   const newBody = lines.join('\n')
   previewTask.value = { ...previewTask.value, body: newBody }
+  // 勾选即时反馈：同步看板列表里的同一任务，不等 500ms debounce 落盘
+  const idx = tasks.value.findIndex(t => t.id === previewTask.value!.id)
+  if (idx !== -1) tasks.value[idx] = { ...tasks.value[idx], body: newBody }
   saveCheckChange(previewTask.value.id, newBody)
 }
 
@@ -2493,6 +2527,62 @@ async function copyTaskClick(id: string) {
 }
 
 // ── Todos ─────────────────────────────────────────────────────────
+
+// ── Policies（项目方针）──────────────────────────────────────────────
+const policyMap = ref<Record<string, boolean>>({})
+const policyEdit_ = ref<any>(null)
+
+async function loadPolicyMap() {
+  const map: Record<string, boolean> = {}
+  for (const p of projects.value) {
+    try {
+      const r = await window.tegula.policyGet(p.id)
+      map[p.id] = !!(r.ok && r.policy)
+    } catch { map[p.id] = false }
+  }
+  policyMap.value = map
+}
+
+async function openPolicyEdit(projectId: string) {
+  const proj = projects.value.find(p => p.id === projectId)
+  let mission = '', goal = '', scenario = '', boundary = ''
+  try {
+    const r = await window.tegula.policyGet(projectId)
+    if (r.ok && r.policy) ({ mission, goal, scenario, boundary } = r.policy)
+  } catch { /* 未立则空表单 */ }
+  policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary }
+}
+
+async function savePolicyEdit() {
+  const e = policyEdit_.value
+  if (!e) return
+  try {
+    const r = await window.tegula.policySave({ projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario, boundary: e.boundary })
+    if (r.ok) {
+      showToast('方针卡已保存', 'success')
+      policyEdit_.value = null
+      loadPolicyMap()
+    } else {
+      showToast('保存失败：' + (r.error || '未知错误'), 'error')
+    }
+  } catch (err: any) {
+    showToast('保存失败：' + (err.message || err), 'error')
+  }
+}
+
+async function copyPolicyText(projectId: string) {
+  try {
+    const r = await window.tegula.policyText(projectId)
+    if (r.ok) {
+      await navigator.clipboard.writeText(r.text)
+      showToast('方针已复制，可直接粘给 agent', 'success')
+    } else {
+      showToast(r.error || '复制失败', 'error')
+    }
+  } catch (err: any) {
+    showToast('复制失败：' + (err.message || err), 'error')
+  }
+}
 
 // ── Calendar view（从老版 board.html 移植，2026-09-21）──
 const CAL_DOW = ['一', '二', '三', '四', '五', '六', '日']
@@ -2864,9 +2954,12 @@ async function rejectTask() {
 function onDragStart(e: DragEvent, id: string) {
   draggingId.value = id
   e.dataTransfer?.setData('text/plain', id)
-  // Set effectAllowed for Electron compatibility
+  // 1x1 透明像素作为拖拽图像，消除系统默认的半透明"分身"幻影
+  const img = new Image()
+  img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setDragImage(img, 0, 0)
   }
 }
 
@@ -3037,6 +3130,7 @@ function getProjName(id: string): string {
 // ── Settings / Backup ──────────────────────────────────────────────────
 
 function showSettings() {
+  loadPolicyMap()
   showSettings_.value = true
   // 打开设置时同步备份配置与历史
   bkMsg.value = ''
@@ -3739,8 +3833,14 @@ body {
 .parse-warn { font-size: 11px; color: var(--danger); background: #fff; border: 1px solid #eedcdc; border-radius: 6px; padding: 3px 8px; margin-left: 10px; cursor: pointer; white-space: nowrap; flex: none; }
 .parse-warn:hover { background: #fce4e4; }
 
-/* Batch bar */
-.batch-bar { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: #fffdf5; border-bottom: 1px solid #f0e8d0; font-size: 12px; flex-wrap: wrap; }
+/* Batch bar：悬浮在内容区顶部居中（点击右上角☑按钮后出现在视线附近），带阴影 */
+.batch-bar {
+  position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+  background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(90,90,130,0.18); font-size: 12px; flex-wrap: wrap;
+  max-width: calc(100vw - 32px);
+}
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .batch-actions button { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
@@ -4080,7 +4180,19 @@ body {
   font-size: 11px; color: var(--muted); font-style: italic;
 }
 
-/* Calendar view（移植自老版 board.html） */
+/* Policy（方针区） */
+.policy-list { display: flex; flex-direction: column; gap: 4px; }
+.policy-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.policy-row:hover { border-color: var(--accent); }
+.policy-name { flex: 1; font-size: 12px; font-weight: 600; }
+.policy-state { font-size: 10px; color: var(--muted); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; }
+.policy-state.has { color: #5e9154; border-color: #5e9154; }
+#policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#policy-modal h3 { margin: 0 0 12px; font-size: 16px; }
+#policy-modal label { font-size: 11px; color: var(--muted); margin: 8px 0 4px; display: block; }
+#policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
+
+/* Calendar view（视觉对齐老版 board.html） */
 .calendar-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .calhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .calhead .m { font-size: 15px; font-weight: 700; min-width: 120px; }
@@ -4090,12 +4202,13 @@ body {
 .calcell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 82px; padding: 4px 5px; overflow: hidden; }
 .calcell.blank { background: transparent; border: 0; }
 .calcell.today { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
-.calcell.past .dnum { color: var(--muted); }
-.calcell.dragover { border-color: var(--accent); background: rgba(155,143,196,.08); }
-.dnum { font-size: 11px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
-.cev { display: flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 2px 4px; border-radius: 6px; cursor: pointer; overflow: hidden; white-space: nowrap; }
-.cev:hover { background: var(--bg); }
-.cev .pd { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.calcell.past { background: #fbf4f4; }
+.calcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: #f1eefb; }
+.dnum { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
+.calcell.today .dnum { color: var(--accent); }
+.cev { font-size: 10.5px; background: #f5f4fa; border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; margin-bottom: 3px; cursor: pointer; display: flex; gap: 4px; align-items: center; overflow: hidden; white-space: nowrap; }
+.cev:hover { background: #eef0fb; border-color: var(--accent-soft); }
+.cev .pd { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .cev .t { overflow: hidden; text-overflow: ellipsis; }
 .calunsched { margin-top: 12px; }
 .calunsched h4 { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
@@ -4136,6 +4249,7 @@ body {
 .logs-list { display: flex; flex-direction: column; gap: 8px; }
 .log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); transition: background 0.15s; cursor: pointer; }
 .log-card:hover { background: #f4f1fc; }
+.log-card.active { border-left: 3px solid #6366f1; }
 .log-card.completed { opacity: 0.7; border-left: 3px solid #5e9154; }
 .log-card.archived { opacity: 0.5; border-left: 3px solid #b6b2c4; }
 .log-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -4147,7 +4261,7 @@ body {
 .log-card-date { font-size: 10.5px; color: var(--muted); }
 .log-card-body { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
 .log-card-meta { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); }
-.log-project { font-weight: 500; }
+.log-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .log-task { color: var(--accent); }
 .log-completed { color: #5e9154; }
 .log-card-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }

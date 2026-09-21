@@ -35,6 +35,21 @@ export function batchArchive(ids: string[]): { ok: number; fails: { id: string; 
   return batchEdit(ids, { status: '完成' })
 }
 
+export function batchDelete(ids: string[]): { ok: number; fails: { id: string; error: string }[] } {
+  let ok = 0
+  const fails: { id: string; error: string }[] = []
+  for (const id of ids) {
+    try {
+      const done = deleteTask(id)
+      if (done) ok++
+      else fails.push({ id, error: '任务不存在' })
+    } catch (e: any) {
+      fails.push({ id, error: e.message })
+    }
+  }
+  return { ok, fails }
+}
+
 // ── Quick Add ─────────────────────────────────────────────────────────
 
 const QUICK_PRIO: Record<string, string> = { p0: '高', p1: '中', p2: '低', p3: '低' }
