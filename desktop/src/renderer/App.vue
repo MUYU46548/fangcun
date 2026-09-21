@@ -21,7 +21,6 @@
           <option value="priority">按优先级</option>
         </select>
         <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
-        <button class="ghost suggest-btn" @click="openSuggestModal">💡</button>
         <select v-model="dueFilter" class="due-filter">
           <option value="">全部时间</option>
           <option value="overdue">已逾期</option>
@@ -222,16 +221,25 @@
     </main>
 
     <!-- Todos view -->
-    <main id="board" class="todos-view" v-else-if="curView === 'todos'">
+    <main id="board" class="todos-view" v-else-if="curView === 'todos'"
+      @dragover.prevent="todoDragOver = true"
+      @dragleave="todoDragOver = false"
+      @drop="onTodoDrop"
+      :class="{ 'drop-target': todoDragOver }"
+    >
       <div class="todos-header">
         <h3>待办</h3>
         <div class="todos-ctrls">
           <input
             v-model="todoInput"
-            placeholder="快速添加待办（Enter 添加）"
+            placeholder="添加待办（Enter，尾缀 p0/p1/p2 定优先级）；也可直接拖入 txt/md"
             class="todo-input"
             @keydown.enter="executeTodoAdd"
           />
+          <select v-model="todoProjectFilter" class="todo-filter" title="项目联动：筛选后新增待办自动归属该项目">
+            <option value="__all__">全部项目</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+          </select>
           <select v-model="todoFilter" class="todo-filter">
             <option value="all">全部</option>
             <option value="active">未完成</option>
@@ -239,6 +247,7 @@
           </select>
         </div>
       </div>
+      <div v-if="todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
       <div class="todos-list">
         <div v-if="!filteredTodos.length" class="empty-state">
           <div class="empty-icon">✓</div>
@@ -257,6 +266,7 @@
             @change="toggleTodo(todo.id)"
           />
           <span class="todo-title">{{ todo.title }}</span>
+          <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
           <span v-if="localPriority(todo.priority) === '高'" class="todo-prio">高</span>
           <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
         </div>
@@ -316,32 +326,6 @@
       </div>
     </main>
 
-    <!-- Notes view -->
-    <main id="board" class="notes-view" v-else-if="curView === 'notes'">
-      <div class="notes-header">
-        <h3>笔记</h3>
-        <div class="notes-ctrls">
-          <button @click="openNewNote">+ 新建笔记</button>
-          <button class="ghost" @click="importNoteFromFile">导入 .md</button>
-          <button class="ghost" @click="exportNotesToFile">导出全部</button>
-        </div>
-      </div>
-      <div class="notes-grid">
-        <div v-if="!notes.length" class="empty-state">
-          <div class="empty-icon">📝</div>
-          <div class="empty-text">暂无笔记</div>
-        </div>
-        <div v-for="note in notes" :key="note.id" class="note-card" @click="openNote(note)">
-          <div class="note-card-title">{{ note.title || '(无标题)' }}</div>
-          <div class="note-card-content">{{ truncate(note.content, 100) }}</div>
-          <div class="note-card-meta">
-            <span v-if="note.taskId" class="note-task">📍 {{ note.taskId }}</span>
-            <span class="note-date">{{ formatDate(note.updatedAt) }}</span>
-          </div>
-        </div>
-      </div>
-    </main>
-
     <!-- Launchpad view -->
     <main id="board" class="launchpad" v-else-if="curView === 'launchpad'">
       <div class="lp-header">
@@ -365,27 +349,6 @@
             <div class="lp-desc">{{ app.description || app.path }}</div>
           </div>
           <button class="lp-launch" @click.stop="launchAppClick(app)">启动</button>
-        </div>
-      </div>
-    </main>
-
-    <!-- Plans view -->
-    <main id="board" class="plans-view" v-else-if="curView === 'plans'">
-      <div class="plans-header">
-        <h3>规划</h3>
-        <button @click="openNewPlan">+ 新建规划</button>
-      </div>
-      <div class="plans-grid">
-        <div v-if="!plans.length" class="empty-state">
-          <div class="empty-icon">📋</div>
-          <div class="empty-text">暂无规划</div>
-        </div>
-        <div v-for="plan in plans" :key="plan.id" class="plan-card" @click="openPlan(plan.id)">
-          <div class="plan-card-head">
-            <span class="plan-title">{{ plan.fm.title || plan.id }}</span>
-            <span class="st plan-status" :class="planStatusClass((plan.fm as any).plan_status)">{{ planStatusLabel((plan.fm as any).plan_status) }}</span>
-          </div>
-          <div class="plan-body-preview">{{ truncate(plan.body, 80) }}</div>
         </div>
       </div>
     </main>
@@ -429,17 +392,6 @@
         <div class="body" v-if="previewTask.body">
           <label>正文</label>
           <div class="body-text markdown" v-html="renderBody(previewTask.body)" @change="onBodyChange"></div>
-        </div>
-        <div class="notes-section" v-if="previewTask">
-          <label>笔记 ({{ taskNotes.length }})</label>
-          <div class="notes-list">
-            <div v-for="note in taskNotes" :key="note.id" class="note-item">
-              <div class="note-item-title">{{ note.title || '(无标题)' }}</div>
-              <div class="note-item-content">{{ truncate(note.content, 80) }}</div>
-              <button class="note-del" @click.stop="deleteNoteItem(note.id)">×</button>
-            </div>
-          </div>
-          <button class="add-note-btn" @click="openAddNoteForTask(previewTask.id)">+ 添加笔记</button>
         </div>
         <div class="logs-section" v-if="previewTask">
           <label>关联日志 ({{ taskLogs.length }})</label>
@@ -499,49 +451,6 @@
       </div>
     </div>
 
-    <!-- Plan detail modal -->
-    <div id="plan-detail-overlay" class="overlay" v-if="planDetail_" @click.self="planDetail_ = null">
-      <div id="plan-detail-modal">
-        <h3>{{ planDetail_.title }}</h3>
-        <div class="plan-detail-status">
-          <span class="st plan-status" :class="planStatusClass(planDetail_.plan?.status)">{{ planStatusLabel(planDetail_.plan?.status) }}</span>
-        </div>
-        <div class="plan-detail-section" v-if="planDetail_.plan?.objective">
-          <label>目标</label>
-          <div>{{ planDetail_.plan.objective }}</div>
-        </div>
-        <div class="plan-detail-section" v-if="planDetail_.plan?.milestones?.length">
-          <label>里程碑 ({{ planDetail_.plan.milestones.length }})</label>
-          <ul>
-            <li v-for="ms in planDetail_.plan.milestones" :key="ms.name">{{ ms.name }} <span class="deadline">(截止: {{ ms.deadline || '未设定' }})</span></li>
-          </ul>
-        </div>
-        <div class="plan-detail-section" v-if="planDetail_.plan?.decisions?.length">
-          <label>决策点 ({{ planDetail_.plan.decisions.length }})</label>
-          <div class="dp-list">
-            <div v-for="dp in planDetail_.plan.decisions" :key="dp.id" class="dp-item" :class="'dp-' + dp.status">
-              <div class="dp-header">
-                <span class="dp-id">{{ dp.id }}</span>
-                <span class="dp-status-badge" :class="'dp-' + dp.status">{{ dp.status === 'pending' ? '待定' : dp.status === 'decided' ? '已决策' : '跳过' }}</span>
-              </div>
-              <div class="dp-question">{{ dp.question }}</div>
-              <div class="dp-options" v-if="dp.status === 'pending'">
-                <button v-for="opt in dp.options" :key="opt" @click="decideDP(planDetail_.id, dp.id, opt)">{{ opt }}</button>
-              </div>
-              <div v-else class="dp-chosen">已选: {{ dp.chosen }} <span v-if="dp.decidedAt">({{ formatDate(dp.decidedAt) }})</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="plan-detail-section" v-if="planDetail_.plan?.risks?.length">
-          <label>风险</label>
-          <ul><li v-for="r in planDetail_.plan.risks" :key="r">{{ r }}</li></ul>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="planDetail_ = null">关闭</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Roadmap view -->
     <main id="board" class="roadmap-view" v-else-if="curView === 'roadmap'">
       <div class="roadmap-header">
@@ -584,10 +493,6 @@
             </div>
           </div>
         </div>
-        <div class="roadmap-suggestions" v-if="crossSugs && crossSugs.length">
-          <h4>跨项目建议</h4>
-          <ul><li v-for="s in crossSugs" :key="s">{{ s }}</li></ul>
-        </div>
       </div>
     </main>
 
@@ -623,24 +528,6 @@
         <div class="acts">
           <button class="ghost" @click="closeTaskEditor()">取消</button>
           <button class="pri" @click="saveEdit">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Note edit modal -->
-    <div id="note-edit-overlay" class="overlay" v-if="noteEdit_" @click.self="noteEdit_ = null">
-      <div id="note-edit-modal">
-        <h3>{{ noteEdit_.id ? '编辑笔记' : '新建笔记' }}</h3>
-        <label>标题</label>
-        <input v-model="noteEdit_.title" placeholder="笔记标题" />
-        <label>内容</label>
-        <textarea v-model="noteEdit_.content" class="tall" placeholder="笔记内容..."></textarea>
-        <label>关联任务 ID（可选）</label>
-        <input v-model="noteEdit_.taskId" placeholder="留空则不关联" />
-        <div class="acts">
-          <button class="ghost" @click="noteEdit_ = null">取消</button>
-          <button v-if="noteEdit_.id" class="danger" @click="deleteNoteItem(noteEdit_.id)">删除</button>
-          <button class="pri" @click="saveNoteEdit">{{ noteEdit_.id ? '保存' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -709,27 +596,6 @@
           <button class="pri" :disabled="migrateBusy" @click="confirmMigrate">
             {{ migrateBusy ? '迁移中…' : (migrateTarget.empty ? '开始迁移' : '覆盖式迁入') }}
           </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- New plan modal -->
-    <div v-if="planForm" class="overlay" @click.self="planForm = null">
-      <div id="plan-new-modal">
-        <h3>新建规划</h3>
-        <label>标题 <span class="req">*</span></label>
-        <input v-model="planForm.title" placeholder="这次要规划什么" />
-        <label>目标</label>
-        <textarea v-model="planForm.objective" rows="3" placeholder="想达到什么结果"></textarea>
-        <label>所属项目</label>
-        <select v-model="planForm.project">
-          <option value="">未归属</option>
-          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-        </select>
-        <div class="hint">创建后可在规划视图里补充里程碑、决策点与风险。</div>
-        <div class="acts">
-          <button class="ghost" @click="planForm = null">取消</button>
-          <button class="pri" :disabled="planCreating" @click="confirmNewPlan">{{ planCreating ? '创建中…' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -858,14 +724,6 @@
               <span class="proj-row-desc">{{ p['状态'] || '' }}<template v-if="p['路线图']"> · {{ p['路线图'] }}</template></span>
             </div>
           </div>
-        </div>
-        <div class="sect">
-          <h4>💡 AI 建议</h4>
-          <div class="sect-btns">
-            <button class="pri" @click="openSuggestModal()">打开建议面板</button>
-          </div>
-          <div class="hint" v-if="curProj !== '__all__'">当前选中项目：{{ getProjName(curProj) }}</div>
-          <div class="hint" v-else>当前选中项目：全部（跨项目建议无需选择）</div>
         </div>
         <div class="sect">
           <h4>🎯 项目设计规划</h4>
@@ -999,7 +857,6 @@
           <div class="sect-btns" style="margin-top: 12px">
             <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
             <button class="ghost" @click="importTasksFromFile">导入任务 JSON</button>
-            <button class="ghost" @click="exportNotesToFile">导出笔记 JSON</button>
             <button class="ghost" @click="showSettings_ = false">关闭</button>
           </div>
         </div>
@@ -1007,32 +864,6 @@
     </div>
 
 
-
-    <!-- Suggestion Modal (direct access from top bar 💡) -->
-    <div v-if="suggestModal" class="overlay" @click.self="suggestModal = null">
-      <div class="suggest-modal">
-        <div class="suggest-header">
-          <h3>💡 AI 建议</h3>
-          <button class="ghost" @click="suggestModal = null">✕</button>
-        </div>
-        <div class="suggest-controls">
-          <select v-model="suggestProjectId" class="suggest-proj-select">
-            <option value="__all__">全部项目（跨项目建议）</option>
-            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-          </select>
-          <button class="pri" :disabled="suggestLoading || suggestProjectId === '__all__'" @click="openSuggestActions">项目建议</button>
-          <button class="ghost" :disabled="suggestLoading" @click="openSuggestCrossProject">跨项目建议</button>
-        </div>
-        <div class="suggest-body">
-          <div v-if="!suggestLoading && !suggestError && !suggestResults.length" class="suggest-hint">选择项目后点击「项目建议」，或点击「跨项目建议」获取跨项目建议</div>
-          <div v-if="suggestLoading" class="suggest-loading">⏳ 加载中...</div>
-          <div v-else-if="suggestError" class="suggest-error">❌ {{ suggestError }}</div>
-          <ul v-else-if="suggestResults.length">
-            <li v-for="(s, i) in suggestResults" :key="i">{{ s }}</li>
-          </ul>
-        </div>
-      </div>
-    </div>
 
     <!-- LLM Planning Modal -->
     <div v-if="llmPlanning_" class="overlay" @click.self="llmPlanning_ = false">
@@ -1341,12 +1172,6 @@ const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
 const editTask_ = ref<any>(null)
 const showSettings_ = ref(false)
-const suggestModal = ref<'actions' | 'cross' | null>(null)
-const suggestProjectId = ref<string>('__all__')
-const suggestTitle = ref('')
-const suggestResults = ref<string[]>([])
-const suggestLoading = ref(false)
-const suggestError = ref('')
 
 // ── LLM Planning ────────────────────────────────────────────────────
 const llmPlanning_ = ref(false)
@@ -1715,13 +1540,8 @@ const todoFilter = ref('all')
 const reviewModal = ref<{ id: string; title: string } | null>(null)
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
-const noteEdit_ = ref<any>(null)
 const blockerChains = ref<any[]>([])
-const notes = ref<any[]>([])
-const plans = ref<any[]>([])
-const planDetail_ = ref<any>(null)
 const roadmapData = ref<any>({ projects: [] })
-const crossSugs = ref<string[]>([])
 const projectProgress = ref<Record<string, any>>({})
 
 // ── 通知中心（Notification Center）─────────────────────────────────
@@ -1885,8 +1705,6 @@ const views = [
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
-  { id: 'plans', label: '规划' },
-  { id: 'notes', label: '笔记' },
   { id: 'roadmap', label: '路线图' },
   { id: 'archive', label: '归档' },
   { id: 'launchpad', label: '启动台' },
@@ -2056,8 +1874,6 @@ const migrateTarget = ref<any>(null)
 const migrateBusy = ref(false)
 
 // ── 新建规划 / 新建项目（替代 Electron 未实现的 window.prompt） ────────
-const planForm = ref<{ title: string; objective: string; project: string } | null>(null)
-const planCreating = ref(false)
 const projForm = ref<{ id: string; name: string; repo: string; description: string } | null>(null)
 const projCreating = ref(false)
 
@@ -2116,12 +1932,8 @@ function switchView(v: string) {
   curView.value = v
   if (v === 'launchpad') {
     loadLaunchpad()
-  } else if (v === 'notes') {
-    loadNotes()
   } else if (v === 'blockers') {
     loadBlockerChains()
-  } else if (v === 'plans') {
-    loadPlans()
   } else if (v === 'roadmap') {
     loadRoadmap()
   } else if (v === 'todos') {
@@ -2133,32 +1945,15 @@ function switchView(v: string) {
   }
 }
 
-function planStatusClass(status: string): string {
-  return status === 'active' ? 'doing' : status === 'achieved' ? 'done' : status === 'abandoned' ? 'reject' : 'draft'
-}
-
-function planStatusLabel(status: string): string {
-  return status === 'active' ? '进行中' : status === 'achieved' ? '已完成' : status === 'abandoned' ? '已放弃' : '草稿'
-}
-
-async function loadPlans() {
-  try {
-    plans.value = await window.tegula.listPlans()
-  } catch {
-    plans.value = []
-  }
-}
-
 async function loadRoadmap() {
   try {
     const result = await window.tegula.aggregateRoadmap()
     roadmapData.value = result
-    crossSugs.value = await window.tegula.suggestCrossProject()
   } catch {
     roadmapData.value = { projects: [] }
-    crossSugs.value = []
   }
 }
+
 
 function roadmapHealthLabel(h: string): string {
   return { active: '活跃', stuck: '卡住', idle: '空闲' }[h] || h
@@ -2185,7 +1980,7 @@ async function loadAll() {
   projects.value = p
   blockers.value = b
   dataDir.value = dd
-  // also load progress and notes for task preview
+  // also load progress for task preview
   await loadProjectProgressMap()
   if (searchIncludeArchive.value) {
     try {
@@ -2210,72 +2005,6 @@ function showParseErrors() {
     `修复：python scripts/fix-bad-frontmatter.py（先跑预演，确认后加 --apply）`
   )
 }
-
-function openNote(note: any) {
-  noteEdit_.value = { ...note }
-}
-
-function openNewNote() {
-  noteEdit_.value = { title: '', content: '', taskId: '' }
-}
-
-/** 新建规划：Electron 未实现 prompt()，旧写法点了没反应，改用自建模态 */
-function openNewPlan() {
-  planForm.value = {
-    title: '',
-    objective: '',
-    project: curProj.value === '__all__' ? '' : curProj.value,
-  }
-}
-
-async function confirmNewPlan() {
-  const f = planForm.value
-  if (!f || planCreating.value) return
-  if (!f.title.trim()) {
-    showToast('规划标题不能为空', 'error')
-    return
-  }
-  planCreating.value = true
-  try {
-    const result: any = await window.tegula.createPlan({
-      title: f.title.trim(),
-      objective: f.objective.trim(),
-      project: f.project || undefined,
-    })
-    if (result && result.ok) {
-      showToast('已创建规划', 'success')
-      planForm.value = null
-      loadPlans()
-    } else {
-      showToast('创建失败：' + ((result && result.error) || '未知错误'), 'error')
-    }
-  } catch (e: any) {
-    showToast('创建失败：' + (e?.message || '未知错误'), 'error')
-  } finally {
-    planCreating.value = false
-  }
-}
-
-async function openPlan(id: string) {
-  const result = await window.tegula.getPlan(id)
-  if (result) {
-    planDetail_.value = { id, title: result.task.fm.title || result.task.id, ...result }
-  }
-}
-
-async function decideDP(planId: string, dpId: string, choice: string) {
-  const result = await window.tegula.decidePlanPoint(planId, dpId, choice)
-  if (result.ok) {
-    await openPlan(planId)
-    await loadPlans()
-    showToast(`已决策: ${dpId} = ${choice}`, 'success')
-  } else {
-    showToast('决策失败', 'error')
-  }
-}
-
-
-
 
 
 function batchSetStatus(status: string) {
@@ -2497,16 +2226,6 @@ function toggleCheck(el: HTMLInputElement) {
 const _checkSaveTimers: Record<string, number> = {}
 /** 待落盘的勾选内容：即使定时器被清掉，这里仍保有最新 body */
 const _pendingCheckSaves: Record<string, string> = {}
-const taskNotes = ref<any[]>([])
-
-async function loadNotesForTask(taskId: string) {
-  try {
-    taskNotes.value = await window.tegula.notesForTask(taskId)
-  } catch {
-    taskNotes.value = []
-  }
-}
-
 const taskLogs = ref<any[]>([])
 
 /** 反向索引：该任务的关联日志（含已完成 / 已归档） */
@@ -2538,56 +2257,9 @@ async function quickCompleteLog(log: any) {
   }
 }
 
-function openAddNoteForTask(taskId: string) {
-  noteEdit_.value = { title: '', content: '', taskId }
-}
 
-async function saveNoteEdit() {
-  const e = noteEdit_.value
-  if (!e.title?.trim() && !e.content?.trim()) {
-    showToast('标题和内容不能同时为空', 'error')
-    return
-  }
-  try {
-    if (e.id) {
-      await window.tegula.updateNote(e.id, { title: e.title, content: e.content, taskId: e.taskId || undefined })
-      showToast('已更新', 'success')
-    } else {
-      await window.tegula.createNote({ title: e.title, content: e.content, taskId: e.taskId || undefined })
-      showToast('已创建', 'success')
-    }
-    noteEdit_.value = null
-    await loadNotesForTask(e.taskId)
-    await loadNotes()
-  } catch (err: any) {
-    showToast(`保存失败: ${err.message || err}`, 'error')
-  }
-}
 
-async function deleteNoteItem(noteId: string) {
-  if (!confirm('确定删除此笔记？')) return
-  await window.tegula.deleteNote(noteId)
-  showToast('已删除', 'success')
-  await loadNotes()
-}
 
-async function importNoteFromFile() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.md,.txt'
-  input.onchange = async (e: any) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const result = await window.tegula.importNoteFromFile(file.path)
-    if (result.ok) {
-      showToast('已导入', 'success')
-      loadNotes()
-    } else {
-      showToast('导入失败', 'error')
-    }
-  }
-  input.click()
-}
 
 async function persistCheckBody(id: string, body: string): Promise<boolean> {
   try {
@@ -2754,9 +2426,6 @@ const filteredTasks = computed(() => {
 
 function openCard(t: Task) {
   previewTask.value = t
-  // 详情面板需要笔记与关联日志。此前 loadNotesForTask 只在"添加笔记"入口调用，
-  // 直接点卡片进详情时笔记区长期是空的。
-  loadNotesForTask(t.id)
   loadLogsForTask(t.id)
 }
 
@@ -2783,10 +2452,17 @@ async function copyTaskClick(id: string) {
 // ── Todos ─────────────────────────────────────────────────────────
 
 const filteredTodos = computed(() => {
-  if (todoFilter.value === 'active') return todos.value.filter(t => !t.done)
-  if (todoFilter.value === 'done') return todos.value.filter(t => t.done)
-  return todos.value
+  let list = todos.value
+  if (todoFilter.value === 'active') list = list.filter(t => !t.done)
+  if (todoFilter.value === 'done') list = list.filter(t => t.done)
+  // 项目联动：选了项目（非全部）时只显示归属该项目或不归属的
+  if (todoProjectFilter.value !== '__all__') {
+    list = list.filter(t => !t.project || t.project === todoProjectFilter.value)
+  }
+  return list
 })
+
+const todoProjectFilter = ref('__all__')
 
 async function loadTodos() {
   try {
@@ -2799,7 +2475,13 @@ async function loadTodos() {
 async function executeTodoAdd() {
   const text = todoInput.value.trim()
   if (!text) return
-  const result = await window.tegula.todosCreate(text, '中')
+  // 快速语法：p0/p1/p2 优先级；归属项目跟当前筛选联动
+  let priority = '中'
+  let title = text
+  const m = text.match(/^(.*?)\s+(p[012])$/i)
+  if (m) { title = m[1]; priority = { p0: '高', p1: '中', p2: '低' }[m[2].toLowerCase()] || '中' }
+  const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
+  const result = await window.tegula.todosCreate(title, priority, undefined, project)
   if (result.ok) {
     todoInput.value = ''
     showToast('已添加', 'success')
@@ -2808,6 +2490,34 @@ async function executeTodoAdd() {
     showToast('添加失败', 'error')
   }
 }
+
+/** 拖拽 txt/md 到待办区：每行一条（空行跳过），文件名做默认项目提示。agent 会话管理主入口 */
+async function onTodoDrop(e: DragEvent) {
+  e.preventDefault()
+  todoDragOver.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (!files.length) return
+  let added = 0
+  const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
+  for (const f of files) {
+    if (!/\.(txt|md)$/i.test(f.name)) continue
+    const text = await f.text()
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim()
+      if (!t || t.startsWith('#')) continue
+      const r = await window.tegula.todosCreate(t, '中', undefined, project)
+      if (r.ok) added++
+    }
+  }
+  if (added) {
+    showToast(`已导入 ${added} 条待办`, 'success')
+    loadTodos()
+  } else {
+    showToast('没有可导入的行（仅支持 .txt/.md）', 'error')
+  }
+}
+
+const todoDragOver = ref(false)
 
 async function toggleTodo(id: string) {
   const result = await window.tegula.todosToggle(id)
@@ -3186,47 +2896,6 @@ function getProjName(id: string): string {
   return p ? (p.name || p.id) : id
 }
 
-function openSuggestModal() {
-  suggestProjectId.value = curProj.value === '__all__' ? '' : curProj.value
-  suggestModal.value = 'actions'
-  suggestResults.value = []
-  suggestError.value = ''
-  suggestLoading.value = false
-}
-
-async function openSuggestActions() {
-  const proj = suggestProjectId.value
-  if (!proj || proj === '__all__') {
-    showToast('请先选择具体项目', 'error')
-    return
-  }
-  suggestLoading.value = true
-  suggestError.value = ''
-  suggestResults.value = []
-  try {
-    const result = await window.tegula.suggestActions(proj)
-    suggestResults.value = result || []
-  } catch (e: any) {
-    suggestError.value = e.message || '获取建议失败'
-  } finally {
-    suggestLoading.value = false
-  }
-}
-
-async function openSuggestCrossProject() {
-  suggestLoading.value = true
-  suggestError.value = ''
-  suggestResults.value = []
-  try {
-    const result = await window.tegula.suggestCrossProject()
-    suggestResults.value = result || []
-  } catch (e: any) {
-    suggestError.value = e.message || '获取建议失败'
-  } finally {
-    suggestLoading.value = false
-  }
-}
-
 // ── Settings / Backup ──────────────────────────────────────────────────
 
 function showSettings() {
@@ -3530,22 +3199,6 @@ function importTasksFromFile() {
   input.click()
 }
 
-function exportNotesToFile() {
-  window.tegula.exportNotes().then((result: any) => {
-    if (result.ok && result.data) {
-      const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `fangcun-notes-${Date.now()}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      showToast(`已导出 ${result.count} 条笔记`, 'success')
-    } else {
-      showToast('导出失败', 'error')
-    }
-  })
-}
 
 // ── Toast ───────────────────────────────────────────────────────────────
 
@@ -3984,62 +3637,15 @@ body {
 .cb-id { font-size: 10px; color: var(--muted); }
 .cb-title { font-weight: 500; }
 
-/* Notes view */
-.notes-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
-.notes-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.notes-header h3 { font-size: 16px; font-weight: 700; }
-.notes-ctrls { display: flex; gap: 6px; }
-.notes-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
-.notes-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
-.notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-.note-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: box-shadow 0.15s; box-shadow: var(--shadow); }
-.note-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); }
-.note-card-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.note-card-content { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
-.note-card-meta { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; color: var(--muted); }
-.note-task { background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 4px; }
-
-/* Notes section in preview */
-.notes-section { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
-.notes-section label { font-size: 11px; color: var(--muted); font-weight: 600; display: block; margin-bottom: 4px; }
-.notes-list { margin-bottom: 6px; }
-.note-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg); border-radius: 6px; margin-bottom: 4px; }
-.note-item-title { font-size: 12px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-item-content { font-size: 10.5px; color: var(--muted); flex: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-del { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 4px; }
-.note-del:hover { color: var(--danger); }
 .add-note-btn { background: none; border: 1px dashed var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--muted); cursor: pointer; width: 100%; }
 .add-note-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Note edit modal */
-#note-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; box-shadow: var(--shadow); border: 1px solid var(--border); }
-#note-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
-#note-edit-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
-#note-edit-modal input, #note-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--ink); outline: none; font-family: inherit; }
-#note-edit-modal textarea { height: 80px; resize: vertical; }
-#note-edit-modal textarea.tall { height: 120px; }
 
-/* Plans view */
-.plans-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
-.plans-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.plans-header h3 { font-size: 16px; font-weight: 700; }
-.plans-header button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
-.plans-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-.plan-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: box-shadow 0.15s; box-shadow: var(--shadow); }
-.plan-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); }
-.plan-card-head { display: flex; align-items: center; gap: 8px; }
+
 .plan-title { font-size: 13px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-status { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-.plan-body-preview { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 
-/* Plan detail modal */
-#plan-detail-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
-#plan-detail-modal h3 { margin: 0 0 12px; font-size: 16px; }
-.plan-detail-status { margin-bottom: 14px; }
-.plan-detail-section { margin-bottom: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-.plan-detail-section label { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
-.plan-detail-section ul { padding-left: 18px; }
-.plan-detail-section li { font-size: 12px; margin-bottom: 4px; }
+/* Edit modal */
 .deadline { color: var(--muted); font-size: 11px; }
 .dp-item { background: var(--bg); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; border: 1px solid var(--border); }
 .dp-item.dp-decided { background: #f0f7ee; border-color: #d4e8d0; }
@@ -4093,128 +3699,6 @@ body {
 .rp-next label { font-size: 11px; color: var(--muted); font-weight: 600; }
 .rp-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .rp-action { font-size: 12px; display: flex; align-items: center; gap: 6px; }
-.roadmap-suggestions { background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; padding: 10px 14px; }
-.roadmap-suggestions h4 { font-size: 13px; color: var(--accent); margin-bottom: 6px; }
-.roadmap-suggestions ul { padding-left: 18px; }
-.roadmap-suggestions li { font-size: 12px; margin-bottom: 4px; }
-
-/* Suggest button in top bar */
-.suggest-btn {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.suggest-btn:hover {
-  background: #f4f1fc;
-  border-color: var(--accent);
-}
-
-/* Suggest modal */
-.suggest-modal {
-  background: #fff;
-  border-radius: 16px;
-  width: 520px;
-  max-height: 75vh;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.suggest-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.suggest-header h3 { margin: 0; font-size: 16px; color: var(--ink); }
-.suggest-header .ghost {
-  padding: 4px 10px;
-  background: #fff;
-  color: var(--ink);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-.suggest-header .ghost:hover { background: #f4f1fc; border-color: var(--accent); }
-.suggest-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-  background: #fafafa;
-}
-.suggest-controls .suggest-proj-select {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-  background: #fff;
-  color: var(--ink);
-  outline: none;
-  font-family: inherit;
-}
-.suggest-controls .pri {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.suggest-controls .pri:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.suggest-controls .ghost {
-  background: #fff;
-  color: var(--ink);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.suggest-controls .ghost:hover { background: #f4f1fc; border-color: var(--accent); }
-.suggest-controls .ghost:disabled { opacity: 0.45; cursor: not-allowed; }
-.suggest-hint {
-  text-align: center;
-  padding: 20px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.suggest-body {
-  padding: 16px 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-.suggest-loading { text-align: center; padding: 24px; color: var(--muted); font-size: 14px; }
-.suggest-error { padding: 16px; background: #fdf5f5; border: 1px solid #eedcdc; border-radius: 8px; color: #8a4343; font-size: 13px; }
-.suggest-empty { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; }
-.suggest-body ul { list-style: none; padding: 0; margin: 0; }
-.suggest-body li {
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink);
-}
-.suggest-body li:last-child { margin-bottom: 0; }
 
 /* Progress bar */
 .progress-bar { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; margin: 4px 0; }
@@ -4460,6 +3944,9 @@ body {
 
 /* Todos view */
 .todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.todos-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.todo-drop-hint { text-align: center; color: var(--accent); font-size: 12px; padding: 10px; font-weight: 600; }
+.todo-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
 .todos-ctrls { display: flex; gap: 8px; align-items: center; }

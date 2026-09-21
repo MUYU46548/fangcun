@@ -667,9 +667,9 @@ export function registerIpcHandlers(): void {
     return todosService.listTodos(filter)
   })
 
-  ipcMain.handle('todos:create', (_event: any, title: string, priority?: string, due?: string) => {
+  ipcMain.handle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string) => {
     try {
-      const todo = todosService.createTodo(title, priority as any, due)
+      const todo = todosService.createTodo(title, priority as any, due, project)
       return { ok: true, todo }
     } catch (e: any) {
       return { ok: false, error: e.message }

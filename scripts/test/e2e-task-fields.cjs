@@ -408,8 +408,8 @@ function main() {
   check('App.vue 不再调用 prompt()（Electron 未实现）', promptHits.length === 0, promptHits.join(','))
   check('切换数据目录走目录选择对话框', /async function changeDataDir[\s\S]{0,400}browseDirectory/.test(appSrc2))
   check('切换数据目录先做只读体检', /async function changeDataDir[\s\S]{0,400}dataInspect/.test(appSrc2))
-  check('新建规划改用自建模态（不再 prompt）',
-    /function openNewPlan\(\)[\s\S]{0,300}planForm\.value/.test(appCode))
+  check('规划视图已删除（无 openNewPlan）',
+    !/function openNewPlan\(/.test(appCode))
   check('新建项目改用自建模态（不再 prompt）',
     /function openNewProject\(\)[\s\S]{0,300}projForm\.value/.test(appCode))
 

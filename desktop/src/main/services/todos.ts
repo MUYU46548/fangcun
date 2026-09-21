@@ -17,6 +17,8 @@ export interface Todo {
   /** 高 / 中 / 低 */
   priority: string
   due?: string
+  /** 归属项目（registry id），空 = 不归属。用于看板联动筛选 */
+  project?: string
   createdAt: string
   updatedAt: string
 }
@@ -39,6 +41,7 @@ function normalizeTodo(raw: any): Todo {
     done: !!raw?.done,
     priority: normalizePriority(raw?.priority) || '中',
     due: raw?.due,
+    project: raw?.project || undefined,
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
   }
@@ -75,7 +78,7 @@ export function listTodos(filter?: { done?: boolean }): Todo[] {
   })
 }
 
-export function createTodo(title: string, priority: string = '中', due?: string): Todo {
+export function createTodo(title: string, priority: string = '中', due?: string, project?: string): Todo {
   const id = `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
   const todo: Todo = {
@@ -84,6 +87,7 @@ export function createTodo(title: string, priority: string = '中', due?: string
     done: false,
     priority: normalizePriority(priority) || '中',
     due,
+    project: project || undefined,
     createdAt: now,
     updatedAt: now,
   }
@@ -93,7 +97,7 @@ export function createTodo(title: string, priority: string = '中', due?: string
   return todo
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due'>>): Todo | null {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project'>>): Todo | null {
   const todos = loadTodos()
   const idx = todos.findIndex(t => t.id === id)
   if (idx < 0) return null
@@ -102,6 +106,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'do
   if (updates.done !== undefined) todo.done = updates.done
   if (updates.priority !== undefined) todo.priority = normalizePriority(updates.priority) || '中'
   if (updates.due !== undefined) todo.due = updates.due
+  if (updates.project !== undefined) todo.project = updates.project || undefined
   todo.updatedAt = new Date().toISOString()
   saveTodos(todos)
   return todo

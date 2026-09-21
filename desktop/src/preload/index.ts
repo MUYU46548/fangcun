@@ -152,7 +152,7 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── Todos ─────────────────────────────────────────────────────────
   todosList: (filter?: any) => ipcRenderer.invoke('todos:list', filter),
-  todosCreate: (title: string, priority?: string, due?: string) => ipcRenderer.invoke('todos:create', title, priority, due),
+  todosCreate: (title: string, priority?: string, due?: string, project?: string) => ipcRenderer.invoke('todos:create', title, priority, due, project),
   todosUpdate: (id: string, updates: any) => ipcRenderer.invoke('todos:update', id, updates),
   todosToggle: (id: string) => ipcRenderer.invoke('todos:toggle', id),
   todosDelete: (id: string) => ipcRenderer.invoke('todos:delete', id),
