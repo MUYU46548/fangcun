@@ -1,6 +1,6 @@
 # AGENTS.md — 方寸 (tegula)
 
-**零依赖本地多 agent 任务看板**（Python stdlib，约 5500 行单文件 CLI `tegula.py` + http.server 看板视图，端口 8753）。暮雨全部项目的统一任务入口。
+**零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` ~1884 + `core.py` ~4093 + `web.py`，`tegula.py` 只是 20 行 wrapper；看板用 http.server，端口 8753）。暮雨全部项目的统一任务入口。
 
 ## 技术栈
 
@@ -13,14 +13,14 @@
 - 看板视图（Edge 应用窗口，关窗自退）: `tegula open` / 双击 `方寸看板.bat`
 - 看板服务（纯网页，端口 **8753**）: `tegula serve` / 双击 `tegula-serve.bat`
 - 命令行入口: `python E:/CODE/CangKu/fangcun/tegula.py <子命令>`（bash 下也可用根目录 `./tegula` wrapper）
-- 子命令: `new` / `dispatch` / `hermes-sync` / `hermes-open` / `done` / `open` / `serve` / `backup` / `doctor` / `status` / `report`（`--brief`）/ 详见 `tegula.py main()` argparse
+- 子命令: `next`（agent 面：取活 + 带出项目方针卡）/ `new` / `dispatch` / `hermes-sync` / `hermes-open` / `done` / `open` / `serve` / `backup` / `doctor` / `status` / `report`（`--brief`）/ 详见 `tegula/cli.py main()` argparse
 - 回归基线: `python verify.py`（数据层 10+ 项检查：frontmatter 往返保真/乐观锁/gen_id 碰撞/备份/活动日志等；**凡改解析/渲染必跑**）
 
 ## 架构速查 (Quick Facts)
 
 > 慢变量事实层。运行期产物（project-status.md 等）会变，不在此维护。
 
-- **单文件架构**: 主逻辑几乎全部在 `tegula.py`（~5500 行，cmd_* 函数按子命令命名），无 src 树
+- **包结构**: `tegula.py` 是 20 行 wrapper → `tegula/cli.py`（~1884 行，cmd_* 函数按子命令命名）+ `tegula/core.py`（~4093 行，数据层 + API）+ `tegula/web.py`（HTTP/看板/托盘）；另有 `tegula_planning.py` / `tegula_llm.py` 两个顶层模块
 - **数据流**: `registry.yaml`（项目登记）+ `task-data/*.md`（任务，frontmatter 含 状态/成员/expected_update 锁）→ `tegula.py` 读写 → 看板 `templates/board.html`（零依赖轮询渲染）+ `project-status.md`（`tegula report` 覆盖式生成）
 - **状态机**: 草稿→待审批→待办→进行中→待验收→完成（+驳回），定义在 `tegula.py` 顶部 `STATUSES`
 - **并发纪律**: mtime 乐观锁 + `expected_update` 版本字段（verify.py 检查项 3）；无数据库，文件即数据
@@ -34,12 +34,13 @@
 
 | 锚点 | 期望值 | 核对命令 |
 |---|---|---|
-| 主文件行数 | ~5500 | `wc -l tegula.py` |
-| 子命令数 | 37 | `grep -c "add_parser" tegula.py` |
-| 状态值数 | 7 | 看 `STATUSES` 常量 |
+| cli.py 行数 | ~1884（`tegula.py` 仅 20 行 wrapper） | `wc -l tegula.py tegula/*.py` |
+| core.py 行数 | ~4093 | 同上 |
+| 子命令数 | 54 | `grep -c "add_parser" tegula/cli.py` |
+| 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 12（projects 10 + released 2） | `grep -c "id:" registry.yaml` |
-| 回归用例组 | ≥8 | `grep -c "def check" verify.py` |
-| 看板端口 | 8753 | `grep -n "8753" tegula.py tegula-serve.bat` |
+| 回归断言数 | verify.py **224** / e2e 四套 + IPC 对账 | `python verify.py \| tail -1` |
+| 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）
 
@@ -57,13 +58,13 @@
 
 - `tegula status` = git 活动 + 任务关联健康度（active/stuck/dormant/idle/unknown）
 - `tegula report` = 生成 `project-status.md`（覆盖式更新，供 Hermes 启动读取）；**运行期生成物，不入库**
-- `scan_project_status(p)` = 对应感知函数（tegula.py 内）
+- `scan_project_status(p)` = 对应感知函数（`tegula/core.py` 内）
 
 ## 重要约束
 
 - **零依赖红线**：不引入 pip 包/数据库/前端框架；视图服务就是 http.server + 轮询
 - **task-data 与代码分割**：任务内容永不入 git（.gitignore 配置 pattern 拦截时间戳_hex 大文件）
-- **回归铁律**：改 tegula.py 解析/写入逻辑 → 必跑 `python verify.py` 全绿才算完
+- **回归铁律**：改 `tegula/cli.py` 或 `tegula/core.py` 的解析/写入逻辑 → 必跑 `python verify.py` 全绿才算完；改 UI/IPC 再加跑 `node scripts/test/check-ipc-parity.cjs`
 - fangcun 本体未正式投用/未公开（2026-09），结构改动自由度高，但仍走 verify.py 基线
 
 ## 开工流程（铁律）
