@@ -37,16 +37,29 @@ const chokidar = require(path.join(DESKTOP, 'node_modules', 'chokidar'))
 const log = (...a) => console.log('[dev-electron]', ...a)
 
 function waitPort(port, timeoutMs = 60000) {
+  // ⚠ 双栈探测（2026-09-22 事故）：vite 5 的 localhost 在部分环境只绑 [::1]
+  //   （IPv6 回环），不监听 IPv4 127.0.0.1 —— 单探 127.0.0.1 会 ECONNREFUSED，
+  //   60s 超时后 concurrently -k 全杀，npm run dev 整体启动失败。
+  //   两个栈并行探，任一连通即就绪。
   const t0 = Date.now()
   return new Promise((resolve, reject) => {
     const tick = () => {
-      const s = net.connect(port, '127.0.0.1')
-      s.once('connect', () => { s.destroy(); resolve() })
-      s.once('error', () => {
-        s.destroy()
-        if (Date.now() - t0 > timeoutMs) return reject(new Error(`等 ${port} 端口超时`))
-        setTimeout(tick, 300)
-      })
+      let remaining = 2
+      let ok = false
+      const done = (connected) => {
+        if (ok) return
+        remaining--
+        if (connected) { ok = true; resolve(); return }
+        if (remaining === 0) {
+          if (Date.now() - t0 > timeoutMs) return reject(new Error(`等 ${port} 端口超时`))
+          setTimeout(tick, 300)
+        }
+      }
+      for (const host of ['127.0.0.1', '::1']) {
+        const s = net.connect(port, host)
+        s.once('connect', () => { s.destroy(); done(true) })
+        s.once('error', () => { s.destroy(); done(false) })
+      }
     }
     tick()
   })
