@@ -23,6 +23,16 @@ class _TegProxy:
     def __setattr__(self, name, value):
         setattr(_core, name, value)
         setattr(_cli, name, value)
+        # 派生常量联动：TASK_DIR 一变，依赖它算出来的模块级常量必须跟着走。
+        # 否则用例会把 .agent-runs.jsonl / .activity.log 写进**真实** task-data —
+        # 2026-09-22 实测：真实文件里累积了 384 条 task-20990101-* 测试记录，
+        # 且 desktop/task-data（junction）一并被污染。
+        if name == "TASK_DIR":
+            for _m in (_core, _cli):
+                if hasattr(_m, "ACTIVITY_LOG"):
+                    setattr(_m, "ACTIVITY_LOG", os.path.join(value, ".activity.log"))
+                if hasattr(_m, "AGENT_RUNS_LOG"):
+                    setattr(_m, "AGENT_RUNS_LOG", os.path.join(value, ".agent-runs.jsonl"))
 
 teg = _TegProxy()
 
@@ -302,6 +312,51 @@ try:
     # 派活时间记录
     d921e = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
     check("dispatch 记录派活时间", d921e.get("派活时间") is not None and float(d921e["派活时间"]) > 0)
+
+    # ---- done 验收闸门（行为层体检，刻意不引入「验收标准」字段）----
+    class DA3:
+        pass
+
+    def _run_done(tid, **kw):
+        a = DA3()
+        a.id = tid
+        a.结果 = kw.get("结果", "")
+        a.证据 = kw.get("证据", "")
+        a.成本 = ""
+        a.expected_mtime = None
+        if kw.get("force"):
+            a.force = True
+        buf = _io.StringIO()
+        with _cl.redirect_stdout(buf):
+            teg.cmd_done(a)
+        return buf.getvalue()
+
+    g_draft = "task-20990101-930"
+    _wt(g_draft, "闸门：草稿态", "草稿")
+    out_d = _run_done(g_draft, 结果="做了点事")
+    check("done 闸门：草稿态拒绝回写",
+          "拒绝" in out_d and teg.parse_task(os.path.join(dep_dir, g_draft + ".md")).get("状态") == "草稿")
+
+    g_nors = "task-20990101-931"
+    _wt(g_nors, "闸门：无结果", "进行中")
+    out_n = _run_done(g_nors)
+    check("done 闸门：无结果记录拒绝回写",
+          "没有结果记录" in out_n and teg.parse_task(os.path.join(dep_dir, g_nors + ".md")).get("状态") == "进行中")
+
+    _run_done(g_nors, force=True)
+    check("done 闸门：--force 放行",
+          teg.parse_task(os.path.join(dep_dir, g_nors + ".md")).get("状态") == "待验收")
+
+    _run_done(g_nors, 结果="重做一遍", 证据="reports/x.md")
+    check("done 闸门：正常回写不被误拦",
+          "证据：reports/x.md" in (teg.parse_task(os.path.join(dep_dir, g_nors + ".md")).get("结果记录") or ""))
+
+    # ---- next：agent 面取活（含方针卡）----
+    _wt("task-20990101-940", "next 取活目标", "待办")
+    _np = teg._pick_next(teg.load_tasks(None, "active"))
+    check("next：能挑出待办任务", any(t.get("id") == "task-20990101-940" for t in _np))
+    check("next：待办优先于进行中",
+          str(_np[0].get("状态") or "") == "待办" if _np else False)
 finally:
     teg._hermes_cmd, teg.subprocess.Popen = _teg_hermes, _real_popen
     teg.TASK_DIR = _saved_td

@@ -327,7 +327,12 @@ export function deleteTask(id: string): boolean {
   const task = readTask(id)
   if (!task) return false
 
-  const trashDir = path.join(getDataDir(), 'trash')
+  // 回收站统一到 task-data/.trash —— 与 Python CLI（core.py 的 _move_to(id, ".trash")）
+  // 同一位置同一命名。此前写的是 getDataDir()/trash（无点），导致：
+  //   ① 与 backup/rules.ts 的 EXCLUDE_DIRS、data:migrate 跳过的 .trash 对不上
+  //      → 回收站内容会被打进备份包、被搬迁复制
+  //   ② 桌面版删的任务 Python 侧 trash 视图读不到（两套回收站）
+  const trashDir = path.join(getTaskDir(), '.trash')
   fs.mkdirSync(trashDir, { recursive: true })
   const trashPath = path.join(trashDir, path.basename(task.path))
   fs.renameSync(task.path, trashPath)

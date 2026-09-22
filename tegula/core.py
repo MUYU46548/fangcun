@@ -1701,6 +1701,35 @@ def log_agent_run(run_id, tid, agent, status, cost=None, duration=None, detail="
         pass
 
 
+def read_policy(project_id):
+    """读项目方针卡（DATA_DIR/policies/<id>.md，由桌面版设置页「项目方针」写入）。
+
+    返回 {'使命','当前目标','应用场景','方针边界'}；卡不存在或全空时返回 None。
+    段落格式与桌面版 services/policies.ts 的 section() 对齐，改任一侧都要同步。
+    """
+    if not project_id:
+        return None
+    pid = str(project_id).strip()
+    # 与 TS 侧 policyPath 同一约束，防路径穿越
+    if not re.match(r"^[\w-]+$", pid):
+        return None
+    fn = os.path.join(DATA_DIR, "policies", pid + ".md")
+    if not os.path.exists(fn):
+        return None
+    try:
+        with open(fn, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return None
+
+    def section(key):
+        m = re.search(r"^##\s*" + re.escape(key) + r"\s*\n([\s\S]*?)(?=\n##\s|\Z)", raw, re.M)
+        return m.group(1).strip() if m else ""
+
+    out = {k: section(k) for k in ("使命", "当前目标", "应用场景", "方针边界")}
+    return out if any(out.values()) else None
+
+
 def read_agent_runs(tid=None):
     """读 agent 执行日志（倒序）。tid 给定则只筛该任务。"""
     if not os.path.exists(AGENT_RUNS_LOG):

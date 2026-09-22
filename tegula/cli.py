@@ -22,7 +22,7 @@ from tegula.core import (
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
     api_batch_edit, api_batch_archive, api_batch_delete, api_backup,
     _active_hermes_profile, log_activity, read_activity, _gen_run_id,
-    log_agent_run, read_agent_runs, _hermes_cmd, _claude_cmd, _codex_cmd,
+    log_agent_run, read_agent_runs, read_policy, _hermes_cmd, _claude_cmd, _codex_cmd,
     _kun_cmd, _agent_cmd, _build_prompt, prepare_dispatch, dispatch_task,
     api_dispatch, allowed_roots, validate_open_path, api_open_file,
     _rules_path, load_rules, save_rules, _plan_all_checked, evaluate_rules,
@@ -350,6 +350,37 @@ def cmd_restore(args):
         print(f"恢复失败: {e}")
 
 
+def _done_precheck(d, args):
+    """done 的验收闸门：行为层体检，返回 (errors, warnings)。
+
+    刻意**不引入「验收标准」字段** —— "给任务多填一张表"那类补丁已被否定过。
+    这里只校验「回写这件事本身是否成立」：有没有产出交代、能不能复核、
+    状态是否走到了该 done 的位置、声明的依赖是否还挂着。
+    errors 非空即拒绝回写（--force 放行）；warnings 只提醒不拦。
+    """
+    errors, warnings = [], []
+
+    result_txt = str(getattr(args, "结果", "") or "").strip()
+    if not (result_txt or str(d.get("结果记录") or "").strip()):
+        errors.append("没有结果记录 —— done 必须说明「做完了什么」（--结果，或任务里已有结果记录）")
+
+    if not (str(getattr(args, "证据", "") or "").strip() or "证据：" in str(d.get("结果记录") or "")):
+        warnings.append("没有证据 —— 建议用 --证据 附可复核的产物路径或测试输出")
+
+    st = str(d.get("状态") or "").strip()
+    if st in ("草稿", "待审批"):
+        errors.append(f"状态是「{st}」—— 还没派工就回写完工，请先 dispatch")
+    elif st in ("完成", "驳回"):
+        warnings.append(f"任务已是终态「{st}」，本次只追加结果记录")
+
+    blk = d.get("阻塞") or []
+    if isinstance(blk, (list, tuple)) and blk:
+        names = "、".join(str(b) for b in blk[:3])
+        warnings.append(f"任务声明了 {len(blk)} 个依赖：{names}（确认它们已就绪）")
+
+    return errors, warnings
+
+
 def cmd_done(args):
     """执行方（Hermes 等）完工回写：填结果记录 + 置待验收。幂等、异常不中断。
 
@@ -367,6 +398,20 @@ def cmd_done(args):
     if d is None:
         print("解析失败")
         return
+
+    # ── 验收闸门（行为层体检）
+    errors, warnings = _done_precheck(d, args)
+    for w in warnings:
+        print(f"[提醒] {w}")
+    if errors:
+        print("[拒绝] done 前置体检未通过：")
+        for e in errors:
+            print(f"  ✗ {e}")
+        if not getattr(args, "force", False):
+            print("  确认无误可加 --force 放行。")
+            return
+        print("  --force 已指定，继续回写。")
+
     if args.结果:
         old = (d.get("结果记录") or "").strip()
         d["结果记录"] = (old + "\n" if old else "") + args.结果.strip()
@@ -423,6 +468,122 @@ def cmd_done(args):
             print(f"  - {t['id']}《{t['标题']}》[{t['状态']}]")
     else:
         print("提示：无下游任务引用本任务。")
+
+
+# 优先级排序权重（高在前）
+_NEXT_PRIO_RANK = {"高": 0, "中": 1, "低": 2}
+
+
+def _task_projects(t):
+    p = t.get("项目") or []
+    if isinstance(p, str):
+        p = [p]
+    return [str(x) for x in p if str(x).strip()]
+
+
+def _pick_next(active, project=None):
+    """挑「下一个该做的」：待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。"""
+    cands = []
+    for t in active:
+        if str(t.get("状态") or "").strip() not in ("待办", "进行中"):
+            continue
+        if project and project not in _task_projects(t):
+            continue
+        cands.append(t)
+
+    def key(t):
+        st = str(t.get("状态") or "").strip()
+        return (
+            0 if st == "待办" else 1,
+            _NEXT_PRIO_RANK.get(str(t.get("优先级") or "").strip(), 3),
+            0 if str(t.get("截止") or "").strip() else 1,
+            str(t.get("截止") or ""),
+            -float(t.get("派活时间") or 0),
+            str(t.get("创建") or ""),
+        )
+
+    cands.sort(key=key)
+    return cands
+
+
+def cmd_next(args):
+    """给出「下一个该做什么」—— agent 面入口（next 取活 / done 回写 / status 看全局）。
+
+    一条命令同时拿到：可执行任务 + 所属**项目方针卡**（使命/目标/场景/边界）。
+    方针随入口下发，是「约束力来自唯一入口」的落点 —— 不指望 agent 自己跑去读文件。
+    """
+    fmt = getattr(args, "format", "text") or "text"
+    project = getattr(args, "project", None)
+
+    picked = _pick_next(load_tasks(None, "active"), project)
+
+    if fmt == "json":
+        head = picked[0] if picked else None
+        projs = _task_projects(head) if head else []
+        print(json.dumps({
+            "count": len(picked),
+            "next": head,
+            "policy": read_policy(projs[0]) if projs else None,
+            "candidates": [
+                {"id": t.get("id"), "标题": t.get("标题"), "状态": t.get("状态"),
+                 "优先级": t.get("优先级"), "截止": t.get("截止"),
+                 "项目": _task_projects(t)}
+                for t in picked[:10]
+            ],
+        }, ensure_ascii=False, indent=2))
+        return
+
+    if not picked:
+        scope = f"项目「{project}」" if project else "全部项目"
+        print(f"没有可执行任务（{scope}）：没有处于「待办 / 进行中」的任务。")
+        return
+
+    t = picked[0]
+    tid = t.get("id") or ""
+    projs = _task_projects(t)
+
+    print("下一个可执行任务")
+    print("─" * 46)
+    print(f"  id      : {tid}")
+    print(f"  标题    : {t.get('标题') or ''}")
+    print(f"  项目    : {'、'.join(projs) or '（无）'}")
+    print(f"  状态    : {t.get('状态') or ''}")
+    print(f"  优先级  : {t.get('优先级') or '（未设）'}")
+    print(f"  截止    : {t.get('截止') or '（未设）'}")
+    if str(t.get("附言") or "").strip():
+        print(f"  附言    : {str(t.get('附言')).strip()}")
+    body = str(t.get("正文") or t.get("_body") or "").strip()
+    if body:
+        # 跳过模板骨架行（## 小节标题、空 checkbox、分隔线），只留真有信息量的
+        lines = []
+        for ln in body.splitlines():
+            s = ln.strip()
+            if not s or s.startswith("#") or s in ("-", "---", "- [ ]", "- [x]"):
+                continue
+            lines.append(s)
+            if len(lines) >= 3:
+                break
+        if lines:
+            print("  摘要    : " + " / ".join(x[:60] for x in lines))
+
+    policy = read_policy(projs[0]) if projs else None
+    print("")
+    if policy:
+        print(f"项目方针（{projs[0]}）—— 必须遵守")
+        print("─" * 46)
+        for k in ("使命", "当前目标", "应用场景", "方针边界"):
+            v = str(policy.get(k) or "").strip()
+            if v:
+                print(f"  {k}: {v}")
+    elif projs:
+        print(f"（项目「{projs[0]}」尚未立方针卡 —— 可在桌面版设置页「项目方针」补）")
+
+    print("")
+    print("回写命令：")
+    print(f"  python tegula.py done {tid} --结果 \"一句话结果\" --证据 \"产物路径或测试输出\"")
+    if len(picked) > 1:
+        print("")
+        print(f"（后面还有 {len(picked) - 1} 个可执行任务）")
 
 
 # ---------- 资料路径：白名单校验 + 系统默认程序打开（看板可点击） ----------
@@ -1546,7 +1707,14 @@ def main():
                     help="实际成本（如 $0.05 或 50k tokens），追加到结果记录")
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
+    dn.add_argument("--force", action="store_true",
+                    help="跳过 done 前置体检（结果记录/状态核查）强行回写")
     dn.set_defaults(func=cmd_done)
+    nx = sub.add_parser("next", help="agent 面：取下一个可执行任务，并带出项目方针卡")
+    nx.add_argument("--project", "--项目", dest="project", default=None, help="只看某个项目的任务")
+    nx.add_argument("--format", choices=["text", "json"], default="text",
+                    help="输出格式；json 供 agent 直接解析")
+    nx.set_defaults(func=cmd_next)
     bk = sub.add_parser("backup", help="备份所有数据文件（zip，保留最近 10 份）")
     bk.set_defaults(func=cmd_backup)
     rs = sub.add_parser("restore", help="从备份 zip 恢复数据")

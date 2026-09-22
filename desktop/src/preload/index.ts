@@ -91,6 +91,12 @@ contextBridge.exposeInMainWorld('tegula', {
   importNotes: (data: any[]) => ipcRenderer.invoke('importNotes', data),
   importNoteFromFile: (filePath: string, taskId?: string) => ipcRenderer.invoke('importNoteFromFile', filePath, taskId),
 
+  // ── Tasks Import/Export（设置页「导出/导入任务 JSON」按钮）────────────
+  // 此前渲染层在调 window.tegula.exportTasks/importTasks，主进程也注册了同名
+  // handler（ipc.ts），唯独 preload 这层没有暴露 → 点击必 TypeError（僵尸按钮第 4、5 例）。
+  exportTasks: () => ipcRenderer.invoke('exportTasks'),
+  importTasks: (data: any[]) => ipcRenderer.invoke('importTasks', data),
+
   // Logs
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),

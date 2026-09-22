@@ -30,11 +30,27 @@ export function initPaths(): void {
 
   // Priority: cwd (dev) → parent dirs (monorepo) → exeDir (portable) → userData (installed)
   // Walk up from cwd to find registry.yaml or task-data (monorepo: desktop/ → project root)
+  //
+  // ⚠ task-data 必须用 lstat 判定为「真实目录」，不能跟随链接。
+  // 原因（2026-09-22 定位）：dev 态 desktop/task-data 是指向项目根真身的 junction，
+  // 若把"存在 task-data"当作数据根标志，探测会在 desktop/ 这一层就命中 →
+  // DATA_DIR 锁死在 desktop/：registry.yaml 找不到，notifications/todos/policies/
+  // backups 全落到 desktop/ 下，Electron 与 CLI 的数据根分叉。
+  const looksLikeDataRoot = (dir: string): boolean => {
+    if (!dir) return false
+    if (fs.existsSync(path.join(dir, 'registry.yaml'))) return true
+    try {
+      return fs.lstatSync(path.join(dir, 'task-data')).isDirectory() // lstat 不跟随链接
+    } catch {
+      return false
+    }
+  }
+
   let baseDir: string
   let searchDir = cwd
   let found = false
   for (let i = 0; i < 5; i++) {
-    if (fs.existsSync(path.join(searchDir, 'registry.yaml')) || fs.existsSync(path.join(searchDir, 'task-data'))) {
+    if (looksLikeDataRoot(searchDir)) {
       baseDir = searchDir
       found = true
       break
@@ -44,13 +60,8 @@ export function initPaths(): void {
     searchDir = parent
   }
   if (!found) {
-    if (fs.existsSync(path.join(exeDir, 'registry.yaml')) || fs.existsSync(path.join(exeDir, 'task-data'))) {
-      baseDir = exeDir
-    } else if (fs.existsSync(path.join(userData, 'registry.yaml'))) {
-      baseDir = userData
-    } else {
-      baseDir = userData
-    }
+    // 打包/便携态：exe 同级有数据根标记就用 exe 目录，否则落到 userData
+    baseDir = looksLikeDataRoot(exeDir) ? exeDir : userData
   }
 
   DATA_DIR = baseDir
