@@ -32,19 +32,24 @@ const EXEMPTIONS = {
   // 僵尸按钮：渲染层调用名
   zombieButtons: {},
   // 僵尸通道：channel 名
+  // ⚠ 2026-09-22 更正原因：这 5 个不是「未接线」，而是**主→渲染方向的推送通道**。
+  // preload 用 ipcRenderer.on 订阅，主进程用 webContents.send 推送；
+  // 本扫描器只统计 handle/handleOnce/on 三种注册写法，看不到 send，故仍列为豁免项。
   zombieChannels: {
-    'update:available': '自动更新模块有意未接线（见 unwired.updater.ts）',
-    'update:not-available': '自动更新模块有意未接线',
-    'update:progress': '自动更新模块有意未接线',
-    'update:downloaded': '自动更新模块有意未接线',
-    'update:error': '自动更新模块有意未接线',
+    'update:available': '主→渲染推送通道（webContents.send），非 invoke；扫描器不统计 send',
+    'update:not-available': '主→渲染推送通道（webContents.send）',
+    'update:progress': '主→渲染推送通道（webContents.send）',
+    'update:downloaded': '主→渲染推送通道（webContents.send）',
+    'update:error': '主→渲染推送通道（webContents.send）',
   },
   // 未接线模块：文件路径（相对仓库根，正斜杠）
+  // ⚠ 2026-09-22：入口探测修正为 src/index.ts 后，updater.ts **已达可达集**
+  // （真入口确实 import 并调用 initUpdater/registerUpdaterIpc），本豁免项不再触发。
+  // 保留此条仅作记录：自动更新尚未配置 build.publish，initUpdater 会被 boot() 捕获并落日志。
   unwired: {
     'desktop/src/main/updater.ts':
-      '有意不接线：electron-updater 已装但 build.publish 未配置，initUpdater/registerUpdaterIpc ' +
-      '一旦被调用，checkForUpdates() 必抛「Please specify publish」；自动更新不属 MVP 范围，' +
-      '待确定发布渠道后再接线。',
+      '（已不触发）自动更新已接线，但 build.publish 未配置 —— checkForUpdates() 会抛，' +
+      '现由 src/index.ts 的 boot() 包住并写入应用日志，不再静默。',
   },
   // 孤儿通道：channel 名
   orphan: {
@@ -183,7 +188,10 @@ function scanMainRegistrations() {
   for (const f of walk(path.join(SRC, 'main'), ['.ts'])) {
     const lines = read(f).split(/\r?\n/)
     lines.forEach((ln, idx) => {
-      const re = /ipcMain\s*\.\s*(?:handle|handleOnce|on)\s*\(\s*['"`]([^'"`]+)['"`]/g
+      // ⚠ 2026-09-22：主进程统一改用 guardedHandle（见 main/guarded-ipc.ts，
+      // 为 IPC 失败落日志）。只认 ipcMain.handle 会把它认成"全部僵尸通道"，
+      // 所以两种写法都要认。
+      const re = /(?:ipcMain\s*\.\s*(?:handle|handleOnce|on)|\bguardedHandle)\s*\(\s*['"`]([^'"`]+)['"`]/g
       let m
       while ((m = re.exec(ln))) {
         const where = `${path.relative(ROOT, f)}:${idx + 1}`
@@ -195,11 +203,23 @@ function scanMainRegistrations() {
   return regs
 }
 
-/** 从 package.json main（dist/index.js）反推源码入口，并求 import 可达集 */
+/**
+ * 从 package.json main（dist/index.js）反推源码入口，并求 import 可达集。
+ *
+ * ⚠ 2026-09-22 修正：tsconfig.main.json 的 rootDir 是 ./src，
+ * 所以 `dist/index.js` ← `src/index.ts`（真入口），
+ * 而 `src/main/index.ts` 是个**从不被加载的假入口**。
+ * 旧实现硬编码成 src/main/index.ts，于是"可达集"算的是假入口的图 ——
+ * 会把真入口实际接线的模块误报成「未接线」（updater 就是这样被误判的）。
+ */
 function scanReachable() {
   const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf-8'))
-  const mainDist = pkg.main || 'dist/index.js'          // dist/index.js -> src/main/index.ts
-  const entry = path.join(SRC, 'main', path.basename(mainDist).replace(/\.js$/, '.ts'))
+  const base = path.basename(pkg.main || 'dist/index.js').replace(/\.js$/, '.ts')
+  const candidates = [
+    path.join(SRC, base),                 // src/index.ts      ← 真入口
+    path.join(SRC, 'main', base),         // src/main/index.ts ← 历史假入口
+  ]
+  const entry = candidates.find(c => fs.existsSync(c)) || candidates[1]
 
   const reachable = new Set()
   const queue = [entry]

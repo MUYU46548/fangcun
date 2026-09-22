@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { guardedHandle } from './guarded-ipc'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
@@ -17,12 +18,12 @@ function toFailure(e: unknown, fallbackUrl = '') {
 
 export function registerLlmIpcHandlers(): void {
   // ── LLM Config ────────────────────────────────────────────────────
-  ipcMain.handle('llm:getConfig', () => {
+  guardedHandle('llm:getConfig', () => {
     // 密钥只出掩码 + 提示串，原值永不过 IPC
     return getConfigForRenderer()
   })
 
-  ipcMain.handle('llm:setConfig', (_event, cfg: Partial<LLMConfig>) => {
+  guardedHandle('llm:setConfig', (_event, cfg: Partial<LLMConfig>) => {
     try {
       // setConfig 内部已忽略掩码/空 apiKey，不会把 '***' 写盘
       const updated = setConfig(cfg)
@@ -36,7 +37,7 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:resetConfig', () => {
+  guardedHandle('llm:resetConfig', () => {
     try {
       resetConfig()
       return { ok: true }
@@ -46,7 +47,7 @@ export function registerLlmIpcHandlers(): void {
   })
 
   // ── 连接诊断（不改配置，失败原因全量回显） ─────────────────────────
-  ipcMain.handle('llm:testConnection', async (_event, cfg?: Partial<LLMConfig>) => {
+  guardedHandle('llm:testConnection', async (_event, cfg?: Partial<LLMConfig>) => {
     try {
       const base = getConfig()
       const options: ChatOptions = {
@@ -64,7 +65,7 @@ export function registerLlmIpcHandlers(): void {
   })
 
   // ── Chat ──────────────────────────────────────────────────────────
-  ipcMain.handle('llm:chat', async (_event, content: string, options: ChatOptions) => {
+  guardedHandle('llm:chat', async (_event, content: string, options: ChatOptions) => {
     try {
       const result = await chat(content, options)
       return { ok: true, content: result }
@@ -74,7 +75,7 @@ export function registerLlmIpcHandlers(): void {
   })
 
   // ── Planning ──────────────────────────────────────────────────────
-  ipcMain.handle('llm:auditProject', async (_event, projectId: string, model?: string) => {
+  guardedHandle('llm:auditProject', async (_event, projectId: string, model?: string) => {
     try {
       const result = await auditProject(projectId, model)
       return { ok: true, content: result }
@@ -83,7 +84,7 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:decomposeGoal', async (_event: any, goal: string, projectId?: string, model?: string) => {
+  guardedHandle('llm:decomposeGoal', async (_event: any, goal: string, projectId?: string, model?: string) => {
     try {
       const result = await decomposeGoal(goal, projectId, model)
       return { ok: true, content: result }
@@ -92,7 +93,7 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:decideDP', async (_event: any, dp: any, model?: string) => {
+  guardedHandle('llm:decideDP', async (_event: any, dp: any, model?: string) => {
     try {
       const result = await decideDP(dp, model)
       return { ok: true, content: result }
@@ -101,7 +102,7 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:quarterlyReview', async (_event: any, projectId?: string, model?: string) => {
+  guardedHandle('llm:quarterlyReview', async (_event: any, projectId?: string, model?: string) => {
     try {
       const result = await quarterlyReview(projectId, model)
       return { ok: true, content: result }
@@ -110,7 +111,7 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:generateRoadmap', async (_event: any, goal?: string, projectId?: string, model?: string) => {
+  guardedHandle('llm:generateRoadmap', async (_event: any, goal?: string, projectId?: string, model?: string) => {
     try {
       const result = await generateRoadmap(goal, projectId, model)
       return { ok: true, content: result }

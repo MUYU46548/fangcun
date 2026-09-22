@@ -1,8 +1,19 @@
 <template>
-  <div id="app">
+  <div id="app"
+    @dragenter.prevent="dragEnter('global')"
+    @dragover.prevent
+    @dragleave="dragLeave('global')"
+    @drop="onAppDrop"
+  >
     <!-- Decorative blobs -->
     <div class="blob b1"></div>
     <div class="blob b2"></div>
+
+    <!-- 全局拖放兜底提示：拖到不支持导入的页签时不再是"毫无反应"（用户第 4 条）
+         固定定位 + pointer-events:none —— 绝不参与布局，否则会与拖拽事件自激闪烁 -->
+    <div v-if="globalDropHint" class="drop-hint global">
+      当前页签不支持导入文件 —— 请到「待办」或「日志」页签再拖入
+    </div>
 
     <!-- Top bar -->
     <header id="bar">
@@ -64,6 +75,28 @@
         {{ v.label }}
       </button>
     </nav>
+
+    <!-- 错误条（2026-09-22，用户第 8 条）：任何失败都在这里有痕迹。
+         main.ts 的 window.onerror / unhandledrejection 上报广播过来，
+         由主进程落盘到 userData/logs，这里给一个用户可见的出口。 -->
+    <div v-if="appErrors.length" class="errbar">
+      <span class="errbar-ico">⚠</span>
+      <span class="errbar-msg" :title="appErrors.map(e => '[' + e.scope + '] ' + e.message).join('\n')">
+        {{ appErrors[appErrors.length - 1].message }}
+        <b v-if="appErrors.length > 1">（共 {{ appErrors.length }} 条）</b>
+      </span>
+      <button class="ghost" @click="toggleAppLogPanel">{{ appErrOpen ? '收起' : '查看日志' }}</button>
+      <button class="ghost" @click="openAppLogDir">打开日志目录</button>
+      <button class="ghost" title="清空错误条（日志文件不受影响）" @click="appErrors = []">忽略</button>
+    </div>
+    <div v-if="appErrOpen" class="errpanel">
+      <div class="errpanel-head">
+        <span>日志文件：<code>{{ appLogFile || '（未取到）' }}</code></span>
+        <button class="ghost" @click="copyAppLogPath">复制路径</button>
+        <button class="ghost" @click="openAppLogDir">打开目录</button>
+      </div>
+      <pre class="errpanel-body">{{ appLogTail.join('\n') || '（日志为空）' }}</pre>
+    </div>
 
     <!-- Batch action bar：固定悬浮在内容区顶部居中，紧邻右上角批量按钮的视线范围 -->
     <div v-if="batchMode" class="batch-bar">
@@ -224,8 +257,9 @@
 
     <!-- Todos view -->
     <main id="board" class="todos-view" v-else-if="curView === 'todos'"
-      @dragover.prevent="todoDragOver = true"
-      @dragleave="todoDragOver = false"
+      @dragenter.prevent="dragEnter('todo')"
+      @dragover.prevent
+      @dragleave="dragLeave('todo')"
       @drop="onTodoDrop"
       :class="{ 'drop-target': todoDragOver }"
     >
@@ -270,8 +304,10 @@
             @change="toggleTodo(todo.id)"
           />
           <span class="todo-title">{{ todo.title }}</span>
+          <span v-if="todo.due" class="todo-due" :title="'到期日：' + todo.due">📅 {{ todo.due }}</span>
           <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
           <span v-if="localPriority(todo.priority) === '高'" class="todo-prio">高</span>
+          <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
           <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
         </div>
       </div>
@@ -279,8 +315,9 @@
 
     <!-- Logs view -->
     <main id="board" class="logs-view" v-else-if="curView === 'logs'"
-      @dragover.prevent="logDragOver = true"
-      @dragleave="logDragOver = false"
+      @dragenter.prevent="dragEnter('log')"
+      @dragover.prevent
+      @dragleave="dragLeave('log')"
       @drop="onLogDrop"
       :class="{ 'drop-target': logDragOver }"
     >
@@ -304,7 +341,12 @@
                与「+ 新建」不一致（同一类操作两种长相），已提过两三次。 -->
           <button @click="openNewLog">+ 新建日志</button>
           <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
-          <button class="ghost" @click="executeLogCleanup">清理超期</button>
+          <!-- 「清理超期」到底做什么：把 status=completed 且 retain_until 已过的日志
+               批量改成 archived（**只改状态，不删文件**，logs.ts:cleanupLogs）。
+               此前只有这四个字，用户不知道它有什么用（第 3 条）。 -->
+          <button class="ghost"
+            title="把「已完成」且保留期已过的日志批量标为「已归档」（只改状态，不删除文件）。保留期在点「完成」时填写"
+            @click="executeLogCleanup">清理超期</button>
         </div>
       </div>
       <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
@@ -332,6 +374,10 @@
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           </div>
           <div class="log-card-actions" @click.stop>
+            <!-- 「复制为提示词」是产品定位里的核心动作（日志 = 提示词暂存与传递的主战场）：
+                 后端 logs:inject 早就写好并注册了，但界面一直没有入口 ——
+                 属于"功能在、没人调用"这一类（同 openReview）。 -->
+            <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制为提示词</button>
             <button v-if="log.status === 'active'" class="ghost" @click="completeLogItem(log.id)">完成</button>
             <button v-if="log.status !== 'archived'" class="ghost" @click="archiveLogItem(log.id)">归档</button>
             <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
@@ -362,7 +408,7 @@
             <div class="lp-name">{{ app.name }}</div>
             <div class="lp-desc">{{ app.description || app.path }}</div>
           </div>
-          <button class="lp-launch" @click.stop="launchAppClick(app)">启动</button>
+          <button class="lp-launch" :title="'将启动：' + (app.cmd || app.path)" @click.stop="launchAppClick(app)">启动</button>
         </div>
       </div>
     </main>
@@ -373,6 +419,8 @@
       <div class="ctx-title">{{ ctxMenu.task.title || ctxMenu.task.id }}</div>
       <button @click="ctxRun(openCard)">🔍 查看详情</button>
       <button @click="ctxRun(openEdit)">✏️ 编辑</button>
+      <button v-if="ctxMenu.task.status === '待验收'" @click="ctxRun(openReview)">✅ 验收裁决</button>
+      <button @click="ctxRun(openCalAssignTask)">📅 指派时间</button>
       <button @click="ctxRun(copyTaskId)">📋 复制 ID</button>
       <button @click="ctxRun(copyTaskTitle)">🔤 复制标题</button>
       <div class="ctx-sep"></div>
@@ -410,7 +458,7 @@
           <div><span class="k">项目</span><span class="v">{{ previewTask.project || '—' }}</span></div>
           <div><span class="k">优先级</span><span class="v">{{ priorityLabel(previewTask.priority) }}</span></div>
           <div v-if="previewTask.assignee"><span class="k">指派</span><span class="v">{{ previewTask.assignee }}</span></div>
-          <div v-if="previewTask.deadline"><span class="k">截止</span><span class="v">{{ previewTask.deadline }}</span></div>
+          <div><span class="k">时间</span><span class="v">{{ previewTimeLabel(previewTask) }}</span></div>
           <div v-if="previewTask.batch"><span class="k">批次</span><span class="v">{{ previewTask.batch }}</span></div>
           <div v-if="previewTask.archived"><span class="k">来源</span><span class="v">📦 已归档</span></div>
           <div><span class="k">创建</span><span class="v">{{ formatDate(previewTask.created) }}</span></div>
@@ -450,6 +498,16 @@
               @click="restoreTask(previewTask)"
             >↩ 还原</button>
             <template v-else>
+              <!-- 验收裁决弹窗（accept / reject + 驳回理由）此前**没有任何入口** ——
+                   后端 review:accept / review:reject 通道齐全，openReview 也写好了，
+                   但没人调用它。这里补上正式入口：待验收任务可走完整裁决流程，
+                   不想走流程的仍可用下面的「完成/驳回」直达。 -->
+              <button
+                v-if="previewTask.status === '待验收'"
+                class="pri"
+                title="正式验收裁决：通过 / 驳回（驳回必须填理由，会写进结果记录）"
+                @click="openReview(previewTask)"
+              >✅ 验收裁决</button>
               <button
                 class="ok"
                 title="直接标记完成（跳过验收，适用于挂死/废弃任务）"
@@ -470,7 +528,9 @@
           <div class="acts-group">
             <span class="acts-label">操作</span>
             <button class="ok" title="编辑任务的全部字段" @click="openEdit(previewTask)">✏️ 编辑</button>
+            <button class="ghost" title="指派开始/截止时间（时间段会显示在日历上）" @click="openCalAssignTask(previewTask)">📅 指派时间</button>
             <button class="ghost" title="复制任务 ID" @click="copyId(previewTask.id)">📋 ID</button>
+            <button class="ghost" title="在文件管理器中定位这个任务的 markdown 文件" @click="openTaskFile(previewTask)">📄 文件</button>
             <button class="ghost" title="复制一份任务" @click="copyTaskClick(previewTask.id)">📑 副本</button>
             <button class="danger" title="删除任务（会进入 trash，可人工找回）" @click="deleteTask(previewTask.id)">🗑 删除</button>
           </div>
@@ -486,7 +546,8 @@
         <span class="m">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
         <button class="ghost" @click="calMove(1)">下月 &#9654;</button>
         <button class="ghost" @click="calToday">回到本月</button>
-        <span class="cal-hint">拖拽任务到日期格可改截止</span>
+        <label class="chk cal-chk"><input type="checkbox" :checked="calShowTodos" @change="calToggleTodos" /> 显示待办</label>
+        <span class="cal-hint">拖动条目可改期；点条目可指派时间；时间段任务会横跨多天</span>
       </div>
       <div class="calgrid">
         <div v-for="d in CAL_DOW" :key="d" class="caldow">{{ d }}</div>
@@ -498,22 +559,42 @@
         >
           <template v-if="cell">
             <div class="dnum">{{ cell.day }}</div>
-            <div v-for="t in cell.tasks" :key="t.id" class="cev" draggable="true"
-              @dragstart="onCalDragStart($event, t.id)" @click="openCard(t)">
-              <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
-              <span class="t">{{ t.title || t.id }}</span>
+            <div v-for="ev in cell.events" :key="ev.kind + ev.id + '-' + cell.day"
+              class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : 'cev-task']"
+              draggable="true"
+              :title="(ev.kind === 'todo' ? '待办：' : '任务：') + ev.title + (ev.rangeDays > 1 ? `（共 ${ev.rangeDays} 天）` : '')"
+              @dragstart="onCalDragStart($event, ev.id, ev.kind)"
+              @click="onCalEventClick(ev)"
+            >
+              <span class="pd" :style="{ background: ev.kind === 'todo' ? '#5b8dd6' : prioColor(ev.priority) }"></span>
+              <span class="t">{{ ev.title }}</span>
             </div>
           </template>
         </div>
       </div>
       <div class="calunsched">
-        <h4>未安排（{{ calUnscheduled.length }} 个，无截止或本月之外）</h4>
+        <h4>
+          未安排 · 无时间（{{ calUnscheduled.length }} 个）
+          <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
+        </h4>
         <div class="items">
-          <span v-for="t in calUnscheduled" :key="t.id" class="cev" @click="openCard(t)">
+          <span v-for="t in calUnscheduled" :key="t.id" class="cev chip" draggable="true"
+            :title="'拖动或点击指派时间：' + (t.title || t.id)"
+            @dragstart="onCalDragStart($event, t.id, 'task')"
+            @click="openCalAssignTask(t)">
             <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
             <span class="t">{{ t.title || t.id }}</span>
           </span>
+          <span v-if="!calUnscheduled.length" class="cal-empty">本月任务都已安排时间</span>
         </div>
+        <template v-if="calOtherMonths.length">
+          <h4 class="cal-other-head">其它月份（{{ calOtherTotal }} 个）—— 点一下跳过去</h4>
+          <div class="items">
+            <span v-for="g in calOtherMonths" :key="g.key" class="cev chip other" @click="calGoto(g.year, g.month)">
+              {{ g.label }} · {{ g.count }} 个 →
+            </span>
+          </div>
+        </template>
       </div>
     </main>
 
@@ -641,23 +722,67 @@
         <label>标题</label>
         <input v-model="logEdit_.title" placeholder="日志标题" />
         <label>项目</label>
-        <input v-model="logEdit_.project" placeholder="项目 id" />
+        <select v-model="logEdit_.project" class="logsel">
+          <option value="">（不归属）</option>
+          <!-- 存量日志里可能有没登记在 registry 的项目 id（旧默认值 fangcun-base 等）。
+               没有这一项时，select 会显示成第一个选项，用户以为项目是"方寸"却改不动。 -->
+          <option v-if="logEdit_.project && !projects.some(p => p.id === logEdit_.project)"
+            :value="logEdit_.project">{{ logEdit_.project }}（未在登记表中）</option>
+          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+        </select>
         <label>执行内容</label>
         <textarea v-model="logEdit_.content" class="tall" placeholder="执行内容..."></textarea>
         <label>下一步</label>
         <textarea v-model="logEdit_.nextSteps" placeholder="下一步..."></textarea>
+        <!-- 关联任务：2026-09-22（用户第 2 条）此前是两个裸输入框，等着用户手填
+             id —— 实际等于逼人背 ID。改为「按项目过滤的下拉选择」，第一项为不关联；
+             保留下面的手填框，用于跨项目/已归档/列表外的 ID。 -->
         <label>关联任务 ID（可选）</label>
-        <input v-model="logEdit_.taskId" placeholder="留空则不关联" />
+        <select v-model="logEdit_.taskId" class="logsel" :disabled="!logTaskOptions.length">
+          <option value="">{{ logTaskOptions.length ? '（不关联）' : '（当前项目下没有可选任务）' }}</option>
+          <option v-for="t in logTaskOptions" :key="t.id" :value="t.id">
+            {{ t.id }} · {{ t.title || '(无标题)' }} · {{ t.status }}
+          </option>
+        </select>
+        <input v-model="logEdit_.taskId" placeholder="或直接粘贴任务 ID" />
+        <div class="hint log-task-picked" v-if="logTaskPicked">已选：{{ logTaskPicked }}</div>
         <template v-if="logCompleting || logArchiveMode">
           <label v-if="logCompleting">保留天数（0=永不）</label>
           <input v-if="logCompleting" v-model="logRetainDays" placeholder="7" />
+          <div class="hint" v-if="logCompleting">到期后，点日志页的「清理超期」会把它标为「已归档」（只改状态，不删文件）。</div>
           <label>备注（可选）</label>
           <textarea v-model="logNote" placeholder="备注..."></textarea>
         </template>
         <div class="acts">
           <button class="ghost" @click="closeLogEditor(); logCompleting = false; logArchiveMode = false">取消</button>
+          <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); logEdit_ = null">销毁</button>
           <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 指派时间（2026-09-22，用户第 6 条）：任务可设开始+截止时间段，待办只有到期日 -->
+    <div v-if="calAssign_" class="overlay" @click.self="calAssign_ = null">
+      <div id="cal-assign-modal">
+        <h3>📅 指派时间</h3>
+        <div class="ca-title">{{ calAssign_.title }}</div>
+        <div class="hint" v-if="calAssign_.isTodo">待办只有「到期日」一个时间点。</div>
+        <template v-if="!calAssign_.isTodo">
+          <label>开始（可选；与截止组成时间段，日历上会横跨多天）</label>
+          <input v-model="calAssign_.start" type="date" />
+        </template>
+        <label>{{ calAssign_.isTodo ? '到期日' : '截止' }}</label>
+        <input v-model="calAssign_.end" type="date" />
+        <div class="ca-quick">
+          <button class="ghost" @click="calQuickSet(0)">今天</button>
+          <button class="ghost" @click="calQuickSet(1)">明天</button>
+          <button class="ghost" @click="calQuickSet(7)">一周后</button>
+          <button class="ghost" @click="calClearDates">清除时间</button>
+        </div>
+        <div class="acts">
+          <button class="ghost" @click="calAssign_ = null">取消</button>
+          <button class="pri" @click="saveCalAssign">保存</button>
         </div>
       </div>
     </div>
@@ -730,13 +855,16 @@
         <h3>{{ editApp_.isNew ? '添加应用' : '编辑应用' }}</h3>
         <label>名称</label>
         <input v-model="editApp_.name" placeholder="应用名称" />
-        <label>路径（exe 或 bat）</label>
+        <label>路径（exe / bat / cmd / ps1 / lnk / 文件夹都行）</label>
         <div style="display:flex;gap:6px;align-items:center;">
           <input v-model="editApp_.path" placeholder="E:/path/to/app.exe" style="flex:1" />
           <button type="button" class="ghost" @click="browseAppPath">浏览…</button>
         </div>
+        <label>启动参数（可选，空格分隔）</label>
+        <input v-model="editApp_.argsText" placeholder="例：--port 8080" />
         <label>描述（可选）</label>
         <input v-model="editApp_.description" placeholder="应用描述" />
+        <div class="hint app-path-hint">选中文件夹或 .lnk 时直接用系统「打开」；.bat/.cmd 经 cmd.exe 执行，.ps1 用 powershell 执行。</div>
         <div class="acts">
           <button class="ghost" @click="closeAppEditor()">取消</button>
           <button v-if="!editApp_.isNew" class="danger" @click="removeApp(editApp_.id)">删除</button>
@@ -818,6 +946,16 @@
           </div>
         </div>
         <div class="sect">
+          <h4>诊断日志</h4>
+          <div class="hint logpath">{{ appLogFile || '（未取到日志路径）' }}</div>
+          <div class="sect-btns">
+            <button class="ghost" @click="openAppLogDir">打开日志目录</button>
+            <button class="ghost" @click="copyAppLogPath">复制路径</button>
+            <button class="ghost" @click="showAppLogFromSettings">查看最近 200 行</button>
+          </div>
+          <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
+        </div>
+        <div class="sect">
           <h4>项目列表</h4>
           <div class="projlist">
             <div class="proj-row" v-for="p in projects" :key="p.id" :title="p.repo || ''" @click="openProjectInSettings(p)">
@@ -887,6 +1025,9 @@
             <button class="ghost" :disabled="bkTesting" @click="bkTestRemote">{{ bkTesting ? '测试中…' : '测试远端' }}</button>
             <button class="ghost" @click="bkSaveConfig">保存配置</button>
             <button class="ghost" @click="bkOpenDir">打开备份文件夹</button>
+            <!-- 刚做完一次备份后，直接定位到那个文件所在目录（原 openBackupFolder 一直没入口） -->
+            <button v-if="backupInfo" class="ghost" :title="'最近一次备份：' + backupInfo.path + '（' + backupInfo.sizeKB + ' KB）'"
+              @click="openBackupFolder">最近备份所在目录</button>
           </div>
 
           <div class="sect-btns bk-manual">
@@ -1184,6 +1325,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { marked } from 'marked'
+import {
+  parseCalDate, calISO, dayStart, addDays, buildMonth, rangeLabel, shiftRange,
+  type CalEvent as CalEventT,
+} from './calendar'
+import {
+  classifyLogImport, classifySummary,
+  type ImportItem,
+} from './logdedupe'
 import DOMPurify from 'dompurify'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
@@ -1647,8 +1796,11 @@ interface Todo {
   id: string
   title: string
   done: boolean
-  priority: 'high' | 'normal' | 'low'
+  // ⚠ 实际存的是中文「高/中/低」（主进程 normalizePriority 归一）。
+  // 这里此前写成 'high' | 'normal' | 'low' —— 类型与数据不符，是历史残留。
+  priority: string
   due?: string
+  project?: string
   createdAt: string
   updatedAt: string
 }
@@ -1990,6 +2142,23 @@ async function loadLaunchpad() {
   }
 }
 
+/**
+ * 阻塞链数据。
+ *
+ * 2026-09-22 补：`loadViewData('blockers')` 一直在调用它，但**这个函数从未被定义** ——
+ * 点「阻塞」页签直接 `Uncaught ReferenceError: loadBlockerChains is not defined`，
+ * 页面停在上一个视图，且不弹任何错。tsc / vite / stub e2e / IPC 对账全都抓不到
+ * （函数体里的未定义名要等运行到那一行才抛），已由 `check-template-bindings.cjs`
+ * 新增的「② 调用了但未定义」检查兜住。
+ */
+async function loadBlockerChains() {
+  try {
+    blockerChains.value = await window.tegula.getBlockerChains()
+  } catch {
+    blockerChains.value = []
+  }
+}
+
 // ── 数据目录迁移 ─────────────────────────────────────────────────────
 const migrateTarget = ref<any>(null)
 const migrateBusy = ref(false)
@@ -2067,6 +2236,10 @@ function loadViewData(v: string) {
     loadTodos()
   } else if (v === 'logs') {
     loadLogs()
+  } else if (v === 'calendar') {
+    // 日历要看任务 + 待办两条数据源（2026-09-22，用户第 6 条：此前完全不拉待办）
+    loadAll()
+    loadTodos()
   } else {
     loadAll()
   }
@@ -2615,6 +2788,11 @@ function localPriority(p: any): string {
 function priorityLabel(p: string): string {
   return p ? localPriority(p) : '—'
 }
+
+/** 详情面板里的时间展示：有开始+截止就是一个时间段（2026-09-22，用户第 6 条） */
+function previewTimeLabel(t: any): string {
+  return rangeLabel(t?.start ?? t?.fm?.start, t?.deadline ?? t?.fm?.deadline)
+}
 const filteredTasks = computed(() => {
   if (isNaturalQuery.value && naturalResults.value.length > 0) {
     return naturalResults.value
@@ -2648,14 +2826,15 @@ const filteredTasks = computed(() => {
   if (dueFilter.value) {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const weekLater = new Date(today.getTime() + 7 * 86400000)
+    // 日期算术统一走 calendar.ts（addDays 用本地日历日构造，天然免疫 DST/时区偏移）
+    const weekLater = addDays(today, 7)
     result = result.filter(t => {
       const due = (t as any).deadline || t.fm.deadline
       if (!due) return false
       const dueDate = new Date(due)
       if (isNaN(dueDate.getTime())) return false
       if (dueFilter.value === 'overdue') return dueDate < today && t.status !== '完成' && t.status !== '驳回'
-      if (dueFilter.value === 'today') return dueDate >= today && dueDate < new Date(today.getTime() + 86400000)
+      if (dueFilter.value === 'today') return dueDate >= today && dueDate < addDays(today, 1)
       if (dueFilter.value === 'week') return dueDate >= today && dueDate <= weekLater
       return true
     })
@@ -2674,6 +2853,24 @@ async function copyId(id: string) {
     showToast('已复制 ID', 'success')
   } catch {
     showToast('复制失败', 'error')
+  }
+}
+
+/**
+ * 打开任务的 markdown 文件（资源管理器定位）。
+ * 后端 `openFile` 通道一直都在（主进程还带路径白名单校验），只是没有入口 —— 同 openReview 那一类。
+ */
+async function openTaskFile(t: any): Promise<void> {
+  const p = t?.path
+  if (!p) {
+    showToast('拿不到这个任务的文件路径', 'error')
+    return
+  }
+  try {
+    const r: any = await window.tegula.openFile(p)
+    if (r && r.ok === false) showToast('打开失败：' + (r.error || ''), 'error')
+  } catch (e: any) {
+    showToast('打开失败：' + (e?.message || e), 'error')
   }
 }
 
@@ -2788,12 +2985,24 @@ async function copyPolicyText(projectId: string) {
   }
 }
 
-// ── Calendar view（从老版 board.html 移植，2026-09-21）──
+// ── Calendar view ──────────────────────────────────────────────────────
+// 2026-09-21 从老版 board.html 移植；2026-09-22 重做（用户第 6 条）。原文四条抱怨：
+//   ① 「连一个指派时间或时间段的按钮都没有」 —— 只能拖已排期任务改截止，没有任何指派入口
+//   ② 「未能和看板上的任务或待办真正联动」   —— 旧实现只读 filteredTasks，完全不看待办
+//   ③ 「貌似根本不支持跨月」                —— 非本月的任务全被丢进「未安排（…本月之外）」
+//   ④ 「时间或时间段」                      —— 只有单日 deadline，没有区间概念
+// 现在：start + deadline 组成时间段（跨天画成连续色带）；待办按 due 上日历；
+//       任务卡右键 / 任务详情 / 待办项 / 未安排条目四处都有「指派时间」；
+//       未安排拆成「无日期」与「其它月份（可一键跳转）」，跨月不再是一锅粥。
 const CAL_DOW = ['一', '二', '三', '四', '五', '六', '日']
 const calYear = ref(new Date().getFullYear())
 const calMonth = ref(new Date().getMonth())
 const calDragOverDay = ref<number | null>(null)
-let calDragTaskId: string | null = null
+const calShowTodos = ref(localStorage.getItem('fc_cal_show_todos') !== '0')
+let calDragId: string | null = null
+let calDragKind: 'task' | 'todo' = 'task'
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
 
 function calMove(delta: number) {
   let m = calMonth.value + delta
@@ -2805,81 +3014,173 @@ function calToday() {
   calYear.value = new Date().getFullYear()
   calMonth.value = new Date().getMonth()
 }
-
-/** 解析截止值：MM-DD / YYYY-MM-DD / ISO；无效返回 null */
-function calParseDue(v: unknown): Date | null {
-  if (!v) return null
-  const s = String(v).trim()
-  let d: Date
-  if (/^\d{1,2}-\d{1,2}$/.test(s)) {
-    const now = new Date()
-    d = new Date(now.getFullYear(), Number(s.split('-')[0]) - 1, Number(s.split('-')[1]))
-    if (d.getTime() < now.getTime() - 180 * 86400000) d.setFullYear(d.getFullYear() + 1)
-  } else {
-    d = new Date(s)
-  }
-  return isNaN(d.getTime()) ? null : d
+function calGoto(y: number, m: number) {
+  calYear.value = y
+  calMonth.value = m
+}
+function calToggleTodos() {
+  calShowTodos.value = !calShowTodos.value
+  localStorage.setItem('fc_cal_show_todos', calShowTodos.value ? '1' : '0')
 }
 
-const calCells = computed(() => {
-  const y = calYear.value, m = calMonth.value
-  const first = new Date(y, m, 1)
-  const lead = (first.getDay() + 6) % 7  // 周一为第一格
-  const days = new Date(y, m + 1, 0).getDate()
-  const today = new Date()
-  // 按日聚合：非终态任务，截止在本月的
-  const byDay: Record<number, Task[]> = {}
-  const base = filteredTasks.value.filter(t => t.status !== '完成' && t.status !== '驳回')
-  for (const t of base) {
-    const d = calParseDue((t as any).deadline || (t as any).fm?.deadline)
-    if (!d) continue
-    if (d.getFullYear() === y && d.getMonth() === m) {
-      (byDay[d.getDate()] = byDay[d.getDate()] || []).push(t)
-    }
-  }
-  const cells: ({ day: number; isToday: boolean; isPast: boolean; tasks: Task[] } | null)[] = []
-  for (let i = 0; i < lead; i++) cells.push(null)
-  for (let d = 1; d <= days; d++) {
-    const isToday = today.getFullYear() === y && today.getMonth() === m && today.getDate() === d
-    const isPast = new Date(y, m, d) < new Date(today.getFullYear(), today.getMonth(), today.getDate())
-    cells.push({ day: d, isToday, isPast, tasks: byDay[d] || [] })
-  }
-  return cells
-})
+// 日期算术全部在 calendar.ts 里（纯函数，可被 scripts/test/e2e-calendar.cjs 直接断言）——
+// 跨月边界这类错误在界面上只表现为"少一天/多一天"，肉眼抓不住，必须靠脚本。
+const taskStart = (t: any): Date | null => parseCalDate(t?.start ?? t?.fm?.start)
+const taskDue = (t: any): Date | null => parseCalDate(t?.deadline ?? t?.fm?.deadline)
 
-const calUnscheduled = computed(() => {
-  return filteredTasks.value.filter(t => {
-    if (t.status === '完成' || t.status === '驳回') return false
-    const d = calParseDue((t as any).deadline || (t as any).fm?.deadline)
-    return !d || d.getFullYear() !== calYear.value || d.getMonth() !== calMonth.value
-  })
-})
+/** 日历只关心非终态任务 */
+const calActiveTasks = computed(() =>
+  filteredTasks.value.filter(t => t.status !== '完成' && t.status !== '驳回'))
+
+/** 未完成的待办（done 的不占日历） */
+const calActiveTodos = computed(() => todos.value.filter(t => !t.done))
+
+type CalEvent = CalEventT<Task, Todo>
+
+/** 一次算清：格子 / 未安排 / 其它月份（纯函数，见 calendar.ts） */
+const calMonthData = computed(() => buildMonth<Task, Todo>({
+  year: calYear.value,
+  month: calMonth.value,
+  today: new Date(),
+  tasks: calActiveTasks.value.map(t => ({
+    ...t,
+    priority: localPriority(t.priority),
+    start: (t as any).start ?? t.fm?.start,
+    deadline: (t as any).deadline ?? t.fm?.deadline,
+  })),
+  todos: calActiveTodos.value.map(td => ({ ...td, priority: localPriority(td.priority) })),
+  showTodos: calShowTodos.value,
+}))
+
+const calCells = computed(() => calMonthData.value.cells)
+const calUnscheduled = computed(() => calMonthData.value.unscheduled as unknown as Task[])
+const calOtherMonths = computed(() => calMonthData.value.otherMonths)
+const calOtherTotal = computed(() => calMonthData.value.otherTotal)
 
 function prioColor(p: any): string {
   const s = localPriority(p)
   return s === '高' ? '#c96a6a' : s === '中' ? '#d9a44a' : s === '低' ? '#7a9e6b' : '#d5d3e0'
 }
 
-function onCalDragStart(e: DragEvent, id: string) {
-  calDragTaskId = id
+// ── 指派时间（模态：开始 + 截止 / 待办只有到期日）──────────────────────
+const calAssign_ = ref<{
+  id: string; title: string; isTodo: boolean; start: string; end: string
+} | null>(null)
+
+function openCalAssignTask(t: any) {
+  const s = taskStart(t), e = taskDue(t)
+  calAssign_.value = {
+    id: t.id, title: t.title || t.id, isTodo: false,
+    start: s ? calISO(s) : '',
+    end: e ? calISO(e) : '',
+  }
+}
+
+function openCalAssignTodo(id: string) {
+  const td = todos.value.find(x => x.id === id)
+  if (!td) return
+  const d = parseCalDate(td.due)
+  calAssign_.value = {
+    id: td.id, title: td.title, isTodo: true, start: '',
+    end: d ? calISO(d) : '',
+  }
+}
+
+function calQuickSet(days: number) {
+  const a = calAssign_.value
+  if (!a) return
+  const target = calISO(addDays(new Date(), days))
+  if (a.isTodo) { a.end = target; return }
+  if (!a.start) { a.end = target } else { a.end = target; if (a.start > a.end) a.start = a.end }
+}
+
+function calClearDates() {
+  const a = calAssign_.value
+  if (!a) return
+  a.start = ''
+  a.end = ''
+}
+
+async function saveCalAssign() {
+  const a = calAssign_.value
+  if (!a) return
+  if (a.start && a.end && a.end < a.start) {
+    showToast('截止不能早于开始', 'error')
+    return
+  }
+  try {
+    if (a.isTodo) {
+      const r: any = await window.tegula.todosUpdate(a.id, { due: a.end || '' })
+      if (!r || r.ok === false) { showToast('指派失败：' + (r?.error || '未知原因'), 'error'); return }
+      showToast(a.end ? `待办到期日已设为 ${a.end}` : '已清除待办到期日', 'success')
+      await loadTodos()
+    } else {
+      const r: any = await window.tegula.editTask(a.id, { start: a.start, deadline: a.end })
+      if (!r || r.ok === false) { showToast('指派失败：' + (r?.error || '未知原因'), 'error'); return }
+      const label = a.start && a.end ? `${a.start} → ${a.end}` : (a.end || a.start || '已清除')
+      showToast(`时间已设为 ${label}`, 'success')
+      loadAll()
+    }
+    calAssign_.value = null
+  } catch (e: any) {
+    showToast('指派失败：' + (e?.message || e), 'error')
+  }
+}
+
+// ── 拖拽改期 ───────────────────────────────────────────────────────────
+function onCalDragStart(e: DragEvent, id: string, kind: 'task' | 'todo' = 'task') {
+  calDragId = id
+  calDragKind = kind
   e.dataTransfer?.setData('text/plain', id)
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+function onCalEventClick(ev: CalEvent) {
+  if (ev.kind === 'todo') { openCalAssignTodo(ev.id); return }
+  const t = calActiveTasks.value.find(x => x.id === ev.id)
+  if (t) openCard(t)
 }
 
 async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
   e.preventDefault()
   calDragOverDay.value = null
   if (!cell) return
-  const id = calDragTaskId || e.dataTransfer?.getData('text/plain')
-  calDragTaskId = null
+  const id = calDragId || e.dataTransfer?.getData('text/plain')
+  const kind = calDragKind
+  calDragId = null
   if (!id) return
-  const nd = String(cell.day).padStart(2, '0') + '-' + String(calMonth.value + 1).padStart(2, '0')
-  const r = await window.tegula.editTask(id, { deadline: nd })
-  if (r?.ok) {
-    showToast('截止已改为 ' + nd, 'success')
-    loadAll()
-  } else {
-    showToast('修改失败：' + (r?.error || '未知错误'), 'error')
+  const target = calISO(new Date(calYear.value, calMonth.value, cell.day))
+  try {
+    if (kind === 'todo') {
+      const r: any = await window.tegula.todosUpdate(id, { due: target })
+      if (!r || r.ok === false) { showToast('改期失败：' + (r?.error || '未知原因'), 'error'); return }
+      showToast(`待办到期日已改为 ${target}`, 'success')
+      await loadTodos()
+      return
+    }
+    const t = calActiveTasks.value.find(x => x.id === id)
+    const s = t ? taskStart(t) : null
+    const ed = t ? taskDue(t) : null
+    let patch: Record<string, string>
+    let msg: string
+    if (s && ed) {
+      // 时间段整体平移：保持长度，把「开始」落到目标日（算术在 calendar.ts，可单测）
+      const shifted = shiftRange(calISO(s), calISO(ed), target)
+      patch = { start: shifted.start, deadline: shifted.end }
+      msg = `时间段已移到 ${shifted.start} → ${shifted.end}`
+    } else {
+      patch = { deadline: target }
+      msg = `截止已改为 ${target}`
+    }
+    const r: any = await window.tegula.editTask(id, patch)
+    if (r && r.ok) {
+      showToast(msg, 'success')
+      loadAll()
+    } else {
+      showToast('改期失败：' + (r?.error || '未知原因'), 'error')
+    }
+  } catch (err: any) {
+    showToast('改期失败：' + (err?.message || err), 'error')
   }
 }
 
@@ -2906,50 +3207,122 @@ async function loadTodos() {
 
 async function executeTodoAdd() {
   const text = todoInput.value.trim()
-  if (!text) return
+  // 2026-09-22：原来空输入是**静默 return**，用户点了没有任何反应，
+  // 从外面看就像"按钮无效"。所有分支都必须有反馈。
+  if (!text) {
+    showToast('请先在左侧输入框里填写待办内容', 'info')
+    return
+  }
   // 快速语法：p0/p1/p2 优先级；归属项目跟当前筛选联动
   let priority = '中'
   let title = text
   const m = text.match(/^(.*?)\s+(p[012])$/i)
   if (m) { title = m[1]; priority = { p0: '高', p1: '中', p2: '低' }[m[2].toLowerCase()] || '中' }
   const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
-  const result = await window.tegula.todosCreate(title, priority, undefined, project)
-  if (result.ok) {
-    todoInput.value = ''
-    showToast('已添加', 'success')
-    loadTodos()
-  } else {
-    showToast('添加失败', 'error')
+  try {
+    const result = await window.tegula.todosCreate(title, priority, undefined, project)
+    if (result && result.ok) {
+      todoInput.value = ''
+      showToast('已添加', 'success')
+      await loadTodos()
+    } else {
+      showToast('添加失败：' + ((result && result.error) || '未知原因'), 'error')
+    }
+  } catch (e: any) {
+    // 落到这里说明 IPC 本身炸了（通道缺失/主进程异常），必须让人看见
+    showToast('添加失败：' + (e?.message || e), 'error')
   }
 }
 
-/** 拖拽 txt/md 到待办区：每行一条（空行跳过），文件名做默认项目提示。agent 会话管理主入口 */
-async function onTodoDrop(e: DragEvent) {
+// ── 拖拽提示的稳定显示（2026-09-22，用户第 4/5 条）──────────────────────
+// 症状：拖动文件时「松手导入…」提示高频闪烁、按不住。
+// 两个真因，都得治：
+//   ① 提示是 v-if 的**流内元素** —— 它一出现就把下方内容顶下去，
+//      光标位置相对内容变了 → 触发 dragleave → 提示消失 → dragover 又出现… 自激振荡；
+//   ② 把 dragover/dragleave 直接映射成 boolean，而 dragleave 在容器内
+//      子元素之间切换时也会来一发。
+// 处置：提示改成 position:fixed 悬浮层 + pointer-events:none（不参与布局与命中），
+//       进出用 dragenter/dragleave **深度计数**，drop/dragend 统一归零。
+const dragDepth = reactive<Record<'todo' | 'log' | 'global', number>>({ todo: 0, log: 0, global: 0 })
+
+function dragEnter(zone: 'todo' | 'log' | 'global'): void {
+  dragDepth[zone] = (dragDepth[zone] || 0) + 1
+}
+function dragLeave(zone: 'todo' | 'log' | 'global'): void {
+  dragDepth[zone] = Math.max(0, (dragDepth[zone] || 0) - 1)
+}
+function dragResetAll(): void {
+  dragDepth.todo = 0
+  dragDepth.log = 0
+  dragDepth.global = 0
+}
+
+const todoDragOver = computed(() => dragDepth.todo > 0)
+const logDragOver = computed(() => dragDepth.log > 0)
+/** 当前页签不支持导入时，全局兜底提示（明确告诉用户去哪，而不是毫无反应） */
+const globalDropHint = computed(() =>
+  dragDepth.global > 0 && curView.value !== 'todos' && curView.value !== 'logs')
+
+/** 拖到不支持导入的页签：给一句明确指引，并重置计数 */
+function onAppDrop(e: DragEvent): void {
+  dragResetAll()
+  if (curView.value === 'todos' || curView.value === 'logs') return
   e.preventDefault()
-  todoDragOver.value = false
+  showToast('当前页签不支持导入文件 —— 请到「待办」或「日志」页签再拖入', 'info')
+}
+
+function onTodoDrop(e: DragEvent) {
+  e.preventDefault()
+  dragResetAll()
   const files = Array.from(e.dataTransfer?.files || [])
   if (!files.length) return
-  let added = 0
+  void importTextLinesAsTodos(files)
+}
+
+/**
+ * 拖入 txt/md 逐行建待办（2026-09-22 加重名/重复处置）。
+ * 用户第 4 条：同名/重复内容**没有任何提示**，且会重复生成。
+ * 现在：批内去重 + 与现存待办比对，重复的集中问一次，再报"写入 N 条 / 跳过 M 条重复"。
+ */
+async function importTextLinesAsTodos(files: File[]): Promise<void> {
+  const usable = files.filter(f => /\.(txt|md)$/i.test(f.name))
+  if (!usable.length) {
+    showToast('仅支持 .txt / .md 文件', 'error')
+    return
+  }
   const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
-  for (const f of files) {
-    if (!/\.(txt|md)$/i.test(f.name)) continue
+  const existing = new Set(todos.value.map(t => t.title.trim()))
+  const unique: string[] = []
+  const dupInBatch: string[] = []
+  for (const f of usable) {
     const text = await f.text()
     for (const line of text.split(/\r?\n/)) {
       const t = line.trim()
       if (!t || t.startsWith('#')) continue
-      const r = await window.tegula.todosCreate(t, '中', undefined, project)
-      if (r.ok) added++
+      if (existing.has(t) || unique.includes(t)) { dupInBatch.push(t); continue }
+      unique.push(t)
     }
   }
-  if (added) {
-    showToast(`已导入 ${added} 条待办`, 'success')
-    loadTodos()
-  } else {
-    showToast('没有可导入的行（仅支持 .txt/.md）', 'error')
+  const dupTotal = dupInBatch.length
+  if (!unique.length) {
+    showToast(dupTotal ? `全部 ${dupTotal} 条都是已存在的同名待办，未新增` : '没有可导入的行', 'info')
+    return
   }
+  if (dupTotal) {
+    const sample = dupInBatch.slice(0, 3).join('、')
+    if (!confirm(`有 ${dupTotal} 条与现有待办重复，将被跳过：\n${sample}${dupTotal > 3 ? ' …' : ''}\n\n继续导入剩余 ${unique.length} 条？`)) {
+      showToast('已取消导入', 'info')
+      return
+    }
+  }
+  let added = 0
+  for (const title of unique) {
+    const r = await window.tegula.todosCreate(title, '中', undefined, project)
+    if (r.ok) added++
+  }
+  showToast(`已导入 ${added} 条待办${dupTotal ? `，跳过 ${dupTotal} 条重复` : ''}`, added ? 'success' : 'error')
+  loadTodos()
 }
-
-const todoDragOver = ref(false)
 
 async function toggleTodo(id: string) {
   const result = await window.tegula.todosToggle(id)
@@ -3005,7 +3378,10 @@ const logRetainDays = ref('7')
 const logNote = ref('')
 
 function openNewLog() {
-  const project = projects.value[0]?.id || 'fangcun-base'
+  // 项目默认跟随顶栏的项目筛选（没筛选就用第一个登记项目），而不是硬编码一个 id
+  const project = curProj.value !== '__all__'
+    ? curProj.value
+    : (projects.value[0]?.id || '')
   logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskId: '' }
   logCompleting.value = false
   logArchiveMode.value = false
@@ -3013,9 +3389,35 @@ function openNewLog() {
   logNote.value = ''
 }
 
+/** 日志可关联的任务候选：按所选项目过滤（用户第 2 条：便于选择，而非手填 ID） */
+const logTaskOptions = computed(() => {
+  const proj = logEdit_.value?.project
+  const all = [...tasks.value, ...archivedTasks.value]
+  const seen = new Set<string>()
+  const out: Array<{ id: string; title: string; status: string }> = []
+  for (const t of all) {
+    if (seen.has(t.id)) continue
+    if (proj && normProject(t.project) !== proj) continue
+    seen.add(t.id)
+    out.push({ id: t.id, title: t.title || '', status: t.status })
+    if (out.length >= 500) break
+  }
+  return out
+})
+
+/** 当前已关联任务的回显（id 不在任务列表里时提示"列表外"） */
+const logTaskPicked = computed(() => {
+  const id = logEdit_.value?.taskId
+  if (!id) return ''
+  const t = [...tasks.value, ...archivedTasks.value].find(x => x.id === id)
+  return t ? `${t.id} · ${t.title || '(无标题)'} · ${t.status}` : `${id}（不在当前任务列表中）`
+})
+
 // ── 日志：导入外部文本（老版本有，桌面化时丢了）────────────────────────
 // 按钮选择与直接拖入两条路都通；每个文件生成一条日志，标题取文件名。
-const logDragOver = ref(false)
+// 2026-09-22（用户第 4 条）：同名/重复此前**静默生成**，现在先判重、集中问一次。
+// 2026-09-22（补）：判重口径从"仅文件名"扩到「文件名 + 正文内容指纹」——
+//   改名重导同一份内容同样会被拦住（用户："防呆不防傻"→ 这一版把"傻"也补上）。
 const LOG_IMPORT_RE = /\.(txt|md|markdown|log)$/i
 
 async function importTextFilesAsLogs(files: File[]): Promise<number> {
@@ -3024,20 +3426,52 @@ async function importTextFilesAsLogs(files: File[]): Promise<number> {
     if (files.length) showToast('仅支持 .txt / .md / .log 文件', 'error')
     return 0
   }
-  const project = projects.value[0]?.id || 'fangcun-base'
-  let ok = 0
+  // 取**全量**日志参与判重（logs.value 可能正被状态/搜索条件过滤，
+  // 用过滤后的列表判重会漏过"已归档的同名/同内容"，那就等于没有判重）
+  let existing: any[] = []
+  try {
+    existing = await window.tegula.logsList()
+  } catch { /* 取不到就退化为"不判重"，不阻断导入 */ }
+
+  const items: ImportItem[] = []
   for (const f of usable) {
     try {
-      const text = await f.text()
-      const title = f.name.replace(/\.[^.]+$/, '')
-      const r = await window.tegula.logsCreate(title, project, text)
+      items.push({ title: f.name.replace(/\.[^.]+$/, ''), text: await f.text() })
+    } catch { /* 单个文件读失败不阻断其余 */ }
+  }
+  if (!items.length) {
+    showToast('文件读取失败，没有可导入的内容', 'error')
+    return 0
+  }
+
+  const cls = classifyLogImport(items, existing)
+  const skipped = cls.dupTitle.length + cls.dupContent.length + cls.dupInBatch.length
+  if (!cls.fresh.length) {
+    showToast(`全部被拦截，未新增 —— ${classifySummary(cls)}`, 'info')
+    return 0
+  }
+  if (skipped) {
+    const lines: string[] = []
+    const sample = (arr: string[]) => arr.slice(0, 3).join('、') + (arr.length > 3 ? ' …' : '')
+    if (cls.dupTitle.length) lines.push(`同名：${sample(cls.dupTitle)}`)
+    if (cls.dupContent.length) lines.push(`内容相同（只是改了名）：${sample(cls.dupContent)}`)
+    if (cls.dupInBatch.length) lines.push(`同一批里重复：${sample(cls.dupInBatch)}`)
+    if (!confirm(`检测到 ${skipped} 个重复文件（按「文件名 + 正文内容指纹」判定）：\n${lines.join('\n')}\n\n重复的跳过，继续导入其余 ${cls.fresh.length} 个？`)) {
+      showToast('已取消导入', 'info')
+      return 0
+    }
+  }
+
+  const project = curProj.value !== '__all__' ? curProj.value : (projects.value[0]?.id || '')
+  let ok = 0
+  for (const it of cls.fresh) {
+    try {
+      const r = await window.tegula.logsCreate(it.title, project, it.text)
       if (r?.ok) ok++
     } catch { /* 单个文件失败不阻断其余 */ }
   }
-  if (ok) {
-    showToast(`已导入 ${ok} 条日志`, 'success')
-    loadLogs()
-  }
+  showToast(`已导入 ${ok} 条日志${skipped ? `，跳过 ${skipped} 个重复` : ''}`, ok ? 'success' : 'error')
+  loadLogs()
   return ok
 }
 
@@ -3054,7 +3488,7 @@ function importLogFile() {
 
 async function onLogDrop(e: DragEvent) {
   e.preventDefault()
-  logDragOver.value = false
+  dragResetAll()
   await importTextFilesAsLogs(Array.from(e.dataTransfer?.files || []))
 }
 
@@ -3063,7 +3497,7 @@ function openLogForTask(taskId: string) {
   openNewLog()
   logEdit_.value.taskId = taskId
   const t = previewTask.value
-  if (t?.project) logEdit_.value.project = t.project
+  if (t?.project) logEdit_.value.project = normProject(t.project)
   if (t?.title) logEdit_.value.title = `${t.title} — 执行记录`
 }
 
@@ -3092,10 +3526,26 @@ async function saveLogEdit() {
         return
       }
     } else if (e.id) {
-      await window.tegula.logsUpdate(e.id, { title: e.title, content: e.content, nextSteps: e.nextSteps })
+      // 2026-09-22：此前只回写 title/content/nextSteps —— 在界面上改了「项目」或
+      // 「关联任务」点保存会提示"已更新"，但字段被静默丢弃（用户报障「改不了项目」）。
+      const r: any = await window.tegula.logsUpdate(e.id, {
+        title: e.title,
+        content: e.content,
+        nextSteps: e.nextSteps,
+        project: e.project,
+        taskId: e.taskId || '',
+      })
+      if (r && r.ok === false) {
+        showToast('更新失败：' + (r.error || '未知原因'), 'error')
+        return
+      }
       showToast('已更新', 'success')
     } else {
-      await window.tegula.logsCreate(e.title, e.project, e.content, e.taskId || undefined)
+      const r: any = await window.tegula.logsCreate(e.title, e.project, e.content, e.taskId || undefined)
+      if (r && r.ok === false) {
+        showToast('创建失败：' + (r.error || '未知原因'), 'error')
+        return
+      }
       showToast('已创建', 'success')
     }
     logEdit_.value = null
@@ -3150,13 +3600,37 @@ async function executeLogSearch() {
   }
 }
 
+/**
+ * 把一条日志复制成可直接粘给 agent 的提示词块。
+ * 后端 `logs:inject`（返回"上次执行日志"格式的文本）早就写好并注册了通道，
+ * 但界面从来没有入口 —— 而"日志 → 提示词"正是方寸定位里的核心动作。
+ */
+async function copyLogAsPrompt(id: string): Promise<void> {
+  try {
+    const text: any = await window.tegula.logsInject(id)
+    if (!text) {
+      showToast('这条日志注入不了（可能已被销毁或归档）', 'error')
+      return
+    }
+    await navigator.clipboard.writeText(String(text))
+    showToast('已复制为提示词，可直接粘给 agent', 'success')
+  } catch (e: any) {
+    showToast('复制失败：' + (e?.message || e), 'error')
+  }
+}
+
 async function executeLogCleanup() {
   try {
     const result = await window.tegula.logsCleanup()
-    showToast(result.length ? `已归档 ${result.length} 条超期日志` : '无超期日志', 'info')
+    const n = Array.isArray(result) ? result.length : 0
+    if (n) {
+      showToast(`已将 ${n} 条超期日志标为「已归档」（仅改状态，文件未删）`, 'success')
+    } else {
+      showToast('没有超期日志：需先点「完成」并填保留天数，到期后才会被清理', 'info')
+    }
     await loadLogs()
-  } catch {
-    showToast('清理失败', 'error')
+  } catch (e: any) {
+    showToast('清理失败：' + (e?.message || e), 'error')
   }
 }
 
@@ -3314,11 +3788,11 @@ async function confirmNewProject() {
 // ── Launchpad ─────────────────────────────────────────────────────────
 
 function openAddApp() {
-  editApp_.value = { name: '', path: '', description: '', isNew: true }
+  editApp_.value = { name: '', path: '', description: '', argsText: '', isNew: true }
 }
 
 function openEditApp(app: any) {
-  editApp_.value = { ...app, isNew: false }
+  editApp_.value = { ...app, argsText: Array.isArray(app.args) ? app.args.join(' ') : '', isNew: false }
 }
 
 async function saveEditApp() {
@@ -3327,7 +3801,11 @@ async function saveEditApp() {
     showToast('名称和路径必填', 'error')
     return
   }
-  const app = { name: e.name, path: e.path, cmd: e.path, description: e.description }
+  // 路径直接进 cmd（执行器按扩展名分派）；参数可选
+  const args = String(e.argsText || '').trim()
+    ? String(e.argsText).trim().split(/\s+/).filter(Boolean)
+    : undefined
+  const app = { name: e.name, path: e.path, cmd: e.path, args, description: e.description }
   if (e.isNew) {
     await window.tegula.launchpadAddApp(app)
   } else {
@@ -3366,14 +3844,19 @@ async function launchAppClick(app: any) {
   try {
     const result = await window.tegula.launchpadLaunchApp(app)
     showToast(result.message, result.ok ? 'success' : 'error')
-  } catch {
-    showToast('启动失败', 'error')
+    if (!result.ok) {
+      // 失败把「启动了什么」也带上，并留一条错误条 + 日志可查
+      appErrors.value.push({
+        scope: 'launchpad',
+        message: `启动「${app.name}」失败：${result.message}（命令：${app.cmd || app.path}）`,
+        at: Date.now(),
+      })
+    }
+  } catch (e: any) {
+    const msg = `启动「${app.name}」失败：${e?.message || e}（命令：${app.cmd || app.path}）`
+    showToast(msg, 'error')
+    appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
   }
-}
-
-function getProjName(id: string): string {
-  const p = projects.value.find(p => p.id === id)
-  return p ? (p.name || p.id) : id
 }
 
 // ── Settings / Backup ──────────────────────────────────────────────────
@@ -3630,10 +4113,17 @@ async function triggerBackup() {
   }
 }
 
-async function openBackupFolder() {
-  if (backupInfo.value) {
-    await window.tegula.launchpadOpenFolder(backupInfo.value.path.substring(0, backupInfo.value.path.lastIndexOf('\\')))
-  }
+/**
+ * 打开「最近一次备份」所在目录。
+ * 2026-09-22：这个函数此前**定义了但没有任何入口**（死代码）—— 已接到备份区按钮上。
+ * 顺带把原来只认 `\` 的切分改成跨平台（用正则去掉最后一段路径）。
+ */
+async function openBackupFolder(): Promise<void> {
+  const p = backupInfo.value?.path
+  if (!p) { await bkOpenDir(); return }
+  const dir = p.replace(/[\\/][^\\/]*$/, '')
+  const r: any = await window.tegula.launchpadOpenFolder(dir)
+  if (r && r.ok === false) bkMsg.value = '打开目录失败：' + (r.error || '')
 }
 
 function showBackup() {
@@ -3690,6 +4180,105 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
   setTimeout(() => { toast.show = false }, 2000)
 }
 
+// ── 应用日志 / 错误出口（2026-09-22，用户第 8 条）────────────────────────
+// 此前任何失败（启动台启动失败、导入失败、脚本异常）界面上只有一句干巴巴的
+// 提示，终端里什么都没有。现在：全局异常 → main.ts 上报 → 主进程落盘
+// （userData/logs/fangcun-YYYYMMDD.log）→ 这里给可见的错误条与日志抽屉。
+const appErrors = ref<Array<{ scope: string; message: string; at: number }>>([])
+const appErrOpen = ref(false)
+const appLogFile = ref('')
+const appLogTail = ref<string[]>([])
+
+/** 接收 main.ts 广播；3 秒内完全相同的错误只留一条，避免刷屏 */
+function onAppError(e: Event): void {
+  const d = (e as CustomEvent).detail || {}
+  const message = String(d.message || '')
+  if (!message) return
+  const last = appErrors.value[appErrors.value.length - 1]
+  if (last && last.message === message && Date.now() - last.at < 3000) return
+  appErrors.value.push({ scope: String(d.scope || 'error'), message, at: Date.now() })
+  if (appErrors.value.length > 30) appErrors.value.shift()
+}
+
+async function loadAppLogPath(): Promise<void> {
+  try { appLogFile.value = await window.tegula.applogPath() } catch { appLogFile.value = '' }
+}
+
+async function toggleAppLogPanel(): Promise<void> {
+  appErrOpen.value = !appErrOpen.value
+  if (!appErrOpen.value) return
+  await loadAppLogPath()
+  try { appLogTail.value = await window.tegula.applogTail(200) } catch { appLogTail.value = [] }
+}
+
+async function openAppLogDir(): Promise<void> {
+  const t: any = (window as any).tegula || {}
+  // 主进程/preload 是启动时读进内存的：开发态改了主进程但没重启 Electron 时，
+  // 这个接口根本不存在 —— 原来只会抛 TypeError 被吞成一句无信息量的「打开日志目录失败」。
+  if (typeof t.applogOpenDir !== 'function') {
+    showToast('当前运行的主进程/预加载还是旧版本，没有日志接口 —— 请托盘右键「退出」后重新启动', 'error')
+    return
+  }
+  try {
+    const r: any = await t.applogOpenDir()
+    if (r && r.ok === false) {
+      showToast(`打开日志目录失败：${r.error || '未知原因'}（路径 ${r.dir || appLogFile.value || '未知'}）`, 'error')
+    } else if (r && r.dir) {
+      appLogFile.value = r.dir
+    }
+  } catch (e: any) {
+    showToast('打开日志目录失败：' + (e?.message || e), 'error')
+  }
+}
+
+/**
+ * 运行期新鲜度自检（2026-09-22）。
+ *
+ * 开发态只有**渲染层**走 vite 热更；主进程与 preload 是启动时读进内存的。
+ * 于是会出现最坑的一种状态：界面是新代码、通道是旧代码 ——
+ * 新按钮看得见，一点就报莫名其妙的错（本例：`applogOpenDir` 未定义 → "打开日志目录失败"）。
+ * 这里主动探测并把它翻成一句人话，省得再花一轮排查"改了没用"。
+ */
+async function checkRuntimeFreshness(): Promise<void> {
+  const t: any = (window as any).tegula || {}
+  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'logsUpdate']
+  const missing = need.filter(k => typeof t[k] !== 'function')
+  if (missing.length) {
+    pushRuntimeStale(`preload 未暴露新接口：${missing.join('、')}`)
+    return
+  }
+  try {
+    const p = await t.applogPath()
+    if (!p) pushRuntimeStale('主进程未返回日志路径')
+  } catch (e: any) {
+    pushRuntimeStale('主进程未注册 applog 通道（' + (e?.message || e) + '）')
+  }
+}
+
+function pushRuntimeStale(why: string): void {
+  if (appErrors.value.some(e => e.scope === 'runtime-stale')) return
+  appErrors.value.push({
+    scope: 'runtime-stale',
+    message: `运行中的 Electron 主进程/预加载是旧代码（${why}）—— 请用**托盘右键「退出」**彻底关掉再重启 npm run dev。关窗只是隐藏窗口，不会重启进程；开发态的渲染层会热更，主进程不会`,
+    at: Date.now(),
+  })
+}
+
+async function copyAppLogPath(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(appLogFile.value || '')
+    showToast('日志路径已复制', 'success')
+  } catch {
+    showToast('复制失败：' + (appLogFile.value || ''), 'error')
+  }
+}
+
+/** 从设置里看日志：先关设置，再展开抽屉（抽屉在模态之下，否则被遮住） */
+async function showAppLogFromSettings(): Promise<void> {
+  showSettings_.value = false
+  if (!appErrOpen.value) await toggleAppLogPanel()
+}
+
 // ── Mount ───────────────────────────────────────────────────────────────
 
 async function checkFirstRun() {
@@ -3741,12 +4330,23 @@ onMounted(() => {
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
   bkInitBackup()
   ncInit()
+  // 渲染层错误出口（2026-09-22）：main.ts 的全局上报会广播到这里，
+  // 界面上给一条可见的错误条 + 「打开日志」，不再让失败无声无息。
+  window.addEventListener('fc-app-error', onAppError as EventListener)
+  loadAppLogPath()
+  checkRuntimeFreshness()
+  // 拖拽计数兜底归零：拖出窗口 / 在窗口外松手时不会有 drop，计数会泄漏
+  window.addEventListener('dragend', dragResetAll)
+  window.addEventListener('drop', dragResetAll)
 })
 
 onUnmounted(() => {
   if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
   document.removeEventListener('mousedown', onDocumentClick)
   document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('fc-app-error', onAppError as EventListener)
+  window.removeEventListener('dragend', dragResetAll)
+  window.removeEventListener('drop', dragResetAll)
 })
 </script>
 
@@ -3777,6 +4377,35 @@ body {
 
 #app { display: flex; flex-direction: column; height: 100vh; }
 
+/* ── 按钮基座（2026-09-22）──────────────────────────────────────────────
+   .ghost / .pri / .ok / .danger / .warning 此前**只在特定祖先下**定义
+   （`#bar button.ghost`、`.acts .pri`、`.lp-ctrls button.ghost` …）。
+   于是待办 `.todos-ctrls`、日志 `.logs-ctrls`、日历 `.calhead` 里的按钮
+   匹配不到任何规则 → 直接退化成 Chromium 默认按钮长相。用户反馈过两轮。
+   这里补一组**与祖先无关**的兜底。用 `:where()` 把选择器特异性压到 (0,1,0)，
+   且放在样式表最前面：任何已有的更具体/同特异性的规则都仍然覆盖它。
+   配套守卫：scripts/test/check-button-styles.cjs（自动扫同类漏样式）。 */
+button { font-family: inherit; cursor: pointer; }
+button[disabled] { opacity: .55; cursor: not-allowed; }
+button:not([class]) {
+  padding: 6px 14px; border: 0; border-radius: 8px;
+  font-size: 12px; font-weight: 600;
+  background: var(--accent); color: #fff;
+}
+:where(button.ghost)   { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px;
+                         font-size: 12px; font-weight: 600; background: #fff; color: var(--ink); }
+:where(button.pri)     { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+                         background: var(--accent); color: #fff; }
+:where(button.ok)      { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+                         background: var(--success); color: #fff; }
+:where(button.warning) { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+                         background: var(--warning); color: #fff; }
+:where(button.danger)  { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+                         background: var(--danger); color: #fff; }
+:where(button.ghost):hover { background: #f4f1fc; border-color: var(--accent-soft); }
+:where(button.pri):hover, :where(button.ok):hover,
+:where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }
+
 .blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: 0.38; z-index: 0; pointer-events: none; }
 .blob.b1 { width: 460px; height: 460px; background: #cfc6ec; top: -140px; left: -100px; }
 .blob.b2 { width: 420px; height: 420px; background: #cdd9ee; bottom: -130px; right: -90px; }
@@ -3805,6 +4434,26 @@ body {
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
   background: rgba(255,255,255,0.5); border-bottom: 1px solid var(--border);
+}
+/* 错误条 / 日志抽屉（全局，任何页签都在） */
+.errbar {
+  position: relative; z-index: 3; display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; background: #fdf3f3; border-bottom: 1px solid #e8c9c9;
+  font-size: 12px; color: #8a4545;
+}
+.errbar-ico { flex: none; }
+.errbar-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.errbar-msg b { font-weight: 700; }
+.errpanel {
+  position: relative; z-index: 3; background: #fff; border-bottom: 1px solid var(--border);
+  padding: 8px 16px 12px;
+}
+.errpanel-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.errpanel-head code { background: #f4f1fc; padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+.errpanel-body {
+  max-height: 240px; overflow: auto; background: #f7f7fa; border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all; color: #4a4f5c;
 }
 #views.batch-on { background: #fffdf5; border-bottom-color: #f0e8d0; }
 .vbtn {
@@ -4011,6 +4660,7 @@ body {
 #smodal .sect:first-of-type { border-top: 0; padding-top: 0; }
 #smodal .sect h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
 #smodal .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+#smodal .hint.logpath { word-break: break-all; color: var(--ink); }
 #smodal .sect .pri { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 #smodal .sect .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .projlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -4056,6 +4706,7 @@ body {
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-desc { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-launch { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; flex: none; }
+.app-path-hint { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 #app-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 400px; box-shadow: var(--shadow); border: 1px solid var(--border); }
 #app-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #app-edit-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
@@ -4467,7 +5118,7 @@ body {
 .blk-pick { width: 100%; }
 /* 日志视图的拖入提示 */
 .logs-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
-.log-drop-hint { text-align: center; color: var(--accent); font-size: 12px; padding: 8px; font-weight: 600; }
+
 
 /* Calendar view（视觉对齐老版 board.html） */
 /* ⚠ #board 是「横排看板」布局：display:flex + align-items:flex-start。
@@ -4503,10 +5154,50 @@ body {
 .calunsched .items { display: flex; flex-wrap: wrap; gap: 6px; }
 .calunsched .cev { background: #fff; border: 1px solid var(--border); min-width: 120px; }
 
+/* ── 日历：时间段色带 + 待办标识（2026-09-22）──────────────────────────
+   跨天任务在每一天的格子里各画一段，靠 span-start/mid/end 去掉内侧圆角与外边距，
+   横向看起来连续（格子本身有间距，做不到真·一根条形，但语义连续已足够）。 */
+.cev.span-start { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-width: 0; }
+.cev.span-mid   { border-radius: 0; border-left-width: 0; border-right-width: 0; }
+.cev.span-end   { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; }
+.cev.span-start { background: #eeeafa; }
+.cev.span-mid   { background: #eeeafa; }
+.cev.span-end   { background: #eeeafa; }
+.cev.cev-todo { background: #eef4fd; border-color: #d5e3f7; }
+.cev.cev-todo:hover { background: #e3eefc; border-color: #a9c8ee; }
+.calunsched .cev.chip { cursor: grab; }
+.calunsched .cev.chip.other { background: #fbf7f1; border-color: #efdfc8; color: #8a7040; }
+.cal-hint-inline { font-size: 10.5px; color: var(--accent); margin-left: 6px; font-weight: 500; }
+.cal-other-head { margin-top: 12px !important; }
+.cal-empty { font-size: 11px; color: var(--muted); }
+.cal-chk { margin-left: 8px; }
+
+#cal-assign-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 420px; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#cal-assign-modal h3 { margin: 0 0 8px; font-size: 16px; }
+#cal-assign-modal .ca-title { font-size: 13px; font-weight: 600; color: var(--ink); background: #f4f1fc; border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
+#cal-assign-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
+#cal-assign-modal input[type="date"] { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+#cal-assign-modal .ca-quick { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+#cal-assign-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.todo-due { font-size: 10px; color: #3f6fa8; background: #eef4fd; border: 1px solid #d5e3f7; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.todo-assign { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 12px; padding: 0 4px; border-radius: 4px; flex: none; }
+.todo-assign:hover { color: var(--accent); background: #f4f1fc; }
+
 /* Todos view */
 .todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .todos-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
-.todo-drop-hint { text-align: center; color: var(--accent); font-size: 12px; padding: 10px; font-weight: 600; }
+/* 拖放提示统一为「固定悬浮层」：text-align/padding 那套会参与文档流，
+   一出现就把下方内容顶下去 → 光标相对内容位移 → dragleave/dragover 自激闪烁
+   （用户第 5 条「抖动、不能稳定显示」的真因）。固定定位 + pointer-events:none 根治。 */
+.todo-drop-hint, .log-drop-hint, .drop-hint {
+  position: fixed; left: 50%; top: 92px; transform: translateX(-50%);
+  z-index: 60; pointer-events: none;
+  background: rgba(155,143,196,.97); color: #fff;
+  border-radius: 999px; padding: 8px 18px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(90,90,130,.28);
+}
+.drop-hint.global { background: rgba(107,113,128,.97); }
 .todo-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
@@ -4561,6 +5252,13 @@ body {
 #log-edit-modal input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 #log-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-family: inherit; resize: vertical; line-height: 1.5; }
 #log-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#log-edit-modal select.logsel {
+  width: 100%; box-sizing: border-box; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit;
+}
+#log-edit-modal select.logsel:disabled { background: #f6f6f9; color: var(--muted); }
+#log-edit-modal .log-task-picked { font-size: 11px; color: var(--accent); margin-top: 4px; }
 
 /* Dispatch modal */
 

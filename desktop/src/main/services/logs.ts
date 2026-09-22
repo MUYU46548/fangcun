@@ -190,7 +190,21 @@ export function createLog(title: string, project: string, content: string, taskI
   return log
 }
 
-export function updateLog(id: string, updates: { title?: string; content?: string; nextSteps?: string }): LogEntry | null {
+/**
+ * 更新日志。
+ *
+ * 2026-09-22 补（用户报障「日志根本无法改所选项目，都是方寸」）：
+ * 原来只接受 title/content/nextSteps，**project 与 taskId 被静默丢弃** ——
+ * 界面上改了项目、点保存、提示「已更新」，重新打开还是老项目。
+ * 典型的"看起来成功了"的假成功，现把两个字段一并落盘。
+ */
+export function updateLog(id: string, updates: {
+  title?: string
+  content?: string
+  nextSteps?: string
+  project?: string
+  taskId?: string
+}): LogEntry | null {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
@@ -199,6 +213,9 @@ export function updateLog(id: string, updates: { title?: string; content?: strin
   if (updates.title !== undefined) entry.title = updates.title
   if (updates.content !== undefined) entry.content = updates.content
   if (updates.nextSteps !== undefined) entry.nextSteps = updates.nextSteps
+  if (updates.project !== undefined) entry.project = updates.project
+  // 空串 = 解除关联（renderLog 会把 tasks 写成空数组，字段随之从文件里消失）
+  if (updates.taskId !== undefined) entry.taskId = updates.taskId ? String(updates.taskId).trim() : undefined
   atomicallyWrite(filePath, renderLog(entry))
   return entry
 }

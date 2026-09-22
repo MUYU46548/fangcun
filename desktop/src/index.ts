@@ -6,6 +6,13 @@ import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
 import { startScanner, stopScanner } from './main/services/notifier'
+import * as appLog from './main/services/appLog'
+
+// ── 最先安装全局兜底（2026-09-22）────────────────────────────────────────
+// 用户第 8 条：「任何失败或崩溃根本查不到日志」。此前主进程零兜底 ——
+// 未捕获异常/未处理 rejection 直接消失，终端里只剩 vite 的噪声。
+// 必须在任何业务 import 的副作用之前跑，越早越好。
+appLog.installProcessHandlers()
 
 // ── userData 目录统一（发版阻塞项，2026-09-20 修复）──
 // Electron 默认 userData 在打包态取 productName（= %APPDATA%/方寸），
@@ -22,8 +29,12 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+/** 渲染层 e2e 用：隐藏窗口跑，避免测试时窗口在屏幕上闪 */
+const hidden = process.env.FC_E2E_RENDERER === '1'
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
+    show: !hidden,
     width: 1280,
     height: 800,
     minWidth: 900,
@@ -50,6 +61,27 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'))
   }
+
+  // ── 渲染层可观测（2026-09-22）────────────────────────────────────────
+  // 之前渲染层报错在终端里一条都看不到：preload 失败、白屏、脚本异常
+  // 全都是"界面没反应 + 终端安静"。这几条把真因捞进日志文件。
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    appLog.error('window', `页面加载失败 ${code} ${desc}`, url)
+  })
+  mainWindow.webContents.on('preload-error', (_e, preloadPath, err) => {
+    appLog.error('window', `preload 失败: ${preloadPath}`, err instanceof Error ? err.stack : err)
+  })
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    appLog.error('window', `渲染进程退出: ${details.reason}`, details)
+  })
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    // level: 0=verbose 1=info 2=warning 3=error
+    if (level >= 2) {
+      appLog.append(level === 3 ? 'ERROR' : 'WARN', 'renderer-console',
+        `${message} (${sourceId}:${line})`)
+    }
+  })
+  mainWindow.webContents.on('unresponsive', () => appLog.warn('window', '窗口无响应'))
 
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
@@ -85,13 +117,25 @@ function createTray(): void {
 app.whenReady().then(() => {
   createWindow()
   createTray()
-  startMCPServer()
-  startScheduler()
-  startScanner()
-  
-  // Initialize auto-updater
-  initUpdater(mainWindow)
-  registerUpdaterIpc()
+
+  // 各子系统的启动失败此前是静默的（抛了就抛了）。逐个包起来并落盘。
+  const boot = (name: string, fn: () => void) => {
+    try {
+      fn()
+      appLog.info('boot', `${name} 已启动`)
+    } catch (e) {
+      appLog.error('boot', `${name} 启动失败`, e instanceof Error ? e.stack : e)
+    }
+  }
+
+  boot('MCP 服务', () => startMCPServer())
+  boot('静默备份调度', () => startScheduler())
+  boot('通知扫描器', () => startScanner())
+  boot('自动更新', () => {
+    initUpdater(mainWindow)
+    registerUpdaterIpc()
+  })
+  appLog.info('boot', '全部子系统启动流程结束', { logFile: appLog.getLogFile() })
 })
 
 app.on('window-all-closed', () => {
@@ -107,6 +151,7 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
+  appLog.info('boot', '退出中')
   stopMCPServer()
   stopScanner()
 })

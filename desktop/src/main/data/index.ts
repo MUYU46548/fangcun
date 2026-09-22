@@ -386,6 +386,9 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'status', label: '状态', type: 'select', span: 'half', options: STATUSES },
   { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES },
   { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 暮雨' },
+  // 2026-09-22（用户第 6 条）：日历要能"指派时间或时间段"。
+  // 单日截止用 deadline；开始+截止构成时间段，日历上画成跨天横条。
+  { key: 'start', label: '开始', type: 'text', span: 'half', placeholder: 'YYYY-MM-DD（可选）' },
   { key: 'deadline', label: '截止', type: 'text', span: 'half', placeholder: 'MM-DD 或 YYYY-MM-DD' },
   { key: 'batch', label: '批次', type: 'text', span: 'half', placeholder: '如 2026-Q3' },
   { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug' },
@@ -448,6 +451,10 @@ export const FIELD_MAP: Record<string, string> = {
   '项目': 'project',
   '状态': 'status',
   '批次': 'batch',
+  // 「开始」与「截止」组成时间段（2026-09-22，用户第 6 条）。
+  // Python 侧 MANAGED_KEYS 同步加入「开始」并在 render_task 里显式输出 ——
+  // 否则桌面版写的时间段会被 Python 的 render_task 丢掉（受管键漏输出=静默丢字段）。
+  '开始': 'start',
   '截止': 'deadline',
   '优先级': 'priority',
   '创建': 'created',
@@ -485,7 +492,7 @@ const REVERSE_FIELD_MAP: Record<string, string> = Object.fromEntries(
 // Preferred output order for frontmatter fields
 const FM_ORDER = [
   'id', 'title', 'project', 'status', 'priority', 'assignee', 'tags',
-  'created', 'updated', 'blockers', 'expected_update', 'batch', 'deadline',
+  'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
   'source', 'review', 'memo', 'resources', 'plan', 'result_log',
   'dispatch_time', 'agent', 'review_checklist', 'budget', 'cron', 'context',
   'type', 'plan_status',

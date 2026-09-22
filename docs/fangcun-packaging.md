@@ -348,3 +348,66 @@ def _migrate_data():
 ---
 
 *报告生成：Hermes Agent*
+
+---
+
+# 附录：实际打包命令与本机两类坑（2026-09-22 实测补充）
+
+> 上面那份是 2026-09-11 的**方案分析**（当年还在评估 PyInstaller）。
+> 实际落地走的是 **Electron + electron-builder + NSIS**，下面是当前真正在用的命令与踩到的坑。
+
+## 命令
+
+```bash
+cd desktop
+npm run electron:build          # = npm run build && electron-builder
+# 产物：desktop/release/方寸 Setup <version>.exe （+ .blockmap）
+```
+
+版本号只改 `desktop/package.json` 的 `version`（安装包文件名与 NSIS 元信息都取自它）。
+仓库内**没有**任何地方硬编码版本号，改一处即可。
+
+## 坑 1：`EBUSY: resource busy or locked, unlink 'release\win-unpacked\resources\app.asar'`
+
+electron-builder 打包前会清掉上一次的 `release/win-unpacked`，但 `app.asar` 被某个句柄占着
+（杀毒实时扫描 / 文件索引 / 残留进程）。表现是**每次都在同一步失败**，与代码无关。
+
+处置：确认没有正在运行的 `方寸.exe`；仍失败就换输出目录绕开那个被锁的目录：
+
+```bash
+npx electron-builder --config.directories.output=release/build022
+```
+
+## 坑 2：`EPERM: operation not permitted, rename 'win-unpacked.tmp' -> 'win-unpacked'`
+
+electron-builder 解压 Electron 到 `win-unpacked.tmp` 后**重命名**为 `win-unpacked`，
+这一步在部分环境（沙箱 / 杀毒 / 网络盘）会被拒。多次重试都一样时，别再重试，改用本地 Electron 目录：
+
+```bash
+# 1) 找到本机已缓存的 electron 包（此前的构建下过）
+#    %LOCALAPPDATA%\electron\Cache\<hash>\electron-v28.3.3-win32-x64.zip
+# 2) 解压到一个目录（python 标准库即可，不引入新依赖）
+python -c "import zipfile;zipfile.ZipFile(r'<上面的zip>').extractall(r'release/electron-dist')"
+# 3) 让 electron-builder 直接"拷贝"这个目录，跳过下载+解压+重命名
+npx electron-builder --config.electronDist="$PWD/release/electron-dist" \
+                     --config.directories.output=release/build022
+```
+
+日志里会出现 `using custom unpacked Electron distribution` 与
+`copying unpacked Electron` —— 看到这两行就说明绕过成功了。
+
+## 产物自检（别只看"构建成功"）
+
+安装包做好之后至少验两件事：
+
+1. **安装包本身**：`sha256sum` + 前两字节是 `MZ`（合法 PE）。
+2. **`app.asar` 里真的含新代码**：直接二进制搜索关键文件与只可能出现在新代码里的字符串，例如
+
+   ```bash
+   python -c "d=open('release/win-unpacked/resources/app.asar','rb').read(); \
+     print(b'guarded-ipc.js' in d, '内容指纹'.encode() in d)"
+   ```
+
+   ⚠ 别拿**函数名**当判据（`classifyLogImport` 这类会被 minify 改名/内联），
+   用**字符串字面量**（界面文案、错误提示）才可靠。
+

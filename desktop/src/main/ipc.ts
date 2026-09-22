@@ -3,7 +3,7 @@
  * Connects renderer (Vue) to main process (data layer)
  */
 
-import { ipcMain, app, dialog, BrowserWindow } from 'electron'
+import { ipcMain, app, dialog, shell, BrowserWindow } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
 import * as services from './services'
@@ -19,6 +19,8 @@ import { registerLlmIpcHandlers } from './llm-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
+import * as appLog from './services/appLog'
+import { guardedHandle } from './guarded-ipc'
 
 export function registerIpcHandlers(): void {
   // Initialize paths
@@ -28,7 +30,7 @@ export function registerIpcHandlers(): void {
   registerLlmIpcHandlers()
 
   // ── Startup self-check ────────────────────────────────────────────
-  ipcMain.handle('selfCheck', () => {
+  guardedHandle('selfCheck', () => {
     return data.startupSelfCheck()
   })
 
@@ -53,29 +55,29 @@ export function registerIpcHandlers(): void {
     }
   }
 
-  ipcMain.handle('loadTasks', (_event, view = 'active') => {
+  guardedHandle('loadTasks', (_event, view = 'active') => {
     return data.loadTasks(view).map(flattenTask)
   })
 
   // 解析失败的任务文件：以前是静默跳过（任务"人间蒸发"），现在交给界面显性提示
-  ipcMain.handle('parseErrors', () => data.getParseErrors())
+  guardedHandle('parseErrors', () => data.getParseErrors())
 
-  ipcMain.handle('getTask', (_event, id: string) => {
+  guardedHandle('getTask', (_event, id: string) => {
     const task = tasks.readTask(id)
     return task ? flattenTask(task) : null
   })
 
-  ipcMain.handle('newTask', (_event, fields: tasks.NewTaskFields) => {
+  guardedHandle('newTask', (_event, fields: tasks.NewTaskFields) => {
     const task = tasks.createTask(fields)
     return { ok: true, id: task.id }
   })
 
-  ipcMain.handle('editTask', (_event, id: string, fields: any) => {
+  guardedHandle('editTask', (_event, id: string, fields: any) => {
     const task = tasks.updateTask(id, fields)
     return { ok: !!task, id }
   })
 
-  ipcMain.handle('moveStatus', (_event, id: string, status: string) => {
+  guardedHandle('moveStatus', (_event, id: string, status: string) => {
     try {
       const task = tasks.moveStatus(id, status as any)
       if (!task) {
@@ -87,36 +89,36 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('deleteTask', (_event, id: string) => {
+  guardedHandle('deleteTask', (_event, id: string) => {
     const ok = tasks.deleteTask(id)
     return { ok }
   })
 
-  ipcMain.handle('archiveTask', (_event, id: string) => {
+  guardedHandle('archiveTask', (_event, id: string) => {
     const task = tasks.archiveTask(id)
     return { ok: !!task, id }
   })
 
-  ipcMain.handle('unarchiveTask', (_event, id: string) => {
+  guardedHandle('unarchiveTask', (_event, id: string) => {
     const task = tasks.unarchiveTask(id)
     return { ok: !!task, id }
   })
 
   // ── Projects ──────────────────────────────────────────────────────
-  ipcMain.handle('loadProjects', () => {
+  guardedHandle('loadProjects', () => {
     return data.parseRegistry()
   })
 
-  ipcMain.handle('scanProjectStatus', () => {
+  guardedHandle('scanProjectStatus', () => {
     return tasks.scanProjectStatus()
   })
 
-  ipcMain.handle('findBlockers', () => {
+  guardedHandle('findBlockers', () => {
     return tasks.getBlockerChains().map(c => ({ id: c.id, title: c.title, blockers: c.blockers.map(b => b.id) }))
   })
 
   // ── Plan System ─────────────────────────────────────────────────────
-  ipcMain.handle('createPlan', (_event, fields: any) => {
+  guardedHandle('createPlan', (_event, fields: any) => {
     try {
       const result = tasks.createPlan(fields)
       return { ok: true, id: result.id }
@@ -125,73 +127,73 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('listPlans', () => {
+  guardedHandle('listPlans', () => {
     return tasks.listPlans()
   })
 
-  ipcMain.handle('getPlan', (_event, id: string) => {
+  guardedHandle('getPlan', (_event, id: string) => {
     return tasks.getPlan(id)
   })
 
-  ipcMain.handle('decidePlanPoint', (_event, id: string, dpId: string, choice: string) => {
+  guardedHandle('decidePlanPoint', (_event, id: string, dpId: string, choice: string) => {
     return tasks.decidePlanPoint(id, dpId, choice)
   })
 
   // ── Timeout + Progress ──────────────────────────────────────────────
-  ipcMain.handle('findTimeoutTasks', (_event, threshold?: number) => {
+  guardedHandle('findTimeoutTasks', (_event, threshold?: number) => {
     return tasks.findTimeoutTasks(threshold)
   })
 
-  ipcMain.handle('getProjectProgress', (_event, projectId: string) => {
+  guardedHandle('getProjectProgress', (_event, projectId: string) => {
     return tasks.getProjectProgress(projectId)
   })
 
   // 一次扫描出全部项目进度：前端原先逐项目调用 = 项目数 × 全量扫描
-  ipcMain.handle('allProjectProgress', () => {
+  guardedHandle('allProjectProgress', () => {
     return tasks.getAllProjectProgress()
   })
 
   // ── Batch Ops ──────────────────────────────────────────────────────
-  ipcMain.handle('batchEdit', (_event, ids: string[], fields: any) => {
+  guardedHandle('batchEdit', (_event, ids: string[], fields: any) => {
     return tasks.batchEdit(ids, fields)
   })
 
-  ipcMain.handle('batchArchive', (_event, ids: string[]) => {
+  guardedHandle('batchArchive', (_event, ids: string[]) => {
     return tasks.batchArchive(ids)
   })
 
-  ipcMain.handle('batchDelete', (_event, ids: string[]) => {
+  guardedHandle('batchDelete', (_event, ids: string[]) => {
     return tasks.batchDelete(ids)
   })
 
   // ── Quick Add ───────────────────────────────────────────────────────
-  ipcMain.handle('quickAdd', (_event, text: string) => {
+  guardedHandle('quickAdd', (_event, text: string) => {
     return tasks.quickAdd(text)
   })
 
   // ── Natural Query ───────────────────────────────────────────────────
   // ── Task metadata（新建/编辑表单的唯一字段来源） ────────────────────
-  ipcMain.handle('taskFieldSpecs', () => data.TASK_FIELD_SPECS)
+  guardedHandle('taskFieldSpecs', () => data.TASK_FIELD_SPECS)
 
-  ipcMain.handle('taskEnums', () => ({
+  guardedHandle('taskEnums', () => ({
     statuses: data.STATUSES,
     priorities: data.PRIORITIES,
   }))
 
   /** 取某任务的表单值（数组字段转逗号串）。id 为 null 时返回空表单。 */
-  ipcMain.handle('taskFormValues', (_event, id: string | null) => {
+  guardedHandle('taskFormValues', (_event, id: string | null) => {
     const task = id ? tasks.readTask(id) : null
     return data.taskToFormValues(task)
   })
 
-  ipcMain.handle('naturalQuery', (_event, q: string, opts?: { includeArchive?: boolean }) => {
+  guardedHandle('naturalQuery', (_event, q: string, opts?: { includeArchive?: boolean }) => {
     return tasks.parseNaturalQuery(q, opts || {})
   })
 
   // ── Registry ──────────────────────────────────────────────────────
   // 原 regSave 是 `return { ok: true }` 的空实现：前端拿到成功、实际什么都没写，
   // 属于「假成功」，已移除。新建项目改走 registry:addProject（真写入 + 写前自校验）。
-  ipcMain.handle('registry:addProject', (_event, fields: data.NewProjectFields) => {
+  guardedHandle('registry:addProject', (_event, fields: data.NewProjectFields) => {
     try {
       return data.addProjectToRegistry(fields || { id: '' })
     } catch (e) {
@@ -200,7 +202,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Backup / Restore ──────────────────────────────────────────────
-  ipcMain.handle('backup', () => {
+  guardedHandle('backup', () => {
     try {
       const taskDir = data.getTaskDir()
       const regFile = data.getRegistryPath()
@@ -256,7 +258,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('restore', async (_event, backupPath: string) => {
+  guardedHandle('restore', async (_event, backupPath: string) => {
     try {
       if (!fs.existsSync(backupPath)) {
         return { ok: false, error: '备份文件不存在: ' + backupPath }
@@ -333,7 +335,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── List backups ──────────────────────────────────────────────────
-  ipcMain.handle('listBackups', () => {
+  guardedHandle('listBackups', () => {
     try {
       const backupDir = path.join(data.getDataDir(), 'backups')
       if (!fs.existsSync(backupDir)) return []
@@ -352,11 +354,11 @@ export function registerIpcHandlers(): void {
   })
 
   // ── First run setup ───────────────────────────────────────────────
-  ipcMain.handle('isFirstRun', () => {
+  guardedHandle('isFirstRun', () => {
     return data.isFirstRun()
   })
 
-  ipcMain.handle('createFreshSetup', (_event, targetDir: string) => {
+  guardedHandle('createFreshSetup', (_event, targetDir: string) => {
     try {
       data.createFreshSetup(targetDir)
       return { ok: true }
@@ -365,7 +367,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('importFromPythonTegula', (_event, targetDir: string, pythonDir: string) => {
+  guardedHandle('importFromPythonTegula', (_event, targetDir: string, pythonDir: string) => {
     try {
       data.importFromPythonTegula(targetDir, pythonDir)
       return { ok: true }
@@ -379,7 +381,7 @@ export function registerIpcHandlers(): void {
    * 必须传父窗口：不传时 Windows 上对话框不置顶，用户点「浏览…」看不到任何变化，
    * 表现得就像按钮坏了。同时加 try/catch —— 对话框异常不应把 IPC 变成静默挂起。
    */
-  ipcMain.handle('browseDirectory', async (event) => {
+  guardedHandle('browseDirectory', async (event) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender)
       const opts = {
@@ -394,14 +396,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('browseFile', async (event) => {
+  guardedHandle('browseFile', async (event) => {
     try {
       const win = BrowserWindow.fromWebContents(event.sender)
       const opts = {
         title: '选择程序',
         properties: ['openFile' as const],
         filters: [
-          { name: '可执行文件', extensions: ['exe', 'bat', 'cmd'] },
+          // 启动台支持的类型（2026-09-22）：bat/cmd 经 cmd.exe、ps1 经 powershell、
+          // lnk 交系统 ShellExecute —— 示例配置里就有三个 .bat，此前选不到也跑不起来。
+          { name: '可执行 / 脚本 / 快捷方式', extensions: ['exe', 'bat', 'cmd', 'ps1', 'lnk', 'com'] },
           { name: '所有文件', extensions: ['*'] },
         ],
       }
@@ -414,16 +418,16 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Activity Log ──────────────────────────────────────────────────
-  ipcMain.handle('loadActivity', (_event, limit = 50) => {
+  guardedHandle('loadActivity', (_event, limit = 50) => {
     return data.readActivity(limit)
   })
 
   // ── Data directory info ───────────────────────────────────────────
-  ipcMain.handle('getDataDir', () => {
+  guardedHandle('getDataDir', () => {
     return data.getDataDir()
   })
 
-  ipcMain.handle('setDataDir', (_event, newDir: string) => {
+  guardedHandle('setDataDir', (_event, newDir: string) => {
     try {
       data.setDataDir(newDir)
       return { ok: true, dir: data.getDataDir() }
@@ -433,7 +437,7 @@ export function registerIpcHandlers(): void {
   })
 
   /** 数据目录体检（只读）：判断目标能否迁入、里面已有多少数据 */
-  ipcMain.handle('data:inspect', (_event, dir: string) => {
+  guardedHandle('data:inspect', (_event, dir: string) => {
     try {
       return { ok: true, info: data.inspectDataDir(dir) }
     } catch (e) {
@@ -449,7 +453,7 @@ export function registerIpcHandlers(): void {
    *  - 备份失败直接中止（没有回滚点的写操作不做）
    *  - 目标已有数据时必须显式 allowExisting，不静默覆盖
    */
-  ipcMain.handle('data:migrate', async (
+  guardedHandle('data:migrate', async (
     _event,
     targetDir: string,
     opts?: { allowExisting?: boolean; skipBackup?: boolean }
@@ -495,11 +499,11 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Notes ─────────────────────────────────────────────────────────
-  ipcMain.handle('notesForTask', (_event, taskId: string) => {
+  guardedHandle('notesForTask', (_event, taskId: string) => {
     return services.getNotesForTask(taskId)
   })
 
-  ipcMain.handle('createNote', (_event, note: any) => {
+  guardedHandle('createNote', (_event, note: any) => {
     try {
       const result = services.createNote(note.title || '', note.content || '', note.taskId)
       return { ok: true, note: result }
@@ -508,7 +512,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('updateNote', (_event, noteId: string, updates: any) => {
+  guardedHandle('updateNote', (_event, noteId: string, updates: any) => {
     try {
       const result = services.updateNote(noteId, updates)
       return { ok: !!result, note: result }
@@ -517,16 +521,16 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('listNotes', () => {
+  guardedHandle('listNotes', () => {
     return services.listNotes()
   })
 
-  ipcMain.handle('deleteNote', (_event, noteId: string) => {
+  guardedHandle('deleteNote', (_event, noteId: string) => {
     const ok = services.deleteNote(noteId)
     return { ok }
   })
 
-  ipcMain.handle('importNoteFromFile', (_event, filePath: string, taskId?: string) => {
+  guardedHandle('importNoteFromFile', (_event, filePath: string, taskId?: string) => {
     try {
       const note = services.importNoteFromFile(filePath, taskId)
       return { ok: !!note, note }
@@ -535,167 +539,167 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('attachNote', (_event, noteId: string, taskId: string) => {
+  guardedHandle('attachNote', (_event, noteId: string, taskId: string) => {
     const ok = services.attachNote(noteId, taskId)
     return { ok }
   })
 
-  ipcMain.handle('detachNote', (_event, noteId: string) => {
+  guardedHandle('detachNote', (_event, noteId: string) => {
     const ok = services.detachNote(noteId)
     return { ok }
   })
 
   // ── Blocker chains ─────────────────────────────────────────────────
-  ipcMain.handle('getBlockerChains', () => {
+  guardedHandle('getBlockerChains', () => {
     return tasks.getBlockerChains()
   })
 
   // ── Notes Import/Export ────────────────────────────────────────────
-  ipcMain.handle('exportNotes', () => {
+  guardedHandle('exportNotes', () => {
     return tasks.exportNotes()
   })
 
-  ipcMain.handle('importNotes', (_event, data: any[]) => {
+  guardedHandle('importNotes', (_event, data: any[]) => {
     return tasks.importNotes(data)
   })
 
   // ── Task Import/Export ────────────────────────────────────────────
-  ipcMain.handle('exportTasks', () => {
+  guardedHandle('exportTasks', () => {
     return tasks.exportTasks()
   })
 
-  ipcMain.handle('importTasks', (_event, data: any[]) => {
+  guardedHandle('importTasks', (_event, data: any[]) => {
     return tasks.importTasks(data)
   })
 
   // ── Roadmap + Suggestions ─────────────────────────────────────────
-  ipcMain.handle('aggregateRoadmap', (_event, projectId?: string) => {
+  guardedHandle('aggregateRoadmap', (_event, projectId?: string) => {
     return tasks.aggregateRoadmap(projectId)
   })
 
-  ipcMain.handle('suggestActions', (_event, projectId: string) => {
+  guardedHandle('suggestActions', (_event, projectId: string) => {
     return tasks.suggestActions(projectId)
   })
 
-  ipcMain.handle('suggestCrossProject', () => {
+  guardedHandle('suggestCrossProject', () => {
     return tasks.suggestCrossProject()
   })
 
-  ipcMain.handle('copyTask', (_event, id: string) => {
+  guardedHandle('copyTask', (_event, id: string) => {
     return tasks.copyTask(id)
   })
 
-  ipcMain.handle('getRoadmapTrend', (_event, days?: number) => {
+  guardedHandle('getRoadmapTrend', (_event, days?: number) => {
     return tasks.getRoadmapTrend(days)
   })
 
-  ipcMain.handle('detectParallelOpportunities', () => {
+  guardedHandle('detectParallelOpportunities', () => {
     return tasks.detectParallelOpportunities()
   })
 
-  ipcMain.handle('suggestMilestones', () => {
+  guardedHandle('suggestMilestones', () => {
     return tasks.suggestMilestones()
   })
 
-  ipcMain.handle('detectEvents', (_event, eventType: string) => {
+  guardedHandle('detectEvents', (_event, eventType: string) => {
     return tasks.detectEvents(eventType)
   })
 
   // ── Notifications（通知中心） ─────────────────────────────────────
-  ipcMain.handle('notifications:list', (_event, filter?: { unreadOnly?: boolean }) => {
+  guardedHandle('notifications:list', (_event, filter?: { unreadOnly?: boolean }) => {
     return notificationsService.listNotifications(filter)
   })
 
-  ipcMain.handle('notifications:unreadCount', () => {
+  guardedHandle('notifications:unreadCount', () => {
     return notificationsService.getUnreadCount()
   })
 
-  ipcMain.handle('notifications:markRead', (_event, id: string) => {
+  guardedHandle('notifications:markRead', (_event, id: string) => {
     return notificationsService.markRead(id)
   })
 
-  ipcMain.handle('notifications:markAllRead', () => {
+  guardedHandle('notifications:markAllRead', () => {
     return notificationsService.markAllRead()
   })
 
-  ipcMain.handle('notifications:delete', (_event, id: string) => {
+  guardedHandle('notifications:delete', (_event, id: string) => {
     return notificationsService.deleteNotification(id)
   })
 
-  ipcMain.handle('notifications:clear', () => {
+  guardedHandle('notifications:clear', () => {
     return notificationsService.clearAll()
   })
 
-  ipcMain.handle('notifications:scan', () => {
+  guardedHandle('notifications:scan', () => {
     return notifierService.scanOnce()
   })
 
-  ipcMain.handle('cronCheck', () => {
+  guardedHandle('cronCheck', () => {
     return tasks.cronCheck()
   })
 
   // ── Services / Workbench ──────────────────────────────────────────
-  ipcMain.handle('scanServices', () => {
+  guardedHandle('scanServices', () => {
     return services.scanServices()
   })
 
   // ── Launchpad ─────────────────────────────────────────────────────
   // ── Policies（方针区）──────────────────────────────────────────────
-  ipcMain.handle('policy:get', (_event, projectId: string) => {
+  guardedHandle('policy:get', (_event, projectId: string) => {
     try { return { ok: true, policy: policies.getPolicy(projectId) } }
     catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  ipcMain.handle('policy:save', (_event, p: any) => {
+  guardedHandle('policy:save', (_event, p: any) => {
     try { return policies.savePolicy(p) }
     catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  ipcMain.handle('policy:text', (_event, projectId: string) => {
+  guardedHandle('policy:text', (_event, projectId: string) => {
     try {
       const p = policies.getPolicy(projectId)
       return p ? { ok: true, text: policies.policyToText(p) } : { ok: false, error: '方针卡不存在' }
     } catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  ipcMain.handle('launchpad:loadApps', () => {
+  guardedHandle('launchpad:loadApps', () => {
     return launchpad.loadApps()
   })
 
-  ipcMain.handle('launchpad:addApp', (_event, app: any) => {
+  guardedHandle('launchpad:addApp', (_event, app: any) => {
     return launchpad.addApp(app)
   })
 
-  ipcMain.handle('launchpad:updateApp', (_event, id: string, updates: any) => {
+  guardedHandle('launchpad:updateApp', (_event, id: string, updates: any) => {
     return launchpad.updateApp(id, updates)
   })
 
-  ipcMain.handle('launchpad:removeApp', (_event, id: string) => {
+  guardedHandle('launchpad:removeApp', (_event, id: string) => {
     return launchpad.removeApp(id)
   })
 
-  ipcMain.handle('launchpad:launchApp', (_event, appConfig: any) => {
+  guardedHandle('launchpad:launchApp', (_event, appConfig: any) => {
     return launchpad.launchApp(appConfig)
   })
 
-  ipcMain.handle('launchpad:openFolder', (_event, folderPath: string) => {
+  guardedHandle('launchpad:openFolder', (_event, folderPath: string) => {
     return launchpad.openFolder(folderPath)
   })
 
-  ipcMain.handle('launchpad:openUrl', (_event, url: string) => {
+  guardedHandle('launchpad:openUrl', (_event, url: string) => {
     return launchpad.openUrl(url)
   })
 
-  ipcMain.handle('launchpad:getConfigPath', () => {
+  guardedHandle('launchpad:getConfigPath', () => {
     return launchpad.getAppConfigPath()
   })
 
   // ── Todos ──────────────────────────────────────────────────────────
-  ipcMain.handle('todos:list', (_event, filter?) => {
+  guardedHandle('todos:list', (_event, filter?) => {
     return todosService.listTodos(filter)
   })
 
-  ipcMain.handle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string) => {
+  guardedHandle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string) => {
     try {
       const todo = todosService.createTodo(title, priority as any, due, project)
       return { ok: true, todo }
@@ -704,7 +708,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('todos:update', (_event: any, id: string, updates: any) => {
+  guardedHandle('todos:update', (_event: any, id: string, updates: any) => {
     try {
       const todo = todosService.updateTodo(id, updates)
       return { ok: !!todo, todo }
@@ -713,31 +717,31 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('todos:toggle', (_event: any, id: string) => {
+  guardedHandle('todos:toggle', (_event: any, id: string) => {
     const todo = todosService.toggleTodo(id)
     return { ok: !!todo, todo }
   })
 
-  ipcMain.handle('todos:delete', (_event: any, id: string) => {
+  guardedHandle('todos:delete', (_event: any, id: string) => {
     const ok = todosService.deleteTodo(id)
     return { ok }
   })
 
   // ── Logs ────────────────────────────────────────────────────────────
-  ipcMain.handle('logs:list', (_event, filter?) => {
+  guardedHandle('logs:list', (_event, filter?) => {
     return logsService.listLogs(filter)
   })
 
   /** 反向索引：任务详情面板展示该任务的关联日志 */
-  ipcMain.handle('logs:forTask', (_event, taskId: string) => {
+  guardedHandle('logs:forTask', (_event, taskId: string) => {
     return logsService.logsForTask(taskId)
   })
 
-  ipcMain.handle('logs:get', (_event, id: string) => {
+  guardedHandle('logs:get', (_event, id: string) => {
     return logsService.getLog(id)
   })
 
-  ipcMain.handle('logs:create', (_event, title: string, project: string, content: string, taskId?: string) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string) => {
     try {
       const log = logsService.createLog(title, project, content, taskId)
       return { ok: true, log }
@@ -746,7 +750,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('logs:update', (_event, id: string, updates: any) => {
+  guardedHandle('logs:update', (_event, id: string, updates: any) => {
     try {
       const log = logsService.updateLog(id, updates)
       return { ok: !!log, log }
@@ -755,7 +759,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {
+  guardedHandle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {
     try {
       const log = logsService.completeLog(id, retainDays, note)
       return { ok: !!log, log }
@@ -764,7 +768,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('logs:archive', (_event, id: string, note?: string) => {
+  guardedHandle('logs:archive', (_event, id: string, note?: string) => {
     try {
       const log = logsService.archiveLog(id, note)
       return { ok: !!log, log }
@@ -773,25 +777,25 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('logs:destroy', (_event, id: string) => {
+  guardedHandle('logs:destroy', (_event, id: string) => {
     const ok = logsService.destroyLog(id)
     return { ok }
   })
 
-  ipcMain.handle('logs:search', (_event, query: string) => {
+  guardedHandle('logs:search', (_event, query: string) => {
     return logsService.searchLogs(query)
   })
 
-  ipcMain.handle('logs:inject', (_event, id: string) => {
+  guardedHandle('logs:inject', (_event, id: string) => {
     return logsService.injectLog(id)
   })
 
-  ipcMain.handle('logs:cleanup', () => {
+  guardedHandle('logs:cleanup', () => {
     return logsService.cleanupLogs()
   })
 
   // ── Dispatch ────────────────────────────────────────────────────────
-  ipcMain.handle('dispatch:preview', (_event: any, id: string) => {
+  guardedHandle('dispatch:preview', (_event: any, id: string) => {
     try {
       const task = tasks.readTask(id)
       if (!task) return { ok: false, error: '任务不存在' }
@@ -802,7 +806,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('dispatch:execute', (_event: any, id: string) => {
+  guardedHandle('dispatch:execute', (_event: any, id: string) => {
     try {
       const result = executeDispatch(id)
       return result
@@ -812,7 +816,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Review ──────────────────────────────────────────────────────────
-  ipcMain.handle('review:accept', (_event: any, id: string) => {
+  guardedHandle('review:accept', (_event: any, id: string) => {
     try {
       const result = reviewTask(id, 'accept')
       return result
@@ -821,7 +825,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('review:reject', (_event: any, id: string, reason: string) => {
+  guardedHandle('review:reject', (_event: any, id: string, reason: string) => {
     try {
       const result = reviewTask(id, 'reject', reason)
       return result
@@ -831,7 +835,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── File open (path whitelist) ─────────────────────────────────────
-  ipcMain.handle('openFile', (_event: any, filePath: string) => {
+  guardedHandle('openFile', (_event: any, filePath: string) => {
     return validateAndOpenFile(filePath)
   })
 }
@@ -892,6 +896,34 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     tasks.updateTask(id, { result_log: (task.fm as any).result_log } as any)
     return { ok: true }
   }
+
+  // ── 应用日志（诊断）────────────────────────────────────────────────
+  // 之前任何失败都查不到原因（用户第 8 条）。这里把主进程日志目录、
+  // 尾部内容与「打开日志目录」暴露给界面，并在渲染层出错时由前端主动回报。
+  guardedHandle('applog:write', (_e: any, level: string, scope: string, message: string, detail?: unknown) => {
+    const lv = (level === 'ERROR' || level === 'WARN' ? level : 'INFO') as 'INFO' | 'WARN' | 'ERROR'
+    appLog.append(lv, 'renderer:' + (scope || 'unknown'), String(message ?? ''), detail)
+    return { ok: true }
+  })
+
+  guardedHandle('applog:path', () => appLog.getLogFile())
+  guardedHandle('applog:dir', () => appLog.getLogDir())
+  guardedHandle('applog:tail', (_e: any, lines?: number) => appLog.tail(lines && lines > 0 ? lines : 300))
+  guardedHandle('applog:openDir', async () => {
+    const dir = appLog.getLogDir()
+    try {
+      const err = await shell.openPath(dir)
+      if (err) {
+        appLog.warn('applog', `打开日志目录失败：${dir}`, err)
+        // 把路径一起带回渲染层：界面上的"失败"否则完全无法定位
+        return { ok: false, error: err, dir }
+      }
+      return { ok: true, dir }
+    } catch (e: any) {
+      appLog.error('applog', `打开日志目录异常：${dir}`, e?.stack || e)
+      return { ok: false, error: e?.message || String(e), dir }
+    }
+  })
 }
 
 function validateAndOpenFile(filePath: string): { ok: boolean; error?: string } {

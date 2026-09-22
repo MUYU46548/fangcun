@@ -5,6 +5,7 @@
  *      返回给渲染层的配置永远只有 hasPassword 布尔标记。
  */
 import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
+import { guardedHandle } from './guarded-ipc'
 import * as fs from 'fs'
 import * as path from 'path'
 import {
@@ -35,7 +36,7 @@ function tailLog(maxLines = 120): string[] {
 }
 
 export function registerBackupIpcHandlers(): void {
-  ipcMain.handle('backup:getConfig', () => {
+  guardedHandle('backup:getConfig', () => {
     try {
       return { ok: true, config: getBackupConfigForRenderer() }
     } catch (e) {
@@ -43,7 +44,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:setConfig', (_e, patch: Partial<BackupConfig> & { remote?: any }) => {
+  guardedHandle('backup:setConfig', (_e, patch: Partial<BackupConfig> & { remote?: any }) => {
     try {
       const next = setBackupConfig(patch)
       rescheduleScheduler()
@@ -53,7 +54,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:status', () => {
+  guardedHandle('backup:status', () => {
     try {
       return { ok: true, status: getBackupStatus() }
     } catch (e) {
@@ -61,7 +62,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:run', async () => {
+  guardedHandle('backup:run', async () => {
     try {
       const result = await runBackupNow()
       if (!result) return { ok: false, error: '已有备份任务在执行中' }
@@ -71,7 +72,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:runLocalOnly', async () => {
+  guardedHandle('backup:runLocalOnly', async () => {
     try {
       const result = await runBackup({ trigger: 'manual', localOnly: true })
       return { ok: result.ok, result }
@@ -80,7 +81,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:listLocal', () => {
+  guardedHandle('backup:listLocal', () => {
     try {
       return { ok: true, items: listLocalBackups() }
     } catch (e) {
@@ -88,7 +89,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:listRemote', async () => {
+  guardedHandle('backup:listRemote', async () => {
     try {
       const items = await listRemoteBackups()
       return { ok: true, items }
@@ -101,7 +102,7 @@ export function registerBackupIpcHandlers(): void {
    * 测试远端。允许用表单里尚未保存的地址/账号/密码；
    * password 为空则回落到已保存的密文解密结果。
    */
-  ipcMain.handle('backup:testRemote', async (_e, input: {
+  guardedHandle('backup:testRemote', async (_e, input: {
     url?: string; username?: string; password?: string; allowSelfSigned?: boolean
   }) => {
     try {
@@ -129,7 +130,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:listSources', async (_e, includeRemote = false) => {
+  guardedHandle('backup:listSources', async (_e, includeRemote = false) => {
     try {
       const sources = await listRestoreSources(!!includeRemote)
       return { ok: true, ...sources }
@@ -138,7 +139,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:restore', async (_e, source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }) => {
+  guardedHandle('backup:restore', async (_e, source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }) => {
     try {
       if (!source || (source.kind === 'local' && !source.path) || (source.kind === 'remote' && !source.name)) {
         return { ok: false, error: '恢复来源参数不完整' }
@@ -150,7 +151,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:state', () => {
+  guardedHandle('backup:state', () => {
     try {
       return { ok: true, state: getBackupState(), nextRunAt: getBackupStatus().nextRunAt }
     } catch (e) {
@@ -158,7 +159,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:log', (_e, maxLines?: number) => {
+  guardedHandle('backup:log', (_e, maxLines?: number) => {
     try {
       return { ok: true, lines: tailLog(maxLines || 120) }
     } catch (e) {
@@ -166,7 +167,7 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('backup:openDir', async () => {
+  guardedHandle('backup:openDir', async () => {
     try {
       const dir = getLocalBackupDir()
       fs.mkdirSync(dir, { recursive: true })
@@ -178,7 +179,7 @@ export function registerBackupIpcHandlers(): void {
   })
 
   /** 供 UI 展示：本地备份目录（只读展示，不触发副作用） */
-  ipcMain.handle('backup:localDir', () => {
+  guardedHandle('backup:localDir', () => {
     try {
       return { ok: true, dir: getLocalBackupDir(), exists: fs.existsSync(getLocalBackupDir()) }
     } catch (e) {
@@ -190,7 +191,7 @@ export function registerBackupIpcHandlers(): void {
    * 导出备份到指定目录（网盘同步文件夹 / U 盘 / 任意路径）。
    * 不弹窗时由调用方传 dir；传空则弹出目录选择框。
    */
-  ipcMain.handle('backup:exportTo', async (e, input: { dir?: string; includeTool?: boolean } = {}) => {
+  guardedHandle('backup:exportTo', async (e, input: { dir?: string; includeTool?: boolean } = {}) => {
     try {
       let dir = (input.dir || '').trim()
       if (!dir) {
@@ -218,7 +219,7 @@ export function registerBackupIpcHandlers(): void {
    * 校验任意位置的备份包（含手动上传后又下载回来的）。
    * 不传 path 则弹出文件选择框。
    */
-  ipcMain.handle('backup:verifyPackage', async (e, zipPath?: string) => {
+  guardedHandle('backup:verifyPackage', async (e, zipPath?: string) => {
     try {
       let target = (zipPath || '').trim()
       if (!target) {
@@ -240,7 +241,7 @@ export function registerBackupIpcHandlers(): void {
   })
 
   /** 选择任意 zip 包并恢复（路径由渲染层确认框拦一道） */
-  ipcMain.handle('backup:pickRestoreFile', async (e) => {
+  guardedHandle('backup:pickRestoreFile', async (e) => {
     try {
       const win = BrowserWindow.fromWebContents(e.sender)
       const opts = {
@@ -258,7 +259,7 @@ export function registerBackupIpcHandlers(): void {
   })
 
   /** 选择备份存放目录（改为网盘同步文件夹，自动备份直接落那里） */
-  ipcMain.handle('backup:pickDir', async (e) => {
+  guardedHandle('backup:pickDir', async (e) => {
     try {
       const win = BrowserWindow.fromWebContents(e.sender)
       const opts = {

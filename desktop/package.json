@@ -1,6 +1,6 @@
 {
   "name": "fangcun-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "方寸 — 本地优先多 agent 任务地图",
   "main": "dist/index.js",
   "bin": {
@@ -10,9 +10,10 @@
     "dev": "concurrently -k -n RENDERER,MAIN,ELECTRON -c magenta,cyan,yellow \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
     "dev:renderer": "vite",
     "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
-    "dev:electron": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development electron .",
+    "dev:electron": "node ../scripts/dev-electron-watch.cjs",
+    "dev:electron:raw": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development electron .",
     "dev:debug": "concurrently -k -n RENDERER,MAIN,ELECTRON -c magenta,cyan,yellow \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron:debug\"",
-    "dev:electron:debug": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development OPEN_DEVTOOLS=1 electron .",
+    "dev:electron:debug": "cross-env OPEN_DEVTOOLS=1 node ../scripts/dev-electron-watch.cjs",
     "build": "node ../scripts/sync-public-tools.cjs && vite build && tsc -p tsconfig.main.json && tsc -p tsconfig.cli.json",
     "electron:build": "npm run build && electron-builder"
   },

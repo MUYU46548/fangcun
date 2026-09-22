@@ -480,7 +480,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id"}
 
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
@@ -603,6 +603,7 @@ def render_task(d):
         f"项目: {proj}",
         f"状态: {yaml_scalar(d.get('状态','草稿'))}",
         f"批次: {yaml_scalar(d.get('批次',''))}",
+        f"开始: {yaml_scalar(d.get('开始',''))}",
         f"截止: {yaml_scalar(d.get('截止',''))}",
         f"优先级: {yaml_scalar(d.get('优先级',''))}",
         f"创建: {yaml_scalar(d.get('创建',''))}",

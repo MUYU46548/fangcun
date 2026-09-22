@@ -193,4 +193,13 @@ contextBridge.exposeInMainWorld('tegula', {
   onUpdateProgress: (callback: any) => ipcRenderer.on('update:progress', (_e, data) => callback(data)),
   onUpdateDownloaded: (callback: any) => ipcRenderer.on('update:downloaded', (_e, data) => callback(data)),
   onUpdateError: (callback: any) => ipcRenderer.on('update:error', (_e, data) => callback(data)),
+
+  // ── 应用日志（诊断）────────────────────────────────────────────────
+  // 渲染层出错时主动回报主进程落盘；界面提供「打开日志目录 / 查看尾部」。
+  applogWrite: (level: string, scope: string, message: string, detail?: string) =>
+    ipcRenderer.invoke('applog:write', level, scope, message, detail),
+  applogPath: () => ipcRenderer.invoke('applog:path'),
+  applogDir: () => ipcRenderer.invoke('applog:dir'),
+  applogTail: (lines?: number) => ipcRenderer.invoke('applog:tail', lines),
+  applogOpenDir: () => ipcRenderer.invoke('applog:openDir'),
 })

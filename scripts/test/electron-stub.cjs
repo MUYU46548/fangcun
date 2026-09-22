@@ -36,7 +36,21 @@ module.exports = {
   },
   BrowserWindow: { getAllWindows: () => [] },
   Notification: NotificationStub,
-  shell: { openPath: async () => '' },
+  // shell 桩：记录调用 + 支持注入失败，便于断言"打开失败"路径
+  shell: {
+    opened: [],
+    external: [],
+    failNext: '',
+    async openPath(p) {
+      this.opened.push(p)
+      if (this.failNext) { const f = this.failNext; this.failNext = ''; return f }
+      return ''
+    },
+    async openExternal(u) {
+      this.external.push(u)
+      if (this.failNext) { const f = this.failNext; this.failNext = ''; throw new Error(f) }
+    },
+  },
   ipcMain: { handle: () => {} },
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
 }
