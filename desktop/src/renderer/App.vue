@@ -277,7 +277,12 @@
     </main>
 
     <!-- Logs view -->
-    <main id="board" class="logs-view" v-else-if="curView === 'logs'">
+    <main id="board" class="logs-view" v-else-if="curView === 'logs'"
+      @dragover.prevent="logDragOver = true"
+      @dragleave="logDragOver = false"
+      @drop="onLogDrop"
+      :class="{ 'drop-target': logDragOver }"
+    >
       <div class="logs-header">
         <h3>执行日志</h3>
         <div class="logs-ctrls">
@@ -297,9 +302,11 @@
                次要操作统一用 class="ghost"。此前「+ 新建日志」被写成 ghost，
                与「+ 新建」不一致（同一类操作两种长相），已提过两三次。 -->
           <button @click="openNewLog">+ 新建日志</button>
+          <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
           <button class="ghost" @click="executeLogCleanup">清理超期</button>
         </div>
       </div>
+      <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
       <div class="logs-list">
         <div v-if="!filteredLogs.length" class="empty-state">
           <div class="empty-icon">📋</div>
@@ -553,7 +560,25 @@
           >
             <label>{{ spec.label }}</label>
 
-            <select v-if="spec.type === 'select'" v-model="editTask_[spec.key]">
+            <!-- 阻塞：不让用户手填任务 ID（现实里没人会去看 ID，更不会记得），
+                 改成跟随所选项目、点选即可的挑选器。 -->
+            <template v-if="spec.key === 'blockers'">
+              <div class="blk-picked">
+                <span v-for="id in blockerList" :key="id" class="blk-chip">
+                  {{ taskTitleById(id) }}
+                  <button class="blk-x" title="移除" @click="removeBlocker(id)">×</button>
+                </span>
+                <span v-if="!blockerList.length" class="blk-empty">未设置依赖</span>
+              </div>
+              <select class="blk-pick" :value="''" @change="onBlockerPick">
+                <option value="">+ 从当前项目的任务里挑选…</option>
+                <option v-for="t in blockerCandidates" :key="t.id" :value="t.id">
+                  {{ t.title || '(无标题)' }} —— {{ t.id }}
+                </option>
+              </select>
+            </template>
+
+            <select v-else-if="spec.type === 'select'" v-model="editTask_[spec.key]">
               <option v-for="o in specOptions(spec)" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
 
@@ -578,7 +603,7 @@
 
     <!-- Log edit modal -->
     <!-- Policy edit modal -->
-    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @click.self="policyEdit_ = null">
+    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @click.self="closePolicyEditor()">
       <div id="policy-modal">
         <h3>项目方针：{{ policyEdit_.name }}</h3>
         <label>使命（一句话：这项目是干嘛的）</label>
@@ -590,13 +615,13 @@
         <label>方针边界（怎么干、不干什么）</label>
         <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
         <div class="acts">
-          <button class="ghost" @click="policyEdit_ = null">取消</button>
+          <button class="ghost" @click="closePolicyEditor()">取消</button>
           <button class="pri" @click="savePolicyEdit">保存方针卡</button>
         </div>
       </div>
     </div>
 
-    <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @click.self="logEdit_ = null">
+    <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @click.self="closeLogEditor()">
       <div id="log-edit-modal">
         <h3>{{ logCompleting ? '完成日志' : logArchiveMode ? '归档日志' : logEdit_.id ? '编辑日志' : '新建日志' }}</h3>
         <label>标题</label>
@@ -616,7 +641,7 @@
           <textarea v-model="logNote" placeholder="备注..."></textarea>
         </template>
         <div class="acts">
-          <button class="ghost" @click="logEdit_ = null; logCompleting = false; logArchiveMode = false">取消</button>
+          <button class="ghost" @click="closeLogEditor(); logCompleting = false; logArchiveMode = false">取消</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); logEdit_ = null">销毁</button>
           <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
         </div>
@@ -664,7 +689,7 @@
     </div>
 
     <!-- New project modal -->
-    <div v-if="projForm" class="overlay" @click.self="projForm = null">
+    <div v-if="projForm" class="overlay" @click.self="closeProjForm()">
       <div id="proj-new-modal">
         <h3>新建项目</h3>
         <label>项目 ID <span class="req">*</span></label>
@@ -680,13 +705,13 @@
           任一不满足即放弃写入；文件原有注释与字段原样保留。
         </div>
         <div class="acts">
-          <button class="ghost" @click="projForm = null">取消</button>
+          <button class="ghost" @click="closeProjForm()">取消</button>
           <button class="pri" :disabled="projCreating" @click="confirmNewProject">{{ projCreating ? '写入中…' : '登记项目' }}</button>
         </div>
       </div>
     </div>
 
-    <div id="app-edit-overlay" class="overlay" v-if="editApp_" @click.self="editApp_ = null">
+    <div id="app-edit-overlay" class="overlay" v-if="editApp_" @click.self="closeAppEditor()">
       <div id="app-edit-modal">
         <h3>{{ editApp_.isNew ? '添加应用' : '编辑应用' }}</h3>
         <label>名称</label>
@@ -699,7 +724,7 @@
         <label>描述（可选）</label>
         <input v-model="editApp_.description" placeholder="应用描述" />
         <div class="acts">
-          <button class="ghost" @click="editApp_ = null">取消</button>
+          <button class="ghost" @click="closeAppEditor()">取消</button>
           <button v-if="!editApp_.isNew" class="danger" @click="removeApp(editApp_.id)">删除</button>
           <button class="pri" @click="saveEditApp">{{ editApp_.isNew ? '添加' : '保存' }}</button>
         </div>
@@ -2223,8 +2248,94 @@ async function openEdit(t: Task) {
   previewTask.value = null
 }
 
+/** 表单里是否有内容需要挽留 */
+function isDirtyFields(o: any, keys: string[]): boolean {
+  return !!o && keys.some(k => String(o[k] ?? '').trim())
+}
+
+/** 关闭任务编辑器：有内容先问一句。
+ *  遮罩点击（@click.self）也走这里 —— 此前是裸关，鼠标碰到窗口外那块半透明遮罩，
+ *  写了一半的表单直接消失且无提示，属于最容易挨骂的那种交互。 */
 function closeTaskEditor() {
+  if (isDirtyFields(editTask_.value, ['title', 'blockers', 'memo', 'body', 'tags'])) {
+    if (!confirm('编辑内容尚未保存，确定关闭并丢弃吗？')) return
+  }
   editTask_.value = null
+}
+
+/** 关闭日志编辑器：同上（日志正文往往最长，误关代价最大） */
+function closeLogEditor() {
+  if (isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])) {
+    if (!confirm('日志内容尚未保存，确定关闭并丢弃吗？')) return
+  }
+  logEdit_.value = null
+}
+
+/** 对象里只要还有非空文本就认为有内容（用于字段名不固定的几个模态） */
+function hasAnyText(o: any): boolean {
+  return !!o && typeof o === 'object' &&
+    Object.values(o).some(v => typeof v === 'string' && v.trim())
+}
+
+function closePolicyEditor() {
+  if (hasAnyText(policyEdit_.value) && !confirm('方针卡尚未保存，确定关闭并丢弃吗？')) return
+  policyEdit_.value = null
+}
+
+function closeProjForm() {
+  if (hasAnyText(projForm.value) && !confirm('项目信息尚未保存，确定关闭并丢弃吗？')) return
+  projForm.value = null
+}
+
+function closeAppEditor() {
+  if (hasAnyText(editApp_.value) && !confirm('应用信息尚未保存，确定关闭并丢弃吗？')) return
+  editApp_.value = null
+}
+
+// ── 阻塞字段的选择器 ────────────────────────────────────────────────────
+// 表单里 blockers 存的是逗号分隔字符串（见 data/index.ts 的 taskToFormValues），
+// 这里给出「id 数组」视图与候选列表 —— 用户不该被要求手打任务 ID。
+
+/** 已选依赖（id 数组视图） */
+const blockerList = computed<string[]>(() => {
+  const raw = String(editTask_.value?.blockers ?? '')
+  return raw.split(',').map(s => s.trim()).filter(Boolean)
+})
+
+/** 候选任务：跟随表单里所选的项目，排除自己与已选中的 */
+const blockerCandidates = computed<any[]>(() => {
+  const e = editTask_.value
+  if (!e) return []
+  const proj = String(e.project ?? '').trim()
+  const chosen = new Set(blockerList.value)
+  return tasks.value
+    .filter((t: any) => t.id !== e.id && !chosen.has(t.id))
+    .filter((t: any) => {
+      if (!proj) return true
+      const p = t.project
+      return Array.isArray(p) ? p.includes(proj) : p === proj
+    })
+    .slice(0, 300)
+})
+
+function taskTitleById(id: string): string {
+  const t = tasks.value.find((x: any) => x.id === id) as any
+  return t ? (t.title || id) : `${id}（不在当前视图）`
+}
+
+function setBlockers(ids: string[]) {
+  if (editTask_.value) editTask_.value.blockers = ids.join(', ')
+}
+
+function onBlockerPick(e: Event) {
+  const el = e.target as HTMLSelectElement
+  if (!el.value) return
+  setBlockers([...blockerList.value, el.value])
+  el.value = ''
+}
+
+function removeBlocker(id: string) {
+  setBlockers(blockerList.value.filter(x => x !== id))
 }
 
 async function saveEdit() {
@@ -2844,6 +2955,51 @@ function openNewLog() {
   logArchiveMode.value = false
   logRetainDays.value = '7'
   logNote.value = ''
+}
+
+// ── 日志：导入外部文本（老版本有，桌面化时丢了）────────────────────────
+// 按钮选择与直接拖入两条路都通；每个文件生成一条日志，标题取文件名。
+const logDragOver = ref(false)
+const LOG_IMPORT_RE = /\.(txt|md|markdown|log)$/i
+
+async function importTextFilesAsLogs(files: File[]): Promise<number> {
+  const usable = files.filter(f => LOG_IMPORT_RE.test(f.name))
+  if (!usable.length) {
+    if (files.length) showToast('仅支持 .txt / .md / .log 文件', 'error')
+    return 0
+  }
+  const project = projects.value[0]?.id || 'fangcun-base'
+  let ok = 0
+  for (const f of usable) {
+    try {
+      const text = await f.text()
+      const title = f.name.replace(/\.[^.]+$/, '')
+      const r = await window.tegula.logsCreate(title, project, text)
+      if (r?.ok) ok++
+    } catch { /* 单个文件失败不阻断其余 */ }
+  }
+  if (ok) {
+    showToast(`已导入 ${ok} 条日志`, 'success')
+    loadLogs()
+  }
+  return ok
+}
+
+function importLogFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.txt,.md,.markdown,.log'
+  input.multiple = true
+  input.onchange = async (e: any) => {
+    await importTextFilesAsLogs(Array.from(e.target.files || []))
+  }
+  input.click()
+}
+
+async function onLogDrop(e: DragEvent) {
+  e.preventDefault()
+  logDragOver.value = false
+  await importTextFilesAsLogs(Array.from(e.dataTransfer?.files || []))
 }
 
 /** 从任务详情写一条执行日志：预填 taskId 与项目，省得再手填一遍 */
@@ -4235,6 +4391,17 @@ body {
 #policy-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #policy-modal label { font-size: 11px; color: var(--muted); margin: 8px 0 4px; display: block; }
 #policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
+
+/* 阻塞选择器（任务表单） */
+.blk-picked { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; min-height: 22px; align-items: center; }
+.blk-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 4px 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; }
+.blk-x { background: none; border: 0; cursor: pointer; color: inherit; font-size: 13px; line-height: 1; padding: 0 3px; border-radius: 50%; }
+.blk-x:hover { background: rgba(0,0,0,.08); }
+.blk-empty { font-size: 11px; color: var(--muted); }
+.blk-pick { width: 100%; }
+/* 日志视图的拖入提示 */
+.logs-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.log-drop-hint { text-align: center; color: var(--accent); font-size: 12px; padding: 8px; font-weight: 600; }
 
 /* Calendar view（视觉对齐老版 board.html） */
 /* ⚠ #board 是「横排看板」布局：display:flex + align-items:flex-start。
