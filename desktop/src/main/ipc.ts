@@ -97,6 +97,11 @@ export function registerIpcHandlers(): void {
     return { ok: !!task, id }
   })
 
+  ipcMain.handle('unarchiveTask', (_event, id: string) => {
+    const task = tasks.unarchiveTask(id)
+    return { ok: !!task, id }
+  })
+
   // ── Projects ──────────────────────────────────────────────────────
   ipcMain.handle('loadProjects', () => {
     return data.parseRegistry()

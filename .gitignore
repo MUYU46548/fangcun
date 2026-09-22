@@ -14,6 +14,11 @@ Thumbs.db
 registry.yaml.bak
 task-data/
 backups/
+# 运行时数据目录（都派生自数据根；2026-09-22 数据目录修复后落在项目根，
+# 与 task-data/ 同类，属使用数据不入库）
+todos/
+notifications/
+policies/
 project-status.md
 docs/执行日志/
 docs/阶段总结/*.md~

@@ -112,6 +112,26 @@ function main() {
   check('已读通知不被重复消解', notif.resolveNotifications('parse-error', 'a.md') === 0)
   notif.clearAll()
 
+  // A4.5 僵尸通知防线（2026-09-22：用户反复报"删了刷新又复活"）
+  // ① 事件消失 → 通知应直接消失，而不是变成"已读僵尸"长期留在列表
+  notif.pushNotification({ type: 'task-timeout', level: 'warning', title: '超时A', sourceId: 'task-z1', key: 'timeout' })
+  notif.resolveNotifications('task-timeout', 'task-z1')
+  check('事件消失后通知被移除（不留已读僵尸）',
+    notif.listNotifications().every(n => n.sourceId !== 'task-z1'))
+
+  // ② 用户删掉的通知不得被同条件扫描重建
+  notif.pushNotification({ type: 'task-timeout', level: 'warning', title: '超时B', sourceId: 'task-z2', key: 'timeout' })
+  const zomb = notif.listNotifications().find(n => n.sourceId === 'task-z2')
+  check('删除目标存在', !!zomb)
+  notif.deleteNotification(zomb.id)
+  const again = notif.pushNotification({ type: 'task-timeout', level: 'warning', title: '超时B重建尝试', sourceId: 'task-z2', key: 'timeout' })
+  check('删除过的通知不会被同指纹重建', again.created === false && again.muted === true)
+  check('忽略表记录了该指纹', notif.listMuted().includes('task-timeout|task-z2|timeout'))
+  notif.unmuteAll()
+  const afterUnmute = notif.pushNotification({ type: 'task-timeout', level: 'warning', title: '超时B', sourceId: 'task-z2', key: 'timeout' })
+  check('清空忽略表后可重新提示', afterUnmute.created === true)
+  notif.clearAll()
+
   // A5. 超量淘汰（已读最旧优先）
   for (let i = 0; i < 305; i++) {
     notif.pushNotification({ type: 'bulk', title: `bulk-${i}`, sourceId: `s-${i}`, key: String(i), level: 'info' })

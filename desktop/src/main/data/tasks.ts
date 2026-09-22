@@ -9,7 +9,7 @@ import {
   Task, TaskFrontmatter, Status, STATUSES,
   parseTask, renderTask, atomicWrite, genId, logActivity,
   getTaskDir, getDataDir, parseRegistry, loadTasks, loadAllTasksRaw,
-  normalizePriority, PRIORITIES
+  invalidateTaskCache, normalizePriority, PRIORITIES
 } from './index'
 
 // Re-export for convenience
@@ -340,8 +340,37 @@ export function deleteTask(id: string): boolean {
   return true
 }
 
+/** 归档 = 把任务文件移进 `task-data/archive/`（归档视图按**路径**判定，见 isArchivedPath）。
+ *
+ *  此前实现是 `updateTask(id, { status: '完成' })` —— 只改状态、不移动文件，
+ *  于是 `task-data/archive/` 永远是空的：用户点了「归档」，任务仍留在活跃区，
+ *  归档视图里什么也看不到；而且终态（完成/驳回）的任务连这个按钮都没有。
+ */
 export function archiveTask(id: string): Task | null {
-  return updateTask(id, { status: '完成' })
+  const t = readTask(id)
+  if (!t) return null
+  const archiveDir = path.join(getTaskDir(), 'archive')
+  fs.mkdirSync(archiveDir, { recursive: true })
+  const dest = path.join(archiveDir, path.basename(t.path))
+  if (path.resolve(t.path) !== path.resolve(dest)) {
+    fs.renameSync(t.path, dest)
+    invalidateTaskCache()
+    logActivity(id, 'archived')
+  }
+  return readTask(id)
+}
+
+/** 从归档区还原回活跃区并把状态置回「待办」；不在归档区的任务只改状态。 */
+export function unarchiveTask(id: string): Task | null {
+  const t = readTask(id)
+  if (!t) return null
+  const dest = path.join(getTaskDir(), path.basename(t.path))
+  if (path.resolve(t.path) !== path.resolve(dest)) {
+    fs.renameSync(t.path, dest)
+    invalidateTaskCache()
+    logActivity(id, 'unarchived')
+  }
+  return updateTask(id, { status: '待办' })
 }
 
 // ── Project Status ──────────────────────────────────────────────────────

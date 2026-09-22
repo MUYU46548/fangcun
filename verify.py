@@ -137,12 +137,34 @@ check("活动日志写入可读", len(rows) == 2 and rows[0]["kind"] == "done" a
 check("活动日志按任务过滤", len(teg.read_activity("task-others")) == 0)
 
 # ---- 3d. 备份（b1）----
+# ⚠ 备份源必须是自建的临时目录。此前直接用真实 TASK_DIR，于是
+# 「备份含归档子目录」这条断言依赖真实 task-data/archive/ 里恰好有文件 ——
+# 归档被清空 / 任务被批量删除后测试就变红（2026-09-22 实测），
+# 属于「测试依赖外部数据状态」的反面教材：全绿不代表功能好，只代表数据恰好合适。
+_bak_src = os.path.join(tmpdir, "backup-src")
+os.makedirs(os.path.join(_bak_src, "archive"), exist_ok=True)
+os.makedirs(os.path.join(_bak_src, ".trash"), exist_ok=True)
+for _p, _c in [
+    ("_template.md", "---\nid: _template\n标题: 模板\n---\n模板正文\n"),
+    ("task-20990101-001.md", "---\nid: task-20990101-001\n标题: 备份样例\n状态: 待办\n---\n正文\n"),
+    (os.path.join("archive", "task-20990101-000.md"),
+     "---\nid: task-20990101-000\n标题: 归档样例\n状态: 完成\n---\n正文\n"),
+]:
+    with open(os.path.join(_bak_src, _p), "w", encoding="utf-8") as f:
+        f.write(_c)
+
+_saved_td_bak, teg.TASK_DIR = teg.TASK_DIR, _bak_src
+# cmd_backup 是从 dirname(TASK_DIR) 拼 registry.yaml（不读 REGISTRY_PATH），
+# 所以临时 registry 必须落在 tmpdir 根、且文件名就叫 registry.yaml
+_saved_reg_bak, teg.REGISTRY_PATH = teg.REGISTRY_PATH, os.path.join(tmpdir, "registry.yaml")
+with open(teg.REGISTRY_PATH, "w", encoding="utf-8") as f:
+    f.write("projects:\n  - id: fixture\n    name: 夹具\n")
 teg.BACKUP_DIR = os.path.join(tmpdir, "backups")
 class BA: pass
 ba = BA()
 teg.cmd_backup(ba)
 zips = os.listdir(teg.BACKUP_DIR)
-check("backup 生成 zip", len(zips) == 1 and zips[0].startswith("fangcun-data-"))
+check("backup 生成 zip", len(zips) == 1 and zips[0].startswith("fangcun-data-"), str(zips))
 import zipfile as _zf
 with _zf.ZipFile(os.path.join(teg.BACKUP_DIR, zips[0])) as z:
     names = z.namelist()
@@ -152,6 +174,8 @@ check("备份含真实任务文件", "_template.md" in _bases and any(b.startswi
 check("备份含归档子目录", any("archive/" in n.replace("\\", "/") for n in names), str(names))
 check("备份含 registry.yaml", "registry.yaml" in names, str(names))
 check("备份轮换上限生效", True)
+teg.TASK_DIR = _saved_td_bak
+teg.REGISTRY_PATH = _saved_reg_bak
 
 # ---- 4. gen_id 碰撞防御（P0-4）----
 tdir = teg.TASK_DIR

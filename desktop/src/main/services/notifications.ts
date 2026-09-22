@@ -84,10 +84,51 @@ function dedupKey(n: { type: string; sourceId?: string; key?: string }): string 
   return `${n.type}|${n.sourceId ?? ''}|${n.key ?? ''}`
 }
 
-/** 幂等推送：同 type+sourceId+key 只留一条，重复推送刷新内容不重弹 */
-export function pushNotification(input: PushInput): { notification: Notification; created: boolean } {
+// ── 忽略名单（muted）────────────────────────────────────────────────────
+// 用户主动删掉某条通知 = 表达「别再提示我这件事」。若只删记录不记条件，
+// 下一轮扫描会照原条件把它重建出来（"删了又复活"）。
+// 这里把 dedupKey 记入忽略表，pushNotification 见到直接跳过。
+// 事件本身再变化（如截止日改了导致 key 变）会被视为新事件，不受影响。
+function getMutedPath(): string {
+  const dir = path.dirname(getStorePath())
+  fs.mkdirSync(dir, { recursive: true })
+  return path.join(dir, 'muted.json')
+}
+
+function loadMuted(): Set<string> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(getMutedPath(), 'utf-8'))
+    return new Set(Array.isArray(raw?.keys) ? raw.keys.map(String) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveMuted(keys: Set<string>): void {
+  const p = getMutedPath()
+  const tmp = p + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify({ keys: [...keys].sort() }, null, 2), 'utf-8')
+  fs.renameSync(tmp, p)
+}
+
+/** 查看忽略表（供设置页 / 诊断用） */
+export function listMuted(): string[] {
+  return [...loadMuted()].sort()
+}
+
+/** 清空忽略表：此后被忽略的事件会重新提示 */
+export function unmuteAll(): number {
+  const keys = loadMuted()
+  saveMuted(new Set())
+  return keys.size
+}
+
+/** 幂等推送：同 type+sourceId+key 只留一条，重复推送刷新内容不重弹。
+ *  命中忽略名单（用户删过这条）时直接跳过：created=false / muted=true。 */
+export function pushNotification(input: PushInput): { notification: Notification | null; created: boolean; muted?: boolean } {
   const list = loadAll()
   const dk = dedupKey(input)
+  if (loadMuted().has(dk)) return { notification: null, created: false, muted: true }
   const now = new Date().toISOString()
   const existing = list.find(n => dedupKey(n) === dk)
   if (existing) {
@@ -152,8 +193,12 @@ export function deleteNotification(id: string): boolean {
   const list = loadAll()
   const idx = list.findIndex(x => x.id === id)
   if (idx < 0) return false
-  list.splice(idx, 1)
+  const [removed] = list.splice(idx, 1)
   saveAll(list)
+  // 删除 = 用户明确表示「别再提示我这件事」，记入忽略表，否则下一轮扫描会原样重建
+  const muted = loadMuted()
+  muted.add(dedupKey(removed))
+  saveMuted(muted)
   return true
 }
 
@@ -165,18 +210,16 @@ export function clearAll(): number {
   return c
 }
 
-/** 事件消失时自动消解未读通知（如解析错误被修复、待办被删除） */
+/** 事件消失时清掉对应通知（解析错误被修复、任务进了回收站、待办被删等）。
+ *
+ *  此前是「把 read 置 true」，于是列表里长期堆着一批已读、却永远不会消失的
+ *  「僵尸通知」—— 用户看到的现象就是"删了还在 / 已读了还挂在列表里"。
+ *  事件本身已经不存在，通知不该继续占位，所以改为直接删除。计数语义不变。 */
 export function resolveNotifications(type: string, sourceId?: string): number {
   const list = loadAll()
-  let c = 0
-  for (const n of list) {
-    if (n.type === type && (sourceId === undefined || n.sourceId === sourceId) && !n.read) {
-      n.read = true
-      n.updatedAt = new Date().toISOString()
-      c++
-    }
-  }
-  if (c) saveAll(list)
+  const kept = list.filter(n => !(n.type === type && (sourceId === undefined || n.sourceId === sourceId)))
+  const c = list.length - kept.length
+  if (c) saveAll(kept)
   return c
 }
 

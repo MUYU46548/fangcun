@@ -7,6 +7,7 @@
     <!-- Top bar -->
     <header id="bar">
       <span class="title">方寸 tegula<small id="count">{{ tasks.length }}</small></span>
+      <button v-if="canGoBack" class="ghost nav-back" title="返回上一个视图" @click="goBack">← 返回</button>
       <span v-if="parseErrors.length" class="parse-warn" :title="parseErrors.join('\n')" @click="showParseErrors">
         ⚠ {{ parseErrors.length }} 个文件无法解析
       </span>
@@ -248,6 +249,7 @@
           </select>
         </div>
       </div>
+      <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走「日志」页签。</div>
       <div v-if="todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
       <div class="todos-list">
         <div v-if="!filteredTodos.length" class="empty-state">
@@ -291,7 +293,10 @@
             <option value="completed">已完成</option>
             <option value="archived">已归档</option>
           </select>
-          <button class="ghost" @click="openNewLog">+ 新建日志</button>
+          <!-- 按钮风格约定：主操作用默认按钮样式（与顶栏「+ 新建」一致），
+               次要操作统一用 class="ghost"。此前「+ 新建日志」被写成 ghost，
+               与「+ 新建」不一致（同一类操作两种长相），已提过两三次。 -->
+          <button @click="openNewLog">+ 新建日志</button>
           <button class="ghost" @click="executeLogCleanup">清理超期</button>
         </div>
       </div>
@@ -434,12 +439,12 @@
                 title="直接驳回（跳过验收，适用于挂死/废弃任务）"
                 @click="forceCloseTask(previewTask, '驳回')"
               >✕ 驳回</button>
-              <button
-                class="warning"
-                title="移入归档视图。仅手动触发，不会自动归档"
-                @click="archiveTask(previewTask)"
-              >📦 归档</button>
             </template>
+            <button
+              class="warning"
+              title="移入归档视图（文件移到 task-data/archive/）。任何状态都可以归档"
+              @click="archiveTask(previewTask)"
+            >📦 归档</button>
           </div>
           <div class="acts-group">
             <span class="acts-label">操作</span>
@@ -1241,6 +1246,12 @@ const draggingId = ref<string | null>(null)
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
 const editTask_ = ref<any>(null)
+// 启动台「添加/编辑应用」模态的开关 + 表单载体。
+// ⚠ 此前 template（v-if / v-model / 取消按钮）与 openAddApp / saveEditApp 全都在用它，
+// 唯独这里没声明 → 点「+ 添加应用」立刻 ReferenceError，界面毫无反应；
+// v-if 恒为 undefined 也让模态永不出现。同一个按钮因此被反复报修（"第六次了"），
+// 而历次修复都在改 CSS / dialog / 原子写 —— 没碰到真因。
+const editApp_ = ref<any>(null)
 const showSettings_ = ref(false)
 
 // ── LLM Planning ────────────────────────────────────────────────────
@@ -1999,8 +2010,14 @@ async function openDataDir() {
   await window.tegula.launchpadOpenFolder(dataDir.value)
 }
 
-function switchView(v: string) {
-  curView.value = v
+/** 视图历史栈 + 返回（左上角「← 返回」走这里）。
+ *  此前所有视图切换都是裸赋值 `curView.value = v`，从项目页点进某个项目后
+ *  没有任何后退入口 —— 只能再点一次左侧页签绕回去。 */
+const viewHistory = ref<string[]>([])
+const canGoBack = computed(() => viewHistory.value.length > 0)
+
+/** 视图数据加载（切换与返回共用，避免两处逻辑漂移） */
+function loadViewData(v: string) {
   if (v === 'launchpad') {
     loadLaunchpad()
   } else if (v === 'blockers') {
@@ -2011,11 +2028,31 @@ function switchView(v: string) {
     loadTodos()
   } else if (v === 'logs') {
     loadLogs()
-  } else if (v === 'calendar') {
-    loadAll()
   } else {
     loadAll()
   }
+}
+
+/** 唯一跳转入口：入栈 + 加载。所有视图跳转都必须走它，否则「返回」会丢来源 */
+function navigateTo(v: string) {
+  if (v !== curView.value) {
+    viewHistory.value.push(curView.value)
+    if (viewHistory.value.length > 20) viewHistory.value.shift()
+  }
+  curView.value = v
+  loadViewData(v)
+}
+
+function switchView(v: string) {
+  navigateTo(v)
+}
+
+/** 返回上一个视图（出栈，不再入栈） */
+function goBack() {
+  const prev = viewHistory.value.pop()
+  if (!prev) return
+  curView.value = prev
+  loadViewData(prev)
 }
 
 async function loadRoadmap() {
@@ -2260,8 +2297,8 @@ async function forceCloseTask(t: Task, status: '完成' | '驳回') {
 }
 
 async function restoreTask(t: Task) {
-  if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态。`)) return
-  const result = await window.tegula.moveStatus(t.id, '待办')
+  if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态；若已归档，会一并移回活跃区。`)) return
+  const result = await window.tegula.unarchiveTask(t.id)
   if (result.ok) {
     previewTask.value = null
     showToast('已还原', 'success')
@@ -3015,12 +3052,12 @@ function toggleSelectAll() {
 
 function openProject(p: any) {
   curProj.value = p.id
-  curView.value = 'active'
+  navigateTo('active')
 }
 
 function openProjectInSettings(p: Project) {
   curProj.value = p.id
-  curView.value = 'active'
+  navigateTo('active')
   showToast(`已切换项目：${p.name || p.id}`, 'info')
 }
 
@@ -3834,13 +3871,20 @@ body {
 .parse-warn:hover { background: #fce4e4; }
 
 /* Batch bar：悬浮在内容区顶部居中（点击右上角☑按钮后出现在视线附近），带阴影 */
+/* 批量操作栏：贴视口底部居中悬浮。
+   此前固定 top:96px 压在列表头几行上，且离刚点的 ☑ 很远 —— 用户反馈"位置总是很奇怪"。
+   改到底部后不遮内容，且始终在视线下方。 */
 .batch-bar {
-  position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 40;
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; align-items: center; gap: 8px; padding: 8px 16px;
   background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 12px;
   box-shadow: 0 8px 24px rgba(90,90,130,0.18); font-size: 12px; flex-wrap: wrap;
   max-width: calc(100vw - 32px);
 }
+/* 批量栏出现时给内容区留底部空间，避免遮住最后一条 */
+#app:has(.batch-bar) #board { padding-bottom: 84px; }
+/* 左上角返回按钮：紧贴标题右侧（后续高频按钮也放这一带） */
+.nav-back { margin-left: 4px; padding: 2px 10px; font-size: 12px; }
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .batch-actions button { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
@@ -4193,19 +4237,30 @@ body {
 #policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
 
 /* Calendar view（视觉对齐老版 board.html） */
+/* ⚠ #board 是「横排看板」布局：display:flex + align-items:flex-start。
+   column 方向的视图会继承 flex-start，子元素于是按**内容宽度**收缩 ——
+   日历格子因此变成一排细长竖条、右边大片空白（用户反复反馈"丑得要死"）。
+   非看板视图必须显式改回 stretch。 */
+#board.calendar-view,
+#board.todos-view,
+#board.logs-view,
+#board.blockers-view,
+#board.launchpad,
+#board.roadmap-view { align-items: stretch; }
 .calendar-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .calhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .calhead .m { font-size: 15px; font-weight: 700; min-width: 120px; }
 .cal-hint { font-size: 11px; color: var(--muted); margin-left: auto; }
-.calgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.calgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; width: 100%; }
 .caldow { font-size: 11px; color: var(--muted); text-align: center; font-weight: 700; padding: 3px 0; }
-.calcell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 82px; padding: 4px 5px; overflow: hidden; }
+.calcell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 92px; padding: 5px 6px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; transition: border-color .15s, background .15s; }
 .calcell.blank { background: transparent; border: 0; }
-.calcell.today { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
-.calcell.past { background: #fbf4f4; }
+.calcell.today { border-color: var(--accent); background: #f8f6fe; box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
+.calcell.past { background: #fbf7f7; }
+.calcell.past .dnum { color: #c4bfd0; }
 .calcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: #f1eefb; }
-.dnum { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
-.calcell.today .dnum { color: var(--accent); }
+.dnum { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
+.calcell.today .dnum { color: #fff; background: var(--accent); border-radius: 999px; }
 .cev { font-size: 10.5px; background: #f5f4fa; border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; margin-bottom: 3px; cursor: pointer; display: flex; gap: 4px; align-items: center; overflow: hidden; white-space: nowrap; }
 .cev:hover { background: #eef0fb; border-color: var(--accent-soft); }
 .cev .pd { width: 6px; height: 6px; border-radius: 50%; flex: none; }

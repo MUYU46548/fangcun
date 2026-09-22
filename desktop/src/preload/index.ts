@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('tegula', {
   moveStatus: (id: string, status: string) => ipcRenderer.invoke('moveStatus', id, status),
   deleteTask: (id: string) => ipcRenderer.invoke('deleteTask', id),
   archiveTask: (id: string) => ipcRenderer.invoke('archiveTask', id),
+  unarchiveTask: (id: string) => ipcRenderer.invoke('unarchiveTask', id),
   getTask: (id: string) => ipcRenderer.invoke('getTask', id),
   
   // Projects
