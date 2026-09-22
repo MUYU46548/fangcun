@@ -396,6 +396,17 @@ npx electron-builder --config.electronDist="$PWD/release/electron-dist" \
 日志里会出现 `using custom unpacked Electron distribution` 与
 `copying unpacked Electron` —— 看到这两行就说明绕过成功了。
 
+## 坑 3：GitHub Release 资产名强制规范化（CJK/空格保不住）
+
+`gh release create` 传 `方寸 Setup 0.2.2.exe#标签` 时，**服务端**会把资产文件名里的
+CJK 字符剥掉、空格换成点号：`方寸 Setup 0.2.2.exe` → `Setup.0.2.2.exe`。
+PATCH assets 接口改回来也一样（实测 2026-09-22）。`#` 后面的 **label 可以保留中文**，
+发布页展示的就是 label，所以中文品牌放 label 里。
+
+**命名约定**：资产名用 `Fangcun.Setup.<版本>.exe`（ASCII，保住品牌词），
+label 用「方寸 <版本> Windows 安装包」。下载下来的文件名与本地构建产物名不同属预期，
+核对完整性认 SHA-256（写在发布说明里）。
+
 ## 产物自检（别只看"构建成功"）
 
 安装包做好之后至少验两件事：
