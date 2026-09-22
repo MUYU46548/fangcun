@@ -122,6 +122,7 @@
           @dragstart="onDragStart($event, t.id)"
           @dragend=""
           @click="openCard(t)"
+          @contextmenu.prevent="openCardMenu($event, t)"
         >
           <div class="card-head">
             <input
@@ -365,6 +366,19 @@
         </div>
       </div>
     </main>
+
+    <!-- 任务卡右键菜单：卡上的高频操作不必再绕进详情面板 -->
+    <div v-if="ctxMenu" class="ctx-backdrop" @click="closeCardMenu" @contextmenu.prevent="closeCardMenu"></div>
+    <div v-if="ctxMenu" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
+      <div class="ctx-title">{{ ctxMenu.task.title || ctxMenu.task.id }}</div>
+      <button @click="ctxRun(openCard)">🔍 查看详情</button>
+      <button @click="ctxRun(openEdit)">✏️ 编辑</button>
+      <button @click="ctxRun(copyTaskId)">📋 复制 ID</button>
+      <button @click="ctxRun(copyTaskTitle)">🔤 复制标题</button>
+      <div class="ctx-sep"></div>
+      <button @click="ctxRun(archiveTask)">📦 归档</button>
+      <button class="danger" @click="ctxRun(deleteTaskById)">🗑 删除</button>
+    </div>
 
     <!-- Review modal -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @click.self="reviewModal = null">
@@ -2663,6 +2677,48 @@ async function copyId(id: string) {
   }
 }
 
+// ── 任务卡右键菜单 ─────────────────────────────────────────────────────
+// 用户反馈「方寸内右键没什么用」。这里放卡片上的高频操作，
+// 省得每次都先点开详情面板再翻按钮。
+const ctxMenu = ref<{ x: number; y: number; task: Task } | null>(null)
+
+function openCardMenu(e: MouseEvent, t: Task) {
+  ctxMenu.value = { x: e.clientX, y: e.clientY, task: t }
+}
+
+function closeCardMenu() {
+  ctxMenu.value = null
+}
+
+/** 执行菜单动作并收起菜单（先收菜单，免得挡住随后的确认框） */
+function ctxRun(fn: (t: Task) => void) {
+  const t = ctxMenu.value?.task
+  closeCardMenu()
+  if (t) fn(t)
+}
+
+async function copyTaskId(t: Task) {
+  try {
+    await navigator.clipboard.writeText(t.id)
+    showToast('已复制 ID：' + t.id, 'success')
+  } catch {
+    showToast('复制失败', 'error')
+  }
+}
+
+async function copyTaskTitle(t: Task) {
+  try {
+    await navigator.clipboard.writeText(t.title || t.id)
+    showToast('已复制标题', 'success')
+  } catch {
+    showToast('复制失败', 'error')
+  }
+}
+
+function deleteTaskById(t: Task) {
+  deleteTask(t.id)
+}
+
 async function copyTaskClick(id: string) {
   if (!confirm('复制此任务？')) return
   const result = await window.tegula.copyTask(id)
@@ -4391,6 +4447,16 @@ body {
 #policy-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #policy-modal label { font-size: 11px; color: var(--muted); margin: 8px 0 4px; display: block; }
 #policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
+
+/* 任务卡右键菜单 */
+.ctx-backdrop { position: fixed; inset: 0; z-index: 60; }
+.ctx-menu { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 4px; }
+.ctx-title { padding: 6px 10px 4px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.ctx-menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: inherit; }
+.ctx-menu button:hover { background: #f4f1fc; }
+.ctx-menu button.danger { color: var(--danger); }
+.ctx-menu button.danger:hover { background: #fce4e4; }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* 阻塞选择器（任务表单） */
 .blk-picked { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; min-height: 22px; align-items: center; }
