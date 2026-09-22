@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('tegula', {
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateDownload: () => ipcRenderer.invoke('update:download'),
   updateQuitAndInstall: () => ipcRenderer.invoke('update:quitAndInstall'),
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   onUpdateAvailable: (callback: any) => ipcRenderer.on('update:available', (_e, data) => callback(data)),
   onUpdateNotAvailable: (callback: any) => ipcRenderer.on('update:not-available', (_e, data) => callback(data)),
   onUpdateProgress: (callback: any) => ipcRenderer.on('update:progress', (_e, data) => callback(data)),

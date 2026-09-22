@@ -55,6 +55,7 @@
           <span>🔔</span>
           <span v-if="ncUnread > 0" class="nc-badge">{{ ncUnread > 99 ? '99+' : ncUnread }}</span>
         </button>
+        <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
         <button class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
           <span v-if="!batchMode">☑</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
@@ -937,6 +938,25 @@
     <div id="soverlay" class="overlay" v-if="showSettings_" @click.self="showSettings_ = false">
       <div id="smodal">
         <h3>设置</h3>
+        <div class="sect">
+          <h4>版本与更新</h4>
+          <div class="ver-row">
+            <span class="ver-num">v{{ appVersion }}</span>
+            <span v-if="updateState.checked" class="hint">{{ updateState.msg }}</span>
+          </div>
+          <div class="sect-btns">
+            <button class="ghost" :disabled="updateState.busy" @click="checkUpdate">
+              {{ updateState.busy ? '检查中…' : '检查更新' }}
+            </button>
+            <button v-if="updateState.available" class="pri" :disabled="updateState.busy" @click="downloadUpdate">
+              下载 v{{ updateState.version }}
+            </button>
+            <button v-if="updateState.downloaded" class="pri" @click="installUpdate">
+              退出并安装
+            </button>
+          </div>
+          <div class="hint">更新包托管在 GitHub Releases，检查与下载需联网。</div>
+        </div>
         <div class="sect">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
@@ -2191,6 +2211,24 @@ async function changeDataDir() {
   if (info.insideCurrent) {
     showToast('目标不能位于当前数据目录内部', 'error')
     return
+  }
+  // 目标已有方寸数据：让用户选「仅切换指向」还是「复制式迁移」。
+  // 2026-09-22 数据分裂事故：仓库根与 %APPDATA% 各有一份数据时，
+  // 覆盖式迁移会拿旧数据盖掉新数据 —— 必须给「仅切换」出路。
+  if (!info.empty) {
+    if (confirm(`目标目录已有方寸数据（${info.taskCount} 个任务文件）。\n\n【确定】= 仅切换指向（推荐，两边数据都已各自保留，不复制不覆盖）\n【取消】= 返回，改用下方「覆盖式迁入」流程`)) {
+      try {
+        const sr = await window.tegula.setDataDir(info.dir)
+        if (!sr.ok) { showToast('切换失败：' + sr.error, 'error'); return }
+        dataDir.value = info.dir
+        showToast('已切换数据目录（仅指向，未复制）：' + info.dir, 'success')
+        await loadAll()
+      } catch (e: any) {
+        showToast('切换异常：' + (e?.message || e), 'error')
+      }
+      return
+    }
+    // 用户选了取消 → 走原有覆盖式迁移确认弹窗
   }
   migrateTarget.value = info
 }
@@ -3861,6 +3899,54 @@ async function launchAppClick(app: any) {
 
 // ── Settings / Backup ──────────────────────────────────────────────────
 
+// ── 版本与更新（2026-09-22 用户第 2 条：设置里看不到版本，也没有检查更新）──
+// updater IPC（update:check / download / quitAndInstall）一直都在（updater.ts），
+// 只是渲染层从未消费。这里补上 UI 消费：当前版本 + 检查更新 + 下载 + 安装。
+const appVersion = ref('')
+const updateState = ref<{ checked: boolean; busy: boolean; available: boolean; downloaded: boolean; version: string; msg: string }>({
+  checked: false, busy: false, available: false, downloaded: false, version: '', msg: '',
+})
+
+async function loadAppVersion(): Promise<void> {
+  try {
+    const v = await (window as any).tegula.getAppVersion()
+    appVersion.value = String(v || '')
+  } catch { appVersion.value = '' }
+}
+
+async function checkUpdate(): Promise<void> {
+  const t: any = (window as any).tegula || {}
+  updateState.value.busy = true
+  updateState.value.checked = false
+  try {
+    await t.updateCheck()
+    // 结果经 onUpdateAvailable / onUpdateNotAvailable 事件回调（见 onMounted 订阅）
+  } catch (e: any) {
+    updateState.value.msg = '检查失败：' + (e?.message || e)
+    updateState.value.checked = true
+  } finally {
+    updateState.value.busy = false
+  }
+}
+
+async function downloadUpdate(): Promise<void> {
+  const t: any = (window as any).tegula || {}
+  updateState.value.busy = true
+  try {
+    await t.updateDownload()
+    updateState.value.msg = '下载中…（进度见通知）'
+  } catch (e: any) {
+    updateState.value.msg = '下载失败：' + (e?.message || e)
+  } finally {
+    updateState.value.busy = false
+  }
+}
+
+function installUpdate(): void {
+  const t: any = (window as any).tegula || {}
+  try { t.updateQuitAndInstall() } catch { /* ignore */ }
+}
+
 function showSettings() {
   loadPolicyMap()
   showSettings_.value = true
@@ -4327,6 +4413,34 @@ onMounted(() => {
   checkFirstRun()
   loadTaskMeta()
   loadAll()
+  // 版本号（设置页首区块显示）
+  loadAppVersion()
+  // 更新事件订阅：updater 主进程回调 → 设置页状态更新
+  const t: any = (window as any).tegula || {}
+  if (typeof t.onUpdateAvailable === 'function') {
+    t.onUpdateAvailable((d: any) => {
+      updateState.value.checked = true
+      updateState.value.available = true
+      updateState.value.version = d?.version || ''
+      updateState.value.msg = '发现新版本 v' + (d?.version || '?')
+    })
+    t.onUpdateNotAvailable(() => {
+      updateState.value.checked = true
+      updateState.value.available = false
+      updateState.value.msg = '已是最新版本'
+    })
+    t.onUpdateProgress((d: any) => {
+      updateState.value.msg = '下载中… ' + (d?.percent != null ? Math.round(d.percent) + '%' : '')
+    })
+    t.onUpdateDownloaded((d: any) => {
+      updateState.value.downloaded = true
+      updateState.value.msg = 'v' + (d?.version || '?') + ' 已就绪，退出时自动安装'
+    })
+    t.onUpdateError((d: any) => {
+      updateState.value.checked = true
+      updateState.value.msg = '更新出错：' + (d?.message || '未知')
+    })
+  }
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
   bkInitBackup()
   ncInit()
@@ -4655,8 +4769,11 @@ button:not([class]) {
 .tile-add .add-text { font-size: 12px; color: var(--muted); font-weight: 600; }
 
 /* Settings */
-#smodal { width: 560px; }
-#smodal .sect { border-top: 1px solid var(--border); padding: 14px 0; margin-top: 6px; }
+#smodal { width: 720px; max-height: 86vh; display: flex; flex-direction: column; }
+#smodal > .sect:last-of-type { flex: 0 0 auto; }
+.ver-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.ver-num { font-size: 15px; font-weight: 700; color: var(--ink); font-family: var(--mono, monospace); }
+#smodal .sect { border-top: 1px solid var(--border); padding: 14px 0; margin-top: 6px; flex: 0 0 auto; }
 #smodal .sect:first-of-type { border-top: 0; padding-top: 0; }
 #smodal .sect h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
 #smodal .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }

@@ -838,6 +838,39 @@ export function registerIpcHandlers(): void {
   guardedHandle('openFile', (_event: any, filePath: string) => {
     return validateAndOpenFile(filePath)
   })
+
+  // ── 应用日志（诊断）────────────────────────────────────────────────
+  // 之前任何失败都查不到原因（用户第 8 条）。这里把主进程日志目录、
+  // 尾部内容与「打开日志目录」暴露给界面，并在渲染层出错时由前端主动回报。
+  //
+  // ⚠ 2026-09-22 事故：这段曾误缩进进 reviewTask() 函数体内、位于 return 之后，
+  //   成了不可达死代码 —— 通道从未注册，界面上"运行中的主进程是旧代码"横幅
+  //   常驻（实际是 0.2.2 出厂就缺通道，不是旧进程）。IPC 注册语句必须落在
+  //   registerIpcHandlers() 的函数体顶层，e2e 已加注册断言守住（e2e-applog.cjs）。
+  guardedHandle('applog:write', (_e: any, level: string, scope: string, message: string, detail?: unknown) => {
+    const lv = (level === 'ERROR' || level === 'WARN' ? level : 'INFO') as 'INFO' | 'WARN' | 'ERROR'
+    appLog.append(lv, 'renderer:' + (scope || 'unknown'), String(message ?? ''), detail)
+    return { ok: true }
+  })
+
+  guardedHandle('applog:path', () => appLog.getLogFile())
+  guardedHandle('applog:dir', () => appLog.getLogDir())
+  guardedHandle('applog:tail', (_e: any, lines?: number) => appLog.tail(lines && lines > 0 ? lines : 300))
+  guardedHandle('applog:openDir', async () => {
+    const dir = appLog.getLogDir()
+    try {
+      const err = await shell.openPath(dir)
+      if (err) {
+        appLog.warn('applog', `打开日志目录失败：${dir}`, err)
+        // 把路径一起带回渲染层：界面上的"失败"否则完全无法定位
+        return { ok: false, error: err, dir }
+      }
+      return { ok: true, dir }
+    } catch (e: any) {
+      appLog.error('applog', `打开日志目录异常：${dir}`, e?.stack || e)
+      return { ok: false, error: e?.message || String(e), dir }
+    }
+  })
 }
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────
@@ -896,35 +929,8 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     tasks.updateTask(id, { result_log: (task.fm as any).result_log } as any)
     return { ok: true }
   }
-
-  // ── 应用日志（诊断）────────────────────────────────────────────────
-  // 之前任何失败都查不到原因（用户第 8 条）。这里把主进程日志目录、
-  // 尾部内容与「打开日志目录」暴露给界面，并在渲染层出错时由前端主动回报。
-  guardedHandle('applog:write', (_e: any, level: string, scope: string, message: string, detail?: unknown) => {
-    const lv = (level === 'ERROR' || level === 'WARN' ? level : 'INFO') as 'INFO' | 'WARN' | 'ERROR'
-    appLog.append(lv, 'renderer:' + (scope || 'unknown'), String(message ?? ''), detail)
-    return { ok: true }
-  })
-
-  guardedHandle('applog:path', () => appLog.getLogFile())
-  guardedHandle('applog:dir', () => appLog.getLogDir())
-  guardedHandle('applog:tail', (_e: any, lines?: number) => appLog.tail(lines && lines > 0 ? lines : 300))
-  guardedHandle('applog:openDir', async () => {
-    const dir = appLog.getLogDir()
-    try {
-      const err = await shell.openPath(dir)
-      if (err) {
-        appLog.warn('applog', `打开日志目录失败：${dir}`, err)
-        // 把路径一起带回渲染层：界面上的"失败"否则完全无法定位
-        return { ok: false, error: err, dir }
-      }
-      return { ok: true, dir }
-    } catch (e: any) {
-      appLog.error('applog', `打开日志目录异常：${dir}`, e?.stack || e)
-      return { ok: false, error: e?.message || String(e), dir }
-    }
-  })
 }
+
 
 function validateAndOpenFile(filePath: string): { ok: boolean; error?: string } {
   const raw = String(filePath || '').trim().replace(/^["']|["']$/g, '')

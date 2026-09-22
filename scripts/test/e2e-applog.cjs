@@ -114,6 +114,23 @@ async function main() {
   check('重复注册通道被记 WARN', /重复注册通道 probe:dup/.test(appLog.tail(80).join('\n')))
   check('registeredChannels 可枚举', guard.registeredChannels().includes('probe:throw'))
 
+  // ── applog 通道必须真的注册（2026-09-22 事故回归）─────────────────
+  // 事故：applog 五通道的 guardedHandle 曾被误写进 reviewTask() 函数体内、
+  // 位于 return 之后 —— 不可达死代码，通道从未注册，0.2.2 出厂即缺通道。
+  // stub 测试只测了 guardedHandle 机制本身，没测 registerIpcHandlers 是否
+  // 真的注册了 applog。这里直接 require 编译产物并断言通道存在。
+  {
+    const ipcPath = path.join(DIST, 'ipc.js')
+    const ipcMod = require(ipcPath)
+    // 先注册全部通道（registerIpcHandlers 内部会 initPaths → 需要 userData 可写）
+    process.env.FC_TEST_USERDATA = TEST_ROOT
+    ipcMod.registerIpcHandlers()
+    for (const ch of ['applog:write', 'applog:path', 'applog:dir', 'applog:tail', 'applog:openDir']) {
+      check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
+        handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
+    }
+  }
+
   // ── 按天分文件 / 轮转不炸 ────────────────────────────────────────
   const files = fs.readdirSync(logDir).filter(f => /^fangcun-\d{8}\.log$/.test(f))
   check('按天分文件（当前仅 1 个）', files.length === 1, files.join(','))

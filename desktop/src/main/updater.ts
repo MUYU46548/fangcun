@@ -1,5 +1,5 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import log from 'electron-log'
 
 let mainWindow: BrowserWindow | null = null
@@ -85,6 +85,7 @@ export function quitAndInstall(): void {
 
 // IPC 桥接
 export function registerUpdaterIpc(): void {
+  ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('update:check', () => {
     checkForUpdates()
   })

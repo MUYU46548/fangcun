@@ -28,6 +28,31 @@ export function initPaths(): void {
   const cwd = process.cwd()
   const userData = app.getPath('userData')
 
+  // ── 用户显式指定的数据目录优先（2026-09-22 数据分裂事故）─────────
+  // 背景：安装版探测链（cwd → 父目录 → exeDir → userData）在安装目录与仓库
+  // 无父子关系时必然回退 userData，与 dev 会话 / Python CLI / Hermes agent
+  // 使用的仓库根分叉 —— 用户在两边各写各的数据，表现为「数据丢了」。
+  // 修复：设置里切换过数据目录后，把选择持久化到 userData/data-dir.json，
+  // 启动时优先读取。探测链只作为首次启动的默认值。
+  const dataDirConfigPath = path.join(userData, 'data-dir.json')
+  try {
+    if (fs.existsSync(dataDirConfigPath)) {
+      const cfg = JSON.parse(fs.readFileSync(dataDirConfigPath, 'utf-8'))
+      const saved = String(cfg?.dir || '').trim()
+      if (saved && fs.existsSync(path.join(saved, 'registry.yaml'))) {
+        DATA_DIR = saved
+        TASK_DIR = path.join(DATA_DIR, 'task-data')
+        REGISTRY_PATH = path.join(DATA_DIR, 'registry.yaml')
+        BACKUP_DIR = path.join(DATA_DIR, 'backups')
+        ACTIVITY_LOG = path.join(TASK_DIR, '.activity.log')
+        fs.mkdirSync(TASK_DIR, { recursive: true })
+        fs.mkdirSync(BACKUP_DIR, { recursive: true })
+        invalidateTaskCache()
+        return
+      }
+    }
+  } catch { /* 配置损坏则回退探测链，不炸启动 */ }
+
   // Priority: cwd (dev) → parent dirs (monorepo) → exeDir (portable) → userData (installed)
   // Walk up from cwd to find registry.yaml or task-data (monorepo: desktop/ → project root)
   //
@@ -87,6 +112,14 @@ export function setDataDir(newDir: string): void {
   fs.mkdirSync(TASK_DIR, { recursive: true })
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
   invalidateTaskCache()
+  // 持久化用户选择（2026-09-22）：否则重启后又回到探测默认值，
+  // 用户表现为「切了目录但数据又丢了」。写失败不炸（下次启动回退探测链）。
+  try {
+    const cfgPath = path.join(app.getPath('userData'), 'data-dir.json')
+    const tmp = cfgPath + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2), 'utf-8')
+    fs.renameSync(tmp, cfgPath)
+  } catch { /* 持久化失败不影响本次会话 */ }
 }
 
 export function getDataDir(): string { return DATA_DIR }
