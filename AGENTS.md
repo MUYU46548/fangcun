@@ -58,8 +58,8 @@
 | core.py 行数 | ~4093 | 同上 |
 | 子命令数 | 54 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
-| registry 项目数 | 12（projects 10 + released 2） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **224** / e2e **八套（69+118+81+8+19+13+50+28）** + 三类静态守卫 | `python verify.py \| tail -1` |
+| registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
+| 回归断言数 | verify.py **224** / e2e **九套（69+118+81+8+24+13+50+28+32）** + 三类静态守卫 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

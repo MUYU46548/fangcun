@@ -3,8 +3,10 @@ setlocal
 set DIR=%~dp0
 set PORT=8753
 set PY=
-if exist "%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe" set PY=%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe
-if "%PY%"=="" if exist "%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe" set PY=%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe
+rem Windows Store python3.exe 是空壳 stub，必须最后兜底，不能优先命中
+if exist "%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe" set PY=%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe
+if "%PY%"=="" if exist "python.exe" set PY=python.exe
+if "%PY%"=="" if exist "%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe" set PY=%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe
 if "%PY%"=="" (
   echo Python not found.
   pause
