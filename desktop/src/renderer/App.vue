@@ -118,7 +118,7 @@
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
       <span>📋 归档视图：此处仅显示已完成/驳回的任务。归档操作只能由你亲自判定，不会自动执行。</span>
-      <button @click="showArchiveHint = false; localStorage.setItem('fc_archive_hint_seen','1')">知道了</button>
+      <button @click="closeArchiveHint">知道了</button>
     </div>
 
 
@@ -226,30 +226,30 @@
       </div>
     </main>
 
-    <!-- Blockers view -->
+    <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <main id="board" class="blockers-view" v-else-if="curView === 'blockers'">
       <div class="blockers-header">
-        <h3>阻塞链</h3>
-        <span class="blockers-count">{{ blockerChains.length }} 条活跃阻塞链</span>
+        <h3>阻塞源</h3>
+        <span class="blockers-count">{{ blockerChains.length }} 个阻塞源，影响 {{ totalBlockedTasks }} 个任务</span>
       </div>
       <div class="blocker-chains">
         <div v-if="!blockerChains.length" class="empty-state">
           <div class="empty-icon">✓</div>
-          <div class="empty-text">没有阻塞链 — 所有任务畅通</div>
+          <div class="empty-text">没有阻塞源 — 所有任务畅通</div>
         </div>
-        <div v-for="chain in blockerChains" :key="chain.id" class="chain-card">
+        <div v-for="src in blockerChains" :key="src.id" class="chain-card">
           <div class="chain-main">
-            <span class="chain-id">{{ chain.id }}</span>
-            <span class="chain-title">{{ chain.title }}</span>
-            <span class="st" :class="'st-' + statusClass(chain.status)">{{ chain.status }}</span>
+            <span class="chain-id">{{ src.id }}</span>
+            <span class="chain-title">{{ src.title }}</span>
+            <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
           </div>
-          <div class="chain-arrow">↓ 等待</div>
+          <div class="chain-arrow">↓ 阻塞了 {{ src.blockedTasks.length }} 个任务</div>
           <div class="chain-blockers">
-            <div v-for="b in chain.blockers" :key="b.id" class="chain-blocker" :class="{ done: b.isDone }">
-              <span class="cb-status">{{ b.isDone ? '✓' : '◌' }}</span>
-              <span class="cb-id">{{ b.id }}</span>
-              <span class="cb-title">{{ b.title }}</span>
-              <span class="st small" :class="'st-' + statusClass(b.status)">{{ b.status }}</span>
+            <div v-for="t in src.blockedTasks" :key="t.id" class="chain-blocker">
+              <span class="cb-status">◌</span>
+              <span class="cb-id">{{ t.id }}</span>
+              <span class="cb-title">{{ t.title }}</span>
+              <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
             </div>
           </div>
         </div>
@@ -337,6 +337,17 @@
             <option value="completed">已完成</option>
             <option value="archived">已归档</option>
           </select>
+          <!-- 2026-09-23（用户第 2 条）：项目/Agent/日期范围筛选 -->
+          <select v-model="logProjectFilter" class="log-filter" @change="loadLogs">
+            <option value="">全部项目</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+          </select>
+          <select v-model="logAgentFilter" class="log-filter" @change="loadLogs">
+            <option value="">全部 Agent</option>
+            <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+          </select>
+          <input v-model="logDateFrom" type="date" class="log-filter" title="起始日期" @change="loadLogs" />
+          <input v-model="logDateTo" type="date" class="log-filter" title="截止日期" @change="loadLogs" />
           <!-- 按钮风格约定：主操作用默认按钮样式（与顶栏「+ 新建」一致），
                次要操作统一用 class="ghost"。此前「+ 新建日志」被写成 ghost，
                与「+ 新建」不一致（同一类操作两种长相），已提过两三次。 -->
@@ -372,6 +383,8 @@
           <div class="log-card-meta">
             <span v-if="log.project" class="log-project">{{ (projects.find(p => p.id === log.project)?.name) || log.project }}</span>
             <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
+            <span v-if="log.agentName" class="log-agent">🤖 {{ log.agentName }}</span>
+            <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           </div>
           <div class="log-card-actions" @click.stop>
@@ -548,6 +561,8 @@
         <button class="ghost" @click="calMove(1)">下月 &#9654;</button>
         <button class="ghost" @click="calToday">回到本月</button>
         <label class="chk cal-chk"><input type="checkbox" :checked="calShowTodos" @change="calToggleTodos" /> 显示待办</label>
+        <!-- 2026-09-23（用户第 3 条）：日志上日历 -->
+        <label class="chk cal-chk"><input type="checkbox" :checked="calShowLogs" @change="calToggleLogs" /> 显示日志</label>
         <span class="cal-hint">拖动条目可改期；点条目可指派时间；时间段任务会横跨多天</span>
       </div>
       <div class="calgrid">
@@ -561,13 +576,13 @@
           <template v-if="cell">
             <div class="dnum">{{ cell.day }}</div>
             <div v-for="ev in cell.events" :key="ev.kind + ev.id + '-' + cell.day"
-              class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : 'cev-task']"
+              class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : ev.kind === 'log' ? 'cev-log' : 'cev-task']"
               draggable="true"
-              :title="(ev.kind === 'todo' ? '待办：' : '任务：') + ev.title + (ev.rangeDays > 1 ? `（共 ${ev.rangeDays} 天）` : '')"
+              :title="(ev.kind === 'todo' ? '待办：' : ev.kind === 'log' ? '日志：' : '任务：') + ev.title + (ev.rangeDays > 1 ? `（共 ${ev.rangeDays} 天）` : '')"
               @dragstart="onCalDragStart($event, ev.id, ev.kind)"
               @click="onCalEventClick(ev)"
             >
-              <span class="pd" :style="{ background: ev.kind === 'todo' ? '#5b8dd6' : prioColor(ev.priority) }"></span>
+              <span class="pd" :style="{ background: ev.kind === 'todo' ? '#5b8dd6' : ev.kind === 'log' ? '#8b7fb8' : prioColor(ev.priority) }"></span>
               <span class="t">{{ ev.title }}</span>
             </div>
           </template>
@@ -747,6 +762,17 @@
         </select>
         <input v-model="logEdit_.taskId" placeholder="或直接粘贴任务 ID" />
         <div class="hint log-task-picked" v-if="logTaskPicked">已选：{{ logTaskPicked }}</div>
+        <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
+        <label>会话 ID（可选，便于反向查证）</label>
+        <input v-model="logEdit_.sessionId" placeholder="如 20260922_183047_334e4a" />
+        <label>执行 Agent（可选）</label>
+        <select v-model="logEdit_.agentName" class="logsel">
+          <option value="">（不指定）</option>
+          <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+        </select>
+        <input v-model="logEdit_.agentName" placeholder="或手动输入 Agent 名称" />
+        <label>日志日期（默认创建日期）</label>
+        <input v-model="logEdit_.logDate" type="date" />
         <template v-if="logCompleting || logArchiveMode">
           <label v-if="logCompleting">保留天数（0=永不）</label>
           <input v-if="logCompleting" v-model="logRetainDays" placeholder="7" />
@@ -974,6 +1000,22 @@
             <button class="ghost" @click="showAppLogFromSettings">查看最近 200 行</button>
           </div>
           <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
+        </div>
+        <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
+        <div class="sect">
+          <h4>🤖 Agent 预设列表</h4>
+          <div class="hint">日志视图的「执行 Agent」筛选下拉会读这里的预设。增删后自动保存到浏览器本地。</div>
+          <div class="agent-presets-list">
+            <span v-for="(a, i) in agentPresets" :key="a" class="agent-preset-chip">
+              {{ a }}
+              <button class="agent-preset-del" title="删除此预设" @click="removeAgentPreset(i)">×</button>
+            </span>
+            <span v-if="!agentPresets.length" class="hint">暂无预设，添加一个吧</span>
+          </div>
+          <div class="agent-presets-add">
+            <input v-model="newAgentName" placeholder="新 Agent 名称（如 opencode）" @keydown.enter="addAgentPreset" />
+            <button class="ghost" @click="addAgentPreset">添加</button>
+          </div>
         </div>
         <div class="sect">
           <h4>项目列表</h4>
@@ -1295,6 +1337,10 @@ const curProj = ref('__all__')
 const groupMode = ref('status')
 const sortMode = ref('active')
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
+function closeArchiveHint() {
+  showArchiveHint.value = false
+  localStorage.setItem('fc_archive_hint_seen', '1')
+}
 const searchQuery = ref('')
 // 解析失败的任务文件（主进程收集）。以前 parseTask 失败是静默跳过 ——
 // 2026-09-18 真实发生过 6 个任务因标题含 ": " 而在看板上隐身数月。
@@ -1684,6 +1730,7 @@ const reviewModal = ref<{ id: string; title: string } | null>(null)
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
 const blockerChains = ref<any[]>([])
+const totalBlockedTasks = computed(() => blockerChains.value.reduce((sum, s) => sum + (s.blockedTasks?.length || 0), 0))
 const roadmapData = ref<any>({ projects: [] })
 const projectProgress = ref<Record<string, any>>({})
 
@@ -2888,6 +2935,7 @@ const calYear = ref(new Date().getFullYear())
 const calMonth = ref(new Date().getMonth())
 const calDragOverDay = ref<number | null>(null)
 const calShowTodos = ref(localStorage.getItem('fc_cal_show_todos') !== '0')
+const calShowLogs = ref(localStorage.getItem('fc_cal_show_logs') !== '0')
 let calDragId: string | null = null
 let calDragKind: 'task' | 'todo' = 'task'
 
@@ -2911,6 +2959,10 @@ function calToggleTodos() {
   calShowTodos.value = !calShowTodos.value
   localStorage.setItem('fc_cal_show_todos', calShowTodos.value ? '1' : '0')
 }
+function calToggleLogs() {
+  calShowLogs.value = !calShowLogs.value
+  localStorage.setItem('fc_cal_show_logs', calShowLogs.value ? '1' : '0')
+}
 
 // 日期算术全部在 calendar.ts 里（纯函数，可被 scripts/test/e2e-calendar.cjs 直接断言）——
 // 跨月边界这类错误在界面上只表现为"少一天/多一天"，肉眼抓不住，必须靠脚本。
@@ -2927,7 +2979,7 @@ const calActiveTodos = computed(() => todos.value.filter(t => !t.done))
 type CalEvent = CalEventT<Task, Todo>
 
 /** 一次算清：格子 / 未安排 / 其它月份（纯函数，见 calendar.ts） */
-const calMonthData = computed(() => buildMonth<Task, Todo>({
+const calMonthData = computed(() => buildMonth<Task, Todo, any>({
   year: calYear.value,
   month: calMonth.value,
   today: new Date(),
@@ -2939,6 +2991,9 @@ const calMonthData = computed(() => buildMonth<Task, Todo>({
   })),
   todos: calActiveTodos.value.map(td => ({ ...td, priority: localPriority(td.priority) })),
   showTodos: calShowTodos.value,
+  // 2026-09-23（用户第 3 条）：日志上日历
+  logs: logs.value,
+  showLogs: calShowLogs.value,
 }))
 
 const calCells = computed(() => calMonthData.value.cells)
@@ -3017,7 +3072,7 @@ async function saveCalAssign() {
 }
 
 // ── 拖拽改期 ───────────────────────────────────────────────────────────
-function onCalDragStart(e: DragEvent, id: string, kind: 'task' | 'todo' = 'task') {
+function onCalDragStart(e: DragEvent, id: string, kind: 'task' | 'todo' | 'log' = 'task') {
   calDragId = id
   calDragKind = kind
   e.dataTransfer?.setData('text/plain', id)
@@ -3026,6 +3081,12 @@ function onCalDragStart(e: DragEvent, id: string, kind: 'task' | 'todo' = 'task'
 
 function onCalEventClick(ev: CalEvent) {
   if (ev.kind === 'todo') { openCalAssignTodo(ev.id); return }
+  // 2026-09-23（用户第 3 条）：日志事件点击 → 打开日志编辑框
+  if (ev.kind === 'log') {
+    const log = logs.value.find((l: any) => l.id === ev.id)
+    if (log) openLog(log)
+    return
+  }
   const t = calActiveTasks.value.find(x => x.id === ev.id)
   if (t) openCard(t)
 }
@@ -3045,6 +3106,14 @@ async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
       if (!r || r.ok === false) { showToast('改期失败：' + (r?.error || '未知原因'), 'error'); return }
       showToast(`待办到期日已改为 ${target}`, 'success')
       await loadTodos()
+      return
+    }
+    // 2026-09-23（用户第 3 条）：日志拖拽改期
+    if (kind === 'log') {
+      const r: any = await window.tegula.logsUpdate(id, { logDate: target })
+      if (r && r.ok === false) { showToast('改期失败：' + (r?.error || '未知原因'), 'error'); return }
+      showToast(`日志日期已改为 ${target}`, 'success')
+      await loadLogs()
       return
     }
     const t = calActiveTasks.value.find(x => x.id === id)
@@ -3232,7 +3301,33 @@ async function deleteTodo(id: string) {
 const logs = ref<any[]>([])
 const logSearchInput = ref('')
 const logStatusFilter = ref('')
+const logProjectFilter = ref('')
+const logAgentFilter = ref('')
+const logDateFrom = ref('')
+const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
+// Agent 预设列表（设置页可增删，存 localStorage）
+const agentPresets = ref<string[]>(JSON.parse(localStorage.getItem('fc_agent_presets') || '["hermes","opencode","codex","deepseek","claude"]'))
+const newAgentName = ref('')
+
+function addAgentPreset() {
+  const name = newAgentName.value.trim()
+  if (!name) return
+  if (agentPresets.value.includes(name)) { showToast('已存在', 'info'); return }
+  agentPresets.value.push(name)
+  localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value))
+  newAgentName.value = ''
+  showToast('已添加', 'success')
+}
+
+function removeAgentPreset(index: number) {
+  const removed = agentPresets.value[index]
+  agentPresets.value.splice(index, 1)
+  localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value))
+  // 如果当前筛选用的是被删的预设，清掉
+  if (logAgentFilter.value === removed) logAgentFilter.value = ''
+  showToast('已删除', 'info')
+}
 let logPollingTimer: ReturnType<typeof setInterval> | null = null
 
 const filteredLogs = computed(() => {
@@ -3247,6 +3342,10 @@ async function loadLogs() {
   try {
     const filter: any = {}
     if (logStatusFilter.value) filter.status = logStatusFilter.value
+    if (logProjectFilter.value) filter.project = logProjectFilter.value
+    if (logAgentFilter.value) filter.agent = logAgentFilter.value
+    if (logDateFrom.value) filter.dateFrom = logDateFrom.value
+    if (logDateTo.value) filter.dateTo = logDateTo.value
     logs.value = await window.tegula.logsList(filter)
   } catch {
     logs.value = []
@@ -3271,7 +3370,7 @@ function openNewLog() {
   const project = curProj.value !== '__all__'
     ? curProj.value
     : (projects.value[0]?.id || '')
-  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskId: '' }
+  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskId: '', sessionId: '', agentName: '', logDate: '' }
   logCompleting.value = false
   logArchiveMode.value = false
   logRetainDays.value = '7'
@@ -3417,12 +3516,16 @@ async function saveLogEdit() {
     } else if (e.id) {
       // 2026-09-22：此前只回写 title/content/nextSteps —— 在界面上改了「项目」或
       // 「关联任务」点保存会提示"已更新"，但字段被静默丢弃（用户报障「改不了项目」）。
+      // 2026-09-23：补上 sessionId/agentName/logDate 三个新字段。
       const r: any = await window.tegula.logsUpdate(e.id, {
         title: e.title,
         content: e.content,
         nextSteps: e.nextSteps,
         project: e.project,
         taskId: e.taskId || '',
+        sessionId: e.sessionId || '',
+        agentName: e.agentName || '',
+        logDate: e.logDate || '',
       })
       if (r && r.ok === false) {
         showToast('更新失败：' + (r.error || '未知原因'), 'error')
@@ -3430,7 +3533,10 @@ async function saveLogEdit() {
       }
       showToast('已更新', 'success')
     } else {
-      const r: any = await window.tegula.logsCreate(e.title, e.project, e.content, e.taskId || undefined)
+      const r: any = await window.tegula.logsCreate(
+        e.title, e.project, e.content, e.taskId || undefined,
+        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '' },
+      )
       if (r && r.ok === false) {
         showToast('创建失败：' + (r.error || '未知原因'), 'error')
         return
@@ -3769,14 +3875,16 @@ async function checkUpdate(): Promise<void> {
   const t: any = (window as any).tegula || {}
   updateState.value.busy = true
   updateState.value.checked = false
+  updateState.value.msg = '检查中…'
   try {
     await t.updateCheck()
     // 结果经 onUpdateAvailable / onUpdateNotAvailable 事件回调（见 onMounted 订阅）
+    // 2026-09-23（用户第 5 条）：检查完成后给明确反馈，不再静默
   } catch (e: any) {
     updateState.value.msg = '检查失败：' + (e?.message || e)
     updateState.value.checked = true
-  } finally {
     updateState.value.busy = false
+    showToast('检查失败：' + (e?.message || e), 'error')
   }
 }
 
@@ -4054,11 +4162,15 @@ onMounted(() => {
       updateState.value.available = true
       updateState.value.version = d?.version || ''
       updateState.value.msg = '发现新版本 v' + (d?.version || '?')
+      updateState.value.busy = false
+      showToast('发现新版本 v' + (d?.version || '?'), 'success')
     })
     t.onUpdateNotAvailable(() => {
       updateState.value.checked = true
       updateState.value.available = false
       updateState.value.msg = '已是最新版本'
+      updateState.value.busy = false
+      showToast('已是最新版本', 'info')
     })
     t.onUpdateProgress((d: any) => {
       updateState.value.msg = '下载中… ' + (d?.percent != null ? Math.round(d.percent) + '%' : '')
@@ -4824,6 +4936,8 @@ button:not([class]) {
 .cev.span-end   { background: #eeeafa; }
 .cev.cev-todo { background: #eef4fd; border-color: #d5e3f7; }
 .cev.cev-todo:hover { background: #e3eefc; border-color: #a9c8ee; }
+.cev.cev-log { background: #f3f0fa; border-color: #e0daf5; }
+.cev.cev-log:hover { background: #ece8f8; border-color: #c4b8e8; }
 .calunsched .cev.chip { cursor: grab; }
 .calunsched .cev.chip.other { background: #fbf7f1; border-color: #efdfc8; color: #8a7040; }
 .cal-hint-inline { font-size: 10.5px; color: var(--accent); margin-left: 6px; font-weight: 500; }
@@ -4902,7 +5016,17 @@ button:not([class]) {
 .log-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .log-task { color: var(--accent); }
 .log-completed { color: #5e9154; }
+.log-agent { color: #8b7fb8; }
+.log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-card-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+
+/* Agent 预设列表（2026-09-23） */
+.agent-presets-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.agent-preset-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f3f0fa; border: 1px solid #e0daf5; border-radius: 12px; font-size: 11px; color: #6b5b9e; }
+.agent-preset-del { background: none; border: 0; cursor: pointer; color: #b0a0d0; font-size: 13px; padding: 0 2px; border-radius: 50%; line-height: 1; }
+.agent-preset-del:hover { color: #c96a6a; background: #f0e8e8; }
+.agent-presets-add { display: flex; gap: 6px; }
+.agent-presets-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 
 /* Log edit modal */
 #log-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }

@@ -114,7 +114,8 @@ export function registerIpcHandlers(): void {
   })
 
   guardedHandle('findBlockers', () => {
-    return tasks.getBlockerChains().map(c => ({ id: c.id, title: c.title, blockers: c.blockers.map(b => b.id) }))
+    // 2026-09-23：getBlockerChains() 现在返回 BlockerSource[]，用 blockedTasks 替代旧 blockers
+    return tasks.getBlockerChains().map(c => ({ id: c.id, title: c.title, blockers: (c as any).blockedTasks?.map((t: any) => t.id) || [] }))
   })
 
   // ── Plan System ─────────────────────────────────────────────────────
@@ -741,9 +742,9 @@ export function registerIpcHandlers(): void {
     return logsService.getLog(id)
   })
 
-  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string }) => {
     try {
-      const log = logsService.createLog(title, project, content, taskId)
+      const log = logsService.createLog(title, project, content, taskId, extra)
       return { ok: true, log }
     } catch (e: any) {
       return { ok: false, error: e.message }

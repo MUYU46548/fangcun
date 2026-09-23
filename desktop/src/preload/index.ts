@@ -102,7 +102,7 @@ contextBridge.exposeInMainWorld('tegula', {
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
-  logsCreate: (title: string, project: string, content: string, taskId?: string) => ipcRenderer.invoke('logs:create', title, project, content, taskId),
+  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),

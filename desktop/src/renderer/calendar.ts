@@ -27,10 +27,20 @@ export interface CalTodoLike {
   priority?: string
 }
 
+/** 执行日志（2026-09-23 用户第 3 条：日志上日历） */
+export interface CalLogLike {
+  id: string
+  title: string
+  status?: string
+  /** 日志归属日期（YYYY-MM-DD），默认 created 日期 */
+  logDate?: unknown
+  priority?: string
+}
+
 export type Span = 'only' | 'start' | 'mid' | 'end'
 
-export interface CalEvent<T = CalTaskLike, D = CalTodoLike> {
-  kind: 'task' | 'todo'
+export interface CalEvent<T = CalTaskLike, D = CalTodoLike, L = CalLogLike> {
+  kind: 'task' | 'todo' | 'log'
   id: string
   title: string
   status: string
@@ -39,14 +49,14 @@ export interface CalEvent<T = CalTaskLike, D = CalTodoLike> {
   /** 该任务时间段覆盖的总天数（跨月也按完整区间算） */
   rangeDays: number
   /** 原始对象引用，便于前端直接 openCard / 打开指派 */
-  ref: T | D
+  ref: T | D | L
 }
 
-export interface CalCell<T = CalTaskLike, D = CalTodoLike> {
+export interface CalCell<T = CalTaskLike, D = CalTodoLike, L = CalLogLike> {
   day: number
   isToday: boolean
   isPast: boolean
-  events: CalEvent<T, D>[]
+  events: CalEvent<T, D, L>[]
 }
 
 export interface CalMonthGroup {
@@ -58,7 +68,7 @@ export interface CalMonthGroup {
   count: number
 }
 
-export interface CalMonthResult<T = CalTaskLike, D = CalTodoLike> {
+export interface CalMonthResult<T = CalTaskLike, D = CalTodoLike, L = CalLogLike> {
   /** 前置空格为 null */
   cells: (CalCell<T, D> | null)[]
   /** 完全没有时间（无开始也无截止）的任务 */
@@ -163,7 +173,7 @@ export function rangeLabel(start?: unknown, deadline?: unknown): string {
  * 把一个月的格子、未安排、其它月份一次性算出来。
  * month 为 0-based；前置空格（周一开头）用 null 占位。
  */
-export function buildMonth<T extends CalTaskLike, D extends CalTodoLike>(
+export function buildMonth<T extends CalTaskLike, D = CalTodoLike, L = CalLogLike>(
   input: {
     year: number
     month: number
@@ -171,8 +181,11 @@ export function buildMonth<T extends CalTaskLike, D extends CalTodoLike>(
     tasks: T[]
     todos?: D[]
     showTodos?: boolean
+    /** 2026-09-23（用户第 3 条）：日志上日历 */
+    logs?: L[]
+    showLogs?: boolean
   },
-): CalMonthResult<T, D> {
+): CalMonthResult<T, D, L> {
   const today = input.today ? dayStart(input.today) : dayStart(new Date())
   const y = input.year
   const m = input.month
@@ -246,13 +259,36 @@ export function buildMonth<T extends CalTaskLike, D extends CalTodoLike>(
     }
   }
 
+  // 2026-09-23（用户第 3 条）：日志上日历（只显示 active 状态，防堆积）
+  if (input.showLogs) {
+    for (const log of input.logs || []) {
+      if (log.status && log.status !== 'active') continue
+      const d = parseCalDate(log.logDate, today)
+      if (!d) continue
+      if (!inMonth(d)) {
+        const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`
+        groups[key] = groups[key] || {
+          key, label: `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`,
+          year: d.getFullYear(), month: d.getMonth(), count: 0,
+        }
+        groups[key].count++
+        continue
+      }
+      push(dayStart(d).getDate(), {
+        kind: 'log', id: log.id, title: log.title || log.id, status: log.status || 'active',
+        priority: log.priority || '', span: 'only', rangeDays: 1, ref: log,
+      })
+    }
+  }
+
   const cells: (CalCell<T, D> | null)[] = []
   const lead = (new Date(y, m, 1).getDay() + 6) % 7 // 周一为第一格
   for (let i = 0; i < lead; i++) cells.push(null)
   for (let d = 1; d <= days; d++) {
     const evs = (byDay[d] || []).slice().sort((a, b) => {
-      // 任务在前；时间段长的在前；再按优先级
-      if (a.kind !== b.kind) return a.kind === 'task' ? -1 : 1
+      // 任务在前，待办其次，日志最后；同类型按时间段长度、优先级排序
+      const kindOrder = { task: 0, todo: 1, log: 2 }
+      if (a.kind !== b.kind) return kindOrder[a.kind] - kindOrder[b.kind]
       if (b.rangeDays !== a.rangeDays) return b.rangeDays - a.rangeDays
       return prioRank(a.priority) - prioRank(b.priority)
     })

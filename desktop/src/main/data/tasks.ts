@@ -336,6 +336,9 @@ export function deleteTask(id: string): boolean {
   fs.mkdirSync(trashDir, { recursive: true })
   const trashPath = path.join(trashDir, path.basename(task.path))
   fs.renameSync(task.path, trashPath)
+  // 2026-09-23 修复批量假删除：文件已移走但缓存未失效 → loadAll() 重读命中旧缓存 →
+  // 已删任务仍在列表里。对比 archiveTask()（L357）有调 invalidateTaskCache()。
+  invalidateTaskCache()
   logActivity(id, 'deleted')
   return true
 }
@@ -664,46 +667,54 @@ export function getProjectProgress(projectId: string): { total: number; complete
 }
 
 // ── Blocker Chain Visualization ──────────────────────────────────────
+// 2026-09-23（用户第 4 条）：改为按阻塞源分组，显示「N 个阻塞源」而非「N 条活跃阻塞链」。
+// 多个任务共享同一阻塞源时，合并为一个阻塞源条目，反向列出被它阻塞的任务。
 
-export interface BlockerChain {
+export interface BlockerSource {
   id: string
   title: string
   status: string
-  blockers: {
-    id: string
-    title: string
-    status: string
-    isDone: boolean
-  }[]
+  isDone: boolean
+  /** 被此阻塞源阻塞的任务列表（反向索引） */
+  blockedTasks: { id: string; title: string; status: string }[]
 }
 
-export function getBlockerChains(): BlockerChain[] {
+export function getBlockerSources(): BlockerSource[] {
   const allTasks = loadAllTasks()
   const taskMap = new Map(allTasks.map(t => [t.id, t]))
-  const chains: BlockerChain[] = []
+
+  // 阻塞源 ID → 被它阻塞的任务列表
+  const sourceMap = new Map<string, BlockerSource>()
 
   for (const task of allTasks) {
     if (!task.fm.blockers || task.fm.blockers.length === 0) continue
-    const blockers = task.fm.blockers
-      .map(bid => {
-        const dep = taskMap.get(bid)
-        if (!dep) return null
-        const status = dep.fm.status || '草稿'
-        const isDone = status === '完成' || status === '驳回'
-        return { id: dep.id, title: dep.fm.title || dep.id, status, isDone }
-      })
-      .filter(Boolean) as BlockerChain['blockers']
+    for (const bid of task.fm.blockers) {
+      const dep = taskMap.get(bid)
+      if (!dep) continue
+      const status = dep.fm.status || '草稿'
+      const isDone = status === '完成' || status === '驳回'
 
-    if (blockers.length > 0) {
-      chains.push({
-        id: task.id,
-        title: task.fm.title || task.id,
-        status: task.fm.status || '草稿',
-        blockers,
-      })
+      if (!sourceMap.has(bid)) {
+        sourceMap.set(bid, {
+          id: dep.id,
+          title: dep.fm.title || dep.id,
+          status,
+          isDone,
+          blockedTasks: [],
+        })
+      }
+      const src = sourceMap.get(bid)!
+      src.blockedTasks.push({ id: task.id, title: task.fm.title || task.id, status: task.fm.status || '草稿' })
     }
   }
-  return chains
+
+  // 只返回未完成的阻塞源（已完成的不再构成阻塞）
+  return Array.from(sourceMap.values()).filter(s => !s.isDone)
+}
+
+/** 兼容旧接口名：实际返回 BlockerSource[]（含 blockedTasks 反向索引） */
+export function getBlockerChains(): BlockerSource[] {
+  return getBlockerSources()
 }
 
 // ── Roadmap Aggregation ──────────────────────────────────────────────

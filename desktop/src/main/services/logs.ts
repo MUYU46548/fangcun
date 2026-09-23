@@ -21,6 +21,12 @@ export interface LogEntry {
   nextSteps: string
   taskId?: string
   note?: string
+  /** Hermes 会话 ID 或 Agent 会话 ID，便于反向查证 */
+  sessionId?: string
+  /** 执行 Agent 名称（如 hermes / opencode / codex 等） */
+  agentName?: string
+  /** 日志归属日期（YYYY-MM-DD），默认取 created 日期，可手动配置 */
+  logDate?: string
 }
 
 /**
@@ -105,6 +111,9 @@ function parseLogFile(filePath: string): LogEntry | null {
       // renderLog 把关联任务写在 frontmatter 的 tasks 数组里，此前只写不读，
       // 导致 logsForTask 永远返回空 —— 任务详情的「关联日志」看不到任何东西。
       taskId: extractTaskId(raw),
+      sessionId: raw.session_id ? String(raw.session_id) : undefined,
+      agentName: raw.agent_name ? String(raw.agent_name) : undefined,
+      logDate: raw.log_date ? String(raw.log_date) : undefined,
     }
   } catch {
     return null
@@ -126,6 +135,9 @@ function renderLog(log: LogEntry): string {
     tasks: log.taskId ? [log.taskId] : [],
     _content: log.content || null,
     _next_steps: log.nextSteps || null,
+    session_id: log.sessionId || null,
+    agent_name: log.agentName || null,
+    log_date: log.logDate || null,
   }
   const fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   let body = `# ${log.title}\n\n## 执行内容\n\n${log.content || '（待填写）'}\n\n## 下一步\n\n${log.nextSteps || '（待填写）'}`
@@ -149,7 +161,13 @@ function genId(): string {
   return `log_${ts}_${rand}`
 }
 
-export function listLogs(filter?: { project?: string; status?: string }): LogEntry[] {
+export function listLogs(filter?: {
+  project?: string
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+  agent?: string
+}): LogEntry[] {
   const dir = getLogsDir()
   if (!fs.existsSync(dir)) return []
   const logs: LogEntry[] = []
@@ -159,6 +177,11 @@ export function listLogs(filter?: { project?: string; status?: string }): LogEnt
     if (!entry) continue
     if (filter?.project && entry.project !== filter.project) continue
     if (filter?.status && entry.status !== filter.status) continue
+    if (filter?.agent && entry.agentName !== filter.agent) continue
+    // 日期范围筛选：按 logDate（默认 created 日期）过滤
+    const entryDate = (entry.logDate || entry.created || '').slice(0, 10)
+    if (filter?.dateFrom && entryDate < filter.dateFrom) continue
+    if (filter?.dateTo && entryDate > filter.dateTo) continue
     logs.push(entry)
   }
   return logs
@@ -169,7 +192,13 @@ export function getLog(id: string): LogEntry | null {
   return parseLogFile(path.join(dir, `${id}.md`))
 }
 
-export function createLog(title: string, project: string, content: string, taskId?: string): LogEntry {
+export function createLog(
+  title: string,
+  project: string,
+  content: string,
+  taskId?: string,
+  extra?: { sessionId?: string; agentName?: string; logDate?: string },
+): LogEntry {
   const dir = getLogsDir()
   const id = genId()
   const now = new Date().toISOString()
@@ -185,6 +214,9 @@ export function createLog(title: string, project: string, content: string, taskI
     content,
     nextSteps: '',
     taskId,
+    sessionId: extra?.sessionId,
+    agentName: extra?.agentName,
+    logDate: extra?.logDate || now.slice(0, 10),
   }
   atomicallyWrite(path.join(dir, `${id}.md`), renderLog(log))
   return log
@@ -204,6 +236,9 @@ export function updateLog(id: string, updates: {
   nextSteps?: string
   project?: string
   taskId?: string
+  sessionId?: string
+  agentName?: string
+  logDate?: string
 }): LogEntry | null {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
@@ -216,6 +251,9 @@ export function updateLog(id: string, updates: {
   if (updates.project !== undefined) entry.project = updates.project
   // 空串 = 解除关联（renderLog 会把 tasks 写成空数组，字段随之从文件里消失）
   if (updates.taskId !== undefined) entry.taskId = updates.taskId ? String(updates.taskId).trim() : undefined
+  if (updates.sessionId !== undefined) entry.sessionId = updates.sessionId ? String(updates.sessionId).trim() : undefined
+  if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
+  if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
   atomicallyWrite(filePath, renderLog(entry))
   return entry
 }

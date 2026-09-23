@@ -119,9 +119,10 @@ export async function launchApp(appConfig: LaunchApp): Promise<LaunchResult> {
   const raw = String(appConfig?.cmd || appConfig?.path || '').trim()
   const name = appConfig?.name || raw || '(未命名应用)'
   // 每次启动都留痕：失败时用户界面只看到一句话，真因必须在日志里能查到（第 8 条）
-  appLog.info('launchpad', `请求启动：${name}`, { cmd: raw, args: appConfig?.args })
+  appLog.info('launchpad', `请求启动：${name}`, { cmd: raw, args: appConfig?.args, hasArgs: Array.isArray(appConfig?.args) })
   const result = await launchAppInner(appConfig, raw, name)
   if (result.ok) appLog.info('launchpad', `启动成功：${name}`, result.message)
+  else appLog.warn('launchpad', `启动返回失败：${name}`, result.message)
   return result
 }
 
