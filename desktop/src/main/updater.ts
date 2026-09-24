@@ -86,8 +86,14 @@ export function quitAndInstall(): void {
 // IPC 桥接
 export function registerUpdaterIpc(): void {
   ipcMain.handle('app:getVersion', () => app.getVersion())
-  ipcMain.handle('update:check', () => {
-    checkForUpdates()
+  ipcMain.handle('update:check', async () => {
+    // 异步等待 autoUpdater 完成检查；错误由 'error' 事件统一处理，
+    // 此处 catch 防止未处理的 rejection 导致 invoke 意外 reject（曾造成渲染层误报"检查失败"）
+    try {
+      checkForUpdates()
+    } catch {
+      // 同步错误（配置缺失等）由 error 事件处理
+    }
   })
 
   ipcMain.handle('update:download', () => {
