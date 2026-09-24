@@ -195,6 +195,10 @@ contextBridge.exposeInMainWorld('tegula', {
   onUpdateDownloaded: (callback: any) => ipcRenderer.on('update:downloaded', (_e, data) => callback(data)),
   onUpdateError: (callback: any) => ipcRenderer.on('update:error', (_e, data) => callback(data)),
 
+  // ── Skill 管理 ────────────────────────────────────────────────────
+  skillsCheck: () => ipcRenderer.invoke('skills:check'),
+  skillsInstall: () => ipcRenderer.invoke('skills:install'),
+
   // ── 应用日志（诊断）────────────────────────────────────────────────
   // 渲染层出错时主动回报主进程落盘；界面提供「打开日志目录 / 查看尾部」。
   applogWrite: (level: string, scope: string, message: string, detail?: string) =>

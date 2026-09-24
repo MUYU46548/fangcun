@@ -198,7 +198,7 @@ export function createLog(
   content: string,
   taskId?: string,
   extra?: { sessionId?: string; agentName?: string; logDate?: string },
-): LogEntry {
+): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const id = genId()
   const now = new Date().toISOString()
@@ -219,7 +219,7 @@ export function createLog(
     logDate: extra?.logDate || now.slice(0, 10),
   }
   atomicallyWrite(path.join(dir, `${id}.md`), renderLog(log))
-  return log
+  return { ok: true, data: log }
 }
 
 /**
@@ -239,12 +239,12 @@ export function updateLog(id: string, updates: {
   sessionId?: string
   agentName?: string
   logDate?: string
-}): LogEntry | null {
+}): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
-  if (!entry) return null
-  if (entry.status !== 'active') return null
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (entry.status !== 'active') return { ok: false, error: `日志状态为 ${entry.status}，无法编辑` }
   if (updates.title !== undefined) entry.title = updates.title
   if (updates.content !== undefined) entry.content = updates.content
   if (updates.nextSteps !== undefined) entry.nextSteps = updates.nextSteps
@@ -255,14 +255,15 @@ export function updateLog(id: string, updates: {
   if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
   if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
   atomicallyWrite(filePath, renderLog(entry))
-  return entry
+  return { ok: true, data: entry }
 }
 
-export function completeLog(id: string, retainDays: number | null, note?: string): LogEntry | null {
+export function completeLog(id: string, retainDays: number | null, note?: string): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
-  if (!entry) return null
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (entry.status !== 'active') return { ok: false, error: `日志状态为 ${entry.status}，无法完成` }
   entry.status = 'completed'
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
@@ -273,25 +274,26 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   }
   if (note) entry.note = note
   atomicallyWrite(filePath, renderLog(entry))
-  return entry
+  return { ok: true, data: entry }
 }
 
-export function archiveLog(id: string, note?: string): LogEntry | null {
+export function archiveLog(id: string, note?: string): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
-  if (!entry) return null
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (entry.status === 'archived') return { ok: false, error: '日志已归档' }
   entry.status = 'archived'
   if (note) entry.note = note
   atomicallyWrite(filePath, renderLog(entry))
-  return entry
+  return { ok: true, data: entry }
 }
 
-export function destroyLog(id: string): boolean {
+export function destroyLog(id: string): { ok: boolean; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
-  if (!fs.existsSync(filePath)) return false
+  if (!fs.existsSync(filePath)) return { ok: false, error: '文件不存在' }
   fs.unlinkSync(filePath)
-  return true
+  return { ok: true }
 }
 
 export function searchLogs(query: string, limit = 50): LogEntry[] {

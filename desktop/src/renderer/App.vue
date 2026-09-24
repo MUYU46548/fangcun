@@ -57,7 +57,7 @@
         </button>
         <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
         <button class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
-          <span v-if="!batchMode">☑</span>
+          <span v-if="!batchMode">☑ 任务多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
         <button class="ghost" @click="showSettings">⚙</button>
@@ -348,9 +348,11 @@
           </select>
           <input v-model="logDateFrom" type="date" class="log-filter" title="起始日期" @change="loadLogs" />
           <input v-model="logDateTo" type="date" class="log-filter" title="截止日期" @change="loadLogs" />
-          <!-- 按钮风格约定：主操作用默认按钮样式（与顶栏「+ 新建」一致），
-               次要操作统一用 class="ghost"。此前「+ 新建日志」被写成 ghost，
-               与「+ 新建」不一致（同一类操作两种长相），已提过两三次。 -->
+          <!-- 2026-09-23：日志批量操作入口（用户第1条） -->
+          <button class="ghost batch-mode-btn" :class="{ active: logBatchMode }" @click="toggleLogBatchMode" title="开启批量选择，点击卡片即勾选/取消">
+            <span v-if="!logBatchMode">☑ 多选</span>
+            <span v-else>☑ <i style="color:#fff">{{ selectedLogBatch.length || 0 }}</i></span>
+          </button>
           <button @click="openNewLog">+ 新建日志</button>
           <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
           <!-- 「清理超期」到底做什么：把 status=completed 且 retain_until 已过的日志
@@ -360,6 +362,14 @@
             title="把「已完成」且保留期已过的日志批量标为「已归档」（只改状态，不删除文件）。保留期在点「完成」时填写"
             @click="executeLogCleanup">清理超期</button>
         </div>
+      </div>
+      <div v-if="logBatchMode" class="batch-bar">
+        <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
+        <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === filteredLogs.length ? '取消全选' : '全选' }}</button>
+        <button class="ghost" title="批量完成" @click="executeBatchLogComplete">批量完成</button>
+        <button class="ghost" title="批量归档" @click="executeBatchLogArchive">批量归档</button>
+        <button class="danger" title="批量销毁" @click="executeBatchLogDestroy">批量销毁</button>
+        <button class="ghost" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</button>
       </div>
       <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
       <div class="logs-list">
@@ -371,8 +381,8 @@
           v-for="log in filteredLogs"
           :key="log.id"
           class="log-card"
-          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived' }"
-          @click="openLog(log)"
+          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived', selected: logBatchMode && selectedLogBatch.includes(log.id) }"
+          @click="onLogCardClick(log)"
         >
           <div class="log-card-head">
             <span class="log-status-badge" :class="log.status">{{ logStatusLabel(log.status) }}</span>
@@ -1706,6 +1716,8 @@ async function bkRestoreFromFile() {
 
 const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
+const logBatchMode = ref(false)
+const selectedLogBatch = ref<string[]>([])
 const dataDir = ref('')
 
 // ── Todos ─────────────────────────────────────────────────────────
@@ -2392,6 +2404,8 @@ function closeLogEditor() {
     if (!confirm('日志内容尚未保存，确定关闭并丢弃吗？')) return
   }
   logEdit_.value = null
+  logCompleting.value = false
+  logArchiveMode.value = false
 }
 
 /** 对象里只要还有非空文本就认为有内容（用于字段名不固定的几个模态） */
@@ -2498,10 +2512,14 @@ async function saveEdit() {
 
 async function deleteTask(id: string) {
   if (!confirm('确定删除此任务？')) return
-  await window.tegula.deleteTask(id)
-  previewTask.value = null
-  showToast('已删除', 'success')
-  loadAll()
+  const result = await window.tegula.deleteTask(id)
+  if (result) {
+    previewTask.value = null
+    showToast('已删除', 'success')
+    loadAll()
+  } else {
+    showToast('删除失败：任务不存在', 'error')
+  }
 }
 
 async function archiveTask(t: Task) {
@@ -2593,17 +2611,18 @@ async function loadLogsForTask(taskId: string) {
 async function quickCompleteLog(log: any) {
   try {
     const r = await window.tegula.logsComplete(log.id, 7, '')
-    if (r && r.ok === false) {
-      showToast('完成失败：' + (r.error || '未知错误'), 'error')
+    if (r && !r.ok) {
+      showToast(`完成失败：${r.error || '未知原因'}`, 'error')
       return
     }
     showToast('日志已完成（保留 7 天）', 'success')
-    await loadLogsForTask(previewTask.value?.id || '')
-    loadLogs()
+    await loadLogs()
   } catch (e: any) {
-    showToast('完成失败：' + (e?.message || '未知错误'), 'error')
+    const msg = e?.message || e
+    showToast('完成失败：' + msg, 'error')
   }
 }
+
 
 
 
@@ -3356,8 +3375,90 @@ function logStatusLabel(status: string): string {
   return { active: '进行中', completed: '已完成', archived: '已归档' }[status] || status
 }
 
+function toggleLogBatchMode() {
+  logBatchMode.value = !logBatchMode.value
+  if (!logBatchMode.value) selectedLogBatch.value = []
+}
+
+function toggleSelectAllLogs() {
+  if (selectedLogBatch.value.length === filteredLogs.value.length) {
+    selectedLogBatch.value = []
+  } else {
+    selectedLogBatch.value = filteredLogs.value.map((l: any) => l.id)
+  }
+}
+
+async function executeBatchLogComplete() {
+  const ids = [...selectedLogBatch.value]
+  if (ids.length === 0) return
+  if (!confirm(`批量完成 ${ids.length} 条日志？`)) return
+  let ok = 0
+  for (const id of ids) {
+    try {
+      const r = await window.tegula.logsComplete(id, 7, '')
+      if (r?.ok) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已批量完成 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  selectedLogBatch.value = []
+  logBatchMode.value = false
+  loadLogs()
+}
+
+async function executeBatchLogArchive() {
+  const ids = [...selectedLogBatch.value]
+  if (ids.length === 0) return
+  if (!confirm(`批量归档 ${ids.length} 条日志？`)) return
+  let ok = 0
+  for (const id of ids) {
+    try {
+      const r = await window.tegula.logsArchive(id)
+      if (r?.ok) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已批量归档 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  selectedLogBatch.value = []
+  logBatchMode.value = false
+  loadLogs()
+}
+
+async function executeBatchLogDestroy() {
+  const ids = [...selectedLogBatch.value]
+  if (ids.length === 0) return
+  if (!confirm(`批量销毁 ${ids.length} 条日志？文件将被永久删除。`)) return
+  let ok = 0
+  for (const id of ids) {
+    try {
+      const r = await window.tegula.logsDestroy(id)
+      if (r?.ok) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已批量销毁 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  selectedLogBatch.value = []
+  logBatchMode.value = false
+  loadLogs()
+}
+
+function onLogCardClick(log: any) {
+  if (logBatchMode.value) {
+    const idx = selectedLogBatch.value.indexOf(log.id)
+    if (idx >= 0) selectedLogBatch.value.splice(idx, 1)
+    else selectedLogBatch.value.push(log.id)
+  } else {
+    openLog(log)
+  }
+}
+
 function openLog(log: any) {
   logEdit_.value = { ...log }
+  logCompleting.value = false
+  logArchiveMode.value = false
+  // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
+  // 自动聚焦到标题输入框，确保用户可以立即输入
+  setTimeout(() => {
+    const titleInput = document.querySelector('#log-edit-modal input[placeholder="日志标题"]') as HTMLInputElement
+    if (titleInput) titleInput.focus()
+  }, 50)
 }
 
 const logCompleting = ref(false)
@@ -3502,7 +3603,7 @@ async function saveLogEdit() {
       if (result.ok) {
         showToast(`已标记完成（保留 ${rd} 天）`, 'success')
       } else {
-        showToast('操作失败', 'error')
+        showToast(`完成失败：${result.error || '未知原因'}`, 'error')
         return
       }
     } else if (logArchiveMode.value) {
@@ -3510,7 +3611,7 @@ async function saveLogEdit() {
       if (result.ok) {
         showToast('已归档', 'success')
       } else {
-        showToast('操作失败', 'error')
+        showToast(`归档失败：${result.error || '未知原因'}`, 'error')
         return
       }
     } else if (e.id) {
@@ -3527,8 +3628,8 @@ async function saveLogEdit() {
         agentName: e.agentName || '',
         logDate: e.logDate || '',
       })
-      if (r && r.ok === false) {
-        showToast('更新失败：' + (r.error || '未知原因'), 'error')
+      if (r && !r.ok) {
+        showToast(`更新失败：${r.error || '未知原因'}`, 'error')
         return
       }
       showToast('已更新', 'success')
@@ -3537,8 +3638,8 @@ async function saveLogEdit() {
         e.title, e.project, e.content, e.taskId || undefined,
         { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '' },
       )
-      if (r && r.ok === false) {
-        showToast('创建失败：' + (r.error || '未知原因'), 'error')
+      if (r && !r.ok) {
+        showToast(`创建失败：${r.error || '未知原因'}`, 'error')
         return
       }
       showToast('已创建', 'success')
@@ -3560,6 +3661,7 @@ function completeLogItem(id: string) {
   logArchiveMode.value = false
   logRetainDays.value = '7'
   logNote.value = ''
+  logBatchMode.value = false
 }
 
 function archiveLogItem(id: string) {
@@ -3570,6 +3672,7 @@ function archiveLogItem(id: string) {
   logArchiveMode.value = true
   logRetainDays.value = '7'
   logNote.value = ''
+  logBatchMode.value = false
 }
 
 async function destroyLogItem(id: string) {
@@ -3579,7 +3682,7 @@ async function destroyLogItem(id: string) {
     showToast('已销毁', 'success')
     await loadLogs()
   } else {
-    showToast('操作失败', 'error')
+    showToast(`销毁失败：${result.error || '未知原因'}`, 'error')
   }
 }
 
@@ -5018,6 +5121,7 @@ button:not([class]) {
 .log-completed { color: #5e9154; }
 .log-agent { color: #8b7fb8; }
 .log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-card.selected { border-color: var(--accent); background: #f4f1fc; box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2); }
 .log-card-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 /* Agent 预设列表（2026-09-23） */

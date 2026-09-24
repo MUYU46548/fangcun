@@ -112,3 +112,57 @@
 - `scripts/dev-electron-watch.cjs` = 开发态 Electron 启动器（主进程/preload 变更自动重启）。
   **它存在的唯一理由**：渲染层热更、主进程不热更，两者不同步会造出"改了没用"的假象
 
+## Multi-Agent 接入（MCP 协议）
+
+方寸桌面版暴露 **MCP (Model Context Protocol)** 服务，任何支持 MCP 的 agent 均可接入。
+
+### 连接方式
+
+```
+命名管道: \\.\pipe\tegula-mcp
+```
+
+### MCP 工具清单
+
+| 工具 | 说明 |
+|---|---|
+| `list_tasks` | 列出任务（按视图/项目/状态筛选） |
+| `search_tasks` | 全文搜索 |
+| `get_task` | 获取单任务详情 |
+| `create_task` | 创建任务 |
+| `update_task` | 更新任务字段 |
+| `move_status` | 状态流转 |
+| `delete_task` | 移入回收站 |
+| `list_projects` | 列出项目 |
+| `get_project_status` | 项目健康度 |
+| `find_blockers` | 查找阻塞链 |
+| `scan_services` | 检查服务状态 |
+| `get_roadmap` | 路线图进度 |
+| `plan_list/plan_get/plan_pending` | 规划管理 |
+| `gate_list` | 验收门列表 |
+
+### 快速自检
+
+```bash
+ls \\.\pipe\\tegula-mcp 2>/dev/null && echo "MCP OK" || echo "MCP MISSING"
+```
+
+### 各 Agent 接入方式
+
+| Agent | 接入方式 |
+|---|---|
+| **Claude Code** | MCP 原生支持 + `CLAUDE.md` 项目指令 |
+| **Hermes** | MCP 原生 + `fangcun-hermes-bridge` skill |
+| **Cursor** | MCP 原生 + `.cursorrules` 配置 |
+| **OpenCode** | MCP 原生 |
+| **Codex** | MCP 原生 |
+
+### Hermes 专属优化
+
+Hermes 用户可额外安装 `fangcun-hermes-bridge` skill 获取：
+- 自动发现方寸桌面版是否运行
+- Hermes 侧语义指南（何时用哪个工具）
+- 错误处理最佳实践
+
+安装：将 `docs/agents/fangcun-hermes-bridge/SKILL.md` 复制到 `~/.hermes/skills/` 后重载。
+

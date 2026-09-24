@@ -1111,6 +1111,106 @@ def cmd_notify(args):
         print(f"推送失败: {e}")
 
 
+def cmd_sync_skills(args):
+    """同步 skills 到 Hermes 侧。
+    
+    用法：
+      python tegula.py sync skills --check      # 仅检查，不安装
+      python tegula.py sync skills --go         # 检查并安装/覆盖
+    
+    数据来源：仓库 skills/ 目录（子目录内的 SKILL.md）
+    安装目标：~/.hermes/skills/<skill_dir>/SKILL.md
+    """
+    import os
+    import json
+    import hashlib
+    import shutil
+    
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skills_src = os.path.join(repo_root, "skills")
+    
+    if not os.path.isdir(skills_src):
+        print(f"[fail] 仓库 skills 目录不存在: {skills_src}")
+        return
+    
+    local_appdata = os.environ.get("LOCALAPPDATA") or os.path.join(os.environ.get("USERPROFILE", ""), "AppData", "Local")
+    hermes_skills_dir = os.path.join(local_appdata, "hermes", "skills")
+    manifest_path = os.path.join(hermes_skills_dir, ".fangcun-installed.json")
+    
+    # 读取已安装 manifest
+    installed = {}
+    if os.path.exists(manifest_path):
+        try:
+            installed = json.load(open(manifest_path, "r", encoding="utf-8"))
+        except:
+            pass
+    
+    # 扫描仓库 skills 子目录（每个子目录必须有 SKILL.md）
+    skills_to_check = []
+    for dname in os.listdir(skills_src):
+        skill_md = os.path.join(skills_src, dname, "SKILL.md")
+        if os.path.isfile(skill_md):
+            skills_to_check.append(dname)
+    
+    if not skills_to_check:
+        print("仓库 skills/ 目录下未找到有效的 skill 子目录。")
+        return
+    
+    needs_action = []
+    for dname in skills_to_check:
+        src_skill_md = os.path.join(skills_src, dname, "SKILL.md")
+        with open(src_skill_md, "rb") as f:
+            current_hash = hashlib.md5(f.read()).hexdigest()
+        
+        dest_skill_md = os.path.join(hermes_skills_dir, dname, "SKILL.md")
+        saved = installed.get(dname, {})
+        
+        if not os.path.exists(dest_skill_md):
+            needs_action.append((dname, "install", current_hash))
+        elif saved.get("hash") != current_hash:
+            needs_action.append((dname, "update", current_hash))
+    
+    if not needs_action:
+        print("✓ 所有 skills 已是最新，无需同步。")
+        for dname in skills_to_check:
+            print(f"  - {dname}")
+        return
+    
+    # 仅检查模式
+    if getattr(args, "check", False):
+        print(f"发现 {len(needs_action)} 个 skills 需要同步：")
+        for dname, action, _ in needs_action:
+            print(f"  [{action}] {dname}")
+        return
+    
+    # 安装模式（--go）
+    if not getattr(args, "go", False):
+        print("请使用 --check 仅查看，或 --go 确认安装。")
+        return
+    
+    print(f"开始同步 {len(needs_action)} 个 skills...")
+    
+    for dname, action, current_hash in needs_action:
+        src_dir = os.path.join(skills_src, dname)
+        dest_dir = os.path.join(hermes_skills_dir, dname)
+        os.makedirs(dest_dir, exist_ok=True)
+        src_skill_md = os.path.join(src_dir, "SKILL.md")
+        dest_skill_md = os.path.join(dest_dir, "SKILL.md")
+        shutil.copy2(src_skill_md, dest_skill_md)
+        installed[dname] = {
+            "hash": current_hash,
+            "syncedAt": __import__("datetime").datetime.now().isoformat()
+        }
+        print(f"  ✓ {action}: {dname}")
+    
+    # 写入 manifest
+    os.makedirs(hermes_skills_dir, exist_ok=True)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(installed, f, ensure_ascii=False, indent=2)
+    
+    print(f"同步完成。目标目录: {hermes_skills_dir}")
+
+
 def cmd_plan_new(args):
     """创建规划。"""
     if not args.title:
@@ -1873,6 +1973,14 @@ def main():
     im_notes.add_argument("path", help="JSON 文件路径")
     im_notes.set_defaults(func=cmd_import_notes)
     
+    # 2026-09-23：Skill 同步管理（让 agent 能随安装包自动分发）
+    sy = sub.add_parser("sync", help="同步管理：skills 自动安装到 Hermes 侧")
+    sy_sub = sy.add_subparsers(dest="sync_cmd")
+    sy_skills = sy_sub.add_parser("skills", help="同步 skills 安装到 Hermes 侧")
+    sy_skills.add_argument("--check", action="store_true", help="仅检查，不安装")
+    sy_skills.add_argument("--go", action="store_true", help="人工确认后安装/覆盖")
+    sy_skills.set_defaults(func=cmd_sync_skills)
+
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()

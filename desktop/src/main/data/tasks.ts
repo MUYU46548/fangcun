@@ -40,8 +40,8 @@ export function batchDelete(ids: string[]): { ok: number; fails: { id: string; e
   const fails: { id: string; error: string }[] = []
   for (const id of ids) {
     try {
-      const done = deleteTask(id)
-      if (done) ok++
+      const result = deleteTask(id)
+      if (result) ok++
       else fails.push({ id, error: '任务不存在' })
     } catch (e: any) {
       fails.push({ id, error: e.message })

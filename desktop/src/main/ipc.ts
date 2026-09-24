@@ -20,6 +20,7 @@ import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as appLog from './services/appLog'
+import { checkSkillsStatus, installSkills, autoCheckSkills } from './services/skillInstaller'
 import { guardedHandle } from './guarded-ipc'
 
 export function registerIpcHandlers(): void {
@@ -90,8 +91,7 @@ export function registerIpcHandlers(): void {
   })
 
   guardedHandle('deleteTask', (_event, id: string) => {
-    const ok = tasks.deleteTask(id)
-    return { ok }
+    return tasks.deleteTask(id)
   })
 
   guardedHandle('archiveTask', (_event, id: string) => {
@@ -743,44 +743,23 @@ export function registerIpcHandlers(): void {
   })
 
   guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string }) => {
-    try {
-      const log = logsService.createLog(title, project, content, taskId, extra)
-      return { ok: true, log }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
+    return logsService.createLog(title, project, content, taskId, extra)
   })
 
   guardedHandle('logs:update', (_event, id: string, updates: any) => {
-    try {
-      const log = logsService.updateLog(id, updates)
-      return { ok: !!log, log }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
+    return logsService.updateLog(id, updates)
   })
 
   guardedHandle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {
-    try {
-      const log = logsService.completeLog(id, retainDays, note)
-      return { ok: !!log, log }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
+    return logsService.completeLog(id, retainDays, note)
   })
 
   guardedHandle('logs:archive', (_event, id: string, note?: string) => {
-    try {
-      const log = logsService.archiveLog(id, note)
-      return { ok: !!log, log }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
+    return logsService.archiveLog(id, note)
   })
 
   guardedHandle('logs:destroy', (_event, id: string) => {
-    const ok = logsService.destroyLog(id)
-    return { ok }
+    return logsService.destroyLog(id)
   })
 
   guardedHandle('logs:search', (_event, query: string) => {
@@ -932,6 +911,17 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
   }
 }
 
+
+  guardedHandle('skills:check', () => {
+    return checkSkillsStatus()
+  })
+
+  guardedHandle('skills:install', () => {
+    return installSkills()
+  })
+
+  // 首次启动自动检测 skills
+  autoCheckSkills()
 
 function validateAndOpenFile(filePath: string): { ok: boolean; error?: string } {
   const raw = String(filePath || '').trim().replace(/^["']|["']$/g, '')

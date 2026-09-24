@@ -152,6 +152,11 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
     return openViaShell(raw, name)
   }
 
+  // .exe：Windows 上 shell.openPath 比 spawn detached 更可靠（不依赖子进程生命周期）
+  if (ext === '.exe') {
+    return openViaShell(raw, name)
+  }
+
   const shellKind = SHELL_EXT[ext]
   if (shellKind === 'cmd') {
     const cmdline = [`"${raw}"`, ...args.map(quoteIfNeeded)].join(' ')
