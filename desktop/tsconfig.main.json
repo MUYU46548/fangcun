@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/index.ts"],
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/index.ts"],
   "exclude": ["node_modules"]
 }

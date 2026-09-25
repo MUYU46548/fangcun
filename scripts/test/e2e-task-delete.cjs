@@ -210,6 +210,48 @@ function main() {
     fs.readFileSync(path.join(archiveDir, `${s3.id}.md`), 'utf-8').includes('归档区更新的那份'))
   check('★ 让位的那份也被保留（.old）', fs.existsSync(path.join(archiveDir, `${s3.id}.md.old`)))
 
+  // ── 9. 文件名不是 `${id}.md` 的副本：板子上看得见、却删不掉 ────────────
+  // 真实数据里躺着 `task-20260904-001.2.md` / `task-20260907-001.2.md` 这类旧名副本
+  // （状态正是「驳回/完成」—— 用户 2026-09-24 第 1 条「驳回和完成依旧是删不掉的」）。
+  // 根因：loadTasks 会把这些 `.md` 读成任务（板子上看得见），而 deleteTask 只按
+  // `${id}.md` 精确找文件 → 找不到 → 返回 false → 界面「删除失败：任务不存在」。
+  console.log('\n== 9. 非规范文件名的副本（看得见但删不掉）==')
+  const d1 = tasks.createTask({ title: '完成态要能删', project: 'demo', status: '完成' })
+  const d1Canon = path.join(taskDir, `${d1.id}.md`)
+  const d1Copy = path.join(taskDir, `${d1.id}.2.md`)
+  fs.writeFileSync(d1Copy, fs.readFileSync(d1Canon, 'utf-8'), 'utf-8')
+  const view1 = data.loadTasks('active').filter(t => t.id === d1.id)
+  check('同一 id 的两个文件在活跃视图里只出现一次（不再显示两遍）',
+    view1.length === 1, `出现 ${view1.length} 次`)
+  check('保留的是规范名那份', view1[0] && view1[0].path === d1Canon, view1[0] && view1[0].path)
+  let threw9 = null
+  let del9 = null
+  try { del9 = tasks.deleteTask(d1.id) } catch (e) { threw9 = e }
+  check('非规范名副本存在时删除不抛异常', threw9 === null, threw9 ? String(threw9.message) : '')
+  check('★ 非规范名副本存在时删除返回 true（不再是「任务不存在」）', del9 === true, String(del9))
+  check('★ 活跃区两份都被清掉（不留看得见却删不掉的孤儿）',
+    !fs.existsSync(d1Canon) && !fs.existsSync(d1Copy))
+  check('回收站里能看到该任务（可人工找回）',
+    fs.readdirSync(trashDir).some(n => n === `${d1.id}.md` || n.startsWith(`${d1.id}.`)))
+  check('★ 再删一次幂等返回 true（旧名副本也算「已删过」）', tasks.deleteTask(d1.id) === true)
+
+  // 9b. 归档区里的终态任务必须能删 —— 用户报的「完成/驳回删不掉」正是这一批
+  const d2 = tasks.createTask({ title: '归档区驳回态', project: 'demo', status: '驳回' })
+  tasks.archiveTask(d2.id)
+  const del10 = tasks.deleteTask(d2.id)
+  check('★ 归档区里的「驳回」任务能删（用户第 1 条）', del10 === true, String(del10))
+  check('删除后归档区不再有该文件', !fs.existsSync(path.join(archiveDir, `${d2.id}.md`)))
+
+  // 9c. 前缀相似的不同 id 不能互相误伤（匹配必须带点号）
+  const p1 = tasks.createTask({ title: '前缀一', project: 'demo', status: '待办' })
+  const p1File = path.join(taskDir, `${p1.id}.md`)
+  const p1Like = path.join(taskDir, `${p1.id}0.md`)
+  fs.writeFileSync(p1Like,
+    fs.readFileSync(p1File, 'utf-8').replace(`id: ${p1.id}`, `id: ${p1.id}0`), 'utf-8')
+  tasks.deleteTask(p1.id)
+  check('★ 删除 task-A 不误删 task-A0（前缀相似不能连坐）', fs.existsSync(p1Like))
+  check('同批只删掉了自己的那份', !fs.existsSync(p1File))
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

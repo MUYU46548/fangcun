@@ -251,6 +251,28 @@ function main() {
   notifier.stopScanner()
   check('stopScanner 后停止', notifier.getScannerStatus().running === false)
 
+  // B8. 更新包下载完成必须「看得见」（012，2026-09-25）
+  // 方寸关窗=缩进托盘：只改设置页状态时用户什么都看不到 → 必须落通知中心 + 弹系统通知
+  const stub = require(STUB)
+  const origSupported = stub.Notification.isSupported
+  stub.Notification.isSupported = () => true
+  notifier._setSuppressOsNotify(false)
+  const upOk = notifier.notifyUpdateReady('0.2.6')
+  check('更新下载完成写入通知中心', upOk === true &&
+    notif.listNotifications().some(n => n.type === 'update-downloaded' && n.sourceId === '0.2.6'))
+  check('更新下载完成同时弹系统通知（隐藏到托盘也能看见）',
+    !!stub.Notification.lastShown && String(stub.Notification.lastShown.title).includes('0.2.6'),
+    JSON.stringify(stub.Notification.lastShown))
+  check('同版本重复推送被幂等（不刷屏）', notifier.notifyUpdateReady('0.2.6') === false)
+  const updaterSrc = fs.readFileSync(path.join(SRC, 'main', 'updater.ts'), 'utf-8')
+  const dlBranch = updaterSrc.slice(updaterSrc.indexOf("autoUpdater.on('update-downloaded'"), updaterSrc.indexOf("autoUpdater.on('error'"))
+  check('updater 的 update-downloaded 分支调用了 notifyUpdateReady（防再次静默丢失）',
+    /notifyUpdateReady\(/.test(dlBranch))
+  check('updater 仍保留渲染层事件（设置页进度不丢）', /update:downloaded/.test(dlBranch))
+  stub.Notification.isSupported = origSupported
+  notifier._setSuppressOsNotify(true)
+  notif.clearAll()
+
   // ══ C. IPC / preload 接线（源码断言，防漂移） ═════════════════════════
   const ipcSrc = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
   const preloadSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')

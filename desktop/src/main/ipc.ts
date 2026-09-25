@@ -3,7 +3,7 @@
  * Connects renderer (Vue) to main process (data layer)
  */
 
-import { ipcMain, app, dialog, shell, BrowserWindow } from 'electron'
+import { ipcMain, app, dialog, shell, BrowserWindow, clipboard } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
 import * as services from './services'
@@ -19,6 +19,7 @@ import { registerLlmIpcHandlers } from './llm-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
+import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import { checkSkillsStatus, installSkills, autoCheckSkills } from './services/skillInstaller'
 import { guardedHandle } from './guarded-ipc'
@@ -780,6 +781,25 @@ export function registerIpcHandlers(): void {
   guardedHandle('logs:cleanup', () => {
     return logsService.cleanupLogs()
   })
+
+  // ── 剪贴板 ──────────────────────────────────────────────────────────
+  // 渲染层的 navigator.clipboard 在打包版(file://)或被拒时会**静默失败**：剪贴板里仍留着
+  // 上一次的内容，用户以为复制成功（2026-09-25「日志复制失败，粘出来是旧的 0924 内容」的真因）。
+  // 主进程的 clipboard 模块不受起源/焦点限制，渲染层统一优先走这条通道。
+  guardedHandle('clipboard:writeText', (_event, text: string) => {
+    try {
+      clipboard.writeText(String(text ?? ''))
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // ── UI 偏好 ─────────────────────────────────────────────────────────
+  // 014：Agent 预设等用户资产以前只存 localStorage，而 localStorage 绑定 origin
+  //（dev 的 localhost→127.0.0.1、打包版 file://）——换 origin 就清空。真身移到主进程 prefs.json。
+  guardedHandle('prefs:get', () => prefs.getPrefs())
+  guardedHandle('prefs:set', (_event, key: string, value: unknown) => prefs.setPref(key, value))
 
   // ── Dispatch ────────────────────────────────────────────────────────
   guardedHandle('dispatch:preview', (_event: any, id: string) => {

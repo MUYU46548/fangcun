@@ -36,7 +36,17 @@ let isQuitting = false
 // 而不是打开一个空壳。
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
-  // 没拿到锁 = 已有实例在跑，让它处理 then 退出
+  // 没拿到锁 = 已有实例在跑，让它处理 second-instance，本实例退出。
+  //
+  // ⚠ 2026-09-25：这里原来是**静默** app.quit() —— 一旦「已安装版还在托盘里跑」而你又启动 dev
+  //   （两者共用同一个 userData：C:\Users\<u>\AppData\Roaming\fangcun-desktop），
+  //   dev 实例会拿到 !gotLock、退码 0、界面与终端都毫无提示，
+  //   外加 Chromium 报 "Unable to move the cache: 拒绝访问" —— 看起来像"程序坏了/启动不了了"。
+  //   现在必须把原因说出来：终端一行 + 应用日志一行。
+  const msg = '已有方寸实例在运行（同一 userData 被占用），本次启动退出。'
+    + '若要在 dev 里调试，请先在托盘右键「退出」正在运行的方寸，再启动 dev。'
+  try { console.warn('[boot] ' + msg) } catch { /* ignore */ }
+  try { appLog.warn('boot', msg) } catch { /* 日志走不通也不能改变控制流 */ }
   app.quit()
 } else {
   app.on('second-instance', () => {

@@ -1,6 +1,7 @@
 import { autoUpdater } from 'electron-updater'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import log from 'electron-log'
+import * as notifier from './services/notifier'
 
 let mainWindow: BrowserWindow | null = null
 let isChecking = false
@@ -48,6 +49,9 @@ export function initUpdater(window: BrowserWindow): void {
   autoUpdater.on('update-downloaded', (info) => {
     log.info('更新下载完成')
     isDownloading = false
+    // 012：下载完成必须「看得见」。窗口可能缩在托盘里，所以由主进程推通知中心 + 系统通知；
+    // 只发渲染层事件等于没提示（历史 bug：用户根本不知道已经下好了）。
+    notifier.notifyUpdateReady(info.version)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update:downloaded', {
         version: info.version,

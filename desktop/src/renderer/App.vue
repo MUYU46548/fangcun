@@ -32,6 +32,8 @@
           <option value="project">按项目</option>
           <option value="priority">按优先级</option>
         </select>
+        <button class="ghost" title="把所有分组折叠起来（只看分组名和数量，长单子立刻变短）" @click="setAllCollapsed(true)">折叠全部</button>
+        <button class="ghost" title="展开所有分组" @click="setAllCollapsed(false)">展开</button>
         <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
         <select v-model="dueFilter" class="due-filter">
           <option value="">全部时间</option>
@@ -133,13 +135,14 @@
         v-for="col in columns"
         :key="col.key"
         class="col"
-        :class="{ empty: !col.tasks.length, dragover: dragoverCol === col.key }"
+        :class="{ empty: !col.tasks.length, dragover: dragoverCol === col.key, 'collapsed-col': groupCollapsed(col.key) }"
         :data-status="col.key"
         @dragover.prevent="onDragOver($event, col.key)"
         @dragleave="dragoverCol = null"
         @drop="onDrop($event, col.key)"
       >
-        <h3>
+        <h3 @click="toggleGroup(col.key)" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'">
+          <span class="chev" :class="{ open: !groupCollapsed(col.key) }"></span>
           <span class="status-label">
             <span class="status-dot"></span>
             {{ col.label }}
@@ -148,6 +151,7 @@
         </h3>
         <div
           v-for="t in col.tasks"
+          v-show="!groupCollapsed(col.key)"
           :key="t.id"
           class="card"
           :class="{
@@ -184,7 +188,7 @@
             <span class="ptag" v-for="tag in t.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
           </div>
         </div>
-        <div v-if="!col.tasks.length" class="emptyhint">拖拽卡片到此处</div>
+        <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
       </div>
     </main>
 
@@ -193,6 +197,16 @@
       <div class="alertbar" v-if="blockers.length">
         <span class="ico">⚠</span>
         <b>{{ blockers.length }}</b> 个任务存在阻塞依赖
+      </div>
+      <!-- 第 7 条：项目章程缺口一眼可见 + 一键补骨架（原先只能逐个点开卡看） -->
+      <div class="charter-bar">
+        <span class="cb-label">项目章程</span>
+        <span class="cb-stat">已填 <b>{{ charterStats.filled }}</b> / {{ charterStats.total }}</span>
+        <span class="cb-stat" v-if="charterStats.skeleton">骨架待填 <b>{{ charterStats.skeleton }}</b></span>
+        <span class="cb-stat warn" v-if="charterStats.missing">缺失 <b>{{ charterStats.missing }}</b></span>
+        <button class="ghost" v-if="charterStats.missing" @click="fillMissingCharters()">
+          ＋ 补齐 {{ charterStats.missing }} 个章程骨架
+        </button>
       </div>
       <div class="pvgrid">
         <div
@@ -227,7 +241,9 @@
           <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在「设置」最底部，
                找不着；这里放在项目卡上，一眼可见，且不必先关设置。 -->
           <button class="ghost pv-policy" @click.stop="openPolicyEdit(p.id)">
-            {{ policyMap[p.id] ? '📋 方针已立 · 查看/编辑' : '＋ 立项目方针' }}
+            {{ policyMap[p.id] ? '📋 方针已立 · 查看/编辑'
+               : policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
+               : '＋ 立项目方针' }}
           </button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
@@ -285,6 +301,7 @@
             @keydown.enter="executeTodoAdd"
           />
           <button class="ghost" @click="executeTodoAdd">+ 添加</button>
+          <button class="ghost todo-new" title="用大框新建待办（可一次填项目 / 优先级 / 到期日）" @click="openTodoCreator()">大框新建</button>
           <select v-model="todoProjectFilter" class="todo-filter" title="项目联动：筛选后新增待办自动归属该项目">
             <option value="__all__">全部项目</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
@@ -315,15 +332,49 @@
             :checked="todo.done"
             @change="toggleTodo(todo.id)"
           />
-          <span class="todo-title">{{ todo.title }}</span>
+          <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
           <span v-if="todo.due" class="todo-due" :title="'到期日：' + todo.due">📅 {{ todo.due }}</span>
           <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
           <span v-if="localPriority(todo.priority) === '高'" class="todo-prio">高</span>
           <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
+          <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
           <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
         </div>
       </div>
     </main>
+
+    <!-- 待办编辑弹窗（2026-09-25 第 12、14 条）：大框，写长内容不憋屈；已完成也能改 -->
+    <div id="todo-edit-overlay" class="overlay" v-if="todoEdit_" @click.self="closeTodoEditor()">
+      <div id="todo-edit-modal">
+        <h3>{{ todoEdit_.id ? '编辑待办' : '新建待办' }}</h3>
+        <label>内容</label>
+        <textarea v-model="todoEdit_.title" class="tall" placeholder="待办内容（可以写长一点）"></textarea>
+        <div class="te-row">
+          <div>
+            <label>项目</label>
+            <select v-model="todoEdit_.project" class="logsel">
+              <option value="">（不归属）</option>
+              <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+            </select>
+          </div>
+          <div>
+            <label>优先级</label>
+            <select v-model="todoEdit_.priority" class="logsel">
+              <option v-for="s in ['高', '中', '低']" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </div>
+          <div>
+            <label>到期日</label>
+            <input type="date" v-model="todoEdit_.due" />
+          </div>
+        </div>
+        <div class="hint todo-edit-donehint" v-if="todoEdit_.done">这条已勾选完成 —— 仍然可以修改内容和到期日。</div>
+        <div class="acts">
+          <button class="ghost" @click="closeTodoEditor()">取消</button>
+          <button class="pri" :disabled="todoEditSaving" @click="saveTodoEdit">{{ todoEditSaving ? '保存中…' : '保存' }}</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Logs view -->
     <main id="board" class="logs-view" v-else-if="curView === 'logs'"
@@ -388,9 +439,19 @@
           <div class="empty-icon">📋</div>
           <div class="empty-text">暂无执行日志</div>
         </div>
+        <template v-for="(log, i) in displayedLogs" :key="log.id">
+        <!-- 归档分区头：只在「第一条归档日志」前出现一次（同一个 v-for 内判断，避免把卡片 markup 复制两份） -->
         <div
-          v-for="log in filteredLogs"
-          :key="log.id"
+          v-if="log.status === 'archived' && (i === 0 || displayedLogs[i - 1].status !== 'archived')"
+          class="log-archive-sep"
+        >
+          <button class="log-archive-toggle" @click="toggleLogArchive()">
+            <span class="chev" :class="{ open: logArchiveOpen }"></span>
+            已归档 {{ archivedLogs.length }} 条{{ logArchiveOpen ? '' : ' · 已收起（点开查看）' }}
+          </button>
+        </div>
+        <div
+          v-show="logVisible(log)"
           class="log-card"
           :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived', selected: logBatchMode && selectedLogBatch.includes(log.id) }"
           @click="onLogCardClick(log)"
@@ -415,6 +476,7 @@
             <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
           </div>
         </div>
+        </template>
       </div>
     </main>
 
@@ -1106,7 +1168,15 @@
 
           <div class="sect-btns bk-manual">
             <span class="bk-manual-label">手动流转（不依赖网盘账号）</span>
-            <button class="ghost" :disabled="bkBusy" @click="bkExportTo">📤 导出到…</button>
+            <!-- 第 10 条：默认导出**最新一份已有备份**，不再每次都全量重打 -->
+            <select v-model="bkExportPackage" class="bk-export-select"
+              title="要导出的内容：默认选最新一份已有备份；第一项是「现打全量包」">
+              <option value="">（现打全量包 · 较慢）</option>
+              <option v-for="b in bkExportCandidates" :key="b.path" :value="b.path">
+                {{ b.name }}{{ b.bytes ? ' · ' + Math.round(b.bytes / 1024) + 'KB' : '' }}
+              </option>
+            </select>
+            <button class="ghost" :disabled="bkBusy" @click="bkExportTo">📤 导出所选</button>
             <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage">🔍 校验备份包…</button>
             <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile">📥 从文件恢复…</button>
           </div>
@@ -1290,6 +1360,10 @@ import {
   type ImportItem,
 } from './logdedupe'
 import DOMPurify from 'dompurify'
+import { toPlain } from '../shared/plain'
+import { copyText } from '../shared/clipboard'
+import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
+import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince } from '../shared/time'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -1355,6 +1429,63 @@ const blockers = ref<any[]>([])
 const curView = ref('active')
 const curProj = ref('__all__')
 const groupMode = ref('status')
+
+// ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
+// 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
+// 真身存主进程 prefs.json（与 014 同一套），localStorage 只当读缓存。
+function readUiPref<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return fallback
+    const v = JSON.parse(raw)
+    return (v ?? fallback) as T
+  } catch { return fallback }
+}
+function saveUiPref(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 缓存失败无所谓 */ }
+  try { (window as any).tegula?.prefsSet?.(key, value)?.catch?.(() => {}) } catch { /* 真身失败已在主进程记日志 */ }
+}
+const collapsedGroups = ref<string[]>(readUiPref<string[]>('fc_collapsed_groups', []))
+const groupModeApplied = ref(false)
+
+/** 与主进程 prefs.json 对齐（真身优先；真身空而缓存有值 → 迁移一次） */
+async function syncBoardPrefs(): Promise<void> {
+  try {
+    const p: any = await window.tegula.prefsGet()
+    if (typeof p?.fc_board_group_mode === 'string' && p.fc_board_group_mode) {
+      groupMode.value = p.fc_board_group_mode
+    } else {
+      saveUiPref('fc_board_group_mode', groupMode.value)
+    }
+    if (Array.isArray(p?.fc_collapsed_groups)) {
+      collapsedGroups.value = p.fc_collapsed_groups
+    } else {
+      saveUiPref('fc_collapsed_groups', collapsedGroups.value)
+    }
+    if (typeof p?.fc_log_archive_open === 'boolean') {
+      logArchiveOpen.value = p.fc_log_archive_open
+    } else {
+      saveUiPref('fc_log_archive_open', logArchiveOpen.value)
+    }
+    groupModeApplied.value = true
+  } catch { /* 读不到就用缓存/默认值 */ }
+}
+
+/** 点分组标题 = 折叠/展开（状态写回真身，重启后保留） */
+function toggleGroup(key: string): void {
+  collapsedGroups.value = toggleCollapsed(collapsedGroups.value, key)
+  saveUiPref('fc_collapsed_groups', collapsedGroups.value)
+}
+function groupCollapsed(key: string): boolean {
+  return isCollapsed(collapsedGroups.value, key)
+}
+/** 一键全折叠/全展开（21 张待办摊在眼前时最有用） */
+function setAllCollapsed(v: boolean): void {
+  collapsedGroups.value = v ? columns.value.map(c => c.key) : []
+  saveUiPref('fc_collapsed_groups', collapsedGroups.value)
+}
+// 切换分组方式也记进真身：下次打开还是你上次用的那种分组
+watch(groupMode, v => saveUiPref('fc_board_group_mode', v))
 const sortMode = ref('active')
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 function closeArchiveHint() {
@@ -1464,10 +1595,7 @@ const bkTooltip = computed(() => {
 
 function bkFmt(ts: string | null | undefined): string {
   if (!ts) return '—'
-  const d = new Date(ts)
-  if (isNaN(d.getTime())) return String(ts)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return formatDateTime(ts)
 }
 
 async function bkInitBackup() {
@@ -1508,7 +1636,26 @@ async function bkLoadList() {
     const rr = await window.tegula.backupListRemote()
     bkRemote.value = rr.ok ? rr.items : []
   }
+  bkDefaultExportPackage()
 }
+
+// ── 导出指定备份（2026-09-25 第 10 条）──────────────────────────────
+// 用户原话：「导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新」。
+// 真身：`backup:exportTo` 传 `package` 就走 exportExistingPackageTo（复制已有那份包），
+// 不传仍是原来的「现在重新打一份全量」。默认选中**最新一份已有备份**。
+const bkExportPackage = ref('')
+
+/** 已有备份按文件名倒序（名字里带 YYYYMMDD-HHMMSS，可靠） */
+const bkExportCandidates = computed(() =>
+  [...(bkLocal.value || [])].sort((a: any, b: any) => String(b.name || '').localeCompare(String(a.name || '')))
+)
+
+function bkDefaultExportPackage(): void {
+  if (bkExportPackage.value && bkExportCandidates.value.some((b: any) => b.path === bkExportPackage.value)) return
+  // 默认最新；一条都没有则回退成「现打全量包」（value='' 就是全量）
+  bkExportPackage.value = bkExportCandidates.value.length ? bkExportCandidates.value[0].path : ''
+}
+
 
 function bkSwitchTab(t: 'local' | 'remote') {
   bkTab.value = t
@@ -1656,7 +1803,7 @@ async function bkExportTo() {
   bkBusy.value = true
   bkMsg.value = ''
   try {
-    const r = await window.tegula.backupExportTo({})
+    const r = await window.tegula.backupExportTo(bkExportPackage.value ? { package: bkExportPackage.value } : {})
     if (r.canceled) return
     if (r.ok) {
       const res = r.result
@@ -1764,6 +1911,7 @@ const NC_TYPE_META: Record<string, { icon: string; label: string; glyph: string 
   'task-timeout':  { icon: 'approve',  label: '超时未回写', glyph: '⏱' },
   'parse-error':   { icon: 'security', label: '解析失败', glyph: '⚠' },
   'backup-failed': { icon: 'storage',  label: '备份失败', glyph: '💾' },
+  'update-downloaded': { icon: 'storage', label: '更新已就绪', glyph: '⬆' },
 }
 const ncOpen = ref(false)
 const ncReady = ref(false)
@@ -1789,13 +1937,7 @@ const ncHeadSub = computed(() => ncUnread.value
   : '全部通知均已读')
 
 function ncRelTime(iso: string): string {
-  const t = new Date(iso).getTime()
-  if (isNaN(t)) return ''
-  const diff = Date.now() - t
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  return `${Math.floor(diff / 86_400_000)} 天前`
+  return relTimeShort(iso)
 }
 
 async function ncLoad(): Promise<void> {
@@ -1977,16 +2119,17 @@ const columns = computed(() => {
     return cols
   }
 
-  const groups: Record<string, Task[]> = {}
-  filtered.forEach(t => {
-    const k = normProject(t.project) || '未归属'
-    if (!groups[k]) groups[k] = []
-    groups[k].push(t)
-  })
-  return Object.entries(groups)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => ({ key: k, label: k, tasks: v }))
+  // 按项目：规则抽到 shared/grouping.ts（纯逻辑，可脚本断言）；标签解析成**项目名**，
+  // 不再把 fangcun-base 这种内部 id 直接当标题（用户 2026-09-25：「看了等于没看」）。
+  return buildProjectGroups(filtered as any, projectNameOf)
 })
+
+/** 项目 id → 显示名（找不到就回退 id，绝不留空标题） */
+function projectNameOf(id: string): string {
+  if (!id) return ''
+  const p: any = (projects.value as any[]).find(x => x && x.id === id)
+  return (p && (p.name || p.id)) || id
+}
 
 const projectStats = computed(() => {
   return projects.value.map(p => {
@@ -2016,7 +2159,8 @@ const projectStats = computed(() => {
 function computeHealth(tasks: Task[], lastActivity: string | null): string {
   if (tasks.length === 0) return 'idle'
   if (!lastActivity) return 'dormant'
-  const days = (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
+  const days = daysSince(lastActivity)
+  if (!Number.isFinite(days)) return 'dormant'
   if (days > 30) return 'dormant'
   if (days > 7) return 'stuck'
   return 'active'
@@ -2032,8 +2176,8 @@ function isActiveStatus(s: string): boolean {
 
 function isStale(t: Task): boolean {
   if (!t.updated) return false
-  const days = (Date.now() - new Date(t.updated).getTime()) / (1000 * 60 * 60 * 24)
-  return days > 14 && isActiveStatus(t.status || '')
+  const days = daysSince(t.updated)
+  return Number.isFinite(days) && days > 14 && isActiveStatus(t.status || '')
 }
 
 function isOverdue(t: Task): boolean {
@@ -2058,18 +2202,7 @@ function truncate(s: string, n: number): string {
   return s?.length > n ? s.slice(0, n) + '...' : s || ''
 }
 
-function formatDate(d?: string): string {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('zh-CN')
-}
-
-function relativeTime(d: string): string {
-  const diff = (Date.now() - new Date(d).getTime()) / (1000 * 60 * 60 * 24)
-  if (diff < 1) return '今天'
-  if (diff < 7) return `${Math.floor(diff)}天前`
-  if (diff < 30) return `${Math.floor(diff / 7)}周前`
-  return `${Math.floor(diff / 30)}月前`
-}
+// formatDate / relativeTime 已抽到 shared/time.ts（统一兼容 ISO / 秒级数字 / MM-DD，坏输入给 '—'）
 
 // ── Data loading ────────────────────────────────────────────────────────
 
@@ -2778,7 +2911,10 @@ const filteredTasks = computed(() => {
   // 再把 archivedTasks 拼进来 = 同一批任务各出现两次（用户 2026-09-25：「归档页签内是否勾选含归档
   // 会出现不同显示效果，不是应该只显示归档内容吗」）。
   if (curView.value !== 'archive' && searchIncludeArchive.value && archivedTasks.value.length > 0) {
-    result = [...result, ...archivedTasks.value]
+    // 同 id 的归档副本不能再拼一次 —— archive/ 里出现与活跃区同 id 的副本时（历史遗留、手工拷贝），
+    // 勾「含归档」会让同一张卡在板子上显示两遍。以活跃区为准（活跃那份才是可操作的真身）。
+    const activeIds = new Set(result.map(t => t.id))
+    result = [...result, ...archivedTasks.value.filter(a => !activeIds.has(a.id))]
   }
   if (curProj.value !== '__all__') {
     result = result.filter(t => normProject(t.project) === curProj.value)
@@ -2826,13 +2962,20 @@ function openCard(t: Task) {
   loadLogsForTask(t.id)
 }
 
+/** 复制文本并给出**真实**结果提示（三层兜底见 shared/clipboard.ts）。
+ *  为什么要有它：以前只挂 try/catch + 成功 toast，navigator.clipboard 静默 reject 时
+ *  用户看到「已复制」但粘出来是旧内容（2026-09-25 报修）。 */
+async function copyWithToast(text: unknown, okMsg: string): Promise<boolean> {
+  const r = await copyText(text)
+  // 用 warn 而非 log：主进程只转发 level>=2 的渲染层 console（见 src/index.ts console-message）
+  console.warn('[renderer:copy] via=' + r.via + ' ok=' + r.ok + (r.error ? ' err=' + r.error : ''))
+  if (r.ok) showToast(okMsg, 'success')
+  else showToast('复制失败：' + (r.error || '未知原因'), 'error')
+  return r.ok
+}
+
 async function copyId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id)
-    showToast('已复制 ID', 'success')
-  } catch {
-    showToast('复制失败', 'error')
-  }
+  await copyWithToast(id, '已复制 ID')
 }
 
 /**
@@ -2874,21 +3017,11 @@ function ctxRun(fn: (t: Task) => void) {
 }
 
 async function copyTaskId(t: Task) {
-  try {
-    await navigator.clipboard.writeText(t.id)
-    showToast('已复制 ID：' + t.id, 'success')
-  } catch {
-    showToast('复制失败', 'error')
-  }
+  await copyWithToast(t.id, '已复制 ID：' + t.id)
 }
 
 async function copyTaskTitle(t: Task) {
-  try {
-    await navigator.clipboard.writeText(t.title || t.id)
-    showToast('已复制标题', 'success')
-  } catch {
-    showToast('复制失败', 'error')
-  }
+  await copyWithToast(t.title || t.id, '已复制标题')
 }
 
 function deleteTaskById(t: Task) {
@@ -2908,19 +3041,55 @@ async function copyTaskClick(id: string) {
 
 // ── Todos ─────────────────────────────────────────────────────────
 
-// ── Policies（项目方针）──────────────────────────────────────────────
+// ── Policies（项目方针 / 项目章程）────────────────────────────────────
+// 2026-09-25 第 7 条：登记 13 个项目里只有 1 个有方针卡 —— 用户看不到"谁缺"，也没法批量补。
+// 这里区分三态：**已填**（有内容）/ **骨架**（文件在但内容空）/ **缺失**（连文件都没有）。
 const policyMap = ref<Record<string, boolean>>({})
+/** 文件是否存在（可能只是空骨架） */
+const policyExistsMap = ref<Record<string, boolean>>({})
 const policyEdit_ = ref<any>(null)
 
+const charterStats = computed(() => {
+  const total = projects.value.length
+  let filled = 0, skeleton = 0, missing = 0
+  for (const p of projects.value) {
+    if (policyMap.value[p.id]) filled++
+    else if (policyExistsMap.value[p.id]) skeleton++
+    else missing++
+  }
+  return { total, filled, skeleton, missing }
+})
+
 async function loadPolicyMap() {
-  const map: Record<string, boolean> = {}
+  const filled: Record<string, boolean> = {}
+  const exists: Record<string, boolean> = {}
   for (const p of projects.value) {
     try {
-      const r = await window.tegula.policyGet(p.id)
-      map[p.id] = !!(r.ok && r.policy)
-    } catch { map[p.id] = false }
+      const r: any = await window.tegula.policyGet(p.id)
+      const pol = r && r.policy ? r.policy : null
+      exists[p.id] = !!pol
+      filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
+    } catch { exists[p.id] = false; filled[p.id] = false }
   }
-  policyMap.value = map
+  policyMap.value = filled
+  policyExistsMap.value = exists
+}
+
+/** 一键为「连文件都没有」的项目建立章程骨架（四个小节留空，等用户填；空骨架对 agent 等同未立） */
+async function fillMissingCharters() {
+  const targets = projects.value.filter(p => !policyMap.value[p.id] && !policyExistsMap.value[p.id])
+  if (!targets.length) { showToast('所有项目都已有章程文件了', 'info'); return }
+  let done = 0
+  for (const p of targets) {
+    try {
+      const r: any = await window.tegula.policySave({
+        projectId: p.id, mission: '', goal: '', scenario: '', boundary: '',
+      })
+      if (r && r.ok) done++
+    } catch { /* 单个失败不中断其它项目 */ }
+  }
+  showToast(`已为 ${done} 个项目建立章程骨架（内容待填）`, done ? 'success' : 'error')
+  await loadPolicyMap()
 }
 
 async function openPolicyEdit(projectId: string) {
@@ -2954,8 +3123,7 @@ async function copyPolicyText(projectId: string) {
   try {
     const r = await window.tegula.policyText(projectId)
     if (r.ok) {
-      await navigator.clipboard.writeText(r.text)
-      showToast('方针已复制，可直接粘给 agent', 'success')
+      await copyWithToast(r.text, '方针已复制，可直接粘给 agent')
     } else {
       showToast(r.error || '复制失败', 'error')
     }
@@ -3339,6 +3507,68 @@ async function deleteTodo(id: string) {
   loadTodos()
 }
 
+// ── 待办编辑弹窗（2026-09-25 用户第 12、14 条）───────────────────────
+// 真因：`todosUpdate` 在 preload / IPC / service **三层早就通了**（service 也不拦已完成的任务），
+// 但渲染层**从来没有入口** —— 用户感知就是「待办不能编辑」「签下（勾选）之后更不能改」。
+// 所以第 12 条（要模态大框）和第 14 条（签下后不能编辑）是同一件事：补一个编辑弹窗。
+const todoEdit_ = ref<any>(null)
+const todoEditSaving = ref(false)
+
+function openTodoEditor(todo: any) {
+  todoEdit_.value = {
+    id: todo.id,
+    title: todo.title || '',
+    priority: localPriority(todo.priority),
+    due: todo.due || '',
+    project: todo.project || '',
+    done: !!todo.done,
+  }
+}
+
+function closeTodoEditor() { todoEdit_.value = null }
+
+// 同一弹窗复用成「新建」（第 12 条要的是**创建**也用大框，不只是编辑）
+function openTodoCreator() {
+  todoEdit_.value = {
+    id: '',
+    title: '',
+    priority: '中',
+    due: '',
+    project: todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : '',
+    done: false,
+  }
+}
+
+async function saveTodoEdit() {
+  const t = todoEdit_.value
+  if (!t) return
+  if (!String(t.title).trim()) { showToast('待办内容不能为空', 'info'); return }
+  todoEditSaving.value = true
+  try {
+    const title = String(t.title).trim()
+    const r = t.id
+      ? await window.tegula.todosUpdate(t.id, {
+          title,
+          priority: t.priority,
+          due: t.due || '',
+          project: t.project || '',
+        })
+      : await window.tegula.todosCreate(title, t.priority, t.due || '', t.project || '')
+    if (r && (r.ok || r.id || r.todo)) {
+      showToast(t.id ? '已保存' : '已添加', 'success')
+      todoEdit_.value = null
+      if (!t.id) todoInput.value = ''
+      await loadTodos()
+    } else {
+      showToast('保存失败：' + ((r && r.error) || '未知错误'), 'error')
+    }
+  } catch (e: any) {
+    showToast('保存失败：' + (e?.message || e), 'error')
+  } finally {
+    todoEditSaving.value = false
+  }
+}
+
 // ── Logs ───────────────────────────────────────────────────────────
 
 const logs = ref<any[]>([])
@@ -3349,16 +3579,48 @@ const logAgentFilter = ref('')
 const logDateFrom = ref('')
 const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
-// Agent 预设列表（设置页可增删，存 localStorage）
-const agentPresets = ref<string[]>(JSON.parse(localStorage.getItem('fc_agent_presets') || '["hermes","opencode","codex","deepseek","claude"]'))
+// Agent 预设列表（设置页可增删）。
+// 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
+// localStorage 绑定 origin，dev 换 host（localhost→127.0.0.1）或打包版 file:// 都会把预设清空。
+const DEFAULT_AGENT_PRESETS = ['hermes', 'opencode', 'codex', 'deepseek', 'claude']
+function readAgentPresetsCache(): string[] | null {
+  try {
+    const v = localStorage.getItem('fc_agent_presets')
+    const arr = v ? JSON.parse(v) : null
+    return Array.isArray(arr) ? arr : null
+  } catch { return null }
+}
+const agentPresets = ref<string[]>(readAgentPresetsCache() || DEFAULT_AGENT_PRESETS)
 const newAgentName = ref('')
+
+/** 启动时与主进程对齐：真身有值就用它；真身空但缓存有值 → 把老数据迁上去（不丢用户资产）。 */
+async function syncAgentPresets(): Promise<void> {
+  try {
+    const p: any = await window.tegula.prefsGet()
+    const stored = p?.fc_agent_presets
+    if (Array.isArray(stored) && stored.length) {
+      agentPresets.value = stored
+      return
+    }
+    const cached = readAgentPresetsCache()
+    if (cached && cached.length) {
+      agentPresets.value = cached
+      await window.tegula.prefsSet('fc_agent_presets', cached) // 一次性迁移
+    }
+  } catch { /* 读不到就继续用缓存/默认值，不打断启动 */ }
+}
+
+function saveAgentPresets(): void {
+  try { localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value)) } catch { /* 缓存写失败无所谓 */ }
+  try { window.tegula.prefsSet('fc_agent_presets', agentPresets.value)?.catch?.(() => {}) } catch { /* 真身写失败已在主进程记日志 */ }
+}
 
 function addAgentPreset() {
   const name = newAgentName.value.trim()
   if (!name) return
   if (agentPresets.value.includes(name)) { showToast('已存在', 'info'); return }
   agentPresets.value.push(name)
-  localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value))
+  saveAgentPresets()
   newAgentName.value = ''
   showToast('已添加', 'success')
 }
@@ -3366,7 +3628,7 @@ function addAgentPreset() {
 function removeAgentPreset(index: number) {
   const removed = agentPresets.value[index]
   agentPresets.value.splice(index, 1)
-  localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value))
+  saveAgentPresets()
   // 如果当前筛选用的是被删的预设，清掉
   if (logAgentFilter.value === removed) logAgentFilter.value = ''
   showToast('已删除', 'info')
@@ -3380,6 +3642,23 @@ const filteredLogs = computed(() => {
   }
   return list
 })
+
+// ── 归档日志独立分区（2026-09-25 第 16 条后半句：批量归档后仍占主视图）──────
+// 归档的语义是「先别看了」，不该继续混在主列表里。做法与看板分组一致：
+// 主区只放未归档，已归档收进独立分区（默认收起），**分区头插在第一条归档日志前** ——
+// 判断写在同一个 v-for 里（用 index 看前一条），避免把卡片 markup 复制两份（复制必走样）。
+const nonArchivedLogs = computed(() => filteredLogs.value.filter(l => l.status !== 'archived'))
+const archivedLogs = computed(() => filteredLogs.value.filter(l => l.status === 'archived'))
+const displayedLogs = computed(() => [...nonArchivedLogs.value, ...archivedLogs.value])
+const logArchiveOpen = ref(readUiPref<boolean>('fc_log_archive_open', false))
+function toggleLogArchive(): void {
+  logArchiveOpen.value = !logArchiveOpen.value
+  saveUiPref('fc_log_archive_open', logArchiveOpen.value)
+}
+/** 这条归档日志是否需要「显示」（收起时整条 v-show 掉） */
+function logVisible(log: any): boolean {
+  return log.status !== 'archived' || logArchiveOpen.value
+}
 
 async function loadLogs() {
   try {
@@ -3734,8 +4013,10 @@ async function copyLogAsPrompt(id: string): Promise<void> {
       showToast('这条日志注入不了（可能已被销毁或归档）', 'error')
       return
     }
-    await navigator.clipboard.writeText(String(text))
-    showToast('已复制为提示词，可直接粘给 agent', 'success')
+    // 留痕：日志里能查到「点了哪条、走了哪条复制通道」（渲染层 console 会转发进应用日志）
+    console.warn('[renderer:copy] logs:inject id=' + id + ' len=' + String(text).length)
+    const copied = await copyWithToast(String(text), '已复制为提示词，可直接粘给 agent')
+    if (!copied) return
   } catch (e: any) {
     showToast('复制失败：' + (e?.message || e), 'error')
   }
@@ -3979,7 +4260,9 @@ async function launchAppClick(app: any) {
     return
   }
   try {
-    const result = await window.tegula.launchpadLaunchApp(app)
+    // app 是 v-for 出来的 Vue 响应式代理 —— 必须去代理后才能过 contextBridge，
+      // 否则在渲染层就抛 "An object could not be cloned."，主进程完全收不到（见 shared/plain.ts）
+      const result = await window.tegula.launchpadLaunchApp(toPlain(app))
     showToast(result.message, result.ok ? 'success' : 'error')
     if (!result.ok) {
       // 失败把「启动了什么」也带上，并留一条错误条 + 日志可查
@@ -4232,12 +4515,7 @@ function pushRuntimeStale(why: string): void {
 }
 
 async function copyAppLogPath(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(appLogFile.value || '')
-    showToast('日志路径已复制', 'success')
-  } catch {
-    showToast('复制失败：' + (appLogFile.value || ''), 'error')
-  }
+  await copyWithToast(appLogFile.value || '', '日志路径已复制')
 }
 
 /** 从设置里看日志：先关设置，再展开抽屉（抽屉在模态之下，否则被遮住） */
@@ -4294,6 +4572,10 @@ onMounted(() => {
   checkFirstRun()
   loadTaskMeta()
   loadAll()
+  // 014：与主进程 prefs.json 对齐 Agent 预设（localStorage 只当缓存，换 origin 不该丢资产）
+  syncAgentPresets()
+  // 板面偏好：分组方式 + 折叠状态（同样以主进程 prefs.json 为真身）
+  syncBoardPrefs()
   // 版本号（设置页首区块显示）
   loadAppVersion()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
@@ -4320,6 +4602,8 @@ onMounted(() => {
     t.onUpdateDownloaded((d: any) => {
       updateState.value.downloaded = true
       updateState.value.msg = 'v' + (d?.version || '?') + ' 已就绪，退出时自动安装'
+      // 012：窗口可见时也给个即时反馈（隐藏到托盘时由主进程的系统通知兜住）
+      showToast('新版本 v' + (d?.version || '?') + ' 已下载完成，点「立即重启安装」升级', 'success')
     })
     t.onUpdateError((d: any) => {
       updateState.value.checked = true
@@ -4482,6 +4766,19 @@ button:not([class]) {
 .col[data-status="待审批"] { border-left: 4px solid #f59e0b; }
 .col.empty { border-style: dashed; opacity: 0.62; box-shadow: none; background: #fbfbfe; }
 .col.dragover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,0.22); background: #f4f1fc; }
+/* 分组折叠（2026-09-25）：点标题折叠/展开；折叠后这列只占一行，长单子立刻变短 */
+.col h3 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+/* 三角用 CSS 边框画，不用 ▸/▾ 字形 —— 应用字体里这两个字符可能缺字，渲染成看不见的空白 */
+.col h3 .chev {
+  flex: 0 0 auto; width: 0; height: 0; margin-right: 2px;
+  border-left: 5px solid #8b8b9e;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+}
+.col h3 .chev.open { transform: rotate(90deg); }
+.col.collapsed-col { flex: 0 0 auto; min-width: 190px; max-width: 280px; opacity: 0.9; }
+.col.collapsed-col h3 { margin-bottom: 0; }
 
 .status-label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; }
@@ -4575,6 +4872,9 @@ button:not([class]) {
 }
 .task-modal .tf-field textarea { resize: vertical; min-height: 52px; }
 .task-modal .tf-field textarea.tall { min-height: 130px; }
+/* 2026-09-25 第 13 条：任务编辑弹窗也放宽、正文框加高（编辑正文是高频操作） */
+#modal.task-modal { width: 680px; max-width: calc(100vw - 48px); }
+#modal textarea.tall { height: 240px; }
 .task-modal .tf-hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -4595,11 +4895,21 @@ button:not([class]) {
 .ptags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .ptag { background: #eef0fb; color: #5b5478; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
 
-.batch-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); margin-right: 6px; flex-shrink: 0; }
+/* 16px 太小、用户要「小心翼翼点避免点错」（2026-09-25 第 2 条）：
+   放大到 20px，并让**整张卡**在批量模式下都能点（模板里 @click 已分流）。 */
+.batch-chk { width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent); margin-right: 8px; flex-shrink: 0; }
 .batch-chk:checked { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 批量模式：卡片本身是开关，给手一个明确的落点（不用去瞄那个小方框） */
+#app:has(.batch-bar) #board .card { cursor: pointer; }
+#app:has(.batch-bar) #board .card:hover { box-shadow: 0 0 0 2px rgba(155,143,196,0.28); }
 
 /* Overlay */
-.overlay { position: fixed; inset: 0; background: rgba(60,65,80,0.32); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 60; }
+/* 全屏遮罩：**禁止 backdrop-filter**（2026-09-25 第 3 条）。
+   1920×1032 的实时模糊（blur(4px)）在窗口失焦/被遮挡时，Chromium 合成器会停止重绘 ——
+   表现就是「点开新建日志先卡一下，必须切到别的窗口再回方寸才莫名恢复」。
+   日志多选「点了没反应、要多点几次才能选中」也是同一原因：状态变了但**没重绘**，
+   用户看不到勾 → 再点一下其实取消了。去掉模糊 + translateZ(0) 强制独立合成层。 */
+.overlay { position: fixed; inset: 0; background: rgba(60,65,80,0.38); display: flex; align-items: center; justify-content: center; z-index: 60; transform: translateZ(0); }
 #modal, #rmodal, #smodal {
   background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; max-height: 88vh;
   overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
@@ -5180,11 +5490,15 @@ button:not([class]) {
 .agent-presets-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 
 /* Log edit modal */
-#log-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+/* 2026-09-25 第 13 条「编辑框不够大」：原宽 560px，且 `textarea.tall` 的高度规则只写在
+   `#modal textarea.tall` 下 —— 日志编辑器是 #log-edit-modal，**`.tall` 从未生效**，
+   所以「执行内容」一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
+#log-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
 #log-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #log-edit-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 #log-edit-modal input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
-#log-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-family: inherit; resize: vertical; line-height: 1.5; }
+#log-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; min-height: 90px; }
+#log-edit-modal textarea.tall { min-height: 300px; }
 #log-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 #log-edit-modal select.logsel {
   width: 100%; box-sizing: border-box; padding: 7px 10px;
@@ -5193,6 +5507,40 @@ button:not([class]) {
 }
 #log-edit-modal select.logsel:disabled { background: #f6f6f9; color: var(--muted); }
 #log-edit-modal .log-task-picked { font-size: 11px; color: var(--accent); margin-top: 4px; }
+
+/* 待办编辑弹窗（2026-09-25 第 12、14 条）：**大框**，写长内容不憋屈 */
+#todo-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 640px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#todo-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
+#todo-edit-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
+#todo-edit-modal input, #todo-edit-modal select { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+#todo-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; }
+/* 内容框必须够大 —— 这条就是用户「改模态大框」的核心诉求 */
+#todo-edit-modal textarea.tall { min-height: 180px; }
+.te-row { display: grid; grid-template-columns: 1fr 110px 150px; gap: 10px; }
+#todo-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#todo-edit-modal .todo-edit-donehint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+.todo-edit { flex-shrink: 0; opacity: .5; font-size: 11px; }
+.todo-item:hover .todo-edit { opacity: 1; }
+.todo-new { flex-shrink: 0; white-space: nowrap; font-size: 12px; }
+
+/* 归档日志独立分区（2026-09-25 第 16 条）：主区不再混入归档日志 */
+.log-archive-sep { margin: 14px 0 8px; display: flex; align-items: center; gap: 10px; }
+.log-archive-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.log-archive-toggle { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid var(--border); border-radius: 99px; padding: 4px 12px; font-size: 12px; color: var(--muted); cursor: pointer; font-family: inherit; }
+.log-archive-toggle:hover { color: var(--ink); border-color: var(--accent); }
+.log-card.archived { opacity: .72; }
+
+/* 导出指定备份的下拉（第 10 条） */
+.bk-export-select { max-width: 260px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); font-family: inherit; }
+
+/* 项目章程缺口条（第 7 条） */
+.charter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+.charter-bar .cb-label { font-weight: 700; color: var(--ink); }
+.charter-bar .cb-stat { color: var(--muted); }
+.charter-bar .cb-stat b { color: var(--ink); }
+.charter-bar .cb-stat.warn b { color: #c0392b; }
+.todo-title { cursor: pointer; }
+.todo-title:hover { text-decoration: underline dotted; }
 
 /* Dispatch modal */
 
@@ -5217,7 +5565,8 @@ button:not([class]) {
 
 .nc-wrap {
   position: fixed; inset: 0; z-index: 70;
-  background: rgba(30,30,40,.32); backdrop-filter: blur(4px);
+  background: rgba(30,30,40,.38);
+  transform: translateZ(0); /* 同上：全屏面不做实时模糊，否则失焦时合成器不重绘 */
   display: flex; align-items: flex-start; justify-content: flex-end;
   padding: 60px 24px 24px;
 }

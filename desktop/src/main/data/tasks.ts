@@ -299,7 +299,8 @@ export function readTask(id: string): Task | null {
     for (const entry of entries) {
       if (entry.isDirectory()) continue
       if (!entry.name.endsWith('.md')) continue
-      if (exactOnly ? entry.name === `${id}.md` : entry.name.startsWith(id)) {
+      if (exactOnly ? entry.name === `${id}.md` : entry.name.startsWith(`${id}.`)) {
+        // 宽松兜底也要带点号：裸 `startsWith(id)` 会让 id=`task-1` 命中 `task-10.md`
         return parseTask(path.join(dir, entry.name))
       }
     }
@@ -428,7 +429,11 @@ export function deleteTask(id: string): boolean {
       if (entry.isDirectory()) {
         if (path.resolve(full) === path.resolve(trashDir)) continue
         walk(full)
-      } else if (entry.name === `${id}.md`) {
+      } else if (entry.name === `${id}.md` || entry.name.startsWith(`${id}.`)) {
+        // 宽松匹配与 readTask 保持一致（它退化为前缀匹配，能看到 `${id}.2.md` / `${id}.md.old`）；
+        // 删除若按 `${id}.md` 精确找，就会「看得见、删不掉」（用户 2026-09-24 第 1 条）。
+        // 用 `${id}.` 而不是裸 `${id}`：否则 id=`task-1` 会误命中 `task-10.md`，删错别人的任务。
+        if (entry.name.endsWith('.tmp')) continue
         sources.push(full)
       }
     }
@@ -436,8 +441,11 @@ export function deleteTask(id: string): boolean {
   walk(taskDir)
 
   if (sources.length === 0) {
-    // 活跃/归档区已无此任务：若回收站里已有那份，就是「早就删过了」，幂等成功
-    if (fs.existsSync(path.join(trashDir, `${id}.md`))) return true
+    // 活跃/归档区已无此任务：若回收站里已有那份（含 `${id}.2.md` 这类旧名副本），就是「早就删过了」，幂等成功
+    try {
+      const trashed = fs.readdirSync(trashDir).some(n => n === `${id}.md` || n.startsWith(`${id}.`))
+      if (trashed) return true
+    } catch { /* 回收站读不到就当没删过 */ }
     return false
   }
 

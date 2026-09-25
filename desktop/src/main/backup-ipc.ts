@@ -14,7 +14,7 @@ import {
 } from './backup/config'
 import {
   runBackup, listLocalBackups, listRemoteBackups, getLocalBackupDir,
-  exportSnapshotTo, verifyPackage,
+  exportSnapshotTo, verifyPackage, exportExistingPackageTo,
 } from './backup'
 import { getBackupStatus, rescheduleScheduler, runBackupNow } from './backup/scheduler'
 import { restoreFrom, listRestoreSources } from './backup/restore'
@@ -191,7 +191,7 @@ export function registerBackupIpcHandlers(): void {
    * 导出备份到指定目录（网盘同步文件夹 / U 盘 / 任意路径）。
    * 不弹窗时由调用方传 dir；传空则弹出目录选择框。
    */
-  guardedHandle('backup:exportTo', async (e, input: { dir?: string; includeTool?: boolean } = {}) => {
+  guardedHandle('backup:exportTo', async (e, input: { dir?: string; includeTool?: boolean; package?: string } = {}) => {
     try {
       let dir = (input.dir || '').trim()
       if (!dir) {
@@ -208,7 +208,11 @@ export function registerBackupIpcHandlers(): void {
         if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
         dir = r.filePaths[0]
       }
-      const result = exportSnapshotTo(dir, { includeTool: input.includeTool !== false })
+      // 2026-09-25 第 10 条：传了 package 就是「导出这一份已有备份」（默认最新），
+      // 不传则维持原行为「现在重新打一份全量包」。
+      const result = input.package
+        ? exportExistingPackageTo(dir, input.package, { includeTool: input.includeTool !== false })
+        : exportSnapshotTo(dir, { includeTool: input.includeTool !== false })
       return { ok: result.ok, result }
     } catch (e) {
       return fail(e)

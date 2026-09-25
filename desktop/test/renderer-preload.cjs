@@ -11,7 +11,12 @@ const { contextBridge } = require('electron')
 
 const store = {
   todos: [],
-  logs: [],
+  // 归档日志独立分区（2026-09-25 第 16 条）：三条不同状态，其中一条已归档
+  logs: [
+    { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', project: 'demo', created: '2026-09-24T00:00:00.000Z' },
+    { id: 'log-demo-2', title: '已完成的日志', content: '内容B', status: 'completed', project: 'demo', created: '2026-09-23T00:00:00.000Z' },
+    { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
+  ],
   calls: [],
   tasks: [
     {
@@ -21,8 +26,41 @@ const store = {
       fm: { id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-001.md',
     },
+    // 分组视图用：一个查不到名字的项目 id（标签必须回退成 id，不能空白）+ 一个完全没项目的
+    {
+      id: 'task-demo-002', title: '幽灵项目任务', status: '待办', priority: '中',
+      project: 'ghost-proj', tags: [], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
+      fm: { id: 'task-demo-002', title: '幽灵项目任务', status: '待办', priority: '中', project: 'ghost-proj' },
+      path: 'C:/mock/task-data/task-demo-002.md',
+    },
+    {
+      id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低',
+      tags: [], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
+      fm: { id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低' },
+      path: 'C:/mock/task-data/task-demo-003.md',
+    },
   ],
-  projects: [{ id: 'demo', name: '演示项目' }],
+  projects: [{ id: 'demo', name: '演示项目' }, { id: 'demo2', name: '第二个项目' }],
+  // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），
+  // 「含归档」勾选后板子必须去重，不能把同一张卡显示两遍。
+  archived: [
+    {
+      id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成', priority: '高',
+      project: 'demo', tags: [], body: '',
+      created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
+      fm: { id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成' },
+      path: 'C:/mock/task-data/archive/task-demo-001.md',
+    },
+    {
+      id: 'task-demo-090', title: '真归档任务', status: '完成', priority: '低',
+      project: 'demo', tags: [], body: '',
+      created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
+      fm: { id: 'task-demo-090', title: '真归档任务', status: '完成' },
+      path: 'C:/mock/task-data/archive/task-demo-090.md',
+    },
+  ],
 }
 
 function rec(name, args) {
@@ -56,7 +94,7 @@ contextBridge.exposeInMainWorld('tegula', {
     ]
   },
   taskEnums: () => ({ statuses: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'], priorities: ['高', '中', '低'] }),
-  loadTasks: (_v) => { rec('loadTasks', [_v]); return store.tasks.slice() },
+  loadTasks: (v) => { rec('loadTasks', [v]); return (v === 'archive' ? (store.archived || []) : store.tasks).slice() },
   loadProjects: () => store.projects.slice(),
   findBlockers: () => [],
   parseErrors: () => [],
@@ -168,8 +206,11 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 其它（不参与断言，返回空实现避免 undefined 报错）──────────
   browseDirectory: () => null,
   browseFile: () => null,
-  policyGet: () => null,
-  policySave: () => ok(),
+  // 项目章程三态（2026-09-25 第 7 条）：demo 已填、demo2 连文件都没有
+  policyGet: (id) => (id === 'demo'
+    ? { ok: true, policy: { projectId: 'demo', mission: '使命内容', goal: '', scenario: '', boundary: '', updatedAt: '' } }
+    : { ok: true, policy: null }),
+  policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',
   openFile: () => ok(),
   setDataDir: () => ok(),
@@ -181,7 +222,14 @@ contextBridge.exposeInMainWorld('tegula', {
   listBackups: () => [],
   backup: () => ok(),
   restore: () => ok(),
-  backupListLocal: () => [],
+  // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证「默认最新」与传参
+  backupListLocal: () => ({
+    ok: true,
+    items: [
+      { name: 'fangcun-data-20260920-101010.zip', path: 'C:/mock/backups/fangcun-data-20260920-101010.zip', bytes: 111111, mtime: '2026-09-20T10:10:10.000Z', sha256: null },
+      { name: 'fangcun-data-20260925-202020.zip', path: 'C:/mock/backups/fangcun-data-20260925-202020.zip', bytes: 222222, mtime: '2026-09-25T20:20:20.000Z', sha256: null },
+    ],
+  }),
   backupListRemote: () => [],
   backupListSources: () => [],
   backupState: () => ({}),
@@ -193,7 +241,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupRestore: () => ok(),
   backupOpenDir: () => ok(),
   backupLocalDir: () => 'C:/mock/data/backups',
-  backupExportTo: () => ok(),
+  backupExportTo: (input) => { rec('backupExportTo', [input]); return ok({ result: { files: 3, bytes: 2048, dir: 'C:/mock/out' } }) },
   backupVerifyPackage: () => ok(),
   backupPickRestoreFile: () => null,
   backupPickDir: () => null,

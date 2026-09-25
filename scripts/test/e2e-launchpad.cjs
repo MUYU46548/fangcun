@@ -118,6 +118,32 @@ async function main() {
   await sleep(600)
   check('子进程 error 事件被消费（无未捕获异常）', uncaught === null, uncaught ? String(uncaught.message) : '')
 
+  // ── 11. .exe + 启动参数（2026-09-25）────────────────────────────────
+  // ShellExecute 传不了参数 → 界面上的「启动参数」对 .exe 曾静默失效。
+  // 用真 exe（把 cmd.exe 复制到临时目录当替身）验证：参数真的生效、cwd 真的是 exe 所在目录。
+  {
+    const appDir = path.join(TEST_ROOT, 'exedir')
+    fs.mkdirSync(appDir, { recursive: true })
+    const fakeExe = path.join(appDir, 'fake-app.exe')
+    fs.copyFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), fakeExe)
+
+    stub.shell.opened.length = 0
+    const r1 = await launchpad.launchApp({ id: 'x1', name: '无参数exe', path: fakeExe, cmd: fakeExe })
+    check('.exe 无参数 → 仍走 shell.openPath（行为不变，等同双击）',
+      r1.ok === true && stub.shell.opened.includes(fakeExe), JSON.stringify({ r1, opened: stub.shell.opened }))
+
+    stub.shell.opened.length = 0
+    const marker = path.join(appDir, 'cwd-marker.txt')
+    const r2 = await launchpad.launchApp({
+      id: 'x2', name: '带参数exe', path: fakeExe, cmd: fakeExe, args: ['/c', 'echo ok> cwd-marker.txt'],
+    })
+    check('.exe 带参数 → 不再走 shell.openPath（参数不再被静默丢弃）',
+      !stub.shell.opened.includes(fakeExe), JSON.stringify({ r2, opened: stub.shell.opened }))
+    check('.exe 带参数 → spawn 成功返回 ok', r2.ok === true, JSON.stringify(r2))
+    await waitForFile(marker, 5000)
+    check('.exe 带参数 → 参数生效且 cwd = exe 所在目录', fs.existsSync(marker), 'marker 未生成: ' + marker)
+  }
+
   // ── 10. URL ───────────────────────────────────────────────────────
   stub.shell.external.length = 0
   r = await launchpad.openUrl('https://example.com')

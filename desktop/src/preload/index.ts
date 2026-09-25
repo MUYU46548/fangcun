@@ -109,6 +109,11 @@ contextBridge.exposeInMainWorld('tegula', {
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
   logsSearch: (query: string) => ipcRenderer.invoke('logs:search', query),
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
+  /** 复制到剪贴板（主进程通道：不受 file:// 起源与窗口焦点限制，见 shared/clipboard.ts） */
+  clipboardWriteText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
+  /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
+  prefsGet: () => ipcRenderer.invoke('prefs:get'),
+  prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
   logsCleanup: () => ipcRenderer.invoke('logs:cleanup'),
 
   // Blockers

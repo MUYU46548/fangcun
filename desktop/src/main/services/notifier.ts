@@ -51,6 +51,23 @@ function push(input: notifications.PushInput): boolean {
   return r.created
 }
 
+/**
+ * 更新包下载完成 → 必须「看得见」（012，2026-09-25）。
+ *
+ * 为什么必须在主进程弹：方寸关窗只是**缩进托盘**，窗口不可见时渲染层的设置页文案、
+ * toast 全都看不到。只改渲染层状态 = 用户永远不知道新版本已经下好了（原 bug 就是这样）。
+ */
+export function notifyUpdateReady(version: string): boolean {
+  return push({
+    type: 'update-downloaded',
+    level: 'info',
+    title: `新版本 ${version} 已下载完成`,
+    body: '点「立即重启安装」升级；也可稍后在 设置 → 关于 里安装',
+    sourceId: version,
+    key: 'update-downloaded:' + version,
+  })
+}
+
 /** 一次完整扫描。exported 供测试与手动触发。 */
 export function scanOnce(now = new Date()): { scanned: boolean; newNotifications: number; resolved: number } {
   let created = 0

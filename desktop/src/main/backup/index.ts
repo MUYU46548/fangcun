@@ -553,6 +553,114 @@ export function exportSnapshotTo(destDir: string, opts: { includeTool?: boolean 
   return result
 }
 
+/**
+ * 导出**已有的**某个备份包到指定目录（2026-09-25 第 10 条：只导指定备份、默认最新）。
+ *
+ * 与 `exportSnapshotTo` 的区别：那个是「现在重新打一份」（所以永远是全量、文件名是此刻的时间戳），
+ * 这个是「把已经存在的那一份搬出去」—— 用户抱怨的正是「导出只能全量（91 文件/1097KB）」，
+ * 而他真正想做的往往是把某一次备份复制到网盘。
+ *
+ * 安全：只允许导出**本地备份目录内**的包（否则这个方法就成了任意文件读取/外带通道）。
+ * 与全量导出同一把尺子：导出前 `verifyZip` 自校验，落盘后回读校验 sha256。
+ */
+export function exportExistingPackageTo(
+  destDir: string,
+  packagePath: string,
+  opts: { includeTool?: boolean } = {},
+): ExportResult {
+  const errors: string[] = []
+  const result: ExportResult = {
+    ok: false, dir: destDir,
+    zipPath: null, sidecarPath: null, manifestPath: null, readmePath: null, toolPath: null,
+    bytes: 0, files: 0, errors,
+  }
+
+  if (!destDir || !destDir.trim()) { errors.push('未指定导出目录'); return result }
+  if (!packagePath || !packagePath.trim()) { errors.push('未指定要导出的备份包'); return result }
+
+  let src = ''
+  try { src = path.resolve(packagePath) } catch { errors.push('备份包路径不合法'); return result }
+
+  const localDir = path.resolve(getLocalBackupDir())
+  const rel = path.relative(localDir, src)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    errors.push('只能导出本地备份目录内的备份包')
+    return result
+  }
+  if (!fs.existsSync(src)) {
+    errors.push('备份包不存在（可能已被轮换清理，去备份列表刷新看看）')
+    return result
+  }
+
+  let buf: Buffer
+  try {
+    buf = fs.readFileSync(src)
+  } catch (e) {
+    errors.push(`读取备份包失败：${(e as Error).message}`)
+    return result
+  }
+
+  const verify = verifyZip(buf)
+  if (!verify.ok) {
+    errors.push(`备份包自校验失败，已中止：${verify.errors.slice(0, 3).join('；')}`)
+    return result
+  }
+
+  const name = path.basename(src)
+  const stem = name.replace(/\.zip$/i, '')
+  const sha = sha256OfBuffer(buf)
+
+  try {
+    fs.mkdirSync(destDir, { recursive: true })
+
+    const zipPath = path.join(destDir, name)
+    fs.writeFileSync(zipPath, buf)
+    const sidecarPath = `${zipPath}.sha256`
+    fs.writeFileSync(sidecarPath, sha, 'utf-8')
+
+    if (verify.manifest) {
+      const manifestPath = path.join(destDir, `${stem}.manifest.json`)
+      fs.writeFileSync(manifestPath, JSON.stringify(verify.manifest, null, 2), 'utf-8')
+      result.manifestPath = manifestPath
+      const readmePath = path.join(destDir, `${stem}.README.txt`)
+      fs.writeFileSync(readmePath, renderReadme(verify.manifest, name, sha, buf.length), 'utf-8')
+      result.readmePath = readmePath
+    }
+
+    if (opts.includeTool) {
+      const tool = resolveRestoreToolPath()
+      if (tool) {
+        const dest = path.join(destDir, 'fangcun-restore.py')
+        fs.copyFileSync(tool, dest)
+        result.toolPath = dest
+      } else {
+        errors.push('未找到独立恢复脚本 fangcun-restore.py，已跳过（不影响备份本身可用）')
+      }
+    }
+
+    const readBack = fs.readFileSync(zipPath)
+    if (sha256OfBuffer(readBack) !== sha) {
+      try { fs.rmSync(zipPath, { force: true }) } catch { /* ignore */ }
+      errors.push('导出后回读校验失败，文件可能写入不完整')
+      return result
+    }
+
+    result.zipPath = zipPath
+    result.sidecarPath = sidecarPath
+    result.bytes = readBack.length
+    result.files = (verify.manifest && verify.manifest.totalFiles) || verify.entryCount
+    result.ok = errors.length === 0
+
+    appendBackupLog(
+      `EXPORT-EXISTING src=${name} dir=${destDir} files=${result.files} bytes=${result.bytes} tool=${result.toolPath ? 'yes' : 'no'}`
+    )
+  } catch (e) {
+    errors.push(`导出失败：${(e as Error).message}`)
+  }
+
+  return result
+}
+
 /** 校验任意路径下的备份包（含手动上传/下载回来的包） */
 export function verifyPackage(zipPath: string): {
   ok: boolean

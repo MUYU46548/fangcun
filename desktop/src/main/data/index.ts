@@ -835,20 +835,44 @@ export function loadAllTasksRaw(mode: ScanMode = 'all'): Task[] {
 
   const tasks: Task[] = []
   const errors: string[] = []
+  // 同一 id 在**同一区域**里出现多份文件（`x.md` 与 `x.2.md` 并存 —— 旧版归档/删除改名留下的），
+  // 会让板子上出现两张一模一样的卡，而且删除代码按 `${id}.md` 精确找文件、找不到那份 →
+  // 看得见但删不掉（用户 2026-09-24「驳回和完成依旧是删不掉的」的真因之一）。
+  // 这里按「id + 区域」去重，规范名 `${id}.md` 优先；跨区域（活跃 vs 归档）不去重：
+  // 归档视图按路径判定，合并显示时由渲染层负责去重（活跃区为准）。
+  const byKey = new Map<string, Task>()
+  const dup: string[] = []
   for (const f of files) {
     const task = parseTask(f)
     if (task) {
       // 归档与否 = 路径说了算（唯一权威定义，见 AGENTS.md 归档视图语义铁律）。
       // 在这里统一盖章，避免"状态标签 / 路径标签 / archived 字段"三套并存互相打架。
       if (ARCHIVE_SEG_RE.test(f)) task.archived = true
-      tasks.push(task)
+      const key = task.id + (task.archived ? '|arch' : '|act')
+      const prev = byKey.get(key)
+      if (!prev) {
+        byKey.set(key, task)
+      } else {
+        dup.push(path.relative(TASK_DIR, f))
+        const canonical = (t: Task) => path.basename(t.path) === `${t.id}.md`
+        if (canonical(task) && !canonical(prev)) byKey.set(key, task)
+      }
     } else if (looksLikeTaskFile(f)) {
       // 有 frontmatter 却解析不出来 = 文件真的坏了，不能静默跳过
       errors.push(path.relative(TASK_DIR, f))
     }
   }
-  _taskCaches[mode] = { sig, tasks, errors }
-  return tasks
+  if (dup.length) {
+    // 同一 id 的多余副本不是「解析失败」，但必须留痕（落应用日志）：
+    // 用户遇到「删不掉/显示两遍」时要能追到原因。不塞进 errors —— 那会让顶栏弹
+    // 一个写着「解析失败」的红条，语义不符。
+    try {
+      console.warn(`[tasks] 同一任务存在多份副本，已按规范名取一份：${dup.join(', ')}`)
+    } catch { /* 日志永不抛 */ }
+  }
+  const deduped = [...byKey.values()]
+  _taskCaches[mode] = { sig, tasks: deduped, errors }
+  return deduped
 }
 
 export function loadTasks(view = 'active'): Task[] {

@@ -274,6 +274,59 @@ async function main() {
   check('README 声明不含密钥', readme.includes('不含任何密钥'))
   check('README 记录本次排除项', readme.includes('llm-config.json'))
 
+  // ── 导出「指定的一份已有备份」（2026-09-25 第 10 条：默认最新）──────────
+  // 用户原话：「导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新」
+  const localBkDir = bk.getLocalBackupDir()
+  check('本地备份目录在测试沙箱内（不会污染真实备份）', localBkDir.startsWith(TEST_ROOT), localBkDir)
+  fs.mkdirSync(localBkDir, { recursive: true })
+  const pkgName = 'fangcun-data-20000101-000000.zip'
+  const pkgPath = path.join(localBkDir, pkgName)
+  fs.writeFileSync(pkgPath, fs.readFileSync(exp.zipPath))   // 把刚才那份真包搬进本地备份目录
+
+  const pickTarget = path.join(TEST_ROOT, '_export-picked')
+  const picked = bk.exportExistingPackageTo(pickTarget, pkgPath, { includeTool: true })
+  check('导出指定备份：成功', picked.ok, JSON.stringify(picked.errors))
+  check('导出指定备份：文件名保持原样（不是此刻重新打的时间戳）',
+    !!picked.zipPath && path.basename(picked.zipPath) === pkgName, String(picked.zipPath))
+  check('导出指定备份：落在目标目录', path.dirname(picked.zipPath || '') === pickTarget, String(picked.zipPath))
+  check('导出指定备份：与原包逐字节相同（复制而非重打）',
+    !!picked.zipPath && sha256(fs.readFileSync(picked.zipPath)) === sha256(fs.readFileSync(pkgPath)))
+  check('导出指定备份：sha256 sidecar 与内容一致',
+    !!picked.sidecarPath && fs.readFileSync(picked.sidecarPath, 'utf-8').trim() === sha256(fs.readFileSync(pkgPath)))
+  check('导出指定备份：manifest 与 README 一并落地',
+    !!picked.manifestPath && fs.existsSync(picked.manifestPath) && !!picked.readmePath && fs.existsSync(picked.readmePath))
+  check('导出指定备份：files/bytes 如实上报',
+    picked.files > 0 && picked.bytes === fs.statSync(pkgPath).size,
+    JSON.stringify({ files: picked.files, bytes: picked.bytes, real: fs.statSync(pkgPath).size }))
+  check('导出指定备份：同样附带恢复脚本', !!picked.toolPath && fs.existsSync(picked.toolPath))
+
+  // 反向验证①：目录外的文件**一律拒绝**（否则这个方法就成了任意文件外带通道）
+  const outsideZip = path.join(TEST_ROOT, 'outside.zip')
+  fs.writeFileSync(outsideZip, fs.readFileSync(exp.zipPath))
+  const denied = bk.exportExistingPackageTo(pickTarget, outsideZip, {})
+  check('导出指定备份：拒绝本地备份目录之外的包',
+    !denied.ok && denied.errors.join(' ').includes('只能导出本地备份目录内'),
+    JSON.stringify(denied.errors))
+  check('导出指定备份：被拒绝时不在目标目录留下文件',
+    !fs.existsSync(path.join(pickTarget, 'outside.zip')))
+
+  // 反向验证②：目录内的**坏包**必须被自校验拦下（与全量导出同一把尺子）
+  const corruptPkg = path.join(localBkDir, 'fangcun-data-20000101-000001.zip')
+  fs.writeFileSync(corruptPkg, Buffer.from('PK\x03\x04garbage-not-a-zip'))
+  const corruptRes = bk.exportExistingPackageTo(pickTarget, corruptPkg, {})
+  check('导出指定备份：坏包被导出前自校验拦下',
+    !corruptRes.ok && corruptRes.errors.join(' ').includes('自校验失败'),
+    JSON.stringify(corruptRes.errors))
+  check('导出指定备份：坏包不会落到目标目录',
+    !fs.existsSync(path.join(pickTarget, 'fangcun-data-20000101-000001.zip')))
+
+  // 反向验证③：包不存在时给可读原因（不做成"导出成功 0 个文件"）
+  const missingRes = bk.exportExistingPackageTo(
+    pickTarget, path.join(localBkDir, 'fangcun-data-19990101-000000.zip'), {})
+  check('导出指定备份：包不存在时给出可读原因',
+    !missingRes.ok && missingRes.errors.join(' ').includes('不存在'), JSON.stringify(missingRes.errors))
+  check('导出指定备份：未指定包也拒绝', !bk.exportExistingPackageTo(pickTarget, '', {}).ok)
+
   // ── 包校验工具 ────────────────────────────────────────────────────────
   const vp = bk.verifyPackage(exp.zipPath)
   check('verifyPackage 对正常包 PASS', vp.ok, JSON.stringify(vp.errors))

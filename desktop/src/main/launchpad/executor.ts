@@ -152,8 +152,14 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
     return openViaShell(raw, name)
   }
 
-  // .exe：Windows 上 shell.openPath 比 spawn detached 更可靠（不依赖子进程生命周期）
+  // .exe：默认交给 ShellExecute（等同资源管理器双击，主进程不担责子进程生命周期，最稳）。
+  // ⚠ 但 ShellExecute 既传不了 args 也定不了 cwd —— 界面上的「启动参数」对 .exe 会**静默失效**
+  //   （2026-09-25 发现：想给司天加 --disable-gpu 才暴露出来）。
+  //   因此：填了参数就改走 spawn（带 cwd = exe 所在目录），没填参数保持原路径不变。
   if (ext === '.exe') {
+    if (args.length > 0) {
+      return spawnAndWait(raw, args, { cwd, label: `${name}（exe + 参数）` })
+    }
     return openViaShell(raw, name)
   }
 
