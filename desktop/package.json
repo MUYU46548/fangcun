@@ -1,6 +1,6 @@
 {
   "name": "fangcun-desktop",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "方寸 — 本地优先多 agent 任务地图",
   "main": "dist/index.js",
   "bin": {
