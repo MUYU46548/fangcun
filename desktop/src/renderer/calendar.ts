@@ -70,7 +70,7 @@ export interface CalMonthGroup {
 
 export interface CalMonthResult<T = CalTaskLike, D = CalTodoLike, L = CalLogLike> {
   /** 前置空格为 null */
-  cells: (CalCell<T, D> | null)[]
+  cells: (CalCell<T, D, L> | null)[]
   /** 完全没有时间（无开始也无截止）的任务 */
   unscheduled: T[]
   /** 有时间但不在本月的任务，按月份分组 */
@@ -173,7 +173,15 @@ export function rangeLabel(start?: unknown, deadline?: unknown): string {
  * 把一个月的格子、未安排、其它月份一次性算出来。
  * month 为 0-based；前置空格（周一开头）用 null 占位。
  */
-export function buildMonth<T extends CalTaskLike, D = CalTodoLike, L = CalLogLike>(
+// ⚠ D / L 必须 extends 各自的 *Like（只写 `D = CalTodoLike` 只是给默认值、不加约束）：
+// 否则函数体里 td.done / td.due / log.status / log.logDate 全是 TS2339，
+// `tsc calendar.ts` 编译不过 → e2e-calendar.cjs 从 2026-09-23 起一直跑不起来，
+// 跨月/时间段算术实际上**没有任何回归保护**（2026-09-25 修）。
+export function buildMonth<
+  T extends CalTaskLike,
+  D extends CalTodoLike = CalTodoLike,
+  L extends CalLogLike = CalLogLike,
+>(
   input: {
     year: number
     month: number
@@ -194,8 +202,8 @@ export function buildMonth<T extends CalTaskLike, D = CalTodoLike, L = CalLogLik
   const monthEnd = new Date(y, m, days)
   const inMonth = (d: Date) => d.getFullYear() === y && d.getMonth() === m
 
-  const byDay: Record<number, CalEvent<T, D>[]> = {}
-  const push = (day: number, ev: CalEvent<T, D>) => {
+  const byDay: Record<number, CalEvent<T, D, L>[]> = {}
+  const push = (day: number, ev: CalEvent<T, D, L>) => {
     ;(byDay[day] = byDay[day] || []).push(ev)
   }
 
@@ -281,7 +289,7 @@ export function buildMonth<T extends CalTaskLike, D = CalTodoLike, L = CalLogLik
     }
   }
 
-  const cells: (CalCell<T, D> | null)[] = []
+  const cells: (CalCell<T, D, L> | null)[] = []
   const lead = (new Date(y, m, 1).getDay() + 6) % 7 // 周一为第一格
   for (let i = 0; i < lead; i++) cells.push(null)
   for (let d = 1; d <= days; d++) {

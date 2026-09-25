@@ -1,7 +1,9 @@
 import { app, BrowserWindow, Tray, Menu } from 'electron'
 import * as path from 'path'
+import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
+import { registeredChannels } from './main/guarded-ipc'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
@@ -29,6 +31,22 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
+// ── 单实例锁（2026-09-25，用户第 11 条）──────────────────────────────────
+// 用户双击桌面快捷方式时，若方寸已在运行，第二个实例会把现有窗口提到前台
+// 而不是打开一个空壳。
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  // 没拿到锁 = 已有实例在跑，让它处理 then 退出
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 /** 渲染层 e2e 用：隐藏窗口跑，避免测试时窗口在屏幕上闪 */
 const hidden = process.env.FC_E2E_RENDERER === '1'
 
@@ -53,11 +71,33 @@ function createWindow(): void {
   // 真实入口漏注册导致设置页全部备份按钮是僵尸（2026-09-21 用户实测暴露）
   registerBackupIpcHandlers()
 
+  // ── 主进程自证：本进程到底是哪份构建、关键通道在不在 ──────────────────
+  // 2026-09-25 用户报「启动台依旧报错」，日志里却有渲染层的点击痕迹、没有主进程的
+  // `[launchpad] 请求启动` —— 无法判断是"没点到"还是"主进程跑的是旧代码"。
+  // 这行把两件事一次性说清：dist 的写入时间（=哪次构建）+ 关键通道注册状态。
+  try {
+    const st = fs.statSync(__filename)
+    const channels = registeredChannels()
+    appLog.info('boot', '主进程自证', {
+      mainFile: __filename,
+      builtAt: new Date(st.mtimeMs).toISOString(),
+      channelCount: channels.length,
+      launchpadChannel: channels.includes('launchpad:launchApp'),
+      launchpadVariant: channels.filter((c) => c.startsWith('launchpad:')),
+    })
+  } catch (e) {
+    appLog.warn('boot', '主进程自证失败', (e as Error).message)
+  }
+
   // 24 寸显示器默认最大化
   mainWindow.maximize()
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    // 显式 IPv4：vite 5 的默认 host 'localhost' 在部分环境只绑 [::1]，
+    // 而 Chromium 解析 localhost 时可能先试 127.0.0.1 → ERR_CONNECTION_REFUSED
+    // （2026-09-25 日志里 5 次 `页面加载失败 -102 ERR_CONNECTION_REFUSED http://localhost:5173/`）。
+    // vite.config 已固定 host: '127.0.0.1'，两端都用 127.0.0.1 即无歧义。
+    mainWindow.loadURL('http://127.0.0.1:5173')
   } else {
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'))
   }

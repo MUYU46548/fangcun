@@ -47,7 +47,13 @@ function main() {
   const LOGS_DIR = path.join(TEST_ROOT, 'docs', '执行日志')
 
   // ── 1. 创建 ───────────────────────────────────────────────────────
-  const a = logs.createLog('日志A', 'demo', '内容A', 'task-001')
+  // ⚠ 产品 API 现在是 { ok, data, error }（旧签名直接返回 LogEntry）。
+  //   旧测试拿 `a.id` = undefined → getLog(undefined) → null → 第 52 行 TypeError，
+  //   整套 50 条断言自 2026-09-22 起一直没跑（2026-09-25 对齐）。
+  const aRes = logs.createLog('日志A', 'demo', '内容A', 'task-001')
+  check('createLog 返回 ok:true', aRes.ok === true, JSON.stringify(aRes.error))
+  const a = aRes.data
+  check('createLog 返回 LogEntry（含 id）', !!a && !!a.id, JSON.stringify(a))
   check('创建后文件落盘', fs.existsSync(path.join(LOGS_DIR, `${a.id}.md`)))
   check('创建时项目正确写入', logs.getLog(a.id).project === 'demo', logs.getLog(a.id).project)
   check('创建时关联任务写入（tasks 数组）', logs.getLog(a.id).taskId === 'task-001', String(logs.getLog(a.id).taskId))
@@ -56,7 +62,8 @@ function main() {
 
   // ── 2. 改项目 / 改关联任务（用户报障的原型）───────────────────────
   const u1 = logs.updateLog(a.id, { project: 'nf', taskId: 'task-002' })
-  check('updateLog 返回更新后的对象', !!u1 && u1.project === 'nf', JSON.stringify(u1 && { p: u1.project, t: u1.taskId }))
+  check('updateLog 返回 ok:true', u1.ok === true, JSON.stringify(u1.error))
+  check('updateLog 返回更新后的对象', !!u1.data && u1.data.project === 'nf', JSON.stringify(u1.data && { p: u1.data.project, t: u1.data.taskId }))
   const reread = logs.getLog(a.id)
   check('★ 项目改动真的落盘（重读仍是新项目）', reread.project === 'nf', reread.project)
   check('★ 关联任务改动真的落盘', reread.taskId === 'task-002', String(reread.taskId))
@@ -79,13 +86,14 @@ function main() {
   check('下一步可改', u2.nextSteps === '下一步', u2.nextSteps)
 
   // ── 5. 非 active 的日志不可编辑（不得静默改）──────────────────────
-  const b = logs.createLog('日志B', 'demo', '内容B')
+  const b = logs.createLog('日志B', 'demo', '内容B').data
   logs.archiveLog(b.id)
-  check('已归档日志 updateLog 返回 null', logs.updateLog(b.id, { project: 'nf' }) === null)
+  const bUpd = logs.updateLog(b.id, { project: 'nf' })
+  check('已归档日志 updateLog 返回 ok:false（不得静默改）', bUpd.ok === false, JSON.stringify(bUpd))
   check('已归档日志的项目没被偷改', logs.getLog(b.id).project === 'demo', logs.getLog(b.id).project)
 
   // ── 6. 完成 → 保留期 → 清理超期 ───────────────────────────────────
-  const c = logs.createLog('日志C', 'demo', '内容C')
+  const c = logs.createLog('日志C', 'demo', '内容C').data
   logs.completeLog(c.id, 7, '做完了')
   const cc = logs.getLog(c.id)
   check('完成后状态为 completed', cc.status === 'completed', cc.status)
@@ -102,7 +110,7 @@ function main() {
   check('★ 清理只改状态、文件仍在（不删数据）', fs.existsSync(cPath))
 
   // ── 7. 列表筛选 / 反向索引 ────────────────────────────────────────
-  const d = logs.createLog('日志D', 'nf', '内容D', 'task-002')
+  const d = logs.createLog('日志D', 'nf', '内容D', 'task-002').data
   check('按项目筛选', logs.listLogs({ project: 'nf' }).every(l => l.project === 'nf'))
   check('按状态筛选', logs.listLogs({ status: 'archived' }).every(l => l.status === 'archived'))
   check('logsForTask 反查到两条', logs.logsForTask('task-002').length >= 1, String(logs.logsForTask('task-002').length))

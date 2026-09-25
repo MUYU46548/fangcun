@@ -393,6 +393,15 @@ export interface Task {
   fm: TaskFrontmatter
   body: string
   path: string
+  /**
+   * 是否位于归档区（task-data/archive/）—— **由路径推导、由主进程统一盖章**。
+   *
+   * 归档的唯一权威定义是路径（见 AGENTS.md「归档视图语义铁律」）。此前渲染层拿
+   * `t.archived` 画「📦 已归档」角标，而主进程从不赋这个字段 → 角标永远是假的；
+   * 而 batchArchive 只改 status 不移动文件 → 造出「假归档」（用户 2026-09-25）。
+   * 现在在 loadAllTasksRaw 里按路径盖一次章，角标 / 详情 / 归档视图三个消费方同源。
+   */
+  archived?: boolean
 }
 
 // ── Editable Field Specs ────────────────────────────────────────────────
@@ -828,8 +837,12 @@ export function loadAllTasksRaw(mode: ScanMode = 'all'): Task[] {
   const errors: string[] = []
   for (const f of files) {
     const task = parseTask(f)
-    if (task) tasks.push(task)
-    else if (looksLikeTaskFile(f)) {
+    if (task) {
+      // 归档与否 = 路径说了算（唯一权威定义，见 AGENTS.md 归档视图语义铁律）。
+      // 在这里统一盖章，避免"状态标签 / 路径标签 / archived 字段"三套并存互相打架。
+      if (ARCHIVE_SEG_RE.test(f)) task.archived = true
+      tasks.push(task)
+    } else if (looksLikeTaskFile(f)) {
       // 有 frontmatter 却解析不出来 = 文件真的坏了，不能静默跳过
       errors.push(path.relative(TASK_DIR, f))
     }

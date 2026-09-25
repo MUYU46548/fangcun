@@ -1,6 +1,6 @@
 {
   "name": "fangcun-desktop",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "方寸 — 本地优先多 agent 任务地图",
   "main": "dist/index.js",
   "bin": {
@@ -11,7 +11,7 @@
     "dev:renderer": "vite",
     "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
     "dev:electron": "node ../scripts/dev-electron-watch.cjs",
-    "dev:electron:raw": "wait-on tcp:5173 dist/index.js && cross-env NODE_ENV=development electron .",
+    "dev:electron:raw": "wait-on tcp:127.0.0.1:5173 dist/index.js && cross-env NODE_ENV=development electron .",
     "dev:debug": "concurrently -k -n RENDERER,MAIN,ELECTRON -c magenta,cyan,yellow \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron:debug\"",
     "dev:electron:debug": "cross-env OPEN_DEVTOOLS=1 node ../scripts/dev-electron-watch.cjs",
     "build": "node ../scripts/sync-public-tools.cjs && vite build && tsc -p tsconfig.main.json && tsc -p tsconfig.cli.json",

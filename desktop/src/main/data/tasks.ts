@@ -31,8 +31,27 @@ export function batchEdit(ids: string[], fields: Partial<TaskFrontmatter>): { ok
   return { ok, fails }
 }
 
+/**
+ * 批量归档 = 逐个**真正归档**（把文件移进 task-data/archive/），与单任务「归档」按钮同一语义。
+ *
+ * 旧实现是 `batchEdit(ids, { status: '完成' })` —— 只改状态、不移动文件。
+ * 而归档视图是按**路径**判定的（loadTasks('archive') → ARCHIVE_SEG_RE），
+ * 于是批量归档过的任务：状态看着像终态、文件却还在活跃区，归档视图里也找不到 →
+ * 「批量归档有时会失效」，产出一批「假归档」（用户 2026-09-25 报告）。
+ */
 export function batchArchive(ids: string[]): { ok: number; fails: { id: string; error: string }[] } {
-  return batchEdit(ids, { status: '完成' })
+  let ok = 0
+  const fails: { id: string; error: string }[] = []
+  for (const id of ids) {
+    try {
+      const t = archiveTask(id)
+      if (t) ok++
+      else fails.push({ id, error: '任务不存在' })
+    } catch (e: any) {
+      fails.push({ id, error: e.message })
+    }
+  }
+  return { ok, fails }
 }
 
 export function batchDelete(ids: string[]): { ok: number; fails: { id: string; error: string }[] } {
@@ -263,21 +282,38 @@ export function createTask(fields: NewTaskFields): Task {
 
 export function readTask(id: string): Task | null {
   const taskDir = getTaskDir()
-  // Search in main directory and subdirectories
-  function searchInDir(dir: string): Task | null {
+  const trashDir = path.join(taskDir, '.trash')
+
+  /**
+   * 顺序很重要：**活跃区 → 其它子目录（archive 等）→ 回收站兜底**。
+   *
+   * 同一 id 可能同时存在于 archive/ 与 .trash/（见 deleteTask 上方注释：库里有 8 个这样的任务）。
+   * 旧实现是"撞上谁算谁"（readdir 顺序不定），一旦命中回收站那份，
+   * 后续 updateTask / moveStatus / 详情面板读到的就是一个已"删除"的文件。
+   * 先精确匹配 `${id}.md`，再退化为前缀匹配，保持原有的宽松行为。
+   */
+  const scan = (dir: string, exactOnly: boolean): Task | null => {
     if (!fs.existsSync(dir)) return null
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        const found = searchInDir(fullPath)
-        if (found) return found
-      } else if (entry.name.endsWith('.md') && entry.name.startsWith(id)) {
-        return parseTask(fullPath)
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    // 先看本层的文件（活跃区永远是本层），再递归子目录
+    for (const entry of entries) {
+      if (entry.isDirectory()) continue
+      if (!entry.name.endsWith('.md')) continue
+      if (exactOnly ? entry.name === `${id}.md` : entry.name.startsWith(id)) {
+        return parseTask(path.join(dir, entry.name))
       }
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const full = path.join(dir, entry.name)
+      if (path.resolve(full) === path.resolve(trashDir)) continue
+      const found = scan(full, exactOnly)
+      if (found) return found
     }
     return null
   }
-  return searchInDir(taskDir)
+
+  return scan(taskDir, true) ?? scan(taskDir, false) ?? scan(trashDir, true) ?? scan(trashDir, false)
 }
 
 export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { body?: string }): Task | null {
@@ -323,19 +359,96 @@ export function moveStatus(id: string, newStatus: Status): Task | null {
   return task
 }
 
-export function deleteTask(id: string): boolean {
-  const task = readTask(id)
-  if (!task) return false
+/** 回收站目录（task-data/.trash）——与 Python CLI（core.py 的 _move_to(id, ".trash")）同位置同命名。 */
+function getTrashDir(): string {
+  return path.join(getTaskDir(), '.trash')
+}
 
-  // 回收站统一到 task-data/.trash —— 与 Python CLI（core.py 的 _move_to(id, ".trash")）
-  // 同一位置同一命名。此前写的是 getDataDir()/trash（无点），导致：
-  //   ① 与 backup/rules.ts 的 EXCLUDE_DIRS、data:migrate 跳过的 .trash 对不上
-  //      → 回收站内容会被打进备份包、被搬迁复制
-  //   ② 桌面版删的任务 Python 侧 trash 视图读不到（两套回收站）
-  const trashDir = path.join(getTaskDir(), '.trash')
+/**
+ * 把 src 移进 destDir 的同名位置；同名冲突时**按 mtime 新的占规范名、旧的改名让位**
+  * （一律保留在 destDir 里，**绝不删除任何一份**）。
+  *
+  * 为什么不能让新来的加后缀（2026-09-25 排查发现）：`readTask` 只认 `${id}.md`。
+  * 若刚删/刚归档的那份被存成 `task-x.2.md`，而一周前的旧副本继续占着 `task-x.md`，
+  * 那么读出来、还原回来、以及 deleteTask 的幂等判断拿到的**全是旧版本**，
+  * 用户刚操作的当前内容等于"看不见了"。
+  *
+  * 更不能像旧实现那样 `rmSync` 源文件 —— 那是**静默销毁当前版本**（数据丢失）。
+  *
+  * 另外：`fs.renameSync` 在 Windows 上**目标已存在就直接抛**（EPERM/EEXIST），
+  * 所以必须先让位再 rename；直接 rename 到已存在路径会抛异常，一路冒到渲染层表现为"点了没反应"。
+  */
+  function moveIntoDir(src: string, destDir: string): string {
+   fs.mkdirSync(destDir, { recursive: true })
+   const name = path.basename(src)
+   const dest = path.join(destDir, name)
+   if (path.resolve(src) === path.resolve(dest)) return dest
+
+   if (fs.existsSync(dest)) {
+     // 内容完全相同 = 没有任何信息可丢：直接去掉源文件，回收站/归档区不留重复副本
+      try {
+        if (fs.readFileSync(src).equals(fs.readFileSync(dest))) { fs.rmSync(src); return dest }
+      } catch { /* 读失败就退化为下面的让位逻辑，绝不因读取问题丢文件 */ }
+      const srcNewer = fs.statSync(src).mtimeMs >= fs.statSync(dest).mtimeMs
+     if (srcNewer) {
+       // 进来的更新：旧的让位保留，由新的占规范名
+       let aside = `${dest}.old`
+       let n = 2
+       while (fs.existsSync(aside)) aside = `${dest}.old${n++}`
+       fs.renameSync(dest, aside)
+     } else {
+       // 进来的更旧：把它改名留在同目录，规范名继续由更新的那份占着
+       let aside = path.join(destDir, `${name}.old`)
+       let n = 2
+       while (fs.existsSync(aside)) aside = path.join(destDir, `${name}.old${n++}`)
+       fs.renameSync(src, aside)
+       return aside
+     }
+   }
+   fs.renameSync(src, dest)
+   return dest
+ }
+
+ /** 删除任务 → 移入 task-data/.trash（可人工找回）。
+ *
+ * 语义：把该 id 在**活跃区与归档区**的所有副本都移进回收站，回收站内不留重复。
+ * 幂等：若活跃/归档区已无副本（只有回收站里那份），返回 true（视作已删除）。
+ */
+export function deleteTask(id: string): boolean {
+  const taskDir = getTaskDir()
+  const trashDir = getTrashDir()
   fs.mkdirSync(trashDir, { recursive: true })
-  const trashPath = path.join(trashDir, path.basename(task.path))
-  fs.renameSync(task.path, trashPath)
+
+  // 收集活跃区 + 归档区里所有该 id 的任务文件（跳过回收站自身）
+  const sources: string[] = []
+  const walk = (dir: string): void => {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (path.resolve(full) === path.resolve(trashDir)) continue
+        walk(full)
+      } else if (entry.name === `${id}.md`) {
+        sources.push(full)
+      }
+    }
+  }
+  walk(taskDir)
+
+  if (sources.length === 0) {
+    // 活跃/归档区已无此任务：若回收站里已有那份，就是「早就删过了」，幂等成功
+    if (fs.existsSync(path.join(trashDir, `${id}.md`))) return true
+    return false
+  }
+
+  // 按 mtime 从旧到新移动：让**最新的那份最后落位**、占住规范名 `${id}.md`，
+  // 否则 readTask / 幂等判断会读到旧副本（2026-09-25）。
+  const ordered = sources
+    .map((p) => ({ p, m: (() => { try { return fs.statSync(p).mtimeMs } catch { return 0 } })() }))
+    .sort((a, b) => a.m - b.m)
+  for (const { p: src } of ordered) {
+    moveIntoDir(src, trashDir)
+  }
   // 2026-09-23 修复批量假删除：文件已移走但缓存未失效 → loadAll() 重读命中旧缓存 →
   // 已删任务仍在列表里。对比 archiveTask()（L357）有调 invalidateTaskCache()。
   invalidateTaskCache()
@@ -353,10 +466,11 @@ export function archiveTask(id: string): Task | null {
   const t = readTask(id)
   if (!t) return null
   const archiveDir = path.join(getTaskDir(), 'archive')
-  fs.mkdirSync(archiveDir, { recursive: true })
-  const dest = path.join(archiveDir, path.basename(t.path))
-  if (path.resolve(t.path) !== path.resolve(dest)) {
-    fs.renameSync(t.path, dest)
+  if (path.resolve(t.path) !== path.resolve(path.join(archiveDir, path.basename(t.path)))) {
+    // ⚠ 旧实现目标存在时 `fs.rmSync(t.path)` —— 直接**销毁刚归档的那份（当前版本）**、
+    //   留下归档区里的陈旧副本，是静默数据丢失。moveIntoDir 改为「新的占规范名、旧的改名让位」，
+    //   两份都保留（2026-09-25）。
+    moveIntoDir(t.path, archiveDir)
     invalidateTaskCache()
     logActivity(id, 'archived')
   }
@@ -367,9 +481,11 @@ export function archiveTask(id: string): Task | null {
 export function unarchiveTask(id: string): Task | null {
   const t = readTask(id)
   if (!t) return null
-  const dest = path.join(getTaskDir(), path.basename(t.path))
-  if (path.resolve(t.path) !== path.resolve(dest)) {
-    fs.renameSync(t.path, dest)
+  const activeDir = getTaskDir()
+  if (path.resolve(t.path) !== path.resolve(path.join(activeDir, path.basename(t.path)))) {
+    // 同 archiveTask：旧实现在活跃区已有同名副本时 rmSync 源文件（销毁归档区那份），
+    // 改为 moveIntoDir —— 更新的占规范名、旧的改名保留（2026-09-25）。
+    moveIntoDir(t.path, activeDir)
     invalidateTaskCache()
     logActivity(id, 'unarchived')
   }

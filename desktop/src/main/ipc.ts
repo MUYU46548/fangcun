@@ -679,8 +679,15 @@ export function registerIpcHandlers(): void {
     return launchpad.removeApp(id)
   })
 
-  guardedHandle('launchpad:launchApp', (_event, appConfig: any) => {
-    return launchpad.launchApp(appConfig)
+  guardedHandle('launchpad:launchApp', async (_event, appConfig: any) => {
+    // 这一层兜住执行器的抛出：抛出去只会让渲染层拿到一个没有信息的 rejected promise，
+    // 用户看到的是"点了没反应"。改成返回 {ok:false,message} —— 至少界面上有一句话。
+    try {
+      return await launchpad.launchApp(appConfig)
+    } catch (e: any) {
+      appLog.error('launchpad', '启动通道异常', e?.stack || e)
+      return { ok: false, message: `启动失败: ${e?.message || e}` }
+    }
   })
 
   guardedHandle('launchpad:openFolder', (_event, folderPath: string) => {

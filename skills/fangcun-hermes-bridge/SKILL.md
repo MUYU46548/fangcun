@@ -1,13 +1,20 @@
-# 方寸 ↔ Hermes 连接卡（参考稿）
-
-**本文件是 Hermes 专属优化指南的参考稿。**
-
-**安装方式**：复制到 `~/.hermes/skills/fangcun-hermes-bridge/` 后重启 Hermes。
-**注意**：本文件不随方寸安装包自动部署，需要用户手动安装。
-
+---
+name: fangcun-hermes-bridge
+description: 方寸（tegula）↔ Hermes 接线卡。要主动查询/修改方寸任务、读项目状态或阻塞链时加载：named pipe MCP 自检、工具边界、写操作规则。
+version: 1.1.0
+metadata:
+  hermes:
+    tags: [fangcun, 方寸, mcp, bridge, 接线卡]
+    category: integration
 ---
 
 # 方寸 ↔ Hermes 连接卡
+
+**仓库真源**：`fangcun/skills/fangcun-hermes-bridge/SKILL.md`（本文件是它的副本）。
+方寸桌面版**首次启动会自动装卡**到 `~/.hermes/skills/`（`skills/manifest.json` 登记，hash 比对后覆盖）。
+Hermes 侧是可焚毁区：发现本卡有误 → 不动 Hermes 侧文件，产出建议给暮雨 → 改仓库真源 + commit → 下次装卡带走（见 `skill-management-policy`）。
+
+---
 
 ## 何时使用
 
@@ -45,20 +52,24 @@ node dist/cli/tegula-mcp.js
    ```
    期望返回含 `result` 的 JSON-RPC 响应。如果报 `ECONNREFUSED` 或超时 → 桌面版未运行或 pipe 未就绪，**停止调用并报错**，不静默回退。
 
-## 边界
+## 工具清单（真源 `desktop/src/main/mcp/tools.ts`，下面是快照）
 
-**允许**（通过 MCP 调用）：
-- `list_tasks` / `search_tasks` / `get_task` — 读任务
-- `create_task` / `update_task` / `move_status` / `delete_task` — 写任务
-- `list_projects` / `get_project_status` — 读项目状态
-- `find_blockers` / `scan_services` / `get_roadmap` — 读项目数据
-- `plan_list` / `plan_get` / `plan_pending` — 读规划
-- `gate_list` — 读验收门
+**读**：`list_tasks` / `search_tasks` / `get_task` / `list_projects` / `get_project_status` /
+`find_blockers` / `scan_services` / `get_roadmap` / `get_data_dir` / `plan_list` / `plan_get` / `plan_pending` / `gate_list`
+
+**写**：`create_task` / `update_task` / `move_status` / `delete_task`
+
+> 快照会滞后。以 tools.ts 为准；新增工具后回来补这一行。
 
 **写操作规则**：
 - `create_task` / `update_task` 等写操作通过 MCP 调用（桌面版已登录用户身份）
 - 乐观锁：`update_task` 使用 `expected_update` 字段防止冲突
 - `delete_task` = 移入 `.trash/`（可恢复），不是真删除
+
+## 边界
+
+- 只通过 MCP 读写方寸数据；不直接改 `task-data/*.md`（绕过乐观锁与审计）
+- 数据根不确定时先 `get_data_dir` 确认，不要在文件系统里猜目录（数据根可能被用户改到别处）
 
 ## 绒花墨坊（NovelForge）
 

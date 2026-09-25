@@ -22,6 +22,7 @@
 |---|---|---|
 | 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份（224） |
 | 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）** |
+| 任务删除/归档健壮性 | `node scripts/test/e2e-task-delete.cjs` | **同名重复副本（archive/ 与 .trash/ 同 id）下 delete/archive/unarchive 不抛异常、幂等、去重；readTask 优先活跃区** |
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
 | 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式 |
@@ -35,6 +36,16 @@
 
 > ⚠ `e2e-renderer.cjs` 在无窗口/受限环境会以 `RESULT SKIP` 结束（网络服务被限制，任何非 data: 页面加载都 ERR_FAILED）。
 > 那是**环境不可用**，不是通过也不是失败；请在有桌面会话的机器上跑。
+
+> ✅ **2026-09-25 已修复（此前两条红是测试自身/类型缺陷，不是产品坏）**
+> - `e2e-calendar.cjs`：根因是 `buildMonth<T, D, L>` 的 **`D`/`L` 只写了默认值、没加 `extends` 约束**
+>   → 函数体里 `td.done/log.status/...` 全 TS2339 → `tsc calendar.ts` 编译不过 → 本套自 09-23 起从未跑起来
+>   （跨月/时间段算术**一直无回归保护**）。已补 `D extends CalTodoLike` / `L extends CalLogLike`
+>   并把 `CalEvent<T,D>`/`CalMonthResult.cells` 等漏掉 L 的泛型补齐。**现 50/0。**
+> - `e2e-logs.cjs`：`logs.createLog()` 早已改为返回 `{ok,data,error}`，而测试仍按旧签名取 `a.id`
+>   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
+>   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
+> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯；本机实测合计 **450**。
 
 ## 架构速查 (Quick Facts)
 
@@ -59,7 +70,7 @@
 | 子命令数 | 54 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **224** / e2e **九套（69+118+81+8+24+13+50+28+32）** + 三类静态守卫 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **224** / e2e **十套合计 459**（backup69+task-fields118+notifications81+datadir8+applog24+launchpad13+calendar50+logs31+renderer26+task-delete39）+ 三类静态守卫 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

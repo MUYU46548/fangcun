@@ -207,10 +207,10 @@ function scanMainRegistrations() {
  * 从 package.json main（dist/index.js）反推源码入口，并求 import 可达集。
  *
  * ⚠ 2026-09-22 修正：tsconfig.main.json 的 rootDir 是 ./src，
- * 所以 `dist/index.js` ← `src/index.ts`（真入口），
- * 而 `src/main/index.ts` 是个**从不被加载的假入口**。
- * 旧实现硬编码成 src/main/index.ts，于是"可达集"算的是假入口的图 ——
- * 会把真入口实际接线的模块误报成「未接线」（updater 就是这样被误判的）。
+ * 所以 `dist/index.js` ← `src/index.ts`（真入口）。
+ * 2026-09-25：`src/main/index.ts` 这个**从不被加载的假入口已删除**（它曾让备份 IPC 全成僵尸，
+ * 还每次构建都往 dist/main/index.js 塞一份死代码）。下面第二个候选保留只为兼容旧检出，
+ * 文件不存在时会自动落到真入口。
  */
 function scanReachable() {
   const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf-8'))

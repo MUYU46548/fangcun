@@ -39,7 +39,9 @@
           <option value="today">今天到期</option>
           <option value="week">本周到期</option>
         </select>
-        <label class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
+        <!-- 「含归档」只在活跃视图有意义（把归档任务也列进看板/搜索）。
+             归档视图里它只会造成"同一批任务是否重复出现"的困惑，所以直接隐藏（2026-09-25）。 -->
+        <label v-if="curView !== 'archive'" class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
         <select v-model="sortMode">
           <option value="active">活跃优先</option>
           <option value="updated">最近更新</option>
@@ -95,6 +97,10 @@
         <span>日志文件：<code>{{ appLogFile || '（未取到）' }}</code></span>
         <button class="ghost" @click="copyAppLogPath">复制路径</button>
         <button class="ghost" @click="openAppLogDir">打开目录</button>
+        <!-- 收起按钮必须长在这里：上一条「忽略」会清空 appErrors，而「收起」原先只存在于
+             errbar 里（v-if="appErrors.length"）—— 一按忽略，errbar 整条消失，
+             日志抽屉就再也关不掉了（用户 2026-09-25 第 4 条）。 -->
+        <button class="ghost" title="关闭日志抽屉" @click="appErrOpen = false">收起</button>
       </div>
       <pre class="errpanel-body">{{ appLogTail.join('\n') || '（日志为空）' }}</pre>
     </div>
@@ -117,7 +123,7 @@
 
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
-      <span>📋 归档视图：此处仅显示已完成/驳回的任务。归档操作只能由你亲自判定，不会自动执行。</span>
+      <span>📋 归档视图：此处只显示 <strong>文件已移入 task-data/archive/ 的任务</strong>（归档的唯一判定标准是文件路径，不是状态）。归档操作只能由你亲自判定，不会自动执行。</span>
       <button @click="closeArchiveHint">知道了</button>
     </div>
 
@@ -155,7 +161,7 @@
           draggable="true"
           @dragstart="onDragStart($event, t.id)"
           @dragend=""
-          @click="openCard(t)"
+          @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
           @contextmenu.prevent="openCardMenu($event, t)"
         >
           <div class="card-head">
@@ -218,6 +224,11 @@
               <div class="l">{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</div>
             </div>
           </div>
+          <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在「设置」最底部，
+               找不着；这里放在项目卡上，一眼可见，且不必先关设置。 -->
+          <button class="ghost pv-policy" @click.stop="openPolicyEdit(p.id)">
+            {{ policyMap[p.id] ? '📋 方针已立 · 查看/编辑' : '＋ 立项目方针' }}
+          </button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -398,10 +409,7 @@
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           </div>
           <div class="log-card-actions" @click.stop>
-            <!-- 「复制为提示词」是产品定位里的核心动作（日志 = 提示词暂存与传递的主战场）：
-                 后端 logs:inject 早就写好并注册了，但界面一直没有入口 ——
-                 属于"功能在、没人调用"这一类（同 openReview）。 -->
-            <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制为提示词</button>
+            <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
             <button v-if="log.status === 'active'" class="ghost" @click="completeLogItem(log.id)">完成</button>
             <button v-if="log.status !== 'archived'" class="ghost" @click="archiveLogItem(log.id)">归档</button>
             <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
@@ -521,6 +529,8 @@
               title="从归档/终态还原回「待办」"
               @click="restoreTask(previewTask)"
             >↩ 还原</button>
+            <!-- 终态的「删除」不放这里：它与「操作」组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
+                 底部「操作」组的删除对任何状态都在，单一入口，不重复。 -->
             <template v-else>
               <!-- 验收裁决弹窗（accept / reject + 驳回理由）此前**没有任何入口** ——
                    后端 review:accept / review:reject 通道齐全，openReview 也写好了，
@@ -2511,14 +2521,25 @@ async function saveEdit() {
 }
 
 async function deleteTask(id: string) {
-  if (!confirm('确定删除此任务？')) return
-  const result = await window.tegula.deleteTask(id)
-  if (result) {
-    previewTask.value = null
-    showToast('已删除', 'success')
-    loadAll()
-  } else {
-    showToast('删除失败：任务不存在', 'error')
+  if (!confirm('确定删除此任务？\n会移入 task-data/.trash，可人工找回。')) return
+  // 主进程这次可能抛异常（历史上：目标同名文件已存在于 .trash → renameSync 抛 →
+  // 这里没有 try/catch → 按钮点了完全没反应，用户 2026-09-25 第 5 条）。
+  // 任何失败都必须变成看得见的一句话 + 日志留痕。
+  try {
+    const result = await window.tegula.deleteTask(id)
+    if (result) {
+      previewTask.value = null
+      showToast('已删除', 'success')
+      loadAll()
+    } else {
+      const msg = `删除失败：任务不存在（${id}）`
+      showToast(msg, 'error')
+      appErrors.value.push({ scope: 'deleteTask', message: msg, at: Date.now() })
+    }
+  } catch (e: any) {
+    const msg = `删除「${id}」失败：${e?.message || e}`
+    showToast(msg, 'error')
+    appErrors.value.push({ scope: 'deleteTask', message: msg, at: Date.now() })
   }
 }
 
@@ -2753,7 +2774,10 @@ const filteredTasks = computed(() => {
     return naturalResults.value
   }
   let result = [...tasks.value]
-  if (searchIncludeArchive.value && archivedTasks.value.length > 0) {
+  // 「含归档」只服务于活跃视图与搜索：归档视图的 tasks.value 本身就是 loadTasks('archive') 的结果，
+  // 再把 archivedTasks 拼进来 = 同一批任务各出现两次（用户 2026-09-25：「归档页签内是否勾选含归档
+  // 会出现不同显示效果，不是应该只显示归档内容吗」）。
+  if (curView.value !== 'archive' && searchIncludeArchive.value && archivedTasks.value.length > 0) {
     result = [...result, ...archivedTasks.value]
   }
   if (curProj.value !== '__all__') {
@@ -3939,6 +3963,21 @@ function refreshApps() {
 }
 
 async function launchAppClick(app: any) {
+  const t: any = (window as any).tegula || {}
+  // 先落一条「渲染层点了启动」的痕迹再调主进程。
+  // 理由：2026-09-25 用户报「启动台依旧报错」，但日志里**一条 launchpad 记录都没有** ——
+  // 分不清是"没点"还是"点了但主进程没收到/主进程是旧代码"。这条线一写，两种情况立刻可分。
+  try {
+    await t.applogWrite?.('INFO', 'launchpad-ui', `点击启动：${app?.name || app?.id || '(未知)'}`,
+      JSON.stringify({ cmd: app?.cmd, path: app?.path, hasLaunchApi: typeof t.launchpadLaunchApp === 'function' }))
+  } catch { /* 日志写不进去也不能挡住启动 */ }
+
+  if (typeof t.launchpadLaunchApp !== 'function') {
+    const msg = '当前运行的主进程/预加载是旧版本，没有启动台接口 —— 请托盘右键「退出」后重新启动'
+    showToast(msg, 'error')
+    appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
+    return
+  }
   try {
     const result = await window.tegula.launchpadLaunchApp(app)
     showToast(result.message, result.ok ? 'success' : 'error')
@@ -4169,7 +4208,7 @@ async function openAppLogDir(): Promise<void> {
  */
 async function checkRuntimeFreshness(): Promise<void> {
   const t: any = (window as any).tegula || {}
-  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'logsUpdate']
+  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'logsUpdate', 'launchpadLaunchApp']
   const missing = need.filter(k => typeof t[k] !== 'function')
   if (missing.length) {
     pushRuntimeStale(`preload 未暴露新接口：${missing.join('、')}`)
@@ -4284,7 +4323,9 @@ onMounted(() => {
     })
     t.onUpdateError((d: any) => {
       updateState.value.checked = true
+      updateState.value.busy = false
       updateState.value.msg = '更新出错：' + (d?.message || '未知')
+      showToast('更新出错：' + (d?.message || '未知'), 'error')
     })
   }
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
@@ -4968,7 +5009,13 @@ button:not([class]) {
 .policy-name { flex: 1; font-size: 12px; font-weight: 600; }
 .policy-state { font-size: 10px; color: var(--muted); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; }
 .policy-state.has { color: #5e9154; border-color: #5e9154; }
+/* 项目卡上的方针入口：卡内全宽小按钮，颜色弱化，不抢主统计的视线 */
+.pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
 #policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+/* 方针弹窗必须盖在设置面板之上：两者都用 .overlay（z-index:60），而设置面板在 DOM 里更靠后，
+   同层级下后出现的赢 —— 于是从设置里点方针，弹窗被设置整个盖住（用户 2026-09-25 第 3 条）。
+   给方针overlay 一个更高的层级，任何入口点进来都看得见。 */
+#policy-overlay { z-index: 90; }
 #policy-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #policy-modal label { font-size: 11px; color: var(--muted); margin: 8px 0 4px; display: block; }
 #policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
