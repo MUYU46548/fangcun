@@ -1332,6 +1332,111 @@ async function main() {
   check('★ 待办菜单里没有托盘项（用户口径：这批不动托盘）',
     await js(`!/托盘|Tray/i.test(document.querySelector('.ctx-menu.ctx-other') ? document.querySelector('.ctx-menu.ctx-other').textContent : '')`))
 
+  // ── 21. 「遮罩挡字」与主题可读性（2026-09-27 用户第 2/3 条）────────────
+  // ① 拖拽提示必须自己消失。模拟「拖进窗口又取消」（Esc / 拖出窗口 / 松手在窗口外）——
+  //    这三种收场都不会有 drop，也不保证有 dragleave；OS 文件拖拽的 dragend 只发给拖动源，
+  //    页面收不到 ⇒ 修前实测：待办提示永久留在屏幕上（96% 不透明的色块，正压着正文第一行）。
+  // ② 任何位置都不该有东西盖在文字上面。
+  // ③ 文字对比度 ≥ 4.5（WCAG AA）。唯一豁免：日历「过去日期」的日号（刻意压暗，≥3.0）。
+  const AUDIT_JS = `(() => {
+    const vis = (el) => {
+      if (!el || el.nodeType !== 1) return false
+      const s = getComputedStyle(el)
+      if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return false
+      const r = el.getBoundingClientRect()
+      return r.width > 1 && r.height > 1
+    }
+    const rgba = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(',').map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1] }
+    const blend = (f, b) => f.slice(0, 3).map((c, i) => c * f[3] + b[i] * (1 - f[3]))
+    const lum = (c) => { const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2] }
+    const effBg = (el) => {
+      const chain = []; let n = el
+      while (n && n.nodeType === 1) { chain.unshift(n); n = n.parentElement }
+      let acc = [255, 255, 255]
+      for (const nd of chain) { const c = rgba(getComputedStyle(nd).backgroundColor); if (c && c[3] > 0) acc = blend(c, acc) }
+      return acc
+    }
+    const vw = innerWidth, vh = innerHeight
+    const covered = [], low = []
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    let n
+    while ((n = w.nextNode())) {
+      const t = (n.nodeValue || '').trim()
+      if (t.length < 2) continue
+      const el = n.parentElement
+      if (!vis(el)) continue
+      const s = getComputedStyle(el)
+      // ① 盖字：文字中心点被别的元素命中
+      const rg = document.createRange(); rg.selectNodeContents(n)
+      const rect = rg.getBoundingClientRect()
+      if (rect.width >= 3 && rect.height >= 3 && rect.bottom > 0 && rect.top < vh) {
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
+        // 中心点必须真的在视口内 —— 看板是横向滚动的，滚出右边界那条列的列头会被
+        // 夹到视口边缘、命中另一列（假阳性，2026-09-27 实测踩过）
+        if (cx >= 0 && cy >= 0 && cx < vw && cy < vh) {
+          const hit = document.elementFromPoint(cx, cy)
+          if (hit && !(hit === el || el.contains(hit) || hit.contains(el))) {
+            const hn = typeof hit.className === 'string' ? hit.className : hit.tagName
+            const hr = hit.getBoundingClientRect()
+            const hs = getComputedStyle(hit)
+            covered.push(t.slice(0, 18) + ' [' + (typeof el.className === 'string' ? el.className : el.tagName) + ' ← ' + hn
+              + ' pos=' + hs.position + ' z=' + hs.zIndex + ' 文字@' + Math.round(rect.left) + ',' + Math.round(rect.top)
+              + ' 盖层@' + Math.round(hr.left) + ',' + Math.round(hr.top) + ' ' + Math.round(hr.width) + 'x' + Math.round(hr.height) + ']')
+          }
+        }
+      }
+      // ② 对比度
+      const fg = rgba(s.color); if (!fg) continue
+      const bg = effBg(el)
+      const cr = (() => { const a = blend(fg, bg), l1 = lum(a), l2 = lum(bg); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05) })()
+      const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 600
+      // 豁免：日历「过去日期」的日号 —— 刻意压暗表示已过去，按图形对象 3.0 要求
+      const past = el.classList.contains('dnum') && !!el.closest('.calcell.past')
+      const need = past ? 3 : (size >= 24 || (size >= 18.66 && bold)) ? 3 : 4.5
+      if (cr < need) low.push(t.slice(0, 20) + ' ' + s.color + ' ' + Math.round(size) + 'px ' + cr.toFixed(2) + '<' + need)
+    }
+    return { covered, low }
+  })()`
+
+  const AUDIT_VIEWS = ['看板', '待办', '日志', '项目', '阻塞', '路线图', '日历', '归档', '回收站', '启动台', '技能', '服务']
+
+  // ① 拖拽提示自愈（不靠 drop / dragleave）
+  await js(CLICK_BY_TEXT('待办'))
+  check('（环境）能切到待办视图', await waitFor(`!!document.querySelector('main.todos-view')`, 6000, '待办视图'))
+  await js(`(() => { const z = document.querySelector('main.todos-view'); const dt = new DataTransfer()
+    z.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: dt }))
+    z.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt })); return 1 })()`)
+  await sleep(150)
+  check('★ 拖文件进待办时出现「松手导入」提示', await js(`!!document.querySelector('.todo-drop-hint')`))
+  await sleep(1700)
+  check('★ 拖拽被取消（无 drop/dragleave）后提示自己消失，不再永久盖住正文',
+    !(await js(`!!document.querySelector('.todo-drop-hint') || !!document.querySelector('.drop-hint.global')`)))
+
+  // 技能页自己有投放区 —— 不该再被误判成「本页不支持导入」并盖一层全局灰条
+  await js(CLICK_BY_TEXT('技能'))
+  await sleep(500)
+  await js(`(() => { const z = document.querySelector('main.skills-view'); const dt = new DataTransfer()
+    z.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt })); return 1 })()`)
+  await sleep(200)
+  check('★ 技能页拖拽不再被误判成「本页不支持导入」',
+    !(await js(`!!document.querySelector('.drop-hint.global')`)))
+  await sleep(1600)
+  check('★ 技能页投放遮罩也会自己消失', !(await js(`!!document.querySelector('.skills-dropmask')`)))
+
+  // ② ③ 逐页签静态审计（盖字 + 对比度）
+  const badViews = []
+  let coveredTotal = 0, lowTotal = 0
+  for (const v of AUDIT_VIEWS) {
+    if (!(await js(CLICK_BY_TEXT(v)))) continue
+    await sleep(420)
+    const r = await js(AUDIT_JS)
+    coveredTotal += r.covered.length
+    lowTotal += r.low.length
+    if (r.covered.length || r.low.length) badViews.push(`${v}[盖${r.covered.length}/低${r.low.length}: ${[...r.covered.slice(0, 1), ...r.low.slice(0, 2)].join(' ; ')}]`)
+  }
+  check('★ 12 个页签都没有元素盖在文字上面（遮罩挡字）', coveredTotal === 0, badViews.slice(0, 2).join(' | '))
+  check('★ 12 个页签文字对比度全部达 WCAG AA 4.5（日历过去日期按 3.0 豁免）', lowTotal === 0, badViews.slice(0, 2).join(' | '))
+
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

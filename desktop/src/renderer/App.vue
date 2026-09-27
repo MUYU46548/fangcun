@@ -1,7 +1,7 @@
 <template>
   <div id="app"
     @dragenter.prevent="dragEnter('global')"
-    @dragover.prevent
+    @dragover.prevent="dragPulse()"
     @dragleave="dragLeave('global')"
     @drop="onAppDrop"
   >
@@ -272,7 +272,7 @@
     <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块「看得见 + 能复制」的说明面板 -->
     <main id="board" class="skills-view" v-else-if="curView === 'skills'"
           @dragover.prevent="onSkillsDragOver" @dragleave="onSkillsDragLeave" @drop.prevent="onSkillsDrop">
-      <div v-if="skillsDragging" class="skills-dropmask">
+      <div v-if="skillsDropMaskVisible" class="skills-dropmask">
         <div class="skills-dropmask-inner">
           <div class="skills-dropmask-icon">📥</div>
           <div>松手即导入 —— 支持文件夹、.zip（内含 SKILL.md）或 .md（带 YAML 的 name + description）</div>
@@ -526,7 +526,7 @@
     <!-- Todos view -->
     <main id="board" class="todos-view" v-else-if="curView === 'todos'"
       @dragenter.prevent="dragEnter('todo')"
-      @dragover.prevent
+      @dragover.prevent="dragPulse()"
       @dragleave="dragLeave('todo')"
       @drop="onTodoDrop"
       :class="{ 'drop-target': todoDragOver }"
@@ -641,7 +641,7 @@
     <!-- Logs view -->
     <main id="board" class="logs-view" v-else-if="curView === 'logs'"
       @dragenter.prevent="dragEnter('log')"
-      @dragover.prevent
+      @dragover.prevent="dragPulse()"
       @dragleave="dragLeave('log')"
       @drop="onLogDrop"
       :class="{ 'drop-target': logDragOver }"
@@ -3180,6 +3180,7 @@ function dropPaths(dt: DataTransfer | null): string[] {
 }
 
 function onSkillsDragOver(ev: DragEvent): void {
+  dragPulse() // 吃全局心跳，拖拽收场拿不到事件时遮罩也会自己消失
   skillsDragging.value = true
   // 拖拽进入子元素会触发 dragleave，靠这一行把状态稳住（否则遮罩闪）
   if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy'
@@ -4504,30 +4505,68 @@ async function executeTodoAdd() {
 //       进出用 dragenter/dragleave **深度计数**，drop/dragend 统一归零。
 const dragDepth = reactive<Record<'todo' | 'log' | 'global', number>>({ todo: 0, log: 0, global: 0 })
 
+// ── 心跳兜底（2026-09-27 用户：「那个怪异遮罩挡字的问题好像一直没修」）────────
+// 症状：提示偶尔**永久留在屏幕上盖住正文**。.drop-hint.global / .todo-drop-hint 是 97% 不透明
+//       的整条色块（顶部居中，正压着内容第一行），一旦留下，不重新拖一次文件就再也不消失。
+// 真因：可见性只看 dragenter/dragleave 的**深度计数**，而拖拽的三种收场里两种拿不到配平事件：
+//   ① 按 Esc 取消；② 松手在窗口外 / 拖出窗口 —— 这两种**都不会有 drop**；
+//   而 OS 级文件拖拽的 dragend 只发给拖动**源**（资源管理器），页面永远收不到 ——
+//   所以下面 onMounted 里那两个 window 'dragend'/'drop' 监听对文件拖拽形同虚设。
+//   且计数泄漏后没有任何东西会把它拉回去 ⇒ 遮罩常驻。
+// 处置：计数继续负责「精确进出」，另加一条**心跳**：任何拖拽事件都刷新时间戳，
+//   静默超过 DRAG_IDLE_MS 就整体归零（真拖拽时 dragover 每 ~350ms 必来一次，不会误杀）。
+const DRAG_IDLE_MS = 700
+/** 拖拽是不是**真的还在进行**：待办/日志/全局/技能四类提示一律以它为准 */
+const dragAlive = ref(false)
+let dragLastAt = 0
+let dragTimer: ReturnType<typeof setTimeout> | null = null
+
+function dragPulse(): void {
+  dragLastAt = Date.now()
+  dragAlive.value = true
+  if (!dragTimer) dragTimer = setTimeout(dragIdleCheck, 250)
+}
+function dragIdleCheck(): void {
+  dragTimer = null
+  if (Date.now() - dragLastAt > DRAG_IDLE_MS) { dragResetAll(); return }
+  dragTimer = setTimeout(dragIdleCheck, 250)
+}
+
 function dragEnter(zone: 'todo' | 'log' | 'global'): void {
+  dragPulse()
   dragDepth[zone] = (dragDepth[zone] || 0) + 1
 }
 function dragLeave(zone: 'todo' | 'log' | 'global'): void {
+  dragPulse()
   dragDepth[zone] = Math.max(0, (dragDepth[zone] || 0) - 1)
 }
 function dragResetAll(): void {
   dragDepth.todo = 0
   dragDepth.log = 0
   dragDepth.global = 0
+  dragAlive.value = false
+  dragLastAt = 0
+  if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
 }
 
-const todoDragOver = computed(() => dragDepth.todo > 0)
-const logDragOver = computed(() => dragDepth.log > 0)
+/** 自己有投放区、能收文件的页签 —— 全局兜底提示要避开它们。
+ *  漏了技能页会把「本页不支持导入」的假提示盖在一个**明明支持导入**的页面上（2026-09-27 实测）。 */
+const DROP_IMPORT_VIEWS: string[] = ['todos', 'logs', 'skills']
+
+const todoDragOver = computed(() => dragAlive.value && dragDepth.todo > 0)
+const logDragOver = computed(() => dragAlive.value && dragDepth.log > 0)
 /** 当前页签不支持导入时，全局兜底提示（明确告诉用户去哪，而不是毫无反应） */
 const globalDropHint = computed(() =>
-  dragDepth.global > 0 && curView.value !== 'todos' && curView.value !== 'logs')
+  dragAlive.value && dragDepth.global > 0 && !DROP_IMPORT_VIEWS.includes(curView.value))
+/** 技能页投放遮罩：同样吃心跳，避免拖拽收场拿不到事件时遮罩留在屏幕上 */
+const skillsDropMaskVisible = computed(() => skillsDragging.value && dragAlive.value)
 
 /** 拖到不支持导入的页签：给一句明确指引，并重置计数 */
 function onAppDrop(e: DragEvent): void {
   dragResetAll()
-  if (curView.value === 'todos' || curView.value === 'logs') return
+  if (DROP_IMPORT_VIEWS.includes(curView.value)) return
   e.preventDefault()
-  showToast('当前页签不支持导入文件 —— 请到「待办」或「日志」页签再拖入', 'info')
+  showToast('当前页签不支持导入文件 —— 请到「待办」「日志」或「技能」页签再拖入', 'info')
 }
 
 function onTodoDrop(e: DragEvent) {
@@ -5897,13 +5936,15 @@ onMounted(() => {
   window.addEventListener('fc-app-error', onAppError as EventListener)
   loadAppLogPath()
   checkRuntimeFreshness()
-  // 拖拽计数兜底归零：拖出窗口 / 在窗口外松手时不会有 drop，计数会泄漏
+  // 拖拽计数兜底归零：**只对页面内自己拖的元素有效**（那时 dragend/drop 会落在 window 上）。
+  // OS 文件拖拽（资源管理器拖进来）收场时这两个监听都收不到 —— 真正兜底的是 dragPulse 心跳。
   window.addEventListener('dragend', dragResetAll)
   window.addEventListener('drop', dragResetAll)
 })
 
 onUnmounted(() => {
   if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
+  if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
   document.removeEventListener('mousedown', onDocumentClick)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('keydown', onShortcutKeydown)
@@ -5915,18 +5956,24 @@ onUnmounted(() => {
 
 <style>
 :root {
+  /* 2026-09-27（用户：「不同颜色主题外观下文本可读性可能很差」）：全量对比度实测后按实测值调整。
+     原来：白字压 --accent(#9b8fc4) = 2.95、强调色文字压浅底 = 2.59~2.95、--danger 白字 3.65、
+     --muted 压浅底 4.28、--warning 白字 2.24 —— 全都在 WCAG AA（4.5）以下，观感就是「发灰、发虚」。
+     调法：同色相压深一档（不换色相、不动 --accent-soft 这条雾感装饰色），
+     让「做文字」和「当底色配白字」这两种用法同时过 4.5。实测见 e2e-a11y。 */
+  color-scheme: light;   /* Windows 暗色外观下，原生控件/滚动条不再翻成深色与浅色界面打架 */
   --bg: #eef0f4;
   --ink: #3c4150;
-  --muted: #6b7180;
-  --accent: #9b8fc4;
+  --muted: #626775;      /* 4.28 → 4.95（压 --bg） */
+  --accent: #705fab;     /* 白字 2.95 → 5.37；做文字压 --bg 2.59 → 4.70 */
   --accent-soft: #c3bce0;
   --card: #ffffff;
   --border: #e4e2ee;
   --shadow: 0 8px 32px rgba(90,90,130,0.12);
   --radius: 18px;
-  --success: #5e9154;
-  --warning: #d9a44a;
-  --danger: #c96a6a;
+  --success: #54814b;    /* 白字 3.71 → 4.55 */
+  --warning: #986b20;    /* 白字 2.24 → 4.71 */
+  --danger:  #b44141;    /* 白字 3.65 → 5.57 */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -6178,7 +6225,7 @@ button:not([class]) {
 .ttl { font-size: 13px; font-weight: 600; line-height: 1.4; }
 .batch { display: inline-block; background: var(--accent-soft); color: #4a4368; border-radius: 6px; font-size: 10px; padding: 1px 6px; margin-right: 5px; font-weight: 600; }
 .st { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-.st-draft { background: #eceded; color: #7a7f8c; }
+.st-draft { background: #eceded; color: #5f6672; }
 .st-review { background: #fef3c7; color: #92400e; }
 .st-todo { background: #e0e7ff; color: #3730a3; }
 .st-doing { background: #c7d2fe; color: #3730a3; }
@@ -6357,7 +6404,7 @@ button:not([class]) {
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .lp-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; box-shadow: var(--shadow); }
 .lp-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
-.lp-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
+.lp-icon { width: 36px; height: 36px; border-radius: 8px; background: #f0edfa; color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
 .lp-info { flex: 1; min-width: 0; }
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-desc { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -6416,7 +6463,7 @@ button:not([class]) {
 .batch-bar .ghost { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
 
 
-.nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
+.nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #f0edfa; color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
 
 /* Blockers view */
 .blockers-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -6717,7 +6764,7 @@ button:not([class]) {
 .calcell.blank { background: transparent; border: 0; }
 .calcell.today { border-color: var(--accent); background: #f8f6fe; box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
 .calcell.past { background: #fbf7f7; }
-.calcell.past .dnum { color: #c4bfd0; }
+.calcell.past .dnum { color: #767b8b; }
 .calcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: #f1eefb; }
 .dnum { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
 .calcell.today .dnum { color: #fff; background: var(--accent); border-radius: 999px; }
@@ -6778,7 +6825,7 @@ button:not([class]) {
 .todo-drop-hint, .log-drop-hint, .drop-hint {
   position: fixed; left: 50%; top: 92px; transform: translateX(-50%);
   z-index: 60; pointer-events: none;
-  background: rgba(155,143,196,.97); color: #fff;
+  background: rgba(112,95,171,.96); color: #fff;
   border-radius: 999px; padding: 8px 18px;
   font-size: 12px; font-weight: 700; white-space: nowrap;
   box-shadow: 0 8px 24px rgba(90,90,130,.28);
@@ -6842,7 +6889,7 @@ button:not([class]) {
 .log-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; }
 .log-status-badge.active { background: #dbeafe; color: #1d4ed8; }
 .log-status-badge.completed { background: #dcfce7; color: #166534; }
-.log-status-badge.archived { background: #f3f4f6; color: #6b7280; }
+.log-status-badge.archived { background: #f3f4f6; color: #5f6672; }
 .log-card-title { flex: 1; font-size: 13px; font-weight: 600; }
 .log-card-date { font-size: 10.5px; color: var(--muted); }
 .log-card-body { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
@@ -6914,7 +6961,7 @@ button:not([class]) {
   background: linear-gradient(90deg, #f1eefe 0%, #fff 55%);
   box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.22), var(--shadow);
 }
-.log-card.active .log-status-badge.active { background: #6366f1; color: #fff; }
+.log-card.active .log-status-badge.active { background: #5a5ce0; color: #fff; }
 .log-card.active .log-card-title { color: #3730a3; }
 /* 列表首行 = 最新一份（按最后更新倒序）—— 面对一堆 .zip 时不用自己找 */
 .bk-newest { flex: none; font-size: 10px; font-weight: 700; color: #3f6b3a; background: #e3f1de; border: 1px solid #bcd4b4; border-radius: 99px; padding: 1px 7px; }

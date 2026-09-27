@@ -121,6 +121,23 @@ function main() {
   check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
     /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
 
+  // D13–D15（2026-09-27 用户第 2/3 条：「怪异遮罩挡字」+「不同颜色外观下可读性差」）
+  //   D13 Python 版看板还有 13 处 backdrop-filter（含常驻顶栏）——同一条铁律只清了桌面版，
+  //       这次扫到就把两个前端一起钉住（判据仍是「全文件零容忍」）。
+  //   D14 两个前端共用同一套设计令牌：改一处忘另一处 = 同一个界面两副面孔。
+  //   D15 遮罩不许再有「全屏 + 带 blur」的形状（死 CSS 也算：留着会让人以为真有这一层）。
+  const board = fs.readFileSync(path.join(ROOT, 'templates', 'board.html'), 'utf8')
+  const boardNoComment = board.replace(/\/\*[\s\S]*?\*\//g, '')
+  const boardBf = (boardNoComment.match(/backdrop-filter/g) || []).length
+  check('D13 board.html（Python 版看板）同样零 backdrop-filter', boardBf === 0, `仍出现 ${boardBf} 次`)
+  const pick = (src, name) => (new RegExp('--' + name + ':\\s*(#[0-9a-fA-F]{6})').exec(src) || [])[1]
+  const tokens = ['accent', 'muted', 'danger', 'success', 'warning'].filter((t) => pick(vue, t) || pick(board, t))
+  const drift = tokens.filter((t) => pick(vue, t) && pick(board, t) && pick(vue, t).toLowerCase() !== pick(board, t).toLowerCase())
+  check('D14 两个前端的品牌色令牌一致（accent/muted/danger/success/warning）',
+    drift.length === 0, `不一致：${drift.map((t) => `${t} 桌面=${pick(vue, t)} 看板=${pick(board, t)}`).join(' , ')}`)
+  check('D15 没有「全屏 + backdrop-filter」的遮罩残留（含死 CSS）',
+    !/inset:0[^}]*backdrop-filter/.test(boardNoComment) && !/inset:\s*0[^}]*backdrop-filter/.test(vueNoComment))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }
