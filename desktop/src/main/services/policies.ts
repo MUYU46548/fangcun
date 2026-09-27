@@ -56,7 +56,38 @@ export function getPolicy(projectId: string): Policy | null {
   }
 }
 
+/**
+ * 保留 savePolicy 四字段之外的未知节（如手写的「项目事实」「结构地图」）。
+ * 2026-09-25 六字段派工单：read_policy(core.py) 与 _build_prompt 会读「项目事实」节
+ * 随任务书下发；savePolicy 若整体重建文件会静默吃掉这些节——先摘出、写回时原样放回。
+ */
+function preserveSections(projectId: string, nextFour: string[]): string {
+  const p = policyPath(projectId)
+  if (!fs.existsSync(p)) return ''
+  try {
+    const raw = fs.readFileSync(p, 'utf-8')
+    const known = ['使命', '当前目标', '应用场景', '方针边界']
+    const kept: string[] = []
+    const re = /^## (.+?)\s*$/gm
+    let m: RegExpExecArray | null
+    const heads: { name: string; idx: number }[] = []
+    while ((m = re.exec(raw)) !== null) heads.push({ name: m[1].trim(), idx: m.index })
+    for (let i = 0; i < heads.length; i++) {
+      const h = heads[i]
+      if (known.includes(h.name)) continue
+      const start = h.idx
+      const end = i + 1 < heads.length ? heads[i + 1].idx : raw.length
+      const body = raw.slice(start, end).trim()
+      if (body) kept.push(body)
+    }
+    return kept.length ? '\n' + kept.join('\n\n') + '\n' : ''
+  } catch {
+    return ''
+  }
+}
+
 export function savePolicy(p: Policy): { ok: boolean; path: string } {
+  const preserved = preserveSections(p.projectId, [])
   const content = [
     `# 项目方针：${p.projectId}`,
     ``,
@@ -64,16 +95,18 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     `> 用途: 派活时随任务书下发，或直接粘给 agent 作为项目背景。`,
     ``,
     `## 使命`,
-    p.mission || '（未填写）',
+    p.mission || `（未填写）`,
     ``,
     `## 当前目标`,
-    p.goal || '（未填写）',
+    p.goal || `（未填写）`,
     ``,
     `## 应用场景`,
-    p.scenario || '（未填写）',
+    p.scenario || `（未填写）`,
     ``,
     `## 方针边界`,
-    p.boundary || '（未填写）',
+    p.boundary || `（未填写）`,
+    ``,
+    preserved.trim() ? preserved.trim() : ``,
     ``,
   ].join('\n')
   const target = policyPath(p.projectId)

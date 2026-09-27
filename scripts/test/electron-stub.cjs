@@ -52,5 +52,16 @@ module.exports = {
     },
   },
   ipcMain: { handle: () => {} },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  // dialog 桩：默认「用户取消」，测试可用 `dialog.next = { canceled:false, filePaths:[...] }`
+  // 脚本化一次返回值（技能导入的"选文件/选文件夹"两条入口要能各自断言）
+  dialog: {
+    calls: [],
+    next: null,
+    async showOpenDialog(opts) {
+      this.calls.push(opts)
+      const n = this.next
+      this.next = null
+      return n || { canceled: true, filePaths: [] }
+    },
+  },
 }

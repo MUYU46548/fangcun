@@ -260,19 +260,21 @@ async function main() {
   check('远端已有备份', remoteBefore.length >= 1, String(remoteBefore.length))
 
   // ── 手动导出到任意目录（网盘同步文件夹场景） ──────────────────────────
+  // 2026-09-26 用户第 1 条：「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」
+  // → 导出只落**一个 zip**（此前连 README / sha256 sidecar / manifest / 恢复脚本一共 4 个文件）。
   const exportDir = path.join(TEST_ROOT, '_export-target')
-  const exp = bk.exportSnapshotTo(exportDir, { includeTool: true })
+  fs.mkdirSync(exportDir, { recursive: true })
+  const exp = bk.exportSnapshotTo(exportDir)
   check('导出到指定目录成功', exp.ok, JSON.stringify(exp.errors))
-  check('导出四件套齐全（zip/sha256/manifest/README）',
-    ['zipPath', 'sidecarPath', 'manifestPath', 'readmePath'].every(k => exp[k] && fs.existsSync(exp[k])),
-    JSON.stringify({ zip: exp.zipPath, sidecar: exp.sidecarPath, manifest: exp.manifestPath, readme: exp.readmePath }))
-  check('导出附带独立恢复脚本', !!exp.toolPath && fs.existsSync(exp.toolPath), String(exp.toolPath))
-  check('导出包 sha256 与内容一致', sha256(fs.readFileSync(exp.zipPath)) === fs.readFileSync(exp.sidecarPath, 'utf-8').trim())
-
-  const readme = fs.readFileSync(exp.readmePath, 'utf-8')
-  check('README 给出校验与恢复命令', readme.includes('fangcun-restore.py') && readme.includes('verify') && readme.includes('extract'))
-  check('README 声明不含密钥', readme.includes('不含任何密钥'))
-  check('README 记录本次排除项', readme.includes('llm-config.json'))
+  check('★ 导出目录里只有 1 个文件，且是 zip',
+    (() => { const f = fs.readdirSync(exportDir); return f.length === 1 && f[0].endsWith('.zip') })(),
+    JSON.stringify(fs.readdirSync(exportDir)))
+  check('★ 不再落 README / sha256 sidecar / manifest / 恢复脚本',
+    !fs.readdirSync(exportDir).some(f => /readme|\.sha256$|manifest\.json|restore\.py/i.test(f)),
+    JSON.stringify(fs.readdirSync(exportDir)))
+  check('导出上报的字节数 = 那一个 zip 的大小',
+    !!exp.zipPath && exp.bytes === fs.statSync(exp.zipPath).size,
+    JSON.stringify({ bytes: exp.bytes, real: exp.zipPath ? fs.statSync(exp.zipPath).size : -1 }))
 
   // ── 导出「指定的一份已有备份」（2026-09-25 第 10 条：默认最新）──────────
   // 用户原话：「导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新」
@@ -284,26 +286,24 @@ async function main() {
   fs.writeFileSync(pkgPath, fs.readFileSync(exp.zipPath))   // 把刚才那份真包搬进本地备份目录
 
   const pickTarget = path.join(TEST_ROOT, '_export-picked')
-  const picked = bk.exportExistingPackageTo(pickTarget, pkgPath, { includeTool: true })
+  const picked = bk.exportExistingPackageTo(pickTarget, pkgPath)
   check('导出指定备份：成功', picked.ok, JSON.stringify(picked.errors))
   check('导出指定备份：文件名保持原样（不是此刻重新打的时间戳）',
     !!picked.zipPath && path.basename(picked.zipPath) === pkgName, String(picked.zipPath))
   check('导出指定备份：落在目标目录', path.dirname(picked.zipPath || '') === pickTarget, String(picked.zipPath))
   check('导出指定备份：与原包逐字节相同（复制而非重打）',
     !!picked.zipPath && sha256(fs.readFileSync(picked.zipPath)) === sha256(fs.readFileSync(pkgPath)))
-  check('导出指定备份：sha256 sidecar 与内容一致',
-    !!picked.sidecarPath && fs.readFileSync(picked.sidecarPath, 'utf-8').trim() === sha256(fs.readFileSync(pkgPath)))
-  check('导出指定备份：manifest 与 README 一并落地',
-    !!picked.manifestPath && fs.existsSync(picked.manifestPath) && !!picked.readmePath && fs.existsSync(picked.readmePath))
+  check('★ 导出指定备份：目标目录里同样只有 1 个文件（zip）',
+    fs.readdirSync(pickTarget).length === 1 && fs.readdirSync(pickTarget)[0].endsWith('.zip'),
+    JSON.stringify(fs.readdirSync(pickTarget)))
   check('导出指定备份：files/bytes 如实上报',
     picked.files > 0 && picked.bytes === fs.statSync(pkgPath).size,
     JSON.stringify({ files: picked.files, bytes: picked.bytes, real: fs.statSync(pkgPath).size }))
-  check('导出指定备份：同样附带恢复脚本', !!picked.toolPath && fs.existsSync(picked.toolPath))
 
   // 反向验证①：目录外的文件**一律拒绝**（否则这个方法就成了任意文件外带通道）
   const outsideZip = path.join(TEST_ROOT, 'outside.zip')
   fs.writeFileSync(outsideZip, fs.readFileSync(exp.zipPath))
-  const denied = bk.exportExistingPackageTo(pickTarget, outsideZip, {})
+  const denied = bk.exportExistingPackageTo(pickTarget, outsideZip)
   check('导出指定备份：拒绝本地备份目录之外的包',
     !denied.ok && denied.errors.join(' ').includes('只能导出本地备份目录内'),
     JSON.stringify(denied.errors))
@@ -313,7 +313,7 @@ async function main() {
   // 反向验证②：目录内的**坏包**必须被自校验拦下（与全量导出同一把尺子）
   const corruptPkg = path.join(localBkDir, 'fangcun-data-20000101-000001.zip')
   fs.writeFileSync(corruptPkg, Buffer.from('PK\x03\x04garbage-not-a-zip'))
-  const corruptRes = bk.exportExistingPackageTo(pickTarget, corruptPkg, {})
+  const corruptRes = bk.exportExistingPackageTo(pickTarget, corruptPkg)
   check('导出指定备份：坏包被导出前自校验拦下',
     !corruptRes.ok && corruptRes.errors.join(' ').includes('自校验失败'),
     JSON.stringify(corruptRes.errors))
@@ -322,22 +322,23 @@ async function main() {
 
   // 反向验证③：包不存在时给可读原因（不做成"导出成功 0 个文件"）
   const missingRes = bk.exportExistingPackageTo(
-    pickTarget, path.join(localBkDir, 'fangcun-data-19990101-000000.zip'), {})
+    pickTarget, path.join(localBkDir, 'fangcun-data-19990101-000000.zip'))
   check('导出指定备份：包不存在时给出可读原因',
     !missingRes.ok && missingRes.errors.join(' ').includes('不存在'), JSON.stringify(missingRes.errors))
-  check('导出指定备份：未指定包也拒绝', !bk.exportExistingPackageTo(pickTarget, '', {}).ok)
+  check('导出指定备份：未指定包也拒绝', !bk.exportExistingPackageTo(pickTarget, '').ok)
 
   // ── 包校验工具 ────────────────────────────────────────────────────────
   const vp = bk.verifyPackage(exp.zipPath)
   check('verifyPackage 对正常包 PASS', vp.ok, JSON.stringify(vp.errors))
   check('verifyPackage 读到 manifest', !!vp.manifest && vp.manifest.totalFiles > 0)
-  check('verifyPackage 校验了 sha256 sidecar', vp.sidecarChecked)
+  // 2026-09-26：导出不再落 sidecar，但校验不能因此失效 —— 判据是结构 + 包内 manifest 自洽
+  check('★ 没有 sidecar 也照样校验通过（完整性不押在外层附件上）',
+    vp.ok && vp.sidecarChecked === false, JSON.stringify({ ok: vp.ok, sidecar: vp.sidecarChecked }))
 
   const badCopy = path.join(exportDir, 'tampered.zip')
   const tamperedBuf = Buffer.from(fs.readFileSync(exp.zipPath))
   tamperedBuf[300] = tamperedBuf[300] ^ 0xff
   fs.writeFileSync(badCopy, tamperedBuf)
-  fs.writeFileSync(badCopy + '.sha256', fs.readFileSync(exp.sidecarPath))
   const vpBad = bk.verifyPackage(badCopy)
   check('verifyPackage 抓到篡改', !vpBad.ok && vpBad.errors.length > 0, JSON.stringify(vpBad.errors.slice(0, 2)))
 
@@ -390,7 +391,51 @@ function verifyNames(zipBuf) {
   return v.manifest ? v.manifest.files.map(f => f.path) : []
 }
 
+// ── 排序：按「最后更新」倒序，不是按文件名（2026-09-25 用户第 5 条）────────
+// 症状：用户面对一堆 .zip「想按日期排序但排不了」。真因是列表按**文件名**倒序排，
+// 而文件名里的时间戳 = 打包那一刻，重跑/导入的包名与内容时间会错位 ——
+// 真正该排的是文件 mtime（最后更新）。下面用「文件名顺序 ≠ mtime 顺序」的
+// 三件数据把这个坑钉死；再顺带断言列表带 mtime 字段（渲染层「最新」标靠它）。
+function checkBackupOrder() {
+  const bk = require(path.join(DIST, 'backup', 'index.js'))
+  const bkDir = bk.getLocalBackupDir()
+  // 保险：绝不在真实数据目录里造测试文件
+  if (!path.resolve(bkDir).startsWith(path.resolve(TEST_ROOT))) {
+    check('备份排序前置：测试目录隔离', false, `备份目录不在测试根下：${bkDir}`)
+    return
+  }
+  fs.mkdirSync(bkDir, { recursive: true })
+  // 文件名倒序 = bbbb > cccc > aaaa，mtime 倒序 = cccc > bbbb > aaaa（故意不一致）
+  const cases = [
+    ['20200101-000000-aaaa.zip', new Date(2026, 0, 10)],
+    ['20260101-000000-bbbb.zip', new Date(2026, 0, 11)],
+    ['20230101-000000-cccc.zip', new Date(2026, 0, 12)],
+  ]
+  for (const [n, t] of cases) {
+    const p = path.join(bkDir, n)
+    fs.writeFileSync(p, 'PK')
+    fs.utimesSync(p, t, t)
+  }
+  const names = cases.map(c => c[0])
+  const got = bk.listLocalBackups().map(x => x.name).filter(n => names.includes(n))
+  const want = ['20230101-000000-cccc.zip', '20260101-000000-bbbb.zip', '20200101-000000-aaaa.zip']
+  check('★ 备份列表按 mtime 倒序（最新在前），不是按文件名倒序',
+    JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got))
+  check('备份列表每项带 mtime（渲染层「最新」标要用）',
+    bk.listLocalBackups().every(x => typeof x.mtime === 'string' && x.mtime.length > 0))
+  const rsrc = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/backup/index.ts'), 'utf-8')
+  check('★ 远端备份列表也是 mtime 倒序（同一类 bug 的另一处）',
+    /listRemoteBackups[\s\S]{0,900}Date\.parse\(b\.mtime/.test(rsrc))
+  check('渲染层取「最新一份」备份同样按 mtime 倒序（2026-09-26：已无下拉，取最新靠这个排序）', (() => {
+    const vue = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/App.vue'), 'utf-8')
+    return /bkExportCandidates[\s\S]{0,600}mtimeMs|bkExportCandidates[\s\S]{0,600}Date\.parse/.test(vue)
+  })())
+}
+
+
 function summary() {
+  checkBackupOrder()
+
   console.log('')
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (failures.length) {

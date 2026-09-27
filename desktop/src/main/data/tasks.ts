@@ -500,6 +500,125 @@ export function unarchiveTask(id: string): Task | null {
   return updateTask(id, { status: '待办' })
 }
 
+// ── 回收站（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）────────
+//
+// 用户现象：「删掉的东西不知道去哪了」。`.trash/` 里 64 个文件数据完好，只是没有任何界面。
+// 设计要点：
+//   · 一切以**文件名**为准（回收站里同一 id 可能有多份：`.trash/task-x.md` 与
+//     `.trash/task-x.2.md`，历史遗留），不按 id 猜、不擅自合并 —— 用户要的是「把我删的那份还我」；
+//   · 还原目标：终态（完成/驳回）回 archive/，其余回活跃区；同名冲突走 moveIntoDir
+//     （内容相同去重、不同则新的占规范名、旧的改名保留）—— **绝不覆盖、绝不删除**；
+//   · 彻底删除只删回收站里的那一个文件，且路径必须真的在回收站内（防目录穿越）。
+//
+// 幂等/健壮：archive/ 与 .trash/ 同名同 id 是常态（见 e2e-task-delete），这里全部按文件操作，
+// 不依赖 id 唯一，因此不会因为「别处也有同名副本」而抛异常或删错东西。
+
+export interface TrashItem {
+  /** 文件名 = 操作句柄（还原 / 彻底删除都用它，不用 id） */
+  name: string
+  id: string
+  title: string
+  status: string
+  project: string
+  bytes: number
+  mtime: string
+}
+
+/** 把界面传来的文件名解析成回收站内的绝对路径；含分隔符/`..` 一律拒绝 */
+function resolveTrashFile(name: string): string | null {
+  if (!name || typeof name !== 'string') return null
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) return null
+  const trashDir = path.resolve(getTrashDir())
+  const full = path.resolve(trashDir, name)
+  if (!full.startsWith(trashDir + path.sep)) return null
+  return full
+}
+
+/** 列出回收站内容（mtime 新的在前）。读不出 frontmatter 的文件**也要列出来** —— 「看得见」优先。 */
+export function listTrash(): TrashItem[] {
+  const trashDir = getTrashDir()
+  if (!fs.existsSync(trashDir)) return []
+  const items: TrashItem[] = []
+  for (const entry of fs.readdirSync(trashDir, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.endsWith('.tmp')) continue
+    const full = path.join(trashDir, entry.name)
+    let t: Task | null = null
+    try { t = parseTask(full) } catch { t = null }
+    let stat: fs.Stats | null = null
+    try { stat = fs.statSync(full) } catch { stat = null }
+    const fm: any = (t && t.fm) || {}
+    items.push({
+      name: entry.name,
+      id: String(fm.id || entry.name.replace(/\.md.*$/i, '')),
+      title: String(fm.title || ''),
+      status: String(fm.status || ''),
+      project: Array.isArray(fm.project) ? String(fm.project[0] || '') : String(fm.project || ''),
+      bytes: stat ? stat.size : 0,
+      mtime: stat ? stat.mtime.toISOString() : '',
+    })
+  }
+  items.sort((a, b) => (Date.parse(b.mtime) || 0) - (Date.parse(a.mtime) || 0))
+  return items
+}
+
+/**
+ * 读回收站里那一份的正文（2026-09-26 用户回执：「回收站每个卡片都是不能点的死卡」）。
+ *
+ * 为什么要有它：卡片的还原/彻底删除是两个按钮，但**卡片本身点了没反应** ——
+ * 用户没法先看内容再决定，只能凭标题猜。这里把文件源码交出来只读预览。
+ * 与还原/彻底删除同一条安全线：文件名解析一律走 resolveTrashFile（防穿越）。
+ */
+export function readTrashItem(name: string, maxBytes = 512 * 1024): { ok: boolean; text?: string; truncated?: boolean; error?: string } {
+  const full = resolveTrashFile(name)
+  if (!full) return { ok: false, error: '文件名不合法' }
+  if (!fs.existsSync(full)) return { ok: false, error: '回收站里已经找不到这个文件' }
+  try {
+    const buf = fs.readFileSync(full)
+    const truncated = buf.length > maxBytes
+    return { ok: true, text: buf.subarray(0, maxBytes).toString('utf-8'), truncated }
+  } catch (e: any) {
+    return { ok: false, error: `读不出来：${e?.message || e}` }
+  }
+}
+
+/** 还原一条回收站文件；终态回归档区、其余回活跃区。返回落位路径。 */
+export function restoreTrashItem(name: string): { ok: boolean; to?: string; archived?: boolean; error?: string } {
+  const src = resolveTrashFile(name)
+  if (!src) return { ok: false, error: '文件名不合法' }
+  if (!fs.existsSync(src)) return { ok: false, error: '回收站里已经找不到这个文件' }
+  let t: Task | null = null
+  try { t = parseTask(src) } catch { t = null }
+  const status = String((t && t.fm && (t.fm as any).status) || '')
+  const terminal = status === '完成' || status === '驳回'
+  const destDir = terminal ? path.join(getTaskDir(), 'archive') : getTaskDir()
+  let dest: string
+  try {
+    dest = moveIntoDir(src, destDir)
+  } catch (e) {
+    return { ok: false, error: `还原失败：${(e as Error).message}` }
+  }
+  invalidateTaskCache()
+  const id = String((t && t.fm && t.fm.id) || name.replace(/\.md.*$/i, ''))
+  if (id) logActivity(id, terminal ? 'unarchived' : 'restored')
+  return { ok: true, to: dest, archived: terminal }
+}
+
+/** 彻底删除一条回收站文件（只删这一个，不碰别处的同名副本）。 */
+export function purgeTrashItem(name: string): { ok: boolean; error?: string } {
+  const src = resolveTrashFile(name)
+  if (!src) return { ok: false, error: '文件名不合法' }
+  if (!fs.existsSync(src)) return { ok: false, error: '文件不存在（可能已被彻底删除）' }
+  let id = ''
+  try { const t = parseTask(src); id = String((t && t.fm && t.fm.id) || '') } catch { /* 读不出来也要能删 */ }
+  try {
+    fs.rmSync(src, { force: true })
+  } catch (e) {
+    return { ok: false, error: `彻底删除失败：${(e as Error).message}` }
+  }
+  if (id) logActivity(id, 'purged')
+  return { ok: true }
+}
+
 // ── Project Status ──────────────────────────────────────────────────────
 
 export interface ProjectStatus {

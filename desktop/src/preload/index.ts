@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('tegula', {
   deleteTask: (id: string) => ipcRenderer.invoke('deleteTask', id),
   archiveTask: (id: string) => ipcRenderer.invoke('archiveTask', id),
   unarchiveTask: (id: string) => ipcRenderer.invoke('unarchiveTask', id),
+  /** 回收站（2026-09-26 卡 034）：一律按文件名操作 */
+  trashList: () => ipcRenderer.invoke('trash:list'),
+  trashRestore: (name: string) => ipcRenderer.invoke('trash:restore', name),
+  trashPurge: (name: string) => ipcRenderer.invoke('trash:purge', name),
   getTask: (id: string) => ipcRenderer.invoke('getTask', id),
   
   // Projects
@@ -102,10 +106,12 @@ contextBridge.exposeInMainWorld('tegula', {
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
-  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
+  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
+  /** 临时打回「进行中」（2026-09-26 用户补充第 3 条） */
+  logsReopen: (id: string) => ipcRenderer.invoke('logs:reopen', id),
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
   logsSearch: (query: string) => ipcRenderer.invoke('logs:search', query),
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
@@ -172,13 +178,15 @@ contextBridge.exposeInMainWorld('tegula', {
   todosUpdate: (id: string, updates: any) => ipcRenderer.invoke('todos:update', id, updates),
   todosToggle: (id: string) => ipcRenderer.invoke('todos:toggle', id),
   todosDelete: (id: string) => ipcRenderer.invoke('todos:delete', id),
+  /** 待办数据健康度（坏文件隔离留痕） */
+  todosHealth: () => ipcRenderer.invoke('todos:health'),
 
   // ── Dispatch ───────────────────────────────────────────────────────
   dispatchPreview: (id: string) => ipcRenderer.invoke('dispatch:preview', id),
   dispatchExecute: (id: string) => ipcRenderer.invoke('dispatch:execute', id),
 
   // ── Review ─────────────────────────────────────────────────────────
-  reviewAccept: (id: string) => ipcRenderer.invoke('review:accept', id),
+  reviewAccept: (id: string, reason?: string) => ipcRenderer.invoke('review:accept', id, reason),
   reviewReject: (id: string, reason: string) => ipcRenderer.invoke('review:reject', id, reason),
 
   // ── File open ─────────────────────────────────────────────────────
@@ -203,6 +211,30 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── Skill 管理 ────────────────────────────────────────────────────
   skillsCheck: () => ipcRenderer.invoke('skills:check'),
   skillsInstall: () => ipcRenderer.invoke('skills:install'),
+  /** 技能安装专区（2026-09-26 卡 038） */
+  skillsList: () => ipcRenderer.invoke('skills:list'),
+  skillsOpenDir: (which: string) => ipcRenderer.invoke('skills:openDir', which),
+  /** 在资源管理器里显示某个技能的 SKILL.md（装到 WorkBuddy 这类只能手动导入的 agent） */
+  skillsReveal: (dirOrFile: string) => ipcRenderer.invoke('skills:reveal', dirOrFile),
+  /** 「装到别的 agent」目标检测（Hermes 可直装；其余给文件+打开对方） */
+  agentsList: () => ipcRenderer.invoke('agents:list'),
+  agentsOpen: (id: string) => ipcRenderer.invoke('agents:open', id),
+  /** 回收站文件正文预览（不是 id，是文件名） */
+  trashRead: (name: string) => ipcRenderer.invoke('trash:read', name),
+  /** 起一个"空闲"的启动台应用（只认启动台里带 port 的） */
+  servicesStart: (port: number) => ipcRenderer.invoke('services:start', port),
+  // 技能直接导入（2026-09-26 卡 005）：kind='folder' | 'file'
+  skillsImported: () => ipcRenderer.invoke('skills:imported'),
+  skillsImportPick: (kind: string) => ipcRenderer.invoke('skills:importPick', kind),
+  skillsImport: (srcPath: string, opts?: { overwrite?: boolean }) => ipcRenderer.invoke('skills:import', srcPath, opts),
+  skillsRemove: (name: string) => ipcRenderer.invoke('skills:remove', name),
+
+  // ── 服务 / 端口（2026-09-26 卡 006）：只读监控，没有任何"杀进程"通道 ──
+  servicesList: () => ipcRenderer.invoke('services:list'),
+  servicesAdd: (svc: { name: string; port: number; note?: string; project?: string }) => ipcRenderer.invoke('services:add', svc),
+  servicesRemove: (port: number) => ipcRenderer.invoke('services:remove', port),
+  servicesOpen: (port: number) => ipcRenderer.invoke('services:open', port),
+  servicesAdopt: (port: number, name?: string) => ipcRenderer.invoke('services:adopt', port, name),
 
   // ── 应用日志（诊断）────────────────────────────────────────────────
   // 渲染层出错时主动回报主进程落盘；界面提供「打开日志目录 / 查看尾部」。

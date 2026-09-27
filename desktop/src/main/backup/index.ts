@@ -12,7 +12,6 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { app } from 'electron'
 import * as data from '../data'
 import {
   getBackupConfig, getBackupState, saveBackupState, appendBackupLog,
@@ -273,7 +272,11 @@ export function listLocalBackups(): Array<{ name: string; path: string; bytes: n
       })
     } catch { /* 跳过不可读条目 */ }
   }
-  return out.sort((a, b) => b.name.localeCompare(a.name))
+  // 2026-09-25（用户第 5 条）：用户要的是「最后更新的自动排在前面」。
+  // 原来只按**文件名**倒序 —— 名字里的时间戳是代理值，一旦有手工改名/导入的包就失序。
+  // 主判据改成 mtime（真正的最后更新），文件名只做同毫秒的稳定 tiebreak。
+  return out.sort((a, b) =>
+    (Date.parse(b.mtime) || 0) - (Date.parse(a.mtime) || 0) || b.name.localeCompare(a.name))
 }
 
 /** 保留最新 keep 份，其余删除。返回删除数量。 */
@@ -339,7 +342,9 @@ export async function listRemoteBackups(): Promise<Array<{ name: string; bytes: 
   return files
     .filter(f => f.name.endsWith('.zip'))
     .map(f => ({ name: f.name, bytes: f.size, mtime: f.mtime }))
-    .sort((a, b) => b.name.localeCompare(a.name))
+    // 同 listLocalBackups：按最后更新倒序（远端 mtime 可能缺，缺的排最后）
+    .sort((a, b) =>
+      (Date.parse(b.mtime || '') || 0) - (Date.parse(a.mtime || '') || 0) || b.name.localeCompare(a.name))
 }
 
 /** 下载远端备份到本地临时目录，返回本地路径 */
@@ -358,115 +363,27 @@ export interface ExportResult {
   ok: boolean
   dir: string
   zipPath: string | null
-  sidecarPath: string | null
-  manifestPath: string | null
-  readmePath: string | null
-  toolPath: string | null
+  /** zip 本体字节数（不是目录里所有文件之和 —— 导出只落这一个文件） */
   bytes: number
+  /** 包内数据文件数（给人看的说明用，不是落盘文件数） */
   files: number
   errors: string[]
 }
 
 /**
- * 定位随应用分发的独立恢复工具。
- * 打包后在 resources/public 下；开发时回落仓库 scripts/。
- */
-function resolveRestoreToolPath(): string | null {
-  const candidates: string[] = []
-  try {
-    if (process.resourcesPath) {
-      // extraResources 落在 asar 之外，优先级最高（一定可读）
-      candidates.push(path.join(process.resourcesPath, 'tools', 'fangcun-restore.py'))
-      candidates.push(path.join(process.resourcesPath, 'public', 'fangcun-restore.py'))
-    }
-  } catch { /* 非打包环境无此属性 */ }
-  try {
-    // 打包后 app.getAppPath() 指向 app.asar，Electron 的 fs 可读 asar 内部
-    candidates.push(path.join(app.getAppPath(), 'public', 'fangcun-restore.py'))
-  } catch { /* ignore */ }
-  // 开发环境：仓库 scripts/
-  try {
-    candidates.push(path.join(app.getAppPath(), '..', 'scripts', 'fangcun-restore.py'))
-  } catch { /* ignore */ }
-  candidates.push(path.join(process.cwd(), 'scripts', 'fangcun-restore.py'))
-  candidates.push(path.join(process.cwd(), '..', 'scripts', 'fangcun-restore.py'))
-
-  for (const c of candidates) {
-    try {
-      if (c && fs.existsSync(c) && fs.statSync(c).isFile()) return c
-    } catch { /* 继续找下一个 */ }
-  }
-  return null
-}
-
-function renderReadme(m: BackupManifest, zipName: string, zipSha256: string, zipBytes: number): string {
-  const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`
-  const excluded = m.excludedSecrets.length ? m.excludedSecrets.join(', ') : '（本次无）'
-  return `方寸数据备份说明
-================
-
-备份时间   : ${m.createdAt}
-来源主机   : ${m.hostname}
-备份工具   : 方寸 ${m.appVersion}
-文件数     : ${m.totalFiles}
-原始体积   : ${kb(m.totalBytes)}（${m.totalBytes.toLocaleString()} B）
-压缩后体积 : ${kb(zipBytes)}（${zipBytes.toLocaleString()} B）
-归档文件   : ${zipName}
-sha256     : ${zipSha256}
-
-包含什么
---------
-  task-data/       任务数据（Markdown + frontmatter）
-  registry.yaml    项目登记表
-  docs/            执行日志等文档
-  manifest.json    逐文件 sha256 清单（已含在归档内）
-
-不包含什么（有意排除，防止密钥外泄）
-------------------------------------
-  llm-config.json、backup-config.json、apps.json、credentials.json、.env、
-  *.key / *.pem / *.p12 / *.jks，
-  以及 node_modules、Cache、.trash、backups 等缓存与临时目录。
-  本次实际排除：${excluded}
-
-怎么校验
---------
-  python fangcun-restore.py verify "${zipName}"
-
-  输出 PASS 表示 sha256、ZIP 结构、逐条 CRC、local/central directory 一致性、
-  以及 manifest 自洽全部通过。任一项不符会列出具体原因。
-
-怎么恢复
---------
-  方式一（推荐，可脱离方寸应用）：
-      python fangcun-restore.py extract "${zipName}" <目标目录>
-      再把还原出的 task-data/ 与 registry.yaml 放回方寸数据目录。
-
-  方式二（用方寸应用）：
-      设置页 →「🛡️ 备份与恢复」→ 本地标签 →「恢复」。
-      应用会在恢复前自动给现有数据打快照，失败自动回滚。
-
-恢复前请务必
-------------
-  · 先确认当前数据已另存一份（用应用恢复会自动快照；手工操作需自行备份）
-  · 先校验再解压（独立工具已强制：校验不过直接拒绝解压）
-  · 恢复后打开方寸确认任务数量与列表正常
-
-注意
-----
-  本包含你任务数据的完整内容，但**不含任何密钥**。
-  请勿将其放入公开可访问的位置；上传网盘时优先选择私有目录。
-`
-}
-
-/**
  * 导出一份完整备份到指定目录（不触发远端上传、不影响自动备份的轮换目录）。
  * 典型用途：导出到网盘同步文件夹（OneDrive / 坚果云 / 群晖 Drive 等），由客户端负责上传。
+ *
+ * 2026-09-26（用户第 1 条）：**只落一个 zip**。此前这里连同 sidecar / manifest / README /
+ * 恢复脚本一共写 4 个文件，用户原话「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」。
+ * 完整性不靠外层附件撑着：zip 内含逐文件 sha256 的 manifest，导出前 verifyZip 自校验、
+ * 落盘后回读比对 sha256 —— 去掉的那几个只是给人看的说明，不是校验依据。
  */
-export function exportSnapshotTo(destDir: string, opts: { includeTool?: boolean } = {}): ExportResult {
+export function exportSnapshotTo(destDir: string): ExportResult {
   const errors: string[] = []
   const result: ExportResult = {
     ok: false, dir: destDir,
-    zipPath: null, sidecarPath: null, manifestPath: null, readmePath: null, toolPath: null,
+    zipPath: null,
     bytes: 0, files: 0, errors,
   }
 
@@ -507,26 +424,6 @@ export function exportSnapshotTo(destDir: string, opts: { includeTool?: boolean 
     const zipPath = path.join(destDir, zipName)
     fs.writeFileSync(zipPath, snapshot.zipBuffer)
 
-    const sidecarPath = `${zipPath}.sha256`
-    fs.writeFileSync(sidecarPath, snapshot.zipSha256, 'utf-8')
-
-    const manifestPath = path.join(destDir, `${base}.manifest.json`)
-    fs.writeFileSync(manifestPath, JSON.stringify(snapshot.manifest, null, 2), 'utf-8')
-
-    const readmePath = path.join(destDir, `${base}.README.txt`)
-    fs.writeFileSync(readmePath, renderReadme(snapshot.manifest, zipName, snapshot.zipSha256, snapshot.zipBuffer.length), 'utf-8')
-
-    if (opts.includeTool) {
-      const tool = resolveRestoreToolPath()
-      if (tool) {
-        const dest = path.join(destDir, 'fangcun-restore.py')
-        fs.copyFileSync(tool, dest)
-        result.toolPath = dest
-      } else {
-        errors.push('未找到独立恢复脚本 fangcun-restore.py，已跳过（不影响备份本身可用）')
-      }
-    }
-
     // 回读校验：确认磁盘上的内容与内存一致
     const readBack = fs.readFileSync(zipPath)
     if (sha256OfBuffer(readBack) !== snapshot.zipSha256) {
@@ -536,15 +433,12 @@ export function exportSnapshotTo(destDir: string, opts: { includeTool?: boolean 
     }
 
     result.zipPath = zipPath
-    result.sidecarPath = sidecarPath
-    result.manifestPath = manifestPath
-    result.readmePath = readmePath
     result.bytes = readBack.length
     result.files = snapshot.manifest.totalFiles
     result.ok = errors.length === 0
 
     appendBackupLog(
-      `EXPORT dir=${destDir} files=${result.files} bytes=${result.bytes} tool=${result.toolPath ? 'yes' : 'no'}`
+      `EXPORT dir=${destDir} name=${zipName} files=${result.files} bytes=${result.bytes}`
     )
   } catch (e) {
     errors.push(`导出失败：${(e as Error).message}`)
@@ -562,16 +456,16 @@ export function exportSnapshotTo(destDir: string, opts: { includeTool?: boolean 
  *
  * 安全：只允许导出**本地备份目录内**的包（否则这个方法就成了任意文件读取/外带通道）。
  * 与全量导出同一把尺子：导出前 `verifyZip` 自校验，落盘后回读校验 sha256。
+ * 同样只落**一个 zip**（2026-09-26 用户第 1 条，理由见 exportSnapshotTo）。
  */
 export function exportExistingPackageTo(
   destDir: string,
   packagePath: string,
-  opts: { includeTool?: boolean } = {},
 ): ExportResult {
   const errors: string[] = []
   const result: ExportResult = {
     ok: false, dir: destDir,
-    zipPath: null, sidecarPath: null, manifestPath: null, readmePath: null, toolPath: null,
+    zipPath: null,
     bytes: 0, files: 0, errors,
   }
 
@@ -607,7 +501,6 @@ export function exportExistingPackageTo(
   }
 
   const name = path.basename(src)
-  const stem = name.replace(/\.zip$/i, '')
   const sha = sha256OfBuffer(buf)
 
   try {
@@ -615,28 +508,6 @@ export function exportExistingPackageTo(
 
     const zipPath = path.join(destDir, name)
     fs.writeFileSync(zipPath, buf)
-    const sidecarPath = `${zipPath}.sha256`
-    fs.writeFileSync(sidecarPath, sha, 'utf-8')
-
-    if (verify.manifest) {
-      const manifestPath = path.join(destDir, `${stem}.manifest.json`)
-      fs.writeFileSync(manifestPath, JSON.stringify(verify.manifest, null, 2), 'utf-8')
-      result.manifestPath = manifestPath
-      const readmePath = path.join(destDir, `${stem}.README.txt`)
-      fs.writeFileSync(readmePath, renderReadme(verify.manifest, name, sha, buf.length), 'utf-8')
-      result.readmePath = readmePath
-    }
-
-    if (opts.includeTool) {
-      const tool = resolveRestoreToolPath()
-      if (tool) {
-        const dest = path.join(destDir, 'fangcun-restore.py')
-        fs.copyFileSync(tool, dest)
-        result.toolPath = dest
-      } else {
-        errors.push('未找到独立恢复脚本 fangcun-restore.py，已跳过（不影响备份本身可用）')
-      }
-    }
 
     const readBack = fs.readFileSync(zipPath)
     if (sha256OfBuffer(readBack) !== sha) {
@@ -646,13 +517,12 @@ export function exportExistingPackageTo(
     }
 
     result.zipPath = zipPath
-    result.sidecarPath = sidecarPath
     result.bytes = readBack.length
     result.files = (verify.manifest && verify.manifest.totalFiles) || verify.entryCount
     result.ok = errors.length === 0
 
     appendBackupLog(
-      `EXPORT-EXISTING src=${name} dir=${destDir} files=${result.files} bytes=${result.bytes} tool=${result.toolPath ? 'yes' : 'no'}`
+      `EXPORT-EXISTING src=${name} dir=${destDir} files=${result.files} bytes=${result.bytes}`
     )
   } catch (e) {
     errors.push(`导出失败：${(e as Error).message}`)

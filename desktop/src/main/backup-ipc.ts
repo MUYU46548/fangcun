@@ -191,7 +191,7 @@ export function registerBackupIpcHandlers(): void {
    * 导出备份到指定目录（网盘同步文件夹 / U 盘 / 任意路径）。
    * 不弹窗时由调用方传 dir；传空则弹出目录选择框。
    */
-  guardedHandle('backup:exportTo', async (e, input: { dir?: string; includeTool?: boolean; package?: string } = {}) => {
+  guardedHandle('backup:exportTo', async (e, input: { dir?: string; package?: string } = {}) => {
     try {
       let dir = (input.dir || '').trim()
       if (!dir) {
@@ -209,10 +209,11 @@ export function registerBackupIpcHandlers(): void {
         dir = r.filePaths[0]
       }
       // 2026-09-25 第 10 条：传了 package 就是「导出这一份已有备份」（默认最新），
-      // 不传则维持原行为「现在重新打一份全量包」。
+      // 不传则「现在重新打一份全量包」。
+      // 2026-09-26 用户第 1 条：两条路都**只落一个 zip**（不再附 README/sidecar/恢复脚本）。
       const result = input.package
-        ? exportExistingPackageTo(dir, input.package, { includeTool: input.includeTool !== false })
-        : exportSnapshotTo(dir, { includeTool: input.includeTool !== false })
+        ? exportExistingPackageTo(dir, input.package)
+        : exportSnapshotTo(dir)
       return { ok: result.ok, result }
     } catch (e) {
       return fail(e)

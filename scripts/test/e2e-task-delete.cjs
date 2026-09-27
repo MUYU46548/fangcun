@@ -252,6 +252,134 @@ function main() {
   check('★ 删除 task-A 不误删 task-A0（前缀相似不能连坐）', fs.existsSync(p1Like))
   check('同批只删掉了自己的那份', !fs.existsSync(p1File))
 
+  // ── 10. 回收站界面入口（2026-09-26 卡 034）────────────────────────────
+  //     数据一直在 task-data/.trash（线上 64 个文件），缺的是「看得见 + 能还原 + 能彻底删」。
+  //     全部按**文件名**操作：同一 id 可能有多份历史副本，用户要动的是"那一份"。
+  const rt = tasks.createTask({ title: '待还原的活任务', project: 'demo', status: '待办' })
+  const rtBody = fs.readFileSync(path.join(taskDir, `${rt.id}.md`), 'utf-8')
+  tasks.deleteTask(rt.id)
+  check('10.0 删除后活跃区已无该文件', !fs.existsSync(path.join(taskDir, `${rt.id}.md`)))
+
+  const list1 = tasks.listTrash()
+  const item = list1.find(x => x.name === `${rt.id}.md`)
+  check('★ listTrash 能列出刚删掉的文件（界面入口的数据源）', !!item, `共 ${list1.length} 条`)
+  check('列表条目带标题（不是只有文件名）', !!item && item.title === '待还原的活任务', item ? String(item.title) : '')
+  check('列表条目带状态', !!item && item.status === '待办', item ? String(item.status) : '')
+  check('列表条目带项目', !!item && item.project === 'demo', item ? String(item.project) : '')
+  check('列表按 mtime 新的在前',
+    list1.length > 1 ? Date.parse(list1[0].mtime) >= Date.parse(list1[list1.length - 1].mtime) : true)
+  check('列表条目带文件名（操作句柄）', !!item && item.name === `${rt.id}.md`)
+  check('列表条目带字节数', !!item && item.bytes > 0, item ? String(item.bytes) : '')
+
+  let rrThrew = null, rr = null
+  try { rr = tasks.restoreTrashItem(`${rt.id}.md`) } catch (e) { rrThrew = e }
+  check('★ 还原不抛异常', rrThrew === null, rrThrew ? String(rrThrew.message) : '')
+  check('★ 还原返回 ok', !!rr && rr.ok === true, JSON.stringify(rr))
+  check('★ 还原后文件回到活跃区', fs.existsSync(path.join(taskDir, `${rt.id}.md`)))
+  check('还原后 .trash 里不再有它', !fs.readdirSync(trashDir).some(n => n === `${rt.id}.md`))
+  check('★ 还原后内容字节一致（原文件搬回，不是重新生成）',
+    fs.readFileSync(path.join(taskDir, `${rt.id}.md`), 'utf-8') === rtBody)
+  check('还原后能正常读到任务', !!tasks.readTask(rt.id))
+
+  // 10b. 终态任务还原因回归档区 —— 落位由状态决定，不是「一律回活跃区」
+  const rt2 = tasks.createTask({ title: '已完成的要回归档', project: 'demo', status: '完成' })
+  tasks.archiveTask(rt2.id)
+  tasks.deleteTask(rt2.id)
+  const rr2 = tasks.restoreTrashItem(`${rt2.id}.md`)
+  check('★ 终态（完成）任务还原回归档区（archived=true）', !!rr2 && rr2.ok === true && rr2.archived === true, JSON.stringify(rr2))
+  check('该文件确实落在 archive/', fs.existsSync(path.join(archiveDir, `${rt2.id}.md`)))
+  check('活跃区没有它', !fs.existsSync(path.join(taskDir, `${rt2.id}.md`)))
+  check('归档态任务还原后不抛且幂等前提成立（文件已不在回收站）',
+    tasks.restoreTrashItem(`${rt2.id}.md`).ok === false)
+
+  // 10c. 幂等 / 坏输入 / 目录穿越：一律不抛，给理由
+  let rr3 = null, rr3Threw = null
+  try { rr3 = tasks.restoreTrashItem(`${rt.id}.md`) } catch (e) { rr3Threw = e }
+  check('★ 还原一个已经不存在的文件：不抛 + ok:false + 带原因',
+    rr3Threw === null && !!rr3 && rr3.ok === false && !!rr3.error,
+    rr3Threw ? String(rr3Threw.message) : JSON.stringify(rr3))
+  const evil = tasks.restoreTrashItem('../registry.yaml')
+  check('★ 目录穿越被拒绝（../registry.yaml）', evil.ok === false, JSON.stringify(evil))
+  check('registry.yaml 没被动过', fs.existsSync(path.join(TEST_ROOT, 'registry.yaml')))
+  check('带分隔符的名字被拒（a/b.md）', tasks.restoreTrashItem('a/b.md').ok === false)
+  check('纯 .. 被拒', tasks.restoreTrashItem('..').ok === false)
+  check('空名字被拒', tasks.restoreTrashItem('').ok === false)
+
+  // 10d. 彻底删除：只删这一份，别处同 id 副本不受连坐
+  const pd = tasks.createTask({ title: '要彻底删的', project: 'demo' })
+  const pdBody = fs.readFileSync(path.join(taskDir, `${pd.id}.md`), 'utf-8')
+  tasks.deleteTask(pd.id)                                                   // 进回收站
+  fs.mkdirSync(archiveDir, { recursive: true })
+  fs.writeFileSync(path.join(archiveDir, `${pd.id}.md`), pdBody, 'utf-8')   // 之后归档区出现同 id 副本
+  const purged = tasks.purgeTrashItem(`${pd.id}.md`)
+  check('★ 彻底删除返回 ok', !!purged && purged.ok === true, JSON.stringify(purged))
+  check('★ 回收站里那份真的没了', !fs.readdirSync(trashDir).some(n => n === `${pd.id}.md`))
+  check('★ 归档区里的同 id 副本没被连坐', fs.existsSync(path.join(archiveDir, `${pd.id}.md`)))
+  const purged2 = tasks.purgeTrashItem(`${pd.id}.md`)
+  check('重复彻底删除：不抛 + 给原因', purged2.ok === false && !!purged2.error, JSON.stringify(purged2))
+  check('彻底删除也拒绝穿越',
+    tasks.purgeTrashItem('../registry.yaml').ok === false && fs.existsSync(path.join(TEST_ROOT, 'registry.yaml')))
+
+  // 10e. 同名多份（x.md 与 x.2.md）—— 全流程按文件名，不按 id
+  const dup = tasks.createTask({ title: '同名两份', project: 'demo' })
+  const dupBody = fs.readFileSync(path.join(taskDir, `${dup.id}.md`), 'utf-8')
+  tasks.deleteTask(dup.id)                                                  // .trash/<id>.md
+  fs.writeFileSync(path.join(trashDir, `${dup.id}.2.md`), dupBody, 'utf-8')  // 历史遗留副本
+  const dupList = tasks.listTrash().filter(x => x.id === dup.id)
+  check('★ 同名两份都列出来（不按 id 去重）', dupList.length === 2, `条数=${dupList.length}`)
+  check('两份 name 不同（可分别操作）', new Set(dupList.map(x => x.name)).size === 2)
+  const purgedDup = tasks.purgeTrashItem(`${dup.id}.2.md`)
+  check('★ 彻底删掉 .2 那份', purgedDup.ok === true, JSON.stringify(purgedDup))
+  check('★ 另一份还在（没连带删）', fs.readdirSync(trashDir).some(n => n === `${dup.id}.md`))
+  const restoreDup = tasks.restoreTrashItem(`${dup.id}.md`)
+  check('★ 剩下那份能正常还原', !!restoreDup && restoreDup.ok === true, JSON.stringify(restoreDup))
+  check('还原后内容一致',
+    fs.existsSync(path.join(taskDir, `${dup.id}.md`)) &&
+    fs.readFileSync(path.join(taskDir, `${dup.id}.md`), 'utf-8') === dupBody)
+
+  // 10f. 回收站不存在时 listTrash 给空数组（不抛）—— 全新安装没有 .trash
+  fs.rmSync(trashDir, { recursive: true, force: true })
+  let emptyList = null, elThrew = null
+  try { emptyList = tasks.listTrash() } catch (e) { elThrew = e }
+  check('★ 没有 .trash 目录时 listTrash 返回空数组（不抛）',
+    elThrew === null && Array.isArray(emptyList) && emptyList.length === 0,
+    elThrew ? String(elThrew.message) : JSON.stringify(emptyList))
+
+  // ── 回收站正文预览（2026-09-26 用户回执：「每个卡片都是不能点的死卡」）──────
+  //   卡片可点之后要能读到正文，读的口子必须和还原/彻底删除**同一条安全线**。
+  {
+    const tasks = require(path.join(DIST, 'data/tasks.js'))
+    const taskDir = path.join(TEST_ROOT, 'task-data')
+    const trashDirPv = path.join(taskDir, '.trash')
+    fs.mkdirSync(trashDirPv, { recursive: true })
+    const pv = path.join(trashDirPv, 'task-preview-001.md')
+    fs.writeFileSync(pv, [
+      '---', 'id: task-preview-001', '标题: 预览用任务', '状态: 待办', '---', '',
+      '## 正文', '这句话必须在预览里看得到 PREVIEW-MARKER-42',
+    ].join('\n'), 'utf-8')
+
+    const read = tasks.readTrashItem('task-preview-001.md')
+    check('★ readTrashItem 读得到回收站里的正文', read && read.ok === true && String(read.text).includes('PREVIEW-MARKER-42'),
+      JSON.stringify(read))
+    check('  正文里 frontmatter 也在（是原文，不是只抽正文）', read && read.ok && String(read.text).includes('task-preview-001'))
+
+    const outside = tasks.readTrashItem('../escape.md')
+    check('★ 目录穿越被拒绝（.. 一律不认）', outside && outside.ok === false, JSON.stringify(outside))
+    const slash = tasks.readTrashItem('sub/x.md')
+    check('★ 带分隔符的名字被拒绝', slash && slash.ok === false, JSON.stringify(slash))
+    const missing = tasks.readTrashItem('task-preview-404.md')
+    check('★ 文件不存在时给明确的 ok=false（不是抛异常）', missing && missing.ok === false && !!missing.error,
+      JSON.stringify(missing))
+    const empty = tasks.readTrashItem('')
+    check('★ 空名字被拒绝', empty && empty.ok === false)
+
+    // 截断保护：超大文件只给前 maxBytes，并把 truncated 标出来
+    fs.writeFileSync(path.join(trashDirPv, 'task-big.md'), 'x'.repeat(4096), 'utf-8')
+    const big = tasks.readTrashItem('task-big.md', 100)
+    check('★ 超大文件按上限截断并标 truncated（不把界面噎死）',
+      big && big.ok && big.truncated === true && String(big.text).length === 100, JSON.stringify({ ok: big && big.ok, len: big && String(big.text).length, tr: big && big.truncated }))
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

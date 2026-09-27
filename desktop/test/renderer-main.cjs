@@ -659,7 +659,7 @@ async function main() {
     })()`)
   check('再点一次能收回去', reCollapsed.visible === false, JSON.stringify(reCollapsed))
 
-  // ── 15. 导出指定备份（第 10 条：默认最新，不再每次全量重打）──────────────
+  // ── 15. 导出备份（2026-09-26 用户第 1、2 条：一次点击、只落一个 zip）────────
   const gear = await js(`
     (() => {
       const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '⚙')
@@ -668,24 +668,22 @@ async function main() {
       return { clicked: true }
     })()`)
   await new Promise(r => setTimeout(r, 700))
-  const bkSel = await js(`
+  const bkExportUi = await js(`
     (() => {
-      const sel = document.querySelector('.bk-export-select')
-      if (!sel) return { exists: false }
+      const btn = [...document.querySelectorAll('button')].find(x => (x.textContent || '').includes('导出备份'))
       return {
-        exists: true,
-        value: sel.value,
-        options: [...sel.options].map(o => o.value),
-        labels: [...sel.options].map(o => o.textContent.trim()),
+        hasSelect: !!document.querySelector('.bk-export-select'),
+        btnText: btn ? btn.textContent.trim() : null,
       }
     })()`)
-  check('设置里有「导出内容」下拉', bkSel.exists === true && gear.clicked === true, JSON.stringify(gear) + ' ' + JSON.stringify(bkSel))
-  check('下拉列出全部本地备份 + 一项「现打全量包」', bkSel.exists && bkSel.options.length === 3, JSON.stringify(bkSel.options))
-  check('默认选中**最新**那份备份（不是默认全量）',
-    bkSel.exists && bkSel.value === 'C:/mock/backups/fangcun-data-20260925-202020.zip', String(bkSel.value))
+  check('★ 设置里**没有**「导出内容」下拉了（不再要人逐字核对文件名）',
+    bkExportUi.hasSelect === false && gear.clicked === true,
+    JSON.stringify(gear) + ' ' + JSON.stringify(bkExportUi))
+  check('★ 换成一次点击的「📤 导出备份（一个 zip）」按钮',
+    !!bkExportUi.btnText && bkExportUi.btnText.includes('一个 zip'), String(bkExportUi.btnText))
   await js(`
     (() => {
-      const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '📤 导出所选')
+      const b = [...document.querySelectorAll('button')].find(x => (x.textContent || '').includes('导出备份'))
       if (b) b.click()
       return true
     })()`)
@@ -695,8 +693,10 @@ async function main() {
       const cs = window.__fcTest.calls().filter(c => c.name === 'backupExportTo')
       return { n: cs.length, last: cs.length ? JSON.stringify(cs[cs.length - 1].args) : null }
     })()`)
-  check('「导出所选」把选中的包路径传给主进程',
+  check('★ 点一下就把**最新那份**备份路径直接交给主进程（不需要人选）',
     exportCall.n >= 1 && /fangcun-data-20260925-202020\.zip/.test(String(exportCall.last)), String(exportCall.last))
+  check('★ 导出只传 package（不再带 includeTool 往外写 README/sidecar/恢复脚本）',
+    exportCall.n >= 1 && !/includeTool/.test(String(exportCall.last)), String(exportCall.last))
   await js(`(() => { const el = document.querySelector('#soverlay'); if (el) el.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
 
@@ -738,7 +738,507 @@ async function main() {
     fillCall.n === 1 && /demo2/.test(String(fillCall.args[0])) && !/policySave.*"demo"/.test(String(fillCall.args.join(' '))),
     JSON.stringify(fillCall))
 
+  // ── 16. 回收站页签（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）──
+  //     真点：页签 → 列表 → 「还原」→ 「彻底删除」，并核对传出去的参数是**文件名**。
+  const trashNavOk = await waitFor(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '回收站')`, 4000, '回收站页签出现')
+  check('★ 有「回收站」页签', trashNavOk)
+  check('★ 能点到「回收站」页签', await js(CLICK_BY_TEXT('回收站')))
+  const trashViewOk = await waitFor(`document.querySelector('main.trash-view')`, 6000, '回收站视图渲染')
+  check('★ 回收站视图已渲染（不是白屏/占位）', trashViewOk)
+  check('列表渲染出回收站条目（数据源 = trashList）',
+    await js(`document.querySelectorAll('.trash-item').length === 2`),
+    String(await js(`document.querySelectorAll('.trash-item').length`)))
+  check('条目显示标题（不是只有文件名）',
+    await js(`[...document.querySelectorAll('.trash-title')].some(e => e.textContent.includes('被删掉的演示任务'))`))
+  check('条目显示文件名（操作句柄的另一半）',
+    await js(`[...document.querySelectorAll('.trash-name')].some(e => e.textContent.includes('task-demo-902.2.md'))`))
+  check('每条都有「还原」和「彻底删除」按钮',
+    await js(`document.querySelectorAll('.trash-item').length === 2 &&
+              [...document.querySelectorAll('.trash-item')].every(it => it.querySelectorAll('.trash-btn').length === 2)`))
+  check('回收站视图不加载任务列表 → 顶栏计数显示「—」（不是冒充条数）',
+    await js(`(document.querySelector('#count') || {}).textContent.trim() === '—'`),
+    String(await js(`((document.querySelector('#count') || {}).textContent || '').trim()`)))
+
+  // 16a. 点「还原」
+  await js(`(() => { const b = document.querySelector('.trash-item .trash-btn'); if (b) b.click(); return true })()`)
+  const restoreCalled = await waitFor(`window.__fcTest.callCount('trashRestore') >= 1`, 5000, 'trashRestore 被调用')
+  check('★ 点「还原」真的调到了 trashRestore（不是死按钮）', restoreCalled)
+  check('★ 传的是文件名而不是 id',
+    await js(`window.__fcTest.calls().filter(c => c.name === 'trashRestore').map(c => JSON.stringify(c.args)).join('|') === '["task-demo-901.md"]'`),
+    String(await js(`window.__fcTest.calls().filter(c => c.name === 'trashRestore').map(c => JSON.stringify(c.args)).join('|')`)))
+  check('还原成功后该条从列表消失（重新拉了一次列表）',
+    await waitFor(`document.querySelectorAll('.trash-item').length === 1`, 5000, '列表刷新'))
+
+  // 16b. 点「彻底删除」（渲染层有 confirm 二次确认 —— 测试里直接放行）
+  // ⚠ 表达式必须返回可序列化的值：`window.confirm = () => true` 的求值结果是**函数**，
+  //    经 URL 协议回传会抛 "An object could not be cloned"（e2e-bridge-clone 记过这一类）。
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`(() => {
+    const bs = [...document.querySelectorAll('.trash-item .trash-btn')].filter(b => b.textContent.includes('彻底删除'))
+    if (bs[0]) bs[0].click()
+    return !!bs[0]
+  })()`)
+  const purgeCalled = await waitFor(`window.__fcTest.callCount('trashPurge') >= 1`, 5000, 'trashPurge 被调用')
+  check('★ 点「彻底删除」真的调到了 trashPurge', purgeCalled)
+  check('★ 彻底删除传的也是文件名',
+    await js(`window.__fcTest.calls().filter(c => c.name === 'trashPurge').map(c => JSON.stringify(c.args)).join('|') === '["task-demo-902.2.md"]'`),
+    String(await js(`window.__fcTest.calls().filter(c => c.name === 'trashPurge').map(c => JSON.stringify(c.args)).join('|')`)))
+  check('★ 删空后显示空态（不是空白页）',
+    await waitFor(`!!document.querySelector('main.trash-view .empty-state')`, 5000, '空回收站空态'),
+    String(await js(`!!document.querySelector('main.trash-view .empty-state')`)))
+  check('背地里的数据真的清了（假后端 store 里 0 条）',
+    await js(`window.__fcTest.trash().length === 0`))
+
+  // ── 17. 技能安装专区（2026-09-26 卡 038：功能在、界面不在）──────────────
+  //     真点：页签 → 卡片 → 复制提示词 / 复制全文 / 装到 Hermes / 打开目录
+  const skillsNavOk = await waitFor(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '技能')`, 4000, '技能页签出现')
+  check('★ 有「技能」页签（此前完全没有入口，所以"毫无存在感"）', skillsNavOk)
+  check('★ 能点到「技能」页签', await js(CLICK_BY_TEXT('技能')))
+  const skillsViewOk = await waitFor(`document.querySelector('main.skills-view')`, 6000, '技能视图渲染')
+  check('★ 技能安装专区已渲染（不是白屏/占位）', skillsViewOk)
+  check('技能卡片按真源条数渲染（只数自发布的那类，外部导入的另算）',
+    await js(`document.querySelectorAll('.skill-card:not(.imported)').length === 2`),
+    String(await js(`document.querySelectorAll('.skill-card').length`)))
+  check('卡片显示技能 ID',
+    await js(`[...document.querySelectorAll('.skill-id')].some(e => e.textContent.includes('fangcun-hermes-bridge'))`))
+  check('卡片显示绝对路径（手抄不出来的那一半）',
+    await js(`[...document.querySelectorAll('.skill-path')].some(e => e.textContent.includes('C:/mock/skills/fangcun-hermes-bridge/SKILL.md'))`))
+  check('★ 已装 / 未装两种状态文案都对',
+    await js(`[...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('已装（最新）')) &&
+              [...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('未装到 Hermes'))`),
+    String(await js(`[...document.querySelectorAll('.skill-state')].map(e => e.textContent).join('|')`)))
+
+  // 17a. 复制安装提示词（核心诉求：让 agent 自己装、杜绝手抄）
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('复制安装提示词')); if (b) b.click(); return !!b })()`)
+  const promptCopied = await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1`, 5000, '复制走到 clipboardWriteText')
+  check('★ 点「复制安装提示词」真的走到剪贴板通道（不是死按钮）', promptCopied)
+  check('★ 复制的内容里带绝对路径（杜绝手抄出错）',
+    await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').includes('C:/mock/skills/fangcun-hermes-bridge/SKILL.md')`),
+    String(await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').slice(0, 120)`)))
+
+  // 17b. 复制 SKILL.md 全文
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('复制 SKILL.md 全文')); if (b) b.click(); return !!b })()`)
+  check('★ 点「复制 SKILL.md 全文」把正文复制出去',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText' && JSON.stringify(c.args).includes('正文甲'))`, 5000, '全文复制'),
+    String(await js(`window.__fcTest.callCount('clipboardWriteText')`)))
+
+  // 17c. 一键装到 Hermes
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('装到 Hermes')); if (b) b.click(); return !!b })()`)
+  check('★ 点「⚡ 装到 Hermes」真的调到了 skillsInstall（这条通道早就存在，此前没人能点）',
+    await waitFor(`window.__fcTest.callCount('skillsInstall') >= 1`, 5000, 'skillsInstall'))
+
+  // 17d. 打开目录（两个都点，参数必须分得开）
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('📂 技能目录')); if (b) b.click(); return !!b })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('Hermes 目录')); if (b) b.click(); return !!b })()`)
+  const dirCalls = await waitFor(`window.__fcTest.callCount('skillsOpenDir') >= 2`, 5000, 'skillsOpenDir 两次')
+  check('★ 「技能目录 / Hermes 目录」两个按钮分别传出 resources / hermes',
+    dirCalls && await js(`window.__fcTest.calls().filter(c => c.name === 'skillsOpenDir').map(c => JSON.stringify(c.args)).join('|') === '["resources"]|["hermes"]'`),
+    String(await js(`window.__fcTest.calls().filter(c => c.name === 'skillsOpenDir').map(c => JSON.stringify(c.args)).join('|')`)))
+  check('「装到别的 agent」区在界面上',
+    await js(`!!document.querySelector('main.skills-view .skills-agents') &&
+              !!document.querySelector('main.skills-view .skills-agents-title')`))
+
+  // ── 17e. 技能直接导入（2026-09-26 卡 005，用户参照 WorkBuddy 的导入面板）──
+  //     钉住四件事：入口点得通、拖拽能投放、**重名必须问一句才覆盖**、移除只删导入的
+  check('★ 有「📥 导入技能…」「📁 导入文件夹…」两个入口（Windows 上选文件/选目录不能同一个框）',
+    await js(`[...document.querySelectorAll('.skills-btn')].some(b => b.textContent.includes('导入技能')) &&
+              [...document.querySelectorAll('.skills-btn')].some(b => b.textContent.includes('导入文件夹'))`))
+
+  check('★ 已导入的外部技能单独成列（不和自发布技能混着数）',
+    await js(`document.querySelectorAll('.skill-card.imported').length === 1`),
+    String(await js(`document.querySelectorAll('.skill-card.imported').length`)))
+  check('★ 外部卡片带「外部导入」徽章', await js(`!!document.querySelector('.skill-card.imported .skill-badge')`))
+  check('外部卡片显示 name / description / 落位目录',
+    await js(`(() => { const c = document.querySelector('.skill-card.imported'); if (!c) return false;
+      const t = c.textContent;
+      return t.includes('external-demo') && t.includes('外部丢进来的示例技能') && t.includes('C:/mock/hermes/skills/external-demo') })()`))
+
+  // 17e-1. 点「导入技能…」→ 选包 → 导入
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('导入技能')); if (b) b.click(); return !!b })()`)
+  check('★ 点「导入技能…」真的调起选包（不是死按钮）',
+    await waitFor(`window.__fcTest.callCount('skillsImportPick') >= 1`, 5000, 'skillsImportPick'))
+  check('  选的是文件（kind=file）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'skillsImportPick' && JSON.stringify(c.args) === '["file"]')`))
+  check('★ 选完就导入，且默认 overwrite=false（不偷偷覆盖）',
+    await waitFor(`window.__fcTest.callCount('skillsImport') >= 1`, 5000, 'skillsImport'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsImport'))`)))
+  check('  导入带的是用户选中的路径',
+    await js(`window.__fcTest.calls().some(c => c.name === 'skillsImport' && JSON.stringify(c.args).includes('C:/fake/incoming-skill.zip'))`),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsImport'))`)))
+  check('★ 导入成功后列表里多出这条技能（界面真的刷新了）',
+    await waitFor(`document.querySelectorAll('.skill-card.imported').length === 2`, 5000, '导入后刷新'),
+    String(await js(`document.querySelectorAll('.skill-card.imported').length`)))
+
+  // 17e-2. 拖拽投放：dragover 出遮罩 → drop 读路径导入
+  // ⚠ 分三步发事件：Vue 的 DOM 更新是异步的（nextTick），
+  //   在同一次 js() 里"派发事件 → 立刻查 DOM"必然查不到遮罩（本测试第一版就栽在这）。
+  await js(`(() => {
+    const main = document.querySelector('main.skills-view'); if (!main) return false
+    const over = new Event('dragover', { bubbles: true, cancelable: true })
+    over.dataTransfer = { files: [{ path: 'D:/dropped/some-skill.zip' }], dropEffect: '' }
+    window.__fcDragDT = over.dataTransfer
+    main.dispatchEvent(over)
+    return true
+  })()`)
+  check('★ 拖入文件时出现投放遮罩（拖拽这条路要看得见）',
+    await waitFor(`!!document.querySelector('.skills-dropmask')`, 3000, '拖拽遮罩'),
+    await js(`document.querySelector('.skills-dropmask') ? 'yes' : 'no-mask'`))
+  await js(`(() => {
+    const main = document.querySelector('main.skills-view'); if (!main) return false
+    const drop = new Event('drop', { bubbles: true, cancelable: true })
+    drop.dataTransfer = window.__fcDragDT
+    main.dispatchEvent(drop)
+    return true
+  })()`)
+  await sleep(120)
+  check('★ 松手真的导入 —— 读的是 DataTransfer 里的路径（不是靠文件名猜）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'skillsImport' && JSON.stringify(c.args).includes('D:/dropped/some-skill.zip'))`, 5000, 'drop 导入'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsImport'))`)))
+  check('  松手后遮罩消失', await js(`!document.querySelector('.skills-dropmask')`))
+
+  // 17e-3. 重名：必须问一句才覆盖（取消 = 不覆盖；确定 = 带 overwrite 再来一次）
+  await js(`window.__fcTest.reset()`)
+  await js(`window.__fcTest.setImport('incoming-skill', { exists: true, pickPath: 'D:/dropped/dup.zip' })`)
+  await js(`(() => { window.confirm = () => false; return true })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('导入技能')); if (b) b.click(); return !!b })()`)
+  await waitFor(`window.__fcTest.callCount('skillsImport') >= 1`, 5000, '重名第一次调用')
+  await sleep(250)
+  check('★ 重名 + 用户取消 → 绝不覆盖（没有带 overwrite=true 的第二次调用）',
+    await js(`!window.__fcTest.calls().some(c => c.name === 'skillsImport' && c.args[1] === true)`),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsImport'))`)))
+
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('导入技能')); if (b) b.click(); return !!b })()`)
+  check('★ 重名 + 用户确认 → 第二次带上 overwrite=true',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'skillsImport' && c.args[1] === true)`, 5000, 'overwrite 重试'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsImport'))`)))
+
+  // 17e-4. 移除：只删带导入标记的那条
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`(() => { const c = document.querySelector('.skill-card.imported');
+    const b = c && [...c.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('移除'));
+    if (b) b.click(); return !!b })()`)
+  check('★ 点「🗑 移除」走到 skillsRemove',
+    await waitFor(`window.__fcTest.callCount('skillsRemove') >= 1`, 5000, 'skillsRemove'))
+  check('  传的是技能 name（不是猜的 id/目录）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'skillsRemove' && c.args[0] === 'external-demo')`),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsRemove'))`)))
+  check('  移除后卡片从列表消失（界面真的刷新了）',
+    await waitFor(`!([...document.querySelectorAll('.skill-card.imported .skill-id')].some(e => e.textContent.includes('external-demo')))`, 5000, '移除后刷新'))
+  await js(`window.__fcTest.setImport('incoming-skill', { exists: false })`)
+
+  // ── 19. 服务 / 端口（2026-09-26 卡 006：A 档 = 只读监控 + 冲突预警）──────
+  //     用户口径：「之前想让方寸管理端口，事实上端口从未被管理」→ 现在能看、能登记；
+  //     但**明确不要**"结束占用进程"，所以下面专门有一条断言钉住"没有杀进程的按钮"。
+  check('★ 有「服务」页签', await js(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '服务')`))
+  check('★ 能点到「服务」页签', await js(CLICK_BY_TEXT('服务')))
+  check('★ 服务页已渲染（不是白屏/占位）', await waitFor(`document.querySelector('main.services-view')`, 6000, '服务视图'))
+  check('★ 切过去就真去拉了服务状态', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
+  // ⚠ 选 `.svc-item:not(.small)` —— 「未登记但正在监听」那一段也用 .svc-item（small），
+  //   不排除就会把两类算在一起（本测试第一版就数成了 3）
+  check('登记的服务按条数渲染（2 条）',
+    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 2`, 5000, '服务条目'),
+    String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
+  check('★ 监听中 / 空闲 两种状态都显示出来',
+    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
+      return t.includes('监听中') && t.includes('空闲') })()`))
+  check('★ 监听中的行显示占用者 PID 与进程名（"谁占着"是这页的核心信息）',
+    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
+      return t.includes('PID 1234') && t.includes('python') })()`),
+    String(await js(`document.querySelector('main.services-view').textContent.slice(0, 200)`)))
+  check('空闲的行说明"没有进程在监听"',
+    await js(`document.querySelector('main.services-view').textContent.includes('没有进程在监听')`))
+  check('来源分开标注（手填 / 启动台）',
+    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
+      return t.includes('手填') && t.includes('启动台') })()`))
+  check('★★ 没有任何"结束/杀掉占用进程"的按钮（用户选的是只读 A 档，不许偷偷加）',
+    await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|杀进程|停止进程|kill/i.test(b.textContent))`),
+    String(await js(`JSON.stringify([...document.querySelectorAll('main.services-view button')].map(b => b.textContent))`)))
+
+  // 19a. 打开地址：监听的能点，空闲的是禁用
+  await js(`window.__fcTest.reset()`)
+  check('★ 空闲服务的「打开地址」是禁用的（点了必然报错，不能让人白点）',
+    await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+      const idle = rows.find(r => r.textContent.includes('空闲'));
+      const b = idle && [...idle.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
+      return !!b && b.disabled === true })()`))
+  await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+    const on = rows.find(r => r.textContent.includes('监听中'));
+    const b = on && [...on.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
+    if (b) b.click(); return !!b })()`)
+  check('★ 点「打开地址」→ servicesOpen 带上那个端口',
+    await waitFor(`window.__fcTest.callCount('servicesOpen') >= 1`, 5000, 'servicesOpen'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesOpen'))`)))
+  check('  传的是端口号（不是 id / 名字）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'servicesOpen' && c.args[0] === 8753)`))
+
+  // 19b. 登记端口：填表 → 调 servicesAdd
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); return !!i })()`)
+  check('★ 空服务名时拒绝登记（不许把空条目写进清单）',
+    await (async () => {
+      await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); i.value = ''; i.dispatchEvent(new Event('input', {bubbles:true}));
+        const p = document.querySelector('main.services-view input.svc-port-input'); p.value = '9001'; p.dispatchEvent(new Event('input', {bubbles:true})) })()`)
+      await js(`(() => { const b = [...document.querySelectorAll('main.services-view button')].find(x => x.textContent.includes('登记端口')); if (b) b.click(); return !!b })()`)
+      await sleep(200)
+      return await js(`window.__fcTest.callCount('servicesAdd') === 0`)
+    })())
+  await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); i.value = '新登记的端口'; i.dispatchEvent(new Event('input', {bubbles:true}));
+    const p = document.querySelector('main.services-view input.svc-port-input'); p.value = '9001'; p.dispatchEvent(new Event('input', {bubbles:true})) })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('main.services-view button')].find(x => x.textContent.includes('登记端口')); if (b) b.click(); return !!b })()`)
+  check('★ 填好名字+端口后点登记 → servicesAdd 收到 {name, port}',
+    await waitFor(`window.__fcTest.callCount('servicesAdd') >= 1`, 5000, 'servicesAdd'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesAdd'))`)))
+  check('  端口以数字传（不是字符串，主进程那边要按整数校验）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'servicesAdd' && typeof c.args[0].port === 'number' && c.args[0].port === 9001)`))
+  check('★ 登记成功后列表里多出这条（界面真的刷新了）',
+    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 3`, 5000, '登记后刷新'),
+    String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
+
+  // 19c. 未登记但正在监听 → 一键登记进来
+  await js(`window.__fcTest.reset()`)
+  check('★ 「未登记但正在监听」区块有内容（把"乱七八糟的端口"摆出来，能管就登记）',
+    await js(`document.querySelector('main.services-view .services-unreg') &&
+              document.querySelector('main.services-view .services-unreg').textContent.includes('8090')`),
+    String(await js(`(document.querySelector('main.services-view .services-unreg') || {}).textContent || ''`)))
+  check('★ 提示里写清"已略过多少不像是服务的端口"（不做全盘扫描，但也不偷偷藏）',
+    await js(`document.querySelector('main.services-view .services-unreg').textContent.includes('12')`),
+    String(await js(`document.querySelector('main.services-view .services-unreg').textContent.slice(0, 160)`)))
+  await js(`(() => { const box = document.querySelector('main.services-view .services-unreg');
+    const b = box && [...box.querySelectorAll('button')].find(x => x.textContent.includes('登记'));
+    if (b) b.click(); return !!b })()`)
+  check('★ 点「＋ 登记」→ servicesAdopt(port, 进程名)',
+    await waitFor(`window.__fcTest.callCount('servicesAdopt') >= 1`, 5000, 'servicesAdopt'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesAdopt'))`)))
+  check('  带端口号 + 进程名（名字不用用户手打）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'servicesAdopt' && c.args[0] === 8090 && c.args[1] === 'node')`))
+
+  // 19d. 取消登记（只删手填的那条）
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+    for (const r of rows) {
+      const b = [...r.querySelectorAll('button')].find(x => x.textContent.includes('取消登记'));
+      if (b) { b.click(); return true }
+    }
+    return false })()`)
+  check('★ 手填的那条能「取消登记」→ servicesRemove',
+    await waitFor(`window.__fcTest.callCount('servicesRemove') >= 1`, 5000, 'servicesRemove'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesRemove'))`)))
+  check('  启动台登记的那条**没有**取消登记按钮（要改 apps.json）',
+    await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+      const l = rows.find(r => r.textContent.includes('启动台'));
+      return !!l && ![...l.querySelectorAll('button')].some(x => x.textContent.includes('取消登记')) })()`))
+
+  // ── 18. 待办专项整修（2026-09-26 卡 033）────────────────────────────
+  //     本轮先盘问题清单再修，这里钉住"看得见"的那几条：
+  //     统计行 / 三档优先级徽章 / 逾期标注 / 项目筛选精确匹配（旧行为是漏筛）/
+  //     空态区分"被筛掉" / 一键清除筛选 / Esc 关弹窗。
+  check('切回待办页签', await js(CLICK_BY_TEXT('待办')))
+  await waitFor(`document.querySelector('main.todos-view')`, 5000, '待办视图')
+
+  // 18a. 统计行
+  check('★ 顶部有统计行（共 N 条 · 未完成 M · 已完成 K）',
+    await js(`!!document.querySelector('.todos-stats') &&
+              document.querySelector('.todos-stats').textContent.includes('共') &&
+              document.querySelector('.todos-stats').textContent.includes('条') &&
+              document.querySelector('.todos-stats').textContent.includes('未完成')`),
+    String(await js(`((document.querySelector('.todos-stats')||{}).textContent||'').trim()`)))
+
+  // 18b. 三档优先级徽章（原来只有"高"有徽章，中/低看不出来）
+  for (const [suffix, label] of [['p0', '高'], ['p1', '中'], ['p2', '低']]) {
+    await js(`(() => {
+      const i = document.querySelector('input.todo-input')
+      i.value = '优先级徽章 ${label} ${suffix}'
+      i.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    await js(CLICK_BY_TEXT('+ 添加'))
+    await sleep(200)
+  }
+  check('★ 三档优先级都有徽章（高/中/低）',
+    await js(`!!document.querySelector('.todo-prio.prio-high') &&
+              !!document.querySelector('.todo-prio.prio-mid') &&
+              !!document.querySelector('.todo-prio.prio-low')`),
+    String(await js(`[...document.querySelectorAll('.todo-prio')].map(e => e.className + ':' + e.textContent.trim()).join(' | ')`)))
+  check('徽章显示中文 高/中/低（不是内部英文值）',
+    await js(`[...document.querySelectorAll('.todo-prio')].some(e => e.textContent.trim() === '低')`))
+
+  // 18c. 逾期标注：造一条 2020 年到期的未完成待办
+  await js(CLICK_BY_TEXT('大框新建'))
+  check('★ 「大框新建」打开弹窗', await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))
+  await js(`(() => {
+    const m = document.querySelector('#todo-edit-modal')
+    const ta = m.querySelector('textarea')
+    ta.value = '逾期待办（2020 到期）'
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    const d = m.querySelector('input[type=date]')
+    d.value = '2020-01-01'
+    d.dispatchEvent(new Event('input', { bubbles: true }))
+    const sel = [...m.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'demo'))
+    if (sel) { sel.value = 'demo'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
+    return true
+  })()`)
+  await js(CLICK_BY_TEXT('保存'))
+  const overdueShown = await waitFor(`!!document.querySelector('.todo-due.overdue')`, 5000, '逾期标注出现')
+  check('★ 过期未完成标红为「逾期 N 天」（此前同一行小灰字，看不出过期）', overdueShown)
+  check('逾期天数算出来了',
+    await js(`(((document.querySelector('.todo-due.overdue')||{}).textContent)||'').includes('逾期')`),
+    String(await js(`(((document.querySelector('.todo-due.overdue')||{}).textContent)||'').trim()`)))
+  check('★ 统计行出现「逾期」计数',
+    await js(`(((document.querySelector('.todos-stats')||{}).textContent)||'').includes('逾期')`),
+    String(await js(`(((document.querySelector('.todos-stats')||{}).textContent)||'').trim()`)))
+
+  // 18d. 项目筛选必须精确匹配（旧实现 `!t.project || t.project === X` 是漏筛）
+  const setTodoFilter = (val) => `(() => {
+    const s = [...document.querySelectorAll('.todos-ctrls select.todo-filter')]
+      .find(x => [...x.options].some(o => o.value === ${JSON.stringify(val)}))
+    if (!s) return false
+    s.value = ${JSON.stringify(val)}
+    s.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  })()`
+  check('把项目筛选切到 demo', await js(setTodoFilter('demo')))
+  await sleep(300)
+  check('★ 选中项目后只显示归属该项目的（不归属的不再混进来）',
+    await js(`document.querySelectorAll('.todo-item').length > 0 &&
+              [...document.querySelectorAll('.todo-item')].every(it => !!it.querySelector('.todo-project'))`),
+    String(await js(`[...document.querySelectorAll('.todo-item')].map(it => (it.querySelector('.todo-project')||{textContent:''}).textContent + '|' + (it.querySelector('.todo-title')||{textContent:''}).textContent).join(' ; ')`)))
+  check('切到「不归属任何项目」只剩没有项目徽章的',
+    await js(setTodoFilter('__none__')) &&
+    await js(`[...document.querySelectorAll('.todo-item')].every(it => !it.querySelector('.todo-project'))`))
+  check('★ 不归属筛选下创建不会把哨兵值写成项目 id（脏数据防线）',
+    await js(`!window.__fcTest.todos().some(t => t.project === '__none__' || t.project === '__all__')`),
+    JSON.stringify(await js(`window.__fcTest.todos().map(t => t.project)`)))
+
+  // 18e. 空态：切到一个没有待办的项目（demo2）
+  check('切到没有待办的项目 demo2', await js(setTodoFilter('demo2')))
+  await sleep(300)
+  check('★ 空态区分「被筛掉」而不是「暂无待办」',
+    await js(`!!document.querySelector('main.todos-view .empty-state') &&
+              document.querySelector('main.todos-view .empty-text').textContent.includes('没有符合当前筛选')`),
+    String(await js(`((document.querySelector('main.todos-view .empty-text')||{}).textContent||'').trim()`)))
+  check('统计行说明遮住多少条 + 提供一键清除筛选',
+    await js(`(((document.querySelector('.todos-stats')||{}).textContent)||'').includes('当前筛选遮住') &&
+              !!document.querySelector('.todos-clear')`))
+  await js(`(() => { const b = document.querySelector('.todos-clear'); if (b) b.click(); return !!b })()`)
+  await sleep(300)
+  check('★ 点「清除筛选」恢复完整列表（不再空态）',
+    await js(`document.querySelectorAll('.todo-item').length > 0 &&
+              !document.querySelector('main.todos-view .empty-state')`),
+    String(await js(`document.querySelectorAll('.todo-item').length`)))
+
+  // 18f. Esc 关弹窗（此前 Esc 只关通知面板，任何弹窗都关不掉）
+  await js(CLICK_BY_TEXT('大框新建'))
+  await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '弹窗再开')
+  await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  check('★ Esc 能关掉待办弹窗',
+    await waitFor(`!document.querySelector('#todo-edit-modal')`, 4000, '弹窗关闭'))
+
   // 渲染层不应有未捕获错误
+  // ── 20. 回收站卡片不再是死卡（2026-09-26 用户回执第 1 条）─────────────
+  //   原话：「回收站依然每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个。」
+  //   实测：卡片本体确实没有任何 click —— 只有两个按钮能点。现在点卡片任意位置读正文预览。
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`window.__fcTest.setTrash([
+    { name: 'task-demo-901.md', id: 'task-demo-901', title: '被删掉的演示任务', status: '待办', project: 'demo', bytes: 512, mtime: '2026-09-26T09:00:00.000Z' },
+    { name: 'task-demo-902.2.md', id: 'task-demo-902', title: '同名副本（历史遗留）', status: '完成', project: 'demo', bytes: 640, mtime: '2026-09-25T08:00:00.000Z' },
+  ])`)
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '回收站'); if (b) b.click(); return !!b })()`)
+  check('能切到回收站视图', await waitFor(`document.querySelector('main.trash-view')`, 6000, '回收站视图'))
+  check('回收站条目读出来了', await waitFor(`document.querySelectorAll('main.trash-view .trash-item').length === 2`, 6000, '回收站条目'),
+    String(await js(`document.querySelectorAll('main.trash-view .trash-item').length`)))
+  check('★ 卡片本体带可点标记（class clickable + title 提示）',
+    await js(`(() => { const c = document.querySelector('main.trash-view .trash-main'); return !!c && c.classList.contains('clickable') && !!c.getAttribute('title') })()`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const c = document.querySelector('main.trash-view .trash-main'); if (c) c.click(); return !!c })()`)
+  check('★ 点卡片本身弹出正文预览（回执修的就是这里）',
+    await waitFor(`document.querySelector('#trash-preview-overlay')`, 5000, '预览浮层'))
+  check('★ 预览走 trash:read，且传的是**文件名**（不是 id —— 回收站同一 id 可能多份）',
+    await waitFor(`window.__fcTest.callCount('trashRead') >= 1`, 5000, 'trashRead'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'trashRead'))`)))
+  check('★ 预览里看得到正文文字',
+    await js(`document.querySelector('#trash-preview-overlay').textContent.includes('正文')`))
+  check('★ 预览里也有「还原 / 彻底删除」两个动作',
+    await js(`[...document.querySelectorAll('#trash-preview-overlay .trash-btn')].some(b => b.textContent.includes('还原')) &&
+              [...document.querySelectorAll('#trash-preview-overlay .trash-btn')].some(b => b.textContent.includes('彻底删除'))`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('#trash-preview-overlay .trash-btn')].find(x => x.textContent.includes('还原')); if (b) b.click(); return !!b })()`)
+  check('★ 预览里点「还原」真的走 trashRestore（不是摆设）',
+    await waitFor(`window.__fcTest.callCount('trashRestore') >= 1`, 5000, 'trashRestore'))
+  check('★ 还原成功后预览自动关、列表少一条（不留悬空状态）',
+    await waitFor(`!document.querySelector('#trash-preview-overlay') && document.querySelectorAll('main.trash-view .trash-item').length === 1`, 6000, '预览关闭+列表刷新'),
+    String(await js(`document.querySelectorAll('main.trash-view .trash-item').length`)))
+
+  // ── 21. 装到别的 agent（回执第 2 条：只有 Hermes 可装）─────────────────
+  //   原话：「技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes，我赶时间懒得做，没测。」
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '技能'); if (b) b.click(); return !!b })()`)
+  check('切到技能页会去拉 agent 目标', await waitFor(`window.__fcTest.callCount('agentsList') >= 1`, 5000, 'agentsList'))
+  check('agent 目标列表渲染出来', await waitFor(`document.querySelectorAll('.agent-row').length >= 3`, 5000, 'agent 行'),
+    String(await js(`document.querySelectorAll('.agent-row').length`)))
+  check('★ WorkBuddy 出现在目标列表里（回执缺的就是这块）',
+    await js(`[...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('WorkBuddy'))`))
+  check('★ 目标行区分「可直装」与「给文件手动导入」',
+    await js(`[...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('可直装')) &&
+              [...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('给文件手动导入'))`))
+  check('★ 没检测到的 agent 行变灰且不给按钮',
+    await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('Claude Code')); return !!r && r.classList.contains('agent-off') && r.querySelectorAll('button').length === 0 })()`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('WorkBuddy')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('打开')); if (b) b.click(); return !!b })()`)
+  check('★ 点「▶ 打开 WorkBuddy」走到 agentsOpen（真去开对方）',
+    await waitFor(`window.__fcTest.callCount('agentsOpen') >= 1`, 5000, 'agentsOpen'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'agentsOpen'))`)))
+  check('  传的是 target id（workbuddy）',
+    await js(`window.__fcTest.calls().some(c => c.name === 'agentsOpen' && c.args[0] === 'workbuddy')`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('WorkBuddy')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('显示')); if (b) b.click(); return !!b })()`)
+  check('★ 点「📂 显示一份 SKILL.md」走到 skillsReveal（把文件亮出来给你拖进去）',
+    await waitFor(`window.__fcTest.callCount('skillsReveal') >= 1`, 5000, 'skillsReveal'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsReveal'))`)))
+  check('  技能卡片上也有「📂 显示 SKILL.md」按钮',
+    await js(`[...document.querySelectorAll('.skill-card .skills-btn')].some(b => b.textContent.includes('显示 SKILL.md'))`))
+
+  // ── 22. 服务页：导出快照 + 空闲一键启动（回执第 3 条）──────────────────
+  //   原话：「服务页没看到 8090 有动静：绒花墨坊 :8090 空闲 启动台 没有进程在监听
+  //          也没任何导出分析功能，直接复制给你了，懒得搞。」
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '服务'); if (b) b.click(); return !!b })()`)
+  check('切到服务页拉到清单', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
+  // 前面的服务测试改过清单（取消了 8753、把未登记的 8090 登记走了）——
+  // 快照断言要的是"内容真的反映当前清单"，所以先灌一份确定的数据再刷新
+  await js(`window.__fcTest.setServices([
+    { id: 'manual:8753', name: '方寸看板', port: 8753, note: 'Python 版 tegula', project: '', source: 'manual', listening: true, pid: 1234, processName: 'python', duplicated: false },
+    { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', listening: false, pid: null, processName: '', duplicated: false },
+  ])`)
+  await js(`(() => { const b = [...document.querySelectorAll('main.services-view .skills-btn')].find(x => x.textContent.includes('刷新')); if (b) b.click(); return !!b })()`)
+  check('  刷新后清单回到确定的 2 条', await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 2`, 5000, '重新灌数据'))
+  check('★ 有「📋 复制快照」按钮（回执要的"导出分析"）',
+    await js(`[...document.querySelectorAll('main.services-view .skills-btn')].some(b => b.textContent.includes('复制快照'))`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('main.services-view .skills-btn')].find(x => x.textContent.includes('复制快照')); if (b) b.click(); return !!b })()`)
+  check('★ 点「复制快照」真的写进剪贴板（走主进程通道 clipboardWriteText）',
+    await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1`, 5000, 'clipboardWriteText'))
+  check('★ 快照内容含端口清单本体（不是空串/一句"ok"）：端口 + 状态 + 统计都在',
+    await js(`(() => { const c = window.__fcTest.calls().find(x => x.name === 'clipboardWriteText'); if (!c) return false;
+      const t = String(c.args[0] || '');
+      return t.includes(':8753') && t.includes(':9100') && t.includes('已登记') &&
+             /登记 \\d+ · 监听中 \\d+ · 空闲 \\d+/.test(t) &&
+             t.includes('监听中 pid=1234 python') })()`),
+    String(await js(`String((window.__fcTest.calls().find(x => x.name === 'clipboardWriteText') || {}).args || '')`)))
+  check('★ 空闲的启动台应用有「▶ 启动」按钮',
+    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('没人跑的服务')); return !!r && [...r.querySelectorAll('button')].some(b => b.textContent.includes('启动')) })()`))
+  check('★ 手填的空闲行**不给**启动按钮（方寸只启动启动台登记过的应用）',
+    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('方寸看板')); if (!r) return true; return ![...r.querySelectorAll('button')].some(b => b.textContent.includes('启动')) })()`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('没人跑的服务')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('启动')); if (b) b.click(); return !!b })()`)
+  check('★ 点「▶ 启动」走到 servicesStart，带上端口',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'servicesStart' && c.args[0] === 9100)`, 5000, 'servicesStart :9100'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesStart'))`)))
+  check('★ 服务页依然没有"结束/杀掉进程"这类按钮（A 档只读，用户明确排除）',
+    await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|停止进程|kill/i.test(b.textContent))`))
+
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

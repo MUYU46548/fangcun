@@ -21,7 +21,10 @@ import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
-import { checkSkillsStatus, installSkills, autoCheckSkills } from './services/skillInstaller'
+import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath } from './services/skillInstaller'
+import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
+import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
+import { detectAgentTargets } from './services/agents'
 import { guardedHandle } from './guarded-ipc'
 
 export function registerIpcHandlers(): void {
@@ -103,6 +106,20 @@ export function registerIpcHandlers(): void {
   guardedHandle('unarchiveTask', (_event, id: string) => {
     const task = tasks.unarchiveTask(id)
     return { ok: !!task, id }
+  })
+
+  // ── 回收站（2026-09-26 卡 034）─────────────────────────────────────
+  // 按**文件名**操作，不按 id：回收站里同一 id 可能有多份历史副本，用户要还原的是"那一份"。
+  guardedHandle('trash:list', () => {
+    return { ok: true, items: tasks.listTrash() }
+  })
+
+  guardedHandle('trash:restore', (_event, name: string) => {
+    return tasks.restoreTrashItem(name)
+  })
+
+  guardedHandle('trash:purge', (_event, name: string) => {
+    return tasks.purgeTrashItem(name)
   })
 
   // ── Projects ──────────────────────────────────────────────────────
@@ -736,6 +753,12 @@ export function registerIpcHandlers(): void {
     return { ok }
   })
 
+  // 待办数据健康度（2026-09-26 卡 033）：坏文件被隔离后要让界面看得见，
+  // 否则用户只会看到"待办空了"而不知道发生过什么。
+  guardedHandle('todos:health', () => {
+    return todosService.todosHealth()
+  })
+
   // ── Logs ────────────────────────────────────────────────────────────
   guardedHandle('logs:list', (_event, filter?) => {
     return logsService.listLogs(filter)
@@ -750,7 +773,7 @@ export function registerIpcHandlers(): void {
     return logsService.getLog(id)
   })
 
-  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string }) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] }) => {
     return logsService.createLog(title, project, content, taskId, extra)
   })
 
@@ -764,6 +787,11 @@ export function registerIpcHandlers(): void {
 
   guardedHandle('logs:archive', (_event, id: string, note?: string) => {
     return logsService.archiveLog(id, note)
+  })
+
+  // 2026-09-26 用户补充第 3 条：日志可临时打回「进行中」（原来只能单向前进）
+  guardedHandle('logs:reopen', (_event, id: string) => {
+    return logsService.reopenLog(id)
   })
 
   guardedHandle('logs:destroy', (_event, id: string) => {
@@ -823,9 +851,9 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Review ──────────────────────────────────────────────────────────
-  guardedHandle('review:accept', (_event: any, id: string) => {
+  guardedHandle('review:accept', (_event: any, id: string, reason?: string) => {
     try {
-      const result = reviewTask(id, 'accept')
+      const result = reviewTask(id, 'accept', reason)
       return result
     } catch (e: any) {
       return { ok: false, error: e.message }
@@ -920,8 +948,15 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
   if (task.fm.status !== '待验收') {
     return { ok: false, error: `当前状态为「${task.fm.status || '未知'}」，仅「待验收」可验收` }
   }
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 16)
   if (verdict === 'accept') {
     tasks.moveStatus(id, '完成')
+    // 2026-09-25（用户第 7 条）：通过同样写结果记录 —— 此前只有驳回留痕，
+    // 「通过」这件事在卡上完全无迹可查（用户原话：验收裁决只能填驳回理由，那通过呢？）
+    const note = (reason || '').trim()
+    const line = note ? `[${ts}] 验收通过：${note}` : `[${ts}] 验收通过`
+    const prev = String((task.fm as any).result_log || '')
+    tasks.updateTask(id, { result_log: (prev + '\n' + line).trim() } as any)
     return { ok: true }
   } else {
     if (!reason || !reason.trim()) {
@@ -929,7 +964,6 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     }
     tasks.moveStatus(id, '驳回')
     // Append rejection reason to result log
-    const ts = new Date().toISOString().replace('T', ' ').slice(0, 16)
     const logLine = `[${ts}] 验收驳回：${reason}`
     const prevLog = (task.fm as any).result_log || ''
     ;(task.fm as any).result_log = (prevLog + '\n' + logLine).trim()
@@ -945,6 +979,102 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
 
   guardedHandle('skills:install', () => {
     return installSkills()
+  })
+
+  // 技能安装专区（2026-09-26 卡 038）：面板数据源 + 打开目录
+  // 此前 skills:check / skills:install 已存在，但渲染层从来没有入口 —— 功能在、界面不在。
+  guardedHandle('skills:list', () => {
+    return listSkillsForUi()
+  })
+
+  guardedHandle('skills:openDir', (_event, which: string) => {
+    return openSkillsDir(which)
+  })
+
+  // ── 技能直接导入（2026-09-26 卡 005，用户参照 WorkBuddy）──────────────
+  // 三件事：列出「外部导入」的技能 / 选包（文件或文件夹）+ 导入 / 移除。
+  // 导入逻辑全在主进程（解压、校验、落位、防穿越），渲染层只传路径与一个"要不要覆盖"的布尔。
+  guardedHandle('skills:imported', () => {
+    return { ok: true, items: listImportedSkills() }
+  })
+
+  guardedHandle('skills:importPick', (_event, kind: string) => {
+    return kind === 'folder' ? pickSkillFolder() : pickSkillFile()
+  })
+
+  guardedHandle('skills:import', (_event, srcPath: string, opts?: { overwrite?: boolean }) => {
+    return importSkillFromPath(String(srcPath || ''), { overwrite: !!opts?.overwrite })
+  })
+
+  guardedHandle('skills:remove', (_event, name: string) => {
+    return removeImportedSkill(String(name || ''))
+  })
+
+  // ── 服务 / 端口（2026-09-26 卡 006）────────────────────────────────
+  // 用户选 A 档：只读监控 + 冲突预警。这里**没有**"结束占用进程"的通道，别顺手加。
+  // 回收站卡片预览（2026-09-26：用户说卡片是"死卡"，得能先看内容再决定）
+  guardedHandle('trash:read', (_event, name: string) => {
+    return tasks.readTrashItem(String(name || ''))
+  })
+
+  // 装到别的 agent：目标检测 + 打开对方（只允许打开**检测到的那份清单**里的路径）
+  guardedHandle('agents:list', () => {
+    return detectAgentTargets(getHermesSkillsDirPath())
+  })
+  guardedHandle('agents:open', async (_event, id: string) => {
+    const target = detectAgentTargets(getHermesSkillsDirPath()).find(t => t.id === String(id) && t.detected)
+    if (!target || !target.openPath) return { ok: false, message: `检测不到这个 agent（${id}）` }
+    if (target.mode === 'installable' && target.skillsDir) {
+      shell.openPath(target.skillsDir)
+      return { ok: true, message: `已打开 ${target.skillsDir}` }
+    }
+    const err = await shell.openPath(target.openPath)
+    return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${target.name}` }
+  })
+
+  // 在资源管理器里显示某个技能的 SKILL.md（给 WorkBuddy 这类只能手动导入的 agent 用）
+  guardedHandle('skills:reveal', (_event, dirOrFile: string) => {
+    const root = path.resolve(getHermesSkillsDirPath())
+    const p = path.resolve(String(dirOrFile || ''))
+    // 只允许显示技能目录内的东西 —— 渲染层传来任意路径都不行
+    if (p !== root && !p.startsWith(root + path.sep)) return { ok: false, message: '路径不在技能目录内' }
+    let isDir = false
+    try { isDir = fs.statSync(p).isDirectory() } catch { isDir = false }
+    const skillMd = isDir ? path.join(p, 'SKILL.md') : p
+    try {
+      if (!fs.existsSync(skillMd)) return { ok: false, message: `找不到 SKILL.md：${skillMd}` }
+      shell.showItemInFolder(skillMd)
+      return { ok: true, message: '已在资源管理器里亮出 SKILL.md，拖进对方的导入面板即可' }
+    } catch (e: any) {
+      return { ok: false, message: `显示失败：${e?.message || e}` }
+    }
+  })
+
+  guardedHandle('services:start', (_event, port: number) => startService(Number(port)))
+
+  guardedHandle('services:list', () => {
+    return listServices()
+  })
+
+  guardedHandle('services:add', (_event, svc: { name: string; port: number; note?: string; project?: string }) => {
+    return addManualService({
+      name: String(svc?.name || ''),
+      port: Number(svc?.port),
+      note: svc?.note == null ? '' : String(svc.note),
+      project: svc?.project == null ? '' : String(svc.project),
+    })
+  })
+
+  guardedHandle('services:remove', (_event, port: number) => {
+    return removeManualService(Number(port))
+  })
+
+  guardedHandle('services:open', (_event, port: number) => {
+    return openService(Number(port))
+  })
+
+  guardedHandle('services:adopt', (_event, port: number, name?: string) => {
+    return adoptUnregistered(Number(port), name == null ? undefined : String(name))
   })
 
   // 首次启动自动检测 skills

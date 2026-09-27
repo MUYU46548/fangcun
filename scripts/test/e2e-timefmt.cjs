@@ -93,6 +93,34 @@ function main() {
   check('D7 通知面板遮罩同样没有 backdrop-filter',
     !/\.nc-wrap \{[^}]*backdrop-filter/.test(vue))
 
+  // D8/D9（2026-09-25 新增）：上轮的教训是「清了一个元素，漏了另一个」——
+  //   .overlay / .nc-wrap 都清了，却把**常驻**的 #bar 留着，用户第 1/3/9 条因此复发。
+  //   所以判据从「逐元素白名单」改成「全文件零容忍」。剥注释后再判，否则撞自己写的说明文字。
+  const vueNoComment = vue.replace(/\/\*[\s\S]*?\*\//g, '')
+  const bfCount = (vueNoComment.match(/backdrop-filter/g) || []).length
+  check('D8 App.vue 全域零 backdrop-filter（不再一个元素一个元素地漏）',
+    bfCount === 0, `backdrop-filter 仍出现 ${bfCount} 次`)
+  check('D9 装饰光斑保留合成层提升（blur 结果缓存成纹理，不随每次合成重算）',
+    /\.blob \{[^}]*filter: blur\(/.test(vueNoComment) && /\.blob \{[^}]*will-change: transform/.test(vueNoComment),
+    '.blob 缺 filter: blur 或 will-change: transform')
+
+  // D10–D12（2026-09-25 第二批）：
+  //   D10 快捷键 Ctrl+S —「通道早通、UI 无入口」的教训：新功能必须证明**真挂上了**，
+  //       而且**卸载时摘干净**（ncInit 那套曾因早退导致监听器根本不注册）。
+  //       更要紧的是**只点主保存按钮 `.pri`**：验收弹窗的「通过」是 `.ok`、驳回是 `.danger`，
+  //       裁决类必须用手点 —— Ctrl+S 误触一下就把任务验收了。
+  //   D12 日历底部「横条墙」默认收起（第 10 条），别退回一铺一大片。
+  check('D10 快捷键：挂载 + 卸载 + 只点主保存按钮（.pri），不碰裁决按钮',
+    /addEventListener\('keydown', onShortcutKeydown\)/.test(vueNoComment) &&
+    /removeEventListener\('keydown', onShortcutKeydown\)/.test(vueNoComment) &&
+    /querySelector<HTMLButtonElement>\('\.acts button\.pri'\)/.test(vueNoComment) &&
+    !/querySelector[^\n]*\.acts button\.(ok|danger)/.test(vueNoComment),
+    '缺挂载/卸载，或动了裁决按钮')
+  check('D11 快捷键不接管 Ctrl+Z（输入框原生撤销保持原样）',
+    !/key === 'z'/i.test(vueNoComment) && !/key === 'Z'/.test(vueNoComment))
+  check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
+    /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

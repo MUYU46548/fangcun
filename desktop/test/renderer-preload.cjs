@@ -18,6 +18,29 @@ const store = {
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ],
   calls: [],
+  // 技能直接导入（2026-09-26 卡 005）：一条已导入的外部技能
+  imported: [
+    {
+      name: 'external-demo', description: '外部丢进来的示例技能', version: '0.3.1',
+      dir: 'C:/mock/hermes/skills/external-demo', files: 3, bytes: 4096,
+      importedAt: '2026-09-26T10:00:00.000Z', source: 'D:/packages/external-demo.zip',
+    },
+  ],
+  // 服务 / 端口（2026-09-26 卡 006）：一条手填(监听中) + 一条启动台(空闲) + 一条未登记但正在监听
+  services: [
+    { id: 'manual:8753', name: '方寸看板', port: 8753, note: 'Python 版 tegula', project: '', source: 'manual', listening: true, pid: 1234, processName: 'python', duplicated: false },
+    { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', listening: false, pid: null, processName: '', duplicated: false },
+  ],
+  servicesUnreg: [{ port: 8090, pid: 5016, processName: 'node' }],
+  // 导入行为脚本：pickPath 是"用户选中的包路径"；importExists 打开后第一次导入返回重名
+  pickPath: 'C:/fake/incoming-skill.zip',
+  importExists: false,
+  importName: 'incoming-skill',
+  // 回收站（2026-09-26 卡 034）：一条普通 + 一条同名副本（.2.md），验证"按文件名操作"
+  trash: [
+    { name: 'task-demo-901.md', id: 'task-demo-901', title: '被删掉的演示任务', status: '待办', project: 'demo', bytes: 512, mtime: '2026-09-26T09:00:00.000Z' },
+    { name: 'task-demo-902.2.md', id: 'task-demo-902', title: '同名副本（历史遗留）', status: '完成', project: 'demo', bytes: 640, mtime: '2026-09-25T08:00:00.000Z' },
+  ],
   tasks: [
     {
       id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高',
@@ -108,7 +131,10 @@ contextBridge.exposeInMainWorld('tegula', {
   onBackupStatus: () => () => {},
   backupLog: () => [],
   notificationsList: () => [],
-  notificationsUnreadCount: () => 0,
+  // ⚠ 必须返回 Promise（真 IPC 是异步的）：渲染层写的是 `.then(...)`，
+  //   返回裸数字会抛 "then is not a function" —— 这个错只会在测试跑得够久、
+  //   轮询定时器触发时才现形（2026-09-26 加了服务页测试之后就跑到了这一步）
+  notificationsUnreadCount: () => Promise.resolve(0),
   notificationsScan: () => ({ ok: true }),
 
   // ── 待办（本测试的主角）────────────────────────────────────────
@@ -137,6 +163,8 @@ contextBridge.exposeInMainWorld('tegula', {
     t.done = !t.done
     return ok({ todo: t })
   },
+  // 待办数据健康度（2026-09-26 卡 033）
+  todosHealth: () => { rec('todosHealth'); return ok({ path: 'C:/mock/todos/index.json', lastError: null }) },
   todosDelete: (id) => {
     rec('todosDelete', [id])
     store.todos = store.todos.filter(x => x.id !== id)
@@ -158,6 +186,152 @@ contextBridge.exposeInMainWorld('tegula', {
   logsSearch: () => [],
   logsCleanup: () => [],
   logsForTask: () => [],
+
+  // ── 剪贴板（渲染层复制一律走主进程通道，见 shared/clipboard.ts ①）─────
+  clipboardWriteText: (text) => { rec('clipboardWriteText', [text]); return ok() },
+
+  // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────
+  // 一条已装（最新）+ 一条未装，正好把两种状态文案都覆盖
+  skillsCheck: () => ok({ needsInstall: false, skills: [] }),
+  skillsInstall: () => { rec('skillsInstall'); return ok({ installed: ['fangcun-hermes-bridge'], skipped: [], errors: [] }) },
+  skillsList: () => {
+    rec('skillsList')
+    const dir = 'C:/mock/skills'
+    const hermes = 'C:/mock/hermes/skills'
+    const mk = (id, target, version, installed, body) => ({
+      id, target, version,
+      file: `skills/${id}/SKILL.md`,
+      absPath: `${dir}/${id}/SKILL.md`,
+      exists: true, bytes: 1234, installed, outdated: !installed,
+      hash: 'a'.repeat(32), body,
+      prompt: `请把方寸（tegula）的「${id}」这个技能装到你自己身上：\n- 技能文件（绝对路径）：${dir}/${id}/SKILL.md`,
+    })
+    return ok({
+      version: '0.2.6', lastUpdated: '2026-09-25', skillsDir: dir, hermesDir: hermes, unlisted: [],
+      skills: [
+        mk('fangcun-hermes-bridge', 'Hermes', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
+        mk('skill-management-policy', 'All', '1.1.0', false, '---\nname: 技能纪律\n---\n正文乙'),
+      ],
+    })
+  },
+  skillsOpenDir: (which) => { rec('skillsOpenDir', [which]); return ok({ dir: which === 'hermes' ? 'C:/mock/hermes/skills' : 'C:/mock/skills' }) },
+
+  // ── 技能直接导入（2026-09-26 卡 005）──────────────────────────────
+  skillsImported: () => { rec('skillsImported'); return ok({ items: store.imported.slice() }) },
+  skillsImportPick: (kind) => {
+    rec('skillsImportPick', [kind])
+    return ok(store.pickPath ? { path: store.pickPath } : { canceled: true })
+  },
+  skillsImport: (srcPath, opts) => {
+    rec('skillsImport', [srcPath, !!(opts && opts.overwrite)])
+    if (store.importExists && !(opts && opts.overwrite)) {
+      return ok({ ok: false, code: 'exists', name: store.importName, error: `「${store.importName}」已经存在` })
+    }
+    // 成功之后把它挂进"已导入"列表，好让界面刷新出卡片（贴近真主进程的行为）
+    if (!store.imported.some(x => x.name === store.importName)) {
+      store.imported.push({
+        name: store.importName, description: '刚导入的技能', version: '',
+        dir: `C:/mock/hermes/skills/${store.importName}`, files: 2, bytes: 800,
+        importedAt: new Date().toISOString(), source: srcPath,
+      })
+    }
+    return ok({ ok: true, name: store.importName, target: `C:/mock/hermes/skills/${store.importName}`, files: 2, bytes: 800 })
+  },
+  skillsRemove: (name) => {
+    rec('skillsRemove', [name])
+    store.imported = store.imported.filter(x => x.name !== name)
+    return ok({ ok: true, dir: `C:/mock/hermes/skills/${name}` })
+  },
+
+  // ── 服务 / 端口（2026-09-26 卡 006）：只读监控，没有"杀进程"通道 ────
+  servicesList: () => {
+    rec('servicesList')
+    const rows = store.services.slice()
+    return ok({
+      rows,
+      unregistered: store.servicesUnreg.slice(),
+      listeningCount: rows.filter(r => r.listening).length,
+      idleCount: rows.filter(r => !r.listening).length,
+      duplicatePorts: [],
+      hiddenCount: 12,
+      servicesJsonPath: 'C:/mock/userData/services.json',
+      appsJsonPath: 'C:/mock/userData/apps.json',
+    })
+  },
+  servicesAdd: (svc) => {
+    rec('servicesAdd', [svc])
+    if (!svc || !String(svc.name || '').trim()) return ok({ ok: false, error: '服务名不能为空' })
+    const port = Number(svc.port)
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return ok({ ok: false, error: '端口不合法' })
+    if (store.services.some(s => s.port === port)) return ok({ ok: false, error: `${port} 已经在清单里了` })
+    store.services.push({ id: `manual:${port}`, name: svc.name, port, note: svc.note || '', project: '', source: 'manual', listening: false, pid: null, processName: '', duplicated: false })
+    return ok({ ok: true })
+  },
+  servicesRemove: (port) => {
+    rec('servicesRemove', [port])
+    store.services = store.services.filter(s => s.port !== port)
+    return ok({ ok: true })
+  },
+  servicesOpen: (port) => {
+    rec('servicesOpen', [port])
+    return ok({ ok: true, url: `http://127.0.0.1:${port}/` })
+  },
+  servicesAdopt: (port, name) => {
+    rec('servicesAdopt', [port, name])
+    store.servicesUnreg = store.servicesUnreg.filter(u => u.port !== port)
+    store.services.push({ id: `manual:${port}`, name: name || `端口 ${port}`, port, note: '', project: '', source: 'manual', listening: true, pid: 1, processName: name || '', duplicated: false })
+    return ok({ ok: true })
+  },
+
+
+  // 空闲的启动台应用一键启动（2026-09-26 回执：「服务页没看到 8090 有动静」）
+  servicesStart: (port) => {
+    rec('servicesStart', [port])
+    const row = store.services.find(s => s.port === port)
+    if (!row) return ok({ ok: false, message: `端口 ${port} 不在启动台登记里` })
+    row.listening = true
+    row.pid = 9999
+    row.processName = 'node'
+    return ok({ ok: true, message: `已启动「${row.name}」` })
+  },
+
+  // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装）──────────────
+  agentsList: () => {
+    rec('agentsList')
+    return ok({ agents: [
+      { id: 'hermes', name: 'Hermes', mode: 'installable', detected: true,
+        evidence: 'C:/mock/hermes/skills', skillsDir: 'C:/mock/hermes/skills', howTo: '点上面「⚡ 装到 Hermes」' },
+      { id: 'workbuddy', name: 'WorkBuddy', mode: 'manual', detected: true,
+        evidence: 'C:/Program Files/WorkBuddy/WorkBuddy.exe', openPath: 'C:/Program Files/WorkBuddy/WorkBuddy.exe',
+        howTo: '显示 SKILL.md → 打开 WorkBuddy 的导入技能面板 → 拖进去' },
+      { id: 'claudecode', name: 'Claude Code', mode: 'manual', detected: false,
+        evidence: 'C:/mock/home/.claude', howTo: '—' },
+    ] })
+  },
+  agentsOpen: (id) => { rec('agentsOpen', [id]); return ok({ ok: true, message: '已打开 ' + id }) },
+  skillsReveal: (p) => { rec('skillsReveal', [p]); return ok({ ok: true, message: '已在资源管理器里亮出 SKILL.md' }) },
+
+  // ── 回收站（2026-09-26 卡 034）────────────────────────────────
+  trashRead: (name) => {
+    rec('trashRead', [name])
+    const it = store.trash.find(x => x.name === name)
+    if (!it) return { ok: false, error: '回收站里已经找不到这个文件' }
+    return { ok: true, text: `# ${it.title}\n\n正文：被删那份的原文。`, truncated: false }
+  },
+  trashList: () => { rec('trashList'); return { ok: true, items: store.trash.slice() } },
+  trashRestore: (name) => {
+    rec('trashRestore', [name])
+    const i = store.trash.findIndex(x => x.name === name)
+    if (i < 0) return { ok: false, error: '回收站里已经找不到这个文件' }
+    const it = store.trash[i]
+    store.trash.splice(i, 1)
+    return ok({ to: it.name, archived: it.status === '完成' })
+  },
+  trashPurge: (name) => {
+    rec('trashPurge', [name])
+    store.trash = store.trash.filter(x => x.name !== name)
+    return ok()
+  },
 
   // ── 任务操作 ───────────────────────────────────────────────────
   editTask: (id, fields) => {
@@ -267,6 +441,18 @@ contextBridge.exposeInMainWorld('__fcTest', {
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   todos: () => JSON.parse(JSON.stringify(store.todos)),
   logs: () => JSON.parse(JSON.stringify(store.logs)),
+  trash: () => JSON.parse(JSON.stringify(store.trash)),
   tasks: () => JSON.parse(JSON.stringify(store.tasks)),
+  imported: () => JSON.parse(JSON.stringify(store.imported)),
+  services: () => JSON.parse(JSON.stringify(store.services)),
+  /** 脚本化导入行为：是否重名 / 选中的包路径（null = 用户取消） */
+  setImport: (name, opts) => {
+    if (name) store.importName = name
+    if (opts && 'exists' in opts) store.importExists = !!opts.exists
+    if (opts && 'pickPath' in opts) store.pickPath = opts.pickPath
+  },
+  /** 重新灌测试数据：前面的回收站测试会把两条都还原/彻底删掉，后面的预览测试要重来一遍 */
+  setTrash: (items) => { store.trash = (items || []).slice() },
+  setServices: (rows) => { store.services = (rows || []).slice() },
   reset: () => { store.calls.length = 0 },
 })

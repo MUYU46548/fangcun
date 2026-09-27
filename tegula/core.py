@@ -1724,10 +1724,15 @@ def read_policy(project_id):
         return None
 
     def section(key):
-        m = re.search(r"^##\s*" + re.escape(key) + r"\s*\n([\s\S]*?)(?=\n##\s|\Z)", raw, re.M)
+        m = re.search(r"^\s*##\s*" + re.escape(key) + r"\s*\n([\s\S]*?)(?=\n\s*##\s|\Z)", raw, re.M)
         return m.group(1).strip() if m else ""
 
     out = {k: section(k) for k in ("使命", "当前目标", "应用场景", "方针边界")}
+    # 项目事实节（2026-09-25 六字段派工单）：三五行项目事实随任务书自动下发。
+    # 与 TS 侧 policies.ts 的 section() 保持同一"## 节名"约定，改任一侧都要同步。
+    facts = section("项目事实")
+    if facts:
+        out["项目事实"] = facts
     return out if any(out.values()) else None
 
 
@@ -1814,7 +1819,9 @@ def _agent_cmd(agent, extra_args):
 
 def _build_prompt(d, tid, repo, done_cmd, fn):
     """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
-    输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。"""
+    输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。
+    2026-09-25 六字段派工单：项目事实节从方针卡自动注入（无卡/无节则静默跳过，
+    不给任务书添噪音）；先搜后写纪律随任务书固定下发。"""
     proj_id = (d.get("项目") or [None])[0]
     p = {q["id"]: q for q in load_all_projects()}.get(proj_id) if proj_id else None
     proj_name = (p or {}).get("name") or proj_id or "?"
@@ -1830,6 +1837,18 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
         "## 方案（验收对照表，完成后逐项核销）",
         plan,
     ]
+    # 项目事实（六字段）：从方针卡注入，agent 不必自己去翻
+    pol = read_policy(proj_id) if proj_id else None
+    facts = str((pol or {}).get("项目事实") or "").strip()
+    if facts:
+        lines.append(f"## 项目事实（随卡下发，必须遵守）\n{facts}")
+    lines.append(
+        "## 开工纪律\n"
+        "- 先搜后写：动手前先列出仓库里已有的相关实现（grep 关键词），报清单再动手；"
+        "工具函数一律进公共目录（不落在业务模块）。\n"
+        "- 单实现直接写，不抽接口；出现第二个真实调用方再抽。\n"
+        "- 修复新增兜底须报备：每条报「防的是什么 + 失败时用户看到什么」；"
+        "防错误暴露（静默失败/假默认值）直接打回，防数据损坏留下但记录权衡。")
     if ziliao:
         lines.append(f"资料：{ziliao}")
     if tools:

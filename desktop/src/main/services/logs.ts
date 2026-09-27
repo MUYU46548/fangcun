@@ -20,6 +20,9 @@ export interface LogEntry {
   content: string
   nextSteps: string
   taskId?: string
+  /** 关联任务 ID 列表（2026-09-25 用户第 2 条：日志要能关联多个任务）。
+   *  文件里一直是 `tasks: [id]` 数组，此前只读第一个 —— 现在全读全写；taskId 保留为 ids[0]。 */
+  taskIds?: string[]
   note?: string
   /** Hermes 会话 ID 或 Agent 会话 ID，便于反向查证 */
   sessionId?: string
@@ -45,21 +48,29 @@ function getLogsDir(): string {
 /** 反向索引：某个任务关联的全部日志（含已完成/已归档） */
 export function logsForTask(taskId: string): LogEntry[] {
   if (!taskId) return []
-  return listLogs().filter(l => l.taskId === taskId)
+  return listLogs().filter(l => logTaskIds(l).includes(taskId))
 }
 
-/** 从日志 frontmatter 提取关联任务 ID（兼容 tasks / 关联任务 / task_id 等写法） */
-function extractTaskId(raw: any): string | undefined {
-  const candidates = [raw?.tasks, raw?.['关联任务'], raw?.taskId, raw?.task_id]
+/** 把日志的关联任务归一成数组（taskIds 优先，兼容历史上的单个 taskId） */
+function logTaskIds(log: LogEntry): string[] {
+  if (Array.isArray(log.taskIds) && log.taskIds.length) return log.taskIds.filter(Boolean)
+  return log.taskId ? [log.taskId] : []
+}
+
+/** 从日志 frontmatter 提取**全部**关联任务 ID
+ *  （兼容 tasks 数组 / 关联任务 / taskIds / taskId / task_id；字符串里允许逗号或空格分隔） */
+function extractTaskIds(raw: any): string[] {
+  const candidates = [raw?.tasks, raw?.['关联任务'], raw?.taskIds, raw?.taskId, raw?.task_id]
   for (const c of candidates) {
     if (Array.isArray(c)) {
-      const first = c.map((x: any) => String(x).trim()).filter(Boolean)[0]
-      if (first) return first
-    } else if (c !== undefined && c !== null && String(c).trim()) {
-      return String(c).trim()
+      const ids = c.map((x: any) => String(x).trim()).filter(Boolean)
+      if (ids.length) return Array.from(new Set(ids))
+    } else if (c !== undefined && c !== null) {
+      const ids = String(c).split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
+      if (ids.length) return Array.from(new Set(ids))
     }
   }
-  return undefined
+  return []
 }
 
 function parseLogFile(filePath: string): LogEntry | null {
@@ -96,6 +107,9 @@ function parseLogFile(filePath: string): LogEntry | null {
       }
     }
 
+    // 2026-09-25（用户第 2 条）：一次读出**全部**关联任务 ID（原来只取第一个）
+    const taskIds = extractTaskIds(raw)
+
     return {
       id: String(raw.id || path.basename(filePath, '.md')),
       title: String(raw.title || ''),
@@ -110,7 +124,9 @@ function parseLogFile(filePath: string): LogEntry | null {
       nextSteps: String(raw._next_steps || nextSteps || ''),
       // renderLog 把关联任务写在 frontmatter 的 tasks 数组里，此前只写不读，
       // 导致 logsForTask 永远返回空 —— 任务详情的「关联日志」看不到任何东西。
-      taskId: extractTaskId(raw),
+      taskIds,
+      // taskId 保留为首个 ID，兼容仍在读单值的旧消费方（卡片、logsForTask 之外的调用）
+      taskId: taskIds[0],
       sessionId: raw.session_id ? String(raw.session_id) : undefined,
       agentName: raw.agent_name ? String(raw.agent_name) : undefined,
       logDate: raw.log_date ? String(raw.log_date) : undefined,
@@ -132,7 +148,7 @@ function renderLog(log: LogEntry): string {
     retain_days: log.retainDays != null ? log.retainDays : null,
     retain_until: log.retainUntil ? log.retainUntil : null,
     tags: [],
-    tasks: log.taskId ? [log.taskId] : [],
+    tasks: logTaskIds(log),
     _content: log.content || null,
     _next_steps: log.nextSteps || null,
     session_id: log.sessionId || null,
@@ -197,11 +213,14 @@ export function createLog(
   project: string,
   content: string,
   taskId?: string,
-  extra?: { sessionId?: string; agentName?: string; logDate?: string },
+  extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] },
 ): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const id = genId()
   const now = new Date().toISOString()
+  // 2026-09-25（用户第 2 条）：支持一次关联多个任务（taskIds 优先，兼容旧的单值 taskId）
+  const ids = Array.from(new Set([...(extra?.taskIds || []), ...(taskId ? [taskId] : [])]
+    .map(x => String(x).trim()).filter(Boolean)))
   const log: LogEntry = {
     id,
     title,
@@ -213,7 +232,8 @@ export function createLog(
     retainUntil: null,
     content,
     nextSteps: '',
-    taskId,
+    taskIds: ids.length ? ids : undefined,
+    taskId: ids[0],
     sessionId: extra?.sessionId,
     agentName: extra?.agentName,
     logDate: extra?.logDate || now.slice(0, 10),
@@ -236,6 +256,8 @@ export function updateLog(id: string, updates: {
   nextSteps?: string
   project?: string
   taskId?: string
+  /** 2026-09-25（用户第 2 条）：多个关联任务。给了它就以它为准，taskId 退化为 ids[0]。 */
+  taskIds?: string[]
   sessionId?: string
   agentName?: string
   logDate?: string
@@ -250,7 +272,16 @@ export function updateLog(id: string, updates: {
   if (updates.nextSteps !== undefined) entry.nextSteps = updates.nextSteps
   if (updates.project !== undefined) entry.project = updates.project
   // 空串 = 解除关联（renderLog 会把 tasks 写成空数组，字段随之从文件里消失）
-  if (updates.taskId !== undefined) entry.taskId = updates.taskId ? String(updates.taskId).trim() : undefined
+  if (updates.taskIds !== undefined) {
+    const ids = Array.from(new Set((updates.taskIds || []).map((x: any) => String(x).trim()).filter(Boolean)))
+    entry.taskIds = ids.length ? ids : undefined
+    entry.taskId = ids[0]
+  } else if (updates.taskId !== undefined) {
+    // 兼容只传单值的旧调用：单值同样落成列表
+    const v = updates.taskId ? String(updates.taskId).trim() : ''
+    entry.taskIds = v ? [v] : undefined
+    entry.taskId = v || undefined
+  }
   if (updates.sessionId !== undefined) entry.sessionId = updates.sessionId ? String(updates.sessionId).trim() : undefined
   if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
   if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
@@ -285,6 +316,31 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   if (entry.status === 'archived') return { ok: false, error: '日志已归档' }
   entry.status = 'archived'
   if (note) entry.note = note
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 把日志**打回「进行中」**（2026-09-26 用户补充第 3 条：「希望日志加一个功能，
+ * 可以临时打上进行中标签，并且卡片有特殊视觉效果」）。
+ *
+ * 为什么需要单独一条通道：状态此前是单行道 active → completed → archived
+ * （`updateLog` 还明确拒绝改非 active 的日志），点过一次「完成」或「归档」就再也回不去，
+ * 而用户的真实用法常常是「这条我现在又在弄了」。
+ *
+ * 语义：只改状态、不动文件；顺手清掉 `completed` / `retainDays` / `retainUntil` ——
+ * 留着会让卡片继续显示「已完成 + 保留到 X」，与「进行中」自相矛盾。
+ * 已经是 active 的给 ok（幂等），不写盘。
+ */
+export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (entry.status === 'active') return { ok: true, data: entry }
+  entry.status = 'active'
+  entry.completed = null
+  entry.retainDays = null
+  entry.retainUntil = null
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }

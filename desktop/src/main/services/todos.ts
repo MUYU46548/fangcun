@@ -8,7 +8,8 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { getDataDir, normalizePriority } from '../data'
+import { getDataDir, normalizePriority, atomicWrite } from '../data'
+import * as appLog from './appLog'
 
 export interface Todo {
   id: string
@@ -47,20 +48,60 @@ function normalizeTodo(raw: any): Todo {
   }
 }
 
+/**
+ * 最近一次读取是否遇到坏文件（供界面显性化，见 todosHealth）。
+ *
+ * 2026-09-26 卡 033 修的真问题：旧实现解析失败**静默 return []**，
+ * 界面只表现为"待办突然空了"；而紧接着的任何一次写入（新增一条）都会
+ * 把那份坏文件**覆盖成只剩新任务** —— 历史待办被静默销毁。
+ * 用户对数据丢失极敏感，所以坏文件一律**改名隔离**而不是丢弃：
+ *   todos/index.json            → todos/index.json.corrupt-<时间戳>
+ * 之后正常从空列表开始写，坏文件原样留着，随时能人工救回。
+ */
+let lastLoadError: { at: string; file: string; quarantined: string; error: string } | null = null
+
+function quarantineCorrupt(file: string, error: string): void {
+  let dest = `${file}.corrupt-${Date.now()}`
+  try {
+    fs.renameSync(file, dest)
+  } catch (e: any) {
+    // 改名失败（被占用/权限）：至少别让它被下次写入覆盖
+    dest = `${file}（改名失败：${e?.message || e}）`
+  }
+  lastLoadError = { at: new Date().toISOString(), file, quarantined: dest, error }
+  appLog.error('todos', `待办文件解析失败，已隔离原文件：${dest}`, error)
+}
+
 function loadTodos(): Todo[] {
   const p = getTodosPath()
   if (!fs.existsSync(p)) return []
+  let text = ''
   try {
-    const raw = JSON.parse(fs.readFileSync(p, 'utf-8'))
-    if (!Array.isArray(raw)) return []
+    text = fs.readFileSync(p, 'utf-8')
+  } catch (e: any) {
+    lastLoadError = { at: new Date().toISOString(), file: p, quarantined: '', error: `读取失败：${e?.message || e}` }
+    return []
+  }
+  try {
+    const raw = JSON.parse(text)
+    if (!Array.isArray(raw)) throw new Error('顶层不是数组')
     return raw.map(normalizeTodo)
-  } catch {
+  } catch (e: any) {
+    quarantineCorrupt(p, e?.message || String(e))
     return []
   }
 }
 
+/** 原子写 + 回读校验（原来直接 writeFileSync：写一半崩溃 = 整个 index.json 损坏） */
 function saveTodos(todos: Todo[]): void {
-  fs.writeFileSync(getTodosPath(), JSON.stringify(todos, null, 2), 'utf-8')
+  atomicWrite(getTodosPath(), JSON.stringify(todos, null, 2))
+}
+
+/** 待办数据健康度（坏文件隔离留痕，界面用来显性化"数据出过事"） */
+export function todosHealth(): { ok: boolean; path: string; lastError: typeof lastLoadError } {
+  // 主动探一次：界面刷新时调用即可发现新出现的坏文件
+  loadTodos()
+  return { ok: lastLoadError === null, path: getTodosPath(), lastError: lastLoadError }
 }
 
 export function listTodos(filter?: { done?: boolean }): Todo[] {

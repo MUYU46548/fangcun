@@ -485,16 +485,26 @@ export function extractFileFromZip(zipBuffer: Buffer, name: string): Buffer | nu
   return extractEntry(zipBuffer, e)
 }
 
-/** 解压全部条目到目录（恢复流程用）。返回写出的文件数。 */
-export function extractZipTo(zipBuffer: Buffer, destDir: string): number {
+/** 解压全部条目到目录。
+ *  @param opts.skipNames 跳过的条目名（默认跳过备份包的 manifest.json）；
+ *         技能导入会传 `[]` —— 技能包里的 manifest.json 是技能自己的文件，不该被跳。
+ */
+export function extractZipTo(zipBuffer: Buffer, destDir: string, opts: { skipNames?: string[] } = {}): number {
   const entries = readCentralDirectory(zipBuffer)
+  const skip = new Set(opts.skipNames ?? ['manifest.json'])
   let n = 0
   for (const e of entries) {
-    if (e.name === 'manifest.json') continue
+    if (skip.has(e.name)) continue
     const rel = e.name.replace(/\\/g, '/')
     // 防目录穿越：拒绝绝对路径与 ..
     if (rel.startsWith('/') || rel.split('/').some(s => s === '..')) {
       throw new Error(`备份条目路径非法：${e.name}`)
+    }
+    // 目录条目（Windows 资源管理器打出来的 zip 一定带）→ 只建目录，别当文件写
+    // （旧实现会对以 / 结尾的路径 writeFileSync，直接 EISDIR 失败）
+    if (rel.endsWith('/')) {
+      fs.mkdirSync(path.join(destDir, rel), { recursive: true })
+      continue
     }
     const raw = extractEntry(zipBuffer, e)
     if (!raw) throw new Error(`条目解压失败：${e.name}`)

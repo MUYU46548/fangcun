@@ -91,6 +91,33 @@ function main() {
   check('C8 真身空而缓存有值时做一次性迁移',
     /cached && cached\.length[\s\S]{0,160}prefsSet\('fc_agent_presets', cached\)/.test(vueSrc))
 
+  // ══ D. 硬件加速开关（2026-09-25 用户第 1/3/9 条的人工验证杠杆）════════
+  // 「点输入框光标不进去、要切到别的窗口再切回来才恢复」这条已经去掉了全部常驻实时
+  // 模糊合成层。若仍复发，剩下的只有合成器/核显驱动层 —— 所以给用户一个能自己翻的
+  // 开关。这里钉死三件事：开关落盘、主进程真读、读的时机在 ready 之前且 userData 之后。
+  prefs.setPref('fc_disable_gpu', true)
+  check('D1 硬件加速开关写入真身', prefs.getPref('fc_disable_gpu') === true)
+  check('D2 落盘到 prefs.json（重启/换 origin 不丢）',
+    JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_disable_gpu === true,
+    fs.readFileSync(prefs.getPrefsPath(), 'utf-8'))
+  prefs.setPref('fc_disable_gpu', false)
+  check('D3 能关回去', prefs.getPref('fc_disable_gpu') === false)
+
+  const idxSrc = fs.readFileSync(path.join(SRC, 'index.ts'), 'utf-8')
+  const iSetPath = idxSrc.indexOf("app.setPath('userData'")
+  const iGetPref = idxSrc.indexOf("getPref('fc_disable_gpu')")
+  const iDisable = idxSrc.indexOf('app.disableHardwareAcceleration()')
+  check('D4 主进程启动时读了 fc_disable_gpu', iGetPref > 0, `@${iGetPref}`)
+  check('D5 ★ 时机正确：先 setPath(userData) → 再读 prefs → 再 disableHardwareAcceleration',
+    iSetPath >= 0 && iGetPref > iSetPath && iDisable > iGetPref,
+    `setPath@${iSetPath} getPref@${iGetPref} disable@${iDisable}`)
+  check('D6 ★ 关硬件加速受开关约束，不是无条件调用',
+    /getPref\('fc_disable_gpu'\) === true[\s\S]{0,240}app\.disableHardwareAcceleration\(\)/.test(idxSrc))
+  check('D7 渲染层设置页有同名开关（key 两端一致）且提示需重启',
+    /fc_disable_gpu/.test(vueSrc) && /function onDisableGpuChange/.test(vueSrc) && /需重启生效/.test(vueSrc))
+  check('D8 ★ 开关也进 syncBoardPrefs 双向对齐（不只写 localStorage，否则换 origin 丢）',
+    /function syncBoardPrefs[\s\S]{0,3000}typeof p\?\.fc_disable_gpu === 'boolean'/.test(vueSrc))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

@@ -100,6 +100,23 @@ function needsAncestor(selector) {
   return /[\s>+]/.test(core.trim())
 }
 
+/** 找到与 pos 处开标签配对的同名闭合标签下标（考虑同名嵌套；找不到返回 -1） */
+function matchTagClose(s, pos, tag) {
+  const re = new RegExp(`<${tag}(?=[\\s>])|</${tag}>`, 'g')
+  re.lastIndex = pos
+  let depth = 0
+  let m
+  while ((m = re.exec(s))) {
+    if (m[0].startsWith('</')) {
+      depth--
+      if (depth === 0) return m.index
+    } else {
+      depth++
+    }
+  }
+  return -1
+}
+
 function main() {
   console.log('== 按钮样式守卫 ==')
   console.log('file:', FILE)
@@ -109,8 +126,11 @@ function main() {
   }
   const src = fs.readFileSync(FILE, 'utf-8')
 
+  // ⚠ 深度感知（2026-09-26 修）：Vue 模板里**合法地可以嵌套 `<template v-if>`**。
+  // 旧写法 `indexOf('</template>')` 取的是**第一个**闭合标签 → 模板被截断在嵌套块处，
+  // 表现为「模板中检出按钮 → 实际 4」这种荒谬数字（守卫自己坏了，产品其实是好的）。
   const tplStart = src.indexOf('<template>')
-  const tplEnd = src.indexOf('</template>')
+  const tplEnd = tplStart < 0 ? -1 : matchTagClose(src, tplStart, 'template')
   const styleStart = src.indexOf('<style')
   const styleEnd = src.lastIndexOf('</style>')
   if (tplStart < 0 || tplEnd < 0 || styleStart < 0 || styleEnd < 0) {

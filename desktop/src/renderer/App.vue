@@ -17,12 +17,21 @@
 
     <!-- Top bar -->
     <header id="bar">
-      <span class="title">方寸 tegula<small id="count">{{ tasks.length }}</small></span>
+      <!-- 2026-09-25（用户第 12 条）：
+           ① 左侧方形 LOGO（绒花墨坊有、方寸没有）→ 点开「关于」；
+           ② 那个「神秘数字」加了说明与准确性修复，见 countText / countTitle。 -->
+      <span class="title">
+        <button class="brand" title="关于方寸" @click="openAbout">寸</button>
+        方寸 tegula<small id="count" :title="countTitle">{{ countText }}</small>
+      </span>
       <button v-if="canGoBack" class="ghost nav-back" title="返回上一个视图" @click="goBack">← 返回</button>
       <span v-if="parseErrors.length" class="parse-warn" :title="parseErrors.join('\n')" @click="showParseErrors">
         ⚠ {{ parseErrors.length }} 个文件无法解析
       </span>
       <span class="ctrls">
+        <!-- 看板专属控件（2026-09-26 用户第 1 条）：它们只对看板/归档有意义。
+             原来无条件渲染 → 在回收站/技能/日志/待办等页签上全是"点了没反应"的按钮。 -->
+        <template v-if="isBoardView">
         <select v-model="curProj" class="proj-select">
           <option value="__all__">全部项目</option>
           <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
@@ -49,7 +58,8 @@
           <option value="updated">最近更新</option>
           <option value="created">创建时间</option>
         </select>
-        <button @click="openNew">+ 新建</button>
+        </template>
+        <button v-if="isTaskView" @click="openNew">+ 新建</button>
         <button class="ghost backup-btn" :class="bkDotClass" :title="bkTooltip" @click="showBackup">
           <span v-if="bkBusy" class="bk-spin">⟳</span>
           <span v-else>💾</span>
@@ -60,7 +70,8 @@
           <span v-if="ncUnread > 0" class="nc-badge">{{ ncUnread > 99 ? '99+' : ncUnread }}</span>
         </button>
         <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
-        <button class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
+        <!-- 任务多选同样只在看板/归档有意义（批量改状态/归档作用于看板列） -->
+        <button v-if="isBoardView" class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
           <span v-if="!batchMode">☑ 任务多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
@@ -253,6 +264,230 @@
       </div>
     </main>
 
+    <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块「看得见 + 能复制」的说明面板 -->
+    <main id="board" class="skills-view" v-else-if="curView === 'skills'"
+          @dragover.prevent="onSkillsDragOver" @dragleave="onSkillsDragLeave" @drop.prevent="onSkillsDrop">
+      <div v-if="skillsDragging" class="skills-dropmask">
+        <div class="skills-dropmask-inner">
+          <div class="skills-dropmask-icon">📥</div>
+          <div>松手即导入 —— 支持文件夹、.zip（内含 SKILL.md）或 .md（带 YAML 的 name + description）</div>
+        </div>
+      </div>
+      <div class="skills-header">
+        <h3>技能安装专区</h3>
+        <span class="skills-hint">技能本质只是模块化提示词，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。</span>
+        <button class="skills-btn primary" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</button>
+        <button class="skills-btn primary" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</button>
+        <button class="skills-btn" @click="importSkillViaPicker('folder')" title="选一个技能文件夹（内有 SKILL.md）导入">📁 导入文件夹…</button>
+        <button class="skills-btn" @click="openSkillsDir('resources')" title="打开随包分发的技能目录">📂 技能目录</button>
+        <button class="skills-btn" @click="openSkillsDir('hermes')" title="打开 Hermes 侧的技能目录">📂 Hermes 目录</button>
+        <button class="skills-btn" @click="loadSkills()">刷新</button>
+      </div>
+
+      <!-- 外部导入的技能（2026-09-26 卡 005）：跟自发布技能分开列，账本互不污染 -->
+      <div v-if="skillsImported.length" class="skills-imported">
+        <div class="skills-imported-title">
+          已导入的技能（外部）
+          <span class="skills-imported-hint">直接丢进来的技能包，落在 {{ skillsHermesDir }}；不进方寸的 manifest，可单独移除</span>
+        </div>
+        <div v-for="im in skillsImported" :key="im.name" class="skill-card imported">
+          <div class="skill-main">
+            <span class="skill-id">{{ im.name }}</span>
+            <span class="skill-badge">外部导入</span>
+            <span class="skill-ver" v-if="im.version">v{{ im.version }}</span>
+            <span class="skill-files">{{ im.files }} 个文件 · {{ Math.max(1, Math.round(im.bytes / 1024)) }} KB</span>
+          </div>
+          <div class="skill-desc">{{ im.description || '(SKILL.md 里没写 description)' }}</div>
+          <div class="skill-path" :title="im.dir">{{ im.dir }}</div>
+          <div class="skill-actions">
+            <button class="skills-btn" @click="revealSkillPath(im.dir)" title="在资源管理器里亮出 SKILL.md（装到别的 agent 用）">📂 显示 SKILL.md</button>
+            <button class="skills-btn danger" @click="removeImportedSkill(im)" title="只删这一个目录（带导入标记才允许删）">🗑 移除</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="skillsError" class="skills-error">{{ skillsError }}</div>
+      <div v-else-if="skillsLoading" class="empty-state"><div class="empty-text">读取中…</div></div>
+      <div v-else-if="!skillsList.length" class="empty-state">
+        <div class="empty-icon">🧩</div>
+        <div class="empty-text">没找到技能清单 — 检查 skills/manifest.json 是否随包分发</div>
+      </div>
+      <template v-else>
+        <div class="skills-meta">
+          清单版本 {{ skillsManifestVersion || '—' }} · 更新于 {{ skillsUpdated || '—' }}
+          <span class="skills-dir" :title="skillsDir">真源：{{ skillsDir }}</span>
+        </div>
+        <div v-if="skillsUnlisted.length" class="skills-warn">
+          有 {{ skillsUnlisted.length }} 个技能目录没登记进 manifest（会漏装）：{{ skillsUnlisted.join('、') }}
+        </div>
+        <div class="skills-list">
+          <div v-for="sk in skillsList" :key="sk.id" class="skill-card">
+            <div class="skill-main">
+              <span class="skill-id">{{ sk.id }}</span>
+              <span class="skill-target">{{ sk.target }}</span>
+              <span class="skill-ver">v{{ sk.version || '—' }}</span>
+              <span class="skill-state" :class="'skill-' + skillStateClass(sk)">{{ skillStateText(sk) }}</span>
+            </div>
+            <div class="skill-path" :title="sk.absPath">{{ sk.absPath }}</div>
+            <div class="skill-actions">
+              <button class="skills-btn primary" @click="copySkillPrompt(sk)">📋 复制安装提示词</button>
+              <button class="skills-btn" @click="copySkillBody(sk)">📄 复制 SKILL.md 全文</button>
+              <button class="skills-btn" @click="revealSkillPath(sk.absPath)" title="在资源管理器里亮出这个技能的 SKILL.md —— 装到 WorkBuddy 这类只能手动导入的 agent 时用它">📂 显示 SKILL.md</button>
+            </div>
+          </div>
+        </div>
+        <div class="skills-agents">
+          <div class="skills-agents-title">
+            装到别的 agent（不只有 Hermes）
+            <span class="skills-agents-sub">本机实际检测到的才列出来；方寸只往 Hermes 直装 —— 别人的目录不猜、不写</span>
+          </div>
+          <div v-if="!agentTargets.length" class="skills-agent">检测中…</div>
+          <div v-for="a in agentTargets" :key="a.id" class="agent-row" :class="{ 'agent-off': !a.detected }">
+            <div class="agent-line1">
+              <span class="agent-name">{{ a.name }}</span>
+              <span class="agent-mode" :class="a.mode === 'installable' ? 'can' : 'manual'">
+                {{ a.mode === 'installable' ? '可直装' : '给文件手动导入' }}
+              </span>
+              <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
+              <button v-if="a.detected && a.mode === 'installable'" class="skills-btn primary" disabled>
+                用上面的「⚡ 装到 Hermes」
+              </button>
+              <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</button>
+              <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="revealSkillPath(skillsList.length ? skillsList[0].absPath : '')">
+                📂 显示一份 SKILL.md
+              </button>
+            </div>
+            <div class="agent-evidence" :title="a.evidence">{{ a.evidence }}</div>
+            <div class="agent-howto">{{ a.howTo }}</div>
+          </div>
+        </div>
+      </template>
+    </main>
+
+    <!-- 服务 / 端口（2026-09-26 卡 006）：用户选的是 A 档 —— 只读监控 + 冲突预警，绝不杀进程 -->
+    <main id="board" class="services-view" v-else-if="curView === 'services'">
+      <div class="services-header">
+        <h3>服务 / 端口</h3>
+        <span v-if="!servicesLoading" class="services-stats">
+          登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }} · 空闲 {{ servicesIdle }}
+        </span>
+        <input v-model="svcName" class="svc-input" placeholder="服务名（如 方寸看板）" @keyup.enter="addService()" />
+        <input v-model="svcPort" class="svc-input svc-port-input" placeholder="端口" @keyup.enter="addService()" />
+        <button class="skills-btn primary" @click="addService()">＋ 登记端口</button>
+        <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前服务/端口清单复制成纯文本 —— 方便直接贴给 Hermes 分析">📋 复制快照</button>
+        <button class="skills-btn" @click="loadServices()">刷新</button>
+      </div>
+      <div class="services-notebar">
+        只读监控：这里只告诉你在不在、谁占着，<b>不会结束任何进程</b>
+        （要停服务请自己看清 PID 再动手）。登记源＝启动台 apps.json 的 port 字段 + 手填的 services.json。
+      </div>
+
+      <div v-if="servicesError" class="skills-error">{{ servicesError }}</div>
+      <div v-else-if="servicesLoading" class="empty-state"><div class="empty-text">探测中…</div></div>
+      <template v-else>
+        <div v-if="servicesDuplicates.length" class="services-warn">
+          ⚠ 这几个端口被登记了多次（真冲突，先合并）：{{ servicesDuplicates.join('、') }}
+        </div>
+        <div v-if="!servicesRows.length" class="empty-state">
+          <div class="empty-icon">🔌</div>
+          <div class="empty-text">还没登记任何端口 —— 用上面的输入框登记，或给启动台应用填 port</div>
+        </div>
+        <div v-else class="services-list">
+          <div v-for="s in servicesRows" :key="s.id" class="svc-item">
+            <div class="svc-main">
+              <div class="svc-line1">
+                <span class="svc-name">{{ s.name }}</span>
+                <span class="svc-port">:{{ s.port }}</span>
+                <span class="svc-state" :class="s.listening ? 'on' : 'off'">{{ s.listening ? '监听中' : '空闲' }}</span>
+                <span v-if="s.duplicated" class="svc-dup">重复登记</span>
+                <span class="svc-src">{{ s.source === 'launchpad' ? '启动台' : '手填' }}</span>
+              </div>
+              <div class="svc-line2">
+                <span v-if="s.listening">占用者 PID {{ s.pid }} · {{ s.processName }}</span>
+                <span v-else>没有进程在监听</span>
+                <span v-if="s.note">· {{ s.note }}</span>
+              </div>
+            </div>
+            <div class="svc-actions">
+              <button v-if="!s.listening && s.source === 'launchpad'" class="skills-btn primary"
+                      @click="startServiceRow(s)" title="按启动台里登记的命令把它拉起来（方寸只启动启动台登记过的应用，绝不杀进程）">▶ 启动</button>
+              <button class="skills-btn" @click="openService(s)" :disabled="!s.listening"
+                      :title="s.listening ? '在浏览器打开 http://127.0.0.1:' + s.port : '现在没人监听，打开会报错'">🌐 打开地址</button>
+              <button v-if="s.source === 'manual'" class="skills-btn danger" @click="removeService(s)">🗑 取消登记</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="servicesUnregistered.length || servicesHidden" class="services-unreg">
+          <div class="services-unreg-title">
+            未登记但正在监听（{{ servicesUnregistered.length }}）
+            <span class="services-unreg-hint">
+              只列像服务/开发进程的（node·python·java…）；另有 {{ servicesHidden }} 个端口在监听但不像是服务
+              （系统组件、聊天软件等），已略过 —— 不做全盘扫描
+            </span>
+          </div>
+          <div v-for="u in servicesUnregistered" :key="u.port" class="svc-item small">
+            <div class="svc-main">
+              <div class="svc-line1">
+                <span class="svc-port">:{{ u.port }}</span>
+                <span class="svc-name">{{ u.processName }}</span>
+                <span class="svc-state on">监听中</span>
+                <span class="svc-src">PID {{ u.pid }}</span>
+              </div>
+            </div>
+            <div class="svc-actions">
+              <button class="skills-btn" @click="adoptService(u)">＋ 登记</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </main>
+
+    <!-- 回收站（2026-09-26 卡 034）：数据一直在 task-data/.trash，此前缺的只是界面入口 -->
+    <main id="board" class="trash-view" v-else-if="curView === 'trash'">
+      <div class="trash-header">
+        <h3>回收站</h3>
+        <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
+        <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
+        <button class="trash-refresh" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</button>
+      </div>
+      <div class="trash-notebar">
+        删掉的任务先来这儿 —— 数据没丢，可以还原；「彻底删除」才真的从磁盘删掉，不可撤销。
+        <b>点卡片任意位置能看正文</b>，看完再决定删还是留。
+      </div>
+
+      <div v-if="trashLoading" class="empty-state"><div class="empty-text">读取中…</div></div>
+      <div v-else-if="!trashItems.length" class="empty-state">
+        <div class="empty-icon">🗑</div>
+        <div class="empty-text">回收站是空的 — 没有已删除的任务</div>
+      </div>
+      <div v-else-if="!filteredTrash.length" class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-text">没有匹配「{{ trashQuery }}」的条目</div>
+        <button class="trash-btn" @click="trashQuery = ''">清空搜索</button>
+      </div>
+      <div v-else class="trash-list">
+        <div v-for="it in filteredTrash" :key="it.name" class="trash-item">
+          <div class="trash-main clickable" @click="openTrashPreview(it)" title="点击看正文（只读预览）">
+            <div class="trash-line1">
+              <span class="trash-id">{{ it.id }}</span>
+              <span class="trash-title">{{ it.title || '(无标题)' }}</span>
+              <span v-if="it.status" class="st small" :class="'st-' + statusClass(it.status)">{{ it.status }}</span>
+              <span v-if="it.project" class="trash-proj">{{ it.project }}</span>
+            </div>
+            <div class="trash-line2">
+              <span class="trash-name" :title="it.name">{{ it.name }}</span>
+              <span class="trash-meta">· {{ it.bytes || 0 }} B · 删于 {{ it.mtime ? relativeTime(it.mtime) : '—' }}</span>
+            </div>
+          </div>
+          <div class="trash-actions">
+            <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回「归档」，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
+            <button class="trash-btn danger" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <main id="board" class="blockers-view" v-else-if="curView === 'blockers'">
       <div class="blockers-header">
@@ -302,9 +537,15 @@
           />
           <button class="ghost" @click="executeTodoAdd">+ 添加</button>
           <button class="ghost todo-new" title="用大框新建待办（可一次填项目 / 优先级 / 到期日）" @click="openTodoCreator()">大框新建</button>
-          <select v-model="todoProjectFilter" class="todo-filter" title="项目联动：筛选后新增待办自动归属该项目">
+          <select v-model="todoProjectFilter" class="todo-filter" title="按项目筛选（只影响显示）">
             <option value="__all__">全部项目</option>
+            <option value="__none__">（不归属任何项目）</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+          </select>
+          <select v-model="todoSort" class="todo-filter" title="排序方式">
+            <option value="default">默认：未完成 → 优先级 → 新的在前</option>
+            <option value="due">到期日近的在前</option>
+            <option value="created">最新创建在前</option>
           </select>
           <select v-model="todoFilter" class="todo-filter">
             <option value="all">全部</option>
@@ -313,12 +554,23 @@
           </select>
         </div>
       </div>
+      <div class="todos-stats">
+        共 {{ todos.length }} 条 · 未完成 {{ todoStats.active }} · 已完成 {{ todos.length - todoStats.active }}
+        <span v-if="todoStats.overdue" class="todos-overdue-count">· 逾期 {{ todoStats.overdue }}</span>
+        <span v-if="todoStats.hidden" class="todos-hidden">· 当前筛选遮住 {{ todoStats.hidden }} 条</span>
+        <button v-if="todoStats.hidden" class="todos-clear" @click="clearTodoFilters()">清除筛选</button>
+      </div>
+      <div v-if="todoHealthIssue" class="todos-health">
+        ⚠ 上次读取待办数据失败，坏文件已隔离保留（{{ todoHealthIssue.quarantined || todoHealthIssue.file }}）——
+        原文件没有被覆盖，可以人工救回。错误：{{ todoHealthIssue.error }}
+      </div>
       <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走「日志」页签。</div>
       <div v-if="todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
       <div class="todos-list">
         <div v-if="!filteredTodos.length" class="empty-state">
-          <div class="empty-icon">✓</div>
-          <div class="empty-text">暂无待办</div>
+          <div class="empty-icon">{{ todos.length ? '🔍' : '✓' }}</div>
+          <div class="empty-text">{{ todos.length ? '没有符合当前筛选的待办' : '暂无待办' }}</div>
+          <button v-if="todos.length" class="todos-clear" @click="clearTodoFilters()">清除筛选</button>
         </div>
         <div
           v-for="todo in filteredTodos"
@@ -333,9 +585,12 @@
             @change="toggleTodo(todo.id)"
           />
           <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
-          <span v-if="todo.due" class="todo-due" :title="'到期日：' + todo.due">📅 {{ todo.due }}</span>
+          <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
+                :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
+            📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
+          </span>
           <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
-          <span v-if="localPriority(todo.priority) === '高'" class="todo-prio">高</span>
+          <span class="todo-prio" :class="'prio-' + prioClass(todo.priority)">{{ localPriority(todo.priority) }}</span>
           <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
           <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
           <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
@@ -470,7 +725,12 @@
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           </div>
           <div class="log-card-actions" @click.stop>
+            <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
             <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
+            <!-- 2026-09-26 用户补充第 3 条：日志要能临时打回「进行中」（状态此前只能单向前进） -->
+            <button v-if="log.status !== 'active'" class="ghost"
+              title="临时打回「进行中」（这条又在弄了）—— 卡面会变成醒目的进行中样式"
+              @click="reopenLogItem(log.id)">▶ 进行中</button>
             <button v-if="log.status === 'active'" class="ghost" @click="completeLogItem(log.id)">完成</button>
             <button v-if="log.status !== 'archived'" class="ghost" @click="archiveLogItem(log.id)">归档</button>
             <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
@@ -530,12 +790,103 @@
           <div class="review-task-title">{{ reviewModal.title }}</div>
           <div class="review-task-id">{{ reviewModal.id }}</div>
         </div>
-        <label>驳回理由（驳回时必填）</label>
-        <textarea v-model="reviewReason" class="review-reason" placeholder="驳回时填写理由..."></textarea>
+        <!-- 2026-09-25（用户第 7 条）：原来这里只有「驳回理由」一个输入框 ——
+             通过按钮虽然在，但通过时**无处写结论**，等于「通过」这件事不留痕。
+             改成双用的验收结论：驳回必填、通过选填，两者都写进「结果记录」。 -->
+        <label>验收结论（驳回必填 · 通过选填，均写入结果记录）</label>
+        <textarea v-model="reviewReason" class="review-reason" placeholder="驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项"></textarea>
         <div class="acts">
           <button class="ghost" @click="reviewModal = null">取消</button>
           <button class="danger" @click="rejectTask">↩ 驳回</button>
           <button class="ok" @click="acceptTask">✅ 通过</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有 -->
+    <div v-if="aboutOpen" class="overlay" @click.self="aboutOpen = false">
+      <div id="about-modal">
+        <h3>关于方寸</h3>
+        <div class="about-brand">
+          <span class="about-logo">方</span>
+          <div>
+            <b>方寸 tegula</b>
+            <div class="about-sub">本地优先的 agent 任务调度台</div>
+          </div>
+        </div>
+        <div class="about-rows">
+          <div><span class="k">版本</span><span class="v">{{ appVersion || '读取中…' }}</span></div>
+          <div><span class="k">数据目录</span><span class="v about-path" :title="dataDir">{{ dataDir || '—' }}</span></div>
+          <div><span class="k">当前视图</span><span class="v">{{ curView }} · {{ countText }}</span></div>
+          <div><span class="k">任务数据</span><span class="v about-path">task-data/ · 纯 Markdown + YAML</span></div>
+        </div>
+        <div class="acts">
+          <button class="ghost" @click="openAppLogDir">打开日志目录</button>
+          <button class="ghost" @click="bkOpenDir">打开备份目录</button>
+          <button class="ghost" @click="aboutOpen = false">关闭</button>
+        </div>
+        <p class="about-note">
+          数据是你的：任务就是 <code>task-data/</code> 里的 Markdown 文件，不进 git；
+          删除只移入 <code>.trash/</code>；本地备份在 <code>backups/</code>。
+        </p>
+      </div>
+    </div>
+
+    <!-- 日志只读预览（2026-09-25 用户第 13 条）：用户明说日志用得比看板多，
+         而日志正文此前是纯文本 —— 全项目只有任务预览一处 v-html。
+         现在单击日志卡 = 打开只读预览（复用 renderBody：marked + DOMPurify，
+         表格/任务列表/代码/图片都支持），编辑移进预览与卡片操作行。 -->
+    <div v-if="logPreview" class="overlay" @click.self="logPreview = null">
+      <div id="log-preview-modal">
+        <h3>
+          <span class="log-status-badge" :class="logPreview.status">{{ logStatusLabel(logPreview.status) }}</span>
+          {{ logPreview.title || '(无标题)' }}
+        </h3>
+        <div class="lp-meta">
+          <span v-if="logPreview.project">{{ (projects.find(p => p.id === logPreview.project)?.name) || logPreview.project }}</span>
+          <span v-if="logPreview.taskId">📍 {{ logPreview.taskId }}</span>
+          <span v-if="logPreview.agentName">🤖 {{ logPreview.agentName }}</span>
+          <span>{{ formatDate(logPreview.created) }}</span>
+          <span v-if="logPreview.completed">✓ {{ formatDate(logPreview.completed) }}</span>
+        </div>
+        <label>执行内容</label>
+        <div class="body-text markdown" v-html="renderBody(logPreview.content)"></div>
+        <template v-if="logPreview.nextSteps">
+          <label>下一步</label>
+          <div class="body-text markdown" v-html="renderBody(logPreview.nextSteps)"></div>
+        </template>
+        <div class="acts">
+          <button class="ghost" @click="openLogFromPreview">✏️ 编辑</button>
+          <button class="ghost" @click="copyLogAsPrompt(logPreview.id)">📋 复制</button>
+          <button class="ghost" @click="logPreview = null">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
+    <div id="trash-preview-overlay" class="overlay" v-if="trashPreview" @click.self="trashPreview = null">
+      <div id="trash-preview-modal">
+        <h3>
+          {{ trashPreview.item.title || trashPreview.item.id }}
+          <span class="st" :class="'st-' + statusClass(trashPreview.item.status)">{{ trashPreview.item.status || '—' }}</span>
+        </h3>
+        <div class="meta">
+          <div><span class="k">文件名</span><span class="v">{{ trashPreview.item.name }}</span></div>
+          <div><span class="k">ID</span><span class="v">{{ trashPreview.item.id }}</span></div>
+          <div><span class="k">项目</span><span class="v">{{ trashPreview.item.project || '—' }}</span></div>
+          <div><span class="k">大小</span><span class="v">{{ trashPreview.item.bytes || 0 }} B</span></div>
+          <div><span class="k">删于</span><span class="v">{{ trashPreview.item.mtime ? relativeTime(trashPreview.item.mtime) : '—' }}</span></div>
+        </div>
+        <div v-if="trashPreview.loading" class="hint">读取中…</div>
+        <div v-else-if="trashPreview.error" class="skills-error">{{ trashPreview.error }}</div>
+        <div v-else class="trash-preview-body">
+          <div v-if="trashPreview.truncated" class="hint">文件很大，只显示前 512 KB</div>
+          <div class="trash-preview-text markdown" v-html="renderBody(trashPreview.text)"></div>
+        </div>
+        <div class="trash-preview-actions">
+          <button class="trash-btn" @click="restoreFromPreview()">↩ 还原这一份</button>
+          <button class="trash-btn danger" @click="purgeFromPreview()">🗑 彻底删除（不可撤销）</button>
+          <button class="trash-btn" @click="trashPreview = null">关闭</button>
         </div>
       </div>
     </div>
@@ -671,11 +1022,20 @@
         </div>
       </div>
       <div class="calunsched">
-        <h4>
-          未安排 · 无时间（{{ calUnscheduled.length }} 个）
-          <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
-        </h4>
-        <div class="items">
+        <!-- 2026-09-25（用户第 10 条）：底部这两排 chip 一旦多起来就是一片「横条墙」，
+             视觉压迫感极强。改成默认收起的一行摘要，点开才铺开。 -->
+        <button class="cal-more" :aria-expanded="calBottomOpen" @click="calBottomOpen = !calBottomOpen">
+          <span class="caret" :class="{ open: calBottomOpen }">▸</span>
+          未排期 <b>{{ calUnscheduled.length }}</b> 项
+          <template v-if="calOtherMonths.length">· 其它月份 <b>{{ calOtherMonths.length }}</b> 个</template>
+          <span class="cal-more-hint">{{ calBottomOpen ? '收起' : '展开' }}</span>
+        </button>
+        <div v-show="calBottomOpen" class="cal-more-body">
+          <h4>
+            未安排 · 无时间（{{ calUnscheduled.length }} 个）
+            <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
+          </h4>
+          <div class="items">
           <span v-for="t in calUnscheduled" :key="t.id" class="cev chip" draggable="true"
             :title="'拖动或点击指派时间：' + (t.title || t.id)"
             @dragstart="onCalDragStart($event, t.id, 'task')"
@@ -693,6 +1053,7 @@
             </span>
           </div>
         </template>
+        </div>
       </div>
     </main>
 
@@ -832,17 +1193,20 @@
         <textarea v-model="logEdit_.content" class="tall" placeholder="执行内容..."></textarea>
         <label>下一步</label>
         <textarea v-model="logEdit_.nextSteps" placeholder="下一步..."></textarea>
-        <!-- 关联任务：2026-09-22（用户第 2 条）此前是两个裸输入框，等着用户手填
-             id —— 实际等于逼人背 ID。改为「按项目过滤的下拉选择」，第一项为不关联；
-             保留下面的手填框，用于跨项目/已归档/列表外的 ID。 -->
-        <label>关联任务 ID（可选）</label>
-        <select v-model="logEdit_.taskId" class="logsel" :disabled="!logTaskOptions.length">
-          <option value="">{{ logTaskOptions.length ? '（不关联）' : '（当前项目下没有可选任务）' }}</option>
-          <option v-for="t in logTaskOptions" :key="t.id" :value="t.id">
-            {{ t.id }} · {{ t.title || '(无标题)' }} · {{ t.status }}
-          </option>
-        </select>
-        <input v-model="logEdit_.taskId" placeholder="或直接粘贴任务 ID" />
+        <!-- 关联任务：2026-09-22 改为「按项目过滤的选择」；2026-09-25（用户第 2 条）
+             此前只能关联**一个** ID，需要多个。数据层本来就写 tasks 数组
+             （renderLog: tasks: [id]），只是只读了第一个 —— 现在改成多选。 -->
+        <label>关联任务（可多选）</label>
+        <div v-if="logTaskOptions.length" class="log-task-multi">
+          <label v-for="t in logTaskOptions" :key="t.id" class="log-task-opt">
+            <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
+            <span class="lto-id">{{ t.id }}</span>
+            <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+            <span class="lto-st">{{ t.status }}</span>
+          </label>
+        </div>
+        <div v-else class="hint">当前项目下没有可选任务 —— 用下面的输入框直接贴 ID</div>
+        <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用逗号分隔，回车加入）" @change="addLogTaskExtra" />
         <div class="hint log-task-picked" v-if="logTaskPicked">已选：{{ logTaskPicked }}</div>
         <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
         <label>会话 ID（可选，便于反向查证）</label>
@@ -1064,6 +1428,13 @@
             </button>
           </div>
           <div class="hint">更新包托管在 GitHub Releases，检查与下载需联网。</div>
+          <!-- 2026-09-25（用户第 1/3/9 条）：界面卡顿/点不动的人工验证杠杆。
+               去完全部实时模糊层后若仍复发，那就是合成器/核显驱动层的问题
+               —— 关掉硬件加速重启即可验证（必须重启才生效）。 -->
+          <label class="chk gpu-chk" title="关掉 Chromium 的 GPU 合成。若「点输入框要切窗口才恢复」仍复发，勾上它重启再试。">
+            <input type="checkbox" v-model="disableGpu" @change="onDisableGpuChange" />
+            禁用硬件加速（界面若出现卡顿/点不动的兜底，需重启生效）
+          </label>
         </div>
         <div class="sect">
           <h4>数据目录</h4>
@@ -1168,15 +1539,10 @@
 
           <div class="sect-btns bk-manual">
             <span class="bk-manual-label">手动流转（不依赖网盘账号）</span>
-            <!-- 第 10 条：默认导出**最新一份已有备份**，不再每次都全量重打 -->
-            <select v-model="bkExportPackage" class="bk-export-select"
-              title="要导出的内容：默认选最新一份已有备份；第一项是「现打全量包」">
-              <option value="">（现打全量包 · 较慢）</option>
-              <option v-for="b in bkExportCandidates" :key="b.path" :value="b.path">
-                {{ b.name }}{{ b.bytes ? ' · ' + Math.round(b.bytes / 1024) + 'KB' : '' }}
-              </option>
-            </select>
-            <button class="ghost" :disabled="bkBusy" @click="bkExportTo">📤 导出所选</button>
+            <!-- 2026-09-26 用户第 1、2 条：不再要人选下拉（「必须逐字核对，很难受」），
+                 点一下就导出**最新一份备份**；落盘**只有一个 zip**。 -->
+            <button class="ghost" :disabled="bkBusy" @click="bkExportTo"
+              title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</button>
             <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage">🔍 校验备份包…</button>
             <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile">📥 从文件恢复…</button>
           </div>
@@ -1191,9 +1557,11 @@
               <span :class="{ on: bkTab === 'remote' }" @click="bkSwitchTab('remote')">远端 ({{ bkRemote.length }})</span>
             </div>
             <div class="bk-list">
-              <div v-for="b in bkCurrentList" :key="b.name" class="bk-item">
+              <!-- 2026-09-25 第 5 条：列表按「最后更新」倒序（主进程排好），首行是「最新」。 -->
+              <div v-for="(b, bi) in bkCurrentList" :key="b.name" class="bk-item">
                 <div class="bk-item-main">
                   <span class="bk-item-name">{{ b.name }}</span>
+                  <span v-if="bi === 0" class="bk-newest" title="按最后更新倒序 —— 这就是最新的一份">最新</span>
                   <span class="bk-item-meta">
                     {{ b.bytes != null ? (b.bytes / 1024).toFixed(0) + ' KB' : '—' }} · {{ bkFmt(b.mtime) }}
                   </span>
@@ -1430,6 +1798,43 @@ const curView = ref('active')
 const curProj = ref('__all__')
 const groupMode = ref('status')
 
+// ── 顶栏计数 + 关于（2026-09-25 用户第 12 条）────────────────────────────
+// 「左上角神秘数字，有时 38，有时 39，有时 1」的真因：
+//   它是 `{{ tasks.length }}`，而 tasks 由 loadAll() 按**当前视图**拉一份；
+//   切到日志 / 待办 / 启动台 / 阻塞 / 路线图这些**不调 loadAll** 的页签时它不会更新
+//   → 数字停在上一个视图的旧值（且从不说明是什么）。这里记下计数属于哪个视图，
+//   不属于当前视图就不再冒充「本页的条数」。
+const countView = ref('')
+const countText = computed(() =>
+  countView.value === curView.value ? `${tasks.value.length} 条` : '—')
+const countTitle = computed(() =>
+  countView.value === curView.value
+    ? `当前视图（${curView.value}）内 ${tasks.value.length} 条任务。归档任务不计入，除非勾选顶栏「含归档」。`
+    : '本页签不加载任务列表，所以不显示条数（此前会残留上一个视图的旧数字）')
+
+// 顶栏控件的作用域（2026-09-26 用户第 1 条回执）
+// 顶栏原来是**无条件渲染**的：切到回收站/技能/日志/待办后，「全部项目 / 按状态 /
+// 折叠全部 / 展开 / 搜索 / 全部时间 / 活跃优先 / 任务多选」全是看板专属 —— 点了没有任何
+// 作用。用户的原话是「右边一堆看起来能点的 UI，但实际什么都不能点」。
+// 这里按视图收口：看板专属只在看板/归档出现；「+ 新建」只在有"任务"这个对象的视图出现。
+const isBoardView = computed(() => curView.value === 'active' || curView.value === 'archive')
+const isTaskView = computed(() =>
+  ['active', 'archive', 'projects', 'blockers', 'roadmap', 'calendar'].includes(curView.value))
+
+const aboutOpen = ref(false)
+function openAbout(): void {
+  aboutOpen.value = true
+  if (!appVersion.value) void loadAppVersion()
+}
+
+// 硬件加速开关（2026-09-25 用户第 1/3/9 条的人工验证杠杆）。真身 prefs.json，
+// 主进程在 app ready 之前同步读它决定是否 disableHardwareAcceleration() → 必须重启生效。
+const disableGpu = ref(readUiPref<boolean>('fc_disable_gpu', false))
+function onDisableGpuChange(): void {
+  saveUiPref('fc_disable_gpu', disableGpu.value)
+  showToast(disableGpu.value ? '已关闭硬件加速 —— 请重启方寸后生效' : '已恢复硬件加速 —— 请重启方寸后生效', 'info')
+}
+
 // ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
 // 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
 // 真身存主进程 prefs.json（与 014 同一套），localStorage 只当读缓存。
@@ -1467,6 +1872,18 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_log_archive_open', logArchiveOpen.value)
     }
+    // 「含归档」开关同样入真身（2026-09-25 用户第 9 条）
+    if (typeof p?.fc_include_archive === 'boolean') {
+      searchIncludeArchive.value = p.fc_include_archive
+    } else {
+      saveUiPref('fc_include_archive', searchIncludeArchive.value)
+    }
+    // 硬件加速开关（用户第 1/3/9 条的人工验证杠杆）
+    if (typeof p?.fc_disable_gpu === 'boolean') {
+      disableGpu.value = p.fc_disable_gpu
+    } else {
+      saveUiPref('fc_disable_gpu', disableGpu.value)
+    }
     groupModeApplied.value = true
   } catch { /* 读不到就用缓存/默认值 */ }
 }
@@ -1496,7 +1913,10 @@ const searchQuery = ref('')
 // 解析失败的任务文件（主进程收集）。以前 parseTask 失败是静默跳过 ——
 // 2026-09-18 真实发生过 6 个任务因标题含 ": " 而在看板上隐身数月。
 const parseErrors = ref<string[]>([])
-const searchIncludeArchive = ref(true)
+// 2026-09-25（用户第 9 条）：默认**不勾**「含归档」。
+// 归档任务混进主视图只增加视觉压迫感；要看归档本来就有独立视图与可折叠分区。
+// 用户的选择写进真身 prefs.json（localStorage 只是读缓存）。
+const searchIncludeArchive = ref(readUiPref<boolean>('fc_include_archive', false))
 const dueFilter = ref('')
 const isNaturalQuery = ref(false)
 const naturalResults = ref<Task[]>([])
@@ -1520,7 +1940,7 @@ const wizardCanNext = computed(() => {
   return true
 })
 
-watch(searchIncludeArchive, () => { loadAll() })
+watch(searchIncludeArchive, v => { saveUiPref('fc_include_archive', v); loadAll() })
 const draggingId = ref<string | null>(null)
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
@@ -1636,24 +2056,23 @@ async function bkLoadList() {
     const rr = await window.tegula.backupListRemote()
     bkRemote.value = rr.ok ? rr.items : []
   }
-  bkDefaultExportPackage()
 }
 
-// ── 导出指定备份（2026-09-25 第 10 条）──────────────────────────────
-// 用户原话：「导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新」。
-// 真身：`backup:exportTo` 传 `package` 就走 exportExistingPackageTo（复制已有那份包），
-// 不传仍是原来的「现在重新打一份全量」。默认选中**最新一份已有备份**。
-const bkExportPackage = ref('')
-
-/** 已有备份按文件名倒序（名字里带 YYYYMMDD-HHMMSS，可靠） */
+// ── 导出备份（2026-09-26 用户第 1、2 条：一次点击、只落一个 zip）────────
+// 用户原话：「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」＋
+//          「导出的备份文件要手动选下拉列表…必须逐字核对，很难受」。
+// 因此这里没有下拉了：直接取**最新一份已有备份**，点一下就导出（主进程只落一个 zip）；
+// 一份备份都没有时才让主进程现打一份全量包。
+/** 已有备份按**最后更新**倒序（2026-09-25 第 5 条：用户要的是"最后更新的排前面"） */
 const bkExportCandidates = computed(() =>
-  [...(bkLocal.value || [])].sort((a: any, b: any) => String(b.name || '').localeCompare(String(a.name || '')))
+  [...(bkLocal.value || [])].sort((a: any, b: any) =>
+    (Date.parse(b.mtime || '') || 0) - (Date.parse(a.mtime || '') || 0)
+    || String(b.name || '').localeCompare(String(a.name || '')))
 )
 
-function bkDefaultExportPackage(): void {
-  if (bkExportPackage.value && bkExportCandidates.value.some((b: any) => b.path === bkExportPackage.value)) return
-  // 默认最新；一条都没有则回退成「现打全量包」（value='' 就是全量）
-  bkExportPackage.value = bkExportCandidates.value.length ? bkExportCandidates.value[0].path : ''
+/** 最新一份已有备份的路径；没有备份时返回空串（= 让主进程现打一份） */
+function bkLatestPackagePath(): string {
+  return bkExportCandidates.value.length ? String(bkExportCandidates.value[0].path || '') : ''
 }
 
 
@@ -1803,12 +2222,15 @@ async function bkExportTo() {
   bkBusy.value = true
   bkMsg.value = ''
   try {
-    const r = await window.tegula.backupExportTo(bkExportPackage.value ? { package: bkExportPackage.value } : {})
+    // 2026-09-26 用户第 1、2 条：不再让用户挑包，直接导最新那份（没有才现打）；
+    // 主进程只落一个 zip，所以这里报的就是「那一个文件」。
+    const latest = bkLatestPackagePath()
+    const r = await window.tegula.backupExportTo(latest ? { package: latest } : {})
     if (r.canceled) return
     if (r.ok) {
       const res = r.result
-      bkMsg.value = `已导出 ${res.files} 个文件 · ${(res.bytes / 1024).toFixed(0)} KB → ${res.dir}` +
-        (res.toolPath ? '（含独立恢复脚本 fangcun-restore.py）' : '')
+      const name = String(res.zipPath || '').split(/[\\/]/).pop() || 'zip'
+      bkMsg.value = `已导出 ${name}（1 个文件 · ${(res.bytes / 1024).toFixed(0)} KB）→ ${res.dir}`
       bkMsgType.value = 'success'
       if (res.errors && res.errors.length) {
         bkMsg.value += ' ｜ 提醒：' + res.errors[0]
@@ -2020,7 +2442,38 @@ function onDocumentClick(e: MouseEvent): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && ncOpen.value) closePanel()
+  if (e.key !== 'Escape') return
+  if (ncOpen.value) { closePanel(); return }
+  // 2026-09-26 卡 033：Esc 关掉**最上层弹窗**。同样不逐个维护弹窗清单：
+  // 取 DOM 里最后一个 .overlay，点它的「取消」（.acts .ghost）。找不到就什么都不做。
+  const overlays = Array.from(document.querySelectorAll('.overlay')) as HTMLElement[]
+  const top = overlays[overlays.length - 1]
+  const cancel = top ? (top.querySelector('.acts .ghost') as HTMLElement | null) : null
+  if (cancel) cancel.click()
+}
+
+/** 全局快捷键（2026-09-25 用户第 6 条：「希望有一些简单的快捷键，比如保存和撤销」）
+ *
+ *  Ctrl/Cmd+S = 保存当前打开的弹窗。
+ *  · 不逐个维护「哪个弹窗开着」：`v-if` 的弹窗关着时根本不在 DOM 里，所以直接取
+ *    当前 DOM 里可见的最后一个 `.overlay`，点它的**主操作按钮 `.acts .pri`**。
+ *    以后新增弹窗自动被覆盖，不会漏接线（上一轮「通道早通、UI 无入口」就是漏接线）。
+ *  · **只认 `.pri`**：验收弹窗的「通过」是 `.ok`、驳回是 `.danger` —— 裁决类按钮
+ *    **刻意不接管**，Ctrl+S 误触一下就把任务验收了，代价太大，必须用手点。
+ *  · Ctrl+Z 不接管：输入框里的原生撤销本来就是对的，接管反而会破坏它。
+ */
+function onShortcutKeydown(e: KeyboardEvent): void {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+  if (e.key !== 's' && e.key !== 'S') return
+  // 无论有没有弹窗都拦掉默认行为：Chromium 的 Ctrl+S 是「保存网页」，在 Electron 里
+  // 可能弹出保存对话框，比什么都不做更烦人。
+  e.preventDefault()
+  const overlays = Array.from(document.querySelectorAll<HTMLElement>('.overlay'))
+    .filter(el => window.getComputedStyle(el).display !== 'none')
+  const top = overlays[overlays.length - 1]
+  if (!top) return
+  const btn = top.querySelector<HTMLButtonElement>('.acts button.pri')
+  if (btn && !btn.disabled) btn.click()
 }
 
 function ncInit(): void {
@@ -2062,7 +2515,10 @@ const views = [
   { id: 'roadmap', label: '路线图' },
   { id: 'calendar', label: '日历' },
   { id: 'archive', label: '归档' },
+  { id: 'trash', label: '回收站' },
   { id: 'launchpad', label: '启动台' },
+  { id: 'skills', label: '技能' },
+  { id: 'services', label: '服务' },
 ]
 
 const pickerStyle = {
@@ -2180,8 +2636,24 @@ function isStale(t: Task): boolean {
   return Number.isFinite(days) && days > 14 && isActiveStatus(t.status || '')
 }
 
-function isOverdue(t: Task): boolean {
-  return false
+/**
+ * 逾期判定（任务 + 待办共用）。
+ *
+ * 2026-09-26 卡 033：这里原本是 `return false` 的**空桩** —— 任务逾期从来没实现过。
+ * 待办专项整修要用同一个概念，就地补齐（而不是再写一个同名函数）：
+ *   · 待办看 `done`；任务看 `status`（完成/驳回不算逾期）；
+ *   · 日期字段任务叫 deadline/截止，待办叫 due，都认；
+ *   · 只有**严格过期**才算（今天到期不算逾期）—— 用 daysSince >= 1 判断。
+ */
+function isOverdue(t: any): boolean {
+  if (!t) return false
+  if (t.done === true) return false
+  const status = String(t.status || '')
+  if (status === '完成' || status === '驳回') return false
+  const due = t.due || t.deadline || (t.fm && (t.fm.deadline || t.fm['截止']))
+  if (!due) return false
+  const d = daysSince(due)
+  return Number.isFinite(d) && d >= 1
 }
 
 function statusClass(s: string): string {
@@ -2327,6 +2799,14 @@ function loadViewData(v: string) {
     loadTodos()
   } else if (v === 'logs') {
     loadLogs()
+  } else if (v === 'trash') {
+    // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）
+    loadTrash()
+  } else if (v === 'skills') {
+    loadSkills()
+    loadAgents()
+  } else if (v === 'services') {
+    loadServices()
   } else if (v === 'calendar') {
     // 日历要看任务 + 待办两条数据源（2026-09-22，用户第 6 条：此前完全不拉待办）
     loadAll()
@@ -2382,6 +2862,474 @@ async function loadProjectProgressMap() {
   }
 }
 
+// ── 回收站（2026-09-26 卡 034）──────────────────────────────────────────
+// 现象：`.trash/` 里有几十个文件、数据完好，但界面没有任何入口，用户以为"东西没了"。
+// 语义：一律按**文件名**操作（回收站里同一 id 可能有多份历史副本：`x.md` 与 `x.2.md`），
+//       还原时的同名冲突交给主进程的 moveIntoDir（内容相同去重、不同则新的占规范名、
+//       旧的改名保留）→ 绝不覆盖、绝不删除。
+interface TrashItem {
+  name: string
+  id: string
+  title?: string
+  status?: string
+  project?: string
+  bytes?: number
+  mtime?: string
+}
+
+const trashItems = ref<TrashItem[]>([])
+const trashLoading = ref(false)
+const trashQuery = ref('')
+
+/** 回收站条目总占用（KB）—— 几十项时一眼知道"这些垃圾有多大" */
+const trashTotalKb = computed(() =>
+  Math.round(trashItems.value.reduce((s, x) => s + (x.bytes || 0), 0) / 1024))
+
+/** 回收站内搜索：id / 标题 / 文件名 三个字段都认 */
+const filteredTrash = computed(() => {
+  const q = trashQuery.value.trim().toLowerCase()
+  if (!q) return trashItems.value
+  return trashItems.value.filter(x =>
+    String(x.id || '').toLowerCase().includes(q) ||
+    String(x.title || '').toLowerCase().includes(q) ||
+    String(x.name || '').toLowerCase().includes(q))
+})
+
+async function loadTrash(): Promise<void> {
+  trashLoading.value = true
+  try {
+    const r = await window.tegula.trashList()
+    trashItems.value = (r && r.items) || []
+  } catch {
+    trashItems.value = []
+  } finally {
+    trashLoading.value = false
+  }
+}
+
+async function restoreTrashItem(it: TrashItem): Promise<void> {
+  const r = await window.tegula.trashRestore(it.name)
+  if (r && r.ok) {
+    showToast(`已还原 ${it.id}${r.archived ? '（回归档区）' : ''}`, 'success')
+    await loadTrash()
+    // 只有在任务视图上才顺带刷新（回收站视图不加载任务列表；切过去时 loadViewData 会拉，
+    // 在这里调 loadAll 会把顶栏计数从「—」变成任务条数，属于自相矛盾）
+    if (curView.value !== 'trash') loadAll()
+  } else {
+    showToast(`还原失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+async function purgeTrashItem(it: TrashItem): Promise<void> {
+  if (!confirm(`彻底删除「${it.title || it.id}」？\n\n文件：${it.name}\n这是从磁盘删除，不可撤销。`)) return
+  const r = await window.tegula.trashPurge(it.name)
+  if (r && r.ok) {
+    showToast(`已彻底删除 ${it.name}`, 'success')
+    await loadTrash()
+  } else {
+    showToast(`删除失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+/**
+ * 回收站卡片预览（2026-09-26 用户回执：「每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个」）
+ *
+ * 之前只有「还原 / 彻底删除」两个按钮 —— 卡片本体点了没反应，想删又怕删错，只能凭标题猜。
+ * 现在点卡片任意位置读该文件的**源码正文**（只读），看完再决定；浮层里也给同一对动作。
+ * 关闭时机有讲究：动作成功且这一份**真的从列表里消失了**才关，没删掉就把浮层留着（别骗用户）。
+ */
+interface TrashPreviewState {
+  item: TrashItem
+  text: string
+  truncated: boolean
+  loading: boolean
+  error: string
+}
+const trashPreview = ref<TrashPreviewState | null>(null)
+
+async function openTrashPreview(it: TrashItem): Promise<void> {
+  trashPreview.value = { item: it, text: '', truncated: false, loading: true, error: '' }
+  const t: any = window.tegula
+  if (typeof t.trashRead !== 'function') {
+    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: '当前主进程/预加载是旧版本，没有预览通道 —— 托盘右键「退出」后重开' }
+    return
+  }
+  try {
+    const r: any = await t.trashRead(it.name)
+    if (!trashPreview.value || trashPreview.value.item.name !== it.name) return
+    trashPreview.value = r && r.ok
+      ? { item: it, text: String(r.text || ''), truncated: !!r.truncated, loading: false, error: '' }
+      : { item: it, text: '', truncated: false, loading: false, error: `读不出来：${(r && r.error) || '未知原因'}` }
+  } catch (e: any) {
+    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: `读不出来：${e?.message || e}` }
+  }
+}
+
+async function restoreFromPreview(): Promise<void> {
+  const st = trashPreview.value
+  if (!st) return
+  await restoreTrashItem(st.item)
+  if (!trashItems.value.some(x => x.name === st.item.name)) trashPreview.value = null
+}
+
+async function purgeFromPreview(): Promise<void> {
+  const st = trashPreview.value
+  if (!st) return
+  await purgeTrashItem(st.item)
+  if (!trashItems.value.some(x => x.name === st.item.name)) trashPreview.value = null
+}
+
+// ── 技能安装专区（2026-09-26 卡 038）────────────────────────────────────
+// 用户原话：「方寸技能毫无存在感」+「技能本质只是模块化提示词，不是硬性限制」。
+// 所以这里**不做插件市场**，就是一块看得见、能复制的安装说明面板：
+//   · 真源是随包分发的 skills/manifest.json（面板只读它，不自己编清单）；
+//   · 主按钮是「复制安装提示词」—— 贴给任何 agent，它自己知道技能目录在哪，
+//     提示词里带**绝对路径**，从根上杜绝手抄出错；
+//   · 顺带给 Hermes 一键装（这正是主进程里早就有、但渲染层一直没入口的能力）。
+interface SkillUiRow {
+  id: string
+  target: string
+  version: string
+  file: string
+  absPath: string
+  exists: boolean
+  bytes: number
+  installed: boolean
+  outdated: boolean
+  hash: string
+  body?: string
+  prompt: string
+}
+
+const skillsList = ref<SkillUiRow[]>([])
+const skillsLoading = ref(false)
+const skillsError = ref('')
+const skillsDir = ref('')
+const skillsHermesDir = ref('')
+const skillsManifestVersion = ref('')
+const skillsUpdated = ref('')
+const skillsUnlisted = ref<string[]>([])
+/** 外部导入的技能（2026-09-26 卡 005）—— 与自发布技能分账 */
+const skillsImported = ref<{
+  name: string; description: string; version: string; dir: string
+  files: number; bytes: number; importedAt: string; source: string
+}[]>([])
+const skillsDragging = ref(false)
+
+async function loadSkills(): Promise<void> {
+  skillsLoading.value = true
+  skillsError.value = ''
+  try {
+    const r: any = await window.tegula.skillsList()
+    if (!r || r.ok === false) {
+      skillsError.value = (r && r.error) || '读取技能清单失败'
+      skillsList.value = []
+    } else {
+      skillsList.value = r.skills || []
+      skillsDir.value = r.skillsDir || ''
+      skillsHermesDir.value = r.hermesDir || ''
+      skillsManifestVersion.value = r.version || ''
+      skillsUpdated.value = r.lastUpdated || ''
+      skillsUnlisted.value = r.unlisted || []
+    }
+    // 外部导入的另有一份（独立通道，失败不影响自发布技能列表）
+    try {
+      const im: any = await window.tegula.skillsImported()
+      skillsImported.value = (im && im.items) || []
+    } catch {
+      skillsImported.value = []
+    }
+  } catch (e: any) {
+    skillsError.value = '读取技能清单失败：' + (e?.message || e)
+    skillsList.value = []
+  } finally {
+    skillsLoading.value = false
+  }
+}
+
+/** 状态文案的取值只有三种事实：文件在不在 / 装没装 / 是不是旧的 */
+function skillStateText(sk: SkillUiRow): string {
+  if (!sk.exists) return '文件缺失'
+  if (!sk.installed) return '未装到 Hermes'
+  return sk.outdated ? '有更新' : '已装（最新）'
+}
+function skillStateClass(sk: SkillUiRow): string {
+  if (!sk.exists) return 'bad'
+  if (!sk.installed) return 'idle'
+  return sk.outdated ? 'warn' : 'good'
+}
+
+async function copySkillPrompt(sk: SkillUiRow): Promise<void> {
+  await copyWithToast(sk.prompt, `已复制「${sk.id}」安装提示词 —— 粘给 agent 就能自己装`)
+}
+
+async function copySkillBody(sk: SkillUiRow): Promise<void> {
+  if (!sk.body) { showToast('这份 SKILL.md 读不出来（文件缺失或为空）', 'error'); return }
+  await copyWithToast(sk.body, `已复制「${sk.id}」SKILL.md 全文（${sk.body.length} 字）`)
+}
+
+async function installSkillsToHermes(): Promise<void> {
+  const r: any = await window.tegula.skillsInstall()
+  if (!r) { showToast('安装失败：主进程没有返回', 'error'); return }
+  const parts: string[] = []
+  if (r.installed && r.installed.length) parts.push(`已装 ${r.installed.length}`)
+  if (r.skipped && r.skipped.length) parts.push(`跳过 ${r.skipped.length}`)
+  if (r.errors && r.errors.length) parts.push(`失败 ${r.errors.length}`)
+  showToast(`技能安装：${parts.join(' / ') || '无变化'}${r.errors && r.errors.length ? '（' + r.errors[0].error + '）' : ''}`,
+    r.errors && r.errors.length ? 'error' : 'success')
+  await loadSkills()
+}
+
+// ── 技能直接导入（2026-09-26 卡 005）──────────────────────────────────────
+// 说明：重名时主进程返回 code='exists'，这里**问一句**再带 overwrite 重试；
+// 校验类失败（invalid/too-large/reserved）直接报错，绝不静默覆盖。
+async function importSkillPath(srcPath: string, overwrite = false): Promise<boolean> {
+  const r: any = await window.tegula.skillsImport(srcPath, { overwrite })
+  if (!r) { showToast('导入失败：主进程没有返回', 'error'); return false }
+  if (r.ok) {
+    showToast(`已导入「${r.name}」→ ${r.target}（${r.files} 个文件）`, 'success')
+    await loadSkills()
+    return true
+  }
+  if (r.code === 'exists') {
+    const yes = confirm(`「${r.name}」已经存在。\n\n覆盖 = 用这个包替换掉现在那份；同名旧目录会先备份再替换，失败会还原。\n\n要覆盖吗？`)
+    if (!yes) { showToast(`已取消导入「${r.name}」`, 'info'); return false }
+    return await importSkillPath(srcPath, true)
+  }
+  showToast(`导入失败：${r.error || '未知原因'}`, 'error')
+  return false
+}
+
+async function importSkillViaPicker(kind: 'file' | 'folder'): Promise<void> {
+  const picked: any = await window.tegula.skillsImportPick(kind)
+  if (!picked) { showToast('选择失败：主进程没有返回', 'error'); return }
+  if (picked.canceled) return
+  if (!picked.ok || !picked.path) { showToast(`选择失败：${picked.error || '未知原因'}`, 'error'); return }
+  await importSkillPath(picked.path)
+}
+
+/** 拖进窗口的文件/文件夹：Electron 的 File 对象带 path（28 是最后一个还带 path 的大版本） */
+function dropPaths(dt: DataTransfer | null): string[] {
+  if (!dt) return []
+  const out: string[] = []
+  const files = dt.files ? Array.from(dt.files) as any[] : []
+  for (const f of files) {
+    const p = f?.path || ''
+    if (p) out.push(p)
+  }
+  return out
+}
+
+function onSkillsDragOver(ev: DragEvent): void {
+  skillsDragging.value = true
+  // 拖拽进入子元素会触发 dragleave，靠这一行把状态稳住（否则遮罩闪）
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy'
+}
+
+function onSkillsDragLeave(ev: DragEvent): void {
+  const rt = ev.relatedTarget as Node | null
+  const cur = ev.currentTarget as Node | null
+  if (rt && cur && cur.contains(rt)) return
+  skillsDragging.value = false
+}
+
+async function onSkillsDrop(ev: DragEvent): Promise<void> {
+  skillsDragging.value = false
+  const paths = dropPaths(ev.dataTransfer)
+  if (!paths.length) { showToast('没读到拖入的路径 —— 请改用「📥 导入技能…」按钮', 'error'); return }
+  let ok = 0
+  for (const p of paths) {
+    if (await importSkillPath(p)) ok++
+  }
+  if (paths.length > 1) showToast(`拖入 ${paths.length} 个，成功 ${ok} 个`, ok ? 'success' : 'error')
+}
+
+async function removeImportedSkill(im: { name: string; dir: string }): Promise<void> {
+  if (!confirm(`移除「${im.name}」？\n\n只删这一个目录（${im.dir}），方寸自发布技能不受影响。`)) return
+  const r: any = await window.tegula.skillsRemove(im.name)
+  if (r && r.ok) {
+    showToast(`已移除「${im.name}」`, 'success')
+    await loadSkills()
+  } else {
+    showToast(`移除失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+/**
+ * 「装到别的 agent」目标（2026-09-26 用户回执：「技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes」）
+ *
+ * 事实（本机查过）：本机只有 ~/.hermes/skills 与 ~/.config/opencode，没有 .claude/.codex/.cursor；
+ * WorkBuddy 是打包过的 Electron 应用，技能目录不在 %APPDATA%\WorkBuddy（空的）——**我们不能猜、不能瞎写**。
+ * 所以：能直装的只有 Hermes；其余的给「显示 SKILL.md + 打开对方」，用户拖一下即可。
+ */
+interface AgentTargetUi {
+  id: string; name: string; mode: 'installable' | 'manual'
+  detected: boolean; evidence: string; skillsDir?: string; openPath?: string; howTo: string
+}
+const agentTargets = ref<AgentTargetUi[]>([])
+
+async function loadAgents(): Promise<void> {
+  try {
+    const t: any = window.tegula
+    if (typeof t.agentsList !== 'function') { agentTargets.value = []; return }
+    const r: any = await t.agentsList()
+    agentTargets.value = Array.isArray(r) ? r : (r && r.agents) || []
+  } catch { agentTargets.value = [] }
+}
+
+async function openAgentTarget(a: AgentTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.agentsOpen !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.agentsOpen(a.id)
+  if (r && r.ok) showToast(r.message || `已打开 ${a.name}`, 'success')
+  else showToast(`打开失败：${(r && r.message) || '未知原因'}`, 'error')
+}
+
+/** 在资源管理器里亮出某个技能目录/文件的 SKILL.md（主进程只允许技能目录内的路径） */
+async function revealSkillPath(dirOrFile: string): Promise<void> {
+  const t: any = window.tegula
+  if (!dirOrFile) { showToast('这条技能没有可用的路径', 'error'); return }
+  if (typeof t.skillsReveal !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.skillsReveal(dirOrFile)
+  if (r && r.ok) showToast(r.message || '已在资源管理器里亮出 SKILL.md', 'success')
+  else showToast(`显示失败：${(r && r.message) || '未知原因'}`, 'error')
+}
+
+// ── 服务 / 端口（2026-09-26 卡 006）────────────────────────────────────
+// 用户选的口径是 A 档：**只读监控 + 冲突预警**。这里没有任何"结束进程"入口 ——
+// 别顺手加，那是用户明确排除的（且本仓有铁律：不许按镜像名批量杀进程）。
+interface ServiceRowUi {
+  id: string; name: string; port: number; note: string; project: string
+  source: 'launchpad' | 'manual'
+  listening: boolean; pid: number | null; processName: string; duplicated: boolean
+}
+const servicesRows = ref<ServiceRowUi[]>([])
+const servicesUnregistered = ref<{ port: number; pid: number | null; processName: string }[]>([])
+const servicesLoading = ref(false)
+const servicesError = ref('')
+const servicesDuplicates = ref<number[]>([])
+const servicesListening = ref(0)
+const servicesIdle = ref(0)
+const servicesHidden = ref(0)
+const svcName = ref('')
+const svcPort = ref('')
+
+async function loadServices(): Promise<void> {
+  servicesLoading.value = true
+  servicesError.value = ''
+  try {
+    const r: any = await window.tegula.servicesList()
+    if (!r) {
+      servicesError.value = '读取服务状态失败：主进程没有返回'
+      servicesRows.value = []
+    } else {
+      servicesRows.value = r.rows || []
+      servicesUnregistered.value = r.unregistered || []
+      servicesDuplicates.value = r.duplicatePorts || []
+      servicesListening.value = r.listeningCount || 0
+      servicesIdle.value = r.idleCount || 0
+      servicesHidden.value = r.hiddenCount || 0
+      // ok=false 时（比如 services.json 坏了）照样显示已解析的部分，但把原因摆在上面
+      if (r.ok === false && r.error) servicesError.value = r.error
+    }
+  } catch (e: any) {
+    servicesError.value = '读取服务状态失败：' + (e?.message || e)
+    servicesRows.value = []
+  } finally {
+    servicesLoading.value = false
+  }
+}
+
+async function addService(): Promise<void> {
+  const name = svcName.value.trim()
+  const port = Number(svcPort.value.trim())
+  if (!name) { showToast('先填服务名（比如「方寸看板」）', 'error'); return }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) { showToast('端口要填 1-65535 的整数', 'error'); return }
+  const r: any = await window.tegula.servicesAdd({ name, port })
+  if (r && r.ok) {
+    showToast(`已登记 ${name} :${port}`, 'success')
+    svcName.value = ''
+    svcPort.value = ''
+    await loadServices()
+  } else {
+    showToast(`登记失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+async function removeService(s: ServiceRowUi): Promise<void> {
+  if (!confirm(`取消登记「${s.name}」:${s.port}？\n\n只从手填清单里删掉这一条，不会动任何进程，也不会关掉正在跑的服务。`)) return
+  const r: any = await window.tegula.servicesRemove(s.port)
+  if (r && r.ok) { showToast(`已取消登记 :${s.port}`, 'success'); await loadServices() }
+  else showToast(`取消失败：${(r && r.error) || '未知原因'}`, 'error')
+}
+
+async function openService(s: ServiceRowUi): Promise<void> {
+  const r: any = await window.tegula.servicesOpen(s.port)
+  if (r && r.ok) showToast(`已在浏览器打开 ${r.url}`, 'success')
+  else showToast(`打开失败：${(r && r.error) || '未知原因'}`, 'error')
+}
+
+/** 把"未登记但正在监听"的端口登记进手填清单（默认名字取占用它的进程名） */
+async function adoptService(u: { port: number; processName: string }): Promise<void> {
+  const r: any = await window.tegula.servicesAdopt(u.port, u.processName)
+  if (r && r.ok) { showToast(`已登记 :${u.port}（${u.processName}）`, 'success'); await loadServices() }
+  else showToast(`登记失败：${(r && r.error) || '未知原因'}`, 'error')
+}
+
+/**
+ * 服务/端口快照（2026-09-26 用户回执：「也没任何导出分析功能，直接复制给你了，懒得搞」）
+ * —— 用户只能手抄给我，那就给他一个「📋 复制快照」：纯文本，直接贴给 Hermes 就能分析。
+ */
+function servicesSnapshotText(): string {
+  const lines: string[] = []
+  lines.push(`方寸服务/端口快照  ${new Date().toLocaleString()}`)
+  lines.push(`登记 ${servicesRows.value.length} · 监听中 ${servicesListening.value} · 空闲 ${servicesIdle.value}`)
+  if (servicesError.value) lines.push(`错误：${servicesError.value}`)
+  lines.push('')
+  lines.push('【已登记】')
+  for (const s of servicesRows.value) {
+    const src = s.source === 'launchpad' ? '启动台' : '手填'
+    const state = s.listening ? `监听中 pid=${s.pid} ${s.processName}` : '空闲'
+    lines.push(`:${s.port}\t${s.name}\t[${src}]\t${state}${s.duplicated ? '\t重复登记' : ''}${s.note ? '\t' + s.note : ''}`)
+  }
+  if (servicesUnregistered.value.length) {
+    lines.push('')
+    lines.push(`【未登记但在监听（${servicesUnregistered.value.length}）】`)
+    for (const u of servicesUnregistered.value) lines.push(`:${u.port}\t${u.processName}\tpid=${u.pid}`)
+  }
+  if (servicesHidden.value) {
+    lines.push('')
+    lines.push(`另有 ${servicesHidden.value} 个监听端口不像服务（系统组件/聊天软件等），已按白名单略过`)
+  }
+  return lines.join('\n')
+}
+
+async function copyServicesSnapshot(): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.clipboardWriteText !== 'function') { showToast('当前主进程是旧版本，没有剪贴板通道', 'error'); return }
+  try {
+    await t.clipboardWriteText(servicesSnapshotText())
+    showToast('服务快照已复制到剪贴板', 'success')
+  } catch (e: any) {
+    showToast(`复制失败：${e?.message || e}`, 'error')
+  }
+}
+
+/** 把「空闲」的启动台应用现场拉起来（主进程只认启动台里带 port 的应用，绝不杀进程） */
+async function startServiceRow(s: ServiceRowUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.servicesStart !== 'function') { showToast('当前主进程是旧版本，没有启动通道', 'error'); return }
+  const r: any = await t.servicesStart(s.port)
+  showToast((r && r.message) || '已发出启动请求', r && r.ok ? 'success' : 'error')
+  if (r && r.ok) setTimeout(() => loadServices(), 2000)
+}
+
+async function openSkillsDir(which: string): Promise<void> {
+  const r: any = await window.tegula.skillsOpenDir(which)
+  if (r && r.ok) showToast(`已打开 ${r.dir || ''}`, 'success')
+  else showToast(`打开失败：${(r && r.error) || '未知原因'}`, 'error')
+}
+
 async function loadAll() {
   const [t, p, b, dd] = await Promise.all([
     window.tegula.loadTasks(curView.value),
@@ -2390,6 +3338,7 @@ async function loadAll() {
     window.tegula.getDataDir(),
   ])
   tasks.value = t
+  countView.value = curView.value   // 顶栏计数只对「本次加载的视图」负责（用户第 12 条）
   projects.value = p
   blockers.value = b
   dataDir.value = dd
@@ -3211,6 +4160,9 @@ const calCells = computed(() => calMonthData.value.cells)
 const calUnscheduled = computed(() => calMonthData.value.unscheduled as unknown as Task[])
 const calOtherMonths = computed(() => calMonthData.value.otherMonths)
 const calOtherTotal = computed(() => calMonthData.value.otherTotal)
+// 2026-09-25（用户第 10 条）：「日历下方的横条很密集很让人畏惧」——底部两排 chip 一多
+// 就是一片横条墙。默认收起，只留一行摘要，点开才铺开。
+const calBottomOpen = ref(false)
 
 function prioColor(p: any): string {
   const s = localPriority(p)
@@ -3353,24 +4305,95 @@ async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
   }
 }
 
+// ── 待办列表：筛选 / 排序 / 逾期 / 统计（2026-09-26 卡 033 专项整修）──────
+// 本次修的四件事（都是"用起来别扭"的真因，不是零敲碎打）：
+//   ① 项目筛选原来是**漏筛**（`!t.project || t.project === X`）：选了项目 X 还会显示不归属的，
+//      看着就像"筛选坏了"。现在精确匹配，并单列「（不归属任何项目）」这一项。
+//   ② 同一个下拉既当筛选又当"新建默认归属"，两件事挤在一个控件里 → 现在只当筛选；
+//      新建归属走「大框新建」（弹窗里本来就有项目字段，且默认跟随当前筛选）。
+//   ③ 排序规则不可见、也不可选 → 加排序下拉（默认 / 到期日 / 最新创建），选择持久化。
+//   ④ 有到期日却不标逾期、优先级只有"高"有徽章 → 现在三档都显示，逾期单独标红并算天数。
+const todoProjectFilter = ref('__all__')
+const todoSort = ref<string>(readUiPref<string>('fc_todo_sort', 'default'))
+watch(todoSort, v => saveUiPref('fc_todo_sort', v))
+
+function overdueDays(t: any): number {
+  const d = daysSince(t.due)
+  return Number.isFinite(d) ? Math.floor(d) : 0
+}
+function prioClass(p: string): string {
+  const v = localPriority(p)
+  return v === '高' ? 'high' : v === '低' ? 'low' : 'mid'
+}
+
 const filteredTodos = computed(() => {
   let list = todos.value
   if (todoFilter.value === 'active') list = list.filter(t => !t.done)
   if (todoFilter.value === 'done') list = list.filter(t => t.done)
-  // 项目联动：选了项目（非全部）时只显示归属该项目或不归属的
-  if (todoProjectFilter.value !== '__all__') {
-    list = list.filter(t => !t.project || t.project === todoProjectFilter.value)
+  if (todoProjectFilter.value === '__none__') list = list.filter(t => !t.project)
+  else if (todoProjectFilter.value !== '__all__') list = list.filter(t => t.project === todoProjectFilter.value)
+
+  const arr = list.slice()
+  if (todoSort.value === 'due') {
+    arr.sort((a: any, b: any) => {
+      if (a.done !== b.done) return a.done ? 1 : -1
+      // 没有到期日的排最后 —— 不假装它们是"最近的"
+      const ta = a.due ? Number(parseTime(a.due)) : Number.POSITIVE_INFINITY
+      const tb = b.due ? Number(parseTime(b.due)) : Number.POSITIVE_INFINITY
+      const va = Number.isFinite(ta) ? ta : Number.POSITIVE_INFINITY
+      const vb = Number.isFinite(tb) ? tb : Number.POSITIVE_INFINITY
+      if (va !== vb) return va - vb
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    })
+  } else if (todoSort.value === 'created') {
+    arr.sort((a: any, b: any) => {
+      if (a.done !== b.done) return a.done ? 1 : -1
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    })
   }
-  return list
+  return arr
 })
 
-const todoProjectFilter = ref('__all__')
+const todoStats = computed(() => {
+  const total = todos.value.length
+  return {
+    active: todos.value.filter(t => !t.done).length,
+    overdue: todos.value.filter(t => isOverdue(t)).length,
+    hidden: total - filteredTodos.value.length,
+  }
+})
+
+/**
+ * 当前筛选选中的项目 id —— 哨兵值（__all__ / __none__）一律当"没有选中项目"。
+ *
+ * 2026-09-26 卡 033：项目下拉原来是"筛选 + 新建默认归属"两用，而 `__none__` 这类
+ * 哨兵值只要漏一处判断，就会把 '__none__' 当成项目 id 写进 todo.project（脏数据）。
+ * 统一从这一个函数取，杜绝漏判。
+ */
+function todoProjectFilterProject(): string | undefined {
+  const v = todoProjectFilter.value
+  return v === '__all__' || v === '__none__' ? undefined : v
+}
+
+function clearTodoFilters(): void {
+  todoFilter.value = 'all'
+  todoProjectFilter.value = '__all__'
+}
+
+const todoHealthIssue = ref<any>(null)
 
 async function loadTodos() {
   try {
     todos.value = await window.tegula.todosList()
   } catch {
     todos.value = []
+  }
+  // 坏文件被隔离过就要显性化 —— 否则用户只看到"待办空了"，不知道发生过什么
+  try {
+    const h: any = await window.tegula.todosHealth()
+    todoHealthIssue.value = h && h.lastError ? h.lastError : null
+  } catch {
+    todoHealthIssue.value = null
   }
 }
 
@@ -3387,7 +4410,7 @@ async function executeTodoAdd() {
   let title = text
   const m = text.match(/^(.*?)\s+(p[012])$/i)
   if (m) { title = m[1]; priority = { p0: '高', p1: '中', p2: '低' }[m[2].toLowerCase()] || '中' }
-  const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
+  const project = todoProjectFilterProject()
   try {
     const result = await window.tegula.todosCreate(title, priority, undefined, project)
     if (result && result.ok) {
@@ -3459,7 +4482,7 @@ async function importTextLinesAsTodos(files: File[]): Promise<void> {
     showToast('仅支持 .txt / .md 文件', 'error')
     return
   }
-  const project = todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : undefined
+  const project = todoProjectFilterProject()
   const existing = new Set(todos.value.map(t => t.title.trim()))
   const unique: string[] = []
   const dupInBatch: string[] = []
@@ -3534,7 +4557,8 @@ function openTodoCreator() {
     title: '',
     priority: '中',
     due: '',
-    project: todoProjectFilter.value !== '__all__' ? todoProjectFilter.value : '',
+    // 默认归属跟随当前筛选（哨兵值 '__all__'/'__none__' 一律当"不归属"）
+    project: todoProjectFilterProject() || '',
     done: false,
   }
 }
@@ -3748,12 +4772,24 @@ function onLogCardClick(log: any) {
     if (idx >= 0) selectedLogBatch.value.splice(idx, 1)
     else selectedLogBatch.value.push(log.id)
   } else {
-    openLog(log)
+    // 2026-09-25（用户第 13 条）：单击 = 只读预览（Markdown 渲染），与任务卡一致；
+    // 编辑走卡片操作行的「✏️ 编辑」或预览里的按钮。
+    openLogPreview(log)
   }
 }
 
+// ── 日志只读预览（2026-09-25 用户第 13 条）──────────────────────────────
+const logPreview = ref<any>(null)
+function openLogPreview(log: any): void { logPreview.value = { ...log } }
+function openLogFromPreview(): void {
+  const l = logPreview.value
+  logPreview.value = null
+  if (l) openLog(l)
+}
+
 function openLog(log: any) {
-  logEdit_.value = { ...log }
+  // 2026-09-25（用户第 2 条）：把关联任务归一成数组，供多选 UI 绑定
+  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = false
   logArchiveMode.value = false
   // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
@@ -3774,7 +4810,7 @@ function openNewLog() {
   const project = curProj.value !== '__all__'
     ? curProj.value
     : (projects.value[0]?.id || '')
-  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskId: '', sessionId: '', agentName: '', logDate: '' }
+  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', logDate: '' }
   logCompleting.value = false
   logArchiveMode.value = false
   logRetainDays.value = '7'
@@ -3799,11 +4835,35 @@ const logTaskOptions = computed(() => {
 
 /** 当前已关联任务的回显（id 不在任务列表里时提示"列表外"） */
 const logTaskPicked = computed(() => {
-  const id = logEdit_.value?.taskId
-  if (!id) return ''
-  const t = [...tasks.value, ...archivedTasks.value].find(x => x.id === id)
-  return t ? `${t.id} · ${t.title || '(无标题)'} · ${t.status}` : `${id}（不在当前任务列表中）`
+  const ids = normalizeLogTaskIds(logEdit_.value || {})
+  if (!ids.length) return ''
+  const all = [...tasks.value, ...archivedTasks.value]
+  return ids.map(id => {
+    const t = all.find(x => x.id === id)
+    return t ? `${t.id} · ${t.title || '(无标题)'}` : `${id}（列表外）`
+  }).join('；')
 })
+
+/** 把日志的关联任务归一成字符串数组（2026-09-25 用户第 2 条：支持多个） */
+function normalizeLogTaskIds(log: any): string[] {
+  if (Array.isArray(log?.taskIds) && log.taskIds.length) return log.taskIds.filter(Boolean)
+  if (Array.isArray(log?.tasks) && log.tasks.length) return log.tasks.map((x: any) => String(x)).filter(Boolean)
+  return log?.taskId ? [String(log.taskId)] : []
+}
+
+/** 手填的「列表外 ID」：逗号/空格分隔，回车或失焦时并入已选 */
+const logTaskExtra = ref('')
+function addLogTaskExtra(): void {
+  const raw = logTaskExtra.value || ''
+  const ids = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
+  if (!ids.length) return
+  const e = logEdit_.value
+  if (!e) return
+  const cur = normalizeLogTaskIds(e)
+  for (const id of ids) if (!cur.includes(id)) cur.push(id)
+  e.taskIds = cur
+  logTaskExtra.value = ''
+}
 
 // ── 日志：导入外部文本（老版本有，桌面化时丢了）────────────────────────
 // 按钮选择与直接拖入两条路都通；每个文件生成一条日志，标题取文件名。
@@ -3926,7 +4986,7 @@ async function saveLogEdit() {
         content: e.content,
         nextSteps: e.nextSteps,
         project: e.project,
-        taskId: e.taskId || '',
+        taskIds: normalizeLogTaskIds(e),
         sessionId: e.sessionId || '',
         agentName: e.agentName || '',
         logDate: e.logDate || '',
@@ -3938,8 +4998,8 @@ async function saveLogEdit() {
       showToast('已更新', 'success')
     } else {
       const r: any = await window.tegula.logsCreate(
-        e.title, e.project, e.content, e.taskId || undefined,
-        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '' },
+        e.title, e.project, e.content, (e.taskIds || [])[0] || undefined,
+        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e) },
       )
       if (r && !r.ok) {
         showToast(`创建失败：${r.error || '未知原因'}`, 'error')
@@ -3976,6 +5036,23 @@ function archiveLogItem(id: string) {
   logRetainDays.value = '7'
   logNote.value = ''
   logBatchMode.value = false
+}
+
+/**
+ * 把日志**临时打回「进行中」**（2026-09-26 用户补充第 3 条）。
+ *
+ * 此前状态是单行道 active → completed → archived：点过一次「完成」或「归档」就再也回不去，
+ * 而真实用法常常是「这条我现在又在弄了」。数据层加 `reopenLog`（顺手清掉 completed / 保留期，
+ * 不然「已完成」字样会留在卡上），这里给入口；卡面用更醒目的进行中样式。
+ */
+async function reopenLogItem(id: string) {
+  const r: any = await window.tegula.logsReopen(id)
+  if (r && r.ok) {
+    showToast('已打回「进行中」', 'success')
+    await loadLogs()
+  } else {
+    showToast(`打回失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
 }
 
 async function destroyLogItem(id: string) {
@@ -4049,7 +5126,8 @@ function openReview(t: Task) {
 
 async function acceptTask() {
   if (!reviewModal.value) return
-  const result = await window.tegula.reviewAccept(reviewModal.value.id)
+  // 2026-09-25（用户第 7 条）：通过也带上结论 → 主进程写入结果记录留痕
+  const result = await window.tegula.reviewAccept(reviewModal.value.id, reviewReason.value)
   if (result.ok) {
     showToast('已通过', 'success')
     reviewModal.value = null
@@ -4491,7 +5569,8 @@ async function openAppLogDir(): Promise<void> {
  */
 async function checkRuntimeFreshness(): Promise<void> {
   const t: any = (window as any).tegula || {}
-  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'logsUpdate', 'launchpadLaunchApp']
+  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'todosHealth', 'logsUpdate', 'logsReopen', 'launchpadLaunchApp', 'trashList', 'trashRestore', 'trashPurge', 'skillsList', 'skillsOpenDir', 'skillsImported', 'skillsImportPick', 'skillsImport', 'skillsRemove',
+    'servicesList', 'servicesAdd', 'servicesRemove', 'servicesOpen', 'servicesAdopt']
   const missing = need.filter(k => typeof t[k] !== 'function')
   if (missing.length) {
     pushRuntimeStale(`preload 未暴露新接口：${missing.join('、')}`)
@@ -4615,6 +5694,8 @@ onMounted(() => {
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
   bkInitBackup()
   ncInit()
+  // 全局快捷键与通知无关，独立挂载 —— 挂进 ncInit() 会让「通知 IPC 缺失时快捷键也失效」
+  document.addEventListener('keydown', onShortcutKeydown)
   // 渲染层错误出口（2026-09-22）：main.ts 的全局上报会广播到这里，
   // 界面上给一条可见的错误条 + 「打开日志」，不再让失败无声无息。
   window.addEventListener('fc-app-error', onAppError as EventListener)
@@ -4629,6 +5710,7 @@ onUnmounted(() => {
   if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
   document.removeEventListener('mousedown', onDocumentClick)
   document.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('keydown', onShortcutKeydown)
   window.removeEventListener('fc-app-error', onAppError as EventListener)
   window.removeEventListener('dragend', dragResetAll)
   window.removeEventListener('drop', dragResetAll)
@@ -4691,17 +5773,36 @@ button:not([class]) {
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }
 
-.blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: 0.38; z-index: 0; pointer-events: none; }
+/* 装饰光斑：**保留视觉，只改合成策略**（2026-09-25 用户第 4 条 + 第 1/3/9 条）。
+   两个 460/420px 的元素挂着 blur(70px) —— 高斯模糊是最贵的栅格化操作之一，
+   而它们是 position:fixed 常驻元素。加 will-change: transform 让 Chromium 把它
+   提为独立合成层、把模糊结果**缓存成纹理**（只栅格化一次），
+   不再随每次合成重新算。视觉像素级不变（改的是合成策略不是外观）。 */
+.blob { position: fixed; border-radius: 50%; filter: blur(70px); will-change: transform; opacity: 0.38; z-index: 0; pointer-events: none; }
 .blob.b1 { width: 460px; height: 460px; background: #cfc6ec; top: -140px; left: -100px; }
 .blob.b2 { width: 420px; height: 420px; background: #cdd9ee; bottom: -130px; right: -90px; }
 
 #bar {
   position: relative; z-index: 2; padding: 10px 16px;
-  background: rgba(255,255,255,0.72); backdrop-filter: blur(14px);
+  /* 2026-09-25（用户第 1/3/9 条复发 + 第 4 条）：这里原来挂着 backdrop-filter: blur(14px)。
+     上一轮只清了 .overlay / .nc-wrap，**漏了这条常驻顶栏** —— 它 100% 时间在屏，
+     是当时遗留的最后一个实时模糊合成层（backdrop 采样必须每次合成重算）。
+     两处一起改：
+       ① 去掉 backdrop-filter（不再有模糊采样 → 不参与「失焦即停绘」）；
+       ② 底色 0.72 → 0.92 —— 左上角 .blob.b1（#cfc6ec 紫，top:-140/left:-100）
+          不再透过 28% 的半透明顶栏把标题与计数洗淡（第 4 条「有时候看不清文字」）。 */
+  background: rgba(255,255,255,0.92);
   border-bottom: 1px solid var(--border); display: flex;
   justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
 }
-#bar .title { font-weight: 700; font-size: 15px; }
+#bar .title { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+/* 方形 LOGO（2026-09-25 第 12 条）：绒花墨坊有的可点标志，方寸此前没有 */
+#bar .title .brand {
+  flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 700;
+  line-height: 22px; text-align: center; cursor: pointer; border: 0; font-family: inherit;
+}
+#bar .title .brand:hover { filter: brightness(1.08); }
 #bar .title small { color: var(--accent); font-weight: 600; margin-left: 6px; font-size: 13px; }
 #bar .ctrls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #bar select, #bar input {
@@ -4915,6 +6016,51 @@ button:not([class]) {
   overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
 }
 #modal h3, #rmodal h3, #smodal h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); }
+
+/* 关于（左上角 LOGO 入口，2026-09-25 第 12 条） */
+#about-modal {
+  background: #fff; border-radius: 16px; padding: 18px 20px; width: 440px; max-height: 88vh;
+  overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
+}
+#about-modal h3 { margin: 0 0 14px; font-size: 16px; color: var(--ink); }
+#about-modal .about-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+#about-modal .about-logo {
+  flex: none; width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; font-family: inherit;
+}
+#about-modal .about-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#about-modal .about-rows { border-top: 1px solid var(--border); padding-top: 10px; }
+#about-modal .about-rows > div { display: flex; gap: 10px; font-size: 12.5px; padding: 4px 0; align-items: baseline; }
+#about-modal .about-rows .k { flex: none; width: 62px; color: var(--muted); }
+#about-modal .about-rows .v { color: var(--ink); word-break: break-all; }
+#about-modal .about-path { font-size: 11.5px; color: var(--muted); }
+#about-modal .about-note { margin: 12px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+#about-modal .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+
+/* 日志只读预览（2026-09-25 第 13 条）：正文走 .body-text.markdown 渲染 */
+#log-preview-modal {
+  background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-height: 88vh;
+  overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
+}
+#log-preview-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+#log-preview-modal .lp-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+#log-preview-modal label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+#log-preview-modal .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* 日志「关联任务」多选列表（2026-09-25 第 2 条） */
+.log-task-multi {
+  max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; padding: 4px 6px; margin-bottom: 6px;
+}
+.log-task-opt {
+  display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
+  font-size: 12px; cursor: pointer; margin: 0;
+}
+.log-task-opt:hover { background: #f6f4fb; }
+.log-task-opt input[type='checkbox'] { flex: none; margin: 0; }
+.log-task-opt .lto-id { flex: none; color: var(--accent); font-weight: 600; font-size: 11.5px; }
+.log-task-opt .lto-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.log-task-opt .lto-st { flex: none; font-size: 11px; color: var(--muted); }
 #modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
 #modal input, #modal select, #modal textarea {
   width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border);
@@ -5361,7 +6507,10 @@ button:not([class]) {
 #board.logs-view,
 #board.blockers-view,
 #board.launchpad,
-#board.roadmap-view { align-items: stretch; }
+#board.roadmap-view,
+#board.trash-view,
+#board.skills-view,
+#board.services-view { align-items: stretch; }
 .calendar-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .calhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .calhead .m { font-size: 15px; font-weight: 700; min-width: 120px; }
@@ -5381,9 +6530,17 @@ button:not([class]) {
 .cev .pd { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .cev .t { overflow: hidden; text-overflow: ellipsis; }
 .calunsched { margin-top: 12px; }
+/* 底部「横条墙」收成一行摘要（2026-09-25 用户第 10 条） */
+.cal-more { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--muted); cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s; }
+.cal-more:hover { border-color: var(--accent-soft); color: var(--ink); }
+.cal-more b { color: var(--accent); font-weight: 700; }
+.cal-more .caret { display: inline-block; font-size: 10px; transition: transform .15s; }
+.cal-more .caret.open { transform: rotate(90deg); }
+.cal-more-hint { font-size: 10.5px; color: var(--accent); }
+.cal-more-body { margin-top: 10px; }
 .calunsched h4 { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
-.calunsched .items { display: flex; flex-wrap: wrap; gap: 6px; }
-.calunsched .cev { background: #fff; border: 1px solid var(--border); min-width: 120px; }
+.calunsched .items { display: flex; flex-wrap: wrap; gap: 8px; }
+.calunsched .cev { background: #fff; border: 1px solid var(--border); min-width: 140px; padding: 4px 9px; }
 
 /* ── 日历：时间段色带 + 待办标识（2026-09-22）──────────────────────────
    跨天任务在每一天的格子里各画一段，靠 span-start/mid/end 去掉内侧圆角与外边距，
@@ -5447,6 +6604,27 @@ button:not([class]) {
 .todo-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
 .todo-title { flex: 1; font-size: 13px; font-weight: 500; }
 .todo-prio { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 600; }
+/* ── 待办专项整修（2026-09-26 卡 033）────────────────────────────────── */
+.todos-stats {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted); margin: -6px 0 8px;
+}
+.todos-overdue-count { color: #b3261e; font-weight: 600; }
+.todos-hidden { color: #8a5a00; }
+.todos-clear {
+  font-family: inherit; font-size: 11.5px; cursor: pointer;
+  padding: 2px 9px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; color: var(--ink);
+}
+.todos-clear:hover { border-color: var(--accent); color: var(--accent); }
+.todos-health {
+  font-size: 12.5px; color: #b3261e; background: #fdf2f1; border: 1px solid #e6c3c0;
+  border-radius: 10px; padding: 9px 12px; margin-bottom: 10px; line-height: 1.6;
+}
+.todo-due.overdue { color: #b3261e; background: #fdf2f1; border-color: #e6c3c0; font-weight: 600; }
+.todo-prio.prio-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
+.todo-prio.prio-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
+.todo-prio.prio-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
 .todo-del { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 4px; border-radius: 4px; }
 .todo-del:hover { color: var(--danger); background: #fce4e4; }
 
@@ -5530,8 +6708,23 @@ button:not([class]) {
 .log-archive-toggle:hover { color: var(--ink); border-color: var(--accent); }
 .log-card.archived { opacity: .72; }
 
-/* 导出指定备份的下拉（第 10 条） */
-.bk-export-select { max-width: 260px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); font-family: inherit; }
+/* 导出下拉的样式（2026-09-25 第 10 条）已在 2026-09-26 移除：导出改成一次点击、只落一个 zip，
+   不再要用户从下拉里逐字核对文件名。 */
+
+/* 2026-09-26 用户补充第 3 条：进行中的日志要「一目了然」——
+   原来只有一条 3px 左边框，混在列表里看不出来。现在：加粗色条 + 淡色渐变底 + 描边。 */
+.log-card.active {
+  border-left: 4px solid #6366f1;
+  background: linear-gradient(90deg, #f1eefe 0%, #fff 55%);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.22), var(--shadow);
+}
+.log-card.active .log-status-badge.active { background: #6366f1; color: #fff; }
+.log-card.active .log-card-title { color: #3730a3; }
+/* 列表首行 = 最新一份（按最后更新倒序）—— 面对一堆 .zip 时不用自己找 */
+.bk-newest { flex: none; font-size: 10px; font-weight: 700; color: #3f6b3a; background: #e3f1de; border: 1px solid #bcd4b4; border-radius: 99px; padding: 1px 7px; }
+/* 设置页「禁用硬件加速」（2026-09-25 第 1/3/9 条的人工验证杠杆） */
+.gpu-chk { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; cursor: pointer; line-height: 1.5; }
+.gpu-chk input { flex: none; margin-top: 2px; }
 
 /* 项目章程缺口条（第 7 条） */
 .charter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
@@ -5713,4 +6906,205 @@ button:not([class]) {
 }
 .nc-link:hover { text-decoration: underline; }
 
+/* ── 回收站（2026-09-26 卡 034）───────────────────────────────────────── */
+/* ⚠ 必须自己声明 flex-direction: column（2026-09-26 修）：`#board` 是**横向 flex 行** ——
+   它是看板列容器。views 里凡是"单一大列表"的页面（todos/logs/blockers/calendar…）都各自
+   覆盖了 flex-direction，我这两页当时只写了 padding-bottom，于是「标题栏」和「列表」
+   被当成两个行内项目**并排**：左边只剩标题、右边挤着列表 —— 用户看到的就是"左边很空"。 */
+.trash-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.trash-header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+.trash-stats { font-size: 12px; color: var(--muted); }
+.trash-search {
+  width: 240px; margin-left: auto; padding: 5px 10px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); outline: none;
+}
+.trash-search:focus { border-color: var(--accent); }
+.trash-notebar { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.6; }
+.trash-header h3 { font-size: 16px; font-weight: 700; }
+.trash-hint { font-size: 12.5px; color: var(--muted); }
+.trash-refresh {
+  margin-left: auto; font-family: inherit; font-size: 12.5px; cursor: pointer;
+  padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; color: var(--ink);
+}
+.trash-refresh:hover { border-color: var(--accent); color: var(--accent); }
+.trash-list { display: flex; flex-direction: column; gap: 8px; }
+.trash-item {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  padding: 11px 14px; box-shadow: var(--shadow);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.trash-item:hover { border-color: #d9d2ea; background: #fcfbfe; }
+/* 两行式：上行"这是什么任务"、下行"哪个文件 · 多大 · 什么时候删的"。
+   原来 4 个信息点挤一行，宽屏下中间空一大片（用户回执"左边很空"的直接观感来源之一）。 */
+.trash-main { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.trash-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trash-line2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.trash-id { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+.trash-title { font-weight: 600; }
+.trash-proj { font-size: 11.5px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; }
+.trash-name { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted); word-break: break-all; }
+.trash-meta { font-size: 11.5px; color: var(--muted); }
+.trash-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
+.trash-btn {
+  font-family: inherit; font-size: 12.5px; cursor: pointer;
+  padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; color: var(--ink);
+}
+.trash-btn:hover { border-color: var(--accent); color: var(--accent); }
+.trash-btn.danger { color: #b3261e; border-color: #e6c3c0; }
+.trash-btn.danger:hover { background: #fdf2f1; border-color: #b3261e; color: #b3261e; }
+
+/* 回收站卡片：可点（2026-09-26 用户：「每个卡片都是不能点的死卡」）—— 有了 hover 就说明它真能点 */
+.trash-main.clickable { cursor: pointer; }
+.trash-main.clickable:hover .trash-title { color: var(--accent); }
+.trash-preview-body { margin: 10px 0; max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
+.trash-preview-text { font-size: 13px; line-height: 1.65; word-break: break-word; }
+.trash-preview-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+#trash-preview-modal {
+  width: min(780px, 92vw); max-height: 88vh; overflow: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 20px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+}
+
+/* 「装到别的 agent」目标行 */
+.skills-agents-sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+.agent-row { border-top: 1px solid var(--border); padding: 9px 0; }
+.agent-row:first-of-type { border-top: none; }
+.agent-off { opacity: 0.5; }
+.agent-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agent-name { font-weight: 600; font-size: 13px; }
+.agent-mode { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+.agent-mode.can { color: #1b5e20; border-color: #bfd8c0; background: #f2f8f2; }
+.agent-mode.manual { color: var(--muted); }
+.agent-state { font-size: 11px; color: var(--muted); }
+.agent-evidence { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); margin-top: 3px; word-break: break-all; }
+.agent-howto { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+/* ── 技能安装专区（2026-09-26 卡 038）─────────────────────────────────── */
+.skills-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+
+/* ── 服务 / 端口（2026-09-26 卡 006）────────────────────────────────── */
+/* ⚠ 同 skills-view：`#board` 是横向 flex 行，单列页面必须自己声明 column（否则页头与列表并排） */
+.services-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.services-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.services-header h3 { font-size: 16px; font-weight: 700; }
+.services-stats { font-size: 12px; color: var(--muted); }
+.svc-input {
+  padding: 5px 10px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); outline: none;
+}
+.svc-input:focus { border-color: var(--accent); }
+.svc-port-input { width: 86px; }
+.services-notebar { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.6; }
+.services-warn {
+  font-size: 12.5px; color: #8a5a00; background: #fdf7e8; border: 1px solid #e8d9a8;
+  border-radius: 10px; padding: 9px 12px; margin-bottom: 12px;
+}
+.services-list { display: flex; flex-direction: column; gap: 8px; }
+.svc-item {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  padding: 11px 14px; box-shadow: var(--shadow);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.svc-item.small { padding: 8px 12px; opacity: .92; }
+.svc-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.svc-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.svc-line2 { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; }
+.svc-name { font-weight: 600; }
+.svc-port { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--accent); }
+.svc-state { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid transparent; }
+.svc-state.on { background: #eaf7ee; color: #1c7a3e; border-color: #bfe3cb; }
+.svc-state.off { background: var(--bg); color: var(--muted); border-color: var(--border); }
+.svc-dup { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #fdeceb; color: #b3261e; border: 1px solid #e6c3c0; }
+.svc-src { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.svc-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
+.services-unreg { margin-top: 16px; }
+.services-unreg-title { font-size: 12.5px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.services-unreg-hint { font-size: 11px; font-weight: 400; color: var(--muted); }
+.skills-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.skills-header h3 { font-size: 16px; font-weight: 700; }
+.skills-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 260px; }
+.skills-btn {
+  font-family: inherit; font-size: 12.5px; cursor: pointer;
+  padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; color: var(--ink);
+}
+.skills-btn:hover { border-color: var(--accent); color: var(--accent); }
+.skills-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.skills-btn.primary:hover { opacity: .9; color: #fff; }
+.skills-btn.danger { border-color: #e6c3c0; background: #fff; color: #b3261e; }
+.skills-btn.danger:hover { background: #fdf2f1; border-color: #b3261e; color: #b3261e; }
+
+/* ── 技能直接导入（2026-09-26 卡 005）──────────────────────────────────── */
+/* 拖拽遮罩：pointer-events:none 才不会自己吃掉 drop 事件（否则松手时事件落在遮罩上，
+   而遮罩不是 drop 目标 → 导入没触发，看着像"拖进去没反应"）。 */
+.skills-dropmask {
+  position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  background: rgba(120, 96, 190, .10);
+  border: 3px dashed var(--accent); border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.skills-dropmask-inner {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  padding: 18px 26px; box-shadow: var(--shadow); text-align: center;
+  font-size: 13px; color: var(--ink); max-width: 520px; line-height: 1.7;
+}
+.skills-dropmask-icon { font-size: 28px; margin-bottom: 6px; }
+.skills-imported { margin: 6px 0 16px; }
+.skills-imported-title {
+  font-size: 13px; font-weight: 600; margin-bottom: 8px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.skills-imported-hint { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.skill-card.imported { border-left: 3px solid var(--accent); }
+.skill-badge {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  background: rgba(120, 96, 190, .12); color: var(--accent);
+  border: 1px solid rgba(120, 96, 190, .3);
+}
+.skill-desc { font-size: 12.5px; color: var(--ink); opacity: .85; line-height: 1.6; margin: 4px 0 2px; }
+.skill-files { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.skills-error {
+  font-size: 13px; color: #b3261e; background: #fdf2f1;
+  border: 1px solid #e6c3c0; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;
+}
+.skills-meta {
+  font-size: 12px; color: var(--muted); margin-bottom: 6px;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.skills-dir { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skills-warn {
+  font-size: 12.5px; color: #8a5a00; background: #fff8e6;
+  border: 1px solid #f0dfb8; border-radius: 10px; padding: 8px 12px; margin-bottom: 12px;
+}
+.skills-list { display: flex; flex-direction: column; gap: 10px; }
+.skill-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.skill-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skill-id { font-weight: 600; }
+.skill-target, .skill-ver { font-size: 12px; color: var(--muted); }
+.skill-state { font-size: 12px; border-radius: 999px; padding: 2px 9px; border: 1px solid transparent; }
+.skill-good { color: #1a7f37; background: #eaf7ee; border-color: #c5e7d0; }
+.skill-warn { color: #8a5a00; background: #fff8e6; border-color: #f0dfb8; }
+.skill-idle { color: var(--muted); background: #f3f1f6; border-color: var(--border); }
+.skill-bad { color: #b3261e; background: #fdf2f1; border-color: #e6c3c0; }
+.skill-path {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.skill-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.skills-agents {
+  margin-top: 16px; background: rgba(255,255,255,.55); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.skills-agents-title { font-size: 13px; font-weight: 700; }
+.skills-agent { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+.skills-agent code {
+  font-family: ui-monospace, Consolas, monospace;
+  background: #f3f1f6; border-radius: 4px; padding: 1px 5px;
+}
 </style>

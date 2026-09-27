@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { registeredChannels } from './main/guarded-ipc'
+import { getPref } from './main/services/prefs'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
@@ -24,6 +25,22 @@ appLog.installProcessHandlers()
 // 必须在 app ready 之前执行；已核实全部消费方（llm/config、backup/config、
 // launchpad/config、data/index）均为函数内懒调用 getPath，import 阶段无读取。
 app.setPath('userData', path.join(app.getPath('appData'), 'fangcun-desktop'))
+
+// ── 硬件加速开关（2026-09-25，用户第 1/3/9 条的**人工验证杠杆**）─────────────
+// 「点输入框光标不进去、要切到别的窗口再切回来才恢复」这条：本轮已把全部常驻实时模糊
+// 合成层清掉（#bar 的 backdrop-filter + .blob 的 blur 改缓存纹理）。若仍然复发，
+// 剩下的嫌疑就只有「合成器 / 核显驱动」这一层 —— 本机是 i5-14600K 核显，
+// Chromium 在核显驱动上出现「失焦即停绘」是有先例的。
+// 所以给一个**用户能自己翻的开关**（设置页）：关掉硬件加速、重启即生效。
+// 必须在 app ready 之前调用 disableHardwareAcceleration()，故在此同步读 prefs。
+// prefs 的所有消费方都是函数内懒调用 getPath，import 阶段不读盘（见上方注释）。
+try {
+  if (getPref('fc_disable_gpu') === true) {
+    app.disableHardwareAcceleration()
+    try { console.warn('[boot] 已按设置关闭硬件加速（fc_disable_gpu=true）') } catch { /* ignore */ }
+    try { appLog.warn('boot', '已按设置关闭硬件加速（fc_disable_gpu=true）') } catch { /* ignore */ }
+  }
+} catch { /* 读不到就按默认：保留硬件加速 */ }
 
 const isDev = !app.isPackaged
 
