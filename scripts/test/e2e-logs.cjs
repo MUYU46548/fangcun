@@ -219,6 +219,47 @@ function main() {
   check('★ 进行中的日志卡有醒目样式（不再只有一条细边框）',
     /\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(APP))
 
+  // ── 置顶（2026-09-26 卡 037）──────────────────────────────────────────
+  //   用户口径：加**新字段** pinned（不复用 status）——置顶是视图属性，跟生命周期正交；
+  //   并且要能在**已完成/已归档**的日志上操作（"正在查的东西钉在上面"）。
+  {
+    const logs = require(path.join(DIST, 'services/logs.js'))
+    const logsDir = path.join(TEST_ROOT, 'docs', '执行日志')
+
+    const a = logs.createLog('钉住我', 'demo', '内容甲')
+    const b = logs.createLog('普通的', 'demo', '内容乙')
+    const ida = a.data.id, idb = b.data.id
+
+    check('新日志默认不置顶（pinned 不写进文件）',
+      logs.getLog(ida).pinned !== true &&
+      !/pinned/.test(fs.readFileSync(path.join(logsDir, ida + '.md'), 'utf-8')))
+
+    const set = logs.setLogPinned(ida, true)
+    check('★ setLogPinned 写回成功', set && set.ok === true, JSON.stringify(set))
+    check('★ 读回来 pinned === true（往返保真）', logs.getLog(ida).pinned === true)
+    check('  文件里真的落了 pinned: true',
+      /^pinned: true$/m.test(fs.readFileSync(path.join(logsDir, ida + '.md'), 'utf-8')))
+    check('★ 列表里置顶的排最前', logs.listLogs()[0].id === ida,
+      logs.listLogs().map(l => l.id).join(','))
+
+    logs.setLogPinned(ida, false)
+    check('★ 取消置顶后字段从文件里消失（不留 pinned: false 垃圾）',
+      !/pinned/.test(fs.readFileSync(path.join(logsDir, ida + '.md'), 'utf-8')))
+
+    // 已完成的日志：内容不可编辑（既有守卫），但置顶/改归属必须可用 —— 它们是视图/归类属性
+    logs.completeLog(idb, 7, '做完了')
+    check('  前置：这条已是 completed', logs.getLog(idb).status === 'completed')
+    check('  （对照）已完成日志改内容仍被拒绝', logs.updateLog(idb, { content: 'x' }).ok === false)
+    const proj = logs.setLogProject(idb, 'nf')
+    check('★ 已完成的日志也能改项目归属（归类属性 ≠ 内容编辑）',
+      proj && proj.ok === true && logs.getLog(idb).project === 'nf', JSON.stringify(proj))
+    const pin2 = logs.setLogPinned(idb, true)
+    check('★ 已完成的日志也能置顶', pin2 && pin2.ok === true && logs.getLog(idb).pinned === true)
+    check('★ 置顶后它排在整个列表最前（跨状态）', logs.listLogs()[0].id === idb,
+      logs.listLogs().map(l => l.id).join(','))
+    check('  不存在的 id 返回 ok:false（不抛）', logs.setLogPinned('不存在', true).ok === false)
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')

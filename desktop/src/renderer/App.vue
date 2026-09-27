@@ -576,7 +576,8 @@
           v-for="todo in filteredTodos"
           :key="todo.id"
           class="todo-item"
-          :class="{ done: todo.done, prio: localPriority(todo.priority) === '高' }"
+          :class="{ done: todo.done, prio: localPriority(todo.priority) === '高', pinned: todo.pinned }"
+          @contextmenu.prevent="openTodoMenu($event, todo)"
         >
           <input
             type="checkbox"
@@ -584,6 +585,7 @@
             :checked="todo.done"
             @change="toggleTodo(todo.id)"
           />
+          <span v-if="todo.pinned" class="todo-pin" title="已置顶">📌</span>
           <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
           <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
                 :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
@@ -708,10 +710,12 @@
         <div
           v-show="logVisible(log)"
           class="log-card"
-          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived', selected: logBatchMode && selectedLogBatch.includes(log.id) }"
+          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived', pinned: log.pinned, selected: logBatchMode && selectedLogBatch.includes(log.id) }"
           @click="onLogCardClick(log)"
+          @contextmenu.prevent="openLogMenu($event, log)"
         >
           <div class="log-card-head">
+            <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
             <span class="log-status-badge" :class="log.status">{{ logStatusLabel(log.status) }}</span>
             <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
             <span class="log-card-date">{{ formatDate(log.created) }}</span>
@@ -780,6 +784,52 @@
       <div class="ctx-sep"></div>
       <button @click="ctxRun(archiveTask)">📦 归档</button>
       <button class="danger" @click="ctxRun(deleteTaskById)">🗑 删除</button>
+    </div>
+
+    <!--
+      日志 / 待办右键菜单（2026-09-26 卡 037 第一批 · 用户口径）
+      规格铁律（用户原话）：菜单是「出口加速器」，不是「入口加字段」；一层封顶、单项 ≤7；
+      破坏性动作（删除）放最末且二次确认；任何「发给 AI / 智能总结」永不进菜单。
+    -->
+    <div v-if="ctxOther" class="ctx-backdrop" @click="closeOtherMenu" @contextmenu.prevent="closeOtherMenu"></div>
+    <div v-if="ctxOther" class="ctx-menu ctx-other" :style="{ left: ctxOther.x + 'px', top: ctxOther.y + 'px' }">
+      <template v-if="ctxOther.kind === 'log'">
+        <div class="ctx-title">{{ ctxOther.item.title || ctxOther.item.id }}</div>
+        <button @click="ctxOtherRun(copyLogFull)">📄 复制全文</button>
+        <button @click="ctxOtherRun(copyLogMeta)">🏷 复制带元信息（日期 + 项目）</button>
+        <button @click="ctxOtherRun(copyAndDispatchLog)">📤 复制并标记已派</button>
+        <div class="ctx-sep"></div>
+        <button @click="ctxOtherRun(toggleLogPin)">{{ ctxOther.item.pinned ? '📌 取消置顶' : '📌 置顶' }}</button>
+        <button @click="ctxOtherRun(changeLogProject)">🏷 改项目归属…</button>
+        <button @click="ctxOtherRun(runArchiveLog)">📦 归档</button>
+        <div class="ctx-sep"></div>
+        <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 删除（二次确认）</button>
+      </template>
+      <template v-else>
+        <div class="ctx-title">{{ ctxOther.item.title || '(无标题)' }}</div>
+        <button @click="ctxOtherRun(toggleTodoPin)">{{ ctxOther.item.pinned ? '📌 取消置顶' : '📌 置顶' }}</button>
+        <button @click="ctxOtherRun(copyTodoText)">📄 复制内容</button>
+        <button @click="ctxOtherRun(editTodoFromMenu)">✏️ 编辑</button>
+        <div class="ctx-sep"></div>
+        <button class="danger" @click="ctxOtherRun(deleteTodoFromMenu)">🗑 删除（二次确认）</button>
+      </template>
+    </div>
+
+    <!-- 改项目归属（卡 037 右键菜单）—— 应用内轻浮层，不用 Electron 不实现的 prompt -->
+    <div v-if="logProjectPicker" class="overlay" @click.self="logProjectPicker = null">
+      <div id="log-project-modal">
+        <h3>改项目归属</h3>
+        <div class="hint">{{ logProjectPicker.title || logProjectPicker.id }}（当前：{{ logProjectPicker.project || '未归属' }}）</div>
+        <div class="proj-pick-list">
+          <button class="skills-btn" @click="applyLogProject('')">（不归属）</button>
+          <button v-for="p in projects" :key="p.id" class="skills-btn" @click="applyLogProject(p.id)">
+            {{ p.name }} · {{ p.id }}
+          </button>
+        </div>
+        <div class="trash-preview-actions">
+          <button class="trash-btn" @click="logProjectPicker = null">取消</button>
+        </div>
+      </div>
     </div>
 
     <!-- Review modal -->
@@ -2822,6 +2872,10 @@ function navigateTo(v: string) {
     viewHistory.value.push(curView.value)
     if (viewHistory.value.length > 20) viewHistory.value.shift()
   }
+  // 收起所有右键菜单（2026-09-26 实测）：菜单只认自己那层遮罩的点击，
+  // 键盘/程序化跳转时会把上一个页签的菜单留在屏幕上，像"卡住的浮层"。
+  closeCardMenu()
+  closeOtherMenu()
   curView.value = v
   loadViewData(v)
 }
@@ -4673,7 +4727,14 @@ const filteredLogs = computed(() => {
 // 判断写在同一个 v-for 里（用 index 看前一条），避免把卡片 markup 复制两份（复制必走样）。
 const nonArchivedLogs = computed(() => filteredLogs.value.filter(l => l.status !== 'archived'))
 const archivedLogs = computed(() => filteredLogs.value.filter(l => l.status === 'archived'))
-const displayedLogs = computed(() => [...nonArchivedLogs.value, ...archivedLogs.value])
+/**
+ * 展示顺序（2026-09-26 卡 037）：**置顶的跨分区排最前**，其余仍是「未归档在前、归档在后」。
+ * 若不这样处理，钉住的归档日志会被既有分区规则顶到列表末尾 —— 置顶就成了假动作。
+ */
+const displayedLogs = computed(() => {
+  const all = [...nonArchivedLogs.value, ...archivedLogs.value]
+  return [...all.filter(l => l.pinned), ...all.filter(l => !l.pinned)]
+})
 const logArchiveOpen = ref(readUiPref<boolean>('fc_log_archive_open', false))
 function toggleLogArchive(): void {
   logArchiveOpen.value = !logArchiveOpen.value
@@ -4681,6 +4742,9 @@ function toggleLogArchive(): void {
 }
 /** 这条归档日志是否需要「显示」（收起时整条 v-show 掉） */
 function logVisible(log: any): boolean {
+  // 置顶的一律显示（2026-09-26 卡 037）：钉住它的意义就是"一直看得见"，
+  // 若被归档区折叠藏掉，置顶功能自相矛盾。
+  if (log.pinned) return true
   return log.status !== 'archived' || logArchiveOpen.value
 }
 
@@ -5083,6 +5147,125 @@ async function executeLogSearch() {
  * 后端 `logs:inject`（返回"上次执行日志"格式的文本）早就写好并注册了通道，
  * 但界面从来没有入口 —— 而"日志 → 提示词"正是方寸定位里的核心动作。
  */
+// ── 日志 / 待办右键菜单（2026-09-26 卡 037）──────────────────────────────
+// 用户给的规格铁律：菜单是「出口加速器」，只放**已实际发生**的流的快捷方式；
+// 一层封顶、单项 ≤7；删除放最末且二次确认；「发给 AI / 智能总结」永不进菜单（元层铁律）。
+const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo'; item: any } | null>(null)
+
+function openLogMenu(e: MouseEvent, log: any): void {
+  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'log', item: log }
+}
+function openTodoMenu(e: MouseEvent, todo: any): void {
+  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'todo', item: todo }
+}
+function closeOtherMenu(): void { ctxOther.value = null }
+function ctxOtherRun(fn: (item: any) => void): void {
+  const c = ctxOther.value
+  closeOtherMenu()
+  if (c) fn(c.item)
+}
+
+/** 日志正文（标题 + 执行内容 + 下一步）——「复制全文」用 */
+function logFullText(log: any): string {
+  const parts = [String(log.title || '')]
+  if (log.content) parts.push(String(log.content))
+  if (log.nextSteps) parts.push('## 下一步\n' + String(log.nextSteps))
+  return parts.filter(Boolean).join('\n\n')
+}
+
+/** 带元信息：`[日期] [项目] 标题` + 正文 —— 粘进开发日志/派工卡不用手动补头（用户原话） */
+function logMetaText(log: any): string {
+  const date = (log.logDate || log.created || '').slice(0, 10) || '—'
+  const proj = log.project ? `[${log.project}]` : '[无项目]'
+  return `[${date}] ${proj} ${String(log.title || '')}\n\n${logFullText(log)}`
+}
+
+async function copyLogFull(log: any): Promise<void> {
+  await copyWithToast(logFullText(log), '已复制全文')
+}
+
+async function copyLogMeta(log: any): Promise<void> {
+  await copyWithToast(logMetaText(log), '已复制（带日期 + 项目标签）')
+}
+
+/**
+ * 复制并标记已派（用户原话：「复制→粘给 agent→这条其实已派出去了」两步并一步）。
+ *
+ * 「已派」在本系统的既有语义里就是**回到「进行中」**（卡 002 的临时打回同一条路）——
+ * 所以不新增状态值、不新增字段：复制带元信息之后，若它不在进行中就把它打回进行中。
+ */
+async function copyAndDispatchLog(log: any): Promise<void> {
+  const ok = await copyWithToast(logMetaText(log), '已复制并标记已派（这条已置为「进行中」）')
+  if (!ok) return
+  if (log.status === 'active') return
+  const r: any = await window.tegula.logsReopen(log.id)
+  if (r && r.ok) await loadLogs()
+  else showToast(`已复制，但打回进行中失败：${(r && r.error) || '未知原因'}`, 'error')
+}
+
+async function toggleLogPin(log: any): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.logsSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道 —— 托盘右键「退出」后重开', 'error'); return }
+  const r: any = await t.logsSetPinned(log.id, !log.pinned)
+  if (r && r.ok) {
+    showToast(log.pinned ? '已取消置顶' : '已置顶', 'success')
+    await loadLogs()
+  } else {
+    showToast(`置顶失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+/** 改项目归属：不进编辑页，顺手改（用户原话）。
+ *  ⚠ 刻意**不用 window.prompt** —— Electron 不实现它（仓里有静态守卫钉着这条），
+ *  改成应用内轻浮层选项目，一层点完，比 prompt 还顺手。 */
+const logProjectPicker = ref<any>(null)
+
+function changeLogProject(log: any): void {
+  const t: any = window.tegula
+  if (typeof t.logsSetProject !== 'function') { showToast('当前主进程是旧版本，没有改归属通道', 'error'); return }
+  logProjectPicker.value = log
+}
+
+async function applyLogProject(projectId: string): Promise<void> {
+  const log = logProjectPicker.value
+  if (!log) return
+  logProjectPicker.value = null
+  const r: any = await window.tegula.logsSetProject(log.id, String(projectId || '').trim())
+  if (r && r.ok) {
+    showToast(projectId ? `已改归属：${projectId}` : '已清空归属', 'success')
+    await loadLogs()
+  } else {
+    showToast(`改归属失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+/** 菜单里的归档/删除复用既有入口（归档要填保留天数，删除自带二次确认） */
+function runArchiveLog(log: any): void { archiveLogItem(log.id) }
+function runDestroyLog(log: any): void { destroyLogItem(log.id) }
+
+async function toggleTodoPin(todo: any): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.todosSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道', 'error'); return }
+  const r: any = await t.todosSetPinned(todo.id, !todo.pinned)
+  if (r && r.ok) {
+    showToast(todo.pinned ? '已取消置顶' : '已置顶', 'success')
+    await loadTodos()
+  } else {
+    showToast(`置顶失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+async function copyTodoText(todo: any): Promise<void> {
+  await copyWithToast(String(todo.title || ''), '已复制待办内容')
+}
+
+function editTodoFromMenu(todo: any): void { openTodoEditor(todo) }
+
+async function deleteTodoFromMenu(todo: any): Promise<void> {
+  if (!confirm(`删除待办「${todo.title}」？\n\n待办是随手记的清单，删掉不进回收站。`)) return
+  await deleteTodo(todo.id)
+}
+
 async function copyLogAsPrompt(id: string): Promise<void> {
   try {
     const text: any = await window.tegula.logsInject(id)
@@ -6980,6 +7163,20 @@ button:not([class]) {
 .agent-state { font-size: 11px; color: var(--muted); }
 .agent-evidence { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); margin-top: 3px; word-break: break-all; }
 .agent-howto { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+#log-project-modal {
+  width: min(460px, 92vw); max-height: 80vh; overflow: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+}
+.proj-pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.proj-pick-list .skills-btn { justify-content: flex-start; text-align: left; }
+
+/* 置顶标记（2026-09-26 卡 037）：钉住的卡片在列表最上面，视觉上也要一眼看得出 */
+.log-pin { font-size: 12px; margin-right: 2px; }
+.todo-pin { font-size: 12px; margin-right: 4px; flex: none; }
+.log-card.pinned { border-left: 3px solid var(--accent); }
+.todo-item.pinned { border-left: 3px solid var(--accent); }
 
 /* ── 技能安装专区（2026-09-26 卡 038）─────────────────────────────────── */
 .skills-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }

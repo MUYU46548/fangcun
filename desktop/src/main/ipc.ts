@@ -760,6 +760,18 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Logs ────────────────────────────────────────────────────────────
+  // 卡 037 右键菜单：置顶与改归属都不受「非 active 不可编辑」守卫限制（视图/归类属性）
+  guardedHandle('logs:setPinned', (_event, id: string, pinned: boolean) => {
+    return logsService.setLogPinned(String(id || ''), !!pinned)
+  })
+  guardedHandle('logs:setProject', (_event, id: string, project: string) => {
+    return logsService.setLogProject(String(id || ''), String(project || ''))
+  })
+  guardedHandle('todos:setPinned', (_event, id: string, pinned: boolean) => {
+    const t = todosService.setTodoPinned(String(id || ''), !!pinned)
+    return t ? { ok: true, data: t } : { ok: false, error: '待办不存在' }
+  })
+
   guardedHandle('logs:list', (_event, filter?) => {
     return logsService.listLogs(filter)
   })

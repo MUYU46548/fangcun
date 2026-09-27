@@ -129,6 +129,24 @@ function main() {
   check('删除不存在的返回 false（不抛）', todos.deleteTodo('不存在') === false)
   check('删除后只剩一条', todos.listTodos().length === 1, String(todos.listTodos().length))
 
+  // ── 8. 置顶（2026-09-26 卡 037 第二批）─────────────────────────────────
+  {
+    const lowPin = todos.createTodo('钉住的低优先级', '低')
+    todos.createTodo('没钉住的高优先级', '高')
+    todos.setTodoPinned(lowPin.id, true)
+    const list = todos.listTodos()
+    check('★ 待办置顶写回（pinned: true）',
+      !!list.find(t => t.id === lowPin.id && t.pinned === true),
+      JSON.stringify(list.map(t => [t.title, t.pinned])))
+    check('★ 置顶排最前（连"高优先级"也压不过它）',
+      list[0].id === lowPin.id, list.map(t => t.title).join(' | '))
+    todos.setTodoPinned(lowPin.id, false)
+    const list2 = todos.listTodos()
+    check('★ 取消置顶后不再是第一（高优先级回到最前）',
+      list2[0].title === '没钉住的高优先级', list2.map(t => t.title).join(' | '))
+    check('  置顶不存在的 id 返回 null（不抛）', todos.setTodoPinned('nope', true) === null)
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

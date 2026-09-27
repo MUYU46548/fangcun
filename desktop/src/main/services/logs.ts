@@ -30,6 +30,15 @@ export interface LogEntry {
   agentName?: string
   /** 日志归属日期（YYYY-MM-DD），默认取 created 日期，可手动配置 */
   logDate?: string
+  /**
+   * 置顶（2026-09-26 卡 037，用户点选：**用新字段 pinned**）。
+   *
+   * 为什么是独立字段而不是复用 status：置顶是**视图属性**，跟 active/completed/archived
+   * 这条生命周期正交 —— 已归档的东西也可能是"正在查的东西"，钉在最上面看得见。
+   * 所以写入时只在 true 时落 `pinned: true`（false 直接不写，文件保持干净），
+   * 且切换置顶**不受「非 active 不可编辑」那条守卫限制**（见 setLogPinned 的注释）。
+   */
+  pinned?: boolean
 }
 
 /**
@@ -130,6 +139,7 @@ function parseLogFile(filePath: string): LogEntry | null {
       sessionId: raw.session_id ? String(raw.session_id) : undefined,
       agentName: raw.agent_name ? String(raw.agent_name) : undefined,
       logDate: raw.log_date ? String(raw.log_date) : undefined,
+      pinned: raw.pinned === true || raw.pinned === 'true',
     }
   } catch {
     return null
@@ -155,6 +165,8 @@ function renderLog(log: LogEntry): string {
     agent_name: log.agentName || null,
     log_date: log.logDate || null,
   }
+  // 只在 true 时落字段（false = 不写，历史文件不会凭空多出 pinned: false）
+  if (log.pinned) fm.pinned = true
   const fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   let body = `# ${log.title}\n\n## 执行内容\n\n${log.content || '（待填写）'}\n\n## 下一步\n\n${log.nextSteps || '（待填写）'}`
   if (log.note) {
@@ -200,6 +212,8 @@ export function listLogs(filter?: {
     if (filter?.dateTo && entryDate > filter.dateTo) continue
     logs.push(entry)
   }
+  // 置顶优先（2026-09-26 卡 037）：Array.sort 在 V8 里是稳定的，组内保持原有顺序（文件名倒序 = 新的在前）
+  logs.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
   return logs
 }
 
@@ -285,6 +299,37 @@ export function updateLog(id: string, updates: {
   if (updates.sessionId !== undefined) entry.sessionId = updates.sessionId ? String(updates.sessionId).trim() : undefined
   if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
   if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 置顶 / 取消置顶（2026-09-26 卡 037）。
+ *
+ * **刻意绕开 updateLog 的「非 active 不可编辑」守卫**：那条守卫防的是"改内容"，
+ * 而置顶是视图属性 —— 已归档的日志也该能被钉住（用户原话：「正在修的东西钉在上面」）。
+ * 写入走同一条 atomicallyWrite（先写 .tmp 再 rename），不新增第二条写路径。
+ */
+export function setLogPinned(id: string, pinned: boolean): { ok: boolean; data?: LogEntry; error?: string } {
+  const dir = getLogsDir()
+  const filePath = path.join(dir, `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  entry.pinned = !!pinned
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 改项目归属（卡 037 右键菜单：「不进编辑页，顺手改」）。
+ * 同样绕开 active 守卫 —— 归类属性，不是内容编辑。
+ */
+export function setLogProject(id: string, project: string): { ok: boolean; data?: LogEntry; error?: string } {
+  const dir = getLogsDir()
+  const filePath = path.join(dir, `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  entry.project = String(project || '').trim()
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }

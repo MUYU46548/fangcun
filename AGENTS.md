@@ -15,6 +15,9 @@
 - 命令行入口: `python E:/CODE/CangKu/fangcun/tegula.py <子命令>`（bash 下也可用根目录 `./tegula` wrapper）
 - 子命令: `next`（agent 面：取活 + 带出项目方针卡）/ `new` / `dispatch` / `hermes-sync` / `hermes-open` / `done` / `open` / `serve` / `backup` / `doctor` / `status` / `report`（`--brief`）/ 详见 `tegula/cli.py main()` argparse
 - 回归基线: `python verify.py`（数据层 10+ 项检查：frontmatter 往返保真/乐观锁/gen_id 碰撞/备份/活动日志等；**凡改解析/渲染必跑**）
+- 进度总览: `python scripts/gen-progress.py` —— 从 `task-data/*.md` 的**状态字段**汇总成一张总览表，
+  写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
+  用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
 
 ## 验证矩阵（2026-09-22 扩充）
 
@@ -29,6 +32,8 @@
 | **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
 | **剪贴板复制** | `node scripts/test/e2e-clipboard.cjs` | **真 Electron + 真 preload + 真读回剪贴板：file:// 起源下的复制走主进程 IPC 通道成立；含「掐掉 IPC 后浏览器路径确实失败」的危害复现 + 静态守卫（渲染层不得再有裸 `navigator.clipboard`）** |
 | **UI 偏好持久化** | `node scripts/test/e2e-prefs.cjs` | **Agent 预设真身在 `userData/prefs.json`：合并写入·原子替换·坏文件回退；要害断言＝模拟换 origin（localStorage 清空）后清模块缓存重载，值仍在磁盘上** |
+| **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
+| **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
 | 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
@@ -49,7 +54,7 @@
 > - `e2e-logs.cjs`：`logs.createLog()` 早已改为返回 `{ok,data,error}`，而测试仍按旧签名取 `a.id`
 >   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
 >   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
-> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯；本机实测合计 **684**。
+> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯；本机实测（2026-09-27）合计 **1104**。
 
 ## 架构速查 (Quick Facts)
 
@@ -69,12 +74,12 @@
 
 | 锚点 | 期望值 | 核对命令 |
 |---|---|---|
-| cli.py 行数 | ~1884（`tegula.py` 仅 20 行 wrapper） | `wc -l tegula.py tegula/*.py` |
-| core.py 行数 | ~4093 | 同上 |
-| 子命令数 | 54 | `grep -c "add_parser" tegula/cli.py` |
+| cli.py 行数 | ~1991（`tegula.py` 仅 19 行 wrapper） | `wc -l tegula.py tegula/*.py` |
+| core.py 行数 | ~4112 | 同上 |
+| 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **224** / e2e **十六套合计 684**（task-fields118+notifications86+backup84+renderer83+calendar50+task-delete50+logdedupe32+logs31+timefmt30+grouping29+applog24+launchpad17+prefs17+clipboard13+bridge-clone12+datadir8）+ 三类静态守卫 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **224** / e2e **二十一套合计 1104**（renderer214+task-fields118+task-delete93+notifications86+backup83+logs73+ports57+calendar50+skill-import48+skills46+timefmt35+logdedupe32+grouping29+todos29+prefs25+applog24+launchpad17+clipboard13+bridge-clone12+policies12+datadir8）+ 三类静态守卫 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

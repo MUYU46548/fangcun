@@ -219,6 +219,11 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 「装到别的 agent」目标检测（Hermes 可直装；其余给文件+打开对方） */
   agentsList: () => ipcRenderer.invoke('agents:list'),
   agentsOpen: (id: string) => ipcRenderer.invoke('agents:open', id),
+  /** 日志置顶 / 改项目归属（卡 037 右键菜单） */
+  logsSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('logs:setPinned', id, pinned),
+  logsSetProject: (id: string, project: string) => ipcRenderer.invoke('logs:setProject', id, project),
+  /** 待办置顶（卡 037 第二批） */
+  todosSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('todos:setPinned', id, pinned),
   /** 回收站文件正文预览（不是 id，是文件名） */
   trashRead: (name: string) => ipcRenderer.invoke('trash:read', name),
   /** 起一个"空闲"的启动台应用（只认启动台里带 port 的） */

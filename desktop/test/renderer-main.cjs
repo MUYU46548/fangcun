@@ -209,10 +209,10 @@ async function main() {
     const c = document.querySelector('.card')
     c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }))
   })()`)
-  const ctxOk = await waitFor(`!!document.querySelector('.ctx-menu')`, 4000, '右键菜单')
+  const ctxOk = await waitFor(`!!document.querySelector('.ctx-menu:not(.ctx-other)')`, 4000, '右键菜单')
   check('任务卡右键菜单可打开', ctxOk)
   if (ctxOk) {
-    const hasAssign = await js(`[...document.querySelectorAll('.ctx-menu button')].some(b => b.textContent.includes('指派时间'))`)
+    const hasAssign = await js(`[...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].some(b => b.textContent.includes('指派时间'))`)
     check('右键菜单含「指派时间」', hasAssign)
   }
 
@@ -1238,6 +1238,96 @@ async function main() {
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesStart'))`)))
   check('★ 服务页依然没有"结束/杀掉进程"这类按钮（A 档只读，用户明确排除）',
     await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|停止进程|kill/i.test(b.textContent))`))
+
+  // ── 23. 卡 037 第一批：日志右键菜单 + 置顶（2026-09-26 用户口径）────────
+  //   规格铁律：菜单是「出口加速器」；一层封顶、单项 ≤7；删除放最末且二次确认；
+  //   任何「发给 AI / 智能总结」永不进菜单。
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`window.__fcTest.setLogs([
+    { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', project: 'demo', created: '2026-09-24T00:00:00.000Z' },
+    { id: 'log-demo-2', title: '已完成的日志', content: '内容B', status: 'completed', project: 'demo', created: '2026-09-23T00:00:00.000Z' },
+    { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
+  ])`)
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
+  check('切到日志页', await waitFor(`document.querySelectorAll('main.logs-view .log-card').length >= 3`, 6000, '日志卡'),
+    String(await js(`document.querySelectorAll('main.logs-view .log-card').length`)))
+  check('★ 日志卡能右键（回执：右键此前只作用于任务卡）',
+    await js(`(() => { const c = document.querySelector('main.logs-view .log-card'); if (!c) return false;
+      c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 140 })); return true })()`))
+  check('★ 右键菜单真的弹出来了', await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 5000, '右键菜单'))
+  const logMenu = await js(`document.querySelector('.ctx-menu.ctx-other').textContent`)
+  check('★ 菜单项与用户规格一致（复制全文 / 带元信息 / 复制并标记已派 / 置顶 / 改归属 / 归档 / 删除）',
+    ['复制全文', '复制带元信息', '复制并标记已派', '置顶', '改项目归属', '归档', '删除'].every(k => String(logMenu).includes(k)),
+    String(logMenu))
+  check('★ 删除排在最后（破坏性动作不配顺手）',
+    await js(`(() => { const bs = [...document.querySelectorAll('.ctx-menu.ctx-other button')]; return bs.length > 0 && bs[bs.length - 1].textContent.includes('删除') })()`))
+  check('★ 菜单里没有"发给 AI / 智能总结"（元层铁律，永不进菜单）',
+    await js(`!/AI|智能|总结|生成/i.test(document.querySelector('.ctx-menu.ctx-other').textContent)`))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('复制带元信息')); if (b) b.click(); return !!b })()`)
+  check('★ 「复制带元信息」走主进程剪贴板，内容自动带 [日期] [项目]（粘进开发日志不用补头）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText' && c.args[0].includes('[2026-09-24]') && c.args[0].includes('[demo]'))`, 5000, '带元信息复制'),
+    String(await js(`JSON.stringify((window.__fcTest.calls().find(c => c.name === 'clipboardWriteText') || {}).args || [])`)))
+  // 复制并标记已派：复制 + 把不在进行中的那条打回进行中（复用既有语义，不新增状态）
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('已完成的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 160 })); return !!c })()`)
+  await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第二条菜单')
+  await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('复制并标记已派')); if (b) b.click(); return !!b })()`)
+  check('★ 「复制并标记已派」= 复制 + 打回进行中（两步并一步）',
+    await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1 && window.__fcTest.callCount('logsReopen') >= 1`, 5000, '复制+已派'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => ['clipboardWriteText', 'logsReopen'].includes(c.name)))`)))
+  // 置顶：写数据 + 列表置顶 + 视觉标记
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('归档的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 180 })); return !!c })()`)
+  await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第三条菜单')
+  await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('置顶')); if (b) b.click(); return !!b })()`)
+  check('★ 「置顶」写回后端（新字段 pinned，不是复用 status）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetPinned' && c.args[1] === true)`, 5000, 'logsSetPinned'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetPinned'))`)))
+  check('★ 置顶的那条在列表最前面（排序生效，视觉也在）',
+    await waitFor(`(() => { const c = document.querySelector('main.logs-view .log-card'); return !!c && c.classList.contains('pinned') && !!c.querySelector('.log-pin') })()`, 6000, '置顶卡在最前'),
+    String(await js(`(() => { const c = document.querySelector('main.logs-view .log-card'); return c ? c.textContent.slice(0, 40) : 'none' })()`)))
+  // 改项目归属：走 prompt + 专用通道（不受"非 active 不可编辑"限制）
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('已完成的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 })); return !!c })()`)
+  await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第四条菜单')
+  await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('改项目归属')); if (b) b.click(); return !!b })()`)
+  check('★ 「改项目归属」打开的是应用内选择器（不是 prompt —— Electron 不实现它）',
+    await waitFor(`document.querySelector('#log-project-modal')`, 5000, '项目选择器'))
+  await js(`(() => { const b = [...document.querySelectorAll('#log-project-modal .skills-btn')].find(x => x.textContent.includes('演示项目')); if (b) b.click(); return !!b })()`)
+  check('★ 选完项目走到 logsSetProject（已完成的日志也能改 —— 归类属性不是内容编辑）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetProject' && c.args[1] === 'demo')`, 5000, 'logsSetProject'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetProject'))`)))
+
+  // ── 24. 卡 037 第二批：待办右键菜单 + 置顶（不动托盘，用户已定口径）────
+  await js(`window.__fcTest.setTodos([])`)
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return !!b })()`)
+  check('切到待办页', await waitFor(`document.querySelector('main.todos-view')`, 6000, '待办视图'))
+  await js(`(() => {
+    const inp = document.querySelector('main.todos-view .todos-ctrls input'); if (!inp) return false
+    inp.value = '被右键的待办'
+    inp.dispatchEvent(new Event('input', { bubbles: true }))
+    const btn = [...document.querySelectorAll('main.todos-view button')].find(b => b.textContent.includes('添加'))
+    if (btn) btn.click()
+    return !!btn
+  })()`)
+  check('建出一条待办用于右键', await waitFor(`document.querySelectorAll('main.todos-view .todo-item').length === 1`, 5000, '待办条目'),
+    String(await js(`document.querySelectorAll('main.todos-view .todo-item').length`)))
+  check('★ 待办行能右键',
+    await js(`(() => { const r = document.querySelector('main.todos-view .todo-item'); if (!r) return false;
+      r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 130, clientY: 150 })); return true })()`))
+  check('★ 待办右键菜单弹出（置顶 / 复制内容 / 编辑 / 删除）',
+    await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 5000, '待办菜单') &&
+    await js(`['置顶', '复制内容', '编辑', '删除'].every(k => document.querySelector('.ctx-menu.ctx-other').textContent.includes(k))`),
+    String(await js(`document.querySelector('.ctx-menu.ctx-other') ? document.querySelector('.ctx-menu.ctx-other').textContent : 'none'`)))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('置顶')); if (b) b.click(); return !!b })()`)
+  check('★ 待办「置顶」写回后端', await waitFor(`window.__fcTest.calls().some(c => c.name === 'todosSetPinned' && c.args[1] === true)`, 5000, 'todosSetPinned'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'todosSetPinned'))`)))
+  check('★ 置顶后待办带上 📌 且置顶样式生效',
+    await waitFor(`(() => { const r = document.querySelector('main.todos-view .todo-item'); return !!r && r.classList.contains('pinned') && !!r.querySelector('.todo-pin') })()`, 6000, '待办置顶样式'))
+  check('★ 待办菜单里没有托盘项（用户口径：这批不动托盘）',
+    await js(`!/托盘|Tray/i.test(document.querySelector('.ctx-menu.ctx-other') ? document.querySelector('.ctx-menu.ctx-other').textContent : '')`))
 
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 

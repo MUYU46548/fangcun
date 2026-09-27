@@ -165,6 +165,13 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   // 待办数据健康度（2026-09-26 卡 033）
   todosHealth: () => { rec('todosHealth'); return ok({ path: 'C:/mock/todos/index.json', lastError: null }) },
+  todosSetPinned: (id, pinned) => {
+    rec('todosSetPinned', [id, pinned])
+    const t = store.todos.find(x => x.id === id)
+    if (!t) return { ok: false, error: 'not found' }
+    t.pinned = !!pinned
+    return ok({ data: t })
+  },
   todosDelete: (id) => {
     rec('todosDelete', [id])
     store.todos = store.todos.filter(x => x.id !== id)
@@ -172,7 +179,8 @@ contextBridge.exposeInMainWorld('tegula', {
   },
 
   // ── 日志 ───────────────────────────────────────────────────────
-  logsList: () => store.logs.slice(),
+  // 与主进程 listLogs 一致：置顶优先（桩不排序的话，渲染层那条排序断言等于在测假数据）
+  logsList: () => store.logs.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)),
   logsCreate: (title, project, content, taskId) => {
     rec('logsCreate', [title, project, content, taskId])
     const l = { id: nextId('log'), title, project, content, taskId, status: 'active', created: new Date().toISOString() }
@@ -182,7 +190,28 @@ contextBridge.exposeInMainWorld('tegula', {
   logsUpdate: () => ok(),
   logsComplete: () => ok(),
   logsArchive: () => ok(),
-  logsDestroy: () => ok(),
+  logsDestroy: (id) => { rec('logsDestroy', [id]); store.logs = store.logs.filter(x => x.id !== id); return ok() },
+  // 卡 037：置顶 / 改归属 / 复制并标记已派（后者复用 reopen）
+  logsReopen: (id) => {
+    rec('logsReopen', [id])
+    const l = store.logs.find(x => x.id === id)
+    if (l) l.status = 'active'
+    return ok({ log: l })
+  },
+  logsSetPinned: (id, pinned) => {
+    rec('logsSetPinned', [id, pinned])
+    const l = store.logs.find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    l.pinned = !!pinned
+    return ok({ log: l })
+  },
+  logsSetProject: (id, project) => {
+    rec('logsSetProject', [id, project])
+    const l = store.logs.find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    l.project = project
+    return ok({ log: l })
+  },
   logsSearch: () => [],
   logsCleanup: () => [],
   logsForTask: () => [],
@@ -453,6 +482,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   },
   /** 重新灌测试数据：前面的回收站测试会把两条都还原/彻底删掉，后面的预览测试要重来一遍 */
   setTrash: (items) => { store.trash = (items || []).slice() },
+  setLogs: (items) => { store.logs = (items || []).slice() },
+  setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
   reset: () => { store.calls.length = 0 },
 })

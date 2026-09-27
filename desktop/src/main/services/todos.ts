@@ -20,6 +20,8 @@ export interface Todo {
   due?: string
   /** 归属项目（registry id），空 = 不归属。用于看板联动筛选 */
   project?: string
+  /** 置顶（2026-09-26 卡 037）：钉在列表最上面，跟完成状态/优先级正交 */
+  pinned?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -43,6 +45,7 @@ function normalizeTodo(raw: any): Todo {
     priority: normalizePriority(raw?.priority) || '中',
     due: raw?.due,
     project: raw?.project || undefined,
+    pinned: raw?.pinned === true,
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
   }
@@ -110,7 +113,8 @@ export function listTodos(filter?: { done?: boolean }): Todo[] {
     todos = todos.filter(t => t.done === filter.done)
   }
   return todos.sort((a, b) => {
-    // 未完成优先 → 优先级 → 创建时间倒序
+    // 置顶最优先（2026-09-26 卡 037）→ 未完成优先 → 优先级 → 创建时间倒序
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
     if (a.done !== b.done) return a.done ? 1 : -1
     const wa = PRIO_WEIGHT[a.priority] ?? 9
     const wb = PRIO_WEIGHT[b.priority] ?? 9
@@ -138,7 +142,15 @@ export function createTodo(title: string, priority: string = '中', due?: string
   return todo
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project'>>): Todo | null {
+/**
+ * 置顶 / 取消置顶（2026-09-26 卡 037）。
+ * 待办是整份 JSON，读写都过 loadTodos/saveTodos（原子写 + 坏文件隔离），不新增写路径。
+ */
+export function setTodoPinned(id: string, pinned: boolean): Todo | null {
+  return updateTodo(id, { pinned: !!pinned } as any)
+}
+
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project' | 'pinned'>>): Todo | null {
   const todos = loadTodos()
   const idx = todos.findIndex(t => t.id === id)
   if (idx < 0) return null
@@ -148,6 +160,7 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'do
   if (updates.priority !== undefined) todo.priority = normalizePriority(updates.priority) || '中'
   if (updates.due !== undefined) todo.due = updates.due
   if (updates.project !== undefined) todo.project = updates.project || undefined
+  if (updates.pinned !== undefined) todo.pinned = !!updates.pinned
   todo.updatedAt = new Date().toISOString()
   saveTodos(todos)
   return todo
