@@ -215,6 +215,11 @@
         <span class="cb-stat">已填 <b>{{ charterStats.filled }}</b> / {{ charterStats.total }}</span>
         <span class="cb-stat" v-if="charterStats.skeleton">骨架待填 <b>{{ charterStats.skeleton }}</b></span>
         <span class="cb-stat warn" v-if="charterStats.missing">缺失 <b>{{ charterStats.missing }}</b></span>
+        <span
+          class="cb-stat"
+          v-if="charterStats.mapMissing"
+          title="方针卡已填但没有「结构地图」节（模块清单 + 主数据流）。仅活跃开发项目需要；内容由 agent 起草、TA 过目 —— 卡片里没有该节时，新建/保存方针卡会自动带上骨架节标题。"
+        >结构地图待填 <b>{{ charterStats.mapMissing }}</b></span>
         <button class="ghost" v-if="charterStats.missing" @click="fillMissingCharters()">
           ＋ 补齐 {{ charterStats.missing }} 个章程骨架
         </button>
@@ -4052,30 +4057,38 @@ const policyMap = ref<Record<string, boolean>>({})
 const policyExistsMap = ref<Record<string, boolean>>({})
 const policyEdit_ = ref<any>(null)
 
+// 029：结构地图缺口（方针卡已填但没「结构地图」节）—— 与章程缺口同一机制，一样只在条上显示计数。
+const policyMapHasStructure = ref<Record<string, boolean>>({})
+
 const charterStats = computed(() => {
   const total = projects.value.length
-  let filled = 0, skeleton = 0, missing = 0
+  let filled = 0, skeleton = 0, missing = 0, mapMissing = 0
   for (const p of projects.value) {
     if (policyMap.value[p.id]) filled++
     else if (policyExistsMap.value[p.id]) skeleton++
     else missing++
+    // 空骨架必然也没有结构地图（同一个缺口），所以只对「已填」的项目算地图缺口
+    if (policyMap.value[p.id] && !policyMapHasStructure.value[p.id]) mapMissing++
   }
-  return { total, filled, skeleton, missing }
+  return { total, filled, skeleton, missing, mapMissing }
 })
 
 async function loadPolicyMap() {
   const filled: Record<string, boolean> = {}
   const exists: Record<string, boolean> = {}
+  const hasMap: Record<string, boolean> = {}
   for (const p of projects.value) {
     try {
       const r: any = await window.tegula.policyGet(p.id)
       const pol = r && r.policy ? r.policy : null
       exists[p.id] = !!pol
       filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
-    } catch { exists[p.id] = false; filled[p.id] = false }
+      hasMap[p.id] = !!(pol && String(pol.structureMap || '').trim())
+    } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false }
   }
   policyMap.value = filled
   policyExistsMap.value = exists
+  policyMapHasStructure.value = hasMap
 }
 
 /** 一键为「连文件都没有」的项目建立章程骨架（四个小节留空，等用户填；空骨架对 agent 等同未立） */

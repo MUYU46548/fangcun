@@ -718,6 +718,9 @@ async function main() {
   check('项目页有「项目章程」缺口条', !!charter.barText, JSON.stringify(charter))
   check('缺口条统计正确（已填 1 / 共 2，缺失 1）',
     /已填 1 \/ 2/.test(String(charter.barText)) && /缺失 1/.test(String(charter.barText)), String(charter.barText))
+  // 029：结构地图缺口也要一眼可见（demo 有方针但没结构地图节 → 计数 1）
+  check('★ 缺口条显示「结构地图待填」（029）',
+    /结构地图待填 1/.test(String(charter.barText)), String(charter.barText))
   check('有方针的项目卡片显示「查看/编辑」', charter.cardBtns.some(t => t.includes('查看/编辑')), JSON.stringify(charter.cardBtns))
   check('缺方针的项目卡片显示「立项目方针」', charter.cardBtns.some(t => t.includes('立项目方针')), JSON.stringify(charter.cardBtns))
   check('缺口条出现「补齐骨架」按钮', charter.hasFillBtn === true, JSON.stringify(charter))

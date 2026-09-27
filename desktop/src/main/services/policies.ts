@@ -15,8 +15,20 @@ export interface Policy {
   goal: string
   scenario: string
   boundary: string
+  /** 结构地图节（029：模块清单 + 每模块一句话职责 + 主数据流，带最后核实日期） */
+  structureMap: string
   updatedAt: string
 }
+
+/** 结构地图骨架（029）：节标题必须出现，缺口才可见 —— 与章程缺口同一机制。
+ *  内容由 agent 起草 / TA 过目（描述性内容），所以骨架只给节标题 + 待填提示，不代写。 */
+const SKELETON_STRUCTURE_MAP = [
+  '## 结构地图',
+  '> 最后核实：（待填 —— 填完写日期；烂地图比没地图危险，因为读者不知道它烂）',
+  '',
+  '- 模块清单：待填（每模块一句话职责）',
+  '- 主数据流：待填（数据从哪来 → 经过谁 → 落到哪 → 谁读它）',
+].join('\n')
 
 function getPolicyDir(): string {
   const dir = path.join(getDataDir(), 'policies')
@@ -39,9 +51,15 @@ export function getPolicy(projectId: string): Policy | null {
       const m = raw.match(new RegExp(`^${key}:\\s*(.*)$`, 'm'))
       return m ? m[1].trim() : ''
     }
+    // 2026-09-27（029）修：原实现 `([\s\S]*?)(?=\n## |$)` 带 m 标志时，`$` 会匹配**每个换行前**，
+    // 于是多行小节只返回第一行 —— 编辑框回读被截断、再保存就把余下内容写没了（静默丢失）。
+    // 改成「定位节标题 → 截到下一个 `## ` 或文件末尾」，与 Python 侧 read_policy 的 section() 同口径。
     const section = (key: string): string => {
-      const m = raw.match(new RegExp(`## ${key}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
-      return m ? m[1].trim() : ''
+      const m = new RegExp(`^##\\s*${key}\\s*$`, 'm').exec(raw)
+      if (!m) return ''
+      const rest = raw.slice(m.index + m[0].length)
+      const next = rest.search(/^##\s/m)
+      return (next >= 0 ? rest.slice(0, next) : rest).trim()
     }
     return {
       projectId,
@@ -49,6 +67,7 @@ export function getPolicy(projectId: string): Policy | null {
       goal: section('当前目标'),
       scenario: section('应用场景'),
       boundary: section('方针边界'),
+      structureMap: section('结构地图'),
       updatedAt: grab('更新') || '',
     }
   } catch {
@@ -88,6 +107,12 @@ function preserveSections(projectId: string, nextFour: string[]): string {
 
 export function savePolicy(p: Policy): { ok: boolean; path: string } {
   const preserved = preserveSections(p.projectId, [])
+  // 029：结构地图节已存在 → 它已在 preserved 里（未知节原样保留），不再追加；
+  // 不存在 → 追加骨架，让「这张卡还没结构地图」在卡面上一眼可见。
+  const hasStructureMap = /^##\s*结构地图\s*$/m.test(preserved)
+  const tailParts = [preserved.trim()]
+  if (!hasStructureMap) tailParts.push(SKELETON_STRUCTURE_MAP)
+  const tail = tailParts.filter(Boolean).join('\n\n')
   const content = [
     `# 项目方针：${p.projectId}`,
     ``,
@@ -106,7 +131,7 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     `## 方针边界`,
     p.boundary || `（未填写）`,
     ``,
-    preserved.trim() ? preserved.trim() : ``,
+    tail,
     ``,
   ].join('\n')
   const target = policyPath(p.projectId)
@@ -118,7 +143,7 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
 
 /** 生成可粘贴给 agent 的方针文本 */
 export function policyToText(p: Policy): string {
-  return [
+  const parts = [
     `## 项目方针（${p.projectId}）`,
     `### 使命`,
     p.mission,
@@ -128,5 +153,8 @@ export function policyToText(p: Policy): string {
     p.scenario,
     `### 方针边界`,
     p.boundary,
-  ].filter(x => x !== undefined).join('\n')
+  ].filter(x => x !== undefined)
+  // 029：结构地图是给 agent 的最大价值项（模块职责 + 主数据流），有则一并粘出去。
+  if (p.structureMap) parts.push(`### 结构地图（动手前先读）`, p.structureMap)
+  return parts.join('\n')
 }
