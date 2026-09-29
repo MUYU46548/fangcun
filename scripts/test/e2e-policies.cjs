@@ -122,6 +122,33 @@ function main() {
       const s = String(g?.structureMap || '')
       return s.includes('core.py') && s.includes('最后核实：2026-09-27') && s.includes('主数据流')
     })(), JSON.stringify(pol.getPolicy(pid)?.structureMap))
+
+    // ── A9–A11（2026-09-28 卡 029 入口改造）：结构地图要能从界面改 ──────────
+    // 用户驳回原话「找不到在哪里」——真因是它只存在于文件里，界面既看不到也改不了。
+    // 现在 `savePolicy` 显式写这一节，所以必须钉住三件事（尤其第 2 条，那是数据丢失风险）。
+    const MAPV = '> 最后核实：2026-09-28（界面改的）\n- 模块清单：UI_MAP_MARKER\n- 主数据流：A → B → C'
+    pol.savePolicy({ projectId: pid, mission: '新使命', goal: '', scenario: '', boundary: '', structureMap: MAPV, updatedAt: '' })
+    const afterUi = fs.readFileSync(path.join(dir, pid + '.md'), 'utf-8')
+    check('★ A9 界面传入的 structureMap 真的落盘（不是只读得到）',
+      afterUi.includes('UI_MAP_MARKER') && afterUi.includes('最后核实：2026-09-28'),
+      afterUi.slice(-260))
+    check('   A9b 且只写了一份「结构地图」节（显式写出 + 旧节保留不得叠加）',
+      (afterUi.match(/^##\s*结构地图\s*$/gm) || []).length === 1,
+      String((afterUi.match(/^##\s*结构地图\s*$/gm) || []).length))
+    check('★ A10 **不传** structureMap 时沿用文件里已有的（"没传" ≠ "清空" —— 最危险的一类回归）', (() => {
+      pol.savePolicy({ projectId: pid, mission: '又改', goal: '', scenario: '', boundary: '', updatedAt: '' })
+      const t = fs.readFileSync(path.join(dir, pid + '.md'), 'utf-8')
+      return t.includes('UI_MAP_MARKER') && !/最后核实[：:]\s*（待填/.test(t)
+    })(), fs.readFileSync(path.join(dir, pid + '.md'), 'utf-8').slice(-260))
+    check('★ A11 传空串同样沿用已有的（不会把地图抹成骨架）', (() => {
+      pol.savePolicy({ projectId: pid, mission: '再改', goal: '', scenario: '', boundary: '', structureMap: '', updatedAt: '' })
+      const t = fs.readFileSync(path.join(dir, pid + '.md'), 'utf-8')
+      return t.includes('UI_MAP_MARKER')
+    })())
+    check('   A11b getPolicy 往返保真（读回的就是写进去的那段）', (() => {
+      const s = String(pol.getPolicy(pid)?.structureMap || '')
+      return s.includes('UI_MAP_MARKER') && s.includes('最后核实：2026-09-28') && s.split('\n').length >= 3
+    })(), JSON.stringify(pol.getPolicy(pid)?.structureMap))
   }
 
   // ══ B. Python 侧：read_policy + _build_prompt 注入 ══════════════════
@@ -186,8 +213,10 @@ finally:
   check('C3 TS 侧结构地图同样受保护（通用保留，非白名单）', tsSrc.includes('preserveSections'))
   // C4/C5（029）：结构地图两侧都认得 + 骨架必须带节标题（缺口可见）
   check('C4 TS 侧会读「结构地图」节（section(\'结构地图\')）', /section\('结构地图'\)/.test(tsSrc))
+  // 2026-09-28：节标题改由 savePolicy 显式写出（结构地图要能从界面改），骨架只剩**正文**，
+  // 所以常量名从 SKELETON_STRUCTURE_MAP 改成 ..._BODY；这条按新结构对齐（行为断言见 A5）。
   check('C5 骨架生成器带「结构地图」节标题（缺口可见）',
-    tsSrc.includes('SKELETON_STRUCTURE_MAP') && tsSrc.includes("'## 结构地图'"))
+    tsSrc.includes('SKELETON_STRUCTURE_MAP_BODY') && tsSrc.includes('## 结构地图'))
   check('C6 Python 侧会读「结构地图」节', /section\("结构地图"\)/.test(pySrc))
   check('C7 任务书含「数据流五句话」纪律（卡 029 配套）', pySrc.includes('数据流五句话'))
 

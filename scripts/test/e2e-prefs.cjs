@@ -118,6 +118,58 @@ function main() {
   check('D8 ★ 开关也进 syncBoardPrefs 双向对齐（不只写 localStorage，否则换 origin 丢）',
     /function syncBoardPrefs[\s\S]{0,3000}typeof p\?\.fc_disable_gpu === 'boolean'/.test(vueSrc))
 
+  // ══ E. 多视图选择（2026-09-28 用户第 ① 条 + 卡 033 多视图）════════════
+  // 与 014 是**同一个 bug 类**：只写 localStorage 的偏好在换 origin 时会整个消失。
+  // 视图选择（看板 列/列表、待办 清单/卡片网格）必须走同一条真身路径。
+  // 数据层在这里真写真读；界面接线用源码断言钉住（真点击在 e2e-renderer 里）。
+  prefs.setPref('fc_board_view', 'list')
+  check('E1 看板视图选择能写入真身', prefs.getPref('fc_board_view') === 'list')
+  check('E2 落盘到 prefs.json（重启/换 origin 不丢）',
+    JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_board_view === 'list')
+  prefs.setPref('fc_todo_view', 'grid')
+  check('E3 待办视图选择能写入真身',
+    JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_todo_view === 'grid')
+  check('E4 两个键互不覆盖（合并写入，不是整体重写）',
+    prefs.getPref('fc_board_view') === 'list' && prefs.getPref('fc_todo_view') === 'grid')
+
+  check('E5 ★ syncBoardPrefs 读这两个键（真身优先，否则重启回到默认摆法）',
+    /function syncBoardPrefs[\s\S]{0,4000}p\?\.fc_board_view === 'cols'[\s\S]{0,400}p\?\.fc_todo_view === 'list'/.test(vueSrc))
+  check('E6 ★ 只认白名单字面量（prefs.json 可以手改，别让界面进"两个按钮都不高亮"的怪状态）',
+    /fc_board_view === 'cols' \|\| p\?\.fc_board_view === 'list'/.test(vueSrc)
+    && /fc_todo_view === 'list' \|\| p\?\.fc_todo_view === 'grid'/.test(vueSrc))
+  check('E7 ★ 默认值是**旧视图**（列视图 / 清单）—— 用户要的是"旧的可以保留"',
+    /BOARD_VIEW_KEY, 'cols'/.test(vueSrc) && /TODO_VIEW_KEY, 'list'/.test(vueSrc))
+  check('E8 ★ 切视图会写回真身（saveUiPref → prefsSet）',
+    /function setViewMode[\s\S]{0,500}saveUiPref\(TODO_VIEW_KEY[\s\S]{0,300}saveUiPref\(BOARD_VIEW_KEY/.test(vueSrc))
+  check('E9 页头切换器是真 button + 选中态跟着 currentViewMode（不是死控件）',
+    /v-for="o in viewOptions"[\s\S]{0,200}class="vsb"[\s\S]{0,200}:class="\{ on: currentViewMode === o\.v \}"[\s\S]{0,120}@click="setViewMode\(o\.v\)"/.test(vueSrc))
+  check('E10 两种摆法互斥渲染（同时挂两份 DOM 会让勾选/计数翻倍）',
+    /boardView === 'list'[\s\S]{0,200}class="board-list"/.test(vueSrc)
+    && /v-if="boardView === 'cols'"/.test(vueSrc))
+
+  // E11/E12 看板排序方式（2026-09-29：它此前是个**死控件** —— sortMode 只在模板绑了 v-model，
+  //        全代码零引用 → 换下拉毫无反应。接上之后同样必须进真身，否则重启就忘。）
+  prefs.setPref('fc_board_sort', 'updated')
+  check('E11 排序选择能写入真身并落盘',
+    prefs.getPref('fc_board_sort') === 'updated'
+    && JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_board_sort === 'updated')
+  check('E12 ★ syncBoardPrefs 白名单读 fc_board_sort（只认三个已知值，手改 prefs.json 也不会进怪状态）',
+    /fc_board_sort === 'active' \|\| p\?\.fc_board_sort === 'updated' \|\| p\?\.fc_board_sort === 'created'/.test(vueSrc))
+  check('E13 ★ 排序真的被用上了（修前 sortMode 全代码零引用 —— 死控件）',
+    /function applySortMode/.test(vueSrc) && /return applySortMode\(result\)/.test(vueSrc))
+
+  // E14/E15/E16 项目页签三摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
+  prefs.setPref('fc_pv_view', 'master')
+  check('E14 项目页签摆法能写入真身并落盘',
+    prefs.getPref('fc_pv_view') === 'master'
+    && JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_pv_view === 'master')
+  check('E15 ★ syncBoardPrefs 白名单读 fc_pv_view（只认三个已知值 —— prefs.json 是可以手改的）',
+    /fc_pv_view === 'tiles' \|\| p\?\.fc_pv_view === 'overview' \|\| p\?\.fc_pv_view === 'master'/.test(vueSrc))
+  check('E16 ★ 三种摆法互斥渲染 + 各自的根容器类独立（共用类名就没法机械判"挂了几个"）',
+    /pvView === 'tiles'/.test(vueSrc) && /pvView === 'overview'/.test(vueSrc)
+    && /class="pvgrid" v-if="pvView === 'tiles'"/.test(vueSrc)
+    && /class="ovgrid"/.test(vueSrc) && /class="pv-ms"/.test(vueSrc))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

@@ -148,6 +148,48 @@ async function main() {
   const openFail = await skillsMod.openSkillsDir('resources')
   check('★ 打开失败要返回原因（不是静默 ok）', openFail.ok === false && !!openFail.error, JSON.stringify(openFail))
 
+  // ── 5. 「📂 显示 SKILL.md」的路径裁决（resolveRevealTarget）──────────────
+  // 2026-09-28 用户实测报障：「安装方寸技能会显示路径问题，导致错误」。
+  // 真因（在 userData/logs 的当日日志里，4 条 `路径不在技能目录内`）：
+  // 白名单只放行 Hermes 侧，而技能页那张卡传的是**方寸真源**的路径
+  // （`skills/<id>/SKILL.md`）→ 按钮在自发布技能上 100% 失败。
+  // 而那个按钮的用户故事恰恰是"装到 WorkBuddy 这类只能手动导入的 agent"——
+  // 要拖进对方导入面板的就是真源这一份。
+  const hermesDir = skillsMod.getHermesSkillsDirPath()
+
+  const rSrc = skillsMod.resolveRevealTarget(path.join(skillsDir, 'fangcun-hermes-bridge', 'SKILL.md'))
+  check('★ 真源 SKILL.md 允许显示（此前必定失败 —— 用户报的「路径问题」）',
+    rSrc.ok === true && rSrc.skillMd === path.join(skillsDir, 'fangcun-hermes-bridge', 'SKILL.md'),
+    JSON.stringify(rSrc))
+  check('  真源那条的提示里写明是「方寸真源」', /方寸真源/.test(String(rSrc.message)), String(rSrc.message))
+
+  const rDir = skillsMod.resolveRevealTarget(path.join(skillsDir, 'skill-management-policy'))
+  check('  传目录时自动补成 <目录>/SKILL.md',
+    rDir.ok === true && path.basename(String(rDir.skillMd)) === 'SKILL.md', JSON.stringify(rDir))
+
+  const rHermes = skillsMod.resolveRevealTarget(path.join(hermesDir, 'fangcun-hermes-bridge', 'SKILL.md'))
+  check('★ Hermes 侧副本仍允许显示（原有行为不能被修坏）', rHermes.ok === true, JSON.stringify(rHermes))
+  check('  Hermes 那条的提示里写明是「Hermes 侧副本」', /Hermes 侧副本/.test(String(rHermes.message)), String(rHermes.message))
+
+  const rOut = skillsMod.resolveRevealTarget('C:/Windows/System32/drivers/etc/hosts')
+  check('★ 技能目录之外的任意路径一律拒绝（白名单没被放宽成"什么都能开"）',
+    rOut.ok === false && /路径不在技能目录内/.test(String(rOut.message)), JSON.stringify(rOut))
+  const rEmpty = skillsMod.resolveRevealTarget('')
+  check('  空路径给明确原因而不是崩/静默', rEmpty.ok === false && !!rEmpty.message, JSON.stringify(rEmpty))
+  // ⚠ 前缀攻击：`startsWith(root)` 不带 path.sep 时 `<root>-evil` 会被放行。
+  // 这一条**必须把文件真造出来**，否则拒绝会由"找不到文件"顺手兜住 —— 断言看着绿，
+  // 实际没测到白名单（首版就是这么写的，去掉 path.sep 做反例时它照样绿，才发现是空断言）。
+  const evilDir = path.dirname(hermesDir) + path.sep + 'skills-evil'
+  fs.mkdirSync(evilDir, { recursive: true })
+  const evilMd = path.join(evilDir, 'SKILL.md')
+  fs.writeFileSync(evilMd, '---\nname: evil\ndescription: 兄弟目录，不该被放行\n---\n', 'utf-8')
+  const rEvil = skillsMod.resolveRevealTarget(evilMd)
+  check('★ 兄弟目录「skills-evil」（真实存在）不能蒙混过关 —— 前缀判定必须带分隔符',
+    rEvil.ok === false && /路径不在技能目录内/.test(String(rEvil.message)), JSON.stringify(rEvil))
+  const rNoFile = skillsMod.resolveRevealTarget(path.join(skillsDir, '不存在的技能', 'SKILL.md'))
+  check('  目录内但文件不存在 → 明确说找不到，不是假 ok',
+    rNoFile.ok === false && /找不到 SKILL.md/.test(String(rNoFile.message)), JSON.stringify(rNoFile))
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

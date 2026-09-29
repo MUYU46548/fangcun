@@ -431,28 +431,60 @@ def parse_task(path):
         return None
     fm_raw, body = m.group(1), m.group(2)
     d = {"_body": body, "_file": os.path.basename(path)}
-    in_resource = False
+
+    # ── 前言先按「顶层键 + 其后的缩进行」分组，再逐个解释 ──────────────────
+    # 为什么不能边扫边判（2026-09-28 改）：旧实现只认**行内** flow 列表 `项目: [a]`，
+    # 而老卡片写的是**块式**列表：
+    #     项目:
+    #       - fangcun-base
+    # 于是这些字段被读成空串，`tegula done` / 任何 Python 写回就把它们**静默清空**
+    # （实测 task-20260925-033 的项目归属与前言结果记录当场消失；全仓 30 张卡受影响）。
+    # 现在把缩进行归属到它的顶层键，块式列表能还原成真正的列表。
+    entries = []          # [(键, 行内值, [缩进行原文, ...])]
     for line in fm_raw.splitlines():
         if not line.strip():
             continue
-        if line.startswith(" "):
-            kv = re.match(r"^\s+([^:]+):\s*(.*)$", line)
-            if kv and in_resource:
-                k = kv.group(1).strip()
-                v = kv.group(2).strip()
-                if v.startswith("[") and v.endswith("]"):
-                    d.setdefault("资源", {})[k] = split_flow_list(v[1:-1].strip())
-                else:
-                    d.setdefault("资源", {})[k] = unquote_scalar(v)
+        if line[:1] in (" ", "\t"):
+            if entries:
+                entries[-1][2].append(line)
             continue
         kv = re.match(r"^([^:]+):\s*(.*)$", line)
         if not kv:
             continue
-        k, v = kv.group(1).strip(), kv.group(2).strip()
+        entries.append([kv.group(1).strip(), kv.group(2).strip(), []])
+
+    for k, v, sub in entries:
+        # 资源是**唯一**的子映射（缩进行是 `子键: 值`，不是列表项）
         if k == "资源":
-            in_resource = True
+            res = {}
+            for s in sub:
+                kv = re.match(r"^\s+([^:]+):\s*(.*)$", s)
+                if not kv:
+                    continue
+                sk, sv = kv.group(1).strip(), kv.group(2).strip()
+                if sv.startswith("[") and sv.endswith("]"):
+                    res[sk] = split_flow_list(sv[1:-1].strip())
+                else:
+                    res[sk] = unquote_scalar(sv)
+            d["资源"] = res
             continue
-        in_resource = False
+        # `验收: |-` / `附言: |+` —— 块标量：指示符下面那几行才是值
+        if sub and _BLOCK_SCALAR_RE.match(v):
+            d[k] = _join_block_scalar(v, sub)
+            continue
+        # 值为空 + 后续全是 `- xxx` → 块式列表
+        if v == "" and sub:
+            items = []
+            ok = True
+            for s in sub:
+                m2 = re.match(r"^\s*-\s*(.*)$", s)
+                if m2 is None:
+                    ok = False
+                    break
+                items.append(m2.group(1).strip())
+            if ok:
+                d[k] = [unquote_scalar(x) for x in items if x != ""]
+                continue
         if v.startswith("[") and v.endswith("]"):
             # split_flow_list 会跳过引号内的逗号 —— 标签值 `a,b` 不再被误拆成两项
             d[k] = split_flow_list(v[1:-1].strip())
@@ -467,9 +499,25 @@ def parse_task(path):
             # 以引号结尾的普通值），并还原 yaml_scalar 写入的转义
             d[k] = unquote_scalar(v)
     plan, result, extra = _split_body(body)
-    d["方案"] = plan
-    d["结果记录"] = result
+    # ⚠ 老卡片把 方案/结果记录 写在**前言**里（`结果记录: '…'`），新 schema 写在正文小节。
+    #   旧实现无条件用正文覆盖 → 前言里那条记录**在解析阶段就没了**，写回即永久丢失
+    #   （9 张卡的前言结果记录受此影响）。现在：正文小节为空就沿用前言里的值
+    #   （等于顺手把老写法迁移进正文），两边都有则正文优先。
+    _fm_plan = d.get("方案")
+    if not plan and _fm_plan:
+        plan = _fm_plan if isinstance(_fm_plan, list) else [str(_fm_plan)]
+    d["方案"] = [str(x) for x in (plan or [])]
+    _fm_result = d.get("结果记录")
+    if not result and _fm_result:
+        result = "\n".join(str(x) for x in _fm_result) if isinstance(_fm_result, list) else str(_fm_result)
+    d["结果记录"] = result or ""
     d["_extra"] = extra          # 正文非受管内容原样保留（P0-2）
+    # 列表型受管字段归一（老卡片把它们写成**裸标量**：`项目: fangcun-base`）。
+    # 不归一的话：① `tegula next` 取 `d['项目'][0]` 会拿到首字母 'f'（项目方针卡因此永不命中）；
+    # ② 任何写回都会被 render_task 逐字符拆成 `[f, a, n, …]`（真实事故，见 _as_list 注释）。
+    for _k in ("项目", "标签", "阻塞", "验收清单", "context"):
+        if _k in d:
+            d[_k] = _as_list(d[_k])
     d["_unknown"] = {            # frontmatter 未知标量/列表字段原样保留（P0-1）
         k: v for k, v in d.items()
         if k not in MANAGED_KEYS and not k.startswith("_")
@@ -587,13 +635,72 @@ def split_flow_list(inner):
     return [x for x in (unquote_scalar(s.strip()) for s in items) if x != ""]
 
 
+def _as_list(v):
+    """把「列表型字段」归一成列表。
+
+    2026-09-29 实测（真实事故）：老卡片写的是**裸标量** `项目: fangcun-base`，
+    而 render_task 直接 `for x in d.get("项目", [])` —— **遍历字符串 = 逐字符拆开**，
+    写回后变成 `项目: [f, a, n, g, c, u, n, -, b, a, s, e]`。
+    受害卡：`看板视图按项目分组显示项目名--分组长单-297cdf80`（我用 tegula done 时踩到）。
+    同一形状的还有 `标签` / `阻塞` / `context` / `资源.工具` —— 全仓另有 4 张卡是裸标量写法，
+    不归一的话它们下一次被 Python 写回就会一起碎掉。
+    """
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    if isinstance(v, str):
+        s = v.strip()
+        return [s] if s else []
+    return [v]
+
+
+def _join_block_scalar(indicator, lines):
+    """还原 YAML 块标量（`|` 字面块 / `>` 折叠块）。
+
+    2026-09-29 实测：老卡片里有 `验收: |-` 与 `附言: |+`。逐行解析器此前把**指示符本身**
+    当值（读出来就是字符串 `"|-"`），指示符下面那几行**在解析阶段就丢了** ——
+    任何一次写回都会把整段内容替换成一个 `|-`。和「块式列表读成空串」是同一类病。
+    """
+    body = list(lines)
+    indents = [len(ln) - len(ln.lstrip(' ')) for ln in body if ln.strip()]
+    cut = min(indents) if indents else 0
+    body = [ln[cut:] if len(ln) >= cut else '' for ln in body]
+    if indicator.startswith('>'):
+        out, buf = [], []
+        for ln in body:
+            if ln.strip() == '':
+                if buf:
+                    out.append(' '.join(buf))
+                    buf = []
+                out.append('')
+            else:
+                buf.append(ln.strip())
+        if buf:
+            out.append(' '.join(buf))
+        text = '\n'.join(out)
+    else:
+        text = '\n'.join(body)
+    if indicator.endswith('-'):
+        return text.rstrip('\n')
+    if indicator.endswith('+'):
+        return text
+    return text.rstrip('\n') + '\n'
+
+
+# YAML 块标量指示符（`|` / `|-` / `|+` / `>` / `>-` / `>+`）
+_BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?$")
+
+
 def render_task(d):
-    proj = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in d.get("项目", [])) + "]"
+    proj = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in _as_list(d.get("项目"))) + "]"
     res = d.get("资源", {}) if isinstance(d.get("资源"), dict) else {}
     ziliao = res.get("资料", "")
-    tools = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in res.get("工具", [])) + "]"
-    plan = "\n".join(d.get("方案", [])) or "- [ ] "
+    tools = "[" + ", ".join(yaml_scalar(x, in_flow=True) for x in _as_list(res.get("工具"))) + "]"
+    plan = "\n".join(str(x) for x in _as_list(d.get("方案"))) or "- [ ] "
     result = d.get("结果记录", "") or ""
+    if isinstance(result, list):
+        result = "\n".join(str(x) for x in result)
     extra = d.get("_extra", "") or ""
     unknown = d.get("_unknown", {}) or {}
     lines = [
@@ -612,10 +719,10 @@ def render_task(d):
         f"指派: {yaml_scalar(d.get('指派','hermes'))}",
         f"验收: {yaml_scalar(d.get('验收','human'))}",
     ]
-    tg = d.get("标签") or []
+    tg = _as_list(d.get("标签"))
     if tg:
         lines.append(f"标签: [{', '.join(yaml_scalar(x, in_flow=True) for x in tg)}]")
-    blk = d.get("阻塞") or []
+    blk = _as_list(d.get("阻塞"))
     if blk:
         lines.append(f"阻塞: [{', '.join(yaml_scalar(x, in_flow=True) for x in blk)}]")
     fy = str(d.get("附言") or "").strip()
@@ -639,7 +746,7 @@ def render_task(d):
     cron_val = d.get("cron", "")
     if cron_val:
         lines.append(f"cron: {yaml_scalar(cron_val)}")
-    ctx_val = d.get("context") or []
+    ctx_val = _as_list(d.get("context"))
     if ctx_val:
         lines.append(f"context: [{', '.join(yaml_scalar(x, in_flow=True) for x in ctx_val)}]")
     for k, v in unknown.items():

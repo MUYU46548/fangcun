@@ -56,6 +56,7 @@ node dist/cli/tegula-mcp.js
 
 **读**：`list_tasks` / `search_tasks` / `get_task` / `list_projects` / `get_project_status` /
 `find_blockers` / `scan_services` / `get_roadmap` / `get_data_dir` / `plan_list` / `plan_get` / `plan_pending` / `gate_list`
+`list_logs` / `search_logs` / `get_log` — 执行日志读取（拿日志 ID 直接 `get_log` 取，不必整篇注入）
 
 **写**：`create_task` / `update_task` / `move_status` / `delete_task`
 

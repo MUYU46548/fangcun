@@ -74,6 +74,32 @@ const CLICK_BY_TEXT = (text) => `
   })()
 `
 
+/** 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 造待办一律走唯一入口「＋ 新建待办」大框 */
+const ADD_TODO_BTN = '＋ 新建待办'
+async function addTodoViaModal(title, opts = {}) {
+  await js(CLICK_BY_TEXT(ADD_TODO_BTN))
+  if (!(await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))) return false
+  await js(`(() => {
+    const m = document.querySelector('#todo-edit-modal')
+    const ta = m.querySelector('textarea')
+    ta.value = ${JSON.stringify(title)}
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+    ${opts.prio ? `const ps = [...m.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === ${JSON.stringify(opts.prio)}))
+    if (ps) { ps.value = ${JSON.stringify(opts.prio)}; ps.dispatchEvent(new Event('change', { bubbles: true })) }` : ''}
+    ${opts.due ? `const d = m.querySelector('input[type=date]')
+    d.value = ${JSON.stringify(opts.due)}; d.dispatchEvent(new Event('input', { bubbles: true }))` : ''}
+    return true
+  })()`)
+  await sleep(150)
+  await js(`(() => {
+    const b = [...document.querySelectorAll('#todo-edit-modal button')].find(x => x.textContent.trim() === '保存')
+    if (b) b.click()
+    return !!b
+  })()`)
+  await sleep(400)
+  return true
+}
+
 async function main() {
   console.log('== 渲染层真实点击 e2e ==')
   console.log('index:', INDEX)
@@ -123,66 +149,59 @@ async function main() {
   check('能点到「待办」页签', await js(CLICK_BY_TEXT('待办')))
   const viewOk = await waitFor(`document.querySelector('main.todos-view')`, 6000, '待办视图渲染')
   check('待办视图已渲染', viewOk)
-  check('待办输入框存在', await js(`!!document.querySelector('input.todo-input')`))
-  check('「+ 添加」按钮存在', await js(`[...document.querySelectorAll('.todos-ctrls button')].some(b => b.textContent.includes('添加'))`))
+  // 2026-09-29 用户第 1 条：小框（+ 添加）与「大框新建」两个入口合并成一个
+  check('快速小框已移除（不再有长得像搜索框的输入框，也没有第二个入口）',
+    await js(`!document.querySelector('input.todo-input') &&
+              ![...document.querySelectorAll('.todos-ctrls button')].some(b => b.textContent.includes('添加'))`))
+  check('唯一入口「＋ 新建待办」存在',
+    await js(`!!document.querySelector('.todos-ctrls .todo-new') &&
+              document.querySelector('.todos-ctrls .todo-new').textContent.trim() === ${JSON.stringify('＋ 新建待办')}`))
 
   // 按钮必须真的适配了样式（用户第 1 条后半：样式仍为默认）
   const btnStyle = await js(`
     (() => {
-      const b = [...document.querySelectorAll('.todos-ctrls button')].find(x => x.textContent.includes('添加'))
+      const b = document.querySelector('.todos-ctrls .todo-new')
       if (!b) return null
       const cs = getComputedStyle(b)
       return { bg: cs.backgroundColor, radius: cs.borderRadius, weight: cs.fontWeight, appearance: cs.appearance }
     })()
   `)
-  check('「+ 添加」不是浏览器默认样式（有圆角/有背景/有字重）',
+  check('「＋ 新建待办」不是浏览器默认样式（有圆角/有背景/有字重）',
     !!btnStyle && btnStyle.radius !== '0px' && btnStyle.weight !== '400',
     JSON.stringify(btnStyle))
 
-  // ── 2. 空输入点击 → 必须有反馈（此前是静默 return）────────────────
-  await js(`(() => { const i = document.querySelector('input.todo-input'); i.value = ''; i.dispatchEvent(new Event('input', {bubbles:true})) })()`)
-  await js(CLICK_BY_TEXT('+ 添加'))
-  await sleep(200)
+  // ── 2. 空内容保存 → 必须有反馈（此前是静默 return）────────────────
+  await js(CLICK_BY_TEXT('＋ 新建待办'))
+  await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗')
+  await js(`(() => { const b = [...document.querySelectorAll('#todo-edit-modal button')].find(x => x.textContent.trim() === '保存'); if (b) b.click(); return !!b })()`)
+  await sleep(250)
   const emptyToast = await js(`(document.querySelector('#toast') || {}).textContent || ''`)
-  check('空输入点击有明确反馈（不再是静默失败）', /请先|输入/.test(emptyToast), emptyToast)
-  check('空输入不产生待办', (await js(`window.__fcTest.todos().length`)) === 0)
+  check('空内容保存有明确反馈（不再是静默失败）', /不能为空|请先|输入/.test(emptyToast), emptyToast)
+  check('空内容不产生待办', (await js(`window.__fcTest.todos().length`)) === 0)
+  await js(`(() => { const b = [...document.querySelectorAll('#todo-edit-modal button')].find(x => x.textContent.trim() === '取消'); if (b) b.click(); return !!b })()`)
+  await sleep(200)
 
-  // ── 3. 填内容点击「+ 添加」→ 真创建 ──────────────────────────────
+  // ── 3. 大框填内容保存 → 真创建（唯一入口）──────────────────────────
   await js(`window.__fcTest.reset()`)
-  await js(`(() => {
-    const i = document.querySelector('input.todo-input')
-    i.value = '渲染层测试待办'
-    i.dispatchEvent(new Event('input', { bubbles: true }))
-  })()`)
-  await js(CLICK_BY_TEXT('+ 添加'))
+  await addTodoViaModal('渲染层测试待办')
   const created = await waitFor(`window.__fcTest.todos().length === 1`, 5000, '待办落库')
-  check('点击「+ 添加」真的调到了 todosCreate', await js(`window.__fcTest.callCount('todosCreate') >= 1`))
+  check('点「＋ 新建待办」→ 保存真的调到了 todosCreate', await js(`window.__fcTest.callCount('todosCreate') >= 1`))
   check('待办已创建', created, JSON.stringify(await js(`window.__fcTest.todos()`)))
   const listRendered = await waitFor(`[...document.querySelectorAll('.todo-item .todo-title')].some(e => e.textContent.includes('渲染层测试待办'))`,
     5000, '列表回显')
   check('列表立即回显新待办', listRendered)
-  check('输入框已清空', await js(`document.querySelector('input.todo-input').value === ''`))
+  check('弹窗保存后自动关闭（不留悬空弹窗）',
+    await js(`!document.querySelector('#todo-edit-modal')`))
 
-  // ── 4. 回车键路径 ────────────────────────────────────────────────
-  await js(`(() => {
-    const i = document.querySelector('input.todo-input')
-    i.value = '回车创建的待办'
-    i.dispatchEvent(new Event('input', { bubbles: true }))
-    i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-  })()`)
-  const viaEnter = await waitFor(`window.__fcTest.todos().length === 2`, 5000, '回车创建')
-  check('回车同样能创建（两个入口一致）', viaEnter)
+  // ── 4. 回车不再直接创建（小框移除后，弹窗里的回车 = 换行）────────────
+  check('已无「回车即建」入口（回车路径随小框一起移除）',
+    await js(`!document.querySelector('input.todo-input')`))
 
-  // ── 5. 优先级语法 p0 ─────────────────────────────────────────────
-  await js(`(() => {
-    const i = document.querySelector('input.todo-input')
-    i.value = '带优先级的待办 p0'
-    i.dispatchEvent(new Event('input', { bubbles: true }))
-  })()`)
-  await js(CLICK_BY_TEXT('+ 添加'))
-  await waitFor(`window.__fcTest.todos().length === 3`, 5000, 'p0 创建')
+  // ── 5. 优先级走弹窗字段（替代 p0 尾缀语法）──────────────────────────
+  await addTodoViaModal('带优先级的待办', { prio: '高' })
+  await waitFor(`window.__fcTest.todos().length === 2`, 5000, '高优先级创建')
   const p0 = await js(`window.__fcTest.todos().find(t => t.title === '带优先级的待办')`)
-  check('p0 语法写入高优先级且标题去尾缀', !!p0 && p0.priority === '高', JSON.stringify(p0))
+  check('弹窗里选「高」写入高优先级', !!p0 && p0.priority === '高', JSON.stringify(p0))
 
   // ── 6. 待办项上的「📅 指派」入口（用户第 6 条）─────────────────
   check('待办项有指派时间按钮', await js(`!!document.querySelector('.todo-item .todo-assign')`))
@@ -215,6 +234,190 @@ async function main() {
     const hasAssign = await js(`[...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].some(b => b.textContent.includes('指派时间'))`)
     check('右键菜单含「指派时间」', hasAssign)
   }
+
+  // ── 7.2 弹药库「复制为派工单」（卡 031 六字段 schema）───────────────
+  //   六字段进模板文本、不进 JSON；纯文本拼接零智能；**只复制不派发**。
+  //   同一批断言在 e2e-renderer-web（无头浏览器）里跑得更细（六字段逐项/纪律段/三种状态标记）。
+  if (ctxOk) {
+    await js(`window.__fcTest.reset()`)
+    check('★ 右键菜单含「复制为派工单」（弹药库出口）',
+      await js(`[...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].some(b => b.textContent.includes('复制为派工单'))`))
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].find(x => x.textContent.includes('复制为派工单'))
+      if (b) b.click()
+      return !!b
+    })()`)
+    check('  点它走到主进程剪贴板通道',
+      await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText')`, 4000, 'clipboardWriteText'))
+    const disp = await js(`
+      (() => {
+        const cs = window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText')
+        return cs.length ? String(cs[cs.length - 1].args[0] || '') : ''
+      })()`)
+    check('★ 派工单六字段齐 + 约束卡/验收四条/驳回纪律都在',
+      ['## 1 任务目标', '## 2 工作目录 / 范围', '## 3 项目事实 / 放置位置', '## 4 抽象档位',
+       '## 5 验收判据', '## 6 驳回上限', '## 约束卡', '## 验收四条', '## 驳回纪律']
+        .every(h => String(disp).indexOf(h) >= 0),
+      String(disp).slice(0, 120))
+    const names = await js(`JSON.stringify(window.__fcTest.calls().map(c => c.name))`)
+    check('★ 零智能不派发：只写剪贴板，没碰任何执行/派发通道',
+      String(names).indexOf('clipboardWriteText') >= 0
+      && !/dispatch|execute|spawn|run|launch/i.test(String(names)), String(names))
+  }
+
+  // ── 7.5 看板密度方案 B（2026-09-28 用户挑定）────────────────────────
+  //   ① 列灰底 / 卡白底，列删掉 4px 左边色条   ② 卡级染色取消（左边条只留逾期）
+  //   ③ 紧凑单行卡（标题单行省略，正文/标签移进悬停轻提示）  ④ 完成/驳回列默认折叠
+  //   ⑤ 悬停补救：**只在标题真被截断时**出现、150ms 后弹、拖拽中不弹
+  const density = await js(`
+    (() => {
+      const rgb = (s) => (s.match(/\\d+/g) || []).map(Number)
+      const col = document.querySelector('#board .col')
+      const card = document.querySelector('#board .card')
+      if (!col || !card) return { err: '看板没渲染出来' }
+      const cs = getComputedStyle(col), ks = getComputedStyle(card)
+      const ttl = card.querySelector('.ttl')
+      const ts = ttl ? getComputedStyle(ttl) : null
+      return {
+        colRgb: rgb(cs.backgroundColor), cardRgb: rgb(ks.backgroundColor),
+        colBorderLeft: cs.borderLeftWidth, cardBorderLeft: ks.borderLeftWidth,
+        h: Math.round(card.getBoundingClientRect().height),
+        ttlWhiteSpace: ts && ts.whiteSpace, ttlOverflowX: ts && ts.overflowX,
+        hasPreview: !!card.querySelector('.card-preview'),
+        collapsed: [...document.querySelectorAll('#board .col.collapsed-col')].map(c => (c.querySelector('.status-label') || c.querySelector('h3')).textContent.trim()),
+        all: [...document.querySelectorAll('#board .col')].map(c => (c.querySelector('.status-label') || c.querySelector('h3')).textContent.trim()),
+      }
+    })()`)
+  check('★ 列底色与卡片色反转（列淡灰 243 · 卡纯白 255）',
+    !density.err && density.colRgb[0] < 250 && density.cardRgb.join(',') === '255,255,255',
+    JSON.stringify(density))
+  check('★ 列不再有 4px 左边色条（"竖条好几条"的主要来源，一次省 4 条）',
+    !density.err && parseFloat(density.colBorderLeft) <= 1, String(density.colBorderLeft))
+  check('★ 卡片不再整张染色（左边条只在逾期时出现）',
+    !density.err && parseFloat(density.cardBorderLeft) <= 1, String(density.cardBorderLeft))
+  check('★ 紧凑单行卡：卡高 ≤ 34px（改前约 48px，带正文预览时更高）',
+    !density.err && density.h <= 34, String(density.h))
+  check('★ 卡上不再有正文预览行（内容移进悬停轻提示，点开仍是详情面板）',
+    density.hasPreview === false, JSON.stringify(density))
+  check('★ 标题单行省略（nowrap + overflow hidden），不再换行撑高',
+    !density.err && density.ttlWhiteSpace === 'nowrap' && /hidden/.test(String(density.ttlOverflowX)),
+    JSON.stringify(density))
+  check('★ 完成 / 驳回列默认折叠（终态平时不用看 —— 同「已归档默认收起」一条哲学）',
+    !density.err && ['完成', '驳回'].every(l => density.collapsed.includes(l)),
+    JSON.stringify({ collapsed: density.collapsed, all: density.all }))
+  check('  非终态列照常展开（待办 / 进行中 / 待验收不被默认收起）',
+    !density.err && !density.collapsed.includes('待办') && !density.collapsed.includes('进行中')
+      && !density.collapsed.includes('待验收'),
+    JSON.stringify(density.collapsed))
+
+  // 卡右侧 meta：**日期与所属项目常驻可见**（2026-09-28 用户反馈「希望看见所属项目和日期」）
+  const cardMeta = await js(`
+    (() => {
+      const cards = [...document.querySelectorAll('#board .card')].filter(c => c.offsetParent !== null)
+      const bad = []
+      for (const c of cards) {
+        const d = c.querySelector('.card-date'), p = c.querySelector('.card-proj')
+        const title = (c.querySelector('.ttl') || {}).textContent || ''
+        if (!d || !d.textContent.trim() || d.offsetParent === null) bad.push('无日期:' + title)
+        if (!p || !p.textContent.trim() || p.offsetParent === null) bad.push('无项目:' + title)
+      }
+      return { total: cards.length, badCount: bad.length, bad: bad.slice(0, 4) }
+    })()`)
+  check('★ 板上每张可见卡都常驻显示「日期 + 所属项目」',
+    !cardMeta.err && cardMeta.total > 0 && cardMeta.badCount === 0, JSON.stringify(cardMeta))
+  const arrProj = await js(`
+    (() => {
+      const c = [...document.querySelectorAll('#board .card')]
+        .find(x => ((x.querySelector('.ttl') || {}).textContent || '').includes('数组项目的任务'))
+      if (!c) return { err: '没找到「数组项目的任务」那张卡' }
+      return { proj: (c.querySelector('.card-proj') || {}).textContent || '', raw: JSON.stringify((c.querySelector('.card-proj') || {}).title || '') }
+    })()`)
+  check('★ 「项目」是数组时也能显示成项目名（不过 normProject 就永远匹配不到 —— 用户报的「看不见项目」）',
+    !arrProj.err && arrProj.proj.trim() === '第二个项目', JSON.stringify(arrProj))
+  const duePref = await js(`
+    (() => {
+      const c = [...document.querySelectorAll('#board .card')]
+        .find(x => ((x.querySelector('.ttl') || {}).textContent || '').includes('演示任务') && !((x.querySelector('.ttl') || {}).textContent || '').includes('归档'))
+      if (!c) return { err: '没找到「演示任务」那张卡' }
+      const d = c.querySelector('.card-date')
+      return { text: d ? d.textContent.trim() : '', over: d ? d.classList.contains('over') : null }
+    })()`)
+  check('★ 有截止日就显示截止日（09-30，逾期才标红）',
+    !duePref.err && duePref.text.includes('09-30'), JSON.stringify(duePref))
+  const updFallback = await js(`
+    (() => {
+      const c = [...document.querySelectorAll('#board .card')]
+        .find(x => ((x.querySelector('.ttl') || {}).textContent || '').includes('数组项目的任务'))
+      if (!c) return { err: 'no card' }
+      const d = c.querySelector('.card-date')
+      return { text: d ? d.textContent.trim() : '', dim: d ? d.classList.contains('dim') : null }
+    })()`)
+  check('★ 没有截止日就退到「更新 MM-DD」（卡上永远看得见一个日期，且样式区分开）',
+    !updFallback.err && /更新/.test(updFallback.text) && updFallback.dim === true, JSON.stringify(updFallback))
+
+  // ⑤ 悬停轻提示：造两张确定的卡（一张超长会截断、一张很短不会），不靠数据碰运气
+  const tipPrep = await js(`
+    (() => {
+      // 只用**可见**的卡：默认折叠的完成/驳回列里也有 .card，但 rect 是 0×0
+      const cards = [...document.querySelectorAll('#board .card')].filter(c => c.offsetParent !== null)
+      if (cards.length < 2) return { err: '可见的看板卡少于 2 张：' + cards.length }
+      const LONG = '这是一条故意写得很长的标题用来触发省略号并且验证悬停提示确实补回了完整文字'
+      const set = (c, s, tag) => {
+        const t = c.querySelector('.ttl')
+        if (!t) return false
+        t.textContent = s
+        c.setAttribute('data-tip-test', tag)
+        return true
+      }
+      if (!set(cards[0], LONG, 'long') || !set(cards[1], '短标题', 'short')) return { err: '找不到 .ttl' }
+      return { long: LONG }
+    })()`)
+  check('（环境）造出「超长标题」与「短标题」两张卡', !tipPrep.err, JSON.stringify(tipPrep))
+
+  await js(`(() => { const c = document.querySelector('[data-tip-test="long"]'); if (c) c.dispatchEvent(new MouseEvent('mouseenter')) ; return true })()`)
+  await new Promise(r => setTimeout(r, 50))
+  check('★ 悬停不是「立刻弹出」：50ms 时还没有（延时 150ms，不是 0 也不是 1-2 秒）',
+    (await js(`!!document.querySelector('.card-tip')`)) === false)
+  await new Promise(r => setTimeout(r, 350))
+  const tipShown = await js(`
+    (() => {
+      const t = document.querySelector('.card-tip')
+      if (!t) return null
+      const cs = getComputedStyle(t)
+      return {
+        title: (t.querySelector('.card-tip-title') || {}).textContent || '',
+        position: cs.position, pointerEvents: cs.pointerEvents,
+      }
+    })()`)
+  check('★ 标题被截断的卡：悬停后弹出轻提示，且给的是完整标题（不是省略的那截）',
+    !!tipShown && tipShown.title === tipPrep.long, JSON.stringify(tipShown))
+  check('★ 轻提示 position:fixed + pointer-events:none（不进布局、不吃命中 —— 方寸铁律）',
+    !!tipShown && tipShown.position === 'fixed' && tipShown.pointerEvents === 'none', JSON.stringify(tipShown))
+
+  // 拖拽中不许弹（拖着卡划过一整列时浮层会一路闪）
+  const tipDrag = await js(`
+    (() => {
+      const long = document.querySelector('[data-tip-test="long"]')
+      if (!long) return { err: '没有长标题卡' }
+      try { long.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() })) } catch (e) { /* 合成 DataTransfer 的 setDragImage 可能抛，不影响 draggingId 已置位 */ }
+      long.dispatchEvent(new MouseEvent('mouseleave'))
+      long.dispatchEvent(new MouseEvent('mouseenter'))
+      return { ok: true }
+    })()`)
+  await new Promise(r => setTimeout(r, 400))
+  check('★ 拖拽中不弹悬停浮层（拖卡片时鼠标必划过一堆卡）',
+    tipDrag.err ? false : (await js(`!!document.querySelector('.card-tip')`)) === false,
+    JSON.stringify(tipDrag))
+  await js(`(() => { const c = document.querySelector('[data-tip-test="long"]'); if (c) { try { c.dispatchEvent(new DragEvent('dragend', { bubbles: true })) } catch (e) {} c.dispatchEvent(new MouseEvent('mouseleave')) } return true })()`)
+  await new Promise(r => setTimeout(r, 200))
+
+  // 短标题的卡不该弹任何东西（界面保持安静）
+  await js(`(() => { const c = document.querySelector('[data-tip-test="short"]'); if (c) c.dispatchEvent(new MouseEvent('mouseenter')) ; return true })()`)
+  await new Promise(r => setTimeout(r, 400))
+  check('★ 标题没被截断的卡：悬停不弹任何东西（只有真被省略号的才提示）',
+    (await js(`!!document.querySelector('.card-tip')`)) === false,
+    String(await js(`document.querySelector('.card-tip') ? '有浮层' : '无浮层'`)))
+  await js(`(() => { const c = document.querySelector('[data-tip-test="short"]'); if (c) c.dispatchEvent(new MouseEvent('mouseleave')) ; return true })()`)
 
   // ── 8. 日历页签可打开且不报错 ───────────────────────────────────
   await js(CLICK_BY_TEXT('日历'))
@@ -322,23 +525,44 @@ async function main() {
   check('再点一次能展开回来', foldRestored.collapsed === false && foldRestored.visible === foldBefore.visible,
     JSON.stringify({ before: foldBefore, restored: foldRestored }))
 
-  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '折叠全部'); if (b) b.click(); return true })()`)
+  // 2026-09-28 用户第 3 条：全折叠 / 全展开是**同一个按钮**的两种状态。
+  // 修前界面上并排放着「折叠全部」与「展开」两个按钮，永远有一个点了没反应。
+  const foldBtnCount = await js(`
+    (() => [...document.querySelectorAll('button')].filter(b => /折叠全部|展开全部/.test(b.textContent.trim())).length)()`)
+  check('★ 顶栏只有一个「折叠/展开全部」按钮（不再并排两个，其中一个必定无效）',
+    foldBtnCount === 1, String(foldBtnCount))
+  const foldBtnBefore = await js(`
+    (() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); return b ? b.textContent.trim() : null })()`)
+  check('  展开状态下按钮文案是「折叠全部」', String(foldBtnBefore).includes('折叠全部'), String(foldBtnBefore))
+
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   const allFold = await js(`
     (() => {
       const cols = [...document.querySelectorAll('#board .col')]
+      const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim()))
       return {
         collapsed: cols.filter(c => c.className.includes('collapsed-col')).length,
         total: cols.length,
         anyVisible: [...document.querySelectorAll('#board .card')].some(c => c.offsetParent !== null),
+        label: b ? b.textContent.trim() : null,
       }
     })()`)
-  check('「折叠全部」把所有分组折叠起来', allFold.collapsed === allFold.total && allFold.total > 1, JSON.stringify(allFold))
+  check('同一个按钮点一下把所有分组折叠起来', allFold.collapsed === allFold.total && allFold.total > 1, JSON.stringify(allFold))
   check('全折叠后没有卡片还露在外面', allFold.anyVisible === false, JSON.stringify(allFold))
-  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '展开'); if (b) b.click(); return true })()`)
+  check('★ 折叠后按钮自己变成「展开全部」（文案跟着状态走，不是一个死按钮）',
+    String(allFold.label).includes('展开全部'), String(allFold.label))
+
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
-  const afterExpand = await js(`([...document.querySelectorAll('#board .col')].filter(c => c.className.includes('collapsed-col')).length)`)
-  check('「展开」能一次全还原', afterExpand === 0, String(afterExpand))
+  const afterExpand = await js(`
+    (() => {
+      const n = [...document.querySelectorAll('#board .col')].filter(c => c.className.includes('collapsed-col')).length
+      const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim()))
+      return { n, label: b ? b.textContent.trim() : null }
+    })()`)
+  check('再点一次全还原（同一个按钮走完一个来回）', afterExpand.n === 0, JSON.stringify(afterExpand))
+  check('★ 展开后文案回到「折叠全部」', String(afterExpand.label).includes('折叠全部'), String(afterExpand.label))
 
   // 还原默认视图，别把状态留给下一次
   await js(`
@@ -454,18 +678,13 @@ async function main() {
 
   // ── 13. 待办编辑（第 12 条：模态大框；第 14 条：勾选之后也要能改）──────────
   // 注意：不改夹具默认值（前面几节的断言假设待办为空）。这里走**真实用户路径**现造一条：
-  // 输入框回车创建 → 勾选 → 它变成「已勾选」，正好是第 14 条的场景。
+  // 「＋ 新建待办」大框保存 → 勾选 → 它变成「已勾选」，正好是第 14 条的场景。
   await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 400))
-  const seeded = await js(`
-    (() => {
-      const inp = document.querySelector('.todo-input')
-      if (!inp) return { err: '没找到待办输入框' }
-      inp.value = '第14条_签下之后也要能编辑'
-      inp.dispatchEvent(new Event('input', { bubbles: true }))
-      inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-      return { typed: true }
-    })()`)
+  const seeded = await (async () => {
+    const ok = await addTodoViaModal('第14条_签下之后也要能编辑')
+    return ok ? { typed: true } : { err: '新建弹窗没打开' }
+  })()
   await new Promise(r => setTimeout(r, 500))
   // 勾上它（勾选 → 完成态）
   const toggled = await js(`
@@ -546,7 +765,7 @@ async function main() {
   const createOpen = await js(`
     (() => {
       const b = [...document.querySelectorAll('.todo-new')][0]
-      if (!b) return { err: '没找到「大框新建」按钮' }
+      if (!b) return { err: '没找到「＋ 新建待办」按钮' }
       b.click()
       return { clicked: true }
     })()`)
@@ -559,13 +778,13 @@ async function main() {
                taH: Math.round(el.querySelector('textarea').getBoundingClientRect().height),
                empty: !el.querySelector('textarea').value }
     })()`)
-  check('「大框新建」打开的是新建态（标题为「新建待办」、内容为空）',
+  check('「＋ 新建待办」打开的是新建态（标题为「新建待办」、内容为空）',
     createModal.exists === true && createModal.h3 === '新建待办' && createModal.empty === true,
     JSON.stringify(createOpen) + ' ' + JSON.stringify(createModal))
   await js(`
     (() => {
       const ta = document.querySelector('#todo-edit-modal textarea')
-      ta.value = '大框新建的待办'
+      ta.value = '弹窗新建的待办'
       ta.dispatchEvent(new Event('input', { bubbles: true }))
       const b = [...document.querySelectorAll('#todo-edit-modal button')].find(x => x.textContent.trim() === '保存')
       return true
@@ -582,10 +801,10 @@ async function main() {
     (() => {
       const cs = window.__fcTest.calls().filter(c => c.name === 'todosCreate')
       const list = window.__fcTest.todos().map(t => t.title)
-      return { n: cs.length, last: cs.length ? JSON.stringify(cs[cs.length-1].args) : null, inList: list.includes('大框新建的待办') }
+      return { n: cs.length, last: cs.length ? JSON.stringify(cs[cs.length-1].args) : null, inList: list.includes('弹窗新建的待办') }
     })()`)
-  check('大框新建真的调到了 todosCreate 且落到列表里',
-    createdViaModal.n >= 1 && /大框新建的待办/.test(String(createdViaModal.last)) && createdViaModal.inList === true,
+  check('「＋ 新建待办」真的调到了 todosCreate 且落到列表里',
+    createdViaModal.n >= 1 && /弹窗新建的待办/.test(String(createdViaModal.last)) && createdViaModal.inList === true,
     JSON.stringify(createdViaModal))
 
   // 第 13 条：日志/任务编辑框也要够大（原先 .tall 在 #log-edit-modal 下从未生效）
@@ -613,51 +832,51 @@ async function main() {
   await new Promise(r => setTimeout(r, 250))
 
   // ── 14. 归档日志独立分区（第 16 条后半句：批量归档后仍占主视图）──────────
-  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return true })()`)
-  await new Promise(r => setTimeout(r, 400))
-  const part = await js(`
-    (() => {
-      const sep = document.querySelector('.log-archive-sep')
-      const cards = [...document.querySelectorAll('.log-card')]
-      const arch = cards.find(c => (c.textContent || '').includes('归档的日志'))
-      return {
-        hasSep: !!sep,
-        sepText: sep ? sep.textContent.trim() : null,
-        total: cards.length,
-        visibleCount: cards.filter(c => getComputedStyle(c).display !== 'none').length,
-        archExists: !!arch,
-        archVisible: arch ? getComputedStyle(arch).display !== 'none' : null,
-        archIsLast: cards.length ? (cards[cards.length - 1].textContent || '').includes('归档的日志') : false,
-        toggleText: (document.querySelector('.log-archive-toggle') || {}).textContent,
-      }
-    })()`)
-  check('归档日志有独立分区头', part.hasSep === true, JSON.stringify(part))
-  check('分区头写明归档条数', /已归档 1 条/.test(String(part.sepText || part.toggleText)), String(part.toggleText))
-  check('默认收起：归档日志不占主视图', part.archExists === true && part.archVisible === false, JSON.stringify(part))
-  check('主区只显示未归档的 2 条', part.visibleCount === 2, String(part.visibleCount))
-  check('归档日志排在主区之后（不是混在中间）', part.archIsLast === true)
-  await js(`(() => { const b = document.querySelector('.log-archive-toggle'); if (b) b.click(); return true })()`)
+  //     2026-09-29 对齐 09-28 改版：旧断言点的 .log-archive-toggle 已不存在
+  //     （现为 .log-group-sep/.log-group-toggle + v-show 分组，卡片父级隐藏时
+  //     自身 computed display 仍非 none）——改用 getClientRects 判可见 + 状态归一化，
+  //     折叠/展开往返不依赖跨轮持久化的 localStorage 初始态（「默认收起」另由
+  //     e2e-renderer-web 的全新 profile 断言）。
+  const sec14 = () => js(`(() => {
+    const shown = (el) => !!el && el.getClientRects().length > 0
+    const sep = [...document.querySelectorAll('main.logs-view .log-group-sep')]
+      .find(s => (s.textContent || '').includes('已归档'))
+    const cards = [...document.querySelectorAll('.log-card')]
+    const arch = cards.find(c => (c.textContent || '').includes('归档的日志'))
+    return {
+      hasSep: !!sep,
+      sepText: sep ? sep.textContent.replace(/\\s+/g, ' ').trim() : null,
+      archExists: !!arch,
+      archVisible: shown(arch),
+      visibleCount: cards.filter(shown).length,
+      archIsLast: cards.length ? (cards[cards.length - 1].textContent || '').includes('归档的日志') : false,
+      hasToggle: !!document.querySelector('main.logs-view .g-archived .log-group-toggle'),
+    }
+  })()`)
+  const part = await sec14()
+  check('归档日志有独立分区头（.log-group-sep 而非旧 .log-archive-sep）',
+    part.hasSep === true, JSON.stringify(part))
+  check('分区头写明归档条数（glabel + gn）',
+    /已归档\s*1\b/.test(String(part.sepText || '')), String(part.sepText))
+  check('归档分区头有折叠开关（g-archived .log-group-toggle）', part.hasToggle === true, JSON.stringify(part))
+  check('归档日志排在主区之后（DOM 顺序，不管收没收起）', part.archIsLast === true, JSON.stringify(part))
+  // 归一化：初始态可能是用户/上一轮留下的 localStorage —— 先收到已知态（收起）再往返
+  if (part.archVisible) {
+    await js(`(() => { const b = document.querySelector('main.logs-view .g-archived .log-group-toggle'); if (b) b.click(); return true })()`)
+    await new Promise(r => setTimeout(r, 300))
+  }
+  const c1 = await sec14()
+  check('收起归档后主区只见未归档的 2 条（归档卡留在 DOM、不占视图）',
+    c1.archVisible === false && c1.visibleCount === 2, JSON.stringify(c1))
+  await js(`(() => { const b = document.querySelector('main.logs-view .g-archived .log-group-toggle'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 300))
-  const expanded = await js(`
-    (() => {
-      const arch = [...document.querySelectorAll('.log-card')].find(c => (c.textContent || '').includes('归档的日志'))
-      const cards = [...document.querySelectorAll('.log-card')]
-      return {
-        visible: arch ? getComputedStyle(arch).display !== 'none' : null,
-        visibleCount: cards.filter(c => getComputedStyle(c).display !== 'none').length,
-        toggleText: (document.querySelector('.log-archive-toggle') || {}).textContent,
-      }
-    })()`)
-  check('点分区头能展开归档日志', expanded.visible === true, JSON.stringify(expanded))
+  const expanded = await sec14()
+  check('点分区头能展开归档日志', expanded.archVisible === true, JSON.stringify(expanded))
   check('展开后主区 + 归档区共 3 条可见', expanded.visibleCount === 3, String(expanded.visibleCount))
-  await js(`(() => { const b = document.querySelector('.log-archive-toggle'); if (b) b.click(); return true })()`)
+  await js(`(() => { const b = document.querySelector('main.logs-view .g-archived .log-group-toggle'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 300))
-  const reCollapsed = await js(`
-    (() => {
-      const arch = [...document.querySelectorAll('.log-card')].find(c => (c.textContent || '').includes('归档的日志'))
-      return { visible: arch ? getComputedStyle(arch).display !== 'none' : null }
-    })()`)
-  check('再点一次能收回去', reCollapsed.visible === false, JSON.stringify(reCollapsed))
+  const reCollapsed = await sec14()
+  check('再点一次能收回去', reCollapsed.archVisible === false, JSON.stringify(reCollapsed))
 
   // ── 15. 导出备份（2026-09-26 用户第 1、2 条：一次点击、只落一个 zip）────────
   const gear = await js(`
@@ -697,6 +916,26 @@ async function main() {
     exportCall.n >= 1 && /fangcun-data-20260925-202020\.zip/.test(String(exportCall.last)), String(exportCall.last))
   check('★ 导出只传 package（不再带 includeTool 往外写 README/sidecar/恢复脚本）',
     exportCall.n >= 1 && !/includeTool/.test(String(exportCall.last)), String(exportCall.last))
+
+  // 2026-09-28 卡 026-001（验收驳回原话：「依然不能手动点来选中备份，回收站都能点了，备份不能点，无语」）
+  //   修前 `.bk-item` 是没有 @click 的死 div，行上只有「恢复」按钮 —— 点行毫无反应。
+  await js(`window.__fcTest.reset()`)
+  const rowClick = await js(`
+    (() => {
+      const row = document.querySelector('.bk-item')
+      if (!row) return { err: '没有备份行' }
+      row.click()
+      return { name: (row.querySelector('.bk-item-name') || {}).textContent || '' }
+    })()`)
+  check('★ 点备份行会去校验**这一份**（把它的路径直接交给主进程，不再走文件选择器）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'backupVerifyPackage' && String(c.args[0] || '').includes('.zip'))`, 5000, 'backupVerifyPackage'),
+    JSON.stringify(rowClick) + ' ' + String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'backupVerifyPackage'))`)))
+  check('★ 校验结果就地展开（manifest 摘要 + 文件数），用户能看到这一份里有什么',
+    await waitFor(`(() => { const v = document.querySelector('.bk-verify'); return !!v && /个文件/.test(v.textContent) })()`, 5000, '校验结果面板'),
+    String(await js(`(() => { const v = document.querySelector('.bk-verify'); return v ? v.textContent.slice(0, 80) : 'none' })()`)))
+  check('★ 被点开的那一行有明确标记（不是"点了好像没反应"）',
+    await js(`(() => { const r = document.querySelector('.bk-item.on'); return !!r && !!r.querySelector('.bk-inspecting') })()`),
+    String(await js(`document.querySelector('.bk-item.on') ? document.querySelector('.bk-item.on').textContent.slice(0, 40) : 'none'`)))
   await js(`(() => { const el = document.querySelector('#soverlay'); if (el) el.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
 
@@ -711,6 +950,8 @@ async function main() {
       return {
         barText: bar ? bar.textContent.replace(/\\s+/g, ' ').trim() : null,
         hasFillBtn: !!bar && [...bar.querySelectorAll('button')].some(b => b.textContent.includes('补齐')),
+        mapBtn: bar ? (bar.querySelector('.cb-map-btn') || {}).textContent : null,
+        mapBtnTag: bar && bar.querySelector('.cb-map-btn') ? bar.querySelector('.cb-map-btn').tagName : null,
         cardBtns: btns,
         tiles: tiles.length,
       }
@@ -718,9 +959,12 @@ async function main() {
   check('项目页有「项目章程」缺口条', !!charter.barText, JSON.stringify(charter))
   check('缺口条统计正确（已填 1 / 共 2，缺失 1）',
     /已填 1 \/ 2/.test(String(charter.barText)) && /缺失 1/.test(String(charter.barText)), String(charter.barText))
-  // 029：结构地图缺口也要一眼可见（demo 有方针但没结构地图节 → 计数 1）
-  check('★ 缺口条显示「结构地图待填」（029）',
-    /结构地图待填 1/.test(String(charter.barText)), String(charter.barText))
+  // 029 验收驳回原话「找不到在哪里」：结构地图此前只是**不可点的计数 span**，且没缺口时干脆不渲染。
+  // 现在必须是**常驻的按钮**（没缺口时也在），点开有内容。
+  check('★ 缺口条有「结构地图」入口，而且是可点的 button（029 驳回原因就是找不到它）',
+    charter.mapBtnTag === 'BUTTON' && /结构地图/.test(String(charter.mapBtn)), JSON.stringify(charter))
+  check('★ 缺口数显示在这个入口上（还有 1 张方针卡没有结构地图）',
+    /待填 1/.test(String(charter.mapBtn)), String(charter.mapBtn))
   check('有方针的项目卡片显示「查看/编辑」', charter.cardBtns.some(t => t.includes('查看/编辑')), JSON.stringify(charter.cardBtns))
   check('缺方针的项目卡片显示「立项目方针」', charter.cardBtns.some(t => t.includes('立项目方针')), JSON.stringify(charter.cardBtns))
   check('缺口条出现「补齐骨架」按钮', charter.hasFillBtn === true, JSON.stringify(charter))
@@ -740,6 +984,326 @@ async function main() {
   check('「补齐骨架」只为缺失的项目建文件（demo2，不动已有的 demo）',
     fillCall.n === 1 && /demo2/.test(String(fillCall.args[0])) && !/policySave.*"demo"/.test(String(fillCall.args.join(' '))),
     JSON.stringify(fillCall))
+
+  // ── 16.5 结构地图入口（卡 029，验收驳回原话「找不到在哪里」）──────────────
+  //   修前：结构地图只存在于方针卡文件里，界面上唯一相关的是一个**不可点的计数 span**，
+  //   而且没有缺口时它还不渲染 —— 用户当然找不到。现在：常驻按钮 + 可点开的一览 + 能看能改。
+  await js(`(() => { window.confirm = () => true; return true })()`)
+  await js(`(() => { const b = document.querySelector('.cb-map-btn'); if (b) b.click(); return !!b })()`)
+  check('★ 点「结构地图」打开一览（不再是个点了没反应的计数）',
+    await waitFor(`!!document.querySelector('#smap-modal')`, 5000, '结构地图一览'))
+  const smap = await js(`
+    (() => {
+      const items = [...document.querySelectorAll('#smap-modal .smap-item')]
+      return items.map(i => ({
+        name: (i.querySelector('.smap-name') || {}).textContent || '',
+        meta: (i.querySelector('.smap-meta') || {}).textContent || '',
+        btn: (i.querySelector('.smap-open') || {}).textContent || '',
+        cls: i.className,
+      }))
+    })()`)
+  check('一览列出全部登记项目（2 个）', smap.length === 2, JSON.stringify(smap))
+  check('★ 没结构地图的项目说清状态（不是空白）',
+    smap.some(r => r.name.includes('演示项目') && /没有结构地图/.test(r.meta)),
+    JSON.stringify(smap))
+  check('★ 连方针卡都没有的项目也如实说', smap.some(r => /连方针卡都还没立/.test(r.meta)), JSON.stringify(smap))
+  check('缺的排在前面（要动的先看到）', String(smap[0].cls).includes('missing') || String(smap[0].cls).includes('nopolicy'),
+    JSON.stringify(smap.map(r => r.cls)))
+
+  // 从一览进方针卡：结构地图要能看能改（此前界面上**根本没有这个字段**）
+  await js(`(() => { const b = [...document.querySelectorAll('#smap-modal .smap-open')][0]; if (b) b.click(); return !!b })()`)
+  check('★ 一览里点一下就能进方针卡编辑',
+    await waitFor(`!!document.querySelector('#policy-modal')`, 5000, '方针卡弹窗'))
+  check('★ 方针卡里有「结构地图」小节（此前只读得到、界面看不见）',
+    await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return !!t })()`))
+  await js(`(() => { const b = [...document.querySelectorAll('#policy-modal button')].find(x => x.textContent.includes('标记今天已核实')); if (b) b.click(); return !!b })()`)
+  await new Promise(r => setTimeout(r, 200))
+  const today = new Date()
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  check('★ 「标记今天已核实」把最后核实日期改成今天（029 的日期戳纪律）',
+    await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return !!t && t.value.includes('${iso}') })()`),
+    String(await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return t ? t.value.slice(0, 60) : 'none' })()`)))
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => { const b = [...document.querySelectorAll('#policy-modal button')].find(x => x.textContent.includes('保存方针卡')); if (b) b.click(); return !!b })()`)
+  check('★ 保存时把结构地图一起发出去（不发 = 界面里改的会丢）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'policySave' && /最后核实/.test(JSON.stringify(c.args)))`, 5000, 'policySave 带 structureMap'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'policySave').map(c => String(JSON.stringify(c.args)).slice(0, 120)))`)))
+
+  // 已经填好的卡：一览要显示「最后核实」日期（029 的日期戳就是给人看的）
+  await js(`window.__fcTest.setPolicies({
+    demo: { mission: '使命内容', goal: '', scenario: '', boundary: '',
+      structureMap: '> 最后核实：2026-09-27（当日实测）\\n- 模块清单：渲染层 / 主进程\\n- 主数据流：task-data → loadAllTasksRaw → 看板' },
+  })`)
+  await js(`(() => { const b = document.querySelector('.cb-map-btn'); if (b) b.click(); return !!b })()`)
+  await waitFor(`!!document.querySelector('#smap-modal')`, 5000, '一览再开')
+  const smap2 = await js(`
+    (() => {
+      const i = [...document.querySelectorAll('#smap-modal .smap-item')].find(x => (x.querySelector('.smap-name') || {}).textContent.includes('演示项目'))
+      return i ? { meta: (i.querySelector('.smap-meta') || {}).textContent || '', btn: (i.querySelector('.smap-open') || {}).textContent || '', cls: i.className } : null
+    })()`)
+  check('★ 填好的卡在一览里显示「最后核实 · 2026-09-27」',
+    !!smap2 && /最后核实 · 2026-09-27/.test(String(smap2.meta)), JSON.stringify(smap2))
+  check('★ 缺口清掉后按钮上的计数变成「n/n」（入口仍在，不会消失）',
+    await js(`(() => { const t = (document.querySelector('.cb-map-btn') || {}).textContent || ''; return /1\\/1/.test(t) })()`),
+    String(await js(`(document.querySelector('.cb-map-btn') || {}).textContent`)))
+  await js(`(() => { const b = [...document.querySelectorAll('#smap-modal button')].find(x => x.textContent.trim() === '关闭'); if (b) b.click(); return !!b })()`)
+  await new Promise(r => setTimeout(r, 200))
+
+  // ── 16.6 多视图切换（2026-09-28 用户第 ① 条后半句 + 卡 033 验收驳回）────────
+  //   用户原话：「尝试多种视图可选（用户自己切换，旧的视图可以保留）」
+  //   033 驳回原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+  //   这里钉三件事，缺一条这个功能就是假的：
+  //     ① **旧视图永远是默认**（列视图 / 清单）—— 新视图是"换个摆法"，不是替换；
+  //     ② 两种摆法**互斥**（同时挂两份 DOM 会让勾选、计数、键盘焦点全部翻倍）；
+  //     ③ 选择进**真身 prefs.json**（与分组方式同一套，换 origin 不丢）。
+  //   另加"换个摆法没丢功能"：点开详情、拖拽改状态，在列表视图里必须照样成立。
+  await js(CLICK_BY_TEXT('看板'))
+  await sleep(350)
+
+  const sw = await js(`
+    (() => {
+      const head = document.querySelector('.pagehead')
+      if (!head) return { ok: false }
+      return {
+        ok: true,
+        btns: [...head.querySelectorAll('button.vsb')].map(b => ({ t: (b.textContent || '').trim(), on: b.classList.contains('on') })),
+        hint: (head.querySelector('.pagehead-hint') || {}).textContent || '',
+      }
+    })()`)
+  check('★ 看板页头有视图切换器（列视图 / 列表视图），而且是真 button',
+    sw.ok && sw.btns.length === 2
+    && sw.btns.some(b => b.t.includes('列视图')) && sw.btns.some(b => b.t.includes('列表视图')),
+    JSON.stringify(sw))
+  check('★ 默认仍是**旧视图**（列视图高亮、列表视图未选）—— 用户要的是"可以保留"，不是被换掉',
+    sw.ok && sw.btns.some(b => b.t.includes('列视图') && b.on) && !sw.btns.some(b => b.t.includes('列表视图') && b.on),
+    JSON.stringify(sw.btns))
+  check('  切换器旁有说明（不必先点一遍才知道两个摆法差在哪）',
+    sw.ok && String(sw.hint).length > 6, String(sw.hint))
+
+  const colState = await js(`({
+    cols: document.querySelectorAll('#board .col').length,
+    cards: document.querySelectorAll('#board .col > .card').length,
+    list: document.querySelectorAll('#board .board-list').length,
+  })`)
+  check('  默认渲染的是列视图（有 .col 与卡片，没有 .board-list）',
+    colState.cols > 0 && colState.cards > 0 && colState.list === 0, JSON.stringify(colState))
+
+  check('★ 能点到「列表视图」', await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('列表视图'))
+      if (!b) return false
+      b.click(); return true
+    })()`))
+  check('★ 列表视图真的渲染出来（.board-list + 状态分区）',
+    await waitFor(`document.querySelectorAll('#board .board-list .blgrp').length > 0`, 5000, '列表视图分区'))
+
+  const listState = await js(`
+    (() => ({
+      rows: document.querySelectorAll('#board .board-list .brow').length,
+      cols: document.querySelectorAll('#board .col').length,
+      cards: document.querySelectorAll('#board .card').length,
+      pills: [...document.querySelectorAll('#board .board-list .lpill')].map(p => ({
+        label: (p.querySelector('.glabel') || {}).textContent || '',
+        n: (p.querySelector('.gn') || {}).textContent || '',
+      })),
+    }))()`)
+  check('★ 两种摆法互斥：列表视图里不再挂着列视图那份 DOM（否则勾选/计数/焦点全会翻倍）',
+    listState.cols === 0 && listState.cards === 0, JSON.stringify(listState))
+  check('★ 摆的是同一批任务（行数 = 卡数，不重不漏）',
+    listState.rows === colState.cards && colState.cards > 0,
+    `rows=${listState.rows} cards=${colState.cards}`)
+  check('  分区头 = 状态名 + 条数（与列头同源，不是另算一份）',
+    listState.pills.length === colState.cols
+    && listState.pills.every(p => p.label && /^\d+$/.test(p.n)),
+    JSON.stringify(listState.pills))
+
+  // 折叠状态共用：在列表视图里折叠一个分区 → 该分区的行全部隐藏，展开回来还在。
+  // ⚠ 目标分区**按数据挑**（第一个"展开着且有条目"的），不写死名字 ——
+  //   前面的用例已经挪过任务、也切过分组方式，写死「待办」是给自己埋雷。
+  const FOLD_TARGET = `
+    (() => {
+      const vis = (g) => [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length
+      return [...document.querySelectorAll('#board .board-list .blgrp')].find(g => vis(g) > 0) || null
+    })()`
+  const mvFold = await js(`
+    (() => {
+      const g = ${FOLD_TARGET}
+      if (!g) return null
+      const label = (g.querySelector('.glabel') || {}).textContent || ''
+      const vis = () => [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length
+      const before = vis()
+      g.querySelector('.lpill').click()
+      return { label, before, total: g.querySelectorAll('.brow').length }
+    })()`)
+  await sleep(300)
+  const mvFoldAfter = await js(`
+    (() => {
+      const g = ${FOLD_TARGET}
+      if (!g) return { vis: -1, label: '(全折叠了)' }
+      return { vis: [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length, label: (g.querySelector('.glabel') || {}).textContent || '' }
+    })()`)
+  check('★ 分区头可折叠（复用列视图那套折叠机制，不是列表视图重做一遍）',
+    !!mvFold && mvFold.before > 0 && mvFoldAfter.vis === 0,
+    JSON.stringify(mvFold) + ' → ' + JSON.stringify(mvFoldAfter))
+  // 展开回来（用折叠时记下的分区名，同样不写死）
+  const mvFoldLabel = mvFold ? mvFold.label : ''
+  const mvPickGroup = `[...document.querySelectorAll('#board .board-list .blgrp')].find(x => (x.querySelector('.glabel') || {}).textContent === ${JSON.stringify(mvFoldLabel)})`
+  await js(`
+    (() => {
+      const g = ${mvPickGroup}
+      if (g) g.querySelector('.lpill').click()
+      return !!g
+    })()`)
+  await sleep(300)
+  check('  再点能展开回来（折叠不是单向的）',
+    await js(`
+      (() => {
+        const g = ${mvPickGroup}
+        return !!g && [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length > 0
+      })()`),
+    String(await js(`JSON.stringify([...document.querySelectorAll('#board .board-list .blgrp')].map(g => ((g.querySelector('.glabel') || {}).textContent || '') + ':' + [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length))`)))
+
+  // 换个摆法不能丢功能：点开详情
+  await js(`(() => { const r = document.querySelector('#board .board-list .brow'); if (r) r.click(); return !!r })()`)
+  check('★ 列表视图里点一行照样打开详情（不是"只有列视图能点"）',
+    await waitFor(`!!document.querySelector('#roverlay')`, 5000, '详情浮层'))
+  await js(`(() => { const o = document.querySelector('#roverlay'); if (o) o.click(); return true })()`)
+  await sleep(250)
+
+  // 换个摆法不能丢功能：拖到别的分区 = 改状态
+  const dropInfo = await js(`
+    (() => {
+      const row = document.querySelector('#board .board-list .brow')
+      if (!row) return { ok: false }
+      const from = row.closest('.blgrp')
+      const target = [...document.querySelectorAll('#board .board-list .blgrp')].find(g => g !== from)
+      if (!target) return { ok: false }
+      const dt = new DataTransfer()
+      row.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }))
+      target.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
+      target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+      return { ok: true, id: row.dataset.id, to: (target.querySelector('.glabel') || {}).textContent || '' }
+    })()`)
+  await sleep(300)
+  check('★ 列表视图里拖一行到别的分区 = 改状态（拖拽没在换摆法时丢掉）',
+    dropInfo.ok && await waitFor(`window.__fcTest.calls().some(c => c.name === 'moveStatus')`, 5000, 'moveStatus'),
+    JSON.stringify(dropInfo) + ' | ' + String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'moveStatus').map(c => c.args))`)))
+
+  // 选择进真身 prefs.json
+  check('★ 视图选择写进真身 prefs.json（换 origin 不丢，与分组方式同一套机制）',
+    await waitFor(`window.__fcTest.prefs().fc_board_view === 'list'`, 4000, 'prefs.fc_board_view'),
+    String(await js(`JSON.stringify(window.__fcTest.prefs())`)))
+  check('  localStorage 只当读缓存，两边取值一致',
+    await js(`localStorage.getItem('fc_board_view') === '"list"'`),
+    String(await js(`localStorage.getItem('fc_board_view')`)))
+
+  // ── 待办页签：清单（默认）/ 卡片网格（033 点名的「方块卡片式」）──
+  await js(CLICK_BY_TEXT('待办'))
+  await sleep(350)
+  const tsw = await js(`
+    (() => {
+      const head = document.querySelector('.pagehead')
+      if (!head) return { ok: false }
+      return {
+        ok: true,
+        btns: [...head.querySelectorAll('button.vsb')].map(b => ({ t: (b.textContent || '').trim(), on: b.classList.contains('on') })),
+        grid: !!document.querySelector('main.todos-view .todos-list.as-grid'),
+        items: document.querySelectorAll('main.todos-view .todo-item').length,
+      }
+    })()`)
+  check('★ 待办页头也有切换器（清单 / 卡片网格）',
+    tsw.ok && tsw.btns.some(b => b.t.includes('清单')) && tsw.btns.some(b => b.t.includes('卡片网格')),
+    JSON.stringify(tsw))
+  check('★ 待办默认仍是清单（旧视图），且初始不是网格',
+    tsw.ok && tsw.btns.some(b => b.t.includes('清单') && b.on) && tsw.grid === false, JSON.stringify(tsw))
+  check('  待办页切换器是**另一套**选项（不是把看板那套原样搬过来）',
+    await js(`(() => { const h = document.querySelector('.pagehead'); return !!h && !/列视图/.test(h.textContent) })()`))
+
+  check('★ 能点到「卡片网格」', await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('卡片网格'))
+      if (!b) return false
+      b.click(); return true
+    })()`))
+  check('★ 卡片网格真的渲染出来（033 要的「方块卡片式」）',
+    await waitFor(`!!document.querySelector('main.todos-view .todos-list.as-grid')`, 5000, 'as-grid'))
+  const cardLayout = await js(`
+    (() => {
+      const it = document.querySelector('main.todos-view .todos-list.as-grid .todo-item')
+      if (!it) return { err: '没有卡片' }
+      const chk = it.querySelector('.todo-chk')
+      const ttl = it.querySelector('.todo-title')
+      const pri = it.querySelector('.todo-prio')
+      const cs = getComputedStyle(ttl)
+      const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height } }
+      return {
+        display: getComputedStyle(it).display,
+        clamp: cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp'),
+        whiteSpace: cs.whiteSpace,
+        box: getComputedStyle(ttl).display,
+        chk: r(chk), ttl: r(ttl), pri: pri ? r(pri) : null,
+        card: r(it),
+        cells: getComputedStyle(document.querySelector('main.todos-view .todos-list')).gridTemplateColumns,
+      }
+    })()`)
+  check('  卡片是网格排布 + 方块（auto-fill 多列，不是又一行清单）',
+    !cardLayout.err && String(cardLayout.display).includes('flex')
+    && String(cardLayout.cells).split(' ').length >= 2, JSON.stringify(cardLayout))
+  check('★ 标题**独占一行且最多 3 行不截断**（-webkit-line-clamp:3，不是 nowrap 省略号）',
+    !cardLayout.err && String(cardLayout.clamp) === '3' && cardLayout.whiteSpace !== 'nowrap'
+    && cardLayout.ttl.y > cardLayout.chk.y && cardLayout.ttl.w > cardLayout.card.w * 0.7,
+    JSON.stringify({ clamp: cardLayout.clamp, ws: cardLayout.whiteSpace, ttl: cardLayout.ttl, chk: cardLayout.chk }))
+  check('  优先级在卡片第一行右端（"扫一眼卡片墙"要比较的那个字段）',
+    !cardLayout.err && !!cardLayout.pri
+    && Math.abs(cardLayout.pri.y - cardLayout.chk.y) < 8
+    && cardLayout.pri.x > cardLayout.card.x + cardLayout.card.w / 2,
+    JSON.stringify({ pri: cardLayout.pri, chk: cardLayout.chk, card: cardLayout.card }))
+
+  // 网格里功能不丢：点标题进编辑
+  await js(`(() => { const t = document.querySelector('main.todos-view .todos-list.as-grid .todo-title'); if (t) t.click(); return !!t })()`)
+  check('★ 网格里点标题进编辑（操作按钮不在卡面上 ≠ 不能改）',
+    await waitFor(`!!document.querySelector('#todo-edit-modal')`, 5000, '待办编辑弹窗'))
+  await js(`(() => { const b = [...document.querySelectorAll('#todo-edit-modal button')].find(x => x.textContent.trim() === '取消'); if (b) b.click(); return !!b })()`)
+  await sleep(250)
+
+  // 网格里勾选照样生效
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => {
+    const c = document.querySelector('main.todos-view .todos-list.as-grid .todo-item .todo-chk')
+    if (!c) return false
+    c.click(); return true
+  })()`)
+  check('★ 网格里勾选照样写回后端（勾选是复用的同一个 input，不是另做一套）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'todosUpdate' || c.name === 'todosToggle')`, 5000, 'todosUpdate'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().map(c => c.name))`)))
+  check('★ 待办视图选择也进真身 prefs.json',
+    await waitFor(`window.__fcTest.prefs().fc_todo_view === 'grid'`, 4000, 'prefs.fc_todo_view'),
+    String(await js(`JSON.stringify(window.__fcTest.prefs())`)))
+
+  // 收尾：把两个页签都还原成默认摆法 ——
+  // 后面的 12 页签静态审计（盖字 / 对比度）是按"默认摆法"建立的基线，
+  // 换摆法会让它去审一套没人常规使用、也还没人眼过过的排版。新摆法的排版另有上面这批几何断言兜。
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('清单'))
+      if (b) b.click()
+      return !!b
+    })()`)
+  await sleep(250)
+  await js(CLICK_BY_TEXT('看板'))
+  await sleep(300)
+  await js(`
+    (() => {
+      const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('列视图'))
+      if (b) b.click()
+      return !!b
+    })()`)
+  await sleep(300)
+  check('  切回默认摆法后列视图恢复（选择可逆，不是单向开关）',
+    await js(`document.querySelectorAll('#board .col').length > 0 && document.querySelectorAll('#board .board-list').length === 0`))
+  check('  切回后真身也同步回默认值（不是只改了界面）',
+    await waitFor(`window.__fcTest.prefs().fc_board_view === 'cols'`, 4000, 'prefs 回 cols'),
+    String(await js(`JSON.stringify(window.__fcTest.prefs())`)))
 
   // ── 16. 回收站页签（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）──
   //     真点：页签 → 列表 → 「还原」→ 「彻底删除」，并核对传出去的参数是**文件名**。
@@ -1053,14 +1617,7 @@ async function main() {
 
   // 18b. 三档优先级徽章（原来只有"高"有徽章，中/低看不出来）
   for (const [suffix, label] of [['p0', '高'], ['p1', '中'], ['p2', '低']]) {
-    await js(`(() => {
-      const i = document.querySelector('input.todo-input')
-      i.value = '优先级徽章 ${label} ${suffix}'
-      i.dispatchEvent(new Event('input', { bubbles: true }))
-      return true
-    })()`)
-    await js(CLICK_BY_TEXT('+ 添加'))
-    await sleep(200)
+    await addTodoViaModal(`优先级徽章 ${label}`, { prio: label })
   }
   check('★ 三档优先级都有徽章（高/中/低）',
     await js(`!!document.querySelector('.todo-prio.prio-high') &&
@@ -1071,8 +1628,8 @@ async function main() {
     await js(`[...document.querySelectorAll('.todo-prio')].some(e => e.textContent.trim() === '低')`))
 
   // 18c. 逾期标注：造一条 2020 年到期的未完成待办
-  await js(CLICK_BY_TEXT('大框新建'))
-  check('★ 「大框新建」打开弹窗', await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))
+  await js(CLICK_BY_TEXT('＋ 新建待办'))
+  check('★ 「＋ 新建待办」打开弹窗', await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))
   await js(`(() => {
     const m = document.querySelector('#todo-edit-modal')
     const ta = m.querySelector('textarea')
@@ -1135,7 +1692,7 @@ async function main() {
     String(await js(`document.querySelectorAll('.todo-item').length`)))
 
   // 18f. Esc 关弹窗（此前 Esc 只关通知面板，任何弹窗都关不掉）
-  await js(CLICK_BY_TEXT('大框新建'))
+  await js(CLICK_BY_TEXT('＋ 新建待办'))
   await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '弹窗再开')
   await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
   check('★ Esc 能关掉待办弹窗',
@@ -1247,7 +1804,7 @@ async function main() {
   //   任何「发给 AI / 智能总结」永不进菜单。
   await js(`(() => { window.confirm = () => true; return true })()`)
   await js(`window.__fcTest.setLogs([
-    { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', project: 'demo', created: '2026-09-24T00:00:00.000Z' },
+    { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', running: true, project: 'demo', created: '2026-09-24T00:00:00.000Z' },
     { id: 'log-demo-2', title: '已完成的日志', content: '内容B', status: 'completed', project: 'demo', created: '2026-09-23T00:00:00.000Z' },
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ])`)
@@ -1271,14 +1828,19 @@ async function main() {
   check('★ 「复制带元信息」走主进程剪贴板，内容自动带 [日期] [项目]（粘进开发日志不用补头）',
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText' && c.args[0].includes('[2026-09-24]') && c.args[0].includes('[demo]'))`, 5000, '带元信息复制'),
     String(await js(`JSON.stringify((window.__fcTest.calls().find(c => c.name === 'clipboardWriteText') || {}).args || [])`)))
-  // 复制并标记已派：复制 + 把不在进行中的那条打回进行中（复用既有语义，不新增状态）
+  // 复制并标记已派：复制 + 把这条手动标成「进行中」
+  // 2026-09-28：走的是新通道 logsSetRunning，**不再是 logsReopen** ——
+  // 撤销（reopen）现在只回到「待处理」，拿它当"已派"会把状态标反。
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('已完成的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 160 })); return !!c })()`)
   await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第二条菜单')
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('复制并标记已派')); if (b) b.click(); return !!b })()`)
-  check('★ 「复制并标记已派」= 复制 + 打回进行中（两步并一步）',
-    await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1 && window.__fcTest.callCount('logsReopen') >= 1`, 5000, '复制+已派'),
-    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => ['clipboardWriteText', 'logsReopen'].includes(c.name)))`)))
+  check('★ 「复制并标记已派」= 复制 + 手动标为「进行中」（两步并一步）',
+    await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1 && window.__fcTest.callCount('logsSetRunning') >= 1`, 5000, '复制+已派'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => ['clipboardWriteText', 'logsSetRunning', 'logsReopen'].includes(c.name)))`)))
+  check('★ 「已派」走 setRunning(true)，不得误用 logsReopen（那只是撤销到待处理）',
+    await js(`(() => { const c = window.__fcTest.calls().find(x => x.name === 'logsSetRunning'); return !!c && c.args[1] === true })()`),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetRunning'))`)))
   // 置顶：写数据 + 列表置顶 + 视觉标记
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('归档的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 180 })); return !!c })()`)
@@ -1302,18 +1864,99 @@ async function main() {
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetProject' && c.args[1] === 'demo')`, 5000, 'logsSetProject'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetProject'))`)))
 
+  // ── 23.5 日志状态模型 + 分区（2026-09-28 用户第 2/5 条）────────────────
+  //   用户口径：① 「进行中」只能手动打上、可撤销、且**不是完成/归档的前置条件**；
+  //             ② 那堆筛选"除了把信息搞得支离破碎以外没什么作用" → 状态改用**分区**表达。
+  await js(`window.__fcTest.setLogs([
+    { id: 'lg-run', title: '正在跑的', content: 'A', status: 'active', running: true, project: 'demo', created: '2026-09-24T00:00:00.000Z' },
+    { id: 'lg-todo', title: '还没跑的', content: 'B', status: 'active', project: 'demo', created: '2026-09-23T00:00:00.000Z' },
+    { id: 'lg-done', title: '跑完了的', content: 'C', status: 'completed', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
+  ])`)
+  // ⚠ 换数据后必须**离开再回到日志页**：日志列表只在 `watch(curView)` 里 loadLogs()（+5s 轮询），
+  //   原地 setLogs 会读到旧 DOM，断言就变成在测上一批假数据。
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return !!b })()`)
+  await sleep(200)
+  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
+  check('（环境）日志页渲染出这 3 条', await waitFor(
+    `[...document.querySelectorAll('main.logs-view .log-card-title')].some(t => t.textContent.includes('正在跑的'))`, 6000, '新日志数据'),
+    String(await js(`JSON.stringify([...document.querySelectorAll('main.logs-view .log-card-title')].map(t => t.textContent))`)))
+
+  const lgGroups = await js(`
+    (() => ({
+      labels: [...document.querySelectorAll('main.logs-view .log-group-toggle')].map(b => b.textContent.replace(/\\s+/g, ' ').trim()),
+      hasStatusSelect: !![...document.querySelectorAll('main.logs-view select')].some(s => [...s.options].some(o => o.textContent.includes('全部状态'))),
+      badges: [...document.querySelectorAll('main.logs-view .log-card')].map(c => {
+        const b = c.querySelector('.log-status-badge')
+        const t = c.querySelector('.log-card-title')
+        return (b ? b.textContent.trim() : '?') + ':' + (t ? t.textContent.trim() : '?')
+      }),
+    }))()`)
+  check('★ 日志页按状态分区（进行中 / 待处理 / 已完成…）',
+    Array.isArray(lgGroups.labels) && lgGroups.labels.some(l => l.includes('进行中')) && lgGroups.labels.some(l => l.includes('待处理')),
+    JSON.stringify(lgGroups.labels))
+  check('★ 分区头带计数（不必点进去数）', lgGroups.labels.length > 0 && lgGroups.labels.every(l => /\d/.test(l)),
+    JSON.stringify(lgGroups.labels))
+  check('★ 「进行中」分区排最前（谁在跑 = 最该先看到）',
+    lgGroups.labels.length > 0 && lgGroups.labels[0].includes('进行中'), JSON.stringify(lgGroups.labels))
+  check('★ 状态筛选下拉已删除（状态由分区表达，不再用单值下拉把画面切碎）',
+    lgGroups.hasStatusSelect === false, JSON.stringify(lgGroups))
+  check('★ 手动标了 running 的显示「进行中」，没标的显示「待处理」（不再一创建就是进行中）',
+    lgGroups.badges.some(b => b.startsWith('进行中:') && b.includes('正在跑的')) &&
+    lgGroups.badges.some(b => b.startsWith('待处理:') && b.includes('还没跑的')),
+    JSON.stringify(lgGroups.badges))
+
+  const doneBtn = await js(`
+    (() => {
+      const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('还没跑的'))
+      if (!c) return { err: '没找到「还没跑的」那张卡' }
+      return { hasDone: [...c.querySelectorAll('button')].some(b => b.textContent.trim() === '完成') }
+    })()`)
+  check('★ 「完成」按钮在「待处理」日志上直接可用（进行中不是完成的前置条件）',
+    doneBtn.hasDone === true, JSON.stringify(doneBtn))
+
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => {
+    const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('还没跑的'))
+    const b = c && c.querySelector('.log-run-btn'); if (b) b.click(); return !!b
+  })()`)
+  check('★ 卡片上有手动「标为进行中」开关，点了走 logs:setRunning(true)',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetRunning' && c.args[1] === true)`, 5000, 'setRunning(true)'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetRunning'))`)))
+
+  await js(`window.__fcTest.reset()`)
+  await js(`(() => {
+    const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('正在跑的'))
+    const b = c && c.querySelector('.log-run-btn'); if (b) b.click(); return !!b
+  })()`)
+  check('★ 同一只开关能撤销（setRunning(false) —— 防误操作，用户第 2 条明写）',
+    await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetRunning' && c.args[1] === false)`, 5000, 'setRunning(false)'),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetRunning'))`)))
+
+  const moreClosed = await js(`
+    (() => ({
+      hasBtn: !!document.querySelector('main.logs-view .log-more-btn'),
+      hasAgent: [...document.querySelectorAll('main.logs-view select')].some(s => [...s.options].some(o => o.textContent.includes('全部 Agent'))),
+    }))()`)
+  check('★ 「更多筛选」默认收起：Agent / 日期范围不再和搜索框挤在一条线上',
+    moreClosed.hasBtn === true && moreClosed.hasAgent === false, JSON.stringify(moreClosed))
+  await js(`(() => { const b = document.querySelector('main.logs-view .log-more-btn'); if (b) b.click(); return !!b })()`)
+  await new Promise(r => setTimeout(r, 250))
+  check('点开「更多筛选」才出现 Agent 下拉',
+    (await js(`[...document.querySelectorAll('main.logs-view select')].some(s => [...s.options].some(o => o.textContent.includes('全部 Agent')))`)) === true)
+  await js(`(() => { const b = document.querySelector('main.logs-view .log-more-btn'); if (b) b.click(); return !!b })()`)
+  await new Promise(r => setTimeout(r, 150))
+
+  // 关联日志条目：单击就能打开（修前这条列表项**没有任何点击处理器** —— 点了毫无反应，
+  // 用户只好反复点、以为是"要双击"，所以这条用源码级断言钉死入口存在）
+  check('★ 任务详情的关联日志条目绑定了单击打开（修前是个死 div，怎么点都没反应）',
+    /class="task-log-item"[\s\S]{0,120}@click="openLogPreview\(log\)"/.test(
+      require('fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'App.vue'), 'utf-8')))
+
   // ── 24. 卡 037 第二批：待办右键菜单 + 置顶（不动托盘，用户已定口径）────
   await js(`window.__fcTest.setTodos([])`)
   await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return !!b })()`)
   check('切到待办页', await waitFor(`document.querySelector('main.todos-view')`, 6000, '待办视图'))
-  await js(`(() => {
-    const inp = document.querySelector('main.todos-view .todos-ctrls input'); if (!inp) return false
-    inp.value = '被右键的待办'
-    inp.dispatchEvent(new Event('input', { bubbles: true }))
-    const btn = [...document.querySelectorAll('main.todos-view button')].find(b => b.textContent.includes('添加'))
-    if (btn) btn.click()
-    return !!btn
-  })()`)
+  await addTodoViaModal('被右键的待办')
   check('建出一条待办用于右键', await waitFor(`document.querySelectorAll('main.todos-view .todo-item').length === 1`, 5000, '待办条目'),
     String(await js(`document.querySelectorAll('main.todos-view .todo-item').length`)))
   check('★ 待办行能右键',
@@ -1346,6 +1989,18 @@ async function main() {
       const r = el.getBoundingClientRect()
       return r.width > 1 && r.height > 1
     }
+    // ★ 2026-09-28（用户第 1 条）——**这是上一轮漏掉的真盲区**：
+    //   elementFromPoint 遵守 pointer-events，而那个挡住文字的光斑恰恰是 pointer-events:none
+    //   （"点不掉、也不报错"就是它的特征）。于是"12 页签无盖字"这条断言**红着也报绿**。
+    //   修法：先把所有 pointer-events:none 的元素临时改成 auto，让命中测试真的看得见它们，
+    //   审计结束再逐字恢复原值（不留任何副作用）。
+    const patched = []
+    for (const el of document.querySelectorAll('body, body *')) {
+      if (getComputedStyle(el).pointerEvents === 'none') {
+        patched.push([el, el.style.pointerEvents])
+        el.style.pointerEvents = 'auto'
+      }
+    }
     const rgba = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(',').map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1] }
     const blend = (f, b) => f.slice(0, 3).map((c, i) => c * f[3] + b[i] * (1 - f[3]))
     const lum = (c) => { const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2] }
@@ -1368,7 +2023,16 @@ async function main() {
       const s = getComputedStyle(el)
       // ① 盖字：文字中心点被别的元素命中
       const rg = document.createRange(); rg.selectNodeContents(n)
-      const rect = rg.getBoundingClientRect()
+      // ⚠ 2026-09-28：必须把文字矩形**裁到元素自己的矩形内**。
+      //   紧凑单行卡的标题是 overflow:hidden + text-overflow:ellipsis —— Range 给的是
+      //   **布局矩形（未裁剪）**，长标题会一路伸到隔壁列里去，取中点在邻列命中另一个元素，
+      //   于是审计会把"正常的省略号"报成"有东西盖住文字"（假阳性）。
+      //   取交集后剩下的才是"用户真的看得见的那截文字"。
+      const er = el.getBoundingClientRect()
+      const raw = rg.getBoundingClientRect()
+      const left = Math.max(raw.left, er.left), right = Math.min(raw.right, er.right)
+      const top = Math.max(raw.top, er.top), bottom = Math.min(raw.bottom, er.bottom)
+      const rect = { left, right, top, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
       if (rect.width >= 3 && rect.height >= 3 && rect.bottom > 0 && rect.top < vh) {
         const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
         // 中心点必须真的在视口内 —— 看板是横向滚动的，滚出右边界那条列的列头会被
@@ -1395,6 +2059,8 @@ async function main() {
       const need = past ? 3 : (size >= 24 || (size >= 18.66 && bold)) ? 3 : 4.5
       if (cr < need) low.push(t.slice(0, 20) + ' ' + s.color + ' ' + Math.round(size) + 'px ' + cr.toFixed(2) + '<' + need)
     }
+    // 恢复 pointer-events（审计不得留下副作用）
+    for (const [el, v] of patched) el.style.pointerEvents = v
     return { covered, low }
   })()`
 
@@ -1422,6 +2088,39 @@ async function main() {
     !(await js(`!!document.querySelector('.drop-hint.global')`)))
   await sleep(1600)
   check('★ 技能页投放遮罩也会自己消失', !(await js(`!!document.querySelector('.skills-dropmask')`)))
+
+  // ③ 装饰光斑必须真的在**背景层**（2026-09-28 用户第 1 条的真因）
+  //   `.blob` 是 position:fixed + z-index:0，而看板的 .col / 卡片都是**非定位的流内元素**。
+  //   按 CSS 绘制顺序（负 z 子层 → 流内块背景 → 行内内容 → z-index:0/auto 的已定位元素），
+  //   z-index:0 的它**画在所有正文之上** —— 460×460 的淡紫光斑正好糊在左上角第一列文字上。
+  //   它 pointer-events:none，所以既点不掉、也不会被命中测试抓到（上一轮"无盖字"断言因此漏报）。
+  //   修法：① 产品侧 .blob 落成 z-index:-1；② 审计侧临时放开 pointer-events（见 AUDIT_JS）。
+  //   这条断言直接验**绘制顺序**：放开命中后，光斑覆盖区里不许有任何一点命中 .blob。
+  await js(CLICK_BY_TEXT('看板'))
+  await new Promise(r => setTimeout(r, 400))
+  const blobHit = await js(`
+    (() => {
+      const blob = document.querySelector('.blob.b1')
+      if (!blob) return { err: '找不到 .blob.b1' }
+      const prev = blob.style.pointerEvents
+      blob.style.pointerEvents = 'auto'
+      const r = blob.getBoundingClientRect()
+      const pts = []
+      for (const fy of [0.35, 0.5, 0.65]) for (const fx of [0.25, 0.5, 0.75]) {
+        pts.push([Math.round(r.left + r.width * fx), Math.round(r.top + r.height * fy)])
+      }
+      const hits = pts
+        .filter(([x, y]) => x > 0 && y > 0 && x < innerWidth && y < innerHeight)
+        .map(([x, y]) => { const h = document.elementFromPoint(x, y); return h ? (typeof h.className === 'string' && h.className ? h.className : h.tagName) : 'none' })
+      blob.style.pointerEvents = prev
+      return { z: getComputedStyle(blob).zIndex, hits }
+    })()`)
+  check('★ 左上角装饰光斑在背景层（z-index 为负），不再画在正文之上',
+    !blobHit.err && parseFloat(blobHit.z) < 0, JSON.stringify(blobHit))
+  check('★ 放开命中后，光斑覆盖区里没有任何一点命中 .blob（真·不挡字，而不是"点不穿所以查不到"）',
+    !blobHit.err && Array.isArray(blobHit.hits) && blobHit.hits.length > 0
+      && !blobHit.hits.some(h => /blob/.test(String(h))),
+    JSON.stringify(blobHit))
 
   // ② ③ 逐页签静态审计（盖字 + 对比度）
   const badViews = []

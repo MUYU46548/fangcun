@@ -1133,6 +1133,191 @@ with open(mixed_path, "w", encoding="utf-8") as f:
 d_mixed = teg.parse_task(mixed_path)
 check("Python 读混合分隔符", d_mixed and d_mixed.get("标题") == "混合分隔符", str(d_mixed.get("标题") if d_mixed else None))
 
+# ---- 23. 前言块式列表 与 前言「结果记录/方案」（2026-09-28 实测的静默数据丢失）----
+# 背景：旧 parse_task 只认**行内** flow 列表 `项目: [a]`；老卡片写的是**块式**列表
+#      （`项目:\n  - fangcun-base`），于是这些字段被读成空串，任何一次 Python 写回
+#      （tegula done / new…）都会把它们**静默清空**。真实事故：task-20260925-033 走一次
+#      `tegula done` 后项目归属与前言的验收驳回记录当场消失；全仓 30 张卡受同类影响。
+# 另：老卡片把 方案/结果记录 写在**前言**里，旧实现无条件用正文覆盖 → 解析阶段就丢了。
+print("\n---- 23. 前言块式列表 / 前言结果记录（静默丢失回归）----")
+
+block_sample = """---
+id: task-block-004
+标题: 块式列表
+项目:
+  - fangcun-base
+  - other-proj
+状态: 待办
+优先级: 中
+标签:
+  - a
+  - b
+创建: 2026-09-18
+更新: 2026-09-18
+结果记录: '[2026-09-01] 前言里的结果记录'
+---
+## 方案
+- [ ] 待办事项
+## 结果记录
+"""
+block_path = os.path.join(tmpdir, "block-list-test.md")
+with open(block_path, "w", encoding="utf-8") as f:
+    f.write(block_sample)
+db = teg.parse_task(block_path)
+check("块式「项目」解析成列表", db and db.get("项目") == ["fangcun-base", "other-proj"], str(db.get("项目") if db else None))
+check("块式「标签」解析成列表", db and db.get("标签") == ["a", "b"], str(db.get("标签") if db else None))
+check("前言「结果记录」不被正文空小节吃掉", db and "前言里的结果记录" in (db.get("结果记录") or ""),
+      repr(db.get("结果记录") if db else None))
+
+# 写回 → 再解析：值必须原样还在（这才是"不丢"的判据，光能读不够）
+block_round = os.path.join(tmpdir, "block-roundtrip.md")
+teg.write_task_file(block_round, dict(db))
+db2 = teg.parse_task(block_round)
+check("写回后再读：项目归属仍在（旧实现这里会变成 []）",
+      db2 and db2.get("项目") == ["fangcun-base", "other-proj"], str(db2.get("项目") if db2 else None))
+check("写回后再读：标签仍在", db2 and db2.get("标签") == ["a", "b"], str(db2.get("标签") if db2 else None))
+check("写回后再读：前言结果记录已迁进正文、内容不丢",
+      db2 and "前言里的结果记录" in (db2.get("结果记录") or ""), repr(db2.get("结果记录") if db2 else None))
+
+# 资源子映射不能被"块式列表"新逻辑误伤（缩进行是 `子键: 值`，不是列表项）
+check("「资源」子映射仍按 子键:值 解析",
+      db2 and isinstance(db2.get("资源"), dict) and "资料" in db2.get("资源"),
+      str(db2.get("资源") if db2 else None))
+
+# 对称性：真卡片走一遍「解析 → 渲染 → 解析」，受管键必须不变
+_real = os.path.join(ROOT, "task-data", "task-20260925-033.md")
+if os.path.exists(_real):
+    _r1 = teg.parse_task(_real)
+    _rt = os.path.join(tmpdir, "real-roundtrip.md")
+    teg.write_task_file(_rt, dict(_r1))
+    _r2 = teg.parse_task(_rt)
+    _keys = ["项目", "标签", "状态", "优先级", "标题"]
+    check("真卡片 项目/标签/状态/优先级/标题 往返一致",
+          all(_r1.get(k) == _r2.get(k) for k in _keys),
+          str({k: (_r1.get(k), _r2.get(k)) for k in _keys if _r1.get(k) != _r2.get(k)}))
+    check("真卡片 结果记录 往返不丢",
+          (_r1.get("结果记录") or "") in (_r2.get("结果记录") or ""),
+          repr((_r1.get("结果记录") or "")[:40]) + " → " + repr((_r2.get("结果记录") or "")[:40]))
+
+# ---- 24. 老 YAML 写法：裸标量列表字段 / 块标量（2026-09-29 实测的静默数据损坏）----
+# 真实事故（本轮踩到的）：`tegula done` 回写一张卡后，`项目: fangcun-base` 变成
+# `项目: [f, a, n, g, c, u, n, -, b, a, s, e]` —— render_task 把**字符串**当列表遍历了。
+# 同一族的还有 `验收: |-` / `附言: |+`：指示符下面那几行在解析阶段就被丢，
+# 写回后整段内容变成一个 `|-`。
+print("\n---- 24. 老 YAML 写法（裸标量 / 块标量）往返 ----")
+
+# (a) 裸标量写在列表字段上
+scalar_sample = """---
+id: task-scalar-legacy
+标题: 裸标量项目
+项目: fangcun-base
+状态: 待办
+优先级: 中
+标签: 单标签
+创建: 2026-09-18
+更新: 2026-09-18
+---
+## 方案
+- [ ] x
+## 结果记录
+"""
+scalar_path = os.path.join(tmpdir, "legacy-scalar.md")
+with open(scalar_path, "w", encoding="utf-8") as f:
+    f.write(scalar_sample)
+_ds = teg.parse_task(scalar_path)
+check("裸标量「项目」读成单元素列表", _ds and _ds.get("项目") == ["fangcun-base"], str(_ds.get("项目") if _ds else None))
+check("裸标量「标签」读成单元素列表", _ds and _ds.get("标签") == ["单标签"], str(_ds.get("标签") if _ds else None))
+scalar_round = os.path.join(tmpdir, "legacy-scalar-round.md")
+teg.write_task_file(scalar_round, dict(_ds))
+_ds2 = teg.parse_task(scalar_round)
+check("★ 写回后再读：项目没有被逐字符拆开（旧实现会变成 [f, a, n, …]）",
+      _ds2 and _ds2.get("项目") == ["fangcun-base"], str(_ds2.get("项目") if _ds2 else None))
+check("★ 写回后再读：标签没有被逐字符拆开",
+      _ds2 and _ds2.get("标签") == ["单标签"], str(_ds2.get("标签") if _ds2 else None))
+
+# (b) 块标量 `|-` / `|+`
+block_sample = """---
+id: task-blockscalar-legacy
+标题: 块标量
+项目: [p]
+状态: 待办
+创建: 2026-09-18
+更新: 2026-09-18
+验收: |-
+  第一行验收
+  第二行验收
+附言: |+
+  附带一句说明
+---
+## 方案
+- [ ] x
+## 结果记录
+"""
+block_path = os.path.join(tmpdir, "legacy-blockscalar.md")
+with open(block_path, "w", encoding="utf-8") as f:
+    f.write(block_sample)
+_db = teg.parse_task(block_path)
+check("★ 块标量「验收」读到的是正文，不是指示符 |-",
+      _db and "第一行验收" in (_db.get("验收") or "") and "第二行验收" in (_db.get("验收") or ""),
+      repr(_db.get("验收") if _db else None))
+check("★ 块标量「附言」读到的是正文，不是指示符 |+",
+      _db and "附带一句说明" in (_db.get("附言") or ""), repr(_db.get("附言") if _db else None))
+block_round = os.path.join(tmpdir, "legacy-blockscalar-round.md")
+teg.write_task_file(block_round, dict(_db))
+_db2 = teg.parse_task(block_round)
+check("★ 写回后再读：块标量内容一行都没丢",
+      _db2 and "第一行验收" in (_db2.get("验收") or "") and "第二行验收" in (_db2.get("验收") or "")
+      and "附带一句说明" in (_db2.get("附言") or ""),
+      repr((_db2.get("验收") if _db2 else None)))
+
+# (c) 全仓往返：真卡片的身份字段一个都不能变
+import glob as _glob
+_CORE_KEYS = ("项目", "标签", "阻塞", "状态", "优先级", "标题", "创建")
+_sweep_bad = []
+_sweep_n = 0
+for _f in sorted(_glob.glob(os.path.join(ROOT, "task-data", "*.md"))):
+    _d1 = teg.parse_task(_f)
+    if not _d1 or not _d1.get("id"):
+        continue
+    _sweep_n += 1
+    _out = os.path.join(tmpdir, "sweep-" + os.path.basename(_f))
+    teg.write_task_file(_out, dict(_d1))
+    _d2 = teg.parse_task(_out)
+    for _k in _CORE_KEYS:
+        _a = teg._as_list(_d1.get(_k)) if _k in ("项目", "标签", "阻塞") else (_d1.get(_k) or "")
+        _b = teg._as_list(_d2.get(_k)) if _k in ("项目", "标签", "阻塞") else (_d2.get(_k) or "")
+        if _a != _b:
+            _sweep_bad.append((os.path.basename(_f)[:40], _k, repr(_a)[:36], repr(_b)[:36]))
+check(f"★ 全仓 {_sweep_n} 张真卡片 parse→render→parse，身份字段全部不变",
+      not _sweep_bad, str(_sweep_bad[:4]))
+
+# (d) 已知例外：除「资源」外，前言里只允许有 1 处嵌套映射（库内遗留，写回会丢）。
+#     它不是"内容丢失"——同一份内容在正文里（M1/M2/M3 与决策点都在），但**不许再多**：
+#     多出来的那一处说明有人在往前言写结构化数据，而两侧解析器都读不了它。
+_nested_keys = []
+import re as _re
+for _f in sorted(_glob.glob(os.path.join(ROOT, "task-data", "*.md"))):
+    _txt = open(_f, encoding="utf-8").read()
+    _m = _re.match(r"^---\s*\n(.*?)\n(?:---|===)\s*\n?(.*)$", _txt, _re.S)
+    if not _m:
+        continue
+    _lines = _m.group(1).splitlines()
+    for _i, _ln in enumerate(_lines):
+        if _ln[:1] in (" ", "\t") or ":" not in _ln:
+            continue
+        _k2, _v2 = _ln.split(":", 1)
+        if _v2.strip() != "":
+            continue
+        _nxt = _lines[_i + 1] if _i + 1 < len(_lines) else ""
+        if _nxt[:1] in (" ", "\t") and _re.match(r"^\s+[^:\s][^:]*:", _nxt):
+            _nested_keys.append((os.path.basename(_f), _k2.strip()))
+_nested_nonres = [x for x in _nested_keys if x[1] != "资源"]
+check("★ 前言里的嵌套映射只有已知的 1 处（新增 = 有人往前言写结构化数据，两侧都读不了）",
+      len(_nested_nonres) <= 1, str(_nested_nonres))
+if _nested_nonres:
+    print(f"      已知例外：{_nested_nonres[0][0]} 的「{_nested_nonres[0][1]}」—— 库内遗留格式，"
+          f"写回会丢该块（同份内容在正文里）；已记入工程债卡")
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))

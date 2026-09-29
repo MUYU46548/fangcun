@@ -9,10 +9,34 @@
     <div class="blob b1"></div>
     <div class="blob b2"></div>
 
+    <!-- 卡片悬停轻提示（2026-09-28 密度方案 B 的配套）。
+         为什么不是"鼠标悬停滚动"：字在动的东西没法读，鼠标一进就动、扫一遍看板时全在动，
+         而且卡片本身可拖拽，两者会打架。
+         这里的做法是**只在标题真的被截断时**才出现（scrollWidth > clientWidth），
+         延迟 **150ms**（不是 1–2 秒：那会让"想确认一下"变成"等一下"，扫视时等于什么都没有），
+         内容是「完整标题 + 正文摘要 + 项目/截止/优先级/标签」= 半张详情卡，
+         所以悬停不只是补文字，是**免点击预览**。
+         铁律：position:fixed + pointer-events:none（不参与布局、不吃命中），拖拽中一律不显示。 -->
+    <div v-if="cardTip" class="card-tip" :style="cardTipStyle">
+      <div class="card-tip-title">{{ cardTip.title }}</div>
+      <div v-if="cardTip.body" class="card-tip-body">{{ cardTip.body }}</div>
+      <div class="card-tip-meta">
+        <span class="st" :class="'st-' + cardTip.statusClass">{{ cardTip.status }}</span>
+        <span v-if="cardTip.project" class="card-proj">{{ cardTip.project }}</span>
+        <span v-if="cardTip.due" class="card-date" :class="{ over: cardTip.overdue }">📅 {{ cardTip.due }}</span>
+        <span v-if="cardTip.priority" class="card-tip-pri">{{ cardTip.priority }}</span>
+      </div>
+      <div class="ptags" v-if="cardTip.tags.length">
+        <span class="ptag" v-for="tag in cardTip.tags" :key="tag">{{ tag }}</span>
+      </div>
+    </div>
+
     <!-- 全局拖放兜底提示：拖到不支持导入的页签时不再是"毫无反应"（用户第 4 条）
-         固定定位 + pointer-events:none —— 绝不参与布局，否则会与拖拽事件自激闪烁 -->
+         固定定位 + pointer-events:none —— 绝不参与布局，否则会与拖拽事件自激闪烁。
+         2026-09-28：文案与 onAppDrop 的 toast 对齐 —— 此前这里只写了「待办」「日志」，
+         漏了明明支持导入的「技能」页（两个提示互相矛盾）。 -->
     <div v-if="globalDropHint" class="drop-hint global">
-      当前页签不支持导入文件 —— 请到「待办」或「日志」页签再拖入
+      当前页签不支持导入文件 —— 请到「待办」「日志」或「技能」页签再拖入
     </div>
 
     <!-- Top bar -->
@@ -41,8 +65,12 @@
           <option value="project">按项目</option>
           <option value="priority">按优先级</option>
         </select>
-        <button class="ghost" title="把所有分组折叠起来（只看分组名和数量，长单子立刻变短）" @click="setAllCollapsed(true)">折叠全部</button>
-        <button class="ghost" title="展开所有分组" @click="setAllCollapsed(false)">展开</button>
+        <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）。
+             「折叠全部 / 展开」并排放两个按钮，永远有一个是无效的 —— 用户原话「臃肿无比」。
+             现在一个按钮把事情做完，且标签跟着当前状态走。 -->
+        <button class="ghost" id="btn-fold-all"
+          :title="allGroupsCollapsed ? '展开所有分组，看全部卡片' : '折叠所有分组，只看分组名和数量（长单子立刻变短）'"
+          @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开全部' : '⊟ 折叠全部' }}</button>
         <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
         <select v-model="dueFilter" class="due-filter">
           <option value="">全部时间</option>
@@ -141,7 +169,96 @@
     </div>
 
 
+    <!-- 视图切换器（页头，2026-09-28 用户第 ① 条 + 卡 033）。
+         刻意**不塞进顶栏**：顶栏已经有 9 个控件，再加一个横排按钮组只会更挤。
+         页头只有一行，左边是"换一种摆法"，右边用一句话说明这个摆法擅长什么 ——
+         用户不必先点一遍才知道两个视图差在哪。 -->
+    <div v-if="viewOptions.length" class="pagehead">
+      <div class="viewsw">
+        <button
+          v-for="o in viewOptions"
+          :key="o.v"
+          class="vsb"
+          :class="{ on: currentViewMode === o.v }"
+          @click="setViewMode(o.v)"
+        >{{ o.label }}</button>
+      </div>
+      <span class="pagehead-hint">{{ viewHint }}</span>
+    </div>
+
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
+      <!-- 列表视图（多视图第 1 项）。与列视图**共用** columns / collapsedGroups / 拖拽处理：
+           拖一行到某个分区里 = 改成该状态，和拖到列里是同一件事。 -->
+      <div v-if="boardView === 'list'" class="board-list">
+        <div
+          v-for="col in columns"
+          :key="'bl-' + col.key"
+          class="blgrp"
+          :class="{ 'drop-here': dragoverCol === col.key, 'is-empty': !col.tasks.length }"
+          @dragover.prevent="onDragOver($event, col.key)"
+          @dragleave="dragoverCol = null"
+          @drop="onDrop($event, col.key)"
+        >
+          <div class="blgrp-head">
+            <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
+              @click="toggleGroup(col.key)">
+              <span class="chev" :class="{ open: !groupCollapsed(col.key) }"></span>
+              <span class="gdot" :class="'gdot-' + statusClass(col.key)"></span>
+              <span class="glabel">{{ col.label }}</span>
+              <span class="gn">{{ col.tasks.length }}</span>
+            </button>
+            <span class="f1"></span>
+          </div>
+          <div
+            v-for="t in col.tasks"
+            v-show="!groupCollapsed(col.key)"
+            :key="'blr-' + t.id"
+            class="brow"
+            :class="{
+              stale: isStale(t),
+              overdue: isOverdue(t),
+              selected: selectedBatch.includes(t.id),
+              dragging: draggingId === t.id
+            }"
+            :data-id="t.id"
+            draggable="true"
+            @dragstart="onDragStart($event, t.id)"
+            @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+            @contextmenu.prevent="openCardMenu($event, t)"
+            @mouseenter="onCardEnter($event, t)"
+            @mouseleave="onCardLeave()"
+          >
+            <input
+              v-show="batchMode"
+              type="checkbox"
+              class="batch-chk"
+              :checked="selectedBatch.includes(t.id)"
+              @click.stop="toggleBatchSelect(t.id)"
+            />
+            <span class="card-liv" :class="'liv-' + statusClass(t.status)"></span>
+            <b class="ttl">
+              <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
+              {{ t.title || t.id }}
+            </b>
+            <!-- 状态徽章同列视图的规矩：分区已经说明了状态就不重复占宽 -->
+            <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+            <span class="card-meta">
+              <span v-if="cardDate(t).text" class="card-date"
+                :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
+                :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+              <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+            </span>
+          </div>
+          <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
+        </div>
+      </div>
+
+      <!-- 列视图（默认摆法，保持不变）。用 template v-if 包住是为了让两种摆法**互斥**：
+           同时挂在 DOM 里会造出"同一批卡片存在两份"（批量全选、键盘焦点、e2e 计数全会翻倍）。
+           ⚠ 注释里不要写尖括号形式的 template 标签 —— 守卫 check-button-styles 靠正则数标签配对，
+             注释里的开标签会被算进深度，直接导致"无法切分 template / style 块"。 -->
+      <template v-if="boardView === 'cols'">
       <div
         v-for="col in columns"
         :key="col.key"
@@ -166,7 +283,6 @@
           :key="t.id"
           class="card"
           :class="{
-            'active-t': isActiveStatus(t.status),
             stale: isStale(t),
             overdue: isOverdue(t),
             selected: selectedBatch.includes(t.id),
@@ -178,7 +294,15 @@
           @dragend=""
           @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
           @contextmenu.prevent="openCardMenu($event, t)"
+          @mouseenter="onCardEnter($event, t)"
+          @mouseleave="onCardLeave()"
         >
+          <!-- 紧凑单行卡（2026-09-28 密度方案 B）。
+               原来卡是两行（标题+状态徽章 / 正文两行截断 / 标签行），14 张的完成列能顶满一屏。
+               现在压成一行：状态点 + 标题（超长省略） + 右侧 meta。
+               正文摘要与标签没丢，移进上面的悬停轻提示 —— 那本来也是"点开才有用"的东西。
+               ⚠ `active-t`（整卡淡紫底 + 3px 左条）已删：状态由**列位置**承担，
+                 卡级再染一遍是冗余编码，而且卡片一多整列都在发光（用户第 4 条"越看越头痛"）。 -->
           <div class="card-head">
             <input
               v-show="batchMode"
@@ -187,20 +311,29 @@
               :checked="selectedBatch.includes(t.id)"
               @click.stop="toggleBatchSelect(t.id)"
             />
+            <span class="card-liv" :class="'liv-' + statusClass(t.status)" :title="t.status"></span>
             <b class="ttl">
               <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
               {{ t.title || t.id }}
             </b>
-            <span class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-          </div>
-          <small v-if="t.archived" class="src-badge">📦 已归档</small>
-          <small v-if="t.body" class="card-preview">{{ truncate(t.body, 120) }}</small>
-          <div class="ptags" v-if="t.tags && t.tags.length">
-            <span class="ptag" v-for="tag in t.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
+            <!-- 状态徽章只在「不按状态分组」时才出现：按状态分组时列位置已经说明了状态，
+                 多一个文字徽章只是重复占宽（紧凑卡上宽度很贵）。 -->
+            <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+            <!-- 右侧 meta：**所属项目 + 日期常驻可见**（2026-09-28 用户反馈「希望看见所属项目和日期」）。
+                 日期优先截止日（可行动），没有截止日就退到「更新」——保证卡上永远有一个日期。
+                 cardDate() 是纯函数且很便宜，表里多调两次无所谓（每次重渲染才跑，不是每帧）。 -->
+            <span class="card-meta">
+              <span v-if="cardDate(t).text" class="card-date"
+                :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
+                :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+              <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+            </span>
           </div>
         </div>
         <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
       </div>
+      </template>
     </main>
 
     <!-- Project view -->
@@ -215,16 +348,25 @@
         <span class="cb-stat">已填 <b>{{ charterStats.filled }}</b> / {{ charterStats.total }}</span>
         <span class="cb-stat" v-if="charterStats.skeleton">骨架待填 <b>{{ charterStats.skeleton }}</b></span>
         <span class="cb-stat warn" v-if="charterStats.missing">缺失 <b>{{ charterStats.missing }}</b></span>
-        <span
-          class="cb-stat"
-          v-if="charterStats.mapMissing"
-          title="方针卡已填但没有「结构地图」节（模块清单 + 主数据流）。仅活跃开发项目需要；内容由 agent 起草、TA 过目 —— 卡片里没有该节时，新建/保存方针卡会自动带上骨架节标题。"
-        >结构地图待填 <b>{{ charterStats.mapMissing }}</b></span>
+        <!-- 029 验收驳回原话：「找不到在哪里」。
+             真因：结构地图**只存在于方针卡文件里**，界面上唯一相关的东西是这个
+             `<span>` 计数 —— 它不可点、且没有缺口时干脆不渲染，于是"结构地图到底在哪"无从得知。
+             现在换成**常驻可点按钮**：没缺口时也在，点开就是一览（哪几张有、最后核实的日期、直接去改）。 -->
+        <button class="ghost cb-map-btn" :class="{ warn: charterStats.mapMissing > 0 }"
+          :title="charterStats.mapMissing
+            ? `还有 ${charterStats.mapMissing} 个项目没有结构地图 —— 点开看是哪些`
+            : '结构地图：模块清单 + 每模块一句话职责 + 主数据流（点开查看/编辑）'"
+          @click="openStructMap()">
+          🗺 结构地图
+          <b v-if="charterStats.mapMissing" class="cb-map-n">待填 {{ charterStats.mapMissing }}</b>
+          <b v-else class="cb-map-n ok">{{ charterStats.mapReady }}/{{ charterStats.filled }}</b>
+        </button>
         <button class="ghost" v-if="charterStats.missing" @click="fillMissingCharters()">
           ＋ 补齐 {{ charterStats.missing }} 个章程骨架
         </button>
       </div>
-      <div class="pvgrid">
+      <!-- ══ ① 项目墙（默认，旧摆法原样保留 —— 加视图不改旧的）══════════════ -->
+      <div class="pvgrid" v-if="pvView === 'tiles'">
         <div
           v-for="p in projectStats"
           :key="p.id"
@@ -266,6 +408,102 @@
           <div class="add-icon">+</div>
           <div class="add-text">添加项目</div>
         </div>
+      </div>
+
+      <!-- ══ ② 概览卡（2026-09-29 用户选的改法 A）══════════════════════════
+           003 卡原话「只是个大号看板入口，不是项目管理」。把「四个数字」换成
+           「状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口」——
+           一眼能看出这个项目卡在哪、缺什么、下一步该点哪个按钮。 -->
+      <div class="ovgrid" v-else-if="pvView === 'overview'">
+        <div v-for="p in projectStats" :key="p.id" class="ocard" @click="openProject(p)">
+          <div class="ohead">
+            <span class="nm">{{ p.name }}</span>
+            <span class="rp">{{ p.repo || '未登记工作目录' }}</span>
+            <span class="hl" :class="'hl-' + p.health">{{ healthLabel(p.health) }}</span>
+          </div>
+          <div class="stack" :title="pvBreakdown[p.id] && pvBreakdown[p.id].length ? '状态分布：' + pvBreakdown[p.id].map(s => s.status + ' ' + s.n).join(' · ') : '这个项目还没有任务'">
+            <i v-for="s in (pvBreakdown[p.id] || [])" :key="s.status"
+               :style="{ width: segWidth(s.n, p.taskCount), background: statusSegColor(s.cls) }"></i>
+          </div>
+          <div class="legend">
+            <span v-for="s in (pvBreakdown[p.id] || [])" :key="s.status">
+              <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
+            </span>
+            <span v-if="!(pvBreakdown[p.id] || []).length">3 条任务都没有状态标记</span>
+          </div>
+          <div class="odyn">
+            最近：<b>{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</b>
+            <template v-if="pvLatest[p.id]"> · {{ pvLatest[p.id]!.title || pvLatest[p.id]!.id }}</template>
+            <br>
+            <span v-if="pvBlocked[p.id]" class="odyn-warn">⚠ {{ pvBlocked[p.id] }} 个阻塞源</span>
+            <span :class="{ 'odyn-warn': !policyMap[p.id] }">方针：{{ policyMap[p.id] ? '已立' : policyExistsMap[p.id] ? '待填' : '未立' }}</span>
+            ·
+            <span :class="{ 'odyn-warn': !policyMapHasStructure[p.id] }">结构地图：{{ policyMapHasStructure[p.id] ? '有' : '没有' }}</span>
+            <span v-if="p.health === 'stuck' || p.health === 'dormant'"> · 这个项目已经冷下来了</span>
+          </div>
+          <div class="oacts">
+            <button class="ghost oact" @click.stop="openPolicyEdit(p.id)">📋 {{ policyMap[p.id] ? '方针' : '立方针' }}</button>
+            <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
+            <button class="ghost oact" @click.stop="openProject(p)">📦 任务 {{ p.taskCount }}</button>
+          </div>
+        </div>
+        <div class="ocard ocard-add" @click="openNewProject">
+          <div class="add-icon">+</div>
+          <div class="add-text">添加项目</div>
+        </div>
+      </div>
+
+      <!-- ══ ③ 主从（2026-09-29 用户选的改法 B）════════════════════════════
+           左列常驻项目 + 迷你进度，右侧摊开所选项目的详情。
+           项目 10+ 时比项目墙好使；现在项目少，用哪个都行 —— 所以做成可切。 -->
+      <div class="pv-ms" v-else>
+        <div class="ms-list">
+          <div v-for="p in projectStats" :key="p.id" class="ms-li"
+               :class="{ on: !!pvCurrent && pvCurrent.id === p.id }"
+               @click="pvSelected = p.id">
+            <span class="ms-dot" :class="'t-' + p.health"></span>
+            <span class="ms-name">{{ p.name }}</span>
+            <span class="ms-mini"><i :style="{ width: projectPercent(p.id) + '%' }"></i></span>
+            <span class="ms-n">{{ p.activeTasks }}</span>
+          </div>
+          <div class="ms-add" @click="openNewProject">＋ 添加项目</div>
+        </div>
+        <div class="ms-detail" v-if="pvCurrent">
+          <div class="ocard bare">
+            <div class="ohead">
+              <span class="nm">{{ pvCurrent.name }}</span>
+              <span class="rp">{{ pvCurrent.repo || '未登记工作目录' }}</span>
+              <span class="hl" :class="'hl-' + pvCurrent.health">{{ healthLabel(pvCurrent.health) }}</span>
+            </div>
+            <div class="stack">
+              <i v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status"
+                 :style="{ width: segWidth(s.n, pvCurrent.taskCount), background: statusSegColor(s.cls) }"></i>
+            </div>
+            <div class="legend">
+              <span v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status">
+                <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
+              </span>
+            </div>
+            <div class="odyn">
+              最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
+              <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
+              <br>
+              <span v-if="pvBlocked[pvCurrent.id]" class="odyn-warn">⚠ {{ pvBlocked[pvCurrent.id] }} 个阻塞源</span>
+              进行中 {{ pvCurrent.activeTasks }} · 已完成 {{ pvCurrent.completedTasks }} ·
+              完成进度 {{ projectPercent(pvCurrent.id) }}%
+            </div>
+            <div class="oacts">
+              <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
+              <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
+              <button class="ghost oact" @click.stop="openProject(pvCurrent)">📦 看任务</button>
+              <!-- 不做「打开工作目录」——主进程没有"打开任意路径"的通道，也刻意不暴露。
+                   能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
+              <button v-if="pvCurrent.repo" class="ghost oact"
+                      @click.stop="copyWithToast(pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</button>
+            </div>
+          </div>
+        </div>
+        <div class="ms-detail empty" v-else>还没有项目 —— 点左下角「＋ 添加项目」登记第一个。</div>
       </div>
     </main>
 
@@ -358,7 +596,10 @@
                 用上面的「⚡ 装到 Hermes」
               </button>
               <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</button>
-              <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="revealSkillPath(skillsList.length ? skillsList[0].absPath : '')">
+              <!-- 清单为空时**不渲染**这个按钮：传空串过去只会拿到一句"没有可显示的技能路径"，
+                   是"点了就报错"的那类死按钮（主进程侧也已单独兜底）。 -->
+              <button v-if="a.detected && a.mode !== 'installable' && skillsList.length"
+                class="skills-btn" @click="revealSkillPath(skillsList[0].absPath)">
                 📂 显示一份 SKILL.md
               </button>
             </div>
@@ -534,14 +775,9 @@
       <div class="todos-header">
         <h3>待办</h3>
         <div class="todos-ctrls">
-          <input
-            v-model="todoInput"
-            placeholder="添加待办（尾缀 p0/p1/p2 定优先级）；也可直接拖入 txt/md"
-            class="todo-input"
-            @keydown.enter="executeTodoAdd"
-          />
-          <button class="ghost" @click="executeTodoAdd">+ 添加</button>
-          <button class="ghost todo-new" title="用大框新建待办（可一次填项目 / 优先级 / 到期日）" @click="openTodoCreator()">大框新建</button>
+          <!-- 2026-09-29 用户第 1 条：小框（+ 添加）与「大框新建」并排 = 两个入口，
+               小框长得像搜索框，纯误导；新建待办是慎重举动，只留一个入口 → 标准编辑大框。 -->
+          <button class="ghost todo-new" title="新建待办（可一次填项目 / 优先级 / 到期日）；也可直接拖入 txt/md" @click="openTodoCreator()">＋ 新建待办</button>
           <select v-model="todoProjectFilter" class="todo-filter" title="按项目筛选（只影响显示）">
             <option value="__all__">全部项目</option>
             <option value="__none__">（不归属任何项目）</option>
@@ -571,12 +807,16 @@
       </div>
       <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走「日志」页签。</div>
       <div v-if="todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
-      <div class="todos-list">
+      <div class="todos-list" :class="{ 'as-grid': todoView === 'grid' }">
         <div v-if="!filteredTodos.length" class="empty-state">
           <div class="empty-icon">{{ todos.length ? '🔍' : '✓' }}</div>
           <div class="empty-text">{{ todos.length ? '没有符合当前筛选的待办' : '暂无待办' }}</div>
           <button v-if="todos.length" class="todos-clear" @click="clearTodoFilters()">清除筛选</button>
         </div>
+        <!-- 待办行＝**两行卡**（2026-09-29 用户拍板：「待办行改成两行卡」）——
+             上行：置顶徽标 + 标题（标题占满整行，不再和一堆按钮抢宽度）
+             下行：优先级 / 项目 / 到期 · 右侧动作按钮
+             勾选框跨两行。卡片网格视图**共用这一份 DOM**，只换 grid 模板（不重写第二遍卡片）。 -->
         <div
           v-for="todo in filteredTodos"
           :key="todo.id"
@@ -590,17 +830,25 @@
             :checked="todo.done"
             @change="toggleTodo(todo.id)"
           />
-          <span v-if="todo.pinned" class="todo-pin" title="已置顶">📌</span>
-          <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
-          <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
-                :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
-            📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
-          </span>
-          <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
-          <span class="todo-prio" :class="'prio-' + prioClass(todo.priority)">{{ localPriority(todo.priority) }}</span>
-          <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
-          <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
-          <button class="todo-del" @click.stop="deleteTodo(todo.id)">×</button>
+          <div class="todo-body">
+            <div class="todo-line">
+              <span v-if="todo.pinned" class="todo-pin" title="已置顶">📌</span>
+              <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
+            </div>
+            <div class="todo-line metas">
+              <span class="todo-prio" :class="'prio-' + prioClass(todo.priority)">{{ localPriority(todo.priority) }}</span>
+              <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
+              <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
+                    :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
+                📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
+              </span>
+            </div>
+          </div>
+          <div class="todo-acts">
+            <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
+            <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
+            <button class="todo-del" title="删除这条待办" @click.stop="deleteTodo(todo.id)">×</button>
+          </div>
         </div>
       </div>
     </main>
@@ -655,29 +903,41 @@
             class="log-search"
             @keydown.enter="executeLogSearch"
           />
-          <select v-model="logStatusFilter" class="log-filter" @change="loadLogs">
-            <option value="">全部状态</option>
-            <option value="active">进行中</option>
-            <option value="completed">已完成</option>
-            <option value="archived">已归档</option>
-          </select>
-          <!-- 2026-09-23（用户第 2 条）：项目/Agent/日期范围筛选 -->
+          <!-- 状态筛选下拉已被**分区**取代（2026-09-28 用户第 5 条）：
+               状态是一个"要同时看三样"的东西，用单选下拉只会把画面切碎。
+               现在只在下面按 进行中/待处理/已完成/已归档 分区。 -->
           <select v-model="logProjectFilter" class="log-filter" @change="loadLogs">
             <option value="">全部项目</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
           </select>
-          <select v-model="logAgentFilter" class="log-filter" @change="loadLogs">
-            <option value="">全部 Agent</option>
-            <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
-          </select>
-          <input v-model="logDateFrom" type="date" class="log-filter" title="起始日期" @change="loadLogs" />
-          <input v-model="logDateTo" type="date" class="log-filter" title="截止日期" @change="loadLogs" />
+          <!-- 低频筛选收进抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围此前与搜索框
+               并排摊开，6 个控件挤一条线。抽屉里有值时按钮上带角标，避免"筛了却忘了"。 -->
+          <button class="ghost log-more-btn" :class="{ on: logMoreFilterOpen }"
+            title="更多筛选：按 Agent、按日期范围" @click="toggleLogMoreFilter">
+            ⚙ 更多筛选<span v-if="logMoreFilterCount" class="more-badge">{{ logMoreFilterCount }}</span>
+          </button>
+          <template v-if="logMoreFilterOpen">
+            <select v-model="logAgentFilter" class="log-filter" @change="loadLogs">
+              <option value="">全部 Agent</option>
+              <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+            </select>
+            <input v-model="logDateFrom" type="date" class="log-filter" title="起始日期（含）" @change="loadLogs" />
+            <span class="log-filter-sep">→</span>
+            <input v-model="logDateTo" type="date" class="log-filter" title="截止日期（含）" @change="loadLogs" />
+            <button class="ghost" title="清空 Agent 与日期筛选" @click="clearLogMoreFilters">清空</button>
+          </template>
           <!-- 2026-09-23：日志批量操作入口（用户第1条） -->
           <button class="ghost batch-mode-btn" :class="{ active: logBatchMode }" @click="toggleLogBatchMode" title="开启批量选择，点击卡片即勾选/取消">
             <span v-if="!logBatchMode">☑ 多选</span>
             <span v-else>☑ <i style="color:#fff">{{ selectedLogBatch.length || 0 }}</i></span>
           </button>
           <button @click="openNewLog">+ 新建日志</button>
+          <!-- 分区｜按链 分段开关（2026-09-29 第 3 条方案二）：
+               默认仍是「分区」—— 加视图不改旧的；「按链」把接力链串成一条竖轨。 -->
+          <div class="log-view-seg" title="分区：按状态分块（默认）；按链：把接力链（续自）串成一条竖轨">
+            <button class="lvs" :class="{ on: logsViewMode === 'groups' }" @click="setLogsViewMode('groups')">分区</button>
+            <button class="lvs" :class="{ on: logsViewMode === 'chain' }" @click="setLogsViewMode('chain')">按链</button>
+          </div>
           <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
           <!-- 「清理超期」到底做什么：把 status=completed 且 retain_until 已过的日志
                批量改成 archived（**只改状态，不删文件**，logs.ts:cleanupLogs）。
@@ -701,27 +961,45 @@
           <div class="empty-icon">📋</div>
           <div class="empty-text">暂无执行日志</div>
         </div>
-        <template v-for="(log, i) in displayedLogs" :key="log.id">
-        <!-- 归档分区头：只在「第一条归档日志」前出现一次（同一个 v-for 内判断，避免把卡片 markup 复制两份） -->
-        <div
-          v-if="log.status === 'archived' && (i === 0 || displayedLogs[i - 1].status !== 'archived')"
-          class="log-archive-sep"
-        >
-          <button class="log-archive-toggle" @click="toggleLogArchive()">
-            <span class="chev" :class="{ open: logArchiveOpen }"></span>
-            已归档 {{ archivedLogs.length }} 条{{ logArchiveOpen ? '' : ' · 已收起（点开查看）' }}
-          </button>
-        </div>
-        <div
-          v-show="logVisible(log)"
-          class="log-card"
-          :class="{ active: log.status === 'active', completed: log.status === 'completed', archived: log.status === 'archived', pinned: log.pinned, selected: logBatchMode && selectedLogBatch.includes(log.id) }"
-          @click="onLogCardClick(log)"
-          @contextmenu.prevent="openLogMenu($event, log)"
-        >
+        <!-- 按状态分区（2026-09-28 用户第 2/5 条）：
+             用户原话「分不清哪些没跑、哪些 Agent 正在跑、哪些跑完了」——
+             那就让这三种东西在屏幕上**各占一块**，而不是靠一个状态下拉去筛。
+             分区顺序 = 关心的顺序：置顶 → 进行中 → 待处理 → 已完成 → 已归档。
+             空分区直接不渲染（不留一个"0 条"的空壳）。 -->
+        <template v-for="g in renderSections" :key="g.key">
+          <!-- 链头（按链视图，2026-09-29 方案二）：链名 + 段数 + 起于/最近 + 两个动作 -->
+          <div v-if="g.chain" class="chain-header">
+            <span class="chain-ic">⛓</span>
+            <span class="chain-name">{{ g.chain.name }}</span>
+            <span class="chain-meta">{{ g.chain.count }} 段 · 起于 {{ g.chain.since }} · 最近活跃 {{ g.chain.recent }}</span>
+            <span class="chain-grow"></span>
+            <button class="ghost" title="从这条链的最新一格接力：出清旧的 + 建新日志（一个对话框做完四件事）" @click="openRelay(g.chain.tail)">＋ 从链尾继续</button>
+            <button class="ghost" title="复制链尾日志 ID —— 贴给 AI，get_log 会带回整条链的上下游" @click="copyId(g.chain.tail.id)">⧉ 复制链 ID</button>
+          </div>
+          <!-- 分区头（分区视图，原样） -->
+          <div v-else-if="g.label" class="log-group-sep" :class="'g-' + g.key">
+            <button class="log-group-toggle" @click="toggleLogGroup(g.key)">
+              <span class="chev" :class="{ open: !isLogGroupCollapsed(g.key) }"></span>
+              <span class="gdot"></span>
+              <span class="glabel">{{ g.label }}</span>
+              <span class="gn">{{ g.logs.length }}</span>
+            </button>
+            <span v-if="g.hint" class="log-group-hint">{{ g.hint }}</span>
+          </div>
+          <!-- 分区/单条 = display:contents（对布局完全透明，卡片仍是 .logs-list 的弹性子项）；
+               链 = 竖轨包裹（轨道线 + 节点圆点画在 .chain-rail 上）。 -->
+          <div class="log-section" :class="{ 'chain-rail': !!g.chain }" v-show="g.chain || !isLogGroupCollapsed(g.key)">
+          <div
+            v-for="log in g.logs"
+            :key="log.id"
+            class="log-card"
+            :class="{ active: log.status === 'active', running: log.running, completed: log.status === 'completed', archived: log.status === 'archived', pinned: log.pinned, selected: logBatchMode && selectedLogBatch.includes(log.id) }"
+            @click="onLogCardClick(log)"
+            @contextmenu.prevent="openLogMenu($event, log)"
+          >
           <div class="log-card-head">
             <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
-            <span class="log-status-badge" :class="log.status">{{ logStatusLabel(log.status) }}</span>
+            <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
             <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
             <span class="log-card-date">{{ formatDate(log.created) }}</span>
           </div>
@@ -732,19 +1010,39 @@
             <span v-if="log.agentName" class="log-agent">🤖 {{ log.agentName }}</span>
             <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
+            <!-- 接力链（2026-09-29 方案二）：继承来的日志挂一个可复制的链标签 -->
+            <span v-if="log.continueFrom" class="chain-tag"
+              :title="'接力自 ' + log.continueFrom + ' —— 点一下复制它的 ID'"
+              @click.stop="copyId(log.continueFrom)">⛓ 续自 {{ shortLogId(log.continueFrom) }}</span>
+            <!-- 2026-09-29 用户第 2 条：日志没有可复制给 AI 的 ID，只能整篇注入 —— 卡面上直接给 ID，点一下只复制 ID -->
+            <span class="log-id" title="日志 ID —— 点一下复制，贴给 AI 就能精确定位这一条（不必整篇注入）"
+              @click.stop="copyId(log.id)">⧉ {{ log.id }}</span>
           </div>
+          <!-- 操作行（2026-09-28 用户第 2 条重排）：
+               「进行中」是一个**手动开关**，可开可关；完成/归档**不要求**先打开它，
+               所以「完成」按钮在任何未完成/未归档的日志上都直接可用。 -->
           <div class="log-card-actions" @click.stop>
             <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
             <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
-            <!-- 2026-09-26 用户补充第 3 条：日志要能临时打回「进行中」（状态此前只能单向前进） -->
-            <button v-if="log.status !== 'active'" class="ghost"
-              title="临时打回「进行中」（这条又在弄了）—— 卡面会变成醒目的进行中样式"
-              @click="reopenLogItem(log.id)">▶ 进行中</button>
-            <button v-if="log.status === 'active'" class="ghost" @click="completeLogItem(log.id)">完成</button>
-            <button v-if="log.status !== 'archived'" class="ghost" @click="archiveLogItem(log.id)">归档</button>
+            <!-- 接力（2026-09-29 方案二）：完成态才有「下一段」——出清 + 新建 + 可开跑在一个对话框里做完 -->
+            <button v-if="log.status === 'completed'" class="ghost relay-btn"
+              title="接力：出清这条 + 建新日志继承「下一步」/项目/任务/Agent —— 一个对话框做完四件事"
+              @click="openRelay(log)">⏭ 从这里继续</button>
+            <button class="ghost log-run-btn" :class="{ on: log.running }"
+              :title="log.running
+                ? '撤销「进行中」标记，回到「待处理」'
+                : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）'"
+              @click="toggleLogRunning(log)">{{ log.running ? '⏸ 撤销进行中' : '▶ 标为进行中' }}</button>
+            <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
+              title="标记完成（不需要先标「进行中」）" @click="completeLogItem(log.id)">完成</button>
+            <button v-if="log.status === 'completed' || log.status === 'archived'" class="ghost"
+              title="撤销完成 / 撤销归档，退回「待处理」（只改状态，不删文件）"
+              @click="reopenLogItem(log.id)">↩ 撤销</button>
+            <button v-if="log.status !== 'archived'" class="ghost" title="收进「已归档」分区" @click="archiveLogItem(log.id)">归档</button>
             <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
           </div>
         </div>
+          </div>
         </template>
       </div>
     </main>
@@ -786,6 +1084,9 @@
       <button @click="ctxRun(openCalAssignTask)">📅 指派时间</button>
       <button @click="ctxRun(copyTaskId)">📋 复制 ID</button>
       <button @click="ctxRun(copyTaskTitle)">🔤 复制标题</button>
+      <!-- 弹药库（卡 031）：卡内容 + 六字段派工单 + 约束卡七条 + 验收四条 + 驳回纪律。
+           纯文本拼接、零智能；**只复制，不派发** —— 派发永远留人手（9/20 判死 agent 派活）。 -->
+      <button @click="ctxRun(copyTaskAsDispatch)" title="拼一份可直接粘给 agent 的派工单（六字段 + 约束卡七条 + 验收四条 + 驳回纪律）">📐 复制为派工单</button>
       <div class="ctx-sep"></div>
       <button @click="ctxRun(archiveTask)">📦 归档</button>
       <button class="danger" @click="ctxRun(deleteTaskById)">🗑 删除</button>
@@ -804,6 +1105,8 @@
         <button @click="ctxOtherRun(copyLogMeta)">🏷 复制带元信息（日期 + 项目）</button>
         <button @click="ctxOtherRun(copyAndDispatchLog)">📤 复制并标记已派</button>
         <div class="ctx-sep"></div>
+        <!-- 「进行中」是手动开关（2026-09-28）：右键里也放一份，不进编辑页就能打/撤 -->
+        <button @click="ctxOtherRun(toggleLogRunning)">{{ ctxOther.item.running ? '⏸ 撤销「进行中」' : '▶ 标为「进行中」' }}</button>
         <button @click="ctxOtherRun(toggleLogPin)">{{ ctxOther.item.pinned ? '📌 取消置顶' : '📌 置顶' }}</button>
         <button @click="ctxOtherRun(changeLogProject)">🏷 改项目归属…</button>
         <button @click="ctxOtherRun(runArchiveLog)">📦 归档</button>
@@ -894,10 +1197,12 @@
     <div v-if="logPreview" class="overlay" @click.self="logPreview = null">
       <div id="log-preview-modal">
         <h3>
-          <span class="log-status-badge" :class="logPreview.status">{{ logStatusLabel(logPreview.status) }}</span>
+          <span class="log-status-badge" :class="logStatusClass(logPreview)">{{ logStatusLabel(logPreview) }}</span>
           {{ logPreview.title || '(无标题)' }}
         </h3>
         <div class="lp-meta">
+          <span class="log-id" title="日志 ID —— 点一下复制，贴给 AI 就能精确定位这一条"
+            @click="copyId(logPreview.id)">⧉ {{ logPreview.id }}</span>
           <span v-if="logPreview.project">{{ (projects.find(p => p.id === logPreview.project)?.name) || logPreview.project }}</span>
           <span v-if="logPreview.taskId">📍 {{ logPreview.taskId }}</span>
           <span v-if="logPreview.agentName">🤖 {{ logPreview.agentName }}</span>
@@ -971,14 +1276,18 @@
         <div class="logs-section" v-if="previewTask">
           <label>关联日志 ({{ taskLogs.length }})</label>
           <div class="task-logs-list">
-            <div v-for="log in taskLogs" :key="log.id" class="task-log-item">
-              <span class="log-status-badge" :class="log.status">{{ logStatusLabel(log.status) }}</span>
+            <!-- 2026-09-28 用户：这条列表项此前**没有任何点击处理器** —— 单击、双击都没反应，
+                 人只能反复点、以为是双击才行。现在单击 = 打开只读预览（与日志页一致）。 -->
+            <div v-for="log in taskLogs" :key="log.id" class="task-log-item"
+              title="点击查看这条日志"
+              @click="openLogPreview(log)">
+              <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
               <div class="task-log-main">
                 <div class="task-log-title">{{ log.title || '(无标题)' }}</div>
                 <div class="task-log-meta">{{ formatDate(log.created) }}</div>
               </div>
               <button
-                v-if="log.status === 'active'"
+                v-if="log.status !== 'completed' && log.status !== 'archived'"
                 class="ghost task-log-done"
                 title="一键标记完成（默认保留 7 天）"
                 @click.stop="quickCompleteLog(log)"
@@ -1063,7 +1372,9 @@
         >
           <template v-if="cell">
             <div class="dnum">{{ cell.day }}</div>
-            <div v-for="ev in cell.events" :key="ev.kind + ev.id + '-' + cell.day"
+            <!-- 2026-09-29 用户选「改法 A」（035 卡）：格子里最多 2 条 + 「+N 条」。
+                 时间段任务不折（见 calCellShown），所以连续色带不会断头。 -->
+            <div v-for="ev in calCellShown(cell)" :key="ev.kind + ev.id + '-' + cell.day"
               class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : ev.kind === 'log' ? 'cev-log' : 'cev-task']"
               draggable="true"
               :title="(ev.kind === 'todo' ? '待办：' : ev.kind === 'log' ? '日志：' : '任务：') + ev.title + (ev.rangeDays > 1 ? `（共 ${ev.rangeDays} 天）` : '')"
@@ -1073,6 +1384,10 @@
               <span class="pd" :style="{ background: ev.kind === 'todo' ? '#5b8dd6' : ev.kind === 'log' ? '#8b7fb8' : prioColor(ev.priority) }"></span>
               <span class="t">{{ ev.title }}</span>
             </div>
+            <button v-if="calCellMore(cell)" class="cal-cell-more" :title="`还有 ${calCellMore(cell)} 条，点开就地铺满这一天`"
+              @click.stop="toggleCalCell(cell)">+{{ calCellMore(cell) }} 条</button>
+            <button v-else-if="calCellExpanded(cell)" class="cal-cell-more less" title="收回前面几条，只留 2 条"
+              @click.stop="toggleCalCell(cell)">收起</button>
           </template>
         </div>
       </div>
@@ -1223,12 +1538,59 @@
         <textarea v-model="policyEdit_.scenario" placeholder="例：暮雨个人，桌面日常使用"></textarea>
         <label>方针边界（怎么干、不干什么）</label>
         <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
+        <!-- 029：结构地图此前**只存在于文件里**，界面上完全看不到 —— 用户验收驳回原话
+             「找不到在哪里」。这里把它变成一个能看能改的普通小节（不再需要手工翻文件）。 -->
+        <label>
+          结构地图（模块清单 + 每模块一句话职责 + 主数据流）
+          <span class="pf-label-hint">第一行必须是「&gt; 最后核实：YYYY-MM-DD」——烂地图比没地图危险，因为读者不知道它烂</span>
+        </label>
+        <textarea class="tall" v-model="policyEdit_.structureMap"
+          placeholder="&gt; 最后核实：2026-09-28&#10;- 模块清单：…&#10;- 主数据流：数据从哪来 → 经过谁 → 落到哪 → 谁读它"></textarea>
+        <div class="pf-map-tools">
+          <button class="ghost" type="button" @click="stampStructureMap()" title="把「最后核实」那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</button>
+          <span class="pf-map-tip">改动只写方针卡；派活时它会随任务书下发（不内联全文，只指路）</span>
+        </div>
         <div class="acts">
           <button class="ghost" @click="closePolicyEditor()">取消</button>
           <button class="pri" @click="savePolicyEdit">保存方针卡</button>
         </div>
       </div>
     </div>
+
+    <!-- 结构地图一览（029）：**这是「结构地图在哪」的答案**。
+         列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
+    <div id="smap-overlay" class="overlay" v-if="smapOpen" @click.self="smapOpen = false">
+      <div id="smap-modal">
+        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
+        <p class="smap-hint">
+          每张方针卡里有一个「结构地图」小节。第一行必须是<b>最后核实日期</b>——
+          烂地图比没地图危险，因为读者不知道它烂。内容由 agent 起草、你过目。
+        </p>
+        <div class="smap-list">
+          <div v-for="row in smapRows" :key="row.id" class="smap-item"
+            :class="{ done: row.has, missing: !row.has, nopolicy: !row.hasPolicy }">
+            <span class="smap-dot"></span>
+            <div class="smap-main">
+              <div class="smap-name">{{ row.name }}</div>
+              <div class="smap-meta">
+                <template v-if="!row.hasPolicy">连方针卡都还没立</template>
+                <template v-else-if="!row.has">方针卡在，但没有结构地图</template>
+                <template v-else-if="row.verified">最后核实 · {{ row.verified }}</template>
+                <template v-else>有结构地图，但没写最后核实日期</template>
+              </div>
+            </div>
+            <button class="ghost smap-open" @click="openPolicyFromSmap(row.id)">
+              {{ row.has && row.verified ? '查看 / 编辑' : row.hasPolicy ? '去填' : '先立方针卡' }}
+            </button>
+          </div>
+          <div v-if="!smapRows.length" class="hint">还没有登记项目</div>
+        </div>
+        <div class="acts">
+          <button class="ghost" @click="smapOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
 
     <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @click.self="closeLogEditor()">
       <div id="log-edit-modal">
@@ -1276,16 +1638,78 @@
         <input v-model="logEdit_.logDate" type="date" />
         <template v-if="logCompleting || logArchiveMode">
           <label v-if="logCompleting">保留天数（0=永不）</label>
-          <input v-if="logCompleting" v-model="logRetainDays" placeholder="7" />
-          <div class="hint" v-if="logCompleting">到期后，点日志页的「清理超期」会把它标为「已归档」（只改状态，不删文件）。</div>
+          <input v-if="logCompleting" v-model="logRetainDays" :placeholder="String(logRetainDefault)" />
+          <div class="hint" v-if="logCompleting">默认 {{ logRetainDefault }} 天（可在设置 → 日志清理里改；0=永不）。到期后，点日志页的「清理超期」会把它标为「已归档」（只改状态，不删文件）。</div>
           <label>备注（可选）</label>
           <textarea v-model="logNote" placeholder="备注..."></textarea>
         </template>
         <div class="acts">
           <button class="ghost" @click="closeLogEditor(); logCompleting = false; logArchiveMode = false">取消</button>
+          <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); logEdit_ = null">销毁</button>
           <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 接力对话框（2026-09-29 第 3 条方案二）：
+         一个动作做完四件事 —— 出清旧的、继承上下文、建立新日志、可以立刻开跑。
+         「为什么是一个对话框而不是一个字段」：真实动作分两步做必然漏一件（源日志忘归档 →
+         待处理区越堆越长），字段 续自 只是这次动作留下的副产品。 -->
+    <div id="relay-overlay" class="overlay" v-if="relay_" @click.self="relay_ = null">
+      <div id="relay-modal">
+        <h3>⏭ 接力 · 从这里继续</h3>
+        <div class="hint">一次动作做完四件事：出清旧的、继承上下文、建立新日志、可以立刻开跑。</div>
+        <div class="relay-src">
+          <span class="rs-label">源</span>
+          <span class="rs-id">{{ relay_.src.id }}</span>
+          <span>「{{ relay_.src.title || '(无标题)' }}」· <b>{{ relay_.src.status === 'completed' ? '已完成' : relay_.src.status === 'archived' ? '已归档' : '待处理' }}</b></span>
+          <span class="rs-grow"></span>
+          <span>下一步已带入 ↓</span>
+        </div>
+        <label>新日志标题</label>
+        <input v-model="relay_.title" placeholder="给接下来这段工作起个标题" />
+        <label>项目</label>
+        <select v-model="relay_.project" class="logsel">
+          <option value="">（不归属）</option>
+          <option v-if="relay_.project && !projects.some(p => p.id === relay_.project)"
+            :value="relay_.project">{{ relay_.project }}（未在登记表中）</option>
+          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+        </select>
+        <div class="hint">继承自源：<b>{{ (projects.find(p => p.id === relay_.project)?.name) || relay_.project || '（不归属）' }}</b></div>
+        <label>下一步</label>
+        <textarea v-model="relay_.nextSteps" placeholder="下一步...（源日志「下一步」已带入，可直接改）"></textarea>
+        <label>关联任务</label>
+        <div v-if="relay_.taskCandidates.length" class="log-task-multi">
+          <label v-for="t in relay_.taskCandidates" :key="t.id" class="log-task-opt">
+            <input type="checkbox" :value="t.id" v-model="relay_.taskIds" />
+            <span class="lto-id">{{ t.id }}</span>
+            <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+            <span class="lto-st">{{ t.status }}</span>
+          </label>
+        </div>
+        <div v-else class="hint">源日志没有关联任务 —— 新日志先不挂任务</div>
+        <label>执行 Agent</label>
+        <select v-model="relay_.agentName" class="logsel">
+          <option value="">（不指定）</option>
+          <option v-if="relay_.agentName && !agentPresets.includes(relay_.agentName)"
+            :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
+          <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+        </select>
+        <div class="hint">继承自源：<b>{{ relay_.agentName || '（不指定）' }}</b>；会话 ID 与日期按新日志重置</div>
+        <div class="relay-opts">
+          <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
+            <span>接力后把源日志归档（出清）
+              <i>旧的移进「已归档」，不占「待处理」，也不进「已完成」的清理队列 —— 调度台干净。</i></span></label>
+          <label class="relay-opt"><input type="checkbox" v-model="relay_.completeSourceTasks" />
+            <span>顺手把源日志的关联任务置「完成」
+              <i>旧任务一次性出清；不勾则任务状态保持不动。</i></span></label>
+        </div>
+        <div class="acts">
+          <button class="ghost" @click="relay_ = null">取消</button>
+          <button class="ghost" title="只建新日志（待处理），不改源日志" @click="executeRelay(false)">创建</button>
+          <button class="pri" title="建新日志并标「进行中」，随时可跑" @click="executeRelay(true)">创建并开跑</button>
         </div>
       </div>
     </div>
@@ -1491,6 +1915,19 @@
             禁用硬件加速（界面若出现卡顿/点不动的兜底，需重启生效）
           </label>
         </div>
+        <!-- 2026-09-29 用户第 4 条：多主题外观（参考绒花墨坊的色板与摆法） -->
+        <div class="sect">
+          <h4>外观主题</h4>
+          <div class="hint">只换配色，不改布局；六套全部过可读性检查（正文 / 次要文字 / 按钮白字对比度 ≥ WCAG AA）。</div>
+          <div class="theme-swatches">
+            <button v-for="t in THEME_LIST" :key="t.id" class="theme-swatch"
+              :class="{ on: theme === t.id }" :title="'切换到主题：' + t.name" @click="setTheme(t.id)">
+              <span class="sw-dot" :style="{ background: t.dot }"></span>
+              <span class="sw-name">{{ t.name }}</span>
+              <span v-if="theme === t.id" class="sw-check">✓</span>
+            </button>
+          </div>
+        </div>
         <div class="sect">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
@@ -1508,6 +1945,16 @@
             <button class="ghost" @click="showAppLogFromSettings">查看最近 200 行</button>
           </div>
           <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
+        </div>
+        <!-- 2026-09-29 用户第 6 条：设置里要能自定义「已完成日志的自动清理」 -->
+        <div class="sect">
+          <h4>日志清理</h4>
+          <div class="hint">已完成日志默认保留这么多天，到期后点日志页的「清理超期」标为「已归档」（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
+          <div class="sect-btns retain-row">
+            <input type="number" min="0" step="1" class="retain-input"
+              v-model.number="logRetainDefault" @change="onLogRetainDefaultChange" />
+            <span class="hint">天（0 = 永不清理）</span>
+          </div>
         </div>
         <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
         <div class="sect">
@@ -1612,8 +2059,15 @@
               <span :class="{ on: bkTab === 'remote' }" @click="bkSwitchTab('remote')">远端 ({{ bkRemote.length }})</span>
             </div>
             <div class="bk-list">
-              <!-- 2026-09-25 第 5 条：列表按「最后更新」倒序（主进程排好），首行是「最新」。 -->
-              <div v-for="(b, bi) in bkCurrentList" :key="b.name" class="bk-item">
+              <!-- 2026-09-25 第 5 条：列表按「最后更新」倒序（主进程排好），首行是「最新」。
+                   2026-09-28（卡 026-001 验收驳回原话：「依然不能手动点来选中备份，
+                   回收站都能点了，备份不能点，无语」）：**整行可点** = 看这一份里到底有什么
+                   （校验 + manifest 摘要）。原来这一行是没有 @click 的死 div，
+                   想确认内容只能另点「🔍 校验备份包…」再走文件选择器挑一遍 —— 而这一份就在眼前。 -->
+              <div v-for="(b, bi) in bkCurrentList" :key="b.name"
+                class="bk-item" :class="{ on: bkInspected === b.name }"
+                :title="bkTab === 'local' ? '点击查看这一份里有什么（校验 + 文件清单）' : '远端备份需先下载到本地才能查看内容'"
+                @click="bkInspectRow(b)">
                 <div class="bk-item-main">
                   <span class="bk-item-name">{{ b.name }}</span>
                   <span v-if="bi === 0" class="bk-newest" title="按最后更新倒序 —— 这就是最新的一份">最新</span>
@@ -1621,7 +2075,8 @@
                     {{ b.bytes != null ? (b.bytes / 1024).toFixed(0) + ' KB' : '—' }} · {{ bkFmt(b.mtime) }}
                   </span>
                 </div>
-                <button class="ghost bk-restore" :disabled="bkBusy" @click="bkRestore(b)">恢复</button>
+                <span v-if="bkInspected === b.name" class="bk-inspecting">已展开 ↓</span>
+                <button class="ghost bk-restore" :disabled="bkBusy" @click.stop="bkRestore(b)">恢复</button>
               </div>
               <div v-if="!bkCurrentList.length" class="hint">暂无备份{{ bkTab === 'remote' ? '（需先配置并测试 WebDAV）' : '' }}</div>
             </div>
@@ -1786,6 +2241,7 @@ import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
+import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince } from '../shared/time'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
@@ -1890,6 +2346,40 @@ function onDisableGpuChange(): void {
   showToast(disableGpu.value ? '已关闭硬件加速 —— 请重启方寸后生效' : '已恢复硬件加速 —— 请重启方寸后生效', 'info')
 }
 
+// 已完成日志的默认保留天数（2026-09-29 用户第 6 条：「设置里可以提供更多选项，
+// 比如已完成日志的自动清理日期可自定义」）。0 = 永不清理；真身 prefs.json，与其它偏好同一套。
+const logRetainDefault = ref(readUiPref<number>('fc_log_retain_days', 7))
+function onLogRetainDefaultChange(): void {
+  const n = Math.floor(Number(logRetainDefault.value))
+  logRetainDefault.value = Number.isFinite(n) && n >= 0 ? n : 7
+  saveUiPref('fc_log_retain_days', logRetainDefault.value)
+}
+
+// ── 主题（2026-09-29 用户第 4 条：「多主题颜色外观并不存在…参考绒花墨坊做一下」）──
+// 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
+// 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
+const THEME_LIST = [
+  { id: 'default', name: '雾灰紫', dot: '#705fab' },
+  { id: 'pink',    name: '黛粉',   dot: '#ac4657' },
+  { id: 'blue',    name: '湖蓝',   dot: '#3668ab' },
+  { id: 'green',   name: '青竹',   dot: '#377457' },
+  { id: 'orange',  name: '暖橙',   dot: '#975c21' },
+  { id: 'gray',    name: '素灰',   dot: '#65687b' },
+]
+const theme = ref(readUiPref<string>('fc_theme', 'default'))
+function applyTheme(id: string): void {
+  theme.value = THEME_LIST.some(t => t.id === id) ? id : 'default'
+  if (theme.value === 'default') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = theme.value
+}
+function setTheme(id: string): void {
+  applyTheme(id)
+  saveUiPref('fc_theme', theme.value)
+  const name = THEME_LIST.find(t => t.id === theme.value)?.name || '雾灰紫'
+  showToast(`已切换主题：${name}`, 'success')
+}
+applyTheme(theme.value)
+
 // ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
 // 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
 // 真身存主进程 prefs.json（与 014 同一套），localStorage 只当读缓存。
@@ -1905,7 +2395,18 @@ function saveUiPref(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 缓存失败无所谓 */ }
   try { (window as any).tegula?.prefsSet?.(key, value)?.catch?.(() => {}) } catch { /* 真身失败已在主进程记日志 */ }
 }
-const collapsedGroups = ref<string[]>(readUiPref<string[]>('fc_collapsed_groups', []))
+/**
+ * 终态分组默认折叠（2026-09-28 密度方案 B）。
+ *
+ * 依据：方寸自己的哲学是「颜色只留给要注意的事」「已归档默认收起」——
+ * **完成/驳回是终态，平时不需要看**，它们却常常是最长的一列（14 张能顶满一屏，
+ * 把真正在动的活卡挤到看不见）。所以首次运行就把这两列收起来，需要时点列头展开。
+ * 用户手动展开过就记进真身（`fc_collapsed_groups`），不会被默认值盖回去。
+ * ⚠ 这只在「按状态」分组下有意义：按项目/优先级分组时列 key 是项目 id，
+ *   默认值匹配不上，等于不折叠（那是正确行为 —— 那些列里混着终态和非终态）。
+ */
+const DEFAULT_COLLAPSED_GROUPS: string[] = ['完成', '驳回']
+const collapsedGroups = ref<string[]>(readUiPref<string[]>('fc_collapsed_groups', DEFAULT_COLLAPSED_GROUPS))
 const groupModeApplied = ref(false)
 
 /** 与主进程 prefs.json 对齐（真身优先；真身空而缓存有值 → 迁移一次） */
@@ -1922,10 +2423,13 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_collapsed_groups', collapsedGroups.value)
     }
-    if (typeof p?.fc_log_archive_open === 'boolean') {
-      logArchiveOpen.value = p.fc_log_archive_open
+    // 日志分区折叠状态（2026-09-28：取代旧的 fc_log_archive_open 单分区开关）。
+    // ⚠ 这里在 syncBoardPrefs 里读，而 collapsedLogGroups 在文件下方才声明 ——
+    //    所以只能在这里做**赋值**，不能在声明前调用它的读写函数（TDZ）。
+    if (Array.isArray(p?.fc_log_group_collapsed)) {
+      collapsedLogGroups.value = p.fc_log_group_collapsed
     } else {
-      saveUiPref('fc_log_archive_open', logArchiveOpen.value)
+      saveUiPref('fc_log_group_collapsed', collapsedLogGroups.value)
     }
     // 「含归档」开关同样入真身（2026-09-25 用户第 9 条）
     if (typeof p?.fc_include_archive === 'boolean') {
@@ -1939,6 +2443,43 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_disable_gpu', disableGpu.value)
     }
+    // 多视图选择（2026-09-28）：与分组方式同一套，真身优先、缓存兜底。
+    // ⚠ 这里只认**白名单里的字面量**：prefs.json 是可以手改的，写进一个不存在的视图名
+    //   会让界面渲染成"两个按钮都不高亮、内容还是默认那个"的诡异状态。
+    if (p?.fc_board_view === 'cols' || p?.fc_board_view === 'list') {
+      boardView.value = p.fc_board_view
+    } else {
+      saveUiPref(BOARD_VIEW_KEY, boardView.value)
+    }
+    if (p?.fc_todo_view === 'list' || p?.fc_todo_view === 'grid') {
+      todoView.value = p.fc_todo_view
+    } else {
+      saveUiPref(TODO_VIEW_KEY, todoView.value)
+    }
+    // 看板排序方式（2026-09-29：它此前是个**死控件**，顺手接上后同样要进真身）
+    if (p?.fc_board_sort === 'active' || p?.fc_board_sort === 'updated' || p?.fc_board_sort === 'created') {
+      sortMode.value = p.fc_board_sort
+    } else {
+      saveUiPref('fc_board_sort', sortMode.value)
+    }
+    // 主题（2026-09-29 用户第 4 条）
+    if (typeof p?.fc_theme === 'string' && THEME_LIST.some(t => t.id === p.fc_theme)) {
+      if (p.fc_theme !== theme.value) applyTheme(p.fc_theme)
+    } else {
+      saveUiPref('fc_theme', theme.value)
+    }
+    // 已完成日志默认保留天数（2026-09-29 用户第 6 条）
+    if (typeof p?.fc_log_retain_days === 'number' && Number.isFinite(p.fc_log_retain_days) && p.fc_log_retain_days >= 0) {
+      logRetainDefault.value = Math.floor(p.fc_log_retain_days)
+    } else {
+      saveUiPref('fc_log_retain_days', logRetainDefault.value)
+    }
+    // 项目页签摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
+    if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master') {
+      pvView.value = p.fc_pv_view
+    } else {
+      saveUiPref(PV_VIEW_KEY, pvView.value)
+    }
     groupModeApplied.value = true
   } catch { /* 读不到就用缓存/默认值 */ }
 }
@@ -1951,14 +2492,181 @@ function toggleGroup(key: string): void {
 function groupCollapsed(key: string): boolean {
   return isCollapsed(collapsedGroups.value, key)
 }
-/** 一键全折叠/全展开（21 张待办摊在眼前时最有用） */
-function setAllCollapsed(v: boolean): void {
-  collapsedGroups.value = v ? columns.value.map(c => c.key) : []
+/**
+ * 一键全折叠 / 全展开（2026-09-28 用户第 3 条改成**单按钮开关**）。
+ *
+ * 原来界面上并排放着「折叠全部」和「展开」两个按钮，**其中必定有一个是无效按钮**
+ * （已经全折叠时点「折叠全部」什么都不发生，反之亦然）—— 用户原话「臃肿无比」。
+ * 现在按钮的文案与动作都由 `allGroupsCollapsed` 决定，界面上永远只有一个。
+ */
+function toggleAllCollapsed(): void {
+  const next = !allGroupsCollapsed.value
+  collapsedGroups.value = next ? columns.value.map(c => c.key) : []
   saveUiPref('fc_collapsed_groups', collapsedGroups.value)
 }
+const allGroupsCollapsed = computed(() =>
+  columns.value.length > 0 && columns.value.every(c => groupCollapsed(c.key)))
+
+// ── 多视图切换（2026-09-28 用户第 ① 条后半句 + 卡 033）────────────────────
+// 用户原话：「尝试多种视图可选（用户自己切换，旧的视图可以保留）」；
+// 033 验收驳回原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+//
+// 三条口径（小样 references/multi-view-sample-20260928.html，用户已点头按小样做）：
+//   ① **旧视图永远是默认**（看板=列视图 / 待办=清单）—— 新视图是"换一种摆法看同一批数据"，
+//      不是替换。谁都不必因为多了个选项而重新学一遍界面。
+//   ② 选择写进**真身 prefs.json**（与 `fc_board_group_mode` 同一套机制），换 origin 不丢。
+//   ③ 切换器放**页头**，不塞进已经够挤的顶栏（顶栏现有 9 个控件）。
+//
+// ⚠ 这里是"同一批 columns / 同一份折叠状态"换个摆法，**不重算数据**：
+//   列表视图读的就是 columns.value，折叠读的就是 collapsedGroups —— 两个视图之间
+//   来回切不会出现"条数不一样 / 折叠状态丢失"。
+const BOARD_VIEW_KEY = 'fc_board_view'
+const TODO_VIEW_KEY = 'fc_todo_view'
+const PV_VIEW_KEY = 'fc_pv_view'
+const boardView = ref<'cols' | 'list'>(readUiPref<'cols' | 'list'>(BOARD_VIEW_KEY, 'cols'))
+const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY, 'list'))
+// 项目页签的三种摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」）。
+// ⚠ 默认仍是**旧的项目墙** —— 方寸铁律「加视图一律新增可选、旧的保留、旧视图永远是默认」。
+//   `tiles` 是 003 卡里那句「只是个大号看板入口」的现状；overview/master 是那两句抱怨的两个解。
+const pvView = ref<'tiles' | 'overview' | 'master'>(
+  readUiPref<'tiles' | 'overview' | 'master'>(PV_VIEW_KEY, 'tiles'))
+
+/** 当前页签可选的视图（空数组 = 这个页签没有多视图，页头整条不渲染） */
+const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(() => {
+  if (isBoardView.value) return [
+    { v: 'cols', label: '▦ 列视图', hint: '按列摊开，可拖拽改状态；列多时要横向滚' },
+    { v: 'list', label: '☰ 列表视图', hint: '单列纵排 + 状态分区，不横滚，一屏看得多半；分区头仍可折叠、可拖入改状态' },
+  ]
+  if (curView.value === 'todos') return [
+    { v: 'list', label: '☰ 清单', hint: '两行卡：上行标题、下行优先级/项目/到期，右侧动作；批量勾选最快' },
+    { v: 'grid', label: '▦ 卡片网格', hint: '方块卡片，长标题最多 3 行不截断；点标题进编辑，右键出菜单' },
+  ]
+  if (curView.value === 'projects') return [
+    { v: 'tiles', label: '▦ 项目墙', hint: '现状：一格一个项目，四个数字（进行中/总数/完成率/最近活动）' },
+    { v: 'overview', label: '▤ 概览卡', hint: '状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口，一眼看出项目卡在哪' },
+    { v: 'master', label: '◧ 主从', hint: '左侧常驻项目列表（带迷你进度），右侧摊开所选项目的详情；项目多了更顺手' },
+  ]
+  return []
+})
+const currentViewMode = computed(() =>
+  curView.value === 'todos' ? todoView.value
+    : curView.value === 'projects' ? pvView.value
+      : boardView.value)
+const viewHint = computed(() =>
+  viewOptions.value.find(o => o.v === currentViewMode.value)?.hint || '')
+
+/** 切视图：只改"摆法"，数据与筛选一律不动 */
+function setViewMode(v: string): void {
+  if (curView.value === 'todos') {
+    todoView.value = v === 'grid' ? 'grid' : 'list'
+    saveUiPref(TODO_VIEW_KEY, todoView.value)
+  } else if (curView.value === 'projects') {
+    pvView.value = v === 'overview' ? 'overview' : v === 'master' ? 'master' : 'tiles'
+    saveUiPref(PV_VIEW_KEY, pvView.value)
+  } else if (isBoardView.value) {
+    boardView.value = v === 'list' ? 'list' : 'cols'
+    saveUiPref(BOARD_VIEW_KEY, boardView.value)
+  }
+}
+
+// ── 卡片悬停轻提示（2026-09-28 密度方案 B 的配套）─────────────────────
+// 紧凑单行卡的代价是长标题被省略号吃掉。补救方案见模板里的注释：
+// 不做悬停滚动、不做 1–2 秒延迟浮层，只做「真的被截断 + 150ms + 半张详情卡」。
+const CARD_TIP_DELAY_MS = 150
+type CardTip = {
+  x: number; y: number; up: boolean
+  title: string; body: string; status: string; statusClass: string
+  project: string; due: string; overdue: boolean; priority: string; tags: string[]
+}
+const cardTip = ref<CardTip | null>(null)
+let cardTipTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 贴住卡片下沿；右侧/下侧空间不够就翻到左边/上方（不越界） */
+const cardTipStyle = computed(() => {
+  const t = cardTip.value
+  if (!t) return {}
+  const x = Math.max(8, Math.min(t.x, window.innerWidth - 352))
+  return t.up
+    ? { left: x + 'px', bottom: (window.innerHeight - t.y + 8) + 'px' }
+    : { left: x + 'px', top: (t.y + 6) + 'px' }
+})
+
+function onCardEnter(e: MouseEvent, t: any): void {
+  // 拖拽中绝不弹：拖着卡片划过一整列时，浮层会一路跟着闪
+  // ⚠ **必须是 `draggingId.value`**：`draggingId` 是 `ref<string|null>`，
+  //   裸写 `if (draggingId)` 判断的是那个 ref 对象 —— 恒为真，于是这条守卫
+  //   把**每一次悬停**都挡掉了，浮层永远不出现（2026-09-28 用户实测「②看不见」的真因）。
+  //   这类「ref 裸用当布尔」tsc 抓不到，已加静态守卫 ⑧（check-template-bindings.cjs）。
+  if (draggingId.value) return
+  const el = e.currentTarget as HTMLElement | null
+  const head = el ? (el.querySelector('.ttl') as HTMLElement | null) : null
+  // **只在真的被截断时才提示** —— 没被截断的卡永远不会弹出任何东西，界面更安静
+  if (!head || head.scrollWidth <= head.clientWidth + 1) return
+  const r = el!.getBoundingClientRect()
+  const due = String(t.deadline || t.due || '').trim()
+  if (cardTipTimer) clearTimeout(cardTipTimer)
+  cardTipTimer = setTimeout(() => {
+    cardTipTimer = null
+    cardTip.value = {
+      x: r.left,
+      y: r.bottom,
+      up: r.bottom + 170 > window.innerHeight,
+      title: String(t.title || t.id || ''),
+      body: truncate(String(t.body || '').replace(/\s+/g, ' '), 220),
+      status: String(t.status || ''),
+      statusClass: statusClass(t.status),
+      project: t.project ? projShort(t.project) : '',
+      due: shortDue(due),
+      overdue: isOverdue(t),
+      priority: String(t.priority || ''),
+      tags: Array.isArray(t.tags) ? t.tags.slice(0, 6) : [],
+    }
+  }, CARD_TIP_DELAY_MS)
+}
+function onCardLeave(): void {
+  if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }
+  cardTip.value = null
+}
+
+/** 截止日压成 MM-DD（卡上只有一行的宽度预算） */
+function shortDue(v: any): string {
+  const s = String(v == null ? '' : v).trim()
+  if (!s) return ''
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (ymd) return `${ymd[2]}-${ymd[3]}`
+  if (/^\d{2}-\d{2}$/.test(s)) return s
+  const t = Date.parse(s)
+  if (Number.isFinite(t)) {
+    const d = new Date(t)
+    return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  return s.slice(0, 10)
+}
+
+/** 项目名压短（卡右侧只有 ~68px）。
+ *  ⚠ 必须过 `normProject`：任务 frontmatter 的「项目」是**数组**（`[fangcun-base]`），
+ *  直接拿 `t.project` 去比项目 id 永远匹配不上 —— 那样卡上就"看不见所属项目"（用户 2026-09-28 反馈）。 */
+function projShort(id: any): string {
+  const key = normProject(id)
+  if (!key) return '未归属'
+  const name = projects.value.find((p: any) => p.id === key)?.name || key
+  return name.length > 7 ? name.slice(0, 7) + '…' : name
+}
+
+/** 卡上的日期：优先截止日（可行动的信息），没有就退到「更新」—— 保证卡上永远看得见一个日期 */
+function cardDate(t: any): { text: string; over: boolean; kind: 'due' | 'updated' } {
+  const due = String(t?.deadline || t?.due || '').trim()
+  if (due) return { text: '📅' + shortDue(due), over: isOverdue(t), kind: 'due' }
+  const up = String(t?.updated || '').trim()
+  if (up) return { text: '更新 ' + shortDue(up), over: false, kind: 'updated' }
+  return { text: '', over: false, kind: 'updated' }
+}
+
 // 切换分组方式也记进真身：下次打开还是你上次用的那种分组
 watch(groupMode, v => saveUiPref('fc_board_group_mode', v))
-const sortMode = ref('active')
+// 排序方式进真身（与分组方式同一套机制）：换 origin / 重启后仍是你上次选的那个
+const sortMode = ref<string>(readUiPref<string>('fc_board_sort', 'active'))
+watch(sortMode, v => saveUiPref('fc_board_sort', v))
 const showArchiveHint = ref(!localStorage.getItem('fc_archive_hint_seen'))
 function closeArchiveHint() {
   showArchiveHint.value = false
@@ -2300,6 +3008,47 @@ async function bkExportTo() {
   }
 }
 
+/** 被点开查看的那一行（只做视觉标记，避免"点了好像没反应"） */
+const bkInspected = ref('')
+
+/**
+ * 点某一行备份 = **看这一份里到底有什么**（2026-09-28 卡 026-001 的验收驳回）。
+ *
+ * 用户原话：「依然不能手动点来选中备份，回收站都能点了，备份不能点，无语。」
+ * 真因：`.bk-item` 是一个**没有 @click 的死 div**，行上只有「恢复」按钮；
+ * 想确认内容只能另点「🔍 校验备份包…」——那会弹文件选择器，让人从零开始找那个 zip，
+ * 而这一份明明就在眼前。
+ *
+ * 复用现成的 `backup:verifyPackage`（它本来就支持直接传路径）。
+ * 远端行不下载就不校验 —— 说实话告诉用户，不假装能看。
+ */
+async function bkInspectRow(b: any) {
+  if (bkBusy.value) return
+  if (bkTab.value === 'remote') {
+    showToast('远端备份要先下载到本地才能看内容；点「恢复」会自动下载并校验', 'info')
+    return
+  }
+  const p = String(b?.path || '')
+  if (!p) { showToast('这一行没有可用路径', 'error'); return }
+  bkBusy.value = true
+  try {
+    const r = await window.tegula.backupVerifyPackage(p)
+    if (r && r.canceled) return
+    bkInspected.value = String(b.name || '')
+    bkVerifyResult.value = {
+      ok: !!(r && r.ok),
+      name: String((r && r.path) || p).split(/[\\/]/).pop() || '',
+      errors: (r && r.errors) || [],
+      manifest: (r && r.manifest) || null,
+      entries: (r && r.entries) || 0,
+    }
+  } catch (e: any) {
+    showToast('查看失败：' + (e?.message || e), 'error')
+  } finally {
+    bkBusy.value = false
+  }
+}
+
 /** 校验任意位置的备份包（含从网盘下载回来的副本） */
 async function bkVerifyPackage() {
   if (bkBusy.value) return
@@ -2321,8 +3070,7 @@ async function bkVerifyPackage() {
 }
 
 /** 从任意 zip 文件恢复（先校验，校验不过不动数据） */
-async function bkRestoreFromFile() {
-  if (bkBusy.value) return
+async function bkRestoreFromFile() {  if (bkBusy.value) return
   const pick = await window.tegula.backupPickRestoreFile()
   if (!pick.ok || !pick.path) return
   const name = String(pick.path).split(/[\\/]/).pop()
@@ -2368,7 +3116,6 @@ interface Todo {
   updatedAt: string
 }
 const todos = ref<Todo[]>([])
-const todoInput = ref('')
 const todoFilter = ref('all')
 
 // ── Review ─────────────────────────────────────────────────────────
@@ -2587,6 +3334,10 @@ const pickerStyle = {
 const boardClass = computed(() => ({
   pv: curView.value === 'projects',
   'batch-mode': batchMode.value,
+  // 列表视图（2026-09-28）：把 #board 从"横向排的列"换成"纵向滚动的分区"。
+  // ⚠ 必须是**类**而不是 v-if 换 main —— main#board 是 flex 容器，
+  //   两种摆法共用同一个容器才能保住 flex:1 + overflow 的滚动行为。
+  'list-mode': isBoardView.value && boardView.value === 'list',
 }))
 
 // Normalize project field: array → first element, or empty string
@@ -2642,6 +3393,80 @@ function projectNameOf(id: string): string {
   return (p && (p.name || p.id)) || id
 }
 
+// ── 项目页签两种新摆法的数据（2026-09-29）────────────────────────────────
+// 003 卡的驳回原话是「只是个大号看板入口，不是项目管理」。缺的不是数字，
+// 是**关系**：任务卡在哪个状态、最近谁动过、有没有阻塞、方针与结构地图缺不缺。
+// 这三份派生数据只服务于概览卡/主从，不进 projectStats（那是项目墙在用的，口径不能动）。
+
+/** 每个项目的状态分布（概览卡的状态条 + 图例），与「总任务」同口径：只算活跃任务 */
+const pvBreakdown = computed<Record<string, Array<{ status: string; n: number; cls: string }>>>(() => {
+  const out: Record<string, Array<{ status: string; n: number; cls: string }>> = {}
+  for (const p of projects.value) {
+    const m = new Map<string, number>()
+    for (const t of tasks.value) {
+      if (normProject(t.project) !== p.id) continue
+      const s = t.status || '未标记'
+      m.set(s, (m.get(s) || 0) + 1)
+    }
+    out[p.id] = [...m.entries()]
+      .map(([status, n]) => ({ status, n, cls: statusClass(status) }))
+      .sort((a, b) => b.n - a.n)
+  }
+  return out
+})
+
+/** 每个项目最近动过的那条任务（「最近：<相对时间> · <标题>」） */
+const pvLatest = computed<Record<string, Task | null>>(() => {
+  const out: Record<string, Task | null> = {}
+  for (const p of projects.value) {
+    let best: Task | null = null
+    for (const t of tasks.value) {
+      if (normProject(t.project) !== p.id) continue
+      if (!t.updated) continue
+      if (!best || Number(parseTime(t.updated)) > Number(parseTime(best.updated))) best = t
+    }
+    out[p.id] = best
+  }
+  return out
+})
+
+/** 每个项目头上压着几条阻塞（阻塞源按它自己所属的项目计） */
+const pvBlocked = computed<Record<string, number>>(() => {
+  const byId = new Map(tasks.value.map(t => [t.id, t]))
+  const out: Record<string, number> = {}
+  for (const c of blockerChains.value) {
+    const t = byId.get(c.id)
+    const pid = t ? normProject(t.project) : ''
+    if (pid) out[pid] = (out[pid] || 0) + 1
+  }
+  return out
+})
+
+/** 状态条/图例的底色 —— 与 statusClass 同一套语汇，颜色按"冷→暖→收口"排 */
+const STATUS_SEG_COLOR: Record<string, string> = {
+  draft: '#c3bce0', review: '#b8a6d9', todo: '#9ca3af', doing: '#6366f1',
+  verify: '#d9a44a', done: '#54814b', reject: '#b44141',
+}
+function statusSegColor(cls: string): string {
+  return STATUS_SEG_COLOR[cls] || '#c3bce0'
+}
+
+/** 状态条一格的宽度（按任务数占比）；没有任务时给 0，条子自然空着 */
+function segWidth(n: number, total: number): string {
+  return total > 0 ? (n / total * 100).toFixed(2) + '%' : '0%'
+}
+
+/** 项目完成进度（0~100）—— 主从/概览共用；progress 还没读回来时是 0 而不是 NaN */
+function projectPercent(id: string): number {
+  const pp = (projectProgress.value || {})[id]
+  return pp && Number.isFinite(pp.percent) ? pp.percent : 0
+}
+
+/** 主从视图左侧选中的项目（默认第一个；不写 prefs —— 记一个可能消失的项目 id 没意义） */
+const pvSelected = ref<string>('')
+const pvCurrent = computed(() =>
+  projectStats.value.find(p => p.id === pvSelected.value) || projectStats.value[0] || null)
+
 const projectStats = computed(() => {
   return projects.value.map(p => {
     const projTasks = tasks.value.filter(t => normProject(t.project) === p.id)
@@ -2656,6 +3481,8 @@ const projectStats = computed(() => {
     return {
       id: p.id,
       name: p.name || p.id,
+      // 概览卡要显示工作目录（registry 里登记的那个）——项目墙不用它，但同一份数据顺手带上
+      repo: p.repo || '',
       taskCount: projTasks.length,
       activeTasks: active.length,
       completedTasks: completed.length,
@@ -2866,6 +3693,13 @@ function loadViewData(v: string) {
     // 日历要看任务 + 待办两条数据源（2026-09-22，用户第 6 条：此前完全不拉待办）
     loadAll()
     loadTodos()
+  } else if (v === 'projects') {
+    // 2026-09-29 补：**项目页签此前从不加载方针状态** —— `loadPolicyMap()` 只在打开设置页
+    // 和结构地图一览时调过。于是项目卡上那句三态文案（已立 / 待填 / ＋立方针）在没开过设置的
+    // 会话里**永远显示"＋ 立项目方针"**，概览卡上的「方针：未立」同源。
+    // 这不是显示瑕疵，是**界面在说假话**（明明立了方针却报未立），所以进门就刷一次。
+    loadAll()
+    loadPolicyMap()
   } else {
     loadAll()
   }
@@ -3770,15 +4604,16 @@ async function loadLogsForTask(taskId: string) {
   }
 }
 
-/** 一键完成日志：不走「填保留天数」模态，直接按默认 7 天完成 */
+/** 一键完成日志：不走「填保留天数」模态，按设置里的默认保留天数完成（2026-09-29 用户第 6 条） */
 async function quickCompleteLog(log: any) {
+  const days = logRetainDefault.value
   try {
-    const r = await window.tegula.logsComplete(log.id, 7, '')
+    const r = await window.tegula.logsComplete(log.id, days, '')
     if (r && !r.ok) {
       showToast(`完成失败：${r.error || '未知原因'}`, 'error')
       return
     }
-    showToast('日志已完成（保留 7 天）', 'success')
+    showToast(days > 0 ? `日志已完成（保留 ${days} 天，可在设置里改）` : '日志已完成（永不清理）', 'success')
     await loadLogs()
   } catch (e: any) {
     const msg = e?.message || e
@@ -3963,8 +4798,35 @@ const filteredTasks = computed(() => {
       return true
     })
   }
-  return result
+  return applySortMode(result)
 })
+
+/**
+ * 顶栏「活跃优先 / 最近更新 / 创建时间」排序 —— 2026-09-29 修。
+ *
+ * 真因：`sortMode` 此前**只在模板里绑了 v-model，全代码零引用** ——
+ * 下拉换了没有任何反应，是典型的"看起来能点、实际什么都不会发生"的死控件
+ * （和 check-template-bindings 专抓的那类僵尸是同一族，只不过死的是 ref 不是函数）。
+ *
+ * ⚠ 时间必须过 `parseTime()`：数据里同时存在 ISO（桌面版写）与**秒级 Unix 数字**
+ * （Python 版写），直接字符串比较会让"1790578721"整段排在"2026-09-28T…"前面。
+ * 解析不出来的排最后（NaN 不参与比较，避免顺序随机跳）。
+ */
+function applySortMode(list: Task[]): Task[] {
+  const mode = sortMode.value
+  if (mode !== 'updated' && mode !== 'created') return list // 'active' = 后端给的活跃优先序，不动
+  const key = (t: any) => parseTime(t?.[mode] ?? t?.fm?.[mode])
+  return [...list].sort((a, b) => {
+    const ta = key(a)
+    const kb = key(b)
+    const na = Number.isFinite(ta)
+    const nb = Number.isFinite(kb)
+    if (!na && !nb) return 0
+    if (!na) return 1
+    if (!nb) return -1
+    return kb - ta
+  })
+}
 
 function openCard(t: Task) {
   previewTask.value = t
@@ -4033,6 +4895,41 @@ async function copyTaskTitle(t: Task) {
   await copyWithToast(t.title || t.id, '已复制标题')
 }
 
+/**
+ * 弹药库（卡 031）：把这张卡拼成一份「派工单」文本并复制。
+ *
+ * 三段拼接，**零智能**：卡内容原文照贴 + 六字段骨架（已知的填上、判据留空）+ 纪律段。
+ * 只复制，不派发 —— 派发永远留人手。模板在 `shared/arsenal.ts`（卡片模板文本，不进 JSON）。
+ */
+async function copyTaskAsDispatch(t: Task): Promise<void> {
+  try {
+    const key = normProject((t as any).project)
+    const proj: any = (projects.value as any[]).find((p) => p && p.id === key)
+    const acceptance = String((t as any).fm?.验收判据 || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const text = buildDispatchText({
+      id: t.id,
+      title: t.title,
+      body: (t as any).body || '',
+      status: t.status,
+      path: (t as any).path || '',
+      priority: (t as any).priority || '',
+      tags: Array.isArray((t as any).tags) ? (t as any).tags : [],
+      projectRoot: proj?.repo || '',
+      projectName: proj?.name || key || '',
+      acceptance,
+    })
+    // 留痕：日志里能查到「点了哪条、复制了多长」（渲染层 console 会转发进应用日志）
+    const st = arsenalStatus({ status: t.status, path: (t as any).path || '' })
+    console.warn('[renderer:copy] arsenal dispatch id=' + t.id + ' state=' + st + ' len=' + text.length)
+    await copyWithToast(text, `已复制为派工单（弹药库状态：${st}）—— 判据那几栏留给你亲手写`)
+  } catch (e: any) {
+    showToast('拼派工单失败：' + (e?.message || e), 'error')
+  }
+}
+
 function deleteTaskById(t: Task) {
   deleteTask(t.id)
 }
@@ -4058,38 +4955,94 @@ const policyMap = ref<Record<string, boolean>>({})
 const policyExistsMap = ref<Record<string, boolean>>({})
 const policyEdit_ = ref<any>(null)
 
-// 029：结构地图缺口（方针卡已填但没「结构地图」节）—— 与章程缺口同一机制，一样只在条上显示计数。
+// 029：结构地图缺口（方针卡已填但没「结构地图」节）—— 与章程缺口同一机制。
 const policyMapHasStructure = ref<Record<string, boolean>>({})
+/** 每张卡结构地图里的「最后核实」日期（YYYY-MM-DD），没写就是空串 */
+const policyVerifiedMap = ref<Record<string, string>>({})
 
 const charterStats = computed(() => {
   const total = projects.value.length
-  let filled = 0, skeleton = 0, missing = 0, mapMissing = 0
+  let filled = 0, skeleton = 0, missing = 0, mapMissing = 0, mapReady = 0
   for (const p of projects.value) {
     if (policyMap.value[p.id]) filled++
     else if (policyExistsMap.value[p.id]) skeleton++
     else missing++
     // 空骨架必然也没有结构地图（同一个缺口），所以只对「已填」的项目算地图缺口
     if (policyMap.value[p.id] && !policyMapHasStructure.value[p.id]) mapMissing++
+    if (policyMap.value[p.id] && policyMapHasStructure.value[p.id]) mapReady++
   }
-  return { total, filled, skeleton, missing, mapMissing }
+  return { total, filled, skeleton, missing, mapMissing, mapReady }
 })
+
+/** 从结构地图正文里抠出「最后核实：YYYY-MM-DD」 */
+function extractVerified(text: string): string {
+  const m = /最后核实[：:]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/.exec(String(text || ''))
+  return m ? m[1] : ''
+}
 
 async function loadPolicyMap() {
   const filled: Record<string, boolean> = {}
   const exists: Record<string, boolean> = {}
   const hasMap: Record<string, boolean> = {}
+  const verified: Record<string, string> = {}
   for (const p of projects.value) {
     try {
       const r: any = await window.tegula.policyGet(p.id)
       const pol = r && r.policy ? r.policy : null
       exists[p.id] = !!pol
       filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
-      hasMap[p.id] = !!(pol && String(pol.structureMap || '').trim())
-    } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false }
+      const mapText = String((pol && pol.structureMap) || '')
+      // 只有**真填过**才算有：骨架里那行「（待填 —— …）」不算内容
+      hasMap[p.id] = !!mapText.trim() && !/最后核实[：:]\s*（待填/.test(mapText)
+      verified[p.id] = extractVerified(mapText)
+    } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false; verified[p.id] = '' }
   }
   policyMap.value = filled
   policyExistsMap.value = exists
   policyMapHasStructure.value = hasMap
+  policyVerifiedMap.value = verified
+}
+
+// ── 结构地图一览（029 的入口）──────────────────────────────────────────
+const smapOpen = ref(false)
+
+/** 一览行：**缺的排前面**（那才是要动的），同组按项目登记顺序 */
+const smapRows = computed(() => {
+  const rows = projects.value.map(p => ({
+    id: p.id,
+    name: p.name || p.id,
+    hasPolicy: !!policyExistsMap.value[p.id],
+    has: !!policyMapHasStructure.value[p.id],
+    verified: policyVerifiedMap.value[p.id] || '',
+  }))
+  return [...rows.filter(r => !r.has), ...rows.filter(r => r.has)]
+})
+
+async function openStructMap() {
+  smapOpen.value = true
+  await loadPolicyMap()   // 打开前刷一次，日期不会过期
+}
+
+async function openPolicyFromSmap(projectId: string) {
+  smapOpen.value = false
+  await openPolicyEdit(projectId)
+}
+
+/**
+ * 把「最后核实」那行改成今天（029 的核心纪律：地图必须有人签日期）。
+ * 没有这一行就补在最前面 —— 手改日期最容易忘，给一个按钮。
+ */
+function stampStructureMap() {
+  const e = policyEdit_.value
+  if (!e) return
+  const today = new Date()
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const line = `> 最后核实：${iso}`
+  const cur = String(e.structureMap || '')
+  e.structureMap = /最后核实[：:]/.test(cur)
+    ? cur.replace(/^([ \t]*>[ \t]*最后核实[：:])[^\n]*/m, line)
+    : (cur.trim() ? `${line}\n${cur}` : `${line}\n- 模块清单：\n- 主数据流：`)
+  showToast(`已标记最后核实 ${iso}（记得点保存）`, 'success')
 }
 
 /** 一键为「连文件都没有」的项目建立章程骨架（四个小节留空，等用户填；空骨架对 agent 等同未立） */
@@ -4111,19 +5064,22 @@ async function fillMissingCharters() {
 
 async function openPolicyEdit(projectId: string) {
   const proj = projects.value.find(p => p.id === projectId)
-  let mission = '', goal = '', scenario = '', boundary = ''
+  let mission = '', goal = '', scenario = '', boundary = '', structureMap = ''
   try {
     const r = await window.tegula.policyGet(projectId)
-    if (r.ok && r.policy) ({ mission, goal, scenario, boundary } = r.policy)
+    // 029：结构地图一并读进来 —— 此前只读四字段，界面上**根本看不到**结构地图（用户「找不到在哪里」）
+    if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap } = r.policy)
   } catch { /* 未立则空表单 */ }
-  policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary }
+  policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary, structureMap: structureMap || '' }
 }
 
 async function savePolicyEdit() {
   const e = policyEdit_.value
   if (!e) return
   try {
-    const r = await window.tegula.policySave({ projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario, boundary: e.boundary })
+    // 029：结构地图必须一起发 —— 不传 = 主进程沿用文件里已有的（安全），
+    // 但用户在这张表单里改的内容也就丢了。所以要显式带上。
+    const r = await window.tegula.policySave({ projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario, boundary: e.boundary, structureMap: e.structureMap })
     if (r.ok) {
       showToast('方针卡已保存', 'success')
       policyEdit_.value = null
@@ -4167,6 +5123,40 @@ const calShowLogs = ref(localStorage.getItem('fc_cal_show_logs') !== '0')
 let calDragId: string | null = null
 let calDragKind: 'task' | 'todo' = 'task'
 
+// ── 格子内事件折叠（2026-09-29 用户选「改法 A」）──────────────────────────
+// 035 卡的原话是「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
+// 剩下的密在**格子内部**：某天挂 5 条，格子里就是 5 根横条在抢同一份注意力。
+// 口径：最多 2 条 + 「+N 条」，点它**就地展开**（不跳页、不弹窗），再点收起。
+// ⚠ 跨天的时间段任务（span !== 'only'）不参与折叠 —— 折了会把连续色带切成断头。
+const CAL_CELL_LIMIT = 2
+const calExpandedDays = ref<string[]>([])
+const calCellKey = (cell: any): string => `${calYear.value}-${calMonth.value}-${cell.day}`
+function calCellExpanded(cell: any): boolean {
+  return !!cell && calExpandedDays.value.includes(calCellKey(cell))
+}
+function calCellShown(cell: any): any[] {
+  if (!cell) return []
+  if (calCellExpanded(cell)) return cell.events
+  const out: any[] = []
+  let n = 0
+  for (const ev of cell.events) {
+    if (ev.span !== 'only') { out.push(ev); continue }
+    if (n < CAL_CELL_LIMIT) { out.push(ev); n++ }
+  }
+  return out
+}
+function calCellMore(cell: any): number {
+  return cell ? cell.events.length - calCellShown(cell).length : 0
+}
+function toggleCalCell(cell: any): void {
+  const k = calCellKey(cell)
+  calExpandedDays.value = calCellExpanded(cell)
+    ? calExpandedDays.value.filter(x => x !== k)
+    : calExpandedDays.value.concat(k)
+}
+/** 换月时清掉展开痕迹，否则下个月的同一天号会"莫名是展开的" */
+function clearCalExpanded(): void { calExpandedDays.value = [] }
+
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 
 function calMove(delta: number) {
@@ -4174,14 +5164,17 @@ function calMove(delta: number) {
   let y = calYear.value
   if (m < 0) { m = 11; y-- } else if (m > 11) { m = 0; y++ }
   calMonth.value = m; calYear.value = y
+  clearCalExpanded()
 }
 function calToday() {
   calYear.value = new Date().getFullYear()
   calMonth.value = new Date().getMonth()
+  clearCalExpanded()
 }
 function calGoto(y: number, m: number) {
   calYear.value = y
   calMonth.value = m
+  clearCalExpanded()
 }
 function calToggleTodos() {
   calShowTodos.value = !calShowTodos.value
@@ -4378,7 +5371,7 @@ async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
 //   ① 项目筛选原来是**漏筛**（`!t.project || t.project === X`）：选了项目 X 还会显示不归属的，
 //      看着就像"筛选坏了"。现在精确匹配，并单列「（不归属任何项目）」这一项。
 //   ② 同一个下拉既当筛选又当"新建默认归属"，两件事挤在一个控件里 → 现在只当筛选；
-//      新建归属走「大框新建」（弹窗里本来就有项目字段，且默认跟随当前筛选）。
+//      新建归属走「＋ 新建待办」（弹窗里本来就有项目字段，且默认跟随当前筛选）。
 //   ③ 排序规则不可见、也不可选 → 加排序下拉（默认 / 到期日 / 最新创建），选择持久化。
 //   ④ 有到期日却不标逾期、优先级只有"高"有徽章 → 现在三档都显示，逾期单独标红并算天数。
 const todoProjectFilter = ref('__all__')
@@ -4465,34 +5458,7 @@ async function loadTodos() {
   }
 }
 
-async function executeTodoAdd() {
-  const text = todoInput.value.trim()
-  // 2026-09-22：原来空输入是**静默 return**，用户点了没有任何反应，
-  // 从外面看就像"按钮无效"。所有分支都必须有反馈。
-  if (!text) {
-    showToast('请先在左侧输入框里填写待办内容', 'info')
-    return
-  }
-  // 快速语法：p0/p1/p2 优先级；归属项目跟当前筛选联动
-  let priority = '中'
-  let title = text
-  const m = text.match(/^(.*?)\s+(p[012])$/i)
-  if (m) { title = m[1]; priority = { p0: '高', p1: '中', p2: '低' }[m[2].toLowerCase()] || '中' }
-  const project = todoProjectFilterProject()
-  try {
-    const result = await window.tegula.todosCreate(title, priority, undefined, project)
-    if (result && result.ok) {
-      todoInput.value = ''
-      showToast('已添加', 'success')
-      await loadTodos()
-    } else {
-      showToast('添加失败：' + ((result && result.error) || '未知原因'), 'error')
-    }
-  } catch (e: any) {
-    // 落到这里说明 IPC 本身炸了（通道缺失/主进程异常），必须让人看见
-    showToast('添加失败：' + (e?.message || e), 'error')
-  }
-}
+// 「+ 添加」小框已于 2026-09-29 移除（用户第 1 条）：新建只留一个入口 = openTodoCreator() 大框。
 
 // ── 拖拽提示的稳定显示（2026-09-22，用户第 4/5 条）──────────────────────
 // 症状：拖动文件时「松手导入…」提示高频闪烁、按不住。
@@ -4687,7 +5653,6 @@ async function saveTodoEdit() {
     if (r && (r.ok || r.id || r.todo)) {
       showToast(t.id ? '已保存' : '已添加', 'success')
       todoEdit_.value = null
-      if (!t.id) todoInput.value = ''
       await loadTodos()
     } else {
       showToast('保存失败：' + ((r && r.error) || '未知错误'), 'error')
@@ -4703,12 +5668,14 @@ async function saveTodoEdit() {
 
 const logs = ref<any[]>([])
 const logSearchInput = ref('')
-const logStatusFilter = ref('')
+// 2026-09-28 用户第 5 条：`logStatusFilter` 已删除 —— 状态由分区表达，不再用下拉筛。
 const logProjectFilter = ref('')
 const logAgentFilter = ref('')
 const logDateFrom = ref('')
 const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
+/** 接力对话框（2026-09-29 方案二）：源日志 + 预填字段 + 两个出清开关 */
+const relay_ = ref<any>(null)
 // Agent 预设列表（设置页可增删）。
 // 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
 // localStorage 绑定 origin，dev 换 host（localhost→127.0.0.1）或打包版 file:// 都会把预设清空。
@@ -4765,45 +5732,140 @@ function removeAgentPreset(index: number) {
 }
 let logPollingTimer: ReturnType<typeof setInterval> | null = null
 
-const filteredLogs = computed(() => {
-  let list = logs.value
-  if (logStatusFilter.value) {
-    list = list.filter(l => l.status === logStatusFilter.value)
+/**
+ * 过滤后的日志（2026-09-28 用户第 5 条）。
+ *
+ * **状态筛选下拉被删掉了** —— 用户原话「那些筛选实际上除了把信息搞得支离破碎以外
+ * 没什么作用」。原因很清楚：状态下拉是一个"单值"控件，而人需要同时看到
+ * 「谁在跑 / 谁没跑 / 谁跑完了」这三件事，单选必然把画面切碎。
+ * 现在状态由**分区**表达（`groupedLogs`），筛选只负责**缩小数据集**
+ * （搜索词 / 项目 / Agent / 日期），两者不再打架。
+ */
+const filteredLogs = computed(() => logs.value)
+
+// ── 按状态分区（2026-09-28）────────────────────────────────────────────
+const LOG_GROUP_DEFS = [
+  { key: 'running', label: '进行中', hint: '手动标了「进行中」的' },
+  { key: 'active', label: '待处理', hint: '' },
+  { key: 'completed', label: '已完成', hint: '' },
+  { key: 'archived', label: '已归档', hint: '' },
+] as const
+
+/**
+ * 分区结果。**置顶单独成区放最前**（2026-09-26 卡 037 的承诺：钉住的一直看得见）——
+ * 原来置顶是靠"把卡片插到列表最前"，有了分区以后那样做会把一条归档日志混进待处理区，
+ * 反而看不懂。独立成区既保住承诺，又不骗人。
+ */
+const groupedLogs = computed(() => {
+  const all = filteredLogs.value
+  const groups: Array<{ key: string; label: string; hint: string; logs: any[] }> = []
+  const pinned = all.filter(l => l.pinned)
+  if (pinned.length) groups.push({ key: 'pinned', label: '置顶', hint: '', logs: pinned })
+  const rest = all.filter(l => !l.pinned)
+  for (const d of LOG_GROUP_DEFS) {
+    const list = rest.filter(l => logGroupKey(l) === d.key)
+    if (list.length) groups.push({ key: d.key, label: d.label, hint: d.hint, logs: list })
   }
-  return list
+  return groups
 })
 
-// ── 归档日志独立分区（2026-09-25 第 16 条后半句：批量归档后仍占主视图）──────
-// 归档的语义是「先别看了」，不该继续混在主列表里。做法与看板分组一致：
-// 主区只放未归档，已归档收进独立分区（默认收起），**分区头插在第一条归档日志前** ——
-// 判断写在同一个 v-for 里（用 index 看前一条），避免把卡片 markup 复制两份（复制必走样）。
-const nonArchivedLogs = computed(() => filteredLogs.value.filter(l => l.status !== 'archived'))
-const archivedLogs = computed(() => filteredLogs.value.filter(l => l.status === 'archived'))
-/**
- * 展示顺序（2026-09-26 卡 037）：**置顶的跨分区排最前**，其余仍是「未归档在前、归档在后」。
- * 若不这样处理，钉住的归档日志会被既有分区规则顶到列表末尾 —— 置顶就成了假动作。
- */
-const displayedLogs = computed(() => {
-  const all = [...nonArchivedLogs.value, ...archivedLogs.value]
-  return [...all.filter(l => l.pinned), ...all.filter(l => !l.pinned)]
-})
-const logArchiveOpen = ref(readUiPref<boolean>('fc_log_archive_open', false))
-function toggleLogArchive(): void {
-  logArchiveOpen.value = !logArchiveOpen.value
-  saveUiPref('fc_log_archive_open', logArchiveOpen.value)
+/** 一条日志属于哪个分区： running 优先于 status（进行中必然是未完成的） */
+function logGroupKey(l: any): string {
+  if (l.status === 'active') return l.running ? 'running' : 'active'
+  return String(l.status || 'active')
 }
-/** 这条归档日志是否需要「显示」（收起时整条 v-show 掉） */
-function logVisible(log: any): boolean {
-  // 置顶的一律显示（2026-09-26 卡 037）：钉住它的意义就是"一直看得见"，
-  // 若被归档区折叠藏掉，置顶功能自相矛盾。
-  if (log.pinned) return true
-  return log.status !== 'archived' || logArchiveOpen.value
+
+/** 分区折叠状态（写回真身，重启保留）。默认收起「已归档」——归档的语义就是「先别看了」。 */
+const collapsedLogGroups = ref<string[]>(readUiPref<string[]>('fc_log_group_collapsed', ['archived']))
+function isLogGroupCollapsed(key: string): boolean {
+  return collapsedLogGroups.value.includes(key)
+}
+function toggleLogGroup(key: string): void {
+  const idx = collapsedLogGroups.value.indexOf(key)
+  if (idx >= 0) collapsedLogGroups.value.splice(idx, 1)
+  else collapsedLogGroups.value.push(key)
+  saveUiPref('fc_log_group_collapsed', collapsedLogGroups.value)
+}
+
+// ── 按链视图（2026-09-29 第 3 条方案二）──────────────────────────────
+// 分段开关「分区｜按链」。默认仍是分区 —— 加视图不改旧的。
+// 按链 = 连通分量：沿 continueFrom（续自）把前后相承的日志串成一条竖轨，
+// 不引入新实体、不建数据库，链只活在渲染层的一次计算里。
+const logsViewMode = ref<'groups' | 'chain'>(readUiPref<'groups' | 'chain'>('fc_logs_view_mode', 'groups'))
+function setLogsViewMode(m: 'groups' | 'chain'): void {
+  logsViewMode.value = m
+  saveUiPref('fc_logs_view_mode', m)
+}
+
+/** 当前渲染单元：分区视图 = 原 groupedLogs；按链视图 = 链/单条 sections */
+const renderSections = computed(() => {
+  if (logsViewMode.value !== 'chain') return groupedLogs.value as any[]
+  return buildChainSections(filteredLogs.value)
+})
+
+function buildChainSections(all: any[]): any[] {
+  const byId = new Map(all.map(l => [l.id, l] as const))
+  // 链头：沿 continueFrom 走到走不动为止（环/断链/筛选掉的父级都算尽头，guard 防自指环）
+  const rootOf = (l: any): string => {
+    let cur = l
+    const seen = new Set<string>()
+    let guard = 0
+    while (cur?.continueFrom && byId.has(cur.continueFrom) && !seen.has(cur.id) && guard++ < 50) {
+      seen.add(cur.id)
+      cur = byId.get(cur.continueFrom)
+    }
+    return cur.id
+  }
+  const comps = new Map<string, any[]>()
+  for (const l of all) {
+    const r = rootOf(l)
+    const arr = comps.get(r) || []
+    arr.push(l)
+    comps.set(r, arr)
+  }
+  const sections: any[] = []
+  for (const [root, members] of comps) {
+    members.sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')))
+    if (members.length >= 2) {
+      const head = members[0]
+      const tail = members[members.length - 1]
+      sections.push({
+        key: 'chain:' + root,
+        label: '', hint: '', logs: members,
+        chain: {
+          name: members.length === 2 ? `${head.title} → ${tail.title}` : `${head.title} → … → ${tail.title}`,
+          count: members.length,
+          since: formatDate(head.created),
+          recent: formatDate(tail.created),
+          tail,
+        },
+      })
+    } else {
+      sections.push({ key: 'single:' + root, label: '', hint: '', logs: members, chain: null })
+    }
+  }
+  // 排序：谁最近活跃谁在前（链头字符串 = 最后一个成员的 created）
+  sections.sort((a, b) => String(a.logs[a.logs.length - 1]?.created || '').localeCompare(String(b.logs[b.logs.length - 1]?.created || '')))
+  return sections.reverse()
+}
+
+// ── 「更多筛选」抽屉（2026-09-28 用户第 5 条）──────────────────────────
+// Agent / 日期范围此前和搜索框并排摊开，6 个控件挤在一条线上 —— 用户「看起来还是晕」。
+// 低频的那两个收进抽屉，默认收起；抽屉里有值时给按钮打个角标，避免"筛了却忘"。
+const logMoreFilterOpen = ref(false)
+const logMoreFilterCount = computed(() =>
+  (logAgentFilter.value ? 1 : 0) + (logDateFrom.value ? 1 : 0) + (logDateTo.value ? 1 : 0))
+function toggleLogMoreFilter(): void { logMoreFilterOpen.value = !logMoreFilterOpen.value }
+async function clearLogMoreFilters(): Promise<void> {
+  logAgentFilter.value = ''
+  logDateFrom.value = ''
+  logDateTo.value = ''
+  await loadLogs()
 }
 
 async function loadLogs() {
   try {
     const filter: any = {}
-    if (logStatusFilter.value) filter.status = logStatusFilter.value
     if (logProjectFilter.value) filter.project = logProjectFilter.value
     if (logAgentFilter.value) filter.agent = logAgentFilter.value
     if (logDateFrom.value) filter.dateFrom = logDateFrom.value
@@ -4814,8 +5876,34 @@ async function loadLogs() {
   }
 }
 
-function logStatusLabel(status: string): string {
-  return { active: '进行中', completed: '已完成', archived: '已归档' }[status] || status
+function logStatusLabel(log: any): string {
+  if (!log) return ''
+  // 2026-09-28 用户第 2 条：`active` 的中文从「进行中」改成「**待处理**」——
+  // 「进行中」现在是 running 这个手动标记的专属名字，不再由 status 自动带来。
+  if (log.status === 'active' && log.running) return '进行中'
+  return { active: '待处理', completed: '已完成', archived: '已归档' }[log.status] || String(log.status || '')
+}
+
+/** 徽章 class：running 优先（进行中的视觉最醒目） */
+function logStatusClass(log: any): string {
+  if (!log) return ''
+  return log.status === 'active' && log.running ? 'running' : String(log.status || '')
+}
+
+/**
+ * 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。
+ * 这是「进行中」的唯一入口：创建不会再自动打上，完成/归档也只会把它关掉。
+ * 可撤销 —— 关掉即回到「待处理」，不会误伤任何东西。
+ */
+async function toggleLogRunning(log: any): Promise<void> {
+  const next = !log.running
+  const r: any = await window.tegula.logsSetRunning(log.id, next)
+  if (r && r.ok) {
+    showToast(next ? '已标为「进行中」' : '已撤销「进行中」，回到待处理', 'success')
+    await loadLogs()
+  } else {
+    showToast(`操作失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
 }
 
 function toggleLogBatchMode() {
@@ -4918,7 +6006,7 @@ function openLog(log: any) {
 
 const logCompleting = ref(false)
 const logArchiveMode = ref(false)
-const logRetainDays = ref('7')
+const logRetainDays = ref(String(logRetainDefault.value))
 const logNote = ref('')
 
 function openNewLog() {
@@ -4929,8 +6017,107 @@ function openNewLog() {
   logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', logDate: '' }
   logCompleting.value = false
   logArchiveMode.value = false
-  logRetainDays.value = '7'
+  logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
+}
+
+/** 日志 ID 缩写：`log_20260927…c73e`（卡面链标签用，完整 ID 挂 title） */
+function shortLogId(id: string): string {
+  const s = String(id || '')
+  return s.length > 22 ? `${s.slice(0, 14)}…${s.slice(-4)}` : s
+}
+
+/**
+ * 接力对话框（2026-09-29 方案二）。
+ * 预填规则：标题 = 源标题（让人一眼看出要改）；下一步/项目/任务/Agent 全部继承源；
+ * 勾选默认 = 未完成的关联任务进新日志、源日志归档出清、源任务不动。
+ */
+function openRelay(src: any): void {
+  if (!src) return
+  const all = [...tasks.value, ...archivedTasks.value]
+  const srcIds: string[] = Array.isArray(src.taskIds) && src.taskIds.length
+    ? src.taskIds.filter(Boolean)
+    : (src.taskId ? [String(src.taskId)] : [])
+  const candidates = srcIds.map(id => {
+    const t = all.find(x => x.id === id)
+    return { id, title: t?.title || '(不在任务列表中)', status: t?.status || '未知' }
+  })
+  relay_.value = {
+    src,
+    title: src.title || '',
+    project: src.project || '',
+    nextSteps: src.nextSteps || '',
+    taskCandidates: candidates,
+    taskIds: candidates.filter(c => c.status !== '完成' && c.status !== '驳回').map(c => c.id),
+    agentName: src.agentName || '',
+    archiveSource: true,
+    completeSourceTasks: false,
+  }
+  logBatchMode.value = false
+}
+
+/**
+ * 执行接力：**先建新日志，再动源**（顺序是安全约束 —— 先归档源、新建失败 = 源没了后继也没了）。
+ * 四件事：① 建新日志（继承下一步/项目/任务/Agent + 写 续自）
+ *        ② 源日志归档出清（不带 note：不覆盖源的「完成确认」，链关系已由 续自 记录）
+ *        ③ 源关联任务置完成（可选，跳过已是终态的）
+ *        ④ 立即标「进行中」（可选，走唯一写入路径 logsSetRunning）
+ */
+async function executeRelay(startRunning: boolean): Promise<void> {
+  const r = relay_.value
+  if (!r) return
+  const title = String(r.title || '').trim()
+  if (!title) {
+    showToast('标题不能为空', 'error')
+    return
+  }
+  const src = r.src
+  try {
+    const created: any = await window.tegula.logsCreate(title, r.project, '', (r.taskIds || [])[0] || undefined, {
+      taskIds: r.taskIds || [],
+      agentName: r.agentName || '',
+      nextSteps: r.nextSteps || '',
+      continueFrom: src.id,
+      logDate: '',
+    })
+    if (!created?.ok) {
+      showToast(`创建失败：${created?.error || '未知原因'}`, 'error')
+      return
+    }
+    const newId = created.data?.id || ''
+    const problems: string[] = []
+    if (r.archiveSource) {
+      const a: any = await window.tegula.logsArchive(src.id)
+      if (!a?.ok) problems.push(`源日志归档失败：${a?.error || '未知原因'}`)
+    }
+    if (r.completeSourceTasks) {
+      const all = [...tasks.value, ...archivedTasks.value]
+      const srcIds: string[] = Array.isArray(src.taskIds) && src.taskIds.length ? src.taskIds.filter(Boolean) : (src.taskId ? [String(src.taskId)] : [])
+      for (const id of srcIds) {
+        const t = all.find(x => x.id === id)
+        if (!t || t.status === '完成' || t.status === '驳回') continue
+        try {
+          const mv: any = await window.tegula.moveStatus(id, '完成')
+          if (mv && mv.ok === false) problems.push(`任务 ${id} 置完成失败：${mv.error || ''}`)
+        } catch (e: any) {
+          problems.push(`任务 ${id} 置完成失败：${e?.message || e}`)
+        }
+      }
+    }
+    if (startRunning && newId) {
+      const run: any = await window.tegula.logsSetRunning(newId, true)
+      if (!run?.ok) problems.push(`标「进行中」失败：${run?.error || '未知原因'}`)
+    }
+    relay_.value = null
+    await loadLogs()
+    if (problems.length) {
+      showToast(`已创建 ${newId}，但：${problems.join('；')}`, 'error')
+    } else {
+      showToast(startRunning ? `已接力开跑：${newId}` : `已创建：${newId}`, 'success')
+    }
+  } catch (err: any) {
+    showToast(`接力失败：${err.message || err}`, 'error')
+  }
 }
 
 /** 日志可关联的任务候选：按所选项目过滤（用户第 2 条：便于选择，而非手填 ID） */
@@ -5077,10 +6264,13 @@ async function saveLogEdit() {
   }
   try {
     if (logCompleting.value) {
-      const rd = parseInt(logRetainDays.value) || 7
+      // ⚠ 原来是 `parseInt(...) || 7` —— 用户填 0（永不清理）会被 `||` 吃成 7，
+      //    「0=永不」这个标注过的选项根本落不了地（2026-09-29 用户第 6 条顺手修）。
+      const parsed = parseInt(logRetainDays.value, 10)
+      const rd = Number.isNaN(parsed) || parsed < 0 ? logRetainDefault.value : parsed
       const result = await window.tegula.logsComplete(e.id, rd, logNote.value || undefined)
       if (result.ok) {
-        showToast(`已标记完成（保留 ${rd} 天）`, 'success')
+        showToast(rd > 0 ? `已标记完成（保留 ${rd} 天）` : '已标记完成（永不清理）', 'success')
       } else {
         showToast(`完成失败：${result.error || '未知原因'}`, 'error')
         return
@@ -5138,7 +6328,7 @@ function completeLogItem(id: string) {
   logEdit_.value = { ...log }
   logCompleting.value = true
   logArchiveMode.value = false
-  logRetainDays.value = '7'
+  logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
 }
@@ -5149,25 +6339,25 @@ function archiveLogItem(id: string) {
   logEdit_.value = { ...log }
   logCompleting.value = false
   logArchiveMode.value = true
-  logRetainDays.value = '7'
+  logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
 }
 
 /**
- * 把日志**临时打回「进行中」**（2026-09-26 用户补充第 3 条）。
+ * 撤销「完成 / 归档」，退回**待处理**（2026-09-28 用户第 2 条重新定位）。
  *
- * 此前状态是单行道 active → completed → archived：点过一次「完成」或「归档」就再也回不去，
- * 而真实用法常常是「这条我现在又在弄了」。数据层加 `reopenLog`（顺手清掉 completed / 保留期，
- * 不然「已完成」字样会留在卡上），这里给入口；卡面用更醒目的进行中样式。
+ * 用户要的是"误操作能撤"：以前这个按钮叫「▶ 进行中」，撤销的同时顺手把你标成进行中，
+ * 于是撤销一个误点的「完成」反而多出一个「进行中」—— 撤销本身变成了新的意外。
+ * 现在撤销只回到待处理；要不再要「进行中」由 `toggleLogRunning` 那只开关决定。
  */
 async function reopenLogItem(id: string) {
   const r: any = await window.tegula.logsReopen(id)
   if (r && r.ok) {
-    showToast('已打回「进行中」', 'success')
+    showToast('已撤销，回到「待处理」', 'success')
     await loadLogs()
   } else {
-    showToast(`打回失败：${(r && r.error) || '未知原因'}`, 'error')
+    showToast(`撤销失败：${(r && r.error) || '未知原因'}`, 'error')
   }
 }
 
@@ -5243,16 +6433,17 @@ async function copyLogMeta(log: any): Promise<void> {
 /**
  * 复制并标记已派（用户原话：「复制→粘给 agent→这条其实已派出去了」两步并一步）。
  *
- * 「已派」在本系统的既有语义里就是**回到「进行中」**（卡 002 的临时打回同一条路）——
- * 所以不新增状态值、不新增字段：复制带元信息之后，若它不在进行中就把它打回进行中。
+ * 2026-09-28 调整：「已派」= 这条**正在跑**，所以走的是手动开「进行中」那条路
+ * （`logs:setRunning`）。以前走 `logs:reopen`（把状态改成 active）—— 那时 active 就等于
+ * 进行中；现在 active 是「待处理」，再走老通道会变成"复制一下，反而标记成没在跑"。
  */
 async function copyAndDispatchLog(log: any): Promise<void> {
   const ok = await copyWithToast(logMetaText(log), '已复制并标记已派（这条已置为「进行中」）')
   if (!ok) return
-  if (log.status === 'active') return
-  const r: any = await window.tegula.logsReopen(log.id)
+  if (log.running) return
+  const r: any = await window.tegula.logsSetRunning(log.id, true)
   if (r && r.ok) await loadLogs()
-  else showToast(`已复制，但打回进行中失败：${(r && r.error) || '未知原因'}`, 'error')
+  else showToast(`已复制，但标记「进行中」失败：${(r && r.error) || '未知原因'}`, 'error')
 }
 
 async function toggleLogPin(log: any): Promise<void> {
@@ -5392,6 +6583,9 @@ async function rejectTask() {
 
 function onDragStart(e: DragEvent, id: string) {
   draggingId.value = id
+  // 拖拽一开始就把悬停浮层收掉：否则它会挂在屏幕上跟着拖（浮层只在 hover 里生成，
+  // 但拖拽期间鼠标会离开卡、也可能不触发 mouseleave，干脆在这里主动清一次）
+  onCardLeave()
   e.dataTransfer?.setData('text/plain', id)
   // 1x1 透明像素作为拖拽图像，消除系统默认的半透明"分身"幻影
   const img = new Image()
@@ -5804,7 +6998,7 @@ async function openAppLogDir(): Promise<void> {
  */
 async function checkRuntimeFreshness(): Promise<void> {
   const t: any = (window as any).tegula || {}
-  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'todosHealth', 'logsUpdate', 'logsReopen', 'launchpadLaunchApp', 'trashList', 'trashRestore', 'trashPurge', 'skillsList', 'skillsOpenDir', 'skillsImported', 'skillsImportPick', 'skillsImport', 'skillsRemove',
+  const need = ['applogWrite', 'applogPath', 'applogOpenDir', 'applogTail', 'todosCreate', 'todosHealth', 'logsUpdate', 'logsReopen', 'logsSetRunning', 'launchpadLaunchApp', 'trashList', 'trashRestore', 'trashPurge', 'skillsList', 'skillsOpenDir', 'skillsImported', 'skillsImportPick', 'skillsImport', 'skillsRemove',
     'servicesList', 'servicesAdd', 'servicesRemove', 'servicesOpen', 'servicesAdopt']
   const missing = need.filter(k => typeof t[k] !== 'function')
   if (missing.length) {
@@ -5945,6 +7139,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
   if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
+  if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }
   document.removeEventListener('mousedown', onDocumentClick)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('keydown', onShortcutKeydown)
@@ -5974,6 +7169,92 @@ onUnmounted(() => {
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
   --danger:  #b44141;    /* 白字 3.65 → 5.57 */
+  /* 主题令牌（2026-09-29 用户第 4 条）：下面五个此前**散落在各处的写死十六进制**
+     （hover 染色、面板底、次级描边、装饰光斑），主题只是把它们换成随主题变的令牌。
+     默认值 = 原值，所以「雾灰紫（默认）」一个像素都不动。 */
+  --tint: #f1eefb;      /* 选中 / 激活的浅染 */
+  --tint-2: #fbfaff;    /* 悬停的更浅染 */
+  --tint-3: #fafafd;    /* 中性面板底 */
+  --line-2: #dcd8ee;    /* 次级描边 */
+  --blob-a: #cfc6ec;    /* 装饰光斑上 */
+  --blob-b: #cdd9ee;    /* 装饰光斑下 */
+}
+
+/* ── 主题（2026-09-29 用户第 4 条：「似乎多主题颜色外观并不存在…参考绒花墨坊做一下」）──
+   做法照抄绒花墨坊 console/src/style.css：一套浅色主题只换令牌，挂在 <html data-theme="x">。
+   墨坊那条硬规矩一并沿用：**只做浅色主题**（它注释里写着「仅浅色模式」）——
+   方寸界面里有大量写死的白底（#fff 卡面/弹窗），做半吊子暗色 = 文字直接看不见。
+   每套配色全部过 WCAG AA（正文 / 次要文字 / 白字压品牌色 ≥4.5，实测最低 5.0），
+   守卫：scripts/test/check-themes.cjs（改配色不跑它 = 白改）。 */
+:root[data-theme='pink'] {
+  --bg: #fdf2f5;
+  --ink: #411621;
+  --muted: #8c5c64;
+  --accent: #ac4657;
+  --accent-soft: #eacad0;
+  --border: #edd7dd;
+  --tint: #f9f3f4;
+  --tint-2: #fcf9fa;
+  --tint-3: #fcfbfb;
+  --line-2: #eacdd5;
+  --blob-a: #eacad0;
+  --blob-b: #eed3da;
+}
+:root[data-theme='blue'] {
+  --bg: #eef4fb;
+  --ink: #192a3e;
+  --muted: #556984;
+  --accent: #3668ab;
+  --accent-soft: #c9d8eb;
+  --border: #d7e1ed;
+  --tint: #f3f6f9;
+  --tint-2: #f9fafc;
+  --tint-3: #fbfbfc;
+  --line-2: #cddaea;
+  --blob-a: #c9d8eb;
+  --blob-b: #d3dfee;
+}
+:root[data-theme='green'] {
+  --bg: #eff5f1;
+  --ink: #233428;
+  --muted: #4d6f5f;
+  --accent: #377457;
+  --accent-soft: #cde7db;
+  --border: #dbe8df;
+  --tint: #f3f9f6;
+  --tint-2: #f9fcfa;
+  --tint-3: #fbfcfb;
+  --line-2: #d3e4d9;
+  --blob-a: #cde7db;
+  --blob-b: #d9e7de;
+}
+:root[data-theme='orange'] {
+  --bg: #fdf6ec;
+  --ink: #433014;
+  --muted: #7c6650;
+  --accent: #975c21;
+  --accent-soft: #ebdac9;
+  --border: #ede4d7;
+  --tint: #f9f6f3;
+  --tint-2: #fcfaf9;
+  --tint-3: #fcfbfb;
+  --line-2: #eadecd;
+  --blob-a: #ebdac9;
+  --blob-b: #eee3d3;
+}
+:root[data-theme='gray'] {
+  --bg: #f4f4f6;
+  --ink: #262631;
+  --muted: #676872;
+  --accent: #65687b;
+  --accent-soft: #d6d7de;
+  --border: #dfdfe5;
+  --tint: #f5f5f7;
+  --tint-2: #fafafb;
+  --tint-3: #fbfbfc;
+  --line-2: #d8d8df;
+  --blob-a: #d6d7de;
+  --blob-b: #dddde3;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5995,35 +7276,99 @@ body {
    这里补一组**与祖先无关**的兜底。用 `:where()` 把选择器特异性压到 (0,1,0)，
    且放在样式表最前面：任何已有的更具体/同特异性的规则都仍然覆盖它。
    配套守卫：scripts/test/check-button-styles.cjs（自动扫同类漏样式）。 */
+
+/* ── 按钮尺寸规范（2026-09-29 卡 027，用户按小样拍板）──────────────────
+   问题不是"某个按钮没样式"（那已被守卫兜住），而是**不成体系**：
+   全站 9+ 种写法各写各的高宽圆角，同一条行里能出现三种高度、三种圆角。
+   这里把「高度 / 圆角 / 字号 / 内距」收成一组变量，四类按钮共用：
+     主(pri) 一屏 1 个 · 次(ghost) 绝大多数 · 危险(danger) 只给破坏性动作 · 图标(icon) 纯符号
+   两档尺寸：工具行 28（默认）· 弹窗主按钮 32（.lg）· 密集列表 24（.sm）
+   ⚠ **不改任何现有 class 名** —— 模板一行不动，只把这些 class 的长相统一。 */
+:root {
+  --btn-h: 28px;      /* 工具行 */
+  --btn-h-lg: 32px;   /* 弹窗主按钮 */
+  --btn-h-sm: 24px;   /* 密集列表（待办行尾那一串） */
+  --btn-r: 8px;
+  --btn-fs: 12px;
+  --btn-px: 14px;
+}
 button { font-family: inherit; cursor: pointer; }
 button[disabled] { opacity: .55; cursor: not-allowed; }
 button:not([class]) {
-  padding: 6px 14px; border: 0; border-radius: 8px;
-  font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+  font-size: var(--btn-fs); font-weight: 600; line-height: 1;
   background: var(--accent); color: #fff;
 }
-:where(button.ghost)   { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px;
-                         font-size: 12px; font-weight: 600; background: #fff; color: var(--ink); }
-:where(button.pri)     { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+:where(button.ghost)   { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 1px solid var(--border); border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1; background: #fff; color: var(--ink); }
+:where(button.pri)     { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1;
                          background: var(--accent); color: #fff; }
-:where(button.ok)      { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+:where(button.ok)      { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1;
                          background: var(--success); color: #fff; }
-:where(button.warning) { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+:where(button.warning) { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1;
                          background: var(--warning); color: #fff; }
-:where(button.danger)  { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600;
+:where(button.danger)  { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1;
                          background: var(--danger); color: #fff; }
-:where(button.ghost):hover { background: #f4f1fc; border-color: var(--accent-soft); }
+:where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }
+/* 第二档：弹窗里的主/次按钮大一号（32）—— 弹窗里动作更重，按钮更好点 */
+.overlay .acts button.ghost, .overlay .acts button.pri, .overlay .acts button.ok,
+.overlay .acts button.danger, .overlay .acts button.warning {
+  height: var(--btn-h-lg); padding: 0 16px; font-size: 12.5px;
+}
+
+/* ── 控件交互反馈（2026-09-29 用户第 5 条：「控件交互可以强化，提高反馈体验」）────
+   悬停反馈全站早就有了（.todo-item:hover / .log-card:hover / button:hover …），
+   缺的是另外两种：**按下去没有物理反馈**（点了像没点，于是会再点一次 —— 
+   2026-09-25 「点了没反应要多点几次」除了合成器问题，另一半是这个）
+   和**键盘用户看不见焦点在哪**。三条一起补，且不改任何外观配色：
+   ① 按压：下沉 1px + 轻微缩放（只在 :active 瞬间，不改变布局）
+   ② 焦点：只在 :focus-visible 画圈 —— 鼠标点击不画，Tab 走查才画
+   ③ 过渡：悬停/按压统一 80~120ms，不再有的快有的顿 */
+button, select, textarea,
+input[type='text'], input[type='date'], input[type='number'], input[type='search'], input[type='password'] {
+  transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease,
+              transform .08s ease, filter .12s ease, opacity .12s ease;
+}
+button { user-select: none; -webkit-user-select: none; }
+button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+:where(select, input[type='checkbox'], input[type='radio']):active { transform: translateY(1px); }
+:where(button, select, input, textarea, .vbtn):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--btn-r);
+}
+:where(input:not([type='checkbox']):not([type='radio']), textarea):focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 /* 装饰光斑：**保留视觉，只改合成策略**（2026-09-25 用户第 4 条 + 第 1/3/9 条）。
    两个 460/420px 的元素挂着 blur(70px) —— 高斯模糊是最贵的栅格化操作之一，
    而它们是 position:fixed 常驻元素。加 will-change: transform 让 Chromium 把它
    提为独立合成层、把模糊结果**缓存成纹理**（只栅格化一次），
-   不再随每次合成重新算。视觉像素级不变（改的是合成策略不是外观）。 */
-.blob { position: fixed; border-radius: 50%; filter: blur(70px); will-change: transform; opacity: 0.38; z-index: 0; pointer-events: none; }
-.blob.b1 { width: 460px; height: 460px; background: #cfc6ec; top: -140px; left: -100px; }
-.blob.b2 { width: 420px; height: 420px; background: #cdd9ee; bottom: -130px; right: -90px; }
+   不再随每次合成重新算。视觉像素级不变（改的是合成策略不是外观）。
+
+   ⚠⚠ z-index: 0 → -1（2026-09-28 用户第 1 条）——**这是「怪异遮罩挡字」的真因**。
+   `.blob` 是 position:fixed（已定位）且 z-index:0，而看板的 .col / 卡片全是**非定位的流内元素**。
+   按 CSS 绘制顺序，同一个层叠上下文里：负 z-index 子层 → 流内块级背景 → 行内内容 → z-index:0/auto 的已定位元素。
+   也就是说 z-index:0 的它**画在所有正文之上**（只被 z-index:2 的 #bar / #views 挡住）。
+   而 .b1 是 460×460、top:-140 left:-100、紫色 #cfc6ec、opacity .38 ——
+   正好糊在第一列卡片的文字上，还因为 pointer-events:none **点不掉、也不报错**。
+   它在设计意图上就是"背景雾斑"，只是从来没被放进背景层。改成负 z-index 后它落在
+   #app（透明背景）之下、body 画布背景之上 —— 雾感保留，一个字都不挡。
+   守卫：e2e-renderer 里那条「光斑不得压住正文」的绘制顺序断言。 */
+.blob { position: fixed; border-radius: 50%; filter: blur(70px); will-change: transform; opacity: 0.38; z-index: -1; pointer-events: none; }
+.blob.b1 { width: 460px; height: 460px; background: var(--blob-a); top: -140px; left: -100px; }
+.blob.b2 { width: 420px; height: 420px; background: var(--blob-b); bottom: -130px; right: -90px; }
 
 #bar {
   position: relative; z-index: 2; padding: 10px 16px;
@@ -6078,7 +7423,7 @@ button:not([class]) {
   padding: 8px 16px 12px;
 }
 .errpanel-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
-.errpanel-head code { background: #f4f1fc; padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+.errpanel-head code { background: var(--tint); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
 .errpanel-body {
   max-height: 240px; overflow: auto; background: #f7f7fa; border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.5;
@@ -6091,25 +7436,108 @@ button:not([class]) {
 }
 .vbtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* ── 页头视图切换器（2026-09-28 多视图，用户第 ① 条 + 卡 033）───────────
+   刻意**不塞进 #bar**：顶栏已经有 9 个控件，再排一组按钮只会更挤（用户原话「臃肿无比」）。
+   分段控件的观感与看板"白卡浮在灰底上"一致：选中态 = 白底 + 1px 投影。
+   右边那行 hint 说明"这个摆法擅长什么" —— 用户不必先点一遍才知道两个视图差在哪。 */
+.pagehead {
+  position: relative; z-index: 2;
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 16px; background: rgba(255,255,255,0.35);
+  border-bottom: 1px solid var(--border);
+}
+.viewsw {
+  display: inline-flex; gap: 2px; flex: none;
+  background: #ecedf3; border: 1px solid var(--border); border-radius: 10px; padding: 2px;
+}
+button.vsb {
+  border: 0; background: transparent; font-family: inherit; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  padding: 4px 12px; border-radius: 8px;
+  transition: background 0.14s, color 0.14s;
+}
+button.vsb:hover { color: var(--ink); }
+button.vsb.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(90,90,130,0.14); }
+.pagehead-hint {
+  font-size: 11.5px; color: var(--muted); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── 看板 · 列表视图（多视图第 1 项）────────────────────────────────────
+   同一批 columns 换个摆法：列视图"横着摊开"（有流程感、可拖拽，但列多要横滚，
+   一屏约 12 条），列表视图"竖着分区"（不横滚，一行 28px，一屏约 18 条）。
+   ⚠ 折叠状态 / 拖拽改状态 / 批量选择 / 右键菜单 / 悬停轻提示 与列视图**完全共用** ——
+     不存在"列表视图里少一个功能"，否则用户切一次就得重新学一遍。
+   `#board` 是 flex 容器：两种摆法共用它才能保住 flex:1 + overflow 的滚动行为。 */
+#board.list-mode {
+  flex-direction: column; overflow-x: hidden; overflow-y: auto;
+  align-items: stretch; gap: 0;
+}
+.board-list { display: flex; flex-direction: column; min-width: 0; }
+.blgrp { border-radius: 10px; padding: 2px 6px 6px; border: 1px solid transparent; }
+.blgrp.drop-here { border-color: var(--accent); background: var(--tint); }
+.blgrp-head { display: flex; align-items: center; gap: 10px; margin: 8px 0 6px; }
+.blgrp:first-child .blgrp-head { margin-top: 0; }
+.blgrp-head .f1 { flex: 1; height: 1px; background: var(--border); }
+button.lpill {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; font-weight: 700; color: var(--ink);
+  background: #fff; border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 11px 3px 9px;
+}
+button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2); }
+.lpill .chev {
+  flex: 0 0 auto; width: 0; height: 0;
+  border-left: 5px solid #8b8b9e; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+}
+.lpill .chev.open { transform: rotate(90deg); }
+.lpill .gdot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
+.lpill .glabel { font-weight: 700; }
+.lpill .gn { background: var(--accent-soft); color: #4a4368; border-radius: 999px; padding: 0 7px; font-size: 10.5px; font-weight: 600; }
+.gdot-draft { background: #9ca3af; }
+.gdot-review { background: #d9a44a; }
+.gdot-todo { background: #9ca3af; }
+.gdot-doing { background: #6366f1; }
+.gdot-verify { background: #d9a44a; }
+.gdot-done { background: #54814b; }
+.gdot-reject { background: #b44141; }
+.brow {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border: 1px solid #e7e7ef; border-radius: 9px;
+  padding: 4px 10px; margin-bottom: 4px;
+  box-shadow: 0 1px 2px rgba(90,90,130,0.05); cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.brow:hover { background: var(--tint-2); border-color: var(--line-2); }
+.brow.overdue { border-left: 3px solid var(--danger); }
+.brow.stale { opacity: 0.55; }
+.brow.stale:hover { opacity: 0.85; }
+.brow.selected { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--tint); }
+.brow.dragging { opacity: 0.35; }
+.brow .ttl { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 空分区在列表视图里**不画那个虚线空框**（列视图里它是有用的落点提示，纵向排时却会
+   把一屏吃掉一大半 —— 「7 个状态里 4 个是空的」在这种数据下很常见）。
+   列表视图的落点是**整个分区块**（hover 时 .blgrp 高亮），分区头右侧的 0 已经说明它是空的。 */
+.board-list .emptyhint { display: none; }
+
 #board {
   flex: 1; display: flex; gap: 12px; padding: 14px;
   align-items: flex-start; overflow-x: auto; min-height: 60vh;
 }
 #board.pv { flex-direction: column; overflow-x: hidden; align-items: stretch; }
 
+/* 列 = 淡灰底，卡片 = 纯白（2026-09-28 密度方案 B / 对比稿①②④）。
+   原来是反的（列白底 + 卡近白底），层次只能靠"每列一条 4px 左边色条 + 卡片边框 + 重阴影"堆出来，
+   四列就是 4 条竖线起底，卡一多像栅栏 —— 用户原话「竖条好几条，越看越头痛」。
+   现在层次靠"白卡浮在灰底上"：色条全删，列几乎无阴影，卡片 1px 贴地投影。
+   ⚠ 那 7 条 .col[data-status=…] 的 border-left + 4 种底色已整块删除（状态由列头圆点承担）。 */
 .col {
-  background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
-  min-width: 240px; padding: 10px; flex: 1; box-shadow: var(--shadow);
+  background: #f3f4f8; border: 1px solid #e4e5ec; border-radius: 12px;
+  min-width: 260px; padding: 8px; flex: 1;
 }
-.col[data-status="待办"] { border-left: 4px solid #9ca3af; }
-.col[data-status="进行中"] { border-left: 4px solid #6366f1; background: #fafaff; }
-.col[data-status="待验收"] { border-left: 4px solid #f59e0b; background: #fffdf5; }
-.col[data-status="完成"] { border-left: 4px solid #10b981; background: #f5fdf8; }
-.col[data-status="驳回"] { border-left: 4px solid #ef4444; background: #fdf5f5; }
-.col[data-status="草稿"] { border-left: 4px solid #9ca3af; }
-.col[data-status="待审批"] { border-left: 4px solid #f59e0b; }
-.col.empty { border-style: dashed; opacity: 0.62; box-shadow: none; background: #fbfbfe; }
-.col.dragover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,0.22); background: #f4f1fc; }
+.col.empty { border-style: dashed; opacity: 0.62; background: #f7f7fb; }
+.col.dragover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(112,95,171,0.18); background: var(--tint); }
 /* 分组折叠（2026-09-25）：点标题折叠/展开；折叠后这列只占一行，长单子立刻变短 */
 .col h3 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
 /* 三角用 CSS 边框画，不用 ▸/▾ 字形 —— 应用字体里这两个字符可能缺字，渲染成看不见的空白 */
@@ -6135,52 +7563,76 @@ button:not([class]) {
 .emptyhint { color: var(--muted); font-size: 11px; text-align: center; padding: 16px 0; border: 1px dashed var(--border); border-radius: 10px; margin-top: 2px; }
 
 .col h3 {
-  margin: 4px 0 10px; font-size: 13px; color: var(--muted); font-weight: 700;
+  margin: 2px 0 8px; font-size: 12.5px; color: #565d6e; font-weight: 700;
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
 }
-.col h3 .n { background: var(--accent-soft); color: #4a4368; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 600; }
+.col h3 .n { background: #e6e7ee; color: #4b5162; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 600; }
 
+/* 紧凑单行卡（2026-09-28 密度方案 B）：一行放完 —— 状态点 + 标题（超长省略）+ 右侧 meta。
+   高度从约 48px 压到约 28px，正文摘要/标签移进悬停轻提示（见 .card-tip）。
+   卡级染色（.active-t 的淡紫底 + 3px 左条）已删：状态由列位置承担，再染一遍是冗余编码。 */
 .card {
-  border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px;
-  background: #fbfbfe; cursor: pointer; transition: background 0.15s, box-shadow 0.15s;
+  background: #fff; border: 1px solid #e7e7ef; border-radius: 9px;
+  padding: 4px 9px; margin-bottom: 5px;
+  box-shadow: 0 1px 2px rgba(90,90,130,0.05);
+  cursor: pointer; transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
-.card:hover { background: #f1eefb; box-shadow: 0 4px 14px rgba(120,110,170,0.14); }
-.card.active-t { border-left: 3px solid var(--accent); background: #f4f1fc; }
-.card.overdue { border-left: 3px solid var(--danger); background: #faf3f3; }
-.card.stale { opacity: 0.52; filter: saturate(0.55); }
-.card.stale:hover { opacity: 0.8; filter: none; }
+.card:hover { background: var(--tint-2); border-color: var(--line-2); box-shadow: 0 2px 8px rgba(90,90,130,0.10); }
+/* 左边色条只留给"要注意的事"（逾期 / 阻塞）—— 其余状态不再染色 */
+.card.overdue { border-left: 3px solid var(--danger); }
+.card.stale { opacity: 0.55; }
+.card.stale:hover { opacity: 0.85; }
 .card.selected {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-  border-left: 4px solid var(--accent);
-  background: #f1eefb;
-  box-shadow: 0 2px 12px rgba(155, 143, 196, 0.24);
+  background: var(--tint);
+  box-shadow: 0 2px 12px rgba(112,95,171,0.20);
 }
 .card.dragging { opacity: 0.35; transform: scale(0.97); }
 
-/* 卡片正文预览：两行截断，长文不撑高卡片 */
-.card .card-preview {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.5;
-  margin: 4px 0 0;
-  word-break: break-word;
+.card-head { display: flex; align-items: center; gap: 6px; }
+.card .ttl {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* 归档任务来源徽标：搜索结果里只有归档任务会带它，一眼区分活跃/归档 */
+/* 状态点：6px，替掉原来那 4px 竖条与整卡染色 */
+.card-liv { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; }
+.card-liv.liv-draft { background: #9ca3af; }
+.card-liv.liv-review { background: #d9a44a; }
+.card-liv.liv-todo { background: #9ca3af; }
+.card-liv.liv-doing { background: #6366f1; }
+.card-liv.liv-verify { background: #d9a44a; }
+.card-liv.liv-done { background: #54814b; }
+.card-liv.liv-reject { background: #b44141; }
+/* 卡右侧 meta：只占必要宽度，标题优先。日期与项目常驻（用户 2026-09-28：「希望看见所属项目和日期」） */
+.card-meta { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
+.card-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.card-date.over { color: var(--danger); font-weight: 700; }
+.card-date.dim { color: #8b90a0; }
+.card-proj { max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d6f86; }
+
 .card .src-badge {
-  display: inline-block;
-  font-size: 10px;
-  color: #6f6396;
-  background: #f0edf9;
-  border: 1px solid #ded8f0;
-  border-radius: 4px;
-  padding: 0 5px;
-  margin-top: 4px;
+  flex: none; font-size: 10px; line-height: 1.4;
+  color: #6f6396; background: #f0edf9; border: 1px solid #ded8f0;
+  border-radius: 4px; padding: 0 4px;
 }
+
+/* 卡片悬停轻提示（密度方案 B 的配套）：
+   **只在标题真被截断时**出现，150ms 后弹出，内容 = 完整标题 + 正文摘要 + 状态/项目/截止/优先级/标签。
+   `position:fixed` + `pointer-events:none` —— 不参与布局、不吃命中（方寸的铁律，踩过坑）。
+   z-index 70：高于 .overlay(60) 以外的常规层，但仍低于通知/菜单类浮层。 */
+.card-tip {
+  position: fixed; z-index: 70; pointer-events: none;
+  max-width: 340px; padding: 8px 10px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(90,90,130,0.16);
+}
+.card-tip-title { font-size: 12.5px; font-weight: 600; line-height: 1.45; word-break: break-word; }
+.card-tip-body { margin-top: 4px; font-size: 11.5px; color: var(--muted); line-height: 1.5; word-break: break-word; }
+.card-tip-meta { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
+.card-tip-pri { background: var(--tint); color: #4a4368; border-radius: 6px; padding: 0 5px; font-weight: 600; }
+.card-tip .ptags { margin-top: 5px; }
 
 /* 详情面板按钮分组：流转（改状态）与操作（不改状态）分开，避免一排按钮堆砌 */
 .task-acts { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
@@ -6191,7 +7643,8 @@ button:not([class]) {
 .logs-section { margin-top: 12px; }
 .logs-section > label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px; }
 .task-logs-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.task-log-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.task-log-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.task-log-item:hover { background: var(--tint-2); }
 .task-log-item:last-child { border-bottom: none; }
 .task-log-main { flex: 1; min-width: 0; }
 .task-log-title { font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -6237,7 +7690,7 @@ button:not([class]) {
 
 .result-preview { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
 .ptags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.ptag { background: #eef0fb; color: #5b5478; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
+.ptag { background: var(--tint); color: #5b5478; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
 
 /* 16px 太小、用户要「小心翼翼点避免点错」（2026-09-25 第 2 条）：
    放大到 20px，并让**整张卡**在批量模式下都能点（模板里 @click 已分流）。 */
@@ -6299,7 +7752,7 @@ button:not([class]) {
   display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
   font-size: 12px; cursor: pointer; margin: 0;
 }
-.log-task-opt:hover { background: #f6f4fb; }
+.log-task-opt:hover { background: var(--tint-2); }
 .log-task-opt input[type='checkbox'] { flex: none; margin: 0; }
 .log-task-opt .lto-id { flex: none; color: var(--accent); font-weight: 600; font-size: 11.5px; }
 .log-task-opt .lto-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
@@ -6349,10 +7802,70 @@ button:not([class]) {
 .ts .n { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--ink); }
 .ts .n.warn { color: #c99a4e; }
 .ts .l { font-size: 9.5px; color: var(--muted); }
-.tile-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 2px dashed var(--border); background: #fafafa; cursor: pointer; transition: all 0.15s; min-height: 140px; }
-.tile-add:hover { border-color: var(--accent); background: #f4f1fc; }
+.tile-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 2px dashed var(--border); background: var(--tint-3); cursor: pointer; transition: all 0.15s; min-height: 140px; }
+.tile-add:hover { border-color: var(--accent); background: var(--tint); }
 .tile-add .add-icon { font-size: 32px; color: var(--muted); font-weight: 300; }
 .tile-add .add-text { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* ── 项目页签：概览卡 + 主从（2026-09-29 用户：「两种视图都要，做成可自选切换」）──
+   003 卡的原话是「只是个大号看板入口，不是项目管理」。两种摆法的共同点是把
+   「四个孤立数字」换成「状态分布 + 最近动态 + 缺口」，差别只在"一屏看完所有项目"
+   还是"一屏专注一个项目"。三个摆法（含旧的项目墙）互斥渲染，共用同一份 projectStats。 */
+/* 每种摆法一个**独立**的根容器类（pvgrid / ovgrid / pv-ms）——
+   不是为了好看，是让"三种摆法互斥"这条能被机械断言：
+   共用同一个类名的话，`.pvgrid` 在两种视图里都在，断言就无从判"到底挂了几个"。 */
+.ovgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; width: 100%; }
+.ocard {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow);
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.ocard:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
+/* 主从右侧那张不点整块（详情本身没有"点进去"的语义），去掉悬停浮起 */
+.ocard.bare { box-shadow: none; border: 0; padding: 0; cursor: default; }
+.ocard.bare:hover { box-shadow: none; transform: none; }
+.ohead { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ohead .nm { font-size: 13.5px; font-weight: 700; flex: none; }
+.ohead .rp { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 48%; }
+.ohead .hl { margin-left: auto; flex: none; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.ohead .hl-active { color: var(--success); }
+.ohead .hl-stuck { color: var(--warning); }
+.stack { display: flex; height: 8px; border-radius: 99px; overflow: hidden; margin: 10px 0 5px; background: var(--bg); }
+.stack i { display: block; height: 100%; }
+.legend { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; }
+.legend s { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 4px; text-decoration: none; }
+.odyn { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.8; }
+.odyn b { color: var(--ink); }
+.odyn-warn { color: var(--warning); font-weight: 600; }
+.oacts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.oact { height: 26px; padding: 0 10px; font-size: 11.5px; }
+.ocard-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  border: 2px dashed var(--border); background: var(--tint-3); min-height: 140px; transition: all 0.15s;
+}
+.ocard-add:hover { border-color: var(--accent); background: var(--tint); transform: none; box-shadow: var(--shadow); }
+.ocard-add .add-icon { font-size: 32px; color: var(--muted); font-weight: 300; }
+.ocard-add .add-text { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* 主从布局：左列常驻项目（带迷你进度），右侧摊开所选项目 */
+.pv-ms { display: grid; grid-template-columns: 212px minmax(0, 1fr); gap: 10px; align-items: start; width: 100%; }
+.ms-list { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: var(--shadow); }
+.ms-li { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; font-size: 12.5px; cursor: pointer; }
+.ms-li:hover { background: var(--tint-2); }
+.ms-li.on { background: var(--tint); font-weight: 600; }
+.ms-dot { width: 7px; height: 7px; border-radius: 50%; background: #b6b2c4; flex: none; }
+.ms-dot.t-active { background: #5e9154; }
+.ms-dot.t-stuck { background: #c2706f; }
+.ms-dot.t-dormant { background: #b6b2c4; }
+.ms-dot.t-idle { background: #d9b87a; }
+.ms-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-mini { width: 34px; height: 4px; border-radius: 99px; background: var(--bg); overflow: hidden; margin-left: auto; flex: none; }
+.ms-mini i { display: block; height: 100%; background: var(--accent-soft); }
+.ms-n { font-size: 10.5px; color: var(--muted); flex: none; min-width: 12px; text-align: right; }
+.ms-add { padding: 7px 9px; font-size: 11.5px; color: var(--muted); cursor: pointer; border-radius: 8px; }
+.ms-add:hover { background: var(--tint-2); color: var(--accent); }
+.ms-detail { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.ms-detail.empty { color: var(--muted); font-size: 12.5px; }
 
 /* Settings */
 #smodal { width: 720px; max-height: 86vh; display: flex; flex-direction: column; }
@@ -6362,13 +7875,24 @@ button:not([class]) {
 #smodal .sect { border-top: 1px solid var(--border); padding: 14px 0; margin-top: 6px; flex: 0 0 auto; }
 #smodal .sect:first-of-type { border-top: 0; padding-top: 0; }
 #smodal .sect h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
+#smodal .theme-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+#smodal .theme-swatch { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--ink);
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; }
+#smodal .theme-swatch:hover { border-color: var(--accent); background: var(--tint); }
+#smodal .theme-swatch.on { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
+#smodal .theme-swatch .sw-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.14); flex: none; }
+#smodal .theme-swatch .sw-check { color: var(--accent); }
+#smodal .retain-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#smodal .retain-input { width: 92px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+#smodal .retain-input:focus { border-color: var(--accent); }
 #smodal .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 #smodal .hint.logpath { word-break: break-all; color: var(--ink); }
 #smodal .sect .pri { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 #smodal .sect .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .projlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .proj-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
-.proj-row:hover { background: #f4f1fc; border-color: var(--accent); }
+.proj-row:hover { background: var(--tint); border-color: var(--accent); }
 .proj-row-name { font-weight: 600; color: var(--ink); }
 .proj-row-id { margin-left: auto; font-size: 11px; color: var(--muted); flex: none; }
 .proj-row-desc { width: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
@@ -6378,7 +7902,7 @@ button:not([class]) {
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.success { background: #e3f1de; color: #3f6b3a; border: 1px solid #bcd4b4; }
 #toast.error { background: #f6e2e2; color: #8a4343; border: 1px solid #e2c4c4; }
-#toast.info { background: #eef0fb; color: #5b5478; border: 1px solid #c3bce0; }
+#toast.info { background: var(--tint); color: #5b5478; border: 1px solid var(--accent-soft); }
 
 /* Drag status picker */
 .drag-status-picker {
@@ -6391,7 +7915,7 @@ button:not([class]) {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--border);
   border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
 }
-.sp-bucket:hover, .sp-bucket.dragover { background: #f4f1fc; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,0.22); }
+.sp-bucket:hover, .sp-bucket.dragover { background: var(--tint); border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,143,196,0.22); }
 .sp-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 
 /* Launchpad */
@@ -6404,7 +7928,7 @@ button:not([class]) {
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .lp-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; box-shadow: var(--shadow); }
 .lp-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
-.lp-icon { width: 36px; height: 36px; border-radius: 8px; background: #f0edfa; color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
+.lp-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--tint); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
 .lp-info { flex: 1; min-width: 0; }
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-desc { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -6454,7 +7978,7 @@ button:not([class]) {
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .batch-actions button { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
-.batch-actions button:hover { background: #f4f1fc; border-color: var(--accent); }
+.batch-actions button:hover { background: var(--tint); border-color: var(--accent); }
 .batch-actions button.danger { background: #fce4e4; color: var(--danger); border-color: #eedcdc; }
 .batch-actions button.danger:hover { background: #f8d7d7; }
 
@@ -6463,7 +7987,7 @@ button:not([class]) {
 .batch-bar .ghost { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
 
 
-.nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #f0edfa; color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
+.nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--tint); color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
 
 /* Blockers view */
 .blockers-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -6507,7 +8031,7 @@ button:not([class]) {
 .dp-question { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
 .dp-options { display: flex; gap: 6px; flex-wrap: wrap; }
 .dp-options button { padding: 4px 10px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
-.dp-options button:hover { background: #f4f1fc; border-color: var(--accent); }
+.dp-options button:hover { background: var(--tint); border-color: var(--accent); }
 .dp-chosen { font-size: 11px; color: var(--success); font-weight: 500; }
 
 /* Notification system */
@@ -6578,7 +8102,7 @@ button:not([class]) {
 .wizard-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .wizard-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.15s; }
 .wizard-option:hover { border-color: var(--accent-soft); }
-.wizard-option.selected { border-color: var(--accent); background: #f4f1fc; }
+.wizard-option.selected { border-color: var(--accent); background: var(--tint); }
 .wizard-option input { margin-top: 2px; }
 .wizard-option strong { display: block; font-size: 13px; color: var(--ink); }
 .wizard-option small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -6598,7 +8122,7 @@ button:not([class]) {
 .bk-spin { display: inline-block; animation: bk-rot 1s linear infinite; }
 @keyframes bk-rot { to { transform: rotate(360deg); } }
 
-.backup-sect .bk-status { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; margin-bottom: 10px; background: #fafafd; }
+.backup-sect .bk-status { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; margin-bottom: 10px; background: var(--tint-3); }
 .bk-status .bk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .bk-status.bk-ok .bk-dot { background: #5e9154; }
 .bk-status.bk-bad .bk-dot { background: #c96a6a; }
@@ -6615,11 +8139,15 @@ button:not([class]) {
 .bk-cb { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 
 .bk-history { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.bk-tabs { display: flex; background: #fafafd; border-bottom: 1px solid var(--border); }
+.bk-tabs { display: flex; background: var(--tint-3); border-bottom: 1px solid var(--border); }
 .bk-tabs span { flex: 1; text-align: center; padding: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .bk-tabs span.on { color: var(--ink); background: #fff; font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 .bk-list { max-height: 190px; overflow-y: auto; }
-.bk-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+/* 整行可点（2026-09-28 卡 026-001）：此前是死 div，点行毫无反应 */
+.bk-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+.bk-item:hover { background: var(--tint-2); }
+.bk-item.on { background: var(--tint); box-shadow: inset 3px 0 0 var(--accent); }
+.bk-inspecting { flex: none; font-size: 10.5px; color: var(--accent); font-weight: 600; }
 .bk-item:last-child { border-bottom: none; }
 .bk-item-main { flex: 1; min-width: 0; }
 .bk-item-name { display: block; font-size: 12.5px; color: var(--ink); font-family: ui-monospace, Consolas, monospace; }
@@ -6629,9 +8157,9 @@ button:not([class]) {
 .bk-log { margin-top: 6px; max-height: 180px; overflow: auto; background: #2f3240; color: #d7dae6; padding: 10px; border-radius: 8px; font-size: 11px; line-height: 1.55; font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
 .bk-path { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); }
 .bk-mini { padding: 3px 9px; font-size: 11.5px; }
-.bk-manual { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; background: #fafafd; }
+.bk-manual { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; background: var(--tint-3); }
 .bk-manual-label { display: block; width: 100%; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
-.bk-verify { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: #fafafd; }
+.bk-verify { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: var(--tint-3); }
 .bk-verify.ok { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
 .bk-verify.bad { background: #f6e2e2; border-color: #e2c4c4; color: #8a4343; }
 .bk-verify-head { font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -6710,7 +8238,7 @@ button:not([class]) {
 .policy-state.has { color: #5e9154; border-color: #5e9154; }
 /* 项目卡上的方针入口：卡内全宽小按钮，颜色弱化，不抢主统计的视线 */
 .pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
-#policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 700px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
 /* 方针弹窗必须盖在设置面板之上：两者都用 .overlay（z-index:60），而设置面板在 DOM 里更靠后，
    同层级下后出现的赢 —— 于是从设置里点方针，弹窗被设置整个盖住（用户 2026-09-25 第 3 条）。
    给方针overlay 一个更高的层级，任何入口点进来都看得见。 */
@@ -6724,7 +8252,7 @@ button:not([class]) {
 .ctx-menu { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 4px; }
 .ctx-title { padding: 6px 10px 4px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .ctx-menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: inherit; }
-.ctx-menu button:hover { background: #f4f1fc; }
+.ctx-menu button:hover { background: var(--tint); }
 .ctx-menu button.danger { color: var(--danger); }
 .ctx-menu button.danger:hover { background: #fce4e4; }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
@@ -6762,16 +8290,25 @@ button:not([class]) {
 .caldow { font-size: 11px; color: var(--muted); text-align: center; font-weight: 700; padding: 3px 0; }
 .calcell { background: #fff; border: 1px solid var(--border); border-radius: 10px; min-height: 92px; padding: 5px 6px; overflow: hidden; display: flex; flex-direction: column; gap: 3px; transition: border-color .15s, background .15s; }
 .calcell.blank { background: transparent; border: 0; }
-.calcell.today { border-color: var(--accent); background: #f8f6fe; box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
+.calcell.today { border-color: var(--accent); background: var(--tint-2); box-shadow: 0 0 0 2px rgba(155,143,196,.22); }
 .calcell.past { background: #fbf7f7; }
 .calcell.past .dnum { color: #767b8b; }
-.calcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: #f1eefb; }
+.calcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--tint); }
 .dnum { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; }
 .calcell.today .dnum { color: #fff; background: var(--accent); border-radius: 999px; }
 .cev { font-size: 10.5px; background: #f5f4fa; border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; margin-bottom: 3px; cursor: pointer; display: flex; gap: 4px; align-items: center; overflow: hidden; white-space: nowrap; }
-.cev:hover { background: #eef0fb; border-color: var(--accent-soft); }
+.cev:hover { background: var(--tint); border-color: var(--accent-soft); }
 .cev .pd { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .cev .t { overflow: hidden; text-overflow: ellipsis; }
+/* 格子内折叠（2026-09-29 卡 035 用户选的「改法 A」）：最多 2 条 + 「+N 条」，
+   点它就地把这一天铺满（不跳页、不弹窗），再点收起。时间段任务不参与折叠。 */
+.cal-cell-more {
+  align-self: flex-start; flex: none; margin-top: 1px; padding: 1px 6px;
+  background: transparent; border: 0; border-radius: 6px; cursor: pointer;
+  font-family: inherit; font-size: 10.5px; font-weight: 600; color: var(--accent); line-height: 1.5;
+}
+.cal-cell-more:hover { background: var(--tint); }
+.cal-cell-more.less { color: var(--muted); font-weight: 500; }
 .calunsched { margin-top: 12px; }
 /* 底部「横条墙」收成一行摘要（2026-09-25 用户第 10 条） */
 .cal-more { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--muted); cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s; }
@@ -6791,9 +8328,9 @@ button:not([class]) {
 .cev.span-start { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-width: 0; }
 .cev.span-mid   { border-radius: 0; border-left-width: 0; border-right-width: 0; }
 .cev.span-end   { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; }
-.cev.span-start { background: #eeeafa; }
-.cev.span-mid   { background: #eeeafa; }
-.cev.span-end   { background: #eeeafa; }
+.cev.span-start { background: var(--tint); }
+.cev.span-mid   { background: var(--tint); }
+.cev.span-end   { background: var(--tint); }
 .cev.cev-todo { background: #eef4fd; border-color: #d5e3f7; }
 .cev.cev-todo:hover { background: #e3eefc; border-color: #a9c8ee; }
 .cev.cev-log { background: #f3f0fa; border-color: #e0daf5; }
@@ -6807,14 +8344,19 @@ button:not([class]) {
 
 #cal-assign-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 420px; box-shadow: var(--shadow); border: 1px solid var(--border); }
 #cal-assign-modal h3 { margin: 0 0 8px; font-size: 16px; }
-#cal-assign-modal .ca-title { font-size: 13px; font-weight: 600; color: var(--ink); background: #f4f1fc; border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
+#cal-assign-modal .ca-title { font-size: 13px; font-weight: 600; color: var(--ink); background: var(--tint); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; }
 #cal-assign-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 #cal-assign-modal input[type="date"] { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 #cal-assign-modal .ca-quick { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 #cal-assign-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .todo-due { font-size: 10px; color: #3f6fa8; background: #eef4fd; border: 1px solid #d5e3f7; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
-.todo-assign { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 12px; padding: 0 4px; border-radius: 4px; flex: none; }
-.todo-assign:hover { color: var(--accent); background: #f4f1fc; }
+/* 待办行尾的两枚图标按钮（2026-09-29 卡 027）：按规范收成 24×24，
+   不再是一个 padding:0 4px、一个是裸文字。 */
+.todo-assign { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
+  color: var(--muted); font-size: 12px; line-height: 1; }
+.todo-assign:hover { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
 
 /* Todos view */
 .todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -6835,17 +8377,37 @@ button:not([class]) {
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
 .todos-ctrls { display: flex; gap: 8px; align-items: center; }
-.todo-input { width: 320px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
-.todo-input::placeholder { color: #9ca3af; font-size: 10.5px; }
 .todo-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 .todos-list { display: flex; flex-direction: column; gap: 6px; }
-.todo-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); transition: background 0.15s; }
-.todo-item:hover { background: #f4f1fc; }
+/* ── 待办行 = 两行卡（2026-09-29 用户拍板：「待办行改成两行卡」）──────────
+   上行：置顶徽标 + 标题（标题占满整行，不再和一堆按钮抢宽度）
+   下行：优先级 / 项目 / 到期 · 右侧动作
+   勾选框跨两行居中偏上。用的还是同一份 DOM —— 卡片网格只换 grid 模板。 */
+.todo-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px; row-gap: 1px;
+  align-items: center;
+  padding: 7px 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); transition: background 0.15s;
+}
+.todo-item:hover { background: var(--tint); }
 .todo-item.prio { border-left: 3px solid var(--danger); }
 .todo-item.done { opacity: 0.5; }
 .todo-item.done .todo-title { text-decoration: line-through; }
-.todo-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0; }
-.todo-title { flex: 1; font-size: 13px; font-weight: 500; }
+.todo-chk { grid-column: 1; grid-row: 1 / span 2; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); margin-top: 3px; }
+.todo-body { grid-column: 2; grid-row: 1 / span 2; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.todo-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* ⚠ 第二行**不能叫 `.meta`**：样式表里另有一条全局 `.meta`（任务详情弹窗的字段组，
+   `display:flex; flex-direction:column; margin-bottom:12px`）。同特异性下按出现顺序取胜，
+   于是「优先级」会在 column 布局里被 `align-items:center` 顶到**行的正中** ——
+   肉眼看着像"两行卡没做出来"。这类**class 名撞车**只有真跑起来量几何才发现得了，
+   所以下面那条断言里专门钉住了 flex-direction 与 y 位置。 */
+.todo-line.metas { gap: 8px; flex-wrap: wrap; }
+.todo-acts { grid-column: 3; grid-row: 1 / span 2; display: inline-flex; align-items: center; gap: 2px; }
+.todo-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; cursor: pointer; }
 .todo-prio { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 600; }
 /* ── 待办专项整修（2026-09-26 卡 033）────────────────────────────────── */
 .todos-stats {
@@ -6868,8 +8430,43 @@ button:not([class]) {
 .todo-prio.prio-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
 .todo-prio.prio-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
 .todo-prio.prio-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
-.todo-del { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 4px; border-radius: 4px; }
-.todo-del:hover { color: var(--danger); background: #fce4e4; }
+.todo-del { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
+  color: var(--muted); font-size: 14px; line-height: 1; }
+.todo-del:hover { color: var(--danger); background: #fce4e4; border-color: #f0cfcf; }
+
+/* ── 待办 · 卡片网格（多视图第 2 项，卡 033 用户点名的「方块卡片式」）──────
+   用户原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+   做法：**同一份 DOM 换摆法**（`order` 重排 + flex-wrap），不是把卡片再写一遍 ——
+   再写一遍意味着"改一个字段要改两处"，那正是这类视图最容易烂掉的方式。
+   卡片里**放优先级、不放操作按钮**（点标题进编辑、右键出菜单，卡面保持干净）；
+   操作按钮平时压暗、悬停才亮，沿用清单视图已有的 `.todo-edit` 规矩。 */
+.todos-list.as-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px; align-items: start;
+}
+.todos-list.as-grid .empty-state { grid-column: 1 / -1; }
+.todos-list.as-grid .todo-item {
+  /* 同一份 DOM 换 grid 模板：勾选在左上，正文跨满两列，动作按钮贴底右对齐 */
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  align-content: space-between;
+  column-gap: 8px; row-gap: 3px;
+  min-height: 92px; padding: 9px 11px; border-radius: 11px;
+  box-shadow: 0 1px 2px rgba(90,90,130,0.05);
+}
+.todos-list.as-grid .todo-item:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+.todos-list.as-grid .todo-chk { grid-column: 1; grid-row: 1; margin-top: 1px; }
+.todos-list.as-grid .todo-body { grid-column: 1 / -1; grid-row: 2; }
+.todos-list.as-grid .todo-line { align-items: flex-start; }
+.todos-list.as-grid .todo-title {
+  font-size: 12.5px; font-weight: 600; line-height: 1.45;
+  white-space: normal;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.todos-list.as-grid .todo-acts { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
 
 /* Logs view */
 .logs-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -6880,14 +8477,21 @@ button:not([class]) {
 .log-search::placeholder { color: #9ca3af; font-size: 10.5px; }
 .log-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 .logs-list { display: flex; flex-direction: column; gap: 8px; }
-.log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); transition: background 0.15s; cursor: pointer; }
-.log-card:hover { background: #f4f1fc; }
-.log-card.active { border-left: 3px solid #6366f1; }
-.log-card.completed { opacity: 0.7; border-left: 3px solid #5e9154; }
-.log-card.archived { opacity: 0.5; border-left: 3px solid #b6b2c4; }
+/* 日志卡（2026-09-28 用户第 4/5 条）：
+   状态**不再靠"左边一条竖线"区分** —— 用户原话「竖条好几条，越看越头痛」。
+   待处理/已完成/已归档三种状态改用徽章颜色 + 极淡的卡底差异表达；
+   只有「进行中」保留一条醒目色条，因为它是唯一需要一眼扫到的状态。
+   阴影也从 var(--shadow)（0 8px 32px，几乎是浮起来的）压到 1px 的贴地投影。 */
+.log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 3px rgba(90,90,130,0.06); transition: background 0.15s, box-shadow 0.15s; cursor: pointer; }
+.log-card:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+.log-card.completed { background: #fcfdfb; }
+.log-card.archived { background: #fafafb; opacity: .82; }
 .log-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .log-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; }
-.log-status-badge.active { background: #dbeafe; color: #1d4ed8; }
+/* 待处理 = 中性灰，刻意不抢眼：它是「默认态」，不是一种"进展" */
+.log-status-badge.active { background: #eceef2; color: #4b5162; }
+/* 进行中 = 唯一的醒目徽章（只能手动打上） */
+.log-status-badge.running { background: #dbeafe; color: #1d4ed8; }
 .log-status-badge.completed { background: #dcfce7; color: #166534; }
 .log-status-badge.archived { background: #f3f4f6; color: #5f6672; }
 .log-card-title { flex: 1; font-size: 13px; font-weight: 600; }
@@ -6899,7 +8503,11 @@ button:not([class]) {
 .log-completed { color: #5e9154; }
 .log-agent { color: #8b7fb8; }
 .log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-card.selected { border-color: var(--accent); background: #f4f1fc; box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2); }
+/* 日志 ID：卡面可见 + 点一下只复制 ID（2026-09-29 用户第 2 条）。
+   --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是「可点复制」的通用暗示。 */
+.log-id { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 10px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: copy; border-bottom: 1px dotted var(--border); user-select: none; }
+.log-id:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.log-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2); }
 .log-card-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 /* Agent 预设列表（2026-09-23） */
@@ -6914,19 +8522,19 @@ button:not([class]) {
 /* 2026-09-25 第 13 条「编辑框不够大」：原宽 560px，且 `textarea.tall` 的高度规则只写在
    `#modal textarea.tall` 下 —— 日志编辑器是 #log-edit-modal，**`.tall` 从未生效**，
    所以「执行内容」一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
-#log-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
-#log-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
-#log-edit-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
-#log-edit-modal input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
-#log-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; min-height: 90px; }
+#log-edit-modal, #relay-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#log-edit-modal h3, #relay-modal h3 { margin: 0 0 12px; font-size: 16px; }
+#log-edit-modal label, #relay-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
+#log-edit-modal input, #relay-modal input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+#log-edit-modal textarea, #relay-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; min-height: 90px; }
 #log-edit-modal textarea.tall { min-height: 300px; }
-#log-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-#log-edit-modal select.logsel {
+#log-edit-modal .acts, #relay-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#log-edit-modal select.logsel, #relay-modal select.logsel {
   width: 100%; box-sizing: border-box; padding: 7px 10px;
   border: 1px solid var(--border); border-radius: 8px;
   font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit;
 }
-#log-edit-modal select.logsel:disabled { background: #f6f6f9; color: var(--muted); }
+#log-edit-modal select.logsel:disabled, #relay-modal select.logsel:disabled { background: #f6f6f9; color: var(--muted); }
 #log-edit-modal .log-task-picked { font-size: 11px; color: var(--accent); margin-top: 4px; }
 
 /* 待办编辑弹窗（2026-09-25 第 12、14 条）：**大框**，写长内容不憋屈 */
@@ -6940,29 +8548,148 @@ button:not([class]) {
 .te-row { display: grid; grid-template-columns: 1fr 110px 150px; gap: 10px; }
 #todo-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 #todo-edit-modal .todo-edit-donehint { color: var(--muted); font-size: 11px; margin-top: 8px; }
-.todo-edit { flex-shrink: 0; opacity: .5; font-size: 11px; }
+/* 「改」字按钮 —— 2026-09-29 卡 027 的**真凶**：这里此前只有 opacity + font-size，
+   border / background / padding 一条都没写 → 它吃的是**浏览器默认按钮长相**
+   （灰底方框 + 黑字），和旁边两个裸文字按钮凑成"三种字号三种圆角"。
+   现在收进规范：24px 安静按钮。处理「平时压暗、悬停才亮」的规矩保留 —— 那是降噪不是风格。 */
+.todo-edit { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  height: var(--btn-h-sm); padding: 0 9px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
+  color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1;
+  opacity: .55; transition: opacity .15s, background .15s, color .15s, border-color .15s; }
 .todo-item:hover .todo-edit { opacity: 1; }
+.todo-edit:hover { background: var(--tint); color: var(--ink); border-color: var(--accent-soft); opacity: 1; }
 .todo-new { flex-shrink: 0; white-space: nowrap; font-size: 12px; }
 
-/* 归档日志独立分区（2026-09-25 第 16 条）：主区不再混入归档日志 */
-.log-archive-sep { margin: 14px 0 8px; display: flex; align-items: center; gap: 10px; }
-.log-archive-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.log-archive-toggle { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid var(--border); border-radius: 99px; padding: 4px 12px; font-size: 12px; color: var(--muted); cursor: pointer; font-family: inherit; }
-.log-archive-toggle:hover { color: var(--ink); border-color: var(--accent); }
-.log-card.archived { opacity: .72; }
+/* 日志页「按状态分区」的分区头（2026-09-28 用户第 2/5 条）——
+   取代旧的单个「已归档」分隔条：状态从此由分区表达，而不是由一个下拉去筛。 */
+.log-group-sep { margin: 10px 0 2px; display: flex; align-items: center; gap: 10px; }
+.log-group-sep:first-child { margin-top: 0; }
+.log-group-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.log-group-toggle {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  background: #fff; border: 1px solid var(--border); border-radius: 99px;
+  padding: 4px 12px 4px 10px; font-size: 12px; color: var(--ink);
+  cursor: pointer; font-family: inherit; user-select: none;
+}
+.log-group-toggle:hover { border-color: var(--accent-soft); background: var(--tint-2); }
+/* 三角同样用 CSS 边框画（▸/▾ 字形在应用字体里可能缺字，渲染成看不见的空白） */
+.log-group-toggle .chev {
+  flex: 0 0 auto; width: 0; height: 0;
+  border-left: 5px solid #8b8b9e; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+}
+.log-group-toggle .chev.open { transform: rotate(90deg); }
+.log-group-toggle .gdot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.log-group-toggle .glabel { font-weight: 700; }
+.log-group-toggle .gn { background: var(--accent-soft); color: #4a4368; border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
+.log-group-sep.g-pinned .gdot { background: var(--warning); }
+.log-group-sep.g-running .gdot { background: #5a5ce0; }
+.log-group-sep.g-active .gdot { background: #9ca3af; }
+.log-group-sep.g-completed .gdot { background: var(--success); }
+.log-group-sep.g-archived .gdot { background: #b6b2c4; }
+.log-group-hint { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* ── 日志接力（2026-09-29 第 3 条方案二）：分段开关 / 链头 / 竖轨 / 链标签 / 接力对话框 ── */
+/* 分区｜按链 分段开关（默认分区；颜色全部走主题令牌，六套主题同源） */
+.log-view-seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; background: var(--tint-3); border: 1px solid var(--border); border-radius: 999px; }
+.log-view-seg .lvs {
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--muted);
+  background: transparent; border: none; border-radius: 999px; padding: 3px 11px; cursor: pointer;
+  transition: background 0.12s, color 0.12s, transform 0.08s;
+}
+.log-view-seg .lvs:hover { background: var(--tint-2); color: var(--ink); }
+.log-view-seg .lvs:active { transform: translateY(1px) scale(0.98); }
+.log-view-seg .lvs.on { background: var(--accent); color: #fff; }
+.log-view-seg .lvs.on:hover { background: var(--accent); color: #fff; }
+
+/* section 包裹层：分区/单条 = display:contents（对布局透明）；链 = 竖轨 */
+.log-section { display: contents; }
+.log-section.chain-rail {
+  display: flex; flex-direction: column; gap: 8px;
+  position: relative; padding-left: 22px; margin-bottom: 10px;
+}
+.chain-rail::before {
+  content: ""; position: absolute; left: 6px; top: 6px; bottom: 26px;
+  width: 2px; background: var(--accent-soft); border-radius: 2px;
+}
+.chain-rail .log-card { position: relative; }
+.chain-rail .log-card::before {
+  content: ""; position: absolute; left: -21px; top: 16px; width: 9px; height: 9px;
+  border-radius: 50%; background: #fff; border: 2px solid var(--accent);
+}
+.chain-rail .log-card:last-child::before { background: var(--accent); }
+
+/* 链头 */
+.chain-header {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  background: linear-gradient(180deg, var(--tint) 0%, var(--tint-2) 60%);
+  border: 1px solid var(--accent-soft); border-radius: 12px;
+  padding: 9px 12px; margin-top: 6px;
+}
+.chain-header .chain-ic { font-size: 13px; }
+.chain-header .chain-name { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.chain-header .chain-meta { font-size: 11px; color: var(--muted); }
+.chain-header .chain-grow { flex: 1; }
+
+/* 卡面链标签：可点击复制源 ID */
+.chain-tag {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px;
+  color: var(--accent); background: var(--tint);
+  border: 1px solid var(--accent-soft); border-radius: 999px; padding: 0 7px;
+  cursor: copy; white-space: nowrap;
+}
+.chain-tag:hover { border-color: var(--accent); }
+
+/* 「⏭ 从这里继续」：完成态卡上唯一的接力入口，视觉上和普通 ghost 区分开 */
+.log-card-actions .relay-btn { background: var(--tint); border-color: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.log-card-actions .relay-btn:hover { border-color: var(--accent); }
+
+/* 接力对话框：源摘要条 + 两个出清开关 */
+.relay-src {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  background: var(--tint); border: 1px solid var(--accent-soft);
+  border-radius: 9px; padding: 7px 9px; font-size: 11.5px; color: var(--ink);
+  margin: 8px 0 12px;
+}
+.relay-src .rs-label { font-weight: 700; color: var(--accent); }
+.relay-src .rs-id { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
+.relay-src .rs-grow { flex: 1; }
+#relay-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+#relay-modal .hint b { color: var(--accent); font-weight: 600; }
+.relay-opts { border-top: 1px dashed var(--line-2); margin-top: 12px; padding-top: 10px; display: grid; gap: 7px; }
+/* id 作用域：#relay-modal label / #relay-modal input 两条通用规则（1,0,x）会压过纯类选择器，
+   这里必须带上 id（1,1,x）才能拿回 flex 布局与 14px 复选框 —— 与日志编辑器同一坑位。 */
+#relay-modal .relay-opt { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; font-weight: 400; color: var(--ink); margin: 0; cursor: pointer; }
+#relay-modal .relay-opt input[type="checkbox"] { width: 14px; height: 14px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+#relay-modal .relay-opt span i { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
+
+/* 「更多筛选」抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围不再和搜索框挤一条线 */
+.log-more-btn { position: relative; }
+.log-more-btn.on { background: var(--tint); border-color: var(--accent-soft); }
+.log-more-btn .more-badge {
+  display: inline-block; margin-left: 5px; min-width: 15px; text-align: center;
+  background: var(--accent); color: #fff; border-radius: 999px;
+  font-size: 10px; font-weight: 700; padding: 0 4px;
+}
+.log-filter-sep { color: var(--muted); font-size: 11px; }
 
 /* 导出下拉的样式（2026-09-25 第 10 条）已在 2026-09-26 移除：导出改成一次点击、只落一个 zip，
    不再要用户从下拉里逐字核对文件名。 */
 
-/* 2026-09-26 用户补充第 3 条：进行中的日志要「一目了然」——
-   原来只有一条 3px 左边框，混在列表里看不出来。现在：加粗色条 + 淡色渐变底 + 描边。 */
-.log-card.active {
-  border-left: 4px solid #6366f1;
+/* 「进行中」的卡面（2026-09-26 用户补充第 3 条 → 2026-09-28 归位到 running）：
+   原来它挂在 `.log-card.active` 上，而 active 是**每一条新建日志的默认状态** →
+   等于"所有日志都是醒目的进行中"，这正是用户第 2 条说「一创建就是进行中、看着混乱」的观感来源。
+   现在只有手动开了进行中的卡片才有这套外观。 */
+.log-card.running {
+  border-left: 4px solid var(--accent);
   background: linear-gradient(90deg, #f1eefe 0%, #fff 55%);
-  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.22), var(--shadow);
+  box-shadow: 0 0 0 1px rgba(112, 95, 171, 0.22), 0 2px 10px rgba(90, 90, 130, 0.08);
 }
-.log-card.active .log-status-badge.active { background: #5a5ce0; color: #fff; }
-.log-card.active .log-card-title { color: #3730a3; }
+.log-card.running .log-status-badge.running { background: #5a5ce0; color: #fff; }
+.log-card.running .log-card-title { color: #4a3f7d; }
+/* 手动开关按钮：打开时点亮，一眼看出"这条正在跑" */
+.log-run-btn.on { background: #eef4ff; border-color: #9dbdf0; color: #1d4ed8; }
 /* 列表首行 = 最新一份（按最后更新倒序）—— 面对一堆 .zip 时不用自己找 */
 .bk-newest { flex: none; font-size: 10px; font-weight: 700; color: #3f6b3a; background: #e3f1de; border: 1px solid #bcd4b4; border-radius: 99px; padding: 1px 7px; }
 /* 设置页「禁用硬件加速」（2026-09-25 第 1/3/9 条的人工验证杠杆） */
@@ -6975,6 +8702,34 @@ button:not([class]) {
 .charter-bar .cb-stat { color: var(--muted); }
 .charter-bar .cb-stat b { color: var(--ink); }
 .charter-bar .cb-stat.warn b { color: #c0392b; }
+/* 结构地图入口（029）：常驻可点，缺口>0 时变警示色 —— 用户驳回原话「找不到在哪里」 */
+.cb-map-btn { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; }
+.cb-map-btn.warn { border-color: #e6b8ae; background: #fdf6f4; color: #8a4038; }
+.cb-map-n { background: #eceef2; color: #4b5162; border-radius: 99px; padding: 0 7px; font-size: 11px; }
+.cb-map-btn.warn .cb-map-n { background: #f6d9d2; color: #8a4038; }
+.cb-map-n.ok { background: #e6f4e2; color: #3c6b35; }
+
+/* 结构地图弹窗（029） */
+#smap-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 640px; max-width: calc(100vw - 48px); max-height: 84vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#smap-modal h3 { margin: 0 0 8px; font-size: 15px; display: flex; align-items: baseline; gap: 8px; }
+.smap-sub { font-size: 11px; font-weight: 400; color: var(--muted); }
+.smap-hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 12px; }
+.smap-list { display: flex; flex-direction: column; gap: 6px; }
+.smap-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.smap-item.missing { background: #fdfaf9; border-color: #ecd8d3; }
+.smap-item.nopolicy { background: #fbfbfc; border-style: dashed; }
+.smap-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--success); }
+.smap-item.missing .smap-dot { background: var(--warning); }
+.smap-item.nopolicy .smap-dot { background: #b6b2c4; }
+.smap-main { flex: 1; min-width: 0; }
+.smap-name { font-size: 12.5px; font-weight: 600; }
+.smap-meta { font-size: 11px; color: var(--muted); }
+.smap-open { flex: none; }
+/* 方针弹窗里的结构地图小节（029）：要够高，第一行是「最后核实」日期 */
+#policy-modal textarea.tall { min-height: 190px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6; }
+.pf-label-hint { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }
+.pf-map-tools { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.pf-map-tip { font-size: 10.5px; color: var(--muted); }
 .todo-title { cursor: pointer; }
 .todo-title:hover { text-decoration: underline dotted; }
 

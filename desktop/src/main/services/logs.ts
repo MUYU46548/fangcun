@@ -12,7 +12,32 @@ export interface LogEntry {
   id: string
   title: string
   project: string
+  /**
+   * 生命周期状态。**语义在 2026-09-28 被重新定义**（用户第 2 条）：
+   *
+   *   active    = **待处理**（未开始 / 没有人在跑）—— 新建日志的默认值
+   *   completed = 已完成
+   *   archived  = 已归档
+   *
+   * 值没变（不迁移任何历史文件），变的只是「active 的中文显示」：
+   * 以前叫「进行中」，而它是**创建时自动打上的**，于是所有日志一出生就是「进行中」，
+   * 用户分不清「没跑 / 正在跑 / 跑完了」。现在「进行中」是独立的 running 标记，
+   * 只能手动打、可撤销。
+   */
   status: 'active' | 'completed' | 'archived'
+  /**
+   * 「进行中」标记（2026-09-28 用户第 2 条）。
+   *
+   * 用户原话：「我需要"进行中"只能由手动开关打上，且可以撤销（防止误操作），
+   * 且不成为完成或归档的必要条件。」
+   *
+   * 所以它是**独立布尔**而不是 status 的一个取值：
+   *   - 与 status 正交 —— 只有未完成的日志才谈得上"正在跑"，但完成/归档**不要求**先打开它；
+   *   - 只能手动开（创建时恒为假，任何自动路径都不写它）；
+   *   - 可撤销（关掉即回到「待处理」）；
+   *   - 只在 true 时落盘（`running: true`），关掉即从文件里消失，历史文件不会凭空多出字段。
+   */
+  running?: boolean
   created: string
   completed: string | null
   retainDays: number | null
@@ -39,6 +64,19 @@ export interface LogEntry {
    * 且切换置顶**不受「非 active 不可编辑」那条守卫限制**（见 setLogPinned 的注释）。
    */
   pinned?: boolean
+  /**
+   * 接力链（2026-09-29 第 3 条方案二）：本条接续自哪条日志。
+   * 链 = 沿这个字段往回走的连通分量 —— 只多这一个字段，不引入新实体、不建数据库。
+   * 文件键 `continues_from`；只在有值时落盘（无值不写，历史文件不会凭空多出字段）。
+   */
+  continueFrom?: string
+  /**
+   * 归档备注（`## 归档备注` 节）。
+   * 2026-09-29 修：此前 parse 不读这一节、render 只认 note —— 归档后任意一次
+   * 写回（改运行标记/置顶/编辑…）都会把这节**静默删掉**（同族问题：Python 侧
+   * api_log_archive 写的归档备注，桌面版一碰就丢）。
+   */
+  archiveNote?: string
 }
 
 /**
@@ -93,9 +131,11 @@ function parseLogFile(filePath: string): LogEntry | null {
     const raw = yaml.load(fmText) as any
     if (!raw || typeof raw !== 'object') return null
 
-    // Extract content and next_steps from body sections
+    // Extract content, next_steps and confirmation tails from body sections
     let logContent = ''
     let nextSteps = ''
+    let noteText = ''
+    let archiveNoteText = ''
     let currentSection = ''
     const lines = body.split('\n')
     for (const line of lines) {
@@ -105,6 +145,12 @@ function parseLogFile(filePath: string): LogEntry | null {
       } else if (line.startsWith('## 下一步')) {
         currentSection = 'nextSteps'
         continue
+      } else if (line.startsWith('## 完成确认')) {
+        currentSection = 'note'
+        continue
+      } else if (line.startsWith('## 归档备注')) {
+        currentSection = 'archiveNote'
+        continue
       } else if (line.startsWith('## ')) {
         currentSection = ''
         continue
@@ -113,6 +159,10 @@ function parseLogFile(filePath: string): LogEntry | null {
         logContent += (logContent ? '\n' : '') + line
       } else if (currentSection === 'nextSteps') {
         nextSteps += (nextSteps ? '\n' : '') + line
+      } else if (currentSection === 'note') {
+        noteText += (noteText ? '\n' : '') + line
+      } else if (currentSection === 'archiveNote') {
+        archiveNoteText += (archiveNoteText ? '\n' : '') + line
       }
     }
 
@@ -124,6 +174,8 @@ function parseLogFile(filePath: string): LogEntry | null {
       title: String(raw.title || ''),
       project: String(raw.project || ''),
       status: (raw.status || 'active') as LogEntry['status'],
+      // 「进行中」是手动标记（2026-09-28），只在文件里显式写了 true 才算数
+      running: raw.running === true || raw.running === 'true',
       created: String(raw.created || ''),
       completed: raw.completed ? String(raw.completed) : null,
       retainDays: raw.retain_days != null ? Number(raw.retain_days) : null,
@@ -140,6 +192,11 @@ function parseLogFile(filePath: string): LogEntry | null {
       agentName: raw.agent_name ? String(raw.agent_name) : undefined,
       logDate: raw.log_date ? String(raw.log_date) : undefined,
       pinned: raw.pinned === true || raw.pinned === 'true',
+      // 接力链（方案二）：文件键 continues_from
+      continueFrom: raw.continues_from ? String(raw.continues_from) : undefined,
+      // 确认尾巴：此前不读 → 下一次写回就静默删节（见 archiveNote 字段注释）
+      note: noteText || undefined,
+      archiveNote: archiveNoteText || undefined,
     }
   } catch {
     return null
@@ -167,10 +224,16 @@ function renderLog(log: LogEntry): string {
   }
   // 只在 true 时落字段（false = 不写，历史文件不会凭空多出 pinned: false）
   if (log.pinned) fm.pinned = true
+  if (log.running) fm.running = true
+  // 接力链：只在有值时落盘
+  if (log.continueFrom) fm.continues_from = log.continueFrom
   const fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   let body = `# ${log.title}\n\n## 执行内容\n\n${log.content || '（待填写）'}\n\n## 下一步\n\n${log.nextSteps || '（待填写）'}`
   if (log.note) {
     body += `\n\n## 完成确认\n\n${log.note}`
+  }
+  if (log.archiveNote) {
+    body += `\n\n## 归档备注\n\n${log.archiveNote}`
   }
   return `---\n${fmText}---\n${body}`
 }
@@ -192,6 +255,8 @@ function genId(): string {
 export function listLogs(filter?: {
   project?: string
   status?: string
+  /** true = 只要手动标了「进行中」的（2026-09-28） */
+  running?: boolean
   dateFrom?: string
   dateTo?: string
   agent?: string
@@ -205,6 +270,7 @@ export function listLogs(filter?: {
     if (!entry) continue
     if (filter?.project && entry.project !== filter.project) continue
     if (filter?.status && entry.status !== filter.status) continue
+    if (filter?.running !== undefined && !!entry.running !== filter.running) continue
     if (filter?.agent && entry.agentName !== filter.agent) continue
     // 日期范围筛选：按 logDate（默认 created 日期）过滤
     const entryDate = (entry.logDate || entry.created || '').slice(0, 10)
@@ -222,12 +288,59 @@ export function getLog(id: string): LogEntry | null {
   return parseLogFile(path.join(dir, `${id}.md`))
 }
 
+/**
+ * 接力链上下游（2026-09-29 方案二）：沿 continues_from 上溯 / 下溯，不含自身。
+ *
+ *   upstream   = 从最老的「链头」到直接父级（旧 → 新）
+ *   downstream = 从直接子代到最新的「链尾」（近 → 远，BFS）
+ *
+ * 只多一个字段的代价就是这里：链 = 连通分量，不建实体、不建索引。
+ * 防御三件：环（visited 去重）、指向不存在/已销毁日志（断链即止）、自指。
+ */
+export function logChain(id: string): { upstream: LogEntry[]; downstream: LogEntry[] } {
+  const all = listLogs()
+  const byId = new Map(all.map(l => [l.id, l] as const))
+
+  const upstream: LogEntry[] = []
+  const seen = new Set<string>([id])
+  let cur = byId.get(id)
+  while (cur?.continueFrom && !seen.has(cur.continueFrom)) {
+    const parent = byId.get(cur.continueFrom)
+    if (!parent) break
+    seen.add(parent.id)
+    upstream.push(parent)
+    cur = parent
+  }
+  upstream.reverse()
+
+  const children = new Map<string, LogEntry[]>()
+  for (const l of all) {
+    if (!l.continueFrom) continue
+    const arr = children.get(l.continueFrom) || []
+    arr.push(l)
+    children.set(l.continueFrom, arr)
+  }
+  const downstream: LogEntry[] = []
+  const seen2 = new Set<string>([id])
+  const queue = [id]
+  while (queue.length) {
+    const curId = queue.shift() as string
+    for (const child of children.get(curId) || []) {
+      if (seen2.has(child.id)) continue
+      seen2.add(child.id)
+      downstream.push(child)
+      queue.push(child.id)
+    }
+  }
+  return { upstream, downstream }
+}
+
 export function createLog(
   title: string,
   project: string,
   content: string,
   taskId?: string,
-  extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] },
+  extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string },
 ): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const id = genId()
@@ -239,18 +352,23 @@ export function createLog(
     id,
     title,
     project,
+    // 2026-09-28：新建 = 「待处理」。**不再自动打成「进行中」** ——
+    // 那条自动标记正是「日志一创建就是进行中」混乱的根因（用户第 2 条）。
     status: 'active',
+    running: false,
     created: now,
     completed: null,
     retainDays: null,
     retainUntil: null,
     content,
-    nextSteps: '',
+    // 接力（方案二）：新日志直接继承源日志的「下一步」——这是对话框预填的落点
+    nextSteps: extra?.nextSteps || '',
     taskIds: ids.length ? ids : undefined,
     taskId: ids[0],
     sessionId: extra?.sessionId,
     agentName: extra?.agentName,
     logDate: extra?.logDate || now.slice(0, 10),
+    continueFrom: extra?.continueFrom || undefined,
   }
   atomicallyWrite(path.join(dir, `${id}.md`), renderLog(log))
   return { ok: true, data: log }
@@ -339,8 +457,11 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.status !== 'active') return { ok: false, error: `日志状态为 ${entry.status}，无法完成` }
+  // 2026-09-28（用户第 2 条后半句）：「进行中」**不是完成的前置条件**。
+  // 原来这里写着 `if (entry.status !== 'active') return 无法完成` —— 那是把「进行中」
+  // 当成必经状态了。现在从「待处理」直接完成、或从「已归档」补完成，都放行。
   entry.status = 'completed'
+  entry.running = false   // 已完成的东西不该还挂着「进行中」
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
   if (retainDays != null && retainDays > 0) {
@@ -358,24 +479,29 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.status === 'archived') return { ok: false, error: '日志已归档' }
+  // 2026-09-28（用户第 2 条）：「进行中」同样**不是归档的前置条件**；
+  // 对已经归档的再点一次给 ok（幂等），不再报「日志已归档」——
+  // 用户看到的是一个"点了报错"的按钮，而他要的只是"这条收起来"。
+  if (entry.status === 'archived' && !entry.running) return { ok: true, data: entry }
   entry.status = 'archived'
-  if (note) entry.note = note
+  entry.running = false
+  // 归档备注落 archiveNote（## 归档备注），不再借道 note —— 两者是不同节，
+  // 借道会让「完成确认」被归档动作覆盖掉。
+  if (note) entry.archiveNote = note
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }
 
 /**
- * 把日志**打回「进行中」**（2026-09-26 用户补充第 3 条：「希望日志加一个功能，
- * 可以临时打上进行中标签，并且卡片有特殊视觉效果」）。
+ * 把日志**撤销完成 / 撤销归档**，退回「待处理」（2026-09-26 卡 022；2026-09-28 重新定位）。
  *
- * 为什么需要单独一条通道：状态此前是单行道 active → completed → archived
- * （`updateLog` 还明确拒绝改非 active 的日志），点过一次「完成」或「归档」就再也回不去，
- * 而用户的真实用法常常是「这条我现在又在弄了」。
+ * 语义变化（用户第 2 条）：以前它的按钮叫「▶ 进行中」，也就是**撤销 = 自动变成进行中**。
+ * 那正是混乱的来源 —— 用户只是想撤销一次误点的「完成」，却被迫得到「进行中」。
+ * 现在撤销只把人放回**待处理**，要不要「进行中」由用户自己另外开。
  *
- * 语义：只改状态、不动文件；顺手清掉 `completed` / `retainDays` / `retainUntil` ——
- * 留着会让卡片继续显示「已完成 + 保留到 X」，与「进行中」自相矛盾。
- * 已经是 active 的给 ok（幂等），不写盘。
+ * 顺手清掉 `completed` / `retainDays` / `retainUntil` —— 留着会让卡片继续显示
+ * 「已完成 + 保留到 X」，与「待处理」自相矛盾。只改状态、不动文件。
+ * 本来就是 active 的给 ok（幂等），不写盘。
  */
 export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
@@ -383,9 +509,44 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
   if (!entry) return { ok: false, error: '日志不存在' }
   if (entry.status === 'active') return { ok: true, data: entry }
   entry.status = 'active'
+  entry.running = false
   entry.completed = null
   entry.retainDays = null
   entry.retainUntil = null
+  // 确认尾巴随撤销一起清（此前 parse 不读它们，行为上就是"重建即消失"，现显式清）
+  entry.note = undefined
+  entry.archiveNote = undefined
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。
+ *
+ * 这是「进行中」**唯一的写入路径** —— 创建、完成、归档都只会把它关掉，绝不会打开它，
+ * 所以「谁在跑」这件事 100% 来自用户的手动开关。
+ *
+ * 打开时若日志已「完成 / 已归档」，连带把它退回「待处理」（同 reopenLog 的清理），
+ * 否则卡片会同时显示「已完成」和「进行中」，自相矛盾 —— 用户点「进行中」的意思
+ * 本来就是「这条我又在弄了」。
+ */
+export function setLogRunning(id: string, running: boolean): { ok: boolean; data?: LogEntry; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  const on = !!running
+  if (on && entry.status !== 'active') {
+    entry.status = 'active'
+    entry.completed = null
+    entry.retainDays = null
+    entry.retainUntil = null
+  }
+  // 关掉时同样顺手清「已完成」残留：从进行中撤销回来的人要的是干净的一条待处理
+  if (!on && entry.status === 'active' && !entry.completed) {
+    entry.retainDays = null
+    entry.retainUntil = null
+  }
+  entry.running = on
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }
@@ -395,6 +556,22 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
   if (!fs.existsSync(filePath)) return { ok: false, error: '文件不存在' }
   fs.unlinkSync(filePath)
   return { ok: true }
+}
+
+/**
+ * 状态的中文口径（2026-09-28）。**唯一真身在主进程**，渲染层通过 IPC 拿同一份。
+ * `active` 的中文从「进行中」改成「待处理」——「进行中」现在是 running 标记的专属名字。
+ */
+export const LOG_STATUS_LABELS: Record<string, string> = {
+  active: '待处理',
+  completed: '已完成',
+  archived: '已归档',
+}
+
+/** 组合出「进行中 / 待处理 / 已完成 / 已归档」四态中的一个 */
+export function logStatusText(log: Pick<LogEntry, 'status' | 'running'>): string {
+  if (log.status === 'active' && log.running) return '进行中'
+  return LOG_STATUS_LABELS[log.status] || String(log.status)
 }
 
 export function searchLogs(query: string, limit = 50): LogEntry[] {
@@ -414,7 +591,8 @@ export function injectLog(id: string): string | null {
   parts.push(`**项目**：${entry.project}`)
   parts.push(`**时间**：${entry.created}`)
   if (entry.completed) parts.push(`**完成时间**：${entry.completed}`)
-  parts.push(`**状态**：${entry.status}`)
+  // 2026-09-28：给 agent 看的是中文状态，不是 `active` 这种内部值
+  parts.push(`**状态**：${logStatusText(entry)}`)
   if (entry.content) parts.push(`\n### 做了什么\n${entry.content}`)
   if (entry.nextSteps) parts.push(`\n### 下一步\n${entry.nextSteps}`)
   if (entry.taskId) parts.push(`\n### 关联任务\n${entry.taskId}`)

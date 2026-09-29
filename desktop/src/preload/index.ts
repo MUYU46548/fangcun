@@ -106,12 +106,14 @@ contextBridge.exposeInMainWorld('tegula', {
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
-  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
+  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
-  /** 临时打回「进行中」（2026-09-26 用户补充第 3 条） */
+  /** 撤销完成 / 撤销归档，退回「待处理」（2026-09-28：不再等于「进行中」） */
   logsReopen: (id: string) => ipcRenderer.invoke('logs:reopen', id),
+  /** 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。可撤销，且不是完成/归档的前置条件。 */
+  logsSetRunning: (id: string, running: boolean) => ipcRenderer.invoke('logs:setRunning', id, running),
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
   logsSearch: (query: string) => ipcRenderer.invoke('logs:search', query),
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),

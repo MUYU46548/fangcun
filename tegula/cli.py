@@ -470,6 +470,25 @@ def cmd_done(args):
         print("提示：无下游任务引用本任务。")
 
 
+def cmd_accept(args):
+    """验收通过：仅「待验收」可裁 → 「完成」。
+
+    与看板验收按钮共用 api_review（同一裁决路径：验收清单门控 + 版本 bump +
+    activity.log 审计）。此前 cli.py 只 import 了 api_review 却从未接线，
+    CLI 侧验收只能靠手改文件两步走（2026-09-29 排查确认为死 import）。
+    """
+    ok, msg = api_review(args.id, "accept")
+    if ok:
+        print(f"OK: {args.id} 验收通过，已置为「完成」")
+        down = find_blockers(args.id)
+        if down:
+            print(f"提示：{len(down)} 个任务阻塞引用本任务，已随验收解锁：")
+            for t in down:
+                print(f"  - {t['id']}《{t['标题']}》[{t['状态']}]")
+    else:
+        print(f"[拒绝] {msg}")
+
+
 # 优先级排序权重（高在前）
 _NEXT_PRIO_RANK = {"高": 0, "中": 1, "低": 2}
 
@@ -1810,6 +1829,9 @@ def main():
     dn.add_argument("--force", action="store_true",
                     help="跳过 done 前置体检（结果记录/状态核查）强行回写")
     dn.set_defaults(func=cmd_done)
+    ac = sub.add_parser("accept", help="验收通过：「待验收」→「完成」（与看板验收按钮同一裁决路径）")
+    ac.add_argument("id", help="任务 id，如 task-20260929-001")
+    ac.set_defaults(func=cmd_accept)
     nx = sub.add_parser("next", help="agent 面：取下一个可执行任务，并带出项目方针卡")
     nx.add_argument("--project", "--项目", dest="project", default=None, help="只看某个项目的任务")
     nx.add_argument("--format", choices=["text", "json"], default="text",

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方寸 · 多视图小样（2026-09-28）</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#eef0f4; --ink:#3c4150; --muted:#626775; --accent:#705fab; --accent-soft:#c3bce0;
+    --card:#fff; --border:#e4e2ee; --success:#54814b; --warning:#986b20; --danger:#b44141;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:13px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:22px}
+  h1{font-size:17px;margin-bottom:4px}
+  .lead{color:var(--muted);font-size:12.5px;margin-bottom:16px;max-width:1000px;line-height:1.7}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px}
+  .panel > h2{font-size:14px;margin-bottom:2px}
+  .panel > .why{color:var(--muted);font-size:12px;margin-bottom:12px;line-height:1.7}
+  /* 视图切换器（这就是建议加进真实界面的东西） */
+  .switcher{display:inline-flex;gap:2px;background:#ecedf3;border:1px solid var(--border);border-radius:10px;padding:2px;margin-bottom:12px}
+  .switcher button{border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);padding:4px 12px;border-radius:8px;cursor:pointer}
+  .switcher button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(90,90,130,.14)}
+  .stage{background:#eef0f4;border:1px solid var(--border);border-radius:12px;padding:10px;min-height:260px}
+  .bar{background:rgba(255,255,255,.94);border-bottom:1px solid var(--border);padding:7px 10px;display:flex;gap:8px;align-items:center;border-radius:8px 8px 0 0;font-weight:700;font-size:12px}
+  .bar .sp{margin-left:auto;color:var(--muted);font-weight:400;font-size:11px}
+  .ruler{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .ruler b{color:var(--ink)}
+  .note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.75}
+  .note code{background:#f0f1f5;border-radius:4px;padding:0 4px}
+  ol.q{margin:8px 0 0 18px;font-size:12.5px}
+  ol.q li{margin-bottom:6px;line-height:1.7}
+
+  /* ── 看板 · 列视图（现在的样子）── */
+  .cols{display:flex;gap:9px;padding:9px;align-items:flex-start}
+  .colb{flex:1;min-width:0;background:#f3f4f8;border:1px solid #e4e5ec;border-radius:12px;padding:8px}
+  .colb.fold{background:transparent;border:1px dashed #d6d4e2}
+  .ch{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#565d6e;margin-bottom:7px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;flex:none}
+  .cnt{margin-left:auto;background:#e6e7ee;color:#4b5162;border-radius:99px;padding:0 7px;font-size:10.5px}
+  .crd{background:#fff;border:1px solid #e7e7ef;border-radius:9px;padding:4px 9px;margin-bottom:5px;font-size:12px;box-shadow:0 1px 2px rgba(90,90,130,.05);display:flex;align-items:center;gap:6px}
+  .crd .liv{width:6px;height:6px;border-radius:50%;background:#6366f1;flex:none}
+  .crd .ttl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crd .meta{flex:none;font-size:10.5px;color:var(--muted);display:inline-flex;gap:6px;align-items:center}
+  .crd.o{border-left:3px solid var(--danger)}
+  .crd.o .liv{background:var(--danger)}
+
+  /* ── 看板 · 列表视图（新）── */
+  .listwrap{padding:4px}
+  .lgrp{display:flex;align-items:center;gap:9px;margin:10px 0 6px}
+  .lgrp:first-child{margin-top:0}
+  .lgrp .f1{flex:1;height:1px;background:var(--border)}
+  .lpill{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:99px;padding:3px 11px 3px 9px;font-size:11.5px;font-weight:700}
+  .lpill .gd{width:9px;height:9px;border-radius:50%;background:#9ca3af}
+  .lpill .gn{background:var(--accent-soft);color:#4a4368;border-radius:99px;padding:0 6px;font-size:10.5px}
+  .lrow{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e7e7ef;border-radius:9px;padding:5px 10px;margin-bottom:4px;font-size:12px}
+  .lrow:hover{background:#fbfaff;border-color:#dcd8ee}
+  .lrow .liv{width:6px;height:6px;border-radius:50%;background:#9ca3af;flex:none}
+  .lrow .ttl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .st{font-size:10px;padding:1px 6px;border-radius:6px;font-weight:600;background:#eceef2;color:#4b5162;flex:none}
+  .lrow .meta{flex:none;font-size:10.5px;color:var(--muted);display:inline-flex;gap:8px;align-items:center}
+  .lrow.o{border-left:3px solid var(--danger)}
+
+  /* ── 待办 · 清单（现在的样子）── */
+  .todolist{display:flex;flex-direction:column;gap:4px}
+  .todo-item{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12.5px}
+  .todo-chk{width:14px;height:14px;flex:none}
+  .todo-item .ttl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .todo-due{font-size:10.5px;color:var(--muted)}
+  .todo-due.over{color:var(--danger);font-weight:700}
+  .todo-proj{font-size:10.5px;color:#6d6f86}
+  .prio{font-size:10.5px;padding:1px 6px;border-radius:6px;font-weight:600}
+  .prio.high{background:#fdeaea;color:#a03a3a}
+  .prio.mid{background:#fdf3e0;color:#8a5a12}
+  .prio.low{background:#eceff3;color:#5b6470}
+  .mini{border:1px solid var(--border);background:#fff;border-radius:6px;font:inherit;font-size:11px;color:var(--muted);padding:1px 6px}
+
+  /* ── 待办 · 卡片网格（新，用户点名的「方块卡片式」）── */
+  .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+  .tcard{background:#fff;border:1px solid #e7e7ef;border-radius:11px;padding:9px 11px;box-shadow:0 1px 2px rgba(90,90,130,.05);display:flex;flex-direction:column;gap:6px;min-height:88px}
+  .tcard:hover{box-shadow:0 3px 12px rgba(90,90,130,.12);border-color:#dcd8ee}
+  .tcard .top{display:flex;align-items:center;gap:6px}
+  .tcard .top .prio{margin-left:auto}
+  .tcard .ttl2{font-size:12.5px;font-weight:600;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .tcard .foot{margin-top:auto;display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--muted)}
+  .tcard.o{border-left:3px solid var(--danger)}
+  .prog{display:flex;gap:10px;align-items:center;font-size:11.5px;color:var(--muted);margin-bottom:8px}
+  .prog b{color:var(--ink)}
+</style>
+</head>
+<body>
+
+<h1>方寸 · 多视图小样</h1>
+<p class="lead">
+  回应你说的「尝试多种视图可选（用户自己切换，旧的视图可以保留）」。
+  这一页是**可点的**：上面的切换器就是建议加进真实界面的那个控件，点一下换一种摆法。
+  三个原则：① <b>旧视图永远是默认</b>（列视图 / 清单）；② 选择写进 <code>prefs.json</code>，重启保留；
+  ③ 切换器放在页头，不塞进顶栏（顶栏已经够挤了）。
+</p>
+
+<!-- ══════════ 看板 ══════════ -->
+<div class="panel">
+  <h2>看板 · 两种视图</h2>
+  <p class="why">
+    列视图胜在「流程感」和拖拽改状态，代价是 <b>7 个状态列</b>要横向滚、一屏看不了几条。
+    列表视图把状态改成**分区**（和日志页同一套观感），单列纵排、不用横滚，一屏能扫完 ——
+    适合「我只想看看还有什么没干完」。
+  </p>
+  <div class="switcher" id="sw-board">
+    <button class="on" data-v="cols">▦ 列视图（现在）</button>
+    <button data-v="list">☰ 列表视图（新）</button>
+  </div>
+  <div class="stage">
+    <div class="bar">方寸 tegula <span class="sp">39 / 12</span></div>
+    <div id="board-body"></div>
+  </div>
+  <div class="ruler" id="board-ruler"></div>
+  <p class="note">
+    列表视图里的**分区头可以点着折叠**（复用日志页现成的机制）。
+    拖拽在两个视图里都保留 —— 列表视图里往分区头上一拖同样能改状态。
+  </p>
+</div>
+
+<!-- ══════════ 待办 ══════════ -->
+<div class="panel">
+  <h2>待办 · 两种视图（含你点名的「方块卡片式」）</h2>
+  <p class="why">
+    你在卡 033 的验收驳回里写过：「我要的<b>方块卡片式视图</b>和其他视图也没出现，多视图根本没做。」
+    卡片网格就是那个方块视图：标题最多 3 行不截断，信息挂在卡片上而不是挤成一行。
+  </p>
+  <div class="switcher" id="sw-todo">
+    <button class="on" data-v="list">☰ 清单（现在）</button>
+    <button data-v="grid">▦ 卡片网格（新）</button>
+  </div>
+  <div class="stage">
+    <div class="bar">待办 <span class="sp">草稿便签</span></div>
+    <div id="todo-body" style="padding:9px"></div>
+  </div>
+  <div class="ruler" id="todo-ruler"></div>
+  <p class="note">
+    网格视图的取舍：**一屏能看的条数变少**（每张卡 88px 起），换来的是长标题读得全、信息有位置放。
+    所以我建议它是**可选项而不是默认** —— 你现在的清单视图在「批量勾掉一堆小事」时更快。
+  </p>
+</div>
+
+<div class="panel">
+  <h2>要你点的三件事</h2>
+  <ol class="q">
+    <li><b>看板要不要列表视图？</b>要 / 不要。不要的话就只做待办那一半（033）。</li>
+    <li><b>待办卡片网格</b>：卡片里除了标题 + 截止 + 项目，还要不要放「优先级」和「操作按钮」？
+      （我倾向：优先级放，操作按钮不放 —— 点卡进去改，卡面保持干净。）</li>
+    <li><b>第三个视图要不要</b>：我**故意没做**「紧凑清单」（无卡框纯文字行）——
+      它和列表视图只差一层卡框，属于「同一个东西摆两遍」。你要是想看我可以补。</li>
+  </ol>
+  <p class="note">本页是静态小样（数据是假的），但切换器是可点的。你点头我再动 <code>App.vue</code>。</p>
+</div>
+
+<script>
+const T = [
+  '驳回/完成的任务删不掉（终态删除无效）', '任务多选：小方框需要小心翼翼点，易点错',
+  '修 e2e-calendar 编译', '日志按状态分区 + 筛选收敛', '遮罩挡字取证', '看板观感重做',
+  '日历横条对齐', '技能导入去重', '列宽自适应', '逾期红点提醒', '拖拽占位优化',
+  '归档批量操作', '卡片详情抽屉', '接上执行日志回写', '补技能导入的重名策略',
+];
+const GROUPS = [
+  { key:'todo', label:'待办', color:'#9ca3af', n:6, cls:'' },
+  { key:'doing', label:'进行中', color:'#6366f1', n:4, cls:'' },
+  { key:'verify', label:'待验收', color:'#d9a44a', n:3, cls:'' },
+  { key:'done', label:'完成', color:'#54814b', n:12, cls:'fold' },
+];
+const PROJS = ['fangcun', 'NovelForge', '明鉴', ''];
+const DATES = ['09-30', '10-02', '', '09-27', ''];
+
+function metaOf(i){ return { proj: PROJS[i % PROJS.length], date: DATES[i % DATES.length], over: i % 7 === 3 } }
+
+/* 看板 · 列视图（现在的样子：灰列白卡 + 一行卡 + 完成列折叠） */
+function renderCols(){
+  let h = '<div class="cols">'
+  GROUPS.forEach((g, gi) => {
+    h += `<div class="colb ${g.cls}"><div class="ch"><span class="dot" style="background:${g.color}"></span>${g.label}<span class="cnt">${g.n}</span></div>`
+    if (!g.cls) {
+      for (let i = 0; i < g.n; i++) {
+        const m = metaOf(i + gi * 3)
+        h += `<div class="crd ${m.over ? 'o' : ''}"><span class="liv" ${g.key!=='doing'?`style="background:${g.color}"`:''}></span><span class="ttl">${T[(i*3+gi)%T.length]}</span>
+              <span class="meta">${m.date ? (m.over ? '<span style="color:#b44141;font-weight:700">📅'+m.date+'</span>' : '📅'+m.date) : '更新 09-2'+(i%9)}${m.proj ? ' · '+m.proj : ' · 未归属'}</span></div>`
+      }
+    }
+    h += '</div>'
+  })
+  return h + '</div>'
+}
+
+/* 看板 · 列表视图（新：单列 + 状态分区） */
+function renderList(){
+  let h = '<div class="listwrap">'
+  GROUPS.forEach((g, gi) => {
+    h += `<div class="lgrp"><span class="lpill"><span class="gd" style="background:${g.color}"></span>${g.label}<span class="gn">${g.n}</span></span><span class="f1"></span></div>`
+    if (g.cls) return
+    for (let i = 0; i < g.n; i++) {
+      const m = metaOf(i + gi * 3)
+      h += `<div class="lrow ${m.over ? 'o' : ''}"><span class="liv" style="background:${g.color}"></span>
+            <span class="ttl">${T[(i*3+gi)%T.length]}</span>
+            <span class="st">${g.label}</span>
+            <span class="meta">${m.date ? '📅'+m.date : '更新 09-2'+(i%9)}<span>${m.proj || '未归属'}</span></span></div>`
+    }
+    if (gi === 0) h += `<div class="lrow" style="opacity:.55"><span class="liv"></span><span class="ttl">…（列表视图里这一屏还能再放 3 条，列视图已经要横滚了）</span></div>`
+  })
+  return h + '</div>'
+}
+
+/* 待办 · 清单（现在的样子） */
+function renderTodos(){
+  let h = '<div class="todolist">'
+  for (let i = 0; i < 9; i++) {
+    const m = metaOf(i); const p = i % 3 === 0 ? 'high' : i % 3 === 1 ? 'mid' : 'low'
+    h += `<div class="todo-item"><input class="todo-chk" type="checkbox" ${i%4===0?'checked':''}>
+          <span class="ttl">${T[i % T.length]}</span>
+          ${m.date ? `<span class="todo-due ${m.over?'over':''}">📅 ${m.date}${m.over?' · 逾期 2 天':''}</span>` : ''}
+          ${m.proj ? `<span class="todo-proj">${m.proj}</span>` : ''}
+          <span class="prio ${p}">${p === 'high' ? '高' : p === 'mid' ? '中' : '低'}</span>
+          <button class="mini">📅</button><button class="mini">改</button><button class="mini">×</button></div>`
+  }
+  return h + '</div>'
+}
+
+/* 待办 · 卡片网格（新） */
+function renderTodoGrid(){
+  const free = [{t:'去便利店买咖啡豆', proj:'', date:'今天', due:true}]
+  let h = '<div class="tgrid">'
+  for (let i = 0; i < 8; i++) {
+    const m = metaOf(i); const p = i % 3 === 0 ? 'high' : i % 3 === 1 ? 'mid' : 'low'
+    h += `<div class="tcard ${m.over?'o':''}">
+          <div class="top"><input class="todo-chk" type="checkbox"><span class="prio ${p}">${p==='high'?'高':p==='mid'?'中':'低'}</span></div>
+          <div class="ttl2">${T[i % T.length]}</div>
+          <div class="foot">${m.date ? `<span style="${m.over?'color:#b44141;font-weight:700':''}">📅 ${m.date}</span>` : '<span>更新 09-2'+(i%9)+'</span>'}<span>${m.proj || '未归属'}</span></div></div>`
+  }
+  return h + '</div>'
+}
+
+const RULER = {
+  cols: '<span>一屏可见：<b>约 12 条</b>（要横滚）</span><span>胜在：<b>流程感 / 拖拽</b></span>',
+  list: '<span>一屏可见：<b>约 18 条</b>（不横滚）</span><span>胜在：<b>扫读 / 分区折叠</b></span>',
+}
+function drawBoard(v){
+  document.getElementById('board-body').innerHTML = v === 'cols' ? renderCols() : renderList()
+  document.getElementById('board-ruler').innerHTML = RULER[v]
+}
+function drawTodo(v){
+  document.getElementById('todo-body').innerHTML = v === 'list' ? renderTodos() : renderTodoGrid()
+  document.getElementById('todo-ruler').innerHTML = v === 'list'
+    ? '<span>一屏可见：<b>约 14 条</b></span><span>胜在：<b>批量勾选快</b></span>'
+    : '<span>一屏可见：<b>约 9 张</b></span><span>胜在：<b>长标题读得全 / 信息有位置放</b></span>'
+}
+function wire(id, draw){
+  const box = document.getElementById(id)
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return
+    ;[...box.querySelectorAll('button')].forEach(x => x.classList.toggle('on', x === b))
+    draw(b.dataset.v)
+  })
+  draw(box.querySelector('button.on').dataset.v)
+}
+wire('sw-board', drawBoard)
+wire('sw-todo', drawTodo)
+</script>
+
+</body>
+</html>

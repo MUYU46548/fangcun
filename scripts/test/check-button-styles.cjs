@@ -126,18 +126,30 @@ function main() {
   }
   const src = fs.readFileSync(FILE, 'utf-8')
 
-  // ⚠ 深度感知（2026-09-26 修）：Vue 模板里**合法地可以嵌套 `<template v-if>`**。
+  /**
+   * ⚠ HTML 注释必须先"掏空"再数标签（2026-09-28 修）。
+   *
+   * 真事：模板里加了一条注释，文字是「用 `<template v-if>` 包住是为了…」——
+   * 守卫当场报 `FAIL 无法切分 template / style 块`。产品完全正常，是守卫瞎了：
+   * `matchTagClose` 只数 `<template>` / `</template>`，注释里那个开标签让深度永远回不到 0。
+   * 修法：把注释**按原长度替换成空格**（所有下标保持不动）后专门用来配标签。
+   * 顺带的好处：被注释掉的按钮不再计入 class 集合（此前会把"注释里的按钮"
+   * 当成真实按钮去要求样式，属于同一类假阳性）。
+   */
+  const srcTags = src.replace(/<!--[\s\S]*?-->/g, m => ' '.repeat(m.length))
+
+  // ⚠ 深度感知（2026-09-26 修）：Vue 模板里**合法地可以嵌套 template v-if**。
   // 旧写法 `indexOf('</template>')` 取的是**第一个**闭合标签 → 模板被截断在嵌套块处，
   // 表现为「模板中检出按钮 → 实际 4」这种荒谬数字（守卫自己坏了，产品其实是好的）。
-  const tplStart = src.indexOf('<template>')
-  const tplEnd = tplStart < 0 ? -1 : matchTagClose(src, tplStart, 'template')
+  const tplStart = srcTags.indexOf('<template>')
+  const tplEnd = tplStart < 0 ? -1 : matchTagClose(srcTags, tplStart, 'template')
   const styleStart = src.indexOf('<style')
   const styleEnd = src.lastIndexOf('</style>')
   if (tplStart < 0 || tplEnd < 0 || styleStart < 0 || styleEnd < 0) {
     console.log('FAIL  无法切分 template / style 块')
     process.exit(1)
   }
-  const tpl = src.slice(tplStart, tplEnd)
+  const tpl = srcTags.slice(tplStart, tplEnd)
   const style = src.slice(styleStart, styleEnd)
 
   // 样式表选择器清单

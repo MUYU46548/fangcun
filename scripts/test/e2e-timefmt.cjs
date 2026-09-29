@@ -138,6 +138,20 @@ function main() {
   check('D15 没有「全屏 + backdrop-filter」的遮罩残留（含死 CSS）',
     !/inset:0[^}]*backdrop-filter/.test(boardNoComment) && !/inset:\s*0[^}]*backdrop-filter/.test(vueNoComment))
 
+  // D16（2026-09-28 用户第 1 条）：**装饰层必须真的在背景层**。
+  //   `.blob`（左上角 460×460 淡紫光斑）一直是 `position: fixed` + `z-index: 0`，
+  //   而看板的 .col / 卡片都是**非定位的流内元素**。按 CSS 绘制顺序：
+  //     负 z 子层 → 流内块背景 → 行内内容 → z-index:0/auto 的**已定位**元素
+  //   也就是说 z-index:0 的它画在所有正文**之上**，只被 z-index:2 的 #bar / #views 挡着 ——
+  //   "淡淡一层紫盖住左上角文字"就是这么来的。它同时是 pointer-events:none，
+  //   所以既不响应点击、也不会被命中测试抓到（上一轮"无盖字"断言因此漏报）。
+  //   判据：装饰光斑的 z-index 必须是负的（真的落到背景层）。
+  const blobRule = (/(^|\n)\s*\.blob\s*\{[^}]*\}/.exec(vueNoComment) || [])[0] || ''
+  const blobZ = (/z-index:\s*(-?\d+)/.exec(blobRule) || [])[1]
+  check('D16 装饰光斑（.blob）在背景层：z-index 为负，不画在正文之上',
+    blobRule !== '' && blobZ !== undefined && parseInt(blobZ, 10) < 0,
+    `规则=${blobRule.replace(/\s+/g, ' ').slice(0, 120)} z-index=${blobZ}`)
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

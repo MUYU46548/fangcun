@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>方寸 · 看板/日志 视觉小样（2026-09-28）</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#eef0f4; --ink:#3c4150; --muted:#626775; --accent:#705fab; --accent-soft:#c3bce0;
+    --card:#fff; --border:#e4e2ee; --success:#54814b; --warning:#986b20; --danger:#b44141;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:13px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:22px}
+  h1{font-size:17px;margin-bottom:4px}
+  .lead{color:var(--muted);font-size:12.5px;margin-bottom:16px;max-width:900px}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:18px}
+  .panel > h2{font-size:14px;margin-bottom:2px}
+  .panel > .why{color:var(--muted);font-size:12px;margin-bottom:12px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .side > .cap{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:8px}
+  .side > .cap .tag{border-radius:99px;padding:1px 8px;font-size:10.5px;font-weight:700}
+  .tag.now{background:#eceef2;color:#4b5162}
+  .tag.new{background:#e6f4e2;color:#3c6b35}
+  .stage{background:#eef0f4;border:1px solid var(--border);border-radius:12px;padding:10px;min-height:250px}
+  .bar{background:rgba(255,255,255,.94);border-bottom:1px solid var(--border);padding:7px 10px;display:flex;gap:8px;align-items:center;border-radius:8px 8px 0 0;font-weight:700;font-size:12px}
+  .bar .sp{margin-left:auto;color:var(--muted);font-weight:400;font-size:11px}
+  .tabs{display:flex;gap:5px;padding:5px 8px;background:rgba(255,255,255,.6);border-bottom:1px solid var(--border);font-size:11.5px}
+  .tabs span{padding:2px 10px;border-radius:99px;border:1px solid var(--border);background:#fff;color:var(--muted)}
+  .tabs span.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+  .cols{display:flex;gap:9px;padding:9px;align-items:flex-start}
+  .colb{flex:1;min-width:0;border-radius:12px}
+  /* ── 现状版看板 ── */
+  .now .colb{background:#fff;border:1px solid var(--border);box-shadow:0 8px 32px rgba(90,90,130,.12);padding:8px}
+  .now .colb.c1{border-left:4px solid #9ca3af}
+  .now .colb.c2{border-left:4px solid #6366f1;background:#fafaff}
+  .now .colb.c3{border-left:4px solid #f59e0b;background:#fffdf5}
+  .now .colb.c4{border-left:4px solid #10b981;background:#f5fdf8}
+  .now .ch{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:7px}
+  .now .dot{width:10px;height:10px;border-radius:50%;background:#9ca3af}
+  .now .colb.c2 .dot{background:#6366f1}.now .colb.c3 .dot{background:#f59e0b}.now .colb.c4 .dot{background:#10b981}
+  .now .cnt{margin-left:auto;background:var(--accent-soft);color:#4a4368;border-radius:99px;padding:0 7px;font-size:10.5px}
+  .now .crd{background:#fbfbfe;border:1px solid var(--border);border-radius:12px;padding:7px 9px;margin-bottom:7px;font-size:12px}
+  .now .crd.a{border-left:3px solid var(--accent);background:#f4f1fc}
+  .now .crd.o{border-left:3px solid var(--danger);background:#faf3f3}
+  .now .st{display:block;font-size:10.5px;color:var(--muted);margin-top:3px}
+  /* ── 改良版看板 ── */
+  .new .colb{background:#f3f4f8;border:1px solid #e4e5ec;padding:8px}
+  .new .ch{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#565d6e;margin-bottom:7px}
+  .new .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af}
+  .new .colb.c2 .dot{background:#6366f1}.new .colb.c3 .dot{background:#f59e0b}.new .colb.c4 .dot{background:#10b981}
+  .new .cnt{margin-left:auto;background:#e6e7ee;color:#4b5162;border-radius:99px;padding:0 7px;font-size:10.5px}
+  .new .crd{background:#fff;border:1px solid #e7e7ef;border-radius:11px;padding:7px 9px;margin-bottom:7px;font-size:12px;box-shadow:0 1px 2px rgba(90,90,130,.05)}
+  .new .crd .ttl{display:flex;align-items:center;gap:5px}
+  .new .crd .liv{width:6px;height:6px;border-radius:50%;background:#6366f1;flex:none}
+  .new .crd.o{border-left:3px solid var(--danger)}
+  .new .crd.o .liv{background:var(--danger)}
+  .new .st{display:block;font-size:10.5px;color:var(--muted);margin-top:3px}
+  .ruler{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .ruler b{color:var(--ink)}
+  /* 日志 */
+  .logstage{background:#eef0f4;border:1px solid var(--border);border-radius:12px;padding:10px}
+  .lgrp{display:flex;align-items:center;gap:9px;margin:8px 0 6px}
+  .lgrp:first-child{margin-top:0}
+  .lgrp .f1{flex:1;height:1px;background:var(--border)}
+  .lpill{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:99px;padding:3px 11px 3px 9px;font-size:11.5px;font-weight:700;color:var(--ink)}
+  .lpill .gd{width:9px;height:9px;border-radius:50%;background:#9ca3af}
+  .lpill .gn{background:var(--accent-soft);color:#4a4368;border-radius:99px;padding:0 6px;font-size:10.5px}
+  .lg-run .gd{background:#5a5ce0}.lg-todo .gd{background:#9ca3af}.lg-done .gd{background:var(--success)}.lg-arch .gd{background:#b6b2c4}
+  .lcard{background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:7px;box-shadow:0 1px 3px rgba(90,90,130,.06);font-size:12px}
+  .lcard .h{display:flex;align-items:center;gap:7px}
+  .lcard .h .t{font-weight:600;flex:1}
+  .lcard .h .d{font-size:10.5px;color:var(--muted)}
+  .lcard .b{color:var(--muted);font-size:11.5px;margin-top:3px}
+  .bdg{font-size:10px;padding:1px 6px;border-radius:6px;font-weight:600}
+  .bdg.run{background:#dbeafe;color:#1d4ed8}
+  .bdg.todo{background:#eceef2;color:#4b5162}
+  .bdg.done{background:#dcfce7;color:#166534}
+  .bdg.arch{background:#f3f4f6;color:#5f6672}
+  .lcard.running{border-left:4px solid var(--accent);background:linear-gradient(90deg,#f1eefe 0%,#fff 55%)}
+  .lcard.running .h .t{color:#4a3f7d}
+  .lcard.running .bdg.run{background:#5a5ce0;color:#fff}
+  .acts{display:flex;gap:6px;justify-content:flex-end;margin-top:7px}
+  .acts .bt{border:1px solid var(--border);border-radius:8px;padding:2px 10px;font-size:11px;background:#fff;color:var(--ink);font-weight:600}
+  .acts .bt.on{background:#eef4ff;border-color:#9dbdf0;color:#1d4ed8}
+  .acts .bt.ghost2{opacity:.45}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .note code{background:#f0f1f5;border-radius:4px;padding:0 4px}
+  ol.q{margin:8px 0 0 18px;font-size:12.5px}
+  ol.q li{margin-bottom:5px}
+</style>
+</head>
+<body>
+
+<h1>方寸 · 看板 / 日志 视觉小样</h1>
+<p class="lead">
+  对应你 2026-09-28 的第 4、5 条（「竖条好几条，越看越头痛」「筛选把信息搞得支离破碎」）。
+  左右并排是**同一批数据**：左边是改之前的样子，右边是建议改成什么样。审批后再动手量产，本轮只出小样。
+</p>
+
+<div class="panel" style="border-color:#bcd4b4;background:#f7fbf5">
+  <h2>落地记录（2026-09-28 已施工）</h2>
+  <p class="why" style="margin-bottom:8px">
+    你随后给了一版《看板密度对比》，选了 <b>B · 密度方案：紧凑单行卡 + 完成列折叠</b>，并采纳 ①②③④。
+    下面小样里的「建议」栏因此<b>有一部分已经进了 App.vue</b>，逐条对账如下。
+  </p>
+  <ul style="margin:0 0 0 18px;font-size:12.5px;line-height:1.85">
+    <li><b>已落地</b>：① 列灰底 / 卡白底反转 · ② 删掉每列 4px 左边色条 · ③ 卡级染色取消（左边条只留逾期）·
+      ④ 阴影分层 + 圆角 18→12 · ⑤ 紧凑单行卡（卡高 ~48px → ~28px）· ⑥ 完成/驳回列默认折叠。</li>
+    <li><b>标题过长怎么办</b> —— 你提的两个补救（悬停滚动 / 延迟 1–2 秒浮层）我都没照做，理由见下。
+      实际做的是：<b>只在标题真被截断时</b>（<code>scrollWidth &gt; clientWidth</code>）、
+      <b>150ms</b> 后弹出「半张详情卡」（完整标题 + 正文摘要 + 状态/项目/截止/优先级/标签），
+      <code>position:fixed</code> + <code>pointer-events:none</code>，拖拽中绝不出现。</li>
+    <li><b>没做</b>：列内双列流（你的选做项，需再出一版真实列宽的小样）；
+      「进行中列计数 &gt; 4 标红」这条 WIP 软提示也没做 —— 它是**新的语义**，不想替你定。</li>
+    <li><b>拒绝</b>：列内滚动（你我一致）。</li>
+  </ul>
+  <p class="note" style="margin-top:10px">
+    <b>2026-09-28 第二轮回执后补的两件事</b>：<br>
+    ① 你说「②看不见」—— 真因是我在浮层入口第一行写了 <code>if (draggingId) return</code>，
+    而 <code>draggingId</code> 是 <code>ref</code>（判断 ref 对象**恒为真**），这条"拖拽中不弹"的守卫
+    把**每一次悬停都挡掉了**。已改为 <code>draggingId.value</code>，并新增静态守卫 <b>⑧ ref 裸用当布尔</b>。<br>
+    ② 你说「希望看见所属项目和日期」—— 卡右侧 meta 现在<b>常驻</b>显示两项：
+    <b>日期</b>（有截止日给 <code>📅MM-DD</code>、逾期标红；没有就退到灰色 <code>更新 MM-DD</code>）+
+    <b>所属项目</b>（frontmatter 的「项目」是**数组**，此前没归一 → 永远匹配不到名字，所以"看不见"）。
+  </p>
+</div>
+
+<!-- ══════════ 看板 ══════════ -->
+<div class="panel">
+  <h2>看板</h2>
+  <p class="why">
+    你说的「竖条好几条」是四样东西叠出来的：每列一条 <code>4px 左边色条</code> + 每张活跃卡一条 <code>3px 左边色条</code>
+    + 卡片自己的细边框 + 每列一层 <code>0 8px 32px</code> 的重阴影。四列就是 4 条竖线起底，卡一多就成栅栏。
+  </p>
+  <div class="pair">
+    <div class="side now">
+      <div class="cap"><span class="tag now">现状</span> 竖条靠"左边色条"表达状态；列白底 + 重阴影</div>
+      <div class="stage">
+        <div class="bar">方寸 tegula <span class="sp">18 / 12</span></div>
+        <div class="tabs"><span class="on">看板</span><span>待办</span><span>日志</span><span>项目</span></div>
+        <div class="cols">
+          <div class="colb c1">
+            <div class="ch"><span class="dot"></span>待办<span class="cnt">3</span></div>
+            <div class="crd">接上执行日志回写<span class="st">fangcun</span></div>
+            <div class="crd">补技能导入的重名策略<span class="st">fangcun</span></div>
+          </div>
+          <div class="colb c2">
+            <div class="ch"><span class="dot"></span>进行中<span class="cnt">2</span></div>
+            <div class="crd a">看板观感重做<span class="st">fangcun</span></div>
+            <div class="crd a o">修日历横条错位<span class="st">fangcun · 已逾期</span></div>
+          </div>
+          <div class="colb c3">
+            <div class="ch"><span class="dot"></span>待验收<span class="cnt">1</span></div>
+            <div class="crd">遮罩挡字取证<span class="st">fangcun</span></div>
+          </div>
+          <div class="colb c4">
+            <div class="ch"><span class="dot"></span>完成<span class="cnt">4</span></div>
+            <div class="crd">日志按状态分区<span class="st">fangcun</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="ruler"><span>竖条：<b>4 列 + 3 卡 = 7 条</b></span><span>底色：<b>4 种</b></span><span>阴影：<b>列 + 卡</b></span></div>
+    </div>
+
+    <div class="side new">
+      <div class="cap"><span class="tag new">建议</span> 状态交给列头小圆点；颜色只留给"要注意的事"</div>
+      <div class="stage">
+        <div class="bar">方寸 tegula <span class="sp">18 / 12</span></div>
+        <div class="tabs"><span class="on">看板</span><span>待办</span><span>日志</span><span>项目</span></div>
+        <div class="cols">
+          <div class="colb c1">
+            <div class="ch"><span class="dot"></span>待办<span class="cnt">3</span></div>
+            <div class="crd"><div class="ttl">接上执行日志回写</div><span class="st">fangcun</span></div>
+            <div class="crd"><div class="ttl">补技能导入的重名策略</div><span class="st">fangcun</span></div>
+          </div>
+          <div class="colb c2">
+            <div class="ch"><span class="dot"></span>进行中<span class="cnt">2</span></div>
+            <div class="crd"><div class="ttl"><span class="liv"></span>看板观感重做</div><span class="st">fangcun</span></div>
+            <div class="crd o"><div class="ttl"><span class="liv"></span>修日历横条错位</div><span class="st">fangcun · 已逾期</span></div>
+          </div>
+          <div class="colb c3">
+            <div class="ch"><span class="dot"></span>待验收<span class="cnt">1</span></div>
+            <div class="crd"><div class="ttl">遮罩挡字取证</div><span class="st">fangcun</span></div>
+          </div>
+          <div class="colb c4">
+            <div class="ch"><span class="dot"></span>完成<span class="cnt">4</span></div>
+            <div class="crd"><div class="ttl">日志按状态分区</div><span class="st">fangcun</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="ruler"><span>竖条：<b>只剩 1 条（逾期）</b></span><span>底色：<b>2 种</b></span><span>阴影：<b>只有卡片，1px</b></span></div>
+    </div>
+  </div>
+  <p class="note">
+    四条改动，每条都只说一件事：<br>
+    ① <b>列底色与卡片色反转</b>（列淡灰 <code>#f3f4f8</code>、卡片纯白）—— 层次靠"白卡浮在灰底上"，
+    不再靠边框和色条，看得见边界但数不到线。<br>
+    ② <b>删掉每列的 4px 左边色条</b>，状态仍由列头圆点 + 文字承担（信息量一样，竖线少 4 条）。<br>
+    ③ <b>卡片左边条只在"需要注意"时出现</b>（逾期红/阻塞），"活跃"改用标题前 6px 小圆点，不再整张卡染色。<br>
+    ④ <b>阴影分层</b>：列几乎无阴影（1px 边框），卡片 1px 贴地投影；圆角 18px → 12px，去掉"泡泡感"。
+  </p>
+</div>
+
+<!-- ══════════ 日志 ══════════ -->
+<div class="panel">
+  <h2>日志</h2>
+  <p class="why">
+    状态筛选下拉已经删掉，改成按 <b>进行中 / 待处理 / 已完成 / 已归档</b> 分区（下面右侧就是新版长相，已实现）。
+    筛选控件从 6 个收到「搜索 + 项目 + 更多筛选」。剩下这条是**建议追加**：卡片操作行平时压暗，鼠标移上去才亮。
+  </p>
+  <div class="pair">
+    <div class="side now">
+      <div class="cap"><span class="tag now">现状</span> 一行平铺 + 6 个筛选控件 + 每张卡都挂满按钮</div>
+      <div class="logstage">
+        <div class="lcard"><div class="h"><span class="bdg run">进行中</span><span class="t">面板改完待验收</span><span class="d">09-27 22:26</span></div>
+          <div class="b">遮罩挡字 + 主题可读性…</div>
+          <div class="acts"><span class="bt">✏️ 编辑</span><span class="bt">📋 复制</span><span class="bt">▶ 进行中</span><span class="bt">完成</span><span class="bt">归档</span><span class="bt">销毁</span></div>
+        </div>
+        <div class="lcard"><div class="h"><span class="bdg run">进行中</span><span class="t">修 e2e-calendar 编译</span><span class="d">09-25 13:49</span></div>
+          <div class="b">泛型约束漏写…</div>
+          <div class="acts"><span class="bt">✏️ 编辑</span><span class="bt">📋 复制</span><span class="bt">▶ 进行中</span><span class="bt">完成</span><span class="bt">归档</span><span class="bt">销毁</span></div>
+        </div>
+        <div class="lcard"><div class="h"><span class="bdg run">进行中</span><span class="t">日志要能关联多个任务</span><span class="d">09-25 11:20</span></div>
+          <div class="b">tasks 数组只读第一个…</div>
+          <div class="acts"><span class="bt">✏️ 编辑</span><span class="bt">📋 复制</span><span class="bt">▶ 进行中</span><span class="bt">完成</span><span class="bt">归档</span><span class="bt">销毁</span></div>
+        </div>
+      </div>
+      <div class="ruler"><span>状态：<b>全都显示"进行中"</b></span><span>按钮：<b>一屏 18 个</b></span></div>
+    </div>
+
+    <div class="side new">
+      <div class="cap"><span class="tag new">建议 / 已实现</span> 按状态分区；"进行中"只能手动打，可撤销</div>
+      <div class="logstage">
+        <div class="lgrp lg-run"><span class="lpill"><span class="gd"></span>进行中<span class="gn">1</span></span><span class="f1"></span></div>
+        <div class="lcard running">
+          <div class="h"><span class="bdg run">进行中</span><span class="t">面板改完待验收</span><span class="d">09-27 22:26</span></div>
+          <div class="b">遮罩挡字 + 主题可读性…</div>
+          <div class="acts"><span class="bt">✏️</span><span class="bt">📋</span><span class="bt on">⏸ 撤销进行中</span><span class="bt">完成</span><span class="bt">归档</span></div>
+        </div>
+        <div class="lgrp lg-todo"><span class="lpill"><span class="gd"></span>待处理<span class="gn">2</span></span><span class="f1"></span></div>
+        <div class="lcard">
+          <div class="h"><span class="bdg todo">待处理</span><span class="t">日志要能关联多个任务</span><span class="d">09-25 11:20</span></div>
+          <div class="b">tasks 数组只读第一个…</div>
+          <div class="acts"><span class="bt ghost2">✏️</span><span class="bt ghost2">📋</span><span class="bt">▶ 标为进行中</span><span class="bt">完成</span></div>
+        </div>
+        <div class="lgrp lg-done"><span class="lpill"><span class="gd"></span>已完成<span class="gn">1</span></span><span class="f1"></span></div>
+        <div class="lcard">
+          <div class="h"><span class="bdg done">已完成</span><span class="t">修 e2e-calendar 编译</span><span class="d">09-25 13:49</span></div>
+          <div class="acts"><span class="bt ghost2">✏️</span><span class="bt ghost2">📋</span><span class="bt">▶ 标为进行中</span><span class="bt">↩ 撤销</span></div>
+        </div>
+        <div class="lgrp lg-arch"><span class="lpill"><span class="gd"></span>已归档<span class="gn">6</span></span><span class="f1"></span></div>
+      </div>
+      <div class="ruler"><span>状态：<b>一眼分得清</b></span><span>按钮：<b>平时压暗，hover 才亮</b></span></div>
+    </div>
+  </div>
+  <p class="note">
+    分区顺序＝关心的顺序：<b>置顶 → 进行中 → 待处理 → 已完成 → 已归档</b>（已归档默认收起，空分区不渲染）。
+    「进行中」在图上是唯一有左边色条 + 淡紫底的卡 —— 因为它是唯一需要一秒钟扫到的状态。
+  </p>
+</div>
+
+<div class="panel">
+  <h2>要你点的三件事</h2>
+  <ol class="q">
+    <li><b>看板那四条改动</b>：全要 / 只要素的 ①②④ / 都不要。（③ 会把"活跃"的整张卡染色收掉，改得最狠，可以单独否。）</li>
+    <li><b>列底色反转</b>（列淡灰 + 卡纯白）和现在正好相反，是这次观感变化最大的一刀。不合意就只做 ②③④。</li>
+    <li><b>日志卡操作行平时压暗</b>：好处是列表安静，代价是新功能不容易被发现。要 / 不要。</li>
+  </ol>
+  <p class="note">本页只是小样（静态 HTML，数据是假的）。你点头我再动 <code>App.vue</code> 的真样式。</p>
+</div>
+
+</body>
+</html>

@@ -181,43 +181,99 @@ function main() {
   check('单击日志卡 = 只读预览（编辑移到按钮/预览内，不再靠点卡片）',
     /logPreview\.value = \{ \.\.\.log \}/.test(APP) && /@click="openLog\(log\)"/.test(APP))
 
-  // ── 11. 日志打回「进行中」（2026-09-26 用户补充第 3 条）──────────────
-  // 用户原话：「希望日志加一个功能，可以临时打上进行中标签，并且卡片有特殊视觉效果，一目了然。」
-  // 真因：状态此前是单行道（active→completed→archived，且 updateLog 明确拒绝改非 active），
-  //       点过一次「完成」/「归档」就再也回不去 —— 没有「这条我又在弄了」的路。
+  // ── 11. 日志状态模型（2026-09-26 卡 022 → 2026-09-28 用户第 2 条重做）────
+  // 用户原话：「日志还是一创建就是进行中，导致我日志依然混乱，分不清哪些没跑、
+  //           哪些 Agent 正在跑、哪些跑完了。我需要"进行中"只能由手动开关打上，
+  //           且可以撤销（防止误操作），且不成为完成或归档的必要条件。」
+  // 真因：`active` 这个状态**创建时就自动打上**，而它的中文显示是「进行中」——
+  //       于是"默认态"和"正在跑"共用一个词。现在拆开：
+  //         status: active = 待处理（默认）；running: true = 进行中（只能手动开）
   const r1 = logs.createLog('打回1', 'demo', 'x').data
-  logs.completeLog(r1.id, 30, '做完')
-  check('前置：这条日志已完成且带保留期',
-    logs.getLog(r1.id).status === 'completed' && !!logs.getLog(r1.id).retainUntil)
-  const rp1 = logs.reopenLog(r1.id)
-  check('★ 已完成的日志能打回「进行中」', rp1.ok === true, JSON.stringify(rp1.error))
-  const r1After = logs.getLog(r1.id)
-  check('★ 打回后状态为 active', r1After.status === 'active', r1After.status)
-  check('★ 打回顺手清掉「已完成 + 保留期」（不留下自相矛盾的字样）',
-    !r1After.completed && !r1After.retainUntil && !r1After.retainDays,
-    JSON.stringify({ c: r1After.completed, u: r1After.retainUntil, d: r1After.retainDays }))
-  check('★ 打回后就能编辑了（updateLog 不再拒绝）',
-    logs.updateLog(r1.id, { title: '打回1改' }).ok === true)
+  check('★ 新建日志不再自动是「进行中」（既不是 running，也不是靠 status 冒充）',
+    logs.getLog(r1.id).running !== true && logs.getLog(r1.id).status === 'active',
+    JSON.stringify({ s: logs.getLog(r1.id).status, r: logs.getLog(r1.id).running }))
+  check('★ 新建日志文件里**不写** running 字段（不凭空多出字段）',
+    !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
 
-  const r2 = logs.createLog('打回2', 'demo', 'x').data
-  logs.archiveLog(r2.id)
-  check('★ 已归档的日志也能打回', logs.reopenLog(r2.id).ok === true && logs.getLog(r2.id).status === 'active')
-  check('★ 打回只改状态：文件仍在（不删不搬）', fs.existsSync(path.join(LOGS_DIR, `${r2.id}.md`)))
-  check('打回幂等：本来就是 active 时给 ok 且不报错',
-    logs.reopenLog(r2.id).ok === true && logs.getLog(r2.id).status === 'active')
-  check('打回不存在的日志给可读原因',
+  // 手动开 / 关「进行中」
+  const sr1 = logs.setLogRunning(r1.id, true)
+  check('★ setLogRunning(true) 写回成功', sr1 && sr1.ok === true, JSON.stringify(sr1))
+  check('★ 读回来 running === true（往返保真）', logs.getLog(r1.id).running === true)
+  check('★ 文件里真的落了 running: true',
+    /^running: true$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
+  check('★ 「进行中」能被筛选捞出（按 running，不再按 status）',
+    logs.listLogs({ running: true }).some(l => l.id === r1.id))
+  const sr0 = logs.setLogRunning(r1.id, false)
+  check('★ 可撤销：setLogRunning(false) 把它放回「待处理」',
+    sr0 && sr0.ok === true && logs.getLog(r1.id).running !== true, JSON.stringify(sr0))
+  check('★ 撤销后字段从文件里消失（不留 running: false 垃圾）',
+    !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
+  check('  不存在的 id 返回 ok:false（不抛）', logs.setLogRunning('不存在', true).ok === false)
+
+  // 「进行中」不是完成/归档的前置条件
+  const r2 = logs.createLog('直接的完成', 'demo', 'x').data
+  check('★ 「待处理」状态直接完成，不被拒绝（进行中不是前置条件）',
+    logs.completeLog(r2.id, 7, '直接完成').ok === true && logs.getLog(r2.id).status === 'completed')
+  const r3 = logs.createLog('直接的归档', 'demo', 'x').data
+  check('★ 「待处理」状态直接归档，不被拒绝',
+    logs.archiveLog(r3.id).ok === true && logs.getLog(r3.id).status === 'archived')
+  check('  归档幂等：再点一次仍是 ok，不报「日志已归档」',
+    logs.archiveLog(r3.id).ok === true)
+  check('★ 完成时顺手关掉「进行中」（不会同时显示已完成 + 进行中）', (() => {
+    const r = logs.createLog('先跑再完成', 'demo', 'x').data
+    logs.setLogRunning(r.id, true)
+    logs.completeLog(r.id, 7)
+    return logs.getLog(r.id).running !== true && logs.getLog(r.id).status === 'completed'
+  })())
+
+  // 撤销：退回「待处理」，**而不是**自动变成「进行中」
+  const r4 = logs.createLog('撤销我', 'demo', 'x').data
+  logs.completeLog(r4.id, 30, '做完')
+  check('前置：这条已完成且带保留期',
+    logs.getLog(r4.id).status === 'completed' && !!logs.getLog(r4.id).retainUntil)
+  const rp1 = logs.reopenLog(r4.id)
+  check('★ 已完成的日志能撤销', rp1.ok === true, JSON.stringify(rp1.error))
+  const r4After = logs.getLog(r4.id)
+  check('★ 撤销后状态回到 active（显示为「待处理」）', r4After.status === 'active', r4After.status)
+  check('★ 撤销**不会**顺手把人标成「进行中」（那是上一版的坑：撤销本身变成新的意外）',
+    r4After.running !== true, JSON.stringify(r4After.running))
+  check('★ 撤销顺手清掉「已完成 + 保留期」（不留下自相矛盾的字样）',
+    !r4After.completed && !r4After.retainUntil && !r4After.retainDays,
+    JSON.stringify({ c: r4After.completed, u: r4After.retainUntil, d: r4After.retainDays }))
+  check('★ 撤销后就能编辑了（updateLog 不再拒绝）',
+    logs.updateLog(r4.id, { title: '撤销我改' }).ok === true)
+
+  const r5 = logs.createLog('撤销归档', 'demo', 'x').data
+  logs.archiveLog(r5.id)
+  check('★ 已归档的日志也能撤销', logs.reopenLog(r5.id).ok === true && logs.getLog(r5.id).status === 'active')
+  check('★ 撤销只改状态：文件仍在（不删不搬）', fs.existsSync(path.join(LOGS_DIR, `${r5.id}.md`)))
+  check('撤销幂等：本来就是 active 时给 ok 且不报错',
+    logs.reopenLog(r5.id).ok === true && logs.getLog(r5.id).status === 'active')
+  check('撤销不存在的日志给可读原因',
     logs.reopenLog('nope-999').ok === false && /不存在/.test(logs.reopenLog('nope-999').error || ''),
     JSON.stringify(logs.reopenLog('nope-999')))
-  check('打回后能被「进行中」筛选捞出', logs.listLogs({ status: 'active' }).some(l => l.id === r2.id))
+  check('★ 对已完成的日志开「进行中」= 连带退回未完成（否则卡面自相矛盾）', (() => {
+    const r = logs.createLog('已完成又开跑', 'demo', 'x').data
+    logs.completeLog(r.id, 7)
+    logs.setLogRunning(r.id, true)
+    const e = logs.getLog(r.id)
+    return e.running === true && e.status === 'active' && !e.completed
+  })())
 
   // 渲染层接线守卫：数据层通了不等于界面有入口（卡 022 的坑就是这么来的）
   const PRELOAD = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/preload/index.ts'), 'utf-8')
-  check('★ 日志卡有「打回进行中」入口（模板按钮 + 函数都在）',
-    /reopenLogItem\(log\.id\)/.test(APP) && /async function reopenLogItem/.test(APP))
-  check('★ 打回走的是新通道 logs:reopen（preload 也暴露了）',
-    /window\.tegula\.logsReopen\(id\)/.test(APP) && /logsReopen: \(id: string\) => ipcRenderer\.invoke\('logs:reopen'/.test(PRELOAD))
-  check('★ 进行中的日志卡有醒目样式（不再只有一条细边框）',
-    /\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(APP))
+  check('★ 日志卡有「进行中」手动开关（模板按钮 + 函数都在）',
+    /toggleLogRunning\(log\)/.test(APP) && /async function toggleLogRunning/.test(APP))
+  check('★ 开关走的是新通道 logs:setRunning（preload 也暴露了）',
+    /window\.tegula\.logsSetRunning\(log\.id, next\)/.test(APP) && /logsSetRunning: \(id: string, running: boolean\) => ipcRenderer\.invoke\('logs:setRunning'/.test(PRELOAD))
+  check('★ 只有 running 的卡才有醒目卡面（修前是 active —— 而 active 是"每一条新建日志"的默认值）',
+    /\.log-card\.running \{[\s\S]{0,240}linear-gradient/.test(APP) && !/\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(APP))
+  check('★ `active` 的中文显示是「待处理」，不再是「进行中」',
+    /return \{ active: '待处理'/.test(APP))
+  check('★ 「完成」按钮不再要求先「进行中」（任何未完成/未归档都可用）',
+    /log\.status !== 'completed' && log\.status !== 'archived'[\s\S]{0,120}completeLogItem\(log\.id\)/.test(APP))
+  check('★ 状态筛选下拉已被分区取代（用户第 5 条：筛选把信息切碎）',
+    !/v-model="logStatusFilter"/.test(APP) && !/全部状态/.test(APP) && /groupedLogs/.test(APP) && /log-group-toggle/.test(APP))
 
   // ── 置顶（2026-09-26 卡 037）──────────────────────────────────────────
   //   用户口径：加**新字段** pinned（不复用 status）——置顶是视图属性，跟生命周期正交；
@@ -258,6 +314,123 @@ function main() {
     check('★ 置顶后它排在整个列表最前（跨状态）', logs.listLogs()[0].id === idb,
       logs.listLogs().map(l => l.id).join(','))
     check('  不存在的 id 返回 ok:false（不抛）', logs.setLogPinned('不存在', true).ok === false)
+  }
+
+  // ── 接力链（2026-09-29 第 3 条方案二）────────────────────────────────
+  //   用户口径：不引入新实体 —— 只多一个字段 continues_from，链 = 沿它往回走的连通分量；
+  //   真实动作是「旧的收尾 + 新的开张」，合成一个对话框才不会漏做其中一件。
+  {
+    const lg = require(path.join(DIST, 'services/logs.js'))
+    const logsDir = path.join(TEST_ROOT, 'docs', '执行日志')
+    const read = (id) => fs.readFileSync(path.join(logsDir, id + '.md'), 'utf-8')
+
+    // 数据层：createLog 带 continueFrom + nextSteps（对话框预填的落点）
+    const s1 = lg.createLog('链头·问题清单', 'demo', '列出14条问题').data
+    const s2res = lg.createLog('链二·功能性调整', 'demo', '改三处', undefined, {
+      continueFrom: s1.id,
+      nextSteps: '清单勾选状态回写、批注导出格式、跨文件引用跳转',
+      agentName: 'hermes',
+      taskIds: ['task-chain'],
+    })
+    check('★ createLog 接受 continueFrom（接力）', s2res.ok === true, JSON.stringify(s2res.error))
+    const s2 = s2res.data
+    check('★ continueFrom 落盘（文件键 continues_from）',
+      /^continues_from: /m.test(read(s2.id)), read(s2.id).split('\n').slice(0, 14).join(' | '))
+    check('★ 读回保真', lg.getLog(s2.id).continueFrom === s1.id, String(lg.getLog(s2.id).continueFrom))
+    check('★ nextSteps 随创建带入', lg.getLog(s2.id).nextSteps === '清单勾选状态回写、批注导出格式、跨文件引用跳转',
+      lg.getLog(s2.id).nextSteps)
+    check('  普通日志不写 continues_from（无值不落盘，历史文件不长字段）',
+      !/continues_from/.test(read(s1.id)))
+
+    // 任意一次写回不得丢链（parse→render 往返保真）
+    lg.setLogRunning(s2.id, true)
+    check('★★ 任意写回（改运行标记）后链字段仍在', lg.getLog(s2.id).continueFrom === s1.id,
+      String(lg.getLog(s2.id).continueFrom))
+    lg.setLogRunning(s2.id, false)
+
+    // 第三代 + 分叉：上溯顺序 / BFS 下游 / 分叉不互串
+    const s3 = lg.createLog('链三·回归防护', 'demo', 'x', undefined, { continueFrom: s2.id }).data
+    const s4 = lg.createLog('分叉·旁支', 'demo', 'y', undefined, { continueFrom: s2.id }).data
+    const chHead = lg.logChain(s1.id)
+    const dIds = chHead.downstream.map(l => l.id)
+    check('★ 链头 downstream：第一代是 s2', dIds[0] === s2.id, dIds.join(','))
+    check('★ 第二代 {s3,s4} 都在（同代顺序不依赖文件名）',
+      dIds.length === 3 && [s3.id, s4.id].every(x => dIds.includes(x)), dIds.join(','))
+    check('★ 链头无 upstream', chHead.upstream.length === 0)
+    const chTail = lg.logChain(s3.id)
+    check('★★ 末端 upstream = 从链头到父级（旧→新）',
+      chTail.upstream.map(l => l.id).join(',') === [s1.id, s2.id].join(','),
+      chTail.upstream.map(l => l.id).join(','))
+    check('★ 末端无 downstream', chTail.downstream.length === 0)
+    check('★ 分叉的 upstream 不互串（s4 同样是 s1→s2）',
+      lg.logChain(s4.id).upstream.map(l => l.id).join(',') === [s1.id, s2.id].join(','),
+      lg.logChain(s4.id).upstream.map(l => l.id).join(','))
+
+    // MCP：AI 顺链自己走（get_log 带上下游 / list_logs chain 过滤）
+    const mcp = require(path.join(DIST, 'mcp', 'tools.js'))
+    const gj = JSON.parse(mcp.handleMCPToolCall('get_log', { id: s2.id }).content[0].text)
+    check('★★ MCP get_log 带回 continuesFrom', gj.continuesFrom === s1.id, String(gj.continuesFrom))
+    check('★★ MCP get_log 带回链上下游（upstream 1 条 / downstream ≥2 条）',
+      (gj.chain?.upstream || []).length === 1 && (gj.chain?.downstream || []).length >= 2,
+      JSON.stringify(gj.chain))
+    const chainRows = JSON.parse(mcp.handleMCPToolCall('list_logs', { chain: s1.id }).content[0].text)
+    check('★★ MCP list_logs 支持 chain 过滤（整链从老到新）',
+      chainRows.length === 4 && chainRows[0].id === s1.id && chainRows[3].id !== s1.id &&
+      chainRows.filter(r => [s3.id, s4.id].includes(r.id)).length === 2,
+      chainRows.map(r => r.id).join(','))
+    check('  chain 行带 isHead/isTail 标记', chainRows[0].isHead === true && chainRows[3].isTail === true,
+      JSON.stringify([chainRows[0].isHead, chainRows[3].isTail]))
+    check('  普通 list_logs 行也带 continuesFrom（不加 chain 时可见）',
+      JSON.parse(mcp.handleMCPToolCall('list_logs', {}).content[0].text).some(r => r.id === s2.id && r.continuesFrom === s1.id))
+
+    // 防御：断链 / 成环（修前代码这两种都会挂死或抛）
+    const orphan = lg.createLog('断链者', 'demo', 'z', undefined, { continueFrom: 'log-not-exist' }).data
+    check('★ 指向不存在的日志：不抛、自己当链头', lg.logChain(orphan.id).upstream.length === 0,
+      JSON.stringify(lg.logChain(orphan.id).upstream))
+    const s1Path = path.join(logsDir, s1.id + '.md')
+    // s1 没有 continues_from 行（上面已断言）—— 环要靠**插入**这行来造：s1→s3→s2→s1
+    fs.writeFileSync(s1Path,
+      read(s1.id).replace(/^(id: .*)$/m, `$1\ncontinues_from: ${s3.id}`), 'utf-8')
+    check('  （前置）环已造出：s1 现在指向 s3', /^continues_from: /m.test(read(s1.id)))
+    const cyc = lg.logChain(s1.id)
+    check('★★ 成环不挂死（visited 去重终止，返回上溯两跳）',
+      cyc.upstream.map(l => l.id).join(',') === [s2.id, s3.id].join(','),
+      JSON.stringify(cyc.upstream.map(l => l.id)))
+    fs.writeFileSync(s1Path, read(s1.id).replace(/^continues_from: .*\n/m, ''), 'utf-8')
+    check('  环已拆除（s1 回到无上游）', lg.logChain(s1.id).upstream.length === 0)
+
+    // 确认尾巴往返：完成确认 / 归档备注 不得被下一次写回静默吃掉（2026-09-29 顺手修的真数据丢失）
+    const t1 = lg.createLog('尾巴往返', 'demo', 'x').data
+    lg.completeLog(t1.id, 7, '做完了：验收通过')
+    check('★ 完成确认落盘', /## 完成确认/.test(read(t1.id)))
+    lg.setLogPinned(t1.id, true) // 任意一次写回
+    check('★★ 完成确认在任意写回后仍在（修复前 parse 不读这一节 → 必丢）',
+      /## 完成确认[\s\S]*做完了：验收通过/.test(read(t1.id)))
+    lg.archiveLog(t1.id, '接力至 xxx')
+    check('★ 归档备注落 ## 归档备注 节（不借道完成确认，两者并存）',
+      /## 归档备注/.test(read(t1.id)) && /## 完成确认/.test(read(t1.id)))
+    lg.setLogPinned(t1.id, false)
+    check('★★ 归档备注在任意写回后仍在', /## 归档备注[\s\S]*接力至 xxx/.test(read(t1.id)))
+    const reopen = lg.reopenLog(t1.id)
+    check('★ 撤销后确认尾巴清干净（退回待处理不留残迹）',
+      reopen.ok === true && !/## 完成确认/.test(read(t1.id)) && !/## 归档备注/.test(read(t1.id)),
+      read(t1.id))
+
+    // 渲染层接线守卫（静态）：数据层通了不等于界面有入口
+    check('★★ 完成态日志卡有接力入口（⏭ 按钮 + openRelay 函数）',
+      /从这里继续/.test(APP) && /function openRelay/.test(APP))
+    check('★★ 工具条有「分区｜按链」分段开关（默认分区，pref 落真身）',
+      /setLogsViewMode\('chain'\)/.test(APP) && /fc_logs_view_mode/.test(APP))
+    check('★ 卡面有链标签 ⛓ 续自（可复制源 ID）', /续自/.test(APP) && /shortLogId/.test(APP))
+    check('★ 按链 = 链头 + 竖轨，纯渲染层连通分量（不引入新实体）',
+      /buildChainSections/.test(APP) && /chain-rail/.test(APP) && /logChain\(id/.test(
+        fs.readFileSync(path.join(DIST, 'services', 'logs.js'), 'utf-8').replace(/\r/g, '')) )
+    check('★ 接力对话框四件事齐全（归档出清 / 任务置完成 / 创建 / 开跑）',
+      /archiveSource/.test(APP) && /completeSourceTasks/.test(APP) && /executeRelay\(true\)/.test(APP))
+    check('★ 接力先建新日志、再动源（顺序写死在 executeRelay 里）',
+      /logsCreate[\s\S]{0,1200}logsArchive\(src\.id\)/.test(APP))
+    check('★ IPC/PRELOAD extra 透传 nextSteps + continueFrom',
+      /nextSteps\?: string; continueFrom\?: string/.test(PRELOAD))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

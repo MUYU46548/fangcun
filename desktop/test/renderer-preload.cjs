@@ -11,6 +11,11 @@ const { contextBridge } = require('electron')
 
 const store = {
   todos: [],
+  // 方针卡（2026-09-25 第 7 条三态 + 029 结构地图）：demo 已填但**没有**结构地图、
+  // demo2 连文件都没有 —— 刻意留成"两个缺口各一种"，缺口条才有东西可显示。
+  policies: {
+    demo: { mission: '使命内容', goal: '', scenario: '', boundary: '', structureMap: '' },
+  },
   // 归档日志独立分区（2026-09-25 第 16 条）：三条不同状态，其中一条已归档
   logs: [
     { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', project: 'demo', created: '2026-09-24T00:00:00.000Z' },
@@ -18,6 +23,9 @@ const store = {
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ],
   calls: [],
+  // UI 偏好真身（userData/prefs.json）。空对象 = 首次运行，界面走默认值 ——
+  // 多视图的"旧视图永远是默认"这条断言就是靠它成立。
+  prefs: {},
   // 技能直接导入（2026-09-26 卡 005）：一条已导入的外部技能
   imported: [
     {
@@ -42,10 +50,13 @@ const store = {
     { name: 'task-demo-902.2.md', id: 'task-demo-902', title: '同名副本（历史遗留）', status: '完成', project: 'demo', bytes: 640, mtime: '2026-09-25T08:00:00.000Z' },
   ],
   tasks: [
+    // ⚠ 这两张（同为「待办」列）的 created / updated 是**故意错开的**（2026-09-29）：
+    //   默认序 001→002；按 updated 倒序要变成 002→001；按 created 倒序要回到 001→002。
+    //   这样"排序下拉"才可被真断言 —— 三者两两不同，任何一支写错都会当场红。
     {
       id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高',
       project: 'demo', tags: [], body: '正文', deadline: '2026-09-30',
-      created: '2026-09-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
+      created: '2026-09-20T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
       fm: { id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-001.md',
     },
@@ -53,7 +64,7 @@ const store = {
     {
       id: 'task-demo-002', title: '幽灵项目任务', status: '待办', priority: '中',
       project: 'ghost-proj', tags: [], body: '',
-      created: '2026-09-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
+      created: '2026-09-05T00:00:00.000Z', updated: '2026-09-10T00:00:00.000Z',
       fm: { id: 'task-demo-002', title: '幽灵项目任务', status: '待办', priority: '中', project: 'ghost-proj' },
       path: 'C:/mock/task-data/task-demo-002.md',
     },
@@ -64,8 +75,47 @@ const store = {
       fm: { id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低' },
       path: 'C:/mock/task-data/task-demo-003.md',
     },
+    // 2026-09-28：真实 frontmatter 里「项目」是**数组**（`项目: [fangcun-base]`）——
+    // 卡上要显示的所属项目必须过 normProject，否则永远匹配不到名字（用户报「看不见所属项目」）。
+    {
+      id: 'task-demo-004', title: '数组项目的任务', status: '待验收', priority: '中',
+      project: ['demo2'], tags: [], body: '',
+      created: '2026-09-02T00:00:00.000Z', updated: '2026-09-02T11:22:33.000Z',
+      fm: { id: 'task-demo-004', title: '数组项目的任务', status: '待验收', project: ['demo2'] },
+      path: 'C:/mock/task-data/task-demo-004.md',
+    },
+    // 2026-09-29：日历「改法 A」（格子最多 2 条 + 「+N 条」）要**同一天有多条**才验得了。
+    // 这三条全压在 09-30（与 001 同一天）；created/updated 一律取很早的日期 ——
+    // 免得不小心把"排序下拉"那组断言的头名（002 / 001）挤掉。
+    // ⚠ 状态**刻意各不相同**（进行中/进行中/待验收）：demo 项目的状态分布条才有 3 段可验；
+    //   而且它们一律不带"待办"状态 —— 否则会挤进「待办」列，把排序断言的期望序打乱。
+    {
+      id: 'task-demo-011', title: '日历密度样例一', status: '进行中', priority: '中',
+      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
+      fm: { id: 'task-demo-011', title: '日历密度样例一', status: '进行中', priority: '中', project: 'demo' },
+      path: 'C:/mock/task-data/task-demo-011.md',
+    },
+    {
+      id: 'task-demo-012', title: '日历密度样例二', status: '进行中', priority: '低',
+      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
+      fm: { id: 'task-demo-012', title: '日历密度样例二', status: '进行中', priority: '低', project: 'demo' },
+      path: 'C:/mock/task-data/task-demo-012.md',
+    },
+    {
+      id: 'task-demo-013', title: '日历密度样例三', status: '待验收', priority: '中',
+      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
+      fm: { id: 'task-demo-013', title: '日历密度样例三', status: '待验收', priority: '中', project: 'demo' },
+      path: 'C:/mock/task-data/task-demo-013.md',
+    },
   ],
-  projects: [{ id: 'demo', name: '演示项目' }, { id: 'demo2', name: '第二个项目' }],
+  // demo 登记了工作目录、demo2 没有 —— 概览卡那条"未登记工作目录"的回退才有东西可验
+  projects: [
+    { id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo' },
+    { id: 'demo2', name: '第二个项目' },
+  ],
   // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），
   // 「含归档」勾选后板子必须去重，不能把同一张卡显示两遍。
   archived: [
@@ -191,11 +241,20 @@ contextBridge.exposeInMainWorld('tegula', {
   logsComplete: () => ok(),
   logsArchive: () => ok(),
   logsDestroy: (id) => { rec('logsDestroy', [id]); store.logs = store.logs.filter(x => x.id !== id); return ok() },
-  // 卡 037：置顶 / 改归属 / 复制并标记已派（后者复用 reopen）
+  // 卡 037：置顶 / 改归属。2026-09-28：reopen = 撤销完成/归档 → 待处理（**不再等于进行中**）
   logsReopen: (id) => {
     rec('logsReopen', [id])
     const l = store.logs.find(x => x.id === id)
-    if (l) l.status = 'active'
+    if (l) { l.status = 'active'; l.completed = null; l.running = false }
+    return ok({ log: l })
+  },
+  // 2026-09-28 用户第 2 条：「进行中」是手动开关，唯一写入路径
+  logsSetRunning: (id, running) => {
+    rec('logsSetRunning', [id, running])
+    const l = store.logs.find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    if (running && l.status !== 'active') { l.status = 'active'; l.completed = null }
+    l.running = !!running
     return ok({ log: l })
   },
   logsSetPinned: (id, pinned) => {
@@ -370,7 +429,9 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok()
   },
   newTask: () => ok(),
-  moveStatus: () => ok(),
+  // 2026-09-28：改成**记录调用** —— 多视图断言要验证"列表视图里拖一行到别的分区
+  // 仍然等于改状态"。此前它只是 `() => ok()`，调没调用在 e2e 里看不出来。
+  moveStatus: (id, status) => { rec('moveStatus', [id, status]); return ok() },
   batchEdit: () => ok(),
   batchArchive: () => ok(),
   batchDelete: () => ok(),
@@ -406,13 +467,25 @@ contextBridge.exposeInMainWorld('tegula', {
   applogOpenDir: () => ok(),
   applogWrite: (level, scope, message, detail) => { rec('applogWrite', [level, scope, message, detail]); return ok() },
 
+  // ── UI 偏好真身（userData/prefs.json，014 那一套）─────────────────
+  // 2026-09-28 补：此前假 preload 里**根本没有 prefsGet/prefsSet** ——
+  // syncBoardPrefs 的 `await window.tegula.prefsGet()` 直接抛、被 catch 吞掉，
+  // 于是"偏好真的落盘了吗"在渲染层 e2e 里**永远验证不到**（只能靠源码断言猜）。
+  // 现在给一个内存真身：多视图选择（fc_board_view / fc_todo_view）与分组方式
+  // 都走这条路径，断言可以真读回 `__fcTest.prefs()`。
+  prefsGet: () => JSON.parse(JSON.stringify(store.prefs)),
+  prefsSet: (key, value) => { rec('prefsSet', [key, value]); store.prefs[key] = value; return ok() },
+
   // ── 其它（不参与断言，返回空实现避免 undefined 报错）──────────
   browseDirectory: () => null,
   browseFile: () => null,
-  // 项目章程三态（2026-09-25 第 7 条）：demo 已填、demo2 连文件都没有
-  policyGet: (id) => (id === 'demo'
-    ? { ok: true, policy: { projectId: 'demo', mission: '使命内容', goal: '', scenario: '', boundary: '', updatedAt: '' } }
-    : { ok: true, policy: null }),
+  // 项目章程三态（2026-09-25 第 7 条）：demo 已填、demo2 连文件都没有。
+  // 029：方针卡现在也带 structureMap（结构地图），所以走可注入的 store，测试能造「有地图 + 最后核实日期」。
+  policyGet: (id) => {
+    const p = store.policies ? store.policies[id] : undefined
+    if (!p) return { ok: true, policy: null }
+    return { ok: true, policy: Object.assign({ projectId: id, mission: '', goal: '', scenario: '', boundary: '', structureMap: '', updatedAt: '' }, p) }
+  },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',
   openFile: () => ok(),
@@ -445,7 +518,17 @@ contextBridge.exposeInMainWorld('tegula', {
   backupOpenDir: () => ok(),
   backupLocalDir: () => 'C:/mock/data/backups',
   backupExportTo: (input) => { rec('backupExportTo', [input]); return ok({ result: { files: 3, bytes: 2048, dir: 'C:/mock/out' } }) },
-  backupVerifyPackage: () => ok(),
+  // 2026-09-28 卡 026-001：点备份行 = 校验这一份（取 manifest 摘要给用户看）
+  backupVerifyPackage: (zipPath) => {
+    rec('backupVerifyPackage', [zipPath])
+    return ok({
+      ok: true,
+      path: zipPath || '',
+      entries: 91,
+      manifest: { createdAt: '2026-09-25T20:20:20.000Z', totalFiles: 91, totalBytes: 1097000 },
+      errors: [],
+    })
+  },
   backupPickRestoreFile: () => null,
   backupPickDir: () => null,
   llmGetConfig: () => ({}),
@@ -485,5 +568,9 @@ contextBridge.exposeInMainWorld('__fcTest', {
   setLogs: (items) => { store.logs = (items || []).slice() },
   setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
+  // 029：注入方针卡（含 structureMap + 最后核实日期）用
+  setPolicies: (obj) => { store.policies = Object.assign({}, obj || {}) },
+  // UI 偏好真身快照（多视图选择断言用：`prefs().fc_board_view === 'list'`）
+  prefs: () => JSON.parse(JSON.stringify(store.prefs)),
   reset: () => { store.calls.length = 0 },
 })

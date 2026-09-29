@@ -15,15 +15,21 @@ export interface Policy {
   goal: string
   scenario: string
   boundary: string
-  /** 结构地图节（029：模块清单 + 每模块一句话职责 + 主数据流，带最后核实日期） */
-  structureMap: string
+  /** 结构地图节**正文**（029：模块清单 + 每模块一句话职责 + 主数据流，首行是「最后核实」日期）。
+   *  读取时一定给字符串；**写入时可选** —— 老调用方（如一键补骨架）不传这个字段，
+   *  那时 savePolicy 会沿用文件里已有的内容，而不是当成清空。 */
+  structureMap?: string
   updatedAt: string
 }
 
-/** 结构地图骨架（029）：节标题必须出现，缺口才可见 —— 与章程缺口同一机制。
- *  内容由 agent 起草 / TA 过目（描述性内容），所以骨架只给节标题 + 待填提示，不代写。 */
-const SKELETON_STRUCTURE_MAP = [
-  '## 结构地图',
+/**
+ * 结构地图骨架**正文**（不含节标题）。节标题由 savePolicy 显式写出。
+ *
+ * 为什么只给骨架不代写内容（029 原话）：内容是描述性的（模块清单 + 主数据流），
+ * 由 agent 起草、TA 过目 —— 骨架负责让「这张卡还没结构地图」在卡面上一眼可见，
+ * 与章程缺口同一机制。
+ */
+const SKELETON_STRUCTURE_MAP_BODY = [
   '> 最后核实：（待填 —— 填完写日期；烂地图比没地图危险，因为读者不知道它烂）',
   '',
   '- 模块清单：待填（每模块一句话职责）',
@@ -85,7 +91,7 @@ function preserveSections(projectId: string, nextFour: string[]): string {
   if (!fs.existsSync(p)) return ''
   try {
     const raw = fs.readFileSync(p, 'utf-8')
-    const known = ['使命', '当前目标', '应用场景', '方针边界']
+    const known = ['使命', '当前目标', '应用场景', '方针边界', '结构地图']
     const kept: string[] = []
     const re = /^## (.+?)\s*$/gm
     let m: RegExpExecArray | null
@@ -107,12 +113,14 @@ function preserveSections(projectId: string, nextFour: string[]): string {
 
 export function savePolicy(p: Policy): { ok: boolean; path: string } {
   const preserved = preserveSections(p.projectId, [])
-  // 029：结构地图节已存在 → 它已在 preserved 里（未知节原样保留），不再追加；
-  // 不存在 → 追加骨架，让「这张卡还没结构地图」在卡面上一眼可见。
-  const hasStructureMap = /^##\s*结构地图\s*$/m.test(preserved)
-  const tailParts = [preserved.trim()]
-  if (!hasStructureMap) tailParts.push(SKELETON_STRUCTURE_MAP)
-  const tail = tailParts.filter(Boolean).join('\n\n')
+  // 029：结构地图现在由这里**显式写**（界面要能看、能改）。
+  //   ⚠ 调用方没传 structureMap 时（老调用方 / 一键补骨架），必须**沿用文件里已有的那节** ——
+  //     否则"没传"会被当成"清空"，把已有的地图静默抹成骨架（这是最危险的一类回归）。
+  //   传入的字段名已从 preserved 里排除（见 preserveSections 的 known），不会写重复。
+  const existingMap = (getPolicy(p.projectId)?.structureMap || '').trim()
+  const passedMap = (p.structureMap === undefined || p.structureMap === null) ? '' : String(p.structureMap).trim()
+  const mapBody = passedMap || existingMap || SKELETON_STRUCTURE_MAP_BODY
+  const tail = preserved.trim()
   const content = [
     `# 项目方针：${p.projectId}`,
     ``,
@@ -130,6 +138,9 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     ``,
     `## 方针边界`,
     p.boundary || `（未填写）`,
+    ``,
+    `## 结构地图`,
+    mapBody,
     ``,
     tail,
     ``,

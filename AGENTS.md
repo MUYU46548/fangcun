@@ -1,6 +1,6 @@
-# AGENTS.md — 方寸 (tegula)
+# 方寸 (Tegula)
 
-**零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` ~1884 + `core.py` ~4093 + `web.py`，`tegula.py` 只是 20 行 wrapper；看板用 http.server，端口 8753）。暮雨全部项目的统一任务入口。
+**零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` 1991 + `core.py` 4231 + `web.py` 711，`tegula.py` 只是 19 行 wrapper；看板用 http.server，端口 8753）。为您创造全部项目的统一任务入口。
 
 ## 技术栈
 
@@ -19,22 +19,26 @@
   写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
   用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
 
-## 验证矩阵（2026-09-22 扩充）
+## 常用验证方式
 
-| 层 | 命令 | 抓什么 |
+仅供开发者参考，日常使用请忽略。
+
+| 层 | 命令 | 作用 |
 |---|---|---|
-| 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份（224） |
+| 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份/老 YAML 写法（**242**，24 个检查组） |
 | 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）** |
 | 任务删除/归档健壮性 | `node scripts/test/e2e-task-delete.cjs` | **同名重复副本（archive/ 与 .trash/ 同 id）下 delete/archive/unarchive 不抛异常、幂等、去重；readTask 优先活跃区** |
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
+| **渲染层 DOM（无头浏览器兜底）** | `node scripts/test/e2e-renderer-web.cjs` | **本机可跑的渲染层断言**：多视图互斥与几何、排序/视图选择落盘、弹药库派工单六字段 —— 用系统 Edge/Chrome 无头加载 `dist/renderer` + 同一份假 preload；产物必须单块（有顶层 import/export 会显式报错而不是静默降级）。它验不了真 IPC / 真点击，那些仍以 `e2e-renderer` 为准 |
 | **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
 | **剪贴板复制** | `node scripts/test/e2e-clipboard.cjs` | **真 Electron + 真 preload + 真读回剪贴板：file:// 起源下的复制走主进程 IPC 通道成立；含「掐掉 IPC 后浏览器路径确实失败」的危害复现 + 静态守卫（渲染层不得再有裸 `navigator.clipboard`）** |
 | **UI 偏好持久化** | `node scripts/test/e2e-prefs.cjs` | **Agent 预设真身在 `userData/prefs.json`：合并写入·原子替换·坏文件回退；要害断言＝模拟换 origin（localStorage 清空）后清模块缓存重载，值仍在磁盘上** |
 | **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
 | **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
 | 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式 |
+| **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是
@@ -54,13 +58,24 @@
 > - `e2e-logs.cjs`：`logs.createLog()` 早已改为返回 `{ok,data,error}`，而测试仍按旧签名取 `a.id`
 >   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
 >   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
-> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯；本机实测（2026-09-27）合计 **1104**。
+> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯。
+> 本机实测（2026-09-29 21:30 重跑）：**20 套全绿、合计 955 断言**，
+> 其中 `calendar / timefmt / logdedupe / grouping / policies` 本机也能跑了
+> （此前「恒 EBUSY / 需桌面会话」的限制不再复现）。**仍需桌面会话的只剩 `e2e-renderer`（真 Electron）**：
+> 2026-09-29 本机首次真跑通，**294 / 12** —— 12 条红**全在当轮改动面之外**
+> （真因三条：断言没跟上 09-28 改版、读到本机真实 prefs 状态、`.card-date.dim` 实测 3.18<4.5），
+> 逐条对照见开发日志 09-29「e2e-renderer 首跑」。`backup` 仍未跑。
+> 新增守卫 `check-themes.cjs`（14 条，逐主题 WCAG 对比度）见下方测试表。
+
+> ✅ 2026-09-29 起，渲染层断言有了**本机可跑**的兜底：`node scripts/test/e2e-renderer-web.cjs`
+>    （系统 Edge/Chrome 无头 + 真构建产物 + 同一份假 preload）。它不能替代 `e2e-renderer` 的真点击，
+>    但能让"改了渲染层却本机验不了"这件事不再发生。
 
 ## 架构速查 (Quick Facts)
 
 > 慢变量事实层。运行期产物（project-status.md 等）会变，不在此维护。
 
-- **包结构**: `tegula.py` 是 20 行 wrapper → `tegula/cli.py`（~1884 行，cmd_* 函数按子命令命名）+ `tegula/core.py`（~4093 行，数据层 + API）+ `tegula/web.py`（HTTP/看板/托盘）；另有 `tegula_planning.py` / `tegula_llm.py` 两个顶层模块
+- **包结构**: `tegula.py` 是 19 行 wrapper → `tegula/cli.py`（1991 行，cmd_* 函数按子命令命名）+ `tegula/core.py`（4231 行，数据层 + API）+ `tegula/web.py`（711 行，HTTP/看板/托盘）；另有 `tegula_planning.py` / `tegula_llm.py` 两个顶层模块
 - **数据流**: `registry.yaml`（项目登记）+ `task-data/*.md`（任务，frontmatter 含 状态/成员/expected_update 锁）→ `tegula.py` 读写 → 看板 `templates/board.html`（零依赖轮询渲染）+ `project-status.md`（`tegula report` 覆盖式生成）
 - **状态机**: 草稿→待审批→待办→进行中→待验收→完成（+驳回），定义在 `tegula.py` 顶部 `STATUSES`
 - **并发纪律**: mtime 乐观锁 + `expected_update` 版本字段（verify.py 检查项 3）；无数据库，文件即数据
@@ -75,11 +90,11 @@
 | 锚点 | 期望值 | 核对命令 |
 |---|---|---|
 | cli.py 行数 | ~1991（`tegula.py` 仅 19 行 wrapper） | `wc -l tegula.py tegula/*.py` |
-| core.py 行数 | ~4112 | 同上 |
+| core.py 行数 | 4231 | 同上 |
 | 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **224** / e2e **二十一套合计 1104**（renderer214+task-fields118+task-delete93+notifications86+backup83+logs73+ports57+calendar50+skill-import48+skills46+timefmt35+logdedupe32+grouping29+todos29+prefs25+applog24+launchpad17+clipboard13+bridge-clone12+policies12+datadir8）+ 三类静态守卫 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **242** / e2e **二十套本机全绿 955**（2026-09-29 21:30 实测：task-fields118 · logs90 · task-delete93 · notifications86 · **renderer-web86** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **294/12**（12 条红=改动面外的既有问题，见开发日志 09-29）、`backup` 未跑 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）
@@ -120,7 +135,8 @@
 
 - `docs/tegula-architecture.*` = Archify 架构图生成物（HTML/JSON/视觉验证快照）
 - `docs/pv-check*` = 项目视图手动验证产物；`references/` = 重设计对比稿
-- `verify.py` ~938 行 = 数据层回归（10 个检查组）
+- `verify.py` 1325 行 = 数据层回归（**24 个检查组**；第 23/24 组是 2026-09-28/29 新增的
+  「老 YAML 写法」——块式列表 / 裸标量 / 块标量 / 前言嵌套映射，四类都会让写回静默毁数据）
 - `scripts/smoke_pythonw.py` = 看板冒烟测试（pythonw 场景）
 - `desktop/src/renderer/calendar.ts` = 日历纯逻辑（日期解析/时间段跨度/跨月分组），
   不依赖 Vue/DOM，因此可被 `e2e-calendar.cjs` 直接编译断言 —— 跨月边界错误肉眼抓不住，必须靠脚本
@@ -160,6 +176,7 @@
 | `get_roadmap` | 路线图进度 |
 | `plan_list/plan_get/plan_pending` | 规划管理 |
 | `gate_list` | 验收门列表 |
+| `list_logs` / `search_logs` / `get_log` | 执行日志：按 ID 定位 / 全文检索 / 单条读取（只读，2026-09-29 加） |
 
 ### 快速自检
 

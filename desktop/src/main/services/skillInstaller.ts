@@ -39,6 +39,18 @@ export function getHermesSkillsDirPath(): string {
 }
 
 /**
+ * 方寸**真源** skills 目录（manifest.json 所在处）。
+ *
+ * 2026-09-28 导出理由：`skills:reveal` 的路径白名单此前只放行 Hermes 侧，
+ * 于是技能页「📂 显示 SKILL.md」在"方寸自发布技能"那张卡上**必然失败**
+ * （日志实测 4 条 `路径不在技能目录内`）。那个按钮的用户故事恰恰是
+ * 「装到 WorkBuddy 这类只能手动导入的 agent」—— 要拖的正是真源这一份。
+ */
+export function getResourcesSkillsDirPath(): string {
+  return getResourcesSkillsDir()
+}
+
+/**
  * 方寸「自发布」技能 id 集合 = manifest 登记的 + resources/skills 下带 SKILL.md 的目录。
  * 用途：外部导入**不许覆盖**这些技能（它们是方寸自己的交付物，该走「⚡ 装到 Hermes」）。
  */
@@ -355,6 +367,48 @@ export function listSkillsForUi(): SkillsUiPayload {
 
   if (!out.skills.length && out.ok === false && !out.error) out.error = 'manifest 里没有登记任何技能'
   return out
+}
+
+/**
+ * 「在资源管理器里亮出 SKILL.md」的**路径裁决**（纯函数，e2e 直接断言）。
+ *
+ * 白名单 = 两个根，两个根**都由主进程自己算**：`Hermes 侧已装副本` 与 `方寸真源`。
+ * 渲染层传任意路径都进不来。
+ *
+ * 2026-09-28 修（真因在应用日志里，当天 4 条 `路径不在技能目录内`）：
+ * 此前只放行 Hermes 侧，于是技能页「📂 显示 SKILL.md」在**方寸自发布技能**那张卡上
+ * **必然失败** —— 而那个按钮的用户故事恰恰是「装到 WorkBuddy 这类只能手动导入的 agent」，
+ * 要拖进对方导入面板的**就是真源这一份**，不是 Hermes 侧的副本。
+ *
+ * ⚠ 前缀判定必须带 `path.sep`：`startsWith(root)` 会让 `<root>-evil` 混进来。
+ */
+export function resolveRevealTarget(dirOrFile: string): {
+  ok: boolean
+  message: string
+  skillMd?: string
+  label?: string
+} {
+  const raw = String(dirOrFile || '').trim()
+  if (!raw) return { ok: false, message: '没有可显示的技能路径（技能清单为空？）' }
+  const p = path.resolve(raw)
+  const roots = [
+    { root: path.resolve(getHermesSkillsDir()), label: 'Hermes 侧副本' },
+    { root: path.resolve(getResourcesSkillsDir()), label: '方寸真源' },
+  ]
+  const hit = roots.find(r => p === r.root || p.startsWith(r.root + path.sep))
+  if (!hit) {
+    return { ok: false, message: `路径不在技能目录内（只允许 Hermes 技能目录或方寸真源 skills 目录）：${p}` }
+  }
+  let isDir = false
+  try { isDir = fs.statSync(p).isDirectory() } catch { isDir = false }
+  const skillMd = isDir ? path.join(p, 'SKILL.md') : p
+  if (!fs.existsSync(skillMd)) return { ok: false, message: `找不到 SKILL.md：${skillMd}` }
+  return {
+    ok: true,
+    message: `已在资源管理器里亮出${hit.label}的 SKILL.md —— 拖进对方的导入面板即可`,
+    skillMd,
+    label: hit.label,
+  }
 }
 
 /** 打开技能目录（真源 / Hermes 侧）—— 路径由主进程自己算，不接受渲染层传路径 */

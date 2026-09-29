@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方寸 · 视觉小样（027 按钮 / 035 日历 / 003 项目页签 + 看板观感）· 2026-09-29</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#eef0f4; --ink:#3c4150; --muted:#626775; --accent:#705fab; --accent-soft:#c3bce0;
+    --card:#fff; --border:#e4e2ee; --success:#54814b; --warning:#986b20; --danger:#b44141;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:13px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:22px}
+  h1{font-size:17px;margin-bottom:4px}
+  .lead{color:var(--muted);font-size:12.5px;margin-bottom:16px;max-width:1060px;line-height:1.75}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:16px}
+  .panel > h2{font-size:14px;margin-bottom:2px}
+  .panel > h2 small{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:6px}
+  .panel > .why{color:var(--muted);font-size:12px;margin-bottom:12px;line-height:1.7}
+  .switcher{display:inline-flex;gap:2px;background:#ecedf3;border:1px solid var(--border);border-radius:10px;padding:2px;margin-bottom:12px}
+  .switcher button{border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);padding:4px 12px;border-radius:8px;cursor:pointer}
+  .switcher button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(90,90,130,.14)}
+  .stage{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;min-height:120px}
+  .note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.75}
+  .note code{background:#f0f1f5;border-radius:4px;padding:0 4px}
+  .ruler{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .ruler b{color:var(--ink)}
+  ol.q{margin:8px 0 0 18px;font-size:12.5px}
+  ol.q li{margin-bottom:7px;line-height:1.7}
+  .tag{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:6px;background:#f1eefb;color:#4a4368;font-weight:600;margin-right:6px}
+  .tag.bad{background:#fdeaea;color:#a03a3a}
+  .tag.good{background:#e9f3e6;color:#3f6b39}
+
+  /* ── 按钮：现状（BEFORE） ───────────────────────────────── */
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .row .cap{font-size:11px;color:var(--muted);min-width:104px}
+  .b-ghost{padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-size:12px;font-weight:600}
+  .b-pri{padding:6px 14px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:600}
+  .b-danger{padding:6px 14px;border:0;border-radius:8px;background:var(--danger);color:#fff;font-size:12px;font-weight:600}
+  .b-bare{border:1px solid;border-radius:3px;background:#efefef;color:#000;font-size:13px;padding:1px 6px}  /* 浏览器默认长相 */
+  .b-mini{border:1px solid var(--border);background:#fff;border-radius:6px;font-size:11px;color:var(--muted);padding:1px 6px}
+  .b-link{background:none;border:0;color:var(--muted);font-size:12px;padding:0 4px}
+  .b-icon{border:0;background:transparent;font-size:14px;padding:0 4px}
+
+  /* ── 按钮：规范（AFTER） ───────────────────────────────── */
+  .spec{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .spec .box{background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .spec .box h4{font-size:12px;margin-bottom:2px}
+  .spec .box .lv{font-size:10.5px;color:var(--muted);margin-bottom:8px;min-height:30px;line-height:1.5}
+  /* 四类规范：统一高 28 · 圆角 8 · 字号 12 · 字重 600 · 左右内距 12 / 图标版 28×28 */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;
+       border-radius:8px;font:600 12px/1 inherit;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.ghost{background:#fff;color:var(--ink);border-color:var(--border)}
+  .btn.ghost:hover{background:#f4f1fc;border-color:var(--accent-soft)}
+  .btn.danger{background:var(--danger);color:#fff}
+  .btn.quiet{background:transparent;color:var(--muted);border-color:transparent}
+  .btn.quiet:hover{background:#f1eefb;color:var(--ink)}
+  .btn.icon{width:28px;padding:0;color:var(--muted)}
+  .btn.icon:hover{background:#f1eefb;color:var(--ink)}
+  .btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+  .btn.lg{height:32px;padding:0 16px;font-size:12.5px}
+
+  /* ── 待办行：窄条 vs 两行卡 ─────────────────────────────── */
+  .tolist{display:flex;flex-direction:column;gap:6px}
+  .toline{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 12px}
+  .toline .t{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .toline .meta{font-size:10.5px;color:var(--muted);display:inline-flex;gap:8px;align-items:center;flex:none}
+  .tocard{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"chk ttl ttl" "chk meta acts";
+          gap:4px 10px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:9px 12px;align-items:center}
+  .tocard .chk{grid-area:chk;width:16px;height:16px;border:1.5px solid var(--border);border-radius:5px;background:#fff}
+  .tocard .ttl{grid-area:ttl;font-size:13px;font-weight:600;line-height:1.45}
+  .tocard .meta{grid-area:meta;font-size:10.5px;color:var(--muted);display:inline-flex;gap:8px;align-items:center}
+  .tocard .acts{grid-area:acts;display:inline-flex;gap:4px}
+  .prio{font-size:10.5px;padding:1px 6px;border-radius:6px;font-weight:600}
+  .prio.high{background:#fdeaea;color:#a03a3a}
+  .prio.mid{background:#fdf3e0;color:#8a5a12}
+
+  /* ── 日历格子 ──────────────────────────────────────────── */
+  .cal{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .cell{background:#fff;border:1px solid var(--border);border-radius:10px;padding:6px;min-height:118px}
+  .cell .d{font-size:11px;color:var(--muted);margin-bottom:4px}
+  .cev{font-size:10.5px;background:#f5f4fa;border:1px solid var(--border);border-radius:6px;padding:2px 5px;margin-bottom:3px;display:flex;gap:4px;align-items:center;white-space:nowrap;overflow:hidden}
+  .cev .pd{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .cev .t{overflow:hidden;text-overflow:ellipsis}
+  .cev.log{background:#f3f0fa;border-color:#e0daf5}
+  .cev.log .pd{background:#8b7fb8}
+  .cev.todo{background:#eef4fd;border-color:#d5e3f7}
+  .cev.todo .pd{background:#5b8fd6}
+  .more{font-size:10.5px;color:var(--accent);padding:1px 4px;font-weight:600}
+  .dotrow{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .dot.log{background:#8b7fb8}
+  .dot.todo{background:#5b8fd6}
+  .dotn{font-size:10.5px;color:var(--muted)}
+
+  /* ── 项目页签 ──────────────────────────────────────────── */
+  .pvbar{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:7px 10px;font-size:11.5px;color:var(--muted);margin-bottom:10px}
+  .pvbar b{color:var(--ink)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+  .tile{background:#fff;border:1px solid var(--border);border-left:3px solid var(--warning);border-radius:12px;padding:12px 14px}
+  .tile .trow{display:flex;align-items:center;gap:8px}
+  .tile .tname{font-size:13.5px;font-weight:700}
+  .tile .thealth{margin-left:auto;font-size:10.5px;color:var(--warning);font-weight:600}
+  .tstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 8px}
+  .tstats .n{font-size:16px;font-weight:700}
+  .tstats .l{font-size:10.5px;color:var(--muted)}
+  .bar{height:6px;border-radius:99px;background:#eef0f4;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent-soft)}
+  .pvbtn{width:100%;height:28px;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+         border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font:600 12px/1 inherit}
+  /* 概览卡（AFTER A） */
+  .ocard{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+  .ocard .ohead{display:flex;align-items:baseline;gap:8px}
+  .ocard .ohead .nm{font-size:13.5px;font-weight:700}
+  .ocard .ohead .rp{font-size:10.5px;color:var(--muted)}
+  .ocard .ohead .hl{margin-left:auto;font-size:10.5px;font-weight:600;color:var(--warning)}
+  .stack{display:flex;height:8px;border-radius:99px;overflow:hidden;margin:10px 0 5px;background:#eef0f4}
+  .stack i{display:block;height:100%}
+  .legend{display:flex;gap:10px;font-size:10.5px;color:var(--muted);flex-wrap:wrap}
+  .legend s{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px;text-decoration:none}
+  .oacts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .odyn{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.7}
+  .odyn b{color:var(--ink)}
+  /* 主从（AFTER B） */
+  .ms{display:grid;grid-template-columns:196px 1fr;gap:10px}
+  .ms .list{background:#fff;border:1px solid var(--border);border-radius:12px;padding:6px}
+  .ms .li{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;font-size:12.5px}
+  .ms .li.on{background:#f1eefb;font-weight:600}
+  .ms .li .mini{width:34px;height:4px;border-radius:99px;background:#eef0f4;overflow:hidden;margin-left:auto}
+  .ms .li .mini i{display:block;height:100%;background:var(--accent-soft)}
+  .ms .detail{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+
+  /* ── 看板：实体 vs 减法 ─────────────────────────────────── */
+  .bcols{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .bcol{border-radius:12px;padding:8px}
+  .bcol.lift{background:#f3f4f8;border:1px solid #e4e5ec}
+  .bcol.flat{background:#fff;border:1px solid var(--border)}
+  .bch{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#565d6e;margin-bottom:7px}
+  .bch .cnt{margin-left:auto;font-size:10.5px;font-weight:600;color:#4b5162;background:#e6e7ee;border-radius:99px;padding:0 7px}
+  .bcol.flat .bch .cnt{background:transparent;color:var(--muted)}
+  .bcrd{display:flex;align-items:center;gap:6px;font-size:12px;padding:5px 9px;margin-bottom:5px}
+  .bcrd.lift{background:#fff;border:1px solid #e7e7ef;border-radius:9px;box-shadow:0 1px 2px rgba(90,90,130,.05)}
+  .bcrd.flat{background:transparent;border:0;border-bottom:1px solid #eef0f4;border-radius:0;padding:7px 4px;margin-bottom:0}
+  .bcrd .liv{width:6px;height:6px;border-radius:50%;background:#9ca3af;flex:none}
+  .bcrd .ttl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bcrd .meta{flex:none;font-size:10.5px;color:var(--muted);display:inline-flex;gap:6px}
+  .emptyhint{border:1px dashed var(--border);border-radius:10px;padding:14px 0;text-align:center;color:var(--muted);font-size:11px}
+  .bcol.flat .emptyhint{border:0;padding:6px 0;text-align:left}
+</style>
+</head>
+<body>
+
+<h1>方寸 · 视觉小样（2026-09-29）</h1>
+<p class="lead">
+  这一页对应三张卡：<b>027</b> 按钮风格不统一 · <b>035</b> 日历下方横条过密 · <b>003</b> 看板观感 + 项目页签不像项目管理。
+  每块左上角的切换器是<b>可点的</b>，点一下换一种改法。全部用方寸真实的色板与字号（<code>--accent #705fab</code> 那一套），
+  不是另画一张皮。<br>
+  <b>我的口径</b>：视觉改动一律先出小样、你点头再量产；这一页<b>没有动任何真界面</b>。
+</p>
+
+<!-- ══════════ 027 按钮规范 ══════════ -->
+<div class="panel">
+  <h2>① 027 按钮风格 <small>「改」字按钮难看 / 全站按钮不成体系</small></h2>
+  <p class="why">
+    盘了一遍真实代码：现在全站有 <b>9 种以上</b>按钮写法 —— <code>.ghost</code>（103 处）、<code>.pri</code>（30）、
+    <code>.skills-btn</code>（23）、<code>.danger</code>（16）、<code>.mini</code>（3）、<code>.cal-more</code>、
+    <code>.todos-clear</code>、<code>.todo-edit</code>、<code>.todo-del</code>… 各写各的高宽圆角。
+    最刺眼的是待办行尾那个<b>裸「改」字按钮</b> —— 它连 class 都没有，直接吃浏览器默认长相。
+  </p>
+  <div class="switcher" id="sw-btn">
+    <button class="on" data-v="before">现状（BEFORE）</button>
+    <button data-v="after">统一规范（AFTER）</button>
+  </div>
+  <div class="stage" id="btn-stage"></div>
+  <div class="ruler" id="btn-ruler"></div>
+  <p class="note">
+    规范只做一件事：<b>把"高度/圆角/字号/内距"收成一套</b>，四类（主 / 次 / 危险 / 图标）+ 两档尺寸
+    （28px 工具行 · 32px 弹窗主按钮）。<code>.todo-edit</code> 那种"平时压暗、悬停才亮"的规矩保留 ——
+    那不是风格问题，是刻意的降噪。
+  </p>
+</div>
+
+<!-- ══════════ 035 日历密度 ══════════ -->
+<div class="panel">
+  <h2>② 035 日历下方横条 <small>「看起来很密集很让人畏惧」</small></h2>
+  <p class="why">
+    先说清楚现状：<b>底部那排「横条墙」上一轮已经收成一行摘要了</b>（默认收起，点「未安排 N 项」才铺开）。
+    所以这条卡剩下的"密"，我判断在<b>格子内部</b> —— 某天挂了 4~5 条时，格子里就是一片横条。
+  </p>
+  <div class="switcher" id="sw-cal">
+    <button class="on" data-v="before">现状（格子里全铺）</button>
+    <button data-v="a">改法 A：最多 2 条 + 「+N」</button>
+    <button data-v="b">改法 B：小圆点聚合</button>
+  </div>
+  <div class="stage" id="cal-stage"></div>
+  <div class="ruler" id="cal-ruler"></div>
+  <p class="note">
+    我的倾向是 <b>A</b>：保留"能读出是什么事"的能力（标题是内容，圆点只是计数）；
+    B 更安静但一天多条时得悬停才知道是什么，且方寸已经有一处"悬停才出内容"的机制（看板卡），
+    日历再上一套会累。你要更静的观感就选 B。
+  </p>
+</div>
+
+<!-- ══════════ 003 项目页签 ══════════ -->
+<div class="panel">
+  <h2>③ 003 项目页签 <small>「只是个大号看板入口，不是项目管理」</small></h2>
+  <p class="why">
+    现状那张 tile 里有：项目名、健康度、四个数字（进行中/总任务/完成进度/最近活动）、一个立方针的按钮。
+    缺的是<b>「一眼看出这个项目现在什么状态」</b>：任务都卡在哪个状态、最近谁动过、有没有阻塞、方针和结构地图在哪。
+  </p>
+  <div class="switcher" id="sw-pv">
+    <button class="on" data-v="before">现状（大号入口）</button>
+    <button data-v="a">改法 A：项目概览卡</button>
+    <button data-v="b">改法 B：主从布局</button>
+  </div>
+  <div class="stage" id="pv-stage"></div>
+  <div class="ruler" id="pv-ruler"></div>
+  <p class="note">
+    A 是「一屏看完所有项目」，B 是「一屏专注一个项目」。项目少（现在 2 个活跃）时 A 更像总览；
+    项目多起来（10+）时 B 才合算。建议<b>先做 A</b>，B 等真有了十几个项目再说 —— 不提前造。
+  </p>
+</div>
+
+<!-- ══════════ 003 看板观感 ══════════ -->
+<div class="panel">
+  <h2>④ 003 看板观感 <small>「依旧观感稀烂」（这条最需要你指哪儿）</small></h2>
+  <p class="why">
+    密度方案 B 是上一轮按你挑的对比稿做的（列灰底 / 卡白底 / 删竖色条 / 紧凑单行卡）。这条卡我<b>猜不出</b>你还嫌哪，
+    所以给两个方向让你指：<b>实体版</b>（现在的层次：白卡浮在灰底上，卡片带 1px 投影）与
+    <b>减法版</b>（列与卡同色，只靠一条淡分隔线分组；除了逾期/阻塞，什么装饰都不留）。
+  </p>
+  <div class="switcher" id="sw-bd">
+    <button class="on" data-v="before">现状（实体版）</button>
+    <button data-v="flat">减法版（去投影去卡框）</button>
+  </div>
+  <div class="stage" id="bd-stage"></div>
+  <div class="ruler" id="bd-ruler"></div>
+  <p class="note">
+    减法版的好处：一屏能多塞 3~4 条、眼睛不需要跳；代价是"卡片边界"变弱，拖拽时不好判断落点。
+    这个取舍只有你能定 —— 也可以两个都不要，直接告诉我"稀烂"具体是哪一处（字重？间距？配色？列头？）。
+  </p>
+</div>
+
+<div class="panel">
+  <h2>要你点的四件事</h2>
+  <ol class="q">
+    <li><b>① 按钮</b>：这套四类规范行不行？<b>待办行</b>要不要顺手从「一行窄条」改成「两行卡」（标题一行、元信息一行）？</li>
+    <li><b>② 日历</b>：选 A（最多 2 条 + 「+N」）还是 B（小圆点）？</li>
+    <li><b>③ 项目页签</b>：选 A（概览卡）还是 B（主从）？我建议 A。</li>
+    <li><b>④ 看板</b>：实体版还是减法版？或者直接告诉我"稀烂"具体指哪一处。</li>
+  </ol>
+  <p class="note">本页是静态小样（数据是假的），但切换器全部可点。你点头我再动 <code>App.vue</code>。</p>
+</div>
+
+<script>
+/* ── ① 按钮 ─────────────────────────────────────────────── */
+function btnBefore(){
+  return `
+  <div class="row"><span class="cap">工具栏</span>
+    <button class="b-pri">+ 新建</button>
+    <button class="b-ghost">💾</button>
+    <button class="b-ghost">☑ 任务多选</button>
+    <button class="b-ghost">⚙</button>
+  </div>
+  <div class="row"><span class="cap">待办行尾（刺眼的那处）</span>
+    <span class="toline" style="flex:1">
+      <span class="t">把导出五件套的 README 补一版</span>
+      <span class="meta"><span class="prio mid">中</span></span>
+      <button class="b-bare">改</button>
+      <button class="b-link">×</button>
+      <button class="b-icon">📅</button>
+    </span>
+  </div>
+  <div class="row"><span class="cap">弹窗 / 技能页</span>
+    <button class="b-ghost">取消</button>
+    <button class="b-pri">保存</button>
+    <button class="b-danger">销毁</button>
+    <button class="b-mini">📅</button>
+    <button class="b-mini">改</button>
+  </div>
+  <p class="note" style="margin-top:4px">
+    问题一眼可见：<b>同一条行里三种字号、三种圆角、三种高度</b>；「改」是系统默认按钮长相（方框 + 黑字）；
+    「×」「📅」是裸文字。检查脚本只能查出"有没有样式"，查不出"看起来是不是一家"。
+  </p>`
+}
+function btnAfter(){
+  return `
+  <div class="spec">
+    <div class="box"><h4>主按钮</h4><div class="lv">一屏只有 1 个：新建 / 保存 / 确认</div>
+      <button class="btn primary">+ 新建</button></div>
+    <div class="box"><h4>次按钮</h4><div class="lv">绝大多数动作：白底 + 1px 边</div>
+      <button class="btn ghost">取消</button> <button class="btn ghost">导出</button></div>
+    <div class="box"><h4>危险按钮</h4><div class="lv">只在破坏性动作上：删除 / 销毁 / 归档</div>
+      <button class="btn danger">销毁</button></div>
+    <div class="box"><h4>图标按钮</h4><div class="lv">28×28 方形，只放图标；悬停才上底</div>
+      <button class="btn icon">📅</button> <button class="btn icon">⚙</button> <button class="btn icon">🔔</button></div>
+  </div>
+  <div class="row" style="margin-top:10px"><span class="cap">尺寸两档</span>
+    <button class="btn primary lg">保存（弹窗主按钮 32）</button>
+    <button class="btn ghost">取消</button>
+    <span style="color:var(--muted);font-size:11px">← 工具行统一 28</span>
+    <button class="btn ghost sm">小号 24（只在密集列表里用）</button>
+  </div>
+  <div class="row"><span class="cap">待办行 · 窄条（保持）</span>
+    <span class="toline" style="flex:1">
+      <span class="t">把导出五件套的 README 补一版</span>
+      <span class="meta"><span class="prio mid">中</span></span>
+      <button class="btn quiet sm">改</button>
+      <button class="btn icon" style="width:24px;height:24px">×</button>
+      <button class="btn icon" style="width:24px;height:24px">📅</button>
+    </span>
+  </div>
+  <div class="row"><span class="cap">待办行 · 两行卡（可选）</span>
+    <span class="tocard" style="flex:1">
+      <span class="chk"></span>
+      <span class="ttl">把导出五件套的 README 补一版（标题完整一行，不再挤成窄条）</span>
+      <span class="meta"><span class="prio high">高</span> 📅 09-30 · 方寸</span>
+      <span class="acts"><button class="btn quiet sm">改</button><button class="btn icon" style="width:24px;height:24px">📅</button><button class="btn icon" style="width:24px;height:24px">×</button></span>
+    </span>
+  </div>
+  <p class="note" style="margin-top:4px">
+    规范落地方式：<b>不改任何现有 class 名</b>，只把它们的<u>尺寸/圆角/字号/内距</u>收进同一组变量，
+    再给"裸按钮"补一个兜底（<code>button:not([class])</code> 已经有了，但那套是"能看"，不是"成体系"）。
+  </p>`
+}
+
+/* ── ② 日历 ─────────────────────────────────────────────── */
+const EV = [
+  { t:'驳回/完成的任务删不掉（终态删除无效）', k:'' },
+  { t:'日志按状态分区 + 筛选收敛', k:'log' },
+  { t:'遮罩挡字取证', k:'todo' },
+  { t:'看板观感重做', k:'log' },
+  { t:'日历横条对齐', k:'' },
+]
+function calCell(day, mode){
+  let inner = ''
+  if (mode === 'before') {
+    inner = EV.map(e => `<div class="cev ${e.k}"><span class="pd"></span><span class="t">${e.t}</span></div>`).join('')
+  } else if (mode === 'a') {
+    inner = EV.slice(0,2).map(e => `<div class="cev ${e.k}"><span class="pd"></span><span class="t">${e.t}</span></div>`).join('')
+      + `<div class="more">+3 条</div>`
+  } else {
+    const dots = EV.map(e => `<span class="dot ${e.k}"></span>`).join('')
+    inner = `<div class="dotrow">${dots}<span class="dotn">5 条</span></div>
+             <div class="cev ${EV[0].k}" style="margin-top:6px"><span class="pd"></span><span class="t">${EV[0].t}</span></div>`
+  }
+  return `<div class="cell"><div class="d">30 周一</div>${inner}</div>`
+}
+function calBefore(){
+  return `<div class="cal">${calCell(30,'before')}
+    <div class="cell"><div class="d">1 周二</div><div class="cev"><span class="pd"></span><span class="t">接上执行日志回写</span></div></div>
+    <div class="cell"><div class="d">2 周三</div></div>
+    <div class="cell"><div class="d">3 周四</div><div class="cev log"><span class="pd"></span><span class="t">补技能导入的重名策略</span></div></div>
+  </div>
+  <p class="note" style="margin-top:8px">一天 5 条 = 5 根横条，格子被塞满，且每根都在抢同一份注意力（底色还分三种）。</p>`
+}
+function calAfter(mode){
+  return `<div class="cal">${calCell(30,mode)}
+    <div class="cell"><div class="d">1 周二</div><div class="cev"><span class="pd"></span><span class="t">接上执行日志回写</span></div></div>
+    <div class="cell"><div class="d">2 周三</div></div>
+    <div class="cell"><div class="d">3 周四</div><div class="cev log"><span class="pd"></span><span class="t">补技能导入的重名策略</span></div></div>
+  </div>
+  <p class="note" style="margin-top:8px">${mode==='a'
+    ? '只留前两条，其余折成一行「+3 条」。想要看全部就点进那一天 —— 和"点开才展开"的既有习惯一致。'
+    : '圆点只承担计数，颜色仍区分类型；下面只留一条最要紧的标题。最安静，但一天多条时要悬停/点开才知道内容。'}</p>`
+}
+
+/* ── ③ 项目页签 ─────────────────────────────────────────── */
+function pvBar(){
+  return `<div class="pvbar">项目章程 已填 <b>0</b> / 2 · 缺失 <b>2</b>
+    <span style="margin-left:auto">🗺 结构地图 <b>0/0</b></span>
+    <button class="btn ghost sm">＋ 补齐 2 个章程骨架</button></div>`
+}
+function pvBefore(){
+  return pvBar() + `<div class="tiles">
+    <div class="tile">
+      <div class="trow"><span class="tname">fangcun</span><span class="thealth">停滞</span></div>
+      <div class="tstats">
+        <div><div class="n">6</div><div class="l">进行中</div></div>
+        <div><div class="n">58</div><div class="l">总任务</div></div>
+        <div><div class="bar"><i style="width:52%"></i></div><div class="l">52% 完成</div></div>
+        <div><div class="n">4月前</div><div class="l">最近活动</div></div>
+      </div>
+      <button class="pvbtn">📋 方针已立 · 查看/编辑</button>
+    </div>
+    <div class="tile" style="border-left-color:#b6b2c4">
+      <div class="trow"><span class="tname">第二个项目</span><span class="thealth" style="color:var(--muted)">空闲</span></div>
+      <div class="tstats">
+        <div><div class="n">0</div><div class="l">进行中</div></div>
+        <div><div class="n">3</div><div class="l">总任务</div></div>
+        <div><div class="bar"><i style="width:0%"></i></div><div class="l">— 完成</div></div>
+        <div><div class="n">3月前</div><div class="l">最近活动</div></div>
+      </div>
+      <button class="pvbtn">＋ 立项目方针</button>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">数字有了，但「这个项目现在什么状态」要自己心算：数字之间没有关系，也没有"最近发生了什么"。</p>`
+}
+function pvAfter(){
+  const stack = `<div class="stack">
+      <i style="width:6%;background:#9ca3af"></i><i style="width:14%;background:#c3bce0"></i>
+      <i style="width:10%;background:#6366f1"></i><i style="width:5%;background:#d9a44a"></i>
+      <i style="width:52%;background:#54814b"></i></div>`
+  const legend = `<div class="legend">
+      <span><s style="background:#9ca3af"></s>待办 4</span>
+      <span><s style="background:#c3bce0"></s>草稿 8</span>
+      <span><s style="background:#6366f1"></s>进行中 6</span>
+      <span><s style="background:#d9a44a"></s>待验收 3</span>
+      <span><s style="background:#54814b"></s>完成 30</span>
+      <span><s style="background:#b44141"></s>驳回 1</span></div>`
+  return pvBar() + `<div class="tiles">
+    <div class="ocard">
+      <div class="ohead"><span class="nm">fangcun</span><span class="rp">E:/CODE/CangKu/fangcun · last commit 3 小时前</span><span class="hl">有阻塞</span></div>
+      ${stack}${legend}
+      <div class="odyn">
+        最近：<b>暮雨</b> 验收通过「列表视图」· 2 小时前<br>
+        <span style="color:var(--warning)">⚠ 2 条阻塞任务</span> · 方针卡「最后核实 2026-09-28」
+      </div>
+      <div class="oacts">
+        <button class="btn ghost sm">📋 方针</button>
+        <button class="btn ghost sm">🗺 结构地图</button>
+        <button class="btn ghost sm">📦 归档 12</button>
+        <button class="btn ghost sm">↗ 工作目录</button>
+      </div>
+    </div>
+    <div class="ocard">
+      <div class="ohead"><span class="nm">第二个项目</span><span class="rp">E:/CODE/…/novel</span><span class="hl" style="color:var(--muted)">空闲</span></div>
+      <div class="stack"><i style="width:100%;background:#eef0f4"></i></div>
+      <div class="legend"><span>3 条任务全在「待办」，30 天无活动</span></div>
+      <div class="odyn">方针卡：<b>还没立</b> · 结构地图：<b>没有</b></div>
+      <div class="oacts">
+        <button class="btn primary sm">＋ 立项目方针</button>
+        <button class="btn ghost sm">🗺 结构地图</button>
+        <button class="btn ghost sm">↗ 工作目录</button>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">把"数字"换成"<b>状态分布条 + 最近动态 + 缺口</b>"：一眼能看出项目卡在哪、缺什么、下一步该点哪个按钮。</p>`
+}
+function pvMasterDetail(){
+  const li = (n, on, pct) => `<div class="li ${on?'on':''}">${on?'▸ ':''}${n}<span class="mini"><i style="width:${pct}%"></i></span></div>`
+  return pvBar() + `<div class="ms">
+    <div class="list">
+      ${li('fangcun', true, 52)}
+      ${li('第二个项目', false, 0)}
+      ${li('明鉴', false, 18)}
+      ${li('绒花墨坊', false, 74)}
+      <div style="padding:7px 9px;font-size:11.5px;color:var(--muted)">＋ 添加项目</div>
+    </div>
+    <div class="detail">
+      <div class="ohead"><span class="nm">fangcun</span><span class="hl">有阻塞</span></div>
+      <div class="stack"><i style="width:6%;background:#9ca3af"></i><i style="width:14%;background:#c3bce0"></i><i style="width:10%;background:#6366f1"></i><i style="width:52%;background:#54814b"></i></div>
+      <div class="legend"><span>进行中 6</span><span>待验收 3</span><span>完成 30</span></div>
+      <div class="odyn">最近动态、阻塞明细、结构地图都放在这一栏（右侧宽度够，能真正摊开读）。</div>
+      <div class="oacts"><button class="btn ghost sm">📋 方针</button><button class="btn ghost sm">🗺 结构地图</button></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:8px">左列常驻项目 + 迷你进度，右侧是详情。项目到 10+ 时这份布局才划算。</p>`
+}
+
+/* ── ④ 看板 ─────────────────────────────────────────────── */
+function bdCols(variant){
+  const cls = variant === 'flat' ? 'flat' : 'lift'
+  const card = (t, meta, dot) => `<div class="bcrd ${cls}"><span class="liv" style="background:${dot}"></span><span class="ttl">${t}</span><span class="meta">${meta}</span></div>`
+  const col = (name, n, color, tasks) => `<div class="bcol ${cls}">
+      <div class="bch"><span class="liv" style="width:8px;height:8px;background:${color}"></span>${name}<span class="cnt">${n}</span></div>
+      ${tasks.map(x => card(x[0], x[1], color)).join('') || `<div class="emptyhint">拖拽卡片到此处</div>`}
+    </div>`
+  return `<div class="bcols">
+    ${col('待办', 2, '#9ca3af', [['把导出五件套的 README 补一版','📅09-30 · 方寸'],['补技能导入的重名策略','更新 09-26 · 方寸']])}
+    ${col('进行中', 3, '#6366f1', [['列表视图落地 + 无头断言','📅09-30 · 方寸'],['技能显示路径白名单','更新 09-29 · 方寸'],['写回路径的两个 P0','更新 09-29 · 方寸']])}
+    ${col('完成', 2, '#54814b', [['结构地图进方针区','更新 09-28 · 方寸'],['多视图切换','更新 09-28 · 方寸']])}
+  </div>`
+}
+
+/* ── 切换器通用 ─────────────────────────────────────────── */
+function wire(id, draw, ruler){
+  const box = document.getElementById(id)
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return
+    ;[...box.querySelectorAll('button')].forEach(x => x.classList.toggle('on', x === b))
+    draw(b.dataset.v)
+  })
+  draw(box.querySelector('button.on').dataset.v)
+  if (ruler) document.getElementById(id.replace('sw-','') + '-ruler').innerHTML = ruler()
+}
+
+const RULERS = {
+  'btn': () => '<span>现状：<b>9+ 种写法</b>，同一条行里三种高度</span><span>改后：<b>四类 × 两档</b>，全部同一套变量</span>',
+  'cal': () => '<span>现状：一天 N 条 = <b>N 根横条</b></span><span>改后 A：<b>最多 2 条 + 「+N」</b></span><span>改后 B：<b>圆点聚合</b></span>',
+  'pv': () => '<span>现状：<b>4 个数字</b>，状态要自己心算</span><span>改后：<b>状态分布 + 最近动态 + 缺口入口</b></span>',
+  'bd': () => '<span>实体版：<b>白卡浮灰底 + 1px 投影</b>，边界清楚</span><span>减法版：<b>同色 + 淡分隔线</b>，一屏多塞 3~4 条</span>',
+}
+
+wire('sw-btn', (v) => { document.getElementById('btn-stage').innerHTML = v === 'before' ? btnBefore() : btnAfter() }, RULERS['btn'])
+wire('sw-cal', (v) => { document.getElementById('cal-stage').innerHTML = v === 'before' ? calBefore() : calAfter(v) }, RULERS['cal'])
+wire('sw-pv',  (v) => { document.getElementById('pv-stage').innerHTML  = v === 'before' ? pvBefore() : (v === 'a' ? pvAfter() : pvMasterDetail()) }, RULERS['pv'])
+wire('sw-bd',  (v) => { document.getElementById('bd-stage').innerHTML  = bdCols(v === 'flat' ? 'flat' : 'lift') }, RULERS['bd'])
+
+/* `#after` = 一次性把所有块切到最右边的改法（截图/对比用，也方便你把某一版直接发人）。
+   默认仍是现状 —— 和方寸"旧视图永远是默认"一个口径。 */
+if (location.hash.replace('#','') === 'after') {
+  document.querySelectorAll('.switcher').forEach((box) => {
+    const bs = [...box.querySelectorAll('button')]
+    const last = bs[bs.length - 1]
+    bs.forEach((x) => x.classList.toggle('on', x === last))
+    last.click()
+  })
+}
+</script>
+</body>
+</html>

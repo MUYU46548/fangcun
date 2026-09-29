@@ -2,6 +2,7 @@ import { MCPTool, MCPRequest, MCPResponse, MCPToolResult } from './types'
 import { loadTasks, parseRegistry, getDataDir, getTaskDir, parseTask } from '../data'
 import * as tasks from '../data/tasks'
 import * as services from '../services'
+import * as logs from '../services/logs'
 import type { Task } from '../data'
 
 function loadAllTasks(): Task[] {
@@ -180,6 +181,39 @@ export const MCP_TOOLS: MCPTool[] = [
     description: 'List all acceptance gates',
     inputSchema: { type: 'object', properties: {} },
   },
+  // ── 日志（2026-09-29 用户第 2 条）：日志没有可复制给 AI 的 ID，agent 只能整篇被注入。
+  //    这三个工具让 agent 拿着 ID 自己去取，读操作、零写入。
+  {
+    name: 'list_logs',
+    description: 'List execution logs (方寸执行日志). Returns id/title/status/project so a log can be located by ID. Pass `chain` to list an entire relay chain (接力链).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Filter by project ID' },
+        status: { type: 'string', description: 'Filter: active | completed | archived' },
+        chain: { type: 'string', description: 'Log ID: return every log in that log\'s relay chain (upstream ancestors + downstream descendants + itself), oldest → newest' },
+        limit: { type: 'number', description: 'Max rows returned (default 50)' },
+      },
+    },
+  },
+  {
+    name: 'search_logs',
+    description: 'Full-text search across log titles, contents and project names',
+    inputSchema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'Search query' } },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_log',
+    description: 'Get one execution log by ID (e.g. log_20260929052313_ddimzo): content, next steps, status, links, plus relay chain up/downstream (接力链上下游) so the agent can walk the chain itself.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Log ID' } },
+      required: ['id'],
+    },
+  },
 ]
 
 // ── Tool Handler ────────────────────────────────────────────────────────
@@ -314,6 +348,61 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     case 'gate_list': {
       // Gates are in-memory only in Python version; return empty for now
       return { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] }
+    }
+
+    case 'list_logs': {
+      // chain 过滤（2026-09-29 方案二）：给一条日志 ID，返回它所在接力链的全部成员
+      // （上游祖先 + 自身 + 下游子孙），从老到新 —— AI 顺着链自己走，不用整篇注入。
+      if (args.chain) {
+        const cid = String(args.chain)
+        const self = logs.getLog(cid)
+        if (!self) return { content: [{ type: 'text', text: `Log not found: ${cid}` }], isError: true }
+        const ch = logs.logChain(cid)
+        const members = [...ch.upstream, self, ...ch.downstream]
+        const rows = members.slice(0, Number(args.limit) > 0 ? Number(args.limit) : 50).map((l: any) => ({
+          id: l.id, title: l.title, status: logs.logStatusText(l), project: l.project,
+          created: l.created, completed: l.completed || '', taskId: l.taskId || '', running: !!l.running,
+          continuesFrom: l.continueFrom || '', isHead: !l.continueFrom, isTail: false,
+        }))
+        if (rows.length) rows[rows.length - 1].isTail = true
+        return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+      }
+      const filter: any = {}
+      if (args.project) filter.project = args.project
+      if (args.status) filter.status = args.status
+      const limit = Number(args.limit) > 0 ? Number(args.limit) : 50
+      const rows = logs.listLogs(filter).slice(0, limit).map((l: any) => ({
+        id: l.id, title: l.title, status: logs.logStatusText(l), project: l.project,
+        created: l.created, completed: l.completed || '', taskId: l.taskId || '', running: !!l.running,
+        continuesFrom: l.continueFrom || '',
+      }))
+      return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+    }
+
+    case 'search_logs': {
+      const rows = logs.searchLogs(String(args.query || ''), 50).map((l: any) => ({
+        id: l.id, title: l.title, status: logs.logStatusText(l), project: l.project, created: l.created,
+      }))
+      return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+    }
+
+    case 'get_log': {
+      const entry = logs.getLog(String(args.id || ''))
+      if (!entry) return { content: [{ type: 'text', text: `Log not found: ${args.id}` }], isError: true }
+      // 接力链上下游（方案二）：agent 拿到这条就能看见前后文，顺链自己走
+      const ch = logs.logChain(entry.id)
+      const mini = (l: any) => ({ id: l.id, title: l.title, status: logs.logStatusText(l), created: l.created })
+      return { content: [{ type: 'text', text: JSON.stringify({
+        id: entry.id, title: entry.title, status: logs.logStatusText(entry), project: entry.project,
+        created: entry.created, completed: entry.completed || '', running: !!entry.running,
+        taskId: entry.taskId || '', agentName: entry.agentName || '',
+        content: entry.content, nextSteps: entry.nextSteps || '',
+        continuesFrom: entry.continueFrom || '',
+        chain: {
+          upstream: ch.upstream.map(mini),    // 旧 → 新，直到链头
+          downstream: ch.downstream.map(mini), // 近 → 远，直到链尾
+        },
+      }, null, 2) }] }
     }
 
     default:

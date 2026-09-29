@@ -102,7 +102,11 @@ function main() {
   check('E4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(vue))
   check('E5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(vue))
   check('E6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(vue) && /\.col\.collapsed-col \{/.test(vue))
-  check('E7 有一键折叠/展开', /setAllCollapsed\(true\)/.test(vue) && /setAllCollapsed\(false\)/.test(vue))
+  // 2026-09-28 用户第 3 条把「折叠全部 / 展开」两个并排按钮（必有一个无效）改成**单按钮开关**，
+  // 断言还钉在老的 setAllCollapsed(true/false) 上 → 一直红着（本机跑不到这套，直到今天才被跑出来）。
+  check('E7 有一键折叠/展开（已是单按钮开关 toggleAllCollapsed）',
+    /function toggleAllCollapsed\(/.test(vue) && /toggleAllCollapsed\(\)/.test(vue) &&
+    /折叠全部/.test(vue) && /展开全部/.test(vue))
   check('E8 折叠状态与分组方式持久化到 prefs', /saveUiPref\('fc_collapsed_groups'/.test(vue) && /saveUiPref\('fc_board_group_mode'/.test(vue))
   check('E9 启动时与真身对齐', /syncBoardPrefs\(\)/.test(vue))
 

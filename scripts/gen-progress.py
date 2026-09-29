@@ -72,12 +72,21 @@ def collect():
     if not os.path.isdir(TASK_DIR):
         return rows, broken
     for name in sorted(os.listdir(TASK_DIR)):
-        if not (name.startswith("task-") and name.endswith(".md")):
+        if not name.endswith(".md"):
             continue
+        # ⚠ 早先这里是 `name.startswith("task-")` —— 那会把**文件名不以 task- 开头、
+        #   但确实是任务卡**的一批直接漏掉（2026-09-29 实查 5 张：
+        #   看板视图按项目分组…297cdf80 / 剧本推进-2eda620c / 视频制作0924-49657d5b /
+        #   0924-1驳回完成的任务删不掉…67069c8d / 方寸工程债清理…e8837f14），
+        #   而本区存在的理由恰恰是"看不出哪些做了哪些没做"。
+        #   改成按**有没有任务前言**判定：有 `id` 才算卡片；
+        #   纯文档（项目简报/实测清单/验收证据/_template）没有 frontmatter `id`，
+        #   自然被跳过，也不会污染下面的"解析失败"名单。
         full = os.path.join(TASK_DIR, name)
         fm = read_frontmatter(full)
         if not fm:
-            broken.append(name)
+            continue
+        if not str(fm.get("id") or "").strip():
             continue
         rows.append({
             "id": fm.get("id") or name[:-3],

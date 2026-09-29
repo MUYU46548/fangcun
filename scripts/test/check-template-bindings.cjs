@@ -4,6 +4,8 @@
  *
  * ① 模板绑定：模板引用了、`<script setup>` 未声明
  * ② 脚本调用：`<script setup>` 体内**调用了**、但文件里没有任何声明的函数名
+ * ③ 死函数：`function foo()` 定义了但全文件零引用（漏接入口）
+ * ⑧ ref 裸用当布尔（2026-09-28 加）：脚本里写 `if (someRef)` —— 判断的是 ref 对象，恒为真
  *
  * 为什么需要（2026-09-22）：
  *   ① 启动台「+ 添加应用」按钮被反复报修六次，历次修复都在改 CSS / dialog / 原子写。
@@ -12,16 +14,18 @@
  *   ② `loadBlockerChains()` 在 `loadViewData()` 里被调用、却从未定义 —— 点「阻塞」页签
  *      直接 `Uncaught ReferenceError`，页面停在上一个视图。
  *      ①只扫模板，抓不到"函数体内调用未定义函数"，所以补 ②。
+ *   ⑧ 2026-09-28 实战抓到：看板悬停提示的「拖拽中不弹」守卫写成 `if (draggingId) return`
+ *      （`draggingId` 是 ref）→ 条件恒真 → **浮层永不出现**；tsc 认为"对象当布尔"完全合法。
  *
- *   现有防线全部抓不到这两类：
+ *   现有防线全部抓不到这几类：
  *     · vite build / tsc 不报（模板里的未知标识符被当作全局引用；
- *       函数体里的未定义名要等**运行到那一行**才抛）
+ *       函数体里的未定义名要等**运行到那一行**才抛；`Ref<T>` 当布尔是合法 TS）
  *     · stub e2e 不解析 SFC
  *     · IPC 三方对账只管通道
  *   所以单列一个检查。
  *
  * 运行：node scripts/test/check-template-bindings.cjs [文件…]
- * 退出码：存在未声明标识符 → 1
+ * 退出码：存在未声明标识符 / 死函数 / ref 裸用 → 1
  */
 const fs = require('fs')
 const path = require('path')
@@ -206,6 +210,47 @@ function collectDeadFunctions(src) {
   return dead
 }
 
+/**
+ * ⑧ ref 裸用当布尔（2026-09-28 新增，实战抓到过真 bug）
+ *
+ * 症状：`const draggingId = ref<string|null>(null)` 之后写 `if (draggingId) return` ——
+ *   判断的是**那个 ref 对象本身**，恒为真，于是这条守卫把整条路径全挡掉。
+ *   实例：看板卡片悬停轻提示的「拖拽中不弹」守卫就写成了 `if (draggingId) return`，
+ *   结果浮层**永远不出现**（用户 2026-09-28 实测「②看不见」）。
+ *
+ * ⚠ 这一层 tsc / vite / 桩 e2e / IPC 对账**全都抓不到**：
+ *   类型上 `Ref<T>` 就是个对象，"对象当布尔"是合法 TS。
+ *
+ * 判据（只在 `<script setup>` 体内，且只认高信噪比形状）：
+ *   `if (X)` / `if (!X)` / `X ?`（不是类型注解的 `X?:`）/ `&& X` / `|| X`
+ *   —— 其中 X 是 `ref/computed/shallowRef/toRef` 声明的名字。
+ * `X.value`、声明行、类型注解都会被排除；模板里的裸用是**正确**的（模板自动解包），所以不扫模板。
+ */
+function collectBareRefs(strippedScript) {
+  const declRe = /(?:^|\n)[ \t]*(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*(?::[^=\n]*)?=[ \t]*(?:ref|computed|shallowRef|toRef)\b/g
+  const names = new Set()
+  let m
+  while ((m = declRe.exec(strippedScript))) names.add(m[1])
+  const out = []
+  for (const name of names) {
+    const e = name.replace(/[$]/g, '\\$')
+    const pats = [
+      new RegExp('if[ \\t]*\\([ \\t]*' + e + '[ \\t]*\\)', 'g'),
+      new RegExp('if[ \\t]*\\([ \\t]*![ \\t]*' + e + '[ \\t]*\\)', 'g'),
+      new RegExp('(?:^|[=(,;[ \\t])' + e + '[ \\t]*\\?(?![.:])', 'g'),
+      new RegExp('&&[ \\t]*' + e + '[ \\t]*(?![.\\w$(])', 'g'),
+      new RegExp('\\|\\|[ \\t]*' + e + '[ \\t]*(?![.\\w$(])', 'g'),
+    ]
+    for (const p of pats) {
+      const hit = p.exec(strippedScript)
+      if (!hit) continue
+      out.push({ name, line: strippedScript.slice(0, hit.index).split('\n').length, shape: hit[0].trim().slice(0, 28) })
+      break
+    }
+  }
+  return out
+}
+
 function checkFile(file) {
   const src = fs.readFileSync(file, 'utf-8')
   const tplM = src.match(/<template>([\s\S]*)<\/template>/)
@@ -252,7 +297,7 @@ function checkFile(file) {
     missingCalls.push({ name, line })
   }
 
-  return { file, skipped: false, missing: [...missing].sort(), missingCalls }
+  return { file, skipped: false, missing: [...missing].sort(), missingCalls, bareRefs: collectBareRefs(stripNoise(body)) }
 }
 
 let fail = 0
@@ -283,6 +328,11 @@ for (const t of targets) {
   if (deadFns.length) {
     problems.push(`③ 定义了但零引用（${deadFns.length}）：` + deadFns.map(n => `${n}()`).join(', ') +
       ` —— 要么接线到界面，要么删掉；确属有意保留请加进 DEAD_FN_EXEMPT 并写明原因`)
+  }
+  if (r.bareRefs && r.bareRefs.length) {
+    problems.push(`⑧ ref 裸用当布尔（${r.bareRefs.length}）：` +
+      r.bareRefs.map(b => `${b.name}（第 ${b.line} 行 ${b.shape}）`).join('、') +
+      ` —— ref 对象恒为真。脚本里必须写 .value；模板里裸用才是对的`)
   }
   if (!problems.length) {
     pass++

@@ -21,7 +21,7 @@ import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
-import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath } from './services/skillInstaller'
+import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
@@ -785,7 +785,7 @@ export function registerIpcHandlers(): void {
     return logsService.getLog(id)
   })
 
-  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[] }) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => {
     return logsService.createLog(title, project, content, taskId, extra)
   })
 
@@ -801,7 +801,13 @@ export function registerIpcHandlers(): void {
     return logsService.archiveLog(id, note)
   })
 
-  // 2026-09-26 用户补充第 3 条：日志可临时打回「进行中」（原来只能单向前进）
+  // 2026-09-28 用户第 2 条：「进行中」只能手动开关，且可撤销。
+  // 这是 running 的**唯一写入路径**（创建/完成/归档只会关掉它）。
+  guardedHandle('logs:setRunning', (_event, id: string, running: boolean) => {
+    return logsService.setLogRunning(String(id || ''), !!running)
+  })
+
+  // 撤销完成 / 撤销归档，退回「待处理」。**不等于「进行中」** —— 要不要进行中由用户另外开。
   guardedHandle('logs:reopen', (_event, id: string) => {
     return logsService.reopenLog(id)
   })
@@ -1045,18 +1051,13 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
   })
 
   // 在资源管理器里显示某个技能的 SKILL.md（给 WorkBuddy 这类只能手动导入的 agent 用）
+  // 路径裁决（白名单两个根）抽成纯函数 `resolveRevealTarget` —— e2e-skills 直接断言它。
   guardedHandle('skills:reveal', (_event, dirOrFile: string) => {
-    const root = path.resolve(getHermesSkillsDirPath())
-    const p = path.resolve(String(dirOrFile || ''))
-    // 只允许显示技能目录内的东西 —— 渲染层传来任意路径都不行
-    if (p !== root && !p.startsWith(root + path.sep)) return { ok: false, message: '路径不在技能目录内' }
-    let isDir = false
-    try { isDir = fs.statSync(p).isDirectory() } catch { isDir = false }
-    const skillMd = isDir ? path.join(p, 'SKILL.md') : p
+    const t = resolveRevealTarget(String(dirOrFile || ''))
+    if (!t.ok || !t.skillMd) return { ok: false, message: t.message }
     try {
-      if (!fs.existsSync(skillMd)) return { ok: false, message: `找不到 SKILL.md：${skillMd}` }
-      shell.showItemInFolder(skillMd)
-      return { ok: true, message: '已在资源管理器里亮出 SKILL.md，拖进对方的导入面板即可' }
+      shell.showItemInFolder(t.skillMd)
+      return { ok: true, message: t.message }
     } catch (e: any) {
       return { ok: false, message: `显示失败：${e?.message || e}` }
     }
