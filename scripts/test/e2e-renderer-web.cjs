@@ -128,6 +128,9 @@ function main() {
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
       ['日志', '', 'logs-chain', 'chain'],
       ['日志', '', 'logs-relay', 'relay'],
+      // 2026-09-30 用户补充：待办 / 回收站 多选 —— 各留一张批量栏 + 选中态证据
+      ['待办', '', 'todo-batch', 'todobatch'],
+      ['回收站', '', 'trash-batch', 'trashbatch'],
       ['设置', '', 'settings'],
     ]
     const SEED_TODOS = [
@@ -182,6 +185,26 @@ function main() {
   ])
   clickText('看板'); await sleep(450); clickText('日志'); await sleep(700)
   ${extra === 'chain' ? `clickText('按链'); await sleep(700)` : `const rb = all('.relay-btn')[0]; if (rb) rb.click(); await sleep(700)`}` : ''}
+  ${extra === 'todobatch' || extra === 'trashbatch' ? `
+  // 待办/回收站多选（2026-09-30 用户补充）：先灌数据，重进页签，开多选并点两张
+  ${extra === 'todobatch'
+    ? `window.__fcTest.setTodos([
+    { id: 'td-1', title: '多选截图：第一件事', priority: '高', done: false, created: 1 },
+    { id: 'td-2', title: '多选截图：第二件事', priority: '中', done: false, created: 2 },
+    { id: 'td-3', title: '多选截图：已完成的旧事', priority: '低', done: true, created: 3 },
+  ])`
+    : `window.__fcTest.setTrash([
+    { name: 'task-trash-a.md', id: 'task-trash-a', title: '回收站多选截图：甲', status: '完成', project: '', bytes: 2048, mtime: Date.now() },
+    { name: 'task-trash-b.md', id: 'task-trash-b', title: '回收站多选截图：乙', status: '待办', project: 'demo', bytes: 1024, mtime: Date.now() },
+  ])`}
+  clickText('看板'); await sleep(450); clickText(${JSON.stringify(page)}); await sleep(700)
+  const bb = all('.batch-mode-btn').find((x) => (x.textContent || '').indexOf('多选') >= 0)
+  if (bb) bb.click()
+  await sleep(500)
+  ${extra === 'todobatch'
+    ? `const its = all('.todos-view .todo-item'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`
+    : `const its = all('.trash-view .trash-main'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`}
+  await sleep(500)` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)

@@ -696,6 +696,18 @@
         <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
         <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
         <button class="trash-refresh" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</button>
+        <button class="ghost batch-mode-btn" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
+          title="开启批量选择，点击条目即勾选/取消">
+          <span v-if="!trashBatchMode">☑ 多选</span>
+          <span v-else>☑ <i style="color:#fff">{{ selectedTrashBatch.length || 0 }}</i></span>
+        </button>
+      </div>
+      <div v-if="trashBatchMode" class="batch-bar">
+        <span class="batch-count">已选 {{ selectedTrashBatch.length }}</span>
+        <button class="ghost" @click="toggleSelectAllTrash">{{ selectedTrashBatch.length === filteredTrash.length ? '取消全选' : '全选' }}</button>
+        <button class="ghost" title="批量还原：终态回归档区，其余回活跃区；同名冲突不覆盖" @click="executeBatchTrashRestore">批量还原</button>
+        <button class="danger" title="批量从磁盘彻底删除（会二次确认，不可撤销）" @click="executeBatchTrashPurge">彻底删除</button>
+        <button class="ghost" title="退出多选模式并清空选择" @click="exitTrashBatch">取消</button>
       </div>
       <div class="trash-notebar">
         删掉的任务先来这儿 —— 数据没丢，可以还原；「彻底删除」才真的从磁盘删掉，不可撤销。
@@ -712,9 +724,12 @@
         <div class="empty-text">没有匹配「{{ trashQuery }}」的条目</div>
         <button class="trash-btn" @click="trashQuery = ''">清空搜索</button>
       </div>
-      <div v-else class="trash-list">
-        <div v-for="it in filteredTrash" :key="it.name" class="trash-item">
-          <div class="trash-main clickable" @click="openTrashPreview(it)" title="点击看正文（只读预览）">
+      <div v-else class="trash-list" :class="{ batching: trashBatchMode }">
+        <div v-for="it in filteredTrash" :key="it.name" class="trash-item"
+          :class="{ selected: trashBatchMode && selectedTrashBatch.includes(it.name) }">
+          <div class="trash-main clickable"
+            @click="trashBatchMode ? toggleTrashBatchSelect(it.name) : openTrashPreview(it)"
+            :title="trashBatchMode ? '点击勾选/取消勾选' : '点击看正文（只读预览）'">
             <div class="trash-line1">
               <span class="trash-id">{{ it.id }}</span>
               <span class="trash-title">{{ it.title || '(无标题)' }}</span>
@@ -726,7 +741,7 @@
               <span class="trash-meta">· {{ it.bytes || 0 }} B · 删于 {{ it.mtime ? relativeTime(it.mtime) : '—' }}</span>
             </div>
           </div>
-          <div class="trash-actions">
+          <div class="trash-actions" v-show="!trashBatchMode">
             <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回「归档」，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
             <button class="trash-btn danger" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</button>
           </div>
@@ -793,7 +808,20 @@
             <option value="active">未完成</option>
             <option value="done">已完成</option>
           </select>
+          <button class="ghost batch-mode-btn" :class="{ active: todoBatchMode }" @click="toggleTodoBatchMode"
+            title="开启批量选择，点击卡片即勾选/取消">
+            <span v-if="!todoBatchMode">☑ 多选</span>
+            <span v-else>☑ <i style="color:#fff">{{ selectedTodoBatch.length || 0 }}</i></span>
+          </button>
         </div>
+      </div>
+      <div v-if="todoBatchMode" class="batch-bar">
+        <span class="batch-count">已选 {{ selectedTodoBatch.length }}</span>
+        <button class="ghost" @click="toggleSelectAllTodos">{{ selectedTodoBatch.length === filteredTodos.length ? '取消全选' : '全选' }}</button>
+        <button class="ghost" title="批量标为已完成" @click="executeBatchTodoDone(true)">批量完成</button>
+        <button class="ghost" title="批量标为未完成（勾错了批量改回来）" @click="executeBatchTodoDone(false)">取消完成</button>
+        <button class="danger" title="批量删除（会二次确认，不可恢复）" @click="executeBatchTodoDelete">批量删除</button>
+        <button class="ghost" title="退出多选模式并清空选择" @click="exitTodoBatch">取消</button>
       </div>
       <div class="todos-stats">
         共 {{ todos.length }} 条 · 未完成 {{ todoStats.active }} · 已完成 {{ todos.length - todoStats.active }}
@@ -807,7 +835,7 @@
       </div>
       <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走「日志」页签。</div>
       <div v-if="todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
-      <div class="todos-list" :class="{ 'as-grid': todoView === 'grid' }">
+      <div class="todos-list" :class="{ 'as-grid': todoView === 'grid', batching: todoBatchMode }">
         <div v-if="!filteredTodos.length" class="empty-state">
           <div class="empty-icon">{{ todos.length ? '🔍' : '✓' }}</div>
           <div class="empty-text">{{ todos.length ? '没有符合当前筛选的待办' : '暂无待办' }}</div>
@@ -821,19 +849,21 @@
           v-for="todo in filteredTodos"
           :key="todo.id"
           class="todo-item"
-          :class="{ done: todo.done, prio: localPriority(todo.priority) === '高', pinned: todo.pinned }"
+          :class="{ done: todo.done, prio: localPriority(todo.priority) === '高', pinned: todo.pinned, selected: todoBatchMode && selectedTodoBatch.includes(todo.id) }"
+          @click="onTodoItemClick(todo)"
           @contextmenu.prevent="openTodoMenu($event, todo)"
         >
           <input
             type="checkbox"
             class="todo-chk"
-            :checked="todo.done"
-            @change="toggleTodo(todo.id)"
+            :checked="todoBatchMode ? selectedTodoBatch.includes(todo.id) : todo.done"
+            @click.stop
+            @change="todoBatchMode ? toggleTodoBatchSelect(todo.id) : toggleTodo(todo.id)"
           />
           <div class="todo-body">
             <div class="todo-line">
               <span v-if="todo.pinned" class="todo-pin" title="已置顶">📌</span>
-              <span class="todo-title" @click="openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日">{{ todo.title }}</span>
+              <span class="todo-title" @click.stop="todoBatchMode ? toggleTodoBatchSelect(todo.id) : openTodoEditor(todo)" title="点击编辑：内容 / 项目 / 优先级 / 到期日（多选模式下 = 勾选）">{{ todo.title }}</span>
             </div>
             <div class="todo-line metas">
               <span class="todo-prio" :class="'prio-' + prioClass(todo.priority)">{{ localPriority(todo.priority) }}</span>
@@ -844,7 +874,7 @@
               </span>
             </div>
           </div>
-          <div class="todo-acts">
+          <div class="todo-acts" v-show="!todoBatchMode">
             <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
             <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
             <button class="todo-del" title="删除这条待办" @click.stop="deleteTodo(todo.id)">×</button>
@@ -3100,6 +3130,12 @@ const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
 const logBatchMode = ref(false)
 const selectedLogBatch = ref<string[]>([])
+// 多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）
+// —— 复用看板/日志同一套交互：工具条开关 + 卡片点选 + 悬浮批量栏。
+const todoBatchMode = ref(false)
+const selectedTodoBatch = ref<string[]>([])
+const trashBatchMode = ref(false)
+const selectedTrashBatch = ref<string[]>([])
 const dataDir = ref('')
 
 // ── Todos ─────────────────────────────────────────────────────────
@@ -3822,6 +3858,59 @@ async function purgeTrashItem(it: TrashItem): Promise<void> {
   } else {
     showToast(`删除失败：${(r && r.error) || '未知原因'}`, 'error')
   }
+}
+
+// ── 回收站多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
+// 交互与看板/日志/待办同一套：工具条开关 → 点条目勾选 → 悬浮批量栏执行。
+// 选中键用 it.name（同 id 可能有同名副本，name = trash 里的文件名，唯一）。
+function toggleTrashBatchMode() {
+  trashBatchMode.value = !trashBatchMode.value
+  if (!trashBatchMode.value) selectedTrashBatch.value = []
+  else showToast('批量模式：点击条目勾选，再从下方批量栏执行', 'success')
+}
+function toggleTrashBatchSelect(name: string) {
+  const idx = selectedTrashBatch.value.indexOf(name)
+  if (idx >= 0) selectedTrashBatch.value.splice(idx, 1)
+  else selectedTrashBatch.value.push(name)
+}
+function toggleSelectAllTrash() {
+  if (selectedTrashBatch.value.length === filteredTrash.value.length) selectedTrashBatch.value = []
+  else selectedTrashBatch.value = filteredTrash.value.map((t: any) => t.name)
+}
+function exitTrashBatch() {
+  selectedTrashBatch.value = []
+  trashBatchMode.value = false
+}
+async function executeBatchTrashRestore() {
+  const names = [...selectedTrashBatch.value]
+  if (!names.length) return
+  let ok = 0
+  for (const name of names) {
+    try {
+      const r: any = await window.tegula.trashRestore(name)
+      if (r?.ok) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已还原 ${ok}/${names.length} 项`, ok ? 'success' : 'error')
+  exitTrashBatch()
+  await loadTrash()
+  // 回收站还原会改任务列表；与单条还原一致，只在非回收站视图才刷（此刻就在回收站，不用）
+}
+async function executeBatchTrashPurge() {
+  const names = [...selectedTrashBatch.value]
+  if (!names.length) return
+  if (!confirm(`彻底删除选中的 ${names.length} 项？\n\n将从磁盘删除这些文件，不可撤销：\n` +
+    names.slice(0, 10).map(n => `· ${n}`).join('\n') + (names.length > 10 ? `\n…等 ${names.length} 个` : ''))) return
+  let ok = 0
+  for (const name of names) {
+    try {
+      const r: any = await window.tegula.trashPurge(name)
+      if (r?.ok) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已彻底删除 ${ok}/${names.length} 项`, ok ? 'success' : 'error')
+  exitTrashBatch()
+  await loadTrash()
 }
 
 /**
@@ -5599,6 +5688,62 @@ async function deleteTodo(id: string) {
   if (!confirm('确定删除此待办？')) return
   await window.tegula.todosDelete(id)
   showToast('已删除', 'success')
+  loadTodos()
+}
+
+// ── 待办多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
+// 交互与看板/日志同一套：工具条开关 → 点卡片勾选 → 悬浮批量栏执行。
+// 批量完成走 todosUpdate({done}) 显式置值（todosToggle 是翻转，混合状态下批量翻会错乱）。
+function toggleTodoBatchMode() {
+  todoBatchMode.value = !todoBatchMode.value
+  if (!todoBatchMode.value) selectedTodoBatch.value = []
+  else showToast('批量模式：点击卡片勾选，再从下方批量栏执行', 'success')
+}
+function toggleTodoBatchSelect(id: string) {
+  const idx = selectedTodoBatch.value.indexOf(id)
+  if (idx >= 0) selectedTodoBatch.value.splice(idx, 1)
+  else selectedTodoBatch.value.push(id)
+}
+function onTodoItemClick(todo: any) {
+  // 多选模式下整卡点选；平时卡片空白处点击不做事（勾选/编辑/动作各有入口）
+  if (todoBatchMode.value) toggleTodoBatchSelect(todo.id)
+}
+function toggleSelectAllTodos() {
+  if (selectedTodoBatch.value.length === filteredTodos.value.length) selectedTodoBatch.value = []
+  else selectedTodoBatch.value = filteredTodos.value.map((t: any) => t.id)
+}
+function exitTodoBatch() {
+  selectedTodoBatch.value = []
+  todoBatchMode.value = false
+}
+async function executeBatchTodoDone(done: boolean) {
+  const ids = [...selectedTodoBatch.value]
+  if (!ids.length) return
+  let ok = 0
+  for (const id of ids) {
+    try {
+      const r: any = await window.tegula.todosUpdate(id, { done } as any)
+      // 真后端返回 Todo|null（null = 没这条）；假后端返回 {ok:...} —— 两边都按「真成功」计数
+      if (r && r.ok !== false) ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已${done ? '标为完成' : '取消完成'} ${ok}/${ids.length} 条待办`, ok ? 'success' : 'error')
+  exitTodoBatch()
+  loadTodos()
+}
+async function executeBatchTodoDelete() {
+  const ids = [...selectedTodoBatch.value]
+  if (!ids.length) return
+  if (!confirm(`批量删除 ${ids.length} 条待办？\n\n不可恢复（待办不进回收站）。`)) return
+  let ok = 0
+  for (const id of ids) {
+    try {
+      await window.tegula.todosDelete(id)
+      ok++
+    } catch { /* skip */ }
+  }
+  showToast(`已删除 ${ok}/${ids.length} 条待办`, ok ? 'success' : 'error')
+  exitTodoBatch()
   loadTodos()
 }
 
@@ -7983,6 +8128,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .batch-actions button.danger:hover { background: #f8d7d7; }
 
 .batch-mode-btn.active { background: var(--accent) !important; color: #fff !important; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.3); }
+/* ── 多选：待办/回收站选中态（2026-09-30 用户补充）——与看板卡/日志卡同一套视觉 ── */
+.todo-item.selected, .trash-item.selected {
+  border-color: var(--accent); background: var(--tint);
+  box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2);
+}
+/* 多选模式下整行可点：给出可点 affordance（平时待办行空白处点了没反应） */
+.todos-list.batching .todo-item, .trash-list.batching .trash-item { cursor: pointer; }
 
 .batch-bar .ghost { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
 

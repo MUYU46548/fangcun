@@ -699,6 +699,131 @@
     if (cancel2) cancel2.click()
     await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭 2')
 
+    // ══ 待办 · 多选（2026-09-30 用户补充：「待办和回收站也加入多选」）══════
+    await sleep(300)
+    window.__fcTest.setTodos([
+      { id: 'td-1', title: '多选断言：第一件事', priority: '高', done: false, created: 1 },
+      { id: 'td-2', title: '多选断言：第二件事', priority: '中', done: false, created: 2 },
+      { id: 'td-3', title: '多选断言：已完成的旧事', priority: '低', done: true, created: 3 },
+    ])
+    clickText('看板'); await sleep(400)
+    check('能切到「待办」页签（多选断言）', clickText('待办'))
+    check('待办 3 条渲染出来', await waitFor(() => $$('.todos-view .todo-item').length === 3, 4000, 'todos seed'),
+      'items=' + $$('.todos-view .todo-item').length)
+    check('默认非批量：无批量栏', $$('.todos-view .batch-bar').length === 0)
+    const todoBatchBtn = () => $$('.todos-ctrls .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
+    if (todoBatchBtn()) todoBatchBtn().click()
+    check('★ 点「☑ 多选」出批量栏（与看板/日志同一套）',
+      await waitFor(() => $$('.todos-view .batch-bar').length === 1, 3000, 'todo batch-bar'))
+    const tItems = $$('.todos-view .todo-item')
+    tItems[0].click(); await sleep(150); tItems[1].click(); await sleep(250)
+    check('★★ 点卡片即勾选（selected 类 2 张 + 栏内计数「已选 2」）',
+      $$('.todos-view .todo-item.selected').length === 2 &&
+      (($('.todos-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
+      'sel=' + $$('.todos-view .todo-item.selected').length + ' count=' + (($('.todos-view .batch-bar .batch-count') || {}).textContent || ''))
+    check('★ 批量栏五按钮齐全（全选/批量完成/取消完成/批量删除/取消）',
+      (() => {
+        const t = $$('.todos-view .batch-bar button').map(b => (b.textContent || '').trim())
+        return ['全选', '批量完成', '取消完成', '批量删除', '取消'].every(x => t.some(y => y.indexOf(x) >= 0))
+      })(), $$('.todos-view .batch-bar button').map(b => b.textContent.trim()).join('|'))
+    check('★ 批量模式下隐藏单条动作（改/×/📅 三个按钮不可见）',
+      $$('.todos-view .todo-acts').length === 3 &&
+      $$('.todos-view .todo-acts').every(e => e.getClientRects().length === 0),
+      'acts=' + $$('.todos-view .todo-acts').length)
+    // 全选 → 批量完成（不需 confirm，直接执行）
+    const selAll = $$('.todos-view .batch-bar button').find(b => (b.textContent || '').trim() === '全选')
+    if (selAll) selAll.click()
+    await sleep(250)
+    check('全选：3 张全勾上', $$('.todos-view .todo-item.selected').length === 3,
+      'sel=' + $$('.todos-view .todo-item.selected').length)
+    const doneBtn = $$('.todos-view .batch-bar button').find(b => (b.textContent || '').trim() === '批量完成')
+    if (doneBtn) doneBtn.click()
+    check('★★ 批量完成：todosUpdate × 3 落到真身调用记录',
+      await waitFor(() => window.__fcTest.calls().filter(c => c.name === 'todosUpdate' && c.args && c.args[1] && c.args[1].done === true).length >= 3, 4000, 'todosUpdate×3'),
+      JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'todosUpdate').map(c => c.args)))
+    check('★★ 批量完成后：全部标为已完成（列表刷新）+ 自动退出多选',
+      await waitFor(() => $$('.todos-view .todo-item.done').length === 3 && $$('.todos-view .batch-bar').length === 0, 4000, 'done+exit'),
+      'done=' + $$('.todos-view .todo-item.done').length + ' bar=' + $$('.todos-view .batch-bar').length)
+    // 批量删除（confirm 需 stub —— 无头浏览器里原生 confirm 恒 false）
+    if (todoBatchBtn()) todoBatchBtn().click()
+    await sleep(250)
+    const selAll2 = $$('.todos-view .batch-bar button').find(b => (b.textContent || '').trim() === '全选')
+    if (selAll2) selAll2.click()
+    await sleep(250)
+    const origConfirm = window.confirm
+    window.confirm = () => true
+    const delBtn = $$('.todos-view .batch-bar button').find(b => (b.textContent || '').trim() === '批量删除')
+    if (delBtn) delBtn.click()
+    check('★★ 批量删除（已确认）：todosDelete × 3、列表清空、退出多选',
+      await waitFor(() => {
+        const d = window.__fcTest.calls().filter(c => c.name === 'todosDelete').length
+        return d >= 3 && $$('.todos-view .todo-item').length === 0 && $$('.todos-view .batch-bar').length === 0
+      }, 4000, 'todosDelete×3'),
+      'del=' + window.__fcTest.calls().filter(c => c.name === 'todosDelete').length +
+      ' items=' + $$('.todos-view .todo-item').length)
+    window.confirm = origConfirm
+
+    // ══ 回收站 · 多选（同日同条）══════════════════════════════════════════
+    window.__fcTest.setTrash([
+      { name: 'task-trash-a.md', id: 'task-trash-a', title: '回收站多选：甲', status: '完成', project: '', bytes: 2048, mtime: Date.now() },
+      { name: 'task-trash-b.md', id: 'task-trash-b', title: '回收站多选：乙', status: '待办', project: 'demo', bytes: 1024, mtime: Date.now() },
+    ])
+    clickText('看板'); await sleep(400)
+    check('能切到「回收站」页签（多选断言）', clickText('回收站'))
+    check('回收站 2 项渲染出来', await waitFor(() => $$('.trash-view .trash-item').length === 2, 4000, 'trash seed'),
+      'items=' + $$('.trash-view .trash-item').length)
+    check('默认非批量：无批量栏、动作按钮可见', $$('.trash-view .batch-bar').length === 0 &&
+      $$('.trash-view .trash-actions').every(e => e.getClientRects().length > 0))
+    const trashBatchBtn = () => $$('.trash-header .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
+    if (trashBatchBtn()) trashBatchBtn().click()
+    check('★ 回收站点「☑ 多选」出批量栏',
+      await waitFor(() => $$('.trash-view .batch-bar').length === 1, 3000, 'trash batch-bar'))
+    const tRows = $$('.trash-view .trash-main')
+    tRows[0].click(); await sleep(150); tRows[1].click(); await sleep(250)
+    check('★★ 点条目即勾选（selected 2 + 计数）',
+      $$('.trash-view .trash-item.selected').length === 2 &&
+      (($('.trash-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
+      'sel=' + $$('.trash-view .trash-item.selected').length)
+    check('★ 批量模式下隐藏单条动作（↩ 还原 / 🗑 彻底删除）',
+      $$('.trash-view .trash-actions').length === 2 &&
+      $$('.trash-view .trash-actions').every(e => e.getClientRects().length === 0))
+    check('★ 批量栏三按钮（全选/批量还原/彻底删除）+ 取消',
+      (() => {
+        const t = $$('.trash-view .batch-bar button').map(b => (b.textContent || '').trim())
+        return ['全选', '批量还原', '彻底删除', '取消'].every(x => t.some(y => y.indexOf(x) >= 0))
+      })(), $$('.trash-view .batch-bar button').map(b => b.textContent.trim()).join('|'))
+    // 批量还原（不需 confirm）
+    const resBtn = $$('.trash-view .batch-bar button').find(b => (b.textContent || '').trim() === '批量还原')
+    if (resBtn) resBtn.click()
+    check('★★ 批量还原：trashRestore × 2、清空回收站、退出多选',
+      await waitFor(() => {
+        const n = window.__fcTest.calls().filter(c => c.name === 'trashRestore').length
+        return n >= 2 && $$('.trash-view .trash-item').length === 0 && $$('.trash-view .batch-bar').length === 0
+      }, 4000, 'trashRestore×2'),
+      'restore=' + window.__fcTest.calls().filter(c => c.name === 'trashRestore').length)
+    // 批量彻底删除（confirm 需 stub）
+    window.__fcTest.setTrash([
+      { name: 'task-trash-c.md', id: 'task-trash-c', title: '回收站多选：丙', status: '待办', project: '', bytes: 512, mtime: Date.now() },
+      { name: 'task-trash-d.md', id: 'task-trash-d', title: '回收站多选：丁', status: '待办', project: '', bytes: 256, mtime: Date.now() },
+    ])
+    clickText('看板'); await sleep(400); clickText('回收站'); await sleep(500)
+    if (trashBatchBtn()) trashBatchBtn().click()
+    await sleep(250)
+    const selAllT = $$('.trash-view .batch-bar button').find(b => (b.textContent || '').trim() === '全选')
+    if (selAllT) selAllT.click()
+    await sleep(250)
+    const origConfirm2 = window.confirm
+    window.confirm = () => true
+    const purgeBtn = $$('.trash-view .batch-bar button').find(b => (b.textContent || '').trim() === '彻底删除')
+    if (purgeBtn) purgeBtn.click()
+    check('★★ 批量彻底删除（已确认）：trashPurge × 2、清空、退出多选',
+      await waitFor(() => {
+        const n = window.__fcTest.calls().filter(c => c.name === 'trashPurge').length
+        return n >= 2 && $$('.trash-view .trash-item').length === 0 && $$('.trash-view .batch-bar').length === 0
+      }, 4000, 'trashPurge×2'),
+      'purge=' + window.__fcTest.calls().filter(c => c.name === 'trashPurge').length)
+    window.confirm = origConfirm2
+
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))
