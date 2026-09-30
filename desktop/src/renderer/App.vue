@@ -726,9 +726,13 @@
       </div>
       <div v-else class="trash-list" :class="{ batching: trashBatchMode }">
         <div v-for="it in filteredTrash" :key="it.name" class="trash-item"
-          :class="{ selected: trashBatchMode && selectedTrashBatch.includes(it.name) }">
-          <div class="trash-main clickable"
-            @click="trashBatchMode ? toggleTrashBatchSelect(it.name) : openTrashPreview(it)"
+          :class="{ selected: trashBatchMode && selectedTrashBatch.includes(it.name) }"
+          @click="onTrashItemClick(it, $event)">
+          <!-- 2026-09-30 用户第 5 条（卡 task-20260930-005）：显式勾选框 —— 此前选中只有
+               边框/底色变化，且 hover 会盖掉它，用户「看不清到底是否选中」。 -->
+          <span v-if="trashBatchMode" class="trash-batch-chk"
+            :class="{ on: selectedTrashBatch.includes(it.name) }">✓</span>
+          <div class="trash-main"
             :title="trashBatchMode ? '点击勾选/取消勾选' : '点击看正文（只读预览）'">
             <div class="trash-line1">
               <span class="trash-id">{{ it.id }}</span>
@@ -1687,7 +1691,7 @@
          一个动作做完四件事 —— 出清旧的、继承上下文、建立新日志、可以立刻开跑。
          「为什么是一个对话框而不是一个字段」：真实动作分两步做必然漏一件（源日志忘归档 →
          待处理区越堆越长），字段 续自 只是这次动作留下的副产品。 -->
-    <div id="relay-overlay" class="overlay" v-if="relay_" @click.self="relay_ = null">
+    <div id="relay-overlay" class="overlay" v-if="relay_" @click.self="closeRelay">
       <div id="relay-modal">
         <h3>⏭ 接力 · 从这里继续</h3>
         <div class="hint">一次动作做完四件事：出清旧的、继承上下文、建立新日志、可以立刻开跑。</div>
@@ -1710,6 +1714,10 @@
         <div class="hint">继承自源：<b>{{ (projects.find(p => p.id === relay_.project)?.name) || relay_.project || '（不归属）' }}</b></div>
         <label>下一步</label>
         <textarea v-model="relay_.nextSteps" placeholder="下一步...（源日志「下一步」已带入，可直接改）"></textarea>
+        <!-- 2026-09-30 用户第 3 条（卡 task-20260930-004）：此前对话框里只有「下一步」一个可贴文本框，
+             上次会话的完成情况汇总无处可贴，全被挤进「下一步」。补上「执行内容」正文框。 -->
+        <label>执行内容（本次做了什么；可粘贴上次会话的完成情况汇总）</label>
+        <textarea v-model="relay_.content" placeholder="执行内容...（留空则新日志正文为空，之后可再编辑补写）"></textarea>
         <label>关联任务</label>
         <div v-if="relay_.taskCandidates.length" class="log-task-multi">
           <label v-for="t in relay_.taskCandidates" :key="t.id" class="log-task-opt">
@@ -1737,7 +1745,7 @@
               <i>旧任务一次性出清；不勾则任务状态保持不动。</i></span></label>
         </div>
         <div class="acts">
-          <button class="ghost" @click="relay_ = null">取消</button>
+          <button class="ghost" @click="closeRelay">取消</button>
           <button class="ghost" title="只建新日志（待处理），不改源日志" @click="executeRelay(false)">创建</button>
           <button class="pri" title="建新日志并标「进行中」，随时可跑" @click="executeRelay(true)">创建并开跑</button>
         </div>
@@ -3872,6 +3880,17 @@ function toggleTrashBatchSelect(name: string) {
   const idx = selectedTrashBatch.value.indexOf(name)
   if (idx >= 0) selectedTrashBatch.value.splice(idx, 1)
   else selectedTrashBatch.value.push(name)
+}
+/**
+ * 回收站条目点击（2026-09-30 用户第 5 条，卡 task-20260930-005）。
+ * 热区从 .trash-main 扩到**整行** —— 行内 padding / 两行之间的空隙原来都是死区，
+ * 点了没反应，用户只能「点好几次」碰运气。动作按钮（还原/删除）的点击不参与选择。
+ */
+function onTrashItemClick(it: TrashItem, e: MouseEvent): void {
+  const t = e.target as HTMLElement | null
+  if (t && t.closest && t.closest('.trash-actions')) return
+  if (trashBatchMode.value) toggleTrashBatchSelect(it.name)
+  else openTrashPreview(it)
 }
 function toggleSelectAllTrash() {
   if (selectedTrashBatch.value.length === filteredTrash.value.length) selectedTrashBatch.value = []
@@ -6192,6 +6211,8 @@ function openRelay(src: any): void {
     title: src.title || '',
     project: src.project || '',
     nextSteps: src.nextSteps || '',
+    // 2026-09-30 卡 004：执行内容**不继承源**（源的正文属于上一段），留空给用户贴本次汇总
+    content: '',
     taskCandidates: candidates,
     taskIds: candidates.filter(c => c.status !== '完成' && c.status !== '驳回').map(c => c.id),
     agentName: src.agentName || '',
@@ -6199,6 +6220,22 @@ function openRelay(src: any): void {
     completeSourceTasks: false,
   }
   logBatchMode.value = false
+}
+
+/**
+ * 关闭接力对话框：有未保存内容先问一句（2026-09-30 用户第 4 条，卡 task-20260930-004）。
+ * 遮罩点击（@click.self）与「取消」按钮都走这里 —— 此前是裸 `relay_ = null`，
+ * 鼠标碰到遮罩，写了一半的正文/下一步直接全丢且无提示。
+ * 预填字段（标题/下一步继承自源）不算「用户写的内容」，只比对与预填的差异 + 本次新贴的正文。
+ */
+function closeRelay(): void {
+  const r = relay_.value
+  if (!r) return
+  const edited = String(r.content || '').trim()
+    || String(r.nextSteps || '').trim() !== String(r.src?.nextSteps || '').trim()
+    || String(r.title || '').trim() !== String(r.src?.title || '').trim()
+  if (edited && !confirm('接力内容尚未创建，确定关闭并丢弃吗？')) return
+  relay_.value = null
 }
 
 /**
@@ -6218,8 +6255,11 @@ async function executeRelay(startRunning: boolean): Promise<void> {
   }
   const src = r.src
   try {
-    const created: any = await window.tegula.logsCreate(title, r.project, '', (r.taskIds || [])[0] || undefined, {
-      taskIds: r.taskIds || [],
+    const created: any = await window.tegula.logsCreate(title, r.project, r.content || '', (r.taskIds || [])[0] || undefined, {
+      // 2026-09-30 用户第 2 条（卡 task-20260930-003）：r = relay_.value 是 Vue 响应式代理，
+      // r.taskIds 是**裸代理数组** —— 直接塞进 IPC 载荷在 contextBridge 那跳必抛
+      // 「An object could not be cloned」，两个创建按钮全炸。展开成普通数组再传。
+      taskIds: [...(r.taskIds || [])],
       agentName: r.agentName || '',
       nextSteps: r.nextSteps || '',
       continueFrom: src.id,
@@ -6448,9 +6488,11 @@ async function saveLogEdit() {
       }
       showToast('已更新', 'success')
     } else {
+      // 2026-09-30 用户第 1 条（卡 task-20260930-002）：创建分支此前**漏传 nextSteps** ——
+      // 对话框里填的「下一步」保存后静默丢失（更新分支一直有传，只有新建没有）。
       const r: any = await window.tegula.logsCreate(
         e.title, e.project, e.content, (e.taskIds || [])[0] || undefined,
-        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e) },
+        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '' },
       )
       if (r && !r.ok) {
         showToast(`创建失败：${r.error || '未知原因'}`, 'error')
@@ -8133,6 +8175,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   border-color: var(--accent); background: var(--tint);
   box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2);
 }
+/* 2026-09-30 卡 task-20260930-005：选中态必须压过 hover ——
+   `.trash-item:hover` 在文件更下方且同特异性，悬停会把选中的边框/底色盖掉，
+   用户「看不清到底是否选中」。selected:hover 显式钉住。 */
+.trash-item.selected:hover {
+  border-color: var(--accent); background: var(--tint);
+  box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.28);
+}
+/* 显式勾选框：批量模式下每行行首一个，选中填实 + 白勾 —— 反馈不再只靠底色 */
+.trash-batch-chk {
+  width: 20px; height: 20px; flex-shrink: 0;
+  border: 2px solid var(--border); border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: transparent;
+  background: #fff; transition: background .12s, border-color .12s;
+}
+.trash-batch-chk.on {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
 /* 多选模式下整行可点：给出可点 affordance（平时待办行空白处点了没反应） */
 .todos-list.batching .todo-item, .trash-list.batching .trash-item { cursor: pointer; }
 
@@ -9105,9 +9165,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trash-btn.danger { color: #b3261e; border-color: #e6c3c0; }
 .trash-btn.danger:hover { background: #fdf2f1; border-color: #b3261e; color: #b3261e; }
 
-/* 回收站卡片：可点（2026-09-26 用户：「每个卡片都是不能点的死卡」）—— 有了 hover 就说明它真能点 */
-.trash-main.clickable { cursor: pointer; }
-.trash-main.clickable:hover .trash-title { color: var(--accent); }
+/* 回收站卡片：可点（2026-09-26 用户：「每个卡片都是不能点的死卡」）—— 有了 hover 就说明它真能点。
+   2026-09-30（卡 005）：热区扩到整行，选择器从 .trash-main.clickable 改为 .trash-item。 */
+.trash-item { cursor: pointer; }
+.trash-item:hover .trash-title { color: var(--accent); }
 .trash-preview-body { margin: 10px 0; max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
 .trash-preview-text { font-size: 13px; line-height: 1.65; word-break: break-word; }
 .trash-preview-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }

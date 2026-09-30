@@ -431,6 +431,17 @@ function main() {
       /logsCreate[\s\S]{0,1200}logsArchive\(src\.id\)/.test(APP))
     check('★ IPC/PRELOAD extra 透传 nextSteps + continueFrom',
       /nextSteps\?: string; continueFrom\?: string/.test(PRELOAD))
+    // ── 2026-09-30 用户第 1/2/3/4 条（卡 002~004）────────────────────────
+    check('★★ 卡002：新建日志的创建分支必须传 nextSteps（此前漏传 → 新建填的下一步必丢）',
+      /logsCreate\([\s\S]{0,400}nextSteps: e\.nextSteps/.test(APP))
+    check('★★ 卡003：executeRelay 给 IPC 的 taskIds 必须展开成普通数组（裸响应式代理过 contextBridge 必抛 could not be cloned）',
+      /taskIds: \[\.\.\.\(r\.taskIds \|\| \[\]\)\]/.test(APP) &&
+      !/taskIds: r\.taskIds \|\| \[\]/.test(APP))
+    check('★★ 卡004a：接力对话框有「执行内容」可贴字段（此前只有下一步一个文本框）',
+      /v-model="relay_\.content"/.test(APP) && /executeRelay[\s\S]{0,600}r\.content/.test(APP))
+    check('★★ 卡004b：接力关闭走 closeRelay 防丢确认（遮罩 + 取消按钮，不再裸置 null）',
+      /function closeRelay/.test(APP) && /@click\.self="closeRelay"/.test(APP) &&
+      /@click="closeRelay"/.test(APP) && !/@click\.self="relay_ = null"/.test(APP))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

@@ -784,6 +784,38 @@
       $$('.trash-view .trash-item.selected').length === 2 &&
       (($('.trash-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
       'sel=' + $$('.trash-view .trash-item.selected').length)
+    // ── 2026-09-30 卡 task-20260930-005（用户第 5 条）：不灵敏 / 看不清选中 ──
+    // ① 热区 = 整行：直接点 .trash-item 本体（行 padding 区，原来 .trash-main 之外是死区）
+    const tItem = $$('.trash-view .trash-item')[0]
+    const selBefore = $$('.trash-view .trash-item.selected').length
+    if (tItem) { tItem.click(); await sleep(150) }
+    check('★★ 整行可点：点 .trash-item 本体（原死区）也切换选中',
+      $$('.trash-view .trash-item.selected').length !== selBefore,
+      `before=${selBefore} after=${$$('.trash-view .trash-item.selected').length}`)
+    if (tItem) { tItem.click(); await sleep(150) } // 点回来
+    check('★ 再点同一行取消选中（来回切换不卡壳）',
+      $$('.trash-view .trash-item.selected').length === selBefore,
+      'sel=' + $$('.trash-view .trash-item.selected').length)
+    // ② 显式勾选框：每行一个，选中态 class=on（不再只靠底色猜）
+    check('★★ 批量模式每行有显式勾选框 .trash-batch-chk',
+      $$('.trash-view .trash-batch-chk').length === 2)
+    if (tItem) { tItem.click(); await sleep(150) }
+    check('★ 勾选框随选中点亮（.on）',
+      $$('.trash-view .trash-batch-chk.on').length === 1,
+      'on=' + $$('.trash-view .trash-batch-chk.on').length)
+    // ③ 选中态压过 hover：悬停时不得退回 .trash-item:hover 的灰边（#d9d2ea），光环保留
+    // 注意时序：上面每条检查都靠「点一下切换」，到这一步 item0 是**未选中**的，先点选中。
+    if (tItem) {
+      if (!tItem.classList.contains('selected')) { tItem.click(); await sleep(150) }
+      tItem.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+      const cs = window.getComputedStyle(tItem)
+      check('★★ 悬停时选中态仍在（不被 .trash-item:hover 盖掉）',
+        tItem.classList.contains('selected') &&
+        cs.borderTopColor !== 'rgb(217, 210, 234)' && (cs.boxShadow || '').indexOf('rgba(100, 80, 200') >= 0,
+        `sel=${tItem.classList.contains('selected')} border=${cs.borderTopColor} shadow=${cs.boxShadow}`)
+      // 不在这里「复原取消选中」—— 手动复原会把选中态打成 1 项，下面「批量还原」断言
+      // 期望 2 项全选。此刻恰好回到全选态（2 项），直接交给后续断言。
+    }
     check('★ 批量模式下隐藏单条动作（↩ 还原 / 🗑 彻底删除）',
       $$('.trash-view .trash-actions').length === 2 &&
       $$('.trash-view .trash-actions').every(e => e.getClientRects().length === 0))

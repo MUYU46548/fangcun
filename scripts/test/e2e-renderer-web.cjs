@@ -249,7 +249,9 @@ function main() {
     '--no-sandbox',
     '--allow-file-access-from-files',
     '--disable-extensions',
-    '--virtual-time-budget=20000',
+    // 2026-09-30：回收站多选断言加了 6 次点击 + waitFor，20000 虚拟毫秒会在断言跑完前
+    // 把页面掐掉（表现为「没拿到断言结果」）。抬到 30000，与手动 --dump-dom 复跑一致。
+    '--virtual-time-budget=30000',
     '--dump-dom',
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]

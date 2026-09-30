@@ -1711,8 +1711,12 @@ async function main() {
   check('能切到回收站视图', await waitFor(`document.querySelector('main.trash-view')`, 6000, '回收站视图'))
   check('回收站条目读出来了', await waitFor(`document.querySelectorAll('main.trash-view .trash-item').length === 2`, 6000, '回收站条目'),
     String(await js(`document.querySelectorAll('main.trash-view .trash-item').length`)))
-  check('★ 卡片本体带可点标记（class clickable + title 提示）',
-    await js(`(() => { const c = document.querySelector('main.trash-view .trash-main'); return !!c && c.classList.contains('clickable') && !!c.getAttribute('title') })()`))
+  // 2026-09-30 卡 005：热区从 .trash-main 扩到整行，clickable 类由 .trash-item 的
+  // cursor:pointer 承担（选择器同步改，否则这条断言永远红）。
+  check('★ 卡片本体带可点标记（.trash-item cursor:pointer + title 提示）',
+    await js(`(() => { const r = document.querySelector('main.trash-view .trash-item');
+      const c = document.querySelector('main.trash-view .trash-main');
+      return !!r && getComputedStyle(r).cursor === 'pointer' && !!c && !!c.getAttribute('title') })()`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const c = document.querySelector('main.trash-view .trash-main'); if (c) c.click(); return !!c })()`)
   check('★ 点卡片本身弹出正文预览（回执修的就是这里）',

@@ -59,7 +59,7 @@
 >   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
 >   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
 > 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯。
-> 本机实测（2026-09-30 10:32 重跑）：**20 套全绿、合计 1032 断言**（09-29 同口径 955 + 日志接力/多选两轮新增 77），
+> 本机实测（2026-09-30 11:30 重跑）：**20 套全绿、合计 1041 断言**（09-30 11:30：1032 + 四卡修复断言 9 = 1041；09-29 同口径 955），
 > 其中 `calendar / timefmt / logdedupe / grouping / policies` 本机也能跑了
 > （此前「恒 EBUSY / 需桌面会话」的限制不再复现）。**仍需桌面会话的只剩 `e2e-renderer`（真 Electron）**：
 > 2026-09-29 本机首次真跑通 294/12；**2026-09-30 对齐归档分区头过期断言后 298 / 8** —— 余 8 条红**全在改动面之外**
@@ -94,7 +94,7 @@
 | 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **242** / e2e **二十套本机全绿 1032**（2026-09-30 10:32 实测：task-fields118 · logs123 · task-delete93 · notifications86 · **renderer-web130** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **298/8**（8 条红=改动面外的既有问题，见开发日志 09-29/09-30）、`backup` 未跑 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **242** / e2e **二十套本机全绿 1041**（2026-09-30 11:30 实测：task-fields118 · logs127 · task-delete93 · notifications86 · **renderer-web135** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **298/8**（8 条红=改动面外的既有问题，见开发日志 09-29/09-30）、`backup` 未跑 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）
