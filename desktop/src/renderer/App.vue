@@ -85,6 +85,8 @@
           <option value="active">活跃优先</option>
           <option value="updated">最近更新</option>
           <option value="created">创建时间</option>
+          <!-- 2026-10-01 用户第 2 条：看板也要能按优先级排（高 → 中 → 低，已完成仍沉底看列而定） -->
+          <option value="prio">优先级</option>
         </select>
         </template>
         <button v-if="isTaskView" @click="openNew">+ 新建</button>
@@ -806,6 +808,9 @@
             <option value="default">默认：未完成 → 优先级 → 新的在前</option>
             <option value="due">到期日近的在前</option>
             <option value="created">最新创建在前</option>
+            <!-- 2026-10-01 用户第 2 条：优先级/更新时间这两种最常被要的排法补上 -->
+            <option value="priority">优先级从高到低</option>
+            <option value="updated">最近更新在前</option>
           </select>
           <select v-model="todoFilter" class="todo-filter">
             <option value="all">全部</option>
@@ -944,6 +949,14 @@
             <option value="">全部项目</option>
             <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
           </select>
+          <!-- 排序（2026-10-01 用户第 2 条：日志/待办/看板的排序筛选要灵活）。
+               日志此前**只能**按创建倒序，连正序都翻不过来 —— 与待办/看板对齐成一个下拉。 -->
+          <select v-model="logSort" class="log-filter" title="排序方式">
+            <option value="created_desc">最新创建在前</option>
+            <option value="created_asc">最早创建在前</option>
+            <option value="date_desc">按归属日期（新→旧）</option>
+            <option value="title_asc">按标题排序</option>
+          </select>
           <!-- 低频筛选收进抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围此前与搜索框
                并排摊开，6 个控件挤一条线。抽屉里有值时按钮上带角标，避免"筛了却忘了"。 -->
           <button class="ghost log-more-btn" :class="{ on: logMoreFilterOpen }"
@@ -1035,6 +1048,8 @@
             <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
             <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
             <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
+            <span v-if="log.attachments && log.attachments.length" class="log-attach-badge"
+              :title="log.attachments.length + ' 个附件（截图 / 报告）'">📎{{ log.attachments.length }}</span>
             <span class="log-card-date">{{ formatDate(log.created) }}</span>
           </div>
           <div class="log-card-body">{{ truncate(log.content, 120) }}</div>
@@ -1249,6 +1264,32 @@
           <label>下一步</label>
           <div class="body-text markdown" v-html="renderBody(logPreview.nextSteps)"></div>
         </template>
+
+        <!-- 附件（2026-10-01 用户第 1 条 → 卡 036）：日志 ↔ 文件的唯一入口。
+             图片就地内联（走 logs:attachmentData 的 data URL，不碰 file:// 权限），
+             其它类型给「用系统程序打开」；移除只解除关联，文件仍留在数据目录。 -->
+        <div class="attach-block" data-attach-block>
+          <div class="attach-head">
+            <label class="attach-lbl">附件</label>
+            <button class="ghost attach-add" @click="attachAdd(logPreview.id)">＋ 添加文件…</button>
+          </div>
+          <div v-if="!logPreview.attachments || !logPreview.attachments.length" class="attach-empty">
+            还没有附件 —— 截图、分析报告、日志文件都可以挂上来（文件会复制进数据目录，随日志一起备份）
+          </div>
+          <div v-else class="attach-grid">
+            <div class="attach-item" v-for="a in logPreview.attachments" :key="a">
+              <img v-if="isImageRel(a) && attachSrc(a)" :src="attachSrc(a)" :alt="attachName(a)"
+                :title="attachName(a) + '（点一下用系统程序打开）'" @click.stop="attachOpen(a)" />
+              <div v-else class="attach-file" :title="a" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
+              <div class="attach-cap">
+                <span class="attach-fn" :title="a">{{ attachName(a) }}</span>
+                <button class="attach-x" title="解除关联（文件保留，不删）"
+                  @click.stop="attachRemove(logPreview.id, a)">✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="acts">
           <button class="ghost" @click="openLogFromPreview">✏️ 编辑</button>
           <button class="ghost" @click="copyLogAsPrompt(logPreview.id)">📋 复制</button>
@@ -1662,7 +1703,7 @@
         <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
         <label>会话 ID（可选，便于反向查证）</label>
         <input v-model="logEdit_.sessionId" placeholder="如 20260922_183047_334e4a" />
-        <label>执行 Agent（可选）</label>
+        <label>上次执行 Agent（可选，出问题倒查用）</label>
         <select v-model="logEdit_.agentName" class="logsel">
           <option value="">（不指定）</option>
           <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
@@ -1677,6 +1718,32 @@
           <label>备注（可选）</label>
           <textarea v-model="logNote" placeholder="备注..."></textarea>
         </template>
+        <!-- 附件（2026-10-01 用户第 1 条 → 卡 036）：与只读预览同一套入口。
+             新建态没有 id 可挂，先创建再添加（按钮置灰并说明，而不是点完报错）。 -->
+        <div class="attach-block" data-attach-block>
+          <div class="attach-head">
+            <label class="attach-lbl">附件</label>
+            <button class="ghost attach-add" :disabled="!logEdit_.id"
+              :title="logEdit_.id ? '从本机选文件；文件会复制进数据目录（随日志一起备份），源文件不动'
+                : '先创建这条日志，再回来挂附件'"
+              @click="attachAdd(logEdit_.id)">＋ 添加文件…</button>
+          </div>
+          <div v-if="!logEdit_.attachments || !logEdit_.attachments.length" class="attach-empty">
+            {{ logEdit_.id ? '还没有附件 —— 截图、分析报告、日志文件都可以挂上来' : '创建后可挂附件（截图 / 报告 / 日志文件）' }}
+          </div>
+          <div v-else class="attach-grid">
+            <div class="attach-item" v-for="a in logEdit_.attachments" :key="a">
+              <img v-if="isImageRel(a) && attachSrc(a)" :src="attachSrc(a)" :alt="attachName(a)"
+                :title="attachName(a) + '（点一下用系统程序打开）'" @click.stop="attachOpen(a)" />
+              <div v-else class="attach-file" :title="a" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
+              <div class="attach-cap">
+                <span class="attach-fn" :title="a">{{ attachName(a) }}</span>
+                <button class="attach-x" title="解除关联（文件保留，不删）"
+                  @click.stop="attachRemove(logEdit_.id, a)">✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="acts">
           <button class="ghost" @click="closeLogEditor(); logCompleting = false; logArchiveMode = false">取消</button>
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
@@ -1700,7 +1767,7 @@
           <span class="rs-id">{{ relay_.src.id }}</span>
           <span>「{{ relay_.src.title || '(无标题)' }}」· <b>{{ relay_.src.status === 'completed' ? '已完成' : relay_.src.status === 'archived' ? '已归档' : '待处理' }}</b></span>
           <span class="rs-grow"></span>
-          <span>下一步已带入 ↓</span>
+          <span>执行内容留空待贴 · 下一步已带入 ↓</span>
         </div>
         <label>新日志标题</label>
         <input v-model="relay_.title" placeholder="给接下来这段工作起个标题" />
@@ -1712,12 +1779,13 @@
           <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
         </select>
         <div class="hint">继承自源：<b>{{ (projects.find(p => p.id === relay_.project)?.name) || relay_.project || '（不归属）' }}</b></div>
-        <label>下一步</label>
-        <textarea v-model="relay_.nextSteps" placeholder="下一步...（源日志「下一步」已带入，可直接改）"></textarea>
-        <!-- 2026-09-30 用户第 3 条（卡 task-20260930-004）：此前对话框里只有「下一步」一个可贴文本框，
-             上次会话的完成情况汇总无处可贴，全被挤进「下一步」。补上「执行内容」正文框。 -->
+        <!-- 2026-09-30 用户第 3 条（卡 004）补的「执行内容」框；同日用户第 1 条（卡 006）指出
+             两框上下颠倒：人类认知与日志卡的读法都是「先做了什么 → 接下来做什么」，
+             所以执行内容在上、下一步在下（与「新建/编辑日志」对话框同序）。 -->
         <label>执行内容（本次做了什么；可粘贴上次会话的完成情况汇总）</label>
         <textarea v-model="relay_.content" placeholder="执行内容...（留空则新日志正文为空，之后可再编辑补写）"></textarea>
+        <label>下一步</label>
+        <textarea v-model="relay_.nextSteps" placeholder="下一步...（源日志「下一步」已带入，可直接改）"></textarea>
         <label>关联任务</label>
         <div v-if="relay_.taskCandidates.length" class="log-task-multi">
           <label v-for="t in relay_.taskCandidates" :key="t.id" class="log-task-opt">
@@ -1743,6 +1811,18 @@
           <label class="relay-opt"><input type="checkbox" v-model="relay_.completeSourceTasks" />
             <span>顺手把源日志的关联任务置「完成」
               <i>旧任务一次性出清；不勾则任务状态保持不动。</i></span></label>
+        </div>
+        <!-- 关闭防丢确认条（2026-09-30 用户第 2 条，卡 006）：
+             此前走原生 window.confirm，用户实测两次「点到旁边数据全丢、防护未生效」——
+             ① 脏检查只比对三个文本框，只动过勾选/下拉时判定为「没改」，直接静默关；
+             ② 原生框在窗口外/被回车一击带过，起不到「必须看一眼」的作用。
+             现在：任何字段与打开时的快照不同 → 对话框内出确认条，必须点「丢弃」才真关。 -->
+        <div v-if="relayDiscard_" ref="relayDiscardBar" class="relay-discard" role="alertdialog" aria-live="polite">
+          <span class="rd-text">⚠ 这次的改动还没创建，关掉就没了：<b>{{ relayDirtyHint }}</b></span>
+          <span class="rd-acts">
+            <button class="ghost" @click="relayDiscard_ = false">继续填写</button>
+            <button class="danger" @click="discardRelay">丢弃并关闭</button>
+          </span>
         </div>
         <div class="acts">
           <button class="ghost" @click="closeRelay">取消</button>
@@ -1889,7 +1969,10 @@
         </div>
 
         <div class="nc-list">
-          <div v-for="n in ncVisible" :key="n.id" class="nc-item" :class="n.read ? 'read' : 'unread'" @click="ncClickItem(n)">
+          <div v-for="n in ncVisible" :key="n.id" class="nc-item"
+            :class="[n.read ? 'read' : 'unread', { go: !!ncTargetOf(n) }]"
+            :title="ncTargetOf(n) || '标为已读'"
+            @click="ncClickItem(n)">
             <div class="nc-av" :class="'nc-av-' + (NC_TYPE_META[n.type]?.icon || 'system')">
               {{ NC_TYPE_META[n.type]?.glyph || '•' }}
             </div>
@@ -1904,6 +1987,8 @@
               </div>
               <div v-if="n.body" class="nc-content">{{ n.body }}</div>
             </div>
+            <!-- 2026-10-01 用户第 1 条：能跳的行给个明确信号，别让人点了以为是死按钮 -->
+            <span v-if="ncTargetOf(n)" class="nc-go" aria-hidden="true">→</span>
             <div class="nc-acts">
               <button class="nc-act keep" :title="n.read ? '标为已读' : '标为已读'" @click.stop="ncToggleRead(n)">✓</button>
               <button class="nc-act danger" title="删除通知" @click.stop="ncDelete(n)">🗑</button>
@@ -1912,12 +1997,19 @@
           <div v-if="ncVisible.length === 0" class="nc-empty">
             <div class="nc-empty-ic">🔔</div>
             <h3>{{ ncFilter === 'unread' ? '没有未读通知' : '暂无通知' }}</h3>
-            <p>这里会显示待办到期、任务逾期、解析失败与备份失败等事件</p>
+            <p>这里会显示任务没动静、阻塞链断裂、待办到期、任务逾期、解析失败与备份失败等事件</p>
           </div>
         </div>
 
+        <!-- P0-5：删过通知 = 静音 7 天，必须看得见、能恢复（此前 listMuted 全无入口） -->
+        <div v-if="ncMuted.length" class="nc-muted">
+          <span>被忽略 {{ ncMuted.length }} 条（7 天后自动恢复）</span>
+          <button class="nc-link" @click="ncUnmuteAll">全部恢复 →</button>
+        </div>
         <footer class="nc-foot">
           <div class="stat">共 <b>{{ ncCounts.all }}</b> 条 · 未读 <b>{{ ncCounts.unread }}</b> 条</div>
+          <!-- P0-4：扫描器状态 —— "停摆"与"扫不到"此前在界面上长得一模一样 -->
+          <div class="nc-scan" :title="String(ncStatus?.lastScanAt || '')">{{ ncStatusText }}</div>
           <button class="nc-link" @click="ncClearAll">清空历史 →</button>
         </footer>
       </div>
@@ -2265,7 +2357,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { marked } from 'marked'
 import {
   parseCalDate, calISO, dayStart, addDays, buildMonth, rangeLabel, shiftRange,
@@ -3178,8 +3270,12 @@ const NC_TYPE_META: Record<string, { icon: string; label: string; glyph: string 
   'task-deadline': { icon: 'task',     label: '任务逾期', glyph: '📋' },
   'task-timeout':  { icon: 'approve',  label: '超时未回写', glyph: '⏱' },
   'parse-error':   { icon: 'security', label: '解析失败', glyph: '⚠' },
-  'backup-failed': { icon: 'storage',  label: '备份失败', glyph: '💾' },
+  'backup-failed': { icon: 'storage', label: '备份失败', glyph: '💾' },
   'update-downloaded': { icon: 'storage', label: '更新已就绪', glyph: '⬆' },
+  // 2026-10-01 用户定稿新增的两类（只在面板里看，不弹系统通知）。
+  // icon 复用现有 security/approve —— 新 icon 得配 nc-t-*/nc-av-* 两套主题色，没必要为两个标签开新面。
+  'blocker-broken': { icon: 'security', label: '阻塞链断裂', glyph: '⛓' },
+  'task-stalled':   { icon: 'approve',  label: '任务没动静', glyph: '💤' },
 }
 const ncOpen = ref(false)
 const ncReady = ref(false)
@@ -3208,6 +3304,18 @@ function ncRelTime(iso: string): string {
   return relTimeShort(iso)
 }
 
+/** P0-4：扫描器状态（running/lastScanAt）。拿不到 = 老版本 preload，显示"未知"即可。 */
+const ncStatus = ref<{ running: boolean; lastScanAt: string | null } | null>(null)
+/** P0-5：被静音（删过）的提醒 key —— 必须看得见、能恢复，否则点过 🗑 就是 7 天哑巴。 */
+const ncMuted = ref<string[]>([])
+
+const ncStatusText = computed(() => {
+  const s = ncStatus.value
+  if (!s) return '扫描器状态：未知'
+  const when = s.lastScanAt ? `上次扫描 ${ncRelTime(s.lastScanAt)}` : '尚未扫描'
+  return `${s.running ? '扫描器运行中' : '扫描器已停止'} · ${when}`
+})
+
 async function ncLoad(): Promise<void> {
   try {
     const [list, unread] = await Promise.all([
@@ -3217,6 +3325,28 @@ async function ncLoad(): Promise<void> {
     ncItems.value = list || []
     ncUnread.value = unread || 0
   } catch { /* IPC 失败静默，ncReady 已做入口探测 */ }
+  // 状态与静音是**增强项**：通道缺失时保持"未知"，不能让整块面板挂掉
+  try {
+    const t = (window as any).tegula
+    if (typeof t.notificationsScannerStatus === 'function') {
+      ncStatus.value = await t.notificationsScannerStatus()
+    }
+    if (typeof t.notificationsListMuted === 'function') {
+      ncMuted.value = (await t.notificationsListMuted()) || []
+    }
+  } catch { /* 老 preload 没有这两条通道 */ }
+}
+
+/** P0-5：一次性把被忽略的提醒全部放出来（静音是 7 天 TTL，这里给手动恢复口） */
+async function ncUnmuteAll(): Promise<void> {
+  try {
+    const t = (window as any).tegula
+    const n = typeof t.notificationsUnmuteAll === 'function' ? await t.notificationsUnmuteAll() : 0
+    showToast(`已恢复 ${n || 0} 条被忽略的提醒`, 'success')
+    await ncLoad()
+  } catch {
+    showToast('恢复被忽略提醒失败', 'error')
+  }
 }
 
 async function ncRefresh(): Promise<void> {
@@ -3243,6 +3373,48 @@ function ncSetFilter(f: 'all' | 'unread' | 'read'): void {
   ncFilter.value = f
 }
 
+/**
+ * 通知 → 可跳目标的标签。**返回 null = 这条没有可跳对象（只标已读）**。
+ * 同一个函数同时驱动三件事：行尾箭头显不显示、title 提示、点击后跳哪 —— 三处必须一致，
+ * 否则会出现「箭头亮着点了没反应」这种新的"无效按钮"（2026-10-01 用户第 1 条原话）。
+ */
+function ncTargetOf(n: any): string | null {
+  const t = String(n.type || '')
+  if (['task-deadline', 'task-timeout', 'task-stalled', 'blocker-broken'].includes(t)) {
+    return n.sourceId ? '跳到这个任务' : null
+  }
+  if (t === 'todo-due') return '跳到待办'
+  if (t === 'parse-error') return '查看解析错误'
+  if (t === 'backup-failed' || t === 'update-downloaded') return '打开设置'
+  return null
+}
+
+/**
+ * 通知点击跳转（2026-10-01 用户第 1 条：「目前点下去是无效按钮」）。
+ *
+ * 口径：先按原行为标已读，再跳。跳不成（任务已被删除/已归档）只 toast 说明，不影响已读 ——
+ * 不能因为目标没了就让面板卡在原地。
+ */
+async function ncJump(n: any): Promise<void> {
+  if (!ncTargetOf(n)) return
+  const t = String(n.type || '')
+  closePanel()
+  if (['task-deadline', 'task-timeout', 'task-stalled', 'blocker-broken'].includes(t)) {
+    let task: any = null
+    try { task = await (window as any).tegula.getTask(n.sourceId) } catch { /* 旧版本没有该通道时静默 */ }
+    if (task) {
+      navigateTo('active')   // 任务只在看板列里，先切过去再开预览
+      openCard(task)         // 复用看板卡片的打开路径（含关联日志加载）
+    } else {
+      showToast(`任务 ${n.sourceId} 已不在活跃区（可能被删除或已归档）`, 'error')
+    }
+    return
+  }
+  if (t === 'todo-due') { navigateTo('todos'); return }
+  if (t === 'parse-error') { showParseErrors(); return }
+  if (t === 'backup-failed' || t === 'update-downloaded') { showSettings_.value = true; return }
+}
+
 async function ncClickItem(n: any): Promise<void> {
   if (!n.read) {
     try {
@@ -3251,6 +3423,7 @@ async function ncClickItem(n: any): Promise<void> {
       ncUnread.value = Math.max(0, ncUnread.value - 1)
     } catch { /* ignore */ }
   }
+  await ncJump(n)
 }
 
 async function ncToggleRead(n: any): Promise<void> {
@@ -4463,6 +4636,7 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
 
 function openNew() {
   editTask_.value = emptyTaskForm()
+  taskEditSnap = snapOf(editTask_.value)   // P0-1：关窗按「改没改」判
 }
 
 async function openEdit(t: Task) {
@@ -4474,32 +4648,65 @@ async function openEdit(t: Task) {
     values = emptyTaskForm()
   }
   editTask_.value = { ...values, id: t.id }
+  taskEditSnap = snapOf(editTask_.value)   // P0-1：打开即存快照，否则一动不动也会被追问
   previewTask.value = null
 }
 
-/** 表单里是否有内容需要挽留 */
+/**
+ * 表单里是否有内容需要挽留 —— **只作兜底**（没有快照时的老逻辑）。
+ * 2026-10-01 P0-1：它判的是「字段里有没有字」，两头都错，正式口径已改成快照比对。
+ */
 function isDirtyFields(o: any, keys: string[]): boolean {
   return !!o && keys.some(k => String(o[k] ?? '').trim())
 }
 
-/** 关闭任务编辑器：有内容先问一句。
- *  遮罩点击（@click.self）也走这里 —— 此前是裸关，鼠标碰到窗口外那块半透明遮罩，
- *  写了一半的表单直接消失且无提示，属于最容易挨骂的那种交互。 */
+/**
+ * 编辑器表单快照（2026-10-01 P0-1）。
+ *
+ * 旧的 `isDirtyFields` 判「字段里有没有字」，导致两头都错：
+ *   ① 编辑已有日志 → title/content 天然非空 → 一动不动也弹「尚未保存」
+ *      （确认疲劳 → 用户学会无脑回车，真丢数据时同样一笔带过）；
+ *   ② 新建日志只改项目 / 执行 Agent 下拉 → 三键全空 → **静默关闭**，改动直接丢。
+ * 正确口径 = 打开时存快照、关闭时逐字节比对 —— 与接力对话框的 `_init` 快照
+ * （relayChanges，开发日志 2026-09-30 卡 006）是同一范式，不另发明。
+ */
+let taskEditSnap: string | null = null
+let logEditSnap: string | null = null
+const snapOf = (o: any): string => JSON.stringify(o ?? null)
+
+/** 日志编辑器快照：表单本体 + 完成/归档对话框里的「保留天数/备注/批量」
+ *  （只填备注不改表单，老逻辑同样会丢 —— 一并纳入比对）。 */
+const logSnapNow = (): string => JSON.stringify({
+  form: snapOf(logEdit_.value),
+  note: String(logNote.value ?? ''),
+  retain: String(logRetainDays.value ?? ''),
+  batch: !!logBatchMode.value,
+})
+
+function taskEditDirty(): boolean {
+  if (taskEditSnap !== null) return snapOf(editTask_.value) !== taskEditSnap
+  return isDirtyFields(editTask_.value, ['title', 'blockers', 'memo', 'body', 'tags'])
+}
+
+function logEditDirty(): boolean {
+  if (logEditSnap !== null) return logSnapNow() !== logEditSnap
+  return isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])
+}
+
+/** 关闭任务编辑器：**改过**才问（遮罩点击 @click.self 也走这里）。 */
 function closeTaskEditor() {
-  if (isDirtyFields(editTask_.value, ['title', 'blockers', 'memo', 'body', 'tags'])) {
-    if (!confirm('编辑内容尚未保存，确定关闭并丢弃吗？')) return
-  }
+  if (taskEditDirty() && !confirm('编辑内容尚未保存，确定关闭并丢弃吗？')) return
   editTask_.value = null
+  taskEditSnap = null
 }
 
 /** 关闭日志编辑器：同上（日志正文往往最长，误关代价最大） */
 function closeLogEditor() {
-  if (isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])) {
-    if (!confirm('日志内容尚未保存，确定关闭并丢弃吗？')) return
-  }
+  if (logEditDirty() && !confirm('日志内容尚未保存，确定关闭并丢弃吗？')) return
   logEdit_.value = null
   logCompleting.value = false
   logArchiveMode.value = false
+  logEditSnap = null
 }
 
 /** 对象里只要还有非空文本就认为有内容（用于字段名不固定的几个模态） */
@@ -4922,6 +5129,15 @@ const filteredTasks = computed(() => {
  */
 function applySortMode(list: Task[]): Task[] {
   const mode = sortMode.value
+  if (mode === 'prio') {
+    // 2026-10-01 用户第 2 条：优先级排法。localPriority 把 high/critical/高 归一成同一个刻度；
+    // 同优先级**保持原序**（V8 sort 稳定），不擅自二次排序 —— 排完仍是"活跃优先"那套底序。
+    const rank = (t: any) => {
+      const p = localPriority(t?.priority ?? (t as any)?.fm?.priority)
+      return p === '高' ? 0 : p === '低' ? 2 : 1
+    }
+    return [...list].sort((a, b) => rank(a) - rank(b))
+  }
   if (mode !== 'updated' && mode !== 'created') return list // 'active' = 后端给的活跃优先序，不动
   const key = (t: any) => parseTime(t?.[mode] ?? t?.fm?.[mode])
   return [...list].sort((a, b) => {
@@ -5519,6 +5735,25 @@ const filteredTodos = computed(() => {
       if (a.done !== b.done) return a.done ? 1 : -1
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
     })
+  } else if (todoSort.value === 'priority') {
+    // 2026-10-01 用户第 2 条：优先级单独成一种排法。localPriority 归一（high/critical → 高）
+    const rank = (t: any) => {
+      const p = localPriority(t?.priority)
+      return p === '高' ? 0 : p === '低' ? 2 : 1
+    }
+    arr.sort((a: any, b: any) => {
+      if (a.done !== b.done) return a.done ? 1 : -1
+      const d = rank(a) - rank(b)
+      if (d) return d
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    })
+  } else if (todoSort.value === 'updated') {
+    arr.sort((a: any, b: any) => {
+      if (a.done !== b.done) return a.done ? 1 : -1
+      const ta = new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const tb = new Date(b.updatedAt || b.createdAt || 0).getTime()
+      return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
+    })
   }
   return arr
 })
@@ -5840,6 +6075,14 @@ const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
 /** 接力对话框（2026-09-29 方案二）：源日志 + 预填字段 + 两个出清开关 */
 const relay_ = ref<any>(null)
+/** 关闭防丢确认条（2026-09-30 卡 006）：有未创建改动时点遮罩/「取消」→ 先出条，点「丢弃」才真关。
+ *  不再用原生 window.confirm —— 用户实测两次「防护未生效」，对话框内的条子躲不掉也误点不了。 */
+const relayDiscard_ = ref(false)
+/** 确认条上列出到底改了什么，让用户判断值不值得丢 */
+const relayDirtyHint = computed(() => relayChanges(relay_.value).join('、') || '（改动未识别）')
+/** 确认条本身 —— 接力对话框内容长（88vh 内可滚动），条子可能在折叠线下方，
+ *  出现时必须把它滚进视野并把焦点放在「继续填写」上（默认动作 = 留下，回车不会误丢）。 */
+const relayDiscardBar = ref<HTMLElement | null>(null)
 // Agent 预设列表（设置页可增删）。
 // 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
 // localStorage 绑定 origin，dev 换 host（localhost→127.0.0.1）或打包版 file:// 都会把预设清空。
@@ -5905,7 +6148,26 @@ let logPollingTimer: ReturnType<typeof setInterval> | null = null
  * 现在状态由**分区**表达（`groupedLogs`），筛选只负责**缩小数据集**
  * （搜索词 / 项目 / Agent / 日期），两者不再打架。
  */
-const filteredLogs = computed(() => logs.value)
+/**
+ * 日志排序（2026-10-01 用户第 2 条）：此前只有后端给的「文件名倒序」= 创建倒序，
+ * 连"最早的排前面"都做不到。这里在渲染层排 —— 数据一次取回（≤ 50 条/页），
+ * 不再往数据层加第二个排序入口（同一条取数路径的原则，见 loadLogs 注释）。
+ * 置顶分组不受影响：pinned 是在分组阶段单独拎出来的（logGroups 里）。
+ */
+const logSort = ref<string>(readUiPref<string>('fc_log_sort', 'created_desc'))
+watch(logSort, v => saveUiPref('fc_log_sort', v))
+
+const filteredLogs = computed(() => {
+  const arr = [...logs.value]
+  const byStr = (f: (l: any) => string, locale?: string) =>
+    (a: any, b: any) => String(f(a)).localeCompare(String(f(b)), locale)
+  switch (logSort.value) {
+    case 'created_asc': return arr.sort(byStr(l => l.created))
+    case 'date_desc': return arr.sort((a, b) => String(b.logDate || b.created).localeCompare(String(a.logDate || a.created)))
+    case 'title_asc': return arr.sort(byStr(l => l.title || '', 'zh-Hans-CN'))
+    default: return arr.sort((a, b) => String(b.created).localeCompare(String(a.created)))
+  }
+})
 
 // ── 按状态分区（2026-09-28）────────────────────────────────────────────
 const LOG_GROUP_DEFS = [
@@ -6034,6 +6296,11 @@ async function loadLogs() {
     if (logAgentFilter.value) filter.agent = logAgentFilter.value
     if (logDateFrom.value) filter.dateFrom = logDateFrom.value
     if (logDateTo.value) filter.dateTo = logDateTo.value
+    // 搜索词 = 筛选的一个维度（2026-10-01 用户第 3 条）。此前搜索另走 logs:search，
+    // 与这里的筛选互不相干，而且完成/归档/改筛选任何一次 loadLogs 都会把搜索结果冲掉、
+    // 框里的词却还留着 —— 「搜了又没了」。现在只有一条取数路径，刷新也不会丢。
+    const q = logSearchInput.value.trim()
+    if (q) filter.query = q
     logs.value = await window.tegula.logsList(filter)
   } catch {
     logs.value = []
@@ -6155,11 +6422,89 @@ function openLogFromPreview(): void {
   if (l) openLog(l)
 }
 
+// ── 附件：日志 ↔ 文件的唯一关联入口（2026-10-01 用户第 1 条 → 卡 036）──────
+// 语义刻意收窄：只做「这条日志引用了哪些文件」，不做素材库/标签/相册。
+// 文件本体在数据目录 `docs/执行日志/_attachments/<logId>/`，列表里是相对路径。
+const IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico)$/i
+/** rel → dataURL 缓存。空串 = 取过但取不到（超 8MB / 已不在数据目录），UI 回落成「用系统打开」 */
+const attachCache_ = reactive<Record<string, string>>({})
+const attachPending_ = reactive<Record<string, boolean>>({})
+
+function isImageRel(rel: string): boolean { return IMG_EXT.test(String(rel || '')) }
+function attachName(rel: string): string {
+  const s = String(rel || '')
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'))
+  return i >= 0 ? s.slice(i + 1) : s
+}
+/** 取预览用 data URL（渲染期调用，幂等：每条 rel 只发一次 IPC） */
+function attachSrc(rel: string): string {
+  const key = String(rel || '')
+  if (!key) return ''
+  if (attachCache_[key] !== undefined) return attachCache_[key]
+  if (attachPending_[key]) return ''
+  attachPending_[key] = true
+  const api = (window as any).tegula
+  Promise.resolve(api?.logsAttachmentData?.(key))
+    .then((r: any) => {
+      attachPending_[key] = false
+      attachCache_[key] = r?.ok && r.data?.dataUrl ? r.data.dataUrl : ''
+    })
+    .catch(() => { attachPending_[key] = false; attachCache_[key] = '' })
+  return ''
+}
+
+/** 附件落到哪几处视图：列表里的卡、只读预览、编辑对话框（谁开着就更谁） */
+function applyAttachments(logId: string, entry: any): void {
+  const list = Array.isArray(entry?.attachments) ? entry.attachments : []
+  const row = logs.value.find(l => l.id === logId)
+  if (row) row.attachments = list
+  if (logPreview.value && logPreview.value.id === logId) logPreview.value.attachments = list
+  if (logEdit_.value && logEdit_.value.id === logId) logEdit_.value.attachments = list
+}
+
+/** 弹系统选文件框 → 主进程复制进数据目录 → 三处视图同步 */
+async function attachAdd(logId: string): Promise<void> {
+  if (!logId) { showToast('先保存日志再挂附件', 'info'); return }
+  try {
+    const r = await (window as any).tegula.logsAttachFiles(logId)
+    if (r?.error === 'canceled') return
+    if (!r?.ok) { showToast('添加附件失败：' + (r?.error || '未知原因'), 'error'); return }
+    applyAttachments(logId, r.data)
+    const n = r.data?.attachments?.length || 0
+    showToast(`附件已关联（这条日志共 ${n} 个）`, 'success')
+  } catch (e: any) {
+    showToast('添加附件失败：' + (e?.message || e), 'error')
+  }
+}
+
+/** 解除关联 —— 文件**不删**（见 logs.ts detachAttachment 的注释） */
+async function attachRemove(logId: string, rel: string): Promise<void> {
+  try {
+    const r = await (window as any).tegula.logsDetachAttachment(logId, rel)
+    if (!r?.ok) { showToast('移除失败：' + (r?.error || '未知原因'), 'error'); return }
+    applyAttachments(logId, r.data)
+    showToast('已解除关联（文件仍保留在数据目录）', 'info')
+  } catch (e: any) {
+    showToast('移除失败：' + (e?.message || e), 'error')
+  }
+}
+
+/** 用系统程序打开（图片看大图、报告开 PDF） */
+async function attachOpen(rel: string): Promise<void> {
+  try {
+    const r = await (window as any).tegula.logsOpenAttachment(rel)
+    if (!r?.ok) showToast('打开失败：' + (r?.error || '未知原因'), 'error')
+  } catch (e: any) {
+    showToast('打开失败：' + (e?.message || e), 'error')
+  }
+}
+
 function openLog(log: any) {
   // 2026-09-25（用户第 2 条）：把关联任务归一成数组，供多选 UI 绑定
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = false
   logArchiveMode.value = false
+  logEditSnap = logSnapNow()   // P0-1：打开即存快照（改没改才算数）
   // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
   // 自动聚焦到标题输入框，确保用户可以立即输入
   setTimeout(() => {
@@ -6183,6 +6528,7 @@ function openNewLog() {
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
+  logEditSnap = logSnapNow()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
 }
 
 /** 日志 ID 缩写：`log_20260927…c73e`（卡面链标签用，完整 ID 挂 title） */
@@ -6218,24 +6564,82 @@ function openRelay(src: any): void {
     agentName: src.agentName || '',
     archiveSource: true,
     completeSourceTasks: false,
+    // 打开瞬间的快照：关闭前逐字段比对（卡 006）。此前只比对三个文本框，
+    // 只改过下拉/勾选就判「没改」→ 点遮罩直接静默关，用户报「数据全丢」。
+    _init: null as any,
   }
+  const r = relay_.value
+  r._init = {
+    title: String(r.title || '').trim(),
+    project: String(r.project || '').trim(),
+    nextSteps: String(r.nextSteps || '').trim(),
+    content: String(r.content || '').trim(),
+    agentName: String(r.agentName || '').trim(),
+    taskIds: [...(r.taskIds || [])].sort().join(','),
+    archiveSource: !!r.archiveSource,
+    completeSourceTasks: !!r.completeSourceTasks,
+  }
+  relayDiscard_.value = false
   logBatchMode.value = false
 }
 
 /**
- * 关闭接力对话框：有未保存内容先问一句（2026-09-30 用户第 4 条，卡 task-20260930-004）。
- * 遮罩点击（@click.self）与「取消」按钮都走这里 —— 此前是裸 `relay_ = null`，
- * 鼠标碰到遮罩，写了一半的正文/下一步直接全丢且无提示。
- * 预填字段（标题/下一步继承自源）不算「用户写的内容」，只比对与预填的差异 + 本次新贴的正文。
+ * 改了哪些字段（相对打开时的快照 `_init`）：空数组 = 什么都没动，可以随手关。
+ * 覆盖**全部**可编辑字段（文本 + 下拉 + 勾选 + 出清开关），不只看有没有字。
+ */
+function relayChanges(r: any): string[] {
+  const ini = r?._init
+  if (!ini || typeof ini !== 'object') return []
+  const t = (v: any) => String(v ?? '').trim()
+  const ch: string[] = []
+  if (t(r.title) !== ini.title) ch.push('标题')
+  if (t(r.project) !== ini.project) ch.push('项目')
+  if (t(r.content) !== ini.content) ch.push('执行内容')
+  if (t(r.nextSteps) !== ini.nextSteps) ch.push('下一步')
+  if (t(r.agentName) !== ini.agentName) ch.push('执行 Agent')
+  if ([...(r.taskIds || [])].sort().join(',') !== ini.taskIds) ch.push('关联任务')
+  if (!!r.archiveSource !== ini.archiveSource) ch.push('源归档开关')
+  if (!!r.completeSourceTasks !== ini.completeSourceTasks) ch.push('源任务置完成开关')
+  return ch
+}
+
+/**
+ * 关闭接力对话框：有未创建的改动先出**对话框内的确认条**（2026-09-30 卡 006）。
+ * 遮罩点击（@click.self）、「取消」、全局 Esc（会替我们点「取消」）都走这里。
+ * 第一次点 = 出条不关；条子出着时再点 = 仍不关（要关必须点条上的「丢弃并关闭」）。
+ * 诊断痕迹：渲染层只有 console.warn 会进应用日志，这里必须留痕，
+ * 否则下次再有人说「防护没生效」时无从判断是没点到还是没拦住。
  */
 function closeRelay(): void {
   const r = relay_.value
   if (!r) return
-  const edited = String(r.content || '').trim()
-    || String(r.nextSteps || '').trim() !== String(r.src?.nextSteps || '').trim()
-    || String(r.title || '').trim() !== String(r.src?.title || '').trim()
-  if (edited && !confirm('接力内容尚未创建，确定关闭并丢弃吗？')) return
+  const ch = relayChanges(r)
+  if (ch.length) {
+    if (!relayDiscard_.value) {
+      // 卡 006 补（2026-10-01）：接力框 88vh 内可滚动，确认条可能在折叠线下方 ——
+      // 出现时必须滚进视野 + 焦点落到「继续填写」，否则用户点外面只会看到"没反应"，
+      // 又要报一次「防护未生效」。
+      relayDiscard_.value = true
+      nextTick(() => {
+        const bar = relayDiscardBar.value
+        if (!bar) return
+        try { bar.scrollIntoView({ block: 'nearest' }) } catch { /* 老 Chromium：不支持 options */ }
+        const keep = bar.querySelector('button') as HTMLButtonElement | null
+        keep?.focus()
+      })
+      console.warn(`[relay] 关闭被拦下：未创建的改动（${ch.join('、')}），等用户选择丢弃或继续填写`)
+    }
+    return
+  }
   relay_.value = null
+  relayDiscard_.value = false
+}
+
+/** 用户在确认条上明确点了「丢弃并关闭」——这才是唯一丢弃入口 */
+function discardRelay(): void {
+  console.warn(`[relay] 用户确认丢弃未创建的接力内容（${relayChanges(relay_.value).join('、') || '无'}）`)
+  relay_.value = null
+  relayDiscard_.value = false
 }
 
 /**
@@ -6294,6 +6698,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
       if (!run?.ok) problems.push(`标「进行中」失败：${run?.error || '未知原因'}`)
     }
     relay_.value = null
+    relayDiscard_.value = false
     await loadLogs()
     if (problems.length) {
       showToast(`已创建 ${newId}，但：${problems.join('；')}`, 'error')
@@ -6518,6 +6923,7 @@ function completeLogItem(id: string) {
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
+  logEditSnap = logSnapNow()   // P0-1：只填「备注」也要算改动，别静默丢
 }
 
 function archiveLogItem(id: string) {
@@ -6529,6 +6935,7 @@ function archiveLogItem(id: string) {
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
+  logEditSnap = logSnapNow()
 }
 
 /**
@@ -6559,17 +6966,27 @@ async function destroyLogItem(id: string) {
   }
 }
 
+/**
+ * 回车 = 立即搜（平时边打边搜，见下面的 watcher）。2026-10-01 用户第 3 条：
+ * 原来这里**只有**这一条路 —— 打完字没反应必须按回车，像是卡住；
+ * 而且它另调 logs:search，绕开了 loadLogs 的筛选，一刷新搜索结果就没了。
+ * 现在两件事合流：搜索词进 loadLogs 的 filter，只有一条取数路径。
+ */
+let logSearchTimer: ReturnType<typeof setTimeout> | null = null
 async function executeLogSearch() {
-  if (!logSearchInput.value.trim()) {
-    await loadLogs()
-    return
-  }
-  try {
-    logs.value = await window.tegula.logsSearch(logSearchInput.value)
-  } catch {
-    logs.value = []
-  }
+  if (logSearchTimer) { clearTimeout(logSearchTimer); logSearchTimer = null }
+  await loadLogs()
 }
+
+// 边打边搜（300ms 防抖）：日志是高频场景，关键词通常几秒钟就敲完，
+// 让它像所有搜索框一样即时生效；回车仍可强制立即执行。
+watch(logSearchInput, () => {
+  if (logSearchTimer) clearTimeout(logSearchTimer)
+  logSearchTimer = setTimeout(() => {
+    logSearchTimer = null
+    loadLogs()
+  }, 300)
+})
 
 /**
  * 把一条日志复制成可直接粘给 agent 的提示词块。
@@ -7930,6 +8347,30 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #log-preview-modal label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
 #log-preview-modal .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
+/* ── 附件块（2026-10-01 用户第 1 条 → 卡 036）：只读预览 + 编辑对话框共用 ──
+   有意做窄：一张网格 + 一个「＋添加」，不做标签/相册/筛选 —— 卡 036 验收写明
+   「不做同质化资产库」，真实需求只是「截图和报告有地方放、随手能挂上」。 */
+.attach-block { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.attach-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.attach-head .attach-lbl { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
+.attach-add { height: 26px; padding: 0 10px; font-size: 12px; }
+.attach-add:disabled { opacity: .55; cursor: not-allowed; }
+.attach-empty { font-size: 12px; color: var(--muted); line-height: 1.7; }
+.attach-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.attach-item { width: 150px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
+.attach-item img { display: block; width: 100%; height: 96px; object-fit: cover; cursor: zoom-in; background: var(--tint); }
+.attach-file {
+  display: flex; align-items: center; justify-content: center; height: 96px; padding: 0 8px;
+  font-size: 11.5px; color: var(--ink); background: var(--tint); cursor: pointer;
+  text-align: center; word-break: break-all; line-height: 1.5;
+}
+.attach-cap { display: flex; align-items: center; gap: 4px; padding: 4px 6px; font-size: 10.5px; color: var(--muted); }
+.attach-fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-x { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 3px; line-height: 1; border-radius: 4px; }
+.attach-x:hover { background: var(--tint); color: var(--danger); }
+/* 日志卡上的附件数量角标：一眼看出这条有没有附东西（报修场景最需要的一眼信息） */
+.log-attach-badge { font-size: 10.5px; color: var(--muted); background: var(--tint); border-radius: 6px; padding: 1px 6px; font-weight: 600; white-space: nowrap; }
+
 /* 日志「关联任务」多选列表（2026-09-25 第 2 条） */
 .log-task-multi {
   max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
@@ -8876,6 +9317,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #relay-modal .relay-opt input[type="checkbox"] { width: 14px; height: 14px; margin-top: 2px; flex: none; accent-color: var(--accent); }
 #relay-modal .relay-opt span i { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
 
+/* 关闭防丢确认条（2026-09-30 卡 006）：必须比正文抢眼、按钮大到不会点错。
+   底色用主题 --tint（六套主题都有浅底），边框与「丢弃」按钮用 --danger（白字压它 ≥4.5）。 */
+#relay-modal .relay-discard { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 9px 11px; border-radius: 10px; background: var(--tint); border: 1px solid var(--danger); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
+#relay-modal .relay-discard .rd-text { flex: 1 1 260px; }
+#relay-modal .relay-discard .rd-text b { color: var(--danger); font-weight: 700; }
+#relay-modal .relay-discard .rd-acts { display: flex; gap: 8px; flex: none; }
+#relay-modal .relay-discard .rd-acts button { height: 30px; padding: 0 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+#relay-modal .relay-discard .rd-acts .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+#relay-modal .relay-discard .rd-acts .danger { background: var(--danger); color: #fff; border: 0; }
+
 /* 「更多筛选」抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围不再和搜索框挤一条线 */
 .log-more-btn { position: relative; }
 .log-more-btn.on { background: var(--tint); border-color: var(--accent-soft); }
@@ -9078,6 +9529,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .nc-item.read .nc-content { color: var(--muted); }
 
+/* 2026-10-01 用户第 1 条：能跳的行给个明确信号 —— 没有它时点整行只标已读，用户感知就是"无效按钮" */
+.nc-item.go { cursor: pointer; }
+.nc-go {
+  flex: none; align-self: center; margin: 0 2px;
+  font-size: 14px; color: var(--muted); opacity: .5;
+  transition: opacity .15s, transform .15s;
+}
+.nc-item.go:hover .nc-go { opacity: 1; color: var(--accent); transform: translateX(2px); }
+
 .nc-acts {
   display: flex; align-items: center; gap: 4px; flex-shrink: 0; align-self: center; padding-left: 6px;
   opacity: 0; transform: translateX(7px); pointer-events: none;
@@ -9109,6 +9569,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .nc-foot .stat { font-size: 12px; color: var(--muted); }
 .nc-foot .stat b { color: var(--ink); font-weight: 600; }
+/* P0-4：扫描器状态 —— 11px 次要色，停摆时靠「上次扫描」的相对时间一眼看出 */
+.nc-foot .nc-scan { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* P0-5：被静音提醒的恢复口（常驻时才显示） */
+.nc-muted {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 18px; font-size: 12px; color: var(--muted);
+  background: var(--tint); border-top: 1px solid var(--border);
+}
 .nc-link {
   color: var(--accent); border: 0; background: transparent; cursor: pointer;
   font-size: 12.5px; font-weight: 500; font-family: inherit;

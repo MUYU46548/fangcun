@@ -117,6 +117,101 @@ function main() {
   check('logsForTask 空 id 返回空', logs.logsForTask('').length === 0)
   check('按标题搜到', logs.searchLogs('日志D').some(l => l.id === d.id))
 
+  // ── 7b. 搜索 = 筛选的一个维度（2026-10-01 用户第 3 条「日常卡点」）────────
+  // 真因：界面此前有两条互不相干的取数路 —— 搜索走 searchLogs(query)（无视项目/
+  // Agent/日期），筛选走 listLogs(filter)（无视搜索词）；完成/归档/改筛选任何一次
+  // loadLogs 都会把搜索结果整个冲掉，而框里的词还留着 → 用户看到「搜了又没了」。
+  // 现在搜索词就是 filter.query，只有一条取数路径，刷新不丢、筛选可叠加。
+  const s1 = logs.createLog('搜索夹具·灰度', 'nf', '普通正文', undefined,
+    { nextSteps: '把 Gray-Release 开到 30%' }).data
+  const s2 = logs.createLog('另一条夹具', 'demo', 'Gray-Release 的正文', undefined, {}).data
+  check('★ listLogs({query}) 按标题搜到',
+    logs.listLogs({ query: '搜索夹具·灰度' }).some(l => l.id === s1.id),
+    JSON.stringify(logs.listLogs({ query: '搜索夹具·灰度' }).map(l => l.id)))
+  check('★★ listLogs({query}) 能搜到「下一步」（searchLogs 从不查这一段）',
+    logs.listLogs({ query: 'gray-release 开到' }).some(l => l.id === s1.id),
+    JSON.stringify(logs.listLogs({ query: 'gray-release' }).map(l => l.id)))
+  check('★★ 搜索与项目筛选可叠加（同一条取数路径，nf 下搜「夹具」只剩 nf 那条）', (() => {
+    const rows = logs.listLogs({ query: '夹具', project: 'nf' })
+    return rows.length >= 1 && rows.every(l => l.project === 'nf') &&
+      rows.some(l => l.id === s1.id) && !rows.some(l => l.id === s2.id)
+  })(), JSON.stringify(logs.listLogs({ query: '夹具', project: 'nf' }).map(l => l.id + ':' + l.project)))
+  check('★ 关键词大小写不敏感', logs.listLogs({ query: 'gray-release' }).some(l => l.id === s1.id))
+  check('★ 不传 query = 不过滤（老调用零回归）',
+    logs.listLogs({ project: 'nf' }).length >= 1,
+    String(logs.listLogs({ project: 'nf' }).length))
+  check('★ query 不命中 = 空列表（不会把不相干的漏出来）',
+    logs.listLogs({ query: '这个关键词不可能存在xyz' }).length === 0)
+
+  // ── 7c. 附件：日志 ↔ 文件（2026-10-01 用户第 1 条 → 卡 036）────────────
+  // 验收三问：存哪（数据目录内）、入口（预览/编辑的附件区）、备份（同目录随日志走）。
+  const srcA = path.join(TEST_ROOT, '源截图,逗号和[括号].png')
+  fs.writeFileSync(srcA, Buffer.from('89504e470d0a1a0a', 'hex'))
+  const att = logs.addAttachments(a.id, [srcA])
+  check('★★ addAttachments 成功', att.ok === true, JSON.stringify(att.error))
+  const rel1 = ((att.data || {}).attachments || [])[0]
+  check('★ 存的是相对数据目录的正斜杠路径（换盘/搬目录不失效）',
+    !!rel1 && !/^[a-zA-Z]:/.test(rel1) && rel1.includes('/') && rel1.startsWith('docs/执行日志/_attachments/'),
+    String(rel1))
+  check('★★ 文件真被复制进数据目录', !!rel1 && fs.existsSync(path.join(TEST_ROOT, ...rel1.split('/'))), String(rel1))
+  check('★ 源文件不动（复制不是移动）', fs.existsSync(srcA))
+  check('★★ 落盘是**内联列表** `attachments: [...]`（Python 侧 _parse_log 逐行解析只认这种；',
+    /^attachments: \[[^\]]*\]$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${a.id}.md`), 'utf-8')),
+    fs.readFileSync(path.join(LOGS_DIR, `${a.id}.md`), 'utf-8').split('\n').filter(l => l.includes('attach')).join(' | '))
+  check('★★ 文件名里的逗号/方括号被清洗（否则 Python 按逗号切内联列表会劈开一条路径）',
+    !/[,;[\]]/.test(path.basename(String(rel1))), path.basename(String(rel1)))
+  check('★ 再读回来还在（parse → render → parse 往返）',
+    (logs.getLog(a.id).attachments || []).length === 1, JSON.stringify(logs.getLog(a.id).attachments))
+  check('★ listLogs 也带出来（列表角标靠它渲染）',
+    logs.listLogs({}).some(l => l.id === a.id && (l.attachments || []).length === 1))
+  check('★★ _attachments 目录不会被当日志列出来',
+    logs.listLogs({}).every(l => !String(l.id).startsWith('_')),
+    JSON.stringify(logs.listLogs({}).map(l => l.id).filter(x => String(x).startsWith('_'))))
+
+  // 第二个附件：确认分隔与重名处理
+  const srcB = path.join(TEST_ROOT, '分析报告.txt')
+  fs.writeFileSync(srcB, 'PASS 139 / 0', 'utf-8')
+  const att2 = logs.addAttachments(a.id, [srcB])
+  check('★ 第二个附件挂上（同一文件名会自动 (1) 后缀，不覆盖）',
+    att2.ok === true && att2.data.attachments.length === 2,
+    JSON.stringify((att2.data || {}).attachments))
+  check('★ 内联行两个元素都读得回',
+    (logs.getLog(a.id).attachments || []).length === 2, JSON.stringify(logs.getLog(a.id).attachments))
+
+  // 安全：路径逃逸
+  check('★★ resolveAttachment 拒绝 ../ 逃逸（防任意文件读/打开）',
+    logs.resolveAttachment('../../Windows/win.ini') === null)
+  check('★★ resolveAttachment 拒绝绝对路径注入',
+    logs.resolveAttachment('C:/Windows/win.ini') === null)
+  check('★ resolveAttachment 放行真实附件',
+    (() => { const p = logs.resolveAttachment(rel1); return !!p && fs.existsSync(p) })(), String(rel1))
+
+  // 预览通道
+  const dr = logs.readAttachmentData(rel1)
+  check('★ 附件 → data URL（渲染层预览唯一通道）',
+    dr.ok === true && String(dr.data.dataUrl).startsWith('data:image/png;base64,'),
+    dr.error || String(dr.data.dataUrl).slice(0, 32))
+  check('★ 超 8MB 不内联（返回 tooLarge 而不是把渲染层卡死）',
+    (() => {
+      const big = path.join(TEST_ROOT, 'big.png')
+      fs.writeFileSync(big, Buffer.alloc(9 * 1024 * 1024, 1))
+      const r = logs.addAttachments(a.id, [big])
+      const relBig = r.ok ? r.data.attachments[r.data.attachments.length - 1] : ''
+      const rd = relBig ? logs.readAttachmentData(relBig) : { ok: false, error: 'no' }
+      if (r.ok) logs.detachAttachment(a.id, relBig)
+      fs.rmSync(big, { force: true })
+      return rd.ok === false && rd.error === 'tooLarge'
+    })(), 'big file case')
+
+  // 解除关联 = 只解除引用，不删文件（破坏性操作不藏在按钮后面）
+  const det = logs.detachAttachment(a.id, rel1)
+  check('★ 解除关联成功', det.ok === true && (det.data.attachments || []).length === 1,
+    JSON.stringify((det.data || {}).attachments))
+  check('★★ 移除只解除关联、文件仍在数据目录（不隐性销毁）',
+    fs.existsSync(path.join(TEST_ROOT, ...String(rel1).split('/'))))
+  check('★ 解除后 frontmatter 里的那一项同步消失（不留悬空引用）',
+    !(logs.getLog(a.id).attachments || []).includes(rel1))
+
   // ── 8. taskId 兼容多种历史写法 ────────────────────────────────────
   fs.writeFileSync(path.join(LOGS_DIR, 'legacy-1.md'),
     '---\ntype: execution-log\nid: legacy-1\ntitle: 老写法\nproject: demo\nstatus: active\n关联任务: task-009\n---\n\n# 老写法\n\n## 执行内容\n\nx\n\n## 下一步\n\n（待填写）', 'utf-8')
@@ -172,6 +267,44 @@ function main() {
   // ── 10. 渲染层接线守卫（2026-09-25 第 2/13 条）─────────────────────
   // 数据层通了不等于界面通了 —— 上一轮「三层早通、UI 无入口」的坑（卡 022）就是这么来的。
   const APP = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/App.vue'), 'utf-8')
+  const IPC_SRC = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/ipc.ts'), 'utf-8')
+
+  // ── 10b. 搜索与筛选合流（2026-10-01 用户第 3 条「日常卡点」）─────────────
+  check('★★ 搜索词进 loadLogs 的 filter（只有一条取数路径），渲染层不再另调 logsSearch',
+    /if \(q\) filter\.query = q/.test(APP) && !/window\.tegula\.logsSearch/.test(APP),
+    'hasQuery=' + /if \(q\) filter\.query = q/.test(APP) + ' stillCalls=' + /window\.tegula\.logsSearch/.test(APP))
+  check('★★ 僵尸通道 logs:search 已随合流删除（新旧并存 = 差评）',
+    !/guardedHandle\('logs:search'/.test(IPC_SRC))
+  check('★ 边打边搜（防抖 watcher），不再必须按回车',
+    /watch\(logSearchInput/.test(APP) && /\}, 300\)/.test(APP))
+
+  // ── 10c. 附件三层接线（2026-10-01 用户第 1 条 → 卡 036）────────────────
+  // 数据层通了不等于界面通了（老坑：三层早通、UI 无入口）。这里钉死三个面。
+  const PRE_SRC = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/preload/index.ts'), 'utf-8')
+  const ATTACH_CH = ['logs:attachFiles', 'logs:detachAttachment', 'logs:attachmentData', 'logs:openAttachment']
+  check('★★ 附件四通道：主进程全部注册',
+    ATTACH_CH.every(c => IPC_SRC.includes(`'${c}'`)),
+    ATTACH_CH.filter(c => !IPC_SRC.includes(`'${c}'`)).join(',') || 'ok')
+  check('★★ 附件四通道：preload 全部暴露（主→preload 一致）',
+    ATTACH_CH.every(c => PRE_SRC.includes(`invoke('${c}'`)),
+    ATTACH_CH.filter(c => !PRE_SRC.includes(`invoke('${c}'`)).join(',') || 'ok')
+  check('★★ 渲染层三个面：列表角标 + 只读预览 + 编辑对话框各一块',
+    /log-attach-badge/.test(APP) && (APP.match(/data-attach-block/g) || []).length >= 2,
+    'blocks=' + (APP.match(/data-attach-block/g) || []).length)
+  check('★ 三个操作函数被模板真调用（不是死函数）',
+    ['attachAdd', 'attachRemove', 'attachOpen'].every(f => new RegExp('="' + f + '\\(').test(APP)))
+  check('★ 预览不走 file:// 直读（dev 态 localhost 起源下读不到本地图片）',
+    !/src="file:/.test(APP) && /logsAttachmentData/.test(APP))
+
+  // ── 10d. 排序三前端对齐（2026-10-01 用户第 2 条）─────────────────────
+  check('★★ 日志有排序下拉（此前只有"创建倒序"，连正序都翻不过来）',
+    /v-model="logSort"/.test(APP) && /value="created_asc"/.test(APP) && /value="title_asc"/.test(APP))
+  check('★ 排序偏好落盘（换会话/重启不回默认）', /fc_log_sort/.test(APP))
+  check('★ 待办补「优先级从高到低」「最近更新」两种排法',
+    /value="priority"/.test(APP) && /todoSort.value === 'priority'/.test(APP) &&
+    /todoSort.value === 'updated'/.test(APP))
+  check('★ 看板补「优先级」排法（且走 localPriority 归一，high/高 同刻度）',
+    /value="prio"/.test(APP) && /mode === 'prio'/.test(APP) && /localPriority/.test(APP))
   check('★ 日志编辑框是多选（checkbox 绑 taskIds），不再只有单选下拉',
     /v-model="logEdit_\.taskIds"/.test(APP) && !/v-model="logEdit_\.taskId"/.test(APP))
   check('保存时发的是 taskIds（不是 taskId）',
@@ -442,6 +575,20 @@ function main() {
     check('★★ 卡004b：接力关闭走 closeRelay 防丢确认（遮罩 + 取消按钮，不再裸置 null）',
       /function closeRelay/.test(APP) && /@click\.self="closeRelay"/.test(APP) &&
       /@click="closeRelay"/.test(APP) && !/@click\.self="relay_ = null"/.test(APP))
+    // ── 2026-09-30 用户第 1/2 条（卡 006）：字段顺序 + 关闭防丢 ──────────────
+    const RELAY = APP.slice(APP.indexOf('id="relay-modal"'),
+      APP.indexOf('指派时间', APP.indexOf('id="relay-modal"') + 1))
+    check('★★ 卡006a：接力对话框里执行内容在上、下一步在下（认知顺序，此前上下颠倒）',
+      RELAY.indexOf('id="relay-modal"') >= 0 && RELAY.indexOf('relay_.content') >= 0 &&
+      RELAY.indexOf('relay_.content') < RELAY.indexOf('relay_.nextSteps'),
+      'content@' + RELAY.indexOf('relay_.content') + ' nextSteps@' + RELAY.indexOf('relay_.nextSteps'))
+    check('★★ 卡006b：关闭防丢改成对话框内确认条（原生 confirm 已从 closeRelay 移除）',
+      /v-if="relayDiscard_"/.test(RELAY) && /discardRelay/.test(RELAY) &&
+      /function closeRelay[\s\S]{0,700}relayChanges\(r\)/.test(APP) &&
+      !/function closeRelay[\s\S]{0,700}[^a-zA-Z]confirm\(/.test(APP))
+    check('★★ 卡006c：脏检查覆盖全部字段（文本 + 下拉 + 勾选 + 出清开关），不只看有没有字',
+      /function relayChanges/.test(APP) && /源归档开关/.test(APP) && /关联任务/.test(APP) &&
+      /_init: null as any/.test(APP))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

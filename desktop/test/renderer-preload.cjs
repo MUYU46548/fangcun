@@ -9,6 +9,16 @@
  */
 const { contextBridge } = require('electron')
 
+// 夹具里的「同一天」必须**跟着今天走**（2026-10-01 教训）：原先写死 2026-09-30，
+// 跨月第一天日历断言必红 —— 日历只画当前月，9-30 那格根本不在视口里，
+// 于是每个月 1 号都会冒出 3 条假红（当时被误当成回归）。压在"今天"才是这个夹具的本意。
+const FIX_DEADLINE = (() => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+})()
+const FIX_MMDD = FIX_DEADLINE.slice(5)
+
 const store = {
   todos: [],
   // 方针卡（2026-09-25 第 7 条三态 + 029 结构地图）：demo 已填但**没有**结构地图、
@@ -23,6 +33,12 @@ const store = {
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ],
   calls: [],
+  // 通知中心点击跳转测试用（2026-10-01 用户第 1 条）
+  notifications: [],
+  // P0-4/P0-5 夹具
+  ncStatus: { running: true, lastScanAt: new Date().toISOString() },
+  ncMuted: [],
+  ncMutedCount: 0,
   // UI 偏好真身（userData/prefs.json）。空对象 = 首次运行，界面走默认值 ——
   // 多视图的"旧视图永远是默认"这条断言就是靠它成立。
   prefs: {},
@@ -55,7 +71,7 @@ const store = {
     //   这样"排序下拉"才可被真断言 —— 三者两两不同，任何一支写错都会当场红。
     {
       id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高',
-      project: 'demo', tags: [], body: '正文', deadline: '2026-09-30',
+      project: 'demo', tags: [], body: '正文', deadline: FIX_DEADLINE,
       created: '2026-09-20T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
       fm: { id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-001.md',
@@ -85,27 +101,27 @@ const store = {
       path: 'C:/mock/task-data/task-demo-004.md',
     },
     // 2026-09-29：日历「改法 A」（格子最多 2 条 + 「+N 条」）要**同一天有多条**才验得了。
-    // 这三条全压在 09-30（与 001 同一天）；created/updated 一律取很早的日期 ——
+    // 这三条全压在 FIX_DEADLINE（= 今天，与 001 同一天）；created/updated 一律取很早的日期 ——
     // 免得不小心把"排序下拉"那组断言的头名（002 / 001）挤掉。
     // ⚠ 状态**刻意各不相同**（进行中/进行中/待验收）：demo 项目的状态分布条才有 3 段可验；
     //   而且它们一律不带"待办"状态 —— 否则会挤进「待办」列，把排序断言的期望序打乱。
     {
       id: 'task-demo-011', title: '日历密度样例一', status: '进行中', priority: '中',
-      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      project: 'demo', tags: [], body: '', deadline: FIX_DEADLINE,
       created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
       fm: { id: 'task-demo-011', title: '日历密度样例一', status: '进行中', priority: '中', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-011.md',
     },
     {
       id: 'task-demo-012', title: '日历密度样例二', status: '进行中', priority: '低',
-      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      project: 'demo', tags: [], body: '', deadline: FIX_DEADLINE,
       created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
       fm: { id: 'task-demo-012', title: '日历密度样例二', status: '进行中', priority: '低', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-012.md',
     },
     {
       id: 'task-demo-013', title: '日历密度样例三', status: '待验收', priority: '中',
-      project: 'demo', tags: [], body: '', deadline: '2026-09-30',
+      project: 'demo', tags: [], body: '', deadline: FIX_DEADLINE,
       created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
       fm: { id: 'task-demo-013', title: '日历密度样例三', status: '待验收', priority: '中', project: 'demo' },
       path: 'C:/mock/task-data/task-demo-013.md',
@@ -180,12 +196,19 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGetConfig: () => ({}),
   onBackupStatus: () => () => {},
   backupLog: () => [],
-  notificationsList: () => [],
+  notificationsList: () => (store.notifications || []).slice(),
   // ⚠ 必须返回 Promise（真 IPC 是异步的）：渲染层写的是 `.then(...)`，
   //   返回裸数字会抛 "then is not a function" —— 这个错只会在测试跑得够久、
   //   轮询定时器触发时才现形（2026-09-26 加了服务页测试之后就跑到了这一步）
-  notificationsUnreadCount: () => Promise.resolve(0),
+  notificationsUnreadCount: () =>
+    Promise.resolve((store.notifications || []).filter(n => !n.read).length),
   notificationsScan: () => ({ ok: true }),
+  // P0-4/P0-5：扫描器状态 + 被静音提醒（夹具可由测试注入）
+  notificationsScannerStatus: () => (store.ncStatus || { running: true, lastScanAt: new Date().toISOString() }),
+  notificationsListMuted: () => (store.ncMuted || []).slice(),
+  notificationsUnmuteAll: () => { rec('notificationsUnmuteAll'); store.ncMuted = []; return (store.ncMutedCount || 0) },
+  // 通知点击跳转按 sourceId 取任务（真 IPC 返回 flattenTask 或 null）
+  getTask: (id) => { rec('getTask', [id]); return (store.tasks || []).find(x => x.id === id) || null },
 
   // ── 待办（本测试的主角）────────────────────────────────────────
   todosList: (_f) => { rec('todosList'); return store.todos.slice() },
@@ -271,8 +294,31 @@ contextBridge.exposeInMainWorld('tegula', {
     l.project = project
     return ok({ log: l })
   },
-  logsSearch: () => [],
   logsCleanup: () => [],
+  // ── 附件（2026-10-01 卡 036）：假 preload 返回与真 IPC 同形的 { ok, data } ──
+  logsAttachFiles: (id) => {
+    rec('logsAttachFiles', [id])
+    const row = (store.logs || []).find(x => x.id === id)
+    if (!row) return { ok: false, error: '日志不存在' }
+    // 真实现是主进程弹系统框后复制进数据目录；这里直接追加一个不同名的条目，
+    // 让「点添加 → 网格多一项」这条 UI 链路可断言。
+    const rel = `docs/执行日志/_attachments/${id}/新添加_${(row.attachments || []).length + 1}.png`
+    row.attachments = [...(row.attachments || []), rel]
+    return { ok: true, data: { ...row } }
+  },
+  logsDetachAttachment: (id, rel) => {
+    rec('logsDetachAttachment', [id, rel])
+    const row = (store.logs || []).find(x => x.id === id)
+    if (!row) return { ok: false, error: '日志不存在' }
+    row.attachments = (row.attachments || []).filter(x => x !== rel)
+    return { ok: true, data: { ...row } }
+  },
+  logsAttachmentData: () => ({
+    ok: true,
+    // 1×1 透明 PNG，够断言「img 的 src 真是 data:image/png」
+    data: { mime: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', name: 'x.png' },
+  }),
+  logsOpenAttachment: () => { rec('logsOpenAttachment', []); return { ok: true } },
   logsForTask: () => [],
 
   // ── 剪贴板（渲染层复制一律走主进程通道，见 shared/clipboard.ts ①）─────
@@ -549,6 +595,10 @@ contextBridge.exposeInMainWorld('tegula', {
 
 // 测试侧只读入口（断言用）
 contextBridge.exposeInMainWorld('__fcTest', {
+  // 夹具"同一天"是哪一天（跟随今天，见文件头 FIX_DEADLINE）—— 断言要按它算期望值，
+  // 禁止再写死 '09-30' 之类的字面量，否则每月 1 号假红。
+  fixDeadline: FIX_DEADLINE,
+  fixMmdd: FIX_MMDD,
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   todos: () => JSON.parse(JSON.stringify(store.todos)),
@@ -568,6 +618,15 @@ contextBridge.exposeInMainWorld('__fcTest', {
   setLogs: (items) => { store.logs = (items || []).slice() },
   setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
+  // 通知中心点击跳转：注入通知夹具 + 任务夹具（2026-10-01 用户第 1 条）
+  setNotifications: (items) => { store.notifications = (items || []).slice() },
+  /** P0-4/P0-5：注入扫描器状态与被静音提醒（含被恢复的条数，供断言 toast 文案） */
+  setNcExtras: (status, muted, mutedCount) => {
+    if (status) store.ncStatus = status
+    if (muted) store.ncMuted = muted.slice()
+    if (mutedCount !== undefined) store.ncMutedCount = mutedCount
+  },
+  setTasks: (items) => { store.tasks = (items || []).slice() },
   // 029：注入方针卡（含 structureMap + 最后核实日期）用
   setPolicies: (obj) => { store.policies = Object.assign({}, obj || {}) },
   // UI 偏好真身快照（多视图选择断言用：`prefs().fc_board_view === 'list'`）

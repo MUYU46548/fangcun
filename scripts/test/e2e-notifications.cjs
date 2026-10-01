@@ -132,6 +132,35 @@ function main() {
   check('清空忽略表后可重新提示', afterUnmute.created === true)
   notif.clearAll()
 
+  // A6. 静音 7 天自动恢复（2026-10-01 用户拍板：删除不再永久拉黑，此前无任何恢复入口）
+  check('★ 静音时长常量 = 7 天', notif.MUTE_TTL_MS === 7 * 86400000, String(notif.MUTE_TTL_MS))
+  notif._setMuteTtlForTest(-1000)  // 注入"刚删就已过期"，不必等 7 天
+  notif.pushNotification({ type: 'mute-ttl', level: 'info', title: 'TTL 目标', sourceId: 'mtl-1', key: 'k' })
+  const mtl = notif.listNotifications().find(n => n.sourceId === 'mtl-1')
+  check('TTL 段的删除目标存在', !!mtl)
+  notif.deleteNotification(mtl.id)
+  check('★ 过期时忽略表里不再留痕',
+    !notif.listMuted().includes('mute-ttl|mtl-1|k'), JSON.stringify(notif.listMuted()))
+  const revived = notif.pushNotification({ type: 'mute-ttl', level: 'info', title: 'TTL 复活', sourceId: 'mtl-1', key: 'k' })
+  check('★★ 到期后恢复提醒（永久拉黑已废除）', revived.created === true, JSON.stringify(revived))
+  // 恢复成默认 7 天：期内仍应静音
+  notif._setMuteTtlForTest(notif.MUTE_TTL_MS)
+  const mtl2 = notif.listNotifications().find(n => n.sourceId === 'mtl-1')
+  if (mtl2) notif.deleteNotification(mtl2.id)
+  const stillMuted = notif.pushNotification({ type: 'mute-ttl', level: 'info', title: 'TTL 又试', sourceId: 'mtl-1', key: 'k' })
+  check('★★ 默认 TTL 期内仍被静音（删了确实管用）',
+    stillMuted.created === false && stillMuted.muted === true, JSON.stringify(stillMuted))
+  // P0-5（2026-10-01）：静音表必须**可读可恢复** —— 此前 listMuted/unmuteAll 在
+  // ipc/preload/App 三处零命中，点过 🗑 的提醒 7 天内彻底消失且用户不知情。
+  const mutedNow = notif.listMuted()
+  check('★ listMuted 把期内被静音的 key 列出来（面板「被忽略 N 条」的数据源）',
+    mutedNow.includes('mute-ttl|mtl-1|k'), JSON.stringify(mutedNow))
+  const unmutedCount = notif.unmuteAll()
+  check('★★ unmuteAll 返回条数并清空（IPC 通道 notifications:unmuteAll 直接用它）',
+    unmutedCount === mutedNow.length && notif.listMuted().length === 0,
+    'n=' + unmutedCount + ' left=' + JSON.stringify(notif.listMuted()))
+  notif.clearAll()
+
   // A5. 超量淘汰（已读最旧优先）
   for (let i = 0; i < 305; i++) {
     notif.pushNotification({ type: 'bulk', title: `bulk-${i}`, sourceId: `s-${i}`, key: String(i), level: 'info' })
@@ -273,7 +302,71 @@ function main() {
   notifier._setSuppressOsNotify(true)
   notif.clearAll()
 
-  // ══ C. IPC / preload 接线（源码断言，防漂移） ═════════════════════════
+  // ══ B9. 阻塞链断裂（2026-10-01 用户定稿 B 类）═══════════════════════════
+  // 真实案例：task-20260910-001 依赖的 task-20260910-002 只在 .trash 里，链断了但毫无表示。
+  const depA = tasks.createTask({ title: '会被删的依赖' })
+  const needA = tasks.createTask({ title: '依赖它的任务', blockers: [depA.id] })
+  const depB = tasks.createTask({ title: '健在的依赖' })
+  const needB = tasks.createTask({ title: '依赖健在者', blockers: [depB.id] })
+  notifier.scanOnce()
+  check('★ 依赖健在时不产生断裂通知（不是逢阻塞就报）',
+    !notif.listNotifications().some(n => n.type === 'blocker-broken'))
+  const trashDir = path.join(TEST_ROOT, 'task-data', '.trash')
+  const beforeTrash = new Set(fs.existsSync(trashDir) ? fs.readdirSync(trashDir) : [])
+  tasks.deleteTask(depA.id)
+  const trashed = fs.existsSync(trashDir) ? fs.readdirSync(trashDir).filter(f => !beforeTrash.has(f)) : []
+  check('依赖被删除（进了 .trash）', trashed.length >= 1, JSON.stringify(trashed))
+  notifier.scanOnce()
+  const bks = notif.listNotifications().filter(n => n.type === 'blocker-broken' && n.sourceId === needA.id)
+  check('★★ 依赖进回收站 → 阻塞链断裂通知（本例的真实场景）', bks.length === 1, String(bks.length))
+  check('★ 文案点明缺的是哪个 id（否则没法顺着去修）',
+    bks.length === 1 && String(bks[0].body).includes(depA.id), bks[0] && bks[0].body)
+  check('★ 只报真断的那条（健在的 needB 不报）',
+    !notif.listNotifications().some(n => n.type === 'blocker-broken' && n.sourceId === needB.id))
+  const sBk2 = notifier.scanOnce()
+  check('重复扫描不增殖（指纹 = 任务×缺失源）', sBk2.newNotifications === 0, JSON.stringify(sBk2))
+  if (trashed[0]) tasks.restoreTrashItem(trashed[0])
+  notifier.scanOnce()
+  check('★★ 从回收站还原后通知自动消解（不留僵尸）',
+    !notif.listNotifications().some(n => n.type === 'blocker-broken' && !n.read))
+  notif.clearAll()
+
+  // ══ B10. 进行中却没动静（2026-10-01 用户定稿 C 类）══════════════════════
+  // 「状态=进行中」= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活（用户原话）。
+  const stTask = tasks.createTask({ title: '点进行中后没人回写' })
+  tasks.moveStatus(stTask.id, '进行中')
+  notifier.scanOnce()
+  check('★ 刚点进行中、还没超时 → 不报（时钟从点按钮那一刻才开始走）',
+    !notif.listNotifications().some(n => n.type === 'task-stalled' && n.sourceId === stTask.id))
+  // 把 更新 拨回 3 天前 = 「点了进行中之后 72 小时没有任何写入」
+  const stPath = path.join(TEST_ROOT, 'task-data', `${stTask.id}.md`)
+  let stTxt = fs.readFileSync(stPath, 'utf-8')
+  const staleIso = new Date(Date.now() - 72 * 3600_000).toISOString()
+  const updRe = /^([ \t]*)(?:更新|updated):.*$/m
+  stTxt = updRe.test(stTxt)
+    ? stTxt.replace(updRe, `$1更新: ${staleIso}`)
+    : stTxt.replace(/^---\r?\n/, `---\n更新: ${staleIso}\n`)
+  fs.writeFileSync(stPath, stTxt, 'utf-8')
+  notifier.scanOnce()
+  const stalledNotifs = notif.listNotifications().filter(n => n.type === 'task-stalled' && n.sourceId === stTask.id)
+  check('★★ 72 小时没写入 → task-stalled', stalledNotifs.length === 1, String(stalledNotifs.length))
+  check('★ 指纹固定为 stalled（小时数每次都变，拿它当指纹会长出一堆）',
+    stalledNotifs.length === 1 && stalledNotifs[0].key === 'stalled', stalledNotifs[0] && String(stalledNotifs[0].key))
+  check('★ 文案写明卡了多久（72 小时）',
+    stalledNotifs.length === 1 && /72 小时/.test(String(stalledNotifs[0].body)), stalledNotifs[0] && stalledNotifs[0].body)
+  // 只认「进行中」：其它状态天然不回写，扫了就是噪音（用户 2026-10-01 否决按更新比时间的原因）
+  const zeroHits = tasks.findStalledTasks(0)
+  check('★★ findStalledTasks 返回的全是「进行中」（待办/待验收/完成一律不扫）',
+    zeroHits.length >= 1 && zeroHits.every(t => tasks.readTask(t.id) && tasks.readTask(t.id).fm.status === '进行中'),
+    JSON.stringify(zeroHits.map(t => t.id)))
+  // 回写一次 → 时钟重置 → 消解（这才是"真回写检查"，不是派活后一路倒计时）
+  tasks.updateTask(stTask.id, { title: '回写了，有动静' })
+  notifier.scanOnce()
+  check('★★ 回写一次后 task-stalled 自动消解',
+    !notif.listNotifications().some(n => n.type === 'task-stalled' && !n.read))
+  notif.clearAll()
+
+  // ══ C. IPC / preload 接线（源码断言，防漂移） ═══════════════════════════
   const ipcSrc = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
   const preloadSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')
   for (const ch of ['notifications:list', 'notifications:unreadCount', 'notifications:markRead',
@@ -287,6 +380,33 @@ function main() {
   const entrySrc = fs.readFileSync(path.join(SRC, 'index.ts'), 'utf-8')
   check('真实入口启动扫描器', entrySrc.includes('startScanner'))
   check('真实入口退出时停止扫描器', entrySrc.includes('stopScanner'))
+
+  // C2. 2026-10-01 用户定稿：只加这两类 + 形态（不弹系统通知）+ 渲染层有标签
+  const notifierSrc = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
+  check('扫描器接了「阻塞链断裂」检测', notifierSrc.includes('detectBrokenBlockers'))
+  check('扫描器接了「进行中没动静」检测', notifierSrc.includes('findStalledTasks'))
+  check('★ 新增两类都 osNotify:false（角标红点+面板，不弹系统通知 —— 用户拍板的形态）',
+    /'blocker-broken'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc) &&
+    /'task-stalled'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc))
+  // P0-4 / P0-5 的三层接线（ipc → preload → 渲染层）：少一层就等于功能不存在
+  const ipcSrc2 = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
+  const preSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')
+  check('★ IPC 有扫描器状态通道（P0-4）', ipcSrc2.includes('notifications:scannerStatus'))
+  check('★ IPC 有静音表读取/恢复通道（P0-5）',
+    ipcSrc2.includes('notifications:listMuted') && ipcSrc2.includes('notifications:unmuteAll'))
+  check('★ preload 暴露三条新通道', preSrc.includes('notificationsScannerStatus')
+    && preSrc.includes('notificationsListMuted') && preSrc.includes('notificationsUnmuteAll'))
+  const notifierSrc2 = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
+  check('★★ 扫描异常落应用日志（此前 catch{} 静默吞 = 停摆无人知）',
+    /catch \([^)]*\) \{[\s\S]{0,160}?appLog\.error\('notifier'/.test(notifierSrc2))
+  const appSrc = fs.readFileSync(path.join(SRC, 'renderer', 'App.vue'), 'utf-8')
+  check('★ 渲染层给两类都配了标签（否则面板显示裸 type 名）',
+    appSrc.includes("'blocker-broken'") && appSrc.includes("'task-stalled'"))
+  const tasksSrc = fs.readFileSync(path.join(SRC, 'main', 'data', 'tasks.ts'), 'utf-8')
+  check('★ C 类判据是「文件多久没写」而不是「派活后多久」（真回写检查）',
+    /findStalledTasks[\s\S]{0,400}?taskLastTouchedMs/.test(tasksSrc))
+  check('★ B 类把归档区算进"健在"（归档 = 链被解开，不是断裂）',
+    /detectBrokenBlockers[\s\S]{0,300}?loadAllTasksRaw\('all'\)/.test(tasksSrc))
 
   // ══ 汇总 ═════════════════════════════════════════════════════════════
   console.log('─'.repeat(50))

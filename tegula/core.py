@@ -3189,21 +3189,41 @@ def _parse_log(text):
     if not m:
         return {}, text
     fm_raw, body = m.group(1), m.group(2)
-    fm = {}
+    # ── 2026-10-01 P0-2（与 parse_task 同一口径）：先按「顶层键 + 其后的缩进行」分组 ──
+    # 为什么不能边扫边判：旧实现只认行内 flow 列表 `附件: [a, b]`，而块式写法是
+    #     附件:
+    #       - report.md
+    # 这些字段被读成空串 —— 下一次 _write_log（完成/归档/关联任务）就把附件、关联任务
+    # **静默清空**。两个写者（Python / 桌面端 yaml.dump）共用这批文件，任一端换了形态
+    # 另一端就丢数据，所以读端必须两种形态都认（写端仍统一产出行内，见 e2e-fm-contract）。
+    entries = []          # [(键, 行内值, [缩进行原文, ...])]
     for line in fm_raw.splitlines():
         if not line.strip():
             continue
+        if line[:1] in (" ", "\t"):
+            if entries:
+                entries[-1][2].append(line)
+            continue
         kv = re.match(r"^([^:]+):\s*(.*)$", line)
-        if kv:
-            k, v = kv.group(1).strip(), kv.group(2).strip()
-            # 解析列表 [a, b] 和空值
-            if v.startswith("[") and v.endswith("]"):
-                inner = v[1:-1].strip()
-                fm[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
-            elif v.lower() in ("null", "~", "none"):
-                fm[k] = None
-            else:
+        if not kv:
+            continue
+        entries.append([kv.group(1).strip(), kv.group(2).strip(), []])
+
+    fm = {}
+    for k, v, sub in entries:
+        if v.startswith("[") and v.endswith("]"):
+            inner = v[1:-1].strip()
+            fm[k] = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()] if inner else []
+        elif not v and sub:
+            items = [s.strip() for s in sub if s.strip().startswith("-")]
+            if items:                       # 块式列表：只认全是列表项的缩进块
+                fm[k] = [x[1:].strip().strip("'\"") for x in items if x[1:].strip()]
+            else:                           # 块式映射等其它形态 → 维持旧行为（空串）
                 fm[k] = v.strip("'\"")
+        elif v.lower() in ("null", "~", "none"):
+            fm[k] = None
+        else:
+            fm[k] = v.strip("'\"")
     # 从 frontmatter 中提取内部字段（下划线前缀）
     # 这些字段存储结构化数据，body 中的 ## 节只是人类可读副本
     if "_content" in fm:

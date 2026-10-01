@@ -95,31 +95,62 @@ function getMutedPath(): string {
   return path.join(dir, 'muted.json')
 }
 
-function loadMuted(): Set<string> {
+/** 静音时长：删除后 **7 天**自动恢复提醒（2026-10-01 用户拍板：不再永久拉黑）。
+ *  此前是永久拉黑且无任何恢复入口 —— 用户点过一次 🗑，同类事件从此永远静默，自己还察觉不到。 */
+export const MUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+/** 测试注入：静音时长。设成负值可立刻验证「到期恢复」，不必等 7 天。 */
+let muteTtlMs = MUTE_TTL_MS
+export function _setMuteTtlForTest(ms: number): void { muteTtlMs = ms }
+
+interface MutedFile { keys?: string[]; exp?: Record<string, string> }
+
+/** 忽略表：key → 过期时刻（ms）。过期后自动从表里消失 = 提醒恢复。 */
+function loadMuted(): Map<string, number> {
   try {
-    const raw = JSON.parse(fs.readFileSync(getMutedPath(), 'utf-8'))
-    return new Set(Array.isArray(raw?.keys) ? raw.keys.map(String) : [])
+    const raw: MutedFile = JSON.parse(fs.readFileSync(getMutedPath(), 'utf-8'))
+    const now = Date.now()
+    const m = new Map<string, number>()
+    const keys = Array.isArray(raw?.keys) ? raw.keys.map(String) : []
+    const exp = raw?.exp && typeof raw.exp === 'object' ? raw.exp : {}
+    let renew = false
+    for (const k of keys) {
+      const e = exp[k] ? Date.parse(String(exp[k])) : NaN
+      if (!isNaN(e)) {
+        if (e > now) m.set(k, e)          // 未过期 → 继续静音
+        // 过期 → 不进表 = 恢复提醒
+      } else {
+        // 老格式条目（永久静音时代留下的，没有过期时间）：补一次 TTL 后写回，
+        // 免得历史拉黑永久卡住；只在首次遇到时写，之后 exp 里就有值了。
+        m.set(k, now + muteTtlMs)
+        renew = true
+      }
+    }
+    if (renew) saveMuted(m)
+    return m
   } catch {
-    return new Set()
+    return new Map()
   }
 }
 
-function saveMuted(keys: Set<string>): void {
+function saveMuted(m: Map<string, number>): void {
+  const keys = [...m.keys()].sort()
+  const exp: Record<string, string> = {}
+  for (const [k, v] of m) exp[k] = new Date(v).toISOString()
   const p = getMutedPath()
   const tmp = p + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify({ keys: [...keys].sort() }, null, 2), 'utf-8')
+  fs.writeFileSync(tmp, JSON.stringify({ keys, exp }, null, 2), 'utf-8')
   fs.renameSync(tmp, p)
 }
 
-/** 查看忽略表（供设置页 / 诊断用） */
+/** 查看当前生效中的忽略表（供设置页 / 诊断用；已过期的不算） */
 export function listMuted(): string[] {
-  return [...loadMuted()].sort()
+  return [...loadMuted().keys()].sort()
 }
 
 /** 清空忽略表：此后被忽略的事件会重新提示 */
 export function unmuteAll(): number {
   const keys = loadMuted()
-  saveMuted(new Set())
+  saveMuted(new Map())
   return keys.size
 }
 
@@ -195,9 +226,10 @@ export function deleteNotification(id: string): boolean {
   if (idx < 0) return false
   const [removed] = list.splice(idx, 1)
   saveAll(list)
-  // 删除 = 用户明确表示「别再提示我这件事」，记入忽略表，否则下一轮扫描会原样重建
+  // 删除 = 用户明确表示「别再提示我这件事」，记入忽略表，否则下一轮扫描会原样重建。
+  // 静音 **7 天后自动恢复**（2026-10-01 用户拍板，不再是永久拉黑）。
   const muted = loadMuted()
-  muted.add(dedupKey(removed))
+  muted.set(dedupKey(removed), Date.now() + muteTtlMs)
   saveMuted(muted)
   return true
 }

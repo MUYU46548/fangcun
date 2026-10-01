@@ -61,11 +61,15 @@ function report() {
   check('共享模块三层兜底齐备（ipc → navigator → execCommand）',
     /clipboardWriteText/.test(shared) && /clipboard\.writeText/.test(shared) && /execCommand\('copy'\)/.test(shared))
   // 红测自证：把裸写法塞回去，守卫必须抓到
-  const regressed = vue.replace('async function copyId(id: string) {\n  await copyWithToast(id, \'已复制 ID\')',
+  // ⚠ 模式必须容忍 CRLF（2026-10-01）：core.autocrlf=true 的工作区里 App.vue 是 CRLF，
+  //   而写死 `\n` 的字面量会一次都匹配不上 → replace 原样返回 → 红测假红。
+  //   这与产品无关，纯粹是行尾差异，所以用 \r?\n 而不是回退行尾。
+  const needle = /async function copyId\(id: string\) \{(\r?\n) {2}await copyWithToast\(id, '已复制 ID'\)/
+  const regressed = vue.replace(needle,
     'async function copyId(id: string) {\n  await navigator.clipboard.writeText(id)')
   const regressedLive = regressed.split('\n').filter(l => /navigator\.clipboard/.test(l) && !/^\s*(\*|\/\/)/.test(l))
   check('红测自证：把裸 navigator.clipboard 塞回去，守卫必须报错', regressedLive.length > 0,
-    JSON.stringify(regressedLive))
+    JSON.stringify(regressedLive) + (needle.test(vue) ? '' : ' 【copyId 样板没匹配上，模式要跟着改】'))
 })()
 
 // ── ② ③ 行为测试：真 Electron，真 preload，真剪贴板读回 ──────────────────

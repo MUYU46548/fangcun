@@ -38,6 +38,8 @@
 | **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
 | **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
 | 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式 |
+| **frontmatter 跨语言契约（改写盘必跑）** | `node scripts/test/e2e-fm-contract.cjs` | **TS 与 Python 读同一份 `task-data/*.md` / `docs/执行日志/*.md`**：块式列表、行内列表、引号、空值两个方向各走一遍 —— 首跑即抓到 `_parse_log` 把块式 `附件:` 读成空串（＝下次写回静默清空）；源码守卫：TS 日志 `yaml.dump` 必须带 `flowLevel:-1`（列表一律内联）、TS 任务写盘仍走 yaml.dump |
+| **MCP 读口契约** | `node scripts/test/e2e-mcp-views.cjs` | **真跑编译产物 `dist/main/mcp/tools.js` + 临时数据目录**（纯 Node 下 `setDataDir` 的持久化分支被 try/catch 吞掉，不会动真实数据目录）：`view=trash` 必须返回回收站而不是活跃+归档、`search_tasks` 必须能搜到归档、`project` 过滤对数组字段生效；源码守卫：禁止私有读扫描回潮 |
 | **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
@@ -94,7 +96,7 @@
 | 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **242** / e2e **二十套本机全绿 1041**（2026-09-30 11:30 实测：task-fields118 · logs127 · task-delete93 · notifications86 · **renderer-web135** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **298/8**（8 条红=改动面外的既有问题，见开发日志 09-29/09-30）、`backup` 未跑 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **242** / e2e **二十二套本机全绿 1177**（2026-10-01 18:33 实测：task-fields118 · **logs167** · task-delete93 · **notifications116** · **renderer-web167** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50 · **fm-contract20** · **mcp-views14**）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **298/8**（8 红=改动面外的既有问题，见开发日志 09-29/09-30）、`backup` 未跑 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

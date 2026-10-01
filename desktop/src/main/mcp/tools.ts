@@ -1,31 +1,15 @@
 import { MCPTool, MCPRequest, MCPResponse, MCPToolResult } from './types'
-import { loadTasks, parseRegistry, getDataDir, getTaskDir, parseTask } from '../data'
+import { loadTasks, parseRegistry, getDataDir } from '../data'
 import * as tasks from '../data/tasks'
 import * as services from '../services'
 import * as logs from '../services/logs'
 import type { Task } from '../data'
 
-function loadAllTasks(): Task[] {
-  const taskDir = getTaskDir()
-  const fs = require('fs')
-  const path = require('path')
-  const all: Task[] = []
-  function scanDir(dir: string) {
-    if (!fs.existsSync(dir)) return
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name === 'archive' || entry.name === '.backup' || entry.name === '.trash') continue
-        scanDir(fullPath)
-      } else if (entry.name.endsWith('.md') && !entry.name.startsWith('_')) {
-        const task = parseTask(fullPath)
-        if (task) all.push(task)
-      }
-    }
-  }
-  scanDir(taskDir)
-  return all
-}
+// 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
+// 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
+// 永远搜不到归档任务，而 UI 的「全部」含归档；view=trash 语义也对不上。现在读路径
+// 一律走 data.loadTasks / tasks.listTrash，两个对外读口一个口径
+// （契约由 scripts/test/e2e-mcp-views.cjs 真跑编译产物钉死）。
 
 // ── Tool Definitions ────────────────────────────────────────────────────
 
@@ -222,11 +206,25 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
   switch (name) {
     case 'list_tasks': {
       const view = args.view || 'active'
-      const all = loadTasks(view)
-      let result = all
-      if (args.project) result = result.filter((t: any) => t.fm.project === args.project)
-      if (args.status) result = result.filter((t: any) => t.fm.status === args.status)
-      return { content: [{ type: 'text', text: JSON.stringify(result.map((t: any) => ({ id: t.id, title: t.fm.title, status: t.fm.status, project: t.fm.project })), null, 2) }] }
+      // 回收站**不是** data.loadTasks 的视图：它落进 else 分支返回的是「活跃+归档」，
+      // schema 写着 trash 返回的却不是回收站（2026-10-01 P0-3 对外契约偏差）。
+      // 真回收站条目在 tasks.listTrash()，条目形状是扁平的（status/project 在顶层）。
+      let result: any[] = view === 'trash' ? (tasks.listTrash() as any[]) : (loadTasks(view) as any[])
+      // 取字段：任务有 fm 包裹，回收站条目是扁平的 —— 两种形状一起认
+      const val = (t: any, k: string) => (t && t.fm && t.fm[k] !== undefined) ? t.fm[k] : t[k]
+      if (args.project) {
+        const want = String(args.project)
+        result = result.filter((t: any) => {
+          const proj = val(t, 'project')
+          // fm.project 是**数组**（`项目: [fm-demo]`），旧写法 `=== args.project` 恒不匹配 → 过滤后永远 []
+          return (Array.isArray(proj) ? proj : [proj]).some((x: any) => String(x || '') === want)
+        })
+      }
+      if (args.status) {
+        const wantSt = String(args.status)
+        result = result.filter((t: any) => String(val(t, 'status') || '') === wantSt)
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(result.map((t: any) => ({ id: t.id, title: val(t, 'title'), status: val(t, 'status'), project: val(t, 'project') })), null, 2) }] }
     }
     
     case 'get_task': {
@@ -310,8 +308,10 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
 
     case 'search_tasks': {
       const query = args.query || ''
-      const tasks = loadAllTasks()
-      const results = tasks.filter((t: any) => {
+      // 'all' = 活跃 + 归档（与 UI 的「全部」同口径）。此前用的是**私有扫描**，
+      // 它跳过 archive → 搜不到归档任务，同一个问题问 MCP 和问 UI 会得到不同答案。
+      const pool = loadTasks('all') as any[]
+      const results = pool.filter((t: any) => {
         const q = query.toLowerCase()
         return (t.fm.title || '').toLowerCase().includes(q) ||
           t.body.toLowerCase().includes(q) ||

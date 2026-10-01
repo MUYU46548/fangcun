@@ -77,6 +77,16 @@ export interface LogEntry {
    * api_log_archive 写的归档备注，桌面版一碰就丢）。
    */
   archiveNote?: string
+  /**
+   * 附件（2026-10-01 用户第 1 条，落地卡 036 的口径；用户原话「报修时截图/分析报告有地方放，
+   * 不用靠脑子记」，且已提过至少两次）：
+   *
+   * - 文件**复制进数据目录** `docs/执行日志/_attachments/<logId>/`，列表里存**相对数据目录**的路径 ——
+   *   绝不存外部绝对路径（换个盘/挪个目录就全部失效，验收里明写「绝不外链失效」）。
+   * - 不做素材库、不做标签/预览管理 —— 只做「日志 ↔ 文件」这一条关联入口。
+   * - 附件目录以 `_` 开头且不是 .md，listLogs 的 `isFile` 过滤天然跳过，不会被当成日志。
+   */
+  attachments?: string[]
 }
 
 /**
@@ -197,10 +207,23 @@ function parseLogFile(filePath: string): LogEntry | null {
       // 确认尾巴：此前不读 → 下一次写回就静默删节（见 archiveNote 字段注释）
       note: noteText || undefined,
       archiveNote: archiveNoteText || undefined,
+      attachments: parseAttachments(raw.attachments),
     }
   } catch {
     return null
   }
+}
+
+function parseAttachments(v: any): string[] {
+  if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean)
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (s.startsWith('[') && s.endsWith(']')) {
+      return s.slice(1, -1).split(',').map(x => x.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+    }
+    return s ? [s] : []
+  }
+  return []
 }
 
 function renderLog(log: LogEntry): string {
@@ -227,7 +250,15 @@ function renderLog(log: LogEntry): string {
   if (log.running) fm.running = true
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
-  const fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
+  let fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
+  // 附件清单走**手工内联行**，不交给 yaml.dump（2026-10-01）：
+  // Python 侧 `tegula/core.py::_parse_log` 是逐行 kv 解析、只认 `[a, b]` 这种内联列表，
+  // yaml.dump 出的块式列表（`attachments:` + `  - x`）会被它读成空值，下一次 Python 写盘
+  // （api_log_complete / api_log_archive …）就把附件清单**静默清空** —— 归档备注同族问题不能再犯。
+  // 路径里会破坏两个解析器的字符（逗号/引号/方括号）在复制落盘时就被文件名清洗掉了。
+  if (log.attachments?.length) {
+    fmText += 'attachments: [' + log.attachments.map(p => `'${String(p)}'`).join(', ') + ']\n'
+  }
   let body = `# ${log.title}\n\n## 执行内容\n\n${log.content || '（待填写）'}\n\n## 下一步\n\n${log.nextSteps || '（待填写）'}`
   if (log.note) {
     body += `\n\n## 完成确认\n\n${log.note}`
@@ -260,9 +291,17 @@ export function listLogs(filter?: {
   dateFrom?: string
   dateTo?: string
   agent?: string
+  /** 关键词（2026-10-01 用户第 3 条「日常卡点」）：搜索与筛选**必须可叠加**。
+   *  此前界面有两条互不相干的路 —— 搜索走 `searchLogs(query)`（无视项目/Agent/日期），
+   *  筛选走 `listLogs(filter)`（无视搜索词），任何一次刷新（完成/归档/改筛选）都会
+   *  把搜索结果冲掉、而搜索框里的词还留着，用户看到的是「搜了又没了」。
+   *  现在搜索词就是筛选的一个维度，只有一条取数路径。 */
+  query?: string
 }): LogEntry[] {
   const dir = getLogsDir()
   if (!fs.existsSync(dir)) return []
+  const q = String(filter?.query || '').trim().toLowerCase()
+  const hit = (s: string) => String(s || '').toLowerCase().includes(q)
   const logs: LogEntry[] = []
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().reverse()
   for (const fn of files) {
@@ -276,6 +315,9 @@ export function listLogs(filter?: {
     const entryDate = (entry.logDate || entry.created || '').slice(0, 10)
     if (filter?.dateFrom && entryDate < filter.dateFrom) continue
     if (filter?.dateTo && entryDate > filter.dateTo) continue
+    // 关键词：标题 / 执行内容 / 下一步 / 项目（比 searchLogs 多查一步「下一步」，
+    // 日志里最该被搜到的往往正是它）
+    if (q && !(hit(entry.title) || hit(entry.content) || hit(entry.nextSteps) || hit(entry.project))) continue
     logs.push(entry)
   }
   // 置顶优先（2026-09-26 卡 037）：Array.sort 在 V8 里是稳定的，组内保持原有顺序（文件名倒序 = 新的在前）
@@ -615,4 +657,133 @@ export function cleanupLogs(): string[] {
     }
   }
   return archived
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 附件（2026-10-01 用户第 1 条 → 落地卡 036）
+// 口径（卡 036 验收里定的三问，逐条对上）：
+//   ① 图片存哪      → **数据目录内** `<logsDir>/_attachments/<logId>/`，frontmatter 存**相对路径**
+//   ② UI 入口在哪    → 日志只读预览 + 编辑对话框的「附件」区（添加/打开/移除）
+//   ③ 跟备份包关系  → 与日志同目录，日志进了包它就在包里；绝不存外部绝对路径（外链必失效）
+// 不做素材库：没有标签、没有相册视图，只有一条「日志 ↔ 文件」的关联。
+// ═══════════════════════════════════════════════════════════════════
+
+/** 附件根目录（与 .md 同级，下带 `<logId>/` 子目录；`_` 开头避免与日志文件混淆） */
+function attachmentsDir(logId: string): string {
+  return path.join(getLogsDir(), '_attachments', logId)
+}
+
+/**
+ * 落盘文件名清洗。两台解析器都吃这个名：
+ *  - Python `core.py::_parse_log` 按**逗号**切内联列表 → 文件名带逗号会被劈成两半
+ *  - 引号/方括号会打断 YAML 的 `['x']` 写法
+ *  - Windows 非法字符照常剔除
+ */
+function safeAttachName(name: string): string {
+  return path.basename(name).replace(/[,;[\]'"]/g, '_').replace(/[\\/:*?"<>|]/g, '_').trim() || 'file'
+}
+
+/** 相对数据目录的**正斜杠**路径（Windows 反斜杠会在另一个解析器里变成转义符） */
+function toRelPosix(absPath: string): string {
+  return path.relative(getDataDir(), absPath).split(path.sep).join('/')
+}
+
+/**
+ * 把外部文件**复制**进数据目录并挂到日志上。
+ * 是复制不是移动：源文件留在原处（用户可能还放在别的地方），数据目录里这份是自足的。
+ * 允许给**非 active** 的日志挂附件 —— 报告/截图常常是跑完之后才补的，
+ * 所以和置顶一样绕开「非 active 不可编辑」那条守卫（那条守卫防的是改内容）。
+ */
+export function addAttachments(logId: string, sources: string[]): { ok: boolean; data?: LogEntry; error?: string } {
+  const dir = getLogsDir()
+  const filePath = path.join(dir, `${logId}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+
+  const destDir = attachmentsDir(logId)
+  const added: string[] = []
+  for (const src of sources || []) {
+    try {
+      if (!src || !fs.existsSync(src) || !fs.statSync(src).isFile()) continue
+      fs.mkdirSync(destDir, { recursive: true })
+      const name = safeAttachName(src)
+      let dest = path.join(destDir, name)
+      let n = 1
+      while (fs.existsSync(dest)) {
+        const ext = path.extname(name)
+        const stem = path.basename(name, ext)
+        dest = path.join(destDir, `${stem} (${n})${ext}`)
+        n++
+      }
+      fs.copyFileSync(src, dest)
+      added.push(toRelPosix(dest))
+    } catch {
+      // 单个文件失败不拖垮整批（锁着的、权限不足的直接跳过），最后统一报数
+    }
+  }
+  if (!added.length) return { ok: false, error: '没有成功添加任何文件' }
+
+  entry.attachments = Array.from(new Set([...(entry.attachments || []), ...added]))
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 解除关联（**不删文件**）。「移除」在界面上的语义是"这条日志不再引用它"，
+ * 不是销毁数据 —— 真要删文件是另一件事，且属于破坏性操作，不做隐藏在按钮后面的事。
+ */
+export function detachAttachment(logId: string, relPath: string): { ok: boolean; data?: LogEntry; error?: string } {
+  const dir = getLogsDir()
+  const filePath = path.join(dir, `${logId}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  const rel = String(relPath || '')
+  entry.attachments = (entry.attachments || []).filter(x => x !== rel)
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * 相对路径 → 绝对路径，**带逃逸检查**。
+ * 附件路径最终会交给 shell.openPath / fs.readFile，所以必须钉死在数据目录内，
+ * 否则 frontmatter 里被写进 `../../xxx` 就能读任意文件。
+ */
+export function resolveAttachment(relPath: string): string | null {
+  const rel = String(relPath || '').replace(/\\/g, '/').trim()
+  if (!rel) return null
+  const root = path.resolve(getDataDir())
+  const abs = path.resolve(root, rel.split('/').join(path.sep))
+  if (abs !== root && !abs.startsWith(root + path.sep)) return null
+  return fs.existsSync(abs) && fs.statSync(abs).isFile() ? abs : null
+}
+
+const ATTACH_MIME: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf', '.txt': 'text/plain', '.md': 'text/markdown', '.log': 'text/plain',
+  '.json': 'application/json', '.csv': 'text/csv', '.html': 'text/html', '.zip': 'application/zip',
+}
+
+/**
+ * 附件 → data URL（渲染层**唯一**的预览通道）。
+ * 为什么不用 `file://`：dev 态页面跑在 http://localhost，跨源直接读不了本地图片；
+ * 打包态虽是 file://，但两条路都得绕权限白名单 —— 走 IPC 最省事也最可控。
+ * 超过 8MB 不内联（base64 还要再涨三分之一，塞进 <img> 会把渲染层卡住），
+ * 这种情况返回 tooLarge，UI 上给「用系统程序打开」的按钮。
+ */
+export function readAttachmentData(relPath: string, maxBytes = 8 * 1024 * 1024):
+  { ok: boolean; data?: { mime: string; dataUrl: string; name: string }; error?: string } {
+  const abs = resolveAttachment(relPath)
+  if (!abs) return { ok: false, error: '附件不存在（可能已被移出数据目录）' }
+  const stat = fs.statSync(abs)
+  const ext = path.extname(abs).toLowerCase()
+  const mime = ATTACH_MIME[ext] || 'application/octet-stream'
+  const name = path.basename(abs)
+  if (stat.size > maxBytes) return { ok: false, error: 'tooLarge', data: { mime, dataUrl: '', name } }
+  try {
+    const buf = fs.readFileSync(abs)
+    return { ok: true, data: { mime, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, name } }
+  } catch (e: any) {
+    return { ok: false, error: `读取失败：${e?.message || e}` }
+  }
 }

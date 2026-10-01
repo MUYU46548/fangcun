@@ -1,14 +1,21 @@
 /**
  * Fangcun Desktop — 通知检测器
  *
- * 主进程轻量定时扫描（默认 60s），把 5 类事件写入通知中心：
+ * 主进程轻量定时扫描（默认 60s），把 7 类事件写入通知中心：
  *   todo-due（待办到期）/ task-deadline（任务截止）/ task-timeout（超时未回写）
  *   / parse-error（解析失败）/ backup-failed（由 scheduler 事件写入，不在此扫描）
+ *   / blocker-broken（阻塞链断裂）/ task-stalled（进行中却没动静）
+ *
+ * **扫描范围是用户拍板的定稿，不自作主张加新类型**（2026-10-01 原话：
+ * 「先不急着改，先明确需求再改，我觉得按你这样改只会增加一堆噪音，很吵」）。
+ * 新增的 blocker-broken / task-stalled 一律 `osNotify:false` —— 形态是
+ * 「角标红点 + 面板集中看」，不弹系统通知。
  *
  * 到点只弹一次：去重键含事件指纹（due 值），改期后是新事件。
  * 事件消失时自动消解对应未读通知（resolveNotifications）。
  */
 import { Notification as OsNotification } from 'electron'
+import * as appLog from './appLog'
 import * as todos from './todos'
 import * as notifications from './notifications'
 import * as data from '../data'
@@ -153,6 +160,45 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
+  // ── 5. 阻塞链断裂（B 类，2026-10-01 用户定稿）────────────────────────
+  // 非终态任务的 `阻塞:` 指向一个活跃区与归档区都找不到的任务（已删 / 在 .trash 里）。
+  // 数据异常但可恢复 → warning（不打"紧急"），且不弹系统通知。
+  const broken = tasks.detectBrokenBlockers()
+  const brokenPairs = new Set(broken.map(b => `${b.taskId}|${b.blockerId}`))
+  for (const b of broken) {
+    if (push({
+      type: 'blocker-broken', level: 'warning', osNotify: false,
+      title: `阻塞链断裂：${b.taskTitle}`,
+      body: `它依赖的 ${b.blockerId} 已不存在（可能被删除或进了回收站）`,
+      sourceId: b.taskId, key: b.blockerId,   // 每对「任务×缺失阻塞源」一条，避免互相挤掉
+    })) created++
+  }
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'blocker-broken' && !brokenPairs.has(`${n.sourceId}|${n.key ?? ''}`)) {
+      resolved += notifications.resolveNotifications('blocker-broken', n.sourceId)
+    }
+  }
+
+  // ── 6. 进行中却没动静（C 类，2026-10-01 用户定稿）────────────────────
+  // 「状态=进行中」= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活；
+  // 此后任务文件 ≥24h 没有任何写入 = 没人回写。只扫进行中（其他状态天然不回写，扫了是噪音）。
+  const stalled = tasks.findStalledTasks()
+  const stalledIds = new Set(stalled.map(t => t.id))
+  for (const t of stalled) {
+    if (push({
+      type: 'task-stalled', level: 'warning', osNotify: false,
+      title: `任务没动静：${t.title}`,
+      body: `状态「进行中」，但任务文件已 ${t.hours} 小时没有任何写入`,
+      sourceId: t.id,
+      key: 'stalled',   // 固定指纹：小时数每次扫描都变，用它做指纹会每小时长出一条新通知
+    })) created++
+  }
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'task-stalled' && !stalledIds.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('task-stalled', n.sourceId)
+    }
+  }
+
   notifications.prune()
   lastScanAt = new Date().toISOString()
   return { scanned: true, newNotifications: created, resolved }
@@ -179,12 +225,19 @@ export function startScanner(intervalMs = 60000): void {
     running = true
     try {
       scanOnce()
-    } catch { /* 单次扫描失败不影响后续 */ }
+    } catch (e) {
+      // P0-4（2026-10-01）：这里原本是 `catch {}` **静默吞异常** —— 「扫描器停摆」和
+      // 「扫不到事件」在界面上长得一模一样，用户只能得出通知中心是坏的。落应用日志后
+      // 照常继续（单次失败不致命），配合面板页脚的「上次扫描」相对时间即可判断是否停摆。
+      appLog.error('notifier', '单次扫描失败（下次到点照常重试）', e)
+    }
     running = false
   }, intervalMs)
   if (typeof timer.unref === 'function') timer.unref()
   // 启动后 5s 做首次扫描
-  const first = setTimeout(() => { try { scanOnce() } catch { /* ignore */ } }, 5000)
+  const first = setTimeout(() => {
+    try { scanOnce() } catch (e) { appLog.error('notifier', '启动后首次扫描失败', e) }
+  }, 5000)
   if (typeof first.unref === 'function') first.unref()
 }
 

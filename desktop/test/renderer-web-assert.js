@@ -456,9 +456,9 @@
       if (!col) return []
       return Array.prototype.map.call(col.querySelectorAll('.card'), (c) => c.dataset.id || '?')
     }
-    check('  顶栏排序下拉就是那三个值（活跃优先 / 最近更新 / 创建时间）',
-      $$('#bar select').some((s) => s.options.length === 3
-        && Array.prototype.every.call(s.options, (o) => ['active', 'updated', 'created'].indexOf(o.value) >= 0)),
+    check('★★ 顶栏排序下拉四个值（活跃优先 / 最近更新 / 创建时间 / 优先级 —— 2026-10-01 用户第 2 条）',
+      $$('#bar select').some((s) => s.options.length === 4
+        && Array.prototype.every.call(s.options, (o) => ['active', 'updated', 'created', 'prio'].indexOf(o.value) >= 0)),
       JSON.stringify($$('#bar select').map((s) => Array.prototype.map.call(s.options, (o) => o.value)).filter((a) => a.indexOf('active') >= 0)))
     const ordDefault = statusColOrder()
     check('  默认「活跃优先」：待办列按后端顺序（夹具 001 → 002）',
@@ -474,22 +474,28 @@
     check('★ 按「最新创建」用的是 created 而不是 updated（001 的 created 更新 → 它排前面）',
       ordCre.join(',') === 'task-demo-001,task-demo-002', JSON.stringify(ordCre))
 
+    check('  能切到「优先级」（2026-10-01 用户第 2 条：看板补的排法）', await pickSort('prio'))
+    check('★★ 优先级排法落真身 prefs（不是只改了下拉没接线）',
+      String(window.__fcTest.prefs().fc_board_sort) === 'prio',
+      JSON.stringify(window.__fcTest.prefs().fc_board_sort))
+
     check('  切回「活跃优先」', await pickSort('active'))
     check('  恢复后与初始一致（排序可逆）', statusColOrder().join(',') === ordDefault.join(','), JSON.stringify(statusColOrder()))
     check('  排序选择进了真身 prefs（与分组方式同一套机制，换 origin 不丢）',
-      ['active', 'updated', 'created'].indexOf(String(window.__fcTest.prefs().fc_board_sort)) >= 0,
+      ['active', 'updated', 'created', 'prio'].indexOf(String(window.__fcTest.prefs().fc_board_sort)) >= 0,
       JSON.stringify(window.__fcTest.prefs().fc_board_sort))
 
     // ══ 日历 · 格子内折叠（2026-09-29 用户选「改法 A」）════════════════════
     // 035 卡原话「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
-    // 剩下的密在**格子内部** —— 夹具把 4 条事件压在 9-30（001 + 011/012/013）。
+    // 剩下的密在**格子内部** —— 夹具把 4 条事件压在「今天」（001 + 011/012/013，
+    // 日期跟随运行日，见 renderer-preload.cjs 的 FIX_DEADLINE：写死 9-30 会在每月 1 号假红）。
     check('能切到「日历」页签', clickText('日历'))
     await sleep(700)
     const calCellOf = () => $$('main.calendar-view .calcell')
       .filter((c) => (c.textContent || '').indexOf('日历密度样例一') >= 0)[0]
     const cal0 = (() => {
       const c = calCellOf()
-      if (!c) return { err: '没找到 9-30 那格（夹具日期对不上？）' }
+      if (!c) return { err: '没找到「今天」那格（夹具日期对不上？见 FIX_DEADLINE）' }
       return {
         evs: c.querySelectorAll('.cev').length,
         more: ((c.querySelector('.cal-cell-more') || {}).textContent || '').trim(),
@@ -668,9 +674,30 @@
     check('★ 源摘要条显示源日志 ID',
       !!$('.rs-id') && $('.rs-id').textContent.trim() === 'log-relay-a',
       $('.rs-id') ? $('.rs-id').textContent : 'no .rs-id')
+    const relayTaOf = (labelPart) => {
+      const labs = $$('#relay-modal label')
+      const lab = labs.find(l => (l.textContent || '').indexOf(labelPart) >= 0 &&
+        l.nextElementSibling && l.nextElementSibling.tagName === 'TEXTAREA')
+      return lab ? lab.nextElementSibling : null
+    }
+    check('★★ 顺序符合认知（卡 006）：执行内容在上、下一步在下（与日志卡读序一致）',
+      (() => {
+        const tas = $$('#relay-modal textarea')
+        const first = tas[0] && tas[0].previousElementSibling
+        const second = tas[1] && tas[1].previousElementSibling
+        return tas.length === 2 && !!first && first.textContent.indexOf('执行内容') >= 0 &&
+          !!second && second.textContent.indexOf('下一步') >= 0
+      })(),
+      $$('#relay-modal textarea').map(t => {
+        const l = t.previousElementSibling
+        return l ? l.textContent.slice(0, 6) : '(no label)'
+      }).join(' | '))
     check('★★ 下一步已从源带入（对话框预填）',
-      !!$('#relay-modal textarea') && $('#relay-modal textarea').value.indexOf('清单勾选状态回写') >= 0,
-      $('#relay-modal textarea') ? $('#relay-modal textarea').value.slice(0, 60) : 'no textarea')
+      !!relayTaOf('下一步') && relayTaOf('下一步').value.indexOf('清单勾选状态回写') >= 0,
+      relayTaOf('下一步') ? relayTaOf('下一步').value.slice(0, 60) : 'no 下一步 textarea')
+    check('★ 执行内容默认留空（不继承源正文）',
+      !!relayTaOf('执行内容') && relayTaOf('执行内容').value === '',
+      JSON.stringify(relayTaOf('执行内容') ? relayTaOf('执行内容').value : null))
     check('★ 两个出清开关默认值：源归档 ✓ / 源任务置完成 ✗',
       (() => {
         const opts = $$('#relay-modal .relay-opt input')
@@ -687,6 +714,46 @@
     if (cancelBtn) cancelBtn.click()
     check('取消后对话框关闭', await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭'))
 
+    // ── 卡 006（2026-09-30 用户第 2 条）：关闭防丢 = 对话框内确认条，取代原生 confirm ──
+    const rb2 = $$('.relay-btn')[0]
+    if (rb2) rb2.click()
+    check('重开接力对话框（防丢断言用）', await waitFor(() => !!$('#relay-modal'), 3000, 'relay 重开'))
+    const cta = $$('#relay-modal textarea')[0]
+    if (cta) {
+      cta.value = '用户贴的上次会话完成情况'
+      cta.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    await sleep(250)
+    const cancel3 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
+    if (cancel3) cancel3.click()
+    await sleep(300)
+    check('★★ 有未创建内容时点「取消」不关：出对话框内确认条（不再原生 confirm，也不静默关）',
+      !!$('#relay-modal') && !!$('#relay-modal .relay-discard'),
+      'modal=' + !!$('#relay-modal') + ' bar=' + !!$('#relay-modal .relay-discard'))
+    check('★ 确认条点名改了什么（脏检查覆盖执行内容等字段）',
+      !!$('.relay-discard') && $('.relay-discard').textContent.indexOf('执行内容') >= 0,
+      $('.relay-discard') ? $('.relay-discard').textContent.replace(/\s+/g, ' ').slice(0, 90) : 'no bar')
+    check('★ 确认条两按钮：继续填写 / 丢弃并关闭',
+      (() => {
+        const t = $$('.relay-discard button').map(b => (b.textContent || '').trim())
+        return t.indexOf('继续填写') >= 0 && t.indexOf('丢弃并关闭') >= 0
+      })(), $$('.relay-discard button').map(b => b.textContent.trim()).join('|'))
+    const keepBtn = $$('.relay-discard button').find(b => (b.textContent || '').trim() === '继续填写')
+    if (keepBtn) keepBtn.click()
+    await sleep(250)
+    check('★ 「继续填写」收起条、内容还在（对话框不关）',
+      !!$('#relay-modal') && !$('#relay-modal .relay-discard') &&
+      ($$('#relay-modal textarea')[0] || { value: '' }).value.indexOf('上次会话完成情况') >= 0)
+    const ovRelay = document.querySelector('#relay-overlay')
+    if (ovRelay) ovRelay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    await sleep(250)
+    check('★★ 点遮罩同样拦下：对话框仍在 + 确认条再次出现（老代码这里直接全丢）',
+      !!$('#relay-modal') && !!$('#relay-modal .relay-discard'))
+    const dropBtn = $$('.relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
+    if (dropBtn) dropBtn.click()
+    check('★★ 只有点「丢弃并关闭」才真关（唯一丢弃入口）',
+      await waitFor(() => !$('#relay-modal'), 2000, '丢弃后关闭'))
+
     // 链头「从链尾继续」：源 = 链尾（最新的那格）
     check('按链后再从链头接力', clickText('按链'))
     await sleep(500)
@@ -698,6 +765,47 @@
     const cancel2 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancel2) cancel2.click()
     await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭 2')
+
+    // ══ 附件（2026-10-01 用户第 1 条 → 卡 036）═══════════════════
+    // 卡 036 的验收原话：真实需求是「报修时截图有地方放」——所以这里断言的是
+    // **入口真通**：角标 → 预览附件区 → 点添加多一项 → 点 ✕ 少一项，而不是只看数据层。
+    check('切回分区视图（附件断言前置）', clickText('分区'))
+    await sleep(400)
+    window.__fcTest.setLogs([
+      { id: 'log-att-1', title: '报修：白屏', content: '点了保存没反应', status: 'active', project: 'demo',
+        created: '2026-09-30T00:00:00.000Z', attachments: ['docs/执行日志/_attachments/log-att-1/截图1.png'] },
+      { id: 'log-att-2', title: '无附件日志', content: 'x', status: 'active', project: 'demo',
+        created: '2026-09-30T01:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    check('★★ 日志卡带附件角标 📎1（一眼看出这条附没附东西）',
+      $$('.log-card').some(c => /📎1/.test(c.textContent || '')),
+      $$('.log-card').map(c => (c.textContent || '').replace(/\s+/g, ' ').slice(0, 34)).join(' | '))
+    check('★ 没附件的卡不长角标（不是"每张都挂 0"）',
+      $$('.log-card').filter(c => (c.textContent || '').indexOf('无附件日志') >= 0)
+        .every(c => (c.textContent || '').indexOf('📎') < 0))
+    const attCard = $$('.log-card').find(c => (c.textContent || '').indexOf('报修：白屏') >= 0)
+    if (attCard) attCard.click()
+    check('点开只读预览（附件断言前置）', await waitFor(() => !!$('#log-preview-modal'), 3000, 'log preview'))
+    check('★★ 只读预览里有附件区（"数据层通了但界面没入口"是本项目的老坑）',
+      !!$('#log-preview-modal [data-attach-block]'))
+    check('★★ 图片缩略图真渲染出来（data URL 通道，不碰 file://）',
+      await waitFor(() => $$('#log-preview-modal .attach-item img').length === 1 &&
+        /截图1.png/.test($('#log-preview-modal .attach-grid').textContent || ''), 3000, 'attach img'),
+      'items=' + $$('#log-preview-modal .attach-item').length)
+    const attAddBtn = $('#log-preview-modal .attach-add')
+    if (attAddBtn) attAddBtn.click()
+    check('★★ 点「＋添加文件…」→ 网格多一项（入口真通，不是死按钮）',
+      await waitFor(() => $$('#log-preview-modal .attach-item').length === 2, 3000, 'attach add'),
+      'items=' + $$('#log-preview-modal .attach-item').length)
+    const attX = $$('#log-preview-modal .attach-x')[0]
+    if (attX) attX.click()
+    check('★★ 点 ✕ 少一项（解除关联，而不是弹窗问半天）',
+      await waitFor(() => $$('#log-preview-modal .attach-item').length === 1, 3000, 'attach remove'),
+      'items=' + $$('#log-preview-modal .attach-item').length)
+    const attClose = $$('#log-preview-modal .acts button').find(b => (b.textContent || '').indexOf('关闭') >= 0)
+    if (attClose) attClose.click()
+    await sleep(300)
 
     // ══ 待办 · 多选（2026-09-30 用户补充：「待办和回收站也加入多选」）══════
     await sleep(300)
@@ -855,6 +963,137 @@
       }, 4000, 'trashPurge×2'),
       'purge=' + window.__fcTest.calls().filter(c => c.name === 'trashPurge').length)
     window.confirm = origConfirm2
+
+    // ── P0-1 脏检查快照：判「改没改」而不是「有没有字」（2026-10-01）──
+    const origConfirmD = window.confirm
+    let confirmHits = 0
+    window.confirm = () => { confirmHits += 1; return false }   // 默认"不关"，才能验出"确实拦住了"
+    const hitReset = () => { confirmHits = 0 }
+    const cancelLogBtn = () =>
+      $$('#log-edit-modal button').find(b => (b.textContent || '').trim() === '取消')
+    clickText('日志'); await sleep(600)
+
+    // A. 新建日志一字未改 → 安静关掉（守住别退化成误报）
+    clickText('+ 新建日志'); await sleep(400)
+    hitReset(); const cbA = cancelLogBtn(); if (cbA) cbA.click(); await sleep(300)
+    check('★ 新建日志一字未改 → 关窗不弹确认（不误报）',
+      confirmHits === 0 && $('#log-edit-overlay') === null, 'hits=' + confirmHits)
+
+    // B. 新建日志**只改下拉**（用户原话场景：选「上次执行 Agent」）→ 老逻辑静默丢，现在必须拦
+    clickText('+ 新建日志'); await sleep(400)
+    let selChanged = false
+    for (const s of $$('#log-edit-modal select.logsel')) {
+      const opt = Array.prototype.slice.call(s.options).find(o => o.value && o.value !== s.value)
+      if (opt) { s.value = opt.value; s.dispatchEvent(new Event('change')); selChanged = true; break }
+    }
+    hitReset(); const cbB = cancelLogBtn(); if (cbB) cbB.click(); await sleep(300)
+    check('★★ 新建日志只改「项目/执行 Agent」下拉 → 必须弹确认且**拦住不关**（老逻辑三键全空 → 静默丢）',
+      selChanged && confirmHits === 1 && !!$('#log-edit-overlay'),
+      'hits=' + confirmHits + ' selChanged=' + selChanged)
+    window.confirm = () => { confirmHits += 1; return true }
+    const cbB2 = cancelLogBtn(); if (cbB2) cbB2.click(); await sleep(300)
+
+    // C. 编辑已有日志一字未改 → 老逻辑三键非空必弹（确认疲劳），现在应安静关掉
+    const editLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('编辑') >= 0)
+    if (editLogBtn) editLogBtn.click()
+    await sleep(400)
+    hitReset(); const cbC = cancelLogBtn(); if (cbC) cbC.click(); await sleep(300)
+    check('★★ 编辑已有日志一字未改 → 不再误报「尚未保存」（老逻辑必弹 = 确认疲劳）',
+      !!editLogBtn && confirmHits === 0 && $('#log-edit-overlay') === null,
+      'hits=' + confirmHits + ' editBtn=' + !!editLogBtn)
+
+    // D. 编辑已有日志**真改了** → 必须拦
+    if (editLogBtn) editLogBtn.click()
+    await sleep(400)
+    const titleIn = $('#log-edit-modal input[placeholder="日志标题"]')
+    if (titleIn) {
+      titleIn.value = (titleIn.value || '') + '（改动）'
+      titleIn.dispatchEvent(new Event('input'))
+    }
+    window.confirm = () => { confirmHits += 1; return false }
+    hitReset(); const cbD = cancelLogBtn(); if (cbD) cbD.click(); await sleep(300)
+    check('★★ 编辑已有日志真改了 → 弹确认且拦住不关（防止误关丢改动）',
+      !!titleIn && confirmHits === 1 && !!$('#log-edit-overlay'),
+      'hits=' + confirmHits + ' titleIn=' + !!titleIn)
+    window.confirm = () => { confirmHits += 1; return true }
+    const cbD2 = cancelLogBtn(); if (cbD2) cbD2.click(); await sleep(300)
+    window.confirm = origConfirmD
+
+    // ── 通知中心点击跳转（2026-10-01 用户第 1 条：「点下去是无效按钮」）──
+    window.__fcTest.setTasks([
+      { id: 'nt-task-1', title: '通知跳转目标任务', status: '进行中', project: 'demo',
+        priority: 'P1', created: new Date().toISOString(), updated: new Date().toISOString() },
+    ])
+    const ncNow = new Date().toISOString()
+    window.__fcTest.setNotifications([
+      { id: 'nc-1', type: 'task-stalled', level: 'warning', title: '任务没动静：通知跳转目标任务',
+        body: '任务文件已 72 小时没有任何写入', sourceId: 'nt-task-1', key: 'stalled',
+        read: false, createdAt: ncNow, updatedAt: ncNow },
+      { id: 'nc-2', type: 'todo-due', level: 'warning', title: '待办到期：示例',
+        body: '今天到期', sourceId: 'nt-todo-1', key: 'due',
+        read: true, createdAt: ncNow, updatedAt: ncNow },
+    ])
+    clickText('看板'); await sleep(400)
+    const bellBtn = $('.nc-bell')
+    check('★ 通知中心铃铛入口存在', !!bellBtn)
+    if (bellBtn) bellBtn.click()
+    await sleep(500)
+    check('★★ 打开面板：注入的两条通知渲染出来了', $$('.nc-item').length === 2,
+      String($$('.nc-item').length))
+    check('★ 能跳的行带 title 提示 + 行尾箭头（不再是死按钮）',
+      $$('.nc-item.go').length === 2 && $$('.nc-go').length === 2 &&
+      (($$('.nc-item')[0] || {}).getAttribute?.('title') === '跳到这个任务'),
+      (($$('.nc-item')[0] || {}).getAttribute?.('title') || 'null'))
+    // 点第 1 条（任务类）→ 关面板 + getTask + 切看板 + 打开任务预览
+    const ncItem1 = $$('.nc-item')[0]
+    if (ncItem1) ncItem1.click()
+    check('★★ 点任务通知：关面板 + 取任务 + 打开任务预览',
+      await waitFor(() => $('#roverlay') !== null && $('.nc-wrap') === null &&
+        window.__fcTest.calls().filter(c => c.name === 'getTask').length >= 1, 5000, 'roverlay+getTask'),
+      'getTask=' + window.__fcTest.calls().filter(c => c.name === 'getTask').length)
+    check('★ 预览打开的正是通知指向的那条任务',
+      !!$('#roverlay') && String((($('#rmodal h3') || {}).textContent || '')).indexOf('通知跳转目标任务') >= 0,
+      String((($('#rmodal h3') || {}).textContent || '').slice(0, 60)))
+    // 关预览（overlay 自身 @click.self）
+    const ovNc = $('#roverlay'); if (ovNc) ovNc.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await sleep(300)
+    // 点第 2 条（待办类）→ 关面板 + 切到待办视图
+    if (bellBtn) bellBtn.click()
+    await sleep(400)
+    const ncItem2 = $$('.nc-item')[1]
+    if (ncItem2) ncItem2.click()
+    check('★★ 点待办通知：切到待办视图（面板同步关闭）',
+      await waitFor(() => $('.todos-view') !== null && $('.nc-wrap') === null, 4000, 'todos 视图'),
+      'todos=' + $$('.todos-view').length)
+
+    // ── P0-4 / P0-5：扫描器状态可见 + 被静音提醒可恢复（2026-10-01）──
+    window.__fcTest.setNcExtras(
+      { running: true, lastScanAt: new Date(Date.now() - 120000).toISOString() },
+      ['stalled:task-x', 'blocker-broken:task-y'], 2)
+    const bell2 = $('.nc-bell')
+    if (bell2) bell2.click()
+    await sleep(500)
+    const scanEl = $('.nc-foot .nc-scan')
+    check('★★ 扫描器状态在面板页脚可见（「停摆」与「扫不到」此前长得一模一样）',
+      !!scanEl && /扫描器运行中/.test(scanEl.textContent || '') && /上次扫描/.test(scanEl.textContent || ''),
+      scanEl ? String(scanEl.textContent) : '无 .nc-scan')
+    const mutedRow = $('.nc-muted')
+    check('★★ 被静音（删过）的提醒显示出来（此前 7 天内彻底消失且用户不知情）',
+      !!mutedRow && /被忽略 2 条/.test(mutedRow.textContent || ''),
+      mutedRow ? String(mutedRow.textContent) : '无 .nc-muted')
+    const unmuteBtn = mutedRow ? mutedRow.querySelector('button') : null
+    if (unmuteBtn) unmuteBtn.click()
+    check('★★ 点「全部恢复」→ 调 IPC + 行消失',
+      await waitFor(() => {
+        const n = window.__fcTest.calls().filter(c => c.name === 'notificationsUnmuteAll').length
+        return n >= 1 && !$('.nc-muted')
+      }, 4000, 'unmuteAll + 行消失'),
+      'calls=' + window.__fcTest.calls().filter(c => c.name === 'notificationsUnmuteAll').length)
+    if ($('.nc-wrap')) {
+      const bell3 = $('.nc-bell')
+      if (bell3) bell3.click()
+      await sleep(200)
+    }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,

@@ -115,8 +115,18 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。可撤销，且不是完成/归档的前置条件。 */
   logsSetRunning: (id: string, running: boolean) => ipcRenderer.invoke('logs:setRunning', id, running),
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
-  logsSearch: (query: string) => ipcRenderer.invoke('logs:search', query),
+  // logs:search 已删（2026-10-01）：搜索改由 logs:list 的 filter.query 承担，
+  // 与项目/Agent/日期筛选同一条取数路径（此前两条路互不相干，一刷新搜索就丢）。
+  // 需要"全文搜"的调用方（MCP search_logs）直接用 services/logs.ts 的 searchLogs()。
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
+  /** 附件（2026-10-01 卡 036）：主进程弹系统选文件框 → 复制进数据目录 → 返回更新后的日志 */
+  logsAttachFiles: (logId: string) => ipcRenderer.invoke('logs:attachFiles', logId),
+  /** 解除关联（文件不删） */
+  logsDetachAttachment: (logId: string, rel: string) => ipcRenderer.invoke('logs:detachAttachment', logId, rel),
+  /** 附件 → data URL（预览唯一通道）；超大文件返回 tooLarge */
+  logsAttachmentData: (rel: string) => ipcRenderer.invoke('logs:attachmentData', rel),
+  /** 用系统程序打开附件 */
+  logsOpenAttachment: (rel: string) => ipcRenderer.invoke('logs:openAttachment', rel),
   /** 复制到剪贴板（主进程通道：不受 file:// 起源与窗口焦点限制，见 shared/clipboard.ts） */
   clipboardWriteText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
@@ -146,6 +156,10 @@ contextBridge.exposeInMainWorld('tegula', {
   notificationsDelete: (id: string) => ipcRenderer.invoke('notifications:delete', id),
   notificationsClear: () => ipcRenderer.invoke('notifications:clear'),
   notificationsScan: () => ipcRenderer.invoke('notifications:scan'),
+  // 2026-10-01 P0-4/P0-5：扫描器状态 + 被静音提醒的可见与恢复
+  notificationsScannerStatus: () => ipcRenderer.invoke('notifications:scannerStatus'),
+  notificationsListMuted: () => ipcRenderer.invoke('notifications:listMuted'),
+  notificationsUnmuteAll: () => ipcRenderer.invoke('notifications:unmuteAll'),
 
   // Services / Workbench
   scanServices: () => ipcRenderer.invoke('scanServices'), 

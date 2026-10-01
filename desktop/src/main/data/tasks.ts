@@ -867,6 +867,70 @@ export function findTimeoutTasks(thresholdHours = 24): { id: string; title: stri
     .filter(Boolean) as any
 }
 
+/** 任务文件「上次被写入」的时刻：优先 frontmatter 的 更新，缺失/坏值退回文件 mtime。 */
+function taskLastTouchedMs(t: Task): number | null {
+  const u = t.fm.updated ? Date.parse(String(t.fm.updated)) : NaN
+  if (!isNaN(u)) return u
+  try { return fs.statSync(t.path).mtimeMs } catch { return null }
+}
+
+/**
+ * **真「没动静」检查**（2026-10-01 用户定稿 C 类）。
+ *
+ * 语义：`状态 === '进行中'`（= 用户已把手动写的提示词扔给 AI、回方寸点了进行中，
+ * 这就是本项目的"已派活"信号）且任务文件自上次写入起 ≥ thresholdHours 没有任何变化。
+ *
+ * 与 `findTimeoutTasks` 的区别（那个是既有命名误导）：它只算 `派活时间 → 现在`，
+ * 与文件变没变毫无关系；而 `moveStatus` 会把 `更新` 刷成当前时刻
+ * （见 moveStatus: `task.fm.updated = new Date().toISOString()`）——
+ * 点「进行中」那一刻时钟开始走，agent 中途回写一次时钟就重置。
+ *
+ * 只扫 `进行中`：待办/待验收/完成/驳回天然不会回写，扫了就是噪音（用户 2026-10-01 明确否决按 `更新`
+ * 对所有任务比时间的做法——「有些任务就是不会回写的」）。
+ */
+export function findStalledTasks(thresholdHours = 24): { id: string; title: string; hours: number }[] {
+  const nowMs = Date.now()
+  return loadAllTasks()
+    .filter(t => t.fm.status === '进行中')
+    .map(t => {
+      const last = taskLastTouchedMs(t)
+      if (!last) return null
+      const hours = Math.floor((nowMs - last) / 3600_000)
+      return hours >= thresholdHours ? { id: t.id, title: t.fm.title || t.id, hours } : null
+    })
+    .filter(Boolean) as any
+}
+
+export interface BrokenBlocker {
+  taskId: string
+  taskTitle: string
+  blockerId: string
+}
+
+/**
+ * **阻塞链断裂**（2026-10-01 用户定稿 B 类）：非终态任务的 `阻塞:` 引用了一个
+ * 在活跃区与归档区都找不到的任务（被彻底删除，或已进 `task-data/.trash/`）。
+ *
+ * 真实案例：`task-20260910-001` 的 `阻塞: [task-20260910-002, …]`，
+ * 而 `task-20260910-002` 只存在于 `.trash/` —— 链断了，但界面与通知都毫无表示。
+ *
+ * 归档区里的阻塞源**不算断裂**（它完成了才归档，链是被"解开"而不是"断掉"）。
+ */
+export function detectBrokenBlockers(): BrokenBlocker[] {
+  const all = loadAllTasks()                                   // 活跃区（含终态，下面自己过滤）
+  const known = new Set(loadAllTasksRaw('all').map(t => t.id)) // 活跃 + 归档；.trash/.backup 天然不在
+  const out: BrokenBlocker[] = []
+  for (const t of all) {
+    const st = t.fm.status || '草稿'
+    if (st === '完成' || st === '驳回') continue
+    for (const bid of t.fm.blockers || []) {
+      if (!bid || known.has(bid)) continue
+      out.push({ taskId: t.id, taskTitle: t.fm.title || t.id, blockerId: bid })
+    }
+  }
+  return out
+}
+
 export interface ProgressEntry { total: number; completed: number; percent: number }
 
 /**

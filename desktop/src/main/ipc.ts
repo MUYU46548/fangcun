@@ -653,6 +653,24 @@ export function registerIpcHandlers(): void {
     return notifierService.scanOnce()
   })
 
+  // ── 2026-10-01 P0-4：扫描器状态可见 ────────────────────────────────
+  // 此前 getScannerStatus() 没有通道：「扫描器停摆」与「扫不到事件」在界面上长得
+  // 一模一样，用户只能得出通知中心是坏的。面板页脚显示「上次扫描 / 运行中」。
+  guardedHandle('notifications:scannerStatus', () => {
+    return notifierService.getScannerStatus()
+  })
+
+  // ── 2026-10-01 P0-5：被静音的提醒要看得见、能恢复 ──────────────────────
+  // 删过一条通知 = 静音（7 天 TTL）。此前 listMuted/unmuteAll 三个文件里零命中：
+  // 点过 🗑 的提醒在 7 天内彻底消失且用户不知情。
+  guardedHandle('notifications:listMuted', () => {
+    return notificationsService.listMuted()
+  })
+
+  guardedHandle('notifications:unmuteAll', () => {
+    return notificationsService.unmuteAll()
+  })
+
   guardedHandle('cronCheck', () => {
     return tasks.cronCheck()
   })
@@ -816,12 +834,43 @@ export function registerIpcHandlers(): void {
     return logsService.destroyLog(id)
   })
 
-  guardedHandle('logs:search', (_event, query: string) => {
-    return logsService.searchLogs(query)
-  })
-
   guardedHandle('logs:inject', (_event, id: string) => {
     return logsService.injectLog(id)
+  })
+
+  // ── 附件（2026-10-01 用户第 1 条 → 卡 036）：日志 ↔ 文件的唯一入口 ──────
+  // 选文件在这里做（要用 BrowserWindow 的模态对话框），复制/挂载逻辑全在 logs.ts，
+  // 渲染层只管拿到更新后的 entry。文件**复制**进数据目录，源文件不动。
+  guardedHandle('logs:attachFiles', async (_event, logId: string) => {
+    const opts: Electron.OpenDialogOptions = {
+      title: '选择要关联到这条日志的文件（截图 / 分析报告）',
+      properties: ['openFile', 'multiSelections'],
+    }
+    const win = BrowserWindow.getFocusedWindow()
+    const picked = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (picked.canceled || !picked.filePaths.length) return { ok: false, error: 'canceled' }
+    const r = logsService.addAttachments(String(logId || ''), picked.filePaths)
+    if (r.ok) appLog.info('logs', `日志 ${logId} 新增附件 ${picked.filePaths.length} 个`)
+    return r
+  })
+
+  // 解除关联（文件留在磁盘上，见 detachAttachment 注释）
+  guardedHandle('logs:detachAttachment', (_event, logId: string, rel: string) =>
+    logsService.detachAttachment(String(logId || ''), String(rel || '')))
+
+  // 预览用 data URL；超大文件由 logs.ts 返回 tooLarge，界面改给「用系统程序打开」
+  guardedHandle('logs:attachmentData', (_event, rel: string) =>
+    logsService.readAttachmentData(String(rel || '')))
+
+  guardedHandle('logs:openAttachment', async (_event, rel: string) => {
+    const abs = logsService.resolveAttachment(String(rel || ''))
+    if (!abs) return { ok: false, error: '附件不存在（或路径不在数据目录内，已拒绝）' }
+    try {
+      const err = await shell.openPath(abs)
+      return err ? { ok: false, error: err } : { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
   })
 
   guardedHandle('logs:cleanup', () => {

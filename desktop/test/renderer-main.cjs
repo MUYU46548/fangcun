@@ -342,8 +342,15 @@ async function main() {
       const d = c.querySelector('.card-date')
       return { text: d ? d.textContent.trim() : '', over: d ? d.classList.contains('over') : null }
     })()`)
-  check('★ 有截止日就显示截止日（09-30，逾期才标红）',
-    !duePref.err && duePref.text.includes('09-30'), JSON.stringify(duePref))
+  // 夹具截止日跟随今天（见 renderer-preload.cjs 的 FIX_DEADLINE）—— 这里按同一条规则算期望，
+  // 别再写死 '09-30'：跨月第一天会假红，2026-10-01 实测过一次。
+  const fixMmdd = (() => {
+    const d = new Date()
+    const p = (n) => String(n).padStart(2, '0')
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  })()
+  check(`★ 有截止日就显示截止日（${fixMmdd}，逾期才标红）`,
+    !duePref.err && duePref.text.includes(fixMmdd), JSON.stringify(duePref))
   const updFallback = await js(`
     (() => {
       const c = [...document.querySelectorAll('#board .card')]
