@@ -3,10 +3,10 @@
   "lastUpdated": "2026-10-01",
   "skills": [
     {
-      "id": "fangcun-hermes-bridge",
-      "file": "skills/fangcun-hermes-bridge/SKILL.md",
-      "version": "1.0.0",
-      "target": "Hermes"
+      "id": "fangcun-bridge",
+      "file": "skills/fangcun-bridge/SKILL.md",
+      "version": "1.3.0",
+      "target": "All"
     },
     {
       "id": "skill-management-policy",

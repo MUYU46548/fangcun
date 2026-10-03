@@ -179,7 +179,7 @@ function main() {
       created: '2026-09-27T00:00:00.000Z', nextSteps: '清单勾选状态回写、批注导出格式、跨文件引用跳转',
       taskIds: ['task-relay'], agentName: 'hermes' },
     { id: 'log-relay-b', title: '接力后·功能性调整', content: '改三处', status: 'active', running: true, project: 'demo',
-      created: '2026-09-29T00:00:00.000Z', continueFrom: 'log-relay-a', agentName: 'hermes' },
+      created: '2026-09-29T00:00:00.000Z', continueFrom: 'log-relay-a', agentName: 'hermes', prevAgentName: 'DSH' },
     { id: 'log-relay-c', title: '孤立日志', content: '与链无关', status: 'active', project: 'demo',
       created: '2026-09-28T00:00:00.000Z' },
   ])

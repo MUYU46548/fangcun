@@ -16,7 +16,7 @@ import * as crypto from 'crypto'
 import { app, shell } from 'electron'
 import * as appLog from './appLog'
 
-const SKILL_DIRS = ['fangcun-hermes-bridge', 'skill-management-policy']
+const SKILL_DIRS = ['fangcun-bridge', 'skill-management-policy']
 
 interface SkillInstallResult {
   installed: string[]

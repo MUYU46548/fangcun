@@ -25,6 +25,8 @@ import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, ope
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
+import { listMcpEntries, detectMcpTargets, buildMcpSnippet } from './services/mcpConnect'
+import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 
 export function registerIpcHandlers(): void {
@@ -803,7 +805,7 @@ export function registerIpcHandlers(): void {
     return logsService.getLog(id)
   })
 
-  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => {
     return logsService.createLog(title, project, content, taskId, extra)
   })
 
@@ -1097,6 +1099,22 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     }
     const err = await shell.openPath(target.openPath)
     return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${target.name}` }
+  })
+
+  // ── MCP 接入材料（2026-10-02 卡 002 · A 路线：只出材料 + 打开文件，不写入）──
+  guardedHandle('mcp:info', () => {
+    return { ok: true, entries: listMcpEntries(), targets: detectMcpTargets() }
+  })
+  guardedHandle('mcp:snippet', (_event, targetId: string, entryId: string) => {
+    return buildMcpSnippet(String(targetId || ''), String(entryId || '') as McpEntryId)
+  })
+  // 打开目标配置文件：只允许打开 detectMcpTargets() 实测存在的 configPath（不猜、不建）
+  guardedHandle('mcp:openConfig', async (_event, targetId: string) => {
+    const t = detectMcpTargets().find(x => x.id === String(targetId))
+    if (!t) return { ok: false, message: `未知目标（${targetId}）` }
+    if (!t.configPath) return { ok: false, message: `${t.name} 的配置文件本机未检测到，方寸不代建 —— 先按上面的步骤新建` }
+    const err = await shell.openPath(t.configPath)
+    return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${t.configPath}` }
   })
 
   // 在资源管理器里显示某个技能的 SKILL.md（给 WorkBuddy 这类只能手动导入的 agent 用）

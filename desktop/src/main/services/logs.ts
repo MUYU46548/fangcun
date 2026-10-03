@@ -53,6 +53,14 @@ export interface LogEntry {
   sessionId?: string
   /** 执行 Agent 名称（如 hermes / opencode / codex 等） */
   agentName?: string
+  /**
+   * 上次的执行 Agent（2026-10-03 用户反馈1，卡 task-20261003-001，用户拍板拆两字段）：
+   * 接力来源那段是谁跑的 —— 找上一段的会话就认它。
+   * 此前与 agentName 是同一个字段却有两种标签（编辑框标「上次执行 Agent」、
+   * 接力框标「执行 Agent」），用户原话「不标清楚想找会话都找不到」。
+   * 文件键 `prev_agent_name`；只在有值时落盘（历史文件不凭空多字段）。
+   */
+  prevAgentName?: string
   /** 日志归属日期（YYYY-MM-DD），默认取 created 日期，可手动配置 */
   logDate?: string
   /**
@@ -200,6 +208,7 @@ function parseLogFile(filePath: string): LogEntry | null {
       taskId: taskIds[0],
       sessionId: raw.session_id ? String(raw.session_id) : undefined,
       agentName: raw.agent_name ? String(raw.agent_name) : undefined,
+      prevAgentName: raw.prev_agent_name ? String(raw.prev_agent_name) : undefined,
       logDate: raw.log_date ? String(raw.log_date) : undefined,
       pinned: raw.pinned === true || raw.pinned === 'true',
       // 接力链（方案二）：文件键 continues_from
@@ -250,6 +259,8 @@ function renderLog(log: LogEntry): string {
   if (log.running) fm.running = true
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
+  // 上次的执行 Agent：与 continues_from 同款「只在有值时落盘」
+  if (log.prevAgentName) fm.prev_agent_name = log.prevAgentName
   let fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   // 附件清单走**手工内联行**，不交给 yaml.dump（2026-10-01）：
   // Python 侧 `tegula/core.py::_parse_log` 是逐行 kv 解析、只认 `[a, b]` 这种内联列表，
@@ -382,7 +393,7 @@ export function createLog(
   project: string,
   content: string,
   taskId?: string,
-  extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string },
+  extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string },
 ): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const id = genId()
@@ -409,6 +420,7 @@ export function createLog(
     taskId: ids[0],
     sessionId: extra?.sessionId,
     agentName: extra?.agentName,
+    prevAgentName: extra?.prevAgentName || undefined,
     logDate: extra?.logDate || now.slice(0, 10),
     continueFrom: extra?.continueFrom || undefined,
   }
@@ -434,6 +446,7 @@ export function updateLog(id: string, updates: {
   taskIds?: string[]
   sessionId?: string
   agentName?: string
+  prevAgentName?: string
   logDate?: string
 }): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
@@ -458,6 +471,7 @@ export function updateLog(id: string, updates: {
   }
   if (updates.sessionId !== undefined) entry.sessionId = updates.sessionId ? String(updates.sessionId).trim() : undefined
   if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
+  if (updates.prevAgentName !== undefined) entry.prevAgentName = updates.prevAgentName ? String(updates.prevAgentName).trim() : undefined
   if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }

@@ -157,9 +157,9 @@ async function main() {
   // 要拖进对方导入面板的就是真源这一份。
   const hermesDir = skillsMod.getHermesSkillsDirPath()
 
-  const rSrc = skillsMod.resolveRevealTarget(path.join(skillsDir, 'fangcun-hermes-bridge', 'SKILL.md'))
+  const rSrc = skillsMod.resolveRevealTarget(path.join(skillsDir, 'fangcun-bridge', 'SKILL.md'))
   check('★ 真源 SKILL.md 允许显示（此前必定失败 —— 用户报的「路径问题」）',
-    rSrc.ok === true && rSrc.skillMd === path.join(skillsDir, 'fangcun-hermes-bridge', 'SKILL.md'),
+    rSrc.ok === true && rSrc.skillMd === path.join(skillsDir, 'fangcun-bridge', 'SKILL.md'),
     JSON.stringify(rSrc))
   check('  真源那条的提示里写明是「方寸真源」', /方寸真源/.test(String(rSrc.message)), String(rSrc.message))
 
@@ -167,7 +167,7 @@ async function main() {
   check('  传目录时自动补成 <目录>/SKILL.md',
     rDir.ok === true && path.basename(String(rDir.skillMd)) === 'SKILL.md', JSON.stringify(rDir))
 
-  const rHermes = skillsMod.resolveRevealTarget(path.join(hermesDir, 'fangcun-hermes-bridge', 'SKILL.md'))
+  const rHermes = skillsMod.resolveRevealTarget(path.join(hermesDir, 'fangcun-bridge', 'SKILL.md'))
   check('★ Hermes 侧副本仍允许显示（原有行为不能被修坏）', rHermes.ok === true, JSON.stringify(rHermes))
   check('  Hermes 那条的提示里写明是「Hermes 侧副本」', /Hermes 侧副本/.test(String(rHermes.message)), String(rHermes.message))
 

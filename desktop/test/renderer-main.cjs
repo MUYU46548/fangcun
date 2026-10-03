@@ -1374,9 +1374,9 @@ async function main() {
     await js(`document.querySelectorAll('.skill-card:not(.imported)').length === 2`),
     String(await js(`document.querySelectorAll('.skill-card').length`)))
   check('卡片显示技能 ID',
-    await js(`[...document.querySelectorAll('.skill-id')].some(e => e.textContent.includes('fangcun-hermes-bridge'))`))
+    await js(`[...document.querySelectorAll('.skill-id')].some(e => e.textContent.includes('fangcun-bridge'))`))
   check('卡片显示绝对路径（手抄不出来的那一半）',
-    await js(`[...document.querySelectorAll('.skill-path')].some(e => e.textContent.includes('C:/mock/skills/fangcun-hermes-bridge/SKILL.md'))`))
+    await js(`[...document.querySelectorAll('.skill-path')].some(e => e.textContent.includes('C:/mock/skills/fangcun-bridge/SKILL.md'))`))
   check('★ 已装 / 未装两种状态文案都对',
     await js(`[...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('已装（最新）')) &&
               [...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('未装到 Hermes'))`),
@@ -1387,7 +1387,7 @@ async function main() {
   const promptCopied = await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1`, 5000, '复制走到 clipboardWriteText')
   check('★ 点「复制安装提示词」真的走到剪贴板通道（不是死按钮）', promptCopied)
   check('★ 复制的内容里带绝对路径（杜绝手抄出错）',
-    await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').includes('C:/mock/skills/fangcun-hermes-bridge/SKILL.md')`),
+    await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').includes('C:/mock/skills/fangcun-bridge/SKILL.md')`),
     String(await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').slice(0, 120)`)))
 
   // 17b. 复制 SKILL.md 全文

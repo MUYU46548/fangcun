@@ -327,7 +327,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────
   // 一条已装（最新）+ 一条未装，正好把两种状态文案都覆盖
   skillsCheck: () => ok({ needsInstall: false, skills: [] }),
-  skillsInstall: () => { rec('skillsInstall'); return ok({ installed: ['fangcun-hermes-bridge'], skipped: [], errors: [] }) },
+  skillsInstall: () => { rec('skillsInstall'); return ok({ installed: ['fangcun-bridge'], skipped: [], errors: [] }) },
   skillsList: () => {
     rec('skillsList')
     const dir = 'C:/mock/skills'
@@ -343,7 +343,7 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({
       version: '0.2.6', lastUpdated: '2026-09-25', skillsDir: dir, hermesDir: hermes, unlisted: [],
       skills: [
-        mk('fangcun-hermes-bridge', 'Hermes', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
+        mk('fangcun-bridge', 'Hermes', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
         mk('skill-management-policy', 'All', '1.1.0', false, '---\nname: 技能纪律\n---\n正文乙'),
       ],
     })

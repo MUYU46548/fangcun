@@ -516,6 +516,27 @@ function main() {
     check('  普通 list_logs 行也带 continuesFrom（不加 chain 时可见）',
       JSON.parse(mcp.handleMCPToolCall('list_logs', {}).content[0].text).some(r => r.id === s2.id && r.continuesFrom === s1.id))
 
+    // 上次的执行 Agent（2026-10-03 反馈1，卡 task-20261003-001）：与 continues_from 同款口径
+    const pv = lg.createLog('接力后·带上次', 'demo', 'x', undefined, {
+      continueFrom: s2.id, agentName: 'DSH', prevAgentName: 'hermes',
+    }).data
+    check('★★ createLog 接受 prevAgentName 并落盘（文件键 prev_agent_name）',
+      /^prev_agent_name: hermes$/m.test(read(pv.id)),
+      read(pv.id).split('\n').filter(l => /agent/.test(l)).join(' | '))
+    check('★ 读回保真：prev 与本次两个 Agent 字段各归各',
+      lg.getLog(pv.id).prevAgentName === 'hermes' && lg.getLog(pv.id).agentName === 'DSH',
+      String(lg.getLog(pv.id).prevAgentName) + '/' + String(lg.getLog(pv.id).agentName))
+    lg.setLogPinned(pv.id, true)
+    check('★★ 任意写回后 prev_agent_name 仍在（parse→render 往返不丢）',
+      lg.getLog(pv.id).prevAgentName === 'hermes', String(lg.getLog(pv.id).prevAgentName))
+    check('  无值不落盘：普通日志文件不长 prev_agent_name',
+      !/prev_agent_name/.test(read(s1.id)))
+    const upPrev = lg.updateLog(pv.id, { prevAgentName: '' })
+    check('★ updateLog 清空 = 字段从文件消失（空值不落盘，不残留 null）',
+      upPrev.ok === true && !/prev_agent_name/.test(read(pv.id)) && !lg.getLog(pv.id).prevAgentName,
+      read(pv.id).split('\n').filter(l => /agent/.test(l)).join(' | ') || '(无 agent 行)')
+    lg.setLogPinned(pv.id, false)
+
     // 防御：断链 / 成环（修前代码这两种都会挂死或抛）
     const orphan = lg.createLog('断链者', 'demo', 'z', undefined, { continueFrom: 'log-not-exist' }).data
     check('★ 指向不存在的日志：不抛、自己当链头', lg.logChain(orphan.id).upstream.length === 0,
@@ -589,6 +610,28 @@ function main() {
     check('★★ 卡006c：脏检查覆盖全部字段（文本 + 下拉 + 勾选 + 出清开关），不只看有没有字',
       /function relayChanges/.test(APP) && /源归档开关/.test(APP) && /关联任务/.test(APP) &&
       /_init: null as any/.test(APP))
+    // ── 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：预填取消，改主动带入 ──
+    const OPENRELAY = APP.slice(APP.indexOf('function openRelay'), APP.indexOf('function bringSourceNextSteps'))
+    check('★★ 20261002a：openRelay 不再预填源的下一步（默认留空）',
+      OPENRELAY.indexOf('function openRelay') >= 0 && /nextSteps: ''/.test(OPENRELAY) &&
+      !/nextSteps: src\.nextSteps/.test(OPENRELAY),
+      JSON.stringify((OPENRELAY.match(/nextSteps:[^,\n]*/) || [''])[0]))
+    check('★★ 20261002b：带入按钮 + bringSourceNextSteps 是唯一取回入口（模板常显，非 hover 藏起）',
+      /function bringSourceNextSteps/.test(APP) && /relay-bring/.test(APP) &&
+      /@click\.stop="bringSourceNextSteps"/.test(APP))
+    check('★★ 20261002c：带入不覆盖已有内容、源为空时明说（不静默吃掉用户刚写的东西）',
+      /本框已有内容，未覆盖/.test(APP) && /本来就是空的/.test(APP))
+    check('★ 20261002d：带入或手写的内容仍透传落盘（executeRelay 传 r.nextSteps）',
+      /executeRelay[\s\S]{0,900}nextSteps: r\.nextSteps/.test(APP))
+    check('★ 20261002e：界面不再宣称「下一步已带入」（旧预填文案清干净）',
+      !/下一步已带入/.test(APP))
+    // ── 2026-10-03 用户反馈1/2（卡 task-20261003-001/002）─────────────────
+    check('★★ 反馈1：接力拆两字段（prevAgentName=上次 + agentName=本次），编辑框不再一字段两义',
+      /上次的执行 Agent/.test(APP) && /prevAgentName: r\.prevAgentName/.test(APP) &&
+      /v-model="logEdit_\.prevAgentName"/.test(APP) && /log-prev-agent/.test(APP))
+    check('★★ 反馈2：openRelay 标题不再沿用源（留空 = 每个日志创建新标题）',
+      /title: ''/.test(OPENRELAY) && !/title: src\.title/.test(OPENRELAY),
+      JSON.stringify((OPENRELAY.match(/title: [^\n]*/) || [''])[0]))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

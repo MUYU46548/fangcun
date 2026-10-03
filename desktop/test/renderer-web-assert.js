@@ -628,7 +628,7 @@
         created: '2026-09-27T00:00:00.000Z', nextSteps: '清单勾选状态回写、批注导出格式、跨文件引用跳转',
         taskIds: ['task-relay'], agentName: 'hermes' },
       { id: 'log-relay-b', title: '接力后·功能性调整', content: '改三处', status: 'active', running: true, project: 'demo',
-        created: '2026-09-29T00:00:00.000Z', continueFrom: 'log-relay-a', agentName: 'hermes' },
+        created: '2026-09-29T00:00:00.000Z', continueFrom: 'log-relay-a', agentName: 'hermes', prevAgentName: 'DSH' },
       { id: 'log-relay-c', title: '孤立日志', content: '与链无关', status: 'active', project: 'demo',
         created: '2026-09-28T00:00:00.000Z' },
     ])
@@ -665,6 +665,11 @@
     check('  pref 回 groups', window.__fcTest.prefs().fc_logs_view_mode === 'groups',
       JSON.stringify(window.__fcTest.prefs().fc_logs_view_mode))
 
+    // 2026-10-03 反馈1（卡 task-20261003-001）：上次的执行 Agent 卡面必须标清楚
+    check('★ 卡面标出「⤴ 上次」执行 Agent（夹具 log-relay-b.prevAgentName=DSH）',
+      $$('.log-card').some(c => (c.textContent || '').indexOf('上次 DSH') >= 0),
+      'prev-chip=' + $$('.log-prev-agent').length)
+
     // 接力对话框（完成态卡入口）
     check('★ 完成态卡有「⏭ 从这里继续」', $$('.relay-btn').length >= 1, 'relay-btn=' + $$('.relay-btn').length)
     const relayBtn = $('.relay-btn')
@@ -674,6 +679,28 @@
     check('★ 源摘要条显示源日志 ID',
       !!$('.rs-id') && $('.rs-id').textContent.trim() === 'log-relay-a',
       $('.rs-id') ? $('.rs-id').textContent : 'no .rs-id')
+    // ── 2026-10-03 反馈1/2（卡 task-20261003-001/002）──
+    check('★★ 标题不再沿用源（反馈2）：「新日志标题」默认留空，每个日志创建新标题',
+      (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('新日志标题') >= 0)
+        const inp = lab && lab.nextElementSibling
+        return !!inp && inp.tagName === 'INPUT' && inp.value === ''
+      })(), 'title=' + (($('#relay-modal input') || {}).value ?? '?'))
+    check('★★ 拆两字段（反馈1）：「上次的执行 Agent」与「本次执行 Agent」两个标签都在',
+      (() => {
+        const texts = $$('#relay-modal label').map(l => l.textContent || '')
+        return texts.some(t => t.indexOf('上次的执行 Agent') >= 0) && texts.some(t => t.indexOf('本次执行 Agent') >= 0)
+      })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 10)).join(' | '))
+    check('★ 上次字段预填源日志的执行 Agent（hermes，可改可补）',
+      (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('上次的执行 Agent') >= 0)
+        const sel = lab && lab.nextElementSibling
+        return !!sel && sel.tagName === 'SELECT' && sel.value === 'hermes'
+      })(), 'sel=' + ((() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('上次的执行 Agent') >= 0)
+        const sel = lab && lab.nextElementSibling
+        return sel ? sel.tagName + ':' + sel.value : 'none'
+      })()))
     const relayTaOf = (labelPart) => {
       const labs = $$('#relay-modal label')
       const lab = labs.find(l => (l.textContent || '').indexOf(labelPart) >= 0 &&
@@ -692,9 +719,13 @@
         const l = t.previousElementSibling
         return l ? l.textContent.slice(0, 6) : '(no label)'
       }).join(' | '))
-    check('★★ 下一步已从源带入（对话框预填）',
-      !!relayTaOf('下一步') && relayTaOf('下一步').value.indexOf('清单勾选状态回写') >= 0,
-      relayTaOf('下一步') ? relayTaOf('下一步').value.slice(0, 60) : 'no 下一步 textarea')
+    check('★★ 下一步**默认留空**（2026-10-02 用户：「依旧每次都直接挪用上次的输入结果」——不再预填）',
+      !!relayTaOf('下一步') && relayTaOf('下一步').value === '',
+      relayTaOf('下一步') ? JSON.stringify(relayTaOf('下一步').value) : 'no 下一步 textarea')
+    check('★★「带入源的下一步」按钮在位（取回源内容的唯一入口，常显不藏 hover）',
+      $$('#relay-modal .relay-bring').length === 1 &&
+      ($('#relay-modal .relay-bring').textContent || '').indexOf('带入源的下一步') >= 0,
+      'bring=' + $$('#relay-modal .relay-bring').length)
     check('★ 执行内容默认留空（不继承源正文）',
       !!relayTaOf('执行内容') && relayTaOf('执行内容').value === '',
       JSON.stringify(relayTaOf('执行内容') ? relayTaOf('执行内容').value : null))
@@ -710,9 +741,20 @@
         const t = $$('#relay-modal .acts button').map(b => (b.textContent || '').trim())
         return t.indexOf('取消') >= 0 && t.indexOf('创建') >= 0 && t.indexOf('创建并开跑') >= 0
       })(), $$('#relay-modal .acts button').map(b => b.textContent.trim()).join('|'))
+    // 2026-10-02：先测「带入」再关 —— 带入的内容同样受防丢保护，顺带把这一点断言掉
+    const bringBtn = $('#relay-modal .relay-bring')
+    if (bringBtn) bringBtn.click()
+    await sleep(250)
+    check('★★ 点「带入」才把源的下一步原文放进框（主动取，不是自动挪用）',
+      !!relayTaOf('下一步') && relayTaOf('下一步').value.indexOf('清单勾选状态回写') >= 0,
+      relayTaOf('下一步') ? relayTaOf('下一步').value.slice(0, 60) : 'no 下一步 textarea')
     const cancelBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancelBtn) cancelBtn.click()
-    check('取消后对话框关闭', await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭'))
+    check('★ 带入也算改动：点取消不直接关，先出对话框内防丢条',
+      await waitFor(() => !!$('.relay-discard'), 2000, 'relay-discard'))
+    const dropOnRelay = $$('.relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
+    if (dropOnRelay) dropOnRelay.click()
+    check('丢弃并关闭后对话框关闭', await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭'))
 
     // ── 卡 006（2026-09-30 用户第 2 条）：关闭防丢 = 对话框内确认条，取代原生 confirm ──
     const rb2 = $$('.relay-btn')[0]

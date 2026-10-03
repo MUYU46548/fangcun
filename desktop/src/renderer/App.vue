@@ -609,6 +609,41 @@
             <div class="agent-howto">{{ a.howTo }}</div>
           </div>
         </div>
+
+        <!-- MCP 接入材料（2026-10-02 卡 002 · A 路线）
+             口径：方寸只出材料（按本机路径生成的配置段 + 复制 + 打开目标文件），
+             **不写任何外部应用的文件** —— 粘贴与保存由用户完成。 -->
+        <div class="skills-agents mcp-connect">
+          <div class="skills-agents-title">
+            接入 MCP（读写方寸任务数据）
+            <span class="skills-agents-sub">按本机安装路径生成配置段；方寸只给材料 —— 粘贴保存由你完成</span>
+          </div>
+          <div class="mcp-entry-pick">
+            <span class="mcp-entry-label">入口：</span>
+            <template v-for="e in mcpEntries" :key="e.id">
+              <button class="skills-btn" :class="{ primary: e.id === mcpEntry }"
+                :disabled="!e.available" @click="mcpEntry = e.id"
+                :title="e.available ? e.usage : e.detail">
+                {{ e.label }}{{ e.available ? '' : '（不可用）' }}
+              </button>
+            </template>
+            <span v-if="mcpEntryDetail" class="mcp-entry-note">{{ mcpEntryDetail }}</span>
+          </div>
+          <div v-if="mcpInfoError" class="skills-error">{{ mcpInfoError }}</div>
+          <div v-else-if="!mcpTargets.length" class="skills-agent">检测中…</div>
+          <div v-for="m in mcpTargets" :key="m.id" class="agent-row" :class="{ 'agent-off': !m.detected }">
+            <div class="agent-line1">
+              <span class="agent-name">{{ m.name }}</span>
+              <span class="agent-state">{{ m.detected ? '已检测到' : '没检测到' }}</span>
+              <button class="skills-btn primary" @click="copyMcpSnippet(m)"
+                title="生成按本机安装路径的配置段并复制">📋 复制配置段</button>
+              <button v-if="m.configPath" class="skills-btn" @click="openMcpConfig(m)"
+                title="打开对方的配置文件，粘贴后保存">📂 打开配置文件</button>
+            </div>
+            <div class="agent-evidence" :title="m.evidence">{{ m.evidence }}</div>
+            <div class="agent-howto">{{ m.howTo }}</div>
+          </div>
+        </div>
       </template>
     </main>
 
@@ -1056,7 +1091,11 @@
           <div class="log-card-meta">
             <span v-if="log.project" class="log-project">{{ (projects.find(p => p.id === log.project)?.name) || log.project }}</span>
             <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
-            <span v-if="log.agentName" class="log-agent">🤖 {{ log.agentName }}</span>
+            <span v-if="log.agentName" class="log-agent" title="本次执行 Agent">🤖 {{ log.agentName }}</span>
+            <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：上次的执行 Agent 单独标出 ——
+                 找上一段的会话就去这个 Agent 里找，不再和「本次」混在一个字段里 -->
+            <span v-if="log.prevAgentName" class="log-prev-agent"
+              title="上次的执行 Agent（接力来源那段是谁跑的）—— 找上次的会话就去这个 Agent 里找">⤴ 上次 {{ log.prevAgentName }}</span>
             <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
             <!-- 接力链（2026-09-29 方案二）：继承来的日志挂一个可复制的链标签 -->
@@ -1703,12 +1742,24 @@
         <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
         <label>会话 ID（可选，便于反向查证）</label>
         <input v-model="logEdit_.sessionId" placeholder="如 20260922_183047_334e4a" />
-        <label>上次执行 Agent（可选，出问题倒查用）</label>
+        <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：这里原来标「上次执行 Agent」、
+             接力对话框同一个字段却标「执行 Agent」——一字段两义，用户被绕晕。
+             拆两字段：agentName = 本次执行 Agent；prevAgentName = 上次的执行 Agent（接力来源）。
+             上次字段只在接力来的日志上出现（没有来源的日志谈不上「上次」）。 -->
+        <label>本次执行 Agent（本段由谁执行；可选）</label>
         <select v-model="logEdit_.agentName" class="logsel">
           <option value="">（不指定）</option>
           <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
         </select>
         <input v-model="logEdit_.agentName" placeholder="或手动输入 Agent 名称" />
+        <template v-if="logEdit_.continueFrom">
+          <label>上次的执行 Agent（接力来源那段是谁跑的 —— 倒查 / 找回上次会话用）</label>
+          <select v-model="logEdit_.prevAgentName" class="logsel">
+            <option value="">（不指定）</option>
+            <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+          </select>
+          <input v-model="logEdit_.prevAgentName" placeholder="或手动输入上次的执行 Agent" />
+        </template>
         <label>日志日期（默认创建日期）</label>
         <input v-model="logEdit_.logDate" type="date" />
         <template v-if="logCompleting || logArchiveMode">
@@ -1767,7 +1818,7 @@
           <span class="rs-id">{{ relay_.src.id }}</span>
           <span>「{{ relay_.src.title || '(无标题)' }}」· <b>{{ relay_.src.status === 'completed' ? '已完成' : relay_.src.status === 'archived' ? '已归档' : '待处理' }}</b></span>
           <span class="rs-grow"></span>
-          <span>执行内容留空待贴 · 下一步已带入 ↓</span>
+          <span>执行内容与下一步都留空待写 · 要旧内容点行尾「带入」</span>
         </div>
         <label>新日志标题</label>
         <input v-model="relay_.title" placeholder="给接下来这段工作起个标题" />
@@ -1784,8 +1835,15 @@
              所以执行内容在上、下一步在下（与「新建/编辑日志」对话框同序）。 -->
         <label>执行内容（本次做了什么；可粘贴上次会话的完成情况汇总）</label>
         <textarea v-model="relay_.content" placeholder="执行内容...（留空则新日志正文为空，之后可再编辑补写）"></textarea>
-        <label>下一步</label>
-        <textarea v-model="relay_.nextSteps" placeholder="下一步...（源日志「下一步」已带入，可直接改）"></textarea>
+        <!-- 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：不再预填源的下一步，
+             改为**默认留空**（与执行内容同一口径：源的「下一步」属于上一段的计划，新日志该写本次的），
+             需要旧内容时点行尾「带入」按钮**主动取** —— 挪用变申请，主动权在用户手里。
+             保留 label 紧邻 textarea 的兄弟结构：renderer-web 的 relayTaOf() 与顺序断言都靠它定位。 -->
+        <label class="ns-label">下一步
+          <button type="button" class="ghost relay-bring" title="把源日志的「下一步」原文放进本框（框里已有内容时不会覆盖）"
+            @click.stop="bringSourceNextSteps">⧉ 带入源的下一步</button>
+        </label>
+        <textarea v-model="relay_.nextSteps" placeholder="下一步...（默认留空，本次自己写；要用源里的内容点上方「带入源的下一步」）"></textarea>
         <label>关联任务</label>
         <div v-if="relay_.taskCandidates.length" class="log-task-multi">
           <label v-for="t in relay_.taskCandidates" :key="t.id" class="log-task-opt">
@@ -1796,14 +1854,27 @@
           </label>
         </div>
         <div v-else class="hint">源日志没有关联任务 —— 新日志先不挂任务</div>
-        <label>执行 Agent</label>
+        <!-- 2026-10-03 用户反馈1（卡 task-20261003-001，用户拍板拆两字段）：
+             此前一个「执行 Agent」字段承担两种含义（编辑框还把它标成「上次执行 Agent」），
+             用户原话「接力只能填执行 Agent，不能填上次的执行 Agent，明明上次更重要」。
+             现在：上次 = 接力来源那段是谁跑的（找上次会话用，继承源、可改、可手补）；
+             本次 = 新日志这段由谁跑（默认沿用源）。 -->
+        <label>上次的执行 Agent（接力来源这段是谁跑的 —— 找上次的会话看这里）</label>
+        <select v-model="relay_.prevAgentName" class="logsel">
+          <option value="">（不指定）</option>
+          <option v-if="relay_.prevAgentName && !agentPresets.includes(relay_.prevAgentName)"
+            :value="relay_.prevAgentName">{{ relay_.prevAgentName }}（继承自源）</option>
+          <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
+        </select>
+        <input v-model="relay_.prevAgentName" placeholder="或手动输入上次的执行 Agent（源没记录时在这里补）" />
+        <label>本次执行 Agent（新日志这段由谁跑）</label>
         <select v-model="relay_.agentName" class="logsel">
           <option value="">（不指定）</option>
           <option v-if="relay_.agentName && !agentPresets.includes(relay_.agentName)"
             :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
           <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
         </select>
-        <div class="hint">继承自源：<b>{{ relay_.agentName || '（不指定）' }}</b>；会话 ID 与日期按新日志重置</div>
+        <div class="hint">上次继承自源：<b>{{ relay_.prevAgentName || '（源未记录）' }}</b> · 本次默认沿用源：<b>{{ relay_.agentName || '（不指定）' }}</b>；会话 ID 与日期按新日志重置</div>
         <div class="relay-opts">
           <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
             <span>接力后把源日志归档（出清）
@@ -3904,6 +3975,7 @@ function loadViewData(v: string) {
   } else if (v === 'skills') {
     loadSkills()
     loadAgents()
+    loadMcpInfo()
   } else if (v === 'services') {
     loadServices()
   } else if (v === 'calendar') {
@@ -4357,6 +4429,63 @@ async function openAgentTarget(a: AgentTargetUi): Promise<void> {
   if (typeof t.agentsOpen !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
   const r: any = await t.agentsOpen(a.id)
   if (r && r.ok) showToast(r.message || `已打开 ${a.name}`, 'success')
+  else showToast(`打开失败：${(r && r.message) || '未知原因'}`, 'error')
+}
+
+// ── MCP 接入材料（2026-10-02 卡 002 · A 路线）─────────────────────────
+// 方寸只出材料：配置段按本机安装路径动态生成 + 复制 + 打开目标文件。
+// 不写任何外部应用的文件 —— 粘贴保存是用户的手。
+interface McpEntryUi { id: string; label: string; available: boolean; detail: string; usage: string }
+interface McpTargetUi { id: string; name: string; detected: boolean; evidence: string; configPath?: string; howTo: string }
+const mcpEntries = ref<McpEntryUi[]>([])
+const mcpTargets = ref<McpTargetUi[]>([])
+const mcpEntry = ref<string>('A')
+const mcpInfoError = ref('')
+
+const mcpEntryDetail = computed(() => {
+  const e = mcpEntries.value.find(x => x.id === mcpEntry.value)
+  if (!e) return ''
+  return e.available ? e.usage : e.detail
+})
+
+async function loadMcpInfo(): Promise<void> {
+  try {
+    const t: any = window.tegula
+    if (typeof t.mcpInfo !== 'function') { mcpInfoError.value = ''; mcpEntries.value = []; mcpTargets.value = []; return }
+    const r: any = await t.mcpInfo()
+    if (r && r.ok) {
+      mcpEntries.value = r.entries || []
+      mcpTargets.value = r.targets || []
+      // 默认选第一个可用入口（A 不可用时落到 B，别让用户对着死按钮点）
+      const firstOk = (r.entries || []).find((e: any) => e.available)
+      if (firstOk && !(r.entries || []).some((e: any) => e.id === mcpEntry.value && e.available)) {
+        mcpEntry.value = firstOk.id
+      }
+      mcpInfoError.value = ''
+    } else {
+      mcpInfoError.value = (r && r.message) || '读取 MCP 接入信息失败'
+    }
+  } catch (e: any) {
+    mcpInfoError.value = e?.message || '读取 MCP 接入信息失败'
+  }
+}
+
+async function copyMcpSnippet(m: McpTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.mcpSnippet !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.mcpSnippet(m.id, mcpEntry.value)
+  if (!r || !r.ok) { showToast(`生成失败：${(r && r.message) || '未知原因'}`, 'error'); return }
+  // 走主进程剪贴板（file:// 起源下 navigator.clipboard 会静默 reject）
+  const c: any = await t.clipboardWriteText(r.snippet)
+  if (c && c.ok !== false) showToast(`已复制 ${m.name} 的配置段 —— 打开对方配置文件粘贴保存即可`, 'success')
+  else showToast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
+}
+
+async function openMcpConfig(m: McpTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.mcpOpenConfig !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.mcpOpenConfig(m.id)
+  if (r && r.ok) showToast(r.message || `已打开 ${m.name} 的配置文件`, 'success')
   else showToast(`打开失败：${(r && r.message) || '未知原因'}`, 'error')
 }
 
@@ -6523,7 +6652,7 @@ function openNewLog() {
   const project = curProj.value !== '__all__'
     ? curProj.value
     : (projects.value[0]?.id || '')
-  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', logDate: '' }
+  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '' }
   logCompleting.value = false
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
@@ -6539,7 +6668,12 @@ function shortLogId(id: string): string {
 
 /**
  * 接力对话框（2026-09-29 方案二）。
- * 预填规则：标题 = 源标题（让人一眼看出要改）；下一步/项目/任务/Agent 全部继承源；
+ * 预填规则（2026-10-03 再收窄）：**标题不再预填** —— 用户原话「日志接力自动沿用上次日志
+ * 的标题，容易产生歧义，我希望每个日志可以创建新标题」（源标题在顶部「源」条里看得到）；
+ * 项目/任务继承源；Agent 拆两字段：上次的执行 Agent 继承源（可改可补）、本次默认沿用源。
+ * （2026-10-02 曾定「标题 = 源标题让人一眼看出要改」，被 10-03 口径覆盖。）
+ * **下一步不再预填**（用户：「下一步依旧每次都直接挪用上次的输入结果」）——
+ * 与执行内容同口径留空，要源里的原文点「带入源的下一步」按钮主动取。
  * 勾选默认 = 未完成的关联任务进新日志、源日志归档出清、源任务不动。
  */
 function openRelay(src: any): void {
@@ -6554,13 +6688,19 @@ function openRelay(src: any): void {
   })
   relay_.value = {
     src,
-    title: src.title || '',
+    // 2026-10-03 反馈2（卡 task-20261003-002）：标题**不再沿用源** —— 留空强制给新日志起新标题
+    title: '',
     project: src.project || '',
-    nextSteps: src.nextSteps || '',
+    // 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：**默认留空**，
+    // 源的下一步要点「带入源的下一步」才进来（见 bringSourceNextSteps）。
+    nextSteps: '',
     // 2026-09-30 卡 004：执行内容**不继承源**（源的正文属于上一段），留空给用户贴本次汇总
     content: '',
     taskCandidates: candidates,
     taskIds: candidates.filter(c => c.status !== '完成' && c.status !== '驳回').map(c => c.id),
+    // 上次的执行 Agent（反馈1）：源自己记录的执行者 = 上一段的执行者；源没记就留空给用户补
+    prevAgentName: src.agentName || src.prevAgentName || '',
+    // 本次执行 Agent：默认沿用源（同一 agent 继续跑），可改
     agentName: src.agentName || '',
     archiveSource: true,
     completeSourceTasks: false,
@@ -6575,12 +6715,34 @@ function openRelay(src: any): void {
     nextSteps: String(r.nextSteps || '').trim(),
     content: String(r.content || '').trim(),
     agentName: String(r.agentName || '').trim(),
+    prevAgentName: String(r.prevAgentName || '').trim(),
     taskIds: [...(r.taskIds || [])].sort().join(','),
     archiveSource: !!r.archiveSource,
     completeSourceTasks: !!r.completeSourceTasks,
   }
   relayDiscard_.value = false
   logBatchMode.value = false
+}
+
+/**
+ * 「带入源的下一步」（2026-10-02）：源日志的「下一步」不再自动挪用，改成**点了才带**。
+ * 三条边界：① 源本来就是空的 → 明说，不装作带入了；② 框里已有内容且与源不同 → **绝不覆盖**
+ * （会静默吃掉用户刚写的东西，正是本卡要治的病）；③ 带入后与打开快照不同 → 关闭时会走防丢确认条。
+ */
+function bringSourceNextSteps(): void {
+  const r = relay_.value
+  if (!r) return
+  const srcNext = String(r.src?.nextSteps || '').trim()
+  if (!srcNext) {
+    showToast('源日志的「下一步」本来就是空的', 'info')
+    return
+  }
+  const cur = String(r.nextSteps || '').trim()
+  if (cur && cur !== srcNext) {
+    showToast('本框已有内容，未覆盖 —— 想带入请先清空', 'info')
+    return
+  }
+  r.nextSteps = r.src.nextSteps
 }
 
 /**
@@ -6596,7 +6758,8 @@ function relayChanges(r: any): string[] {
   if (t(r.project) !== ini.project) ch.push('项目')
   if (t(r.content) !== ini.content) ch.push('执行内容')
   if (t(r.nextSteps) !== ini.nextSteps) ch.push('下一步')
-  if (t(r.agentName) !== ini.agentName) ch.push('执行 Agent')
+  if (t(r.prevAgentName) !== ini.prevAgentName) ch.push('上次执行 Agent')
+  if (t(r.agentName) !== ini.agentName) ch.push('本次执行 Agent')
   if ([...(r.taskIds || [])].sort().join(',') !== ini.taskIds) ch.push('关联任务')
   if (!!r.archiveSource !== ini.archiveSource) ch.push('源归档开关')
   if (!!r.completeSourceTasks !== ini.completeSourceTasks) ch.push('源任务置完成开关')
@@ -6665,6 +6828,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
       // 「An object could not be cloned」，两个创建按钮全炸。展开成普通数组再传。
       taskIds: [...(r.taskIds || [])],
       agentName: r.agentName || '',
+      prevAgentName: r.prevAgentName || '',
       nextSteps: r.nextSteps || '',
       continueFrom: src.id,
       logDate: '',
@@ -6885,6 +7049,7 @@ async function saveLogEdit() {
         taskIds: normalizeLogTaskIds(e),
         sessionId: e.sessionId || '',
         agentName: e.agentName || '',
+        prevAgentName: e.prevAgentName || '',
         logDate: e.logDate || '',
       })
       if (r && !r.ok) {
@@ -6897,7 +7062,7 @@ async function saveLogEdit() {
       // 对话框里填的「下一步」保存后静默丢失（更新分支一直有传，只有新建没有）。
       const r: any = await window.tegula.logsCreate(
         e.title, e.project, e.content, (e.taskIds || [])[0] || undefined,
-        { sessionId: e.sessionId || '', agentName: e.agentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '' },
+        { sessionId: e.sessionId || '', agentName: e.agentName || '', prevAgentName: e.prevAgentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '' },
       )
       if (r && !r.ok) {
         showToast(`创建失败：${r.error || '未知原因'}`, 'error')
@@ -9155,6 +9320,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-task { color: var(--accent); }
 .log-completed { color: #5e9154; }
 .log-agent { color: #8b7fb8; }
+.log-prev-agent { color: #8b7fb8; }
 .log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 日志 ID：卡面可见 + 点一下只复制 ID（2026-09-29 用户第 2 条）。
    --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是「可点复制」的通用暗示。 */
@@ -9309,6 +9475,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .relay-src .rs-id { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
 .relay-src .rs-grow { flex: 1; }
 #relay-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+/* 2026-10-02「带入源的下一步」：下一步标签行改 flex —— 左边是标签、右端挂取用按钮。
+   预填已取消（默认留空），这个按钮是唯一取回源内容的入口，所以必须常显、不藏 hover。 */
+#relay-modal label.ns-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#relay-modal label.ns-label .relay-bring { height: 24px; padding: 0 9px; font-size: 11px; margin: 0; flex: none; }
 #relay-modal .hint b { color: var(--accent); font-weight: 600; }
 .relay-opts { border-top: 1px dashed var(--line-2); margin-top: 12px; padding-top: 10px; display: grid; gap: 7px; }
 /* id 作用域：#relay-modal label / #relay-modal input 两条通用规则（1,0,x）会压过纯类选择器，
@@ -9800,4 +9970,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-family: ui-monospace, Consolas, monospace;
   background: #f3f1f6; border-radius: 4px; padding: 1px 5px;
 }
+/* MCP 接入材料区（卡 002 · A 路线） */
+.mcp-connect { margin-top: 16px; }
+.mcp-entry-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mcp-entry-label { font-size: 12px; color: var(--muted); }
+.mcp-entry-note { font-size: 11.5px; color: var(--muted); }
 </style>

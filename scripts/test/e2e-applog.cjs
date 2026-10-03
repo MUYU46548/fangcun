@@ -125,7 +125,9 @@ async function main() {
     // 先注册全部通道（registerIpcHandlers 内部会 initPaths → 需要 userData 可写）
     process.env.FC_TEST_USERDATA = TEST_ROOT
     ipcMod.registerIpcHandlers()
-    for (const ch of ['applog:write', 'applog:path', 'applog:dir', 'applog:tail', 'applog:openDir']) {
+    for (const ch of ['applog:write', 'applog:path', 'applog:dir', 'applog:tail', 'applog:openDir',
+      // 卡 002 · MCP 接入材料三通道（同样必须注册在 registerIpcHandlers 顶层）
+      'mcp:info', 'mcp:snippet', 'mcp:openConfig']) {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }

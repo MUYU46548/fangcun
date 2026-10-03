@@ -191,17 +191,17 @@ ls \\.\pipe\\tegula-mcp 2>/dev/null && echo "MCP OK" || echo "MCP MISSING"
 | Agent | 接入方式 |
 |---|---|
 | **Claude Code** | MCP 原生支持 + `CLAUDE.md` 项目指令 |
-| **Hermes** | MCP 原生 + `fangcun-hermes-bridge` skill |
+| **Hermes** | MCP 原生 + `fangcun-bridge` skill |
 | **Cursor** | MCP 原生 + `.cursorrules` 配置 |
 | **OpenCode** | MCP 原生 |
 | **Codex** | MCP 原生 |
 
 ### Hermes 专属优化
 
-Hermes 用户可额外安装 `fangcun-hermes-bridge` skill 获取：
+Hermes 用户可额外安装 `fangcun-bridge` skill 获取：
 - 自动发现方寸桌面版是否运行
 - Hermes 侧语义指南（何时用哪个工具）
 - 错误处理最佳实践
 
-安装：将 `docs/agents/fangcun-hermes-bridge/SKILL.md` 复制到 `~/.hermes/skills/` 后重载。
+安装：将 `docs/agents/fangcun-bridge/SKILL.md` 复制到 `~/.hermes/skills/` 后重载。
 

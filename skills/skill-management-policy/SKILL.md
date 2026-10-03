@@ -44,7 +44,7 @@ metadata:
 
 ## 分区物理约定
 
-- 接线卡：`skills/` 下 manifest.json 中登记的 id 目录（如 `fangcun-hermes-bridge/`）
+- 接线卡：`skills/` 下 manifest.json 中登记的 id 目录（如 `fangcun-bridge/`）
 - 开发端自用：`skills/` 下 `*-development/` 前缀
 - 其余：Hermes 自产技能
 

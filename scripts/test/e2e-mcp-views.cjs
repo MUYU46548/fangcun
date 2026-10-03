@@ -59,7 +59,7 @@ const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: Str
 const tools = require(D + '/dist/main/mcp/tools.js')
 const data = require(D + '/dist/main/data/index.js')
 
-check('MCP 模块可加载，20 个工具（名字是 fangcun-hermes-bridge 的对外契约）',
+check('MCP 模块可加载，20 个工具（名字是 fangcun-bridge 的对外契约）',
   Array.isArray(tools.MCP_TOOLS) && tools.MCP_TOOLS.length === 20,
   Array.isArray(tools.MCP_TOOLS) ? tools.MCP_TOOLS.length : typeof tools.MCP_TOOLS)
 

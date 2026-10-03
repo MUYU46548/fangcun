@@ -106,7 +106,7 @@ contextBridge.exposeInMainWorld('tegula', {
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
-  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
+  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
@@ -235,6 +235,10 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 「装到别的 agent」目标检测（Hermes 可直装；其余给文件+打开对方） */
   agentsList: () => ipcRenderer.invoke('agents:list'),
   agentsOpen: (id: string) => ipcRenderer.invoke('agents:open', id),
+  // MCP 接入材料（卡 002 · A 路线：只出材料，方寸不写外部应用文件）
+  mcpInfo: () => ipcRenderer.invoke('mcp:info'),
+  mcpSnippet: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:snippet', targetId, entryId),
+  mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
   /** 日志置顶 / 改项目归属（卡 037 右键菜单） */
   logsSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('logs:setPinned', id, pinned),
   logsSetProject: (id: string, project: string) => ipcRenderer.invoke('logs:setProject', id, project),
