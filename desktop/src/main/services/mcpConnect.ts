@@ -138,7 +138,7 @@ export function detectMcpTargets(): McpTarget[] {
       detected: !!patch,
       evidence: patch || profilesDir,
       configPath: patch,
-      howTo: '把配置段追加到 cordis.patch.yml 的顶层数组末尾（每条是 - id/name/config），重启 DSH 生效。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
+      howTo: '把配置段**原样追加**到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是「按 id 覆盖」，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
     })
   }
 
@@ -236,17 +236,21 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
 
   switch (targetId) {
     case 'dsh':
+      // 2026-10-03 卡009（DSH 自装实测反馈）：DSH 的 patch 语义里**裸行 = 按 id 覆盖已有行**，
+      // id 不存在则警告后静默跳过（桌面版无控制台 → 用户永远看不到那个错）；
+      // 只有 `insert:` 才是「新增插件行」。原裸行写法接不通，实测改 insert: 后热加载生效。
       return {
         ok: true, message: '',
         snippet: [
-          '- id: mcp-fangcun',
-          `  name: '@deepseek-ai/dsh-mcp-client'`,
-          '  config:',
-          '    serverName: fangcun',
-          '    transport: stdio',
-          `    command: ${cmd}`,
-          `    args: ${argsJson(args)}`,
-          ...(entry.id === 'A' ? ['    failOnStartupError: false'] : []),
+          '- insert:',
+          '    - id: mcp-fangcun',
+          `      name: '@deepseek-ai/dsh-mcp-client'`,
+          '      config:',
+          '        serverName: fangcun',
+          '        transport: stdio',
+          `        command: ${cmd}`,
+          `        args: ${argsJson(args)}`,
+          ...(entry.id === 'A' ? ['        failOnStartupError: false'] : []),
         ].join('\n'),
       }
     case 'claudecode':

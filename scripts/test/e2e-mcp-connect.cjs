@@ -79,6 +79,18 @@ function main() {
   expect('dsh', 'A', '- id: mcp-fangcun', "name: '@deepseek-ai/dsh-mcp-client'", 'serverName: fangcun',
     'transport: stdio', 'failOnStartupError: false')
   expect('dsh', 'B', 'command: python', '"mcp"', 'serverName: fangcun')
+  // ── 卡009（2026-10-03 · DSH 自装实测反馈）：insert: 形式（裸行会被静默跳过）──
+  {
+    const dshA = mod.buildMcpSnippet('dsh', 'A')
+    check('★ 卡009：DSH 配置段是 insert: 形式（裸行=按id覆盖，id不存在静默跳过 —— DSH 实测接不通的真 bug）',
+      dshA.ok && dshA.snippet.startsWith('- insert:') &&
+      /^ {4}- id: mcp-fangcun$/m.test(dshA.snippet) &&
+      /^ {6}name: '@deepseek-ai\/dsh-mcp-client'$/m.test(dshA.snippet),
+      JSON.stringify(dshA.snippet.split('\n').slice(0, 4)))
+    check('  卡009：howTo 点名 insert 语义与热加载（防止再改回裸行）',
+      /insert/.test(dsh.howTo) && /静默跳过/.test(dsh.howTo) && /热加载/.test(dsh.howTo),
+      dsh.howTo.slice(0, 80))
+  }
   expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', path.sep === '\\' ? 'tegula-mcp.js' : 'tegula-mcp.js')
   expect('cursor', 'A', '"mcpServers"', '"fangcun"')
   expect('codex', 'A', '[mcp_servers.fangcun]', 'command = ')

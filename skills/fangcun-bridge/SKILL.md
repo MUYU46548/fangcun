@@ -94,9 +94,12 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 绒花墨坊**无 MCP 层**。操作接入走 **`ronghuamofang` 技能卡**
 （`skills/worldbuilding/ronghuamofang/`）—— 本节只留接线口径，细节以那张卡为准。
 
+仓库根**不写死**（路径写死审计 2026-10-03，卡014）：从方寸数据根下的 `registry.yaml`
+里读绒花墨坊条目的 `repo` 字段作为 `<NF_ROOT>`，别把本机路径抄死在卡里。
+
 ```bash
-# 只读自检
-cd E:/CODE/CangKu/NovelForge && .venv/Scripts/python.exe scripts/nfctl.py check
+# 只读自检（<NF_ROOT> = registry.yaml 绒花墨坊 repo 字段）
+cd <NF_ROOT> && .venv/Scripts/python.exe scripts/nfctl.py check
 # 全景
 .venv/Scripts/python.exe scripts/nfctl.py status
 ```
