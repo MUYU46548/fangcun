@@ -19,6 +19,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
+import { cliRuns } from './agents'
 
 export type McpEntryId = 'A' | 'B'
 
@@ -184,13 +185,15 @@ export function detectMcpTargets(): McpTarget[] {
   }
 
   // ⑤ OpenCode：~/.config/opencode/opencode.json(.c)
+  // detected 与装卡区同口径（2026-10-03 卡007）：目录在 ≠ 装了 —— 还要 opencode --version 能跑；
+  // 本机目录是 9月1 实验残留、hermes/node 的 cmd 已损坏，只看目录会把「已检测到」标给跑不起来的软件。
   {
     const dir = home('.config', 'opencode')
     const cfg = [path.join(dir, 'opencode.json'), path.join(dir, 'opencode.jsonc')].find(isFile)
     out.push({
       id: 'opencode',
       name: 'OpenCode',
-      detected: isDir(dir),
+      detected: isDir(dir) && cliRuns('opencode --version'),
       evidence: cfg || dir,
       configPath: cfg,
       howTo: '把配置段并进 opencode.json 的 mcp 对象（fangcun: {type:"local", command:[...]}），重启 OpenCode。',
@@ -289,4 +292,49 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
     default:
       return { ok: false, snippet: '', message: `未知目标（${targetId}）` }
   }
+}
+
+// ── 自装指令（2026-10-03 卡 task-20261003-006 · A 路线第三渠道）──────────────
+// 用户口径：「直接让对应 Agent 自己安装。代价是用户消耗额外 token，但不耗我们的 token，
+// 现地 Agent 操作比我们盲打盲猜好」。方寸仍然**零写入** —— 只生成一段贴给目标 agent 的
+// 指令（技能卡源路径 + 按它家格式生成的配置段 + 目标配置文件 + 自检步骤），
+// 复制技能卡、写配置、重启验证全部由对方自己动手。
+
+/** 技能卡真源：dev = 仓库 skills/；打包 = 安装包 resources/skills/（随包分发） */
+function skillCardPath(): string | undefined {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'skills', 'fangcun-bridge', 'SKILL.md')]
+    : [path.join(devRepoRoot(), 'skills', 'fangcun-bridge', 'SKILL.md')]
+  return candidates.find(isFile)
+}
+
+export function buildSelfInstallPrompt(targetId: string, entryId: McpEntryId):
+  { ok: boolean; prompt: string; message: string } {
+  const sn = buildMcpSnippet(targetId, entryId)
+  if (!sn.ok) return { ok: false, prompt: '', message: sn.message }
+  const t = detectMcpTargets().find(x => x.id === targetId)
+  if (!t) return { ok: false, prompt: '', message: `未知目标（${targetId}）` }
+
+  const skill = skillCardPath()
+  const cfg = t.configPath
+    || `未检测到现成的配置文件 —— 按你自己的文档定位（方寸不猜、不替你写）`
+  const prompt = [
+    `你是 ${t.name}。请自行完成「方寸（fangcun）任务看板」的接入 —— 由你现地操作，比外部盲写更可靠：`,
+    '',
+    '1）安装技能卡（SKILL.md 标准格式：技能目录/SKILL.md，frontmatter 含 name/description）：',
+    skill
+      ? `   源文件：${skill}`
+      : '   源文件：本机未找到随包技能卡，请从方寸仓库 skills/fangcun-bridge/ 取 SKILL.md',
+    '   复制到你自己的技能目录（按你自己的规则放，装完确认重启后能加载）。',
+    '',
+    '2）配置 MCP 服务（配置段已按你家格式生成，可直接使用）：',
+    `   目标配置文件：${cfg}`,
+    '   配置段：',
+    ...sn.snippet.split('\n').map(l => '   ' + l),
+    '   保存后按你自己的方式重启生效。',
+    '',
+    '3）自检：列出你加载到的技能与 MCP 工具，确认能看到方寸能力（如 list_tasks / search_tasks），',
+    '   然后向用户汇报：装到哪了、配置写到哪了、怎么验证的。',
+  ].join('\n')
+  return { ok: true, prompt, message: '' }
 }

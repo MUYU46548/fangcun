@@ -1046,7 +1046,7 @@
     check('★ 新建日志一字未改 → 关窗不弹确认（不误报）',
       confirmHits === 0 && $('#log-edit-overlay') === null, 'hits=' + confirmHits)
 
-    // B. 新建日志**只改下拉**（用户原话场景：选「上次执行 Agent」）→ 老逻辑静默丢，现在必须拦
+    // B. 新建日志**只改下拉** → 必须拦；拦法 = 与接力**同一套**对话框内警告条（2026-10-03 卡005 统一）
     clickText('+ 新建日志'); await sleep(400)
     let selChanged = false
     for (const s of $$('#log-edit-modal select.logsel')) {
@@ -1054,11 +1054,21 @@
       if (opt) { s.value = opt.value; s.dispatchEvent(new Event('change')); selChanged = true; break }
     }
     hitReset(); const cbB = cancelLogBtn(); if (cbB) cbB.click(); await sleep(300)
-    check('★★ 新建日志只改「项目/执行 Agent」下拉 → 必须弹确认且**拦住不关**（老逻辑三键全空 → 静默丢）',
-      selChanged && confirmHits === 1 && !!$('#log-edit-overlay'),
-      'hits=' + confirmHits + ' selChanged=' + selChanged)
-    window.confirm = () => { confirmHits += 1; return true }
-    const cbB2 = cancelLogBtn(); if (cbB2) cbB2.click(); await sleep(300)
+    check('★★ 卡005：只改下拉 → 出对话框内警告条（非原生 confirm）且拦住不关',
+      selChanged && confirmHits === 0 && !!$('#log-edit-modal') && !!$('#log-edit-modal .relay-discard'),
+      'hits=' + confirmHits + ' selChanged=' + selChanged + ' bar=' + !!$('#log-edit-modal .relay-discard'))
+    check('★ 警告条点名改了什么 + 两按钮与接力同款',
+      (() => {
+        const bar = $('#log-edit-modal .relay-discard')
+        const t = bar ? (bar.textContent || '') : ''
+        return t.indexOf('关掉就没了') >= 0 && t.indexOf('继续填写') >= 0 && t.indexOf('丢弃并关闭') >= 0
+      })())
+    const cbB2 = cancelLogBtn(); if (cbB2) cbB2.click(); await sleep(250)
+    check('  条子出着时再点取消仍不关（与接力同交互，唯一丢弃入口在条上）',
+      !!$('#log-edit-modal'), 'modal=' + !!$('#log-edit-modal'))
+    const dropB = $$('#log-edit-modal .relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
+    if (dropB) dropB.click(); await sleep(300)
+    check('★★ 点条上的「丢弃并关闭」才真关', $('#log-edit-overlay') === null)
 
     // C. 编辑已有日志一字未改 → 老逻辑三键非空必弹（确认疲劳），现在应安静关掉
     const editLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('编辑') >= 0)
@@ -1069,7 +1079,7 @@
       !!editLogBtn && confirmHits === 0 && $('#log-edit-overlay') === null,
       'hits=' + confirmHits + ' editBtn=' + !!editLogBtn)
 
-    // D. 编辑已有日志**真改了** → 必须拦
+    // D. 编辑已有日志**真改了** → 警告条拦住（卡005：与 B 同一套实现，原生 confirm 彻底移除）
     if (editLogBtn) editLogBtn.click()
     await sleep(400)
     const titleIn = $('#log-edit-modal input[placeholder="日志标题"]')
@@ -1077,13 +1087,16 @@
       titleIn.value = (titleIn.value || '') + '（改动）'
       titleIn.dispatchEvent(new Event('input'))
     }
-    window.confirm = () => { confirmHits += 1; return false }
     hitReset(); const cbD = cancelLogBtn(); if (cbD) cbD.click(); await sleep(300)
-    check('★★ 编辑已有日志真改了 → 弹确认且拦住不关（防止误关丢改动）',
-      !!titleIn && confirmHits === 1 && !!$('#log-edit-overlay'),
+    check('★★ 卡005：编辑真改了 → 警告条拦住不关（confirmHits 恒 0 = 原生 confirm 已移除）',
+      !!titleIn && confirmHits === 0 && !!$('#log-edit-modal') && !!$('#log-edit-modal .relay-discard'),
       'hits=' + confirmHits + ' titleIn=' + !!titleIn)
-    window.confirm = () => { confirmHits += 1; return true }
-    const cbD2 = cancelLogBtn(); if (cbD2) cbD2.click(); await sleep(300)
+    check('  警告条点名「标题」',
+      (($('#log-edit-modal .relay-discard') || {}).textContent || '').indexOf('标题') >= 0,
+      (($('#log-edit-modal .relay-discard') || {}).textContent || '').slice(0, 80))
+    const dropD = $$('#log-edit-modal .relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
+    if (dropD) dropD.click(); await sleep(300)
+    check('★★ 丢弃并关闭 → 真关（唯一丢弃入口）', $('#log-edit-overlay') === null)
     window.confirm = origConfirmD
 
     // ── 通知中心点击跳转（2026-10-01 用户第 1 条：「点下去是无效按钮」）──

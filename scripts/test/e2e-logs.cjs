@@ -651,6 +651,13 @@ function main() {
     check('★★ 族1b：四个打开入口都存快照（Guard.open），关闭函数走 dirty 比对而非裸置 null',
       ['policyGuard.open', 'projGuard.open', 'appGuard.open', 'todoGuard.open'].every(s => APP.includes(s)) &&
       /function closeTodoEditor[\s\S]{0,200}todoGuard\.dirty/.test(APP))
+    // ── 2026-10-03 卡 task-20261003-005：日志关闭防丢与接力统一成同一套 ──────
+    check('★★ 卡005：日志编辑用对话框内警告条（logDiscardBar/ref），原生 confirm 已移除',
+      /ref="logDiscardBar"/.test(APP) &&
+      /function closeLogEditor[\s\S]{0,600}logDiscard_\.value = true/.test(APP) &&
+      !/日志内容尚未保存，确定关闭并丢弃吗/.test(APP))
+    check('★★ 卡005：CSS 层面也共用（:is 圈住 #relay-modal 与 #log-edit-modal 两个宿主）',
+      /:is\(#relay-modal, #log-edit-modal\) \.relay-discard/.test(APP))
   }
 
   // ── 2026-10-03 族2 写盘收敛（源码守卫，静态）────────────────────────────

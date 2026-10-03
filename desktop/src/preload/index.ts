@@ -233,6 +233,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // MCP 接入材料（卡 002 · A 路线：只出材料，方寸不写外部应用文件）
   mcpInfo: () => ipcRenderer.invoke('mcp:info'),
   mcpSnippet: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:snippet', targetId, entryId),
+  mcpSelfInstall: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:selfInstall', targetId, entryId),
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
   /** 日志置顶 / 改项目归属（卡 037 右键菜单） */
   logsSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('logs:setPinned', id, pinned),

@@ -20,6 +20,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { spawnSync } from 'child_process'
 
 export interface AgentTarget {
   id: string
@@ -43,6 +44,17 @@ function isDir(p: string): boolean {
 }
 function isFile(p: string): boolean {
   try { return fs.statSync(p).isFile() } catch { return false }
+}
+
+/** 目录存在 ≠ 装好了（2026-10-03 卡 task-20261003-007）：本机 ~/.config/opencode 是 9月1
+ *  的实验残留，PATH 里 hermes/node 的 opencode.cmd 已损坏（跑出「找不到路径」）——
+ *  只看目录就把「已检测到」标在一个根本跑不起来的软件上，用户原话「本机未安装OpenCode」。
+ *  口径：runProbe 能跑出 status 0 才算检测到；跑不动就不列（与 .claude/.codex 缺目录不列同义）。 */
+export function cliRuns(cmd: string): boolean {
+  try {
+    const r = spawnSync(cmd, { shell: true, windowsHide: true, timeout: 5000 })
+    return !r.error && r.status === 0
+  } catch { return false }
 }
 
 export function detectAgentTargets(hermesSkillsDir: string): AgentTarget[] {
@@ -72,9 +84,10 @@ export function detectAgentTargets(hermesSkillsDir: string): AgentTarget[] {
     howTo: '点「📂 显示 SKILL.md」把文件在资源管理器里亮出来 → 打开 WorkBuddy 的「导入技能」面板 → 把 SKILL.md（或整个技能文件夹）拖进去。',
   })
 
-  // ③ OpenCode / Claude Code / Codex / Cursor：有目录才列（本机只有 OpenCode）
-  const cliTargets: Array<{ id: string; name: string; probe: string; howTo: string }> = [
+  // ③ OpenCode / Claude Code / Codex / Cursor：有目录才列；OpenCode 额外要求「能跑」（卡007）
+  const cliTargets: Array<{ id: string; name: string; probe: string; howTo: string; runProbe?: string }> = [
     { id: 'opencode', name: 'OpenCode', probe: path.join(home, '.config', 'opencode'),
+      runProbe: 'opencode --version',
       howTo: 'OpenCode 的技能放法随版本不同，方寸不猜它的目录：点「📂 显示 SKILL.md」后按它的文档放。' },
     { id: 'claudecode', name: 'Claude Code', probe: path.join(home, '.claude'),
       howTo: 'Claude Code 读 ~/.claude/skills/<名>/SKILL.md：点「📂 显示 SKILL.md」，把整个技能文件夹拷过去即可。' },
@@ -85,6 +98,7 @@ export function detectAgentTargets(hermesSkillsDir: string): AgentTarget[] {
   ]
   for (const t of cliTargets) {
     if (!isDir(t.probe)) continue
+    if (t.runProbe && !cliRuns(t.runProbe)) continue
     out.push({
       id: t.id, name: t.name, mode: 'manual', detected: true,
       evidence: t.probe, openPath: t.probe, howTo: t.howTo,

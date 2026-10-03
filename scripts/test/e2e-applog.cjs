@@ -127,7 +127,9 @@ async function main() {
     ipcMod.registerIpcHandlers()
     for (const ch of ['applog:write', 'applog:path', 'applog:dir', 'applog:tail', 'applog:openDir',
       // 卡 002 · MCP 接入材料三通道（同样必须注册在 registerIpcHandlers 顶层）
-      'mcp:info', 'mcp:snippet', 'mcp:openConfig']) {
+      'mcp:info', 'mcp:snippet', 'mcp:openConfig',
+      // 卡006（2026-10-03）· 自装指令渠道（A 路线第三渠道）
+      'mcp:selfInstall']) {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }

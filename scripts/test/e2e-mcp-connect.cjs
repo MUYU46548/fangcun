@@ -116,6 +116,26 @@ function main() {
   const bad3 = mod.buildMcpSnippet('dsh', '')
   check('空入口 → ok:false', bad3.ok === false, JSON.stringify(bad3))
 
+  // ── 卡006（2026-10-03）：自装指令 —— A 路线第三渠道 ──────────────────
+  const p1 = mod.buildSelfInstallPrompt('dsh', 'A')
+  check('卡006a：自装指令生成成功（dsh × A）', p1.ok === true, p1.message)
+  check('卡006b：含技能卡真实路径且指向 fangcun-bridge/SKILL.md',
+    p1.ok && /源文件：.+fangcun-bridge[\\/]+SKILL\.md/.test(p1.prompt), p1.prompt.slice(0, 200))
+  check('卡006c：含按格式生成的配置段（与 mcpSnippet 同源，取首行比对）',
+    p1.ok && p1.prompt.includes(mod.buildMcpSnippet('dsh', 'A').snippet.split('\n')[0]))
+  check('卡006d：含目标配置文件与自检步骤（装完自己验证再汇报）',
+    p1.ok && p1.prompt.includes('目标配置文件') && p1.prompt.includes('自检') && p1.prompt.includes('汇报'))
+  const pBad = mod.buildSelfInstallPrompt('不存在的目标', 'A')
+  check('卡006e：未知目标 → ok:false 且有原因', pBad.ok === false && !!pBad.message, JSON.stringify(pBad))
+
+  // ── 卡007（2026-10-03）：OpenCode「已检测到」误报 —— 两处检测都挂「能跑」门（源码守卫，机器无关）──
+  const ocSrc = fs.readFileSync(path.join(DIST, '..', '..', 'src', 'main', 'services', 'mcpConnect.ts'), 'utf-8')
+  const agSrc = fs.readFileSync(path.join(DIST, '..', '..', 'src', 'main', 'services', 'agents.ts'), 'utf-8')
+  check('卡007：装卡区与 MCP 区的 OpenCode 检测都要求 opencode --version 能跑（不止看目录）',
+    /runProbe: 'opencode --version'/.test(agSrc) && /cliRuns\(t\.runProbe\)/.test(agSrc) &&
+    /cliRuns\('opencode --version'\)/.test(ocSrc),
+    `agents=${/cliRuns\(t\.runProbe\)/.test(agSrc)} mcp=${/cliRuns\('opencode --version'\)/.test(ocSrc)}`)
+
   // ── 清理 ───────────────────────────────────────────────────────
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {

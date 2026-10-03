@@ -23,7 +23,7 @@ import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, ope
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
-import { listMcpEntries, detectMcpTargets, buildMcpSnippet } from './services/mcpConnect'
+import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallPrompt } from './services/mcpConnect'
 import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 
@@ -955,6 +955,9 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     return buildMcpSnippet(String(targetId || ''), String(entryId || '') as McpEntryId)
   })
   // 打开目标配置文件：只允许打开 detectMcpTargets() 实测存在的 configPath（不猜、不建）
+  guardedHandle('mcp:selfInstall', (_event, targetId: string, entryId: string) => {
+    return buildSelfInstallPrompt(targetId, entryId as McpEntryId)
+  })
   guardedHandle('mcp:openConfig', async (_event, targetId: string) => {
     const t = detectMcpTargets().find(x => x.id === String(targetId))
     if (!t) return { ok: false, message: `未知目标（${targetId}）` }

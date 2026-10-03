@@ -637,6 +637,8 @@
               <span class="agent-state">{{ m.detected ? '已检测到' : '没检测到' }}</span>
               <button class="skills-btn primary" @click="copyMcpSnippet(m)"
                 title="生成按本机安装路径的配置段并复制">📋 复制配置段</button>
+              <button class="skills-btn" @click="copyMcpSelfInstall(m)"
+                title="生成一段贴给它的自装指令（技能卡路径 + 配置段 + 自检步骤），由它自己动手 —— 耗它自己的 token，方寸零写入">🤖 让它自装</button>
               <button v-if="m.configPath" class="skills-btn" @click="openMcpConfig(m)"
                 title="打开对方的配置文件，粘贴后保存">📂 打开配置文件</button>
             </div>
@@ -1795,11 +1797,21 @@
             </div>
           </div>
         </div>
+        <!-- 关闭防丢警告条（2026-10-03 卡 task-20261003-005）：与接力对话框**同一套实现**
+             （同 .relay-discard 样式、同交互：点取消/遮罩先出条不关，必须点「丢弃并关闭」）。
+             此前这里是原生 window.confirm —— 用户点名「创建日志和日志接力用了两种实现」，统一到条子。 -->
+        <div v-if="logDiscard_" ref="logDiscardBar" class="relay-discard" role="alertdialog" aria-live="polite">
+          <span class="rd-text">⚠ 这次的改动还没保存，关掉就没了：<b>{{ logDirtyNames().join('、') || '表单改动' }}</b></span>
+          <span class="rd-acts">
+            <button class="ghost" @click="logDiscard_ = false">继续填写</button>
+            <button class="danger" @click="discardLogEdit">丢弃并关闭</button>
+          </span>
+        </div>
         <div class="acts">
-          <button class="ghost" @click="closeLogEditor(); logCompleting = false; logArchiveMode = false">取消</button>
+          <button class="ghost" @click="closeLogEditor">取消</button>
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
-          <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); logEdit_ = null">销毁</button>
+          <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); closeLogNow()">销毁</button>
           <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
         </div>
       </div>
@@ -4481,6 +4493,18 @@ async function copyMcpSnippet(m: McpTargetUi): Promise<void> {
   else showToast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
 }
 
+/** 卡006（2026-10-03）：自装指令 —— A 路线第三渠道。复制一段贴给目标 agent 的完整指令，
+ *  技能卡复制与配置写入全部由对方现地完成（耗它自己的 token，方寸仍零写入）。 */
+async function copyMcpSelfInstall(m: McpTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.mcpSelfInstall !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.mcpSelfInstall(m.id, mcpEntry.value)
+  if (!r || !r.ok) { showToast(`生成失败：${(r && r.message) || '未知原因'}`, 'error'); return }
+  const c: any = await t.clipboardWriteText(r.prompt)
+  if (c && c.ok !== false) showToast(`已复制给 ${m.name} 的自装指令 —— 打开对方粘贴，让它自己装`, 'success')
+  else showToast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
+}
+
 async function openMcpConfig(m: McpTargetUi): Promise<void> {
   const t: any = window.tegula
   if (typeof t.mcpOpenConfig !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
@@ -4829,13 +4853,91 @@ function closeTaskEditor() {
   taskEditSnap = null
 }
 
-/** 关闭日志编辑器：同上（日志正文往往最长，误关代价最大） */
-function closeLogEditor() {
-  if (logEditDirty() && !confirm('日志内容尚未保存，确定关闭并丢弃吗？')) return
+/** 关闭日志编辑器（2026-10-03 卡 task-20261003-005）：与接力**同一套**防丢 ——
+ *  对话框内警告条，不再原生 window.confirm（用户点名「创建日志和日志接力两种实现」，统一）。
+ *  交互与 closeRelay 同构：第一次点取消/遮罩出条不关（滚进视野+焦点落「继续填写」+warn 留痕）；
+ *  条子出着时再点仍不关；唯一丢弃入口 = 条上的「丢弃并关闭」。 */
+const logDiscard_ = ref(false)
+const logDiscardBar = ref<HTMLElement | null>(null)
+function closeLogEditor(): void {
+  if (logEditDirty()) {
+    if (!logDiscard_.value) {
+      logDiscard_.value = true
+      nextTick(() => {
+        const bar = logDiscardBar.value
+        if (!bar) return
+        try { bar.scrollIntoView({ block: 'nearest' }) } catch { /* 老 Chromium：不支持 options */ }
+        const keep = bar.querySelector('button') as HTMLButtonElement | null
+        keep?.focus()
+      })
+      console.warn(`[logEdit] 关闭被拦下：未保存的改动（${logDirtyNames().join('、') || '表单改动'}），等用户选择丢弃或继续填写`)
+    }
+    return
+  }
+  closeLogNow()
+}
+
+/** 真正关窗：保存成功 / 销毁 / 丢弃确认共用这一条出清路径（防条子与快照残留到下次打开） */
+function closeLogNow(): void {
   logEdit_.value = null
   logCompleting.value = false
   logArchiveMode.value = false
   logEditSnap = null
+  logSnapFields = null
+  logDiscard_.value = false
+}
+
+/** 条上的「丢弃并关闭」——唯一丢弃入口 */
+function discardLogEdit(): void {
+  console.warn(`[logEdit] 用户确认丢弃未保存的日志改动（${logDirtyNames().join('、') || '无'}）`)
+  closeLogNow()
+}
+
+/** 结构化快照：字符串快照（logSnapNow）负责判脏，结构化快照负责在条子里点名改了什么 */
+let logSnapFields: Record<string, string> | null = null
+function markLogSnap(): void {
+  logEditSnap = logSnapNow()
+  const f = logEdit_.value
+  logSnapFields = f ? {
+    title: String(f.title ?? ''),
+    content: String(f.content ?? ''),
+    nextSteps: String(f.nextSteps ?? ''),
+    project: String(f.project ?? ''),
+    taskIds: normalizeLogTaskIds(f).join(','),
+    sessionId: String(f.sessionId ?? ''),
+    agentName: String(f.agentName ?? ''),
+    prevAgentName: String(f.prevAgentName ?? ''),
+    logDate: String(f.logDate ?? ''),
+    note: String(logNote.value ?? ''),
+    retain: String(logRetainDays.value ?? ''),
+  } : null
+}
+
+const LOG_FIELD_LABELS: Record<string, string> = {
+  title: '标题', content: '执行内容', nextSteps: '下一步', project: '项目', taskIds: '关联任务',
+  sessionId: '会话 ID', agentName: '执行 Agent', prevAgentName: '上次执行 Agent',
+  logDate: '日志日期', note: '备注', retain: '保留天数',
+}
+
+/** 相对打开时的快照逐字段点名（与接力 relayChanges 同构，不另发明） */
+function logDirtyNames(): string[] {
+  const f = logEdit_.value
+  const s = logSnapFields
+  if (!f || !s) return []
+  const now: Record<string, string> = {
+    title: String(f.title ?? ''),
+    content: String(f.content ?? ''),
+    nextSteps: String(f.nextSteps ?? ''),
+    project: String(f.project ?? ''),
+    taskIds: normalizeLogTaskIds(f).join(','),
+    sessionId: String(f.sessionId ?? ''),
+    agentName: String(f.agentName ?? ''),
+    prevAgentName: String(f.prevAgentName ?? ''),
+    logDate: String(f.logDate ?? ''),
+    note: String(logNote.value ?? ''),
+    retain: String(logRetainDays.value ?? ''),
+  }
+  return Object.keys(s).filter(k => now[k] !== s[k]).map(k => LOG_FIELD_LABELS[k] || k)
 }
 
 /**
@@ -6660,7 +6762,7 @@ function openLog(log: any) {
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = false
   logArchiveMode.value = false
-  logEditSnap = logSnapNow()   // P0-1：打开即存快照（改没改才算数）
+  markLogSnap()   // P0-1：打开即存快照（改没改才算数）
   // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
   // 自动聚焦到标题输入框，确保用户可以立即输入
   setTimeout(() => {
@@ -6684,7 +6786,7 @@ function openNewLog() {
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
-  logEditSnap = logSnapNow()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
+  markLogSnap()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
 }
 
 /** 日志 ID 缩写：`log_20260927…c73e`（卡面链标签用，完整 ID 挂 title） */
@@ -7100,6 +7202,8 @@ async function saveLogEdit() {
     logEdit_.value = null
     logCompleting.value = false
     logArchiveMode.value = false
+    logSnapFields = null
+    logDiscard_.value = false
     await loadLogs()
   } catch (err: any) {
     showToast(`保存失败: ${err.message || err}`, 'error')
@@ -7115,7 +7219,7 @@ function completeLogItem(id: string) {
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
-  logEditSnap = logSnapNow()   // P0-1：只填「备注」也要算改动，别静默丢
+  markLogSnap()   // P0-1：只填「备注」也要算改动，别静默丢
 }
 
 function archiveLogItem(id: string) {
@@ -7127,7 +7231,7 @@ function archiveLogItem(id: string) {
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   logBatchMode.value = false
-  logEditSnap = logSnapNow()
+  markLogSnap()
 }
 
 /**
@@ -9519,13 +9623,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* 关闭防丢确认条（2026-09-30 卡 006）：必须比正文抢眼、按钮大到不会点错。
    底色用主题 --tint（六套主题都有浅底），边框与「丢弃」按钮用 --danger（白字压它 ≥4.5）。 */
-#relay-modal .relay-discard { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 9px 11px; border-radius: 10px; background: var(--tint); border: 1px solid var(--danger); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
-#relay-modal .relay-discard .rd-text { flex: 1 1 260px; }
-#relay-modal .relay-discard .rd-text b { color: var(--danger); font-weight: 700; }
-#relay-modal .relay-discard .rd-acts { display: flex; gap: 8px; flex: none; }
-#relay-modal .relay-discard .rd-acts button { height: 30px; padding: 0 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-#relay-modal .relay-discard .rd-acts .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
-#relay-modal .relay-discard .rd-acts .danger { background: var(--danger); color: #fff; border: 0; }
+/* 防丢警告条：接力与日志编辑**共用同一套**（卡005 统一实现，:is 一次圈两个宿主） */
+:is(#relay-modal, #log-edit-modal) .relay-discard { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 9px 11px; border-radius: 10px; background: var(--tint); border: 1px solid var(--danger); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-text { flex: 1 1 260px; }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-text b { color: var(--danger); font-weight: 700; }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts { display: flex; gap: 8px; flex: none; }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts button { height: 30px; padding: 0 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
+:is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts .danger { background: var(--danger); color: #fff; border: 0; }
 
 /* 「更多筛选」抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围不再和搜索框挤一条线 */
 .log-more-btn { position: relative; }
