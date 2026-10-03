@@ -7,7 +7,10 @@
  * 3. 提供 installSkills IPC 通道（供设置页手动触发）
  *
  * 数据来源：应用 resources/skills/（随安装包分发的真源）
- * 安装目标：~/.hermes/skills/（Hermes 侧，可焚毁区）
+ * 安装目标：**可直装目标**——Hermes（%LOCALAPPDATA%\hermes\skills）与
+ *           DSH（~/.dsh/skills，2026-10-03 卡 task-20261003-011 纳入）。
+ *           两家落点都是**实测过**的：方寸技能卡已被这两个 agent 各装进去一份。
+ *           其余 agent（WorkBuddy 等）目录不可知 → 只给文件 + 自装指令，不写。
  */
 
 import * as fs from 'fs'
@@ -15,6 +18,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { app, shell } from 'electron'
 import * as appLog from './appLog'
+import { dshHome } from './probe'
 
 const SKILL_DIRS = ['fangcun-bridge', 'skill-management-policy']
 
@@ -22,6 +26,30 @@ interface SkillInstallResult {
   installed: string[]
   skipped: string[]
   errors: { skill: string; error: string }[]
+}
+
+/**
+ * 可直装目标清单（**单一真相源**：checkSkillsStatus / installSkillsTo / listSkillsForUi 全用它）。
+ *
+ * `present()` = 目标是否在场：
+ *   · Hermes：恒 true（原位行为 —— 目录不存在就建出来，这是方寸自己依赖的宿主）；
+ *   · DSH：只有 `~/.dsh` 存在才在场 —— 别给一个没装 DSH 的机器凭空造 `~/.dsh/skills`
+ *     （那正是"往猜出来的目录里写东西"，本模块的红线）。
+ */
+interface InstallTargetDef {
+  id: string
+  name: string
+  dir: () => string
+  present: () => boolean
+}
+
+export const INSTALL_TARGETS: InstallTargetDef[] = [
+  { id: 'hermes', name: 'Hermes', dir: () => getHermesSkillsDir(), present: () => true },
+  { id: 'dsh', name: 'DSH', dir: () => getDshSkillsDir(), present: () => fs.existsSync(dshHome()) },
+]
+
+function findTarget(id: string): InstallTargetDef | undefined {
+  return INSTALL_TARGETS.find(t => t.id === id)
 }
 
 function getResourcesSkillsDir(): string {
@@ -85,6 +113,11 @@ function getHermesSkillsDir(): string {
   return path.join(localAppData, 'hermes', 'skills')
 }
 
+/** DSH 侧技能目录（2026-10-03 实测落点；`~/.dsh` 由 probe.dshHome 解析，测试可重定向） */
+function getDshSkillsDir(): string {
+  return path.join(dshHome(), 'skills')
+}
+
 function fileMd5Safe(filePath: string): string {
   try {
     return fs.existsSync(filePath) ? md5File(filePath) : ''
@@ -100,12 +133,13 @@ function md5File(filePath: string): string {
   return hash.digest('hex')
 }
 
-function getInstalledManifestPath(): string {
-  return path.join(getHermesSkillsDir(), '.fangcun-installed.json')
+/** 每个安装目标各记一本账（放各自技能目录里）—— 混在一起就分不清是谁装的 */
+function getInstalledManifestPath(dir: string): string {
+  return path.join(dir, '.fangcun-installed.json')
 }
 
-function readInstalledManifest(): Record<string, { hash: string; installedAt: string }> {
-  const p = getInstalledManifestPath()
+function readInstalledManifest(dir: string): Record<string, { hash: string; installedAt: string }> {
+  const p = getInstalledManifestPath(dir)
   if (!fs.existsSync(p)) return {}
   try {
     return JSON.parse(fs.readFileSync(p, 'utf-8'))
@@ -114,8 +148,8 @@ function readInstalledManifest(): Record<string, { hash: string; installedAt: st
   }
 }
 
-function writeInstalledManifest(manifest: Record<string, { hash: string; installedAt: string }>): void {
-  const p = getInstalledManifestPath()
+function writeInstalledManifest(dir: string, manifest: Record<string, { hash: string; installedAt: string }>): void {
+  const p = getInstalledManifestPath(dir)
   fs.mkdirSync(path.dirname(p), { recursive: true })
   fs.writeFileSync(p, JSON.stringify(manifest, null, 2), 'utf-8')
 }
@@ -128,23 +162,27 @@ function copySkillDir(srcDir: string, destDir: string): void {
 }
 
 /**
- * 检查 skills 是否需要安装
+ * 检查 skills 是否需要安装（按目标）
  */
-export function checkSkillsStatus(): {
+export function checkSkillsStatus(targetId = 'hermes'): {
+  targetId: string
+  targetName: string
   needsInstall: boolean
   skills: { name: string; installed: boolean; outdated: boolean; hash: string }[]
 } {
-  const resourcesDir = getResourcesSkillsDir()
-  const hermesDir = getHermesSkillsDir()
-  const manifest = readInstalledManifest()
+  const target = findTarget(targetId)
   const skills: { name: string; installed: boolean; outdated: boolean; hash: string }[] = []
+  if (!target) return { targetId, targetName: '', needsInstall: false, skills }
+
+  const resourcesDir = getResourcesSkillsDir()
+  const destRoot = target.dir()
 
   for (const skillDir of SKILL_DIRS) {
     const srcSkillMd = path.join(resourcesDir, skillDir, 'SKILL.md')
     if (!fs.existsSync(srcSkillMd)) continue
 
     const currentHash = md5File(srcSkillMd)
-    const destSkillMd = path.join(hermesDir, skillDir, 'SKILL.md')
+    const destSkillMd = path.join(destRoot, skillDir, 'SKILL.md')
     const installed = fs.existsSync(destSkillMd)
     // ⚠ 只看 manifest 里记的 hash 是不够的（2026-09-26 修）：那份记录只说明"上次装成功过"，
     //   说明不了"现在磁盘上这份还对"。装好的副本被改坏/半途写坏时，旧逻辑会永远跳过。
@@ -160,21 +198,36 @@ export function checkSkillsStatus(): {
   }
 
   return {
+    targetId: target.id,
+    targetName: target.name,
     needsInstall: skills.some(s => !s.installed || s.outdated),
     skills,
   }
 }
 
 /**
- * 安装 skills 到 Hermes 侧
+ * 安装 skills（默认 Hermes，兼容既有 `skills:install` 通道）
  * 幂等：已安装且 hash 一致则跳过
  */
 export function installSkills(): SkillInstallResult {
-  const result: SkillInstallResult = { installed: [], skipped: [], errors: [] }
-  const resourcesDir = getResourcesSkillsDir()
-  const hermesDir = getHermesSkillsDir()
+  return installSkillsTo('hermes')
+}
 
-  appLog.info('skills', `开始安装 skills，源: ${resourcesDir}`)
+/**
+ * 安装 skills 到指定目标（卡 task-20261003-011 / 010）
+ * 幂等：已安装且 hash 一致则跳过
+ */
+export function installSkillsTo(targetId: string): SkillInstallResult {
+  const result: SkillInstallResult = { installed: [], skipped: [], errors: [] }
+  const target = findTarget(targetId)
+  if (!target) {
+    result.errors.push({ skill: '(目标)', error: `未知安装目标：${targetId}` })
+    return result
+  }
+  const resourcesDir = getResourcesSkillsDir()
+  const destRoot = target.dir()
+
+  appLog.info('skills', `开始安装 skills → ${target.name}，源: ${resourcesDir}`)
 
   for (const skillDir of SKILL_DIRS) {
     try {
@@ -185,8 +238,8 @@ export function installSkills(): SkillInstallResult {
       }
 
       const currentHash = md5File(srcSkillMd)
-      const destSkillMd = path.join(hermesDir, skillDir, 'SKILL.md')
-      const manifest = readInstalledManifest()
+      const destSkillMd = path.join(destRoot, skillDir, 'SKILL.md')
+      const manifest = readInstalledManifest(destRoot)
       const saved = manifest[skillDir]
 
       // 已存在、且 manifest 记录与**目标端实际内容**都与真源一致 → 跳过
@@ -198,18 +251,18 @@ export function installSkills(): SkillInstallResult {
 
       // 复制整个目录
       const srcDir = path.join(resourcesDir, skillDir)
-      const destDir = path.join(hermesDir, skillDir)
+      const destDir = path.join(destRoot, skillDir)
       copySkillDir(srcDir, destDir)
       manifest[skillDir] = {
         hash: currentHash,
         installedAt: new Date().toISOString(),
       }
-      writeInstalledManifest(manifest)
+      writeInstalledManifest(destRoot, manifest)
       result.installed.push(skillDir)
-      appLog.info('skills', `安装 ${skillDir} (hash: ${currentHash.slice(0,8)})`)
+      appLog.info('skills', `安装 ${skillDir} → ${target.name} (hash: ${currentHash.slice(0,8)})`)
     } catch (e: any) {
       result.errors.push({ skill: skillDir, error: e.message })
-      appLog.error('skills', `安装 ${skillDir} 失败`, e.message)
+      appLog.error('skills', `安装 ${skillDir} → ${target.name} 失败`, e.message)
     }
   }
 
@@ -217,20 +270,29 @@ export function installSkills(): SkillInstallResult {
 }
 
 /**
- * 首次启动自动检测
+ * 首次启动自动检测（多目标）
+ *
+ * ⚠ 只对**在场**的目标动手：DSH 没装就不该凭空造 `~/.dsh/skills`（=往猜出来的目录写东西）。
+ *   Hermes 的 present() 恒 true —— 它是方寸自己的宿主，维持原有行为。
  */
 export function autoCheckSkills(): void {
-  try {
-    const status = checkSkillsStatus()
-    if (status.needsInstall) {
-      appLog.info('skills', '检测到需要安装/更新 skills，开始自动安装...')
-      const result = installSkills()
-      appLog.info('skills', `自动安装完成：已装 ${result.installed.length}，跳过 ${result.skipped.length}，失败 ${result.errors.length}`)
-    } else {
-      appLog.info('skills', 'skills 已是最新，无需安装')
+  for (const t of INSTALL_TARGETS) {
+    try {
+      if (!t.present()) {
+        appLog.info('skills', `${t.name} 不在场（本机没装），跳过技能自动安装`)
+        continue
+      }
+      const status = checkSkillsStatus(t.id)
+      if (status.needsInstall) {
+        appLog.info('skills', `${t.name}：检测到需要安装/更新 skills，开始自动安装...`)
+        const result = installSkillsTo(t.id)
+        appLog.info('skills', `${t.name}：自动安装完成——已装 ${result.installed.length}，跳过 ${result.skipped.length}，失败 ${result.errors.length}`)
+      } else {
+        appLog.info('skills', `${t.name}：skills 已是最新，无需安装`)
+      }
+    } catch (e: any) {
+      appLog.warn('skills', `${t.name} 自动检测 skills 失败: ${e.message}`)
     }
-  } catch (e: any) {
-    appLog.warn('skills', `自动检测 skills 失败: ${e.message}`)
   }
 }
 
@@ -278,6 +340,18 @@ export interface SkillsUiPayload {
   /** 磁盘上有 SKILL.md、但 manifest 没登记的目录 */
   unlisted: string[]
   skills: SkillUiItem[]
+  /**
+   * 每个**可直装目标**的逐技能安装状态（卡 010/011）——
+   * 界面据此显示「装到：Hermes ✓ · DSH ⬆」，不再是"只认 Hermes"。
+   * `present=false` 的目标（DSH 未安装）照样列出来，只是标"不在场、不写"。
+   */
+  targets: {
+    id: string
+    name: string
+    dir: string
+    present: boolean
+    skills: { id: string; installed: boolean; outdated: boolean }[]
+  }[]
 }
 
 function buildInstallPrompt(it: { id: string; target: string; absPath: string }): string {
@@ -300,7 +374,7 @@ export function listSkillsForUi(): SkillsUiPayload {
   const hermesDir = getHermesSkillsDir()
   const manifestPath = path.join(skillsDir, 'manifest.json')
   const out: SkillsUiPayload = {
-    ok: true, version: '', lastUpdated: '', skillsDir, hermesDir, unlisted: [], skills: [],
+    ok: true, version: '', lastUpdated: '', skillsDir, hermesDir, unlisted: [], skills: [], targets: [],
   }
 
   let manifest: any = null
@@ -339,7 +413,7 @@ export function listSkillsForUi(): SkillsUiPayload {
     } catch { /* 读不到就当不存在，界面会显示 */ }
     const dest = path.join(hermesDir, id, 'SKILL.md')
     const installed = fs.existsSync(dest)
-    const saved = readInstalledManifest()[id]
+    const saved = readInstalledManifest(hermesDir)[id]
     out.skills.push({
       id,
       target: String(e?.target || 'All'),
@@ -364,6 +438,18 @@ export function listSkillsForUi(): SkillsUiPayload {
       if (fs.existsSync(path.join(skillsDir, d.name, 'SKILL.md'))) out.unlisted.push(d.name)
     }
   } catch { /* 目录不存在 → 前面已经报 ok:false */ }
+
+  // 每个可直装目标的逐技能安装状态（卡 010/011）—— 界面「装到：Hermes ✓ · DSH ⬆」用它。
+  // ⚠ 每个目标的已装判据都必须**看磁盘实际内容**，不能只看各自那本 manifest（同 checkSkillsStatus 的道理）。
+  out.targets = INSTALL_TARGETS.map(t => {
+    const dir = t.dir()
+    const sk = out.skills.map(s => {
+      const dest = path.join(dir, s.id, 'SKILL.md')
+      const inst = fs.existsSync(dest)
+      return { id: s.id, installed: inst, outdated: s.exists && (!inst || fileMd5Safe(dest) !== s.hash) }
+    })
+    return { id: t.id, name: t.name, dir, present: t.present(), skills: sk }
+  })
 
   if (!out.skills.length && out.ok === false && !out.error) out.error = 'manifest 里没有登记任何技能'
   return out
@@ -393,6 +479,7 @@ export function resolveRevealTarget(dirOrFile: string): {
   const p = path.resolve(raw)
   const roots = [
     { root: path.resolve(getHermesSkillsDir()), label: 'Hermes 侧副本' },
+    { root: path.resolve(getDshSkillsDir()), label: 'DSH 侧副本' },
     { root: path.resolve(getResourcesSkillsDir()), label: '方寸真源' },
   ]
   const hit = roots.find(r => p === r.root || p.startsWith(r.root + path.sep))
@@ -411,13 +498,15 @@ export function resolveRevealTarget(dirOrFile: string): {
   }
 }
 
-/** 打开技能目录（真源 / Hermes 侧）—— 路径由主进程自己算，不接受渲染层传路径 */
+/** 打开技能目录（真源 / Hermes 侧 / DSH 侧）—— 路径由主进程自己算，不接受渲染层传路径 */
 export async function openSkillsDir(which: string): Promise<{ ok: boolean; dir?: string; error?: string }> {
-  const dir = which === 'hermes' ? getHermesSkillsDir() : getResourcesSkillsDir()
+  const t = findTarget(which)
+  const dir = t ? t.dir() : getResourcesSkillsDir()
   try {
     if (!fs.existsSync(dir)) {
-      // Hermes 侧可能还没装过任何技能 → 先建出来，用户点「打开」不该看到失败
-      if (which === 'hermes') fs.mkdirSync(dir, { recursive: true })
+      // Hermes（present 恒 true）→ 先建出来，用户点「打开」不该看到失败；
+      // DSH 未安装（present=false）→ 报错不建（不给没装 DSH 的机器凭空造 ~/.dsh/skills）。
+      if (t && t.present()) fs.mkdirSync(dir, { recursive: true })
       else return { ok: false, error: `目录不存在：${dir}`, dir }
     }
     const err = await shell.openPath(dir)

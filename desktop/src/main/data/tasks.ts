@@ -500,6 +500,83 @@ export function unarchiveTask(id: string): Task | null {
   return updateTask(id, { status: '待办' })
 }
 
+// ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）──────────────
+//
+// 用户口径：「看板已完成任务自动归档，**仿日志清理的保留天数设置**，默认关闭」。
+// 与日志清理同构：设置一个保留天数（0 = 关闭），到期的那批由用户点按钮归档
+// （或显式勾选「启动时自动执行」）—— **不静默移动文件**。
+//
+// ⚠ 判据是「**更新时间**早于 N 天前」而不是「状态=完成就收」：
+//   任务完成后再改一笔（写结果记录、补附言）就会刷新更新时间，天然不会被误收。
+//   更新时间解析必须认三种老写法（ISO 字符串 / 秒级 Unix / 毫秒），与渲染层 `timefmt` 同规矩。
+
+/**
+ * 任务「更新时间」毫秒数。
+ *
+ * ⚠ 上游 `parseTask` 会把 frontmatter 里的**数字**时间戳按**秒级 Unix**归一成 ISO 字符串
+ *   （真实数据写的是 `创建: 1791024659`；写毫秒会被当秒 → 跑到 58616 年，这条已在
+ *   `e2e-archive-overdue` 里钉成负面案例）。所以这里绝大多数情况拿到的是 ISO 字符串；
+ *   数字分支只是防御（坏卡 / 手工构造）。认不出来退到文件 mtime —— **不能返回 0**：
+ *   0 会被当成"老得不能再老"，把刚建的卡也收走。
+ */
+function taskUpdatedMs(t: Task): number {
+  const raw = (t.fm as Record<string, unknown> | undefined)?.updated
+  if (raw === undefined || raw === null || raw === '') {
+    // 退到 mtime —— **不能返回 0**：0 会被当成"老得不能再老"，把刚建的卡也收走。
+    try { return fs.statSync(t.path).mtimeMs } catch { return 0 }
+  }
+  if (typeof raw === 'number') return raw > 1e12 ? raw : raw * 1000
+  const s = String(raw).trim()
+  if (/^\d+$/.test(s)) { const n = Number(s); return n > 1e12 ? n : n * 1000 }
+  const ms = Date.parse(s)
+  return Number.isFinite(ms) ? ms : 0
+}
+
+/** 状态字段两种写法都要认（FIELD_MAP 归一出 `status`，但坏卡可能只留中文键） */
+function taskStatusOf(t: Task): string {
+  const fm = (t.fm || {}) as Record<string, unknown>
+  return String(fm.status ?? fm['状态'] ?? '')
+}
+
+/**
+ * 已完成、且超过 days 天没动过的**活跃区**任务。
+ * days <= 0 表示功能关闭 → 永远返回空（默认关闭，与日志清理同口径）。
+ */
+export function listOverdueCompleted(days: number): Task[] {
+  const d = Number(days)
+  if (!Number.isFinite(d) || d <= 0) return []
+  const cutoff = Date.now() - d * 86400000
+  return loadAllTasksRaw('active').filter(t => {
+    if (taskStatusOf(t) !== '完成') return false
+    if (isArchivedPath(t.path)) return false
+    const ms = taskUpdatedMs(t)
+    return ms > 0 && ms < cutoff
+  })
+}
+
+/**
+ * 把超期的已完成任务移进 archive/。
+ * 逐条走既有 `archiveTask`（moveIntoDir + 失效缓存 + 记活动日志），
+ * 单条失败不影响其余，失败项如实返回 —— 不吞异常、不假装全成功。
+ */
+export function archiveOverdueCompleted(days: number): {
+  archived: string[]
+  failed: { id: string; error: string }[]
+} {
+  const archived: string[] = []
+  const failed: { id: string; error: string }[] = []
+  for (const t of listOverdueCompleted(days)) {
+    try {
+      const r = archiveTask(t.id)
+      if (r) archived.push(t.id)
+      else failed.push({ id: t.id, error: '归档后读不回该任务' })
+    } catch (e: any) {
+      failed.push({ id: t.id, error: e?.message || String(e) })
+    }
+  }
+  return { archived, failed }
+}
+
 // ── 回收站（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）────────
 //
 // 用户现象：「删掉的东西不知道去哪了」。`.trash/` 里 64 个文件数据完好，只是没有任何界面。

@@ -28,6 +28,8 @@
 | 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份/老 YAML 写法（**242**，24 个检查组） |
 | 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）** |
 | 任务删除/归档健壮性 | `node scripts/test/e2e-task-delete.cjs` | **同名重复副本（archive/ 与 .trash/ 同 id）下 delete/archive/unarchive 不抛异常、幂等、去重；readTask 优先活跃区** |
+| **装到别的 agent（目标检测 + 多目标安装）** | `node scripts/test/e2e-agent-targets.cjs` | **装卡区必须有 DSH（此前根本没有这一条 → 用户「检测不到 DSH 装了」的真因）**：DSH 落点 `~/.dsh/skills`、与 Hermes 同级可直装；「已接入」两问 = 技能副本 + MCP 配置含 fangcun，**落点不可知时给 `undefined` 而不是 `false`**；多目标安装各目标分账（不串目录）、未知目标显式报错；**DSH 不在场时不许给它造目录**；含反例（删掉 `~/.dsh` → `detected=false`） |
+| **已完成任务自动归档（卡 012）** | `node scripts/test/e2e-archive-overdue.cjs` | 判据 =「状态=完成 **且** 更新时间早于 N 天」——刚动过的不收、非完成的不收、没写时间的退 mtime（不是"老得不能再老"）；**保留天数 0 = 关闭，默认必须关**；归档**真把文件移进 archive/**（不是只改状态那种假归档）且可逆；数字时间戳按**秒级**解析（毫秒写法跑到未来 → 不收，钉成负面案例） |
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
@@ -37,10 +39,11 @@
 | **UI 偏好持久化** | `node scripts/test/e2e-prefs.cjs` | **Agent 预设真身在 `userData/prefs.json`：合并写入·原子替换·坏文件回退；要害断言＝模拟换 origin（localStorage 清空）后清模块缓存重载，值仍在磁盘上** |
 | **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
 | **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
-| 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式 |
+| 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` / `check-themes` / **`check-skills`（改技能必跑）** | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式·主题对比度·**技能版本漂移与副本分叉** |
 | **frontmatter 跨语言契约（改写盘必跑）** | `node scripts/test/e2e-fm-contract.cjs` | **TS 与 Python 读同一份 `task-data/*.md` / `docs/执行日志/*.md`**：块式列表、行内列表、引号、空值两个方向各走一遍 —— 首跑即抓到 `_parse_log` 把块式 `附件:` 读成空串（＝下次写回静默清空）；源码守卫：TS 日志 `yaml.dump` 必须带 `flowLevel:-1`（列表一律内联）、TS 任务写盘仍走 yaml.dump |
 | **MCP 读口契约** | `node scripts/test/e2e-mcp-views.cjs` | **真跑编译产物 `dist/main/mcp/tools.js` + 临时数据目录**（纯 Node 下 `setDataDir` 的持久化分支被 try/catch 吞掉，不会动真实数据目录）：`view=trash` 必须返回回收站而不是活跃+归档、`search_tasks` 必须能搜到归档、`project` 过滤对数组字段生效；源码守卫：禁止私有读扫描回潮 |
 | **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
+| **技能真源一致性（改技能必跑）** | `node scripts/test/check-skills.cjs` | **改 `skills/**` 或发版时必跑**：`manifest.version` 必须等于 `desktop/package.json` 版本；每个技能 `frontmatter.version` 必须等于 manifest 登记值（**防版本号漂移** —— 首跑就抓到 fangcun-bridge 写着 1.2.0 而 manifest 记 1.3.0）；`frontmatter.name` 必须等于 id；`docs/agents/<id>/` 副本与真源**逐字节一致**（防两处分叉）；有 SKILL.md 却没登记的目录必须报出来。顺带打印每个技能 md5（人工对账用） |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是
@@ -61,6 +64,16 @@
 >   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
 >   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
 > 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯。
+> **2026-10-03 22:02 实测（本机口径，`spawnSync`/`execFileSync` 一律 EBUSY）**：
+> **本机可跑 15 套全绿合计 900**（agent-targets24 · applog31 · archive-overdue19 · bridge-clone5 · clipboard8 ·
+> launchpad17 · logs189 · **mcp-connect67** · ports57 · prefs41 · **renderer-web217** · skill-import48 · skills55 ·
+> task-delete93 · todos29）+ `policies` **24/25**（1 条 `spawnSync python EBUSY`）+ `verify.py` **242/0** +
+> **五守卫 43**（ipc4 · bindings1 · buttons5 · themes14 · **skills19**）→ **合计 1209**。
+> 另 9 套因**本机 spawn 子进程 EBUSY** 跑不起来（**不是回归**）：calendar / datadir / notifications /
+> task-fields / logdedupe / fm-contract / grouping / timefmt / mcp-views；`e2e-backup`、`e2e-renderer` 另需环境。
+> 本轮新增 4 处可跑断言：`e2e-agent-targets`（24）、`e2e-archive-overdue`（19）、`check-skills`（19）、
+> `renderer-web` **167→217**；`mcp-connect` **58→67**（WorkBuddy 目标）。
+> —— 09-30 那次「20 套全绿 1041」是按当时同口径记录的，数字对不上是因为**环境**（spawn 可用性）变了，不是产品退化。
 > 本机实测（2026-09-30 11:30 重跑）：**20 套全绿、合计 1041 断言**（09-30 11:30：1032 + 四卡修复断言 9 = 1041；09-29 同口径 955），
 > 其中 `calendar / timefmt / logdedupe / grouping / policies` 本机也能跑了
 > （此前「恒 EBUSY / 需桌面会话」的限制不再复现）。**仍需桌面会话的只剩 `e2e-renderer`（真 Electron）**：
@@ -96,7 +109,7 @@
 | 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **242** / e2e **二十二套本机全绿 1177**（2026-10-01 18:33 实测：task-fields118 · **logs167** · task-delete93 · **notifications116** · **renderer-web167** · ports57 · skills55 · skill-import48 · prefs41 · todos29 · applog24 · launchpad17 · clipboard13 · datadir8 · bridge-clone12 · policies28 · timefmt39 · grouping29 · logdedupe32 · calendar50 · **fm-contract20** · **mcp-views14**）+ **四守卫 24**（bindings1 · buttons5 · ipc4 · **themes14**）；另真 Electron `e2e-renderer` **298/8**（8 红=改动面外的既有问题，见开发日志 09-29/09-30）、`backup` 未跑 | `python verify.py \| tail -1` |
+| 回归断言数 | verify.py **242** / e2e **27 套（本机可跑 15 套全绿 900；policies 24/25；9 套需 spawn 子进程→本机 EBUSY）**（2026-10-03 22:02 实测：agent-targets24 · applog31 · archive-overdue19 · bridge-clone5 · clipboard8 · launchpad17 · logs189 · mcp-connect67 · ports57 · prefs41 · **renderer-web217** · skill-import48 · skills55 · task-delete93 · todos29）+ **五守卫 43**（bindings1 · buttons5 · ipc4 · themes14 · **skills19**）；另真 Electron `e2e-renderer` 需桌面会话、`backup` 未跑 | `python verify.py \| tail -1` |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

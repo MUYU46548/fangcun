@@ -61,11 +61,31 @@ function main() {
   // ── ② 六家目标 + 官方格式 ───────────────────────────────────────
   const targets = mod.detectMcpTargets()
   const ids = targets.map(t => t.id)
-  check('六家目标齐全', ['dsh', 'claudecode', 'cursor', 'codex', 'opencode', 'hermes'].every(x => ids.includes(x)),
+  check('七家目标齐全（六家官方落点 + WorkBuddy）',
+    ['dsh', 'claudecode', 'cursor', 'codex', 'opencode', 'hermes', 'workbuddy'].every(x => ids.includes(x)),
     ids.join(','))
   const dsh = targets.find(t => t.id === 'dsh')
   check('DSH 本机检测到（~/.dsh/profiles/<p>/cordis.patch.yml 真实存在）',
     dsh.detected === true && !!dsh.configPath && fs.existsSync(dsh.configPath), dsh.evidence)
+
+  // ── WorkBuddy（2026-10-03 用户：「似乎没有让 WorkBuddy 自装接入 MCP 的选项」）──
+  {
+    const wb = targets.find(t => t.id === 'workbuddy')
+    check('★ WorkBuddy 在目标清单里（此前六家没有它 → 用户找不到自装入口）', !!wb)
+    check('★ WorkBuddy 的 configPath 必须是 undefined（落点不可知就不猜、不显示"打开配置文件"）',
+      wb && wb.configPath === undefined, JSON.stringify(wb && wb.configPath))
+    check('  它的 howTo 明说"不猜/不代写"并指向「让它自装」',
+      wb && /不猜/.test(wb.howTo) && /让它自装/.test(wb.howTo), wb && wb.howTo.slice(0, 60))
+    const snip = mod.buildMcpSnippet('workbuddy', 'A')
+    check('★ WorkBuddy 配置段生成成功（通用 mcpServers 形状 + 本机真实入口路径）',
+      snip.ok && /mcpServers/.test(snip.snippet) && /tegula-mcp\.js/.test(snip.snippet.replace(/\\\\/g, '\\')),
+      snip.snippet.slice(0, 120))
+    const p = mod.buildSelfInstallPrompt('workbuddy', 'A')
+    check('★ 能生成 WorkBuddy 的「自装指令」（这就是用户要的那个选项）', p.ok === true, p.message)
+    check('★ 落点不可知时，自装指令点名"按你自己的格式改写，但 command/args 原样保留"',
+      p.ok && /按你自己的文档改写/.test(p.prompt) && /command/.test(p.prompt) && /args/.test(p.prompt),
+      p.ok ? p.prompt.split('\n').slice(6, 9).join(' | ') : p.message)
+  }
 
   const expect = (tid, eid, ...subs) => {
     const r = mod.buildMcpSnippet(tid, eid)

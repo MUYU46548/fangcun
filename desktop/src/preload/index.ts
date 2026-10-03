@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('tegula', {
   deleteTask: (id: string) => ipcRenderer.invoke('deleteTask', id),
   archiveTask: (id: string) => ipcRenderer.invoke('archiveTask', id),
   unarchiveTask: (id: string) => ipcRenderer.invoke('unarchiveTask', id),
+  /** 已完成任务自动归档（2026-10-03 卡 012）：列出超期 + 一键归档 */
+  tasksOverdue: (days: number) => ipcRenderer.invoke('tasks:overdue', days),
+  tasksArchiveOverdue: (days: number) => ipcRenderer.invoke('tasks:archiveOverdue', days),
   /** 回收站（2026-09-26 卡 034）：一律按文件名操作 */
   trashList: () => ipcRenderer.invoke('trash:list'),
   trashRestore: (name: string) => ipcRenderer.invoke('trash:restore', name),
@@ -222,6 +225,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── Skill 管理 ────────────────────────────────────────────────────
   skillsCheck: () => ipcRenderer.invoke('skills:check'),
   skillsInstall: () => ipcRenderer.invoke('skills:install'),
+  /** 装到指定可直装目标（卡 011）：'hermes' | 'dsh' */
+  skillsInstallTo: (targetId: string) => ipcRenderer.invoke('skills:installTo', targetId),
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),
   skillsOpenDir: (which: string) => ipcRenderer.invoke('skills:openDir', which),

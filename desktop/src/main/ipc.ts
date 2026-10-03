@@ -19,7 +19,7 @@ import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
-import { checkSkillsStatus, installSkills, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
+import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
@@ -106,6 +106,34 @@ export function registerIpcHandlers(): void {
   guardedHandle('unarchiveTask', (_event, id: string) => {
     const task = tasks.unarchiveTask(id)
     return { ok: !!task, id }
+  })
+
+  // ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）────────────
+  // 仿日志清理：设置保留天数（0 = 关闭），列出「已超期」的那批 + 一键归档。
+  // 归档动作仍走既有 archiveTask（移动文件 + 失效缓存 + 记活动日志），且**逐条可追溯**。
+  guardedHandle('tasks:overdue', (_event, days: number) => {
+    const d = Number(days)
+    if (!Number.isFinite(d) || d <= 0) return { ok: true, count: 0, items: [], days: d }
+    const list = tasks.listOverdueCompleted(d)
+    return {
+      ok: true,
+      days: d,
+      count: list.length,
+      items: list.map(t => ({
+        id: t.id,
+        title: String((t.fm as any)?.title ?? ''),
+        updated: String((t.fm as any)?.updated ?? ''),
+      })),
+    }
+  })
+
+  guardedHandle('tasks:archiveOverdue', (_event, days: number) => {
+    const d = Number(days)
+    if (!Number.isFinite(d) || d <= 0) {
+      return { ok: false, archived: [], failed: [], message: '保留天数为 0（功能关闭），不执行归档' }
+    }
+    const r = tasks.archiveOverdueCompleted(d)
+    return { ok: true, ...r }
   })
 
   // ── 回收站（2026-09-26 卡 034）─────────────────────────────────────
@@ -894,6 +922,12 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
 
   guardedHandle('skills:install', () => {
     return installSkills()
+  })
+
+  // 装到指定可直装目标（卡 task-20261003-011）：'hermes' | 'dsh'。
+  // 未知目标由 installSkillsTo 显式报错返回，不静默当 Hermes 处理。
+  guardedHandle('skills:installTo', (_event, targetId: string) => {
+    return installSkillsTo(String(targetId || 'hermes'))
   })
 
   // 技能安装专区（2026-09-26 卡 038）：面板数据源 + 打开目录

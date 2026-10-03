@@ -19,7 +19,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
-import { cliRuns } from './agents'
+import { cliRuns, dshHome } from './probe'
 
 export type McpEntryId = 'A' | 'B'
 
@@ -104,7 +104,7 @@ export function listMcpEntries(): McpEntry[] {
   return out
 }
 
-// ── 目标检测（六家，官方配置落点） ─────────────────────────────────────
+// ── 目标检测（七家：六家官方落点 + WorkBuddy） ─────────────────────────
 // 格式来源（2026-10-02 官方文档核实，勿凭记忆改）：
 //   DSH      → ~/.dsh/profiles/<p>/cordis.patch.yml 顶层数组追加 - id/name/config
 //   Claude   → 项目 .mcp.json 或 ~/.claude.json 的 mcpServers（另有 claude mcp add CLI）
@@ -112,13 +112,17 @@ export function listMcpEntries(): McpEntry[] {
 //   Codex    → ~/.codex/config.toml [mcp_servers.x]（下划线，官方 developers.openai.com）
 //   OpenCode → opencode.json 的 mcp.<name>（type:"local" + command 数组）
 //   Hermes   → ~/.hermes/config.yaml 的 mcp_servers.<name>（官方 MCP 集成文档）
+//   WorkBuddy→ **落点不可知**（打包应用，技能目录也不在 %APPDATA%\WorkBuddy）。
+//              2026-10-03 用户：「似乎没有让 WorkBuddy 自装接入 MCP 的选项」——
+//              方寸不猜它的配置文件，但**可以出「自装指令」**：让 WorkBuddy 自己去找
+//              它自己的配置（它最清楚），用户只需贴一段话给它。
 
 export function detectMcpTargets(): McpTarget[] {
   const out: McpTarget[] = []
 
   // ① DSH：profiles 下的 cordis.patch.yml（本机 desktop 档）
   {
-    const profilesDir = home('.dsh', 'profiles')
+    const profilesDir = path.join(dshHome(), 'profiles')
     let patch: string | undefined
     if (isDir(profilesDir)) {
       const prefer = ['desktop', 'web', 'headless']
@@ -213,6 +217,19 @@ export function detectMcpTargets(): McpTarget[] {
     })
   }
 
+  // ⑦ WorkBuddy：打包应用，**落点不可知**（2026-10-03 用户要「让它自装」的入口）
+  {
+    const wb = 'C:\\Program Files\\WorkBuddy\\WorkBuddy.exe'
+    out.push({
+      id: 'workbuddy',
+      name: 'WorkBuddy',
+      detected: isFile(wb),
+      evidence: wb,
+      // configPath 刻意留 undefined：方寸不猜它的配置位置，界面因此不显示「📂 打开配置文件」
+      howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（**不猜、不代写**）。点「🤖 让它自装」把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
+    })
+  }
+
   return out
 }
 
@@ -293,6 +310,15 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
           `    args: ${argsJson(args)}`,
         ].join('\n'),
       }
+    case 'workbuddy':
+      // 落点不可知（打包应用）→ 给一份**通用 mcpServers 写法**当起点；
+      // 自装指令里会明确"形状不符就按你自己的文档改写，但 command/args 原样保留"。
+      return {
+        ok: true, message: '',
+        snippet: JSON.stringify({
+          mcpServers: { fangcun: { command: cmd, args } },
+        }, null, 2),
+      }
     default:
       return { ok: false, snippet: '', message: `未知目标（${targetId}）` }
   }
@@ -322,6 +348,11 @@ export function buildSelfInstallPrompt(targetId: string, entryId: McpEntryId):
   const skill = skillCardPath()
   const cfg = t.configPath
     || `未检测到现成的配置文件 —— 按你自己的文档定位（方寸不猜、不替你写）`
+  // 落点不可知的目标（WorkBuddy）：配置段只是"通用形状"，必须明确让它按自家格式改写。
+  const shapeNote = t.configPath
+    ? []
+    : ['   ⚠ 上面这段是**通用 mcpServers 形状**；如果你家的配置格式不是这样，按你自己的文档改写，',
+       '     但 `command` 与 `args` 必须原样保留（那是方寸的真实入口路径）。']
   const prompt = [
     `你是 ${t.name}。请自行完成「方寸（fangcun）任务看板」的接入 —— 由你现地操作，比外部盲写更可靠：`,
     '',
@@ -333,6 +364,7 @@ export function buildSelfInstallPrompt(targetId: string, entryId: McpEntryId):
     '',
     '2）配置 MCP 服务（配置段已按你家格式生成，可直接使用）：',
     `   目标配置文件：${cfg}`,
+    ...shapeNote,
     '   配置段：',
     ...sn.snippet.split('\n').map(l => '   ' + l),
     '   保存后按你自己的方式重启生效。',

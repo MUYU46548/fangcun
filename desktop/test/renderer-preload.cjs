@@ -39,6 +39,12 @@ const store = {
   ncStatus: { running: true, lastScanAt: new Date().toISOString() },
   ncMuted: [],
   ncMutedCount: 0,
+  // 已完成任务自动归档（2026-10-03 卡 012）：默认 0 条超期 → 提示条不渲染；
+  // 断言要测提示条时先 __fcTest.setOverdue(n) 再重进看板页。
+  overdueCount: 0,
+  overdueItems: [
+    { id: 'task-overdue-1', title: '早该收起来的活', updated: '2026-09-01T00:00:00.000Z' },
+  ],
   // UI 偏好真身（userData/prefs.json）。空对象 = 首次运行，界面走默认值 ——
   // 多视图的"旧视图永远是默认"这条断言就是靠它成立。
   prefs: {},
@@ -346,6 +352,22 @@ contextBridge.exposeInMainWorld('tegula', {
         mk('fangcun-bridge', 'Hermes', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
         mk('skill-management-policy', 'All', '1.1.0', false, '---\nname: 技能纪律\n---\n正文乙'),
       ],
+      // 多目标状态（卡 010/011）：fangcun-bridge 在 Hermes 最新、在 DSH 有更新；
+      // skill-management-policy 两边都没装 —— 卡片上三种徽章文案都能被断言到。
+      targets: [
+        { id: 'hermes', name: 'Hermes', dir: hermes, present: true, skills: [
+          { id: 'fangcun-bridge', installed: true, outdated: false },
+          { id: 'skill-management-policy', installed: false, outdated: true },
+        ] },
+        { id: 'dsh', name: 'DSH', dir: 'C:/mock/home/.dsh/skills', present: true, skills: [
+          { id: 'fangcun-bridge', installed: true, outdated: true },
+          { id: 'skill-management-policy', installed: false, outdated: true },
+        ] },
+        { id: 'ghost', name: 'Ghost', dir: 'C:/mock/ghost/skills', present: false, skills: [
+          { id: 'fangcun-bridge', installed: false, outdated: true },
+          { id: 'skill-management-policy', installed: false, outdated: true },
+        ] },
+      ],
     })
   },
   skillsOpenDir: (which) => { rec('skillsOpenDir', [which]); return ok({ dir: which === 'hermes' ? 'C:/mock/hermes/skills' : 'C:/mock/skills' }) },
@@ -429,21 +451,44 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({ ok: true, message: `已启动「${row.name}」` })
   },
 
-  // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装）──────────────
+  // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装；2026-10-03 卡 011：加 DSH）──
   agentsList: () => {
     rec('agentsList')
     return ok({ agents: [
       { id: 'hermes', name: 'Hermes', mode: 'installable', detected: true,
-        evidence: 'C:/mock/hermes/skills', skillsDir: 'C:/mock/hermes/skills', howTo: '点上面「⚡ 装到 Hermes」' },
+        evidence: 'C:/mock/hermes/skills', skillsDir: 'C:/mock/hermes/skills', howTo: '点上面「⚡ 装到 Hermes」',
+        skillLinked: true, mcpLinked: false, linkDetail: '技能副本已装 · MCP 配置未含 fangcun' },
+      { id: 'dsh', name: 'DSH (DeepSeek Harness)', mode: 'installable', detected: true,
+        evidence: 'C:/mock/home/.dsh/profiles/desktop/cordis.patch.yml', skillsDir: 'C:/mock/home/.dsh/skills',
+        skillLinked: false, mcpLinked: true, linkDetail: '技能副本未装 · MCP 配置含 fangcun',
+        howTo: '点「⚡ 装到 DSH」写进 ~/.dsh/skills/<名>/SKILL.md' },
       { id: 'workbuddy', name: 'WorkBuddy', mode: 'manual', detected: true,
         evidence: 'C:/Program Files/WorkBuddy/WorkBuddy.exe', openPath: 'C:/Program Files/WorkBuddy/WorkBuddy.exe',
+        linkDetail: '（落点不可知）',
         howTo: '显示 SKILL.md → 打开 WorkBuddy 的导入技能面板 → 拖进去' },
       { id: 'claudecode', name: 'Claude Code', mode: 'manual', detected: false,
         evidence: 'C:/mock/home/.claude', howTo: '—' },
     ] })
   },
+  skillsInstallTo: (targetId) => {
+    rec('skillsInstallTo', [targetId])
+    return ok({ installed: ['fangcun-bridge', 'skill-management-policy'], skipped: [], errors: [] })
+  },
   agentsOpen: (id) => { rec('agentsOpen', [id]); return ok({ ok: true, message: '已打开 ' + id }) },
   skillsReveal: (p) => { rec('skillsReveal', [p]); return ok({ ok: true, message: '已在资源管理器里亮出 SKILL.md' }) },
+
+  // ── 已完成任务自动归档（2026-10-03 卡 012）──────────────────────────
+  // 默认 0 条超期（设置页/看板提示条在 count=0 时都不渲染）→ 需要一个可注入的开关来测提示条。
+  tasksOverdue: (days) => {
+    rec('tasksOverdue', [days])
+    return ok(store.overdueCount > 0
+      ? { ok: true, days, count: store.overdueCount, items: store.overdueItems }
+      : { ok: true, days, count: 0, items: [] })
+  },
+  tasksArchiveOverdue: (days) => {
+    rec('tasksArchiveOverdue', [days])
+    return ok({ ok: true, archived: ['task-overdue-1'], failed: [] })
+  },
 
   // ── 回收站（2026-09-26 卡 034）────────────────────────────────
   trashRead: (name) => {
@@ -625,6 +670,11 @@ contextBridge.exposeInMainWorld('__fcTest', {
     if (mutedCount !== undefined) store.ncMutedCount = mutedCount
   },
   setTasks: (items) => { store.tasks = (items || []).slice() },
+  /** 卡 012：注入「超期的已完成任务」条数（0 = 无 → 提示条不渲染） */
+  setOverdue: (n, items) => {
+    store.overdueCount = Number(n) || 0
+    if (items) store.overdueItems = items.slice()
+  },
   // 029：注入方针卡（含 structureMap + 最后核实日期）用
   setPolicies: (obj) => { store.policies = Object.assign({}, obj || {}) },
   // UI 偏好真身快照（多视图选择断言用：`prefs().fc_board_view === 'list'`）

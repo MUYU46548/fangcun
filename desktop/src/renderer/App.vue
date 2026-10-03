@@ -188,6 +188,15 @@
       <span class="pagehead-hint">{{ viewHint }}</span>
     </div>
 
+    <!-- 已完成任务自动归档提示条（2026-10-03 卡 012）：只在**真有超期任务**时出现，
+         且不自动动手 —— 点按钮才移文件（与日志页「清理超期」同一种交互）。
+         归档可逆（进 archive/，可在「归档」标签还原），所以按钮文案直说后果。 -->
+    <div v-if="curView === 'active' && archiveDays > 0 && archiveOverdue.count > 0" class="archive-overdue-bar">
+      <span>📦 有 <b>{{ archiveOverdue.count }}</b> 个已完成任务超过 {{ archiveDays }} 天没更新（如：{{ (archiveOverdue.items[0] || {}).title || (archiveOverdue.items[0] || {}).id || '—' }}）</span>
+      <button class="ghost" @click="runArchiveOverdue()">移进归档区</button>
+      <button class="ghost" title="这次先不动，下次启动/刷新还会提示" @click="archiveOverdue = { count: 0, items: [] }">先不管</button>
+    </div>
+
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
       <!-- 列表视图（多视图第 1 项）。与列视图**共用** columns / collapsedGroups / 拖拽处理：
            拖一行到某个分区里 = 改成该状态，和拖到列里是同一件事。 -->
@@ -521,6 +530,12 @@
       <div class="skills-header">
         <h3>技能安装专区</h3>
         <span class="skills-hint">技能本质只是模块化提示词，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。</span>
+        <!-- 维护机制说清楚（2026-10-03 用户问「方寸自带 skill 后续如何保持更新和维护？」）：
+             答案就在这一行 —— 随版本分发 + 启动自动同步 + 手动目标用指纹对账。 -->
+        <span class="skills-hint skills-maint">
+          技能随方寸版本分发：<b>升级方寸后启动会自动把新版同步到 Hermes / DSH</b>（哈希不一致就重装）；
+          WorkBuddy 这类只能手动导入的，用卡片上的「真源指纹」对照你拖进去的那份是不是同一版。
+        </span>
         <button class="skills-btn primary" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</button>
         <button class="skills-btn primary" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</button>
         <button class="skills-btn" @click="importSkillViaPicker('folder')" title="选一个技能文件夹（内有 SKILL.md）导入">📁 导入文件夹…</button>
@@ -573,6 +588,14 @@
               <span class="skill-ver">v{{ sk.version || '—' }}</span>
               <span class="skill-state" :class="'skill-' + skillStateClass(sk)">{{ skillStateText(sk) }}</span>
             </div>
+            <div class="skill-targets" v-if="skillsTargets.length">
+              <span class="skill-targets-label">装到：</span>
+              <span v-for="t in skillsTargets" :key="t.id" class="skill-tgt"
+                    :class="'skill-tgt-' + targetSkillState(t, sk)" :title="skillTargetTitle(t, sk)">
+                {{ t.name }}{{ targetStateText(t, sk) }}
+              </span>
+              <span class="skill-hash" :title="'真源 md5（WorkBuddy 这类只能手动导入的 agent，拿它对照装进去的那份是不是这一版）：' + (sk.hash || '')">真源指纹 {{ (sk.hash || '').slice(0, 8) || '—' }}</span>
+            </div>
             <div class="skill-path" :title="sk.absPath">{{ sk.absPath }}</div>
             <div class="skill-actions">
               <button class="skills-btn primary" @click="copySkillPrompt(sk)">📋 复制安装提示词</button>
@@ -594,9 +617,12 @@
                 {{ a.mode === 'installable' ? '可直装' : '给文件手动导入' }}
               </span>
               <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
-              <button v-if="a.detected && a.mode === 'installable'" class="skills-btn primary" disabled>
-                用上面的「⚡ 装到 Hermes」
-              </button>
+              <!-- Hermes 的安装入口在顶部（同一个动作不摆两遍）；其余可直装目标在本行给自己装 -->
+              <span v-if="a.detected && a.mode === 'installable' && a.id === 'hermes'" class="agent-note">
+                装入口在顶部「⚡ 装到 Hermes」
+              </span>
+              <button v-if="a.detected && a.mode === 'installable' && a.id !== 'hermes'"
+                      class="skills-btn primary" @click="installToTarget(a)">⚡ 装到 {{ a.name }}</button>
               <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</button>
               <!-- 清单为空时**不渲染**这个按钮：传空串过去只会拿到一句"没有可显示的技能路径"，
                    是"点了就报错"的那类死按钮（主进程侧也已单独兜底）。 -->
@@ -604,6 +630,8 @@
                 class="skills-btn" @click="revealSkillPath(skillsList[0].absPath)">
                 📂 显示一份 SKILL.md
               </button>
+              <span v-if="a.detected && a.linkText" class="agent-link" :class="'agent-link-' + a.linkClass"
+                    :title="a.linkDetail">{{ a.linkText }}</span>
             </div>
             <div class="agent-evidence" :title="a.evidence">{{ a.evidence }}</div>
             <div class="agent-howto">{{ a.howTo }}</div>
@@ -2101,8 +2129,18 @@
     <!-- Settings modal -->
     <div id="soverlay" class="overlay" v-if="showSettings_" @click.self="showSettings_ = false">
       <div id="smodal">
-        <h3>设置</h3>
-        <div class="sect">
+        <!-- 侧边栏分类（2026-10-03 用户：「设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类」）。
+             上一版做的「点标题折叠」被这个取代 —— 折叠解决的是"太长"，侧边栏解决的是"找不到"，
+             后者才是真正的诉求。当前分类记进真身（fc_settings_tab），下次打开还在那一页。 -->
+        <nav class="settings-nav">
+          <div class="settings-nav-title">设置</div>
+          <button v-for="t in settingsTabs" :key="t.id" class="settings-nav-btn"
+                  :class="{ on: settingsTab === t.id }" @click="selectSettingsTab(t.id)">
+            <span class="sn-ico">{{ t.icon }}</span><span class="sn-name">{{ t.name }}</span>
+          </button>
+        </nav>
+        <div class="settings-body">
+        <div class="sect" v-show="settingsTab === 'general'">
           <h4>版本与更新</h4>
           <div class="ver-row">
             <span class="ver-num">v{{ appVersion }}</span>
@@ -2129,7 +2167,7 @@
           </label>
         </div>
         <!-- 2026-09-29 用户第 4 条：多主题外观（参考绒花墨坊的色板与摆法） -->
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'general'">
           <h4>外观主题</h4>
           <div class="hint">只换配色，不改布局；六套全部过可读性检查（正文 / 次要文字 / 按钮白字对比度 ≥ WCAG AA）。</div>
           <div class="theme-swatches">
@@ -2141,7 +2179,7 @@
             </button>
           </div>
         </div>
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'data'">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
           <div class="sect-btns">
@@ -2149,7 +2187,7 @@
             <button class="ghost" @click="openDataDir">打开目录</button>
           </div>
         </div>
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'diag'">
           <h4>诊断日志</h4>
           <div class="hint logpath">{{ appLogFile || '（未取到日志路径）' }}</div>
           <div class="sect-btns">
@@ -2160,7 +2198,7 @@
           <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
         </div>
         <!-- 2026-09-29 用户第 6 条：设置里要能自定义「已完成日志的自动清理」 -->
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'data'">
           <h4>日志清理</h4>
           <div class="hint">已完成日志默认保留这么多天，到期后点日志页的「清理超期」标为「已归档」（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
           <div class="sect-btns retain-row">
@@ -2169,8 +2207,28 @@
             <span class="hint">天（0 = 永不清理）</span>
           </div>
         </div>
+        <!-- 2026-10-03 卡 012：看板已完成任务自动归档（仿日志清理；**默认关闭**） -->
+        <div class="sect" v-show="settingsTab === 'data'">
+          <h4>看板归档</h4>
+          <div class="hint">「已完成」且超过这么多天没更新过的任务，会被移进归档区（「归档」标签里能看到、可随时还原，**不删文件**）。0 = 关闭。</div>
+          <div class="sect-btns retain-row">
+            <input type="number" min="0" step="1" class="retain-input"
+              v-model.number="archiveDays" @change="onArchiveDaysChange" />
+            <span class="hint">天（0 = 关闭）</span>
+          </div>
+          <label class="chk">
+            <input type="checkbox" v-model="archiveAuto" @change="onArchiveAutoChange" />
+            启动方寸时自动执行（默认关；开了它才会在启动时动文件）
+          </label>
+          <div class="sect-btns" v-if="archiveDays > 0">
+            <button class="ghost" @click="refreshArchiveOverdue()">刷新超期清单</button>
+            <button class="ghost" :disabled="archiveOverdue.count === 0" @click="runArchiveOverdue()">
+              立即归档超期的 {{ archiveOverdue.count }} 个
+            </button>
+          </div>
+        </div>
         <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'agent'">
           <h4>🤖 Agent 预设列表</h4>
           <div class="hint">日志视图的「执行 Agent」筛选下拉会读这里的预设。增删后自动保存到浏览器本地。</div>
           <div class="agent-presets-list">
@@ -2185,7 +2243,7 @@
             <button class="ghost" @click="addAgentPreset">添加</button>
           </div>
         </div>
-        <div class="sect">
+        <div class="sect" v-show="settingsTab === 'projects'">
           <h4>项目列表</h4>
           <div class="projlist">
             <div class="proj-row" v-for="p in projects" :key="p.id" :title="p.repo || ''" @click="openProjectInSettings(p)">
@@ -2195,7 +2253,20 @@
             </div>
           </div>
         </div>
-        <div class="sect backup-sect">
+        <!-- 项目方针从「备份与恢复」里挪出来：它本来就属于「项目」这一类
+             （原来塞在备份区块内层，做分类时父容器一隐藏它就跟不出来） -->
+        <div class="sect" v-show="settingsTab === 'projects'">
+          <h4>项目方针</h4>
+          <div class="hint" style="margin-bottom:8px">每项目一张方针卡（使命/目标/场景/边界）。派活或开新会话时复制给 agent，替代口头交代。</div>
+          <div class="policy-list">
+            <div v-for="p in projects" :key="'pol-' + p.id" class="policy-row" @click="openPolicyEdit(p.id)">
+              <span class="policy-name">{{ p.name || p.id }}</span>
+              <span class="policy-state" :class="{ has: policyMap[p.id] }">{{ policyMap[p.id] ? '已立' : '未立' }}</span>
+              <button v-if="policyMap[p.id]" class="ghost" title="复制方针文本（粘给 agent）" @click.stop="copyPolicyText(p.id)">复制</button>
+            </div>
+          </div>
+        </div>
+        <div class="sect backup-sect" v-show="settingsTab === 'backup'">
           <h4>🛡️ 备份与恢复</h4>
 
           <div class="bk-status" :class="bkDotClass">
@@ -2331,24 +2402,14 @@
 
           <button class="ghost bk-log-toggle" @click="bkToggleLog">📋 {{ bkShowLog ? '收起日志' : '查看备份日志' }}</button>
           <pre v-if="bkShowLog" class="bk-log">{{ bkLogLines.length ? bkLogLines.join('\n') : '(暂无日志)' }}</pre>
+        </div>
 
-          <div class="sect">
-            <label>项目方针</label>
-            <div class="hint" style="margin-bottom:8px">每项目一张方针卡（使命/目标/场景/边界）。派活或开新会话时复制给 agent，替代口头交代。</div>
-            <div class="policy-list">
-              <div v-for="p in projects" :key="'pol-' + p.id" class="policy-row" @click="openPolicyEdit(p.id)">
-                <span class="policy-name">{{ p.name || p.id }}</span>
-                <span class="policy-state" :class="{ has: policyMap[p.id] }">{{ policyMap[p.id] ? '已立' : '未立' }}</span>
-                <button v-if="policyMap[p.id]" class="ghost" title="复制方针文本（粘给 agent）" @click.stop="copyPolicyText(p.id)">复制</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="sect-btns" style="margin-top: 12px">
-            <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
-            <button class="ghost" @click="importTasksFromFile">导入任务 JSON</button>
-            <button class="ghost" @click="showSettings_ = false">关闭</button>
-          </div>
+        <!-- 底部动作条：与"当前在哪个分类"无关（导出/导入/关闭随时可用），所以挂在 body 末尾 -->
+        <div class="settings-foot">
+          <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
+          <button class="ghost" @click="importTasksFromFile">导入任务 JSON</button>
+          <button class="pri" @click="showSettings_ = false">关闭</button>
+        </div>
         </div>
       </div>
     </div>
@@ -2568,6 +2629,55 @@ function onLogRetainDefaultChange(): void {
   saveUiPref('fc_log_retain_days', logRetainDefault.value)
 }
 
+// ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）────────────────
+// 仿日志清理：一个保留天数 + 一批「已超期」的清单 + 用户点按钮执行。
+// ⚠ 默认天数取 **0**（关闭），不是 7 —— 归档会**移动任务文件**，
+//   绝不能对从没表过态的机器悄悄生效（日志清理改的是状态字段，量级不同）。
+const archiveDays = ref(readUiPref<number>('fc_archive_days', 0))
+const archiveAuto = ref(readUiPref<boolean>('fc_archive_auto', false))
+const archiveOverdue = ref<{ count: number; items: { id: string; title: string; updated: string }[] }>({ count: 0, items: [] })
+
+function onArchiveDaysChange(): void {
+  const n = Math.floor(Number(archiveDays.value))
+  archiveDays.value = Number.isFinite(n) && n >= 0 ? n : 0
+  saveUiPref('fc_archive_days', archiveDays.value)
+  void refreshArchiveOverdue()
+}
+function onArchiveAutoChange(): void {
+  saveUiPref('fc_archive_auto', archiveAuto.value)
+}
+
+/** 查「超期的已完成任务」有几条（功能关闭时恒 0，不打扰） */
+async function refreshArchiveOverdue(): Promise<void> {
+  if (!(Number(archiveDays.value) > 0)) { archiveOverdue.value = { count: 0, items: [] }; return }
+  try {
+    const r: any = await (window as any).tegula?.tasksOverdue?.(archiveDays.value)
+    archiveOverdue.value = { count: Number(r?.count || 0), items: Array.isArray(r?.items) ? r.items : [] }
+  } catch { archiveOverdue.value = { count: 0, items: [] } }
+}
+
+/** 执行归档。auto=true（启动时自动执行）**不弹确认**——那是用户自己开的开关 */
+async function runArchiveOverdue(auto = false): Promise<void> {
+  const d = Number(archiveDays.value)
+  if (!(d > 0)) { if (!auto) showToast('保留天数填 0 = 功能关闭，不执行', 'info'); return }
+  if (!auto && archiveOverdue.value.count > 0) {
+    const yes = confirm(
+      `把 ${archiveOverdue.value.count} 个「已完成超过 ${d} 天没动过」的任务移进归档区？\n\n` +
+      `· 文件移动到 task-data/archive/，可在「归档」视图看到、可随时还原\n` +
+      `· 不删除任何东西`,
+    )
+    if (!yes) return
+  }
+  const r: any = await (window as any).tegula?.tasksArchiveOverdue?.(d)
+  if (!r || r.ok === false) { showToast(`归档失败：${(r && r.message) || '未知原因'}`, 'error'); return }
+  const ok = (r.archived || []).length
+  const bad = (r.failed || []).length
+  if (ok || bad) showToast(`已归档 ${ok} 个已完成任务${bad ? `（${bad} 个失败）` : ''}`, bad ? 'error' : 'success')
+  else if (!auto) showToast('没有超期的已完成任务', 'info')
+  await loadAll()
+  await refreshArchiveOverdue()
+}
+
 // ── 主题（2026-09-29 用户第 4 条：「多主题颜色外观并不存在…参考绒花墨坊做一下」）──
 // 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
 // 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
@@ -2622,6 +2732,31 @@ const DEFAULT_COLLAPSED_GROUPS: string[] = ['完成', '驳回']
 const collapsedGroups = ref<string[]>(readUiPref<string[]>('fc_collapsed_groups', DEFAULT_COLLAPSED_GROUPS))
 const groupModeApplied = ref(false)
 
+/**
+ * 设置页分类导航（2026-10-03 用户：设置项不该挤在一条长名单里，要"像各大软件那样用侧边栏页签分类"）。
+ *
+ * 上一版做的「点标题折叠」（`fc_settings_collapsed`）被这个取代：折叠解决的是"太长"，
+ * 侧边栏解决的是"找不到"—— 后者才是真正的诉求，两套并存只会更乱。
+ *
+ * 当前分类记进真身（`fc_settings_tab`），下次打开还停在那一页。
+ * ⚠ 只认这里列出的 id（prefs.json 可以手改，写进一个不存在的分类名会让右侧空白）。
+ */
+const SETTINGS_TABS = [
+  { id: 'general', name: '通用', icon: '⚙' },
+  { id: 'data', name: '数据与归档', icon: '🗂' },
+  { id: 'agent', name: 'Agent', icon: '🤖' },
+  { id: 'projects', name: '项目', icon: '📦' },
+  { id: 'backup', name: '备份与恢复', icon: '🛡️' },
+  { id: 'diag', name: '诊断', icon: '🩺' },
+] as const
+const settingsTabs = SETTINGS_TABS
+const settingsTab = ref<string>(readUiPref<string>('fc_settings_tab', 'general'))
+function selectSettingsTab(id: string): void {
+  if (!SETTINGS_TABS.some(t => t.id === id)) return
+  settingsTab.value = id
+  saveUiPref('fc_settings_tab', id)
+}
+
 /** 与主进程 prefs.json 对齐（真身优先；真身空而缓存有值 → 迁移一次） */
 async function syncBoardPrefs(): Promise<void> {
   try {
@@ -2635,6 +2770,12 @@ async function syncBoardPrefs(): Promise<void> {
       collapsedGroups.value = p.fc_collapsed_groups
     } else {
       saveUiPref('fc_collapsed_groups', collapsedGroups.value)
+    }
+    // 设置页当前分类（卡 013 改为侧边栏分类）：白名单字面量校验，坏值回退 'general'
+    if (typeof p?.fc_settings_tab === 'string' && SETTINGS_TABS.some(t => t.id === p.fc_settings_tab)) {
+      settingsTab.value = p.fc_settings_tab
+    } else {
+      saveUiPref('fc_settings_tab', settingsTab.value)
     }
     // 日志分区折叠状态（2026-09-28：取代旧的 fc_log_archive_open 单分区开关）。
     // ⚠ 这里在 syncBoardPrefs 里读，而 collapsedLogGroups 在文件下方才声明 ——
@@ -2686,6 +2827,17 @@ async function syncBoardPrefs(): Promise<void> {
       logRetainDefault.value = Math.floor(p.fc_log_retain_days)
     } else {
       saveUiPref('fc_log_retain_days', logRetainDefault.value)
+    }
+    // 看板已完成任务自动归档（卡 012）：天数 + 启动自动执行开关
+    if (typeof p?.fc_archive_days === 'number' && Number.isFinite(p.fc_archive_days) && p.fc_archive_days >= 0) {
+      archiveDays.value = Math.floor(p.fc_archive_days)
+    } else {
+      saveUiPref('fc_archive_days', archiveDays.value)
+    }
+    if (typeof p?.fc_archive_auto === 'boolean') {
+      archiveAuto.value = p.fc_archive_auto
+    } else {
+      saveUiPref('fc_archive_auto', archiveAuto.value)
     }
     // 项目页签摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
     if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master') {
@@ -4259,7 +4411,17 @@ interface SkillUiRow {
   prompt: string
 }
 
+/** 可直装目标的逐技能安装状态（卡 010/011；主进程 listSkillsForUi 下发） */
+interface SkillTargetRow {
+  id: string
+  name: string
+  dir: string
+  present: boolean
+  skills: { id: string; installed: boolean; outdated: boolean }[]
+}
+
 const skillsList = ref<SkillUiRow[]>([])
+const skillsTargets = ref<SkillTargetRow[]>([])
 const skillsLoading = ref(false)
 const skillsError = ref('')
 const skillsDir = ref('')
@@ -4284,6 +4446,7 @@ async function loadSkills(): Promise<void> {
       skillsList.value = []
     } else {
       skillsList.value = r.skills || []
+      skillsTargets.value = r.targets || []
       skillsDir.value = r.skillsDir || ''
       skillsHermesDir.value = r.hermesDir || ''
       skillsManifestVersion.value = r.version || ''
@@ -4305,16 +4468,48 @@ async function loadSkills(): Promise<void> {
   }
 }
 
+/** 单个技能对某个可直装目标的状态（卡 010/011）：ok=一致 / warn=有更新 / idle=没装 / absent=目标不在场 */
+function targetSkillState(t: SkillTargetRow, sk: SkillUiRow): 'ok' | 'warn' | 'idle' | 'absent' {
+  if (!t.present) return 'absent'
+  const s = (t.skills || []).find(x => x.id === sk.id)
+  if (!s || !s.installed) return 'idle'
+  return s.outdated ? 'warn' : 'ok'
+}
+function targetStateText(t: SkillTargetRow, sk: SkillUiRow): string {
+  switch (targetSkillState(t, sk)) {
+    case 'absent': return '（不在场）'
+    case 'idle': return ' 未装'
+    case 'warn': return ' ⬆有更新'
+    default: return ' ✓最新'
+  }
+}
+function skillTargetTitle(t: SkillTargetRow, sk: SkillUiRow): string {
+  const base = `${t.name} · ${t.dir}`
+  switch (targetSkillState(t, sk)) {
+    case 'absent': return `${base}\n本机没有 ${t.name} —— 不给它造目录，也不往里写`
+    case 'idle': return `${base}\n技能副本不在（用上面的「⚡ 装到 ${t.name}」）`
+    case 'warn': return `${base}\n磁盘上那份与真源不一致 —— 重装即更新（不是"已存在就永远跳过"）`
+    default: return `${base}\n副本与真源逐字节一致`
+  }
+}
+
 /** 状态文案的取值只有三种事实：文件在不在 / 装没装 / 是不是旧的 */
 function skillStateText(sk: SkillUiRow): string {
   if (!sk.exists) return '文件缺失'
-  if (!sk.installed) return '未装到 Hermes'
-  return sk.outdated ? '有更新' : '已装（最新）'
+  const present = skillsTargets.value.filter(t => t.present)
+  if (!present.length) return '无可直装目标'
+  const states = present.map(t => targetSkillState(t, sk))
+  if (states.every(s => s === 'idle')) return '未装'
+  if (states.some(s => s === 'warn')) return '有更新'
+  return '已装（最新）'
 }
 function skillStateClass(sk: SkillUiRow): string {
   if (!sk.exists) return 'bad'
-  if (!sk.installed) return 'idle'
-  return sk.outdated ? 'warn' : 'good'
+  const present = skillsTargets.value.filter(t => t.present)
+  if (!present.length) return 'idle'
+  const states = present.map(t => targetSkillState(t, sk))
+  if (states.every(s => s === 'idle')) return 'idle'
+  return states.some(s => s === 'warn') ? 'warn' : 'good'
 }
 
 async function copySkillPrompt(sk: SkillUiRow): Promise<void> {
@@ -4424,16 +4619,54 @@ async function removeImportedSkill(im: { name: string; dir: string }): Promise<v
 interface AgentTargetUi {
   id: string; name: string; mode: 'installable' | 'manual'
   detected: boolean; evidence: string; skillsDir?: string; openPath?: string; howTo: string
+  /** 卡 011：技能副本 / MCP 配置两个事实（undefined = 该目标落点不可知，不猜） */
+  skillLinked?: boolean; mcpLinked?: boolean; linkDetail?: string
+  /** 由上面两个事实算出的徽章（在 loadAgents 里算好，模板直接读） */
+  linkText?: string; linkClass?: string
 }
 const agentTargets = ref<AgentTargetUi[]>([])
+
+/** 「已接入」徽章：两个事实都说 true→已接入；都说 false→未接入；一半→部分；有不可知→不可知 */
+function agentLinkBadge(a: AgentTargetUi): { text: string; cls: string } {
+  const known = [a.skillLinked, a.mcpLinked].filter(v => v !== undefined) as boolean[]
+  const yes = known.filter(Boolean).length
+  if (!known.length) return { text: '接入状态不可知', cls: 'unknown' }
+  if (yes === known.length && known.length === 2) return { text: '已接入', cls: 'linked' }
+  if (yes === 0) return { text: '未接入', cls: 'none' }
+  return { text: '部分接入', cls: 'partial' }
+}
 
 async function loadAgents(): Promise<void> {
   try {
     const t: any = window.tegula
     if (typeof t.agentsList !== 'function') { agentTargets.value = []; return }
     const r: any = await t.agentsList()
-    agentTargets.value = Array.isArray(r) ? r : (r && r.agents) || []
+    const raw: AgentTargetUi[] = Array.isArray(r) ? r : (r && r.agents) || []
+    agentTargets.value = raw.map(a => {
+      const b = agentLinkBadge(a)
+      return { ...a, linkText: b.text, linkClass: b.cls }
+    })
   } catch { agentTargets.value = [] }
+}
+
+/** 「⚡ 装到 X」：只对可直装且检测到的目标开（其余走「显示 SKILL.md + 打开对方」） */
+async function installToTarget(a: AgentTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.skillsInstallTo !== 'function') { showToast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const r: any = await t.skillsInstallTo(a.id)
+  if (!r) { showToast('安装失败：主进程没有返回', 'error'); return }
+  const errs = r.errors || []
+  if (errs.length && !r.installed.length) {
+    showToast(`装到 ${a.name} 失败：${errs[0].error}`, 'error')
+  } else {
+    const parts: string[] = []
+    if (r.installed && r.installed.length) parts.push(`已装 ${r.installed.length}`)
+    if (r.skipped && r.skipped.length) parts.push(`跳过 ${r.skipped.length}`)
+    if (errs.length) parts.push(`失败 ${errs.length}`)
+    showToast(`装到 ${a.name}：${parts.join(' / ') || '无变化'}`, errs.length ? 'error' : 'success')
+  }
+  await loadSkills()
+  await loadAgents()
 }
 
 async function openAgentTarget(a: AgentTargetUi): Promise<void> {
@@ -7986,7 +8219,13 @@ onMounted(() => {
   // 014：与主进程 prefs.json 对齐 Agent 预设（localStorage 只当缓存，换 origin 不该丢资产）
   syncAgentPresets()
   // 板面偏好：分组方式 + 折叠状态（同样以主进程 prefs.json 为真身）
-  syncBoardPrefs()
+  // 卡 012：归档设置也在真身里 —— 要等它回来才知道该不该查超期/自动执行，所以走 then。
+  void syncBoardPrefs().then(async () => {
+    await refreshArchiveOverdue()
+    if (archiveAuto.value && Number(archiveDays.value) > 0 && archiveOverdue.value.count > 0) {
+      await runArchiveOverdue(true)   // 用户自己开的开关，不弹确认
+    }
+  })
   // 版本号（设置页首区块显示）
   loadAppVersion()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
@@ -8795,12 +9034,40 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-detail.empty { color: var(--muted); font-size: 12.5px; }
 
 /* Settings */
-#smodal { width: 720px; max-height: 86vh; display: flex; flex-direction: column; }
-#smodal > .sect:last-of-type { flex: 0 0 auto; }
+/* ── 设置：左侧分类导航 + 右侧内容（2026-10-03 用户：「不要一条长名单，像各大软件那样侧边栏分类」）
+     上一版的「点标题折叠」被取代 —— 折叠解决"太长"，侧边栏解决"找不到"。 */
+#smodal {
+  width: min(860px, 94vw); height: min(620px, 86vh);
+  display: flex; flex-direction: row; padding: 0; overflow: hidden;
+}
+#smodal .settings-nav {
+  width: 178px; flex: none; display: flex; flex-direction: column; gap: 2px;
+  padding: 16px 10px; border-right: 1px solid var(--border); background: var(--bg);
+  overflow-y: auto;
+}
+#smodal .settings-nav-title { font-size: 15px; font-weight: 700; color: var(--ink); padding: 0 10px 10px; }
+/* ⚠ 导航按钮用与祖先无关的全局类（`.settings-nav-btn`）：按钮样式守卫要求"用了 class 就得有规则"，
+   而 #smodal 前缀的选择器在守卫眼里同样成立 —— 这里保持带前缀，规则更收敛。 */
+#smodal .settings-nav-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  font-family: inherit; font-size: 13px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: var(--ink); cursor: pointer;
+}
+#smodal .settings-nav-btn:hover { background: var(--tint); }
+#smodal .settings-nav-btn.on { background: var(--tint); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#smodal .settings-nav-btn .sn-ico { width: 16px; text-align: center; flex: none; }
+#smodal .settings-body {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  padding: 16px 20px; overflow-y: auto;
+}
+#smodal .settings-foot {
+  margin-top: auto; padding-top: 14px; display: flex; gap: 8px; justify-content: flex-end; flex: none;
+}
 .ver-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .ver-num { font-size: 15px; font-weight: 700; color: var(--ink); font-family: var(--mono, monospace); }
-#smodal .sect { border-top: 1px solid var(--border); padding: 14px 0; margin-top: 6px; flex: 0 0 auto; }
-#smodal .sect:first-of-type { border-top: 0; padding-top: 0; }
+/* 同一分类下可能有好几个小节 → 不再用 border-top 分隔（v-show 隐藏的兄弟会让"视觉第一块"
+   被 CSS 相邻选择器算错），改成每节留白间隔。 */
+#smodal .sect { border-top: 0; padding: 0 0 20px; margin-top: 0; flex: 0 0 auto; }
 #smodal .sect h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
 #smodal .theme-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 #smodal .theme-swatch { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px;
@@ -8997,6 +9264,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Archive hint */
 .archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }
 .archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; flex: none; }
+/* 已完成任务自动归档提示条（2026-10-03 卡 012）：改成蓝色系以区别"只读提示"的归档说明条 */
+.archive-overdue-bar {
+  margin: 8px 16px 0; padding: 8px 12px; background: #f4f8ff; border: 1px solid #d6e4f7;
+  border-radius: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ink); position: relative; z-index: 2;
+}
+.archive-overdue-bar b { color: var(--accent); }
+.archive-overdue-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
+.archive-overdue-bar span { flex: 1 1 320px; }
 
 /* Roadmap view */
 .roadmap-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -9964,6 +10240,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .agent-state { font-size: 11px; color: var(--muted); }
 .agent-evidence { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); margin-top: 3px; word-break: break-all; }
 .agent-howto { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.agent-note { font-size: 11.5px; color: var(--muted); }
+
+/* 已接入徽章（卡 011）：技能副本 + MCP 配置两个**文件事实**的合体，不用 LLM、不猜 */
+.agent-link { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); }
+.agent-link-linked { color: #1b5e20; border-color: #bfd8c0; background: #f2f8f2; }
+.agent-link-partial { color: #8a5a00; border-color: #e8d9a8; background: #fdf7e8; }
+.agent-link-none { color: var(--muted); }
+.agent-link-unknown { color: var(--muted); border-style: dashed; }
+
+/* 技能卡「装到：」逐目标状态（卡 010/011）：一眼看出装到谁了、谁那份旧了 */
+.skill-targets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+.skill-targets-label { font-size: 11.5px; color: var(--muted); }
+.skill-tgt { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); }
+.skill-tgt-ok { color: #1b5e20; border-color: #bfd8c0; background: #f2f8f2; }
+.skill-tgt-warn { color: #8a5a00; border-color: #e8d9a8; background: #fdf7e8; }
+.skill-tgt-idle { color: var(--muted); }
+.skill-tgt-absent { color: var(--muted); border-style: dashed; }
+.skill-hash { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); margin-left: auto; }
 
 #log-project-modal {
   width: min(460px, 92vw); max-height: 80vh; overflow: auto;
@@ -10023,6 +10317,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .skills-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .skills-header h3 { font-size: 16px; font-weight: 700; }
 .skills-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 260px; }
+/* 维护机制说明（2026-10-03）：单独占一行、比普通 hint 稍亮，因为它是"我该怎么维护"的答案 */
+.skills-hint.skills-maint { flex-basis: 100%; font-size: 12px; line-height: 1.6; }
+.skills-hint.skills-maint b { color: var(--ink); }
 .skills-btn {
   font-family: inherit; font-size: 12.5px; cursor: pointer;
   padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);

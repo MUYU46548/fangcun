@@ -1175,6 +1175,163 @@
       await sleep(200)
     }
 
+    // ══ 技能页 · 多目标装机状态（2026-10-03 卡 010/011）══════════════════
+    //   用户原话：「DSH 在上一轮已经完成安装，但方寸**检测不到** DSH 安装了」——
+    //   装卡区此前连 DSH 这一行都没有。这里把它钉在**真渲染出来的 DOM** 上。
+    check('能切到「技能」页签', clickText('技能'))
+    await sleep(500)
+    check('技能页渲染出来（.skills-view 在）', await waitFor(() => !!$('.skills-view'), 4000, '技能视图'))
+
+    // ⚠ 只取**自发布**技能卡（`.skills-list` 下）；外部导入的卡片也带 `.skill-card` class
+    //   （`.skill-card.imported`），不限定就会把"导入卡没有目标徽章"误判成缺陷。
+    const skillCards = $$('.skills-view .skills-list .skill-card')
+    check('技能卡片渲染出来', skillCards.length >= 2, 'n=' + skillCards.length)
+
+    const targetsEls = $$('.skills-view .skill-targets')
+    check('★ 每张技能卡都有「装到：」逐目标徽章行',
+      targetsEls.length === skillCards.length && targetsEls.length > 0,
+      'targets=' + targetsEls.length + ' cards=' + skillCards.length)
+
+    const tgtTexts = $$('.skills-view .skill-tgt').map((e) => ({ t: (e.textContent || '').trim(), cls: e.className }))
+    check('★ 徽章里同时出现 Hermes 与 DSH 两个目标（不再只认 Hermes）',
+      tgtTexts.some((x) => x.t.indexOf('Hermes') === 0) && tgtTexts.some((x) => x.t.indexOf('DSH') === 0),
+      JSON.stringify(tgtTexts.map((x) => x.t)))
+    check('★ 三种状态都真渲染：✓最新 / ⬆有更新 / （不在场）',
+      tgtTexts.some((x) => x.t.indexOf('✓最新') >= 0) && tgtTexts.some((x) => x.t.indexOf('⬆有更新') >= 0)
+      && tgtTexts.some((x) => x.t.indexOf('不在场') >= 0),
+      JSON.stringify(tgtTexts.map((x) => x.t)))
+    check('  状态靠 class 区分（不是只有文案差别）',
+      tgtTexts.some((x) => /skill-tgt-ok/.test(x.cls)) && tgtTexts.some((x) => /skill-tgt-warn/.test(x.cls))
+      && tgtTexts.some((x) => /skill-tgt-absent/.test(x.cls)),
+      JSON.stringify(tgtTexts.map((x) => x.cls)))
+    check('  卡片上有真源指纹（只能手动导入的 agent 拿它对账）',
+      $$('.skills-view .skill-hash').length === skillCards.length
+      && (($('.skills-view .skill-hash') || {}).textContent || '').trim().length > 0,
+      (($('.skills-view .skill-hash') || {}).textContent || '(无)'))
+
+    // 装卡区
+    const agentRows = $$('.skills-view .agent-row')
+    const rowOf = (name) => agentRows.find((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf(name) >= 0)
+    const dshRow = rowOf('DSH')
+    check('★ 装卡区列出 DSH 这一行（此前根本没有）', !!dshRow, 'rows=' + agentRows.length)
+    check('★ DSH 行标着「可直装」',
+      !!dshRow && /可直装/.test(((dshRow.querySelector('.agent-mode') || {}).textContent) || ''),
+      dshRow ? ((dshRow.querySelector('.agent-mode') || {}).textContent) : '(无)')
+    const dshBtn = dshRow
+      ? Array.prototype.slice.call(dshRow.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('装到 DSH') >= 0)
+      : null
+    check('★ DSH 行的「⚡ 装到 DSH」是**真按钮**（不是 disabled 死按钮）',
+      !!dshBtn && !dshBtn.disabled, dshBtn ? ('disabled=' + dshBtn.disabled) : '(没找到按钮)')
+    check('  Hermes 行不再摆第二个安装按钮（同一个动作不重复两遍）',
+      !agentRows.some((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf('Hermes') >= 0
+        && Array.prototype.slice.call(r.querySelectorAll('button')).some((b) => (b.textContent || '').indexOf('装到 Hermes') >= 0)))
+
+    const linkBadges = $$('.skills-view .agent-link').map((e) => ({ t: (e.textContent || '').trim(), cls: e.className }))
+    check('★ 「已接入」徽章渲染出来（技能副本 + MCP 配置两个文件事实的合体，不用 LLM）',
+      linkBadges.length >= 2 && linkBadges.some((x) => /部分接入|已接入|未接入/.test(x.t)),
+      JSON.stringify(linkBadges))
+
+    if (dshBtn) {
+      dshBtn.click()
+      check('★ 点「⚡ 装到 DSH」真调 IPC skillsInstallTo(target=dsh)',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'skillsInstallTo' && c.args && c.args[0] === 'dsh'), 4000, 'installTo(dsh)'),
+        'calls=' + JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'skillsInstallTo').map((c) => c.args)))
+    }
+    await sleep(300)
+
+    // ══ 设置页 · 侧边栏分类（2026-10-03 用户：设置项不要挤在一条长名单里）══════
+    const gear = $$('#bar button').find((b) => (b.textContent || '').trim() === '⚙')
+    check('顶栏有设置入口（⚙）', !!gear)
+    if (gear) gear.click()
+    await sleep(400)
+    check('设置面板打开', await waitFor(() => !!$('#smodal'), 4000, '设置面板'))
+
+    const navBtns = () => $$('#smodal .settings-nav-btn')
+    const navNames = navBtns().map((b) => (b.textContent || '').trim())
+    check('★ 设置页左侧是分类导航（不再是一条长名单）', navBtns().length >= 5, 'n=' + navBtns().length)
+    check('★ 六个分类齐全（通用 / 数据与归档 / Agent / 项目 / 备份与恢复 / 诊断）',
+      ['通用', '数据与归档', 'Agent', '项目', '备份与恢复', '诊断']
+        .every((n) => navNames.some((x) => x.indexOf(n) >= 0)),
+      JSON.stringify(navNames))
+
+    const visibleSects = () => $$('#smodal .settings-body .sect').filter((s) => s.offsetParent !== null)
+    const sectTitles = () => visibleSects().map((s) => (((s.querySelector('h4') || {}).textContent) || '').trim())
+    const clickNav = (n) => {
+      const b = navBtns().find((x) => (x.textContent || '').indexOf(n) >= 0)
+      if (!b) return false
+      b.click(); return true
+    }
+
+    check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
+      sectTitles().length === 2 && sectTitles().join('|').indexOf('版本与更新') >= 0
+      && sectTitles().join('|').indexOf('外观主题') >= 0,
+      JSON.stringify(sectTitles()))
+    check('  「通用」在导航上高亮',
+      navBtns().some((b) => (b.textContent || '').indexOf('通用') >= 0 && b.classList.contains('on')))
+
+    check('能切到「备份与恢复」', clickNav('备份与恢复'))
+    await sleep(250)
+    check('★ 切换分类后右侧只剩该分类（上一类真的消失，不是叠在一起）',
+      sectTitles().length === 1 && sectTitles()[0].indexOf('备份与恢复') >= 0, JSON.stringify(sectTitles()))
+    check('★ 当前分类写进真身 prefs（fc_settings_tab=backup）—— 下次打开还停在这页',
+      window.__fcTest.prefs().fc_settings_tab === 'backup', JSON.stringify(window.__fcTest.prefs().fc_settings_tab))
+
+    check('能切到「项目」', clickNav('项目'))
+    await sleep(250)
+    check('★ 「项目」类下两个小节都在（项目列表 + 项目方针 —— 方针从备份区里挪出来了）',
+      sectTitles().some((t) => t.indexOf('项目列表') >= 0) && sectTitles().some((t) => t.indexOf('项目方针') >= 0),
+      JSON.stringify(sectTitles()))
+
+    // ══ 设置页 · 看板归档（2026-10-03 卡 012；入口在「数据与归档」分类下）════════
+    //  先注入「有 2 条超期」，这样等下把天数改成 30 时那次 refresh 就能拿到数。
+    window.__fcTest.setOverdue(2)
+    check('能切到「数据与归档」', clickNav('数据与归档'))
+    await sleep(300)
+    check('★ 「数据与归档」下三节都在（数据目录 / 日志清理 / 看板归档）',
+      sectTitles().some((t) => t.indexOf('数据目录') >= 0) && sectTitles().some((t) => t.indexOf('日志清理') >= 0)
+      && sectTitles().some((t) => t.indexOf('看板归档') >= 0),
+      JSON.stringify(sectTitles()))
+    const archSect = visibleSects().find((s) => (((s.querySelector('h4') || {}).textContent) || '').indexOf('看板归档') >= 0)
+    check('  看板归档有保留天数输入框（0 = 关闭）', !!archSect && !!archSect.querySelector('input[type=number]'))
+    const archInput = archSect ? archSect.querySelector('input[type=number]') : null
+    const archAuto = archSect ? archSect.querySelector('input[type=checkbox]') : null
+    check('★ 「启动时自动执行」默认**关**（归档会移动文件，默认不许动）', !!archAuto && archAuto.checked === false)
+    if (archInput) {
+      archInput.value = '30'
+      archInput.dispatchEvent(new Event('input', { bubbles: true }))
+      archInput.dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(400)
+    }
+    check('  填 30 天后写入真身 prefs（fc_archive_days=30）',
+      Number(window.__fcTest.prefs().fc_archive_days) === 30, JSON.stringify(window.__fcTest.prefs().fc_archive_days))
+
+    const sov = $('#soverlay')
+    if (sov) sov.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await sleep(300)
+    check('设置面板已关闭', !$('#smodal'))
+
+    check('能切回「看板」页签', clickText('看板'))
+    check('★ 保留天数 > 0 且真有超期任务 → 看板顶部出现提示条（只提示，不静默动手）',
+      await waitFor(() => !!$('.archive-overdue-bar'), 4000, '归档提示条'),
+      'bar=' + $$('.archive-overdue-bar').length)
+    const barBtn = $$('.archive-overdue-bar button').find((b) => (b.textContent || '').indexOf('移进归档区') >= 0)
+    check('  提示条上有「移进归档区」按钮', !!barBtn)
+    if (barBtn) {
+      const origConfirm = window.confirm
+      window.confirm = () => false
+      barBtn.click()
+      await sleep(300)
+      check('★ 点按钮先弹二次确认；点「取消」→ **不动任何文件**（不静默归档）',
+        window.__fcTest.callCount('tasksArchiveOverdue') === 0,
+        'calls=' + window.__fcTest.callCount('tasksArchiveOverdue'))
+      window.confirm = () => true
+      barBtn.click()
+      check('★ 确认之后才真调 IPC 归档',
+        await waitFor(() => window.__fcTest.callCount('tasksArchiveOverdue') >= 1, 4000, 'archiveOverdue'),
+        'calls=' + window.__fcTest.callCount('tasksArchiveOverdue'))
+      window.confirm = origConfirm
+    }
+
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))

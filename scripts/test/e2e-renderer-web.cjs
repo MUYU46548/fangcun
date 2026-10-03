@@ -251,7 +251,9 @@ function main() {
     '--disable-extensions',
     // 2026-09-30：回收站多选断言加了 6 次点击 + waitFor，20000 虚拟毫秒会在断言跑完前
     // 把页面掐掉（表现为「没拿到断言结果」）。抬到 30000，与手动 --dump-dom 复跑一致。
-    '--virtual-time-budget=30000',
+    // 2026-10-03：又加了技能页多目标（卡 010/011）+ 设置页折叠（013）+ 看板归档提示条（012）
+    // 三节、含数次 sleep/waitFor → 30000 再次不够，抬到 45000。
+    '--virtual-time-budget=45000',
     '--dump-dom',
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]
