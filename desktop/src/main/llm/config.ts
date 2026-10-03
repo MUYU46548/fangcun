@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
+import { atomicWriteBackup } from '../data'
 
 export interface LLMConfig {
   baseUrl: string
@@ -127,8 +128,7 @@ function persist(cfg: LLMConfig): void {
   const tmp = `${configPath}.tmp`
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), { encoding: 'utf-8', mode: 0o600 })
-    fs.renameSync(tmp, configPath)
+    atomicWriteBackup(configPath, JSON.stringify(cfg, null, 2), 0o600)
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }) } catch {}
     throw new LLMError(`LLM 配置写入失败：${(e as Error).message}`)

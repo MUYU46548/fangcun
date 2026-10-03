@@ -116,9 +116,7 @@ export function setDataDir(newDir: string): void {
   // 用户表现为「切了目录但数据又丢了」。写失败不炸（下次启动回退探测链）。
   try {
     const cfgPath = path.join(app.getPath('userData'), 'data-dir.json')
-    const tmp = cfgPath + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2), 'utf-8')
-    fs.renameSync(tmp, cfgPath)
+    atomicWriteBackup(cfgPath, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2))
   } catch { /* 持久化失败不影响本次会话 */ }
 }
 
@@ -887,11 +885,13 @@ export function loadTasks(view = 'active'): Task[] {
 
 // ── Atomic Write + Backup ───────────────────────────────────────────────
 
-export function atomicWrite(filePath: string, content: string): void {
+export function atomicWrite(filePath: string, content: string, mode?: number): void {
   const tmp = filePath + '.tmp'
 
-  // Write to temp
-  fs.writeFileSync(tmp, content, 'utf-8')
+  // Write to temp（mode 为可选透传：llm/backup 配置落盘带 0o600，语义不能丢；
+  // 不传 mode 时调用形态与原来完全一致，既有调用方行为不变）
+  if (mode === undefined) fs.writeFileSync(tmp, content, 'utf-8')
+  else fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode })
 
   // Verify read-back
   try {
@@ -910,6 +910,15 @@ export function atomicWrite(filePath: string, content: string): void {
 
   // 写后失效读取缓存 —— 否则同一毫秒内的「写→读」可能命中旧签名
   invalidateTaskCache()
+}
+
+// 与 Python write_task_file「写前备份→原子写」同语义的数据文件写入口。
+// ⚠ atomicWrite **内部已含** rotateBackup（写前备份 :906 + 读回校验 + 原子改名）——
+// 这里刻意不再旋转第二次：同一旧版本会占两个 keep-10 名额（同秒同路径幂等、跨秒重复）。
+// 名字保留「Backup」是给调用点的意图声明：数据/配置落盘必须走这条带滚动备份的管线，
+// 禁止再手写 tmp+rename（源码守卫见 e2e-logs 族2b）。
+export function atomicWriteBackup(filePath: string, content: string, mode?: number): void {
+  atomicWrite(filePath, content, mode)
 }
 
 export function rotateBackup(filePath: string): void {

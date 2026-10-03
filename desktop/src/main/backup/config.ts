@@ -10,6 +10,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app, safeStorage } from 'electron'
+import { atomicWriteBackup } from '../data'
 
 export interface BackupRemote {
   url: string
@@ -139,8 +140,7 @@ function persist(cfg: BackupConfig): void {
   const tmp = `${configPath}.tmp`
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), { encoding: 'utf-8', mode: 0o600 })
-    fs.renameSync(tmp, configPath)
+    atomicWriteBackup(configPath, JSON.stringify(cfg, null, 2), 0o600)
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }) } catch {}
     throw new Error(`备份配置写入失败：${(e as Error).message}`)
@@ -245,9 +245,7 @@ export function saveBackupState(patch: Partial<BackupState>): BackupState {
   const next = { ...getBackupState(), ...patch }
   const { statePath } = getBackupPaths()
   try {
-    const tmp = `${statePath}.tmp`
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), { encoding: 'utf-8', mode: 0o600 })
-    fs.renameSync(tmp, statePath)
+    atomicWriteBackup(statePath, JSON.stringify(next, null, 2), 0o600)
   } catch (e) {
     console.warn(`[backup] 状态写入失败：${(e as Error).message}`)
   }

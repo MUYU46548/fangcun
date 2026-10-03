@@ -7,7 +7,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getDataDir } from '../data'
+import { getDataDir, atomicWriteBackup } from '../data'
 
 export interface Policy {
   projectId: string
@@ -146,9 +146,7 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     ``,
   ].join('\n')
   const target = policyPath(p.projectId)
-  const tmp = target + '.tmp'
-  fs.writeFileSync(tmp, content, 'utf-8')
-  fs.renameSync(tmp, target)
+  atomicWriteBackup(target, content)
   return { ok: true, path: target }
 }
 

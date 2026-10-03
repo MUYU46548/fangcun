@@ -4838,25 +4838,44 @@ function closeLogEditor() {
   logEditSnap = null
 }
 
-/** 对象里只要还有非空文本就认为有内容（用于字段名不固定的几个模态） */
-function hasAnyText(o: any): boolean {
-  return !!o && typeof o === 'object' &&
-    Object.values(o).some(v => typeof v === 'string' && v.trim())
+/**
+ * 关闭防丢统一口径（2026-10-03 卡 task-20261003-004·族1收敛）：
+ * 打开存快照、关闭逐字节比对、**改过才问**。
+ * 收编的旧实现：方针卡/项目/应用曾走 hasAnyText（「有字就弹」= 确认疲劳，只改下拉/勾选
+ * 则静默丢——P0-1 判错一直没迁移）；待办此前零防护（closeTodoEditor 裸置 null）。
+ * 任务/日志编辑器已是同口径（taskEditSnap/logSnapNow，注释明写「不另发明」）——
+ * 本函数是该口径的可复用形态：新增编辑类弹窗一律 makeDirtyGuard，禁止再长第二种。
+ */
+function makeDirtyGuard() {
+  let snap: string | null = null
+  // 用 const 箭头而非对象方法简写：check-template-bindings 把 `open(v){…}` 这种
+  // 简写定义当「调用了未定义的 open()」（collectCalled 只认 function/const 声明）。
+  const open = (v: any): void => { snap = snapOf(v) }
+  const dirty = (v: any): boolean => snap !== null && snapOf(v) !== snap
+  const clear = (): void => { snap = null }
+  return { open, dirty, clear }
 }
+const policyGuard = makeDirtyGuard()
+const projGuard = makeDirtyGuard()
+const appGuard = makeDirtyGuard()
+const todoGuard = makeDirtyGuard()
 
 function closePolicyEditor() {
-  if (hasAnyText(policyEdit_.value) && !confirm('方针卡尚未保存，确定关闭并丢弃吗？')) return
+  if (policyGuard.dirty(policyEdit_.value) && !confirm('方针卡尚未保存，确定关闭并丢弃吗？')) return
   policyEdit_.value = null
+  policyGuard.clear()
 }
 
 function closeProjForm() {
-  if (hasAnyText(projForm.value) && !confirm('项目信息尚未保存，确定关闭并丢弃吗？')) return
+  if (projGuard.dirty(projForm.value) && !confirm('项目信息尚未保存，确定关闭并丢弃吗？')) return
   projForm.value = null
+  projGuard.clear()
 }
 
 function closeAppEditor() {
-  if (hasAnyText(editApp_.value) && !confirm('应用信息尚未保存，确定关闭并丢弃吗？')) return
+  if (appGuard.dirty(editApp_.value) && !confirm('应用信息尚未保存，确定关闭并丢弃吗？')) return
   editApp_.value = null
+  appGuard.clear()
 }
 
 // ── 阻塞字段的选择器 ────────────────────────────────────────────────────
@@ -5524,6 +5543,7 @@ async function openPolicyEdit(projectId: string) {
     if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap } = r.policy)
   } catch { /* 未立则空表单 */ }
   policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary, structureMap: structureMap || '' }
+  policyGuard.open(policyEdit_.value)
 }
 
 async function savePolicyEdit() {
@@ -6146,9 +6166,15 @@ function openTodoEditor(todo: any) {
     project: todo.project || '',
     done: !!todo.done,
   }
+  todoGuard.open(todoEdit_.value)
 }
 
-function closeTodoEditor() { todoEdit_.value = null }
+function closeTodoEditor() {
+  // 族1（卡004）：此前裸置 null = 改了点取消/遮罩就静默丢
+  if (todoGuard.dirty(todoEdit_.value) && !confirm('待办内容尚未保存，确定关闭并丢弃吗？')) return
+  todoEdit_.value = null
+  todoGuard.clear()
+}
 
 // 同一弹窗复用成「新建」（第 12 条要的是**创建**也用大框，不只是编辑）
 function openTodoCreator() {
@@ -6161,6 +6187,7 @@ function openTodoCreator() {
     project: todoProjectFilterProject() || '',
     done: false,
   }
+  todoGuard.open(todoEdit_.value)
 }
 
 async function saveTodoEdit() {
@@ -7433,6 +7460,7 @@ function openProjectInSettings(p: Project) {
  */
 function openNewProject() {
   projForm.value = { id: '', name: '', repo: '', description: '' }
+  projGuard.open(projForm.value)
 }
 
 async function confirmNewProject() {
@@ -7468,10 +7496,12 @@ async function confirmNewProject() {
 
 function openAddApp() {
   editApp_.value = { name: '', path: '', description: '', argsText: '', isNew: true }
+  appGuard.open(editApp_.value)
 }
 
 function openEditApp(app: any) {
   editApp_.value = { ...app, argsText: Array.isArray(app.args) ? app.args.join(' ') : '', isNew: false }
+  appGuard.open(editApp_.value)
 }
 
 async function saveEditApp() {

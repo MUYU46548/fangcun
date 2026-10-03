@@ -6,7 +6,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import { getDataDir } from '../data'
+import { getDataDir, atomicWriteBackup } from '../data'
 
 export interface LogEntry {
   id: string
@@ -280,12 +280,10 @@ function renderLog(log: LogEntry): string {
   return `---\n${fmText}---\n${body}`
 }
 
+// 本地只留一层薄壳：写前备份 + 原子写统一走共享 helper（2026-10-03 族2 写盘收敛），
+// 12 处调用点不动，避免第二条手写 tmp+rename 写路径回潮。
 function atomicallyWrite(filePath: string, content: string): void {
-  const tmp = filePath + '.tmp'
-  fs.writeFileSync(tmp, content, 'utf-8')
-  const read = fs.readFileSync(tmp, 'utf-8')
-  if (!read) throw new Error('readback empty')
-  fs.renameSync(tmp, filePath)
+  atomicWriteBackup(filePath, content)
 }
 
 function genId(): string {

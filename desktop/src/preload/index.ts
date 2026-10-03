@@ -44,11 +44,6 @@ contextBridge.exposeInMainWorld('tegula', {
   
   // Registry
   registryAddProject: (fields: any) => ipcRenderer.invoke('registry:addProject', fields),
-  
-  // ── Backup
-  backup: () => ipcRenderer.invoke('backup'),
-  restore: (backupPath: string) => ipcRenderer.invoke('restore', backupPath),
-  listBackups: () => ipcRenderer.invoke('listBackups'),
 
   // ── 备份 v2（WebDAV + 调度 + 可验证恢复）
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),

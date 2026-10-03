@@ -535,6 +535,18 @@ function main() {
     check('★ updateLog 清空 = 字段从文件消失（空值不落盘，不残留 null）',
       upPrev.ok === true && !/prev_agent_name/.test(read(pv.id)) && !lg.getLog(pv.id).prevAgentName,
       read(pv.id).split('\n').filter(l => /agent/.test(l)).join(' | ') || '(无 agent 行)')
+    // ── 2026-10-03 族2 写盘收敛：updateLog 必须留下写前滚动备份 ──────────────
+    //   备份在源文件**同级**的 .backup/ 下（docs/执行日志/.backup/<原名>.<时间戳>.bak），
+    //   内容 = 本次写盘**之前**的旧文件（此处仍带 prev_agent_name: hermes）。
+    const bkDir = path.join(logsDir, '.backup')
+    const bkNames = fs.existsSync(bkDir)
+      ? fs.readdirSync(bkDir).filter(f => f.startsWith(pv.id + '.') && f.endsWith('.bak'))
+      : []
+    check('★★ 2026-10-03 族2：updateLog 后该日志在 同级 .backup/ 下有写前 .bak',
+      bkNames.length >= 1,
+      `dir=${bkDir} 命中=${JSON.stringify(bkNames)}` + (bkNames.length
+        ? ` 备份是写前内容=${/prev_agent_name: hermes/.test(fs.readFileSync(path.join(bkDir, bkNames[0]), 'utf-8'))}`
+        : ''))
     lg.setLogPinned(pv.id, false)
 
     // 防御：断链 / 成环（修前代码这两种都会挂死或抛）
@@ -632,6 +644,43 @@ function main() {
     check('★★ 反馈2：openRelay 标题不再沿用源（留空 = 每个日志创建新标题）',
       /title: ''/.test(OPENRELAY) && !/title: src\.title/.test(OPENRELAY),
       JSON.stringify((OPENRELAY.match(/title: [^\n]*/) || [''])[0]))
+    // ── 2026-10-03 族1（卡 task-20261003-004）：关闭防丢统一口径 ────────────
+    check('★★ 族1a：hasAnyText 旧口径的函数体已删除，方针卡/项目/应用/待办收编进 makeDirtyGuard（快照口径）',
+      /function makeDirtyGuard/.test(APP) && !/function hasAnyText/.test(APP) &&
+      ['policyGuard.dirty', 'projGuard.dirty', 'appGuard.dirty', 'todoGuard.dirty'].every(s => APP.includes(s)))
+    check('★★ 族1b：四个打开入口都存快照（Guard.open），关闭函数走 dirty 比对而非裸置 null',
+      ['policyGuard.open', 'projGuard.open', 'appGuard.open', 'todoGuard.open'].every(s => APP.includes(s)) &&
+      /function closeTodoEditor[\s\S]{0,200}todoGuard\.dirty/.test(APP))
+  }
+
+  // ── 2026-10-03 族2 写盘收敛（源码守卫，静态）────────────────────────────
+  //   11 处手写 tmp+rename 已统一改走 data/index.ts 的 atomicWriteBackup（写前滚动备份）。
+  //   只允许 data/index.ts（atomicWrite / atomicWriteBackup 本体）保留该写法，防回潮。
+  {
+    const SRC_MAIN = path.resolve(__dirname, '../../desktop/src/main')
+    const GUARD_FILES = [
+      'services/logs.ts', 'services/notifications.ts', 'services/policies.ts',
+      'services/portRegistry.ts', 'services/prefs.ts', 'llm/config.ts',
+      'backup/config.ts', 'launchpad/config.ts', 'data/index.ts',
+    ]
+    const readSrc = (f) => fs.readFileSync(path.join(SRC_MAIN, f), 'utf-8').replace(/\r/g, '')
+    const handWritten = GUARD_FILES.filter((f) => {
+      const s = readSrc(f)
+      return /writeFileSync\(\s*tmp/.test(s) || /renameSync\(\s*tmp/.test(s)
+    })
+    check('★★ 2026-10-03 族2a：共享入口存在（data/index.ts 导出 atomicWriteBackup）',
+      /export function atomicWriteBackup\(/.test(readSrc('data/index.ts')))
+    check('（对照）data/index.ts 仍含手写 tmp+rename（守卫正则本身没写坏）',
+      handWritten.includes('data/index.ts'), JSON.stringify(handWritten))
+    check('★★ 2026-10-03 族2b：其余 8 个文件不再手写 writeFileSync(tmp / renameSync(tmp（防回潮）',
+      handWritten.filter((f) => f !== 'data/index.ts').length === 0,
+      JSON.stringify(handWritten.filter((f) => f !== 'data/index.ts')))
+    check('★★ 2026-10-03 族2c：logs.ts 本地 atomicallyWrite 只剩薄壳（委托共享 helper，重复实现只留一个）',
+      /function atomicallyWrite\([\s\S]{0,200}atomicWriteBackup\(filePath, content\)/.test(
+        readSrc('services/logs.ts')))
+    check('★★ 2026-10-03 族2d：atomicWrite 带可选 mode（llm/backup 的 0o600 语义不丢）',
+      /export function atomicWrite\(filePath: string, content: string, mode\?: number\)/.test(
+        readSrc('data/index.ts')))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

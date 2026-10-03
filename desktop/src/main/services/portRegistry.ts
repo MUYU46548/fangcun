@@ -22,6 +22,7 @@ import * as path from 'path'
 import * as net from 'net'
 import { execFile } from 'child_process'
 import { app, shell } from 'electron'
+import { atomicWriteBackup } from '../data'
 import * as appLog from './appLog'
 import * as launchpad from '../launchpad'
 
@@ -146,9 +147,7 @@ function writeManualServices(services: ManualService[]): { ok: boolean; error?: 
   const p = getServicesJsonPath()
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true })
-    const tmp = `${p}.tmp`
-    fs.writeFileSync(tmp, JSON.stringify({ services }, null, 2), 'utf-8')
-    fs.renameSync(tmp, p)
+    atomicWriteBackup(p, JSON.stringify({ services }, null, 2))
     return { ok: true }
   } catch (e) {
     return { ok: false, error: (e as Error).message }

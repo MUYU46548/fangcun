@@ -320,11 +320,36 @@
     ;(() => { const t = $('main.todos-view .todos-list.as-grid .todo-title'); if (t) t.click() })()
     check('★ 网格里点标题进编辑（卡面不放操作按钮 ≠ 不能改）',
       await waitFor(() => !!$('#todo-edit-modal'), 5000, '待办编辑弹窗'))
+    // ── 族1（2026-10-03 卡 task-20261003-004）：改过内容点取消必须被拦（快照口径）──
+    const _origConfirm = window.confirm
+    const _confirmLog = []
+    window.confirm = (msg) => { _confirmLog.push(String(msg)); return false }
+    ;(() => {
+      const ta = $('#todo-edit-modal textarea')
+      if (ta) { ta.value = '改了但不保存'; ta.dispatchEvent(new Event('input', { bubbles: true })) }
+    })()
+    await sleep(200)
     ;(() => {
       const b = $$('#todo-edit-modal button').find((x) => x.textContent.trim() === '取消')
       if (b) b.click()
     })()
     await sleep(250)
+    check('★★ 族1：待办改过内容点「取消」不静默关（confirm 拦下，弹窗仍在）',
+      !!$('#todo-edit-modal') && _confirmLog.length >= 1,
+      'modal=' + !!$('#todo-edit-modal') + ' confirms=' + JSON.stringify(_confirmLog))
+    window.confirm = () => true
+    ;(() => {
+      const b = $$('#todo-edit-modal button').find((x) => x.textContent.trim() === '取消')
+      if (b) b.click()
+    })()
+    await sleep(250)
+    check('★ 族1：confirm 放行才关（唯一丢弃入口），未保存内容不落库',
+      !$('#todo-edit-modal') &&
+      !(typeof window.__fcTest.todos === 'function'
+        ? window.__fcTest.todos().some(t => t.title === '改了但不保存') : false),
+      JSON.stringify(typeof window.__fcTest.todos === 'function'
+        ? window.__fcTest.todos().map(t => t.title) : 'no todos() api'))
+    window.confirm = _origConfirm
 
     window.__fcTest.reset()
     ;(() => {

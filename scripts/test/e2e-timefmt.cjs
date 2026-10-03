@@ -152,6 +152,18 @@ function main() {
     blobRule !== '' && blobZ !== undefined && parseInt(blobZ, 10) < 0,
     `规则=${blobRule.replace(/\s+/g, ' ').slice(0, 120)} z-index=${blobZ}`)
 
+  // D17（2026-10-03 卡 task-20261003-004·族1）：老看板编辑弹窗必须有关闭防丢。
+  //   保存时的 expected_update 乐观锁防的是并发覆盖，防不了「点遮罩/取消/Esc 把没保存的
+  //   编辑丢掉」。判据：openEdit/openNew 各存一次快照（≥2 处）、closeModal 带 force 参数
+  //   与 confirm、成功落盘路径显式放行（closeModal(true) / 成功后清 editSnap）。
+  check('D17 board.html 编辑弹窗关闭防丢（打开存快照 / 改过才问 / 成功落盘不追问）',
+    /let editSnap=/.test(boardNoComment) &&
+    (boardNoComment.match(/editSnap=formSnap\(\)/g) || []).length >= 2 &&
+    /function closeModal\(force\)/.test(boardNoComment) &&
+    (boardNoComment.match(/closeModal\(true\)/g) || []).length >= 3 &&
+    /if\(r\.ok\)editSnap=""/.test(boardNoComment),
+    `snap=${(boardNoComment.match(/editSnap=formSnap\(\)/g) || []).length} force=${/function closeModal\(force\)/.test(boardNoComment)} bypass=${(boardNoComment.match(/closeModal\(true\)/g) || []).length}`)
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

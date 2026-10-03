@@ -2445,6 +2445,7 @@ function openEdit(t){curId=t.id;curTask=t;
   f_cron.value=t.cron||"";f_ctx.value=(t.context||[]).join(", ");
   curEditVer=String(t.更新||t.mtime||0);
   curEditMtime=t.mtime||0;
+  editSnap=formSnap();
   el("overlay").style.display="flex";}
 function openNew(){curId=null;
   el("mTitle").textContent="新建任务";
@@ -2455,6 +2456,7 @@ function openNew(){curId=null;
   f_resdoc.value="";f_restool.value="";f_plan.value="";f_result.value="";
   f_cron.value="";f_ctx.value="";
   curEditVer="0";curEditMtime=0;
+  editSnap=formSnap();
   el("overlay").style.display="flex";
   setTimeout(()=>el("f_quick").focus(),50);}
 /* ── 快速添加：前端实时预览（创建走后端 quick_add，同一套解析逻辑）── */
@@ -2489,10 +2491,17 @@ async function saveQuick(){
   if(!v){await save();return;}                 // 空则退回普通表单保存
   const r=await post({action:"quick_add",text:v},{silent:true});
   if(!r.ok){toast("创建失败："+(r.msg||"未知错误"),"error");return;}
-  closeModal();lastHash="";await load(true);
+  closeModal(true);lastHash="";await load(true);
   toast("已创建 "+(r.msg||"任务"),"success");
 }
-function closeModal(){el("overlay").style.display="none";}
+/* 族1（2026-10-03 卡 task-20261003-004）：编辑弹窗关闭防丢——打开存快照(formSnap)、
+   关闭逐字节比对、改过才问。此前 closeModal 零防护：点遮罩/取消/Esc 改了就静默丢
+   （保存时的 expected_update 乐观锁防的是并发覆盖，防不了丢弃）。 */
+let editSnap="";
+function formSnap(){return JSON.stringify([f_title.value,f_status.value,f_batch.value,f_due.value,f_prio.value,f_tag.value,getProjChecks(),f_assignee.value,f_accept.value,f_resdoc.value,f_restool.value,f_blk.value,f_msg.value,f_plan.value,f_result.value,f_cron.value,f_ctx.value,f_quick.value]);}
+function closeModal(force){
+  if(!force&&editSnap&&formSnap()!==editSnap&&!confirm("编辑内容尚未保存，确定关闭并丢弃吗？"))return;
+  el("overlay").style.display="none";editSnap="";}
 function openRestore(t){el("rTitle").textContent="还原 "+t.id;
   el("rInfo").innerHTML="<b>"+esc(t.标题||"")+"</b><br>当前位于："+(curView==="archive"?"归档":"回收站")+"<br><small>"+esc(t.id)+"</small>";
   el("roverlay").style.display="flex";}
@@ -2520,10 +2529,11 @@ async function save(){const fields={
   if(!r.ok&&/conflict/.test(String(r.msg||""))){
     showConflictDialog(r.msg);
     return;}
+  if(r.ok)editSnap="";            /* 成功落盘 = 不算未保存改动，别再追问；失败则让防丢把关 */
   closeModal();lastHash="";load();
   toast(curId?"任务已保存":"任务已创建","success");}
-async function doArchive(){if(!curId)return;if(!confirm("归档 "+curId+"？\n（任务移入归档视图，可随时还原）"))return;await post({action:"archive",id:curId});closeModal();lastHash="";load();toast("已归档","success");}
-async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId});closeModal();lastHash="";load();toast("已移入回收站","success");}
+async function doArchive(){if(!curId)return;if(!confirm("归档 "+curId+"？\n（任务移入归档视图，可随时还原）"))return;await post({action:"archive",id:curId});closeModal(true);lastHash="";load();toast("已归档","success");}
+async function doDelete(){if(!curId)return;if(!confirm("删除（移入回收站，可恢复）？"))return; await post({action:"delete",id:curId}); closeModal(true);lastHash="";load();toast("已移入回收站","success");}
 async function doRestore(){if(!curId)return; await post({action:"restore",id:curId,from:curView==="archive"?"archive":"trash"}); closeR();lastHash="";load();toast("已还原到看板","success");}
 async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
   if(t&&t.状态==="待验收"&&status!=="待验收"&&status!=="完成"&&status!=="驳回"){

@@ -12,7 +12,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getDataDir } from '../data'
+import { getDataDir, atomicWriteBackup } from '../data'
 
 export interface Notification {
   id: string
@@ -75,9 +75,7 @@ function loadAll(): Notification[] {
 
 function saveAll(list: Notification[]): void {
   const p = getStorePath()
-  const tmp = p + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf-8')
-  fs.renameSync(tmp, p)
+  atomicWriteBackup(p, JSON.stringify(list, null, 2))
 }
 
 function dedupKey(n: { type: string; sourceId?: string; key?: string }): string {
@@ -137,9 +135,7 @@ function saveMuted(m: Map<string, number>): void {
   const exp: Record<string, string> = {}
   for (const [k, v] of m) exp[k] = new Date(v).toISOString()
   const p = getMutedPath()
-  const tmp = p + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify({ keys, exp }, null, 2), 'utf-8')
-  fs.renameSync(tmp, p)
+  atomicWriteBackup(p, JSON.stringify({ keys, exp }, null, 2))
 }
 
 /** 查看当前生效中的忽略表（供设置页 / 诊断用；已过期的不算） */

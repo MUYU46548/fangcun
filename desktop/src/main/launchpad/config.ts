@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
+import { atomicWriteBackup } from '../data'
 
 export interface LaunchApp {
   id: string
@@ -74,11 +75,9 @@ export function loadApps(): LaunchApp[] {
 
 export function saveApps(apps: LaunchApp[]): void {
   const configPath = getConfigPath()
-  const tmp = `${configPath}.tmp`
   // 原子写：避免写一半崩溃后 apps.json 变成非法 JSON（会让启动台静默清空）
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
-  fs.writeFileSync(tmp, JSON.stringify({ apps }, null, 2), 'utf-8')
-  fs.renameSync(tmp, configPath)
+  atomicWriteBackup(configPath, JSON.stringify({ apps }, null, 2))
 }
 
 export function addApp(newApp: LaunchApp): LaunchApp[] {

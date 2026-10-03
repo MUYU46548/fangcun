@@ -11,6 +11,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
+import { atomicWriteBackup } from '../data'
 
 const PREFS_FILENAME = 'prefs.json'
 
@@ -41,9 +42,7 @@ export function setPref(key: string, value: unknown): Prefs {
   try {
     const p = getPrefsPath()
     fs.mkdirSync(path.dirname(p), { recursive: true })
-    const tmp = p + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf-8')
-    fs.renameSync(tmp, p)
+    atomicWriteBackup(p, JSON.stringify(next, null, 2))
   } catch (e: any) {
     // 写失败不影响 UI：缓存里还有一份，下次启动会重试
     console.error('[prefs] 写入失败：', e?.message || e)

@@ -541,9 +541,7 @@ contextBridge.exposeInMainWorld('tegula', {
   createFreshSetup: () => ok(),
   importFromPythonTegula: () => ok(),
   registryAddProject: () => ok(),
-  listBackups: () => [],
-  backup: () => ok(),
-  restore: () => ok(),
+  // 备份 v2（现行家族）；裸 backup/restore/listBackups 已随族3（卡004）删除 —— 夹具同步
   // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证「默认最新」与传参
   backupListLocal: () => ({
     ok: true,

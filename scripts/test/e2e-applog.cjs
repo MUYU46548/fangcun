@@ -131,6 +131,13 @@ async function main() {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }
+    // 族3（2026-10-03 卡 task-20261003-004）：裸 backup/restore/listBackups 是渲染层
+    // **零调用**的僵尸平行实现（现行备份走 backup:run / backup:restore = packer.ts 家族，
+    // 本地列表走 backup:listLocal），三端（ipc/preload/渲染层）已同批删除。
+    // 这里钉住「不许悄悄长回来」——真要恢复，必须同时给渲染层入口并更新本断言。
+    for (const ch of ['backup', 'restore', 'listBackups']) {
+      check(`僵尸裸通道 ${ch} 未复活（渲染层零调用，族3 已删）`, !handlers.has(ch))
+    }
   }
 
   // ── 按天分文件 / 轮转不炸 ────────────────────────────────────────
