@@ -120,6 +120,57 @@ for (const id of ['default', ...listNonDefault]) {
   }
 }
 
+// ── 散落在组件里的文字颜色（2026-10-06 卡 007）────────────────────────
+//
+// 为什么要单独量：`.card-date.dim` 当年写死 `#8b90a0`，在卡片底色上只有 **3.18**，
+// 11px 小字远低于 AA —— 而它**不在主题令牌里**，所以 2026-09-29 那轮
+//「六套主题全量调 AA」从它身上直接漏过去了（令牌全绿、这一个选择器没人管）。
+//
+// 这里把这类"组件里的文字色"拉进守卫：
+//   · 写成 `var(--x)` → 跟当前主题取 --x 的值；
+//   · 写成 `#hex`     → 就用这个写死值（正是要拦的形态）。
+// 并且同时跟 `--card` 与 `--bg` 比，取较差的那个（它可能出现在卡片里，也可能出现在列表行里）。
+const TEXT_COLOR_SELECTORS = [
+  { sel: '.card-date.dim', label: '卡片日期灰字' },
+]
+
+function resolveColor(raw, t) {
+  if (!raw) return null
+  const vm = raw.match(/^var\(\s*--([a-z0-9-]+)\s*\)$/i)
+  if (vm) return t[vm[1]] || null
+  return /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : null
+}
+
+function extractDeclColor(sel) {
+  const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = src.match(new RegExp(esc + '\\s*\\{([^}]*)\\}'))
+  if (!m) return { found: false }
+  const cm = m[1].match(/(?:^|;)\s*color\s*:\s*([^;]+)/)
+  return { found: true, color: cm ? cm[1].trim() : null }
+}
+
+for (const spec of TEXT_COLOR_SELECTORS) {
+  const decl = extractDeclColor(spec.sel)
+  check(`${spec.label}「${spec.sel}」能在 App.vue 定位到 color 声明`,
+    decl.found && !!decl.color,
+    decl.found ? '这条规则里没有 color 声明' : 'App.vue 里找不到这个选择器（改名了就把守卫一起改）')
+  if (!decl.found || !decl.color) continue
+
+  const bad = []
+  for (const id of ['default', ...listNonDefault]) {
+    const t = Object.assign({}, base, id === 'default' ? {} : themeBlocks[id])
+    const fg = resolveColor(decl.color, t)
+    if (!fg) { bad.push(`${id}：色值解析不了（${decl.color}）`); continue }
+    for (const [bgName, bgVal] of [['卡面', t.card || '#ffffff'], ['底色', t.bg]]) {
+      const c = contrast(fg, bgVal)
+      if (c == null) { bad.push(`${id}/${bgName}：解析失败 fg=${fg} bg=${bgVal}`); continue }
+      if (c < AA) bad.push(`${id}/${bgName}=${c.toFixed(2)}`)
+    }
+  }
+  check(`★ ${spec.label}「${spec.sel}」六套主题下都 ≥ AA（写死的颜色会被当场量出来）`,
+    bad.length === 0, bad.join('；'))
+}
+
 // ── 主题只许是浅色（半吊子暗色 = 文字看不见，墨坊同款硬规矩） ──────────
 for (const id of listNonDefault) {
   const t = Object.assign({}, base, themeBlocks[id])

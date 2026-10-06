@@ -624,6 +624,163 @@
     check('★ 选择进了真身 prefs（fc_pv_view）—— 换 origin 不丢',
       window.__fcTest.prefs().fc_pv_view === 'master',
       JSON.stringify(window.__fcTest.prefs().fc_pv_view))
+
+    // ══ 项目页签 · 第 4 摆法「在途一屏」（2026-10-05 Q2 · 立项契约 ② 验收线之①）══
+    // 要点：四摆法互斥、六列齐、缺契约显式「未填」、无卡项目 current 回落到日志、
+    //       健康度人工锁定可见、设置入口在（裁断权在人）。
+    check('能点到「在途一屏」', (() => {
+      const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })())
+    check('★ 在途一屏渲染出来，且另外三种摆法都不在 DOM 里（四种摆法互斥）',
+      await waitFor(() => $$('#board.pv .tripboard').length === 1
+        && $$('#board.pv .pvgrid').length === 0 && $$('#board.pv .ovgrid').length === 0
+        && $$('#board.pv .pv-ms').length === 0, 6000, '在途一屏'))
+    const tripSnap = () => {
+      const tb = $('#board.pv .tripboard')
+      if (!tb) return { err: '没有 .tripboard' }
+      return {
+        rows: $$('#board.pv .trip-table tbody tr').length,
+        heads: $$('#board.pv .trip-table th').map((th) => (th.textContent || '').trim()),
+        txt: (tb.textContent || '').replace(/\s+/g, ' '),
+        unset: $$('#board.pv .trip-unset').length,
+        minis: $$('#board.pv .trip-mini').length,
+        from: $$('#board.pv .trip-from').length,
+        locks: $$('#board.pv .trip-lock').length,
+      }
+    }
+    await waitFor(() => tripSnap().rows >= 2, 5000, '一屏表格')
+    const tp = tripSnap()
+    check('★ 六列都在（终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志）',
+      !tp.err && ['终态', '当前步骤', '下一步', '卡在谁', '健康度']
+        .every((k) => tp.heads.some((h) => h.indexOf(k) >= 0)), JSON.stringify(tp.heads))
+    check('★ 契约「未填」显式可见 + 两个按钮（复制模板 / 打开 repo）',
+      !tp.err && tp.unset >= 1 && tp.minis >= 2, JSON.stringify({ unset: tp.unset, minis: tp.minis }))
+    check('★ 无卡项目的「当前步骤」来自执行日志（挂了「日志」来源标签，不冒充任务卡）',
+      !tp.err && tp.from >= 1, JSON.stringify({ from: tp.from }))
+    check('★ 人工锁定的健康度带锁标（机器算不出的状态由人裁断）',
+      !tp.err && tp.locks >= 1, JSON.stringify({ locks: tp.locks }))
+    check('★ 选在途一屏也进真身 prefs（fc_pv_view=trip）',
+      window.__fcTest.prefs().fc_pv_view === 'trip', JSON.stringify(window.__fcTest.prefs().fc_pv_view))
+    check('★ 设置入口在（⚙ 显示设置）—— 裁断权在人，不是写死的清单',
+      !tp.err && $$('#board.pv .tripboard button')
+        .some((b) => (b.textContent || '').indexOf('显示设置') >= 0))
+    check('点开设置面板 → 「收哪些项目 / 哪些项目算在途 / 显示哪些列」三块都在', await (async () => {
+      const b = $$('#board.pv .tripboard button')
+        .find((x) => (x.textContent || '').indexOf('显示设置') >= 0)
+      if (!b) return false
+      b.click()
+      const got = await waitFor(() => {
+        const m = $('#board.pv .trip-modal')
+        return !!m && m.querySelectorAll('.trip-chk').length >= 3
+      }, 3000, '设置面板')
+      const txt = (($('#board.pv .trip-modal') || {}).textContent || '')
+      return got && txt.indexOf('收哪些项目') >= 0 && txt.indexOf('在途') >= 0 && txt.indexOf('显示哪些列') >= 0
+    })())
+    check('关掉设置面板', await (async () => {
+      const c = $$('#board.pv .trip-modal button')
+        .find((x) => (x.textContent || '').trim() === '保存')
+      if (!c) return false
+      c.click()
+      return waitFor(() => !$('#board.pv .trip-modal'), 3000, '关闭设置')
+    })())
+    // ⚠ 2026-10-05 用户实测 bug：「提示保存了，但每次重新勾选都被取消」。
+    //   根因 A：loadTripBoard 里曾把 rows 的 id 回填给勾选清单 —— 用户勾的正是"没进屏"的项目，
+    //          回填等于当场抹掉他的勾选。
+    //   根因 B：写盘只落了字符串键（fc_trip_mode），数组键（fc_trip_projects）根本没写，界面照样说"已保存"。
+    //          现已改为**一次 IPC 写完四个键 + 回读校验**，校验不过就报错（不假成功）；
+    //          「保存」保留（用户口径：不需要理解运行机制，看到保存成功就行），改动同时即时落盘。
+    //   这条断言：勾一个项目 → 关面板 → **重开面板，勾选还在**。
+    check('★ 勾选项目 → 关面板 → 重开勾选仍在（改动即时生效，不存在"存没存"）', await (async () => {
+      const openPanel = () => {
+        const b = $$('#board.pv .tripboard button')
+          .find((x) => (x.textContent || '').indexOf('显示设置') >= 0)
+        if (!b) return false
+        b.click()
+        return true
+      }
+      const closePanel = async () => {
+        const c = $$('#board.pv .trip-modal button')
+          .find((x) => (x.textContent || '').trim() === '保存')
+        if (!c) return false
+        c.click()
+        return waitFor(() => !$('#board.pv .trip-modal'), 3000, '关面板')
+      }
+      if (!openPanel()) return false
+      if (!(await waitFor(() => !!$('#board.pv .trip-modal'), 3000, '开面板'))) return false
+      const target = $$('#board.pv .trip-modal .trip-chk')
+        .find((x) => (x.textContent || '').indexOf('第二个项目') >= 0)
+      if (!target) return false
+      const inp = target.querySelector('input')
+      if (inp) inp.click()
+      await sleep(400)
+      const saved = window.__fcTest.prefs().fc_trip_projects
+      if (!(await closePanel())) return false
+      if (!openPanel()) return false
+      if (!(await waitFor(() => !!$('#board.pv .trip-modal'), 3000, '重开面板'))) return false
+      const stillOn = $$('#board.pv .trip-modal .trip-chk')
+        .filter((x) => x.classList.contains('on'))
+        .map((x) => (x.textContent || '').trim())
+      await closePanel()
+      return Array.isArray(saved) && saved.length > 0
+        && stillOn.some((t) => t.indexOf('第二个项目') >= 0)
+        && window.__fcTest.prefs().fc_trip_mode === 'manual'
+    })())
+    // 2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」——
+    // 添加：旧三摆法各自有（tile-add/ocard-add/ms-add），**新加的第 4 摆法当时漏了**；
+    // 删除：全仓此前根本没有这个能力。两条都钉住。
+    check('★ 第 4 摆法也有「＋ 添加项目」入口（不能只有旧三摆法有）',
+      $$('#board.pv .trip-actions button').some((b) => (b.textContent || '').indexOf('添加项目') >= 0),
+      JSON.stringify($$('#board.pv .trip-actions button').map((b) => (b.textContent || '').trim())))
+    check('★ 每行都有「移除登记」入口（🗑）—— 删除项目此前没有任何入口',
+      $$('#board.pv .trip-table .proj-del').length >= 2,
+      'proj-del=' + $$('#board.pv .trip-table .proj-del').length)
+    // 2026-10-05 用户：「添加完项目刷新几遍根本看不到」——它确实不在这一屏（判据没命中），
+    // 但界面必须**说出来**，不能一个字不提（用户只会以为自己加失败了）。
+    check('★ 没进这一屏的项目被显式说出来（含名字 + 为什么 + 怎么让它显示）',
+      $$('#board.pv .trip-hidden').length === 1
+      && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('还没开工的项目') >= 0
+      && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('显示设置') >= 0,
+      'trip-hidden=' + $$('#board.pv .trip-hidden').length)
+    check('★ 「建契约文件」按钮在（方寸代写，2026-10-05 用户：打字输错一个字就可能不识别）',
+      $$('#board.pv .trip-table .trip-mini').some((b) => (b.textContent || '').indexOf('建契约文件') >= 0),
+      JSON.stringify($$('#board.pv .trip-table .trip-mini').map((b) => (b.textContent || '').trim())))
+
+    // ══ 空屏不许是死局（2026-10-05 用户实测「一屏是空的」）═══════════════
+    // 用户当时的状态：prefs 里 fc_trip_mode=manual，而 fc_trip_projects 键根本没写进去
+    //   （旧写法四次裸写只落了字符串键）→ 手动清单为空 → 15 个项目全出局 → 一屏空白，
+    //   而下面那句统一文案还写着"它们没有未完结任务"（方寸自己有几十张卡 = 说假话）。
+    // 修法两头：数据层「键不存在 = 从没做过选择」兜底回自动；界面给一步就能走出去的出口。
+    check('★ 空屏不是死局：手动指定 + 一个都没勾 → 「改回自动」出口在', await (async () => {
+      window.__fcTest.setTripBoard({
+        ok: true, generatedAt: '2026-10-05 12:30', mode: 'manual', criteria: 'cards_or_commit',
+        modeFallback: false, rows: [],
+        hidden: [{ id: 'demo3', name: '还没开工的项目', kind: 'not-picked', reason: '你选的是「手动指定」，但没勾它' }],
+      })
+      // 切走再切回来，逼它重新拉一次
+      const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
+      if (wall) wall.click()
+      await sleep(300)
+      const back = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
+      if (back) back.click()
+      if (!(await waitFor(() => $$('#board.pv .tripboard').length === 1, 5000, '回到在途一屏'))) return false
+      const act = $('#board.pv .trip-empty-act')
+      return !!$('#board.pv .trip-empty') && !!act && (act.textContent || '').indexOf('改回自动') >= 0
+    })())
+    check('★ 空屏的原因说实话（写「手动指定」，不许说「没有未完结任务」）',
+      (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('手动指定') >= 0
+      && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('没有未完结任务') < 0,
+      (($('#board.pv .trip-hidden') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 70))
+    check('★ 点「改回自动」→ 真的写进真身（空屏一步可走出去）', await (async () => {
+      const act = $('#board.pv .trip-empty-act')
+      if (!act) return false
+      act.click()
+      const okMode = await waitFor(() => window.__fcTest.prefs().fc_trip_mode === 'auto', 3000, '模式改回自动')
+      const saved = window.__fcTest.prefs()
+      return okMode && Array.isArray(saved.fc_trip_projects) && saved.fc_trip_projects.length === 0
+    })())
+    window.__fcTest.setTripBoard(null)  // 恢复默认夹具，后面的断言继续用
     check('  切回项目墙后旧摆法原样回来（可逆，不是单向开关）', await (async () => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
       if (!b) return false

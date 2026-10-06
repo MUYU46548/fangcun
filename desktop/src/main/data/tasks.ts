@@ -1271,51 +1271,9 @@ export function importTasks(data: any[]): { ok: boolean; imported?: number; erro
   }
 }
 
-// ── Notes Import/Export ──────────────────────────────────────────────
-
-export function exportNotes(): { ok: boolean; data?: any[]; count?: number; error?: string } {
-  try {
-    const notesDir = path.join(getDataDir(), 'notes')
-    if (!fs.existsSync(notesDir)) return { ok: true, data: [], count: 0 }
-    const notes: any[] = []
-    for (const fn of fs.readdirSync(notesDir)) {
-      if (!fn.endsWith('.md')) continue
-      const content = fs.readFileSync(path.join(notesDir, fn), 'utf-8')
-      let title = ''
-      let body = content
-      if (content.startsWith('# ')) {
-        const lines = content.split('\n', 2)
-        title = lines[0].slice(2).trim()
-        body = lines.slice(1).join('\n').trim()
-      }
-      notes.push({ id: fn.slice(0, -3), title, content: body })
-    }
-    return { ok: true, data: notes, count: notes.length }
-  } catch (e: any) {
-    return { ok: false, error: e.message }
-  }
-}
-
-export function importNotes(data: any[]): { ok: boolean; imported?: number; error?: string } {
-  try {
-    if (!Array.isArray(data)) return { ok: false, error: 'data must be array' }
-    const notesDir = path.join(getDataDir(), 'notes')
-    fs.mkdirSync(notesDir, { recursive: true })
-    let imported = 0
-    for (const item of data) {
-      if (!item || typeof item !== 'object') continue
-      const id = item.id || `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const title = item.title || ''
-      const content = item.content || ''
-      const notePath = path.join(notesDir, `${id}.md`)
-      fs.writeFileSync(notePath, `# ${title}\n\n${content}`, 'utf-8')
-      imported++
-    }
-    return { ok: true, imported }
-  } catch (e: any) {
-    return { ok: false, error: e.message }
-  }
-}
+// ── Notes Import/Export ── 已于 2026-10-06 删除 ──────────────────────
+// exportNotes / importNotes 只服务已退休的笔记功能（见 services/index.ts 末尾说明）。
+// ⚠ 别与下面的 copyTask / exportTasks 搞混：那才是任务相关、界面在用的。
 
 // ── Task Copy ────────────────────────────────────────────────────────
 

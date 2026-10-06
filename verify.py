@@ -1318,6 +1318,141 @@ if _nested_nonres:
     print(f"      已知例外：{_nested_nonres[0][0]} 的「{_nested_nonres[0][1]}」—— 库内遗留格式，"
           f"写回会丢该块（同份内容在正文里）；已记入工程债卡")
 
+# ── 25. 立项契约读取（REV-002：真源在各项目 repo，方寸只读）──
+print("\n---- 25. 立项契约读取（仓库根 立项契约.md）----")
+_cdir = os.path.join(tmpdir, "contract-repo")
+os.makedirs(_cdir, exist_ok=True)
+_ct = os.path.join(_cdir, teg.CONTRACT_BASENAME)
+with open(_ct, "w", encoding="utf-8") as _f:
+    _f.write(
+        "# 立项契约 · 样例\n\n"
+        "## ① 终态形态\n桌面客户端为主。\n\n"
+        "## ② 验收线\n一屏可见。\n\n"
+        "## ③ 不要什么\n不做重型表单。\n\n"
+        "## ④ 选型定死\n真源在各 repo。\n\n"
+        "## ⑤ 现状底数\n零。\n\n"
+        "## ⑥ 下一队列\nQ1。\n"
+    )
+_c = teg.read_contract_file(_ct)
+check("契约：六字段全部解析出（标题带 ①② 序号也认）",
+      _c["exists"] and _c["终态形态"].startswith("桌面") and _c["选型定死"].startswith("真源")
+      and _c["下一队列"] == "Q1。", str(_c)[:90])
+
+_c2p = os.path.join(_cdir, "plain.md")
+with open(_c2p, "w", encoding="utf-8") as _f:
+    _f.write("## 终态形态\n纯标题。\n## 不要什么\n无。\n")
+_c2 = teg.read_contract_file(_c2p)
+check("契约：标题不带序号也认；缺的字段给空串而不是报错",
+      _c2["终态形态"] == "纯标题。" and _c2["验收线"] == "" and _c2["现状底数"] == "")
+
+_c3 = teg.read_contract_file(os.path.join(_cdir, "nope.md"))
+check("契约：文件不存在 → exists=False（不抛；交给调用方显式提示）",
+      _c3["exists"] is False and _c3["终态形态"] == "")
+
+_c4 = teg.read_contract("../../etc")
+check("契约：非法项目 id 不拼路径（防路径穿越）",
+      _c4["exists"] is False and _c4["path"] == "")
+
+_blank = {"标题": "样例任务", "方案": ["- [ ] 做点什么"], "项目": ["fangcun-base"], "资源": {}}
+_p1 = teg._build_prompt(_blank, "task-00000000-000", _cdir, "python tegula.py done x", "x.md")
+check("★ 任务书：有契约 → 四节节选 + 硬前置「先读契约」",
+      "本项目立项契约" in _p1 and "动手前先读契约" in _p1
+      and "- 终态形态：" in _p1 and "- 验收线：" in _p1
+      and "- 不要什么：" in _p1 and "- 选型定死：" in _p1)
+check("★ 任务书：契约块在「## 方案」之前（先读契约，再谈方案）",
+      "本项目立项契约" in _p1 and _p1.index("本项目立项契约") < _p1.index("## 方案"))
+
+_empty_repo = os.path.join(tmpdir, "empty-repo")
+os.makedirs(_empty_repo, exist_ok=True)
+_p2 = teg._build_prompt(_blank, "task-00000000-000", _empty_repo, "python tegula.py done x", "x.md")
+check("★ 任务书：缺契约 → 显式提示「缺失」+ 条款 1/4（绝不静默跳过）",
+      "缺失" in _p2 and "不算已立项" in _p2 and "选型未定不开工" in _p2)
+check("★ 任务书：缺契约时不给「先读契约」的假承诺",
+      "动手前先读契约" not in _p2)
+
+_real = teg.read_contract("fangcun-base")
+check("★ 真实仓库：方寸自己的 立项契约.md 可读、六字段齐（契约主线已落地，删了就红）",
+      _real["exists"] and all(_real[k] for k in teg.CONTRACT_FIELDS),
+      str({k: bool(_real.get(k)) for k in teg.CONTRACT_FIELDS}))
+
+# ── 26. registry 解析：顶格注释不丢段（2026-10-05 真 bug）──
+# 实际发生过：registry.yaml 里「# 已发布 / 历史项目…」两条注释把 Python 解析器的
+# in_section 重置成 None → 注释之后新增的项目（TEST/TEST2）被整段忽略。
+# 桌面版走真 yaml 解析不受影响 → 两侧不一致：界面看得见、CLI/report/MCP 看不见。
+print("\n---- 26. registry 解析：顶格注释不丢段 ----")
+_reg = os.path.join(tmpdir, "reg-comment.yaml")
+with open(_reg, "w", encoding="utf-8") as _f:
+    _f.write(
+        "members: []\n"
+        "projects:\n"
+        "  - id: a\n"
+        "    name: A\n"
+        "    repo: E:/a\n"
+        "\n"
+        "# 已发布 / 历史项目：这行注释曾让后面的项目整段丢掉\n"
+        "# 第二行注释\n"
+        "  - id: b\n"
+        "    name: B\n"
+        "    repo: E:/b\n"
+        "released:\n"
+        "  - id: c\n"
+        "    name: C\n"
+        "    repo: E:/c\n"
+    )
+_ps = teg.parse_registry(_reg)
+_ids = [p.get("id") for p in _ps]
+check("★ 顶格注释之后的项目不会丢（此前 in_section 被重置 → 整段忽略）", "b" in _ids, str(_ids))
+check("★ 注释前后的项目都在，released 段照常解析", _ids == ["a", "b", "c"], str(_ids))
+check("注释行本身不会被当成项目（没有空 id）", all(p.get("id") for p in _ps), str(_ids))
+
+# ── 27. 状态白名单（2026-10-06 卡 008）──
+# 实际发生过：task-mingjian-template-20260925.md 写着 `状态: 待处理` ——
+# 那是**日志页的分区叫法**，被手写进了任务卡。后果：看板分组语义不明、
+# gen-progress 单列一类、doctor 当时也不拦。
+# 这里钉四件事：枚举两侧同源 / 判据函数行为正确 / 真实数据零非法 / doctor 真的在用它。
+print("\n---- 27. 状态白名单（doctor 拦「待处理」这类非法值）----")
+import re as _re27
+_legal27 = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
+check("状态枚举就是那 7 个", list(teg.STATUSES) == _legal27, str(teg.STATUSES))
+
+# ① 两侧同源：TS 的 STATUSES 必须逐字一致（各写各的 = 迟早分叉）
+_ts27 = open(os.path.join(ROOT, "desktop", "src", "main", "data", "index.ts"), encoding="utf-8").read()
+_m27 = _re27.search(r"export const STATUSES\s*=\s*\[([^\]]*)\]", _ts27)
+_ts27_list = _re27.findall(r"'([^']*)'", _m27.group(1)) if _m27 else []
+check("★ TS 与 Python 的状态枚举逐字一致（两侧各写各的迟早分叉）",
+      _ts27_list == _legal27, f"ts={_ts27_list} py={_legal27}")
+
+# ② 判据函数 core.illegal_status：非法返回它自己；合法或空返回空串
+check("illegal_status('待处理') 判为非法", teg.illegal_status("待处理") == "待处理")
+check("illegal_status 放行 7 个合法值", all(teg.illegal_status(s) == "" for s in _legal27))
+check("illegal_status 放行空值（没填 ≠ 填错）",
+      teg.illegal_status("") == "" and teg.illegal_status(None) == "")
+check("illegal_status 对前后空白做归一（' 待办 ' 合法）", teg.illegal_status(" 待办 ") == "")
+
+# ③ 真实数据零非法（用真实路径，不依赖 teg.TASK_DIR —— 前面的用例会改它）
+_real27 = os.path.join(ROOT, "task-data")
+_bad27 = []
+for _base27 in [_real27, os.path.join(_real27, "archive")]:
+    if not os.path.isdir(_base27):
+        continue
+    for _fn27 in sorted(os.listdir(_base27)):
+        if not _fn27.endswith(".md") or _fn27.startswith("_"):
+            continue
+        _d27 = teg.parse_task(os.path.join(_base27, _fn27))
+        if _d27 is None:
+            continue
+        _s27 = teg.illegal_status(_d27.get("状态"))
+        if _s27:
+            _bad27.append(f"{_fn27}={_s27}")
+check("★ 真实 task-data 里没有非法状态（「待处理」那张已归正为「待办」；再冒一个就红）",
+      not _bad27, "、".join(_bad27))
+
+# ④ 源码守卫：doctor 真的在用这个判据（否则"白名单"等于没拦）
+_cli27 = open(os.path.join(ROOT, "tegula", "cli.py"), encoding="utf-8").read()
+_doc27 = _cli27.split("def cmd_doctor(")[1].split("\ndef ")[0] if "def cmd_doctor(" in _cli27 else ""
+check("★ cmd_doctor 里真的调用了 illegal_status（挂个没人用的函数等于没拦）",
+      "illegal_status(" in _doc27)
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))

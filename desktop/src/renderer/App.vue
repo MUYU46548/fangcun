@@ -71,7 +71,7 @@
         <button class="ghost" id="btn-fold-all"
           :title="allGroupsCollapsed ? '展开所有分组，看全部卡片' : '折叠所有分组，只看分组名和数量（长单子立刻变短）'"
           @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开全部' : '⊟ 折叠全部' }}</button>
-        <input v-model="searchQuery" placeholder="搜索...（支持 #tag @proj due:MM-DD 关键词 Enter=自然查询）" class="search" @keydown.enter="executeNaturalQuery" />
+        <input v-model="searchQuery" placeholder="搜索…（可用 #标签 @项目 due:01-15；也可以直接敲一句话按回车）" class="search" @keydown.enter="executeNaturalQuery" />
         <select v-model="dueFilter" class="due-filter">
           <option value="">全部时间</option>
           <option value="overdue">已逾期</option>
@@ -166,7 +166,7 @@
 
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
-      <span>📋 归档视图：此处只显示 <strong>文件已移入 task-data/archive/ 的任务</strong>（归档的唯一判定标准是文件路径，不是状态）。归档操作只能由你亲自判定，不会自动执行。</span>
+      <span>📋 归档视图：这里只显示已经移进归档文件夹（<code>task-data/archive/</code>）的任务 —— 算不算归档，只看文件在不在这儿，不看任务状态。归档只能由你亲自决定，方寸不会自动执行。</span>
       <button @click="closeArchiveHint">知道了</button>
     </div>
 
@@ -387,6 +387,8 @@
         >
           <div class="trow">
             <span class="tname">{{ p.name }}</span>
+            <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
+                    @click.stop="removeProject(p)">🗑</button>
             <span class="thealth">{{ healthLabel(p.health) }}</span>
           </div>
           <div class="tstats">
@@ -440,7 +442,7 @@
             <span v-for="s in (pvBreakdown[p.id] || [])" :key="s.status">
               <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
             </span>
-            <span v-if="!(pvBreakdown[p.id] || []).length">3 条任务都没有状态标记</span>
+            <span v-if="!(pvBreakdown[p.id] || []).length">这个项目还没有任务</span>
           </div>
           <div class="odyn">
             最近：<b>{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</b>
@@ -456,6 +458,8 @@
             <button class="ghost oact" @click.stop="openPolicyEdit(p.id)">📋 {{ policyMap[p.id] ? '方针' : '立方针' }}</button>
             <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
             <button class="ghost oact" @click.stop="openProject(p)">📦 任务 {{ p.taskCount }}</button>
+            <button class="ghost oact" @click.stop="removeProject(p)"
+                    title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
           </div>
         </div>
         <div class="ocard ocard-add" @click="openNewProject">
@@ -467,7 +471,7 @@
       <!-- ══ ③ 主从（2026-09-29 用户选的改法 B）════════════════════════════
            左列常驻项目 + 迷你进度，右侧摊开所选项目的详情。
            项目 10+ 时比项目墙好使；现在项目少，用哪个都行 —— 所以做成可切。 -->
-      <div class="pv-ms" v-else>
+      <div class="pv-ms" v-else-if="pvView === 'master'">
         <div class="ms-list">
           <div v-for="p in projectStats" :key="p.id" class="ms-li"
                :class="{ on: !!pvCurrent && pvCurrent.id === p.id }"
@@ -511,10 +515,218 @@
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <button v-if="pvCurrent.repo" class="ghost oact"
                       @click.stop="copyWithToast(pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</button>
+              <button class="ghost oact" @click.stop="removeProject(pvCurrent)"
+                      title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
             </div>
           </div>
         </div>
         <div class="ms-detail empty" v-else>还没有项目 —— 点左下角「＋ 添加项目」登记第一个。</div>
+      </div>
+
+      <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）══════════════
+           一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志。
+           数据来自主进程**只读**聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律「未填」。
+           旧三摆法一个字没动，「在途一屏」是新增的第 4 项。 -->
+      <div class="tripboard" v-else-if="pvView === 'trip'">
+        <div class="trip-head">
+          <span class="trip-ttl">在途一屏</span>
+          <span class="trip-sub">{{ tripSubtitle }}</span>
+          <span class="trip-grow"></span>
+          <button class="ghost trip-headbtn" @click="tripSettingsOpen = true">⚙ 显示设置</button>
+          <button class="ghost trip-headbtn" @click="loadTripBoard()">↻ 刷新</button>
+        </div>
+
+        <div v-if="tripLoading" class="trip-empty">读取中…</div>
+        <div v-else-if="!tripRows.length" class="trip-empty">
+          <template v-if="tripError">
+            <div class="trip-err">读取失败：{{ tripError }}</div>
+            <div class="trip-err-hint">
+              如果上面那句里有「no handler registered」这类话，说明方寸的后台还是旧代码 ——
+              界面会自动更新，后台只在启动时读一次。<b>请完全退出方寸再打开</b>
+              （关掉窗口不算退出，它常驻托盘：右键托盘图标 → 退出）。
+            </div>
+          </template>
+          <template v-else>
+            <div>{{ tripEmptyHint }}</div>
+            <!-- 空屏 + 手动模式 = 死局（用户只会以为界面坏了）。给条一步就能走出去的路。 -->
+            <button v-if="tripMode === 'manual'" class="ghost trip-headbtn trip-empty-act"
+                    @click="tripBackToAuto()">改回自动</button>
+          </template>
+        </div>
+
+        <div v-else class="trip-scroll">
+          <table class="trip-table">
+            <thead>
+              <tr>
+                <th class="trip-th-pj">项目</th>
+                <th v-if="tripColVisible('end')">终态（一句话）</th>
+                <th v-if="tripColVisible('current')">当前步骤</th>
+                <th v-if="tripColVisible('next')">下一步</th>
+                <th v-if="tripColVisible('who')">卡在谁</th>
+                <th v-if="tripColVisible('health')">健康度</th>
+                <th v-if="tripColVisible('counts')">任务 / 日志</th>
+                <th v-if="tripColVisible('commit')">最近提交</th>
+                <th v-if="tripColVisible('dirty')">未提交</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in tripRows" :key="r.id" :class="{ 'trip-anomaly': r.flags && r.flags.noCards }">
+                <td class="trip-pj">
+                  <b>{{ r.name }}</b>
+                  <span class="trip-pid">{{ r.id }}</span>
+                  <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
+                          @click="removeProject(r)">🗑</button>
+                </td>
+
+                <!-- 终态：读各 repo 的 立项契约.md；没有就显式「未填」+ 两个按钮（不给假默认值） -->
+                <td v-if="tripColVisible('end')" class="trip-end">
+                  <template v-if="r.contract && r.contract.exists && tripFirstLine(r.contract.endState)">
+                    <span class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="trip-unset">未填</span>
+                    <button class="ghost trip-mini" :disabled="!r.repo" @click="tripInitContract(r)"
+                            title="方寸直接在这个项目文件夹里建好「立项契约.md」（文件已存在就不动它）">📝 建契约文件</button>
+                    <button class="ghost trip-mini" @click="tripCopyContract(r)"
+                            title="只复制文字，你自己挑地方落盘">复制模板</button>
+                    <button class="ghost trip-mini" :disabled="!r.repo" @click="tripOpenRepo(r)"
+                            title="打开该项目的文件夹">📁 打开项目文件夹</button>
+                    <span class="trip-dim-sm">建好后打开它填内容（也可以让 AI 填）</span>
+                  </template>
+                </td>
+
+                <!-- 当前步骤：进行中的卡 → 没有就回落到最近一条执行日志（司天这类 0 卡项目靠它） -->
+                <td v-if="tripColVisible('current')" class="trip-step">
+                  <template v-if="r.current && r.current.text">
+                    <span class="trip-step-k">{{ r.current.text }}<span v-if="r.current.from === 'log'" class="trip-from">日志</span></span>
+                    <span v-if="r.current.sub" class="trip-dim-sm">{{ r.current.sub }}</span>
+                  </template>
+                  <span v-else-if="r.flags && r.flags.noCards" class="trip-dim">还没有任务卡</span>
+                  <span v-else class="trip-dim">没有正在进行的任务</span>
+                </td>
+
+                <td v-if="tripColVisible('next')" class="trip-step">
+                  <template v-if="r.next && r.next.text">
+                    <span class="trip-step-k">{{ r.next.text }}</span>
+                    <span v-if="r.next.sub" class="trip-dim-sm">{{ r.next.sub }}</span>
+                  </template>
+                  <span v-else class="trip-dim">没有待办任务</span>
+                </td>
+
+                <td v-if="tripColVisible('who')" class="trip-who">
+                  <span v-if="r.who && r.who.kind === 'review'" class="trip-chip warn">{{ r.who.text }}</span>
+                  <span v-else-if="r.who && r.who.kind === 'exec'" class="trip-chip">{{ r.who.text }}</span>
+                  <span v-else-if="r.who && r.who.text" class="trip-chip warn">{{ r.who.text }}</span>
+                  <span v-else class="trip-dim">—</span>
+                </td>
+
+                <!-- 健康度：机器只给默认值，点一下人工覆盖并锁定（右键恢复自动） -->
+                <td v-if="tripColVisible('health')" class="trip-health">
+                  <span class="trip-hdot" :class="'h-' + tripHealthClass(r.health.value)"></span>
+                  <button class="trip-hbtn" :class="{ locked: r.health.locked }"
+                          :title="r.health.locked
+                            ? '你标过（已锁定）—— 点一下换下一档；右键恢复自动'
+                            : '方寸按这个项目最近有没有提交算出来的默认值 —— 点一下可人工改成你的判断'"
+                          @click="tripCycleHealth(r)" @contextmenu.prevent="tripUnlockHealth(r)">
+                    {{ tripHealthLabel(r.health.value) }}<span v-if="r.health.locked" class="trip-lock">🔒</span>
+                  </button>
+                </td>
+
+                <td v-if="tripColVisible('counts')" class="trip-cnt">
+                  <span :class="{ 'trip-dim': !(r.counts.doing || r.counts.todo || r.counts.review) }">
+                    <template v-if="r.counts.doing">{{ r.counts.doing }} 进行</template>
+                    <template v-if="r.counts.todo">{{ r.counts.todo }} 待办</template>
+                    <template v-if="r.counts.review">{{ r.counts.review }} 待验</template>
+                    <template v-if="!(r.counts.doing || r.counts.todo || r.counts.review)">0 卡</template>
+                  </span>
+                  <span class="trip-dim-sm">{{ r.counts.logs }} 条日志</span>
+                </td>
+
+                <td v-if="tripColVisible('commit')" class="trip-dim">{{ r.lastCommit || '读不到' }}</td>
+                <td v-if="tripColVisible('dirty')" class="trip-dim">{{ r.dirty }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 管理入口：添加入口在四种摆法里必须都在（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」） -->
+        <div class="trip-actions">
+          <button class="ghost trip-headbtn" @click="openNewProject">＋ 添加项目</button>
+          <span class="trip-dim-sm">新登记的项目按规则自动进这一屏；想固定，用右上「⚙ 显示设置」改成手动指定</span>
+        </div>
+
+        <p class="trip-hidden" v-if="tripHidden.length">
+          <template v-if="tripHiddenNotPicked.length">
+            另有 {{ tripHiddenNotPicked.length }} 个已登记项目没进这一屏
+            （{{ tripHiddenNotPicked.map(h => h.name).join('、') }}）——
+            你选的是「手动指定」，但没有勾它们，所以它们不显示。
+            点「⚙ 显示设置」把它们勾上就行（勾选会自动切成手动）。
+          </template>
+          <template v-if="tripHiddenNoActivity.length">
+            <template v-if="tripHiddenNotPicked.length"><br></template>
+            另有 {{ tripHiddenNoActivity.length }} 个已登记项目没进这一屏
+            （{{ tripHiddenNoActivity.map(h => h.name).join('、') }}）——
+            它们没有未完结任务，30 天内也没有提交。
+            想看到它们：点「⚙ 显示设置」把「哪些项目算在途」放宽，或改成「手动指定」自己勾。
+          </template>
+        </p>
+
+        <p class="trip-foot">
+          这一屏读的是：各项目里的 <code>立项契约.md</code>、任务卡、执行日志、文件夹最近提交时间。
+          读不到的地方一律写「未填」，不替你猜。
+        </p>
+
+        <!-- 裁断入口：机器口径只是默认值，用户改过就以用户的为准 -->
+        <div v-if="tripSettingsOpen" class="trip-modal-mask" @click.self="tripSettingsOpen = false">
+          <div class="trip-modal">
+            <div class="trip-modal-h">
+              <b>显示设置</b>
+              <button class="ghost trip-headbtn" @click="tripSettingsOpen = false">关闭</button>
+            </div>
+            <div class="trip-modal-b">
+              <div class="trip-col">
+                <h4>收哪些项目</h4>
+                <p class="trip-hint">「自动」按下面的规则筛；「手动指定」按你勾的来 —— 默认不写死任何一个项目名。</p>
+                <div class="trip-modes">
+                  <label :class="{ on: tripMode === 'auto' }">
+                    <input type="radio" name="tripmode" :checked="tripMode === 'auto'" @change="tripSetMode('auto')"> 自动
+                  </label>
+                  <label :class="{ on: tripMode === 'manual' }">
+                    <input type="radio" name="tripmode" :checked="tripMode === 'manual'" @change="tripSetMode('manual')"> 手动指定
+                  </label>
+                </div>
+                <div class="trip-chips">
+                  <label v-for="p in projectStats" :key="p.id" class="trip-chk" :class="{ on: tripManualIds.includes(p.id) }">
+                    <input type="checkbox" :checked="tripManualIds.includes(p.id)" @change="tripToggleManual(p.id)">
+                    {{ p.name }}
+                  </label>
+                </div>
+              </div>
+              <div class="trip-col">
+                <h4>哪些项目算「在途」</h4>
+                <p class="trip-hint">自动模式下按这条规则筛。</p>
+                <div class="trip-chips">
+                  <label v-for="c in TRIP_CRITERIA_OPTIONS" :key="c.v" class="trip-chk" :class="{ on: tripCriteria === c.v }">
+                    <input type="radio" name="tripcrit" :checked="tripCriteria === c.v" @change="tripSetCriteria(c.v)">
+                    {{ c.label }}
+                  </label>
+                </div>
+                <h4 style="margin-top:12px">显示哪些列</h4>
+                <div class="trip-chips">
+                  <label v-for="c in TRIP_COL_OPTIONS" :key="c.v" class="trip-chk" :class="{ on: tripCols.includes(c.v) }">
+                    <input type="checkbox" :checked="tripCols.includes(c.v)" @change="tripToggleCol(c.v)">
+                    {{ c.label }}
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="trip-modal-f">
+              <button class="ghost" @click="tripResetSettings()">恢复默认</button>
+              <span class="trip-grow"></span>
+              <button class="pri" @click="tripCloseAfterSave()">保存</button>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -692,7 +904,7 @@
       </div>
       <div class="services-notebar">
         只读监控：这里只告诉你在不在、谁占着，<b>不会结束任何进程</b>
-        （要停服务请自己看清 PID 再动手）。登记源＝启动台 apps.json 的 port 字段 + 手填的 services.json。
+        （要停服务请自己看清 PID 再动手）。这里列的是：启动台应用登记的端口 + 你手动登记的服务。
       </div>
 
       <div v-if="servicesError" class="skills-error">{{ servicesError }}</div>
@@ -826,6 +1038,18 @@
         <h3>阻塞源</h3>
         <span class="blockers-count">{{ blockerChains.length }} 个阻塞源，影响 {{ totalBlockedTasks }} 个任务</span>
       </div>
+      <!-- 关键路径建议（卡 023，2026-10-06）：只读计算，点它不会自动改任何状态。
+           只在"解了真有人受益"时出现 —— 且 unlock 已把传递效应算进去
+           （A 挡住 B、B 又挡住 C，则解 A 的价值是 2，不是 1）。 -->
+      <div v-if="blockerAdvice" class="blocker-advice">
+        💡 <b>先解这个最划算</b>：
+        <span class="ba-title">{{ blockerAdvice.title }}</span>
+        <span class="ba-id">{{ blockerAdvice.id }}</span>
+        <span class="ba-note">
+          它一解，<b>{{ blockerAdvice.unlock }}</b> 个任务就不再被卡（其中
+          {{ blockerAdvice.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
+        </span>
+      </div>
       <div class="blocker-chains">
         <div v-if="!blockerChains.length" class="empty-state">
           <div class="empty-icon">✓</div>
@@ -837,7 +1061,14 @@
             <span class="chain-title">{{ src.title }}</span>
             <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
           </div>
-          <div class="chain-arrow">↓ 阻塞了 {{ src.blockedTasks.length }} 个任务</div>
+          <div class="chain-arrow">
+            ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
+            <!-- 只在"连带解锁 > 它直接挡住的"时标出来：没有传递效应就不制造噪音 -->
+            <span v-if="blockerImpactById[src.id] && blockerImpactById[src.id].unlock > src.blockedTasks.length"
+              class="chain-unlock">
+              · 解它连带解锁 <b>{{ blockerImpactById[src.id].unlock }}</b> 个
+            </span>
+          </div>
           <div class="chain-blockers">
             <div v-for="t in src.blockedTasks" :key="t.id" class="chain-blocker">
               <span class="cb-status">◌</span>
@@ -950,7 +1181,7 @@
           </div>
           <div class="todo-acts" v-show="!todoBatchMode">
             <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
-            <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">改</button>
+            <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">✏️</button>
             <button class="todo-del" title="删除这条待办" @click.stop="deleteTodo(todo.id)">×</button>
           </div>
         </div>
@@ -1062,9 +1293,9 @@
       <div v-if="logBatchMode" class="batch-bar">
         <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
         <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === filteredLogs.length ? '取消全选' : '全选' }}</button>
-        <button class="ghost" title="批量完成" @click="executeBatchLogComplete">批量完成</button>
-        <button class="ghost" title="批量归档" @click="executeBatchLogArchive">批量归档</button>
-        <button class="danger" title="批量销毁" @click="executeBatchLogDestroy">批量销毁</button>
+        <button class="ghost" title="批量标为已完成（不需要先标「进行中」）" @click="executeBatchLogComplete">批量完成</button>
+        <button class="ghost" title="批量收进「已归档」分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
+        <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
         <button class="ghost" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</button>
       </div>
       <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
@@ -1157,7 +1388,7 @@
               title="撤销完成 / 撤销归档，退回「待处理」（只改状态，不删文件）"
               @click="reopenLogItem(log.id)">↩ 撤销</button>
             <button v-if="log.status !== 'archived'" class="ghost" title="收进「已归档」分区" @click="archiveLogItem(log.id)">归档</button>
-            <button class="danger" @click="destroyLogItem(log.id)">销毁</button>
+            <button class="danger" title="彻底删除这条日志（会二次确认，不可撤销）" @click="destroyLogItem(log.id)">彻底删除</button>
           </div>
         </div>
           </div>
@@ -1229,7 +1460,7 @@
         <button @click="ctxOtherRun(changeLogProject)">🏷 改项目归属…</button>
         <button @click="ctxOtherRun(runArchiveLog)">📦 归档</button>
         <div class="ctx-sep"></div>
-        <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 删除（二次确认）</button>
+        <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 彻底删除（二次确认）</button>
       </template>
       <template v-else>
         <div class="ctx-title">{{ ctxOther.item.title || '(无标题)' }}</div>
@@ -1293,7 +1524,7 @@
         <div class="about-rows">
           <div><span class="k">版本</span><span class="v">{{ appVersion || '读取中…' }}</span></div>
           <div><span class="k">数据目录</span><span class="v about-path" :title="dataDir">{{ dataDir || '—' }}</span></div>
-          <div><span class="k">当前视图</span><span class="v">{{ curView }} · {{ countText }}</span></div>
+          <div><span class="k">当前视图</span><span class="v">{{ curViewLabel }} · {{ countText }}</span></div>
           <div><span class="k">任务数据</span><span class="v about-path">task-data/ · 纯 Markdown + YAML</span></div>
         </div>
         <div class="acts">
@@ -1409,6 +1640,8 @@
           <div v-if="previewTask.assignee"><span class="k">指派</span><span class="v">{{ previewTask.assignee }}</span></div>
           <div><span class="k">时间</span><span class="v">{{ previewTimeLabel(previewTask) }}</span></div>
           <div v-if="previewTask.batch"><span class="k">批次</span><span class="v">{{ previewTask.batch }}</span></div>
+          <!-- 返工归因（2026-10-06 卡 003）：表单里能填，这里也得看得见 —— 否则填完等于石沉大海 -->
+          <div v-if="previewTask.attribution"><span class="k">返工归因</span><span class="v">{{ previewTask.attribution }}</span></div>
           <div v-if="previewTask.archived"><span class="k">来源</span><span class="v">📦 已归档</span></div>
           <div><span class="k">创建</span><span class="v">{{ formatDate(previewTask.created) }}</span></div>
           <div><span class="k">更新</span><span class="v">{{ formatDate(previewTask.updated) }}</span></div>
@@ -1441,17 +1674,58 @@
           </div>
           <button class="add-note-btn" @click="openLogForTask(previewTask.id)">+ 写一条执行日志</button>
         </div>
+        <!-- Git 联动（卡 017，2026-10-06）：这张卡存续期间它所属仓库的提交 + 提到本卡 ID 的提交。
+             只读 git log；读不到就照实说原因（没归属项目 / 没登记工作目录 / 不是 git 仓库）。 -->
+        <div class="logs-section gitlink-section" v-if="previewTask">
+          <label>
+            相关提交
+            <span v-if="taskCommits && taskCommits.repo" class="gitlink-repo">{{ taskCommits.repo }}</span>
+          </label>
+          <div v-if="taskCommitsLoading" class="hint">读取中…</div>
+          <template v-else-if="taskCommits">
+            <div v-if="taskCommits.note" class="hint">{{ taskCommits.note }}</div>
+            <template v-else>
+              <div v-if="(taskCommits.mentioned || []).length" class="gitlink-list">
+                <div class="gitlink-head">提交信息里提到本卡（{{ taskCommits.mentioned.length }}）</div>
+                <div v-for="c in taskCommits.mentioned" :key="'m-' + c.hash" class="gitlink-row">
+                  <span class="gl-short">{{ c.short }}</span>
+                  <span class="gl-subject" :title="c.subject">{{ c.subject }}</span>
+                  <span class="gl-date">{{ c.date ? formatDate(c.date) : '—' }}</span>
+                </div>
+              </div>
+              <div v-if="(taskCommits.commits || []).length" class="gitlink-list">
+                <div class="gitlink-head">卡片存续期间的提交（{{ taskCommits.commits.length }}）</div>
+                <div v-for="c in taskCommits.commits" :key="'c-' + c.hash" class="gitlink-row">
+                  <span class="gl-short">{{ c.short }}</span>
+                  <span class="gl-subject" :title="c.subject">{{ c.subject }}</span>
+                  <span class="gl-date">{{ c.date ? formatDate(c.date) : '—' }}</span>
+                </div>
+              </div>
+              <div v-if="!(taskCommits.mentioned || []).length && !(taskCommits.commits || []).length" class="hint">
+                这段时间里这个仓库没有提交，提交信息里也没提到 {{ previewTask.id }}
+              </div>
+            </template>
+          </template>
+        </div>
         <div class="acts task-acts">
           <div class="acts-group">
             <span class="acts-label">流转</span>
             <button
               v-if="previewTask.status === '完成' || previewTask.status === '驳回'"
               class="ok"
-              title="从归档/终态还原回「待办」"
+              :title="previewTask.status === '驳回'
+                ? '退回「待办」重新开工 —— 只改状态，文件一个不动'
+                : '退回「待办」—— 只改状态，文件一个不动'"
               @click="restoreTask(previewTask)"
-            >↩ 还原</button>
+            >{{ previewTask.status === '驳回' ? '↩ 退回返工' : '↩ 退回待办' }}</button>
             <!-- 终态的「删除」不放这里：它与「操作」组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
-                 底部「操作」组的删除对任何状态都在，单一入口，不重复。 -->
+                 底部「操作」组的删除对任何状态都在，单一入口，不重复。
+                 2026-10-06 用户报「驳回任务只能还原和归档，为了省事点了归档」——
+                 删除其实在下面「操作」组，但流转组只摆两个按钮时，人不会往下找。
+                 所以这里补一句**出路提示**（不加第三个按钮）：三种去向 + 各自后果一次说清。 -->
+            <span v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="acts-hint">
+              接着做 →「退回」｜先收起 →「归档」（文件移进 archive/，随时能还原）｜不要了 → 下面「操作」组最右的「删除」（进回收站，可找回）
+            </span>
             <template v-else>
               <!-- 验收裁决弹窗（accept / reject + 驳回理由）此前**没有任何入口** ——
                    后端 review:accept / review:reject 通道齐全，openReview 也写好了，
@@ -1839,7 +2113,7 @@
           <button class="ghost" @click="closeLogEditor">取消</button>
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
-          <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" @click="destroyLogItem(logEdit_.id); closeLogNow()">销毁</button>
+          <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
           <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
         </div>
       </div>
@@ -1914,7 +2188,7 @@
             :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
           <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
         </select>
-        <div class="hint">上次继承自源：<b>{{ relay_.prevAgentName || '（源未记录）' }}</b> · 本次默认沿用源：<b>{{ relay_.agentName || '（不指定）' }}</b>；会话 ID 与日期按新日志重置</div>
+        <div class="hint">上次的执行 Agent：<b>{{ relay_.prevAgentName || '（源日志没记）' }}</b>（从源日志继承）· 本次：<b>{{ relay_.agentName || '（不指定）' }}</b>（默认沿用源）；会话 ID 与日期按新日志重新记</div>
         <div class="relay-opts">
           <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
             <span>接力后把源日志归档（出清）
@@ -2210,7 +2484,7 @@
         <!-- 2026-10-03 卡 012：看板已完成任务自动归档（仿日志清理；**默认关闭**） -->
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>看板归档</h4>
-          <div class="hint">「已完成」且超过这么多天没更新过的任务，会被移进归档区（「归档」标签里能看到、可随时还原，**不删文件**）。0 = 关闭。</div>
+          <div class="hint">「已完成」且超过这么多天没更新过的任务，会被移进归档区（「归档」标签里能看到、可随时还原，文件不会被删）。0 = 关闭。</div>
           <div class="sect-btns retain-row">
             <input type="number" min="0" step="1" class="retain-input"
               v-model.number="archiveDays" @change="onArchiveDaysChange" />
@@ -2513,6 +2787,8 @@ import {
 } from './logdedupe'
 import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
+import { computeBlockerImpact } from '../shared/blockers'
+import type { BlockerImpact } from '../shared/blockers'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
 import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
@@ -2563,6 +2839,8 @@ interface Task {
   updated?: string
   blockers?: string[]
   batch?: string
+  /** 返工归因（2026-10-06 卡 003）：三档 + 空，见主进程 TASK_FIELD_SPECS */
+  attribution?: string
   _archived?: boolean
 }
 
@@ -2592,10 +2870,12 @@ const groupMode = ref('status')
 const countView = ref('')
 const countText = computed(() =>
   countView.value === curView.value ? `${tasks.value.length} 条` : '—')
-const countTitle = computed(() =>
-  countView.value === curView.value
-    ? `当前视图（${curView.value}）内 ${tasks.value.length} 条任务。归档任务不计入，除非勾选顶栏「含归档」。`
-    : '本页签不加载任务列表，所以不显示条数（此前会残留上一个视图的旧数字）')
+const countTitle = computed(() => {
+  const label = views.find(v => v.id === curView.value)?.label || curView.value
+  return countView.value === curView.value
+    ? `${label}页签内 ${tasks.value.length} 条任务。归档任务不计入，除非勾选顶栏「含归档」。`
+    : '这个页签不加载任务列表，所以不显示条数（此前会残留上一个页签的旧数字）'
+})
 
 // 顶栏控件的作用域（2026-09-26 用户第 1 条回执）
 // 顶栏原来是**无条件渲染**的：切到回收站/技能/日志/待办后，「全部项目 / 按状态 /
@@ -2714,9 +2994,21 @@ function readUiPref<T>(key: string, fallback: T): T {
     return (v ?? fallback) as T
   } catch { return fallback }
 }
+/**
+ * 写一个 UI 偏好键（真身在主进程 prefs.json，localStorage 只当读缓存）。
+ *
+ * ⚠ **必须过 `toPlain()`**（2026-10-05 实锤）：`value` 常常是 Vue 响应式代理
+ *   （`someRef.value`、v-for 元素），而 contextBridge 搬参数走**结构化克隆**，
+ *   Proxy 在「页面世界 → 隔离世界」这一跳直接抛 `An object could not be cloned` ——
+ *   报文进不到 preload、更进不到主进程，**主进程日志里一个字都没有**，界面表现为
+ *   "点了没反应 / 存不住"（在途一屏「勾一下闪退一下」就是这么来的：数组类偏好从来没写进去过，
+ *   于是每次 loadTripBoard 都判定"从没做过手动选择"→ 勾选被清掉）。
+ *   同一个坑 2026-09-25 踩过一次（启动台无法启动应用，修了 6 次）。
+ *   裸的字符串/数字/布尔是原始值，过 toPlain 无副作用。
+ */
 function saveUiPref(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 缓存失败无所谓 */ }
-  try { (window as any).tegula?.prefsSet?.(key, value)?.catch?.(() => {}) } catch { /* 真身失败已在主进程记日志 */ }
+  try { (window as any).tegula?.prefsSet?.(key, toPlain(value))?.catch?.(() => {}) } catch { /* 真身失败已在主进程记日志 */ }
 }
 /**
  * 终态分组默认折叠（2026-09-28 密度方案 B）。
@@ -2839,8 +3131,35 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_archive_auto', archiveAuto.value)
     }
+    // 在途一屏设置（2026-10-05 Q2）：模式 / 判据 / 手动清单 / 列 / 健康度覆盖。
+    // ⚠ 与既有多视图同一纪律：**白名单字面量校验**——prefs.json 可手改，写进一个不认识的值
+    //   会让界面进入"按钮都不高亮、内容却是默认那个"的诡异状态。
+    if (p?.fc_trip_mode === 'auto' || p?.fc_trip_mode === 'manual') {
+      tripMode.value = p.fc_trip_mode
+    } else {
+      saveUiPref('fc_trip_mode', tripMode.value)
+    }
+    if ((TRIP_CRITERIA_OPTIONS as readonly { v: string }[]).some(o => o.v === p?.fc_trip_criteria)) {
+      tripCriteria.value = p.fc_trip_criteria
+    } else {
+      saveUiPref('fc_trip_criteria', tripCriteria.value)
+    }
+    if (Array.isArray(p?.fc_trip_projects) && p.fc_trip_projects.every((x: unknown) => typeof x === 'string')) {
+      tripManualIds.value = p.fc_trip_projects
+    } else {
+      saveUiPref('fc_trip_projects', tripManualIds.value)
+    }
+    if (Array.isArray(p?.fc_trip_cols) && p.fc_trip_cols.length > 0
+        && p.fc_trip_cols.every((x: unknown) => (TRIP_COL_OPTIONS as readonly { v: string }[]).some(o => o.v === x))) {
+      tripCols.value = p.fc_trip_cols
+    } else {
+      saveUiPref('fc_trip_cols', tripCols.value)
+    }
+    if (p?.fc_health_overrides && typeof p.fc_health_overrides === 'object' && !Array.isArray(p.fc_health_overrides)) {
+      tripHealthOverrides.value = p.fc_health_overrides
+    }
     // 项目页签摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
-    if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master') {
+    if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master' || p?.fc_pv_view === 'trip') {
       pvView.value = p.fc_pv_view
     } else {
       saveUiPref(PV_VIEW_KEY, pvView.value)
@@ -2890,11 +3209,371 @@ const TODO_VIEW_KEY = 'fc_todo_view'
 const PV_VIEW_KEY = 'fc_pv_view'
 const boardView = ref<'cols' | 'list'>(readUiPref<'cols' | 'list'>(BOARD_VIEW_KEY, 'cols'))
 const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY, 'list'))
-// 项目页签的三种摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」）。
+// 项目页签的摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」；
+//   2026-10-05 Q2 新增第四种「在途一屏」—— 立项契约 ② 验收线之①）。
 // ⚠ 默认仍是**旧的项目墙** —— 方寸铁律「加视图一律新增可选、旧的保留、旧视图永远是默认」。
-//   `tiles` 是 003 卡里那句「只是个大号看板入口」的现状；overview/master 是那两句抱怨的两个解。
-const pvView = ref<'tiles' | 'overview' | 'master'>(
-  readUiPref<'tiles' | 'overview' | 'master'>(PV_VIEW_KEY, 'tiles'))
+const pvView = ref<'tiles' | 'overview' | 'master' | 'trip'>(
+  readUiPref<'tiles' | 'overview' | 'master' | 'trip'>(PV_VIEW_KEY, 'tiles'))
+/** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
+const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip']
+
+// ── 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）────────────────────
+// 一行一个在途项目，回答「在哪一步 / 下一步 / 卡在谁」。数据全部来自主进程只读聚合
+// （`trip:board`：各 repo 的 立项契约.md + 任务卡 + 执行日志 + git 提交时间）。
+//
+// 三条红线（暮雨 2026-10-05 拍板）：
+//   ① **零硬编码项目清单** —— 由判据推导，用户可手动指定并落 prefs；
+//   ② **缺值显示「未填」**，绝不回退默认值；
+//   ③ 方寸**不写任何项目仓库**（"打开 repo" 只传 projectId，路径由主进程从 registry 取）。
+const TRIP_CRITERIA_OPTIONS = [
+  { v: 'cards', label: '有未完结卡' },
+  { v: 'cards_or_commit', label: '有未完结卡 或 30 天内有提交' },
+  { v: 'cards_or_log', label: '有未完结卡 或 有执行日志' },
+  { v: 'manual', label: '手填清单（手动指定）' },
+] as const
+const TRIP_COL_OPTIONS = [
+  { v: 'end', label: '终态一句话' },
+  { v: 'current', label: '当前步骤' },
+  { v: 'next', label: '下一步' },
+  { v: 'who', label: '卡在谁' },
+  { v: 'health', label: '健康度' },
+  { v: 'counts', label: '卡 / 日志' },
+  { v: 'commit', label: '最近提交' },
+  { v: 'dirty', label: '未提交文件数' },
+] as const
+// 健康度点一下换一档（机器给默认，人可覆盖 —— 司天那种「在动但冻结」机器算不出来）
+const TRIP_HEALTH_CYCLE = ['active', 'stuck', 'dormant', 'paused', 'idle'] as const
+const TRIP_HEALTH_LABEL: Record<string, string> = {
+  active: '活跃', stuck: '停滞', dormant: '休眠', paused: '搁置', idle: '空闲',
+}
+
+const tripRows = ref<any[]>([])
+/** 登记了但没进这一屏的项目（判据没命中）—— 必须说出来，否则用户以为"我加的项目没了" */
+const tripHidden = ref<{ id: string; name: string; reason: string }[]>([])
+/** 上一次读取失败的原因。**空屏时要说真话**：是"确实没有"还是"根本没读到"（2026-10-05 用户连报三次看不见） */
+const tripError = ref('')
+const tripLoading = ref(false)
+const tripSettingsOpen = ref(false)
+const tripMeta = ref<{ generatedAt: string; mode: string; criteria: string }>(
+  { generatedAt: '', mode: 'auto', criteria: 'cards_or_commit' })
+// ⚠ 四个键都从 readUiPref 起手（而不是空值等 syncBoardPrefs 回填）：
+//   否则 syncBoardPrefs 因任何原因没跑到时，界面会拿着空值去覆盖用户已存的选择。
+const tripMode = ref<'auto' | 'manual'>(readUiPref<'auto' | 'manual'>('fc_trip_mode', 'auto'))
+const tripCriteria = ref<string>(readUiPref<string>('fc_trip_criteria', 'cards_or_commit'))
+const tripManualIds = ref<string[]>(readUiPref<string[]>('fc_trip_projects', []))
+const tripCols = ref<string[]>(readUiPref<string[]>('fc_trip_cols', TRIP_COL_OPTIONS.map(o => o.v)))
+
+const tripSubtitle = computed(() => {
+  const c = TRIP_CRITERIA_OPTIONS.find(o => o.v === tripMeta.value.criteria)?.label || tripMeta.value.criteria
+  const mode = tripMeta.value.mode === 'manual' ? '手动指定' : '自动'
+  const when = tripMeta.value.generatedAt ? ` · 更新于 ${tripMeta.value.generatedAt}` : ''
+  return `${tripRows.value.length} 个项目 · ${mode}（${c}）${when}`
+})
+
+// 空屏时说什么：要分清「门槛太严」和「你选了手动却还没勾」——后者说成前者就是骗人
+const tripEmptyHint = computed(() => {
+  if (tripMode.value === 'manual' && !tripManualIds.value.length) {
+    return '你选的是「手动指定」，但还没勾任何项目 —— 点「⚙ 显示设置」勾几个，它们就会出现在这里。'
+  }
+  return '按现在的规则，没有项目算在途。点「⚙ 显示设置」把规则放宽，或改成「手动指定」自己勾。'
+})
+
+// 没进这一屏的项目要**按原因分开说**：把"你没勾它"说成"它没有未完结任务"就是假话
+// （2026-10-05：方寸自己有几十张未完结卡，却被那句统一文案说成"没有未完结任务"）。
+const tripHiddenNotPicked = computed(() => tripHidden.value.filter(h => h?.kind === 'not-picked'))
+const tripHiddenNoActivity = computed(() => tripHidden.value.filter(h => h?.kind !== 'not-picked'))
+
+async function loadTripBoard(): Promise<void> {
+  tripLoading.value = true
+  try {
+    const res: any = await (window as any).tegula.tripBoard()
+    if (res?.ok) {
+      tripError.value = ''
+      tripRows.value = Array.isArray(res.rows) ? res.rows : []
+      tripHidden.value = Array.isArray(res.hidden) ? res.hidden : []
+      tripMeta.value = {
+        generatedAt: res.generatedAt || '',
+        mode: res.mode || 'auto',
+        criteria: res.criteria || 'cards_or_commit',
+      }
+      // ⚠ 这里**绝对不能**去"同步" tripManualIds（曾经写过一版：把 rows 的 id 回填给勾选清单）。
+      //   后果：用户勾的项目正因为"没进屏"才需要留在清单里，回填等于**当场把他的勾选抹掉** ——
+      //   表现为「提示保存了，但重新打开勾选全没了」（2026-10-05 用户实测）。
+      //
+      // 数据层的**兜底回自动**：prefs 里写着「手动指定」却从没勾过任何项目（旧写法只落了字符串键，
+      // 数组键丢了）—— 照字面执行会让这一屏空得像界面坏了。数据层此时按自动走并回传 modeFallback，
+      // 界面必须把这件事说出来，并且把面板上的模式同步成"自动"，否则会出现
+      // 「面板高亮手动、屏上是自动结果」的自相矛盾。
+      if (res.modeFallback) {
+        tripMode.value = 'auto'
+        tripManualIds.value = []
+        showToast('之前选过「手动指定」但从没勾过项目，这次按规则自动显示 —— 要固定就打开「显示设置」勾几个', 'info')
+      }
+    } else {
+      tripRows.value = []
+      tripHidden.value = []
+      tripError.value = String(res?.error || '未知错误')
+      showToast('读取在途一屏失败：' + (res?.error || '未知错误'), 'error')
+    }
+  } catch (e: any) {
+    tripRows.value = []
+    tripHidden.value = []
+    tripError.value = String(e?.message || e)
+    showToast('读取在途一屏异常：' + (e?.message || e), 'error')
+  } finally {
+    tripLoading.value = false
+  }
+}
+
+function tripColVisible(c: string): boolean {
+  return tripCols.value.includes(c)
+}
+
+function tripHealthLabel(v: string): string {
+  return TRIP_HEALTH_LABEL[v] || v || '空闲'
+}
+
+function tripHealthClass(v: string): string {
+  return v === 'active' ? 'g' : v === 'stuck' ? 'y' : v === 'paused' ? 'p' : 'gray'
+}
+
+/** 点健康度：在档位之间循环一次，并**锁定**（机器不再覆盖）。回到「活跃」以外都可撤销。 */
+function tripCycleHealth(row: any): void {
+  const cur = String(row?.health?.value || 'active')
+  const i = TRIP_HEALTH_CYCLE.indexOf(cur)
+  const next = TRIP_HEALTH_CYCLE[(i + 1) % TRIP_HEALTH_CYCLE.length]
+  const overrides = { ...(tripHealthOverrides.value || {}) }
+  overrides[row.id] = next
+  tripHealthOverrides.value = overrides
+  saveUiPref('fc_health_overrides', overrides)
+  showToast(`「${row.name}」健康度标为「${tripHealthLabel(next)}」（已锁定，点它可继续切换）`, 'info')
+}
+
+/** 解除人工锁定：回到机器默认 */
+function tripUnlockHealth(row: any): void {
+  const overrides = { ...(tripHealthOverrides.value || {}) }
+  delete overrides[row.id]
+  tripHealthOverrides.value = overrides
+  saveUiPref('fc_health_overrides', overrides)
+  void loadTripBoard()
+  showToast(`「${row.name}」健康度已恢复自动`, 'info')
+}
+
+const tripHealthOverrides = ref<Record<string, string>>(readUiPref<Record<string, string>>('fc_health_overrides', {}))
+
+/**
+ * 落盘 + 立即刷新这一屏。
+ *
+ * 2026-10-05 改：原来有个「保存」按钮，用户实测「提示保存了，但每次重新勾选都被取消」——
+ * 真身里 `fc_trip_mode` 存进去了、`fc_trip_projects` 却没有：说明"点保存"这条路径本身
+ * 就是**假成功的温床**（中间任何一步出错，用户看到的仍是一句"已保存"）。
+ * 现在改成**任何改动即时落盘**，界面不提供"保存"这个动作，也就没有"存没存"的疑问。
+ */
+/**
+ * 落盘这一屏的四个偏好键 + 立刻重取数据。
+ *
+ * ⚠ 2026-10-05 用户实测「提示保存了但实际并未保存，每次重新勾选都被取消」：
+ *   · 旧写法是**连续四次** saveUiPref（四次 IPC、四次整文件改写），且**不看返回值** ——
+ *     prefs.json 里最终只落了两个字符串键，两个数组键丢了，界面却照样说"已保存"。
+ *   · 现在改为**一次 IPC 写完四个键**（主进程合并读-改-写 + 回读校验），
+ *     并且**校验结果必须传回界面**：写失败就说失败，绝不假成功。
+ */
+async function tripApplySettings(): Promise<boolean> {
+  const patch = toPlain({
+    fc_trip_mode: tripMode.value,
+    fc_trip_criteria: tripCriteria.value,
+    fc_trip_projects: [...tripManualIds.value],  // 展开成裸数组，别把响应式数组塞进载荷
+    fc_trip_cols: [...tripCols.value],
+  })
+  // localStorage 只当读缓存（真身永远在主进程 prefs.json）
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* 缓存失败无所谓 */ }
+  }
+  let ok = true
+  try {
+    const res: any = await (window as any).tegula?.prefsSetMany?.(patch)
+    // ⚠ 返回值必须**明确成功**才算成功：`undefined` = 通道根本没通（旧主进程 / preload 缺这个 API），
+    //   那也是"没存住"，不能当成成功（2026-10-05 用户「提示保存了但没保存」的老路）。
+    if (!res || res.ok !== true) {
+      ok = false
+      showToast('设置没存住：' + ((res && res.error) || '主进程没回应（可能还是旧代码）') + ' —— 请把这句话告诉开发者', 'error')
+    }
+  } catch (e: any) {
+    ok = false
+    showToast('设置写入异常：' + (e?.message || e), 'error')
+  }
+  await loadTripBoard()
+  return ok
+}
+
+function tripSetMode(m: 'auto' | 'manual'): void {
+  tripMode.value = m
+  void tripApplySettings()
+}
+
+function tripSetCriteria(c: string): void {
+  tripCriteria.value = c
+  void tripApplySettings()
+}
+
+/**
+ * 「保存」= 落盘 + 关面板 + 明确告知存了什么。
+ *
+ * 2026-10-05 用户口径：「用户不需要理解运行机制，只要看到最终保存了就行」——
+ * 所以按钮就叫「保存」，点下去要有一句带**可核对事实**的确认（而不是"已保存"三个字）。
+ * 而"存住了没有"以**写盘回读校验**的返回值为准 —— 校验不过就报错，不假成功。
+ */
+async function tripCloseAfterSave(): Promise<void> {
+  const ok = await tripApplySettings()
+  tripSettingsOpen.value = false
+  if (!ok) return  // 失败时 tripApplySettings 已经报过错了
+  const n = tripRows.value.length
+  showToast(tripMode.value === 'manual'
+    ? `已保存：这一屏按你勾的项目显示，共 ${n} 个`
+    : `已保存：按门槛自动筛，这一屏 ${n} 个项目`, 'success')
+}
+
+/** 空屏时的出口：从「手动指定」一步走回自动（并落盘） */
+function tripBackToAuto(): void {
+  tripMode.value = 'auto'
+  tripCriteria.value = 'cards_or_commit'
+  tripManualIds.value = []
+  void tripApplySettings().then(() => {
+    showToast('已改回自动：按规则筛项目，这一屏现在 ' + tripRows.value.length + ' 个', 'success')
+  })
+}
+
+function tripResetSettings(): void {
+  tripMode.value = 'auto'
+  tripCriteria.value = 'cards_or_commit'
+  tripManualIds.value = []
+  tripCols.value = TRIP_COL_OPTIONS.map(o => o.v)
+  void tripApplySettings()
+}
+
+/** 复制契约模板 / 查看已有契约原文（方寸只给文本，落盘由用户自己做） */
+async function tripCopyContract(row: any): Promise<void> {
+  try {
+    const res: any = await (window as any).tegula.contractText(row.id)
+    if (!res?.ok) { showToast('读取契约失败：' + (res?.error || '未知错误'), 'error'); return }
+    const ok = await copyWithToast(res.text, res.exists ? '契约原文已复制' : '契约模板已复制 —— 去仓库根存成 立项契约.md')
+    if (ok && !res.exists) {
+      showToast(`建议落点：${row.repo}/立项契约.md`, 'info')
+    }
+  } catch (e: any) {
+    showToast('复制契约异常：' + (e?.message || e), 'error')
+  }
+}
+
+/** 打开该项目的文件夹（只传 id，路径由主进程从 registry 取 —— 不接任意路径） */
+async function tripOpenRepo(row: any): Promise<void> {
+  try {
+    const res: any = await (window as any).tegula.tripOpenRepo(row.id)
+    if (!res?.ok) { showToast('打开项目文件夹失败：' + (res?.error || '未知错误'), 'error'); return }
+    // 打开之后必须有抓手（用户原话：打开之后只能对着资源管理器发呆）——
+    // 契约还缺着就把下一步说清；已有契约就不多嘴。
+    if (!(row?.contract && row.contract.exists)) {
+      showToast('已打开项目文件夹 —— 下一步：在里面新建「立项契约.md」，点「① 复制模板」粘进去就好', 'info')
+    }
+  } catch (e: any) {
+    showToast('打开项目文件夹异常：' + (e?.message || e), 'error')
+  }
+}
+
+/**
+ * 「📝 建契约文件」：让方寸在该项目文件夹里**创建**「立项契约.md」。
+ *
+ * 2026-10-05 用户口径：「让方寸直接写仓库文件更方便，用户打字输错一个字可能就无法识别。
+ * 弹窗让用户确认权限即可，方寸不静默做。」→ 先弹确认框把「写到哪 / 写什么 / 什么情况拒绝」
+ * 念清楚，再动手；主进程侧只建不覆盖。
+ */
+async function tripInitContract(row: any): Promise<void> {
+  const repo = String(row?.repo || '')
+  if (!repo) {
+    showToast('这个项目还没登记文件夹路径 —— 先在项目设置里补上', 'error')
+    return
+  }
+  const msg = `让方寸在项目文件夹里创建「立项契约.md」？\n\n`
+    + `写到哪里：${repo}\\立项契约.md\n`
+    + `写什么：一份空白契约（六个小节 + 五条通用条款）—— 里面的内容由你或 AI 之后填\n`
+    + `安全：这个文件已经存在的话，方寸会直接拒绝，不会覆盖\n\n`
+    + `确认创建吗？`
+  if (!confirm(msg)) return
+  try {
+    const res: any = await (window as any).tegula.tripInitContract(row.id)
+    if (!res?.ok) { showToast('创建失败：' + (res?.error || '未知错误'), 'error'); return }
+    showToast(`已创建：${res.path} —— 打开它填内容，或者交给 AI 填`, 'success')
+    await loadTripBoard()
+  } catch (e: any) {
+    showToast('创建异常：' + (e?.message || e), 'error')
+  }
+}
+
+/** 契约某一节的正文 → 一行摘要（表格里放不下整节；完整版在仓库文件里，agent 自己去读） */
+function tripFirstLine(text: unknown): string {
+  const s = String(text || '').trim()
+  if (!s) return ''
+  for (const raw of s.split('\n')) {
+    const t = raw.trim().replace(/^[#>\-*\s]+/, '').replace(/\*\*/g, '').trim()
+    if (t) return t.length > 84 ? t.slice(0, 84) + '…' : t
+  }
+  return ''
+}
+
+/**
+ * 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+ *
+ * 边界说死：**只从 registry.yaml 删掉那一条登记** —— 任务卡、方针卡、项目仓库文件一个都不动；
+ * 删完该项目下的卡变成「未归属项目」。破坏性 + 影响面不可猜 → 二次确认里逐条写明。
+ * （随时可在「＋ 添加项目」重新登记回来，所以这不是不可逆操作。）
+ */
+async function removeProject(p: any): Promise<void> {
+  const nm = p?.name || p?.id || ''
+  const n = p?.taskCount != null
+    ? p.taskCount
+    : (Number(p?.counts?.todo || 0) + Number(p?.counts?.doing || 0) + Number(p?.counts?.review || 0))
+  const msg = `移除项目登记「${nm}」？\n\n`
+    + `· 只从 registry.yaml 删掉这一条登记\n`
+    + `· 任务卡（${n} 张）全部保留 —— 只是变成「未归属项目」\n`
+    + `· 方针卡与项目文件夹里的文件，一个字节都不动\n\n`
+    + `（随时可以在项目页签「＋ 添加项目」重新登记回来）`
+  if (!confirm(msg)) return
+  try {
+    const res: any = await (window as any).tegula.registryRemoveProject(p.id)
+    if (!res?.ok) { showToast('移除失败：' + (res?.error || '未知错误'), 'error'); return }
+    showToast(`已移除项目登记「${nm}」—— 还能在「＋ 添加项目」里重新登记`, 'success')
+    await loadAll()
+    if (pvView.value === 'trip') await loadTripBoard()
+  } catch (e: any) {
+    showToast('移除异常：' + (e?.message || e), 'error')
+  }
+}
+
+/** 手动模式下勾选/取消一个项目（零硬编码：清单只存在于用户的选择里） */
+function tripToggleManual(id: string): void {
+  const set = new Set(tripManualIds.value)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  tripManualIds.value = Array.from(set)
+  // 勾选就说明"我要自己定" → 自动切到手动模式。
+  // （2026-10-05 用户：「收哪些项目里勾选「测试」也看不到」—— 因为他勾完了模式还在「自动」，
+  //   勾选根本没生效。两个互相耦合的控件不该指望用户自己悟出先后关系。）
+  if (tripManualIds.value.length) tripMode.value = 'manual'
+  void tripApplySettings()
+}
+
+function tripToggleCol(c: string): void {
+  const set = new Set(tripCols.value)
+  if (set.has(c)) set.delete(c)
+  else set.add(c)
+  // 至少留一列，否则表格只剩项目名（用户会以为坏了）
+  tripCols.value = set.size ? Array.from(set) : ['end']
+  void tripApplySettings()
+}
+
+// 切到「在途一屏」时按需拉一次数据（放在 watch 里而不是 setViewMode 内 —— 后者被 e2e-prefs 的
+// 源码断言盯着「两个 saveUiPref 之间的距离」，塞逻辑进去会把那条断言挤红）。
+watch(pvView, (v) => { if (v === 'trip') void loadTripBoard() })
 
 /** 当前页签可选的视图（空数组 = 这个页签没有多视图，页头整条不渲染） */
 const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(() => {
@@ -2910,6 +3589,7 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'tiles', label: '▦ 项目墙', hint: '现状：一格一个项目，四个数字（进行中/总数/完成率/最近活动）' },
     { v: 'overview', label: '▤ 概览卡', hint: '状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口，一眼看出项目卡在哪' },
     { v: 'master', label: '◧ 主从', hint: '左侧常驻项目列表（带迷你进度），右侧摊开所选项目的详情；项目多了更顺手' },
+    { v: 'trip', label: '◉ 在途一屏', hint: '一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度；缺值写「未填」，不编内容' },
   ]
   return []
 })
@@ -2926,7 +3606,7 @@ function setViewMode(v: string): void {
     todoView.value = v === 'grid' ? 'grid' : 'list'
     saveUiPref(TODO_VIEW_KEY, todoView.value)
   } else if (curView.value === 'projects') {
-    pvView.value = v === 'overview' ? 'overview' : v === 'master' ? 'master' : 'tiles'
+    pvView.value = PV_VIEWS.includes(v) ? (v as any) : 'tiles'
     saveUiPref(PV_VIEW_KEY, pvView.value)
   } else if (isBoardView.value) {
     boardView.value = v === 'list' ? 'list' : 'cols'
@@ -3495,6 +4175,24 @@ const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
 const blockerChains = ref<any[]>([])
 const totalBlockedTasks = computed(() => blockerChains.value.reduce((sum, s) => sum + (s.blockedTasks?.length || 0), 0))
+
+/**
+ * 阻塞链关键路径（卡 20260925-023）——
+ * **算法在 `shared/blockers.ts`**（纯逻辑，`dist/shared/blockers.js` 可被 node 直接断言，
+ * 见 `scripts/test/e2e-blockers.cjs`）。这里只负责"把数据接进来"。
+ */
+const blockerImpact = computed<BlockerImpact[]>(() => computeBlockerImpact(blockerChains.value))
+/** 顶部那句建议只在"真有传递收益"时出现 —— 解了没人受益就不吹 */
+const blockerAdvice = computed<BlockerImpact | null>(() => {
+  const top = blockerImpact.value[0]
+  return top && top.unlock > 0 ? top : null
+})
+/** 按 id 取，给卡片行用（在 v-for 里 find 也行，但这是个 Map 更直接） */
+const blockerImpactById = computed<Record<string, BlockerImpact>>(() => {
+  const m: Record<string, BlockerImpact> = {}
+  for (const r of blockerImpact.value) m[r.id] = r
+  return m
+})
 const roadmapData = ref<any>({ projects: [] })
 const projectProgress = ref<Record<string, any>>({})
 
@@ -3774,6 +4472,8 @@ const views = [
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
+/** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
+const curViewLabel = computed(() => views.find(v => v.id === curView.value)?.label || curView.value)
 
 const pickerStyle = {
   right: '20px',
@@ -4153,6 +4853,9 @@ function loadViewData(v: string) {
     // 这不是显示瑕疵，是**界面在说假话**（明明立了方针却报未立），所以进门就刷一次。
     loadAll()
     loadPolicyMap()
+    // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
+    // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
+    if (pvView.value === 'trip') void loadTripBoard()
   } else {
     loadAll()
   }
@@ -4195,7 +4898,7 @@ async function loadRoadmap() {
 
 
 function roadmapHealthLabel(h: string): string {
-  return { active: '活跃', stuck: '卡住', idle: '空闲' }[h] || h
+  return { active: '活跃', stuck: '停滞', idle: '空闲' }[h] || h
 }
 
 async function loadProjectProgressMap() {
@@ -5017,7 +5720,9 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
       ...projects.value.map((p: any) => ({ value: p.id, label: p.name || p.id })),
     ]
   }
-  return (spec.options || []).map((o: string) => ({ value: o, label: o }))
+  // 空字符串选项给一个可读标签：像「返工归因」这种"留空 = 不是返工"的字段，
+  // 直接渲染会得到一个空白选项，人不知道那是"不填"还是"没加载出来"。
+  return (spec.options || []).map((o: string) => ({ value: o, label: o || '（留空）' }))
 }
 
 function openNew() {
@@ -5638,6 +6343,31 @@ function applySortMode(list: Task[]): Task[] {
 function openCard(t: Task) {
   previewTask.value = t
   loadLogsForTask(t.id)
+  void loadTaskCommits(t.id)
+}
+
+/**
+ * Git 联动（卡 20260925-017，2026-10-06）—— 任务详情里的「相关提交」。
+ *
+ * 只读：主进程跑 `git log`（时间窗 + 提到本卡 ID 的），**不写任何仓库、不改这张卡**。
+ * 读不到时**照实说**（没归属项目 / 没登记工作目录 / 不是 git 仓库），不给一句空话糊过去。
+ */
+const taskCommits = ref<any>(null)
+const taskCommitsLoading = ref(false)
+async function loadTaskCommits(taskId: string): Promise<void> {
+  taskCommits.value = null
+  taskCommitsLoading.value = true
+  try {
+    const api: any = (window as any).tegula
+    const r = api?.gitTaskCommits ? await api.gitTaskCommits(taskId) : null
+    taskCommits.value = r && r.ok !== false
+      ? r
+      : { repo: '', commits: [], mentioned: [], note: r?.error || '这台机器上的方寸没有这条通道（需要完全退出再打开，让后台一起更新）' }
+  } catch (e: any) {
+    taskCommits.value = { repo: '', commits: [], mentioned: [], note: '读取失败：' + (e?.message || e) }
+  } finally {
+    taskCommitsLoading.value = false
+  }
 }
 
 /** 复制文本并给出**真实**结果提示（三层兜底见 shared/clipboard.ts）。
@@ -6607,7 +7337,7 @@ async function syncAgentPresets(): Promise<void> {
 
 function saveAgentPresets(): void {
   try { localStorage.setItem('fc_agent_presets', JSON.stringify(agentPresets.value)) } catch { /* 缓存写失败无所谓 */ }
-  try { window.tegula.prefsSet('fc_agent_presets', agentPresets.value)?.catch?.(() => {}) } catch { /* 真身写失败已在主进程记日志 */ }
+  try { window.tegula.prefsSet('fc_agent_presets', toPlain(agentPresets.value))?.catch?.(() => {}) } catch { /* 真身写失败已在主进程记日志 */ }
 }
 
 function addAgentPreset() {
@@ -7816,9 +8546,12 @@ async function confirmNewProject() {
       description: f.description.trim(),
     })
     if (r && r.ok) {
-      showToast('项目已登记到 registry.yaml', 'success')
+      showToast('项目已登记。它现在还没有任务卡、文件夹 30 天内也没有提交，所以默认不会出现在「在途一屏」—— 想在屏上看到它，去「⚙ 显示设置」放宽门槛，或改成「手动指定」勾上它', 'success')
       projForm.value = null
       await loadAll()
+      // 2026-10-05 用户「添加完项目刷新几遍根本看不到」：项目列表刷新了，但这一屏的数据
+      // 是**独立一次聚合**，不跟着 loadAll 走 —— 所以这里必须显式再拉一次。
+      if (pvView.value === 'trip') await loadTripBoard()
     } else {
       showToast('登记失败：' + ((r && r.error) || '未知错误'), 'error')
     }
@@ -8070,8 +8803,14 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
   toast.msg = msg
   toast.type = type
   toast.show = true
-  setTimeout(() => { toast.show = false }, 2000)
+  // 驻留时长（2026-10-05 用户：「绿色横幅驻留时间太短，根本看不清写了什么就没了」）：
+  // 固定 2s 改掉 —— 错误/引导类文案本来就更长，2s 只够看前半句。
+  // 按长度给：短句 4s 起，长句最多 9s。
+  const ms = Math.min(9000, Math.max(4000, String(msg || '').length * 90))
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.show = false }, ms)
 }
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 // ── 应用日志 / 错误出口（2026-09-22，用户第 8 条）────────────────────────
 // 此前任何失败（启动台启动失败、导入失败、脚本异常）界面上只有一句干巴巴的
@@ -8153,7 +8892,7 @@ function pushRuntimeStale(why: string): void {
   if (appErrors.value.some(e => e.scope === 'runtime-stale')) return
   appErrors.value.push({
     scope: 'runtime-stale',
-    message: `运行中的 Electron 主进程/预加载是旧代码（${why}）—— 请用**托盘右键「退出」**彻底关掉再重启 npm run dev。关窗只是隐藏窗口，不会重启进程；开发态的渲染层会热更，主进程不会`,
+    message: `方寸的后台代码是旧的（${why}）—— 请用「托盘图标右键 → 退出」彻底关掉再重启 npm run dev。关窗只是隐藏窗口，不会重启进程；界面会热更新，后台不会`,
     at: Date.now(),
   })
 }
@@ -8751,7 +9490,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card-meta { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
 .card-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .card-date.over { color: var(--danger); font-weight: 700; }
-.card-date.dim { color: #8b90a0; }
+/* 2026-10-06 卡 007：原来写死 #8b90a0 —— 在卡片底色上只有 3.18（11px 小字远低于 AA 4.5）。
+   它与主题无关，所以 2026-09-29 那轮「六套主题全量调 AA」从它身上直接漏过去了。
+   改用主题的次要文字色：既保留「比截止日淡一档」的层级，又跟着主题走，
+   并且天然落在 check-themes 的「次要文字压卡」那一对里。 */
+.card-date.dim { color: var(--muted); }
 .card-proj { max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d6f86; }
 
 .card .src-badge {
@@ -8780,10 +9523,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .task-acts { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 .acts-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .acts-group .acts-label { font-size: 11px; color: var(--muted); width: 28px; flex: none; letter-spacing: 0.5px; }
+/* 终态任务的「三种去向」提示（2026-10-06）：11px 弱化，不抢按钮的视线 */
+.acts-group .acts-hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
 
 /* 任务详情：关联日志反向索引 */
 .logs-section { margin-top: 12px; }
 .logs-section > label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px; }
+/* Git 联动（卡 017）：任务详情里的「相关提交」—— 只读展示，无按钮 */
+.gitlink-section .gitlink-repo { margin-left: 8px; font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px; color: var(--muted); }
+.gitlink-list { margin: 6px 0 2px; }
+.gitlink-head { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.gitlink-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 12px; }
+.gitlink-row .gl-short { font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  color: var(--accent); flex: none; }
+.gitlink-row .gl-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--ink); }
+.gitlink-row .gl-date { flex: none; font-size: 11px; color: var(--muted); }
 .task-logs-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .task-log-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .task-log-item:hover { background: var(--tint-2); }
@@ -8980,6 +9736,94 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 每种摆法一个**独立**的根容器类（pvgrid / ovgrid / pv-ms）——
    不是为了好看，是让"三种摆法互斥"这条能被机械断言：
    共用同一个类名的话，`.pvgrid` 在两种视图里都在，断言就无从判"到底挂了几个"。 */
+/* ── 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）──
+   第 4 个摆法，根容器 `.tripboard`（与 pvgrid/ovgrid/pv-ms 一样各自独立，
+   好让"四种摆法互斥"能被机械断言）。
+   红色只给"要注意的"：异常行（0 张卡）淡黄底、「未填」用虚框红字，其余一律中性。 */
+.tripboard { width: 100%; }
+.trip-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.trip-ttl { font-size: 14px; font-weight: 700; }
+.trip-sub { font-size: 12px; color: var(--muted); }
+.trip-grow { flex: 1; }
+.trip-scroll { overflow-x: auto; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+.trip-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.trip-table th {
+  text-align: left; font-size: 11px; font-weight: 700; color: var(--muted);
+  padding: 8px 12px; border-bottom: 1px solid var(--border); background: #fafafc; white-space: nowrap;
+}
+.trip-table td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft, #f2f1f7); vertical-align: top; }
+.trip-table tr:last-child td { border-bottom: 0; }
+.trip-th-pj { width: 132px; }
+.trip-pj b { display: block; white-space: nowrap; }
+.trip-pid { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.trip-end { max-width: 250px; }
+.trip-end-txt { display: block; line-height: 1.5; }
+.trip-unset {
+  display: inline-block; color: #a8574f; background: #fbeeee; border: 1px dashed #e2c8c4;
+  border-radius: 6px; padding: 1px 6px; font-size: 11px; margin-right: 6px; white-space: nowrap;
+}
+/* 契约操作小按钮：独立全局规则（与祖先无关）—— 守卫要求"用了 class 就得有规则" */
+.trip-mini { height: 22px; padding: 0 8px; font-size: 11px; border-radius: 6px; margin-right: 4px; }
+.trip-mini:disabled { opacity: .45; cursor: not-allowed; }
+/* 一屏头部/弹窗的按钮：同样必须是独立规则（`.sm` 那种"借用别处的尺寸类"本条守卫不认） */
+.trip-headbtn { height: 26px; padding: 0 10px; font-size: 11.5px; border-radius: 7px; }
+/* 有项目没进这一屏时的说明条：必须显眼（否则用户以为"我加的项目没了"），但不报警色 */
+.trip-hidden { margin-top: 8px; font-size: 11.5px; line-height: 1.7; color: #7a5a1d;
+  background: #fdf7ea; border: 1px solid #eadfc4; border-radius: 8px; padding: 7px 10px; }
+.trip-step { max-width: 240px; }
+.trip-step-k { display: block; line-height: 1.5; }
+.trip-from { font-size: 10px; color: var(--accent); background: var(--tint, #f5f3fc); border-radius: 5px; padding: 0 5px; margin-left: 4px; }
+.trip-dim { color: var(--muted); }
+.trip-dim-sm { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
+.trip-who { white-space: nowrap; }
+.trip-chip { display: inline-block; background: var(--tint, #f1eefb); color: #4a4368; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
+.trip-chip.warn { background: #fdf3e2; color: #8a5c16; }
+.trip-health { white-space: nowrap; }
+.trip-hdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.trip-hdot.h-g { background: var(--success, #54814b); }
+.trip-hdot.h-y { background: #c99a3a; }
+.trip-hdot.h-p { background: #8a7fb8; }
+.trip-hdot.h-gray { background: #b9b9c6; }
+/* 健康度按钮：独立全局规则（与祖先无关）；锁定态带底色，让"这是你标过的"一眼可见 */
+.trip-hbtn {
+  border: 1px solid transparent; background: transparent; font: inherit; font-size: 12px;
+  color: var(--ink); cursor: pointer; border-radius: 6px; padding: 1px 6px; line-height: 1.5;
+}
+.trip-hbtn:hover { background: var(--tint, #f1eefb); }
+.trip-hbtn.locked { background: var(--tint, #f1eefb); border-color: var(--accent-soft, #c3bce0); font-weight: 600; }
+.trip-lock { margin-left: 3px; font-size: 10px; }
+.trip-cnt { white-space: nowrap; }
+.trip-anomaly td { background: #fffdf6; }
+.trip-empty { padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+/* 空屏里的出口按钮：「改回自动」——必须与祖先无关的独立规则（守卫要求） */
+.trip-empty-act { margin-top: 12px; }
+/* 读取失败必须看得出来（空屏 + 假装"没有项目"是最坏的一种骗人） */
+.trip-err { color: #a03a3a; font-weight: 600; margin-bottom: 6px; }
+.trip-err-hint { color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+.trip-foot { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.trip-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+/* 移除项目登记的小按钮（四种摆法共用）—— 与祖先无关的全局规则，守卫要求"用了 class 就得有规则"。
+   破坏性动作一律"红色只在 hover 时出现"，不常驻抢视线。 */
+.proj-del { border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit;
+  font-size: 11px; border-radius: 6px; padding: 0 5px; cursor: pointer; line-height: 1.5; flex: none; }
+.proj-del:hover { color: #b44141; background: #fbeeee; }
+.trip-foot code { background: var(--tint, #f0f1f5); border-radius: 4px; padding: 0 4px; }
+/* 设置面板（裁断入口） */
+.trip-modal-mask { position: fixed; inset: 0; background: rgba(40,40,60,.35); z-index: 60; display: flex; align-items: center; justify-content: center; }
+.trip-modal { background: #fff; border-radius: 14px; box-shadow: 0 18px 48px rgba(60,50,100,.28); width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; }
+.trip-modal-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.trip-modal-b { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 14px 16px; overflow: auto; }
+.trip-modal-f { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.trip-note-inline { font-size: 11.5px; color: var(--muted); margin-right: auto; }
+.trip-col h4 { font-size: 12.5px; margin-bottom: 3px; }
+.trip-hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-bottom: 9px; }
+.trip-modes { display: flex; gap: 6px; margin-bottom: 10px; }
+.trip-modes label { display: flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; background: #fff; cursor: pointer; }
+.trip-modes label.on { border-color: var(--accent-soft, #c3bce0); background: var(--tint, #f7f5fd); }
+.trip-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.trip-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 9px; background: #fff; cursor: pointer; }
+.trip-chk.on { border-color: var(--accent-soft, #c3bce0); background: var(--tint, #f7f5fd); color: #4a4368; font-weight: 600; }
+
 .ovgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; width: 100%; }
 .ocard {
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
@@ -9214,6 +10058,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blockers-header h3 { font-size: 16px; font-weight: 700; }
 .blockers-count { font-size: 12px; color: var(--muted); }
 .blocker-chains { display: flex; flex-direction: column; gap: 12px; }
+/* 关键路径建议条（卡 023）：用 --tint 而不是写死色，跟主题走 */
+.blocker-advice { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--tint); font-size: 12.5px; color: var(--ink); line-height: 1.7; }
+.blocker-advice .ba-title { font-weight: 700; }
+.blocker-advice .ba-id { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.blocker-advice .ba-note { color: var(--muted); }
+.chain-arrow .chain-unlock { color: var(--accent); font-weight: 600; }
 .chain-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
 .chain-main { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .chain-id { font-size: 11px; color: var(--muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; }

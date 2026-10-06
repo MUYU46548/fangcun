@@ -434,6 +434,14 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug' },
   { key: 'blockers', label: '阻塞', type: 'list', span: 'full', placeholder: '逗号分隔的任务 ID' },
   { key: 'memo', label: '附言', type: 'textarea', span: 'full', placeholder: '给执行者的一句提醒' },
+  // 机制条款 3（2026-10-06 卡 003）：每轮返工收尾打一枚**归因**标签。
+  // 不是追责，是让三个月后能回答「这三档各占多少」—— 哪一环在漏，看分布就知道。
+  // 三档 + 空：留空 = 这一轮不算返工，或者还没顾上归因。旧卡没有这个键 → 不渲染、零影响。
+  {
+    key: 'attribution', label: '返工归因', type: 'select', span: 'half',
+    options: ['', '需求没拟死', '选型没论证', '执行层改不对'],
+    hint: '这一轮返工该怪哪一环？留空 = 不是返工 / 还没归因',
+  },
   { key: 'body', label: '正文', type: 'textarea', span: 'full', placeholder: '支持 Markdown，- [ ] 为可勾选项' },
 ]
 
@@ -522,6 +530,9 @@ export const FIELD_MAP: Record<string, string> = {
   'type': 'type',
   'plan_status': 'plan_status',
   '实际成本': 'actual_cost',
+  // 2026-10-06 卡 003：返工归因在文件里存中文键（与 Python MANAGED_KEYS 对齐），
+  // TS 内部用 attribution。⚠ 两侧同改：Python 侧 MANAGED_KEYS + render_task 显式输出行。
+  '归因': 'attribution',
 }
 
 // English → Chinese field name mapping (for renderTask compat with Python CLI)
@@ -535,7 +546,7 @@ const FM_ORDER = [
   'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
   'source', 'review', 'memo', 'resources', 'plan', 'result_log',
   'dispatch_time', 'agent', 'review_checklist', 'budget', 'cron', 'context',
-  'type', 'plan_status',
+  'type', 'plan_status', 'attribution',
 ]
 
 export function parseRegistry(includeReleased = true): any[] {
@@ -613,11 +624,22 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
   }
   const block = lines.join('\n') + '\n'
 
-  // 插到 released: 之前（若存在），否则追加到末尾
+  // 插到 released: 之前（若存在），否则追加到末尾。
+  // ⚠ 2026-10-05 修：不能直接把插入点定在 `released:` 那一行 —— 它**上面紧邻的注释是在描述
+  //   已发布段**（「# 已发布 / 历史项目…」），新项目插到注释下面会看起来像"已发布项目"
+  //   （实际发生过：TEST/TEST2 落到那两条注释之后，Python 侧解析器又因此漏读）。
+  //   所以从 released: 往上跳过紧邻的空行与注释，插在它们**之前**。
+  let next: string
   const releasedIdx = content.search(/^released:\s*$/m)
-  const next = releasedIdx >= 0
-    ? content.slice(0, releasedIdx) + block + '\n' + content.slice(releasedIdx)
-    : content.replace(/\s*$/, '\n') + block
+  if (releasedIdx < 0) {
+    next = content.replace(/\s*$/, '\n') + block
+  } else {
+    const headLines = content.slice(0, releasedIdx).split(/\r?\n/)
+    let k = headLines.length - 1
+    while (k >= 0 && (!headLines[k].trim() || headLines[k].trim().startsWith('#'))) k--
+    const insertAt = headLines.slice(0, k + 1).join('\n').length + 1
+    next = content.slice(0, insertAt) + block + '\n' + content.slice(insertAt)
+  }
 
   // 写前自校验 —— 宁可不写，也不破坏 registry.yaml
   try {
@@ -635,6 +657,80 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
 
   atomicWrite(REGISTRY_PATH, next)
   logActivity('-', 'registry_add_project', id)
+  return { ok: true }
+}
+
+/**
+ * 从 registry.yaml **移除**一个项目的登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+ *
+ * 边界说死（避免变成"删数据"）：
+ *   · **只动 registry.yaml 里的那一段文本块** —— 不删任务卡、不删方针卡、不碰项目仓库任何文件；
+ *   · 删掉登记后，该项目下的任务卡会变成「未归属项目」（卡还在，只是不再挂在这个项目下）；
+ *   · 与 add 对称：文本块删除（不 dump 重写，保留注释与字段顺序）+ 写前自校验。
+ *
+ * 写前自校验：新内容必须能解析、项目总数恰好 -1、该 id 不再出现 —— 任一不满足就放弃写入。
+ */
+export function removeProjectFromRegistry(id: string): { ok: boolean; error?: string } {
+  const pid = String(id || '').trim()
+  if (!pid) return { ok: false, error: '项目 ID 不能为空' }
+  // 与 add 同一字符集约束（顺带保证下面拼正则时无注入）
+  if (!/^[A-Za-z0-9._-]+$/.test(pid)) {
+    return { ok: false, error: '项目 ID 含非法字符' }
+  }
+  if (!fs.existsSync(REGISTRY_PATH)) return { ok: false, error: '找不到 registry.yaml' }
+
+  const content = fs.readFileSync(REGISTRY_PATH, 'utf-8')
+  let parsed: any
+  try {
+    parsed = yaml.load(content)
+  } catch (e) {
+    return { ok: false, error: `registry.yaml 解析失败：${(e as Error).message}` }
+  }
+  const beforeP = Array.isArray(parsed?.projects) ? parsed.projects : []
+  const beforeR = Array.isArray(parsed?.released) ? parsed.released : []
+  const exists = [...beforeP, ...beforeR].some((p: any) => String(p?.id) === pid)
+  if (!exists) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+
+  // ── 文本块定位：从 `- id: <pid>` 那行起，到下一个同级列表项或下一个顶级键为止
+  const lines = content.split(/\r?\n/)
+  const reStart = new RegExp(`^\\s*-\\s*id:\\s*['"]?${pid.replace(/\./g, '\\.')}['"]?\\s*$`)
+  const start = lines.findIndex((l) => reStart.test(l))
+  if (start < 0) {
+    return { ok: false, error: `定位不到项目「${pid}」的文本块（未做任何修改）` }
+  }
+  const indent = (lines[start].match(/^\s*/) || [''])[0].length
+  let end = start + 1
+  while (end < lines.length) {
+    const l = lines[end]
+    if (!l.trim()) { end++; continue }
+    const li = (l.match(/^\s*/) || [''])[0].length
+    // 同级（或更浅）的下一个列表项 → 本块结束
+    if (/^\s*-/.test(l) && li <= indent) break
+    // 顶级键（projects: / released: / members: ...）→ 本块结束
+    if (li === 0) break
+    end++
+  }
+  // 连带把块尾部紧邻的空行一起收掉，避免留下连续空行
+  while (end < lines.length && !lines[end].trim()) end++
+
+  const next = [...lines.slice(0, start), ...lines.slice(end)].join('\n')
+
+  try {
+    const check = yaml.load(next) as any
+    const afterP = Array.isArray(check?.projects) ? check.projects : []
+    const afterR = Array.isArray(check?.released) ? check.released : []
+    if (afterP.length + afterR.length !== beforeP.length + beforeR.length - 1) {
+      return { ok: false, error: '写入校验失败：项目数不符合预期，已放弃写入' }
+    }
+    if ([...afterP, ...afterR].some((p: any) => String(p?.id) === pid)) {
+      return { ok: false, error: '写入校验失败：项目仍出现在解析结果中，已放弃写入' }
+    }
+  } catch (e) {
+    return { ok: false, error: `写入内容无法解析，已放弃：${(e as Error).message}` }
+  }
+
+  atomicWrite(REGISTRY_PATH, next)
+  logActivity('-', 'registry_remove_project', pid)
   return { ok: true }
 }
 

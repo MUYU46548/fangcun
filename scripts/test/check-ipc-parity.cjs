@@ -15,7 +15,9 @@
  *   ④ 孤儿通道  主进程注册 ∌ preload 暴露      → 信息级（CLI/内部调用可能合法）
  *
  * 退出码：①②③ 任一非空 → 1（可进 e2e）。
- * 用法：node scripts/test/check-ipc-parity.cjs [--json]
+ * 用法：node scripts/test/check-ipc-parity.cjs [--json] [--all]
+ *        --all 把 ④ 孤儿通道 / ⑤ 死通道的清单**全部列出**（默认各只列前 12 条）——
+ *        「死通道」那份清单是用来圈选要不要删的，只给 12 条没法用。
  */
 const fs = require('fs')
 const path = require('path')
@@ -55,6 +57,10 @@ const EXEMPTIONS = {
   orphan: {
     detectEvents: '主进程内部/CLI 用，无渲染层入口',
   },
+  // 死通道（第 ⑤ 类，2026-10-06 卡 004 新增）：preload 暴露 + 主进程注册，
+  // 但渲染层从不调用。⚠ 只当**信息**报，不当缺陷 —— 「渲染层不调」可能是合法的
+  // （留给 e2e / 数据迁移 / 未来版本的兼容口）。要红灯的请在此登记明确理由。
+  dead: {},
 }
 
 // ── 工具 ──────────────────────────────────────────────────────────────
@@ -105,14 +111,58 @@ const read = f => stripComments(fs.readFileSync(f, 'utf-8'))
 function scanRendererCalls() {
   const calls = new Map()   // name -> [相对文件:行]
   for (const f of walk(path.join(SRC, 'renderer'), ['.vue', '.ts', '.js'])) {
-    const lines = read(f).split(/\r?\n/)
+    // ⚠ 2026-10-06（卡 004）修正：原正则只认 `window.tegula.X`，**漏掉 `(window as any).tegula.X`**
+    //   —— 而渲染层大量使用后者（带 `?.` 的容错写法，如 `(window as any).tegula?.prefsSet?.()`）。
+    //   后果：用这种写法调一个 preload 没暴露的 API，本扫描器**完全看不见** —— 第 ① 类有盲区。
+    //   先把两种写法与可选链归一成统一形状再匹配（替换不跨行，行号仍准）。
+    const src = read(f)
+      .replace(/\(\s*window\s+as\s+any\s*\)\s*\.\s*tegula/g, 'window.tegula')
+      .replace(/window\s*\.\s*tegula\s*\?\./g, 'window.tegula.')
+    const lines = src.split(/\r?\n/)
+
+    // ⚠ 2026-10-06 第二处修正（**上一轮的第 ⑤ 类清单因此有大量假阳性**）：
+    //   渲染层还有一种**间接调用**写法 ——
+    //       const t = (window as any).tegula
+    //       await t.notificationsListMuted()
+    //   归一化后 `const t = window.tegula`，把 `t` 当别名、把 `t.xxx(` 也算作调用。
+    //   不认它的话，`notificationsScannerStatus` / `applogWrite` / `updateCheck` 这类
+    //   明明在用的通道会被误报成"死通道"（第一版报了 66 个，其中十几个是假的）。
+    //   ⚠ 别名扫描**只在 `<script>` 段内**做：模板里的 `v-for="t in tasks"` 会有大量 `t.title`，
+    //      在模板段扫别名会造出一堆假僵尸按钮。
+    const si = f.endsWith('.vue') ? src.indexOf('<script') : -1
+    const scriptFrom = si >= 0 ? src.slice(0, si).split(/\r?\n/).length - 1 : 0
+
+    const push = (name, idx) => {
+      const where = `${path.relative(ROOT, f)}:${idx + 1}`
+      if (!calls.has(name)) calls.set(name, [])
+      calls.get(name).push(where)
+    }
+    const directRe = /window\s*\.\s*tegula\s*\.\s*([A-Za-z_$][\w$]*)/g
+    // ⚠ 别名窗口只能"近似"：`t` 这个别名在 App.vue 里有 21 处 `const t =`，其中只有 11 处是 tegula
+    //   （其余是 `cardTip.value` / `Date.parse(s)` / 函数参数…）。按"整文件生效"会让 `t.title`、
+    //   `t.fm` 这类**任务对象字段**被算成 IPC 调用 → 一口气报 10 个假僵尸按钮（试过，见 2026-10-06 记录）。
+    //   所以改成：只在**赋值点之后的窗口内**认它，遇到同名重赋值就停。
+    const ALIAS_WINDOW = 25
+    const aliasRe = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*window\s*\.\s*tegula\b/g
     lines.forEach((ln, idx) => {
-      const re = /window\s*\.\s*tegula\s*\.\s*([A-Za-z_$][\w$]*)/g
       let m
-      while ((m = re.exec(ln))) {
-        const where = `${path.relative(ROOT, f)}:${idx + 1}`
-        if (!calls.has(m[1])) calls.set(m[1], [])
-        calls.get(m[1]).push(where)
+      directRe.lastIndex = 0
+      while ((m = directRe.exec(ln))) push(m[1], idx)
+      if (idx < scriptFrom) return          // 模板段不扫别名（v-for="t in …" 会有满屏 t.xxx）
+      aliasRe.lastIndex = 0
+      while ((m = aliasRe.exec(ln))) {
+        const name = m[1]
+        // ⚠ `\\??` = 「0 或 1 个问号」（可选链）。写成 `\\?` 是**字面问号** —— 那样
+        //   `t.foo()` 匹配不上、只有 `t?.foo()` 能匹配，别名识别会静默失效
+        //   （第一版就这么写的：`notificationsScannerStatus` 明明在用却仍被报成死通道）。
+        const re = new RegExp('\\b' + name + '\\s*\\??\\.\\s*([A-Za-z_$][\\w$]*)', 'g')
+        const reassign = new RegExp('(?:const|let|var)\\s+' + name + '\\s*(?::[^=\\n]+)?=')
+        for (let i = idx; i < Math.min(lines.length, idx + ALIAS_WINDOW); i++) {
+          if (i > idx && reassign.test(lines[i])) break      // 同名换了来源 → 后面不再算
+          re.lastIndex = 0
+          let mm
+          while ((mm = re.exec(lines[i]))) push(mm[1], i)
+        }
       }
     })
   }
@@ -246,6 +296,61 @@ function scanReachable() {
   return { entry, reachable }
 }
 
+// ── ⑥ IPC 载荷收口（2026-10-06 卡 005）────────────────────────────────
+//
+// 为什么必须有：渲染层把 **Vue 响应式代理**（`xxx.value` 里的数组/对象、v-for 元素）
+// 直接当 IPC 载荷时，contextBridge 在「页面世界 → 隔离世界」这一跳就抛
+// `An object could not be cloned` —— **报文连 preload 都进不去**，主进程日志一片空白，
+// 排查时极易误判成「主进程没重启」。这个坑已经踩了三次：
+//   ① 2026-09-25 启动台无法启动任何应用（修了 6 次才定位）② 2026-09-30 日志创建按钮全炸
+//   ③ 2026-10-05 在途一屏勾选被清空（写盘从未成功 → 读回判定「从没做过选择」）
+// 三次都只在**出事的那个点**打补丁，从未收口。
+//
+// 判据（比"含 .value 就报"精确得多）：实测渲染层 12 处 `.value` 实参**全是字符串/数字/布尔**，
+// 直接禁 `.value` 会 12 处全误报、最后被人加豁免淹掉。真正危险的是
+// **数组 / 对象型 ref** —— 那就把本文件里 `ref<X[]>` / `ref<Record<…>>` / `ref([])` 这类
+// 声明先收集出来，再看 IPC 调用行里有没有裸传它们的 `.value`。
+//
+// 已知局限（写在这里，别当它万能）：
+//   · 只按行看，跨行拼接的实参抓不到；
+//   · 识别不了 `reactive({...})` 与 v-for 元素这类**非 ref 的代理**；
+//   · 间接调用（`const t = window.tegula; t.foo(proxy)`）不看。
+//   —— 所以 e2e 侧假 preload 的 `structuredClone` 校验仍是主力防线，本类只是"静态拦一道"。
+function scanRiskyIpcPayloads() {
+  const hits = []
+  let riskyTotal = 0
+  for (const f of walk(path.join(SRC, 'renderer'), ['.vue', '.ts', '.js'])) {
+    const src = read(f)
+      .replace(/\(\s*window\s+as\s+any\s*\)\s*\.\s*tegula/g, 'window.tegula')
+      .replace(/window\s*\.\s*tegula\s*\?\./g, 'window.tegula.')
+    const risky = new Set()
+    const declRe = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*ref\s*(?:<([^>]*)>)?\s*\(/g
+    let m
+    while ((m = declRe.exec(src))) {
+      const name = m[1]
+      const generic = (m[2] || '').trim()
+      const isArr = /\[\s*\]$/.test(generic) || /^Array\s*</.test(generic)
+      const isRecord = /^Record\s*</.test(generic) || /^\{/.test(generic)
+      if (isArr || isRecord) risky.add(name)
+    }
+    if (!risky.size) continue
+    riskyTotal += risky.size
+    src.split(/\r?\n/).forEach((ln, idx) => {
+      if (!/window\s*\.\s*tegula\s*\./.test(ln)) return
+      if (ln.includes('toPlain(')) return                   // 已过门面（或已展开成裸数组）
+      for (const name of risky) {
+        // ⚠ 两个负向断言缺一不可（首版漏了 → 9 处误报全是这两种形态）：
+        //   `xxx.value = await window.tegula.foo()`  —— ref 在**左值**，是接结果，不是传参；
+        //   `window.tegula.bar(obj.value.id)`        —— 取的是子属性（字符串），不是整个代理。
+        if (new RegExp('\\b' + name + '\\s*\\.\\s*value\\b(?!\\s*\\.)(?!\\s*=(?!=))').test(ln)) {
+          hits.push({ file: path.relative(ROOT, f), line: idx + 1, name, src: ln.trim().slice(0, 130) })
+        }
+      }
+    })
+  }
+  return { hits, riskyTotal }
+}
+
 // ── 对账 ─────────────────────────────────────────────────────────────
 
 function main() {
@@ -253,9 +358,10 @@ function main() {
   const { keys: exposed, file: preloadFile, missing: noPreload } = scanPreload()
   const regs = scanMainRegistrations()
   const { entry, reachable } = scanReachable()
+  const { hits: riskyPayloads, riskyTotal } = scanRiskyIpcPayloads()
 
   const norm = (rel) => rel.replace(/\\/g, '/')
-  const exempted = { buttons: [], channels: [], unwired: [], orphan: [] }
+  const exempted = { buttons: [], channels: [], unwired: [], orphan: [], dead: [] }
 
   const zombieButtons = []   // ① 调用 ∌ 暴露
   for (const [name, where] of calls) {
@@ -291,6 +397,18 @@ function main() {
     if (exposedChannels.has(ch)) continue
     if (EXEMPTIONS.orphan[ch]) { exempted.orphan.push({ channel: ch, reason: EXEMPTIONS.orphan[ch] }); continue }
     orphan.push({ channel: ch, where: where[0] })
+  }
+
+  // ⑤ 死通道：preload 暴露 + 主进程注册，但渲染层从不调用（2026-10-06 卡 004）
+  //    为什么值钱：桌面「派活链」（dispatchPreview / dispatchExecute）整条是死代码，
+  //    而当时没有任何守卫能发现它 —— 是人工读代码才挖出来的。这里把这一类变成可查项。
+  //    信息级：不作 fail（合法保留的口子很多），但每次把清单打出来供圈选。
+  const deadChannels = []
+  for (const [name, ch] of exposed) {
+    if (calls.has(name)) continue
+    if (!ch || !regs.has(ch)) continue          // 僵尸通道已由 ② 报过
+    if (EXEMPTIONS.dead[name]) { exempted.dead.push({ name, reason: EXEMPTIONS.dead[name] }); continue }
+    deadChannels.push({ name, channel: ch })
   }
 
   const result = {
@@ -338,13 +456,27 @@ function main() {
   }
 
   // ④ 仅信息
+  const listLimit = process.argv.includes('--all') ? Infinity : 12
   if (orphan.length === 0) pass++, console.log('PASS  ④ 无孤儿通道')
   else {
     pass++
     console.log(`INFO  ④ ${orphan.length} 个孤儿通道（主进程注册但 preload 未暴露，CLI/内部使用可能合法）`)
-    orphan.slice(0, 8).forEach(o => console.log(`        · ${o.channel}  ← ${o.where}`))
-    if (orphan.length > 8) console.log(`        … 另有 ${orphan.length - 8} 个`)
+    orphan.slice(0, listLimit).forEach(o => console.log(`        · ${o.channel}  ← ${o.where}`))
+    if (orphan.length > listLimit) console.log(`        … 另有 ${orphan.length - listLimit} 个（加 --all 看全）`)
   }
+
+  // ⑤ 仅信息（卡 004）
+  if (deadChannels.length === 0) pass++, console.log('PASS  ⑤ 无死通道（preload 暴露的每一项渲染层都在用）')
+  else {
+    pass++
+    console.log(`INFO  ⑤ ${deadChannels.length} 个死通道（preload 暴露 + 主进程注册，但渲染层从不调用 —— 已退休功能残留，或给 e2e/未来的兼容口）`)
+    deadChannels.slice(0, listLimit).forEach(d => console.log(`        · ${d.name}  → ${d.channel}`))
+    if (deadChannels.length > listLimit) console.log(`        … 另有 ${deadChannels.length - listLimit} 个（加 --all 看全）`)
+  }
+
+  // ⑥ IPC 载荷：裸传数组/对象型 ref = Vue 代理过 contextBridge 必抛
+  if (riskyPayloads.length === 0) ok(`⑥ IPC 载荷无裸传的数组/对象 ref（本仓识别到这类 ref ${riskyTotal} 个，全部没裸传）`)
+  else riskyPayloads.forEach(p => bad(`⑥ IPC 裸传数组/对象 ref：${p.name}.value 直接进 IPC —— Vue 代理过 contextBridge 必抛「could not be cloned」（${p.file}:${p.line}）｜ ${p.src}`))
 
   // 豁免清单：每次都打印，防止"豁免"变成永久红灯的遮羞布
   const exemptTotal = Object.values(exempted).reduce((a, b) => a + b.length, 0)

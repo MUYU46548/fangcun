@@ -142,7 +142,7 @@ export function detectMcpTargets(): McpTarget[] {
       detected: !!patch,
       evidence: patch || profilesDir,
       configPath: patch,
-      howTo: '把配置段**原样追加**到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是「按 id 覆盖」，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
+      howTo: '把配置段原样追加到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是「按 id 覆盖」，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
     })
   }
 
@@ -226,7 +226,7 @@ export function detectMcpTargets(): McpTarget[] {
       detected: isFile(wb),
       evidence: wb,
       // configPath 刻意留 undefined：方寸不猜它的配置位置，界面因此不显示「📂 打开配置文件」
-      howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（**不猜、不代写**）。点「🤖 让它自装」把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
+      howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（不猜、不代写）。点「🤖 让它自装」把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
     })
   }
 

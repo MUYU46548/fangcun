@@ -45,6 +45,21 @@ ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
 
 
+def illegal_status(status):
+    """状态值是否非法 —— 返回它本身（非法）或 ""（合法/未填）。
+
+    单一来源就是上面的 STATUSES（TS 侧 desktop/src/main/data/index.ts 的 STATUSES 必须逐字一致，
+    verify.py 第 27 组会比对）。
+
+    为什么要有这个函数（2026-10-06 卡 008）：`task-data/task-mingjian-template-20260925.md`
+    曾写着 `状态: 待处理` —— 那是**日志页的分区叫法**，被手写进了任务卡。后果：
+    看板分组语义不明、gen-progress 单列一类、当时 doctor 也不拦。
+    「空」不算非法：没填状态是"还没定"，不是"填错了"。
+    """
+    s = str(status or "").strip()
+    return s if (s and s not in STATUSES) else ""
+
+
 # ── 首次启动初始化 ──
 def _init_data_dir():
     """首次启动时创建默认数据文件。"""
@@ -102,6 +117,15 @@ def parse_registry(path, include_released=True):
             i += 1
             continue
         if not raw.startswith(" "):
+            # ⚠ 注释行**不改变当前段**（2026-10-05 修，真 bug）：
+            #   此前这里直接拿 `^([A-Za-z_]+):` 匹配，注释匹配不上 → in_section 被重置为 None
+            #   → 注释**之后**的项目块被整段忽略。实际后果：registry.yaml 里
+            #   「# 已发布 / 历史项目…」这两条注释下面新加的项目（TEST/TEST2），
+            #   桌面版（真 yaml 解析）看得见、Python 侧（本手写解析器）看不见 —— 两侧不一致，
+            #   而且 tegula next / report / MCP / 盘点脚本全部漏项目。
+            if line.lstrip().startswith("#"):
+                i += 1
+                continue
             m = re.match(r"^([A-Za-z_]+):\s*$", line)
             in_section = m.group(1) if m and m.group(1) in want else None
             cur = None
@@ -528,7 +552,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因"}
 
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
@@ -728,6 +752,12 @@ def render_task(d):
     fy = str(d.get("附言") or "").strip()
     if fy:
         lines.append(f"附言: {yaml_scalar(fy)}")
+    # 返工归因（2026-10-06 卡 003 · 机制条款 3）：**空则不输出** ——
+    # 旧卡读进来是空串，写回不会凭空多出一行（旧卡零影响）。
+    # ⚠ 受管键必须在这里显式输出，否则 Python 一写回就把桌面版填的归因静默抹掉。
+    gy = str(d.get("归因") or "").strip()
+    if gy:
+        lines.append(f"归因: {yaml_scalar(gy)}")
     pd = str(d.get("派活时间") or "").strip()
     if pd:
         lines.append(f"派活时间: {yaml_scalar(pd)}")
@@ -1848,6 +1878,129 @@ def read_policy(project_id):
     return out if any(out.values()) else None
 
 
+# ---------- 立项契约（2026-10-05 REV-002：真源在各项目 repo，方寸**只读**）----------
+# 契约 = 立项书（六字段 + REV 修订表），与 AGENTS.md 同级放在**项目自己的仓库**里；
+# 方寸只做「索引 + 一屏 + 派活下发 + REV 留痕」，**绝不写他人仓库**。
+# 与「项目方针卡」（policies/<id>.md，方寸自己的数据目录）是两层，别混：
+#   方针 = 长期背景（使命/项目事实/结构地图）；契约 = 开工前提（终态/验收线/不要什么/选型）。
+CONTRACT_BASENAME = "立项契约.md"
+CONTRACT_FIELDS = ["终态形态", "验收线", "不要什么", "选型定死", "现状底数", "下一队列"]
+
+
+def read_contract_file(path):
+    """解析一份立项契约 Markdown。**纯函数级**：只吃路径，不查 registry（便于夹具测试）。
+
+    返回 {'exists': bool, 'path': str, 六个字段: str}。
+    小节匹配**宽松**：标题里含字段关键词即可 —— 「## ① 终态形态」「## 终态形态」都认。
+    字段缺失不报错、给空串：缺字段是**真实状态**，由调用方显式展示「未填」，不许回退默认值。
+    """
+    out = {"exists": False, "path": path or ""}
+    for k in CONTRACT_FIELDS:
+        out[k] = ""
+    if not path or not os.path.isfile(path):
+        return out
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return out
+    out["exists"] = True
+    heads = [(m.start(), m.group(1).strip(), m.end())
+             for m in re.finditer(r"^##\s+(.+?)\s*$", raw, re.M)]
+    secs = []
+    for i, (_s, name, _e) in enumerate(heads):
+        stop = heads[i + 1][0] if i + 1 < len(heads) else len(raw)
+        secs.append((name, raw[heads[i][2]:stop].strip()))
+    for k in CONTRACT_FIELDS:
+        for name, body in secs:
+            if k in name:
+                out[k] = body
+                break
+    return out
+
+
+def read_contract(project_id):
+    """按项目 id 读立项契约：registry 的 repo 字段 + 固定文件名。只读。"""
+    d = {"exists": False, "path": "", "repo": ""}
+    for k in CONTRACT_FIELDS:
+        d[k] = ""
+    pid = str(project_id or "").strip()
+    # 与 policies.policyPath 同一约束：id 只允许字母数字连字符，防路径穿越
+    if not re.match(r"^[\w-]+$", pid):
+        return d
+    reg = {p["id"]: p for p in load_all_projects()}
+    repo = str((reg.get(pid) or {}).get("repo") or "").strip()
+    d["repo"] = repo
+    if not repo:
+        return d
+    out = read_contract_file(_contract_path(repo))
+    out["repo"] = repo
+    return out
+
+
+def _contract_path(repo):
+    """契约文件路径：repo + 固定文件名。统一用 `/` 拼（Windows 下同样可读），显示干净。"""
+    r = str(repo or "").strip().rstrip("/\\")
+    return f"{r}/{CONTRACT_BASENAME}" if r else ""
+
+
+def _brief(text, max_items=2, max_len=200):
+    """从契约某一节里提炼**一行要点**——任务书不是契约全文的第二份副本。
+
+    取法：优先列表项 / 表格数据行（各压成一行），否则取首个非空段落；最多 max_items 项、max_len 字符。
+    完整版靠契约文件本身（第一个读者是 AI，agent 在仓库里读得到全文）。
+    """
+    picked = []
+    prev_table = False
+    for raw in str(text or "").splitlines():
+        s = raw.strip()
+        if not s or s.startswith(">") or s.startswith("```"):
+            continue
+        if set(s) <= set("|-: "):          # 表格分隔行
+            prev_table = True
+            continue
+        if s.startswith("|"):
+            if not prev_table:              # 表格**表头行**（| 项 | 定死为 | 依据 |）不算要点
+                prev_table = True
+                continue
+            picked.append(s.strip("|").replace("|", " · ").strip())
+        else:
+            prev_table = False
+            picked.append(re.sub(r"^([-*]\s+|\d+[.、]\s+)", "", s).strip())
+        if len(picked) >= max_items:
+            break
+    out = " ／ ".join(x for x in picked if x)
+    return out if len(out) <= max_len else out[:max_len].rstrip() + "…"
+
+
+def contract_prompt_lines(repo):
+    """任务书 / `tegula next` 里的「立项契约」块。
+
+    缺契约时**显式提示**（绝不静默跳过 —— 静默跳过正是契约要治的病）。
+    有契约时只节选四节（终态/验收线/不要什么/选型）各一行，控长。
+    """
+    path = _contract_path(repo)
+    c = read_contract_file(path)
+    if not c.get("exists"):
+        return [
+            "## 本项目立项契约（缺失 —— 须显式确认，不许静默略过）",
+            f"- 未找到：{path or '（registry 未登记该项目的 repo 路径）'}",
+            "- 契约机制条款 1 / 4：**契约未定 = 不算已立项；④ 选型未定不开工**。",
+            "- 开工前先与用户确认四件：终态形态 / 验收线 / 不要什么 / 选型定死；"
+            "本任务若不依赖它们，请在结果记录里写明理由。",
+        ]
+    lines = [
+        "## 本项目立项契约（**动手前先读契约**）",
+        f"- 契约文件：{path}（完整版含 现状底数 / 下一队列 / REV 修订记录，先通读）",
+        "- 与「最新一句话」冲突时**以契约为准**，除非走 REV 修订留痕（禁口头漂移）。",
+    ]
+    for k in ("终态形态", "验收线", "不要什么", "选型定死"):
+        v = _brief(c.get(k))
+        if v:
+            lines.append(f"- {k}：{v}")
+    return lines
+
+
 def read_agent_runs(tid=None):
     """读 agent 执行日志（倒序）。tid 给定则只筛该任务。"""
     if not os.path.exists(AGENT_RUNS_LOG):
@@ -1933,7 +2086,9 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
     """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
     输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。
     2026-09-25 六字段派工单：项目事实节从方针卡自动注入（无卡/无节则静默跳过，
-    不给任务书添噪音）；先搜后写纪律随任务书固定下发。"""
+    不给任务书添噪音）；先搜后写纪律随任务书固定下发。
+    2026-10-05 契约主线（REV-002）：追加「本项目立项契约」块（四节节选 + 先读契约硬前置）；
+    契约缺失时**显式提示**（这一处不许静默跳过——静默跳过正是契约要治的病）。"""
     proj_id = (d.get("项目") or [None])[0]
     p = {q["id"]: q for q in load_all_projects()}.get(proj_id) if proj_id else None
     proj_name = (p or {}).get("name") or proj_id or "?"
@@ -1946,6 +2101,11 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
         f"执行方寸任务 {tid}：{d.get('标题','')}",
         f"项目：{proj_name}（{proj_id}）· 仓库：{repo}",
         f"任务卡：{fn}（先完整阅读再动手）",
+    ]
+    # 立项契约（REV-002）：契约第一个读者是 AI —— 随任务书下发四节节选 + 硬前置「先读契约再动工」；
+    # 缺契约时显式提示（不是静默跳过）。真源在各项目 repo，方寸只读。
+    lines += contract_prompt_lines(repo)
+    lines += [
         "## 方案（验收对照表，完成后逐项核销）",
         plan,
     ]
@@ -3151,7 +3311,11 @@ def api_note_import_content(filename, content, task_id=None):
 
 
 # ---------- 执行日志（log P0）：高频细颗粒度工作记录 ----------
-_LOGS_DIR = os.path.join(ROOT, "docs", "执行日志")
+# ⚠ 2026-10-05 修：此前用 ROOT（**代码目录**）—— dev 态恰好等于数据目录所以没露馅，
+#   打包后 ROOT = exe 安装目录 → 日志会往安装目录写（可能无权限/被升级覆盖）。
+#   桌面侧（desktop/src/main/services/logs.ts）一直用的是**数据目录**，两侧本来就不一致。
+#   现在统一到 DATA_DIR：dev 态路径不变（同一目录，存量日志不丢），打包态随之修正。
+_LOGS_DIR = os.path.join(DATA_DIR, "docs", "执行日志")
 
 
 def _ensure_logs_dir():

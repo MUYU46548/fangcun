@@ -1,5 +1,8 @@
 # 方寸 (Tegula)
 
+> **开工前先读 [`立项契约.md`](./立项契约.md)** —— 终态形态 / 验收线 / 不要什么 / 选型定死。
+> 契约的**第一个读者是 AI**：与「最新一句话」冲突时以契约为准，除非走 REV 修订留痕。
+
 **零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` 1991 + `core.py` 4231 + `web.py` 711，`tegula.py` 只是 19 行 wrapper；看板用 http.server，端口 8753）。为您创造全部项目的统一任务入口。
 
 ## 技术栈
@@ -32,18 +35,22 @@
 | **已完成任务自动归档（卡 012）** | `node scripts/test/e2e-archive-overdue.cjs` | 判据 =「状态=完成 **且** 更新时间早于 N 天」——刚动过的不收、非完成的不收、没写时间的退 mtime（不是"老得不能再老"）；**保留天数 0 = 关闭，默认必须关**；归档**真把文件移进 archive/**（不是只改状态那种假归档）且可逆；数字时间戳按**秒级**解析（毫秒写法跑到未来 → 不收，钉成负面案例） |
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
+| **阻塞链关键路径（卡 023）** | `node scripts/test/e2e-blockers.cjs` | **本机可跑**：真跑编译产物 `dist/shared/blockers.js`（算法在 `src/shared/blockers.ts`，**不埋在组件里**）。判据 = 「解哪个阻塞最划算要算**传递效应**」：A 挡住 B、B 又挡住 C ⇒ 解 A 值 **4** 而不是 2（只数 `blockedTasks.length` 是错的）；另覆盖「一个任务被多个源挡着时解一个不够」「已终态的源不进推荐」「已完成的被阻塞任务不算收益」「纯函数不改传入数组」。9 条 |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
 | **渲染层 DOM（无头浏览器兜底）** | `node scripts/test/e2e-renderer-web.cjs` | **本机可跑的渲染层断言**：多视图互斥与几何、排序/视图选择落盘、弹药库派工单六字段 —— 用系统 Edge/Chrome 无头加载 `dist/renderer` + 同一份假 preload；产物必须单块（有顶层 import/export 会显式报错而不是静默降级）。它验不了真 IPC / 真点击，那些仍以 `e2e-renderer` 为准 |
 | **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
 | **剪贴板复制** | `node scripts/test/e2e-clipboard.cjs` | **真 Electron + 真 preload + 真读回剪贴板：file:// 起源下的复制走主进程 IPC 通道成立；含「掐掉 IPC 后浏览器路径确实失败」的危害复现 + 静态守卫（渲染层不得再有裸 `navigator.clipboard`）** |
+| **在途一屏（Q2 · 契约验收线①）** | `node scripts/test/e2e-trip-board.cjs` | **真跑编译产物 `dist/main/services/tripBoard.js` + 临时数据目录**（本机可跑，不用 spawn）：契约六字段解析（标题带 ①② 也认）、四种判据各命中谁、**无卡项目 current 回落到执行日志**（司天那类 0 卡项目唯一的数据源）、**缺值给空串而不是默认值**、健康度人工覆盖 + 非法值回落机器默认、**manual 模式必须优先于判据**（首次实现漏了这条，测试当场抓到）、**「手动指定」但 `fc_trip_projects` 键不存在 → 兜底回自动**（2026-10-05 用户「一屏是空的」的真因：字符串键落了盘、数组键没落，清单为空 → 15 个全出局）＋反例「键存在但为空数组 → 尊重用户选择、不回退」＋**manual 下未勾的项目原因必须说「手动指定」而不是「没有未完结任务」**、`repoOfProject` 不产出未登记路径（防任意路径打开）、契约模板含六字段。32 条 |
+| **registry 增删项目** | `node scripts/test/e2e-registry.cjs` | **真跑编译产物 + 临时注册表**：增/删都是**文本块**级操作（不是 yaml dump 重写）—— 钉住「顶部注释与自定义中文字段**逐字节保留**」「删一个项目**不吃掉隔壁、不吃掉 released 段**」「删不存在的 / 非法 / 空 id → 显式报错且**文件零改动**」「删登记**不动 task-data**（卡还在，只是变未归属）」「全删干净后仍是合法注册表」。22 条 |
 | **UI 偏好持久化** | `node scripts/test/e2e-prefs.cjs` | **Agent 预设真身在 `userData/prefs.json`：合并写入·原子替换·坏文件回退；要害断言＝模拟换 origin（localStorage 清空）后清模块缓存重载，值仍在磁盘上** |
 | **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
 | **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
-| 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` / `check-themes` / **`check-skills`（改技能必跑）** | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式·主题对比度·**技能版本漂移与副本分叉** |
+| 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（三项）** / `check-button-styles` / `check-themes` / **`check-skills`（改技能必跑）** / **`check-ui-copy`（改界面文案必跑）** | 僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·按钮用了 class 却无全局样式·主题对比度·**技能版本漂移与副本分叉**·**Markdown 标记（`**`/反引号）漏进界面文案（Vue 不解析 Markdown，用户看到的是字面星号）** |
 | **frontmatter 跨语言契约（改写盘必跑）** | `node scripts/test/e2e-fm-contract.cjs` | **TS 与 Python 读同一份 `task-data/*.md` / `docs/执行日志/*.md`**：块式列表、行内列表、引号、空值两个方向各走一遍 —— 首跑即抓到 `_parse_log` 把块式 `附件:` 读成空串（＝下次写回静默清空）；源码守卫：TS 日志 `yaml.dump` 必须带 `flowLevel:-1`（列表一律内联）、TS 任务写盘仍走 yaml.dump |
 | **MCP 读口契约** | `node scripts/test/e2e-mcp-views.cjs` | **真跑编译产物 `dist/main/mcp/tools.js` + 临时数据目录**（纯 Node 下 `setDataDir` 的持久化分支被 try/catch 吞掉，不会动真实数据目录）：`view=trash` 必须返回回收站而不是活跃+归档、`search_tasks` 必须能搜到归档、`project` 过滤对数组字段生效；源码守卫：禁止私有读扫描回潮 |
 | **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
 | **技能真源一致性（改技能必跑）** | `node scripts/test/check-skills.cjs` | **改 `skills/**` 或发版时必跑**：`manifest.version` 必须等于 `desktop/package.json` 版本；每个技能 `frontmatter.version` 必须等于 manifest 登记值（**防版本号漂移** —— 首跑就抓到 fangcun-bridge 写着 1.2.0 而 manifest 记 1.3.0）；`frontmatter.name` 必须等于 id；`docs/agents/<id>/` 副本与真源**逐字节一致**（防两处分叉）；有 SKILL.md 却没登记的目录必须报出来。顺带打印每个技能 md5（人工对账用） |
+| **界面文案（改 UI 文案必跑）** | `node scripts/test/check-ui-copy.cjs` | **Vue 不解析 Markdown** —— `**粗体**` 和反引号会原样印给用户（在途一屏空屏提示、设置页看板归档说明、`mcpConnect.ts` 的 howTo、`chat.ts` 的鉴权提示都犯过）。只看「最终会以纯文本渲染」的位置：App.vue 的 `<template>` 段（剥注释、取**最后一个**行首 `</template>` 才不会被内部 `<template v-if>` 截断）+ howTo/showToast/message/label/hint/placeholder 行；`logs.ts injectLog` / `buildSelfInstallPrompt` / 契约模板 / 派工单是**有意给 AI 读的 Markdown**，天然不在范围。守卫自身带一条「切片长度合理」的断言，防切片失效后永远绿 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是

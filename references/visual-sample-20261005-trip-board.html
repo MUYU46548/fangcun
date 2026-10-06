@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方寸 · 视觉小样 v2：在途一屏（Q2）· 2026-10-05</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#eef0f4; --ink:#3c4150; --muted:#626775; --accent:#705fab; --accent-soft:#c3bce0;
+    --card:#fff; --border:#e4e2ee; --success:#54814b; --warning:#986b20; --danger:#b44141;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:13px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:22px}
+  h1{font-size:17px;margin-bottom:4px}
+  .lead{color:var(--muted);font-size:12.5px;margin-bottom:16px;max-width:1120px;line-height:1.75}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:16px}
+  .panel > h2{font-size:14px;margin-bottom:2px}
+  .panel > h2 small{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:6px}
+  .panel > .why{color:var(--muted);font-size:12px;margin-bottom:12px;line-height:1.7}
+  .stage{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;overflow:auto}
+  .note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.75}
+  .note code{background:#f0f1f5;border-radius:4px;padding:0 4px}
+  .ruler{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .ruler b{color:var(--ink)}
+  .tag{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:6px;background:#f1eefb;color:#4a4368;font-weight:600;margin-right:6px}
+  .tag.bad{background:#fdeaea;color:#a03a3a}
+  .tag.good{background:#e9f3e6;color:#3f6b39}
+  .tag.warn{background:#fdf3e2;color:#8a5c16}
+  .switcher{display:inline-flex;gap:2px;background:#ecedf3;border:1px solid var(--border);border-radius:10px;padding:2px}
+  .switcher button{border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);padding:4px 12px;border-radius:8px;cursor:pointer}
+  .switcher button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(90,90,130,.14)}
+  .switcher button.new{color:var(--accent);position:relative}
+  .switcher button.new::after{content:"新";position:absolute;top:-7px;right:-3px;font-size:9px;background:var(--accent);color:#fff;border-radius:6px;padding:0 4px}
+
+  .board{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;min-width:1080px}
+  .board-top{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafc}
+  .board-top .ttl{font-size:13px;font-weight:700}
+  .board-top .sub{font-size:11.5px;color:var(--muted)}
+  .board-top .grow{flex:1}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;
+       border-radius:8px;font:600 12px/1 inherit;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+  .btn.ghost{background:#fff;color:var(--ink);border-color:var(--border)}
+  .btn.quiet{background:transparent;color:var(--muted)}
+  .btn.sm{height:24px;padding:0 9px;font-size:11.5px}
+  table.trip{width:100%;border-collapse:collapse;font-size:12px}
+  table.trip th{text-align:left;font-size:11px;font-weight:700;color:var(--muted);padding:7px 11px;border-bottom:1px solid var(--border);background:#fafafc;white-space:nowrap}
+  table.trip td{padding:8px 11px;border-bottom:1px solid #f2f1f7;vertical-align:top}
+  table.trip tr:last-child td{border-bottom:0}
+  .pj{font-weight:700;white-space:nowrap}
+  .pj .pid{display:block;font-size:10.5px;color:var(--muted);font-weight:400}
+  .end{max-width:240px}
+  .muted{color:var(--muted)}
+  .unset{color:#a8574f;background:#fbeeee;border:1px dashed #e2c8c4;border-radius:6px;padding:1px 6px;font-size:11px;white-space:nowrap}
+  .unset + .unset{margin-left:6px}
+  .unset.act{cursor:pointer}
+  .step{max-width:225px}
+  .step .k{font-size:10.5px;color:var(--muted);display:block}
+  .step .from{font-size:10px;color:#8a7fb8;background:#f5f3fc;border-radius:5px;padding:0 5px;margin-left:4px}
+  .who .chip{display:inline-block;background:#f1eefb;color:#4a4368;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+  .who .chip.warn{background:#fdf3e2;color:#8a5c16}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px}
+  .dot.g{background:#54814b}.dot.y{background:#c99a3a}.dot.gray{background:#b9b9c6}
+  .health{white-space:nowrap;cursor:pointer}
+  .health .lock{margin-left:4px;font-size:10px;color:#8a7fb8}
+  .cnt{white-space:nowrap;font-size:11.5px}
+  .cnt b{color:var(--ink)}
+  tr.anomaly td{background:#fffdf6}
+
+  .cfg{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .cfg h3{font-size:12.5px;margin-bottom:2px}
+  .cfg .hint{font-size:11.5px;color:var(--muted);margin-bottom:10px;line-height:1.65}
+  .modes{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .modes label{display:flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;background:#fff}
+  .modes label.on{border-color:var(--accent-soft);background:#f7f5fd}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid var(--border);border-radius:8px;padding:4px 9px;background:#fff}
+  .chk.on{border-color:var(--accent-soft);background:#f7f5fd;color:#4a4368;font-weight:600}
+  .chk .pin{font-size:10px;color:var(--muted)}
+  .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+  .warnbox{background:#fdf7ea;border:1px solid #eadfc4;border-radius:10px;padding:9px 12px;font-size:11.5px;color:#7a5a1d;line-height:1.7;margin-top:10px}
+  ul.plain{margin:6px 0 0 18px;font-size:12.5px}
+  ul.plain li{margin-bottom:6px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<h1>方寸 · 视觉小样 <b>v2</b>：项目页签新增摆法「在途一屏」（Q2）</h1>
+<p class="lead">
+  对应立项契约 ② 验收线之①：<b>「在哪一步 / 下一步 / 卡在谁」一屏可见</b>。<br>
+  v2 已按暮雨 2026-10-05 拍的三条改：① <b>司天收进来</b>（0 卡但 7 条日志，靠日志记断点）；
+  ② 默认判据 = <b>有未完结卡 或 30 天内有提交</b>（→ 10 个项目）；③ 契约按钮做成两个（复制模板 + 打开 repo）。<br>
+  旧三摆法一个字不动，默认仍是「项目墙」。
+</p>
+
+<!-- ① -->
+<div class="panel">
+  <h2>① 摆在哪儿<small>项目页签切换器新增第 4 项</small></h2>
+  <div class="stage">
+    <div class="switcher">
+      <button class="on">项目墙</button>
+      <button>概览卡</button>
+      <button>主从</button>
+      <button class="new">在途一屏</button>
+    </div>
+  </div>
+  <div class="note">选择记进 <code>prefs.json</code>（同既有 <code>fc_pv_view</code> 机制），下次打开还停在那页。</div>
+</div>
+
+<!-- ② -->
+<div class="panel">
+  <h2>② 「在途一屏」长什么样<small>10 行全是今天 10:45 的真实数据</small></h2>
+  <div class="why">
+    一行一项目。所有内容都<b>从已有数据推</b>：契约读「终态」；任务卡推「当前步骤 / 下一步 / 卡在谁」；
+    <b>没有卡就看执行日志</b>（司天正是靠这条进来的）；git 推健康度。
+  </div>
+  <div class="stage">
+    <div class="board">
+      <div class="board-top">
+        <span class="ttl">在途一屏</span>
+        <span class="sub">10 个项目 · 判据：有未完结卡 或 30 天内有提交 · 更新于 10:45</span>
+        <span class="grow"></span>
+        <button class="btn ghost sm">⚙ 这一屏显示什么</button>
+        <button class="btn quiet sm">↻ 刷新</button>
+      </div>
+      <table class="trip">
+        <thead>
+          <tr>
+            <th style="width:112px">项目</th>
+            <th style="width:232px">终态（一句话）</th>
+            <th style="width:216px">当前步骤</th>
+            <th style="width:206px">下一步</th>
+            <th style="width:92px">卡在谁</th>
+            <th style="width:104px">健康度</th>
+            <th style="width:126px">卡 / 日志</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="pj">方寸<span class="pid">fangcun-base</span></td>
+            <td class="end">桌面客户端为主产品；Web/CLI 只作 agent 通道与只读镜像</td>
+            <td class="step"><span class="k">契约层（待验收）</span>只读索引 + next 下发</td>
+            <td class="step"><span class="k">Q2 · 在途一屏（高）</span>就是这一屏</td>
+            <td class="who"><span class="chip">你（验收）</span></td>
+            <td class="health"><span class="dot g"></span>活跃</td>
+            <td class="cnt"><b>10</b> 待办 · 28 日志</td>
+          </tr>
+          <tr class="anomaly">
+            <td class="pj">司天<span class="pid">sitian</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">司天进度1001 <span class="from">日志</span></span>3 天前 · 暂搁置</td>
+            <td class="step"><span class="k">— 该日志未写「下一步」</span></td>
+            <td class="who muted">—</td>
+            <td class="health"><span class="dot gray"></span>搁置<span class="lock">🔒人工</span></td>
+            <td class="cnt"><b>0</b> 卡 · <b>7</b> 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">绒花墨坊<span class="pid">project-2</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">— 没有进行中的卡</span>修复轮（仓库侧进行中）</td>
+            <td class="step"><span class="k">2 张待办（最高：中）</span>写《留下你的歌》新作</td>
+            <td class="who"><span class="chip warn">未指派</span></td>
+            <td class="health"><span class="dot g"></span>活跃</td>
+            <td class="cnt"><b>2</b> 待办 · 11 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">记忆圣所<span class="pid">memory-sanctuary</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">进行中</span>《记忆圣所》文案全量重写</td>
+            <td class="step"><span class="k">1 张待办</span>记忆圣所 DLC 开发</td>
+            <td class="who"><span class="chip">hermes（执行）</span></td>
+            <td class="health"><span class="dot g"></span>活跃</td>
+            <td class="cnt"><b>1</b> 待办 · <b>1</b> 进行</td>
+          </tr>
+          <tr>
+            <td class="pj">ROSA 创作<span class="pid">rosa-chuangzuo</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">— 没有进行中的卡</span></td>
+            <td class="step"><span class="k">3 张待办（最高：中）</span>《净土的风》最终修订稿</td>
+            <td class="who"><span class="chip warn">未指派</span></td>
+            <td class="health"><span class="dot y"></span>停滞</td>
+            <td class="cnt"><b>3</b> 待办 · 1 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">明鉴<span class="pid">project-3</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">— 没有进行中的卡</span></td>
+            <td class="step"><span class="k">1 张待办</span>明鉴桌面版开发</td>
+            <td class="who"><span class="chip warn">未指派</span></td>
+            <td class="health"><span class="dot y"></span>停滞</td>
+            <td class="cnt"><b>1</b> 待办 · 1 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">滞针迟鸣<span class="pid">zhizhen-chiming</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">进行中</span>剧本推进</td>
+            <td class="step"><span class="k">— 没有待办卡</span></td>
+            <td class="who"><span class="chip">hermes（执行）</span></td>
+            <td class="health"><span class="dot g"></span>活跃</td>
+            <td class="cnt"><b>1</b> 进行 · 0 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">Python 工作区<span class="pid">python-workspace</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step"><span class="k">— 没有进行中的卡</span></td>
+            <td class="step"><span class="k">1 张待办</span>脚本整理</td>
+            <td class="who"><span class="chip warn">未指派</span></td>
+            <td class="health"><span class="dot gray"></span>休眠</td>
+            <td class="cnt"><b>1</b> 待办 · 0 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">Quartz<span class="pid">quartz</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step muted"><span class="k">— 0 张卡 · 无日志</span>30 天内有仓库提交</td>
+            <td class="step muted"><span class="k">—</span></td>
+            <td class="who muted">—</td>
+            <td class="health"><span class="dot g"></span>活跃</td>
+            <td class="cnt muted"><b>0</b> 卡 · 0 日志</td>
+          </tr>
+          <tr>
+            <td class="pj">ROSA RAG<span class="pid">rosa-rag</span></td>
+            <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
+            <td class="step muted"><span class="k">— 0 张卡 · 无日志</span>30 天内有仓库提交</td>
+            <td class="step muted"><span class="k">—</span></td>
+            <td class="who muted">—</td>
+            <td class="health"><span class="dot y"></span>停滞</td>
+            <td class="cnt muted"><b>0</b> 卡 · 0 日志</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="ruler">
+    <span><b>终态</b> = 契约 ① 首行</span>
+    <span><b>当前步骤</b> = 进行中的卡 → 没卡就回落到最近一条日志</span>
+    <span><b>下一步</b> = 待办里优先级最高那张 → 没卡就看日志的「下一步」</span>
+    <span><b>健康度</b> = 提交新鲜度，<b>可点着改</b>（🔒 = 你手动锁定过）</span>
+  </div>
+  <div class="note">
+    末两行（Quartz / ROSA RAG）是<b>判据放宽的代价</b>：它们没有卡、没有日志，只靠 30 天内有提交被拉进来，
+    所以有两格只能是「—」。视图照实显示，不为了好看去编内容。
+  </div>
+</div>
+
+<!-- ③ -->
+<div class="panel">
+  <h2>③ 司天这一行是怎么来的<small>回应「0 张卡、全靠日志记断点」</small></h2>
+  <div class="why">司天在方寸里 0 张任务卡，但有 <b>7 条执行日志</b>（最新「司天进度1001」，3 天前）。所以它不显示空白，而是回落到日志：</div>
+  <div class="stage">
+    <table class="trip" style="background:#fff;border-radius:10px;overflow:hidden">
+      <thead><tr><th style="width:150px">数据源</th><th>取到什么</th><th style="width:130px">落到哪一列</th></tr></thead>
+      <tbody>
+        <tr><td>任务卡（<code>task-data/</code>）</td><td class="muted">0 张 —— 方寸里没有落点</td><td class="muted">—</td></tr>
+        <tr><td>执行日志（<code>docs/执行日志/</code>）</td><td>最新：<b>司天进度1001</b> · 3 天前 · 状态 active</td><td>当前步骤 <span class="from">日志</span></td></tr>
+        <tr><td>日志的 <code>next_steps</code> 字段</td><td class="muted">该条为空 —— 所以「下一步」只能是「—」</td><td class="muted">——</td></tr>
+        <tr><td>git 提交</td><td>3 天前有提交（机器会判「活跃」）</td><td>健康度 → <b>你手动锁成「搁置」</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    两个要点：<b>①</b> 日志成了 0 卡项目的唯一数据源 —— 这就是你说「全靠日志记录断点」在一屏上的落点；
+    <b>②</b> 健康度<b>不能只信机器</b>：司天 3 天前有提交，机器判「活跃」，但真实状态是<b>搁置</b>（预算/时间受限）。
+    所以这一列做成<b>可点击覆盖</b>，你标过的会带 🔒 锁住，机器不再改它。
+  </div>
+</div>
+
+<!-- ④ -->
+<div class="panel">
+  <h2>④ 裁断入口<small>点右上「⚙ 这一屏显示什么」</small></h2>
+  <div class="why">机器口径只是<b>默认值</b>。你手动选过就以你的为准，不会再被自动推导覆盖。</div>
+  <div class="stage">
+    <div class="cfg">
+      <div>
+        <h3>收哪些项目</h3>
+        <div class="hint">默认「自动」= 按下面判据取。想固定就选「手动」。</div>
+        <div class="modes">
+          <label class="on"><input type="radio" name="m" checked> 自动（跟判据走）</label>
+          <label><input type="radio" name="m"> 手动指定</label>
+        </div>
+        <div class="chips">
+          <label class="chk on"><input type="checkbox" checked> 方寸</label>
+          <label class="chk on"><input type="checkbox" checked> 司天 <span class="pin">0 卡 · 7 日志</span></label>
+          <label class="chk on"><input type="checkbox" checked> 绒花墨坊</label>
+          <label class="chk on"><input type="checkbox" checked> 记忆圣所</label>
+          <label class="chk on"><input type="checkbox" checked> ROSA 创作</label>
+          <label class="chk on"><input type="checkbox" checked> 明鉴</label>
+          <label class="chk on"><input type="checkbox" checked> 滞针迟鸣</label>
+          <label class="chk on"><input type="checkbox" checked> Python 工作区</label>
+          <label class="chk on"><input type="checkbox" checked> Quartz</label>
+          <label class="chk on"><input type="checkbox" checked> ROSA RAG</label>
+          <label class="chk"><input type="checkbox"> 设定资料工具库</label>
+          <label class="chk"><input type="checkbox"> 松涛真韵</label>
+          <label class="chk"><input type="checkbox"> 弈局残响</label>
+        </div>
+        <div class="warnbox">
+          勾选状态 = 当前判据算出来的结果（10 个）。你一旦手动改动，就切到「手动指定」并记进 <code>prefs.json</code> ——
+          <b>默认不写死任何一个项目名</b>，换台机器、换个用户都成立。
+        </div>
+      </div>
+      <div>
+        <h3>判据门槛</h3>
+        <div class="hint">默认已按你拍的设定。</div>
+        <div class="chips" style="flex-direction:column;align-items:stretch">
+          <label class="chk"><input type="radio" name="r"> 有未完结卡（6 个）</label>
+          <label class="chk on"><input type="radio" name="r" checked> 有未完结卡 <b>或</b> 30 天内有提交（10 个）✓ 本次选定</label>
+          <label class="chk"><input type="radio" name="r"> 有未完结卡 或 有执行日志（7 个）</label>
+          <label class="chk"><input type="radio" name="r"> 手填清单</label>
+        </div>
+        <h3 style="margin-top:12px">显示哪些列</h3>
+        <div class="chips">
+          <label class="chk on"><input type="checkbox" checked> 终态</label>
+          <label class="chk on"><input type="checkbox" checked> 当前步骤</label>
+          <label class="chk on"><input type="checkbox" checked> 下一步</label>
+          <label class="chk on"><input type="checkbox" checked> 卡在谁</label>
+          <label class="chk on"><input type="checkbox" checked> 健康度</label>
+          <label class="chk on"><input type="checkbox" checked> 卡 / 日志</label>
+          <label class="chk"><input type="checkbox"> 最近提交</label>
+          <label class="chk"><input type="checkbox"> 未提交文件数</label>
+        </div>
+      </div>
+    </div>
+    <div class="foot" style="margin:12px 0 0;border-top:0;padding-top:0">
+      <button class="btn ghost">恢复默认</button>
+      <button class="btn ghost">取消</button>
+      <button class="btn" style="background:var(--accent);color:#fff">保存</button>
+    </div>
+  </div>
+  <div class="note">
+    存 <code>prefs.json</code> 的三个键 <code>fc_trip_mode</code> / <code>fc_trip_projects</code> / <code>fc_trip_cols</code>，
+    走既有<b>白名单字面量校验</b>再落盘；不新增存储引擎、不拿 localStorage 当真相。
+  </div>
+</div>
+
+<!-- ⑤ -->
+<div class="panel">
+  <h2>⑤ 缺值一律「未填 / —」<small>这是纪律，不是抠门</small></h2>
+  <div class="why">方寸犯过的老毛病是「界面说假话」（默认值伪装成事实）。这一屏读到什么写什么：</div>
+  <ul class="plain">
+    <li>契约没有 → 红框「<b>未填</b>」+ 两个按钮：<b>复制模板</b>（A，给你一份骨架，你去仓库里改）/ <b>📁 打开 repo</b>（B，直接开目录）。</li>
+    <li>没有进行中的卡 → 写「<b>— 没有进行中的卡</b>」，不拿"最后一张完成的卡"顶上。</li>
+    <li>0 张卡也 0 条日志 → 写「<b>— 0 张卡 · 无日志</b>」，并注明「只有提交撑着」。</li>
+    <li>10 行里 <b>9 行终态未填</b> —— 这不是这一屏的毛病，是<b>九个项目还没立契约</b>。视图只负责把它摊开。</li>
+  </ul>
+</div>
+
+<!-- ⑥ -->
+<div class="panel">
+  <h2>⑥ 两个我自己拍的小决定<small>不同意就改，我先说清楚</small></h2>
+  <ul class="plain">
+    <li><b>健康度可人工覆盖</b>（司天「搁置」就是例子）。机器只给默认值（提交新鲜度），你点一下就能锁成
+      活跃 / 搁置 / 休眠 / 完成，锁过的带 🔒，机器不再动弹它。理由：司天这种"在动但冻结"的状态，机器永远算不出来。</li>
+    <li><b>日志来源写清楚</b>：「当前步骤」回落到日志时，旁边挂一枚小标签「日志」，让你一眼看出这条不是卡里来的。</li>
+  </ul>
+  <div class="note">
+    附：盘点时还撞见 <b>2 条孤儿日志</b>（<code>project</code> 写成 <code>(空)</code> 和 <code>小说游戏</code>，
+    都不在登记表里）—— 它们在一屏上归不到任何项目。修不修、什么时候修，你说了算，我不顺手改。
+  </div>
+  <div class="note" style="margin-top:8px"><b>确认后我按此实现</b>：新增摆法 + 设置面板 + 三个 prefs 键 + 健康度覆盖；
+    旧三摆法与默认值一个字不动。改完跑 <code>npm run build</code> + <code>e2e-renderer-web</code> + 三守卫。</div>
+</div>
+
+</body>
+</html>

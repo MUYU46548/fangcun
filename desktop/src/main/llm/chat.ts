@@ -287,7 +287,7 @@ export function explainError(status: number, body: string): string {
 
   if (status === 401) {
     if (code === '401002' || /signature|签名/.test(msg)) {
-      return '鉴权失败（401002）。两种可能：① 请求头缺少 `Bearer ` 前缀；② 保存的 Key 被覆盖成了掩码 `***`。请重新粘贴 Key 并保存后再测。'
+      return '鉴权失败（401002）。两种可能：① 请求头缺少「Bearer 」前缀；② 保存的 Key 被覆盖成了掩码「***」。请重新粘贴 Key 并保存后再测。'
     }
     return `鉴权失败（401）。请确认 Key 未过期、未带首尾空格，且 Base URL 属于同一个平台。${msg ? ' 网关原文：' + msg : ''}`
   }

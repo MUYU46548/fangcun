@@ -4,7 +4,7 @@ from urllib.parse import parse_qs
 
 from tegula.core import (
     ROOT, TASK_DIR, REGISTRY_PATH, REGISTRY_BAK, BACKUP_DIR, BACKUP_KEEP,
-    ACTIVITY_LOG, STATUSES, _NOWIN, MANAGED_KEYS, TASKFN, _GATES,
+    ACTIVITY_LOG, STATUSES, illegal_status, _NOWIN, MANAGED_KEYS, TASKFN, _GATES,
     ALLOWED_SYNC_PROFILE, AGENT_RUNS_LOG, _AGENT_CMD_MAP, RULES_PATH,
     DEFAULT_RULES, LAST_REQUEST, _STATUS_CACHE, STATUS_TTL, WRITE_ACTIONS,
     _STATUS_SCAN_LOCK, QUICK_PRIO, PORT_FILE, _NOTES_DIR, _NOTES_INDEX,
@@ -22,7 +22,9 @@ from tegula.core import (
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
     api_batch_edit, api_batch_archive, api_batch_delete, api_backup,
     _active_hermes_profile, log_activity, read_activity, _gen_run_id,
-    log_agent_run, read_agent_runs, read_policy, _hermes_cmd, _claude_cmd, _codex_cmd,
+    log_agent_run, read_agent_runs, read_policy, read_contract, contract_prompt_lines,
+    CONTRACT_FIELDS,
+    _hermes_cmd, _claude_cmd, _codex_cmd,
     _kun_cmd, _agent_cmd, _build_prompt, prepare_dispatch, dispatch_task,
     api_dispatch, allowed_roots, validate_open_path, api_open_file,
     _rules_path, load_rules, save_rules, _plan_all_checked, evaluate_rules,
@@ -543,6 +545,8 @@ def cmd_next(args):
             "count": len(picked),
             "next": head,
             "policy": read_policy(projs[0]) if projs else None,
+            # 立项契约（REV-002）：只在读，方寸不写他人仓库；缺契约时 exists=False，由调用方显式处理。
+            "contract": read_contract(projs[0]) if projs else None,
             "candidates": [
                 {"id": t.get("id"), "标题": t.get("标题"), "状态": t.get("状态"),
                  "优先级": t.get("优先级"), "截止": t.get("截止"),
@@ -584,6 +588,14 @@ def cmd_next(args):
                 break
         if lines:
             print("  摘要    : " + " / ".join(x[:60] for x in lines))
+
+    # 立项契约（REV-002）：与任务书同一口径 —— 契约第一个读者是 AI，取活时就该看到；
+    # 缺契约时 contract_prompt_lines 输出「缺失 + 条款 1/4」显式提示（不静默跳过）。
+    if projs:
+        _ct = read_contract(projs[0])
+        print("")
+        for _ln in contract_prompt_lines(_ct.get("repo") or ""):
+            print(_ln)
 
     policy = read_policy(projs[0]) if projs else None
     print("")
@@ -692,6 +704,13 @@ def cmd_doctor(args):
             ids.add(tid)
             if base == TASK_DIR:
                 n_active += 1
+            # 状态白名单（2026-10-06 卡 008）：非法状态会让看板分组语义不明、
+            # gen-progress 单列一类（当年 `task-mingjian-template-20260925` 写了「待处理」
+            # —— 那是日志页的分区叫法，被手写进了任务卡）。判据在 core.illegal_status，
+            # 与 STATUSES 同源；这里是数据契约，报 error。
+            _st_bad = illegal_status(d.get("状态"))
+            if _st_bad:
+                errs.append(f"{tid}: 状态「{_st_bad}」不在合法取值里（{'/'.join(STATUSES)}）")
             if not str(d.get("创建") or "").strip():
                 warns.append(f"{tid}: 缺 创建 时间戳")
             if not str(d.get("更新") or "").strip():

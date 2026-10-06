@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('tegula', {
   
   // Registry
   registryAddProject: (fields: any) => ipcRenderer.invoke('registry:addProject', fields),
+  registryRemoveProject: (id: string) => ipcRenderer.invoke('registry:removeProject', id),
 
   // ── 备份 v2（WebDAV + 调度 + 可验证恢复）
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),
@@ -57,12 +58,9 @@ contextBridge.exposeInMainWorld('tegula', {
   backupListLocal: () => ipcRenderer.invoke('backup:listLocal'),
   backupListRemote: () => ipcRenderer.invoke('backup:listRemote'),
   backupTestRemote: (input: any) => ipcRenderer.invoke('backup:testRemote', input),
-  backupListSources: (includeRemote?: boolean) => ipcRenderer.invoke('backup:listSources', !!includeRemote),
   backupRestore: (source: any) => ipcRenderer.invoke('backup:restore', source),
-  backupState: () => ipcRenderer.invoke('backup:state'),
   backupLog: (lines?: number) => ipcRenderer.invoke('backup:log', lines),
   backupOpenDir: () => ipcRenderer.invoke('backup:openDir'),
-  backupLocalDir: () => ipcRenderer.invoke('backup:localDir'),
   backupExportTo: (input: any) => ipcRenderer.invoke('backup:exportTo', input),
   backupVerifyPackage: (zipPath?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath),
   backupPickRestoreFile: () => ipcRenderer.invoke('backup:pickRestoreFile'),
@@ -82,17 +80,10 @@ contextBridge.exposeInMainWorld('tegula', {
   // Activity
   loadActivity: (limit = 50) => ipcRenderer.invoke('loadActivity', limit),
   
-  // Notes
-  notesForTask: (taskId: string) => ipcRenderer.invoke('notesForTask', taskId),
-  createNote: (note: any) => ipcRenderer.invoke('createNote', note),
-  updateNote: (noteId: string, updates: any) => ipcRenderer.invoke('updateNote', noteId, updates),
-  listNotes: () => ipcRenderer.invoke('listNotes'),
-  deleteNote: (noteId: string) => ipcRenderer.invoke('deleteNote', noteId),
-  attachNote: (noteId: string, taskId: string) => ipcRenderer.invoke('attachNote', noteId, taskId),
-  detachNote: (noteId: string) => ipcRenderer.invoke('detachNote', noteId),
-  exportNotes: () => ipcRenderer.invoke('exportNotes'),
-  importNotes: (data: any[]) => ipcRenderer.invoke('importNotes', data),
-  importNoteFromFile: (filePath: string, taskId?: string) => ipcRenderer.invoke('importNoteFromFile', filePath, taskId),
+  // Notes ── 2026-10-06 整块删除（暮雨批：笔记功能可以删）
+  // 10 条通道（notesForTask / createNote / updateNote / listNotes / deleteNote /
+  // attachNote / detachNote / exportNotes / importNotes / importNoteFromFile）都是
+  // 「渲染层零调用」—— 界面里从来没有过笔记入口。`notes/` 数据文件没动。
 
   // ── Tasks Import/Export（设置页「导出/导入任务 JSON」按钮）────────────
   // 此前渲染层在调 window.tegula.exportTasks/importTasks，主进程也注册了同名
@@ -130,10 +121,14 @@ contextBridge.exposeInMainWorld('tegula', {
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
   prefsGet: () => ipcRenderer.invoke('prefs:get'),
   prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
+  /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */
+  prefsSetMany: (patch: Record<string, any>) => ipcRenderer.invoke('prefs:setMany', patch),
   logsCleanup: () => ipcRenderer.invoke('logs:cleanup'),
 
   // Blockers
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),
+  /** Git 联动（卡 017）：只读某张卡存续期间它所属仓库的提交 + 提到本卡 ID 的提交 */
+  gitTaskCommits: (taskId: string) => ipcRenderer.invoke('git:taskCommits', taskId),
   
   // Roadmap + Suggestions
   aggregateRoadmap: (projectId?: string) => ipcRenderer.invoke('aggregateRoadmap', projectId),
@@ -177,6 +172,12 @@ contextBridge.exposeInMainWorld('tegula', {
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),
   policySave: (p: any) => ipcRenderer.invoke('policy:save', p),
   policyText: (projectId: string) => ipcRenderer.invoke('policy:text', projectId),
+  // 在途一屏（Q2）：只读聚合 —— 各 repo 契约 + 任务卡 + 执行日志 + git 提交时间。
+  // 方寸**绝不写**任何项目仓库；写操作只走 prefs（既有 prefs:set 通道）。
+  tripBoard: () => ipcRenderer.invoke('trip:board'),
+  contractText: (projectId: string) => ipcRenderer.invoke('trip:contractText', projectId),
+  tripOpenRepo: (projectId: string) => ipcRenderer.invoke('trip:openRepo', projectId),
+  tripInitContract: (projectId: string) => ipcRenderer.invoke('trip:initContract', projectId),
   launchpadLoadApps: () => ipcRenderer.invoke('launchpad:loadApps'),
   launchpadAddApp: (app: any) => ipcRenderer.invoke('launchpad:addApp', app),
   launchpadUpdateApp: (id: string, updates: any) => ipcRenderer.invoke('launchpad:updateApp', id, updates),
@@ -196,8 +197,12 @@ contextBridge.exposeInMainWorld('tegula', {
   todosHealth: () => ipcRenderer.invoke('todos:health'),
 
   // ── Dispatch ───────────────────────────────────────────────────────
-  dispatchPreview: (id: string) => ipcRenderer.invoke('dispatch:preview', id),
-  dispatchExecute: (id: string) => ipcRenderer.invoke('dispatch:execute', id),
+  // 2026-10-06（卡 004）：`dispatchPreview` / `dispatchExecute` **已删**。
+  // 桌面「派活」入口早在 9/20 就判死（用户：派活极不可靠、易失控，执行过程/进度/结果都看不见），
+  // 现在右键只给「📐 复制为派工单」（纯文本拼接、只复制不派发）。
+  // 但这两个通道一直留在 preload + 主进程里 —— **渲染层零调用**，整条是死代码。
+  // 删掉它，并给 check-ipc-parity 补了第 ⑤ 类（死通道）断言，下次这类残留会被查出来。
+  // ⚠ CLI 侧的 `tegula dispatch` / `_build_prompt` **不是死代码**（agent 面在用），未动。
 
   // ── Review ─────────────────────────────────────────────────────────
   reviewAccept: (id: string, reason?: string) => ipcRenderer.invoke('review:accept', id, reason),

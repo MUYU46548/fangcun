@@ -17,8 +17,10 @@ import { registerLlmIpcHandlers } from './llm-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
+import * as tripBoard from './services/tripBoard'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
+import * as gitLink from './services/gitLink'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
@@ -393,69 +395,49 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // ── Notes ─────────────────────────────────────────────────────────
-  guardedHandle('notesForTask', (_event, taskId: string) => {
-    return services.getNotesForTask(taskId)
-  })
-
-  guardedHandle('createNote', (_event, note: any) => {
-    try {
-      const result = services.createNote(note.title || '', note.content || '', note.taskId)
-      return { ok: true, note: result }
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-
-  guardedHandle('updateNote', (_event, noteId: string, updates: any) => {
-    try {
-      const result = services.updateNote(noteId, updates)
-      return { ok: !!result, note: result }
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-
-  guardedHandle('listNotes', () => {
-    return services.listNotes()
-  })
-
-  guardedHandle('deleteNote', (_event, noteId: string) => {
-    const ok = services.deleteNote(noteId)
-    return { ok }
-  })
-
-  guardedHandle('importNoteFromFile', (_event, filePath: string, taskId?: string) => {
-    try {
-      const note = services.importNoteFromFile(filePath, taskId)
-      return { ok: !!note, note }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
-  })
-
-  guardedHandle('attachNote', (_event, noteId: string, taskId: string) => {
-    const ok = services.attachNote(noteId, taskId)
-    return { ok }
-  })
-
-  guardedHandle('detachNote', (_event, noteId: string) => {
-    const ok = services.detachNote(noteId)
-    return { ok }
-  })
+  // ── Notes ── 已于 2026-10-06 整块删除（暮雨批：笔记功能可以删）───────────
+  // 判据：preload 暴露 + 主进程注册，但**渲染层零调用** —— 界面里从来没有过笔记入口。
+  // 通道、`services` 的笔记实现、`tasks` 的笔记导入导出一并删。
+  // ⚠ `notes/` 数据目录**不动**：历史笔记文件仍在磁盘上（只是没有界面/通道了）。
+  // ⚠ 别误伤：下面 `exportTasks` / `importTasks` 是「导出/导入任务 JSON」（设置页在用）。
 
   // ── Blocker chains ─────────────────────────────────────────────────
   guardedHandle('getBlockerChains', () => {
     return tasks.getBlockerChains()
   })
 
-  // ── Notes Import/Export ────────────────────────────────────────────
-  guardedHandle('exportNotes', () => {
-    return tasks.exportNotes()
-  })
-
-  guardedHandle('importNotes', (_event, data: any[]) => {
-    return tasks.importNotes(data)
+  // ── Git 联动（卡 20260925-017，2026-10-06）── 只读 ────────────────────
+  // 回答两个问题：① 这张卡存续期间，它所属仓库有哪些提交（按创建~更新+7天的时间窗）；
+  // ② 哪些提交信息里提到了本卡 ID（`fix: xxx (#task-20261005-005)` 那类）。
+  // 铁律：只读 `git log` —— 不 checkout / 不 fetch / 不写任何仓库、不改任务数据（契约 ③）。
+  // 读不到时**显式说明原因**（没归属项目 / 没登记 repo / 不是 git 仓库），不给假数据。
+  guardedHandle('git:taskCommits', async (_event: any, taskId: string) => {
+    try {
+      const task = tasks.readTask(taskId)
+      if (!task) return { ok: false, error: '任务不存在' }
+      const pRaw = (task.fm as any).project
+      const pid = Array.isArray(pRaw) ? String(pRaw[0] || '') : String(pRaw || '')
+      if (!pid) return { ok: true, repo: '', commits: [], mentioned: [], note: '这张卡没有归属项目，定位不到仓库' }
+      const proj: any = data.parseRegistry().find((p: any) => p.id === pid)
+      const repo = String(proj?.repo || '')
+      if (!repo) {
+        return { ok: true, repo: '', commits: [], mentioned: [],
+          note: `项目「${proj?.name || pid}」没登记工作目录，定位不到仓库` }
+      }
+      if (!(await gitLink.isGitRepo(repo))) {
+        return { ok: true, repo, commits: [], mentioned: [],
+          note: '这个工作目录不是 git 仓库（或本机此刻读不到 git）—— 方寸没法替它编提交记录' }
+      }
+      const since = gitLink.toIso((task.fm as any).created)
+      const until = gitLink.toIso((task.fm as any).updated, 7)
+      return {
+        ok: true, repo, since, until,
+        commits: await gitLink.repoCommitsBetween(repo, since, until),
+        mentioned: await gitLink.commitsMentioning(repo, taskId),
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
   })
 
   // ── Task Import/Export ────────────────────────────────────────────
@@ -573,6 +555,52 @@ export function registerIpcHandlers(): void {
       const p = policies.getPolicy(projectId)
       return p ? { ok: true, text: policies.policyToText(p) } : { ok: false, error: '方针卡不存在' }
     } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // ── 在途一屏（Q2 · 立项契约 ② 验收线之①）──────────────────────────────
+  // 只读聚合：读各 repo 的 `立项契约.md` + 任务卡 + 执行日志 + git 提交时间。
+  // 方寸**不写任何项目仓库**；"打开 repo"只收 projectId（路径由主进程从 registry 取），不放任意路径。
+  guardedHandle('trip:board', () => {
+    try { return { ok: true, ...tripBoard.buildTripBoard() } }
+    catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  guardedHandle('trip:contractText', (_event, projectId: string) => {
+    try {
+      const repo = tripBoard.repoOfProject(projectId)
+      if (!repo) return { ok: false, error: '该项目在 registry 里没有登记仓库路径' }
+      const c = tripBoard.readContractFile(repo)
+      if (c.exists) {
+        return { ok: true, exists: true, text: fs.readFileSync(c.path, 'utf-8'), path: c.path, repo }
+      }
+      // 没有契约 → 给一份骨架（纯文本，落盘由用户自己做）
+      return { ok: true, exists: false, text: tripBoard.contractTemplate(projectId), path: c.path, repo }
+    } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+  // **只动 registry.yaml 的那一段文本块** —— 任务卡 / 方针卡 / 项目仓库一个字节都不碰；
+  // 删掉登记后该项目下的卡会变成「未归属项目」（卡还在）。写前自校验在 data 层。
+  guardedHandle('registry:removeProject', (_event, id: string) => {
+    try { return data.removeProjectFromRegistry(id) }
+    catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // 在项目文件夹里**创建**「立项契约.md」（2026-10-05 用户：让方寸直接写，弹窗确认即可）。
+  // 只建不覆盖：文件已存在一律拒绝；只写固定文件名 + 固定模板，不接任意路径/内容。
+  guardedHandle('trip:initContract', (_event, projectId: string) => {
+    try { return tripBoard.initContractFile(projectId) }
+    catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  guardedHandle('trip:openRepo', async (_event, projectId: string) => {
+    try {
+      const repo = tripBoard.repoOfProject(projectId)
+      if (!repo) return { ok: false, error: '该项目在 registry 里没有登记仓库路径', repo: '' }
+      if (!fs.existsSync(repo)) return { ok: false, error: `目录不存在：${repo}`, repo }
+      const err = await shell.openPath(repo)
+      return err ? { ok: false, error: err, repo } : { ok: true, repo }
+    } catch (e: any) { return { ok: false, error: e.message, repo: '' } }
   })
 
   guardedHandle('launchpad:loadApps', () => {
@@ -772,26 +800,19 @@ export function registerIpcHandlers(): void {
   guardedHandle('prefs:get', () => prefs.getPrefs())
   guardedHandle('prefs:set', (_event, key: string, value: unknown) => prefs.setPref(key, value))
 
-  // ── Dispatch ────────────────────────────────────────────────────────
-  guardedHandle('dispatch:preview', (_event: any, id: string) => {
-    try {
-      const task = tasks.readTask(id)
-      if (!task) return { ok: false, error: '任务不存在' }
-      const prompt = buildDispatchPrompt(task)
-      return { ok: true, prompt, status: task.fm.status }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
+  // 一次写完多个偏好键 + 回读校验（2026-10-05）：见 prefs.setPrefs 的注释 ——
+  // 「提示保存了但实际没保存」的老路必须堵死，凡是用户点了保存的路径都要能回答"存住没有"。
+  guardedHandle('prefs:setMany', (_event, patch: Record<string, unknown>) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return { ok: false, written: [], error: '参数必须是 { 键: 值 } 对象' }
     }
+    return prefs.setPrefs(patch as any)
   })
 
-  guardedHandle('dispatch:execute', (_event: any, id: string) => {
-    try {
-      const result = executeDispatch(id)
-      return result
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
-  })
+  // ── Dispatch ── 已于 2026-10-06（卡 004）整条删除 ────────────────────
+  // `dispatch:preview` / `dispatch:execute` 两个 handler + preload 的两条通道一起删。
+  // 理由：桌面派活入口 9/20 就判死，渲染层零调用 —— 留着只会骗后来者（本次就骗了一次）。
+  // 需要派工单时走「📐 复制为派工单」（纯文本，只复制不派发）。
 
   // ── Review ──────────────────────────────────────────────────────────
   guardedHandle('review:accept', (_event: any, id: string, reason?: string) => {
@@ -852,38 +873,9 @@ export function registerIpcHandlers(): void {
 }
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────
-
-function buildDispatchPrompt(task: any): string {
-  const title = task.fm.title || task.id
-  const project = task.fm.project || '未归属'
-  const body = task.body || ''
-  return [
-    `执行方寸任务 ${task.id}：${title}`,
-    `项目：${project}`,
-    `任务卡：${task.path}`,
-    '## 任务正文',
-    body,
-  ].join('\n')
-}
-
-function executeDispatch(id: string): { ok: boolean; error?: string; command?: string } {
-  const task = tasks.readTask(id)
-  if (!task) return { ok: false, error: '任务不存在' }
-  if (task.fm.status === '完成' || task.fm.status === '驳回') {
-    return { ok: false, error: '任务已终态，不派活' }
-  }
-  if (task.fm.status === '进行中') {
-    return { ok: false, error: '任务已在进行中（重复派活风险），请先完成或等待当前执行结束' }
-  }
-  // Check blockers
-  if (task.fm.blockers && task.fm.blockers.length > 0) {
-    return { ok: false, error: `被阻塞：前置任务 ${task.fm.blockers.join(', ')} 未完成` }
-  }
-  // Move to 进行中
-  tasks.moveStatus(id, '进行中')
-  const prompt = buildDispatchPrompt(task)
-  return { ok: true, command: prompt }
-}
+// 2026-10-06（卡 004）：buildDispatchPrompt / executeDispatch **已删**。
+// 它们是 dispatch:preview / dispatch:execute 的唯一调用方，随通道一起退役。
+// （executeDispatch 还会 moveStatus 到「进行中」—— 死代码里藏着状态变更，更该删。）
 
 function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): { ok: boolean; error?: string } {
   const task = tasks.readTask(id)

@@ -10,14 +10,23 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   getBackupConfig, setBackupConfig, getBackupConfigForRenderer,
-  getBackupState, getBackupPaths, decryptSecret, BackupConfig,
+  getBackupPaths, decryptSecret, BackupConfig,
 } from './backup/config'
 import {
   runBackup, listLocalBackups, listRemoteBackups, getLocalBackupDir,
   exportSnapshotTo, verifyPackage, exportExistingPackageTo,
 } from './backup'
 import { getBackupStatus, rescheduleScheduler, runBackupNow } from './backup/scheduler'
-import { restoreFrom, listRestoreSources } from './backup/restore'
+import { restoreFrom } from './backup/restore'
+
+// ── 2026-10-06 删了 3 条被取代的旧通道 ─────────────────────────────────
+// `backup:listSources`（被 `backup:listLocal` + `backup:listRemote` 取代）
+// `backup:state`（被 `backup:status` 取代 —— 渲染层的 bkState 就来自 backup:status）
+// `backup:localDir`（被 `backup:getConfig` 的 localDir + `backup:openDir` 取代）
+// 三条都是"渲染层零调用"（check-ipc-parity 第 ⑤ 类扫出来的）。
+// ⚠ `listRestoreSources()` 因此没有调用方了，但它是 `backup/restore.ts` 的正常 API ——
+//   **保留**（删它要动核心恢复模块，收益不成正比）。
+// ⚠ `getBackupState` 的 import 也一并去掉了（只有那条通道在用）。
 import { WebdavClient } from './backup/webdav'
 
 function fail(e: unknown) {
@@ -130,15 +139,6 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  guardedHandle('backup:listSources', async (_e, includeRemote = false) => {
-    try {
-      const sources = await listRestoreSources(!!includeRemote)
-      return { ok: true, ...sources }
-    } catch (e) {
-      return fail(e)
-    }
-  })
-
   guardedHandle('backup:restore', async (_e, source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }) => {
     try {
       if (!source || (source.kind === 'local' && !source.path) || (source.kind === 'remote' && !source.name)) {
@@ -146,14 +146,6 @@ export function registerBackupIpcHandlers(): void {
       }
       const r = await restoreFrom(source)
       return { ok: r.ok, ...r }
-    } catch (e) {
-      return fail(e)
-    }
-  })
-
-  guardedHandle('backup:state', () => {
-    try {
-      return { ok: true, state: getBackupState(), nextRunAt: getBackupStatus().nextRunAt }
     } catch (e) {
       return fail(e)
     }
@@ -178,14 +170,8 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  /** 供 UI 展示：本地备份目录（只读展示，不触发副作用） */
-  guardedHandle('backup:localDir', () => {
-    try {
-      return { ok: true, dir: getLocalBackupDir(), exists: fs.existsSync(getLocalBackupDir()) }
-    } catch (e) {
-      return fail(e)
-    }
-  })
+  // `backup:localDir` 已删（2026-10-06）：目录展示走 `backup:getConfig` 的 localDir、
+  // 打开目录走 `backup:openDir` —— 它是被这两条取代的旧接口，渲染层零调用。
 
   /**
    * 导出备份到指定目录（网盘同步文件夹 / U 盘 / 任意路径）。

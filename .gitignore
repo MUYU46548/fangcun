@@ -14,6 +14,9 @@ Thumbs.db
 registry.yaml.bak
 task-data/
 backups/
+# 改前快照目录（registry 滚动备份 + 单卡快照）：与 backups/ 同类，属本机数据不入库。
+# 2026-10-06 补：此前没写，`git status` 里一直挂着 `?? .backup/`。
+.backup/
 # 运行时数据目录（都派生自数据根；2026-09-22 数据目录修复后落在项目根，
 # 与 task-data/ 同类，属使用数据不入库）
 todos/

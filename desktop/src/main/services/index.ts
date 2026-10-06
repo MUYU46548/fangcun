@@ -1,7 +1,4 @@
-import * as fs from 'fs'
-import * as path from 'path'
-import { exec, spawn } from 'child_process'
-import { parseRegistry, getDataDir } from '../data'
+import { parseRegistry } from '../data'
 
 export interface Service {
   project: string
@@ -56,113 +53,17 @@ export function scanServices(): Service[] {
   return services
 }
 
-export interface Note {
-  id: string
-  title: string
-  content: string
-  taskId?: string
-  createdAt: string
-  updatedAt: string
-}
-
-function getNotesDir(): string {
-  const dataDir = getDataDir()
-  const notesDir = path.join(dataDir, 'notes')
-  fs.mkdirSync(notesDir, { recursive: true })
-  return notesDir
-}
-
-function getNotesIndexPath(): string {
-  return path.join(getNotesDir(), 'index.json')
-}
-
-function loadNotesIndex(): Note[] {
-  const p = getNotesIndexPath()
-  if (!fs.existsSync(p)) return []
-  try {
-    return JSON.parse(fs.readFileSync(p, 'utf-8'))
-  } catch {
-    return []
-  }
-}
-
-function saveNotesIndex(notes: Note[]): void {
-  fs.writeFileSync(getNotesIndexPath(), JSON.stringify(notes, null, 2), 'utf-8')
-}
-
-export function createNote(title: string, content: string, taskId?: string): Note {
-  const id = `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const now = new Date().toISOString()
-  const note: Note = { id, title, content, taskId, createdAt: now, updatedAt: now }
-  const notes = loadNotesIndex()
-  notes.push(note)
-  saveNotesIndex(notes)
-  return note
-}
-
-export function getNote(noteId: string): Note | null {
-  const notes = loadNotesIndex()
-  return notes.find(n => n.id === noteId) || null
-}
-
-export function updateNote(noteId: string, updates: Partial<Pick<Note, 'title' | 'content' | 'taskId'>>): Note | null {
-  const notes = loadNotesIndex()
-  const idx = notes.findIndex(n => n.id === noteId)
-  if (idx < 0) return null
-  const note = notes[idx]
-  if (updates.title !== undefined) note.title = updates.title
-  if (updates.content !== undefined) note.content = updates.content
-  if (updates.taskId !== undefined) note.taskId = updates.taskId
-  note.updatedAt = new Date().toISOString()
-  saveNotesIndex(notes)
-  return note
-}
-
-export function deleteNote(noteId: string): boolean {
-  const notes = loadNotesIndex()
-  const idx = notes.findIndex(n => n.id === noteId)
-  if (idx < 0) return false
-  notes.splice(idx, 1)
-  saveNotesIndex(notes)
-  return true
-}
-
-export function getNotesForTask(taskId: string): Note[] {
-  const notes = loadNotesIndex()
-  return notes.filter(n => n.taskId === taskId)
-}
-
-export function listNotes(): Note[] {
-  return loadNotesIndex()
-}
-
-export function importNoteFromFile(filePath: string, taskId?: string): Note | null {
-  if (!fs.existsSync(filePath)) return null
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    let title = ''
-    let body = content
-    if (content.startsWith('# ')) {
-      const lines = content.split('\n', 2)
-      title = lines[0].slice(2).trim()
-      body = lines.slice(1).join('\n').trim()
-    }
-    return createNote(title, body, taskId)
-  } catch {
-    return null
-  }
-}
-
-export function attachNote(noteId: string, taskId: string): boolean {
-  const note = getNote(noteId)
-  if (!note) return false
-  updateNote(noteId, { taskId })
-  return true
-}
-
-export function detachNote(noteId: string): boolean {
-  const note = getNote(noteId)
-  if (!note) return false
-  updateNote(noteId, { taskId: undefined })
-  return true
-}
+// ── 笔记（Note）── 已于 2026-10-06 整块删除 ─────────────────────────────────
+//
+// 暮雨批：「笔记功能可以删（别改坏能跑的功能）」。
+//
+// 删掉的：`Note` 接口 + `getNotesDir` / `getNotesIndexPath` / `loadNotesIndex` /
+// `saveNotesIndex` / `createNote` / `getNote` / `updateNote` / `deleteNote` /
+// `listNotes` / `getNotesForTask` / `importNoteFromFile` / `attachNote` / `detachNote`；
+// 配套还删了 `ipc.ts` 的 10 条通道、`preload` 的 10 条暴露、
+// `data/tasks.ts` 的 `exportNotes` / `importNotes`。
+//
+// 判据：**渲染层零调用** —— 界面里从来没出现过笔记入口（`check-ipc-parity` 第 ⑤ 类扫出来的）。
+//
+// ⚠ `notes/` 数据目录与里面的历史文件**一个没动**：想继续用，直接改
+// `notes/*.md` 与 `notes/index.json` 即可（它们本来就是纯文本）。

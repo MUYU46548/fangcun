@@ -167,6 +167,28 @@ const nextId = (p) => `${p}-${Date.now()}-${(seq++).toString(36)}`
 
 const ok = (extra) => Object.assign({ ok: true }, extra || {})
 
+/**
+ * 结构化克隆校验 —— 复刻真机 contextBridge 的**第一跳**语义。
+ *
+ * 2026-10-05 踩的坑（用户原话「勾一下闪退一下」= 勾选写不进盘）：
+ *   渲染层把 **Vue 响应式代理**（`ref([]).value`、v-for 元素）直接当 IPC 载荷传，
+ *   真机在「页面世界 → 隔离世界」这一跳就抛 `An object could not be cloned` ——
+ *   **报文根本进不到 preload，更进不到主进程**（所以主进程日志里一个字都没有）。
+ *   假 preload 此前不做克隆校验 → 这个 bug 在渲染层 e2e 里测不出来（真机必崩、测试全绿）。
+ * 现在按真机语义补上：参数克隆不过，就当它是真机里的那种失败（让测试红，而不是静默通过）。
+ */
+const cloneGuard = (name, args) => {
+  for (const a of args) {
+    try {
+      structuredClone(a)
+    } catch (e) {
+      throw new Error(`[假 preload] ${name} 的参数不可结构化克隆（Vue 响应式代理？）——`
+        + ` 真机 contextBridge 会抛 "An object could not be cloned"，报文进不到 preload/主进程。`
+        + ` 修法：传参前过 toPlain()。原始错误：${e && e.message}`)
+    }
+  }
+}
+
 contextBridge.exposeInMainWorld('tegula', {
   // ── 启动期必需面 ────────────────────────────────────────────────
   isFirstRun: () => { rec('isFirstRun'); return false },
@@ -564,8 +586,24 @@ contextBridge.exposeInMainWorld('tegula', {
   // 于是"偏好真的落盘了吗"在渲染层 e2e 里**永远验证不到**（只能靠源码断言猜）。
   // 现在给一个内存真身：多视图选择（fc_board_view / fc_todo_view）与分组方式
   // 都走这条路径，断言可以真读回 `__fcTest.prefs()`。
+  //
+  // ⚠ 2026-10-05 又踩了同一个坑（「勾一下闪退一下」= 勾选写不进盘）：渲染层把 **Vue 响应式代理**
+  //   （`ref([]).value`、v-for 元素）直接当 IPC 载荷 → 真机 contextBridge 在「页面→隔离世界」
+  //   这一跳就抛 `An object could not be cloned`（preload 与主进程都收不到，日志里一个字都没有）。
+  //   假 preload 不做克隆校验 → 这个 bug **在渲染层 e2e 里测不出来**（真机必崩、测试全绿）。
+  //   所以这里按真机语义补上：参数过不了结构化克隆，就当它是真机里的那种失败。
   prefsGet: () => JSON.parse(JSON.stringify(store.prefs)),
-  prefsSet: (key, value) => { rec('prefsSet', [key, value]); store.prefs[key] = value; return ok() },
+  prefsSet: (key, value) => { cloneGuard('prefsSet', [key, value]); rec('prefsSet', [key, value]); store.prefs[key] = value; return ok() },
+  // 2026-10-05 补：在途一屏的「保存」改走**一次写多键 + 回读校验**（prefs:setMany）。
+  // 假 preload 缺这个 API 的话，渲染层的 `?.prefsSetMany?.(...)` 会静默变 undefined，
+  // 「保存到底写没写进去」在渲染层 e2e 里就**永远验证不到**（记忆里的老坑）。
+  prefsSetMany: (patch) => {
+    cloneGuard('prefsSetMany', [patch])
+    rec('prefsSetMany', [patch])
+    const written = []
+    for (const [k, v] of Object.entries(patch || {})) { store.prefs[k] = JSON.parse(JSON.stringify(v)); written.push(k) }
+    return { ok: true, written }
+  },
 
   // ── 其它（不参与断言，返回空实现避免 undefined 报错）──────────
   browseDirectory: () => null,
@@ -579,6 +617,48 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',
+  // 在途一屏（Q2）：夹具可注入。默认两行 ——
+  //   demo  = 有契约 + 有卡（current 来自任务卡）
+  //   demo2 = 无契约 + 0 卡 + 有日志（current 回落日志）、健康度**人工锁定**
+  tripBoard: () => ok(store.tripBoard || {
+    generatedAt: '2026-10-05 11:00',
+    mode: 'auto',
+    criteria: 'cards_or_commit',
+    rows: [
+      {
+        id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo',
+        contract: {
+          exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
+          endState: '桌面客户端为主产品。', acceptLine: '', notWant: '', choice: '',
+        },
+        current: { text: '正在做的事', from: 'task', sub: '' },
+        next: { text: '要做的下一件', from: 'task', sub: '1 张待办（最高：中）' },
+        who: { text: 'hermes（执行）', kind: 'exec' },
+        health: { value: 'active', locked: false },
+        counts: { todo: 1, doing: 1, review: 0, logs: 0 },
+        lastCommit: '1 天前', recentCommit: true, dirty: 3,
+        flags: { noCards: false, noLogs: true },
+      },
+      {
+        id: 'demo2', name: '第二个项目', repo: '',
+        contract: { exists: false, path: '', endState: '', acceptLine: '', notWant: '', choice: '' },
+        current: { text: '进度日志1001', from: 'log', sub: '3 天前' },
+        next: { text: '', from: '', sub: '' },
+        who: { text: '', kind: 'none' },
+        health: { value: 'paused', locked: true },
+        counts: { todo: 0, doing: 0, review: 0, logs: 7 },
+        lastCommit: '3 天前', recentCommit: true, dirty: 0,
+        flags: { noCards: true, noLogs: false },
+      },
+    ],
+    // 登记了但没进这一屏的项目（判据没命中）—— 界面要显式说出来
+    hidden: [
+      { id: 'demo3', name: '还没开工的项目', kind: 'no-activity', reason: '没有任务卡、没有执行日志，30 天内也没有提交' },
+    ],
+  }),
+  contractText: () => ok({ exists: false, text: '## ① 终态形态\n', path: '', repo: '' }),
+  tripOpenRepo: () => ok({ repo: 'E:/CODE/mock/demo' }),
+  tripInitContract: () => ok({ path: 'E:/CODE/mock/demo/立项契约.md' }),
   openFile: () => ok(),
   setDataDir: () => ok(),
   dataInspect: () => ok(),
@@ -596,8 +676,6 @@ contextBridge.exposeInMainWorld('tegula', {
     ],
   }),
   backupListRemote: () => [],
-  backupListSources: () => [],
-  backupState: () => ({}),
   backupRun: () => ok(),
   backupRunLocalOnly: () => ok(),
   backupSaveConfig: () => ok(),
@@ -605,7 +683,6 @@ contextBridge.exposeInMainWorld('tegula', {
   backupTestRemote: () => ok(),
   backupRestore: () => ok(),
   backupOpenDir: () => ok(),
-  backupLocalDir: () => 'C:/mock/data/backups',
   backupExportTo: (input) => { rec('backupExportTo', [input]); return ok({ result: { files: 3, bytes: 2048, dir: 'C:/mock/out' } }) },
   // 2026-09-28 卡 026-001：点备份行 = 校验这一份（取 manifest 摘要给用户看）
   backupVerifyPackage: (zipPath) => {
@@ -670,6 +747,12 @@ contextBridge.exposeInMainWorld('__fcTest', {
     if (mutedCount !== undefined) store.ncMutedCount = mutedCount
   },
   setTasks: (items) => { store.tasks = (items || []).slice() },
+  /**
+   * 注入在途一屏的返回（含 rows / hidden / modeFallback）。
+   * 2026-10-05 用：造「手动指定 + 一个都没勾 → 一屏全空」这个用户实测场景，
+   * 验证空屏里有出口（「改回自动」）而不是死局。
+   */
+  setTripBoard: (obj) => { store.tripBoard = obj || null },
   /** 卡 012：注入「超期的已完成任务」条数（0 = 无 → 提示条不渲染） */
   setOverdue: (n, items) => {
     store.overdueCount = Number(n) || 0

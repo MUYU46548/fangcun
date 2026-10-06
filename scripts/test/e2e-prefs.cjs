@@ -170,6 +170,67 @@ function main() {
     && /class="pvgrid" v-if="pvView === 'tiles'"/.test(vueSrc)
     && /class="ovgrid"/.test(vueSrc) && /class="pv-ms"/.test(vueSrc))
 
+  // ══ D. 多键一次写 + 回读校验 ════════════════════════════════════════
+  // 2026-10-05 用户实测「提示保存了但实际并未保存，每次重新勾选都被取消」：
+  //   prefs.json 里 `fc_trip_mode` / `fc_trip_criteria`（字符串）落了盘，
+  //   而 `fc_trip_projects` / `fc_trip_cols`（数组）**根本没写进去** —— 界面照样弹"已保存"。
+  //   修法：一次 IPC 写完多个键（合并读-改-写）+ **回读校验**，把"存住没有"变成可回答的问题。
+  console.log('\n---- D. 多键一次写 + 回读校验 ----')
+  const many = prefs.setPrefs({
+    fc_trip_mode: 'manual',
+    fc_trip_criteria: 'cards_or_commit',
+    fc_trip_projects: ['fangcun-base'],
+    fc_trip_cols: ['end', 'next'],
+  })
+  check('D1 ★ 一次写四个键全部成功（字符串 + 数组混排不许丢任何一个）',
+    many.ok === true && many.written.length === 4, JSON.stringify(many))
+  const diskAfter = JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8'))
+  check('D2 ★ 回读**磁盘**：四个键都在（不信内存对象）',
+    ['fc_trip_mode', 'fc_trip_criteria', 'fc_trip_projects', 'fc_trip_cols'].every(k => k in diskAfter),
+    Object.keys(diskAfter).join(','))
+  check('D3 数组键内容原样（不被字符串化/截断）',
+    JSON.stringify(diskAfter.fc_trip_projects) === '["fangcun-base"]',
+    JSON.stringify(diskAfter.fc_trip_projects))
+  check('D4 合并写不丢既有键（前面 A 节写的键仍在）',
+    diskAfter.fc_agent_presets !== undefined && diskAfter.fc_disable_gpu !== undefined)
+  check('D5 空 patch → ok 且文件一字不动', (() => {
+    const before = fs.readFileSync(prefs.getPrefsPath(), 'utf-8')
+    const r = prefs.setPrefs({})
+    return r.ok === true && r.written.length === 0
+      && fs.readFileSync(prefs.getPrefsPath(), 'utf-8') === before
+  })())
+  check('D6 坏入参不抛（返回 ok 而不是炸掉整个 UI 路径）',
+    (() => { try { const r = prefs.setPrefs(null); return !!r && r.ok === true } catch { return false } })())
+  check('D7 ★ 渲染层写盘走 prefsSetMany，且**返回值必须明确成功**才算成功（旧包/通道没通也算失败）',
+    /prefsSetMany/.test(vueSrc) && /res\.ok !== true/.test(vueSrc) && /设置没存住/.test(vueSrc))
+  // ⚠⚠ 2026-10-05 真凶（用户「所有项目都无法手动勾选，勾一下闪退一下」）：
+  //   渲染层把 **Vue 响应式代理**直接当 IPC 载荷 → contextBridge 在「页面→隔离世界」这一跳抛
+  //   `An object could not be cloned` → 报文进不到 preload / 主进程（**主进程日志一个字都没有**）
+  //   → 写盘从未成功 → loadTripBoard 判定"从没做过手动选择" → 兜底清空勾选 = 用户看到的"闪退"。
+  //   同一根因 2026-09-25 踩过（启动台无法启动应用，修 6 次），当时**只给 launchpadLaunchApp 打了补丁**，
+  //   没收口 → 复发。且 `saveUiPref` 一直裸传 → **所有数组/对象类偏好从来没写进过 prefs.json**。
+  check('D11 ★★ 渲染层所有偏好写盘载荷都过 toPlain（Vue 代理过 contextBridge 必抛，主进程看不到）',
+    /prefsSet\?\.\(key, toPlain\(value\)\)/.test(vueSrc)
+    && /const patch = toPlain\(\{/.test(vueSrc)
+    && /prefsSet\('fc_agent_presets', toPlain\(/.test(vueSrc),
+    'saveUiPref / tripApplySettings / agentPresets 三处都要过')
+  check('D12 ★ 渲染层写偏好不再绕过 saveUiPref 裸传响应式值',
+    !/prefsSet\('fc_[a-z_]+', [a-zA-Z_]+\.value\)/.test(vueSrc),
+    '裸传 .value 会被 contextBridge 拦下，表现为"存不住"')
+  // 防线自身的防线：假 preload 的「结构化克隆校验」不能被"简化"掉，
+  // 否则这类 bug 又会变成"真机必崩、测试全绿"。
+  const preloadTestSrc = fs.readFileSync(path.resolve(__dirname, '../../desktop/test/renderer-preload.cjs'), 'utf-8')
+  check('D13 ★ 假 preload 保留结构化克隆校验（真机语义：传 Proxy 即抛）',
+    /cloneGuard/.test(preloadTestSrc) && /structuredClone\(a\)/.test(preloadTestSrc)
+    && /cloneGuard\('prefsSetMany'/.test(preloadTestSrc))
+  check('D8 preload 暴露 prefsSetMany + ipc.ts 注册 prefs:setMany',
+    /prefsSetMany/.test(preloadSrc) && /prefs:setMany/.test(ipcSrc))
+  check('D9 ★ 一屏的空屏出口：手动模式下给「改回自动」（空屏不许是死局）',
+    /tripBackToAuto/.test(vueSrc) && /trip-empty-act/.test(vueSrc))
+  check('D10 ★ 未进屏的项目按原因分开说（手动未勾 ≠ 没有未完结任务）',
+    /tripHiddenNotPicked/.test(vueSrc) && /tripHiddenNoActivity/.test(vueSrc)
+    && /kind === 'not-picked'/.test(vueSrc))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

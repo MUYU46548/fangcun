@@ -49,3 +49,35 @@ export function setPref(key: string, value: unknown): Prefs {
   }
   return next
 }
+
+/**
+ * 一次写入**多个键**，并**回读校验**，返回"到底存住了没有"。
+ *
+ * 为什么要有这个（2026-10-05 用户实测）：
+ *   · 用户点「保存」，界面弹"已保存"，但 `prefs.json` 里 **四个键只落了两个**（两个数组键没有）。
+ *     写盘失败被 try/catch 吞掉 → 界面说的和磁盘上的不是一回事 = 假成功。
+ *   · 一次 IPC 写完多个键，既省掉多次"读全量→整文件替换"，也让成功/失败成为**可回答的问题**。
+ * 回读以**磁盘**为准（不信内存对象），任何键对不上就如实报出来，由界面告诉用户。
+ */
+export function setPrefs(patch: Prefs): { ok: boolean; written: string[]; error?: string } {
+  const keys = Object.keys(patch || {})
+  if (!keys.length) return { ok: true, written: [] }
+  const next: Prefs = { ...getPrefs(), ...patch }
+  try {
+    const p = getPrefsPath()
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    atomicWriteBackup(p, JSON.stringify(next, null, 2))
+  } catch (e: any) {
+    return { ok: false, written: [], error: `写入失败：${e?.message || e}` }
+  }
+  try {
+    const back = JSON.parse(fs.readFileSync(getPrefsPath(), 'utf-8')) as Prefs
+    const bad = keys.filter(k => JSON.stringify(back?.[k]) !== JSON.stringify(patch[k]))
+    if (bad.length) {
+      return { ok: false, written: keys.filter(k => !bad.includes(k)), error: `这些键没写进文件：${bad.join('、')}` }
+    }
+    return { ok: true, written: keys }
+  } catch (e: any) {
+    return { ok: false, written: [], error: `写入后回读失败：${e?.message || e}` }
+  }
+}
