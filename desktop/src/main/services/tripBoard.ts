@@ -59,6 +59,10 @@ export interface TripRow {
   counts: { todo: number; doing: number; review: number; logs: number }
   lastCommit: string
   recentCommit: boolean
+  /** 工作区未提交文件数（`git status --porcelain` 行数）；读不到给 null —— 界面显示「—」。
+   *  2026-10-09 卡 task-20261009-001：渲染层一直在读 `r.dirty`，主进程却从未产出过这个字段
+   *  （夹具替它把值喂给了测试，于是「未提交」列在生产里恒空却一路绿灯 —— 典型的桩-现实漂移）。 */
+  dirty: number | null
   flags: { noCards: boolean; noLogs: boolean }
 }
 
@@ -187,9 +191,36 @@ export function gitLastCommitAt(repo: string): string {
   return iso
 }
 
+/** 未提交文件数缓存（与 gitLastCommitAt 同款 TTL；键同 repo） */
+const dirtyCache = new Map<string, { at: number; n: number | null }>()
+
+/**
+ * 工作区未提交文件数：`git status --porcelain` 的非空行数。
+ * 缺值纪律：非仓库 / 没装 git / 超时 / 目录不存在 —— 一律 null（界面显示「—」），**绝不抛**、绝不编 0
+ * （0 是「干净工作区」的断言，读不到就说读不到）。
+ */
+export function gitDirtyCount(repo: string): number | null {
+  if (!repo || !fs.existsSync(repo)) return null
+  const hit = dirtyCache.get(repo)
+  const now = Date.now()
+  if (hit && now - hit.at < GIT_TTL) return hit.n
+  let n: number | null = null
+  try {
+    const out = String(execFileSync('git', ['-C', repo, 'status', '--porcelain'], {
+      timeout: 8000, encoding: 'utf-8', windowsHide: true,
+    }) || '')
+    n = out.split('\n').filter(l => l.trim()).length
+  } catch {
+    n = null
+  }
+  dirtyCache.set(repo, { at: now, n })
+  return n
+}
+
 /** 供测试与手动刷新使用 */
 export function clearGitCache(): void {
   gitCache.clear()
+  dirtyCache.clear()
 }
 
 /**
@@ -431,6 +462,7 @@ export function buildTripBoard(): TripBoard {
       counts: { todo: todo.length, doing: doing.length, review: review.length, logs: myLogs.length },
       lastCommit: relTime(lastIso),
       recentCommit: recent30,
+      dirty: gitDirtyCount(repo),
       flags: { noCards: projTasks.length === 0, noLogs: myLogs.length === 0 },
     })
   }

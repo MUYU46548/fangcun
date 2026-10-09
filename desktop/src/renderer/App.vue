@@ -483,12 +483,32 @@
           </div>
           <div class="ms-add" @click="openNewProject">＋ 添加项目</div>
         </div>
-        <div class="ms-detail" v-if="pvCurrent">
+        <!-- 项目监控台（卡 task-20261009-001）：环形进度 + KPI 大数字 + 阻塞入口 + git 活动。
+             健康度=左缘 4px 色条（契约「异常才显示」：stuck/dormant 才有，active/idle 干净白卡）。 -->
+        <div class="ms-detail" v-if="pvCurrent" :class="'hs-' + pvCurrent.health">
           <div class="ocard bare">
             <div class="ohead">
               <span class="nm">{{ pvCurrent.name }}</span>
               <span class="rp">{{ pvCurrent.repo || '未登记工作目录' }}</span>
               <span class="hl" :class="'hl-' + pvCurrent.health">{{ healthLabel(pvCurrent.health) }}</span>
+            </div>
+            <div class="ms-metrics">
+              <!-- 0 卡时不画假环：环换成空态占位（0/0 没有「完成度」可言），旁边图例给「还没有任务卡」 -->
+              <div class="ms-ring" v-if="pvCurrent.taskCount">
+                <svg viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="ring-track" cx="18" cy="18" r="15.915" pathLength="100" />
+                  <circle class="ring-arc" cx="18" cy="18" r="15.915" pathLength="100"
+                          :style="{ strokeDasharray: pvPct + ' ' + (100 - pvPct) }" />
+                </svg>
+                <span class="ms-ringnum">{{ pvPct }}<i>%</i></span>
+              </div>
+              <div class="ms-ring empty" v-else><span class="ms-ringnum">—</span></div>
+              <div class="ms-nums">
+                <div class="ms-num"><b>{{ pvCurrent.activeTasks }}</b><span>进行中</span></div>
+                <div class="ms-num"><b>{{ pvCurrent.completedTasks }}</b><span>已完成</span></div>
+                <div class="ms-num"><b>{{ pvCurrent.taskCount }}</b><span>总任务</span></div>
+                <div class="ms-num warn" v-if="pvBlocked[pvCurrent.id]"><b>{{ pvBlocked[pvCurrent.id] }}</b><span>阻塞源</span></div>
+              </div>
             </div>
             <div class="stack">
               <i v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status"
@@ -498,15 +518,22 @@
               <span v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status">
                 <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
               </span>
+              <span v-if="!pvCurrent.taskCount" class="ms-nothing">还没有任务卡</span>
             </div>
-            <div class="odyn">
+            <!-- 阻塞源入口（异常才显示）：点进阻塞页签看「卡在谁」 -->
+            <button class="ghost ms-blockers" v-if="pvBlocked[pvCurrent.id]"
+                    @click.stop="switchView('blockers')">⚠ {{ pvBlocked[pvCurrent.id] }} 个阻塞源 · 看卡在谁 →</button>
+            <div class="ody n">
               最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
               <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
-              <br>
-              <span v-if="pvBlocked[pvCurrent.id]" class="odyn-warn">⚠ {{ pvBlocked[pvCurrent.id] }} 个阻塞源</span>
-              进行中 {{ pvCurrent.activeTasks }} · 已完成 {{ pvCurrent.completedTasks }} ·
-              完成进度 {{ projectPercent(pvCurrent.id) }}%
             </div>
+            <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
+                 与 loadViewData「只在切到那一摆法时才拉」的既有纪律一致） -->
+            <div class="ms-git" v-if="msGitRow">
+              <span>📂 最近提交 <b>{{ msGitRow.lastCommit || '读不到' }}</b></span>
+              <span>未提交 <b>{{ msGitRow.dirty === null || msGitRow.dirty === undefined ? '—' : msGitRow.dirty }}</b></span>
+            </div>
+            <button class="ghost ms-gitbtn" v-else @click.stop="loadTripBoard()">⟳ 拉取提交信息</button>
             <div class="oacts">
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
@@ -650,7 +677,7 @@
                 </td>
 
                 <td v-if="tripColVisible('commit')" class="trip-dim">{{ r.lastCommit || '读不到' }}</td>
-                <td v-if="tripColVisible('dirty')" class="trip-dim">{{ r.dirty }}</td>
+                <td v-if="tripColVisible('dirty')" class="trip-dim">{{ r.dirty === null || r.dirty === undefined ? '—' : r.dirty }}</td>
               </tr>
             </tbody>
           </table>
@@ -3287,6 +3314,12 @@ const tripHidden = ref<{ id: string; name: string; reason: string }[]>([])
 /** 上一次读取失败的原因。**空屏时要说真话**：是"确实没有"还是"根本没读到"（2026-10-05 用户连报三次看不见） */
 const tripError = ref('')
 const tripLoading = ref(false)
+/** 详情页 git 行：在途一屏数据已在内存时按项目取行；没拉过 = null（界面给「拉取」按钮，不编数据） */
+const msGitRow = computed(() => {
+  const id = pvCurrent.value?.id
+  if (!id || !tripRows.value.length) return null
+  return tripRows.value.find((r: any) => r.id === id) || null
+})
 const tripSettingsOpen = ref(false)
 const tripMeta = ref<{ generatedAt: string; mode: string; criteria: string }>(
   { generatedAt: '', mode: 'auto', criteria: 'cards_or_commit' })
@@ -4645,11 +4678,18 @@ const pvLatest = computed<Record<string, Task | null>>(() => {
   return out
 })
 
-/** 每个项目头上压着几条阻塞（阻塞源按它自己所属的项目计） */
+/**
+ * 每个项目头上压着几条阻塞（阻塞源按它自己所属的项目计）。
+ *
+ * ⚠ 数据源从 `blockerChains` 换成 `blockers`（findBlockers）：前者只在
+ * loadViewData('blockers') 时才加载 —— 用户没进过「阻塞」页签时它恒为空，
+ * 项目页的「⚠ N 个阻塞源」于是永远不显示（假 0）。findBlockers 走 loadAll
+ * 每次都拉，且返回形状同源（ipc.ts 把 getBlockerChains().map 成 {id,title,blockers}）。
+ */
 const pvBlocked = computed<Record<string, number>>(() => {
   const byId = new Map(tasks.value.map(t => [t.id, t]))
   const out: Record<string, number> = {}
-  for (const c of blockerChains.value) {
+  for (const c of blockers.value) {
     const t = byId.get(c.id)
     const pid = t ? normProject(t.project) : ''
     if (pid) out[pid] = (out[pid] || 0) + 1
@@ -4676,6 +4716,13 @@ function projectPercent(id: string): number {
   const pp = (projectProgress.value || {})[id]
   return pp && Number.isFinite(pp.percent) ? pp.percent : 0
 }
+
+/** 详情页完成度百分比：与状态分布条同源（projectStats 的任务计数），0 卡时为 0（界面显示空态环） */
+const pvPct = computed(() => {
+  const p = pvCurrent.value
+  if (!p || !p.taskCount) return 0
+  return Math.round((p.completedTasks / p.taskCount) * 100)
+})
 
 /** 主从视图左侧选中的项目（默认第一个；不写 prefs —— 记一个可能消失的项目 id 没意义） */
 const pvSelected = ref<string>('')
@@ -10047,8 +10094,45 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-n { font-size: 10.5px; color: var(--muted); flex: none; min-width: 12px; text-align: right; }
 .ms-add { padding: 7px 9px; font-size: 11.5px; color: var(--muted); cursor: pointer; border-radius: 8px; }
 .ms-add:hover { background: var(--tint-2); color: var(--accent); }
-.ms-detail { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.ms-detail { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
 .ms-detail.empty { color: var(--muted); font-size: 12.5px; }
+/* ── 监控台（卡 task-20261009-001）──────────────────────────────────
+   契约「健康度=左缘 4px 色条，无异常=干净白卡」：stuck/dormant 才有色条，active/idle 一个像素都不加 */
+.ms-detail::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  border-radius: 12px 0 0 12px; background: transparent; transition: background .3s ease; }
+.ms-detail.hs-stuck::before { background: var(--warning); animation: hsPulse 2.4s ease-in-out infinite; }
+.ms-detail.hs-dormant::before { background: var(--danger); }
+@keyframes hsPulse { 0%, 100% { opacity: 1 } 50% { opacity: .45 } }
+.ms-metrics { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+.ms-ring { position: relative; width: 58px; height: 58px; flex: none; }
+.ms-ring svg { width: 58px; height: 58px; transform: rotate(-90deg); }
+.ms-ring .ring-track { fill: none; stroke: var(--bg); stroke-width: 4; }
+.ms-ring .ring-arc { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round;
+  transition: stroke-dasharray .7s cubic-bezier(.22, .9, .3, 1); }
+.ms-ring.empty { display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--border); border-radius: 50%; }
+.ms-ringnum { position: absolute; inset: 0; display: flex;
+  align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: var(--ink); }
+.ms-ringnum i { font-style: normal; font-size: 9px; font-weight: 600; color: var(--muted); margin-left: 1px; }
+.ms-ring.empty .ms-ringnum { color: var(--muted); font-size: 16px; }
+.ms-nums { display: flex; gap: 16px; flex-wrap: wrap; min-width: 0; }
+.ms-num b { display: block; font-size: 20px; font-weight: 800; color: var(--ink); line-height: 1.2;
+  font-variant-numeric: tabular-nums; animation: numIn .45s cubic-bezier(.22, .9, .3, 1) both; }
+.ms-num span { font-size: 10.5px; color: var(--muted); }
+.ms-num.warn b { color: var(--warning); }
+.ms-num:nth-child(2) b { animation-delay: .06s } .ms-num:nth-child(3) b { animation-delay: .12s }
+.ms-num:nth-child(4) b { animation-delay: .18s }
+@keyframes numIn { from { opacity: 0; transform: translateY(5px) } }
+.ms-nothing { color: var(--muted); }
+.ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
+  color: var(--warning); animation: numIn .4s ease both; }
+.ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);
+  animation: numIn .4s ease both; }
+.ms-git b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ms-gitbtn { display: block; width: 100%; margin-top: 9px; height: 26px; font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .ms-ring .ring-arc, .ms-num b, .ms-blockers, .ms-git, .ms-detail.hs-stuck::before { animation: none; transition: none; }
+}
 
 /* Settings */
 /* ── 设置：左侧分类导航 + 右侧内容（2026-10-03 用户：「不要一条长名单，像各大软件那样侧边栏分类」）
