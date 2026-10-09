@@ -457,7 +457,7 @@
           <div class="oacts">
             <button class="ghost oact" @click.stop="openPolicyEdit(p.id)">📋 {{ policyMap[p.id] ? '方针' : '立方针' }}</button>
             <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
-            <button class="ghost oact" @click.stop="openProject(p)">📦 任务 {{ p.taskCount }}</button>
+            <button class="ghost oact" @click.stop="openProjectTasks(p)">📦 任务 {{ p.taskCount }}</button>
             <button class="ghost oact" @click.stop="removeProject(p)"
                     title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
           </div>
@@ -510,7 +510,7 @@
             <div class="oacts">
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
-              <button class="ghost oact" @click.stop="openProject(pvCurrent)">📦 看任务</button>
+              <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
               <!-- 不做「打开工作目录」——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <button v-if="pvCurrent.repo" class="ghost oact"
@@ -8659,15 +8659,34 @@ function toggleSelectAll() {
 
 // ── Project view ────────────────────────────────────────────────────────
 
+/**
+ * 点项目卡/项目名 = 进这个项目的详情（卡 006 拍板 A）。
+ * 之前是 `curProj + navigateTo('active')` —— Quartz 这类 0 卡项目点进去必然是空看板，
+ * 用户原话「点『调整某项目』应到项目详情/配置，不是空看板」。
+ * ⚠ 只切内存不写 prefs：摆法是用户偏好，点卡是浏览动作（同 tripOpenRow 的裁决）。
+ */
 function openProject(p: any) {
+  pvSelected.value = p.id
+  pvView.value = 'master'
+  if (curView.value !== 'projects') navigateTo('projects')
+}
+
+/**
+ * 「📦 任务 / 看任务」按钮的去向 —— 语义就是去看任务列表，
+ * 保留原「跳看板」的行为。点卡进详情、点按钮进看板，两条路分开。
+ */
+function openProjectTasks(p: any) {
   curProj.value = p.id
   navigateTo('active')
 }
 
 function openProjectInSettings(p: Project) {
-  curProj.value = p.id
-  navigateTo('active')
-  showToast(`已切换项目：${p.name || p.id}`, 'info')
+  // 详情渲染在项目页签里，不关设置会被遮罩整个挡住
+  showSettings_.value = false
+  pvSelected.value = p.id
+  pvView.value = 'master'
+  if (curView.value !== 'projects') navigateTo('projects')
+  showToast(`已打开项目详情：${p.name || p.id}`, 'info')
 }
 
 /**

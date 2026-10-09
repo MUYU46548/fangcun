@@ -888,6 +888,33 @@
       return back && window.__fcTest.prefs().fc_pv_view === 'tiles'
     })())
 
+    // ══ 卡 006（2026-10-09 拍板 A）：点项目卡 → 项目详情，不再是空看板 ═══════
+    // 旧行为 = curProj + 跳看板活跃视图；Quartz 这类 0 卡项目点进去必然是空屏。
+    const tile006 = $('#board.pv .tile:not(.tile-add)')
+    const tileName006 = tile006 ? (((tile006.querySelector('.tname') || {}).textContent) || '').trim() : ''
+    check('★ 点项目墙的卡片 → 进项目详情（复用主从 ms-detail），不再跳空看板', await (async () => {
+      if (!tile006 || !tileName006) return false
+      tile006.click()
+      const got = await waitFor(() => $$('#board.pv .pv-ms').length === 1
+        && $$('#board.pv .pvgrid').length === 0
+        && !!$('#board.pv .ms-detail .ocard'), 4000, '进项目详情')
+      const d = $('#board.pv .ms-detail')
+      return got && !!d && ((d.textContent || '').indexOf(tileName006) >= 0)
+    })(), 'tile=' + tileName006)
+    check('★ 导航不写偏好：fc_pv_view 仍是 tiles（点卡是浏览，摆法偏好不被顺手改掉）',
+      window.__fcTest.prefs().fc_pv_view === 'tiles',
+      JSON.stringify(window.__fcTest.prefs().fc_pv_view))
+    check('★ 详情里的「📦 看任务」仍跳看板（点卡进详情 / 点按钮进看板，两条路分开）', await (async () => {
+      const b = $$('#board.pv .ms-detail .oacts button').find((x) => (x.textContent || '').indexOf('看任务') >= 0)
+      if (!b) return false
+      b.click()
+      const ok = await waitFor(() => !$('#board.pv') && !!$('#board'), 4000, '跳看板')
+      // 看板带项目筛选了 —— 还原成「全部项目」，别污染后面的断言
+      const sel = $('.proj-select')
+      if (sel) { sel.value = '__all__'; sel.dispatchEvent(new Event('change')) }
+      return ok
+    })())
+
     // ══ 日志 · 接力链（2026-09-29 第 3 条方案二）═══════════════════════
     await sleep(300)
     check('能切到「日志」页签', clickText('日志'))
