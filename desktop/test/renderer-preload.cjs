@@ -213,7 +213,11 @@ contextBridge.exposeInMainWorld('tegula', {
   taskEnums: () => ({ statuses: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'], priorities: ['高', '中', '低'] }),
   loadTasks: (v) => { rec('loadTasks', [v]); return (v === 'archive' ? (store.archived || []) : store.tasks).slice() },
   loadProjects: () => store.projects.slice(),
-  findBlockers: () => [],
+  // 阻塞源夹具（2026-10-09 监控台断言）：demo 项目压着 1 条阻塞 → 详情页
+  // 「⚠ 1 个阻塞源 · 看卡在谁」入口必须出现（pvBlocked 按被阻塞任务所属项目计）。
+  findBlockers: () => [
+    { id: 'task-demo-001', title: '演示任务', blockers: ['task-demo-002'] },
+  ],
   parseErrors: () => [],
   allProjectProgress: () => ({}),
   getProjectProgress: () => ({}),

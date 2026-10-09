@@ -625,6 +625,159 @@
       window.__fcTest.prefs().fc_pv_view === 'master',
       JSON.stringify(window.__fcTest.prefs().fc_pv_view))
 
+    // ══ 项目监控台（卡 task-20261009-001 · 879b2f8 落地，2026-10-09 补断言）════
+    // 要点：完成率环形图 / KPI 大数字 / 健康左缘色条「异常才显示」/ 阻塞源入口 /
+    //       git 缺数据给拉取按钮、dirty=null 显「—」不编 0 / 0 卡不画假环。
+    // 反向判据 3 条：空闲不加色条、0 卡无 ring-arc、null 不显 0。
+    const pickMs = async (name) => {
+      const li = $$('#board.pv .ms-li').find((x) => (x.textContent || '').indexOf(name) >= 0)
+      if (!li) return false
+      li.click()
+      return waitFor(() => {
+        const d = $('#board.pv .ms-detail')
+        return !!d && (d.textContent || '').indexOf(name) >= 0
+      }, 3000, '选中 ' + name)
+    }
+    const msSnap = () => {
+      const d = $('#board.pv .ms-detail')
+      if (!d) return { err: '没有 .ms-detail' }
+      const ring = d.querySelector('.ms-ring')
+      const arc = d.querySelector('.ring-arc')
+      const git = d.querySelector('.ms-git')
+      return {
+        cls: d.className,
+        bar: getComputedStyle(d, '::before').backgroundColor,
+        ringEmpty: !!ring && ring.classList.contains('empty'),
+        arcs: d.querySelectorAll('.ring-arc').length,
+        arcDash: arc ? arc.style.strokeDasharray : null,
+        ringnum: ((d.querySelector('.ms-ringnum') || {}).textContent || '').trim(),
+        nums: $$('#board.pv .ms-detail .ms-num').map(n =>
+          ((n.querySelector('span') || {}).textContent || '') + '=' + ((n.querySelector('b') || {}).textContent || '')),
+        segs: d.querySelectorAll('.stack i').length,
+        legend: ((d.querySelector('.legend') || {}).textContent || '').replace(/\s+/g, ' ').trim(),
+        hl: ((d.querySelector('.hl') || {}).textContent || '').trim(),
+        blockers: $$('#board.pv .ms-blockers').map(b => (b.textContent || '').replace(/\s+/g, ' ').trim()),
+        gitRow: git ? (git.textContent || '').replace(/\s+/g, ' ').trim() : null,
+        gitBtn: !!d.querySelector('.ms-gitbtn'),
+      }
+    }
+
+    check('选回演示项目（监控台断言起点）', await pickMs('演示项目'))
+    const s1 = msSnap()
+    check('★ 完成率环形图在（有卡项目画真环，不是空态占位）',
+      !s1.err && !s1.ringEmpty && s1.arcs === 1, JSON.stringify(s1))
+    check('  环的 stroke-dasharray = 「已完成段 剩余段」两段数（入场缓动就靠它；读回时浏览器可能序列化成逗号分隔）',
+      s1.arcDash !== null && /^\d+(\.\d+)?[,\s]+\d+$/.test(s1.arcDash), String(s1.arcDash))
+    check('  环心是「数字 + %」', /^\d+%$/.test(s1.ringnum), s1.ringnum)
+    check('★ KPI 大数字行三枚齐：进行中 / 已完成 / 总任务（都是数出来的，不是文案）',
+      ['进行中', '已完成', '总任务'].every(k =>
+        s1.nums.some(n => n.indexOf(k + '=') === 0 && /^\d+$/.test(n.slice(k.length + 1)))),
+      JSON.stringify(s1.nums))
+    check('★ 状态分布条有分段（宽度按占比，0 卡才该是空条）', s1.segs >= 1, 'segs=' + s1.segs)
+    check('  图例与分段同源：状态名 + 条数',
+      /待办|进行中|待验收|完成|驳回/.test(s1.legend) && /\d/.test(s1.legend), s1.legend)
+    // 健康度：demo 夹具最后更新 2026-09-01（>30 天不写）→ 休眠 = 异常 → 色条必须在
+    check('★ 健康度异常（休眠）→ 左缘色条出现 + 徽章说「休眠」（正向）',
+      s1.cls.indexOf('hs-dormant') >= 0 && s1.bar !== 'rgba(0, 0, 0, 0)' && s1.bar !== 'transparent' && s1.hl === '休眠',
+      JSON.stringify({ cls: s1.cls, bar: s1.bar, hl: s1.hl }))
+    check('★ 阻塞源入口出现，文案说清「几个 + 去哪看」',
+      s1.blockers.length === 1 && /个阻塞源/.test(s1.blockers[0]) && /看卡在谁/.test(s1.blockers[0]),
+      JSON.stringify(s1.blockers))
+    check('  KPI 行同步给「阻塞源」计数（同一份数据两个入口）',
+      s1.nums.some(n => n === '阻塞源=1'), JSON.stringify(s1.nums))
+    check('★ git 数据没拉过 → 只给「拉取提交信息」按钮，不摆空值行（不编数据）',
+      s1.gitBtn && !s1.gitRow, JSON.stringify({ gitBtn: s1.gitBtn, gitRow: s1.gitRow }))
+
+    check('★ 点阻塞源入口 → 真跳「阻塞」页签（不是死按钮）', await (async () => {
+      const b = $('#board.pv .ms-blockers')
+      if (!b) return false
+      b.click()
+      return waitFor(() => !!$('main.blockers-view'), 4000, '跳到阻塞页签')
+    })())
+    check('  回到项目页签（主从摆法还在）', await (async () => {
+      if (!clickText('项目')) return false
+      return waitFor(() => $$('#board.pv .pv-ms .ms-li').length >= 2, 4000, '回到主从')
+    })())
+
+    // git 行：注入 dirty=null 的夹具 → 拉取后 demo 显真数、demo2 显「—」（反向：绝不显 0）
+    window.__fcTest.setTripBoard({
+      generatedAt: '2026-10-09 09:00', mode: 'auto', criteria: 'cards_or_commit',
+      rows: [
+        {
+          id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo',
+          contract: { exists: true, path: 'E:/CODE/mock/demo/立项契约.md', endState: '桌面客户端为主产品。', acceptLine: '', notWant: '', choice: '' },
+          current: { text: '正在做的事', from: 'task', sub: '' },
+          next: { text: '要做的下一件', from: 'task', sub: '1 张待办（最高：中）' },
+          who: { text: 'hermes（执行）', kind: 'exec' },
+          health: { value: 'active', locked: false },
+          counts: { todo: 1, doing: 1, review: 0, logs: 0 },
+          lastCommit: '1 天前', recentCommit: true, dirty: 3,
+          flags: { noCards: false, noLogs: true },
+        },
+        {
+          id: 'demo2', name: '第二个项目', repo: '',
+          contract: { exists: false, path: '', endState: '', acceptLine: '', notWant: '', choice: '' },
+          current: { text: '进度日志1001', from: 'log', sub: '3 天前' },
+          next: { text: '', from: '', sub: '' },
+          who: { text: '', kind: 'none' },
+          health: { value: 'paused', locked: true },
+          counts: { todo: 0, doing: 0, review: 0, logs: 7 },
+          lastCommit: '3 天前', recentCommit: true, dirty: null,   // ← 读不到 git 的真形态
+          flags: { noCards: true, noLogs: false },
+        },
+      ],
+      hidden: [
+        { id: 'demo3', name: '还没开工的项目', kind: 'no-activity', reason: '没有任务卡、没有执行日志，30 天内也没有提交' },
+      ],
+    })
+    check('★ 点「拉取提交信息」→ git 行出现，数字来自数据（最近提交 1 天前 / 未提交 3）', await (async () => {
+      const btn = $('#board.pv .ms-gitbtn')
+      if (!btn) return false
+      btn.click()
+      const got = await waitFor(() => {
+        const d = $('#board.pv .ms-detail')
+        return !!d && !!d.querySelector('.ms-git')
+      }, 4000, 'git 行渲染')
+      const row = msSnap().gitRow || ''
+      return got && row.indexOf('最近提交') >= 0 && row.indexOf('1 天前') >= 0 && /未提交\s*3/.test(row)
+    })())
+    let demo2GitRow = ''
+    check('★ dirty=null → 显示「—」，绝不编 0（反向判据：不许出现「未提交 0」）', await (async () => {
+      if (!(await pickMs('第二个项目'))) return false
+      demo2GitRow = msSnap().gitRow || ''
+      return /未提交\s*—/.test(demo2GitRow) && !/未提交\s*0/.test(demo2GitRow)
+    })(), demo2GitRow || '(没有 git 行)')
+
+    // 0 卡空态：临时抽掉 demo2 的那张卡（还原动作也在断言里 —— 后续整轮都跑在还原后的数据上）
+    const origTasks = window.__fcTest.tasks()
+    window.__fcTest.setTasks(origTasks.filter(t => t.id !== 'task-demo-004'))
+    clickText('看板'); await sleep(300)
+    check('  数据重拉：切回项目页签', clickText('项目'))
+    await sleep(400)
+    check('选中 0 卡的第二个项目（空态断言起点）', await pickMs('第二个项目'))
+    const s2 = msSnap()
+    check('★★ 0 卡不画假环：环是虚线空态，SVG 弧线一段都没有（反向判据）',
+      !s2.err && s2.ringEmpty && s2.arcs === 0, JSON.stringify(s2))
+    check('  空态环心给「—」，图例说「还没有任务卡」',
+      s2.ringnum === '—' && s2.legend.indexOf('还没有任务卡') >= 0,
+      JSON.stringify({ ringnum: s2.ringnum, legend: s2.legend }))
+    check('  KPI 总任务 = 0（数出来的 0，不是没渲染）',
+      s2.nums.some(n => n === '总任务=0'), JSON.stringify(s2.nums))
+    check('★★ 健康度「异常才显示」：0 卡 = 空闲 → 左缘一个像素都不加（反向判据）',
+      s2.cls.indexOf('hs-idle') >= 0 && (s2.bar === 'rgba(0, 0, 0, 0)' || s2.bar === 'transparent') && s2.hl === '空闲',
+      JSON.stringify({ cls: s2.cls, bar: s2.bar, hl: s2.hl }))
+    check('  空闲项目没有阻塞源入口（没有异常就不报警）',
+      s2.blockers.length === 0, JSON.stringify(s2.blockers))
+    window.__fcTest.setTasks(origTasks)
+    window.__fcTest.setTripBoard(null)
+    clickText('看板'); await sleep(300)
+    clickText('项目'); await sleep(400)
+    const s3 = msSnap()
+    check('  夹具还原成功：第二个项目回到 1 张卡',
+      s3.nums.some(n => n === '总任务=1'), JSON.stringify(s3.nums))
+    check('  还原后演示项目的阻塞源入口仍在', (await pickMs('演示项目')) && msSnap().blockers.length === 1,
+      JSON.stringify(msSnap().blockers))
+
     // ══ 项目页签 · 第 4 摆法「在途一屏」（2026-10-05 Q2 · 立项契约 ② 验收线之①）══
     // 要点：四摆法互斥、六列齐、缺契约显式「未填」、无卡项目 current 回落到日志、
     //       健康度人工锁定可见、设置入口在（裁断权在人）。

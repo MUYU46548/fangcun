@@ -218,7 +218,10 @@ function main() {
       fs.writeFileSync(harnessPath, harness(driver(page, view, extra)), 'utf-8')
       const png = path.join(outDir, name + '.png')
       const c = spawn(browser, [
-        '--headless=new', '--disable-gpu', '--no-sandbox', '--allow-file-access-from-files',
+        // 2026-10-09：截图证据必须拍「动画的终态」而不是半透明的中间帧 ——
+        // numIn 入场动画在 virtual-time 截图里会冻结在起始态（KPI 数字/阻塞按钮变幽灵字，
+        // 目检两次误报"元素重叠/按钮不存在"）。关动画 = 每次拍出的都是确定的最终画面。
+        '--headless=new', '--force-prefers-reduced-motion', '--disable-gpu', '--no-sandbox', '--allow-file-access-from-files',
         '--disable-extensions', '--window-size=1440,900', '--hide-scrollbars',
         '--virtual-time-budget=20000', '--screenshot=' + png,
         'file:///' + harnessPath.replace(/\\/g, '/'),
