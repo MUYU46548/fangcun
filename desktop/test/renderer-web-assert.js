@@ -747,6 +747,105 @@
       $$('#board.pv .trip-table .trip-mini').some((b) => (b.textContent || '').indexOf('建契约文件') >= 0),
       JSON.stringify($$('#board.pv .trip-table .trip-mini').map((b) => (b.textContent || '').trim())))
 
+    // ══ 卡 002（2026-10-08 用户反馈「创完就改不了」+「行点不开」）══════════
+    // ① exists 分支此前**只有首行文本**：建契约/复制模板/打开文件夹全在 else ——
+    //    文件一旦存在，界面上连"打开它"的入口都没了。
+    // ② trip 行 tr 没有任何整行点击处理，只有健康度按钮与 🗑 有交互。
+    check('★ 契约已存在的行有「📄 打开契约」入口（文件建了就得有地方改）',
+      $$('#board.pv .trip-table .trip-mini').some((b) => (b.textContent || '').indexOf('打开契约') >= 0),
+      JSON.stringify($$('#board.pv .trip-table .trip-mini').map((b) => (b.textContent || '').trim())))
+    check('★ 点「打开契约」真调 openFile 且路径就是那份契约（不是僵尸按钮）', await (async () => {
+      const before = window.__fcTest.callCount('openFile')
+      const b = $$('#board.pv .trip-table .trip-mini').find((x) => (x.textContent || '').indexOf('打开契约') >= 0)
+      if (!b) return false
+      b.click()
+      const got = await waitFor(() => window.__fcTest.callCount('openFile') > before, 3000, 'openFile 被调用')
+      const calls = window.__fcTest.calls().filter((c) => c.name === 'openFile')
+      const last = calls[calls.length - 1]
+      return got && !!last && last.args[0] === 'E:/CODE/mock/demo/立项契约.md'
+        && window.__fcTest.callCount('openFile') === before + 1
+    })())
+    // 文件在、但 ① 终态形态 还没填 —— 旧版会并进「未填」分支，于是只剩一个
+    // 会被主进程拒绝的「建契约文件」。注入夹具把这条分支逼出来。
+    check('★ 文件已建但内容为空 → 说「文件已建 · 内容未填」，不冒充「未填」、不摆会被拒的「建契约文件」', await (async () => {
+      window.__fcTest.setTripBoard({
+        generatedAt: '2026-10-08 12:00', mode: 'auto', criteria: 'cards_or_commit',
+        rows: [{
+          id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo',
+          contract: { exists: true, path: 'E:/CODE/mock/demo/立项契约.md', endState: '', acceptLine: '', notWant: '', choice: '' },
+          current: { text: '', from: '', sub: '' }, next: { text: '', from: '', sub: '' },
+          who: { text: '', kind: 'none' }, health: { value: 'active', locked: false },
+          counts: { todo: 0, doing: 0, review: 0, logs: 0 }, lastCommit: '', recentCommit: false, dirty: 0,
+          flags: { noCards: false, noLogs: true },
+        }],
+        hidden: [],
+      })
+      // 切走再切回来，逼它用新夹具重新拉一次
+      const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
+      if (wall) wall.click()
+      await sleep(300)
+      const back = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
+      if (back) back.click()
+      if (!(await waitFor(() => $$('#board.pv .tripboard').length === 1, 5000, '回到在途一屏'))) return false
+      const row = $$('#board.pv .trip-table tbody tr')[0]
+      if (!row) return false
+      const txt = (row.textContent || '').replace(/\s+/g, ' ')
+      const minis = Array.prototype.slice.call(row.querySelectorAll('.trip-mini'))
+        .map((b) => (b.textContent || '').trim())
+      // 判据：说「文件已建 · 内容未填」、给「打开契约」、**不**给会被主进程拒绝的「建契约文件」
+      const ok = txt.indexOf('文件已建 · 内容未填') >= 0
+        && minis.some((t) => t.indexOf('打开契约') >= 0)
+        && !minis.some((t) => t.indexOf('建契约文件') >= 0)
+      window.__fcTest.setTripBoard(null)
+      return ok
+    })())
+    check('  （恢复默认夹具后在途一屏照常渲染）', await (async () => {
+      const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
+      if (wall) wall.click()
+      await sleep(300)
+      const back = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
+      if (back) back.click()
+      // ⚠ 必须真 await：`waitFor(...) && tripSnap()...` 会立即求值右操作数 = 行还没渲染就判红
+      const got = await waitFor(() => tripSnap().rows >= 2, 5000, '夹具恢复')
+      return got && tripSnap().rows >= 2
+    })())
+    // 行内按钮有自己的语义（切健康度），不能连带把整行点开 —— .stop 兜住。
+    check('★ 行内按钮点击不触发行点击（点健康度不会把人甩出在途一屏）', await (async () => {
+      if (!(await waitFor(() => $('#board.pv .trip-table .trip-hbtn'), 5000, '健康度按钮渲染'))) return false
+      const btn = $('#board.pv .trip-table .trip-hbtn')
+      if (!btn) return false
+      btn.click()
+      await sleep(400)
+      return $$('#board.pv .tripboard').length === 1
+    })())
+    // 点整行 → 详情。⚠ check 的 cond 只认布尔：IIFE 里返回诊断字符串会因"非空即真"误判 PASS，
+    // 所以诊断写进外置变量、当 detail 传（参数从左到右求值，IIFE 先跑完）。
+    let rowOpenDetail = ''
+    check('★ 点整行 → 进这个项目的详情（复用主从 ms-detail，不新造详情页）', await (async () => {
+      const cell = $$('#board.pv .trip-table tbody .trip-pj b')
+        .find((x) => (x.textContent || '').indexOf('演示项目') >= 0)
+      if (!cell) { rowOpenDetail = '找不到演示项目行'; return false }
+      cell.click()
+      const got = await waitFor(() => $$('#board.pv .pv-ms').length === 1
+        && $$('#board.pv .tripboard').length === 0, 4000, '切到主从')
+      const detail = (($('#board.pv .ms-detail') || {}).textContent || '')
+      if (!(got && detail.indexOf('演示项目') >= 0)) {
+        rowOpenDetail = 'got=' + got + ' detail=' + detail.replace(/\s+/g, ' ').slice(0, 80)
+        return false
+      }
+      return true
+    })(), rowOpenDetail)
+    check('★ 行点击不覆写用户选好的摆法（导航不是偏好，fc_pv_view 仍是 trip）',
+      window.__fcTest.prefs().fc_pv_view === 'trip',
+      JSON.stringify(window.__fcTest.prefs().fc_pv_view))
+    // 主从里点回在途一屏，把视图还原给后续断言
+    check('  切回在途一屏（还原现场）', await (async () => {
+      const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
+      if (!b) return false
+      b.click()
+      return waitFor(() => $$('#board.pv .tripboard').length === 1, 4000, '回到在途一屏')
+    })())
+
     // ══ 空屏不许是死局（2026-10-05 用户实测「一屏是空的」）═══════════════
     // 用户当时的状态：prefs 里 fc_trip_mode=manual，而 fc_trip_projects 键根本没写进去
     //   （旧写法四次裸写只落了字符串键）→ 手动清单为空 → 15 个项目全出局 → 一屏空白，
@@ -1031,6 +1130,191 @@
     if (attClose) attClose.click()
     await sleep(300)
 
+    // ══ 日志优先级（2026-10-08 卡 task-20261008-001，拍板=新增字段）════════
+    // 数据层往返由 e2e-logs（198）与 e2e-fm-contract（25）钉住；这里只测**界面链路**：
+    // 编辑框有这个下拉 → 保存真把它送进 IPC → 卡面看得见 → 排序真的按它排。
+    window.__fcTest.setLogs([
+      { id: 'log-prio-h', title: '要紧的排查', content: 'x', status: 'active', project: 'demo', priority: '高',
+        created: '2026-10-07T00:00:00.000Z' },
+      { id: 'log-prio-m', title: '普通跟进', content: 'x', status: 'active', project: 'demo', priority: '中',
+        created: '2026-10-07T01:00:00.000Z' },
+      { id: 'log-prio-l', title: '有空再说', content: 'x', status: 'active', project: 'demo', priority: '低',
+        created: '2026-10-07T02:00:00.000Z' },
+      { id: 'log-prio-n', title: '没标过的老日志', content: 'x', status: 'active', project: 'demo',
+        created: '2026-10-07T03:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    check('★★ 标了优先级的卡面直接有徽章（未标的不占位）', (() => {
+      const badges = $$('.log-card .log-prio-badge').map(b => (b.textContent || '').trim())
+      return badges.length === 3 && badges.join('').indexOf('高') >= 0
+        && $$('.log-card').filter(c => (c.textContent || '').indexOf('没标过的老日志') >= 0)
+             .every(c => c.querySelectorAll('.log-prio-badge').length === 0)
+    })(), $$('.log-card .log-prio-badge').map(b => (b.textContent || '').trim()).join(','))
+    check('★ 徽章三档 class 是 ASCII key（lp-high/lp-mid/lp-low）', (() => {
+      const ks = $$('.log-card .log-prio-badge').map(b => (b.className || ''))
+      return ks.some(k => k.indexOf('lp-high') >= 0) && ks.some(k => k.indexOf('lp-mid') >= 0) && ks.some(k => k.indexOf('lp-low') >= 0)
+    })(), $$('.log-card .log-prio-badge').map(b => b.className).join(' | '))
+    // 排序下拉：切到「按优先级」→ 高→中→低→未标（未标沉底）
+    check('★★ 排序下拉有「按优先级（高→低）」选项（卡 001 之前只有 4 项）', (() => {
+      const sel = $$('.logs-view select, #board select').find(s =>
+        Array.prototype.slice.call(s.options || []).some(o => (o.textContent || '').indexOf('按优先级') >= 0))
+      if (!sel) return false
+      sel.value = 'prio_desc'
+      sel.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    })())
+    check('★★ 按优先级排：高 → 中 → 低 → 未标沉底', await (async () => {
+      const got = await waitFor(() => {
+        const titles = $$('.log-card .log-card-title').map(t => (t.textContent || '').trim())
+        if (titles.length < 4) return false
+        const idx = (s) => titles.findIndex(t => t.indexOf(s) >= 0)
+        return idx('要紧的排查') < idx('普通跟进')
+          && idx('普通跟进') < idx('有空再说')
+          && idx('有空再说') < idx('没标过的老日志')
+      }, 4000, 'prio 排序')
+      return got
+    })(), $$('.log-card .log-card-title').map(t => (t.textContent || '').trim()).join(' → '))
+    check('★ 排序选择写进真身 prefs（fc_log_sort=prio_desc）',
+      window.__fcTest.prefs().fc_log_sort === 'prio_desc',
+      JSON.stringify(window.__fcTest.prefs().fc_log_sort))
+    // 编辑框有优先级下拉，且保存真把值送进 IPC（logsUpdate 的 updates.priority）
+    const prioEditBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('编辑') >= 0)
+    if (prioEditBtn) prioEditBtn.click()
+    check('打开日志编辑框（优先级断言前置）', await waitFor(() => !!$('#log-edit-modal'), 3000, 'log edit'))
+    check('★★ 编辑框有「优先级」下拉（四档：不标/高/中/低）', (() => {
+      const sel = $$('#log-edit-modal select.logsel').find(s => {
+        const opts = Array.prototype.slice.call(s.options || []).map(o => o.textContent)
+        return opts.some(t => t === '不标') && opts.some(t => t === '高') && opts.some(t => t === '低')
+      })
+      return !!sel
+    })(), JSON.stringify($$('#log-edit-modal select.logsel').map(s =>
+      Array.prototype.slice.call(s.options).map(o => o.textContent).join('/'))))
+    check('★★ 编辑框打开即回显当前优先级（不是每次打开都从「不标」重来）', (() => {
+      const sel = $$('#log-edit-modal select.logsel').find(s =>
+        Array.prototype.slice.call(s.options || []).some(o => o.textContent === '高'))
+      return !!sel && sel.value === '高'
+    })(), JSON.stringify(($$('#log-edit-modal select.logsel').find(s =>
+      Array.prototype.slice.call(s.options || []).some(o => o.textContent === '高')) || {}).value))
+    check('★ 优先级下拉改动纳入「未保存」防丢快照（整表 JSON 比对）', (() => {
+      const sel = $$('#log-edit-modal select.logsel').find(s =>
+        Array.prototype.slice.call(s.options || []).some(o => o.textContent === '低'))
+      if (!sel) return false
+      sel.value = '低'
+      sel.dispatchEvent(new Event('change', { bubbles: true }))
+      // 防丢是关窗时才拦 —— 这里只验证值真的绑上了（v-model 生效）
+      return sel.value === '低'
+    })())
+    const prioSave = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '保存')
+    if (prioSave) prioSave.click()
+    check('★★ 保存 → logsUpdate 的 updates 带 priority（此前编辑框压根没这个字段）',
+      await waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsUpdate')
+        if (!c.length) return false
+        const upd = (c[c.length - 1].args || [])[1] || {}
+        return upd.priority === '低'
+      }, 4000, 'logsUpdate priority'),
+      JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsUpdate').pop() || {}).args))
+    // 新建：默认「不标」，且创建链路同样带 priority
+    const newLogBtn = $$('.logs-view button, #board button').find(b => (b.textContent || '').indexOf('新建日志') >= 0)
+    if (newLogBtn) newLogBtn.click()
+    check('打开新建日志（卡 001 新建分支前置）', await waitFor(() => !!$('#log-edit-modal'), 3000, 'new log'))
+    check('★ 新建默认「不标」（历史日志零迁移：老日志不会因此多出字段）', (() => {
+      const sel = $$('#log-edit-modal select.logsel').find(s =>
+        Array.prototype.slice.call(s.options || []).some(o => o.textContent === '不标'))
+      return !!sel && sel.value === ''
+    })())
+    const newTitle = $('#log-edit-modal input[placeholder="日志标题"]')
+    if (newTitle) {
+      newTitle.value = '带优先级的新日志'
+      newTitle.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    const selNew = $$('#log-edit-modal select.logsel').find(s =>
+      Array.prototype.slice.call(s.options || []).some(o => o.textContent === '高'))
+    if (selNew) { selNew.value = '高'; selNew.dispatchEvent(new Event('change', { bubbles: true })) }
+    const createBtn = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
+    if (createBtn) createBtn.click()
+    check('★★ 创建链路把 priority 送进 IPC（logsCreate extra.priority=高）',
+      await waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsCreate')
+        if (!c.length) return false
+        const extra = (c[c.length - 1].args || [])[4] || {}
+        return extra.priority === '高'
+      }, 4000, 'logsCreate priority'),
+      JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
+
+    // ══ 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）════════════
+    // 三个判据：① 两个方向的入口真在、真调 IPC；② **源保留不删**；③ 同一条只转一次（防重靠来源字段）。
+    window.__fcTest.setLogs([
+      { id: 'log-conv-1', title: '排查登录失败', content: '查了鉴权中间件', nextSteps: '- [ ] 补一个失败重试\n- [ ] 写回归',
+        status: 'active', project: 'demo', priority: '高', created: '2026-10-08T00:00:00.000Z' },
+    ])
+    window.__fcTest.setTodos([
+      { id: 'todo-conv-1', title: '整理发布说明', done: false, priority: '中', project: 'demo',
+        due: '2026-10-12', createdAt: '2026-10-08T01:00:00.000Z', updatedAt: '2026-10-08T01:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    // 方向一：日志 → 待办
+    const convLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('转待办') >= 0)
+    check('★★ 日志卡上有「⤴ 转待办」入口', !!convLogBtn,
+      JSON.stringify($$('.log-card-actions button').map(b => (b.textContent || '').trim())))
+    if (convLogBtn) convLogBtn.click()
+    check('★★ 日志→待办：真调 todosCreate（下一步首条做标题 + priority/project 跟着走 + fromLog 防重）',
+      await waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'todosCreate')
+        if (!c.length) return false
+        const a = c[c.length - 1].args || []
+        return a[0] === '补一个失败重试' && a[1] === '高' && a[3] === 'demo' && a[4] === 'log-conv-1'
+      }, 4000, 'todosCreate 反转'),
+      JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'todosCreate').pop() || {}).args))
+    check('★ 日志→待办后**源日志还在**（转换不删源，卡 004 铁律）',
+      window.__fcTest.calls().length > 0 && $$('.log-card').length >= 1,
+      'logCards=' + $$('.log-card').length)
+    // 防重：再点一次必须被拦（store 里已有 fromLog=log-conv-1 的待办）
+    const convLogBtn2 = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('转待办') >= 0)
+    const beforeDup = window.__fcTest.callCount('todosCreate')
+    if (convLogBtn2) convLogBtn2.click()
+    await sleep(600)
+    check('★★ 防重：同一条日志再点「转待办」被拦下（todosCreate 调用数不增）',
+      window.__fcTest.callCount('todosCreate') === beforeDup,
+      `before=${beforeDup} after=${window.__fcTest.callCount('todosCreate')}`)
+    check('★ 防重提示说得清（不是静默失败）',
+      (($('#toast') || {}).textContent || '').indexOf('已经转过') >= 0,
+      (($('#toast') || {}).textContent || '').slice(0, 60))
+    // 方向二：待办 → 日志
+    check('能切到「待办」页签（反转断言前置）', clickText('待办'))
+    await sleep(600)
+    const convTodoBtn = $$('.todo-acts .todo-conv')[0]
+    check('★★ 待办行上有「⤴ 转日志」入口（.todo-conv）', !!convTodoBtn,
+      'acts=' + $$('.todo-acts').length + ' conv=' + $$('.todo-acts .todo-conv').length)
+    if (convTodoBtn) convTodoBtn.click()
+    check('★★ 待办→日志：真调 logsCreate（title/project/priority/due 压进去 + fromTodo 防重）',
+      await waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsCreate')
+        if (!c.length) return false
+        const a = c[c.length - 1].args || []
+        const extra = a[4] || {}
+        return a[0] === '整理发布说明' && a[1] === 'demo'
+          && String(a[2] || '').indexOf('2026-10-12') >= 0
+          && extra.priority === '中' && extra.fromTodo === 'todo-conv-1'
+      }, 4000, 'logsCreate 正转'),
+      JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
+    // 防重（反向）
+    const convTodoBtn2 = $$('.todo-acts .todo-conv')[0]
+    const beforeDup2 = window.__fcTest.callCount('logsCreate')
+    if (convTodoBtn2) convTodoBtn2.click()
+    await sleep(600)
+    check('★★ 防重：同一条待办再点「转日志」被拦下（logsCreate 调用数不增）',
+      window.__fcTest.callCount('logsCreate') === beforeDup2,
+      `before=${beforeDup2} after=${window.__fcTest.callCount('logsCreate')}`)
+    check('★ 源待办仍在列表里（转换不删源）',
+      $$('.todos-view .todo-item').some(x => (x.textContent || '').indexOf('整理发布说明') >= 0),
+      $$('.todos-view .todo-item').map(x => (x.textContent || '').replace(/\s+/g, ' ').slice(0, 24)).join(' | '))
+    // 来源徽章：回到日志页看 ⤴ 待办 徽章
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    check('★★ 转出来的日志带「⤴ 待办」来源徽章（prev 范式，与接力链同款）',
+      $$('.log-card .log-from').length >= 1,
+      'log-from=' + $$('.log-card .log-from').length)
+
     // ══ 待办 · 多选（2026-09-30 用户补充：「待办和回收站也加入多选」）══════
     await sleep(300)
     window.__fcTest.setTodos([
@@ -1275,8 +1559,18 @@
     check('★ 通知中心铃铛入口存在', !!bellBtn)
     if (bellBtn) bellBtn.click()
     await sleep(500)
-    check('★★ 打开面板：注入的两条通知渲染出来了', $$('.nc-item').length === 2,
+    // 2026-10-08 默认页签改为「未读」：第一条 read=false 可见，第二条 read=true 被筛掉
+    check('★★ 打开面板默认「未读」页签：只渲染未读那一条', $$('.nc-item').length === 1,
       String($$('.nc-item').length))
+    // ⚠ 上一轮只同步了上面那条条数，下面整段还按「默认全部、两条都在」写 ——
+    //   于是 go 行数恒 1≠2、拿不到第 2 条、面板没被点关、后续铃铛反而把面板关了（5 连红）。
+    //   正确流：先验默认未读 → 切「全部」再验跳转/逐条点击（页签切换本身就是该测的行为）。
+    check('★★ 切到「全部」页签 → 两条都渲染（页签是活的）', await (async () => {
+      const allBtn = $$('.nc-filters .nc-seg button').find((b) => (b.textContent || '').indexOf('全部') >= 0)
+      if (!allBtn) return false
+      allBtn.click()
+      return waitFor(() => $$('.nc-item').length === 2, 3000, '全部两条')
+    })(), 'items=' + $$('.nc-item').length)
     check('★ 能跳的行带 title 提示 + 行尾箭头（不再是死按钮）',
       $$('.nc-item.go').length === 2 && $$('.nc-go').length === 2 &&
       (($$('.nc-item')[0] || {}).getAttribute?.('title') === '跳到这个任务'),

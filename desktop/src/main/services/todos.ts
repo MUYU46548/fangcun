@@ -22,6 +22,13 @@ export interface Todo {
   project?: string
   /** 置顶（2026-09-26 卡 037）：钉在列表最上面，跟完成状态/优先级正交 */
   pinned?: boolean
+  /**
+   * 来源日志 ID（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）。
+   * 与接力链/日志链同一套「目标记录 `由 X 转来`」范式：源保留不删，目标记来源。
+   * 两个用途：① 待办上看得见「这条是哪条日志转来的」；② **防重** —— 同一条日志转过一次
+   * 就不再转（用户手滑点两下不该产出两条）。只在有值时出现（normalizeTodo 给 undefined）。
+   */
+  fromLog?: string
   createdAt: string
   updatedAt: string
 }
@@ -46,6 +53,7 @@ function normalizeTodo(raw: any): Todo {
     due: raw?.due,
     project: raw?.project || undefined,
     pinned: raw?.pinned === true,
+    fromLog: raw?.fromLog ? String(raw.fromLog) : undefined,
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
   }
@@ -123,7 +131,7 @@ export function listTodos(filter?: { done?: boolean }): Todo[] {
   })
 }
 
-export function createTodo(title: string, priority: string = '中', due?: string, project?: string): Todo {
+export function createTodo(title: string, priority: string = '中', due?: string, project?: string, fromLog?: string): Todo {
   const id = `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
   const todo: Todo = {
@@ -133,6 +141,8 @@ export function createTodo(title: string, priority: string = '中', due?: string
     priority: normalizePriority(priority) || '中',
     due,
     project: project || undefined,
+    // 卡 004：只有「日志转来」这条路会带值；普通新建不写这个键
+    fromLog: fromLog ? String(fromLog) : undefined,
     createdAt: now,
     updatedAt: now,
   }

@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('tegula', {
   logsList: (filter?: any) => ipcRenderer.invoke('logs:list', filter),
   logsForTask: (taskId: string) => ipcRenderer.invoke('logs:forTask', taskId),
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
-  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
+  logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string; priority?: string; fromTodo?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
@@ -189,7 +189,7 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── Todos ─────────────────────────────────────────────────────────
   todosList: (filter?: any) => ipcRenderer.invoke('todos:list', filter),
-  todosCreate: (title: string, priority?: string, due?: string, project?: string) => ipcRenderer.invoke('todos:create', title, priority, due, project),
+  todosCreate: (title: string, priority?: string, due?: string, project?: string, fromLog?: string) => ipcRenderer.invoke('todos:create', title, priority, due, project, fromLog),
   todosUpdate: (id: string, updates: any) => ipcRenderer.invoke('todos:update', id, updates),
   todosToggle: (id: string) => ipcRenderer.invoke('todos:toggle', id),
   todosDelete: (id: string) => ipcRenderer.invoke('todos:delete', id),

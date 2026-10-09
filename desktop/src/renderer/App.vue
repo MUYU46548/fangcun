@@ -570,26 +570,33 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in tripRows" :key="r.id" :class="{ 'trip-anomaly': r.flags && r.flags.noCards }">
+              <tr v-for="r in tripRows" :key="r.id" :class="{ 'trip-anomaly': r.flags && r.flags.noCards }"
+                  @click="tripOpenRow(r, $event)">
                 <td class="trip-pj">
                   <b>{{ r.name }}</b>
                   <span class="trip-pid">{{ r.id }}</span>
                   <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
-                          @click="removeProject(r)">🗑</button>
+                          @click.stop="removeProject(r)">🗑</button>
                 </td>
 
-                <!-- 终态：读各 repo 的 立项契约.md；没有就显式「未填」+ 两个按钮（不给假默认值） -->
+                <!-- 终态：读各 repo 的 立项契约.md；没有就显式「未填」+ 两个按钮（不给假默认值）
+                     ⚠ 分支先看 exists 再看内容（卡 002）：旧版把「文件在但还没填内容」并进了
+                     「未填」分支 —— 于是文件建完之后界面上只剩「建契约文件」（会被主进程拒绝），
+                     用户原话「创完就改不了、懒得去文件夹自己找」。 -->
                 <td v-if="tripColVisible('end')" class="trip-end">
-                  <template v-if="r.contract && r.contract.exists && tripFirstLine(r.contract.endState)">
-                    <span class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
+                  <template v-if="r.contract && r.contract.exists">
+                    <span v-if="tripFirstLine(r.contract.endState)" class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
+                    <span v-else class="trip-unset" :title="r.contract.path">文件已建 · 内容未填</span>
+                    <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
+                            title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
                   </template>
                   <template v-else>
                     <span class="trip-unset">未填</span>
-                    <button class="ghost trip-mini" :disabled="!r.repo" @click="tripInitContract(r)"
+                    <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripInitContract(r)"
                             title="方寸直接在这个项目文件夹里建好「立项契约.md」（文件已存在就不动它）">📝 建契约文件</button>
-                    <button class="ghost trip-mini" @click="tripCopyContract(r)"
+                    <button class="ghost trip-mini" @click.stop="tripCopyContract(r)"
                             title="只复制文字，你自己挑地方落盘">复制模板</button>
-                    <button class="ghost trip-mini" :disabled="!r.repo" @click="tripOpenRepo(r)"
+                    <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
                             title="打开该项目的文件夹">📁 打开项目文件夹</button>
                     <span class="trip-dim-sm">建好后打开它填内容（也可以让 AI 填）</span>
                   </template>
@@ -627,7 +634,7 @@
                           :title="r.health.locked
                             ? '你标过（已锁定）—— 点一下换下一档；右键恢复自动'
                             : '方寸按这个项目最近有没有提交算出来的默认值 —— 点一下可人工改成你的判断'"
-                          @click="tripCycleHealth(r)" @contextmenu.prevent="tripUnlockHealth(r)">
+                          @click.stop="tripCycleHealth(r)" @contextmenu.prevent="tripUnlockHealth(r)">
                     {{ tripHealthLabel(r.health.value) }}<span v-if="r.health.locked" class="trip-lock">🔒</span>
                   </button>
                 </td>
@@ -1173,6 +1180,9 @@
             <div class="todo-line metas">
               <span class="todo-prio" :class="'prio-' + prioClass(todo.priority)">{{ localPriority(todo.priority) }}</span>
               <span v-if="todo.project" class="todo-project">{{ (projects.find(p => p.id === todo.project)?.name) || todo.project }}</span>
+              <!-- 卡 004：由日志转来的待办标出来源（与日志侧 ⤴ 待办 徽章成对，prev 范式） -->
+              <span v-if="todo.fromLog" class="todo-from"
+                :title="'由日志 ' + todo.fromLog + ' 转来（源日志保留）'">⤴ 日志</span>
               <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
                     :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
                 📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
@@ -1182,6 +1192,9 @@
           <div class="todo-acts" v-show="!todoBatchMode">
             <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
             <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">✏️</button>
+            <!-- 卡 004（拍板=双向）：待办 → 日志。源待办保留不删；同一条只转一次（日志记 fromTodo 防重）。 -->
+            <button class="todo-conv" title="转成执行日志：标题/项目/优先级/到期压进一条新日志 —— 源待办保留不删，同一条只转一次"
+              @click.stop="convertTodoToLog(todo)">⤴</button>
             <button class="todo-del" title="删除这条待办" @click.stop="deleteTodo(todo.id)">×</button>
           </div>
         </div>
@@ -1252,6 +1265,8 @@
             <option value="created_asc">最早创建在前</option>
             <option value="date_desc">按归属日期（新→旧）</option>
             <option value="title_asc">按标题排序</option>
+            <!-- 卡 001（2026-10-08 拍板=新增日志优先级字段）：高→中→低→未标，同级按创建倒序 -->
+            <option value="prio_desc">按优先级（高→低）</option>
           </select>
           <!-- 低频筛选收进抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围此前与搜索框
                并排摊开，6 个控件挤一条线。抽屉里有值时按钮上带角标，避免"筛了却忘了"。 -->
@@ -1343,10 +1358,13 @@
           <div class="log-card-head">
             <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
             <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
+            <!-- 卡 001：标了优先级的日志在卡面上直接看得见（不标就不占位，历史日志零变化） -->
+            <span v-if="log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(log.priority)"
+              :title="'日志优先级：' + localPriority(log.priority)">{{ localPriority(log.priority) }}</span>
             <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
             <span v-if="log.attachments && log.attachments.length" class="log-attach-badge"
               :title="log.attachments.length + ' 个附件（截图 / 报告）'">📎{{ log.attachments.length }}</span>
-            <span class="log-card-date">{{ formatDate(log.created) }}</span>
+            <span class="log-card-date" :title="log.created">{{ formatDateTime(log.created) }}</span>
           </div>
           <div class="log-card-body">{{ truncate(log.content, 120) }}</div>
           <div class="log-card-meta">
@@ -1359,6 +1377,9 @@
               title="上次的执行 Agent（接力来源那段是谁跑的）—— 找上次的会话就去这个 Agent 里找">⤴ 上次 {{ log.prevAgentName }}</span>
             <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
+            <!-- 卡 004 日志⇄待办互转：目标记录「由 X 转来」（与接力链同款 prev 范式） -->
+            <span v-if="log.fromTodo" class="log-from"
+              :title="'由待办 ' + log.fromTodo + ' 转来（源待办保留）'">⤴ 待办</span>
             <!-- 接力链（2026-09-29 方案二）：继承来的日志挂一个可复制的链标签 -->
             <span v-if="log.continueFrom" class="chain-tag"
               :title="'接力自 ' + log.continueFrom + ' —— 点一下复制它的 ID'"
@@ -1373,6 +1394,10 @@
           <div class="log-card-actions" @click.stop>
             <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
             <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
+            <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
+                 源日志**保留不删**；同一条日志只转一次（待办记 fromLog 防重）。 -->
+            <button class="ghost" title="把这条日志的「下一步」变成一条待办（没有下一步就用标题）—— 源日志保留不删，同一条只转一次"
+              @click="convertLogToTodo(log)">⤴ 转待办</button>
             <!-- 接力（2026-09-29 方案二）：完成态才有「下一段」——出清 + 新建 + 可开跑在一个对话框里做完 -->
             <button v-if="log.status === 'completed'" class="ghost relay-btn"
               title="接力：出清这条 + 建新日志继承「下一步」/项目/任务/Agent —— 一个对话框做完四件事"
@@ -1555,8 +1580,8 @@
           <span v-if="logPreview.project">{{ (projects.find(p => p.id === logPreview.project)?.name) || logPreview.project }}</span>
           <span v-if="logPreview.taskId">📍 {{ logPreview.taskId }}</span>
           <span v-if="logPreview.agentName">🤖 {{ logPreview.agentName }}</span>
-          <span>{{ formatDate(logPreview.created) }}</span>
-          <span v-if="logPreview.completed">✓ {{ formatDate(logPreview.completed) }}</span>
+          <span>{{ formatDateTime(logPreview.created) }}</span>
+          <span v-if="logPreview.completed">✓ {{ formatDateTime(logPreview.completed) }}</span>
         </div>
         <label>执行内容</label>
         <div class="body-text markdown" v-html="renderBody(logPreview.content)"></div>
@@ -1661,7 +1686,7 @@
               <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
               <div class="task-log-main">
                 <div class="task-log-title">{{ log.title || '(无标题)' }}</div>
-                <div class="task-log-meta">{{ formatDate(log.created) }}</div>
+                <div class="task-log-meta" :title="log.created">{{ formatDateTime(log.created) }}</div>
               </div>
               <button
                 v-if="log.status !== 'completed' && log.status !== 'archived'"
@@ -2024,6 +2049,15 @@
             :value="logEdit_.project">{{ logEdit_.project }}（未在登记表中）</option>
           <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
         </select>
+        <!-- 优先级（2026-10-08 卡 001，拍板=新增字段）：值域与任务卡同款中文。
+             空 = 不标（默认），历史日志全是这个状态，界面显式写「不标」而不是留白。 -->
+        <label>优先级（可选 —— 用来给日志排序）</label>
+        <select v-model="logEdit_.priority" class="logsel">
+          <option value="">不标</option>
+          <option value="高">高</option>
+          <option value="中">中</option>
+          <option value="低">低</option>
+        </select>
         <label>执行内容</label>
         <textarea v-model="logEdit_.content" class="tall" placeholder="执行内容..."></textarea>
         <label>下一步</label>
@@ -2041,7 +2075,7 @@
           </label>
         </div>
         <div v-else class="hint">当前项目下没有可选任务 —— 用下面的输入框直接贴 ID</div>
-        <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用逗号分隔，回车加入）" @change="addLogTaskExtra" />
+        <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用英文逗号 , 分隔，回车加入）" @change="addLogTaskExtra" />
         <div class="hint log-task-picked" v-if="logTaskPicked">已选：{{ logTaskPicked }}</div>
         <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
         <label>会话 ID（可选，便于反向查证）</label>
@@ -3481,6 +3515,35 @@ async function tripOpenRepo(row: any): Promise<void> {
 }
 
 /**
+ * 「📄 打开契约」（卡 002）：文件建了就总得有地方改它。
+ * 走既有 openFile 通道（主进程 validateAndOpenFile：存在性检查 + 系统默认程序打开），
+ * 路径来自主进程聚合出来的 contract.path —— 渲染层不自己拼路径。
+ */
+async function tripOpenContract(row: any): Promise<void> {
+  const p = String(row?.contract?.path || '')
+  if (!p) { showToast('这个项目还没登记文件夹路径 —— 先在项目设置里补上', 'error'); return }
+  try {
+    const res: any = await (window as any).tegula.openFile(p)
+    if (res && res.ok === false) showToast('打开契约失败：' + (res.error || '未知错误'), 'error')
+  } catch (e: any) {
+    showToast('打开契约异常：' + (e?.message || e), 'error')
+  }
+}
+
+/**
+ * 点整行 = 进这个项目的详情（卡 002：行此前不可点，只有健康度与🗑两个热点）。
+ * 复用主从摆法的 ms-detail，不新造详情页 —— 所以是「切到 master + 选中该项目」。
+ * ⚠ 行内按钮一律 .stop，点击不会漏到这里；这里再兜一层（按钮在 span 里时 target 是内层元素）。
+ * ⚠ 只切内存状态、不写 prefs：这是一次性浏览动作，用户选好的摆法（在途一屏）不该被顺手改掉。
+ */
+function tripOpenRow(row: any, e?: MouseEvent): void {
+  const t = (e && (e.target as HTMLElement | null)) || null
+  if (t && typeof t.closest === 'function' && t.closest('button')) return
+  pvSelected.value = row?.id || ''
+  pvView.value = 'master'
+}
+
+/**
  * 「📝 建契约文件」：让方寸在该项目文件夹里**创建**「立项契约.md」。
  *
  * 2026-10-05 用户口径：「让方寸直接写仓库文件更方便，用户打字输错一个字可能就无法识别。
@@ -4215,7 +4278,7 @@ const ncReady = ref(false)
 const ncLoading = ref(false)
 const ncUnread = ref(0)
 const ncItems = ref<any[]>([])
-const ncFilter = ref<'all' | 'unread' | 'read'>('all')
+const ncFilter = ref<'all' | 'unread' | 'read'>('unread')
 let ncTimer: number | null = null
 
 const ncCounts = computed(() => {
@@ -6245,6 +6308,13 @@ function priorityLabel(p: string): string {
   return p ? localPriority(p) : '—'
 }
 
+/** 日志优先级徽章的 class key（卡 001）。ASCII 而不是直接拼中文：CSS 选择器里中文虽合法，
+ *  但转义/编码链上多一个可出错的环节，值域也只需三档映射。空/未知一律给 'low'（灰、不抢眼）。 */
+function logPrioKey(p: any): string {
+  const v = localPriority(p)
+  return v === '高' ? 'high' : v === '中' ? 'mid' : 'low'
+}
+
 /** 详情面板里的时间展示：有开始+截止就是一个时间段（2026-09-22，用户第 6 条） */
 function previewTimeLabel(t: any): string {
   return rangeLabel(t?.start ?? t?.fm?.start, t?.deadline ?? t?.fm?.deadline)
@@ -7386,6 +7456,19 @@ const filteredLogs = computed(() => {
     case 'created_asc': return arr.sort(byStr(l => l.created))
     case 'date_desc': return arr.sort((a, b) => String(b.logDate || b.created).localeCompare(String(a.logDate || a.created)))
     case 'title_asc': return arr.sort(byStr(l => l.title || '', 'zh-Hans-CN'))
+    // 卡 001：高→中→低→未标（未标一律沉底 —— 否则"没排过序"的老日志会盖住真要紧的）；
+    // 同级按创建倒序，与默认排序同一口径，保证结果稳定。
+    // ⚠ 不能直接拿 localPriority 判「未标」：它对空值兜底返回 '中'（任务卡的口径），
+    //   会把没标过的老日志全排进「中」档 —— 这里必须先看原值。
+    case 'prio_desc': {
+      const rank = (l: any): number => {
+        const raw = String(l?.priority || '').trim()
+        if (!raw) return 3
+        const p = localPriority(raw)
+        return p === '高' ? 0 : p === '中' ? 1 : p === '低' ? 2 : 3
+      }
+      return arr.sort((a, b) => (rank(a) - rank(b)) || String(b.created).localeCompare(String(a.created)))
+    }
     default: return arr.sort((a, b) => String(b.created).localeCompare(String(a.created)))
   }
 })
@@ -7555,6 +7638,68 @@ async function toggleLogRunning(log: any): Promise<void> {
     await loadLogs()
   } else {
     showToast(`操作失败：${(r && r.error) || '未知原因'}`, 'error')
+  }
+}
+
+// ── 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）──────────────
+// 纪律（卡 004 正文）：**源保留不删**；目标记「由 X 转来」（prev 范式，与接力链同款）；
+// 靠来源字段**防重** —— 同一条只转一次，手滑点两下不产出两条。
+// 字段映射（拍板：待办简单字段全压一起、日志只填执行内容）：
+//   待办 → 日志：title/project/priority 全走 frontmatter（priority 用卡 001 的字段），
+//                due 没有日志字段 → 压进正文首行；执行内容留空给用户填。
+//   日志 → 待办：下一步首条最像"要做的事" → 作为标题（没有就退回日志标题）；
+//                project/priority 跟着走，due 待办侧本来就支持（日志无 due 可传）。
+
+/** 待办 → 日志：源待办保留，新日志记 fromTodo 防重 */
+async function convertTodoToLog(todo: any): Promise<void> {
+  try {
+    // 防重：读全量日志找来源（与 loadLogs 同一条取数路径，不新造查询）
+    const all: any[] = (await window.tegula.logsList({})) || []
+    const dup = all.find(l => l && l.fromTodo === todo.id)
+    if (dup) {
+      showToast(`这条待办已经转过了：${dup.id} —— 源待办保留，不再重复建日志`, 'info')
+      return
+    }
+    const title = String(todo?.title || '').trim()
+    if (!title) { showToast('这条待办没有内容，转不了', 'error'); return }
+    const r: any = await window.tegula.logsCreate(
+      title,
+      todo.project || '',
+      // due 是待办字段、日志没有 → 压进正文首行（拍板口径）；执行内容本身留空给用户
+      todo.due ? `到期：${todo.due}` : '',
+      undefined,
+      { priority: todo.priority || '', fromTodo: todo.id, logDate: '' },
+    )
+    if (!r?.ok) { showToast(`转日志失败：${r?.error || '未知原因'}`, 'error'); return }
+    showToast(`已转成日志 ${r.data?.id || ''} —— 源待办保留未删`, 'success')
+    await loadLogs()
+  } catch (e: any) {
+    showToast(`转日志异常：${e?.message || e}`, 'error')
+  }
+}
+
+/** 日志 → 待办：源日志保留，新待办记 fromLog 防重 */
+async function convertLogToTodo(log: any): Promise<void> {
+  try {
+    const all: any[] = (await window.tegula.todosList()) || []
+    const dup = all.find(t => t && t.fromLog === log.id)
+    if (dup) {
+      showToast(`这条日志已经转过了待办：「${dup.title}」—— 源日志保留，不再重复建`, 'info')
+      return
+    }
+    // 「下一步」首条去掉列表符/勾选框后最像要做的事；没有就退回日志标题
+    const firstStep = String(log?.nextSteps || '')
+      .split('\n')
+      .map(s => s.trim().replace(/^[-*]\s*/, '').replace(/^\[[ xX]\]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
+      .filter(Boolean)[0] || ''
+    const title = firstStep || String(log?.title || '').trim()
+    if (!title) { showToast('这条日志没有标题也没有下一步，转不了', 'error'); return }
+    const r: any = await window.tegula.todosCreate(title, log.priority || '中', undefined, log.project || '', log.id)
+    if (!r?.ok) { showToast(`转待办失败：${r?.error || '未知原因'}`, 'error'); return }
+    showToast('已转成待办 —— 源日志保留未删', 'success')
+    await loadTodos()
+  } catch (e: any) {
+    showToast(`转待办异常：${e?.message || e}`, 'error')
   }
 }
 
@@ -7744,7 +7889,7 @@ function openNewLog() {
   const project = curProj.value !== '__all__'
     ? curProj.value
     : (projects.value[0]?.id || '')
-  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '' }
+  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '', priority: '' }
   logCompleting.value = false
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
@@ -7794,6 +7939,8 @@ function openRelay(src: any): void {
     prevAgentName: src.agentName || src.prevAgentName || '',
     // 本次执行 Agent：默认沿用源（同一 agent 继续跑），可改
     agentName: src.agentName || '',
+    // 卡 001：优先级随接力继承（下一段跟上一段一样要紧；不想要就在新日志里改）
+    priority: src.priority || '',
     archiveSource: true,
     completeSourceTasks: false,
     // 打开瞬间的快照：关闭前逐字段比对（卡 006）。此前只比对三个文本框，
@@ -7924,6 +8071,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
       nextSteps: r.nextSteps || '',
       continueFrom: src.id,
       logDate: '',
+      priority: r.priority || '',
     })
     if (!created?.ok) {
       showToast(`创建失败：${created?.error || '未知原因'}`, 'error')
@@ -8143,6 +8291,8 @@ async function saveLogEdit() {
         agentName: e.agentName || '',
         prevAgentName: e.prevAgentName || '',
         logDate: e.logDate || '',
+        // 卡 001：优先级一并回写（此前编辑框压根没这个字段）
+        priority: e.priority || '',
       })
       if (r && !r.ok) {
         showToast(`更新失败：${r.error || '未知原因'}`, 'error')
@@ -8154,7 +8304,7 @@ async function saveLogEdit() {
       // 对话框里填的「下一步」保存后静默丢失（更新分支一直有传，只有新建没有）。
       const r: any = await window.tegula.logsCreate(
         e.title, e.project, e.content, (e.taskIds || [])[0] || undefined,
-        { sessionId: e.sessionId || '', agentName: e.agentName || '', prevAgentName: e.prevAgentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '' },
+        { sessionId: e.sessionId || '', agentName: e.agentName || '', prevAgentName: e.prevAgentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '', priority: e.priority || '' },
       )
       if (r && !r.ok) {
         showToast(`创建失败：${r.error || '未知原因'}`, 'error')
@@ -9753,6 +9903,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .trip-table td { padding: 9px 12px; border-bottom: 1px solid var(--border-soft, #f2f1f7); vertical-align: top; }
 .trip-table tr:last-child td { border-bottom: 0; }
+/* 行可点（卡 002：点整行进项目详情）—— 可点的东西必须看起来可点；
+   异常行保持自己的底色，只给普通行加悬停浅染 */
+.trip-table tbody tr { cursor: pointer; }
+.trip-table tbody tr:not(.trip-anomaly):hover td { background: var(--tint-2, #fbfaff); }
 .trip-th-pj { width: 132px; }
 .trip-pj b { display: block; white-space: nowrap; }
 .trip-pid { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
@@ -10453,6 +10607,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .drop-hint.global { background: rgba(107,113,128,.97); }
 .todo-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+/* 卡 004：由日志转来的待办 —— 来源徽章（与日志侧 .log-from 成对，prev 范式） */
+.todo-from { font-size: 10px; color: #8b7fb8; background: var(--tint, #f1eefb); border: 1px solid var(--accent-soft, #c3bce0);
+  padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
+/* 卡 004：待办 → 日志 的入口按钮。与 📅/✏️/× 同款 24×24 图标钮（027 规范）——
+   check-button-styles 要求模板里出现的每个 class 都有独立规则，不能借邻居的尺寸类。 */
+.todo-conv { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
+  color: var(--muted); font-size: 12px; line-height: 1; }
+.todo-conv:hover { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
 .todos-ctrls { display: flex; gap: 8px; align-items: center; }
@@ -10574,6 +10738,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-status-badge.completed { background: #dcfce7; color: #166534; }
 .log-status-badge.archived { background: #f3f4f6; color: #5f6672; }
 .log-card-title { flex: 1; font-size: 13px; font-weight: 600; }
+/* 日志优先级徽章（卡 001）：三档配色沿用待办的同款语义色（高=红底深红字 / 中=琥珀 / 低=灰），
+   且都是深字压浅底 —— 与 check-themes 的对比度口径一致 */
+.log-prio-badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; line-height: 1.5; }
+.log-prio-badge.lp-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
+.log-prio-badge.lp-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
+.log-prio-badge.lp-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
 .log-card-date { font-size: 10.5px; color: var(--muted); }
 .log-card-body { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
 .log-card-meta { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); }
@@ -10583,6 +10753,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-agent { color: #8b7fb8; }
 .log-prev-agent { color: #8b7fb8; }
 .log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 卡 004：由待办转来的日志 —— 来源徽章（与待办侧 .todo-from 成对，prev 范式） */
+.log-from { font-size: 10px; color: #8b7fb8; background: var(--tint, #f1eefb); border: 1px solid var(--accent-soft, #c3bce0);
+  padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 日志 ID：卡面可见 + 点一下只复制 ID（2026-09-29 用户第 2 条）。
    --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是「可点复制」的通用暗示。 */
 .log-id { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 10px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: copy; border-bottom: 1px dotted var(--border); user-select: none; }

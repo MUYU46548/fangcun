@@ -647,9 +647,9 @@ export function registerIpcHandlers(): void {
     return todosService.listTodos(filter)
   })
 
-  guardedHandle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string) => {
+  guardedHandle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string, fromLog?: string) => {
     try {
-      const todo = todosService.createTodo(title, priority as any, due, project)
+      const todo = todosService.createTodo(title, priority as any, due, project, fromLog)
       return { ok: true, todo }
     } catch (e: any) {
       return { ok: false, error: e.message }
@@ -707,7 +707,7 @@ export function registerIpcHandlers(): void {
     return logsService.getLog(id)
   })
 
-  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string }) => {
+  guardedHandle('logs:create', (_event, title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string; priority?: string; fromTodo?: string }) => {
     return logsService.createLog(title, project, content, taskId, extra)
   })
 

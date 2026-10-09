@@ -1377,9 +1377,23 @@ async function main() {
     await js(`[...document.querySelectorAll('.skill-id')].some(e => e.textContent.includes('fangcun-bridge'))`))
   check('卡片显示绝对路径（手抄不出来的那一半）',
     await js(`[...document.querySelectorAll('.skill-path')].some(e => e.textContent.includes('C:/mock/skills/fangcun-bridge/SKILL.md'))`))
+  // ⚠ 2026-10-09 修断言（本条自卡 010/011 改文案后一直红，与改动面无关但属实）：
+  //   ① 旧断言找「未装到 Hermes」—— skillStateText 早就改成 '未装'（App.vue:5268），文案绑死即红；
+  //   ② 旧断言要求出现「已装（最新）」—— 那取决于**本机装的副本是不是最新**（机器状态，
+  //      非代码事实）：本机实测是「有更新」= 装了但副本旧，同样是合法状态。
+  //   判据改成「状态文案落在已知三态集合内 + 未装的那张确实是未装 + 装了的那张确实不是未装」——
+  //   验的是渲染逻辑与文案表，不验本机那一刻的版本比对结果。
   check('★ 已装 / 未装两种状态文案都对',
-    await js(`[...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('已装（最新）')) &&
-              [...document.querySelectorAll('.skill-state')].some(e => e.textContent.includes('未装到 Hermes'))`),
+    await js(`(() => {
+      const KNOWN = ['文件缺失', '无可直装目标', '未装', '有更新', '已装（最新）']
+      const texts = [...document.querySelectorAll('.skill-state')].map(e => e.textContent.trim())
+      if (!texts.length) return false
+      if (!texts.every(t => KNOWN.includes(t))) return false
+      // 未装的那张必须报「未装」（本机第二个技能没装 → 恒成立）
+      if (!texts.includes('未装')) return false
+      // 装了的那张必须是「最新」或「有更新」之一（不能是未装/文件缺失）
+      return texts.some(t => t === '已装（最新）' || t === '有更新')
+    })()`),
     String(await js(`[...document.querySelectorAll('.skill-state')].map(e => e.textContent).join('|')`)))
 
   // 17a. 复制安装提示词（核心诉求：让 agent 自己装、杜绝手抄）

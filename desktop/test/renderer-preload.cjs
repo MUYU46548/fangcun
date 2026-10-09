@@ -240,11 +240,13 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 待办（本测试的主角）────────────────────────────────────────
   todosList: (_f) => { rec('todosList'); return store.todos.slice() },
-  todosCreate: (title, priority, due, project) => {
-    rec('todosCreate', [title, priority, due, project])
+  todosCreate: (title, priority, due, project, fromLog) => {
+    rec('todosCreate', [title, priority, due, project, fromLog])
     const t = {
       id: nextId('todo'), title: String(title || ''), done: false,
       priority: priority || '中', due: due || undefined, project: project || undefined,
+      // 卡 004：只有「日志转来」这条路带值（与真身 createTodo 同口径：无值不落键）
+      fromLog: fromLog ? String(fromLog) : undefined,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
     store.todos.push(t)
@@ -282,13 +284,16 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 日志 ───────────────────────────────────────────────────────
   // 与主进程 listLogs 一致：置顶优先（桩不排序的话，渲染层那条排序断言等于在测假数据）
   logsList: () => store.logs.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)),
-  logsCreate: (title, project, content, taskId) => {
-    rec('logsCreate', [title, project, content, taskId])
-    const l = { id: nextId('log'), title, project, content, taskId, status: 'active', created: new Date().toISOString() }
+  logsCreate: (title, project, content, taskId, extra) => {
+    rec('logsCreate', [title, project, content, taskId, extra])
+    const l = { id: nextId('log'), title, project, content, taskId, status: 'active', created: new Date().toISOString(),
+      ...(extra && extra.priority ? { priority: extra.priority } : {}),
+      // 卡 004：来源链随 extra 落到夹具上，防重断言才验得到真路径
+      ...(extra && extra.fromTodo ? { fromTodo: extra.fromTodo } : {}) }
     store.logs.push(l)
-    return ok({ log: l })
+    return ok({ log: l, data: l })
   },
-  logsUpdate: () => ok(),
+  logsUpdate: (id, updates) => { rec('logsUpdate', [id, updates]); return ok() },
   logsComplete: () => ok(),
   logsArchive: () => ok(),
   logsDestroy: (id) => { rec('logsDestroy', [id]); store.logs = store.logs.filter(x => x.id !== id); return ok() },
@@ -659,7 +664,7 @@ contextBridge.exposeInMainWorld('tegula', {
   contractText: () => ok({ exists: false, text: '## ① 终态形态\n', path: '', repo: '' }),
   tripOpenRepo: () => ok({ repo: 'E:/CODE/mock/demo' }),
   tripInitContract: () => ok({ path: 'E:/CODE/mock/demo/立项契约.md' }),
-  openFile: () => ok(),
+  openFile: (p) => { rec('openFile', [p]); return ok() },
   setDataDir: () => ok(),
   dataInspect: () => ok(),
   dataMigrate: () => ok(),

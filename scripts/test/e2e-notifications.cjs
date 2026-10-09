@@ -366,6 +366,26 @@ function main() {
     !notif.listNotifications().some(n => n.type === 'task-stalled' && !n.read))
   notif.clearAll()
 
+  // ══ B11. 超期清理（2026-10-08 用户拍板：error 永不清，已读 info/warning 30 天）
+  notif._setExpiryForTest(-1000)
+  const oldWarn = notif.pushNotification({ type: 'task-stalled', level: 'warning', title: '旧 warning', sourceId: 'x', key: 'x' })
+  const oldInfo = notif.pushNotification({ type: 'update-downloaded', level: 'info', title: '旧 info', sourceId: 'y', key: 'y' })
+  const oldErr = notif.pushNotification({ type: 'parse-error', level: 'error', title: '旧 error', sourceId: 'z', key: 'z' })
+  notif.markRead(oldWarn.notification.id)
+  notif.markRead(oldInfo.notification.id)
+  notif.markRead(oldErr.notification.id)
+  const cleaned = notif.cleanupExpired()
+  check('★★ 已读 warning/info 超期被清理', cleaned === 2, String(cleaned))
+  check('★ error 永不清理（还在列表里）', notif.listNotifications().some(n => n.type === 'parse-error'))
+  check('★ 清理后只剩 error 一条', notif.listNotifications().length === 1, String(notif.listNotifications().length))
+  notif.clearAll()
+  notif._setExpiryForTest(-1000)
+  const unreadN = notif.pushNotification({ type: 'task-stalled', level: 'warning', title: '未读不清理', sourceId: 'u', key: 'u' })
+  const c2 = notif.cleanupExpired()
+  check('★ 未读通知超期也不清理', c2 === 0 && notif.listNotifications().length === 1, String(c2))
+  notif.clearAll()
+  notif._setExpiryForTest(30 * 24 * 3600_000)
+
   // ══ C. IPC / preload 接线（源码断言，防漂移） ═══════════════════════════
   const ipcSrc = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
   const preloadSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')

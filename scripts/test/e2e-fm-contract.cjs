@@ -73,6 +73,8 @@ const LOG_INLINE = [
   'project: fm-demo',
   '附件: [a.png, b.md]',
   '任务: [task-1, task-2]',
+  // 卡 001（2026-10-08）：日志优先级是**中文标量**，两端读写链都要原样往返
+  'priority: 高',
   '---',
   '正文',
   '',
@@ -122,12 +124,15 @@ check('TS 内联日志 → Python _parse_log 还原「附件」',
       fm3.get('附件') == ['a.png', 'b.md'], repr(fm3.get('附件')))
 check('TS 内联日志 → Python _parse_log 还原「任务」',
       fm3.get('任务') == ['task-1', 'task-2'], repr(fm3.get('任务')))
+check('★★ TS 内联日志 → Python _parse_log 还原「priority」（中文标量，卡 001）',
+      fm3.get('priority') == '高', repr(fm3.get('priority')))
 
 # ── T4：Python 写日志 → 自己读回，列表不丢 ──
 lid = 'log_fm_roundtrip'
 core._write_log(lid, {
     'schema_version': 1, 'id': lid, 'title': '往返日志', 'project': 'fm-demo',
     '附件': ['x.png', 'y.md'], '任务': ['task-9'],
+    'priority': '中',
 }, '正文')
 got = core._read_log(lid)
 fm4 = (got or {}).get('fm', {})
@@ -135,6 +140,8 @@ check('Python 写日志 → 读回「附件」不丢',
       fm4.get('附件') == ['x.png', 'y.md'], repr(fm4.get('附件')))
 check('Python 写日志 → 读回「任务」不丢',
       fm4.get('任务') == ['task-9'], repr(fm4.get('任务')))
+check('★★ Python 写日志 → 读回「priority」不丢（卡 001）',
+      fm4.get('priority') == '中', repr(fm4.get('priority')))
 log_path = core._log_path(lid)
 
 # ── T5：Python 写任务 → 自己读回，列表不丢 ──
@@ -221,6 +228,15 @@ function main() {
       JSON.stringify(lFm['附件']) === JSON.stringify(['x.png', 'y.md']), JSON.stringify(lFm['附件']))
     check('Python 写出的日志 → TS(js-yaml) 读到「任务」',
       JSON.stringify(lFm['任务']) === JSON.stringify(['task-9']), JSON.stringify(lFm['任务']))
+    check('★★ Python 写出的日志 → TS(js-yaml) 读到「priority」= 中（卡 001，中文标量）',
+      lFm['priority'] === '中', JSON.stringify(lFm['priority']))
+    // 源码守卫：TS 侧 parse/render 是白名单，priority 必须两处都在 ——
+    // 漏任何一处 = 下一次桌面端写回就把用户标的优先级静默删掉（同族事故第三次）。
+    const logsTs = fs.readFileSync(path.join(REPO, 'desktop/src/main/services/logs.ts'), 'utf-8')
+    check('源码守卫：TS parse 读 priority（白名单漏列 = 写回即丢）',
+      /priority:\s*raw\.priority/.test(logsTs))
+    check('源码守卫：TS render 写 priority（且只在有值时落盘）',
+      /if \(log\.priority\) fm\.priority = log\.priority/.test(logsTs))
   } catch (e) {
     check('★★ Python 写出的日志 → TS(js-yaml) 读到「附件」', false, String(e).slice(0, 200))
   }

@@ -265,6 +265,34 @@ export function prune(): number {
 }
 
 /** 重置模块级状态（测试用） */
+// ===== Added for 2026-10-08: notification age-based cleanup =====
+/** 已读 info/warning 超过 N 天后自动清理。error 永不清理（用户拍板 10-08）。 */
+const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
+let expiryMs = EXPIRY_MS
+/** 测试注入：清理阈值。设成负值可立刻验证「到期清理」，不必等 30 天。 */
+export function _setExpiryForTest(ms: number): void { expiryMs = ms }
+
+/**
+ * 清理超期通知：
+ *  - 必须是已读（未读不清理）
+ *  - level 不是 error（error 永不清理）
+ *  - updatedAt 距今超过 EXPIRY_MS
+ * 返回清理条数。
+ */
+export function cleanupExpired(now = new Date()): number {
+  const list = loadAll()
+  const cutoff = now.getTime() - expiryMs
+  const kept = list.filter(n => {
+    if (!n.read) return true          // 未读不清理
+    if (n.level === 'error') return true  // error 永不清理
+    const t = Date.parse(n.updatedAt || n.createdAt)
+    if (isNaN(t)) return true          // 无法解析 = 保留
+    return t >= cutoff                 // 未超期 = 保留
+  })
+  const c = list.length - kept.length
+  if (c) saveAll(kept)
+  return c
+}
 export function _resetForTest(): void {
   /* 存储即文件，无内存态；保留空实现以对称 */
 }

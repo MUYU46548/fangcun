@@ -147,6 +147,40 @@ function main() {
     check('  置顶不存在的 id 返回 null（不抛）', todos.setTodoPinned('nope', true) === null)
   }
 
+  // ── 9. 来源链 fromLog（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）────
+  // 两件事：① 「日志转来」能写能读回（防重与卡面徽章都靠它）；② 普通新建**不落这个键**
+  //   （JSON 里连键都不许出现 —— 否则存量待办在下一次写入时会凭空多出 fromLog: null）。
+  {
+    const raw0 = JSON.parse(fs.readFileSync(todosFile, 'utf-8'))
+    check('★★ 普通新建的待办 JSON 里没有 fromLog 键（无值不落键）',
+      raw0.every(t => !('fromLog' in t)),
+      JSON.stringify(raw0.map(t => Object.keys(t))))
+
+    const conv = todos.createTodo('由日志转来的待办', '高', undefined, 'demo', 'log_20261008_abc123')
+    check('★ createTodo 带 fromLog → 读回', conv.fromLog === 'log_20261008_abc123',
+      JSON.stringify(conv.fromLog))
+    const reread = todos.listTodos().find(t => t.id === conv.id)
+    check('★★ fromLog 真落盘（重读仍是来源日志 id）',
+      !!reread && reread.fromLog === 'log_20261008_abc123',
+      JSON.stringify(reread && reread.fromLog))
+    check('★ 带来源的待办能被「按来源」查到（防重要靠这条）',
+      todos.listTodos().some(t => t.fromLog === 'log_20261008_abc123'))
+
+    // 来源键必须活过「改别的字段」—— 漏在归一里就会被下一次写回吞掉
+    todos.updateTodo(conv.id, { title: '改了标题，来源还在吗' })
+    const afterUpd = todos.listTodos().find(t => t.id === conv.id)
+    check('★★ 改标题写回后 fromLog 不丢（normalizeTodo 漏列 = 静默丢来源）',
+      !!afterUpd && afterUpd.fromLog === 'log_20261008_abc123'
+      && afterUpd.title === '改了标题，来源还在吗',
+      JSON.stringify(afterUpd && { t: afterUpd.title, f: afterUpd.fromLog }))
+
+    // 存量数据（键根本不存在）读出来是 undefined，不是 null/空串
+    const noKey = todos.listTodos().find(t => t.title === '没钉住的高优先级')
+    check('存量待办（无 fromLog 键）读回 undefined（不冒充 null）',
+      !!noKey && noKey.fromLog === undefined, JSON.stringify(noKey && noKey.fromLog))
+    todos.deleteTodo(conv.id)
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

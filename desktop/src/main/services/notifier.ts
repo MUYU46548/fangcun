@@ -200,8 +200,9 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   }
 
   notifications.prune()
+  const expired = notifications.cleanupExpired(now)
   lastScanAt = new Date().toISOString()
-  return { scanned: true, newNotifications: created, resolved }
+  return { scanned: true, newNotifications: created, resolved: resolved + expired }
 }
 
 /** 备份失败事件入口（scheduler 调用） */

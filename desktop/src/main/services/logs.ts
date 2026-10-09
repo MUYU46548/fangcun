@@ -95,6 +95,26 @@ export interface LogEntry {
    * - 附件目录以 `_` 开头且不是 .md，listLogs 的 `isFile` 过滤天然跳过，不会被当成日志。
    */
   attachments?: string[]
+  /**
+   * 日志优先级（2026-10-08 卡 task-20261008-001，用户拍板 **新增字段**（否决"按关联任务优先级排"：
+   * 那要用户先给任务排好序才能排日志，与方寸"减少心智成本"的初衷相悖））。
+   *
+   * - 值域与任务卡同款中文：高 / 中 / 低；空 = 没标（历史日志全是这个状态）。
+   * - **只在有值时落盘**（与 pinned/running 同一条纪律）：历史文件不会凭空多出 priority 字段。
+   * - 文件键 `priority`：Python 侧 `_parse_log`/`_render_log` 是逐行 kv + 任意键透传，
+   *   中文标量两个方向都能原样往返（e2e-fm-contract 有断言钉住这条）。
+   */
+  priority?: string
+  /**
+   * 来源待办 ID（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）。
+   * 目标记录「由 X 转来」——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
+   * continues_from 指向日志（logChain 沿它走），这个指向待办，混用会把链走到待办上断掉。
+   *
+   * - 用途：① 卡面标「⤴ 待办」来源；② **防重** —— 同一条待办只转一次（手滑点两下不产两条）。
+   * - 文件键 `from_todo`（与 prev_agent_name 同款 snake 映射）；只在有值时落盘，
+   *   普通日志零变化。parse/render 白名单两处都必须在 —— 漏一处 = 下次写回即丢。
+   */
+  fromTodo?: string
 }
 
 /**
@@ -217,6 +237,10 @@ function parseLogFile(filePath: string): LogEntry | null {
       note: noteText || undefined,
       archiveNote: archiveNoteText || undefined,
       attachments: parseAttachments(raw.attachments),
+      // 优先级：白名单字段**必须在这里显式列出**，否则写回即丢（parse → render 是全量重建）
+      priority: raw.priority ? String(raw.priority) : undefined,
+      // 卡 004 来源链：同上，白名单漏列 = 下一次写回把来源静默删掉
+      fromTodo: raw.from_todo ? String(raw.from_todo) : undefined,
     }
   } catch {
     return null
@@ -261,6 +285,10 @@ function renderLog(log: LogEntry): string {
   if (log.continueFrom) fm.continues_from = log.continueFrom
   // 上次的执行 Agent：与 continues_from 同款「只在有值时落盘」
   if (log.prevAgentName) fm.prev_agent_name = log.prevAgentName
+  // 优先级：只在有值时落盘（没标的历史日志不会凭空多出 priority: '' 这类垃圾字段）
+  if (log.priority) fm.priority = log.priority
+  // 卡 004 来源链（由待办转来）：同样只在有值时落盘
+  if (log.fromTodo) fm.from_todo = log.fromTodo
   let fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   // 附件清单走**手工内联行**，不交给 yaml.dump（2026-10-01）：
   // Python 侧 `tegula/core.py::_parse_log` 是逐行 kv 解析、只认 `[a, b]` 这种内联列表，
@@ -391,7 +419,7 @@ export function createLog(
   project: string,
   content: string,
   taskId?: string,
-  extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string },
+  extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string; priority?: string; fromTodo?: string },
 ): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const id = genId()
@@ -421,6 +449,10 @@ export function createLog(
     prevAgentName: extra?.prevAgentName || undefined,
     logDate: extra?.logDate || now.slice(0, 10),
     continueFrom: extra?.continueFrom || undefined,
+    // 优先级：建日志时就可标（与 updateLog 同口径：空 = 不落字段）
+    priority: extra?.priority ? String(extra.priority).trim() : undefined,
+    // 卡 004：由待办转来时记来源（防重 + 卡面徽章）；普通新建不写
+    fromTodo: extra?.fromTodo ? String(extra.fromTodo).trim() : undefined,
   }
   atomicallyWrite(path.join(dir, `${id}.md`), renderLog(log))
   return { ok: true, data: log }
@@ -446,6 +478,15 @@ export function updateLog(id: string, updates: {
   agentName?: string
   prevAgentName?: string
   logDate?: string
+  /** 优先级（高/中/低）。给了空串 = 取消标注（字段从文件里消失，与 taskIds 解除关联同口径）。 */
+  priority?: string
+  /**
+   * 来源待办 ID（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）。
+   * 目标记录「由 X 转来」——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
+   * continues_from 指向日志（logChain 沿它走），这个指向待办，混用会把链走到待办上断掉。
+   * 用途：① 卡面标「⤴ 待办」来源；② 防重（同一条待办只转一次）。只在有值时落盘。
+   */
+  fromTodo?: string
 }): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${id}.md`)
@@ -471,6 +512,7 @@ export function updateLog(id: string, updates: {
   if (updates.agentName !== undefined) entry.agentName = updates.agentName ? String(updates.agentName).trim() : undefined
   if (updates.prevAgentName !== undefined) entry.prevAgentName = updates.prevAgentName ? String(updates.prevAgentName).trim() : undefined
   if (updates.logDate !== undefined) entry.logDate = updates.logDate ? String(updates.logDate).trim() : undefined
+  if (updates.priority !== undefined) entry.priority = updates.priority ? String(updates.priority).trim() : undefined
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }

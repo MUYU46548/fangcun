@@ -109,6 +109,60 @@ function main() {
   check('清理后状态为 archived', afterClean.status === 'archived', afterClean.status)
   check('★ 清理只改状态、文件仍在（不删数据）', fs.existsSync(cPath))
 
+  // ── 6b. 优先级字段（2026-10-08 卡 task-20261008-001，拍板=新增字段）───────
+  // 三件事必须钉死：① 能写能读回；② **不标 = 文件里没有这个键**（历史文件零污染）；
+  // ③ 下一次写回不丢（parse/render 是白名单全量重建 —— 漏列字段 = 写回即丢）。
+  const p1 = logs.createLog('优先级日志', 'demo', '正文', undefined, { priority: '高' }).data
+  check('★ 创建时带优先级 → 读回', logs.getLog(p1.id).priority === '高',
+  JSON.stringify(logs.getLog(p1.id).priority))
+  const pText = fs.readFileSync(path.join(LOGS_DIR, `${p1.id}.md`), 'utf-8')
+  check('★ 优先级真落盘（frontmatter 有 priority: 高）', /priority:\s*高/.test(pText),
+  pText.split('\n').slice(0, 20).filter(l => l.includes('priority')).join(' | ') || '无 priority 行')
+  // 不带优先级创建 → 文件里**不许**出现 priority 键（否则历史日志批量写回时凭空多字段）
+  const p2 = logs.createLog('未标优先级', 'demo', '正文').data
+  const p2Text = fs.readFileSync(path.join(LOGS_DIR, `${p2.id}.md`), 'utf-8')
+  check('★★ 不标优先级 → 文件里没有 priority 键（不写空字段污染历史文件）',
+  !/^\s*priority:/m.test(p2Text), p2Text.split('\n').slice(0, 16).join(' | '))
+  check('未标优先级读回 undefined', logs.getLog(p2.id).priority === undefined,
+  String(logs.getLog(p2.id).priority))
+  // 改优先级 + 触发任意一次其它字段写回 → priority 必须还在（白名单漏列就在这里炸）
+  const uP = logs.updateLog(p1.id, { priority: '中', content: '正文改过' })
+  check('updateLog 改优先级 ok', uP.ok === true, JSON.stringify(uP.error))
+  const pReread = logs.getLog(p1.id)
+  check('★ 改后读回 = 中', pReread.priority === '中', JSON.stringify(pReread.priority))
+  check('★ 别的字段写回不吞优先级（content 改动后 priority 仍在）',
+  pReread.priority === '中' && pReread.content === '正文改过',
+  JSON.stringify({ priority: pReread.priority, content: pReread.content }))
+  // 清除优先级 → 字段从文件里消失（与 taskIds 解除关联同口径）
+  logs.updateLog(p1.id, { priority: '' })
+  const pCleared = fs.readFileSync(path.join(LOGS_DIR, `${p1.id}.md`), 'utf-8')
+  check('★ 清除优先级 → 文件里的 priority 键消失', !/^\s*priority:/m.test(pCleared),
+  pCleared.split('\n').filter(l => l.includes('priority')).join(' | ') || '（无）')
+  check('清除后读回 undefined', logs.getLog(p1.id).priority === undefined,
+    String(logs.getLog(p1.id).priority))
+
+  // ── 6c. 来源链 fromTodo（卡 004 日志⇄待办互转的另一半）────────────────────
+  // 与 001 同一个白名单陷阱：parse/render 任一漏列 = 下一次写回把来源静默删掉。
+  const f1 = logs.createLog('由待办转来的日志', 'demo', '到期：2026-10-10', undefined,
+    { fromTodo: 'todo-20261008-001', priority: '高' }).data
+  check('★ createLog 带 fromTodo → 读回', logs.getLog(f1.id).fromTodo === 'todo-20261008-001',
+    JSON.stringify(logs.getLog(f1.id).fromTodo))
+  const f1Text = fs.readFileSync(path.join(LOGS_DIR, `${f1.id}.md`), 'utf-8')
+  check('★★ fromTodo 真落盘（文件键 from_todo）', /from_todo:\s*todo-20261008-001/.test(f1Text),
+    f1Text.split('\n').filter(l => l.includes('from_todo')).join(' | ') || '无 from_todo 行')
+  // 别的字段写回 → 来源必须活下来（白名单漏列就在这一步炸）
+  logs.updateLog(f1.id, { content: '执行内容写了一点' })
+  const f1Back = logs.getLog(f1.id)
+  check('★★ 改内容写回后 fromTodo 不丢（parse/render 漏列 = 静默丢来源）',
+    f1Back.fromTodo === 'todo-20261008-001' && f1Back.content === '执行内容写了一点',
+    JSON.stringify({ fromTodo: f1Back.fromTodo, content: f1Back.content }))
+  check('★ 写回后 priority 也还在（两个新字段同批，别只保一个）',
+    f1Back.priority === '高', JSON.stringify(f1Back.priority))
+  // 普通日志不落 from_todo 键（历史文件零污染）
+  const f2Text = fs.readFileSync(path.join(LOGS_DIR, `${a.id}.md`), 'utf-8')
+  check('★★ 普通日志文件里没有 from_todo 键（无值不落键）',
+    !/^\s*from_todo:/m.test(f2Text), f2Text.split('\n').filter(l => l.includes('from_todo')).join(' | ') || '（无）')
+
   // ── 7. 列表筛选 / 反向索引 ────────────────────────────────────────
   const d = logs.createLog('日志D', 'nf', '内容D', 'task-002').data
   check('按项目筛选', logs.listLogs({ project: 'nf' }).every(l => l.project === 'nf'))
