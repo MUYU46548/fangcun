@@ -76,6 +76,33 @@
     check('  切换器旁有一句说明（不必先点一遍才知道各摆法差在哪）',
       sw.ok && String(sw.hint).length > 6, String(sw.hint))
 
+    // ── 状态筛选（2026-10-10 用户要求）──────────────────────────────────────
+    // 用户原话：「看板信息卡墙如果能同时按项目+按状态筛选就好了」「待验收和待办混在一起我眼睛很累」
+    // 「筛选应该随心所欲，随机应变」。它与「全部项目」**正交叠加**（不是二选一），
+    // 且与 groupMode（怎么排）是两回事（这个决定显示哪些）。这里验：存在 + 真过滤 + 可清空。
+    const stSel = $('select.st-filter')
+    check('★ 看板顶栏有状态筛选下拉（全部状态 + 7 个状态）',
+      !!stSel && stSel.options.length === 8,
+      stSel ? `options=${stSel.options.length}` : '(没找到 .st-filter)')
+
+    if (stSel) {
+      const filledCols = () => $$('#board .col').filter((c) => c.querySelectorAll('.card').length > 0)
+      const beforeCols = filledCols().length
+      stSel.value = '进行中'
+      stSel.dispatchEvent(new Event('change'))
+      await sleep(600)
+      const afterStatuses = filledCols().map((c) => c.getAttribute('data-status'))
+      check('★ 选了「进行中」后只剩该状态的分区有卡（其余分区全空）',
+        beforeCols > 1 && afterStatuses.length === 1 && afterStatuses[0] === '进行中',
+        `before=${beforeCols} after=${JSON.stringify(afterStatuses)}`)
+      stSel.value = ''
+      stSel.dispatchEvent(new Event('change'))
+      await sleep(600)
+      check('  清空状态筛选后各分区恢复（筛选是可逆的，不是一次性）',
+        filledCols().length === beforeCols,
+        `${filledCols().length} vs ${beforeCols}`)
+    }
+
     // ── 信息卡墙（2026-10-10，卡 20261010-003）──────────────────────────────
     // 首版直接把 filteredTasks 铺成网格 → **分组整个丢失**，一百多张卡糊成一面没有结构的墙
     // （用户截图反馈「压迫感十足」，且选了「按项目」不生效）。下面是修复后的**浏览器级**行为：

@@ -60,6 +60,17 @@
           <option value="__all__">全部项目</option>
           <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
         </select>
+        <!-- 状态筛选（2026-10-10 用户要求）：与「全部项目」是**两个正交的筛**，可同时生效。
+             用户原话：「看板信息卡墙如果能同时按项目+按状态筛选就好了」「待验收和待办混在一起
+             我眼睛很累」「筛选应该随心所欲，随机应变」。
+             它和 groupMode（怎么排）是两回事 —— 这个决定"显示哪些"，那个决定"怎么分组"。
+             ⚠ 与 curProj / dueFilter 一样**不写 prefs**：筛选是临时的，记到盘上反而会让
+               "下次打开怎么少了一半卡"变成难查的怪状态。 -->
+        <select v-model="curStatus" class="st-filter"
+          title="只显示该状态的任务（与「全部项目」可同时生效）">
+          <option value="">全部状态</option>
+          <option v-for="s in taskStatuses" :key="s" :value="s">{{ s }}</option>
+        </select>
         <select v-model="groupMode">
           <option value="status">按状态</option>
           <option value="project">按项目</option>
@@ -3085,6 +3096,9 @@ const projects = ref<Project[]>([])
 const blockers = ref<any[]>([])
 const curView = ref('active')
 const curProj = ref('__all__')
+/** 状态筛选（2026-10-10 用户要求）。与 curProj **正交叠加**、可同时生效；
+ *  与 curProj / dueFilter 一致**不持久化** —— 筛选是临时的。 */
+const curStatus = ref('')
 const groupMode = ref('status')
 
 // ── 顶栏计数 + 关于（2026-09-25 用户第 12 条）────────────────────────────
@@ -6612,6 +6626,11 @@ const filteredTasks = computed(() => {
   }
   if (curProj.value !== '__all__') {
     result = result.filter(t => normProject(t.project) === curProj.value)
+  }
+  // 状态筛选（2026-10-10）：与项目筛选**叠加**，不是二选一 —— 改在这里一处收口，
+  // 列 / 列表 / 信息卡墙三种摆法一起生效（它们都读 filteredTasks）。
+  if (curStatus.value) {
+    result = result.filter(t => String(t.status || '') === curStatus.value)
   }
   if (searchQuery.value) {
     const q = searchQuery.value
@@ -10835,6 +10854,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* Due filter */
 #bar select.due-filter { width: 90px; }
+/* 状态筛选（2026-10-10）：与「全部项目」「全部时间」同排，宽度对齐好扫 */
+#bar select.st-filter { width: 92px; }
 
 /* Archived card */
 .card._archived { opacity: 0.55; filter: saturate(0.5); }
