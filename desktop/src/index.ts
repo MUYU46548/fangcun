@@ -26,6 +26,18 @@ appLog.installProcessHandlers()
 // launchpad/config、data/index）均为函数内懒调用 getPath，import 阶段无读取。
 app.setPath('userData', path.join(app.getPath('appData'), 'fangcun-desktop'))
 
+// ── 关掉 Windows 原生遮挡检测（2026-10-10，用户复报「对话框偶发无法输入」）────
+// 复现描述：编辑框点不动/打不进字，**点一下别的窗口再回来就好了**。
+// 09-25 那轮已把模糊合成层全部清掉（见下方注释），当时的结论是「剩下的嫌疑只有
+// 合成器 / 核显驱动」。现在剩两条并列的嫌疑，两条都要有出口：
+//   ① 核显驱动「失焦即停绘」 —— 设置页的 fc_disable_gpu 开关就是给它准备的；
+//   ② Windows 上 Chromium **自己判断**「窗口被别的窗口盖住」就暂停渲染与输入处理
+//      （CalculateNativeWinOcclusion）。方寸关窗=收托盘、常驻后台，这条命中率最高。
+// 必须在 app ready 之前 appendSwitch。
+// ⚠ 这是**唯一**的 disable-features 调用点：将来要再加特性开关，请合并进这个
+//   逗号分隔列表（'A,B,C'），别新起一次调用 —— 后一次调用会**覆盖**前一次。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
 // ── 硬件加速开关（2026-09-25，用户第 1/3/9 条的**人工验证杠杆**）─────────────
 // 「点输入框光标不进去、要切到别的窗口再切回来才恢复」这条：本轮已把全部常驻实时模糊
 // 合成层清掉（#bar 的 backdrop-filter + .blob 的 blur 改缓存纹理）。若仍然复发，
@@ -90,6 +102,10 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 窗口被遮挡 / 收进托盘时，Chromium 默认把渲染节流到极低频（backgroundThrottling
+      // 默认 true）—— 表现就是光标不闪、输入事件不进去，切到别的窗口再回来才恢复。
+      // 方寸是常驻托盘的窗口应用（关窗≠退出），这条必须关掉。
+      backgroundThrottling: false,
     },
   })
 

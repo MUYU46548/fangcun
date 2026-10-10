@@ -297,9 +297,25 @@ contextBridge.exposeInMainWorld('tegula', {
     store.logs.push(l)
     return ok({ log: l, data: l })
   },
-  logsUpdate: (id, updates) => { rec('logsUpdate', [id, updates]); return ok() },
+  // 2026-10-09：把真实语义搬进桩 —— 真后端 logs.ts:495 拒改非 active 日志，
+  // 桩此前无条件 ok() = 桩-现实漂移（批量优先级的「跳过 N 条」会永远测不到）。
+  logsUpdate: (id, updates) => {
+    rec('logsUpdate', [id, updates])
+    const l = (store.logs || []).find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    if (l.status !== 'active') return { ok: false, error: `日志状态为 ${l.status}，无法编辑` }
+    Object.assign(l, updates)
+    return ok()
+  },
   logsComplete: () => ok(),
-  logsArchive: () => ok(),
+  // 2026-10-09：真后端 archiveLog 会把 status 置 archived，桩此前无条件 ok() 不动状态
+  // （「转换后源日志进了已归档分区」这种断言会恒绿假过）—— 搬真实语义进桩。
+  logsArchive: (id) => {
+    rec('logsArchive', [id])
+    const l = (store.logs || []).find(x => x.id === id)
+    if (l) l.status = 'archived'
+    return ok()
+  },
   logsDestroy: (id) => { rec('logsDestroy', [id]); store.logs = store.logs.filter(x => x.id !== id); return ok() },
   // 卡 037：置顶 / 改归属。2026-09-28：reopen = 撤销完成/归档 → 待处理（**不再等于进行中**）
   logsReopen: (id) => {

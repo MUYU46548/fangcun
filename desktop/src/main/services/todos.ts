@@ -29,6 +29,12 @@ export interface Todo {
    * 就不再转（用户手滑点两下不该产出两条）。只在有值时出现（normalizeTodo 给 undefined）。
    */
   fromLog?: string
+  /**
+   * 已转出到日志（2026-10-09 用户第 1 条：转换可「顺手归档源」）。
+   * 值 = 目标日志 id：折叠只是把重复源藏起来（不是删除），有 id 才能指回去找回/防重。
+   * 只在有值时出现（normalizeTodo 给 undefined）—— 没转过的待办零变化。
+   */
+  converted?: string
   createdAt: string
   updatedAt: string
 }
@@ -54,6 +60,7 @@ function normalizeTodo(raw: any): Todo {
     project: raw?.project || undefined,
     pinned: raw?.pinned === true,
     fromLog: raw?.fromLog ? String(raw.fromLog) : undefined,
+    converted: raw?.converted ? String(raw.converted) : undefined,
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
   }
@@ -160,7 +167,7 @@ export function setTodoPinned(id: string, pinned: boolean): Todo | null {
   return updateTodo(id, { pinned: !!pinned } as any)
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project' | 'pinned'>>): Todo | null {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project' | 'pinned' | 'converted'>>): Todo | null {
   const todos = loadTodos()
   const idx = todos.findIndex(t => t.id === id)
   if (idx < 0) return null
@@ -171,6 +178,8 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'do
   if (updates.due !== undefined) todo.due = updates.due
   if (updates.project !== undefined) todo.project = updates.project || undefined
   if (updates.pinned !== undefined) todo.pinned = !!updates.pinned
+  // converted：空串 = 撤销已转出（字段从 JSON 消失，与日志 priority 清除同口径）
+  if (updates.converted !== undefined) todo.converted = updates.converted || undefined
   todo.updatedAt = new Date().toISOString()
   saveTodos(todos)
   return todo

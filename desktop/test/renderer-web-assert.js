@@ -1422,6 +1422,131 @@
       }, 4000, 'logsCreate priority'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
 
+    // ══ 关联任务 chips 改造（2026-10-09 用户第 3 条）════════════════════════
+    // 「每次都加载一堆任务让我头疼，于是干脆什么都不选」→ 索引字段不做任务浏览器：
+    // 默认折叠（候选 0 渲染 = 反向判据）、按需展开、过滤、勾选成 chip、× 摘除。
+    const chipsToggle = () => $$('#log-edit-modal .log-task-head button')[0]
+    check('打开新建日志（chips 断言前置）', await (async () => {
+      const b = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
+      if (!b) return false
+      b.click()
+      return waitFor(() => !!$('#log-edit-modal'), 3000, 'chips: new log')
+    })())
+    check('★★ 关联任务默认折叠：候选列表根本不在 DOM 里（不再全量铺一屏 —— 反向判据）',
+      $$('#log-edit-modal .log-task-opt').length === 0 && $$('#log-edit-modal .log-task-multi').length === 0,
+      'opts=' + $$('#log-edit-modal .log-task-opt').length)
+    check('  默认态说清「还没有关联任务」+ 给展开入口（不是空一片）',
+      (($('#log-edit-modal .log-task-head') || {}).textContent || '').indexOf('还没有关联任务') >= 0
+      && !!chipsToggle() && (chipsToggle().textContent || '').indexOf('＋ 关联任务') >= 0)
+    check('★ 点「＋ 关联任务」→ 候选按需展开（带过滤框），按钮变「收起」', await (async () => {
+      const b = chipsToggle()
+      if (!b) return false
+      b.click()
+      const got = await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0
+        && !!$('#log-edit-modal .log-task-search'), 3000, '展开候选')
+      return got && (chipsToggle().textContent || '').indexOf('收起') >= 0
+    })())
+    const chipsOptBefore = $$('#log-edit-modal .log-task-opt').length
+    check('★ 过滤「011」→ 只剩匹配的那条（全量列表被过滤吃掉）', await (async () => {
+      const inp = $('#log-edit-modal .log-task-search')
+      if (!inp) return false
+      inp.value = '011'
+      inp.dispatchEvent(new Event('input', { bubbles: true }))
+      return waitFor(() => {
+        const opts = $$('#log-edit-modal .log-task-opt')
+        return opts.length === 1 && (opts[0].textContent || '').indexOf('task-demo-011') >= 0
+      }, 3000, '过滤 011')
+    })(), 'before=' + chipsOptBefore)
+    check('★ 勾选 → chip 立刻出现（标题回显，不是裸 id）', await (async () => {
+      const cb = $('#log-edit-modal .log-task-opt input')
+      if (!cb) return false
+      cb.click()
+      return waitFor(() => {
+        const chip = $$('#log-edit-modal .lt-chip')[0]
+        return !!chip && (chip.textContent || '').indexOf('日历密度样例一') >= 0
+      }, 3000, 'chip 出现')
+    })())
+    check('★ 点 chip 的 × → 关联被摘掉（复选框同步取消 —— 一条数据两条路）', await (async () => {
+      const x = $('#log-edit-modal .lt-chip .lt-x')
+      if (!x) return false
+      x.click()
+      return waitFor(() => {
+        const i2 = $('#log-edit-modal .log-task-opt input')
+        return $$('#log-edit-modal .lt-chip').length === 0 && !!i2 && i2.checked === false
+      }, 3000, '摘除 chip')
+    })())
+    check('  摘干净回到「还没有关联任务」，关窗不弹丢弃确认（状态与打开时一致）', await (async () => {
+      const head = (($('#log-edit-modal .log-task-head') || {}).textContent || '')
+      if (head.indexOf('还没有关联任务') < 0) return false
+      const cancel = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '取消')
+      if (!cancel) return false
+      cancel.click()
+      return waitFor(() => !$('#log-edit-modal'), 3000, '取消关窗')
+    })())
+
+    // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条「日志多选更智能」）══════
+    // 已有多选底座（☑ 多选 + 全选/完成/归档/彻底删除），补的是**批量改优先级**：
+    // 改元数据可逆 → 不弹确认、做完不退出多选；非「待处理」后端拒改 → 跳过如实报。
+    window.__fcTest.setLogs([
+      { id: 'log-bp-1', title: '批量优先级：待处理甲', content: 'x', status: 'active', project: 'demo', created: '2026-10-08T00:00:00.000Z' },
+      { id: 'log-bp-2', title: '批量优先级：待处理乙', content: 'x', status: 'active', project: 'demo', created: '2026-10-08T01:00:00.000Z' },
+      { id: 'log-bp-3', title: '批量优先级：已完成', content: 'x', status: 'completed', project: 'demo', created: '2026-10-07T00:00:00.000Z' },
+      { id: 'log-bp-4', title: '批量优先级：已归档', content: 'x', status: 'archived', project: 'demo', created: '2026-10-06T00:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    const logBatchBtn = () => $$('.logs-view .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
+    check('打开日志多选（批量优先级断言前置）', await (async () => {
+      const b = logBatchBtn()
+      if (!b) return false
+      b.click()
+      return waitFor(() => $$('.logs-view .batch-bar').length === 1, 3000, '日志批量栏')
+    })())
+    check('★ 批量栏六件套（全选/批量优先级/批量完成/批量归档/批量彻底删除/取消）', (() => {
+      const t = $$('.logs-view .batch-bar button').map(b => (b.textContent || '').trim())
+      return !!$('.logs-view .batch-bar select.batch-prio')
+        && ['全选', '批量完成', '批量归档', '批量彻底删除', '取消'].every(x => t.some(y => y.indexOf(x) >= 0))
+    })(), $$('.logs-view .batch-bar button').map(b => (b.textContent || '').trim()).join('|'))
+    check('  优先级下拉四档（高/中/低/清除）+ 占位「批量优先级…」', (() => {
+      const s = $('.logs-view .batch-bar select.batch-prio')
+      if (!s) return false
+      const opts = Array.prototype.slice.call(s.options).map(o => o.textContent)
+      return opts.some(t => t.indexOf('批量优先级') >= 0) && ['高', '中', '低', '清除'].every(x => opts.some(t => t === x))
+    })())
+    const selAllL = $$('.logs-view .batch-bar button').find(b => (b.textContent || '').trim() === '全选')
+    if (selAllL) selAllL.click()
+    await sleep(250)
+    check('★ 全选吃下当前列表（已选 4：2 待处理 + 1 已完成 + 1 已归档）',
+      (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 4') >= 0,
+      (($('.logs-view .batch-bar .batch-count') || {}).textContent || '(没读到)'))
+    const bpCallsBefore = window.__fcTest.callCount('logsUpdate')
+    check('★★ 批量优先级「中」→ 每条都送进 logsUpdate（priority=中 × 4）', await (async () => {
+      const s = $('.logs-view .batch-bar select.batch-prio')
+      if (!s) return false
+      s.value = '中'
+      s.dispatchEvent(new Event('change', { bubbles: true }))
+      const got = await waitFor(() => window.__fcTest.callCount('logsUpdate') >= bpCallsBefore + 4, 4000, 'logsUpdate×4')
+      const ups = window.__fcTest.calls().filter(c => c.name === 'logsUpdate')
+        .slice(-4).map(c => JSON.stringify(c.args[1]))
+      return got && ups.every(u => u.indexOf('"priority":"中"') >= 0)
+    })(), 'before=' + bpCallsBefore + ' now=' + window.__fcTest.callCount('logsUpdate'))
+    check('★★ 2 条待处理成功、2 条非待处理如实跳过（toast 说 2/4 + 跳过，不静默）',
+      await waitFor(() => {
+        const t = (($('#toast') || {}).textContent || '')
+        return t.indexOf('2/4') >= 0 && t.indexOf('跳过') >= 0
+      }, 3000, '跳过 toast'),
+      (($('#toast') || {}).textContent || '(没读到 toast)'))
+    check('★ 元数据批量不踢人：仍在多选模式、选择保留（可连着调下一批）',
+      $$('.logs-view .batch-bar').length === 1
+      && (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 4') >= 0,
+      (($('.logs-view .batch-bar .batch-count') || {}).textContent || '(没读到)'))
+    check('  下拉用完即复位（占位重新可见，不是停在「中」）', (() => {
+      const s = $('.logs-view .batch-bar select.batch-prio')
+      return !!s && s.value === ''
+    })())
+    const exitL = $$('.logs-view .batch-bar button').find(b => (b.textContent || '').trim() === '取消')
+    if (exitL) exitL.click()
+    check('取消退出多选（批量栏收起）', await waitFor(() => $$('.logs-view .batch-bar').length === 0, 3000, '退出多选'))
+
     // ══ 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）════════════
     // 三个判据：① 两个方向的入口真在、真调 IPC；② **源保留不删**；③ 同一条只转一次（防重靠来源字段）。
     window.__fcTest.setLogs([
@@ -1433,11 +1558,35 @@
         due: '2026-10-12', createdAt: '2026-10-08T01:00:00.000Z', updatedAt: '2026-10-08T01:00:00.000Z' },
     ])
     clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
-    // 方向一：日志 → 待办
+    // 方向一：日志 → 待办（2026-10-09 起先开转换确认框 —— 源怎么办是勾选项）
+    const convCreateBefore = window.__fcTest.callCount('todosCreate')
+    const convConfirmBtn = () => $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
     const convLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('转待办') >= 0)
     check('★★ 日志卡上有「⤴ 转待办」入口', !!convLogBtn,
       JSON.stringify($$('.log-card-actions button').map(b => (b.textContent || '').trim())))
     if (convLogBtn) convLogBtn.click()
+    check('★★ 点「转待办」先开转换确认框：源怎么办说得清（2026-10-09 用户第 1 条）', await (async () => {
+      if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 框'))) return false
+      const txt = (($('#conv-modal') || {}).textContent || '')
+      return txt.indexOf('日志 → 待办') >= 0 && txt.indexOf('不勾 = 源原样保留') >= 0
+    })())
+    check('★ 归档源勾选项**默认不勾**（卡 004「源保留」铁律 —— 反向判据：默认不动源）', (() => {
+      const c = $('#conv-modal .conv-opt input')
+      return !!c && c.checked === false
+    })())
+    check('★ 点「取消」零副作用（关框，一条都没建）', await (async () => {
+      const b = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
+      if (!b) return false
+      b.click()
+      const closed = await waitFor(() => !$('#conv-modal'), 2000, '关 conv 框')
+      return closed && window.__fcTest.callCount('todosCreate') === convCreateBefore
+    })())
+    // 重开并确认转换
+    const convLogBtn1b = $$('.log-card-actions button').find(b2 => (b2.textContent || '').indexOf('转待办') >= 0)
+    if (convLogBtn1b) convLogBtn1b.click()
+    check('  确认框重开', await waitFor(() => !!$('#conv-modal'), 3000, 'conv 重开'))
+    const convGo1 = convConfirmBtn()
+    if (convGo1) convGo1.click()
     check('★★ 日志→待办：真调 todosCreate（下一步首条做标题 + priority/project 跟着走 + fromLog 防重）',
       await waitFor(() => {
         const c = window.__fcTest.calls().filter(x => x.name === 'todosCreate')
@@ -1446,15 +1595,20 @@
         return a[0] === '补一个失败重试' && a[1] === '高' && a[3] === 'demo' && a[4] === 'log-conv-1'
       }, 4000, 'todosCreate 反转'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'todosCreate').pop() || {}).args))
-    check('★ 日志→待办后**源日志还在**（转换不删源，卡 004 铁律）',
-      window.__fcTest.calls().length > 0 && $$('.log-card').length >= 1,
+    check('★ 日志→待办后**源日志还在**（默认不归档，卡 004 铁律）',
+      $$('.log-card').length >= 1
+      && $$('.log-card').some(c => (c.textContent || '').indexOf('排查登录失败') >= 0),
       'logCards=' + $$('.log-card').length)
-    // 防重：再点一次必须被拦（store 里已有 fromLog=log-conv-1 的待办）
-    const convLogBtn2 = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('转待办') >= 0)
+    // 防重：再走一遍确认框，转换必须被拦（store 里已有 fromLog=log-conv-1 的待办）
+    const convLogBtn2 = $$('.log-card-actions button').find(b3 => (b3.textContent || '').indexOf('转待办') >= 0)
     const beforeDup = window.__fcTest.callCount('todosCreate')
     if (convLogBtn2) convLogBtn2.click()
+    if (await waitFor(() => !!$('#conv-modal'), 3000, '防重 conv 框')) {
+      const goDup = convConfirmBtn()
+      if (goDup) goDup.click()
+    }
     await sleep(600)
-    check('★★ 防重：同一条日志再点「转待办」被拦下（todosCreate 调用数不增）',
+    check('★★ 防重：同一条日志再转被拦下（todosCreate 调用数不增）',
       window.__fcTest.callCount('todosCreate') === beforeDup,
       `before=${beforeDup} after=${window.__fcTest.callCount('todosCreate')}`)
     check('★ 防重提示说得清（不是静默失败）',
@@ -1467,6 +1621,13 @@
     check('★★ 待办行上有「⤴ 转日志」入口（.todo-conv）', !!convTodoBtn,
       'acts=' + $$('.todo-acts').length + ' conv=' + $$('.todo-acts .todo-conv').length)
     if (convTodoBtn) convTodoBtn.click()
+    check('  待办侧同一套确认框（标题=待办 → 日志，勾选项说「标已转出」）', await (async () => {
+      if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv todo2log'))) return false
+      const txt = (($('#conv-modal') || {}).textContent || '')
+      return txt.indexOf('待办 → 日志') >= 0 && txt.indexOf('标「已转出」') >= 0
+    })())
+    const convGo2 = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
+    if (convGo2) convGo2.click()
     check('★★ 待办→日志：真调 logsCreate（title/project/priority/due 压进去 + fromTodo 防重）',
       await waitFor(() => {
         const c = window.__fcTest.calls().filter(x => x.name === 'logsCreate')
@@ -1478,10 +1639,14 @@
           && extra.priority === '中' && extra.fromTodo === 'todo-conv-1'
       }, 4000, 'logsCreate 正转'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
-    // 防重（反向）
+    // 防重（反向）——同样要穿过确认框
     const convTodoBtn2 = $$('.todo-acts .todo-conv')[0]
     const beforeDup2 = window.__fcTest.callCount('logsCreate')
     if (convTodoBtn2) convTodoBtn2.click()
+    if (await waitFor(() => !!$('#conv-modal'), 3000, '防重 conv 框 2')) {
+      const goDup2 = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
+      if (goDup2) goDup2.click()
+    }
     await sleep(600)
     check('★★ 防重：同一条待办再点「转日志」被拦下（logsCreate 调用数不增）',
       window.__fcTest.callCount('logsCreate') === beforeDup2,
@@ -1494,6 +1659,101 @@
     check('★★ 转出来的日志带「⤴ 待办」来源徽章（prev 范式，与接力链同款）',
       $$('.log-card .log-from').length >= 1,
       'log-from=' + $$('.log-card .log-from').length)
+
+    // ── 勾选路径：顺手归档源（2026-10-09 用户第 1 条的勾选项，两个方向都验真）──
+    window.__fcTest.setLogs([
+      { id: 'log-arch-1', title: '转换归档源：日志甲', content: 'x', nextSteps: '- [ ] 归档源这条待办',
+        status: 'active', project: 'demo', created: '2026-10-09T00:00:00.000Z' },
+    ])
+    window.__fcTest.setTodos([
+      { id: 'todo-fold-1', title: '折叠源待办：转出后默认藏起来', done: false, priority: '中', project: 'demo',
+        createdAt: '2026-10-09T01:00:00.000Z', updatedAt: '2026-10-09T01:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    const convLogBtnA = $$('.log-card-actions button').find(b4 => (b4.textContent || '').indexOf('转待办') >= 0)
+    if (convLogBtnA) convLogBtnA.click()
+    check('★★ 勾「顺手归档源」→ 转换后源日志真归档（logsArchive 带对 id）', await (async () => {
+      if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 勾选路径'))) return false
+      const cb = $('#conv-modal .conv-opt input')
+      if (!cb) return false
+      cb.click()
+      await sleep(150)
+      const go = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
+      if (!go) return false
+      go.click()
+      const got = await waitFor(() => window.__fcTest.callCount('logsArchive') >= 1, 4000, 'logsArchive')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsArchive').pop()
+      return got && !!last && last.args[0] === 'log-arch-1'
+    })())
+    check('  toast 说清源去哪了（「已归档…可找回」，不是静默动源）', await waitFor(() => {
+      const t = (($('#toast') || {}).textContent || '')
+      return t.indexOf('已归档') >= 0 && t.indexOf('可找回') >= 0
+    }, 3000, '归档 toast'), (($('#toast') || {}).textContent || '(没读到)'))
+    check('  源日志卡进「已归档」分区（.archived 类，不是从列表里蒸发）', await (async () => {
+      await sleep(300)
+      return $$('.log-card').some(c =>
+        (c.textContent || '').indexOf('转换归档源：日志甲') >= 0 && c.classList.contains('archived'))
+    })())
+    // 待办侧：勾「标已转出」→ 折叠 + 徽章 + 可撤销
+    clickText('看板'); await sleep(400); clickText('待办'); await sleep(600)
+    const convTodoBtnA = $$('.todo-acts .todo-conv')[0]
+    if (convTodoBtnA) convTodoBtnA.click()
+    check('★★ 勾「标已转出」→ 源待办记 converted=目标日志 id（todosUpdate 真调）', await (async () => {
+      if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 折叠路径'))) return false
+      const cb = $('#conv-modal .conv-opt input')
+      if (!cb) return false
+      cb.click()
+      await sleep(150)
+      const go = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
+      if (!go) return false
+      go.click()
+      return waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'todosUpdate')
+        if (!c.length) return false
+        const a = c[c.length - 1].args || []
+        return a[0] === 'todo-fold-1' && !!a[1] && typeof a[1].converted === 'string' && a[1].converted.length > 0
+      }, 4000, 'todosUpdate converted')
+    })())
+    check('★★ 转出后源待办默认折叠：列表看不到它 + 尾部出现「已转出 1 条 · 展开」（反向：折叠≠删除）', await (async () => {
+      const gone = await waitFor(() =>
+        !$$('.todos-view .todo-item').some(x => (x.textContent || '').indexOf('折叠源待办') >= 0),
+        3000, '折叠隐藏')
+      const fold = $$('.todos-view .todos-converted-fold button')
+        .find(b5 => (b5.textContent || '').indexOf('已转出 1 条') >= 0)
+      return gone && !!fold
+    })())
+    check('★ 展开后看得到源 + 「⤴ 已转出」徽章（藏起来 ≠ 找不回）', await (async () => {
+      const foldBtn = $$('.todos-view .todos-converted-fold button')
+        .find(b5 => (b5.textContent || '').indexOf('已转出 1 条') >= 0)
+      if (!foldBtn) return false
+      foldBtn.click()
+      return waitFor(() => {
+        const it = $$('.todos-view .todo-item')
+          .find(x => (x.textContent || '').indexOf('折叠源待办') >= 0)
+        return !!it && (it.textContent || '').indexOf('已转出') >= 0
+      }, 3000, '展开可见')
+    })())
+    let undoDiag = ''
+    check('★★ 一键撤销：↩ 清掉 converted、源回常规列表（折叠完全可逆 —— 不是删除）', await (async () => {
+      const it = $$('.todos-view .todo-item')
+        .find(x => (x.textContent || '').indexOf('折叠源待办') >= 0)
+      const undo = it ? it.querySelector('.todo-conv-undo') : null
+      undoDiag = 'it=' + !!it + ' undo=' + !!undo + (it ? ' html=' + it.outerHTML.replace(/\s+/g, ' ').slice(0, 400) : '')
+      if (!undo) return false
+      undo.click()
+      const got = await waitFor(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'todosUpdate')
+        const last = c[c.length - 1]
+        return !!last && !!last.args[1] && last.args[1].converted === ''
+      }, 3000, 'undo converted')
+      const lastUpd = window.__fcTest.calls().filter(x => x.name === 'todosUpdate').pop()
+      undoDiag += ' got=' + got + ' lastUpd=' + JSON.stringify((lastUpd || {}).args)
+      // ⚠ 拿到调用记录 ≠ 界面刷完：loadTodos + Vue 重渲染是异步的，必须等折叠条真收起
+      const cleared = await waitFor(() => $$('.todos-view .todos-converted-fold').length === 0, 3000, '折叠条收起')
+      undoDiag += ' cleared=' + cleared
+      return got && cleared
+        && $$('.todos-view .todo-item').some(x => (x.textContent || '').indexOf('折叠源待办') >= 0)
+    })(), undoDiag)
 
     // ══ 待办 · 多选（2026-09-30 用户补充：「待办和回收站也加入多选」）══════
     await sleep(300)

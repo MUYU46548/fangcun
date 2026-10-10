@@ -265,6 +265,60 @@
         </div>
       </div>
 
+      <!-- 信息卡墙（2026-10-10，卡 20261010-003）。用户从小样里点的候选 A。
+           口径：现有两种摆法都是「窄化横条」，「少了点掌控感」；要能看见任务 ID；
+           但「没必要也不应该显示一堆无关紧要的信息」。
+           所以每张卡只多给三样可行动的东西：ID（点一下复制）、优先级（左缘色条 + 小徽章）、
+           阻塞（被卡几个 / 挡人几个 —— 两个数都为 0 就整格不画，既不写 0 也不写「—」）。
+           与另两种摆法互斥渲染（v-if / v-else-if），且共用同一份 filteredTasks 与
+           选中 / 拖拽 / 右键状态 —— 换摆法不会少功能，也不会出现同一批卡存在两份。
+           派生逻辑在 shared/boardCards.ts，这里只接线。 -->
+      <div v-else-if="boardView === 'cards'" class="pvwall">
+        <div
+          v-for="t in cardWallTasks"
+          :key="'pwc-' + t.id"
+          class="pvcard"
+          :class="['tone-' + (cw(t).tone || 'none'), {
+            stale: isStale(t),
+            overdue: isOverdue(t),
+            selected: selectedBatch.includes(t.id),
+            dragging: draggingId === t.id
+          }]"
+          :data-id="t.id"
+          draggable="true"
+          @dragstart="onDragStart($event, t.id)"
+          @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+          @contextmenu.prevent="openCardMenu($event, t)"
+          @mouseenter="onCardEnter($event, t)"
+          @mouseleave="onCardLeave()"
+        >
+          <div class="pwc-head">
+            <input v-show="batchMode" type="checkbox" class="batch-chk"
+              :checked="selectedBatch.includes(t.id)" @click.stop="toggleBatchSelect(t.id)" />
+            <span class="pwc-id" :title="'任务 ID：' + t.id + '（点一下复制）'"
+              @click.stop="copyId(t.id)">{{ cw(t).id }}</span>
+            <span class="st pwc-st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+          </div>
+          <div class="pwc-title">{{ t.title || t.id }}</div>
+          <div class="pwc-foot">
+            <span v-if="cw(t).tone" class="pwc-prio" :class="'pwc-prio-' + cw(t).tone">{{ cw(t).priority }}</span>
+            <span v-if="cw(t).blocked" class="pwc-blk"
+              :title="'被 ' + cw(t).blockedBy + ' 个任务挡着'">被卡 {{ cw(t).blockedBy }}</span>
+            <span v-else-if="cw(t).blocks" class="pwc-blks"
+              :title="'它挡着 ' + cw(t).blocks + ' 个任务'">挡 {{ cw(t).blocks }}</span>
+            <span class="pwc-f1"></span>
+            <span v-if="cardDate(t).text" class="pwc-date" :class="{ over: cardDate(t).over }"
+              :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+            <span class="pwc-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+          </div>
+        </div>
+        <div v-if="!cardWallTasks.length" class="empty-state">
+          <div class="empty-icon">🗂</div>
+          <div class="empty-text">当前筛选下没有任务</div>
+        </div>
+      </div>
+
       <!-- 列视图（默认摆法，保持不变）。用 template v-if 包住是为了让两种摆法**互斥**：
            同时挂在 DOM 里会造出"同一批卡片存在两份"（批量全选、键盘焦点、e2e 计数全会翻倍）。
            ⚠ 注释里不要写尖括号形式的 template 标签 —— 守卫 check-button-styles 靠正则数标签配对，
@@ -1210,6 +1264,11 @@
               <!-- 卡 004：由日志转来的待办标出来源（与日志侧 ⤴ 待办 徽章成对，prev 范式） -->
               <span v-if="todo.fromLog" class="todo-from"
                 :title="'由日志 ' + todo.fromLog + ' 转来（源日志保留）'">⤴ 日志</span>
+              <!-- 已转出（转换时勾了「顺手标已转出」）：折叠的源展开后在这里，可一键撤销 -->
+              <span v-if="todo.converted" class="todo-converted"
+                :title="'已转成日志 ' + todo.converted + ' —— 折叠只是藏起来，不是删除'">⤴ 已转出</span>
+              <button v-if="todo.converted" class="todo-conv-undo" type="button"
+                title="撤销「已转出」标记，恢复到常规列表" @click.stop="undoConverted(todo)">↩</button>
               <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
                     :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
                 📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
@@ -1219,14 +1278,47 @@
           <div class="todo-acts" v-show="!todoBatchMode">
             <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="openCalAssignTodo(todo.id)">📅</button>
             <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="openTodoEditor(todo)">✏️</button>
-            <!-- 卡 004（拍板=双向）：待办 → 日志。源待办保留不删；同一条只转一次（日志记 fromTodo 防重）。 -->
-            <button class="todo-conv" title="转成执行日志：标题/项目/优先级/到期压进一条新日志 —— 源待办保留不删，同一条只转一次"
-              @click.stop="convertTodoToLog(todo)">⤴</button>
+            <!-- 卡 004（拍板=双向）：待办 → 日志。先开确认框（2026-10-09 用户第 1 条：
+                 里面可以顺手勾「标已转出」折叠源）；同一条只转一次（日志记 fromTodo 防重）。 -->
+            <button class="todo-conv" title="转成执行日志：先确认（可顺手把源标「已转出」折叠）—— 同一条只转一次"
+              @click.stop="askConvertTodo(todo)">⤴</button>
             <button class="todo-del" title="删除这条待办" @click.stop="deleteTodo(todo.id)">×</button>
           </div>
         </div>
       </div>
+      <!-- 已转出折叠入口：默认把重复源藏起来（不是删除），一键展开/收起 -->
+      <div v-if="convertedTodosCount" class="todos-converted-fold">
+        <button class="ghost" @click="showConvertedTodos = !showConvertedTodos">
+          {{ showConvertedTodos ? '收起已转出' : `已转出 ${convertedTodosCount} 条 · 展开` }}
+        </button>
+        <span class="hint" v-if="!showConvertedTodos">转日志时勾了「顺手标已转出」的源折叠在这里 —— 不是删除</span>
+      </div>
     </main>
+
+    <!-- 转换确认（2026-10-09 用户第 1 条）：把「源怎么办」从隐含约定变成看得见的勾选项。
+         默认不勾 = 源原样保留（卡 004 铁律）；勾了才顺手收掉重复源 ——
+         日志侧 = 现成「已归档」分区（可找回），待办侧 = 折叠「已转出」（可撤销）。 -->
+    <div v-if="convAsk_" class="overlay" @click.self="convAsk_ = null">
+      <div id="conv-modal">
+        <h3>{{ convAsk_.kind === 'log2todo' ? '日志 → 待办' : '待办 → 日志' }}</h3>
+        <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}「{{ convAsk_.src.title || convAsk_.src.id }}」</div>
+        <div class="hint">会新建一条{{ convAsk_.kind === 'log2todo'
+          ? '待办（标题取「下一步」首条，没有就用日志标题；项目/优先级跟着走）'
+          : '日志（标题/项目/优先级带过去，到期压进正文首行）' }}；同一条只转一次。</div>
+        <label class="conv-opt">
+          <input type="checkbox" v-model="convAsk_.archive" />
+          <span>顺手把源{{ convAsk_.kind === 'log2todo' ? '归档' : '标「已转出」' }}
+            <i>{{ convAsk_.kind === 'log2todo'
+              ? '源日志移入「已归档」分区（列表不再重复，随时可找回）'
+              : '源待办折叠进「已转出」（不是删除，展开可看可撤销）' }}</i></span>
+        </label>
+        <div class="hint conv-default">不勾 = 源原样保留，两边都看得见。</div>
+        <div class="acts">
+          <button class="ghost" @click="convAsk_ = null">取消</button>
+          <button class="pri" @click="runConvert">转换</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 待办编辑弹窗（2026-09-25 第 12、14 条）：大框，写长内容不憋屈；已完成也能改 -->
     <div id="todo-edit-overlay" class="overlay" v-if="todoEdit_" @click.self="closeTodoEditor()">
@@ -1269,6 +1361,13 @@
       @drop="onLogDrop"
       :class="{ 'drop-target': logDragOver }"
     >
+      <!-- 工具栏吸顶容器（2026-10-10 用户第 3 条：「新建日志等工具按钮不能始终冻结在
+           最顶列，稍微往下拉一点就看不到了」）。原实现里 header 与批量栏都是流内元素，
+           跟着 .logs-view 一起滚 —— 列表一长就找不到入口。
+           做法：header + 批量栏包进这个 sticky 容器，top padding 由容器自带（.logs-view 的
+           padding-top 已让给它），滚动时列表从它下面穿过。
+           ⚠ 断言用的是 `.logs-view .batch-bar` 这类**后代**选择器，加这层包裹不影响。 -->
+      <div class="logs-sticky">
       <div class="logs-header">
         <h3>执行日志</h3>
         <div class="logs-ctrls">
@@ -1335,10 +1434,22 @@
       <div v-if="logBatchMode" class="batch-bar">
         <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
         <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === filteredLogs.length ? '取消全选' : '全选' }}</button>
+        <!-- 批量优先级（2026-10-09 用户第 4 条「日志多选更智能，比如批量修改日志优先级」）：
+             改元数据可逆 → 不弹确认、做完**不退出多选**，连着调几档是正常用法；
+             非「待处理」的日志后端拒改 → 跳过几条如实 toast，不静默。 -->
+        <select class="batch-prio" value="" @change="executeBatchLogPriority($event)"
+                title="给选中的日志批量设置优先级（非「待处理」的日志会如实跳过）">
+          <option value="" disabled>批量优先级…</option>
+          <option value="高">高</option>
+          <option value="中">中</option>
+          <option value="低">低</option>
+          <option value="__clear__">清除</option>
+        </select>
         <button class="ghost" title="批量标为已完成（不需要先标「进行中」）" @click="executeBatchLogComplete">批量完成</button>
         <button class="ghost" title="批量收进「已归档」分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
         <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
         <button class="ghost" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</button>
+      </div>
       </div>
       <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
       <div class="logs-list">
@@ -1422,9 +1533,9 @@
             <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
             <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
             <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
-                 源日志**保留不删**；同一条日志只转一次（待办记 fromLog 防重）。 -->
-            <button class="ghost" title="把这条日志的「下一步」变成一条待办（没有下一步就用标题）—— 源日志保留不删，同一条只转一次"
-              @click="convertLogToTodo(log)">⤴ 转待办</button>
+                 2026-10-09 用户第 1 条：先开确认框（可顺手勾「归档源」）；同一条只转一次（待办记 fromLog 防重）。 -->
+            <button class="ghost" title="把这条日志的「下一步」变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
+              @click="askConvertLog(log)">⤴ 转待办</button>
             <!-- 接力（2026-09-29 方案二）：完成态才有「下一段」——出清 + 新建 + 可开跑在一个对话框里做完 -->
             <button v-if="log.status === 'completed'" class="ghost relay-btn"
               title="接力：出清这条 + 建新日志继承「下一步」/项目/任务/Agent —— 一个对话框做完四件事"
@@ -2091,19 +2202,37 @@
         <textarea v-model="logEdit_.nextSteps" placeholder="下一步..."></textarea>
         <!-- 关联任务：2026-09-22 改为「按项目过滤的选择」；2026-09-25（用户第 2 条）
              此前只能关联**一个** ID，需要多个。数据层本来就写 tasks 数组
-             （renderLog: tasks: [id]），只是只读了第一个 —— 现在改成多选。 -->
-        <label>关联任务（可多选）</label>
-        <div v-if="logTaskOptions.length" class="log-task-multi">
-          <label v-for="t in logTaskOptions" :key="t.id" class="log-task-opt">
-            <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
-            <span class="lto-id">{{ t.id }}</span>
-            <span class="lto-title">{{ t.title || '(无标题)' }}</span>
-            <span class="lto-st">{{ t.status }}</span>
-          </label>
+             （renderLog: tasks: [id]），只是只读了第一个 —— 现在改成多选。
+             2026-10-09（用户第 3 条「每次都加载一堆任务让我头疼，于是干脆什么都不选」）：
+             索引字段不是**任务浏览器** —— 默认只显示已关联 chips + 按需展开，
+             候选带过滤框、按最近更新排序、首屏 12 条。 -->
+        <label>关联任务</label>
+        <div class="log-task-head">
+          <span class="log-task-chips" v-if="logEdit_.taskIds && logEdit_.taskIds.length">
+            <span v-for="id in logEdit_.taskIds" :key="id" class="lt-chip" :title="id">
+              {{ taskTitleOf(id) || id }}
+              <button type="button" class="lt-x" @click.stop="unlinkLogTask(id)" :title="'移除关联：' + id">×</button>
+            </span>
+          </span>
+          <span class="hint" v-else>还没有关联任务（可选，便于日志↔任务互跳）</span>
+          <button type="button" class="ghost log-task-toggle" @click.stop="logTaskOpen = !logTaskOpen">
+            {{ logTaskOpen ? '收起' : '＋ 关联任务' }}
+          </button>
         </div>
-        <div v-else class="hint">当前项目下没有可选任务 —— 用下面的输入框直接贴 ID</div>
+        <template v-if="logTaskOpen">
+          <input v-model="logTaskQuery" class="log-task-search" placeholder="过滤：任务 id 或标题" />
+          <div v-if="logTaskOptions.length" class="log-task-multi">
+            <label v-for="t in logTaskOptions" :key="t.id" class="log-task-opt">
+              <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
+              <span class="lto-id">{{ t.id }}</span>
+              <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+              <span class="lto-st">{{ t.status }}</span>
+            </label>
+            <div class="hint" v-if="logTaskMoreHidden">只显示最近更新的 {{ logTaskOptions.length }} 条，输入过滤查看其余</div>
+          </div>
+          <div v-else class="hint">当前项目下没有匹配的任务 —— 用下面的输入框直接贴 ID</div>
+        </template>
         <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用英文逗号 , 分隔，回车加入）" @change="addLogTaskExtra" />
-        <div class="hint log-task-picked" v-if="logTaskPicked">已选：{{ logTaskPicked }}</div>
         <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
         <label>会话 ID（可选，便于反向查证）</label>
         <input v-model="logEdit_.sessionId" placeholder="如 20260922_183047_334e4a" />
@@ -2850,6 +2979,8 @@ import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
 import { computeBlockerImpact } from '../shared/blockers'
 import type { BlockerImpact } from '../shared/blockers'
+import { buildBlockerIndex, boardCardMeta } from '../shared/boardCards'
+import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
 import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
@@ -3153,7 +3284,7 @@ async function syncBoardPrefs(): Promise<void> {
     // 多视图选择（2026-09-28）：与分组方式同一套，真身优先、缓存兜底。
     // ⚠ 这里只认**白名单里的字面量**：prefs.json 是可以手改的，写进一个不存在的视图名
     //   会让界面渲染成"两个按钮都不高亮、内容还是默认那个"的诡异状态。
-    if (p?.fc_board_view === 'cols' || p?.fc_board_view === 'list') {
+    if (p?.fc_board_view === 'cols' || p?.fc_board_view === 'list' || p?.fc_board_view === 'cards') {
       boardView.value = p.fc_board_view
     } else {
       saveUiPref(BOARD_VIEW_KEY, boardView.value)
@@ -3268,7 +3399,34 @@ const allGroupsCollapsed = computed(() =>
 const BOARD_VIEW_KEY = 'fc_board_view'
 const TODO_VIEW_KEY = 'fc_todo_view'
 const PV_VIEW_KEY = 'fc_pv_view'
-const boardView = ref<'cols' | 'list'>(readUiPref<'cols' | 'list'>(BOARD_VIEW_KEY, 'cols'))
+// 2026-10-10 加第三摆法「信息卡墙」（cards，卡 20261010-003）：
+// 用户原话「现有两个视图都走了窄化横条路线，少了点掌控感」+「需要能显示看板任务ID」。
+// 形态是用户从小样里点的候选 A（信息卡墙），不是我们替他定的。
+type BoardView = 'cols' | 'list' | 'cards'
+const boardView = ref<BoardView>(readUiPref<BoardView>(BOARD_VIEW_KEY, 'cols'))
+
+// 信息卡墙的两个派生值（2026-10-10，卡 20261010-003）。
+// ⚠ 派生逻辑本体在 `shared/boardCards.ts`（纯函数，`dist/shared/boardCards.js` 可被 node 直接
+//   断言，见 scripts/test/e2e-board-cards.cjs）—— 这里只负责接线，不在这里写算法。
+// ⚠ computed 是惰性的：filteredTasks / blockers 定义在本文件更靠后的位置也不会 TDZ 报错
+//   （第一次求值发生在渲染时，届时所有顶层 const 都已就绪）。
+const cardWallTasks = computed(() => filteredTasks.value)
+/** 按 id 索引的卡片元数据：一次算好给模板取，避免模板里每帧重复调纯函数 */
+const cardWallMeta = computed<Record<string, BoardCardMeta>>(() => {
+  const idx = buildBlockerIndex(blockers.value as any)
+  const m: Record<string, BoardCardMeta> = {}
+  for (const t of cardWallTasks.value) m[(t as any).id] = boardCardMeta(t, idx)
+  return m
+})
+/** 模板取卡片元数据的小助手：查不到给一份空 meta（界面据此整格不渲染），
+    模板里就不用写一长串 `|| {}` —— 也免得守卫把这种表达式当成可疑标识符。 */
+const EMPTY_CARD_META: BoardCardMeta = {
+  id: '', tone: '', priority: '', blockedBy: 0, blocks: 0, blocked: false,
+}
+function cw(t: any): BoardCardMeta {
+  return cardWallMeta.value[(t && t.id) || ''] || EMPTY_CARD_META
+}
+
 const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY, 'list'))
 // 项目页签的摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」；
 //   2026-10-05 Q2 新增第四种「在途一屏」—— 立项契约 ② 验收线之①）。
@@ -3676,6 +3834,7 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
   if (isBoardView.value) return [
     { v: 'cols', label: '▦ 列视图', hint: '按列摊开，可拖拽改状态；列多时要横向滚' },
     { v: 'list', label: '☰ 列表视图', hint: '单列纵排 + 状态分区，不横滚，一屏看得多半；分区头仍可折叠、可拖入改状态' },
+    { v: 'cards', label: '▩ 信息卡墙', hint: '一张卡把信息一次给全：任务 ID / 优先级 / 阻塞；一屏约 9~12 张，不横滚，点 ID 可复制' },
   ]
   if (curView.value === 'todos') return [
     { v: 'list', label: '☰ 清单', hint: '两行卡：上行标题、下行优先级/项目/到期，右侧动作；批量勾选最快' },
@@ -3705,7 +3864,7 @@ function setViewMode(v: string): void {
     pvView.value = PV_VIEWS.includes(v) ? (v as any) : 'tiles'
     saveUiPref(PV_VIEW_KEY, pvView.value)
   } else if (isBoardView.value) {
-    boardView.value = v === 'list' ? 'list' : 'cols'
+    boardView.value = v === 'list' ? 'list' : v === 'cards' ? 'cards' : 'cols'
     saveUiPref(BOARD_VIEW_KEY, boardView.value)
   }
 }
@@ -4586,6 +4745,9 @@ const boardClass = computed(() => ({
   // ⚠ 必须是**类**而不是 v-if 换 main —— main#board 是 flex 容器，
   //   两种摆法共用同一个容器才能保住 flex:1 + overflow 的滚动行为。
   'list-mode': isBoardView.value && boardView.value === 'list',
+  // 信息卡墙（2026-10-10，卡 20261010-003）：与列表视图同理，共用 #board 容器，
+  // 只换排列方向与滚动轴（横排 → 纵滚的网格）。
+  'cards-mode': isBoardView.value && boardView.value === 'cards',
 }))
 
 // Normalize project field: array → first element, or empty string
@@ -7042,12 +7204,18 @@ function prioClass(p: string): string {
   return v === '高' ? 'high' : v === '低' ? 'low' : 'mid'
 }
 
+/** 已转出源的折叠（2026-10-09 用户第 1 条）：折叠不是删除 —— 展开可见、可撤销 */
+const showConvertedTodos = ref(false)
+const convertedTodosCount = computed(() => todos.value.filter(t => t.converted).length)
+
 const filteredTodos = computed(() => {
   let list = todos.value
   if (todoFilter.value === 'active') list = list.filter(t => !t.done)
   if (todoFilter.value === 'done') list = list.filter(t => t.done)
   if (todoProjectFilter.value === '__none__') list = list.filter(t => !t.project)
   else if (todoProjectFilter.value !== '__all__') list = list.filter(t => t.project === todoProjectFilter.value)
+  // 已转出（转换时勾了「顺手标已转出」）默认折叠 —— 这是**折叠不是删除**，展开按钮在列表末尾
+  if (!showConvertedTodos.value) list = list.filter(t => !t.converted)
 
   const arr = list.slice()
   if (todoSort.value === 'due') {
@@ -7094,7 +7262,9 @@ const todoStats = computed(() => {
   return {
     active: todos.value.filter(t => !t.done).length,
     overdue: todos.value.filter(t => isOverdue(t)).length,
-    hidden: total - filteredTodos.value.length,
+    // hidden 只统计**筛选**遮住的：折叠掉的「已转出」有自己的展开入口，不算进「清除筛选」
+    hidden: total - filteredTodos.value.length
+      - (showConvertedTodos.value ? 0 : convertedTodosCount.value),
   }
 })
 
@@ -7697,8 +7867,38 @@ async function toggleLogRunning(log: any): Promise<void> {
 //   日志 → 待办：下一步首条最像"要做的事" → 作为标题（没有就退回日志标题）；
 //                project/priority 跟着走，due 待办侧本来就支持（日志无 due 可传）。
 
-/** 待办 → 日志：源待办保留，新日志记 fromTodo 防重 */
-async function convertTodoToLog(todo: any): Promise<void> {
+/** 撤销「已转出」：清掉 converted 字段（空串 = 字段从 JSON 消失），源回到常规列表 */
+async function undoConverted(todo: any): Promise<void> {
+  try {
+    const r: any = await window.tegula.todosUpdate(todo.id, { converted: '' })
+    if (r?.ok) { showToast('已撤销「已转出」标记', 'success'); await loadTodos() }
+    else showToast(`撤销失败：${r?.error || '未知原因'}`, 'error')
+  } catch (e: any) {
+    showToast(`撤销异常：${e?.message || e}`, 'error')
+  }
+}
+
+/** 转换确认（2026-10-09 用户第 1 条「能不能自动把源移入回收站？」拍板：
+ *  不自动动源 —— 把「源怎么办」做成转换对话框里的勾选项（relay completeSourceTasks 同款范式），
+ *  **默认不勾**（卡 004「源保留」铁律不破）。日志侧归档走现成 archived（可 reopen 找回）；
+ *  待办侧标 converted = 折叠进「已转出」（不是删除，展开可撤销）。 */
+const convAsk_ = ref<{ kind: 'log2todo' | 'todo2log'; src: any; archive: boolean } | null>(null)
+function askConvertLog(log: any): void {
+  convAsk_.value = { kind: 'log2todo', src: log, archive: false }
+}
+function askConvertTodo(todo: any): void {
+  convAsk_.value = { kind: 'todo2log', src: todo, archive: false }
+}
+function runConvert(): void {
+  const ask = convAsk_.value
+  convAsk_.value = null          // 先关框再跑（转换本身有 toast 反馈）
+  if (!ask) return
+  if (ask.kind === 'log2todo') void convertLogToTodo(ask.src, ask.archive)
+  else void convertTodoToLog(ask.src, ask.archive)
+}
+
+/** 待办 → 日志：源默认保留；勾了「标已转出」才折叠源（不删） */
+async function convertTodoToLog(todo: any, archiveSource = false): Promise<void> {
   try {
     // 防重：读全量日志找来源（与 loadLogs 同一条取数路径，不新造查询）
     const all: any[] = (await window.tegula.logsList({})) || []
@@ -7718,15 +7918,22 @@ async function convertTodoToLog(todo: any): Promise<void> {
       { priority: todo.priority || '', fromTodo: todo.id, logDate: '' },
     )
     if (!r?.ok) { showToast(`转日志失败：${r?.error || '未知原因'}`, 'error'); return }
-    showToast(`已转成日志 ${r.data?.id || ''} —— 源待办保留未删`, 'success')
+    let convNote = '源待办保留未删'
+    if (archiveSource) {
+      const logId = r.data?.id || ''
+      const ur: any = logId ? await window.tegula.todosUpdate(todo.id, { converted: logId }) : null
+      if (ur?.ok) convNote = '源待办已标「已转出」（默认折叠，展开可撤销）'
+    }
+    showToast(`已转成日志 ${r.data?.id || ''} —— ${convNote}`, 'success')
     await loadLogs()
+    if (archiveSource) await loadTodos()   // 折叠要立刻反映出来
   } catch (e: any) {
     showToast(`转日志异常：${e?.message || e}`, 'error')
   }
 }
 
-/** 日志 → 待办：源日志保留，新待办记 fromLog 防重 */
-async function convertLogToTodo(log: any): Promise<void> {
+/** 日志 → 待办：源默认保留；勾了「归档源」才把日志移进已归档分区（可 reopen 找回） */
+async function convertLogToTodo(log: any, archiveSource = false): Promise<void> {
   try {
     const all: any[] = (await window.tegula.todosList()) || []
     const dup = all.find(t => t && t.fromLog === log.id)
@@ -7743,8 +7950,14 @@ async function convertLogToTodo(log: any): Promise<void> {
     if (!title) { showToast('这条日志没有标题也没有下一步，转不了', 'error'); return }
     const r: any = await window.tegula.todosCreate(title, log.priority || '中', undefined, log.project || '', log.id)
     if (!r?.ok) { showToast(`转待办失败：${r?.error || '未知原因'}`, 'error'); return }
-    showToast('已转成待办 —— 源日志保留未删', 'success')
+    let convNote = '源日志保留未删'
+    if (archiveSource) {
+      const ar: any = await window.tegula.logsArchive(log.id)
+      if (ar?.ok) convNote = '源日志已归档（日志页「已归档」分区可找回）'
+    }
+    showToast(`已转成待办 —— ${convNote}`, 'success')
     await loadTodos()
+    if (archiveSource) await loadLogs()    // 源日志状态变了，列表要刷新
   } catch (e: any) {
     showToast(`转待办异常：${e?.message || e}`, 'error')
   }
@@ -7812,6 +8025,30 @@ async function executeBatchLogDestroy() {
   selectedLogBatch.value = []
   logBatchMode.value = false
   loadLogs()
+}
+
+/** 批量改优先级（2026-10-09 用户第 4 条）。与完成/归档的两点不同：
+ *  ① 不弹确认 —— 改元数据可逆；② 做完**不退出多选** —— 连着调几档是正常用法。
+ *  updateLog 只放行「待处理」态（logs.ts:495）→ 成功/跳过如实报数，不静默。 */
+async function executeBatchLogPriority(ev: Event) {
+  const sel = ev.target as HTMLSelectElement
+  const val = sel.value
+  sel.value = ''                       // 用完即复位（占位项重新可见，还能再选同一档）
+  const ids = [...selectedLogBatch.value]
+  if (!val || !ids.length) return
+  const prio = val === '__clear__' ? '' : val
+  let ok = 0
+  for (const id of ids) {
+    try {
+      const r = await window.tegula.logsUpdate(id, { priority: prio })
+      if (r?.ok) ok++
+    } catch { /* 拒改/异常都算跳过，下面统一报数 */ }
+  }
+  const skip = ids.length - ok
+  showToast(skip
+    ? `优先级已更新 ${ok}/${ids.length} 条（${skip} 条跳过：非「待处理」不可改）`
+    : `已给 ${ok} 条日志设优先级「${prio || '不标'}」`, ok ? 'success' : 'error')
+  loadLogs()                            // 选择与多选模式都保留（元数据批量不踢人）
 }
 
 function onLogCardClick(log: any) {
@@ -7917,6 +8154,9 @@ function openLog(log: any) {
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = false
   logArchiveMode.value = false
+  logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
+  logTaskQuery.value = ''
+  logTaskExtra.value = ''
   markLogSnap()   // P0-1：打开即存快照（改没改才算数）
   // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
   // 自动聚焦到标题输入框，确保用户可以立即输入
@@ -7939,6 +8179,9 @@ function openNewLog() {
   logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '', priority: '' }
   logCompleting.value = false
   logArchiveMode.value = false
+  logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
+  logTaskQuery.value = ''
+  logTaskExtra.value = ''
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
   markLogSnap()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
@@ -8161,32 +8404,47 @@ async function executeRelay(startRunning: boolean): Promise<void> {
   }
 }
 
-/** 日志可关联的任务候选：按所选项目过滤（用户第 2 条：便于选择，而非手填 ID） */
-const logTaskOptions = computed(() => {
+/** 关联任务候选（2026-10-09 用户第 3 条再收）：同项目 + 关键词过滤 + 最近更新排序，
+ *  首屏 12 条。索引字段不是**任务浏览器** —— 全量 checkbox 铺一屏的选择成本 > 收益，
+ *  用户原话「每次都加载一堆任务，让我头疼，于是干脆什么都不选」。 */
+const LOG_TASK_CAP = 12
+const logTaskOpen = ref(false)
+const logTaskQuery = ref('')
+const logTaskMatched = computed(() => {
   const proj = logEdit_.value?.project
+  const q = (logTaskQuery.value || '').trim().toLowerCase()
   const all = [...tasks.value, ...archivedTasks.value]
+  const byId = new Map(all.map(t => [t.id, t]))
   const seen = new Set<string>()
   const out: Array<{ id: string; title: string; status: string }> = []
   for (const t of all) {
     if (seen.has(t.id)) continue
     if (proj && normProject(t.project) !== proj) continue
+    if (q && !(String(t.id).toLowerCase().includes(q) || String(t.title || '').toLowerCase().includes(q))) continue
     seen.add(t.id)
     out.push({ id: t.id, title: t.title || '', status: t.status })
     if (out.length >= 500) break
   }
+  // 最近更新优先：首屏要的是「最可能要挂的那几张」，不是文件序
+  out.sort((a, b) =>
+    Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
   return out
 })
+const logTaskOptions = computed(() => logTaskMatched.value.slice(0, LOG_TASK_CAP))
+const logTaskMoreHidden = computed(() => logTaskMatched.value.length > LOG_TASK_CAP)
 
-/** 当前已关联任务的回显（id 不在任务列表里时提示"列表外"） */
-const logTaskPicked = computed(() => {
-  const ids = normalizeLogTaskIds(logEdit_.value || {})
-  if (!ids.length) return ''
+/** chips 回显：id → 标题（列表外给空，界面回退显示 id 本身） */
+function taskTitleOf(id: string): string {
   const all = [...tasks.value, ...archivedTasks.value]
-  return ids.map(id => {
-    const t = all.find(x => x.id === id)
-    return t ? `${t.id} · ${t.title || '(无标题)'}` : `${id}（列表外）`
-  }).join('；')
-})
+  return all.find(x => x.id === id)?.title || ''
+}
+
+/** chip 上的 × ：摘掉一条关联（与取消勾选同一条数据路径） */
+function unlinkLogTask(id: string): void {
+  const e = logEdit_.value
+  if (!e) return
+  e.taskIds = normalizeLogTaskIds(e).filter(x => x !== id)
+}
 
 /** 把日志的关联任务归一成字符串数组（2026-09-25 用户第 2 条：支持多个） */
 function normalizeLogTaskIds(log: any): string[] {
@@ -8373,7 +8631,7 @@ async function saveLogEdit() {
 function completeLogItem(id: string) {
   const log = logs.value.find(l => l.id === id)
   if (!log) return
-  logEdit_.value = { ...log }
+  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = true
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
@@ -8385,7 +8643,7 @@ function completeLogItem(id: string) {
 function archiveLogItem(id: string) {
   const log = logs.value.find(l => l.id === id)
   if (!log) return
-  logEdit_.value = { ...log }
+  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
   logCompleting.value = false
   logArchiveMode.value = true
   logRetainDays.value = String(logRetainDefault.value)
@@ -9618,6 +9876,63 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    列表视图的落点是**整个分区块**（hover 时 .blgrp 高亮），分区头右侧的 0 已经说明它是空的。 */
 .board-list .emptyhint { display: none; }
 
+/* ── 看板 · 信息卡墙（第三摆法，2026-10-10 卡 20261010-003）────────────────────
+   用户口径：另两种摆法都是「窄化横条」，「少了点掌控感」。这张卡把信息一次给全 ——
+   ID（可复制）/ 优先级（左缘色条 + 小徽章）/ 阻塞（被卡 / 挡人）。
+   ⚠ 与列表视图同路子：`#board` 仍是那个 flex 容器，只换成「纵滚 + 自适应网格」，
+     这样 flex:1 的滚动行为不用另写一套。
+   ⚠ 优先级 / 阻塞徽章的配色**直接沿用日志优先级徽章（.log-prio-badge）那套实测过
+     对比度的色值**，不另发明颜色。 */
+#board.cards-mode {
+  flex-direction: column; overflow-x: hidden; overflow-y: auto;
+  align-items: stretch; gap: 0;
+}
+.pvwall {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  gap: 10px; width: 100%; align-content: start;
+}
+.pvcard {
+  display: flex; flex-direction: column; min-width: 0;
+  padding: 9px 11px; background: #fff; border: 1px solid var(--border);
+  border-left: 3px solid var(--border); border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(90,90,130,0.06);
+  cursor: pointer; transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.pvcard:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+/* 左缘 3px = 优先级。认不出优先级（tone-none）就维持中性描边，不假装有档位。 */
+.pvcard.tone-high { border-left-color: var(--danger); }
+.pvcard.tone-mid { border-left-color: var(--warning); }
+.pvcard.tone-low { border-left-color: var(--line-2); }
+.pvcard.stale { opacity: .72; }
+.pvcard.overdue { border-color: #f0c6c6; }
+.pvcard.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px rgba(100,80,200,0.2); }
+.pvcard.dragging { opacity: .45; }
+
+.pwc-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.pwc-id {
+  font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--muted);
+  border-bottom: 1px dotted var(--border); cursor: copy; user-select: none;
+  max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pwc-id:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.pwc-st { margin-left: auto; flex: none; }
+.pwc-title {
+  font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.45;
+  margin-bottom: 9px; word-break: break-word; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.pwc-foot { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.pwc-f1 { flex: 1; }
+.pwc-prio { flex: none; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; line-height: 1.5; }
+.pwc-prio-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
+.pwc-prio-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
+.pwc-prio-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
+.pwc-blk { flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: #fee2e2; color: #991b1b; }
+.pwc-blks { flex: none; font-size: 10.5px; padding: 1px 6px; border-radius: 5px; background: var(--tint); color: #6b5b9e; }
+.pwc-date { flex: none; font-size: 10.5px; color: var(--muted); }
+.pwc-date.over { color: var(--danger); font-weight: 600; }
+.pwc-proj { flex: none; font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+
 #board {
   flex: 1; display: flex; gap: 12px; padding: 14px;
   align-items: flex-start; overflow-x: auto; min-height: 60vh;
@@ -9881,6 +10196,21 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 日志卡上的附件数量角标：一眼看出这条有没有附东西（报修场景最需要的一眼信息） */
 .log-attach-badge { font-size: 10.5px; color: var(--muted); background: var(--tint); border-radius: 6px; padding: 1px 6px; font-weight: 600; white-space: nowrap; }
 
+/* 日志「关联任务」：chips 头 + 按需展开（2026-10-09 用户第 3 条） */
+.log-task-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.log-task-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.lt-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--tint); font-size: 11.5px; color: var(--ink);
+}
+.lt-chip .lt-x {
+  flex: none; width: 16px; height: 16px; padding: 0; border: none; border-radius: 50%;
+  background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer;
+}
+.lt-chip .lt-x:hover { background: var(--danger); color: #fff; }
+.log-task-toggle { margin-left: auto; flex: none; }
+.log-task-search { margin-bottom: 6px; }
 /* 日志「关联任务」多选列表（2026-09-25 第 2 条） */
 .log-task-multi {
   max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
@@ -10305,6 +10635,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todos-list.batching .todo-item, .trash-list.batching .trash-item { cursor: pointer; }
 
 .batch-bar .ghost { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
+/* 批量优先级下拉（2026-10-09）：与批量栏按钮同一视觉档位（26 高 / 6 圆角 / 白底描边） */
+.batch-bar select.batch-prio {
+  height: 26px; padding: 0 6px; font-size: 11px; font-family: inherit;
+  background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none;
+}
 
 
 .nq-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--tint); color: var(--accent); border-radius: 6px; font-size: 10px; font-weight: 700; margin-left: 8px; }
@@ -10815,7 +11150,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todos-list.as-grid .todo-acts { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
 
 /* Logs view */
-.logs-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+/* 2026-10-10：padding-top 从容器挪进 .logs-sticky —— sticky 元素贴的是 scrollport
+   顶边，容器留着 padding-top 会在吸顶后露出 14px 的缝让下面的卡片透上来。 */
+.logs-view { flex: 1; display: flex; flex-direction: column; padding: 0 14px 14px; overflow-y: auto; }
+/* 工具栏吸顶（2026-10-10 用户第 3 条）：新建日志 / 多选 / 筛选 / 批量栏钉在列表顶部。
+   flex:none 防止在 flex 列容器里被压缩；背景必须不透明（--bg）才能盖住穿过的卡片。 */
+.logs-sticky { position: sticky; top: 0; z-index: 6; flex: none; background: var(--bg); padding-top: 14px; padding-bottom: 2px; }
 .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .logs-header h3 { font-size: 16px; font-weight: 700; }
 .logs-ctrls { display: flex; gap: 8px; align-items: center; }
@@ -10891,7 +11231,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit;
 }
 #log-edit-modal select.logsel:disabled, #relay-modal select.logsel:disabled { background: #f6f6f9; color: var(--muted); }
-#log-edit-modal .log-task-picked { font-size: 11px; color: var(--accent); margin-top: 4px; }
+
+/* 转换确认对话框（2026-10-09 用户第 1 条）：与 relay 同款轻量确认框 */
+#conv-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; max-width: calc(100vw - 48px); box-shadow: var(--shadow); border: 1px solid var(--border); }
+#conv-modal h3 { margin: 0 0 8px; font-size: 15px; color: var(--ink); }
+#conv-modal .conv-src { font-size: 13px; color: var(--ink); margin-bottom: 6px; font-weight: 600; }
+#conv-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+#conv-modal .conv-opt { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-weight: 400; }
+#conv-modal .conv-opt:hover { background: var(--tint-2); }
+#conv-modal .conv-opt input[type="checkbox"] { width: 14px; height: 14px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+#conv-modal .conv-opt span i { display: block; font-style: normal; font-size: 11px; color: var(--muted); margin-top: 2px; }
+#conv-modal .conv-default { margin-top: 6px; }
+#conv-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* 已转出折叠（2026-10-09）：折叠不是删除 —— 入口常驻、展开可撤销 */
+.todos-converted-fold { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.todo-converted { font-size: 10.5px; color: var(--muted); background: var(--tint); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.todo-conv-undo { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 4px; line-height: 1; }
+.todo-conv-undo:hover { color: var(--accent); }
 
 /* 待办编辑弹窗（2026-09-25 第 12、14 条）：**大框**，写长内容不憋屈 */
 #todo-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 640px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
