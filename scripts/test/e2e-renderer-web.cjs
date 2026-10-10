@@ -66,6 +66,97 @@ function browserPreload() {
 
 /** 构建产物是**单块**（无顶层 import/export）→ 可以直接当 classic script 内联，
  *  绕开 file:// 下 ES module 的 CORS 限制（这条限制在无头浏览器里同样存在）。 */
+/**
+ * 常驻模式 + CDP：起一个**不退出**的实例，通过 DevTools 协议把页面 DOM 取回来。
+ *
+ * 为什么需要它：某些执行环境里，Chromium 的**一次性**模式（`--dump-dom` / `--screenshot`）
+ * 进程启动后**立即退出、零产出**（exit 0、stderr 也空、连指定路径的截图文件都不生成），
+ * 但**常驻**模式完全正常 —— 2026-10-10 本机实测：`--remote-debugging-port` 起的实例
+ * 能正常渲染、`/json/version` 正常响应、`Runtime.evaluate` 能取到真实 DOM。
+ * 所以这不是「无头浏览器不可用」，是「一次性模式的启动/退出通道被挡了」。
+ * dump-dom 拿不到结果时改走这条路，而不是直接判失败。
+ *
+ * ⚠ 必须用独立 `--user-data-dir`：否则新实例的命令会被转发给用户正在用的浏览器，
+ *   进程秒退、什么都拿不到（而 Chrome 进程数为 0 时也照样失败 → 与"实例冲突"无关）。
+ */
+function viaCdp(browser, url, env, budgetMs = 90000) {
+  const port = 9411 + (process.pid % 500)
+  const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cdp-'))
+  const child = spawn(browser, [
+    '--headless=new',
+    '--remote-debugging-port=' + port,
+    '--user-data-dir=' + prof,
+    '--no-first-run', '--no-default-browser-check',
+    '--disable-gpu', '--no-sandbox', '--disable-extensions',
+    '--allow-file-access-from-files',
+    // ⚠ 这里**不要**加 --virtual-time-budget（一次性模式那边是另一回事，那边必须加）：
+    //   常驻模式下它会页面钉在虚拟时间轴上，断言里的 sleep/waitFor 永远跑不完 →
+    //   表现为「CDP 兜底超时」。2026-10-10 实测：加了必超时，去掉后一次就过。
+    'about:blank',
+  ], { stdio: 'ignore', env })
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const base = 'http://127.0.0.1:' + port
+
+  return (async () => {
+    try {
+      let ready = false
+      for (let i = 0; i < 120; i++) {
+        try { const r = await fetch(base + '/json/version'); if (r.ok) { ready = true; break } } catch { /* 还没起来 */ }
+        await sleep(250)
+      }
+      if (!ready) throw new Error('CDP 端口没起来（' + port + '）')
+
+      const tab = await (await fetch(base + '/json/new?' + encodeURIComponent(url), { method: 'PUT' })).json()
+      const ws = new WebSocket(tab.webSocketDebuggerUrl)
+      await new Promise((res, rej) => {
+        ws.addEventListener('open', res, { once: true })
+        ws.addEventListener('error', () => rej(new Error('WebSocket 连不上')), { once: true })
+      })
+      const send = (method, params) => new Promise((res) => {
+        const id = Math.floor(Math.random() * 1e9)
+        const onMsg = (ev) => {
+          let m
+          try { m = JSON.parse(ev.data) } catch { return }
+          if (m.id === id) { ws.removeEventListener('message', onMsg); res(m) }
+        }
+        ws.addEventListener('message', onMsg)
+        ws.send(JSON.stringify({ id, method, params }))
+      })
+
+      const deadline = Date.now() + budgetMs
+      let html = ''
+      let ticks = 0
+      while (Date.now() < deadline) {
+        await sleep(1000)
+        const r = await send('Runtime.evaluate', {
+          expression: 'document.documentElement ? document.documentElement.outerHTML : ""',
+          returnByValue: true,
+        })
+        html = (r && r.result && r.result.result && r.result.result.value) || ''
+        if (html.indexOf('[[FC-END]]') >= 0) break
+        // 每 10 秒报一次进度：页面在长、但断言没结束时，这条能区分"页面没渲染"和"断言还在跑"
+        if (++ticks % 10 === 0) console.log('      [cdp] 等待断言完成… dom=' + html.length)
+      }
+      try { ws.close() } catch { /* ignore */ }
+      return html
+    } finally {
+      try { child.kill() } catch { /* ignore */ }
+    }
+  })()
+}
+
+/** 从浏览器吐回来的 DOM 里取 [[FC-BEGIN]]…[[FC-END]] 之间的断言结果 */
+function parseResult(raw) {
+  // --dump-dom 会把 <pre> 的文本转义；CDP 返回的 outerHTML 也一样
+  const flat = String(raw || '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+  const m = flat.match(/\[\[FC-BEGIN\]\]([\s\S]*?)\[\[FC-END\]\]/)
+  if (!m) return null
+  return { text: m[1].split('\n').filter((l) => l.trim()).join('\n'), sum: m[1].match(/通过 (\d+) \/ 失败 (\d+)/) }
+}
+
 function main() {
   if (!fs.existsSync(INDEX)) {
     console.error('FAIL  找不到渲染层构建产物:', INDEX, '—— 请先 cd desktop && npm run build')
@@ -266,32 +357,44 @@ function main() {
   let err = ''
   child.stdout.on('data', (d) => { out += d.toString() })
   child.stderr.on('data', (d) => { err += d.toString() })
-  child.on('close', () => {
-    // --dump-dom 会把 <pre> 的文本转义，先还原再取标记之间的内容
-    const flat = out
-      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
-    const m = flat.match(/\[\[FC-BEGIN\]\]([\s\S]*?)\[\[FC-END\]\]/)
-    if (!m) {
-      console.log('FAIL  没拿到断言结果（页面没跑完 / 浏览器参数失效）')
-      console.log('      tail(stderr): ' + err.trim().split('\n').slice(-4).join(' ⏎ '))
-      console.log('      tail(stdout): ' + out.trim().slice(-300))
-      console.log('RESULT 0 / 1')
-      process.exit(1)
-    }
-    const body = m[1].split('\n').filter((l) => l.trim()).join('\n')
-    console.log(body)
-    const sum = m[1].match(/通过 (\d+) \/ 失败 (\d+)/)
-    if (!sum) {
-      console.log('FAIL  结果行缺失')
-      process.exit(1)
-    }
-    console.log('\nRESULT ' + sum[1] + ' / ' + sum[2])
+  // 结果收口成一处：dump-dom 与 CDP 兜底共用
+  const finish = (r) => {
+    console.log(r.text)
+    if (!r.sum) { console.log('FAIL  结果行缺失'); process.exit(1) }
+    console.log('\nRESULT ' + r.sum[1] + ' / ' + r.sum[2])
     try { fs.unlinkSync(harnessPath) } catch { /* 留一份也无妨 */ }
-    process.exit(Number(sum[2]) === 0 ? 0 : 1)
+    process.exit(Number(r.sum[2]) === 0 ? 0 : 1)
+  }
+
+  child.on('close', async () => {
+    const r = parseResult(out)
+    if (r) return finish(r)
+    // 一次性模式没拿到 → 改走「常驻 + CDP」再试一次（原因见 viaCdp 顶部注释）
+    console.log('INFO  --dump-dom 没拿到结果，改走「常驻 + CDP」重试…')
+    clearTimeout(watchdog)
+    watchdog = setTimeout(() => {
+      console.log('FAIL  CDP 兜底超时（150s）')
+      process.exit(1)
+    }, 150000)
+    let html = ''
+    try {
+      html = await viaCdp(browser, 'file:///' + harnessPath.replace(/\\/g, '/'), env)
+    } catch (e) {
+      console.log('      CDP 也失败: ' + ((e && e.message) || e))
+    }
+    const r2 = parseResult(html)
+    if (r2) return finish(r2)
+    console.log('FAIL  没拿到断言结果（页面没跑完 / 浏览器参数失效）')
+    console.log('      tail(stderr): ' + err.trim().split('\n').slice(-4).join(' ⏎ '))
+    console.log('      tail(stdout): ' + out.trim().slice(-300))
+    console.log('      cdp 取回的 DOM 长度: ' + String(html || '').length)
+    console.log('RESULT 0 / 1')
+    process.exit(1)
   })
 
-  setTimeout(() => {
+  // 看门狗：dump-dom 阶段 60s 够用；进了 CDP 兜底要放宽（它要等页面把断言跑完），
+  // 所以它不是 const —— close 回调里会 clearTimeout 再重设。
+  let watchdog = setTimeout(() => {
     console.log('FAIL  无头浏览器超时（60s）')
     try { child.kill() } catch { /* ignore */ }
     process.exit(1)

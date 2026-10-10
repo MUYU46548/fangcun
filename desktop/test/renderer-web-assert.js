@@ -62,16 +62,77 @@
         hint: (head.querySelector('.pagehead-hint') || {}).textContent || '',
       }
     })()
-    check('★ 看板页头有视图切换器（列视图 / 列表视图），且是真 button',
-      sw.ok && sw.btns.length === 2
-      && sw.btns.some((b) => b.t.indexOf('列视图') >= 0) && sw.btns.some((b) => b.t.indexOf('列表视图') >= 0),
+    check('★ 看板页头有视图切换器（列视图 / 列表视图 / 信息卡墙），且都是真 button',
+      sw.ok && sw.btns.length >= 3
+      && sw.btns.some((b) => b.t.indexOf('列视图') >= 0)
+      && sw.btns.some((b) => b.t.indexOf('列表视图') >= 0)
+      && sw.btns.some((b) => b.t.indexOf('信息卡墙') >= 0),
       JSON.stringify(sw))
-    check('★ 默认仍是**旧视图**（列视图高亮、列表视图未选）—— 要的是"旧的可以保留"，不是被换掉',
+    check('★ 默认仍是**旧视图**（列视图高亮、另两种未选）—— 要的是"旧的可以保留"，不是被换掉',
       sw.ok && sw.btns.some((b) => b.t.indexOf('列视图') >= 0 && b.on)
-      && !sw.btns.some((b) => b.t.indexOf('列表视图') >= 0 && b.on),
+      && !sw.btns.some((b) => b.t.indexOf('列表视图') >= 0 && b.on)
+      && !sw.btns.some((b) => b.t.indexOf('信息卡墙') >= 0 && b.on),
       JSON.stringify(sw.btns))
-    check('  切换器旁有一句说明（不必先点一遍才知道两个摆法差在哪）',
+    check('  切换器旁有一句说明（不必先点一遍才知道各摆法差在哪）',
       sw.ok && String(sw.hint).length > 6, String(sw.hint))
+
+    // ── 信息卡墙（2026-10-10，卡 20261010-003）──────────────────────────────
+    // 首版直接把 filteredTasks 铺成网格 → **分组整个丢失**，一百多张卡糊成一面没有结构的墙
+    // （用户截图反馈「压迫感十足」，且选了「按项目」不生效）。下面是修复后的**浏览器级**行为：
+    // 先分区、区内网格、每张卡带 ID、开关默认关且真的过滤。跑完这一段要切回列视图。
+    const clickVsb = (txt) => {
+      const b = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf(txt) >= 0)
+      if (b) b.click()
+      return !!b
+    }
+    check('能切到「信息卡墙」', clickVsb('信息卡墙'))
+    await sleep(500)
+
+    const wall = (() => {
+      const root = $('.pvwall')
+      return {
+        ok: !!root,
+        groups: $$('.pvwall .pwg').length,
+        heads: $$('.pvwall .pwg-head .lpill').length,
+        cards: $$('.pvwall .pvcard').length,
+        ids: $$('.pvwall .pvcard .pwc-id').filter((x) => (x.textContent || '').trim()).length,
+        switcher: !!$('.pagehead .pvw-switch'),
+      }
+    })()
+    check('★ 信息卡墙是「分区 + 区内网格」，不是一个根容器平铺到底',
+      wall.ok && wall.groups >= 1 && wall.heads === wall.groups, JSON.stringify(wall))
+    check('★ 每张卡都带任务 ID（卡 20261010-003 的核心承诺）',
+      wall.cards > 0 && wall.ids === wall.cards, JSON.stringify(wall))
+    check('★ 卡片墙专属「只看未完成」开关在页头',
+      wall.switcher, JSON.stringify(wall))
+
+    // 开关真的过滤 —— **用「归档」页签验**：活跃区的夹具里没有已完成任务
+    // （在那儿测会得到 before=after，那是用例无对象可过滤，不是产品没生效）；
+    // 归档区清一色「完成」态，正好同时验「过滤生效」与「全被过滤时的提示语」。
+    clickText('归档')
+    await sleep(700)
+    const archBefore = $$('.pvwall .pvcard').length
+    const chk = $('.pagehead .pvw-switch .pvw-switch-chk')
+    if (chk) chk.click()
+    await sleep(700)
+    const archAfter = $$('.pvwall .pvcard').length
+    check('★ 「只看未完成」真的会过滤：归档区（全是完成态）勾选后一张不剩',
+      archBefore > 0 && archAfter === 0, `before=${archBefore} after=${archAfter}`)
+    check('★ 全被过滤掉时给的是提示语，不是一片空白',
+      !!$('.pvwall .pvw-allhidden'),
+      ($('.pvwall .pvw-allhidden') || {}).textContent || '(没找到提示语)')
+    if (chk) chk.click()
+    await sleep(700)
+    check('  取消勾选后归档区的卡回来了', $$('.pvwall .pvcard').length === archBefore,
+      `${$$('.pvwall .pvcard').length} vs ${archBefore}`)
+
+    // ⚠ 后面的断言都建立在「看板 + 列视图」上，这里必须切回去
+    //    （页签切换**不会**改摆法 —— 摆法是记住的，所以要显式切回列视图）
+    clickText('看板')
+    await sleep(700)
+    clickVsb('列视图')
+    await sleep(500)
+    check('  切回列视图后卡片墙根容器消失（互斥渲染）', !$('.pvwall'))
 
     // 默认摆法：列视图
     const colState = {

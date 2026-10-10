@@ -93,10 +93,16 @@
 > **2026-10-10 实测（本机口径）**：`verify.py` **262/0** · 六守卫 **53/0**（ipc6 · bindings1 · buttons5 ·
 > themes16 · skills19 · **ui-copy6**）· 本机可跑 e2e 全绿：**`e2e-board-cards` 41/0（新，含两处反例自证）** ·
 > `e2e-logs` 203/0 · `e2e-todos` 35/0 · `e2e-prefs` 54/0 · `e2e-trip-board` 32/0 · build 零 TS 错。
-> ⚠ **`e2e-renderer-web` 本机跑不出结果**：Chromium 系进程能启动（会生成 profile 文件）但
-> `--dump-dom` / `--screenshot` 一律**零产出、exit 0**；换 Chrome 一样、Chrome 进程数为 0 时也一样、
-> 放开沙箱直连 bash 一样；同环境 Node 纯逻辑 e2e **全部正常** → 是本机对浏览器子进程的拦截，**不是项目代码**。
-> 于是本轮起，「UI 结构对不对」改用两条兜底：**① 派生逻辑抽 `shared/` 用 node 直接断言**；
+> ⚠ **`e2e-renderer-web` 的「一次性模式」在某些执行环境里零产出**：Chromium 进程启动后**立即退出**，
+> `--dump-dom` / `--screenshot` 无任何输出（exit 0、stderr 也空，**连 `--screenshot=<路径>` 的截图文件都不生成**）。
+> 与「实例冲突」无关 —— 换 Chrome 一样、Chrome 进程数为 0 时一样、放开沙箱也一样。
+> **但浏览器本体是好的**：`--remote-debugging-port` 起的**常驻**实例渲染正常、`/json/version` 正常响应、
+> `Runtime.evaluate` 能取到真实 DOM（实测 DOM 557KB）。
+> 所以脚本已加**兜底**：dump-dom 拿不到结果时自动改走「**常驻 + CDP**」再试一次。
+> 2026-10-10 实测兜底路径跑出 **332/0**。
+> ⚠ 写这类脚本时注意：**常驻模式不要加 `--virtual-time-budget`** —— 它会把页面钉在虚拟时间轴上，
+> 断言里的 sleep/waitFor 永远跑不完，表现为「CDP 兜底超时」（一次性模式那边则必须加）。
+> 另有两条**完全不依赖浏览器**的兜底，照旧保留：**① 派生逻辑抽 `shared/` 用 node 直接断言**；
 > **② 源码守卫**（读 `App.vue` 做正则断言，`e2e-board-cards` 里那 9 条）。
 
 > ✅ 2026-09-29 起，渲染层断言有了**本机可跑**的兜底：`node scripts/test/e2e-renderer-web.cjs`
