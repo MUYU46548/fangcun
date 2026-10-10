@@ -120,6 +120,31 @@ boardCardMeta(t1, idx)
 check('★ 纯函数：算完不修改传入的 chains / task（可被 Vue computed 反复求值）',
   JSON.stringify(chains) === before)
 
+// ── ⑥ 源码守卫：卡片墙必须跑 columns（分区），不许退回平铺 ────────────────
+// 首版把 filteredTasks 直接铺成网格 → **分组整个丢失**，一百多张卡糊成一面没有结构的墙
+// （用户 2026-10-10 截图反馈「压迫感十足」，且选了「按项目」也不生效）。
+// 这条守卫就钉住那次修复。渲染层真点击 e2e（e2e-renderer.cjs）常年 SKIP、
+// 无头浏览器在某些环境也跑不出来 —— 源码守卫是这两种情况下唯一还能防回归的一层。
+const APP = path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue')
+const appSrc = fs.readFileSync(APP, 'utf-8')
+const wallStart = appSrc.indexOf("boardView === 'cards'")
+check('源码里找得到卡片墙区块', wallStart >= 0)
+if (wallStart >= 0) {
+  const endAt = appSrc.indexOf('<!-- 列视图', wallStart)
+  const seg = appSrc.slice(wallStart, endAt > wallStart ? endAt : wallStart + 8000)
+  check('★ 卡片墙切片有效（切到了内容，守卫不会因切片失败而假绿）', seg.length > 500, String(seg.length))
+  check('★ 卡片墙按 columns 分区，而不是平铺 filteredTasks',
+    /v-for="col in columns"/.test(seg) && !/v-for="t in cardWallTasks"/.test(seg))
+  check('★ 分组头可折叠（复用列表视图那套 lpill 药丸 + toggleGroup）',
+    /class="lpill"/.test(seg) && /toggleGroup\(col\.key\)/.test(seg))
+  check('★ 卡片墙支持拖拽改状态（组容器接 drop → onDrop，与另两种摆法一致）',
+    /@drop="onDrop\(\$event, col\.key\)"/.test(seg))
+  check('★ 卡片仍带任务 ID（可复制）与优先级色档（卡 20261010-003 的核心承诺）',
+    /class="pwc-id"/.test(seg) && /'tone-' \+ \(cw\(t\)\.tone/.test(seg))
+  check('★ 卡片墙的元数据源是 columns 摊平（不是 filteredTasks）',
+    /cardWallTasks = computed\(\(\) => columns\.value\.flatMap/.test(appSrc))
+}
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) {
   console.log('失败项：')

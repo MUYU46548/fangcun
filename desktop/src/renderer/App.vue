@@ -270,52 +270,74 @@
            但「没必要也不应该显示一堆无关紧要的信息」。
            所以每张卡只多给三样可行动的东西：ID（点一下复制）、优先级（左缘色条 + 小徽章）、
            阻塞（被卡几个 / 挡人几个 —— 两个数都为 0 就整格不画，既不写 0 也不写「—」）。
-           与另两种摆法互斥渲染（v-if / v-else-if），且共用同一份 filteredTasks 与
-           选中 / 拖拽 / 右键状态 —— 换摆法不会少功能，也不会出现同一批卡存在两份。
-           派生逻辑在 shared/boardCards.ts，这里只接线。 -->
+           ⚠ 2026-10-10 当晚修正：首版直接铺 filteredTasks → **把分组整个丢了**，一百多张卡
+             糊成一面没有结构的墙（用户截图反馈「压迫感十足」，且选了「按项目」也不生效）。
+             现在与列视图 / 列表视图一样跑 `columns`：**先分区、区内再摆网格**，分区头可折叠。
+             于是 groupMode（按状态 / 按项目）对三种摆法一视同仁，拖拽改状态也照旧。
+           与另两种摆法互斥渲染（v-if / v-else-if），共用同一份 columns / 折叠状态 /
+           选中 / 拖拽 / 右键状态。派生逻辑在 shared/boardCards.ts，这里只接线。 -->
       <div v-else-if="boardView === 'cards'" class="pvwall">
         <div
-          v-for="t in cardWallTasks"
-          :key="'pwc-' + t.id"
-          class="pvcard"
-          :class="['tone-' + (cw(t).tone || 'none'), {
-            stale: isStale(t),
-            overdue: isOverdue(t),
-            selected: selectedBatch.includes(t.id),
-            dragging: draggingId === t.id
-          }]"
-          :data-id="t.id"
-          draggable="true"
-          @dragstart="onDragStart($event, t.id)"
-          @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
-          @contextmenu.prevent="openCardMenu($event, t)"
-          @mouseenter="onCardEnter($event, t)"
-          @mouseleave="onCardLeave()"
+          v-for="col in columns"
+          :key="'pwg-' + col.key"
+          class="pwg"
+          :class="{ 'drop-here': dragoverCol === col.key, 'is-empty': !col.tasks.length }"
+          @dragover.prevent="onDragOver($event, col.key)"
+          @dragleave="dragoverCol = null"
+          @drop="onDrop($event, col.key)"
         >
-          <div class="pwc-head">
-            <input v-show="batchMode" type="checkbox" class="batch-chk"
-              :checked="selectedBatch.includes(t.id)" @click.stop="toggleBatchSelect(t.id)" />
-            <span class="pwc-id" :title="'任务 ID：' + t.id + '（点一下复制）'"
-              @click.stop="copyId(t.id)">{{ cw(t).id }}</span>
-            <span class="st pwc-st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+          <div class="pwg-head">
+            <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
+              @click="toggleGroup(col.key)">
+              <span class="chev" :class="{ open: !groupCollapsed(col.key) }"></span>
+              <span class="gdot" :class="'gdot-' + statusClass(col.key)"></span>
+              <span class="glabel">{{ col.label }}</span>
+              <span class="gn">{{ col.tasks.length }}</span>
+            </button>
+            <span class="pwg-line"></span>
           </div>
-          <div class="pwc-title">{{ t.title || t.id }}</div>
-          <div class="pwc-foot">
-            <span v-if="cw(t).tone" class="pwc-prio" :class="'pwc-prio-' + cw(t).tone">{{ cw(t).priority }}</span>
-            <span v-if="cw(t).blocked" class="pwc-blk"
-              :title="'被 ' + cw(t).blockedBy + ' 个任务挡着'">被卡 {{ cw(t).blockedBy }}</span>
-            <span v-else-if="cw(t).blocks" class="pwc-blks"
-              :title="'它挡着 ' + cw(t).blocks + ' 个任务'">挡 {{ cw(t).blocks }}</span>
-            <span class="pwc-f1"></span>
-            <span v-if="cardDate(t).text" class="pwc-date" :class="{ over: cardDate(t).over }"
-              :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
-            <span class="pwc-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+          <div class="pwc-grid" v-show="!groupCollapsed(col.key)">
+            <div
+              v-for="t in col.tasks"
+              :key="'pwc-' + t.id"
+              class="pvcard"
+              :class="['tone-' + (cw(t).tone || 'none'), {
+                stale: isStale(t),
+                overdue: isOverdue(t),
+                selected: selectedBatch.includes(t.id),
+                dragging: draggingId === t.id
+              }]"
+              :data-id="t.id"
+              draggable="true"
+              @dragstart="onDragStart($event, t.id)"
+              @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+              @contextmenu.prevent="openCardMenu($event, t)"
+              @mouseenter="onCardEnter($event, t)"
+              @mouseleave="onCardLeave()"
+            >
+              <div class="pwc-head">
+                <input v-show="batchMode" type="checkbox" class="batch-chk"
+                  :checked="selectedBatch.includes(t.id)" @click.stop="toggleBatchSelect(t.id)" />
+                <span class="pwc-id" :title="'任务 ID：' + t.id + '（点一下复制）'"
+                  @click.stop="copyId(t.id)">{{ cw(t).id }}</span>
+                <span class="st pwc-st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+                <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+              </div>
+              <div class="pwc-title">{{ t.title || t.id }}</div>
+              <div class="pwc-foot">
+                <span v-if="cw(t).tone" class="pwc-prio" :class="'pwc-prio-' + cw(t).tone">{{ cw(t).priority }}</span>
+                <span v-if="cw(t).blocked" class="pwc-blk"
+                  :title="'被 ' + cw(t).blockedBy + ' 个任务挡着'">被卡 {{ cw(t).blockedBy }}</span>
+                <span v-else-if="cw(t).blocks" class="pwc-blks"
+                  :title="'它挡着 ' + cw(t).blocks + ' 个任务'">挡 {{ cw(t).blocks }}</span>
+                <span class="pwc-f1"></span>
+                <span v-if="cardDate(t).text" class="pwc-date" :class="{ over: cardDate(t).over }"
+                  :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+                <span class="pwc-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+              </div>
+            </div>
+            <div v-if="!col.tasks.length" class="pwg-empty">拖拽卡片到此处</div>
           </div>
-        </div>
-        <div v-if="!cardWallTasks.length" class="empty-state">
-          <div class="empty-icon">🗂</div>
-          <div class="empty-text">当前筛选下没有任务</div>
         </div>
       </div>
 
@@ -3410,7 +3432,9 @@ const boardView = ref<BoardView>(readUiPref<BoardView>(BOARD_VIEW_KEY, 'cols'))
 //   断言，见 scripts/test/e2e-board-cards.cjs）—— 这里只负责接线，不在这里写算法。
 // ⚠ computed 是惰性的：filteredTasks / blockers 定义在本文件更靠后的位置也不会 TDZ 报错
 //   （第一次求值发生在渲染时，届时所有顶层 const 都已就绪）。
-const cardWallTasks = computed(() => filteredTasks.value)
+// 卡片墙跑的就是 `columns`（三种摆法共用同一份分组），这里只是把它摊平，用来一次算好元数据。
+// ⚠ 首版写的是 filteredTasks —— 那等于绕开分组，一百多张卡糊成一面墙（用户 2026-10-10 反馈）。
+const cardWallTasks = computed(() => columns.value.flatMap((c) => c.tasks))
 /** 按 id 索引的卡片元数据：一次算好给模板取，避免模板里每帧重复调纯函数 */
 const cardWallMeta = computed<Record<string, BoardCardMeta>>(() => {
   const idx = buildBlockerIndex(blockers.value as any)
@@ -9887,10 +9911,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   flex-direction: column; overflow-x: hidden; overflow-y: auto;
   align-items: stretch; gap: 0;
 }
-.pvwall {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
-  gap: 10px; width: 100%; align-content: start;
-}
+/* 分区 → 区内网格（2026-10-10 当晚修正）。首版把一百多张卡平铺成一面墙，用户原话
+   「压迫感十足」，且「按项目」分组完全不生效 —— 因为没有结构可以承载分组。
+   现在外层是「组」的纵排，组内才是自适应网格；组头复用列表视图那套 lpill 折叠药丸
+   （button.lpill / .chev / .gdot / .glabel / .gn 本来就是全局类，不是列表专用）。 */
+.pvwall { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; }
+.pwg { border-radius: 10px; padding: 2px 6px 6px; border: 1px solid transparent; }
+.pwg.drop-here { border-color: var(--accent); background: var(--tint); }
+.pwg-head { display: flex; align-items: center; gap: 10px; margin: 8px 0 6px; }
+.pwg:first-child .pwg-head { margin-top: 2px; }
+.pwg-line { flex: 1; height: 1px; background: var(--border); }
+.pwc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 10px; }
+.pwg-empty { font-size: 12px; color: var(--muted); padding: 6px 2px; }
 .pvcard {
   display: flex; flex-direction: column; min-width: 0;
   padding: 9px 11px; background: #fff; border: 1px solid var(--border);
