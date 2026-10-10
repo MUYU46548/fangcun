@@ -715,6 +715,12 @@
                     <span v-else class="trip-unset" :title="r.contract.path">文件已建 · 内容未填</span>
                     <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
                             title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
+                    <!-- 「让 AI 填」的可复制提示词（2026-10-10 用户要求：原话「之前说让 AI 填，
+                         但是不知道怎么弄」）。上一版只在旁边写了句「也可以让 AI 填」——
+                         没给**能粘贴的东西**，等于没说。这里给的是一段可直接贴进
+                         「该项目仓库里开的 AI 会话」的话（含逐节念回签收的规矩）。 -->
+                    <button class="ghost trip-mini" @click.stop="tripCopyContractPrompt(r)"
+                            title="复制一段话 —— 贴到这个项目仓库里开的 AI 会话，它就会按契约骨架逐节填，并逐节念回给你确认">⧉ 复制 AI 提示词</button>
                   </template>
                   <template v-else>
                     <span class="trip-unset">未填</span>
@@ -3770,6 +3776,42 @@ async function tripCopyContract(row: any): Promise<void> {
   } catch (e: any) {
     showToast('复制契约异常：' + (e?.message || e), 'error')
   }
+}
+
+/**
+ * 「让 AI 填契约」的可复制提示词（2026-10-10 用户要求）。
+ *
+ * 用户原话：「契约文件如何完善？之前说让 AI 填，但是不知道怎么弄。」
+ * 上一版界面上只有一句「建好后打开它填内容（也可以让 AI 填）」——
+ * **没给能粘贴的东西，等于没说**。这里给的是一段可直接贴进「该项目仓库里开的 AI 会话」的话：
+ *   · 说清读哪几个文件当依据（不然它凭空编）；
+ *   · 六节逐条填 + **找不到证据就写「未填」不许编**（契约自己写着「缺值不得填默认」）；
+ *   · **逐节念回签收** —— 那是契约模板五条机制条款之一，不写进去它会一口气填完，你来不及看；
+ *   · 圈定改动范围（只碰 立项契约.md）。
+ */
+function contractFillPrompt(row: any): string {
+  const name = String(row?.name || row?.id || '这个项目').trim()
+  const repo = String(row?.repo || '').trim()
+  const lines = [
+    `请帮我填写「${name}」的立项契约。`,
+    ``,
+    `1. 先读本仓库根目录的 立项契约.md（目前是骨架，还没填内容）。`,
+    `2. 再读 AGENTS.md、README.md 和主要代码目录，作为事实依据。`,
+    `3. 按六个小节逐条填：① 终态形态 ② 验收线 ③ 不要什么 ④ 选型定死 ⑤ 现状底数 ⑥ 下一队列。`,
+    ``,
+    `规矩（这几条必须守）：`,
+    `- 只写仓库里找得到证据的内容；找不到就写「未填」并说明缺什么 —— 不要编。`,
+    `- 每填完一节，用「原话 + 翻译」念回给我确认，我点头你再填下一节。`,
+    `- 除了 立项契约.md，不要修改任何其它文件。`,
+  ]
+  if (repo) lines.push(`- 这个仓库的路径是：${repo}`)
+  return lines.join('\n')
+}
+
+async function tripCopyContractPrompt(row: any): Promise<void> {
+  const ok = await copyWithToast(contractFillPrompt(row),
+    '提示词已复制 —— 贴到这个项目仓库里开的 AI 会话即可')
+  if (ok) showToast('它会按契约骨架逐节填，并逐节念回给你确认', 'info')
 }
 
 /** 打开该项目的文件夹（只传 id，路径由主进程从 registry 取 —— 不接任意路径） */
