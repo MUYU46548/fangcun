@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('tegula', {
   getPlan: (id: string) => ipcRenderer.invoke('getPlan', id),
   decidePlanPoint: (id: string, dpId: string, choice: string) => ipcRenderer.invoke('decidePlanPoint', id, dpId, choice),
   findTimeoutTasks: (threshold?: number) => ipcRenderer.invoke('findTimeoutTasks', threshold),
+  stalledTasks: (thresholdHours?: number) => ipcRenderer.invoke('stalledTasks', thresholdHours),
   
   // Registry
   registryAddProject: (fields: any) => ipcRenderer.invoke('registry:addProject', fields),

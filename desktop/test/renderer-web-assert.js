@@ -747,6 +747,10 @@
         blockers: $$('#board.pv .ms-blockers').map(b => (b.textContent || '').replace(/\s+/g, ' ').trim()),
         gitRow: git ? (git.textContent || '').replace(/\s+/g, ' ').trim() : null,
         gitBtn: !!d.querySelector('.ms-gitbtn'),
+        // 监控台两块（2026-10-11，P0）：最近执行日志流 + 僵尸卡
+        feed: d.querySelectorAll('.ms-log').length,
+        feedGo: !!d.querySelector('.ms-feed-go'),
+        stalled: (d.querySelector('.ms-stalled') || {}).textContent || null,
       }
     }
 
@@ -775,6 +779,14 @@
       s1.nums.some(n => n === '阻塞源=1'), JSON.stringify(s1.nums))
     check('★ git 数据没拉过 → 只给「拉取提交信息」按钮，不摆空值行（不编数据）',
       s1.gitBtn && !s1.gitRow, JSON.stringify({ gitBtn: s1.gitBtn, gitRow: s1.gitRow }))
+
+    // ── 监控台两块（2026-10-11，P0 两件）─────────────────────────────────────
+    // ① 最近执行日志流：只说"最近在干什么"，看全部回日志页（那边才是主场）
+    // ② 僵尸卡：判据与通知中心同源（findStalledTasks），这里只是把它放到监控台上
+    check('★ 监控台有「最近执行日志」流，且都是**这个项目**的日志（demo 夹具 3 条）+ 有「看全部」入口',
+      s1.feed === 3 && s1.feedGo, JSON.stringify({ feed: s1.feed, feedGo: s1.feedGo }))
+    check('★ 僵尸卡提醒出现，文案带「几个 + 多久没动静」',
+      !!s1.stalled && /1 个任务/.test(s1.stalled) && /24 小时/.test(s1.stalled), String(s1.stalled))
 
     check('★ 点阻塞源入口 → 真跳「阻塞」页签（不是死按钮）', await (async () => {
       const b = $('#board.pv .ms-blockers')

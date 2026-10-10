@@ -633,6 +633,27 @@
               <span>未提交 <b>{{ msGitRow.dirty === null || msGitRow.dirty === undefined ? '—' : msGitRow.dirty }}</b></span>
             </div>
             <button class="ghost ms-gitbtn" v-else @click.stop="loadTripBoard()">⟳ 拉取提交信息</button>
+            <!-- 最近执行日志流（2026-10-11 监控台 P0 之一）：只说"最近在干什么"，
+                 不做筛选/分页 —— 要看全的点「看全部 →」，那边才是日志页的主场。 -->
+            <div class="ms-feed">
+              <div class="ms-feed-h">
+                <span>最近执行日志</span>
+                <button class="ghost ms-feed-go" @click.stop="openProjectLogs()">看全部 →</button>
+              </div>
+              <div class="ms-log" v-for="l in msLogs" :key="l.id">
+                <span class="ms-log-dot" :class="{ run: l.running }"></span>
+                <span class="ms-log-t">{{ l.title || l.id }}</span>
+                <span class="ms-log-tm">{{ relativeTime(l.logDate || l.created) }}</span>
+              </div>
+              <div class="ms-log-none" v-if="!msLogs.length">这个项目还没有执行日志</div>
+            </div>
+            <!-- 僵尸卡（P0 之二）：判据与通知中心同源（`findStalledTasks`），这里只是把它**放到监控台上**。
+                 只报数 + 可点进去看，不在这里做处置 —— 处置入口在任务卡上。 -->
+            <button class="ghost ms-stalled" v-if="msStalled.length"
+              @click.stop="openProjectTasks(pvCurrent)"
+              :title="msStalled.map(s => s.title + '（' + s.hours + ' 小时没动静）').join('\n')">
+              ⚠ {{ msStalled.length }} 个任务「进行中」但超过 {{ STALLED_HOURS }} 小时没动静 · 看看 →
+            </button>
             <div class="oacts">
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
@@ -5249,6 +5270,11 @@ function loadViewData(v: string) {
     // 这不是显示瑕疵，是**界面在说假话**（明明立了方针却报未立），所以进门就刷一次。
     loadAll()
     loadPolicyMap()
+    // 监控台要显示的「最近执行日志 / 僵尸卡」（2026-10-11，P0 两件）—— 同一条纪律：
+    // **凡界面要显示的派生状态，进门就得加载**。否则用户不先进一次日志页，监控台那两格就是空的
+    // （「状态字段懒加载 = 界面说假话」这条教训 2026-09-29 已经吃过一次）。
+    void loadLogs()
+    void loadStalled()
     // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
     // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
     if (pvView.value === 'trip') void loadTripBoard()
@@ -7710,6 +7736,48 @@ const logAgentFilter = ref('')
 const logDateFrom = ref('')
 const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
+
+// ── 监控台的两块派生数据（2026-10-11，监控台 P0 两件）──────────────────────
+/**
+ * 僵尸卡：`状态=进行中` **且**任务文件自上次写入起 ≥N 小时没变。
+ * 判据本体在主进程 `findStalledTasks`（与通知中心 `task-stalled` **同源**），这里只接线。
+ * ⚠ 别拿 `findTimeoutTasks` 当它用 —— 那个只算「派活 → 现在」，与文件有没有变毫无关系。
+ */
+const STALLED_HOURS = 24
+const stalledTasks = ref<{ id: string; title: string; hours: number }[]>([])
+async function loadStalled(): Promise<void> {
+  try {
+    const r = await (window as any).tegula.stalledTasks(STALLED_HOURS)
+    stalledTasks.value = Array.isArray(r) ? r : []
+  } catch { stalledTasks.value = [] }
+}
+
+/** 监控台的「最近执行日志」：当前项目的最近 5 条（日志由 loadLogs 拉，见 loadViewData('projects')） */
+const msLogs = computed(() => {
+  const p = pvCurrent.value
+  if (!p) return []
+  return logs.value
+    .filter(l => String(l.project || '') === p.id)
+    .sort((a, b) => String(b.logDate || b.created || '').localeCompare(String(a.logDate || a.created || '')))
+    .slice(0, 5)
+})
+
+/** 监控台的「僵尸卡」：停滞清单里属于当前项目的。
+ *  ⚠ `findStalledTasks` 不返回 project —— 这里用任务表 join，不去改主进程语义。 */
+const msStalled = computed(() => {
+  const p = pvCurrent.value
+  if (!p) return []
+  const ids = new Set(tasks.value.filter(t => normProject((t as any).project) === p.id).map(t => t.id))
+  return stalledTasks.value.filter(s => ids.has(s.id))
+})
+
+/** 从监控台跳日志页签，并**预置该项目筛选**（不是干跳） */
+function openProjectLogs(): void {
+  const p = pvCurrent.value
+  if (!p) return
+  logProjectFilter.value = p.id
+  switchView('logs')
+}
 /** 接力对话框（2026-09-29 方案二）：源日志 + 预填字段 + 两个出清开关 */
 const relay_ = ref<any>(null)
 /** 关闭防丢确认条（2026-09-30 卡 006）：有未创建改动时点遮罩/「取消」→ 先出条，点「丢弃」才真关。
@@ -10898,6 +10966,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #bar select.due-filter { width: 90px; }
 /* 状态筛选（2026-10-10）：与「全部项目」「全部时间」同排，宽度对齐好扫 */
 #bar select.st-filter { width: 92px; }
+/* 监控台 · 最近执行日志 + 僵尸卡（2026-10-11，P0 两件）*/
+.ms-feed { margin-top: 10px; }
+.ms-feed-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+.ms-feed-go { font-size: 11px; height: 22px; padding: 0 8px; }
+.ms-log { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 3px 0; min-width: 0; }
+.ms-log-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #c9ccd6; }
+.ms-log-dot.run { background: #6366f1; }
+.ms-log-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.ms-log-tm { flex: none; font-size: 11px; color: var(--muted); }
+.ms-log-none { font-size: 12px; color: var(--muted); padding: 3px 0; }
+/* 文字色用 --warning 令牌（实测对白底 4.71:1 过 AA）—— 不自己发明颜色，check-themes 会拦 */
+.ms-stalled { margin-top: 8px; width: 100%; justify-content: flex-start; text-align: left; color: var(--warning); }
 
 /* Archived card */
 .card._archived { opacity: 0.55; filter: saturate(0.5); }

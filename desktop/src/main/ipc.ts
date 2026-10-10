@@ -193,6 +193,14 @@ export function registerIpcHandlers(): void {
     return tasks.findTimeoutTasks(threshold)
   })
 
+  // 「进行中但文件 N 小时没变」= **真**僵尸卡判据（2026-10-11，监控台 P0）。
+  // ⚠ 别拿 findTimeoutTasks 当它用 —— 那个只算「派活 → 现在」，与文件有没有变**毫无关系**
+  //   （点「进行中」会把 `更新` 刷成当下，agent 每小时回写一次在它眼里照样"超时"）。
+  // 通知中心（services/notifier.ts）一直在用同一条判据，这里只是把它**接到界面上**。
+  guardedHandle('stalledTasks', (_event, thresholdHours?: number) => {
+    return tasks.findStalledTasks(thresholdHours)
+  })
+
   guardedHandle('getProjectProgress', (_event, projectId: string) => {
     return tasks.getProjectProgress(projectId)
   })

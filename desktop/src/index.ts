@@ -166,6 +166,32 @@ function createWindow(): void {
   })
   mainWindow.webContents.on('unresponsive', () => appLog.warn('window', '窗口无响应'))
 
+  // ── 输入框右键菜单（2026-10-11 用户：「写日志时在文本框里无法鼠标右键粘贴，
+  //    workbuddy 都能右键剪切复制粘贴」）────────────────────────────────────
+  // **Electron 默认一个右键菜单都不提供** —— 这是它和浏览器手感差最明显的一处。
+  // 方寸此前只给"任务卡片"做了自己的菜单（渲染层 @contextmenu.prevent），输入框里右键是死的。
+  // 这里按 Chromium 给的 params 分流：可编辑元素给 剪切/复制/粘贴/全选；只选中了文字给 复制；
+  // 其余情况**不弹**（别在空白处弹一个全灰的菜单，那比没有更烦人）。
+  // ⚠ 用 role 而不是自己调 clipboard —— role 走 Chromium 原生实现，剪切/粘贴能正确进 undo 栈；
+  //   自己实现会破坏撤销，而且拿不到"当前焦点在哪个输入框"的正确上下文。
+  // ⚠ `enabled` 直接透传 editFlags：光秃秃一个"粘贴"点了没反应，用户会以为是坏的。
+  mainWindow.webContents.on('context-menu', (_e, params) => {
+    const items: any[] = []
+    if (params.isEditable) {
+      items.push(
+        { role: 'cut', label: '剪切', enabled: params.editFlags.canCut },
+        { role: 'copy', label: '复制', enabled: params.editFlags.canCopy },
+        { role: 'paste', label: '粘贴', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', label: '全选' },
+      )
+    } else if (String(params.selectionText || '').trim()) {
+      items.push({ role: 'copy', label: '复制' })
+    }
+    if (!items.length) return
+    try { Menu.buildFromTemplate(items).popup({ window: mainWindow || undefined }) } catch { /* 弹不出菜单不该影响主流程 */ }
+  })
+
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault()

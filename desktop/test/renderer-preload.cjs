@@ -220,6 +220,10 @@ contextBridge.exposeInMainWorld('tegula', {
   ],
   parseErrors: () => [],
   allProjectProgress: () => ({}),
+  // 停滞卡（2026-10-11 监控台 P0）：夹具给一条**属于 demo 项目**的 —— 让监控台那块有东西可断。
+  // 不给的话"僵尸卡"整块永远不渲染，断言就成空转（反面教材见 tegula-testing：
+  // 假 preload 缺 API → await 抛了被 catch 吞掉 → 那条断言永远验不到）。
+  stalledTasks: () => ([{ id: 'task-demo-011', title: '日历密度样例一', hours: 30 }]),
   getProjectProgress: () => ({}),
   loadActivity: () => [],
   getBlockerChains: () => [],
