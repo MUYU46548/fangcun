@@ -36,6 +36,7 @@
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
 | **阻塞链关键路径（卡 023）** | `node scripts/test/e2e-blockers.cjs` | **本机可跑**：真跑编译产物 `dist/shared/blockers.js`（算法在 `src/shared/blockers.ts`，**不埋在组件里**）。判据 = 「解哪个阻塞最划算要算**传递效应**」：A 挡住 B、B 又挡住 C ⇒ 解 A 值 **4** 而不是 2（只数 `blockedTasks.length` 是错的）；另覆盖「一个任务被多个源挡着时解一个不够」「已终态的源不进推荐」「已完成的被阻塞任务不算收益」「纯函数不改传入数组」。9 条 |
+| **看板信息卡墙（卡 20261010-003）** | `node scripts/test/e2e-board-cards.cjs` | **本机可跑**：真跑编译产物 `dist/shared/boardCards.js`（纯逻辑在 `src/shared/boardCards.ts`，**不埋在组件里**）。判据 =「**卡面上宁缺勿滥**」：取不到的值**整格不渲染**（不写 0、不写「—」、也不糊一个近似色档）。覆盖短 ID 只剥已知前缀、优先级只认三档中文、阻塞索引（多源 / 去重 / 终态不计 / 源已终态不进计数）、`openOnly` 只看未完成（**空状态算未完成** —— 没填 ≠ 做完）；另含 **9 条源码守卫**：卡片墙必须跑 `columns` 分区（首版平铺 filteredTasks → **分组整个丢失**，用户截图才发现）、分区头可折叠、组容器接 drop、开关**默认关**且**只读过滤不回写 columns**。41 条，含两处反例自证 |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
 | **渲染层 DOM（无头浏览器兜底）** | `node scripts/test/e2e-renderer-web.cjs` | **本机可跑的渲染层断言**：多视图互斥与几何、排序/视图选择落盘、弹药库派工单六字段 —— 用系统 Edge/Chrome 无头加载 `dist/renderer` + 同一份假 preload；产物必须单块（有顶层 import/export 会显式报错而不是静默降级）。它验不了真 IPC / 真点击，那些仍以 `e2e-renderer` 为准 |
 | **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
@@ -88,6 +89,15 @@
 > （完成驳回折叠/悬停轻提示/待办分区头/网格三连/遮罩+AA×2；`.card-date.dim` 3.18 那条已开卡 007），
 > 逐条对照见开发日志 09-29「e2e-renderer 首跑」与 09-30 第 34/35 轮。`backup` 仍未跑。
 > 新增守卫 `check-themes.cjs`（14 条，逐主题 WCAG 对比度）见下方测试表。
+
+> **2026-10-10 实测（本机口径）**：`verify.py` **262/0** · 六守卫 **53/0**（ipc6 · bindings1 · buttons5 ·
+> themes16 · skills19 · **ui-copy6**）· 本机可跑 e2e 全绿：**`e2e-board-cards` 41/0（新，含两处反例自证）** ·
+> `e2e-logs` 203/0 · `e2e-todos` 35/0 · `e2e-prefs` 54/0 · `e2e-trip-board` 32/0 · build 零 TS 错。
+> ⚠ **`e2e-renderer-web` 本机跑不出结果**：Chromium 系进程能启动（会生成 profile 文件）但
+> `--dump-dom` / `--screenshot` 一律**零产出、exit 0**；换 Chrome 一样、Chrome 进程数为 0 时也一样、
+> 放开沙箱直连 bash 一样；同环境 Node 纯逻辑 e2e **全部正常** → 是本机对浏览器子进程的拦截，**不是项目代码**。
+> 于是本轮起，「UI 结构对不对」改用两条兜底：**① 派生逻辑抽 `shared/` 用 node 直接断言**；
+> **② 源码守卫**（读 `App.vue` 做正则断言，`e2e-board-cards` 里那 9 条）。
 
 > ✅ 2026-09-29 起，渲染层断言有了**本机可跑**的兜底：`node scripts/test/e2e-renderer-web.cjs`
 >    （系统 Edge/Chrome 无头 + 真构建产物 + 同一份假 preload）。它不能替代 `e2e-renderer` 的真点击，

@@ -28,7 +28,7 @@ if (!fs.existsSync(ART)) {
   console.log('RESULT 0 / 1')
   process.exit(1)
 }
-const { shortTaskId, priorityTone, buildBlockerIndex, boardCardMeta } = require(ART)
+const { shortTaskId, priorityTone, buildBlockerIndex, boardCardMeta, isOpenTask, openOnly } = require(ART)
 
 console.log('== 看板信息卡墙 · 派生逻辑 ==')
 
@@ -142,8 +142,36 @@ if (wallStart >= 0) {
   check('★ 卡片仍带任务 ID（可复制）与优先级色档（卡 20261010-003 的核心承诺）',
     /class="pwc-id"/.test(seg) && /'tone-' \+ \(cw\(t\)\.tone/.test(seg))
   check('★ 卡片墙的元数据源是 columns 摊平（不是 filteredTasks）',
-    /cardWallTasks = computed\(\(\) => columns\.value\.flatMap/.test(appSrc))
+    /cardWallTasks = computed\(\(\) => cardWallGroups\.value\.flatMap/.test(appSrc))
+  check('★ 「只看未完成」开关**默认关**（加选项不改旧行为）',
+    /CARD_WALL_OPEN_ONLY_KEY, false/.test(appSrc))
+  check('★ 开关是**只读过滤**：走 cardWallGroups + openOnly，没有回写 columns',
+    /const cardWallGroups = computed/.test(appSrc) && /openOnly\(c\.tasks\)/.test(appSrc))
+  check('★ 开关落 prefs 真身（readUiPref 取 + saveUiPref 写 + syncBoardPrefs 白名单回填）',
+    /fc_card_wall_open_only/.test(appSrc) && /saveUiPref\(CARD_WALL_OPEN_ONLY_KEY/.test(appSrc))
 }
+
+// ── ⑦ 「只看未完成」的判据本体 ────────────────────────────────────────
+check('★ isOpenTask: 完成 / 驳回算终态（不算「未完成」）',
+  isOpenTask({ status: '完成' }) === false && isOpenTask({ status: '驳回' }) === false)
+check('isOpenTask: 待办 / 进行中 / 待验收 / 草稿 都算未完成',
+  ['待办', '进行中', '待验收', '草稿'].every((s) => isOpenTask({ status: s }) === true))
+check('★ isOpenTask: 空状态算未完成（没填 ≠ 做完了，不替用户猜）',
+  isOpenTask({}) === true && isOpenTask({ status: '' }) === true && isOpenTask({ status: '   ' }) === true)
+check('isOpenTask: 前后空白做归一（" 完成 " 仍算终态）', isOpenTask({ status: ' 完成 ' }) === false)
+check('isOpenTask: 空 / null / undefined 不抛', isOpenTask(null) === true && isOpenTask(undefined) === true)
+
+const mixed = [
+  { id: 'a', status: '待办' }, { id: 'b', status: '完成' },
+  { id: 'c', status: '进行中' }, { id: 'd', status: '驳回' },
+]
+check('★ openOnly: 只留下未完成（完成 / 驳回都被过滤掉）',
+  openOnly(mixed).map((t) => t.id).join(',') === 'a,c', openOnly(mixed).map((t) => t.id).join(','))
+check('openOnly: 空 / null / undefined / 非数组 → 空数组（不抛）',
+  openOnly([]).length === 0 && openOnly(null).length === 0
+  && openOnly(undefined).length === 0 && openOnly('x').length === 0)
+check('★ openOnly: 不改传入的数组（纯函数，可被 Vue computed 反复求值）',
+  (() => { const b = JSON.stringify(mixed); openOnly(mixed); return JSON.stringify(mixed) === b })())
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) {

@@ -170,6 +170,19 @@ function main() {
     && /class="pvgrid" v-if="pvView === 'tiles'"/.test(vueSrc)
     && /class="ovgrid"/.test(vueSrc) && /class="pv-ms"/.test(vueSrc))
 
+  // E17 起：卡片墙「只看未完成」（2026-10-10，卡 20261010-003 追加的开关）
+  // 与上面同一个 bug 类 —— 只写 localStorage 的偏好换 origin 就没了，必须走真身。
+  prefs.setPref('fc_card_wall_open_only', true)
+  check('E17 卡片墙「只看未完成」能写入真身并落盘',
+    prefs.getPref('fc_card_wall_open_only') === true
+    && JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_card_wall_open_only === true)
+  check('E18 ★ syncBoardPrefs 白名单读它（只认布尔 —— prefs.json 是可以手改的）',
+    /typeof p\?\.fc_card_wall_open_only === 'boolean'/.test(vueSrc))
+  check('E19 ★ 默认是**关**（加选项不改旧行为：一打开卡片墙还是原来那批卡）',
+    /CARD_WALL_OPEN_ONLY_KEY, false/.test(vueSrc))
+  check('E20 ★ 它只读过滤、不动 columns（列 / 列表两种摆法共用 columns，回写会连带改掉它们）',
+    /const cardWallGroups = computed/.test(vueSrc) && /openOnly\(c\.tasks\)/.test(vueSrc))
+
   // ══ D. 多键一次写 + 回读校验 ════════════════════════════════════════
   // 2026-10-05 用户实测「提示保存了但实际并未保存，每次重新勾选都被取消」：
   //   prefs.json 里 `fc_trip_mode` / `fc_trip_criteria`（字符串）落了盘，

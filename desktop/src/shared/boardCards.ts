@@ -59,6 +59,21 @@ export interface BoardCardMeta {
 const DONE = new Set(['完成', '驳回'])
 
 /**
+ * 「还没做完」= 状态不是终态。**空值算未完成** —— 没填 ≠ 做完了
+ * （与 `core.illegal_status()` 的「空值放行」同一种思路：不替用户猜）。
+ *
+ * 卡片墙的「只看未完成」开关走这条判断；它只作用于卡片墙，不动另两种摆法。
+ */
+export function isOpenTask(task: any): boolean {
+  return !DONE.has(String(task?.status ?? '').trim())
+}
+
+/** 过滤出未完成的任务。传进来的不是数组 → 返回空数组（不抛）。 */
+export function openOnly<T>(tasks: T[] | null | undefined): T[] {
+  return Array.isArray(tasks) ? tasks.filter((t) => isOpenTask(t)) : []
+}
+
+/**
  * 卡头 ID：`task-20261010-003` → `20261010-003`。
  * 只剥一层**已知前缀** —— 别的形状的 id 原样返回，不擅自改样（用户可能手写过别的 id）。
  */

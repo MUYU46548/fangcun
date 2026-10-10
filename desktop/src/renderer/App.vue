@@ -185,6 +185,15 @@
           @click="setViewMode(o.v)"
         >{{ o.label }}</button>
       </div>
+      <!-- 卡片墙专用开关（2026-10-10 用户要求）：一张卡的信息再多，一百多张平铺也是压迫。
+           默认关（不动旧行为）；只作用于卡片墙，列 / 列表两种摆法不受影响。
+           开关状态与分区折叠都记进 prefs，下次打开还是你上次那样。 -->
+      <label v-if="isBoardView && boardView === 'cards'" class="pvw-switch"
+        title="只显示状态不是「完成 / 驳回」的任务；被过滤空的整个分区会一起收起。这个开关只影响信息卡墙。">
+        <input type="checkbox" class="pvw-switch-chk" :checked="cardWallOpenOnly"
+          @change="toggleCardWallOpenOnly($event)" />
+        <span>只看未完成</span>
+      </label>
       <span class="pagehead-hint">{{ viewHint }}</span>
     </div>
 
@@ -278,7 +287,7 @@
            选中 / 拖拽 / 右键状态。派生逻辑在 shared/boardCards.ts，这里只接线。 -->
       <div v-else-if="boardView === 'cards'" class="pvwall">
         <div
-          v-for="col in columns"
+          v-for="col in cardWallGroups"
           :key="'pwg-' + col.key"
           class="pwg"
           :class="{ 'drop-here': dragoverCol === col.key, 'is-empty': !col.tasks.length }"
@@ -338,6 +347,9 @@
             </div>
             <div v-if="!col.tasks.length" class="pwg-empty">拖拽卡片到此处</div>
           </div>
+        </div>
+        <div v-if="cardWallOpenOnly && !cardWallGroups.length" class="pwg-empty pvw-allhidden">
+          这里的任务都已完成 —— 关掉「只看未完成」就能看到它们。
         </div>
       </div>
 
@@ -3001,7 +3013,7 @@ import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
 import { computeBlockerImpact } from '../shared/blockers'
 import type { BlockerImpact } from '../shared/blockers'
-import { buildBlockerIndex, boardCardMeta } from '../shared/boardCards'
+import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
@@ -3316,6 +3328,15 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref(TODO_VIEW_KEY, todoView.value)
     }
+    // 卡片墙「只看未完成」（2026-10-10）：同上面几条，只认布尔真身，坏值回落并补写。
+    // ⚠ 位置**刻意放在 fc_todo_view 之后** —— e2e-prefs 的 E5 用「`'cols'` 到 `'list'` 之间
+    //   不超过 400 字」这条宽松距离检查，来确认这两个键确实都在 syncBoardPrefs 里被读；
+    //   把新键插在它们中间会把那个窗口撑爆（本轮实测就红过一次，不是测试太严，是它挡对了）。
+    if (typeof p?.fc_card_wall_open_only === 'boolean') {
+      cardWallOpenOnly.value = p.fc_card_wall_open_only
+    } else {
+      saveUiPref(CARD_WALL_OPEN_ONLY_KEY, cardWallOpenOnly.value)
+    }
     // 看板排序方式（2026-09-29：它此前是个**死控件**，顺手接上后同样要进真身）
     if (p?.fc_board_sort === 'active' || p?.fc_board_sort === 'updated' || p?.fc_board_sort === 'created') {
       sortMode.value = p.fc_board_sort
@@ -3432,9 +3453,26 @@ const boardView = ref<BoardView>(readUiPref<BoardView>(BOARD_VIEW_KEY, 'cols'))
 //   断言，见 scripts/test/e2e-board-cards.cjs）—— 这里只负责接线，不在这里写算法。
 // ⚠ computed 是惰性的：filteredTasks / blockers 定义在本文件更靠后的位置也不会 TDZ 报错
 //   （第一次求值发生在渲染时，届时所有顶层 const 都已就绪）。
-// 卡片墙跑的就是 `columns`（三种摆法共用同一份分组），这里只是把它摊平，用来一次算好元数据。
-// ⚠ 首版写的是 filteredTasks —— 那等于绕开分组，一百多张卡糊成一面墙（用户 2026-10-10 反馈）。
-const cardWallTasks = computed(() => columns.value.flatMap((c) => c.tasks))
+// ── 卡片墙「只看未完成」开关（2026-10-10 用户要求）──────────────────────────
+// 默认**关** —— 项目铁律「加视图 / 加选项一律新增可选、旧行为保留」。
+// 只作用于卡片墙，不动列 / 列表两种摆法；选择进 prefs 真身（换 origin 不丢）。
+const CARD_WALL_OPEN_ONLY_KEY = 'fc_card_wall_open_only'
+const cardWallOpenOnly = ref<boolean>(readUiPref<boolean>(CARD_WALL_OPEN_ONLY_KEY, false))
+watch(cardWallOpenOnly, (v) => saveUiPref(CARD_WALL_OPEN_ONLY_KEY, v))
+
+/**
+ * 卡片墙用的分组 —— 在 `columns` 之上做一层**只读**过滤。
+ * ⚠ 绝不能改 `columns` 本身：列 / 列表两种摆法共用它，动了会连带改掉它们的显示。
+ * ⚠ 开关打开时被过滤空的组**整组收掉**（留一个空组头比直接隐藏更让人困惑）。
+ * ⚠ 判据本体仍在 shared/boardCards.ts（openOnly / isOpenTask），这里只接线。
+ */
+const cardWallGroups = computed(() =>
+  columns.value
+    .map((c) => ({ ...c, tasks: cardWallOpenOnly.value ? openOnly(c.tasks) : c.tasks }))
+    .filter((c) => !cardWallOpenOnly.value || c.tasks.length > 0))
+
+/** 卡片墙要算元数据的任务：三种摆法共用同一份 columns（摊平只为一次算好元数据） */
+const cardWallTasks = computed(() => cardWallGroups.value.flatMap((c) => c.tasks))
 /** 按 id 索引的卡片元数据：一次算好给模板取，避免模板里每帧重复调纯函数 */
 const cardWallMeta = computed<Record<string, BoardCardMeta>>(() => {
   const idx = buildBlockerIndex(blockers.value as any)
@@ -3449,6 +3487,12 @@ const EMPTY_CARD_META: BoardCardMeta = {
 }
 function cw(t: any): BoardCardMeta {
   return cardWallMeta.value[(t && t.id) || ''] || EMPTY_CARD_META
+}
+/** 模板里的 `@change` 拿不到 TS 断言（Vue 模板表达式不吃 `as`），所以这里做窄化。
+    落盘交给 `watch(cardWallOpenOnly)` —— 与项目里其他偏好同一条路径。 */
+function toggleCardWallOpenOnly(e: Event): void {
+  const el = e.target as HTMLInputElement
+  cardWallOpenOnly.value = !!(el && el.checked)
 }
 
 const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY, 'list'))
@@ -9841,6 +9885,16 @@ button.vsb.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(
   font-size: 11.5px; color: var(--muted); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 卡片墙「只看未完成」开关（2026-10-10 用户要求）：与视图切换器同排，只在信息卡墙出现。
+   做成药丸形状（与 .viewsw / .lpill 同一套语言），不用裸复选框 —— 页头本来就挤。 */
+.pvw-switch {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font-size: 12px; color: var(--ink); cursor: pointer; user-select: none;
+  padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: #fff;
+}
+.pvw-switch:hover { border-color: var(--accent-soft); background: var(--tint-2); }
+.pvw-switch-chk { margin: 0; accent-color: var(--accent); cursor: pointer; }
+.pvw-allhidden { padding: 16px 2px; }
 
 /* ── 看板 · 列表视图（多视图第 1 项）────────────────────────────────────
    同一批 columns 换个摆法：列视图"横着摊开"（有流程感、可拖拽，但列多要横滚，
