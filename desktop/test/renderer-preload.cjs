@@ -33,6 +33,11 @@ const store = {
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ],
   calls: [],
+  // 死通道接回夹具（2026-10-11 卡 20261006-002）：跨项目建议 / 阶段里程碑 / 活动日志 ——
+  // 各给一条，让那几条 UI strip 有东西可渲染（空数组 = strip 不渲染，断言就验不到）。
+  crossSuggest: ['优先处理卡住项目：演示项目'],
+  milestones: [{ project: 'demo', project_name: '演示项目', phase: 'P0', milestone: '核心阶段完成', status: 'completed', tasks_done: 3, tasks_total: 3 }],
+  activity: [{ ts: '2026-10-11T01:00:00.000Z', tid: 'task-demo-001', action: 'done', detail: '模拟完工' }],
   // 通知中心点击跳转测试用（2026-10-01 用户第 1 条）
   notifications: [],
   // P0-4/P0-5 夹具
@@ -193,7 +198,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 启动期必需面 ────────────────────────────────────────────────
   isFirstRun: () => { rec('isFirstRun'); return false },
   getDataDir: () => { rec('getDataDir'); return 'C:/mock-data' },
-  selfCheck: () => ok(),
+  selfCheck: () => { rec('selfCheck'); return ok({ message: 'OK' }) },
   taskFieldSpecs: () => {
     rec('taskFieldSpecs')
     return [
@@ -234,8 +239,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGitTest: () => ({ ok: false, message: '（夹具：没有真 git）' }),
   backupGitPush: () => ({ ok: false, message: '（夹具：没有真 git）' }),
   backupResticScript: () => ({ ok: true, script: '# 夹具脚本' }),
-  getProjectProgress: () => ({}),
-  loadActivity: () => [],
+  loadActivity: (n) => { rec('loadActivity', [n]); return store.activity.slice() },
   getBlockerChains: () => [],
   aggregateRoadmap: () => ({ projects: [] }),
   backupStatus: () => ({ ok: true, status: { enabled: false, running: false, nextRunAt: null, state: {} } }),
@@ -393,7 +397,13 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────
   // 一条已装（最新）+ 一条未装，正好把两种状态文案都覆盖
-  skillsCheck: () => ok({ needsInstall: false, skills: [] }),
+  skillsCheck: () => {
+    rec('skillsCheck')
+    return ok({
+      targetId: 'hermes', targetName: 'Hermes', needsInstall: false,
+      skills: [{ name: 'fangcun-bridge', installed: true, outdated: false, hash: 'abc' }],
+    })
+  },
   skillsInstall: () => { rec('skillsInstall'); return ok({ installed: ['fangcun-bridge'], skipped: [], errors: [] }) },
   skillsList: () => {
     rec('skillsList')
@@ -593,14 +603,24 @@ contextBridge.exposeInMainWorld('tegula', {
   copyTask: () => ok(),
   taskFormValues: () => ({}),
   naturalQuery: () => [],
-  scanProjectStatus: () => ({}),
   getRoadmapTrend: () => ({}),
-  suggestCrossProject: () => [],
+  suggestCrossProject: () => { rec('suggestCrossProject'); return store.crossSuggest.slice() },
   detectParallelOpportunities: () => [],
-  suggestMilestones: () => [],
+  suggestMilestones: () => { rec('suggestMilestones'); return store.milestones.slice() },
   suggestActions: () => [],
+  quickAdd: (t) => {
+    rec('quickAdd', [t])
+    const title = String(t || '')
+    store.tasks.unshift({
+      id: 'task-quick-1', title, status: '待办', priority: '', project: '', tags: [], body: '',
+      created: new Date().toISOString(), updated: new Date().toISOString(),
+      fm: { id: 'task-quick-1', title, status: '待办' },
+      path: 'C:/mock/task-data/task-quick-1.md',
+    })
+    return ok({ id: 'task-quick-1' })
+  },
+  backupSizeReport: () => ok({ report: { ok: true, root: 'C:/mock', files: 3, totalBytes: 1024, keptBytes: 1024, omittedBytes: 0, omitted: [], byTop: [], logAttachments: { bytes: 0, files: 0 }, largest: [] } }),
   cronCheck: () => ({}),
-  scanServices: () => ({}),
 
   // ── 启动台 ─────────────────────────────────────────────────────
   launchpadLoadApps: () => [],
@@ -614,7 +634,6 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 诊断日志（新通道；渲染层错误上报会用到）────────────────────
   applogPath: () => 'C:/mock/data/logs/fangcun-20260922.log',
-  applogDir: () => 'C:/mock/data/logs',
   applogTail: () => [],
   applogOpenDir: () => ok(),
   applogWrite: (level, scope, message, detail) => { rec('applogWrite', [level, scope, message, detail]); return ok() },
@@ -707,13 +726,13 @@ contextBridge.exposeInMainWorld('tegula', {
   registryAddProject: () => ok(),
   // 备份 v2（现行家族）；裸 backup/restore/listBackups 已随族3（卡004）删除 —— 夹具同步
   // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证「默认最新」与传参
-  backupListLocal: () => ({
+  backupListLocal: () => { rec('backupListLocal'); return ({
     ok: true,
     items: [
       { name: 'fangcun-data-20260920-101010.zip', path: 'C:/mock/backups/fangcun-data-20260920-101010.zip', bytes: 111111, mtime: '2026-09-20T10:10:10.000Z', sha256: null },
       { name: 'fangcun-data-20260925-202020.zip', path: 'C:/mock/backups/fangcun-data-20260925-202020.zip', bytes: 222222, mtime: '2026-09-25T20:20:20.000Z', sha256: null },
     ],
-  }),
+  }) },
   backupListRemote: () => [],
   backupRun: () => ok(),
   backupRunLocalOnly: () => ok(),

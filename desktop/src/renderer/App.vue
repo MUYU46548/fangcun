@@ -101,6 +101,10 @@
         </select>
         </template>
         <button v-if="isTaskView" @click="openNew">+ 新建</button>
+        <!-- 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）：
+             `quickAdd` 通道在主进程里一直存在，界面却从没有入口。它支持一句话简写
+             （p0/p1/p2 优先级 · #标签 · @指派 · to:状态 · due:MM-DD），随手记比开弹窗填六个字段顺手。 -->
+        <button v-if="isTaskView" class="ghost" title="一句话快速建卡：可写 p0 / #标签 / @指派 / to:状态 / due:12-31" @click="openQuickAdd()">⚡ 快速记</button>
         <button class="ghost backup-btn" :class="bkDotClass" :title="bkTooltip" @click="showBackup">
           <span v-if="bkBusy" class="bk-spin">⟳</span>
           <span v-else>💾</span>
@@ -474,6 +478,12 @@
         <button class="ghost" v-if="charterStats.missing" @click="fillMissingCharters()">
           ＋ 补齐 {{ charterStats.missing }} 个章程骨架
         </button>
+      </div>
+      <!-- 跨项目建议（2026-10-11，C 组死通道接回）：主进程早就算好了（卡住/空闲项目一句话），
+           界面从来没有入口。放在项目页顶部 —— 它是"看全局"的话，不属于某一个项目。 -->
+      <div class="cross-suggest" v-if="crossSuggest.length">
+        <span class="cs-label">建议</span>
+        <span v-for="(s, i) in crossSuggest" :key="i" class="cs-item">{{ s }}</span>
       </div>
       <!-- ══ ① 项目墙（默认，旧摆法原样保留 —— 加视图不改旧的）══════════════ -->
       <div class="pvgrid" v-if="pvView === 'tiles'">
@@ -1792,6 +1802,26 @@
       </div>
     </div>
 
+    <!-- 快速记（2026-10-11，E 组死通道接回）：一句话建卡。 -->
+    <div v-if="quickAddOpen" class="overlay" @mousedown.self="closeQuickAdd()">
+      <div id="quickadd-modal">
+        <h3>快速记一条</h3>
+        <input v-model="quickAddText" class="quickadd-in" spellcheck="false"
+          placeholder="一句话，可带简写：p0 修登录 · #bug @hermes to:待办 due:12-31"
+          @keydown.enter="submitQuickAdd()" />
+        <div class="quickadd-hint">
+          简写：<code>p0/p1/p2</code> 优先级 · <code>#标签</code> · <code>@指派给谁</code> ·
+          <code>to:状态</code> · <code>due:MM-DD</code> 截止。其余词就是标题。
+        </div>
+        <div v-if="quickAddErr" class="quickadd-err">{{ quickAddErr }}</div>
+        <div class="acts">
+          <button class="ghost" @click="closeQuickAdd()">取消</button>
+          <button class="pri" :disabled="quickAddBusy || !quickAddText.trim()" @click="submitQuickAdd()">
+            {{ quickAddBusy ? '创建中…' : '创建' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 日志只读预览（2026-09-25 用户第 13 条）：用户明说日志用得比看板多，
          而日志正文此前是纯文本 —— 全项目只有任务预览一处 v-html。
          现在单击日志卡 = 打开只读预览（复用 renderBody：marked + DOMPurify，
@@ -2104,6 +2134,15 @@
         <div class="roadmap-ctrls">
           <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
         </div>
+      </div>
+      <!-- 阶段里程碑（2026-10-11，C 组死通道接回）：按批次前缀 P0/P1/P2/P3 算各阶段完成度，
+           例如「核心阶段完成」「功能阶段进行中 60%」—— 一眼看出项目走到哪一段了。 -->
+      <div class="rms-strip" v-if="roadmapMilestones.length">
+        <span class="rms-label">阶段里程碑</span>
+        <span v-for="(m, i) in roadmapMilestones" :key="i" class="rms-item" :class="'rms-' + m.status">
+          <b>{{ m.project_name || m.project }}</b> · {{ m.milestone }}
+          <template v-if="m.status === 'in_progress' && m.progress != null"> {{ m.progress }}%</template>
+        </span>
       </div>
       <div class="roadmap-content">
         <div v-if="!roadmapData.projects || !roadmapData.projects.length" class="empty-state">
@@ -2751,6 +2790,59 @@
           </div>
           <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
         </div>
+
+        <!-- 数据自检 + 技能副本检查（2026-10-11，卡 20261006-002 E 组死通道接回）：
+             `selfCheck` / `skillsCheck` 两条通道在主进程里一直存在，界面从没有入口。
+             它们是最该有入口的一类 —— 数据目录写不了、registry 坏了、技能副本被改坏，
+             都只有主动查一次才知道。 -->
+        <div class="sect" v-show="settingsTab === 'diag'">
+          <h4>数据自检</h4>
+          <div class="hint">查 task-data 在不在、registry.yaml 能不能解析、任务能不能读出来。动手前先跑一次，比出事后猜省事。</div>
+          <div class="sect-btns">
+            <button class="ghost" :disabled="diagBusy" @click="runSelfCheck">运行自检</button>
+          </div>
+          <div v-if="diagSelf" class="diag-result" :class="diagSelf.ok ? 'ok' : 'bad'">
+            {{ diagSelf.ok ? '✅ 一切正常' : '❌ ' + diagSelf.message }}
+          </div>
+        </div>
+
+        <div class="sect" v-show="settingsTab === 'diag'">
+          <h4>技能副本检查</h4>
+          <div class="hint">逐个比对「方寸自带的技能」与「已经装到各 agent 目录里的副本」—— 副本被改坏或落后时会在这里报出来。</div>
+          <div class="sect-btns">
+            <button class="ghost" :disabled="diagBusy" @click="checkSkillsCopies">检查技能副本</button>
+          </div>
+          <div v-if="diagSkills" class="diag-skills">
+            <div class="diag-skills-head">
+              <b>{{ diagSkills.targetName || diagSkills.targetId || '（未检测到目标）' }}</b>
+              <span :class="'diag-tag ' + (diagSkills.needsInstall ? 'bad' : 'ok')">
+                {{ diagSkills.needsInstall ? '有副本需要更新' : '全部一致' }}</span>
+            </div>
+            <div v-for="s in diagSkills.skills" :key="s.name" class="diag-skill-row">
+              <span class="diag-skill-name">{{ s.name }}</span>
+              <span class="diag-tag" :class="!s.installed ? 'bad' : (s.outdated ? 'warn' : 'ok')">
+                {{ !s.installed ? '未安装' : (s.outdated ? '副本已过时/被改' : '一致') }}</span>
+            </div>
+            <div v-if="!diagSkills.skills || !diagSkills.skills.length" class="hint">没有查到可检查的技能（可能本机没有 Hermes/DSH 目录）。</div>
+          </div>
+        </div>
+
+        <div class="sect" v-show="settingsTab === 'diag'">
+          <h4>最近活动</h4>
+          <div class="hint">谁在什么时候改了什么（<code>task-data/.activity.log</code>）。排查「这张卡怎么突然变了」时先看这里。</div>
+          <div class="sect-btns">
+            <button class="ghost" @click="loadDiagActivity">刷新活动日志</button>
+          </div>
+          <div class="diag-act">
+            <div v-for="(a, i) in diagActivity" :key="i" class="diag-act-row">
+              <span class="diag-act-ts">{{ a.ts ? relativeTime(a.ts) : '—' }}</span>
+              <span class="diag-act-action">{{ a.action }}</span>
+              <span class="diag-act-tid">{{ a.tid || '—' }}</span>
+              <span class="diag-act-detail" :title="String(a.detail || '')">{{ a.detail || '' }}</span>
+            </div>
+            <div v-if="!diagActivity.length" class="hint">（暂时没有活动记录）</div>
+          </div>
+        </div>
         <!-- 2026-09-29 用户第 6 条：设置里要能自定义「已完成日志的自动清理」 -->
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>日志清理</h4>
@@ -2959,6 +3051,9 @@
             <div class="bk-tabs">
               <span :class="{ on: bkTab === 'local' }" @click="bkSwitchTab('local')">本地 ({{ bkLocal.length }})</span>
               <span :class="{ on: bkTab === 'remote' }" @click="bkSwitchTab('remote')">远端 ({{ bkRemote.length }})</span>
+              <!-- 刷新（2026-10-11 用户补充）：此前只有「切页签」才会重读列表，
+                   别处刚备份完/轮换掉的文件在列表里还是旧的。 -->
+              <button class="ghost bk-mini bk-refresh" :disabled="bkBusy" title="重新读取备份列表" @click="bkRefreshList">⟳ 刷新</button>
             </div>
             <div class="bk-list">
               <!-- 2026-09-25 第 5 条：列表按「最后更新」倒序（主进程排好），首行是「最新」。
@@ -3396,6 +3491,47 @@ function selectSettingsTab(id: string): void {
   if (!SETTINGS_TABS.some(t => t.id === id)) return
   settingsTab.value = id
   saveUiPref('fc_settings_tab', id)
+  // 诊断页里的三块（自检 / 技能副本 / 活动日志）进门就拉 —— 同「凡界面要显示的派生状态，
+  // 进门就得加载」那条纪律（否则用户不点按钮就是一片空白，看着像坏了）。
+  if (id === 'diag') void loadDiag()
+}
+
+// ── 诊断页三块（2026-10-11，卡 20261006-002 E 组死通道接回）────────────────
+// `selfCheck` / `skillsCheck` / `loadActivity` 三条通道一直躺在主进程里，界面从来没有入口。
+const diagSelf = ref<any>(null)
+const diagSkills = ref<any>(null)
+const diagActivity = ref<any[]>([])
+const diagBusy = ref(false)
+
+async function runSelfCheck(): Promise<void> {
+  diagBusy.value = true
+  try {
+    diagSelf.value = await (window as any).tegula.selfCheck()
+  } catch (e: any) {
+    diagSelf.value = { ok: false, message: '自检调用失败：' + (e?.message || e) }
+  } finally { diagBusy.value = false }
+}
+
+async function checkSkillsCopies(): Promise<void> {
+  diagBusy.value = true
+  try {
+    diagSkills.value = await (window as any).tegula.skillsCheck()
+  } catch (e: any) {
+    diagSkills.value = { targetId: '', targetName: '', needsInstall: false, skills: [] }
+    showToast('技能检查失败：' + (e?.message || e), 'error')
+  } finally { diagBusy.value = false }
+}
+
+async function loadDiagActivity(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.loadActivity(50)
+    diagActivity.value = (Array.isArray(r) ? r : []).slice().reverse()   // 最新在上
+  } catch { diagActivity.value = [] }
+}
+
+/** 诊断页整体进门加载：自检 + 技能副本 + 活动日志 */
+async function loadDiag(): Promise<void> {
+  await Promise.all([runSelfCheck(), checkSkillsCopies(), loadDiagActivity()])
 }
 
 /** 与主进程 prefs.json 对齐（真身优先；真身空而缓存有值 → 迁移一次） */
@@ -4397,6 +4533,13 @@ function bkLatestPackagePath(): string {
 function bkSwitchTab(t: 'local' | 'remote') {
   bkTab.value = t
   bkLoadList()
+}
+
+/** 刷新备份列表 + 状态 + 体积报告（用户 2026-10-11：设置页缺一个刷新按钮） */
+async function bkRefreshList(): Promise<void> {
+  await bkLoadList()
+  await bkRefreshStatus()
+  void bkLoadSizeReport()
 }
 
 async function bkSaveConfig(silent = false): Promise<boolean> {
@@ -5526,8 +5669,9 @@ function loadViewData(v: string) {
     // （「状态字段懒加载 = 界面说假话」这条教训 2026-09-29 已经吃过一次）。
     void loadLogs()
     void loadStalled()
-    // 建议动作 / 可并行机会（死通道 A 组收口）：进门就拉 —— 同一条纪律，别等用户点
+    // 建议动作 / 可并行机会（死通道 A 组收口）＋ 跨项目建议：进门就拉 —— 同一条纪律，别等用户点
     void loadPvInsights()
+    void loadCrossSuggest()
     // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
     // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
     if (pvView.value === 'trip') void loadTripBoard()
@@ -5562,6 +5706,18 @@ function goBack() {
   loadViewData(prev)
 }
 
+/** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
+const roadmapMilestones = ref<any[]>([])
+/** 跨项目建议（卡住 / 空闲项目），项目页顶部那条 */
+const crossSuggest = ref<string[]>([])
+
+async function loadCrossSuggest(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.suggestCrossProject()
+    crossSuggest.value = Array.isArray(r) ? r : []
+  } catch { crossSuggest.value = [] }
+}
+
 async function loadRoadmap() {
   try {
     const result = await window.tegula.aggregateRoadmap()
@@ -5569,6 +5725,11 @@ async function loadRoadmap() {
   } catch {
     roadmapData.value = { projects: [] }
   }
+  // 阶段里程碑（2026-10-11，C 组死通道接回）：与路线图同一批数据算出来的，顺手一起拉
+  try {
+    const m: any = await (window as any).tegula.suggestMilestones()
+    roadmapMilestones.value = Array.isArray(m) ? m : []
+  } catch { roadmapMilestones.value = [] }
 }
 
 
@@ -6403,6 +6564,52 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
 function openNew() {
   editTask_.value = emptyTaskForm()
   taskEditSnap = snapOf(editTask_.value)   // P0-1：关窗按「改没改」判
+}
+
+// ── 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）─────────────────────
+// `quickAdd(text)` 在主进程里躺了很久，界面从来没有入口。它支持一句话简写，
+// 随手记一条比开弹窗填六个字段顺手得多。
+const quickAddOpen = ref(false)
+const quickAddText = ref('')
+const quickAddErr = ref('')
+const quickAddBusy = ref(false)
+
+function openQuickAdd(): void {
+  quickAddText.value = ''
+  quickAddErr.value = ''
+  quickAddOpen.value = true
+}
+
+function closeQuickAdd(): void {
+  // 有内容就先问一声（与任务/日志编辑器、接力同一套防丢纪律）
+  if (quickAddText.value.trim() && !confirm('快速记的内容还没创建，确定丢弃吗？')) return
+  quickAddOpen.value = false
+  quickAddText.value = ''
+  quickAddErr.value = ''
+}
+
+async function submitQuickAdd(): Promise<void> {
+  if (quickAddBusy.value) return
+  const text = quickAddText.value.trim()
+  if (!text) return
+  quickAddBusy.value = true
+  quickAddErr.value = ''
+  try {
+    const r: any = await (window as any).tegula.quickAdd(text)
+    if (!r?.ok) {
+      // ⚠ 保持对话框开着并把原因摆在眼前（简写写错时要能改），不静默关掉
+      quickAddErr.value = r?.error || '创建失败（主进程没有返回原因）'
+      return
+    }
+    showToast(`已创建 ${r.id || '新任务'}`, 'success')
+    quickAddOpen.value = false
+    quickAddText.value = ''
+    await loadAll()
+  } catch (e: any) {
+    quickAddErr.value = '创建异常：' + (e?.message || e)
+  } finally {
+    quickAddBusy.value = false
+  }
 }
 
 async function openEdit(t: Task) {
@@ -9680,6 +9887,8 @@ function showSettings() {
   void loadGitStatus()
   // 体积报告：进门就拉（"包为什么大"得能当场看到，而不是等打完包才发现）
   void bkLoadSizeReport()
+  // 诊断页（上次停在诊断时直接进它 —— 那三块要当场有数）
+  if (settingsTab.value === 'diag') void loadDiag()
 }
 
 async function triggerBackup() {
@@ -10664,6 +10873,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 #modal h3, #rmodal h3, #smodal h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); }
 
+/* 快速记（2026-10-11，E 组死通道接回）：一句话建卡 */
+#quickadd-modal {
+  background: #fff; border-radius: 16px; padding: 18px 20px; width: 480px; max-height: 88vh;
+  overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
+}
+#quickadd-modal h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); }
+.quickadd-in { width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); }
+.quickadd-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+.quickadd-hint code { background: var(--tint-3); padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.quickadd-err { margin-top: 8px; font-size: 12px; color: #8a4343; }
+
 /* 关于（左上角 LOGO 入口，2026-09-25 第 12 条） */
 #about-modal {
   background: #fff; border-radius: 16px; padding: 18px 20px; width: 440px; max-height: 88vh;
@@ -11243,6 +11465,20 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .roadmap-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .roadmap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .roadmap-header h3 { font-size: 16px; font-weight: 700; }
+/* 阶段里程碑（2026-10-11，C 组死通道接回） */
+.rms-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+.rms-label { font-weight: 700; color: var(--ink); }
+.rms-item { color: var(--muted); padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; }
+.rms-item b { color: var(--ink); }
+.rms-item.rms-completed { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
+.rms-item.rms-in_progress { background: #fdf3e0; border-color: #e8d5ae; color: #8a6d2f; }
+/* 跨项目建议条（2026-10-11，C 组死通道接回） */
+.cross-suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+.cross-suggest .cs-label { font-weight: 700; color: var(--ink); }
+.cross-suggest .cs-item { color: var(--muted); }
+.cross-suggest .cs-item + .cs-item::before { content: '·'; margin-right: 10px; color: var(--border); }
 .roadmap-ctrls { display: flex; gap: 6px; }
 .roadmap-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
 .roadmap-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
@@ -11353,6 +11589,26 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .bk-tabs { display: flex; background: var(--tint-3); border-bottom: 1px solid var(--border); }
 .bk-tabs span { flex: 1; text-align: center; padding: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .bk-tabs span.on { color: var(--ink); background: #fff; font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+/* 列表刷新（2026-10-11）：贴在页签行右侧，不跟页签抢宽度 */
+.bk-tabs .bk-refresh { flex: none; align-self: center; margin: 0 6px 0 auto; }
+/* 诊断页三块（自检 / 技能副本 / 活动日志） */
+.diag-result { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: var(--tint-3); }
+.diag-result.ok { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
+.diag-result.bad { background: #f6e2e2; border-color: #e2c4c4; color: #8a4343; }
+.diag-skills { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.diag-skills-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12.5px; }
+.diag-skill-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; padding: 2px 0; }
+.diag-skill-name { font-family: ui-monospace, Consolas, monospace; color: var(--ink); }
+.diag-tag { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+.diag-tag.ok { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
+.diag-tag.warn { background: #fdf3e0; border-color: #e8d5ae; color: #8a6d2f; }
+.diag-tag.bad { background: #f6e2e2; border-color: #e2c4c4; color: #8a4343; }
+.diag-act { margin-top: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.diag-act-row { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; padding: 4px 8px; border-bottom: 1px solid var(--tint-3); }
+.diag-act-ts { flex: none; width: 86px; color: var(--muted); }
+.diag-act-action { flex: none; width: 116px; font-family: ui-monospace, Consolas, monospace; color: var(--ink); }
+.diag-act-tid { flex: none; width: 132px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diag-act-detail { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bk-list { max-height: 190px; overflow-y: auto; }
 /* 整行可点（2026-09-28 卡 026-001）：此前是死 div，点行毫无反应 */
 .bk-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }

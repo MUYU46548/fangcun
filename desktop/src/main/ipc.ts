@@ -6,7 +6,8 @@
 import { ipcMain, app, dialog, shell, BrowserWindow, clipboard } from 'electron'
 import * as data from './data'
 import * as tasks from './data/tasks'
-import * as services from './services'
+// ⚠ `services` 通配导入已移除（2026-10-11）：它唯一的用处是 scanServices 的死通道，
+//   那条通道删掉后这里就没有引用了。MCP 侧仍直接调 `services.scanServices()`。
 import * as todosService from './services/todos'
 import * as logsService from './services/logs'
 import * as notificationsService from './services/notifications'
@@ -157,9 +158,9 @@ export function registerIpcHandlers(): void {
     return data.parseRegistry()
   })
 
-  guardedHandle('scanProjectStatus', () => {
-    return tasks.scanProjectStatus()
-  })
+  // `scanProjectStatus` 通道已删（2026-10-11，卡 20261006-002 E 组死通道）：
+  // 渲染层从不调（项目进度走 allProjectProgress）；MCP 侧直接调 `tasks.scanProjectStatus()`，不走 IPC。
+  // 函数本体保留（内部 suggestCrossProject / 事件检测在用）。
 
   guardedHandle('findBlockers', () => {
     // 2026-09-23：getBlockerChains() 现在返回 BlockerSource[]，用 blockedTasks 替代旧 blockers
@@ -189,9 +190,8 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Timeout + Progress ──────────────────────────────────────────────
-  guardedHandle('findTimeoutTasks', (_event, threshold?: number) => {
-    return tasks.findTimeoutTasks(threshold)
-  })
+  // `findTimeoutTasks` 通道已删（2026-10-11，卡 20261006-002 E 组）：命名误导（只算「派活→现在」，
+  // 与任务文件有没有变**毫无关系**）＋渲染层零调用。函数本体保留给内部 detectEvents 用。
 
   // 「进行中但文件 N 小时没变」= **真**僵尸卡判据（2026-10-11，监控台 P0）。
   // ⚠ 别拿 findTimeoutTasks 当它用 —— 那个只算「派活 → 现在」，与文件有没有变**毫无关系**
@@ -201,9 +201,8 @@ export function registerIpcHandlers(): void {
     return tasks.findStalledTasks(thresholdHours)
   })
 
-  guardedHandle('getProjectProgress', (_event, projectId: string) => {
-    return tasks.getProjectProgress(projectId)
-  })
+  // `getProjectProgress` 通道已删（2026-10-11）：渲染层用下面这条（一次全量，避免 N × 全扫）；
+  // 函数本体保留 —— bench-load / e2e-task-fields 直接调它做基准与断言。
 
   // 一次扫描出全部项目进度：前端原先逐项目调用 = 项目数 × 全量扫描
   guardedHandle('allProjectProgress', () => {
@@ -542,9 +541,8 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Services / Workbench ──────────────────────────────────────────
-  guardedHandle('scanServices', () => {
-    return services.scanServices()
-  })
+  // `scanServices` 通道已删（2026-10-11，卡 20261006-002 E 组）：渲染层零调用；
+  // MCP 侧直接调 `services.scanServices()` 函数。函数本体保留。
 
   // ── Launchpad ─────────────────────────────────────────────────────
   // ── Policies（方针区）──────────────────────────────────────────────
@@ -861,7 +859,7 @@ export function registerIpcHandlers(): void {
   })
 
   guardedHandle('applog:path', () => appLog.getLogFile())
-  guardedHandle('applog:dir', () => appLog.getLogDir())
+  // `applog:dir` 通道已删（2026-10-11，卡 20261006-002 E 组）：与 applog:openDir 重复（后者本就回 dir）。
   guardedHandle('applog:tail', (_e: any, lines?: number) => appLog.tail(lines && lines > 0 ? lines : 300))
   guardedHandle('applog:openDir', async () => {
     const dir = appLog.getLogDir()

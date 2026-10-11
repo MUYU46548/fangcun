@@ -2375,6 +2375,86 @@
       window.confirm = origConfirm
     }
 
+    // ══ 死通道接回验收（2026-10-11，卡 20261006-002 E/C 组收口）══════════════
+    // 这批通道一直躺在主进程里、界面从来没有入口（全是 `check-ipc-parity` 第 ⑤ 类扫出来的）。
+    // 断言盯的是「**能从界面真用上**」，不是「通道存在」—— 后者早就是真的，前者才是有意义的判据。
+    clickText('看板'); await sleep(400)
+
+    // ① 快速记（quickAdd）
+    const qaBtn = $$('button').find((b) => (b.textContent || '').trim() === '⚡ 快速记')
+    check('★ 顶栏有「快速记」入口（quickAdd 通道此前**没有任何界面入口**）', !!qaBtn)
+    if (qaBtn) {
+      qaBtn.click(); await sleep(300)
+      check('★ 点开是自建模态（**不是 window.prompt** —— Electron 里调用即抛）', !!$('#quickadd-modal'))
+      const qi = $('#quickadd-modal .quickadd-in')
+      if (qi) { qi.value = 'p0 修登录 #bug @hermes'; qi.dispatchEvent(new Event('input', { bubbles: true })) }
+      await sleep(150)
+      const qaCreate = $$('#quickadd-modal button').find((b) => (b.textContent || '').trim() === '创建')
+      check('  有「创建」按钮', !!qaCreate)
+      if (qaCreate) qaCreate.click()
+      check('★★ 创建真调了 quickAdd', await waitFor(() => window.__fcTest.callCount('quickAdd') >= 1, 4000, 'quickAdd'),
+        'calls=' + window.__fcTest.callCount('quickAdd'))
+      const qaCall = window.__fcTest.calls().filter((c) => c.name === 'quickAdd').pop()
+      check('★★ 原样把**简写串整段**传下去（解析在主进程 quickAdd 里，界面不许自己拆字段）',
+        !!qaCall && qaCall.args[0] === 'p0 修登录 #bug @hermes', JSON.stringify(qaCall && qaCall.args))
+      check('  创建成功后模态自动关闭', await waitFor(() => !$('#quickadd-modal'), 4000, '快速记关闭'))
+    }
+
+    // ② 跨项目建议条（suggestCrossProject）
+    clickText('项目'); await sleep(800)
+    check('★ 项目页顶部渲染出跨项目建议条（suggestCrossProject 通道接回）',
+      await waitFor(() => !!$('.cross-suggest'), 4000, '跨项目建议条'),
+      'items=' + $$('.cross-suggest .cs-item').length)
+    check('  文案来自主进程返回值（不是前端编的）',
+      String((($('.cross-suggest .cs-item') || {}).textContent || '')).indexOf('卡住项目') >= 0,
+      String((($('.cross-suggest .cs-item') || {}).textContent || '')))
+
+    // ③ 阶段里程碑（suggestMilestones）
+    check('能切到「路线图」页签', clickText('路线图'))
+    await sleep(800)
+    check('★ 路线图页渲染出阶段里程碑（suggestMilestones 通道接回）',
+      await waitFor(() => !!$('.rms-strip'), 4000, '里程碑条'),
+      'items=' + $$('.rms-strip .rms-item').length)
+    check('  里程碑文案来自主进程（含「阶段」字样）',
+      String((($('.rms-item') || {}).textContent || '')).indexOf('阶段') >= 0,
+      String((($('.rms-item') || {}).textContent || '')))
+
+    // ④ 设置 → 诊断页三块（selfCheck / skillsCheck / loadActivity）
+    clickText('⚙'); await sleep(900)
+    const diagNav = $$('.settings-nav-btn').find((b) => (b.textContent || '').indexOf('诊断') >= 0)
+    check('  设置页有「诊断」分类', !!diagNav)
+    if (diagNav) {
+      diagNav.click(); await sleep(700)
+      check('★★ 数据自检进门就跑完并显示结果（selfCheck 通道接回）',
+        await waitFor(() => !!$('.diag-result'), 4000, '自检结果'),
+        'result=' + String((($('.diag-result') || {}).textContent || '')).slice(0, 40))
+      check('★ 技能副本检查渲染出逐个技能行（skillsCheck 通道接回）',
+        await waitFor(() => $$('.diag-skill-row').length >= 1, 4000, '技能副本行'),
+        'rows=' + $$('.diag-skill-row').length)
+      check('★ 最近活动日志渲染成行（loadActivity 通道接回）',
+        await waitFor(() => $$('.diag-act-row').length >= 1, 4000, '活动日志行'),
+        'rows=' + $$('.diag-act-row').length)
+      check('  技能检查显示的副本状态是主进程给的（Hermes / 一致）',
+        String((($('.diag-skills-head') || {}).textContent || '')).indexOf('Hermes') >= 0,
+        String((($('.diag-skills-head') || {}).textContent || '')))
+    }
+
+    // ⑤ 设置 → 备份：列表刷新按钮（用户 2026-10-11 补充「缺一个刷新按钮」）
+    const bkNav = $$('.settings-nav-btn').find((b) => (b.textContent || '').indexOf('备份') >= 0)
+    if (bkNav) {
+      bkNav.click(); await sleep(700)
+      const bkRef = $('.bk-tabs .bk-refresh')
+      check('★ 备份列表有刷新按钮（此前只有切页签才会重读列表）', !!bkRef)
+      if (bkRef) {
+        const before = window.__fcTest.callCount('backupListLocal')
+        bkRef.click()
+        check('★ 点刷新真的重读了备份列表',
+          await waitFor(() => window.__fcTest.callCount('backupListLocal') > before, 4000, '重读备份列表'),
+          `before=${before} after=${window.__fcTest.callCount('backupListLocal')}`)
+      }
+    }
+    maskClick('#soverlay'); await sleep(300)
+
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))

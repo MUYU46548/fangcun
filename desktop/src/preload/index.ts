@@ -24,7 +24,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // Projects
   loadProjects: () => ipcRenderer.invoke('loadProjects'),
   parseErrors: () => ipcRenderer.invoke('parseErrors'),
-  scanProjectStatus: () => ipcRenderer.invoke('scanProjectStatus'),
+  // `scanProjectStatus` 死通道已删（2026-10-11，卡 20261006-002 E 组）：
+  // 渲染层从不调（项目进度走 allProjectProgress），MCP 侧直接调 `tasks.scanProjectStatus()` 函数、不走 IPC。
   findBlockers: () => ipcRenderer.invoke('findBlockers'),
   batchEdit: (ids: string[], fields: any) => ipcRenderer.invoke('batchEdit', ids, fields),
   batchArchive: (ids: string[]) => ipcRenderer.invoke('batchArchive', ids),
@@ -35,7 +36,8 @@ contextBridge.exposeInMainWorld('tegula', {
   taskFieldSpecs: () => ipcRenderer.invoke('taskFieldSpecs'),
   taskEnums: () => ipcRenderer.invoke('taskEnums'),
   taskFormValues: (id: string | null) => ipcRenderer.invoke('taskFormValues', id),
-  getProjectProgress: (projectId: string) => ipcRenderer.invoke('getProjectProgress', projectId),
+  // `getProjectProgress` 死通道已删（2026-10-11）：渲染层用 allProjectProgress（一次全量，避免 N 次全扫）；
+  // 函数本体保留 —— bench-load / e2e-task-fields 直接调它做基准与断言。
   allProjectProgress: () => ipcRenderer.invoke('allProjectProgress'),
 
   // Plan
@@ -43,7 +45,8 @@ contextBridge.exposeInMainWorld('tegula', {
   listPlans: () => ipcRenderer.invoke('listPlans'),
   getPlan: (id: string) => ipcRenderer.invoke('getPlan', id),
   decidePlanPoint: (id: string, dpId: string, choice: string) => ipcRenderer.invoke('decidePlanPoint', id, dpId, choice),
-  findTimeoutTasks: (threshold?: number) => ipcRenderer.invoke('findTimeoutTasks', threshold),
+  // `findTimeoutTasks` 死通道已删（2026-10-11）：它是**既有命名误导**（只算「派活→现在」，与文件变没变无关），
+  // 真僵尸卡判据是下面的 stalledTasks；函数本体保留给内部 detectEvents 用。
   stalledTasks: (thresholdHours?: number) => ipcRenderer.invoke('stalledTasks', thresholdHours),
   
   // Registry
@@ -167,7 +170,8 @@ contextBridge.exposeInMainWorld('tegula', {
   notificationsUnmuteAll: () => ipcRenderer.invoke('notifications:unmuteAll'),
 
   // Services / Workbench
-  scanServices: () => ipcRenderer.invoke('scanServices'), 
+  // `scanServices` 死通道已删（2026-10-11，卡 20261006-002 E 组）：服务页走 servicesAdd/Remove/Open，
+  // 端口清单来自 `ports:*`；MCP 侧直接调 `services.scanServices()` 函数、不走 IPC。
   // LLM
   llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
@@ -284,7 +288,8 @@ contextBridge.exposeInMainWorld('tegula', {
   applogWrite: (level: string, scope: string, message: string, detail?: string) =>
     ipcRenderer.invoke('applog:write', level, scope, message, detail),
   applogPath: () => ipcRenderer.invoke('applog:path'),
-  applogDir: () => ipcRenderer.invoke('applog:dir'),
+  // `applogDir` 死通道已删（2026-10-11，卡 20261006-002 E 组）：与 applogOpenDir 重复
+  // （后者打开目录时本来就把 dir 回给界面），渲染层从来没调过。
   applogTail: (lines?: number) => ipcRenderer.invoke('applog:tail', lines),
   applogOpenDir: () => ipcRenderer.invoke('applog:openDir'),
 })

@@ -60,7 +60,41 @@ const EXEMPTIONS = {
   // 死通道（第 ⑤ 类，2026-10-06 卡 004 新增）：preload 暴露 + 主进程注册，
   // 但渲染层从不调用。⚠ 只当**信息**报，不当缺陷 —— 「渲染层不调」可能是合法的
   // （留给 e2e / 数据迁移 / 未来版本的兼容口）。要红灯的请在此登记明确理由。
-  dead: {},
+  //
+  // 2026-10-11（卡 20261006-002 收口）：44 → 31 → **18 → 0**。
+  //   本轮**接回界面** 7 条：quickAdd / skillsCheck / loadActivity / selfCheck /
+  //     suggestCrossProject / suggestMilestones（＋上一轮的 suggestActions / detectParallelOpportunities）。
+  //   本轮**删掉死暴露** 5 条（函数本体保留，另有调用方走函数不走 IPC）：
+  //     scanProjectStatus（MCP + 内部）· findTimeoutTasks（内部 detectEvents）·
+  //     getProjectProgress（bench-load / e2e 直接调）· scanServices（MCP 直接调）·
+  //     applogDir（与 applogOpenDir 重复）。
+  //   ⚠ 这里登记 ≠ 藏着不办：本扫描器**每次运行都会把豁免清单打印出来**，
+  //     每条后面都跟着"为什么可以留着"。真正没决定的项不要往这里加。
+  dead: {
+    // ── A 组：LLM 智能层 10 项（**用户拍板保留**，不是遗漏）──────────────
+    llmGetConfig: '卡 20261006-002 A 组：用户 2026-10-06 拍板保留（原话「等后续解决技术问题再添加，属于长期规划项目」）。契约 REV-003 保留了这条通道。',
+    llmSetConfig: '同上（A 组 · 用户拍板保留）',
+    llmResetConfig: '同上（A 组 · 用户拍板保留）',
+    llmTestConnection: '同上（A 组 · 用户拍板保留）',
+    llmChat: '同上（A 组 · 用户拍板保留）',
+    llmAudit: '同上（A 组 · 用户拍板保留）',
+    llmDecompose: '同上（A 组 · 用户拍板保留）',
+    llmDecide: '同上（A 组 · 用户拍板保留）',
+    llmReview: '同上（A 组 · 用户拍板保留）',
+    llmRoadmap: '同上（A 组 · 用户拍板保留）',
+
+    // ── C 组：规划管理 4 项 + 路线图趋势（体量大/半成品，已单独立卡）────
+    createPlan: 'C 组 · 规划管理：体量大（规划 + 决策点 + 选择留痕），已单独立卡 task-20261011-002 等排期，不在本轮硬塞。',
+    listPlans: 'C 组 · 规划管理：同上（见 task-20261011-002）',
+    getPlan: 'C 组 · 规划管理：同上（见 task-20261011-002）',
+    decidePlanPoint: 'C 组 · 规划管理：同上（见 task-20261011-002）',
+    getRoadmapTrend: 'C 组 · 路线图趋势：当前是**半成品**（只产出一个数据点，没有真"趋势"）。要接得先补历史采样，已并入 task-20261011-002。',
+
+    // ── E 组：确认为「不需要界面入口」的 3 条 ──────────────────────────
+    logsGet: 'E 组 · 按 id 单取执行日志：渲染层的日志列表**自带完整内容**，打开详情不需要再按 id 取一次；MCP 侧有自己的读口。',
+    cronCheck: 'E 组 · 周期检查：职责已由**通知中心**（services/notifier.ts 每小时扫 stalled，含指纹去重与自动消解）与 Python 侧 `tegula cron` 承担，界面上没有它的位置。',
+    launchpadOpenUrl: 'E 组 · 启动台打开网址：启动台条目目前只有**可执行文件 / 文件夹**两种类型，没有网址类型 → 没有入口可接。将来若加网址条目，接线是 2 行。',
+  },
 }
 
 // ── 工具 ──────────────────────────────────────────────────────────────
@@ -490,6 +524,12 @@ function main() {
     const uniqBtn = [...new Set(exempted.buttons.map(x => x.name))]
     if (uniqBtn.length) console.log(`  · [僵尸按钮] ${uniqBtn.join(', ')}`)
     if (exempted.orphan.length) console.log(`  · [孤儿通道] ${exempted.orphan.map(x => x.channel).join(', ')}`)
+    // 死通道豁免（2026-10-11 补打印）：登记 ≠ 藏起来。每条都要把"为什么可以留着"印出来，
+    // 否则下一次没人记得当初是"决定了"还是"忘了"。
+    if (exempted.dead.length) {
+      console.log(`  · [死通道] ${exempted.dead.length} 项（每条都写明了理由）：`)
+      for (const d of exempted.dead) console.log(`      - ${d.name} —— ${d.reason}`)
+    }
   }
 
   console.log('')
