@@ -167,6 +167,9 @@ contextBridge.exposeInMainWorld('tegula', {
   llmDecide: (dp: any, model?: string) => ipcRenderer.invoke('llm:decideDP', dp, model),
   llmReview: (projectId?: string, model?: string) => ipcRenderer.invoke('llm:quarterlyReview', projectId, model),
   llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
+  // AI 规划写回层（2026-10-12）：LLM 输出直接落「待审批」卡，用户点头才转正
+  llmPlanToDraft: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:planToDraft', goal, projectId, model),
+  llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
 
   // Launchpad
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),

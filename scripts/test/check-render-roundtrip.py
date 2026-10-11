@@ -10,7 +10,9 @@
 """
 import sys, os, json, copy, shutil, subprocess, tempfile
 
-REPO = r'E:/CODE/CangKu/fangcun'
+# REPO 可传参（本机默认保持原路径）；底稿任务卡不在 git 里，
+# 缺失时用 api_new 现场造一张（保证任何干净 clone 都能跑双栈往返）。
+REPO = sys.argv[1] if len(sys.argv) > 1 else r'E:/CODE/CangKu/fangcun'
 sys.path.insert(0, REPO)
 from tegula import core  # noqa: E402
 
@@ -20,6 +22,23 @@ os.makedirs(OUT, exist_ok=True)
 
 # 真实任务作为底稿，保证走的是同一条渲染路径
 src = os.path.join(REPO, 'task-data', 'task-20260909-001.md')
+if not os.path.exists(src):
+    _tmp = tempfile.mkdtemp(prefix='fc-rr-base-')
+    _saved_td, _saved_nd = core.TASK_DIR, core._NOTES_DIR
+    core.TASK_DIR = _tmp
+    try:
+        _ok, _tid = core.api_new({
+            "标题": "渲染往返底稿（自动生成）",
+            "项目": ["fangcun-base"],
+            "状态": "待办",
+            "优先级": "中",
+            "标签": ["看板", "优化"],
+            "方案": ["- [ ] 勾选框步骤"],
+            "附言": "底稿",
+        })
+        src = os.path.join(_tmp, _tid + '.md')
+    finally:
+        core.TASK_DIR, core._NOTES_DIR = _saved_td, _saved_nd
 base = core.parse_task(src)
 assert base is not None, '底稿解析失败'
 

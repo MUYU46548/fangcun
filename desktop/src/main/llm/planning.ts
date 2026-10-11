@@ -86,7 +86,7 @@ interface TaskSummary {
 
 /** loadTasks() 返回原始 Task（字段全在 t.fm 下且 project 可能是数组）；
  *  规划层必须先扁平化再读字段，否则全是 undefined（2026-09-20 修复）。 */
-function loadTaskSummaries(): TaskSummary[] {
+export function loadTaskSummaries(): TaskSummary[] {
   return (loadTasks('active') as any[]).map(t => ({
     ...t.fm,
     id: t.id,
@@ -95,12 +95,12 @@ function loadTaskSummaries(): TaskSummary[] {
 }
 
 /** project 字段兼容单值与数组两种形态（`项目: [xxx]` 是数组） */
-function taskInProject(t: TaskSummary, projectId: string): boolean {
+export function taskInProject(t: TaskSummary, projectId: string): boolean {
   if (Array.isArray(t.project)) return t.project.includes(projectId)
   return t.project === projectId
 }
 
-function formatTasksForAudit(tasks: TaskSummary[]): string {
+export function formatTasksForAudit(tasks: TaskSummary[]): string {
   return tasks.map(t => {
     const parts = [`- [${t.id}] ${t.title || ''}`]
     parts.push(`  状态=${t.status || '未知'} 优先级=${t.priority || '中'} 批次=${t.batch || '无'}`)
@@ -110,7 +110,7 @@ function formatTasksForAudit(tasks: TaskSummary[]): string {
   }).join('\n')
 }
 
-function getProjectSummary(projectId: string): { project: any; tasks: TaskSummary[]; error?: string } {
+export function getProjectSummary(projectId: string): { project: any; tasks: TaskSummary[]; error?: string } {
   const projects = parseRegistry()
   const project = projects.find(p => p.id === projectId)
   if (!project) return { project: {}, tasks: [], error: `项目 ${projectId} 不存在` }
