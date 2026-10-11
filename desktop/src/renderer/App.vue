@@ -1697,7 +1697,9 @@
         <button @click="ctxOtherRun(toggleLogRunning)">{{ ctxOther.item.running ? '⏸ 撤销「进行中」' : '▶ 标为「进行中」' }}</button>
         <button @click="ctxOtherRun(toggleLogPin)">{{ ctxOther.item.pinned ? '📌 取消置顶' : '📌 置顶' }}</button>
         <button @click="ctxOtherRun(changeLogProject)">🏷 改项目归属…</button>
-        <button @click="ctxOtherRun(runArchiveLog)">📦 归档</button>
+        <!-- 归档从右键里撤掉（2026-10-11）：加「编辑」后菜单到了 9 项，**超了当初定的「单项 ≤7」**。
+             归档只是一个状态变更，日志卡本身就有入口，右键这份是重复的；
+             复制类那两项各有各的场景，不该动。 —— 保持 7 项 + 破坏性动作单列。 -->
         <div class="ctx-sep"></div>
         <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 彻底删除（二次确认）</button>
       </template>
@@ -2871,6 +2873,10 @@
               title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</button>
             <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage">🔍 校验备份包…</button>
             <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile">📥 从文件恢复…</button>
+            <!-- restic 脚本（2026-10-11 用户拍板走「方案 A」）：方寸只生成脚本 + 说明，
+                 定时你自己挂 —— 零维护、零鉴权、**不经手你的仓库密码**。 -->
+            <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
+              title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
           </div>
           <div v-if="bkMsg" :class="'llm-config-msg ' + bkMsgType">{{ bkMsg }}</div>
           <div v-if="bkForm.url && !bkForm.hasPassword" class="hint">
@@ -4426,6 +4432,22 @@ async function bkToggleLog() {
 async function bkPickDir() {
   const r = await window.tegula.backupPickDir()
   if (r.ok && r.dir) bkForm.value.localDir = r.dir
+}
+
+/**
+ * restic 增量备份脚本（2026-10-11 用户拍板「方案 A」）。
+ * 方寸只**生成脚本 + 说明**并复制走 —— 定时你自己挂，仓库密码也只在你自己环境里。
+ * 为什么不做成方寸内建：那要方寸管仓库密码（进 safeStorage）+ 随包分发 restic 二进制，包会变大。
+ */
+async function bkCopyResticScript(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.backupResticScript('win')
+    if (!r?.ok) { showToast('生成 restic 脚本失败：' + (r?.error || '未知错误'), 'error'); return }
+    const ok = await copyWithToast(r.script, 'restic 脚本已复制')
+    if (ok) showToast('粘进一个 .ps1 文件：脚本开头写了三步准备（装 restic / 设两个环境变量 / init），照做后挂到任务计划程序', 'info')
+  } catch (e: any) {
+    showToast('生成 restic 脚本异常：' + (e?.message || e), 'error')
+  }
 }
 
 /** 导出到任意目录（典型用途：网盘同步文件夹，由客户端负责上传） */
@@ -9006,7 +9028,6 @@ async function applyLogProject(projectId: string): Promise<void> {
 }
 
 /** 菜单里的归档/删除复用既有入口（归档要填保留天数，删除自带二次确认） */
-function runArchiveLog(log: any): void { archiveLogItem(log.id) }
 function runDestroyLog(log: any): void { destroyLogItem(log.id) }
 
 async function toggleTodoPin(todo: any): Promise<void> {

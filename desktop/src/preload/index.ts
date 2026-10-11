@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupOpenDir: () => ipcRenderer.invoke('backup:openDir'),
   backupExportTo: (input: any) => ipcRenderer.invoke('backup:exportTo', input),
   backupVerifyPackage: (zipPath?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath),
+  backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
   backupPickRestoreFile: () => ipcRenderer.invoke('backup:pickRestoreFile'),
   backupPickDir: () => ipcRenderer.invoke('backup:pickDir'),
   onBackupStatus: (cb: (status: any) => void) => {

@@ -18,6 +18,9 @@ import {
 } from './backup'
 import { getBackupStatus, rescheduleScheduler, runBackupNow } from './backup/scheduler'
 import { restoreFrom } from './backup/restore'
+import { buildResticScript } from './backup/resticScript'
+import { SECRET_BASENAMES } from './backup/rules'
+import { getDataDir } from './data/index'
 
 // ── 2026-10-06 删了 3 条被取代的旧通道 ─────────────────────────────────
 // `backup:listSources`（被 `backup:listLocal` + `backup:listRemote` 取代）
@@ -201,6 +204,25 @@ export function registerBackupIpcHandlers(): void {
         ? exportExistingPackageTo(dir, input.package)
         : exportSnapshotTo(dir)
       return { ok: result.ok, result }
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  /**
+   * restic 增量备份脚本（2026-10-11 用户拍板走「方案 A」）——
+   * 方寸只**生成脚本 + 说明**，定时由用户自己挂：零维护、零鉴权、**不经手仓库密码**。
+   * ⚠ 密钥文件必须排除，且用的就是备份包那份 `SECRET_BASENAMES` ——
+   *   否则「多一条备份通道」会变成「多一个密钥泄漏面」。
+   */
+  guardedHandle('backup:resticScript', (_e, os?: 'win' | 'posix') => {
+    try {
+      const script = buildResticScript({
+        dataDir: getDataDir(),
+        exclude: SECRET_BASENAMES.slice(),
+        os: os === 'posix' ? 'posix' : 'win',
+      })
+      return { ok: true, script }
     } catch (e) {
       return fail(e)
     }
