@@ -111,8 +111,8 @@
       stBtn.click()
       await sleep(300)
       check('★ 点它就地展开一块面板（不是原生下拉 —— 原生要"点开→再点一项"）',
-        !!$('.fbar-panel'), 'panel=' + (!!$('.fbar-panel')))
-      const opt = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '进行中')
+        !!$('.fpop'), 'panel=' + (!!$('.fpop')))
+      const opt = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '进行中')
       check('  面板里的状态选项本身就是按钮（一次点击即生效）', !!opt)
       if (opt) {
         opt.click()
@@ -138,10 +138,99 @@
         }
       }
       // 面板要能收起来（不然它会一直占着屏幕）
-      const closeBtn = $('.fbar-panel .fbar-close')
-      if (closeBtn) closeBtn.click()
-      await sleep(200)
-      check('  面板可收起', !$('.fbar-panel'))
+      // ⚠ 收起用 Esc，不用找 ✕：**只有「＋筛选」那个浮层有标题栏和 ✕**（内容多的才需要），
+      //   状态/项目/分组/排序这四个是单行 chips，成熟做法就是不给标题栏 —— 靠点外面或 Esc 收。
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(400)
+      check('  面板可收起（Esc）', !$('.fpop'), 'still=' + $$('.fpop').length)
+    }
+
+    // ══ 用户 2026-10-11 第二条驳回：面板**不许把顶栏撑肥**，按钮**不许折行** ═══════
+    // 原话：「一点筛选顶部直接变肥，太雷霆了，一点美感都没有」「"折叠全部"的文字都飞了」。
+    // 两条都用**几何**钉住 —— 这类问题肉眼才看得出来，"元素存在"是断言不到的。
+    {
+      const barH0 = $('#bar') ? $('#bar').offsetHeight : -1
+      const foldBtn = $('#btn-fold-all')
+      const foldH = foldBtn ? Math.round(foldBtn.getBoundingClientRect().height) : -1
+      const foldWS = foldBtn ? getComputedStyle(foldBtn).whiteSpace : ''
+      // 判据两件，缺一不可：
+      //   · 计算样式是 nowrap —— 这是"不折行"的**机制**（改了它下次窗口一窄就复发）
+      //   · 高度与同排其它按钮一致 —— 折行的直接后果就是比邻居高一截（几何证据）
+      const peer = $$('.fbar-btn').find((b) => b.offsetParent !== null)
+      const peerH = peer ? Math.round(peer.getBoundingClientRect().height) : -1
+      check('★ 「折叠全部」不折行（用户截图：四个字被压成两行飞了）',
+        !!foldBtn && foldWS === 'nowrap' && foldH > 0 && peerH > 0 && Math.abs(foldH - peerH) <= 2,
+        `h=${foldH} peer=${peerH} white-space=${foldWS}`)
+
+      const stB = $('.st-filter')
+      if (stB) {
+        stB.click()
+        await sleep(350)
+        const pop = $('.fpop')
+        // 判据用「不在正常流里」而不是某个具体 position 值：定位现在是 reka-ui(floating-ui)
+        // 写的内联样式，写死成 'fixed' 等于把库的实现细节钉进断言。
+        check('★★ 筛选面板是**浮层**（脱离文档流）—— 这就是"不把顶栏撑肥"的关键',
+          !!pop && getComputedStyle(pop).position !== 'static',
+          pop ? ('pos=' + getComputedStyle(pop).position + ' style="' + pop.getAttribute('style') + '" data-side=' + pop.getAttribute('data-side')) : '(没有 .fpop)')
+        const barH1 = $('#bar') ? $('#bar').offsetHeight : -1
+        check('★★ 开面板前后**顶栏高度不变**（第一版铺在顶栏里 → 一点就涨成三大行、内容被顶下去）',
+          barH0 > 0 && barH1 === barH0, `before=${barH0} after=${barH1}`)
+        check('  浮层贴在触发按钮下方（定位交给 reka-ui 的 floating-ui，不再手算 rect）', (() => {
+          if (!pop || !stB) return false
+          const pr = pop.getBoundingClientRect(), br = stB.getBoundingClientRect()
+          return pr.top >= br.bottom - 2 && pr.top <= br.bottom + 40
+        })(), '')
+        check('  浮层没跑出视口（越界会 flip/shift 往回收）', (() => {
+          if (!pop) return false
+          const pr = pop.getBoundingClientRect()
+          return pr.left >= -1 && pr.right <= window.innerWidth + 1 && pr.width > 0
+        })(), (() => {
+          const pr = pop ? pop.getBoundingClientRect() : null
+          return pr ? `l=${Math.round(pr.left)} r=${Math.round(pr.right)} w=${Math.round(pr.width)} vw=${window.innerWidth}` : 'no pop'
+        })())
+        // 顶栏**自己**不许横向溢出：里面的按钮都是 `flex: none`（不许压字折行），
+        // 所以窗口一窄整条会伸出视口 —— 后果不只是"看着挤"，触发按钮跑到视口外之后
+        // **浮层会跟着锚到视口外**（实测 vw=756 时浮层右边缘 805）。
+        // 出口只有一个：`.fbar` 允许换行。
+        check('★ 顶栏不横向溢出（按钮都不折行，那就必须让整条能换行）', (() => {
+          const bar = $('#bar')
+          const fb = $('.fbar')
+          if (!bar || !fb) return false
+          return bar.scrollWidth <= bar.clientWidth + 1 && getComputedStyle(fb).flexWrap === 'wrap'
+        })(), (() => {
+          const bar = $('#bar'), fb = $('.fbar')
+          if (!bar || !fb) return 'no bar'
+          return `scroll=${bar.scrollWidth} client=${bar.clientWidth} wrap=${getComputedStyle(fb).flexWrap}`
+        })())
+
+        // ⚠ 下面两条是"用成熟原语"换来的行为（2026-10-11：改用 reka-ui 的 Popover）——
+        //   上一版手搓的遮罩只能关"点遮罩"，Esc 与焦点归还得自己写。既然换成库，就把这两条
+        //   钉住：**以后再手搓回去，这两条会立刻红**。
+        // ⚠ reka 的 DismissableLayer 监听的是 **pointerdown**（不是 mousedown）——
+        //   只发 mousedown 会得到"点外面关不掉"的**假红**。
+        const PE = window.PointerEvent || MouseEvent
+        document.body.dispatchEvent(new PE('pointerdown', { bubbles: true, cancelable: true }))
+        document.body.dispatchEvent(new PE('pointerup', { bubbles: true, cancelable: true }))
+        await sleep(400)
+        check('★ 点浮层外面就关（库自带，不用自己写遮罩）', !$('.fpop'))
+
+        stB.click(); await sleep(300)
+        check('  能重新打开（关掉不是单向的）', !!$('.fpop'))
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await sleep(300)
+        check('★ Esc 也能关（无障碍原语自带；手搓版没有这个）', !$('.fpop'))
+
+        // ✕ 按钮只装在内容最多的「＋筛选」浮层上（其余四个是单行 chips，不给标题栏）
+        const filterBtn = $('.fbar-filter-btn')
+        if (filterBtn) {
+          filterBtn.click(); await sleep(300)
+          const c2 = $('.fpop .fpop-close')
+          check('  内容多的浮层有标题栏与 ✕', !!c2)
+          if (c2) c2.click()
+          await sleep(300)
+          check('  点 ✕ 也能关', !$('.fpop'))
+        }
+      }
     }
 
     // ── 分组 / 排序也走同一个面板（同一个入口模式，不搞第二套交互）──────────
@@ -152,29 +241,29 @@
     if (groupBtn) {
       groupBtn.click()
       await sleep(250)
-      const gOpt = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '按项目')
-      check('  点分组按钮开的是**同一块**面板（不做嵌套下拉）', !!gOpt)
+      const gOpt = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '按项目')
+      check('  点分组按钮开的是**同一个浮层**（不做嵌套下拉）', !!gOpt)
       if (gOpt) {
         gOpt.click()
         await sleep(500)
         check('★ 一次点击切到「按项目」分组，按钮文案跟着变',
           (groupBtn.textContent || '').indexOf('按项目') >= 0,
           String(groupBtn.textContent).trim())
-        // ⚠ 切回原状时必须**先收面板再点触发按钮**：触发按钮是 toggle，
-        //   面板开着时再点它只会把面板关掉（第一版就踩了这个，导致后面按状态的断言全红）。
-        const cb0 = $('.fbar-panel .fbar-close')
-        if (cb0) { cb0.click(); await sleep(180) }
-        groupBtn.click(); await sleep(280)
-        const back = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '按状态')
+        // ⚠ 切回原状时必须**先收浮层再点触发按钮**：触发按钮是 toggle，
+        //   浮层开着时再点它只会把它关掉（第一版就踩了这个，导致后面按状态的断言全红）。
+        // ⚠ 分组浮层是单行 chips，**没有 ✕**（成熟做法：点外面或 Esc 收）→ 这里用 Esc。
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await sleep(320)
+        groupBtn.click(); await sleep(320)
+        const back = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '按状态')
         check('  能从面板切回「按状态」（分组是可逆的）', !!back)
         if (back) back.click()
         await sleep(450)
         check('★ 结果：分组回到按状态（按钮上看得见），后面的按状态列断言才成立',
           (groupBtn.textContent || '').indexOf('按状态') >= 0, String(groupBtn.textContent).trim())
       }
-      const cb = $('.fbar-panel .fbar-close')
-      if (cb) cb.click()
-      await sleep(150)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(280)
     }
 
     // ── 信息卡墙（2026-10-10，卡 20261010-003）──────────────────────────────
@@ -420,8 +509,15 @@
     })()
     check('★ 待办行是两行卡：上行标题、下行元信息（优先级/项目/到期）',
       !row2.err && row2.lines >= 2 && !!row2.pri && row2.pri.y > row2.ttl.y + 2, JSON.stringify(row2))
+    // ⚠ 判据在 2026-10-11 改过一次，原因值得记：原判据是「标题**已用**宽度 > 卡片宽 50%」，
+    //   但那是个**视口相关的近似** —— `.todo-title` 不换行、宽度随文字走（不是 flex:1），
+    //   于是宽窗口下长标题也才占 46% → 同一条断言在窗口宽 756 时绿、宽 1440 时红。
+    //   真正要守的是「标题这一行**不被按钮挤**」= 它的**可用宽度**（动作区左边缘 − 标题左边缘）
+    //   占卡片的大头，且标题确实没压进动作区。这个判据与视口宽度无关。
+    const availW = row2.acts ? row2.acts.x - row2.ttl.x : 0
     check('  标题占满整行（不再和一堆按钮抢宽度 —— 这正是"两行卡"的动因）',
-      !row2.err && row2.ttl.w > row2.card.w * 0.5, JSON.stringify({ ttl: row2.ttl, card: row2.card }))
+      !row2.err && availW > row2.card.w * 0.7 && row2.ttl.w <= availW + 1,
+      JSON.stringify({ ttl: row2.ttl, acts: row2.acts, card: row2.card, availW: Math.round(availW) }))
     check('★ 行尾三枚按钮收进一个动作区，且按 027 的按钮规范（24 高 / 8 圆角 / 透明底）',
       !row2.err && row2.actsHasAll && row2.editH === 24 && row2.editR === '8px'
       && row2.editBg === 'rgba(0, 0, 0, 0)', JSON.stringify(row2))
@@ -656,9 +752,12 @@
     // ⚠ 2026-10-11 起不再是 `<select>`：改点「排序 · <当前值>」按钮 → 同一块内联面板里点选项。
     const SORT_TEXT = { active: '活跃优先', updated: '最近更新', created: '创建时间', prio: '优先级' }
     const SORT_BTN = () => $$('.fbar-btn').find((b) => (b.textContent || '').indexOf('排序 ·') >= 0)
+    // 收起统一走 Esc：单行 chips 的浮层**没有 ✕**（只有内容多的「＋筛选」才有标题栏），
+    // 而 reka 的 Popover 自带 Esc 关闭 —— 这也是"用成熟原语"省下来的代码。
     const closeFbarPanel = async () => {
-      const cb = $('.fbar-panel .fbar-close')
-      if (cb) { cb.click(); await sleep(150) }
+      if (!$('.fpop')) return
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(280)
     }
     const openSortPanel = async () => {
       await closeFbarPanel()
@@ -666,12 +765,12 @@
       if (!btn) return null
       btn.click()
       await sleep(250)
-      return $('.fbar-panel') ? btn : null
+      return $('.fpop') ? btn : null
     }
     const pickSort = async (v) => {
       const btn = await openSortPanel()
       if (!btn) return false
-      const opt = $$('.fbar-panel .fbar-opt').find((o) => (o.textContent || '').trim() === SORT_TEXT[v])
+      const opt = $$('.fpop .fpop-opt').find((o) => (o.textContent || '').trim() === SORT_TEXT[v])
       if (!opt) return false
       opt.click()
       await sleep(320)
@@ -687,7 +786,7 @@
       await (async () => {
         const btn = await openSortPanel()
         if (!btn) return false
-        const labels = $$('.fbar-panel .fbar-opt').map((o) => String(o.textContent).trim())
+        const labels = $$('.fpop .fpop-opt').map((o) => String(o.textContent).trim())
         await closeFbarPanel()
         return ['活跃优先', '最近更新', '创建时间', '优先级'].every((t) => labels.indexOf(t) >= 0)
       })(),
@@ -1315,7 +1414,7 @@
       const sel = $('.proj-select')
       if (sel) {
         sel.click(); await sleep(250)
-        const all = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '全部项目')
+        const all = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '全部项目')
         if (all) all.click()
         await sleep(300)
       }

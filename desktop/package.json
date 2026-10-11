@@ -33,6 +33,7 @@
     "js-yaml": "^5.4.2",
     "marked": "^18.0.9",
     "pinia": "^2.1.7",
+    "reka-ui": "^2.11.0",
     "vue": "^3.4.0"
   },
   "devDependencies": {

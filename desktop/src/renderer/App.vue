@@ -68,29 +68,126 @@
           <input v-model="searchQuery" class="search fbar-search"
             placeholder="搜索…（可用 #标签 @项目 due:01-15；也可以直接敲一句话按回车）"
             @keydown.enter="executeNaturalQuery" />
-          <button class="fbar-btn fbar-filter-btn" :class="{ on: fbarPanel === 'filter' }"
-            :title="'筛掉不看的：' + (activeFilterChips.length ? activeFilterChips.map(c => c.label).join(' · ') : '当前没有任何筛选')"
-            @click="toggleFbar('filter')">
-            ＋ 筛选<span v-if="activeFilterChips.length" class="fbar-n">{{ activeFilterChips.length }}</span>
-          </button>
+
+          <!-- ⚠ 下面五个入口各自包一个 `PopoverRoot`：reka-ui 负责**打开/关闭/定位/无障碍**，
+               我们只负责"里面长什么样"。上一版手搓的遮罩 + getBoundingClientRect 定位已删。 -->
+          <PopoverRoot :open="fbarPanel === 'filter'" @update:open="onPanelOpen('filter', $event)">
+            <PopoverTrigger as-child>
+              <button class="fbar-btn fbar-filter-btn" :class="{ on: fbarPanel === 'filter' }"
+                :title="'筛掉不看的：' + (activeFilterChips.length ? activeFilterChips.map(c => c.label).join(' · ') : '当前没有任何筛选')">
+                ＋ 筛选<span v-if="activeFilterChips.length" class="fbar-n">{{ activeFilterChips.length }}</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverPortal>
+              <PopoverContent class="fpop" align="end" :side-offset="6" :collision-padding="8">
+                <div class="fpop-h">
+                  <b>筛选</b><span class="fpop-grow"></span>
+                  <button class="fpop-close" title="收起（Esc / 点外面也行）" @click="closeFbar()">✕</button>
+                </div>
+                <div class="fpop-row">
+                  <span class="fpop-row-label">项目</span>
+                  <button class="fpop-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部</button>
+                  <button v-for="p in projects" :key="'fp-' + p.id" class="fpop-opt"
+                    :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
+                </div>
+                <div class="fpop-row">
+                  <span class="fpop-row-label">状态</span>
+                  <button class="fpop-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部</button>
+                  <button v-for="s in taskStatuses" :key="'fs-' + s" class="fpop-opt"
+                    :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
+                </div>
+                <div class="fpop-row">
+                  <span class="fpop-row-label">到期</span>
+                  <button class="fpop-opt" :class="{ on: !dueFilter }" @click="dueFilter = ''">不限</button>
+                  <button v-for="d in DUE_OPTIONS" :key="'fd-' + d.v" class="fpop-opt"
+                    :class="{ on: dueFilter === d.v }" @click="dueFilter = d.v">{{ d.label }}</button>
+                </div>
+                <!-- 「含归档」只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
+                     2026-09-25 决定：归档视图下直接不给这个选项。 -->
+                <div class="fpop-row" v-if="curView !== 'archive'">
+                  <span class="fpop-row-label">范围</span>
+                  <button class="fpop-opt" :class="{ on: !searchIncludeArchive }" @click="searchIncludeArchive = false">只看活跃</button>
+                  <button class="fpop-opt" :class="{ on: searchIncludeArchive }" @click="searchIncludeArchive = true">含归档</button>
+                </div>
+                <div class="fpop-foot">
+                  <button class="fpop-clear" :disabled="!activeFilterChips.length" @click="clearAllFilters()">清除全部筛选</button>
+                </div>
+              </PopoverContent>
+            </PopoverPortal>
+          </PopoverRoot>
+
           <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）。
                「折叠全部 / 展开」并排放两个按钮，永远有一个是无效的 —— 用户原话「臃肿无比」。 -->
           <button class="ghost" id="btn-fold-all"
             :title="allGroupsCollapsed ? '展开所有分组，看全部卡片' : '折叠所有分组，只看分组名和数量（长单子立刻变短）'"
             @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开全部' : '⊟ 折叠全部' }}</button>
           <span class="fbar-grow"></span>
+
           <!-- 项目 / 状态（2026-10-10 用户要求，两者正交可同时生效）。
                ⚠ 类名 proj-select / st-filter **故意保留**：它们是"看板有自己的筛选"这件事的锚点，
                  守卫与断言都认得它们（改了名等于把那些断言一起作废）。 -->
-          <button class="fbar-btn proj-select" :class="{ on: fbarPanel === 'proj' }"
-            @click="toggleFbar('proj')">{{ curProjLabel }} <span class="fbar-caret">▾</span></button>
-          <button class="fbar-btn st-filter" :class="{ on: fbarPanel === 'status' }"
-            title="只显示该状态的任务（与项目筛选可同时生效）"
-            @click="toggleFbar('status')">{{ curStatus || '全部状态' }} <span class="fbar-caret">▾</span></button>
-          <button class="fbar-btn" :class="{ on: fbarPanel === 'group' }" @click="toggleFbar('group')">
-            分组 · {{ optLabel(GROUP_OPTIONS, groupMode) }} <span class="fbar-caret">▾</span></button>
-          <button class="fbar-btn" :class="{ on: fbarPanel === 'sort' }" @click="toggleFbar('sort')">
-            排序 · {{ optLabel(SORT_OPTIONS, sortMode) }} <span class="fbar-caret">▾</span></button>
+          <PopoverRoot :open="fbarPanel === 'proj'" @update:open="onPanelOpen('proj', $event)">
+            <PopoverTrigger as-child>
+              <button class="fbar-btn proj-select" :class="{ on: fbarPanel === 'proj' }">
+                {{ curProjLabel }} <span class="fbar-caret">▾</span></button>
+            </PopoverTrigger>
+            <PopoverPortal>
+              <PopoverContent class="fpop" align="end" :side-offset="6" :collision-padding="8">
+                <div class="fpop-row">
+                  <button class="fpop-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部项目</button>
+                  <button v-for="p in projects" :key="'pp-' + p.id" class="fpop-opt"
+                    :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
+                </div>
+              </PopoverContent>
+            </PopoverPortal>
+          </PopoverRoot>
+
+          <PopoverRoot :open="fbarPanel === 'status'" @update:open="onPanelOpen('status', $event)">
+            <PopoverTrigger as-child>
+              <button class="fbar-btn st-filter" :class="{ on: fbarPanel === 'status' }"
+                title="只显示该状态的任务（与项目筛选可同时生效）">
+                {{ curStatus || '全部状态' }} <span class="fbar-caret">▾</span></button>
+            </PopoverTrigger>
+            <PopoverPortal>
+              <PopoverContent class="fpop" align="end" :side-offset="6" :collision-padding="8">
+                <div class="fpop-row">
+                  <button class="fpop-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部状态</button>
+                  <button v-for="s in taskStatuses" :key="'ps-' + s" class="fpop-opt"
+                    :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
+                </div>
+              </PopoverContent>
+            </PopoverPortal>
+          </PopoverRoot>
+
+          <PopoverRoot :open="fbarPanel === 'group'" @update:open="onPanelOpen('group', $event)">
+            <PopoverTrigger as-child>
+              <button class="fbar-btn" :class="{ on: fbarPanel === 'group' }">
+                分组 · {{ optLabel(GROUP_OPTIONS, groupMode) }} <span class="fbar-caret">▾</span></button>
+            </PopoverTrigger>
+            <PopoverPortal>
+              <PopoverContent class="fpop fpop-narrow" align="end" :side-offset="6" :collision-padding="8">
+                <div class="fpop-row">
+                  <button v-for="o in GROUP_OPTIONS" :key="'pg-' + o.v" class="fpop-opt"
+                    :class="{ on: groupMode === o.v }" @click="groupMode = o.v">{{ o.label }}</button>
+                </div>
+              </PopoverContent>
+            </PopoverPortal>
+          </PopoverRoot>
+
+          <PopoverRoot :open="fbarPanel === 'sort'" @update:open="onPanelOpen('sort', $event)">
+            <PopoverTrigger as-child>
+              <button class="fbar-btn" :class="{ on: fbarPanel === 'sort' }">
+                排序 · {{ optLabel(SORT_OPTIONS, sortMode) }} <span class="fbar-caret">▾</span></button>
+            </PopoverTrigger>
+            <PopoverPortal>
+              <PopoverContent class="fpop fpop-narrow" align="end" :side-offset="6" :collision-padding="8">
+                <div class="fpop-row">
+                  <button v-for="o in SORT_OPTIONS" :key="'po-' + o.v" class="fpop-opt"
+                    :class="{ on: sortMode === o.v }" @click="sortMode = o.v">{{ o.label }}</button>
+                </div>
+              </PopoverContent>
+            </PopoverPortal>
+          </PopoverRoot>
         </div>
 
         <!-- 生效条件（方案 B 的全部价值）：现在筛了什么一眼可见，点 ✕ 就撤，不用回头翻下拉。 -->
@@ -103,78 +200,6 @@
           <button class="ghost fbar-clear" @click="clearAllFilters()">清除全部</button>
         </div>
 
-        <!-- 内联面板：三个入口（＋筛选 / 分组 / 排序）共用同一块地方。
-             选项就是按钮 —— **一次点击生效**，不是"点开下拉再点一项"。 -->
-        <div class="fbar-panel" v-if="fbarPanel">
-          <div class="fbar-panel-h">
-            <b>{{ FBAR_PANEL_TITLE[fbarPanel] }}</b>
-            <span class="fbar-grow"></span>
-            <button class="ghost fbar-close" @click="fbarPanel = ''">收起 ✕</button>
-          </div>
-
-          <template v-if="fbarPanel === 'filter'">
-            <div class="fbar-row">
-              <span class="fbar-row-label">项目</span>
-              <button class="fbar-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部</button>
-              <button v-for="p in projects" :key="'fp-' + p.id" class="fbar-opt"
-                :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
-            </div>
-            <div class="fbar-row">
-              <span class="fbar-row-label">状态</span>
-              <button class="fbar-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部</button>
-              <button v-for="s in taskStatuses" :key="'fs-' + s" class="fbar-opt"
-                :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
-            </div>
-            <div class="fbar-row">
-              <span class="fbar-row-label">到期</span>
-              <button class="fbar-opt" :class="{ on: !dueFilter }" @click="dueFilter = ''">不限</button>
-              <button v-for="d in DUE_OPTIONS" :key="'fd-' + d.v" class="fbar-opt"
-                :class="{ on: dueFilter === d.v }" @click="dueFilter = d.v">{{ d.label }}</button>
-            </div>
-            <!-- 「含归档」只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
-                 2026-09-25 决定：归档视图下直接不给这个选项。 -->
-            <div class="fbar-row" v-if="curView !== 'archive'">
-              <span class="fbar-row-label">范围</span>
-              <button class="fbar-opt" :class="{ on: !searchIncludeArchive }" @click="searchIncludeArchive = false">只看活跃</button>
-              <button class="fbar-opt" :class="{ on: searchIncludeArchive }" @click="searchIncludeArchive = true">
-                含归档（搜索结果也带上归档任务）</button>
-            </div>
-          </template>
-
-          <template v-else-if="fbarPanel === 'proj'">
-            <div class="fbar-row">
-              <span class="fbar-row-label">项目</span>
-              <button class="fbar-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部项目</button>
-              <button v-for="p in projects" :key="'pp-' + p.id" class="fbar-opt"
-                :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
-            </div>
-          </template>
-
-          <template v-else-if="fbarPanel === 'status'">
-            <div class="fbar-row">
-              <span class="fbar-row-label">状态</span>
-              <button class="fbar-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部状态</button>
-              <button v-for="s in taskStatuses" :key="'ps-' + s" class="fbar-opt"
-                :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
-            </div>
-          </template>
-
-          <template v-else-if="fbarPanel === 'group'">
-            <div class="fbar-row">
-              <span class="fbar-row-label">怎么分组</span>
-              <button v-for="o in GROUP_OPTIONS" :key="'pg-' + o.v" class="fbar-opt"
-                :class="{ on: groupMode === o.v }" @click="groupMode = o.v">{{ o.label }}</button>
-            </div>
-          </template>
-
-          <template v-else-if="fbarPanel === 'sort'">
-            <div class="fbar-row">
-              <span class="fbar-row-label">怎么排</span>
-              <button v-for="o in SORT_OPTIONS" :key="'po-' + o.v" class="fbar-opt"
-                :class="{ on: sortMode === o.v }" @click="sortMode = o.v">{{ o.label }}</button>
-            </div>
-          </template>
-        </div>
         </template>
         <button v-if="isTaskView" @click="openNew">+ 新建</button>
         <!-- 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）：
@@ -3371,6 +3396,12 @@ import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
 import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince } from '../shared/time'
+// 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
+// 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
+// （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
+// 我上一版手搓的 backdrop + getBoundingClientRect 定位全部删掉。
+// ⚠ 只借**行为**，样式仍走本仓既有的 class（不引 Tailwind —— 那是一次全仓 CSS 重构，另立卡）。
+import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -4542,10 +4573,21 @@ const DUE_OPTIONS: { v: string; label: string }[] = [
 function optLabel(opts: { v: string; label: string }[], v: string): string {
   return (opts.find(o => o.v === v) || { label: v }).label
 }
-/** 当前打开的是哪一块（'' = 收着）。同一时间只开一块 —— 三个入口共用一块地方。 */
-const fbarPanel = ref<'' | 'filter' | 'proj' | 'status' | 'group' | 'sort'>('')
-function toggleFbar(p: 'filter' | 'proj' | 'status' | 'group' | 'sort'): void {
-  fbarPanel.value = fbarPanel.value === p ? '' : p
+type FbarPanel = 'filter' | 'proj' | 'status' | 'group' | 'sort'
+/**
+ * 当前打开的是哪一块（'' = 收着）。同一时间只开一块。
+ *
+ * ⚠ 这里**只管状态**，打开/关闭/定位/焦点全交给 reka-ui 的 Popover（2026-10-11 改）：
+ *   第一版手搓内联面板 → 一点就把顶栏撑成三大行（用户：「太雷霆了，一点美感都没有」）；
+ *   第二版手搓 backdrop + getBoundingClientRect 定位 → 能用了，但**还是在造轮子**；
+ *   现在这版把这两块都删了，只留一个字符串状态。
+ */
+const fbarPanel = ref<'' | FbarPanel>('')
+
+/** reka-ui 的 `update:open` 回传（点外面 / Esc / 再点触发按钮都会走到这里） */
+function onPanelOpen(p: FbarPanel, v: boolean): void {
+  if (v) fbarPanel.value = p
+  else if (fbarPanel.value === p) fbarPanel.value = ''
 }
 /** 换视图一定收起来（否则它会跟着跑到别的页签上，像一块甩不掉的浮层） */
 function closeFbar(): void { fbarPanel.value = '' }
@@ -10709,11 +10751,20 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
      （1,0,1），光写 `.fbar-btn`（0,1,0）压不过它 —— 按钮会变成"实心紫底"，看着像主按钮。
    ⚠ chips 与面板的 `flex-basis: 100%` 是**故意**的：`.ctrls` 是 flex-wrap 行，
      给满基准它们才会各自独占一行，而不是挤在筛选那一行的末尾。 */
-#bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 380px; min-width: 0; }
-#bar .fbar .search { flex: 1 1 180px; width: auto; min-width: 120px; }
+/* ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）──────────────────────
+   ⚠ 所有规则必须带 `#bar` 前缀：顶栏有一条 `#bar button { background: accent; color: #fff }`
+     （1,0,1），光写 `.fbar-btn`（0,1,0）压不过它 —— 按钮会变成"实心紫底"看着像主按钮。
+   ⚠ 按钮一律 `white-space: nowrap` + `flex: none`：第一版漏了这个，窗口一窄按钮就被压成
+     两行（用户截图：「折叠全部」四个字飞了）—— 要让**搜索框**去伸缩，不是让文字折行。 */
+/* ⚠ `flex-wrap: wrap` 必须有：里面每个按钮都是 `flex: none`（不许压字折行），窗口一窄
+   整条就会横向溢出 —— 溢出的后果不只是"看着挤"，触发按钮会跑到视口外，
+   于是**浮层跟着锚到视口外**（实测：vw=756 时浮层的右边缘跑到 805）。
+   让它换行是唯一正确的出口。 */
+#bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 300px; min-width: 0; flex-wrap: wrap; }
+#bar .fbar .search { flex: 1 1 160px; width: auto; min-width: 110px; }
 #bar .fbar-grow { flex: 1 1 auto; }
 #bar .fbar-btn {
-  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 9px; border: 1px solid var(--border); border-radius: 8px;
   background: #fff; color: var(--ink); font-size: 12px; font-weight: 400;
 }
@@ -10727,12 +10778,15 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 }
 #bar .fbar-caret { color: var(--muted); font-size: 10px; }
 /* 项目名可能很长（"设定资料工具库"这类）—— 触发按钮不要被撑破 */
-#bar .proj-select { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#bar .proj-select { max-width: 168px; overflow: hidden; text-overflow: ellipsis; }
+/* 「折叠全部」是 `#bar button`（不是 .fbar-btn），同样必须禁止折行 */
+#bar #btn-fold-all { flex: none; white-space: nowrap; }
+/* 生效条件那一行：只在真有筛选时出现，做得尽量轻，别让它抢视觉重心 */
 #bar .fbar-chips { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #bar .fbar-chips-label { font-size: 11px; color: var(--muted); }
 #bar .fbar-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 4px 2px 9px; border-radius: 10px;
+  padding: 1px 4px 1px 9px; border-radius: 10px;
   background: var(--tint); border: 1px solid var(--border); font-size: 11.5px; color: var(--ink);
 }
 #bar .fbar-x {
@@ -10741,21 +10795,46 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 }
 #bar .fbar-x:hover { color: #a03a3a; background: #fff; }
 #bar .fbar-clear { font-size: 11.5px; padding: 2px 8px; font-weight: 400; }
-#bar .fbar-panel {
-  flex: 1 1 100%; margin-top: 2px; padding: 10px 12px;
-  border: 1px solid var(--border); border-radius: 10px; background: #fff;
-  display: flex; flex-direction: column; gap: 7px;
+
+/* ── 筛选浮层（不参与文档流 —— 这就是"不把顶栏撑肥"的关键）────────────────────
+   成熟做法：贴触发按钮弹出、盖在内容之上、点外面就收。复用仓里既有的
+   `.ctx-backdrop`（fixed inset:0，@mousedown.self 关闭）机制，不另起一套。 */
+/* ⚠ `position: fixed` 这一条**必须留**，别以为是"手搓定位"：
+     reka-ui 只负责**动态**那一半（算 x/y、flip/shift 防越界，写成内联 transform），
+     **静态**那一半（用哪种 position 参与层叠）由使用方给 —— 两者是一份契约。
+     它默认 `positionStrategy: 'fixed'`，所以这里必须是 fixed；删掉就会退回 static →
+     浮层落进正常流、跑到页面末尾（实测过，元素上只剩几个 --reka-popper-* 变量）。
+   ❌ 反面写法：`position: fixed; left: Xpx; top: Ypx` 手算 —— 那才是重复造轮子。 */
+.fpop {
+  position: fixed; z-index: 62; width: 336px; max-height: 70vh; overflow: auto;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 8px 10px;
 }
-#bar .fbar-panel-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-#bar .fbar-close { font-size: 11.5px; padding: 2px 8px; font-weight: 400; }
-#bar .fbar-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-#bar .fbar-row-label { flex: 0 0 62px; font-size: 11.5px; color: var(--muted); }
-#bar .fbar-opt {
-  padding: 3px 10px; border: 1px solid var(--border); border-radius: 12px;
-  background: #fff; color: var(--ink); font-size: 12px; font-weight: 400;
+/* 只有一行选项的浮层（分组 / 排序）不必占满 336px */
+.fpop-narrow { width: auto; min-width: 168px; }
+.fpop-h { display: flex; align-items: center; gap: 8px; padding: 0 0 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink); }
+.fpop-grow { flex: 1 1 auto; }
+.fpop-close {
+  border: 0; background: transparent; cursor: pointer; color: var(--muted);
+  font-size: 12px; line-height: 1; padding: 3px 6px; border-radius: 6px;
 }
-#bar .fbar-opt:hover { border-color: var(--accent); }
-#bar .fbar-opt.on { border-color: var(--accent); background: var(--tint); color: var(--accent); font-weight: 500; }
+.fpop-close:hover { background: var(--tint); color: var(--ink); }
+.fpop-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 4px 0; }
+.fpop-row-label { flex: 0 0 34px; font-size: 11px; color: var(--muted); }
+.fpop-opt {
+  padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px;
+  background: #fff; color: var(--ink); font-size: 12px; font-weight: 400; cursor: pointer;
+  white-space: nowrap; font-family: inherit;
+}
+.fpop-opt:hover { border-color: var(--accent); }
+.fpop-opt.on { border-color: var(--accent); background: var(--tint); color: var(--accent); font-weight: 500; }
+.fpop-foot { display: flex; justify-content: flex-end; padding-top: 6px; margin-top: 4px; border-top: 1px solid var(--border); }
+.fpop-clear {
+  border: 0; background: transparent; cursor: pointer; color: var(--muted);
+  font-size: 11.5px; padding: 3px 8px; border-radius: 6px; font-family: inherit;
+}
+.fpop-clear:hover { background: var(--tint); color: var(--ink); }
+.fpop-clear:disabled { opacity: .45; cursor: default; }
 
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
