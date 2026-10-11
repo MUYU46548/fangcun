@@ -4477,17 +4477,24 @@ async function loadGitStatus(): Promise<void> {
   } catch { /* 读不到就留空 —— 不编默认值 */ }
 }
 
-async function gitSaveToken(): Promise<void> {
-  const t = gitToken.value.trim()
-  if (!t) return
-  try {
-    const r: any = await (window as any).tegula.backupGitSaveToken(t)
-    if (!r?.ok) { gitMsg.value = '令牌保存失败：' + (r?.error || '未知错误'); gitMsgType.value = 'error'; return }
-    gitToken.value = ''      // 立刻清空 —— 令牌在渲染层只存在这一瞬
-    gitHasToken.value = true
-    gitMsg.value = r.persistent ? '令牌已加密保存' : ('令牌只保留在本次会话：' + (r.error || '本机加密不可用'))
-    gitMsgType.value = r.persistent ? 'success' : 'info'
-  } catch (e: any) { gitMsg.value = '令牌保存异常：' + (e?.message || e); gitMsgType.value = 'error' }
+/**
+ * 把当前表单里的仓库地址 / 分支 / 令牌落盘。
+ * ⚠ 2026-10-11 真机教训：主进程只读**已保存**的配置，而用户很自然的是
+ *   「填完地址直接点测试连接」→ 于是被回一句「还没填仓库地址」，看着像软件坏了。
+ *   所以测试 / 推送前一律先跑一次这个，把输入框里的东西先存住。
+ * 返回 false = 地址是空的（真没填），调用方直接提示即可。
+ */
+async function gitCommitForm(): Promise<boolean> {
+  const remote = gitRemote.value.trim()
+  if (!remote) { gitMsg.value = '请先填仓库地址'; gitMsgType.value = 'error'; return false }
+  const r: any = await (window as any).tegula.backupGitSave({ remote, branch: gitBranch.value })
+  if (!r?.ok) { gitMsg.value = '保存失败：' + (r?.error || '未知错误'); gitMsgType.value = 'error'; return false }
+  if (r.extractedTokenSaved) { gitHasToken.value = true; gitToken.value = '' }
+  else if (gitToken.value.trim()) {
+    const t: any = await (window as any).tegula.backupGitSaveToken(gitToken.value.trim())
+    if (t?.ok) { gitToken.value = ''; gitHasToken.value = true }
+  }
+  return true
 }
 
 async function gitSaveConfig(): Promise<void> {
@@ -4495,21 +4502,12 @@ async function gitSaveConfig(): Promise<void> {
   gitBusy.value = true
   gitMsg.value = ''
   try {
-    const r: any = await (window as any).tegula.backupGitSave({ remote: gitRemote.value.trim(), branch: gitBranch.value })
-    if (!r?.ok) { gitMsg.value = '保存失败：' + (r?.error || '未知错误'); gitMsgType.value = 'error'; return }
-    if (r.extractedTokenSaved) {
-      gitMsg.value = r.note || '地址里内嵌的令牌已单独保管'
-      gitMsgType.value = 'info'
-      gitHasToken.value = true
-      gitToken.value = ''
-    } else if (gitToken.value.trim()) {
-      await gitSaveToken()
-    } else {
-      gitMsg.value = '仓库地址已保存'
-      gitMsgType.value = 'success'
-    }
+    if (!(await gitCommitForm())) return
+    gitMsg.value = '仓库地址已保存'
+    gitMsgType.value = 'success'
     await loadGitStatus()
-  } finally { gitBusy.value = false }
+  } catch (e: any) { gitMsg.value = '保存异常：' + (e?.message || e); gitMsgType.value = 'error' }
+  finally { gitBusy.value = false }
 }
 
 async function gitForgetToken(): Promise<void> {
@@ -4527,8 +4525,13 @@ async function gitTest(): Promise<void> {
   gitMsg.value = '测试中…'
   gitMsgType.value = 'info'
   try {
+    // 先把输入框里的地址/令牌存住 —— 否则主进程读到的是旧配置，会回一句"还没填仓库地址"
+    if (!(await gitCommitForm())) return
     const r: any = await (window as any).tegula.backupGitTest()
-    gitMsg.value = r?.message || '测试没有返回结果'
+    // ⚠ 主进程有两条失败形状：业务失败回 `message`，异常被 guardedHandle 兜住时回 `error`
+    //   （backup-ipc 的 fail() 就是这个形状）。只认 message 的话，异常会显示成
+    //   "测试没有返回结果" —— 典型的静默失败。两个都读，实在没有才说没返回。
+    gitMsg.value = r?.message || r?.error || '测试没有返回结果'
     gitMsgType.value = r?.ok ? 'success' : 'error'
   } catch (e: any) { gitMsg.value = '测试异常：' + (e?.message || e); gitMsgType.value = 'error' }
   finally { gitBusy.value = false }
@@ -4540,9 +4543,11 @@ async function gitPushNow(): Promise<void> {
   gitMsg.value = '推送中…'
   gitMsgType.value = 'info'
   try {
+    if (!(await gitCommitForm())) return
     const r: any = await (window as any).tegula.backupGitPush()
-    gitMsg.value = r?.message || '推送没有返回结果'
+    gitMsg.value = r?.message || r?.error || '推送没有返回结果'
     gitMsgType.value = r?.ok ? 'success' : 'error'
+    if (r?.ok) gitHasToken.value = true
   } catch (e: any) { gitMsg.value = '推送异常：' + (e?.message || e); gitMsgType.value = 'error' }
   finally { gitBusy.value = false }
 }

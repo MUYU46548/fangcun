@@ -459,8 +459,18 @@ function main() {
     /return \{ active: '待处理'/.test(APP))
   check('★ 「完成」按钮不再要求先「进行中」（任何未完成/未归档都可用）',
     /log\.status !== 'completed' && log\.status !== 'archived'[\s\S]{0,120}completeLogItem\(log\.id\)/.test(APP))
-  check('★ 状态筛选下拉已被分区取代（用户第 5 条：筛选把信息切碎）',
-    !/v-model="logStatusFilter"/.test(APP) && !/全部状态/.test(APP) && /groupedLogs/.test(APP) && /log-group-toggle/.test(APP))
+  // ⚠ 2026-10-11 收窄：原判据是「整个 App.vue 里不许出现『全部状态』字样」——
+  //   而看板在 2026-10-10 按用户**明确要求**新增了自己的状态筛选（页头 .st-filter），
+  //   于是这条被误伤成红（202/1）。用户第 5 条说的是**日志页**：状态由分区表达、不要下拉。
+  //   所以把文本判据**限定在日志页工具栏那一块**（.logs-sticky → .logs-list 之间），
+  //   并保留最实质的那条 `logStatusFilter` 不许存在。
+  const LOGS_TOOLBAR = (APP.match(/class="logs-sticky"[\s\S]*?class="logs-list"/) || [''])[0]
+  check('★ 日志页没有状态筛选下拉（状态由分区表达）—— 用户第 5 条：筛选把信息切碎',
+    !/v-model="logStatusFilter"/.test(APP) && !/全部状态/.test(LOGS_TOOLBAR)
+    && /groupedLogs/.test(APP) && /log-group-toggle/.test(APP),
+    `toolbar 长度=${LOGS_TOOLBAR.length}（0 说明切片失效，守卫会假绿）`)
+  check('  看板自己的状态筛选不受这条管（页头 .st-filter，2026-10-10 用户明确要的）',
+    /class="st-filter"/.test(APP))
 
   // ── 置顶（2026-09-26 卡 037）──────────────────────────────────────────
   //   用户口径：加**新字段** pinned（不复用 status）——置顶是视图属性，跟生命周期正交；

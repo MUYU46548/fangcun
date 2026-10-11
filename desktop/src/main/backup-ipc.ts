@@ -248,8 +248,15 @@ export function registerBackupIpcHandlers(): void {
     try { return clearGitToken() } catch (e) { return fail(e) }
   })
 
+  // Git 通道的两条失败形状要**统一**：业务失败回 `message`，异常被兜住时以前只回 `error`
+  // —— 渲染层只读 message 的话，异常会显示成"测试没有返回结果"（静默失败，2026-10-11 修）。
+  const failMsg = (e: unknown) => {
+    const m = (e as Error)?.message || String(e)
+    return { ok: false as const, message: m, error: m }
+  }
+
   guardedHandle('backup:gitTest', async () => {
-    try { return await gitTestRemote() } catch (e) { return fail(e) }
+    try { return await gitTestRemote() } catch (e) { return failMsg(e) }
   })
 
   guardedHandle('backup:gitPush', async (_e, zipPath?: string) => {
@@ -263,7 +270,7 @@ export function registerBackupIpcHandlers(): void {
       }
       if (!p) return { ok: false, message: '还没有任何备份包 —— 先做一次本地备份' }
       return await gitPushPackage(p)
-    } catch (e) { return fail(e) }
+    } catch (e) { return failMsg(e) }
   })
 
   /**

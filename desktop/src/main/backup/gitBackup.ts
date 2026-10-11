@@ -17,7 +17,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   buildCredentialArgs, buildGitEnv, sanitizeGitOutput, analyzeGitError,
-  hostOfRemote, splitInlineCredential, GIT_TOKEN_ENV, GIT_USER_ENV,
+  hostOfRemote, splitInlineCredential, isPushRejected, pushRecoverySteps,
+  GIT_TOKEN_ENV, GIT_USER_ENV,
 } from './gitBackupPure'
 
 export interface GitBackupConfig {
@@ -169,38 +170,52 @@ function runGit(args: string[], cwd: string, token?: { username: string; token: 
   })
 }
 
-/** 测试连接（`git ls-remote`）—— 给确定性反馈，别让用户猜 */
+/**
+ * 测试连接（`git ls-remote`）—— 给确定性反馈，别让用户猜。
+ *
+ * ⚠ 2026-10-11 真机修：**不能用 `--exit-code`**。实测空仓库（刚建、还没有任何提交）
+ *   下 `git ls-remote --exit-code` 会「退出码 2 + 一个字都不吐」，于是被翻成
+ *   「未能自动识别」—— 用户看到的是"填了地址却说没填/失败"，其实是**一切正常**。
+ *   现在：能列出 refs → 连上了；列不出来但也没报错 → 连上了（这是个空仓库）；
+ *   有报错 → 才按 analyzeGitError 说人话。
+ */
 export async function gitTestRemote(): Promise<{ ok: boolean; message: string }> {
   const cfg = readGitConfig()
-  if (!cfg.remote) return { ok: false, message: '还没填仓库地址' }
-  const r = await runGit(['ls-remote', '--exit-code', cfg.remote], app.getPath('userData'), getGitToken())
-  if (r.ok) return { ok: true, message: '连上了，而且令牌能读这个仓库。' }
-  const info = analyzeGitError(r.out)
+  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点这里测试。' }
+  const r = await runGit(['ls-remote', cfg.remote], app.getPath('userData'), getGitToken())
+  if (r.ok) {
+    return { ok: true, message: r.out.trim() ? '连上了，而且令牌能读这个仓库。' : '连上了（这个仓库还是空的，第一次推送会自动建分支）。' }
+  }
+  const info = analyzeGitError(r.out, r.code)
   return { ok: false, message: info.message }
 }
 
 /**
  * 把一份备份 zip 推上去。
- * 流程：工作副本 clone（首次）→ 复制 zip 进去 → add/commit/push。
+ * 流程：工作副本 clone（首次）→ 复制 zip 进去 → add/commit/push；被拒就自动救一次。
  * ⚠ 推送失败**不丢数据**：commit 已经在本地工作副本里了，网络好了再点一次即可。
  */
-export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; message: string; pushed?: boolean }> {
+export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; message: string; pushed?: boolean; recovered?: boolean }> {
   const cfg = readGitConfig()
-  if (!cfg.remote) return { ok: false, message: '还没填仓库地址' }
+  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点推送。' }
   if (!zipPath || !fs.existsSync(zipPath)) return { ok: false, message: '找不到要推的备份包' }
   const token = getGitToken()
   const dir = workDir()
+  const gitDir = path.join(dir, '.git')
 
-  // 首次：clone 一份工作副本（git 在这里跑，用户不必管）
-  if (!fs.existsSync(path.join(dir, '.git'))) {
+  // 首次：clone 一份工作副本（git 在这里跑，用户不必管）。
+  // ⚠ 2026-10-11 真机修：**clone 失败不再盲目退化成 init**。
+  //   老写法 clone 一失败就 init + remote add —— 若失败的真因是「令牌被拒 / 网络不通」，
+  //   真因会被吞掉，用户只看到后面一条莫名其妙的 push 失败。现在真失败就报真因。
+  //   （空仓库不需要走 init：实测 `git clone` 空仓库是**成功退出**的。）
+  if (!fs.existsSync(gitDir)) {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 清不掉就让下面的 clone 自己去报错 */ }
     fs.mkdirSync(dir, { recursive: true })
     const c = await runGit(['clone', '--depth', '1', cfg.remote, '.'], dir, token)
-    if (!c.ok) {
-      // clone 失败可能只是空仓库 —— 退一步自己 init
-      const i = await runGit(['init'], dir, token)
-      if (!i.ok) return { ok: false, message: analyzeGitError(i.out).message }
-      await runGit(['remote', 'add', 'origin', cfg.remote], dir, token)
-    }
+    if (!c.ok) return { ok: false, message: analyzeGitError(c.out, c.code).message }
+  } else {
+    // 已有工作副本：确保 origin 跟当前配置一致（用户可能换了仓库）
+    await runGit(['remote', 'set-url', 'origin', cfg.remote], dir, token)
   }
 
   // 只保留最近 3 份 zip（仓库是拿来存放备份的，不该无限长）。
@@ -217,20 +232,36 @@ export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; me
   fs.copyFileSync(zipPath, path.join(dir, name))
 
   const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
-  await runGit(['add', '-A'], dir, token)
-  const commit = await runGit([
-    '-c', `user.name=${cfg.authorName}`, '-c', `user.email=${cfg.authorEmail}`,
-    'commit', '-m', `backup: ${name} @ ${stamp}`,
-  ], dir, token)
-  // 「没有改动」不算失败（同一份包再推一次）
-  if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.out)) {
-    return { ok: false, message: analyzeGitError(commit.out).message }
+  const msg = `backup: ${name} @ ${stamp}`
+
+  const commitAndPush = async (): Promise<GitRun> => {
+    await runGit(['add', '-A'], dir, token)
+    const commit = await runGit([
+      '-c', `user.name=${cfg.authorName}`, '-c', `user.email=${cfg.authorEmail}`,
+      'commit', '-m', msg,
+    ], dir, token)
+    // 「没有改动」不算失败（同一份包再推一次）
+    if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.out)) return commit
+    return runGit(['push', 'origin', `HEAD:${cfg.branch}`], dir, token)
   }
 
-  const push = await runGit(['push', 'origin', `HEAD:${cfg.branch}`], dir, token)
-  if (!push.ok) {
-    const info = analyzeGitError(push.out)
-    return { ok: false, message: info.message + '（本地提交已保留，网络/权限好了再点一次即可）' }
+  let push = await commitAndPush()
+
+  // 被拒（远端有本地没有的提交）→ 自动救一次：fetch 回远端 → reset --soft 挪到远端之上
+  // → 重新 commit + push（zip 仍在索引里，所以这一步是 fast-forward，不用 --force）。
+  let recovered = false
+  if (!push.ok && isPushRejected(push.out)) {
+    let canRecover = true
+    for (const step of pushRecoverySteps(cfg.branch)) {
+      const s = await runGit(step, dir, token)
+      if (!s.ok) { canRecover = false; push = s; break }
+    }
+    if (canRecover) { recovered = true; push = await commitAndPush() }
   }
-  return { ok: true, message: `已推送 ${name}`, pushed: true }
+
+  if (!push.ok || (push.out && /rejected/i.test(push.out))) {
+    const info = analyzeGitError(push.out, push.code)
+    return { ok: false, message: info.message + '（本地提交已保留，网络/权限好了再点一次即可）', recovered }
+  }
+  return { ok: true, message: `已推送 ${name}${recovered ? '（远端先前有更新，已先并入再推）' : ''}`, pushed: true, recovered }
 }
