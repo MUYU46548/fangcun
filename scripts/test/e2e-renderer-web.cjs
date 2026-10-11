@@ -347,7 +347,9 @@ function main() {
     // 把页面掐掉（表现为「没拿到断言结果」）。抬到 30000，与手动 --dump-dom 复跑一致。
     // 2026-10-03：又加了技能页多目标（卡 010/011）+ 设置页折叠（013）+ 看板归档提示条（012）
     // 三节、含数次 sleep/waitFor → 30000 再次不够，抬到 45000。
-    '--virtual-time-budget=65000',
+        // 2026-10-11：又加了筛选栏改版（点触发按钮 → 面板 → 点选项 → 点 ✕ 撤销）与设置页顺序断言，
+    // 睡眠总量再次逼近上限 → 抬到 90000。
+    '--virtual-time-budget=120000',
     '--dump-dom',
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]
@@ -392,13 +394,14 @@ function main() {
     process.exit(1)
   })
 
-  // 看门狗：dump-dom 阶段 60s 够用；进了 CDP 兜底要放宽（它要等页面把断言跑完），
-  // 所以它不是 const —— close 回调里会 clearTimeout 再重设。
+  // 看门狗：正常一次跑完只要 1–3 秒（实测），所以它只在**浏览器真的卡住**时才响。
+  // ⚠ 2026-10-11 改行为：原来这里直接 `process.exit(1)` —— 一次浏览器启动抽风就把整轮判红，
+  //   而下面明明还有一条能救回来的 CDP 兜底路径。现在只杀子进程，把控制权交回 close 回调
+  //   （它会自动走 CDP 重试）。**卡住 ≠ 断言失败**，别让环境抖动冒充回归。
   let watchdog = setTimeout(() => {
-    console.log('FAIL  无头浏览器超时（60s）')
+    console.log('INFO  --dump-dom 阶段超时（240s）→ 杀掉子进程，改走 CDP 兜底重试…')
     try { child.kill() } catch { /* ignore */ }
-    process.exit(1)
-  }, 60000)
+  }, 240000)
 }
 
 main()

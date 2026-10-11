@@ -357,8 +357,11 @@ function main() {
   check('★ 待办补「优先级从高到低」「最近更新」两种排法',
     /value="priority"/.test(APP) && /todoSort.value === 'priority'/.test(APP) &&
     /todoSort.value === 'updated'/.test(APP))
+  // ⚠ 2026-10-11：看板顶栏换成「方案 B · 条件标签化」后，排序选项从 `<option value="prio">`
+  // 变成 `SORT_OPTIONS` 里的 `{ v: 'prio', label: '优先级' }` —— 判据跟着改成 `v: 'prio'`，
+  // 但**仍然要求它存在**（这条守的是"看板补过优先级排法"这件事本身）。
   check('★ 看板补「优先级」排法（且走 localPriority 归一，high/高 同刻度）',
-    /value="prio"/.test(APP) && /mode === 'prio'/.test(APP) && /localPriority/.test(APP))
+    /v: 'prio'/.test(APP) && /mode === 'prio'/.test(APP) && /localPriority/.test(APP))
   check('★ 日志编辑框是多选（checkbox 绑 taskIds），不再只有单选下拉',
     /v-model="logEdit_\.taskIds"/.test(APP) && !/v-model="logEdit_\.taskId"/.test(APP))
   check('保存时发的是 taskIds（不是 taskId）',
@@ -469,8 +472,11 @@ function main() {
     !/v-model="logStatusFilter"/.test(APP) && !/全部状态/.test(LOGS_TOOLBAR)
     && /groupedLogs/.test(APP) && /log-group-toggle/.test(APP),
     `toolbar 长度=${LOGS_TOOLBAR.length}（0 说明切片失效，守卫会假绿）`)
+  // ⚠ 2026-10-11：看板顶栏换成「方案 B · 条件标签化」后，`.st-filter` 从 `<select>`
+  // 变成**触发按钮**（`class="fbar-btn st-filter"`）。判据跟着放宽成"类名出现在某个 class 里"——
+  // 但**仍要求它存在**：这条守的是"日志页不许有状态下拉"时，别把看板自己的筛选误伤。
   check('  看板自己的状态筛选不受这条管（页头 .st-filter，2026-10-10 用户明确要的）',
-    /class="st-filter"/.test(APP))
+    /class="[^"]*\bst-filter\b/.test(APP))
 
   // ── 置顶（2026-09-26 卡 037）──────────────────────────────────────────
   //   用户口径：加**新字段** pinned（不复用 status）——置顶是视图属性，跟生命周期正交；

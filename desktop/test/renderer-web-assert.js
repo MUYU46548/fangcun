@@ -95,31 +95,86 @@
     check('  切换器旁有一句说明（不必先点一遍才知道各摆法差在哪）',
       sw.ok && String(sw.hint).length > 6, String(sw.hint))
 
-    // ── 状态筛选（2026-10-10 用户要求）──────────────────────────────────────
+    // ── 状态筛选（2026-10-10 用户要求；2026-10-11 换成「方案 B · 条件标签化」）──────
     // 用户原话：「看板信息卡墙如果能同时按项目+按状态筛选就好了」「待验收和待办混在一起我眼睛很累」
-    // 「筛选应该随心所欲，随机应变」。它与「全部项目」**正交叠加**（不是二选一），
-    // 且与 groupMode（怎么排）是两回事（这个决定显示哪些）。这里验：存在 + 真过滤 + 可清空。
-    const stSel = $('select.st-filter')
-    check('★ 看板顶栏有状态筛选下拉（全部状态 + 7 个状态）',
-      !!stSel && stSel.options.length === 8,
-      stSel ? `options=${stSel.options.length}` : '(没找到 .st-filter)')
+    // 「筛选应该随心所欲，随机应变」；改版理由：「点起来很难受，不自然」——
+    // 原来是原生 select（点开→再点一项、选完看不到生效的是什么），现在是一点即生效的标签。
+    // ⚠ 类名 `.st-filter` **故意保留**（它是"看板有自己的状态筛选"这件事的锚点）。这里验：
+    //   ① 触发按钮在；② 点开面板；③ **一次点击**某个状态即生效；④ 出现可点 ✕ 的生效标签；⑤ 点 ✕ 可撤销。
+    const stBtn = $('.st-filter')
+    check('★ 看板顶栏有状态筛选（触发按钮，类名仍是 .st-filter）', !!stBtn,
+      stBtn ? String(stBtn.textContent).trim() : '(没找到 .st-filter)')
 
-    if (stSel) {
-      const filledCols = () => $$('#board .col').filter((c) => c.querySelectorAll('.card').length > 0)
+    const filledCols = () => $$('#board .col').filter((c) => c.querySelectorAll('.card').length > 0)
+    if (stBtn) {
       const beforeCols = filledCols().length
-      stSel.value = '进行中'
-      stSel.dispatchEvent(new Event('change'))
-      await sleep(600)
-      const afterStatuses = filledCols().map((c) => c.getAttribute('data-status'))
-      check('★ 选了「进行中」后只剩该状态的分区有卡（其余分区全空）',
-        beforeCols > 1 && afterStatuses.length === 1 && afterStatuses[0] === '进行中',
-        `before=${beforeCols} after=${JSON.stringify(afterStatuses)}`)
-      stSel.value = ''
-      stSel.dispatchEvent(new Event('change'))
-      await sleep(600)
-      check('  清空状态筛选后各分区恢复（筛选是可逆的，不是一次性）',
-        filledCols().length === beforeCols,
-        `${filledCols().length} vs ${beforeCols}`)
+      stBtn.click()
+      await sleep(300)
+      check('★ 点它就地展开一块面板（不是原生下拉 —— 原生要"点开→再点一项"）',
+        !!$('.fbar-panel'), 'panel=' + (!!$('.fbar-panel')))
+      const opt = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '进行中')
+      check('  面板里的状态选项本身就是按钮（一次点击即生效）', !!opt)
+      if (opt) {
+        opt.click()
+        await sleep(600)
+        const afterStatuses = filledCols().map((c) => c.getAttribute('data-status'))
+        check('★★ 一次点击「进行中」→ 只剩该状态的分区有卡（其余分区全空）',
+          beforeCols > 1 && afterStatuses.length === 1 && afterStatuses[0] === '进行中',
+          `before=${beforeCols} after=${JSON.stringify(afterStatuses)}`)
+        // 方案 B 的核心价值：**现在筛了什么一眼可见**（老版藏在四个下拉各自的显示值里）
+        const chip = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('进行中') >= 0)
+        check('★★ 生效条件出现在「生效中」标签里（这就是"不自然"被治好的地方）', !!chip,
+          $$('.fbar-chip').map((c) => String(c.textContent).trim()).join(' / '))
+        const x = chip && chip.querySelector('.fbar-x')
+        check('  标签上带 ✕（撤掉不用再打开任何面板）', !!x)
+        if (x) {
+          x.click()
+          await sleep(600)
+          check('★ 点 ✕ 就地撤销 → 各分区恢复（筛选可逆，且不要求回头翻下拉）',
+            filledCols().length === beforeCols,
+            `${filledCols().length} vs ${beforeCols}`)
+          check('  撤销后「生效中」那一行整行消失（不留空壳）',
+            $$('.fbar-chip').length === 0, 'chips=' + $$('.fbar-chip').length)
+        }
+      }
+      // 面板要能收起来（不然它会一直占着屏幕）
+      const closeBtn = $('.fbar-panel .fbar-close')
+      if (closeBtn) closeBtn.click()
+      await sleep(200)
+      check('  面板可收起', !$('.fbar-panel'))
+    }
+
+    // ── 分组 / 排序也走同一个面板（同一个入口模式，不搞第二套交互）──────────
+    const groupBtn = $$('.fbar-btn').find((b) => (b.textContent || '').indexOf('分组 ·') >= 0)
+    check('★ 分组按钮显示**当前值**（老版下拉看不出选了什么）',
+      !!groupBtn && (groupBtn.textContent || '').indexOf('按状态') >= 0,
+      groupBtn ? String(groupBtn.textContent).trim() : '(没找到)')
+    if (groupBtn) {
+      groupBtn.click()
+      await sleep(250)
+      const gOpt = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '按项目')
+      check('  点分组按钮开的是**同一块**面板（不做嵌套下拉）', !!gOpt)
+      if (gOpt) {
+        gOpt.click()
+        await sleep(500)
+        check('★ 一次点击切到「按项目」分组，按钮文案跟着变',
+          (groupBtn.textContent || '').indexOf('按项目') >= 0,
+          String(groupBtn.textContent).trim())
+        // ⚠ 切回原状时必须**先收面板再点触发按钮**：触发按钮是 toggle，
+        //   面板开着时再点它只会把面板关掉（第一版就踩了这个，导致后面按状态的断言全红）。
+        const cb0 = $('.fbar-panel .fbar-close')
+        if (cb0) { cb0.click(); await sleep(180) }
+        groupBtn.click(); await sleep(280)
+        const back = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '按状态')
+        check('  能从面板切回「按状态」（分组是可逆的）', !!back)
+        if (back) back.click()
+        await sleep(450)
+        check('★ 结果：分组回到按状态（按钮上看得见），后面的按状态列断言才成立',
+          (groupBtn.textContent || '').indexOf('按状态') >= 0, String(groupBtn.textContent).trim())
+      }
+      const cb = $('.fbar-panel .fbar-close')
+      if (cb) cb.click()
+      await sleep(150)
     }
 
     // ── 信息卡墙（2026-10-10，卡 20261010-003）──────────────────────────────
@@ -594,27 +649,49 @@
     BOARD_TAB()
     await sleep(400)
 
-    // ══ 顶栏「排序」下拉（2026-09-29 修的死控件）══════════════════════════
+    // ══ 顶栏「排序」（2026-09-29 修的死控件；2026-10-11 换成方案 B 的面板入口）════
     // 修前：`sortMode` 只在模板里 v-model 绑了，**全代码零引用** —— 换下拉毫无反应。
     // 夹具故意把「待办」列两张卡的 created / updated 错开，三种顺序两两不同：
     //   默认 001→002 · 按 updated 倒序 002→001 · 按 created 倒序 001→002
+    // ⚠ 2026-10-11 起不再是 `<select>`：改点「排序 · <当前值>」按钮 → 同一块内联面板里点选项。
+    const SORT_TEXT = { active: '活跃优先', updated: '最近更新', created: '创建时间', prio: '优先级' }
+    const SORT_BTN = () => $$('.fbar-btn').find((b) => (b.textContent || '').indexOf('排序 ·') >= 0)
+    const closeFbarPanel = async () => {
+      const cb = $('.fbar-panel .fbar-close')
+      if (cb) { cb.click(); await sleep(150) }
+    }
+    const openSortPanel = async () => {
+      await closeFbarPanel()
+      const btn = SORT_BTN()
+      if (!btn) return null
+      btn.click()
+      await sleep(250)
+      return $('.fbar-panel') ? btn : null
+    }
     const pickSort = async (v) => {
-      const sel = $$('#bar select').filter((s) => Array.prototype.some.call(s.options, (o) => o.value === v))[0]
-      if (!sel) return false
-      sel.value = v
-      sel.dispatchEvent(new Event('change'))
+      const btn = await openSortPanel()
+      if (!btn) return false
+      const opt = $$('.fbar-panel .fbar-opt').find((o) => (o.textContent || '').trim() === SORT_TEXT[v])
+      if (!opt) return false
+      opt.click()
       await sleep(320)
-      return sel.value === v
+      // 判据用**按钮上显示的当前值**（方案 B 就是要让"现在选的是什么"直接看得见）
+      return (btn.textContent || '').indexOf(SORT_TEXT[v]) >= 0
     }
     const statusColOrder = () => {
       const col = $$('#board .col').filter((c) => ((c.querySelector('h3') || {}).textContent || '').indexOf('待办') >= 0)[0]
       if (!col) return []
       return Array.prototype.map.call(col.querySelectorAll('.card'), (c) => c.dataset.id || '?')
     }
-    check('★★ 顶栏排序下拉四个值（活跃优先 / 最近更新 / 创建时间 / 优先级 —— 2026-10-01 用户第 2 条）',
-      $$('#bar select').some((s) => s.options.length === 4
-        && Array.prototype.every.call(s.options, (o) => ['active', 'updated', 'created', 'prio'].indexOf(o.value) >= 0)),
-      JSON.stringify($$('#bar select').map((s) => Array.prototype.map.call(s.options, (o) => o.value)).filter((a) => a.indexOf('active') >= 0)))
+    check('★★ 排序有四个值（活跃优先 / 最近更新 / 创建时间 / 优先级 —— 2026-10-01 用户第 2 条）',
+      await (async () => {
+        const btn = await openSortPanel()
+        if (!btn) return false
+        const labels = $$('.fbar-panel .fbar-opt').map((o) => String(o.textContent).trim())
+        await closeFbarPanel()
+        return ['活跃优先', '最近更新', '创建时间', '优先级'].every((t) => labels.indexOf(t) >= 0)
+      })(),
+      JSON.stringify($$('.fbar-btn').map((b) => String(b.textContent).trim())))
     const ordDefault = statusColOrder()
     check('  默认「活跃优先」：待办列按后端顺序（夹具 001 → 002）',
       ordDefault.join(',') === 'task-demo-001,task-demo-002', JSON.stringify(ordDefault))
@@ -1233,9 +1310,15 @@
       if (!b) return false
       b.click()
       const ok = await waitFor(() => !$('#board.pv') && !!$('#board'), 4000, '跳看板')
-      // 看板带项目筛选了 —— 还原成「全部项目」，别污染后面的断言
+      // 看板带项目筛选了 —— 还原成「全部项目」，别污染后面的断言。
+      // 2026-10-11 起项目筛选是「触发按钮 + 面板」：走面板里的「全部项目」选项（仍是一次点击）。
       const sel = $('.proj-select')
-      if (sel) { sel.value = '__all__'; sel.dispatchEvent(new Event('change')) }
+      if (sel) {
+        sel.click(); await sleep(250)
+        const all = $$('.fbar-panel .fbar-opt').find((b) => (b.textContent || '').trim() === '全部项目')
+        if (all) all.click()
+        await sleep(300)
+      }
       return ok
     })())
 

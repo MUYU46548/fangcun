@@ -56,49 +56,125 @@
         <!-- 看板专属控件（2026-09-26 用户第 1 条）：它们只对看板/归档有意义。
              原来无条件渲染 → 在回收站/技能/日志/待办等页签上全是"点了没反应"的按钮。 -->
         <template v-if="isBoardView">
-        <select v-model="curProj" class="proj-select">
-          <option value="__all__">全部项目</option>
-          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-        </select>
-        <!-- 状态筛选（2026-10-10 用户要求）：与「全部项目」是**两个正交的筛**，可同时生效。
-             用户原话：「看板信息卡墙如果能同时按项目+按状态筛选就好了」「待验收和待办混在一起
-             我眼睛很累」「筛选应该随心所欲，随机应变」。
-             它和 groupMode（怎么排）是两回事 —— 这个决定"显示哪些"，那个决定"怎么分组"。
-             ⚠ 与 curProj / dueFilter 一样**不写 prefs**：筛选是临时的，记到盘上反而会让
-               "下次打开怎么少了一半卡"变成难查的怪状态。 -->
-        <select v-model="curStatus" class="st-filter"
-          title="只显示该状态的任务（与「全部项目」可同时生效）">
-          <option value="">全部状态</option>
-          <option v-for="s in taskStatuses" :key="s" :value="s">{{ s }}</option>
-        </select>
-        <select v-model="groupMode">
-          <option value="status">按状态</option>
-          <option value="project">按项目</option>
-          <option value="priority">按优先级</option>
-        </select>
-        <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）。
-             「折叠全部 / 展开」并排放两个按钮，永远有一个是无效的 —— 用户原话「臃肿无比」。
-             现在一个按钮把事情做完，且标签跟着当前状态走。 -->
-        <button class="ghost" id="btn-fold-all"
-          :title="allGroupsCollapsed ? '展开所有分组，看全部卡片' : '折叠所有分组，只看分组名和数量（长单子立刻变短）'"
-          @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开全部' : '⊟ 折叠全部' }}</button>
-        <input v-model="searchQuery" placeholder="搜索…（可用 #标签 @项目 due:01-15；也可以直接敲一句话按回车）" class="search" @keydown.enter="executeNaturalQuery" />
-        <select v-model="dueFilter" class="due-filter">
-          <option value="">全部时间</option>
-          <option value="overdue">已逾期</option>
-          <option value="today">今天到期</option>
-          <option value="week">本周到期</option>
-        </select>
-        <!-- 「含归档」只在活跃视图有意义（把归档任务也列进看板/搜索）。
-             归档视图里它只会造成"同一批任务是否重复出现"的困惑，所以直接隐藏（2026-09-25）。 -->
-        <label v-if="curView !== 'archive'" class="chk"><input type="checkbox" v-model="searchIncludeArchive" /> 含归档</label>
-        <select v-model="sortMode">
-          <option value="active">活跃优先</option>
-          <option value="updated">最近更新</option>
-          <option value="created">创建时间</option>
-          <!-- 2026-10-01 用户第 2 条：看板也要能按优先级排（高 → 中 → 低，已完成仍沉底看列而定） -->
-          <option value="prio">优先级</option>
-        </select>
+        <!-- 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）
+             原话：「看板依旧是筛选噩梦，虽然我已经知道在哪里调了，但是点起来很难受，不自然。」
+             两处病根：① 一行八个控件平铺、主次不分；② **全是原生 select** —— 要「点开 → 再点一项」，
+             选完看不到现在生效的是什么，撤销还得重新点开选回「全部」。
+             现在：主行只留「搜索 + ＋筛选」；生效条件变成可点 ✕ 的小标签；
+             分组/排序各是一个只显示当前值的小按钮，点开的是**同一个内联面板**（不做嵌套下拉）；
+             面板里的选项**本身就是按钮** —— 一次点击就生效，这就是"不难受"的全部来源。
+             ⚠ curProj / curStatus / dueFilter / searchIncludeArchive **仍不写 prefs**（筛选是临时的）。 -->
+        <div class="fbar">
+          <input v-model="searchQuery" class="search fbar-search"
+            placeholder="搜索…（可用 #标签 @项目 due:01-15；也可以直接敲一句话按回车）"
+            @keydown.enter="executeNaturalQuery" />
+          <button class="fbar-btn fbar-filter-btn" :class="{ on: fbarPanel === 'filter' }"
+            :title="'筛掉不看的：' + (activeFilterChips.length ? activeFilterChips.map(c => c.label).join(' · ') : '当前没有任何筛选')"
+            @click="toggleFbar('filter')">
+            ＋ 筛选<span v-if="activeFilterChips.length" class="fbar-n">{{ activeFilterChips.length }}</span>
+          </button>
+          <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）。
+               「折叠全部 / 展开」并排放两个按钮，永远有一个是无效的 —— 用户原话「臃肿无比」。 -->
+          <button class="ghost" id="btn-fold-all"
+            :title="allGroupsCollapsed ? '展开所有分组，看全部卡片' : '折叠所有分组，只看分组名和数量（长单子立刻变短）'"
+            @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开全部' : '⊟ 折叠全部' }}</button>
+          <span class="fbar-grow"></span>
+          <!-- 项目 / 状态（2026-10-10 用户要求，两者正交可同时生效）。
+               ⚠ 类名 proj-select / st-filter **故意保留**：它们是"看板有自己的筛选"这件事的锚点，
+                 守卫与断言都认得它们（改了名等于把那些断言一起作废）。 -->
+          <button class="fbar-btn proj-select" :class="{ on: fbarPanel === 'proj' }"
+            @click="toggleFbar('proj')">{{ curProjLabel }} <span class="fbar-caret">▾</span></button>
+          <button class="fbar-btn st-filter" :class="{ on: fbarPanel === 'status' }"
+            title="只显示该状态的任务（与项目筛选可同时生效）"
+            @click="toggleFbar('status')">{{ curStatus || '全部状态' }} <span class="fbar-caret">▾</span></button>
+          <button class="fbar-btn" :class="{ on: fbarPanel === 'group' }" @click="toggleFbar('group')">
+            分组 · {{ optLabel(GROUP_OPTIONS, groupMode) }} <span class="fbar-caret">▾</span></button>
+          <button class="fbar-btn" :class="{ on: fbarPanel === 'sort' }" @click="toggleFbar('sort')">
+            排序 · {{ optLabel(SORT_OPTIONS, sortMode) }} <span class="fbar-caret">▾</span></button>
+        </div>
+
+        <!-- 生效条件（方案 B 的全部价值）：现在筛了什么一眼可见，点 ✕ 就撤，不用回头翻下拉。 -->
+        <div class="fbar-chips" v-if="activeFilterChips.length">
+          <span class="fbar-chips-label">生效中</span>
+          <span v-for="c in activeFilterChips" :key="'fc-' + c.key" class="fbar-chip">
+            {{ c.label }}
+            <button class="fbar-x" :title="'撤掉这个筛选：' + c.label" @click="clearFilterChip(c.key)">✕</button>
+          </span>
+          <button class="ghost fbar-clear" @click="clearAllFilters()">清除全部</button>
+        </div>
+
+        <!-- 内联面板：三个入口（＋筛选 / 分组 / 排序）共用同一块地方。
+             选项就是按钮 —— **一次点击生效**，不是"点开下拉再点一项"。 -->
+        <div class="fbar-panel" v-if="fbarPanel">
+          <div class="fbar-panel-h">
+            <b>{{ FBAR_PANEL_TITLE[fbarPanel] }}</b>
+            <span class="fbar-grow"></span>
+            <button class="ghost fbar-close" @click="fbarPanel = ''">收起 ✕</button>
+          </div>
+
+          <template v-if="fbarPanel === 'filter'">
+            <div class="fbar-row">
+              <span class="fbar-row-label">项目</span>
+              <button class="fbar-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部</button>
+              <button v-for="p in projects" :key="'fp-' + p.id" class="fbar-opt"
+                :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
+            </div>
+            <div class="fbar-row">
+              <span class="fbar-row-label">状态</span>
+              <button class="fbar-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部</button>
+              <button v-for="s in taskStatuses" :key="'fs-' + s" class="fbar-opt"
+                :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
+            </div>
+            <div class="fbar-row">
+              <span class="fbar-row-label">到期</span>
+              <button class="fbar-opt" :class="{ on: !dueFilter }" @click="dueFilter = ''">不限</button>
+              <button v-for="d in DUE_OPTIONS" :key="'fd-' + d.v" class="fbar-opt"
+                :class="{ on: dueFilter === d.v }" @click="dueFilter = d.v">{{ d.label }}</button>
+            </div>
+            <!-- 「含归档」只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
+                 2026-09-25 决定：归档视图下直接不给这个选项。 -->
+            <div class="fbar-row" v-if="curView !== 'archive'">
+              <span class="fbar-row-label">范围</span>
+              <button class="fbar-opt" :class="{ on: !searchIncludeArchive }" @click="searchIncludeArchive = false">只看活跃</button>
+              <button class="fbar-opt" :class="{ on: searchIncludeArchive }" @click="searchIncludeArchive = true">
+                含归档（搜索结果也带上归档任务）</button>
+            </div>
+          </template>
+
+          <template v-else-if="fbarPanel === 'proj'">
+            <div class="fbar-row">
+              <span class="fbar-row-label">项目</span>
+              <button class="fbar-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部项目</button>
+              <button v-for="p in projects" :key="'pp-' + p.id" class="fbar-opt"
+                :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
+            </div>
+          </template>
+
+          <template v-else-if="fbarPanel === 'status'">
+            <div class="fbar-row">
+              <span class="fbar-row-label">状态</span>
+              <button class="fbar-opt" :class="{ on: !curStatus }" @click="curStatus = ''">全部状态</button>
+              <button v-for="s in taskStatuses" :key="'ps-' + s" class="fbar-opt"
+                :class="{ on: curStatus === s }" @click="curStatus = s">{{ s }}</button>
+            </div>
+          </template>
+
+          <template v-else-if="fbarPanel === 'group'">
+            <div class="fbar-row">
+              <span class="fbar-row-label">怎么分组</span>
+              <button v-for="o in GROUP_OPTIONS" :key="'pg-' + o.v" class="fbar-opt"
+                :class="{ on: groupMode === o.v }" @click="groupMode = o.v">{{ o.label }}</button>
+            </div>
+          </template>
+
+          <template v-else-if="fbarPanel === 'sort'">
+            <div class="fbar-row">
+              <span class="fbar-row-label">怎么排</span>
+              <button v-for="o in SORT_OPTIONS" :key="'po-' + o.v" class="fbar-opt"
+                :class="{ on: sortMode === o.v }" @click="sortMode = o.v">{{ o.label }}</button>
+            </div>
+          </template>
+        </div>
         </template>
         <button v-if="isTaskView" @click="openNew">+ 新建</button>
         <!-- 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）：
@@ -4434,6 +4510,82 @@ const parseErrors = ref<string[]>([])
 const searchIncludeArchive = ref(readUiPref<boolean>('fc_include_archive', false))
 const dueFilter = ref('')
 const isNaturalQuery = ref(false)
+
+// ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）────────────────────
+// 三件事取代了原先那一排原生 select：
+//   ① 主行只留「搜索 + ＋筛选」；② 生效条件变成可点 ✕ 的标签；③ 分组/排序点开同一个内联面板。
+// ⚠ 这些入口用的仍是**原来那几个 ref**（curProj/curStatus/dueFilter/searchIncludeArchive/
+//   groupMode/sortMode）—— 换的是操作手感，不是数据流；筛选仍然不写 prefs。
+const FBAR_PANEL_TITLE: Record<string, string> = {
+  filter: '筛选', proj: '按项目', status: '按状态', group: '分组方式', sort: '排序方式',
+}
+// ⚠ 用「数组 + 查找」而不是 `Record<...>` 映射：模板里 `v-for="(label, v) in MAP"` 需要写
+//   `groupMode = v as any` 这种 TS 断言，而 `check-template-bindings` 会把 `as` / `any`
+//   当成"模板引用了未声明的标识符"直接判红（实测）。数组写法没有断言，也就没这个问题。
+const GROUP_OPTIONS: { v: string; label: string }[] = [
+  { v: 'status', label: '按状态' },
+  { v: 'project', label: '按项目' },
+  { v: 'priority', label: '按优先级' },
+]
+const SORT_OPTIONS: { v: string; label: string }[] = [
+  { v: 'active', label: '活跃优先' },
+  { v: 'updated', label: '最近更新' },
+  { v: 'created', label: '创建时间' },
+  { v: 'prio', label: '优先级' },
+]
+const DUE_OPTIONS: { v: string; label: string }[] = [
+  { v: 'overdue', label: '已逾期' },
+  { v: 'today', label: '今天到期' },
+  { v: 'week', label: '本周到期' },
+]
+/** 取选项的显示名（找不到就给原值 —— 宁可显示怪值，也不显示空白） */
+function optLabel(opts: { v: string; label: string }[], v: string): string {
+  return (opts.find(o => o.v === v) || { label: v }).label
+}
+/** 当前打开的是哪一块（'' = 收着）。同一时间只开一块 —— 三个入口共用一块地方。 */
+const fbarPanel = ref<'' | 'filter' | 'proj' | 'status' | 'group' | 'sort'>('')
+function toggleFbar(p: 'filter' | 'proj' | 'status' | 'group' | 'sort'): void {
+  fbarPanel.value = fbarPanel.value === p ? '' : p
+}
+/** 换视图一定收起来（否则它会跟着跑到别的页签上，像一块甩不掉的浮层） */
+function closeFbar(): void { fbarPanel.value = '' }
+
+const curProjLabel = computed(() => {
+  if (curProj.value === '__all__') return '全部项目'
+  const p = projects.value.find(x => x.id === curProj.value)
+  return p ? (p.name || p.id) : curProj.value
+})
+
+/**
+ * 生效中的筛选条件（按顺序：项目 → 状态 → 到期 → 含归档）。
+ * 这是方案 B 的核心：**"现在筛了什么"必须一眼可见** —— 老版的答案藏在四个下拉各自的
+ * 显示值里，用户得挨个看过去，那就是"点起来很难受、不自然"的一半来源。
+ */
+const activeFilterChips = computed(() => {
+  const out: { key: string; label: string }[] = []
+  if (curProj.value !== '__all__') out.push({ key: 'proj', label: curProjLabel.value })
+  if (curStatus.value) out.push({ key: 'status', label: curStatus.value })
+  const due = DUE_OPTIONS.find(d => d.v === dueFilter.value)
+  if (due) out.push({ key: 'due', label: due.label })
+  if (searchIncludeArchive.value) out.push({ key: 'archive', label: '含归档' })
+  return out
+})
+
+/** 点标签上的 ✕ = 撤掉这一条（就地生效，不需要再打开任何面板） */
+function clearFilterChip(key: string): void {
+  if (key === 'proj') curProj.value = '__all__'
+  else if (key === 'status') curStatus.value = ''
+  else if (key === 'due') dueFilter.value = ''
+  else if (key === 'archive') searchIncludeArchive.value = false
+}
+
+/** 一次撤掉全部（只清"筛什么"，不动分组/排序 —— 那是"怎么排"，不是筛选） */
+function clearAllFilters(): void {
+  curProj.value = '__all__'
+  curStatus.value = ''
+  dueFilter.value = ''
+  searchIncludeArchive.value = false
+}
 const naturalResults = ref<Task[]>([])
 const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
 
@@ -5779,6 +5931,7 @@ function navigateTo(v: string) {
   // 键盘/程序化跳转时会把上一个页签的菜单留在屏幕上，像"卡住的浮层"。
   closeCardMenu()
   closeOtherMenu()
+  closeFbar()          // 筛选面板同理：它是挂在这块地方的内联面板，换页签必须收起来
   curView.value = v
   loadViewData(v)
 }
@@ -10550,6 +10703,59 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 }
 #bar button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 #bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+
+/* ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）──────────────────────
+   ⚠ 所有规则必须带 `#bar` 前缀：顶栏有一条 `#bar button { background: accent; color: #fff }`
+     （1,0,1），光写 `.fbar-btn`（0,1,0）压不过它 —— 按钮会变成"实心紫底"，看着像主按钮。
+   ⚠ chips 与面板的 `flex-basis: 100%` 是**故意**的：`.ctrls` 是 flex-wrap 行，
+     给满基准它们才会各自独占一行，而不是挤在筛选那一行的末尾。 */
+#bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 380px; min-width: 0; }
+#bar .fbar .search { flex: 1 1 180px; width: auto; min-width: 120px; }
+#bar .fbar-grow { flex: 1 1 auto; }
+#bar .fbar-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; color: var(--ink); font-size: 12px; font-weight: 400;
+}
+#bar .fbar-btn:hover { border-color: var(--accent); }
+#bar .fbar-btn.on { border-color: var(--accent); color: var(--accent); background: var(--tint); }
+#bar .fbar-filter-btn { font-weight: 500; }
+#bar .fbar-n {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 10px; line-height: 1;
+}
+#bar .fbar-caret { color: var(--muted); font-size: 10px; }
+/* 项目名可能很长（"设定资料工具库"这类）—— 触发按钮不要被撑破 */
+#bar .proj-select { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#bar .fbar-chips { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#bar .fbar-chips-label { font-size: 11px; color: var(--muted); }
+#bar .fbar-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 9px; border-radius: 10px;
+  background: var(--tint); border: 1px solid var(--border); font-size: 11.5px; color: var(--ink);
+}
+#bar .fbar-x {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+}
+#bar .fbar-x:hover { color: #a03a3a; background: #fff; }
+#bar .fbar-clear { font-size: 11.5px; padding: 2px 8px; font-weight: 400; }
+#bar .fbar-panel {
+  flex: 1 1 100%; margin-top: 2px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  display: flex; flex-direction: column; gap: 7px;
+}
+#bar .fbar-panel-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+#bar .fbar-close { font-size: 11.5px; padding: 2px 8px; font-weight: 400; }
+#bar .fbar-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#bar .fbar-row-label { flex: 0 0 62px; font-size: 11.5px; color: var(--muted); }
+#bar .fbar-opt {
+  padding: 3px 10px; border: 1px solid var(--border); border-radius: 12px;
+  background: #fff; color: var(--ink); font-size: 12px; font-weight: 400;
+}
+#bar .fbar-opt:hover { border-color: var(--accent); }
+#bar .fbar-opt.on { border-color: var(--accent); background: var(--tint); color: var(--accent); font-weight: 500; }
 
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
