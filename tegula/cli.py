@@ -1017,6 +1017,31 @@ def cmd_new(args):
     print(f"已创建任务: {tid}")
 
 
+# ---------- AI 规划写回层（2026-10-12，方案卡：AI 规划功能 2.5 天主体） ----------
+# 函数体内延迟 import：cli 冷启动不加载 LLM 层；也规避模块级循环 import 的任何可能。
+# 红线见 tegula_writeback.py 模块头：AI 卡只落「待审批」，项目说明只落笔记（契约只读）。
+def cmd_ai_plan(args):
+    from tegula_writeback import plan_to_draft
+    r = plan_to_draft(args.goal, args.项目 or "", args.model or None)
+    if r.get("ok"):
+        print(f"已落 {r['count']} 张待审批任务卡（来源 ai-planning，GUI 里确认后转待办）：")
+        for tid in r["created"]:
+            print(f"  {tid}")
+    else:
+        print(f"失败：{r.get('error')}", file=sys.stderr)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_ai_brief(args):
+    from tegula_writeback import draft_project_brief
+    r = draft_project_brief(args.项目 or "", args.model or None)
+    if r.get("ok"):
+        print(f"项目说明草稿已落笔记 {r['note_id']}（方寸侧为草稿，非权威契约——点头后由各线 agent 落各 repo）")
+    else:
+        print(f"失败：{r.get('error')}", file=sys.stderr)
+    return 0 if r.get("ok") else 1
+
+
 # ---------- MCP 只读接口（P3）：零依赖手写 JSON-RPC 2.0 over stdio ----------
 # MCP 常量定义在 tegula.core 中（mcp_handle 在 core.py）。
 # 此处不再重复定义，直接从 core 导入供本模块引用。
@@ -2021,6 +2046,17 @@ def main():
     sy_skills.add_argument("--check", action="store_true", help="仅检查，不安装")
     sy_skills.add_argument("--go", action="store_true", help="人工确认后安装/覆盖")
     sy_skills.set_defaults(func=cmd_sync_skills)
+
+    # 2026-10-12：AI 规划写回层（LLM 输出落方寸：待审批卡 / 笔记，详见 tegula_writeback.py）
+    ap = sub.add_parser("ai-plan", help="AI 拆解目标 → 待审批任务卡（需 TEGULA_LLM_* 环境变量）")
+    ap.add_argument("goal", help="目标描述，如「把注册页迁移到新组件库」")
+    ap.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认 fangcun-base）")
+    ap.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ap.set_defaults(func=cmd_ai_plan)
+    ab = sub.add_parser("ai-brief", help="AI 起草四栏项目说明 → 笔记（方寸侧草稿，契约真源在各 repo）")
+    ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
+    ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ab.set_defaults(func=cmd_ai_brief)
 
     args = p.parse_args()
     if not getattr(args, "func", None):
