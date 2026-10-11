@@ -65,6 +65,13 @@ contextBridge.exposeInMainWorld('tegula', {
   backupExportTo: (input: any) => ipcRenderer.invoke('backup:exportTo', input),
   backupVerifyPackage: (zipPath?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath),
   backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
+  // Git 通道（2026-10-11）：只推不拉；令牌在渲染层只出现一次（填进去），之后再没回传
+  backupGitStatus: () => ipcRenderer.invoke('backup:gitStatus'),
+  backupGitSave: (patch: any) => ipcRenderer.invoke('backup:gitSave', patch),
+  backupGitSaveToken: (token: string, username?: string) => ipcRenderer.invoke('backup:gitSaveToken', token, username),
+  backupGitClearToken: () => ipcRenderer.invoke('backup:gitClearToken'),
+  backupGitTest: () => ipcRenderer.invoke('backup:gitTest'),
+  backupGitPush: (zipPath?: string) => ipcRenderer.invoke('backup:gitPush', zipPath),
   backupPickRestoreFile: () => ipcRenderer.invoke('backup:pickRestoreFile'),
   backupPickDir: () => ipcRenderer.invoke('backup:pickDir'),
   onBackupStatus: (cb: (status: any) => void) => {

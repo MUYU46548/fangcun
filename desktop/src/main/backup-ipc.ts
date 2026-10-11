@@ -19,6 +19,10 @@ import {
 import { getBackupStatus, rescheduleScheduler, runBackupNow } from './backup/scheduler'
 import { restoreFrom } from './backup/restore'
 import { buildResticScript } from './backup/resticScript'
+import {
+  readGitConfig, saveGitConfig, saveGitToken, hasGitToken, clearGitToken,
+  gitTestRemote, gitPushPackage,
+} from './backup/gitBackup'
 import { SECRET_BASENAMES } from './backup/rules'
 import { getDataDir } from './data/index'
 
@@ -207,6 +211,59 @@ export function registerBackupIpcHandlers(): void {
     } catch (e) {
       return fail(e)
     }
+  })
+
+  // ── Git 通道（2026-10-11，卡 20261002-003）──────────────────────────
+  // 场景：把备份 zip 推到一个 git 仓库（方寸的数据本身不入 git，所以只推不拉）。
+  // 安全约定全在 `backup/gitBackupPure.ts`（纯函数、有断言）；这里只做通道。
+  // ⚠ 回给渲染层的**永远不含令牌**，只给 `hasToken` 布尔。
+  guardedHandle('backup:gitStatus', () => {
+    try {
+      const cfg = readGitConfig()
+      return { ok: true, config: { ...cfg }, hasToken: hasGitToken() }
+    } catch (e) { return fail(e) }
+  })
+
+  guardedHandle('backup:gitSave', (_e, patch: any) => {
+    try {
+      const r = saveGitConfig(patch || {})
+      // 地址里若内嵌了令牌，顺手存起来（**不回传令牌本身**）
+      if (r.extractedToken) {
+        const sr = saveGitToken(r.extractedToken)
+        return { ok: true, extractedTokenSaved: true, persistent: sr.persistent, note: '地址里内嵌的令牌已抽出并单独保管（不会留在 .git/config 里）' }
+      }
+      return r
+    } catch (e) { return fail(e) }
+  })
+
+  guardedHandle('backup:gitSaveToken', (_e, token: string, username?: string) => {
+    try {
+      const r = saveGitToken(String(token || ''), String(username || ''))
+      // ⚠ 只回"存住没有"，绝不回令牌
+      return { ok: r.ok, persistent: r.persistent, error: r.error }
+    } catch (e) { return fail(e) }
+  })
+
+  guardedHandle('backup:gitClearToken', () => {
+    try { return clearGitToken() } catch (e) { return fail(e) }
+  })
+
+  guardedHandle('backup:gitTest', async () => {
+    try { return await gitTestRemote() } catch (e) { return fail(e) }
+  })
+
+  guardedHandle('backup:gitPush', async (_e, zipPath?: string) => {
+    try {
+      // 不传就用最新那份（与「导出备份」同一条交互口径：不让用户挑包）
+      let p = String(zipPath || '').trim()
+      if (!p) {
+        const list: any = listLocalBackups()
+        const arr = Array.isArray(list) ? list : (list?.items || [])
+        p = arr.length ? String(arr[0].path || arr[0].file || '') : ''
+      }
+      if (!p) return { ok: false, message: '还没有任何备份包 —— 先做一次本地备份' }
+      return await gitPushPackage(p)
+    } catch (e) { return fail(e) }
   })
 
   /**

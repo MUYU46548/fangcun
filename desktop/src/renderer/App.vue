@@ -2878,6 +2878,26 @@
             <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
               title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
           </div>
+          <!-- Git 通道（2026-10-11，卡 20261002-003）：把备份 zip 推到一个 git 仓库。
+               方寸的数据本身**不入 git**（既定决策），所以这条通道只推不拉、没有冲突处理。
+               令牌只在这里出现一次（填进来），之后再没回传 —— 存的是 safeStorage 密文。 -->
+          <div class="sect-btns bk-manual bk-git">
+            <span class="bk-manual-label">Git 通道（把备份包推到仓库）</span>
+            <input v-model="gitRemote" class="git-in" spellcheck="false"
+              placeholder="仓库地址，如 https://github.com/你/fangcun-backup.git" />
+            <input v-model="gitToken" class="git-in" type="password" spellcheck="false"
+              :placeholder="gitHasToken ? '令牌已保存（重填可覆盖）' : '访问令牌（只用于推送，加密存本机）'" />
+            <select v-model="gitBranch" class="git-branch" title="推送到哪个分支">
+              <option value="main">main</option>
+              <option value="master">master</option>
+            </select>
+            <button class="ghost" :disabled="gitBusy" @click="gitSaveConfig">保存</button>
+            <button class="ghost" :disabled="gitBusy" @click="gitTest">🔌 测试连接</button>
+            <button class="ghost" :disabled="gitBusy" @click="gitPushNow">⬆ 推送最新备份</button>
+            <button class="ghost" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</button>
+          </div>
+          <div v-if="gitMsg" :class="'llm-config-msg ' + gitMsgType">{{ gitMsg }}</div>
+
           <div v-if="bkMsg" :class="'llm-config-msg ' + bkMsgType">{{ bkMsg }}</div>
           <div v-if="bkForm.url && !bkForm.hasPassword" class="hint">
             提示：密码只有保存后才会加密留存，重启应用后仍可自动备份。
@@ -4432,6 +4452,99 @@ async function bkToggleLog() {
 async function bkPickDir() {
   const r = await window.tegula.backupPickDir()
   if (r.ok && r.dir) bkForm.value.localDir = r.dir
+}
+
+// ── Git 通道（2026-10-11，卡 20261002-003）──────────────────────────────
+// 把备份 zip 推到一个 git 仓库。方寸的数据本身不入 git（既定决策）→ **只推不拉、没有冲突**。
+// ⚠ 令牌只在这里出现**一次**（用户填进来那一瞬），保存后立刻清空输入框；
+//   主进程只回 `hasToken` 布尔，从不回传令牌本身。
+const gitRemote = ref('')
+const gitBranch = ref('main')
+const gitToken = ref('')
+const gitHasToken = ref(false)
+const gitBusy = ref(false)
+const gitMsg = ref('')
+const gitMsgType = ref<'success' | 'info' | 'error'>('info')
+
+async function loadGitStatus(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.backupGitStatus()
+    if (r?.ok) {
+      gitRemote.value = r.config?.remote || ''
+      gitBranch.value = r.config?.branch || 'main'
+      gitHasToken.value = !!r.hasToken
+    }
+  } catch { /* 读不到就留空 —— 不编默认值 */ }
+}
+
+async function gitSaveToken(): Promise<void> {
+  const t = gitToken.value.trim()
+  if (!t) return
+  try {
+    const r: any = await (window as any).tegula.backupGitSaveToken(t)
+    if (!r?.ok) { gitMsg.value = '令牌保存失败：' + (r?.error || '未知错误'); gitMsgType.value = 'error'; return }
+    gitToken.value = ''      // 立刻清空 —— 令牌在渲染层只存在这一瞬
+    gitHasToken.value = true
+    gitMsg.value = r.persistent ? '令牌已加密保存' : ('令牌只保留在本次会话：' + (r.error || '本机加密不可用'))
+    gitMsgType.value = r.persistent ? 'success' : 'info'
+  } catch (e: any) { gitMsg.value = '令牌保存异常：' + (e?.message || e); gitMsgType.value = 'error' }
+}
+
+async function gitSaveConfig(): Promise<void> {
+  if (gitBusy.value) return
+  gitBusy.value = true
+  gitMsg.value = ''
+  try {
+    const r: any = await (window as any).tegula.backupGitSave({ remote: gitRemote.value.trim(), branch: gitBranch.value })
+    if (!r?.ok) { gitMsg.value = '保存失败：' + (r?.error || '未知错误'); gitMsgType.value = 'error'; return }
+    if (r.extractedTokenSaved) {
+      gitMsg.value = r.note || '地址里内嵌的令牌已单独保管'
+      gitMsgType.value = 'info'
+      gitHasToken.value = true
+      gitToken.value = ''
+    } else if (gitToken.value.trim()) {
+      await gitSaveToken()
+    } else {
+      gitMsg.value = '仓库地址已保存'
+      gitMsgType.value = 'success'
+    }
+    await loadGitStatus()
+  } finally { gitBusy.value = false }
+}
+
+async function gitForgetToken(): Promise<void> {
+  try {
+    await (window as any).tegula.backupGitClearToken()
+    gitHasToken.value = false
+    gitMsg.value = '已清除本机保存的令牌（仓库地址保留）'
+    gitMsgType.value = 'info'
+  } catch (e: any) { gitMsg.value = '清除失败：' + (e?.message || e); gitMsgType.value = 'error' }
+}
+
+async function gitTest(): Promise<void> {
+  if (gitBusy.value) return
+  gitBusy.value = true
+  gitMsg.value = '测试中…'
+  gitMsgType.value = 'info'
+  try {
+    const r: any = await (window as any).tegula.backupGitTest()
+    gitMsg.value = r?.message || '测试没有返回结果'
+    gitMsgType.value = r?.ok ? 'success' : 'error'
+  } catch (e: any) { gitMsg.value = '测试异常：' + (e?.message || e); gitMsgType.value = 'error' }
+  finally { gitBusy.value = false }
+}
+
+async function gitPushNow(): Promise<void> {
+  if (gitBusy.value) return
+  gitBusy.value = true
+  gitMsg.value = '推送中…'
+  gitMsgType.value = 'info'
+  try {
+    const r: any = await (window as any).tegula.backupGitPush()
+    gitMsg.value = r?.message || '推送没有返回结果'
+    gitMsgType.value = r?.ok ? 'success' : 'error'
+  } catch (e: any) { gitMsg.value = '推送异常：' + (e?.message || e); gitMsgType.value = 'error' }
+  finally { gitBusy.value = false }
 }
 
 /**
@@ -9415,6 +9528,8 @@ function showSettings() {
   bkLoadConfig()
   bkLoadList()
   bkRefreshStatus()
+  // Git 通道的状态也一样：进门就刷（否则「令牌已保存」会被显示成没保存 —— 界面说假话）
+  void loadGitStatus()
 }
 
 async function triggerBackup() {
@@ -10053,6 +10168,11 @@ button.vsb.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(
 .pvw-switch:hover { border-color: var(--accent-soft); background: var(--tint-2); }
 .pvw-switch-chk { margin: 0; accent-color: var(--accent); cursor: pointer; }
 .pvw-allhidden { padding: 16px 2px; }
+/* Git 通道（2026-10-11）：地址/令牌两个输入 + 分支下拉，与备份区其它控件同排 */
+.bk-git { flex-wrap: wrap; }
+.git-in { flex: 1 1 260px; min-width: 180px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+.git-in::placeholder { color: #9ca3af; font-size: 11px; }
+.git-branch { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 
 /* ── 看板 · 列表视图（多视图第 1 项）────────────────────────────────────
    同一批 columns 换个摆法：列视图"横着摊开"（有流程感、可拖拽，但列多要横滚，
