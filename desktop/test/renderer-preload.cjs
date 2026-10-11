@@ -688,6 +688,8 @@ contextBridge.exposeInMainWorld('tegula', {
         contract: {
           exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
           endState: '桌面客户端为主产品。', acceptLine: '', notWant: '', choice: '',
+          sections: [{ name: '① 终态形态', field: '终态形态' }], filled: ['终态形态'],
+          placeholderFields: [], unmatched: [],
         },
         current: { text: '正在做的事', from: 'task', sub: '' },
         next: { text: '要做的下一件', from: 'task', sub: '1 张待办（最高：中）' },
@@ -699,7 +701,10 @@ contextBridge.exposeInMainWorld('tegula', {
       },
       {
         id: 'demo2', name: '第二个项目', repo: '',
-        contract: { exists: false, path: '', endState: '', acceptLine: '', notWant: '', choice: '' },
+        contract: {
+          exists: false, path: '', endState: '', acceptLine: '', notWant: '', choice: '',
+          sections: [], filled: [], placeholderFields: [], unmatched: [],
+        },
         current: { text: '进度日志1001', from: 'log', sub: '3 天前' },
         next: { text: '', from: '', sub: '' },
         who: { text: '', kind: 'none' },

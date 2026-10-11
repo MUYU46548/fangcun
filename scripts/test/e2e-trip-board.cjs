@@ -143,6 +143,8 @@ function check(name, cond, detail) {
   else { FAILS.push(name); console.log('FAIL  ' + name + (detail ? '  [' + detail + ']' : '')) }
 }
 
+// ⚠ 从这一行起包在 async IIFE 里：6b 那段要 await warmBoardGit()，而 CJS 没有顶层 await。
+;(async () => {
 console.log('---- 1. 契约文件解析 ----')
 const c1 = tb.readContractFile(repoA)
 check('契约：六字段全部解析出（标题带 ①② 序号也认）',
@@ -153,6 +155,74 @@ const c2 = tb.readContractFile(repoB)
 check('契约：文件不存在 → exists=false，四字段全空串（不编）',
   c2.exists === false && !c2.endState && !c2.acceptLine && !c2.notWant && !c2.choice)
 check('契约：路径拼接用仓库根 + 立项契约.md', c1.path.endsWith('立项契约.md'))
+
+// ── 1b. 契约读取的三个真机修正（2026-10-11 用户：「绒花墨坊怎么还在说内容未填？已经有内容了啊？」）──
+// 真因：只认标准六节名 → 用自定义小节名写的契约（① 终态三段 / ⑥ 验收锚点 …）六个字段全空，
+// 界面写「文件已建 · 内容未填」。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
+const repoE = path.join(TMP, 'repo-alias')
+const repoF = path.join(TMP, 'repo-placeholder')
+fs.mkdirSync(repoE, { recursive: true })
+fs.mkdirSync(repoF, { recursive: true })
+fs.writeFileSync(path.join(repoE, '立项契约.md'), [
+  '# 立项契约 · 绒花墨坊式（自定义小节名）',
+  '',
+  '## ① 终态三段（产线）',
+  '前段产坯 → 人工精修 → 后段审校',
+  '',
+  '## ② 原料边界',
+  '- 负向：游戏文案类永不进来',
+  '',
+  '## ⑥ 验收锚点',
+  '- D0：扫一眼确认',
+  '',
+  '## ③ 产线本质',
+  'AI 管结构，文字归人',
+  '',
+].join('\n'), 'utf-8')
+const ca = tb.readContractFile(repoE)
+check('★★ 契约（别名匹配）：自定义小节名也要读出来 —— 「① 终态三段」算终态、「⑥ 验收锚点」算验收线、'
+  + '「② 原料边界」算不要什么（老实现这三节全判成未填）',
+  String(ca.endState).startsWith('前段产坯') && String(ca.acceptLine).startsWith('- D0')
+  && String(ca.notWant).startsWith('- 负向'), JSON.stringify(ca).slice(0, 140))
+check('★ 契约（原因分类）：「对不上的小节名」进 unmatched、命中的进 filled、sections 逐条给「小节名 → 字段」',
+  ca.unmatched.includes('③ 产线本质')
+  && ca.filled.slice().sort().join(',') === ['不要什么', '终态形态', '验收线'].sort().join(',')
+  && ca.sections.some(s => s.name === '① 终态三段（产线）' && s.field === '终态形态')
+  && ca.sections.some(s => s.name === '③ 产线本质' && s.field === null),
+  JSON.stringify({ unmatched: ca.unmatched, filled: ca.filled }))
+
+fs.writeFileSync(path.join(repoF, '立项契约.md'), [
+  '## ① 终态形态',
+  '（一句话：我一开始想要的就是 ___。用户原话直录，不改写。）',
+  '',
+  '---',
+  '',
+  '## ② 验收线',
+  '（「完整投入真实使用」的判据链。）',
+  '',
+].join('\n'), 'utf-8')
+const cp = tb.readContractFile(repoF)
+check('★★ 契约（占位识别）：整段被括号包住的是**模板骨架不是内容** → 两节都算「占位没填」'
+  + '（老实现把骨架当正文，司天那种空表反而显示成「填了」—— 另一种假话）',
+  cp.filled.length === 0 && cp.placeholderFields.slice().sort().join(',') === ['终态形态', '验收线'].sort().join(','),
+  JSON.stringify({ filled: cp.filled, ph: cp.placeholderFields }))
+check('★ 契约（分隔线剥离）：小节之间用 `---` 分隔时正文不带 `---`（占位判定也就不被它破坏）',
+  cp.endState === '' && cp.acceptLine === '', JSON.stringify(cp.endState) + '/' + JSON.stringify(cp.acceptLine))
+
+// 跨语言同口径：TS 别名表必须与 Python 逐字一致（否则会出现"CLI 读得到、桌面说未填"）
+const PY_SRC = fs.readFileSync(path.join(REPO, 'tegula', 'core.py'), 'utf-8')
+const TS_SRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'services', 'tripBoard.ts'), 'utf-8')
+const pyAlias = (PY_SRC.match(/CONTRACT_ALIASES\s*=\s*\{([\s\S]*?)\n\}/) || [])[1] || ''
+const tsAlias = (TS_SRC.match(/const CONTRACT_ALIASES[^=]*=\s*\{([\s\S]*?)\n\}/) || [])[1] || ''
+const grab = (block) => (block.match(/["']?([\u4e00-\u9fa5]+)["']?\s*[:=]\s*\[([^\]]*)\]/g) || [])
+  .map(s => {
+    const k = /([\u4e00-\u9fa5]+)/.exec(s)[1]
+    const vs = /\[([^\]]*)\]/.exec(s)[1].split(',').map(v => v.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+    return k + ':' + vs.join('|')
+  }).sort().join(' ; ')
+check('★★ 契约：TS 侧别名表必须与 Python 侧**逐字一致**（两侧各写一份迟早分叉）',
+  !!pyAlias && !!tsAlias && grab(pyAlias) === grab(tsAlias),
+  'py=' + grab(pyAlias) + ' | ts=' + grab(tsAlias))
 
 console.log('\n---- 2. 判据（默认 = 有未完结卡 或 30 天内有提交）----')
 let board = tb.buildTripBoard()
@@ -228,6 +298,32 @@ check('★ manual 下未勾的项目，原因必须说「手动指定」而**不
   && board.hidden.every(h => h.kind === 'not-picked' && h.reason.indexOf('手动指定') >= 0),
   board.hidden[0] && `${board.hidden[0].kind} / ${board.hidden[0].reason}`)
 
+console.log('\n---- 6b. 加载反馈：git 缓存并发预热（2026-10-11 用户「每次进都要卡一下」）----')
+check('★ warmBoardGit 存在且是 async（把逐项目同步 spawn 换成并发等待）',
+  typeof tb.warmBoardGit === 'function' && tb.warmBoardGit.constructor.name === 'AsyncFunction')
+let warmOk = false
+try { await tb.warmBoardGit(); warmOk = true } catch { warmOk = false }
+check('★ warmBoardGit 不抛（git 不在/不是仓库都必须安静跳过 —— 界面不能因为读不到 git 就崩）', warmOk)
+tb.clearGitCache()
+const t0 = Date.now()
+await tb.warmBoardGit()
+const warmMs = Date.now() - t0
+const t1 = Date.now()
+tb.buildTripBoard()
+const buildMs = Date.now() - t1
+check('★★ 预热之后 buildTripBoard 命中缓存（同步路径不该再等 git）',
+  buildMs <= Math.max(50, warmMs), `warm=${warmMs}ms build=${buildMs}ms`)
+
+const IPCSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'ipc.ts'), 'utf-8')
+check('★★ 源码守卫：trip:board 必须**先预热再聚合**（少了这步优化就等于没做）',
+  /guardedHandle\('trip:board',\s*async[\s\S]{0,200}warmBoardGit\(\)[\s\S]{0,200}buildTripBoard\(\)/.test(IPCSRC),
+  IPCSRC.slice(IPCSRC.indexOf("trip:board"), IPCSRC.indexOf("trip:board") + 200).replace(/\n/g, ' '))
+
+const APPSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
+check('★ 源码守卫：读取中要有**小提示**（按钮文案 + 屏上提示），不许让用户对着不动的旧表猜',
+  /tripLoading \? '⟳ 读取中…'/.test(APPSRC) && /trip-refreshing/.test(APPSRC)
+  && /tripLoading && !tripRows\.length/.test(APPSRC))
+
 console.log('\n---- 7. 路径安全与模板 ----')
 setPrefs({})
 check('repoOfProject：按登记 id 取路径', tb.repoOfProject('has-card') === repoA.replace(/\\/g, '/') || tb.repoOfProject('has-card') === repoA)
@@ -263,3 +359,4 @@ if (FAILS.length) {
   process.exit(1)
 }
 console.log('全部通过。')
+})()

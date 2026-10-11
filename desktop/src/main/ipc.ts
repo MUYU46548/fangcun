@@ -566,9 +566,14 @@ export function registerIpcHandlers(): void {
   // ── 在途一屏（Q2 · 立项契约 ② 验收线之①）──────────────────────────────
   // 只读聚合：读各 repo 的 `立项契约.md` + 任务卡 + 执行日志 + git 提交时间。
   // 方寸**不写任何项目仓库**；"打开 repo"只收 projectId（路径由主进程从 registry 取），不放任意路径。
-  guardedHandle('trip:board', () => {
-    try { return { ok: true, ...tripBoard.buildTripBoard() } }
-    catch (e: any) { return { ok: false, error: e.message } }
+  // 2026-10-11 用户：「每次进在途一屏都要卡一下」。真因是**逐项目同步 spawn git**
+  //（8 个项目 × 2 条命令 = 0.5–3s 整段阻塞）。现在先并发预热缓存再走原来的同步聚合 ——
+  // 命令/缓存键/TTL/失败语义一条没改，只是把等待从"串行阻塞"换成"并发等待"。
+  guardedHandle('trip:board', async () => {
+    try {
+      await tripBoard.warmBoardGit()
+      return { ok: true, ...tripBoard.buildTripBoard() }
+    } catch (e: any) { return { ok: false, error: e.message } }
   })
 
   guardedHandle('trip:contractText', (_event, projectId: string) => {

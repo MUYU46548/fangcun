@@ -1060,14 +1060,16 @@
       return got && !!last && last.args[0] === 'E:/CODE/mock/demo/立项契约.md'
         && window.__fcTest.callCount('openFile') === before + 1
     })())
-    // 文件在、但 ① 终态形态 还没填 —— 旧版会并进「未填」分支，于是只剩一个
-    // 会被主进程拒绝的「建契约文件」。注入夹具把这条分支逼出来。
-    check('★ 文件已建但内容为空 → 说「文件已建 · 内容未填」，不冒充「未填」、不摆会被拒的「建契约文件」', await (async () => {
+    // 文件在、但终态读不出来 —— 旧版会并进「未填」分支，于是只剩一个会被主进程拒绝的
+    // 「建契约文件」。**2026-10-11 起还要把"为什么读不出来"分类说清**（真事：绒花墨坊的契约
+    // 用「① 终态三段」这套自定义小节名，界面写「内容未填」，用户当场反问「已经有内容了啊？」）。
+    // 这里注入两种夹具，把两条分支各逼一次。
+    const tripWithContract = (contract, name) => {
       window.__fcTest.setTripBoard({
         generatedAt: '2026-10-08 12:00', mode: 'auto', criteria: 'cards_or_commit',
         rows: [{
-          id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo',
-          contract: { exists: true, path: 'E:/CODE/mock/demo/立项契约.md', endState: '', acceptLine: '', notWant: '', choice: '' },
+          id: 'demo', name: name || '演示项目', repo: 'E:/CODE/mock/demo',
+          contract,
           current: { text: '', from: '', sub: '' }, next: { text: '', from: '', sub: '' },
           who: { text: '', kind: 'none' }, health: { value: 'active', locked: false },
           counts: { todo: 0, doing: 0, review: 0, logs: 0 }, lastCommit: '', recentCommit: false, dirty: 0,
@@ -1075,24 +1077,51 @@
         }],
         hidden: [],
       })
-      // 切走再切回来，逼它用新夹具重新拉一次
+    }
+    const tripReEnter = async () => {
       const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
       if (wall) wall.click()
       await sleep(300)
       const back = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
       if (back) back.click()
-      if (!(await waitFor(() => $$('#board.pv .tripboard').length === 1, 5000, '回到在途一屏'))) return false
-      const row = $$('#board.pv .trip-table tbody tr')[0]
+      if (!(await waitFor(() => $$('#board.pv .tripboard').length === 1, 5000, '回到在途一屏'))) return null
+      return $$('#board.pv .trip-table tbody tr')[0] || null
+    }
+
+    check('★★ 契约有文件但小节名对不上 → 必须说「小节名跟标准六节对不上」，'
+      + '**不许**说成「内容未填」（用户 2026-10-11 就是被这句误导的）', await (async () => {
+      tripWithContract({
+        exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
+        endState: '', acceptLine: '', notWant: '', choice: '',
+        sections: [{ name: '① 终态三段（产线）', field: null }],
+        filled: [], placeholderFields: [], unmatched: ['① 终态三段（产线）'],
+      })
+      const row = await tripReEnter()
       if (!row) return false
       const txt = (row.textContent || '').replace(/\s+/g, ' ')
       const minis = Array.prototype.slice.call(row.querySelectorAll('.trip-mini'))
         .map((b) => (b.textContent || '').trim())
-      // 判据：说「文件已建 · 内容未填」、给「打开契约」、**不**给会被主进程拒绝的「建契约文件」
-      const ok = txt.indexOf('文件已建 · 内容未填') >= 0
+      const ok = txt.indexOf('文件已建 · 小节名跟标准六节对不上') >= 0
+        && txt.indexOf('内容未填') < 0
         && minis.some((t) => t.indexOf('打开契约') >= 0)
         && !minis.some((t) => t.indexOf('建契约文件') >= 0)
       window.__fcTest.setTripBoard(null)
       return ok
+    })())
+
+    check('★ 契约六节都是模板占位（司天那种空表）→ 必须说「还是模板占位（没填）」，'
+      + '**不许**把骨架文案当成已填内容显示', await (async () => {
+      tripWithContract({
+        exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
+        endState: '', acceptLine: '', notWant: '', choice: '',
+        sections: [{ name: '① 终态形态', field: '终态形态' }],
+        filled: [], placeholderFields: ['终态形态', '验收线'], unmatched: [],
+      })
+      const row = await tripReEnter()
+      if (!row) return false
+      const txt = (row.textContent || '').replace(/\s+/g, ' ')
+      window.__fcTest.setTripBoard(null)
+      return txt.indexOf('文件已建 · 还是模板占位（没填）') >= 0
     })())
     check('  （恢复默认夹具后在途一屏照常渲染）', await (async () => {
       const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
@@ -2439,7 +2468,7 @@
         String((($('.diag-skills-head') || {}).textContent || '')))
     }
 
-    // ⑤ 设置 → 备份：列表刷新按钮（用户 2026-10-11 补充「缺一个刷新按钮」）
+    // ⑤ 设置 → 备份：刷新按钮 + 教程 + 动作分组 + 块顺序（用户 2026-10-11 三条要求）
     const bkNav = $$('.settings-nav-btn').find((b) => (b.textContent || '').indexOf('备份') >= 0)
     if (bkNav) {
       bkNav.click(); await sleep(700)
@@ -2452,6 +2481,29 @@
           await waitFor(() => window.__fcTest.callCount('backupListLocal') > before, 4000, '重读备份列表'),
           `before=${before} after=${window.__fcTest.callCount('backupListLocal')}`)
       }
+
+      // ⚠ 顺序断言必须用**文档序**（DOM 里的先后），不能只看"元素存在" ——
+      //   用户提的正是"谁在上面"，存在性断言对顺序一无所知。
+      const ord = (sel) => {
+        const el = $(sel)
+        if (!el) return -1
+        return Array.prototype.indexOf.call(document.querySelectorAll('*'), el)
+      }
+      const bkSect = $('.backup-sect') || document.body
+      check('★ 备份教程块存在且在配置表**之前**（先讲流程，再让人填表）',
+        !!$('.bk-guide') && String(($('.bk-guide') || {}).textContent || '').indexOf('30 秒') >= 0
+        && ord('.bk-guide') < ord('.bk-grid'),
+        'guide=' + ord('.bk-guide') + ' grid=' + ord('.bk-grid'))
+      check('★ 动作已按用途分组（每组一个小标题，不再一排七个按钮平铺）',
+        $$('.bk-act-group').length >= 3 && $$('.bk-act-group .bk-act-label').length === $$('.bk-act-group').length,
+        'groups=' + $$('.bk-act-group').length + ' labels=' + $$('.bk-act-group .bk-act-label').length)
+      check('★★ 瘦身块在「数据安全须知」**上面**（用户第 1 条原话：「瘦身块应该放在数据安全须知上面」）',
+        !!$('.bk-slim') && !!$('.bk-notice') && ord('.bk-slim') < ord('.bk-notice'),
+        'slim=' + ord('.bk-slim') + ' notice=' + ord('.bk-notice'))
+      check('★★ Git 通道在「备份范围：…」说明**下面**（用户第 1 条：防止和手动备份压缩包混在一起）',
+        !!$('.bk-git') && ord('.bk-git') > ord('.bk-sect-hint'),
+        'git=' + ord('.bk-git') + ' hint=' + ord('.bk-sect-hint'))
+      void bkSect
     }
     maskClick('#soverlay'); await sleep(300)
 

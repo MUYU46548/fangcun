@@ -1886,17 +1886,74 @@ def read_policy(project_id):
 CONTRACT_BASENAME = "立项契约.md"
 CONTRACT_FIELDS = ["终态形态", "验收线", "不要什么", "选型定死", "现状底数", "下一队列"]
 
+# 字段别名（2026-10-11 真机修正）：**光认标准六节名会让"写了但没按模板命名"的契约判成"未填"**。
+# 实例：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …」——文件写得很完整，
+# 方寸却六个字段全空、界面显示「内容未填」（用户原话「已经有内容了啊？」）。**这是界面说假话。**
+# 匹配顺序：① 标准名完整出现 → ② 别名完整出现（先长后短）。仍然对不上就**如实说"对不上"**，
+# 由调用方把「文件里实际的小节名」摆出来 —— 不许笼统说「未填」。
+CONTRACT_ALIASES = {
+    "终态形态": ["终态形态", "终态"],
+    "验收线": ["验收线", "验收"],
+    "不要什么": ["不要什么", "负面清单", "不做", "不要", "边界"],
+    "选型定死": ["选型定死", "选型"],
+    "现状底数": ["现状底数", "现状"],
+    "下一队列": ["下一队列", "下一步", "下一"],
+}
+
+
+def _strip_section_hr(text):
+    """去掉小节正文**首尾的 Markdown 分隔线**（`---` / `***` / `___` 独占一行）。
+
+    为什么必须去：契约模板在小节之间用 `---` 分隔，而"小节正文"是**截到下一个 `## ` 之前**，
+    于是每条正文都拖着一条 `---`。后果有两个，都真实发生过：
+      · 占位判定失效 —— `（…待填…）\\n\\n---` 不再"整段被括号包住"，占位被当成内容（司天那 5 节）；
+      · 界面上取首行/摘要时会取到 `---` 或者把分隔线带进正文。
+    """
+    lines = str(text or "").splitlines()
+    hr = re.compile(r"^\s*[-*_]{3,}\s*$")
+    while lines and (not lines[0].strip() or hr.match(lines[0])):
+        lines.pop(0)
+    while lines and (not lines[-1].strip() or hr.match(lines[-1])):
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def is_placeholder_body(body):
+    """整段被一对括号包住 = **模板占位**（说明"这里该写什么"），不是内容。
+
+    真填的正文不会整段用括号包起来 —— 反过来，「（一句话：我想做的就是 ___。原话直录。）」
+    这种一眼就是骨架。判成占位后字段值给空串，调用方显示「模板占位·还没填」，
+    别把占位说明当成内容（那是另一种"界面说假话"）。
+    """
+    s = (body or "").strip()
+    if not s:
+        return True
+    for a, b in (("（", "）"), ("(", ")")):
+        if s.startswith(a) and s.endswith(b) and s.count(a) == 1 and s.count(b) == 1:
+            return True
+    return False
+
 
 def read_contract_file(path):
     """解析一份立项契约 Markdown。**纯函数级**：只吃路径，不查 registry（便于夹具测试）。
 
-    返回 {'exists': bool, 'path': str, 六个字段: str}。
-    小节匹配**宽松**：标题里含字段关键词即可 —— 「## ① 终态形态」「## 终态形态」都认。
-    字段缺失不报错、给空串：缺字段是**真实状态**，由调用方显式展示「未填」，不许回退默认值。
+    返回 {'exists', 'path', 六个字段: str, 'sections', 'filled', 'placeholderFields', 'unmatched'}。
+
+    · 小节匹配**宽松**：标题里含字段名（或别名）即可 —— 「## ① 终态形态」「## 终态三段」都认。
+    · 字段缺失/占位 → 给空串（缺字段是**真实状态**，交给调用方显式展示），
+      但同时把**原因分类**记下来：`sections`（文件里实际有哪些小节、各对上了谁）、
+      `filled`（真有内容的字段）、`placeholderFields`（命中但仍是模板占位）、
+      `unmatched`（对不上标准六节的小节名）。
+      ⚠ 这三样是给调用方说人话用的：**「小节名对不上」和「真没写」是两回事**，
+        笼统报「未填」会让用户以为文件是空的（2026-10-11 用户就是这么被误导的）。
     """
     out = {"exists": False, "path": path or ""}
     for k in CONTRACT_FIELDS:
         out[k] = ""
+    out["sections"] = []
+    out["filled"] = []
+    out["placeholderFields"] = []
+    out["unmatched"] = []
     if not path or not os.path.isfile(path):
         return out
     try:
@@ -1910,12 +1967,36 @@ def read_contract_file(path):
     secs = []
     for i, (_s, name, _e) in enumerate(heads):
         stop = heads[i + 1][0] if i + 1 < len(heads) else len(raw)
-        secs.append((name, raw[heads[i][2]:stop].strip()))
-    for k in CONTRACT_FIELDS:
-        for name, body in secs:
+        secs.append((name, _strip_section_hr(raw[heads[i][2]:stop])))
+
+    taken = {}          # 字段名 → 小节名（一个小节只认领一个字段）
+    sections_meta = []
+    for name, body in secs:
+        hit = None
+        for k in CONTRACT_FIELDS:
+            if k in taken:
+                continue
             if k in name:
-                out[k] = body
+                hit = k
                 break
+        if hit is None:
+            for k in CONTRACT_FIELDS:
+                if k in taken:
+                    continue
+                if any(a in name for a in CONTRACT_ALIASES[k]):
+                    hit = k
+                    break
+        sections_meta.append({"name": name, "field": hit})
+        if hit is None:
+            out["unmatched"].append(name)
+            continue
+        taken[hit] = name
+        if is_placeholder_body(body):
+            out["placeholderFields"].append(hit)
+        elif body:
+            out[hit] = body
+            out["filled"].append(hit)
+    out["sections"] = sections_meta
     return out
 
 

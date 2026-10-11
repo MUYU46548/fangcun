@@ -702,10 +702,16 @@
           <span class="trip-sub">{{ tripSubtitle }}</span>
           <span class="trip-grow"></span>
           <button class="ghost trip-headbtn" @click="tripSettingsOpen = true">⚙ 显示设置</button>
-          <button class="ghost trip-headbtn" @click="loadTripBoard()">↻ 刷新</button>
+          <!-- 读取中要在**按钮上**也看得出来（2026-10-11 用户：「每次进都要卡一下，哪怕有个加载小提示」）：
+               第二次进这一屏时旧数据还在屏上，光靠"空表才显示读取中"是不够的 —— 用户看到的是
+               一张不会动的旧表，除了"卡了"什么也读不出来。 -->
+          <button class="ghost trip-headbtn" :disabled="tripLoading" @click="loadTripBoard()">
+            {{ tripLoading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
         </div>
 
-        <div v-if="tripLoading" class="trip-empty">读取中…</div>
+        <!-- 还没数据 → 整屏「读取中」；已经有旧数据 → 保留旧表 + 顶上一条细刷新提示
+             （直接把旧表换成"读取中"会更差：用户刚看到的东西突然消失，像是被清了）。 -->
+        <div v-if="tripLoading && !tripRows.length" class="trip-empty">读取中…<span class="trip-loading-sub">（正在读各项目的立项契约与 git 信息）</span></div>
         <div v-else-if="!tripRows.length" class="trip-empty">
           <template v-if="tripError">
             <div class="trip-err">读取失败：{{ tripError }}</div>
@@ -723,7 +729,10 @@
           </template>
         </div>
 
-        <div v-else class="trip-scroll">
+        <div v-if="tripLoading && tripRows.length" class="trip-refreshing">
+          ⟳ 正在刷新（读取各项目立项契约与 git 信息）…
+        </div>
+        <div v-if="tripRows.length" class="trip-scroll">
           <table class="trip-table">
             <thead>
               <tr>
@@ -755,7 +764,12 @@
                 <td v-if="tripColVisible('end')" class="trip-end">
                   <template v-if="r.contract && r.contract.exists">
                     <span v-if="tripFirstLine(r.contract.endState)" class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
-                    <span v-else class="trip-unset" :title="r.contract.path">文件已建 · 内容未填</span>
+                    <!-- 空的原因要**分类**（2026-10-11 真机修正）。旧版一律写「内容未填」——
+                         绒花墨坊的契约明明写得很完整，只因小节名是「① 终态三段」而不是「终态形态」，
+                         就被报成"内容未填"（用户原话「已经有内容了啊？」）。**这是界面说假话。** -->
+                    <span v-else class="trip-unset" :title="tripContractMissing(r).title || r.contract.path">
+                      文件已建 · {{ tripContractMissing(r).text }}
+                    </span>
                     <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
                             title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
                     <!-- 「让 AI 填」的可复制提示词（2026-10-10 用户要求：原话「之前说让 AI 填，
@@ -2922,6 +2936,28 @@
           </div>
           <div v-if="bkState.lastError" class="bk-err-line">上次失败（{{ bkState.failStreak }} 次连续）：{{ bkState.lastError }}</div>
 
+          <!-- 备份教程（2026-10-11 用户要求：「按钮很紧凑很乱，用户可能看不懂怎么用…能不能加一个备份教程」）。
+               放在配置**前面** —— 先讲清"这套东西怎么用"，再让人填表；顺序反了就是让人对着
+               六个输入框猜流程。后期做单 HTML 方寸说明书时，这一段的文案可以整段搬过去。 -->
+          <div class="bk-guide">
+            <div class="bk-guide-h">怎么用（30 秒读完）</div>
+            <ol>
+              <li><b>先本地，后云端。</b>点「立即备份」就会在 <code>backups/</code> 里打一个 zip 包 ——
+                这一步不需要任何账号；先确认它可用，再去配云端。</li>
+              <li><b>想上云再填下面那张表。</b>填 WebDAV 地址与账号 → 点「测试远端」确认通 →
+                再点「立即备份」，包会同时落到本地和云端。</li>
+              <li><b>恢复永远从「备份历史」那一行开始。</b>点任意一行能看这一份里到底有什么，
+                确认无误再点行尾的「恢复」；恢复前会自动给当前数据打快照。</li>
+              <li><b>不用网盘也能备份。</b>「手动流转」里点「导出备份」把包复制到你选的目录
+                （OneDrive 这类同步盘就这样用）；「Git 通道」走版本历史；
+                「restic 脚本」给你自己挂计划任务。</li>
+            </ol>
+            <div class="bk-guide-note">
+              一句话：<b>备份包就是一个 zip</b>。它<b>不加密</b>（里面是明文任务数据），
+              别往公开可访问的目录放 —— 细节见下方「数据安全须知」。
+            </div>
+          </div>
+
           <div class="bk-grid">
             <label>WebDAV 地址</label>
             <input v-model="bkForm.url" placeholder="https://dav.jianguoyun.com/dav/fangcun" />
@@ -2958,90 +2994,52 @@
             </div>
           </div>
 
-          <!-- 备份瘦身（2026-10-11 用户第 2 条）：此前只有"打出来 62.6MB"这个结果，
-               用户看不到构成、也没有任何旋钮 —— 这里把两件事一起给：**体积构成** + **两个旋钮**。 -->
-          <div class="bk-slim">
-            <div class="bk-slim-head">
-              <b>备份瘦身</b>
-              <span class="bk-slim-hint" v-if="bkSize">当前备份范围 {{ bkSize.files }} 个文件 · {{ bkMB(bkSize.totalBytes) }}；按下面的设置实际入包约 {{ bkMB(bkSize.keptBytes) }}</span>
-              <span class="bk-slim-hint" v-else>统计中…</span>
-              <button class="ghost bk-mini" @click="bkLoadSizeReport">重算</button>
+          <!-- 动作按用途分组（2026-10-11 用户：「按钮很紧凑很乱，用户可能看不懂怎么用」）。
+               原先七个按钮挤在一行，主次不分 —— 「立即备份」和「打开备份文件夹」看着一样重要。
+               现在按 **现在备份 / 连接设置 / 文件夹** 三档分开，每组带小标题。 -->
+          <div class="bk-actions">
+            <div class="bk-act-group">
+              <span class="bk-act-label">现在备份</span>
+              <button class="pri" :disabled="bkBusy" @click="bkSaveAndRun">{{ bkBusy ? '备份中…' : '立即备份' }}</button>
+              <button class="ghost" :disabled="bkBusy" @click="bkRunLocalOnly"
+                title="只在本机打包，不传云端（没配 WebDAV / 只想留个本地快照时用）">仅本地</button>
             </div>
-            <label class="bk-cb">
-              <input type="checkbox" v-model="bkForm.excludeLogAttachments" @change="bkSaveSlim" />
-              排除执行日志附件目录（docs/执行日志/_attachments）
-              <span class="bk-dim" v-if="bkSize && bkSize.logAttachments.files">—— {{ bkSize.logAttachments.files }} 个文件 / {{ bkMB(bkSize.logAttachments.bytes) }}</span>
-            </label>
-            <div class="bk-inline">
-              <span>跳过大于</span>
-              <input type="number" v-model.number="bkForm.maxFileMB" min="0" max="10240" class="bk-num"
-                @change="bkSaveSlim" />
-              <span>MB 的单个文件（0 = 不限）</span>
+            <div class="bk-act-group">
+              <span class="bk-act-label">连接设置</span>
+              <button class="ghost" :disabled="bkTesting" @click="bkTestRemote">{{ bkTesting ? '测试中…' : '测试远端' }}</button>
+              <button class="ghost" @click="bkSaveConfig" title="把上面那张表写进配置（密码只有保存后才加密留存）">保存配置</button>
             </div>
-            <!-- 最大的几个文件：让"为什么大"当场有答案（此前只能靠猜） -->
-            <div v-if="bkSize && bkSize.largest.length" class="bk-slim-top">
-              <span class="bk-dim">最占地方的几个文件：</span>
-              <div v-for="f in bkSize.largest" :key="f.path" class="bk-slim-file">
-                <span class="bk-slim-size">{{ bkMB(f.bytes) }}</span>
-                <span class="bk-slim-path">{{ f.path }}</span>
-              </div>
-            </div>
-            <div v-if="bkSize && bkSize.omitted.length" class="bk-dim">
-              按当前设置会跳过 {{ bkSize.omitted.length }} 个文件（省 {{ bkMB(bkSize.omittedBytes) }}）——
-              清单逐条记进备份包的 manifest.json，不静默丢。
+            <div class="bk-act-group">
+              <span class="bk-act-label">文件夹</span>
+              <button class="ghost" @click="bkOpenDir">打开备份文件夹</button>
+              <!-- 刚做完一次备份后，直接定位到那个文件所在目录（原 openBackupFolder 一直没入口） -->
+              <button v-if="backupInfo" class="ghost" :title="'最近一次备份：' + backupInfo.path + '（' + backupInfo.sizeKB + ' KB）'"
+                @click="openBackupFolder">最近备份所在目录</button>
             </div>
           </div>
 
-          <div class="sect-btns">
-            <button class="pri" :disabled="bkBusy" @click="bkSaveAndRun">{{ bkBusy ? '备份中…' : '立即备份' }}</button>
-            <button class="ghost" :disabled="bkBusy" @click="bkRunLocalOnly">仅本地</button>
-            <button class="ghost" :disabled="bkTesting" @click="bkTestRemote">{{ bkTesting ? '测试中…' : '测试远端' }}</button>
-            <button class="ghost" @click="bkSaveConfig">保存配置</button>
-            <button class="ghost" @click="bkOpenDir">打开备份文件夹</button>
-            <!-- 刚做完一次备份后，直接定位到那个文件所在目录（原 openBackupFolder 一直没入口） -->
-            <button v-if="backupInfo" class="ghost" :title="'最近一次备份：' + backupInfo.path + '（' + backupInfo.sizeKB + ' KB）'"
-              @click="openBackupFolder">最近备份所在目录</button>
+          <!-- 手动流转同样按用途分组（2026-10-11 用户：「按钮很紧凑很乱」）——
+               原来四个按钮排一行，「导出」和「恢复」挨着，误点的代价完全不对称。 -->
+          <div class="bk-actions bk-manual">
+            <div class="bk-act-group">
+              <span class="bk-act-label">不用网盘也能备份</span>
+              <!-- 2026-09-26 用户第 1、2 条：不再要人选下拉（「必须逐字核对，很难受」），
+                   点一下就导出**最新一份备份**；落盘**只有一个 zip**。 -->
+              <button class="ghost" :disabled="bkBusy" @click="bkExportTo"
+                title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</button>
+              <!-- restic 脚本（2026-10-11 用户拍板走「方案 A」）：方寸只生成脚本 + 说明，
+                   定时你自己挂 —— 零维护、零鉴权、**不经手你的仓库密码**。 -->
+              <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
+                title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
+            </div>
+            <div class="bk-act-group">
+              <span class="bk-act-label">检查与恢复</span>
+              <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage"
+                title="挑一个备份包做 sha256 + 结构双重校验（从网盘下载回来的副本建议定期抽查）">🔍 校验备份包…</button>
+              <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile"
+                title="从磁盘上任一备份包恢复；恢复前会自动给当前数据打快照，校验不过不动现有数据">📥 从文件恢复…</button>
+            </div>
           </div>
-
-          <div class="sect-btns bk-manual">
-            <span class="bk-manual-label">手动流转（不依赖网盘账号）</span>
-            <!-- 2026-09-26 用户第 1、2 条：不再要人选下拉（「必须逐字核对，很难受」），
-                 点一下就导出**最新一份备份**；落盘**只有一个 zip**。 -->
-            <button class="ghost" :disabled="bkBusy" @click="bkExportTo"
-              title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</button>
-            <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage">🔍 校验备份包…</button>
-            <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile">📥 从文件恢复…</button>
-            <!-- restic 脚本（2026-10-11 用户拍板走「方案 A」）：方寸只生成脚本 + 说明，
-                 定时你自己挂 —— 零维护、零鉴权、**不经手你的仓库密码**。 -->
-            <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
-              title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
-          </div>
-          <!-- Git 通道（2026-10-11，卡 20261002-003；同日按用户第 1 条改成同步真实文件）：
-               把 task-data / registry.yaml / policies / docs 的**真实文件**镜像进仓库工作树 ——
-               每一次提交都是可读的逐文件 diff，而不是往仓库里扔一个压缩包。
-               令牌只在这里出现一次（填进来），之后再没回传 —— 存的是 safeStorage 密文。 -->
-          <div class="sect-btns bk-manual bk-git">
-            <span class="bk-manual-label">Git 通道（把任务/日志/方针卡的真实文件同步进仓库，有逐文件历史）</span>
-            <input v-model="gitRemote" class="git-in" spellcheck="false"
-              placeholder="仓库地址，如 https://github.com/你/fangcun-backup.git" />
-            <input v-model="gitToken" class="git-in" type="password" spellcheck="false"
-              :placeholder="gitHasToken ? '令牌已保存（重填可覆盖）' : '访问令牌（只用于推送，加密存本机）'" />
-            <select v-model="gitBranch" class="git-branch" title="推送到哪个分支">
-              <option value="main">main</option>
-              <option value="master">master</option>
-            </select>
-            <button class="ghost" :disabled="gitBusy" @click="gitSaveConfig">保存</button>
-            <button class="ghost" :disabled="gitBusy" @click="gitTest">🔌 测试连接</button>
-            <button class="ghost" :disabled="gitBusy" @click="gitPushNow"
-              title="把数据目录里 task-data / registry.yaml / policies / docs 的真实文件铺进仓库并提交 —— 推的是文件，不是压缩包">⬆ 同步到仓库</button>
-            <button class="ghost" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</button>
-          </div>
-          <div class="bk-dim">
-            同步的是真实文件（不是压缩包）：范围与上面的备份一致（task-data / registry.yaml / policies / docs），
-            同样受"备份瘦身"约束；密钥类文件永不进仓库。推送被拒时会自动并回远端再推一次，绝不用 --force。
-          </div>
-          <div v-if="gitMsg" :class="'llm-config-msg ' + gitMsgType">{{ gitMsg }}</div>
-
           <div v-if="bkMsg" :class="'llm-config-msg ' + bkMsgType">{{ bkMsg }}</div>
           <div v-if="bkForm.url && !bkForm.hasPassword" class="hint">
             提示：密码只有保存后才会加密留存，重启应用后仍可自动备份。
@@ -3095,9 +3093,72 @@
             <button class="ghost bk-mini" @click="bkVerifyResult = null">关闭</button>
           </div>
 
-          <div class="hint">
+          <!-- `bk-sect-hint` 这个类名是给 DOM 顺序断言用的锚点（瘦身必须在它下面、Git 通道必须在它下面）：
+               否则那条断言只能靠"文案里有这句话"来间接定位，改一个字就失效。 -->
+          <div class="hint bk-sect-hint">
             备份范围：task-data/ + registry.yaml + policies/ + docs/。密钥文件（llm-config.json、backup-config.json 等）永不入包，
             每次备份的 manifest 里会记录被排除项与被瘦身跳过的文件。恢复前必做 sha256 + 结构双重校验，校验不过不动现有数据。
+          </div>
+
+          <!-- Git 通道（2026-10-11 用户第 1 条）**放在这条「备份范围」说明下面** ——
+               用户原话：「Git 通道放在…下面，防止和手动备份压缩包混在一起」。
+               它确实不是"再打一个包"，而是"把同一批文件按版本历史同步进仓库"，
+               所以贴着说明放，跟上面那排"手动流转（导出 zip）"隔开。 -->
+          <div class="sect-btns bk-manual bk-git">
+            <span class="bk-manual-label">Git 通道（把任务/日志/方针卡的真实文件同步进仓库，有逐文件历史）</span>
+            <input v-model="gitRemote" class="git-in" spellcheck="false"
+              placeholder="仓库地址，如 https://github.com/你/fangcun-backup.git" />
+            <input v-model="gitToken" class="git-in" type="password" spellcheck="false"
+              :placeholder="gitHasToken ? '令牌已保存（重填可覆盖）' : '访问令牌（只用于推送，加密存本机）'" />
+            <select v-model="gitBranch" class="git-branch" title="推送到哪个分支">
+              <option value="main">main</option>
+              <option value="master">master</option>
+            </select>
+            <button class="ghost" :disabled="gitBusy" @click="gitSaveConfig">保存</button>
+            <button class="ghost" :disabled="gitBusy" @click="gitTest">🔌 测试连接</button>
+            <button class="ghost" :disabled="gitBusy" @click="gitPushNow"
+              title="把数据目录里 task-data / registry.yaml / policies / docs 的真实文件铺进仓库并提交 —— 推的是文件，不是压缩包">⬆ 同步到仓库</button>
+            <button class="ghost" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</button>
+          </div>
+          <div class="bk-dim">
+            同步的是真实文件（不是压缩包）：范围与上面的备份一致（task-data / registry.yaml / policies / docs），
+            同样受下面的「备份瘦身」约束；密钥类文件永不进仓库。推送被拒时会自动并回远端再推一次，绝不用 --force。
+          </div>
+          <div v-if="gitMsg" :class="'llm-config-msg ' + gitMsgType">{{ gitMsg }}</div>
+
+          <!-- 备份瘦身（2026-10-11 用户第 1 条）**放在「数据安全须知」上面** ——
+               它跟"数据安全/体积"是同一类事，而上面的配置表讲的是"怎么连、怎么存"。
+               用户原话：「瘦身块应该放在数据安全须知上面」。 -->
+          <div class="bk-slim">
+            <div class="bk-slim-head">
+              <b>备份瘦身</b>
+              <span class="bk-slim-hint" v-if="bkSize">当前备份范围 {{ bkSize.files }} 个文件 · {{ bkMB(bkSize.totalBytes) }}；按下面的设置实际入包约 {{ bkMB(bkSize.keptBytes) }}</span>
+              <span class="bk-slim-hint" v-else>统计中…</span>
+              <button class="ghost bk-mini" @click="bkLoadSizeReport">重算</button>
+            </div>
+            <label class="bk-cb">
+              <input type="checkbox" v-model="bkForm.excludeLogAttachments" @change="bkSaveSlim" />
+              排除执行日志附件目录（docs/执行日志/_attachments）
+              <span class="bk-dim" v-if="bkSize && bkSize.logAttachments.files">—— {{ bkSize.logAttachments.files }} 个文件 / {{ bkMB(bkSize.logAttachments.bytes) }}</span>
+            </label>
+            <div class="bk-inline">
+              <span>跳过大于</span>
+              <input type="number" v-model.number="bkForm.maxFileMB" min="0" max="10240" class="bk-num"
+                @change="bkSaveSlim" />
+              <span>MB 的单个文件（0 = 不限）</span>
+            </div>
+            <!-- 最大的几个文件：让"为什么大"当场有答案（此前只能靠猜） -->
+            <div v-if="bkSize && bkSize.largest.length" class="bk-slim-top">
+              <span class="bk-dim">最占地方的几个文件：</span>
+              <div v-for="f in bkSize.largest" :key="f.path" class="bk-slim-file">
+                <span class="bk-slim-size">{{ bkMB(f.bytes) }}</span>
+                <span class="bk-slim-path">{{ f.path }}</span>
+              </div>
+            </div>
+            <div v-if="bkSize && bkSize.omitted.length" class="bk-dim">
+              按当前设置会跳过 {{ bkSize.omitted.length }} 个文件（省 {{ bkMB(bkSize.omittedBytes) }}）——
+              清单逐条记进备份包的 manifest.json，不静默丢。
+            </div>
           </div>
 
           <div class="bk-notice">
@@ -4135,6 +4196,34 @@ function tripFirstLine(text: unknown): string {
     if (t) return t.length > 84 ? t.slice(0, 84) + '…' : t
   }
   return ''
+}
+
+/**
+ * 契约「终态」为空时，**把原因说清楚**（2026-10-11 真机修正）。
+ *
+ * 触发的真事：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点」这套自定义小节名，
+ * 方寸只认标准六节名 → 六个字段全空 → 界面写「内容未填」。用户当场反问「已经有内容了啊？」。
+ * **把"小节名对不上"说成"未填"，就是界面说假话** —— 比空白更糟，因为它让人以为文件是空的。
+ * 三种原因分开说：模板占位 / 小节名对不上（并把文件里实际的小节列出来）/ 真没写。
+ */
+function tripContractMissing(r: any): { text: string; title: string } {
+  const c = r && r.contract
+  if (!c || !c.exists) return { text: '未填', title: '' }
+  if ((c.placeholderFields || []).includes('终态形态')) {
+    return { text: '还是模板占位（没填）', title: '这一节在文件里只是"该写什么"的说明，不是内容' }
+  }
+  const unmatched: string[] = c.unmatched || []
+  const sections: { name: string; field: string | null }[] = c.sections || []
+  if (unmatched.length) {
+    return {
+      text: '小节名跟标准六节对不上',
+      title: '文件里的小节是：' + sections.map(s => s.name).join(' / ')
+        + '\n\n方寸只认名字里含标准字段名（或别名）的小节：\n'
+        + '终态形态 · 验收线 · 不要什么 · 选型定死 · 现状底数 · 下一队列\n\n'
+        + '（文件不是空的 —— 把小节标题改成上面这类名字，就能被读到了）',
+    }
+  }
+  return { text: '这一节空着', title: c.path || '' }
 }
 
 /**
@@ -11091,6 +11180,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-empty { padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
 /* 空屏里的出口按钮：「改回自动」——必须与祖先无关的独立规则（守卫要求） */
 .trip-empty-act { margin-top: 12px; }
+/* 读取中/刷新中的提示（2026-10-11 用户：「每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了」） */
+.trip-loading-sub { display: block; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+.trip-refreshing {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 10px;
+  font-size: 11.5px; color: var(--muted); background: var(--tint-3);
+  border: 1px dashed var(--border); border-radius: 8px;
+}
 /* 读取失败必须看得出来（空屏 + 假装"没有项目"是最坏的一种骗人） */
 .trip-err { color: #a03a3a; font-weight: 600; margin-bottom: 6px; }
 .trip-err-hint { color: var(--muted); font-size: 11.5px; line-height: 1.8; }
@@ -11626,6 +11722,17 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .bk-mini { padding: 3px 9px; font-size: 11.5px; }
 .bk-manual { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; background: var(--tint-3); }
 .bk-manual-label { display: block; width: 100%; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+/* 备份教程（2026-10-11 用户要求：按钮挤、看不懂怎么用 → 先讲流程再让人填表） */
+.bk-guide { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--tint-3); }
+.bk-guide-h { font-weight: 700; font-size: 12.5px; color: var(--ink); margin-bottom: 6px; }
+.bk-guide ol { margin: 0 0 0 18px; padding: 0; font-size: 12px; line-height: 1.85; color: var(--ink); }
+.bk-guide li { margin-bottom: 3px; }
+.bk-guide code { background: #fff; padding: 0 4px; border-radius: 3px; font-size: 11.5px; }
+.bk-guide-note { margin-top: 7px; padding-top: 6px; border-top: 1px dashed var(--border); font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+/* 动作分组（2026-10-11）：每组一个小标题，主次分开，不再七个按钮挤一行 */
+.bk-actions { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.bk-act-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bk-act-label { flex: 0 0 116px; font-size: 11.5px; color: var(--muted); }
 /* 备份瘦身（2026-10-11 用户第 2 条）：体积构成 + 两个旋钮 */
 .bk-slim { margin-top: 8px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
 .bk-slim-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

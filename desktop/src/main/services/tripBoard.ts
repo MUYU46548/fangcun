@@ -15,7 +15,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
 import { parseRegistry, loadAllTasksRaw } from '../data'
 import * as logs from './logs'
 import * as prefs from './prefs'
@@ -30,6 +30,47 @@ export type TripHealth = typeof TRIP_HEALTH[number]
 
 /** 契约里随一屏/任务书下发的四个字段（⑤现状底数、⑥下一队列在文件里，不占屏宽） */
 const CONTRACT_FIELDS = ['终态形态', '验收线', '不要什么', '选型定死'] as const
+/** 全部六个标准字段（用于"对上了几节"的统计与"哪些小节没对上"的说明） */
+const CONTRACT_ALL_FIELDS = ['终态形态', '验收线', '不要什么', '选型定死', '现状底数', '下一队列'] as const
+
+/**
+ * 字段别名（2026-10-11 真机修正）—— 与 Python 侧 `CONTRACT_ALIASES` **逐字一致**。
+ *
+ * ⚠ 真因：光认标准六节名，会把"写了但没按模板命名"的契约判成「未填」。
+ *   实例：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …」，文件写得很完整，
+ *   方寸却六个字段全空、界面显示「文件已建 · 内容未填」（用户原话「已经有内容了啊？」）。
+ *   **这是界面说假话** —— 比空白更危险，因为它会让人以为文件是空的。
+ */
+const CONTRACT_ALIASES: Record<string, string[]> = {
+  终态形态: ['终态形态', '终态'],
+  验收线: ['验收线', '验收'],
+  不要什么: ['不要什么', '负面清单', '不做', '不要', '边界'],
+  选型定死: ['选型定死', '选型'],
+  现状底数: ['现状底数', '现状'],
+  下一队列: ['下一队列', '下一步', '下一'],
+}
+
+/** 去掉小节正文首尾的 Markdown 分隔线（`---` 独占一行）——否则占位判定失效、正文拖着分隔线 */
+function stripSectionHr(text: string): string {
+  const lines = String(text || '').split(/\r?\n/)
+  const hr = /^\s*[-*_]{3,}\s*$/
+  while (lines.length && (!lines[0].trim() || hr.test(lines[0]))) lines.shift()
+  while (lines.length && (!lines[lines.length - 1].trim() || hr.test(lines[lines.length - 1]))) lines.pop()
+  return lines.join('\n').trim()
+}
+
+/** 整段被一对括号包住 = 模板占位（说明"这里该写什么"），不是内容。司天那六节就是这种。 */
+function isPlaceholderBody(body: string): boolean {
+  const s = String(body || '').trim()
+  if (!s) return true
+  for (const [a, b] of [['（', '）'], ['(', ')']] as const) {
+    if (s.startsWith(a) && s.endsWith(b)
+      && s.split(a).length - 1 === 1 && s.split(b).length - 1 === 1) return true
+  }
+  return false
+}
+
+export interface ContractSection { name: string; field: string | null }
 
 export interface TripContract {
   exists: boolean
@@ -38,6 +79,14 @@ export interface TripContract {
   acceptLine: string
   notWant: string
   choice: string
+  /** 文件里实际有哪些小节、各对上了哪个标准字段（null = 对不上） */
+  sections: ContractSection[]
+  /** 真有内容的标准字段名 */
+  filled: string[]
+  /** 命中但仍是模板占位（整段被括号包住）的标准字段名 */
+  placeholderFields: string[]
+  /** 对不上标准六节的小节名 —— 界面据此说"小节名对不上"，而不是笼统说"未填" */
+  unmatched: string[]
 }
 
 export interface TripCell {
@@ -134,12 +183,17 @@ function prioWeight(v: unknown): number {
 /**
  * 解析一份立项契约（**纯函数**：只吃 repo 路径）。
  *
- * 与 Python 侧 `read_contract_file()` 同口径：按 `## ` 小节取，标题含字段关键词即可
- * （「## ① 终态形态」「## 终态形态」都认）。缺字段给空串，由界面显示「未填」。
+ * 与 Python 侧 `read_contract_file()` **同口径**：按 `## ` 小节取，标题含字段名（或别名）即可
+ * （「## ① 终态形态」「## ① 终态三段」都认）。缺字段给空串，由界面显示「未填」；
+ * 但**原因要分类**（sections / filled / placeholderFields / unmatched）——
+ * 「小节名对不上」和「真没写」是两回事，笼统报「未填」会让人以为文件是空的。
  */
 export function readContractFile(repo: string): TripContract {
   const p = repo ? path.join(repo, CONTRACT_BASENAME) : ''
-  const out: TripContract = { exists: false, path: p, endState: '', acceptLine: '', notWant: '', choice: '' }
+  const out: TripContract = {
+    exists: false, path: p, endState: '', acceptLine: '', notWant: '', choice: '',
+    sections: [], filled: [], placeholderFields: [], unmatched: [],
+  }
   if (!p || !fs.existsSync(p)) return out
   let raw = ''
   try {
@@ -154,18 +208,37 @@ export function readContractFile(repo: string): TripContract {
   while ((m = re.exec(raw)) !== null) {
     heads.push({ name: m[1].trim(), start: m.index, bodyStart: m.index + m[0].length })
   }
-  const get = (key: string): string => {
-    for (let i = 0; i < heads.length; i++) {
-      if (!heads[i].name.includes(key)) continue
-      const end = i + 1 < heads.length ? heads[i + 1].start : raw.length
-      return raw.slice(heads[i].bodyStart, end).trim()
+
+  const taken = new Map<string, string>()   // 字段名 → 小节名（一个小节只认领一个字段）
+  for (let i = 0; i < heads.length; i++) {
+    const name = heads[i].name
+    const end = i + 1 < heads.length ? heads[i + 1].start : raw.length
+    const body = stripSectionHr(raw.slice(heads[i].bodyStart, end))
+    // ① 标准名完整出现优先（跨所有字段）
+    let hit: string | null = null
+    for (const k of CONTRACT_ALL_FIELDS) {
+      if (taken.has(k)) continue
+      if (name.includes(k)) { hit = k; break }
     }
-    return ''
+    // ② 再走别名
+    if (!hit) {
+      for (const k of CONTRACT_ALL_FIELDS) {
+        if (taken.has(k)) continue
+        if ((CONTRACT_ALIASES[k] || []).some(a => name.includes(a))) { hit = k; break }
+      }
+    }
+    out.sections.push({ name, field: hit })
+    if (!hit) { out.unmatched.push(name); continue }
+    taken.set(hit, name)
+    if (isPlaceholderBody(body)) out.placeholderFields.push(hit)
+    else if (body) {
+      out.filled.push(hit)
+      if (hit === CONTRACT_FIELDS[0]) out.endState = body
+      else if (hit === CONTRACT_FIELDS[1]) out.acceptLine = body
+      else if (hit === CONTRACT_FIELDS[2]) out.notWant = body
+      else if (hit === CONTRACT_FIELDS[3]) out.choice = body
+    }
   }
-  out.endState = get(CONTRACT_FIELDS[0])
-  out.acceptLine = get(CONTRACT_FIELDS[1])
-  out.notWant = get(CONTRACT_FIELDS[2])
-  out.choice = get(CONTRACT_FIELDS[3])
   return out
 }
 
@@ -215,6 +288,56 @@ export function gitDirtyCount(repo: string): number | null {
   }
   dirtyCache.set(repo, { at: now, n })
   return n
+}
+
+/** `spawn` 版 git 读取：**并发**跑，失败一律 null（与同步版同语义，绝不抛） */
+function runGitAsync(repo: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let out = ''
+    let done = false
+    const fin = (v: string | null): void => { if (!done) { done = true; resolve(v) } }
+    let child: any
+    try {
+      child = spawn('git', ['-C', repo, ...args], { windowsHide: true })
+    } catch { return fin(null) }
+    const timer = setTimeout(() => { try { child.kill() } catch { /* 已经退出了 */ } ; fin(null) }, 8000)
+    child.stdout.on('data', (d: any) => { out += String(d) })
+    child.on('error', () => { clearTimeout(timer); fin(null) })
+    child.on('close', (code: number) => { clearTimeout(timer); fin(code === 0 ? out : null) })
+  })
+}
+
+/**
+ * 并发预热 git 缓存（2026-10-11 用户：「每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了」）。
+ *
+ * 原实现是**逐项目同步 spawn**（`execFileSync`）：一次 50–300ms，8 个项目 × 2 条命令串起来
+ * 就是 0.5–3 秒的**整段阻塞** —— 主进程卡住，界面除了干等什么都做不了，连"读取中…"都可能
+ * 来不及画（IPC 应答被压在阻塞之后）。
+ *
+ * 这里改成并发跑一遍，把结果填进**同一份缓存**；`buildTripBoard()` 仍是同步路径，
+ * 但全部命中缓存 → 几乎不花时间。命令、缓存键、TTL、失败语义都与同步版**完全一致**，
+ * 所以不存在"预热版和正路读到不同东西"的分叉。
+ */
+export async function warmBoardGit(): Promise<void> {
+  let repos: string[] = []
+  try {
+    repos = (parseRegistry(true) as any[])
+      .filter(x => x && !x._released)
+      .map(x => String(x.repo || ''))
+  } catch { return }
+  const targets = Array.from(new Set(repos.filter(r => r && fs.existsSync(r))))
+  await Promise.all(targets.map(async (repo) => {
+    const now = Date.now()
+    const [iso, dirtyOut] = await Promise.all([
+      runGitAsync(repo, ['log', '-1', '--format=%cI']),
+      runGitAsync(repo, ['status', '--porcelain']),
+    ])
+    gitCache.set(repo, { at: now, iso: iso ? iso.trim() : '' })
+    dirtyCache.set(repo, {
+      at: now,
+      n: dirtyOut === null ? null : dirtyOut.split('\n').filter(l => l.trim()).length,
+    })
+  }))
 }
 
 /** 供测试与手动刷新使用 */

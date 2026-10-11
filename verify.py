@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) 数据层验证脚本 — 往返保真 / 并发防护 / ID 碰撞 / 旧文件兼容
 # 用法：python verify.py   （只读代码层 + 临时目录写样例，不碰 task-data/）
-import os, sys, json, tempfile, time, shutil
+import os, sys, json, tempfile, time, shutil, re
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 包结构：tegula.core（数据层+API） ← tegula.cli（命令行入口）
@@ -1318,6 +1318,29 @@ if _nested_nonres:
     print(f"      已知例外：{_nested_nonres[0][0]} 的「{_nested_nonres[0][1]}」—— 库内遗留格式，"
           f"写回会丢该块（同份内容在正文里）；已记入工程债卡")
 
+def _both_side_aliases_equal():
+    """TS 侧 `CONTRACT_ALIASES` 必须与 Python 侧**逐字一致**。
+
+    两侧各写一份"同口径"的匹配规则，是最容易悄悄分叉的一类：今天改 Python 忘了 TS，
+    界面上就会出现「CLI/agent 读得到、桌面说未填」这种最难查的差异。
+    直接读 TS 源码比对 —— 源码不在场（打包环境）时不拦。
+    """
+    ts_path = os.path.join(ROOT, "desktop", "src", "main", "services", "tripBoard.ts")
+    try:
+        with open(ts_path, encoding="utf-8") as f:
+            src = f.read()
+    except OSError:
+        return True
+    m = re.search(r"const CONTRACT_ALIASES[^=]*=\s*\{(.*?)\n\}", src, re.S)
+    if not m:
+        return False
+    parsed = {}
+    for km in re.finditer(r"([\u4e00-\u9fa5]+)\s*:\s*\[([^\]]*)\]", m.group(1)):
+        vals = [v.strip().strip("'\"").strip() for v in km.group(2).split(",")]
+        parsed[km.group(1)] = [v for v in vals if v]
+    return parsed == dict(_core.CONTRACT_ALIASES)
+
+
 # ── 25. 立项契约读取（REV-002：真源在各项目 repo，方寸只读）──
 print("\n---- 25. 立项契约读取（仓库根 立项契约.md）----")
 _cdir = os.path.join(tmpdir, "contract-repo")
@@ -1344,6 +1367,55 @@ with open(_c2p, "w", encoding="utf-8") as _f:
 _c2 = teg.read_contract_file(_c2p)
 check("契约：标题不带序号也认；缺的字段给空串而不是报错",
       _c2["终态形态"] == "纯标题。" and _c2["验收线"] == "" and _c2["现状底数"] == "")
+
+# ── 25b. 契约读取的三个真机修正（2026-10-11 用户：「绒花墨坊怎么还在说内容未填？已经有内容了啊？」）──
+# 真因：只认标准六节名 → 用自定义小节名的契约（① 终态三段 / ⑥ 验收锚点 …）六个字段全空，
+# 界面写「内容未填」。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
+_alt = os.path.join(_cdir, "alias.md")
+with open(_alt, "w", encoding="utf-8") as _f:
+    _f.write(
+        "## ① 终态三段（产线）\n前段产坯 → 人工精修 → 后段审校\n\n"
+        "## ② 原料边界\n- 负向：游戏文案类永不进来\n\n"
+        "## ⑥ 验收锚点\n- D0：扫一眼确认\n\n"
+        "## ③ 产线本质\nAI 管结构，文字归人\n"
+    )
+_ca = teg.read_contract_file(_alt)
+check("★★ 契约（别名匹配）：自定义小节名也要读出来 —— 「① 终态三段」算终态、「⑥ 验收锚点」算验收线、"
+      "「② 原料边界」算不要什么（老实现这三节全判成未填，用户当场反问「已经有内容了啊？」）",
+      _ca["终态形态"].startswith("前段产坯") and _ca["验收线"].startswith("- D0")
+      and _ca["不要什么"].startswith("- 负向"), str(_ca)[:120])
+check("★ 契约（原因分类）：对不上的小节名要**记下来**（不许笼统说未填）—— 「③ 产线本质」进 unmatched",
+      "③ 产线本质" in _ca["unmatched"] and sorted(_ca["filled"]) == ["不要什么", "终态形态", "验收线"],
+      str(_ca["unmatched"]))
+check("  契约：sections 逐条给出「小节名 → 命中的标准字段」（对不上给 None）",
+      any(s["name"] == "① 终态三段（产线）" and s["field"] == "终态形态" for s in _ca["sections"])
+      and any(s["name"] == "③ 产线本质" and s["field"] is None for s in _ca["sections"]),
+      str(_ca["sections"]))
+
+_ph = os.path.join(_cdir, "placeholder.md")
+with open(_ph, "w", encoding="utf-8") as _f:
+    _f.write(
+        "## ① 终态形态\n（一句话：我一开始想要的就是 ___。用户原话直录，不改写。）\n\n"
+        "---\n\n"
+        "## ② 验收线\n（「完整投入真实使用」的判据链。）\n"
+    )
+_cp = teg.read_contract_file(_ph)
+check("★★ 契约（占位识别）：整段被括号包住的**是模板骨架不是内容** —— 两节都算「占位没填」"
+      "（老实现把骨架当正文，司天那种空表反而被显示成「填了」—— 另一种假话）",
+      _cp["filled"] == [] and sorted(_cp["placeholderFields"]) == ["终态形态", "验收线"],
+      str({k: _cp[k] for k in ("filled", "placeholderFields")}))
+check("★ 契约（分隔线剥离）：小节之间用 `---` 分隔时正文**不带** `---`，占位判定也不被它破坏",
+      "\n---" not in _cp["终态形态"] or _cp["终态形态"] == "",
+      repr(_cp["终态形态"])[:80])
+_hr = os.path.join(_cdir, "hr.md")
+with open(_hr, "w", encoding="utf-8") as _f:
+    _f.write("## 终态形态\n真正的内容。\n\n---\n\n## 验收线\n也是真内容。\n")
+_hrc = teg.read_contract_file(_hr)
+check("  契约：真内容前后的分隔线同样被剥掉（值里不留 `---`）",
+      _hrc["终态形态"] == "真正的内容。" and _hrc["验收线"] == "也是真内容。",
+      repr(_hrc["终态形态"]) + " / " + repr(_hrc["验收线"]))
+check("★ 契约：TS 侧别名表必须与 Python 侧**逐字一致**（两侧各写一份迟早分叉）",
+      _both_side_aliases_equal(), "见 scripts/test/e2e-trip-board.cjs 的同名断言")
 
 _c3 = teg.read_contract_file(os.path.join(_cdir, "nope.md"))
 check("契约：文件不存在 → exists=False（不抛；交给调用方显式提示）",
