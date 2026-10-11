@@ -1172,6 +1172,18 @@
     await sleep(300)
     check('能切到「日志」页签', clickText('日志'))
     await sleep(500)
+
+    // ── 吸顶工具栏满宽（2026-10-11 视觉修复）────────────────────────────────
+    // 用户：「日志顶部工具栏与背景略有些不协调，尤其左侧」。真因是**特异性** ——
+    // `#board { padding: 14px; align-items: flex-start }`（ID 选择器）把 `.logs-view`（类）的
+    // padding 整条压掉了，于是吸顶条只覆盖"内容宽"、左右各露 14px 底色。
+    // 这类视觉 bug 肉眼才看得出来，所以这里直接量几何把它钉住。
+    const stickyW = $('.logs-sticky') ? Math.round($('.logs-sticky').getBoundingClientRect().width) : -1
+    const viewW = $('.logs-view') ? $('.logs-view').clientWidth : -1
+    check('★ 吸顶工具栏宽度 == 容器内容宽（背景满宽，两侧不露底色）',
+      stickyW > 0 && viewW > 0 && Math.abs(stickyW - viewW) < 2,
+      `sticky=${stickyW} view=${viewW}`)
+
     // 阴性对照（先造「没有链」的数据）：按链视图不该冒出链头 —— 防「按链=全都框起来」的假实现
     window.__fcTest.setLogs([
       { id: 'log-x1', title: '无链甲', content: 'a', status: 'active', project: 'demo', created: '2026-09-28T00:00:00.000Z' },

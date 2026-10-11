@@ -1685,6 +1685,10 @@
     <div v-if="ctxOther" class="ctx-menu ctx-other" :style="{ left: ctxOther.x + 'px', top: ctxOther.y + 'px' }">
       <template v-if="ctxOther.kind === 'log'">
         <div class="ctx-title">{{ ctxOther.item.title || ctxOther.item.id }}</div>
+        <!-- 编辑（2026-10-11 用户：「直接右键日志居然不能编辑」）——
+             任务卡菜单与待办菜单都有编辑，**只有日志漏了**，而它恰恰是最高频的动作。
+             放最前面（原本第一项是「复制全文」）。 -->
+        <button @click="ctxOtherRun(editLogFromMenu)">✏️ 编辑</button>
         <button @click="ctxOtherRun(copyLogFull)">📄 复制全文</button>
         <button @click="ctxOtherRun(copyLogMeta)">🏷 复制带元信息（日期 + 项目）</button>
         <button @click="ctxOtherRun(copyAndDispatchLog)">📤 复制并标记已派</button>
@@ -8912,6 +8916,10 @@ const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo'; item: any } |
 function openLogMenu(e: MouseEvent, log: any): void {
   ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'log', item: log }
 }
+/** 右键「编辑」→ 复用日志卡点击的 openLog。
+ *  ⚠ 必须走它，不能自己 `logEdit_.value = {...log}`：完成日志 / 归档日志 / 编辑日志**共用同一个模态**，
+ *  只赋值不清 mode 标志，会打开「完成日志」的框（`completeLogItem` 就是这么写的，但它是另一个动作）。 */
+function editLogFromMenu(log: any): void { openLog(log) }
 function openTodoMenu(e: MouseEvent, todo: any): void {
   ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'todo', item: todo }
 }
@@ -11379,19 +11387,28 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todos-list.as-grid .todo-acts { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
 
 /* Logs view */
-/* 2026-10-10：padding-top 从容器挪进 .logs-sticky —— sticky 元素贴的是 scrollport
-   顶边，容器留着 padding-top 会在吸顶后露出 14px 的缝让下面的卡片透上来。 */
-.logs-view { flex: 1; display: flex; flex-direction: column; padding: 0 14px 14px; overflow-y: auto; }
+/* 2026-10-11 修视觉（用户：「日志顶部工具栏与背景略有些不协调，尤其左侧」）。
+   真因是**特异性**：上面那条 `#board { padding: 14px; align-items: flex-start }` 是 ID 选择器，
+   把这里 `.logs-view` 的 padding（类选择器）**整条压掉了** ——
+   于是（a）吸顶条只覆盖"内容宽"，左右各露出 14px 的底色；（b）flex-start 让它不拉伸。
+   两步一起修：padding 归零由内层承担（背景就能满宽），并且显式 stretch。
+   ⚠ 写 `.logs-view` 而不写 `#board.logs-view` 会被静默压掉 —— 2026-10-10 那版就是这么失效的。 */
+#board.logs-view {
+  flex: 1; display: flex; flex-direction: column; padding: 0;
+  align-items: stretch; overflow-y: auto;
+}
 /* 工具栏吸顶（2026-10-10 用户第 3 条）：新建日志 / 多选 / 筛选 / 批量栏钉在列表顶部。
-   flex:none 防止在 flex 列容器里被压缩；背景必须不透明（--bg）才能盖住穿过的卡片。 */
-.logs-sticky { position: sticky; top: 0; z-index: 6; flex: none; background: var(--bg); padding-top: 14px; padding-bottom: 2px; }
+   flex:none 防止在 flex 列容器里被压缩；背景必须不透明（--bg）才能盖住穿过的卡片。
+   左右 padding 由它自己带（容器已归零）→ 背景**满宽**，吸顶时不再露出两侧的边。 */
+.logs-sticky { position: sticky; top: 0; z-index: 6; flex: none; background: var(--bg); padding: 14px 14px 2px; }
 .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .logs-header h3 { font-size: 16px; font-weight: 700; }
 .logs-ctrls { display: flex; gap: 8px; align-items: center; }
 .log-search { width: 240px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 .log-search::placeholder { color: #9ca3af; font-size: 10.5px; }
 .log-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
-.logs-list { display: flex; flex-direction: column; gap: 8px; }
+/* 左右/下内边距从 #board.logs-view 挪到这里（2026-10-11）：容器归零后吸顶条才能满宽 */
+.logs-list { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
 /* 日志卡（2026-09-28 用户第 4/5 条）：
    状态**不再靠"左边一条竖线"区分** —— 用户原话「竖条好几条，越看越头痛」。
    待处理/已完成/已归档三种状态改用徽章颜色 + 极淡的卡底差异表达；
