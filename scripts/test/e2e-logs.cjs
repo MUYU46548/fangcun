@@ -669,9 +669,11 @@ function main() {
       !/taskIds: r\.taskIds \|\| \[\]/.test(APP))
     check('★★ 卡004a：接力对话框有「执行内容」可贴字段（此前只有下一步一个文本框）',
       /v-model="relay_\.content"/.test(APP) && /executeRelay[\s\S]{0,600}r\.content/.test(APP))
+    // ⚠ 2026-10-11 用户第 3 条起：遮罩关闭手势由 `@click.self` 改为 `@mousedown.self`
+    //   （拖选滑出弹窗会被 click 判定成"点了遮罩"而关掉整个对话框），断言同步跟进。
     check('★★ 卡004b：接力关闭走 closeRelay 防丢确认（遮罩 + 取消按钮，不再裸置 null）',
-      /function closeRelay/.test(APP) && /@click\.self="closeRelay"/.test(APP) &&
-      /@click="closeRelay"/.test(APP) && !/@click\.self="relay_ = null"/.test(APP))
+      /function closeRelay/.test(APP) && /@mousedown\.self="closeRelay"/.test(APP) &&
+      /@click="closeRelay"/.test(APP) && !/@(?:click|mousedown)\.self="relay_ = null"/.test(APP))
     // ── 2026-09-30 用户第 1/2 条（卡 006）：字段顺序 + 关闭防丢 ──────────────
     const RELAY = APP.slice(APP.indexOf('id="relay-modal"'),
       APP.indexOf('指派时间', APP.indexOf('id="relay-modal"') + 1))

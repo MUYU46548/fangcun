@@ -78,6 +78,14 @@ function seedData() {
   writeFile(path.join(TEST_ROOT, 'task-data', 'archive', 'task-20260101-900.md'), '---\ntitle: 已归档\n状态: 完成\n---\n\n归档正文\n')
   writeFile(path.join(TEST_ROOT, 'task-data', '.activity.log'), '2026-09-18 dispatch task-20260918-001\n')
   writeFile(path.join(TEST_ROOT, 'docs', '执行日志', 'log-001.md'), '# 执行日志\n内容\n')
+  // 2026-10-11 用户第 2 条：备份范围补漏 —— policies/（项目方针卡）此前**根本不在包里**
+  writeFile(path.join(TEST_ROOT, 'policies', 'demo.md'), '# 项目方针：demo\n\n## 使命\n演示用\n')
+  // 瘦身素材：附件目录里一个小文件 + 一个大文件（大文件按 maxFileMB 被跳过）
+  writeFile(path.join(TEST_ROOT, 'docs', '执行日志', '_attachments', 'log-001', 'shot.png'), 'PNG-PLACEHOLDER')
+  writeFile(path.join(TEST_ROOT, 'docs', '执行日志', '_attachments', 'log-001', 'bundle.bin'), 'X'.repeat(1500 * 1024))
+  // 另一个"体积超限"素材放在附件目录**之外** —— 这样它命中"单文件上限"而不是"排除目录"，
+  // 两个旋钮各自被单独验证一次（否则前缀规则先命中，体积规则的判据永远验不到）
+  writeFile(path.join(TEST_ROOT, 'docs', 'big-extra.bin'), 'Y'.repeat(1500 * 1024))
   // 以下三项必须在备份中被排除
   writeFile(path.join(TEST_ROOT, 'llm-config.json'), JSON.stringify({ baseUrl: 'https://x/v1', apiKey: 'sk-pvt-SECRET-SHOULD-NEVER-LEAK', model: 'minimax-m2.7' }))
   writeFile(path.join(TEST_ROOT, 'task-data', '.trash', 'deleted.md'), '被删除的\n')
@@ -125,6 +133,8 @@ async function main() {
       password: PASS,
       allowSelfSigned: false,
     },
+    // 瘦身旋钮（2026-10-11 用户第 2 条）：两个都开，测的是"能省下来、且逐条记账"
+    slim: { excludeLogAttachments: true, maxFileMB: 1 },
   })
 
   const cfgRaw = fs.readFileSync(cfgMod.getBackupPaths().configPath, 'utf-8')
@@ -173,6 +183,45 @@ async function main() {
   check('manifest 每个文件都有 sha256', manifest.files.every(f => /^[0-9a-f]{64}$/.test(f.sha256)))
   const zipText = zipBuf.toString('latin1')
   check('备份包内不含密钥明文', !zipText.includes('SHOULD-NEVER-LEAK'))
+
+  // ── 备份范围补漏 + 瘦身（2026-10-11 用户第 2 条）────────────────────────
+  check('★ 备份含 policies/（项目方针卡）—— 此前它**根本不在备份范围里**，丢了无从找回',
+    names.includes('policies/demo.md'), names.join(','))
+  check('★ 瘦身：排除执行日志附件目录 → _attachments 里一个文件都不进包',
+    !names.some(n => n.includes('_attachments')), names.join(','))
+  check('  但同目录下的正文日志仍在（排除的是"附件"不是"执行日志"）',
+    names.some(n => n.includes('执行日志/log-001.md')))
+  check('★ 被跳过的文件名**没有**出现在包内（排除是真排除）',
+    !names.some(n => n.endsWith('shot.png') || n.endsWith('bundle.bin')), names.join(','))
+
+  const omitted = manifest.omittedFiles || []
+  check('★ 瘦身跳过项**逐条记账**进 manifest（不许静默丢弃 —— 这是"不静默"的硬判据）',
+    omitted.length >= 2, JSON.stringify(omitted))
+  check('★ 附件目录被跳过，且原因写明是"命中排除目录"',
+    omitted.some(o => o.path.includes('_attachments') && /命中排除目录/.test(o.reason)),
+    JSON.stringify(omitted))
+  check('★ 超过单文件上限的文件被跳过，原因写明上限（附件目录**之外**的那个文件 —— 两个旋钮各验一次）',
+    omitted.some(o => o.path === 'docs/big-extra.bin' && /超过单文件上限 1MB/.test(o.reason)),
+    JSON.stringify(omitted))
+  check('  被跳过的文件记了原始尺寸（让人一眼看出省了多少）',
+    omitted.every(o => typeof o.size === 'number') && omitted.some(o => o.size > 1024 * 1024))
+  check('  manifest.omittedBytes 与逐条之和一致',
+    manifest.omittedBytes === omitted.reduce((n, o) => n + (o.size || 0), 0),
+    `${manifest.omittedBytes} vs ${omitted.reduce((n, o) => n + (o.size || 0), 0)}`)
+
+  // 体积报告与真实备份必须**同一套判据** —— 否则"报告里说会跳过什么"与"实际跳过什么"会漂移
+  const sr = bk.sizeReport()
+  check('★ 体积报告可用（"包为什么这么大"要答得上来）', sr.ok === true, JSON.stringify(sr.errors))
+  check('★ 体积报告认出执行日志附件目录的专账体积（>1MB，正是那个 1.5MB 的假 bundle）',
+    sr.logAttachments.files >= 2 && sr.logAttachments.bytes > 1024 * 1024,
+    JSON.stringify(sr.logAttachments))
+  check('★ 体积报告"会跳过的清单"与真实备份"实际跳过的清单"**逐条一致**（同一套判据）',
+    sr.omitted.map(o => o.path).sort().join(',') === omitted.map(o => o.path).sort().join(','),
+    `report=${sr.omitted.map(o => o.path).join(',')} / backup=${omitted.map(o => o.path).join(',')}`)
+  check('  体积报告总量 = 入包量 + 跳过量（没有"看不见的第三块"）',
+    sr.totalBytes === sr.keptBytes + sr.omittedBytes, JSON.stringify({ t: sr.totalBytes, k: sr.keptBytes, o: sr.omittedBytes }))
+  check('  最大文件榜按体积倒序（第一个就是最大的）',
+    sr.largest.length > 0 && sr.largest[0].bytes >= (sr.largest[1] ? sr.largest[1].bytes : 0))
 
   // ── 上传完整性核对 ────────────────────────────────────────────────────
   const remoteName = path.basename(r1.localPath)

@@ -31,6 +31,25 @@
     b.click()
     return true
   }
+  /**
+   * 「点遮罩」的正确模拟（2026-10-11 用户第 3 条）。
+   *
+   * 遮罩的关闭手势已从 `@click.self` 改成 `@mousedown.self` —— 因为在文本框里按住拖选、
+   * 光标滑出弹窗再松手时，`click` 的目标是「按下点与松开点的最近公共祖先」＝遮罩本身，
+   * 于是 `@click.self` 判定为"点了遮罩"→ 弹窗整个关掉、草稿全丢。
+   *
+   * ⚠ 所以断言里模拟"点遮罩"**必须派发 mousedown**：只发 click 已经不再触发关闭，
+   *   照着老写法写会得到"遮罩点不动"的假红（或更糟：把真回归盖住）。
+   */
+  const maskClick = (sel) => {
+    const el = typeof sel === 'string' ? $(sel) : sel
+    if (!el) return false
+    const opt = { bubbles: true, cancelable: true, view: window }
+    el.dispatchEvent(new MouseEvent('mousedown', opt))
+    el.dispatchEvent(new MouseEvent('mouseup', opt))
+    el.dispatchEvent(new MouseEvent('click', opt))
+    return true
+  }
   const waitFor = async (fn, ms, label) => {
     const t0 = Date.now()
     while (Date.now() - t0 < (ms || 5000)) {
@@ -237,7 +256,7 @@
     ;(() => { const r = $('#board .board-list .brow'); if (r) r.click() })()
     check('★ 列表视图里点一行照样打开详情（不是"只有列视图能点"）',
       await waitFor(() => !!$('#roverlay'), 5000, '详情浮层'))
-    ;(() => { const o = $('#roverlay'); if (o) o.click() })()
+    maskClick('#roverlay')
     await sleep(200)
 
     // 换个摆法不丢功能：拖到别的分区 = 改状态
@@ -438,6 +457,29 @@
       JSON.stringify(typeof window.__fcTest.todos === 'function'
         ? window.__fcTest.todos().map(t => t.title) : 'no todos() api'))
     window.confirm = _origConfirm
+
+    // ── 族2（2026-10-11 用户第 3 条）：文本框里按住拖选、光标滑出弹窗再松手 → 不许关 ──
+    // 真因：`click` 的目标是「按下点与松开点的最近公共祖先」＝遮罩，于是 `@click.self`
+    // 判定为"点了遮罩"→ 弹窗整个关掉、草稿全丢（用户累计触发十几次）。
+    // 修法：遮罩关闭手势换成 `@mousedown.self`（只在**按下那一刻**光标就在遮罩上才触发）。
+    ;(() => { const t = $('main.todos-view .todos-list.as-grid .todo-title'); if (t) t.click() })()
+    await waitFor(() => !!$('#todo-edit-modal'), 5000, '待办编辑弹窗（拖选回归）')
+    const dragOv = $('#todo-edit-overlay')
+    const dragTa = $('#todo-edit-modal textarea')
+    if (dragOv && dragTa) {
+      const me = { bubbles: true, cancelable: true, view: window }
+      dragTa.dispatchEvent(new MouseEvent('mousedown', me))   // 按下：光标在文本框里
+      dragOv.dispatchEvent(new MouseEvent('mouseup', me))     // 松开：已经拖出弹窗、落在遮罩上
+      dragOv.dispatchEvent(new MouseEvent('click', me))       // 浏览器这时还会补一个 click（目标是遮罩）
+    }
+    await sleep(250)
+    check('★★ 族2：文本框里按住拖选、光标滑出弹窗再松手 → 弹窗**不许**被关掉（老代码这里直接全丢）',
+      !!$('#todo-edit-modal'), 'modal=' + !!$('#todo-edit-modal'))
+    // 反向验证关闭手势还在：按下就在遮罩上 → 该关还是得关（别把 bug 修成"关不掉了"）
+    maskClick('#todo-edit-overlay')
+    await sleep(250)
+    check('★ 族2：真正点遮罩（按下就在遮罩上）仍然关得掉 —— 修复没把关闭手势一起弄没',
+      !$('#todo-edit-modal'), 'modal=' + !!$('#todo-edit-modal'))
 
     window.__fcTest.reset()
     ;(() => {
@@ -1359,8 +1401,7 @@
     check('★ 「继续填写」收起条、内容还在（对话框不关）',
       !!$('#relay-modal') && !$('#relay-modal .relay-discard') &&
       ($$('#relay-modal textarea')[0] || { value: '' }).value.indexOf('上次会话完成情况') >= 0)
-    const ovRelay = document.querySelector('#relay-overlay')
-    if (ovRelay) ovRelay.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    maskClick('#relay-overlay')
     await sleep(250)
     check('★★ 点遮罩同样拦下：对话框仍在 + 确认条再次出现（老代码这里直接全丢）',
       !!$('#relay-modal') && !!$('#relay-modal .relay-discard'))
@@ -2137,8 +2178,8 @@
     check('★ 预览打开的正是通知指向的那条任务',
       !!$('#roverlay') && String((($('#rmodal h3') || {}).textContent || '')).indexOf('通知跳转目标任务') >= 0,
       String((($('#rmodal h3') || {}).textContent || '').slice(0, 60)))
-    // 关预览（overlay 自身 @click.self）
-    const ovNc = $('#roverlay'); if (ovNc) ovNc.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // 关预览（overlay 自身 @mousedown.self —— 2026-10-11 起遮罩手势改用 mousedown）
+    maskClick('#roverlay')
     await sleep(300)
     // 点第 2 条（待办类）→ 关面板 + 切到待办视图
     if (bellBtn) bellBtn.click()
@@ -2308,10 +2349,9 @@
     check('  填 30 天后写入真身 prefs（fc_archive_days=30）',
       Number(window.__fcTest.prefs().fc_archive_days) === 30, JSON.stringify(window.__fcTest.prefs().fc_archive_days))
 
-    const sov = $('#soverlay')
-    if (sov) sov.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    maskClick('#soverlay')
     await sleep(300)
-    check('设置面板已关闭', !$('#smodal'))
+    check('设置面板已关闭（点遮罩 = mousedown.self 才关）', !$('#smodal'))
 
     check('能切回「看板」页签', clickText('看板'))
     check('★ 保留天数 > 0 且真有超期任务 → 看板顶部出现提示条（只提示，不静默动手）',

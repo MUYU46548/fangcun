@@ -4,6 +4,10 @@
  *
  * 真跑**编译产物** `dist/main/backup/gitBackupPure.js`（纯逻辑，不要 electron / 不要 git → 本机可跑）。
  *
+ * ⚠ 2026-10-11 用户第 1 条之后：通道语义从"推备份 zip"改成**把真实文件镜像进仓库**
+ *   （用户原话：「全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？」）。
+ *   所以除了安全红线，这里还钉住"仓库里是 .md 而不是 .zip""改一行能在历史里看见""删文件会跟着删"。
+ *
  * 这里盯的不是"能不能推上去"（那要真仓库真令牌才知道），而是**四条安全红线**：
  *   ① 令牌**不进 argv** —— `ps` 看不到；
  *   ② 回渲染层 / 落日志的文本**必须脱敏** —— git 报错会原样回显带令牌的 URL；
@@ -165,7 +169,11 @@ check('★★ 渲染层：Git 失败信息要同时认 `message` 与 `error` 两
   + '主进程异常走的是 `error`（backup-ipc 的 fail()），只认 message 会显示成"没有返回结果"'
   + '（静默失败，用户最恨的那类）',
   /r\?\.message \|\| r\?\.error \|\| '测试没有返回结果'/.test(APPSRC)
-  && /r\?\.message \|\| r\?\.error \|\| '推送没有返回结果'/.test(APPSRC))
+  && /r\?\.message \|\| r\?\.error \|\| '同步没有返回结果'/.test(APPSRC))
+check('★★ 渲染层：Git 按钮说的是「同步到仓库」而不是「推送最新备份」，并且**不传 zip 路径** ——'
+  + '用户第 1 条：推的是真实文件，不是压缩包',
+  /同步到仓库/.test(APPSRC) && !/推送最新备份/.test(APPSRC)
+  && !/backupGitPush\(\s*[^)\s]/.test(APPSRC))
 check('  渲染层：令牌输入框清空时机正确（保存成功才清，不留明文在 UI）',
   /gitToken\.value = ''/.test(APPSRC) && !/gitToken\.value = gitToken\.value/.test(APPSRC))
 
@@ -287,8 +295,10 @@ async function integrate() {
 /**
  * ⑦ 执行器本体（`gitBackup.ts`）—— 这一段才算真把「点一下按钮」走通。
  * 复用项目现成的 electron 桩（`electron-stub.cjs`），userData 指向临时目录，
- * 于是 clone 的工作副本、配置、凭据全落在临时目录里，跑完就删。
- * ⚠ 之前这个文件**从来没跑起来过**，所以 `gitPushPackage` 一行都没被验过 —— 现在补上。
+ * 于是 clone 的工作副本、配置、凭据、数据目录全落在临时目录里，跑完就删。
+ *
+ * ⚠ 2026-10-11 用户第 1 条之后，这里验的是**真实文件镜像**（不是推 zip）：
+ *   仓库里必须出现 `task-data/*.md` 这些**可 diff 的文件**，且**不许**再有 `.zip`。
  */
 async function integrateExecutor() {
   const probe = await gitAsync(['--version'], os.tmpdir())
@@ -309,8 +319,15 @@ async function integrateExecutor() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-git-exec-repo-'))
   const bare = path.join(root, 'bare.git')
   const idArgs = ['-c', 'user.name=e2e', '-c', 'user.email=e2e@local']
+  const dataRoot = path.join(tmpUserData, 'data')
+  const wr = (rel, content) => {
+    const p = path.join(dataRoot, rel)
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, content)
+  }
   try {
     const gb = require(path.join(REPO, 'desktop', 'dist', 'main', 'backup', 'gitBackup.js'))
+    const dataMod = require(path.join(REPO, 'desktop', 'dist', 'main', 'data', 'index.js'))
     await gitAsync(['init', '--bare', '--initial-branch=main', bare], root)
 
     // ① 没填地址时的提示必须指向"先保存"，不能是笼统的"还没填"
@@ -323,16 +340,13 @@ async function integrateExecutor() {
     check('  配置真的落盘了（readGitConfig 读得回来）', gb.readGitConfig().remote === bare)
 
     // 令牌按**域名**保管 —— 所以本地路径形式的 remote 没有域名，令牌存不住。
-    //   这既是事实（本地路径本来也不需要令牌），也顺带把这条边界钉出来，免得以后有人以为能存。
     const localTok = gb.saveGitToken('TESTTOKEN-REDACT-ME-0001', 'e2e')
     check('  本地路径形式的 remote **没有域名** → 令牌不落盘（本来也不需要）',
       localTok.ok === false && gb.hasGitToken() === false, JSON.stringify(localTok))
-    // 换成 https 形状的地址 → 令牌能存住（真实场景走的就是这条）
     gb.saveGitConfig({ remote: 'https://example.invalid/x.git', branch: 'main' })
     const httpsTok = gb.saveGitToken('TESTTOKEN-REDACT-ME-0001', 'e2e')
     check('★ https 形状的地址：令牌加密存住（hasGitToken 为真）', httpsTok.ok === true && gb.hasGitToken() === true, JSON.stringify(httpsTok))
     check('  凭据落盘文件里**不含明文令牌**', fs.readFileSync(path.join(tmpUserData, 'git-credentials.json'), 'utf-8').indexOf('TESTTOKEN-REDACT-ME-0001') < 0)
-    // 回到本地裸仓库继续验推送
     gb.saveGitConfig({ remote: bare, branch: 'main' })
 
     // ② 用户那个现场：**空仓库**上点「测试连接」→ 必须是成功
@@ -342,42 +356,86 @@ async function integrateExecutor() {
     check('  而且话里说明白"仓库还是空的，第一次推送会建分支"（不是含糊的"连上了"）',
       t1.message.indexOf('空') >= 0, t1.message)
 
-    // ③ 首次推送一份 zip
-    const zip1 = path.join(root, 'fangcun-backup-1.zip')
-    fs.writeFileSync(zip1, 'zip-content-1')
-    const p1 = await gb.gitPushPackage(zip1)
-    check('★★ 执行器：首次推送成功（空仓库 → 自动建 main）', p1.ok === true, JSON.stringify(p1))
+    // ③ 准备数据目录（要塞进的真实文件）——
+    //    ⚠ 先写文件再 setDataDir：setDataDir 会校验目标目录像不像数据根（要有 registry.yaml / task-data）
+    wr('registry.yaml', 'members:\n  - 暮雨\nprojects:\n  - id: demo\n    name: 演示\n')
+    wr('task-data/task-1.md', '---\ntitle: 任务一\n状态: 进行中\n---\n\nv1\n')
+    wr('task-data/task-2.md', '---\ntitle: 任务二\n状态: 待办\n---\n\nv1\n')
+    wr('policies/demo.md', '# 项目方针：demo\n\n## 使命\n演示\n')
+    wr('docs/执行日志/log-1.md', '# 日志\n内容\n')
+    wr('llm-config.json', '{"apiKey":"sk-pvt-SECRET-SHOULD-NEVER-LEAK"}')
+    wr('task-data/.trash/gone.md', '不该进')
+    dataMod.setDataDir(dataRoot)
+
+    const s1 = await gb.gitSyncData()
+    check('★★ 执行器：首次同步成功（空仓库 → 自动建 main）', s1.ok === true, JSON.stringify(s1))
+    check('★ 同步的是**真实文件**：报了文件数（不是"1 个 zip"）', (s1.files || 0) >= 4, JSON.stringify(s1))
+
     const refs1 = await gitAsync(['ls-remote', bare], root)
-    check('  远端有了 main，而且 zip 真在里面（不是只建了分支）',
-      refs1.out.indexOf('refs/heads/main') >= 0)
+    check('  远端有了 main', refs1.out.indexOf('refs/heads/main') >= 0, refs1.out.trim())
 
-    // ④ 第二次推送：工作副本已存在 → 走 set-url 分支，仍要能推
-    const zip2 = path.join(root, 'fangcun-backup-2.zip')
-    fs.writeFileSync(zip2, 'zip-content-2')
-    const p2 = await gb.gitPushPackage(zip2)
-    check('★ 执行器：已有工作副本时再推一次也成功（第二次走 remote set-url 分支）', p2.ok === true, JSON.stringify(p2))
+    // 仓库真的铺进了文件（用 git show 读远端内容，不看本地工作副本）
+    const tree1 = await gitAsync(['ls-tree', '-r', '--name-only', 'main'], bare)
+    check('★★ 仓库里是 task-data/task-1.md 这种**可 diff 的文件**，不是压缩包',
+      tree1.out.includes('task-data/task-1.md') && tree1.out.includes('registry.yaml'), tree1.out.trim().slice(0, 300))
+    check('★★ 仓库里**一个 .zip 都没有**（用户第 1 条原话：git 备份不该扔压缩包上来）',
+      !tree1.out.includes('.zip'), tree1.out.trim().slice(0, 300))
+    check('★ 方针卡 policies/ 也进了仓库（备份范围补漏的另一面）', tree1.out.includes('policies/demo.md'), tree1.out.trim().slice(0, 300))
+    check('★ 密钥类文件（llm-config.json）**没进**仓库', !tree1.out.includes('llm-config.json'), tree1.out.trim().slice(0, 300))
+    check('  回收站 .trash 没进仓库', !tree1.out.includes('.trash'), tree1.out.trim().slice(0, 300))
+    const blob1 = await gitAsync(['show', 'main:task-data/task-1.md'], bare)
+    check('★ 文件内容是**原文**（可读可 diff），不是二进制壳', blob1.out.includes('任务一'), blob1.out.slice(0, 120))
 
-    // ⑤ 远端领先 → 执行器应**自动救一次**并报 recovered
+    // ④ 改一行再同步 → 仓库里的文件真的变成新内容（这是"用 git 备份"的意义所在）
+    wr('task-data/task-1.md', '---\ntitle: 任务一\n状态: 进行中\n---\n\nv2-改了正文\n')
+    const s2 = await gb.gitSyncData()
+    check('★ 第二次同步成功（已有工作副本 → 走 set-url / 对齐远端分支）', s2.ok === true, JSON.stringify(s2))
+    const blob2 = await gitAsync(['show', 'main:task-data/task-1.md'], bare)
+    check('★★ 改动的**那一行**在仓库里可见（逐文件历史成立 —— 压缩包做不到这件事）',
+      blob2.out.includes('v2-改了正文'), blob2.out.slice(0, 160))
+
+    // ⑤ 删掉一个文件再同步 → 仓库里也要删掉（镜像必须双向可删）
+    fs.rmSync(path.join(dataRoot, 'task-data', 'task-2.md'), { force: true })
+    const s3 = await gb.gitSyncData()
+    check('★ 第三次同步成功', s3.ok === true, JSON.stringify(s3))
+    const tree3 = await gitAsync(['ls-tree', '-r', '--name-only', 'main'], bare)
+    check('★★ 删掉的源文件在仓库里也删掉了（镜像双向可删，不会"删了还在"）',
+      !tree3.out.includes('task-data/task-2.md'), tree3.out.trim().slice(0, 300))
+
+    // ⑥ 远端领先 → 执行器应**自动救一次**并报 recovered
     const other = path.join(root, 'other')
-    await gitAsync(['clone', '--depth', '1', bare, other], root)
-    fs.writeFileSync(path.join(other, 'from-other.zip'), 'x')
+    await gitAsync(['clone', bare, other], root)
+    fs.writeFileSync(path.join(other, 'from-other.txt'), 'x')
     await gitAsync(['add', '-A'], other)
     await gitAsync([...idArgs, 'commit', '-m', 'from other machine'], other)
     const pOther = await gitAsync(['push', 'origin', 'HEAD:main'], other)
     check('  准备：另一台机器推了一次（远端领先）', pOther.code === 0, pOther.out.slice(0, 120))
 
-    const zip3 = path.join(root, 'fangcun-backup-3.zip')
-    fs.writeFileSync(zip3, 'zip-content-3')
-    const p3 = await gb.gitPushPackage(zip3)
-    check('★★ 执行器：远端领先时**自动并入再推**成功，并且明确回报 recovered=true'
-      + '（用户不必自己搞懂 fetch/reset 那套）',
-      p3.ok === true && p3.recovered === true, JSON.stringify(p3))
-    const refs2 = await gitAsync(['ls-remote', bare], root)
+    wr('task-data/task-1.md', '---\ntitle: 任务一\n状态: 进行中\n---\n\nv3\n')
+    const s4 = await gb.gitSyncData()
+    // 新设计：同步前先 fetch + align 到远端分支，**所以根本走不到"被拒"那一步**
+    //（老设计推 zip 时是必然被拒再补救）。这里钉住"远端领先也照样成功、且不留分叉"。
+    check('★★ 执行器：远端领先时也能成功同步（同步前已对齐远端分支 → 不会走到"被拒"那一步）',
+      s4.ok === true, JSON.stringify(s4))
+    const refs2 = await gitAsync(['ls-remote', '--heads', bare], root)
     check('  补最后远端仍是单条 main（没有强推留分叉）',
       (refs2.out.match(/refs\/heads\/main/g) || []).length === 1)
     const log = await gitAsync(['log', '--oneline', '--all'], bare)
-    check('  两边的提交都在（另一台机器的提交没被我们抹掉）—— 这不是 --force 的语义',
+    check('★★ 另一台机器的提交**仍在历史里**（镜像不重写历史 —— 我们要的是"不丢"，不是"盖掉"）',
       log.out.indexOf('from other machine') >= 0, log.out.slice(0, 200))
+    const tree4 = await gitAsync(['ls-tree', '-r', '--name-only', 'main'], bare)
+    check('  而工作树是**我们这份数据的镜像**（镜像语义：HEAD 反映本地数据，历史留全；仍无 .zip）',
+      tree4.out.includes('task-data/task-1.md') && !tree4.out.includes('.zip'), tree4.out.trim().slice(0, 200))
+    // 补救路径本身的正确性仍由 `pushRecoverySteps` 纯函数 + 上面 integrate() 的真 git 端到端覆盖
+    check('  补救步骤仍是"绝不 --force"（fetch + reset --soft）',
+      pushRecoverySteps('main')[1][1] === '--soft')
+
+    // ⑦ 源码守卫：执行器里**不许**再有"把 zip 拷进工作副本"的写法（用户第 1 条就是这条回归）
+    const GBSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'backup', 'gitBackup.ts'), 'utf-8')
+    check('★★ 源码守卫：gitBackup.ts 里不许再出现「copyFileSync(zipPath」这种推压缩包的写法',
+      !/copyFileSync\(\s*zipPath/.test(GBSRC) && !/gitPushPackage/.test(GBSRC))
+    check('★ 源码守卫：执行器必须走镜像（mirrorInto）+ 共用备份范围（scopeSources / planSnapshot）',
+      /function mirrorInto/.test(GBSRC) && /scopeSources\(\)/.test(GBSRC) && /planSnapshot\(/.test(GBSRC))
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* ignore */ }
     try { fs.rmSync(tmpUserData, { recursive: true, force: true }) } catch { /* ignore */ }

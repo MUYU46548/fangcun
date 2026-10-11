@@ -150,6 +150,15 @@ export interface ManifestEntry {
   mtime: string
 }
 
+/** 被"瘦身"跳过的文件 —— **必须逐条记账**，不许静默丢弃（2026-10-11 用户第 2 条） */
+export interface OmittedEntry {
+  path: string
+  /** 原始字节数（让人一眼看出"省了多少"） */
+  size: number
+  /** 为什么被跳过 */
+  reason: string
+}
+
 export interface BackupManifest {
   schemaVersion: number
   kind: 'fangcun-data-backup'
@@ -162,6 +171,10 @@ export interface BackupManifest {
   files: ManifestEntry[]
   /** 审计：本次被排除的敏感文件（只记相对路径，不含内容） */
   excludedSecrets: string[]
+  /** 审计：本次被"瘦身"跳过的文件（体积超限 / 附件目录排除） */
+  omittedFiles: OmittedEntry[]
+  /** 被跳过的文件总字节数 */
+  omittedBytes: number
 }
 
 export interface SnapshotResult {
@@ -177,6 +190,18 @@ export interface SnapshotSources {
   /** 相对 rootDir 的待备份路径，文件或目录 */
   includes: string[]
   appVersion?: string
+  /** 跳过超过这个 MB 数的单个文件（0 / 省略 = 不限） */
+  maxFileMB?: number
+  /** 额外排除的相对路径前缀（如 `docs/执行日志/_attachments`）—— 用于"备份瘦身" */
+  excludePrefixes?: string[]
+}
+
+/** 相对路径是否命中某个前缀（按路径段判定，避免 `abc` 误伤 `abcd`） */
+function hitPrefix(rel: string, prefix: string): boolean {
+  const p = String(prefix).replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!p) return false
+  const r = String(rel).replace(/\\/g, '/')
+  return r === p || r.startsWith(p + '/')
 }
 
 function sha256(buf: Buffer): string {
@@ -224,11 +249,21 @@ function collect(rootDir: string, relPath: string, out: Array<{ rel: string; abs
   }
 }
 
+export interface SnapshotPlan {
+  /** 实际会入包的文件（已去重、已过排除与瘦身判定） */
+  files: Array<{ rel: string; abs: string }>
+  /** 被"瘦身"跳过的文件（逐条记账 —— 不许静默丢弃） */
+  omitted: OmittedEntry[]
+  /** 密钥类排除项（审计用） */
+  excludedSecrets: string[]
+}
+
 /**
- * 生成快照：收集 → 逐文件 sha256 → 打包 zip → 附带 manifest.json。
- * 全程只读，不修改任何源文件。
+ * 只做"收集 + 排除 + 瘦身判定"，**不读内容、不打 zip**。
+ * `createSnapshot` 与「体积报告」(`backup:sizeReport`) 共用它 —— 保证"报告里说会跳过什么"
+ * 与"备份时真跳过什么"是**同一套判据**（分成两套必然会漂移）。
  */
-export function createSnapshot(sources: SnapshotSources): SnapshotResult {
+export function planSnapshot(sources: SnapshotSources): SnapshotPlan {
   const { rootDir, includes } = sources
   if (!fs.existsSync(rootDir)) {
     throw new Error(`数据根目录不存在：${rootDir}`)
@@ -245,15 +280,61 @@ export function createSnapshot(sources: SnapshotSources): SnapshotResult {
   const unique = collected.filter(c => (seen.has(c.rel) ? false : (seen.add(c.rel), true)))
   unique.sort((a, b) => a.rel.localeCompare(b.rel))
 
+  // 瘦身旋钮之一：前缀排除（如整个执行日志附件目录）。
+  // ⚠ 别在这里直接丢掉 —— 被排掉的要记账，用户才能在报告/包内看清"少了什么"。
+  const omitted: OmittedEntry[] = []
+  const prefixes = (sources.excludePrefixes || []).filter(Boolean)
+  const afterPrefix = prefixes.length
+    ? unique.filter(c => {
+        const hit = prefixes.find(p => hitPrefix(c.rel, p))
+        if (hit) {
+          let size = 0
+          try { size = fs.statSync(c.abs).size } catch { /* 读不到就记 0，不影响排除 */ }
+          omitted.push({ path: c.rel, size, reason: `命中排除目录 ${hit}` })
+          return false
+        }
+        return true
+      })
+    : unique
+
+  // 瘦身旋钮之二：单文件体积上限。
+  const maxBytes = Math.max(0, Number(sources.maxFileMB) || 0) * 1024 * 1024
+  const filesKept = maxBytes > 0
+    ? afterPrefix.filter(c => {
+        let size = 0
+        try { size = fs.statSync(c.abs).size } catch { return true }
+        if (size > maxBytes) {
+          omitted.push({ path: c.rel, size, reason: `超过单文件上限 ${sources.maxFileMB}MB` })
+          return false
+        }
+        return true
+      })
+    : afterPrefix
+
   // 审计：数据根顶层的敏感文件（密钥类）即便不在 includes 内，也要显式记账，
   // 让用户能从 manifest 一眼看到"哪些机密存在于本地但被有意排除在备份之外"。
   try {
     for (const name of fs.readdirSync(rootDir)) {
-      if (isSecretLike(name) && !unique.some(u => u.rel === name)) {
+      if (isSecretLike(name) && !filesKept.some(u => u.rel === name)) {
         excluded.push(name)
       }
     }
   } catch { /* 根目录不可读不阻断备份 */ }
+
+  return { files: filesKept, omitted, excludedSecrets: excluded }
+}
+
+/**
+ * 生成快照：收集 → 逐文件 sha256 → 打包 zip → 附带 manifest.json。
+ * 全程只读，不修改任何源文件。
+ */
+export function createSnapshot(sources: SnapshotSources): SnapshotResult {
+  const { rootDir } = sources
+
+  const plan = planSnapshot(sources)
+  const unique = plan.files
+  const omitted = plan.omitted
+  const excluded = plan.excludedSecrets
 
   const zip = new ZipWriter()
   const manifestFiles: ManifestEntry[] = []
@@ -290,6 +371,8 @@ export function createSnapshot(sources: SnapshotSources): SnapshotResult {
     totalBytes,
     files: manifestFiles,
     excludedSecrets: Array.from(new Set(excluded)).sort(),
+    omittedFiles: omitted,
+    omittedBytes: omitted.reduce((n, o) => n + (o.size || 0), 0),
   }
 
   const manifestBuffer = Buffer.from(JSON.stringify(manifest, null, 2), 'utf-8')

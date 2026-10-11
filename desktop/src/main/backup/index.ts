@@ -17,7 +17,10 @@ import {
   getBackupConfig, getBackupState, saveBackupState, appendBackupLog,
   decryptSecret, BackupConfig,
 } from './config'
-import { createSnapshot, verifyZip, sha256OfBuffer, BackupManifest } from './packer'
+import {
+  createSnapshot, verifyZip, sha256OfBuffer, BackupManifest, OmittedEntry, planSnapshot,
+} from './packer'
+import { BACKUP_INCLUDES, LOG_ATTACHMENTS_REL, scopeSources } from './scope'
 import { extractZipTo, extractFileFromZip } from './packer'
 import { WebdavClient, WebdavError } from './webdav'
 
@@ -43,6 +46,9 @@ export interface RunResult {
   errors: string[]
   warnings: string[]
   excludedSecrets: string[]
+  /** 被瘦身跳过的文件（逐条记账，界面直接显示"少了什么/省了多少"） */
+  omittedFiles: OmittedEntry[]
+  omittedBytes: number
 }
 
 function stamp(): string {
@@ -61,7 +67,7 @@ export function backupFileBase(): string {
   return `fangcun-data-${stamp()}`
 }
 
-/** 备份数据根：桌面版为 userData（内含 task-data/ registry.yaml docs/） */
+/** 备份数据根：桌面版为 userData（内含 task-data/ registry.yaml policies/ docs/） */
 function resolveRoot(): string {
   return data.getDataDir()
 }
@@ -84,6 +90,7 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     files: 0, rawBytes: 0, durationMs: 0,
     zipSha256: '', verifyOk: false,
     errors, warnings, excludedSecrets: [],
+    omittedFiles: [], omittedBytes: 0,
   }
 
   saveBackupState({ lastRunAt: new Date().toISOString() })
@@ -91,11 +98,7 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
   // ── 1. 打包 ──────────────────────────────────────────────────────────
   let snapshot
   try {
-    snapshot = createSnapshot({
-      rootDir: resolveRoot(),
-      includes: ['task-data', 'registry.yaml', 'docs'],
-      appVersion: '0.2.1',
-    })
+    snapshot = createSnapshot(scopeSources())
   } catch (e) {
     errors.push(`打包失败：${(e as Error).message}`)
     return finish(result, started)
@@ -105,6 +108,8 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
   result.rawBytes = snapshot.manifest.totalBytes
   result.zipSha256 = snapshot.zipSha256
   result.excludedSecrets = snapshot.manifest.excludedSecrets
+  result.omittedFiles = snapshot.manifest.omittedFiles || []
+  result.omittedBytes = snapshot.manifest.omittedBytes || 0
 
   if (result.files === 0) {
     errors.push('没有可备份的数据文件（task-data/registry.yaml/docs 均为空或不存在）')
@@ -235,7 +240,8 @@ function finish(result: RunResult, started: number): RunResult {
     })
     appendBackupLog(
       `OK trigger=${result.trigger} files=${result.files} raw=${result.rawBytes}B zip=${result.localBytes}B ` +
-      `remote=${result.remotePath ? 'yes' : 'no'} ${result.durationMs}ms`
+      `remote=${result.remotePath ? 'yes' : 'no'} omitted=${result.omittedFiles.length}(${result.omittedBytes}B) ` +
+      `${result.durationMs}ms`
     )
   } else {
     const prev = getBackupState()
@@ -394,11 +400,7 @@ export function exportSnapshotTo(destDir: string): ExportResult {
 
   let snapshot
   try {
-    snapshot = createSnapshot({
-      rootDir: resolveRoot(),
-      includes: ['task-data', 'registry.yaml', 'docs'],
-      appVersion: '0.2.1',
-    })
+    snapshot = createSnapshot(scopeSources())
   } catch (e) {
     errors.push(`打包失败：${(e as Error).message}`)
     return result
@@ -575,6 +577,94 @@ export function verifyPackage(zipPath: string): {
     entries: v.entryCount,
     sidecarChecked,
     actualSha256,
+  }
+}
+
+/**
+ * 备份体积报告（2026-10-11 用户第 2 条）。
+ *
+ * 用户问「包怎么这么大？」，方寸此前**答不上来** —— 界面上只有一个 62.6MB 的结果，看不到构成。
+ * 这里把"备份范围里到底有什么、谁最占地方、按当前瘦身设置会跳过什么"摊开，
+ * 让"为什么大"变成可判断的事实，而不是让用户猜。
+ *
+ * 复用 `planSnapshot` —— 所以**它说会跳过什么，备份时就真跳过什么**（同一套判据）。
+ */
+export interface SizeReport {
+  ok: boolean
+  root: string
+  /** 备份范围内（含会被瘦身跳过的）文件数与总字节 */
+  files: number
+  totalBytes: number
+  /** 按当前瘦身设置**实际会入包**的字节数 */
+  keptBytes: number
+  omittedBytes: number
+  omitted: OmittedEntry[]
+  /** 按顶层路径归类（task-data / docs / policies / registry.yaml …） */
+  byTop: Array<{ name: string; bytes: number; files: number }>
+  /** 执行日志附件目录专账（体积黑洞通常在这里） */
+  logAttachments: { bytes: number; files: number }
+  /** 最大的若干个文件 */
+  largest: Array<{ path: string; bytes: number }>
+  errors: string[]
+}
+
+export function sizeReport(): SizeReport {
+  const errors: string[] = []
+  const root = resolveRoot()
+  const empty: SizeReport = {
+    ok: false, root, files: 0, totalBytes: 0, keptBytes: 0, omittedBytes: 0,
+    omitted: [], byTop: [], logAttachments: { bytes: 0, files: 0 }, largest: [], errors,
+  }
+  let plan
+  try {
+    plan = planSnapshot(scopeSources())
+  } catch (e) {
+    errors.push(`扫描失败：${(e as Error).message}`)
+    return empty
+  }
+
+  type Row = { rel: string; bytes: number }
+  const rows: Row[] = []
+  for (const f of plan.files) {
+    try { rows.push({ rel: f.rel, bytes: fs.statSync(f.abs).size }) } catch { /* 读不到就跳过 */ }
+  }
+  for (const o of plan.omitted) rows.push({ rel: o.path, bytes: o.size || 0 })
+
+  const totalBytes = rows.reduce((n, r) => n + r.bytes, 0)
+  const omittedBytes = plan.omitted.reduce((n, o) => n + (o.size || 0), 0)
+
+  const topMap = new Map<string, { bytes: number; files: number }>()
+  for (const r of rows) {
+    const top = r.rel.split('/')[0] || '(根)'
+    const cur = topMap.get(top) || { bytes: 0, files: 0 }
+    cur.bytes += r.bytes
+    cur.files += 1
+    topMap.set(top, cur)
+  }
+
+  const la = { bytes: 0, files: 0 }
+  for (const r of rows) {
+    if (r.rel === LOG_ATTACHMENTS_REL || r.rel.startsWith(LOG_ATTACHMENTS_REL + '/')) {
+      la.bytes += r.bytes
+      la.files += 1
+    }
+  }
+
+  return {
+    ok: true,
+    root,
+    files: rows.length,
+    totalBytes,
+    keptBytes: totalBytes - omittedBytes,
+    omittedBytes,
+    omitted: plan.omitted,
+    byTop: Array.from(topMap.entries())
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.bytes - a.bytes),
+    logAttachments: la,
+    largest: rows.slice().sort((a, b) => b.bytes - a.bytes).slice(0, 8)
+      .map(r => ({ path: r.rel, bytes: r.bytes })),
+    errors,
   }
 }
 

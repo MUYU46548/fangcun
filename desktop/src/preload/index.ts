@@ -65,13 +65,16 @@ contextBridge.exposeInMainWorld('tegula', {
   backupExportTo: (input: any) => ipcRenderer.invoke('backup:exportTo', input),
   backupVerifyPackage: (zipPath?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath),
   backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
+  // 体积报告（2026-10-11 用户第 2 条）：把"备份范围里什么最占地方、按当前瘦身设置会跳过什么"摊开
+  backupSizeReport: () => ipcRenderer.invoke('backup:sizeReport'),
   // Git 通道（2026-10-11）：只推不拉；令牌在渲染层只出现一次（填进去），之后再没回传
   backupGitStatus: () => ipcRenderer.invoke('backup:gitStatus'),
   backupGitSave: (patch: any) => ipcRenderer.invoke('backup:gitSave', patch),
   backupGitSaveToken: (token: string, username?: string) => ipcRenderer.invoke('backup:gitSaveToken', token, username),
   backupGitClearToken: () => ipcRenderer.invoke('backup:gitClearToken'),
   backupGitTest: () => ipcRenderer.invoke('backup:gitTest'),
-  backupGitPush: (zipPath?: string) => ipcRenderer.invoke('backup:gitPush', zipPath),
+  // 2026-10-11 用户第 1 条：改成把**真实文件**镜像进仓库（不再推压缩包），所以没有入参
+  backupGitPush: () => ipcRenderer.invoke('backup:gitPush'),
   backupPickRestoreFile: () => ipcRenderer.invoke('backup:pickRestoreFile'),
   backupPickDir: () => ipcRenderer.invoke('backup:pickDir'),
   onBackupStatus: (cb: (status: any) => void) => {

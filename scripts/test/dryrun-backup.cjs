@@ -27,13 +27,30 @@ const DIST = path.resolve(__dirname, '../../desktop/dist/main')
 const data = require(path.join(DIST, 'data', 'index.js'))
 data.setDataDir(REAL)
 const { createSnapshot, verifyZip } = require(path.join(DIST, 'backup', 'packer.js'))
+const { BACKUP_INCLUDES, LOG_ATTACHMENTS_REL } = require(path.join(DIST, 'backup', 'scope.js'))
+
+// 瘦身旋钮可用环境变量预演：FC_MAX_MB=0 关闭体积上限、FC_SKIP_ATTACHMENTS=1 排除附件目录
+const MAX_MB = process.env.FC_MAX_MB !== undefined ? Number(process.env.FC_MAX_MB) : 10
+const SKIP_ATT = process.env.FC_SKIP_ATTACHMENTS === '1'
 
 const snap = createSnapshot({
   rootDir: data.getDataDir(),
-  includes: ['task-data', 'registry.yaml', 'docs'],
+  // ⚠ 用**共享的范围真源**（2026-10-11 用户第 2 条：policies/ 此前漏在备份范围之外；
+  //   这个预演脚本自己写一份 includes 的话，就会重复当年那个错）
+  includes: BACKUP_INCLUDES.slice(),
   appVersion: '0.2.1',
+  maxFileMB: MAX_MB,
+  excludePrefixes: SKIP_ATT ? [LOG_ATTACHMENTS_REL] : [],
 })
 const v = verifyZip(snap.zipBuffer)
+
+console.log('瘦身设置     :', `单文件上限 ${MAX_MB || '不限'}MB · 排除附件目录 ${SKIP_ATT ? '开' : '关'}`)
+const om = snap.manifest.omittedFiles || []
+console.log('被瘦身跳过   :', om.length, `个 / ${((snap.manifest.omittedBytes || 0) / 1024 / 1024).toFixed(1)} MB`)
+for (const o of om.slice().sort((a, b) => (b.size || 0) - (a.size || 0)).slice(0, 6)) {
+  console.log('              ', (o.size / 1024 / 1024).toFixed(1) + ' MB', o.path, '——', o.reason)
+}
+if (om.length > 6) console.log('               … 其余', om.length - 6, '个')
 
 console.log('数据根       :', data.getDataDir())
 console.log('纳入文件数   :', snap.manifest.totalFiles)

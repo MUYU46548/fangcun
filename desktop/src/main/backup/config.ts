@@ -20,6 +20,23 @@ export interface BackupRemote {
   allowSelfSigned: boolean
 }
 
+/**
+ * 备份瘦身（2026-10-11 用户第 2 条）。
+ *
+ * 用户报「包怎么还是这么大？62.6MB，网盘上传噩梦」——真凶是 `docs/执行日志/_attachments/`
+ * 里一个 **57MB 的 stray 附件**（一份误挂到执行日志上的游戏 bundle），它每次都被原样打进包。
+ *
+ * 两个旋钮都在这里，**都不静默**：被跳过的文件会逐条记进 manifest（`omittedFiles`），
+ * 设置页也会把当前体积构成摊开给用户看（`backup:sizeReport`）。
+ */
+export interface BackupSlimConfig {
+  /** 排除 `docs/执行日志/_attachments/`（执行日志的附件目录 —— 图片/打包物，通常是体积黑洞） */
+  excludeLogAttachments: boolean
+  /** 跳过大于这个 MB 数的单个文件（0 = 不限）。默认 10：markdown 数据仓库里超过 10MB 的单文件
+   *  基本只可能是误挂进来的产物，留着只会让每份备份都多驮一次。 */
+  maxFileMB: number
+}
+
 export interface BackupConfig {
   enabled: boolean
   /** 自动备份间隔（小时），0 = 关闭自动 */
@@ -33,6 +50,8 @@ export interface BackupConfig {
   /** 本地备份目录，空则用 <dataDir>/backups */
   localDir: string
   remote: BackupRemote
+  /** 瘦身旋钮（体积控制）。老配置里没有这个键 → 走默认值 */
+  slim: BackupSlimConfig
 }
 
 export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
@@ -48,7 +67,13 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
     passwordEnc: '',
     allowSelfSigned: false,
   },
+  // 默认就瘦身：>10MB 的单文件不进包（记进 manifest 的 omittedFiles，不静默）。
+  // 附件目录**默认不排除** —— 那是用户自己的东西，去留应该由他在界面上看见体积后再决定。
+  slim: { excludeLogAttachments: false, maxFileMB: 10 },
 }
+
+/** 执行日志附件目录（相对数据根的路径前缀，用来做瘦身判定与体积报告） */
+export const LOG_ATTACHMENTS_REL = 'docs/执行日志/_attachments'
 
 /**
  * 排除规则集中在 rules.ts（零依赖，可单独测试）。
@@ -85,6 +110,8 @@ export function getBackupConfig(): BackupConfig {
           ...DEFAULT_BACKUP_CONFIG,
           ...parsed,
           remote: { ...DEFAULT_BACKUP_CONFIG.remote, ...(parsed.remote || {}) },
+          // 老配置里没有 slim 键 → 走默认（否则会把瘦身旋钮读成 undefined）
+          slim: { ...DEFAULT_BACKUP_CONFIG.slim, ...(parsed.slim || {}) },
         }
         return _config
       }
@@ -104,6 +131,9 @@ export function setBackupConfig(patch: Partial<BackupConfig> & { remote?: Partia
     ...current,
     ...patch,
     remote: { ...current.remote, ...(patch.remote || {}) } as BackupRemote,
+    // ⚠ slim 必须**嵌套合并**，不能靠上面的浅展开 —— 否则渲染层只传 `{maxFileMB}` 时
+    //   `excludeLogAttachments` 会被整块覆盖成 undefined（"只改一项却把另一项清零"）。
+    slim: { ...current.slim, ...(patch.slim || {}) } as BackupSlimConfig,
   }
 
   // password 是明文入参，绝不落盘 —— 立即转密文
@@ -127,6 +157,10 @@ function normalize(cfg: BackupConfig): void {
   cfg.remoteKeep = clampInt(cfg.remoteKeep, 0, 200, DEFAULT_BACKUP_CONFIG.remoteKeep)
   cfg.remote.url = String(cfg.remote.url || '').trim().replace(/\/+$/, '')
   cfg.remote.username = String(cfg.remote.username || '').trim()
+  if (!cfg.slim || typeof cfg.slim !== 'object') cfg.slim = { ...DEFAULT_BACKUP_CONFIG.slim }
+  cfg.slim.excludeLogAttachments = !!cfg.slim.excludeLogAttachments
+  // 0 = 不限；上限 10240MB（10GB —— 再大就不是"瘦身"了，是误操作）
+  cfg.slim.maxFileMB = clampInt(cfg.slim.maxFileMB, 0, 10240, DEFAULT_BACKUP_CONFIG.slim.maxFileMB)
 }
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {

@@ -654,6 +654,18 @@
               :title="msStalled.map(s => s.title + '（' + s.hours + ' 小时没动静）').join('\n')">
               ⚠ {{ msStalled.length }} 个任务「进行中」但超过 {{ STALLED_HOURS }} 小时没动静 · 看看 →
             </button>
+            <!-- 建议动作 + 可并行机会（2026-10-11，死通道 A 组收口）：
+                 这两条通道早就在主进程算好了，界面此前从不调用（= 死通道）。接上它，
+                 用户在这一屏就能看到"这个项目下一步该干嘛、哪几件事可以并着做"。 -->
+            <div class="ms-suggest">
+              <div class="ms-suggest-h">建议动作</div>
+              <div class="ms-suggest-item" v-for="(s, i) in pvSuggest" :key="'sg' + i">· {{ s }}</div>
+              <div class="ms-log-none" v-if="!pvSuggest.length">（还没有可给的建议）</div>
+            </div>
+            <div class="ms-suggest" v-if="pvParallelMine.length">
+              <div class="ms-suggest-h">可并行机会</div>
+              <div class="ms-suggest-item" v-for="(o, i) in pvParallelMine" :key="'pp' + i">· {{ o.reason }}</div>
+            </div>
             <div class="oacts">
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
@@ -837,7 +849,7 @@
         </p>
 
         <!-- 裁断入口：机器口径只是默认值，用户改过就以用户的为准 -->
-        <div v-if="tripSettingsOpen" class="trip-modal-mask" @click.self="tripSettingsOpen = false">
+        <div v-if="tripSettingsOpen" class="trip-modal-mask" @mousedown.self="tripSettingsOpen = false">
           <div class="trip-modal">
             <div class="trip-modal-h">
               <b>显示设置</b>
@@ -1370,7 +1382,7 @@
     <!-- 转换确认（2026-10-09 用户第 1 条）：把「源怎么办」从隐含约定变成看得见的勾选项。
          默认不勾 = 源原样保留（卡 004 铁律）；勾了才顺手收掉重复源 ——
          日志侧 = 现成「已归档」分区（可找回），待办侧 = 折叠「已转出」（可撤销）。 -->
-    <div v-if="convAsk_" class="overlay" @click.self="convAsk_ = null">
+    <div v-if="convAsk_" class="overlay" @mousedown.self="convAsk_ = null">
       <div id="conv-modal">
         <h3>{{ convAsk_.kind === 'log2todo' ? '日志 → 待办' : '待办 → 日志' }}</h3>
         <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}「{{ convAsk_.src.title || convAsk_.src.id }}」</div>
@@ -1393,7 +1405,7 @@
     </div>
 
     <!-- 待办编辑弹窗（2026-09-25 第 12、14 条）：大框，写长内容不憋屈；已完成也能改 -->
-    <div id="todo-edit-overlay" class="overlay" v-if="todoEdit_" @click.self="closeTodoEditor()">
+    <div id="todo-edit-overlay" class="overlay" v-if="todoEdit_" @mousedown.self="closeTodoEditor()">
       <div id="todo-edit-modal">
         <h3>{{ todoEdit_.id ? '编辑待办' : '新建待办' }}</h3>
         <label>内容</label>
@@ -1714,7 +1726,7 @@
     </div>
 
     <!-- 改项目归属（卡 037 右键菜单）—— 应用内轻浮层，不用 Electron 不实现的 prompt -->
-    <div v-if="logProjectPicker" class="overlay" @click.self="logProjectPicker = null">
+    <div v-if="logProjectPicker" class="overlay" @mousedown.self="logProjectPicker = null">
       <div id="log-project-modal">
         <h3>改项目归属</h3>
         <div class="hint">{{ logProjectPicker.title || logProjectPicker.id }}（当前：{{ logProjectPicker.project || '未归属' }}）</div>
@@ -1731,7 +1743,7 @@
     </div>
 
     <!-- Review modal -->
-    <div id="review-overlay" class="overlay" v-if="reviewModal" @click.self="reviewModal = null">
+    <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
       <div id="review-modal">
         <h3>✅ 验收裁决</h3>
         <div class="review-info">
@@ -1752,7 +1764,7 @@
     </div>
 
     <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有 -->
-    <div v-if="aboutOpen" class="overlay" @click.self="aboutOpen = false">
+    <div v-if="aboutOpen" class="overlay" @mousedown.self="aboutOpen = false">
       <div id="about-modal">
         <h3>关于方寸</h3>
         <div class="about-brand">
@@ -1784,7 +1796,7 @@
          而日志正文此前是纯文本 —— 全项目只有任务预览一处 v-html。
          现在单击日志卡 = 打开只读预览（复用 renderBody：marked + DOMPurify，
          表格/任务列表/代码/图片都支持），编辑移进预览与卡片操作行。 -->
-    <div v-if="logPreview" class="overlay" @click.self="logPreview = null">
+    <div v-if="logPreview" class="overlay" @mousedown.self="logPreview = null">
       <div id="log-preview-modal">
         <h3>
           <span class="log-status-badge" :class="logStatusClass(logPreview)">{{ logStatusLabel(logPreview) }}</span>
@@ -1840,7 +1852,7 @@
     </div>
 
     <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
-    <div id="trash-preview-overlay" class="overlay" v-if="trashPreview" @click.self="trashPreview = null">
+    <div id="trash-preview-overlay" class="overlay" v-if="trashPreview" @mousedown.self="trashPreview = null">
       <div id="trash-preview-modal">
         <h3>
           {{ trashPreview.item.title || trashPreview.item.id }}
@@ -1868,7 +1880,7 @@
     </div>
 
     <!-- Task preview modal -->
-    <div id="roverlay" class="overlay" v-if="previewTask" @click.self="previewTask = null">
+    <div id="roverlay" class="overlay" v-if="previewTask" @mousedown.self="previewTask = null">
       <div id="rmodal">
         <h3>
           {{ previewTask.title || previewTask.id }}
@@ -2131,7 +2143,7 @@
     </main>
 
     <!-- Edit modal -->
-    <div id="modal-overlay" class="overlay" v-if="editTask_" @click.self="closeTaskEditor()">
+    <div id="modal-overlay" class="overlay" v-if="editTask_" @mousedown.self="closeTaskEditor()">
       <div id="modal" class="task-modal">
         <h3>{{ editTask_.id ? '编辑任务' : '新建任务' }}</h3>
         <div class="tf-grid">
@@ -2186,7 +2198,7 @@
 
     <!-- Log edit modal -->
     <!-- Policy edit modal -->
-    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @click.self="closePolicyEditor()">
+    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @mousedown.self="closePolicyEditor()">
       <div id="policy-modal">
         <h3>项目方针：{{ policyEdit_.name }}</h3>
         <label>使命（一句话：这项目是干嘛的）</label>
@@ -2218,7 +2230,7 @@
 
     <!-- 结构地图一览（029）：**这是「结构地图在哪」的答案**。
          列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
-    <div id="smap-overlay" class="overlay" v-if="smapOpen" @click.self="smapOpen = false">
+    <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
       <div id="smap-modal">
         <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
         <p class="smap-hint">
@@ -2251,7 +2263,7 @@
     </div>
 
 
-    <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @click.self="closeLogEditor()">
+    <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @mousedown.self="closeLogEditor()">
       <div id="log-edit-modal">
         <h3>{{ logCompleting ? '完成日志' : logArchiveMode ? '归档日志' : logEdit_.id ? '编辑日志' : '新建日志' }}</h3>
         <label>标题</label>
@@ -2391,7 +2403,7 @@
          一个动作做完四件事 —— 出清旧的、继承上下文、建立新日志、可以立刻开跑。
          「为什么是一个对话框而不是一个字段」：真实动作分两步做必然漏一件（源日志忘归档 →
          待处理区越堆越长），字段 续自 只是这次动作留下的副产品。 -->
-    <div id="relay-overlay" class="overlay" v-if="relay_" @click.self="closeRelay">
+    <div id="relay-overlay" class="overlay" v-if="relay_" @mousedown.self="closeRelay">
       <div id="relay-modal">
         <h3>⏭ 接力 · 从这里继续</h3>
         <div class="hint">一次动作做完四件事：出清旧的、继承上下文、建立新日志、可以立刻开跑。</div>
@@ -2486,7 +2498,7 @@
     </div>
 
     <!-- 指派时间（2026-09-22，用户第 6 条）：任务可设开始+截止时间段，待办只有到期日 -->
-    <div v-if="calAssign_" class="overlay" @click.self="calAssign_ = null">
+    <div v-if="calAssign_" class="overlay" @mousedown.self="calAssign_ = null">
       <div id="cal-assign-modal">
         <h3>📅 指派时间</h3>
         <div class="ca-title">{{ calAssign_.title }}</div>
@@ -2512,7 +2524,7 @@
 
     <!-- App edit modal (Launchpad) -->
     <!-- Data directory migrate modal -->
-    <div v-if="migrateTarget" class="overlay" @click.self="migrateTarget = null">
+    <div v-if="migrateTarget" class="overlay" @mousedown.self="migrateTarget = null">
       <div id="migrate-modal">
         <h3>切换数据目录</h3>
         <div class="mg-row"><span class="k">当前</span><span class="v">{{ dataDir }}</span></div>
@@ -2551,7 +2563,7 @@
     </div>
 
     <!-- New project modal -->
-    <div v-if="projForm" class="overlay" @click.self="closeProjForm()">
+    <div v-if="projForm" class="overlay" @mousedown.self="closeProjForm()">
       <div id="proj-new-modal">
         <h3>新建项目</h3>
         <label>项目 ID <span class="req">*</span></label>
@@ -2573,7 +2585,7 @@
       </div>
     </div>
 
-    <div id="app-edit-overlay" class="overlay" v-if="editApp_" @click.self="closeAppEditor()">
+    <div id="app-edit-overlay" class="overlay" v-if="editApp_" @mousedown.self="closeAppEditor()">
       <div id="app-edit-modal">
         <h3>{{ editApp_.isNew ? '添加应用' : '编辑应用' }}</h3>
         <label>名称</label>
@@ -2669,7 +2681,7 @@
     </div>
 
     <!-- Settings modal -->
-    <div id="soverlay" class="overlay" v-if="showSettings_" @click.self="showSettings_ = false">
+    <div id="soverlay" class="overlay" v-if="showSettings_" @mousedown.self="showSettings_ = false">
       <div id="smodal">
         <!-- 侧边栏分类（2026-10-03 用户：「设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类」）。
              上一版做的「点标题折叠」被这个取代 —— 折叠解决的是"太长"，侧边栏解决的是"找不到"，
@@ -2854,6 +2866,40 @@
             </div>
           </div>
 
+          <!-- 备份瘦身（2026-10-11 用户第 2 条）：此前只有"打出来 62.6MB"这个结果，
+               用户看不到构成、也没有任何旋钮 —— 这里把两件事一起给：**体积构成** + **两个旋钮**。 -->
+          <div class="bk-slim">
+            <div class="bk-slim-head">
+              <b>备份瘦身</b>
+              <span class="bk-slim-hint" v-if="bkSize">当前备份范围 {{ bkSize.files }} 个文件 · {{ bkMB(bkSize.totalBytes) }}；按下面的设置实际入包约 {{ bkMB(bkSize.keptBytes) }}</span>
+              <span class="bk-slim-hint" v-else>统计中…</span>
+              <button class="ghost bk-mini" @click="bkLoadSizeReport">重算</button>
+            </div>
+            <label class="bk-cb">
+              <input type="checkbox" v-model="bkForm.excludeLogAttachments" @change="bkSaveSlim" />
+              排除执行日志附件目录（docs/执行日志/_attachments）
+              <span class="bk-dim" v-if="bkSize && bkSize.logAttachments.files">—— {{ bkSize.logAttachments.files }} 个文件 / {{ bkMB(bkSize.logAttachments.bytes) }}</span>
+            </label>
+            <div class="bk-inline">
+              <span>跳过大于</span>
+              <input type="number" v-model.number="bkForm.maxFileMB" min="0" max="10240" class="bk-num"
+                @change="bkSaveSlim" />
+              <span>MB 的单个文件（0 = 不限）</span>
+            </div>
+            <!-- 最大的几个文件：让"为什么大"当场有答案（此前只能靠猜） -->
+            <div v-if="bkSize && bkSize.largest.length" class="bk-slim-top">
+              <span class="bk-dim">最占地方的几个文件：</span>
+              <div v-for="f in bkSize.largest" :key="f.path" class="bk-slim-file">
+                <span class="bk-slim-size">{{ bkMB(f.bytes) }}</span>
+                <span class="bk-slim-path">{{ f.path }}</span>
+              </div>
+            </div>
+            <div v-if="bkSize && bkSize.omitted.length" class="bk-dim">
+              按当前设置会跳过 {{ bkSize.omitted.length }} 个文件（省 {{ bkMB(bkSize.omittedBytes) }}）——
+              清单逐条记进备份包的 manifest.json，不静默丢。
+            </div>
+          </div>
+
           <div class="sect-btns">
             <button class="pri" :disabled="bkBusy" @click="bkSaveAndRun">{{ bkBusy ? '备份中…' : '立即备份' }}</button>
             <button class="ghost" :disabled="bkBusy" @click="bkRunLocalOnly">仅本地</button>
@@ -2878,11 +2924,12 @@
             <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
               title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
           </div>
-          <!-- Git 通道（2026-10-11，卡 20261002-003）：把备份 zip 推到一个 git 仓库。
-               方寸的数据本身**不入 git**（既定决策），所以这条通道只推不拉、没有冲突处理。
+          <!-- Git 通道（2026-10-11，卡 20261002-003；同日按用户第 1 条改成同步真实文件）：
+               把 task-data / registry.yaml / policies / docs 的**真实文件**镜像进仓库工作树 ——
+               每一次提交都是可读的逐文件 diff，而不是往仓库里扔一个压缩包。
                令牌只在这里出现一次（填进来），之后再没回传 —— 存的是 safeStorage 密文。 -->
           <div class="sect-btns bk-manual bk-git">
-            <span class="bk-manual-label">Git 通道（把备份包推到仓库）</span>
+            <span class="bk-manual-label">Git 通道（把任务/日志/方针卡的真实文件同步进仓库，有逐文件历史）</span>
             <input v-model="gitRemote" class="git-in" spellcheck="false"
               placeholder="仓库地址，如 https://github.com/你/fangcun-backup.git" />
             <input v-model="gitToken" class="git-in" type="password" spellcheck="false"
@@ -2893,8 +2940,13 @@
             </select>
             <button class="ghost" :disabled="gitBusy" @click="gitSaveConfig">保存</button>
             <button class="ghost" :disabled="gitBusy" @click="gitTest">🔌 测试连接</button>
-            <button class="ghost" :disabled="gitBusy" @click="gitPushNow">⬆ 推送最新备份</button>
+            <button class="ghost" :disabled="gitBusy" @click="gitPushNow"
+              title="把数据目录里 task-data / registry.yaml / policies / docs 的真实文件铺进仓库并提交 —— 推的是文件，不是压缩包">⬆ 同步到仓库</button>
             <button class="ghost" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</button>
+          </div>
+          <div class="bk-dim">
+            同步的是真实文件（不是压缩包）：范围与上面的备份一致（task-data / registry.yaml / policies / docs），
+            同样受"备份瘦身"约束；密钥类文件永不进仓库。推送被拒时会自动并回远端再推一次，绝不用 --force。
           </div>
           <div v-if="gitMsg" :class="'llm-config-msg ' + gitMsgType">{{ gitMsg }}</div>
 
@@ -2949,8 +3001,8 @@
           </div>
 
           <div class="hint">
-            备份范围：task-data/ + registry.yaml + docs/。密钥文件（llm-config.json、backup-config.json 等）永不入包，
-            每次备份的 manifest 里会记录被排除项。恢复前必做 sha256 + 结构双重校验，校验不过不动现有数据。
+            备份范围：task-data/ + registry.yaml + policies/ + docs/。密钥文件（llm-config.json、backup-config.json 等）永不入包，
+            每次备份的 manifest 里会记录被排除项与被瘦身跳过的文件。恢复前必做 sha256 + 结构双重校验，校验不过不动现有数据。
           </div>
 
           <div class="bk-notice">
@@ -4205,13 +4257,19 @@ interface BkForm {
   remoteKeep: number
   allowSelfSigned: boolean
   localDir: string
+  /** 备份瘦身（2026-10-11 用户第 2 条） */
+  excludeLogAttachments: boolean
+  maxFileMB: number
 }
 
 const bkForm = ref<BkForm>({
   url: '', username: '', password: '', hasPassword: false,
   enabled: true, intervalHours: 6, firstDelayMinutes: 5,
   localKeep: 10, remoteKeep: 10, allowSelfSigned: false, localDir: '',
+  excludeLogAttachments: false, maxFileMB: 10,
 })
+/** 备份体积报告（进门时拉一次；改瘦身旋钮后重拉）*/
+const bkSize = ref<any>(null)
 const bkMsg = ref('')
 const bkMsgType = ref('info')
 const bkBusy = ref(false)
@@ -4284,7 +4342,29 @@ async function bkLoadConfig() {
     remoteKeep: c.remoteKeep,
     allowSelfSigned: !!c.remote.allowSelfSigned,
     localDir: c.localDir || '',
+    excludeLogAttachments: !!(c.slim && c.slim.excludeLogAttachments),
+    maxFileMB: (c.slim && typeof c.slim.maxFileMB === 'number') ? c.slim.maxFileMB : 10,
   }
+}
+
+/**
+ * 体积报告（2026-10-11 用户第 2 条）。
+ * 「包怎么这么大」此前是**答不上来的** —— 界面只给一个 62.6MB 的结果。
+ * 这里把构成摊开：谁最占地方、当前的瘦身旋钮会跳过什么、跳过多少。
+ */
+async function bkLoadSizeReport(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.backupSizeReport()
+    bkSize.value = r?.ok ? r.report : null
+  } catch { bkSize.value = null }
+}
+
+/** 人类可读体积 */
+function bkMB(bytes: number | null | undefined): string {
+  const n = Number(bytes) || 0
+  if (n < 1024) return n + ' B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB'
+  return (n / 1024 / 1024).toFixed(1) + ' MB'
 }
 
 async function bkLoadList() {
@@ -4333,6 +4413,7 @@ async function bkSaveConfig(silent = false): Promise<boolean> {
       username: f.username.trim(),
       allowSelfSigned: f.allowSelfSigned,
     },
+    slim: { excludeLogAttachments: f.excludeLogAttachments, maxFileMB: f.maxFileMB },
   }
   // 留空 = 沿用已保存密文；只有真输入了新密码才提交
   if (f.password.trim()) patch.remote.password = f.password.trim()
@@ -4353,12 +4434,37 @@ async function bkSaveConfig(silent = false): Promise<boolean> {
   return true
 }
 
+/**
+ * 只保存「备份瘦身」两项，并立刻重算体积报告 —— 勾一下就能看到"能省多少"。
+ * 单开一个函数是为了让勾选**立即生效**，不用先滚到下面点「保存配置」。
+ */
+async function bkSaveSlim(): Promise<void> {
+  const r: any = await (window as any).tegula.backupSetConfig({
+    slim: { excludeLogAttachments: bkForm.value.excludeLogAttachments, maxFileMB: bkForm.value.maxFileMB },
+  })
+  if (!r?.ok) {
+    bkMsg.value = '瘦身设置保存失败：' + (r?.error || '未知错误')
+    bkMsgType.value = 'error'
+    return
+  }
+  bkMsg.value = '瘦身设置已保存'
+  bkMsgType.value = 'success'
+  await bkLoadSizeReport()
+}
+
 function bkReportResult(r: any, label: string) {
   const res = r.result
   if (r.ok && res) {
-    bkMsg.value = `${label}成功 · ${res.files} 个文件 · ${(res.rawBytes / 1024).toFixed(0)} KB` +
-      (res.remotePath ? ' · 已上云' : ' · 仅本地')
+    // 2026-10-11 用户第 2 条：报**包的大小**（localBytes = zip 实际体积），别只报原始字节数 ——
+    // 用户关心的是"网盘要传多大"，不是"文本加起来多少"。
+    const zipMB = res.localBytes ? (res.localBytes / 1024 / 1024).toFixed(1) + ' MB' : ''
+    const om = (res.omittedFiles && res.omittedFiles.length)
+      ? ` · 瘦身跳过 ${res.omittedFiles.length} 个（省 ${bkMB(res.omittedBytes)}，见包内 manifest）`
+      : ''
+    bkMsg.value = `${label}成功 · ${res.files} 个文件${zipMB ? ' · 包 ' + zipMB : ''}` +
+      (res.remotePath ? ' · 已上云' : ' · 仅本地') + om
     bkMsgType.value = res.remotePath ? 'success' : 'info'
+    void bkLoadSizeReport()
   } else {
     const first = (res && res.errors && res.errors[0]) || r.error || '未知错误'
     const extra = res && res.warnings && res.warnings.length ? `（${res.warnings[0]}）` : ''
@@ -4540,15 +4646,16 @@ async function gitTest(): Promise<void> {
 async function gitPushNow(): Promise<void> {
   if (gitBusy.value) return
   gitBusy.value = true
-  gitMsg.value = '推送中…'
+  gitMsg.value = '同步中…（把真实文件铺进仓库再提交推送）'
   gitMsgType.value = 'info'
   try {
     if (!(await gitCommitForm())) return
+    // 2026-10-11 用户第 1 条：同步**真实文件**（不是压缩包）—— 参数已无意义，不再传路径。
     const r: any = await (window as any).tegula.backupGitPush()
-    gitMsg.value = r?.message || r?.error || '推送没有返回结果'
+    gitMsg.value = r?.message || r?.error || '同步没有返回结果'
     gitMsgType.value = r?.ok ? 'success' : 'error'
     if (r?.ok) gitHasToken.value = true
-  } catch (e: any) { gitMsg.value = '推送异常：' + (e?.message || e); gitMsgType.value = 'error' }
+  } catch (e: any) { gitMsg.value = '同步异常：' + (e?.message || e); gitMsgType.value = 'error' }
   finally { gitBusy.value = false }
 }
 
@@ -5419,6 +5526,8 @@ function loadViewData(v: string) {
     // （「状态字段懒加载 = 界面说假话」这条教训 2026-09-29 已经吃过一次）。
     void loadLogs()
     void loadStalled()
+    // 建议动作 / 可并行机会（死通道 A 组收口）：进门就拉 —— 同一条纪律，别等用户点
+    void loadPvInsights()
     // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
     // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
     if (pvView.value === 'trip') void loadTripBoard()
@@ -6350,7 +6459,7 @@ function logEditDirty(): boolean {
   return isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])
 }
 
-/** 关闭任务编辑器：**改过**才问（遮罩点击 @click.self 也走这里）。 */
+/** 关闭任务编辑器：**改过**才问（遮罩按下 @mousedown.self 也走这里）。 */
 function closeTaskEditor() {
   if (taskEditDirty() && !confirm('编辑内容尚未保存，确定关闭并丢弃吗？')) return
   editTask_.value = null
@@ -7915,6 +8024,40 @@ const msStalled = computed(() => {
   return stalledTasks.value.filter(s => ids.has(s.id))
 })
 
+// ── 监控台「建议动作 / 可并行机会」（2026-10-11，死通道 A 组收口）──────────────
+// 这两条 IPC（`suggestActions` / `detectParallelOpportunities`）在主进程 `ipc.ts` 与
+// preload 里存在已久，但**渲染层从来没调用过** —— 典型的"死通道"
+// （`check-ipc-parity` 第 ⑤ 类"死通道"扫出来的；C 组先接体量最小的这两个）。
+const pvSuggest = ref<string[]>([])
+const pvParallel = ref<any[]>([])
+/** 只显示与当前项目有关的（跨项目并行 + 本项目批次并行），别把别项目的建议塞进来 */
+const pvParallelMine = computed(() => {
+  const p = pvCurrent.value
+  return pvParallel.value.filter(o => o && (o.type === 'parallel' || o.project === p?.id))
+})
+
+async function loadPvInsights(): Promise<void> {
+  const p = pvCurrent.value
+  if (p) {
+    try {
+      const r = await (window as any).tegula.suggestActions(p.id)
+      pvSuggest.value = Array.isArray(r) ? r : []
+    } catch { pvSuggest.value = [] }
+  } else {
+    pvSuggest.value = []
+  }
+  try {
+    const r = await (window as any).tegula.detectParallelOpportunities()
+    pvParallel.value = Array.isArray(r) ? r : []
+  } catch { pvParallel.value = [] }
+}
+
+// 换项目就重算建议（不然切了项目还显示上一个项目的建议 = 界面说假话）。
+// ⚠ 盯 `pvCurrent.id` 而不是 `pvSelected`：项目列表是异步 loadAll() 拉回来的，
+//   进门那一刻 pvCurrent 还是 null（选中项回落 projectStats[0]）—— 只盯 pvSelected
+//   会漏掉"列表到货"这一跳，于是刚进项目页时建议那格永远是空的（懒加载 = 说假话的变体）。
+watch(() => pvCurrent.value?.id, () => { void loadPvInsights() }, { immediate: true })
+
 /** 从监控台跳日志页签，并**预置该项目筛选**（不是干跳） */
 function openProjectLogs(): void {
   const p = pvCurrent.value
@@ -8638,7 +8781,7 @@ function relayChanges(r: any): string[] {
 
 /**
  * 关闭接力对话框：有未创建的改动先出**对话框内的确认条**（2026-09-30 卡 006）。
- * 遮罩点击（@click.self）、「取消」、全局 Esc（会替我们点「取消」）都走这里。
+ * 遮罩按下（@mousedown.self）、「取消」、全局 Esc（会替我们点「取消」）都走这里。
  * 第一次点 = 出条不关；条子出着时再点 = 仍不关（要关必须点条上的「丢弃并关闭」）。
  * 诊断痕迹：渲染层只有 console.warn 会进应用日志，这里必须留痕，
  * 否则下次再有人说「防护没生效」时无从判断是没点到还是没拦住。
@@ -9535,6 +9678,8 @@ function showSettings() {
   bkRefreshStatus()
   // Git 通道的状态也一样：进门就刷（否则「令牌已保存」会被显示成没保存 —— 界面说假话）
   void loadGitStatus()
+  // 体积报告：进门就拉（"包为什么大"得能当场看到，而不是等打完包才发现）
+  void bkLoadSizeReport()
 }
 
 async function triggerBackup() {
@@ -9547,13 +9692,15 @@ async function triggerBackup() {
     if (r.ok && res) {
       backupInfo.value = { path: res.localPath, sizeKB: Math.round(res.localBytes / 1024) }
       const cloud = res.remotePath ? ' · 已上云' : (res.warnings && res.warnings.length ? ' · 仅本地' : '')
-      showToast(`备份成功 · ${res.files} 个文件 · ${(res.rawBytes / 1024).toFixed(0)} KB${cloud}`, 'success')
+      const zipMB = res.localBytes ? ' · 包 ' + (res.localBytes / 1024 / 1024).toFixed(1) + ' MB' : ''
+      showToast(`备份成功 · ${res.files} 个文件${zipMB}${cloud}`, 'success')
     } else {
       const first = (res && res.errors && res.errors[0]) || r.error || '未知错误'
       showToast('备份失败：' + first, 'error')
     }
     await bkLoadList()
     await bkRefreshStatus()
+    void bkLoadSizeReport()
   } finally {
     bkBusy.value = false
   }
@@ -10504,6 +10651,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    表现就是「点开新建日志先卡一下，必须切到别的窗口再回方寸才莫名恢复」。
    日志多选「点了没反应、要多点几次才能选中」也是同一原因：状态变了但**没重绘**，
    用户看不到勾 → 再点一下其实取消了。去掉模糊 + translateZ(0) 强制独立合成层。 */
+/* ⚠ 遮罩的关闭手势一律用 `@mousedown.self`，**不许用 `@click.self`**（2026-10-11 用户第 3 条）。
+   真因：在文本框里按住拖选、把光标拖出弹窗再松手时，`click` 的目标是「按下点与松开点的
+   最近公共祖先」＝遮罩本身，于是 `@click.self` 判定为"点了遮罩"→ 整个弹窗关掉，草稿全丢
+   （用户累计触发十几次）。`mousedown.self` 只在**按下那一刻**光标就在遮罩上才触发，
+   拖选时按下点永远在文本框里 → 不触发。
+   ⚠ 静态守卫 `e2e-renderer-web.cjs` 里有断言钉住这条，别改回去。 */
 .overlay { position: fixed; inset: 0; background: rgba(60,65,80,0.38); display: flex; align-items: center; justify-content: center; z-index: 60; transform: translateZ(0); }
 #modal, #rmodal, #smodal {
   background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; max-height: 88vh;
@@ -11132,6 +11285,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-log-none { font-size: 12px; color: var(--muted); padding: 3px 0; }
 /* 文字色用 --warning 令牌（实测对白底 4.71:1 过 AA）—— 不自己发明颜色，check-themes 会拦 */
 .ms-stalled { margin-top: 8px; width: 100%; justify-content: flex-start; text-align: left; color: var(--warning); }
+/* 建议动作 / 可并行机会（死通道 A 组收口）—— 用二级信息色，别抢 KPI 的注意力 */
+.ms-suggest { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 7px; }
+.ms-suggest-h { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.ms-suggest-item { font-size: 12px; line-height: 1.6; color: var(--ink); }
 
 /* Archived card */
 .card._archived { opacity: 0.55; filter: saturate(0.5); }
@@ -11213,6 +11370,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .bk-mini { padding: 3px 9px; font-size: 11.5px; }
 .bk-manual { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; background: var(--tint-3); }
 .bk-manual-label { display: block; width: 100%; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+/* 备份瘦身（2026-10-11 用户第 2 条）：体积构成 + 两个旋钮 */
+.bk-slim { margin-top: 8px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
+.bk-slim-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.bk-slim-hint { font-size: 11.5px; color: var(--muted); flex: 1; min-width: 0; }
+.bk-slim-top { display: flex; flex-direction: column; gap: 2px; border-top: 1px dashed var(--border); padding-top: 6px; }
+.bk-slim-file { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; }
+.bk-slim-size { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: #8a4343; font-weight: 600; }
+.bk-slim-path { color: var(--muted); word-break: break-all; }
+.bk-dim { font-size: 11.5px; color: var(--muted); }
 .bk-verify { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: var(--tint-3); }
 .bk-verify.ok { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
 .bk-verify.bad { background: #f6e2e2; border-color: #e2c4c4; color: #8a4343; }

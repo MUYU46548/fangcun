@@ -6,6 +6,7 @@
  * ② 脚本调用：`<script setup>` 体内**调用了**、但文件里没有任何声明的函数名
  * ③ 死函数：`function foo()` 定义了但全文件零引用（漏接入口）
  * ⑧ ref 裸用当布尔（2026-09-28 加）：脚本里写 `if (someRef)` —— 判断的是 ref 对象，恒为真
+ * ⑨ 遮罩用 @click.self 关闭（2026-10-11 加）：拖选/滑出弹窗会被当成"点了遮罩"而关掉弹窗
  *
  * 为什么需要（2026-09-22）：
  *   ① 启动台「+ 添加应用」按钮被反复报修六次，历次修复都在改 CSS / dialog / 原子写。
@@ -55,6 +56,29 @@ const CALL_KEYWORDS = new Set([
   'do', 'else', 'case', 'of', 'in', 'delete', 'void', 'await', 'async', 'super', 'import', 'export',
   'Number', 'String', 'Boolean', 'Array', 'Object', 'RegExp', 'Promise', 'Symbol', 'Error',
 ])
+
+/**
+ * ⑨ 遮罩关闭手势必须用 `@mousedown.self`，**不许用 `@click.self`**（2026-10-11 用户第 3 条）。
+ *
+ * 真因：在文本框里按住拖选、把光标拖出弹窗再松手时，`click` 事件的目标是
+ * 「按下点与松开点的**最近公共祖先**」—— 也就是遮罩本身，于是 `@click.self` 判定
+ * "点了遮罩"→ 整个弹窗关掉，草稿全丢（用户累计触发十几次）。
+ * `mousedown.self` 只在**按下那一刻**光标就在遮罩上才触发，拖选时按下点永远在文本框里。
+ *
+ * 判据：凡是 class 含 `overlay` / `mask` 的标签，出现 `@click.self` 就是回归。
+ */
+function collectBadBackdropHandlers(tpl) {
+  const out = []
+  const tagRe = /<[a-zA-Z][^>]*>/g
+  let m
+  while ((m = tagRe.exec(tpl))) {
+    const tag = m[0]
+    if (!/@click\.self\s*=/.test(tag)) continue
+    if (!/class="[^"]*(?:overlay|modal-mask|backdrop|mask)[^"]*"/.test(tag)) continue
+    out.push({ line: tpl.slice(0, m.index).split('\n').length, tag: tag.slice(0, 90) })
+  }
+  return out
+}
 
 /**
  * ③ 死了的函数：`function foo()` 定义了但全文件只出现这一次（零引用）。
@@ -297,7 +321,11 @@ function checkFile(file) {
     missingCalls.push({ name, line })
   }
 
-  return { file, skipped: false, missing: [...missing].sort(), missingCalls, bareRefs: collectBareRefs(stripNoise(body)) }
+  return {
+    file, skipped: false, missing: [...missing].sort(), missingCalls,
+    bareRefs: collectBareRefs(stripNoise(body)),
+    badBackdrop: collectBadBackdropHandlers(tpl),
+  }
 }
 
 let fail = 0
@@ -334,9 +362,15 @@ for (const t of targets) {
       r.bareRefs.map(b => `${b.name}（第 ${b.line} 行 ${b.shape}）`).join('、') +
       ` —— ref 对象恒为真。脚本里必须写 .value；模板里裸用才是对的`)
   }
+  if (r.badBackdrop && r.badBackdrop.length) {
+    problems.push(`⑨ 遮罩用了 @click.self（${r.badBackdrop.length}）：` +
+      r.badBackdrop.map(b => `第 ${b.line} 行`).join('、') +
+      ` —— 文本框里拖选、光标滑出弹窗再松手会被当成"点了遮罩"而关掉整个弹窗（丢草稿）。` +
+      `必须改成 @mousedown.self`)
+  }
   if (!problems.length) {
     pass++
-    console.log(`PASS  ${rel} —— 模板标识符 / 脚本内调用 / 函数引用全部自洽`)
+    console.log(`PASS  ${rel} —— 模板标识符 / 脚本内调用 / 函数引用 / 遮罩手势全部自洽`)
   } else {
     fail++
     console.log(`FAIL  ${rel}`)

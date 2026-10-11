@@ -1,15 +1,23 @@
 /**
  * Git 备份通道 · 执行器（2026-10-11，卡 `task-20261002-003`）
  *
- * 场景：**把备份 zip 推到一个 git 仓库**。
- * 注意方寸的数据本身**不入 git**（既定决策，`task-data/` 在 .gitignore 里）——
- * 所以这条通道是**单向的**（只推不拉），也就没有冲突处理、没有 merge，比司天那套简单得多。
+ * 场景：**把数据目录里的真实文件镜像进一个 git 仓库**，让每份任务/日志/方针卡都有
+ * 逐文件 diff 与历史 —— 这才叫"用 git 备份"。
+ *
+ * ⚠ 2026-10-11 用户第 1 条（真机反馈）：
+ *   「GIT 可以用了…但是推上去的怎么是一个压缩包？全世界没有任何软件的 git 备份直接扔压缩包上去。
+ *     哪怕司天都不扔压缩包。那要 git 有什么用？压缩包只应用于网盘等场景。」
+ *   老实现把整个备份 zip 当成一个 blob 推进去 —— 仓库里只有一个 zip，历史里看不出任何东西改了。
+ *   现在改成**镜像工作树**：把 `task-data/ + registry.yaml + policies/ + docs/` 原样铺进仓库，
+ *   每次提交都是"哪个文件加了改动一行的 diff"。
+ *
+ * 与 zip 通道的关系：**共用同一套范围与瘦身判据**（`scope.ts` + `packer.planSnapshot`），
+ * 所以 git 里有的东西 ≈ zip 里有的东西，不会漂移。
  *
  * 安全设计全部落在 `gitBackupPure.ts` 里（纯函数，可被 node 直接断言）：
  * 令牌不进 argv、输出脱敏、缺凭证立刻失败、错误分类。**本文件只负责把那些约定拼起来跑**。
  *
- * 抄司天（`E:/CODE/CangKu/SiTian/src/main/gitSyncHandler.js`，794 行）的凭据做法，
- * 按"只推不拉"砍到最小。
+ * 抄司天（`E:/CODE/CangKu/SiTian/src/main/gitSyncHandler.js`，794 行）的凭据做法。
  */
 import { app, safeStorage } from 'electron'
 import { spawn } from 'child_process'
@@ -20,6 +28,8 @@ import {
   hostOfRemote, splitInlineCredential, isPushRejected, pushRecoverySteps,
   GIT_TOKEN_ENV, GIT_USER_ENV,
 } from './gitBackupPure'
+import { scopeSources, REPO_GITIGNORE } from './scope'
+import { planSnapshot } from './packer'
 
 export interface GitBackupConfig {
   /** 远程仓库地址（不含内嵌凭据 —— 保存时会自动抽出） */
@@ -191,48 +201,84 @@ export async function gitTestRemote(): Promise<{ ok: boolean; message: string }>
 }
 
 /**
- * 把一份备份 zip 推上去。
- * 流程：工作副本 clone（首次）→ 复制 zip 进去 → add/commit/push；被拒就自动救一次。
- * ⚠ 推送失败**不丢数据**：commit 已经在本地工作副本里了，网络好了再点一次即可。
+ * 把数据目录**镜像**进工作副本：清掉除 `.git` 之外的一切，再按 plan 铺进去。
+ *
+ * 为什么要"清空重铺"而不是"增量覆盖"：镜像必须是**双向可删**的 ——
+ * 用户删掉一个任务/一张方针卡，仓库里也该跟着删。只 add 不改删的话，git 历史里
+ * 会永远留着已经不存在的东西（用户会以为"删了还在"，那是另一种静默失败）。
  */
-export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; message: string; pushed?: boolean; recovered?: boolean }> {
+function mirrorInto(dir: string, files: Array<{ rel: string; abs: string }>): void {
+  for (const name of fs.readdirSync(dir)) {
+    if (name === '.git') continue
+    try { fs.rmSync(path.join(dir, name), { recursive: true, force: true }) } catch { /* 单个删不掉不阻断 */ }
+  }
+  for (const f of files) {
+    const dest = path.join(dir, f.rel)
+    const parent = path.dirname(dest)
+    if (parent !== dir) fs.mkdirSync(parent, { recursive: true })
+    fs.copyFileSync(f.abs, dest)
+  }
+  // 纵深防御：万一有密钥类文件被误拷进来，git 也不追踪
+  fs.writeFileSync(path.join(dir, '.gitignore'), REPO_GITIGNORE, 'utf-8')
+}
+
+export interface GitSyncResult {
+  ok: boolean
+  message: string
+  pushed?: boolean
+  recovered?: boolean
+  /** 本次同步进仓库的文件数 */
+  files?: number
+  /** 被排除（密钥类）或被瘦身跳过的文件数 */
+  omitted?: number
+}
+
+/**
+ * 同步数据到 git 仓库（**真实文件，不是压缩包**）。
+ *
+ * 流程：clone / 对齐远端 → 清空重铺镜像 → add/commit/push；推送被拒就自动救一次。
+ * ⚠ 失败**不丢数据**：commit 已经在本地工作副本里，网络/权限好了再点一次即可。
+ */
+export async function gitSyncData(): Promise<GitSyncResult> {
   const cfg = readGitConfig()
-  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点推送。' }
-  if (!zipPath || !fs.existsSync(zipPath)) return { ok: false, message: '找不到要推的备份包' }
+  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点「同步」。' }
   const token = getGitToken()
   const dir = workDir()
   const gitDir = path.join(dir, '.git')
 
-  // 首次：clone 一份工作副本（git 在这里跑，用户不必管）。
-  // ⚠ 2026-10-11 真机修：**clone 失败不再盲目退化成 init**。
-  //   老写法 clone 一失败就 init + remote add —— 若失败的真因是「令牌被拒 / 网络不通」，
-  //   真因会被吞掉，用户只看到后面一条莫名其妙的 push 失败。现在真失败就报真因。
-  //   （空仓库不需要走 init：实测 `git clone` 空仓库是**成功退出**的。）
+  // 1. 准备一个与远端一致的工作副本。
+  //    ⚠ clone 失败不再盲目退化成 init —— 那会把「令牌被拒 / 网络不通」的真因吞掉。
+  //    （空仓库不需要 init：实测 `git clone` 空仓库是**成功退出**的。）
   if (!fs.existsSync(gitDir)) {
-    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 清不掉就让下面的 clone 自己去报错 */ }
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 清不掉就让 clone 自己报错 */ }
     fs.mkdirSync(dir, { recursive: true })
-    const c = await runGit(['clone', '--depth', '1', cfg.remote, '.'], dir, token)
+    const c = await runGit(['clone', cfg.remote, '.'], dir, token)
     if (!c.ok) return { ok: false, message: analyzeGitError(c.out, c.code).message }
   } else {
-    // 已有工作副本：确保 origin 跟当前配置一致（用户可能换了仓库）
     await runGit(['remote', 'set-url', 'origin', cfg.remote], dir, token)
+    // 与远端对齐（镜像 = 远端最新 + 本次改动）。取不到远端分支（空仓库/离线）不算错，继续走。
+    const f = await runGit(['fetch', 'origin', cfg.branch], dir, token)
+    if (f.ok) await runGit(['reset', '--hard', `origin/${cfg.branch}`], dir, token)
   }
 
-  // 只保留最近 3 份 zip（仓库是拿来存放备份的，不该无限长）。
-  // 先按时间排序，留下最新 2 份旧的 —— 加上本次要放进去的那份，正好 3 份。
-  const name = path.basename(zipPath)
+  // 2. 算出要镜像哪些文件 —— 与 zip 通道**同一套判据**（范围 + 密钥排除 + 瘦身）。
+  let plan
   try {
-    const old = fs.readdirSync(dir)
-      .filter((x) => x.endsWith('.zip') && x !== name)
-      .map((x) => ({ x, t: fs.statSync(path.join(dir, x)).mtimeMs }))
-      .sort((a, b) => b.t - a.t)
-    for (const z of old.slice(2)) { try { fs.unlinkSync(path.join(dir, z.x)) } catch { /* 删不掉就算了，不影响推送 */ } }
-  } catch { /* 清理失败不影响推送 */ }
+    plan = planSnapshot(scopeSources())
+  } catch (e: any) {
+    return { ok: false, message: '扫描数据目录失败：' + (e?.message || e) }
+  }
+  if (!plan.files.length) return { ok: false, message: '没有可同步的文件（task-data / registry.yaml / policies / docs 都是空的？）' }
 
-  fs.copyFileSync(zipPath, path.join(dir, name))
+  // 3. 清空重铺镜像。
+  try {
+    mirrorInto(dir, plan.files)
+  } catch (e: any) {
+    return { ok: false, message: '写入工作副本失败：' + (e?.message || e) }
+  }
 
   const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
-  const msg = `backup: ${name} @ ${stamp}`
+  const msg = `sync: ${plan.files.length} 个文件 @ ${stamp}`
 
   const commitAndPush = async (): Promise<GitRun> => {
     await runGit(['add', '-A'], dir, token)
@@ -240,7 +286,7 @@ export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; me
       '-c', `user.name=${cfg.authorName}`, '-c', `user.email=${cfg.authorEmail}`,
       'commit', '-m', msg,
     ], dir, token)
-    // 「没有改动」不算失败（同一份包再推一次）
+    // 「没有改动」不算失败（数据没变时再点一次）
     if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.out)) return commit
     return runGit(['push', 'origin', `HEAD:${cfg.branch}`], dir, token)
   }
@@ -248,7 +294,7 @@ export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; me
   let push = await commitAndPush()
 
   // 被拒（远端有本地没有的提交）→ 自动救一次：fetch 回远端 → reset --soft 挪到远端之上
-  // → 重新 commit + push（zip 仍在索引里，所以这一步是 fast-forward，不用 --force）。
+  // → 重新 commit + push（**绝不用 --force** —— 仓库里可能有别的机器的提交）。
   let recovered = false
   if (!push.ok && isPushRejected(push.out)) {
     let canRecover = true
@@ -256,12 +302,19 @@ export async function gitPushPackage(zipPath: string): Promise<{ ok: boolean; me
       const s = await runGit(step, dir, token)
       if (!s.ok) { canRecover = false; push = s; break }
     }
+    // ⚠ reset --soft 之后索引被挪到远端之上，工作树内容不变（还是那份镜像）→ 重新 add 最稳。
     if (canRecover) { recovered = true; push = await commitAndPush() }
   }
 
+  const omitted = plan.omitted.length + plan.excludedSecrets.length
   if (!push.ok || (push.out && /rejected/i.test(push.out))) {
     const info = analyzeGitError(push.out, push.code)
-    return { ok: false, message: info.message + '（本地提交已保留，网络/权限好了再点一次即可）', recovered }
+    return { ok: false, message: info.message + '（本地提交已保留，网络/权限好了再点一次即可）', recovered, files: plan.files.length, omitted }
   }
-  return { ok: true, message: `已推送 ${name}${recovered ? '（远端先前有更新，已先并入再推）' : ''}`, pushed: true, recovered }
+  const skipNote = omitted ? `，另有 ${omitted} 个文件按设置跳过（密钥类 / 体积超限）` : ''
+  return {
+    ok: true,
+    message: `已同步 ${plan.files.length} 个文件到 ${cfg.branch}${recovered ? '（远端先前有更新，已先并入再推）' : ''}${skipNote}`,
+    pushed: true, recovered, files: plan.files.length, omitted,
+  }
 }

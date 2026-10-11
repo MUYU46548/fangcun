@@ -14,14 +14,14 @@ import {
 } from './backup/config'
 import {
   runBackup, listLocalBackups, listRemoteBackups, getLocalBackupDir,
-  exportSnapshotTo, verifyPackage, exportExistingPackageTo,
+  exportSnapshotTo, verifyPackage, exportExistingPackageTo, sizeReport,
 } from './backup'
 import { getBackupStatus, rescheduleScheduler, runBackupNow } from './backup/scheduler'
 import { restoreFrom } from './backup/restore'
 import { buildResticScript } from './backup/resticScript'
 import {
   readGitConfig, saveGitConfig, saveGitToken, hasGitToken, clearGitToken,
-  gitTestRemote, gitPushPackage,
+  gitTestRemote, gitSyncData,
 } from './backup/gitBackup'
 import { SECRET_BASENAMES } from './backup/rules'
 import { getDataDir } from './data/index'
@@ -259,18 +259,11 @@ export function registerBackupIpcHandlers(): void {
     try { return await gitTestRemote() } catch (e) { return failMsg(e) }
   })
 
-  guardedHandle('backup:gitPush', async (_e, zipPath?: string) => {
-    try {
-      // 不传就用最新那份（与「导出备份」同一条交互口径：不让用户挑包）
-      let p = String(zipPath || '').trim()
-      if (!p) {
-        const list: any = listLocalBackups()
-        const arr = Array.isArray(list) ? list : (list?.items || [])
-        p = arr.length ? String(arr[0].path || arr[0].file || '') : ''
-      }
-      if (!p) return { ok: false, message: '还没有任何备份包 —— 先做一次本地备份' }
-      return await gitPushPackage(p)
-    } catch (e) { return failMsg(e) }
+  // ⚠ 2026-10-11 用户第 1 条：这条通道**不再推压缩包**，改成把数据目录的真实文件镜像进仓库。
+  //   通道名沿用（`backup:gitPush`）以免动三方对账，但语义与文案都变了。
+  //   入参已无意义（旧版传 zip 路径），保留签名只为兼容旧 preload 调用。
+  guardedHandle('backup:gitPush', async () => {
+    try { return await gitSyncData() } catch (e) { return failMsg(e) }
   })
 
   /**
@@ -287,6 +280,18 @@ export function registerBackupIpcHandlers(): void {
         os: os === 'posix' ? 'posix' : 'win',
       })
       return { ok: true, script }
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  /**
+   * 体积报告 —— 「包为什么这么大」的直接答案（2026-10-11 用户第 2 条）。
+   * 只读扫描，不改任何数据；跳过项与真实备份用**同一套判据**（planSnapshot）。
+   */
+  guardedHandle('backup:sizeReport', () => {
+    try {
+      return { ok: true, report: sizeReport() }
     } catch (e) {
       return fail(e)
     }
