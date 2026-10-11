@@ -535,6 +535,9 @@
             </div>
             <button class="ghost ms-gitbtn" v-else @click.stop="loadTripBoard()">⟳ 拉取提交信息</button>
             <div class="oacts">
+              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产「待审批」草稿，点头才转正。
+                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——「电路铺好了开关没装」的补开关。 -->
+              <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
               <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
@@ -2362,6 +2365,29 @@
         <div class="acts">
           <button class="ghost" @click="closeProjForm()">取消</button>
           <button class="pri" :disabled="projCreating" @click="confirmNewProject">{{ projCreating ? '写入中…' : '登记项目' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情「✨ AI 规划」的入口。
+         两个动作走 12 条 LLM 通道的后两条（llm:planToDraft / llm:draftProjectBrief）：
+         拆目标 →「待审批」任务卡；起草说明 → 四栏草稿卡。转正必须人工，AI 不直接进待办。══ -->
+    <div v-if="aiPlanForm" class="overlay" @click.self="closeAiPlan()">
+      <div id="ai-plan-modal">
+        <h3>AI 规划 · {{ aiPlanForm.name }}</h3>
+        <label>想干什么（一句话目标，给「拆成任务卡」用）</label>
+        <input v-model="aiPlanForm.goal" placeholder="例：把 0.2.8 发版前的阻塞清空"
+               @keyup.enter="runPlanToDraft()" :disabled="aiPlanBusy" />
+        <div class="hint">
+          结果落成<b>「待审批」卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
+          卡带 <code>ai-planning</code> 来源标记可审计；未配置模型时会提示去设置页填通道。
+        </div>
+        <div class="acts">
+          <button class="ghost" :disabled="aiPlanBusy" @click="closeAiPlan()">取消</button>
+          <button class="ghost" :disabled="aiPlanBusy || !aiPlanForm.goal.trim()" @click="runPlanToDraft()">
+            {{ aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
+          <button class="pri" :disabled="aiPlanBusy" @click="runDraftBrief()">
+            {{ aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
         </div>
       </div>
     </div>
@@ -8736,6 +8762,61 @@ function openProjectInSettings(p: Project) {
   showToast(`已打开项目详情：${p.name || p.id}`, 'info')
 }
 
+// ── AI 规划写回层 UI（2026-10-12）───────────────────────────────────────
+// 红线全在主进程（llm/writeback.ts）：草稿一律「待审批」、source=ai-planning、
+// 解析失败兜底卡。UI 侧只补两件事：入口按钮（.oacts「✨ AI 规划」）+ 调用中不许关弹窗。
+const aiPlanForm = ref<{ id: string; name: string; goal: string } | null>(null)
+const aiPlanBusy = ref(false)
+
+function openAiPlan(p: any) {
+  aiPlanForm.value = { id: p.id, name: p.name || p.id, goal: '' }
+}
+
+function closeAiPlan() {
+  if (aiPlanBusy.value) return // AI 跑着不许关——误触丢结果比多等几秒更伤
+  aiPlanForm.value = null
+}
+
+/** 拆目标 → 待审批任务卡。成功即关窗，看板筛「待审批」就能看到琥珀色草稿卡。 */
+async function runPlanToDraft() {
+  const f = aiPlanForm.value
+  if (!f || aiPlanBusy.value || !f.goal.trim()) return
+  aiPlanBusy.value = true
+  try {
+    const r: any = await window.tegula.llmPlanToDraft(f.goal.trim(), f.id)
+    if (r?.ok) {
+      showToast(`草稿已落「待审批」（看板筛琥珀色可见）——过目后转正`, 'success')
+      aiPlanForm.value = null
+    } else {
+      showToast(r?.error || 'AI 规划失败——先到设置页确认模型通道', 'error')
+    }
+  } catch (e: any) {
+    showToast(`AI 规划失败：${e?.message || e}`, 'error')
+  } finally {
+    aiPlanBusy.value = false
+  }
+}
+
+/** 起草项目说明 → 四栏草稿卡（现状/目标/不做/欠着什么），素材取项目现有任务卡聚合。 */
+async function runDraftBrief() {
+  const f = aiPlanForm.value
+  if (!f || aiPlanBusy.value) return
+  aiPlanBusy.value = true
+  try {
+    const r: any = await window.tegula.llmDraftProjectBrief(f.id)
+    if (r?.ok) {
+      showToast(`项目说明草稿已落「待审批」——过目后转正`, 'success')
+      aiPlanForm.value = null
+    } else {
+      showToast(r?.error || '起草失败——先到设置页确认模型通道', 'error')
+    }
+  } catch (e: any) {
+    showToast(`起草失败：${e?.message || e}`, 'error')
+  } finally {
+    aiPlanBusy.value = false
+  }
+}
+
 /**
  * 新建项目：真正写入 registry.yaml。
  * 此前是 `prompt('项目名称：')` + "项目添加功能开发中" —— 双重不可用：
@@ -10536,7 +10617,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
 #plan-new-modal,
-#proj-new-modal {
+#proj-new-modal,
+#ai-plan-modal {
   background: var(--card);
   border-radius: var(--radius);
   padding: 18px 20px;
@@ -10547,13 +10629,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   box-shadow: var(--shadow);
 }
 #plan-new-modal h3,
-#proj-new-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+#proj-new-modal h3,
+#ai-plan-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
 #plan-new-modal label,
-#proj-new-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+#proj-new-modal label,
+#ai-plan-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
 #plan-new-modal input,
 #plan-new-modal textarea,
 #plan-new-modal select,
-#proj-new-modal input {
+#proj-new-modal input,
+#ai-plan-modal input {
   width: 100%; padding: 7px 10px;
   border: 1px solid var(--border); border-radius: 7px;
   font-size: 13px; background: #fff; color: var(--ink);
