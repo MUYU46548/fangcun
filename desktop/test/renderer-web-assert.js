@@ -188,19 +188,25 @@
           const pr = pop ? pop.getBoundingClientRect() : null
           return pr ? `l=${Math.round(pr.left)} r=${Math.round(pr.right)} w=${Math.round(pr.width)} vw=${window.innerWidth}` : 'no pop'
         })())
-        // 顶栏**自己**不许横向溢出：里面的按钮都是 `flex: none`（不许压字折行），
-        // 所以窗口一窄整条会伸出视口 —— 后果不只是"看着挤"，触发按钮跑到视口外之后
-        // **浮层会跟着锚到视口外**（实测 vw=756 时浮层右边缘 805）。
-        // 出口只有一个：`.fbar` 允许换行。
-        check('★ 顶栏不横向溢出（按钮都不折行，那就必须让整条能换行）', (() => {
+        // 顶栏两条硬要求（2026-10-11 用户两条反馈各自钉一条）：
+        //  ① **不许横向溢出** —— 里面的按钮都是 `flex: none`（不许压字折行），溢出的后果不只是
+        //     "看着挤"：触发按钮跑到视口外之后，**浮层会跟着锚到视口外**（实测 vw=756 时右边缘 805）。
+        //  ② **筛选控件必须和标题在同一行** —— 用户原话「还损失一个返回按钮，不知道去哪里了」：
+        //     `#bar` 是 flex + `space-between` + wrap，`.ctrls` 一撑宽就整体换行，
+        //     space-between 随即把「← 返回」**甩到上一行最右端**（它没消失，是离开了原位）。
+        check('★ 顶栏不横向溢出 且 筛选控件与标题**同一行**（返回按钮才不会被甩走）', (() => {
           const bar = $('#bar')
           const fb = $('.fbar')
-          if (!bar || !fb) return false
-          return bar.scrollWidth <= bar.clientWidth + 1 && getComputedStyle(fb).flexWrap === 'wrap'
+          const ttl = $('#bar .title')
+          const ctrls = $('#bar .ctrls')
+          if (!bar || !fb || !ttl || !ctrls) return false
+          const sameRow = Math.abs(ctrls.getBoundingClientRect().top - ttl.getBoundingClientRect().top) <= 6
+          return bar.scrollWidth <= bar.clientWidth + 1 && sameRow
         })(), (() => {
-          const bar = $('#bar'), fb = $('.fbar')
-          if (!bar || !fb) return 'no bar'
-          return `scroll=${bar.scrollWidth} client=${bar.clientWidth} wrap=${getComputedStyle(fb).flexWrap}`
+          const bar = $('#bar'), ttl = $('#bar .title'), ctrls = $('#bar .ctrls')
+          if (!bar || !ttl || !ctrls) return 'no bar'
+          return `scroll=${bar.scrollWidth} client=${bar.clientWidth}`
+            + ` ttlTop=${Math.round(ttl.getBoundingClientRect().top)} ctrlsTop=${Math.round(ctrls.getBoundingClientRect().top)}`
         })())
 
         // ⚠ 下面两条是"用成熟原语"换来的行为（2026-10-11：改用 reka-ui 的 Popover）——

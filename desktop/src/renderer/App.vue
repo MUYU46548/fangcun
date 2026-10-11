@@ -128,8 +128,12 @@
                  守卫与断言都认得它们（改了名等于把那些断言一起作废）。 -->
           <PopoverRoot :open="fbarPanel === 'proj'" @update:open="onPanelOpen('proj', $event)">
             <PopoverTrigger as-child>
-              <button class="fbar-btn proj-select" :class="{ on: fbarPanel === 'proj' }">
-                {{ curProjLabel }} <span class="fbar-caret">▾</span></button>
+              <!-- 触发按钮只写**维度名**，当前值由下面的「生效中」chips 承担 ——
+                   写全值会让顶栏挤到换行（用户 2026-10-11：「视觉上很吵」「不如改之前」）。
+                   当前值仍在 title 里，鼠标停一下能看到。 -->
+              <button class="fbar-btn proj-select" :class="{ on: fbarPanel === 'proj' }"
+                :title="'按项目筛：' + curProjLabel">
+                项目 <span class="fbar-caret">▾</span></button>
             </PopoverTrigger>
             <PopoverPortal>
               <PopoverContent class="fpop" align="end" :side-offset="6" :collision-padding="8">
@@ -145,8 +149,8 @@
           <PopoverRoot :open="fbarPanel === 'status'" @update:open="onPanelOpen('status', $event)">
             <PopoverTrigger as-child>
               <button class="fbar-btn st-filter" :class="{ on: fbarPanel === 'status' }"
-                title="只显示该状态的任务（与项目筛选可同时生效）">
-                {{ curStatus || '全部状态' }} <span class="fbar-caret">▾</span></button>
+                :title="'按状态筛：' + (curStatus || '全部状态') + '（与项目筛选可同时生效）'">
+                状态 <span class="fbar-caret">▾</span></button>
             </PopoverTrigger>
             <PopoverPortal>
               <PopoverContent class="fpop" align="end" :side-offset="6" :collision-padding="8">
@@ -10724,7 +10728,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
   border-bottom: 1px solid var(--border); display: flex;
   justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
 }
-#bar .title { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+#bar .title { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; flex: none; }
 /* 方形 LOGO（2026-09-25 第 12 条）：绒花墨坊有的可点标志，方寸此前没有 */
 #bar .title .brand {
   flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px;
@@ -10760,8 +10764,8 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
    整条就会横向溢出 —— 溢出的后果不只是"看着挤"，触发按钮会跑到视口外，
    于是**浮层跟着锚到视口外**（实测：vw=756 时浮层的右边缘跑到 805）。
    让它换行是唯一正确的出口。 */
-#bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 300px; min-width: 0; flex-wrap: wrap; }
-#bar .fbar .search { flex: 1 1 160px; width: auto; min-width: 110px; }
+#bar .fbar { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; }
+#bar .fbar .search { flex: 0 1 200px; width: auto; min-width: 104px; }
 #bar .fbar-grow { flex: 1 1 auto; }
 #bar .fbar-btn {
   flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
@@ -11724,7 +11728,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 批量栏出现时给内容区留底部空间，避免遮住最后一条 */
 #app:has(.batch-bar) #board { padding-bottom: 84px; }
 /* 左上角返回按钮：紧贴标题右侧（后续高频按钮也放这一带） */
-.nav-back { margin-left: 4px; padding: 2px 10px; font-size: 12px; }
+/* ⚠ `flex: none` 必须有（2026-10-11 用户：「还损失一个返回按钮，不知道去哪里了」）：
+   `#bar` 是 flex + `justify-content: space-between` + `flex-wrap: wrap`。
+   筛选栏一宽，`.ctrls` 就整体换到下一行，而 space-between 会把「返回」**甩到第一行最右端** ——
+   它没消失，但离开了原位，用户就是"找不到"。
+   `flex: none` 让它不许被压缩；`.fbar` 改 `flex: 0 1 auto` + `nowrap` 让整条不再撑出第二行。 */
+.nav-back { margin-left: 4px; padding: 2px 10px; font-size: 12px; flex: none; }
+#bar .parse-warn { flex: none; }
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 .batch-actions button { padding: 4px 12px; font-size: 11px; background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
