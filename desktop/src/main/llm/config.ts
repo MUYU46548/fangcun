@@ -13,10 +13,11 @@ export interface LLMConfig {
 /** 密钥掩码。渲染进程只见到掩码；主进程据此判断"用户没有修改密钥"。 */
 export const API_KEY_MASK = '***'
 
+/** 默认=未配置态：baseUrl/model 一律空串，绝不预填国外默认端点（AI 规划方案：模型接用户自有通道 MiMo/DS；设置页提供预设）。 */
 const DEFAULT_CONFIG: LLMConfig = {
-  baseUrl: 'https://api.openai.com/v1',
+  baseUrl: '',
   apiKey: '',
-  model: 'gpt-4o-mini',
+  model: '',
   timeout: 60,
 }
 

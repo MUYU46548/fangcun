@@ -15,7 +15,7 @@
  *   5. 解析失败不丢内容：原文兜底落一张草稿卡，错误信息里带卡 id。
  */
 
-import { chat } from './chat'
+import { chatDetailed, ChatUsage, emptyUsage, usageLabel } from './chat'
 import { getProjectSummary, formatTasksForAudit } from './planning'
 import { createTask, updateTask } from '../data/tasks'
 import type { Task } from '../data/tasks'
@@ -114,9 +114,9 @@ export async function planToDraft(
   goal: string,
   projectId = '',
   model?: string,
-): Promise<{ ok: true; created: { id: string; title: string }[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; created: { id: string; title: string }[]; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
   const g = (goal || '').trim()
-  if (!g) return { ok: false, error: '目标为空——告诉 AI 你要拆什么' }
+  if (!g) return { ok: false, error: '目标为空——告诉 AI 你要拆什么', usage: emptyUsage }
 
   let context = ''
   if (projectId) {
@@ -127,12 +127,15 @@ export async function planToDraft(
   }
 
   let text: string
+  let usage: ChatUsage = emptyUsage
   try {
-    text = await chat(`目标：${g}\n项目：${projectId || '未指定'}${context}`, {
+    const r = await chatDetailed(`目标：${g}\n项目：${projectId || '未指定'}${context}`, {
       model, system: PLAN_SYSTEM, temperature: 0.2, maxTokens: 3000,
     })
+    text = r.text
+    usage = r.usage
   } catch (e: any) {
-    return { ok: false, error: `LLM 调用失败：${e?.message || e}` }
+    return { ok: false, error: `LLM 调用失败：${e?.message || e}`, usage }
   }
 
   let cards: DraftCard[]
@@ -148,7 +151,7 @@ export async function planToDraft(
       body: `## 方案\n- [ ] 人工检查下面原文，救出可用部分\n\n## 结果记录\n\n## 附言\n- AI 输出解析失败，原文如下：\n\n\`\`\`\n${text}\n\`\`\``,
     })
     if (rescue) markAiSource(rescue)
-    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}，可人工救` }
+    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}，可人工救${usageLabel(usage)}`, usage }
   }
 
   const created: { id: string; title: string }[] = []
@@ -164,7 +167,7 @@ export async function planToDraft(
     markAiSource(task)
     created.push({ id: task.id, title: task.fm.title || card.title })
   }
-  return { ok: true, created }
+  return { ok: true, created, usage }
 }
 
 // ── 对外入口 2：四栏项目说明草稿 → 待审批卡 ─────────────────────────────
@@ -172,12 +175,12 @@ export async function planToDraft(
 export async function draftProjectBrief(
   projectId: string,
   model?: string,
-): Promise<{ ok: true; taskId: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; taskId: string; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
   const pid = (projectId || '').trim()
-  if (!pid) return { ok: false, error: '缺项目 id' }
+  if (!pid) return { ok: false, error: '缺项目 id', usage: emptyUsage }
 
   const data = getProjectSummary(pid)
-  if (data.error) return { ok: false, error: data.error }
+  if (data.error) return { ok: false, error: data.error, usage: emptyUsage }
 
   const projName = data.project?.name || pid
   const userMsg = `项目：${projName}（${pid}）\n\n当前项目任务：\n${
@@ -185,10 +188,13 @@ export async function draftProjectBrief(
   }`
 
   let text: string
+  let usage: ChatUsage = emptyUsage
   try {
-    text = await chat(userMsg, { model, system: BRIEF_SYSTEM, temperature: 0.3, maxTokens: 2000 })
+    const r = await chatDetailed(userMsg, { model, system: BRIEF_SYSTEM, temperature: 0.3, maxTokens: 2000 })
+    text = r.text
+    usage = r.usage
   } catch (e: any) {
-    return { ok: false, error: `LLM 调用失败：${e?.message || e}` }
+    return { ok: false, error: `LLM 调用失败：${e?.message || e}`, usage }
   }
 
   let brief: Record<string, string>
@@ -203,11 +209,11 @@ export async function draftProjectBrief(
       body: `## 方案\n- [ ] 人工检查原文\n\n## 结果记录\n\n## 附言\n${text}`,
     })
     if (rescue) markAiSource(rescue)
-    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}` }
+    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}${usageLabel(usage)}`, usage }
   }
 
   const missing = ['现状', '目标', '不做', '欠着什么'].filter(k => !brief[k])
-  if (missing.length) return { ok: false, error: `四栏缺：${missing.join('、')}` }
+  if (missing.length) return { ok: false, error: `四栏缺：${missing.join('、')}${usageLabel(usage)}`, usage }
 
   const today = new Date().toISOString().slice(0, 10)
   const task = createTask({
@@ -233,5 +239,5 @@ export async function draftProjectBrief(
     ].join('\n'),
   })
   markAiSource(task)
-  return { ok: true, taskId: task.id }
+  return { ok: true, taskId: task.id, usage }
 }

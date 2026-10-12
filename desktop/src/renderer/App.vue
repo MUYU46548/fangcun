@@ -2588,6 +2588,30 @@
             </button>
           </div>
         </div>
+        <!-- 模型通道（AI 规划用，2026-10-12）：BYOK——端点/密钥/模型全在用户手里。
+             后端 12 条 LLM 通道 10-06 起就绪，这是配置界面第一次装。
+             密钥只存本机（llm-config.json，0600），回显永远只有掩码；不预填任何默认端点（含国外）。 -->
+        <div class="sect" v-show="settingsTab === 'agent'">
+          <h4>✨ 模型通道（AI 规划用）</h4>
+          <div class="hint">项目详情页「✨ AI 规划」按钮走这里。密钥只存本机、回显只有掩码；每次调用的 token 用量随结果提示（花销可见）。</div>
+          <div class="llm-presets">
+            <button class="ghost" @click="applyLlmPreset('deepseek')">DeepSeek 一键填</button>
+            <button class="ghost" @click="applyLlmPreset('mimo')">MiMo 模型建议</button>
+          </div>
+          <label>Base URL（API 端点）</label>
+          <input v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
+          <label>模型名</label>
+          <input v-model="llmCfg.model" placeholder="如 deepseek-chat / MiMo-V2.6-Flash" />
+          <label>API Key（保存后回显为掩码；修改就重填）</label>
+          <input v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
+          <label>超时（秒）</label>
+          <input type="number" min="10" step="10" v-model.number="llmCfg.timeout" />
+          <div class="sect-btns">
+            <button class="ghost" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
+            <button class="pri" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
+            <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
+          </div>
+        </div>
         <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
         <div class="sect" v-show="settingsTab === 'agent'">
           <h4>🤖 Agent 预设列表</h4>
@@ -8777,6 +8801,16 @@ function closeAiPlan() {
   aiPlanForm.value = null
 }
 
+/** 花销可见（方案红线）：把主进程回传的 usage 拼成人话，null 全缺返回空串不凑数 */
+function aiUsageTail(u: any): string {
+  if (!u) return ''
+  const parts: string[] = []
+  if (typeof u.promptTokens === 'number') parts.push(`入 ${u.promptTokens}`)
+  if (typeof u.completionTokens === 'number') parts.push(`出 ${u.completionTokens}`)
+  if (typeof u.totalTokens === 'number') parts.push(`共 ${u.totalTokens}`)
+  return parts.length ? ` · tokens ${parts.join('/')}` : ''
+}
+
 /** 拆目标 → 待审批任务卡。成功即关窗，看板筛「待审批」就能看到琥珀色草稿卡。 */
 async function runPlanToDraft() {
   const f = aiPlanForm.value
@@ -8785,7 +8819,7 @@ async function runPlanToDraft() {
   try {
     const r: any = await window.tegula.llmPlanToDraft(f.goal.trim(), f.id)
     if (r?.ok) {
-      showToast(`草稿已落「待审批」（看板筛琥珀色可见）——过目后转正`, 'success')
+      showToast(`草稿已落「待审批」（看板筛琥珀色可见）——过目后转正${aiUsageTail(r.usage)}`, 'success')
       aiPlanForm.value = null
     } else {
       showToast(r?.error || 'AI 规划失败——先到设置页确认模型通道', 'error')
@@ -8805,7 +8839,7 @@ async function runDraftBrief() {
   try {
     const r: any = await window.tegula.llmDraftProjectBrief(f.id)
     if (r?.ok) {
-      showToast(`项目说明草稿已落「待审批」——过目后转正`, 'success')
+      showToast(`项目说明草稿已落「待审批」——过目后转正${aiUsageTail(r.usage)}`, 'success')
       aiPlanForm.value = null
     } else {
       showToast(r?.error || '起草失败——先到设置页确认模型通道', 'error')
@@ -9012,6 +9046,106 @@ function showSettings() {
   bkLoadConfig()
   bkLoadList()
   bkRefreshStatus()
+  llmLoad()
+}
+
+// ── 模型通道（AI 规划用，2026-10-12）：BYOK 配置界面 ────────────────────
+// 后端 llm:getConfig/setConfig/resetConfig/testConnection 四通道就绪，UI 第一次装。
+// 密钥防线在主进程（掩码/空白视为未修改不写盘），UI 侧掩码同样不回传，双保险。
+const llmCfg = ref<{ baseUrl: string; model: string; apiKey: string; timeout: number }>({
+  baseUrl: '', model: '', apiKey: '', timeout: 60,
+})
+const llmKeyHint = ref('')
+const llmTesting = ref(false)
+const llmSaving = ref(false)
+const llmResetting = ref(false)
+
+async function llmLoad() {
+  try {
+    const r: any = await window.tegula.llmGetConfig()
+    if (r?.ok !== false && r) {
+      llmCfg.value = {
+        baseUrl: r.baseUrl || '',
+        model: r.model || '',
+        apiKey: r.hasApiKey ? '***' : '',
+        timeout: r.timeout || 60,
+      }
+      llmKeyHint.value = r.apiKeyHint || ''
+    }
+  } catch (e: any) {
+    showToast(`读取模型配置失败：${e?.message || e}`, 'error')
+  }
+}
+
+/** 预设：只填有据的（DS 官方端点+模型名公开；MiMo 端点不编造，只给模型名建议） */
+function applyLlmPreset(kind: 'deepseek' | 'mimo') {
+  if (kind === 'deepseek') {
+    llmCfg.value.baseUrl = 'https://api.deepseek.com'
+    if (!llmCfg.value.model) llmCfg.value.model = 'deepseek-chat'
+    showToast('已填 DeepSeek 官方端点——Key 在你手里，填好测试连接', 'info')
+  } else {
+    llmCfg.value.model = 'MiMo-V2.6-Flash'
+    showToast('已填 MiMo 模型名——端点地址用你自己的通道（小米开放平台），Base URL 自己填', 'info')
+  }
+}
+
+async function llmTest() {
+  if (llmTesting.value) return
+  llmTesting.value = true
+  try {
+    const cfg = { ...llmCfg.value }
+    if (cfg.apiKey === '***') delete (cfg as any).apiKey
+    const r: any = await window.tegula.llmTestConnection(cfg)
+    if (r?.ok) {
+      showToast(`连接成功：${r.model || llmCfg.value.model || '(默认模型)'}${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ''}`, 'success')
+    } else {
+      showToast(`连接失败：${r?.error || '未知错误（看主进程日志）'}`, 'error')
+    }
+  } catch (e: any) {
+    showToast(`测试异常：${e?.message || e}`, 'error')
+  } finally {
+    llmTesting.value = false
+  }
+}
+
+async function llmSave() {
+  if (llmSaving.value) return
+  llmSaving.value = true
+  try {
+    const cfg: Record<string, unknown> = {
+      baseUrl: llmCfg.value.baseUrl.trim(),
+      model: llmCfg.value.model.trim(),
+      timeout: llmCfg.value.timeout,
+    }
+    // 掩码/空 = 没改密钥，不回传（主进程还有 isMaskedKey 防线）
+    const key = llmCfg.value.apiKey.trim()
+    if (key && key !== '***') cfg.apiKey = key
+    const r: any = await window.tegula.llmSetConfig(cfg)
+    if (r?.ok !== false) {
+      showToast('模型通道已保存（本机 llm-config.json）', 'success')
+      await llmLoad()
+    } else {
+      showToast(r?.error || '保存失败', 'error')
+    }
+  } catch (e: any) {
+    showToast(`保存异常：${e?.message || e}`, 'error')
+  } finally {
+    llmSaving.value = false
+  }
+}
+
+async function llmReset() {
+  if (llmResetting.value) return
+  llmResetting.value = true
+  try {
+    await window.tegula.llmResetConfig()
+    showToast('已重置（密钥保留——想换钥匙直接改填新值保存）', 'info')
+    await llmLoad()
+  } catch (e: any) {
+    showToast(`重置异常：${e?.message || e}`, 'error')
+  } finally {
+    llmResetting.value = false
+  }
 }
 
 async function triggerBackup() {
@@ -10616,6 +10750,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mg-hint { margin-top: 5px; color: #8a8270; }
 
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
+/* 模型通道预设按钮行（2026-10-12）：两个 ghost 并排，间距 8px */
+.llm-presets { display: flex; gap: 8px; margin: 8px 0 4px; }
+.llm-presets button { flex: 0 0 auto; }
 #plan-new-modal,
 #proj-new-modal,
 #ai-plan-modal {
