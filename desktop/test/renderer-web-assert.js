@@ -101,9 +101,14 @@
     // 原来是原生 select（点开→再点一项、选完看不到生效的是什么），现在是一点即生效的标签。
     // ⚠ 类名 `.st-filter` **故意保留**（它是"看板有自己的状态筛选"这件事的锚点）。这里验：
     //   ① 触发按钮在；② 点开面板；③ **一次点击**某个状态即生效；④ 出现可点 ✕ 的生效标签；⑤ 点 ✕ 可撤销。
-    const stBtn = $('.st-filter')
+    const stBtn = $('.fbar-filter-btn')
     check('★ 看板顶栏有状态筛选（触发按钮，类名仍是 .st-filter）', !!stBtn,
-      stBtn ? String(stBtn.textContent).trim() : '(没找到 .st-filter)')
+      stBtn ? String(stBtn.textContent).trim() : '(没找到 .fbar-filter-btn)')
+    // 2026-10-12「看与做分两层」：项目/状态两个独立触发按钮**撤掉了**（功能在筛选浮层里，
+    // 当前值由「生效中」标签承担，点击次数不变）。补这条设计断言 —— 防下一个 AI 以为丢了又加回来。
+    check('「项目」「状态」「到期」三个独立触发按钮已撤（防有人又加回来）',
+      !$('.proj-select') && !$('.st-filter') && !$('.due-filter'),
+      'proj=' + !!$('.proj-select') + ' st=' + !!$('.st-filter'))
 
     const filledCols = () => $$('#board .col').filter((c) => c.querySelectorAll('.card').length > 0)
     if (stBtn) {
@@ -162,38 +167,77 @@
         !!foldBtn && foldWS === 'nowrap' && foldH > 0 && peerH > 0 && Math.abs(foldH - peerH) <= 2,
         `h=${foldH} peer=${peerH} white-space=${foldWS}`)
 
-      const stB = $('.st-filter')
+      const stB = $('.fbar-filter-btn')
       if (stB) {
         stB.click()
-        await sleep(350)
-        const pop = $('.fpop')
-        // 判据用「不在正常流里」而不是某个具体 position 值：定位现在是 reka-ui(floating-ui)
-        // 写的内联样式，写死成 'fixed' 等于把库的实现细节钉进断言。
-        check('★★ 筛选面板是**浮层**（脱离文档流）—— 这就是"不把顶栏撑肥"的关键',
-          !!pop && getComputedStyle(pop).position !== 'static',
-          pop ? ('pos=' + getComputedStyle(pop).position + ' style="' + pop.getAttribute('style') + '" data-side=' + pop.getAttribute('data-side')) : '(没有 .fpop)')
+        await sleep(450)
+        // ⚠⚠ 量浮层要量 **reka 的外层 wrapper**，不是我的 `.fpop`：
+        //   reka 的 PopoverContent = <div data-reka-popper-content-wrapper>（**被定位的是这层**）
+        //                            └ <div class="fpop">…</div>（我的 class 在内层）
+        //   第一版量内层 → 内层是 static，断言红；更早那版还给内层写了 position:fixed，
+        //   直接让外层量出 0×0、浮层被算到视口外（详见 App.vue 里 .fpop 的注释）。
+        //   **量错层 = 假红/假绿**，这类断言必须量"真正被定位的那个元素"。
+        const popWrap = () => $('[data-reka-popper-content-wrapper]')
+        const popBody = () => $('.fpop')          // 内容层：点选项、找 ✕ 用它
+        const wrap = popWrap()
+        check('★★ 筛选面板是**浮层**（被定位的那层脱离文档流）—— 这正是"不把顶栏撑肥"的关键',
+          !!wrap && getComputedStyle(wrap).position !== 'static',
+          wrap ? ('pos=' + getComputedStyle(wrap).position + ' side=' + wrap.getAttribute('data-side')
+            + ' align=' + wrap.getAttribute('data-align')) : '(没有 wrapper)')
+        check('  内容层就在 wrapper 里（别把 class 挂错层）',
+          !!popBody() && !!wrap && wrap.contains(popBody()),
+          'body=' + !!popBody() + ' nested=' + (!!wrap && !!popBody() ? wrap.contains(popBody()) : '?'))
         const barH1 = $('#bar') ? $('#bar').offsetHeight : -1
         check('★★ 开面板前后**顶栏高度不变**（第一版铺在顶栏里 → 一点就涨成三大行、内容被顶下去）',
           barH0 > 0 && barH1 === barH0, `before=${barH0} after=${barH1}`)
         check('  浮层贴在触发按钮下方（定位交给 reka-ui 的 floating-ui，不再手算 rect）', (() => {
-          if (!pop || !stB) return false
-          const pr = pop.getBoundingClientRect(), br = stB.getBoundingClientRect()
+          if (!wrap || !stB) return false
+          const pr = wrap.getBoundingClientRect(), br = stB.getBoundingClientRect()
           return pr.top >= br.bottom - 2 && pr.top <= br.bottom + 40
         })(), '')
         check('  浮层没跑出视口（越界会 flip/shift 往回收）', (() => {
-          if (!pop) return false
-          const pr = pop.getBoundingClientRect()
+          if (!wrap) return false
+          const pr = wrap.getBoundingClientRect()
           return pr.left >= -1 && pr.right <= window.innerWidth + 1 && pr.width > 0
         })(), (() => {
-          const pr = pop ? pop.getBoundingClientRect() : null
-          return pr ? `l=${Math.round(pr.left)} r=${Math.round(pr.right)} w=${Math.round(pr.width)} vw=${window.innerWidth}` : 'no pop'
+          const pr = wrap ? wrap.getBoundingClientRect() : null
+          const br = $('.fbar-filter-btn') ? $('.fbar-filter-btn').getBoundingClientRect() : null
+          return (pr ? `wrap l=${Math.round(pr.left)} r=${Math.round(pr.right)} w=${Math.round(pr.width)}` : 'no wrapper')
+            + (br ? ` | trigger l=${Math.round(br.left)} r=${Math.round(br.right)}` : ' | no trigger')
+            + ` | vw=${window.innerWidth}`
         })())
+        check('★ 浮层宽度是内容宽而不是 0（外层的 min-width:max-content 得能量到东西）',
+          !!wrap && Math.round(wrap.getBoundingClientRect().width) > 100,
+          wrap ? 'w=' + Math.round(wrap.getBoundingClientRect().width) : 'no wrapper')
         // 顶栏两条硬要求（2026-10-11 用户两条反馈各自钉一条）：
         //  ① **不许横向溢出** —— 里面的按钮都是 `flex: none`（不许压字折行），溢出的后果不只是
         //     "看着挤"：触发按钮跑到视口外之后，**浮层会跟着锚到视口外**（实测 vw=756 时右边缘 805）。
         //  ② **筛选控件必须和标题在同一行** —— 用户原话「还损失一个返回按钮，不知道去哪里了」：
         //     `#bar` 是 flex + `space-between` + wrap，`.ctrls` 一撑宽就整体换行，
         //     space-between 随即把「← 返回」**甩到上一行最右端**（它没消失，是离开了原位）。
+        // 2026-10-12（重做丙案）新增两条 —— 都是**用户看得见的坏症状**的判据：
+        //  ① 搜索框被压到占位文字截断：14 控件时代它只剩一半宽，占位文字在中间被切断；
+        //  ② 标题与控件之间一大片空白：`#bar` 是 space-between，`.ctrls` 不撑满就会这样。
+        check('★ 搜索框够宽（不被压到占位文字截断）—— 14 控件时代它只剩一半',
+          (() => {
+            const inp = $('.fbar .search')
+            if (!inp) return false
+            return Math.round(inp.getBoundingClientRect().width) >= 260
+          })(),
+          (() => {
+            const inp = $('.fbar .search')
+            return inp ? 'w=' + Math.round(inp.getBoundingClientRect().width) : 'no .fbar .search'
+          })())
+        check('★ 控件区撑满顶栏（标题与控件之间不许留一大片空白）',
+          (() => {
+            const bar = $('#bar'), c = $('#bar .ctrls')
+            if (!bar || !c) return false
+            return c.getBoundingClientRect().width >= bar.clientWidth * 0.6
+          })(),
+          (() => {
+            const bar = $('#bar'), c = $('#bar .ctrls')
+            return (bar && c) ? `ctrls=${Math.round(c.getBoundingClientRect().width)} bar=${bar.clientWidth}` : 'no bar'
+          })())
         check('★ 顶栏不横向溢出 且 筛选控件与标题**同一行**（返回按钮才不会被甩走）', (() => {
           const bar = $('#bar')
           const fb = $('.fbar')
@@ -240,7 +284,7 @@
     }
 
     // ── 分组 / 排序也走同一个面板（同一个入口模式，不搞第二套交互）──────────
-    const groupBtn = $$('.fbar-btn').find((b) => (b.textContent || '').indexOf('分组 ·') >= 0)
+    const groupBtn = $('.fbar-group-btn')   // 稳定类名（文案已改成只留当前值）
     check('★ 分组按钮显示**当前值**（老版下拉看不出选了什么）',
       !!groupBtn && (groupBtn.textContent || '').indexOf('按状态') >= 0,
       groupBtn ? String(groupBtn.textContent).trim() : '(没找到)')
@@ -757,7 +801,7 @@
     //   默认 001→002 · 按 updated 倒序 002→001 · 按 created 倒序 001→002
     // ⚠ 2026-10-11 起不再是 `<select>`：改点「排序 · <当前值>」按钮 → 同一块内联面板里点选项。
     const SORT_TEXT = { active: '活跃优先', updated: '最近更新', created: '创建时间', prio: '优先级' }
-    const SORT_BTN = () => $$('.fbar-btn').find((b) => (b.textContent || '').indexOf('排序 ·') >= 0)
+    const SORT_BTN = () => $('.fbar-sort-btn')   // 稳定类名（文案已改成「排序 <当前值>」）
     // 收起统一走 Esc：单行 chips 的浮层**没有 ✕**（只有内容多的「＋筛选」才有标题栏），
     // 而 reka 的 Popover 自带 Esc 关闭 —— 这也是"用成熟原语"省下来的代码。
     const closeFbarPanel = async () => {
@@ -1417,12 +1461,15 @@
       const ok = await waitFor(() => !$('#board.pv') && !!$('#board'), 4000, '跳看板')
       // 看板带项目筛选了 —— 还原成「全部项目」，别污染后面的断言。
       // 2026-10-11 起项目筛选是「触发按钮 + 面板」：走面板里的「全部项目」选项（仍是一次点击）。
-      const sel = $('.proj-select')
-      if (sel) {
-        sel.click(); await sleep(250)
-        const all = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '全部项目')
+      // 2026-10-12：项目筛选没有独立按钮了 -> 从筛选浮层里选「全部」归零。
+      const fbtn = $('.fbar-filter-btn')
+      if (fbtn) {
+        fbtn.click(); await sleep(280)
+        const all = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '全部')
         if (all) all.click()
         await sleep(300)
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await sleep(200)
       }
       return ok
     })())
@@ -2559,8 +2606,10 @@
     await sleep(300)
 
     // ══ 设置页 · 侧边栏分类（2026-10-03 用户：设置项不要挤在一条长名单里）══════
-    const gear = $$('#bar button').find((b) => (b.textContent || '').trim() === '⚙')
-    check('顶栏有设置入口（⚙）', !!gear)
+    // 2026-10-12「看与做分两层」后，设置图标从 #bar 搬到了页签行右端 ——
+    // 判据改成**全页找**（不绑定容器）：这条守的是「有设置入口」，不是「它在哪个容器里」。
+    const gear = $$('button').find((b) => (b.textContent || '').trim() === '⚙')
+    check('有设置入口（设置图标，现位于页签行右端）', !!gear)
     if (gear) gear.click()
     await sleep(400)
     check('设置面板打开', await waitFor(() => !!$('#smodal'), 4000, '设置面板'))
