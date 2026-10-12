@@ -17,6 +17,7 @@ from tegula.core import (
     _all_task_dirs, locate_task, blockers_of, find_blockers, gen_id,
     _now_ts, _bump_version, _task_version, _mtime_guard, api_edit,
     api_review, gate_open, gate_check, gate_list, gate_close,
+    DECISIONS_PATH, DECISION_STATUSES, load_decisions, decision_add, decision_set_status,
     load_template, api_new, _parse_decision_points, _render_decision_points,
     # ⚠ 2026-10-12：这四个是**导入导出命令的被调方**，此前一直在 cli.py 里裸用却没进这张清单
     #   → `tegula export tasks` / `import tasks` / `export notes` / `import notes` **一跑就 NameError**。
@@ -25,6 +26,7 @@ from tegula.core import (
     #   ②真跑一次 `cmd_import_tasks`（临时目录）证明这条路活着。
     api_export_tasks, api_import_tasks, api_export_notes, api_import_notes,
     api_plan_new, api_plan_decide, api_plan_list, api_plan_get,
+    api_export_tasks, api_import_tasks, api_export_notes, api_import_notes,
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
     api_batch_edit, api_batch_archive, api_batch_delete, api_backup,
     _active_hermes_profile, log_activity, read_activity, _gen_run_id,
@@ -1021,6 +1023,65 @@ def cmd_new(args):
         "验收": args.验收,
     })
     print(f"已创建任务: {tid}")
+
+
+# ---------- AI 规划写回层（2026-10-12，方案卡：AI 规划功能 2.5 天主体） ----------
+# 函数体内延迟 import：cli 冷启动不加载 LLM 层；也规避模块级循环 import 的任何可能。
+# 红线见 tegula_writeback.py 模块头：AI 卡只落「待审批」，项目说明只落笔记（契约只读）。
+def cmd_ai_plan(args):
+    from tegula_writeback import plan_to_draft
+    r = plan_to_draft(args.goal, args.项目 or "", args.model or None)
+    if r.get("ok"):
+        print(f"已落 {r['count']} 张待审批任务卡（来源 ai-planning，GUI 里确认后转待办）：")
+        for tid in r["created"]:
+            print(f"  {tid}")
+    else:
+        print(f"失败：{r.get('error')}", file=sys.stderr)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_ai_brief(args):
+    from tegula_writeback import draft_project_brief
+    r = draft_project_brief(args.项目 or "", args.model or None)
+    if r.get("ok"):
+        print(f"项目说明草稿已落笔记 {r['note_id']}（方寸侧为草稿，非权威契约——点头后由各线 agent 落各 repo）")
+    else:
+        print(f"失败：{r.get('error')}", file=sys.stderr)
+    return 0 if r.get("ok") else 1
+
+
+# ---------- 决策卡（拍板记录，2026-10-12）----------
+def cmd_decision(args):
+    """decision add/list/set 三个面：群里拍的板当场记、随时翻、被推翻就标死。"""
+    cmd = getattr(args, "decision_cmd", "")
+    if cmd == "add":
+        ok, r = decision_add(args.内容, 日期=args.日期 or None, 状态=args.状态, 项目=args.项目, 出处=args.出处, 备注=args.备注)
+        if ok:
+            print(f"已记 {r}（task-data/decisions.md）")
+        else:
+            print(f"失败：{r}", file=sys.stderr)
+        return 0 if ok else 1
+    if cmd == "list":
+        items = load_decisions()
+        if getattr(args, "状态", ""):
+            items = [i for i in items if i.get("状态") == args.状态]
+        if getattr(args, "项目", ""):
+            items = [i for i in items if args.项目 in (i.get("项目") or "")]
+        if not items:
+            print("（无拍板记录）")
+            return 0
+        for it in items:
+            mark = {"作数": "✓", "已作废": "✗", "已并入": "→"}.get(it.get("状态", ""), "?")
+            proj = f"  [{it.get('项目')}]" if it.get("项目") else ""
+            src = f"  ← {it.get('出处', '')}" if it.get("出处") else ""
+            note = f"  备注: {it.get('备注', '').splitlines()[0]}…" if it.get("备注") else ""
+            print(f"{mark} {it['id']} [{it.get('日期', '')}]{proj} {it.get('内容', '')}{src}{note}")
+        return 0
+    if cmd == "set":
+        ok, r = decision_set_status(args.id, args.状态, 备注=args.备注 or None)
+        print(r if ok else f"失败：{r}", file=sys.stderr if not ok else sys.stdout)
+        return 0 if ok else 1
+    return 1
 
 
 # ---------- MCP 只读接口（P3）：零依赖手写 JSON-RPC 2.0 over stdio ----------
@@ -2027,6 +2088,38 @@ def main():
     sy_skills.add_argument("--check", action="store_true", help="仅检查，不安装")
     sy_skills.add_argument("--go", action="store_true", help="人工确认后安装/覆盖")
     sy_skills.set_defaults(func=cmd_sync_skills)
+
+    # 2026-10-12：AI 规划写回层（LLM 输出落方寸：待审批卡 / 笔记，详见 tegula_writeback.py）
+    ap = sub.add_parser("ai-plan", help="AI 拆解目标 → 待审批任务卡（需 TEGULA_LLM_* 环境变量）")
+    ap.add_argument("goal", help="目标描述，如「把注册页迁移到新组件库」")
+    ap.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认 fangcun-base）")
+    ap.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ap.set_defaults(func=cmd_ai_plan)
+    ab = sub.add_parser("ai-brief", help="AI 起草四栏项目说明 → 笔记（方寸侧草稿，契约真源在各 repo）")
+    ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
+    ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ab.set_defaults(func=cmd_ai_brief)
+
+    # ── 决策卡（拍板记录，2026-10-12）──
+    dsub = sub.add_parser("decision", help="拍板记录：群里拍的板记成卡（内容/日期/还作不作数/出处）")
+    dsub_sub = dsub.add_subparsers(dest="decision_cmd", required=True)
+    da = dsub_sub.add_parser("add", help="记一条拍板")
+    da.add_argument("内容", help="拍板内容，一句话")
+    da.add_argument("--日期", "--date", dest="日期", default="", help="哪天定的（默认今天，YYYY-MM-DD）")
+    da.add_argument("--状态", dest="状态", default="作数", choices=list(DECISION_STATUSES), help="默认作数")
+    da.add_argument("--项目", dest="项目", default="", help="关联项目，如 司天/绒花墨坊/方寸（跨项目板留空）")
+    da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如「10-11 09:42 四答定调②」")
+    da.add_argument("--备注", dest="备注", default="", help="")
+    da.set_defaults(func=cmd_decision)
+    dl = dsub_sub.add_parser("list", help="列拍板（--状态/--项目 筛）")
+    dl.add_argument("--状态", dest="状态", default="", help="只看某状态（作数/已作废/已并入）；空=全部")
+    dl.add_argument("--项目", dest="项目", default="", help="只看某项目的板；空=全部")
+    dl.set_defaults(func=cmd_decision)
+    ds = dsub_sub.add_parser("set", help="改拍板状态（如拍板被推翻：作数→已作废）")
+    ds.add_argument("id", help="决策卡 id，如 D-001")
+    ds.add_argument("状态", choices=list(DECISION_STATUSES), help="目标状态")
+    ds.add_argument("--备注", dest="备注", default="", help="为什么改（追加进备注，不覆盖）")
+    ds.set_defaults(func=cmd_decision)
 
     args = p.parse_args()
     if not getattr(args, "func", None):

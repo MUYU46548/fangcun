@@ -3,6 +3,7 @@ import { guardedHandle } from './guarded-ipc'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
+import { planToDraft, draftProjectBrief } from './llm/writeback'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
 function toFailure(e: unknown, fallbackUrl = '') {
@@ -118,5 +119,15 @@ export function registerLlmIpcHandlers(): void {
     } catch (e) {
       return toFailure(e)
     }
+  })
+
+  // ── AI 规划写回层（2026-10-12，方案卡：AI 规划功能；详见 llm/writeback.ts）──
+  // 红线：AI 卡只落「待审批」，转正唯一路径是用户点头；source=ai-planning 审计可查。
+  guardedHandle('llm:planToDraft', async (_event: any, goal: string, projectId?: string, model?: string) => {
+    return planToDraft(goal, projectId || '', model)
+  })
+
+  guardedHandle('llm:draftProjectBrief', async (_event: any, projectId: string, model?: string) => {
+    return draftProjectBrief(projectId, model)
   })
 }

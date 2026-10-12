@@ -222,6 +222,9 @@ function main() {
       // 2026-09-30 用户补充：待办 / 回收站 多选 —— 各留一张批量栏 + 选中态证据
       ['待办', '', 'todo-batch', 'todobatch'],
       ['回收站', '', 'trash-batch', 'trashbatch'],
+      // 2026-10-12 决策卡（拍板记录，AI 规划包第 3 件）：三态渲染 + 记一条/改状态交互
+      ['拍板', '', 'decisions'],
+      ['拍板', '', 'decisions-act', 'decact'],
       ['设置', '', 'settings'],
     ]
     const SEED_TODOS = [
@@ -295,6 +298,26 @@ function main() {
   ${extra === 'todobatch'
     ? `const its = all('.todos-view .todo-item'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`
     : `const its = all('.trash-view .trash-main'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`}
+  await sleep(500)` : ''}
+  ${extra === 'decact' ? `
+  // 决策卡交互（2026-10-12）：记一条新拍板 → 改 D-001 状态 → 筛「已作废」——三步全真链路（mock IPC）
+  const decMain = all('.decisions-view .dec-inp-main')[0]
+  if (decMain) {
+    decMain.value = 'e2e 交互：这条拍板是测试记的'
+    decMain.dispatchEvent(new Event('input', { bubbles: true }))
+    await sleep(150)
+  }
+  const decAddBtn = all('.decisions-view .decision-add-row button.pri')[0]
+  if (decAddBtn) decAddBtn.click()
+  await sleep(500)
+  const decSel = all('.decisions-view .dec-status-sel')[0]
+  if (decSel) {
+    decSel.value = '已作废'
+    decSel.dispatchEvent(new Event('change', { bubbles: true }))
+    await sleep(500)
+  }
+  const decF = all('.decisions-view .decisions-ctrls button').find((x) => (x.textContent || '').trim() === '已作废')
+  if (decF) decF.click()
   await sleep(500)` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子

@@ -782,6 +782,9 @@
               <div class="ms-suggest-item" v-for="(o, i) in pvParallelMine" :key="'pp' + i">· {{ o.reason }}</div>
             </div>
             <div class="oacts">
+              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产「待审批」草稿，点头才转正。
+                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——「电路铺好了开关没装」的补开关。 -->
+              <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
               <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
@@ -1378,6 +1381,51 @@
               <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
             </div>
           </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）：群里拍的板都在这——
+         事情/哪天定的/还作不作数/出处。数据=task-data/decisions.md（与 Python CLI 双腿同文件），
+         哨兵防遗忘台账灌入后这里就是查询入口。三态不挂任务状态机：决策不流转。 -->
+    <main id="board" class="decisions-view" v-else-if="curView === 'decisions'">
+      <div class="decisions-header">
+        <h3>拍板记录</h3>
+        <div class="decisions-ctrls">
+          <button v-for="s in ['全部', '作数', '已作废', '已并入']" :key="s" class="ghost"
+                  :class="{ on: decFilter === s }" @click="decFilter = s">{{ s }}</button>
+          <button class="ghost" @click="decRefresh">刷新</button>
+        </div>
+      </div>
+      <div class="decision-add-row">
+        <input v-model="decNewContent" class="dec-inp-main" placeholder="记一条新拍板（一句话，回车即记）"
+               @keydown.enter="decAdd" />
+        <input v-model="decNewDate" type="date" class="dec-inp-date" title="哪天定的（默认今天）" />
+        <input v-model="decNewSource" class="dec-inp-src" placeholder="出处（如 10-12 群 09:42）" />
+        <button class="pri" :disabled="decBusy || !decNewContent.trim()" @click="decAdd">记下</button>
+      </div>
+      <div class="decision-list">
+        <div v-if="!decFiltered.length" class="empty-state">
+          <div class="empty-icon">🧭</div>
+          <div class="empty-text">{{ decItems.length ? '这个状态下没有拍板' : '还没有拍板记录——群里定了大事，记一条，防它消失' }}</div>
+        </div>
+        <div v-for="d in decFiltered" :key="d.id" class="decision-card" :class="'dec-st-' + d.状态">
+          <div class="dec-main">
+            <span class="dec-mark">{{ decMark(d.状态) }}</span>
+            <span class="dec-id">{{ d.id }}</span>
+            <span class="dec-content">{{ d.内容 }}</span>
+            <select class="dec-status-sel" :value="d.状态" :disabled="decBusy"
+                    @change="decSetStatusFromEvent(d, $event)">
+              <option>作数</option>
+              <option>已作废</option>
+              <option>已并入</option>
+            </select>
+          </div>
+          <div class="dec-meta">
+            <span class="dec-date">{{ d.日期 }}</span>
+            <span v-if="d.出处" class="dec-src">← {{ d.出处 }}</span>
+          </div>
+          <div v-if="d.备注" class="dec-note">{{ d.备注 }}</div>
         </div>
       </div>
     </main>
@@ -2743,6 +2791,32 @@
       </div>
     </div>
 
+    <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情「✨ AI 规划」的入口。
+         两个动作走 12 条 LLM 通道的后两条（llm:planToDraft / llm:draftProjectBrief）：
+         拆目标 →「待审批」任务卡；起草说明 → 四栏草稿卡。转正必须人工，AI 不直接进待办。
+         ⚠ 合入时改了一处：遮罩关闭手势原为 `@click.self` → 改 `@mousedown.self`。
+           这里有个文本输入框（goal），`@click.self` 会在"拖选文字、光标滑出弹窗"时
+           被当成点了遮罩，**把还没提交的草稿一起关掉**（2026-10-11 真机踩过，守卫第 ⑨ 类也拦它）。 -->
+    <div v-if="aiPlanForm" class="overlay" @mousedown.self="closeAiPlan()">
+      <div id="ai-plan-modal">
+        <h3>AI 规划 · {{ aiPlanForm.name }}</h3>
+        <label>想干什么（一句话目标，给「拆成任务卡」用）</label>
+        <input v-model="aiPlanForm.goal" placeholder="例：把 0.2.8 发版前的阻塞清空"
+               @keyup.enter="runPlanToDraft()" :disabled="aiPlanBusy" />
+        <div class="hint">
+          结果落成<b>「待审批」卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
+          卡带 <code>ai-planning</code> 来源标记可审计；未配置模型时会提示去设置页填通道。
+        </div>
+        <div class="acts">
+          <button class="ghost" :disabled="aiPlanBusy" @click="closeAiPlan()">取消</button>
+          <button class="ghost" :disabled="aiPlanBusy || !aiPlanForm.goal.trim()" @click="runPlanToDraft()">
+            {{ aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
+          <button class="pri" :disabled="aiPlanBusy" @click="runDraftBrief()">
+            {{ aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
+        </div>
+      </div>
+    </div>
+
     <div id="app-edit-overlay" class="overlay" v-if="editApp_" @mousedown.self="closeAppEditor()">
       <div id="app-edit-modal">
         <h3>{{ editApp_.isNew ? '添加应用' : '编辑应用' }}</h3>
@@ -2990,6 +3064,30 @@
             <button class="ghost" :disabled="archiveOverdue.count === 0" @click="runArchiveOverdue()">
               立即归档超期的 {{ archiveOverdue.count }} 个
             </button>
+          </div>
+        </div>
+        <!-- 模型通道（AI 规划用，2026-10-12）：BYOK——端点/密钥/模型全在用户手里。
+             后端 12 条 LLM 通道 10-06 起就绪，这是配置界面第一次装。
+             密钥只存本机（llm-config.json，0600），回显永远只有掩码；不预填任何默认端点（含国外）。 -->
+        <div class="sect" v-show="settingsTab === 'agent'">
+          <h4>✨ 模型通道（AI 规划用）</h4>
+          <div class="hint">项目详情页「✨ AI 规划」按钮走这里。密钥只存本机、回显只有掩码；每次调用的 token 用量随结果提示（花销可见）。</div>
+          <div class="llm-presets">
+            <button class="ghost" @click="applyLlmPreset('deepseek')">DeepSeek 一键填</button>
+            <button class="ghost" @click="applyLlmPreset('mimo')">MiMo 模型建议</button>
+          </div>
+          <label>Base URL（API 端点）</label>
+          <input v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
+          <label>模型名</label>
+          <input v-model="llmCfg.model" placeholder="如 deepseek-chat / MiMo-V2.6-Flash" />
+          <label>API Key（保存后回显为掩码；修改就重填）</label>
+          <input v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
+          <label>超时（秒）</label>
+          <input type="number" min="10" step="10" v-model.number="llmCfg.timeout" />
+          <div class="sect-btns">
+            <button class="ghost" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
+            <button class="pri" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
+            <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
           </div>
         </div>
         <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
@@ -5539,6 +5637,8 @@ watch(curView, (val) => {
       logPollingTimer = null
     }
   }
+  // 决策卡（2026-10-12）：进视图拉一次本地数据（无轮询——拍板不是高频流）
+  if (val === 'decisions') decRefresh()
 })
 
 const views = [
@@ -5552,6 +5652,7 @@ const views = [
   { id: 'archive', label: '归档' },
   { id: 'trash', label: '回收站' },
   { id: 'launchpad', label: '启动台' },
+  { id: 'decisions', label: '拍板' },
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
@@ -10002,6 +10103,71 @@ function openProjectInSettings(p: Project) {
   showToast(`已打开项目详情：${p.name || p.id}`, 'info')
 }
 
+// ── AI 规划写回层 UI（2026-10-12）───────────────────────────────────────
+// 红线全在主进程（llm/writeback.ts）：草稿一律「待审批」、source=ai-planning、
+// 解析失败兜底卡。UI 侧只补两件事：入口按钮（.oacts「✨ AI 规划」）+ 调用中不许关弹窗。
+const aiPlanForm = ref<{ id: string; name: string; goal: string } | null>(null)
+const aiPlanBusy = ref(false)
+
+function openAiPlan(p: any) {
+  aiPlanForm.value = { id: p.id, name: p.name || p.id, goal: '' }
+}
+
+function closeAiPlan() {
+  if (aiPlanBusy.value) return // AI 跑着不许关——误触丢结果比多等几秒更伤
+  aiPlanForm.value = null
+}
+
+/** 花销可见（方案红线）：把主进程回传的 usage 拼成人话，null 全缺返回空串不凑数 */
+function aiUsageTail(u: any): string {
+  if (!u) return ''
+  const parts: string[] = []
+  if (typeof u.promptTokens === 'number') parts.push(`入 ${u.promptTokens}`)
+  if (typeof u.completionTokens === 'number') parts.push(`出 ${u.completionTokens}`)
+  if (typeof u.totalTokens === 'number') parts.push(`共 ${u.totalTokens}`)
+  return parts.length ? ` · tokens ${parts.join('/')}` : ''
+}
+
+/** 拆目标 → 待审批任务卡。成功即关窗，看板筛「待审批」就能看到琥珀色草稿卡。 */
+async function runPlanToDraft() {
+  const f = aiPlanForm.value
+  if (!f || aiPlanBusy.value || !f.goal.trim()) return
+  aiPlanBusy.value = true
+  try {
+    const r: any = await window.tegula.llmPlanToDraft(f.goal.trim(), f.id)
+    if (r?.ok) {
+      showToast(`草稿已落「待审批」（看板筛琥珀色可见）——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      aiPlanForm.value = null
+    } else {
+      showToast(r?.error || 'AI 规划失败——先到设置页确认模型通道', 'error')
+    }
+  } catch (e: any) {
+    showToast(`AI 规划失败：${e?.message || e}`, 'error')
+  } finally {
+    aiPlanBusy.value = false
+  }
+}
+
+/** 起草项目说明 → 四栏草稿卡（现状/目标/不做/欠着什么），素材取项目现有任务卡聚合。 */
+async function runDraftBrief() {
+  const f = aiPlanForm.value
+  if (!f || aiPlanBusy.value) return
+  aiPlanBusy.value = true
+  try {
+    const r: any = await window.tegula.llmDraftProjectBrief(f.id)
+    if (r?.ok) {
+      showToast(`项目说明草稿已落「待审批」——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      aiPlanForm.value = null
+    } else {
+      showToast(r?.error || '起草失败——先到设置页确认模型通道', 'error')
+    }
+  } catch (e: any) {
+    showToast(`起草失败：${e?.message || e}`, 'error')
+  } finally {
+    aiPlanBusy.value = false
+  }
+}
+
 /**
  * 新建项目：真正写入 registry.yaml。
  * 此前是 `prompt('项目名称：')` + "项目添加功能开发中" —— 双重不可用：
@@ -10203,6 +10369,194 @@ function showSettings() {
   void bkLoadSizeReport()
   // 诊断页（上次停在诊断时直接进它 —— 那三块要当场有数）
   if (settingsTab.value === 'diag') void loadDiag()
+  // ⚠ 合入（2026-10-12）：这一行是外部整包加的，与上面三条**并列不冲突** ——
+  //   两边都是"打开设置页时进门就刷"的条目，合并时保留全部四条（缺谁谁就"界面说假话"）。
+  //   这条纪律本身就是从"懒加载导致界面说假话"那几次事故里来的（见 MEMORY 第 5.8 条）。
+  llmLoad()
+}
+
+// ── 模型通道（AI 规划用，2026-10-12）：BYOK 配置界面 ────────────────────
+// 后端 llm:getConfig/setConfig/resetConfig/testConnection 四通道就绪，UI 第一次装。
+// 密钥防线在主进程（掩码/空白视为未修改不写盘），UI 侧掩码同样不回传，双保险。
+const llmCfg = ref<{ baseUrl: string; model: string; apiKey: string; timeout: number }>({
+  baseUrl: '', model: '', apiKey: '', timeout: 60,
+})
+const llmKeyHint = ref('')
+const llmTesting = ref(false)
+const llmSaving = ref(false)
+const llmResetting = ref(false)
+
+async function llmLoad() {
+  try {
+    const r: any = await window.tegula.llmGetConfig()
+    if (r?.ok !== false && r) {
+      llmCfg.value = {
+        baseUrl: r.baseUrl || '',
+        model: r.model || '',
+        apiKey: r.hasApiKey ? '***' : '',
+        timeout: r.timeout || 60,
+      }
+      llmKeyHint.value = r.apiKeyHint || ''
+    }
+  } catch (e: any) {
+    showToast(`读取模型配置失败：${e?.message || e}`, 'error')
+  }
+}
+
+/** 预设：只填有据的（DS 官方端点+模型名公开；MiMo 端点不编造，只给模型名建议） */
+function applyLlmPreset(kind: 'deepseek' | 'mimo') {
+  if (kind === 'deepseek') {
+    llmCfg.value.baseUrl = 'https://api.deepseek.com'
+    if (!llmCfg.value.model) llmCfg.value.model = 'deepseek-chat'
+    showToast('已填 DeepSeek 官方端点——Key 在你手里，填好测试连接', 'info')
+  } else {
+    llmCfg.value.model = 'MiMo-V2.6-Flash'
+    showToast('已填 MiMo 模型名——端点地址用你自己的通道（小米开放平台），Base URL 自己填', 'info')
+  }
+}
+
+async function llmTest() {
+  if (llmTesting.value) return
+  llmTesting.value = true
+  try {
+    const cfg = { ...llmCfg.value }
+    if (cfg.apiKey === '***') delete (cfg as any).apiKey
+    const r: any = await window.tegula.llmTestConnection(cfg)
+    if (r?.ok) {
+      showToast(`连接成功：${r.model || llmCfg.value.model || '(默认模型)'}${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ''}`, 'success')
+    } else {
+      showToast(`连接失败：${r?.error || '未知错误（看主进程日志）'}`, 'error')
+    }
+  } catch (e: any) {
+    showToast(`测试异常：${e?.message || e}`, 'error')
+  } finally {
+    llmTesting.value = false
+  }
+}
+
+async function llmSave() {
+  if (llmSaving.value) return
+  llmSaving.value = true
+  try {
+    const cfg: Record<string, unknown> = {
+      baseUrl: llmCfg.value.baseUrl.trim(),
+      model: llmCfg.value.model.trim(),
+      timeout: llmCfg.value.timeout,
+    }
+    // 掩码/空 = 没改密钥，不回传（主进程还有 isMaskedKey 防线）
+    const key = llmCfg.value.apiKey.trim()
+    if (key && key !== '***') cfg.apiKey = key
+    const r: any = await window.tegula.llmSetConfig(cfg)
+    if (r?.ok !== false) {
+      showToast('模型通道已保存（本机 llm-config.json）', 'success')
+      await llmLoad()
+    } else {
+      showToast(r?.error || '保存失败', 'error')
+    }
+  } catch (e: any) {
+    showToast(`保存异常：${e?.message || e}`, 'error')
+  } finally {
+    llmSaving.value = false
+  }
+}
+
+async function llmReset() {
+  if (llmResetting.value) return
+  llmResetting.value = true
+  try {
+    await window.tegula.llmResetConfig()
+    showToast('已重置（密钥保留——想换钥匙直接改填新值保存）', 'info')
+    await llmLoad()
+  } catch (e: any) {
+    showToast(`重置异常：${e?.message || e}`, 'error')
+  } finally {
+    llmResetting.value = false
+  }
+}
+
+// ── 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）────────────────────
+// 数据真身在主进程（data/decisions.ts，与 Python CLI 同文件）；UI 只经 IPC 读写。
+const decItems = ref<any[]>([])
+const decFilter = ref('全部')
+const decNewContent = ref('')
+const decNewDate = ref('')
+const decNewSource = ref('')
+const decBusy = ref(false)
+
+const decFiltered = computed(() => {
+  if (decFilter.value === '全部') return decItems.value
+  return decItems.value.filter((d: any) => d.状态 === decFilter.value)
+})
+
+function decMark(s: string): string {
+  return { 作数: '✓', 已作废: '✗', 已并入: '→' }[s] || '?'
+}
+
+async function decRefresh() {
+  try {
+    const r: any = await window.tegula.decisionList()
+    if (r?.ok) decItems.value = r.items || []
+  } catch (e: any) {
+    showToast(`读取拍板记录失败：${e?.message || e}`, 'error')
+  }
+}
+
+async function decAdd() {
+  const content = decNewContent.value.trim()
+  if (!content || decBusy.value) return
+  decBusy.value = true
+  try {
+    const r: any = await window.tegula.decisionAdd({
+      内容: content,
+      日期: decNewDate.value || new Date().toISOString().slice(0, 10),
+      出处: decNewSource.value.trim(),
+    })
+    if (r?.ok) {
+      showToast(`已记 ${r.id}`, 'success')
+      decNewContent.value = ''
+      decNewSource.value = ''
+      await decRefresh()
+    } else {
+      showToast(r?.error || '记失败', 'error')
+    }
+  } catch (e: any) {
+    showToast(`记录异常：${e?.message || e}`, 'error')
+  } finally {
+    decBusy.value = false
+  }
+}
+
+/**
+ * 从 `<select>` 的 change 事件里取状态值。
+ *
+ * ⚠ 为什么绕一层而不在模板里直接写 `($event.target as HTMLSelectElement).value`：
+ *   **模板里禁 `as`（禁 `any`）** —— `check-template-bindings` 第 ① 类会把 `as` 当成
+ *   "模板引用了未声明的标识符"直接判红（这条守卫是 2026-10-11 踩出来的，见 MEMORY 第五节）。
+ *   类型断言归脚本，模板只传 `$event`。
+ */
+function decSetStatusFromEvent(d: any, ev: Event): void {
+  const el = ev.target as HTMLSelectElement | null
+  void decSetStatus(d, el ? el.value : '')
+}
+
+async function decSetStatus(d: any, status: string) {
+  if (decBusy.value) return
+  decBusy.value = true
+  try {
+    const r: any = await window.tegula.decisionSetStatus(d.id, status)
+    if (r?.ok) {
+      showToast(r.message || `${d.id} → ${status}`, 'info')
+      await decRefresh()
+    } else {
+      showToast(r?.error || '改状态失败', 'error')
+      await decRefresh() // 失败回滚显示
+    }
+  } catch (e: any) {
+    showToast(`改状态异常：${e?.message || e}`, 'error')
+    await decRefresh()
+  } finally {
+    decBusy.value = false
+  }
 }
 
 async function triggerBackup() {
@@ -12102,9 +12456,38 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mg-notice code { background: #efe9d8; padding: 0 4px; border-radius: 3px; }
 .mg-hint { margin-top: 5px; color: #8a8270; }
 
+/* ── 拍板记录（决策卡）视图，2026-10-12 AI 规划包第 3 件 ───────────────── */
+/* 三态视觉语言复用全局语义色：作数=绿 ✓ / 已作废=灰红 ✗ / 已并入=琥珀 → */
+.decisions-view { overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+.decisions-header { display: flex; align-items: center; gap: 12px; }
+.decisions-header h3 { margin: 0; }
+.decisions-ctrls { display: flex; gap: 6px; flex-wrap: wrap; }
+.decisions-ctrls .on { font-weight: 600; }
+.decision-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dec-inp-main { flex: 1 1 260px; }
+.dec-inp-date { flex: 0 0 150px; }
+.dec-inp-src { flex: 0 1 200px; }
+.decision-list { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+.decision-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; background: var(--card); }
+.dec-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dec-mark { font-weight: 700; width: 1.2em; text-align: center; }
+.dec-st-作数 .dec-mark { color: #3a7d2c; }
+.dec-st-已作废 { opacity: 0.62; }
+.dec-st-已作废 .dec-mark { color: #b0524a; }
+.dec-st-已并入 .dec-mark { color: #b07a2a; }
+.dec-id { color: var(--dim); font-size: 12px; }
+.dec-content { font-weight: 600; flex: 1 1 auto; }
+.dec-status-sel { flex: 0 0 auto; }
+.dec-meta { display: flex; gap: 10px; margin-top: 4px; color: var(--dim); font-size: 12px; }
+.dec-note { margin-top: 4px; font-size: 12px; color: var(--dim); white-space: pre-line; border-top: 1px dashed var(--line); padding-top: 4px; }
+
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
+/* 模型通道预设按钮行（2026-10-12）：两个 ghost 并排，间距 8px */
+.llm-presets { display: flex; gap: 8px; margin: 8px 0 4px; }
+.llm-presets button { flex: 0 0 auto; }
 #plan-new-modal,
-#proj-new-modal {
+#proj-new-modal,
+#ai-plan-modal {
   background: var(--card);
   border-radius: var(--radius);
   padding: 18px 20px;
@@ -12115,13 +12498,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   box-shadow: var(--shadow);
 }
 #plan-new-modal h3,
-#proj-new-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+#proj-new-modal h3,
+#ai-plan-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
 #plan-new-modal label,
-#proj-new-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+#proj-new-modal label,
+#ai-plan-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
 #plan-new-modal input,
 #plan-new-modal textarea,
 #plan-new-modal select,
-#proj-new-modal input {
+#proj-new-modal input,
+#ai-plan-modal input {
   width: 100%; padding: 7px 10px;
   border: 1px solid var(--border); border-radius: 7px;
   font-size: 13px; background: #fff; color: var(--ink);

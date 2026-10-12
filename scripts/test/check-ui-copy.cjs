@@ -86,6 +86,12 @@ function scanUiStrings(file) {
       const quote = m[1]
       const body = m[2]
       if (PURE_MASK_RE.test(body)) continue          // `***` 掩码不是 Markdown
+      // ⚠ 含 `${` 的一律放行：那说明这个"字符串"其实是一段**JS 表达式/模板字符串**
+      //   （如 `:placeholder="x ? `已存：${h}` : '粘贴密钥'"`），里面的反引号是**模板字面量定界符**，
+      //   不是 Markdown 行内代码，用户根本看不到它。
+      //   2026-10-12 加：外部整包带到 App.vue:3084 就是这么一处，被这条守卫误判成"文案里漏进反引号"。
+      //   ——修的是**守卫的误报**，不是让代码绕着守卫写（后者会把守卫变成为难人的规矩）。
+      if (body.includes('${')) continue
       if (body.includes('**')) bold.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
       if (quote !== '`' && body.includes('`')) tick.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
     }

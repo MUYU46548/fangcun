@@ -51,27 +51,29 @@ class LLMError(Exception):
 class LLMConfig:
     base_url: str = ""
     api_key: str = ""
-    model: str = "gpt-4o-mini"
+    model: str = ""
     timeout: int = 60
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
+        # 2026-10-12 模型通道去默认化：不预填任何端点/模型（含国外默认），
+        # 未配置时由 validate() 报人话错误。桌面端配置走设置页「模型通道」（llm-config.json）。
         return cls(
-            base_url=os.environ.get("TEGULA_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+            base_url=os.environ.get("TEGULA_LLM_BASE_URL", "").rstrip("/"),
             api_key=os.environ.get("TEGULA_LLM_API_KEY", ""),
-            model=os.environ.get("TEGULA_LLM_MODEL", "gpt-4o-mini"),
+            model=os.environ.get("TEGULA_LLM_MODEL", ""),
             timeout=int(os.environ.get("TEGULA_LLM_TIMEOUT", "60")),
         )
 
     def validate(self) -> None:
-        if not self.api_key:
+        if not self.api_key or not self.base_url or not self.model:
             raise LLMError(
-                "TEGULA_LLM_API_KEY 未设置，无法调用 LLM。\n"
+                "模型通道未配置。环境变量三件：\n"
+                "  set TEGULA_LLM_BASE_URL=https://your-provider.com（OpenAI 兼容端点）\n"
                 "  set TEGULA_LLM_API_KEY=sk-xxx\n"
-                "  或 set TEGULA_LLM_BASE_URL=https://your-provider.com/v1"
+                "  set TEGULA_LLM_MODEL=your-model\n"
+                "桌面端用户：设置 → 模型通道 里填（带预设按钮），无需环境变量。"
             )
-        if not self.base_url:
-            raise LLMError("TEGULA_LLM_BASE_URL 不能为空")
 
 
 _config: Optional[LLMConfig] = None

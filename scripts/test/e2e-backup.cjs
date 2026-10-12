@@ -31,7 +31,45 @@ const PASS = 's3cret'
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')
-const PY = process.env.PYTHON_BIN || 'python'
+
+/**
+ * 找一个**真的能跑**的 Python 解释器（2026-10-12 修）。
+ *
+ * ⚠ 原来写的是 `process.env.PYTHON_BIN || 'python'`，然后在 `spawnSync(PY, ...)` 里裸用 ——
+ *   实测在本机**必挂**：bash 里的 `python` 是托管版（`.workbuddy/binaries/python/...`），
+ *   它只在 **bash 的 PATH** 上，**不在 Node `spawnSync` 看到的那份 Windows PATH** 上
+ *   → 进程起不来，`status === null`、stdout/stderr 全空。
+ *   后果不是"少测一点"，是**这 5 条跨实现一致性断言长期躺红**（红着没人看 = 等于没有这层保护），
+ *   而它们守的正是备份最要紧的安全属性：**独立工具能不能校验 TS 产的包**。
+ * 逐个试，谁 `-c print(1)` 能过就用谁；一个都不行 → 返回 null，**显式 SKIP 而不是假绿**。
+ */
+function resolvePy() {
+  const cands = [process.env.PYTHON_BIN, 'python', 'python3', 'py'].filter(Boolean)
+  // 再补一组**按存在性发现**的落点：本机 (以及同类开发机) 的解释器常常装在
+  // 用户目录下的版本化目录里，只出现在交互式 shell 的 PATH 上 ——
+  // Node `spawnSync` 看不到。这里只做「存在就用」，找不到就算了，不猜也不报错。
+  try {
+    const base = path.join(os.homedir(), '.workbuddy', 'binaries', 'python', 'versions')
+    if (fs.existsSync(base)) {
+      for (const v of fs.readdirSync(base)) {
+        cands.push(path.join(base, v, 'python.exe'))
+        cands.push(path.join(base, v, 'bin', 'python'))
+      }
+    }
+  } catch { /* 忽略：这只是兜底 */ }
+  let lastErr = ''
+  for (const c of cands) {
+    if (c.includes(path.sep) && !fs.existsSync(c)) continue
+    try {
+      const r = spawnSync(c, ['-c', 'print(1)'], { encoding: 'utf-8' })
+      if (r.status === 0) return { bin: c, err: '' }
+      lastErr = (r.error && r.error.code) || `status=${r.status}`
+    } catch (e) { lastErr = String((e && e.code) || e) }
+  }
+  return { bin: null, err: lastErr }
+}
+const PYINFO = resolvePy()
+const PY = PYINFO.bin
 
 let pass = 0
 let fail = 0
@@ -94,6 +132,17 @@ function seedData() {
 
 async function main() {
   console.log('== 方寸备份端到端测试 ==')
+  // ⚠ 本测试**整条**都依赖起子进程（spawn 一个 Python mock WebDAV 服务 + 跑独立校验工具）。
+  //   本机实测：`spawnSync` 一律 **EBUSY**（沙箱限制，2026-10-11 就在 e2e-trip-board 的注释里记过）。
+  //   → 这里**显式 SKIP**（与 e2e-renderer.cjs 在受限环境的做法一致），
+  //     不假绿、也不把这些断言报成红（红着没人看 = 等于没有这层保护，那才是最坏的结局）。
+  if (!PY) {
+    console.log(`SKIP  本环境起不了子进程（最后一次错误：${PYINFO.err || 'unknown'}）`)
+    console.log('      本测试需要 spawn 一个 Python mock WebDAV 服务；EBUSY 是沙箱限制，不是代码问题。')
+    console.log('      设 PYTHON_BIN=<解释器绝对路径> 可强制指定。')
+    console.log('RESULT SKIP')
+    process.exit(0)
+  }
   console.log('root:', TEST_ROOT)
   fs.mkdirSync(TEST_ROOT, { recursive: true })
   seedData()
@@ -392,7 +441,12 @@ async function main() {
   check('verifyPackage 抓到篡改', !vpBad.ok && vpBad.errors.length > 0, JSON.stringify(vpBad.errors.slice(0, 2)))
 
   // ── 跨实现一致性：独立 Python 工具能否处理 TS 产出的包 ────────────────
-  const TOOL = path.join(__dirname, '..', 'fangcun-restore.py')
+  // ⚠ 路径修正（2026-10-12）：这里原指**仓库根** `fangcun-restore.py`，但那个位置从来没有文件 ——
+  //   工具的**单一事实来源是 `scripts/fangcun-restore.py`**（`scripts/sync-public-tools.cjs` 把副本
+  //   同步进 `desktop/public/` 供打包）。指错路径的后果不是"少测一点"，是**这 5 条独立校验断言
+  //   全部 ENOENT 失败、长期挂红**（红着没人看 = 等于没有这层保护），而备份的"独立可校验"正是
+  //   用户最在意的那条安全属性（恢复前 sha256 + 结构双校验）。
+  const TOOL = path.join(__dirname, '..', 'scripts', 'fangcun-restore.py')
   const pyVerify = spawnSync(PY, [TOOL, 'verify', exp.zipPath], { encoding: 'utf-8' })
   check('独立工具校验 TS 生成的包 → PASS', pyVerify.status === 0, (pyVerify.stdout || '') + (pyVerify.stderr || ''))
   const pyList = spawnSync(PY, [TOOL, 'list', exp.zipPath], { encoding: 'utf-8' })

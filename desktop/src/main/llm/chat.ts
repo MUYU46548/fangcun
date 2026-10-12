@@ -93,6 +93,36 @@ function extractText(data: any): { text: string; reasoning: string; finish: stri
   }
 }
 
+/** 从响应里取用量（OpenAI 兼容 usage 字段；缺字段给 null——「花销可见」的数据源，不编数） */
+export interface ChatUsage {
+  promptTokens: number | null
+  completionTokens: number | null
+  totalTokens: number | null
+}
+
+function extractUsage(data: any): ChatUsage {
+  const u = data?.usage
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  return {
+    promptTokens: num(u?.prompt_tokens),
+    completionTokens: num(u?.completion_tokens),
+    totalTokens: num(u?.total_tokens),
+  }
+}
+
+/** 全 null 的空用量（调用未发生/异常时占位） */
+export const emptyUsage: ChatUsage = { promptTokens: null, completionTokens: null, totalTokens: null }
+
+/** 用量转人话（无数据返回空串，调用方按需拼） */
+export function usageLabel(u: ChatUsage): string {
+  if (u.totalTokens === null && u.promptTokens === null && u.completionTokens === null) return ''
+  const parts: string[] = []
+  if (u.promptTokens !== null) parts.push(`入 ${u.promptTokens}`)
+  if (u.completionTokens !== null) parts.push(`出 ${u.completionTokens}`)
+  if (u.totalTokens !== null) parts.push(`共 ${u.totalTokens}`)
+  return `（tokens ${parts.join(' / ')}）`
+}
+
 async function postChat(
   url: string,
   payload: Record<string, unknown>,
@@ -134,20 +164,23 @@ async function postChat(
 }
 
 /**
- * 非流式调用，返回文本。
+ * 非流式调用详情版：正文+用量+finish，写回层等「花销可见」场景用。
  * 推理模型（如 minimax-*、deepseek-*）思考会吃掉 token 预算，若首轮就 length 截断
  * 且正文为空，自动翻倍 max_tokens 重试一次 —— 避免用户拿到"空结果"。
  */
-export async function chat(
+export async function chatDetailed(
   content: string | ChatMessage[],
   options: ChatOptions = {}
-): Promise<string> {
+): Promise<{ text: string; usage: ChatUsage; finish: string }> {
   const cfg = resolveConfig(options)
   if (!cfg.apiKey) {
-    throw new LLMError('未配置 API Key，请在「LLM 配置」中填写后重试')
+    throw new LLMError('未配置 API Key，请在设置 → 模型通道中填写后重试')
   }
   if (!cfg.baseUrl) {
-    throw new LLMError('未配置 Base URL')
+    throw new LLMError('未配置 Base URL（设置 → 模型通道），或用预设按钮一键填')
+  }
+  if (!cfg.model && !options.model) {
+    throw new LLMError('未配置模型名（设置 → 模型通道），或用预设按钮一键填')
   }
 
   const { chat: chatUrl } = resolveEndpoints(cfg.baseUrl)
@@ -176,6 +209,19 @@ export async function chat(
       chatUrl
     )
   }
+  return { text, usage: extractUsage(data), finish }
+}
+
+/**
+ * 非流式调用，返回文本。
+ * 推理模型（如 minimax-*、deepseek-*）思考会吃掉 token 预算，若首轮就 length 截断
+ * 且正文为空，自动翻倍 max_tokens 重试一次 —— 避免用户拿到"空结果"。
+ */
+export async function chat(
+  content: string | ChatMessage[],
+  options: ChatOptions = {}
+): Promise<string> {
+  const { text } = await chatDetailed(content, options)
   return text
 }
 
