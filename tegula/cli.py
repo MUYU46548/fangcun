@@ -20,6 +20,7 @@ from tegula.core import (
     DECISIONS_PATH, DECISION_STATUSES, load_decisions, decision_add, decision_set_status,
     load_template, api_new, _parse_decision_points, _render_decision_points,
     api_plan_new, api_plan_decide, api_plan_list, api_plan_get,
+    api_export_tasks, api_import_tasks, api_export_notes, api_import_notes,
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
     api_batch_edit, api_batch_archive, api_batch_delete, api_backup,
     _active_hermes_profile, log_activity, read_activity, _gen_run_id,
