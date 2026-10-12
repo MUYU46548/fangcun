@@ -16,6 +16,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { execFileSync, spawn } from 'child_process'
+import { isPlaceholderText } from '../../shared/placeholder'
 import { parseRegistry, loadAllTasksRaw } from '../data'
 import * as logs from './logs'
 import * as prefs from './prefs'
@@ -59,16 +60,9 @@ function stripSectionHr(text: string): string {
   return lines.join('\n').trim()
 }
 
-/** 整段被一对括号包住 = 模板占位（说明"这里该写什么"），不是内容。司天那六节就是这种。 */
-function isPlaceholderBody(body: string): boolean {
-  const s = String(body || '').trim()
-  if (!s) return true
-  for (const [a, b] of [['（', '）'], ['(', ')']] as const) {
-    if (s.startsWith(a) && s.endsWith(b)
-      && s.split(a).length - 1 === 1 && s.split(b).length - 1 === 1) return true
-  }
-  return false
-}
+/* 「整段被一对括号包住 = 模板占位」这条规则已归一到共享 helper（`shared/placeholder.ts`）——
+   它同时被「日志 → 待办」用着（日志的「下一步」常是 `（待填写）`，不能当内容取来做标题）。
+   ⚠ 别再在这里就地写一遍：同一规则三处各写一份，正是 2026-10-11 那个丢内容 bug 的同类根因。 */
 
 export interface ContractSection { name: string; field: string | null }
 
@@ -230,7 +224,7 @@ export function readContractFile(repo: string): TripContract {
     out.sections.push({ name, field: hit })
     if (!hit) { out.unmatched.push(name); continue }
     taken.set(hit, name)
-    if (isPlaceholderBody(body)) out.placeholderFields.push(hit)
+    if (isPlaceholderText(body)) out.placeholderFields.push(hit)
     else if (body) {
       out.filled.push(hit)
       if (hit === CONTRACT_FIELDS[0]) out.endState = body

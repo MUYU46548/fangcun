@@ -1497,6 +1497,7 @@
     check('  pref 回 groups', window.__fcTest.prefs().fc_logs_view_mode === 'groups',
       JSON.stringify(window.__fcTest.prefs().fc_logs_view_mode))
 
+
     // 2026-10-03 反馈1（卡 task-20261003-001）：上次的执行 Agent 卡面必须标清楚
     check('★ 卡面标出「⤴ 上次」执行 Agent（夹具 log-relay-b.prevAgentName=DSH）',
       $$('.log-card').some(c => (c.textContent || '').indexOf('上次 DSH') >= 0),
@@ -1638,6 +1639,55 @@
     const cancel2 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancel2) cancel2.click()
     await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭 2')
+
+    // ══ 日志 → 待办：内容**一条不丢**（2026-10-11 用户实测的丢内容 bug）══════════
+    // 原话：「我把 log_20260925113550_0z73dy 转待办，发现内容全丢，变成空待办。本以为文本会留住的。」
+    // 真因两处：① 只取「下一步」首条当标题，而那条日志的下一步是占位 `（待填写）`；
+    //          ② 日志**正文一个字都不带**（旧实现只搬一行）。夹具照那条日志的形态复刻。
+    {
+      const savedLogs = window.__fcTest.logs()
+      const savedTodos = window.__fcTest.todos()
+      const LOST_LOG = {
+        id: 'log-lost-1', title: '角色设定待审0925', project: 'demo', status: 'active',
+        created: '2026-09-25T11:35:50.161Z',
+        content: '- 成功生成：2 项（凛视.md / 霜痕.md）\n- 输出目录：E:\\图书馆\\ROSA\\Obsidian_AI_Sandbox\\10_Inbox\\',
+        nextSteps: '（待填写）',
+      }
+      window.__fcTest.setLogs([LOST_LOG])
+      clickText('看板'); await sleep(300)
+      check('  重进日志页（丢内容用例就位）', clickText('日志'))
+      await sleep(500)
+      const before = window.__fcTest.callCount('todosCreate')
+      const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('角色设定待审0925') >= 0)
+      const btn = card && Array.prototype.slice.call(card.querySelectorAll('button'))
+        .find((b) => (b.textContent || '').indexOf('转待办') >= 0)
+      check('  日志卡上有「⤴ 转待办」入口', !!btn)
+      if (btn) {
+        btn.click()
+        await waitFor(() => !!$('#conv-modal'), 4000, '转换确认框')
+        const go = $$('#conv-modal button').find((b) => (b.textContent || '').trim() === '转换')
+        if (go) go.click()
+        await waitFor(() => window.__fcTest.callCount('todosCreate') > before, 4000, 'todosCreate')
+        const call = window.__fcTest.calls().filter((c) => c.name === 'todosCreate').pop()
+        const text = call ? String(call.args[0] || '') : ''
+        check('★★ 待办里带着日志**正文全文**（旧版把正文整个丢了 —— 这才是"内容全丢"的真因）',
+          text.indexOf('成功生成：2 项') >= 0 && text.indexOf('Obsidian_AI_Sandbox') >= 0,
+          JSON.stringify(text.slice(0, 120)))
+        check('★★ 占位「（待填写）」不许当内容（旧版拿它当标题，整条待办只剩这四个字）',
+          !text.startsWith('（待填写）') && text.split('\n')[0].indexOf('（待填写）') < 0,
+          JSON.stringify(text.split('\n')[0]))
+        check('  首行落回日志标题（下一步是占位时的正确退路）',
+          text.split('\n')[0].indexOf('角色设定待审0925') >= 0, JSON.stringify(text.split('\n')[0]))
+        check('  来源行标出「由哪条日志转来」（转完还追得回去）',
+          text.indexOf('由日志') >= 0 && text.indexOf('log-lost-1') >= 0)
+      }
+      // ⚠ 用完**还原现场**：本段插在日志段的中间，后面还有接力/附件的断言要用原夹具。
+      //   只 clear 不还原会连带打红一大片（第一版就是这么红的）。
+      window.__fcTest.setLogs(savedLogs)
+      window.__fcTest.setTodos(savedTodos)
+      clickText('看板'); await sleep(250)
+      clickText('日志'); await sleep(450)
+    }
 
     // ══ 附件（2026-10-01 用户第 1 条 → 卡 036）═══════════════════
     // 卡 036 的验收原话：真实需求是「报修时截图有地方放」——所以这里断言的是
@@ -1957,12 +2007,20 @@
     check('  确认框重开', await waitFor(() => !!$('#conv-modal'), 3000, 'conv 重开'))
     const convGo1 = convConfirmBtn()
     if (convGo1) convGo1.click()
-    check('★★ 日志→待办：真调 todosCreate（下一步首条做标题 + priority/project 跟着走 + fromLog 防重）',
+    // ⚠ 这条判据在 2026-10-11 改过 —— 而且它**原本把 bug 当成了规格**：
+    //   旧版断言 `a[0] === '补一个失败重试'`（**整段内容 === 一行**），恰好锁死了
+    //   "只搬一行、正文全丢"那个丢东西的行为（用户实测「内容全丢，变成空待办」）。
+    //   现在待办的「内容」= 摘要首行 + 来源行 + 正文 + 下一步全文，
+    //   所以判据改成「**首行**是那条下一步」+ 其它字段照旧。
+    check('★★ 日志→待办：真调 todosCreate（首行=下一步首条 + 正文也带过来 + priority/project/fromLog 跟着走）',
       await waitFor(() => {
         const c = window.__fcTest.calls().filter(x => x.name === 'todosCreate')
         if (!c.length) return false
         const a = c[c.length - 1].args || []
-        return a[0] === '补一个失败重试' && a[1] === '高' && a[3] === 'demo' && a[4] === 'log-conv-1'
+        const lines = String(a[0] || '').split('\n')
+        return lines[0] === '补一个失败重试'
+          && String(a[0]).indexOf('查了鉴权中间件') >= 0   // 正文必须带过来（这是这次修的那个 bug）
+          && a[1] === '高' && a[3] === 'demo' && a[4] === 'log-conv-1'
       }, 4000, 'todosCreate 反转'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'todosCreate').pop() || {}).args))
     check('★ 日志→待办后**源日志还在**（默认不归档，卡 004 铁律）',

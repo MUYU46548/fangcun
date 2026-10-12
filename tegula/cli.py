@@ -18,6 +18,12 @@ from tegula.core import (
     _now_ts, _bump_version, _task_version, _mtime_guard, api_edit,
     api_review, gate_open, gate_check, gate_list, gate_close,
     load_template, api_new, _parse_decision_points, _render_decision_points,
+    # ⚠ 2026-10-12：这四个是**导入导出命令的被调方**，此前一直在 cli.py 里裸用却没进这张清单
+    #   → `tegula export tasks` / `import tasks` / `export notes` / `import notes` **一跑就 NameError**。
+    #   为什么长期没被发现：那四条命令平时没人用，而 verify.py 只测 core 层函数、不跑 cli 命令。
+    #   现在 verify.py 加了两道守卫：①静态扫「cli.py 里用到的 api_* 是否都在导入清单里」
+    #   ②真跑一次 `cmd_import_tasks`（临时目录）证明这条路活着。
+    api_export_tasks, api_import_tasks, api_export_notes, api_import_notes,
     api_plan_new, api_plan_decide, api_plan_list, api_plan_get,
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
     api_batch_edit, api_batch_archive, api_batch_delete, api_backup,

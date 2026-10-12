@@ -1516,7 +1516,7 @@
         <h3>{{ convAsk_.kind === 'log2todo' ? '日志 → 待办' : '待办 → 日志' }}</h3>
         <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}「{{ convAsk_.src.title || convAsk_.src.id }}」</div>
         <div class="hint">会新建一条{{ convAsk_.kind === 'log2todo'
-          ? '待办（标题取「下一步」首条，没有就用日志标题；项目/优先级跟着走）'
+          ? '待办（首行取「下一步」首条 —— 是（待填写）这类占位就改用日志标题；日志正文与下一步会一起带过去，项目/优先级跟着走）'
           : '日志（标题/项目/优先级带过去，到期压进正文首行）' }}；同一条只转一次。</div>
         <label class="conv-opt">
           <input type="checkbox" v-model="convAsk_.archive" />
@@ -3392,6 +3392,8 @@ import {
 } from './logdedupe'
 import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
+// 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
+import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { computeBlockerImpact } from '../shared/blockers'
 import type { BlockerImpact } from '../shared/blockers'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
@@ -8911,6 +8913,31 @@ async function convertTodoToLog(todo: any, archiveSource = false): Promise<void>
   }
 }
 
+/**
+ * 日志 → 待办要搬过去的**全部内容**（2026-10-11 修的真 bug）。
+ *
+ * 旧实现只取「下一步」的第一条当待办标题，**正文一个字都不带**。而日志的「下一步」默认是
+ * `（待填写）` 这种模板占位 —— 于是整条待办只剩「（待填写）」四个字。用户原话：
+ * **「内容全丢，变成空待办，本以为文本会留住的。」** 两处都错：
+ *   ① **占位当内容** —— `（待填写）` 不是"下一步"。与契约读取那条规则同类，
+ *      现在归一到一个共享 helper（`shared/placeholder.ts`），不再各写一遍；
+ *   ② **只挑一行搬** —— 日志的正文与下一步都是内容，不该由"哪一行最像要做的事"来决定去留。
+ * 现在：摘要行 + 来源行 + **正文全文** + 下一步全文（占位则跳过），一条不丢。
+ * ⚠ 待办的「内容」字段本来就是那个可以写长的 textarea（卡片上只显示首行），
+ *   所以这里**不需要新增字段**就能把全文留住。
+ */
+function logToTodoText(log: any): string {
+  const srcTitle = String(log?.title || '').trim()
+  const nextSteps = String(log?.nextSteps || '').trim()
+  const summary = (!isPlaceholderText(nextSteps) ? firstBulletLine(nextSteps) : '') || srcTitle
+  const out: string[] = [summary || '（这条日志没有标题，也没有下一步）']
+  out.push(`—— 由日志「${srcTitle || srcTitle || log?.id || ''}」转来${log?.id ? '（' + log.id + '）' : ''}`)
+  const body = String(log?.content || '').trim()
+  if (body) out.push('', body)
+  if (nextSteps && !isPlaceholderText(nextSteps)) out.push('', '下一步：', nextSteps)
+  return out.join('\n')
+}
+
 /** 日志 → 待办：源默认保留；勾了「归档源」才把日志移进已归档分区（可 reopen 找回） */
 async function convertLogToTodo(log: any, archiveSource = false): Promise<void> {
   try {
@@ -8920,13 +8947,12 @@ async function convertLogToTodo(log: any, archiveSource = false): Promise<void> 
       showToast(`这条日志已经转过了待办：「${dup.title}」—— 源日志保留，不再重复建`, 'info')
       return
     }
-    // 「下一步」首条去掉列表符/勾选框后最像要做的事；没有就退回日志标题
-    const firstStep = String(log?.nextSteps || '')
-      .split('\n')
-      .map(s => s.trim().replace(/^[-*]\s*/, '').replace(/^\[[ xX]\]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
-      .filter(Boolean)[0] || ''
-    const title = firstStep || String(log?.title || '').trim()
-    if (!title) { showToast('这条日志没有标题也没有下一步，转不了', 'error'); return }
+    // ⚠ 判据是"标题与下一步**都**没有"才算转不了 —— 不能因为下一步是占位
+    //   （`（待填写）`）就把整条日志判成"没有内容"。旧实现正是用占位当了标题。
+    if (!String(log?.title || '').trim() && !String(log?.nextSteps || '').trim()) {
+      showToast('这条日志没有标题也没有下一步，转不了', 'error'); return
+    }
+    const title = logToTodoText(log)
     const r: any = await window.tegula.todosCreate(title, log.priority || '中', undefined, log.project || '', log.id)
     if (!r?.ok) { showToast(`转待办失败：${r?.error || '未知原因'}`, 'error'); return }
     let convNote = '源日志保留未删'

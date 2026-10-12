@@ -1525,6 +1525,50 @@ _doc27 = _cli27.split("def cmd_doctor(")[1].split("\ndef ")[0] if "def cmd_docto
 check("★ cmd_doctor 里真的调用了 illegal_status（挂个没人用的函数等于没拦）",
       "illegal_status(" in _doc27)
 
+# ── 28. CLI 导入导出四条命令（2026-10-12：它们此前**一跑就 NameError**）──
+# 真事：`tegula export tasks` / `import tasks` / `export notes` / `import notes` 四条命令
+# 在 cli.py 里裸用了 `api_export_tasks` 等四个 core 函数，**却从没进过顶部那张导入清单**。
+# 为什么长期没人发现：这四条命令平时没人用，而 verify 此前只测 core 层函数、不跑 cli 命令。
+# 2026-10-12 外部整包（AI 规划）第 7 笔提交就是修它 —— 说明**它真会拦住人**（导入项目说明卡要用）。
+print("\n---- 28. CLI 导入导出命令（真跑，不是只看有没有定义）----")
+import ast as _ast
+_cli28 = open(os.path.join(ROOT, "tegula", "cli.py"), encoding="utf-8").read()
+_tree28 = _ast.parse(_cli28)
+_imported28, _defined28, _used28 = set(), set(), set()
+for _n in _ast.walk(_tree28):
+    if isinstance(_n, _ast.ImportFrom) and _n.module and "core" in _n.module:
+        _imported28 |= {_a.name for _a in _n.names}
+    if isinstance(_n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+        _defined28.add(_n.name)
+    if isinstance(_n, _ast.Name) and _n.id.startswith("api_"):
+        _used28.add(_n.id)
+_missing28 = sorted(_used28 - _imported28 - _defined28)
+check("★ cli.py 里用到的每个 api_* 都真的在导入清单里（缺失=运行时 NameError，静态就能抓）",
+      _missing28 == [], f"缺失 {_missing28}")
+
+# 真跑一次导入（走 cmd_import_tasks → api_import_tasks → api_new，落到**临时目录**）
+_impdir28 = os.path.join(tmpdir, "import-cli")
+os.makedirs(_impdir28, exist_ok=True)
+_impjson28 = os.path.join(_impdir28, "in.json")
+with open(_impjson28, "w", encoding="utf-8") as _f:
+    json.dump([{"标题": "导入夹具：一条待拍板", "项目": ["fangcun-base"],
+                "状态": "待办", "附言": "验证 CLI 导入这条路是活的"}], _f, ensure_ascii=False)
+_old_taskdir28 = teg.TASK_DIR
+try:
+    teg.TASK_DIR = os.path.join(_impdir28, "task-data")
+    os.makedirs(teg.TASK_DIR, exist_ok=True)
+    _args28 = type("A", (), {"path": _impjson28})()
+    _cli.cmd_import_tasks(_args28)
+    _files28 = [f for f in os.listdir(teg.TASK_DIR) if f.endswith(".md")]
+    check("★★ `tegula import tasks` 真能把 JSON 导成卡（此前是 NameError；外部整包要对它灌 24 张卡）",
+          len(_files28) == 1, f"落了 {len(_files28)} 个文件")
+    _body28 = open(os.path.join(teg.TASK_DIR, _files28[0]), encoding="utf-8").read() if _files28 else ""
+    check("  导入的卡带上了标题与项目（不是空壳）",
+          "导入夹具：一条待拍板" in _body28 and "fangcun-base" in _body28)
+finally:
+    teg.TASK_DIR = _old_taskdir28
+
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))
