@@ -18,6 +18,7 @@ export interface Decision {
   内容: string
   日期: string
   状态: DecisionStatus
+  项目: string
   出处: string
   备注: string
   更新: string
@@ -49,13 +50,13 @@ export function loadDecisions(): Decision[] {
       if (cur) items.push(cur)
       cur = {
         id: m[1], 内容: m[2].trim(), 日期: '',
-        状态: '作数', 出处: '', 备注: '', 更新: '',
+        状态: '作数', 项目: '', 出处: '', 备注: '', 更新: '',
       }
       lastKv = null
       continue
     }
     if (!cur) continue
-    const kv = /^-\s+(日期|状态|出处|备注|更新)\s*[:：]\s*(.*)$/.exec(line)
+    const kv = /^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$/.exec(line)
     if (kv) {
       ;(cur as any)[kv[1]] = kv[2].trim()
       lastKv = kv[1]
@@ -75,6 +76,7 @@ function renderDecisions(items: Decision[]): string {
     lines.push(`## ${it.id} ${it.内容 || ''}`)
     lines.push(`- 日期: ${it.日期 || ''}`)
     lines.push(`- 状态: ${it.状态 || '作数'}`)
+    if (it.项目) lines.push(`- 项目: ${it.项目}`)
     lines.push(`- 出处: ${it.出处 || ''}`)
     if (it.备注) lines.push(`- 备注: ${it.备注}`)
     if (it.更新) lines.push(`- 更新: ${it.更新}`)
@@ -101,6 +103,7 @@ export interface DecisionInput {
   内容: string
   日期?: string
   状态?: DecisionStatus
+  项目?: string
   出处?: string
   备注?: string
 }
@@ -122,7 +125,7 @@ export function addDecision(input: DecisionInput): { ok: true; id: string; exist
   }
   const id = nextId(items)
   items.push({
-    id, 内容: content, 日期: date, 状态: status,
+    id, 内容: content, 日期: date, 状态: status, 项目: (input.项目 || '').trim(),
     出处: (input.出处 || '').trim(), 备注: (input.备注 || '').trim(),
     更新: String(Math.floor(Date.now() / 1000)),
   })

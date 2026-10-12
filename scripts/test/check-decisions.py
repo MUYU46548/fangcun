@@ -85,6 +85,25 @@ def main():
     check("round-trip 条数一致", len(rt) == 2)
     check("round-trip 内容不丢", any(i["内容"] == "启动台等 10-14 裁决" for i in rt))
 
+    print("== 项目字段（13-55 梅林补：防一锅粥） ==")
+    ok, d3 = core.decision_add("墨坊模板定制开工", 日期="2026-10-11", 项目="绒花墨坊", 出处="台账 #1")
+    check("add 带 项目 成功", ok, str(d3))
+    items = core.load_decisions()
+    check("项目已落盘", any((i.get("项目") == "绒花墨坊") for i in items))
+    check("旧条目无项目可兼容", all("项目" in i for i in items) and any(not i.get("项目") for i in items))
+    # 手写文件带项目 → 解析回读（模拟哨兵灌料形态）
+    with open(core.DECISIONS_PATH, "a", encoding="utf-8") as f:
+        f.write("## D-099 司天发版=否\n- 日期: 2026-10-11\n- 状态: 作数\n- 项目: 司天\n- 出处: 四答定调②\n\n")
+    items = core.load_decisions()
+    check("手写灌料项目可解析", any(i.get("id") == "D-099" and i.get("项目") == "司天" for i in items))
+    # set 状态重写文件后项目不丢（往返保真——防桌面端改状态把灌入列洗掉）
+    core.decision_set_status("D-099", "已作废")
+    items = core.load_decisions()
+    check("改状态后项目不丢", any(i.get("id") == "D-099" and i.get("项目") == "司天" and i["状态"] == "已作废" for i in items))
+    with open(core.DECISIONS_PATH, encoding="utf-8") as f:
+        text = f.read()
+    check("文件含项目行", "- 项目: 司天" in text)
+
     print(f"\n通过 {PASS} / 失败 {FAIL}")
     return 1 if FAIL else 0
 

@@ -1281,12 +1281,12 @@ def load_decisions():
         if m:
             if cur is not None:
                 items.append(cur)
-            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "作数", "出处": "", "备注": "", "更新": ""}
+            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "作数", "项目": "", "出处": "", "备注": "", "更新": ""}
             last_kv = None
             continue
         if cur is None:
             continue
-        kv = re.match(r"^-\s+(日期|状态|出处|备注|更新)\s*[:：]\s*(.*)$", line.strip())
+        kv = re.match(r"^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$", line.strip())
         if kv:
             cur[kv.group(1)] = kv.group(2).strip()
             last_kv = kv.group(1)
@@ -1306,6 +1306,8 @@ def _render_decisions(items):
         lines.append(f"## {it['id']} {it.get('内容', '')}")
         lines.append(f"- 日期: {it.get('日期', '')}")
         lines.append(f"- 状态: {it.get('状态', '作数')}")
+        if it.get("项目"):
+            lines.append(f"- 项目: {it['项目']}")
         lines.append(f"- 出处: {it.get('出处', '')}")
         if it.get("备注"):
             lines.append(f"- 备注: {it['备注']}")
@@ -1330,7 +1332,7 @@ def save_decisions(items):
     return True
 
 
-def decision_add(内容, 日期=None, 状态="作数", 出处="", 备注=""):
+def decision_add(内容, 日期=None, 状态="作数", 项目="", 出处="", 备注=""):
     """记一条拍板。状态白名单校验；同内容+同日期幂等（返回已有 id，不重复记）。
     返回 (ok, id_or_error)。"""
     内容 = (内容 or "").strip()
@@ -1345,7 +1347,7 @@ def decision_add(内容, 日期=None, 状态="作数", 出处="", 备注=""):
             return True, f"{it['id']}（已存在，未重复记）"
     did = _decision_id(items)
     items.append({
-        "id": did, "内容": 内容, "日期": 日期, "状态": 状态,
+        "id": did, "内容": 内容, "日期": 日期, "状态": 状态, "项目": (项目 or "").strip(),
         "出处": (出处 or "").strip(), "备注": (备注 or "").strip(), "更新": _now_ts(),
     })
     items.sort(key=lambda x: (x.get("日期", ""), x.get("id", "")))

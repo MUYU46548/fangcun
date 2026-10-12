@@ -1048,7 +1048,7 @@ def cmd_decision(args):
     """decision add/list/set 三个面：群里拍的板当场记、随时翻、被推翻就标死。"""
     cmd = getattr(args, "decision_cmd", "")
     if cmd == "add":
-        ok, r = decision_add(args.内容, 日期=args.日期 or None, 状态=args.状态, 出处=args.出处, 备注=args.备注)
+        ok, r = decision_add(args.内容, 日期=args.日期 or None, 状态=args.状态, 项目=args.项目, 出处=args.出处, 备注=args.备注)
         if ok:
             print(f"已记 {r}（task-data/decisions.md）")
         else:
@@ -1058,14 +1058,17 @@ def cmd_decision(args):
         items = load_decisions()
         if getattr(args, "状态", ""):
             items = [i for i in items if i.get("状态") == args.状态]
+        if getattr(args, "项目", ""):
+            items = [i for i in items if args.项目 in (i.get("项目") or "")]
         if not items:
             print("（无拍板记录）")
             return 0
         for it in items:
             mark = {"作数": "✓", "已作废": "✗", "已并入": "→"}.get(it.get("状态", ""), "?")
+            proj = f"  [{it.get('项目')}]" if it.get("项目") else ""
             src = f"  ← {it.get('出处', '')}" if it.get("出处") else ""
             note = f"  备注: {it.get('备注', '').splitlines()[0]}…" if it.get("备注") else ""
-            print(f"{mark} {it['id']} [{it.get('日期', '')}] {it.get('内容', '')}{src}{note}")
+            print(f"{mark} {it['id']} [{it.get('日期', '')}]{proj} {it.get('内容', '')}{src}{note}")
         return 0
     if cmd == "set":
         ok, r = decision_set_status(args.id, args.状态, 备注=args.备注 or None)
@@ -2097,11 +2100,13 @@ def main():
     da.add_argument("内容", help="拍板内容，一句话")
     da.add_argument("--日期", "--date", dest="日期", default="", help="哪天定的（默认今天，YYYY-MM-DD）")
     da.add_argument("--状态", dest="状态", default="作数", choices=list(DECISION_STATUSES), help="默认作数")
+    da.add_argument("--项目", dest="项目", default="", help="关联项目，如 司天/绒花墨坊/方寸（跨项目板留空）")
     da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如「10-11 09:42 四答定调②」")
     da.add_argument("--备注", dest="备注", default="", help="")
     da.set_defaults(func=cmd_decision)
-    dl = dsub_sub.add_parser("list", help="列拍板（--状态 筛）")
+    dl = dsub_sub.add_parser("list", help="列拍板（--状态/--项目 筛）")
     dl.add_argument("--状态", dest="状态", default="", help="只看某状态（作数/已作废/已并入）；空=全部")
+    dl.add_argument("--项目", dest="项目", default="", help="只看某项目的板；空=全部")
     dl.set_defaults(func=cmd_decision)
     ds = dsub_sub.add_parser("set", help="改拍板状态（如拍板被推翻：作数→已作废）")
     ds.add_argument("id", help="决策卡 id，如 D-001")
