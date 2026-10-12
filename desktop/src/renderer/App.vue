@@ -1118,6 +1118,51 @@
       </div>
     </main>
 
+    <!-- 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）：群里拍的板都在这——
+         事情/哪天定的/还作不作数/出处。数据=task-data/decisions.md（与 Python CLI 双腿同文件），
+         哨兵防遗忘台账灌入后这里就是查询入口。三态不挂任务状态机：决策不流转。 -->
+    <main id="board" class="decisions-view" v-else-if="curView === 'decisions'">
+      <div class="decisions-header">
+        <h3>拍板记录</h3>
+        <div class="decisions-ctrls">
+          <button v-for="s in ['全部', '作数', '已作废', '已并入']" :key="s" class="ghost"
+                  :class="{ on: decFilter === s }" @click="decFilter = s">{{ s }}</button>
+          <button class="ghost" @click="decRefresh">刷新</button>
+        </div>
+      </div>
+      <div class="decision-add-row">
+        <input v-model="decNewContent" class="dec-inp-main" placeholder="记一条新拍板（一句话，回车即记）"
+               @keydown.enter="decAdd" />
+        <input v-model="decNewDate" type="date" class="dec-inp-date" title="哪天定的（默认今天）" />
+        <input v-model="decNewSource" class="dec-inp-src" placeholder="出处（如 10-12 群 09:42）" />
+        <button class="pri" :disabled="decBusy || !decNewContent.trim()" @click="decAdd">记下</button>
+      </div>
+      <div class="decision-list">
+        <div v-if="!decFiltered.length" class="empty-state">
+          <div class="empty-icon">🧭</div>
+          <div class="empty-text">{{ decItems.length ? '这个状态下没有拍板' : '还没有拍板记录——群里定了大事，记一条，防它消失' }}</div>
+        </div>
+        <div v-for="d in decFiltered" :key="d.id" class="decision-card" :class="'dec-st-' + d.状态">
+          <div class="dec-main">
+            <span class="dec-mark">{{ decMark(d.状态) }}</span>
+            <span class="dec-id">{{ d.id }}</span>
+            <span class="dec-content">{{ d.内容 }}</span>
+            <select class="dec-status-sel" :value="d.状态" :disabled="decBusy"
+                    @change="decSetStatus(d, ($event.target as HTMLSelectElement).value)">
+              <option>作数</option>
+              <option>已作废</option>
+              <option>已并入</option>
+            </select>
+          </div>
+          <div class="dec-meta">
+            <span class="dec-date">{{ d.日期 }}</span>
+            <span v-if="d.出处" class="dec-src">← {{ d.出处 }}</span>
+          </div>
+          <div v-if="d.备注" class="dec-note">{{ d.备注 }}</div>
+        </div>
+      </div>
+    </main>
+
     <!-- Todos view -->
     <main id="board" class="todos-view" v-else-if="curView === 'todos'"
       @dragenter.prevent="dragEnter('todo')"
@@ -4602,6 +4647,8 @@ watch(curView, (val) => {
       logPollingTimer = null
     }
   }
+  // 决策卡（2026-10-12）：进视图拉一次本地数据（无轮询——拍板不是高频流）
+  if (val === 'decisions') decRefresh()
 })
 
 const views = [
@@ -4615,6 +4662,7 @@ const views = [
   { id: 'archive', label: '归档' },
   { id: 'trash', label: '回收站' },
   { id: 'launchpad', label: '启动台' },
+  { id: 'decisions', label: '拍板' },
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
@@ -9148,6 +9196,78 @@ async function llmReset() {
   }
 }
 
+// ── 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）────────────────────
+// 数据真身在主进程（data/decisions.ts，与 Python CLI 同文件）；UI 只经 IPC 读写。
+const decItems = ref<any[]>([])
+const decFilter = ref('全部')
+const decNewContent = ref('')
+const decNewDate = ref('')
+const decNewSource = ref('')
+const decBusy = ref(false)
+
+const decFiltered = computed(() => {
+  if (decFilter.value === '全部') return decItems.value
+  return decItems.value.filter((d: any) => d.状态 === decFilter.value)
+})
+
+function decMark(s: string): string {
+  return { 作数: '✓', 已作废: '✗', 已并入: '→' }[s] || '?'
+}
+
+async function decRefresh() {
+  try {
+    const r: any = await window.tegula.decisionList()
+    if (r?.ok) decItems.value = r.items || []
+  } catch (e: any) {
+    showToast(`读取拍板记录失败：${e?.message || e}`, 'error')
+  }
+}
+
+async function decAdd() {
+  const content = decNewContent.value.trim()
+  if (!content || decBusy.value) return
+  decBusy.value = true
+  try {
+    const r: any = await window.tegula.decisionAdd({
+      内容: content,
+      日期: decNewDate.value || new Date().toISOString().slice(0, 10),
+      出处: decNewSource.value.trim(),
+    })
+    if (r?.ok) {
+      showToast(`已记 ${r.id}`, 'success')
+      decNewContent.value = ''
+      decNewSource.value = ''
+      await decRefresh()
+    } else {
+      showToast(r?.error || '记失败', 'error')
+    }
+  } catch (e: any) {
+    showToast(`记录异常：${e?.message || e}`, 'error')
+  } finally {
+    decBusy.value = false
+  }
+}
+
+async function decSetStatus(d: any, status: string) {
+  if (decBusy.value) return
+  decBusy.value = true
+  try {
+    const r: any = await window.tegula.decisionSetStatus(d.id, status)
+    if (r?.ok) {
+      showToast(r.message || `${d.id} → ${status}`, 'info')
+      await decRefresh()
+    } else {
+      showToast(r?.error || '改状态失败', 'error')
+      await decRefresh() // 失败回滚显示
+    }
+  } catch (e: any) {
+    showToast(`改状态异常：${e?.message || e}`, 'error')
+    await decRefresh()
+  } finally {
+    decBusy.value = false
+  }
+}
+
 async function triggerBackup() {
   if (bkBusy.value) return
   bkBusy.value = true
@@ -10748,6 +10868,31 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mg-notice ul { margin-left: 16px; }
 .mg-notice code { background: #efe9d8; padding: 0 4px; border-radius: 3px; }
 .mg-hint { margin-top: 5px; color: #8a8270; }
+
+/* ── 拍板记录（决策卡）视图，2026-10-12 AI 规划包第 3 件 ───────────────── */
+/* 三态视觉语言复用全局语义色：作数=绿 ✓ / 已作废=灰红 ✗ / 已并入=琥珀 → */
+.decisions-view { overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+.decisions-header { display: flex; align-items: center; gap: 12px; }
+.decisions-header h3 { margin: 0; }
+.decisions-ctrls { display: flex; gap: 6px; flex-wrap: wrap; }
+.decisions-ctrls .on { font-weight: 600; }
+.decision-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dec-inp-main { flex: 1 1 260px; }
+.dec-inp-date { flex: 0 0 150px; }
+.dec-inp-src { flex: 0 1 200px; }
+.decision-list { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+.decision-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; background: var(--card); }
+.dec-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dec-mark { font-weight: 700; width: 1.2em; text-align: center; }
+.dec-st-作数 .dec-mark { color: #3a7d2c; }
+.dec-st-已作废 { opacity: 0.62; }
+.dec-st-已作废 .dec-mark { color: #b0524a; }
+.dec-st-已并入 .dec-mark { color: #b07a2a; }
+.dec-id { color: var(--dim); font-size: 12px; }
+.dec-content { font-weight: 600; flex: 1 1 auto; }
+.dec-status-sel { flex: 0 0 auto; }
+.dec-meta { display: flex; gap: 10px; margin-top: 4px; color: var(--dim); font-size: 12px; }
+.dec-note { margin-top: 4px; font-size: 12px; color: var(--dim); white-space: pre-line; border-top: 1px dashed var(--line); padding-top: 4px; }
 
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
 /* 模型通道预设按钮行（2026-10-12）：两个 ghost 并排，间距 8px */

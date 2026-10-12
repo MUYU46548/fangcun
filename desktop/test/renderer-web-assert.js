@@ -1810,6 +1810,48 @@
       window.confirm = origConfirm
     }
 
+    // ══ 决策卡 · 拍板记录（2026-10-12 AI 规划包第 3 件：三态渲染/记一条/改状态/筛选）══
+    clickText('看板'); await sleep(300)
+    check('能切到「拍板」页签', clickText('拍板'))
+    check('决策卡 3 张渲染（mock 三态各一）', await waitFor(() => $$('.decisions-view .decision-card').length === 3, 4000, 'dec seed'))
+    check('  三态标记各就位（DOM 序=mock 数据序 ✓/✗/→）',
+      $$('.decisions-view .dec-mark').map((x) => x.textContent.trim()).join('') === '✓✗→',
+      $$('.decisions-view .dec-mark').map((x) => x.textContent.trim()).join('|'))
+    check('  已作废的卡整体降透明（视觉死账）',
+      !!$$('.decisions-view .decision-card.dec-st-已作废').length)
+    // 记一条：输入 → 回车 → mock IPC decisionAdd → toast + 列表刷新（mock 无状态，故断言按钮/输入清空）
+    const decInp = $('.decisions-view .dec-inp-main')
+    if (decInp) {
+      decInp.value = '断言用：这条拍板是测试记的'
+      decInp.dispatchEvent(new Event('input', { bubbles: true }))
+      await sleep(150)
+      const decBtn = $$('.decision-add-row button').find((b) => (b.textContent || '').trim() === '记下')
+      check('  「记下」按钮可点（内容非空）', !!decBtn && !decBtn.disabled)
+      if (decBtn) decBtn.click()
+      check('  记完输入框清空（成功路径）', await waitFor(() => !($('.decisions-view .dec-inp-main') || {}).value, 3000, 'dec clear'))
+    } else {
+      check('  新增输入框存在', false, 'dec-inp-main not found')
+    }
+    // 改状态：D-001 的下拉换「已并入」→ decisionSetStatus mock → toast
+    const decSel = $('.decisions-view .decision-card .dec-status-sel')
+    if (decSel) {
+      decSel.value = '已并入'
+      decSel.dispatchEvent(new Event('change', { bubbles: true }))
+      check('  改状态走 IPC（decisionSetStatus 被调）',
+        await waitFor(() => window.__fcTest.callCount('decisionSetStatus') >= 1, 3000, 'decSet'),
+        'calls=' + window.__fcTest.callCount('decisionSetStatus'))
+    } else {
+      check('  状态下拉存在', false, 'dec-status-sel not found')
+    }
+    // 筛选：只看「已作废」→ 列表剩 1 张
+    const decFilterBtn = $$('.decisions-ctrls button').find((b) => (b.textContent || '').trim() === '已作废')
+    if (decFilterBtn) {
+      decFilterBtn.click()
+      check('  筛「已作废」后只剩死账（1 张）',
+        await waitFor(() => $$('.decisions-view .decision-card').length === 1, 3000, 'dec filter'),
+        'count=' + $$('.decisions-view .decision-card').length)
+    }
+
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))

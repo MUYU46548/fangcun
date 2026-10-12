@@ -17,6 +17,7 @@ from tegula.core import (
     _all_task_dirs, locate_task, blockers_of, find_blockers, gen_id,
     _now_ts, _bump_version, _task_version, _mtime_guard, api_edit,
     api_review, gate_open, gate_check, gate_list, gate_close,
+    DECISIONS_PATH, DECISION_STATUSES, load_decisions, decision_add, decision_set_status,
     load_template, api_new, _parse_decision_points, _render_decision_points,
     api_plan_new, api_plan_decide, api_plan_list, api_plan_get,
     _move_to, api_archive, api_delete, api_restore, api_reg_save,
@@ -1042,6 +1043,37 @@ def cmd_ai_brief(args):
     return 0 if r.get("ok") else 1
 
 
+# ---------- 决策卡（拍板记录，2026-10-12）----------
+def cmd_decision(args):
+    """decision add/list/set 三个面：群里拍的板当场记、随时翻、被推翻就标死。"""
+    cmd = getattr(args, "decision_cmd", "")
+    if cmd == "add":
+        ok, r = decision_add(args.内容, 日期=args.日期 or None, 状态=args.状态, 出处=args.出处, 备注=args.备注)
+        if ok:
+            print(f"已记 {r}（task-data/decisions.md）")
+        else:
+            print(f"失败：{r}", file=sys.stderr)
+        return 0 if ok else 1
+    if cmd == "list":
+        items = load_decisions()
+        if getattr(args, "状态", ""):
+            items = [i for i in items if i.get("状态") == args.状态]
+        if not items:
+            print("（无拍板记录）")
+            return 0
+        for it in items:
+            mark = {"作数": "✓", "已作废": "✗", "已并入": "→"}.get(it.get("状态", ""), "?")
+            src = f"  ← {it.get('出处', '')}" if it.get("出处") else ""
+            note = f"  备注: {it.get('备注', '').splitlines()[0]}…" if it.get("备注") else ""
+            print(f"{mark} {it['id']} [{it.get('日期', '')}] {it.get('内容', '')}{src}{note}")
+        return 0
+    if cmd == "set":
+        ok, r = decision_set_status(args.id, args.状态, 备注=args.备注 or None)
+        print(r if ok else f"失败：{r}", file=sys.stderr if not ok else sys.stdout)
+        return 0 if ok else 1
+    return 1
+
+
 # ---------- MCP 只读接口（P3）：零依赖手写 JSON-RPC 2.0 over stdio ----------
 # MCP 常量定义在 tegula.core 中（mcp_handle 在 core.py）。
 # 此处不再重复定义，直接从 core 导入供本模块引用。
@@ -2057,6 +2089,25 @@ def main():
     ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
     ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ab.set_defaults(func=cmd_ai_brief)
+
+    # ── 决策卡（拍板记录，2026-10-12）──
+    dsub = sub.add_parser("decision", help="拍板记录：群里拍的板记成卡（内容/日期/还作不作数/出处）")
+    dsub_sub = dsub.add_subparsers(dest="decision_cmd", required=True)
+    da = dsub_sub.add_parser("add", help="记一条拍板")
+    da.add_argument("内容", help="拍板内容，一句话")
+    da.add_argument("--日期", "--date", dest="日期", default="", help="哪天定的（默认今天，YYYY-MM-DD）")
+    da.add_argument("--状态", dest="状态", default="作数", choices=list(DECISION_STATUSES), help="默认作数")
+    da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如「10-11 09:42 四答定调②」")
+    da.add_argument("--备注", dest="备注", default="", help="")
+    da.set_defaults(func=cmd_decision)
+    dl = dsub_sub.add_parser("list", help="列拍板（--状态 筛）")
+    dl.add_argument("--状态", dest="状态", default="", help="只看某状态（作数/已作废/已并入）；空=全部")
+    dl.set_defaults(func=cmd_decision)
+    ds = dsub_sub.add_parser("set", help="改拍板状态（如拍板被推翻：作数→已作废）")
+    ds.add_argument("id", help="决策卡 id，如 D-001")
+    ds.add_argument("状态", choices=list(DECISION_STATUSES), help="目标状态")
+    ds.add_argument("--备注", dest="备注", default="", help="为什么改（追加进备注，不覆盖）")
+    ds.set_defaults(func=cmd_decision)
 
     args = p.parse_args()
     if not getattr(args, "func", None):

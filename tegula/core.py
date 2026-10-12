@@ -1242,6 +1242,133 @@ def gate_close(gate_id, reason=""):
     return True, f"gate {gate_id} closed"
 
 
+# ---------- 决策卡（拍板记录，2026-10-12；方案卡：AI 规划功能）----------
+# 群里拍的板当场记成卡：事情 + 哪天定的 + 还作不作数 + 出处。
+# 单文件节式（task-data/decisions.md），与哨兵防遗忘台账四字段同构——整表直灌零转换。
+# 有意不挂任务状态机：决策不流转（不是待办），只有 作数/已作废/已并入 三态。
+
+DECISIONS_PATH = os.path.join(TASK_DIR, "decisions.md")
+DECISION_STATUSES = ("作数", "已作废", "已并入")
+
+_DEF_DEC_HEADER = "# 拍板记录（决策卡）\n\n> 群里拍的板都在这——谁定的、哪天定的、还作不作数。状态：作数 / 已作废 / 已并入。\n"
+
+
+def _decision_id(items):
+    """D-001 式递增；已用号跳过。"""
+    n = 0
+    for it in items:
+        m = re.match(r"^D-(\d+)$", str(it.get("id", "")))
+        if m:
+            n = max(n, int(m.group(1)))
+    return f"D-{n + 1:03d}"
+
+
+def load_decisions():
+    """解析 decisions.md → list[dict]（id/内容/日期/状态/出处/备注/更新）。
+    文件不存在返回 []（首拍板时创建）；坏行宽容跳过，不让一张坏卡拖死整个视图。"""
+    if not os.path.exists(DECISIONS_PATH):
+        return []
+    items = []
+    try:
+        with open(DECISIONS_PATH, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    cur = None
+    last_kv = None
+    for line in text.splitlines():
+        m = re.match(r"^##\s+(D-\d+)\s+(.*)$", line.strip())
+        if m:
+            if cur is not None:
+                items.append(cur)
+            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "作数", "出处": "", "备注": "", "更新": ""}
+            last_kv = None
+            continue
+        if cur is None:
+            continue
+        kv = re.match(r"^-\s+(日期|状态|出处|备注|更新)\s*[:：]\s*(.*)$", line.strip())
+        if kv:
+            cur[kv.group(1)] = kv.group(2).strip()
+            last_kv = kv.group(1)
+            continue
+        # 续行：备注多行的第二行起（渲染时裸行），拼回上一字段
+        s = line.strip()
+        if s and last_kv:
+            cur[last_kv] = (cur.get(last_kv, "") + "\n" + s).strip()
+    if cur is not None:
+        items.append(cur)
+    return items
+
+
+def _render_decisions(items):
+    lines = [_DEF_DEC_HEADER]
+    for it in items:
+        lines.append(f"## {it['id']} {it.get('内容', '')}")
+        lines.append(f"- 日期: {it.get('日期', '')}")
+        lines.append(f"- 状态: {it.get('状态', '作数')}")
+        lines.append(f"- 出处: {it.get('出处', '')}")
+        if it.get("备注"):
+            lines.append(f"- 备注: {it['备注']}")
+        if it.get("更新"):
+            lines.append(f"- 更新: {it['更新']}")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def save_decisions(items):
+    """原子写（tmp + os.replace + 读回验证），与 write_task_file 同模式。"""
+    os.makedirs(TASK_DIR, exist_ok=True)
+    tmp = DECISIONS_PATH + ".tmp"
+    content = _render_decisions(items)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    with open(tmp, encoding="utf-8") as f:
+        if not f.read():
+            os.remove(tmp)
+            raise RuntimeError("decision atomic write verification failed")
+    os.replace(tmp, DECISIONS_PATH)
+    return True
+
+
+def decision_add(内容, 日期=None, 状态="作数", 出处="", 备注=""):
+    """记一条拍板。状态白名单校验；同内容+同日期幂等（返回已有 id，不重复记）。
+    返回 (ok, id_or_error)。"""
+    内容 = (内容 or "").strip()
+    if not 内容:
+        return False, "拍板内容为空"
+    if 状态 not in DECISION_STATUSES:
+        return False, f"状态必须是 {'/'.join(DECISION_STATUSES)}，收到：{状态}"
+    日期 = (日期 or datetime.date.today().isoformat()).strip()
+    items = load_decisions()
+    for it in items:
+        if it.get("内容") == 内容 and it.get("日期") == 日期:
+            return True, f"{it['id']}（已存在，未重复记）"
+    did = _decision_id(items)
+    items.append({
+        "id": did, "内容": 内容, "日期": 日期, "状态": 状态,
+        "出处": (出处 or "").strip(), "备注": (备注 or "").strip(), "更新": _now_ts(),
+    })
+    items.sort(key=lambda x: (x.get("日期", ""), x.get("id", "")))
+    save_decisions(items)
+    return True, did
+
+
+def decision_set_status(did, 状态, 备注=None):
+    """改拍板状态（作数→已作废/已并入 等）。备注非空时追加进备注（换行拼接，不覆盖）。"""
+    if 状态 not in DECISION_STATUSES:
+        return False, f"状态必须是 {'/'.join(DECISION_STATUSES)}，收到：{状态}"
+    items = load_decisions()
+    for it in items:
+        if it.get("id") == did:
+            it["状态"] = 状态
+            if 备注 and 备注.strip():
+                it["备注"] = (it.get("备注", "") + "\n" + 备注.strip()).strip()
+            it["更新"] = _now_ts()
+            save_decisions(items)
+            return True, f"{did} → {状态}"
+    return False, f"决策卡 {did} 不存在"
+
+
 def load_template():
     """读 _template.md 的 frontmatter 作为新任务底稿；不存在则返回空 dict。"""
     tp = os.path.join(TASK_DIR, "_template.md")

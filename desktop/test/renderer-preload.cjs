@@ -706,6 +706,17 @@ contextBridge.exposeInMainWorld('tegula', {
   llmSetConfig: () => ok(),
   llmResetConfig: () => ok(),
   llmTestConnection: () => ok(),
+  // AI 规划写回层（2026-10-12）：e2e 不真调 LLM，桩返回成功+假 usage（「花销可见」链路可断言）
+  llmPlanToDraft: () => ({ ok: true, created: [{ id: 'task-e2e-draft-1', title: 'e2e 假草稿' }], usage: { promptTokens: 120, completionTokens: 80, totalTokens: 200 } }),
+  llmDraftProjectBrief: () => ({ ok: true, taskId: 'task-e2e-brief-1', usage: { promptTokens: 100, completionTokens: 60, totalTokens: 160 } }),
+  // 决策卡（拍板记录，2026-10-12）：本地 CRUD 桩，假数据供视图用例断言
+  decisionList: () => { rec('decisionList'); return { ok: true, items: [
+    { id: 'D-001', 内容: '司天不发版，唯一目标=标注+导出真图', 日期: '2026-10-11', 状态: '作数', 出处: '10-11 09:42 四答定调②', 备注: '', 更新: '' },
+    { id: 'D-002', 内容: '启动台死因 10-14 前裁决', 日期: '2026-09-14', 状态: '已作废', 出处: '台账 #4', 备注: '被 10-12 快照复盘取代', 更新: '' },
+    { id: 'D-003', 内容: '方寸 AI 规划整包一次交齐', 日期: '2026-10-12', 状态: '已并入', 出处: '12:21 群指令', 备注: '并入 10-14 交付计划', 更新: '' },
+  ] } },
+  decisionAdd: (input) => { rec('decisionAdd', [input]); return { ok: true, id: 'D-004' } },
+  decisionSetStatus: (id, status, note) => { rec('decisionSetStatus', [id, status, note]); return { ok: true, message: `${id} → ${status}` } },
   exportTasks: () => ok(),
   importTasks: () => ok(),
   updateCheck: () => ok(),
