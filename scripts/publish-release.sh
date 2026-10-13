@@ -12,11 +12,29 @@
 #
 # 凭据来源（按优先级）：
 #   1) 环境变量 GH_TOKEN
-#   2) ~/.gh_token（单行 PAT；该文件就在本机，此前是空的）
+#   2) ~/.gh_token（单行 PAT）
+#   3) ~/.bashrc / ~/.bash_profile 里的 `export GH_TOKEN="..."` ← **本机的真实来源**
+#
+# ⚠ 2026-10-13 踩的坑：这台机器的 token 一直躺在 `~/.bashrc` 里，而**非交互 bash 不 source .bashrc**，
+#   于是 `env | grep GH_TOKEN` 啥也没有、`gh auth status` 报"未登录" —— 我据此下了"机器上没有 token"的
+#   错误结论。其实 `~/.gitconfig` 早就写着 `helper = gh auth git-credential`，那本身就是"gh 是登录着的"的信号。
+#   所以这里显式去 shell 配置里捞，而不是只信环境变量。
 #
 # ⚠ 本脚本不打印 token，也不把它写进任何文件。
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
+
+# 从 shell 配置里抠 `export GH_TOKEN="..."`（只取第一处，去掉引号与 CR）
+read_token_from_shellrc() {
+  local f
+  for f in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$f" ] || continue
+    local v
+    v="$(sed -n 's/^[[:space:]]*export[[:space:]]\{1,\}GH_TOKEN=["'"'"']\?\([^"'"'"']*\)["'"'"']\?.*/\1/p' "$f" | head -1 | tr -d '\r\n')"
+    if [ -n "$v" ]; then printf '%s' "$v"; return 0; fi
+  done
+  return 1
+}
 
 VER="${1:-}"
 if [ -z "$VER" ]; then
@@ -32,27 +50,28 @@ NOTES="$REPO_ROOT/docs/${VER}-发布说明.md"
 # ── 凭据 ──────────────────────────────────────────────────────────────
 if [ -n "${GH_TOKEN:-}" ]; then
   echo "[凭据] 用环境变量 GH_TOKEN"
-else
-  TOKEN_FILE="$HOME/.gh_token"
-  # ⚠ 本机这个文件是**存在但空**的（1 字节）—— 只判 `-s` 会把它当有效凭据，
+elif [ -s "$HOME/.gh_token" ] && [ "$(tr -d '\r\n[:space:]' < "$HOME/.gh_token" | wc -c)" -ge 20 ]; then
+  # ⚠ 这个文件本机**存在但是空的**（1 字节）—— 只判 `-s` 会把它当有效凭据，
   #    然后一路走到 "gh api user 失败"（报错指向"权限不足"，误导）。所以额外判长度。
-  if [ -s "$TOKEN_FILE" ] && [ "$(tr -d '\r\n[:space:]' < "$TOKEN_FILE" | wc -c)" -ge 20 ]; then
-    GH_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
-    export GH_TOKEN
-    echo "[凭据] 用 $TOKEN_FILE（已读入环境，不回显）"
-  else
-    cat >&2 <<'MSG'
+  GH_TOKEN="$(tr -d '\r\n' < "$HOME/.gh_token")"
+  export GH_TOKEN
+  echo "[凭据] 用 ~/.gh_token（已读入环境，不回显）"
+elif SRC_TOKEN="$(read_token_from_shellrc)"; then
+  GH_TOKEN="$SRC_TOKEN"
+  export GH_TOKEN
+  echo "[凭据] 用 shell 配置里的 GH_TOKEN（~/.bashrc 等，已读入环境，不回显）"
+else
+  cat >&2 <<'MSG'
 [!] 没有可用的 GitHub 凭据，无法上传 Release 资产。
 
     二选一：
       A) 把一枚有 repo 权限的 PAT（经典 PAT 勾 repo，或细粒度 PAT 勾 Contents: Read and write）
-         写进 ~/.gh_token（单行，不要多余空行），然后重跑本脚本；
+         写进 `~/.bashrc`（`export GH_TOKEN="..."`）或 `~/.gh_token`（单行），再重跑本脚本；
       B) 跑一次 `gh auth login`（交互式，一次即可），再用 GH_TOKEN="$(gh auth token)" 重跑。
 
     ⚠ 不要把 token 直接贴在聊天/提交里。SSH 只能推代码与 tag，**上传 Release 资产必须走 API**。
 MSG
-    exit 3
-  fi
+  exit 3
 fi
 
 # ── 前置检查 ──────────────────────────────────────────────────────────
