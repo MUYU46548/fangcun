@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SaaS 产品微服务架构图</title>
+<style>
+  /* ============================================================
+     暗色现代风格 · 零外部依赖 · 零 JavaScript
+     交互全部由 CSS :hover / :focus-within / :target 实现
+     ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    /* —— 画布 —— */
+    --bg-0: #060b17;
+    --bg-1: #0a1122;
+    --grid: rgba(59, 130, 246, 0.055);
+    --panel: rgba(13, 21, 38, 0.62);
+    --panel-stroke: rgba(148, 163, 184, 0.16);
+    --panel-stroke-hi: rgba(148, 163, 184, 0.34);
+
+    /* —— 文字 —— */
+    --text: #e8eefc;
+    --text-2: #9fb0cc;
+    --text-3: #6b7d9c;
+    --text-4: #4a5972;
+
+    /* —— 语义色：每层一个身份证色 —— */
+    --c-client:  #38bdf8;
+    --c-gateway: #a78bfa;
+    --c-core:    #34d399;
+    --c-infra:   #fbbf24;
+    --c-monitor: #fb7185;
+    --c-deploy:  #94a3b8;
+
+    --c-bus:     #f472b6;
+
+    --arrow:     rgba(148, 163, 184, 0.42);
+    --arrow-hi:  rgba(226, 232, 240, 0.85);
+
+    --radius-lane: 16px;
+    --radius-card: 10px;
+
+    --font: "Inter", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei",
+            "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 620px at 50% -12%, rgba(56, 189, 248, 0.10), transparent 62%),
+      radial-gradient(900px 520px at 88% 108%, rgba(167, 139, 250, 0.09), transparent 60%),
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+      linear-gradient(180deg, var(--bg-1), var(--bg-0) 68%);
+    background-size: auto, auto, 44px 44px, 44px 44px, auto;
+  }
+
+  /* ============================ 页头 ============================ */
+  .page {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 44px 28px 64px;
+  }
+
+  .head { margin-bottom: 30px; }
+
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--c-client);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    background: rgba(56, 189, 248, 0.07);
+    border-radius: 999px;
+    padding: 5px 12px;
+  }
+  .kicker::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--c-client);
+    box-shadow: 0 0 10px var(--c-client);
+  }
+
+  h1 {
+    margin: 16px 0 8px;
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.22;
+  }
+  h1 .accent {
+    background: linear-gradient(96deg, #38bdf8 4%, #a78bfa 48%, #f472b6 96%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 76ch;
+    font-size: 14px;
+    line-height: 1.72;
+    color: var(--text-2);
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    border: 1px solid var(--panel-stroke);
+    background: var(--panel);
+    border-radius: 7px;
+    padding: 4px 9px;
+  }
+  .meta b { color: var(--text-2); font-weight: 600; }
+
+  /* ============================ 画布 ============================ */
+  .stage {
+    position: relative;
+    border: 1px solid var(--panel-stroke);
+    border-radius: 20px;
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    padding: 22px 20px 14px;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 26px 70px -30px rgba(0, 0, 0, 0.9);
+  }
+
+  .diagram {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* ============================ 层容器 ============================ */
+  .lane-hit {
+    fill: transparent;
+    stroke: none;
+    pointer-events: all;
+    cursor: default;
+  }
+
+  .lane {
+    fill: rgba(15, 23, 42, 0.44);
+    stroke: var(--lane-color, var(--panel-stroke));
+    stroke-width: 1;
+    stroke-opacity: 0.30;
+    rx: var(--radius-lane);
+    transition: fill 200ms ease, stroke-opacity 200ms ease;
+  }
+
+  .lane-accent {
+    fill: var(--lane-color);
+    opacity: 0.72;
+    transition: opacity 200ms ease;
+  }
+
+  .lane-name {
+    font-family: var(--font);
+    font-size: 17px;
+    font-weight: 700;
+    fill: var(--text);
+    letter-spacing: 0.01em;
+  }
+
+  .lane-code {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    fill: var(--text-4);
+    text-transform: uppercase;
+  }
+
+  .lane-note {
+    font-family: var(--font);
+    font-size: 11.5px;
+    fill: var(--text-3);
+  }
+
+  .lane-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    fill: var(--lane-color);
+  }
+
+  /* 层悬停：整层被点亮 */
+  .lane-group:hover .lane,
+  .lane-group:focus-within .lane {
+    fill: rgba(24, 38, 66, 0.72);
+    stroke-opacity: 0.85;
+  }
+  .lane-group:hover .lane-accent,
+  .lane-group:focus-within .lane-accent {
+    opacity: 1;
+  }
+  .lane-group:hover .lane-hint,
+  .lane-group:focus-within .lane-hint {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  /* 层角上的英文副标签，悬停时向右推出 */
+  .lane-hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    fill: var(--lane-color);
+    opacity: 0;
+    transform: translateX(-8px);
+    transition: opacity 220ms ease, transform 220ms ease;
+  }
+
+  /* ============================ 节点 ============================ */
+  .card {
+    cursor: default;
+    outline: none;
+  }
+
+  .card-body {
+    fill: rgba(9, 15, 28, 0.78);
+    stroke: rgba(148, 163, 184, 0.20);
+    stroke-width: 1;
+    transition: fill 180ms ease, stroke 180ms ease, filter 180ms ease;
+  }
+
+  .card-edge {
+    fill: var(--card-color);
+    opacity: 0.55;
+    transition: opacity 180ms ease;
+  }
+
+  .card-label {
+    font-family: var(--font);
+    font-size: 13.5px;
+    font-weight: 600;
+    fill: var(--text);
+  }
+
+  .card-sub {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    fill: var(--text-4);
+    letter-spacing: 0.04em;
+  }
+
+  .card-icon {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    fill: var(--card-color);
+  }
+
+  /* 节点悬停：卡片抬起 + 发光 + 副标签亮起 */
+  .card:hover .card-body,
+  .card:focus-within .card-body {
+    fill: rgba(19, 31, 55, 0.96);
+    stroke: var(--card-color);
+    filter: drop-shadow(0 0 12px color-mix(in srgb, var(--card-color) 45%, transparent));
+  }
+  .card:hover .card-label,
+  .card:focus-within .card-label { fill: #ffffff; }
+  .card:hover .card-edge,
+  .card:focus-within .card-edge { opacity: 1; }
+  .card:hover .card-sub,
+  .card:focus-within .card-sub { fill: var(--card-color); }
+
+  /* ============================ 连线 ============================ */
+  .wire {
+    fill: none;
+    stroke: var(--arrow);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-dasharray: 5 5;
+    transition: stroke 200ms ease, stroke-width 200ms ease;
+  }
+
+  .wire-solid { stroke-dasharray: none; }
+
+  .wire-head {
+    fill: var(--arrow);
+    transition: fill 200ms ease;
+  }
+
+  .wire-tag-bg {
+    fill: #0a1220;
+    stroke: rgba(148, 163, 184, 0.20);
+    stroke-width: 1;
+    rx: 5;
+    transition: stroke 200ms ease, fill 200ms ease;
+  }
+
+  .wire-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    fill: var(--text-3);
+    letter-spacing: 0.02em;
+    transition: fill 200ms ease;
+  }
+
+  /* 连线悬停：加亮 + 标签变色 */
+  .conn:hover .wire {
+    stroke: var(--arrow-hi);
+    stroke-width: 2;
+  }
+  .conn:hover .wire-head { fill: var(--arrow-hi); }
+  .conn:hover .wire-tag-bg {
+    stroke: rgba(226, 232, 240, 0.55);
+    fill: #111c33;
+  }
+  .conn:hover .wire-tag { fill: #ffffff; }
+
+  /* ============================ 图例 ============================ */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(148, 163, 184, 0.14);
+    font-size: 11.5px;
+    color: var(--text-3);
+  }
+  .legend-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--text-4);
+    text-transform: uppercase;
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: default;
+    transition: color 180ms ease;
+  }
+  .legend-item:hover { color: var(--text); }
+  .legend-swatch {
+    width: 22px; height: 3px;
+    border-radius: 2px;
+    background: var(--sw, var(--arrow));
+    transition: box-shadow 180ms ease, height 180ms ease;
+  }
+  .legend-item:hover .legend-swatch {
+    height: 5px;
+    box-shadow: 0 0 10px var(--sw);
+  }
+  .legend-item[data-dash="1"] .legend-swatch {
+    background: repeating-linear-gradient(90deg,
+      var(--sw) 0 5px, transparent 5px 9px);
+  }
+  .legend-dot {
+    width: 9px; height: 9px;
+    border-radius: 3px;
+    background: var(--sw);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--sw) 60%, transparent);
+  }
+
+  /* ============================ 底注 ============================ */
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 22px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-4);
+    letter-spacing: 0.04em;
+  }
+  .foot span b { color: var(--text-3); font-weight: 600; }
+
+  /* ============================ 响应式 ============================ */
+  @media (max-width: 980px) {
+    .diagram { min-width: 900px; }
+    .stage { overflow-x: auto; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="head">
+    <div class="kicker">SaaS Platform · Cloud Native</div>
+    <h1>产品微服务<span class="accent">架构全景</span></h1>
+    <p class="lede">
+      自顶向下六层：请求从多端接入，经网关统一鉴权与限流后分发到核心微服务；
+      微服务之间通过事件总线异步解耦，共享受管的基础设施，全链路被监控体系覆盖，最终由声明式部署体系承载。
+      悬停任意层、节点或连线，可高亮其语义与协议。
+    </p>
+    <div class="meta-row">
+      <span class="meta"><b>分层</b> 6 层</span>
+      <span class="meta"><b>核心服务</b> 6 个</span>
+      <span class="meta"><b>基础设施</b> 5 类</span>
+      <span class="meta"><b>渲染</b> 内联 SVG · 零 JS</span>
+    </div>
+  </header>
+
+  <section class="stage">
+    <svg class="diagram" viewBox="0 0 1240 1164" role="img"
+         aria-label="SaaS 产品微服务六层架构图：客户端层、网关层、核心服务层、基础设施层、监控层、部署层">
+      <defs>
+        <linearGradient id="laneGlow" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.05"/>
+          <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="edgeFade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+
+      <!-- ==================================================================
+           通栏连线（先画，压在层容器下方；每层容器 fill 半透明 → 连线透出）
+           ================================================================== -->
+
+      <!-- 客户端层 → 网关层：HTTP / WSS -->
+      <g class="conn">
+        <path class="wire" d="M 150 196 L 150 216"/>
+        <path class="wire" d="M 520 196 L 520 216"/>
+        <path class="wire" d="M 890 196 L 890 216"/>
+        <path class="wire" d="M 1090 196 L 1090 216"/>
+        <polygon class="wire-head" points="150,222 146,214 154,214"/>
+        <polygon class="wire-head" points="520,222 516,214 524,214"/>
+        <polygon class="wire-head" points="890,222 886,214 894,214"/>
+        <polygon class="wire-head" points="1090,222 1086,214 1094,214"/>
+        <rect class="wire-tag-bg" x="612" y="197" width="76" height="20"/>
+        <text class="wire-tag" x="650" y="211" text-anchor="middle">HTTP / WSS</text>
+      </g>
+
+      <!-- 网关层 → 核心服务层：gRPC / REST -->
+      <g class="conn">
+        <path class="wire" d="M 405 396 L 405 416"/>
+        <polygon class="wire-head" points="405,422 401,414 409,414"/>
+        <rect class="wire-tag-bg" x="286" y="397" width="72" height="20"/>
+        <text class="wire-tag" x="322" y="411" text-anchor="middle">gRPC</text>
+        <rect class="wire-tag-bg" x="448" y="397" width="72" height="20"/>
+        <text class="wire-tag" x="484" y="411" text-anchor="middle">REST</text>
+      </g>
+
+      <!-- 核心服务层 → Event Bus：异步事件 -->
+      <g class="conn">
+        <path class="wire" d="M 1032 588 L 1092 588"/>
+        <polygon class="wire-head" points="1098,588 1090,584 1090,592"/>
+        <path class="wire" d="M 1140 548 L 1140 628"/>
+        <path class="wire" d="M 1140 588 L 1140 628"/>
+        <polygon class="wire-head" points="1140,634 1136,626 1144,626"/>
+        <rect class="wire-tag-bg" x="1012" y="558" width="80" height="20"/>
+        <text class="wire-tag" x="1052" y="572" text-anchor="middle">异步事件</text>
+      </g>
+
+      <!-- 核心服务层 → 基础设施层：协议栈 -->
+      <g class="conn">
+        <path class="wire wire-solid" d="M 190 656 L 190 676"/>
+        <path class="wire wire-solid" d="M 400 656 L 400 676"/>
+        <path class="wire wire-solid" d="M 610 656 L 610 676"/>
+        <path class="wire wire-solid" d="M 820 656 L 820 676"/>
+        <path class="wire wire-solid" d="M 1030 656 L 1030 676"/>
+        <polygon class="wire-head" points="190,682 186,674 194,674"/>
+        <polygon class="wire-head" points="400,682 396,674 404,674"/>
+        <polygon class="wire-head" points="610,682 606,674 614,674"/>
+        <polygon class="wire-head" points="820,682 816,674 824,674"/>
+        <polygon class="wire-head" points="1030,682 1026,674 1034,674"/>
+        <rect class="wire-tag-bg" x="208" y="656" width="52" height="18"/>
+        <text class="wire-tag" x="234" y="669" text-anchor="middle">TCP</text>
+        <rect class="wire-tag-bg" x="435" y="656" width="62" height="18"/>
+        <text class="wire-tag" x="466" y="669" text-anchor="middle">Redis</text>
+        <rect class="wire-tag-bg" x="630" y="656" width="52" height="18"/>
+        <text class="wire-tag" x="656" y="669" text-anchor="middle">HTTP</text>
+        <rect class="wire-tag-bg" x="843" y="656" width="56" height="18"/>
+        <text class="wire-tag" x="871" y="669" text-anchor="middle">AMQP</text>
+        <rect class="wire-tag-bg" x="1050" y="656" width="48" height="18"/>
+        <text class="wire-tag" x="1074" y="669" text-anchor="middle">S3</text>
+      </g>
+
+      <!-- 各业务层 → 监控层（被观测，虚线，走左侧外廊） -->
+      <g class="conn">
+        <path class="wire" d="M 40 528 C 16 528 16 706 40 706"/>
+        <path class="wire" d="M 40 706 C 16 706 16 842 40 842"/>
+        <path class="wire" d="M 40 842 C 16 842 16 956 40 956"/>
+        <polygon class="wire-head" points="32,710 42,705 42,715"/>
+        <polygon class="wire-head" points="32,846 42,841 42,851"/>
+        <polygon class="wire-head" points="32,960 42,955 42,965"/>
+        <!-- 标签放在层与层之间的空隙里，避开任何层名 -->
+        <g transform="translate(14,650) rotate(-90)">
+          <rect class="wire-tag-bg" x="-32" y="-12" width="76" height="20"/>
+          <text class="wire-tag" x="6" y="2" text-anchor="middle">Metrics / Logs</text>
+        </g>
+      </g>
+
+      <!-- 监控层 → 部署层 -->
+      <g class="conn">
+        <path class="wire" d="M 260 900 L 260 920"/>
+        <polygon class="wire-head" points="260,926 256,918 264,918"/>
+        <rect class="wire-tag-bg" x="418" y="901" width="60" height="19"/>
+        <text class="wire-tag" x="448" y="914" text-anchor="middle">采集</text>
+      </g>
+
+      <!-- 部署层 → 上层（虚线回流，表示承载）；标签压在两层之间的空隙，不遮任何层内容 -->
+      <g class="conn">
+        <path class="wire" d="M 1150 480 C 1200 480 1200 1114 1150 1114"/>
+        <path class="wire" d="M 1150 1114 L 700 1114"/>
+        <polygon class="wire-head" points="694,1114 702,1110 702,1118"/>
+        <g transform="translate(1188,1000) rotate(90)">
+          <rect class="wire-tag-bg" x="-52" y="-12" width="104" height="20"/>
+          <text class="wire-tag" x="0" y="2" text-anchor="middle">承载全部工作负载</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 1 层 · 客户端层
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#38bdf8">
+        <rect class="lane" x="40" y="40" width="1160" height="156" rx="16"/>
+        <rect class="lane-accent" x="40" y="40" width="4" height="156" rx="2"/>
+        <text class="lane-name" x="64" y="70">客户端层</text>
+        <text class="lane-code" x="146" y="70">CLIENT</text>
+        <text class="lane-hint" x="1120" y="70" text-anchor="end">4 个接入端</text>
+
+        <g class="card" style="--card-color:#38bdf8">
+          <rect class="card-body" x="64" y="88" width="172" height="88" rx="10"/>
+          <rect class="card-edge" x="64" y="88" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="84" y="112">WEB</text>
+          <text class="card-label" x="84" y="138">Web App</text>
+          <text class="card-sub" x="84" y="158">React / Next.js</text>
+        </g>
+        <g class="card" style="--card-color:#38bdf8">
+          <rect class="card-body" x="248" y="88" width="172" height="88" rx="10"/>
+          <rect class="card-edge" x="248" y="88" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="268" y="112">APP</text>
+          <text class="card-label" x="268" y="138">移动端</text>
+          <text class="card-sub" x="268" y="158">iOS / Android</text>
+        </g>
+        <g class="card" style="--card-color:#38bdf8">
+          <rect class="card-body" x="432" y="88" width="172" height="88" rx="10"/>
+          <rect class="card-edge" x="432" y="88" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="452" y="112">EXE</text>
+          <text class="card-label" x="452" y="138">桌面端</text>
+          <text class="card-sub" x="452" y="158">Electron / Tauri</text>
+        </g>
+        <g class="card" style="--card-color:#38bdf8">
+          <rect class="card-body" x="616" y="88" width="172" height="88" rx="10"/>
+          <rect class="card-edge" x="616" y="88" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="636" y="112">API</text>
+          <text class="card-label" x="636" y="138">Open API</text>
+          <text class="card-sub" x="636" y="158">REST / GraphQL</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 2 层 · 网关层
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#a78bfa">
+        <rect class="lane" x="40" y="240" width="1160" height="156" rx="16"/>
+        <rect class="lane-accent" x="40" y="240" width="4" height="156" rx="2"/>
+        <text class="lane-name" x="64" y="270">网关层</text>
+        <text class="lane-code" x="146" y="270">GATEWAY</text>
+        <text class="lane-hint" x="1120" y="270" text-anchor="end">统一南北向入口</text>
+
+        <g class="card" style="--card-color:#a78bfa">
+          <rect class="card-body" x="64" y="288" width="220" height="88" rx="10"/>
+          <rect class="card-edge" x="64" y="288" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="84" y="312">GATEWAY</text>
+          <text class="card-label" x="84" y="338">API Gateway</text>
+          <text class="card-sub" x="84" y="358">Kong / Nginx</text>
+        </g>
+        <g class="card" style="--card-color:#a78bfa">
+          <rect class="card-body" x="300" y="288" width="220" height="88" rx="10"/>
+          <rect class="card-edge" x="300" y="288" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="320" y="312">LB</text>
+          <text class="card-label" x="320" y="338">负载均衡</text>
+          <text class="card-sub" x="320" y="358">L4 / L7 · 健康检查</text>
+        </g>
+        <g class="card" style="--card-color:#a78bfa">
+          <rect class="card-body" x="536" y="288" width="220" height="88" rx="10"/>
+          <rect class="card-edge" x="536" y="288" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="556" y="312">LIMIT</text>
+          <text class="card-label" x="556" y="338">限流器</text>
+          <text class="card-sub" x="556" y="358">令牌桶 / 熔断降级</text>
+        </g>
+        <g class="card" style="--card-color:#a78bfa">
+          <rect class="card-body" x="772" y="288" width="220" height="88" rx="10"/>
+          <rect class="card-edge" x="772" y="288" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="792" y="312">AUTH</text>
+          <text class="card-label" x="792" y="338">认证网关</text>
+          <text class="card-sub" x="792" y="358">OAuth2 / JWT</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 3 层 · 核心服务层（6 微服务，第 3 张卡走 Event Bus 分叉）
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#34d399">
+        <rect class="lane" x="40" y="440" width="1160" height="216" rx="16"/>
+        <rect class="lane-accent" x="40" y="440" width="4" height="216" rx="2"/>
+        <text class="lane-name" x="64" y="470">核心服务层</text>
+        <text class="lane-code" x="180" y="470">CORE SERVICES</text>
+        <text class="lane-hint" x="1120" y="470" text-anchor="end">6 个微服务 · 独立部署与扩缩容</text>
+
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="64" y="488" width="200" height="88" rx="10"/>
+          <rect class="card-edge" x="64" y="488" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="84" y="512">SVC-01</text>
+          <text class="card-label" x="84" y="538">用户服务</text>
+          <text class="card-sub" x="84" y="558">账号 · 鉴权 · 权限</text>
+        </g>
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="274" y="488" width="200" height="88" rx="10"/>
+          <rect class="card-edge" x="274" y="488" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="294" y="512">SVC-02</text>
+          <text class="card-label" x="294" y="538">订单服务</text>
+          <text class="card-sub" x="294" y="558">下单 · 履约 · 退款</text>
+        </g>
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="484" y="488" width="200" height="88" rx="10"/>
+          <rect class="card-edge" x="484" y="488" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="504" y="512">SVC-03</text>
+          <text class="card-label" x="504" y="538">支付服务</text>
+          <text class="card-sub" x="504" y="558">收单 · 对账 · 回调</text>
+        </g>
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="694" y="488" width="200" height="88" rx="10"/>
+          <rect class="card-edge" x="694" y="488" width="3" height="88" rx="1.5"/>
+          <text class="card-icon" x="714" y="512">SVC-04</text>
+          <text class="card-label" x="714" y="538">商品服务</text>
+          <text class="card-sub" x="714" y="558">SPU · 库存 · 定价</text>
+        </g>
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="274" y="588" width="200" height="48" rx="10"/>
+          <rect class="card-edge" x="274" y="588" width="3" height="48" rx="1.5"/>
+          <text class="card-icon" x="294" y="610">SVC-05</text>
+          <text class="card-label" x="320" y="625">通知服务</text>
+        </g>
+        <g class="card" style="--card-color:#34d399">
+          <rect class="card-body" x="484" y="588" width="200" height="48" rx="10"/>
+          <rect class="card-edge" x="484" y="588" width="3" height="48" rx="1.5"/>
+          <text class="card-icon" x="504" y="610">SVC-06</text>
+          <text class="card-label" x="530" y="625">搜索服务</text>
+        </g>
+
+        <!-- Event Bus 节点（本层内，深色块 + 粉色发光） -->
+        <g class="card" style="--card-color:#f472b6">
+          <rect class="card-body" x="1092" y="548" width="96" height="80" rx="10"/>
+          <rect class="card-edge" x="1092" y="548" width="3" height="80" rx="1.5"/>
+          <text class="card-icon" x="1108" y="574">BUS</text>
+          <text class="card-label" x="1108" y="598">Event Bus</text>
+          <text class="card-sub" x="1108" y="616">异步解耦</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 4 层 · 基础设施层
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#fbbf24">
+        <rect class="lane" x="40" y="700" width="1160" height="140" rx="16"/>
+        <rect class="lane-accent" x="40" y="700" width="4" height="140" rx="2"/>
+        <text class="lane-name" x="64" y="730">基础设施层</text>
+        <text class="lane-code" x="180" y="730">INFRASTRUCTURE</text>
+        <text class="lane-hint" x="1120" y="730" text-anchor="end">有状态中间件 · 独立扩缩容</text>
+
+        <g class="card" style="--card-color:#fbbf24">
+          <rect class="card-body" x="64" y="748" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="64" y="748" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="84" y="772">DB</text>
+          <text class="card-label" x="84" y="796">PostgreSQL</text>
+          <text class="card-sub" x="84" y="812">主从 · 事务一致</text>
+        </g>
+        <g class="card" style="--card-color:#fbbf24">
+          <rect class="card-body" x="274" y="748" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="274" y="748" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="294" y="772">CACHE</text>
+          <text class="card-label" x="294" y="796">Redis</text>
+          <text class="card-sub" x="294" y="812">缓存 · 分布式锁</text>
+        </g>
+        <g class="card" style="--card-color:#fbbf24">
+          <rect class="card-body" x="484" y="748" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="484" y="748" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="504" y="772">SEARCH</text>
+          <text class="card-label" x="504" y="796">Elasticsearch</text>
+          <text class="card-sub" x="504" y="812">全文检索 · 聚合</text>
+        </g>
+        <g class="card" style="--card-color:#fbbf24">
+          <rect class="card-body" x="694" y="748" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="694" y="748" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="714" y="772">MQ</text>
+          <text class="card-label" x="714" y="796">RabbitMQ</text>
+          <text class="card-sub" x="714" y="812">消息队列 · 削峰</text>
+        </g>
+        <g class="card" style="--card-color:#fbbf24">
+          <rect class="card-body" x="904" y="748" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="904" y="748" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="924" y="772">OSS</text>
+          <text class="card-label" x="924" y="796">MinIO</text>
+          <text class="card-sub" x="924" y="812">对象存储 · 兼容 S3</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 5 层 · 监控层
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#fb7185">
+        <rect class="lane" x="40" y="880" width="1160" height="140" rx="16"/>
+        <rect class="lane-accent" x="40" y="880" width="4" height="140" rx="2"/>
+        <text class="lane-name" x="64" y="910">监控层</text>
+        <text class="lane-code" x="146" y="910">MONITORING</text>
+        <text class="lane-hint" x="1120" y="910" text-anchor="end">指标 · 日志 · 告警 · 链路追踪</text>
+
+        <g class="card" style="--card-color:#fb7185">
+          <rect class="card-body" x="64" y="928" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="64" y="928" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="84" y="952">METRIC</text>
+          <text class="card-label" x="84" y="976">Prometheus</text>
+          <text class="card-sub" x="84" y="992">指标采集 · 告警规则</text>
+        </g>
+        <g class="card" style="--card-color:#fb7185">
+          <rect class="card-body" x="274" y="928" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="274" y="928" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="294" y="952">DASH</text>
+          <text class="card-label" x="294" y="976">Grafana</text>
+          <text class="card-sub" x="294" y="992">可视化大盘</text>
+        </g>
+        <g class="card" style="--card-color:#fb7185">
+          <rect class="card-body" x="484" y="928" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="484" y="928" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="504" y="952">LOG</text>
+          <text class="card-label" x="504" y="976">ELK Stack</text>
+          <text class="card-sub" x="504" y="992">日志聚合 · 检索</text>
+        </g>
+        <g class="card" style="--card-color:#fb7185">
+          <rect class="card-body" x="694" y="928" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="694" y="928" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="714" y="952">ERROR</text>
+          <text class="card-label" x="714" y="976">Sentry</text>
+          <text class="card-sub" x="714" y="992">异常捕获 · 归因</text>
+        </g>
+        <g class="card" style="--card-color:#fb7185">
+          <rect class="card-body" x="904" y="928" width="192" height="72" rx="10"/>
+          <rect class="card-edge" x="904" y="928" width="3" height="72" rx="1.5"/>
+          <text class="card-icon" x="924" y="952">TRACE</text>
+          <text class="card-label" x="924" y="976">Jaeger</text>
+          <text class="card-sub" x="924" y="992">分布式链路追踪</text>
+        </g>
+      </g>
+
+      <!-- ==================================================================
+           第 6 层 · 部署层
+           ================================================================== -->
+      <g class="lane-group" style="--lane-color:#94a3b8">
+        <rect class="lane" x="40" y="1040" width="1160" height="140" rx="16"/>
+        <rect class="lane-accent" x="40" y="1040" width="4" height="140" rx="2"/>
+        <text class="lane-name" x="64" y="1070">部署层</text>
+        <text class="lane-code" x="146" y="1070">DEPLOYMENT</text>
+        <text class="lane-hint" x="1120" y="1070" text-anchor="end">声明式交付 · 基础设施即代码</text>
+
+        <g class="card" style="--card-color:#94a3b8">
+          <rect class="card-body" x="64" y="1088" width="192" height="52" rx="10"/>
+          <rect class="card-edge" x="64" y="1088" width="3" height="52" rx="1.5"/>
+          <text class="card-icon" x="84" y="1110">ORCH</text>
+          <text class="card-label" x="84" y="1130">Kubernetes</text>
+        </g>
+        <g class="card" style="--card-color:#94a3b8">
+          <rect class="card-body" x="274" y="1088" width="192" height="52" rx="10"/>
+          <rect class="card-edge" x="274" y="1088" width="3" height="52" rx="1.5"/>
+          <text class="card-icon" x="294" y="1110">PKG</text>
+          <text class="card-label" x="294" y="1130">Docker</text>
+        </g>
+        <g class="card" style="--card-color:#94a3b8">
+          <rect class="card-body" x="484" y="1088" width="192" height="52" rx="10"/>
+          <rect class="card-edge" x="484" y="1088" width="3" height="52" rx="1.5"/>
+          <text class="card-icon" x="504" y="1110">IAC</text>
+          <text class="card-label" x="504" y="1130">Terraform</text>
+        </g>
+        <g class="card" style="--card-color:#94a3b8">
+          <rect class="card-body" x="694" y="1088" width="192" height="52" rx="10"/>
+          <rect class="card-edge" x="694" y="1088" width="3" height="52" rx="1.5"/>
+          <text class="card-icon" x="714" y="1110">PIPE</text>
+          <text class="card-label" x="714" y="1130">CI/CD</text>
+        </g>
+        <g class="card" style="--card-color:#94a3b8">
+          <rect class="card-body" x="904" y="1088" width="192" height="52" rx="10"/>
+          <rect class="card-edge" x="904" y="1088" width="3" height="52" rx="1.5"/>
+          <text class="card-icon" x="924" y="1110">EDGE</text>
+          <text class="card-label" x="924" y="1130">CDN</text>
+        </g>
+      </g>
+
+    </svg>
+
+    <!-- ============================ 图例 ============================ -->
+    <div class="legend">
+      <span class="legend-title">图例</span>
+
+      <span class="legend-item" style="--sw:#38bdf8"><i class="legend-dot"></i>客户端</span>
+      <span class="legend-item" style="--sw:#a78bfa"><i class="legend-dot"></i>网关</span>
+      <span class="legend-item" style="--sw:#34d399"><i class="legend-dot"></i>核心服务</span>
+      <span class="legend-item" style="--sw:#fbbf24"><i class="legend-dot"></i>基础设施</span>
+      <span class="legend-item" style="--sw:#fb7185"><i class="legend-dot"></i>监控</span>
+      <span class="legend-item" style="--sw:#94a3b8"><i class="legend-dot"></i>部署</span>
+      <span class="legend-item" style="--sw:#f472b6"><i class="legend-dot"></i>Event Bus</span>
+
+      <span class="legend-item" style="--sw:#94a3b8"><i class="legend-swatch"></i>同步调用</span>
+      <span class="legend-item" data-dash="1" style="--sw:#94a3b8"><i class="legend-swatch"></i>异步事件 / 观测</span>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span><b>协议</b> HTTP/WSS · gRPC · REST · TCP · AMQP · S3</span>
+    <span><b>交互</b> 悬停高亮 · 纯 CSS · 无脚本</span>
+  </footer>
+
+</main>
+</body>
+</html>

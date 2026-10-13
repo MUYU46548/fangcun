@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<!--
+  顶栏二次重做 · 布局小样（2026-10-12 暮雨驳回后）
+  暮雨 2026-10-12 20:1x 圈定：**新按钮放顶栏左侧（参考 Edge）+ 搜索框缩短**。
+  用途：只审布局与密度。下面每张都印实量几何。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方寸 · 顶栏二次重做小样（定稿版）</title>
+<style>
+  :root{
+    --accent:#6b5bd2; --tint:#f1eefb; --ink:#2b2f3a; --muted:#8b90a0;
+    --border:#e3e4ec; --bg:#f7f7fa;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:18px 20px 40px;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:13px;}
+  h1{font-size:17px;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:16px;}
+  h2{font-size:14px;margin:24px 0 6px;padding-left:8px;border-left:3px solid var(--accent);}
+  .note{color:var(--muted);font-size:12px;margin:4px 0 9px;line-height:1.65;}
+  .note b{color:var(--ink);}
+  .frame{background:#fff;border:1px solid var(--border);border-radius:10px;
+    overflow:hidden;margin-bottom:4px;display:inline-block;max-width:100%;}
+  .w1080{width:1060px;}
+  .w1440{width:1400px;}
+  .cap{font-size:11px;color:var(--muted);margin:4px 0 12px;}
+
+  header.bar{display:flex;align-items:center;gap:6px;padding:8px 14px;
+    background:rgba(255,255,255,.92);border-bottom:1px solid var(--border);}
+  .title{display:flex;align-items:center;gap:7px;font-weight:700;font-size:15px;flex:none;}
+  .brand{width:22px;height:22px;border-radius:6px;background:var(--accent);color:#fff;
+    font-size:13px;line-height:22px;text-align:center;font-weight:700;flex:none;}
+  .title small{color:var(--accent);font-weight:600;font-size:13px;margin-left:4px;}
+  .grow{flex:1 1 auto;min-width:0;}
+
+  button{font-family:inherit;font-size:12px;cursor:pointer;}
+  .btn{display:inline-flex;align-items:center;gap:5px;flex:none;white-space:nowrap;
+    padding:4px 10px;border:1px solid var(--border);border-radius:8px;
+    background:#fff;color:var(--ink);font-weight:400;}
+  .btn.nav{font-weight:500;}
+  .btn.icon{padding:4px 8px;}
+  .btn.dim{color:var(--muted);}
+  .btn.dis{color:#c3c6d2;cursor:default;}
+  .search{flex:none;padding:5px 9px;border:1px solid var(--border);border-radius:8px;
+    font-size:12px;color:var(--ink);background:#fff;font-family:inherit;}
+
+  nav.views{display:flex;align-items:center;gap:5px;padding:6px 14px;flex-wrap:wrap;
+    background:rgba(255,255,255,.5);border-bottom:1px solid var(--border);}
+  .vbtn{font-size:12px;padding:4px 11px;border:1px solid var(--border);border-radius:999px;
+    background:#fff;color:var(--muted);font-weight:600;white-space:nowrap;flex:none;}
+  .vbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .vsep{width:1px;height:18px;background:var(--border);flex:none;margin:0 2px;}
+
+  table{border-collapse:collapse;font-size:12px;margin:8px 0 16px;}
+  td,th{border:1px solid var(--border);padding:5px 9px;text-align:left;vertical-align:top;}
+  th{background:var(--tint);font-weight:600;}
+  code{background:#f0f0f5;padding:1px 4px;border-radius:4px;font-size:11.5px;}
+</style>
+</head>
+<body>
+
+<h1>顶栏二次重做 · 布局小样（定稿版）</h1>
+<div class="sub">2026-10-12 · 暮雨圈定：<b>新按钮放顶栏左侧（参考 Edge）+ 搜索框缩短</b>；帮助 = 新写离线手册页；同步 = 只做按钮、状态自报</div>
+
+<h2>○ 现在这一版（复刻，对照用）</h2>
+<p class="note">三个症状：<b style="color:#a03a3a">搜索框吸满全宽</b>、<b style="color:#a03a3a">折叠只有一个 ⊟</b>、<b style="color:#a03a3a">左侧没有返回按钮</b>。</p>
+<div class="frame w1440">
+  <header class="bar" data-probe="now0">
+    <span class="title"><span class="brand">寸</span>方寸 tegula<small>127 条</small></span>
+    <input class="search" style="flex:1 1 auto;width:auto" placeholder="搜索…（#标签 @项目 due:01-15；或直接敲一句话回车）">
+    <button class="btn">＋ 筛选</button>
+    <button class="btn">⊟</button>
+    <button class="btn dim">⌗ 按状态 ▾</button>
+    <button class="btn dim">⇅ 优先级 ▾</button>
+  </header>
+</div>
+<p class="cap" data-cap="now">▲</p>
+
+<h2>甲 · 左侧按钮组（Edge 式）· 搜索框固定 260 · 折叠带文字 · 返回常驻</h2>
+<p class="note">
+  ① 左侧：<b>← 返回 · ⌂ 首页 · ? 帮助 · ⟳ 同步</b> 四个按钮成组（参考 Edge 左上角的 返回/前进/刷新/主页）；<br>
+  ② 搜索框<b>固定 260px</b>（约 20 字），不再吸满；剩余空间交给撑杆 → 筛选/分组/排序<b>继续贴右端</b>；<br>
+  ③ 折叠按钮<b>文字回来</b>：「⊟ 折叠」/「⊞ 展开」；<br>
+  ④ 返回按钮<b>常驻</b>（无历史时置灰）—— 不再"时有时无"；
+</p>
+<div class="frame w1440">
+  <header class="bar" data-probe="a0">
+    <span class="title"><span class="brand">寸</span>方寸 tegula<small>127 条</small></span>
+    <span class="vsep"></span>
+    <button class="btn nav">← 返回</button>
+    <button class="btn icon" title="首页：回看板并清掉搜索与筛选">⌂</button>
+    <button class="btn icon" title="帮助手册">?</button>
+    <button class="btn icon" title="同步：一键 Git 推送">⟳</button>
+    <span class="vsep"></span>
+    <input class="search" style="width:260px" placeholder="搜索…（#标签 @项目 due:01-15）">
+    <span class="grow"></span>
+    <button class="btn">＋ 筛选</button>
+    <button class="btn">⊟ 折叠</button>
+    <button class="btn dim">⌗ 按状态 ▾</button>
+    <button class="btn dim">⇅ 优先级 ▾</button>
+  </header>
+</div>
+<p class="cap" data-cap="a">▲</p>
+
+<h2>乙 · 同甲，但四个按钮带文字（不藏进图标）</h2>
+<p class="note">图标省地方、但要 hover 才知道是什么。带文字一眼可读 —— 代价是顶栏右侧留给分组/排序的余地小一些。
+<b>实测两张，你挑。</b></p>
+<div class="frame w1440">
+  <header class="bar" data-probe="b0">
+    <span class="title"><span class="brand">寸</span>方寸 tegula<small>127 条</small></span>
+    <span class="vsep"></span>
+    <button class="btn nav">← 返回</button>
+    <button class="btn">⌂ 首页</button>
+    <button class="btn">? 帮助</button>
+    <button class="btn">⟳ 同步</button>
+    <span class="vsep"></span>
+    <input class="search" style="width:240px" placeholder="搜索…（#标签 @项目 due:01-15）">
+    <span class="grow"></span>
+    <button class="btn">＋ 筛选</button>
+    <button class="btn">⊟ 折叠</button>
+    <button class="btn dim">⌗ 按状态 ▾</button>
+    <button class="btn dim">⇅ 优先级 ▾</button>
+  </header>
+</div>
+<p class="cap" data-cap="b">▲</p>
+
+<h2>丙 · 窄窗（1080）用甲案</h2>
+<p class="note">结论：<b>顶栏在 1080 下仍只有一行、不溢出</b>（搜索框自己让位）。页签行在 1080 下会折成两行 —— <b>这一点今天就是这样</b>，不是改坏的。</p>
+<div class="frame w1080">
+  <header class="bar" data-probe="c0">
+    <span class="title"><span class="brand">寸</span>方寸 tegula<small>127 条</small></span>
+    <span class="vsep"></span>
+    <button class="btn nav">← 返回</button>
+    <button class="btn icon">⌂</button>
+    <button class="btn icon">?</button>
+    <button class="btn icon">⟳</button>
+    <span class="vsep"></span>
+    <input class="search" style="width:200px" placeholder="搜索…（#标签 @项目）">
+    <span class="grow"></span>
+    <button class="btn">＋ 筛选</button>
+    <button class="btn">⊟ 折叠</button>
+    <button class="btn dim">⌗ 按状态 ▾</button>
+    <button class="btn dim">⇅ 优先级 ▾</button>
+  </header>
+  <nav class="views" data-probe="c1">
+    <button class="vbtn on">看板</button><button class="vbtn">待办</button><button class="vbtn">日志</button>
+    <button class="vbtn">项目</button><button class="vbtn">阻塞</button><button class="vbtn">路线图</button>
+    <button class="vbtn">日历</button><button class="vbtn">归档</button><button class="vbtn">回收站</button>
+    <button class="vbtn">启动台</button><button class="vbtn">拍板</button><button class="vbtn">技能</button>
+    <button class="vbtn">服务</button>
+    <span class="grow"></span>
+    <button class="vbtn" style="background:var(--accent);color:#fff;border-color:var(--accent)">＋ 新建</button>
+    <button class="btn">⚡ 快速记</button>
+    <span class="vsep"></span>
+    <button class="btn icon">☑</button><button class="btn icon">💾</button><button class="btn icon">🔔</button>
+    <button class="btn icon">📋</button><button class="btn icon">⚙</button>
+  </nav>
+</div>
+<p class="cap" data-cap="c">▲</p>
+
+<h2>○ 三个新按钮分别接什么</h2>
+<table>
+  <tr><th style="width:110px">按钮</th><th>点击后</th><th style="width:230px">现成能力</th></tr>
+  <tr><td>⌂ 首页</td><td>回「看板」并清掉搜索 + 筛选（一记干净的复位）</td><td>有（切视图 + 清筛选逻辑已在）</td></tr>
+  <tr><td>? 帮助</td><td>打开随包发布的手册页（本地 HTML，离线可看）</td><td>要新写一份 <code>help/index.html</code></td></tr>
+  <tr><td>⟳ 同步</td><td>一键 Git 推送（<code>backup:gitPush</code>），按钮内显示进行中/成功/失败</td><td>通道已有，缺"一键"入口</td></tr>
+</table>
+
+<script>
+function rowCount(el){
+  const cs = [...el.children].filter(k => k.getBoundingClientRect().height > 0)
+  if (!cs.length) return 1
+  const centers = cs.map(k => { const r = k.getBoundingClientRect(); return r.top + r.height/2 }).sort((a,b)=>a-b)
+  let n = 1
+  for (let i = 1; i < centers.length; i++) if (centers[i] - centers[i-1] > 8) n++
+  return n
+}
+document.querySelectorAll('.frame').forEach(frame => {
+  const probes = [...frame.querySelectorAll('[data-probe]')]
+  if (!probes.length) return
+  const key = probes[0].dataset.probe.replace(/[0-9]$/,'')
+  const cap = document.querySelector(`[data-cap="${key}"]`)
+  if (!cap) return
+  cap.innerHTML = '▲ 实测：' + probes.map(el => {
+    const r = el.getBoundingClientRect(), n = rowCount(el)
+    const s = el.querySelector('.search')
+    const last = el.querySelector('.btn.dim:last-child')
+    return `${el.tagName === 'HEADER' ? '顶栏' : '页签行'} 高=${Math.round(r.height)} 行数=${n}`
+      + (s ? ` 搜索框=${Math.round(s.getBoundingClientRect().width)}` : '')
+      + (el.scrollWidth > el.clientWidth + 1 ? ' ⚠溢出' : '')
+      + (n > 1 ? ' ⚠折行' : ' ✓单行')
+  }).join('　|　')
+})
+</script>
+</body>
+</html>

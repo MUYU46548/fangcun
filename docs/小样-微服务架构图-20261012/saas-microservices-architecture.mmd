@@ -1,0 +1,125 @@
+%% ============================================================
+%% SaaS 产品微服务架构图 · Mermaid 源码（与 HTML 版等效）
+%% 类型：flowchart TB（自顶向下六层）
+%% 渲染：粘贴到任意 Mermaid 编辑器（mermaid.live / Obsidian / VS Code 插件）
+%% 对应产物：saas-microservices-architecture.html
+%% ============================================================
+flowchart TB
+
+  %% ================= 第 1 层 · 客户端层 =================
+  subgraph CLIENT["客户端层 · Client"]
+    direction LR
+    WEB["Web App<br/>React / Next.js"]
+    MOBILE["移动端<br/>iOS / Android"]
+    DESKTOP["桌面端<br/>Electron / Tauri"]
+    OPENAPI["Open API<br/>REST / GraphQL"]
+  end
+
+  %% ================= 第 2 层 · 网关层 =================
+  subgraph GATEWAY["网关层 · Gateway"]
+    direction LR
+    GW["API Gateway<br/>Kong / Nginx"]
+    LB["负载均衡<br/>L4 / L7 · 健康检查"]
+    RL["限流器<br/>令牌桶 / 熔断降级"]
+    AUTH["认证网关<br/>OAuth2 / JWT"]
+  end
+
+  %% ================= 第 3 层 · 核心服务层 =================
+  subgraph SERVICES["核心服务层 · Core Services"]
+    direction LR
+    USER_SVC["用户服务<br/>账号 · 鉴权 · 权限"]
+    ORDER_SVC["订单服务<br/>下单 · 履约 · 退款"]
+    PAY_SVC["支付服务<br/>收单 · 对账 · 回调"]
+    PROD_SVC["商品服务<br/>SPU · 库存 · 定价"]
+    NOTIF_SVC["通知服务<br/>站内信 · 推送 · 邮件"]
+    SEARCH_SVC["搜索服务<br/>全文检索 · 推荐"]
+    BUS["Event Bus<br/>异步解耦"]
+  end
+
+  %% ================= 第 4 层 · 基础设施层 =================
+  subgraph INFRA["基础设施层 · Infrastructure"]
+    direction LR
+    PG[("PostgreSQL<br/>主从 · 事务一致")]
+    REDIS[("Redis<br/>缓存 · 分布式锁")]
+    ES[("Elasticsearch<br/>全文检索 · 聚合")]
+    MQ[("RabbitMQ<br/>消息队列 · 削峰")]
+    MINIO[("MinIO<br/>对象存储 · 兼容 S3")]
+  end
+
+  %% ================= 第 5 层 · 监控层 =================
+  subgraph MONITOR["监控层 · Monitoring"]
+    direction LR
+    PROM["Prometheus<br/>指标采集 · 告警规则"]
+    GRAF["Grafana<br/>可视化大盘"]
+    ELK["ELK Stack<br/>日志聚合 · 检索"]
+    SENTRY["Sentry<br/>异常捕获 · 归因"]
+    JAEGER["Jaeger<br/>分布式链路追踪"]
+  end
+
+  %% ================= 第 6 层 · 部署层 =================
+  subgraph DEPLOY["部署层 · Deployment"]
+    direction LR
+    K8S["Kubernetes<br/>容器编排 · 自愈"]
+    DOCKER["Docker<br/>镜像打包 · 一致性"]
+    TF["Terraform<br/>基础设施即代码"]
+    CICD["CI/CD<br/>构建 · 测试 · 灰度"]
+    CDN_NODE["CDN<br/>静态加速 · 边缘缓存"]
+  end
+
+  %% ================= 连线：层间协议标注 =================
+  %% 客户端 → 网关
+  WEB -->|HTTP / WSS| GW
+  MOBILE -->|HTTP / WSS| GW
+  DESKTOP -->|HTTP / WSS| GW
+  OPENAPI -->|HTTP / WSS| GW
+
+  %% 网关 → 核心服务
+  GW -->|gRPC| USER_SVC
+  GW -->|gRPC| ORDER_SVC
+  GW -->|REST| PAY_SVC
+  GW -->|REST| PROD_SVC
+  GW -->|REST| NOTIF_SVC
+  GW -->|REST| SEARCH_SVC
+
+  %% 核心服务 → Event Bus（异步）
+  USER_SVC -.->|异步事件| BUS
+  ORDER_SVC -.->|异步事件| BUS
+  PAY_SVC -.->|异步事件| BUS
+  PROD_SVC -.->|异步事件| BUS
+
+  %% 核心服务 → 基础设施（协议各不相同）
+  USER_SVC -->|TCP| PG
+  ORDER_SVC -->|TCP| PG
+  USER_SVC -->|Redis| REDIS
+  SEARCH_SVC -->|HTTP| ES
+  NOTIF_SVC -->|AMQP| MQ
+  PROD_SVC -->|S3| MINIO
+
+  %% 各业务层 → 监控层（被观测）
+  GATEWAY -.->|Metrics / Logs| PROM
+  SERVICES -.->|Metrics / Logs| PROM
+  INFRA -.->|Metrics / Logs| ELK
+  SERVICES -.->|Errors| SENTRY
+  SERVICES -.->|Traces| JAEGER
+  MONITOR -->|采集| GRAF
+
+  %% 部署层承载上层全部工作负载
+  DEPLOY -.->|承载全部工作负载| SERVICES
+  DEPLOY -.->|承载全部工作负载| INFRA
+
+  %% ================= 样式：与 HTML 版同色 =================
+  classDef clientStyle  fill:#0c2540,stroke:#38bdf8,color:#bae6fd,stroke-width:1.5px
+  classDef gatewayStyle fill:#1e1740,stroke:#a78bfa,color:#ddd6fe,stroke-width:1.5px
+  classDef serviceStyle fill:#0b2b21,stroke:#34d399,color:#a7f3d0,stroke-width:1.5px
+  classDef infraStyle   fill:#33230a,stroke:#fbbf24,color:#fde68a,stroke-width:1.5px
+  classDef monitorStyle fill:#3a1420,stroke:#fb7185,color:#fecdd3,stroke-width:1.5px
+  classDef deployStyle  fill:#1c2433,stroke:#94a3b8,color:#cbd5e1,stroke-width:1.5px
+  classDef busStyle     fill:#3a1230,stroke:#f472b6,color:#fbcfe8,stroke-width:1.5px
+
+  class WEB,MOBILE,DESKTOP,OPENAPI clientStyle
+  class GW,LB,RL,AUTH gatewayStyle
+  class USER_SVC,ORDER_SVC,PAY_SVC,PROD_SVC,NOTIF_SVC,SEARCH_SVC serviceStyle
+  class PG,REDIS,ES,MQ,MINIO infraStyle
+  class PROM,GRAF,ELK,SENTRY,JAEGER monitorStyle
+  class K8S,DOCKER,TF,CICD,CDN_NODE deployStyle
+  class BUS busStyle
