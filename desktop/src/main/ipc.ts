@@ -661,9 +661,9 @@ export function registerIpcHandlers(): void {
     return todosService.listTodos(filter)
   })
 
-  guardedHandle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string, fromLog?: string) => {
+  guardedHandle('todos:create', (_event: any, title: string, priority?: string, due?: string, project?: string, fromLog?: string, dueTime?: string) => {
     try {
-      const todo = todosService.createTodo(title, priority as any, due, project, fromLog)
+      const todo = todosService.createTodo(title, priority as any, due, project, fromLog, dueTime)
       return { ok: true, todo }
     } catch (e: any) {
       return { ok: false, error: e.message }
@@ -793,6 +793,13 @@ export function registerIpcHandlers(): void {
 
   guardedHandle('logs:cleanup', () => {
     return logsService.cleanupLogs()
+  })
+
+  // 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）：
+  // 不是硬删 —— 移进 `<数据目录>/docs/执行日志/.trash/`，可恢复。
+  // dryRun=true 只报命中条数（界面先预览再确认），绝不落盘。
+  guardedHandle('logs:purgeArchived', (_event, beforeDate: string, opts?: { dryRun?: boolean }) => {
+    return logsService.purgeArchivedBefore(String(beforeDate || ''), { dryRun: !!opts?.dryRun })
   })
 
   // ── 剪贴板 ──────────────────────────────────────────────────────────

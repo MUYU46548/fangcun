@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="default">
+<head>
+<meta charset="utf-8">
+<title>方寸 · UI 基座 token 映射小样（第 ② 步）</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   这一整块**逐字抄自 App.vue 的真实值**（默认 :root + 六套主题覆盖）。
+   小样若用编造的色值，看到的观感就是假的。
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:#eef0f4; --ink:#3c4150; --muted:#626775; --accent:#705fab; --accent-soft:#c3bce0;
+  --card:#ffffff; --border:#e4e2ee; --shadow:0 8px 32px rgba(90,90,130,.12); --radius:18px;
+  --success:#54814b; --warning:#986b20; --danger:#b44141;
+  --tint:#f1eefb; --tint-2:#fbfaff; --tint-3:#fafafd; --line-2:#dcd8ee;
+  --blob-a:#cfc6ec; --blob-b:#cdd9ee;
+  --btn-h:28px; --btn-r:8px; --btn-fs:12px; --btn-px:14px;
+}
+:root[data-theme='pink']   { --bg:#fdf2f5; --ink:#411621; --muted:#8c5c64; --accent:#ac4657; --accent-soft:#eacad0; --border:#edd7dd; --tint:#f9f3f4; --tint-2:#fcf9fa; --tint-3:#fcfbfb; --line-2:#eacdd5; --blob-a:#eacad0; --blob-b:#eed3da; }
+:root[data-theme='blue']   { --bg:#eef4fb; --ink:#192a3e; --muted:#556984; --accent:#3668ab; --accent-soft:#c9d8eb; --border:#d7e1ed; --tint:#f3f6f9; --tint-2:#f9fafc; --tint-3:#fbfbfc; --line-2:#cddaea; --blob-a:#c9d8eb; --blob-b:#d3dfee; }
+:root[data-theme='green']  { --bg:#eff5f1; --ink:#233428; --muted:#4d6f5f; --accent:#377457; --accent-soft:#cde7db; --border:#dbe8df; --tint:#f3f9f6; --tint-2:#f9fcfa; --tint-3:#fbfcfb; --line-2:#d3e4d9; --blob-a:#cde7db; --blob-b:#d9e7de; }
+:root[data-theme='orange'] { --bg:#fdf6ec; --ink:#433014; --muted:#7c6650; --accent:#975c21; --accent-soft:#ebdac9; --border:#ede4d7; --tint:#f9f6f3; --tint-2:#fcfaf9; --tint-3:#fcfbfb; --line-2:#eadecd; --blob-a:#ebdac9; --blob-b:#eee3d3; }
+:root[data-theme='gray']   { --bg:#f4f4f6; --ink:#262631; --muted:#676872; --accent:#65687b; --accent-soft:#d6d7de; --border:#dfdfe5; --tint:#f5f5f7; --tint-2:#fafafb; --tint-3:#fbfbfc; --line-2:#d8d8df; --blob-a:#d6d7de; --blob-b:#dddde3; }
+
+/* ═══ 第 ② 步要加的东西：方寸 token → shadcn 变量名（带 --ui- 前缀）═══
+   ⚠ **全部写成 var() 链，不复制色值** —— 这样六套主题一切换，--ui-* 自动跟着变，
+     不需要任何 JS 重算，也不会出现"改了主题忘了改 shadcn 变量"的分叉。 */
+:root {
+  --ui-background: var(--bg);
+  --ui-foreground: var(--ink);
+  --ui-card: var(--card);
+  --ui-card-foreground: var(--ink);
+  --ui-popover: var(--card);
+  --ui-popover-foreground: var(--ink);
+  --ui-primary: var(--accent);              /* ⚠ 方寸 --accent 是**品牌色** → primary */
+  --ui-primary-foreground: #ffffff;
+  --ui-secondary: var(--tint);
+  --ui-secondary-foreground: var(--ink);
+  --ui-accent: var(--tint);                 /* ⚠ shadcn 的 accent 是**悬停面**，不是品牌色 */
+  --ui-accent-foreground: var(--ink);
+  --ui-muted: var(--tint-3);
+  --ui-muted-foreground: var(--muted);
+  --ui-destructive: var(--danger);
+  --ui-destructive-foreground: #ffffff;
+  --ui-success: var(--success);             /* shadcn 没有 success/warning → 本仓扩展 */
+  --ui-warning: var(--warning);
+  --ui-border: var(--border);
+  --ui-input: var(--border);
+  --ui-ring: var(--accent);
+  --ui-radius: var(--radius);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 20px 24px 32px;
+  background: var(--ui-background); color: var(--ui-foreground);
+  font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+h1 { font-size: 17px; margin: 0 0 4px; }
+.sub { color: var(--ui-muted-foreground); font-size: 12px; margin-bottom: 14px; }
+.warnbar {
+  background: rgba(152,107,32,.08); border: 1px solid var(--ui-warning); color: var(--ui-warning);
+  border-radius: 10px; padding: 8px 12px; font-size: 12px; margin-bottom: 16px;
+}
+.themes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.themes button {
+  font: inherit; cursor: pointer; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--ui-border); background: var(--ui-card); color: var(--ui-foreground);
+}
+.themes button.on { background: var(--ui-primary); color: var(--ui-primary-foreground); border-color: var(--ui-primary); }
+.cols { display: flex; gap: 20px; align-items: flex-start; }
+.col-left { flex: 0 0 470px; }
+.col-right { flex: 1 1 auto; min-width: 420px; }
+.panel {
+  background: var(--ui-card); border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
+  padding: 14px 16px; box-shadow: var(--shadow);
+}
+.panel + .panel { margin-top: 16px; }
+.panel h2 { font-size: 13px; margin: 0 0 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--ui-border); vertical-align: top; }
+th { color: var(--ui-muted-foreground); font-weight: 600; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--ui-border); vertical-align: -1px; margin-right: 4px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.row:last-child { margin-bottom: 0; }
+.row .lbl { flex: 0 0 74px; color: var(--ui-muted-foreground); font-size: 11.5px; }
+
+/* ── 只吃 --ui-* 的"新组件长相" ── */
+.ui-btn {
+  font: inherit; font-size: var(--btn-fs); height: var(--btn-h); padding: 0 var(--btn-px);
+  border-radius: var(--btn-r); border: 1px solid transparent; cursor: pointer; white-space: nowrap; flex: none;
+}
+.ui-btn-default { background: var(--ui-primary); color: var(--ui-primary-foreground); }
+.ui-btn-secondary { background: var(--ui-secondary); color: var(--ui-secondary-foreground); }
+.ui-btn-outline { background: transparent; border-color: var(--ui-border); color: var(--ui-foreground); }
+.ui-btn-ghost { background: transparent; color: var(--ui-foreground); }
+.ui-btn-ghost:hover { background: var(--ui-accent); color: var(--ui-accent-foreground); }
+.ui-btn-destructive { background: var(--ui-destructive); color: var(--ui-destructive-foreground); }
+.ui-btn-success { background: var(--ui-success); color: #fff; }
+.ui-btn-warning { background: var(--ui-warning); color: #fff; }
+.ui-input {
+  font: inherit; font-size: var(--btn-fs); height: var(--btn-h); padding: 0 10px; width: 190px;
+  border-radius: var(--btn-r); border: 1px solid var(--ui-input); background: var(--ui-card); color: var(--ui-foreground);
+}
+.ui-input:focus { outline: 2px solid var(--ui-ring); outline-offset: 1px; border-color: var(--ui-ring); }
+.ui-badge {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  background: var(--ui-secondary); color: var(--ui-secondary-foreground);
+}
+.ui-badge-outline { background: transparent; border: 1px solid var(--ui-border); color: var(--ui-muted-foreground); }
+.ui-cardbox {
+  border: 1px solid var(--ui-border); border-radius: var(--btn-r); background: var(--ui-card); padding: 10px 12px;
+}
+.ui-cardbox .t { font-weight: 600; margin-bottom: 3px; }
+.ui-cardbox .d { color: var(--ui-muted-foreground); font-size: 11.5px; }
+.ui-kbd {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  border: 1px solid var(--ui-border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px;
+  background: var(--ui-muted); color: var(--ui-foreground);
+}
+.trap { display: flex; gap: 14px; }
+.trap > div { flex: 1; }
+.trap .cap { font-size: 11.5px; color: var(--ui-muted-foreground); margin-bottom: 5px; }
+.bad-btn { background: var(--ui-accent); color: var(--ui-accent-foreground); }   /* 错映射：品牌色位置填了悬停面 */
+</style>
+</head>
+<body>
+  <h1>方寸 · UI 基座 token 映射 <span class="sub">（卡 task-20261011-004 第 ② 步 · 小样）</span></h1>
+  <div class="sub">左侧是映射表，右侧是"只吃 <code>--ui-*</code> 的新组件"长相。切主题看观感是否跟着走。</div>
+  <div class="warnbar">
+    ⚠ 这是**小样**：色值逐字抄自 <code>App.vue</code> 真实 token，但**还没有接进方寸**。
+    本轮只做映射 + 看观感，不动任何老样式。
+  </div>
+
+  <div class="themes" id="themes">
+    <button data-t="default" class="on">雾灰紫（默认）</button>
+    <button data-t="pink">粉</button>
+    <button data-t="blue">蓝</button>
+    <button data-t="green">绿</button>
+    <button data-t="orange">橙</button>
+    <button data-t="gray">灰</button>
+  </div>
+
+  <div class="cols">
+    <div class="col-left">
+      <div class="panel">
+        <h2>① 映射表（<code>--ui-</code> 前缀，避免撞 shadcn 自带语义）</h2>
+        <table>
+          <thead><tr><th>方寸 token</th><th></th><th>shadcn 变量</th><th>用在哪</th></tr></thead>
+          <tbody>
+            <tr><td><code>--bg</code></td><td><span class="swatch" style="background:var(--bg)"></span></td><td><code>--ui-background</code></td><td>页面底</td></tr>
+            <tr><td><code>--ink</code></td><td><span class="swatch" style="background:var(--ink)"></span></td><td><code>--ui-foreground</code></td><td>正文</td></tr>
+            <tr><td><code>--card</code></td><td><span class="swatch" style="background:var(--card)"></span></td><td><code>--ui-card</code> / <code>--ui-popover</code></td><td>卡面 / 浮层</td></tr>
+            <tr><td><code>--accent</code></td><td><span class="swatch" style="background:var(--accent)"></span></td><td><code>--ui-primary</code></td><td>品牌主色</td></tr>
+            <tr><td><span style="color:var(--muted)">#fff</span></td><td><span class="swatch" style="background:#fff"></span></td><td><code>--ui-primary-foreground</code></td><td>主色上的字</td></tr>
+            <tr><td><code>--tint</code></td><td><span class="swatch" style="background:var(--tint)"></span></td><td><code>--ui-secondary</code> / <code>--ui-accent</code></td><td>次级面 / 悬停面</td></tr>
+            <tr><td><code>--tint-3</code></td><td><span class="swatch" style="background:var(--tint-3)"></span></td><td><code>--ui-muted</code></td><td>中性面板底</td></tr>
+            <tr><td><code>--muted</code></td><td><span class="swatch" style="background:var(--muted)"></span></td><td><code>--ui-muted-foreground</code></td><td>次要文字</td></tr>
+            <tr><td><code>--danger</code></td><td><span class="swatch" style="background:var(--danger)"></span></td><td><code>--ui-destructive</code></td><td>危险操作</td></tr>
+            <tr><td><code>--success</code></td><td><span class="swatch" style="background:var(--success)"></span></td><td><code>--ui-success</code> ⭐扩展</td><td>成功（shadcn 无）</td></tr>
+            <tr><td><code>--warning</code></td><td><span class="swatch" style="background:var(--warning)"></span></td><td><code>--ui-warning</code> ⭐扩展</td><td>警告（shadcn 无）</td></tr>
+            <tr><td><code>--border</code></td><td><span class="swatch" style="background:var(--border)"></span></td><td><code>--ui-border</code> / <code>--ui-input</code></td><td>描边</td></tr>
+            <tr><td><code>--radius</code></td><td><span class="swatch" style="background:var(--line-2)"></span></td><td><code>--ui-radius</code></td><td>圆角</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>② 最容易踩的坑：<code>accent</code> 两个字，两个意思</h2>
+        <div class="trap">
+          <div>
+            <div class="cap">✅ 方寸 <code>--accent</code> → <code>--ui-primary</code></div>
+            <button class="ui-btn ui-btn-default">主按钮</button>
+          </div>
+          <div>
+            <div class="cap">❌ 若映射到 <code>--ui-accent</code>（那是 shadcn 的"悬停面"）</div>
+            <button class="ui-btn bad-btn">主按钮</button>
+          </div>
+        </div>
+        <div class="sub" style="margin:8px 0 0">
+          右边那个不是"配色不对"，是**语义接错线**：品牌色被接到了浅染底上，白字直接消失。
+        </div>
+      </div>
+    </div>
+
+    <div class="col-right">
+      <div class="panel">
+        <h2>③ 按钮（只吃 <code>--ui-*</code>）</h2>
+        <div class="row"><span class="lbl">default</span>
+          <button class="ui-btn ui-btn-default">保存</button>
+          <button class="ui-btn ui-btn-default">＋ 新建</button>
+          <button class="ui-btn ui-btn-default" disabled style="opacity:.5">禁用</button>
+        </div>
+        <div class="row"><span class="lbl">secondary</span>
+          <button class="ui-btn ui-btn-secondary">次要</button>
+          <button class="ui-btn ui-btn-outline">outline</button>
+          <button class="ui-btn ui-btn-ghost">ghost</button>
+        </div>
+        <div class="row"><span class="lbl">语义色</span>
+          <button class="ui-btn ui-btn-success">完成</button>
+          <button class="ui-btn ui-btn-warning">注意</button>
+          <button class="ui-btn ui-btn-destructive">删除</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>④ 输入 / 徽章 / 卡 / kbd</h2>
+        <div class="row"><span class="lbl">input</span>
+          <input class="ui-input" value="截止 MM-DD" />
+          <span class="ui-badge">待办</span>
+          <span class="ui-badge-outline">已归档</span>
+        </div>
+        <div class="row"><span class="lbl">kbd</span>
+          按 <span class="ui-kbd">Esc</span> 关闭 · <span class="ui-kbd">⌘K</span> 搜索
+        </div>
+        <div class="ui-cardbox" style="margin-top:10px">
+          <div class="t">卡面 / 浮层同源</div>
+          <div class="d">卡与浮层都用 <code>--ui-card</code>，所以弹窗与卡片不会出现两种白。</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>⑤ 映射方式：<code>var()</code> 链，不复制色值</h2>
+        <div class="d" style="color:var(--ui-muted-foreground)">
+          <code>--ui-primary: var(--accent);</code><br>
+          六套主题切 <code>data-theme</code> 时，<code>--ui-*</code> 自动重解析 —— 无需 JS、不会分叉，
+          也不会出现"主题改了、shadcn 变量忘了改"。
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // 小样的主题切换（真实实现走方寸既有的 html[data-theme] 机制，不需要任何 JS）
+  var bar = document.getElementById('themes')
+  bar.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-t]')
+    if (!b) return
+    document.documentElement.setAttribute('data-theme', b.dataset.t)
+    Array.prototype.forEach.call(bar.querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b) })
+  })
+</script>
+</body>
+</html>

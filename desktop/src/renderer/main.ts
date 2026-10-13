@@ -1,6 +1,10 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import './style.css'
+// Tailwind utilities（2026-10-13 卡 20261011-004 第 ① 步）：**放在 style.css 之后** ——
+// 老样式仍是基线，utilities 只在"新组件明确写了"的地方生效。当前 content 只扫
+// `components/ui/`，所以这行现在**不产出任何 CSS**（第 ① 步的验收线就是"零变化"）。
+import './tailwind.css'
 
 /**
  * 渲染层全局错误上报（2026-09-22）

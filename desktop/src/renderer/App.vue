@@ -48,7 +48,28 @@
         <button class="brand" title="关于方寸" @click="openAbout">寸</button>
         方寸 tegula<small id="count" :title="countTitle">{{ countText }}</small>
       </span>
-      <button v-if="canGoBack" class="ghost nav-back" title="返回上一个视图" @click="goBack">← 返回</button>
+      <!-- 左侧按钮组（2026-10-12 暮雨圈选：「放顶栏左侧，参考 Edge」）——
+           Edge 左上角就是「← 前进/后退 · ⟳ 刷新 · ⌂ 首页」这一束。
+           ⚠ 三个新按钮**必须是图标**，这不是审美选择而是几何必需：
+             带文字版本在 1080 窄窗下横向溢出（小样实测需 1023px / 只有 999px）。
+           ⚠ 「← 返回」**不许再挂 v-if**：它此前是 v-if="canGoBack" ——
+             没有历史时整个不在 DOM 里，用户报「返回按钮没了」就是这个（不是被挤走）。
+             现在常驻 + 无历史时 disabled 置灰：位置稳定、还能看出"现在退不了"。 -->
+      <span class="navgroup">
+        <button class="ghost nav-back" :class="{ disabled: !canGoBack }"
+          :disabled="!canGoBack"
+          :title="canGoBack ? '返回上一个视图' : '返回：还没有可回退的视图'"
+          @click="goBack">← 返回</button>
+        <span class="navgroup-sep"></span>
+        <button class="ghost nav ico" title="首页：回到看板，并清掉搜索与筛选"
+          @click="goHome">⌂</button>
+        <button class="ghost nav ico" :title="'帮助手册：每个页签干什么、筛选语法、快捷键、备份恢复'"
+          @click="goHelp">?</button>
+        <button class="ghost nav ico" :class="{ syncing: syncBusy }"
+          :disabled="syncBusy"
+          :title="syncTooltip"
+          @click="runSync">⟳</button>
+      </span>
       <span v-if="parseErrors.length" class="parse-warn" :title="parseErrors.join('\n')" @click="showParseErrors">
         ⚠ {{ parseErrors.length }} 个文件无法解析
       </span>
@@ -65,9 +86,15 @@
              面板里的选项**本身就是按钮** —— 一次点击就生效，这就是"不难受"的全部来源。
              ⚠ curProj / curStatus / dueFilter / searchIncludeArchive **仍不写 prefs**（筛选是临时的）。 -->
         <div class="fbar">
+          <!-- ⚠ 2026-10-12 二次修正：搜索框**固定 260px**，不再 `flex: 1`。
+               上一轮为了填满 space-between 留下的空白，把搜索框写成 `flex: 1 1 220px`
+               —— 它把**全部余量吸走**，暮雨原话「搜索框未免太长太恐怖了，人家浏览器顶上写链接
+               才需要那么长」（实测 877px）。
+               现在余量交给下面这个 `.fbar-grow` 撑杆：搜索框保持 260，**筛选/分组/排序继续贴右端**。 -->
           <input v-model="searchQuery" class="search fbar-search"
-            placeholder="搜索…（#标签 @项目 due:01-15；或直接敲一句话回车）"
+            placeholder="搜索…（#标签 @项目 due:01-15）"
             @keydown.enter="executeNaturalQuery" />
+          <span class="fbar-grow"></span>
 
           <!-- ⚠ 下面五个入口各自包一个 `PopoverRoot`：reka-ui 负责**打开/关闭/定位/无障碍**，
                我们只负责"里面长什么样"。上一版手搓的遮罩 + getBoundingClientRect 定位已删。 -->
@@ -119,10 +146,12 @@
 
           <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）——
                「折叠全部 / 展开」并排放两个按钮，永远有一个无效，用户原话「臃肿无比」。
-               2026-10-12：再收一步 —— **只留符号**，文字进 title（顶栏要压字数，这是丙案的取舍）。 -->
+               ⚠ 2026-10-12 二次修正：上一轮把它收成**纯符号 ⊟**，暮雨原话
+               「折叠全部按钮的文本都没了，根本认不出来」—— 收过头了。
+               现在**文字回来**（「⊟ 折叠」/「⊞ 展开」，图标只当引子），仍是一个开关。 -->
           <button class="ghost" id="btn-fold-all"
             :title="allGroupsCollapsed ? '展开全部：还原所有分组的卡片' : '折叠全部：只看分组名和数量，长单子立刻变短'"
-            @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞' : '⊟' }}</button>
+            @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开' : '⊟ 折叠' }}</button>
 
           <!-- ⚠ 2026-10-12「看」与「做」分两层（暮雨圈选 丙）：
                「项目」「状态」两个**独立入口撤掉了** —— 它们的功能本来就在上面的筛选浮层里，
@@ -1404,6 +1433,106 @@
       </div>
     </main>
 
+    <!-- 帮助手册（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）——
+         做**视图内**的离线手册页，不引外部 HTML 文件：
+         ① 与其它视图同一套渲染与主题，暗色/亮色自动跟随，不用再维护第二份样式；
+         ② 打包不用管额外静态资源路径（file:// 下引外部 HTML 最容易踩路径坑）；
+         ③ 内容全部是静态事实，**不假装**能调什么 —— 数据是你自己的，手册只说"在哪里、怎么用"。
+         ⚠ 界面文案不得带 Markdown 标记（`.、`**`、反引号）—— `check-ui-copy` 会判红，
+           要展示键名/路径就用 `<code>`。 -->
+    <main id="board" class="help-view" v-else-if="curView === 'help'">
+      <div class="help-head">
+        <h3>帮助手册</h3>
+        <span class="help-sub">方寸怎么用 —— 每个页签干什么、怎么筛、怎么备份恢复</span>
+        <span class="views-grow"></span>
+        <button class="ghost" @click="goHome">⌂ 回看板</button>
+      </div>
+
+      <div class="help-body">
+        <section class="help-sec">
+          <h4>一、方寸是什么</h4>
+          <p>
+            本地优先的 agent 任务调度台。任务就是 <code>task-data/</code> 目录里的 Markdown 文件，
+            用 YAML 头记录字段、正文记录内容 —— <b>不锁在你自己的数据库里</b>，随时能用记事本打开。
+            定位是「任务收口 + 方针载体」：让"哪些事定了、哪些还悬着"有地方挂。
+          </p>
+        </section>
+
+        <section class="help-sec">
+          <h4>二、每个页签干什么</h4>
+          <table class="help-table">
+            <tr><th>页签</th><th>用途</th></tr>
+            <tr><td>看板</td><td>主视图。按状态分列，拖卡片即可改状态。搜索、筛选、分组、排序都在顶上。</td></tr>
+            <tr><td>待办</td><td>轻量清单。可以先记一句，之后再转成任务卡或执行日志。</td></tr>
+            <tr><td>日志</td><td>执行记录。一次会话/一段工作结束了写一条，可关联任务、带附件、写下「下一步」。</td></tr>
+            <tr><td>项目</td><td>按项目聚合：该项目有多少任务、卡在哪儿、契约填了没。</td></tr>
+            <tr><td>阻塞</td><td>谁挡着谁 —— 从任务卡的依赖关系里算出来的阻塞链。</td></tr>
+            <tr><td>路线图</td><td>跨项目的时间线，看哪几件事能并行。</td></tr>
+            <tr><td>日历</td><td>按日期铺开任务，看哪天最挤。</td></tr>
+            <tr><td>归档</td><td>已完成/已归档的任务。归档只是"先别看了"，不是删除。</td></tr>
+            <tr><td>回收站</td><td>删除的东西先来这里，可以还原。彻底删除才真没了。</td></tr>
+            <tr><td>启动台</td><td>登记常用应用/命令，一键拉起。</td></tr>
+            <tr><td>拍板</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
+            <tr><td>技能</td><td>把方寸的技能包装到 Hermes / DSH 等 agent 上。</td></tr>
+            <tr><td>服务</td><td>只读监控端口占用 —— 只看不杀。</td></tr>
+          </table>
+        </section>
+
+        <section class="help-sec">
+          <h4>三、搜索框怎么用</h4>
+          <p>直接在搜索框里敲，回车生效。支持的写法（可组合）：</p>
+          <table class="help-table">
+            <tr><th>写法</th><th>意思</th><th>例子</th></tr>
+            <tr><td><code>#标签</code></td><td>按标签筛</td><td><code>#紧急</code></td></tr>
+            <tr><td><code>@项目</code></td><td>按项目筛</td><td><code>@司天</code></td></tr>
+            <tr><td><code>due:MM-DD</code></td><td>按到期日筛</td><td><code>due:10-15</code></td></tr>
+            <tr><td>一整句话</td><td>当作自然语言查询解析</td><td><code>本周到期的紧急任务</code></td></tr>
+          </table>
+          <p class="help-tip">
+            顶上「＋ 筛选」里的条件会变成可点 ✕ 的小标签 —— 筛了什么一眼可见，撤销不用回头翻下拉。
+          </p>
+        </section>
+
+        <section class="help-sec">
+          <h4>四、顶栏那几个按钮</h4>
+          <table class="help-table">
+            <tr><th>按钮</th><th>作用</th></tr>
+            <tr><td>← 返回</td><td>回上一个看过的视图。没有可回退的视图时会置灰。</td></tr>
+            <tr><td>⌂ 首页</td><td>回看板，并清掉当前的搜索与筛选 —— 一记干净的复位。</td></tr>
+            <tr><td>? 帮助</td><td>就是这一页。</td></tr>
+            <tr><td>⟳ 同步</td><td>把数据一键推送到你配好的 Git 仓库。跑的时候图标会转，结果在按钮上直接报。</td></tr>
+            <tr><td>⊟ 折叠 / ⊞ 展开</td><td>长单子时只留分组名和数量，一屏看完。</td></tr>
+            <tr><td>⌗ / ⇅</td><td>怎么分组、怎么排序。点开的是同一个面板，选项本身即按钮，一次点击生效。</td></tr>
+            <tr><td>💾</td><td>备份：本地打包 + 云端（WebDAV 或 Git），可校验、可恢复。</td></tr>
+            <tr><td>🔔</td><td>通知中心：逾期、卡住、待审批这些提醒。</td></tr>
+            <tr><td>📋</td><td>诊断日志：出错时打开看尾部、打开日志目录。</td></tr>
+            <tr><td>⚙</td><td>设置：数据目录、备份、外观、LLM 配置等。</td></tr>
+          </table>
+        </section>
+
+        <section class="help-sec">
+          <h4>五、备份与恢复</h4>
+          <p>
+            数据是你的，所以方寸把"怎么带走、怎么找回"放在明面上。备份包是五件套：
+            ZIP + 校验文件 + 清单 + 说明 + 一键恢复脚本 —— <b>没有方寸也能用它恢复</b>。
+          </p>
+          <p class="help-tip">
+            密钥永不进备份包（含密钥的文件名在打包时被排除）。恢复前会先校验，
+            校验不过绝不动你现有的数据。
+          </p>
+        </section>
+
+        <section class="help-sec">
+          <h4>六、按错了怎么办</h4>
+          <p>
+            删除只移入 <code>task-data/.trash/</code>，回收站里能还原；
+            归档只是从主视图挪走；批量操作前都有确认。
+            <b>没有"一键清空"这类按钮</b>，破坏性操作一律先快照。
+          </p>
+        </section>
+      </div>
+    </main>
+
     <!-- Todos view -->
     <main id="board" class="todos-view" v-else-if="curView === 'todos'"
       @dragenter.prevent="dragEnter('todo')"
@@ -1504,9 +1633,11 @@
                 :title="'已转成日志 ' + todo.converted + ' —— 折叠只是藏起来，不是删除'">⤴ 已转出</span>
               <button v-if="todo.converted" class="todo-conv-undo" type="button"
                 title="撤销「已转出」标记，恢复到常规列表" @click.stop="undoConverted(todo)">↩</button>
-              <span v-if="todo.due" class="todo-due" :class="{ overdue: isOverdue(todo) }"
-                    :title="'到期日：' + todo.due + (isOverdue(todo) ? `（已逾期 ${overdueDays(todo)} 天）` : '')">
-                📅 {{ todo.due }}<template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
+              <!-- 到期：日期 + 可选时间（2026-10-12）—— 有时分就显示到分钟，
+                   这样「21:39」这种"某刻截止"（如额度重置后抢跑）一眼能读出。 -->
+              <span v-if="todo.due || todo.dueTime" class="todo-due" :class="{ overdue: isOverdue(todo) }"
+                    :title="todoDueTitle(todo)">
+                📅 {{ todo.due || '今天' }}<template v-if="todo.dueTime"> {{ todo.dueTime }}</template><template v-if="isOverdue(todo)"> · 逾期 {{ overdueDays(todo) }} 天</template>
               </span>
             </div>
           </div>
@@ -1578,6 +1709,19 @@
           <div>
             <label>到期日</label>
             <input type="date" v-model="todoEdit_.due" />
+          </div>
+          <!-- 到期时间（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
+               如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）。
+               ⚠ 是**可选**：留空 = 老行为（只按天）。所以标签写「时间（可选）」，
+                 并给一个「清空」小按钮 —— 填错了要能去掉（清空 = 字段整个消失，不是存个空串）。
+               ⚠ `type="time"` 在 Electron/Chromium 里是原生时间选择器，比自己搓输入框稳。 -->
+          <div>
+            <label>时间（可选）</label>
+            <span class="te-time-wrap">
+              <input type="time" v-model="todoEdit_.dueTime" step="60" />
+              <button v-if="todoEdit_.dueTime" type="button" class="te-time-clear"
+                title="清空时间（回到只按天判定）" @click="todoEdit_.dueTime = ''">✕</button>
+            </span>
           </div>
         </div>
         <div class="hint todo-edit-donehint" v-if="todoEdit_.done">这条已勾选完成 —— 仍然可以修改内容和到期日。</div>
@@ -1664,6 +1808,11 @@
           <button class="ghost"
             title="把「已完成」且保留期已过的日志批量标为「已归档」（只改状态，不删除文件）。保留期在点「完成」时填写"
             @click="executeLogCleanup">清理超期</button>
+          <!-- 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）：
+               与「清理超期」的区别要一眼看清 —— 那个只改状态，这个真删（软删到回收站）。 -->
+          <button class="ghost"
+            title="按日期批量清理「已归档」日志：移进回收站（可恢复），可先预览命中条数"
+            @click="openLogPurge">清理归档…</button>
         </div>
       </div>
       <div v-if="logBatchMode" class="batch-bar">
@@ -1893,6 +2042,36 @@
       </div>
     </div>
 
+    <!-- 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）。
+         软删口径：移进 <数据目录>/docs/执行日志/.trash/，**不永久删除**。
+         必须先「预览命中」看到条数再「确认清理」—— 不允许盲删（日期一旦设错不可逆）。 -->
+    <div id="log-purge-overlay" class="overlay" v-if="logPurgeOpen" @mousedown.self="closeLogPurge()">
+      <div id="log-purge-modal">
+        <h3>清理已归档日志</h3>
+        <div class="hint">
+          删除<b>归档日期早于</b>下面所选日期的日志。文件不会永久消失 ——
+          会移进 <code>docs/执行日志/.trash/</code> 回收站，需要时可手动找回。
+        </div>
+        <div class="lpurge-row">
+          <label>早于</label>
+          <input v-model="logPurgeDate" type="date" class="log-filter" @change="resetLogPurgePreview" />
+        </div>
+        <div class="lpurge-actions">
+          <button class="ghost" :disabled="logPurgeBusy" @click="runLogPurgePreview">预览命中</button>
+          <button class="danger" :disabled="logPurgeBusy || !logPurgePreview" @click="executeLogPurge">确认清理</button>
+          <button class="ghost" @click="closeLogPurge">取消</button>
+        </div>
+        <div v-if="logPurgePreview" class="lpurge-preview">
+          <div><b>将清理 {{ logPurgePreview.count }} 条</b></div>
+          <ul v-if="logPurgePreview.count" class="lpurge-list">
+            <li v-for="(t, i) in logPurgePreview.titles.slice(0, 8)" :key="i">{{ t || '(无标题)' }}</li>
+            <li v-if="logPurgePreview.count > 8" class="lpurge-more">…等共 {{ logPurgePreview.count }} 条</li>
+          </ul>
+          <div v-else>没有早于该日期的归档日志，无需清理。</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Review modal -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
       <div id="review-modal">
@@ -2073,6 +2252,14 @@
         <div class="body" v-if="previewTask.body">
           <label>正文</label>
           <div class="body-text markdown" v-html="renderBody(previewTask.body)" @change="onBodyChange"></div>
+        </div>
+        <!-- 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：frontmatter 的 `架构` 是
+             LayerDiagramSpec 的 JSON，交给 shared/layerDiagram 的纯函数画成 SVG。
+             ⚠ JSON 读不出来要**说人话**，绝不静默留白 —— 否则用户以为"填了没生效"。 -->
+        <div class="arch-section" v-if="previewArch.state !== 'none'">
+          <label>架构图</label>
+          <div v-if="previewArch.state === 'ok'" class="arch-svg" v-html="previewArch.svg"></div>
+          <div v-else class="arch-error">架构图 JSON 读不出来：{{ previewArch.error }}</div>
         </div>
         <div class="logs-section" v-if="previewTask">
           <label>关联日志 ({{ taskLogs.length }})</label>
@@ -2328,7 +2515,7 @@
         <h3>{{ editTask_.id ? '编辑任务' : '新建任务' }}</h3>
         <div class="tf-grid">
           <div
-            v-for="spec in taskFieldSpecs"
+            v-for="spec in visibleFieldSpecs"
             :key="spec.key"
             class="tf-field"
             :class="spec.span === 'full' ? 'tf-full' : 'tf-half'"
@@ -3473,7 +3660,10 @@ import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
 import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
-import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince } from '../shared/time'
+// 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
+// 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
+import { buildLayerDiagram } from '../shared/layerDiagram'
+import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue } from '../shared/time'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -3528,6 +3718,8 @@ interface Task {
   batch?: string
   /** 返工归因（2026-10-06 卡 003）：三档 + 空，见主进程 TASK_FIELD_SPECS */
   attribution?: string
+  /** 架构图（2026-10-13 方案 A）：LayerDiagramSpec 的 JSON 字符串，见 shared/layerDiagram.ts */
+  architecture?: string
   _archived?: boolean
 }
 
@@ -4731,6 +4923,51 @@ watch(searchIncludeArchive, v => { saveUiPref('fc_include_archive', v); loadAll(
 const draggingId = ref<string | null>(null)
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
+
+/** 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：把预览任务 frontmatter 里的 `架构`
+ *  （LayerDiagramSpec 的 JSON 字符串）交给纯函数画成 SVG。
+ *  三态：none = 没填（整块不渲染、旧卡零影响）｜ok｜bad = JSON 坏了 → 界面说人话，不静默留白。 */
+const previewArch = computed<{ state: 'none' | 'ok' | 'bad'; svg: string; error?: string }>(() => {
+  const raw = String((previewTask.value as any)?.architecture || '').trim()
+  if (!raw) return { state: 'none', svg: '' }
+  let spec: any
+  try {
+    spec = JSON.parse(raw)
+  } catch (e: any) {
+    return { state: 'bad', svg: '', error: e?.message || String(e) }
+  }
+  try {
+    return { state: 'ok', svg: buildLayerDiagram(spec) }
+  } catch (e: any) {
+    return { state: 'bad', svg: '', error: e?.message || String(e) }
+  }
+})
+
+/**
+ * 表单里**实际显示**的字段（2026-10-13 暮雨第 3 条）。
+ *
+ * 主进程的 spec 可以带 `visibleWhen`（可序列化声明，过得了 IPC）。语义是**任一命中即显示**：
+ * ① 该字段当前值非空  ② 任务标签里有 `tag`  ③ 标题以 `titlePrefix` 开头。
+ * 给「架构图」这类**只对一类卡有意义**的字段用 —— 别的卡不必看一个空文本框。
+ *
+ * ⚠ 隐藏 ≠ 丢值：`saveEdit` 仍按**全量** taskFieldSpecs 收集 patch，这里只管"显示不显示"。
+ */
+const visibleFieldSpecs = computed(() => {
+  const e: any = editTask_.value || {}
+  // ⚠ tags 在表单里是**逗号串**（taskToFormValues 把数组 join 了），不是数组 —— 两种都认。
+  const rawTags = e.tags
+  const tagList = (Array.isArray(rawTags) ? rawTags.join(',') : String(rawTags || ''))
+    .split(/[,，]/).map((s: string) => s.trim()).filter(Boolean)
+  const title = String(e.title || '')
+  return (taskFieldSpecs.value as any[]).filter((spec: any) => {
+    const w = spec.visibleWhen
+    if (!w) return true
+    if (w.hasValue && String(e[spec.key] ?? '').trim()) return true
+    if (w.tag && tagList.includes(w.tag)) return true
+    if (w.titlePrefix && title.startsWith(w.titlePrefix)) return true
+    return false
+  })
+})
 const editTask_ = ref<any>(null)
 // 启动台「添加/编辑应用」模态的开关 + 表单载体。
 // ⚠ 此前 template（v-if / v-model / 取消按钮）与 openAddApp / saveEditApp 全都在用它，
@@ -5630,8 +5867,12 @@ const views = [
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
+/** 视图表（含**非页签**视图）—— 2026-10-12：`help` 只走顶栏「?」入口，
+    不在页签行里再放一个重复的（页签行已经 13 个）。
+    但 `curViewLabel` 与视图分支都按 id 查表，所以它必须在这里。 */
+const ALL_VIEWS = [...views, { id: 'help', label: '帮助手册' }]
 /** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
-const curViewLabel = computed(() => views.find(v => v.id === curView.value)?.label || curView.value)
+const curViewLabel = computed(() => ALL_VIEWS.find(v => v.id === curView.value)?.label || curView.value)
 
 const pickerStyle = {
   right: '20px',
@@ -5859,10 +6100,33 @@ function isOverdue(t: any): boolean {
   if (t.done === true) return false
   const status = String(t.status || '')
   if (status === '完成' || status === '驳回') return false
+  // 2026-10-12：待办可能带**可选时间**（`dueTime`）—— 有时分时按**分钟级**判逾期
+  // （21:39 过了就是过了，而不是"今天整天都算没过"）；没时间时保持老行为（按天）。
+  if (t.dueTime) {
+    const at = parseDueAt(t.due, t.dueTime)
+    return Number.isFinite(at) && Date.now() > at
+  }
   const due = t.due || t.deadline || (t.fm && (t.fm.deadline || t.fm['截止']))
   if (!due) return false
   const d = daysSince(due)
   return Number.isFinite(d) && d >= 1
+}
+
+/** 待办到期提示（title）：把"日期 + 可选时间 + 逾期情况"一次说清，别让用户猜。 */
+function todoDueTitle(t: any): string {
+  const when = [
+    t.due ? '到期日：' + t.due : (t.dueTime ? '到期日：未填（时间挂今天）' : ''),
+    t.dueTime ? '时间：' + t.dueTime : '',
+  ].filter(Boolean).join(' · ')
+  if (!when) return '没有设到期'
+  if (!isOverdue(t)) return when
+  // 有时分时按小时/分钟说，比"逾期 0 天"诚实
+  if (t.dueTime) {
+    const at = parseDueAt(t.due, t.dueTime)
+    const mins = Math.floor((Date.now() - at) / 60000)
+    return when + (mins < 60 ? `（已过 ${mins} 分钟）` : `（已过 ${Math.floor(mins / 60)} 小时）`)
+  }
+  return when + `（已逾期 ${overdueDays(t)} 天）`
 }
 
 function statusClass(s: string): string {
@@ -6017,6 +6281,8 @@ function loadViewData(v: string) {
     loadMcpInfo()
   } else if (v === 'services') {
     loadServices()
+  } else if (v === 'help') {
+    // 帮助手册是纯静态页：不拉任何数据（走了 else 分支会白跑一次 loadAll）。
   } else if (v === 'calendar') {
     // 日历要看任务 + 待办两条数据源（2026-09-22，用户第 6 条：此前完全不拉待办）
     loadAll()
@@ -6069,6 +6335,54 @@ function goBack() {
   if (!prev) return
   curView.value = prev
   loadViewData(prev)
+}
+
+// ── 顶栏左侧按钮组（2026-10-12 暮雨第 4 条：首页 / 帮助手册 / 同步）───────────
+/** ⌂ 首页：回看板 + 清掉搜索与筛选 —— 一记干净的复位。
+ *  ⚠ 「复位」必须**真的复位**：只切视图而留着筛选，用户会以为"点了没反应"
+ *    （上一个视图筛了什么，回看板还筛着什么）。 */
+function goHome(): void {
+  searchQuery.value = ''
+  curProj.value = '__all__'
+  curStatus.value = ''
+  dueFilter.value = ''
+  navigateTo('active')
+}
+
+/** ? 帮助：切到帮助手册视图（视图内渲染，不引外部 HTML） */
+function goHelp(): void {
+  navigateTo('help')
+}
+
+/** ⟳ 同步：一键 Git 推送（复用既有 backup:gitPush 通道）。
+ *  暮雨 2026-10-12：「只做按钮，状态由它自己报」—— 所以不做配置向导，
+ *  但**也不许静默失败**：未配置 / 失败都要在按钮的 title 与提示条上说清。 */
+const syncBusy = ref(false)
+const syncResult = ref<{ ok: boolean; msg: string; at: number } | null>(null)
+const syncTooltip = computed(() => {
+  if (syncBusy.value) return '正在同步…（推到 Git 仓库）'
+  const r = syncResult.value
+  if (!r) return '同步：把数据一键推送到你配好的 Git 仓库'
+  return '同步' + (r.ok ? '成功' : '失败') + '：' + r.msg + '（' + formatDateTime(new Date(r.at).toISOString()) + '）'
+})
+
+async function runSync(): Promise<void> {
+  if (syncBusy.value) return
+  syncBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.backupGitPush()
+    // 主进程返回形状不统一（有 ok/message，也有 {error}）：两种都认，别把失败说成成功。
+    const ok = r?.ok === true
+    const msg = r?.message || r?.error || (ok ? '已推送' : '未推送（可能还没配好仓库）')
+    syncResult.value = { ok, msg, at: Date.now() }
+    showToast((ok ? '同步成功：' : '同步未完成：') + msg, ok ? 'success' : 'error')
+  } catch (e: any) {
+    const msg = e?.message || String(e)
+    syncResult.value = { ok: false, msg, at: Date.now() }
+    showToast('同步失败：' + msg, 'error')
+  } finally {
+    syncBusy.value = false
+  }
 }
 
 /** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
@@ -7926,6 +8240,9 @@ let calDragKind: 'task' | 'todo' = 'task'
 // 口径：最多 2 条 + 「+N 条」，点它**就地展开**（不跳页、不弹窗），再点收起。
 // ⚠ 跨天的时间段任务（span !== 'only'）不参与折叠 —— 折了会把连续色带切成断头。
 const CAL_CELL_LIMIT = 2
+// 2026-10-12：把上限值播给 e2e —— 断言原先自己写死「2」，改上限时两边会静默分叉。
+// 只读一个数，无副作用；生产环境（真 preload）不读它，纯属白写。
+try { (globalThis as any).__fcCalCellCap = CAL_CELL_LIMIT } catch { /* 沙箱里没有 globalThis 也无妨 */ }
 const calExpandedDays = ref<string[]>([])
 const calCellKey = (cell: any): string => `${calYear.value}-${calMonth.value}-${cell.day}`
 function calCellExpanded(cell: any): boolean {
@@ -8176,7 +8493,9 @@ const todoSort = ref<string>(readUiPref<string>('fc_todo_sort', 'default'))
 watch(todoSort, v => saveUiPref('fc_todo_sort', v))
 
 function overdueDays(t: any): number {
-  const d = daysSince(t.due)
+  // 有时分时按合成的分钟级时间算（否则「21:39 已过 10 分钟」会算成"逾期 0 天"）。
+  // 算术本体在 shared/time.daysSinceDue —— App.vue 里不许内联"一天多少毫秒"的除法（守卫盯着）。
+  const d = daysSinceDue(t?.due, t?.dueTime)
   return Number.isFinite(d) ? Math.floor(d) : 0
 }
 function prioClass(p: string): string {
@@ -8495,6 +8814,9 @@ function openTodoEditor(todo: any) {
     title: todo.title || '',
     priority: localPriority(todo.priority),
     due: todo.due || '',
+    // 到期时间（2026-10-12）：过 formatDueTime 归一 —— 存量数据里若是 `21:39:00` 这类
+    // 非标准写法，`<input type="time">` 认不了会显示空白，用户会以为"没设过"。
+    dueTime: formatDueTime(todo.dueTime),
     project: todo.project || '',
     done: !!todo.done,
   }
@@ -8515,6 +8837,7 @@ function openTodoCreator() {
     title: '',
     priority: '中',
     due: '',
+    dueTime: '',
     // 默认归属跟随当前筛选（哨兵值 '__all__'/'__none__' 一律当"不归属"）
     project: todoProjectFilterProject() || '',
     done: false,
@@ -8526,6 +8849,11 @@ async function saveTodoEdit() {
   const t = todoEdit_.value
   if (!t) return
   if (!String(t.title).trim()) { showToast('待办内容不能为空', 'info'); return }
+  // 只填了时间没填日期 → 时间落不到哪一天上。问一句比默默拼今天更诚实。
+  if (t.dueTime && !t.due) {
+    showToast('填了时间但没填到期日 —— 先选个日期（时间挂在哪天）', 'info')
+    return
+  }
   todoEditSaving.value = true
   try {
     const title = String(t.title).trim()
@@ -8534,9 +8862,11 @@ async function saveTodoEdit() {
           title,
           priority: t.priority,
           due: t.due || '',
+          // 空串 = 清空（服务端归 undefined，字段从 JSON 消失）—— 不是存个空值
+          dueTime: t.dueTime || '',
           project: t.project || '',
         })
-      : await window.tegula.todosCreate(title, t.priority, t.due || '', t.project || '')
+      : await window.tegula.todosCreate(title, t.priority, t.due || '', t.project || '', '', t.dueTime || '')
     if (r && (r.ok || r.id || r.todo)) {
       showToast(t.id ? '已保存' : '已添加', 'success')
       todoEdit_.value = null
@@ -9105,6 +9435,71 @@ async function executeBatchLogDestroy() {
   selectedLogBatch.value = []
   logBatchMode.value = false
   loadLogs()
+}
+
+/* ── 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）────────────────────
+   与「批量彻底删除」的分工：那个要你**逐条勾选**且**硬删**；这个按**日期**一把筛、
+   且**软删**（移进 docs/执行日志/.trash，可恢复）。
+   流程强制两步：先 `dryRun` 预览命中条数 → 再确认执行。日期一旦设错只是删多了，
+   但因为进回收站，仍可找回。 */
+const logPurgeOpen = ref(false)
+const logPurgeDate = ref('')
+const logPurgePreview = ref<{ count: number; ids: string[]; titles: string[] } | null>(null)
+const logPurgeBusy = ref(false)
+
+/** 默认「早于 30 天」—— 最常见的用法；仍是用户显式点「确认清理」才动手。 */
+function defaultLogPurgeDate(daysAgo = 30): string {
+  const d = new Date()
+  d.setDate(d.getDate() - daysAgo)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function openLogPurge() {
+  logPurgeDate.value = defaultLogPurgeDate(30)
+  logPurgePreview.value = null
+  logPurgeOpen.value = true
+}
+function closeLogPurge() { logPurgeOpen.value = false }
+/** 改了日期就作废旧预览 —— 否则「预览 71 条」和「按新日期删」对不上，是假成功。 */
+function resetLogPurgePreview() { logPurgePreview.value = null }
+
+async function runLogPurgePreview() {
+  const before = String(logPurgeDate.value || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(before)) { showToast('请选择有效日期', 'error'); return }
+  logPurgeBusy.value = true
+  try {
+    const r: any = await (window as any).tegula?.logsPurgeArchived?.(before, { dryRun: true })
+    if (!r?.ok) { showToast(`预览失败：${r?.error || '未知原因'}`, 'error'); return }
+    logPurgePreview.value = { count: r.count || 0, ids: r.ids || [], titles: r.titles || [] }
+  } catch (e: any) {
+    showToast(`预览失败：${e?.message || e}`, 'error')
+  } finally {
+    logPurgeBusy.value = false
+  }
+}
+
+async function executeLogPurge() {
+  const before = String(logPurgeDate.value || '').slice(0, 10)
+  const pv = logPurgePreview.value
+  if (!pv) return
+  if (!pv.count) { showToast('没有早于该日期的归档日志', 'info'); closeLogPurge(); return }
+  if (!confirm(`确认清理 ${pv.count} 条归档日志？\n文件会移进回收站（docs/执行日志/.trash/），可手动找回。`)) return
+  logPurgeBusy.value = true
+  try {
+    const r: any = await (window as any).tegula?.logsPurgeArchived?.(before, { dryRun: false })
+    if (r?.ok) {
+      showToast(`已清理 ${r.count} 条归档日志（可恢复）`, 'success')
+      closeLogPurge()
+      await loadLogs()
+    } else {
+      showToast(`清理失败：${r?.error || '未知原因'}`, 'error')
+    }
+  } catch (e: any) {
+    showToast(`清理失败：${e?.message || e}`, 'error')
+  } finally {
+    logPurgeBusy.value = false
+  }
 }
 
 /** 批量改优先级（2026-10-09 用户第 4 条）。与完成/归档的两点不同：
@@ -11123,7 +11518,13 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
    于是**浮层跟着锚到视口外**（实测：vw=756 时浮层的右边缘跑到 805）。
    让它换行是唯一正确的出口。 */
 #bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
-#bar .fbar .search { flex: 1 1 220px; width: auto; min-width: 120px; }
+/* ⚠ 搜索框**固定宽**（2026-10-12 二次修正）：写 `flex: 1` 会让它吸走全部余量 ——
+   暮雨原话「搜索框未免太长太恐怖了，人家浏览器顶上写链接才需要那么长」（实测 877px）。
+   固定 260px（约 20 字）之后，余量交给 `.fbar-grow`，筛选/分组/排序继续贴右端。
+   窄窗下由 `max-width: 100%` + `min-width: 0` 兜底，不许溢出。 */
+#bar .fbar .search { flex: 0 0 260px; width: 260px; max-width: 100%; min-width: 0; }
+/* 弹性撑杆：把「筛选/分组/排序」推到右端 —— 上一轮这个活是搜索框干的，现在收回来 */
+#bar .fbar-grow { flex: 1 1 auto; min-width: 0; }
 #bar .fbar-btn {
   flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 9px; border: 1px solid var(--border); border-radius: 8px;
@@ -12103,7 +12504,28 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    筛选栏一宽，`.ctrls` 就整体换到下一行，而 space-between 会把「返回」**甩到第一行最右端** ——
    它没消失，但离开了原位，用户就是"找不到"。
    `flex: none` 让它不许被压缩；`.fbar` 改 `flex: 0 1 auto` + `nowrap` 让整条不再撑出第二行。 */
-.nav-back { margin-left: 4px; padding: 2px 10px; font-size: 12px; flex: none; }
+.nav-back { margin-left: 0; padding: 2px 10px; font-size: 12px; flex: none; }
+/* ⚠⚠ 左侧按钮组（2026-10-12 暮雨：「放顶栏左侧，参考 Edge」）——
+   里面全是 `flex: none`（不许折行），整组也是 `flex: none`，否则窄窗下会被压缩变形。
+   它 + `.title` + `.ctrls` 三者必须能在**同一行**放下（有几何断言钉住）。
+   ⚠ `disabled` 时**必须显式给样式**：浏览器默认的 disabled 样式很淡，
+   加上 `#bar button.ghost` 的本色之后几乎看不出"现在退不了"。
+   ⚠ 样式带 `#bar` 前缀 —— `#bar button`（1,0,1）压得过 `.navgroup .ico`（0,2,0）？不，
+   按特异性 (1,0,1) > (0,2,0)，所以**必须带前缀**才不会变成实心紫底。 */
+#bar .navgroup { flex: none; display: flex; align-items: center; gap: 4px; }
+#bar .navgroup-sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; flex: none; }
+/* `.nav` 与 `.ico` 都带 `#bar` 前缀 —— 守卫 check-button-styles 要求每个 class 都有规则，
+   而且顶栏有 `#bar button`（1,0,1），不带前缀的 (0,1,0) 压不过它。 */
+#bar .navgroup .nav { font-weight: 600; }
+#bar .navgroup .ico { padding: 2px 8px; min-width: 26px; }
+#bar .nav-back.disabled, #bar .nav-back:disabled {
+  color: #c3c6d2; border-color: #eef0f5; cursor: default; background: #fbfbfd;
+}
+#bar .navgroup .ico:disabled { color: #c3c6d2; cursor: default; }
+#bar .navgroup .ico.syncing { color: var(--accent); }
+/* 同步进行中：让 ⟳ 真的转起来（用户能看出"在跑"，而不是点了没反应） */
+@keyframes nav-spin { to { transform: rotate(360deg); } }
+#bar .navgroup .ico.syncing { animation: nav-spin .9s linear infinite; }
 #bar .parse-warn { flex: none; }
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -12444,6 +12866,36 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mg-notice ul { margin-left: 16px; }
 .mg-notice code { background: #efe9d8; padding: 0 4px; border-radius: 3px; }
 .mg-hint { margin-top: 5px; color: #8a8270; }
+
+/* ── 帮助手册视图（2026-10-12 暮雨第 4 条）─────────────────────────────
+   视图内渲染的离线手册：跟其它页同一套主题变量，亮/暗自动跟随。
+   ⚠ 类名统一 `help-` 前缀（memory：class 撞车 = 静默错版，别用 .head/.row/.item）。 */
+.help-view { overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.help-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.help-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.help-sub { font-size: 12px; color: var(--muted); }
+.help-body { display: flex; flex-direction: column; gap: 18px; max-width: 880px; }
+.help-sec { display: flex; flex-direction: column; gap: 7px; }
+.help-sec h4 {
+  margin: 0; font-size: 13.5px; font-weight: 700; color: var(--accent);
+  padding-bottom: 5px; border-bottom: 1px solid var(--border);
+}
+.help-sec p { margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--ink); }
+.help-tip {
+  font-size: 12px; color: var(--muted); line-height: 1.7;
+  background: var(--tint); border-left: 3px solid var(--accent);
+  padding: 7px 10px; border-radius: 0 6px 6px 0;
+}
+.help-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.help-table th, .help-table td {
+  border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top;
+}
+.help-table th { background: var(--tint); font-weight: 600; width: 110px; }
+.help-table td { color: var(--ink); line-height: 1.6; }
+.help-table code, .help-sec code {
+  background: var(--tint); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
+}
+.help-sec b { font-weight: 700; }
 
 /* ── 拍板记录（决策卡）视图，2026-10-12 AI 规划包第 3 件 ───────────────── */
 /* 三态视觉语言复用全局语义色：作数=绿 ✓ / 已作废=灰红 ✗ / 已并入=琥珀 → */
@@ -12875,7 +13327,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #todo-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; }
 /* 内容框必须够大 —— 这条就是用户「改模态大框」的核心诉求 */
 #todo-edit-modal textarea.tall { min-height: 180px; }
-.te-row { display: grid; grid-template-columns: 1fr 110px 150px; gap: 10px; }
+/* 四个字段一行（2026-10-12 加了「时间」）—— 时间列窄一点，日期列够放 `YYYY-MM-DD` 就行。
+   ⚠ 列数写死会让窄窗挤压：给 `.te-row` 一个 `min-width: 0`，子项内部 input 一律 `width: 100%`。 */
+.te-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 132px 104px; gap: 10px; }
+.te-row > div { min-width: 0; }
+/* 「时间（可选）」带一个清空按钮 —— 填错了要能去掉（清空 = 字段消失，不是存空串） */
+.te-time-wrap { display: flex; align-items: center; gap: 4px; }
+.te-time-wrap input { flex: 1 1 auto; min-width: 0; }
+.te-time-clear {
+  flex: none; width: 24px; height: 30px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  color: var(--muted); font-size: 12px; line-height: 1; font-family: inherit;
+}
+.te-time-clear:hover { color: #a03a3a; border-color: #e8c9c9; }
 #todo-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 #todo-edit-modal .todo-edit-donehint { color: var(--muted); font-size: 11px; margin-top: 8px; }
 /* 「改」字按钮 —— 2026-09-29 卡 027 的**真凶**：这里此前只有 opacity + font-size，
@@ -13367,6 +13831,32 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .proj-pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .proj-pick-list .skills-btn { justify-content: flex-start; text-align: left; }
+
+/* ── 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）────────────────── */
+#log-purge-modal {
+  width: min(480px, 92vw); max-height: 80vh; overflow: auto;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+}
+#log-purge-modal h3 { margin: 0 0 10px; font-size: 16px; }
+.lpurge-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.lpurge-row label { font-size: 13px; color: var(--muted); }
+.lpurge-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.lpurge-preview { margin-top: 12px; font-size: 13px; line-height: 1.7; }
+.lpurge-list { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+.lpurge-list li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lpurge-more { list-style: none; margin-left: -18px; font-style: italic; }
+
+/* ── 任务详情里的架构图（2026-10-13 暮雨第 2 条 · 方案 A）────────────────── */
+.arch-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.arch-section > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.arch-svg { width: 100%; overflow-x: auto; }
+.arch-svg svg { display: block; width: 100%; height: auto; }
+.arch-error {
+  font-size: 12.5px; line-height: 1.6; color: var(--danger);
+  background: rgba(180, 65, 65, 0.07); border: 1px solid rgba(180, 65, 65, 0.3);
+  border-radius: 8px; padding: 8px 10px; word-break: break-all;
+}
 
 /* 置顶标记（2026-09-26 卡 037）：钉住的卡片在列表最上面，视觉上也要一眼看得出 */
 .log-pin { font-size: 12px; margin-right: 2px; }

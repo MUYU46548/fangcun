@@ -65,6 +65,67 @@ export function daysSince(v: unknown): number {
   return Number.isFinite(t) ? (Date.now() - t) / 86400000 : NaN
 }
 
+/**
+ * 把「日期 + 可选时间」拼成一个**分钟级**时间戳（2026-10-12 待办时间字段）。
+ *
+ * 待办的 `due` 只到天，另有一个可选的 `dueTime`（`HH:MM`）。这里负责合体：
+ *   · 只有日期        → 解析到**当天 00:00**（与老行为一致：老代码就是按天算逾期）
+ *   · 日期 + 时间     → 解析到**当天那分钟**（`21:39` 即 `21:39:00`）
+ *   · 只有时间没日期  → 用今天 + 那个时间（不然那个时间没法落地）
+ *   · 都解析不了      → NaN（调用方当"没有截止"处理）
+ *
+ * ⚠ 为什么单独一个函数而不是让调用方各拼各的：`daysSince` / `isOverdue` / 界面显示
+ *   三处都要这个合成值，各拼各的必然漂移（memory：单一来源）。
+ */
+export function parseDueAt(due: unknown, dueTime?: unknown): number {
+  const d = String(due ?? '').trim()
+  const t = String(dueTime ?? '').trim()
+  const tm = t.replace(/：/g, ':').match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$/)
+
+  if (!d && !tm) return NaN
+  // 只有时间：挂到今天
+  if (!d && tm) {
+    const base = new Date()
+    base.setHours(Number(tm[1]), Number(tm[2]), 0, 0)
+    return base.getTime()
+  }
+  const day = parseTime(d)
+  if (!Number.isFinite(day)) return NaN
+  if (!tm) return day
+  const at = new Date(day)
+  at.setHours(Number(tm[1]), Number(tm[2]), 0, 0)
+  return at.getTime()
+}
+
+/** 格式化 `HH:MM` 给界面用；认不出来返回空串（**不要**把乱码原样印出去） */
+export function formatDueTime(v: unknown): string {
+  const s = String(v ?? '').trim().replace(/：/g, ':')
+  const m = s.match(/^(\d{1,2}):(\d{1,2})/)
+  if (!m) return ''
+  const hh = Number(m[1]); const mm = Number(m[2])
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return ''
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+/**
+ * 「日期 + 可选时间」距今多少天（可带小数），给逾期天数用。
+ *
+ * ⚠ 为什么不能只写 `daysSince(due)`：待办加了 `dueTime` 之后，`due = 今天` 且
+ *   `dueTime = 21:39` 的待办在 22:00 就已经过期 21 分钟了，但 `daysSince` 按天算
+ *   会给出 0（"今天到期的还没过期"）→ 界面上显示"逾期 0 天"这种自相矛盾的话。
+ *
+ * ⚠ 更不该在 App.vue 里内联 `/ 86400000`：e2e-calendar 有一条守卫专门盯
+ *   「App.vue 不再自己写日期算术」（日期算术必须收在 shared/time.ts 这一处）。
+ *   2026-10-12 我第一版就是内联写的，当场被这条守卫抓住 —— 挪到这里是对的。
+ */
+export function daysSinceDue(due: unknown, dueTime?: unknown): number {
+  if (dueTime !== undefined && dueTime !== null && String(dueTime).trim() !== '') {
+    const at = parseDueAt(due, dueTime)
+    return Number.isFinite(at) ? (Date.now() - at) / 86400000 : NaN
+  }
+  return daysSince(due)
+}
+
 /** 通知面板用的「刚刚 / N 分钟前」，无法解析返回空串 */
 export function relTimeShort(v: unknown): string {
   const t = parseTime(v)

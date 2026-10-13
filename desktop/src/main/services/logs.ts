@@ -654,6 +654,86 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
   return { ok: true }
 }
 
+/** 「清理归档」的返回形状（2026-10-13 暮雨第 2 条）。 */
+export interface PurgeArchivedResult {
+  ok: boolean
+  dryRun: boolean
+  /** 命中 / 已移走的条数 */
+  count: number
+  ids: string[]
+  titles: string[]
+  /** 非 dryRun 时的落点（可恢复），dryRun 时为空 */
+  trashDir?: string
+  error?: string
+}
+
+/**
+ * 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）。
+ *
+ * 为什么不是 `destroyLog` 循环：那是 `fs.unlinkSync` **硬删**，一次几十条不可逆。
+ * 这里**移动到 `<logsDir>/.trash/`**（与任务侧 `task-data/.trash` 同款心智）——
+ * 符合项目红线「破坏性操作先快照」。用户原话要的是「一键删除 XX 日前归档日志」，
+ * 但附了「怎么批量删除」，所以给的是**可恢复**的那种删。
+ *
+ * 判据（三条缺一不可）：① `status === 'archived'` ② 有日期 ③ 日期 **严格早于** beforeDate。
+ * 「早于 XX 日」= XX 日当天的**不删**（边界取开区间，宁可少删不可多删）。
+ *
+ * `dryRun: true` 只报命中、**不落盘**（界面必须先预览再确认）。
+ *
+ * ⚠ `.trash` 是**目录**：`listLogs` / `cleanupLogs` 都按 `fn.endsWith('.md')` 过滤，
+ * 目录名不含 `.md` → 天然扫不到，回收站里的日志不会又冒回列表。
+ */
+export function purgeArchivedBefore(beforeDate: string, opts: { dryRun?: boolean } = {}): PurgeArchivedResult {
+  const dryRun = !!opts.dryRun
+  const date = String(beforeDate || '').trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, dryRun, count: 0, ids: [], titles: [], error: '日期格式应为 YYYY-MM-DD' }
+  }
+  const dir = getLogsDir()
+  const hits: { id: string; title: string; file: string }[] = []
+  for (const fn of fs.readdirSync(dir)) {
+    if (!fn.endsWith('.md')) continue
+    const entry = parseLogFile(path.join(dir, fn))
+    if (!entry) continue
+    if (entry.status !== 'archived') continue
+    const d = (entry.logDate || entry.created || '').slice(0, 10)
+    if (!d || d >= date) continue
+    hits.push({ id: entry.id, title: entry.title, file: fn })
+  }
+  hits.sort((a, b) => a.id.localeCompare(b.id))
+  if (dryRun) {
+    return { ok: true, dryRun: true, count: hits.length, ids: hits.map(h => h.id), titles: hits.map(h => h.title) }
+  }
+  if (!hits.length) return { ok: true, dryRun: false, count: 0, ids: [], titles: [] }
+  const trashDir = path.join(dir, '.trash')
+  fs.mkdirSync(trashDir, { recursive: true })
+  const moved: string[] = []
+  const movedTitles: string[] = []
+  const errors: string[] = []
+  for (const h of hits) {
+    const src = path.join(dir, h.file)
+    let dest = path.join(trashDir, h.file)
+    // 同名兜底：日志 id 唯一，正常不会撞；撞了也绝不覆盖回收站里旧的那份
+    if (fs.existsSync(dest)) dest = path.join(trashDir, `${h.id}.${Date.now()}.md`)
+    try {
+      fs.renameSync(src, dest)
+      moved.push(h.id)
+      movedTitles.push(h.title)
+    } catch (e: any) {
+      errors.push(`${h.id}: ${e?.message || String(e)}`)
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    dryRun: false,
+    count: moved.length,
+    ids: moved,
+    titles: movedTitles,
+    trashDir,
+    error: errors.length ? errors.join('; ') : undefined,
+  }
+}
+
 /**
  * 状态的中文口径（2026-09-28）。**唯一真身在主进程**，渲染层通过 IPC 拿同一份。
  * `active` 的中文从「进行中」改成「待处理」——「进行中」现在是 running 标记的专属名字。

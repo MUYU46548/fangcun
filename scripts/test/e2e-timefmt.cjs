@@ -164,6 +164,72 @@ function main() {
     /if\(r\.ok\)editSnap=""/.test(boardNoComment),
     `snap=${(boardNoComment.match(/editSnap=formSnap\(\)/g) || []).length} force=${/function closeModal\(force\)/.test(boardNoComment)} bypass=${(boardNoComment.match(/closeModal\(true\)/g) || []).length}`)
 
+  // ══ E. 待办「日期 + 可选时间」合成（2026-10-12 暮雨：待办只有到期日，想再加个时间）══
+  //   原话场景：「workbuddy 额度 21:33:59 重置，让用户选个 21:39」——
+  //   所以 due=今天 + dueTime=21:39 必须在 **21:39 之后**就算过期，而不是等第二天。
+  //   ⚠ 这里测的是 shared/time 的纯函数；App.vue 里不许内联日期算术（e2e-calendar 有守卫）。
+  const today = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const ymd = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+
+  // ⚠ E1 记录一个**既有口径**（不是缺陷，别"顺手修"）：
+  //   `parseTime('2026-10-12')` 走 `Date.parse` → 按 **UTC 零点** 解析，
+  //   在东八区落成当天 08:00。所以"只有日期"的 parseDueAt 是 08:00 而不是 00:00。
+  //   这是老代码一直的样子（`daysSince` 也吃同一口），待办的"逾期天数"因此以早八点为界。
+  //   本次只**记录**它，不改变它 —— 改它会同时动到日历/逾期/归档三处既有行为。
+  check('E1 parseDueAt：只有日期 → 当天（口径：UTC 零点，东八区=08:00，记录既有行为）',
+    (() => {
+      const d = new Date(t.parseDueAt('2026-10-12'))
+      const p = new Date(Date.parse('2026-10-12'))
+      return d.getTime() === p.getTime() && d.getMinutes() === 0
+    })(),
+    new Date(t.parseDueAt('2026-10-12')).toString())
+  check('E2 parseDueAt：日期 + 时间 → 那一天的 21:39（不是 00:00）',
+    (() => { const d = new Date(t.parseDueAt('2026-10-12', '21:39')); return d.getHours() === 21 && d.getMinutes() === 39 })())
+  check('E3 parseDueAt：只有时间没日期 → 挂到今天那个点',
+    (() => { const d = new Date(t.parseDueAt('', '21:39')); return d.getHours() === 21 && d.getMinutes() === 39 && d.getDate() === today.getDate() })())
+  check('E4 parseDueAt：全角冒号也认（21：39）',
+    t.parseDueAt('2026-10-12', '21：39') === t.parseDueAt('2026-10-12', '21:39'))
+  check('E5 parseDueAt：冒号带秒也认（21:39:00 = 21:39）',
+    t.parseDueAt('2026-10-12', '21:39:00') === t.parseDueAt('2026-10-12', '21:39'))
+  check('E6 parseDueAt：都解析不了 → NaN（调用方当"没有截止"处理）',
+    [t.parseDueAt('', ''), t.parseDueAt('abc', 'xyz'), t.parseDueAt(undefined, undefined)]
+      .every((v) => Number.isNaN(v)))
+  check('E7 parseDueAt：秒归零（分钟级对齐，不是"现在这一秒"）',
+    (() => { const d = new Date(t.parseDueAt('2026-10-12', '21:39')); return d.getSeconds() === 0 && d.getMilliseconds() === 0 })())
+
+  check('E8 formatDueTime：21:39 原样', t.formatDueTime('21:39') === '21:39')
+  check('E9 formatDueTime：9:5 补齐成 09:05',
+    t.formatDueTime('9:5') === '09:05', t.formatDueTime('9:5'))
+  check('E10 formatDueTime：越界/乱码一律空串（不许把乱码印到界面上）',
+    ['', 'abc', '99:99', '25:00', '12:99', undefined, null].every((v) => t.formatDueTime(v) === ''),
+    JSON.stringify(['', 'abc', '99:99'].map((v) => t.formatDueTime(v))))
+
+  // daysSinceDue —— 这条是本次真正踩到的坑：原先 App.vue 内联写日期算术，
+  // 被 e2e-calendar 的守卫抓住。迁进 shared/time 之后，行为必须与旧口径一致。
+  check('E11 daysSinceDue：无时间时等价于 daysSince（老行为一字不变）',
+    t.daysSinceDue('2026-10-01') === t.daysSince('2026-10-01'))
+  check('E12 daysSinceDue：**今天 + 已过的时分** → 正数（不是 0）',
+    (() => {
+      // 挑一个今天肯定已经过去的时间点（现在的小时减 1，跨零点则退到 00:01）
+      const now = new Date()
+      const h = now.getHours() > 0 ? now.getHours() - 1 : 0
+      const v = t.daysSinceDue(ymd, pad(h) + ':00')
+      return v > 0 && v < 1
+    })())
+  check('E13 daysSinceDue：**今天 + 还没到的时分** → 负数（还没到期）',
+    (() => {
+      const now = new Date()
+      const h = now.getHours() < 23 ? now.getHours() + 1 : 23
+      const v = t.daysSinceDue(ymd, pad(h) + ':59')
+      return v < 0
+    })())
+  check('E14 daysSinceDue：dueTime 是空串/undefined → 退回按天（不要被空串带偏）',
+    t.daysSinceDue('2026-10-01', '') === t.daysSince('2026-10-01') &&
+    t.daysSinceDue('2026-10-01', undefined) === t.daysSince('2026-10-01'))
+  check('E15 daysSinceDue：日期都解析不了 → NaN（不是 0）',
+    Number.isNaN(t.daysSinceDue('abc', '21:39')))
+
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)
   if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f); process.exitCode = 1 }

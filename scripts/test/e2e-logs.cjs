@@ -763,6 +763,78 @@ function main() {
         readSrc('data/index.ts')))
   }
 
+  // ── 2026-10-13 暮雨第 2 条：按日期批量清理「已归档」日志（软删，不是硬删）────
+  //   与 destroyLog 的分工：那个逐条硬删（unlink）；这个按日期一把筛、移进 .trash 可恢复。
+  {
+    // 造 4 条：两条老归档（9-01 / 9-20）、一条"新"归档（10-05）、一条 active（9-01）
+    // ⚠ 要同时打 `created` 与 `log_date` 两处 —— purge 与 listLogs 的日期筛选同口径
+    //   （都用 `logDate || created`），只改一处会被 log_date（默认当天）挡掉，命中恒 0。
+    const mk = (title, createdIso, status) => {
+      const r = logs.createLog(title, 'demo', '内容', undefined)
+      const id = r.data.id
+      const p = path.join(LOGS_DIR, `${id}.md`)
+      let s = fs.readFileSync(p, 'utf-8')
+      s = s.replace(/^created: .*$/m, `created: ${createdIso}`)
+      s = s.replace(/^status: .*$/m, `status: ${status}`)
+      s = s.replace(/^log_date: .*$/m, `log_date: '${createdIso.slice(0, 10)}'`)
+      fs.writeFileSync(p, s, 'utf-8')
+      return id
+    }
+    const old1 = mk('老归档甲', '2026-09-01T00:00:00.000Z', 'archived')
+    const old2 = mk('老归档乙', '2026-09-20T00:00:00.000Z', 'archived')
+    const fresh = mk('新归档', '2026-10-05T00:00:00.000Z', 'archived')
+    const act = mk('待处理甲', '2026-09-01T00:00:00.000Z', 'active')
+
+    // ① dryRun：只报命中、绝不落盘（界面「预览命中」靠它）
+    const beforeList = logs.listLogs().map(l => l.id).sort().join(',')
+    const dry = logs.purgeArchivedBefore('2026-10-01', { dryRun: true })
+    check('★ 清理归档 dryRun：ok 且报出命中 2 条（9-01 / 9-20 两条老归档）',
+      dry.ok === true && dry.dryRun === true && dry.count === 2, JSON.stringify(dry))
+    check('★ 清理归档 dryRun：命中 id 精确等于那两条',
+      dry.ids.slice().sort().join(',') === [old1, old2].slice().sort().join(','), JSON.stringify(dry.ids))
+    check('★★ 清理归档 dryRun：一个文件都没动（预览不能有副作用）',
+      fs.existsSync(path.join(LOGS_DIR, `${old1}.md`)) && fs.existsSync(path.join(LOGS_DIR, `${old2}.md`)))
+    check('★★ 清理归档 dryRun：listLogs 结果逐字节不变（预览不吐也不吃）',
+      logs.listLogs().map(l => l.id).sort().join(',') === beforeList)
+
+    // ② 日期闸是开区间：边界当天（10-01）的归档**不删**（宁可少删不可多删）
+    const edge = mk('边界当天归档', '2026-10-01T00:00:00.000Z', 'archived')
+    const dry2 = logs.purgeArchivedBefore('2026-10-01', { dryRun: true })
+    check('★ 清理归档：日期闸开区间（10-01 当天不算"早于 10-01"，不命中）',
+      !dry2.ids.includes(edge) && dry2.count === 2, JSON.stringify(dry2.ids))
+
+    // ③ 非法日期：显式报错且零改动（不许当"没命中"糊过去）
+    const bad = logs.purgeArchivedBefore('2026/10/01', { dryRun: false })
+    check('★ 清理归档：非法日期 → ok:false + error，且不删任何文件',
+      bad.ok === false && !!bad.error && fs.existsSync(path.join(LOGS_DIR, `${old1}.md`)), JSON.stringify(bad))
+
+    // ④ 真删：原处消失 + 进 .trash + 非命中项完好
+    const real = logs.purgeArchivedBefore('2026-10-01', { dryRun: false })
+    check('★ 清理归档真删：ok 且移走 2 条',
+      real.ok === true && real.dryRun === false && real.count === 2, JSON.stringify(real))
+    check('★★ 清理归档真删：原处文件已消失（是移动不是复制）',
+      !fs.existsSync(path.join(LOGS_DIR, `${old1}.md`)) && !fs.existsSync(path.join(LOGS_DIR, `${old2}.md`)))
+    check('★★ 清理归档真删：文件躺进 .trash（可恢复，不是 fs.unlink 硬删）',
+      fs.existsSync(path.join(LOGS_DIR, '.trash', `${old1}.md`)) && fs.existsSync(path.join(LOGS_DIR, '.trash', `${old2}.md`)))
+    check('★ 清理归档真删：非命中项原样保留（新归档 / 待处理 / 边界当天）',
+      fs.existsSync(path.join(LOGS_DIR, `${fresh}.md`)) && fs.existsSync(path.join(LOGS_DIR, `${act}.md`))
+      && fs.existsSync(path.join(LOGS_DIR, `${edge}.md`)))
+    const afterIds = logs.listLogs().map(l => l.id)
+    check('★★ 清理归档：回收站里的日志**不会**又被 listLogs 扫回来（.trash 是目录，按 .md 过滤天然排除）',
+      !afterIds.includes(old1) && !afterIds.includes(old2) && afterIds.includes(fresh) && afterIds.includes(act))
+    check('★ 清理归档：只动归档态（active 那条仍是 active）', logs.getLog(act).status === 'active')
+
+    // ⑤ 幂等：同条件重跑 → 0 条（不会重复计数）
+    const again = logs.purgeArchivedBefore('2026-10-01', { dryRun: false })
+    check('★ 清理归档：同条件重跑命中 0 条（幂等）', again.ok === true && again.count === 0, JSON.stringify(again))
+
+    // ⑥ 源码守卫：不许把硬删写回这里（软删是这条功能的卖点）
+    const logsSrc = fs.readFileSync(path.join(__dirname, '../../desktop/src/main/services/logs.ts'), 'utf-8')
+    check('★★ 清理归档：purgeArchivedBefore 里不许出现 fs.unlink（一出现就是"可恢复"名不副实）',
+      /export function purgeArchivedBefore[\s\S]*?\n\}/.test(logsSrc)
+      && !/fs\.unlinkSync/.test(logsSrc.slice(logsSrc.indexOf('export function purgeArchivedBefore'), logsSrc.indexOf('export function purgeArchivedBefore') + 2600)))
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')

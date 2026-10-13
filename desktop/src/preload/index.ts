@@ -139,6 +139,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */
   prefsSetMany: (patch: Record<string, any>) => ipcRenderer.invoke('prefs:setMany', patch),
   logsCleanup: () => ipcRenderer.invoke('logs:cleanup'),
+  /** 按日期批量清理「已归档」日志（软删：移进 logsDir/.trash，可恢复）。dryRun=只报命中条数 */
+  logsPurgeArchived: (beforeDate: string, opts?: { dryRun?: boolean }) => ipcRenderer.invoke('logs:purgeArchived', beforeDate, opts),
 
   // Blockers
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),
@@ -212,7 +214,8 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── Todos ─────────────────────────────────────────────────────────
   todosList: (filter?: any) => ipcRenderer.invoke('todos:list', filter),
-  todosCreate: (title: string, priority?: string, due?: string, project?: string, fromLog?: string) => ipcRenderer.invoke('todos:create', title, priority, due, project, fromLog),
+  // dueTime（2026-10-12 暮雨）：到期日的**可选时间**（HH:MM）—— 空串即未设。
+  todosCreate: (title: string, priority?: string, due?: string, project?: string, fromLog?: string, dueTime?: string) => ipcRenderer.invoke('todos:create', title, priority, due, project, fromLog, dueTime),
   todosUpdate: (id: string, updates: any) => ipcRenderer.invoke('todos:update', id, updates),
   todosToggle: (id: string) => ipcRenderer.invoke('todos:toggle', id),
   todosDelete: (id: string) => ipcRenderer.invoke('todos:delete', id),

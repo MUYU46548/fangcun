@@ -54,6 +54,12 @@ CASES = {
     'proj_comma':   {'项目': ['a,b']},
     'blocker_hash': {'阻塞': ['#task-1']},
     'ziliao_colon': {'资源': {'资料': 'E:/a: b.md', '工具': []}},
+    # 架构图（2026-10-13 · 方案 A）：值是 LayerDiagramSpec 的 JSON。含 `{ } " :` 等元字符，
+    # 必须靠标量引号保住；两侧读回都得是**同一个字符串**。
+    'arch_json':    {'标题': 'ok 标题', '架构': '{"lanes":[{"name":"核心层","cards":[{"label":"用户"},{"label":"订单"}]}],"between":["HTTP / WSS"],"width":900}'},
+    # ⚠ 反例：手工写成 YAML 嵌套映射（解析成 dict）也必须安全 —— render_task 要把它 json.dumps
+    #   回**标量**，绝不许原样吐出嵌套映射（全仓只许 1 处的红线）。
+    'arch_nested':  {'标题': 'ok 标题', '架构': {'lanes': [{'name': '网关层', 'cards': [{'label': 'API Gateway'}]}], 'width': 680}},
 }
 
 report = []
@@ -83,6 +89,14 @@ for name, patch in CASES.items():
     got_title = (back or {}).get('标题')
     got_tags = (back or {}).get('标签')
 
+    # 架构图：期望值是**标量字符串**（dict/list 输入先 json.dumps 回标量）
+    expect_arch = patch.get('架构', base.get('架构'))
+    if isinstance(expect_arch, (dict, list)):
+        expect_arch = json.dumps(expect_arch, ensure_ascii=False)
+    expect_arch = None if expect_arch in (None, '') else str(expect_arch)
+    got_arch = (back or {}).get('架构')
+    arch_ok = (expect_arch is None and not got_arch) or (got_arch == expect_arch)
+
     report.append({
         'case': name,
         'file': fp,
@@ -94,6 +108,9 @@ for name, patch in CASES.items():
         'expect_tags': expect_tags,
         'got_tags': got_tags,
         'tags_ok': got_tags == expect_tags,
+        'expect_arch': expect_arch,
+        'got_arch': got_arch,
+        'arch_ok': arch_ok,
         # 只摘录受影响的 frontmatter 行，便于人工核对
         'fm_lines': [l for l in content.split('\n')[1:22] if l.strip()],
     })
@@ -119,7 +136,7 @@ for (const f of fs.readdirSync(OUT).filter(x => x.endsWith('.md'))) {
   const t = data.parseTask(path.join(OUT, f))
   const fm = t ? t.fm : {}
   res[f.replace(/\.md$/, '')] = t
-    ? { ok: true, title: fm.title, tags: fm.tags, blockers: fm.blockers, ziliao: fm.resources && fm.resources.ziliao }
+    ? { ok: true, title: fm.title, tags: fm.tags, blockers: fm.blockers, ziliao: fm.resources && fm.resources.ziliao, arch: fm.architecture }
     : { ok: false }
 }
 process.stdout.write(JSON.stringify(res))
@@ -149,6 +166,7 @@ for r in report:
         continue
     t = 'OK' if r['title_ok'] else ('丢失' if r['got_title'] is None else '失真')
     g = 'OK' if r['tags_ok'] else ('丢失' if r['got_tags'] is None else '失真')
+    a = 'OK' if r['arch_ok'] else ('丢失' if r['got_arch'] is None else '失真')
     j = js.get(r['case'], {})
     if not j:
         jsr = '未校验'
@@ -158,11 +176,15 @@ for r in report:
     elif j.get('title') != r['expect_title'] or j.get('tags') != r['expect_tags']:
         jsr = f"✗ 失真 title={j.get('title')!r} tags={j.get('tags')!r}"
         fails += 1
+    elif r['expect_arch'] is not None and j.get('arch') != r['expect_arch']:
+        # 架构图：桌面版读回也必须是**同一个字符串**（嵌套映射会在这里现形）
+        jsr = f"✗ 架构失真 arch={j.get('arch')!r}"
+        fails += 1
     else:
         jsr = 'OK'
-    if t != 'OK' or g != 'OK':
+    if t != 'OK' or g != 'OK' or a != 'OK':
         fails += 1
-    print(f"{r['case']:<20} {'OK' if r['py_parse_ok'] else 'FAIL':<7} {t:<6} {g:<6} {jsr}")
+    print(f"{r['case']:<20} {'OK' if r['py_parse_ok'] else 'FAIL':<7} {t:<6} {g:<6} 架构{a:<4} {jsr}")
 
 print('-' * 62)
 print('结论:', '两侧往返全部一致 ✓' if fails == 0 else f'✗ {fails} 项不一致')

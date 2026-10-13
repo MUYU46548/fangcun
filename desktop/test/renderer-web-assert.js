@@ -150,22 +150,47 @@
       check('  面板可收起（Esc）', !$('.fpop'), 'still=' + $$('.fpop').length)
     }
 
-    // ══ 用户 2026-10-11 第二条驳回：面板**不许把顶栏撑肥**，按钮**不许折行** ═══════
-    // 原话：「一点筛选顶部直接变肥，太雷霆了，一点美感都没有」「"折叠全部"的文字都飞了」。
-    // 两条都用**几何**钉住 —— 这类问题肉眼才看得出来，"元素存在"是断言不到的。
+    // ══ 用户 2026-10-11 第二条驳回 + **2026-10-12 二次驳回** ═══════════════════════
+    // 10-11 原话：「一点筛选顶部直接变肥」「"折叠全部"的文字都飞了」。
+    // 10-12 原话：「现在这个搜索框未免太长太恐怖了，看着很难受。人家浏览器顶上写链接，
+    //              才需要那么长。**折叠全部按钮的文本都没了，根本认不出来**。
+    //              而且**返回按钮也没了**。另外其实我还想加其他主按钮，比如首页、帮助手册、同步等等。」
+    // 全部用**几何 / 结构**钉住 —— 这类问题肉眼才看得出来，"元素存在"断言不到。
     {
       const barH0 = $('#bar') ? $('#bar').offsetHeight : -1
       const foldBtn = $('#btn-fold-all')
       const foldH = foldBtn ? Math.round(foldBtn.getBoundingClientRect().height) : -1
       const foldWS = foldBtn ? getComputedStyle(foldBtn).whiteSpace : ''
-      // 判据两件，缺一不可：
+      // 判据三件，缺一不可：
       //   · 计算样式是 nowrap —— 这是"不折行"的**机制**（改了它下次窗口一窄就复发）
       //   · 高度与同排其它按钮一致 —— 折行的直接后果就是比邻居高一截（几何证据）
+      //   · **文案里有「折叠」或「展开」** —— 2026-10-12 暮雨原话「折叠全部按钮的文本都没了，
+      //     根本认不出来」：上一轮收成纯 `⊟` 就是这条钉漏了（只钉了"不折行"，没钉"看得懂"）
+      const foldTxt = foldBtn ? String(foldBtn.textContent).trim() : ''
       const peer = $$('.fbar-btn').find((b) => b.offsetParent !== null)
       const peerH = peer ? Math.round(peer.getBoundingClientRect().height) : -1
       check('★ 「折叠全部」不折行（用户截图：四个字被压成两行飞了）',
         !!foldBtn && foldWS === 'nowrap' && foldH > 0 && peerH > 0 && Math.abs(foldH - peerH) <= 2,
         `h=${foldH} peer=${peerH} white-space=${foldWS}`)
+      check('★★ 「折叠」按钮**带文字**且一眼可读（2026-10-12：收成纯 ⊟ 被用户驳回"认不出来"）',
+        /折叠|展开/.test(foldTxt),
+        `text="${foldTxt}"`)
+
+      // ── 2026-10-12 新增：顶栏左侧按钮组（暮雨：「放顶栏左侧，参考 Edge」）─────────
+      // 四个按钮各有断言：返回必须**常驻**（不再 v-if 时有时无）、首页/帮助/同步必须真的可点。
+      const backBtn = $('.nav-back')
+      check('★★ 「← 返回」按钮**常驻**（不再 v-if="canGoBack" —— 用户报"返回按钮没了"的真因）',
+        !!backBtn && backBtn.offsetParent !== null,
+        backBtn ? 'text="' + String(backBtn.textContent).trim() + '"' : '(不在 DOM)')
+      check('  没有历史时「← 返回」是 disabled 置灰（还在原位，不是消失）',
+        !!backBtn && (backBtn.disabled === true || backBtn.classList.contains('disabled')),
+        backBtn ? 'disabled=' + backBtn.disabled : '')
+      const homeBtn = $('.navgroup .nav-ico-home, #bar .navgroup button[title*="首页"]')
+      const helpBtn = $('#bar .navgroup button[title*="帮助"]')
+      const syncBtn = $('#bar .navgroup button[title*="同步"]')
+      check('★★ 顶栏有「首页 / 帮助 / 同步」三个入口（2026-10-12 暮雨第 4 条）',
+        !!homeBtn && !!helpBtn && !!syncBtn,
+        `home=${!!homeBtn} help=${!!helpBtn} sync=${!!syncBtn}`)
 
       const stB = $('.fbar-filter-btn')
       if (stB) {
@@ -218,15 +243,28 @@
         // 2026-10-12（重做丙案）新增两条 —— 都是**用户看得见的坏症状**的判据：
         //  ① 搜索框被压到占位文字截断：14 控件时代它只剩一半宽，占位文字在中间被切断；
         //  ② 标题与控件之间一大片空白：`#bar` 是 space-between，`.ctrls` 不撑满就会这样。
-        check('★ 搜索框够宽（不被压到占位文字截断）—— 14 控件时代它只剩一半',
+        // 2026-10-12 二次驳回**再修一条**：搜索框从"太短被切断"变成"太长太恐怖"——
+        //   上一轮写 `flex: 1 1 220px` 让它吸走全部余量（实测 **877px**，暮雨：
+        //   「人家浏览器顶上写链接，才需要那么长」）。**上限**必须钉住：吸满是这版的病。
+        check('★ 搜索框宽度**上限** 340px（2026-10-12：上一版吸满全宽 877px，用户嫌"太长太恐怖"）',
           (() => {
             const inp = $('.fbar .search')
             if (!inp) return false
-            return Math.round(inp.getBoundingClientRect().width) >= 260
+            const w = Math.round(inp.getBoundingClientRect().width)
+            return w >= 180 && w <= 340
           })(),
           (() => {
             const inp = $('.fbar .search')
             return inp ? 'w=' + Math.round(inp.getBoundingClientRect().width) : 'no .fbar .search'
+          })())
+        check('  搜索框不许再吸余量（计算样式的 flex-grow 必须是 0，否则窗口一变宽就复发）',
+          (() => {
+            const inp = $('.fbar .search')
+            return !!inp && getComputedStyle(inp).flexGrow === '0'
+          })(),
+          (() => {
+            const inp = $('.fbar .search')
+            return inp ? 'flex-grow=' + getComputedStyle(inp).flexGrow : 'no .fbar .search'
           })())
         check('★ 控件区撑满顶栏（标题与控件之间不许留一大片空白）',
           (() => {
@@ -238,19 +276,44 @@
             const bar = $('#bar'), c = $('#bar .ctrls')
             return (bar && c) ? `ctrls=${Math.round(c.getBoundingClientRect().width)} bar=${bar.clientWidth}` : 'no bar'
           })())
+        // 2026-10-12：搜索框固定宽之后，"把筛选控件推到右端"的活由 `.fbar-grow` 撑杆干。
+        // 判据用**可用空间**而不是"已用尺寸占比"（memory：几何断言别拿占比当判据）：
+        //   排序按钮的右缘 应当贴近 顶栏右缘（中间的空白由撑杆吸收）。
+        check('★ 筛选/分组/排序仍贴右端（搜索框固定宽后，余量交给撑杆吸收而不是留成缺口）',
+          (() => {
+            const bar = $('#bar')
+            const sortBtn = $('.fbar-sort-btn')
+            const grow = $('.fbar-grow')
+            if (!bar || !sortBtn || !grow) return false
+            const br = bar.getBoundingClientRect(), sr = sortBtn.getBoundingClientRect()
+            const gr = grow.getBoundingClientRect()
+            return (br.right - sr.right) <= 22 && gr.width >= 0
+          })(),
+          (() => {
+            const bar = $('#bar'), sortBtn = $('.fbar-sort-btn'), grow = $('.fbar-grow')
+            if (!bar || !sortBtn) return 'no bar/sort'
+            return `barRight=${Math.round(bar.getBoundingClientRect().right)}`
+              + ` sortRight=${Math.round(sortBtn.getBoundingClientRect().right)}`
+              + (grow ? ` grow=${Math.round(grow.getBoundingClientRect().width)}` : ' no grow')
+          })())
         check('★ 顶栏不横向溢出 且 筛选控件与标题**同一行**（返回按钮才不会被甩走）', (() => {
           const bar = $('#bar')
           const fb = $('.fbar')
           const ttl = $('#bar .title')
           const ctrls = $('#bar .ctrls')
+          const nav = $('#bar .navgroup')
           if (!bar || !fb || !ttl || !ctrls) return false
           const sameRow = Math.abs(ctrls.getBoundingClientRect().top - ttl.getBoundingClientRect().top) <= 6
-          return bar.scrollWidth <= bar.clientWidth + 1 && sameRow
+          // 2026-10-12：左侧按钮组也必须与标题**同排** —— 它若被挤到第二行，
+          // 就重现了用户报的"返回按钮不见了"（其实是跑到别处去了）。
+          const navSameRow = !nav || Math.abs(nav.getBoundingClientRect().top - ttl.getBoundingClientRect().top) <= 6
+          return bar.scrollWidth <= bar.clientWidth + 1 && sameRow && navSameRow
         })(), (() => {
-          const bar = $('#bar'), ttl = $('#bar .title'), ctrls = $('#bar .ctrls')
+          const bar = $('#bar'), ttl = $('#bar .title'), ctrls = $('#bar .ctrls'), nav = $('#bar .navgroup')
           if (!bar || !ttl || !ctrls) return 'no bar'
           return `scroll=${bar.scrollWidth} client=${bar.clientWidth}`
             + ` ttlTop=${Math.round(ttl.getBoundingClientRect().top)} ctrlsTop=${Math.round(ctrls.getBoundingClientRect().top)}`
+            + (nav ? ` navTop=${Math.round(nav.getBoundingClientRect().top)}` : ' no navgroup')
         })())
 
         // ⚠ 下面两条是"用成熟原语"换来的行为（2026-10-11：改用 reka-ui 的 Popover）——
@@ -525,6 +588,82 @@
     await waitFor(() => !$('#todo-edit-modal'), 4000, '弹窗关闭')
     check('  造出一条长标题待办（网格断言就位）',
       await waitFor(() => $$('main.todos-view .todo-item').some((it) => (it.textContent || '').indexOf('最多三行不截断') >= 0), 5000, '长标题待办'))
+
+    // ══ 待办的**可选到期时间**（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
+    //    如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）══════════════════════════
+    // 四件事必须同时成立，缺一条这个功能就是"看着有、用不了"：
+    //   ① 编辑弹窗里真有时间输入框；② 保存时 dueTime **真的传下去**（不是只改界面）；
+    //   ③ 列表上**看得见**时分；④ 能清空（填错了要能去掉 —— 清空 = 字段消失，不是存空串）。
+    {
+      const nb2 = $$('main.todos-view .todos-ctrls button').find((b) => b.textContent.indexOf('新建待办') >= 0)
+      if (nb2) nb2.click()
+      const opened = await waitFor(() => !!$('#todo-edit-modal'), 4000, '时间字段用的新建弹窗')
+      check('★ 待办弹窗里有「时间（可选）」输入框（2026-10-12 新增）',
+        opened && !!$('#todo-edit-modal input[type="time"]'),
+        'modal=' + opened + ' timeInput=' + !!$('#todo-edit-modal input[type="time"]'))
+      if (opened) {
+        const ta = $('#todo-edit-modal textarea')
+        const dInp = $('#todo-edit-modal input[type="date"]')
+        const tInp = $('#todo-edit-modal input[type="time"]')
+        const setVal = (el, v) => {
+          el.value = v
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        if (ta) setVal(ta, '断言用：额度重置后抢跑（带时间）')
+        if (dInp) setVal(dInp, '2026-10-12')
+        if (tInp) setVal(tInp, '21:39')
+        const beforeC = window.__fcTest.callCount('todosCreate')
+        const sb = $$('#todo-edit-modal button').find((b) => (b.textContent || '').trim() === '保存')
+        if (sb) sb.click()
+        await waitFor(() => window.__fcTest.callCount('todosCreate') > beforeC, 4000, '带时间的 todosCreate')
+        const call = window.__fcTest.calls().filter((c) => c.name === 'todosCreate').pop()
+        const args = (call && call.args) || []
+        check('★★ 保存时 dueTime **真的传下去**了（第 6 个参数 = 21:39，不是只改了界面）',
+          args[5] === '21:39' && args[2] === '2026-10-12',
+          'date=' + JSON.stringify(args[2]) + ' dueTime=' + JSON.stringify(args[5]))
+        await waitFor(() => !$('#todo-edit-modal'), 4000, '带时间弹窗关闭')
+        check('★★ 列表上**看得见时分**（到期那格显示 21:39，而不是只显示日期）',
+          await waitFor(() => $$('main.todos-view .todo-item').some((it) => {
+            const d = it.querySelector('.todo-due')
+            return d && (d.textContent || '').indexOf('21:39') >= 0
+          }), 5000, '列表显示 21:39'))
+        // 清空：再打开同一条，清掉时间 → 保存 → 字段应消失（不是存成空串）
+        const item = $$('main.todos-view .todo-item').find((it) => (it.textContent || '').indexOf('额度重置后抢跑') >= 0)
+        const eb = item && item.querySelector('.todo-edit')
+        if (eb) {
+          eb.click()
+          const reopened = await waitFor(() => !!$('#todo-edit-modal input[type="time"]'), 4000, '重开编辑')
+          if (reopened) {
+            check('  重开编辑时时间**回填**成 21:39（不是空白 —— 否则用户以为没设过）',
+              $('#todo-edit-modal input[type="time"]').value === '21:39',
+              'value=' + JSON.stringify($('#todo-edit-modal input[type="time"]').value))
+            const clr = $('.te-time-clear')
+            if (clr) clr.click()
+            await sleep(120)
+            const beforeU = window.__fcTest.callCount('todosUpdate')
+            const sb2 = $$('#todo-edit-modal button').find((b) => (b.textContent || '').trim() === '保存')
+            if (sb2) sb2.click()
+            await waitFor(() => window.__fcTest.callCount('todosUpdate') > beforeU, 4000, '清空时间的 todosUpdate')
+            const uCall = window.__fcTest.calls().filter((c) => c.name === 'todosUpdate').pop()
+            const patch = (uCall && uCall.args && uCall.args[1]) || {}
+            check('★★ 清空时间：保存时 dueTime 传**空串**（清空 ≠ 存空串 —— 服务端据此把字段整个删掉）',
+              'dueTime' in patch && patch.dueTime === '',
+              'patch.dueTime=' + JSON.stringify(patch.dueTime))
+            await waitFor(() => !$('#todo-edit-modal'), 4000, '清空后弹窗关闭')
+            check('  清空后列表那格**不再显示时分**（回到只按天）',
+              await waitFor(() => $$('main.todos-view .todo-item')
+                .filter((it) => (it.textContent || '').indexOf('额度重置后抢跑') >= 0)
+                .every((it) => {
+                  const d = it.querySelector('.todo-due')
+                  return !d || (d.textContent || '').indexOf('21:39') < 0
+                }), 4000, '清空后无时分'))
+          } else {
+            check('  重开编辑（时间回填断言的就位前提）', false, '重开失败')
+          }
+        }
+      }
+    }
 
     // ── 待办行＝两行卡（2026-09-29 用户拍板：「待办行改成两行卡」）──────────
     // 判据：上行标题、下行元信息；标题占满整行；行尾三枚按钮收进一个动作区。
@@ -868,10 +1007,22 @@
 
     // ══ 日历 · 格子内折叠（2026-09-29 用户选「改法 A」）════════════════════
     // 035 卡原话「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
-    // 剩下的密在**格子内部** —— 夹具把 4 条事件压在「今天」（001 + 011/012/013，
+    // 剩下的密在**格子内部** —— 夹具把若干条事件压在「今天」（001 + 011/012/013…，
     // 日期跟随运行日，见 renderer-preload.cjs 的 FIX_DEADLINE：写死 9-30 会在每月 1 号假红）。
+    //
+    // ⚠ 2026-10-12：原先这里把「今天」的事件条数**写死成 4**（`evs === 2` + `+2 条`）。
+    //   后来待办改版往「今天」又加了一条（待办也上日历）→ 变成 5 条 → `+3 条` → 假红。
+    //   真规格是「格子里最多铺 CAP 条，其余折成 +N 条」，不是某个具体数字。所以：
+    //   ① 期望值从**夹具真身**（window.__fcTest.fixTodayCount()）算 —— 夹具增删它自动跟上；
+    //   ② CAP 同步读 window.__fcTest.calCellCap()，与 App.vue 用同一个常量，不各写一份。
     check('能切到「日历」页签', clickText('日历'))
     await sleep(700)
+    const CAL_CAP = Number((window.__fcTest && window.__fcTest.calCellCap && window.__fcTest.calCellCap()) || 2)
+    const CAL_TODAY_N = Number((window.__fcTest && window.__fcTest.fixTodayCount && window.__fcTest.fixTodayCount()) || 0)
+    // 夹具没暴露这两个数就退回老期望（4 条 / 2 条上限），至少不会静默跳过
+    const todayN = CAL_TODAY_N > 0 ? CAL_TODAY_N : (CAL_CAP + 2)
+    const expEvs = Math.min(CAL_CAP, todayN)
+    const expMore = todayN > CAL_CAP ? `+${todayN - CAL_CAP} 条` : ''
     const calCellOf = () => $$('main.calendar-view .calcell')
       .filter((c) => (c.textContent || '').indexOf('日历密度样例一') >= 0)[0]
     const cal0 = (() => {
@@ -882,8 +1033,9 @@
         more: ((c.querySelector('.cal-cell-more') || {}).textContent || '').trim(),
       }
     })()
-    check('★ 一天多条时格子里只铺 2 条，剩下折成「+N 条」（改法 A）',
-      !cal0.err && cal0.evs === 2 && /\+2 条/.test(cal0.more), JSON.stringify(cal0))
+    check(`★ 一天多条时格子里最多铺 ${CAL_CAP} 条，剩下折成「${expMore || '+N 条'}」（改法 A）`,
+      !cal0.err && cal0.evs === expEvs && (expMore ? cal0.more.indexOf(expMore) >= 0 : cal0.more === ''),
+      JSON.stringify(Object.assign({ todayN, cap: CAL_CAP, expEvs, expMore }, cal0)))
     check('★ 点「+N 条」就地铺满这一天（不跳页、不弹窗）', await (async () => {
       const c = calCellOf()
       const b = c && c.querySelector('.cal-cell-more')
@@ -891,23 +1043,23 @@
       b.click()
       return waitFor(() => {
         const c2 = calCellOf()
-        return !!c2 && c2.querySelectorAll('.cev').length >= 4 && !!c2.querySelector('.cal-cell-more.less')
+        return !!c2 && c2.querySelectorAll('.cev').length >= todayN && !!c2.querySelector('.cal-cell-more.less')
       }, 4000, '日历展开')
     })())
-    check('  再点「收起」回到 2 条（折叠不是单向开关）', await (async () => {
+    check('  再点「收起」回到折叠态（折叠不是单向开关）', await (async () => {
       const c = calCellOf()
       const b = c && c.querySelector('.cal-cell-more.less')
       if (!b) return false
       b.click()
       return waitFor(() => {
         const c2 = calCellOf()
-        return !!c2 && c2.querySelectorAll('.cev').length === 2 && !c2.querySelector('.cal-cell-more.less')
+        return !!c2 && c2.querySelectorAll('.cev').length === expEvs && !c2.querySelector('.cal-cell-more.less')
       }, 4000, '日历收起')
     })())
     check('  单条/空白的格子不长出「+N 条」（只在真的挤的时候才出现）',
       await (async () => {
         const others = $$('main.calendar-view .calcell').filter((c) => (c.textContent || '').indexOf('日历密度样例一') < 0)
-        return others.every((c) => c.querySelectorAll('.cev').length > 2 || !c.querySelector('.cal-cell-more'))
+        return others.every((c) => c.querySelectorAll('.cev').length > CAL_CAP || !c.querySelector('.cal-cell-more'))
       })())
 
     // ══ 项目页签 · 两种新摆法（2026-09-29 用户：「两种视图都要，做成可自选切换」）══
@@ -2848,6 +3000,215 @@
     }
     // ⚠ 合入（2026-10-12）：这一整段「决策卡」断言来自外部整包，与上面「死通道接回验收」是**两块独立**
     //   的断言 —— 冲突只是**位置重叠**（两边都往文件末尾追加），**两块都要留**，不许丢任何一边。
+
+    // ══ 帮助手册视图（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）
+    //    它只从**顶栏「?」**进入（页签行不重复放一个）—— 这里就按用户的真实路径点。
+    {
+      const helpBtn = $('#bar .navgroup button[title*="帮助"]')
+      check('★ 顶栏「? 帮助」按钮点得动（先把视图切回看板，确保有可回退来源）',
+        !!helpBtn && (clickText('看板'), true), helpBtn ? 'yes' : 'no helpBtn')
+      if (helpBtn) {
+        helpBtn.click()
+        check('★★ 点「?」真的进了帮助手册视图（.help-view 渲染出来）',
+          await waitFor(() => !!$('.help-view'), 4000, 'help view'))
+        check('  手册里确实有内容（不是空壳）：至少 5 节 + 至少 2 张表',
+          $$('.help-view .help-sec').length >= 5 && $$('.help-view .help-table').length >= 2,
+          'secs=' + $$('.help-view .help-sec').length + ' tables=' + $$('.help-view .help-table').length)
+        check('  手册讲清了搜索语法（含 due: 这种真实可用的写法）',
+          $$('.help-view').length && ($('.help-view').textContent || '').indexOf('due:') >= 0)
+        check('  ★ 帮助**不在页签行里重复出现**（入口唯一：顶栏「?」）',
+          !$$('nav#views .vbtn').some((b) => (b.textContent || '').indexOf('帮助') >= 0),
+          $$('nav#views .vbtn').map((b) => b.textContent.trim()).join('/'))
+        // 返回：帮助是走 navigateTo 进的，所以「← 返回」应当能把我们送回看板
+        const back = $('.nav-back')
+        if (back) {
+          back.click()
+          check('★★ 「← 返回」能从帮助视图退回上一视图（返回栈真的接了帮助）',
+            await waitFor(() => !$('.help-view'), 4000, 'back from help'))
+        }
+      }
+      // 首页：切到别的视图 → 点 ⌂ → 必须回看板
+      clickText('服务')
+      const homeBtn = $('#bar .navgroup button[title*="首页"]')
+      if (homeBtn) {
+        homeBtn.click()
+        check('★★ 点「⌂ 首页」回到看板（不是只切视图 —— 搜索/筛选也一起复位）',
+          await waitFor(() => !$('.services-view') && !$('.help-view'), 4000, 'goHome'))
+      } else {
+        check('  ⌂ 首页按钮存在', false, 'no homeBtn')
+      }
+      // 同步：暮雨 2026-10-12「只做按钮，状态由它自己报」——
+      // 判据两条：① 真调 backupGitPush（不是假按钮）；② 调完按钮**回到可点**（不许卡在"进行中"）。
+      const syncBtn = $('#bar .navgroup button[title*="同步"]')
+      if (syncBtn) {
+        const beforeSync = window.__fcTest.callCount('backupGitPush')
+        syncBtn.click()
+        check('★★ 点「⟳ 同步」真调 backupGitPush（不是个看着像按钮的装饰）',
+          await waitFor(() => window.__fcTest.callCount('backupGitPush') > beforeSync, 4000, 'backupGitPush'),
+          'calls=' + window.__fcTest.callCount('backupGitPush'))
+        check('  跑完之后按钮**回到可点**（不许永久卡在"进行中"）',
+          await waitFor(() => {
+            const b = $('#bar .navgroup button[title*="同步"]')
+            return !!b && b.disabled !== true
+          }, 4000, 'sync done'))
+      } else {
+        check('  ⟳ 同步按钮存在', false, 'no syncBtn')
+      }
+    }
+
+    // ══ 日志页「清理归档…」接线（2026-10-13 暮雨第 2 条）════════════════════
+    //  后台逻辑在 e2e-logs 里真跑；这里只验**按钮真接线**：假 preload 缺键 / 通道名打错
+    //  → 预览永远 0 条，是"看着像按钮的装饰"（check-ipc-parity 抓不到这种）。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-p1', title: '老归档', project: 'demo', status: 'archived', created: '2026-09-01T00:00:00.000Z', content: 'x' },
+        { id: 'log-p2', title: '新归档', project: 'demo', status: 'archived', created: '2026-10-05T00:00:00.000Z', content: 'y' },
+        { id: 'log-p3', title: '还在跑', project: 'demo', status: 'active', running: true, created: '2026-09-01T00:00:00.000Z', content: 'z' },
+      ])
+      clickText('看板'); await sleep(300)
+      clickText('日志'); await sleep(500)
+      window.__fcTest.reset()
+      check('  日志页有「清理归档…」入口', clickText('清理归档…'))
+      await sleep(300)
+      check('★★ 点开「清理归档…」弹出清理框（#log-purge-modal）',
+        await waitFor(() => !!$('#log-purge-modal'), 3000, 'log-purge-modal'))
+      // 日期设成 2026-10-01：只该命中 9-01 的老归档（10-05 那条"新"、active 那条都不算）
+      const dateInput = $('#log-purge-modal input[type="date"]')
+      if (dateInput) {
+        dateInput.value = '2026-10-01'
+        dateInput.dispatchEvent(new Event('input', { bubbles: true }))
+        dateInput.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      await sleep(200)
+      const pv = $$('#log-purge-modal button').find((b) => (b.textContent || '').indexOf('预览命中') >= 0)
+      if (pv) pv.click()
+      check('★★ 点「预览命中」真调 logsPurgeArchived 且 dryRun=true（不是装饰按钮）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsPurgeArchived' && c.args[1] && c.args[1].dryRun === true), 4000, 'purge dryRun'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'logsPurgeArchived').map((c) => c.args)))
+      check('★ 预览按日期报出命中 1 条（只有 9-01 那条老归档）',
+        await waitFor(() => { const e = $('#log-purge-modal .lpurge-preview'); return !!e && e.textContent.indexOf('将清理 1 条') >= 0 }, 3000, 'preview count'),
+        ($('#log-purge-modal .lpurge-preview') || {}).textContent)
+      check('★★ 预览是纯读：三条日志一条没少（dryRun 不许动 store）',
+        window.__fcTest.logs().length === 3, 'logs=' + window.__fcTest.logs().length)
+      // 确认清理：走原生 confirm 二次确认（无头环境把它桩成通过）
+      const realConfirm = window.confirm
+      window.confirm = () => true
+      const go = $$('#log-purge-modal button').find((b) => (b.textContent || '').indexOf('确认清理') >= 0)
+      if (go) go.click()
+      check('★★ 点「确认清理」真删：发出 dryRun=false 且日志只剩 2 条（老归档被移走）',
+        await waitFor(() => window.__fcTest.logs().length === 2
+          && window.__fcTest.calls().some((c) => c.name === 'logsPurgeArchived' && c.args[1] && c.args[1].dryRun === false), 4000, 'purge real'),
+        'logs=' + window.__fcTest.logs().length + ' | ' + JSON.stringify(window.__fcTest.logs().map((l) => l.id)))
+      window.confirm = realConfirm
+      check('  清理完自动关上清理框', await waitFor(() => !$('#log-purge-modal'), 2000, 'modal closed'))
+    }
+
+    // ══ 项目说明卡内嵌架构图（2026-10-13 暮雨第 2 条 · 方案 A）════════════════
+    //  纯函数本身在 e2e-layer-diagram 里真跑；这里验的是**接线**：任务 previewTask.architecture
+    //  → JSON.parse → buildLayerDiagram → v-html。坏 JSON 必须说人话（不静默留白）。
+    {
+      const ARCH = {
+        lanes: [
+          { name: '客户端层', cards: [{ label: 'Web App' }] },
+          { name: '核心层', color: 'success', cards: [{ label: '用户' }] },
+        ],
+        between: ['HTTP / WSS'], width: 680, caption: '单测架构',
+      }
+      const saved = window.__fcTest.tasks()
+      window.__fcTest.setTasks([
+        {
+          id: 'task-arch-1', title: '项目说明：带架构图', status: '待办', priority: '中', project: 'demo',
+          tags: [], body: '', architecture: JSON.stringify(ARCH),
+          fm: { id: 'task-arch-1', title: '项目说明：带架构图', status: '待办', priority: '中', project: 'demo' },
+          path: 'C:/mock/task-data/task-arch-1.md',
+        },
+      ])
+      clickText('看板'); await sleep(400)
+      const card = $$('#board .card, #board .brow').find((c) => (c.textContent || '').indexOf('带架构图') >= 0)
+      check('  带架构图的任务渲染到看板上', !!card)
+      if (card) card.click()
+      check('★★ 打开详情后架构图真的画出来了（#roverlay 里出现 .arch-svg svg）',
+        await waitFor(() => !!$('#roverlay .arch-svg svg'), 4000, 'arch svg'),
+        (($('#roverlay .arch-section') || {}).textContent || '').slice(0, 80))
+      check('★ 图里带着 spec 的层名与层间协议标注（不是画了个空壳）',
+        !!$('#roverlay .arch-svg') && $('#roverlay .arch-svg').innerHTML.indexOf('客户端层') >= 0
+        && $('#roverlay .arch-svg').innerHTML.indexOf('HTTP / WSS') >= 0)
+      maskClick('#roverlay'); await sleep(200)
+
+      // 坏 JSON：必须说人话，不许静默留白（否则用户以为"填了没生效"）
+      window.__fcTest.setTasks([
+        {
+          id: 'task-arch-2', title: '项目说明：架构图坏了', status: '待办', priority: '中', project: 'demo',
+          tags: [], body: '', architecture: '{这不是 JSON',
+          fm: { id: 'task-arch-2', title: '项目说明：架构图坏了', status: '待办', priority: '中', project: 'demo' },
+          path: 'C:/mock/task-data/task-arch-2.md',
+        },
+      ])
+      clickText('看板'); await sleep(400)
+      const card2 = $$('#board .card, #board .brow').find((c) => (c.textContent || '').indexOf('架构图坏了') >= 0)
+      if (card2) card2.click()
+      check('★★ 架构图 JSON 坏了 → 界面说人话（.arch-error），不静默留白',
+        await waitFor(() => !!$('#roverlay .arch-error'), 4000, 'arch error'),
+        (($('#roverlay .arch-section') || {}).textContent || '').slice(0, 80))
+      maskClick('#roverlay'); await sleep(200)
+      window.__fcTest.setTasks(saved)
+      clickText('看板'); await sleep(200)
+    }
+
+    // ══ 「架构图」字段的条件显示（2026-10-13 暮雨第 3 条）════════════════════
+    //  规格：只在「填过值」或「项目说明卡」（标签/标题）时才出现在编辑器里。
+    //  ⚠ 隐藏 ≠ 丢值：保存仍按全量 spec 收集（这条另有 e2e-task-fields 兜底）。
+    {
+      const ARCHV = '{"lanes":[{"name":"层","cards":[{"label":"A"}]}],"width":680}'
+      const saved = window.__fcTest.tasks()
+      // ⚠ 表单读的是 `task.fm[key]`（taskToFormValues 只认 fm，不认扁平键）——
+      //   夹具必须照真身形状把字段同时放进 fm 与顶层，否则断言验的是"夹具写错了"。
+      const mkT = (id, title, extra) => Object.assign({}, {
+        id, title, status: '待办', priority: '中', project: 'demo', tags: [], body: '',
+      }, extra || {}, {
+        fm: Object.assign({ id, title, status: '待办', priority: '中', project: 'demo' }, extra || {}),
+        path: 'C:/mock/task-data/' + id + '.md',
+      })
+      window.__fcTest.setTasks([
+        mkT('task-vis-1', '普通卡'),
+        mkT('task-vis-2', '项目说明：测试卡', { tags: ['项目说明'] }),
+        mkT('task-vis-3', '带值的卡', { architecture: ARCHV }),
+      ])
+      clickText('看板'); await sleep(400)
+
+      const labelsFor = async (titlePart) => {
+        const card = $$('#board .card, #board .brow').find((c) => (c.textContent || '').indexOf(titlePart) >= 0)
+        if (!card) return null
+        card.click()
+        if (!await waitFor(() => !!$('#roverlay'), 3000, 'roverlay')) return null
+        const eb = $$('#rmodal button').find((b) => (b.textContent || '').indexOf('编辑') >= 0)
+        if (!eb) return null
+        eb.click()
+        if (!await waitFor(() => !!$('#modal-overlay'), 3000, 'modal-overlay')) return null
+        const labels = $$('#modal .tf-field label').map((l) => (l.textContent || '').trim())
+        const cxl = $$('#modal button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cxl) cxl.click()
+        await sleep(200)
+        if ($('#modal-overlay')) maskClick('#modal-overlay')
+        await sleep(200)
+        if ($('#roverlay')) maskClick('#roverlay')
+        await sleep(200)
+        return labels
+      }
+
+      const l1 = await labelsFor('普通卡')
+      check('★★ 普通卡编辑器里没有「架构图」（不是每张卡都塞一个空文本框）',
+        !!l1 && !l1.includes('架构图'), JSON.stringify(l1 && l1.slice(-4)))
+      const l2 = await labelsFor('项目说明：测试卡')
+      check('★★ 项目说明卡里出现「架构图」字段（标签命中）',
+        !!l2 && l2.includes('架构图'), JSON.stringify(l2 && l2.slice(-4)))
+      const l3 = await labelsFor('带值的卡')
+      check('★★ 填过值的卡也显示「架构图」（填过就还在，不因没标签而藏起来）',
+        !!l3 && l3.includes('架构图'), JSON.stringify(l3 && l3.slice(-4)))
+
+      window.__fcTest.setTasks(saved)
+      clickText('看板'); await sleep(200)
+    }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,

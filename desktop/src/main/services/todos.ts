@@ -17,7 +17,22 @@ export interface Todo {
   done: boolean
   /** 高 / 中 / 低 */
   priority: string
+  /** 到期日（`YYYY-MM-DD` 或历史遗留的 `MM-DD`）—— 只到"天" */
   due?: string
+  /**
+   * 到期时间（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
+   * 如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）。
+   *
+   * 格式 `HH:MM`（24 小时制），**可选**：
+   *   · 空/未设 = 老行为（只有日期，按天判定逾期）；
+   *   · 有值 = 与 `due` 组合成**分钟级**截止点（如 `due=2026-10-12` + `dueTime=21:39`）。
+   *
+   * ⚠ 为什么**不把时间并进 `due`**：`due` 是只到天的字符串，被日历、筛选、排序、
+   *   逾期天数、Python 侧「截止」字段等**多处**按日期解析。并进去要同时改这些解析点，
+   *   且存量数据里 `MM-DD`（无年份无时间）与 `YYYY-MM-DD` 两种写法都会混进来。
+   *   独立字段是**纯增量**：老数据零变化、老解析点零改动。
+   */
+  dueTime?: string
   /** 归属项目（registry id），空 = 不归属。用于看板联动筛选 */
   project?: string
   /** 置顶（2026-09-26 卡 037）：钉在列表最上面，跟完成状态/优先级正交 */
@@ -49,6 +64,23 @@ function getTodosPath(): string {
   return path.join(todosDir, 'index.json')
 }
 
+/** 归一 `HH:MM`（24 小时制）。无法识别一律 undefined —— **不许落半截值**
+ *  （`"21:39:00"` / `"9:5"` / `"2139"` 这类都归一成标准 `HH:MM`，其余丢弃）。
+ *  ⚠ 空串必须归 undefined 而不是保留 `''`：**没设 ≠ 设成了空**（与 converted 同口径），
+ *    留着空串会让 `hasDueTime` 之类的判据变成"有值"从而说假话。 */
+export function normalizeDueTime(v: any): string | undefined {
+  if (v === null || v === undefined) return undefined
+  const s = String(v).trim()
+  if (!s) return undefined
+  // 容忍 `9:5` / `09:05` / `21:39` / `21:39:00` / `21：39`（全角冒号）
+  const m = s.replace(/：/g, ':').match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$/)
+  if (!m) return undefined
+  const hh = Number(m[1]); const mm = Number(m[2])
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return undefined
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return undefined
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
 /** 归一单条记录（含历史英文优先级） */
 function normalizeTodo(raw: any): Todo {
   return {
@@ -57,6 +89,7 @@ function normalizeTodo(raw: any): Todo {
     done: !!raw?.done,
     priority: normalizePriority(raw?.priority) || '中',
     due: raw?.due,
+    dueTime: normalizeDueTime(raw?.dueTime),
     project: raw?.project || undefined,
     pinned: raw?.pinned === true,
     fromLog: raw?.fromLog ? String(raw.fromLog) : undefined,
@@ -138,7 +171,7 @@ export function listTodos(filter?: { done?: boolean }): Todo[] {
   })
 }
 
-export function createTodo(title: string, priority: string = '中', due?: string, project?: string, fromLog?: string): Todo {
+export function createTodo(title: string, priority: string = '中', due?: string, project?: string, fromLog?: string, dueTime?: string): Todo {
   const id = `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const now = new Date().toISOString()
   const todo: Todo = {
@@ -147,6 +180,8 @@ export function createTodo(title: string, priority: string = '中', due?: string
     done: false,
     priority: normalizePriority(priority) || '中',
     due,
+    // ⚠ 归一失败（乱敲的）**不进库** —— 宁可当没填，也不要在数据里留一个解析不了的值
+    dueTime: normalizeDueTime(dueTime),
     project: project || undefined,
     // 卡 004：只有「日志转来」这条路会带值；普通新建不写这个键
     fromLog: fromLog ? String(fromLog) : undefined,
@@ -167,7 +202,7 @@ export function setTodoPinned(id: string, pinned: boolean): Todo | null {
   return updateTodo(id, { pinned: !!pinned } as any)
 }
 
-export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'project' | 'pinned' | 'converted'>>): Todo | null {
+export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'done' | 'priority' | 'due' | 'dueTime' | 'project' | 'pinned' | 'converted'>>): Todo | null {
   const todos = loadTodos()
   const idx = todos.findIndex(t => t.id === id)
   if (idx < 0) return null
@@ -176,6 +211,9 @@ export function updateTodo(id: string, updates: Partial<Pick<Todo, 'title' | 'do
   if (updates.done !== undefined) todo.done = updates.done
   if (updates.priority !== undefined) todo.priority = normalizePriority(updates.priority) || '中'
   if (updates.due !== undefined) todo.due = updates.due
+  // dueTime：清空（传 '' / null）→ 字段从 JSON 消失，与 converted 同口径。
+  // ⚠ 清空必须**真的能清空**：否则用户填错一次就再也去不掉那个时间。
+  if (updates.dueTime !== undefined) todo.dueTime = normalizeDueTime(updates.dueTime)
   if (updates.project !== undefined) todo.project = updates.project || undefined
   if (updates.pinned !== undefined) todo.pinned = !!updates.pinned
   // converted：空串 = 撤销已转出（字段从 JSON 消失，与日志 priority 清除同口径）

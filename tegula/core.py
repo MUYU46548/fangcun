@@ -552,7 +552,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因", "架构"}
 
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
@@ -758,6 +758,15 @@ def render_task(d):
     gy = str(d.get("归因") or "").strip()
     if gy:
         lines.append(f"归因: {yaml_scalar(gy)}")
+    # 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：值必须落成**标量** JSON 字符串。
+    # ⚠ 手工写成 YAML 嵌套映射也能被 yaml 解析成 dict/list —— 这里统一 json.dumps 回标量，
+    #   否则 Python 一写回就吐出一段嵌套映射（全仓只许 1 处的红线）。空则不输出（旧卡零影响）。
+    jg = d.get("架构")
+    if isinstance(jg, (dict, list)):
+        jg = json.dumps(jg, ensure_ascii=False)
+    jg = str(jg or "").strip()
+    if jg:
+        lines.append(f"架构: {yaml_scalar(jg)}")
     pd = str(d.get("派活时间") or "").strip()
     if pd:
         lines.append(f"派活时间: {yaml_scalar(pd)}")

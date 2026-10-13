@@ -1,0 +1,11 @@
+/*
+ * Tailwind 样式入口（2026-10-13，卡 task-20261011-004 第 ① 步）。
+ *
+ * ⚠ **只出 `@tailwind utilities`，绝不加 base / components**（司天同款口径）：
+ *   - `base` 就是 preflight，会引入全局 line-height 与 `list-style: none`（见 tailwind.config.js 注释）；
+ *   - `components` 现在也没有内容。
+ *
+ * 主题 token 映射（把 `:root` 的 --ink/--accent/... 接成 shadcn 变量名）是第 ② 步的事，
+ * 本轮**刻意不做** —— 第 ① 步的唯一验收线是「构建产物 CSS 一字不变」。
+ */
+@tailwind utilities;

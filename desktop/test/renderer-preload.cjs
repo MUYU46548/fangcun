@@ -194,6 +194,27 @@ const cloneGuard = (name, args) => {
   }
 }
 
+// 表单字段规格 —— 抽成常量，`taskFieldSpecs` 与 `taskFormValues` 共用一份。
+// ⚠ 必须与主进程 `TASK_FIELD_SPECS` 逐条同步（少一条 = 条件显示 / 表单回填的断言永远验不到）。
+const TASK_FIELD_SPECS = [
+  { key: 'title', label: '标题', type: 'text', span: 'full' },
+  { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
+  { key: 'status', label: '状态', type: 'select', span: 'half', options: ['草稿', '待办', '进行中', '完成', '驳回'] },
+  { key: 'priority', label: '优先级', type: 'select', span: 'half', options: ['高', '中', '低'] },
+  { key: 'start', label: '开始', type: 'text', span: 'half' },
+  { key: 'deadline', label: '截止', type: 'text', span: 'half' },
+  { key: 'batch', label: '批次', type: 'text', span: 'half' },
+  { key: 'tags', label: '标签', type: 'tags', span: 'full' },
+  { key: 'blockers', label: '阻塞', type: 'list', span: 'full' },
+  { key: 'memo', label: '附言', type: 'textarea', span: 'full' },
+  // 2026-10-13（暮雨第 3 条）：架构图字段 + **条件显示**。
+  {
+    key: 'architecture', label: '架构图', type: 'textarea', span: 'full',
+    visibleWhen: { hasValue: true, tag: '项目说明', titlePrefix: '项目说明' },
+  },
+  { key: 'body', label: '正文', type: 'textarea', span: 'full' },
+]
+
 contextBridge.exposeInMainWorld('tegula', {
   // ── 启动期必需面 ────────────────────────────────────────────────
   isFirstRun: () => { rec('isFirstRun'); return false },
@@ -201,19 +222,7 @@ contextBridge.exposeInMainWorld('tegula', {
   selfCheck: () => { rec('selfCheck'); return ok({ message: 'OK' }) },
   taskFieldSpecs: () => {
     rec('taskFieldSpecs')
-    return [
-      { key: 'title', label: '标题', type: 'text', span: 'full' },
-      { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
-      { key: 'status', label: '状态', type: 'select', span: 'half', options: ['草稿', '待办', '进行中', '完成', '驳回'] },
-      { key: 'priority', label: '优先级', type: 'select', span: 'half', options: ['高', '中', '低'] },
-      { key: 'start', label: '开始', type: 'text', span: 'half' },
-      { key: 'deadline', label: '截止', type: 'text', span: 'half' },
-      { key: 'batch', label: '批次', type: 'text', span: 'half' },
-      { key: 'tags', label: '标签', type: 'tags', span: 'full' },
-      { key: 'blockers', label: '阻塞', type: 'list', span: 'full' },
-      { key: 'memo', label: '附言', type: 'textarea', span: 'full' },
-      { key: 'body', label: '正文', type: 'textarea', span: 'full' },
-    ]
+    return TASK_FIELD_SPECS
   },
   taskEnums: () => ({ statuses: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'], priorities: ['高', '中', '低'] }),
   loadTasks: (v) => { rec('loadTasks', [v]); return (v === 'archive' ? (store.archived || []) : store.tasks).slice() },
@@ -237,7 +246,14 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGitSaveToken: () => ({ ok: true, persistent: true }),
   backupGitClearToken: () => ({ ok: true }),
   backupGitTest: () => ({ ok: false, message: '（夹具：没有真 git）' }),
-  backupGitPush: () => ({ ok: false, message: '（夹具：没有真 git）' }),
+  // ⚠ 2026-10-12：这里**必须** rec —— 顶栏「⟳ 同步」按钮的断言判据就是"真调到没有"
+  //   （`callCount('backupGitPush')` 涨没涨）。此前它是裸箭头函数、从不计数
+  //   → 断言恒 `calls=0`，把"按钮真的接线了"误报成"装饰按钮"（假红）。
+  //   全局纪律：凡是断言要按"调用次数"判的通道，假 preload 里**一律先 rec**。
+  backupGitPush: () => {
+    rec('backupGitPush', [])
+    return { ok: false, message: '（夹具：没有真 git）' }
+  },
   backupResticScript: () => ({ ok: true, script: '# 夹具脚本' }),
   loadActivity: (n) => { rec('loadActivity', [n]); return store.activity.slice() },
   getBlockerChains: () => [],
@@ -262,13 +278,15 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 待办（本测试的主角）────────────────────────────────────────
   todosList: (_f) => { rec('todosList'); return store.todos.slice() },
-  todosCreate: (title, priority, due, project, fromLog) => {
-    rec('todosCreate', [title, priority, due, project, fromLog])
+  todosCreate: (title, priority, due, project, fromLog, dueTime) => {
+    rec('todosCreate', [title, priority, due, project, fromLog, dueTime])
     const t = {
       id: nextId('todo'), title: String(title || ''), done: false,
       priority: priority || '中', due: due || undefined, project: project || undefined,
       // 卡 004：只有「日志转来」这条路带值（与真身 createTodo 同口径：无值不落键）
       fromLog: fromLog ? String(fromLog) : undefined,
+      // 2026-10-12 可选时间：空串 → 不落键（与真身 normalizeDueTime 同口径）
+      dueTime: dueTime ? String(dueTime) : undefined,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }
     store.todos.push(t)
@@ -278,7 +296,14 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('todosUpdate', [id, updates])
     const t = store.todos.find(x => x.id === id)
     if (!t) return { ok: false, error: 'not found' }
-    Object.assign(t, updates)
+    // 与真身同口径：dueTime 传空串 = **清空字段**（不是存空串）
+    if (updates && 'dueTime' in updates && !updates.dueTime) {
+      const { dueTime, ...rest } = updates
+      Object.assign(t, rest)
+      delete t.dueTime
+    } else {
+      Object.assign(t, updates)
+    }
     return ok({ todo: t })
   },
   todosToggle: (id) => {
@@ -366,6 +391,20 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({ log: l })
   },
   logsCleanup: () => [],
+  // 2026-10-13 暮雨第 2 条：按日期批量清理「已归档」日志（软删）。
+  // 桩与真后端同形：dryRun 只报命中、**不改 store**；非 dryRun 才把命中项移出。
+  logsPurgeArchived: (beforeDate, opts) => {
+    rec('logsPurgeArchived', [beforeDate, opts])
+    const dryRun = !!(opts && opts.dryRun)
+    const cut = String(beforeDate || '').slice(0, 10)
+    const hit = (store.logs || []).filter(l => l.status === 'archived' && String(l.created || '').slice(0, 10) < cut)
+    const ids = hit.map(l => l.id)
+    const titles = hit.map(l => l.title || '')
+    if (dryRun) return { ok: true, dryRun: true, count: ids.length, ids, titles }
+    if (!ids.length) return { ok: true, dryRun: false, count: 0, ids: [], titles: [] }
+    store.logs = (store.logs || []).filter(l => !ids.includes(l.id))
+    return { ok: true, dryRun: false, count: ids.length, ids, titles, trashDir: 'mock/.trash' }
+  },
   // ── 附件（2026-10-01 卡 036）：假 preload 返回与真 IPC 同形的 { ok, data } ──
   logsAttachFiles: (id) => {
     rec('logsAttachFiles', [id])
@@ -601,7 +640,25 @@ contextBridge.exposeInMainWorld('tegula', {
   unarchiveTask: () => ok(),
   deleteTask: () => ok(),
   copyTask: () => ok(),
-  taskFormValues: () => ({}),
+  // 2026-10-13：此前是 `() => ({})`（永远空表单）。「架构图」的条件显示与表单回填都靠它拿值 ——
+  // 空对象会让"有值才显示"永远不成立（断言假绿/假红都踩过）。**照真身口径**：
+  // 读 `task.fm[key]`（不认扁平键），数组类 join 成逗号串 —— 与 data.taskToFormValues 同形。
+  taskFormValues: (id) => {
+    rec('taskFormValues', [id])
+    const t = (store.tasks || []).find(x => x.id === id)
+    if (!t || !t.fm) return {}
+    const out = {}
+    for (const s of TASK_FIELD_SPECS) {
+      if (s.key === 'body') { out.body = t.body == null ? '' : String(t.body); continue }
+      const v = t.fm[s.key]
+      if (s.type === 'tags' || s.type === 'list') {
+        out[s.key] = Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v))
+      } else {
+        out[s.key] = v == null ? '' : String(v)
+      }
+    }
+    return out
+  },
   naturalQuery: () => [],
   getRoadmapTrend: () => ({}),
   suggestCrossProject: () => { rec('suggestCrossProject'); return store.crossSuggest.slice() },
@@ -793,6 +850,19 @@ contextBridge.exposeInMainWorld('__fcTest', {
   // 禁止再写死 '09-30' 之类的字面量，否则每月 1 号假红。
   fixDeadline: FIX_DEADLINE,
   fixMmdd: FIX_MMDD,
+  // 2026-10-12：「今天」那一格到底压了几条 —— 从**夹具真身**数出来，别在断言里写死。
+  // 起因：待办也上日历之后，"今天"从 4 条变 5 条，写死 `+2 条` 的旧断言当场假红。
+  // ⚠ 口径必须与 App.vue 造日历事件完全一致 —— 第一版漏了「完成的待办不上日历」
+  //   （多选夹具里那条 done:true 的 `td-3` 被多算成一条 → 期望 +4、实际 +3，还是假红）。
+  fixTodayCount: () => {
+    const dl = (store.tasks || []).filter(t => (t.deadline || (t.fm && t.fm.deadline)) === FIX_DEADLINE).length
+    // 待办的日历判据（App.vue）：① 未完成；② 有 due 且等于今天 ——「没 due」不算今天
+    // （裸 { created: 1 } 这种夹具不带 due，若按"没 due 就今天"数会凭空多出几条）。
+    const td = (store.todos || []).filter(t => !t.done && t.due === FIX_DEADLINE).length
+    return dl + td
+  },
+  // 格子内最多铺几条 —— 由 e2e-runner 注入 App.vue 的同名常量（见 renderer-web-assert.js 顶部）。
+  calCellCap: () => (typeof globalThis.__fcCalCellCap === 'number' ? globalThis.__fcCalCellCap : 2),
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   todos: () => JSON.parse(JSON.stringify(store.todos)),

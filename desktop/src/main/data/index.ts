@@ -418,6 +418,22 @@ export interface TaskFieldSpec {
   placeholder?: string
   hint?: string
   span: 'half' | 'full'
+  /**
+   * 条件显示（2026-10-13 暮雨第 3 条）。**必须是可序列化的声明，不能是函数** ——
+   * 这份 spec 要过 IPC（`taskFieldSpecs`），函数过不去。
+   *
+   * 语义 = **任一命中即显示**（OR）：值非空 ｜ 标签里有 `tag` ｜ 标题以 `titlePrefix` 开头。
+   * 用途：像「架构图」这种**只对一类卡有意义**的字段，别在每张卡的编辑器里都堆一个空文本框。
+   * ⚠ 隐藏 ≠ 不保存：`saveEdit` 仍按**全量 spec** 收集，隐藏字段的已有值不会被清掉。
+   */
+  visibleWhen?: {
+    /** 该字段当前值非空就显示（"填过就还在"，不会因为不满足其他条件而消失） */
+    hasValue?: boolean
+    /** 任务的标签里含有这个标签就显示 */
+    tag?: string
+    /** 任务标题以这个前缀开头就显示 */
+    titlePrefix?: string
+  }
 }
 
 export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
@@ -443,6 +459,18 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
     hint: '这一轮返工该怪哪一环？留空 = 不是返工 / 还没归因',
   },
   { key: 'body', label: '正文', type: 'textarea', span: 'full', placeholder: '支持 Markdown，- [ ] 为可勾选项' },
+  // 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：给项目说明卡挂一张分层架构图。
+  // 值是 `LayerDiagramSpec` 的 **JSON 字符串**（见 desktop/src/shared/layerDiagram.ts）。
+  // ⚠ 为什么用标量存 JSON、而不是 YAML 嵌套映射：Python 侧的 YAML 读法**读不了嵌套映射**
+  //   （全仓只许 1 处的红线），用标量才两头都安全。留空 = 不画，旧卡零影响。
+  {
+    key: 'architecture', label: '架构图', type: 'textarea', span: 'full',
+    placeholder: '{"lanes":[{"name":"客户端层","cards":[{"label":"Web App"}]}],"between":["HTTP / WSS"],"width":900}',
+    hint: '留空 = 不画。填 JSON（层 / 卡片 / 层间协议），任务预览里会渲染成分层架构图。',
+    // 只在「填过值」或「项目说明卡」（标签带 `项目说明` / 标题以「项目说明」开头）时出现 ——
+    // 别的卡用不上它，别在每张卡的编辑器里都塞一个空文本框。
+    visibleWhen: { hasValue: true, tag: '项目说明', titlePrefix: '项目说明' },
+  },
 ]
 
 /** 除 body 外可由表单直接写入 frontmatter 的字段 */
@@ -533,6 +561,9 @@ export const FIELD_MAP: Record<string, string> = {
   // 2026-10-06 卡 003：返工归因在文件里存中文键（与 Python MANAGED_KEYS 对齐），
   // TS 内部用 attribution。⚠ 两侧同改：Python 侧 MANAGED_KEYS + render_task 显式输出行。
   '归因': 'attribution',
+  // 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：项目说明卡内嵌分层架构图。
+  // ⚠ 两侧同改：Python MANAGED_KEYS + render_task 显式输出行。
+  '架构': 'architecture',
 }
 
 // English → Chinese field name mapping (for renderTask compat with Python CLI)
@@ -544,7 +575,7 @@ const REVERSE_FIELD_MAP: Record<string, string> = Object.fromEntries(
 const FM_ORDER = [
   'id', 'title', 'project', 'status', 'priority', 'assignee', 'tags',
   'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
-  'source', 'review', 'memo', 'resources', 'plan', 'result_log',
+  'source', 'review', 'memo', 'resources', 'plan', 'result_log', 'architecture',
   'dispatch_time', 'agent', 'review_checklist', 'budget', 'cron', 'context',
   'type', 'plan_status', 'attribution',
 ]
@@ -766,6 +797,13 @@ export function parseTask(filePath: string): Task | null {
   }
 
   fm.id = String(fm.id || path.basename(filePath, '.md'))
+
+  // 架构图值必须归一成**字符串**（2026-10-13 方案 A）。
+  // 手写成 YAML 嵌套映射时 js-yaml 会给出对象 → 若原样写回，renderTask 会吐出一段嵌套映射
+  // （全仓只许 1 处的红线）→ 这里统一 JSON.stringify 回标量，读进来就已是"安全的形状"。
+  if (fm.architecture !== undefined && fm.architecture !== null && typeof fm.architecture !== 'string') {
+    try { fm.architecture = JSON.stringify(fm.architecture) } catch { fm.architecture = '' }
+  }
 
   // 优先级别名归一：normal/high/low → 高/中/低，避免分组时被当成未知值
   if (fm.priority !== undefined) {
