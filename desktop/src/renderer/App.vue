@@ -1198,17 +1198,43 @@
       <div class="services-header">
         <h3>服务 / 端口</h3>
         <span v-if="!servicesLoading" class="services-stats">
-          登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }} · 空闲 {{ servicesIdle }}
+          应用 {{ servicesApps.length }} · 登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }}
         </span>
-        <input v-model="svcName" class="svc-input" placeholder="服务名（如 方寸看板）" @keyup.enter="addService()" />
-        <input v-model="svcPort" class="svc-input svc-port-input" placeholder="端口" @keyup.enter="addService()" />
-        <button class="skills-btn primary" @click="addService()">＋ 登记端口</button>
-        <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前服务/端口清单复制成纯文本 —— 方便直接贴给 Hermes 分析">📋 复制快照</button>
+        <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前清单复制成纯文本 —— 方便直接贴给 Hermes 分析">📋 复制快照</button>
         <button class="skills-btn" @click="loadServices()">刷新</button>
       </div>
       <div class="services-notebar">
-        只读监控：这里只告诉你在不在、谁占着，<b>不会结束任何进程</b>
-        （要停服务请自己看清 PID 再动手）。这里列的是：启动台应用登记的端口 + 你手动登记的服务。
+        只读监控：这里只告诉你在不在、谁占着，<b>不会结束任何进程</b>。
+        <b>端口不用你记、也不用你填</b> —— 启动一个应用时方寸会自己前后各扫一次监听表，
+        把<b>它新开了哪些端口</b>记在它名下；没被任何应用认领的，列在下面「方寸扫到的」里。
+      </div>
+
+      <!-- 启动台应用（2026-10-15 新模型）：入口是**应用**，不是端口。
+           「▶ 启动」点了就拉起 + 观测，「观测到的端口」是它的**结果**（历史并集，正在监听的标绿）。 -->
+      <div v-if="servicesApps.length" class="svc-group svc-group-apps">
+        <div class="svc-group-title">启动台应用（{{ servicesApps.length }}）<span class="svc-group-hint">点「▶ 启动」＝ 拉起它，并自动记下它开了哪些端口</span></div>
+        <div class="services-list">
+          <div v-for="a in servicesApps" :key="'app-' + a.id" class="svc-item">
+            <div class="svc-main">
+              <div class="svc-line1">
+                <span class="svc-name">{{ a.name }}</span>
+                <span v-if="a.listeningPorts.length" class="svc-state on">在用 {{ a.listeningPorts.map(p => ':' + p).join(' ') }}</span>
+                <span v-else-if="a.observedPorts.length" class="svc-state off">观测到 {{ a.observedPorts.map(p => ':' + p).join(' ') }}（现未监听）</span>
+                <span v-else class="svc-state off">还没观测到端口</span>
+              </div>
+              <div class="svc-line2">
+                <span>启动命令：{{ describeCmd(a.cmd) }}</span>
+                <span v-if="a.description">· {{ a.description }}</span>
+              </div>
+              <div v-if="a.legacyPortNote" class="svc-diag">⚠ {{ a.legacyPortNote }}</div>
+            </div>
+            <div class="svc-actions">
+              <button class="skills-btn primary" :disabled="serviceStartingApp === a.id"
+                      @click="startAppRow(a)"
+                      :title="'按启动台里登记的命令拉起「' + a.name + '」，拉起后自动观测它开了哪些端口（方寸只启动启动台登记过的应用，绝不杀进程）'">{{ serviceStartingApp === a.id ? '启动中…' : '▶ 启动' }}</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-if="servicesError" class="skills-error">{{ servicesError }}</div>
@@ -1219,50 +1245,43 @@
         </div>
         <div v-if="!servicesRows.length" class="empty-state">
           <div class="empty-icon">🔌</div>
-          <div class="empty-text">还没登记任何端口 —— 用上面的输入框登记，或给启动台应用填 port</div>
+          <div class="empty-text">还没有"已登记"的端口 —— 下面「方寸扫到的」里点「＋ 登记」就能认领一个，
+            不用手敲端口号</div>
         </div>
-        <div v-else class="services-list">
-          <div v-for="s in servicesRows" :key="s.id" class="svc-item">
-            <div class="svc-main">
-              <div class="svc-line1">
-                <span class="svc-name">{{ s.name }}</span>
-                <span class="svc-port">:{{ s.port }}</span>
-                <span class="svc-state" :class="s.listening ? 'on' : 'off'">{{ s.listening ? '监听中' : '空闲' }}</span>
-                <span v-if="s.duplicated" class="svc-dup">重复登记</span>
-                <span class="svc-src">{{ s.source === 'launchpad' ? '启动台' : '手填' }}</span>
+        <div v-else class="svc-group svc-group-manual">
+          <div class="svc-group-title">已登记（{{ servicesRows.length }}）<span class="svc-group-hint">这些是你从「方寸扫到的」里认领过的 —— 端口号由方寸填，你只给它起了个名字</span></div>
+          <div class="services-list">
+            <div v-for="s in servicesRows" :key="s.id" class="svc-item">
+              <div class="svc-main">
+                <div class="svc-line1">
+                  <span class="svc-name">{{ s.name }}</span>
+                  <span class="svc-port">:{{ s.port }}</span>
+                  <span class="svc-state" :class="s.listening ? 'on' : 'off'">{{ s.listening ? '监听中' : '空闲' }}</span>
+                  <span v-if="s.duplicated" class="svc-dup">重复登记</span>
+                  <span class="svc-src">你认领的</span>
+                </div>
+                <div class="svc-line2">
+                  <span v-if="s.listening">占用者 PID {{ s.pid }} · {{ s.processName }}</span>
+                  <span v-else>没有进程在监听</span>
+                  <span v-if="s.note">· {{ s.note }}</span>
+                </div>
               </div>
-              <div class="svc-line2">
-                <span v-if="s.listening">占用者 PID {{ s.pid }} · {{ s.processName }}</span>
-                <span v-else>没有进程在监听</span>
-                <span v-if="s.note">· {{ s.note }}</span>
+              <div class="svc-actions">
+                <button class="skills-btn" @click="openService(s)" :disabled="!s.listening"
+                        :title="s.listening ? '在浏览器打开 http://127.0.0.1:' + s.port : '现在没人监听，打开会报错'">🌐 打开地址</button>
+                <button class="skills-btn danger" @click="removeService(s)">🗑 取消登记</button>
               </div>
-              <!-- 启动命令（2026-10-15）：端口是"登记"，命令是"点一下会跑什么"—— 两者可以无关，
-                   显示出来是为了让人能自己看出来（此前只能靠猜，才把 dev server 的端口和 exe 接在一起）。 -->
-              <div v-if="s.source === 'launchpad'" class="svc-cmd" :title="'启动命令：' + (s.cmd || '（空）')">
-                启动命令：{{ describeCmd(s.cmd) }}
-              </div>
-              <div v-if="svcDiag(s).level === 'suspect'" class="svc-diag" :title="svcDiag(s).message">
-                ⚠ {{ svcDiag(s).message }}
-              </div>
-            </div>
-            <div class="svc-actions">
-              <button v-if="!s.listening && s.source === 'launchpad'" class="skills-btn primary"
-                      :disabled="serviceStarting === s.port"
-                      @click="startServiceRow(s)"
-                      :title="'按启动台里登记的命令拉起「' + s.name + '」（方寸只启动启动台登记过的应用，绝不杀进程）—— 拉起后会自动复查端口，没起来会直接告诉你原因'">{{ serviceStarting === s.port ? '启动中…' : '▶ 启动' }}</button>
-              <button class="skills-btn" @click="openService(s)" :disabled="!s.listening"
-                      :title="s.listening ? '在浏览器打开 http://127.0.0.1:' + s.port : '现在没人监听，打开会报错'">🌐 打开地址</button>
-              <button v-if="s.source === 'manual'" class="skills-btn danger" @click="removeService(s)">🗑 取消登记</button>
             </div>
           </div>
         </div>
 
         <div v-if="servicesUnregistered.length || servicesHidden" class="services-unreg">
           <div class="services-unreg-title">
-            未登记但正在监听（{{ servicesUnregistered.length }}）
+            方寸扫到的：没人认领、但正在监听（{{ servicesUnregistered.length }}）
             <span class="services-unreg-hint">
-              只列像服务/开发进程的（node·python·java…）；另有 {{ servicesHidden }} 个端口在监听但不像是服务
-              （系统组件、聊天软件等），已略过 —— 不做全盘扫描
+              你<span>不需要知道端口号</span> —— 这是方寸自己扫出来的。点「＋ 登记」只是给它起个名字，
+              端口号由方寸带着填。只列像服务/开发进程的（node·python·java…）；另有 {{ servicesHidden }} 个
+              端口在监听但不像是服务（系统组件、聊天软件等），已略过 —— 不做全盘扫描
             </span>
           </div>
           <div v-for="u in servicesUnregistered" :key="u.port" class="svc-item small">
@@ -1947,10 +1966,8 @@
           <div class="lp-info">
             <div class="lp-name">{{ app.name }}</div>
             <div class="lp-desc">{{ app.description || app.path }}</div>
-            <!-- 端口登记的静态诊断（2026-10-15）：只提示、不阻断 —— 判"起没起来"一律以启动后复查为准 -->
-            <div v-if="appDiag(app).level === 'suspect'" class="lp-warn" :title="appDiag(app).message">
-              ⚠ {{ app.port ? ':' + app.port + ' ' : '' }}{{ appDiag(app).message }}
-            </div>
+            <!-- 观测到的端口（2026-10-15）：这是**结果**不是配置 —— 用户不填，方寸启动时自己记 -->
+            <div v-if="appObservedText(app)" class="lp-ports" :title="appObservedText(app)">🔌 {{ appObservedText(app) }}</div>
           </div>
           <div class="lp-actions">
             <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 端口）" @click.stop="openEditApp(app)">✏️ 编辑</button>
@@ -3650,8 +3667,7 @@ import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
 // 启动台登记 × 端口 的自洽诊断（2026-10-15，纯函数：见 shared/launchpadDiag.ts 的来龙去脉）
-import { diagnosePortRegistration, describeLaunchCommand, explainStartButStillIdle } from '../shared/launchpadDiag'
-import type { PortDiag } from '../shared/launchpadDiag'
+import { describeLaunchCommand, explainStartObserved } from '../shared/launchpadDiag'
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue } from '../shared/time'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
@@ -7026,10 +7042,24 @@ const servicesDuplicates = ref<number[]>([])
 const servicesListening = ref(0)
 const servicesIdle = ref(0)
 const servicesHidden = ref(0)
-/** 正在启动的端口（0 = 没有）—— 启动要等 2.5s 复查，期间按钮要显示"启动中…"而不是可再点 */
-const serviceStarting = ref(0)
-const svcName = ref('')
-const svcPort = ref('')
+/** 正在启动的应用 id（'' = 没有）—— 启动后要等 2.8s 观测端口，期间按钮显示"启动中…" */
+const serviceStartingApp = ref('')
+/**
+ * 启动台应用行（2026-10-15 新模型）。⚠ 这里**没有端口输入框**，是刻意的：
+ * 端口是观测结果、不是配置项（暮雨：「端口永远是记不住的，不要指望根据端口去配置」）。
+ */
+interface AppPortRowUi {
+  id: string
+  name: string
+  cmd: string
+  path: string
+  description: string
+  observedPorts: number[]
+  listeningPorts: number[]
+  observedAt: string
+  legacyPortNote: string
+}
+const servicesApps = ref<AppPortRowUi[]>([])
 
 async function loadServices(): Promise<void> {
   servicesLoading.value = true
@@ -7041,6 +7071,7 @@ async function loadServices(): Promise<void> {
       servicesRows.value = []
     } else {
       servicesRows.value = r.rows || []
+      servicesApps.value = r.apps || []
       servicesUnregistered.value = r.unregistered || []
       servicesDuplicates.value = r.duplicatePorts || []
       servicesListening.value = r.listeningCount || 0
@@ -7057,19 +7088,34 @@ async function loadServices(): Promise<void> {
   }
 }
 
-async function addService(): Promise<void> {
-  const name = svcName.value.trim()
-  const port = Number(svcPort.value.trim())
-  if (!name) { showToast('先填服务名（比如「方寸看板」）', 'error'); return }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) { showToast('端口要填 1-65535 的整数', 'error'); return }
-  const r: any = await window.tegula.servicesAdd({ name, port })
-  if (r && r.ok) {
-    showToast(`已登记 ${name} :${port}`, 'success')
-    svcName.value = ''
-    svcPort.value = ''
+/**
+ * ⚠ 2026-10-15 **删掉了「手敲名字 + 手敲端口」的登记框**。
+ *
+ * 为什么删：暮雨原话「端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。」
+ * 一个要求用户"先知道端口号再登记"的输入框，正是把端口当配置项的老毛病。
+ * 现在唯一的登记路径是下面那段「方寸扫到的」里点「＋ 登记」——**端口号由方寸带着填**，
+ * 用户最多给它起个名字。
+ */
+
+/** 启动一个**应用**并观测它开了哪些端口（取代旧的"按端口启动"） */
+async function startAppRow(a: AppPortRowUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.servicesStartApp !== 'function') { showToast('当前主进程是旧版本，没有启动通道', 'error'); return }
+  serviceStartingApp.value = a.id
+  try {
+    const r: any = await t.servicesStartApp(a.id)
+    if (r && r.ok) {
+      // 中性话术：没观测到端口**不是失败**（桌面程序大多不监听端口）——
+      // 旧模型在这里会说"这条登记接错了"，那是错误的预设。
+      showToast(explainStartObserved(r.appName || a.name, r.newPorts || []), 'success')
+    } else {
+      showToast((r && r.message) || '启动失败', 'error')
+    }
     await loadServices()
-  } else {
-    showToast(`登记失败：${(r && r.error) || '未知原因'}`, 'error')
+  } catch (e: any) {
+    showToast(`启动失败：${e?.message || e}`, 'error')
+  } finally {
+    serviceStartingApp.value = ''
   }
 }
 
@@ -7103,11 +7149,16 @@ function servicesSnapshotText(): string {
   lines.push(`登记 ${servicesRows.value.length} · 监听中 ${servicesListening.value} · 空闲 ${servicesIdle.value}`)
   if (servicesError.value) lines.push(`错误：${servicesError.value}`)
   lines.push('')
-  lines.push('【已登记】')
+  lines.push('【启动台应用】（端口是**观测结果**，不是配置项）')
+  for (const a of servicesApps.value) {
+    const obs = a.observedPorts.length ? a.observedPorts.map(p => ':' + p).join(' ') : '(还没观测到端口)'
+    lines.push(`${a.name}\t命令=${a.cmd || '(空)'}\t观测端口=${obs}${a.observedAt ? '\t上次观测=' + a.observedAt : ''}`)
+  }
+  lines.push('')
+  lines.push('【已登记（你认领的）】')
   for (const s of servicesRows.value) {
-    const src = s.source === 'launchpad' ? '启动台' : '手填'
     const state = s.listening ? `监听中 pid=${s.pid} ${s.processName}` : '空闲'
-    lines.push(`:${s.port}\t${s.name}\t[${src}]\t${state}${s.duplicated ? '\t重复登记' : ''}${s.note ? '\t' + s.note : ''}`)
+    lines.push(`:${s.port}\t${s.name}\t${state}${s.duplicated ? '\t重复登记' : ''}${s.note ? '\t' + s.note : ''}`)
   }
   if (servicesUnregistered.value.length) {
     lines.push('')
@@ -7129,33 +7180,6 @@ async function copyServicesSnapshot(): Promise<void> {
     showToast('服务快照已复制到剪贴板', 'success')
   } catch (e: any) {
     showToast(`复制失败：${e?.message || e}`, 'error')
-  }
-}
-
-/**
- * 把「空闲」的启动台应用现场拉起来（主进程只认启动台里带 port 的应用，绝不杀进程）。
- *
- * 2026-10-15 防复发：**「拉起成功」不再等于「成功」**。主进程会在拉起后 2.5s 复查真监听，
- * 把 `listeningAfter` 回传 —— 没起来就当场说清原因（此前只报"已启动"，用户看到端口仍「空闲」，
- * 于是又一次得出"启动台坏了"，就是旧案的形状）。
- */
-async function startServiceRow(s: ServiceRowUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.servicesStart !== 'function') { showToast('当前主进程是旧版本，没有启动通道', 'error'); return }
-  serviceStarting.value = s.port
-  try {
-    const r: any = await t.servicesStart(s.port)
-    if (r && r.ok && r.listeningAfter === false) {
-      // 拉起来了但端口没起来 —— 用「事实」说话，并给出下一步（不怪用户、也不怪"启动台坏了"）
-      const msg = explainStartButStillIdle(r.appName || s.name, s.port)
-      showToast(msg, 'error')
-      appErrors.value.push({ scope: 'services', message: msg, at: Date.now() })
-    } else {
-      showToast((r && r.message) || '已发出启动请求', r && r.ok ? 'success' : 'error')
-    }
-    if (r && r.ok) { await new Promise(res => setTimeout(res, 300)); await loadServices() }
-  } finally {
-    serviceStarting.value = 0
   }
 }
 
@@ -10652,15 +10676,16 @@ function openEditApp(app: any) {
   appGuard.open(editApp_.value)
 }
 
-/** 启动台卡片的端口诊断（纯函数，只提示不阻断 —— 判"起没起来"以启动后复查为准） */
-function appDiag(app: any): PortDiag {
-  return diagnosePortRegistration(app)
-}
-
-/** 服务页行的诊断（手填登记没有启动命令，直接 none —— 别对它们喊"接错了"） */
-function svcDiag(s: ServiceRowUi): PortDiag {
-  if (s.source !== 'launchpad') return { level: 'none', code: 'manual', message: '' }
-  return diagnosePortRegistration({ name: s.name, port: s.port, cmd: s.cmd })
+/**
+ * 启动台卡片上那行"观测到的端口"（2026-10-15）。
+ *
+ * ⚠ 这是**结果**不是配置：用户从不需要填，方寸在启动这个应用时自己前后扫监听表 diff 出来。
+ * 没观测到就返回空串（整行不渲染）—— 不许写「无」「—」这类噪音（卡面上宁缺勿滥那条口径）。
+ */
+function appObservedText(app: any): string {
+  const ps: number[] = Array.isArray(app?.observedPorts) ? app.observedPorts : []
+  if (!ps.length) return ''
+  return `上次启动观测到 ${ps.map(p => ':' + p).join(' ')}`
 }
 
 /** 服务页里「启动命令」那一行的说人话标签 */
@@ -12528,8 +12553,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-actions { display: flex; gap: 4px; flex: none; align-items: center; }
 .lp-edit { padding: 4px 8px; font-size: 11px; flex: none; }
 .lp-open { padding: 4px 8px; font-size: 11px; flex: none; }
-/* 端口登记与启动命令对不上时的提示（只提示不阻断，判"起没起来"以启动后复查为准） */
-.lp-warn { font-size: 10.5px; line-height: 1.5; color: #b3261e; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 卡片上的"观测到的端口"（2026-10-15）：结果展示，不是输入项 */
+.lp-ports { font-size: 10.5px; line-height: 1.5; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 服务页的「启动台应用」分区（2026-10-15：按应用列，不按端口） */
+.svc-group { margin-bottom: 14px; }
+.svc-group-title { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 0 0 7px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.svc-group-hint { font-size: 11px; font-weight: 400; color: var(--muted); }
 .app-path-hint { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 #app-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 400px; box-shadow: var(--shadow); border: 1px solid var(--border); }
 #app-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
@@ -13938,12 +13967,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .services-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
 .services-header h3 { font-size: 16px; font-weight: 700; }
 .services-stats { font-size: 12px; color: var(--muted); }
-.svc-input {
-  padding: 5px 10px; font-size: 12px; font-family: inherit;
-  border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--ink); outline: none;
-}
-.svc-input:focus { border-color: var(--accent); }
-.svc-port-input { width: 86px; }
+/* ⚠ 2026-10-15 删掉 `.svc-input` / `.svc-port-input` —— 服务页那个"手敲名字 + 手敲端口"
+   的登记框整块移除了（端口不是配置项）。留着死 CSS 只会让下一个人以为"界面还能填端口"。 */
 .services-notebar { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.6; }
 .services-warn {
   font-size: 12.5px; color: #8a5a00; background: #fdf7e8; border: 1px solid #e8d9a8;

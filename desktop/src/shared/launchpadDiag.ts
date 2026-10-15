@@ -119,16 +119,21 @@ export function diagnosePortRegistration(app: PortDiagInput | null | undefined):
 }
 
 /**
- * 「点完启动、复查仍是空闲」时给用户的一句话。
+ * 启动完之后，跟用户说一句"观测到了什么"（2026-10-15 新模型）。
  *
- * 这是**防复发的关键一环**：不靠猜 cmd，靠**事实**（点了 → 拉了 → 端口没起来），
- * 把"静默误导"变成"当场说清 + 给出下一步"。
+ * ⚠ 措辞是**中性**的 —— 「没观测到端口」**不是失败**：大多数桌面程序本来就不监听任何端口。
+ * 旧模型（把 port 当配置项）在这里会说"这条登记接错了"，那是**错误的预设**：
+ * 它默认"启动一个应用就应该有一个端口起来"。用户原话：「端口永远是记不住的，不要指望根据端口去配置」。
  */
-export function explainStartButStillIdle(appName: string, port: number): string {
+export function explainStartObserved(appName: string, newPorts: number[]): string {
   const n = String(appName || '这个应用').trim() || '这个应用'
+  const fresh = (newPorts || []).filter(p => Number.isInteger(p) && p > 0).sort((a, b) => a - b)
+  if (fresh.length) {
+    return `已启动「${n}」，观测到它新开了 :${fresh.join(' :')}（已记到它名下，下次不用再找）`
+  }
   return (
-    `已拉起「${n}」，但 :${port} 仍然没有进程在监听。` +
-    `说明这条登记的启动命令与这个端口对不上（大概率是桌面程序 + 开发端口被登在了一起）—— ` +
-    `去「启动台」把它的启动命令改成真正起服务的那条，或者把这个端口登记去掉。`
+    `已启动「${n}」；这次没观测到它新开端口。` +
+    `桌面程序大多不监听端口，这属正常 —— 不代表启动失败。（真要用浏览器访问某个服务，` +
+    `去看下面「未登记但在监听」那段，那里列的是方寸自己扫出来的端口，不用你记。）`
   )
 }

@@ -1613,45 +1613,80 @@ async function main() {
     await waitFor(`!([...document.querySelectorAll('.skill-card.imported .skill-id')].some(e => e.textContent.includes('external-demo')))`, 5000, '移除后刷新'))
   await js(`window.__fcTest.setImport('incoming-skill', { exists: false })`)
 
-  // ── 19. 服务 / 端口（2026-09-26 卡 006：A 档 = 只读监控 + 冲突预警）──────
-  //     用户口径：「之前想让方寸管理端口，事实上端口从未被管理」→ 现在能看、能登记；
-  //     但**明确不要**"结束占用进程"，所以下面专门有一条断言钉住"没有杀进程的按钮"。
+  // ── 19. 服务 / 端口（2026-09-26 卡 006 → **2026-10-15 改模型**）────────
+  //     旧模型把 `port` 当**配置项**（要用户把"这个应用对外提供哪个端口"填上去），于是出了那条旧案：
+  //     vite 的 8090 被登在打包 exe 上 → 点「启动」永远"空闲" → 被读成"启动台坏了"。
+  //     暮雨口径：「端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。」
+  //     新模型：**入口是应用，端口是观测结果**；用户一个端口都不用填。
   check('★ 有「服务」页签', await js(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '服务')`))
   check('★ 能点到「服务」页签', await js(CLICK_BY_TEXT('服务')))
   check('★ 服务页已渲染（不是白屏/占位）', await waitFor(`document.querySelector('main.services-view')`, 6000, '服务视图'))
   check('★ 切过去就真去拉了服务状态', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
-  // ⚠ 选 `.svc-item:not(.small)` —— 「未登记但正在监听」那一段也用 .svc-item（small），
-  //   不排除就会把两类算在一起（本测试第一版就数成了 3）
-  // ⚠ 期望值从**夹具真身**算，不许写死数字（2026-10-15 修）：写死 2 条之后，夹具一加行就假红 ——
-  //   而当时那条"假红"会被当成"功能坏了"，白白浪费一轮排查。
+  check('★★ 服务页有「启动台应用」分区（入口是**应用**，不是端口）',
+    await js(`document.querySelectorAll('main.services-view .svc-group-apps').length === 1`))
+  check('★★ 服务页**没有**"手敲端口号"的输入框（旧模型的老毛病，读到就说明又回去了）',
+    await js(`![...document.querySelectorAll('main.services-view input')].some(i => /端口/.test(i.placeholder || ''))`),
+    String(await js(`JSON.stringify([...document.querySelectorAll('main.services-view input')].map(i => i.placeholder))`)))
+
+  // ⚠ 期望值从**夹具真身**算，不写死数字（写死会在夹具变一行时假红，而那条假红会被当成功能坏了）
   const svcFixtureN = await js(`window.__fcTest.services().length`)
-  check(`登记的服务按条数渲染（夹具真身 ${svcFixtureN} 条）`,
-    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === ${svcFixtureN}`, 5000, '服务条目'),
-    String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
-  check('★ 监听中 / 空闲 两种状态都显示出来',
-    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
-      return t.includes('监听中') && t.includes('空闲') })()`))
-  check('★ 监听中的行显示占用者 PID 与进程名（"谁占着"是这页的核心信息）',
-    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
-      return t.includes('PID 1234') && t.includes('python') })()`),
-    String(await js(`document.querySelector('main.services-view').textContent.slice(0, 200)`)))
-  check('空闲的行说明"没有进程在监听"',
-    await js(`document.querySelector('main.services-view').textContent.includes('没有进程在监听')`))
-  check('来源分开标注（手填 / 启动台）',
-    await js(`(() => { const t = document.querySelector('main.services-view').textContent;
-      return t.includes('手填') && t.includes('启动台') })()`))
+  const appFixtureN = await js(`window.__fcTest.servicesApps().length`)
+  check(`应用行按条数渲染（夹具真身 ${appFixtureN} 条）`,
+    await waitFor(`document.querySelectorAll('main.services-view .svc-group-apps .svc-item').length === ${appFixtureN}`, 5000, '应用条目'),
+    String(await js(`document.querySelectorAll('main.services-view .svc-group-apps .svc-item').length`)))
+  check(`已登记（你认领的）行按条数渲染（夹具真身 ${svcFixtureN} 条）`,
+    await waitFor(`document.querySelectorAll('main.services-view .svc-group-manual .svc-item').length === ${svcFixtureN}`, 5000, '已登记条目'),
+    String(await js(`document.querySelectorAll('main.services-view .svc-group-manual .svc-item').length`)))
+  check('★★ 应用行把**观测到的端口**显示出来（:9100）',
+    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-group-apps .svc-item')]
+      .find(x => x.textContent.includes('绒花墨坊')); return !!r && /9100/.test(r.textContent) })()`))
+  check('★ 还没观测到端口的应用行照常显示，文案是"还没观测到端口"（不写 0 / 不写「—」）',
+    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-group-apps .svc-item')]
+      .find(x => x.textContent.includes('刚加的应用')); return !!r && r.textContent.includes('还没观测到端口') })()`),
+    String(await js(`(document.querySelector('main.services-view .svc-group-apps') || {}).textContent || ''`)))
+  check('★ 应用行沿用「已停用」提示（老数据的 port 字段不再当端口来源，但要说清）',
+    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-group-apps .svc-item')]
+      .find(x => x.textContent.includes('绒花墨坊')); const d = r && r.querySelector('.svc-diag');
+      return !!d && /已停用/.test(d.textContent) })()`))
+  check('★ 已登记行显示监听状态与占用者（"谁占着"是这页的核心信息）',
+    await js(`(() => { const t = document.querySelector('main.services-view .svc-group-manual').textContent;
+      return t.includes('监听中') && t.includes('PID 1234') && t.includes('python') })()`),
+    String(await js(`document.querySelector('main.services-view .svc-group-manual').textContent.slice(0, 160)`)))
+  check('休息的行说明"没有进程在监听"',
+    await js(`document.querySelector('main.services-view .svc-group-manual').textContent.includes('没有进程在监听')`))
   check('★★ 没有任何"结束/杀掉占用进程"的按钮（用户选的是只读 A 档，不许偷偷加）',
     await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|杀进程|停止进程|kill/i.test(b.textContent))`),
     String(await js(`JSON.stringify([...document.querySelectorAll('main.services-view button')].map(b => b.textContent))`)))
 
-  // 19a. 打开地址：监听的能点，空闲的是禁用
+  // 19a. 应用行「▶ 启动」→ 按 **应用 id** 启动（不是端口），并刷新观测结果
+  await js(`window.__fcTest.reset()`)
+  check('★★ 应用行的「▶ 启动」真调 servicesStartApp，且传的是**应用 id**（不是端口号）',
+    await (async () => {
+      await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-group-apps .svc-item')]
+        .find(x => x.textContent.includes('绒花墨坊'));
+        const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('启动'));
+        if (b) b.click(); return !!b })()`)
+      const okCall = await waitFor(`window.__fcTest.calls().some(c => c.name === 'servicesStartApp')`, 5000, 'servicesStartApp')
+      const arg = await js(`(window.__fcTest.calls().find(c => c.name === 'servicesStartApp') || {}).args[0]`)
+      return okCall && arg === 'lp-ronghua'
+    })(),
+    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesStartApp'))`)))
+  check('★ 启动后界面带出新观测到的端口（:4321，观测结果真的回写了）',
+    await waitFor(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-group-apps .svc-item')]
+      .find(x => x.textContent.includes('绒花墨坊')); return !!r && /4321/.test(r.textContent) })()`, 5000, '观测刷新'),
+    String(await js(`(document.querySelector('main.services-view .svc-group-apps') || {}).textContent || ''`)))
+  check('★★ 启动一个应用**不会**弹错误条（"没观测到端口"不是失败 —— 旧模型会把它说成接错了）',
+    await js(`document.querySelectorAll('.errbar').length === 0`),
+    String(await js(`JSON.stringify([...document.querySelectorAll('.errbar-msg')].map(e => e.textContent))`)))
+
+  // 19b. 打开地址：监听的能点，空闲的是禁用（按端口打开仍是合法动作，只是入口在手填行上）
   await js(`window.__fcTest.reset()`)
   check('★ 空闲服务的「打开地址」是禁用的（点了必然报错，不能让人白点）',
-    await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+    await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-group-manual .svc-item')];
       const idle = rows.find(r => r.textContent.includes('空闲'));
       const b = idle && [...idle.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
       return !!b && b.disabled === true })()`))
-  await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
+  await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-group-manual .svc-item')];
     const on = rows.find(r => r.textContent.includes('监听中'));
     const b = on && [...on.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
     if (b) b.click(); return !!b })()`)
@@ -1660,29 +1695,6 @@ async function main() {
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesOpen'))`)))
   check('  传的是端口号（不是 id / 名字）',
     await js(`window.__fcTest.calls().some(c => c.name === 'servicesOpen' && c.args[0] === 8753)`))
-
-  // 19b. 登记端口：填表 → 调 servicesAdd
-  await js(`window.__fcTest.reset()`)
-  await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); return !!i })()`)
-  check('★ 空服务名时拒绝登记（不许把空条目写进清单）',
-    await (async () => {
-      await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); i.value = ''; i.dispatchEvent(new Event('input', {bubbles:true}));
-        const p = document.querySelector('main.services-view input.svc-port-input'); p.value = '9001'; p.dispatchEvent(new Event('input', {bubbles:true})) })()`)
-      await js(`(() => { const b = [...document.querySelectorAll('main.services-view button')].find(x => x.textContent.includes('登记端口')); if (b) b.click(); return !!b })()`)
-      await sleep(200)
-      return await js(`window.__fcTest.callCount('servicesAdd') === 0`)
-    })())
-  await js(`(() => { const i = document.querySelector('main.services-view input.svc-input'); i.value = '新登记的端口'; i.dispatchEvent(new Event('input', {bubbles:true}));
-    const p = document.querySelector('main.services-view input.svc-port-input'); p.value = '9001'; p.dispatchEvent(new Event('input', {bubbles:true})) })()`)
-  await js(`(() => { const b = [...document.querySelectorAll('main.services-view button')].find(x => x.textContent.includes('登记端口')); if (b) b.click(); return !!b })()`)
-  check('★ 填好名字+端口后点登记 → servicesAdd 收到 {name, port}',
-    await waitFor(`window.__fcTest.callCount('servicesAdd') >= 1`, 5000, 'servicesAdd'),
-    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesAdd'))`)))
-  check('  端口以数字传（不是字符串，主进程那边要按整数校验）',
-    await js(`window.__fcTest.calls().some(c => c.name === 'servicesAdd' && typeof c.args[0].port === 'number' && c.args[0].port === 9001)`))
-  check('★ 登记成功后列表里多出这条（界面真的刷新了）',
-    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === ${svcFixtureN + 1}`, 5000, '登记后刷新'),
-    String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
 
   // 19c. 未登记但正在监听 → 一键登记进来
   await js(`window.__fcTest.reset()`)
@@ -1714,10 +1726,12 @@ async function main() {
   check('★ 手填的那条能「取消登记」→ servicesRemove',
     await waitFor(`window.__fcTest.callCount('servicesRemove') >= 1`, 5000, 'servicesRemove'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesRemove'))`)))
-  check('  启动台登记的那条**没有**取消登记按钮（要改 apps.json）',
-    await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-item')];
-      const l = rows.find(r => r.textContent.includes('启动台'));
-      return !!l && ![...l.querySelectorAll('button')].some(x => x.textContent.includes('取消登记')) })()`))
+  // ⚠ 2026-10-15：旧模型里"启动台登记的那条不给取消按钮（要改 apps.json）"——
+  //   新模型下启动台**不再产生端口行**，所以这条判据整个换掉：应用行只该有「▶ 启动」，
+  //   不许出现「取消登记」（那是手填行的动作，点错会把应用从服务页误删）。
+  check('★ 应用行只有「▶ 启动」，没有「取消登记」（后者是手填行的动作，别串门）',
+    await js(`(() => { const box = document.querySelector('main.services-view .svc-group-apps'); if (!box) return true;
+      return ![...box.querySelectorAll('button')].some(x => x.textContent.includes('取消登记')) })()`))
 
   // ── 18. 待办专项整修（2026-09-26 卡 033）────────────────────────────
   //     本轮先盘问题清单再修，这里钉住"看得见"的那几条：
@@ -1935,7 +1949,8 @@ async function main() {
     { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', listening: false, pid: null, processName: '', duplicated: false },
   ])`)
   await js(`(() => { const b = [...document.querySelectorAll('main.services-view .skills-btn')].find(x => x.textContent.includes('刷新')); if (b) b.click(); return !!b })()`)
-  check('  刷新后清单回到确定的 2 条', await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 2`, 5000, '重新灌数据'))
+  check('  刷新后「已登记」清单回到夹具真身的条数',
+    await waitFor(`document.querySelectorAll('main.services-view .svc-group-manual .svc-item').length === window.__fcTest.services().length`, 5000, '重新灌数据'))
   check('★ 有「📋 复制快照」按钮（回执要的"导出分析"）',
     await js(`[...document.querySelectorAll('main.services-view .skills-btn')].some(b => b.textContent.includes('复制快照'))`))
   await js(`window.__fcTest.reset()`)
@@ -1949,15 +1964,13 @@ async function main() {
              /登记 \\d+ · 监听中 \\d+ · 空闲 \\d+/.test(t) &&
              t.includes('监听中 pid=1234 python') })()`),
     String(await js(`String((window.__fcTest.calls().find(x => x.name === 'clipboardWriteText') || {}).args || '')`)))
-  check('★ 空闲的启动台应用有「▶ 启动」按钮',
-    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('没人跑的服务')); return !!r && [...r.querySelectorAll('button')].some(b => b.textContent.includes('启动')) })()`))
-  check('★ 手填的空闲行**不给**启动按钮（方寸只启动启动台登记过的应用）',
-    await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('方寸看板')); if (!r) return true; return ![...r.querySelectorAll('button')].some(b => b.textContent.includes('启动')) })()`))
-  await js(`window.__fcTest.reset()`)
-  await js(`(() => { const r = [...document.querySelectorAll('main.services-view .svc-item')].find(x => x.textContent.includes('没人跑的服务')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('启动')); if (b) b.click(); return !!b })()`)
-  check('★ 点「▶ 启动」走到 servicesStart，带上端口',
-    await waitFor(`window.__fcTest.calls().some(c => c.name === 'servicesStart' && c.args[0] === 9100)`, 5000, 'servicesStart :9100'),
-    String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesStart'))`)))
+  check('★ 「启动台应用」分区里每个应用都有「▶ 启动」按钮',
+    await js(`(() => { const box = document.querySelector('main.services-view .svc-group-apps'); if (!box) return false;
+      const rows = [...box.querySelectorAll('.svc-item')];
+      return rows.length > 0 && rows.every(r => [...r.querySelectorAll('button')].some(b => b.textContent.includes('启动'))) })()`))
+  check('★★ 手填（你认领的）行**不给**启动按钮 —— 它没有启动命令，方寸只启动启动台登记过的应用',
+    await js(`(() => { const box = document.querySelector('main.services-view .svc-group-manual'); if (!box) return true;
+      return ![...box.querySelectorAll('button')].some(b => b.textContent.includes('启动')) })()`))
   check('★ 服务页依然没有"结束/杀掉进程"这类按钮（A 档只读，用户明确排除）',
     await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|停止进程|kill/i.test(b.textContent))`))
 

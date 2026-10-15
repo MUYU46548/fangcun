@@ -3439,68 +3439,85 @@
           check('★★ 点「编辑」**不**触发启动（两个动作彻底分开）',
             window.__fcTest.callCount('launchpadLaunchApp') === beforeE,
             'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
-          const closeBtn = $('#app-edit-overlay button.ghost')
+          // ⚠ 关闭要用「取消」（.acts .ghost）——第一个 .ghost 是「浏览…」，点了不会关
+          const closeBtn = $('#app-edit-overlay .acts .ghost')
           if (closeBtn) closeBtn.click()
-          await sleep(200)
+          await waitFor(() => !$('#app-edit-overlay'), 3000, 'edit closed')
         } else {
           check('★ 卡片上有独立「✏️ 编辑」按钮', false, 'no .lp-edit')
         }
 
-        // ③ 端口登在 .exe 上 → 卡片出诊断；没有端口的卡不出
-        const warnOf = (card) => (card.querySelector('.lp-warn') || {}).textContent || ''
-        check('★★ 端口登在桌面程序上的卡显示诊断（.lp-warn 且点出"桌面程序"）',
-          warnOf(lpCards[0]).indexOf('桌面程序') >= 0, JSON.stringify(warnOf(lpCards[0]).slice(0, 60)))
-        check('★ 没登记端口的卡**不**出现诊断（不误报）',
-          !lpCards[1].querySelector('.lp-warn'), 'unexpected warn')
+        // ③ 卡片上的"观测到的端口"（2026-10-15 新模型）：这是**结果**不是配置
+        const portsOf = (card) => ((card.querySelector('.lp-ports') || {}).textContent || '')
+        check('★★ 启动台卡片显示**观测到的端口**（不是让用户填的配置项）',
+          portsOf(lpCards[0]).indexOf(':9100') >= 0, JSON.stringify(portsOf(lpCards[0])))
+        check('★ 还没观测到端口的卡**整行不渲染**（不写「无」/「—」这类噪音）',
+          !lpCards[1].querySelector('.lp-ports'), 'unexpected .lp-ports')
+        // ⚠ 判据只看 placeholder 里的中文「端口」：编辑表单里有一栏是**启动参数**，
+        //   它的示例文案就叫 `--port 8080` —— 那是合法的参数例子，不是"让用户配端口"。
+        check('★★ 启动台编辑表单里**没有端口输入框**（端口不该由用户配置）',
+          !$$('#app-edit-overlay input').some(i => /端口/.test(i.placeholder || '')),
+          $$('#app-edit-overlay input').map(i => i.placeholder || '(无)').join(' | '))
       }
 
-      // 服务页
+      // 服务页（2026-10-15 改模型：**按应用**，端口是观测结果）
       clickText('服务'); await sleep(600)
       check('  进得了服务页（.services-view）', !!$('.services-view'))
-      const rows = $$('.svc-item').filter(r => r.querySelector('.svc-name'))
-      const rowOf = (port) => rows.find(r => ((r.querySelector('.svc-port') || {}).textContent || '').indexOf(String(port)) >= 0)
-      const r9100 = rowOf(9100), r9200 = rowOf(9200), r8753 = rowOf(8753)
+      check('★★ 服务页有「启动台应用」分区（入口是应用，不是端口）',
+        $$('.svc-group-title').some(t => (t.textContent || '').indexOf('启动台应用') >= 0),
+        $$('.svc-group-title').map(t => t.textContent).join(' | '))
+      check('★★ 服务页**没有**"手敲端口号"的输入框（旧模型的老毛病）',
+        !$$('.svc-input').some(i => /端口/.test(i.placeholder || '')),
+        $$('.svc-input').map(i => i.placeholder).join(' | '))
 
-      check('★★ 服务页把「启动命令」摊开显示（启动台来源的行有 .svc-cmd）',
-        !!r9100 && !!r9100.querySelector('.svc-cmd'), 'r9100=' + !!r9100)
-      check('★★ 手填登记**不**显示启动命令那一行（它压根没有 cmd，别对它喊"接错了"）',
-        !!r8753 && !r8753.querySelector('.svc-cmd') && !r8753.querySelector('.svc-diag'),
-        'r8753=' + !!r8753)
+      const allRows = $$('.svc-item').filter(r => r.querySelector('.svc-name'))
+      const nameRow = (n) => allRows.find(r => ((r.querySelector('.svc-name') || {}).textContent || '').trim() === n)
+      const appRonghua = nameRow('绒花墨坊'), appFresh = nameRow('刚加的应用'), rowManual = nameRow('方寸看板')
 
-      check('★★ 端口登在 .exe 上的行给出诊断（.svc-diag，且指向"桌面程序 / 不会监听"）',
-        !!r9100 && ((r9100.querySelector('.svc-diag') || {}).textContent || '').indexOf('桌面程序') >= 0,
-        JSON.stringify((((r9100 || {}).querySelector ? r9100.querySelector('.svc-diag') : null) || {}).textContent || '').slice(0, 80))
-      check('★ 启动命令是 .bat 的行**不**出诊断（不误报 —— 误报比漏报更伤）',
-        !!r9200 && !r9200.querySelector('.svc-diag'), 'r9200=' + !!r9200)
+      check('★ 应用行把"观测到的端口"显示出来（:9100 此刻在监听 → 标成在用）',
+        !!appRonghua && /9100/.test((appRonghua.textContent || '')), JSON.stringify((appRonghua || {}).textContent))
+      check('★ 还没观测到端口的应用行照常显示（不因为不知道端口就消失），文案是"还没观测到端口"',
+        !!appFresh && /还没观测到端口/.test(appFresh.textContent || ''), JSON.stringify((appFresh || {}).textContent))
+      check('★★ 应用行把**启动命令**摊开显示（否则用户不知道点了会跑什么）',
+        !!appRonghua && /启动命令/.test(appRonghua.textContent || ''), JSON.stringify((appRonghua || {}).textContent))
+      check('★ 老数据的 port 字段 → 给出"已停用"的提示（数据卫生，不是拿它当端口来源）',
+        !!appRonghua && /已停用/.test((appRonghua.querySelector('.svc-diag') || {}).textContent || ''),
+        JSON.stringify(((appRonghua && appRonghua.querySelector('.svc-diag')) || {}).textContent))
+      check('★★ 手填（用户认领的）行**不**显示启动命令、也**不**显示旧字段提示',
+        !!rowManual && !/启动命令/.test(rowManual.textContent || '') && !rowManual.querySelector('.svc-diag'),
+        JSON.stringify((rowManual || {}).textContent))
 
-      // ④ 启动后按事实复查：9200（脚本）→ 真监听；9100（exe）→ 仍是空闲，界面必须说清原因
-      if (r9200) {
-        const b = r9200.querySelector('button.skills-btn.primary')
+      // ④ 启动一个应用 → 真调 servicesStartApp，并按**中性话术**报告观测结果
+      if (appRonghua) {
+        const b = appRonghua.querySelector('button.skills-btn.primary')
         if (b) {
+          const before = window.__fcTest.callCount('servicesStartApp')
           b.click()
-          check('★★ 点「▶ 启动」真调 servicesStart',
-            await waitFor(() => window.__fcTest.callCount('servicesStart') >= 1, 4000, 'servicesStart'))
-          check('  拉起成功且端口真起来时 → 不弹错误条', await waitFor(() => $$('.errbar').length === 0, 3000, 'no err'))
+          check('★★ 点「▶ 启动」真调 servicesStartApp（按**应用**启动，不是按端口）',
+            await waitFor(() => window.__fcTest.callCount('servicesStartApp') > before, 4000, 'servicesStartApp'),
+            'calls=' + window.__fcTest.callCount('servicesStartApp'))
+          check('★ 传的是应用 id（不是端口号）',
+            (window.__fcTest.calls().filter(c => c.name === 'servicesStartApp').pop() || {}).args[0] === 'lp-ronghua',
+            JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'servicesStartApp').pop() || {}).args))
+          check('  观测到端口时 → 不弹错误条（成功路径）', await waitFor(() => $$('.errbar').length === 0, 3000, 'no err'))
+          check('★ 启动完之后那一行带出了新观测到的端口（界面真的刷新了）',
+            await waitFor(() => {
+              const r = nameRow('绒花墨坊')
+              return !!r && /4321/.test(r.textContent || '')
+            }, 4000, 'observed refreshed'),
+            JSON.stringify((nameRow('绒花墨坊') || {}).textContent))
         } else {
-          check('  9200 行有「▶ 启动」按钮', false, 'no start button')
+          check('  应用行有「▶ 启动」按钮', false, 'no start button')
         }
       }
-      if (r9100) {
-        const b = r9100.querySelector('button.skills-btn.primary')
+      // ⑤ 「没观测到端口」那条：不许报成失败（旧模型会）
+      if (appFresh) {
+        const b = appFresh.querySelector('button.skills-btn.primary')
         if (b) {
           b.click()
-          await sleep(600)
-          const msg = (($('.errbar-msg') || {}).textContent || '') + ' ' +
-            ((($('.errbar-msg') || {}).title) || '')
-          check('★★ 拉起了但端口没起来 → 明确报出来（顶部错误条），不许静默报"已启动"',
-            $$('.errbar').length === 1, 'errbar=' + $$('.errbar').length)
-          check('★★ 报的话要说清**发生了什么**（拉起了 + 仍没人监听）并给**下一步**',
-            msg.indexOf('仍然没有进程在监听') >= 0 && msg.indexOf('启动台') >= 0,
-            JSON.stringify(msg.slice(0, 120)))
-          check('★ 那句话不许把责任推给"启动台坏了"（那是误导）',
-            msg.indexOf('启动台坏了') < 0)
-        } else {
-          check('  9100 行有「▶ 启动」按钮', false, 'no start button')
+          await sleep(700)
+          check('★★ 没观测到端口的应用：**不弹错误条**（桌面程序大多不监听端口，这不是失败）',
+            $$('.errbar').length === 0, 'errbar=' + $$('.errbar').length)
         }
       }
       // 清掉错误条，别影响后面「没有未捕获错误」那条

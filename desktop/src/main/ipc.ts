@@ -25,7 +25,7 @@ import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
-import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startService } from './services/portRegistry'
+import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startAppAndObserve } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
 import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallPrompt } from './services/mcpConnect'
 import type { McpEntryId } from './services/mcpConnect'
@@ -1026,7 +1026,9 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     }
   })
 
-  guardedHandle('services:start', (_event, port: number) => startService(Number(port)))
+  // 2026-10-15 换掉按端口的 `services:start`：**入口只能是应用**（用户不需要知道端口）。
+  // 拉起之后方寸自己 diff 监听表，把"这个应用新开了哪些端口"记下来 —— 端口是观测结果，不是配置。
+  guardedHandle('services:startApp', (_event, appId: string) => startAppAndObserve(String(appId)))
 
   guardedHandle('services:list', () => {
     return listServices()

@@ -33,11 +33,11 @@ function check(name, cond, detail = '') {
 function main() {
   console.log('== 启动台 × 端口 诊断纯函数 e2e ==')
   const mod = require(DIST)
-  const { diagnosePortRegistration, describeLaunchCommand, explainStartButStillIdle, baseNameOf, extOf } = mod
+  const { diagnosePortRegistration, describeLaunchCommand, explainStartObserved, baseNameOf, extOf } = mod
 
   check('导出四个面向（diagnose / describe / explain / 路径小工具）',
     typeof diagnosePortRegistration === 'function' && typeof describeLaunchCommand === 'function'
-    && typeof explainStartButStillIdle === 'function' && typeof baseNameOf === 'function' && typeof extOf === 'function')
+    && typeof explainStartObserved === 'function' && typeof baseNameOf === 'function' && typeof extOf === 'function')
 
   // ── ① 旧案本体：exe + port ─────────────────────────────────────────────
   const ronghua = {
@@ -109,14 +109,23 @@ function main() {
   check('★ extOf 小写化', extOf('E:/A/B.EXE') === '.exe')
   check('★★ extOf 不把 .gitignore 这种写成扩展名（点号开头不算）', extOf('E:/a/.gitignore') === '', extOf('E:/a/.gitignore'))
 
-  // ── ⑨ 「拉起了但端口没起来」那句话 ───────────────────────────────────
-  const msg = explainStartButStillIdle('绒花墨坊', 8090)
-  check('★ 那句话带应用名与端口', msg.includes('绒花墨坊') && msg.includes('8090'), msg)
-  check('★ 那句话说明**发生了什么**（拉起了 + 仍没人监听）', msg.includes('拉起') && msg.includes('没有进程在监听'), msg)
-  check('★ 那句话给出**下一步**（去启动台改命令 / 去掉端口登记）',
-    msg.includes('启动台') && (msg.includes('改') || msg.includes('去掉')), msg)
-  check('★ 那句话不许把责任推给"启动台坏了"（那是误导）', !msg.includes('启动台坏了'), msg)
-  check('★ 应用名为空时不崩、退回占位', explainStartButStillIdle('', 1).includes('这个应用'))
+  // ── ⑨ 启动完之后跟用户说的话（2026-10-15 新模型：**措辞必须中性**）────────
+  //   旧模型在这里说的是"这条登记接错了"——那是**错误的预设**（默认"启动一个应用就该有个端口起来"）。
+  //   用户原话「端口永远是记不住的，不要指望根据端口去配置」，所以"没观测到端口"是正常结果。
+  const msg0 = explainStartObserved('绒花墨坊', [])
+  check('★ 没观测到端口时带应用名', msg0.includes('绒花墨坊'), msg0)
+  check('★★ 没观测到端口**不许**说成失败 / 接错（旧模型的错误预设）——且要主动否认一次',
+    !/接错|坏了|应当|应该/.test(msg0) && msg0.includes('不代表启动失败'), msg0)
+  check('★ 那句话解释了"这属正常"（桌面程序大多不监听端口）', msg0.includes('不监听端口'), msg0)
+  check('★ 那句话把用户指向"方寸自己扫出来的那段"（不用他记端口）',
+    msg0.includes('未登记但在监听'), msg0)
+  const msg1 = explainStartObserved('接口服务', [8765, 3000])
+  check('★ 观测到端口时把端口列出来（升序、去重前先排序）',
+    msg1.includes(':3000') && msg1.includes(':8765') && msg1.indexOf(':3000') < msg1.indexOf(':8765'), msg1)
+  check('★ 观测到端口时也不再提"登记"这类要求', !/去登记|请填/.test(msg1), msg1)
+  check('★ 这两句都会直接弹给用户看，不许夹 Markdown 标记（Vue 不解析，会原样显示 ** ）',
+    !/\*\*|`/.test(msg0 + msg1), msg0 + ' || ' + msg1)
+  check('★ 应用名为空时不崩、退回占位', explainStartObserved('', []).includes('这个应用'))
 
   // ── ⑩ 纯函数自查：不改传入对象 ───────────────────────────────────────
   {

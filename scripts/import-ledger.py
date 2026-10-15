@@ -356,6 +356,11 @@ def main():
         if not ok:
             print("FAIL 建卡失败：%s" % c["标题"])
             return 1
+        # ⚠ `api_new` 的字段兜底把**空数组**也当"没填" → 项目留空会被写成默认的 fangcun-base。
+        #   账本里"全局 / 订阅 / 游戏四 / A·C·D·E 表"这些条目本来就**不该有归属**，
+        #   所以这里必须**显式**回写一次空数组（2026-10-15 实测踩到：23 张卡被错挂到方寸名下）。
+        if not c["项目"]:
+            core.api_edit(tid, {"项目": []})
         made.append((c["key"], tid))
 
     print("\n已建 %d 张：" % len(made))

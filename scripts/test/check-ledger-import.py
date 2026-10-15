@@ -93,6 +93,7 @@ def main():
 
     # ── ④ 已落地的卡：标记在全库唯一，且与计划一一对应 ─────────────────
     seen = {}
+    landed_texts = {}
     tdir = core.TASK_DIR
     for sub in ("", "archive", ".trash"):
         d = os.path.join(tdir, sub) if sub else tdir
@@ -105,6 +106,7 @@ def main():
                 txt = f.read()
             for m in re.finditer(r"\[账本:%s:([^\]]+)\]" % VERSION, txt):
                 seen.setdefault(m.group(1), []).append(os.path.join(sub, fn))
+                landed_texts[os.path.join(sub, fn)] = txt
 
     dups = {k: v for k, v in seen.items() if len(v) > 1}
     check("★★ 全库里每个账本标记只出现一次（重复建卡 = 账本卡会自我繁殖）", not dups,
@@ -114,6 +116,26 @@ def main():
           "missing=%s" % [c["key"] for c in cards if c["key"] not in seen][:5])
     check("★ 落盘的标记数 == 计划卡数（没有多余/僵尸标记）",
           len(seen) == len(cards), "landed=%d planned=%d" % (len(seen), len(cards)))
+
+    # ── ④b 归属：不该有归属的条目**不许**被兜底成方寸 ─────────────────────
+    #   2026-10-15 实测踩到的坑：`api_new` 的字段兜底把**空数组**也当"没填"，
+    #   于是账本里"全局 / 订阅 / 游戏四 / A·C·D·E 表"这 23 条被悄悄挂到了 fangcun-base 名下 ——
+    #   后果是方寸的项目页/一屏里凭空多出 23 条不属于它的活，而"未归属"那一栏永远是空的。
+    no_proj_keys = [c["key"] for c in cards if not c["项目"]]
+    check("★ 计划里确实存在「无归属」的条目（%d 条，不是 0 —— 否则这条断言测不到东西）"
+          % len(no_proj_keys), len(no_proj_keys) > 0, len(no_proj_keys))
+
+    wrongly_owned = []
+    for k in no_proj_keys:
+        for f2, txt2 in landed_texts.items():
+            if ("[账本:%s:%s]" % (VERSION, k)) in txt2 or ("[账本:%s:%s-" % (VERSION, k)) in txt2:
+                m2 = re.search(r"^项目:\s*(.+)$", txt2, re.M)
+                raw = (m2.group(1).strip() if m2 else "")
+                if raw not in ("[]", "", "null"):
+                    wrongly_owned.append((k, raw))
+                break
+    check("★★ 不该有归属的账本条目**没有**被兜底挂到方寸名下（空数组 ≠ 没填）",
+          not wrongly_owned, wrongly_owned[:5])
 
     # ── ⑤ 已完成的账本条目不许再挂"待办" ───────────────────────────────
     doneish = [c for c in cards if re.search(r"→\s*已|已修（|已落地|已合入|已被你的产线做掉|已交付",

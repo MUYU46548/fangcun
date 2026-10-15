@@ -25,6 +25,8 @@ import { app, shell } from 'electron'
 import { atomicWriteBackup } from '../data'
 import * as appLog from './appLog'
 import * as launchpad from '../launchpad'
+import { recordObservedPorts } from '../launchpad'
+import { diagnosePortRegistration } from '../../shared/launchpadDiag'
 
 export interface ManualService {
   name: string
@@ -63,6 +65,33 @@ export interface UnregisteredRow {
 }
 
 /**
+ * 启动台应用（2026-10-15 新模型）。
+ *
+ * ⚠ 口径变了：**端口是观测结果，不是配置项**（暮雨：「端口永远是记不住的，不要指望根据端口去配置。
+ * 你永远不知道用户有什么端口。」）。所以这里不要求用户填任何端口 ——
+ * `observedPorts` 是"上次启动时观测到它新开了哪些端口"，由方寸自己 diff 监听表得出；
+ * `listeningPorts` 是其中**此刻真的在监听**的那些。
+ */
+export interface AppPortRow {
+  id: string
+  name: string
+  /** 启动命令（服务页要显示出来，否则用户不知道点「启动」会跑什么） */
+  cmd: string
+  path: string
+  description: string
+  /** 历史观测到的端口（并集，最近一次在前）；空 = 还没观测过 */
+  observedPorts: number[]
+  /** 其中此刻正在监听的 */
+  listeningPorts: number[]
+  observedAt: string
+  /**
+   * 老文件里可能还残留 `port`（**已停用的旧配置项**）。有值就带一条"该字段已停用"的说明，
+   * 让界面能提示用户清掉，而不是让一个没人再读的字段悄悄躺在配置里 —— 这正是旧案的遗产。
+   */
+  legacyPortNote: string
+}
+
+/**
  * 「像服务/开发进程」的进程名白名单（2026-09-26）。
  *
  * 为什么需要它：`netstat` 会把**整机**监听端口都给出来 —— 实测一次就倒出 14 个，
@@ -81,50 +110,78 @@ const SERVERISH = /^(node|python|pythonw|py|java|javaw|dotnet|go|bun|deno|ruby|p
  * 安全线：**只认启动台里带 port 的应用**；端口对不上就拒绝，方寸不会替用户拉起陌生东西，
  * 也永远不会"杀"任何进程（本模块全程只读 + 这一处 spawn 走的是启动台既有执行器）。
  */
-export async function startService(port: number): Promise<{
-  ok: boolean
-  message: string
-  /** 被拉起的启动台应用名（渲染层用它组织"拉起了但端口没起来"的话术） */
-  appName?: string
-  /** ★ 拉起成功后再复查一次真监听（2026-10-15 防复发，见文件头与 launchpadDiag.ts） */
-  listeningAfter?: boolean
-}> {
-  const n = Number(port)
-  if (!Number.isInteger(n) || n <= 0 || n > 65535) return { ok: false, message: `端口不合法：${port}` }
-  let target: any = null
-  try { target = (launchpad.loadApps() || []).find((a: any) => Number(a.port) === n) } catch (e: any) {
-    return { ok: false, message: `读启动台配置失败：${e?.message || e}` }
-  }
-  if (!target) return { ok: false, message: `端口 ${n} 不在启动台登记里，方寸不替你启动别的程序（可在启动台里给它填 port）` }
-  try {
-    const r: any = await (launchpad as any).launchApp(target)
-    const ok = !!(r && r.ok)
-    if (!ok) {
-      return { ok: false, message: (r && r.message) || `启动「${target.name}」失败`, appName: String(target.name || '') }
-    }
-    // ★ 关键一步：「拉起成功」≠「端口起来了」。给服务进程 2.5s 起监听窗口，再拿事实核对一次。
-    //   不核对就只报"已启动"，用户看到端口仍是「空闲」→ 又一次得出"启动台坏了"（这就是那条旧案的形状）。
-    const listeningAfter = await waitThenProbe(n, 2500)
-    return {
-      ok: true,
-      appName: String(target.name || ''),
-      listeningAfter,
-      message: listeningAfter
-        ? `已启动「${target.name}」，:${n} 已在监听`
-        : `已拉起「${target.name}」，但 :${n} 仍未被监听`,
-    }
-  } catch (e: any) {
-    appLog.error('services', '启动服务失败', e?.stack || e)
-    return { ok: false, message: `启动失败：${e?.message || e}`, appName: String(target?.name || '') }
-  }
+/** 取「此刻正在监听的端口」集合（netstat 优先；拿不到就退回逐端口探活，返回 null 表示无从判断） */
+async function snapshotListening(): Promise<Set<number> | null> {
+  const listen = await buildListenMap()
+  if (listen.size) return new Set(listen.keys())
+  return null
 }
 
-/** 等一会再查真监听（netstat 优先，拿不到就一次 TCP 连接探活） */
-async function waitThenProbe(port: number, delayMs: number): Promise<boolean> {
-  await new Promise(r => setTimeout(r, delayMs))
-  const listen = await buildListenMap()
-  if (listen.size) return listen.has(port)
-  return probeByConnect(port)
+/**
+ * 启动一个**启动台应用**，并**观测**它开了哪些端口（2026-10-15 新模型）。
+ *
+ * 为什么按"应用"启动、而不是按"端口"启动：
+ *   按端口的前提是用户知道端口 —— 而暮雨的原话是「端口永远是记不住的」。
+ *   应用是用户认识的东西（"绒花墨坊"），端口是它的**结果**。所以入口只能是应用。
+ *
+ * 观测怎么做的（纯事实，不猜）：
+ *   ① 启动前取一次全机 LISTENING 集合；
+ *   ② 拉起应用；③ 等 2.8s（给服务进程起监听的时间窗）再取一次；
+ *   ④ `after - before` 就是**这次启动新开出来的端口**，写回该应用名下（并集，最近一次在前）。
+ *   ⚠ "没观测到新端口"**不是失败** —— 大多数桌面程序本来就不监听任何端口，
+ *     所以话术必须是中性的，不许说成"接错了"（那是旧模型的错误预设）。
+ */
+export async function startAppAndObserve(appId: string): Promise<{
+  ok: boolean
+  message: string
+  appName?: string
+  /** 本次新观测到的端口 */
+  newPorts?: number[]
+  /** 该应用名下累计观测到的端口 */
+  allPorts?: number[]
+  /** 观测是否可信（netstat 不可用时为 false，此时不写历史） */
+  observed?: boolean
+}> {
+  const id = String(appId || '').trim()
+  if (!id) return { ok: false, message: '应用 id 为空' }
+  let apps: any[] = []
+  try { apps = launchpad.loadApps() || [] } catch (e: any) {
+    return { ok: false, message: `读启动台配置失败：${e?.message || e}` }
+  }
+  const target = apps.find((a: any) => String(a?.id) === id)
+  if (!target) return { ok: false, message: '这个应用不在启动台登记里（先到「启动台」页添加它）' }
+
+  const before = await snapshotListening()
+  try {
+    const r: any = await (launchpad as any).launchApp(target)
+    if (!(r && r.ok)) {
+      return { ok: false, message: (r && r.message) || `启动「${target.name}」失败`, appName: String(target.name || '') }
+    }
+    await new Promise(res => setTimeout(res, 2800))
+    const after = await snapshotListening()
+    if (!before || !after) {
+      return {
+        ok: true, observed: false, appName: String(target.name || ''), newPorts: [], allPorts: Array.isArray(target.observedPorts) ? target.observedPorts : [],
+        message: `已启动「${target.name}」；这台机器上读不到监听表（netstat 不可用），本次没能观测端口`,
+      }
+    }
+    const fresh: number[] = []
+    for (const p of after) if (!before.has(p)) fresh.push(p)
+    fresh.sort((a, b) => a - b)
+    const nextApps = recordObservedPorts(id, fresh)
+    const row: any = nextApps.find(a => a.id === id) || {}
+    appLog.info('services', `启动并观测：${target.name}`, { newPorts: fresh, allPorts: row.observedPorts })
+    return {
+      ok: true, observed: true, appName: String(target.name || ''), newPorts: fresh,
+      allPorts: Array.isArray(row.observedPorts) ? row.observedPorts : [],
+      message: fresh.length
+        ? `已启动「${target.name}」，观测到它开了 :${fresh.join(' :')}`
+        : `已启动「${target.name}」；这次没观测到它新开端口（桌面程序大多不监听端口，属正常）`,
+    }
+  } catch (e: any) {
+    appLog.error('services', '启动应用失败', e?.stack || e)
+    return { ok: false, message: `启动失败：${e?.message || e}`, appName: String(target?.name || '') }
+  }
 }
 
 export function isServerishProcess(name: string): boolean {
@@ -136,6 +193,9 @@ export function isServerishProcess(name: string): boolean {
 export interface ServicesPayload {
   ok: boolean
   error?: string
+  /** 启动台应用（**按应用**，不按端口 —— 用户不需要知道端口） */
+  apps: AppPortRow[]
+  /** 已登记的端口行（只手填清单；启动台应用不再往这里塞"登记端口"） */
   rows: ServiceRow[]
   /** 正在监听、但不在登记表里、且**像是服务**的端口（提示可以登记进来） */
   unregistered: UnregisteredRow[]
@@ -292,6 +352,7 @@ export async function listServices(): Promise<ServicesPayload> {
     //   用户会看到一个空的清单、却看不到"文件坏了"这个原因 —— 静默失败。
     ok: manual.ok,
     error: manual.ok ? undefined : manual.error,
+    apps: [],
     rows: [],
     unregistered: [],
     hiddenCount: 0,
@@ -302,7 +363,7 @@ export async function listServices(): Promise<ServicesPayload> {
     appsJsonPath: getAppsJsonPath(),
   }
 
-  // 启动台登记（有 port 的才算）
+  // 启动台应用（2026-10-15：**按应用**列，端口只作为"观测结果"展示；不再要求任何 port 配置）
   let apps: any[] = []
   try {
     const p = getAppsJsonPath()
@@ -315,20 +376,8 @@ export async function listServices(): Promise<ServicesPayload> {
     out.error = (out.error ? out.error + '；' : '') + `apps.json 解析失败：${(e as Error).message}`
   }
 
+  // 已登记的端口 = **只手填清单**。启动台那条线改成"按应用 + 观测"，不再往这里塞端口。
   const seeds: Omit<ServiceRow, 'listening' | 'pid' | 'processName' | 'duplicated'>[] = []
-  for (const a of apps) {
-    const port = Number(a?.port)
-    if (!Number.isInteger(port) || port < 1 || port > 65535) continue
-    seeds.push({
-      id: `app:${String(a?.id ?? a?.name ?? port)}`,
-      name: String(a?.name ?? '(未命名应用)'),
-      port,
-      note: String(a?.portNote || a?.description || ''),
-      project: '',
-      source: 'launchpad',
-      cmd: String(a?.cmd || a?.path || ''),
-    })
-  }
   for (const s of manual.services) {
     seeds.push({ id: `manual:${s.port}`, name: s.name, port: s.port, note: String(s.note ?? ''), project: String(s.project ?? ''), source: 'manual', cmd: '' })
   }
@@ -352,7 +401,36 @@ export async function listServices(): Promise<ServicesPayload> {
   }
   out.rows.sort((a, b) => a.port - b.port)
 
-  const registered = new Set(seeds.map(s => s.port))
+  // 启动台应用行：观测到的端口里，哪些此刻真在监听
+  out.apps = apps.map((a: any) => {
+    const observed = Array.isArray(a?.observedPorts) ? a.observedPorts.filter((p: any) => Number.isInteger(p)) : []
+    const live: number[] = []
+    for (const p of observed) {
+      if (listen.size ? listen.has(p) : false) live.push(p)
+    }
+    return {
+      id: String(a?.id ?? a?.name ?? ''),
+      name: String(a?.name ?? '(未命名应用)'),
+      cmd: String(a?.cmd || a?.path || ''),
+      path: String(a?.path || ''),
+      description: String(a?.description ?? ''),
+      observedPorts: observed,
+      listeningPorts: live,
+      observedAt: String(a?.observedAt ?? ''),
+      // 旧字段体检：`diagnosePortRegistration` 在这里**仍然有用**，但用途变了 ——
+      // 它不再是"判断这条路能不能启动"的判据（那件事已经由"观测"回答），
+      // 而是**数据卫生**：告诉你"这条老登记里还留着已经没人读的 port 字段"（旧案的遗产）。
+      legacyPortNote: diagnosePortRegistration({ name: a?.name, port: a?.port, cmd: a?.cmd || a?.path }).level === 'none'
+        ? '' : `旧配置项 port=${Number(a?.port)} 已停用（方寸现在自动观测端口）—— 可以删掉，留着也不影响。`,
+    }
+  })
+  // 观测到端口的排前面（这些才是"有服务形态"的），其余按名字
+  out.apps.sort((a, b) => (b.observedPorts.length - a.observedPorts.length) || a.name.localeCompare(b.name, 'zh'))
+
+  // 「未登记但在监听」要排除两类已知端口：手填清单 + **启动台应用观测到的**（后者已经有主了，
+  // 再在下面列一遍就是重复噪音 —— 用户会以为"这个端口没人认领"）。
+  const registered = new Set<number>(seeds.map(s => s.port))
+  for (const a of out.apps) for (const p of a.observedPorts) registered.add(p)
   const unreg: UnregisteredRow[] = []
   let hidden = 0
   for (const [port, pid] of listen) {
@@ -372,12 +450,21 @@ export async function listServices(): Promise<ServicesPayload> {
   return out
 }
 
-/** 打开 http://127.0.0.1:<port>（只允许打开登记过的端口） */
+/**
+ * 打开 http://127.0.0.1:<port>。
+ *
+ * ⚠ 口径放宽（2026-10-15）：只要求这个端口**方寸认识**（手填清单 / 启动台应用观测到的 / 正在监听的），
+ * 不再要求"必须先登记"。理由还是那条：用户记不住端口、也不该被要求先登记才准打开 ——
+ * 但也不能对任意端口瞎开（否则就是个万能 URL 打开器），所以仍然要有一份已知集合。
+ */
 export async function openService(port: number): Promise<{ ok: boolean; url?: string; error?: string }> {
   const p = Number(port)
+  if (!Number.isInteger(p) || p < 1 || p > 65535) return { ok: false, error: `端口不合法：${port}` }
   const payload = await listServices()
-  const row = payload.rows.find(r => r.port === p)
-  if (!row) return { ok: false, error: `${p} 不在登记清单里 —— 先在页面上登记它再打开` }
+  const known = payload.rows.some(r => r.port === p)
+    || payload.apps.some(a => a.observedPorts.includes(p))
+    || payload.unregistered.some(u => u.port === p)
+  if (!known) return { ok: false, error: `方寸不认识 :${p}（既不在已登记清单，也没观测到、也没在监听）—— 先启动它或登记它` }
   const url = `http://127.0.0.1:${p}/`
   try {
     await shell.openExternal(url)

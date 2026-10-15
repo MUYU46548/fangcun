@@ -61,20 +61,27 @@ const store = {
       importedAt: '2026-09-26T10:00:00.000Z', source: 'D:/packages/external-demo.zip',
     },
   ],
-  // 服务 / 端口（2026-09-26 卡 006）：一条手填(监听中) + 两条启动台(空闲) + 一条未登记但正在监听
-  // ⚠ 2026-10-15 补 `cmd`（真主进程现在会回传启动命令）：只有启动台来源才有 cmd，手填为空 ——
-  //   这就是服务页"启动命令"那一行与诊断提示的判据来源。
+  // 服务 / 端口（2026-09-26 卡 006 → 2026-10-15 改模型）
+  // ⚠ 新口径：**端口是观测结果，不是配置项**。所以：
+  //   · `services`（已登记行）里**只有手填**（用户认领的）；启动台应用不再往这里塞端口；
+  //   · 启动台应用走 `servicesApps`（按应用列，端口来自观测）；
+  //   · 旧字段 `cmd` 在手填行上恒为空串（手填没有启动命令）。
   services: [
     { id: 'manual:8753', name: '方寸看板', port: 8753, note: 'Python 版 tegula', project: '', source: 'manual', cmd: '', listening: true, pid: 1234, processName: 'python', duplicated: false },
-    // 旧案本体：端口登在桌面程序上（诊断必须报出来）
-    { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', cmd: 'E:/mock/nobody.exe', listening: false, pid: null, processName: '', duplicated: false },
-    // 对照组：同样是启动台来源，但启动命令是脚本 —— 不许误报
-    { id: 'app:api', name: '接口服务', port: 9200, note: '', project: '', source: 'launchpad', cmd: 'E:/mock/serve.bat', listening: false, pid: null, processName: '', duplicated: false },
+    { id: 'manual:9100', name: '没人认领的服务', port: 9100, note: '', project: '', source: 'manual', cmd: '', listening: false, pid: null, processName: '', duplicated: false },
   ],
-  // 启动台登记（2026-10-15：点卡片=启动；端口与启动命令对不上要提示）
+  // 启动台应用行（端口=观测结果）。两条对照：
+  //   lp-observe：观测到过端口（:9100 现在在监听）→ 卡片/服务页要显示出来
+  //   lp-empty  ：还没观测到任何端口 → 不许写「无」/「—」这类噪音，整行不渲染
+  //   还有一条带**旧字段 port**（已停用）→ 要给出"该字段已停用"的提示，而不是拿它去启动
+  servicesApps: [
+    { id: 'lp-ronghua', name: '绒花墨坊', cmd: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', path: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', description: '控制台', observedPorts: [9100], listeningPorts: [9100], observedAt: '2026-10-15T10:00:00.000Z', legacyPortNote: '旧配置项 port=8090 已停用（方寸现在自动观测端口）—— 可以删掉，留着也不影响。' },
+    { id: 'lp-fresh', name: '刚加的应用', cmd: 'E:/mock/serve.bat', path: 'E:/mock/serve.bat', description: '', observedPorts: [], listeningPorts: [], observedAt: '', legacyPortNote: '' },
+  ],
+  // 启动台登记（2026-10-15：点卡片=启动；端口不再由用户填）
   launchpad: [
-    { id: 'lp-ronghua', name: '绒花墨坊', path: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', cmd: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', description: '控制台', port: 8090 },
-    { id: 'lp-api', name: '接口服务', path: 'E:/mock/serve.bat', cmd: 'E:/mock/serve.bat', description: '后端' },
+    { id: 'lp-ronghua', name: '绒花墨坊', path: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', cmd: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', description: '控制台', observedPorts: [9100] },
+    { id: 'lp-fresh', name: '刚加的应用', path: 'E:/mock/serve.bat', cmd: 'E:/mock/serve.bat', description: '' },
   ],
   servicesUnreg: [{ port: 8090, pid: 5016, processName: 'node' }],
   // 导入行为脚本：pickPath 是"用户选中的包路径"；importExists 打开后第一次导入返回重名
@@ -523,8 +530,10 @@ contextBridge.exposeInMainWorld('tegula', {
   servicesList: () => {
     rec('servicesList')
     const rows = store.services.slice()
+    const apps = (store.servicesApps || []).slice()
     return ok({
       rows,
+      apps,
       unregistered: store.servicesUnreg.slice(),
       listeningCount: rows.filter(r => r.listening).length,
       idleCount: rows.filter(r => !r.listening).length,
@@ -560,21 +569,26 @@ contextBridge.exposeInMainWorld('tegula', {
   },
 
 
-  // 空闲的启动台应用一键启动（2026-09-26 回执：「服务页没看到 8090 有动静」）
-  servicesStart: (port) => {
-    rec('servicesStart', [port])
-    const row = store.services.find(s => s.port === port)
-    if (!row) return ok({ ok: false, message: `端口 ${port} 不在启动台登记里` })
-    // ⚠ 返回形状必须跟真主进程一致（2026-10-15 起多了 appName / listeningAfter）——
-    //   假 preload 与真 preload 不同步 = 断言全绿而界面当场炸。
-    //   这里刻意演「拉起来了但端口没起来」（旧案形状）：调用方必须据此说清原因，而不是报"已启动"。
-    // 9100 = 旧案那条（端口登在 .exe 上）→ 真主进程复查后必然还是空闲；
-    // 其余端口演"拉起来就真监听了"。
-    const listeningAfter = Number(port) !== 9100
-    if (listeningAfter) { row.listening = true; row.pid = 9999; row.processName = 'node' }
+  // 启动台应用：启动 + **观测端口**（2026-10-15 新模型，取代旧的按端口 servicesStart）
+  // ⚠ 返回形状必须跟真主进程一致（appName / newPorts / allPorts / observed）——
+  //   假 preload 与真 preload 不同步 = 断言全绿而界面当场炸。
+  // 夹具刻意演两种结果：lp-ronghua 观测到新端口、lp-fresh 什么都没观测到
+  //   （后者**不是失败**，话术必须是中性的 —— 这是新模型和旧模型最大的区别）。
+  servicesStartApp: (appId) => {
+    rec('servicesStartApp', [appId])
+    const app = (store.servicesApps || []).find(a => a.id === appId)
+    if (!app) return ok({ ok: false, message: `应用 ${appId} 不在启动台登记里` })
+    const fresh = appId === 'lp-ronghua' ? [4321] : []
+    if (fresh.length) {
+      app.observedPorts = Array.from(new Set(fresh.concat(app.observedPorts || [])))
+      app.listeningPorts = Array.from(new Set(fresh.concat(app.listeningPorts || [])))
+      app.observedAt = '2026-10-15T12:00:00.000Z'
+    }
     return ok({
-      ok: true, appName: row.name, listeningAfter,
-      message: listeningAfter ? `已启动「${row.name}」` : `已拉起「${row.name}」，但 :${port} 仍未被监听`,
+      ok: true, observed: true, appName: app.name, newPorts: fresh, allPorts: app.observedPorts || [],
+      message: fresh.length
+        ? `已启动「${app.name}」，观测到它开了 :${fresh.join(' :')}`
+        : `已启动「${app.name}」；这次没观测到它新开端口（桌面程序大多不监听端口，属正常）`,
     })
   },
 
@@ -908,6 +922,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   tasks: () => JSON.parse(JSON.stringify(store.tasks)),
   imported: () => JSON.parse(JSON.stringify(store.imported)),
   services: () => JSON.parse(JSON.stringify(store.services)),
+  /** 启动台应用行（端口=观测结果）—— 断言用它算期望值，不写死条数 */
+  servicesApps: () => JSON.parse(JSON.stringify(store.servicesApps || [])),
   /** 脚本化导入行为：是否重名 / 选中的包路径（null = 用户取消） */
   setImport: (name, opts) => {
     if (name) store.importName = name
