@@ -1,6 +1,9 @@
 node_modules/
 dist/
 release/
+# 打包输出（electron-builder 的 appOutDir 被占用时用 `-c.directories.output=release-xxx` 绕开 ——
+# 2026-10-15 实测 release\win-unpacked\resources\*.asar 会被别的进程锁住）。一律不入库。
+release-*/
 *.log
 .DS_Store
 Thumbs.db

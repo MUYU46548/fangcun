@@ -61,10 +61,20 @@ const store = {
       importedAt: '2026-09-26T10:00:00.000Z', source: 'D:/packages/external-demo.zip',
     },
   ],
-  // 服务 / 端口（2026-09-26 卡 006）：一条手填(监听中) + 一条启动台(空闲) + 一条未登记但正在监听
+  // 服务 / 端口（2026-09-26 卡 006）：一条手填(监听中) + 两条启动台(空闲) + 一条未登记但正在监听
+  // ⚠ 2026-10-15 补 `cmd`（真主进程现在会回传启动命令）：只有启动台来源才有 cmd，手填为空 ——
+  //   这就是服务页"启动命令"那一行与诊断提示的判据来源。
   services: [
-    { id: 'manual:8753', name: '方寸看板', port: 8753, note: 'Python 版 tegula', project: '', source: 'manual', listening: true, pid: 1234, processName: 'python', duplicated: false },
-    { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', listening: false, pid: null, processName: '', duplicated: false },
+    { id: 'manual:8753', name: '方寸看板', port: 8753, note: 'Python 版 tegula', project: '', source: 'manual', cmd: '', listening: true, pid: 1234, processName: 'python', duplicated: false },
+    // 旧案本体：端口登在桌面程序上（诊断必须报出来）
+    { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', cmd: 'E:/mock/nobody.exe', listening: false, pid: null, processName: '', duplicated: false },
+    // 对照组：同样是启动台来源，但启动命令是脚本 —— 不许误报
+    { id: 'app:api', name: '接口服务', port: 9200, note: '', project: '', source: 'launchpad', cmd: 'E:/mock/serve.bat', listening: false, pid: null, processName: '', duplicated: false },
+  ],
+  // 启动台登记（2026-10-15：点卡片=启动；端口与启动命令对不上要提示）
+  launchpad: [
+    { id: 'lp-ronghua', name: '绒花墨坊', path: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', cmd: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', description: '控制台', port: 8090 },
+    { id: 'lp-api', name: '接口服务', path: 'E:/mock/serve.bat', cmd: 'E:/mock/serve.bat', description: '后端' },
   ],
   servicesUnreg: [{ port: 8090, pid: 5016, processName: 'node' }],
   // 导入行为脚本：pickPath 是"用户选中的包路径"；importExists 打开后第一次导入返回重名
@@ -555,10 +565,17 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('servicesStart', [port])
     const row = store.services.find(s => s.port === port)
     if (!row) return ok({ ok: false, message: `端口 ${port} 不在启动台登记里` })
-    row.listening = true
-    row.pid = 9999
-    row.processName = 'node'
-    return ok({ ok: true, message: `已启动「${row.name}」` })
+    // ⚠ 返回形状必须跟真主进程一致（2026-10-15 起多了 appName / listeningAfter）——
+    //   假 preload 与真 preload 不同步 = 断言全绿而界面当场炸。
+    //   这里刻意演「拉起来了但端口没起来」（旧案形状）：调用方必须据此说清原因，而不是报"已启动"。
+    // 9100 = 旧案那条（端口登在 .exe 上）→ 真主进程复查后必然还是空闲；
+    // 其余端口演"拉起来就真监听了"。
+    const listeningAfter = Number(port) !== 9100
+    if (listeningAfter) { row.listening = true; row.pid = 9999; row.processName = 'node' }
+    return ok({
+      ok: true, appName: row.name, listeningAfter,
+      message: listeningAfter ? `已启动「${row.name}」` : `已拉起「${row.name}」，但 :${port} 仍未被监听`,
+    })
   },
 
   // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装；2026-10-03 卡 011：加 DSH）──
@@ -680,11 +697,13 @@ contextBridge.exposeInMainWorld('tegula', {
   cronCheck: () => ({}),
 
   // ── 启动台 ─────────────────────────────────────────────────────
-  launchpadLoadApps: () => [],
-  launchpadAddApp: () => [],
-  launchpadUpdateApp: () => [],
-  launchpadRemoveApp: () => [],
-  launchpadLaunchApp: () => ok({ message: 'ok' }),
+  // ⚠ 返回形状跟真主进程一致：loadApps 直接回**数组**（不是 {ok}），launchApp/openFolder 回 {ok,...}
+  launchpadLoadApps: () => store.launchpad.slice(),
+  launchpadAddApp: () => store.launchpad.slice(),
+  launchpadUpdateApp: () => store.launchpad.slice(),
+  launchpadRemoveApp: () => store.launchpad.slice(),
+  launchpadLaunchApp: (app) => { rec('launchpadLaunchApp', [app && app.id]); return ok({ pid: 4242, message: `已启动：${app && app.name}` }) },
+  launchpadOpenFolder: (p) => { rec('launchpadOpenFolder', [p]); return ok({ message: '已打开' }) },
   launchpadOpenFolder: () => ok(),
   launchpadOpenUrl: () => ok(),
   launchpadGetConfigPath: () => 'C:/mock/apps.json',
@@ -824,16 +843,34 @@ contextBridge.exposeInMainWorld('tegula', {
   // AI 规划写回层（2026-10-12）：e2e 不真调 LLM，桩返回成功+假 usage（「花销可见」链路可断言）
   llmPlanToDraft: () => ({ ok: true, created: [{ id: 'task-e2e-draft-1', title: 'e2e 假草稿' }], usage: { promptTokens: 120, completionTokens: 80, totalTokens: 200 } }),
   llmDraftProjectBrief: () => ({ ok: true, taskId: 'task-e2e-brief-1', usage: { promptTokens: 100, completionTokens: 60, totalTokens: 160 } }),
-  // 决策卡（拍板记录，2026-10-12）：本地 CRUD 桩，假数据供视图用例断言
+  // 决策卡（2026-10-12）：本地 CRUD 桩，假数据供视图用例断言
+  // ⚠ 2026-10-14：三条各自带上「项目」（含一条刻意留空）—— 项目筛选与项目字段的断言靠它
   decisionList: () => { rec('decisionList'); return { ok: true, items: [
-    { id: 'D-001', 内容: '司天不发版，唯一目标=标注+导出真图', 日期: '2026-10-11', 状态: '作数', 出处: '10-11 09:42 四答定调②', 备注: '', 更新: '' },
-    { id: 'D-002', 内容: '启动台死因 10-14 前裁决', 日期: '2026-09-14', 状态: '已作废', 出处: '台账 #4', 备注: '被 10-12 快照复盘取代', 更新: '' },
-    { id: 'D-003', 内容: '方寸 AI 规划整包一次交齐', 日期: '2026-10-12', 状态: '已并入', 出处: '12:21 群指令', 备注: '并入 10-14 交付计划', 更新: '' },
+    { id: 'D-001', 内容: '司天不发版，唯一目标=标注+导出真图', 日期: '2026-10-11', 状态: '有效', 项目: '司天', 出处: '10-11 09:42 四答定调②', 备注: '', 更新: '' },
+    { id: 'D-002', 内容: '启动台死因 10-14 前裁决', 日期: '2026-09-14', 状态: '已撤销', 项目: '绒花墨坊', 出处: '台账 #4', 备注: '被 10-12 快照复盘取代', 更新: '' },
+    { id: 'D-003', 内容: '方寸 AI 规划整包一次交齐', 日期: '2026-10-12', 状态: '已合并', 出处: '12:21 群指令', 备注: '并入 10-14 交付计划', 更新: '' },
   ] } },
   decisionAdd: (input) => { rec('decisionAdd', [input]); return { ok: true, id: 'D-004' } },
   decisionSetStatus: (id, status, note) => { rec('decisionSetStatus', [id, status, note]); return { ok: true, message: `${id} → ${status}` } },
-  exportTasks: () => ok(),
-  importTasks: () => ok(),
+  // ⚠ 真 IPC 是 Promise（ipcRenderer.invoke）—— 假 preload 必须同款，否则界面 .then 直接炸（2026-10-14 实测）
+  exportTasks: () => Promise.resolve(ok({ data: [], count: 0 })),
+  // 导入：与主进程**同款防呆**（表外字段名 → 失败，并把那句点名的话回给界面）。
+  // 假 preload 与真 preload/真实现必须同步 —— 否则界面断言测的是"假契约"（MEMORY 第五节）。
+  importTasks: (data) => {
+    rec('importTasks', [data])
+    const known = ['id', 'title', 'project', 'status', 'priority', 'assignee', 'tags', 'created', 'updated',
+      'blockers', 'body', '标题', '项目', '状态', '优先级', '指派', '标签', '创建', '更新', '阻塞', '正文', '内容']
+    const list = Array.isArray(data) ? data : []
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i]
+      if (!it || typeof it !== 'object') continue
+      const badKey = Object.keys(it).find((k) => !known.includes(k))
+      if (badKey) {
+        return Promise.resolve({ ok: false, error: `导入被拦下，一个文件都没写：第 ${i + 1} 条的字段名「${badKey}」不认识（可用：${known.slice(0, 6).join(' / ')}）` })
+      }
+    }
+    return Promise.resolve(ok())
+  },
   updateCheck: () => ok(),
   updateDownload: () => ok(),
   updateQuitAndInstall: () => ok(),

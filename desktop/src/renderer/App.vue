@@ -352,47 +352,46 @@
             </button>
             <span class="f1"></span>
           </div>
-          <div
-            v-for="t in col.tasks"
-            v-show="!groupCollapsed(col.key)"
-            :key="'blr-' + t.id"
-            class="brow"
-            :class="{
-              stale: isStale(t),
-              overdue: isOverdue(t),
-              selected: selectedBatch.includes(t.id),
-              dragging: draggingId === t.id
-            }"
-            :data-id="t.id"
-            draggable="true"
-            @dragstart="onDragStart($event, t.id)"
-            @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
-            @contextmenu.prevent="openCardMenu($event, t)"
-            @mouseenter="onCardEnter($event, t)"
-            @mouseleave="onCardLeave()"
-          >
-            <input
-              v-show="batchMode"
-              type="checkbox"
-              class="batch-chk"
-              :checked="selectedBatch.includes(t.id)"
-              @click.stop="toggleBatchSelect(t.id)"
-            />
-            <span class="card-liv" :class="'liv-' + statusClass(t.status)"></span>
-            <b class="ttl">
-              <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
-              {{ t.title || t.id }}
-            </b>
-            <!-- 状态徽章同列视图的规矩：分区已经说明了状态就不重复占宽 -->
-            <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
-            <span class="card-meta">
-              <span v-if="cardDate(t).text" class="card-date"
-                :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
-                :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
-              <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
-            </span>
-          </div>
+          <TaskCardMenu v-for="t in col.tasks" :key="'blr-' + t.id" :task="t" @pick="onCardMenuPick">
+            <div
+              v-show="!groupCollapsed(col.key)"
+              class="brow"
+              :class="{
+                stale: isStale(t),
+                overdue: isOverdue(t),
+                selected: selectedBatch.includes(t.id),
+                dragging: draggingId === t.id
+              }"
+              :data-id="t.id"
+              draggable="true"
+              @dragstart="onDragStart($event, t.id)"
+              @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+              @mouseenter="onCardEnter($event, t)"
+              @mouseleave="onCardLeave()"
+            >
+              <input
+                v-show="batchMode"
+                type="checkbox"
+                class="batch-chk"
+                :checked="selectedBatch.includes(t.id)"
+                @click.stop="toggleBatchSelect(t.id)"
+              />
+              <span class="card-liv" :class="'liv-' + statusClass(t.status)"></span>
+              <b class="ttl">
+                <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
+                {{ t.title || t.id }}
+              </b>
+              <!-- 状态徽章同列视图的规矩：分区已经说明了状态就不重复占宽 -->
+              <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+              <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+              <span class="card-meta">
+                <span v-if="cardDate(t).text" class="card-date"
+                  :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
+                  :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+                <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+              </span>
+            </div>
+          </TaskCardMenu>
           <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
         </div>
       </div>
@@ -429,45 +428,44 @@
             <span class="pwg-line"></span>
           </div>
           <div class="pwc-grid" v-show="!groupCollapsed(col.key)">
-            <div
-              v-for="t in col.tasks"
-              :key="'pwc-' + t.id"
-              class="pvcard"
-              :class="['tone-' + (cw(t).tone || 'none'), {
-                stale: isStale(t),
-                overdue: isOverdue(t),
-                selected: selectedBatch.includes(t.id),
-                dragging: draggingId === t.id
-              }]"
-              :data-id="t.id"
-              draggable="true"
-              @dragstart="onDragStart($event, t.id)"
-              @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
-              @contextmenu.prevent="openCardMenu($event, t)"
-              @mouseenter="onCardEnter($event, t)"
-              @mouseleave="onCardLeave()"
-            >
-              <div class="pwc-head">
-                <input v-show="batchMode" type="checkbox" class="batch-chk"
-                  :checked="selectedBatch.includes(t.id)" @click.stop="toggleBatchSelect(t.id)" />
-                <span class="pwc-id" :title="'任务 ID：' + t.id + '（点一下复制）'"
-                  @click.stop="copyId(t.id)">{{ cw(t).id }}</span>
-                <span class="st pwc-st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-                <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+            <TaskCardMenu v-for="t in col.tasks" :key="'pwc-' + t.id" :task="t" @pick="onCardMenuPick">
+              <div
+                class="pvcard"
+                :class="['tone-' + (cw(t).tone || 'none'), {
+                  stale: isStale(t),
+                  overdue: isOverdue(t),
+                  selected: selectedBatch.includes(t.id),
+                  dragging: draggingId === t.id
+                }]"
+                :data-id="t.id"
+                draggable="true"
+                @dragstart="onDragStart($event, t.id)"
+                @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+                @mouseenter="onCardEnter($event, t)"
+                @mouseleave="onCardLeave()"
+              >
+                <div class="pwc-head">
+                  <input v-show="batchMode" type="checkbox" class="batch-chk"
+                    :checked="selectedBatch.includes(t.id)" @click.stop="toggleBatchSelect(t.id)" />
+                  <span class="pwc-id" :title="'任务 ID：' + t.id + '（点一下复制）'"
+                    @click.stop="copyId(t.id)">{{ cw(t).id }}</span>
+                  <span class="st pwc-st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+                  <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+                </div>
+                <div class="pwc-title">{{ t.title || t.id }}</div>
+                <div class="pwc-foot">
+                  <span v-if="cw(t).tone" class="pwc-prio" :class="'pwc-prio-' + cw(t).tone">{{ cw(t).priority }}</span>
+                  <span v-if="cw(t).blocked" class="pwc-blk"
+                    :title="'被 ' + cw(t).blockedBy + ' 个任务挡着'">被卡 {{ cw(t).blockedBy }}</span>
+                  <span v-else-if="cw(t).blocks" class="pwc-blks"
+                    :title="'它挡着 ' + cw(t).blocks + ' 个任务'">挡 {{ cw(t).blocks }}</span>
+                  <span class="pwc-f1"></span>
+                  <span v-if="cardDate(t).text" class="pwc-date" :class="{ over: cardDate(t).over }"
+                    :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+                  <span class="pwc-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+                </div>
               </div>
-              <div class="pwc-title">{{ t.title || t.id }}</div>
-              <div class="pwc-foot">
-                <span v-if="cw(t).tone" class="pwc-prio" :class="'pwc-prio-' + cw(t).tone">{{ cw(t).priority }}</span>
-                <span v-if="cw(t).blocked" class="pwc-blk"
-                  :title="'被 ' + cw(t).blockedBy + ' 个任务挡着'">被卡 {{ cw(t).blockedBy }}</span>
-                <span v-else-if="cw(t).blocks" class="pwc-blks"
-                  :title="'它挡着 ' + cw(t).blocks + ' 个任务'">挡 {{ cw(t).blocks }}</span>
-                <span class="pwc-f1"></span>
-                <span v-if="cardDate(t).text" class="pwc-date" :class="{ over: cardDate(t).over }"
-                  :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
-                <span class="pwc-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
-              </div>
-            </div>
+            </TaskCardMenu>
             <div v-if="!col.tasks.length" class="pwg-empty">拖拽卡片到此处</div>
           </div>
         </div>
@@ -499,60 +497,59 @@
           </span>
           <span class="n">{{ col.tasks.length }}</span>
         </h3>
-        <div
-          v-for="t in col.tasks"
-          v-show="!groupCollapsed(col.key)"
-          :key="t.id"
-          class="card"
-          :class="{
-            stale: isStale(t),
-            overdue: isOverdue(t),
-            selected: selectedBatch.includes(t.id),
-            dragging: draggingId === t.id
-          }"
-          :data-id="t.id"
-          draggable="true"
-          @dragstart="onDragStart($event, t.id)"
-          @dragend=""
-          @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
-          @contextmenu.prevent="openCardMenu($event, t)"
-          @mouseenter="onCardEnter($event, t)"
-          @mouseleave="onCardLeave()"
-        >
-          <!-- 紧凑单行卡（2026-09-28 密度方案 B）。
-               原来卡是两行（标题+状态徽章 / 正文两行截断 / 标签行），14 张的完成列能顶满一屏。
-               现在压成一行：状态点 + 标题（超长省略） + 右侧 meta。
-               正文摘要与标签没丢，移进上面的悬停轻提示 —— 那本来也是"点开才有用"的东西。
-               ⚠ `active-t`（整卡淡紫底 + 3px 左条）已删：状态由**列位置**承担，
-                 卡级再染一遍是冗余编码，而且卡片一多整列都在发光（用户第 4 条"越看越头痛"）。 -->
-          <div class="card-head">
-            <input
-              v-show="batchMode"
-              type="checkbox"
-              class="batch-chk"
-              :checked="selectedBatch.includes(t.id)"
-              @click.stop="toggleBatchSelect(t.id)"
-            />
-            <span class="card-liv" :class="'liv-' + statusClass(t.status)" :title="t.status"></span>
-            <b class="ttl">
-              <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
-              {{ t.title || t.id }}
-            </b>
-            <!-- 状态徽章只在「不按状态分组」时才出现：按状态分组时列位置已经说明了状态，
-                 多一个文字徽章只是重复占宽（紧凑卡上宽度很贵）。 -->
-            <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-            <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
-            <!-- 右侧 meta：**所属项目 + 日期常驻可见**（2026-09-28 用户反馈「希望看见所属项目和日期」）。
-                 日期优先截止日（可行动），没有截止日就退到「更新」——保证卡上永远有一个日期。
-                 cardDate() 是纯函数且很便宜，表里多调两次无所谓（每次重渲染才跑，不是每帧）。 -->
-            <span class="card-meta">
-              <span v-if="cardDate(t).text" class="card-date"
-                :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
-                :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
-              <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
-            </span>
+        <TaskCardMenu v-for="t in col.tasks" :key="'kan-' + t.id" :task="t" @pick="onCardMenuPick">
+          <div
+            v-show="!groupCollapsed(col.key)"
+            class="card"
+            :class="{
+              stale: isStale(t),
+              overdue: isOverdue(t),
+              selected: selectedBatch.includes(t.id),
+              dragging: draggingId === t.id
+            }"
+            :data-id="t.id"
+            draggable="true"
+            @dragstart="onDragStart($event, t.id)"
+            @dragend=""
+            @click="batchMode ? toggleBatchSelect(t.id) : openCard(t)"
+            @mouseenter="onCardEnter($event, t)"
+            @mouseleave="onCardLeave()"
+          >
+            <!-- 紧凑单行卡（2026-09-28 密度方案 B）。
+                 原来卡是两行（标题+状态徽章 / 正文两行截断 / 标签行），14 张的完成列能顶满一屏。
+                 现在压成一行：状态点 + 标题（超长省略） + 右侧 meta。
+                 正文摘要与标签没丢，移进上面的悬停轻提示 —— 那本来也是"点开才有用"的东西。
+                 ⚠ `active-t`（整卡淡紫底 + 3px 左条）已删：状态由**列位置**承担，
+                   卡级再染一遍是冗余编码，而且卡片一多整列都在发光（用户第 4 条"越看越头痛"）。 -->
+            <div class="card-head">
+              <input
+                v-show="batchMode"
+                type="checkbox"
+                class="batch-chk"
+                :checked="selectedBatch.includes(t.id)"
+                @click.stop="toggleBatchSelect(t.id)"
+              />
+              <span class="card-liv" :class="'liv-' + statusClass(t.status)" :title="t.status"></span>
+              <b class="ttl">
+                <span v-if="t.batch" class="batch">批{{ t.batch }}</span>
+                {{ t.title || t.id }}
+              </b>
+              <!-- 状态徽章只在「不按状态分组」时才出现：按状态分组时列位置已经说明了状态，
+                   多一个文字徽章只是重复占宽（紧凑卡上宽度很贵）。 -->
+              <span v-if="groupMode !== 'status'" class="st" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+              <span v-if="t.archived" class="src-badge" title="归档任务">📦</span>
+              <!-- 右侧 meta：**所属项目 + 日期常驻可见**（2026-09-28 用户反馈「希望看见所属项目和日期」）。
+                   日期优先截止日（可行动），没有截止日就退到「更新」——保证卡上永远有一个日期。
+                   cardDate() 是纯函数且很便宜，表里多调两次无所谓（每次重渲染才跑，不是每帧）。 -->
+              <span class="card-meta">
+                <span v-if="cardDate(t).text" class="card-date"
+                  :class="{ over: cardDate(t).over, dim: cardDate(t).kind === 'updated' }"
+                  :title="cardDate(t).kind === 'due' ? '截止日' : '最后更新'">{{ cardDate(t).text }}</span>
+                <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
+              </span>
+            </div>
           </div>
-        </div>
+        </TaskCardMenu>
         <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
       </div>
       </template>
@@ -1239,10 +1236,20 @@
                 <span v-else>没有进程在监听</span>
                 <span v-if="s.note">· {{ s.note }}</span>
               </div>
+              <!-- 启动命令（2026-10-15）：端口是"登记"，命令是"点一下会跑什么"—— 两者可以无关，
+                   显示出来是为了让人能自己看出来（此前只能靠猜，才把 dev server 的端口和 exe 接在一起）。 -->
+              <div v-if="s.source === 'launchpad'" class="svc-cmd" :title="'启动命令：' + (s.cmd || '（空）')">
+                启动命令：{{ describeCmd(s.cmd) }}
+              </div>
+              <div v-if="svcDiag(s).level === 'suspect'" class="svc-diag" :title="svcDiag(s).message">
+                ⚠ {{ svcDiag(s).message }}
+              </div>
             </div>
             <div class="svc-actions">
               <button v-if="!s.listening && s.source === 'launchpad'" class="skills-btn primary"
-                      @click="startServiceRow(s)" title="按启动台里登记的命令把它拉起来（方寸只启动启动台登记过的应用，绝不杀进程）">▶ 启动</button>
+                      :disabled="serviceStarting === s.port"
+                      @click="startServiceRow(s)"
+                      :title="'按启动台里登记的命令拉起「' + s.name + '」（方寸只启动启动台登记过的应用，绝不杀进程）—— 拉起后会自动复查端口，没起来会直接告诉你原因'">{{ serviceStarting === s.port ? '启动中…' : '▶ 启动' }}</button>
               <button class="skills-btn" @click="openService(s)" :disabled="!s.listening"
                       :title="s.listening ? '在浏览器打开 http://127.0.0.1:' + s.port : '现在没人监听，打开会报错'">🌐 打开地址</button>
               <button v-if="s.source === 'manual'" class="skills-btn danger" @click="removeService(s)">🗑 取消登记</button>
@@ -1388,50 +1395,18 @@
       </div>
     </main>
 
-    <!-- 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）：群里拍的板都在这——
-         事情/哪天定的/还作不作数/出处。数据=task-data/decisions.md（与 Python CLI 双腿同文件），
-         哨兵防遗忘台账灌入后这里就是查询入口。三态不挂任务状态机：决策不流转。 -->
-    <main id="board" class="decisions-view" v-else-if="curView === 'decisions'">
-      <div class="decisions-header">
-        <h3>拍板记录</h3>
-        <div class="decisions-ctrls">
-          <button v-for="s in ['全部', '作数', '已作废', '已并入']" :key="s" class="ghost"
-                  :class="{ on: decFilter === s }" @click="decFilter = s">{{ s }}</button>
-          <button class="ghost" @click="decRefresh">刷新</button>
-        </div>
-      </div>
-      <div class="decision-add-row">
-        <input v-model="decNewContent" class="dec-inp-main" placeholder="记一条新拍板（一句话，回车即记）"
-               @keydown.enter="decAdd" />
-        <input v-model="decNewDate" type="date" class="dec-inp-date" title="哪天定的（默认今天）" />
-        <input v-model="decNewSource" class="dec-inp-src" placeholder="出处（如 10-12 群 09:42）" />
-        <button class="pri" :disabled="decBusy || !decNewContent.trim()" @click="decAdd">记下</button>
-      </div>
-      <div class="decision-list">
-        <div v-if="!decFiltered.length" class="empty-state">
-          <div class="empty-icon">🧭</div>
-          <div class="empty-text">{{ decItems.length ? '这个状态下没有拍板' : '还没有拍板记录——群里定了大事，记一条，防它消失' }}</div>
-        </div>
-        <div v-for="d in decFiltered" :key="d.id" class="decision-card" :class="'dec-st-' + d.状态">
-          <div class="dec-main">
-            <span class="dec-mark">{{ decMark(d.状态) }}</span>
-            <span class="dec-id">{{ d.id }}</span>
-            <span class="dec-content">{{ d.内容 }}</span>
-            <select class="dec-status-sel" :value="d.状态" :disabled="decBusy"
-                    @change="decSetStatusFromEvent(d, $event)">
-              <option>作数</option>
-              <option>已作废</option>
-              <option>已并入</option>
-            </select>
-          </div>
-          <div class="dec-meta">
-            <span class="dec-date">{{ d.日期 }}</span>
-            <span v-if="d.出处" class="dec-src">← {{ d.出处 }}</span>
-          </div>
-          <div v-if="d.备注" class="dec-note">{{ d.备注 }}</div>
-        </div>
-      </div>
-    </main>
+    <!-- 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 术语白话化 + UI 基座第 ④ 步第一单）：
+         定下来的事都在这——事情 / 哪天定的 / 还算不算数 / 出处。数据 = task-data/decisions.md
+         （与 Python CLI 双腿同文件）；三态不挂任务状态机：决策不流转。
+         整块视图已切到组件 `components/DecisionBoard.vue`（shadcn-vue 口径）——
+         ⚠ 不写在 App.vue 里的原因是硬的：`tailwind.config.js` 的 `content` **不能扫 App.vue**
+           （`.fixed`/`.hidden` 这类同名老类名会凭空生成规则、全仓观感漂移）。 -->
+    <DecisionBoard
+      v-else-if="curView === 'decisions'"
+      id="board"
+      class="decisions-view"
+      @notify="showToast"
+    />
 
     <!-- 帮助手册（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）——
          做**视图内**的离线手册页，不引外部 HTML 文件：
@@ -1472,7 +1447,7 @@
             <tr><td>归档</td><td>已完成/已归档的任务。归档只是"先别看了"，不是删除。</td></tr>
             <tr><td>回收站</td><td>删除的东西先来这里，可以还原。彻底删除才真没了。</td></tr>
             <tr><td>启动台</td><td>登记常用应用/命令，一键拉起。</td></tr>
-            <tr><td>拍板</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
+            <tr><td>决策</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
             <tr><td>技能</td><td>把方寸的技能包装到 Hermes / DSH 等 agent 上。</td></tr>
             <tr><td>服务</td><td>只读监控端口占用 —— 只看不杀。</td></tr>
           </table>
@@ -1732,8 +1707,13 @@
       </div>
     </div>
 
-    <!-- Logs view -->
-    <main id="board" class="logs-view" v-else-if="curView === 'logs'"
+    <!-- Logs view
+         ⚠ `v-if` 而**不是** `v-else-if` —— 这是硬约束，别改回去。
+         下面 convAsk_ / todoEdit_ 两个 `.overlay` 带 v-if，**插在本行之前**：
+         写成 v-else-if 时 Vue 会把它们当成链的上一环，于是
+         「待办编辑弹窗开着」就等价于「日志页不渲染」—— 用户点页签看到的是**空白**。
+         2026-10-14 真点击 e2e 解锁后实测到的（此前这一层恒 SKIP，从没验过）。 -->
+    <main id="board" class="logs-view" v-if="curView === 'logs'"
       @dragenter.prevent="dragEnter('log')"
       @dragover.prevent="dragPulse()"
       @dragleave="dragLeave('log')"
@@ -1944,7 +1924,7 @@
     </main>
 
     <!-- Launchpad view -->
-    <main id="board" class="launchpad" v-else-if="curView === 'launchpad'">
+    <main id="board" class="launchpad" v-if="curView === 'launchpad'">
       <div class="lp-header">
         <h3>启动台</h3>
         <div class="lp-ctrls">
@@ -1953,40 +1933,38 @@
           <button class="ghost" @click="refreshApps">⟳ 刷新</button>
         </div>
       </div>
+      <!-- 2026-10-15 用户回执"现在启动台很不好用" → 点卡片=启动（符合"点一下就开"的心智），
+           编辑挪到卡片右侧独立的 ✏️ 按钮上（此前点正文进编辑、启动要单点小按钮，正好反着）。 -->
       <div class="lp-grid">
         <div
           v-for="app in launchpadApps"
           :key="app.id"
           class="lp-card"
-          @click="openEditApp(app)"
+          :title="'点卡片启动：' + (app.cmd || app.path)"
+          @click="launchAppClick(app)"
         >
           <div class="lp-icon">{{ app.name.charAt(0) }}</div>
           <div class="lp-info">
             <div class="lp-name">{{ app.name }}</div>
             <div class="lp-desc">{{ app.description || app.path }}</div>
+            <!-- 端口登记的静态诊断（2026-10-15）：只提示、不阻断 —— 判"起没起来"一律以启动后复查为准 -->
+            <div v-if="appDiag(app).level === 'suspect'" class="lp-warn" :title="appDiag(app).message">
+              ⚠ {{ app.port ? ':' + app.port + ' ' : '' }}{{ appDiag(app).message }}
+            </div>
           </div>
-          <button class="lp-launch" :title="'将启动：' + (app.cmd || app.path)" @click.stop="launchAppClick(app)">启动</button>
+          <div class="lp-actions">
+            <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 端口）" @click.stop="openEditApp(app)">✏️ 编辑</button>
+            <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="openAppFolder(app)">📁</button>
+          </div>
         </div>
       </div>
     </main>
 
-    <!-- 任务卡右键菜单：卡上的高频操作不必再绕进详情面板 -->
-    <div v-if="ctxMenu" class="ctx-backdrop" @click="closeCardMenu" @contextmenu.prevent="closeCardMenu"></div>
-    <div v-if="ctxMenu" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }">
-      <div class="ctx-title">{{ ctxMenu.task.title || ctxMenu.task.id }}</div>
-      <button @click="ctxRun(openCard)">🔍 查看详情</button>
-      <button @click="ctxRun(openEdit)">✏️ 编辑</button>
-      <button v-if="ctxMenu.task.status === '待验收'" @click="ctxRun(openReview)">✅ 验收裁决</button>
-      <button @click="ctxRun(openCalAssignTask)">📅 指派时间</button>
-      <button @click="ctxRun(copyTaskId)">📋 复制 ID</button>
-      <button @click="ctxRun(copyTaskTitle)">🔤 复制标题</button>
-      <!-- 弹药库（卡 031）：卡内容 + 六字段派工单 + 约束卡七条 + 验收四条 + 驳回纪律。
-           纯文本拼接、零智能；**只复制，不派发** —— 派发永远留人手（9/20 判死 agent 派活）。 -->
-      <button @click="ctxRun(copyTaskAsDispatch)" title="拼一份可直接粘给 agent 的派工单（六字段 + 约束卡七条 + 验收四条 + 驳回纪律）">📐 复制为派工单</button>
-      <div class="ctx-sep"></div>
-      <button @click="ctxRun(archiveTask)">📦 归档</button>
-      <button class="danger" @click="ctxRun(deleteTaskById)">🗑 删除</button>
-    </div>
+    <!-- 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：
+         已经变成**每张卡自己带的 reka-ui ContextMenu** —— 见 `components/TaskCardMenu.vue`。
+         这里原先那份手搓浮层（`.ctx-backdrop` + `.ctx-menu` + `left: clientX/top: clientY`）整块删掉：
+         它不翻转（贴边右键出屏）、没 Esc、并且菜单开着时全屏盖一层透明遮罩挡住 hover 与滚动。
+         ⚠ ContextMenuRoot 不产生包裹元素，所以卡片 DOM 与布局一个像素没动。 -->
 
     <!--
       日志 / 待办右键菜单（2026-09-26 卡 037 第一批 · 用户口径）
@@ -2259,6 +2237,14 @@
         <div class="arch-section" v-if="previewArch.state !== 'none'">
           <label>架构图</label>
           <div v-if="previewArch.state === 'ok'" class="arch-svg" v-html="previewArch.svg"></div>
+          <!-- archify 技能卡：照实说明，**不硬转、也不误报"读不出来"**（2026-10-14 清单第 9 条） -->
+          <div v-else-if="previewArch.state === 'archify'" class="arch-error arch-archify">
+            这是一张 <b>archify 技能卡</b>（<code>{{ previewArch.archify?.type }}</code><template
+              v-if="previewArch.archify?.views"> · {{ previewArch.archify?.views }} 个视图</template><template
+              v-if="previewArch.archify?.counts"> · {{ previewArch.archify?.counts }}</template>）。
+            它的格式与方寸的分层架构图不是一回事，所以这里不画图（硬转会丢信息）；
+            结构摘要见正文，原始 JSON 完整存在「架构」字段里。
+          </div>
           <div v-else class="arch-error">架构图 JSON 读不出来：{{ previewArch.error }}</div>
         </div>
         <div class="logs-section" v-if="previewTask">
@@ -2380,7 +2366,7 @@
 
     <!-- Roadmap view -->
     <!-- Calendar view -->
-    <main id="board" class="calendar-view" v-else-if="curView === 'calendar'">
+    <main id="board" class="calendar-view" v-if="curView === 'calendar'">
       <div class="calhead">
         <button class="ghost" @click="calMove(-1)">&#9664; 上月</button>
         <span class="m">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
@@ -2456,7 +2442,7 @@
       </div>
     </main>
 
-    <main id="board" class="roadmap-view" v-else-if="curView === 'roadmap'">
+    <main id="board" class="roadmap-view" v-if="curView === 'roadmap'">
       <div class="roadmap-header">
         <h3>路线图</h3>
         <div class="roadmap-ctrls">
@@ -3663,13 +3649,25 @@ import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 // 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
+// 启动台登记 × 端口 的自洽诊断（2026-10-15，纯函数：见 shared/launchpadDiag.ts 的来龙去脉）
+import { diagnosePortRegistration, describeLaunchCommand, explainStartButStillIdle } from '../shared/launchpadDiag'
+import type { PortDiag } from '../shared/launchpadDiag'
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue } from '../shared/time'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
 // 我上一版手搓的 backdrop + getBoundingClientRect 定位全部删掉。
-// ⚠ 只借**行为**，样式仍走本仓既有的 class（不引 Tailwind —— 那是一次全仓 CSS 重构，另立卡）。
+// ⚠ Popover 这里**只借行为**，样式仍走本仓既有的 class。
+//
+// ⚠ 当初这里写着「不引 Tailwind —— 那是一次全仓 CSS 重构，另立卡」。现在那张卡来了：
+//   UI 基座（卡 task-20261011-004，shadcn-vue + Tailwind，第 ② 步的 `--ui-*` 映射已落地）。
+//   口径没变的是**做法**：App.vue 自己**仍然一行 utilities 都不用**（`.fixed`/`.hidden` 这类
+//   同名老类名会让 Tailwind 凭空生成规则），新界面一律切到 `components/` 下的组件里去用。
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
+import DecisionBoard from './components/DecisionBoard.vue'
+// 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：换掉手搓的 `.ctx-backdrop` + `.ctx-menu` + 指针坐标定位，
+// 改用 reka-ui 的 ContextMenu 原语（自带 flip/shift 防越界、Esc、方向键、role=menu、焦点归还）。
+import TaskCardMenu from './components/TaskCardMenu.vue'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -4926,8 +4924,11 @@ const previewTask = ref<Task | null>(null)
 
 /** 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：把预览任务 frontmatter 里的 `架构`
  *  （LayerDiagramSpec 的 JSON 字符串）交给纯函数画成 SVG。
- *  三态：none = 没填（整块不渲染、旧卡零影响）｜ok｜bad = JSON 坏了 → 界面说人话，不静默留白。 */
-const previewArch = computed<{ state: 'none' | 'ok' | 'bad'; svg: string; error?: string }>(() => {
+ *  四态：none = 没填（整块不渲染、旧卡零影响）｜ok｜archify｜bad = JSON 坏了 → 界面说人话，不静默留白。 */
+const previewArch = computed<{
+  state: 'none' | 'ok' | 'archify' | 'bad'; svg: string; error?: string;
+  archify?: { type: string; views: number; counts: string }
+}>(() => {
   const raw = String((previewTask.value as any)?.architecture || '').trim()
   if (!raw) return { state: 'none', svg: '' }
   let spec: any
@@ -4935,6 +4936,21 @@ const previewArch = computed<{ state: 'none' | 'ok' | 'bad'; svg: string; error?
     spec = JSON.parse(raw)
   } catch (e: any) {
     return { state: 'bad', svg: '', error: e?.message || String(e) }
+  }
+  // archify 技能卡（2026-10-14 清单第 9 条导入进来的）：**它和方寸的分层图不是一回事**。
+  // 刻意**不硬转** —— 硬转会丢信息、语义也会错（archify 有 5 种图型，方寸只有分层图）。
+  // 更不许报「JSON 读不出来」：那是**误导**，JSON 明明是好的，只是格式不同。
+  if (spec && typeof spec === 'object' && spec.diagram_type && spec.schema_version !== undefined) {
+    const ks = ['components', 'nodes', 'steps', 'stages', 'states', 'participants']
+      .filter(k => Array.isArray(spec[k]) && spec[k].length)
+    return {
+      state: 'archify', svg: '',
+      archify: {
+        type: String(spec.diagram_type),
+        views: Array.isArray(spec.meta?.views) ? spec.meta.views.length : 0,
+        counts: ks.map(k => `${k} ${spec[k].length}`).join(' · '),
+      },
+    }
   }
   try {
     return { state: 'ok', svg: buildLayerDiagram(spec) }
@@ -5790,10 +5806,24 @@ function onKeydown(e: KeyboardEvent): void {
   if (ncOpen.value) { closePanel(); return }
   // 2026-09-26 卡 033：Esc 关掉**最上层弹窗**。同样不逐个维护弹窗清单：
   // 取 DOM 里最后一个 .overlay，点它的「取消」（.acts .ghost）。找不到就什么都不做。
-  const overlays = Array.from(document.querySelectorAll('.overlay')) as HTMLElement[]
+  // ⚠ 必须**先滤掉 display:none 的**（同下面 Ctrl+S 那条口径）：
+  //   方寸有几块 `.overlay` 是**常驻 DOM 但靠 display 藏起来**的（roverlay / soverlay 等），
+  //   它们的模板位置排在待办编辑弹窗**后面**。不滤可见性时，`overlays[length-1]` 拿到的是
+  //   那块**看不见**的，于是「待办编辑弹窗开着时按 Esc 关不掉」—— 2026-10-14 真点击 e2e
+  //   解锁后实测到的（此前这一层恒 SKIP，从没验过）。
+  const overlays = (Array.from(document.querySelectorAll('.overlay')) as HTMLElement[])
+    .filter(el => window.getComputedStyle(el).display !== 'none')
   const top = overlays[overlays.length - 1]
-  const cancel = top ? (top.querySelector('.acts .ghost') as HTMLElement | null) : null
-  if (cancel) cancel.click()
+  if (!top) return
+  // ① 有「取消」按钮就点它（多数弹窗的约定：`.acts .ghost`）。
+  const cancel = top.querySelector('.acts .ghost') as HTMLElement | null
+  if (cancel) { cancel.click(); return }
+  // ② 兜底：这块弹窗**没有**「取消」按钮（设置面板就是这样）—— 派发一次 mousedown 到遮罩本体，
+  //    走它自己的 `@mousedown.self` 关闭路径（全站遮罩统一绑的那条）。
+  //    ⚠ 2026-10-15：此前只有 ①，于是「设置弹窗开着时按 Esc 什么都不发生」——
+  //    真点击 e2e 实测到的（那时 Esc 会先被更靠后的设置遮罩截住，表现为"待办弹窗关不掉"）。
+  //    兜底只发事件、不猜状态，所以对没有绑定关闭手势的遮罩也**不会误关**任何东西。
+  top.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
 }
 
 /** 全局快捷键（2026-09-25 用户第 6 条：「希望有一些简单的快捷键，比如保存和撤销」）
@@ -5848,8 +5878,8 @@ watch(curView, (val) => {
       logPollingTimer = null
     }
   }
-  // 决策卡（2026-10-12）：进视图拉一次本地数据（无轮询——拍板不是高频流）
-  if (val === 'decisions') decRefresh()
+  // 决策视图（2026-10-14）：不再在这里拉数据 —— 视图是 v-if 挂载的组件，
+  // 它自己的 onMounted 就是"每次进门拉一次"，两处都写等于两份真相。
 })
 
 const views = [
@@ -5863,7 +5893,7 @@ const views = [
   { id: 'archive', label: '归档' },
   { id: 'trash', label: '回收站' },
   { id: 'launchpad', label: '启动台' },
-  { id: 'decisions', label: '拍板' },
+  { id: 'decisions', label: '决策' },
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
@@ -6283,6 +6313,9 @@ function loadViewData(v: string) {
     loadServices()
   } else if (v === 'help') {
     // 帮助手册是纯静态页：不拉任何数据（走了 else 分支会白跑一次 loadAll）。
+  } else if (v === 'decisions') {
+    // 决策视图的数据由组件自己 onMounted 拉（`components/DecisionBoard.vue`）。
+    // 这里必须**显式**列出来：掉到 else 会白跑一次 loadAll（同 help 那条教训）。
   } else if (v === 'calendar') {
     // 日历要看任务 + 待办两条数据源（2026-09-22，用户第 6 条：此前完全不拉待办）
     loadAll()
@@ -6316,9 +6349,10 @@ function navigateTo(v: string) {
     viewHistory.value.push(curView.value)
     if (viewHistory.value.length > 20) viewHistory.value.shift()
   }
-  // 收起所有右键菜单（2026-09-26 实测）：菜单只认自己那层遮罩的点击，
+  // 收起所有浮层（2026-09-26 实测）：手搓菜单只认自己那层遮罩的点击，
   // 键盘/程序化跳转时会把上一个页签的菜单留在屏幕上，像"卡住的浮层"。
-  closeCardMenu()
+  // ⚠ 任务卡菜单（2026-10-14 起）已换成 reka-ui ContextMenu：它挂在**每张卡**上，
+  //   卡片随视图切换卸载 → 菜单自己就没了，不需要在这里手动收。
   closeOtherMenu()
   closeFbar()          // 筛选面板同理：它是挂在这块地方的内联面板，换页签必须收起来
   curView.value = v
@@ -6980,6 +7014,8 @@ async function revealSkillPath(dirOrFile: string): Promise<void> {
 interface ServiceRowUi {
   id: string; name: string; port: number; note: string; project: string
   source: 'launchpad' | 'manual'
+  /** 启动命令（手填登记为空）—— 与 port 是两回事，见 shared/launchpadDiag.ts */
+  cmd: string
   listening: boolean; pid: number | null; processName: string; duplicated: boolean
 }
 const servicesRows = ref<ServiceRowUi[]>([])
@@ -6990,6 +7026,8 @@ const servicesDuplicates = ref<number[]>([])
 const servicesListening = ref(0)
 const servicesIdle = ref(0)
 const servicesHidden = ref(0)
+/** 正在启动的端口（0 = 没有）—— 启动要等 2.5s 复查，期间按钮要显示"启动中…"而不是可再点 */
+const serviceStarting = ref(0)
 const svcName = ref('')
 const svcPort = ref('')
 
@@ -7094,13 +7132,31 @@ async function copyServicesSnapshot(): Promise<void> {
   }
 }
 
-/** 把「空闲」的启动台应用现场拉起来（主进程只认启动台里带 port 的应用，绝不杀进程） */
+/**
+ * 把「空闲」的启动台应用现场拉起来（主进程只认启动台里带 port 的应用，绝不杀进程）。
+ *
+ * 2026-10-15 防复发：**「拉起成功」不再等于「成功」**。主进程会在拉起后 2.5s 复查真监听，
+ * 把 `listeningAfter` 回传 —— 没起来就当场说清原因（此前只报"已启动"，用户看到端口仍「空闲」，
+ * 于是又一次得出"启动台坏了"，就是旧案的形状）。
+ */
 async function startServiceRow(s: ServiceRowUi): Promise<void> {
   const t: any = window.tegula
   if (typeof t.servicesStart !== 'function') { showToast('当前主进程是旧版本，没有启动通道', 'error'); return }
-  const r: any = await t.servicesStart(s.port)
-  showToast((r && r.message) || '已发出启动请求', r && r.ok ? 'success' : 'error')
-  if (r && r.ok) setTimeout(() => loadServices(), 2000)
+  serviceStarting.value = s.port
+  try {
+    const r: any = await t.servicesStart(s.port)
+    if (r && r.ok && r.listeningAfter === false) {
+      // 拉起来了但端口没起来 —— 用「事实」说话，并给出下一步（不怪用户、也不怪"启动台坏了"）
+      const msg = explainStartButStillIdle(r.appName || s.name, s.port)
+      showToast(msg, 'error')
+      appErrors.value.push({ scope: 'services', message: msg, at: Date.now() })
+    } else {
+      showToast((r && r.message) || '已发出启动请求', r && r.ok ? 'success' : 'error')
+    }
+    if (r && r.ok) { await new Promise(res => setTimeout(res, 300)); await loadServices() }
+  } finally {
+    serviceStarting.value = 0
+  }
 }
 
 async function openSkillsDir(which: string): Promise<void> {
@@ -7977,24 +8033,29 @@ async function openTaskFile(t: any): Promise<void> {
   }
 }
 
-// ── 任务卡右键菜单 ─────────────────────────────────────────────────────
-// 用户反馈「方寸内右键没什么用」。这里放卡片上的高频操作，
-// 省得每次都先点开详情面板再翻按钮。
-const ctxMenu = ref<{ x: number; y: number; task: Task } | null>(null)
-
-function openCardMenu(e: MouseEvent, t: Task) {
-  ctxMenu.value = { x: e.clientX, y: e.clientY, task: t }
-}
-
-function closeCardMenu() {
-  ctxMenu.value = null
-}
-
-/** 执行菜单动作并收起菜单（先收菜单，免得挡住随后的确认框） */
-function ctxRun(fn: (t: Task) => void) {
-  const t = ctxMenu.value?.task
-  closeCardMenu()
-  if (t) fn(t)
+// ── 任务卡右键菜单（2026-10-14 第 ④ 步第二单：改成组件）─────────────────
+// 用户反馈「方寸内右键没什么用」→ 卡上放高频操作，省得先点开详情面板再翻按钮。
+// 菜单本体（含渲染与浮层行为）已搬进 `components/TaskCardMenu.vue`（reka-ui ContextMenu）；
+// 这里只留"点了哪一项 → 调哪个动作"的映射 —— 动作都在本文件里，组件不该知道怎么改数据。
+// ⚠ 组件通过 `@pick` 回一个 `{ task, action }`（**不是** `@pick="(a) => f(t, a)"`：
+//   模板里写箭头函数会让 `check-template-bindings` 把参数当成"未声明的标识符"。
+//   回一个对象 = 组件知道"哪张卡"，App 只需要知道"哪件事"。
+function onCardMenuPick(p: { task: Task; action: string }): void {
+  const t = p.task
+  switch (p.action) {
+    case 'view': void openCard(t); break
+    case 'edit': void openEdit(t); break
+    case 'review': void openReview(t); break
+    case 'assignTime': void openCalAssignTask(t); break
+    case 'copyId': void copyTaskId(t); break
+    case 'copyTitle': void copyTaskTitle(t); break
+    case 'copyDispatch': void copyTaskAsDispatch(t); break
+    case 'archive': void archiveTask(t); break
+    case 'delete': void deleteTaskById(t); break
+    default:
+      // 菜单里没有的项：不静默 —— 打出来，免得将来加了菜单项忘了接动作
+      showToast(`右键菜单动作未接线：${p.action}`, 'error')
+  }
 }
 
 async function copyTaskId(t: Task) {
@@ -10591,6 +10652,39 @@ function openEditApp(app: any) {
   appGuard.open(editApp_.value)
 }
 
+/** 启动台卡片的端口诊断（纯函数，只提示不阻断 —— 判"起没起来"以启动后复查为准） */
+function appDiag(app: any): PortDiag {
+  return diagnosePortRegistration(app)
+}
+
+/** 服务页行的诊断（手填登记没有启动命令，直接 none —— 别对它们喊"接错了"） */
+function svcDiag(s: ServiceRowUi): PortDiag {
+  if (s.source !== 'launchpad') return { level: 'none', code: 'manual', message: '' }
+  return diagnosePortRegistration({ name: s.name, port: s.port, cmd: s.cmd })
+}
+
+/** 服务页里「启动命令」那一行的说人话标签 */
+function describeCmd(raw: string): string {
+  return describeLaunchCommand(raw)
+}
+
+/** 打开某个启动台应用所在的文件夹（复用既有 launchpadOpenFolder 通道） */
+async function openAppFolder(app: any): Promise<void> {
+  const p = folderOfPath(app?.path || app?.cmd || '')
+  if (!p) { showToast('这条登记没有可打开的路径', 'error'); return }
+  const r: any = await window.tegula.launchpadOpenFolder(p)
+  if (r && r.ok === false) showToast(`打开失败：${r.message || r.error || '未知原因'}`, 'error')
+}
+
+/** 从「文件路径」推出「所在文件夹」（渲染层没有 node:path，自己切；路径本身是目录就原样返回） */
+function folderOfPath(raw: string): string {
+  const s = String(raw || '').trim().replace(/[\\/]+$/, '')
+  if (!s) return ''
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'))
+  if (i < 0) return s
+  return s.slice(0, i)
+}
+
 async function saveEditApp() {
   const e = editApp_.value
   if (!e.name || !e.path) {
@@ -10843,90 +10937,12 @@ async function llmReset() {
   }
 }
 
-// ── 决策卡（拍板记录，2026-10-12 AI 规划包第 3 件）────────────────────
-// 数据真身在主进程（data/decisions.ts，与 Python CLI 同文件）；UI 只经 IPC 读写。
-const decItems = ref<any[]>([])
-const decFilter = ref('全部')
-const decNewContent = ref('')
-const decNewDate = ref('')
-const decNewSource = ref('')
-const decBusy = ref(false)
-
-const decFiltered = computed(() => {
-  if (decFilter.value === '全部') return decItems.value
-  return decItems.value.filter((d: any) => d.状态 === decFilter.value)
-})
-
-function decMark(s: string): string {
-  return { 作数: '✓', 已作废: '✗', 已并入: '→' }[s] || '?'
-}
-
-async function decRefresh() {
-  try {
-    const r: any = await window.tegula.decisionList()
-    if (r?.ok) decItems.value = r.items || []
-  } catch (e: any) {
-    showToast(`读取拍板记录失败：${e?.message || e}`, 'error')
-  }
-}
-
-async function decAdd() {
-  const content = decNewContent.value.trim()
-  if (!content || decBusy.value) return
-  decBusy.value = true
-  try {
-    const r: any = await window.tegula.decisionAdd({
-      内容: content,
-      日期: decNewDate.value || new Date().toISOString().slice(0, 10),
-      出处: decNewSource.value.trim(),
-    })
-    if (r?.ok) {
-      showToast(`已记 ${r.id}`, 'success')
-      decNewContent.value = ''
-      decNewSource.value = ''
-      await decRefresh()
-    } else {
-      showToast(r?.error || '记失败', 'error')
-    }
-  } catch (e: any) {
-    showToast(`记录异常：${e?.message || e}`, 'error')
-  } finally {
-    decBusy.value = false
-  }
-}
-
-/**
- * 从 `<select>` 的 change 事件里取状态值。
- *
- * ⚠ 为什么绕一层而不在模板里直接写 `($event.target as HTMLSelectElement).value`：
- *   **模板里禁 `as`（禁 `any`）** —— `check-template-bindings` 第 ① 类会把 `as` 当成
- *   "模板引用了未声明的标识符"直接判红（这条守卫是 2026-10-11 踩出来的，见 MEMORY 第五节）。
- *   类型断言归脚本，模板只传 `$event`。
- */
-function decSetStatusFromEvent(d: any, ev: Event): void {
-  const el = ev.target as HTMLSelectElement | null
-  void decSetStatus(d, el ? el.value : '')
-}
-
-async function decSetStatus(d: any, status: string) {
-  if (decBusy.value) return
-  decBusy.value = true
-  try {
-    const r: any = await window.tegula.decisionSetStatus(d.id, status)
-    if (r?.ok) {
-      showToast(r.message || `${d.id} → ${status}`, 'info')
-      await decRefresh()
-    } else {
-      showToast(r?.error || '改状态失败', 'error')
-      await decRefresh() // 失败回滚显示
-    }
-  } catch (e: any) {
-    showToast(`改状态异常：${e?.message || e}`, 'error')
-    await decRefresh()
-  } finally {
-    decBusy.value = false
-  }
-}
+// ── 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 整块切到组件）──────────
+// 数据真身在主进程（data/decisions.ts，与 Python CLI 双腿同文件）；
+// 视图本体（状态、IPC 读写、渲染）已搬到 `components/DecisionBoard.vue` ——
+// 搬走的理由见模板里那段注释（Tailwind `content` 不能扫 App.vue）。
+// ⚠ 这里**不再留**任何 dec* 状态或函数：留着就是"定义零引用"的死代码，
+//   `check-template-bindings` 会判红。数据加载改由组件 onMounted 承担（进门即拉）。
 
 async function triggerBackup() {
   if (bkBusy.value) return
@@ -11000,7 +11016,10 @@ function importTasksFromFile() {
         if (!Array.isArray(data)) { showToast('格式错误：需要 JSON 数组', 'error'); return }
         window.tegula.importTasks(data).then((res: any) => {
           if (res.ok) { showToast(`已导入 ${res.imported} 个任务`, 'success'); loadAll() }
-          else showToast('导入失败', 'error')
+          // ⚠ 必须把主进程那句话**原样带出来**：它点名了「第几条 / 哪个字段名 / 可用字段」。
+          //   此前这里写死 `showToast('导入失败')` —— 等于把刚做好的防呆提示又吞回去，
+          //   用户只知道"失败了"，还是不知道该改哪个字（2026-10-14 开发清单第 6 条）。
+          else showToast(res.error || '导入失败', 'error')
         })
       } catch { showToast('JSON 解析失败', 'error') }
     }
@@ -11272,6 +11291,53 @@ onUnmounted(() => {
   --line-2: #dcd8ee;    /* 次级描边 */
   --blob-a: #cfc6ec;    /* 装饰光斑上 */
   --blob-b: #cdd9ee;    /* 装饰光斑下 */
+  /* 决策三态徽章（2026-10-14，UI 基座第 ④ 步第一单）——
+     为什么放这里而不是写在组件里：`check-themes.cjs` 只量 App.vue 的令牌，
+     值散在组件里就**没人量**（2026-10-13「色板名写了却不存在 → SVG 整体变黑、断言全绿」同款死法）。
+     三态与主题无关（徽章只出现在白卡面上），但每套主题都会把它们量一遍。 */
+  --badge-ok-fg: #2f6b24;       --badge-ok-bg: #eaf3e6;
+  --badge-revoked-fg: #8f4a45;  --badge-revoked-bg: #f6eceb;
+  --badge-merged-fg: #7a5512;   --badge-merged-bg: #f8f1e2;
+}
+
+/* ── UI 基座 ②：shadcn-vue 令牌映射（2026-10-14，卡 task-20261011-004）────────
+   口径与真值来源见 docs/小样-UI基座token-20261013/（小样截图 = default / pink 两套）。
+
+   ⚠ 全部写成 **`var()` 链，不复制色值** —— 切 `data-theme` 时 `--ui-*` 自动重解析，
+     零 JS、不会出现"主题改了、shadcn 变量忘了改"的分叉。所以这个块**只有一份**，
+     五套主题一个字都不用重复；`data-theme` 块里出现 `--ui-` 即为违规（守卫会拦）。
+   ⚠ **`accent` 两个字、两个意思**（最容易接错的一处）：
+     · 方寸 `--accent` = **品牌主色** → 映射到 `--ui-primary`；
+     · shadcn 的 `--ui-accent` = **悬停/次级面** → 映射方寸 `--tint`。
+     接错的表现不是"配色不好看"，是**白字压浅染底直接消失**。
+   ⚠ shadcn 没有 success / warning → 本仓扩展 `--ui-success` / `--ui-warning`
+     （方寸 `.ok` / `.warning` / `.danger` 本来就在用这两个语义色）。
+   守卫：scripts/test/check-ui-base.cjs（变量必须真存在 / 映射方向被钉死 / 主题块不许复制）。 */
+:root {
+  --ui-background: var(--bg);
+  --ui-foreground: var(--ink);
+  --ui-card: var(--card);
+  --ui-card-foreground: var(--ink);
+  --ui-popover: var(--card);
+  --ui-popover-foreground: var(--ink);
+  --ui-primary: var(--accent);              /* 方寸品牌主色（**不是** shadcn 的 accent） */
+  --ui-primary-foreground: #ffffff;
+  --ui-secondary: var(--tint);
+  --ui-secondary-foreground: var(--ink);
+  --ui-muted: var(--tint-3);
+  --ui-muted-foreground: var(--muted);
+  --ui-accent: var(--tint);                 /* ⚠ shadcn 的 accent = 悬停面 → 方寸 --tint */
+  --ui-accent-foreground: var(--ink);
+  --ui-destructive: var(--danger);
+  --ui-destructive-foreground: #ffffff;
+  --ui-success: var(--success);             /* 本仓扩展：shadcn 没有 success */
+  --ui-success-foreground: #ffffff;
+  --ui-warning: var(--warning);             /* 本仓扩展：shadcn 没有 warning */
+  --ui-warning-foreground: #ffffff;
+  --ui-border: var(--border);
+  --ui-input: var(--border);
+  --ui-ring: var(--accent);
+  --ui-radius: var(--radius);
 }
 
 /* ── 主题（2026-09-29 用户第 4 条：「似乎多主题颜色外观并不存在…参考绒花墨坊做一下」）──
@@ -12458,6 +12524,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-desc { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-launch { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; flex: none; }
+/* 2026-10-15：卡片右侧改成「编辑 / 打开文件夹」两个独立按钮（点卡片本身 = 启动） */
+.lp-actions { display: flex; gap: 4px; flex: none; align-items: center; }
+.lp-edit { padding: 4px 8px; font-size: 11px; flex: none; }
+.lp-open { padding: 4px 8px; font-size: 11px; flex: none; }
+/* 端口登记与启动命令对不上时的提示（只提示不阻断，判"起没起来"以启动后复查为准） */
+.lp-warn { font-size: 10.5px; line-height: 1.5; color: #b3261e; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .app-path-hint { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 #app-edit-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 400px; box-shadow: var(--shadow); border: 1px solid var(--border); }
 #app-edit-modal h3 { margin: 0 0 12px; font-size: 16px; }
@@ -12897,30 +12969,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .help-sec b { font-weight: 700; }
 
-/* ── 拍板记录（决策卡）视图，2026-10-12 AI 规划包第 3 件 ───────────────── */
-/* 三态视觉语言复用全局语义色：作数=绿 ✓ / 已作废=灰红 ✗ / 已并入=琥珀 → */
-.decisions-view { overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
-.decisions-header { display: flex; align-items: center; gap: 12px; }
-.decisions-header h3 { margin: 0; }
-.decisions-ctrls { display: flex; gap: 6px; flex-wrap: wrap; }
-.decisions-ctrls .on { font-weight: 600; }
-.decision-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.dec-inp-main { flex: 1 1 260px; }
-.dec-inp-date { flex: 0 0 150px; }
-.dec-inp-src { flex: 0 1 200px; }
-.decision-list { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
-.decision-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; background: var(--card); }
-.dec-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dec-mark { font-weight: 700; width: 1.2em; text-align: center; }
-.dec-st-作数 .dec-mark { color: #3a7d2c; }
-.dec-st-已作废 { opacity: 0.62; }
-.dec-st-已作废 .dec-mark { color: #b0524a; }
-.dec-st-已并入 .dec-mark { color: #b07a2a; }
-.dec-id { color: var(--dim); font-size: 12px; }
-.dec-content { font-weight: 600; flex: 1 1 auto; }
-.dec-status-sel { flex: 0 0 auto; }
-.dec-meta { display: flex; gap: 10px; margin-top: 4px; color: var(--dim); font-size: 12px; }
-.dec-note { margin-top: 4px; font-size: 12px; color: var(--dim); white-space: pre-line; border-top: 1px dashed var(--line); padding-top: 4px; }
+/* ── 决策视图（2026-10-12 AI 规划包第 3 件；2026-10-14 UI 基座第 ④ 步第一单）──
+   **视图本体已搬进 `components/DecisionBoard.vue`**（shadcn-vue 口径，样式全在那边用 utilities）。
+   这里只留"挂载容器"这一件事：它是 `#board` 的另一种形态，跟日历/日志/待办同款 ——
+   必须显式把自己加进「非看板视图要 stretch」那张名单，否则 `#board` 的
+   `align-items: flex-start` 会让子元素按内容宽度收缩（日历当年就是这么变成一排细竖条的）。
+   ⚠ 选择器写成 `#board.decisions-view`：`#board`（ID）特异性高于单类，只写 `.decisions-view`
+     会被 `#board { padding: 14px }` 直接压掉（老版就是这么被压的，padding 一直没生效）。 */
+#board.decisions-view {
+  align-items: stretch;
+  padding: 14px 18px;
+}
+.decisions-view { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
 /* 模型通道预设按钮行（2026-10-12）：两个 ghost 并排，间距 8px */
@@ -12978,14 +13038,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #policy-modal label { font-size: 11px; color: var(--muted); margin: 8px 0 4px; display: block; }
 #policy-modal textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; resize: vertical; }
 
-/* 任务卡右键菜单 */
+/* 右键菜单样式。
+   ⚠ 2026-10-14（第 ④ 步第二单）：**任务卡**那份菜单已换成 `components/TaskCardMenu.vue`
+     （reka-ui ContextMenu + Tailwind utilities），它的内容根保留 `class="ctx-menu"` 只是
+     **测试钩子**，样式不再由这里负责 —— 所以下面这几条规则全部收窄到 `.ctx-other`
+     （日志 / 待办那份仍是手搓，样式不动）。别把 `.ctx-menu` 的样式规则加回来：
+     它的特异性（0,1,1）会压过组件里的工具类（0,1,0），等于把新菜单打回旧长相。 */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 60; }
-.ctx-menu { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 4px; }
+.ctx-other { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 4px; }
 .ctx-title { padding: 6px 10px 4px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
-.ctx-menu button { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: inherit; }
-.ctx-menu button:hover { background: var(--tint); }
-.ctx-menu button.danger { color: var(--danger); }
-.ctx-menu button.danger:hover { background: #fce4e4; }
+.ctx-other button { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: inherit; }
+.ctx-other button:hover { background: var(--tint); }
+.ctx-other button.danger { color: var(--danger); }
+.ctx-other button.danger:hover { background: #fce4e4; }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* 阻塞选择器（任务表单） */
@@ -13894,6 +13959,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .svc-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .svc-line1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .svc-line2 { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; }
+/* 2026-10-15：把"启动命令"摊开显示 —— 端口是登记，命令是"点一下跑什么"，两者可以无关 */
+.svc-cmd { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-diag { font-size: 11px; line-height: 1.55; color: #b3261e; background: #fdeceb; border: 1px solid #e6c3c0; border-radius: 6px; padding: 4px 8px; }
 .svc-name { font-weight: 600; }
 .svc-port { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--accent); }
 .svc-state { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid transparent; }

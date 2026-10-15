@@ -18,7 +18,10 @@ from tegula.core import (
     _now_ts, _bump_version, _task_version, _mtime_guard, api_edit,
     api_review, gate_open, gate_check, gate_list, gate_close,
     DECISIONS_PATH, DECISION_STATUSES, load_decisions, decision_add, decision_set_status,
+    _normalize_decision_status,
     load_template, api_new, _parse_decision_points, _render_decision_points,
+    # archify 卡导入（清单第 9 条，2026-10-14）—— 同一条纪律：**在 cli.py 里用的都必须进这张清单**
+    archify_check, archify_summary, archify_import,
     # ⚠ 2026-10-12：这四个是**导入导出命令的被调方**，此前一直在 cli.py 里裸用却没进这张清单
     #   → `tegula export tasks` / `import tasks` / `export notes` / `import notes` **一跑就 NameError**。
     #   为什么长期没被发现：那四条命令平时没人用，而 verify.py 只测 core 层函数、不跑 cli 命令。
@@ -1025,6 +1028,30 @@ def cmd_new(args):
     print(f"已创建任务: {tid}")
 
 
+def cmd_archify(args):
+    """导入 archify 技能卡（清单第 9 条）。只导入、不分发；来源如实保留。"""
+    if args.archify_cmd != "import":
+        print(f"未知子命令：{args.archify_cmd}", file=sys.stderr)
+        return 2
+    proj = [args.项目] if args.项目 else None
+    ok, r = archify_import(args.file, project=proj, title=args.标题, dry_run=args.dry_run)
+    if not ok:
+        print(r.get("error", "导入失败"), file=sys.stderr)
+        return 1
+    if r.get("dryRun"):
+        print("✓ 校验通过（--dry-run：没有写任何文件）")
+        print(f"  标题：{r['标题']}")
+        print(f"  图型：{r['图型']}")
+        print(f"  条目：{r['条目数']}")
+        print(f"  摘要：{r['摘要字符数']} 字符")
+        return 0
+    print(f"✓ 已导入 archify 卡 → {r['id']}")
+    print(f"  标题：{r['标题']}")
+    print(f"  图型：{r['图型']}｜条目：{r['条目数']}")
+    print(f"  卡片：{r['path']}（原卡 JSON 存在「架构」字段）")
+    return 0
+
+
 # ---------- AI 规划写回层（2026-10-12，方案卡：AI 规划功能 2.5 天主体） ----------
 # 函数体内延迟 import：cli 冷启动不加载 LLM 层；也规避模块级循环 import 的任何可能。
 # 红线见 tegula_writeback.py 模块头：AI 卡只落「待审批」，项目说明只落笔记（契约只读）。
@@ -1050,9 +1077,9 @@ def cmd_ai_brief(args):
     return 0 if r.get("ok") else 1
 
 
-# ---------- 决策卡（拍板记录，2026-10-12）----------
+# ---------- 决策卡（2026-10-12；三态 2026-10-14 改白话：有效/已撤销/已合并）----------
 def cmd_decision(args):
-    """decision add/list/set 三个面：群里拍的板当场记、随时翻、被推翻就标死。"""
+    """decision add/list/set 三个面：定下来的事当场记、随时翻、被推翻就标死。"""
     cmd = getattr(args, "decision_cmd", "")
     if cmd == "add":
         ok, r = decision_add(args.内容, 日期=args.日期 or None, 状态=args.状态, 项目=args.项目, 出处=args.出处, 备注=args.备注)
@@ -1063,15 +1090,17 @@ def cmd_decision(args):
         return 0 if ok else 1
     if cmd == "list":
         items = load_decisions()
-        if getattr(args, "状态", ""):
-            items = [i for i in items if i.get("状态") == args.状态]
+        # 筛选用归一后的值比：`--状态 作数` 这类老写法照样能筛出新状态
+        want = _normalize_decision_status(args.状态) if getattr(args, "状态", "") else ""
+        if want:
+            items = [i for i in items if i.get("状态") == want]
         if getattr(args, "项目", ""):
             items = [i for i in items if args.项目 in (i.get("项目") or "")]
         if not items:
-            print("（无拍板记录）")
+            print("（无决策记录）")
             return 0
         for it in items:
-            mark = {"作数": "✓", "已作废": "✗", "已并入": "→"}.get(it.get("状态", ""), "?")
+            mark = {"有效": "✓", "已撤销": "✗", "已合并": "→"}.get(it.get("状态", ""), "?")
             proj = f"  [{it.get('项目')}]" if it.get("项目") else ""
             src = f"  ← {it.get('出处', '')}" if it.get("出处") else ""
             note = f"  备注: {it.get('备注', '').splitlines()[0]}…" if it.get("备注") else ""
@@ -1615,8 +1644,13 @@ def cmd_import_tasks(args):
     result = api_import_tasks(data)
     if result.get("ok"):
         print(f"已导入 {result['imported']} 个任务")
-    else:
-        print(f"导入失败: {result.get('msg')}")
+        return 0
+    # 2026-10-14（开发清单第 6 条）：拦住之后要**说清错在哪**，并且给非零退出码 ——
+    # 否则脚本里 `tegula import tasks x.json && echo 成功` 永远打印成功。
+    print(f"导入失败: {result.get('msg')}")
+    for p in result.get("problems") or []:
+        print(f"  - {p}")
+    return 1
 
 
 def cmd_export_notes(args):
@@ -2100,32 +2134,49 @@ def main():
     ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ab.set_defaults(func=cmd_ai_brief)
 
-    # ── 决策卡（拍板记录，2026-10-12）──
-    dsub = sub.add_parser("decision", help="拍板记录：群里拍的板记成卡（内容/日期/还作不作数/出处）")
+    # ── 决策卡（2026-10-12）──
+    dsub = sub.add_parser("decision", help="决策记录：定下来的事记成卡（内容/日期/还算不算数/出处）")
     dsub_sub = dsub.add_subparsers(dest="decision_cmd", required=True)
-    da = dsub_sub.add_parser("add", help="记一条拍板")
-    da.add_argument("内容", help="拍板内容，一句话")
+    da = dsub_sub.add_parser("add", help="记一条决策")
+    da.add_argument("内容", help="决策内容，一句话")
     da.add_argument("--日期", "--date", dest="日期", default="", help="哪天定的（默认今天，YYYY-MM-DD）")
-    da.add_argument("--状态", dest="状态", default="作数", choices=list(DECISION_STATUSES), help="默认作数")
-    da.add_argument("--项目", dest="项目", default="", help="关联项目，如 司天/绒花墨坊/方寸（跨项目板留空）")
+    da.add_argument("--状态", dest="状态", default="有效", choices=list(DECISION_STATUSES), help="默认有效")
+    da.add_argument("--项目", dest="项目", default="", help="关联项目，如 司天/绒花墨坊/方寸（跨项目决策留空）")
     da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如「10-11 09:42 四答定调②」")
     da.add_argument("--备注", dest="备注", default="", help="")
     da.set_defaults(func=cmd_decision)
-    dl = dsub_sub.add_parser("list", help="列拍板（--状态/--项目 筛）")
-    dl.add_argument("--状态", dest="状态", default="", help="只看某状态（作数/已作废/已并入）；空=全部")
-    dl.add_argument("--项目", dest="项目", default="", help="只看某项目的板；空=全部")
+    dl = dsub_sub.add_parser("list", help="列决策（--状态/--项目 筛）")
+    dl.add_argument("--状态", dest="状态", default="", help="只看某状态（有效/已撤销/已合并）；空=全部")
+    dl.add_argument("--项目", dest="项目", default="", help="只看某项目的决策；空=全部")
     dl.set_defaults(func=cmd_decision)
-    ds = dsub_sub.add_parser("set", help="改拍板状态（如拍板被推翻：作数→已作废）")
+    ds = dsub_sub.add_parser("set", help="改决策状态（如被推翻：有效→已撤销）")
     ds.add_argument("id", help="决策卡 id，如 D-001")
     ds.add_argument("状态", choices=list(DECISION_STATUSES), help="目标状态")
     ds.add_argument("--备注", dest="备注", default="", help="为什么改（追加进备注，不覆盖）")
     ds.set_defaults(func=cmd_decision)
 
+    # archify 卡导入（中长期清单第 9 条，2026-10-14）：只导入、不替它分发
+    af = sub.add_parser("archify", help="导入 archify 技能卡（只导入，不替它分发）")
+    af_sub = af.add_subparsers(dest="archify_cmd", required=True)
+    afi = af_sub.add_parser("import", help="把一张 archify 卡导成方寸任务卡")
+    afi.add_argument("file", help="archify 卡 JSON 路径")
+    afi.add_argument("--项目", dest="项目", default="", help="归属项目 id（默认 fangcun-base）")
+    afi.add_argument("--标题", dest="标题", default="", help="覆盖标题（默认用 meta.title）")
+    afi.add_argument("--dry-run", dest="dry_run", action="store_true",
+                     help="只校验 + 预览，不写任何文件")
+    afi.set_defaults(func=cmd_archify)
+
     args = p.parse_args()
     if not getattr(args, "func", None):
         p.print_help()
         return
-    args.func(args)
+    # 2026-10-14：子命令若返回了 int（0/1），就把它当退出码 —— 此前**一律 exit 0**，
+    # 于是 `tegula import tasks 坏文件.json` / `decision add` 失败在脚本里也是"成功"
+    # （`cmd_import_tasks` / `cmd_decision` 早就 return 0/1 了，只是没人接）。
+    # ⚠ 必须排除 bool：Python 里 True/False 也是 int，`isinstance(True, int)` 为真。
+    rc = args.func(args)
+    if isinstance(rc, int) and not isinstance(rc, bool):
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

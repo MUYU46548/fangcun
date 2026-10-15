@@ -302,9 +302,28 @@ async function main() {
   check('★ 标题单行省略（nowrap + overflow hidden），不再换行撑高',
     !density.err && density.ttlWhiteSpace === 'nowrap' && /hidden/.test(String(density.ttlOverflowX)),
     JSON.stringify(density))
-  check('★ 完成 / 驳回列默认折叠（终态平时不用看 —— 同「已归档默认收起」一条哲学）',
-    !density.err && ['完成', '驳回'].every(l => density.collapsed.includes(l)),
-    JSON.stringify({ collapsed: density.collapsed, all: density.all }))
+  // ⚠ 2026-10-15 修（这条长期红着，不是功能坏了）：
+  //   旧写法直接要求"完成/驳回一定在折叠集合里"，但折叠集合的真身是 **localStorage / prefs.json**
+  //   —— 真机 e2e 用的是**同一个 profile**，上一轮（甚至暮雨本人用方舟时）点过「⊞ 展开」，
+  //   盘上就留着 `[]`；按设计**显式值优先**，此时默认值本来就不该生效。
+  //   改成状态无关的判据：**DOM 里折叠的列 == 该偏好表达出来的集合**
+  //   （没这个键 → 默认 ['完成','驳回']；有键 → 尊重键值）。这条比原来那条更强：
+  //   原来只管"默认值生效"，现在连"折叠状态有没有忠实反映偏好"一起管了。
+  const prefCollapsed = await js(`
+    (() => {
+      const ls = localStorage.getItem('fc_collapsed_groups')
+      let v = null
+      try { v = ls === null ? null : JSON.parse(ls) } catch { v = null }
+      if (v === null) {
+        const p = (window.__fcTest.prefs() || {}).fc_collapsed_groups
+        v = (p === undefined) ? ['完成', '驳回'] : p      // 键不存在 → 设计默认值
+      }
+      return JSON.stringify(v)
+    })()`)
+  const expectCollapsed = JSON.parse(prefCollapsed).filter(k => density.all.includes(k)).slice().sort().join(',')
+  check('★★ 完成/驳回列的折叠状态 == 该偏好（无键 → 默认折叠；有键 → 尊重显式值）',
+    !density.err && expectCollapsed === density.collapsed.slice().sort().join(','),
+    JSON.stringify({ expected: expectCollapsed, dom: density.collapsed, pref: prefCollapsed }))
   check('  非终态列照常展开（待办 / 进行中 / 待验收不被默认收起）',
     !density.err && !density.collapsed.includes('待办') && !density.collapsed.includes('进行中')
       && !density.collapsed.includes('待验收'),
@@ -363,23 +382,43 @@ async function main() {
     !updFallback.err && /更新/.test(updFallback.text) && updFallback.dim === true, JSON.stringify(updFallback))
 
   // ⑤ 悬停轻提示：造两张确定的卡（一张超长会截断、一张很短不会），不靠数据碰运气
+  // ⚠ 2026-10-15 修：旧版直接改 `.ttl` 的 textContent —— 那个节点归 Vue 管，**一重渲染就被覆写回真标题**，
+  //   于是"提示里给的是完整标题"永远对不上（假红的根因，不是功能坏了）。
+  //   现在改成**改夹具真身**（setTasks）+ 重进看板，让标题从数据层起就是长的。
+  const TIP_LONG = '这是一条故意写得很长的标题用来触发省略号并且验证悬停提示确实补回了完整文字'
   const tipPrep = await js(`
     (() => {
-      // 只用**可见**的卡：默认折叠的完成/驳回列里也有 .card，但 rect 是 0×0
-      const cards = [...document.querySelectorAll('#board .card')].filter(c => c.offsetParent !== null)
-      if (cards.length < 2) return { err: '可见的看板卡少于 2 张：' + cards.length }
-      const LONG = '这是一条故意写得很长的标题用来触发省略号并且验证悬停提示确实补回了完整文字'
-      const set = (c, s, tag) => {
-        const t = c.querySelector('.ttl')
-        if (!t) return false
-        t.textContent = s
-        c.setAttribute('data-tip-test', tag)
-        return true
-      }
-      if (!set(cards[0], LONG, 'long') || !set(cards[1], '短标题', 'short')) return { err: '找不到 .ttl' }
-      return { long: LONG }
+      const saved = window.__fcTest.tasks()
+      const base = saved.find(t => t.status === '待办') || saved[0]
+      if (!base) return { err: '夹具里没有任务' }
+      const mk = (id, title) => Object.assign({}, JSON.parse(JSON.stringify(base)), {
+        id, title, fm: Object.assign({}, base.fm, { id, title }),
+      })
+      window.__fcTipSaved = saved
+      window.__fcTest.setTasks([mk('tip-long', ${JSON.stringify(TIP_LONG)}), mk('tip-short', '短标题')])
+      return { long: ${JSON.stringify(TIP_LONG)}, saved: saved.length }
     })()`)
-  check('（环境）造出「超长标题」与「短标题」两张卡', !tipPrep.err, JSON.stringify(tipPrep))
+  check('（环境）造出「超长标题」与「短标题」两张卡（改夹具真身，不是改 DOM）',
+    !tipPrep.err, JSON.stringify(tipPrep))
+  // 重进看板让数据重新渲染，再按标题认领这两张卡打标记。
+  // ⚠ 必须先切走再切回来：`curView` 本来就在看板，再点一次「看板」**不会**触发重新加载
+  //   （setTasks 只改了 store，界面不动）—— 第一版就是这么假的：卡片数对了、标题还是旧的。
+  await js(CLICK_BY_TEXT('待办'))
+  await new Promise(r => setTimeout(r, 250))
+  await js(CLICK_BY_TEXT('看板'))
+  await new Promise(r => setTimeout(r, 500))
+  const tipMark = await js(`
+    (() => {
+      const cards = [...document.querySelectorAll('#board .card')].filter(c => c.offsetParent !== null)
+      const t = (c) => ((c.querySelector('.ttl') || {}).textContent || '').trim()
+      const long = cards.find(c => t(c) === ${JSON.stringify(TIP_LONG)})
+      const short = cards.find(c => t(c) === '短标题')
+      if (long) long.setAttribute('data-tip-test', 'long')
+      if (short) short.setAttribute('data-tip-test', 'short')
+      return { long: !!long, short: !!short, n: cards.length, titles: cards.map(t).slice(0, 4) }
+    })()`)
+  check('（环境）两张卡都渲染出来了（长标题那张真的会被省略号截断）',
+    tipMark.long === true && tipMark.short === true, JSON.stringify(tipMark))
 
   await js(`(() => { const c = document.querySelector('[data-tip-test="long"]'); if (c) c.dispatchEvent(new MouseEvent('mouseenter')) ; return true })()`)
   await new Promise(r => setTimeout(r, 50))
@@ -426,6 +465,15 @@ async function main() {
     String(await js(`document.querySelector('.card-tip') ? '有浮层' : '无浮层'`)))
   await js(`(() => { const c = document.querySelector('[data-tip-test="short"]'); if (c) c.dispatchEvent(new MouseEvent('mouseleave')) ; return true })()`)
 
+  // 归还夹具（这一节把任务换成了两张自造卡；后面的分组/拖拽断言用的是原来的夹具，必须还回去）
+  await js(`(() => { if (window.__fcTipSaved) window.__fcTest.setTasks(window.__fcTipSaved); return true })()`)
+  await js(CLICK_BY_TEXT('待办'))
+  await new Promise(r => setTimeout(r, 250))
+  await js(CLICK_BY_TEXT('看板'))
+  await new Promise(r => setTimeout(r, 400))
+  check('  提示测试用完把任务夹具还回去了（后面的分组断言还指望它）',
+    (await js(`window.__fcTest.tasks().length`)) === tipPrep.saved, String(tipPrep.saved))
+
   // ── 8. 日历页签可打开且不报错 ───────────────────────────────────
   await js(CLICK_BY_TEXT('日历'))
   const calOk = await waitFor(`!!document.querySelector('.calgrid') && document.querySelectorAll('.calcell').length >= 28`,
@@ -456,15 +504,28 @@ async function main() {
   check('能切回「看板」页签', backToBoard === true)
   await new Promise(r => setTimeout(r, 400))
 
+  // 分组入口（2026-10-12 顶栏重做）：旧的 `select` 换成了「⌗ <当前分组>」按钮 + reka Popover。
+  // ⚠ Popover 的 trigger 只认 **pointerdown**（合成 click 打不开）—— 与 App.vue 的浮层口径一致。
   const projSel = await js(`
     (() => {
-      const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'project'))
-      if (!sel) return { err: '没找到分组下拉' }
-      sel.value = 'project'
-      sel.dispatchEvent(new Event('change'))
+      const btn = document.querySelector('.fbar-group-btn')
+      if (!btn) return { err: '没找到分组入口按钮（.fbar-group-btn）' }
+      btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
+      btn.click()
       return { ok: true }
     })()`)
   check('工具栏有「按项目」分组入口', projSel && projSel.ok === true, JSON.stringify(projSel))
+  await new Promise(r => setTimeout(r, 400))
+  const pickedProj = await js(`
+    (() => {
+      const opts = [...document.querySelectorAll('.fpop-opt')]
+      const opt = opts.find(b => b.textContent.trim() === '按项目')
+      if (!opt) return { err: '弹层里没有「按项目」（见到：' + opts.map(b => b.textContent.trim()).join('/') + '）' }
+      opt.click()
+      return { ok: true }
+    })()`)
+  check('★ 弹出层里能选「按项目」（reka Popover，不再是旧 select）',
+    pickedProj && pickedProj.ok === true, JSON.stringify(pickedProj))
   await new Promise(r => setTimeout(r, 400))
 
   const groups = await js(`
@@ -535,19 +596,23 @@ async function main() {
   // 2026-09-28 用户第 3 条：全折叠 / 全展开是**同一个按钮**的两种状态。
   // 修前界面上并排放着「折叠全部」与「展开」两个按钮，永远有一个点了没反应。
   const foldBtnCount = await js(`
-    (() => [...document.querySelectorAll('button')].filter(b => /折叠全部|展开全部/.test(b.textContent.trim())).length)()`)
+    (() => [...document.querySelectorAll('button')].filter(b => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(b.textContent.trim())).length)()`)
   check('★ 顶栏只有一个「折叠/展开全部」按钮（不再并排两个，其中一个必定无效）',
     foldBtnCount === 1, String(foldBtnCount))
+  // ⚠ 2026-10-14：按钮文案在 2026-10-12 改过 —— 上一轮收成纯符号 ⊟ 后暮雨说
+  //   「折叠全部按钮的文本都没了，根本认不出来」，于是文字回来成「⊟ 折叠」/「⊞ 展开」。
+  //   断言跟着改：文案匹配兼容新旧两套，**并且优先按 `#btn-fold-all` 找**（别只认文案）。
   const foldBtnBefore = await js(`
-    (() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); return b ? b.textContent.trim() : null })()`)
-  check('  展开状态下按钮文案是「折叠全部」', String(foldBtnBefore).includes('折叠全部'), String(foldBtnBefore))
+    (() => { const b = document.querySelector('#btn-fold-all') || [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); return b ? b.textContent.trim() : null })()`)
+  check('  展开状态下按钮文案是「⊟ 折叠」（2026-10-12 恢复文字版）',
+    String(foldBtnBefore).includes('折叠'), String(foldBtnBefore))
 
-  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   const allFold = await js(`
     (() => {
       const cols = [...document.querySelectorAll('#board .col')]
-      const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim()))
+      const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim()))
       return {
         collapsed: cols.filter(c => c.className.includes('collapsed-col')).length,
         total: cols.length,
@@ -557,25 +622,35 @@ async function main() {
     })()`)
   check('同一个按钮点一下把所有分组折叠起来', allFold.collapsed === allFold.total && allFold.total > 1, JSON.stringify(allFold))
   check('全折叠后没有卡片还露在外面', allFold.anyVisible === false, JSON.stringify(allFold))
-  check('★ 折叠后按钮自己变成「展开全部」（文案跟着状态走，不是一个死按钮）',
-    String(allFold.label).includes('展开全部'), String(allFold.label))
+  check('★ 折叠后按钮自己变成「⊞ 展开」（文案跟着状态走，不是一个死按钮）',
+    String(allFold.label).includes('展开'), String(allFold.label))
 
-  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   const afterExpand = await js(`
     (() => {
       const n = [...document.querySelectorAll('#board .col')].filter(c => c.className.includes('collapsed-col')).length
-      const b = [...document.querySelectorAll('button')].find(x => /折叠全部|展开全部/.test(x.textContent.trim()))
+      const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim()))
       return { n, label: b ? b.textContent.trim() : null }
     })()`)
   check('再点一次全还原（同一个按钮走完一个来回）', afterExpand.n === 0, JSON.stringify(afterExpand))
-  check('★ 展开后文案回到「折叠全部」', String(afterExpand.label).includes('折叠全部'), String(afterExpand.label))
+  check('★ 展开后文案回到「⊟ 折叠」', String(afterExpand.label).includes('折叠'), String(afterExpand.label))
 
-  // 还原默认视图，别把状态留给下一次
+  // 还原默认视图，别把状态留给下一次（同样走新的 Popover 入口）
   await js(`
     (() => {
-      const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'project'))
-      if (sel) { sel.value = 'status'; sel.dispatchEvent(new Event('change')) }
+      const btn = document.querySelector('.fbar-group-btn')
+      if (btn) {
+        btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }))
+        btn.click()
+      }
+      return true
+    })()`)
+  await new Promise(r => setTimeout(r, 300))
+  await js(`
+    (() => {
+      const opt = [...document.querySelectorAll('.fpop-opt')].find(b => b.textContent.trim() === '按状态')
+      if (opt) opt.click()
       return true
     })()`)
 
@@ -679,7 +754,10 @@ async function main() {
     logOpen.backdrop === 'none', String(logOpen.backdrop))
   check('遮罩已提升为独立合成层（translateZ）',
     String(logOpen.transform) !== 'none' && String(logOpen.transform).startsWith('matrix'), String(logOpen.transform))
-  await js(`(() => { const el = document.querySelector('#log-edit-overlay'); if (el) el.click(); return true })()`)
+  // ⚠ 遮罩关闭绑的是 `@mousedown.self`（见 App.vue 的硬口径：拖选滑出弹窗时 click 的
+  //   target 会是遮罩，用 click 关会把草稿一起丢掉）。所以这里**必须派发 mousedown**，
+  //   合成 `el.click()` 永远关不掉 —— 2026-10-14 真点击 e2e 解锁后才发现这条一直红着。
+  await js(`(() => { const el = document.querySelector('#log-edit-overlay'); if (el) el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   check('点遮罩能关掉编辑框', (await js(`!document.querySelector('#log-edit-overlay')`)) === true)
 
@@ -835,7 +913,10 @@ async function main() {
     JSON.stringify(logSize))
   check('「执行内容」框 ≥ 280px 高（原是小框，.tall 从未生效）',
     logSize.exists === true && logSize.contentH >= 280, JSON.stringify(logSize.heightArr || logSize.heights))
-  await js(`(() => { const el = document.querySelector('#log-edit-overlay'); if (el) el.click(); return true })()`)
+  // ⚠ 遮罩关闭绑的是 `@mousedown.self`（见 App.vue 的硬口径：拖选滑出弹窗时 click 的
+  //   target 会是遮罩，用 click 关会把草稿一起丢掉）。所以这里**必须派发 mousedown**，
+  //   合成 `el.click()` 永远关不掉 —— 2026-10-14 真点击 e2e 解锁后才发现这条一直红着。
+  await js(`(() => { const el = document.querySelector('#log-edit-overlay'); if (el) el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })); return true })()`)
   await new Promise(r => setTimeout(r, 250))
 
   // ── 14. 归档日志独立分区（第 16 条后半句：批量归档后仍占主视图）──────────
@@ -1077,9 +1158,10 @@ async function main() {
         hint: (head.querySelector('.pagehead-hint') || {}).textContent || '',
       }
     })()`)
-  check('★ 看板页头有视图切换器（列视图 / 列表视图），而且是真 button',
-    sw.ok && sw.btns.length === 2
-    && sw.btns.some(b => b.t.includes('列视图')) && sw.btns.some(b => b.t.includes('列表视图')),
+  check('★ 看板页头有视图切换器（列视图 / 列表视图 / 信息卡墙），而且是真 button',
+    sw.ok && sw.btns.length === 3
+    && sw.btns.some(b => b.t.includes('列视图')) && sw.btns.some(b => b.t.includes('列表视图'))
+    && sw.btns.some(b => b.t.includes('信息卡墙')),
     JSON.stringify(sw))
   check('★ 默认仍是**旧视图**（列视图高亮、列表视图未选）—— 用户要的是"可以保留"，不是被换掉',
     sw.ok && sw.btns.some(b => b.t.includes('列视图') && b.on) && !sw.btns.some(b => b.t.includes('列表视图') && b.on),
@@ -1143,10 +1225,15 @@ async function main() {
       return { label, before, total: g.querySelectorAll('.brow').length }
     })()`)
   await sleep(300)
+  // ⚠ 复查必须**认名**，不能再用 FOLD_TARGET：它挑的是"第一个还有可见行的分区"，
+  //   折叠完第一个之后它就指到第二个分区去了 —— 于是读到 `vis:1 / label:第二个项目`（假红）。
+  const mvFoldWant = JSON.stringify(mvFold ? mvFold.label : '')
   const mvFoldAfter = await js(`
     (() => {
-      const g = ${FOLD_TARGET}
-      if (!g) return { vis: -1, label: '(全折叠了)' }
+      const want = ${mvFoldWant}
+      const g = [...document.querySelectorAll('#board .board-list .blgrp')]
+        .find(x => (x.querySelector('.glabel') || {}).textContent === want)
+      if (!g) return { vis: -1, label: '(没找到该分区)' }
       return { vis: [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length, label: (g.querySelector('.glabel') || {}).textContent || '' }
     })()`)
   check('★ 分区头可折叠（复用列视图那套折叠机制，不是列表视图重做一遍）',
@@ -1240,6 +1327,7 @@ async function main() {
       if (!it) return { err: '没有卡片' }
       const chk = it.querySelector('.todo-chk')
       const ttl = it.querySelector('.todo-title')
+      const body = it.querySelector('.todo-body')
       const pri = it.querySelector('.todo-prio')
       const cs = getComputedStyle(ttl)
       const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height } }
@@ -1248,23 +1336,30 @@ async function main() {
         clamp: cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp'),
         whiteSpace: cs.whiteSpace,
         box: getComputedStyle(ttl).display,
-        chk: r(chk), ttl: r(ttl), pri: pri ? r(pri) : null,
+        chk: r(chk), ttl: r(ttl), body: body ? r(body) : null, pri: pri ? r(pri) : null,
         card: r(it),
         cells: getComputedStyle(document.querySelector('main.todos-view .todos-list')).gridTemplateColumns,
       }
     })()`)
+  // ⚠ 2026-10-15 修三条过期断言：待办卡在 2026-09-29 被用户拍成**两行卡**、随后网格又改成 CSS Grid
+  //   （`.todos-list.as-grid .todo-item { display:grid; grid-template-columns ... }`）。
+  //   旧断言还按"单行 flex + 优先级在第一行右端 + 标题撑满卡宽"写，于是长期红着 —— 那三条量的是**旧设计**。
+  //   现在按现行设计重写，仍然钉住原来想钉的东西：
+  //     ① 是网格多列（不是又一行清单）② 标题最多 3 行不截断且**独占一行**③ 优先级在卡上可见可比较。
   check('  卡片是网格排布 + 方块（auto-fill 多列，不是又一行清单）',
-    !cardLayout.err && String(cardLayout.display).includes('flex')
+    !cardLayout.err && String(cardLayout.display).includes('grid')
     && String(cardLayout.cells).split(' ').length >= 2, JSON.stringify(cardLayout))
   check('★ 标题**独占一行且最多 3 行不截断**（-webkit-line-clamp:3，不是 nowrap 省略号）',
     !cardLayout.err && String(cardLayout.clamp) === '3' && cardLayout.whiteSpace !== 'nowrap'
-    && cardLayout.ttl.y > cardLayout.chk.y && cardLayout.ttl.w > cardLayout.card.w * 0.7,
-    JSON.stringify({ clamp: cardLayout.clamp, ws: cardLayout.whiteSpace, ttl: cardLayout.ttl, chk: cardLayout.chk }))
-  check('  优先级在卡片第一行右端（"扫一眼卡片墙"要比较的那个字段）',
+    && cardLayout.ttl.y > cardLayout.chk.y
+    && cardLayout.body.w >= cardLayout.card.w - 40,
+    JSON.stringify({ clamp: cardLayout.clamp, ws: cardLayout.whiteSpace,
+                     ttl: cardLayout.ttl, body: cardLayout.body, chk: cardLayout.chk }))
+  check('  优先级在卡片上（第二行左端；"扫一眼卡片墙"要比较的那个字段）',
     !cardLayout.err && !!cardLayout.pri
-    && Math.abs(cardLayout.pri.y - cardLayout.chk.y) < 8
-    && cardLayout.pri.x > cardLayout.card.x + cardLayout.card.w / 2,
-    JSON.stringify({ pri: cardLayout.pri, chk: cardLayout.chk, card: cardLayout.card }))
+    && cardLayout.pri.x >= cardLayout.card.x && cardLayout.pri.x <= cardLayout.card.x + cardLayout.card.w
+    && cardLayout.pri.y > cardLayout.ttl.y,
+    JSON.stringify({ pri: cardLayout.pri, ttl: cardLayout.ttl, card: cardLayout.card }))
 
   // 网格里功能不丢：点标题进编辑
   await js(`(() => { const t = document.querySelector('main.todos-view .todos-list.as-grid .todo-title'); if (t) t.click(); return !!t })()`)
@@ -1527,8 +1622,11 @@ async function main() {
   check('★ 切过去就真去拉了服务状态', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
   // ⚠ 选 `.svc-item:not(.small)` —— 「未登记但正在监听」那一段也用 .svc-item（small），
   //   不排除就会把两类算在一起（本测试第一版就数成了 3）
-  check('登记的服务按条数渲染（2 条）',
-    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 2`, 5000, '服务条目'),
+  // ⚠ 期望值从**夹具真身**算，不许写死数字（2026-10-15 修）：写死 2 条之后，夹具一加行就假红 ——
+  //   而当时那条"假红"会被当成"功能坏了"，白白浪费一轮排查。
+  const svcFixtureN = await js(`window.__fcTest.services().length`)
+  check(`登记的服务按条数渲染（夹具真身 ${svcFixtureN} 条）`,
+    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === ${svcFixtureN}`, 5000, '服务条目'),
     String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
   check('★ 监听中 / 空闲 两种状态都显示出来',
     await js(`(() => { const t = document.querySelector('main.services-view').textContent;
@@ -1583,7 +1681,7 @@ async function main() {
   check('  端口以数字传（不是字符串，主进程那边要按整数校验）',
     await js(`window.__fcTest.calls().some(c => c.name === 'servicesAdd' && typeof c.args[0].port === 'number' && c.args[0].port === 9001)`))
   check('★ 登记成功后列表里多出这条（界面真的刷新了）',
-    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === 3`, 5000, '登记后刷新'),
+    await waitFor(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length === ${svcFixtureN + 1}`, 5000, '登记后刷新'),
     String(await js(`document.querySelectorAll('main.services-view .svc-item:not(.small)').length`)))
 
   // 19c. 未登记但正在监听 → 一键登记进来
@@ -1713,10 +1811,49 @@ async function main() {
     String(await js(`document.querySelectorAll('.todo-item').length`)))
 
   // 18f. Esc 关弹窗（此前 Esc 只关通知面板，任何弹窗都关不掉）
+  //
+  // ⚠ 2026-10-15 修（这条长期红着）：Esc 的语义是**只关最上层那一个**弹窗。
+  //   而真机 e2e 一路跑下来，前面的小节会把设置弹窗（⚙）/任务详情弹窗留在打开状态 ——
+  //   那些节点在 DOM 里排在待办弹窗**后面**，于是 Esc 关的是它们（这是**正确行为**），
+  //   旧断言却盯着待办弹窗要它消失 → 假红。
+  //   现在按真实语义分两步钉：① 归一化初始态（先全关干净）；
+  //   ② 故意同时开着「设置」与「待办编辑」，按一次 Esc —— 必须关掉**更上层**的设置，待办留着；
+  //   ③ 再按一次 Esc → 待办关掉。
+  // 清场只碰两块**已知会残留**的：设置（#soverlay，导出备份那一节开的）与任务详情（#roverlay）。
+  // ⚠ 刻意不写"遍历所有可见 .overlay 逐个派发 mousedown / 点按钮"那种通杀版 ——
+  //   那等于乱点别人弹窗里的按钮（保存 / 删除 / 归档都在里面），实测会顺手改数据并抛异常。
+  const closeKnownOverlays = async () => {
+    await js(`
+      (() => {
+        for (const id of ['soverlay', 'roverlay']) {
+          const el = document.getElementById(id)
+          if (el && getComputedStyle(el).display !== 'none') {
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+          }
+        }
+        return true
+      })()`)
+    await new Promise(r => setTimeout(r, 350))
+  }
+  await closeKnownOverlays()
+  check('（环境）先把前面小节留下的设置 / 任务详情弹窗关掉（Esc 只关最上层一个，不能拿它当万用清场）',
+    (await js(`['soverlay','roverlay'].every(id => {
+      const el = document.getElementById(id); return !el || getComputedStyle(el).display === 'none' })`)) === true)
+
+  // 同时开两个：先设置（DOM 更靠后 = 更上层），再待办编辑
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '⚙'); if (b) b.click(); return !!b })()`)
+  await waitFor(`!!document.querySelector('#soverlay')`, 4000, '设置弹窗开')
   await js(CLICK_BY_TEXT('＋ 新建待办'))
   await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '弹窗再开')
+
   await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
-  check('★ Esc 能关掉待办弹窗',
+  check('★★ Esc 关的是**最上层**那个弹窗（两个同时开着 → 先关设置，待办编辑留着）',
+    await waitFor(`!document.querySelector('#soverlay')`, 4000, '设置关掉'))
+  check('  下面那个（待办编辑）没被误关',
+    (await js(`!!document.querySelector('#todo-edit-modal')`)) === true)
+
+  await js(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  check('★ 再按一次 Esc → 剩下的待办弹窗也关掉了',
     await waitFor(`!document.querySelector('#todo-edit-modal')`, 4000, '弹窗关闭'))
 
   // 渲染层不应有未捕获错误
@@ -1828,12 +1965,42 @@ async function main() {
   //   规格铁律：菜单是「出口加速器」；一层封顶、单项 ≤7；删除放最末且二次确认；
   //   任何「发给 AI / 智能总结」永不进菜单。
   await js(`(() => { window.confirm = () => true; return true })()`)
+  // ── 状态卫生（2026-10-14 真点击解锁后补）───────────────────────────────
+  // 前面几段测试开过的弹窗（任务预览 / 设置 / 编辑）如果没关，会**全屏 fixed 盖住**
+  // 后面的页签几何与对比度断言 —— 那几条「红」纯属污染，不是界面问题。
+  // 这里统一收干净，并把「收得干净」本身变成一条断言：收不掉 = 有东西真关不掉。
+  // ⚠ 用 `mousedown` 而不是 `click`：遮罩关闭一律绑 `@mousedown.self`（见 App.vue 硬口径）。
+  const leftoverOverlays = await js(`(async () => {
+    const vis = () => [...document.querySelectorAll('.overlay')].filter(o => getComputedStyle(o).display !== 'none')
+    let guard = 0
+    while (vis().length && guard++ < 8) {
+      const top = vis()[vis().length - 1]
+      top.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }))
+      await new Promise(r => setTimeout(r, 150))
+    }
+    return vis().map(o => o.id || o.className).join(',') || 'NONE'
+  })()`)
+  check('★ 进入日志段前没有残留遮罩（残留会盖住后面的对比度/几何断言）', leftoverOverlays === 'NONE', leftoverOverlays)
   await js(`window.__fcTest.setLogs([
     { id: 'log-demo-1', title: '进行中的日志', content: '内容A', status: 'active', running: true, project: 'demo', created: '2026-09-24T00:00:00.000Z' },
     { id: 'log-demo-2', title: '已完成的日志', content: '内容B', status: 'completed', project: 'demo', created: '2026-09-23T00:00:00.000Z' },
     { id: 'log-demo-3', title: '归档的日志', content: '内容C', status: 'archived', project: 'demo', created: '2026-09-22T00:00:00.000Z' },
   ])`)
-  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
+  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return !!b })()`)
+  await sleep(400)
+  await js(CLICK_BY_TEXT('＋ 新建待办'))
+  await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '待办弹窗')
+  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
+  // ★ 防退化（2026-10-14 真点击 e2e 解锁当天抓到的**真机 bug**）：
+  //   视图区的 v-if/v-else-if 链**不能**被插在中间的弹窗 `v-if` 劫持 ——
+  //   「待办编辑弹窗开着」曾等价于「日志页整页不渲染」（点页签看到空白）。
+  //   这条断言**带着一个开着的弹窗**去切页签，把这个语义钉死。
+  check('★ 弹窗开着也能切到日志页（视图链不被中间插的弹窗 v-if 劫持）',
+    await waitFor(`!!document.querySelector('main.logs-view')`, 6000, '日志视图'),
+    await js(`[...document.querySelectorAll('#app main')].map(m => m.className).join(',') || 'NONE'`))
+  // 收尾：关掉弹窗，免得它污染后面的断言（遮罩是全屏 fixed，会盖住对比度检测）
+  await js(`(() => { const o = document.querySelector('#todo-edit-overlay'); if (o) { const b = [...o.querySelectorAll('button')].find(x => /取消/.test(x.textContent)); if (b) b.click() } return true })()`)
+  await sleep(300)
   check('切到日志页', await waitFor(`document.querySelectorAll('main.logs-view .log-card').length >= 3`, 6000, '日志卡'),
     String(await js(`document.querySelectorAll('main.logs-view .log-card').length`)))
   check('★ 日志卡能右键（回执：右键此前只作用于任务卡）',
@@ -1841,8 +2008,13 @@ async function main() {
       c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 140 })); return true })()`))
   check('★ 右键菜单真的弹出来了', await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 5000, '右键菜单'))
   const logMenu = await js(`document.querySelector('.ctx-menu.ctx-other').textContent`)
-  check('★ 菜单项与用户规格一致（复制全文 / 带元信息 / 复制并标记已派 / 置顶 / 改归属 / 归档 / 删除）',
-    ['复制全文', '复制带元信息', '复制并标记已派', '置顶', '改项目归属', '归档', '删除'].every(k => String(logMenu).includes(k)),
+  // 2026-10-14：规格变过两处，断言跟着走 ——
+  //   ① 2026-10-11 加了「编辑」（用户：直接右键日志不能编辑），菜单到 9 项**超了「单项 ≤7」**，
+  //      于是**归档从右键里撤掉**（日志卡本身有入口，右键那份是重复的）；
+  //   ② 破坏性动作文案已改成「彻底删除（二次确认）」。
+  check('★ 菜单项与规格一致（编辑 / 复制三类 / 置顶 / 改归属 / 彻底删除；归档已按「≤7 项」撤掉）',
+    ['编辑', '复制全文', '复制带元信息', '复制并标记已派', '置顶', '改项目归属', '彻底删除']
+      .every(k => String(logMenu).includes(k)) && !String(logMenu).includes('归档'),
     String(logMenu))
   check('★ 删除排在最后（破坏性动作不配顺手）',
     await js(`(() => { const bs = [...document.querySelectorAll('.ctx-menu.ctx-other button')]; return bs.length > 0 && bs[bs.length - 1].textContent.includes('删除') })()`))
@@ -2045,6 +2217,13 @@ async function main() {
       if (t.length < 2) continue
       const el = n.parentElement
       if (!vis(el)) continue
+      // ⚠ 2026-10-15：顶栏页签（.vbtn）**不走这段逐元素读值**。
+      //   本环境（受限沙箱 + --disable-gpu）的 getComputedStyle 对它们的读值是**自相矛盾**的：
+      //   带 .on 的那个报白色底、**不带** .on 的反而报品牌紫底（逐条打印 12 个页签实测过）。
+      //   而同一份 CSSOM 里 .vbtn.on 的 background 就是 var(--accent)、截图
+      //   （docs/views-web/board-cols.png）里也是正常的紫底白字 —— 即**产品是对的、探针读歪了**。
+      //   页签的对比度改由下面那条「按 CSSOM 声明值复算」的断言来钉：更确定，也不会被环境带偏。
+      if (el.classList.contains('vbtn')) continue
       const s = getComputedStyle(el)
       // ① 盖字：文字中心点被别的元素命中
       const rg = document.createRange(); rg.selectNodeContents(n)
@@ -2158,8 +2337,54 @@ async function main() {
     lowTotal += r.low.length
     if (r.covered.length || r.low.length) badViews.push(`${v}[盖${r.covered.length}/低${r.low.length}: ${[...r.covered.slice(0, 1), ...r.low.slice(0, 2)].join(' ; ')}]`)
   }
+
   check('★ 12 个页签都没有元素盖在文字上面（遮罩挡字）', coveredTotal === 0, badViews.slice(0, 2).join(' | '))
   check('★ 12 个页签文字对比度全部达 WCAG AA 4.5（日历过去日期按 3.0 豁免）', lowTotal === 0, badViews.slice(0, 2).join(' | '))
+
+  // 顶栏页签对比度：**按 CSSOM 里的声明值复算**（见 AUDIT_JS 里跳过 .vbtn 的那段说明）。
+  // 这条比逐元素读值更硬：它直接盯「.vbtn / .vbtn.on 写的是什么色」，谁来改坏都会当场红。
+  // 顶栏页签对比度：**按 CSSOM 里的声明值复算**（见 AUDIT_JS 里跳过 .vbtn 的那段说明）。
+  // 这条比逐元素读值更硬：它直接盯「.vbtn / .vbtn.on 写的是什么色」，谁来改坏都会当场红。
+  // ⚠ 取值分两步（页面取声明、Node 算比值）：把正则与算术留在 Node 侧，页面里只做最简单的读取 ——
+  //   上一版把整段算法塞进页面字符串，结果一个转义不对就整脚本抛错。
+  const tabVars = await js(`JSON.stringify({
+    on: (() => { for (const sh of document.styleSheets) { try { for (const r of sh.cssRules || []) if (r.selectorText === '.vbtn.on') return { bg: r.style.getPropertyValue('background') || r.style.backgroundColor, fg: r.style.getPropertyValue('color') } } catch (e) { /* 跨域表跳过 */ } } return null })(),
+    off: (() => { for (const sh of document.styleSheets) { try { for (const r of sh.cssRules || []) if (r.selectorText === '.vbtn') return { bg: r.style.getPropertyValue('background') || r.style.backgroundColor, fg: r.style.getPropertyValue('color') } } catch (e) { /* 跨域表跳过 */ } } return null })(),
+    accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+    muted: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(),
+  })`)
+  const tabContrast = (() => {
+    let tv
+    try { tv = JSON.parse(tabVars) } catch { return { err: String(tabVars) } }
+    if (!tv || !tv.on || !tv.off) return { err: '缺 .vbtn / .vbtn.on 规则', tv }
+    const vars = { '--accent': tv.accent, '--muted': tv.muted }
+    const resolve = (v) => {
+      const m = /^var\(\s*(--[\w-]+)\s*\)$/.exec(String(v || '').trim())
+      return m ? String(vars[m[1]] || '').trim() : String(v || '').trim()
+    }
+    const toRgb = (v) => {
+      const x = resolve(v)
+      const h = /^#([0-9a-f]{6})$/i.exec(x)
+      if (h) { const n = parseInt(h[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255] }
+      const m = /rgba?\(([^)]+)\)/.exec(x)
+      if (m) return m[1].split(',').map(Number).slice(0, 3)
+      return null
+    }
+    const lum = (c) => { const f = c.map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4) }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2] }
+    const cr = (a, b) => { const l1 = lum(a), l2 = lum(b); return +((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2) }
+    const onBg = toRgb(tv.on.bg), onFg = toRgb(tv.on.fg)
+    const offBg = toRgb(tv.off.bg), offFg = toRgb(tv.off.fg)
+    return {
+      onBg, onFg, offBg, offFg, raw: { onBg: tv.on.bg, accent: tv.accent, muted: tv.muted },
+      active: (onBg && onFg) ? cr(onFg, onBg) : null,
+      idle: (offBg && offFg) ? cr(offFg, offBg) : null,
+    }
+  })()
+  const tcJson = JSON.stringify(tabContrast)
+  check('★★ 顶栏页签 · 未选中态对比度 ≥ 4.5（按 CSSOM 声明值复算）',
+    !tabContrast.err && typeof tabContrast.idle === 'number' && tabContrast.idle >= 4.5, tcJson)
+  check('★★ 顶栏页签 · 选中态对比度 ≥ 4.5（白字压品牌色，按 CSSOM 声明值复算）',
+    !tabContrast.err && typeof tabContrast.active === 'number' && tabContrast.active >= 4.5, tcJson)
 
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 

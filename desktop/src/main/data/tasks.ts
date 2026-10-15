@@ -1238,12 +1238,72 @@ export function exportTasks(): { ok: boolean; data?: any[]; count?: number; erro
   }
 }
 
-export function importTasks(data: any[]): { ok: boolean; imported?: number; error?: string } {
+/**
+ * 导入用：中文字段名 → 内部英文字段名。
+ *
+ * 为什么两种都收：导出（`exportTasks`）吐的是英文键，导入必须能读回去（round-trip）；
+ * 但**手搓导入文件的人写的是中文** —— 任务卡 frontmatter 本来就是中文键（标题/项目/状态…），
+ * 照经验写就会写中文。2026-10-14 之前只认英文：写中文 = 字段全被丢、落一张空卡、还回 ok:true。
+ */
+const IMPORT_CN_ALIAS: Record<string, string> = {
+  标题: 'title',
+  项目: 'project',
+  状态: 'status',
+  优先级: 'priority',
+  指派: 'assignee',
+  标签: 'tags',
+  创建: 'created',
+  更新: 'updated',
+  阻塞: 'blockers',
+  正文: 'body',
+  内容: 'body',
+  id: 'id',
+}
+
+/** 导入认的字段名（英文内部名）。表外的一律报错，**不静默丢** —— 开发清单第 6 条。 */
+const IMPORT_KEYS = [
+  'id', 'title', 'project', 'status', 'priority', 'assignee',
+  'tags', 'created', 'updated', 'blockers', 'body',
+]
+
+export function importTasks(data: any[]): { ok: boolean; imported?: number; error?: string; problems?: string[] } {
   try {
     if (!Array.isArray(data)) return { ok: false, error: 'data must be array' }
+
+    // ── 先全量体检，一条不合格就整体拒绝（一个文件都不写）──────────────────
+    const problems: string[] = []
+    const normalized: any[] = []
+    data.forEach((raw, i) => {
+      const n = i + 1
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        problems.push(`第 ${n} 条不是对象（拿到 ${Array.isArray(raw) ? 'array' : typeof raw}）`)
+        return
+      }
+      const item: any = {}
+      for (const k of Object.keys(raw)) {
+        const en = IMPORT_CN_ALIAS[k] || k
+        if (!IMPORT_KEYS.includes(en)) {
+          problems.push(`第 ${n} 条的字段名「${k}」不认识（可用：${IMPORT_KEYS.join(' / ')}）`)
+          continue
+        }
+        if (item[en] !== undefined) {
+          problems.push(`第 ${n} 条同一个字段写了两次（「${k}」与它的中英别名）`)
+        }
+        item[en] = raw[k]
+      }
+      if (!String(item.title ?? '').trim()) {
+        problems.push(`第 ${n} 条没有「标题 / title」（照现在的默认值会落一张 (无标题) 的空壳）`)
+      }
+      normalized.push(item)
+    })
+    if (problems.length) {
+      const head = problems.slice(0, 6).join('；')
+      const more = problems.length > 6 ? `（共 ${problems.length} 处问题）` : ''
+      return { ok: false, error: `导入被拦下，一个文件都没写：${head}${more}`, problems }
+    }
+
     let imported = 0
-    for (const item of data) {
-      if (!item || typeof item !== 'object') continue
+    for (const item of normalized) {
       const id = item.id || genId(item.title || '(无标题)')
       const task: Task = {
         id,

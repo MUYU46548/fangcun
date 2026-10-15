@@ -42,6 +42,13 @@ export interface ServiceRow {
   project: string
   /** launchpad = 启动台 apps.json 登记的；manual = 手填清单 */
   source: 'launchpad' | 'manual'
+  /**
+   * 启动命令（2026-10-15）。⚠ 它和 `port` **是两回事**：
+   * `port` 是"这个应用对外提供哪个端口"，`cmd` 是"点一下会执行什么"——
+   * 二者可以完全无关（GUI 程序本来就不监听端口）。
+   * 服务页把它显示出来，就是让用户能一眼看出这条到底接的是什么（此前只能靠猜）。
+   */
+  cmd: string
   listening: boolean
   pid: number | null
   processName: string
@@ -74,7 +81,14 @@ const SERVERISH = /^(node|python|pythonw|py|java|javaw|dotnet|go|bun|deno|ruby|p
  * 安全线：**只认启动台里带 port 的应用**；端口对不上就拒绝，方寸不会替用户拉起陌生东西，
  * 也永远不会"杀"任何进程（本模块全程只读 + 这一处 spawn 走的是启动台既有执行器）。
  */
-export async function startService(port: number): Promise<{ ok: boolean; message: string }> {
+export async function startService(port: number): Promise<{
+  ok: boolean
+  message: string
+  /** 被拉起的启动台应用名（渲染层用它组织"拉起了但端口没起来"的话术） */
+  appName?: string
+  /** ★ 拉起成功后再复查一次真监听（2026-10-15 防复发，见文件头与 launchpadDiag.ts） */
+  listeningAfter?: boolean
+}> {
   const n = Number(port)
   if (!Number.isInteger(n) || n <= 0 || n > 65535) return { ok: false, message: `端口不合法：${port}` }
   let target: any = null
@@ -85,11 +99,32 @@ export async function startService(port: number): Promise<{ ok: boolean; message
   try {
     const r: any = await (launchpad as any).launchApp(target)
     const ok = !!(r && r.ok)
-    return { ok, message: (r && r.message) || (ok ? `已启动「${target.name}」` : `启动「${target.name}」失败`) }
+    if (!ok) {
+      return { ok: false, message: (r && r.message) || `启动「${target.name}」失败`, appName: String(target.name || '') }
+    }
+    // ★ 关键一步：「拉起成功」≠「端口起来了」。给服务进程 2.5s 起监听窗口，再拿事实核对一次。
+    //   不核对就只报"已启动"，用户看到端口仍是「空闲」→ 又一次得出"启动台坏了"（这就是那条旧案的形状）。
+    const listeningAfter = await waitThenProbe(n, 2500)
+    return {
+      ok: true,
+      appName: String(target.name || ''),
+      listeningAfter,
+      message: listeningAfter
+        ? `已启动「${target.name}」，:${n} 已在监听`
+        : `已拉起「${target.name}」，但 :${n} 仍未被监听`,
+    }
   } catch (e: any) {
     appLog.error('services', '启动服务失败', e?.stack || e)
-    return { ok: false, message: `启动失败：${e?.message || e}` }
+    return { ok: false, message: `启动失败：${e?.message || e}`, appName: String(target?.name || '') }
   }
+}
+
+/** 等一会再查真监听（netstat 优先，拿不到就一次 TCP 连接探活） */
+async function waitThenProbe(port: number, delayMs: number): Promise<boolean> {
+  await new Promise(r => setTimeout(r, delayMs))
+  const listen = await buildListenMap()
+  if (listen.size) return listen.has(port)
+  return probeByConnect(port)
 }
 
 export function isServerishProcess(name: string): boolean {
@@ -288,13 +323,14 @@ export async function listServices(): Promise<ServicesPayload> {
       id: `app:${String(a?.id ?? a?.name ?? port)}`,
       name: String(a?.name ?? '(未命名应用)'),
       port,
-      note: String(a?.description ?? ''),
+      note: String(a?.portNote || a?.description || ''),
       project: '',
       source: 'launchpad',
+      cmd: String(a?.cmd || a?.path || ''),
     })
   }
   for (const s of manual.services) {
-    seeds.push({ id: `manual:${s.port}`, name: s.name, port: s.port, note: String(s.note ?? ''), project: String(s.project ?? ''), source: 'manual' })
+    seeds.push({ id: `manual:${s.port}`, name: s.name, port: s.port, note: String(s.note ?? ''), project: String(s.project ?? ''), source: 'manual', cmd: '' })
   }
 
   const listen = await buildListenMap()

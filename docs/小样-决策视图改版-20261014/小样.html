@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="default">
+<head>
+<meta charset="utf-8">
+<title>小样 · 决策视图改版（卡 task-20261011-004 第 ④ 步第一单）</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   这份小样**不是**"再设计一套皮"，而是把已定选型的 **shadcn-vue** 那套组件长相
+   落到方寸的令牌上。色值逐字抄自 desktop/src/renderer/App.vue 的真实令牌
+   （默认 :root 18 个 + 五套主题各 12 个），`--ui-*` 走 var() 链 —— 与刚落地的
+   第 ② 步同构，切主题时和真机一样自动跟着走。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 方寸令牌（真值，抄自 App.vue） ── */
+:root, :root[data-theme='default'] {
+  --bg: #eef0f4; --ink: #3c4150; --muted: #626775; --accent: #705fab;
+  --accent-soft: #c3bce0; --card: #ffffff; --border: #e4e2ee;
+  --success: #54814b; --warning: #986b20; --danger: #b44141;
+  --tint: #f1eefb; --tint-2: #fbfaff; --tint-3: #fafafd; --line-2: #dcd8ee;
+  --radius: 18px;
+  --shadow: 0 1px 2px rgba(90,90,130,.06), 0 8px 24px rgba(90,90,130,.06);
+}
+:root[data-theme='pink'] {
+  --bg: #fdf2f5; --ink: #411621; --muted: #8c5c64; --accent: #ac4657;
+  --accent-soft: #eacad0; --border: #edd7dd;
+  --tint: #f9f3f4; --tint-2: #fcf9fa; --tint-3: #fcfbfb; --line-2: #eacdd5;
+}
+:root[data-theme='blue'] {
+  --bg: #eef4fb; --ink: #192a3e; --muted: #556984; --accent: #3668ab;
+  --accent-soft: #c9d8eb; --border: #d7e1ed;
+  --tint: #f3f6f9; --tint-2: #f9fafc; --tint-3: #fbfbfc; --line-2: #cddaea;
+}
+:root[data-theme='green'] {
+  --bg: #eff5f1; --ink: #233428; --muted: #4d6f5f; --accent: #377457;
+  --accent-soft: #cde7db; --border: #dbe8df;
+  --tint: #f3f9f6; --tint-2: #f9fcfa; --tint-3: #fbfcfb; --line-2: #d3e4d9;
+}
+:root[data-theme='orange'] {
+  --bg: #fdf6ec; --ink: #433014; --muted: #7c6650; --accent: #975c21;
+  --accent-soft: #ebdac9; --border: #ede4d7;
+  --tint: #f9f6f3; --tint-2: #fcfaf9; --tint-3: #fcfbfb; --line-2: #eadecd;
+}
+:root[data-theme='gray'] {
+  --bg: #f4f4f6; --ink: #262631; --muted: #676872; --accent: #65687b;
+  --accent-soft: #d6d7de; --border: #dfdfe5;
+  --tint: #f5f5f7; --tint-2: #fafafb; --tint-3: #fbfbfc; --line-2: #d8d8df;
+}
+
+/* ── 第 ② 步刚落地的 shadcn 映射（同 App.vue，一份、var() 链、不复制色值） ── */
+:root {
+  --ui-background: var(--bg);            --ui-foreground: var(--ink);
+  --ui-card: var(--card);                --ui-card-foreground: var(--ink);
+  --ui-popover: var(--card);             --ui-popover-foreground: var(--ink);
+  --ui-primary: var(--accent);           --ui-primary-foreground: #fff;
+  --ui-secondary: var(--tint);           --ui-secondary-foreground: var(--ink);
+  --ui-muted: var(--tint-3);             --ui-muted-foreground: var(--muted);
+  --ui-accent: var(--tint);              --ui-accent-foreground: var(--ink);
+  --ui-destructive: var(--danger);       --ui-destructive-foreground: #fff;
+  --ui-success: var(--success);          --ui-success-foreground: #fff;
+  --ui-warning: var(--warning);          --ui-warning-foreground: #fff;
+  --ui-border: var(--border);            --ui-input: var(--border);
+  --ui-ring: var(--accent);              --ui-radius: var(--radius);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: var(--bg); color: var(--ui-foreground);
+  -webkit-font-smoothing: antialiased;
+  padding: 18px 22px 40px;
+}
+
+/* ── 小样外壳（这不是产品的一部分，只是给看的人用） ── */
+.shell { max-width: 940px; margin: 0 auto; }
+.shell > h1 { font-size: 17px; margin-bottom: 4px; }
+.shell > .sub { color: var(--ui-muted-foreground); font-size: 12.5px; margin-bottom: 14px; line-height: 1.7; }
+.themerow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.themerow .lbl { font-size: 12px; color: var(--ui-muted-foreground); margin-right: 4px; }
+.tbtn {
+  height: 26px; padding: 0 10px; font-size: 12px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--ui-border); border-radius: 8px;
+  background: var(--ui-card); color: var(--ui-foreground);
+}
+.tbtn[aria-pressed='true'] { background: var(--ui-primary); color: var(--ui-primary-foreground); border-color: transparent; font-weight: 600; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   以下 = 改版后的「决策」视图。就是一个真实尺寸的页面，不是示意框图。
+   ══════════════════════════════════════════════════════════════════════ */
+.page { display: flex; flex-direction: column; gap: 14px; }
+
+/* 页头：标题 + 分段筛选（shadcn Tabs）+ 刷新 */
+.pagehead { display: flex; align-items: center; gap: 14px; }
+.pagehead h2 { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
+.grow { flex: 1 1 auto; }
+
+.tabs {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: var(--ui-muted); border: 1px solid var(--ui-border); border-radius: 11px;
+}
+.tabs button {
+  font-family: inherit; font-size: 12.5px; color: var(--ui-muted-foreground);
+  background: transparent; border: 0; cursor: pointer;
+  padding: 5px 13px; border-radius: 8px; font-weight: 500;
+  transition: background .12s, color .12s;
+}
+.tabs button:hover { color: var(--ui-foreground); }
+.tabs button[aria-selected='true'] {
+  background: var(--ui-card); color: var(--ui-foreground); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(60,65,80,.10);
+}
+.tabs .count { font-size: 11px; color: var(--ui-muted-foreground); margin-left: 5px; font-weight: 400; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  height: 34px; padding: 0 16px; border-radius: 10px; cursor: pointer;
+  border: 1px solid transparent; transition: background .12s, border-color .12s, color .12s;
+}
+.btn-primary { background: var(--ui-primary); color: var(--ui-primary-foreground); }
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-outline { background: var(--ui-card); color: var(--ui-foreground); border-color: var(--ui-border); }
+.btn-outline:hover { background: var(--ui-accent); }
+.btn-ghost { background: transparent; color: var(--ui-muted-foreground); border-color: transparent; }
+.btn-ghost:hover { background: var(--ui-accent); color: var(--ui-foreground); }
+.btn-icon { width: 34px; padding: 0; border-radius: 10px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* 记一条：一行卡 */
+.card {
+  background: var(--ui-card); border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius); box-shadow: var(--shadow);
+}
+.addbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; }
+.addbar input {
+  font-family: inherit; font-size: 13px; height: 34px; padding: 0 12px;
+  color: var(--ui-foreground); background: var(--ui-card);
+  border: 1px solid var(--ui-input); border-radius: 10px; outline: none;
+}
+.addbar input:focus { border-color: var(--ui-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-ring) 18%, transparent); }
+.addbar .i-main { flex: 1 1 260px; }
+.addbar .i-date { flex: 0 0 150px; }
+.addbar .i-src  { flex: 0 1 190px; }
+
+/* 列表 */
+.list { display: flex; flex-direction: column; gap: 9px; }
+.dec { padding: 12px 14px; border-radius: 14px; transition: border-color .12s; }
+.dec:hover { border-color: var(--ui-ring); }
+.dec-top { display: flex; align-items: flex-start; gap: 10px; }
+.dec-content { flex: 1 1 auto; font-size: 13.5px; font-weight: 600; line-height: 1.55; padding-top: 1px; }
+.dec-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px; font-size: 11.5px; color: var(--ui-muted-foreground);
+}
+.dec-meta .id {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  background: var(--ui-muted); border: 1px solid var(--ui-border);
+  padding: 1px 6px; border-radius: 6px;
+}
+.dec-meta .sep { opacity: .5; }
+.dec-meta .src { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dec-note {
+  margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--ui-border);
+  font-size: 12px; color: var(--ui-muted-foreground); line-height: 1.65; white-space: pre-line;
+}
+
+/* 三态徽章（shadcn Badge 形态）+ 状态下拉 */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  font-size: 11.5px; font-weight: 600; line-height: 1;
+  padding: 5px 9px; border-radius: 999px; border: 1px solid transparent;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok      { color: #3a7d2c; background: #eaf3e6; border-color: #cfe3c7; }
+.b-revoked { color: #99514c; background: #f6eeee; border-color: #e7d7d6; }
+.b-merged  { color: #946a1e; background: #f9f2e3; border-color: #ecdfc4; }
+
+.selwrap { position: relative; flex: 0 0 auto; }
+.selwrap select {
+  appearance: none; font-family: inherit; font-size: 12px; font-weight: 600;
+  height: 30px; padding: 0 26px 0 10px; cursor: pointer;
+  color: var(--ui-foreground); background: var(--ui-card);
+  border: 1px solid var(--ui-input); border-radius: 9px;
+}
+.selwrap select:hover { background: var(--ui-accent); }
+.selwrap::after {
+  content: '▾'; position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; color: var(--ui-muted-foreground); pointer-events: none;
+}
+
+/* 已撤销 / 已合并：整卡降调，但**不删**（决策是账，不流转） */
+.dec.st-revoked .dec-content { text-decoration: line-through; text-decoration-color: var(--ui-muted-foreground); opacity: .75; }
+.dec.st-merged  .dec-content { opacity: .85; }
+.dec.st-revoked, .dec.st-merged { background: var(--ui-muted); }
+
+/* 空态 */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 44px 0; color: var(--ui-muted-foreground); font-size: 12.5px;
+}
+.empty .ic { font-size: 26px; opacity: .55; }
+
+/* ── 落地清单 ── */
+.foot {
+  margin-top: 26px; padding: 14px 16px; border-radius: 14px;
+  background: var(--ui-card); border: 1px solid var(--ui-border); font-size: 12.5px; line-height: 1.85;
+}
+.foot h3 { font-size: 13px; margin-bottom: 6px; }
+.foot table { border-collapse: collapse; width: 100%; margin-top: 4px; }
+.foot th, .foot td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--ui-border); font-size: 12px; vertical-align: top; }
+.foot th { color: var(--ui-muted-foreground); font-weight: 600; }
+.foot code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--ui-muted); padding: 1px 5px; border-radius: 5px; }
+.foot .warn { color: var(--ui-destructive); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <h1>小样 · 决策视图改版</h1>
+  <div class="sub">
+    卡 <code>task-20261011-004</code> 第 ④ 步第一单。暮雨：「<b>UI 也要改，太丑了；别再从头自造，用现成方案。</b>」<br>
+    所以这版不新造视觉语言，而是把 <b>shadcn-vue 的组件长相</b>落到方寸令牌上（默认色值逐字抄自 App.vue，不是编的）。
+    切主题 = 换 <code>:root[data-theme]</code>，组件 CSS 一行不动。
+  </div>
+
+  <div class="themerow">
+    <span class="lbl">主题：</span>
+    <button class="tbtn" data-t="default" aria-pressed="true">雾灰紫（默认）</button>
+    <button class="tbtn" data-t="pink">粉</button>
+    <button class="tbtn" data-t="blue">蓝</button>
+    <button class="tbtn" data-t="green">绿</button>
+    <button class="tbtn" data-t="orange">橙</button>
+    <button class="tbtn" data-t="gray">灰</button>
+  </div>
+
+  <!-- ══════════ 改版后的决策视图 ══════════ -->
+  <main class="page">
+    <div class="pagehead">
+      <h2>决策记录</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true">全部<span class="count">33</span></button>
+        <button role="tab" aria-selected="false">有效<span class="count">25</span></button>
+        <button role="tab" aria-selected="false">已撤销<span class="count">5</span></button>
+        <button role="tab" aria-selected="false">已合并<span class="count">3</span></button>
+      </div>
+      <span class="grow"></span>
+      <button class="btn btn-outline btn-icon" title="刷新">⟳</button>
+    </div>
+
+    <div class="card addbar">
+      <input class="i-main" placeholder="记一条新决策（一句话，回车即记）">
+      <input class="i-date" type="date" value="2026-10-14">
+      <input class="i-src" placeholder="出处（如 10-14 群 18:40）">
+      <button class="btn btn-primary">记下</button>
+    </div>
+
+    <div class="list">
+      <article class="card dec">
+        <div class="dec-top">
+          <span class="badge b-ok"><span class="dot"></span>有效</span>
+          <div class="dec-content">模型/成本架构＝MiMo Standard 保底 + DeepSeek 按量付费</div>
+          <span class="selwrap"><select><option>有效</option><option>已撤销</option><option>已合并</option></select></span>
+        </div>
+        <div class="dec-meta">
+          <span class="id">D-033</span><span>2026-10-01</span><span class="sep">·</span><span>全局</span>
+          <span class="src">← 暮雨当日亲口定的（推翻当日三方共识）</span>
+        </div>
+        <div class="dec-note">低峰用 DS、高峰/任务多用 MiMo；教训：agent 共识 ≠ 终局，用户点头才算。</div>
+      </article>
+
+      <article class="card dec">
+        <div class="dec-top">
+          <span class="badge b-ok"><span class="dot"></span>有效</span>
+          <div class="dec-content">方寸：接 LLM 智能层（BYOK）—— 端点/密钥自填，产出只落「待审批」卡</div>
+          <span class="selwrap"><select><option>有效</option><option>已撤销</option><option>已合并</option></select></span>
+        </div>
+        <div class="dec-meta">
+          <span class="id">D-016</span><span>2026-10-11</span><span class="sep">·</span><span>方寸</span>
+          <span class="src">← 10-12 19:12 亲口「REV-005 补」</span>
+        </div>
+      </article>
+
+      <article class="card dec st-merged">
+        <div class="dec-top">
+          <span class="badge b-merged"><span class="dot"></span>已合并</span>
+          <div class="dec-content">司天：数据文件目录规则</div>
+          <span class="selwrap"><select><option>有效</option><option>已撤销</option><option selected>已合并</option></select></span>
+        </div>
+        <div class="dec-meta">
+          <span class="id">D-022</span><span>2026-09-27</span><span class="sep">·</span><span>司天</span>
+          <span class="src">← 挂账台账 §四</span>
+        </div>
+        <div class="dec-note">10-11 19:43 定调「没有任何外部依赖，连知识库都不要」，随 D-031 解除。</div>
+      </article>
+
+      <article class="card dec st-revoked">
+        <div class="dec-top">
+          <span class="badge b-revoked"><span class="dot"></span>已撤销</span>
+          <div class="dec-content">司天：月日精度 + 切片书签</div>
+          <span class="selwrap"><select><option>有效</option><option selected>已撤销</option><option>已合并</option></select></span>
+        </div>
+        <div class="dec-meta">
+          <span class="id">D-027</span><span>2026-10-05</span><span class="sep">·</span><span>司天</span>
+          <span class="src">← 挂账台账 §四</span>
+        </div>
+        <div class="dec-note">已兑现（test_82 / test_41）—— 挂账闭环，不是决策被推翻。</div>
+      </article>
+    </div>
+  </main>
+
+  <div class="foot">
+    <h3>落地清单（哪块用哪个现成组件 —— 不再手搓）</h3>
+    <table>
+      <tr><th>视图部位</th><th>改用</th><th>为什么</th></tr>
+      <tr><td>状态筛选</td><td><code>Tabs</code>（reka-ui）</td><td>现在是四个 <code>&lt;button class="ghost"&gt;</code> 拼的，选中态只靠 <code>font-weight</code>，看着像四个普通按钮。Tabs 自带分段底 + 键盘左右键。</td></tr>
+      <tr><td>决策卡</td><td><code>Card</code> + <code>Badge</code></td><td>三态现在只有一个小符号 <span style="font-family:monospace">✓/✗/→</span>，太弱。改成徽章，一眼看出还作不作数。</td></tr>
+      <tr><td>记一条 / 刷新</td><td><code>Button</code>（primary / outline / icon）</td><td>尺寸、圆角、悬停、禁用态统一，不再各写各的。</td></tr>
+      <tr><td>内容 / 出处</td><td><code>Input</code></td><td>聚焦环、错误态一致。</td></tr>
+      <tr><td>改状态</td><td><code>Select</code>（reka-ui）</td><td>原生 <code>&lt;select&gt;</code> 在 Windows 上长相跟界面不搭。</td></tr>
+      <tr><td>（后续）确认框</td><td><code>Dialog</code></td><td>替掉现在手搓的 <code>.overlay</code> 模态（含拖选不误关那条口径）。</td></tr>
+    </table>
+    <p style="margin-top:8px">
+      与旧版<b>不冲突</b>：只换这一张视图的 DOM，老 CSS 与其它十个视图一行不动。
+      <span class="warn">这张小样未接线</span> —— 按门禁「成品布局先看再动」，你先看，点头我再换上去（换上去 ≈ 加两个文件 + 改一段模板）。
+    </p>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.tbtn').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.documentElement.dataset.theme = b.dataset.t
+      document.querySelectorAll('.tbtn').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+    })
+  })
+  document.querySelectorAll('.tabs button').forEach((b) => {
+    b.addEventListener('click', () => {
+      b.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-selected', String(x === b)))
+    })
+  })
+</script>
+</body>
+</html>

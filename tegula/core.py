@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 方寸 (tegula) — 本地优先多 agent 任务地图
 # 零依赖：仅用 Python 标准库。视图服务用 http.server + 轮询 + 编辑 API。
-import argparse, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request, zipfile, sys
+import argparse, difflib, os, re, json, shutil, datetime, subprocess, time, threading, urllib.request, zipfile, sys
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1251,15 +1251,30 @@ def gate_close(gate_id, reason=""):
     return True, f"gate {gate_id} closed"
 
 
-# ---------- 决策卡（拍板记录，2026-10-12；方案卡：AI 规划功能）----------
-# 群里拍的板当场记成卡：事情 + 哪天定的 + 还作不作数 + 出处。
+# ---------- 决策卡（2026-10-12；方案卡：AI 规划功能）----------
+# 定下来的事当场记成卡：事情 + 哪天定的 + 还作不作数 + 出处。
 # 单文件节式（task-data/decisions.md），与哨兵防遗忘台账四字段同构——整表直灌零转换。
-# 有意不挂任务状态机：决策不流转（不是待办），只有 作数/已作废/已并入 三态。
+# 有意不挂任务状态机：决策不流转（不是待办），只有 有效/已撤销/已合并 三态。
+# 2026-10-14（暮雨「说中文」）：三态由 作数/已作废/已并入 改为 有效/已撤销/已合并；
+#   老值**读取时归一**（_LEGACY_DECISION_ALIASES），新写入一律新值。
+#   与桌面端 desktop/src/main/data/decisions.ts 的 DECISION_STATUSES 逐字一致（判据 check-decisions.py）。
 
 DECISIONS_PATH = os.path.join(TASK_DIR, "decisions.md")
-DECISION_STATUSES = ("作数", "已作废", "已并入")
+DECISION_STATUSES = ("有效", "已撤销", "已合并")
+# 老值 → 新值（只读兼容，不写回）
+_LEGACY_DECISION_ALIASES = {"作数": "有效", "已作废": "已撤销", "已并入": "已合并"}
 
-_DEF_DEC_HEADER = "# 拍板记录（决策卡）\n\n> 群里拍的板都在这——谁定的、哪天定的、还作不作数。状态：作数 / 已作废 / 已并入。\n"
+_DEF_DEC_HEADER = "# 决策记录（决策卡）\n\n> 定下来的事都在这——谁定的、哪天定的、还作不作数。状态：有效 / 已撤销 / 已合并。\n"
+
+
+def _normalize_decision_status(raw):
+    """归一三态：新值原样、老值翻译、空值给默认、其它非法值原样（交给白名单报错）。"""
+    s = str(raw or "").strip()
+    if not s:
+        return "有效"
+    if s in DECISION_STATUSES:
+        return s
+    return _LEGACY_DECISION_ALIASES.get(s, s)
 
 
 def _decision_id(items):
@@ -1274,7 +1289,8 @@ def _decision_id(items):
 
 def load_decisions():
     """解析 decisions.md → list[dict]（id/内容/日期/状态/出处/备注/更新）。
-    文件不存在返回 []（首拍板时创建）；坏行宽容跳过，不让一张坏卡拖死整个视图。"""
+    文件不存在返回 []（首次记录时创建）；坏行宽容跳过，不让一张坏卡拖死整个视图。
+    状态列过 _normalize_decision_status：老值（作数/已作废/已并入）当场翻成新值。"""
     if not os.path.exists(DECISIONS_PATH):
         return []
     items = []
@@ -1290,14 +1306,14 @@ def load_decisions():
         if m:
             if cur is not None:
                 items.append(cur)
-            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "作数", "项目": "", "出处": "", "备注": "", "更新": ""}
+            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "有效", "项目": "", "出处": "", "备注": "", "更新": ""}
             last_kv = None
             continue
         if cur is None:
             continue
         kv = re.match(r"^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$", line.strip())
         if kv:
-            cur[kv.group(1)] = kv.group(2).strip()
+            cur[kv.group(1)] = _normalize_decision_status(kv.group(2)) if kv.group(1) == "状态" else kv.group(2).strip()
             last_kv = kv.group(1)
             continue
         # 续行：备注多行的第二行起（渲染时裸行），拼回上一字段
@@ -1314,7 +1330,7 @@ def _render_decisions(items):
     for it in items:
         lines.append(f"## {it['id']} {it.get('内容', '')}")
         lines.append(f"- 日期: {it.get('日期', '')}")
-        lines.append(f"- 状态: {it.get('状态', '作数')}")
+        lines.append(f"- 状态: {it.get('状态', '有效')}")
         if it.get("项目"):
             lines.append(f"- 项目: {it['项目']}")
         lines.append(f"- 出处: {it.get('出处', '')}")
@@ -1341,12 +1357,13 @@ def save_decisions(items):
     return True
 
 
-def decision_add(内容, 日期=None, 状态="作数", 项目="", 出处="", 备注=""):
-    """记一条拍板。状态白名单校验；同内容+同日期幂等（返回已有 id，不重复记）。
+def decision_add(内容, 日期=None, 状态="有效", 项目="", 出处="", 备注=""):
+    """记一条决策。状态白名单校验（老值先归一）；同内容+同日期幂等（返回已有 id，不重复记）。
     返回 (ok, id_or_error)。"""
     内容 = (内容 or "").strip()
     if not 内容:
-        return False, "拍板内容为空"
+        return False, "决策内容为空"
+    状态 = _normalize_decision_status(状态)
     if 状态 not in DECISION_STATUSES:
         return False, f"状态必须是 {'/'.join(DECISION_STATUSES)}，收到：{状态}"
     日期 = (日期 or datetime.date.today().isoformat()).strip()
@@ -1365,7 +1382,9 @@ def decision_add(内容, 日期=None, 状态="作数", 项目="", 出处="", 备
 
 
 def decision_set_status(did, 状态, 备注=None):
-    """改拍板状态（作数→已作废/已并入 等）。备注非空时追加进备注（换行拼接，不覆盖）。"""
+    """改决策状态（有效→已撤销/已合并 等）。备注非空时追加进备注（换行拼接，不覆盖）。
+    入参状态先归一：老值（作数/已作废/已并入）也接。"""
+    状态 = _normalize_decision_status(状态)
     if 状态 not in DECISION_STATUSES:
         return False, f"状态必须是 {'/'.join(DECISION_STATUSES)}，收到：{状态}"
     items = load_decisions()
@@ -1436,6 +1455,170 @@ def api_new(fields):
     }
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
+
+
+# ---------- archify 卡导入（中长期清单第 9 条，2026-10-14） ----------
+# 「让方寸能导入 archify 产出的技能卡（**只做导入、不替它分发**，零版权负担）」。
+# 三条口径（与 docs/免责声明与用户协议.md 第七章对齐）：
+#   ① 只导入：读您指定的文件 → 存进您自己的数据目录；**不接管、不转售、不对外分发**；
+#   ② 来源如实保留：文件名 / 图型 / schema 版本照写，**不伪造、不抹署名**；
+#   ③ 不改变原许可：导入动作不改变内容原有许可证。
+# 落点：整张原卡（JSON）**原样**存进任务卡的「架构」字段（标量 JSON 字符串，禁 YAML 嵌套映射），
+#       正文只放**人看得懂的摘要** —— 摘要不改也不重排原卡。
+
+ARCHIFY_TYPES = ("architecture", "workflow", "sequence", "dataflow", "lifecycle")
+# 各图型的主内容字段名不同（架构 = components、工作流 = steps、时序 = participants/messages…）。
+# 不做逐图型硬编码：用「至少有一个内容数组」当判据，缺了就把试过的字段名点给用户。
+ARCHIFY_CONTENT_KEYS = ("components", "steps", "stages", "states", "participants",
+                        "messages", "nodes", "edges", "connections", "boundaries",
+                        "cards", "lanes", "phases")
+
+
+def archify_check(d):
+    """校验一张 archify 卡，返回错误清单（空 = 通过）。
+
+    判据刻意「宽松但点名」：只拦**真的没法当图用**的，深一层（几何 / 布局 / 质量档案）
+    交给 archify 自己的 `validate` —— 方寸零依赖，不复制它的校验器。
+    """
+    errs = []
+    if not isinstance(d, dict):
+        return ["顶层不是 JSON 对象"]
+    for k in ("schema_version", "diagram_type", "meta"):
+        if d.get(k) in (None, ""):
+            errs.append(f"缺字段「{k}」")
+    t = d.get("diagram_type")
+    if t not in ARCHIFY_TYPES:
+        errs.append(f"diagram_type 不认识：「{t}」（应为 {' / '.join(ARCHIFY_TYPES)} 之一）")
+    m = d.get("meta")
+    if not isinstance(m, dict):
+        errs.append("meta 不是对象")
+    elif not str(m.get("title") or "").strip():
+        errs.append("meta.title 为空 —— 导进来会是一张没标题的卡")
+    if not any(isinstance(d.get(k), list) and len(d.get(k)) > 0 for k in ARCHIFY_CONTENT_KEYS):
+        errs.append("卡里没有任何内容数组（试过：" + " / ".join(ARCHIFY_CONTENT_KEYS)
+                    + "）—— 空图导进来没有意义")
+    return errs
+
+
+def archify_summary(d):
+    """把一张 archify 卡摘成**人看得懂**的正文。摘要不改也不重排原卡。
+
+    ⚠ 摘要里**不许出现 `^## ` 行**（小标题一律用 `**粗体**`）：`_split_body()` 会把
+      `## xxx` 当成**独立小节**收进 `_extra`，于是整段摘要被挤出 `## 方案`、
+      落到 `## 结果记录` **后面**，而 `## 方案` 只剩一个空的 `- [ ]`。
+      2026-10-14 实测踩到（第一版就是这么写的）。粗体行会让整段留在方案段内，
+      读回 = 方案的行列表，往返保真。
+    """
+    t = str(d.get("diagram_type") or "")
+    m = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+    L = []
+    L.append("**来源（如实保留，不伪造）**")
+    L.append(f"- 工具：archify 技能卡 · schema v{d.get('schema_version')} · 图型 {t}")
+    if m.get("output"):
+        L.append(f"- archify 渲染产物：{m['output']}")
+    if m.get("subtitle"):
+        L.append(f"- 副标题：{m['subtitle']}")
+    L.append("")
+
+    views = m.get("views")
+    if isinstance(views, list) and views:
+        L.append(f"**视图（{len(views)} 个）**")
+        for v in views:
+            if isinstance(v, dict):
+                lab = v.get("label") or v.get("id") or ""
+                note = v.get("note") or ""
+                L.append(f"- **{lab}**" + (f"：{note}" if note else ""))
+        L.append("")
+
+    for key, label in (("components", "组件"), ("nodes", "节点"), ("steps", "步骤"),
+                       ("stages", "阶段"), ("states", "状态"), ("participants", "参与者")):
+        arr = d.get(key)
+        if isinstance(arr, list) and arr:
+            L.append(f"**{label}（{len(arr)} 个）**")
+            for it in arr:
+                if isinstance(it, dict):
+                    nm = it.get("label") or it.get("name") or it.get("id") or ""
+                    sub = it.get("sublabel") or it.get("type") or ""
+                    L.append(f"- {nm}" + (f"（{sub}）" if sub else ""))
+                else:
+                    L.append(f"- {it}")
+            L.append("")
+
+    for key, label in (("connections", "连线"), ("edges", "连线")):
+        conns = d.get(key)
+        if isinstance(conns, list) and conns:
+            L.append(f"**{label}（{len(conns)} 条）**")
+            for c in conns:
+                if isinstance(c, dict):
+                    L.append(f"- {c.get('from', '?')} → {c.get('to', '?')}"
+                             + (f"（{c.get('label')}）" if c.get("label") else ""))
+            L.append("")
+            break
+
+    cards = d.get("cards")
+    if isinstance(cards, list) and cards:
+        L.append(f"**说明卡（{len(cards)} 张）**")
+        for c in cards:
+            if isinstance(c, dict):
+                L.append(f"- **{c.get('title', '')}**："
+                         + "；".join(str(x) for x in (c.get("items") or [])))
+        L.append("")
+
+    L.append("> 原始 JSON **原样**存在本卡的「架构」字段里（标量 JSON 字符串）；这里只是摘要，没有改动原卡。")
+    L.append("> 导入只把文件读进你自己的数据目录 —— 方寸**不接管、不分发**，也不改变原内容的许可证。")
+    return "\n".join(L)
+
+
+def archify_import(path, project=None, title=None, dry_run=False):
+    """把一张 archify 卡导入成方寸任务卡。返回 (ok, payload)。
+
+    ⚠ 不合格**整批拒绝、一个文件都不写**（与导入防呆同一口径：宁可什么都不做，
+      也不要留一张半截卡让用户以为导成功了）。
+    """
+    try:
+        raw = open(path, encoding="utf-8").read()
+    except OSError as e:
+        return False, {"error": f"读不到文件：{e}"}
+    try:
+        d = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return False, {"error": f"不是合法 JSON：第 {e.lineno} 行第 {e.colno} 列 —— {e.msg}"}
+
+    errs = archify_check(d)
+    if errs:
+        return False, {"error": "卡不合格，**整批拒绝（一个文件都没写）**：\n  - " + "\n  - ".join(errs)}
+
+    m = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+    ttl = str(title or m.get("title") or os.path.basename(path)).strip()
+    body = archify_summary(d)
+    counts = {k: len(d[k]) for k in ARCHIFY_CONTENT_KEYS if isinstance(d.get(k), list) and d.get(k)}
+
+    if dry_run:
+        return True, {"dryRun": True, "标题": ttl, "图型": d.get("diagram_type"),
+                      "条目数": counts, "摘要字符数": len(body)}
+
+    ok, tid = api_new({
+        "标题": ttl,
+        "项目": project or ["fangcun-base"],
+        "状态": "待办",
+        "来源": "archify",
+        "附言": f"由 archify 技能卡导入（{d.get('diagram_type')}，schema v{d.get('schema_version')}）；"
+                f"原卡存于本卡「架构」字段。只导入、不分发。",
+        "方案": [body],
+    })
+    if not ok:
+        return False, {"error": "建卡失败"}
+
+    p = os.path.join(TASK_DIR, tid + ".md")
+    d2 = parse_task(p)
+    if isinstance(d2, dict):
+        # 标量 JSON 字符串 —— 与 render_task 的写法一致（禁 YAML 嵌套映射）
+        d2["架构"] = json.dumps(d, ensure_ascii=False)
+        write_task_file(p, d2)
+    else:
+        return False, {"error": f"卡建好了但读不回（{p}）—— 没写「架构」字段，请检查数据目录"}
+    return True, {"id": tid, "标题": ttl, "图型": d.get("diagram_type"),
+                  "条目数": counts, "path": p}
 
 
 # ---------- 规划（Plan）----------
@@ -4048,17 +4231,43 @@ def api_export_notes():
 
 
 def api_import_tasks(data):
-    """从 JSON 数据导入任务。"""
+    """从 JSON 数据导入任务。
+
+    ⚠ 2026-10-14（开发清单第 6 条）：**字段名写错当场报错，不再静默落空壳**。
+    老行为：`api_new` 只认白名单键，拼错的键被默默丢掉 → 落一张「(无标题)」的空卡，
+    还回 `{"ok": True, "imported": n}` —— 手搓导入文件的人会以为成功了。
+    现在：先**全量体检**，任何一条有毛病就**整体拒绝**（一个文件都不写），并把
+    「第几条 / 哪个字段名 / 是不是想写某某」说清楚 —— 报错要能直接照着改。
+    """
     if not isinstance(data, list):
         return {"ok": False, "msg": "data must be a list"}
+
+    # api_new 除 MANAGED_KEYS 外还额外接受这两个"拆分键"（合成嵌套的 资源）
+    known = set(MANAGED_KEYS) | {"资源资料", "资源工具"}
+    ordered = sorted(known)
+    problems = []
+    for i, item in enumerate(data, 1):
+        if not isinstance(item, dict):
+            problems.append(f"第 {i} 条不是对象（拿到 {type(item).__name__}）")
+            continue
+        unknown = [k for k in item if k not in known]
+        for k in unknown:
+            near = difflib.get_close_matches(str(k), ordered, n=1, cutoff=0.5)
+            problems.append(
+                f"第 {i} 条的字段名「{k}」不认识" + (f"，是不是想写「{near[0]}」？" if near else "")
+            )
+        if not unknown and not str(item.get("标题") or "").strip():
+            problems.append(f"第 {i} 条没有「标题」（照现在的默认值会落一张 (无标题) 的空壳）")
+
+    if problems:
+        head = "；".join(problems[:6])
+        more = f"（共 {len(problems)} 处问题）" if len(problems) > 6 else ""
+        return {"ok": False, "msg": f"导入被拦下，一个文件都没写：{head}{more}", "problems": problems}
+
     imported = 0
     for item in data:
-        if not isinstance(item, dict):
-            continue
         if not item.get("id"):
             item["id"] = gen_id()
-        if not item.get("标题"):
-            item["标题"] = "(无标题)"
         if not item.get("状态"):
             item["状态"] = "待办"
         ok, _ = api_new(item)

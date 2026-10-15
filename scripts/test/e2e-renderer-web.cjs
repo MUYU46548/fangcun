@@ -201,7 +201,12 @@ function main() {
   //    每个页签各拍两种摆法；顺便也是"两种摆法都能无错渲染"的冒烟。
   const shotArg = process.argv.find((a) => a === '--shots' || a.startsWith('--shots='))
   if (shotArg) {
-    const outDir = shotArg.includes('=') ? shotArg.split('=')[1] : path.join(ROOT, 'docs', 'views-web')
+    // ⚠ 必须 resolve 成绝对路径：`--screenshot=` 是交给 Edge 自己解析的，
+    //   传相对路径时它会按**自己的**工作目录落盘 —— 2026-10-14 就这么踩了一次：
+    //   传 `--shots=docs/views-web`，Edge 没写进仓库，而脚本只看"文件在不在" → 全绿假通过。
+    const outDir = path.resolve(
+      shotArg.includes('=') ? shotArg.split('=')[1] : path.join(ROOT, 'docs', 'views-web')
+    )
     fs.mkdirSync(outDir, { recursive: true })
     const CASES = [
       ['看板', '列视图', 'board-cols'],
@@ -222,9 +227,11 @@ function main() {
       // 2026-09-30 用户补充：待办 / 回收站 多选 —— 各留一张批量栏 + 选中态证据
       ['待办', '', 'todo-batch', 'todobatch'],
       ['回收站', '', 'trash-batch', 'trashbatch'],
-      // 2026-10-12 决策卡（拍板记录，AI 规划包第 3 件）：三态渲染 + 记一条/改状态交互
-      ['拍板', '', 'decisions'],
-      ['拍板', '', 'decisions-act', 'decact'],
+      // 2026-10-12 决策卡（AI 规划包第 3 件）：三态渲染 + 记一条/改状态交互
+      ['决策', '', 'decisions'],
+      ['决策', '', 'decisions-act', 'decact'],
+      // 2026-10-14 任务卡右键菜单（第 ④ 步第二单）：换 reka-ui ContextMenu 后的成品长相
+      ['看板', '列视图', 'ctx-menu', 'ctxmenu'],
       ['设置', '', 'settings'],
     ]
     const SEED_TODOS = [
@@ -300,25 +307,34 @@ function main() {
     : `const its = all('.trash-view .trash-main'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`}
   await sleep(500)` : ''}
   ${extra === 'decact' ? `
-  // 决策卡交互（2026-10-12）：记一条新拍板 → 改 D-001 状态 → 筛「已作废」——三步全真链路（mock IPC）
-  const decMain = all('.decisions-view .dec-inp-main')[0]
+  // 决策卡交互（2026-10-12；2026-10-14 改走 data-dec 钩子 —— 视图已切到 components/DecisionBoard.vue）：
+  // 记一条新决策 → 改 D-001 状态 → 筛「已撤销」——三步全真链路（mock IPC）
+  const decMain = all('[data-dec="add-input"]')[0]
   if (decMain) {
-    decMain.value = 'e2e 交互：这条拍板是测试记的'
+    decMain.value = 'e2e 交互：这条决策是测试记的'
     decMain.dispatchEvent(new Event('input', { bubbles: true }))
     await sleep(150)
   }
-  const decAddBtn = all('.decisions-view .decision-add-row button.pri')[0]
+  const decAddBtn = all('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
   if (decAddBtn) decAddBtn.click()
   await sleep(500)
-  const decSel = all('.decisions-view .dec-status-sel')[0]
+  const decSel = all('[data-dec="status"]')[0]
   if (decSel) {
-    decSel.value = '已作废'
+    decSel.value = '已撤销'
     decSel.dispatchEvent(new Event('change', { bubbles: true }))
     await sleep(500)
   }
-  const decF = all('.decisions-view .decisions-ctrls button').find((x) => (x.textContent || '').trim() === '已作废')
+  const decF = all('[data-dec="tab"]').find((x) => (x.textContent || '').trim().indexOf('已撤销') === 0)
+  // ⚠ reka-ui TabsTrigger 只认 mousedown（源码里没有 click 处理）—— 合成 .click() 点了等于没点
+  if (decF) decF.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
   if (decF) decF.click()
   await sleep(500)` : ''}
+  ${extra === 'ctxmenu' ? `
+  // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：在列视图第一张卡上派发 contextmenu，
+  // 把 reka-ui ContextMenu 的成品长相拍下来（位置由 floating-ui 给，不是 left/top 内联坐标）
+  const cw = all('#board .col > .card')[0]
+  if (cw) cw.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }))
+  await sleep(800)` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)
@@ -331,12 +347,20 @@ function main() {
       const [page, view, name, extra] = CASES[n++]
       fs.writeFileSync(harnessPath, harness(driver(page, view, extra)), 'utf-8')
       const png = path.join(outDir, name + '.png')
+      // ⚠ 先删旧图再拍：判据是「这张图是**这次**拍出来的」，不是「目录里有这么个文件」。
+      //   2026-10-14 真事：上一轮留下的同名旧图让 Edge 没写也报 OK，截图"成功"了 17 张，
+      //   实际一张都没更新（打开一看还是几天前的界面）。**存在 ≠ 本轮产出。**
+      try { fs.rmSync(png, { force: true }) } catch { /* 忽略 */ }
       const c = spawn(browser, [
         // 2026-10-09：截图证据必须拍「动画的终态」而不是半透明的中间帧 ——
         // numIn 入场动画在 virtual-time 截图里会冻结在起始态（KPI 数字/阻塞按钮变幽灵字，
         // 目检两次误报"元素重叠/按钮不存在"）。关动画 = 每次拍出的都是确定的最终画面。
         '--headless=new', '--force-prefers-reduced-motion', '--disable-gpu', '--no-sandbox', '--allow-file-access-from-files',
-        '--disable-extensions', '--window-size=1440,900', '--hide-scrollbars',
+        '--disable-extensions', '--window-size=' + (process.env.FC_SHOT_SIZE || '1440,900'), '--hide-scrollbars',
+        // 显式钉住 1:1。⚠ 本机**实测**：不加这条 Edge 也是 1440×900（headless 默认 1:1），
+        //   所以它不是"修了什么 bug"，而是防止换到 DPI 不同的机器上悄悄变成 0.75/1.25 倍 ——
+        //   截图是给人目检的，尺寸漂移会让前后两张根本没法对比。
+        '--force-device-scale-factor=' + (process.env.FC_SHOT_SCALE || '1'),
         '--virtual-time-budget=20000', '--screenshot=' + png,
         'file:///' + harnessPath.replace(/\\/g, '/'),
       ], { stdio: ['ignore', 'pipe', 'pipe'], env })

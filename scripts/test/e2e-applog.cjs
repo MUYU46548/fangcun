@@ -125,7 +125,10 @@ async function main() {
     // 先注册全部通道（registerIpcHandlers 内部会 initPaths → 需要 userData 可写）
     process.env.FC_TEST_USERDATA = TEST_ROOT
     ipcMod.registerIpcHandlers()
-    for (const ch of ['applog:write', 'applog:path', 'applog:dir', 'applog:tail', 'applog:openDir',
+    // ⚠ 2026-10-15：`applog:dir` 已从期望列表里拿掉 —— 它 **2026-10-11 被有意删除**
+    //   （卡 20261006-002 E 组：与 applog:openDir 重复，后者本就回 dir；见 ipc.ts 第 877 行注释）。
+    //   旧断言还在要它，于是长期红着（「长期红 = 没保护」）。下面另加一条**反向**断言钉住它不许悄悄长回来。
+    for (const ch of ['applog:write', 'applog:path', 'applog:tail', 'applog:openDir',
       // 卡 002 · MCP 接入材料三通道（同样必须注册在 registerIpcHandlers 顶层）
       'mcp:info', 'mcp:snippet', 'mcp:openConfig',
       // 卡006（2026-10-03）· 自装指令渠道（A 路线第三渠道）
@@ -133,6 +136,9 @@ async function main() {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }
+    // 反向：删掉的重复通道不许长回来（否则渲染层又要面对两个回 dir 的入口，选哪个都是坑）
+    check('★ 重复通道 applog:dir 不许重新注册（2026-10-11 已删，openDir 覆盖它）',
+      !handlers.has('applog:dir'))
     // 族3（2026-10-03 卡 task-20261003-004）：裸 backup/restore/listBackups 是渲染层
     // **零调用**的僵尸平行实现（现行备份走 backup:run / backup:restore = packer.ts 家族，
     // 本地列表走 backup:listLocal），三端（ipc/preload/渲染层）已同批删除。

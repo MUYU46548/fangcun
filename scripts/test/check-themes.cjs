@@ -103,6 +103,11 @@ for (const id of ['default', ...listNonDefault]) {
     ['正文压面板底 --ink/--tint-3', t.ink, t['tint-3']],
     ['正文压次级描边上的字 --ink/--line-2', t.ink, t['line-2']],
     ['徽章字压 --accent-soft', BADGE_TEXT, t['accent-soft']],
+    // 决策三态徽章（2026-10-14 第 ④ 步第一单）：组件里的文字色，值来自 App.vue 的令牌 ——
+    // 就是因为「色值散在组件里就没人量」才把它们提成令牌（同 2026-10-13 SVG 整体变黑那次教训）。
+    ['决策徽章 有效（字/底）', t['badge-ok-fg'], t['badge-ok-bg']],
+    ['决策徽章 已撤销（字/底）', t['badge-revoked-fg'], t['badge-revoked-bg']],
+    ['决策徽章 已合并（字/底）', t['badge-merged-fg'], t['badge-merged-bg']],
     ['按钮白字压 成功 #fff/--success', '#ffffff', SEMANTIC.success],
     ['按钮白字压 警告 #fff/--warning', '#ffffff', SEMANTIC.warning],
     ['按钮白字压 危险 #fff/--danger', '#ffffff', SEMANTIC.danger],
@@ -113,7 +118,8 @@ for (const id of ['default', ...listNonDefault]) {
     if (c == null) bad.push(`${label}（色值解析失败 fg=${fg} bg=${bg}）`)
     else if (c < AA) bad.push(`${label} = ${c.toFixed(2)}`)
   }
-  check(`主题「${id}」全部 13 对对比度 ≥ WCAG AA (4.5)`, bad.length === 0, bad.join('；'))
+  // ⚠ 对数写在名字里会漂（"13 对"改完忘了改），所以直接读 pairs.length
+  check(`主题「${id}」全部 ${pairs.length} 对对比度 ≥ WCAG AA (4.5)`, bad.length === 0, bad.join('；'))
   if (bad.length === 0) {
     const min = Math.min(...pairs.map(([, fg, bg]) => contrast(fg, bg)))
     console.log(`      ↳ 最低 ${min.toFixed(2)}`)

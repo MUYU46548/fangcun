@@ -1,5 +1,5 @@
 /**
- * Tailwind 配置（2026-10-13，卡 task-20261011-004 第 ① 步）
+ * Tailwind 配置（2026-10-13 卡 task-20261011-004 第 ① 步；2026-10-14 第 ④ 步扩了一次范围）
  *
  * 抄司天（`SiTian/tailwind.config.js` + `docs/PROPOSAL_DISCLAIMER_AND_UI.md §2.3`），不重新调研。
  *
@@ -7,14 +7,19 @@
  *   ① `html { line-height: 1.5 }` —— 本仓从来没有全局 line-height，一引就整体漂移；
  *   ② `ol, ul { list-style: none }` —— Markdown 正文的列表符号会直接消失。
  *
- * ⚠ **`content` 现在只扫 `components/ui/`**（第 ③ 步口径：只让*新*组件用 utilities，老 CSS 一律不动）。
- *    这一条同时是第 ① 步的验收线：**产物 CSS 必须逐字节不变**。
- *    为什么不能直接扫 App.vue —— 它里面有 `.fixed` / `.hidden` / `.block` / `.table` 这类**与 Tailwind
- *    工具类同名**的既有类名，一扫就会凭空多出 `.fixed{position:fixed}` 之类的规则 → 零 diff 直接破功。
- *    等第 ④ 步真的往老控件上换 utilities 时，再逐个把文件加进 content（那时是有意改动，diff 属预期）。
+ * ⚠ **`content` 仍不许扫 `App.vue`**（这条是**永久底线**，不是临时限制）。
+ *    App.vue 里有 `.fixed` / `.hidden` / `.block` / `.table` 这类**与 Tailwind 工具类同名**的
+ *    既有类名，一扫就会凭空生成 `.fixed{position:fixed}` 之类的规则 → 全仓观感漂移
+ *    （第 ① 步「产物 CSS 逐字节不变」就是被这个坑破的）。
+ *
+ * 范围沿革：
+ *   第 ①②③ 步 = `./src/renderer/components/ui/**`（只让*新*组件用 utilities，产物只有几行）。
+ *   第 ④ 步（2026-10-14，决策视图改版）= 扩到 `./src/renderer/components/**`
+ *     —— 承载视图的组合组件 `components/DecisionBoard.vue` 也在里面，它同样只写 utilities。
+ *     判据见 `scripts/test/check-ui-base.cjs`（含"每个组件文件都被 content 覆盖"那条）。
  */
 module.exports = {
-  content: ['./src/renderer/components/ui/**/*.{vue,ts,js}'],
+  content: ['./src/renderer/components/**/*.{vue,ts,js}'],
   corePlugins: {
     preflight: false,
   },

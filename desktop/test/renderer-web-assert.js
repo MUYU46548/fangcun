@@ -296,25 +296,39 @@
               + ` sortRight=${Math.round(sortBtn.getBoundingClientRect().right)}`
               + (grow ? ` grow=${Math.round(grow.getBoundingClientRect().width)}` : ' no grow')
           })())
-        check('★ 顶栏不横向溢出 且 筛选控件与标题**同一行**（返回按钮才不会被甩走）', (() => {
-          const bar = $('#bar')
-          const fb = $('.fbar')
-          const ttl = $('#bar .title')
-          const ctrls = $('#bar .ctrls')
-          const nav = $('#bar .navgroup')
-          if (!bar || !fb || !ttl || !ctrls) return false
-          const sameRow = Math.abs(ctrls.getBoundingClientRect().top - ttl.getBoundingClientRect().top) <= 6
-          // 2026-10-12：左侧按钮组也必须与标题**同排** —— 它若被挤到第二行，
-          // 就重现了用户报的"返回按钮不见了"（其实是跑到别处去了）。
-          const navSameRow = !nav || Math.abs(nav.getBoundingClientRect().top - ttl.getBoundingClientRect().top) <= 6
-          return bar.scrollWidth <= bar.clientWidth + 1 && sameRow && navSameRow
-        })(), (() => {
+        // ── 顶栏几何（2026-10-15 拆成两条）──────────────────────────────────
+        // 旧版把三件事塞进一条，其中"筛选控件与标题同排"在**窄视口**下必然为假 ——
+        // 于是这条长期红着（`长期红 = 没保护`）。而真正的回归项只有：
+        //   ① 不许横向溢出
+        //   ② 左侧按钮组与标题必须同排（用户原话「还损失一个返回按钮，不知道去哪里了」
+        //      —— 那不是消失，是被 space-between 甩到了别处）
+        //   ③ **屏宽真放得下时**，筛选控件也必须同排（放不下时整行换行是既定行为，不是回归）
+        // ③ 的"放得下"用**实测宽度**算，不用魔法常数：nav + title + ctrls 内容宽 + 内边距/间距。
+        const barGeom = (() => {
           const bar = $('#bar'), ttl = $('#bar .title'), ctrls = $('#bar .ctrls'), nav = $('#bar .navgroup')
-          if (!bar || !ttl || !ctrls) return 'no bar'
-          return `scroll=${bar.scrollWidth} client=${bar.clientWidth}`
-            + ` ttlTop=${Math.round(ttl.getBoundingClientRect().top)} ctrlsTop=${Math.round(ctrls.getBoundingClientRect().top)}`
-            + (nav ? ` navTop=${Math.round(nav.getBoundingClientRect().top)}` : ' no navgroup')
-        })())
+          if (!bar || !ttl || !ctrls) return null
+          const top = (el) => Math.round(el.getBoundingClientRect().top)
+          const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : 0)
+          const cs = getComputedStyle(bar)
+          const chrome = (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) || 0)
+            + 2 * (parseFloat(cs.columnGap || cs.gap) || 0)   // nav/title/ctrls 之间两个缝
+          const need = w(nav) + w(ttl) + ctrls.scrollWidth + chrome
+          return {
+            noOverflow: bar.scrollWidth <= bar.clientWidth + 1,
+            navSameRow: !nav || Math.abs(top(nav) - top(ttl)) <= 6,
+            ctrlsSameRow: Math.abs(top(ctrls) - top(ttl)) <= 6,
+            barClient: bar.clientWidth,
+            need: Math.round(need),
+          }
+        })()
+
+        check('★★ 顶栏不横向溢出 且 左侧按钮组与标题**同一行**（否则「← 返回」会被甩到别处）',
+          !!barGeom && barGeom.noOverflow && barGeom.navSameRow,
+          barGeom ? `scrollWidth/clientWidth 或 navTop 不合：${JSON.stringify(barGeom)}` : 'no bar')
+
+        check('★★ 顶栏只占一行：屏宽放得下筛选控件时必须同排（放不下时整行换行 = 既定行为，不算回归）',
+          !!barGeom && (barGeom.ctrlsSameRow || barGeom.barClient < barGeom.need),
+          barGeom ? `barClient=${barGeom.barClient} need≈${barGeom.need} ctrlsSameRow=${barGeom.ctrlsSameRow}` : 'no bar')
 
         // ⚠ 下面两条是"用成熟原语"换来的行为（2026-10-11：改用 reka-ui 的 Popover）——
         //   上一版手搓的遮罩只能关"点遮罩"，Esc 与焦点归还得自己写。既然换成库，就把这两条
@@ -887,6 +901,44 @@
 
     check('★ 任务卡右键菜单里有「复制为派工单」（弹药库的出口动作）',
       await openCardMenuFor('演示任务'), String(($('.ctx-menu') || {}).textContent || '').slice(0, 120))
+
+    // ══ 右键菜单换成 reka-ui ContextMenu（2026-10-14 第 ④ 步第二单）══
+    // 钉的是"**真的换了原语**"，而不是把 class 改个名字继续手搓。
+    {
+      const m = $('.ctx-menu')
+      check('★ 菜单是 role=menu（reka-ui ContextMenu 渲染的，不是手搓 div）',
+        !!m && m.getAttribute('role') === 'menu', m ? String(m.getAttribute('role')) : 'no menu')
+      const items = $$('.ctx-menu [role="menuitem"]')
+      const itemBtns = $$('.ctx-menu button[role="menuitem"]')
+      check('★ 菜单项是 role=menuitem 的真 <button>（真 Electron 那套 e2e 按 `.ctx-menu button` 选元素）',
+        items.length >= 8 && itemBtns.length === items.length,
+        `items=${items.length} buttons=${itemBtns.length}`)
+      check('★ 手搓版的三个特征全消失：无全屏遮罩 / 无 left-top 内联坐标 / 内容不在触发卡内部',
+        !$('.ctx-backdrop') && !/left\s*:/.test(String((m && m.getAttribute('style')) || ''))
+        && !!m && !$('#board .card').contains(m),
+        `backdrop=${!!$('.ctx-backdrop')} style=${m && m.getAttribute('style')}`)
+    }
+    {
+      // ★★ 贴右下角右键：手搓那版只按指针坐标画（`left:clientX/top:clientY`），菜单必然出屏。
+      //    floating-ui 会自己翻转/平移回来 —— 这条就是"换了原语"换来的实际能力。
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(150)
+      const row = $$(CARD_SEL).filter((r) => (r.textContent || '').indexOf('演示任务') >= 0)[0]
+      const W = window.innerWidth
+      const H = window.innerHeight
+      if (row) {
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: W - 2, clientY: H - 2 }))
+        await sleep(250)
+      }
+      const el = $('.ctx-menu')
+      const r2 = el ? el.getBoundingClientRect() : null
+      check('★★ 贴右下角右键，菜单不出屏（手搓版没有 flip/shift，这是换原语换来的真能力）',
+        !!r2 && r2.right <= W + 1 && r2.bottom <= H + 1 && r2.left >= -1 && r2.top >= -1,
+        r2 ? `menu=[${Math.round(r2.left)},${Math.round(r2.top)},${Math.round(r2.right)},${Math.round(r2.bottom)}] win=[${W},${H}]` : 'no menu')
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await sleep(150)
+      check('  按 Esc 能关掉菜单（手搓版只能点全屏遮罩）', !$('.ctx-menu'))
+    }
 
     const DISPATCH = await copyFor('演示任务')
     check('  点它真的走主进程剪贴板通道（渲染层不许有裸 navigator.clipboard）',
@@ -2825,6 +2877,45 @@
     check('  填 30 天后写入真身 prefs（fc_archive_days=30）',
       Number(window.__fcTest.prefs().fc_archive_days) === 30, JSON.stringify(window.__fcTest.prefs().fc_archive_days))
 
+    // ══ 导入被拦下时，界面必须把**主进程那句话**带出来（开发清单第 6 条 + 第 7 条的通信层）══
+    // 老实现写死 `showToast('导入失败')`：主进程刚点名"第几条 / 哪个字段"，界面又给吞回去。
+    {
+      const realClick = HTMLInputElement.prototype.click
+      const realFR = window.FileReader
+      let captured = null
+      HTMLInputElement.prototype.click = function () {
+        if (this && this.type === 'file') { captured = this; return }
+        return realClick.call(this)
+      }
+      // 只仿真「读到了一段 JSON 文本」这一步 —— 无头里给文件输入塞自造 File 再走真 FileReader
+      // 不稳（读到空串）。真正被测的是**导入处理器把主进程那句话带不带出来**。
+      window.FileReader = function () {
+        this.readAsText = () => {
+          this.result = '[{"题目":"字段名写错了"}]'
+          this.onload({ target: this })
+        }
+      }
+      const impBtn = $$('.settings-foot button').find((b) => (b.textContent || '').indexOf('导入任务 JSON') >= 0)
+      check('★ 设置页底部有「导入任务 JSON」入口', !!impBtn)
+      if (impBtn) {
+        impBtn.click()
+        await sleep(150)
+        if (captured) {
+          // 处理器第一句是 `e.target.files?.[0]`，得先有个"选中的文件"；内容由上面的桩给
+          Object.defineProperty(captured, 'files', { value: [{}], configurable: true })
+          captured.onchange({ target: captured })
+          await waitFor(() => window.__fcTest.callCount('importTasks') >= 1, 3000, 'importTasks')
+          await sleep(400)
+        }
+      }
+      window.FileReader = realFR
+      HTMLInputElement.prototype.click = realClick
+      const toastTxt = (($('#toast') || {}).textContent) || ''
+      check('★★ 导入被拦下时，界面显示的是**主进程那句话**（点名「题目」），不是干巴巴的「导入失败」',
+        captured !== null && toastTxt.indexOf('题目') >= 0 && toastTxt.trim() !== '导入失败',
+        `toast=${toastTxt.slice(0, 90)} captured=${captured !== null} calls=${window.__fcTest.callCount('importTasks')}`)
+    }
+
     maskClick('#soverlay')
     await sleep(300)
     check('设置面板已关闭（点遮罩 = mousedown.self 才关）', !$('#smodal'))
@@ -2957,46 +3048,119 @@
     // ⚠ 合入（2026-10-12）：下面这一整段「决策卡」断言来自外部整包，
     //   与上面「死通道接回验收」是**两块独立**的断言 —— 冲突只是**位置重叠**
     //   （两边都往文件末尾追加），**两块都要留**，不许丢任何一边（这就是逐段合的意义）。
-    // ══ 决策卡 · 拍板记录（2026-10-12 AI 规划包第 3 件：三态渲染/记一条/改状态/筛选）══
+    // ══ 决策卡 · 决策记录（2026-10-12 AI 规划包第 3 件）
+    //    2026-10-14：术语白话化（页签「拍板」→「决策」、三态「作数/已作废/已并入」→「有效/已撤销/已合并」）
+    //    ＋ UI 基座第 ④ 步第一单 —— 视图本体已切到组件 `components/DecisionBoard.vue`（shadcn-vue 口径）。
+    //    选择器随之改走 `data-dec="…"` 钩子：类名只承载样式，测试找属性，两边改起来互不牵连。══
     clickText('看板'); await sleep(300)
-    check('能切到「拍板」页签', clickText('拍板'))
-    check('决策卡 3 张渲染（mock 三态各一）', await waitFor(() => $$('.decisions-view .decision-card').length === 3, 4000, 'dec seed'))
-    check('  三态标记各就位（DOM 序=mock 数据序 ✓/✗/→）',
-      $$('.decisions-view .dec-mark').map((x) => x.textContent.trim()).join('') === '✓✗→',
-      $$('.decisions-view .dec-mark').map((x) => x.textContent.trim()).join('|'))
-    check('  已作废的卡整体降透明（视觉死账）',
-      !!$$('.decisions-view .decision-card.dec-st-已作废').length)
-    // 记一条：输入 → 回车 → mock IPC decisionAdd → toast + 列表刷新（mock 无状态，故断言按钮/输入清空）
-    const decInp = $('.decisions-view .dec-inp-main')
+    check('能切到「决策」页签', clickText('决策'))
+    check('决策卡 3 张渲染（mock 三态各一）', await waitFor(() => $$('[data-dec="card"]').length === 3, 4000, 'dec seed'))
+    check('  三态徽章各就位（DOM 序=mock 数据序 有效/已撤销/已合并）',
+      $$('[data-dec="badge"]').map((x) => x.textContent.trim()).join('|') === '有效|已撤销|已合并',
+      $$('[data-dec="badge"]').map((x) => x.textContent.trim()).join('|'))
+    check('  已撤销的卡整体降调（视觉死账）',
+      $$('[data-dec="card"]').some((c) => (c.textContent || '').indexOf('已撤销') >= 0 && /line-through/.test(String(c.innerHTML))))
+    check('★ 界面只说白话中文（决策页签/视图里不许再出现「拍板」「作数」「已并入」「已作废」）',
+      ((($('#bar') || {}).textContent || '') + (($('.decisions-view') || {}).textContent || ''))
+        .match(/拍板|作数|已并入|已作废/) === null)
+    check('★ 状态筛选是分段控件（四个 tab，且计数跟着数据走）',
+      $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部3|有效1|已撤销1|已合并1',
+      $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|'))
+    // ── 开发清单第 4 条：按项目筛选（数据早就支持项目列，界面前面一直缺）──
+    {
+      const pj = $('[data-dec="proj-filter"]')
+      check('★ 决策页有「按项目筛选」', !!pj, 'no proj-filter')
+      if (pj) {
+        const opts = [...pj.options].map((o) => o.value)
+        check('  筛选项 = 全部项目 + 数据里出现过的项目 +（未归属）',
+          opts[0] === '全部项目' && opts.includes('司天') && opts.includes('绒花墨坊') && opts.includes('（未归属）'),
+          opts.join('|'))
+        pj.value = '司天'
+        pj.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(250)
+        check('★★ 选「司天」→ 只剩该项目的 1 张，且**计数跟着项目筛走**（不是全局数）',
+          $$('[data-dec="card"]').length === 1
+          && $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部1|有效1|已撤销0|已合并0',
+          'cards=' + $$('[data-dec="card"]').length + ' tabs=' + $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|'))
+        pj.value = '全部项目'
+        pj.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(250)
+        check('  切回「全部项目」→ 3 张回来', $$('[data-dec="card"]').length === 3, 'cards=' + $$('[data-dec="card"]').length)
+      }
+    }
+
+    // ── 开发清单第 5 条：贴一句话自动拆字段（只**预填**，不直接落库）──────
+    {
+      const si = $('[data-dec="smart-input"]')
+      check('★ 决策页有「贴一句话自动拆字段」入口', !!si, 'no smart-input')
+      if (si) {
+        si.value = '10月12日 定：司天不发版，唯一目标=标注+导出真图（出自 10-12 群 09:42）'
+        si.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(120)
+        const sb = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '拆分')
+        check('  「拆分」按钮可点', !!sb)
+        if (sb) sb.click()
+        await sleep(300)
+        const gv = (sel) => String((($(sel) || {}).value) || '')
+        check('★★ 拆完四栏被预填：内容 / 日期 / 项目 / 出处',
+          gv('[data-dec="add-input"]').indexOf('司天不发版') >= 0
+          && gv('[data-dec="add-date"]') === '2026-10-12'
+          && gv('[data-dec="add-project"]') === '司天'
+          && gv('[data-dec="add-source"]').indexOf('10-12 群 09:42') >= 0,
+          `内容=${gv('[data-dec="add-input"]').slice(0, 24)} 日期=${gv('[data-dec="add-date"]')} 项目=${gv('[data-dec="add-project"]')} 出处=${gv('[data-dec="add-source"]')}`)
+        check('★★ 拆分只是预填：没有偷偷落库（这时 decisionAdd 一次都还没被调）',
+          window.__fcTest.callCount('decisionAdd') === 0, 'calls=' + window.__fcTest.callCount('decisionAdd'))
+      }
+    }
+
+    // 记一条：输入 → 点「记下」→ mock IPC decisionAdd → 输入清空（mock 无状态，故断言按钮/输入）
+    const decInp = $('[data-dec="add-input"]')
     if (decInp) {
-      decInp.value = '断言用：这条拍板是测试记的'
+      decInp.value = '断言用：这条决策是测试记的'
       decInp.dispatchEvent(new Event('input', { bubbles: true }))
       await sleep(150)
-      const decBtn = $$('.decision-add-row button').find((b) => (b.textContent || '').trim() === '记下')
+      const decBtn = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
       check('  「记下」按钮可点（内容非空）', !!decBtn && !decBtn.disabled)
       if (decBtn) decBtn.click()
-      check('  记完输入框清空（成功路径）', await waitFor(() => !($('.decisions-view .dec-inp-main') || {}).value, 3000, 'dec clear'))
+      check('  记一条真走 IPC（decisionAdd 被调）',
+        await waitFor(() => window.__fcTest.callCount('decisionAdd') >= 1, 3000, 'decAdd'),
+        'calls=' + window.__fcTest.callCount('decisionAdd'))
+      // ★ 项目 / 日期 / 出处 必须**一起**发出去 —— 只发内容 = 界面填了不落库（第 4 条的一半价值）
+      check('★ 记一条时项目 / 日期 / 出处 一起进 IPC（不是只发内容）',
+        (() => {
+          const d = (window.__fcTest.calls().filter((c) => c.name === 'decisionAdd').pop() || {}).args || []
+          const a = d[0] || {}
+          return a.项目 === '司天' && a.日期 === '2026-10-12' && String(a.出处).indexOf('10-12 群') >= 0
+        })(),
+        JSON.stringify(((window.__fcTest.calls().filter((c) => c.name === 'decisionAdd').pop() || {}).args || [])[0]))
+      check('  记完输入框清空（成功路径）', await waitFor(() => !($('[data-dec="add-input"]') || {}).value, 3000, 'dec clear'))
     } else {
-      check('  新增输入框存在', false, 'dec-inp-main not found')
+      check('  新增输入框存在', false, 'add-input not found')
     }
-    // 改状态：D-001 的下拉换「已并入」→ decisionSetStatus mock → toast
-    const decSel = $('.decisions-view .decision-card .dec-status-sel')
+    // 改状态：下拉换「已合并」→ decisionSetStatus mock → toast
+    const decSel = $('[data-dec="status"]')
     if (decSel) {
-      decSel.value = '已并入'
+      decSel.value = '已合并'
       decSel.dispatchEvent(new Event('change', { bubbles: true }))
       check('  改状态走 IPC（decisionSetStatus 被调）',
         await waitFor(() => window.__fcTest.callCount('decisionSetStatus') >= 1, 3000, 'decSet'),
         'calls=' + window.__fcTest.callCount('decisionSetStatus'))
     } else {
-      check('  状态下拉存在', false, 'dec-status-sel not found')
+      check('  状态下拉存在', false, 'status not found')
     }
-    // 筛选：只看「已作废」→ 列表剩 1 张
-    const decFilterBtn = $$('.decisions-ctrls button').find((b) => (b.textContent || '').trim() === '已作废')
-    if (decFilterBtn) {
-      decFilterBtn.click()
-      check('  筛「已作废」后只剩死账（1 张）',
-        await waitFor(() => $$('.decisions-view .decision-card').length === 1, 3000, 'dec filter'),
-        'count=' + $$('.decisions-view .decision-card').length)
+    // 筛选：只看「已撤销」→ 列表剩 1 张
+    const decTab = $$('[data-dec="tab"]').find((b) => (b.textContent || '').trim().indexOf('已撤销') === 0)
+    if (decTab) {
+      // ⚠ reka-ui 的 TabsTrigger **只认 mousedown**（源码里只有 `onMousedown`，没有 click 处理）——
+      //    合成 `.click()` 不带 mousedown，点了等于没点。真用户点鼠标天然先有 mousedown，所以
+      //    这个坑只在测试里现形（与「遮罩关闭必须派发 mousedown」是同一类）。
+      decTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      decTab.click()
+      check('  筛「已撤销」后只剩死账（1 张）',
+        await waitFor(() => $$('[data-dec="card"]').length === 1, 3000, 'dec filter'),
+        'count=' + $$('[data-dec="card"]').length)
+    } else {
+      check('  「已撤销」筛选项存在', false, 'tab not found')
     }
     // ⚠ 合入（2026-10-12）：这一整段「决策卡」断言来自外部整包，与上面「死通道接回验收」是**两块独立**
     //   的断言 —— 冲突只是**位置重叠**（两边都往文件末尾追加），**两块都要留**，不许丢任何一边。
@@ -3151,6 +3315,38 @@
         await waitFor(() => !!$('#roverlay .arch-error'), 4000, 'arch error'),
         (($('#roverlay .arch-section') || {}).textContent || '').slice(0, 80))
       maskClick('#roverlay'); await sleep(200)
+
+      // ── archify 技能卡（2026-10-14 中长期清单第 9 条）─────────────────────
+      //  它和方寸的分层图**不是一回事**。界面要：① 不硬转（硬转会丢信息）
+      //  ② **不许误报「JSON 读不出来」**（JSON 明明是好的，只是格式不同 —— 那是误导）
+      //  ③ 照实说明它是什么，并把图型/条目数摊开。
+      const ARCHIFY = {
+        schema_version: 1, diagram_type: 'architecture',
+        meta: { title: '验证用架构图', views: [{ id: 'v1', label: '主路径' }] },
+        components: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+        connections: [{ from: 'a', to: 'b' }],
+      }
+      window.__fcTest.setTasks([
+        {
+          id: 'task-arch-3', title: '项目说明：archify 导入卡', status: '待办', priority: '中', project: 'demo',
+          tags: [], body: '', architecture: JSON.stringify(ARCHIFY),
+          fm: { id: 'task-arch-3', title: '项目说明：archify 导入卡', status: '待办', priority: '中', project: 'demo' },
+          path: 'C:/mock/task-data/task-arch-3.md',
+        },
+      ])
+      clickText('看板'); await sleep(400)
+      const card3 = $$('#board .card, #board .brow').find((c) => (c.textContent || '').indexOf('archify 导入卡') >= 0)
+      if (card3) card3.click()
+      const gotArchify = await waitFor(() => !!$('#roverlay .arch-archify'), 4000, 'archify 提示')
+      const archTxt = gotArchify && $('#roverlay .arch-archify') ? ($('#roverlay .arch-archify').textContent || '') : ''
+      check('★★ archify 卡不误报「JSON 读不出来」—— 照实说明格式不同，也不硬画图',
+        gotArchify && !$('#roverlay .arch-error:not(.arch-archify)') && archTxt.indexOf('archify') >= 0,
+        archTxt.slice(0, 110))
+      check('  提示里带出图型与条目数（不是一句干话），并指向正文摘要 + 架构字段',
+        archTxt.indexOf('architecture') >= 0 && archTxt.indexOf('components 2') >= 0
+        && archTxt.indexOf('架构') >= 0, archTxt.slice(0, 110))
+      maskClick('#roverlay'); await sleep(200)
+
       window.__fcTest.setTasks(saved)
       clickText('看板'); await sleep(200)
     }
@@ -3208,6 +3404,110 @@
 
       window.__fcTest.setTasks(saved)
       clickText('看板'); await sleep(200)
+    }
+
+    // ══ 启动台 / 服务页（2026-10-15 旧案收口）══════════════════════════════
+    // 旧案一句话：`apps.json` 把 vite 的 8090 登在**打包 exe** 上，服务页给「▶ 启动」，
+    // 用户点完仍是「空闲」→ 又得出"启动台坏了"。根因 = `port`（对外提供哪个端口）与
+    // `cmd`（点一下会跑什么）被混成一个概念。这一节钉住三件事：
+    //   ① 启动台：**点卡片 = 启动**（编辑挪到独立按钮），符合"点一下就开"的心智；
+    //   ② 服务页：把「启动命令」摊开显示，并对"命令与端口对不上"的行给诊断（只提示不阻断）；
+    //   ③ 启动后按**事实**复查：拉起了但端口没起来 → 必须当场说清 + 给下一步，不许报"已启动"。
+    {
+      clickText('启动台'); await sleep(400)
+      const lpCards = $$('.lp-card')
+      check('★ 启动台渲染出登记的卡片（夹具 2 张）', lpCards.length === 2, 'cards=' + lpCards.length)
+
+      if (lpCards.length) {
+        // ① 点卡片正文 = 启动
+        const before = window.__fcTest.callCount('launchpadLaunchApp')
+        const info = lpCards[0].querySelector('.lp-info')
+        ;(info || lpCards[0]).click()
+        check('★★ 启动台：**点卡片正文 = 启动**（真调 launchpadLaunchApp，不是打开编辑框）',
+          await waitFor(() => window.__fcTest.callCount('launchpadLaunchApp') > before, 3000, 'lp launch'),
+          'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
+        check('★★ 启动台：点卡片**不**弹出编辑框（编辑已挪到独立按钮）',
+          !$('#app-edit-overlay'), 'edit overlay open')
+
+        // ② 独立的编辑按钮：点它打开编辑框，且**不**触发启动
+        const editBtn = lpCards[1] && lpCards[1].querySelector('.lp-edit')
+        if (editBtn) {
+          const beforeE = window.__fcTest.callCount('launchpadLaunchApp')
+          editBtn.click()
+          check('★★ 启动台：卡片上有独立「✏️ 编辑」按钮，点它打开编辑框',
+            await waitFor(() => !!$('#app-edit-overlay'), 3000, 'edit open'))
+          check('★★ 点「编辑」**不**触发启动（两个动作彻底分开）',
+            window.__fcTest.callCount('launchpadLaunchApp') === beforeE,
+            'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
+          const closeBtn = $('#app-edit-overlay button.ghost')
+          if (closeBtn) closeBtn.click()
+          await sleep(200)
+        } else {
+          check('★ 卡片上有独立「✏️ 编辑」按钮', false, 'no .lp-edit')
+        }
+
+        // ③ 端口登在 .exe 上 → 卡片出诊断；没有端口的卡不出
+        const warnOf = (card) => (card.querySelector('.lp-warn') || {}).textContent || ''
+        check('★★ 端口登在桌面程序上的卡显示诊断（.lp-warn 且点出"桌面程序"）',
+          warnOf(lpCards[0]).indexOf('桌面程序') >= 0, JSON.stringify(warnOf(lpCards[0]).slice(0, 60)))
+        check('★ 没登记端口的卡**不**出现诊断（不误报）',
+          !lpCards[1].querySelector('.lp-warn'), 'unexpected warn')
+      }
+
+      // 服务页
+      clickText('服务'); await sleep(600)
+      check('  进得了服务页（.services-view）', !!$('.services-view'))
+      const rows = $$('.svc-item').filter(r => r.querySelector('.svc-name'))
+      const rowOf = (port) => rows.find(r => ((r.querySelector('.svc-port') || {}).textContent || '').indexOf(String(port)) >= 0)
+      const r9100 = rowOf(9100), r9200 = rowOf(9200), r8753 = rowOf(8753)
+
+      check('★★ 服务页把「启动命令」摊开显示（启动台来源的行有 .svc-cmd）',
+        !!r9100 && !!r9100.querySelector('.svc-cmd'), 'r9100=' + !!r9100)
+      check('★★ 手填登记**不**显示启动命令那一行（它压根没有 cmd，别对它喊"接错了"）',
+        !!r8753 && !r8753.querySelector('.svc-cmd') && !r8753.querySelector('.svc-diag'),
+        'r8753=' + !!r8753)
+
+      check('★★ 端口登在 .exe 上的行给出诊断（.svc-diag，且指向"桌面程序 / 不会监听"）',
+        !!r9100 && ((r9100.querySelector('.svc-diag') || {}).textContent || '').indexOf('桌面程序') >= 0,
+        JSON.stringify((((r9100 || {}).querySelector ? r9100.querySelector('.svc-diag') : null) || {}).textContent || '').slice(0, 80))
+      check('★ 启动命令是 .bat 的行**不**出诊断（不误报 —— 误报比漏报更伤）',
+        !!r9200 && !r9200.querySelector('.svc-diag'), 'r9200=' + !!r9200)
+
+      // ④ 启动后按事实复查：9200（脚本）→ 真监听；9100（exe）→ 仍是空闲，界面必须说清原因
+      if (r9200) {
+        const b = r9200.querySelector('button.skills-btn.primary')
+        if (b) {
+          b.click()
+          check('★★ 点「▶ 启动」真调 servicesStart',
+            await waitFor(() => window.__fcTest.callCount('servicesStart') >= 1, 4000, 'servicesStart'))
+          check('  拉起成功且端口真起来时 → 不弹错误条', await waitFor(() => $$('.errbar').length === 0, 3000, 'no err'))
+        } else {
+          check('  9200 行有「▶ 启动」按钮', false, 'no start button')
+        }
+      }
+      if (r9100) {
+        const b = r9100.querySelector('button.skills-btn.primary')
+        if (b) {
+          b.click()
+          await sleep(600)
+          const msg = (($('.errbar-msg') || {}).textContent || '') + ' ' +
+            ((($('.errbar-msg') || {}).title) || '')
+          check('★★ 拉起了但端口没起来 → 明确报出来（顶部错误条），不许静默报"已启动"',
+            $$('.errbar').length === 1, 'errbar=' + $$('.errbar').length)
+          check('★★ 报的话要说清**发生了什么**（拉起了 + 仍没人监听）并给**下一步**',
+            msg.indexOf('仍然没有进程在监听') >= 0 && msg.indexOf('启动台') >= 0,
+            JSON.stringify(msg.slice(0, 120)))
+          check('★ 那句话不许把责任推给"启动台坏了"（那是误导）',
+            msg.indexOf('启动台坏了') < 0)
+        } else {
+          check('  9100 行有「▶ 启动」按钮', false, 'no start button')
+        }
+      }
+      // 清掉错误条，别影响后面「没有未捕获错误」那条
+      const ignoreBtn = $$('.errbar button').pop()
+      if (ignoreBtn) ignoreBtn.click()
+      await sleep(200)
+      clickText('看板'); await sleep(300)
     }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条

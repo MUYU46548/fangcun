@@ -44,7 +44,7 @@
 
 | 层 | 命令 | 作用 |
 |---|---|---|
-| 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份/老 YAML 写法（**242**，24 个检查组） |
+| 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份/老 YAML 写法（**270/0**，24 个检查组；2026-10-14 实测） |
 | 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）**。⚠ **2026-10-11 用户第 2 条**：备份范围补漏（`policies/` 此前**根本不在包里**）+ 新增「备份瘦身」两个旋钮（排除执行日志附件目录 / 跳过超过 N MB 的单个文件，默认 10MB）—— 跳过项**逐条记账**进 `manifest.omittedFiles`（不许静默），并新增 `backup:sizeReport` 把体积构成摊开（体积黑洞是 `docs/执行日志/_attachments` 里一份 57MB 的误挂 bundle）。`e2e-backup` 含断言：「报告说会跳过什么」与「备份时真跳过什么」**逐条一致**（同一套判据 `planSnapshot`） |
 | **备份多通道 · restic / Git（卡 20261002-003）** | `node scripts/test/e2e-restic-script.cjs` / `e2e-git-backup.cjs` | **restic**：只生成脚本（方案 A），三条红线 = 密码不进脚本 + 密钥文件必须 exclude（用备份包同一份 `SECRET_BASENAMES`）+ 不替用户注册定时任务，18 条含反例。**Git**：`gitBackupPure.ts` 纯逻辑（令牌不进 argv / 输出脱敏 / `GIT_TERMINAL_PROMPT=0` / 「令牌被拒」与「无凭据」分开报 / 地址内嵌令牌抽出）+ **真 git 端到端**（临时裸仓库跑 clone→commit→push→被拒→fetch+reset --soft 补救，**不用 --force**）+ **执行器本体端到端**（electron 桩 + 临时 userData，把「点一下按钮」真跑通）。70 条，含反例自证。⚠ 2026-10-11 真机修的三处：`ls-remote --exit-code` 在**空仓库**上「退出码 2 + 零输出」被翻成"未能识别"（用户看到"填了地址说失败"）、clone 失败盲目退化 init 吞掉真因、`fail()` 回 `error` 而渲染层只读 `message` → 异常变成"没有返回结果"。**⚠ 2026-10-11 用户第 1 条后语义变了**：这条通道**不再推压缩包**，改成把 `task-data/ + registry.yaml + policies/ + docs/` 的**真实文件镜像进仓库工作树**（每文件可 diff 的历史）—— 用户原话「全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？」。断言随之加了"仓库里是 `.md` 而不是 `.zip`""改一行在历史里看得见""删文件会跟着删""密钥类不进仓库"，以及源码守卫（不许再出现 `copyFileSync(zipPath`）。85 条 |
 | 任务删除/归档健壮性 | `node scripts/test/e2e-task-delete.cjs` | **同名重复副本（archive/ 与 .trash/ 同 id）下 delete/archive/unarchive 不抛异常、幂等、去重；readTask 优先活跃区** |
@@ -149,7 +149,8 @@
 | 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | verify.py **242** / e2e **27 套（本机可跑 15 套全绿 900；policies 24/25；9 套需 spawn 子进程→本机 EBUSY）**（2026-10-03 22:02 实测：agent-targets24 · applog31 · archive-overdue19 · bridge-clone5 · clipboard8 · launchpad17 · logs189 · mcp-connect67 · ports57 · prefs41 · **renderer-web217** · skill-import48 · skills55 · task-delete93 · todos29）+ **五守卫 43**（bindings1 · buttons5 · ipc4 · themes14 · **skills19**）；另真 Electron `e2e-renderer` 需桌面会话、`backup` 未跑 | `python verify.py \| tail -1` |
+| 回归断言数 | **2026-10-14 实测**：`verify.py` **276/0** · e2e `renderer-web` **458/0** · `logs` **218/0**；守卫 `check-ui-base` **18/0** · `check-decisions.py` **31/0** · `check-writeback.py` **32/0** · `check-skills` **19/0** · `check-themes` **16/0** · `check-ui-copy` **6/0** · `check-button-styles` **5/0** · `check-ipc-parity` **6/0** · `check-template-bindings` **1/0**；`check-render-roundtrip.py` = 「两侧往返全部一致 ✓」。脚本规模：e2e **36 套** · `check-*.cjs` **7** · `check-*.py` **3**（逐套数字以 `scripts/test/` 实跑为准） | `python verify.py \| tail -1` |
+| （历史快照） | verify.py 242 / e2e 27 套 / 五守卫 43（2026-10-03 22:02 实测，勿当现值） | —— |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）

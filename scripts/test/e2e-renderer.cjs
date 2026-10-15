@@ -30,7 +30,11 @@ if (!fs.existsSync(INDEX)) {
 }
 
 const show = process.argv.includes('--show')
-const args = ['--disable-gpu', MAIN]
+// ⚠ `--no-sandbox` 不是可选项：受限/托管环境里 Chromium 沙箱会让渲染进程**无法加载任何页面**。
+// 实测（2026-10-14 探针，见本文件提交说明）：不加 → 连一个极简本地 HTML 都 `ERR_FAILED (-2)`，
+// 于是 e2e-renderer 长期恒 SKIP、真点击那层等于没验；加上 → loadFile / file:// / data: 全部正常，
+// 整套真点击断言这才跑得起来。**仅测试运行器使用，不进打包产物**（打包入口是 desktop/src/index.ts）。
+const args = ['--no-sandbox', '--disable-gpu', MAIN]
 if (!show) args.push('--hidden')
 
 // ⚠ 必须抹掉 ELECTRON_RUN_AS_NODE：本环境（含 CI/沙箱）可能带这个变量，

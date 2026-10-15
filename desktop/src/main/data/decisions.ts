@@ -1,17 +1,36 @@
 /**
- * Fangcun Desktop — Decision Cards (拍板记录)
+ * Fangcun Desktop — Decision Cards (决策卡)
  * AI 规划包第 3 件（2026-10-12）。与 Python CLI（tegula/core.py 决策卡区）双腿同文件：
  * task-data/decisions.md，节式格式——两端读写同一文件，逐字节兼容（含多行备注的续行规则）。
- * 有意不挂任务状态机：决策不流转，只有 作数/已作废/已并入 三态。
+ * 有意不挂任务状态机：决策不流转，只有 有效/已撤销/已合并 三态。
+ *
+ * 2026-10-14（暮雨：「'拍板''作数''已并入'很难看，让我们说中文」）：三态改白话中文。
+ *   旧值（作数/已作废/已并入）**读取时归一**（见 LEGACY_STATUS_ALIASES），
+ *   新写入一律用新值 —— 老文件不用改也能正常显示，任一次写回即自愈。
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 import { atomicWrite, getTaskDir, logActivity } from './index'
 
-export type DecisionStatus = '作数' | '已作废' | '已并入'
+export type DecisionStatus = '有效' | '已撤销' | '已合并'
 
-export const DECISION_STATUSES: DecisionStatus[] = ['作数', '已作废', '已并入']
+export const DECISION_STATUSES: DecisionStatus[] = ['有效', '已撤销', '已合并']
+
+/** 老值 → 新值。**只读兼容**，不写回；与 Python core._normalize_decision_status 逐字一致。 */
+export const LEGACY_STATUS_ALIASES: Record<string, DecisionStatus> = {
+  作数: '有效',
+  已作废: '已撤销',
+  已并入: '已合并',
+}
+
+/** 归一三态：新值原样、老值翻译、空值给默认、其它非法值原样（交给上层校验报错）。 */
+export function normalizeDecisionStatus(raw: string | undefined | null): DecisionStatus {
+  const s = String(raw ?? '').trim()
+  if (!s) return '有效'
+  if ((DECISION_STATUSES as string[]).includes(s)) return s as DecisionStatus
+  return LEGACY_STATUS_ALIASES[s] || (s as DecisionStatus)
+}
 
 export interface Decision {
   id: string
@@ -24,7 +43,7 @@ export interface Decision {
   更新: string
 }
 
-const DEF_HEADER = '# 拍板记录（决策卡）\n\n> 群里拍的板都在这——谁定的、哪天定的、还作不作数。状态：作数 / 已作废 / 已并入。\n'
+const DEF_HEADER = '# 决策记录（决策卡）\n\n> 定下来的事都在这——谁定的、哪天定的、还作不作数。状态：有效 / 已撤销 / 已合并。\n'
 
 function decisionsPath(): string {
   return path.join(getTaskDir(), 'decisions.md')
@@ -50,7 +69,7 @@ export function loadDecisions(): Decision[] {
       if (cur) items.push(cur)
       cur = {
         id: m[1], 内容: m[2].trim(), 日期: '',
-        状态: '作数', 项目: '', 出处: '', 备注: '', 更新: '',
+        状态: '有效', 项目: '', 出处: '', 备注: '', 更新: '',
       }
       lastKv = null
       continue
@@ -58,7 +77,8 @@ export function loadDecisions(): Decision[] {
     if (!cur) continue
     const kv = /^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$/.exec(line)
     if (kv) {
-      ;(cur as any)[kv[1]] = kv[2].trim()
+      // 状态列过一层归一：老值（作数/已作废/已并入）当场翻成新值，坏值原样留给上层
+      ;(cur as any)[kv[1]] = kv[1] === '状态' ? normalizeDecisionStatus(kv[2]) : kv[2].trim()
       lastKv = kv[1]
       continue
     }
@@ -75,7 +95,7 @@ function renderDecisions(items: Decision[]): string {
   for (const it of items) {
     lines.push(`## ${it.id} ${it.内容 || ''}`)
     lines.push(`- 日期: ${it.日期 || ''}`)
-    lines.push(`- 状态: ${it.状态 || '作数'}`)
+    lines.push(`- 状态: ${it.状态 || '有效'}`)
     if (it.项目) lines.push(`- 项目: ${it.项目}`)
     lines.push(`- 出处: ${it.出处 || ''}`)
     if (it.备注) lines.push(`- 备注: ${it.备注}`)
@@ -108,13 +128,14 @@ export interface DecisionInput {
   备注?: string
 }
 
-/** 记一条拍板。同内容+同日期幂等（返回已有 id 标记 exists）。 */
+/** 记一条决策。同内容+同日期幂等（返回已有 id 标记 exists）。 */
 export function addDecision(input: DecisionInput): { ok: true; id: string; exists?: boolean } | { ok: false; error: string } {
   const content = (input.内容 || '').trim()
-  if (!content) return { ok: false, error: '拍板内容为空' }
-  const status = input.状态 || '作数'
+  if (!content) return { ok: false, error: '决策内容为空' }
+  // 入参状态过归一：老值/空值都能进（外部灌料常带老写法），非法值再拦
+  const status = normalizeDecisionStatus(input.状态)
   if (!DECISION_STATUSES.includes(status)) {
-    return { ok: false, error: `状态必须是 ${DECISION_STATUSES.join('/')}，收到：${status}` }
+    return { ok: false, error: `状态必须是 ${DECISION_STATUSES.join('/')}，收到：${input.状态}` }
   }
   const date = (input.日期 || new Date().toISOString().slice(0, 10)).trim()
   const items = loadDecisions()
@@ -135,25 +156,26 @@ export function addDecision(input: DecisionInput): { ok: true; id: string; exist
   return { ok: true, id }
 }
 
-/** 改拍板状态；备注非空追加（不覆盖）。 */
+/** 改决策状态；备注非空追加（不覆盖）。 */
 export function setDecisionStatus(
   id: string,
   status: DecisionStatus,
   note?: string
 ): { ok: true; message: string } | { ok: false; error: string } {
-  if (!DECISION_STATUSES.includes(status)) {
+  const next = normalizeDecisionStatus(status)
+  if (!DECISION_STATUSES.includes(next)) {
     return { ok: false, error: `状态必须是 ${DECISION_STATUSES.join('/')}，收到：${status}` }
   }
   const items = loadDecisions()
   for (const it of items) {
     if (it.id === id) {
-      it.状态 = status
+      it.状态 = next
       const extra = (note || '').trim()
       if (extra) it.备注 = (it.备注 ? it.备注 + '\n' : '') + extra
       it.更新 = String(Math.floor(Date.now() / 1000))
       saveDecisions(items)
-      logActivity(id, 'decision-set', `${status}${extra ? '：' + extra.slice(0, 60) : ''}`)
-      return { ok: true, message: `${id} → ${status}` }
+      logActivity(id, 'decision-set', `${next}${extra ? '：' + extra.slice(0, 60) : ''}`)
+      return { ok: true, message: `${id} → ${next}` }
     }
   }
   return { ok: false, error: `决策卡 ${id} 不存在` }

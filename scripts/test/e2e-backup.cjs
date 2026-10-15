@@ -446,7 +446,11 @@ async function main() {
   //   同步进 `desktop/public/` 供打包）。指错路径的后果不是"少测一点"，是**这 5 条独立校验断言
   //   全部 ENOENT 失败、长期挂红**（红着没人看 = 等于没有这层保护），而备份的"独立可校验"正是
   //   用户最在意的那条安全属性（恢复前 sha256 + 结构双校验）。
-  const TOOL = path.join(__dirname, '..', 'scripts', 'fangcun-restore.py')
+  //   ⚠ 2026-10-15 二次修正：`__dirname` 是 `scripts/test`，再拼 `'..','scripts'` 得到的是
+  //   `scripts/scripts/fangcun-restore.py` —— **仍然是错的**（报错原文：can't open file
+  //   '...\\scripts\\scripts\\fangcun-restore.py'）。从 `scripts/test` 回一层就是 `scripts/`，
+  //   所以正确写法是 `'..', 'fangcun-restore.py'`。
+  const TOOL = path.join(__dirname, '..', 'fangcun-restore.py')
   const pyVerify = spawnSync(PY, [TOOL, 'verify', exp.zipPath], { encoding: 'utf-8' })
   check('独立工具校验 TS 生成的包 → PASS', pyVerify.status === 0, (pyVerify.stdout || '') + (pyVerify.stderr || ''))
   const pyList = spawnSync(PY, [TOOL, 'list', exp.zipPath], { encoding: 'utf-8' })

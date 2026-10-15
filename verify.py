@@ -1568,6 +1568,121 @@ try:
 finally:
     teg.TASK_DIR = _old_taskdir28
 
+# ── 导入防呆（2026-10-14 开发清单第 6 条）────────────────────────────────────
+# 老行为：字段名写错（手搓文件时最容易犯）→ api_new 白名单默默丢掉 → 落一张
+# 「(无标题)」的空卡，**还回 ok:True**。判据：报错要点名、且**一个文件都不许写**。
+_gdir = os.path.join(tmpdir, "import-guard", "task-data")
+os.makedirs(_gdir, exist_ok=True)
+_old_taskdir29 = teg.TASK_DIR
+
+
+def _gfiles():
+    return sorted(f for f in os.listdir(_gdir) if f.endswith(".md"))
+
+
+try:
+    teg.TASK_DIR = _gdir
+    _g1 = teg.api_import_tasks([{"题目": "字段名写错了", "项目": ["fangcun-base"]}])
+    check("★★ 导入防呆：不认识的字段名被拦下（老实现静默丢掉它并报成功）", _g1.get("ok") is False, str(_g1)[:140])
+    _gmsg = str(_g1.get("msg", ""))
+    check("★★ 导入防呆：报错点名「哪个字段 + 第几条」",
+          "题目" in _gmsg and "第 1 条" in _gmsg, _gmsg[:140])
+    check("★★ 导入防呆：一个文件都没写（先全量体检、后落盘）", _gfiles() == [], str(_gfiles()))
+
+    _g2 = teg.api_import_tasks([{"项目": ["fangcun-base"]}])
+    check("★ 导入防呆：没有「标题」被拦下（不再落 (无标题) 空壳）",
+          _g2.get("ok") is False and "标题" in str(_g2.get("msg", "")), str(_g2.get("msg"))[:140])
+
+    _g3 = teg.api_import_tasks([{"标题": "这条是好的"}, {"题目": "这条字段名错了"}])
+    check("★★ 导入防呆：半合法批次整体拒绝（不留半截结果，否则用户以为导全了）",
+          _g3.get("ok") is False and _gfiles() == [], f"ok={_g3.get('ok')} files={_gfiles()}")
+
+    _g4 = teg.api_import_tasks([{"标题": "合法的一条", "项目": ["fangcun-base"]}])
+    check("★ 导入防呆：合法的一条照样能进（防呆没把正常路堵死）",
+          _g4.get("ok") is True and len(_gfiles()) == 1, f"{_g4} files={_gfiles()}")
+finally:
+    teg.TASK_DIR = _old_taskdir29
+
+
+# ── archify 卡导入（中长期清单第 9 条，2026-10-14）─────────────────────────
+# 判据三条：① 原卡**原样**进「架构」字段（标量 JSON 字符串，能 json.loads 回原对象）
+#          ② 摘要落在 `## 方案` 段内（**不许**用 `^## ` 小标题 —— 会被 _split_body 挤成 _extra，
+#             实测第一版就是这么写的：摘要跑到「结果记录」后面，方案段只剩一个空 `- [ ]`）
+#          ③ 不合格**整批拒绝、一个文件都不写**
+_aroot = os.path.join(tmpdir, "archify")
+_adir = os.path.join(_aroot, "task-data")
+os.makedirs(_adir, exist_ok=True)
+_old_taskdir30 = teg.TASK_DIR
+
+
+def _afiles():
+    return sorted(f for f in os.listdir(_adir) if f.endswith(".md"))
+
+
+def _acard(**over):
+    card = {
+        "schema_version": 1,
+        "diagram_type": "architecture",
+        "meta": {"title": "验证用架构图", "views": [{"id": "v1", "label": "主路径"}]},
+        "components": [{"id": "a", "label": "组件甲"}, {"id": "b", "label": "组件乙"}],
+        "connections": [{"from": "a", "to": "b", "label": "调用"}],
+    }
+    card.update(over)
+    return card
+
+
+def _awrite(d, name="_in.json"):
+    p = os.path.join(_aroot, name)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False)
+    return p
+
+
+try:
+    teg.TASK_DIR = _adir
+    _r1 = teg.archify_import(_awrite(_acard()))
+    check("★ archify：合法卡导入成功", _r1[0] is True and len(_afiles()) == 1, str(_r1)[:140])
+    _card1 = teg.parse_task(os.path.join(_adir, _afiles()[0])) if _afiles() else {}
+    _jg = _card1.get("架构")
+    check("★★ archify：原卡存成**标量 JSON 字符串**（禁 YAML 嵌套映射）",
+          isinstance(_jg, str), type(_jg).__name__)
+    check("★★ archify：原卡原样可读回（逐键一致，零丢失）",
+          isinstance(_jg, str) and json.loads(_jg) == _acard(), "json.loads 后与原卡不同")
+    check("★ archify：来源如实写进「来源」字段（不伪造）",
+          _card1.get("来源") == "archify", str(_card1.get("来源")))
+    _plan1 = _card1.get("方案") or []
+    check("★★ archify：摘要落在 `## 方案` 段内，且 _extra 为空（用 `## ` 小标题会被挤出去）",
+          _card1.get("_extra", "") == "" and len(_plan1) >= 5,
+          f"extra={len(_card1.get('_extra', ''))} 方案行数={len(_plan1)}")
+    check("★ archify：摘要里真看得见节点与连线（不是只存了一坨 JSON）",
+          any("组件甲" in x for x in _plan1) and any("→" in x for x in _plan1), str(_plan1[:3])[:120])
+    check("★ archify：附言写明来源与「只导入、不分发」",
+          "archify" in str(_card1.get("附言", "")) and "不分发" in str(_card1.get("附言", "")),
+          str(_card1.get("附言", ""))[:100])
+
+    # 反例四连：不合格**整批拒绝、零写入**
+    for _label, _bad in (
+        ("缺 diagram_type", {k: v for k, v in _acard().items() if k != "diagram_type"}),
+        ("meta.title 为空", _acard(meta={"title": ""})),
+        ("图型不认识（pipeline）", _acard(diagram_type="pipeline")),
+        ("没有任何内容数组", _acard(components=[], connections=[])),
+    ):
+        _n0 = len(_afiles())
+        _rb = teg.archify_import(_awrite(_bad))
+        check(f"★★ archify 反例：{_label} → 拒绝且零写入",
+              _rb[0] is False and len(_afiles()) == _n0,
+              str(_rb[1].get("error", ""))[:110])
+    _badp = os.path.join(_aroot, "_bad.json")
+    with open(_badp, "w", encoding="utf-8") as _f:
+        _f.write("{ 这不是合法 json ")
+    _rb = teg.archify_import(_badp)
+    check("★★ archify 反例：坏 JSON → 拒绝并报出行列号",
+          _rb[0] is False and "第" in str(_rb[1].get("error", "")), str(_rb[1])[:110])
+    check("★★ archify：跑完这一组，目录里仍**只有**那一张合法卡（反例一个都没落盘）",
+          len(_afiles()) == 1, str(_afiles()))
+finally:
+    teg.TASK_DIR = _old_taskdir30
+
 
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
