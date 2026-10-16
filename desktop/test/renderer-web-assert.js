@@ -2231,6 +2231,83 @@
       return waitFor(() => !$('#log-edit-modal'), 3000, '取消关窗')
     })())
 
+    // ══ 完成/归档弹窗不再丢改动（2026-10-17 用户报障「点完成后保存按钮会被替换，输入一万字也会全丢」）══
+    // 病灶：完成/归档弹窗表单照常可编辑，但主按钮只调 logsComplete/logsArchive —— 字段零回写，
+    // 改动静默蒸发。修法三层：①主按钮 dirty 时叫「保存并完成/保存并归档」，点了先 logsUpdate
+    // 全字段再走状态；②「保存修改」次按钮只存内容不碰状态；③回写失败中止不标完成。
+    window.__fcTest.setLogs([
+      { id: 'log-fin-1', title: '完成弹窗保存样例', content: '原始正文', nextSteps: '原下一步', status: 'active', project: 'demo', created: '2026-10-16T00:00:00.000Z' },
+      { id: 'log-fin-2', title: '归档弹窗保存样例', content: '原始正文', status: 'active', project: 'demo', created: '2026-10-16T01:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    const btnOnCard = (title, txt) => {
+      const card = $$('.log-card').find(c => (((c.querySelector('.log-card-title') || {}).textContent) || '').indexOf(title) >= 0)
+      if (!card) return null
+      return Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button'))
+        .find(b => (b.textContent || '').trim() === txt) || null
+    }
+    check('打开完成弹窗（保存修复断言前置）', await (async () => {
+      const b = btnOnCard('完成弹窗保存样例', '完成')
+      if (!b) return false
+      b.click()
+      return waitFor(() => !!$('#log-edit-modal'), 3000, '完成弹窗')
+    })())
+    check('★ 完成弹窗主按钮未改动时叫「确认完成」（不冒充保存）', (() => {
+      const b = $$('#log-edit-modal .acts button.pri')[0]
+      return !!b && (b.textContent || '').trim() === '确认完成'
+    })(), (($('#log-edit-modal .acts button.pri') || {}).textContent || '(没读到)').trim())
+    check('★★ 改正文 → 主按钮 dirty 感知变「保存并完成」（字面即承诺先落盘）', await (async () => {
+      const ta = $('#log-edit-modal textarea[placeholder="执行内容..."]')
+      if (!ta) return false
+      ta.value = '一万字的补充内容'
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      return waitFor(() => (($$('#log-edit-modal .acts button.pri')[0] || {}).textContent || '').trim() === '保存并完成', 3000, 'dirty 文案')
+    })())
+    const finUpdBefore = window.__fcTest.callCount('logsUpdate')
+    const finCmpBefore = window.__fcTest.callCount('logsComplete')
+    const finPri = $$('#log-edit-modal .acts button.pri')[0]
+    if (finPri) finPri.click()
+    check('★★ 「保存并完成」= 先 logsUpdate 全字段（一万字进 updates）再 logsComplete', await (async () => {
+      const got = await waitFor(() => window.__fcTest.callCount('logsUpdate') > finUpdBefore
+        && window.__fcTest.callCount('logsComplete') > finCmpBefore, 4000, 'update→complete')
+      const ups = window.__fcTest.calls().filter(c => c.name === 'logsUpdate')
+      const cmp = window.__fcTest.calls().filter(c => c.name === 'logsComplete')
+      const up = (ups[ups.length - 1] || {}).args || []
+      return got && up[0] === 'log-fin-1'
+        && (up[1] || {}).content === '一万字的补充内容'
+        && (up[1] || {}).title === '完成弹窗保存样例'
+        && ((cmp[cmp.length - 1] || {}).args || [])[0] === 'log-fin-1'
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsUpdate').pop() || {}).args))
+    check('★ 完成后弹窗关闭（老路径不变）', await waitFor(() => !$('#log-edit-modal'), 3000, '关窗'))
+    check('打开归档弹窗（同病验证前置）', await (async () => {
+      const b = btnOnCard('归档弹窗保存样例', '归档')
+      if (!b) return false
+      b.click()
+      return waitFor(() => !!$('#log-edit-modal'), 3000, '归档弹窗')
+    })())
+    check('★ 归档弹窗主按钮未改动叫「确认归档」；「保存修改」次按钮在场', (() => {
+      const pri = $$('#log-edit-modal .acts button.pri')[0]
+      const keep = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '保存修改')
+      return !!pri && (pri.textContent || '').trim() === '确认归档' && !!keep
+    })())
+    const arcUpdBefore = window.__fcTest.callCount('logsUpdate')
+    const arcCmpBefore = window.__fcTest.callCount('logsArchive')
+    check('★★ 归档弹窗点「保存修改」→ 只送 logsUpdate、不碰 logsArchive（状态未变出口）', await (async () => {
+      const ta = $('#log-edit-modal textarea[placeholder="执行内容..."]')
+      if (!ta) return false
+      ta.value = '只想存，不想归档'
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      const keep = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '保存修改')
+      if (!keep) return false
+      keep.click()
+      return waitFor(() => window.__fcTest.callCount('logsUpdate') > arcUpdBefore
+        && window.__fcTest.callCount('logsArchive') === arcCmpBefore, 4000, '只存不归档')
+    })())
+    const arcUpd = (window.__fcTest.calls().filter(c => c.name === 'logsUpdate').pop() || {}).args || []
+    check('★★ 「保存修改」的内容真进了 updates（content=只想存，不想归档）',
+      arcUpd[1] && arcUpd[1].content === '只想存，不想归档', JSON.stringify(arcUpd))
+    check('★ 「保存修改」后弹窗关闭、日志仍在待处理区（没被顺手完成/归档）', await waitFor(() => !$('#log-edit-modal'), 3000, '关窗'))
+
     // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条「日志多选更智能」）══════
     // 已有多选底座（☑ 多选 + 全选/完成/归档/彻底删除），补的是**批量改优先级**：
     // 改元数据可逆 → 不弹确认、做完不退出多选；非「待处理」后端拒改 → 跳过如实报。

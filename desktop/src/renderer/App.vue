@@ -2788,7 +2788,12 @@
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
-          <button class="pri" @click="saveLogEdit">{{ logCompleting ? '确认完成' : logArchiveMode ? '确认归档' : logEdit_.id ? '保存' : '创建' }}</button>
+          <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补「保存修改」：
+               只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在「确认完成」和「丢弃」里二选一。 -->
+          <button v-if="logCompleting || logArchiveMode" class="ghost" title="只保存表单里改的内容，不改变完成/归档状态" @click="saveLogFieldsOnly">保存修改</button>
+          <!-- 主按钮 dirty 感知（2026-10-17）：表单改过了就别叫「确认完成」，叫「保存并完成」——
+               字面即承诺：点了它内容会先落盘（回写在 saveLogEdit 完成分支）。 -->
+          <button class="pri" @click="saveLogEdit">{{ logCompleting ? (logEditDirty() ? '保存并完成' : '确认完成') : logArchiveMode ? (logEditDirty() ? '保存并归档' : '确认归档') : logEdit_.id ? '保存' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -10206,6 +10211,25 @@ function openLogForTask(taskId: string) {
   if (t?.title) logEdit_.value.title = `${t.title} — 执行记录`
 }
 
+/** 日志编辑弹窗 → logsUpdate 的全字段 updates。
+ *  三处共用同一份字段集（2026-10-17 收拢）：普通编辑「保存」、完成/归档前的回写、
+ *  「保存修改」次按钮 —— 字段集漂移一处就是一次"改了没存上"，必须单一出处。 */
+function logFormUpdates(e: any) {
+  return {
+    title: e.title,
+    content: e.content,
+    nextSteps: e.nextSteps,
+    project: e.project,
+    taskIds: normalizeLogTaskIds(e),
+    sessionId: e.sessionId || '',
+    agentName: e.agentName || '',
+    prevAgentName: e.prevAgentName || '',
+    logDate: e.logDate || '',
+    // 卡 001：优先级一并回写（此前编辑框压根没这个字段）
+    priority: e.priority || '',
+  }
+}
+
 async function saveLogEdit() {
   const e = logEdit_.value
   if (!e.title?.trim()) {
@@ -10213,6 +10237,19 @@ async function saveLogEdit() {
     return
   }
   try {
+    // 2026-10-17 用户报障（「点完成后保存按钮会被替换，输入一万字也会全丢」）：
+    // 完成/归档弹窗的表单照常可编辑，但主按钮换成「确认完成/确认归档」后只调
+    // logsComplete/logsArchive —— 弹窗里改的每一个字静默蒸发，成功提示还盖住了丢失。
+    // 修法：完成/归档**先全量回写字段再走状态**——「确认完成」不能等于丢改动；
+    // 回写失败就中止（宁可没完成/归档，不能没内容），改动仍留在弹窗里可再存。
+    // 此时日志状态还是 active（完成/归档入口只对未完成的日志出现），logsUpdate 不会被拒。
+    if ((logCompleting.value || logArchiveMode.value) && e.id) {
+      const up: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
+      if (up && !up.ok) {
+        showToast(`内容更新失败：${up.error || '未知原因'} —— ${logCompleting.value ? '完成' : '归档'}动作已中止，改动还在弹窗里`, 'error')
+        return
+      }
+    }
     if (logCompleting.value) {
       // ⚠ 原来是 `parseInt(...) || 7` —— 用户填 0（永不清理）会被 `||` 吃成 7，
       //    「0=永不」这个标注过的选项根本落不了地（2026-09-29 用户第 6 条顺手修）。
@@ -10237,19 +10274,8 @@ async function saveLogEdit() {
       // 2026-09-22：此前只回写 title/content/nextSteps —— 在界面上改了「项目」或
       // 「关联任务」点保存会提示"已更新"，但字段被静默丢弃（用户报障「改不了项目」）。
       // 2026-09-23：补上 sessionId/agentName/logDate 三个新字段。
-      const r: any = await window.tegula.logsUpdate(e.id, {
-        title: e.title,
-        content: e.content,
-        nextSteps: e.nextSteps,
-        project: e.project,
-        taskIds: normalizeLogTaskIds(e),
-        sessionId: e.sessionId || '',
-        agentName: e.agentName || '',
-        prevAgentName: e.prevAgentName || '',
-        logDate: e.logDate || '',
-        // 卡 001：优先级一并回写（此前编辑框压根没这个字段）
-        priority: e.priority || '',
-      })
+      // 2026-10-17：字段集收拢进 logFormUpdates()（与完成/归档回写、「保存修改」同一份）。
+      const r: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
       if (r && !r.ok) {
         showToast(`更新失败：${r.error || '未知原因'}`, 'error')
         return
@@ -10273,6 +10299,31 @@ async function saveLogEdit() {
     logArchiveMode.value = false
     logSnapFields = null
     logDiscard_.value = false
+    await loadLogs()
+  } catch (err: any) {
+    showToast(`保存失败: ${err.message || err}`, 'error')
+  }
+}
+
+/** 完成/归档弹窗里的「保存修改」：只回写表单字段，不碰状态（2026-10-17 用户报障补的出口）。
+ *  场景：误点了「完成」进了这张弹窗、内容写了一大堆，其实并不想完成 —— 此前唯一的
+ *  确认按钮就是「确认完成」（且不存字段），「取消」只有丢弃一条路，内容必丢其一。
+ *  与 saveLogEdit 完成分支的回写同一份字段集（logFormUpdates）；成功即关窗（与「保存」口径一致）。 */
+async function saveLogFieldsOnly() {
+  const e = logEdit_.value
+  if (!e || !e.id) return
+  if (!e.title?.trim()) {
+    showToast('标题不能为空', 'error')
+    return
+  }
+  try {
+    const r: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
+    if (r && !r.ok) {
+      showToast(`保存失败：${r.error || '未知原因'}`, 'error')
+      return
+    }
+    showToast('已保存修改（状态未变）', 'success')
+    closeLogNow()
     await loadLogs()
   } catch (err: any) {
     showToast(`保存失败: ${err.message || err}`, 'error')
