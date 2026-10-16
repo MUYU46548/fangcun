@@ -65,10 +65,13 @@
           @click="goHome">⌂</button>
         <button class="ghost nav ico" :title="'帮助手册：每个页签干什么、筛选语法、快捷键、备份恢复'"
           @click="goHelp">?</button>
+        <!-- 2026-10-16 用户第 9 条：「同步的时候整个方块都在旋转」——
+             真因是动画加在 button 本身（.ico.syncing），边框与底色跟着一起转。
+             现在 ⟳ 单独包一层 span，只有**字符**转，按钮本体不动。 -->
         <button class="ghost nav ico" :class="{ syncing: syncBusy }"
           :disabled="syncBusy"
           :title="syncTooltip"
-          @click="runSync">⟳</button>
+          @click="runSync"><span class="ico-glyph">⟳</span></button>
       </span>
       <span v-if="parseErrors.length" class="parse-warn" :title="parseErrors.join('\n')" @click="showParseErrors">
         ⚠ {{ parseErrors.length }} 个文件无法解析
@@ -1198,44 +1201,23 @@
       <div class="services-header">
         <h3>服务 / 端口</h3>
         <span v-if="!servicesLoading" class="services-stats">
-          应用 {{ servicesApps.length }} · 登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }}
+          登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }}
         </span>
         <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前清单复制成纯文本 —— 方便直接贴给 Hermes 分析">📋 复制快照</button>
         <button class="skills-btn" @click="loadServices()">刷新</button>
       </div>
       <div class="services-notebar">
         只读监控：这里只告诉你在不在、谁占着，<b>不会结束任何进程</b>。
-        <b>端口不用你记、也不用你填</b> —— 启动一个应用时方寸会自己前后各扫一次监听表，
-        把<b>它新开了哪些端口</b>记在它名下；没被任何应用认领的，列在下面「方寸扫到的」里。
+        这里是<b>端口</b>的地盘（谁在监听、谁占着）；<b>启动应用请去「启动台」页</b> ——
+        那是快捷入口，跟端口没有关系。方寸自己扫监听表，把没人认领的列在下面，你点「＋ 登记」只是给它起个名字。
       </div>
 
-      <!-- 启动台应用（2026-10-15 新模型）：入口是**应用**，不是端口。
-           「▶ 启动」点了就拉起 + 观测，「观测到的端口」是它的**结果**（历史并集，正在监听的标绿）。 -->
-      <div v-if="servicesApps.length" class="svc-group svc-group-apps">
-        <div class="svc-group-title">启动台应用（{{ servicesApps.length }}）<span class="svc-group-hint">点「▶ 启动」＝ 拉起它，并自动记下它开了哪些端口</span></div>
-        <div class="services-list">
-          <div v-for="a in servicesApps" :key="'app-' + a.id" class="svc-item">
-            <div class="svc-main">
-              <div class="svc-line1">
-                <span class="svc-name">{{ a.name }}</span>
-                <span v-if="a.listeningPorts.length" class="svc-state on">在用 {{ a.listeningPorts.map(p => ':' + p).join(' ') }}</span>
-                <span v-else-if="a.observedPorts.length" class="svc-state off">观测到 {{ a.observedPorts.map(p => ':' + p).join(' ') }}（现未监听）</span>
-                <span v-else class="svc-state off">还没观测到端口</span>
-              </div>
-              <div class="svc-line2">
-                <span>启动命令：{{ describeCmd(a.cmd) }}</span>
-                <span v-if="a.description">· {{ a.description }}</span>
-              </div>
-              <div v-if="a.legacyPortNote" class="svc-diag">⚠ {{ a.legacyPortNote }}</div>
-            </div>
-            <div class="svc-actions">
-              <button class="skills-btn primary" :disabled="serviceStartingApp === a.id"
-                      @click="startAppRow(a)"
-                      :title="'按启动台里登记的命令拉起「' + a.name + '」，拉起后自动观测它开了哪些端口（方寸只启动启动台登记过的应用，绝不杀进程）'">{{ serviceStartingApp === a.id ? '启动中…' : '▶ 启动' }}</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- ⚠ 2026-10-16 用户第 2 条：原来这里有一块「启动台应用（▶ 启动）」分区 —— 已整块删掉。
+           用户原话：「启动台还是被端口这种东西束缚住了。万一用户使用的某个应用根本没有端口呢？
+           这玩意本质是类似 steam 启动非 steam 游戏的快捷启动入口，方寸本身不提供服务，
+           只提供集成快捷入口。」
+           → 应用列表搬回「启动台」页（那才是它的家），启动也不再挂着"观测端口"的使命；
+             本页回归纯粹的端口监控：只在监听、只读、不杀进程。 -->
 
       <div v-if="servicesError" class="skills-error">{{ servicesError }}</div>
       <div v-else-if="servicesLoading" class="empty-state"><div class="empty-text">探测中…</div></div>
@@ -1522,6 +1504,33 @@
             删除只移入 <code>task-data/.trash/</code>，回收站里能还原；
             归档只是从主视图挪走；批量操作前都有确认。
             <b>没有"一键清空"这类按钮</b>，破坏性操作一律先快照。
+          </p>
+        </section>
+
+        <!-- 2026-10-16（暮雨第 1 条）：「你说在方寸里真跑一遍 AI 起草，我根本找不到入口在哪里，
+             也没找到配置模型的地方」。入口与配置一直都在，缺的是**一条把它们说出来的路径** ——
+             这一节就是那条路径，写清两步怎么走、结果落哪、钱怎么算。 -->
+        <section class="help-sec">
+          <h4>七、AI 规划（可选；要花钱，先看清）</h4>
+          <p>
+            让方寸替你起草任务卡或项目说明 —— 它用的是<b>你自己那份模型 API</b>（BYOK）：
+            方寸不预置任何端点、不代理任何模型服务、也不代收费用。
+          </p>
+          <table class="help-table">
+            <tr><th>第 1 步 · 配通道</th>
+              <td>设置（⚙）→ 左侧「Agent」→「✨ 模型通道」：填 Base URL、模型名、API Key，
+                点「测试连接」确认通了。密钥只存本机、回显只有掩码。</td></tr>
+            <tr><th>第 2 步 · 用它</th>
+              <td>「项目」页点开一个项目 → 右侧「✨ AI 规划」→ 写一句话目标 →
+                点「✨ 拆成任务卡草稿」（或「📄 起草项目说明」）。没配通道时弹窗里会当场指路。</td></tr>
+            <tr><th>结果落哪</th>
+              <td>每次都落成<b>「待审批」卡</b> —— 你过目、改完、点头之后才进待办。
+                AI 不能背着你往方寸里塞东西。</td></tr>
+          </table>
+          <p class="help-tip">
+            涉及花钱：界面上的 token 用量与花销<b>只是估算、不是计费依据</b>；
+            调用费用由你与模型服务方按其实时价格结算，<b>下单前请以服务方官网实时价为准</b>。
+            完整条款在 设置 → 诊断 →「⚖ 免责与知情声明」里。
           </p>
         </section>
       </div>
@@ -1952,9 +1961,15 @@
           <button class="ghost" @click="refreshApps">⟳ 刷新</button>
         </div>
       </div>
-      <!-- 2026-10-15 用户回执"现在启动台很不好用" → 点卡片=启动（符合"点一下就开"的心智），
-           编辑挪到卡片右侧独立的 ✏️ 按钮上（此前点正文进编辑、启动要单点小按钮，正好反着）。 -->
-      <div class="lp-grid">
+      <!-- 2026-10-16 用户第 2 条：这里是**快捷入口**，不是服务管理。
+           用户原话给的类比就是「steam 启动非 steam 游戏」——你登记一个你常用的东西，
+           点一下就开；方寸不提供它、不监控它、更不关心它内部开了什么端口。
+           ⚠ 所以卡片上**没有端口那一行**：那是「服务/端口」页的事，见那边。 -->
+      <div class="lp-note">
+        这就是快捷入口：登记一个你常用的应用或命令，<b>点一下就开</b>。
+        方寸只管把它拉起来，不管它内部怎么跑。
+      </div>
+      <div class="lp-grid" v-if="launchpadApps.length">
         <div
           v-for="app in launchpadApps"
           :key="app.id"
@@ -1966,14 +1981,17 @@
           <div class="lp-info">
             <div class="lp-name">{{ app.name }}</div>
             <div class="lp-desc">{{ app.description || app.path }}</div>
-            <!-- 观测到的端口（2026-10-15）：这是**结果**不是配置 —— 用户不填，方寸启动时自己记 -->
-            <div v-if="appObservedText(app)" class="lp-ports" :title="appObservedText(app)">🔌 {{ appObservedText(app) }}</div>
           </div>
           <div class="lp-actions">
-            <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 端口）" @click.stop="openEditApp(app)">✏️ 编辑</button>
+            <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="openEditApp(app)">✏️ 编辑</button>
             <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="openAppFolder(app)">📁</button>
           </div>
         </div>
+      </div>
+      <div class="empty-state" v-else>
+        <div class="empty-icon">🚀</div>
+        <div class="empty-text">还没有登记任何应用 —— 点右上角「+ 添加应用」，
+          填上名字和一个程序/脚本的路径就行（想做启动台里的那个"快捷方式"）。</div>
       </div>
     </main>
 
@@ -2967,9 +2985,16 @@
         <label>想干什么（一句话目标，给「拆成任务卡」用）</label>
         <input v-model="aiPlanForm.goal" placeholder="例：把 0.2.8 发版前的阻塞清空"
                @keyup.enter="runPlanToDraft()" :disabled="aiPlanBusy" />
+        <!-- 2026-10-16（暮雨第 1 条）：他说「根本找不到入口、也没找到配置模型的地方」——
+             入口其实一直在项目详情里，配置在设置页，只是**没有一条线把它们串起来**。
+             这里补的就是这条线：没配端点时当场指路，一键送到设置页那一格。 -->
+        <div class="hint hint-warn" v-if="!llmCfg.baseUrl">
+          ⚠ 还没配模型通道 —— 这个动作要用你自己的一份模型 API（BYOK，方寸不预置任何端点、不代收费用）。
+          <button class="ghost llm-goto" :disabled="aiPlanBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
+        </div>
         <div class="hint">
           结果落成<b>「待审批」卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
-          卡带 <code>ai-planning</code> 来源标记可审计；未配置模型时会提示去设置页填通道。
+          卡带 <code>ai-planning</code> 来源标记可审计。
         </div>
         <div class="acts">
           <button class="ghost" :disabled="aiPlanBusy" @click="closeAiPlan()">取消</button>
@@ -3003,6 +3028,13 @@
         </div>
       </div>
     </div>
+
+    <!-- 免责与知情声明（2026-10-16 暮雨第 1 条）。
+         ⚠ 放在视图 `v-if/v-else-if` 链**之外**（链中间插一个带 v-if 的弹窗，会让它后面的
+           视图整页不渲染 —— 这条踩过）。强制模式由组件自己锁死：不给遮罩关闭、拦 ESC、
+           focus trap；这里只负责 open / mode / ack 三件事。 -->
+    <DisclaimerDialog :open="disclaimerOpen" :mode="disclaimerMode" :acked-at="disclaimerAckedAt"
+                      @close="disclaimerOpen = false" @ack="onDisclaimerAck" />
 
     <!-- ═══════════ Notification Center（通知中心，原型规格移植） ═══════════ -->
     <div v-if="ncOpen" class="nc-wrap" @mousedown.self="closePanel">
@@ -3135,6 +3167,13 @@
           <div class="sect-btns">
             <button class="ghost" @click="changeDataDir">修改目录…</button>
             <button class="ghost" @click="openDataDir">打开目录</button>
+          </div>
+        </div>
+        <div class="sect" v-show="settingsTab === 'diag'">
+          <h4>⚖ 免责与知情声明</h4>
+          <div class="hint">方寸怎么用、你的数据在哪、AI 功能会不会花钱、备份能不能指望 —— 都在这份里说清楚。首次使用前的强制确认也是它；改过条款后下次启动会再弹一次。</div>
+          <div class="sect-btns">
+            <button class="ghost" @click="openDisclaimer('view')">查看完整声明</button>
           </div>
         </div>
         <div class="sect" v-show="settingsTab === 'diag'">
@@ -3666,8 +3705,9 @@ import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 // 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
-// 启动台登记 × 端口 的自洽诊断（2026-10-15，纯函数：见 shared/launchpadDiag.ts 的来龙去脉）
-import { describeLaunchCommand, explainStartObserved } from '../shared/launchpadDiag'
+// ⚠ 2026-10-16：`describeLaunchCommand` / `explainStartObserved` 的导入已随
+//   「服务页应用分区 + 启动台端口行」一起删掉（那两处是唯一调用方）。
+//   纯函数本体仍在 `shared/launchpadDiag.ts`（`e2e-launchpad-diag` 仍在测）。
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue } from '../shared/time'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
@@ -3684,6 +3724,11 @@ import DecisionBoard from './components/DecisionBoard.vue'
 // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：换掉手搓的 `.ctx-backdrop` + `.ctx-menu` + 指针坐标定位，
 // 改用 reka-ui 的 ContextMenu 原语（自带 flip/shift 防越界、Esc、方向键、role=menu、焦点归还）。
 import TaskCardMenu from './components/TaskCardMenu.vue'
+// 免责与知情声明（2026-10-16 暮雨第 1 条：「希望你还记得要学绒花墨坊写那些需要用户
+// 首次强制同意确认的免责声明，主要是涉及到钱是非多」）—— 文案在 ./disclaimer.ts（单一事实源），
+// 弹窗本体在 components/ 下（那儿才准用 utilities）。
+import DisclaimerDialog from './components/DisclaimerDialog.vue'
+import { hasAckedDisclaimer, ackedDisclaimerAt } from './disclaimer'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -7042,24 +7087,10 @@ const servicesDuplicates = ref<number[]>([])
 const servicesListening = ref(0)
 const servicesIdle = ref(0)
 const servicesHidden = ref(0)
-/** 正在启动的应用 id（'' = 没有）—— 启动后要等 2.8s 观测端口，期间按钮显示"启动中…" */
-const serviceStartingApp = ref('')
-/**
- * 启动台应用行（2026-10-15 新模型）。⚠ 这里**没有端口输入框**，是刻意的：
- * 端口是观测结果、不是配置项（暮雨：「端口永远是记不住的，不要指望根据端口去配置」）。
- */
-interface AppPortRowUi {
-  id: string
-  name: string
-  cmd: string
-  path: string
-  description: string
-  observedPorts: number[]
-  listeningPorts: number[]
-  observedAt: string
-  legacyPortNote: string
-}
-const servicesApps = ref<AppPortRowUi[]>([])
+/* ⚠ 2026-10-16（用户第 2 条）删掉了这一组：
+     `serviceStartingApp` / `AppPortRowUi` / `servicesApps` / `startAppRow` ——
+   它们服务于服务页那块「启动台应用（▶ 启动 + 观测端口）」分区。那块已整块移走：
+   启动应用回「启动台」页，本页只管端口。留着就是死代码（守卫会报"定义但零引用"）。 */
 
 async function loadServices(): Promise<void> {
   servicesLoading.value = true
@@ -7071,7 +7102,6 @@ async function loadServices(): Promise<void> {
       servicesRows.value = []
     } else {
       servicesRows.value = r.rows || []
-      servicesApps.value = r.apps || []
       servicesUnregistered.value = r.unregistered || []
       servicesDuplicates.value = r.duplicatePorts || []
       servicesListening.value = r.listeningCount || 0
@@ -7097,27 +7127,11 @@ async function loadServices(): Promise<void> {
  * 用户最多给它起个名字。
  */
 
-/** 启动一个**应用**并观测它开了哪些端口（取代旧的"按端口启动"） */
-async function startAppRow(a: AppPortRowUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.servicesStartApp !== 'function') { showToast('当前主进程是旧版本，没有启动通道', 'error'); return }
-  serviceStartingApp.value = a.id
-  try {
-    const r: any = await t.servicesStartApp(a.id)
-    if (r && r.ok) {
-      // 中性话术：没观测到端口**不是失败**（桌面程序大多不监听端口）——
-      // 旧模型在这里会说"这条登记接错了"，那是错误的预设。
-      showToast(explainStartObserved(r.appName || a.name, r.newPorts || []), 'success')
-    } else {
-      showToast((r && r.message) || '启动失败', 'error')
-    }
-    await loadServices()
-  } catch (e: any) {
-    showToast(`启动失败：${e?.message || e}`, 'error')
-  } finally {
-    serviceStartingApp.value = ''
-  }
-}
+/* ⚠ 2026-10-16（用户第 2 条）：原先这里的 `startAppRow`（启动应用 + 观测端口）
+   已随服务页那块「启动台应用」分区一起删掉 —— **启动应用去「启动台」页**
+   （那边走 `launchpadLaunchApp`，见 `launchAppClick`），本页只做端口监控。
+   ⚠ 主进程的 `startAppAndObserve`（`services/portRegistry.ts`）**保留**：
+   它是"启动一个启动台应用"的实现本体，e2e-ports 仍在测；只是不再有界面/IPC 入口。 */
 
 async function removeService(s: ServiceRowUi): Promise<void> {
   if (!confirm(`取消登记「${s.name}」:${s.port}？\n\n只从手填清单里删掉这一条，不会动任何进程，也不会关掉正在跑的服务。`)) return
@@ -7148,12 +7162,6 @@ function servicesSnapshotText(): string {
   lines.push(`方寸服务/端口快照  ${new Date().toLocaleString()}`)
   lines.push(`登记 ${servicesRows.value.length} · 监听中 ${servicesListening.value} · 空闲 ${servicesIdle.value}`)
   if (servicesError.value) lines.push(`错误：${servicesError.value}`)
-  lines.push('')
-  lines.push('【启动台应用】（端口是**观测结果**，不是配置项）')
-  for (const a of servicesApps.value) {
-    const obs = a.observedPorts.length ? a.observedPorts.map(p => ':' + p).join(' ') : '(还没观测到端口)'
-    lines.push(`${a.name}\t命令=${a.cmd || '(空)'}\t观测端口=${obs}${a.observedAt ? '\t上次观测=' + a.observedAt : ''}`)
-  }
   lines.push('')
   lines.push('【已登记（你认领的）】')
   for (const s of servicesRows.value) {
@@ -10565,6 +10573,16 @@ const aiPlanBusy = ref(false)
 
 function openAiPlan(p: any) {
   aiPlanForm.value = { id: p.id, name: p.name || p.id, goal: '' }
+  // 顺手刷新模型通道配置：弹窗里要靠它判断「配了没」（没配就当场指路）——
+  // 只在设置页 load 的话，用户从没进过设置页时这里会一直说"还没配"（界面说假话）。
+  void llmLoad()
+}
+
+/** 「AI 规划」里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
+function gotoLlmSettings(): void {
+  aiPlanForm.value = null          // 先关掉自己，别叠两层遮罩
+  selectSettingsTab('agent')
+  showSettings()
 }
 
 function closeAiPlan() {
@@ -10676,22 +10694,9 @@ function openEditApp(app: any) {
   appGuard.open(editApp_.value)
 }
 
-/**
- * 启动台卡片上那行"观测到的端口"（2026-10-15）。
- *
- * ⚠ 这是**结果**不是配置：用户从不需要填，方寸在启动这个应用时自己前后扫监听表 diff 出来。
- * 没观测到就返回空串（整行不渲染）—— 不许写「无」「—」这类噪音（卡面上宁缺勿滥那条口径）。
- */
-function appObservedText(app: any): string {
-  const ps: number[] = Array.isArray(app?.observedPorts) ? app.observedPorts : []
-  if (!ps.length) return ''
-  return `上次启动观测到 ${ps.map(p => ':' + p).join(' ')}`
-}
-
-/** 服务页里「启动命令」那一行的说人话标签 */
-function describeCmd(raw: string): string {
-  return describeLaunchCommand(raw)
-}
+/* ⚠ 2026-10-16（用户第 2 条）：`appObservedText`（卡片上"上次启动观测到 :xxxx"）
+   与 `describeCmd`（服务页应用行的"启动命令"标签）一并删掉 ——
+   启动台不再显示端口，服务页不再列应用。两者都是"端口中心"模型的残留。 */
 
 /** 打开某个启动台应用所在的文件夹（复用既有 launchpadOpenFolder 通道） */
 async function openAppFolder(app: any): Promise<void> {
@@ -11208,8 +11213,43 @@ async function wizardFinish() {
   }
 }
 
-onMounted(() => {
+// ── 免责与知情声明（2026-10-16 暮雨第 1 条）─────────────────────────────
+// 首启强制：没确认过（或声明版本抬格了）就先弹它，**确认之前不跑首次运行向导**
+// （"先同意再用"，与绒花墨坊同口径）。随时可查：设置页「诊断」里有入口。
+const disclaimerOpen = ref(false)
+const disclaimerMode = ref('view')      // 'first-run' = 强制；'view' = 随时查看
+const disclaimerAckedAt = ref('')
+/** 首启强制确认之后才跑的引导（同意前一律推迟） */
+let pendingAfterDisclaimer: (() => void) | null = null
+
+function openDisclaimer(mode = 'view'): void {
+  disclaimerMode.value = mode
+  disclaimerAckedAt.value = ackedDisclaimerAt()
+  disclaimerOpen.value = true
+}
+
+function onDisclaimerAck(): void {
+  disclaimerOpen.value = false
+  const fn = pendingAfterDisclaimer
+  pendingAfterDisclaimer = null
+  if (fn) fn()
+}
+
+/** 免责确认之后才跑的引导（目前只有首次运行向导） */
+function bootAfterDisclaimer(): void {
   checkFirstRun()
+}
+
+onMounted(() => {
+  // ⚠ 免责声明优先于一切引导：没同意之前不弹数据目录向导（先同意再用）。
+  //   同意后由 onDisclaimerAck 接着跑 bootAfterDisclaimer()。
+  if (!hasAckedDisclaimer()) {
+    disclaimerMode.value = 'first-run'
+    disclaimerOpen.value = true
+    pendingAfterDisclaimer = bootAfterDisclaimer
+  } else {
+    bootAfterDisclaimer()
+  }
   loadTaskMeta()
   loadAll()
   // 014：与主进程 prefs.json 对齐 Agent 预设（localStorage 只当缓存，换 origin 不该丢资产）
@@ -11224,6 +11264,9 @@ onMounted(() => {
   })
   // 版本号（设置页首区块显示）
   loadAppVersion()
+  // 模型通道配置（2026-10-16）：启动就读一次 —— 「AI 规划」弹窗要靠它判断配没配，
+  // 只在打开设置页时才读的话，没进过设置页的用户会一直看到"还没配"（界面说假话）。
+  void llmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
   const t: any = (window as any).tegula || {}
   if (typeof t.onUpdateAvailable === 'function') {
@@ -12538,6 +12581,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .launchpad { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .lp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
 .lp-header h3 { font-size: 16px; font-weight: 700; }
+/* 2026-10-16：一句话说清「启动台是干嘛的」（快捷入口 ≠ 服务管理） */
+.lp-note { font-size: 12px; line-height: 1.7; color: var(--muted); margin: -6px 0 12px; }
 .lp-ctrls { display: flex; gap: 6px; }
 .lp-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
 .lp-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
@@ -12554,7 +12599,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-edit { padding: 4px 8px; font-size: 11px; flex: none; }
 .lp-open { padding: 4px 8px; font-size: 11px; flex: none; }
 /* 卡片上的"观测到的端口"（2026-10-15）：结果展示，不是输入项 */
-.lp-ports { font-size: 10.5px; line-height: 1.5; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚠ 2026-10-16（用户第 2 条）已连同模板里的 `.lp-ports` 一起删掉：
+   启动台不再显示端口 —— 这里是快捷入口，不是服务监控。 */
 /* 服务页的「启动台应用」分区（2026-10-15：按应用列，不按端口） */
 .svc-group { margin-bottom: 14px; }
 .svc-group-title { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 0 0 7px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -12624,9 +12670,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 #bar .navgroup .ico:disabled { color: #c3c6d2; cursor: default; }
 #bar .navgroup .ico.syncing { color: var(--accent); }
-/* 同步进行中：让 ⟳ 真的转起来（用户能看出"在跑"，而不是点了没反应） */
+/* 同步进行中：让 ⟳ 真的转起来（用户能看出"在跑"，而不是点了没反应）。
+   ⚠ 2026-10-16 用户第 9 条「整个方块都在旋转」的修法：动画挂在**字符**（.ico-glyph）上，
+     不能挂在 button 上 —— 按钮有边框与底色，挂上去就是整个方块打转。 */
 @keyframes nav-spin { to { transform: rotate(360deg); } }
-#bar .navgroup .ico.syncing { animation: nav-spin .9s linear infinite; }
+#bar .navgroup .ico .ico-glyph { display: inline-block; }
+#bar .navgroup .ico.syncing .ico-glyph { animation: nav-spin .9s linear infinite; }
 #bar .parse-warn { flex: none; }
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -13030,6 +13079,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #plan-new-modal h3,
 #proj-new-modal h3,
 #ai-plan-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+/* AI 规划弹窗里的提示条（2026-10-16 暮雨第 1 条：「根本找不到入口、也没找到配置模型的地方」）。
+   普通说明一行浅灰；「还没配模型通道」那条走警示色，并带一个直达设置页那一格的按钮。 */
+#ai-plan-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
+#ai-plan-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
+#ai-plan-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
 #plan-new-modal label,
 #proj-new-modal label,
 #ai-plan-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }

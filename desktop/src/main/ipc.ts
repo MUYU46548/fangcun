@@ -25,7 +25,7 @@ import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
-import { listServices, addManualService, removeManualService, openService, adoptUnregistered, startAppAndObserve } from './services/portRegistry'
+import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
 import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallPrompt } from './services/mcpConnect'
 import type { McpEntryId } from './services/mcpConnect'
@@ -1026,9 +1026,12 @@ function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): 
     }
   })
 
-  // 2026-10-15 换掉按端口的 `services:start`：**入口只能是应用**（用户不需要知道端口）。
-  // 拉起之后方寸自己 diff 监听表，把"这个应用新开了哪些端口"记下来 —— 端口是观测结果，不是配置。
-  guardedHandle('services:startApp', (_event, appId: string) => startAppAndObserve(String(appId)))
+  // ⚠ 2026-10-16（用户第 2 条）：`services:startApp` 通道已删。
+  //   原设计是"启动一个启动台应用 + 观测它开了哪些端口"，但启动台被正名为**快捷入口**
+  //   （用户原话：类似 steam 启动非 steam 游戏的入口，方寸本身不提供服务）——
+  //   启动应用回「启动台」页走 `launchpad:launchApp`，本页（服务/端口）只管端口监控。
+  //   实现本体 `startAppAndObserve` 保留在 `services/portRegistry.ts`（e2e-ports 仍在测），
+  //   只是不再有 IPC 入口。
 
   guardedHandle('services:list', () => {
     return listServices()

@@ -278,10 +278,8 @@ contextBridge.exposeInMainWorld('tegula', {
   todosSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('todos:setPinned', id, pinned),
   /** 回收站文件正文预览（不是 id，是文件名） */
   trashRead: (name: string) => ipcRenderer.invoke('trash:read', name),
-  /** 起一个"空闲"的启动台应用（只认启动台里带 port 的） */
-  // 2026-10-15：`servicesStart(port)` → `servicesStartApp(appId)` —— 端口不再是对外入口
-  // （用户记不住端口；按端口启动还要求"先登一个 port"，正是那条旧案的根）。
-  servicesStartApp: (appId: string) => ipcRenderer.invoke('services:startApp', appId),
+  // ⚠ 2026-10-16（用户第 2 条）：`servicesStartApp` 已删 —— 启动应用走「启动台」页
+  //   的 `launchpadLaunchApp`，服务页只管端口监控（详见 main/ipc.ts 那段说明）。
   // 技能直接导入（2026-09-26 卡 005）：kind='folder' | 'file'
   skillsImported: () => ipcRenderer.invoke('skills:imported'),
   skillsImportPick: (kind: string) => ipcRenderer.invoke('skills:importPick', kind),

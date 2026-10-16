@@ -184,14 +184,28 @@ function main() {
     process.exit(1)
   }
 
-  const head = [
+  // ── 免责声明的"已同意"预置（2026-10-16 暮雨第 1 条）─────────────────────
+  // 截图要拍**主界面**，不能被首启强制弹窗挡住 → 只给截图用这份 seed。
+  // ⚠ 主断言流程**刻意不 seed**：那里要真跑一遍"首启必须强制弹"（见 renderer-web-assert.js
+  //   开头那一节）。谁要往主流程加 seed，先想清楚是不是把那条断言废掉了。
+  // ⚠ 版本号从 single source（disclaimer.ts）现读、不在这里写死 —— 写死会随声明改版分叉，
+  //   表现为"截图里突然又弹出免责框"而没人知道为什么。
+  const dmSrc = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'disclaimer.ts'), 'utf-8')
+  const dmVer = (dmSrc.match(/DISCLAIMER_VERSION\s*=\s*'([^']+)'/) || [])[1]
+  if (!dmVer) {
+    console.error('FAIL  从 disclaimer.ts 读不到 DISCLAIMER_VERSION —— 截图的"已同意"预置会失效')
+    process.exit(1)
+  }
+  const ACK_SEED = "try{localStorage.setItem('fc_disclaimer_ack',JSON.stringify({v:'" + dmVer + "',at:'2026-10-16T00:00:00.000Z'}))}catch(e){}\n"
+
+  const headFor = (seed) => [
     '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>FC harness</title>',
     cssMatch ? `<link rel="stylesheet" href="./${cssMatch[1]}">` : '',
-    '<script>', browserPreload(), '</script>',
+    '<script>', browserPreload(), (seed || ''), '</script>',
     '</head><body><div id="app"></div>',
     '<script>', bundle, '</script>',
   ]
-  const harness = (tail) => head.concat(['<script>', tail, '</script>', '</body></html>']).join('\n')
+  const harness = (tail, seed) => headFor(seed).concat(['<script>', tail, '</script>', '</body></html>']).join('\n')
   const harnessPath = path.join(DIST, '__web-harness.html')
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
@@ -345,7 +359,7 @@ function main() {
     const next = () => {
       if (n >= CASES.length) return done()
       const [page, view, name, extra] = CASES[n++]
-      fs.writeFileSync(harnessPath, harness(driver(page, view, extra)), 'utf-8')
+      fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED), 'utf-8')
       const png = path.join(outDir, name + '.png')
       // ⚠ 先删旧图再拍：判据是「这张图是**这次**拍出来的」，不是「目录里有这么个文件」。
       //   2026-10-14 真事：上一轮留下的同名旧图让 Edge 没写也报 OK，截图"成功"了 17 张，
@@ -357,6 +371,9 @@ function main() {
         // 目检两次误报"元素重叠/按钮不存在"）。关动画 = 每次拍出的都是确定的最终画面。
         '--headless=new', '--force-prefers-reduced-motion', '--disable-gpu', '--no-sandbox', '--allow-file-access-from-files',
         '--disable-extensions', '--window-size=' + (process.env.FC_SHOT_SIZE || '1440,900'), '--hide-scrollbars',
+        // 独立 profile（同上）：截图 harness 里预置了"已同意免责声明"，但那只在**空 localStorage**
+        // 上才意味着"干净的主界面"——用系统 profile 跑等于赌它没被写过。
+        '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'fc-shot-')),
         // 显式钉住 1:1。⚠ 本机**实测**：不加这条 Edge 也是 1440×900（headless 默认 1:1），
         //   所以它不是"修了什么 bug"，而是防止换到 DPI 不同的机器上悄悄变成 0.75/1.25 倍 ——
         //   截图是给人目检的，尺寸漂移会让前后两张根本没法对比。
@@ -402,6 +419,11 @@ function main() {
     //   量出来的几何完全不同 —— 表现为**同一个断言时红时绿**（2026-10-11 实测：
     //   浮层越界那条在 vw=756 时红、在 vw=1440 时绿）。
     '--window-size=1440,900',
+    // ⚠ 2026-10-16：必须给**独立 profile**。此前主流程没带 `--user-data-dir`，
+    //   会落到系统默认 profile —— 而"免责声明确认"就存在 localStorage 里（file:// origin），
+    //   于是"首启到底弹不弹"变成**不可知**：本机跑是全新、别的机器上可能继承着旧记录，
+    //   断言时红时绿。与 viaCdp 兜底路径口径统一（那边一直是独立 profile）。
+    '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'fc-web-')),
     '--dump-dom',
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]

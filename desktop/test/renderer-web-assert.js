@@ -68,6 +68,82 @@
     check('preload 假后端可用（window.tegula 在）', typeof window.tegula === 'object' && window.tegula !== null)
     check('测试侧只读入口在（window.__fcTest 在）', typeof window.__fcTest === 'object' && window.__fcTest !== null)
 
+    // ══ 免责与知情声明 · 首启强制确认（2026-10-16 暮雨第 1 条）══════════════
+    // 这一节**必须排在最前**：无头 profile 每次都是全新的（e2e-renderer-web.cjs 现 mkdtemp），
+    // 所以 App.onMounted 会判定"没确认过"→ 强制弹窗自己弹出来、**挡着整页**。
+    // 这里把它真跑一遍（弹 → 拦遮罩 → 拦 ESC → 滚到底 → 勾选 → 确认），让它退场；
+    // 不这么做，后面所有几何断言都会被遮罩污染（那是假红，不是界面坏了）。
+    {
+      const dlgSel = '[aria-label="免责与知情声明"]'
+      check('★★ 首启（本机没确认过声明）自动弹出强制确认框',
+        await waitFor(() => !!$(dlgSel), 6000, '免责弹窗出现'))
+      const dlg = $(dlgSel)
+      if (dlg) {
+        check('★★ 弹的是「使用前请确认」强制态（不是随时查看态）',
+          (dlg.textContent || '').indexOf('使用前请确认') >= 0,
+          String(dlg.textContent || '').slice(0, 60))
+        check('★★ 短版把「AI 功能要先看清花钱这件事」摆在显眼位置（暮雨点名的那件事）',
+          (dlg.textContent || '').indexOf('AI 功能要先看清花钱这件事') >= 0,
+          String(dlg.textContent || '').slice(0, 300))
+        check('★ 短版写明费用由你与服务方结算、界面上的花销只是估算',
+          (dlg.textContent || '').indexOf('只是估算') >= 0)
+
+        // ① 点遮罩关不掉（强制模式刻意不给 @mousedown.self 的关闭分支）
+        const maskEl = dlg.parentElement
+        if (maskEl) {
+          maskClick(maskEl)
+          await sleep(160)
+          check('★★ 强制模式下点遮罩**关不掉**（真锁模态，不是视觉遮挡）', !!$(dlgSel))
+        }
+        // ② ESC 也关不掉（不许有旁路）
+        //    ⚠ 上一条（点遮罩关不掉）如果已经红了，说明弹窗**当场就被关掉了** ——
+        //    这时 ESC 无对象可测。显式跳过并留一行说明，**不许**静默连锁红
+        //    （连锁红会让人以为有两处坏，实际是同一个洞）。
+        if ($(dlgSel)) {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          await sleep(160)
+          check('★★ 强制模式下 ESC **也关不掉**（不许有旁路）', !!$(dlgSel))
+        } else {
+          out.push('    （跳过 ESC 断言：点遮罩那条已经红了 —— 弹窗已被关掉，无对象可测）')
+        }
+
+        // ③ 滚到底 → 勾选 → 确认
+        //    ⚠ 同样：弹窗若已被上游断言关掉，这一组整组显式跳过（不许连锁出假红，
+        //    也不许让"点确认后弹窗退场"变成**假绿**——它必须建立在"点之前弹窗确实在"上）。
+        if (!$(dlgSel)) {
+          out.push('    （跳过「滚到底 → 勾选 → 确认」一组：弹窗已被上游断言关掉，无对象可测）')
+        } else {
+          const body = dlg.querySelector('div[class*="overflow-y-auto"]')
+          if (body) {
+            body.scrollTop = body.scrollHeight + 100
+            body.dispatchEvent(new Event('scroll', { bubbles: true }))
+          }
+          await sleep(200)
+          const cb = dlg.querySelector('input[type="checkbox"]')
+          check('★ 有「我已阅读并同意」的勾选框', !!cb)
+          if (cb) {
+            const okBefore = $$(dlgSel + ' button').find((b) => (b.textContent || '').trim() === '我已阅读并同意')
+            check('★★ 没勾选之前「我已阅读并同意」**点不动**（disabled）',
+              !!okBefore && okBefore.disabled === true, okBefore ? String(okBefore.disabled) : 'no button')
+            cb.checked = true
+            cb.dispatchEvent(new Event('change', { bubbles: true }))
+            await sleep(150)
+            const okAfter = $$(dlgSel + ' button').find((b) => (b.textContent || '').trim() === '我已阅读并同意')
+            check('★ 勾选之后确认按钮变成可点', !!okAfter && okAfter.disabled === false)
+            if (okAfter) okAfter.click()
+            check('★★ 点确认后弹窗退场（不再挡着界面）',
+              await waitFor(() => !$(dlgSel), 3000, '免责弹窗关闭'))
+            let ack = null
+            try { ack = JSON.parse(localStorage.getItem('fc_disclaimer_ack') || 'null') } catch (e) { ack = null }
+            check('★★ 确认记录真的落盘，且带版本号（声明改版后下次启动能自动再弹）',
+              !!ack && typeof ack.v === 'string' && ack.v.length > 0,
+              String(localStorage.getItem('fc_disclaimer_ack') || ''))
+          }
+        }
+      }
+      await sleep(300)
+    }
+
     // ══ 看板 · 多视图 ══════════════════════════════════════════════════
     check('能切到「看板」页签', clickText('看板'))
     await sleep(400)
@@ -3215,6 +3291,15 @@
             const b = $('#bar .navgroup button[title*="同步"]')
             return !!b && b.disabled !== true
           }, 4000, 'sync done'))
+        // ★★ 2026-10-16 用户第 9 条：同步时「整个方块都在旋转，把我气笑了」——
+        //    真因是动画挂在 button 本体（.ico.syncing）上，边框与底色跟着一起转。
+        //    判据：⟳ 必须单独包在 .ico-glyph 里（动画挂字符，按钮本体不动）。
+        {
+          const b = $('#bar .navgroup button[title*="同步"]')
+          const g = b && b.querySelector('.ico-glyph')
+          check('★★ 同步按钮的 ⟳ 单独包在 .ico-glyph 里（旋转的是字符，不是整个方块）',
+            !!g && g.textContent.trim() === '⟳', g ? 'glyph=' + g.textContent.trim() : 'no .ico-glyph')
+        }
       } else {
         check('  ⟳ 同步按钮存在', false, 'no syncBtn')
       }
@@ -3406,13 +3491,12 @@
       clickText('看板'); await sleep(200)
     }
 
-    // ══ 启动台 / 服务页（2026-10-15 旧案收口）══════════════════════════════
-    // 旧案一句话：`apps.json` 把 vite 的 8090 登在**打包 exe** 上，服务页给「▶ 启动」，
-    // 用户点完仍是「空闲」→ 又得出"启动台坏了"。根因 = `port`（对外提供哪个端口）与
-    // `cmd`（点一下会跑什么）被混成一个概念。这一节钉住三件事：
-    //   ① 启动台：**点卡片 = 启动**（编辑挪到独立按钮），符合"点一下就开"的心智；
-    //   ② 服务页：把「启动命令」摊开显示，并对"命令与端口对不上"的行给诊断（只提示不阻断）；
-    //   ③ 启动后按**事实**复查：拉起了但端口没起来 → 必须当场说清 + 给下一步，不许报"已启动"。
+    // ══ 启动台 / 服务页（2026-10-16 用户第 2 条：启动台是快捷入口，不是服务管理）══
+    // 用户原话给的类比：「这玩意本质是类似 steam 启动非 steam 游戏的快捷启动入口，
+    //   玩家自愿使用，方寸本身不提供服务，只提供集成快捷入口。」
+    // 所以这一节钉两件事：
+    //   ① 启动台 = 纯启动器：点卡片就开，卡片上**不出现端口**（端口不属于这里）；
+    //   ② 服务页 = 纯端口监控：**不再**列启动台应用（那块已搬走），只留"已登记 + 方寸扫到的"。
     {
       clickText('启动台'); await sleep(400)
       const lpCards = $$('.lp-card')
@@ -3426,7 +3510,7 @@
         check('★★ 启动台：**点卡片正文 = 启动**（真调 launchpadLaunchApp，不是打开编辑框）',
           await waitFor(() => window.__fcTest.callCount('launchpadLaunchApp') > before, 3000, 'lp launch'),
           'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
-        check('★★ 启动台：点卡片**不**弹出编辑框（编辑已挪到独立按钮）',
+        check('★★ 启动台：点卡片**不**弹出编辑框（编辑挪到独立按钮）',
           !$('#app-edit-overlay'), 'edit overlay open')
 
         // ② 独立的编辑按钮：点它打开编辑框，且**不**触发启动
@@ -3439,7 +3523,12 @@
           check('★★ 点「编辑」**不**触发启动（两个动作彻底分开）',
             window.__fcTest.callCount('launchpadLaunchApp') === beforeE,
             'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
-          // ⚠ 关闭要用「取消」（.acts .ghost）——第一个 .ghost 是「浏览…」，点了不会关
+          // ⚠ 判据只看 placeholder 里的中文「端口」：编辑表单里有一栏是**启动参数**，
+          //   它的示例文案就叫 `--port 8080` —— 那是合法的参数例子，不是"让用户配端口"。
+          check('★★ 启动台编辑表单里**没有端口输入框**（端口不该由用户配置）',
+            !$$('#app-edit-overlay input').some(i => /端口/.test(i.placeholder || '')),
+            $$('#app-edit-overlay input').map(i => i.placeholder || '(无)').join(' | '))
+          // 关闭要用「取消」（.acts .ghost）——第一个 .ghost 是「浏览…」，点了不会关
           const closeBtn = $('#app-edit-overlay .acts .ghost')
           if (closeBtn) closeBtn.click()
           await waitFor(() => !$('#app-edit-overlay'), 3000, 'edit closed')
@@ -3447,24 +3536,19 @@
           check('★ 卡片上有独立「✏️ 编辑」按钮', false, 'no .lp-edit')
         }
 
-        // ③ 卡片上的"观测到的端口"（2026-10-15 新模型）：这是**结果**不是配置
-        const portsOf = (card) => ((card.querySelector('.lp-ports') || {}).textContent || '')
-        check('★★ 启动台卡片显示**观测到的端口**（不是让用户填的配置项）',
-          portsOf(lpCards[0]).indexOf(':9100') >= 0, JSON.stringify(portsOf(lpCards[0])))
-        check('★ 还没观测到端口的卡**整行不渲染**（不写「无」/「—」这类噪音）',
-          !lpCards[1].querySelector('.lp-ports'), 'unexpected .lp-ports')
-        // ⚠ 判据只看 placeholder 里的中文「端口」：编辑表单里有一栏是**启动参数**，
-        //   它的示例文案就叫 `--port 8080` —— 那是合法的参数例子，不是"让用户配端口"。
-        check('★★ 启动台编辑表单里**没有端口输入框**（端口不该由用户配置）',
-          !$$('#app-edit-overlay input').some(i => /端口/.test(i.placeholder || '')),
-          $$('#app-edit-overlay input').map(i => i.placeholder || '(无)').join(' | '))
+        // ③ ★★ 2026-10-16 新判据：启动台里**不许**出现端口
+        check('★★ 启动台卡片上**没有**端口那一行（这里是快捷入口，端口属于服务页）',
+          $$('.lp-card .lp-ports').length === 0, 'lp-ports=' + $$('.lp-card .lp-ports').length)
+        check('★★ 启动台整页**不出现"端口"字样**（端口观感不许污染快捷入口）',
+          String(($('.launchpad') || {}).textContent || '').indexOf('端口') < 0,
+          String((($('.launchpad') || {}).textContent || '').slice(0, 180)))
       }
 
-      // 服务页（2026-10-15 改模型：**按应用**，端口是观测结果）
+      // 服务页（2026-10-16 用户第 2 条：应用分区已搬走，本页回归纯端口监控）
       clickText('服务'); await sleep(600)
       check('  进得了服务页（.services-view）', !!$('.services-view'))
-      check('★★ 服务页有「启动台应用」分区（入口是应用，不是端口）',
-        $$('.svc-group-title').some(t => (t.textContent || '').indexOf('启动台应用') >= 0),
+      check('★★ 服务页**不再**有「启动台应用」分区（启动回启动台，这页只管端口）',
+        !$$('.svc-group-title').some(t => (t.textContent || '').indexOf('启动台应用') >= 0),
         $$('.svc-group-title').map(t => t.textContent).join(' | '))
       check('★★ 服务页**没有**"手敲端口号"的输入框（旧模型的老毛病）',
         !$$('.svc-input').some(i => /端口/.test(i.placeholder || '')),
@@ -3472,58 +3556,16 @@
 
       const allRows = $$('.svc-item').filter(r => r.querySelector('.svc-name'))
       const nameRow = (n) => allRows.find(r => ((r.querySelector('.svc-name') || {}).textContent || '').trim() === n)
-      const appRonghua = nameRow('绒花墨坊'), appFresh = nameRow('刚加的应用'), rowManual = nameRow('方寸看板')
+      const rowManual = nameRow('方寸看板')
+      check('★★ 已登记（用户认领的）行还在 —— 这页的正事是"谁在监听、谁占着"',
+        !!rowManual, JSON.stringify(allRows.map(r => ((r.querySelector('.svc-name') || {}).textContent || '').trim())))
+      check('★★ 服务页里**没有**"启动"按钮（那属于启动台；这页只读、只登记）',
+        !$$('.services-view button').some(b => /启动/.test(b.textContent || '')),
+        JSON.stringify($$('.services-view button').map(b => b.textContent)))
+      check('★★ 没有任何"结束/杀掉占用进程"的按钮（只读 A 档，不许偷偷加）',
+        !$$('.services-view button').some(b => /结束|杀掉|杀进程|停止进程|kill/i.test(b.textContent || '')),
+        JSON.stringify($$('.services-view button').map(b => b.textContent)))
 
-      check('★ 应用行把"观测到的端口"显示出来（:9100 此刻在监听 → 标成在用）',
-        !!appRonghua && /9100/.test((appRonghua.textContent || '')), JSON.stringify((appRonghua || {}).textContent))
-      check('★ 还没观测到端口的应用行照常显示（不因为不知道端口就消失），文案是"还没观测到端口"',
-        !!appFresh && /还没观测到端口/.test(appFresh.textContent || ''), JSON.stringify((appFresh || {}).textContent))
-      check('★★ 应用行把**启动命令**摊开显示（否则用户不知道点了会跑什么）',
-        !!appRonghua && /启动命令/.test(appRonghua.textContent || ''), JSON.stringify((appRonghua || {}).textContent))
-      check('★ 老数据的 port 字段 → 给出"已停用"的提示（数据卫生，不是拿它当端口来源）',
-        !!appRonghua && /已停用/.test((appRonghua.querySelector('.svc-diag') || {}).textContent || ''),
-        JSON.stringify(((appRonghua && appRonghua.querySelector('.svc-diag')) || {}).textContent))
-      check('★★ 手填（用户认领的）行**不**显示启动命令、也**不**显示旧字段提示',
-        !!rowManual && !/启动命令/.test(rowManual.textContent || '') && !rowManual.querySelector('.svc-diag'),
-        JSON.stringify((rowManual || {}).textContent))
-
-      // ④ 启动一个应用 → 真调 servicesStartApp，并按**中性话术**报告观测结果
-      if (appRonghua) {
-        const b = appRonghua.querySelector('button.skills-btn.primary')
-        if (b) {
-          const before = window.__fcTest.callCount('servicesStartApp')
-          b.click()
-          check('★★ 点「▶ 启动」真调 servicesStartApp（按**应用**启动，不是按端口）',
-            await waitFor(() => window.__fcTest.callCount('servicesStartApp') > before, 4000, 'servicesStartApp'),
-            'calls=' + window.__fcTest.callCount('servicesStartApp'))
-          check('★ 传的是应用 id（不是端口号）',
-            (window.__fcTest.calls().filter(c => c.name === 'servicesStartApp').pop() || {}).args[0] === 'lp-ronghua',
-            JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'servicesStartApp').pop() || {}).args))
-          check('  观测到端口时 → 不弹错误条（成功路径）', await waitFor(() => $$('.errbar').length === 0, 3000, 'no err'))
-          check('★ 启动完之后那一行带出了新观测到的端口（界面真的刷新了）',
-            await waitFor(() => {
-              const r = nameRow('绒花墨坊')
-              return !!r && /4321/.test(r.textContent || '')
-            }, 4000, 'observed refreshed'),
-            JSON.stringify((nameRow('绒花墨坊') || {}).textContent))
-        } else {
-          check('  应用行有「▶ 启动」按钮', false, 'no start button')
-        }
-      }
-      // ⑤ 「没观测到端口」那条：不许报成失败（旧模型会）
-      if (appFresh) {
-        const b = appFresh.querySelector('button.skills-btn.primary')
-        if (b) {
-          b.click()
-          await sleep(700)
-          check('★★ 没观测到端口的应用：**不弹错误条**（桌面程序大多不监听端口，这不是失败）',
-            $$('.errbar').length === 0, 'errbar=' + $$('.errbar').length)
-        }
-      }
-      // 清掉错误条，别影响后面「没有未捕获错误」那条
-      const ignoreBtn = $$('.errbar button').pop()
-      if (ignoreBtn) ignoreBtn.click()
-      await sleep(200)
       clickText('看板'); await sleep(300)
     }
 

@@ -569,28 +569,9 @@ contextBridge.exposeInMainWorld('tegula', {
   },
 
 
-  // 启动台应用：启动 + **观测端口**（2026-10-15 新模型，取代旧的按端口 servicesStart）
-  // ⚠ 返回形状必须跟真主进程一致（appName / newPorts / allPorts / observed）——
-  //   假 preload 与真 preload 不同步 = 断言全绿而界面当场炸。
-  // 夹具刻意演两种结果：lp-ronghua 观测到新端口、lp-fresh 什么都没观测到
-  //   （后者**不是失败**，话术必须是中性的 —— 这是新模型和旧模型最大的区别）。
-  servicesStartApp: (appId) => {
-    rec('servicesStartApp', [appId])
-    const app = (store.servicesApps || []).find(a => a.id === appId)
-    if (!app) return ok({ ok: false, message: `应用 ${appId} 不在启动台登记里` })
-    const fresh = appId === 'lp-ronghua' ? [4321] : []
-    if (fresh.length) {
-      app.observedPorts = Array.from(new Set(fresh.concat(app.observedPorts || [])))
-      app.listeningPorts = Array.from(new Set(fresh.concat(app.listeningPorts || [])))
-      app.observedAt = '2026-10-15T12:00:00.000Z'
-    }
-    return ok({
-      ok: true, observed: true, appName: app.name, newPorts: fresh, allPorts: app.observedPorts || [],
-      message: fresh.length
-        ? `已启动「${app.name}」，观测到它开了 :${fresh.join(' :')}`
-        : `已启动「${app.name}」；这次没观测到它新开端口（桌面程序大多不监听端口，属正常）`,
-    })
-  },
+  // ⚠ 2026-10-16（用户第 2 条）：`servicesStartApp`（启动应用 + 观测端口）已随
+  //   服务页「启动台应用」分区一起删除 —— 真 preload 里也没有了。
+  //   假 preload 与真 preload 必须同步：留着它会造出"界面以为有这个通道"的假绿。
 
   // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装；2026-10-03 卡 011：加 DSH）──
   agentsList: () => {

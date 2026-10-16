@@ -218,6 +218,60 @@ function main() {
     bareOutsideBar === 0 || hasBase,
     bareOutsideBar && !hasBase ? `有 ${bareOutsideBar} 个无 class 按钮在 #bar 之外且无基座` : '')
 
+  // ── 检查 ④：旋转动画不许挂在「按钮本体」上（2026-10-16 用户第 9 条）──
+  //
+  // 真事：顶栏同步按钮的 `#bar .navgroup .ico.syncing { animation: nav-spin … }`
+  //   让**整个方块**（含边框、底色）跟着转 —— 用户原话「整个方块都在旋转，把我气笑了」。
+  //   动画要挂的是**里面那个字符**（.ico-glyph），不是按钮。
+  //
+  // 判据：凡 @keyframes 体里出现 rotate() 的，其宿主选择器的**最后一段**
+  //   若只由 class 组成、且其中至少一个 class 出现在模板的 `<button class="…">` 上
+  //   → 宿主就是按钮本体 → 失败。
+  //   （用「模板里 button 真用过的 class」当按钮语义来源，不硬编码白名单：
+  //    所以 `.nc-ico` / `.ico-glyph` / `.bk-spin` 这些字符 span 不会误伤。）
+  const rotNames = new Set()
+  {
+    const kfRe = /@keyframes\s+([\w-]+)\s*\{/g
+    let kfm
+    while ((kfm = kfRe.exec(body))) {
+      let i = kfm.index + kfm[0].length
+      let depth = 1
+      while (i < body.length && depth > 0) {
+        if (body[i] === '{') depth++
+        else if (body[i] === '}') depth--
+        i++
+      }
+      const inner = body.slice(kfm.index + kfm[0].length, Math.max(0, i - 1))
+      if (/rotate\s*\(/.test(inner)) rotNames.add(kfm[1])
+    }
+  }
+  const spinOnButton = []
+  if (rotNames.size) {
+    const flatRe = /([^{}]+)\{([^{}]*)\}/g
+    let fm
+    while ((fm = flatRe.exec(body))) {
+      const head = fm[1].trim()
+      if (!head || head.startsWith('@') || /^(from|to|[\d.]+%)$/.test(head)) continue
+      let usesRot = false
+      fm[2].replace(/(?:^|[;\s])(animation(?:-name)?)\s*:\s*([^;]+)/g, (_m, _p, val) => {
+        if ([...rotNames].some(n => new RegExp(`(^|[\\s,])${n}(?![\\w-])`).test(val))) usesRot = true
+        return ''
+      })
+      if (!usesRot) continue
+      for (const sel of head.split(',')) {
+        const t = sel.trim()
+        const last = lastCompound(t)
+        if (!/^(\.[\w-]+)+$/.test(last)) continue
+        const cls = (last.match(/\.[\w-]+/g) || []).map(c => c.slice(1))
+        if (cls.some(c => classSet.has(c))) spinOnButton.push(t)
+      }
+    }
+  }
+  check('④ 旋转动画挂在「字符」上、不挂在按钮本体上（否则整个方块打转）',
+    spinOnButton.length === 0,
+    spinOnButton.length ? `挂在按钮上：${spinOnButton.join(' | ')}（应改为挂到内部 span，如 .ico-glyph）` : '')
+
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')
