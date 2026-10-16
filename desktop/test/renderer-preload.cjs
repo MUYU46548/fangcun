@@ -175,7 +175,7 @@ const store = {
   ],
   // demo 登记了工作目录、demo2 没有 —— 概览卡那条"未登记工作目录"的回退才有东西可验
   projects: [
-    { id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo' },
+    { id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo', 说明: '演示用项目——说明条转正断言靠这条（批次第 2 项）' },
     { id: 'demo2', name: '第二个项目' },
   ],
   // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），

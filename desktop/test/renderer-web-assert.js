@@ -3253,6 +3253,11 @@
         const ok = await waitFor(() => !!$('#board.pv .ms-detail .ocard'), 4000, '进详情')
         return ok && $$('#board.pv .ms-detail .oacts button').some((b) => (b.textContent || '').indexOf('🗂') >= 0)
       })(), 'tile=' + ((tileP || {}).textContent || '').slice(0, 12))
+      // 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段转正，详情页一句话定位
+      check('★ 项目说明条显示（registry 说明字段透传到详情页）',
+        !!$('#board.pv .ms-detail .ms-note')
+        && (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').indexOf('说明条转正断言') >= 0,
+        (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').slice(0, 24))
       const plansBtn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('🗂') >= 0)
       if (plansBtn) {
         plansBtn.click()

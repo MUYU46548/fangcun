@@ -744,6 +744,9 @@
               最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
               <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
             </div>
+            <!-- 项目说明（2026-10-16 批次第 2 项）：13 份说明从笔记草稿转正进 registry，
+                 详情页一句话定位——先看清这项目是什么、不做什么，再谈干不干。 -->
+            <div class="ms-note" v-if="pvCurrent.note">{{ pvCurrent.note }}</div>
             <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
                  与 loadViewData「只在切到那一摆法时才拉」的既有纪律一致） -->
             <div class="ms-git" v-if="msGitRow">
@@ -3864,6 +3867,8 @@ interface Project {
   repo?: string
   ['状态']?: string
   ['路线图']?: string
+  /** 13 份项目说明转正（2026-10-16 批次第 2 项）：registry 透传，详情页一句话定位 */
+  ['说明']?: string
 }
 
 // ── State ───────────────────────────────────────────────────────────────
@@ -6218,6 +6223,8 @@ const projectStats = computed(() => {
       name: p.name || p.id,
       // 概览卡要显示工作目录（registry 里登记的那个）——项目墙不用它，但同一份数据顺手带上
       repo: p.repo || '',
+      // 说明（2026-10-16 批次第 2 项）：13 份项目说明转正，详情页一句话定位
+      note: p['说明'] || '',
       taskCount: projTasks.length,
       activeTasks: active.length,
       completedTasks: completed.length,
@@ -12652,6 +12659,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-num:nth-child(4) b { animation-delay: .18s }
 @keyframes numIn { from { opacity: 0; transform: translateY(5px) } }
 .ms-nothing { color: var(--muted); }
+/* 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段一句话定位 */
+.ms-note { margin-top: 9px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--tint-2); font-size: 11.5px; color: var(--ink); line-height: 1.65; }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);
