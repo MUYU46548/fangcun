@@ -1077,6 +1077,27 @@ def cmd_ai_brief(args):
     return 0 if r.get("ok") else 1
 
 
+def cmd_project_brief(args):
+    """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文。
+
+    此前派活单只有**单任务包**（契约节选+项目事实+结构地图），agent 缺「整项目全局视野」——
+    本命令把立项契约全文+方针卡+在途任务+最近决策卡+进度聚合拼成一份 Markdown，
+    喂给 agent 即有全局上下文。MCP 侧同步暴露（工具名 project_brief）。"""
+    from tegula.core import build_project_brief
+    md, err = build_project_brief(args.id)
+    if err:
+        print(f"失败：{err}", file=sys.stderr)
+        return 1
+    if getattr(args, "out", ""):
+        import io as _io
+        with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+            f.write(md)
+        print(f"已写入 {args.out}（{len(md)} 字符）")
+    else:
+        sys.stdout.write(md)
+    return 0
+
+
 # ---------- 决策卡（2026-10-12；三态 2026-10-14 改白话：有效/已撤销/已合并）----------
 def cmd_decision(args):
     """decision add/list/set 三个面：定下来的事当场记、随时翻、被推翻就标死。"""
@@ -2133,6 +2154,10 @@ def main():
     ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
     ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ab.set_defaults(func=cmd_ai_brief)
+    pb = sub.add_parser("project-brief", help="项目上下文一键包：契约+方针+在途任务+决策卡+进度聚合 → 一份 Markdown（喂 agent）")
+    pb.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
+    pb.add_argument("--out", default="", help="写入文件路径（缺省打印到 stdout）")
+    pb.set_defaults(func=cmd_project_brief)
 
     # ── 决策卡（2026-10-12）──
     dsub = sub.add_parser("decision", help="决策记录：定下来的事记成卡（内容/日期/还算不算数/出处）")

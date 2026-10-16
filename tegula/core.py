@@ -2346,6 +2346,114 @@ def _contract_path(repo):
     return f"{r}/{CONTRACT_BASENAME}" if r else ""
 
 
+def build_project_brief(project_id):
+    """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文，喂给 agent 即有全局视野。
+
+    此前只有**单任务派活包**（dispatch 任务书带契约节选+项目事实+结构地图），缺「整项目一键包」。
+    本函数复用四个现成读口拼装（零新数据源，只读）：
+      read_contract（契约全文）+ load_tasks（在途任务）+ load_decisions（决策卡）+ aggregate_roadmap（进度聚合）
+    返回 (markdown, None)；项目不存在返回 (None, 报错)。
+    """
+    pid = str(project_id or "").strip()
+    reg = {p["id"]: p for p in load_all_projects()}
+    meta = reg.get(pid)
+    if not meta:
+        return None, f"项目 {pid} 未在 registry.yaml 注册（现有：{'、'.join(sorted(reg)) or '无'})"
+    lines = []
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines.append(f"# 项目上下文包 · {meta.get('name', pid)}（{pid}）")
+    lines.append("")
+    lines.append(f"> 一条命令产出的全局上下文（生成于 {now}）。给 agent 喂这份即开工，不必再翻仓库。")
+
+    # ── 项目档案（registry 透传：repo + 任意中文字段）──
+    lines.append("")
+    lines.append("## 项目档案（registry）")
+    lines.append(f"- 仓库：{meta.get('repo') or '（未填）'}")
+    for k in ("说明", "状态", "路线图"):
+        v = str(meta.get(k) or "").strip()
+        if v:
+            lines.append(f"- {k}：{v}")
+
+    # ── 方针卡 ──
+    pol = read_policy(pid)
+    if pol:
+        lines.append("")
+        lines.append("## 方针卡")
+        for k in ("使命", "当前目标", "应用场景", "方针边界"):
+            v = str(pol.get(k) or "").strip()
+            if v:
+                lines.append(f"- {k}：{v}")
+
+    # ── 立项契约（全文，六字段逐节）──
+    ct = read_contract(pid)
+    lines.append("")
+    lines.append("## 立项契约")
+    if ct.get("exists"):
+        any_field = False
+        for k in CONTRACT_FIELDS:
+            v = str(ct.get(k) or "").strip()
+            if v:
+                any_field = True
+                lines.append(f"### {k}")
+                lines.append(v)
+                lines.append("")
+        if not any_field:
+            lines.append("（契约文件在但六字段全空——先补契约再派活）")
+    else:
+        lines.append("（未找到立项契约.md——契约主线未落地，先看仓库 README）")
+
+    # ── 在途任务（活跃区，按状态分组）──
+    tasks = load_tasks(pid, "active")
+    lines.append("")
+    lines.append(f"## 在途任务（活跃 {len(tasks)} 张）")
+    if tasks:
+        for st in ("进行中", "待验收", "待办", "草稿"):
+            grp = [t for t in tasks if (t.get("状态") or "") == st]
+            if not grp:
+                continue
+            lines.append("")
+            lines.append(f"**{st}（{len(grp)}）**")
+            for t in grp:
+                pr = str(t.get("优先级") or "").strip()
+                tail = f"（优先级 {pr}）" if pr else ""
+                lines.append(f"- [{t.get('id', '')}] {t.get('标题', '')}{tail}")
+    else:
+        lines.append("")
+        lines.append("（活跃区无任务——项目停摆或已全清）")
+
+    # ── 最近决策卡（该项目有效卡，取最近 10）──
+    decs = [d for d in load_decisions()
+            if (d.get("项目") or "") == pid and (d.get("状态") or "") == "有效"]
+    lines.append("")
+    lines.append(f"## 最近决策卡（有效 {len(decs)} 条，取最近 10）")
+    if decs:
+        for d in decs[-10:]:
+            src = f"（出自 {d['出处']}）" if d.get("出处") else ""
+            lines.append(f"- [{d.get('id', '')}] {d.get('日期', '')} {d.get('内容', '')}{src}")
+    else:
+        lines.append("")
+        lines.append("（该项目无有效决策卡——定过的事记得记卡，防遗忘）")
+
+    # ── 进度聚合（批次完成度 + 下一动作）──
+    rm = aggregate_roadmap(pid)
+    pj = next((p for p in (rm.get("projects") or []) if p.get("id") == pid), None)
+    lines.append("")
+    lines.append("## 进度聚合")
+    if pj:
+        for b in pj.get("batches") or []:
+            lines.append(f"- 批次「{b.get('name')}」：{b.get('done', 0)}/{b.get('total', 0)} 完成（{b.get('status')}）")
+        nx = pj.get("next_actions") or []
+        if nx:
+            lines.append("")
+            lines.append("下一动作（进行中优先）：" + "；".join(
+                f"[{n.get('task_id')}] {n.get('title')}" for n in nx[:3]))
+    else:
+        lines.append("")
+        lines.append("（无活跃任务可聚合）")
+
+    return "\n".join(lines).rstrip() + "\n", None
+
+
 def _brief(text, max_items=2, max_len=200):
     """从契约某一节里提炼**一行要点**——任务书不是契约全文的第二份副本。
 
@@ -4673,6 +4781,17 @@ def mcp_search_tasks(params):
     return hits
 
 
+def mcp_project_brief(params):
+    """项目上下文一键包（2026-10-16 批次 1b）：契约+在途任务+决策卡+进度聚合，喂 agent 即有全局视野。"""
+    pid = str((params or {}).get("id") or "").strip()
+    if not pid:
+        return {"ok": False, "error": "缺项目 id（arguments.id）"}
+    md, err = build_project_brief(pid)
+    if err:
+        return {"ok": False, "error": err}
+    return {"ok": True, "id": pid, "markdown": md}
+
+
 MCP_PROTOCOL_VERSION = "2024-11-05"
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 MCP_TOOLS = [
@@ -4691,6 +4810,9 @@ MCP_TOOLS = [
     {"name": "search_tasks", "description": "全文搜索任务（标题 + 正文）",
      "inputSchema": {"type": "object", "properties": {
          "q": {"type": "string", "description": "搜索关键词"}}}},
+    {"name": "project_brief", "description": "项目上下文一键包：立项契约全文+方针+在途任务+最近决策卡+进度聚合，拼成一份 Markdown（给 agent 喂全局上下文）",
+     "inputSchema": {"type": "object", "properties": {
+         "id": {"type": "string", "description": "项目 id（registry.yaml 里的 id）"}}}},
     {"name": "get_roadmap", "description": "获取路线图聚合视图（按项目/批次）",
      "inputSchema": {"type": "object", "properties": {
          "project": {"type": "string", "description": "项目 id（可选，不传返回全部）"}}}},
@@ -4803,7 +4925,8 @@ MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "gate_open": mcp_gate_open, "gate_check": mcp_gate_check,
                "gate_list": mcp_gate_list, "gate_close": mcp_gate_close,
                "plan_list": mcp_plan_list, "plan_get": mcp_plan_get,
-               "plan_pending_decisions": mcp_plan_pending_decisions}
+               "plan_pending_decisions": mcp_plan_pending_decisions,
+               "project_brief": mcp_project_brief}
 
 
 def _detect_events(event_type):
