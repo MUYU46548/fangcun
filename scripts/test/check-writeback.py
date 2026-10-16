@@ -25,11 +25,13 @@ def check(name, cond, detail=""):
 # ---- 测试环境：临时数据目录 + LLM 打桩 ----
 tmpdir = tempfile.mkdtemp(prefix="writeback_check_")
 _saved = {}
-for k in ("TASK_DIR", "_NOTES_DIR", "REGISTRY_PATH"):
+for k in ("TASK_DIR", "_NOTES_DIR", "REGISTRY_PATH", "DECISIONS_PATH"):
     _saved[k] = getattr(core, k, None)
 core.TASK_DIR = os.path.join(tmpdir, "task-data")
 core._NOTES_DIR = os.path.join(tmpdir, "notes")
 core.REGISTRY_PATH = os.path.join(tmpdir, "registry.yaml")
+# DECISIONS_PATH 是 import 时冻结的常量——测试改 TASK_DIR 后同步重算（第 10 组喂卡断言用）
+core.DECISIONS_PATH = os.path.join(core.TASK_DIR, "decisions.md")
 os.makedirs(core.TASK_DIR, exist_ok=True)
 with open(core.REGISTRY_PATH, "w", encoding="utf-8") as f:
     f.write("members:\n  - 暮雨\n  - hermes\nprojects:\n  - id: proj-x\n    name: 测试项目\n")
@@ -148,6 +150,52 @@ try:
     wb.plan_to_draft("新目标", "proj-x")
     check("prompt 注入现有任务列表（防重复）",
           "修 README 截图" in captured.get("user_msg", ""), captured.get("user_msg", "")[:150])
+
+    # ---- 10. 决策卡注入（2026-10-16 批次第 6 项机制件）----
+    # 夹具：D-001 有效且属 proj-x；D-002 已撤销（必须被滤）；D-003 有效但属 proj-y（全库补齐该进）。
+    dec_md = (
+        "# 决策记录（决策卡）\n\n"
+        "## D-001 断言拍板：司天不发版\n"
+        "- 日期: 2026-10-16\n"
+        "- 状态: 有效\n"
+        "- 项目: proj-x\n"
+        "- 出处: 群 10-16\n\n"
+        "## D-002 已撤销的旧拍板\n"
+        "- 日期: 2026-10-15\n"
+        "- 状态: 已撤销\n"
+        "- 项目: proj-x\n\n"
+        "## D-003 别项目拍板：全局红线\n"
+        "- 日期: 2026-10-14\n"
+        "- 状态: 有效\n"
+        "- 项目: proj-y\n"
+    )
+    with open(os.path.join(core.TASK_DIR, "decisions.md"), "w", encoding="utf-8") as f:
+        f.write(dec_md)
+
+    wb.plan_to_draft("再拆一个目标", "proj-x")
+    m = captured.get("user_msg", "")
+    check("拆目标 prompt 注入有效决策卡（本项目 D-001 全文）",
+          "D-001" in m and "断言拍板：司天不发版" in m, m[-200:])
+    check("已撤销卡被滤（D-002 不进 prompt）", "D-002" not in m, m[-200:])
+    check("全库有效卡补齐（proj-y 的 D-003 也进）", "D-003" in m, m[-200:])
+    check("注入段带「作数」约束头", "不得违背或重复提" in m, m[-200:])
+
+    def spy_brief_chat(content, **kw):
+        captured["brief_msg"] = content
+        return json.dumps({"现状": "a", "目标": "b", "不做": "c", "欠着什么": "d"}, ensure_ascii=False)
+
+    wb.chat = spy_brief_chat
+    wb.draft_project_brief("proj-x")
+    bm = captured.get("brief_msg", "")
+    check("起草说明 prompt 同样注入决策卡（D-001 进、D-002 滤）",
+          "D-001" in bm and "断言拍板：司天不发版" in bm and "D-002" not in bm, bm[-200:])
+
+    # 空决策库（删夹具）→ 喂卡段静默缺席，主链不拦
+    os.remove(os.path.join(core.TASK_DIR, "decisions.md"))
+    wb.chat = spy_chat
+    r = wb.plan_to_draft("空决策库目标", "proj-x")
+    check("决策卡文件不存在 → 主链照常跑通（锦上添花不拦路）",
+          r.get("ok") is True and "最近拍板" not in captured.get("user_msg", ""), str(r.get("ok")))
 
 finally:
     wb.chat = _saved_chat

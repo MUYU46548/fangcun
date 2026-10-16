@@ -124,6 +124,36 @@ def _existing_titles(project_id: str) -> list[str]:
         return []
 
 
+def _decisions_block(project_id: str = "", limit: int = 10) -> str:
+    """决策卡注入提示词（2026-10-16 批次第 6 项机制件）：把作数的拍板拼进 AI 起草的上下文。
+
+    治的病（2026-10-16 07:20 实盘核验）：「任务卡进上下文、决策卡零引用」——
+    AI 拆目标不知道已拍板的事，会把定死的方向再提一遍、或撞「不做」红线。
+    取法：load_decisions() 过滤有效卡（按项目，无 project_id 取全库），最近 N 条，
+    一行一条「[D-xxx] 日期 内容（出处）」。决策卡是运行时数据（task-data/ 不入库），
+    本函数运行时读数据目录——云侧/沙箱拿不到内容时返回空串，锦上添花不拦主链。
+    """
+    try:
+        decs = core.load_decisions()
+    except Exception:
+        return ""
+    valid = [d for d in decs if (d.get("状态") or "") == "有效"]
+    if project_id:
+        scoped = [d for d in valid if (d.get("项目") or "") == project_id]
+        # 该项目自己的卡优先；不够 limit 用全库有效卡补齐（跨项目拍板同样约束 AI）
+        if len(scoped) < limit:
+            seen = {d["id"] for d in scoped}
+            scoped += [d for d in valid if d["id"] not in seen][:limit - len(scoped)]
+        valid = scoped
+    if not valid:
+        return ""
+    lines = ["最近拍板（作数，AI 不得违背或重复提）："]
+    for d in valid[:limit]:
+        src = f"（出自 {d['出处']}）" if d.get("出处") else ""
+        lines.append(f"- [{d.get('id', '')}] {d.get('日期', '')} {d.get('内容', '')}{src}")
+    return "\n".join(lines)
+
+
 def _project_digest(project_id: str) -> str:
     """项目现状摘要（说明草稿的上下文）：任务统计 + 标题列表。
 
@@ -163,6 +193,10 @@ def plan_to_draft(goal: str, project_id: str = "", model: str | None = None) -> 
     existing = _existing_titles(project_id)
     if existing:
         parts.append("现有任务（避免重复）：\n" + "\n".join(existing[:60]))
+    # 决策卡注入（批次第 6 项）：已拍板的事拼进上下文——AI 不得违背或重复提
+    dec_block = _decisions_block(project_id)
+    if dec_block:
+        parts.append(dec_block)
     user_msg = "\n".join(parts)
 
     try:
@@ -253,6 +287,10 @@ def draft_project_brief(project_id: str, model: str | None = None) -> dict:
         return {"ok": False, "error": "未指定项目"}
 
     user_msg = f"项目：{project_id}\n\n{_project_digest(project_id)}"
+    # 决策卡注入（批次第 6 项）：四栏起草前先看清已拍板的事——「不做」栏有据可依
+    dec_block = _decisions_block(project_id)
+    if dec_block:
+        user_msg += "\n\n" + dec_block
     try:
         raw = chat(user_msg, model=model, system=BRIEF_SYSTEM,
                    temperature=0.3, max_tokens=1500)

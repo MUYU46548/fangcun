@@ -18,7 +18,36 @@
 import { chatDetailed, ChatUsage, emptyUsage, usageLabel } from './chat'
 import { getProjectSummary, formatTasksForAudit } from './planning'
 import { createTask, updateTask } from '../data/tasks'
+import { loadDecisions } from '../data/decisions'
 import type { Task } from '../data/tasks'
+
+// ── 决策卡注入（2026-10-16 批次第 6 项机制件，与 Python 侧 _decisions_block 同语义）──
+// 治的病：任务卡进上下文、决策卡零引用——AI 拆目标不知道已拍板的事。
+// 有效卡（该项目优先、全库补齐）最近 10 条拼进两入口的 user message。
+// decisions.md 是运行时数据，读挂了返回空串：锦上添花不拦主链。
+function decisionsBlock(projectId: string, limit = 10): string {
+  let decs: any[]
+  try {
+    decs = loadDecisions()
+  } catch {
+    return ''
+  }
+  const valid = decs.filter((d) => (d as any).状态 === '有效')
+  let scoped = valid.filter((d) => String((d as any).项目 || '') === projectId)
+  if (projectId && scoped.length < limit) {
+    const seen = new Set(scoped.map((d) => (d as any).id))
+    scoped = [...scoped, ...valid.filter((d) => !seen.has((d as any).id)).slice(0, limit - scoped.length)]
+  } else if (!projectId) {
+    scoped = valid
+  }
+  if (!scoped.length) return ''
+  const lines = ['最近拍板（作数，AI 不得违背或重复提）：']
+  for (const d of scoped.slice(0, limit)) {
+    const src = (d as any).出处 ? `（出自 ${(d as any).出处}）` : ''
+    lines.push(`- [${(d as any).id || ''}] ${(d as any).日期 || ''} ${(d as any).内容 || ''}${src}`)
+  }
+  return lines.join('\n')
+}
 
 // ── System prompts ─────────────────────────────────────────────────────
 
@@ -124,6 +153,9 @@ export async function planToDraft(
     if (!data.error && data.tasks.length) {
       context = `\n\n当前项目任务（避免重复）：\n${formatTasksForAudit(data.tasks)}`
     }
+    // 决策卡注入（批次第 6 项）：已拍板的事拼进上下文——AI 不得违背或重复提
+    const decBlock = decisionsBlock(projectId)
+    if (decBlock) context += `\n\n${decBlock}`
   }
 
   let text: string
@@ -183,9 +215,12 @@ export async function draftProjectBrief(
   if (data.error) return { ok: false, error: data.error, usage: emptyUsage }
 
   const projName = data.project?.name || pid
-  const userMsg = `项目：${projName}（${pid}）\n\n当前项目任务：\n${
+  let userMsg = `项目：${projName}（${pid}）\n\n当前项目任务：\n${
     data.tasks.length ? formatTasksForAudit(data.tasks) : '（还没有任务卡）'
   }`
+  // 决策卡注入（批次第 6 项）：四栏起草前先看清已拍板的事——「不做」栏有据可依
+  const decBlock = decisionsBlock(pid)
+  if (decBlock) userMsg += `\n\n${decBlock}`
 
   let text: string
   let usage: ChatUsage = emptyUsage
