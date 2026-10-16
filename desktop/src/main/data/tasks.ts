@@ -806,8 +806,14 @@ export function createPlan(fields: {
     decisions: fields.decisions || [],
     risks: fields.risks || [],
   }
-  // ensure DP ids
-  plan.decisions.forEach((dp, i) => { if (!dp.id) dp.id = `dp_${String(i + 1).padStart(3, '0')}` })
+  // ensure DP ids + 默认态（2026-10-16 e2e-plans 抓到的真 bug：不补 status 时
+  // undefined 渲染成「跳过」→ 决策点全变 skipped、选定一个就秒转 active）
+  plan.decisions.forEach((dp, i) => {
+    if (!dp.id) dp.id = `dp_${String(i + 1).padStart(3, '0')}`
+    if (!dp.status) dp.status = 'pending'
+    if (!dp.chosen) dp.chosen = ''
+    if (!dp.decidedAt) dp.decidedAt = ''
+  })
   const fm: TaskFrontmatter = {
     id,
     title: fields.title,
@@ -867,7 +873,8 @@ export function parsePlanFromTask(task: Task): PlanData | null {
     else if (heading === '里程碑') {
       plan.milestones = content.split('\n').filter(l => l.trim().startsWith('- [')).map(l => {
         const m = l.match(/^- \[[ x]\]\s*(.+?)\s*\(截止:\s*(.+?)\)\s*$/)
-        return m ? { name: m[1], deadline: m[2] } : { name: l.replace(/^- \[[ x]\]\s*/, ''), deadline: '' }
+        // 「未设定」是渲染层给空截止的人话显示，解析时还原成空串（往返不丢）
+        return m ? { name: m[1], deadline: m[2] === '未设定' ? '' : m[2] } : { name: l.replace(/^- \[[ x]\]\s*/, ''), deadline: '' }
       })
     } else if (heading === '决策点') {
       const dpSections = content.split(/^###\s+/m).filter(Boolean)

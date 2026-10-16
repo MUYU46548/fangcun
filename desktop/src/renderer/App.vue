@@ -788,6 +788,9 @@
               <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产「待审批」草稿，点头才转正。
                    12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——「电路铺好了开关没装」的补开关。 -->
               <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
+              <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
+                   「电路铺好了开关没装」的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
+              <button class="ghost oact" @click.stop="openPlans(pvCurrent)">🗂 规划</button>
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
               <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
@@ -3002,6 +3005,79 @@
             {{ aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
           <button class="pri" :disabled="aiPlanBusy" @click="runDraftBrief()">
             {{ aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情「🗂 规划」的入口。
+         接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
+         决策点选定即留痕（选项+时间落任务文件）；再点其他选项=改选，留痕覆盖（decidedAt 刷新）。 -->
+    <div v-if="plansModal" class="overlay" @mousedown.self="closePlans()">
+      <div id="plans-modal">
+        <h3>规划 · {{ plansModal.name }}</h3>
+
+        <!-- 列表态 -->
+        <div v-if="!planDetail && !planCreating">
+          <div class="hint" v-if="planListBusy">读取中…</div>
+          <div class="hint" v-else-if="!planList.length">
+            这个项目还没有规划——点下面「＋ 新建规划」：目标、里程碑、要拍板的决策点一次写清，
+            决策点逐个选定后规划自动转「进行中」。
+          </div>
+          <div class="plan-row" v-for="t in planList" :key="t.fm.id" :data-plan-id="t.fm.id">
+            <div class="plan-row-main">
+              <b>{{ t.fm.title }}</b>
+              <span class="plan-badge" :data-plan-status="t.fm.plan_status || 'draft'">{{ planStatusLabel(t.fm.plan_status) }}</span>
+            </div>
+            <button class="ghost" @click="openPlanDetail(t.fm.id)">看决策点 →</button>
+          </div>
+        </div>
+
+        <!-- 详情态：决策点选择+留痕+回看 -->
+        <div v-else-if="planDetail">
+          <div class="hint" v-if="planDetail.plan.objective">目标：{{ planDetail.plan.objective }}</div>
+          <div v-if="planDetail.plan.milestones.length">
+            <div class="ms-suggest-h">里程碑</div>
+            <div v-for="(m, i) in planDetail.plan.milestones" :key="'pm' + i">· {{ m.name }}<template v-if="m.deadline">（{{ m.deadline }}）</template></div>
+          </div>
+          <div class="plan-dp" v-for="dp in planDetail.plan.decisions" :key="dp.id" :data-dp-id="dp.id">
+            <div class="plan-dp-q">{{ dp.question }}</div>
+            <div class="hint" v-if="dp.status !== 'pending'">
+              ✓ 已选：<b>{{ dp.chosen }}</b>（{{ planWhen(dp.decidedAt) }}）——再点其他选项=改选，留痕覆盖
+            </div>
+            <div class="plan-dp-opts">
+              <button v-for="op in dp.options" :key="op" class="ghost"
+                      :class="{ pri: dp.chosen === op }" @click="decideDp(dp, op)">{{ op }}</button>
+            </div>
+          </div>
+          <div class="hint hint-warn" v-if="!planDetail.plan.decisions.length">这条规划没有决策点。</div>
+          <div class="hint" v-else-if="planDetail.plan.decisions.every(d => d.status !== 'pending')">
+            决策点全定完——规划已自动转「进行中」，选择留痕都记在任务卡里。
+          </div>
+        </div>
+
+        <!-- 表单态：新建规划 -->
+        <div v-else>
+          <label>规划标题 *</label>
+          <input v-model="planForm.title" placeholder="例：0.3.7 发版计划" />
+          <label>目标（可空）</label>
+          <input v-model="planForm.objective" placeholder="例：把启动台三件事收口并发 0.3.7" />
+          <label>里程碑（每行一条，可空；格式 名称|截止，截止可省）</label>
+          <textarea v-model="planForm.milestones" rows="2" placeholder="设计稿定稿|2026-10-20&#10;发版"></textarea>
+          <template v-for="(dp, i) in planForm.dps" :key="'dpf' + i">
+            <label>决策点 {{ i + 1 }} · 要拍板的问题 *</label>
+            <input v-model="dp.question" placeholder="例：端口模型走哪版？" />
+            <label>选项（每行一个）*</label>
+            <textarea v-model="dp.options" rows="2" placeholder="端口=配置项&#10;端口=观测结果"></textarea>
+            <button class="ghost" v-if="planForm.dps.length > 1" @click="planForm.dps.splice(i, 1)">删这条决策点</button>
+          </template>
+          <button class="ghost" @click="planForm.dps.push({ question: '', options: '' })">＋ 加决策点</button>
+        </div>
+
+        <div class="acts">
+          <button class="ghost" @click="closePlans()">关闭</button>
+          <button class="ghost" v-if="planDetail" @click="backPlanList()">← 回列表</button>
+          <button class="pri" v-if="!planDetail && !planCreating" @click="startPlanCreate()">＋ 新建规划</button>
+          <button class="pri" v-else-if="planCreating" :disabled="!planForm.title.trim()" @click="submitPlan()">建规划</button>
         </div>
       </div>
     </div>
@@ -10640,6 +10716,94 @@ async function runDraftBrief() {
   }
 }
 
+// ── 规划管理（2026-10-16 第 1 项）：接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
+//    后端 10-11 起全就绪（main+preload），渲染层此前零调用=死通道；本窗补上开关。
+const plansModal = ref<{ id: string; name: string } | null>(null)
+const planList = ref<any[]>([])
+const planListBusy = ref(false)
+const planDetail = ref<{ id: string; plan: any } | null>(null)
+const planCreating = ref(false)
+const planForm = ref<{ title: string; objective: string; milestones: string; dps: { question: string; options: string }[] }>(
+  { title: '', objective: '', milestones: '', dps: [{ question: '', options: '' }] })
+
+/** plan_status → 人话（后端存英文四态；界面只说中文） */
+function planStatusLabel(s: any): string {
+  return ({ draft: '草稿', active: '进行中', achieved: '已达成', abandoned: '已放弃' } as any)[s] || (s || '草稿')
+}
+function planWhen(iso: string): string {
+  const t = Date.parse(iso)
+  return isNaN(t) ? '' : new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+async function openPlans(p: any) {
+  plansModal.value = { id: p.id, name: p.name || p.id }
+  planDetail.value = null
+  planCreating.value = false
+  await refreshPlans()
+}
+function closePlans() {
+  plansModal.value = null
+}
+/** 列表 = 全部规划里筛本项目的（listPlans 返回全库 plan 型任务，按 fm.project 归位） */
+async function refreshPlans() {
+  if (!plansModal.value) return
+  planListBusy.value = true
+  try {
+    const all: any[] = await window.tegula.listPlans()
+    planList.value = all.filter((t: any) => (t.fm?.project || '') === plansModal.value!.id)
+  } finally {
+    planListBusy.value = false
+  }
+}
+function startPlanCreate() {
+  planCreating.value = true
+  planForm.value = { title: '', objective: '', milestones: '', dps: [{ question: '', options: '' }] }
+}
+/** 里程碑「名称|截止」逐行拆；决策点问题+选项逐行拆；空段过滤（标题必填，其余可空） */
+async function submitPlan() {
+  if (!plansModal.value) return
+  const f = planForm.value
+  if (!f.title.trim()) return
+  const milestones = f.milestones.split('\n').map(l => l.trim()).filter(Boolean)
+    .map(l => { const [name, deadline] = l.split('|'); return { name: (name || '').trim(), deadline: (deadline || '').trim() } })
+    .filter((m: any) => m.name)
+  const decisions = f.dps
+    .map((d: any) => ({ question: d.question.trim(), options: d.options.split('\n').map((s: string) => s.trim()).filter(Boolean) }))
+    .filter((d: any) => d.question && d.options.length)
+  try {
+    const r: any = await window.tegula.createPlan({ title: f.title.trim(), project: plansModal.value.id, objective: f.objective.trim(), milestones, decisions })
+    showToast(`规划已建（${r.id}）——决策点逐个选定后自动转「进行中」`, 'success')
+    planCreating.value = false
+    await refreshPlans()
+  } catch (e: any) {
+    showToast(`建规划失败：${e?.message || e}`, 'error')
+  }
+}
+async function openPlanDetail(id: string) {
+  try {
+    const r: any = await window.tegula.getPlan(id)
+    if (!r) { showToast('规划不存在（可能已删）', 'error'); return }
+    planDetail.value = { id, plan: r.plan }
+  } catch (e: any) {
+    showToast(`读规划失败：${e?.message || e}`, 'error')
+  }
+}
+function backPlanList() {
+  planDetail.value = null
+}
+/** 决策点选定：调完重读详情——留痕（chosen/decidedAt）与「全定完自动转进行中」当场可见 */
+async function decideDp(dp: any, choice: string) {
+  const d = planDetail.value
+  if (!d) return
+  try {
+    const r: any = await window.tegula.decidePlanPoint(d.id, dp.id, choice)
+    if (r?.ok === false) { showToast(r.error || '留痕失败', 'error'); return }
+    await openPlanDetail(d.id)
+  } catch (e: any) {
+    showToast(`留痕失败：${e?.message || e}`, 'error')
+  }
+}
+
 /**
  * 新建项目：真正写入 registry.yaml。
  * 此前是 `prompt('项目名称：')` + "项目添加功能开发中" —— 双重不可用：
@@ -13078,26 +13242,59 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 #plan-new-modal h3,
 #proj-new-modal h3,
-#ai-plan-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+#ai-plan-modal h3,
+#plans-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
 /* AI 规划弹窗里的提示条（2026-10-16 暮雨第 1 条：「根本找不到入口、也没找到配置模型的地方」）。
    普通说明一行浅灰；「还没配模型通道」那条走警示色，并带一个直达设置页那一格的按钮。 */
 #ai-plan-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
 #ai-plan-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #ai-plan-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
+/* 规划管理弹窗（2026-10-16 第 1 项）：提示条同族复用 */
+#plans-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
+#plans-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #plan-new-modal label,
 #proj-new-modal label,
-#ai-plan-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+#ai-plan-modal label,
+#plans-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
 #plan-new-modal input,
 #plan-new-modal textarea,
 #plan-new-modal select,
 #proj-new-modal input,
-#ai-plan-modal input {
+#ai-plan-modal input,
+#plans-modal input,
+#plans-modal textarea {
   width: 100%; padding: 7px 10px;
   border: 1px solid var(--border); border-radius: 7px;
   font-size: 13px; background: #fff; color: var(--ink);
   font-family: inherit;
 }
+#plans-modal textarea { resize: vertical; min-height: 54px; }
+/* 规划列表行 + 状态徽标（草稿琥珀/进行中绿/已放弃红，与看板状态色一致） */
+.plan-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
+.plan-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
+.plan-row-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-badge { flex: none; font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+.plan-badge[data-plan-status="draft"] { background: #fdf3e0; border-color: #e8d5ae; color: #8a6d2f; }
+.plan-badge[data-plan-status="active"],
+.plan-badge[data-plan-status="achieved"] { background: #e3f1de; border-color: #bcd4b4; color: #3f6b3a; }
+.plan-badge[data-plan-status="abandoned"] { background: #f6e2e2; border-color: #e2c4c4; color: #8a4343; }
+/* 决策点块：问题加粗一行 + 选项按钮组（已选项高亮 pri） */
+.plan-dp { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.plan-dp-q { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.plan-dp-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-dp-opts button { padding: 4px 10px; font-size: 12px; }
 #plan-new-modal textarea { resize: vertical; min-height: 66px; }
+/* 规划管理弹窗主体（2026-10-16 第 1 项）：与 AI 规划弹窗同族尺寸 */
+#plans-modal {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  width: 470px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
 #plan-new-modal .hint,
 #proj-new-modal .hint { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.6; }
 #proj-new-modal code { background: #eee; padding: 0 4px; border-radius: 3px; }

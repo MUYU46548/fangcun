@@ -3241,6 +3241,99 @@
     // ⚠ 合入（2026-10-12）：这一整段「决策卡」断言来自外部整包，与上面「死通道接回验收」是**两块独立**
     //   的断言 —— 冲突只是**位置重叠**（两边都往文件末尾追加），**两块都要留**，不许丢任何一边。
 
+    // ══ 规划管理（2026-10-16 第 1 项）：「🗂 规划」弹窗三态 —— 列表 / 决策点留痕回看 / 新建落 IPC。
+    //    四条通道真 preload 早就暴露、渲染层今天接（「电路铺好了开关没装」第二排开关）。
+    //    假 preload plans 夹具：1 条「0.3.7 发版计划」（project=demo），2 决策点（dp_001 已定 / dp_002 待定）。
+    {
+      clickText('看板'); await sleep(300)
+      const tileP = $('#board.pv .tile:not(.tile-add)')
+      check('★ 进项目详情后有「🗂 规划」按钮（规划四通道的界面开关装上了）', await (async () => {
+        if (!tileP) return false
+        tileP.click()
+        const ok = await waitFor(() => !!$('#board.pv .ms-detail .ocard'), 4000, '进详情')
+        return ok && $$('#board.pv .ms-detail .oacts button').some((b) => (b.textContent || '').indexOf('🗂') >= 0)
+      })(), 'tile=' + ((tileP || {}).textContent || '').slice(0, 12))
+      const plansBtn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('🗂') >= 0)
+      if (plansBtn) {
+        plansBtn.click()
+        check('★★ 点「🗂 规划」→ 弹窗开 + 夹具规划进列表（listPlans 走通 + 按项目过滤）',
+          await waitFor(() => !!$('#plans-modal') && $$('#plans-modal .plan-row').length === 1, 4000, 'plans list'),
+          'rows=' + $$('#plans-modal .plan-row').length)
+        check('  徽标显示「草稿」（plan_status=draft → 人话，不许英文露脸）',
+          (($('#plans-modal .plan-badge[data-plan-status="draft"]') || {}).textContent || '').trim() === '草稿',
+          (($('#plans-modal .plan-badge') || {}).textContent || '').trim())
+        // ── 详情态：决策点选择 + 留痕回看 ──
+        const seeDp = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('看决策点') >= 0)
+        check('  「看决策点 →」在（列表 → 详情态入口）', !!seeDp)
+        if (seeDp) {
+          seeDp.click()
+          check('★★ 详情态：2 个决策点都渲染（getPlan 走通）',
+            await waitFor(() => $$('#plans-modal .plan-dp').length === 2, 4000, 'plan detail'),
+            'dps=' + $$('#plans-modal .plan-dp').length)
+          check('  已定决策点回看：「✓ 已选」+ 选项文本都在（dp_001 留痕显示）',
+            (($('#plans-modal .plan-dp[data-dp-id="dp_001"]') || {}).textContent || '').indexOf('已选') >= 0
+            && (($('#plans-modal .plan-dp[data-dp-id="dp_001"]') || {}).textContent || '').indexOf('端口=观测结果') >= 0)
+          const friBtn = $$('#plans-modal .plan-dp[data-dp-id="dp_002"] button').find((b) => (b.textContent || '').trim() === '周五')
+          check('  待定决策点的选项按钮在（周五 / 下周一）', !!friBtn)
+          if (friBtn) {
+            friBtn.click()
+            check('★★ 点选项 → decidePlanPoint 走 IPC，重读后留痕显示「已选：周五」',
+              await waitFor(() => (($('#plans-modal .plan-dp[data-dp-id="dp_002"]') || {}).textContent || '').indexOf('已选') >= 0
+                && (($('#plans-modal .plan-dp[data-dp-id="dp_002"]') || {}).textContent || '').indexOf('周五') >= 0, 4000, 'decide dp'))
+            check('  全定完提示出现（决策点全定完 → 规划自动转「进行中」的人话说明）',
+              ($('#plans-modal').textContent || '').indexOf('决策点全定完') >= 0)
+          }
+          const backBtn = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('回列表') >= 0)
+          if (backBtn) {
+            backBtn.click()
+            check('★★ 回列表徽标转「进行中」（全 decided → active，假 preload 同 main 语义）',
+              await waitFor(() => !!$('#plans-modal .plan-badge[data-plan-status="active"]'), 4000, 'active badge'),
+              'badge=' + (($('#plans-modal .plan-badge') || {}).textContent || '').trim())
+          }
+        }
+        // ── 新建态：填表 → 建规划 → 载荷齐发 ──
+        const newBtn = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('新建规划') >= 0)
+        check('  「＋ 新建规划」在', !!newBtn)
+        if (newBtn) {
+          newBtn.click()
+          await sleep(200)
+          const ins = $$('#plans-modal input')
+          const tas = $$('#plans-modal textarea')
+          check('  表单态结构：标题/目标/决策点问题 input + 里程碑/选项 textarea',
+            ins.length >= 3 && tas.length >= 2, `ins=${ins.length} tas=${tas.length}`)
+          if (ins.length >= 3 && tas.length >= 2) {
+            const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })) }
+            set(ins[0], '断言用规划')
+            set(ins[1], '把规划管理收口')
+            set(ins[2], '端口模型走哪版？')
+            set(tas[1], '端口=配置项\n端口=观测结果')   // tas[0]=里程碑（刻意留空，断言空段过滤）
+            await sleep(150)
+            const mkBtn = $$('#plans-modal button').find((b) => (b.textContent || '').trim() === '建规划')
+            check('  标题非空后「建规划」可点', !!mkBtn && !mkBtn.disabled)
+            if (mkBtn) {
+              mkBtn.click()
+              check('★★ 建规划走 IPC 且列表多一条（createPlan → refresh 当场可见）',
+                await waitFor(() => $$('#plans-modal .plan-row').length === 2, 4000, 'plan created'),
+                'rows=' + $$('#plans-modal .plan-row').length)
+              check('★ 建规划载荷齐发：title/project/objective/milestones/decisions 一起进 IPC（决策点空段被滤掉）',
+                (() => {
+                  const a = ((window.__fcTest.calls().filter((c) => c.name === 'createPlan').pop() || {}).args || [])[0] || {}
+                  return a.title === '断言用规划' && a.project === 'demo' && a.objective === '把规划管理收口'
+                    && Array.isArray(a.milestones) && a.milestones.length === 0
+                    && Array.isArray(a.decisions) && a.decisions.length === 1
+                    && a.decisions[0].question === '端口模型走哪版？' && a.decisions[0].options.length === 2
+                })(), JSON.stringify(((window.__fcTest.calls().filter((c) => c.name === 'createPlan').pop() || {}).args || [])[0]))
+            }
+          }
+        }
+        const closeBtn = $$('#plans-modal button').find((b) => (b.textContent || '').trim() === '关闭')
+        if (closeBtn) closeBtn.click()
+        check('  「关闭」收弹窗', await waitFor(() => !$('#plans-modal'), 3000, 'close plans'))
+      } else {
+        check('「🗂 规划」按钮存在', false, 'no plansBtn')
+      }
+    }
+
     // ══ 帮助手册视图（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）
     //    它只从**顶栏「?」**进入（页签行不重复放一个）—— 这里就按用户的真实路径点。
     {

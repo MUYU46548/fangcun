@@ -21,6 +21,24 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 规划管理（2026-10-16 第 1 项）：预置 1 条带 2 决策点的规划（1 已定 1 待定），
+  // 「🗂 规划」弹窗列表/详情/留痕三态都有东西可断言。
+  plans: [
+    {
+      id: 'plan-e2e-001',
+      fm: { id: 'plan-e2e-001', title: '0.3.7 发版计划', project: 'demo', status: '草稿', plan_status: 'draft' },
+      plan: {
+        objective: '把启动台三件事收口',
+        status: 'draft',
+        milestones: [{ name: '设计稿定稿', deadline: '2026-10-20' }],
+        decisions: [
+          { id: 'dp_001', question: '端口模型走哪版？', options: ['端口=配置项', '端口=观测结果'], status: 'decided', chosen: '端口=观测结果', decidedAt: '2026-10-16T10:00:00.000Z' },
+          { id: 'dp_002', question: '发版窗口？', options: ['周五', '下周一'], status: 'pending', chosen: '', decidedAt: '' },
+        ],
+        risks: [],
+      },
+    },
+  ],
   // 方针卡（2026-09-25 第 7 条三态 + 029 结构地图）：demo 已填但**没有**结构地图、
   // demo2 连文件都没有 —— 刻意留成"两个缺口各一种"，缺口条才有东西可显示。
   policies: {
@@ -251,6 +269,38 @@ contextBridge.exposeInMainWorld('tegula', {
   ],
   parseErrors: () => [],
   allProjectProgress: () => ({}),
+  // ── Plan 四通道（2026-10-16 第 1 项）：真 preload 早已暴露、渲染层今天接；
+  //    假实现贴 main/data/tasks.ts 同语义（decidePlanPoint 全定完自动转 active）。
+  createPlan: (fields) => {
+    rec('createPlan', [fields])
+    const id = 'plan-e2e-' + String((store.plans.length + 1)).padStart(3, '0')
+    const t = {
+      id,
+      fm: { id, title: fields.title, project: fields.project || '', status: '草稿', plan_status: 'draft' },
+      plan: {
+        objective: fields.objective || '', status: 'draft',
+        milestones: fields.milestones || [],
+        decisions: (fields.decisions || []).map((d, i) => ({ id: 'dp_' + String(i + 1).padStart(3, '0'), question: d.question, options: d.options, status: 'pending', chosen: '', decidedAt: '' })),
+        risks: fields.risks || [],
+      },
+    }
+    store.plans.push(t)
+    return { id, task: t }
+  },
+  listPlans: () => { rec('listPlans', []); return store.plans.slice() },
+  getPlan: (id) => { rec('getPlan', [id]); const t = store.plans.find(p => p.id === id); return t ? { task: t, plan: t.plan } : null },
+  decidePlanPoint: (id, dpId, choice) => {
+    rec('decidePlanPoint', [id, dpId, choice])
+    const t = store.plans.find(p => p.id === id)
+    if (!t) return { ok: false, error: '任务不存在' }
+    const dp = t.plan.decisions.find(d => d.id === dpId)
+    if (!dp) return { ok: false, error: `决策点 ${dpId} 不存在` }
+    dp.status = 'decided'; dp.chosen = choice; dp.decidedAt = new Date().toISOString()
+    if (t.plan.decisions.every(d => d.status !== 'pending') && t.plan.status === 'draft') {
+      t.plan.status = 'active'; t.fm.plan_status = 'active'; t.fm.status = '进行中'
+    }
+    return { ok: true }
+  },
   // 停滞卡（2026-10-11 监控台 P0）：夹具给一条**属于 demo 项目**的 —— 让监控台那块有东西可断。
   // 不给的话"僵尸卡"整块永远不渲染，断言就成空转（反面教材见 tegula-testing：
   // 假 preload 缺 API → await 抛了被 catch 吞掉 → 那条断言永远验不到）。
