@@ -180,3 +180,90 @@ export function setDecisionStatus(
   }
   return { ok: false, error: `决策卡 ${id} 不存在` }
 }
+
+/** 允许通过 updateDecision 改的字段 —— 与界面可编辑字段一一对应（记忆纪律：可写字段 ≡ 界面可编辑字段） */
+export interface DecisionPatch {
+  内容?: string
+  日期?: string
+  项目?: string
+  出处?: string
+  备注?: string
+}
+
+/**
+ * 改一条决策（2026-10-17 暮雨：「决策似乎并不能进行编辑和删除，也没有其他高级管理功能，
+ * 给人失控感」）。
+ *
+ * 语义与 `updateXxx` 一族保持一致：**没传 ≠ 清空** —— `undefined` 保持原值，传 `''` 才清空。
+ * id 与状态不在这里改：状态有专门通道（setDecisionStatus，它还要遵守三态校验），
+ * id 是身份，改了等于换一条。
+ */
+export function updateDecision(
+  id: string,
+  patch: DecisionPatch
+): { ok: true; message: string } | { ok: false; error: string } {
+  const items = loadDecisions()
+  const hit = items.find((it) => it.id === id)
+  if (!hit) return { ok: false, error: `决策卡 ${id} 不存在` }
+
+  const next = { ...hit }
+  if (patch.内容 !== undefined) {
+    const c = String(patch.内容).trim()
+    if (!c) return { ok: false, error: '决策内容不能为空' }
+    next.内容 = c
+  }
+  if (patch.日期 !== undefined) next.日期 = String(patch.日期).trim()
+  if (patch.项目 !== undefined) next.项目 = String(patch.项目).trim()
+  if (patch.出处 !== undefined) next.出处 = String(patch.出处).trim()
+  if (patch.备注 !== undefined) next.备注 = String(patch.备注).trim()
+  next.更新 = String(Math.floor(Date.now() / 1000))
+
+  // 内容与日期都变了要重新排序（列表按 日期 → id 升序，与 addDecision 同口径）
+  const idx = items.indexOf(hit)
+  items[idx] = next
+  items.sort((a, b) => (a.日期 < b.日期 ? -1 : a.日期 > b.日期 ? 1 : a.id < b.id ? -1 : 1))
+  saveDecisions(items)
+  logActivity(id, 'decision-update', next.内容.slice(0, 80))
+  return { ok: true, message: `已更新 ${id}` }
+}
+
+/** 被删决策的留底文件：**刻意不放 `.trash/`** —— 回收站只认任务卡，
+    把决策快照塞进去会显示成一条"没有标题、还原后变成脏文件"的怪条目。 */
+function deletedLogPath(): string {
+  return path.join(getTaskDir(), 'decisions-deleted.md')
+}
+
+/**
+ * 删一条决策。删之前先把这一条的**完整文本**追加进 `decisions-deleted.md`，
+ * 所以"删了还能捞回来"是实话，不是安慰（用户讨厌假话）。
+ * 返回被删的 id，供界面提示。
+ */
+export function deleteDecision(id: string): { ok: true; message: string } | { ok: false; error: string } {
+  const items = loadDecisions()
+  const hit = items.find((it) => it.id === id)
+  if (!hit) return { ok: false, error: `决策卡 ${id} 不存在` }
+  const rest = items.filter((it) => it.id !== id)
+
+  try {
+    fs.mkdirSync(getTaskDir(), { recursive: true })
+    const stamp = new Date().toISOString()
+    const block = [
+      `## 已删除 ${hit.id}（${stamp}）`,
+      `- 内容: ${hit.内容}`,
+      `- 日期: ${hit.日期}`,
+      `- 状态: ${hit.状态}`,
+      hit.项目 ? `- 项目: ${hit.项目}` : '',
+      `- 出处: ${hit.出处}`,
+      hit.备注 ? `- 备注: ${hit.备注}` : '',
+      '',
+    ].filter(Boolean).join('\n')
+    fs.appendFileSync(deletedLogPath(), block + '\n', 'utf-8')
+  } catch (e) {
+    // 留底失败就不删 —— 宁可删不掉，也不能悄无声息地毁掉一条决策
+    return { ok: false, error: `留底失败，已中止删除：${(e as Error).message}` }
+  }
+
+  saveDecisions(rest)
+  logActivity(id, 'decision-delete', hit.内容.slice(0, 80))
+  return { ok: true, message: `已删除 ${id}（留底在 decisions-deleted.md）` }
+}

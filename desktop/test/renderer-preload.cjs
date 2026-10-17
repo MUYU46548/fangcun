@@ -752,9 +752,11 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 启动台 ─────────────────────────────────────────────────────
   // ⚠ 返回形状跟真主进程一致：loadApps 直接回**数组**（不是 {ok}），launchApp/openFolder 回 {ok,...}
   launchpadLoadApps: () => store.launchpad.slice(),
-  launchpadAddApp: () => store.launchpad.slice(),
-  launchpadUpdateApp: () => store.launchpad.slice(),
-  launchpadRemoveApp: () => store.launchpad.slice(),
+  // ⚠ 2026-10-17：这三个原来**不记账**（直接返回 store.launchpad）—— 于是"点删除有没有真走到 IPC"
+  //   这类断言恒红/测不出来。桩必须 rec，"看起来像真 preload"不等于能验顺序。
+  launchpadAddApp: (input) => { rec('launchpadAddApp', [input]); return store.launchpad.slice() },
+  launchpadUpdateApp: (id, updates) => { rec('launchpadUpdateApp', [id, updates]); return store.launchpad.slice() },
+  launchpadRemoveApp: (id) => { rec('launchpadRemoveApp', [id]); return store.launchpad.slice() },
   launchpadLaunchApp: (app) => { rec('launchpadLaunchApp', [app && app.id]); return ok({ pid: 4242, message: `已启动：${app && app.name}` }) },
   launchpadOpenFolder: (p) => { rec('launchpadOpenFolder', [p]); return ok({ message: '已打开' }) },
   launchpadOpenFolder: () => ok(),
@@ -905,6 +907,9 @@ contextBridge.exposeInMainWorld('tegula', {
   ] } },
   decisionAdd: (input) => { rec('decisionAdd', [input]); return { ok: true, id: 'D-004' } },
   decisionSetStatus: (id, status, note) => { rec('decisionSetStatus', [id, status, note]); return { ok: true, message: `${id} → ${status}` } },
+  // 2026-10-17：编辑 / 删除（与真 preload 同步；桩不记账 = 顺序断言恒红）
+  decisionUpdate: (id, patch) => { rec('decisionUpdate', [id, patch]); return { ok: true, message: `已更新 ${id}` } },
+  decisionDelete: (id) => { rec('decisionDelete', [id]); return { ok: true, message: `已删除 ${id}` } },
   // ⚠ 真 IPC 是 Promise（ipcRenderer.invoke）—— 假 preload 必须同款，否则界面 .then 直接炸（2026-10-14 实测）
   exportTasks: () => Promise.resolve(ok({ data: [], count: 0 })),
   // 导入：与主进程**同款防呆**（表外字段名 → 失败，并把那句点名的话回给界面）。

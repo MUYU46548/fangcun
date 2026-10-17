@@ -193,6 +193,9 @@ contextBridge.exposeInMainWorld('tegula', {
   decisionList: () => ipcRenderer.invoke('decision:list'),
   decisionAdd: (input: any) => ipcRenderer.invoke('decision:add', input),
   decisionSetStatus: (id: string, status: string, note?: string) => ipcRenderer.invoke('decision:setStatus', id, status, note),
+  // 2026-10-17：编辑 / 删除（决策原来只能新增 + 改状态，"写错一句就只能撤销"）
+  decisionUpdate: (id: string, patch: any) => ipcRenderer.invoke('decision:update', id, patch),
+  decisionDelete: (id: string) => ipcRenderer.invoke('decision:delete', id),
 
   // Launchpad
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),

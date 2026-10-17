@@ -36,7 +36,9 @@ function onInput(ev: Event): void {
     :class="
       cn(
         // ⚠ `font-[inherit]`：preflight 关着，`<input>` 的 UA 默认字体还在（见 check-ui-base 的原生控件兜底一节）
-        'h-[34px] w-full min-w-0 rounded-[10px] border border-[var(--ui-input)] bg-[var(--ui-card)] px-3 font-[inherit] text-[13px] text-[var(--ui-foreground)] outline-none transition-colors placeholder:text-[var(--ui-muted-foreground)] hover:border-[var(--ui-ring)] focus-visible:border-[var(--ui-ring)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--ui-ring)_20%,transparent)] disabled:opacity-50',
+        // 2026-10-17：高度/圆角改读老按钮令牌（34/10 → 32/8）—— 与旁边的按钮同一行必须对得上，
+        //   否则「决策」页那种按钮与输入框并排的地方会一眼看出两套尺寸。
+        'h-[var(--btn-h-lg)] w-full min-w-0 rounded-[var(--btn-r)] border border-[var(--ui-input)] bg-[var(--ui-card)] px-3 font-[inherit] text-[12.5px] text-[var(--ui-foreground)] outline-none transition-colors placeholder:text-[var(--ui-muted-foreground)] hover:border-[var(--ui-ring)] focus-visible:border-[var(--ui-ring)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--ui-ring)_20%,transparent)] disabled:opacity-50',
         props.class
       )
     "

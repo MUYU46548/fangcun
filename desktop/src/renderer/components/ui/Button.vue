@@ -20,14 +20,20 @@ const buttonVariants = cva(
         primary: 'bg-[var(--ui-primary)] text-[var(--ui-primary-foreground)] hover:brightness-105',
         outline:
           'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)]',
+        // 2026-10-17 暮雨第 4 条补：「决策」页混着两种按钮 —— 这里原来的 ghost 是**无边框**的
+        // （hover 才浮出来），而老界面的 `.ghost` 一律白底 + 1px 描边。同一行里一眼看出是两套。
+        // 统一到老那套：有边框、次要文字色，弱在文字不在框。
         ghost:
-          'border border-transparent text-[var(--ui-muted-foreground)] hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
+          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-muted-foreground)] hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
         danger: 'bg-[var(--ui-destructive)] text-[var(--ui-destructive-foreground)] hover:brightness-105',
       },
       size: {
-        sm: 'h-7 rounded-lg px-2.5 text-[12px]',
-        md: 'h-[34px] rounded-[10px] px-4 text-[13px]',
-        icon: 'h-[34px] w-[34px] rounded-[10px] p-0',
+        // 2026-10-17 暮雨第 4 条：「按钮视觉风格不统一……我更喜欢扁平化圆角」——
+        // 尺寸与圆角**改读 App.vue 里那组老令牌**（--btn-h / --btn-h-lg / --btn-h-sm / --btn-r），
+        // 不再各写各的 34px/10px。判据：新按钮和老按钮放在同一行，高度与圆角必须对得上。
+        sm: 'h-[var(--btn-h-sm)] rounded-[var(--btn-r)] px-2.5 text-[11.5px]',
+        md: 'h-[var(--btn-h-lg)] rounded-[var(--btn-r)] px-3.5 text-[12.5px]',
+        icon: 'h-[var(--btn-h-lg)] w-[var(--btn-h-lg)] rounded-[var(--btn-r)] p-0',
       },
     },
     defaultVariants: { variant: 'outline', size: 'md' },

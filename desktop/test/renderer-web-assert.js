@@ -519,6 +519,25 @@
     check('  取消勾选后归档区的卡回来了', $$('.pvwall .pvcard').length === archBefore,
       `${$$('.pvwall .pvcard').length} vs ${archBefore}`)
 
+    // ══ 归档 · 按状态快选（2026-10-17 暮雨第 1 条：「我想一键全选已完成的归档任务，然后删掉它们」）══
+    // 判据：点一下要**真的全选**（不是只选一张，也不是只开多选模式不选东西）。
+    check('★ 归档页有「按状态快选」工具条', !!$('.aq-bar'))
+    const aqDone = $$('.aq-bar .aq-btn').find((b) => (b.textContent || '').indexOf('完成') >= 0)
+    check('  工具条上带该状态的条数（完成档有数、可点）',
+      !!aqDone && !aqDone.disabled, aqDone ? aqDone.textContent : '(没有完成档按钮)')
+    if (aqDone) {
+      aqDone.click()
+      await sleep(400)
+      const bc = $('.batch-bar .batch-count')
+      check('★★ 点一下 = 进入多选 + 选中该状态全部（不是只选一张）',
+        !!bc && (bc.textContent || '').indexOf('已选 ' + archBefore) >= 0,
+        (bc ? bc.textContent : '(没有批量栏)') + ' 期望已选 ' + archBefore)
+      const aqCancel = $$('.batch-bar button').find((b) => (b.textContent || '').trim() === '取消')
+      if (aqCancel) aqCancel.click()
+      await sleep(300)
+      check('  取消后退出多选（不残留选中）', !$('.batch-bar'))
+    }
+
     // ⚠ 后面的断言都建立在「看板 + 列视图」上，这里必须切回去
     //    （页签切换**不会**改摆法 —— 摆法是记住的，所以要显式切回列视图）
     clickText('看板')
@@ -2744,6 +2763,42 @@
       'purge=' + window.__fcTest.calls().filter(c => c.name === 'trashPurge').length)
     window.confirm = origConfirm2
 
+    // ══ 回收站 · 按日期清理（2026-10-17 暮雨第 2 条：「我想选择特定日期，删除此之前的所有内容」）══
+    // 判据：预览必须**按日期算**（不是把全部算命中），确认后**只删命中那批**（不是清空）。
+    {
+      const ago = (n) => new Date(Date.now() - n * 86400000).toISOString()
+      window.__fcTest.setTrash([
+        { name: 'old-1.md', id: 'old-1', title: '很老的甲', status: '待办', project: '', bytes: 100, mtime: ago(100) },
+        { name: 'old-2.md', id: 'old-2', title: '很老的乙', status: '完成', project: '', bytes: 100, mtime: ago(60) },
+        { name: 'new-1.md', id: 'new-1', title: '很新的丙', status: '待办', project: '', bytes: 100, mtime: ago(2) },
+      ])
+      clickText('看板'); await sleep(300); clickText('回收站'); await sleep(600)
+      const openBtn = $$('.trash-view button').find((b) => (b.textContent || '').indexOf('按日期清理') >= 0)
+      check('★ 回收站有「按日期清理」入口', !!openBtn)
+      if (openBtn) openBtn.click()
+      check('  点开 → 弹窗真的出现（有底有框，不是裸块）',
+        await waitFor(() => !!$('#trash-purge-modal'), 3000, 'purge modal'))
+      const mBtn = (t) => $$('#trash-purge-modal button').find((b) => (b.textContent || '').trim() === t)
+      // 90 天前：只有「100 天前」那条命中；60 天与 2 天那两条不该被算进来
+      const b90 = mBtn('90 天前')
+      if (b90) b90.click()
+      await sleep(150)
+      const pv = mBtn('预览命中')
+      if (pv) pv.click()
+      check('★★ 预览按日期算命中（90 天前 → 只剩 100 天那条，1 项）',
+        await waitFor(() => (($('.lpurge-preview') || {}).textContent || '').indexOf('将彻底删除 1 项') >= 0, 3000, 'purge preview'),
+        (($('.lpurge-preview') || {}).textContent || '').slice(0, 60))
+      const okBtn = mBtn('确认彻底删除')
+      check('  确认按钮在预览后才可用', !!okBtn && !okBtn.disabled)
+      if (okBtn) okBtn.click()
+      check('★★ 确认后只删命中那条（trashPurge 的 name = old-1.md）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'trashPurge' && (c.args || [])[0] === 'old-1.md'), 4000, 'purge old-1'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'trashPurge').map((c) => (c.args || [])[0])))
+      await sleep(500)
+      check('  没命中的两条还在（按日期删 ≠ 清空回收站）',
+        $$('.trash-view .trash-item').length === 2, 'left=' + $$('.trash-view .trash-item').length)
+    }
+
     // ── P0-1 脏检查快照：判「改没改」而不是「有没有字」（2026-10-01）──
     const origConfirmD = window.confirm
     let confirmHits = 0
@@ -3301,6 +3356,186 @@
     } else {
       check('  状态下拉存在', false, 'status not found')
     }
+    // ══ 编辑 / 删除（2026-10-17 暮雨第 5 条：「决策并不能编辑和删除，给人失控感」）══
+    // 判据三条：① 每张卡都有入口；② 编辑是**就地展开**（改一句话不该跨三层）；
+    //          ③ 删除是**两段式**——第一次点只出确认，确认前 IPC 一次都不许发。
+    const decEdits = $$('[data-dec="edit"]')
+    const decDels = $$('[data-dec="delete"]')
+    check('★★ 每张决策卡都有「编辑 / 删除」入口',
+      decEdits.length === 3 && decDels.length === 3,
+      `edit=${decEdits.length} delete=${decDels.length}`)
+    if (decEdits[0]) {
+      decEdits[0].click()
+      check('★★ 点「编辑」→ 就地展开表单（不是弹新窗）',
+        await waitFor(() => $$('[data-dec="edit-form"]').length === 1, 3000, 'dec edit form'),
+        'forms=' + $$('[data-dec="edit-form"]').length)
+      check('  表单带出原内容（不是空白框）',
+        (($('[data-dec="edit-content"]') || {}).value || '').indexOf('司天不发版') >= 0,
+        (($('[data-dec="edit-content"]') || {}).value || '').slice(0, 30))
+      check('  备注用的是多行 textarea（"可多行"不是假话）',
+        (($('[data-dec="edit-note"]') || {}).tagName || '') === 'TEXTAREA',
+        String((($('[data-dec="edit-note"]') || {}).tagName || '')))
+      // 真存一次：改内容 → 保存 → decisionUpdate 必须带上新内容（只开框不改 = 假功能）
+      const updBefore = window.__fcTest.callCount('decisionUpdate')
+      const ecInp = $('[data-dec="edit-content"]')
+      if (ecInp) {
+        ecInp.value = '改过的一句话：决策要能编辑'
+        ecInp.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(150)
+      }
+      const esBtn = $('[data-dec="edit-save"]')
+      if (esBtn) esBtn.click()
+      check('★★ 保存 → 走 decisionUpdate，且带的是改后的内容',
+        await waitFor(() => window.__fcTest.callCount('decisionUpdate') > updBefore, 3000, 'dec update'),
+        'calls=' + window.__fcTest.callCount('decisionUpdate'))
+      check('  保存参数：id = D-001、内容 = 新填的那句',
+        (() => {
+          const a = ((window.__fcTest.calls().filter((c) => c.name === 'decisionUpdate').pop() || {}).args || [])
+          return a[0] === 'D-001' && String(((a[1] || {}).内容 || '')).indexOf('决策要能编辑') >= 0
+        })(),
+        JSON.stringify(((window.__fcTest.calls().filter((c) => c.name === 'decisionUpdate').pop() || {}).args || [])))
+      await sleep(300)
+      check('  保存后表单收起（回到只读卡）', $$('[data-dec="edit-form"]').length === 0,
+        'forms=' + $$('[data-dec="edit-form"]').length)
+      // 再开一次只为验「取消」这条路
+      if ($$('[data-dec="edit"]')[0]) $$('[data-dec="edit"]')[0].click()
+      await sleep(300)
+      const ecBtn = $('[data-dec="edit-cancel"]')
+      if (ecBtn) ecBtn.click()
+      await sleep(300)
+      check('  取消 → 表单收起，卡片回到只读', $$('[data-dec="edit-form"]').length === 0,
+        'forms=' + $$('[data-dec="edit-form"]').length)
+    }
+    const delBefore = window.__fcTest.callCount('decisionDelete')
+    if ($$('[data-dec="delete"]')[0]) {
+      $$('[data-dec="delete"]')[0].click()
+      await sleep(250)
+      check('★★ 点「删除」只是两段式第一步（还没真删）',
+        $$('[data-dec="delete-confirm"]').length === 1
+          && window.__fcTest.callCount('decisionDelete') === delBefore,
+        'confirm=' + $$('[data-dec="delete-confirm"]').length + ' calls=' + window.__fcTest.callCount('decisionDelete'))
+      const dcBtn = $('[data-dec="delete-cancel"]')
+      if (dcBtn) dcBtn.click()
+      await sleep(250)
+      check('  点「取消」→ 确认按钮收起，仍然没删',
+        $$('[data-dec="delete-confirm"]').length === 0
+          && window.__fcTest.callCount('decisionDelete') === delBefore,
+        'confirm=' + $$('[data-dec="delete-confirm"]').length + ' calls=' + window.__fcTest.callCount('decisionDelete'))
+      // 真删一次：删除 → 确认
+      if ($$('[data-dec="delete"]')[0]) $$('[data-dec="delete"]')[0].click()
+      await sleep(250)
+      const dOk = $('[data-dec="delete-confirm"]')
+      if (dOk) dOk.click()
+      check('★ 二次确认后才真删（decisionDelete 被调）',
+        await waitFor(() => window.__fcTest.callCount('decisionDelete') > delBefore, 3000, 'dec delete'),
+        'calls=' + window.__fcTest.callCount('decisionDelete'))
+      check('  删除参数是那张卡的 id（不是空/不是 index）',
+        ((window.__fcTest.calls().filter((c) => c.name === 'decisionDelete').pop() || {}).args || [])[0] === 'D-001',
+        JSON.stringify(((window.__fcTest.calls().filter((c) => c.name === 'decisionDelete').pop() || {}).args || [])))
+    } else {
+      check('  删除按钮存在', false, 'delete not found')
+    }
+
+    // ══ 决策 · 生命周期管理（2026-10-17 暮雨：「决策卡当然需要有生命周期管理」）══
+    // 判据：找得到（搜索）→ 成批动（多选 / 批量改状态 / 批量删除）→ 批量删除同样两段式。
+    {
+      // ① 搜索
+      const sq = $('[data-dec="search"]')
+      check('★ 决策页有搜索框', !!sq)
+      if (sq) {
+        sq.value = '绒花'
+        sq.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(450)
+        check('★★ 搜索真的收窄列表（搜「绒花」→ 1 张）', $$('[data-dec="card"]').length === 1,
+          'cards=' + $$('[data-dec="card"]').length)
+        check('  页签计数跟着搜索走（全部1，不是还写着全部3）',
+          (($$('[data-dec="tab"]')[0] || {}).textContent || '').trim() === '全部1',
+          (($$('[data-dec="tab"]')[0] || {}).textContent || '').trim())
+        sq.value = ''
+        sq.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(450)
+        check('  清空搜索 → 3 张回来（可逆）', $$('[data-dec="card"]').length === 3,
+          'cards=' + $$('[data-dec="card"]').length)
+      }
+      // ② 多选 + 全选
+      const smBtn = $('[data-dec="select-mode"]')
+      check('★ 决策页有多选开关', !!smBtn)
+      if (smBtn) {
+        smBtn.click()
+        check('  多选模式 → 批量栏出现', await waitFor(() => !!$('[data-dec="batch-bar"]'), 3000, 'dec batch bar'))
+        check('  多选模式 → 每张卡都有勾选框', $$('[data-dec="pick"]').length === 3,
+          'pick=' + $$('[data-dec="pick"]').length)
+        const allBtn = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '全选当前')
+        if (allBtn) allBtn.click()
+        await sleep(350)
+        check('★★ 全选当前 → 已选 3（不是只选一张）',
+          (($('[data-dec="batch-bar"]') || {}).textContent || '').indexOf('已选 3') >= 0,
+          (($('[data-dec="batch-bar"]') || {}).textContent || '').slice(0, 40))
+        // ③ 批量改状态
+        const bBefore = window.__fcTest.callCount('decisionSetStatus')
+        const revBtn = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '已撤销')
+        if (revBtn) revBtn.click()
+        check('★★ 批量设「已撤销」→ 逐条走 IPC（3 次，不绕过留痕通道）',
+          await waitFor(() => window.__fcTest.callCount('decisionSetStatus') >= bBefore + 3, 4000, 'dec batch set'),
+          'delta=' + (window.__fcTest.callCount('decisionSetStatus') - bBefore))
+        await sleep(450)
+        // ④ 批量删除仍是两段式
+        if (!$('[data-dec="batch-bar"]')) {
+          const again = $('[data-dec="select-mode"]')
+          if (again) again.click()
+          await sleep(300)
+        }
+        const all2 = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '全选当前')
+        if (all2) all2.click()
+        await sleep(300)
+        const delBefore2 = window.__fcTest.callCount('decisionDelete')
+        const delBtn = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '删除所选')
+        if (delBtn) delBtn.click()
+        await sleep(350)
+        check('★★ 批量删除也是两段式（点一次只出确认，一条都没删）',
+          window.__fcTest.callCount('decisionDelete') === delBefore2
+            && $$('[data-dec="batch-bar"] button').some((b) => (b.textContent || '').indexOf('确认删除') >= 0),
+          'calls=' + window.__fcTest.callCount('decisionDelete'))
+        const cancelDel = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cancelDel) cancelDel.click()
+        await sleep(250)
+        const quit = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '退出多选')
+        if (quit) quit.click()
+        await sleep(350)
+        check('  退出多选后批量栏消失、勾选框收起',
+          !$('[data-dec="batch-bar"]') && $$('[data-dec="pick"]').length === 0,
+          'bar=' + (!!$('[data-dec="batch-bar"]')) + ' pick=' + $$('[data-dec="pick"]').length)
+      }
+    }
+
+    // ══ 控件统一（2026-10-17 暮雨第 4 条：「决策页混着两种按钮和文本框」）══
+    // 判据必须是**几何**，不是"看起来差不多"：同一页里输入框 / 下拉 / 按钮 高 32、圆角 8。
+    // （卡片里的动作按钮走密集档 24，那是另一档，单独放行。）
+    {
+      const box = (el) => el
+        ? { h: Math.round(el.getBoundingClientRect().height), r: getComputedStyle(el).borderTopLeftRadius }
+        : null
+      const okBox = (b) => !!b && b.h === 32 && parseFloat(b.r) === 8
+      const addBtn = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
+      const probes = [
+        ['搜索输入框', box($('[data-dec="search"]'))],
+        ['项目下拉', box($('[data-dec="proj-filter"]'))],
+        ['多选按钮', box($('[data-dec="select-mode"]'))],
+        ['记下按钮', box(addBtn)],
+        ['卡片状态下拉', box($('[data-dec="status"]'))],
+        ['新增内容输入框', box($('[data-dec="add-input"]'))],
+      ]
+      const bad = probes.filter(([, b]) => !okBox(b))
+      check('★★ 决策页控件尺寸统一：输入框 / 下拉 / 按钮 一律 h=32、圆角=8px',
+        bad.length === 0,
+        bad.length ? JSON.stringify(bad) : JSON.stringify(probes.map(([n, b]) => n + ':' + (b ? b.h + '/' + b.r : 'null'))))
+      // 卡片内的动作按钮是密集档（24）—— 与老界面 --btn-h-sm 同档，不是"另一种按钮"
+      const editBtn = $('[data-dec="edit"]')
+      check('  卡片内动作按钮走密集档 24（与老界面 --btn-h-sm 同档）',
+        !editBtn || Math.round(editBtn.getBoundingClientRect().height) === 24,
+        editBtn ? String(Math.round(editBtn.getBoundingClientRect().height)) : 'no edit btn')
+    }
+
     // 筛选：只看「已撤销」→ 列表剩 1 张
     const decTab = $$('[data-dec="tab"]').find((b) => (b.textContent || '').trim().indexOf('已撤销') === 0)
     if (decTab) {
@@ -3726,6 +3961,33 @@
         check('★★ 启动台整页**不出现"端口"字样**（端口观感不许污染快捷入口）',
           String(($('.launchpad') || {}).textContent || '').indexOf('端口') < 0,
           String((($('.launchpad') || {}).textContent || '').slice(0, 180)))
+
+        // ④ 右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）
+        //    判据：右键真的出菜单，且菜单里**直达**编辑与删除（不用先进编辑弹窗再找删除）。
+        const lpCard0 = $$('.lp-card')[0]
+        if (lpCard0) {
+          lpCard0.dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true, clientX: 320, clientY: 300,
+          }))
+          await sleep(700)
+          const menuItems = $$('.ctx-menu button').map((b) => (b.textContent || '').trim())
+          check('★★ 启动台卡片右键出菜单', menuItems.length > 0, menuItems.join(' | '))
+          check('★ 菜单里有「编辑登记」（右键直达编辑）',
+            menuItems.some((t) => t.indexOf('编辑登记') >= 0), menuItems.join(' | '))
+          check('★ 菜单里有「删除这条登记」（右键直达删除）',
+            menuItems.some((t) => t.indexOf('删除这条登记') >= 0), menuItems.join(' | '))
+          const delMenu = $$('.ctx-menu button').find((b) => (b.textContent || '').indexOf('删除这条登记') >= 0)
+          if (delMenu) {
+            const beforeDel = window.__fcTest.callCount('launchpadRemoveApp')
+            const origConfirm3 = window.confirm
+            window.confirm = () => true
+            delMenu.click()
+            check('★★ 菜单「删除」真走 launchpadRemoveApp（不是只关菜单）',
+              await waitFor(() => window.__fcTest.callCount('launchpadRemoveApp') > beforeDel, 3000, 'lp remove'),
+              'calls=' + window.__fcTest.callCount('launchpadRemoveApp'))
+            window.confirm = origConfirm3
+          }
+        }
       }
 
       // 服务页（2026-10-16 用户第 2 条：应用分区已搬走，本页回归纯端口监控）

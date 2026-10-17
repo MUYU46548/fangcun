@@ -127,10 +127,30 @@ async function main() {
     const fakeExe = path.join(appDir, 'fake-app.exe')
     fs.copyFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), fakeExe)
 
+    // 无参数 .exe：2026-10-17 用户「点启动只出空壳窗口」后改的口径 ——
+    // **不再由本方 CreateProcess，改让 explorer.exe 当中间人**（实测：从方寸进程树直接派生，
+    // 子 Electron 应用 GPU 进程连崩 -1073741819，只剩空壳；explorer 代启动则正常）。
+    // 这条不是"换个 API"，判据是**父进程到底是谁**，所以拦 spawn 断言参数。
+    const cp = require('child_process')
+    const origSpawn = cp.spawn
+    const spawnCalls = []
+    cp.spawn = function (file, args, opts) {
+      spawnCalls.push({ file, args })
+      return { on() { return this }, unref() { }, pid: 4242 }
+    }
     stub.shell.opened.length = 0
-    const r1 = await launchpad.launchApp({ id: 'x1', name: '无参数exe', path: fakeExe, cmd: fakeExe })
-    check('.exe 无参数 → 仍走 shell.openPath（行为不变，等同双击）',
-      r1.ok === true && stub.shell.opened.includes(fakeExe), JSON.stringify({ r1, opened: stub.shell.opened }))
+    let r1
+    try {
+      r1 = await launchpad.launchApp({ id: 'x1', name: '无参数exe', path: fakeExe, cmd: fakeExe })
+    } finally {
+      cp.spawn = origSpawn
+    }
+    const viaExplorer = spawnCalls.find((c) => /explorer(\.exe)?$/i.test(String(c.file)) &&
+      (c.args || []).some((a) => String(a).toLowerCase() === fakeExe.toLowerCase()))
+    check('.exe 无参数 → 交给 explorer 代启动（不再由本方进程树派生）',
+      r1.ok === true && !!viaExplorer, JSON.stringify({ r1, spawnCalls }))
+    check('.exe 无参数 → 不再走 shell.openPath（那条路会继承父进程 job）',
+      !stub.shell.opened.includes(fakeExe), JSON.stringify(stub.shell.opened))
 
     stub.shell.opened.length = 0
     const marker = path.join(appDir, 'cwd-marker.txt')
@@ -142,6 +162,28 @@ async function main() {
     check('.exe 带参数 → spawn 成功返回 ok', r2.ok === true, JSON.stringify(r2))
     await waitForFile(marker, 5000)
     check('.exe 带参数 → 参数生效且 cwd = exe 所在目录', fs.existsSync(marker), 'marker 未生成: ' + marker)
+  }
+
+  // ── 12. 启动后复查进程（2026-10-17）────────────────────────────────
+  // 为什么必须真跑一次：`launchAndVerify` 的全部价值在于"看见了才说成功"。
+  // 而 tasklist 的输出在 Node 里是**系统代码页字节**（中文映像名解出来是乱码），
+  // 所以"按名字比对"会让复查永远失败 —— 那是"看着诚实、其实是坏的"提示。
+  {
+    const pids = await launchpad.listImagePids(path.basename(process.execPath))
+    check('复查进程：按映像名能拿到 PID（含本进程）', pids.has(process.pid),
+      `image=${path.basename(process.execPath)} got=${[...pids].join(',')} me=${process.pid}`)
+
+    const none = await launchpad.listImagePids('no-such-image-' + Date.now() + '.exe')
+    check('复查进程：查不到时返回空集而不是抛错/给假数据', none.size === 0, String(none.size))
+
+    // 源码守卫：listImagePids 里不许再出现"按映像名比对"（中文名会因编码永远不相等）
+    const src = require('fs').readFileSync(
+      path.resolve(__dirname, '../../desktop/src/main/launchpad/executor.ts'), 'utf-8'
+    ).replace(/\r\n/g, '\n')
+    const fnBody = (/export function listImagePids[\s\S]*?\n}\n/.exec(src) || [''])[0]
+    check('源码守卫：listImagePids 不做映像名比对（只信 /FI 的过滤结果）',
+      fnBody.length > 0 && !/m\[1\]\.toLowerCase\(\)|name\.toLowerCase\(\)\s*===\s*image/.test(fnBody),
+      fnBody.slice(0, 200))
   }
 
   // ── 10. URL ───────────────────────────────────────────────────────

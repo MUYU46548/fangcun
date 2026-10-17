@@ -290,6 +290,23 @@
       <button class="ghost" title="退出多选模式并清空选择" @click="selectedBatch = []; batchMode = false">取消</button>
     </div>
 
+    <!-- 归档区按状态快选（2026-10-17 暮雨第 1 条）：
+         「我想一键全选已完成的归档任务，然后删掉它们」—— 原来要先开多选、再逐个点，
+         上百张卡根本点不完。这里把"选"这一步按状态批量做掉；"删"仍然留给批量栏，
+         破坏性动作不做成一键（多一步是刻意的）。 -->
+    <div v-if="curView === 'archive' && filteredTasks.length" class="aq-bar">
+      <span class="aq-label">按状态快选</span>
+      <button
+        v-for="s in STATUSES"
+        :key="'aq-' + s"
+        class="ghost aq-btn"
+        :disabled="archiveStatusCount(s) === 0"
+        :title="archiveStatusCount(s) ? `选中归档区里所有「${s}」的任务（${archiveStatusCount(s)} 个）` : `归档区里没有「${s}」任务`"
+        @click="selectArchiveByStatus(s)"
+      >{{ s }}<i class="aq-n">{{ archiveStatusCount(s) }}</i></button>
+      <span class="aq-hint">选完之后，用上方批量栏的「删除」清掉它们</span>
+    </div>
+
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
       <span>📋 归档视图：这里只显示已经移进归档文件夹（<code>task-data/archive/</code>）的任务 —— 算不算归档，只看文件在不在这儿，不看任务状态。归档只能由你亲自决定，方寸不会自动执行。</span>
@@ -1297,6 +1314,8 @@
         <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
         <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
         <button class="trash-refresh" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</button>
+        <button class="ghost" title="按日期批量清理：彻底删除某个日期之前进回收站的所有条目（先预览再确认）"
+          @click="openTrashPurge">🗓 按日期清理</button>
         <button class="ghost batch-mode-btn" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
           title="开启批量选择，点击条目即勾选/取消">
           <span v-if="!trashBatchMode">☑ 多选</span>
@@ -1977,23 +1996,32 @@
         方寸只管把它拉起来，不管它内部怎么跑。
       </div>
       <div class="lp-grid" v-if="launchpadApps.length">
-        <div
+        <!-- 右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）：编辑原先只能从卡片上的
+             ✏️ 进、删除更藏在编辑弹窗里，两条路都要先点开一层。右键是直达。
+             ⚠ 菜单组件不产生包裹元素（ContextMenuRoot），`.lp-grid` 的网格布局一个像素不动。 -->
+        <AppCardMenu
           v-for="app in launchpadApps"
           :key="app.id"
-          class="lp-card"
-          :title="'点卡片启动：' + (app.cmd || app.path)"
-          @click="launchAppClick(app)"
+          :app="app"
+          @pick="onAppMenuPick"
         >
-          <div class="lp-icon">{{ app.name.charAt(0) }}</div>
-          <div class="lp-info">
-            <div class="lp-name">{{ app.name }}</div>
-            <div class="lp-desc">{{ app.description || app.path }}</div>
+          <div
+            class="lp-card"
+            :title="'点卡片启动：' + (app.cmd || app.path)"
+            @click="launchAppClick(app)"
+          >
+            <div class="lp-icon">{{ app.name.charAt(0) }}</div>
+            <div class="lp-info">
+              <div class="lp-name">{{ app.name }}</div>
+              <div class="lp-desc">{{ app.description || app.path }}</div>
+            </div>
+            <div class="lp-actions">
+              <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="openEditApp(app)">✏️ 编辑</button>
+              <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="openAppFolder(app)">📁</button>
+              <button class="ghost lp-del" title="只删掉这条登记，磁盘上的应用文件不受影响" @click.stop="askRemoveApp(app)">🗑</button>
+            </div>
           </div>
-          <div class="lp-actions">
-            <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="openEditApp(app)">✏️ 编辑</button>
-            <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="openAppFolder(app)">📁</button>
-          </div>
-        </div>
+        </AppCardMenu>
       </div>
       <div class="empty-state" v-else>
         <div class="empty-icon">🚀</div>
@@ -2058,6 +2086,40 @@
         </div>
         <div class="trash-preview-actions">
           <button class="trash-btn" @click="logProjectPicker = null">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按日期清理回收站（2026-10-17 暮雨第 2 条：「我可以选择特定日期，删除此之前的所有内容」）。
+         与「清理已归档日志」同一套交互：先预览命中条数，再确认；差别是这里的删除**不可撤销**
+         （删的是回收站里的文件本身），所以文案必须把这件事说满，不能含糊。 -->
+    <div id="trash-purge-overlay" class="overlay" v-if="trashPurgeOpen" @mousedown.self="closeTrashPurge()">
+      <div id="trash-purge-modal">
+        <h3>按日期清理回收站</h3>
+        <div class="hint">
+          彻底删除<b>进回收站时间早于</b>下面所选日期的条目。这里删的是回收站里的文件本身，
+          <b>删了就找不回来</b> —— 所以先「预览命中」看清是哪些，再确认。
+        </div>
+        <div class="lpurge-row">
+          <label>早于</label>
+          <input v-model="trashPurgeDate" type="date" class="log-filter" @change="resetTrashPurgePreview" />
+          <button class="ghost" @click="setTrashCutoff(7)">7 天前</button>
+          <button class="ghost" @click="setTrashCutoff(30)">30 天前</button>
+          <button class="ghost" @click="setTrashCutoff(90)">90 天前</button>
+        </div>
+        <div class="lpurge-actions">
+          <button class="ghost" :disabled="trashPurgeBusy" @click="runTrashPurgePreview">预览命中</button>
+          <button class="danger" :disabled="trashPurgeBusy || !trashPurgePreview || !trashPurgePreview.count"
+            @click="executeTrashPurge">确认彻底删除</button>
+          <button class="ghost" @click="closeTrashPurge">取消</button>
+        </div>
+        <div v-if="trashPurgePreview" class="lpurge-preview">
+          <div><b>将彻底删除 {{ trashPurgePreview.count }} 项</b></div>
+          <ul v-if="trashPurgePreview.count" class="lpurge-list">
+            <li v-for="(t, i) in trashPurgePreview.titles.slice(0, 8)" :key="i">{{ t }}</li>
+            <li v-if="trashPurgePreview.count > 8" class="lpurge-more">…等共 {{ trashPurgePreview.count }} 项</li>
+          </ul>
+          <div v-else>没有早于该日期的条目，无需清理。</div>
         </div>
       </div>
     </div>
@@ -3849,6 +3911,8 @@ import DecisionBoard from './components/DecisionBoard.vue'
 // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：换掉手搓的 `.ctx-backdrop` + `.ctx-menu` + 指针坐标定位，
 // 改用 reka-ui 的 ContextMenu 原语（自带 flip/shift 防越界、Esc、方向键、role=menu、焦点归还）。
 import TaskCardMenu from './components/TaskCardMenu.vue'
+// 启动台卡片右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）
+import AppCardMenu from './components/AppCardMenu.vue'
 // 免责与知情声明（2026-10-16 暮雨第 1 条：「希望你还记得要学绒花墨坊写那些需要用户
 // 首次强制同意确认的免责声明，主要是涉及到钱是非多」）—— 文案在 ./disclaimer.ts（单一事实源），
 // 弹窗本体在 components/ 下（那儿才准用 utilities）。
@@ -6719,6 +6783,74 @@ async function purgeTrashItem(it: TrashItem): Promise<void> {
   }
 }
 
+// ── 按日期清理回收站（2026-10-17 暮雨第 2 条：「删除此之前的所有内容」）──────
+// 与「清理已归档日志」同构：先预览、再确认。差别只有一个 —— 那边是软删（移进日志回收站），
+// 这边删的是回收站里的文件本身，**不可撤销**，所以文案必须说满。
+const trashPurgeOpen = ref(false)
+const trashPurgeDate = ref('')
+const trashPurgeBusy = ref(false)
+const trashPurgePreview = ref<{ count: number; names: string[]; titles: string[] } | null>(null)
+
+/** 本地日历日 → YYYY-MM-DD。⚠ 不能用 toISOString().slice(0,10)：那是 UTC，
+    东八区晚上 8 点后会退回前一天，用户选"今天"实际删的是"昨天之前"。 */
+function ymdLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function setTrashCutoff(days: number): void {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  trashPurgeDate.value = ymdLocal(d)
+  resetTrashPurgePreview()
+}
+
+function openTrashPurge(): void {
+  setTrashCutoff(30)
+  trashPurgeOpen.value = true
+}
+function closeTrashPurge(): void { trashPurgeOpen.value = false }
+function resetTrashPurgePreview(): void { trashPurgePreview.value = null }
+
+/** 预览：命中 = 进回收站时间**早于**所选日期零点。先看清再删，不允许盲删。 */
+function runTrashPurgePreview(): void {
+  const cutoff = new Date(`${trashPurgeDate.value}T00:00:00`).getTime()
+  if (!trashPurgeDate.value || !isFinite(cutoff)) {
+    showToast('先选一个日期', 'error')
+    return
+  }
+  const hits = trashItems.value.filter(it => {
+    const t = Date.parse(it.mtime || '')
+    return isFinite(t) && t < cutoff
+  })
+  trashPurgePreview.value = {
+    count: hits.length,
+    names: hits.map(h => h.name),
+    titles: hits.map(h => `${h.title || '(无标题)'} · ${h.id}${h.mtime ? ' · ' + h.mtime.slice(0, 10) : ''}`),
+  }
+}
+
+async function executeTrashPurge(): Promise<void> {
+  const p = trashPurgePreview.value
+  if (!p || !p.count || trashPurgeBusy.value) return
+  trashPurgeBusy.value = true
+  let ok = 0
+  try {
+    for (const name of p.names) {
+      try {
+        const r: any = await window.tegula.trashPurge(name)
+        if (r?.ok) ok++
+      } catch { /* 单条失败不打断整批，最后按成功数报 */ }
+    }
+  } finally {
+    trashPurgeBusy.value = false
+  }
+  showToast(ok === p.count ? `已彻底删除 ${ok} 项` : `已删除 ${ok}/${p.count} 项，其余失败`, ok === p.count ? 'success' : 'error')
+  trashPurgePreview.value = null
+  trashPurgeOpen.value = false
+  await loadTrash()
+}
+
 // ── 回收站多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
 // 交互与看板/日志/待办同一套：工具条开关 → 点条目勾选 → 悬浮批量栏执行。
 // 选中键用 it.name（同 id 可能有同名副本，name = trash 里的文件名，唯一）。
@@ -7385,8 +7517,28 @@ async function executeBatchStatus(status: string) {
   loadAll()
 }
 
-async function executeBatchArchive() {
-  const ids = [...selectedBatch.value]
+/** 归档区里某个状态有几条（只数**当前列表里看得见的** —— 用户看到的和选中必须同一批） */
+function archiveStatusCount(status: string): number {
+  return filteredTasks.value.filter(t => String(t.status || '') === status).length
+}
+
+/**
+ * 一键选中归档区里某个状态的全部任务（2026-10-17 暮雨第 1 条）。
+ * 选中后进入多选模式，批量栏随即出现 —— 删/改状态都从那一步开始。
+ * ⚠ 只选**当前筛选后可见**的那批：搜索框或项目筛选还在生效时，选中范围必须与眼前一致，
+ *   否则用户会删掉自己没看见的东西。
+ */
+function selectArchiveByStatus(status: string): void {
+  const ids = filteredTasks.value
+    .filter(t => String(t.status || '') === status)
+    .map(t => t.id)
+  if (!ids.length) return
+  batchMode.value = true
+  selectedBatch.value = ids
+  showToast(`已选中 ${ids.length} 个「${status}」任务 —— 用上方批量栏删除或改状态`, 'success')
+}
+
+async function executeBatchArchive() {  const ids = [...selectedBatch.value]
   if (ids.length === 0) return
   if (!confirm(`批量归档 ${ids.length} 个任务？`)) return
   const result = await window.tegula.batchArchive(ids)
@@ -7403,7 +7555,7 @@ async function executeBatchArchive() {
 async function executeBatchDelete() {
   const ids = [...selectedBatch.value]
   if (ids.length === 0) return
-  if (!confirm(`批量删除 ${ids.length} 个任务？此操作不可恢复。`)) return
+  if (!confirm(`批量删除 ${ids.length} 个任务？\n\n会移进回收站（task-data/.trash），需要时能还原。`)) return
   const result = await window.tegula.batchDelete(ids)
   if (result.fails.length === 0) {
     showToast(`已删除 ${result.ok} 个任务`, 'success')
@@ -11066,11 +11218,26 @@ async function saveEditApp() {
   loadLaunchpad()
 }
 
-async function removeApp(id: string) {
-  if (!confirm('确定删除？')) return
+/** 启动台卡片右键菜单的动作分发（AppCardMenu 只报"点了哪一项"，动作留在这里） */
+function onAppMenuPick(payload: { app: any; action: string }): void {
+  const { app, action } = payload || ({} as any)
+  if (!app) return
+  if (action === 'launch') { void launchAppClick(app); return }
+  if (action === 'edit') { openEditApp(app); return }
+  if (action === 'folder') { void openAppFolder(app); return }
+  if (action === 'delete') { void askRemoveApp(app) }
+}
+
+/** 卡片上的 🗑 / 右键「删除」都走这里 —— 只为把"删的是什么"说清楚 */
+function askRemoveApp(app: any): void {
+  void removeApp(app?.id, app?.name)
+}
+
+async function removeApp(id: string, name?: string) {
+  if (!confirm(`删掉「${name || id}」这条登记？\n\n只删登记，磁盘上的应用文件不受影响。`)) return
   await window.tegula.launchpadRemoveApp(id)
   editApp_.value = null
-  showToast('已删除', 'success')
+  showToast(`已删除登记：${name || id}`, 'success')
   loadLaunchpad()
 }
 
@@ -11090,8 +11257,24 @@ function refreshApps() {
   showToast('已刷新', 'info')
 }
 
+/** 正在启动的应用 id（防连点起两份；纯内存，6 秒自动放开） */
+const launchingApps = new Set<string>()
+
 async function launchAppClick(app: any) {
   const t: any = (window as any).tegula || {}
+  // 防重入（2026-10-17）：主进程现在会等 1.5 秒复查进程再返回，这期间连点会**起两份**。
+  // 用 id 记在内存里，超时自动放开（不落盘：这是瞬时状态）。
+  const key = String(app?.id || app?.name || '')
+  if (key && launchingApps.has(key)) {
+    showToast(`「${app.name || key}」正在启动，稍等`, 'info')
+    return
+  }
+  if (key) {
+    launchingApps.add(key)
+    setTimeout(() => launchingApps.delete(key), 6000)
+  }
+  // 先给一句"正在启动"：复查要等 1.5 秒，没有这句话用户会以为没点上
+  showToast(`正在启动：${app?.name || app?.id || ''}…`, 'info')
   // 先落一条「渲染层点了启动」的痕迹再调主进程。
   // 理由：2026-09-25 用户报「启动台依旧报错」，但日志里**一条 launchpad 记录都没有** ——
   // 分不清是"没点"还是"点了但主进程没收到/主进程是旧代码"。这条线一写，两种情况立刻可分。
@@ -11101,6 +11284,7 @@ async function launchAppClick(app: any) {
   } catch { /* 日志写不进去也不能挡住启动 */ }
 
   if (typeof t.launchpadLaunchApp !== 'function') {
+    if (key) launchingApps.delete(key)
     const msg = '当前运行的主进程/预加载是旧版本，没有启动台接口 —— 请托盘右键「退出」后重新启动'
     showToast(msg, 'error')
     appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
@@ -11112,6 +11296,8 @@ async function launchAppClick(app: any) {
       const result = await window.tegula.launchpadLaunchApp(toPlain(app))
     showToast(result.message, result.ok ? 'success' : 'error')
     if (!result.ok) {
+      // 失败就别占着"正在启动"的名额 —— 用户要能立刻再试一次
+      if (key) launchingApps.delete(key)
       // 失败把「启动了什么」也带上，并留一条错误条 + 日志可查
       appErrors.value.push({
         scope: 'launchpad',
@@ -11120,6 +11306,7 @@ async function launchAppClick(app: any) {
       })
     }
   } catch (e: any) {
+    if (key) launchingApps.delete(key)
     const msg = `启动「${app.name}」失败：${e?.message || e}（命令：${app.cmd || app.path}）`
     showToast(msg, 'error')
     appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
@@ -12128,7 +12315,10 @@ button.vsb {
   transition: background 0.14s, color 0.14s;
 }
 button.vsb:hover { color: var(--ink); }
-button.vsb.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(90,90,130,0.14); }
+/* 2026-10-17 暮雨第 4 条：「有些带阴影，有些是扁平化圆角按钮（我更喜欢这种）」——
+   视图切换这里原来靠一层 1px 投影表示"选中"，与旁边的扁平按钮不是一套语言。
+   改成**扁平**：白底 + 一圈描边，选中靠底色与描边说话，不用阴影。 */
+button.vsb.on { background: #fff; color: var(--ink); box-shadow: none; border: 1px solid var(--border); padding: 3px 11px; }
 .pagehead-hint {
   font-size: 11.5px; color: var(--muted); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -12932,6 +13122,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-actions { display: flex; gap: 4px; flex: none; align-items: center; }
 .lp-edit { padding: 4px 8px; font-size: 11px; flex: none; }
 .lp-open { padding: 4px 8px; font-size: 11px; flex: none; }
+/* 卡片上的删除（2026-10-17）：与编辑/文件夹同尺寸，只在悬停时露出红边 —— 
+   常驻红底会让一排卡片看起来像一堆危险按钮。 */
+.lp-del { padding: 4px 8px; font-size: 11px; flex: none; }
+.lp-del:hover { color: var(--danger); border-color: var(--danger); background: #fff; }
 /* 卡片上的"观测到的端口"（2026-10-15）：结果展示，不是输入项 */
 /* ⚠ 2026-10-16（用户第 2 条）已连同模板里的 `.lp-ports` 一起删掉：
    启动台不再显示端口 —— 这里是快捷入口，不是服务监控。 */
@@ -13127,6 +13321,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .archive-overdue-bar b { color: var(--accent); }
 .archive-overdue-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
 .archive-overdue-bar span { flex: 1 1 320px; }
+
+/* 归档区按状态快选（2026-10-17 第 1 条）：一行工具条，位置固定在归档列表上方。
+   ⚠ 与 .archive-hint 一样带 z-index —— 看板是 position 定位的，不加就被压在下面。 */
+.aq-bar {
+  margin: 8px 16px 0; padding: 6px 10px; background: #fff;
+  border: 1px solid var(--border); border-radius: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 12px; position: relative; z-index: 2;
+}
+.aq-label { color: var(--muted); font-weight: 600; margin-right: 2px; }
+.aq-btn { height: 24px; padding: 0 9px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
+.aq-btn:disabled { opacity: .4; cursor: not-allowed; }
+.aq-n {
+  font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--accent);
+  background: var(--tint); border-radius: 6px; padding: 1px 5px; min-width: 16px; text-align: center;
+}
+.aq-btn:disabled .aq-n { color: var(--muted); background: #f3f3f6; }
+.aq-hint { color: var(--muted); font-size: 11.5px; margin-left: auto; }
 
 /* Roadmap view */
 .roadmap-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
@@ -14358,12 +14570,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .proj-pick-list .skills-btn { justify-content: flex-start; text-align: left; }
 
 /* ── 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）────────────────── */
-#log-purge-modal {
+#log-purge-modal,
+#trash-purge-modal {
   width: min(480px, 92vw); max-height: 80vh; overflow: auto;
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px 18px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
 }
-#log-purge-modal h3 { margin: 0 0 10px; font-size: 16px; }
+#log-purge-modal h3,
+#trash-purge-modal h3 { margin: 0 0 10px; font-size: 16px; }
 .lpurge-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
 .lpurge-row label { font-size: 13px; color: var(--muted); }
 .lpurge-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }

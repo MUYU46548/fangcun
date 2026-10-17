@@ -20,7 +20,7 @@
  *   'error' 监听器常驻，不再有未处理的子进程错误。
  */
 
-import { spawn } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import { shell } from 'electron'
@@ -99,8 +99,124 @@ function spawnAndWait(
   })
 }
 
-/** shell.openPath 返回的是「错误字符串」，空串才算成功 —— 旧实现直接忽略它 */
-async function openViaShell(target: string, label: string): Promise<LaunchResult> {
+/**
+ * 交给资源管理器（explorer.exe）代启动 —— 2026-10-17 修「点启动只出空壳窗口」。
+ *
+ * 真因（实测对照，不是猜的）：本机把 `E:\Software\SiTian\SiTian.exe`
+ *   ① 用 explorer 打开 → 窗口正常出现（标题 `SiTian — 世界观动态构建系统`）；
+ *   ② 从**本进程树**里 CreateProcess/ShellExecute 直接拉起 → 子 Electron 应用的 GPU 进程
+ *      连崩 `exit_code=-1073741819`，最后 `FATAL:gpu_data_manager_impl_private.cc(448)]
+ *      GPU process isn't usable. Goodbye.`，主窗口只剩一个空壳。
+ * 差别不在命令行参数，而在**父进程**：直接从方寸（Electron）派生，子进程留在方寸的
+ * job / 进程树里；explorer.exe 是桌面常驻进程，由它再 CreateProcess，子进程才落到
+ * 用户桌面会话的常规位置 —— 这正是"双击好使、启动台不好使"的那点差别。
+ *
+ * 所以无参数的可执行目标一律让 explorer 当中间人；带参数的目标仍然直接 spawn
+ * （explorer 传不了参数，而参数是用户在界面上真填过的东西，不能静默丢）。
+ */
+function launchViaExplorer(target: string, label: string): Promise<LaunchResult> {
+  return new Promise<LaunchResult>((resolve) => {
+    let settled = false
+    const done = (r: LaunchResult) => {
+      if (settled) return
+      settled = true
+      resolve(r)
+    }
+    let child: ReturnType<typeof spawn>
+    try {
+      // explorer.exe 对未知/非法路径不报错，只在**路径真不存在**时静默什么都不做。
+      // 路径存在性已在 launchAppInner 里查过，这里只负责把它交出去。
+      child = spawn('explorer.exe', [target], { detached: true, stdio: 'ignore', windowsHide: true } as any)
+    } catch (e) {
+      const msg = (e as Error).message
+      appLog.error('launchpad', `交给资源管理器失败：${label}`, msg)
+      done({ ok: false, message: `启动失败: ${msg}` })
+      return
+    }
+    child.on('error', (err: Error) => {
+      appLog.error('launchpad', `交给资源管理器失败：${label}`, err.message)
+      done({ ok: false, message: `启动失败: ${err.message}` })
+    })
+    child.on('spawn', () => {
+      try { child.unref() } catch { /* ignore */ }
+      done({ ok: true, message: `已交给系统启动：${label}` })
+    })
+    setTimeout(() => {
+      if (settled) return
+      try { child.unref() } catch { /* ignore */ }
+      done({ ok: true, message: `已交给系统启动：${label}` })
+    }, 1500)
+  })
+}
+
+/**
+ * 列出某个映像名当前所有 PID（用 tasklist，异步 —— 本机 spawnSync 一律 EBUSY）。
+ *
+ * 存在的理由：交给 explorer 之后**拿不到子进程 PID**（explorer 不回报），
+ * 于是"启动成功"只能靠猜。这里用启动前后两次快照做差集，把"猜"换成"看见"。
+ * ⚠ tasklist 查不到（名称含特殊字符 / 权限所限 / 系统语言换了输出列）时返回空集，
+ *   调用方必须把「空集」当成「没查到」而不是「没在跑」—— 否则会把正常启动报成失败。
+ */
+export function listImagePids(image: string): Promise<Set<number>> {
+  return new Promise<Set<number>>((resolve) => {
+    if (!image) return resolve(new Set())
+    try {
+      execFile(
+        'tasklist',
+        ['/FI', `IMAGENAME eq ${image}`, '/FO', 'CSV', '/NH'],
+        { windowsHide: true, timeout: 4000 } as any,
+        (err, stdout) => {
+          const set = new Set<number>()
+          if (err) return resolve(set)
+          const lines = String(stdout || '').split(/\r?\n/).filter((l) => l.trim())
+          // ⚠ 2026-10-17 实测踩到的坑：Node 拿到的是**系统代码页（GBK）字节**，按 UTF-8 解出来是
+          //   `"�޻�ī��.exe"` —— 于是"按名字比对"对中文映像名（绒花墨坊.exe）**永远不相等**，
+          //   表现为"每次启动都说没能复查到进程"（一句看着诚实、其实是坏了的提示）。
+          //   因此这里**只信 /FI 的过滤结果**，不做名字比对；只用行数做一道「过滤器是否失效」的保险。
+          //   （tasklist 过滤不到时输出的是"信息: 没有运行的任务…"这类非 CSV 行，正则自然不命中。）
+          for (const line of lines) {
+            const m = /^"([^"]*)","(\d+)"/.exec(line.trim())
+            if (m) set.add(parseInt(m[2], 10))
+          }
+          // 保险：/FI 若因语言/版本失效会返回整张表（几十上百行），此时结果不可信，按"没查到"处理
+          if (lines.length > 30) return resolve(new Set())
+          resolve(set)
+        },
+      )
+    } catch {
+      resolve(new Set())
+    }
+  })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+/**
+ * 交给 explorer 启动，再**复查进程**（不是假设成功）。
+ * 三种结局都要能落地成一句用户看得懂的话：
+ *   · 出现新 PID        → 真起来了
+ *   · 没有新 PID 但有进程 → 之前就在跑（单实例应用常见），也算达意
+ *   · 一个都没查到       → 命令确实下发了，但没证据 —— 不许说"已启动"，要说"没能复查到"
+ */
+async function launchAndVerify(target: string, label: string, image: string): Promise<LaunchResult> {
+  const before = image ? await listImagePids(image) : new Set<number>()
+  const r = await launchViaExplorer(target, label)
+  if (!r.ok || !image) return r
+  await sleep(1500)
+  const after = await listImagePids(image)
+  const fresh = [...after].filter((p) => !before.has(p))
+  if (fresh.length) return { ok: true, pid: fresh[0], message: `已启动：${label}（PID ${fresh[0]}）` }
+  if (after.size) return { ok: true, pid: [...after][0], message: `已在运行：${label}（PID ${[...after][0]}）` }
+  appLog.warn('launchpad', `启动后没能复查到进程：${label}`, `image=${image} before=${before.size} after=${after.size}`)
+  return {
+    ok: true,
+    message: `已交给系统启动：${label}（1.5 秒内没复查到进程 —— 若窗口没出现，请看应用自己的日志）`,
+  }
+}
+
+/** shell.openPath 返回的是「错误字符串」，空串才算成功 —— 旧实现直接忽略它 */async function openViaShell(target: string, label: string): Promise<LaunchResult> {
   try {
     const err = await shell.openPath(target)
     if (err) {
@@ -152,18 +268,20 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
     return openViaShell(raw, name)
   }
 
-  // .exe：默认交给 ShellExecute（等同资源管理器双击，主进程不担责子进程生命周期，最稳）。
-  // ⚠ 但 ShellExecute 既传不了 args 也定不了 cwd —— 界面上的「启动参数」对 .exe 会**静默失效**
-  //   （2026-09-25 发现：想给司天加 --disable-gpu 才暴露出来）。
-  //   因此：填了参数就改走 spawn（带 cwd = exe 所在目录），没填参数保持原路径不变。
+  // .exe：无参数 → **交给 explorer**（2026-10-17：直接从本方进程树派生会让子 Electron 应用
+  //   GPU 进程连崩、只剩空壳窗口；见 launchViaExplorer 注释里的实测对照）。
+  //   填了参数 → spawn（explorer 传不了参数，参数不能静默失效）。
   if (ext === '.exe') {
     if (args.length > 0) {
       return spawnAndWait(raw, args, { cwd, label: `${name}（exe + 参数）` })
     }
-    return openViaShell(raw, name)
+    return launchAndVerify(raw, name, path.basename(raw))
   }
 
   const shellKind = SHELL_EXT[ext]
+  // 脚本（.bat/.cmd/.ps1）维持经 cmd/powershell 执行：这条链一直是通的（e2e 用 marker 验证过），
+  // 而且它需要 cmd 窗口做反馈。⚠ 已知限制：脚本里再拉起的 GUI 应用仍在方寸的 job 里，
+  // 若将来碰到同款 GPU 崩，再考虑让 explorer 代跑脚本（代价是失去参数与窗口反馈）。
   if (shellKind === 'cmd') {
     const cmdline = [`"${raw}"`, ...args.map(quoteIfNeeded)].join(' ')
     const comspec = process.env.ComSpec || 'cmd.exe'
