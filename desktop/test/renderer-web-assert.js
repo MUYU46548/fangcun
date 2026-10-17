@@ -526,12 +526,63 @@
     check('  工具条上带该状态的条数（完成档有数、可点）',
       !!aqDone && !aqDone.disabled, aqDone ? aqDone.textContent : '(没有完成档按钮)')
     if (aqDone) {
+      const doneN = parseInt(((aqDone.querySelector('.aq-n') || {}).textContent || '0').trim(), 10)
       aqDone.click()
       await sleep(400)
       const bc = $('.batch-bar .batch-count')
       check('★★ 点一下 = 进入多选 + 选中该状态全部（不是只选一张）',
-        !!bc && (bc.textContent || '').indexOf('已选 ' + archBefore) >= 0,
-        (bc ? bc.textContent : '(没有批量栏)') + ' 期望已选 ' + archBefore)
+        !!bc && (bc.textContent || '').indexOf('已选 ' + doneN) >= 0,
+        (bc ? bc.textContent : '(没有批量栏)') + ' 期望已选 ' + doneN)
+
+      // ── 2026-10-17 暮雨第 2 条：快选必须**叠加**（首版整桶替换 = 点一组冲一组）──
+      const aqRej = $$('.aq-bar .aq-btn').find((b) => (b.textContent || '').indexOf('驳回') >= 0)
+      const rejN = aqRej && !aqRej.disabled ? parseInt(((aqRej.querySelector('.aq-n') || {}).textContent || '0').trim(), 10) : 0
+      check('  叠加前提：归档区有两种状态（假数据补了「驳回」一条）', rejN > 0, 'rejN=' + rejN)
+      if (rejN > 0 && aqRej) {
+        aqRej.click()
+        await sleep(300)
+        const bc2 = $('.batch-bar .batch-count')
+        check('★★ 点第二个状态 = 两组叠加（上一组不被冲掉）',
+          !!bc2 && (bc2.textContent || '').indexOf('已选 ' + (doneN + rejN)) >= 0,
+          (bc2 ? bc2.textContent : '') + ' 期望已选 ' + (doneN + rejN))
+        check('  两组的按钮都点亮（一眼看出选了哪几组）',
+          aqDone.classList.contains('on') && aqRej.classList.contains('on'),
+          'done.on=' + aqDone.classList.contains('on') + ' rej.on=' + aqRej.classList.contains('on'))
+
+        aqDone.click()
+        await sleep(300)
+        const bc3 = $('.batch-bar .batch-count')
+        check('★★ 同一个状态点第二下 = 只取消这一组（其他组原样保留）',
+          !!bc3 && (bc3.textContent || '').indexOf('已选 ' + rejN) >= 0,
+          (bc3 ? bc3.textContent : '') + ' 期望已选 ' + rejN)
+        check('  取消后该组按钮熄灭、另一组仍亮',
+          !aqDone.classList.contains('on') && aqRej.classList.contains('on'),
+          'done.on=' + aqDone.classList.contains('on') + ' rej.on=' + aqRej.classList.contains('on'))
+
+        // ── 邮箱式「全选」方框：三态（勾 / 部分选中呈横线 / 空）──
+        const master = $('.aq-bar .aq-master input')
+        check('★ 工具条开头有「全选」方框', !!master)
+        check('  部分选中时方框呈横线（indeterminate）且不勾',
+          !!master && master.indeterminate === true && master.checked === false,
+          'indeterminate=' + (master || {}).indeterminate + ' checked=' + (master || {}).checked)
+        if (master) {
+          master.click()
+          await sleep(300)
+          const bc4 = $('.batch-bar .batch-count')
+          check('★★ 方框点一下 = 全选当前看到的（已选 = 归档区总数）',
+            !!bc4 && (bc4.textContent || '').indexOf('已选 ' + archBefore) >= 0,
+            (bc4 ? bc4.textContent : '') + ' 期望已选 ' + archBefore)
+          check('  全选后方框呈勾选态（横线消失）',
+            master.indeterminate === false && master.checked === true,
+            'indeterminate=' + master.indeterminate + ' checked=' + master.checked)
+          master.click()
+          await sleep(300)
+          const bc5 = $('.batch-bar .batch-count')
+          check('★★ 方框再点一下 = 全不选（可见批全摘掉）',
+            !!bc5 && (bc5.textContent || '').indexOf('已选 0') >= 0,
+            (bc5 ? bc5.textContent : '') + ' 期望已选 0')
+        }
+      }
       const aqCancel = $$('.batch-bar button').find((b) => (b.textContent || '').trim() === '取消')
       if (aqCancel) aqCancel.click()
       await sleep(300)
@@ -554,6 +605,58 @@
     }
     check('  默认渲染的是列视图（有 .col 与卡片，没有 .board-list）',
       colState.cols > 0 && colState.cards > 0 && colState.list === 0, JSON.stringify(colState))
+
+    // ══ 看板右键新建（2026-10-17 暮雨第 3 条：右键列空白 → 「在此列新建任务」）══
+    // 判据：① 分区空白处右键真的弹菜单（以前什么都没有，用户测试归档时被卡住）；
+    //       ② 点「在此列新建任务」弹的是新建弹窗，且状态预选 = 右键的那一列（不是永远「待办」）；
+    //       ③ 指针落在卡片上时不抢卡片的右键菜单（列菜单里不该出现「新建」）。
+    {
+      const col0 = $$('#board .col').filter((c) => c.querySelector('[data-id]'))[0]
+      check('★ 列视图有可右键的分区（有卡的一列）', !!col0,
+        col0 ? (col0.getAttribute('data-status') || '') : '(没有列)')
+      if (col0) {
+        const want = col0.getAttribute('data-status') || ''
+        col0.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+        await sleep(300)
+        const menu = $('.ctx-menu.ctx-other')
+        const newItem = menu ? $$('.ctx-menu.ctx-other button').find((b) => (b.textContent || '').indexOf('在此列新建任务') >= 0) : null
+        check('★★ 列空白处右键 = 弹出分区菜单（带「在此列新建任务」）',
+          !!menu && !!newItem,
+          menu ? (menu.textContent || '').slice(0, 60) : '(菜单没出现)')
+        if (newItem) {
+          newItem.click()
+          await sleep(400)
+          const overlay = $('#modal-overlay')
+          const h3 = overlay ? overlay.querySelector('h3') : null
+          const sel = overlay ? $$('#modal-overlay select').find((s) => (s.value || '') === '' || ['待办', '进行中', '待验收', '完成', '驳回'].indexOf(s.value) >= 0) : null
+          check('★★ 点「在此列新建任务」= 弹新建弹窗（不是编辑）',
+            !!overlay && !!h3 && (h3.textContent || '').indexOf('新建任务') >= 0,
+            h3 ? h3.textContent : '(弹窗没出现)')
+          check('★★ 状态预选 = 右键的那一列（不是写死的「待办」）',
+            !!sel && sel.value === want,
+            'select=' + (sel ? sel.value : '(没有状态下拉)') + ' want=' + want)
+          // 收尾：点弹窗「取消」关掉（弹窗只有 mousedown.self / 取消两个出口，没有 Esc），
+          // 别让草稿弹窗盖住后面的断言
+          const cancelBtn = overlay ? $$('#modal-overlay button').find((b) => (b.textContent || '').trim() === '取消') : null
+          if (cancelBtn) { cancelBtn.click(); await sleep(300) }
+        }
+        // ③ 卡片上右键不弹分区菜单（卡片有自己的菜单；分区菜单只是空白处的加速器）
+        const card0 = col0.querySelector('[data-id]')
+        if (card0) {
+          const menuBefore = !!$('.ctx-menu.ctx-other')
+          card0.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+          await sleep(300)
+          const menu2 = $('.ctx-menu.ctx-other')
+          const hasNew = menu2 ? $$('.ctx-menu.ctx-other button').some((b) => (b.textContent || '').indexOf('在此列新建任务') >= 0) : false
+          check('  卡片上右键不弹分区菜单（不抢卡片自己的菜单）',
+            (!menu2 || menuBefore) && !hasNew,
+            'menu=' + !!menu2 + ' hasNew=' + hasNew)
+          // 清理：点遮罩收掉可能开着的卡片菜单
+          const back = $('.ctx-backdrop')
+          if (back) { back.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); await sleep(200) }
+        }
+      }
+    }
 
     // 切列表视图
     check('★ 能点到「列表视图」', (() => {

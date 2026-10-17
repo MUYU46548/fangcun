@@ -195,6 +195,17 @@ const store = {
       fm: { id: 'task-demo-090', title: '真归档任务', status: '完成' },
       path: 'C:/mock/task-data/archive/task-demo-090.md',
     },
+    // 2026-10-17 暮雨第 2 条（快选要**叠加**，不能冲掉上一组）：叠加必须有两种状态才验得动，
+    // 归档区补一条「驳回」—— 刻意不用待办/进行中：那两个是未完成态，会把
+    // 「只看未完成勾选后一张不剩（archAfter===0）」的断言搞红。驳回和完成一样是终态
+    // （boardCards.DONE = 完成+驳回），快选叠加能测，终态过滤语义不破。
+    {
+      id: 'task-demo-092', title: '被驳回的归档任务', status: '驳回', priority: '中',
+      project: 'demo', tags: [], body: '',
+      created: '2026-08-02T00:00:00.000Z', updated: '2026-08-02T00:00:00.000Z',
+      fm: { id: 'task-demo-092', title: '被驳回的归档任务', status: '驳回' },
+      path: 'C:/mock/task-data/archive/task-demo-092.md',
+    },
   ],
 }
 

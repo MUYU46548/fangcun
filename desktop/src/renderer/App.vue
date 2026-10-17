@@ -290,21 +290,36 @@
       <button class="ghost" title="退出多选模式并清空选择" @click="selectedBatch = []; batchMode = false">取消</button>
     </div>
 
-    <!-- 归档区按状态快选（2026-10-17 暮雨第 1 条）：
+    <!-- 归档区按状态快选（2026-10-17 暮雨第 1 条；第 2 条重做交互）：
          「我想一键全选已完成的归档任务，然后删掉它们」—— 原来要先开多选、再逐个点，
          上百张卡根本点不完。这里把"选"这一步按状态批量做掉；"删"仍然留给批量栏，
-         破坏性动作不做成一键（多一步是刻意的）。 -->
+         破坏性动作不做成一键（多一步是刻意的）。
+         2026-10-17 暮雨第 2 条：首版点一个状态会**冲掉**上一组的选择（selectedBatch = ids 整桶替换），
+         用户原话「每次至多只能批量选一组，其他的都被自动取消勾选」。改成了全世界通用（邮箱 / 网盘 / Wiki）
+         的那套语言：① 开头一个方框，点一下全选当前看到的、再点一下全不选，部分选中时框呈横线（indeterminate）；
+         ② 状态按钮改成**叠加勾选**：点「完成」再点「待办」= 两组都在选，再点一下「完成」= 只取消完成组；
+         ③ 该组全在选时按钮点亮，一眼能看出选了哪几组。 -->
     <div v-if="curView === 'archive' && filteredTasks.length" class="aq-bar">
+      <label class="aq-master" title="点一下 = 全选当前看到的任务；再点一下全部取消。部分选中时框里呈横线（和邮箱一样）">
+        <input type="checkbox"
+          :checked="archiveAllSelected"
+          :indeterminate="archiveSomeSelected"
+          @change="toggleArchiveSelectAll" />
+        <span>全选</span>
+      </label>
       <span class="aq-label">按状态快选</span>
       <button
         v-for="s in STATUSES"
         :key="'aq-' + s"
         class="ghost aq-btn"
+        :class="{ on: archiveStatusAllSelected(s) }"
         :disabled="archiveStatusCount(s) === 0"
-        :title="archiveStatusCount(s) ? `选中归档区里所有「${s}」的任务（${archiveStatusCount(s)} 个）` : `归档区里没有「${s}」任务`"
+        :title="archiveStatusCount(s)
+          ? (archiveStatusAllSelected(s) ? `再点一下 = 取消这 ${archiveStatusCount(s)} 个「${s}」（其他选择保留）` : `把这 ${archiveStatusCount(s)} 个「${s}」加进选择（不影响已选的）`)
+          : `归档区里没有「${s}」任务`"
         @click="selectArchiveByStatus(s)"
       >{{ s }}<i class="aq-n">{{ archiveStatusCount(s) }}</i></button>
-      <span class="aq-hint">选完之后，用上方批量栏的「删除」清掉它们</span>
+      <span class="aq-hint">选择可叠加：点完一个状态再点下一个，已选的不丢；选完用上方批量栏的「删除」清掉</span>
     </div>
 
     <!-- Archive hint -->
@@ -361,6 +376,7 @@
           @dragover.prevent="onDragOver($event, col.key)"
           @dragleave="dragoverCol = null"
           @drop="onDrop($event, col.key)"
+          @contextmenu.prevent="openColumnMenu($event, col.key)"
         >
           <div class="blgrp-head">
             <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
@@ -436,6 +452,7 @@
           @dragover.prevent="onDragOver($event, col.key)"
           @dragleave="dragoverCol = null"
           @drop="onDrop($event, col.key)"
+          @contextmenu.prevent="openColumnMenu($event, col.key)"
         >
           <div class="pwg-head">
             <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
@@ -508,6 +525,7 @@
         @dragover.prevent="onDragOver($event, col.key)"
         @dragleave="dragoverCol = null"
         @drop="onDrop($event, col.key)"
+        @contextmenu.prevent="openColumnMenu($event, col.key)"
       >
         <h3 @click="toggleGroup(col.key)" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'">
           <span class="chev" :class="{ open: !groupCollapsed(col.key) }"></span>
@@ -2062,6 +2080,12 @@
              复制类那两项各有各的场景，不该动。 —— 保持 7 项 + 破坏性动作单列。 -->
         <div class="ctx-sep"></div>
         <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 彻底删除（二次确认）</button>
+      </template>
+      <!-- 看板分区空白右键（2026-10-17 暮雨第 3 条）：只有「新建」一项 ——
+           列级要不出别的动作（改状态/删除都是卡片级的事），一层的菜单不凑数。 -->
+      <template v-else-if="ctxOther.kind === 'column'">
+        <div class="ctx-title">{{ ctxOther.item.status }}</div>
+        <button @click="ctxOtherRun(newTaskInColumn)">➕ 在此列新建任务</button>
       </template>
       <template v-else>
         <div class="ctx-title">{{ ctxOther.item.title || '(无标题)' }}</div>
@@ -7522,10 +7546,20 @@ function archiveStatusCount(status: string): number {
   return filteredTasks.value.filter(t => String(t.status || '') === status).length
 }
 
+/** 该状态的卡是否**全部**都在选择集里 —— 快选按钮点亮就靠它（点亮 = 再点一下是取消这一组） */
+function archiveStatusAllSelected(status: string): boolean {
+  const ids = filteredTasks.value
+    .filter(t => String(t.status || '') === status)
+    .map(t => t.id)
+  return ids.length > 0 && ids.every(id => selectedBatch.value.includes(id))
+}
+
 /**
- * 一键选中归档区里某个状态的全部任务（2026-10-17 暮雨第 1 条）。
- * 选中后进入多选模式，批量栏随即出现 —— 删/改状态都从那一步开始。
- * ⚠ 只选**当前筛选后可见**的那批：搜索框或项目筛选还在生效时，选中范围必须与眼前一致，
+ * 一键选中归档区里某个状态的全部任务（2026-10-17 暮雨第 1 条；第 2 条改**叠加**语义）。
+ * 首版是 `selectedBatch.value = ids` 整桶替换 —— 点「完成」再点「待办」，完成那组就被冲掉了，
+ * 用户原话「每次至多只能批量选一组，其他的都被自动取消勾选」。邮箱/网盘的通用语言是：
+ * 勾选是叠加的，点同一个组两下 = 取消该组，其他组原样保留。照这个改。
+ * ⚠ 只动**当前筛选后可见**的那批：搜索框或项目筛选还在生效时，选中范围必须与眼前一致，
  *   否则用户会删掉自己没看见的东西。
  */
 function selectArchiveByStatus(status: string): void {
@@ -7533,9 +7567,35 @@ function selectArchiveByStatus(status: string): void {
     .filter(t => String(t.status || '') === status)
     .map(t => t.id)
   if (!ids.length) return
+  if (archiveStatusAllSelected(status)) {
+    // 再点一下 = 只取消这一组；上一批选的其他状态原样保留
+    selectedBatch.value = selectedBatch.value.filter(id => !ids.includes(id))
+    showToast(`已取消选中全部「${status}」任务（其他选择保留）`, 'info')
+    return
+  }
   batchMode.value = true
-  selectedBatch.value = ids
-  showToast(`已选中 ${ids.length} 个「${status}」任务 —— 用上方批量栏删除或改状态`, 'success')
+  const add = ids.filter(id => !selectedBatch.value.includes(id))
+  selectedBatch.value = [...selectedBatch.value, ...add]
+  showToast(`已选中 ${selectedBatch.value.length} 个任务 —— 用上方批量栏删除或改状态（再点「${status}」可取消这组）`, 'success')
+}
+
+/** 邮箱式全选方框（2026-10-17 暮雨第 2 条）：三态 —— 全选（勾）/ 部分选中（横线 indeterminate）/ 空。
+ *  范围 = 当前筛选后可见的归档任务，与快选按钮同一口径（看到的和选中的必须是同一批）。 */
+const archiveAllSelected = computed(() =>
+  filteredTasks.value.length > 0 &&
+  filteredTasks.value.every(t => selectedBatch.value.includes(t.id)))
+const archiveSomeSelected = computed(() =>
+  !archiveAllSelected.value &&
+  filteredTasks.value.some(t => selectedBatch.value.includes(t.id)))
+function toggleArchiveSelectAll(): void {
+  const ids = filteredTasks.value.map(t => t.id)
+  if (archiveAllSelected.value) {
+    // 全不选：只摘掉可见的这批，不动用户在别的视图攒下的选择（口径与快选一致）
+    selectedBatch.value = selectedBatch.value.filter(id => !ids.includes(id))
+  } else {
+    batchMode.value = true
+    selectedBatch.value = Array.from(new Set([...selectedBatch.value, ...ids]))
+  }
 }
 
 async function executeBatchArchive() {  const ids = [...selectedBatch.value]
@@ -10605,7 +10665,27 @@ watch(logSearchInput, () => {
 // ── 日志 / 待办右键菜单（2026-09-26 卡 037）──────────────────────────────
 // 用户给的规格铁律：菜单是「出口加速器」，只放**已实际发生**的流的快捷方式；
 // 一层封顶、单项 ≤7；删除放最末且二次确认；「发给 AI / 智能总结」永不进菜单（元层铁律）。
-const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo'; item: any } | null>(null)
+const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo' | 'column'; item: any } | null>(null)
+
+/**
+ * 看板分区空白处右键 → 「在此列新建任务」（2026-10-17 暮雨第 3 条：看板右键新建）。
+ * 挂在三种摆法的分区容器上（列视图 .col / 列表视图 .blgrp / 卡片墙 .pwg）。
+ * 两条边界：
+ *  ① 指针落在任务卡上就**放行给卡片的右键菜单**（TaskCardMenu 挂在卡上）——
+ *     contextmenu 会冒泡，这里用「目标在 [data-id] 内」识别卡内区域，不抢；
+ *  ② 归档区不弹「新建」：新建出来的是活动任务，在归档页弹这个语义不通。
+ */
+function openColumnMenu(e: MouseEvent, status: string): void {
+  if (curView.value !== 'active') return
+  const t = e.target as HTMLElement | null
+  if (t && (t.closest('[data-id]') || t.closest('.ctx-menu'))) return
+  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'column', item: { status } }
+}
+/** 右键列 → 新建任务，状态预选成点的那一列（emptyTaskForm 默认给「待办」，这里覆盖）。 */
+function newTaskInColumn(item: { status: string }): void {
+  openNew()
+  if (editTask_.value) editTask_.value.status = item.status
+}
 
 function openLogMenu(e: MouseEvent, log: any): void {
   ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'log', item: log }
@@ -13331,8 +13411,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 12px; position: relative; z-index: 2;
 }
 .aq-label { color: var(--muted); font-weight: 600; margin-right: 2px; }
+/* 全选方框（2026-10-17 暮雨第 2 条）：邮箱同款 —— 点一下全选眼前这批，部分选中呈横线。 */
+.aq-master { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding-right: 4px; }
+.aq-master input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.aq-master span { font-size: 12px; color: var(--ink); }
 .aq-btn { height: 24px; padding: 0 9px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
 .aq-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* 该状态全部在选时点亮：一眼看出选了哪几组（同邮箱里"该筛选下的都勾上了"） */
+.aq-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.aq-btn.on .aq-n { color: #fff; background: rgba(255, 255, 255, .25); }
 .aq-n {
   font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--accent);
   background: var(--tint); border-radius: 6px; padding: 1px 5px; min-width: 16px; text-align: center;
