@@ -628,7 +628,13 @@
           await sleep(400)
           const overlay = $('#modal-overlay')
           const h3 = overlay ? overlay.querySelector('h3') : null
-          const sel = overlay ? $$('#modal-overlay select').find((s) => (s.value || '') === '' || ['待办', '进行中', '待验收', '完成', '驳回'].indexOf(s.value) >= 0) : null
+          // ⚠ 状态下拉在弹窗里是**动态生成**的（v-for spec，没有 id/class 标注），
+          //   原来按"value 为空或属于状态列表"去找会命中项目/优先级那类空值 select（2026-10-17 实测：
+          //   报 select= want=待办，其实找错了元素）。改成按**选项集**认：状态下拉必然含「待验收」。
+          const sel = overlay
+            ? Array.prototype.slice.call(overlay.querySelectorAll('select')).filter((s) =>
+                Array.prototype.slice.call(s.options || []).some((o) => (o.textContent || '').trim() === '待验收'))[0]
+            : null
           check('★★ 点「在此列新建任务」= 弹新建弹窗（不是编辑）',
             !!overlay && !!h3 && (h3.textContent || '').indexOf('新建任务') >= 0,
             h3 ? h3.textContent : '(弹窗没出现)')
@@ -651,9 +657,13 @@
           check('  卡片上右键不弹分区菜单（不抢卡片自己的菜单）',
             (!menu2 || menuBefore) && !hasNew,
             'menu=' + !!menu2 + ' hasNew=' + hasNew)
-          // 清理：点遮罩收掉可能开着的卡片菜单
-          const back = $('.ctx-backdrop')
-          if (back) { back.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); await sleep(200) }
+          // 清理：这一步会真的打开**卡片的 reka 菜单**，不收掉的话后面 CTX 段
+          // 再派发 contextmenu 会撞上"菜单已开"的状态 → 一路 no menu（2026-10-17 实测红 17 条）。
+          // reka 只认 Esc / pointerdown outside，`.ctx-backdrop` 是手搓那个菜单的遮罩，关不掉它。
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          await sleep(200)
+          document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+          await sleep(300)
         }
       }
     }

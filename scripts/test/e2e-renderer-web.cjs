@@ -79,7 +79,7 @@ function browserPreload() {
  * ⚠ 必须用独立 `--user-data-dir`：否则新实例的命令会被转发给用户正在用的浏览器，
  *   进程秒退、什么都拿不到（而 Chrome 进程数为 0 时也照样失败 → 与"实例冲突"无关）。
  */
-function viaCdp(browser, url, env, budgetMs = 90000) {
+function viaCdp(browser, url, env, budgetMs = 150000) {
   const port = 9411 + (process.pid % 500)
   const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cdp-'))
   const child = spawn(browser, [
@@ -413,7 +413,7 @@ function main() {
     // 三节、含数次 sleep/waitFor → 30000 再次不够，抬到 45000。
         // 2026-10-11：又加了筛选栏改版（点触发按钮 → 面板 → 点选项 → 点 ✕ 撤销）与设置页顺序断言，
     // 睡眠总量再次逼近上限 → 抬到 90000。
-    '--virtual-time-budget=120000',
+    '--virtual-time-budget=180000',
     // ⚠ 窗口尺寸必须与 CDP 兜底路径（`--window-size=1440,900`）**一致**：
     //   不然同一份断言在"一次性模式"（默认约 800×600 → innerWidth≈756）与兜底模式下
     //   量出来的几何完全不同 —— 表现为**同一个断言时红时绿**（2026-10-11 实测：

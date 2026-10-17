@@ -376,7 +376,7 @@
           @dragover.prevent="onDragOver($event, col.key)"
           @dragleave="dragoverCol = null"
           @drop="onDrop($event, col.key)"
-          @contextmenu.prevent="openColumnMenu($event, col.key)"
+          @contextmenu="openColumnMenu($event, col.key)"
         >
           <div class="blgrp-head">
             <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
@@ -452,7 +452,7 @@
           @dragover.prevent="onDragOver($event, col.key)"
           @dragleave="dragoverCol = null"
           @drop="onDrop($event, col.key)"
-          @contextmenu.prevent="openColumnMenu($event, col.key)"
+          @contextmenu="openColumnMenu($event, col.key)"
         >
           <div class="pwg-head">
             <button class="lpill" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'"
@@ -525,7 +525,7 @@
         @dragover.prevent="onDragOver($event, col.key)"
         @dragleave="dragoverCol = null"
         @drop="onDrop($event, col.key)"
-        @contextmenu.prevent="openColumnMenu($event, col.key)"
+        @contextmenu="openColumnMenu($event, col.key)"
       >
         <h3 @click="toggleGroup(col.key)" :title="groupCollapsed(col.key) ? '点击展开' : '点击折叠'">
           <span class="chev" :class="{ open: !groupCollapsed(col.key) }"></span>
@@ -10678,7 +10678,11 @@ const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo' | 'column'; it
 function openColumnMenu(e: MouseEvent, status: string): void {
   if (curView.value !== 'active') return
   const t = e.target as HTMLElement | null
+  // ⚠ 卡片区域内一律放行：不放行的话卡片的 reka 右键菜单会被"列菜单"顶掉
+  //   （2026-10-17 实测：模板层 `.prevent` 会让同一次 contextmenu 在到达卡片之前就被拦，
+  //    卡片菜单再也打不开 —— 17 条断言连锁红。所以 preventDefault 只在本函数**真正要弹列菜单时**调）。
   if (t && (t.closest('[data-id]') || t.closest('.ctx-menu'))) return
+  e.preventDefault()
   ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'column', item: { status } }
 }
 /** 右键列 → 新建任务，状态预选成点的那一列（emptyTaskForm 默认给「待办」，这里覆盖）。 */

@@ -245,7 +245,10 @@ const cloneGuard = (name, args) => {
 const TASK_FIELD_SPECS = [
   { key: 'title', label: '标题', type: 'text', span: 'full' },
   { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
-  { key: 'status', label: '状态', type: 'select', span: 'half', options: ['草稿', '待办', '进行中', '完成', '驳回'] },
+  // ⚠ 2026-10-17：这里原来只有 5 个状态（缺「待审批」和「待验收」），与主进程 `STATUSES`
+  //   的 7 个**不同步** —— 于是"状态下拉里必须有待验收"这类断言在沙箱里永远找不到元素。
+  //   假 preload 与真实现必须逐字一致（MEMORY 第五节），少一个都是自欺。
+  { key: 'status', label: '状态', type: 'select', span: 'half', options: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] },
   { key: 'priority', label: '优先级', type: 'select', span: 'half', options: ['高', '中', '低'] },
   { key: 'start', label: '开始', type: 'text', span: 'half' },
   { key: 'deadline', label: '截止', type: 'text', span: 'half' },
