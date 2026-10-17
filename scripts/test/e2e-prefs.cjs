@@ -77,9 +77,14 @@ function main() {
     JSON.stringify(prefs2.getPref('fc_agent_presets')) === before)
 
   // ══ C. 接线（源码断言，防漂移） ══════════════════════════════════════
-  const ipcSrc = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
-  const preloadSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')
-  const vueSrc = fs.readFileSync(path.join(SRC, 'renderer', 'App.vue'), 'utf-8')
+  // ⚠ 换行符归一（2026-10-17）：本机 core.autocrlf=true，工作区文件是 CRLF，
+  //   而下面的 `[\s\S]{0,N}` 是**按字符数**量的——CRLF 每行多一个 \r，同一段代码
+  //   在 CRLF 下会比 LF 长「行数」个字符，C6 的 400 阈值因此在本机假红
+  //   （云端 LF 全绿、本地常红＝没人看的断言）。归一到 LF 再扫，语义不变。
+  const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf-8').replace(/\r\n/g, '\n')
+  const ipcSrc = readSrc(path.join('main', 'ipc.ts'))
+  const preloadSrc = readSrc(path.join('preload', 'index.ts'))
+  const vueSrc = readSrc(path.join('renderer', 'App.vue'))
 
   check('C1 主进程注册 prefs:get', /guardedHandle\('prefs:get'/.test(ipcSrc))
   check('C2 主进程注册 prefs:set', /guardedHandle\('prefs:set'/.test(ipcSrc))

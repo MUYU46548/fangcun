@@ -23,6 +23,8 @@ todos/
 notifications/
 policies/
 project-status.md
+# AI 调用链留痕（2026-10-17）：每次模型调用一行元数据，落数据根，属使用数据不入库
+ai-trace.jsonl
 docs/执行日志/
 docs/阶段总结/*.md~
 方寸-app/

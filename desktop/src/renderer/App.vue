@@ -13400,7 +13400,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .llm-presets button { flex: 0 0 auto; }
 #plan-new-modal,
 #proj-new-modal,
-#ai-plan-modal {
+#ai-plan-modal,
+#ai-doc-modal {
   background: var(--card);
   border-radius: var(--radius);
   padding: 18px 20px;
@@ -13413,24 +13414,32 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #plan-new-modal h3,
 #proj-new-modal h3,
 #ai-plan-modal h3,
+#ai-doc-modal h3,
 #plans-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
 /* AI 规划弹窗里的提示条（2026-10-16 暮雨第 1 条：「根本找不到入口、也没找到配置模型的地方」）。
    普通说明一行浅灰；「还没配模型通道」那条走警示色，并带一个直达设置页那一格的按钮。 */
 #ai-plan-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
 #ai-plan-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #ai-plan-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
+/* 文档拆卡弹窗（2026-10-17 四件②）：「还没配模型通道」那条同样要能当场指路，样式与 AI 规划同族 */
+#ai-doc-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
+#ai-doc-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
+#ai-doc-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
+#ai-doc-modal code { background: #eee; padding: 0 4px; border-radius: 3px; }
 /* 规划管理弹窗（2026-10-16 第 1 项）：提示条同族复用 */
 #plans-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
 #plans-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #plan-new-modal label,
 #proj-new-modal label,
 #ai-plan-modal label,
+#ai-doc-modal label,
 #plans-modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
 #plan-new-modal input,
 #plan-new-modal textarea,
 #plan-new-modal select,
 #proj-new-modal input,
 #ai-plan-modal input,
+#ai-doc-modal textarea,
 #plans-modal input,
 #plans-modal textarea {
   width: 100%; padding: 7px 10px;
@@ -13438,6 +13447,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 13px; background: #fff; color: var(--ink);
   font-family: inherit;
 }
+#ai-doc-modal textarea { resize: vertical; min-height: 140px; line-height: 1.7; }
 #plans-modal textarea { resize: vertical; min-height: 54px; }
 /* 规划列表行 + 状态徽标（草稿琥珀/进行中绿/已放弃红，与看板状态色一致） */
 .plan-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }

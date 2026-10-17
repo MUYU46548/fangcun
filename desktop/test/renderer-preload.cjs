@@ -417,7 +417,15 @@ contextBridge.exposeInMainWorld('tegula', {
     Object.assign(l, updates)
     return ok()
   },
-  logsComplete: () => ok(),
+  // 2026-10-17：桩此前是 `() => ok()` —— 既不记账也不动状态，于是「保存并完成 = 先
+  // logsUpdate 再 logsComplete」这类**顺序断言恒红**（调用都发生了，桩看不见）。
+  // 按真后端 logs.ts 语义补：记账 + 状态置「完成」。
+  logsComplete: (id, payload) => {
+    rec('logsComplete', [id, payload])
+    const l = (store.logs || []).find(x => x.id === id)
+    if (l) l.status = '完成'
+    return ok()
+  },
   // 2026-10-09：真后端 archiveLog 会把 status 置 archived，桩此前无条件 ok() 不动状态
   // （「转换后源日志进了已归档分区」这种断言会恒绿假过）—— 搬真实语义进桩。
   logsArchive: (id) => {

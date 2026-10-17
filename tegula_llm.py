@@ -155,11 +155,23 @@ def _request(
 # ---------------------------------------------------------------------------
 
 def trace_path() -> str:
-    """留痕文件路径。测试/特殊场景可用 TEGULA_AI_TRACE 覆盖；
-    默认与 tegula/core.py 的 DATA_DIR 同语义：便携检测 > %APPDATA%/Fangcun。"""
+    """留痕文件路径。测试/特殊场景可用 TEGULA_AI_TRACE 覆盖。
+
+    ⚠ 留痕必须与任务数据同根（2026-10-17 复核实锤）：首版在这里**另起一套**目录推导
+    （本文件旁边有 registry.yaml/task-data 就用它，否则 APPDATA/Fangcun），看着与
+    core.DATA_DIR 等价，实际是两份口径——桌面端的写入口走 userData 解析出的数据根，
+    CLI 走代码目录，`tegula ai-trace` 于是看不到桌面点按钮产生的调用。
+    现统一取 core.DATA_DIR（单一出处），桌面侧 trace.ts 也取同一个根。
+    """
     env = os.environ.get("TEGULA_AI_TRACE")
     if env:
         return env
+    try:
+        from tegula.core import DATA_DIR as _data_dir
+        if _data_dir:
+            return os.path.join(_data_dir, "ai-trace.jsonl")
+    except Exception:
+        pass  # core 不可用（独立脚本场景）才退回下面这套推导
     app_dir = os.path.dirname(os.path.abspath(__file__))
     if not (os.path.exists(os.path.join(app_dir, "registry.yaml"))
             or os.path.isdir(os.path.join(app_dir, "task-data"))):

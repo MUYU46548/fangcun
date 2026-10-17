@@ -27,17 +27,32 @@ export interface TraceRecord {
 
 let cachedPath: string | null = null
 
-/** 留痕文件路径（与 Python DATA_DIR 同目录） */
+/** 留痕文件路径（与 Python DATA_DIR 同一数据根）
+ *
+ * ⚠ 2026-10-17 复核修正：首版写死 `appData/Fangcun`，而 Python 侧按数据根推导——
+ *   桌面点按钮（TS 写入）与 `tegula ai-trace`（Python 读取）会各看各的文件，
+ *   用户看到「明明是刚调的 AI，命令说暂无留痕」。现两端都取**解析后的数据根**
+ *   （与 task-data 同级），一份留痕两端口径一致。
+ */
 export function traceFilePath(): string {
   if (cachedPath) return cachedPath
   let dir: string
   try {
     // 延迟 require，保持本模块可脱离 electron 单测
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { app } = require('electron')
-    dir = path.join(app.getPath('appData'), 'Fangcun')
+    const { getDataDir } = require('../data')
+    dir = getDataDir() || ''
   } catch {
-    dir = path.join(process.cwd(), '.Fangcun-dev')
+    dir = ''
+  }
+  if (!dir) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { app } = require('electron')
+      dir = path.join(app.getPath('appData'), 'Fangcun')
+    } catch {
+      dir = path.join(process.cwd(), '.Fangcun-dev')
+    }
   }
   cachedPath = path.join(dir, 'ai-trace.jsonl')
   return cachedPath

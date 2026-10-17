@@ -17,6 +17,7 @@ app.disableHardwareAcceleration()
 
 const DIST = path.join(__dirname, '..', 'dist', 'renderer')
 const INDEX = path.join(DIST, 'index.html')
+const fs = require('fs')
 
 let pass = 0
 let fail = 0
@@ -48,6 +49,36 @@ async function loadRenderer(win) {
 let win = null
 async function js(code) {
   return win.webContents.executeJavaScript(code, true)
+}
+
+/**
+ * 预写「免责声明已确认」记录再重载（2026-10-17）。
+ *
+ * 背景：10-16 落地的**首启强制免责声明**是覆盖全窗的合规闸。测试 profile 里没有确认
+ * 记录 → 闸一直盖在页面上 → 三条断言长期红（「Esc 关最上层弹窗」×2、「页签被遮罩盖字」），
+ * 而它们红的原因跟产品代码无关（真实用户点「同意」闸就消失）。
+ *
+ * 做法：版本号与 localStorage 键**从 disclaimer.ts 现读**（不写死，改文案抬版本时这里自动跟），
+ * 只写一条 ack 记录后重载页面。产品代码零改动 —— 测试不替用户同意，只测「同意之后」的产品。
+ */
+async function preAckDisclaimer() {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'disclaimer.ts'), 'utf-8')
+    const vm = src.match(/DISCLAIMER_VERSION\s*=\s*'([^']+)'/)
+    const km = src.match(/DISCLAIMER_ACK_KEY\s*=\s*'([^']+)'/)
+    if (!vm) return false
+    const key = km ? km[1] : 'fc_disclaimer_ack'
+    const payload = JSON.stringify({ v: vm[1], at: Date.now() })
+    await js('localStorage.setItem(' + JSON.stringify(key) + ',' + JSON.stringify(payload) + '); true')
+    await win.loadFile(INDEX)
+    await sleep(800)
+    // 闸的根节点带 Tailwind 的 z-[90]；用 className 字符串判，避免 CSS 选择器转义
+    return await waitFor(
+      "(() => { const el = [].slice.call(document.querySelectorAll('div')).filter(function (d) { return String(d.className || '').indexOf('z-[90]') >= 0 }); return el.length === 0 })()",
+      5000, '免责声明闸消失')
+  } catch (e) {
+    return false
+  }
 }
 
 /** 等到条件成立（在页面里轮询） */
@@ -133,6 +164,10 @@ async function main() {
     return
   }
   console.log('加载方式:', loaded.via)
+
+  // ── 0.0 免责声明闸先撤掉（见 preAckDisclaimer 注释）───────────────
+  const ackOk = await preAckDisclaimer()
+  check('免责声明确认记录就位（测试 profile 预写当前版；闸不再遮挡页面）', ackOk)
 
   // ── 0. 挂载与 preload ────────────────────────────────────────────
   const mounted = await waitFor(`document.querySelector('#app') && document.querySelector('#app').children.length > 0`,

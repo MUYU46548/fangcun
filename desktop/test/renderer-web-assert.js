@@ -3322,12 +3322,21 @@
     //    四条通道真 preload 早就暴露、渲染层今天接（「电路铺好了开关没装」第二排开关）。
     //    假 preload plans 夹具：1 条「0.3.7 发版计划」（project=demo），2 决策点（dp_001 已定 / dp_002 待定）。
     {
-      clickText('看板'); await sleep(300)
-      const tileP = $('#board.pv .tile:not(.tile-add)')
+      // ⚠ 2026-10-17 修断言前置（外部整包原写法 `clickText('看板')` + 300ms 直接取
+      //   `#board.pv .tile` 恒红 4 条）：①「看板」不是项目页签的入口名（那条 nav 叫「项目」）；
+      //   ②项目页签有三种摆法（项目墙/概览卡/主从）且**用户选择会落盘**，上一段断言切到过
+      //   主从/概览卡，这里不能假定自己站在项目墙上；③本块要点的按钮挂在**主从**的
+      //   详情面板 `.ms-detail .oacts` 里，所以先确保主从、选中演示项目。
+      clickText('项目'); await sleep(700)
+      const msTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('主从') >= 0)
+      if (msTab && !$('#board.pv .pv-ms')) { msTab.click(); await sleep(500) }
+      const msLi = $$('#board.pv .pv-ms .ms-li').find((x) => (x.textContent || '').indexOf('演示项目') >= 0)
+      if (msLi) { msLi.click(); await sleep(300) }
+      const tileP = msLi || $('#board.pv .tile:not(.tile-add)')
       check('★ 进项目详情后有「🗂 规划」按钮（规划四通道的界面开关装上了）', await (async () => {
         if (!tileP) return false
-        tileP.click()
-        const ok = await waitFor(() => !!$('#board.pv .ms-detail .ocard'), 4000, '进详情')
+        if (!msLi) tileP.click()
+        const ok = await waitFor(() => !!$('#board.pv .ms-detail .oacts'), 4000, '进详情')
         return ok && $$('#board.pv .ms-detail .oacts button').some((b) => (b.textContent || '').indexOf('🗂') >= 0)
       })(), 'tile=' + ((tileP || {}).textContent || '').slice(0, 12))
       // 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段转正，详情页一句话定位

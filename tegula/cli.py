@@ -2128,6 +2128,10 @@ def main():
 
     ck = sub.add_parser("cron", help="检查并触发周期任务")
     ck.set_defaults(func=cmd_cron_check)
+    # 别名（2026-10-17）：交付说明里写的是 `tegula cron-check`，与既有 `tegula cron` 同一个
+    # 动作。两个名字都认，免得照说明敲一次就报 invalid choice（多一个入口，行为零差异）。
+    ck2 = sub.add_parser("cron-check", help="同 cron：检查并触发周期任务（别名）")
+    ck2.set_defaults(func=cmd_cron_check)
     
     # 笔记模块 CLI
     nt = sub.add_parser("note", help="笔记管理：创建/查看/关联/导入")
