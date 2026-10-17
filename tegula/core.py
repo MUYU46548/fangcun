@@ -2676,6 +2676,118 @@ def _brief(text, max_items=2, max_len=200):
     return out if len(out) <= max_len else out[:max_len].rstrip() + "…"
 
 
+# ---------- 项目分层档案（2026-10-17 用户拍板四件补立项③） ----------
+
+_TREE_SKIP = {".git", "node_modules", "dist", "build", "__pycache__", ".venv", "venv",
+              "target", ".idea", ".vscode", "coverage", ".next", "AppData", "backups",
+              ".gradle", "vendor", "out", "tmp"}
+
+
+def _repo_tree(repo, max_depth=3, max_entries=200):
+    """repo 目录树扫描（分层档案素材）。零依赖手写深度控制。
+    返回 (行列表, None)；repo 不可达返回 (None, 人话原因)——云侧/沙箱拿不到
+    用户本地盘是常态，如实说明不假装。跳过依赖/构建产物目录，条目上限防超大仓刷屏。"""
+    repo = str(repo or "").strip()
+    if not repo or not os.path.isdir(repo):
+        return None, f"repo 不可达（{repo or '未填'}）——云侧生成时属正常，本地跑即有结构"
+    entries = []
+
+    def walk(d, depth, prefix):
+        if depth > max_depth or len(entries) >= max_entries:
+            return
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            return
+        dirs = [n for n in names
+                if os.path.isdir(os.path.join(d, n)) and n not in _TREE_SKIP
+                and not n.startswith(".")]
+        files = [n for n in names if os.path.isfile(os.path.join(d, n))]
+        for n in dirs:
+            if len(entries) >= max_entries:
+                entries.append(f"{prefix}…（条目上限 {max_entries} 截断）")
+                return
+            entries.append(f"{prefix}{n}/")
+            walk(os.path.join(d, n), depth + 1, prefix + "  ")
+        for n in files:
+            if len(entries) >= max_entries:
+                entries.append(f"{prefix}…（条目上限 {max_entries} 截断）")
+                return
+            entries.append(f"{prefix}{n}")
+
+    walk(repo, 1, "")
+    return entries, None
+
+
+def build_arch_profile(project_id):
+    """项目分层档案·骨架版（2026-10-17 四件补立项③）：零 AI 零网络必出。
+
+    与 project-brief 分工（互补不重叠）：brief=状态全貌（平铺：契约全文/任务/决策/进度），
+    本档案=结构理解（纵向：目录分层/模块骨架/契约节名/任务分布），给 agent 接活先建心智模型。
+    返回 (markdown, None)；项目不存在返回 (None, 报错)。AI 润色在 CLI 层做（追加不覆盖）。"""
+    pid = str(project_id or "").strip()
+    reg = {p["id"]: p for p in load_all_projects()}
+    meta = reg.get(pid)
+    if not meta:
+        return None, f"项目 {pid} 未在 registry.yaml 注册（现有：{'、'.join(sorted(reg)) or '无'})"
+    name = meta.get("name", pid)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [f"# 项目分层档案 · {name}（{pid}）", "",
+             f"> 一条命令产出的结构理解档案（生成于 {now}）。与 project-brief 互补：这份管「项目长什么样」，那份管「项目干到哪」。"]
+
+    # ── registry 档案 ──
+    lines += ["", "## 项目档案（registry）", f"- 仓库：{meta.get('repo') or '（未填）'}"]
+    for k in ("说明", "状态", "路线图"):
+        v = str(meta.get(k) or "").strip()
+        if v:
+            lines.append(f"- {k}：{v}")
+    tools = meta.get("tools") or []
+    if tools:
+        lines.append(f"- 工具链：{'、'.join(str(t) for t in tools)}")
+
+    # ── 结构分层（目录树）──
+    tree, terr = _repo_tree(meta.get("repo"))
+    lines += ["", "## 结构分层（目录树，深度 3，依赖/构建目录已跳过）"]
+    if tree:
+        root_name = os.path.basename(str(meta.get("repo")).rstrip("/\\")) or "repo/"
+        lines.append("```")
+        lines.append(root_name + "/")
+        lines.extend(tree)
+        lines.append("```")
+    else:
+        lines.append(f"（{terr}）")
+
+    # ── 契约骨架（节名+首行；全文看 project-brief）──
+    ct = read_contract(pid)
+    lines += ["", "## 契约骨架（六字段首行，全文见 project-brief）"]
+    if ct.get("exists"):
+        any_field = False
+        for k in CONTRACT_FIELDS:
+            v = str(ct.get(k) or "").strip()
+            if v:
+                any_field = True
+                first = v.strip().splitlines()[0][:80]
+                lines.append(f"- {k}：{first}{'…' if len(v.strip().splitlines()[0]) > 80 else ''}")
+        if not any_field:
+            lines.append("（契约文件在但六字段全空）")
+    else:
+        lines.append("（未找到立项契约.md——契约主线未落地）")
+
+    # ── 任务分布 ──
+    tasks = load_tasks(pid, "active")
+    lines += ["", f"## 任务分布（活跃 {len(tasks)} 张）"]
+    if tasks:
+        for st in ("进行中", "待验收", "待办", "待审批", "草稿"):
+            grp = [t for t in tasks if (t.get("状态") or "") == st]
+            if grp:
+                lines.append(f"- {st}（{len(grp)}）：" + "；".join(
+                    f"{t.get('标题', '')}" for t in grp[:8]) + ("…" if len(grp) > 8 else ""))
+    else:
+        lines.append("- （活跃区无任务）")
+
+    return "\n".join(lines) + "\n", None
+
+
 def contract_prompt_lines(repo):
     """任务书 / `tegula next` 里的「立项契约」块。
 

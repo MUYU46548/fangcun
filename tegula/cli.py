@@ -1106,6 +1106,40 @@ def cmd_ai_doc(args):
     return 0 if r.get("ok") else 1
 
 
+def cmd_arch_profile(args):
+    """项目分层档案（2026-10-17 四件补立项③）：骨架必出，AI 解读追加，落笔记留档。"""
+    import datetime as _dt
+    from tegula.core import build_arch_profile, api_note_create
+    md, err = build_arch_profile(args.id)
+    if err:
+        print(f"失败：{err}", file=sys.stderr)
+        return 1
+    # AI 解读：有 key 才调；产出以「追加章节」拼接——骨架 100% 保真在前，
+    # AI 增值在后；失败/超短静默退化骨架版（档案可用性不押在 AI 上）。
+    try:
+        import tegula_llm as _llm
+        if _llm.get_config().api_key:
+            interp = _llm.chat(
+                md, system=(
+                    "你是方寸项目管理系统的架构档案员。输入是一份项目分层档案骨架"
+                    "（目录树/契约节名/任务分布）。输出一份「分层解读」markdown："
+                    "模块划分与各层职责、入口与关键文件、依赖与技术债风险、当前欠账。"
+                    "只依据骨架里的事实，不编造不存在的文件；不重复罗列目录树本身。"),
+                trigger="arch.profile", temperature=0.2, max_tokens=3000)
+            if interp and len(interp.strip()) > 200:
+                md = md.rstrip() + "\n\n## AI 解读\n\n" + interp.strip() + "\n"
+    except Exception:
+        pass  # 骨架版兜底（含 LLMError/网络失败）
+    title = md.splitlines()[0].lstrip("# ").strip() if md.splitlines() else f"项目分层档案 · {args.id}"
+    ok, nid = api_note_create(f"{title}（{_dt.date.today().isoformat()}）", md)
+    if ok:
+        print(f"已落笔记 {nid}（可回看可改；同日重跑会多存一版）")
+    else:
+        print(f"笔记落盘失败（{nid}），档案仅在下方输出", file=sys.stderr)
+    sys.stdout.write(md)
+    return 0
+
+
 def cmd_project_brief(args):
     """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文。
 
@@ -2221,6 +2255,9 @@ def main():
     ad.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ad.add_argument("--max", type=int, default=20, help="最多拆几张卡（默认 20）")
     ad.set_defaults(func=cmd_ai_doc)
+    arp = sub.add_parser("arch-profile", help="项目分层档案：registry 档案+repo 目录树+契约骨架+任务分布（骨架零 AI 必出，配了模型通道则追加 AI 解读）")
+    arp.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
+    arp.set_defaults(func=cmd_arch_profile)
     pb = sub.add_parser("project-brief", help="项目上下文一键包：契约+方针+在途任务+决策卡+进度聚合 → 一份 Markdown（喂 agent）")
     pb.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
     pb.add_argument("--out", default="", help="写入文件路径（缺省打印到 stdout）")
