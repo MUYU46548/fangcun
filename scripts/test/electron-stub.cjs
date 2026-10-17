@@ -11,7 +11,8 @@ class NotificationStub {
   constructor(opts) { this.opts = opts }
   show() { NotificationStub.lastShown = this.opts }
 }
-NotificationStub.isSupported = () => false
+// 2026-10-17 改 true：挂机提醒 e2e 要走真弹断言；e2e-notifications 自带临时覆写不受影响
+NotificationStub.isSupported = () => true
 NotificationStub.lastShown = null
 
 module.exports = {
@@ -52,6 +53,11 @@ module.exports = {
     },
   },
   ipcMain: { handle: () => {} },
+  // powerMonitor 桩（2026-10-17 挂机提醒）：测试设 globalThis.__FC_IDLE_SEC 控制
+  // 系统空闲秒数，配合 startIdleReminder(intervalMs) 的短间隔轮询做真弹断言
+  powerMonitor: {
+    getSystemIdleTime: () => Number(globalThis.__FC_IDLE_SEC || 0),
+  },
   // dialog 桩：默认「用户取消」，测试可用 `dialog.next = { canceled:false, filePaths:[...] }`
   // 脚本化一次返回值（技能导入的"选文件/选文件夹"两条入口要能各自断言）
   dialog: {

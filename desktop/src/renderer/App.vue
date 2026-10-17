@@ -3403,6 +3403,21 @@
             <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
           </div>
         </div>
+        <!-- 挂机提醒（2026-10-17 四件补立项④）：powerMonitor 空闲检测，独立于通知中心 7 类扫描
+             （2026-10-01「很吵」红线）。一次挂机最多弹一次、回来即重置；关掉则完全不轮询。 -->
+        <div class="sect" v-show="settingsTab === 'agent'">
+          <h4>😴 挂机提醒</h4>
+          <div class="hint">人离开电脑一段时间后，系统通知轻提一声「回来看方寸」。一次挂机最多弹一次，回来即重置；关掉则完全不轮询。</div>
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" v-model="idleCfg.enabled" />
+            挂机后提醒我（默认开）
+          </label>
+          <label>离开多久提醒（分钟，最小 5）</label>
+          <input type="number" min="5" step="5" v-model.number="idleCfg.thresholdMin" />
+          <div class="sect-btns">
+            <button class="pri" :disabled="idleSaving" @click="idleSave">{{ idleSaving ? '保存中…' : '保存挂机设置' }}</button>
+          </div>
+        </div>
         <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
         <div class="sect" v-show="settingsTab === 'agent'">
           <h4>🤖 Agent 预设列表</h4>
@@ -10835,6 +10850,38 @@ async function runDocToDrafts() {
   }
 }
 
+// ── 挂机提醒设置（2026-10-17 四件补立项④）──────────────────────────────
+// 判定与弹窗全在主进程（main/services/idleReminder.ts，powerMonitor 空闲检测）；
+// 这里只是 prefs 读写壳。保存即时生效（主进程每轮轮询现读 prefs.json，无需重启）。
+const idleCfg = ref<{ enabled: boolean; thresholdMin: number }>({ enabled: true, thresholdMin: 30 })
+const idleSaving = ref(false)
+
+async function idleLoad() {
+  try {
+    const p: any = await window.tegula.prefsGet()
+    const v = p?.idleReminder || {}
+    idleCfg.value = {
+      enabled: v?.enabled !== false,
+      thresholdMin: Math.max(5, Number(v?.thresholdMin) || 30),
+    }
+  } catch { /* 缺省兜底：开+30 分钟 */ }
+}
+
+async function idleSave() {
+  if (idleSaving.value) return
+  idleSaving.value = true
+  try {
+    const thresholdMin = Math.max(5, Math.round(Number(idleCfg.value.thresholdMin) || 30))
+    idleCfg.value.thresholdMin = thresholdMin
+    await window.tegula.prefsSet('idleReminder', { enabled: idleCfg.value.enabled, thresholdMin })
+    showToast(`挂机提醒已${idleCfg.value.enabled ? '保存' : '关闭'}（${idleCfg.value.enabled ? `离开 ${thresholdMin} 分钟后提醒` : '不再轮询'}，即时生效）`, 'success')
+  } catch (e: any) {
+    showToast(`保存失败：${e?.message || e}`, 'error')
+  } finally {
+    idleSaving.value = false
+  }
+}
+
 // ── 规划管理（2026-10-16 第 1 项）：接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
 //    后端 10-11 起全就绪（main+preload），渲染层此前零调用=死通道；本窗补上开关。
 const plansModal = ref<{ id: string; name: string } | null>(null)
@@ -11149,6 +11196,7 @@ function showSettings() {
   //   两边都是"打开设置页时进门就刷"的条目，合并时保留全部四条（缺谁谁就"界面说假话"）。
   //   这条纪律本身就是从"懒加载导致界面说假话"那几次事故里来的（见 MEMORY 第 5.8 条）。
   llmLoad()
+  idleLoad()  // 挂机提醒（2026-10-17）：同纪律，进门就刷，别显示上一次的旧值
 }
 
 // ── 模型通道（AI 规划用，2026-10-12）：BYOK 配置界面 ────────────────────

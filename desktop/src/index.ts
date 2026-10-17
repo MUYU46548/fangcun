@@ -9,6 +9,7 @@ import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
 import { startScanner, stopScanner } from './main/services/notifier'
+import { startIdleReminder, stopIdleReminder } from './main/services/idleReminder'
 import * as appLog from './main/services/appLog'
 
 // ── 最先安装全局兜底（2026-09-22）────────────────────────────────────────
@@ -240,6 +241,7 @@ app.whenReady().then(() => {
   boot('MCP 服务', () => startMCPServer())
   boot('静默备份调度', () => startScheduler())
   boot('通知扫描器', () => startScanner())
+  boot('挂机提醒', () => startIdleReminder())
   boot('自动更新', () => {
     initUpdater(mainWindow)
     registerUpdaterIpc()
@@ -263,4 +265,5 @@ app.on('before-quit', () => {
   appLog.info('boot', '退出中')
   stopMCPServer()
   stopScanner()
+  stopIdleReminder()
 })
