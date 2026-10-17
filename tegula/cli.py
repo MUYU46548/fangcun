@@ -1078,6 +1078,34 @@ def cmd_ai_brief(args):
     return 0 if r.get("ok") else 1
 
 
+def cmd_ai_doc(args):
+    """文档一键转任务（2026-10-17 四件补立项之二）：读文档→AI 拆→待审批卡。"""
+    from tegula_writeback import doc_to_drafts
+    text = ""
+    if getattr(args, "file", ""):
+        try:
+            import io as _io
+            text = _io.open(args.file, encoding="utf-8", errors="replace").read()
+        except OSError as e:
+            print(f"读不了文件：{e}", file=sys.stderr)
+            return 1
+    if not text.strip() and not sys.stdin.isatty():
+        text = sys.stdin.read()
+    if not text.strip():
+        print("缺文档：给 --file 路径，或用管道喂 stdin", file=sys.stderr)
+        return 2
+    r = doc_to_drafts(text, args.项目 or "", args.model or None, max_cards=args.max)
+    if r.get("ok"):
+        print(f"已落 {r['count']} 张待审批任务卡（来源 ai-doc，GUI 里确认后转待办）：")
+        for tid in r["created"]:
+            print(f"  {tid}")
+        for s in r.get("skipped", []):
+            print(f"  跳过：{s}")
+    else:
+        print(f"失败：{r.get('error')}", file=sys.stderr)
+    return 0 if r.get("ok") else 1
+
+
 def cmd_project_brief(args):
     """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文。
 
@@ -2187,6 +2215,12 @@ def main():
     ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
     ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ab.set_defaults(func=cmd_ai_brief)
+    ad = sub.add_parser("ai-doc", help="文档一键转任务：读文档→AI 拆→待审批任务卡（来源 ai-doc，GUI 审批转正）")
+    ad.add_argument("--file", default="", help="文档路径（md/txt）；缺省读 stdin")
+    ad.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认不挂）")
+    ad.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ad.add_argument("--max", type=int, default=20, help="最多拆几张卡（默认 20）")
+    ad.set_defaults(func=cmd_ai_doc)
     pb = sub.add_parser("project-brief", help="项目上下文一键包：契约+方针+在途任务+决策卡+进度聚合 → 一份 Markdown（喂 agent）")
     pb.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
     pb.add_argument("--out", default="", help="写入文件路径（缺省打印到 stdout）")

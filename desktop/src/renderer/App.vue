@@ -791,6 +791,7 @@
               <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产「待审批」草稿，点头才转正。
                    12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——「电路铺好了开关没装」的补开关。 -->
               <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
+              <button class="ghost oact" @click.stop="openAiDoc(pvCurrent)">📄 文档拆卡</button>
               <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
                    「电路铺好了开关没装」的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
               <button class="ghost oact" @click.stop="openPlans(pvCurrent)">🗂 规划</button>
@@ -3013,6 +3014,31 @@
             {{ aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
           <button class="pri" :disabled="aiPlanBusy" @click="runDraftBrief()">
             {{ aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 文档拆卡弹窗（2026-10-17 四件补立项之二）：粘贴文档全文 → AI 拆成待审批卡。
+         同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同「待审批+ai-doc 审计」红线。 -->
+    <div v-if="aiDocForm" class="overlay" @mousedown.self="closeAiDoc()">
+      <div id="ai-doc-modal">
+        <h3>文档拆卡 · {{ aiDocForm.name }}</h3>
+        <label>粘贴文档全文（需求说明/会议记录/笔记，最长 6 万字）</label>
+        <textarea v-model="aiDocForm.doc" rows="9"
+                  placeholder="把文档内容整段粘进来，AI 从里头提取可执行的任务（背景/感想/已完成事项会自动跳过）"
+                  :disabled="aiDocBusy"></textarea>
+        <div class="hint hint-warn" v-if="!llmCfg.baseUrl">
+          ⚠ 还没配模型通道 —— 这个动作要用你自己的一份模型 API（BYOK，方寸不预置任何端点、不代收费用）。
+          <button class="ghost llm-goto" :disabled="aiDocBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
+        </div>
+        <div class="hint">
+          每篇最多拆 <b>20 张</b>「待审批」卡（琥珀色状态）——你过目改卡、点头后才进待办；
+          卡带 <code>ai-doc</code> 来源标记，和目标拆解的卡分开可查。拆完原文不留存。
+        </div>
+        <div class="acts">
+          <button class="ghost" :disabled="aiDocBusy" @click="closeAiDoc()">取消</button>
+          <button class="pri" :disabled="aiDocBusy || !aiDocForm.doc.trim()" @click="runDocToDrafts()">
+            {{ aiDocBusy ? 'AI 拆卡中…' : '📄 拆成任务卡' }}</button>
         </div>
       </div>
     </div>
@@ -10771,6 +10797,41 @@ async function runDraftBrief() {
     showToast(`起草失败：${e?.message || e}`, 'error')
   } finally {
     aiPlanBusy.value = false
+  }
+}
+
+// ── 文档拆卡 UI（2026-10-17 四件补立项之二）──────────────────────────────
+// 红线全在主进程（llm/writeback.ts docToDrafts）：待审批+ai-doc 来源+超长硬拒+上限 20 张。
+const aiDocForm = ref<{ id: string; name: string; doc: string } | null>(null)
+const aiDocBusy = ref(false)
+
+function openAiDoc(p: any) {
+  aiDocForm.value = { id: p.id, name: p.name || p.id, doc: '' }
+  void llmLoad()  // 同 AI 规划：没配模型通道时当场指路，别让用户白粘一段长文
+}
+
+function closeAiDoc() {
+  if (aiDocBusy.value) return
+  aiDocForm.value = null
+}
+
+/** 粘贴文档 → AI 拆成待审批卡。成功即关窗，看板筛「待审批」看到琥珀色卡。 */
+async function runDocToDrafts() {
+  const f = aiDocForm.value
+  if (!f || aiDocBusy.value || !f.doc.trim()) return
+  aiDocBusy.value = true
+  try {
+    const r: any = await window.tegula.llmDocToDrafts(f.doc.trim(), f.id)
+    if (r?.ok) {
+      showToast(`已拆 ${r.created?.length ?? 0} 张「待审批」卡——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      aiDocForm.value = null
+    } else {
+      showToast(r?.error || '拆卡失败——先到设置页确认模型通道', 'error')
+    }
+  } catch (e: any) {
+    showToast(`拆卡失败：${e?.message || e}`, 'error')
+  } finally {
+    aiDocBusy.value = false
   }
 }
 

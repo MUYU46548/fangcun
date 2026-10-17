@@ -73,6 +73,19 @@ const BRIEF_SYSTEM = `你是方寸项目管理系统 AI 档案员。你正在执
 - "不做"写明确边界（明确排除的范围）
 - "欠着什么"写已知的未决事项（挂在哪些任务上）`
 
+const DOC_SYSTEM = `你是方寸项目管理系统的任务拆解助手。你正在执行「文档一键转任务」。
+
+输入是一份文档（需求说明/会议记录/笔记/文章等）。你的职责：
+1. 从文档中提取**可执行的任务**——忽略纯背景介绍、感想、已完成事项的叙述
+2. 每个任务一句话标题，动词开头，范围小到一个人一两天能做完
+3. 大块工作拆成多个任务；琐碎小事合并成一个任务
+4. 文档里已有的结论或拍板（如「决定不做 X」）不要变成任务
+
+输出要求（务必严格遵守）：
+- 只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏
+- 格式：{"tasks": [{"标题": "…", "说明": "一句话背景或要点", "优先级": "高|中|低", "标签": ["…"], "方案": ["步骤1", "步骤2"], "验收标准": "怎么确认做完了"}]}
+- tasks 数量不超过 {MAX}；文档里没有可提取的任务时输出 {"tasks": []}`
+
 // ── JSON 提取（LLM 输出容错：剥围栏 / 找首尾大括号）────────────────────
 
 export function extractJson(text: string): object {
@@ -87,7 +100,7 @@ export function extractJson(text: string): object {
 
 // ── 内部工具 ────────────────────────────────────────────────────────────
 
-interface DraftCard { title: string; priority?: string; tags?: string[]; steps?: string[]; review?: string }
+interface DraftCard { title: string; priority?: string; tags?: string[]; steps?: string[]; review?: string; desc?: string }
 
 function normalizeCards(raw: unknown): DraftCard[] {
   const tasks = (raw as { tasks?: unknown[] })?.tasks
@@ -111,6 +124,7 @@ function normalizeCards(raw: unknown): DraftCard[] {
       tags,
       steps,
       review: typeof t['验收标准'] === 'string' ? t['验收标准'].trim() : '',
+      desc: typeof t['说明'] === 'string' ? (t['说明'] as string).trim() : '',
     })
   }
   if (!cards.length) throw new Error('JSON 里没有一张合法的卡（标题全空）')
@@ -132,9 +146,9 @@ function renderDraftBody(card: DraftCard, goal: string): string {
   ].join('\n')
 }
 
-function markAiSource(task: Task): void {
+function markAiSource(task: Task, source = 'ai-planning'): void {
   // TaskFrontmatter 开放索引允许未知字段；source 已在 index.ts 的中英映射表里（'来源'↔'source'）
-  updateTask(task.id, { source: 'ai-planning', review: 'human' } as any)
+  updateTask(task.id, { source, review: 'human' } as any)
 }
 
 // ── 对外入口 1：目标拆解 → 待审批任务卡 ─────────────────────────────────
@@ -275,4 +289,93 @@ export async function draftProjectBrief(
   })
   markAiSource(task)
   return { ok: true, taskId: task.id, usage }
+}
+
+// ── 对外入口 3：文档一键转任务 → 待审批卡（2026-10-17 用户拍板四件补立项之二）──
+
+/** 文档卡正文：同 renderDraftBody 结构，附言注明「文档拆卡」来源与说明 */
+function renderDocBody(card: DraftCard, docHint: string): string {
+  const steps = (card.steps && card.steps.length ? card.steps : ['（AI 未给步骤，人工补）'])
+    .map(s => `- [ ] ${s}`)
+  const desc = card.desc ? `${card.desc}；` : ''
+  return [
+    `## 方案`,
+    ...steps,
+    '',
+    `## 结果记录`,
+    '',
+    `## 附言`,
+    `- 文档拆卡（AI 起草，来源：${docHint}）。${desc}验收标准：${card.review || '（AI 未给，人工补——验收判据禁形容词）'}`,
+  ].join('\n')
+}
+
+const DOC_MAX_CHARS = 60000
+
+export async function docToDrafts(
+  docText: string,
+  projectId = '',
+  model?: string,
+  maxCards = 20,
+): Promise<{ ok: true; created: { id: string; title: string }[]; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
+  const doc = (docText || '').trim()
+  if (!doc) return { ok: false, error: '文档内容为空——粘贴文本或选文件后再拆', usage: emptyUsage }
+  if (doc.length > DOC_MAX_CHARS) {
+    return { ok: false, error: `文档过长（${doc.length} 字符 > ${DOC_MAX_CHARS}），先分段或摘出要点再拆`, usage: emptyUsage }
+  }
+
+  let context = `文档全文：\n${doc}\n\n项目：${projectId || '未指定'}`
+  if (projectId) {
+    const data = getProjectSummary(projectId)
+    if (!data.error && data.tasks.length) {
+      context += `\n\n当前项目任务（避免重复）：\n${formatTasksForAudit(data.tasks)}`
+    }
+    // 决策卡注入：文档里提的方案若与已拍板决策冲突，AI 先看到红线
+    const decBlock = decisionsBlock(projectId)
+    if (decBlock) context += `\n\n${decBlock}`
+  }
+
+  let text: string
+  let usage: ChatUsage = emptyUsage
+  try {
+    const r = await chatDetailed(context, {
+      model, system: DOC_SYSTEM.replace('{MAX}', String(maxCards)),
+      trigger: 'desktop.docToDrafts', temperature: 0.2, maxTokens: 4000,
+    })
+    text = r.text
+    usage = r.usage
+  } catch (e: any) {
+    return { ok: false, error: `LLM 调用失败：${e?.message || e}`, usage }
+  }
+
+  let cards: DraftCard[]
+  try {
+    cards = normalizeCards(extractJson(text))
+  } catch {
+    // 兜底：原文不丢——落一张草稿卡供人工救援（红线 5 同款）
+    const rescue = createTask({
+      title: `文档拆卡失败存档（${doc.slice(0, 20)}）`,
+      project: projectId || undefined,
+      status: '草稿',
+      tags: ['ai-draft', '解析失败'],
+      body: `## 方案\n- [ ] 人工检查下面原文，救出可用部分\n\n## 结果记录\n\n## 附言\n- AI 输出解析失败，原文如下：\n\n\`\`\`\n${text}\n\`\`\``,
+    })
+    if (rescue) markAiSource(rescue, 'ai-doc')
+    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}，可人工救${usageLabel(usage)}`, usage }
+  }
+  if (cards.length > maxCards) cards = cards.slice(0, maxCards)
+
+  const created: { id: string; title: string }[] = []
+  for (const card of cards) {
+    const task = createTask({
+      title: card.title,
+      project: projectId || undefined,
+      status: '待审批',
+      priority: card.priority,
+      tags: [...card.tags, 'ai-draft'].filter((v, i, a) => a.indexOf(v) === i),
+      body: renderDocBody(card, doc.slice(0, 40)),
+    })
+    markAiSource(task, 'ai-doc')
+    created.push({ id: task.id, title: task.fm.title || card.title })
+  }
+  return { ok: true, created, usage }
 }

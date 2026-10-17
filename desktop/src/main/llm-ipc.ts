@@ -3,7 +3,7 @@ import { guardedHandle } from './guarded-ipc'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
-import { planToDraft, draftProjectBrief } from './llm/writeback'
+import { planToDraft, draftProjectBrief, docToDrafts } from './llm/writeback'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
 function toFailure(e: unknown, fallbackUrl = '') {
@@ -129,5 +129,9 @@ export function registerLlmIpcHandlers(): void {
 
   guardedHandle('llm:draftProjectBrief', async (_event: any, projectId: string, model?: string) => {
     return draftProjectBrief(projectId, model)
+  })
+
+  guardedHandle('llm:docToDrafts', async (_event: any, docText: string, projectId?: string, model?: string, maxCards?: number) => {
+    return docToDrafts(docText, projectId || '', model, maxCards || 20)
   })
 }

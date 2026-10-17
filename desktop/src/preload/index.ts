@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // AI 规划写回层（2026-10-12）：LLM 输出直接落「待审批」卡，用户点头才转正
   llmPlanToDraft: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:planToDraft', goal, projectId, model),
   llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
+  llmDocToDrafts: (docText: string, projectId?: string, model?: string, maxCards?: number) => ipcRenderer.invoke('llm:docToDrafts', docText, projectId, model, maxCards),
   // 决策卡（2026-10-12）：与 Python CLI 同文件（task-data/decisions.md）
   decisionList: () => ipcRenderer.invoke('decision:list'),
   decisionAdd: (input: any) => ipcRenderer.invoke('decision:add', input),
