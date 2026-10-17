@@ -148,7 +148,7 @@ export async function auditProject(projectId: string, model?: string): Promise<s
 任务详情：
 ${formatTasksForAudit(tasks)}`
 
-  return chat(userMsg, { model, system: AUDIT_SYSTEM, temperature: 0.15, maxTokens: 3000 })
+  return chat(userMsg, { model, system: AUDIT_SYSTEM, trigger: 'desktop.audit', temperature: 0.15, maxTokens: 3000 })
 }
 
 // ── 2. Smart Task Decomposition ─────────────────────────────────────────
@@ -165,7 +165,7 @@ export async function decomposeGoal(goal: string, projectId?: string, model?: st
   const userMsg = `目标：${goal}
 项目：${projectId || '未指定'}${context}`
 
-  return chat(userMsg, { model, system: DECOMPOSE_SYSTEM, temperature: 0.25, maxTokens: 3500 })
+  return chat(userMsg, { model, system: DECOMPOSE_SYSTEM, trigger: 'desktop.decomposeGoal', temperature: 0.25, maxTokens: 3500 })
 }
 
 // ── 3. Decision Support ─────────────────────────────────────────────────
@@ -187,7 +187,7 @@ export async function decideDP(dp: DecisionPoint, model?: string): Promise<strin
 已选：${dp.chosen || '无'}
 决策时间：${dp.decidedAt || '未决策'}`
 
-  return chat(userMsg, { model, system: DECIDE_SYSTEM, temperature: 0.1, maxTokens: 2500 })
+  return chat(userMsg, { model, system: DECIDE_SYSTEM, trigger: 'desktop.decideDp', temperature: 0.1, maxTokens: 2500 })
 }
 
 // ── 4. Quarterly Review ─────────────────────────────────────────────────
@@ -228,7 +228,7 @@ export async function quarterlyReview(projectId?: string, model?: string): Promi
     }
   }
 
-  return chat(userMsg, { model, system: REVIEW_SYSTEM, temperature: 0.2, maxTokens: 4000 })
+  return chat(userMsg, { model, system: REVIEW_SYSTEM, trigger: 'desktop.quarterlyReview', temperature: 0.2, maxTokens: 4000 })
 }
 
 // ── 5. Roadmap Generation ───────────────────────────────────────────────
@@ -266,5 +266,5 @@ export async function generateRoadmap(goal?: string, projectId?: string, model?:
 当前路线图：
 ${roadmapText || '（无活跃任务）'}`
 
-  return chat(userMsg, { model, system: ROADMAP_SYSTEM, temperature: 0.25, maxTokens: 4000 })
+  return chat(userMsg, { model, system: ROADMAP_SYSTEM, trigger: 'desktop.generateRoadmap', temperature: 0.25, maxTokens: 4000 })
 }

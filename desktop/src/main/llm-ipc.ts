@@ -68,7 +68,7 @@ export function registerLlmIpcHandlers(): void {
   // ── Chat ──────────────────────────────────────────────────────────
   guardedHandle('llm:chat', async (_event, content: string, options: ChatOptions) => {
     try {
-      const result = await chat(content, options)
+      const result = await chat(content, { ...options, trigger: options.trigger || 'desktop.chat' })
       return { ok: true, content: result }
     } catch (e) {
       return toFailure(e)

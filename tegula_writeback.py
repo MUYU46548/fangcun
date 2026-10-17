@@ -201,6 +201,7 @@ def plan_to_draft(goal: str, project_id: str = "", model: str | None = None) -> 
 
     try:
         raw = chat(user_msg, model=model, system=PLAN_SYSTEM,
+                   trigger="writeback.plan_to_draft",
                    temperature=0.2, max_tokens=3000)
     except LLMError as e:
         return {"ok": False, "error": f"LLM 调用失败：{e}"}
@@ -293,6 +294,7 @@ def draft_project_brief(project_id: str, model: str | None = None) -> dict:
         user_msg += "\n\n" + dec_block
     try:
         raw = chat(user_msg, model=model, system=BRIEF_SYSTEM,
+                   trigger="writeback.draft_project_brief",
                    temperature=0.3, max_tokens=1500)
     except LLMError as e:
         return {"ok": False, "error": f"LLM 调用失败：{e}"}
@@ -329,6 +331,122 @@ def draft_project_brief(project_id: str, model: str | None = None) -> dict:
     if not ok_note:
         return {"ok": False, "error": f"笔记写入失败：{note_id_or_err}"}
     return {"ok": True, "note_id": note_id_or_err}
+
+
+# ---------------------------------------------------------------------------
+# 入口 3：文档一键转任务（2026-10-17 用户拍板四件补立项之二）
+# ---------------------------------------------------------------------------
+
+DOC_SYSTEM = """你是方寸项目管理系统的任务拆解助手。
+
+输入是一份文档（需求说明/会议记录/笔记/文章等）。你的职责：
+1. 从文档中提取**可执行的任务**——忽略纯背景介绍、感想、已完成事项的叙述
+2. 每个任务一句话标题，动词开头，范围小到一个人一两天能做完
+3. 大块工作拆成多个任务；琐碎小事合并成一个任务
+4. 文档里已有的结论或拍板（如「决定不做 X」）不要变成任务
+
+输出：只输出一个 JSON 对象，不要解释。格式：
+{{"tasks": [
+  {{"标题": "...", "说明": "一句话背景或要点", "优先级": "高|中|低",
+   "标签": ["..."], "方案": ["步骤1", "步骤2"], "验收标准": "怎么确认做完了"}}
+]}}
+tasks 数量不超过 {max_cards}。文档里没有可提取的任务时输出 {{"tasks": []}}。"""
+
+
+def doc_to_drafts(doc_text: str, project_id: str = "", model: str | None = None,
+                  max_cards: int = 20) -> dict:
+    """把一份文档拆成待审批任务卡（2026-10-17 用户拍板件）。
+
+    与 plan_to_draft 同红线：AI 起草一律落「待审批」，转正只能靠用户 GUI 点头；
+    来源=ai-doc（与目标拆解的 ai-planning 分开审计），标签带 ai-draft 一条过滤全捞出。
+    max_cards 上限保护：一篇长文最多拆 20 张，防一次塞爆看板；模型超发也硬截。
+    """
+    doc_text = (doc_text or "").strip()
+    if not doc_text:
+        return {"ok": False, "error": "文档内容为空"}
+    if len(doc_text) > 60000:
+        return {"ok": False, "error": f"文档过长（{len(doc_text)} 字符 > 60000），先分段或摘出要点再拆"}
+
+    parts = [f"文档全文：\n{doc_text}", f"项目：{project_id or '未指定'}"]
+    existing = _existing_titles(project_id)
+    if existing:
+        parts.append("现有任务（避免重复）：\n" + "\n".join(existing[:60]))
+    # 决策卡注入：文档里提的方案若与已拍板决策冲突，AI 先看到红线
+    dec_block = _decisions_block(project_id)
+    if dec_block:
+        parts.append(dec_block)
+    user_msg = "\n\n".join(parts)
+
+    try:
+        raw = chat(user_msg, model=model,
+                   system=DOC_SYSTEM.format(max_cards=max_cards),
+                   trigger="writeback.doc_to_drafts",
+                   temperature=0.2, max_tokens=4000)
+    except LLMError as e:
+        return {"ok": False, "error": f"LLM 调用失败：{e}"}
+
+    try:
+        obj = _extract_json(raw)
+    except ValueError as e:
+        # 同红线 5：原文不丢，落笔记可人工救回
+        note_title = f"文档拆卡失败存档 {date.today().isoformat()}"
+        ok_note, note_id_or_err = core.api_note_create(note_title, raw)
+        err = f"{e}"
+        if ok_note:
+            err += f"（原文已存笔记 {note_id_or_err}，可人工救回）"
+        return {"ok": False, "error": err,
+                **({"note_id": note_id_or_err} if ok_note else {})}
+
+    tasks = obj.get("tasks")
+    if not isinstance(tasks, list):
+        return {"ok": False, "error": "JSON 里没有 tasks 数组"}
+    tasks = tasks[:max_cards]
+
+    created: list[str] = []
+    skipped: list[str] = []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        title = str(t.get("标题", "")).strip()
+        if not title:
+            skipped.append("(无标题项)")
+            continue
+        prio = t.get("优先级", "中")
+        if prio not in ("高", "中", "低"):
+            prio = "中"
+        tags = [str(x).strip().lstrip("#") for x in (t.get("标签") or []) if str(x).strip()]
+        tags.append("ai-draft")
+        steps = [s for s in (t.get("方案") or []) if str(s).strip()]
+        plan_lines = [f"- [ ] {str(s).strip()}" for s in steps] or ["- [ ] "]
+        desc = str(t.get("说明", "")).strip()
+        accept = str(t.get("验收标准", "")).strip()
+        ps = "文档拆卡（AI 起草）"
+        if desc:
+            ps += f"；{desc}"
+        ps += f"（验收标准：{accept}）" if accept else "（验收标准缺失待补）"
+        fields = {
+            "标题": title,
+            "状态": "待审批",          # 红线 2：转正只能靠用户 GUI 点头
+            "来源": "ai-doc",          # 红线 3：审计可查，与 ai-planning 分开统计
+            "指派": "hermes",
+            "验收": "human",
+            "优先级": prio,
+            "标签": tags,
+            "方案": plan_lines,
+            "附言": ps,
+        }
+        if project_id:
+            fields["项目"] = [project_id]
+        ok, tid_or_err = core.api_new(fields)
+        if ok:
+            created.append(tid_or_err)
+        else:
+            skipped.append(f"{title}: {tid_or_err}")
+
+    result: dict = {"ok": True, "created": created, "count": len(created)}
+    if skipped:
+        result["skipped"] = skipped
+    return result
 
 
 # ---------------------------------------------------------------------------

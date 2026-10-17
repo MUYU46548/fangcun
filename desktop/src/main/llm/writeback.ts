@@ -162,7 +162,7 @@ export async function planToDraft(
   let usage: ChatUsage = emptyUsage
   try {
     const r = await chatDetailed(`目标：${g}\n项目：${projectId || '未指定'}${context}`, {
-      model, system: PLAN_SYSTEM, temperature: 0.2, maxTokens: 3000,
+      model, system: PLAN_SYSTEM, trigger: 'desktop.planToDraft', temperature: 0.2, maxTokens: 3000,
     })
     text = r.text
     usage = r.usage
@@ -225,7 +225,7 @@ export async function draftProjectBrief(
   let text: string
   let usage: ChatUsage = emptyUsage
   try {
-    const r = await chatDetailed(userMsg, { model, system: BRIEF_SYSTEM, temperature: 0.3, maxTokens: 2000 })
+    const r = await chatDetailed(userMsg, { model, system: BRIEF_SYSTEM, trigger: 'desktop.draftProjectBrief', temperature: 0.3, maxTokens: 2000 })
     text = r.text
     usage = r.usage
   } catch (e: any) {

@@ -4985,6 +4985,22 @@ def mcp_project_brief(params):
     return {"ok": True, "id": pid, "markdown": md}
 
 
+def mcp_ai_trace(params):
+    """AI 调用链留痕查询（2026-10-17 四件补立项之一）：只读元数据，
+    回答「AI 干了什么/花了多少/哪次挂的」。绝不返回 prompt 或响应正文。"""
+    from tegula_llm import read_trace
+    p = params or {}
+    try:
+        limit = max(1, min(500, int(p.get("limit") or 50)))
+    except (TypeError, ValueError):
+        limit = 50
+    data = read_trace(limit=limit, date=str(p.get("date") or ""),
+                      trigger=str(p.get("trigger") or ""))
+    if data.get("error"):
+        return {"ok": False, "error": data["error"]}
+    return {"ok": True, **data}
+
+
 MCP_PROTOCOL_VERSION = "2024-11-05"
 MCP_HIDDEN_KEYS = {"附言", "_body", "_extra", "_unknown", "_file", "prompt"}
 MCP_TOOLS = [
@@ -5006,6 +5022,11 @@ MCP_TOOLS = [
     {"name": "project_brief", "description": "项目上下文一键包：立项契约全文+方针+在途任务+最近决策卡+进度聚合，拼成一份 Markdown（给 agent 喂全局上下文）",
      "inputSchema": {"type": "object", "properties": {
          "id": {"type": "string", "description": "项目 id（registry.yaml 里的 id）"}}}},
+    {"name": "ai_trace", "description": "AI 调用链留痕：每次模型调用的元数据（时间/触发点/模型/字符量/耗时/成败），只读——排查 AI 干了什么、哪次挂的",
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "description": "最近 N 条，默认 50"},
+         "date": {"type": "string", "description": "只看某天（YYYY-MM-DD）"},
+         "trigger": {"type": "string", "description": "只看某触发点，如 writeback.plan_to_draft"}}}},
     {"name": "get_roadmap", "description": "获取路线图聚合视图（按项目/批次）",
      "inputSchema": {"type": "object", "properties": {
          "project": {"type": "string", "description": "项目 id（可选，不传返回全部）"}}}},
@@ -5119,7 +5140,8 @@ MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "gate_list": mcp_gate_list, "gate_close": mcp_gate_close,
                "plan_list": mcp_plan_list, "plan_get": mcp_plan_get,
                "plan_pending_decisions": mcp_plan_pending_decisions,
-               "project_brief": mcp_project_brief}
+               "project_brief": mcp_project_brief,
+               "ai_trace": mcp_ai_trace}
 
 
 def _detect_events(event_type):

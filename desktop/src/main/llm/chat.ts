@@ -1,4 +1,5 @@
 import { LLMConfig, LLMError, getConfig, isMaskedKey } from './config'
+import { appendTrace, traceFilePath } from './trace'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -13,6 +14,8 @@ export interface ChatOptions {
   system?: string
   baseUrl?: string
   apiKey?: string
+  /** 调用链留痕触发点（如 "desktop.planToDraft"）。留痕只落元数据，不落正文。 */
+  trigger?: string
 }
 
 /** 由 baseUrl 推导出三个端点。用户填 .../v1 或 .../v1/chat/completions 都能工作。 */
@@ -163,6 +166,35 @@ async function postChat(
   }
 }
 
+/** AI 调用链留痕：只落元数据，正文绝不落盘；写失败静默不打断主链 */
+function traceOnce(opts: {
+  trigger: string
+  model: string
+  promptChars: number
+  completionChars: number
+  durationMs: number
+  ok: boolean
+  stream: boolean
+  error?: string
+}): void {
+  appendTrace({
+    ts: new Date().toISOString().slice(0, 19),
+    trigger: opts.trigger,
+    model: opts.model,
+    prompt_chars: opts.promptChars,
+    completion_chars: opts.completionChars,
+    duration_ms: opts.durationMs,
+    ok: opts.ok,
+    stream: opts.stream,
+    ...(opts.error ? { error: opts.error.slice(0, 200) } : {}),
+  })
+}
+
+function promptLen(content: string | ChatMessage[]): number {
+  if (typeof content === 'string') return content.length
+  return content.reduce((n, m) => n + (m.content || '').length, 0)
+}
+
 /**
  * 非流式调用详情版：正文+用量+finish，写回层等「花销可见」场景用。
  * 推理模型（如 minimax-*、deepseek-*）思考会吃掉 token 预算，若首轮就 length 截断
@@ -186,30 +218,55 @@ export async function chatDetailed(
   const { chat: chatUrl } = resolveEndpoints(cfg.baseUrl)
   const messages = buildMessages(content, options.system)
   const timeoutSec = options.timeout || cfg.timeout
+  const t0 = Date.now()
+  const pChars = promptLen(content)
 
-  let maxTokens = options.maxTokens ?? 2048
-  let { data } = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
-  let { text, reasoning, finish } = extractText(data)
+  try {
+    let maxTokens = options.maxTokens ?? 2048
+    let { data } = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
+    let { text, reasoning, finish } = extractText(data)
 
-  if (!text && finish === 'length' && maxTokens < 8192) {
-    maxTokens = Math.min(maxTokens * 4, 8192)
-    const retry = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
-    data = retry.data
-    ;({ text, reasoning, finish } = extractText(data))
+    if (!text && finish === 'length' && maxTokens < 8192) {
+      maxTokens = Math.min(maxTokens * 4, 8192)
+      const retry = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
+      data = retry.data
+      ;({ text, reasoning, finish } = extractText(data))
+    }
+
+    if (!text) {
+      const detail = reasoning
+        ? `模型只产出了思考过程（finish_reason=${finish || 'unknown'}），正文为空。`
+        : `模型返回空正文（finish_reason=${finish || 'unknown'}）。`
+      throw new LLMError(
+        `${detail} 已尝试 max_tokens=${maxTokens}。请改用非推理模型，或继续调大 max_tokens。`,
+        undefined,
+        JSON.stringify(data).slice(0, 800),
+        chatUrl
+      )
+    }
+    traceOnce({
+      trigger: options.trigger || 'unknown',
+      model: cfg.model || options.model || '',
+      promptChars: pChars,
+      completionChars: text.length,
+      durationMs: Date.now() - t0,
+      ok: true,
+      stream: false,
+    })
+    return { text, usage: extractUsage(data), finish }
+  } catch (e) {
+    traceOnce({
+      trigger: options.trigger || 'unknown',
+      model: cfg.model || options.model || '',
+      promptChars: pChars,
+      completionChars: 0,
+      durationMs: Date.now() - t0,
+      ok: false,
+      stream: false,
+      error: (e as Error).message,
+    })
+    throw e
   }
-
-  if (!text) {
-    const detail = reasoning
-      ? `模型只产出了思考过程（finish_reason=${finish || 'unknown'}），正文为空。`
-      : `模型返回空正文（finish_reason=${finish || 'unknown'}）。`
-    throw new LLMError(
-      `${detail} 已尝试 max_tokens=${maxTokens}。请改用非推理模型，或继续调大 max_tokens。`,
-      undefined,
-      JSON.stringify(data).slice(0, 800),
-      chatUrl
-    )
-  }
-  return { text, usage: extractUsage(data), finish }
 }
 
 /**
@@ -242,6 +299,10 @@ export async function* streamChat(
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutSec * 1000)
+  const t0 = Date.now()
+  const pChars = promptLen(content)
+  let gotChars = 0
+  let traced = false
 
   try {
     const response = await fetch(chatUrl, {
@@ -279,18 +340,56 @@ export async function* streamChat(
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const chunkData = trimmed.slice(6)
-        if (chunkData === '[DONE]') return
+        if (chunkData === '[DONE]') {
+          traced = true
+          traceOnce({
+            trigger: options.trigger || 'unknown',
+            model: cfg.model || options.model || '',
+            promptChars: pChars,
+            completionChars: gotChars,
+            durationMs: Date.now() - t0,
+            ok: true,
+            stream: true,
+          })
+          return
+        }
         try {
           const chunk = JSON.parse(chunkData)
           const delta = chunk.choices?.[0]?.delta
           const piece = delta?.content
-          if (piece) yield piece
+          if (piece) {
+            gotChars += piece.length
+            yield piece
+          }
         } catch {
           // 单行解析失败不影响整体流
         }
       }
     }
+    // 流自然结束（没等到 [DONE] 也算成功消费完）
+    traced = true
+    traceOnce({
+      trigger: options.trigger || 'unknown',
+      model: cfg.model || options.model || '',
+      promptChars: pChars,
+      completionChars: gotChars,
+      durationMs: Date.now() - t0,
+      ok: true,
+      stream: true,
+    })
   } catch (e) {
+    if (!traced) {
+      traceOnce({
+        trigger: options.trigger || 'unknown',
+        model: cfg.model || options.model || '',
+        promptChars: pChars,
+        completionChars: gotChars,
+        durationMs: Date.now() - t0,
+        ok: false,
+        stream: true,
+        error: (e as Error).message,
+      })
+    }
     if (e instanceof LLMError) throw e
     if ((e as Error).name === 'AbortError') {
       throw new LLMError(`LLM API 超时（${timeoutSec}s）`, undefined, '', chatUrl)

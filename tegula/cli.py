@@ -1099,6 +1099,38 @@ def cmd_project_brief(args):
     return 0
 
 
+def cmd_ai_trace(args):
+    """AI 调用链留痕查看（2026-10-17 四件补立项之一）。
+    每次模型调用一行元数据（时间/触发点/模型/字符数/耗时/成败），不落正文——
+    回答「AI 到底干了多少活、哪次挂的、花在哪」。"""
+    from tegula_llm import read_trace
+    data = read_trace(limit=args.limit, date=args.date, trigger=args.trigger)
+    if data.get("error"):
+        print(f"失败：{data['error']}", file=sys.stderr)
+        return 1
+    s = data.get("summary") or {}
+    if not s.get("count"):
+        print(f"（暂无留痕。留痕文件：{data.get('path', '')}）")
+        return 0
+    print(f"共 {s['count']} 次调用：成功 {s['ok']} / 失败 {s['fail']}；"
+          f"入参 {s['prompt_chars']} 字符，出参 {s['completion_chars']} 字符，"
+          f"总耗时 {s['duration_ms'] / 1000:.1f}s")
+    print(f"留痕文件：{data.get('path', '')}")
+    print("")
+    for r in data["records"]:
+        ts = str(r.get("ts", ""))[:19]
+        trig = str(r.get("trigger", ""))
+        mdl = str(r.get("model", ""))[:24]
+        io_str = f"{r.get('prompt_chars', 0)}/{r.get('completion_chars', 0)}"
+        dur = f"{int(r.get('duration_ms') or 0) / 1000:.1f}s"
+        if r.get("ok"):
+            status = "成功"
+        else:
+            status = "失败" + (f"（{r.get('error', '')[:80]}）" if r.get("error") else "")
+        print(f"{ts}  {trig:<34} {mdl:<24} {io_str:>14}  {dur:>7}  {status}")
+    return 0
+
+
 # ---------- 决策卡（2026-10-12；三态 2026-10-14 改白话：有效/已撤销/已合并）----------
 def cmd_decision(args):
     """decision add/list/set 三个面：定下来的事当场记、随时翻、被推翻就标死。"""
@@ -2159,6 +2191,11 @@ def main():
     pb.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
     pb.add_argument("--out", default="", help="写入文件路径（缺省打印到 stdout）")
     pb.set_defaults(func=cmd_project_brief)
+    at = sub.add_parser("ai-trace", help="AI 调用链留痕：每次模型调用的元数据（触发点/字符量/耗时/成败）——排查 AI 干了什么、哪次挂的")
+    at.add_argument("--limit", type=int, default=50, help="最近 N 条（默认 50）")
+    at.add_argument("--date", default="", help="只看某天（YYYY-MM-DD）")
+    at.add_argument("--trigger", default="", help="只看某触发点（如 writeback.plan_to_draft）")
+    at.set_defaults(func=cmd_ai_trace)
 
     # ── 决策卡（2026-10-12）──
     dsub = sub.add_parser("decision", help="决策记录：定下来的事记成卡（内容/日期/还算不算数/出处）")

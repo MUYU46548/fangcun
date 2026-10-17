@@ -199,6 +199,7 @@ def audit_project(project_id: str, model: str | None = None) -> str:
             user_msg,
             model=model,
             system=AUDIT_SYSTEM,
+            trigger="planning.audit",
             temperature=0.15,
             max_tokens=3000,
         )
@@ -227,6 +228,7 @@ def decompose_goal(goal: str, project_id: str = "", model: str | None = None) ->
             user_msg,
             model=model,
             system=DECOMPOSE_SYSTEM,
+            trigger="planning.decompose_goal",
             temperature=0.25,
             max_tokens=3500,
         )
@@ -293,6 +295,7 @@ def decide_dp(dp_id: str, tid: str = "", model: str | None = None) -> str:
             user_msg,
             model=model,
             system=DECIDE_SYSTEM,
+            trigger="planning.decide_dp",
             temperature=0.1,
             max_tokens=2500,
         )
@@ -384,6 +387,7 @@ def quarterly_review(project_id: str = "", model: str | None = None) -> str:
             user_msg,
             model=model,
             system=REVIEW_SYSTEM,
+            trigger="planning.quarterly_review",
             temperature=0.2,
             max_tokens=4000,
         )
@@ -455,6 +459,7 @@ def generate_roadmap(project_id: str = "", goal: str = "", model: str | None = N
             user_msg,
             model=model,
             system=ROADMAP_SYSTEM,
+            trigger="planning.generate_roadmap",
             temperature=0.25,
             max_tokens=4000,
         )

@@ -12,9 +12,11 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -23,6 +25,8 @@ from typing import Any, Generator, Optional
 __all__ = [
     "chat",
     "stream_chat",
+    "trace_path",
+    "read_trace",
     "plan_project",
     "LLMError",
     "LLMConfig",
@@ -138,6 +142,106 @@ def _request(
 # 公共 API
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# AI 调用链追踪（2026-10-17 用户拍板：四件补立项之一，本件先做——后续
+# 文档转任务/分层档案两件 AI 功能的调用都会被它留痕）
+#
+# 铁律（写代码时不可回退）：
+#   1. 只落元数据（时间/触发点/模型/字符数/耗时/成败），**绝不落 prompt
+#      与响应正文** —— 留痕文件可能被截图/分享，正文里有用户敏感内容。
+#   2. 写失败静默（except 吞掉）——追踪是锦上添花，绝不能打断 AI 主链路。
+#   3. 失败的调用也留痕（ok=False + error 摘要），否则排查"模型挂了没"
+#      就没有证据面。
+# ---------------------------------------------------------------------------
+
+def trace_path() -> str:
+    """留痕文件路径。测试/特殊场景可用 TEGULA_AI_TRACE 覆盖；
+    默认与 tegula/core.py 的 DATA_DIR 同语义：便携检测 > %APPDATA%/Fangcun。"""
+    env = os.environ.get("TEGULA_AI_TRACE")
+    if env:
+        return env
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    if not (os.path.exists(os.path.join(app_dir, "registry.yaml"))
+            or os.path.isdir(os.path.join(app_dir, "task-data"))):
+        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+        app_dir = os.path.join(appdata, "Fangcun")
+    return os.path.join(app_dir, "ai-trace.jsonl")
+
+
+def _prompt_len(content: str | list[dict[str, str]]) -> int:
+    """prompt 字符数（只数长度不存内容）。"""
+    if isinstance(content, str):
+        return len(content)
+    try:
+        return sum(len(str(m.get("content") or "")) for m in content)
+    except Exception:
+        return 0
+
+
+def _trace_call(*, trigger: str, model: str, prompt_chars: int,
+                completion_chars: int, duration_ms: int, ok: bool,
+                stream: bool, error: str = "") -> None:
+    """追加一条调用留痕（JSONL，一行一调）。见上方铁律。"""
+    try:
+        rec = {
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            "trigger": str(trigger or "unknown"),
+            "model": str(model or ""),
+            "prompt_chars": int(prompt_chars),
+            "completion_chars": int(completion_chars),
+            "duration_ms": int(duration_ms),
+            "ok": bool(ok),
+            "stream": bool(stream),
+        }
+        if error:
+            rec["error"] = str(error)[:200]
+        path = trace_path()
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 铁律 2：追踪永不打断主链路
+
+
+def read_trace(limit: int = 50, date: str = "", trigger: str = "") -> dict:
+    """读取留痕（CLI / MCP 查看口共用）。按 ts 倒序返回最近 limit 条 +
+    当日汇总（总次数/成功/失败/字符量/耗时）。零依赖手写解析。"""
+    path = trace_path()
+    recs: list[dict] = []
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if date and not str(r.get("ts", "")).startswith(date):
+                        continue
+                    if trigger and r.get("trigger") != trigger:
+                        continue
+                    recs.append(r)
+        except Exception as e:
+            return {"records": [], "summary": {}, "error": f"读取失败: {e}"}
+    recs.sort(key=lambda r: str(r.get("ts", "")), reverse=True)
+    total = len(recs)
+    ok_n = sum(1 for r in recs if r.get("ok"))
+    summary = {
+        "count": total,
+        "ok": ok_n,
+        "fail": total - ok_n,
+        "prompt_chars": sum(int(r.get("prompt_chars") or 0) for r in recs),
+        "completion_chars": sum(int(r.get("completion_chars") or 0) for r in recs),
+        "duration_ms": sum(int(r.get("duration_ms") or 0) for r in recs),
+    }
+    return {"records": recs[:limit], "summary": summary, "path": path}
+
+
 def chat(
     content: str | list[dict[str, str]],
     *,
@@ -146,6 +250,7 @@ def chat(
     max_tokens: int = 2048,
     timeout: int | None = None,
     system: str = "",
+    trigger: str = "unknown",
     **extra: Any,
 ) -> str:
     """非流式调用，返回文本。
@@ -153,6 +258,7 @@ def chat(
     用法：
         chat("分析这个项目的卡点")
         chat([{"role":"user","content":"..."}], system="你是项目管理专家")
+        chat("...", trigger="writeback.plan_to_draft")   # 带触发点，进调用链留痕
     """
     cfg = get_config()
     cfg.validate()
@@ -177,13 +283,26 @@ def chat(
         payload["timeout"] = timeout
 
     url = f"{cfg.base_url}/chat/completions"
-    raw = _request(url, payload, cfg, stream=False)
-    resp = json.loads(raw)
-
+    _t0 = time.monotonic()
+    _pchars = _prompt_len(content)
     try:
-        return resp["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as e:
-        raise LLMError(f"LLM 响应格式异常: {resp}") from e
+        raw = _request(url, payload, cfg, stream=False)
+        resp = json.loads(raw)
+        try:
+            out = resp["choices"][0]["message"]["content"]
+        except (KeyError, IndexError) as e:
+            raise LLMError(f"LLM 响应格式异常: {resp}") from e
+        _trace_call(trigger=trigger, model=str(model or cfg.model),
+                    prompt_chars=_pchars, completion_chars=len(out or ""),
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                    ok=True, stream=False)
+        return out
+    except LLMError as e:
+        _trace_call(trigger=trigger, model=str(model or cfg.model),
+                    prompt_chars=_pchars, completion_chars=0,
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                    ok=False, stream=False, error=str(e))
+        raise
 
 
 def stream_chat(
@@ -193,9 +312,11 @@ def stream_chat(
     temperature: float = 0.3,
     max_tokens: int = 2048,
     system: str = "",
+    trigger: str = "unknown",
     **extra: Any,
 ) -> Generator[str, None, None]:
-    """流式调用，逐个产出文本片段。"""
+    """流式调用，逐个产出文本片段。结束后落一条留痕（stream=True，
+    completion_chars=实际产出总长）；请求/迭代失败也落（ok=False）。"""
     cfg = get_config()
     cfg.validate()
 
@@ -217,23 +338,38 @@ def stream_chat(
     }
 
     url = f"{cfg.base_url}/chat/completions"
-    resp = _request(url, payload, cfg, stream=True)
+    _t0 = time.monotonic()
+    _pchars = _prompt_len(content)
+    _got = 0
+    try:
+        resp = _request(url, payload, cfg, stream=True)
 
-    for line in resp:
-        line_str = line.decode("utf-8").strip()
-        if not line_str or not line_str.startswith("data: "):
-            continue
-        chunk_data = line_str[6:]
-        if chunk_data == "[DONE]":
-            return
-        try:
-            chunk = json.loads(chunk_data)
-            delta = chunk["choices"][0].get("delta", {})
-            piece = delta.get("content", "")
-            if piece:
-                yield piece
-        except (json.JSONDecodeError, KeyError, IndexError):
-            continue
+        for line in resp:
+            line_str = line.decode("utf-8").strip()
+            if not line_str or not line_str.startswith("data: "):
+                continue
+            chunk_data = line_str[6:]
+            if chunk_data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(chunk_data)
+                delta = chunk["choices"][0].get("delta", {})
+                piece = delta.get("content", "")
+                if piece:
+                    _got += len(piece)
+                    yield piece
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+        _trace_call(trigger=trigger, model=str(model or cfg.model),
+                    prompt_chars=_pchars, completion_chars=_got,
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                    ok=True, stream=True)
+    except LLMError as e:
+        _trace_call(trigger=trigger, model=str(model or cfg.model),
+                    prompt_chars=_pchars, completion_chars=_got,
+                    duration_ms=int((time.monotonic() - _t0) * 1000),
+                    ok=False, stream=True, error=str(e))
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -301,9 +437,9 @@ def main(argv: list[str]) -> int:
 
     try:
         if cmd == "chat":
-            print(chat(content, model=model))
+            print(chat(content, model=model, trigger="cli.chat"))
         elif cmd == "stream":
-            for chunk in stream_chat(content, model=model):
+            for chunk in stream_chat(content, model=model, trigger="cli.stream"):
                 print(chunk, end="", flush=True)
             print()
         elif cmd == "plan":
