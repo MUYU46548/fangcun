@@ -37,6 +37,12 @@
 - 进度总览: `python scripts/gen-progress.py` —— 从 `task-data/*.md` 的**状态字段**汇总成一张总览表，
   写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
   用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
+- 打包安装包: `cd desktop && ELECTRON_OVERRIDE_DIST_PATH="$PWD/node_modules/electron/dist" npx electron-builder`
+  —— ⚠ **那个环境变量不能省**：不带它，electron-builder 会去下载 electron 28.3.3（本机缓存里通常没有，
+  只有别的版本），然后 10 分钟 `Timeout awaiting 'request' for 600000ms` 才能知道失败；带上后约 45 秒。
+  产物落 `desktop/release/`（`Fangcun-Setup.<版本>.exe` + `.blockmap` + `latest.yml`）。
+  **打完必须自检**：读 `win-unpacked/resources/app.asar` 字节，确认本轮新增的标识串真的在里面 ——
+  "打包命令退出 0" 不等于包里有新代码。
 
 ## 常用验证方式
 
