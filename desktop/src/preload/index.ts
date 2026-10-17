@@ -176,6 +176,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // 端口清单来自 `ports:*`；MCP 侧直接调 `services.scanServices()` 函数、不走 IPC。
   // LLM
   llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
+  // 2026-10-17 暮雨第 10 条「花销可见」：累计 token / 次数（数据源 = ai-trace.jsonl）
+  llmUsageStats: (days?: number) => ipcRenderer.invoke('llm:usageStats', days),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
   llmResetConfig: () => ipcRenderer.invoke('llm:resetConfig'),
   llmTestConnection: (cfg?: any) => ipcRenderer.invoke('llm:testConnection', cfg),
@@ -305,5 +307,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // `applogDir` 死通道已删（2026-10-11，卡 20261006-002 E 组）：与 applogOpenDir 重复
   // （后者打开目录时本来就把 dir 回给界面），渲染层从来没调过。
   applogTail: (lines?: number) => ipcRenderer.invoke('applog:tail', lines),
+  // 2026-10-17 暮雨第 5 条：清理旧日志（days<=0 = 全清，当天那份只截断）
+  applogPurge: (days?: number) => ipcRenderer.invoke('applog:purge', days),
   applogOpenDir: () => ipcRenderer.invoke('applog:openDir'),
 })

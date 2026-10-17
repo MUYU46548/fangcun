@@ -176,6 +176,9 @@ function traceOnce(opts: {
   ok: boolean
   stream: boolean
   error?: string
+  /** 2026-10-17 暮雨第 10 条「花销可见」：把响应里的真实 token 一起留痕 ——
+   *  原先只记字符数，界面上永远算不出花了多少。供应商没给 usage 时三个字段就是 null（不编数）。 */
+  usage?: ChatUsage
 }): void {
   appendTrace({
     ts: new Date().toISOString().slice(0, 19),
@@ -187,6 +190,13 @@ function traceOnce(opts: {
     ok: opts.ok,
     stream: opts.stream,
     ...(opts.error ? { error: opts.error.slice(0, 200) } : {}),
+    ...(opts.usage
+      ? {
+          prompt_tokens: opts.usage.promptTokens,
+          completion_tokens: opts.usage.completionTokens,
+          total_tokens: opts.usage.totalTokens,
+        }
+      : {}),
   })
 }
 
@@ -252,6 +262,7 @@ export async function chatDetailed(
       durationMs: Date.now() - t0,
       ok: true,
       stream: false,
+      usage: extractUsage(data),
     })
     return { text, usage: extractUsage(data), finish }
   } catch (e) {

@@ -599,6 +599,14 @@
         <span class="ico">⚠</span>
         <b>{{ blockers.length }}</b> 个任务存在阻塞依赖
       </div>
+      <!-- 项目页工具条（2026-10-17 暮雨第 6 条：「项目里面不能新建项目，点进去是新建任务」）。
+           真因：新建项目弹窗与 confirmNewProject 早就写好了（`#proj-new-modal`），
+           **但项目页从来没有一个按钮去打开它** —— 功能做完没接线，属于"看着有、其实没有"。
+           删除入口原来只在每张项目卡右上角那个小 🗑 上，这里明写出来省得再找。 -->
+      <div class="pv-tools">
+        <button class="pri" title="在 registry.yaml 里登记一个新项目" @click="openNewProject">＋ 新建项目</button>
+        <span class="pv-tools-hint">删除项目登记：每张项目卡右上角的 🗑（只删登记，不动任务卡与文件）</span>
+      </div>
       <!-- 第 7 条：项目章程缺口一眼可见 + 一键补骨架（原先只能逐个点开卡看） -->
       <div class="charter-bar">
         <span class="cb-label">项目章程</span>
@@ -3379,8 +3387,16 @@
             <button class="ghost" @click="openAppLogDir">打开日志目录</button>
             <button class="ghost" @click="copyAppLogPath">复制路径</button>
             <button class="ghost" @click="showAppLogFromSettings">查看最近 200 行</button>
+            <button class="ghost" title="删掉 7 天前的日志文件（不动今天的）" @click="purgeLogs(7)">清理 7 天前</button>
+            <button class="ghost" title="清空全部日志（当天那份也会被清空，之后照常记录）" @click="purgeLogs(0)">清空全部</button>
           </div>
-          <div class="hint">崩溃、IPC 失败、渲染层异常、启动失败都会写进这个文件。报问题时把最后几十行发我即可。</div>
+          <!-- 2026-10-17 暮雨第 5 条：原文案写着「报问题时把最后几十行发我即可」——
+               「发我」是谁？用户看不懂代码、也不该被要求发日志。改成人话：你不用读、也不用发。 -->
+          <div class="hint">
+            这里记录方寸自己的运行痕迹（崩溃、IPC 失败、渲染层异常、启动失败）。
+            <b>你不用读它，也不用发给任何人</b> —— 它只在真的出问题时用来倒查。
+            按天分文件，只会越来越大，所以给了上面两个清理按钮。
+          </div>
         </div>
 
         <!-- 数据自检 + 技能副本检查（2026-10-11，卡 20261006-002 E 组死通道接回）：
@@ -3489,17 +3505,53 @@
             <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
           </div>
         </div>
+        <!-- AI 用量（2026-10-17 暮雨第 10 条：「说花销可见，但我看不到啊」）。
+             数据源是方寸自己的调用留痕 ai-trace.jsonl（主进程 llm:usageStats 汇总）。
+             ⚠ 只算**供应商真报了 usage** 的调用；没报的单列次数，不拿字符数折算成 token（不编数）。 -->
+        <div class="sect" v-show="settingsTab === 'agent'">
+          <h4>💰 AI 用量（花销可见）</h4>
+          <div class="hint">
+            统计来自方寸自己的调用留痕。只累加<b>供应商真的返回了 token 用量</b>的调用 ——
+            老记录只有字符数，会单列成「未计 token」的次数，不折算、不估算。
+          </div>
+          <div class="sect-btns">
+            <button class="ghost" @click="loadUsageStats(30)">看近 30 天</button>
+            <button class="ghost" @click="loadUsageStats(0)">看全部</button>
+          </div>
+          <div v-if="usageStats_" class="usage-box">
+            <div class="usage-line">
+              <b>{{ usageStats_.calls }}</b> 次调用（成功 {{ usageStats_.ok }} · 失败 {{ usageStats_.fail }}）·
+              其中 {{ usageStats_.token_calls }} 次带 token 数据
+            </div>
+            <div class="usage-line" v-if="usageStats_.token_calls">
+              tokens：入 <b>{{ usageStats_.prompt_tokens }}</b> · 出 <b>{{ usageStats_.completion_tokens }}</b> ·
+              共 <b>{{ usageStats_.total_tokens }}</b>
+            </div>
+            <div class="usage-line" v-else>这个区间里还没有带 token 的调用记录（老记录只有字符数，不折算）</div>
+            <div class="usage-chips" v-if="usageStats_.byModel.length">
+              <span v-for="m in usageStats_.byModel.slice(0, 6)" :key="m.model" class="usage-chip">
+                {{ m.model }} · {{ m.calls }} 次<template v-if="m.token_calls"> · {{ m.total_tokens }} tokens</template>
+              </span>
+            </div>
+            <div class="usage-line dim" v-if="usageStats_.lastTs">最近一次调用：{{ usageStats_.lastTs }}</div>
+          </div>
+          <div v-else class="hint">还没查过 —— 点上面任意一个按钮。</div>
+        </div>
+
         <!-- 挂机提醒（2026-10-17 四件补立项④）：powerMonitor 空闲检测，独立于通知中心 7 类扫描
              （2026-10-01「很吵」红线）。一次挂机最多弹一次、回来即重置；关掉则完全不轮询。 -->
         <div class="sect" v-show="settingsTab === 'agent'">
           <h4>😴 挂机提醒</h4>
           <div class="hint">人离开电脑一段时间后，系统通知轻提一声「回来看方寸」。一次挂机最多弹一次，回来即重置；关掉则完全不轮询。</div>
           <label style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" v-model="idleCfg.enabled" />
-            挂机后提醒我（默认开）
+            <!-- 2026-10-17 暮雨第 4 条：「关了五次都没用，每次打开设置发现它都是勾选的」——
+                 真因不是存储坏了，是**改完不点「保存挂机设置」就关掉设置页 = 没保存**，
+                 下次打开又读回旧值。勾选框与分钟数改成 change 即存（那个保存按钮留着当安全网）。 -->
+            <input type="checkbox" v-model="idleCfg.enabled" @change="idleSave" />
+            挂机后提醒我（默认开；勾掉立刻保存）
           </label>
           <label>离开多久提醒（分钟，最小 5）</label>
-          <input type="number" min="5" step="5" v-model.number="idleCfg.thresholdMin" />
+          <input type="number" min="5" step="5" v-model.number="idleCfg.thresholdMin" @change="idleSave" />
           <div class="sect-btns">
             <button class="pri" :disabled="idleSaving" @click="idleSave">{{ idleSaving ? '保存中…' : '保存挂机设置' }}</button>
           </div>
@@ -11092,6 +11144,22 @@ async function runDocToDrafts() {
 const idleCfg = ref<{ enabled: boolean; thresholdMin: number }>({ enabled: true, thresholdMin: 30 })
 const idleSaving = ref(false)
 
+/** AI 用量（2026-10-17 第 10 条）：null = 还没查过（界面要说"还没查过"，不是显示 0 装成"花销为 0"） */
+const usageStats_ = ref<any>(null)
+
+async function loadUsageStats(days = 30): Promise<void> {
+  try {
+    const r: any = await window.tegula.llmUsageStats?.(days)
+    if (r) {
+      usageStats_.value = r
+    } else {
+      showToast('主进程没有返回用量数据（主进程可能是旧版本，请托盘退出后重启）', 'error')
+    }
+  } catch (e: any) {
+    showToast(`读取用量失败：${e?.message || e}`, 'error')
+  }
+}
+
 async function idleLoad() {
   try {
     const p: any = await window.tegula.prefsGet()
@@ -11769,6 +11837,26 @@ async function copyAppLogPath(): Promise<void> {
 async function showAppLogFromSettings(): Promise<void> {
   showSettings_.value = false
   if (!appErrOpen.value) await toggleAppLogPanel()
+}
+
+/**
+ * 清理旧日志（2026-10-17 暮雨第 5 条：「日志越堆越多，但没有任何清理机制」）。
+ * days > 0 = 删更早的；days <= 0 = 全清（当天那份只截断，马上还能接着写）。
+ * 只动方寸自己的运行日志，不碰任何任务数据。
+ */
+async function purgeLogs(days: number): Promise<void> {
+  const what = days > 0 ? `${days} 天前的日志文件` : '全部日志（当天那份会被清空）'
+  if (!confirm(`清理${what}？\n\n只删方寸自己的运行日志，不动任务、备份和任何数据文件。`)) return
+  try {
+    const r: any = await window.tegula.applogPurge?.(days)
+    if (r && r.ok) {
+      showToast(`已清理 ${r.removed} 个日志文件${r.kept ? `，还有 ${r.kept} 个保留` : ''}`, 'success')
+    } else {
+      showToast(`清理失败：${(r && r.error) || '主进程没有返回结果'}`, 'error')
+    }
+  } catch (e: any) {
+    showToast(`清理失败：${e?.message || e}`, 'error')
+  }
 }
 
 // ── Mount ───────────────────────────────────────────────────────────────
@@ -14335,6 +14423,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* 项目章程缺口条（第 7 条） */
 .charter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 10px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+/* 项目页工具条（2026-10-17 第 6 条）：新建项目按钮常驻在最上面，别再让人找 */
+.pv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.pv-tools-hint { font-size: 11.5px; color: var(--muted); }
+/* AI 用量（2026-10-17 第 10 条）：一眼能读的数字块，不做图表 */
+.usage-box { margin-top: 8px; padding: 10px 12px; background: var(--tint-3); border: 1px solid var(--border); border-radius: 10px; }
+.usage-line { font-size: 12.5px; line-height: 1.9; color: var(--ink); }
+.usage-line.dim { color: var(--muted); font-size: 11.5px; }
+.usage-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.usage-chip { font-size: 11.5px; color: var(--ink); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
 .charter-bar .cb-label { font-weight: 700; color: var(--ink); }
 .charter-bar .cb-stat { color: var(--muted); }
 .charter-bar .cb-stat b { color: var(--ink); }

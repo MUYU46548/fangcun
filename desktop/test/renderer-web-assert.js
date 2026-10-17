@@ -1110,6 +1110,12 @@
     check('★ 任务卡右键菜单里有「复制为派工单」（弹药库的出口动作）',
       await openCardMenuFor('演示任务'), String(($('.ctx-menu') || {}).textContent || '').slice(0, 120))
 
+    // 2026-10-17 暮雨第 8 条：「部分看板任务不能验收裁决……我手动拖到待验收一栏才能点」。
+    // 真因是菜单项的 v-if 绑成了 status==='待验收'。夹具这张卡是「待办」—— 正好验"不必先拖"。
+    check('★★ 非「待验收」的卡也有「验收裁决」（不该逼人先拖一列）',
+      (($('.ctx-menu') || {}).textContent || '').indexOf('验收裁决') >= 0,
+      String(($('.ctx-menu') || {}).textContent || '').slice(0, 120))
+
     // ══ 右键菜单换成 reka-ui ContextMenu（2026-10-14 第 ④ 步第二单）══
     // 钉的是"**真的换了原语**"，而不是把 class 改个名字继续手搓。
     {
@@ -1326,6 +1332,26 @@
     // 003 卡原话「只是个大号看板入口，不是项目管理」。三个摆法（含旧的项目墙）互斥渲染。
     check('能切到「项目」页签', clickText('项目'))
     await sleep(700)
+    // ══ 项目页「新建项目 / 删除项目」入口（2026-10-17 暮雨第 6 条）══
+    // 原话：「项目里面不能新建项目，点进去是新建任务……我至少提过两次」。
+    // 真因是新建项目弹窗与 confirmNewProject 早就写好，**但项目页没有任何按钮去打开它**。
+    // 判据：① 按钮常在；② 点开真出「新建项目」弹窗（不是新建任务）。
+    {
+      const newProjBtn = $$('#board.pv button').find((b) => (b.textContent || '').indexOf('新建项目') >= 0)
+      check('★★ 项目页有「＋ 新建项目」按钮（不再是死入口）', !!newProjBtn,
+        $$('#board.pv button').map((b) => (b.textContent || '').trim()).slice(0, 8).join(' | '))
+      if (newProjBtn) {
+        newProjBtn.click()
+        await sleep(400)
+        const modal = $('#proj-new-modal')
+        check('★ 点「新建项目」→ 弹出的是新建项目弹窗（不是新建任务）',
+          !!modal && (modal.textContent || '').indexOf('项目 ID') >= 0,
+          modal ? (modal.textContent || '').slice(0, 50) : '(没有弹窗)')
+        const cancel = modal ? Array.prototype.slice.call(modal.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '取消') : null
+        if (cancel) { cancel.click(); await sleep(300) }
+        check('  取消后弹窗收起（没留下遮罩挡住后面）', !$('#proj-new-modal'))
+      }
+    }
     const pvTabs = () => $$('.pagehead button.vsb')
       .map((b) => ({ t: (b.textContent || '').trim(), on: b.classList.contains('on') }))
     check('★ 项目页签多出两个可选摆法（概览卡 / 主从）',

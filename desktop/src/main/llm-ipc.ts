@@ -4,6 +4,7 @@ import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLM
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
 import { planToDraft, draftProjectBrief, docToDrafts } from './llm/writeback'
+import { usageStats } from './llm/trace'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
 function toFailure(e: unknown, fallbackUrl = '') {
@@ -19,6 +20,12 @@ function toFailure(e: unknown, fallbackUrl = '') {
 
 export function registerLlmIpcHandlers(): void {
   // ── LLM Config ────────────────────────────────────────────────────
+  // 2026-10-17 暮雨第 10 条「花销可见」：把 ai-trace.jsonl 里的 token 汇总算出个准数。
+  // ⚠ 只统计**供应商真报了 usage** 的调用；没报的单独计次数，绝不拿字符数折算成 token。
+  guardedHandle('llm:usageStats', (_event: any, days?: number) => {
+    return usageStats(Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 30)
+  })
+
   guardedHandle('llm:getConfig', () => {
     // 密钥只出掩码 + 提示串，原值永不过 IPC
     return getConfigForRenderer()

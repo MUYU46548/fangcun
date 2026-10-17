@@ -71,7 +71,18 @@ const DANGER =
 
         <ContextMenuItem as="button" :class="ITEM" @select="pick('view')">🔍 查看详情</ContextMenuItem>
         <ContextMenuItem as="button" :class="ITEM" @select="pick('edit')">✏️ 编辑</ContextMenuItem>
-        <ContextMenuItem v-if="props.task.status === '待验收'" as="button" :class="ITEM" @select="pick('review')">
+        <!-- 2026-10-17 暮雨第 8 条：「部分看板任务不能验收裁决……我手动拖到待验收一栏才能点」。
+             真因就是这里的 `v-if="status === '待验收'"` —— 验收被绑成了"只有待验收的卡才有入口"。
+             验收/驳回本来就该**任何卡都能做**（openReview 本身没有前置条件，主进程也照样落状态）：
+             状态只是"它现在在哪一列"，不是"准不准你裁决"。 -->
+        <ContextMenuItem
+          as="button"
+          :class="ITEM"
+          :title="props.task.status === '待验收'
+            ? '通过 / 驳回，并留下裁决依据'
+            : `当前状态「${props.task.status || '未填'}」—— 直接裁决会连同状态一起改掉`"
+          @select="pick('review')"
+        >
           ✅ 验收裁决
         </ContextMenuItem>
         <ContextMenuItem as="button" :class="ITEM" @select="pick('assignTime')">📅 指派时间</ContextMenuItem>

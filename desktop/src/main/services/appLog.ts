@@ -171,3 +171,46 @@ export function installProcessHandlers(): void {
     origWarn(...args)
   }
 }
+
+/**
+ * 清理旧日志（2026-10-17 暮雨第 5 条：「我只看得懂日志越堆越多，但没有任何清理机制」）。
+ *
+ * 口径：
+ *   · `days > 0` → 删掉 mtime 早于 N 天前的 `fangcun-YYYYMMDD.log`；
+ *   · `days <= 0` → 全清：老文件删掉，**当天正在写的那个只截断不删**（删了也能重建，
+ *     但截断能保证文件句柄语义不变、且用户点完立刻看到"今天也是空的"）。
+ * 返回真实删掉的条数与仍然保留的条数 —— 界面据此说话，不许糊一句"清理完成"。
+ */
+export function purgeOldLogs(days: number): { ok: boolean; removed: number; kept: number; error?: string } {
+  const dir = getLogDir()
+  const cur = getLogFile()
+  let entries: string[] = []
+  try {
+    entries = fs.readdirSync(dir).filter((n) => /^fangcun-\d{8}\.log$/i.test(n))
+  } catch (e) {
+    return { ok: false, removed: 0, kept: 0, error: `读日志目录失败：${(e as Error).message}` }
+  }
+  const cutoff = days > 0 ? Date.now() - days * 86400000 : 0
+  let removed = 0
+  let kept = 0
+  for (const name of entries) {
+    const full = path.join(dir, name)
+    if (full === cur) {
+      // 当天这份：全清时截断；按天数清理时永远保留（正在写）
+      if (days <= 0) {
+        try { fs.truncateSync(full, 0); removed++ } catch { kept++ }
+      } else {
+        kept++
+      }
+      continue
+    }
+    let mt = 0
+    try { mt = fs.statSync(full).mtimeMs } catch { kept++; continue }
+    if (mt < cutoff) {
+      try { fs.unlinkSync(full); removed++ } catch { kept++ }
+    } else {
+      kept++
+    }
+  }
+  return { ok: true, removed, kept }
+}

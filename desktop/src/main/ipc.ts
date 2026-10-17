@@ -876,6 +876,8 @@ export function registerIpcHandlers(): void {
   guardedHandle('applog:path', () => appLog.getLogFile())
   // `applog:dir` 通道已删（2026-10-11，卡 20261006-002 E 组）：与 applog:openDir 重复（后者本就回 dir）。
   guardedHandle('applog:tail', (_e: any, lines?: number) => appLog.tail(lines && lines > 0 ? lines : 300))
+  // 2026-10-17 暮雨第 5 条：日志只增不减，没有任何清理机制。days<=0 = 全清（当天那份只截断）。
+  guardedHandle('applog:purge', (_e: any, days?: number) => appLog.purgeOldLogs(Number.isFinite(Number(days)) ? Number(days) : 7))
   guardedHandle('applog:openDir', async () => {
     const dir = appLog.getLogDir()
     try {
