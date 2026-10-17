@@ -36,6 +36,7 @@ from tegula.core import (
     api_note_update, api_note_delete, api_note_attach, api_note_detach,
     api_notes_for_task, api_note_import_file, api_note_import_content,
     api_export_tasks, api_export_notes, api_import_tasks, api_import_notes,
+    check_recurring_tasks,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,

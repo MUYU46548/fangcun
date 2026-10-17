@@ -62,6 +62,7 @@ from tegula.core import (
     mcp_handle, mcp_gate_open, mcp_gate_check, mcp_gate_list,
     mcp_gate_close, mcp_plan_list, mcp_plan_get, mcp_plan_pending_decisions,
     _detect_events, api_quick_add, api_rules, api_agent_runs,
+    check_recurring_tasks,
     project_status_payload, _create_tray_icon,
 )
 from tegula.web import Handler, QServer, TrayManager

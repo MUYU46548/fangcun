@@ -785,6 +785,11 @@ def render_task(d):
     cron_val = d.get("cron", "")
     if cron_val:
         lines.append(f"cron: {yaml_scalar(cron_val)}")
+    # recurring_id（周期任务族 id，2026-10-17 补完 cron-check 欠账）：空则不输出，同 cron。
+    # ⚠ 受管键必须显式输出——否则 Python 一写回就把生成的周期实例族链静默抹断。
+    rec_id = str(d.get("recurring_id") or "").strip()
+    if rec_id:
+        lines.append(f"recurring_id: {yaml_scalar(rec_id)}")
     ctx_val = _as_list(d.get("context"))
     if ctx_val:
         lines.append(f"context: [{', '.join(yaml_scalar(x, in_flow=True) for x in ctx_val)}]")
@@ -1449,12 +1454,200 @@ def api_new(fields):
         "方案": val("方案", ["- [ ] "]),
         "结果记录": val("结果记录", ""),
         "cron": fields.get("cron") or "",
+        "recurring_id": fields.get("recurring_id") or "",
         "context": fields.get("context") or [],
         "创建": _now_ts(),
         "更新": _now_ts(),
     }
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
+
+
+# ---------- 周期任务（recurring，9-07 同类产品调研 Donetick 借鉴，2026-10-17 补完） ----------
+# 欠账背景：9-07《开源待办项目借鉴清单》点名"工作台缺周期性任务，直接抄 Donetick"，
+# 但那轮只做了半截——cron / recurring_id 字段进了 MANAGED_KEYS、cli/web 各留了
+# check_recurring_tasks() 调用壳，**函数本体从未实现**，`tegula cron-check` 一跑即
+# NameError（2026-10-17 实锤：cli.py cmd_cron_check / web.py action=cron_check 两壳皆挂）。
+# 设计取舍（写死在这里，防再断链）：
+#   · 零依赖：cron 解析手写（方寸纯标准库红线）。支持 5 段式 + @别名 + 中文简写。
+#   · 族 = 同 recurring_id 的全部任务；母卡无 recurring_id 时它自己就是族首（族 id=母卡 id）。
+#   · 触发依据 = 族内最新实例的「创建」时间戳；其下一个触发点 ≤ now 就生成新实例。
+#     落后多个周期**只补最近一个**（不追平历史，防雪崩；且天然幂等——新实例的创建
+#     时间会把下一个触发点推到未来，重复调用不重复生成）。
+#   · 新实例：复制 标题/项目/优先级/标签/阻塞/验收清单/指派/验收/cron，状态重置「待办」，
+#     截止 = 触发点当天，recurring_id 继承族 id，附言注明源卡，来源标 "recurring"。
+
+_CRON_ALIASES = {
+    "@hourly": "0 * * * *", "@daily": "0 0 * * *", "@midnight": "0 0 * * *",
+    "@weekly": "0 0 * * 1", "@monthly": "0 0 1 * *", "@yearly": "0 0 1 1 *",
+    "@annually": "0 0 1 1 *",
+}
+_CRON_WEEKDAY_CN = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 0, "天": 0}
+
+
+def cron_normalize(expr):
+    """把 cron 字段值归一成五段式标准形；不认识返回 None（调用侧人话报错，不炸主链）。"""
+    s = str(expr or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low in _CRON_ALIASES:
+        return _CRON_ALIASES[low]
+    if re.fullmatch(r"每天|每日", s):
+        return "0 0 * * *"
+    m = re.fullmatch(r"每周([一二三四五六日天])", s)
+    if m:
+        return f"0 0 * * {_CRON_WEEKDAY_CN[m.group(1)]}"
+    m = re.fullmatch(r"每月(\d{1,2})\s*[日号]?", s)
+    if m:
+        day = int(m.group(1))
+        return f"0 0 {day} * *" if 1 <= day <= 31 else None
+    if len(s.split()) == 5:
+        return s
+    return None
+
+
+def _cron_parse_field(tok, lo, hi):
+    """解析 cron 单域：支持 * , - /。返回集合；非法抛 ValueError（带人话原因）。"""
+    vals = set()
+    for part in tok.split(","):
+        part = part.strip()
+        if not part:
+            raise ValueError("有空域段")
+        step = 1
+        if "/" in part:
+            part, step_s = part.split("/", 1)
+            step = int(step_s)
+            if step < 1:
+                raise ValueError("步进必须 ≥1")
+        if part == "*":
+            start, end = lo, hi
+        elif "-" in part:
+            a, b = part.split("-", 1)
+            start, end = int(a), int(b)
+        else:
+            start = end = int(part)
+        if start < lo or end > hi or start > end:
+            raise ValueError(f"域值越界：{part}（合法范围 {lo}-{hi}）")
+        vals.update(range(start, end + 1, step))
+    return vals
+
+
+def cron_next_after(expr, after):
+    """算 after 之后的下一个触发点（datetime，严格 > after）。
+
+    逐日扫描（上限 1100 天 ≈ 3 年）而非逐分钟——分钟级步进三年是千万次循环。
+    日(第3域)/周(第5域)同时受限时按 cron 标准取 OR（某域为 * 时天然退化为只看另一域）。
+    """
+    std = cron_normalize(expr)
+    if not std:
+        raise ValueError(
+            f"看不懂的周期表达式：{expr!r} —— 支持 5 段式 cron / @daily / 每天 / 每周三 / 每月15日"
+        )
+    f_min, f_hour, f_dom, f_mon, f_dow = (
+        _cron_parse_field(t, lo, hi)
+        for t, (lo, hi) in zip(std.split(), [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)])
+    )
+    dows = (f_dow - {7}) | ({0} if 7 in f_dow else set())   # cron 惯例 7 也算周日
+    dows_py = {(d + 6) % 7 for d in dows}                   # cron 0=周日 → python weekday 6
+    # cron 标准 day-match 语义：dom 与 dow **都受限**时取 OR；**任一为 * 只看另一个**。
+    # （首版写成 `day.day in f_dom or day.weekday() in dows_py` 恒真短路——dom=*
+    #   会架空周域限制（每周一变天天），dow=* 会架空日域限制（2月30日假活），实测抓出。）
+    dom_all = f_dom == set(range(1, 32))
+    dow_all = dows_py == set(range(7))
+    if dom_all and dow_all:
+        day_ok = lambda day: True
+    elif dom_all:
+        day_ok = lambda day: day.weekday() in dows_py
+    elif dow_all:
+        day_ok = lambda day: day.day in f_dom
+    else:
+        day_ok = lambda day: day.day in f_dom or day.weekday() in dows_py
+    t0 = after + datetime.timedelta(minutes=1)
+    day = t0.date()
+    for _ in range(1100):
+        if day.month in f_mon and day_ok(day):
+            for h in sorted(f_hour):
+                for mi in sorted(f_min):
+                    cand = datetime.datetime.combine(day, datetime.time(h, mi))
+                    if cand >= t0:
+                        return cand
+        day += datetime.timedelta(days=1)
+    raise ValueError("3 年内找不到下一个触发点——表达式大概率永假（如 2 月 30 日）")
+
+
+def _spawn_recurring_instance(src, when):
+    """按源卡生成下一期实例（状态「待办」，截止=触发点当天）。返回新 id。"""
+    tid = gen_id()
+    d = {
+        "id": tid,
+        "标题": src.get("标题") or "周期任务",
+        "项目": _as_list(src.get("项目")),
+        "状态": "待办",
+        "批次": "",
+        "截止": when.strftime("%Y-%m-%d"),
+        "优先级": src.get("优先级") or "",
+        "标签": _as_list(src.get("标签")),
+        "阻塞": _as_list(src.get("阻塞")),
+        "附言": f"周期任务自动生成（cron: {src.get('cron')}，源卡 {src.get('id')}）",
+        "来源": "recurring",
+        "指派": src.get("指派") or "hermes",
+        "验收": src.get("验收") or "human",
+        "验收清单": _as_list(src.get("验收清单")),
+        "cron": src.get("cron") or "",
+        "recurring_id": str(src.get("recurring_id") or "").strip() or str(src.get("id") or ""),
+        "创建": _now_ts(),
+        "更新": _now_ts(),
+    }
+    write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
+    return tid
+
+
+def check_recurring_tasks():
+    """扫描全库周期任务：族内最新实例的下一个触发点已到 → 生成下一期实例。
+
+    返回新生成的任务 id 列表（cli cmd_cron_check / web action=cron_check 的返回值）。
+    单卡解析失败/表达式非法 → 人话打到 stderr 后跳过，不拦主链。
+    回收站 .trash 不扫——被扔掉的周期卡不该再复活。
+    """
+    now = datetime.datetime.now()
+    fams = {}   # 族 id -> [(创建 ts, 卡 dict)]
+    for base in (TASK_DIR, os.path.join(TASK_DIR, "archive")):
+        if not os.path.isdir(base):
+            continue
+        for fn in sorted(os.listdir(base)):
+            if not fn.endswith(".md") or fn.startswith("_"):
+                continue
+            d = parse_task(os.path.join(base, fn))
+            if not d:
+                continue
+            if not str(d.get("cron") or "").strip():
+                continue                     # 非周期卡走这里，绝大多数卡零开销
+            rid = str(d.get("recurring_id") or "").strip() or str(d.get("id") or "").strip()
+            if not rid:
+                continue
+            try:
+                created = float(str(d.get("创建") or 0) or 0)
+            except (TypeError, ValueError):
+                created = 0.0
+            fams.setdefault(rid, []).append((created, d))
+    spawned = []
+    for rid, members in fams.items():
+        members.sort(key=lambda x: x[0], reverse=True)
+        created, latest = members[0]
+        anchor = (datetime.datetime.fromtimestamp(created)
+                  if created > 0 else now - datetime.timedelta(minutes=1))
+        try:
+            nxt = cron_next_after(latest.get("cron"), anchor)
+        except ValueError as e:
+            print(f"[cron] 跳过周期族 {rid}：{e}", file=sys.stderr)
+            continue
+        if nxt <= now:
+            try:
+                spawned.append(_spawn_recurring_instance(latest, nxt))
+            except OSError as e:
+                print(f"[cron] 生成实例失败（族 {rid}）：{e}", file=sys.stderr)
+    return spawned
 
 
 # ---------- archify 卡导入（中长期清单第 9 条，2026-10-14） ----------
