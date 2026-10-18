@@ -717,7 +717,28 @@ contextBridge.exposeInMainWorld('tegula', {
   // 2026-09-28：改成**记录调用** —— 多视图断言要验证"列表视图里拖一行到别的分区
   // 仍然等于改状态"。此前它只是 `() => ok()`，调没调用在 e2e 里看不出来。
   moveStatus: (id, status) => { rec('moveStatus', [id, status]); return ok() },
-  batchEdit: () => ok(),
+  // 2026-10-18 Bundle A：此前是 `() => ok()` —— 返回布尔形状，与真主进程
+  // `{ ok: 数量, fails: [...] }` 不符（批量栏 toast 会把数量显示成 "true"）；
+  // 且不落 store，"确定改期后卡面日期刷新"这类断言无从验起。改成真改 + 记录调用。
+  batchEdit: (ids, fields) => {
+    rec('batchEdit', [ids, fields])
+    const list = Array.isArray(ids) ? ids : []
+    let n = 0
+    for (const id of list) {
+      const t = (store.tasks || []).find((x) => x.id === id)
+      if (t) {
+        t.fm = { ...(t.fm || {}), ...(fields || {}) }
+        // 真身 loadTasks 会把 fm 摊平到顶层（渲染层 `t.deadline || t.fm.deadline` 双读、
+        // fixTodayCount 也按顶层判据数）—— mock 这里同步摊，否则改动对顶层不可见
+        for (const k of Object.keys(fields || {})) t[k] = fields[k]
+        n++
+      }
+    }
+    const fails = list
+      .filter((id) => !(store.tasks || []).some((x) => x.id === id))
+      .map((id) => ({ id, error: '任务不存在' }))
+    return { ok: n, fails }
+  },
   batchArchive: () => ok(),
   batchDelete: () => ok(),
   archiveTask: () => ok(),

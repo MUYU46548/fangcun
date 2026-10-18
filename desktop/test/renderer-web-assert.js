@@ -668,6 +668,107 @@
       }
     }
 
+    // ══ 看板 · 批量改期（2026-10-18 Bundle A「超期任务批量改期」）══════════
+    // 典型路径：顶栏日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → 一次推走。
+    // 这里用真点击验 UI 交互链：按钮在 → 面板展开且预填今天+7 → 快捷 +30 天 →
+    // 确定改期 → mock 真改 store（batchEdit 已记录调用）→ toast 说清数量 → 退多选。
+    // 数据层逐字落盘由 e2e-task-fields 的 batchEdit 用例钉死（无头里 IPC 是 mock）。
+    // ⚠ 本段会真改 demo-001 的 deadline —— 后面日历断言的期望值走 fixTodayCount()
+    //   （与渲染同源读 store，改完两边一起变），所以不踩；别在**本段之前**插日期断言。
+    {
+      const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const plus7 = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 7))
+      const plus30 = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 30))
+
+      const boardBatchBtn = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
+      check('★ 看板页头有「任务多选」入口', !!boardBatchBtn, boardBatchBtn ? '' : '(没找到 .batch-mode-btn)')
+      if (boardBatchBtn) {
+        boardBatchBtn.click()
+        await sleep(400)
+        const bar = $('.batch-bar')
+        const postponeBtn = bar ? $$('.batch-bar button').find((b) => (b.textContent || '').indexOf('改期') >= 0) : null
+        check('★★ 多选模式批量栏里有「📅 改期」', !!bar && !!postponeBtn,
+          bar ? '(批量栏在但没有改期按钮)' : '(批量栏没出现)')
+
+        if (postponeBtn) {
+          postponeBtn.click()
+          await sleep(300)
+          const panel = $('.batch-bar .bp-panel')
+          const dateInp = panel ? panel.querySelector('input[type="date"]') : null
+          check('★★ 点「改期」= 面板展开且日期预填「今天+7」',
+            !!panel && !!dateInp && dateInp.value === plus7,
+            'value=' + (dateInp ? dateInp.value : '(没有日期框)') + ' want=' + plus7)
+
+          const aCard = $$('#board .col > .card[data-id]')[0]
+          check('  改期前置：列视图里有可勾选的卡', !!aCard)
+          if (aCard) {
+            aCard.click()
+            await sleep(250)
+            const cnt = $('.batch-bar .batch-count')
+            check('  多选模式下点卡 = 勾进选择（已选 1）',
+              !!cnt && (cnt.textContent || '').indexOf('已选 1') >= 0,
+              cnt ? cnt.textContent : '(批量栏没了)')
+
+            const confirmBtn = $$('.bp-panel button').find((b) => (b.textContent || '').trim() === '确定改期')
+            check('  「确定改期」按钮在', !!confirmBtn)
+            if (confirmBtn) {
+              confirmBtn.click()
+              await sleep(700)
+              check('★★ 确定改期 = batchEdit 按日期框值（今天+7）真的调了',
+                window.__fcTest.calls().some((c) => c.name === 'batchEdit' && c.args && c.args[1] && c.args[1].deadline === plus7),
+                JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'batchEdit').map((c) => c.args)))
+              check('★★ 改完自动退多选（批量栏收起，不残留）', !$('.batch-bar'))
+              const toastTxt = (($('#toast') || {}).textContent || '')
+              check('  toast 说清数量与目标日（不静默）',
+                toastTxt.indexOf('1 个任务的截止日') >= 0 && toastTxt.indexOf(plus7) >= 0,
+                toastTxt)
+            }
+          }
+        }
+
+        // 第二轮：快捷「+30 天」= 不经日期框直接执行（最高频：整体推一个月）
+        // 第一轮改完已自动退多选，这里重开一轮：多选 → 勾卡 → 改期面板 → +30 天
+        const boardBatchBtn2 = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
+        if (boardBatchBtn2) {
+          boardBatchBtn2.click()
+          await sleep(400)
+          const card2 = $$('#board .col > .card[data-id]')[0]
+          if (card2) {
+            card2.click()
+            await sleep(250)
+            const pBtn2 = $$('.batch-bar button').find((b) => (b.textContent || '').indexOf('改期') >= 0)
+            if (pBtn2) {
+              pBtn2.click()
+              await sleep(300)
+              const quick = $$('.bp-panel button').find((b) => (b.textContent || '').trim() === '+30 天')
+              check('  快捷「+30 天」在面板上', !!quick)
+              if (quick) {
+                quick.click()
+                await sleep(700)
+                check('★★ 点「+30 天」= 直接改期到今天+30（不经确定，最高频路径）',
+                  window.__fcTest.calls().some((c) => c.name === 'batchEdit' && c.args && c.args[1] && c.args[1].deadline === plus30),
+                  JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'batchEdit').map((c) => c.args)))
+                check('  快捷改完同样退多选', !$('.batch-bar'))
+              }
+            }
+          }
+        }
+
+        // 收尾：面板/多选若因前面失败分支还开着，一律收掉，别污染后面的断言
+        if ($('.bp-panel')) {
+          const collapse = $$('.bp-panel button').find((b) => (b.textContent || '').trim() === '收起')
+          if (collapse) collapse.click()
+          await sleep(200)
+        }
+        if ($('.batch-bar')) {
+          const cancel = $$('.batch-bar button').find((b) => (b.textContent || '').trim() === '取消')
+          if (cancel) cancel.click()
+          await sleep(300)
+        }
+        check('  收尾：多选已退出', !$('.batch-bar'))
+      }
+    }
+
     // 切列表视图
     check('★ 能点到「列表视图」', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('列表视图') >= 0)

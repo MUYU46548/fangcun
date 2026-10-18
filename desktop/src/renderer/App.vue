@@ -285,8 +285,24 @@
         <button class="ghost" title="批量置为「完成」" @click="batchSetStatus('完成')">完成</button>
         <button class="ghost" title="批量置为「驳回」" @click="batchSetStatus('驳回')">驳回</button>
         <button class="ghost" title="批量归档（会二次确认）" @click="executeBatchArchive">归档</button>
+        <button class="ghost" title="批量改期：把选中任务的截止日推到新日期" @click="openBatchPostpone">📅 改期</button>
         <button class="danger" title="批量删除（会二次确认，进入 trash 可人工找回）" @click="executeBatchDelete">删除</button>
       </div>
+
+      <!-- 批量改期面板（2026-10-18 Bundle A「超期任务批量改期」）。典型路径：
+           顶栏日期筛选选「超期」→ 批量模式 → 全选 → 📅 改期 —— 堆了一堆过期的卡一次推走。
+           写入沿用既有 batchEdit → updateTask（fm.deadline 直改 + 乐观锁 + logActivity 逐条留痕），
+           不加新 IPC；改完 isOverdue 按 deadline 重算，卡面「逾期 N 天」标识自动消失。
+           改期不是破坏性动作（随时可再改回），不做二次确认；超期筛选本身不含终态卡。 -->
+      <div v-if="batchPostponing" class="bp-panel">
+        <span class="bp-label">把选中的 {{ selectedBatch.length }} 个任务改期到</span>
+        <input type="date" v-model="batchPostponeDate" class="log-filter bp-date" title="目标截止日" />
+        <button class="ghost" title="截止日推迟一周" @click="batchPostpone(batchPostponeShift(7))">+7 天</button>
+        <button class="ghost" title="截止日推迟一个月" @click="batchPostpone(batchPostponeShift(30))">+30 天</button>
+        <button class="ok" title="把选中任务的截止日改成上面选的日期" @click="batchPostpone(batchPostponeDate)">确定改期</button>
+        <button class="ghost" title="收起改期面板（不清空已选）" @click="batchPostponing = false">收起</button>
+      </div>
+
       <button class="ghost" title="退出多选模式并清空选择" @click="selectedBatch = []; batchMode = false">取消</button>
     </div>
 
@@ -7618,6 +7634,48 @@ async function executeBatchStatus(status: string) {
   loadAll()
 }
 
+/* ── 批量改期（2026-10-18 Bundle A「超期任务批量改期」）────────────────────
+ * 典型路径：顶栏日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → 一次推走。
+ * 通道沿用 batchEdit → updateTask：fm.deadline 直改、乐观锁防并发、logActivity 逐条留痕。
+ * 改期可随时再改回，非破坏性，不做二次确认；超期筛选（dueFilter='overdue'）本身
+ * 就不含完成/驳回卡，这里不再重复拦终态。日期只认本地日历日 YYYY-MM-DD
+ * （calISO，不走 toISOString 免时区把日期挪一天）。 */
+const batchPostponing = ref(false)
+const batchPostponeDate = ref('')
+
+function openBatchPostpone() {
+  batchPostponing.value = true
+  // 预填「今天 + 7」：最高频动作是把一堆过期卡整体推一周，别让用户每次从空日期选起
+  batchPostponeDate.value = calISO(addDays(new Date(), 7))
+}
+
+/** 本地日历日 +N 天 → 'YYYY-MM-DD' */
+function batchPostponeShift(n: number): string {
+  return calISO(addDays(new Date(), n))
+}
+
+async function batchPostpone(dateStr: string) {
+  const s = String(dateStr || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    showToast('先选一个日期再确定', 'error')
+    return
+  }
+  if (selectedBatch.value.length === 0) return
+  const ids = [...selectedBatch.value]
+  const result = await window.tegula.batchEdit(ids, { deadline: s })
+  if (result.fails.length === 0) {
+    showToast(`已把 ${result.ok} 个任务的截止日改到 ${s}`, 'success')
+  } else {
+    showToast(`${result.ok} 个成功，${result.fails.length} 个失败（如：${result.fails[0]?.error || '未知'}）`, 'error')
+  }
+  batchPostponing.value = false
+  selectedBatch.value = []
+  batchMode.value = false
+  naturalResults.value = []
+  isNaturalQuery.value = false
+  loadAll()
+}
+
 /** 归档区里某个状态有几条（只数**当前列表里看得见的** —— 用户看到的和选中必须同一批） */
 function archiveStatusCount(status: string): number {
   return filteredTasks.value.filter(t => String(t.status || '') === status).length
@@ -13420,6 +13478,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 /* 批量栏出现时给内容区留底部空间，避免遮住最后一条 */
 #app:has(.batch-bar) #board { padding-bottom: 84px; }
+/* 批量改期面板（2026-10-18 Bundle A）：batch-bar 内的第二行（父级 flex-wrap 自动换行） */
+.bp-panel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 6px 10px; margin-top: 2px; background: #faf6e8; border: 1px dashed #e8dcb8; border-radius: 8px; }
+.bp-label { font-size: 11.5px; color: var(--ink); font-weight: 600; }
+.bp-date { flex: none; }
+.bp-panel .ghost, .bp-panel .ok { padding: 4px 12px; font-size: 11px; }
+/* 面板展开时批量栏更高，底部预留同步加大 */
+#app:has(.bp-panel) #board { padding-bottom: 132px; }
 /* 左上角返回按钮：紧贴标题右侧（后续高频按钮也放这一带） */
 /* ⚠ `flex: none` 必须有（2026-10-11 用户：「还损失一个返回按钮，不知道去哪里了」）：
    `#bar` 是 flex + `justify-content: space-between` + `flex-wrap: wrap`。

@@ -493,6 +493,31 @@ function main() {
     try { fs.rmSync(cacheRoot, { recursive: true, force: true }) } catch {}
   }
 
+  // ── batchEdit 批量改期（2026-10-18 Bundle A「超期任务批量改期」的数据层契约）──
+  // 界面路径：日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → batchEdit(ids, { deadline })。
+  // 这里钉住数据层四件事：deadline 直写 fm、逐字落盘、字段隔离（只动 deadline）、
+  // 不存在的 id 精确进 fails（绝不静默当成功）。
+  {
+    const tA = tasks.createTask({ title: '超期卡甲', deadline: '2026-10-01' })
+    const tB = tasks.createTask({ title: '超期卡乙', deadline: '2026-10-02' })
+    const r = tasks.batchEdit([tA.id, tB.id], { deadline: '2026-11-01' })
+    check('batchEdit 改期：两张全部成功', r.ok === 2 && r.fails.length === 0, JSON.stringify(r))
+    const backA = tasks.readTask(tA.id)
+    const backB = tasks.readTask(tB.id)
+    check('batchEdit 改期：fm.deadline 逐字等于目标日期',
+      backA && backB && backA.fm.deadline === '2026-11-01' && backB.fm.deadline === '2026-11-01',
+      `${backA && backA.fm.deadline} / ${backB && backB.fm.deadline}`)
+    check('batchEdit 改期：标题与优先级不受牵连',
+      backA.fm.title === '超期卡甲' && backB.fm.title === '超期卡乙',
+      `${backA.fm.title} / ${backB.fm.title}`)
+    const rMixed = tasks.batchEdit([tA.id, 'no-such-id'], { deadline: '2026-12-01' })
+    check('batchEdit 改期：不存在的 id 精确进 fails 不算成功',
+      rMixed.ok === 1 && rMixed.fails.length === 1 && rMixed.fails[0].id === 'no-such-id',
+      JSON.stringify(rMixed))
+    const rEmpty = tasks.batchEdit([], { deadline: '2026-12-01' })
+    check('batchEdit 改期：空选择零写入零失败', rEmpty.ok === 0 && rEmpty.fails.length === 0, JSON.stringify(rEmpty))
+  }
+
   // ── 假成功通道已移除 ─────────────────────────────────────────────────
   const preloadSrc = fs.readFileSync(path.join(REPO, 'desktop/src/preload/index.ts'), 'utf-8')
   check('regSave 假成功通道已移除', !/regSave/.test(preloadSrc))
