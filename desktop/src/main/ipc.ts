@@ -729,6 +729,15 @@ export function registerIpcHandlers(): void {
     return logsService.updateLog(id, updates)
   })
 
+  // 撤回上一次保存（2026-10-18 暮雨第 1 条）：用 .backup 里最新一版覆盖当前文件。
+  // 写前 atomicWrite 会把当前版再备份一次 → 撤错了还能再撤回来。
+  guardedHandle('logs:restorePrev', (_event, id: string) => {
+    return logsService.restorePreviousLogVersion(String(id || ''))
+  })
+  guardedHandle('logs:versions', (_event, id: string) => {
+    return logsService.listLogVersions(String(id || ''))
+  })
+
   guardedHandle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {
     return logsService.completeLog(id, retainDays, note)
   })

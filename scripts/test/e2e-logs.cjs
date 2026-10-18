@@ -85,12 +85,60 @@ function main() {
   check('内容可改', u2.content === '内容A改', u2.content)
   check('下一步可改', u2.nextSteps === '下一步', u2.nextSteps)
 
-  // ── 5. 非 active 的日志不可编辑（不得静默改）──────────────────────
+  // ── 5. 已归档 / 已完成的日志也能改正文（2026-10-18 暮雨第 2 条修正口径）──────
+  // 旧口径是「非 active 拒改」。它与界面自相矛盾：日志卡与非 active 日志的编辑弹窗
+  // **一直有「✏️ 编辑」**，用户改完点保存才吃到拒绝，只能复制出来新建一条。
+  // 新口径 = 能改 + 留痕（edited 戳）+ 生命周期字段改不到。
   const b = logs.createLog('日志B', 'demo', '内容B').data
   logs.archiveLog(b.id)
-  const bUpd = logs.updateLog(b.id, { project: 'nf' })
-  check('已归档日志 updateLog 返回 ok:false（不得静默改）', bUpd.ok === false, JSON.stringify(bUpd))
-  check('已归档日志的项目没被偷改', logs.getLog(b.id).project === 'demo', logs.getLog(b.id).project)
+  const bUpd = logs.updateLog(b.id, { project: 'nf', content: '内容B改' })
+  check('★ 已归档日志可以改（不再「点编辑、保存才被拒」）', bUpd.ok === true, JSON.stringify(bUpd))
+  check('★ 改动真落盘', logs.getLog(b.id).content === '内容B改', logs.getLog(b.id).content)
+  check('★ 改正文会落 edited 戳', !!logs.getLog(b.id).edited, String(logs.getLog(b.id).edited))
+  const bFile = fs.readFileSync(path.join(LOGS_DIR, `${b.id}.md`), 'utf-8')
+  check('★ edited 真写进 frontmatter（不是只在内存里）', /edited:\s*'?"?\d{4}-\d{2}-\d{2}T/.test(bFile),
+    bFile.split('\n').filter(l => l.includes('edited')).join(' | ') || '无 edited 行')
+  check('★ 改内容不会把状态改回 active（生命周期只走 complete/archive/reopen）',
+    logs.getLog(b.id).status === 'archived', logs.getLog(b.id).status)
+
+  const mdl = logs.createLog('日志M', 'demo', '内容M').data
+  logs.completeLog(mdl.id, 7, '完成')
+  const mdlDoneAt = logs.getLog(mdl.id).completed
+  const mdlUpd = logs.updateLog(mdl.id, { content: '事后补充' })
+  check('★ 已完成日志可以补写正文', mdlUpd.ok === true && logs.getLog(mdl.id).content === '事后补充', JSON.stringify(mdlUpd))
+  check('★ 补写正文不动完成时间 / 保留期（状态字段不在 updates 表里）',
+    logs.getLog(mdl.id).completed === mdlDoneAt && !!logs.getLog(mdl.id).retainUntil,
+    JSON.stringify({ c: logs.getLog(mdl.id).completed, u: logs.getLog(mdl.id).retainUntil }))
+  const metaLog = logs.createLog('日志Z', 'demo', 'z').data
+  logs.updateLog(metaLog.id, { project: 'nf' })
+  check('★ 只改项目这类元数据不点亮「改过」（否则戳天天亮着，等于没信息）',
+    !logs.getLog(metaLog.id).edited, String(logs.getLog(metaLog.id).edited))
+
+  // ── 5b. 撤回上一版（2026-10-18 暮雨第 1 条：「根本没有撤回选项」）──────────
+  // 接的是 atomicWrite 本来就有的写前备份，不是新造一套撤销机制。
+  const revLog = logs.createLog('日志R', 'demo', '第一版').data
+  logs.updateLog(revLog.id, { content: '第二版' })
+  const vsList = logs.listLogVersions(revLog.id)
+  check('★ 本机真有历史版本可撤（.backup 不是空壳）', Array.isArray(vsList) && vsList.length >= 1, JSON.stringify(vsList.slice(0, 2)))
+  const revRestored = logs.restorePreviousLogVersion(revLog.id)
+  check('★ 撤回上一版返回 ok', revRestored.ok === true, JSON.stringify(revRestored))
+  check('★ 撤回后内容回到上一版', logs.getLog(revLog.id).content === '第一版', logs.getLog(revLog.id).content)
+  check('★ 撤回本身也留了备份（撤错了能再撤回来）', logs.listLogVersions(revLog.id).length > vsList.length,
+    `${vsList.length} → ${logs.listLogVersions(revLog.id).length}`)
+  const revAgain = logs.restorePreviousLogVersion(revLog.id)
+  check('★ 再撤一次 → 回到「第二版」（互为反悔）',
+    revAgain.ok === true && logs.getLog(revLog.id).content === '第二版', JSON.stringify({ ok: revAgain.ok, c: logs.getLog(revLog.id).content }))
+  check('★ 不存在的日志撤回 → ok:false（不抛异常、不造文件）',
+    logs.restorePreviousLogVersion('log_nope').ok === false && !fs.existsSync(path.join(LOGS_DIR, 'log_nope.md')))
+  check('★ 路径穿越 id 取不到任何版本（目录外一律不认）',
+    logs.listLogVersions('../执行日志/x').length === 0 && logs.listLogVersions('..').length === 0)
+  check('★ 同一秒内连写两次也不丢版本（时间戳已补毫秒）',
+    (() => {
+      const sameSecLog = logs.createLog('日志Q', 'demo', 'q0').data
+      logs.updateLog(sameSecLog.id, { content: 'q1' })
+      logs.updateLog(sameSecLog.id, { content: 'q2' })
+      return logs.listLogVersions(sameSecLog.id).length >= 2
+    })())
 
   // ── 6. 完成 → 保留期 → 清理超期 ───────────────────────────────────
   const c = logs.createLog('日志C', 'demo', '内容C').data
@@ -506,10 +554,12 @@ function main() {
     check('★ 取消置顶后字段从文件里消失（不留 pinned: false 垃圾）',
       !/pinned/.test(fs.readFileSync(path.join(logsDir, ida + '.md'), 'utf-8')))
 
-    // 已完成的日志：内容不可编辑（既有守卫），但置顶/改归属必须可用 —— 它们是视图/归类属性
+    // 已完成的日志：正文可改（2026-10-18 新口径：能改 + edited 留痕），
+    // 置顶/改归属同样必须可用（它们是视图/归类属性）
     logs.completeLog(idb, 7, '做完了')
     check('  前置：这条已是 completed', logs.getLog(idb).status === 'completed')
-    check('  （对照）已完成日志改内容仍被拒绝', logs.updateLog(idb, { content: 'x' }).ok === false)
+    check('  （对照）已完成日志正文可改（2026-10-18：旧守卫已解除，改过落 edited 戳）',
+      logs.updateLog(idb, { content: 'x' }).ok === true && !!logs.getLog(idb).edited)
     const proj = logs.setLogProject(idb, 'nf')
     check('★ 已完成的日志也能改项目归属（归类属性 ≠ 内容编辑）',
       proj && proj.ok === true && logs.getLog(idb).project === 'nf', JSON.stringify(proj))

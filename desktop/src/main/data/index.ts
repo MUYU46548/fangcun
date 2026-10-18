@@ -1060,7 +1060,10 @@ export function rotateBackup(filePath: string): void {
 
   const dir = path.dirname(filePath)
   const base = path.basename(filePath)
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  // 2026-10-18：时间戳补到毫秒。原先是秒级 —— 同一秒内连写两次（批量操作、改完立刻撤回）
+  // 会撞同一个文件名，`copyFileSync` 直接把上一份备份覆盖掉，「写前备份」静默少一版。
+  // 固定 17 位、字典序即时间序，rotateBackup 末尾的「留最近 10 版」排序不受影响。
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').replace('.', '').slice(0, 17)
   const backupPath = path.join(dir, '.backup', `${base}.${stamp}.bak`)
 
   fs.mkdirSync(path.dirname(backupPath), { recursive: true })

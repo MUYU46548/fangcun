@@ -112,6 +112,10 @@ contextBridge.exposeInMainWorld('tegula', {
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
   logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string; priority?: string; fromTodo?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
+  /** 撤回上一次保存（2026-10-18）：用本机 .backup 里的上一版覆盖当前文件，可再撤回来 */
+  logsRestorePrev: (id: string) => ipcRenderer.invoke('logs:restorePrev', id),
+  /** 该日志本地留着的历史版本（最新在前）—— 只给界面显示"能撤到什么时候"，不读内容 */
+  logsVersions: (id: string) => ipcRenderer.invoke('logs:versions', id),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
   /** 撤销完成 / 撤销归档，退回「待处理」（2026-09-28：不再等于「进行中」） */

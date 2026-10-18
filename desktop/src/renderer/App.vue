@@ -1959,6 +1959,9 @@
               title="上次的执行 Agent（接力来源那段是谁跑的）—— 找上次的会话就去这个 Agent 里找">⤴ 上次 {{ log.prevAgentName }}</span>
             <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
             <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
+            <!-- 改过留痕（2026-10-18 暮雨第 2 条）：已完成的日志现在能改，但改过就亮这个戳 ——
+                 不是拦着不让改，而是让"这条被事后动过"看得见。 -->
+            <span v-if="log.edited" class="log-edited" :title="'最后一次改正文：' + formatDateTime(log.edited)">✎ 改过</span>
             <!-- 卡 004 日志⇄待办互转：目标记录「由 X 转来」（与接力链同款 prev 范式） -->
             <span v-if="log.fromTodo" class="log-from"
               :title="'由待办 ' + log.fromTodo + ' 转来（源待办保留）'">⤴ 待办</span>
@@ -2755,6 +2758,12 @@
     <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @mousedown.self="closeLogEditor()">
       <div id="log-edit-modal">
         <h3>{{ logCompleting ? '完成日志' : logArchiveMode ? '归档日志' : logEdit_.id ? '编辑日志' : '新建日志' }}</h3>
+        <!-- 已完成的日志也能改（2026-10-18）：此前后端直接拒改，界面却一直给编辑入口。
+             现在直说"能改 + 会留痕"，用户不必再复制出来新建一条。 -->
+        <div class="hint log-closed-hint" v-if="logEdit_.id && logEdit_.status && logEdit_.status !== 'active'">
+          这条已{{ logEdit_.status === 'completed' ? '完成' : '归档' }}。<b>内容仍然可以改</b>（改完点保存即可）；
+          改动会在卡面留一个「✎ 改过」戳，不是静默篡改。点错保存就按左下「↩ 撤回上次保存」。
+        </div>
         <label>标题</label>
         <input v-model="logEdit_.title" placeholder="日志标题" />
         <label>项目</label>
@@ -2882,6 +2891,13 @@
           <button class="ghost" @click="closeLogEditor">取消</button>
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
+          <!-- 撤回上一次保存（2026-10-18 暮雨第 1 条：「根本没有撤回选项，狂按 Ctrl+Z 也没用」）。
+               接的是本机 `.backup` 里既有的上一版（每条日志留 10 版），不是新造一套撤销机制。
+               为什么不在顶栏做全局 Ctrl+Z：编辑框里的原生撤销只覆盖"这次输入"，保存并关窗之后
+               就无从撤起；真要做全站撤销栈得动每一条写路径（见 docs/方寸-全面检查与中期规划-20261018.md）。 -->
+          <button v-if="logEdit_.id" class="ghost"
+            title="撤回上一次保存 —— 用本机自动备份的上一版覆盖当前内容（写前会把当前版再备份一次，撤错可再撤回来）"
+            @click="restoreLogPrev">↩ 撤回上次保存</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
           <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补「保存修改」：
                只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在「确认完成」和「丢弃」里二选一。 -->
@@ -3489,12 +3505,21 @@
           <div class="hint">项目详情页「✨ AI 规划」按钮走这里。密钥只存本机、回显只有掩码；每次调用的 token 用量随结果提示（花销可见）。</div>
           <div class="llm-presets">
             <button class="ghost" @click="applyLlmPreset('deepseek')">DeepSeek 一键填</button>
-            <button class="ghost" @click="applyLlmPreset('mimo')">MiMo 模型建议</button>
+            <button class="ghost" @click="applyLlmPreset('mimo-api')">MiMo 按量付费</button>
+            <button class="ghost" @click="applyLlmPreset('mimo-plan')">MiMo Token Plan</button>
+          </div>
+          <!-- 小米两个端点（2026-10-18 暮雨第 3 条）：按量付费与 Token Plan 的 Base URL / Key 都不同，
+               控制台各自一键复制。这里把两个都摆出来，并说清哪条适用方寸 —— 别让用户拿 Plan 的 key
+               去连按量付费端点（必 401，且报错还看不出是端点错了）。 -->
+          <div class="hint">
+            小米有<b>两套凭证</b>，不能混用：按量付费 = <code>api.xiaomimimo.com/v1</code> + <code>sk-</code> 开头的 Key；
+            Token Plan = <code>token-plan-cn.xiaomimimo.com/v1</code> + <code>tp-</code> 开头的 Key（控制台各自一键复制）。
+            按小米条款，<b>Token Plan 仅限编程工具内使用，不要用于方寸这类应用后端</b>；给方寸用请选按量付费。
           </div>
           <label>Base URL（API 端点）</label>
           <input v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
           <label>模型名</label>
-          <input v-model="llmCfg.model" placeholder="如 deepseek-chat / MiMo-V2.6-Flash" />
+          <input v-model="llmCfg.model" placeholder="如 deepseek-chat / mimo-v2.6-flash" />
           <label>API Key（保存后回显为掩码；修改就重填）</label>
           <input v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
           <label>超时（秒）</label>
@@ -10635,6 +10660,41 @@ async function saveLogFieldsOnly() {
   }
 }
 
+/**
+ * 撤回上一次保存（2026-10-18 暮雨第 1 条）。
+ *
+ * 用本机 `.backup` 里的上一版覆盖当前文件 —— 备份是 atomicWrite 本来就有的，
+ * 这里只是补一个入口。写回前会把当前版再备份一次，所以「撤错了」可以再撤回来。
+ * 不是全局撤销栈：只覆盖"这条日志的上一次保存"（原因见按钮注释）。
+ */
+async function restoreLogPrev(): Promise<void> {
+  const e = logEdit_.value
+  if (!e?.id) return
+  try {
+    const vs: any = await window.tegula.logsVersions(e.id)
+    if (!Array.isArray(vs) || !vs.length) {
+      showToast('没有可撤回的版本：本机只留最近 10 版，更早的要靠整包备份', 'info')
+      return
+    }
+    const when = vs[0]?.at ? formatDateTime(vs[0].at) : '上一版'
+    if (!confirm(`撤回上一次保存？\n\n会用本机自动备份（${when}）覆盖当前这条日志，\n标题 / 正文 / 下一步 / 状态都回到那一版。\n当前版本会先备份，撤错了可以再撤回来。`)) return
+    const r: any = await window.tegula.logsRestorePrev(e.id)
+    if (!r?.ok) {
+      showToast(`撤回失败：${r?.error || '未知原因'}`, 'error')
+      return
+    }
+    const fresh: any = await window.tegula.logsGet(e.id)
+    if (fresh?.id) {
+      logEdit_.value = { ...fresh, taskIds: normalizeLogTaskIds(fresh) }
+      markLogSnap()
+    }
+    showToast(`已撤回上一次保存（回到 ${when} 那一版）`, 'success')
+    await loadLogs()
+  } catch (err: any) {
+    showToast(`撤回异常：${err?.message || err}`, 'error')
+  }
+}
+
 function completeLogItem(id: string) {
   const log = logs.value.find(l => l.id === id)
   if (!log) return
@@ -11566,15 +11626,30 @@ async function llmLoad() {
   }
 }
 
-/** 预设：只填有据的（DS 官方端点+模型名公开；MiMo 端点不编造，只给模型名建议） */
-function applyLlmPreset(kind: 'deepseek' | 'mimo') {
+/** 预设：只填**有据可查**的端点与模型名（官方文档写明的那几个），密钥一律不预填。
+ *
+ *  小米的两套凭证（2026-10-18 暮雨第 3 条）：
+ *   · 按量付费：https://api.xiaomimimo.com/v1，Key 形如 sk-xxxxx；
+ *   · Token Plan：https://token-plan-cn.xiaomimimo.com/v1（另有 sgp / ams 集群），Key 形如 tp-/ttp-。
+ *  两者**端点与密钥都不能互换**（拿 Plan 的 key 打按量付费端点 = 401）。
+ *  ⚠ 按小米条款，Token Plan 额度仅限编程工具内使用，禁止用于应用后端 —— 方寸属后者，
+ *    所以按钮虽然给了，提示里明确劝退；默认推荐按量付费。
+ *  ⚠ 模型名用官方文档的**小写连字符**写法（mimo-v2.6-flash）：以前这里填的是
+ *    `MiMo-V2.6-Flash`，与接口返回的 model id 对不上，用户"一键填完还是失败"。
+ */
+function applyLlmPreset(kind: 'deepseek' | 'mimo-api' | 'mimo-plan') {
   if (kind === 'deepseek') {
     llmCfg.value.baseUrl = 'https://api.deepseek.com'
-    if (!llmCfg.value.model) llmCfg.value.model = 'deepseek-chat'
-    showToast('已填 DeepSeek 官方端点——Key 在你手里，填好测试连接', 'info')
+    llmCfg.value.model = 'deepseek-chat'
+    showToast('已填 DeepSeek 官方端点与模型名——Key 在你手里，填好测试连接', 'info')
+  } else if (kind === 'mimo-api') {
+    llmCfg.value.baseUrl = 'https://api.xiaomimimo.com/v1'
+    llmCfg.value.model = 'mimo-v2.6-flash'
+    showToast('已填小米「按量付费」端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', 'info')
   } else {
-    llmCfg.value.model = 'MiMo-V2.6-Flash'
-    showToast('已填 MiMo 模型名——端点地址用你自己的通道（小米开放平台），Base URL 自己填', 'info')
+    llmCfg.value.baseUrl = 'https://token-plan-cn.xiaomimimo.com/v1'
+    llmCfg.value.model = 'mimo-v2.6-flash'
+    showToast('已填 Token Plan 端点——⚠ 小米条款限编程工具内使用，方寸属应用后端，建议改用按量付费', 'error')
   }
 }
 
@@ -13787,7 +13862,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* ── 新建规划 / 新建项目模态 ──────────────────────────────────────── */
 /* 模型通道预设按钮行（2026-10-12）：两个 ghost 并排，间距 8px */
-.llm-presets { display: flex; gap: 8px; margin: 8px 0 4px; }
+.llm-presets { display: flex; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
 .llm-presets button { flex: 0 0 auto; }
 #plan-new-modal,
 #proj-new-modal,
@@ -14178,6 +14253,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .log-task { color: var(--accent); }
 .log-completed { color: #5e9154; }
+/* 「✎ 改过」戳（2026-10-18）：已完成的日志可改，但改过要看得见 —— 与完成戳同排、用中性色，
+   不抢 ✓ 的绿，也不做成告警（改日志是正当操作，不是事故）。 */
+.log-edited { font-size: 10px; color: #8a6d3b; background: #fdf5e3; border: 1px solid #e8d5a8;
+  padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
+/* 编辑已完成的日志时，弹窗顶部那句"能改 + 会留痕"的说明（不是报错，用信息底色） */
+#log-edit-modal .log-closed-hint { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
+  background: var(--tint); border: 1px solid var(--border); line-height: 1.65; }
 .log-agent { color: #8b7fb8; }
 .log-prev-agent { color: #8b7fb8; }
 .log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -64,6 +64,20 @@ export interface LogEntry {
   /** 日志归属日期（YYYY-MM-DD），默认取 created 日期，可手动配置 */
   logDate?: string
   /**
+   * 最后一次「改正文」的时间（ISO）。2026-10-18 暮雨第 2 条问「已完成的日志改不了，是防篡改吗」。
+   *
+   * 结论：旧守卫（`status !== 'active' → 拒改`）是 2026-09-28「状态单行道」时代的遗留，
+   * 而界面从那时起**一直保留着「✏️ 编辑」按钮** —— 用户点进去改完点保存才被拒，等于
+   * "给你门不给路"。它不是防篡改（日志没有哈希/签名，手动改文件一样能改），只是一条
+   * 与 UI 不一致的守卫。现在改为：**已完成 / 已归档也能改正文**，但改过就落 `edited`
+   * 戳、卡面显示「✎ 改过」—— 留痕而不是禁止。真正的防手滑靠 `.backup` 里的上一版
+   * （`restorePreviousLogVersion`，界面上叫「↩ 撤回上次保存」）。
+   *
+   * 只在 `title`/`content`/`nextSteps` 真被改时写（改项目、批量标优先级这类元数据不动它，
+   * 否则「改过」会变成天天亮着的噪音）。文件键 `edited`；无值不落盘。
+   */
+  edited?: string
+  /**
    * 置顶（2026-09-26 卡 037，用户点选：**用新字段 pinned**）。
    *
    * 为什么是独立字段而不是复用 status：置顶是**视图属性**，跟 active/completed/archived
@@ -230,6 +244,8 @@ function parseLogFile(filePath: string): LogEntry | null {
       agentName: raw.agent_name ? String(raw.agent_name) : undefined,
       prevAgentName: raw.prev_agent_name ? String(raw.prev_agent_name) : undefined,
       logDate: raw.log_date ? String(raw.log_date) : undefined,
+      // 改正文的时间戳（2026-10-18）：白名单字段必须显式读，否则下一次写回即丢
+      edited: raw.edited ? String(raw.edited) : undefined,
       pinned: raw.pinned === true || raw.pinned === 'true',
       // 接力链（方案二）：文件键 continues_from
       continueFrom: raw.continues_from ? String(raw.continues_from) : undefined,
@@ -289,6 +305,8 @@ function renderLog(log: LogEntry): string {
   if (log.priority) fm.priority = log.priority
   // 卡 004 来源链（由待办转来）：同样只在有值时落盘
   if (log.fromTodo) fm.from_todo = log.fromTodo
+  // 改正文的时间戳（2026-10-18）：只在有值时落盘，历史日志零变化
+  if (log.edited) fm.edited = log.edited
   let fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
   // 附件清单走**手工内联行**，不交给 yaml.dump（2026-10-01）：
   // Python 侧 `tegula/core.py::_parse_log` 是逐行 kv 解析、只认 `[a, b]` 这种内联列表，
@@ -492,7 +510,16 @@ export function updateLog(id: string, updates: {
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.status !== 'active') return { ok: false, error: `日志状态为 ${entry.status}，无法编辑` }
+  // 2026-10-18 暮雨第 2 条：这里原本是 `if (entry.status !== 'active') return 拒改`。
+  // 那条守卫与界面自相矛盾 —— 日志卡与非 active 日志的编辑弹窗**一直都有「✏️ 编辑」**，
+  // 用户改完点保存才吃到「日志状态为 completed，无法编辑」，只能复制出来新建一条。
+  // 它不是防篡改（没有哈希/签名），只是「状态单行道」时代的遗留；现在改为**可改 + 留痕**：
+  //   · 正文类字段（title/content/nextSteps）改动 → 落 `edited` 时间戳，卡面显示「✎ 改过」；
+  //   · 生命周期字段（status/completed/retain_until）**不在这张 updates 表里**，改不到；
+  //   · 真正的"手滑撤回"由 `.backup` 上一版兜底（见 restorePreviousLogVersion）。
+  if (updates.title !== undefined || updates.content !== undefined || updates.nextSteps !== undefined) {
+    entry.edited = new Date().toISOString()
+  }
   if (updates.title !== undefined) entry.title = updates.title
   if (updates.content !== undefined) entry.content = updates.content
   if (updates.nextSteps !== undefined) entry.nextSteps = updates.nextSteps
@@ -517,12 +544,85 @@ export function updateLog(id: string, updates: {
   return { ok: true, data: entry }
 }
 
+// ── 撤回上一版（2026-10-18 暮雨第 1 条：「没有撤回选项，Ctrl+Z 也没用」）────────
+//
+// 事实基础：`atomicWrite` 在**每次落盘前**都会把旧文件复制进同目录 `.backup/`
+// （`rotateBackup`，每条日志最多留 10 版）。也就是说「上一版」一直在磁盘上，
+// 只是从来没有入口 —— 用户只能看着改坏的内容干瞪眼。
+// 这里把那份既有备份接出来：**不新增第二套备份机制**，只是给它一个可点的按钮。
+// 语义刻意做成「撤回上一次保存」，不做完整撤销栈（那要动全站写路径，见中期规划）。
+
+export interface LogVersion {
+  /** `.backup` 里的文件名 */
+  file: string
+  /** 落盘时间（ISO，UTC） */
+  at: string
+  size: number
+}
+
+function logBackupDir(): string {
+  return path.join(getLogsDir(), '.backup')
+}
+
+/** 这条日志本地留着的历史版本，**最新在前**。 */
+export function listLogVersions(id: string): LogVersion[] {
+  const safe = String(id || '')
+  if (!safe || /[\\/]/.test(safe)) return []
+  const dir = logBackupDir()
+  if (!fs.existsSync(dir)) return []
+  const prefix = `${safe}.md.`
+  const out: LogVersion[] = []
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.startsWith(prefix) || !name.endsWith('.bak')) continue
+    const stamp = name.slice(prefix.length, -4)          // YYYYMMDDHHmmss[SSS]（rotateBackup 按 UTC 生成）
+    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{3})?$/.exec(stamp)
+    let filePath = path.join(dir, name)
+    let size = 0
+    try { size = fs.statSync(filePath).size } catch { continue }
+    const at = m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] ? '.' + m[7] : ''}Z` : ''
+    out.push({ file: name, at, size })
+  }
+  return out.sort((a, b) => (a.file < b.file ? 1 : a.file > b.file ? -1 : 0))
+}
+
+/**
+ * 撤回上一次保存：用 `.backup` 里最新的一版覆盖当前文件。
+ *
+ * - 写之前 `atomicallyWrite` 会先把**当前版**再备份一次 —— 所以撤错了还能再撤回来（互为反悔）；
+ * - 恢复前做结构校验：不是合法日志（缺 frontmatter）就中止，绝不把半截文件写回去；
+ * - 生命周期字段（status/completed/retain_until）随上一版一起回去，符合"撤回"的直觉。
+ */
+export function restorePreviousLogVersion(id: string): { ok: boolean; data?: { at: string; title: string }; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  if (!fs.existsSync(filePath)) return { ok: false, error: '日志不存在' }
+  const versions = listLogVersions(id)
+  if (!versions.length) return { ok: false, error: '没有可撤回的版本：本机只留最近 10 版，更早的要靠整包备份' }
+  const newest = versions[0]
+  let text = ''
+  try {
+    text = fs.readFileSync(path.join(logBackupDir(), newest.file), 'utf-8')
+  } catch (e: any) {
+    return { ok: false, error: `读取上一版失败：${e?.message || e}` }
+  }
+  if (!/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(text)) {
+    return { ok: false, error: '上一版结构异常（不是合法日志），已中止，未改动当前文件' }
+  }
+  try {
+    atomicallyWrite(filePath, text)
+  } catch (e: any) {
+    return { ok: false, error: `写回失败：${e?.message || e}` }
+  }
+  const back = parseLogFile(filePath)
+  if (!back) return { ok: false, error: '写回后解析失败 —— 请立即用整包备份恢复，别再保存' }
+  return { ok: true, data: { at: newest.at, title: back.title } }
+}
+
 /**
  * 置顶 / 取消置顶（2026-09-26 卡 037）。
  *
- * **刻意绕开 updateLog 的「非 active 不可编辑」守卫**：那条守卫防的是"改内容"，
- * 而置顶是视图属性 —— 已归档的日志也该能被钉住（用户原话：「正在修的东西钉在上面」）。
- * 写入走同一条 atomicallyWrite（先写 .tmp 再 rename），不新增第二条写路径。
+ * 置顶是视图属性，与 active/completed/archived 生命周期正交 —— 已归档的日志也该能被钉住
+ * （用户原话：「正在修的东西钉在上面」）。写入走同一条 atomicallyWrite（先备份再原子改名），
+ * 不新增第二条写路径。
  */
 export function setLogPinned(id: string, pinned: boolean): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
@@ -535,8 +635,8 @@ export function setLogPinned(id: string, pinned: boolean): { ok: boolean; data?:
 }
 
 /**
- * 改项目归属（卡 037 右键菜单：「不进编辑页，顺手改」）。
- * 同样绕开 active 守卫 —— 归类属性，不是内容编辑。
+ * 改项目归属（卡 037 右键菜单：「不进编辑页，顺手改」）—— 归类属性，不是内容编辑，
+ * 所以不落 `edited` 戳（否则「✎ 改过」天天亮着，等于没信息）。
  */
 export function setLogProject(id: string, project: string): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
