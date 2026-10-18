@@ -784,8 +784,9 @@ function main() {
   }
 
   // ── 2026-10-03 族2 写盘收敛（源码守卫，静态）────────────────────────────
-  //   11 处手写 tmp+rename 已统一改走 data/index.ts 的 atomicWriteBackup（写前滚动备份）。
-  //   只允许 data/index.ts（atomicWrite / atomicWriteBackup 本体）保留该写法，防回潮。
+  //   11 处手写 tmp+rename 已统一改走 data/index.ts 的 atomicWrite（写前滚动备份）。
+  //   2026-10-18：转发壳 atomicWriteBackup 已删（误导性命名），调用点直连 atomicWrite 本体。
+  //   只允许 data/index.ts（atomicWrite 本体）保留该写法，防回潮。
   {
     const SRC_MAIN = path.resolve(__dirname, '../../desktop/src/main')
     const GUARD_FILES = [
@@ -798,15 +799,16 @@ function main() {
       const s = readSrc(f)
       return /writeFileSync\(\s*tmp/.test(s) || /renameSync\(\s*tmp/.test(s)
     })
-    check('★★ 2026-10-03 族2a：共享入口存在（data/index.ts 导出 atomicWriteBackup）',
-      /export function atomicWriteBackup\(/.test(readSrc('data/index.ts')))
+    check('★★ 2026-10-03 族2a：共享入口存在（data/index.ts 导出 atomicWrite；2026-10-18 转发壳已删）',
+      /export function atomicWrite\(/.test(readSrc('data/index.ts'))
+        && !/export function atomicWriteBackup\(/.test(readSrc('data/index.ts')))
     check('（对照）data/index.ts 仍含手写 tmp+rename（守卫正则本身没写坏）',
       handWritten.includes('data/index.ts'), JSON.stringify(handWritten))
     check('★★ 2026-10-03 族2b：其余 8 个文件不再手写 writeFileSync(tmp / renameSync(tmp（防回潮）',
       handWritten.filter((f) => f !== 'data/index.ts').length === 0,
       JSON.stringify(handWritten.filter((f) => f !== 'data/index.ts')))
     check('★★ 2026-10-03 族2c：logs.ts 本地 atomicallyWrite 只剩薄壳（委托共享 helper，重复实现只留一个）',
-      /function atomicallyWrite\([\s\S]{0,200}atomicWriteBackup\(filePath, content\)/.test(
+      /function atomicallyWrite\([\s\S]{0,200}atomicWrite\(filePath, content\)/.test(
         readSrc('services/logs.ts')))
     check('★★ 2026-10-03 族2d：atomicWrite 带可选 mode（llm/backup 的 0o600 语义不丢）',
       /export function atomicWrite\(filePath: string, content: string, mode\?: number\)/.test(

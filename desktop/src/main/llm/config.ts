@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
-import { atomicWriteBackup } from '../data'
+import { atomicWrite } from '../data'
 
 export interface LLMConfig {
   baseUrl: string
@@ -96,14 +96,18 @@ export function setConfig(cfg: Partial<LLMConfig>): LLMConfig {
   const current = getConfig()
   const next: LLMConfig = { ...current }
 
-  if (typeof cfg.baseUrl === 'string' && cfg.baseUrl.trim()) {
+  // 2026-10-18 纸面小修：原判断 `&& cfg.baseUrl.trim()` 让空串变成"未修改"，
+  // 用户清空 Base URL 后保存=没保存，只能整体重置。改为显式空串=清空
+  // （DEFAULT_CONFIG.baseUrl 本就是 ''，未配置态合法；调用层对空值走"未配置"分支）。
+  if (typeof cfg.baseUrl === 'string') {
     next.baseUrl = cfg.baseUrl.trim().replace(/\/+$/, '')
   }
   // 关键防线：掩码/空值一律"未修改"，绝不覆盖真实密钥
   if (!isMaskedKey(cfg.apiKey)) {
     next.apiKey = String(cfg.apiKey).trim()
   }
-  if (typeof cfg.model === 'string' && cfg.model.trim()) {
+  // 同上：模型名也允许显式清空（回到"未指定"态，由调用层走默认模型）
+  if (typeof cfg.model === 'string') {
     next.model = cfg.model.trim()
   }
   if (typeof cfg.timeout === 'number' && Number.isFinite(cfg.timeout) && cfg.timeout > 0) {
@@ -129,7 +133,7 @@ function persist(cfg: LLMConfig): void {
   const tmp = `${configPath}.tmp`
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    atomicWriteBackup(configPath, JSON.stringify(cfg, null, 2), 0o600)
+    atomicWrite(configPath, JSON.stringify(cfg, null, 2), 0o600)
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }) } catch {}
     throw new LLMError(`LLM 配置写入失败：${(e as Error).message}`)

@@ -7,11 +7,28 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const HTML = process.argv[2];
+// 2026-10-18 纸面小修：原先不传参直接 TypeError 退出（"工具能用但不会被跑"）。
+// 现在无参时回退到仓库默认架构图 docs/tegula-architecture.html，缺文件才报清晰错误。
+const DEFAULT_HTML = path.resolve(__dirname, '../docs/tegula-architecture.html');
+const HTML = process.argv[2] || (fs.existsSync(DEFAULT_HTML) ? DEFAULT_HTML : '');
+if (!HTML) {
+  console.log('RESULT FAIL 未指定 HTML 且默认文件不存在: ' + DEFAULT_HTML);
+  console.log('用法：node check-arch-geometry.cjs <html路径>');
+  process.exit(1);
+}
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find(p => fs.existsSync(p));
+
+// 2026-10-18：无 Chrome/Edge 时给清晰退出（原来 spawn(undefined) 抛 TypeError，
+// 错误信息完全不知所云——沙箱/CI 里跑到的第一现场就是这个）
+if (!CHROME) {
+  console.log('RESULT FAIL 未找到 Chrome/Edge（几何自检需要真机浏览器，检查列表：');
+  console.log('  C:/Program Files/Google/Chrome/Application/chrome.exe');
+  console.log('  C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe ）');
+  process.exit(1);
+}
 
 const AUDIT = `(function () {
   const out = { ok: true, problems: [], info: {} };

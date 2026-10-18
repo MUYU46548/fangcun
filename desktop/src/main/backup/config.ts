@@ -10,7 +10,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { app, safeStorage } from 'electron'
-import { atomicWriteBackup } from '../data'
+import { atomicWrite } from '../data'
 
 export interface BackupRemote {
   url: string
@@ -45,6 +45,8 @@ export interface BackupConfig {
   firstDelayMinutes: number
   /** 本地保留份数 */
   localKeep: number
+  /** 本地备份总占用上限（MB）。超过时从最旧开始淘汰，0 = 不限（2026-10-18 体积线，老配置无此键走默认） */
+  maxLocalMb: number
   /** 远端保留份数（0 = 不轮换远端） */
   remoteKeep: number
   /** 本地备份目录，空则用 <dataDir>/backups */
@@ -59,6 +61,7 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
   intervalHours: 6,
   firstDelayMinutes: 5,
   localKeep: 10,
+  maxLocalMb: 0,
   remoteKeep: 10,
   localDir: '',
   remote: {
@@ -154,6 +157,8 @@ function normalize(cfg: BackupConfig): void {
   cfg.intervalHours = clampInt(cfg.intervalHours, 0, 24 * 7, DEFAULT_BACKUP_CONFIG.intervalHours)
   cfg.firstDelayMinutes = clampInt(cfg.firstDelayMinutes, 0, 24 * 60, DEFAULT_BACKUP_CONFIG.firstDelayMinutes)
   cfg.localKeep = clampInt(cfg.localKeep, 1, 200, DEFAULT_BACKUP_CONFIG.localKeep)
+  // 0 = 不限；上限 10240MB（10GB，同 slim 上限理由）。老配置无此键 → undefined → 回落默认 0
+  cfg.maxLocalMb = clampInt((cfg as any).maxLocalMb, 0, 10240, DEFAULT_BACKUP_CONFIG.maxLocalMb)
   cfg.remoteKeep = clampInt(cfg.remoteKeep, 0, 200, DEFAULT_BACKUP_CONFIG.remoteKeep)
   cfg.remote.url = String(cfg.remote.url || '').trim().replace(/\/+$/, '')
   cfg.remote.username = String(cfg.remote.username || '').trim()
@@ -174,7 +179,7 @@ function persist(cfg: BackupConfig): void {
   const tmp = `${configPath}.tmp`
   try {
     fs.mkdirSync(path.dirname(configPath), { recursive: true })
-    atomicWriteBackup(configPath, JSON.stringify(cfg, null, 2), 0o600)
+    atomicWrite(configPath, JSON.stringify(cfg, null, 2), 0o600)
   } catch (e) {
     try { fs.rmSync(tmp, { force: true }) } catch {}
     throw new Error(`备份配置写入失败：${(e as Error).message}`)
@@ -279,7 +284,7 @@ export function saveBackupState(patch: Partial<BackupState>): BackupState {
   const next = { ...getBackupState(), ...patch }
   const { statePath } = getBackupPaths()
   try {
-    atomicWriteBackup(statePath, JSON.stringify(next, null, 2), 0o600)
+    atomicWrite(statePath, JSON.stringify(next, null, 2), 0o600)
   } catch (e) {
     console.warn(`[backup] 状态写入失败：${(e as Error).message}`)
   }

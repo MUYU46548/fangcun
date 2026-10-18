@@ -49,6 +49,10 @@ export interface RunResult {
   /** 被瘦身跳过的文件（逐条记账，界面直接显示"少了什么/省了多少"） */
   omittedFiles: OmittedEntry[]
   omittedBytes: number
+  /** 2026-10-18：本地轮换逐条记录（base + 释放 MB + 触发原因），结果对象直接可审计 */
+  rotated: Array<{ base: string; mb: number; reason: string }>
+  /** 本地轮换释放的总字节（三件套实测合计） */
+  rotatedFreedBytes: number
 }
 
 function stamp(): string {
@@ -91,6 +95,7 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     zipSha256: '', verifyOk: false,
     errors, warnings, excludedSecrets: [],
     omittedFiles: [], omittedBytes: 0,
+    rotated: [], rotatedFreedBytes: 0,
   }
 
   saveBackupState({ lastRunAt: new Date().toISOString() })
@@ -155,10 +160,21 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     return finish(result, started)
   }
 
-  // ── 4. 本地轮换 ──────────────────────────────────────────────────────
+  // ── 4. 本地轮换（份数线 localKeep + 体积线 maxLocalMb，逐条记账 2026-10-18）──
   try {
-    const removed = rotateLocal(localDir, cfg.localKeep)
-    if (removed > 0) appendBackupLog(`本地轮换删除 ${removed} 个旧备份`)
+    const rep = rotateLocal(localDir, cfg.localKeep, cfg.maxLocalMb)
+    result.rotated = rep.removed.map((r, i) => ({
+      base: r.base,
+      mb: +(r.bytes / 1048576).toFixed(2),
+      reason: rep.reasons[i]?.reason || '',
+    }))
+    result.rotatedFreedBytes = rep.freedBytes
+    for (const r of result.rotated) {
+      appendBackupLog(`轮换淘汰 ${r.base}（释放 ${r.mb}MB，${r.reason}）`)
+    }
+    if (rep.unrecognized.length > 0) {
+      warnings.push(`备份目录有 ${rep.unrecognized.length} 个非标准命名的 zip 未参与轮换（手工改名/导入包？）：${rep.unrecognized.slice(0, 3).join(', ')}${rep.unrecognized.length > 3 ? ' …' : ''}`)
+    }
   } catch (e) {
     warnings.push(`本地轮换失败：${(e as Error).message}`)
   }
@@ -285,26 +301,122 @@ export function listLocalBackups(): Array<{ name: string; path: string; bytes: n
     (Date.parse(b.mtime) || 0) - (Date.parse(a.mtime) || 0) || b.name.localeCompare(a.name))
 }
 
-/** 保留最新 keep 份，其余删除。返回删除数量。 */
-export function rotateLocal(dir: string, keep: number): number {
-  if (!fs.existsSync(dir)) return 0
-  const bases = new Set<string>()
+/**
+ * 轮换执行报告（2026-10-18 体积线+逐条记账改造）。
+ * 「先预览再删」：dryRun=true 时只算不删，返回的 removed 就是将要删的清单。
+ */
+export interface RotateReport {
+  /** 逐条删除记录：base + 该组 zip 字节数（含 .zip / .zip.sha256 / .manifest.json 三件套） */
+  removed: Array<{ base: string; bytes: number }>
+  /** 本次轮换释放的总字节数（三件套合计） */
+  freedBytes: number
+  /** 轮换后剩余组数 */
+  kept: number
+  /** 目录里不匹配标准名 fangcun-data-YYYYMMDD-HHMMSS 的 .zip（不参与轮换计数，人工关注） */
+  unrecognized: string[]
+  /** 触发淘汰的原因（逐条对应 removed 的顺序）："份数超限" | "体积超限" */
+  reasons: Array<{ base: string; reason: string }>
+}
+
+/** 目录体检（不删任何东西）：配置 keep/maxMb 与目录实际状态的差异诊断，轮换体检/演练脚本共用。 */
+export function diagnoseRotation(dir: string, keep: number, maxMb: number): {
+  dirExists: boolean
+  standardCount: number
+  totalBytes: number
+  unrecognized: string[]
+  oldestStandard: string | null
+  newestStandard: string | null
+  /** 体检结论（人话，逐条） */
+  verdicts: string[]
+} {
+  const verdicts: string[] = []
+  if (!fs.existsSync(dir)) {
+    return { dirExists: false, standardCount: 0, totalBytes: 0, unrecognized: [], oldestStandard: null, newestStandard: null, verdicts: ['目录不存在：' + dir] }
+  }
+  const groups = collectGroups(dir)
+  const bytes = groups.reduce((s, g) => s + g.bytes, 0)
+  const unrecognized = fs.readdirSync(dir).filter((f) => f.endsWith('.zip') && !/^fangcun-data-\d{8}-\d{6}\.zip$/.test(f))
+  const sorted = [...groups].sort((a, b) => a.mtimeMs - b.mtimeMs)
+  const oldest = sorted[0] || null
+  const newest = sorted[sorted.length - 1] || null
+  if (unrecognized.length > 0) {
+    verdicts.push(`有 ${unrecognized.length} 个非标准命名的 zip 不参与轮换（手工改名/导入包/旧版格式）：${unrecognized.slice(0, 5).join(', ')}${unrecognized.length > 5 ? ' …' : ''}`)
+  }
+  if (groups.length > keep) {
+    verdicts.push(`份数 ${groups.length} > 保留线 ${keep}：按配置下次轮换会淘汰最旧 ${groups.length - keep} 组（本函数只是体检，不删）`)
+  } else {
+    verdicts.push(`份数 ${groups.length} ≤ 保留线 ${keep}：份数线未触发`)
+  }
+  if (maxMb > 0 && bytes > maxMb * 1024 * 1024) {
+    verdicts.push(`体积 ${(bytes / 1048576).toFixed(1)}MB > 上限 ${maxMb}MB：按配置下次轮换会从最旧开始淘汰到线下（本函数只是体检，不删）`)
+  } else if (maxMb > 0) {
+    verdicts.push(`体积 ${(bytes / 1048576).toFixed(1)}MB ≤ 上限 ${maxMb}MB：体积线未触发`)
+  } else {
+    verdicts.push('体积线未启用（maxLocalMb=0）')
+  }
+  return {
+    dirExists: true,
+    standardCount: groups.length,
+    totalBytes: bytes,
+    unrecognized,
+    oldestStandard: oldest ? oldest.base : null,
+    newestStandard: newest ? newest.base : null,
+    verdicts,
+  }
+}
+
+/** 收集标准命名的备份组（一组 = base + zip/sha256/manifest 三件套）。bytes=三件套实测合计；mtimeMs 以 zip 为准。 */
+function collectGroups(dir: string): Array<{ base: string; bytes: number; mtimeMs: number }> {
+  const bases = new Map<string, { bytes: number; mtimeMs: number }>()
   for (const f of fs.readdirSync(dir)) {
-    const m = f.match(/^(fangcun-data-\d{8}-\d{6})\./)
-    if (m) bases.add(m[1])
+    const m = f.match(/^(fangcun-data-\d{8}-\d{6})\.(zip|zip\.sha256|manifest\.json)$/)
+    if (!m) continue
+    try {
+      const st = fs.statSync(path.join(dir, f))
+      const cur = bases.get(m[1]) || { bytes: 0, mtimeMs: 0 }
+      cur.bytes += st.size
+      if (m[2] === 'zip') cur.mtimeMs = st.mtimeMs
+      bases.set(m[1], cur)
+    } catch { /* 单个不可读跳过 */ }
   }
-  const sorted = Array.from(bases).sort()
-  let removed = 0
-  while (sorted.length > keep) {
-    const b = sorted.shift()!
-    for (const ext of ['.zip', '.zip.sha256', '.manifest.json']) {
-      const p = path.join(dir, b + ext)
-      try {
-        if (fs.existsSync(p)) { fs.unlinkSync(p); if (ext === '.zip') removed++ }
-      } catch { /* 单个删除失败不中断 */ }
+  return Array.from(bases.entries()).map(([base, v]) => ({ base, ...v }))
+}
+
+/**
+ * 保留最新 keep 份、总占用不超 maxMb（0=不限），超出部分从最旧删除。返回逐条报告。
+ * 2026-10-18 两处升级（体积线 task-20261018-004）：
+ *  ① 排序判据从「文件名字典序」改为 zip 的 mtime —— 与 listLocalBackups 的 2026-09-25
+ *    修正对齐（名字是代理值，手工改名/导入包会失序；mtime 才是真正的"最新"）；
+ *  ② 新增体积线：份数达标但总占用超 maxMb 时，继续从最旧淘汰到线下。
+ * 兼容：keep 语义不变；原「返回删除份数」的老调用（e2e）改用 report.removed.length。
+ */
+export function rotateLocal(dir: string, keep: number, maxMb = 0, dryRun = false): RotateReport {
+  const empty: RotateReport = { removed: [], freedBytes: 0, kept: 0, unrecognized: [], reasons: [] }
+  if (!fs.existsSync(dir)) return empty
+  const groups = collectGroups(dir)
+  const unrecognized = fs.readdirSync(dir).filter((f) => f.endsWith('.zip') && !/^fangcun-data-\d{8}-\d{6}\.zip$/.test(f))
+  // 最旧在前（mtime 升序；mtime 异常的按 base 兜底排序，保证确定性）
+  const sorted = [...groups].sort((a, b) => a.mtimeMs - b.mtimeMs || a.base.localeCompare(b.base))
+  const report: RotateReport = { removed: [], freedBytes: 0, kept: sorted.length, unrecognized, reasons: [] }
+
+  const groupFiles = (base: string) => ['.zip', '.zip.sha256', '.manifest.json'].map((ext) => path.join(dir, base + ext))
+
+  for (const g of sorted) {
+    const overCount = sorted.length - report.removed.length > keep
+    const overSize = maxMb > 0 && (groups.reduce((s, x) => s + x.bytes, 0) - report.freedBytes) > maxMb * 1024 * 1024
+    if (!overCount && !overSize) break
+    const reason = overCount ? '份数超限' : '体积超限'
+    if (!dryRun) {
+      for (const p of groupFiles(g.base)) {
+        try { if (fs.existsSync(p)) fs.unlinkSync(p) } catch { /* 单个删除失败不中断 */ }
+      }
     }
+    report.removed.push({ base: g.base, bytes: g.bytes })
+    report.reasons.push({ base: g.base, reason })
+    report.freedBytes += g.bytes
   }
-  return removed
+  report.kept = sorted.length - report.removed.length
+  return report
 }
 
 async function rotateRemote(client: WebdavClient, keep: number): Promise<number> {

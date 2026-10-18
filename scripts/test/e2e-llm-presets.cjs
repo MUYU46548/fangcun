@@ -64,6 +64,17 @@ function main() {
   check('★ 主进程默认配置仍是未配置态（baseUrl 空串）',
     /baseUrl: '',/.test(cfg) && /model: '',/.test(cfg))
 
+  // ── ⑤b 空串可清空（2026-10-18 纸面小修）：setConfig 不再把空串当"未修改" ──
+  const setBody = (cfg.match(/export function setConfig[\s\S]*?\n\}/) || [''])[0]
+  check('★ setConfig 允许显式空串清空 baseUrl（用户能清掉端点，不再只能整体重置）',
+    /if \(typeof cfg\.baseUrl === 'string'\)/.test(setBody)
+      && !/typeof cfg\.baseUrl === 'string' && cfg\.baseUrl\.trim\(\)/.test(setBody))
+  check('★ setConfig 同样允许清空 model（同语义对称）',
+    /if \(typeof cfg\.model === 'string'\)/.test(setBody)
+      && !/typeof cfg\.model === 'string' && cfg\.model\.trim\(\)/.test(setBody))
+  check('★ 掩码防线未松动（isMaskedKey 分支仍在，空串清空不波及密钥）',
+    /!isMaskedKey\(cfg\.apiKey\)/.test(setBody))
+
   // ── ⑥ 反例自证：正则不是永远为真 ─────────────────────────────────
   check('（反例）把端点写错时上面的测试会红 —— 正则对错误域名不成立',
     !/llmCfg\.value\.baseUrl = 'https:\/\/api\.xiaomimimo\.com\.cn\/v1'/.test(app))

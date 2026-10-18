@@ -211,6 +211,10 @@ async function main() {
   check('本地 zip 已生成', !!r1.localPath && fs.existsSync(r1.localPath))
   check('已上传远端', !!r1.remotePath, String(r1.remotePath))
   check('文件数 >= 6', r1.files >= 6, String(r1.files))
+  // 2026-10-18：主流程轮换记账（rotated 逐条 + freedBytes；首次备份目录只有 1 组，不触发淘汰，字段必须存在且为空数组）
+  check('runBackup 结果带 rotated 逐条记账字段（空轮换=空数组，字段不缺）',
+    Array.isArray(r1.rotated) && r1.rotated.length === 0 && r1.rotatedFreedBytes === 0,
+    JSON.stringify({ rotated: r1.rotated, freed: r1.rotatedFreedBytes }))
 
   const zipBuf = fs.readFileSync(r1.localPath)
   check('本地 sha256 与结果一致', sha256(zipBuf) === r1.zipSha256)
@@ -346,12 +350,40 @@ async function main() {
     fs.writeFileSync(path.join(rotDir, b + '.zip.sha256'), 'x')
     fs.writeFileSync(path.join(rotDir, b + '.manifest.json'), '{}')
   }
-  const removed = bk.rotateLocal(rotDir, 2)
+  // 2026-10-18 升级：报告对象 / mtime 判据 / 体积线 / dryRun / unrecognized。
+  // 判据①mtime：20260105 名字最新但 mtime 被拨到最旧 —— 淘汰的必须是它（文件名字典序会保留它=mtime 判据的精确反证）
+  const old = new Date(Date.now() - 86400000)
+  fs.utimesSync(path.join(rotDir, 'fangcun-data-20260105-120000.zip'), old, old)
+  const rep = bk.rotateLocal(rotDir, 4)
+  check('本地轮换返回逐条报告（2026-10-18 改造）', !!rep && Array.isArray(rep.removed) && rep.removed.length === 1, JSON.stringify(rep && rep.removed))
+  check('★★ 淘汰判据是 mtime 不是文件名（名字最新/mtime 最旧的被删）',
+    !!rep.removed[0] && rep.removed[0].base === 'fangcun-data-20260105-120000', JSON.stringify(rep.removed))
+  check('轮换逐条带触发原因', !!rep.reasons[0] && rep.reasons[0].reason === '份数超限', JSON.stringify(rep.reasons))
+  check('轮换报告带释放字节数', rep.freedBytes > 0, String(rep.freedBytes))
   const left = fs.readdirSync(rotDir).filter(f => f.endsWith('.zip'))
-  check('本地轮换删除了 3 组', removed === 3, String(removed))
-  check('本地轮换后剩 2 组', left.length === 2, left.join(','))
-  check('轮换保留的是最新的', left.sort()[0] === 'fangcun-data-20260104-120000.zip', left.join(','))
-  check('轮换同时清理了 sidecar', fs.readdirSync(rotDir).length === 6, String(fs.readdirSync(rotDir).length))
+  check('轮换后剩 4 组', left.length === 4, left.join(','))
+  check('轮换同时清理了 sidecar', fs.readdirSync(rotDir).length === 12, String(fs.readdirSync(rotDir).length))
+
+  // 判据②体积线：keep 给大不触发份数线，只靠 maxMb 淘汰（3 组各 ~2KB，上限 4KB → 淘汰最旧 1 组）
+  const rotDir2 = path.join(TEST_ROOT, '_rotate-test-size')
+  fs.mkdirSync(rotDir2, { recursive: true })
+  fs.writeFileSync(path.join(rotDir2, 'handmade.zip'), 'x')  // 非标准名：不参与轮换，进 unrecognized
+  for (let i = 1; i <= 3; i++) {
+    const b = `fangcun-data-2026020${i}-120000`
+    fs.writeFileSync(path.join(rotDir2, b + '.zip'), Buffer.alloc(2048 + i, 0x61))
+    fs.writeFileSync(path.join(rotDir2, b + '.zip.sha256'), 'x')
+    fs.writeFileSync(path.join(rotDir2, b + '.manifest.json'), '{}')
+  }
+  const repDry = bk.rotateLocal(rotDir2, 100, 0.004, true)
+  check('体积线 dryRun 预览不删文件', repDry.removed.length === 1 && fs.existsSync(path.join(rotDir2, 'fangcun-data-20260201-120000.zip')), JSON.stringify(repDry.removed))
+  check('体积线淘汰的原因标注正确（keep=100 不触发份数线）',
+    !!repDry.reasons[0] && repDry.reasons[0].reason === '体积超限', JSON.stringify(repDry.reasons))
+  check('非标准命名 zip 进 unrecognized（轮换体检的证据面）',
+    repDry.unrecognized.includes('handmade.zip'), JSON.stringify(repDry.unrecognized))
+  const repSize = bk.rotateLocal(rotDir2, 100, 0.004)
+  check('体积线实删后回到线下', fs.readdirSync(rotDir2).filter(f => f.endsWith('.zip')).length === 3, '')  // 3=剩2组+handmade
+  check('体积线释放字节数=被删组三件套合计', repSize.freedBytes >= 2049 && repSize.freedBytes < 4096, String(repSize.freedBytes))
+  check('dryRun→实删清单一致（预览即所得）', repSize.removed.length === repDry.removed.length && repSize.removed[0].base === repDry.removed[0].base, JSON.stringify({ dry: repDry.removed, real: repSize.removed }))
 
   // ── 远端轮换 ──────────────────────────────────────────────────────────
   const remoteBefore = (await probe.list('')).map(f => f.name).filter(n => n.endsWith('.zip'))

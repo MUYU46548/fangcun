@@ -30,13 +30,17 @@ const RESTORE_TARGETS = ['task-data', 'registry.yaml', 'docs']
 /**
  * 从本地 zip 恢复。
  * `fromRemote` 为远端文件名时，先下载再恢复。
+ *
+ * 2026-10-18 演练支持：opts.targetDir 把恢复落位指到别的目录（演练脚本传临时目录，
+ * 全流程真跑一遍但**零破坏**——真实 dataDir 一个字节都不动）。缺省行为完全不变。
  */
 export async function restoreFrom(
-  source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }
+  source: { kind: 'local'; path: string } | { kind: 'remote'; name: string },
+  opts?: { targetDir?: string }
 ): Promise<RestoreResult> {
   const errors: string[] = []
   const warnings: string[] = []
-  const dataDir = data.getDataDir()
+  const dataDir = opts?.targetDir ? path.resolve(opts.targetDir) : data.getDataDir()
   const result: RestoreResult = {
     ok: false, restoredFiles: 0, dataDir, snapshotDir: null, manifest: null, errors, warnings,
   }

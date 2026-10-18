@@ -116,7 +116,7 @@ export function setDataDir(newDir: string): void {
   // 用户表现为「切了目录但数据又丢了」。写失败不炸（下次启动回退探测链）。
   try {
     const cfgPath = path.join(app.getPath('userData'), 'data-dir.json')
-    atomicWriteBackup(cfgPath, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2))
+    atomicWrite(cfgPath, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2))
   } catch { /* 持久化失败不影响本次会话 */ }
 }
 
@@ -1046,14 +1046,12 @@ export function atomicWrite(filePath: string, content: string, mode?: number): v
   invalidateTaskCache()
 }
 
-// 与 Python write_task_file「写前备份→原子写」同语义的数据文件写入口。
-// ⚠ atomicWrite **内部已含** rotateBackup（写前备份 :906 + 读回校验 + 原子改名）——
-// 这里刻意不再旋转第二次：同一旧版本会占两个 keep-10 名额（同秒同路径幂等、跨秒重复）。
-// 名字保留「Backup」是给调用点的意图声明：数据/配置落盘必须走这条带滚动备份的管线，
-// 禁止再手写 tmp+rename（源码守卫见 e2e-logs 族2b）。
-export function atomicWriteBackup(filePath: string, content: string, mode?: number): void {
-  atomicWrite(filePath, content, mode)
-}
+// 与 Python write_task_file「写前备份→原子写」同语义的数据文件写入口：atomicWrite 本体（:1022）。
+// ⚠ atomicWrite **内部已含** rotateBackup（写前备份 + 读回校验 + 原子改名）——
+// 调用点直接用它即可，不要再旋转第二次：同一旧版本会占两个 keep-10 名额。
+// 2026-10-18 纸面小修：曾有个零参数转发壳 atomicWriteBackup，名字让人误以为
+// 「atomicWrite 不带备份、这个才带」——纯属误导，已删除；6 个调用点全部直连 atomicWrite。
+// 数据/配置落盘必须走这条带滚动备份的管线，禁止再手写 tmp+rename（源码守卫见 e2e-logs 族2b）。
 
 export function rotateBackup(filePath: string): void {
   if (!fs.existsSync(filePath)) return
