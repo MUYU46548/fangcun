@@ -220,6 +220,34 @@
 命名管道: \\.\pipe\tegula-mcp
 ```
 
+**stdio 桥的正确形态（2026-10-18 定稿，别走回头路）**：MCP 客户端 spawn 的是
+「方寸自己的可执行文件 + `ELECTRON_RUN_AS_NODE=1` + 包内桥脚本」：
+
+```yaml
+command: "…\方寸.exe"            # 开发态 = desktop\node_modules\electron\dist\electron.exe
+args:    ["…\resources\app.asar\dist\main\mcp\bridge-standalone.js"]
+env:     { ELECTRON_RUN_AS_NODE: "1" }   # ← 不能省
+```
+
+- **env 不能省**：少了它方寸以 GUI 模式启动，会拉起 GPU 进程（本机连崩 6 次后
+  `FATAL: gpu_process_host isn't usable. Goodbye.` 直接带走进程），客户端只看到"服务瞬间没了"。
+- **不要退回 `node dist/cli/tegula-mcp.js`**：安装版里那个 js 在 `app.asar` 内，
+  外部 node 执行不了；而且裸 `node` 在 GUI 应用的 PATH 里通常不存在。
+- 客户端不支持配置 `env` → 用「入口 C」（本机 node 绝对路径跑同一个桥脚本，能力相同）。
+- 方寸设置页「接入其他 Agent」按本机路径生成配置段，两个入口都在。
+
+### 快速自检
+
+```bash
+# 读 DSH / Hermes 的真实配置，像客户端一样 spawn + 握手 + 真写一张卡再删
+node scripts/check-agent-mcp.cjs            # 全量（含写侧）
+node scripts/check-agent-mcp.cjs --readonly # 只读
+ls \\.\pipe\\tegula-mcp 2>/dev/null && echo "MCP OK" || echo "MCP MISSING"
+```
+
+⚠ `echo '{…}' | 方寸.exe …` 这类一次性管道自检对 exe 类入口不可靠（启动 300ms+ 时 stdin 已 EOF），
+用例脚本 `probe-mcp-bridge.cjs` 才是准的。
+
 ### MCP 工具清单
 
 | 工具 | 说明 |
@@ -239,12 +267,6 @@
 | `plan_list/plan_get/plan_pending` | 规划管理 |
 | `gate_list` | 验收门列表 |
 | `list_logs` / `search_logs` / `get_log` | 执行日志：按 ID 定位 / 全文检索 / 单条读取（只读，2026-09-29 加） |
-
-### 快速自检
-
-```bash
-ls \\.\pipe\\tegula-mcp 2>/dev/null && echo "MCP OK" || echo "MCP MISSING"
-```
 
 ### 各 Agent 接入方式
 
