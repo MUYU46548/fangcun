@@ -74,7 +74,51 @@ def clean_md(s):
 def sec_title(head, n=44):
     t = clean_md(head)
     t = re.split(r"[（(]", t)[0].strip()
-    return t[:n]
+    return smart_title(t, n)
+
+
+# ── 标题截断（2026-10-18 修）─────────────────────────────────────────────
+#
+# 病灶：原来三处写死 `txt[:56]`，按**字符**硬切，于是
+#   欠账盘点 v4 的"等你 3"余项：word 模板 / 样例清洗点头（"大件派谁"已销——你自己派了自己，0b02e48 规划四态）
+# 被切成 `…你自己派了自己，0b0` —— commit hash 砍掉一半、**且没有省略号**，
+# 卡面上看起来就是一个完整但读不懂的标题（用户原话「方寸里一堆看不懂的东西」）。
+#
+# 现在的判据三条：
+#   ① 放得下就**一个字不动**（绝大多数条目走这条，标题 === 原文）；
+#   ② 非要切，就切在**自然边界**（标点后/空格后），并且**不许落在连续 ASCII 词内部**
+#      —— commit hash、版本号、文件路径、snake_case 都不许被拦腰砍；
+#   ③ 切了就必须加 `…`，让"不完整"这件事是看得见的。
+TITLE_MAX = 80          # B/D 表卡标题上限（实测账本 p90 = 62、最长 139，80 已覆盖绝大多数）
+_BOUNDARY = "，。；、：！？,.;:!? "      # 可以在此之后断句
+_ASCII_WORD = re.compile(r"[A-Za-z0-9_.\-/]")
+
+
+def smart_title(s, n=TITLE_MAX):
+    """按自然边界截断 + 省略号；放得下就原样返回（不做任何改写）。"""
+    t = str(s or "").strip()
+    if len(t) <= n:
+        return t
+
+    cut = None
+    # ① 从 n 往前找最近的断句点（标点/空格之后是最自然的切口）
+    for i in range(n, max(0, n // 2), -1):
+        if t[i - 1] in _BOUNDARY:
+            cut = i
+            break
+
+    if cut is None:
+        # ② 没有断句点 → 硬切在 n，但**不许落在连续 ASCII 词内部**
+        #    （commit hash / 版本号 / 文件路径 / snake_case 拦腰砍 = 读不懂）
+        cut = n
+        j = cut
+        while j > 0 and _ASCII_WORD.match(t[j - 1]):
+            j -= 1
+        # 退到词起点；退得太狠（丢掉超过一半）就退回硬切，否则只剩几个字更难懂
+        if j > max(12, n // 2):
+            cut = j
+
+    return t[:cut].rstrip(" ，。；、：,.;: ") + "…"
 
 
 def section_of(head, key):
@@ -249,7 +293,7 @@ def build_plan(ledger, version):
                 # 账本里带 `→ 已修 / 已落地 / 已合入 / 已被你的产线做掉` 的条目**已经是闭环**，
                 # 直接建成「完成」卡 —— 不许让做完的事继续挂在待办上冒充欠账（那就是账变浆糊的起点）。
                 done = bool(re.search(r"→\s*已|已修（|已落地|已合入|已被你的产线做掉|已交付", txt))
-                title = "[账本] %s：%s" % (sec, txt[:56])
+                title = "[账本] %s：%s" % (sec, smart_title(txt))
                 plan.add(k, title, PROJECT_OF.get(sec),
                          ["- [%s] %s" % ("x" if done else " ", txt),
                           "",
@@ -279,11 +323,11 @@ def build_plan(ledger, version):
         elif letter == "D":
             items, notes = parse_numbered_items(body)
             for i, txt in enumerate(items, 1):
-                plan.add("D-%d" % i, "[账本·欠账] %s" % txt[:56], None,
+                plan.add("D-%d" % i, "[账本·欠账] %s" % smart_title(txt), None,
                          ["- [ ] %s" % txt, "", "- [ ] 出处：账本 D 表第 %d 条（agent 侧明确认领后没交的）" % i],
                          remark="账本 D 表（agent 侧欠账）", priority="高", tags=["欠账"])
             for j, nt in enumerate(notes, 1):
-                plan.add("D-note-%d" % j, "[账本·销账] %s" % nt[:56], None,
+                plan.add("D-note-%d" % j, "[账本·销账] %s" % smart_title(nt), None,
                          ["- [x] %s" % nt, "", "- [ ] 出处：账本 D 表补充行（已销账记录，留档防重复追讨）"],
                          remark="账本 D 表补充行", status="完成", tags=["销账"])
 
@@ -320,17 +364,120 @@ def build_plan(ledger, version):
     return plan
 
 
+def _replace_title_line(path, new_title):
+    """**只**替换 frontmatter 里的 `标题:` 那一行，其余字节不动。
+
+    ⚠ 为什么不用 core.write_task_file：它会经 render_task 整卡重排 ——
+      实测把 `项目:` 块式列表改成 flow 数组、给空字段补 `批次:/开始:/截止:`、
+      丢掉时间戳的引号、吞掉末尾空行。语义虽等价，但改个标题顺手把 12 张卡
+      的格式全漂移一遍，是"看不出到底变了什么"的典型来源。
+    """
+    with open(path, encoding="utf-8", newline="") as f:
+        raw = f.read()
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n", raw, re.S)
+    if not m:
+        return False
+    block = m.group(1)
+    tm = re.search(r"^标题:.*$", block, re.M)
+    if not tm:
+        return False
+    old_line = tm.group(0)
+    new_line = "标题: " + core.yaml_scalar(new_title)
+    if old_line == new_line:
+        return True
+    out = raw.replace(old_line, new_line, 1)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(out)
+    # 读回校验：改动必须只落在标题行（差一个字符都算失败，宁可不动）
+    with open(tmp, encoding="utf-8", newline="") as f:
+        back = f.read()
+    if back.replace(new_line, old_line, 1) != raw:
+        os.remove(tmp)
+        raise RuntimeError("标题替换影响到了别的字节：%s" % path)
+    os.replace(tmp, path)
+    return True
+
+
+def refix_titles(plan, version, apply=False):
+    """把**已落盘**账本卡的标题按新逻辑重算（2026-10-18）
+
+    为什么需要它：幂等是按 `[账本:<版本>:<key>]` 标记跳过 —— 旧卡不会被重建，
+    所以上一版 `txt[:56]` 砍出来的半截标题（`…你自己派了自己，0b0`）**不会自己变好**。
+    本函数只改 frontmatter 的 `标题:` 一行（文本级替换），不碰状态/正文/指派/结果记录，
+    也不改变其余任何字节（见 _replace_title_line 的注释）。
+
+    默认 dry-run（只打印差异），`--apply` 才写盘。
+    """
+    import glob
+    want = {c["key"]: c["标题"] for c in plan.cards}
+    tdir = core.TASK_DIR
+    files = sorted(glob.glob(os.path.join(tdir, "*.md")))
+    changed, missing, broken = [], [], []
+
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = f.read()
+        except OSError:
+            continue
+        m = re.search(r"\[账本:%s:([^\]]+)\]" % re.escape(version), raw)
+        if not m:
+            continue
+        key = m.group(1)
+        new_title = want.get(key)
+        if new_title is None:
+            missing.append((key, os.path.basename(path)))
+            continue
+        d = core.parse_task(path)
+        if not d:
+            broken.append(os.path.basename(path))   # 解析失败的卡不硬改（可能手写过特殊结构）
+            continue
+        # ⚠ parse_task 返回的是**扁平中文键** dict（'标题' 就在顶层，不是 d['fm']['title']），
+        #   写回同样走扁平 dict → render_task 会按 FM_ORDER 重排。
+        old_title = str(d.get("标题") or "")
+        if old_title == new_title:
+            continue
+        changed.append((key, os.path.basename(path), old_title, new_title))
+        if apply:
+            try:
+                _replace_title_line(path, new_title)
+            except RuntimeError as e:
+                broken.append("%s（%s）" % (os.path.basename(path), e))
+
+    print("\n标题重算（版本 %s）：差异 %d 张%s" % (version, len(changed), "，已写盘" if apply else "（dry-run，未写盘）"))
+    for key, fn, old, new in changed:
+        print("  [%s] %s" % (key, fn))
+        print("    旧：%s" % old)
+        print("    新：%s" % new)
+    if missing:
+        print("  ⚠ 计划里找不到这些 key（账本改版了？）：%s" % missing[:5])
+    if broken:
+        print("  ⚠ 这些卡解析不出来，没动：%s" % broken[:5])
+    if changed and not apply:
+        print("  加 --apply 才会真的写盘。")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ledger", help="账本 md 路径")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--ledger-version", default="20261015")
+    ap.add_argument("--refix-titles", action="store_true",
+                    help="只重算已落盘卡片的标题（配合 --apply 写盘），不新建任何卡")
+    ap.add_argument("--apply", action="store_true", help="配合 --refix-titles：真的写盘")
     args = ap.parse_args()
 
     with open(args.ledger, encoding="utf-8") as f:
         ledger = f.read()
 
     plan = build_plan(ledger, args.ledger_version)
+
+    if args.refix_titles:
+        return refix_titles(plan, args.ledger_version, apply=args.apply)
+
     have = existing_keys()
 
     def marker(c):
