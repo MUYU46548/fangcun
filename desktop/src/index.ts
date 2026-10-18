@@ -12,6 +12,12 @@ import { startScanner, stopScanner } from './main/services/notifier'
 import { startIdleReminder, stopIdleReminder } from './main/services/idleReminder'
 import * as appLog from './main/services/appLog'
 
+// ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
+// 本文件**不再**自己判断 `--mcp-bridge`：TypeScript 把所有 import 编译成顶部 require，
+// 写在文件中间的分流判断永远晚于 `require('./main/ipc')` 的顶层副作用（实测死在 ipc.js:897，
+// 纯 node 模式下 ipcMain 是 undefined）。真入口是 src/boot.ts —— 它只有两个 require，
+// 且都在判断之后。真因见 main/mcp/bridge-standalone.ts 顶部注释。
+
 // ── 最先安装全局兜底（2026-09-22）────────────────────────────────────────
 // 用户第 8 条：「任何失败或崩溃根本查不到日志」。此前主进程零兜底 ——
 // 未捕获异常/未处理 rejection 直接消失，终端里只剩 vite 的噪声。

@@ -64,24 +64,32 @@ function devRepoRoot(): string {
   return path.resolve(__dirname, '../../../..')
 }
 
+/** 开发态的 app 目录（electron 需要它作为第一个参数）：dist/main/services → 上溯 3 层 = desktop/ */
+function devAppDir(): string {
+  return path.resolve(__dirname, '../../..')
+}
+
 export function listMcpEntries(): McpEntry[] {
   const out: McpEntry[] = []
 
-  // 入口 A：named pipe 桥。开发态 = desktop/dist/cli/tegula-mcp.js；
-  // 打包态只认 app.asar.unpacked 下的真文件（asar 内文件外部 node 跑不了，fs 虚拟可见 ≠ 可执行）。
-  const candidates = app.isPackaged
-    ? [path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'cli', 'tegula-mcp.js')]
-    : [path.join(__dirname, '../../cli', 'tegula-mcp.js')]
-  const bridge = candidates.find(c => isFile(c))
+  // 入口 A：**自举桥**（2026-10-18 重做）。
+  //
+  // 老写法 `node <app.asar.unpacked>/dist/cli/tegula-mcp.js` 三重死结，导致安装版从来接不上：
+  //   ① dist/cli 被打进 app.asar，外部 node 执行不了（且 builder 没配 asarUnpack）；
+  //   ② `command: node` 依赖 PATH，而 GUI 应用（DSH/Hermes 从快捷方式启动）的用户 PATH 里
+  //      本机根本没有独立 node → spawn ENOENT；
+  //   ③ 相对路径/安装位置漂移。
+  // 现在：直接跑方寸自己的可执行文件 + `--mcp-bridge`，由主进程分流成 stdio↔pipe 桥。
+  // 外部依赖为零，装在哪个目录都对。
+  const exe = process.execPath
+  const bridgeArgs = app.isPackaged ? ['--mcp-bridge'] : [devAppDir(), '--mcp-bridge']
   out.push({
     id: 'A',
     label: '入口 A · named pipe 桥（读写全量）',
-    available: !!bridge,
-    detail: bridge ? '' : (app.isPackaged
-      ? '打包版尚未随包分发该入口（见卡 002 断点），待 asarUnpack 后可用'
-      : '未找到 dist/cli/tegula-mcp.js —— 先在 desktop/ 跑 npm run build'),
-    command: 'node',
-    args: bridge ? [bridge] : [],
+    available: isFile(exe),
+    detail: isFile(exe) ? '' : `找不到方寸可执行文件：${exe}`,
+    command: exe,
+    args: bridgeArgs,
     usage: '读 + 写（create/update/move/delete），依赖方寸桌面版在运行',
   })
 
@@ -265,7 +273,8 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
           '      config:',
           '        serverName: fangcun',
           '        transport: stdio',
-          `        command: ${cmd}`,
+          // 引号不能省：安装路径常含空格与中文（C:\Users\…\AppData\Local\Programs\方寸\方寸.exe）
+          `        command: ${JSON.stringify(cmd)}`,
           `        args: ${argsJson(args)}`,
           ...(entry.id === 'A' ? ['        failOnStartupError: false'] : []),
         ].join('\n'),

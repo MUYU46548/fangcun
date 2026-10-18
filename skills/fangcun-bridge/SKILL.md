@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.3.0
+version: 1.4.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -36,13 +36,18 @@ Hermes 侧的自动装卡与覆盖策略是特例（`skills/manifest.json` 登�
 \\.\pipe\tegula-mcp
 ```
 
-桥接 CLI（stdio → named pipe 通信）：
+stdio 桥 = **方寸自己的可执行文件 + `--mcp-bridge`**（2026-10-18 起；旧的
+`node dist/cli/tegula-mcp.js` 写法在安装版上**从来跑不起来** —— 那个 js 在 app.asar 内，
+外部 node 执行不了，且裸 `node` 在 GUI 应用的 PATH 里通常不存在）：
 
 ```bash
-node dist/cli/tegula-mcp.js
+# 安装版（路径按实际安装位置）
+"C:\Users\<你>\AppData\Local\Programs\方寸\方寸.exe" --mcp-bridge
+# 开发态（仓库 desktop 目录）
+/<fangcun>/desktop/node_modules/electron/dist/electron.exe /<fangcun>/desktop --mcp-bridge
 ```
 
-依赖方寸桌面版在运行（pipe 由主进程持有）。
+依赖方寸桌面版在运行（pipe 由主进程持有）。**MCP 配置段不需要 `env`、不需要外部 node。**
 
 **入口 B · Python stdio（只读，方寸没开也能读）**
 
@@ -61,11 +66,16 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
    ```bash
    ls \\\\.\\pipe\\tegula-mcp 2>/dev/null && echo "pipe OK" || echo "pipe MISSING"
    ```
-   桥接可用性自检：
+   桥接可用性自检（一条命令走完 initialize + tools/list）：
    ```bash
-   cd <desktop 目录> && echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | node dist/cli/tegula-mcp.js
+   node <fangcun>/scripts/check-agent-mcp.cjs --readonly
    ```
-   期望返回含 `result` 的 JSON-RPC 响应。报 `ECONNREFUSED` 或超时 → 桌面版未运行或 pipe 未就绪，**停止调用并报错**，不静默回退。
+   该脚本**读 DSH / Hermes 的真实配置文件**取 command，像客户端一样 spawn + 握手，
+   逐家打印「通了 / 卡在哪」。也可只验一家：
+   ```bash
+   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | "<方寸.exe>" --mcp-bridge
+   ```
+   期望返回含 `result` 的 JSON-RPC 响应。报「方寸桌面版没有在运行」或超时 → 桌面版未启动或 pipe 未就绪，**停止调用并报错**，不静默回退。
 2. **入口 B**：直接发一条 `tools/list`，期望返回只读工具列表。
 
 ## 工具清单（真源 `desktop/src/main/mcp/tools.ts`，下面是快照）

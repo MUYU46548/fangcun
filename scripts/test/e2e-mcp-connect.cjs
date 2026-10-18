@@ -48,9 +48,38 @@ function main() {
     JSON.stringify(entries.map(e => e.id)))
   const entryA = entries.find(e => e.id === 'A')
   const entryB = entries.find(e => e.id === 'B')
-  check('入口 A 可用（dev 已构建 dist/cli/tegula-mcp.js）', entryA.available === true, entryA.detail)
-  check('入口 A args 是绝对路径且文件真实存在',
-    entryA.available && path.isAbsolute(entryA.args[0]) && fs.existsSync(entryA.args[0]), JSON.stringify(entryA.args))
+  // ── 入口 A 自举化（2026-10-18 重做；老写法 `node …app.asar.unpacked/dist/cli/tegula-mcp.js`
+  //    在安装版上从来不可用 —— asar 内文件外部 node 跑不了，且 builder 没配 asarUnpack）──
+  check('入口 A 可用（自举桥：方寸自己的可执行文件）', entryA.available === true, entryA.detail)
+  check('★ 入口 A 的 command 是绝对路径且真实存在（方寸 exe / dev 下的 electron.exe）',
+    entryA.available && path.isAbsolute(entryA.command) && fs.existsSync(entryA.command), entryA.command)
+  check('★ 入口 A 用 --mcp-bridge 自举（零外部 node、不受 app.asar 不可执行的影响）',
+    entryA.args.includes('--mcp-bridge'), JSON.stringify(entryA.args))
+  check('★★ 入口 A 的 command 必须跟随宿主进程可执行文件（真机=方寸.exe，测试进程=node.exe），不许写死裸 `node`',
+    entryA.command === process.execPath, `${entryA.command} vs ${process.execPath}`)
+  check('★ dist/cli/tegula-mcp.js 不再是入口 A 的依赖（asar 内的 js 外部跑不了）',
+    !entryA.args.some(a => /tegula-mcp\.js$/.test(a)), JSON.stringify(entryA.args))
+  // 源码守卫：桥模块必须零 electron 依赖（ELECTRON_RUN_AS_NODE=1 时 electron 模块只剩路径字符串）
+  {
+    // ⚠ 先剥注释再扫：本仓工作区是 CRLF，且这些文件的注释里**故意**会提到 require('electron')
+    //   作为反例说明 —— 直接扫源码会把注释当代码判红（2026-10-18 实锤）。
+    const codeOnly = (p) => fs.readFileSync(p, 'utf-8')
+      .replace(/\r\n/g, '\n')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+    const bridgeSrc = codeOnly(path.join(DIST, 'mcp', 'bridge-standalone.js'))
+    check('★ 桥模块零 require("electron")（否则纯 node 模式下 ipcMain/app 全是 undefined）',
+      !/require\(["']electron["']\)/.test(bridgeSrc), bridgeSrc.slice(0, 80))
+    const pipeSrc = codeOnly(path.join(DIST, 'mcp', 'pipe.js'))
+    check('★ 管道名单一出处 pipe.js 也不依赖 electron', !/require\(["']electron["']\)/.test(pipeSrc))
+    const bootSrc = codeOnly(path.resolve(DIST, '..', 'boot.js'))
+    check('★ 真入口 boot.js 在分流判断之前不许 require 业务模块（TS 会把 import 提到顶部）',
+      bootSrc.indexOf('process.argv.includes') >= 0 &&
+      bootSrc.indexOf("require('./index')") > bootSrc.indexOf('process.argv.includes'),
+      bootSrc.replace(/\n/g, ' ').slice(0, 200))
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(DIST, '../../package.json'), 'utf-8'))
+    check('★ package.json main 指向 boot.js（真入口分流层）', pkg.main === 'dist/boot.js', String(pkg.main))
+  }
   check('入口 B 可用（仓库根 tegula.py）', entryB.available === true, entryB.detail)
   check('入口 B args = [绝对路径 tegula.py, mcp]',
     entryB.available && path.isAbsolute(entryB.args[0]) && entryB.args[1] === 'mcp' && fs.existsSync(entryB.args[0]),
@@ -78,7 +107,7 @@ function main() {
       wb && /不猜/.test(wb.howTo) && /让它自装/.test(wb.howTo), wb && wb.howTo.slice(0, 60))
     const snip = mod.buildMcpSnippet('workbuddy', 'A')
     check('★ WorkBuddy 配置段生成成功（通用 mcpServers 形状 + 本机真实入口路径）',
-      snip.ok && /mcpServers/.test(snip.snippet) && /tegula-mcp\.js/.test(snip.snippet.replace(/\\\\/g, '\\')),
+      snip.ok && /mcpServers/.test(snip.snippet) && /--mcp-bridge/.test(snip.snippet),
       snip.snippet.slice(0, 120))
     const p = mod.buildSelfInstallPrompt('workbuddy', 'A')
     check('★ 能生成 WorkBuddy 的「自装指令」（这就是用户要的那个选项）', p.ok === true, p.message)
@@ -98,7 +127,7 @@ function main() {
 
   expect('dsh', 'A', '- id: mcp-fangcun', "name: '@deepseek-ai/dsh-mcp-client'", 'serverName: fangcun',
     'transport: stdio', 'failOnStartupError: false')
-  expect('dsh', 'B', 'command: python', '"mcp"', 'serverName: fangcun')
+  expect('dsh', 'B', 'command: "python"', '"mcp"', 'serverName: fangcun')
   // ── 卡009（2026-10-03 · DSH 自装实测反馈）：insert: 形式（裸行会被静默跳过）──
   {
     const dshA = mod.buildMcpSnippet('dsh', 'A')
@@ -111,12 +140,12 @@ function main() {
       /insert/.test(dsh.howTo) && /静默跳过/.test(dsh.howTo) && /热加载/.test(dsh.howTo),
       dsh.howTo.slice(0, 80))
   }
-  expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', path.sep === '\\' ? 'tegula-mcp.js' : 'tegula-mcp.js')
+  expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', '--mcp-bridge')
   expect('cursor', 'A', '"mcpServers"', '"fangcun"')
   expect('codex', 'A', '[mcp_servers.fangcun]', 'command = ')
   expect('codex', 'B', '[mcp_servers.fangcun]', 'tegula.py')
-  expect('opencode', 'A', '"mcp"', '"fangcun"', '"type": "local"', 'tegula-mcp.js')
-  expect('hermes', 'A', 'mcp_servers:', '  fangcun:', 'command: "node"')
+  expect('opencode', 'A', '"mcp"', '"fangcun"', '"type": "local"', '--mcp-bridge')
+  expect('hermes', 'A', 'mcp_servers:', '  fangcun:', '--mcp-bridge')
 
   // Codex 下划线守卫（官方文档：mcp-servers / mcpservers 会被静默忽略）
   const codexSnippet = mod.buildMcpSnippet('codex', 'A').snippet
@@ -129,8 +158,10 @@ function main() {
   for (const tid of ids) {
     const r = mod.buildMcpSnippet(tid, 'A')
     if (!r.ok) continue
-    check(`[${tid}] 配置段含本机真实入口路径`, norm(r.snippet).includes(entryA.args[0]),
+    check(`[${tid}] 配置段含本机真实入口路径`, norm(r.snippet).includes(entryA.command),
       norm(r.snippet).slice(0, 160))
+    check(`[${tid}] 配置段带 --mcp-bridge（否则方寸会当普通窗口再开一个实例）`,
+      r.snippet.includes('--mcp-bridge'), r.snippet.slice(0, 160))
   }
 
   // ── ③ A 路线红线：无写外部文件能力 ──────────────────────────────
