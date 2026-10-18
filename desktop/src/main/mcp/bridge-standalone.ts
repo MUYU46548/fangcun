@@ -94,9 +94,17 @@ export async function runStdioBridge(): Promise<void> {
   rl.on('line', (line: string) => {
     if (line.trim()) socket.write(line + '\n')
   })
+  // stdin 关闭 ≠ 立刻可以走：**最后一个回包可能还在管道里**。
+  // 2026-10-18 实测：`echo '{"id":1,"method":"tools/list"}' | 方寸.exe --mcp-bridge`
+  // 这种一次性自检以前恒为**空输出 + exit 0**（消息刚发出去，进程就把自己杀了），
+  // 看起来像"桥坏了/方寸没响应"，实际是竞态。现在半关写侧后继续收，等管道关闭或短超时兜底。
   rl.on('close', () => {
     try { socket.end() } catch { /* 已断开就算了 */ }
-    process.exit(0)
+    const bail = setTimeout(() => process.exit(0), 1500)
+    socket.once('close', () => {
+      clearTimeout(bail)
+      process.exit(0)
+    })
   })
 }
 

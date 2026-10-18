@@ -44,21 +44,33 @@ function main() {
 
   // ── ① 入口解析 ─────────────────────────────────────────────────
   const entries = mod.listMcpEntries()
-  check('listMcpEntries 返回 A/B 两个入口', entries.length === 2 && entries[0].id === 'A' && entries[1].id === 'B',
+  check('listMcpEntries 返回 A/C/B 三个入口（A=exe node 模式主力，C=本机 node 备选，B=python 只读）',
+    entries.length === 3 && entries.map(e => e.id).join('') === 'ACB',
     JSON.stringify(entries.map(e => e.id)))
   const entryA = entries.find(e => e.id === 'A')
   const entryB = entries.find(e => e.id === 'B')
-  // ── 入口 A 自举化（2026-10-18 重做；老写法 `node …app.asar.unpacked/dist/cli/tegula-mcp.js`
-  //    在安装版上从来不可用 —— asar 内文件外部 node 跑不了，且 builder 没配 asarUnpack）──
-  check('入口 A 可用（自举桥：方寸自己的可执行文件）', entryA.available === true, entryA.detail)
-  check('★ 入口 A 的 command 是绝对路径且真实存在（方寸 exe / dev 下的 electron.exe）',
+  const entryC = entries.find(e => e.id === 'C')
+  // ── 入口 A（2026-10-18 三次重做后的最终形态）────────────────────────────
+  // 老写法 `node …app.asar.unpacked/dist/cli/tegula-mcp.js`：安装版从来不可用
+  //   （asar 内文件外部 node 跑不了 + builder 没配 asarUnpack + 裸 node 不在 GUI 的 PATH 里）。
+  // 中间试过 `方寸.exe --mcp-bridge`（Electron 主进程自己收发 stdio）：本机 GPU 进程连崩，
+  //   第 6 次 `FATAL: gpu_process_host isn't usable. Goodbye.` 直接把桥带走（exit 0x80000003）。
+  // 最终：exe 以**纯 node 模式**（env ELECTRON_RUN_AS_NODE=1）跑包内桥脚本 —— 零外部依赖、零 Chromium。
+  check('入口 A 可用（exe + 纯 node 模式跑包内桥脚本）', entryA.available === true, entryA.detail)
+  check('★ 入口 A 的 command 是绝对路径且真实存在（方寸.exe / dev 下的 electron.exe）',
     entryA.available && path.isAbsolute(entryA.command) && fs.existsSync(entryA.command), entryA.command)
-  check('★ 入口 A 用 --mcp-bridge 自举（零外部 node、不受 app.asar 不可执行的影响）',
-    entryA.args.includes('--mcp-bridge'), JSON.stringify(entryA.args))
-  check('★★ 入口 A 的 command 必须跟随宿主进程可执行文件（真机=方寸.exe，测试进程=node.exe），不许写死裸 `node`',
-    entryA.command === process.execPath, `${entryA.command} vs ${process.execPath}`)
-  check('★ dist/cli/tegula-mcp.js 不再是入口 A 的依赖（asar 内的 js 外部跑不了）',
+  check('★★ 入口 A 必须带 env.ELECTRON_RUN_AS_NODE=1（少了它方寸按 GUI 模式启动 → GPU 崩 → 进程消失）',
+    !!entryA.env && entryA.env.ELECTRON_RUN_AS_NODE === '1', JSON.stringify(entryA.env))
+  check('★ 入口 A 的 args 指向包内桥脚本（bridge-standalone.js），不是已废弃的 dist/cli/tegula-mcp.js',
+    entryA.args.length === 1 && /bridge-standalone\.js$/.test(entryA.args[0]) &&
     !entryA.args.some(a => /tegula-mcp\.js$/.test(a)), JSON.stringify(entryA.args))
+  check('★★ 入口 A 的 command 跟随宿主可执行文件（真机=方寸.exe），不许写死裸 `node`',
+    entryA.command === process.execPath, `${entryA.command} vs ${process.execPath}`)
+  // ── 入口 C（客户端不支持 env 时的退路）──────────────────────────────────
+  check('★ 入口 C 也指向同一个桥脚本（能力等价，只是自带 node 运行时）',
+    entryC.available && /bridge-standalone\.js$/.test(entryC.args[0] || ''), JSON.stringify(entryC.args))
+  check('★ 入口 C 不带 env（它本来就跑在真 node 里，环境变量无意义）',
+    entryC.env === undefined, JSON.stringify(entryC.env))
   // 源码守卫：桥模块必须零 electron 依赖（ELECTRON_RUN_AS_NODE=1 时 electron 模块只剩路径字符串）
   {
     // ⚠ 先剥注释再扫：本仓工作区是 CRLF，且这些文件的注释里**故意**会提到 require('electron')
@@ -68,7 +80,7 @@ function main() {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
     const bridgeSrc = codeOnly(path.join(DIST, 'mcp', 'bridge-standalone.js'))
-    check('★ 桥模块零 require("electron")（否则纯 node 模式下 ipcMain/app 全是 undefined）',
+    check('★ 桥模块零 require("electron")（纯 node 模式下 ipcMain/app 全是 undefined）',
       !/require\(["']electron["']\)/.test(bridgeSrc), bridgeSrc.slice(0, 80))
     const pipeSrc = codeOnly(path.join(DIST, 'mcp', 'pipe.js'))
     check('★ 管道名单一出处 pipe.js 也不依赖 electron', !/require\(["']electron["']\)/.test(pipeSrc))
@@ -84,7 +96,7 @@ function main() {
   check('入口 B args = [绝对路径 tegula.py, mcp]',
     entryB.available && path.isAbsolute(entryB.args[0]) && entryB.args[1] === 'mcp' && fs.existsSync(entryB.args[0]),
     JSON.stringify(entryB.args))
-  check('配置段不带 cwd（两个入口均实测 cwd 无关）',
+  check('配置段不带 cwd（三个入口均实测 cwd 无关）',
     entries.every(e => !('cwd' in e)), JSON.stringify(entries))
 
   // ── ② 六家目标 + 官方格式 ───────────────────────────────────────
@@ -107,7 +119,7 @@ function main() {
       wb && /不猜/.test(wb.howTo) && /让它自装/.test(wb.howTo), wb && wb.howTo.slice(0, 60))
     const snip = mod.buildMcpSnippet('workbuddy', 'A')
     check('★ WorkBuddy 配置段生成成功（通用 mcpServers 形状 + 本机真实入口路径）',
-      snip.ok && /mcpServers/.test(snip.snippet) && /--mcp-bridge/.test(snip.snippet),
+      snip.ok && /mcpServers/.test(snip.snippet) && /ELECTRON_RUN_AS_NODE/.test(snip.snippet),
       snip.snippet.slice(0, 120))
     const p = mod.buildSelfInstallPrompt('workbuddy', 'A')
     check('★ 能生成 WorkBuddy 的「自装指令」（这就是用户要的那个选项）', p.ok === true, p.message)
@@ -140,12 +152,12 @@ function main() {
       /insert/.test(dsh.howTo) && /静默跳过/.test(dsh.howTo) && /热加载/.test(dsh.howTo),
       dsh.howTo.slice(0, 80))
   }
-  expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', '--mcp-bridge')
+  expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', '"env"', 'ELECTRON_RUN_AS_NODE')
   expect('cursor', 'A', '"mcpServers"', '"fangcun"')
   expect('codex', 'A', '[mcp_servers.fangcun]', 'command = ')
   expect('codex', 'B', '[mcp_servers.fangcun]', 'tegula.py')
-  expect('opencode', 'A', '"mcp"', '"fangcun"', '"type": "local"', '--mcp-bridge')
-  expect('hermes', 'A', 'mcp_servers:', '  fangcun:', '--mcp-bridge')
+  expect('opencode', 'A', '"mcp"', '"fangcun"', '"type": "local"', '"environment"', 'ELECTRON_RUN_AS_NODE')
+  expect('hermes', 'A', 'mcp_servers:', '  fangcun:', 'env:', 'ELECTRON_RUN_AS_NODE')
 
   // Codex 下划线守卫（官方文档：mcp-servers / mcpservers 会被静默忽略）
   const codexSnippet = mod.buildMcpSnippet('codex', 'A').snippet
@@ -160,8 +172,10 @@ function main() {
     if (!r.ok) continue
     check(`[${tid}] 配置段含本机真实入口路径`, norm(r.snippet).includes(entryA.command),
       norm(r.snippet).slice(0, 160))
-    check(`[${tid}] 配置段带 --mcp-bridge（否则方寸会当普通窗口再开一个实例）`,
-      r.snippet.includes('--mcp-bridge'), r.snippet.slice(0, 160))
+    check(`[${tid}] 配置段带 env.ELECTRON_RUN_AS_NODE=1（否则方寸按 GUI 模式起 → GPU 崩 → 桥消失）`,
+      r.snippet.includes('ELECTRON_RUN_AS_NODE'), r.snippet.slice(0, 160))
+    check(`[${tid}] 配置段里的 args 指向包内桥脚本（不是已废弃的 dist/cli/tegula-mcp.js）`,
+      norm(r.snippet).includes('bridge-standalone.js') && !r.snippet.includes('tegula-mcp.js'), r.snippet.slice(0, 160))
   }
 
   // ── ③ A 路线红线：无写外部文件能力 ──────────────────────────────

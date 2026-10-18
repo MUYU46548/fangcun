@@ -21,7 +21,7 @@ import * as path from 'path'
 import { app } from 'electron'
 import { cliRuns, dshHome } from './probe'
 
-export type McpEntryId = 'A' | 'B'
+export type McpEntryId = 'A' | 'B' | 'C'
 
 export interface McpEntry {
   id: McpEntryId
@@ -31,6 +31,14 @@ export interface McpEntry {
   detail: string
   command: string
   args: string[]
+  /**
+   * 必须一起写进配置段的环境变量（2026-10-18）。
+   * 入口 A 靠 `ELECTRON_RUN_AS_NODE=1` 让方寸.exe **以纯 node 身份**跑桥脚本：
+   * 不初始化 Chromium ⇒ 不拉 GPU 进程（本机核显上 GUI 模式的 GPU 进程连崩，
+   * 崩到第 6 次 Chromium 直接 `FATAL: gpu_process_host isn't usable. Goodbye.`）。
+   * 客户端若不支持 env，请改用入口 C（真实 node 绝对路径）。
+   */
+  env?: Record<string, string>
   /** 给人看的一行说明 */
   usage: string
 }
@@ -69,31 +77,75 @@ function devAppDir(): string {
   return path.resolve(__dirname, '../../..')
 }
 
+/** 桥脚本的真实路径（两种形态都能被纯 node 直接执行） */
+function bridgeScriptPath(): string {
+  return app.isPackaged
+    // node 模式仍带 asar 支持（Electron 编进 runtime 的 patch），所以包内路径可直接跑。
+    // 2026-10-18 实测：ELECTRON_RUN_AS_NODE=1 方寸.exe "<…>/resources/app.asar/dist/main/mcp/bridge-standalone.js"
+    ? path.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'mcp', 'bridge-standalone.js')
+    : path.join(__dirname, '../../main/mcp/bridge-standalone.js')
+}
+
+/**
+ * 找一个**真实存在**的 node 可执行文件（入口 C 用）。
+ *
+ * ⚠ 这里刻意**不 spawn `where node` / `node --version`**：本机 spawnSync/execFileSync 一律 EBUSY
+ *   （见 AGENTS 环境坑），探测动作本身会成为新的不稳定来源。只做文件存在性判断。
+ * ⚠ 用户 PATH 里通常没有独立 node（GUI 应用继承不到 nvm/包管理器的注入），
+ *   所以这里列的是**安装落点**，不是 PATH 查找。
+ */
+function findNodeExe(): string | undefined {
+  if (/^node(\.exe)?$/i.test(path.basename(process.execPath))) return process.execPath
+  const cands = [
+    path.join(process.env.LOCALAPPDATA || '', 'hermes', 'node', 'node.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'nodejs', 'node.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+    path.join(process.env.APPDATA || '', 'nvm', 'current', 'node.exe'),
+    path.join(process.env.NVM_SYMLINK || '', 'node.exe'),
+  ]
+  return cands.find(p => p && isFile(p))
+}
+
 export function listMcpEntries(): McpEntry[] {
   const out: McpEntry[] = []
+  const bridge = bridgeScriptPath()
 
-  // 入口 A：**自举桥**（2026-10-18 重做）。
+  // ── 入口 A（主力）：方寸自己的可执行文件 + 纯 node 模式跑桥脚本 ──────────
   //
-  // 老写法 `node <app.asar.unpacked>/dist/cli/tegula-mcp.js` 三重死结，导致安装版从来接不上：
-  //   ① dist/cli 被打进 app.asar，外部 node 执行不了（且 builder 没配 asarUnpack）；
-  //   ② `command: node` 依赖 PATH，而 GUI 应用（DSH/Hermes 从快捷方式启动）的用户 PATH 里
-  //      本机根本没有独立 node → spawn ENOENT；
-  //   ③ 相对路径/安装位置漂移。
-  // 现在：直接跑方寸自己的可执行文件 + `--mcp-bridge`，由主进程分流成 stdio↔pipe 桥。
-  // 外部依赖为零，装在哪个目录都对。
-  const exe = process.execPath
-  const bridgeArgs = app.isPackaged ? ['--mcp-bridge'] : [devAppDir(), '--mcp-bridge']
+  // 老写法 `node …app.asar.unpacked/dist/cli/tegula-mcp.js` 三重死结，安装版从来接不上：
+  //   ① dist/** 全进 app.asar，外部 node 执行不了（builder 也没配 asarUnpack）；
+  //   ② `command: node` 依赖 PATH，而 GUI 应用的 PATH 里通常没有 node → spawn ENOENT；
+  //   ③ 相对路径漂移。
+  // 现在：exe 自带 node 运行时（ELECTRON_RUN_AS_NODE=1）跑包内桥脚本 —— 零外部依赖。
+  // ⚠ 为什么必须用 env 而不是「Electron 主进程里自己收发 stdio」：
+  //   GUI 模式会拉起 GPU 进程，本机核显上连崩 6 次后 Chromium `FATAL: gpu … Goodbye.`
+  //   直接带走主进程（实测 exit 0x80000003），客户端只看到"服务瞬间没了"。
   out.push({
     id: 'A',
-    label: '入口 A · named pipe 桥（读写全量）',
-    available: isFile(exe),
-    detail: isFile(exe) ? '' : `找不到方寸可执行文件：${exe}`,
-    command: exe,
-    args: bridgeArgs,
-    usage: '读 + 写（create/update/move/delete），依赖方寸桌面版在运行',
+    label: '入口 A · named pipe 桥（读写全量 · 零外部依赖 · 需 env）',
+    available: isFile(process.execPath),
+    detail: isFile(process.execPath) ? '' : `找不到方寸可执行文件：${process.execPath}`,
+    command: process.execPath,
+    args: [bridge],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+    usage: '读 + 写（create/update/move/delete），依赖方寸桌面版在运行。需要客户端支持配置 env。',
   })
 
-  // 入口 B：python stdio 只读。开发态 = 仓库根 tegula.py；打包态不随包分发 Python 侧。
+  // ── 入口 C（备选）：本机已有的 node 直接跑同一个桥脚本 ──────────────────
+  // 给"客户端不支持 env"的场景留的退路：等价能力，只是要借一个 node 运行时。
+  const nodeExe = findNodeExe()
+  out.push({
+    id: 'C',
+    label: '入口 C · 本机 node 跑桥（读写全量 · 客户端不支持 env 时用）',
+    available: !!nodeExe,
+    detail: nodeExe ? '' : '本机没找到 node.exe（找了 nodejs 安装目录 / hermes 自带 node / nvm）',
+    command: nodeExe || 'node',
+    args: nodeExe ? [bridge] : [],
+    usage: '能力与入口 A 完全相同，只是自己带 node 运行时；不依赖方寸 exe 的 node 模式。',
+  })
+
+  // ── 入口 B：python stdio 只读。打包态不随包分发 Python 侧。 ──────────────
   const repo = devRepoRoot()
   const tegulaPy = path.join(repo, 'tegula.py')
   const pyAvailable = !app.isPackaged && isFile(tegulaPy)
@@ -247,6 +299,12 @@ function argsJson(args: string[]): string {
   return '[' + args.map(a => JSON.stringify(a)).join(', ') + ']'
 }
 
+/** YAML 里的一行 env 块（缩进由调用方给） */
+function yamlEnv(env: Record<string, string> | undefined, indent: string): string[] {
+  if (!env || !Object.keys(env).length) return []
+  return [`${indent}env:`, ...Object.entries(env).map(([k, v]) => `${indent}  ${k}: ${JSON.stringify(v)}`)]
+}
+
 export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
   { ok: boolean; snippet: string; message: string } {
   const entry = listMcpEntries().find(e => e.id === entryId)
@@ -258,6 +316,7 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
 
   const cmd = entry.command
   const args = entry.args
+  const env = entry.env
 
   switch (targetId) {
     case 'dsh':
@@ -276,21 +335,22 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
           // 引号不能省：安装路径常含空格与中文（C:\Users\…\AppData\Local\Programs\方寸\方寸.exe）
           `        command: ${JSON.stringify(cmd)}`,
           `        args: ${argsJson(args)}`,
-          ...(entry.id === 'A' ? ['        failOnStartupError: false'] : []),
+          ...yamlEnv(env, '        '),
+          ...(entry.id === 'B' ? [] : ['        failOnStartupError: false']),
         ].join('\n'),
       }
     case 'claudecode':
       return {
         ok: true, message: '',
         snippet: JSON.stringify({
-          mcpServers: { fangcun: { command: cmd, args } },
+          mcpServers: { fangcun: env ? { command: cmd, args, env } : { command: cmd, args } },
         }, null, 2),
       }
     case 'cursor':
       return {
         ok: true, message: '',
         snippet: JSON.stringify({
-          mcpServers: { fangcun: { command: cmd, args } },
+          mcpServers: { fangcun: env ? { command: cmd, args, env } : { command: cmd, args } },
         }, null, 2),
       }
     case 'codex':
@@ -300,13 +360,22 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
           '[mcp_servers.fangcun]',
           `command = ${JSON.stringify(cmd)}`,
           `args = ${argsJson(args)}`,
+          ...(env ? [`env = { ${Object.entries(env).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join(', ')} }`] : []),
         ].join('\n'),
       }
     case 'opencode':
       return {
         ok: true, message: '',
         snippet: JSON.stringify({
-          mcp: { fangcun: { type: 'local', command: [cmd, ...args], enabled: true } },
+          mcp: {
+            fangcun: {
+              type: 'local',
+              command: [cmd, ...args],
+              // OpenCode 官方字段名是 environment（不是 env）
+              ...(env ? { environment: env } : {}),
+              enabled: true,
+            },
+          },
         }, null, 2),
       }
     case 'hermes':
@@ -317,15 +386,16 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
           '  fangcun:',
           `    command: ${JSON.stringify(cmd)}`,
           `    args: ${argsJson(args)}`,
+          ...yamlEnv(env, '    '),
         ].join('\n'),
       }
     case 'workbuddy':
       // 落点不可知（打包应用）→ 给一份**通用 mcpServers 写法**当起点；
-      // 自装指令里会明确"形状不符就按你自己的文档改写，但 command/args 原样保留"。
+      // 自装指令里会明确"形状不符就按你自己的文档改写，但 command/args/env 原样保留"。
       return {
         ok: true, message: '',
         snippet: JSON.stringify({
-          mcpServers: { fangcun: { command: cmd, args } },
+          mcpServers: { fangcun: env ? { command: cmd, args, env } : { command: cmd, args } },
         }, null, 2),
       }
     default:
@@ -361,7 +431,9 @@ export function buildSelfInstallPrompt(targetId: string, entryId: McpEntryId):
   const shapeNote = t.configPath
     ? []
     : ['   ⚠ 上面这段是**通用 mcpServers 形状**；如果你家的配置格式不是这样，按你自己的文档改写，',
-       '     但 `command` 与 `args` 必须原样保留（那是方寸的真实入口路径）。']
+       '     但 `command` / `args` / `env` 必须原样保留（那是方寸的真实入口路径与运行模式）。',
+       '     ⚠ 其中 `env.ELECTRON_RUN_AS_NODE=1` 不能省：少了它方寸会以 GUI 模式启动，',
+       '       本机会拉起 GPU 进程并连崩（客户端看到的是"服务瞬间消失"）。']
   const prompt = [
     `你是 ${t.name}。请自行完成「方寸（fangcun）任务看板」的接入 —— 由你现地操作，比外部盲写更可靠：`,
     '',

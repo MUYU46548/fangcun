@@ -23,14 +23,32 @@ const lines = []
 function ok(name, extra = '') { pass++; lines.push(`  ✅ ${name}${extra ? '  ' + extra : ''}`) }
 function no(name, extra = '') { fail++; lines.push(`  ❌ ${name}${extra ? '  → ' + extra : ''}`) }
 
-/** 从 DSH 的 cordis.patch.yml 里抠出 mcp-fangcun 的 command/args（格式固定，不引 yaml 依赖） */
+/** 解析 `env:` 块（缩进大于 env 行的 `KEY: "VAL"` 行） */
+function parseEnvFrom(lines) {
+  const out = {}
+  const i = lines.findIndex(l => /^\s*env:\s*$/.test(l))
+  if (i < 0) return out
+  const baseIndent = lines[i].search(/\S/)
+  for (let k = i + 1; k < lines.length; k++) {
+    const l = lines[k]
+    if (!l.trim()) continue
+    const ind = l.search(/\S/)
+    if (ind <= baseIndent) break
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(l)
+    if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, '')
+  }
+  return out
+}
+
+/** 从 DSH 的 cordis.patch.yml 里抠出 mcp-fangcun 的 command/args/env（格式固定，不引 yaml 依赖） */
 function readDsh() {
   const p = path.join(os.homedir(), '.dsh', 'profiles', 'desktop', 'cordis.patch.yml')
   if (!fs.existsSync(p)) return { found: false, path: p }
   const txt = fs.readFileSync(p, 'utf-8').replace(/\r\n/g, '\n')
   const i = txt.indexOf('id: mcp-fangcun')
   if (i < 0) return { found: false, path: p, reason: '没有 mcp-fangcun 行' }
-  const seg = txt.slice(i, i + 800)
+  const segLines = txt.slice(i, i + 1200).split('\n')
+  const seg = segLines.join('\n')
   const cmd = /command:\s*(.+)$/m.exec(seg)
   const argsLine = /args:\s*\[(.+?)\]/m.exec(seg)
   const args = argsLine
@@ -40,6 +58,7 @@ function readDsh() {
     found: true, path: p,
     command: cmd ? cmd[1].trim().replace(/^["']|["']$/g, '').replace(/\\\\/g, '\\') : '',
     args,
+    env: parseEnvFrom(segLines),
   }
 }
 
@@ -59,12 +78,13 @@ function readHermes() {
   }
   const seg = segLines.join('\n')
   if (!/^\s+fangcun:\s*$/m.test(seg)) return { found: false, path: p, reason: 'mcp_servers 里没有 fangcun' }
-  const fseg = seg.slice(seg.search(/^\s+fangcun:\s*$/m))
+  const fLines = seg.slice(seg.search(/^\s+fangcun:\s*$/m)).split('\n')
+  const fseg = fLines.join('\n')
   const cmd = /command:\s*(.+)$/m.exec(fseg)
   const args = []
-  const ai = fseg.search(/^\s+args:\s*$/m)
+  const ai = fLines.findIndex(l => /^\s+args:\s*$/.test(l))
   if (ai >= 0) {
-    for (const l of fseg.slice(ai).split('\n').slice(1)) {
+    for (const l of fLines.slice(ai + 1)) {
       const mm = /^\s*-\s+(.+)$/.exec(l)
       if (!mm) break
       args.push(mm[1].trim().replace(/^["']|["']$/g, ''))
@@ -74,16 +94,22 @@ function readHermes() {
     found: true, path: p,
     command: cmd ? cmd[1].trim().replace(/^["']|["']$/g, '') : '',
     args,
+    env: parseEnvFrom(fLines),
   }
 }
 
 /** 跑一次完整客户端流程，返回结果 */
-function handshake(command, args, label) {
+function handshake(command, args, label, extraEnv) {
   return new Promise((resolve) => {
     const events = []
     let child
     try {
-      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      child = spawn(command, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        // 配置里的 env 原样带上（ELECTRON_RUN_AS_NODE=1 决定方寸是以纯 node 还是 GUI 模式启动）
+        env: { ...process.env, ...(extraEnv || {}) },
+      })
     } catch (e) {
       resolve({ ok: false, why: `spawn 抛错：${e.message}`, events })
       return
@@ -171,8 +197,9 @@ async function main() {
     if (!exeOk) no(`${name} 的 command 指向的文件不存在`, cfg.command)
     else ok(`${name} command 存在`, cfg.command)
     console.log(`      args: ${JSON.stringify(cfg.args)}`)
+    console.log(`      env : ${JSON.stringify(cfg.env || {})}`)
 
-    const s = summarize(await handshake(cfg.command, cfg.args, name))
+    const s = summarize(await handshake(cfg.command, cfg.args, name, cfg.env))
     if (s.ok) {
       ok(`${name} 握手通过（${s.tools} 个工具）`, `数据根 ${s.dataDir}`)
       if (!READONLY) {

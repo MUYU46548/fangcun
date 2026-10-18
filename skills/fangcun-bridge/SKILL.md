@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.4.0
+version: 1.5.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -36,18 +36,23 @@ Hermes 侧的自动装卡与覆盖策略是特例（`skills/manifest.json` 登�
 \\.\pipe\tegula-mcp
 ```
 
-stdio 桥 = **方寸自己的可执行文件 + `--mcp-bridge`**（2026-10-18 起；旧的
-`node dist/cli/tegula-mcp.js` 写法在安装版上**从来跑不起来** —— 那个 js 在 app.asar 内，
-外部 node 执行不了，且裸 `node` 在 GUI 应用的 PATH 里通常不存在）：
+stdio 桥 = **方寸自己的可执行文件以「纯 node 模式」跑包内桥脚本**（2026-10-18 最终形态）：
 
 ```bash
-# 安装版（路径按实际安装位置）
-"C:\Users\<你>\AppData\Local\Programs\方寸\方寸.exe" --mcp-bridge
+# 环境变量不能省：少了它方寸会以 GUI 模式启动，拉起 GPU 进程（本机核显上连崩，
+# 第 6 次 Chromium 直接 FATAL: gpu_process_host isn't usable. Goodbye. 把进程带走）
+ELECTRON_RUN_AS_NODE=1 "<方寸.exe>" "<安装目录>/resources/app.asar/dist/main/mcp/bridge-standalone.js"
 # 开发态（仓库 desktop 目录）
-/<fangcun>/desktop/node_modules/electron/dist/electron.exe /<fangcun>/desktop --mcp-bridge
+ELECTRON_RUN_AS_NODE=1 <fangcun>/desktop/node_modules/electron/dist/electron.exe \
+  <fangcun>/desktop/dist/main/mcp/bridge-standalone.js
 ```
 
-依赖方寸桌面版在运行（pipe 由主进程持有）。**MCP 配置段不需要 `env`、不需要外部 node。**
+配置段要写三段：`command`（方寸 exe）、`args`（包内桥脚本绝对路径）、`env`。
+**客户端不支持 `env` 时改用入口 C**（本机 node 直接跑同一个桥脚本，能力完全相同）。
+
+> 历史坑（别走回头路）：`node dist/cli/tegula-mcp.js` 在安装版上**从来跑不起来** ——
+> 那个 js 被打进 app.asar，外部 node 执行不了；而且裸 `node` 在 GUI 应用的 PATH 里通常不存在。
+> 也**不要**指望「Electron 主进程里自己收发 stdio」：GUI 模式会拉起 GPU 进程，崩到阈值就 FATAL。
 
 **入口 B · Python stdio（只读，方寸没开也能读）**
 
@@ -71,11 +76,14 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
    node <fangcun>/scripts/check-agent-mcp.cjs --readonly
    ```
    该脚本**读 DSH / Hermes 的真实配置文件**取 command，像客户端一样 spawn + 握手，
-   逐家打印「通了 / 卡在哪」。也可只验一家：
+   逐家打印「通了 / 卡在哪」。也可单独验一家：
    ```bash
-   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | "<方寸.exe>" --mcp-bridge
+   node <fangcun>/scripts/test/probe-mcp-bridge.cjs "<方寸.exe 完整路径>" [--mcp-bridge]
    ```
-   期望返回含 `result` 的 JSON-RPC 响应。报「方寸桌面版没有在运行」或超时 → 桌面版未启动或 pipe 未就绪，**停止调用并报错**，不静默回退。
+   ⚠ **不要用 `echo '{...}' | 方寸.exe --mcp-bridge` 这种一次性管道做自检**（2026-10-18 实测）：
+   exe 类入口启动要 300ms+，`echo` 的 stdin 在那之前就 EOF，消息直接丢，输出恒为空
+   —— 看起来像"桥坏了"，其实是启动竞态。要验就连着 stdin 发（probe 脚本就是这么做的）。
+   报「方寸桌面版没有在运行」或超时 → 桌面版未启动或 pipe 未就绪，**停止调用并报错**，不静默回退。
 2. **入口 B**：直接发一条 `tools/list`，期望返回只读工具列表。
 
 ## 工具清单（真源 `desktop/src/main/mcp/tools.ts`，下面是快照）

@@ -12,10 +12,17 @@ const desktop = path.resolve(__dirname, '../../desktop')
 const exe = process.argv[2] || path.join(desktop, 'node_modules/electron/dist/electron.exe')
 // dev 态：exe 是 electron.exe 时要把 app 目录作为第一个参数
 const isElectronDev = /electron(\.exe)?$/i.test(path.basename(exe))
-const args = isElectronDev ? [desktop, '--mcp-bridge'] : ['--mcp-bridge']
+// 额外参数（例如 --disable-gpu）从第 4 个位置起追加
+const extra = process.argv.slice(3)
+const args = isElectronDev ? [desktop, ...extra, '--mcp-bridge'] : [...extra, '--mcp-bridge']
 
 console.log('spawn:', exe, JSON.stringify(args))
-const child = spawn(exe, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+// ⚠ 必须清掉 ELECTRON_RUN_AS_NODE：它会让 electron.exe/方寸.exe 退化成纯 node，
+//   于是 `--mcp-bridge` 被 Node 的 CLI 解析器判成 "bad option"（exit 9），
+//   看起来像产品 bug，其实是测试/宿主环境带进来的变量（本机开发 shell 就有）。
+const childEnv = { ...process.env }
+delete childEnv.ELECTRON_RUN_AS_NODE
+const child = spawn(exe, args, { stdio: ['pipe', 'pipe', 'pipe'], env: childEnv })
 const events = []
 const t0 = Date.now()
 const push = (dir, line) => events.push({ t: Date.now() - t0, dir, line })
