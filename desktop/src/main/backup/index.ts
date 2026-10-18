@@ -121,6 +121,15 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     return finish(result, started)
   }
 
+  // ── 1.5 半包守卫（2026-10-18 恢复演练抓到的真坑）───────────────────────
+  // task-data 是任务卡真源；docs 兜底凑数会打出"恢复必被拒"的半包，
+  // 用户却已看到备份成功的 toast —— 必须在落盘前拒绝，而不是等恢复时才炸。
+  const hasTaskData = snapshot.manifest.files.some(f => f.path.startsWith('task-data/'))
+  if (!hasTaskData) {
+    errors.push('数据根缺少 task-data/（任务卡真源），这份包恢复不出来 —— 已拒绝落盘。请检查数据根路径是否指错')
+    return finish(result, started)
+  }
+
   // ── 2. 强制自校验（不通过就不落盘、不上传） ──────────────────────────
   const verify = verifyZip(snapshot.zipBuffer)
   result.verifyOk = verify.ok

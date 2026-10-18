@@ -72,10 +72,13 @@ function countTaskFiles(dataDir) {
 async function main() {
   const t0 = Date.now()
   const bk = require(path.join(DIST, 'backup/index.js'))
+  const restore = require(path.join(DIST, 'backup/restore.js'))
   const cfgMod = require(path.join(DIST, 'backup/config.js'))
   const dataMod = require(path.join(DIST, 'data/index.js'))
-  dataMod.initPaths()
-  const realDataDir = DATADIR_ARG || dataMod.getDataDir()
+  // 对账基准：--data-dir 显式指定 > 当前工作目录（演练从仓库根跑）。
+  // 不走 initPaths()：那是 electron 态的探测链（userData/exeDir），桩环境拿不到真实仓库根。
+  const realDataDir = DATADIR_ARG ? path.resolve(DATADIR_ARG) : process.cwd()
+  dataMod.setDataDir(realDataDir)
   console.log(`数据目录（对账基准）：${realDataDir}`)
   lines.push(`数据目录（对账基准）：${realDataDir}`)
 
@@ -122,7 +125,7 @@ async function main() {
   console.log('\n── 段3 恢复（零破坏，落位临时目录） ──')
   lines.push('\n## 段3 恢复（零破坏）')
   const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-drill-'))
-  const r = await bk.restoreFrom({ kind: 'local', path: zipPath }, { targetDir })
+  const r = await restore.restoreFrom({ kind: 'local', path: zipPath }, { targetDir })
   check('恢复流程成功（sha256→结构→解压→落位全链）', r.ok, JSON.stringify(r.errors))
   check('恢复落位在临时目录（targetDir 生效=真实数据未动）', r.dataDir === targetDir, `落位=${r.dataDir} 期望=${targetDir}`)
   check('恢复文件数 > 0', r.restoredFiles > 0, String(r.restoredFiles))
