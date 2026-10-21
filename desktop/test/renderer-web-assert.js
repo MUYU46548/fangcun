@@ -2567,6 +2567,153 @@
       arcUpd[1] && arcUpd[1].content === '只想存，不想归档', JSON.stringify(arcUpd))
     check('★ 「保存修改」后弹窗关闭、日志仍在待处理区（没被顺手完成/归档）', await waitFor(() => !$('#log-edit-modal'), 3000, '关窗'))
 
+    // ══ 撤销条 + Ctrl+Z（2026-10-21 暮雨第 1 条）══════════════════════════════
+    // 原话：「我点错了日志，把另一个日志点了完成，虽然撤销按钮在，但快捷键无用。
+    //         左上角只有返回，没有撤销按钮。」
+    // 病灶不是"没有撤销能力"（`logs:reopen` 早就在），是**撤销入口跟着卡片走**：
+    // 状态一改，那条卡就滑到别的分区去了，人只剩"回头翻"一条路；而 Ctrl+Z 是
+    // 刻意不接管的（原生撤销）。修法：状态动作成功后当场挂一条撤销条 + Ctrl+Z 等价。
+    // 这一节验四条：①条子当场出现且带标题；②点它=真 logsReopen（撤的是这条）；
+    // ③Ctrl+Z 与点它等价；④**反例**：焦点在输入框里时 Ctrl+Z 不许被抢。
+    window.__fcTest.setLogs([
+      { id: 'log-undo-1', title: '撤销条样例·甲', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T00:00:00.000Z' },
+      { id: 'log-undo-2', title: '撤销条样例·乙', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T01:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
+    check('撤销条前置：完成「撤销条样例·甲」', await (async () => {
+      const b = btnOnCard('撤销条样例·甲', '完成')
+      if (!b) return false
+      b.click()
+      const opened = await waitFor(() => !!$('#log-edit-modal'), 3000, '完成弹窗')
+      const pri = $$('#log-edit-modal .acts button.pri')[0]
+      if (opened && pri) pri.click()
+      return opened
+    })())
+    check('★★ 完成后**当场**出现撤销条（#undo-bar 在，且点的是哪条就写哪条标题）',
+      await waitFor(() => {
+        const b = $('#undo-bar')
+        return !!b && (b.textContent || '').indexOf('撤销条样例·甲') >= 0
+      }, 4000, '撤销条出现'),
+      (($('#undo-bar') || {}).textContent || '(没读到)').slice(0, 80))
+    check('  撤销条贴屏幕**底部**（不与顶部 toast 抢位：y 在下半屏，且 toast 仍在上半屏）', (() => {
+      const ub = $('#undo-bar'); const ts = $('#toast')
+      if (!ub || !ts) return false
+      const rb = rect(ub); const rt = rect(ts)
+      return rb.y > window.innerHeight / 2 && rt.y < window.innerHeight / 2
+    })(), (() => { const u = $('#undo-bar'); return u ? 'undo.y=' + Math.round(rect(u).y) : '(撤销条不在 DOM)' })())
+    // 连锁红收口：撤销条都没出现的话，后面"点它 / Ctrl+Z / 不抢输入框"全都无从谈起 ——
+    // 只报一次原因，不连坐成一排红（连锁红会盖住真正的第一条）。
+    if (!$('#undo-bar')) {
+      out.push('SKIP  撤销条后续 4 条断言（前置未成立：完成后没出现撤销条）')
+    } else {
+    const undoReopenBefore = window.__fcTest.callCount('logsReopen')
+    check('★ 点撤销条「↩ 撤销」→ 真调 logsReopen（撤的是那一条），条子自己消失', await (async () => {
+      const btn = $('#undo-bar .ub-btn')
+      if (!btn) return false
+      btn.click()
+      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > undoReopenBefore
+        && !$('#undo-bar'), 4000, 'reopen + 条子消失')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      return got && ((last.args || [])[0] === 'log-undo-1')
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}).args))
+
+    // Ctrl+Z：再造一笔（乙），焦点在 body（不在输入框）→ 必须等价于点按钮
+    check('Ctrl+Z 前置：完成「撤销条样例·乙」', await (async () => {
+      const b = btnOnCard('撤销条样例·乙', '完成')
+      if (!b) return false
+      b.click()
+      const opened = await waitFor(() => !!$('#log-edit-modal'), 3000, '完成弹窗乙')
+      const pri = $$('#log-edit-modal .acts button.pri')[0]
+      if (opened && pri) pri.click()
+      return opened && await waitFor(() => !!$('#undo-bar'), 4000, '撤销条乙')
+    })())
+    const zReopenBefore = window.__fcTest.callCount('logsReopen')
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+    check('★★ Ctrl+Z（焦点不在输入框）= 点撤销条：真调 logsReopen 且条子消失', await (async () => {
+      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > zReopenBefore && !$('#undo-bar'), 4000, 'ctrl+z reopen')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      return got && ((last.args || [])[0] === 'log-undo-2')
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}).args))
+
+    // ⚠ 反例（缺这条，上面那条照样绿 —— 因为"抢不抢输入框"根本没人管）：
+    //   焦点在 textarea 里按 Ctrl+Z，必须**放行原生撤销**：不调 logsReopen，条子也不消失。
+    check('Ctrl+Z 反例前置：再完成一笔并打开一个带输入框的弹窗', await (async () => {
+      window.__fcTest.setLogs([
+        { id: 'log-undo-3', title: '撤销条样例·丙', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T02:00:00.000Z' },
+      ])
+      clickText('看板'); await sleep(350); clickText('日志'); await sleep(600)
+      const b = btnOnCard('撤销条样例·丙', '完成')
+      if (!b) return false
+      b.click()
+      const opened = await waitFor(() => !!$('#log-edit-modal'), 3000, '完成弹窗丙')
+      const pri = $$('#log-edit-modal .acts button.pri')[0]
+      if (opened && pri) pri.click()
+      const bar = await waitFor(() => !!$('#undo-bar'), 4000, '撤销条丙')
+      const nb = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
+      if (nb) nb.click()
+      return bar && await waitFor(() => !!$('#log-edit-modal'), 3000, '新建弹窗')
+    })())
+    check('★★ 反例：焦点在输入框里按 Ctrl+Z **不抢**（不调 logsReopen，撤销条仍在）', await (async () => {
+      const ta = $('#log-edit-modal textarea')
+      if (!ta) return false
+      ta.focus()
+      // ⚠ 必须先确认焦点**真的**落进了输入框：否则"没被抢"只是因为压根没焦点在编辑，
+      //   这条反例就变成了恒绿的空断言（2026-10-21 实测过这个假绿）。
+      if (document.activeElement !== ta) return false
+      const before = window.__fcTest.callCount('logsReopen')
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+      await sleep(600)
+      return window.__fcTest.callCount('logsReopen') === before && !!$('#undo-bar')
+    })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar') + ' same=' + (document.activeElement === $('#log-edit-modal textarea')))
+    // 收尾：关掉弹窗（丢弃草稿），别把弹窗留给后面的断言
+    {
+      const bar = $('#log-edit-modal .relay-discard')
+      const cancelBtn = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
+      if (cancelBtn) cancelBtn.click()
+      await sleep(300)
+      const discard = $$('#log-edit-modal .relay-discard button').find(b => (b.textContent || '').indexOf('丢弃') >= 0)
+      if (discard) discard.click()
+      await sleep(300)
+    }
+    }
+
+    // ══ 任务详情「关联日志」：完成后原地就有撤销（同一病灶的第二个出口）══════════
+    // 用户说的"没有撤销按钮"就发生在这一块：一键「✓ 完成」是无二次确认的，
+    // 点错之后**这一行原本只剩一个状态角标**，撤销得跑去日志页翻分区。
+    check('任务详情：关联日志行里，已完成的那条给「↩ 撤销」、待处理的那条给「✓ 完成」（对称）', await (async () => {
+      window.__fcTest.setLogs([
+        { id: 'log-td-1', title: '关联日志·待处理', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T03:00:00.000Z', taskIds: ['task-demo-011'] },
+        { id: 'log-td-2', title: '关联日志·已完成', content: 'x', status: 'completed', project: 'demo', created: '2026-10-19T03:00:00.000Z', taskIds: ['task-demo-011'] },
+      ])
+      clickText('看板'); await sleep(500)
+      const card = $$('#board .card').find(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)
+      if (!card) return false
+      card.click()
+      const opened = await waitFor(() => $$('.task-logs-list .task-log-item').length === 2, 5000, '关联日志行')
+      if (!opened) return false
+      const rows = $$('.task-logs-list .task-log-item')
+      const act = (r) => ((r.querySelector('.task-log-done') || {}).textContent || '').trim()
+      const byTitle = (t) => rows.find(r => (r.textContent || '').indexOf(t) >= 0)
+      return act(byTitle('关联日志·待处理')) === '✓ 完成' && act(byTitle('关联日志·已完成')) === '↩ 撤销'
+    })(), JSON.stringify($$('.task-logs-list .task-log-item').map(r => ((r.querySelector('.task-log-done') || {}).textContent || '').trim())))
+    check('★ 点行内「↩ 撤销」→ 真调 logsReopen（原地回退，不用去日志页翻卡片）', await (async () => {
+      const rows = $$('.task-logs-list .task-log-item')
+      const row = rows.find(r => (r.textContent || '').indexOf('关联日志·已完成') >= 0)
+      const btn = row && row.querySelector('.task-log-done')
+      if (!btn) return false
+      const before = window.__fcTest.callCount('logsReopen')
+      btn.click()
+      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > before, 4000, '行内 reopen')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      return got && ((last.args || [])[0] === 'log-td-2')
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}).args))
+    {
+      const close = $$('.overlay .acts button').find(b => (b.textContent || '').trim() === '关闭')
+      if (close) close.click()
+      await sleep(300)
+    }
+
     // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条「日志多选更智能」）══════
     // 已有多选底座（☑ 多选 + 全选/完成/归档/彻底删除），补的是**批量改优先级**：
     // 改元数据可逆 → 不弹确认、做完不退出多选；非「待处理」后端拒改 → 跳过如实报。

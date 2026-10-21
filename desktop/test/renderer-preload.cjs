@@ -437,7 +437,10 @@ contextBridge.exposeInMainWorld('tegula', {
   logsComplete: (id, payload) => {
     rec('logsComplete', [id, payload])
     const l = (store.logs || []).find(x => x.id === id)
-    if (l) l.status = '完成'
+    // ⚠ 2026-10-21：这里原写 `l.status = '完成'` —— 真后端是 `'completed'`（logs.ts:659）。
+    //   桩的错值和界面的 `status !== 'completed'` 判据对不上，于是"完成后卡片变成什么样"
+    //   在无头断言里永远验不出来（假绿）。改用真值，并补上 completed 时间戳。
+    if (l) { l.status = 'completed'; l.completed = new Date().toISOString(); l.running = false }
     return ok()
   },
   // 2026-10-09：真后端 archiveLog 会把 status 置 archived，桩此前无条件 ok() 不动状态
@@ -518,7 +521,13 @@ contextBridge.exposeInMainWorld('tegula', {
     data: { mime: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', name: 'x.png' },
   }),
   logsOpenAttachment: () => { rec('logsOpenAttachment', []); return { ok: true } },
-  logsForTask: () => [],
+  logsForTask: (taskId) => {
+    rec('logsForTask', [taskId])
+    // 2026-10-21：此前恒返回 `[]` —— 「任务详情的关联日志」那块在无头断言里是**死的**
+    // （连"完成后这里有没有撤销按钮"都验不了）。按真后端语义补：按 taskIds 过滤。
+    // ⚠ 真后端返回的是**数组本身**（不是 {ok:...}），桩必须同形状。
+    return (store.logs || []).filter(l => (l.taskIds || []).indexOf(taskId) >= 0)
+  },
 
   // ── 剪贴板（渲染层复制一律走主进程通道，见 shared/clipboard.ts ①）─────
   clipboardWriteText: (text) => { rec('clipboardWriteText', [text]); return ok() },

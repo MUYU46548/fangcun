@@ -2418,9 +2418,18 @@
               <button
                 v-if="log.status !== 'completed' && log.status !== 'archived'"
                 class="ghost task-log-done"
-                title="一键标记完成（默认保留 7 天）"
+                title="一键标记完成（默认保留 7 天）—— 完成后这里会变成「撤销」"
                 @click.stop="quickCompleteLog(log)"
               >✓ 完成</button>
+              <!-- 2026-10-21 暮雨第 1 条：这里原来只有「✓ 完成」，一旦点错（无二次确认），
+                   该行就**只剩一个状态角标**，撤销得跑去日志页翻分区找那条卡 ——
+                   这就是"撤销按钮在（但不在我眼前）"。误操作的正解是原地回退。 -->
+              <button
+                v-else
+                class="ghost task-log-done"
+                title="撤销完成 / 归档，退回「待处理」（只改状态，不删文件）"
+                @click.stop="reopenLogItem(log.id)"
+              >↩ 撤销</button>
             </div>
             <div v-if="!taskLogs.length" class="hint">该任务暂无关联日志</div>
           </div>
@@ -3901,6 +3910,19 @@
 
 
     <div id="toast" :class="[toast.type, { show: toast.show }]">{{ toast.msg }}</div>
+
+    <!-- 撤销条（2026-10-21 暮雨报障：「点错了日志，把另一个日志点了完成，虽然撤销按钮在，
+         但快捷键无用。左上角只有返回，没有撤销按钮」）。
+         根因不是"没有撤销能力"，而是**撤销入口跟着卡片走**：一旦状态改成完成/归档，
+         那条日志就滑到别的分区、甚至不在当前屏，人只能回头翻。误操作的回路必须
+         **留在原地、留在眼前** —— 所以状态类动作成功后在这里挂一条，点一下就回去；
+         Ctrl+Z 等价于点它（只在焦点不在输入框里时接管，见 onShortcutKeydown）。
+         ⚠ 不做全站撤销栈：这里只记「上一笔状态动作」，而且只认能真撤回的那几种。 -->
+    <div id="undo-bar" v-if="undoBar" role="status" aria-live="polite">
+      <span class="ub-text">{{ undoBar.label }}</span>
+      <button class="ub-btn" title="撤回上一步（同 Ctrl+Z）" @click="runUndo">↩ 撤销</button>
+      <button class="ub-x" title="知道就行，关掉这条提示（不撤回）" @click="dismissUndo">✕</button>
+    </div>
 
     <!-- Drag status picker -->
     <div class="drag-status-picker" v-if="draggingId" :style="pickerStyle">
@@ -6203,10 +6225,23 @@ function onKeydown(e: KeyboardEvent): void {
  *    以后新增弹窗自动被覆盖，不会漏接线（上一轮「通道早通、UI 无入口」就是漏接线）。
  *  · **只认 `.pri`**：验收弹窗的「通过」是 `.ok`、驳回是 `.danger` —— 裁决类按钮
  *    **刻意不接管**，Ctrl+S 误触一下就把任务验收了，代价太大，必须用手点。
- *  · Ctrl+Z 不接管：输入框里的原生撤销本来就是对的，接管反而会破坏它。
+ *  · Ctrl+Z 只在**焦点不在输入控件里**时接管（2026-10-21 暮雨第 1 条：「狂按 Ctrl+Z
+ *    也没用」）：它撤的是撤销条上那**一笔状态动作**（完成 / 归档），不是文字。
+ *    焦点在 input/textarea/contenteditable 时一律放行原生撤销 —— 那里覆盖的是
+ *    "这次输入"，抢过来只会让人更没法改错字。
  */
 function onShortcutKeydown(e: KeyboardEvent): void {
   if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+  // ── Ctrl+Z：撤回上一笔状态动作（撤销条同源）─────────────────────────
+  if (e.key === 'z' || e.key === 'Z') {
+    const el = document.activeElement as HTMLElement | null
+    const tag = (el?.tagName || '').toUpperCase()
+    const editing = tag === 'INPUT' || tag === 'TEXTAREA' || !!el?.isContentEditable
+    if (editing || !undoBar.value) return   // 输入框里 / 没有可撤的 → 交给原生行为
+    e.preventDefault()
+    void runUndo()
+    return
+  }
   if (e.key !== 's' && e.key !== 'S') return
   // 无论有没有弹窗都拦掉默认行为：Chromium 的 Ctrl+S 是「保存网页」，在 Electron 里
   // 可能弹出保存对话框，比什么都不做更烦人。
@@ -8232,7 +8267,12 @@ async function loadLogsForTask(taskId: string) {
   }
 }
 
-/** 一键完成日志：不走「填保留天数」模态，按设置里的默认保留天数完成（2026-09-29 用户第 6 条） */
+/** 一键完成日志：不走「填保留天数」模态，按设置里的默认保留天数完成（2026-09-29 用户第 6 条）
+ *
+ *  ⚠ 这是**无二次确认**的路径（任务详情里的「关联日志」列表行尾那个 ✓）：误点一下就完成。
+ *  2026-10-21 暮雨第 1 条报的正是这个 —— 所以完成后必须当场给撤销条，
+ *  不能只指望人回头去日志页的分区里翻那条卡（那时它已经不在眼前了）。
+ */
 async function quickCompleteLog(log: any) {
   const days = logRetainDefault.value
   try {
@@ -8242,7 +8282,9 @@ async function quickCompleteLog(log: any) {
       return
     }
     showToast(days > 0 ? `日志已完成（保留 ${days} 天，可在设置里改）` : '日志已完成（永不清理）', 'success')
+    offerLogReopenUndo(`已标记完成：${log.title || log.id}`, [log.id])
     await loadLogs()
+    await loadLogsForTask(previewTask.value?.id || '')
   } catch (e: any) {
     const msg = e?.message || e
     showToast('完成失败：' + msg, 'error')
@@ -9960,13 +10002,18 @@ async function executeBatchLogComplete() {
   if (ids.length === 0) return
   if (!confirm(`批量完成 ${ids.length} 条日志？`)) return
   let ok = 0
+  const done: string[] = []
   for (const id of ids) {
     try {
       const r = await window.tegula.logsComplete(id, 7, '')
-      if (r?.ok) ok++
+      if (r?.ok) { ok++; done.push(id) }
     } catch { /* skip */ }
   }
   showToast(`已批量完成 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  // 批量是最容易"手滑一整屏"的路径（勾错、点错），撤销条在这里更该在（2026-10-21）。
+  // ⚠ 撤的是**真成功的那几条**（done 数组），不是 `ids.slice(0, ok)` —— 中间失败时
+  //   下标和成功数对不上，那会撤错日志。
+  if (done.length) offerLogReopenUndo(`已批量完成 ${ok} 条日志`, done)
   selectedLogBatch.value = []
   logBatchMode.value = false
   loadLogs()
@@ -9977,13 +10024,15 @@ async function executeBatchLogArchive() {
   if (ids.length === 0) return
   if (!confirm(`批量归档 ${ids.length} 条日志？`)) return
   let ok = 0
+  const done: string[] = []
   for (const id of ids) {
     try {
       const r = await window.tegula.logsArchive(id)
-      if (r?.ok) ok++
+      if (r?.ok) { ok++; done.push(id) }
     } catch { /* skip */ }
   }
   showToast(`已批量归档 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  if (done.length) offerLogReopenUndo(`已批量归档 ${ok} 条日志`, done)
   selectedLogBatch.value = []
   logBatchMode.value = false
   loadLogs()
@@ -10646,6 +10695,7 @@ async function saveLogEdit() {
       const result = await window.tegula.logsComplete(e.id, rd, logNote.value || undefined)
       if (result.ok) {
         showToast(rd > 0 ? `已标记完成（保留 ${rd} 天）` : '已标记完成（永不清理）', 'success')
+        offerLogReopenUndo(`已标记完成：${e.title || e.id}`, [e.id])
       } else {
         showToast(`完成失败：${result.error || '未知原因'}`, 'error')
         return
@@ -10654,6 +10704,7 @@ async function saveLogEdit() {
       const result = await window.tegula.logsArchive(e.id, logNote.value || undefined)
       if (result.ok) {
         showToast('已归档', 'success')
+        offerLogReopenUndo(`已归档：${e.title || e.id}`, [e.id])
       } else {
         showToast(`归档失败：${result.error || '未知原因'}`, 'error')
         return
@@ -10789,6 +10840,8 @@ async function reopenLogItem(id: string) {
   if (r && r.ok) {
     showToast('已撤销，回到「待处理」', 'success')
     await loadLogs()
+    // 任务详情的「关联日志」列表是另一份数据源，两边都要刷（2026-10-21）
+    await loadLogsForTask(previewTask.value?.id || '')
   } else {
     showToast(`撤销失败：${(r && r.error) || '未知原因'}`, 'error')
   }
@@ -11876,6 +11929,63 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
   toastTimer = setTimeout(() => { toast.show = false }, ms)
 }
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+// ── 撤销条（2026-10-21 暮雨报障）─────────────────────────────────────────
+/**
+ * 「刚才那一下能不能撤回」—— 只记**上一笔状态动作**，且只记真撤得回的
+ * （完成 / 归档 / 批量完成 / 批量归档 → `logs:reopen` 回「待处理」）。
+ *
+ * 为什么不复用 toast：toast 是 `pointer-events: none`、纯文本、会互相覆盖
+ * （连点两下只剩最后一句）。撤销条必须**可点、且只描述当下这一笔**。
+ *
+ * 为什么不记多笔（真正的撤销栈）：动全站写路径的代价远大于收益，而用户的实际
+ * 痛点是"刚点错这一下"（原话：「我点错了日志…虽然撤销按钮在，但快捷键无用」）。
+ * 一次一笔、8 秒内有效、下一次状态动作直接顶掉上一笔 —— 与"点错了马上回头"同构。
+ */
+const undoBar = ref<null | { label: string; run: () => Promise<void> }>(null)
+let undoBarTimer: ReturnType<typeof setTimeout> | null = null
+
+function dismissUndo(): void {
+  if (undoBarTimer) { clearTimeout(undoBarTimer); undoBarTimer = null }
+  undoBar.value = null
+}
+
+function offerUndo(label: string, run: () => Promise<void>): void {
+  dismissUndo()
+  undoBar.value = { label, run }
+  undoBarTimer = setTimeout(() => { undoBar.value = null; undoBarTimer = null }, 8000)
+}
+
+/** 执行撤销条上的动作。**先清条再跑** —— 否则连点会重复撤回（第二次已无可撤）。 */
+async function runUndo(): Promise<void> {
+  const b = undoBar.value
+  if (!b) return
+  dismissUndo()
+  try {
+    await b.run()
+  } catch (e: any) {
+    showToast(`撤销异常：${e?.message || e}`, 'error')
+  }
+}
+
+/** 日志「完成 / 归档」撤销：退回「待处理」。多条（批量）逐条撤，按真成功数报账。 */
+function offerLogReopenUndo(label: string, ids: string[]): void {
+  offerUndo(label, async () => {
+    let ok = 0
+    for (const id of ids) {
+      try {
+        const r: any = await window.tegula.logsReopen(id)
+        if (r && r.ok) ok++
+      } catch { /* 单条失败不中断：下面按 ok 数说实话 */ }
+    }
+    await loadLogs()
+    // 任务详情的「关联日志」列表是另一份数据（logsForTask），不跟着 loadLogs 刷 ——
+    // 不补这一句，在任务详情里点完「撤销」列表还显示「已完成」，等于没撤。
+    await loadLogsForTask(previewTask.value?.id || '')
+    if (ok === ids.length) showToast(ids.length > 1 ? `已撤销：${ok} 条回到「待处理」` : '已撤销，回到「待处理」', 'success')
+    else showToast(`只撤回了 ${ok}/${ids.length} 条（其余可能已被改动），刷新后见列表`, 'error')
+  })
+}
 
 // ── 应用日志 / 错误出口（2026-09-22，用户第 8 条）────────────────────────
 // 此前任何失败（启动台启动失败、导入失败、脚本异常）界面上只有一句干巴巴的
@@ -13391,6 +13501,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #toast.success { background: #e3f1de; color: #3f6b3a; border: 1px solid #bcd4b4; }
 #toast.error { background: #f6e2e2; color: #8a4343; border: 1px solid #e2c4c4; }
 #toast.info { background: var(--tint); color: #5b5478; border: 1px solid var(--accent-soft); }
+
+/* 撤销条（2026-10-21 暮雨第 1 条）——
+   与 toast 的分工：toast 说「发生了什么」，这条给「还撤不撤得回」。所以它：
+   ① 贴屏幕**底部**居中（toast 在顶部，两条同时出现也不打架）；
+   ② 可点（toast 是 pointer-events: none），且只有一条、由下一次状态动作顶掉；
+   ③ 颜色全部走主题令牌，六套主题下都不写死色值（check-themes 会量）。 */
+#undo-bar { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 9998;
+  display: flex; align-items: center; gap: 10px; max-width: min(680px, 92vw);
+  padding: 9px 10px 9px 16px; border-radius: 12px; font-size: 13px;
+  background: var(--card); color: var(--ink); border: 1px solid var(--border);
+  box-shadow: 0 10px 28px rgba(90,90,130,0.22); }
+#undo-bar .ub-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#undo-bar .ub-btn { flex: none; white-space: nowrap; padding: 5px 12px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-weight: 700; background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+#undo-bar .ub-btn:hover { filter: brightness(1.08); }
+#undo-bar .ub-x { flex: none; cursor: pointer; font: inherit; background: transparent; color: var(--muted);
+  border: 1px solid transparent; border-radius: 8px; padding: 4px 7px; }
+#undo-bar .ub-x:hover { color: var(--ink); background: var(--tint); }
 
 /* Drag status picker */
 .drag-status-picker {
