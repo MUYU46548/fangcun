@@ -45,6 +45,22 @@ ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
 STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
 
 
+#: 写盘前要**归一**的已知误写（2026-10-21）。
+#: 为什么要有它：状态白名单（STATUSES）此前只在 `illegal_status` 里被 doctor / verify 使用，
+#: **写入路径一个校验都没有** —— 于是 2026-10-19 那批从外部账本导进来的 7 张卡把
+#: 「已完成」直接写进了 `状态:`，任务在看板上的分组/统计全靠猜，直到 verify 变红才被发现。
+#: 归一表只收**语义无歧义**的误写：`已完成`＝`完成`、`待处理`（日志页分区叫法）＝`待办`。
+#: 未识别的非法值**不吞也不拦**：照原样写 + stderr 警告（doctor/verify 仍能抓到），
+#: 因为 write_task_file 是全站唯一落盘点，硬拦会让批量导入半途中止、留一堆半成品。
+STATUS_ALIASES = {"已完成": "完成", "待处理": "待办"}
+
+
+def normalize_status(status):
+    """已知误写 → 合法值；其余（含合法值与空值）原样返回。"""
+    s = str(status or "").strip()
+    return STATUS_ALIASES.get(s, s)
+
+
 def illegal_status(status):
     """状态值是否非法 —— 返回它本身（非法）或 ""（合法/未填）。
 
@@ -815,7 +831,21 @@ def render_task(d):
 
 
 def write_task_file(path, d):
-    """原子写 + 滚动备份：临时文件 + os.replace。"""
+    """原子写 + 滚动备份：临时文件 + os.replace。
+
+    写入前把「状态」按 STATUS_ALIASES 归一（2026-10-21）：这是全站**唯一**落盘点，
+    在这里挡比在每个调用方各抄一遍可靠。未识别的非法值不拦，只警告 —— 见 STATUS_ALIASES 注释。
+    """
+    if isinstance(d, dict) and "状态" in d:
+        _st_raw = d.get("状态")
+        _st_new = normalize_status(_st_raw)
+        if _st_new != _st_raw:
+            d = dict(d)
+            d["状态"] = _st_new
+        elif illegal_status(_st_new):
+            sys.stderr.write(
+                "⚠ 状态值「%s」不在白名单 %s 里（已照写；doctor/verify 会继续报）\n"
+                % (_st_new, "/".join(STATUSES)))
     # 写入前备份已有文件
     if os.path.exists(path):
         _rotate_backup(path)

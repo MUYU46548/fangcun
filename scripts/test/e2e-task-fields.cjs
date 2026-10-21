@@ -111,6 +111,29 @@ function main() {
   check('updateTask 把 low 归一为「低」并落盘', /优先级:\s*低/.test(t4raw), t4raw.split('\n').slice(0, 10).join(' | '))
   check('updateTask 不把英文值写回文件', !/优先级:\s*(low|normal|high)/.test(t4raw))
 
+  // ── 状态写入归一（2026-10-21）────────────────────────────────────────
+  // 事故：2026-10-19 从外部账本导进来 7 张卡把「已完成」写进 `状态:`，看板分组/统计全靠猜，
+  // 直到 verify 变红才被发现 —— 因为白名单此前**只用于体检，写入路径一个校验都没有**。
+  // 判据：归一发生在**写盘函数自身**（调用方不需要记得），且认不出的值不被偷偷改写。
+  const s1 = tasks.createTask({ title: '状态归一：已完成', status: '已完成' })
+  check('★★ createTask 把「已完成」归一成「完成」', s1.fm.status === '完成', String(s1.fm.status))
+  check('  落盘内容也是「完成」（不是只在内存里对）',
+    /状态:\s*完成/.test(fs.readFileSync(s1.path, 'utf-8')))
+
+  const s2 = tasks.createTask({ title: '状态归一：待处理', status: '待处理' })
+  check('★ createTask 把「待处理」（日志页分区叫法）归一成「待办」', s2.fm.status === '待办', String(s2.fm.status))
+
+  const s3 = tasks.createTask({ title: '状态归一：更新路径' })
+  const s3upd = tasks.updateTask(s3.id, { status: '已完成' })
+  check('★ updateTask 同样归一（同一个判据，不在两条路上各写一套）',
+    !!s3upd && s3upd.fm.status === '完成' && /状态:\s*完成/.test(fs.readFileSync(s3.path, 'utf-8')),
+    String(s3upd && s3upd.fm.status))
+
+  // 反例：认不出的非法值**不许被静默改写成「待办」之类**（吞数据比报错更坏）
+  const s4 = tasks.createTask({ title: '状态归一：乱写', status: '乱七八糟' })
+  check('  反例：认不出的状态原样保留（交给 doctor/verify 报，不静默改写）',
+    s4.fm.status === '乱七八糟', String(s4.fm.status))
+
   // ── 字段清单 ─────────────────────────────────────────────────────────
   const specs = data.TASK_FIELD_SPECS
   check('字段清单非空', Array.isArray(specs) && specs.length >= 10, String(specs.length))

@@ -9,7 +9,8 @@ import {
   Task, TaskFrontmatter, Status, STATUSES,
   parseTask, renderTask, atomicWrite, genId, logActivity,
   getTaskDir, getDataDir, parseRegistry, loadTasks, loadAllTasksRaw,
-  invalidateTaskCache, normalizePriority, PRIORITIES
+  invalidateTaskCache, normalizePriority, PRIORITIES,
+  normalizeStatusAlias, isStatusLegal
 } from './index'
 
 // Re-export for convenience
@@ -258,7 +259,9 @@ export function createTask(fields: NewTaskFields): Task {
     id,
     title: fields.title,
     project: fields.project || '',
-    status: fields.status || '待办',
+    // 2026-10-21：新建/更新前把「已完成 / 待处理」这类误写归一（白名单见 STATUS_ALIASES）。
+    // 写入路径此前一个校验都没有 —— 外部账本导进来的脏状态能一路落盘，只能靠 verify 事后抓。
+    status: normalizeStatusAlias(fields.status || '待办'),
     priority: normalizePriority(fields.priority) || '中',
     assignee: fields.assignee || '',
     tags: fields.tags || [],
@@ -329,6 +332,14 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
   const fields: Partial<TaskFrontmatter> & { body?: string } = { ...rawFields }
   if (fields.priority !== undefined) {
     fields.priority = normalizePriority(fields.priority) as any
+  }
+  // 状态同样归一（2026-10-21）：`已完成`→`完成`、`待处理`→`待办`；
+  // 认不出的非法值**不静默吞**——照写但留一句警告，doctor/verify 会继续报。
+  if (fields.status !== undefined) {
+    fields.status = normalizeStatusAlias(fields.status) as any
+    if (!isStatusLegal(fields.status)) {
+      console.warn(`[tasks] 状态「${String(fields.status)}」不在白名单里，已照写（体检会继续报）`)
+    }
   }
 
   // body 不属于 frontmatter，单独落到 task.body —— 此前它被合并进 fm 后

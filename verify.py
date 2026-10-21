@@ -1519,6 +1519,40 @@ for _base27 in [_real27, os.path.join(_real27, "archive")]:
 check("★ 真实 task-data 里没有非法状态（「待处理」那张已归正为「待办」；再冒一个就红）",
       not _bad27, "、".join(_bad27))
 
+# ③b 写入侧归一（2026-10-21）：白名单在此之前**只用于体检**，落盘一个校验都没有 ——
+#     外部账本把「已完成」直接写进了 7 张卡的 `状态:`，看板分组全靠猜，直到 verify 变红。
+#     判据：写盘函数自己会把已知误写归一（不是靠调用方记得），且两侧别名表逐字一致。
+_ts_alias = open(os.path.join(ROOT, "desktop", "src", "main", "data", "index.ts"), encoding="utf-8").read()
+_m_ts_alias = re.search(r"STATUS_ALIASES[^=]*=\s*\{([^}]*)\}", _ts_alias)
+_ts_pairs = sorted(re.findall(r"'([^']+)'\s*:\s*'([^']+)'", _m_ts_alias.group(1))) if _m_ts_alias else []
+_py_pairs = sorted(teg.STATUS_ALIASES.items())
+check("★ 状态误写归一表两侧逐字一致（Python STATUS_ALIASES ≡ TS STATUS_ALIASES）",
+      _ts_pairs == _py_pairs, f"ts={_ts_pairs} py={_py_pairs}")
+
+_tmp_w = os.path.join(teg.TASK_DIR, "task-verify-writealias-20261021.md")
+try:
+    teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
+                                 "状态": "已完成", "项目": "fangcun"})
+    _d_w = teg.parse_task(_tmp_w) or {}
+    check("★★ 写盘函数把「已完成」归一成「完成」（不是靠调用方记得改）",
+          _d_w.get("状态") == "完成", str(_d_w.get("状态")))
+    teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
+                                 "状态": "待处理", "项目": "fangcun"})
+    _d_w2 = teg.parse_task(_tmp_w) or {}
+    check("★★ 「待处理」（日志页分区叫法）也归一到「待办」", _d_w2.get("状态") == "待办",
+          str(_d_w2.get("状态")))
+    # 反例：认不出的非法值**不许被偷偷改掉**（改掉就等于"静默吞数据"）
+    teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
+                                 "状态": "乱七八糟", "项目": "fangcun"})
+    _d_w3 = teg.parse_task(_tmp_w) or {}
+    check("  反例：认不出的非法值原样保留（不静默改写，交给 doctor/verify 报）",
+          _d_w3.get("状态") == "乱七八糟", str(_d_w3.get("状态")))
+finally:
+    try:
+        os.remove(_tmp_w)
+    except Exception:
+        pass
+
 # ④ 源码守卫：doctor 真的在用这个判据（否则"白名单"等于没拦）
 _cli27 = open(os.path.join(ROOT, "tegula", "cli.py"), encoding="utf-8").read()
 _doc27 = _cli27.split("def cmd_doctor(")[1].split("\ndef ")[0] if "def cmd_doctor(" in _cli27 else ""

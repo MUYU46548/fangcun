@@ -335,6 +335,30 @@ export function getRegistryPath(): string { return REGISTRY_PATH }
 export const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 export type Status = typeof STATUSES[number]
 
+/**
+ * 写盘前要**归一**的已知误写（2026-10-21，与 Python `core.STATUS_ALIASES` 逐字一致）。
+ *
+ * 为什么要有它：状态白名单此前只在体检（doctor / verify / `core.illegal_status`）里被用，
+ * **写入路径一个校验都没有** —— 2026-10-19 那批从外部账本导进来的 7 张卡把「已完成」
+ * 直接写进了 `状态:`，看板分组/统计全靠猜，直到 verify 变红才被发现。
+ * 归一表只收语义无歧义的两种：`已完成`＝`完成`、`待处理`（日志页分区叫法）＝`待办`。
+ * 未识别的非法值**不吞也不拦**（照写 + 警告）：硬抛会把批量导入/回写打断在半途，
+ * 而"看得见的坏数据"比"导入失败一半"好收拾。
+ */
+export const STATUS_ALIASES: Record<string, Status> = { '已完成': '完成', '待处理': '待办' }
+
+/** 已知误写 → 合法值；其余（含合法值 / 空串 / undefined）原样返回。 */
+export function normalizeStatusAlias(s: unknown): any {
+  const v = String(s ?? '').trim()
+  return (STATUS_ALIASES as Record<string, string>)[v] || s
+}
+
+/** 写盘前的告警（不拦）：返回值给调用方决定要不要显性报出来。 */
+export function isStatusLegal(s: unknown): boolean {
+  const v = String(s ?? '').trim()
+  return !v || (STATUSES as readonly string[]).includes(v)
+}
+
 // ── Priority Enum ───────────────────────────────────────────────────────
 
 /**
