@@ -4049,6 +4049,8 @@ import {
 } from './logdedupe'
 import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
+// 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
+import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { computeBlockerImpact } from '../shared/blockers'
@@ -9379,9 +9381,20 @@ async function importTextLinesAsTodos(files: File[]): Promise<void> {
 }
 
 async function toggleTodo(id: string) {
+  // 旧值先记下来（2026-10-21 · 1B 修正版）：撤销必须"改回原样"，不能靠再翻一次 ——
+  // `todosToggle` 是翻转，中间要是有别处也动过这条，再翻一次就翻错了。
+  const before = todos.value.find((t: any) => t.id === id)
+  const prevDone = !!before?.done
+  const title = before?.title || id
   const result = await window.tegula.todosToggle(id)
   if (result.ok) {
     loadTodos()
+    // 勾选框是最容易误点的一处（一行一个、紧挨着标题）——改完当场给撤销，不用回头找。
+    offerUndo(prevDone ? `已取消完成：${title}` : `已完成：${title}`, async () => {
+      const back: any = await window.tegula.todosUpdate(id, { done: prevDone } as any)
+      await loadTodos()
+      if (!back || back.ok === false) throw new Error(back?.error || '这条待办已被改动，改不回去了')
+    })
   }
 }
 
@@ -12021,43 +12034,13 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 // ── 撤销条（2026-10-21 暮雨报障）─────────────────────────────────────────
-/**
- * 「刚才那一下能不能撤回」—— 只记**上一笔状态动作**，且只记真撤得回的
- * （完成 / 归档 / 批量完成 / 批量归档 → `logs:reopen` 回「待处理」）。
- *
- * 为什么不复用 toast：toast 是 `pointer-events: none`、纯文本、会互相覆盖
- * （连点两下只剩最后一句）。撤销条必须**可点、且只描述当下这一笔**。
- *
- * 为什么不记多笔（真正的撤销栈）：动全站写路径的代价远大于收益，而用户的实际
- * 痛点是"刚点错这一下"（原话：「我点错了日志…虽然撤销按钮在，但快捷键无用」）。
- * 一次一笔、8 秒内有效、下一次状态动作直接顶掉上一笔 —— 与"点错了马上回头"同构。
- */
-const undoBar = ref<null | { label: string; run: () => Promise<void> }>(null)
-let undoBarTimer: ReturnType<typeof setTimeout> | null = null
+// 状态与动作搬进 `renderer/undo.ts`：决策卡（子组件）也要能 offer，条子必须全站只有一条。
+// 这里只留"日志类撤销"的连接逻辑 —— 它依赖本文件的 loadLogs / loadLogsForTask。
 
-function dismissUndo(): void {
-  if (undoBarTimer) { clearTimeout(undoBarTimer); undoBarTimer = null }
-  undoBar.value = null
+/** 撤销条按钮 / Ctrl+Z 的共用入口：异常统一转 toast（`undo.ts` 只管状态，不依赖 UI 提示） */
+function runUndo(): Promise<boolean> {
+  return runUndoCore((msg) => showToast(msg, 'error'))
 }
-
-function offerUndo(label: string, run: () => Promise<void>): void {
-  dismissUndo()
-  undoBar.value = { label, run }
-  undoBarTimer = setTimeout(() => { undoBar.value = null; undoBarTimer = null }, 8000)
-}
-
-/** 执行撤销条上的动作。**先清条再跑** —— 否则连点会重复撤回（第二次已无可撤）。 */
-async function runUndo(): Promise<void> {
-  const b = undoBar.value
-  if (!b) return
-  dismissUndo()
-  try {
-    await b.run()
-  } catch (e: any) {
-    showToast(`撤销异常：${e?.message || e}`, 'error')
-  }
-}
-
 /** 日志「完成 / 归档」撤销：退回「待处理」。多条（批量）逐条撤，按真成功数报账。 */
 function offerLogReopenUndo(label: string, ids: string[]): void {
   offerUndo(label, async () => {

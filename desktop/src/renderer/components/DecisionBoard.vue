@@ -20,6 +20,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { TabsRoot, TabsList, TabsTrigger } from 'reka-ui'
 import { parseDecisionLine } from '../../shared/decisionInput'
+// 撤销条是全站一个（状态在 renderer/undo.ts）：子组件直接 offer，不用往上一层 emit
+import { offerUndo } from '../undo'
 import Button from './ui/Button.vue'
 import Badge from './ui/Badge.vue'
 import Card from './ui/Card.vue'
@@ -255,9 +257,20 @@ async function setStatus(d: Decision, status: string) {
   if (busy.value || !status) return
   busy.value = true
   try {
+    // ⚠ 字段名是中文 `状态`（见 interface Decision）—— 写成 d.status 会拿到 undefined，
+    //   撤销条显示「原：未填」、撤回时把状态置空（2026-10-21 实测踩到并被断言抓到）
+    const prev = d.状态
     const r: any = await window.tegula.decisionSetStatus(d.id, status)
-    if (r?.ok) emit('notify', r.message || `${d.id} → ${status}`, 'info')
-    else emit('notify', r?.error || '改状态失败', 'error')
+    if (r?.ok) {
+      emit('notify', r.message || `${d.id} → ${status}`, 'info')
+      // 三态下拉选错是常见误操作（尤其"已撤销"和"已合并"挨着）→ 当场给撤销（2026-10-21 · 1B 修正版）。
+      // ⚠ 撤的是"改回原状态"，不是"删掉这条决策"——两件事别混。
+      offerUndo(`${d.id} → ${status}（原：${prev || '未填'}）`, async () => {
+        const back: any = await window.tegula.decisionSetStatus(d.id, prev)
+        if (!back || back.ok === false) throw new Error(back?.error || '这条决策已被改动，改不回去了')
+        await refresh()
+      })
+    } else emit('notify', r?.error || '改状态失败', 'error')
     await refresh() // 成功刷新；失败也刷新（把下拉回滚成服务端的真值）
   } catch (e: any) {
     emit('notify', `改状态异常：${e?.message || e}`, 'error')

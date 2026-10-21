@@ -2791,6 +2791,62 @@
       await sleep(300)
     }
 
+    // ══ 撤销覆盖到「数据改动」类动作（2026-10-21 · 1B 修正版）══════════════════
+    // 只解决"刚点错这一下"，不新建全站撤销栈：待办勾选（一行一个 checkbox，最容易手滑）
+    // 与决策三态下拉（"已撤销/已合并"挨着）各接一条。判据两条：
+    // ①改完当场出现撤销条且写清"哪条 + 原值"；②点撤销 = 真把数据改回原样（不是只弹个提示）。
+    window.__fcTest.setTodos([
+      { id: 'td-undo-1', title: '撤销样例待办', priority: '中', done: false, created: 1 },
+    ])
+    clickText('看板'); await sleep(350); clickText('待办'); await sleep(600)
+    check('待办勾选 → 当场出现撤销条（写清哪条 + 变成了什么）', await (async () => {
+      const it = $$('main.todos-view .todo-item').find((x) => (x.textContent || '').indexOf('撤销样例待办') >= 0)
+      const chk = it && it.querySelector('.todo-chk')
+      if (!chk) return false
+      chk.click()
+      return waitFor(() => {
+        const b = $('#undo-bar')
+        return !!b && /已完成：撤销样例待办/.test((b.textContent || ''))
+      }, 4000, '待办撤销条')
+    })(), ((($('#undo-bar') || {}).textContent) || '(没有撤销条)').slice(0, 40))
+    check('★★ 点撤销 → 待办真的改回未完成（todosUpdate 带 done=false，不是只弹提示）', await (async () => {
+      const beforeN = window.__fcTest.callCount('todosUpdate')
+      const btn = $('#undo-bar .ub-btn')
+      if (!btn) return false
+      btn.click()
+      const got = await waitFor(() => window.__fcTest.callCount('todosUpdate') > beforeN && !$('#undo-bar'), 4000, '回滚')
+      const last = window.__fcTest.calls().filter((c) => c.name === 'todosUpdate').pop() || {}
+      const args = last.args || []
+      const still = (window.__fcTest.todos().find((t) => t.id === 'td-undo-1') || {}).done
+      return got && args[0] === 'td-undo-1' && (args[1] || {}).done === false && still === false
+    })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'todosUpdate').pop() || {}).args))
+
+    // 决策改状态 → 撤销回原状态
+    clickText('看板'); await sleep(350); clickText('决策'); await sleep(700)
+    check('决策改状态 → 撤销条写清「从什么改成什么」', await (async () => {
+      const sel = $('[data-dec="status"]')
+      if (!sel) return false
+      const prev = sel.value
+      sel.value = '已撤销'
+      sel.dispatchEvent(new Event('change', { bubbles: true }))
+      return waitFor(() => {
+        const t = (($('#undo-bar') || {}).textContent) || ''
+        return /已撤销/.test(t) && t.indexOf(prev) >= 0
+      }, 4000, '决策撤销条')
+    })(), ((($('#undo-bar') || {}).textContent) || '(没有撤销条)').replace(/\s+/g, ' ').slice(0, 60))
+    check('★★ 点撤销 → 决策状态改回原值（decisionSetStatus 两次：先改、再撤）', await (async () => {
+      const btn = $('#undo-bar .ub-btn')
+      if (!btn) return false
+      const beforeN = window.__fcTest.callCount('decisionSetStatus')
+      btn.click()
+      const got = await waitFor(() => window.__fcTest.callCount('decisionSetStatus') > beforeN && !$('#undo-bar'), 4000, '决策回滚')
+      const calls = window.__fcTest.calls().filter((c) => c.name === 'decisionSetStatus')
+      const first = (calls[calls.length - 2] || {}).args || []
+      const last = (calls[calls.length - 1] || {}).args || []
+      return got && first[1] === '已撤销' && last[1] === '有效'
+    })(), JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'decisionSetStatus').slice(-2).map((c) => c.args)))
+
+
     // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条「日志多选更智能」）══════
     // 已有多选底座（☑ 多选 + 全选/完成/归档/彻底删除），补的是**批量改优先级**：
     // 改元数据可逆 → 不弹确认、做完不退出多选；非「待处理」后端拒改 → 跳过如实报。
