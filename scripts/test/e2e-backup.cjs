@@ -505,6 +505,10 @@ async function main() {
 
   // ── 状态与日志 ────────────────────────────────────────────────────────
   const st = cfgMod.getBackupState()
+  // 2026-10-21 暮雨拍板：本地滚动默认保留 5 份（原 10）。这条钉的是**默认值**本身 ——
+  // 默认改了没人验，就等于没改（而它决定"下次备份会删掉几份旧包"，是破坏性旋钮）。
+  check('★ 备份默认保留份数 = 5（暮雨 2026-10-21 拍板）',
+    cfgMod.DEFAULT_BACKUP_CONFIG.localKeep === 5, String(cfgMod.DEFAULT_BACKUP_CONFIG.localKeep))
   check('状态记录了成功时间', !!st.lastSuccessAt, JSON.stringify(st))
   check('状态失败计数为 0', st.failStreak === 0, String(st.failStreak))
   const log = fs.readFileSync(cfgMod.getBackupPaths().logPath, 'utf-8')

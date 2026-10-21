@@ -60,7 +60,10 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
   enabled: true,
   intervalHours: 6,
   firstDelayMinutes: 5,
-  localKeep: 10,
+  // 2026-10-21 暮雨拍板：本地滚动保留 10 → 5（约 5×9.4MB≈47MB，一周回滚窗口）。
+  // ⚠ 只对"没有配置文件 / 配置里没这个键"的新环境生效；已有配置里显式写着 10 的
+  //    按项目铁律「显式值优先」不覆盖 —— 老用户的值要单独迁移（本机已随本轮改成 5）。
+  localKeep: 5,
   maxLocalMb: 0,
   remoteKeep: 10,
   localDir: '',
