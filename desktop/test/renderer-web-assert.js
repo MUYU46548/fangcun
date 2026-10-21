@@ -1595,6 +1595,36 @@
     check('★ 僵尸卡提醒出现，文案带「几个 + 多久没动静」',
       !!s1.stalled && /1 个任务/.test(s1.stalled) && /24 小时/.test(s1.stalled), String(s1.stalled))
 
+    // ── 自仓启动同步 · 「待同步」一行（2026-10-21 · W1-1C）────────────────────
+    // 施工单验收：本地领先/分叉时重启 → 显示「待同步」，数据无损（不 merge 不强拉）。
+    // 反向判据同样重要：一切正常/不是 git 仓库时**不许**占位 —— 否则每天开机多一行噪音。
+    check('★ 同步状态「待同步」→ 监控台出现一行人话（带原因，不是只甩一个词）', await (async () => {
+      window.__fcTest.setSelfSync({
+        state: 'behind', at: '2026-10-21T00:00:00.000Z', repo: 'C:/mock/repo',
+        message: '本地有未推送的提交或与远端分叉 —— 已按规矩不合并、不强拉，数据未动',
+      })
+      clickText('看板'); await sleep(400); clickText('项目'); await sleep(600)
+      await pickMs('演示项目')
+      return waitFor(() => {
+        const el = $('#board.pv .ms-detail .ms-sync')
+        const t = (el || {}).textContent || ''
+        return !!el && /待同步/.test(t) && /不合并/.test(t)
+      }, 4000, '待同步一行')
+    })(), ((($('#board.pv .ms-detail .ms-sync') || {}).textContent) || '(没有 .ms-sync)').trim())
+    check('★ 同步正常（已是最新）→ **不渲染**那一行（零噪音；反向判据）', await (async () => {
+      window.__fcTest.setSelfSync({ state: 'ok', at: '2026-10-21T00:00:00.000Z', message: '已是最新', repo: 'C:/mock/repo' })
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目'); await sleep(250)
+      return !$('#board.pv .ms-detail .ms-sync')
+    })(), 'ms-sync=' + !!$('#board.pv .ms-detail .ms-sync'))
+    check('★ 非 git 仓库（skipped = 安装版常态）→ 也不渲染（不把常态报成异常）', await (async () => {
+      window.__fcTest.setSelfSync({ state: 'skipped', at: '2026-10-21T00:00:00.000Z', message: '数据根不是 git 仓库（安装版常态），跳过自动同步', repo: '' })
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目'); await sleep(250)
+      return !$('#board.pv .ms-detail .ms-sync')
+    })())
+    window.__fcTest.setSelfSync(null)
+
     check('★ 点阻塞源入口 → 真跳「阻塞」页签（不是死按钮）', await (async () => {
       const b = $('#board.pv .ms-blockers')
       if (!b) return false

@@ -521,6 +521,12 @@ contextBridge.exposeInMainWorld('tegula', {
     data: { mime: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', name: 'x.png' },
   }),
   logsOpenAttachment: () => { rec('logsOpenAttachment', []); return { ok: true } },
+  // 自仓启动同步状态（2026-10-21 · W1-1C）：真主进程启动时跑完 git pull 后给结果，
+  // 桩默认「已是最新」；断言用 __fcTest.setSelfSync() 换成「待同步」再看界面说没说真话。
+  selfSyncStatus: () => {
+    rec('selfSyncStatus')
+    return store.selfSync || { state: 'ok', at: '2026-10-21T00:00:00.000Z', message: '已是最新', repo: 'C:/mock/repo' }
+  },
   logsForTask: (taskId) => {
     rec('logsForTask', [taskId])
     // 2026-10-21：此前恒返回 `[]` —— 「任务详情的关联日志」那块在无头断言里是**死的**
@@ -1021,6 +1027,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   /** 重新灌测试数据：前面的回收站测试会把两条都还原/彻底删掉，后面的预览测试要重来一遍 */
   setTrash: (items) => { store.trash = (items || []).slice() },
   setLogs: (items) => { store.logs = (items || []).slice() },
+  /** 自仓同步状态（W1-1C）：传 null 恢复默认「已是最新」 */
+  setSelfSync: (obj) => { store.selfSync = obj || null },
   setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
   // 通知中心点击跳转：注入通知夹具 + 任务夹具（2026-10-01 用户第 1 条）

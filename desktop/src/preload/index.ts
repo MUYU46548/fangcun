@@ -150,6 +150,8 @@ contextBridge.exposeInMainWorld('tegula', {
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),
   /** Git 联动（卡 017）：只读某张卡存续期间它所属仓库的提交 + 提到本卡 ID 的提交 */
   gitTaskCommits: (taskId: string) => ipcRenderer.invoke('git:taskCommits', taskId),
+  /** 方寸自仓启动同步状态（2026-10-21 · W1-1C）：只读；界面用它显示「待同步」 */
+  selfSyncStatus: () => ipcRenderer.invoke('sync:selfStatus'),
   
   // Roadmap + Suggestions
   aggregateRoadmap: (projectId?: string) => ipcRenderer.invoke('aggregateRoadmap', projectId),

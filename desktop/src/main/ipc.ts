@@ -23,6 +23,7 @@ import * as tripBoard from './services/tripBoard'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
+import * as selfSync from './services/selfSync'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
@@ -421,6 +422,11 @@ export function registerIpcHandlers(): void {
   // ② 哪些提交信息里提到了本卡 ID（`fix: xxx (#task-20261005-005)` 那类）。
   // 铁律：只读 `git log` —— 不 checkout / 不 fetch / 不写任何仓库、不改任务数据（契约 ③）。
   // 读不到时**显式说明原因**（没归属项目 / 没登记 repo / 不是 git 仓库），不给假数据。
+  // ── 方寸自仓启动同步状态（2026-10-21 · W1-1C）── 只读状态
+  // 「远端推一笔 → 重启就跟上」是自动的；这里**只报状态**，刻意不提供"立即同步"按钮
+  // （用户零动作原则：自动就够，多一个按钮就多一处要维护的失败面）。
+  guardedHandle('sync:selfStatus', () => selfSync.getSelfSyncStatus())
+
   guardedHandle('git:taskCommits', async (_event: any, taskId: string) => {
     try {
       const task = tasks.readTask(taskId)

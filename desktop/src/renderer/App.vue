@@ -768,6 +768,10 @@
               <span class="rp">{{ pvCurrent.repo || '未登记工作目录' }}</span>
               <span class="hl" :class="'hl-' + pvCurrent.health">{{ healthLabel(pvCurrent.health) }}</span>
             </div>
+            <!-- 自仓同步状态（2026-10-21 · W1-1C）：只在**没跟上**时出现一句话。
+                 正常态不渲染（不写「已是最新」凑数），也不给手动按钮 —— 启动自动拉，
+                 拉不动就照实说"待同步"，本地数据一个字不动。 -->
+            <div class="ms-sync" v-if="selfSyncWarn">⚠ {{ selfSyncWarn }}</div>
             <div class="ms-metrics">
               <!-- 0 卡时不画假环：环换成空态占位（0/0 没有「完成度」可言），旁边图例给「还没有任务卡」 -->
               <div class="ms-ring" v-if="pvCurrent.taskCount">
@@ -6744,6 +6748,8 @@ function loadViewData(v: string) {
     // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
     // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
     if (pvView.value === 'trip') void loadTripBoard()
+    // 自仓同步状态（2026-10-21 · W1-1C）：同一条纪律 —— 进门就拉，别让「待同步」等到用户点刷新
+    void loadSelfSync()
   } else {
     loadAll()
   }
@@ -9535,6 +9541,33 @@ const msStalled = computed(() => {
   if (!p) return []
   const ids = new Set(tasks.value.filter(t => normProject((t as any).project) === p.id).map(t => t.id))
   return stalledTasks.value.filter(s => ids.has(s.id))
+})
+
+// ── 自仓启动同步状态（2026-10-21 · W1-1C）────────────────────────────────
+/**
+ * 主进程启动时对**方寸自仓**跑一次 `git pull --ff-only`，这里只读它报的状态。
+ * 为什么不是"加个同步按钮"：用户零动作原则 —— 自动就够，按钮只会多一处要维护的失败面。
+ * 为什么只在"没跟上"时显示：正常态显示「已是最新」纯属噪音（用户不关心 git 的事）。
+ * ⚠ 非 git 仓库（安装版）/ 从未跑过 → **不显示任何东西**，不拿「未知」冒充状态。
+ */
+const selfSync_ = ref<any>(null)
+async function loadSelfSync(): Promise<void> {
+  const api: any = (window as any).tegula
+  if (!api || typeof api.selfSyncStatus !== 'function') return  // 旧主进程：不显示，不报假
+  try {
+    selfSync_.value = await api.selfSyncStatus()
+  } catch {
+    selfSync_.value = null
+  }
+}
+
+/** 「待同步」那一句人话；一切正常/无仓库时为空串（模板据此不渲染，零占位） */
+const selfSyncWarn = computed(() => {
+  const s = selfSync_.value
+  if (!s || !s.state) return ''
+  if (s.state === 'behind') return `待同步：${s.message || '本地有改动或与远端分叉'}`
+  if (s.state === 'failed') return `同步没跑成：${s.message || '未知原因'}`
+  return ''
 })
 
 // ── 监控台「建议动作 / 可并行机会」（2026-10-11，死通道 A 组收口）──────────────
@@ -13360,6 +13393,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ohead .hl { margin-left: auto; flex: none; font-size: 10.5px; font-weight: 600; color: var(--muted); }
 .ohead .hl-active { color: var(--success); }
 .ohead .hl-stuck { color: var(--warning); }
+/* 自仓同步「待同步／没跑成」一行（2026-10-21 · W1-1C）——
+   只在异常态出现，所以用警告色的浅底条，不该抢主 KPI 的视线。 */
+.ms-sync { margin: 6px 0 2px; padding: 5px 9px; border-radius: 8px; font-size: 11.5px;
+  color: var(--warning); background: var(--tint); border: 1px solid var(--border); white-space: normal; }
 .stack { display: flex; height: 8px; border-radius: 99px; overflow: hidden; margin: 10px 0 5px; background: var(--bg); }
 .stack i { display: block; height: 100%; }
 .legend { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; }

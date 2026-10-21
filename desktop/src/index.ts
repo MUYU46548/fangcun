@@ -10,6 +10,7 @@ import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
 import { startScanner, stopScanner } from './main/services/notifier'
 import { startIdleReminder, stopIdleReminder } from './main/services/idleReminder'
+import { syncSelfRepoOnBoot } from './main/services/selfSync'
 import * as appLog from './main/services/appLog'
 
 // ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
@@ -248,6 +249,10 @@ app.whenReady().then(() => {
   boot('静默备份调度', () => startScheduler())
   boot('通知扫描器', () => startScanner())
   boot('挂机提醒', () => startIdleReminder())
+  // 方寸自仓启动同步（2026-10-21 · W1-1C）：后台 `git pull --ff-only`，**不弹窗、不加按钮**。
+  // 只在数据根是 git 仓库且有上游时真做事；失败（本地领先/分叉/没网）落日志 + 状态行显示「待同步」。
+  // 不 await：开窗不该等网络；失败也不影响任何功能。
+  void syncSelfRepoOnBoot().catch((e) => appLog.error('selfsync', '启动同步异常', e instanceof Error ? e.stack : e))
   boot('自动更新', () => {
     initUpdater(mainWindow)
     registerUpdaterIpc()
