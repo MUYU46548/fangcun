@@ -27,8 +27,10 @@ export interface DocFile {
   rel: string
   /** 一级标题（`# xxx`）；没有标题时退回文件名 */
   title: string
-  /** 一句话摘要：第一段正文，截 160 字（README 只给这个，不整篇塞进监控台） */
+  /** 摘要：前 2 段正文，≤300 字（2026-10-21 暮雨反馈"只截一行没什么有用信息"后加长） */
   excerpt: string
+  /** 展开用正文：前 1200 字（去 markdown 装饰），默认不显示，点行展开才看 */
+  more: string
   bytes: number
   /** 文件 mtime（ISO）—— 用来判断"这份文档多久没更新了" */
   mtime: string
@@ -82,35 +84,62 @@ function today(): string {
  * 只取**第一段**正文：README 往往是"标题 + 徽章 + 长目录"，整篇塞进监控台等于把用户淹了。
  * 跳过：标题行、空行之前、HTML 注释、徽章行（`[![...` / `<img`）、分隔线、纯链接行。
  */
-export function extractTitleAndExcerpt(md: string): { title: string; excerpt: string } {
+/**
+ * 从 Markdown 正文抽：一级标题 + 摘要（前 2 段/≤300 字）+ 展开正文（≤1200 字）。
+ *
+ * 2026-10-21 暮雨反馈「README 只截一行，通常没什么有用信息」—— 第一段常常是一句标语
+ * （"本项目使用 AI 辅助制作"），信息量确实为零。所以：
+ *  ① 摘要收**前两段**（跳过徽章/图片/分隔线/纯链接行），最多 300 字；
+ *  ② 另外给一份去掉 markdown 装饰的连续正文（≤1200 字），点行展开时才显示 —— 
+ *     默认不塞满监控台，但"想看就能看"，不用去开文件。
+ * 口径仍是"只读、不改文档"。
+ */
+export function extractTitleAndExcerpt(md: string): { title: string; excerpt: string; more: string } {
   const lines = String(md || '').replace(/\r\n/g, '\n').split('\n')
   let title = ''
   for (const raw of lines) {
     const m = raw.match(/^\s*#\s+(.+?)\s*$/)
     if (m) { title = m[1].replace(/[*_`]/g, '').trim(); break }
   }
-  const skip = (l: string): boolean => {
-    const t = l.trim()
+  const clean = (raw: string): string => {
+    let t = raw.trim()
+    t = t.replace(/^[-*+]\s+/, '').replace(/^>\s*/, '').replace(/[`*_]/g, '')
+    t = t.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    return t.trim()
+  }
+  const skip = (raw: string): boolean => {
+    const t = raw.trim()
     if (!t) return true
     if (t.startsWith('#')) return true
     if (t.startsWith('<!--')) return true
     if (/^(-{3,}|\*{3,}|={3,})$/.test(t)) return true
     if (/^\[!\[|^<img|^<p|^<div|^!\[/.test(t)) return true
-    if (/^\[!\[/.test(t)) return true
+    // 纯链接行（导航式 README 常见）：没有正文价值
+    if (/^\[[^\]]+\]\([^)]*\)$/.test(t)) return true
+    // 表格行 / 代码块围栏也不进摘要
+    if (t.startsWith('|') || t.startsWith('```')) return true
     return false
   }
-  let excerpt = ''
-  for (const raw of lines) {
-    if (skip(raw)) continue
-    let t = raw.trim()
-    // 去 markdown 装饰：列表符、粗体/斜体、行内代码、链接
-    t = t.replace(/^[-*+]\s+/, '').replace(/[`*_]/g, '')
-    t = t.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    if (!t) continue
-    excerpt = t
-    break
+
+  const paras: string[] = []
+  let cur: string[] = []
+  const flush = () => {
+    if (!cur.length) return
+    const t = cur.join(' ').replace(/\s+/g, ' ').trim()
+    if (t) paras.push(t)
+    cur = []
   }
-  return { title: title || '', excerpt: excerpt.slice(0, 160) }
+  for (const raw of lines) {
+    if (skip(raw)) { flush(); continue }
+    const t = clean(raw)
+    if (!t) { flush(); continue }
+    cur.push(t)
+  }
+  flush()
+
+  const excerpt = paras.slice(0, 2).join(' ').slice(0, 300)
+  const more = paras.join(' ').slice(0, 1200)
+  return { title: title || '', excerpt, more }
 }
 
 /** 在仓库里找一份文档：先根目录，再 docs/ —— 找到第一份就停。 */
@@ -123,11 +152,12 @@ function findDoc(repo: string, names: string[]): DocFile | null {
         const st = fs.statSync(abs)
         if (!st.isFile()) continue
         const md = fs.readFileSync(abs, 'utf-8')
-        const { title, excerpt } = extractTitleAndExcerpt(md)
+        const { title, excerpt, more } = extractTitleAndExcerpt(md)
         return {
           rel,
           title: title || name,
           excerpt,
+          more,
           bytes: st.size,
           mtime: st.mtime.toISOString(),
         }
@@ -213,7 +243,11 @@ export async function readProjectDocs(repo: string, opts: { force?: boolean } = 
     docsCommits,
     readAt: new Date().toISOString(),
     cached: false,
-    note: (readme || roadmap) ? '' : '仓库里没有 README / ROADMAP —— 路线只能看手写的那一栏',
+    note: !readme && !roadmap
+      ? '仓库里没有 README / ROADMAP —— 路线只能看手写的那一栏'
+      : (readme && !roadmap
+        ? '没找到 ROADMAP —— 下面的 README 是项目对外说明，不一定有"接下来做什么"'
+        : ''),
   }
   dayCache.set(repo, { day, data })
   return data

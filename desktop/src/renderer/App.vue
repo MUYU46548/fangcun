@@ -771,7 +771,10 @@
             <!-- 自仓同步状态（2026-10-21 · W1-1C）：只在**没跟上**时出现一句话。
                  正常态不渲染（不写「已是最新」凑数），也不给手动按钮 —— 启动自动拉，
                  拉不动就照实说"待同步"，本地数据一个字不动。 -->
-            <div class="ms-sync" v-if="selfSyncWarn">⚠ {{ selfSyncWarn }}</div>
+            <!-- 常驻一行：正常是灰字"已是最新"，异常才变色（2026-10-21：看不见就等于不存在） -->
+            <div class="ms-sync" :class="'ms-sync-' + selfSyncLine.tone" v-if="selfSyncLine">
+              <template v-if="selfSyncLine.tone === 'warn'">⚠ </template>{{ selfSyncLine.text }}
+            </div>
             <div class="ms-metrics">
               <!-- 0 卡时不画假环：环换成空态占位（0/0 没有「完成度」可言），旁边图例给「还没有任务卡」 -->
               <div class="ms-ring" v-if="pvCurrent.taskCount">
@@ -820,18 +823,24 @@
                 <span class="ms-docs-at">{{ msDocs.cached ? '今天读过' : '刚读' }}</span>
               </div>
               <template v-if="msDocs.readme || msDocs.roadmap">
-                <div class="ms-doc" v-if="msDocs.readme" :title="msDocs.readme.rel">
-                  <span class="ms-doc-k">README</span>
-                  <span class="ms-doc-t">{{ msDocs.readme.excerpt || msDocs.readme.title }}</span>
-                  <span class="ms-doc-m">{{ relativeTime(msDocs.readme.mtime) }}</span>
-                </div>
-                <div class="ms-doc" v-if="msDocs.roadmap" :title="msDocs.roadmap.rel">
+                <!-- ROADMAP 在前（"接下来做什么"才是监控台要回答的问题）；README 在后，
+                     它是项目**对外**说明，常有一句没信息量的标语 —— 所以默认两行、点开看全文。 -->
+                <div class="ms-doc" v-if="msDocs.roadmap" :class="{ open: docOpen.roadmap }"
+                  :title="msDocs.roadmap.rel + '（点一下展开 / 收起）'" @click="toggleDoc('roadmap')">
                   <span class="ms-doc-k">ROADMAP</span>
-                  <span class="ms-doc-t">{{ msDocs.roadmap.excerpt || msDocs.roadmap.title }}</span>
+                  <span class="ms-doc-t">{{ docOpen.roadmap ? (msDocs.roadmap.more || msDocs.roadmap.excerpt) : (msDocs.roadmap.excerpt || msDocs.roadmap.title) }}</span>
                   <span class="ms-doc-m">{{ relativeTime(msDocs.roadmap.mtime) }}</span>
+                </div>
+                <div class="ms-doc" v-if="msDocs.readme" :class="{ open: docOpen.readme }"
+                  :title="msDocs.readme.rel + '（对外说明，点一下展开 / 收起）'" @click="toggleDoc('readme')">
+                  <span class="ms-doc-k">README</span>
+                  <span class="ms-doc-t">{{ docOpen.readme ? (msDocs.readme.more || msDocs.readme.excerpt) : (msDocs.readme.excerpt || msDocs.readme.title) }}</span>
+                  <span class="ms-doc-m">{{ relativeTime(msDocs.readme.mtime) }}</span>
                 </div>
               </template>
               <div class="ms-doc-none" v-else>{{ msDocs.note || '仓库里没有 README / ROADMAP' }}</div>
+              <!-- 只有 README 没有 ROADMAP：把这句话说出来，别让人把"对外说明"当成路线 -->
+              <div class="ms-doc-none" v-if="(msDocs.readme || msDocs.roadmap) && msDocs.note">{{ msDocs.note }}</div>
               <div class="ms-docs-log" v-if="msDocs.docsCommits && msDocs.docsCommits.length">
                 最近 docs 变更 <b>{{ msDocs.docsCommits.length }}</b> 条 · 最后 <b>{{ msDocs.docsCommits[0].subject }}</b>（{{ msDocs.docsCommits[0].date }}）
               </div>
@@ -1535,6 +1544,7 @@
         <section class="help-sec">
           <h4>二、每个页签干什么</h4>
           <table class="help-table">
+            <tbody>
             <tr><th>页签</th><th>用途</th></tr>
             <tr><td>看板</td><td>主视图。按状态分列，拖卡片即可改状态。搜索、筛选、分组、排序都在顶上。</td></tr>
             <tr><td>待办</td><td>轻量清单。可以先记一句，之后再转成任务卡或执行日志。</td></tr>
@@ -1549,6 +1559,7 @@
             <tr><td>决策</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
             <tr><td>技能</td><td>把方寸的技能包装到 Hermes / DSH 等 agent 上。</td></tr>
             <tr><td>服务</td><td>只读监控端口占用 —— 只看不杀。</td></tr>
+                      </tbody>
           </table>
         </section>
 
@@ -1556,11 +1567,13 @@
           <h4>三、搜索框怎么用</h4>
           <p>直接在搜索框里敲，回车生效。支持的写法（可组合）：</p>
           <table class="help-table">
+            <tbody>
             <tr><th>写法</th><th>意思</th><th>例子</th></tr>
             <tr><td><code>#标签</code></td><td>按标签筛</td><td><code>#紧急</code></td></tr>
             <tr><td><code>@项目</code></td><td>按项目筛</td><td><code>@司天</code></td></tr>
             <tr><td><code>due:MM-DD</code></td><td>按到期日筛</td><td><code>due:10-15</code></td></tr>
             <tr><td>一整句话</td><td>当作自然语言查询解析</td><td><code>本周到期的紧急任务</code></td></tr>
+                      </tbody>
           </table>
           <p class="help-tip">
             顶上「＋ 筛选」里的条件会变成可点 ✕ 的小标签 —— 筛了什么一眼可见，撤销不用回头翻下拉。
@@ -1570,6 +1583,7 @@
         <section class="help-sec">
           <h4>四、顶栏那几个按钮</h4>
           <table class="help-table">
+            <tbody>
             <tr><th>按钮</th><th>作用</th></tr>
             <tr><td>← 返回</td><td>回上一个看过的视图。没有可回退的视图时会置灰。</td></tr>
             <tr><td>⌂ 首页</td><td>回看板，并清掉当前的搜索与筛选 —— 一记干净的复位。</td></tr>
@@ -1581,6 +1595,7 @@
             <tr><td>🔔</td><td>通知中心：逾期、卡住、待审批这些提醒。</td></tr>
             <tr><td>📋</td><td>诊断日志：出错时打开看尾部、打开日志目录。</td></tr>
             <tr><td>⚙</td><td>设置：数据目录、备份、外观、LLM 配置等。</td></tr>
+                      </tbody>
           </table>
         </section>
 
@@ -1615,6 +1630,7 @@
             方寸不预置任何端点、不代理任何模型服务、也不代收费用。
           </p>
           <table class="help-table">
+            <tbody>
             <tr><th>第 1 步 · 配通道</th>
               <td>设置（⚙）→ 左侧「Agent」→「✨ 模型通道」：填 Base URL、模型名、API Key，
                 点「测试连接」确认通了。密钥只存本机、回显只有掩码。</td></tr>
@@ -1624,6 +1640,7 @@
             <tr><th>结果落哪</th>
               <td>每次都落成<b>「待审批」卡</b> —— 你过目、改完、点头之后才进待办。
                 AI 不能背着你往方寸里塞东西。</td></tr>
+                      </tbody>
           </table>
           <p class="help-tip">
             涉及花钱：界面上的 token 用量与花销<b>只是估算、不是计费依据</b>；
@@ -3939,7 +3956,8 @@
 
 
 
-    <div id="toast" :class="[toast.type, { show: toast.show }]">{{ toast.msg }}</div>
+    <!-- ⚠ `has-undo`：撤销条与 toast 都在顶部居中，同时出现时 toast 下移一格（2026-10-21） -->
+    <div id="toast" :class="[toast.type, { show: toast.show, 'has-undo': !!undoBar }]">{{ toast.msg }}</div>
 
     <!-- 撤销条（2026-10-21 暮雨报障：「点错了日志，把另一个日志点了完成，虽然撤销按钮在，
          但快捷键无用。左上角只有返回，没有撤销按钮」）。
@@ -3950,6 +3968,7 @@
          ⚠ 不做全站撤销栈：这里只记「上一笔状态动作」，而且只认能真撤回的那几种。 -->
     <div id="undo-bar" v-if="undoBar" role="status" aria-live="polite">
       <span class="ub-text">{{ undoBar.label }}</span>
+      <span class="ub-key" title="键盘快捷键：Ctrl+Z（焦点在输入框里也照样撤这一步数据动作）">Ctrl+Z</span>
       <button class="ub-btn" title="撤回上一步（同 Ctrl+Z）" @click="runUndo">↩ 撤销</button>
       <button class="ub-x" title="知道就行，关掉这条提示（不撤回）" @click="dismissUndo">✕</button>
     </div>
@@ -6266,10 +6285,11 @@ function onShortcutKeydown(e: KeyboardEvent): void {
   if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
   // ── Ctrl+Z：撤回上一笔状态动作（撤销条同源）─────────────────────────
   if (e.key === 'z' || e.key === 'Z') {
-    const el = document.activeElement as HTMLElement | null
-    const tag = (el?.tagName || '').toUpperCase()
-    const editing = tag === 'INPUT' || tag === 'TEXTAREA' || !!el?.isContentEditable
-    if (editing || !undoBar.value) return   // 输入框里 / 没有可撤的 → 交给原生行为
+    // ⚠ 2026-10-21 暮雨实测：原来"焦点在输入框就一律放行"—— 他点完完成、焦点落在某处，
+    //   按 Ctrl+Z 完全没反应，于是判定"快捷键无用"。现在的规则简单可预期：
+    //   **只要撤销条在，Ctrl+Z 就撤这一步数据动作**（不管焦点在哪）；
+    //   没有待撤动作时才放行输入框的原生撤销。
+    if (!undoBar.value) return
     e.preventDefault()
     void runUndo()
     return
@@ -8319,8 +8339,7 @@ async function quickCompleteLog(log: any) {
       showToast(`完成失败：${r.error || '未知原因'}`, 'error')
       return
     }
-    showToast(days > 0 ? `日志已完成（保留 ${days} 天，可在设置里改）` : '日志已完成（永不清理）', 'success')
-    offerLogReopenUndo(`已标记完成：${log.title || log.id}`, [log.id])
+    offerLogReopenUndo(days > 0 ? `已完成（保留 ${days} 天）：${log.title || log.id}` : `已完成（永不清理）：${log.title || log.id}`, [log.id])
     await loadLogs()
     await loadLogsForTask(previewTask.value?.id || '')
   } catch (e: any) {
@@ -9604,13 +9623,25 @@ async function loadSelfSync(): Promise<void> {
   }
 }
 
-/** 「待同步」那一句人话；一切正常/无仓库时为空串（模板据此不渲染，零占位） */
-const selfSyncWarn = computed(() => {
+/**
+ * 自仓同步那一行字。**正常态也显示**（2026-10-21 暮雨实测后改）。
+ *
+ * 原来只在"没跟上"时渲染 —— 结果他安装后想确认"到底同步没同步"，界面上什么都没，
+ * 只能来问我"待同步在哪看"。状态这种东西**看不见就等于不存在**：
+ * 常驻一行 11px 灰字（"同步：已是最新（今天 19:53）"），异常才变色。
+ * 只有 skipped（安装版数据根不是 git 仓库）不显示 —— 那是常态，报出来就是噪音。
+ */
+const selfSyncLine = computed<null | { tone: 'ok' | 'warn'; text: string }>(() => {
   const s = selfSync_.value
-  if (!s || !s.state) return ''
-  if (s.state === 'behind') return `待同步：${s.message || '本地有改动或与远端分叉'}`
-  if (s.state === 'failed') return `同步没跑成：${s.message || '未知原因'}`
-  return ''
+  if (!s || !s.state || s.state === 'skipped') return null
+  if (s.state === 'running') return { tone: 'ok', text: '同步：正在拉…' }
+  const d = s.at ? new Date(s.at) : null
+  const hhmm = d && !Number.isNaN(d.getTime())
+    ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    : ''
+  if (s.state === 'ok') return { tone: 'ok', text: `同步：已是最新${hhmm ? `（今天 ${hhmm}）` : ''}` }
+  if (s.state === 'behind') return { tone: 'warn', text: `待同步：${s.message || '本地有改动或与远端分叉'}` }
+  return { tone: 'warn', text: `同步没跑成：${s.message || '未知原因'}` }
 })
 
 // ── 路线文档实况（2026-10-21 · W1-批次 2）────────────────────────────────
@@ -9625,6 +9656,11 @@ const selfSyncWarn = computed(() => {
  * ⚠ 一天一批由**主进程缓存**，所以这里每次切项目都调也不贵（命中缓存不跑 git）。
  */
 const msDocs = ref<any>(null)
+/** 哪一份文档被点开了（roadmap / readme）—— 默认都收起：两行摘要，点开看前 1200 字 */
+const docOpen = ref<Record<string, boolean>>({ roadmap: false, readme: false })
+function toggleDoc(k: string): void {
+  docOpen.value = { ...docOpen.value, [k]: !docOpen.value[k] }
+}
 async function loadProjectDocs(): Promise<void> {
   const p = pvCurrent.value
   const api: any = (window as any).tegula
@@ -10112,7 +10148,8 @@ async function executeBatchLogComplete() {
       if (r?.ok) { ok++; done.push(id) }
     } catch { /* skip */ }
   }
-  showToast(`已批量完成 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  // 批量完成：成功时不再另发 toast（撤销条已经是那条提示）；失败仍要 toast，否则人以为全成了
+  if (ok < ids.length) showToast(`已批量完成 ${ok}/${ids.length} 条日志`, ok ? 'info' : 'error')
   // 批量是最容易"手滑一整屏"的路径（勾错、点错），撤销条在这里更该在（2026-10-21）。
   // ⚠ 撤的是**真成功的那几条**（done 数组），不是 `ids.slice(0, ok)` —— 中间失败时
   //   下标和成功数对不上，那会撤错日志。
@@ -10134,7 +10171,7 @@ async function executeBatchLogArchive() {
       if (r?.ok) { ok++; done.push(id) }
     } catch { /* skip */ }
   }
-  showToast(`已批量归档 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+  if (ok < ids.length) showToast(`已批量归档 ${ok}/${ids.length} 条日志`, ok ? 'info' : 'error')
   if (done.length) offerLogReopenUndo(`已批量归档 ${ok} 条日志`, done)
   selectedLogBatch.value = []
   logBatchMode.value = false
@@ -10797,8 +10834,9 @@ async function saveLogEdit() {
       const rd = Number.isNaN(parsed) || parsed < 0 ? logRetainDefault.value : parsed
       const result = await window.tegula.logsComplete(e.id, rd, logNote.value || undefined)
       if (result.ok) {
-        showToast(rd > 0 ? `已标记完成（保留 ${rd} 天）` : '已标记完成（永不清理）', 'success')
-        offerLogReopenUndo(`已标记完成：${e.title || e.id}`, [e.id])
+        // 2026-10-21：这里原来还配一条 toast —— 两条提示一上一下、内容几乎一样，用户只会看见一条。
+        // 撤销条的文案已经把"做了什么"说全了，所以完成/归档只留撤销条。
+        offerLogReopenUndo(rd > 0 ? `已标记完成（保留 ${rd} 天）：${e.title || e.id}` : `已标记完成（永不清理）：${e.title || e.id}`, [e.id])
       } else {
         showToast(`完成失败：${result.error || '未知原因'}`, 'error')
         return
@@ -10806,7 +10844,6 @@ async function saveLogEdit() {
     } else if (logArchiveMode.value) {
       const result = await window.tegula.logsArchive(e.id, logNote.value || undefined)
       if (result.ok) {
-        showToast('已归档', 'success')
         offerLogReopenUndo(`已归档：${e.title || e.id}`, [e.id])
       } else {
         showToast(`归档失败：${result.error || '未知原因'}`, 'error')
@@ -13433,10 +13470,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ohead .hl { margin-left: auto; flex: none; font-size: 10.5px; font-weight: 600; color: var(--muted); }
 .ohead .hl-active { color: var(--success); }
 .ohead .hl-stuck { color: var(--warning); }
-/* 自仓同步「待同步／没跑成」一行（2026-10-21 · W1-1C）——
-   只在异常态出现，所以用警告色的浅底条，不该抢主 KPI 的视线。 */
-.ms-sync { margin: 6px 0 2px; padding: 5px 9px; border-radius: 8px; font-size: 11.5px;
-  color: var(--warning); background: var(--tint); border: 1px solid var(--border); white-space: normal; }
+/* 自仓同步一行（2026-10-21 · W1-1C；当日改成常驻）——
+   正常态灰字、不抢 KPI 视线；异常态警告色，用户一眼能看出"没跟上"。 */
+.ms-sync { margin: 6px 0 2px; padding: 4px 9px; border-radius: 8px; font-size: 11px;
+  background: var(--tint-3); border: 1px solid var(--border); white-space: normal; }
+.ms-sync-ok { color: var(--muted); }
+.ms-sync-warn { color: var(--warning); background: var(--tint); }
 .stack { display: flex; height: 8px; border-radius: 99px; overflow: hidden; margin: 10px 0 5px; background: var(--bg); }
 .stack i { display: block; height: 100%; }
 .legend { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; }
@@ -13517,9 +13556,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-docs-h { display: flex; align-items: baseline; gap: 8px; font-size: 10.5px; color: var(--muted); }
 .ms-docs-src { font-weight: 700; color: var(--accent); }
 .ms-docs-at { margin-left: auto; }
-.ms-doc { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 11.5px; min-width: 0; }
+.ms-doc { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; font-size: 11.5px;
+  min-width: 0; cursor: pointer; border-radius: 6px; padding: 2px 3px; }
+.ms-doc:hover { background: var(--tint-2); }
 .ms-doc-k { flex: none; font-weight: 700; color: var(--ink); font-size: 10.5px; letter-spacing: .02em; }
-.ms-doc-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+/* 摘要：默认 2 行（原来 1 行被用户点名"没什么有用信息"）；点开解除行数限制看全文 */
+.ms-doc-t { flex: 1 1 auto; min-width: 0; color: var(--ink); line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.ms-doc.open .ms-doc-t { -webkit-line-clamp: unset; display: block; }
 .ms-doc-m { flex: none; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ms-doc-none { margin-top: 4px; font-size: 11px; color: var(--muted); }
 .ms-docs-log { margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--line-2); font-size: 10.5px; color: var(--muted); }
@@ -13589,16 +13633,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Toast */
 #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.18); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.3s; max-width: 90vw; text-align: center; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* 撤销条也在顶部时，toast 下移一格（否则两条叠在一起，用户只看见一条） */
+#toast.has-undo { top: 70px; }
 #toast.success { background: #e3f1de; color: #3f6b3a; border: 1px solid #bcd4b4; }
 #toast.error { background: #f6e2e2; color: #8a4343; border: 1px solid #e2c4c4; }
 #toast.info { background: var(--tint); color: #5b5478; border: 1px solid var(--accent-soft); }
 
 /* 撤销条（2026-10-21 暮雨第 1 条）——
    与 toast 的分工：toast 说「发生了什么」，这条给「还撤不撤得回」。所以它：
-   ① 贴屏幕**底部**居中（toast 在顶部，两条同时出现也不打架）；
+   ① 贴屏幕**顶部**居中（与 toast 同一视觉带；同时出现时 toast 下移一格，见 #toast.has-undo）；
    ② 可点（toast 是 pointer-events: none），且只有一条、由下一次状态动作顶掉；
    ③ 颜色全部走主题令牌，六套主题下都不写死色值（check-themes 会量）。 */
-#undo-bar { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 9998;
+#undo-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999;
   display: flex; align-items: center; gap: 10px; max-width: min(680px, 92vw);
   padding: 9px 10px 9px 16px; border-radius: 12px; font-size: 13px;
   background: var(--card); color: var(--ink); border: 1px solid var(--border);
@@ -13610,6 +13656,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #undo-bar .ub-x { flex: none; cursor: pointer; font: inherit; background: transparent; color: var(--muted);
   border: 1px solid transparent; border-radius: 8px; padding: 4px 7px; }
 #undo-bar .ub-x:hover { color: var(--ink); background: var(--tint); }
+/* 快捷键角标：用户按了没反应时会以为"没这功能"，把键名写在条子上 */
+#undo-bar .ub-key { flex: none; font-size: 10.5px; font-weight: 700; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; letter-spacing: .02em; }
 
 /* Drag status picker */
 .drag-status-picker {

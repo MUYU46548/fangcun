@@ -85,13 +85,23 @@ async function main() {
         '---',
         '',
         '零依赖本地多 agent 任务看板，把全部项目收口到一屏。',
-        '第二段不该被取到。',
+        '',
+        '第二段才常常是有信息量的那句（2026-10-21 用户反馈"只截一行没用"后收两段）。',
+        '',
+        '第三段不该进摘要（默认只给两段，再多就去点开看）。',
       ].join('\n')
       const got = extractTitleAndExcerpt(md)
       check('★ 抽标题：取一级标题（去掉粗体/代码标记）', got.title === '方寸 (Tegula)', got.title)
-      check('★★ 抽摘要：跳过徽章/图片/分隔线，取第一段正文（不是把徽章当摘要）',
+      check('★★ 抽摘要：跳过徽章/图片/分隔线，从第一段正文开始（不是把徽章当摘要）',
         got.excerpt.indexOf('零依赖本地') === 0, got.excerpt)
-      check('  只取第一段（后面段落不进摘要）', got.excerpt.indexOf('第二段') < 0, got.excerpt)
+      // 2026-10-21 暮雨反馈「README 只截一行，通常没什么有用信息」→ 摘要改成**前两段**
+      check('★★ 摘要收**两段**（第一段常常只是标语，第二段才有信息）',
+        got.excerpt.indexOf('第二段才常常') > 0, got.excerpt)
+      check('  但只收两段：第三段不进摘要（要看就点开，不默认铺满监控台）',
+        got.excerpt.indexOf('第三段不该进摘要') < 0, got.excerpt)
+      check('★ 另外给一份更长的展开正文 more（≥ 摘要长度，点开才显示）',
+        got.more.length > got.excerpt.length && got.more.indexOf('第三段不该进摘要') > 0,
+        'more=' + got.more.length + ' excerpt=' + got.excerpt.length)
       const noTitle = extractTitleAndExcerpt('就是一段话，没有标题。')
       check('  没有标题 → title 为空（由调用方退回文件名，不编一个）', noTitle.title === '', JSON.stringify(noTitle))
     }
@@ -156,6 +166,8 @@ async function main() {
     const d4 = await readProjectDocs(onlyReadme)
     check('★★ 没有 ROADMAP → roadmap 为 null（界面显示"没有"，不糊空壳）',
       d4.roadmap === null && !!d4.readme, JSON.stringify({ readme: !!d4.readme, roadmap: d4.roadmap }))
+    check('★ 只有 README 时 note 点名「没找到 ROADMAP」（别让人把对外说明当路线）',
+      /没找到 ROADMAP/.test(d4.note), d4.note)
     check('  没有 docs/ 提交 → docsCommits 为空数组（不是 null，调用方不用兜）',
       Array.isArray(d4.docsCommits) && d4.docsCommits.length === 0, JSON.stringify(d4.docsCommits))
 

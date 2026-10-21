@@ -25,8 +25,15 @@ export interface UndoAction {
 export const undoBar = ref<UndoAction | null>(null)
 
 let timer: ReturnType<typeof setTimeout> | null = null
-/** 有效窗口：8 秒 —— 够人反应过来"点错了"，又不至于挂着一条过期的旧提示 */
-const WINDOW_MS = 8000
+/**
+ * 有效窗口：**60 秒**（2026-10-21 暮雨实测后改，原来 8 秒）。
+ *
+ * 8 秒的原意是"够人反应过来"，但真实场景是：点完成 → 界面刷新 → 人去别的页面看了一眼 →
+ * 回来想撤 → 已经过了 8 秒 → 按 Ctrl+Z 什么都没发生。用户当场报"按 Ctrl+Z 没能撤回"。
+ * 撤销条存在的意义就是**给误操作留一条回路**，它不该比人的反应慢半拍就消失。
+ * 挂着不碍事：一条细条 + 一个 ✕，下一次动作还会顶掉它。
+ */
+const WINDOW_MS = 60000
 
 export function dismissUndo(): void {
   if (timer) { clearTimeout(timer); timer = null }

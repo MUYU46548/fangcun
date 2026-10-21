@@ -1608,16 +1608,20 @@
       return waitFor(() => {
         const el = $('#board.pv .ms-detail .ms-sync')
         const t = (el || {}).textContent || ''
-        return !!el && /待同步/.test(t) && /不合并/.test(t)
+        return !!el && /待同步/.test(t) && /不合并/.test(t) && el.classList.contains('ms-sync-warn')
       }, 4000, '待同步一行')
     })(), ((($('#board.pv .ms-detail .ms-sync') || {}).textContent) || '(没有 .ms-sync)').trim())
-    check('★ 同步正常（已是最新）→ **不渲染**那一行（零噪音；反向判据）', await (async () => {
-      window.__fcTest.setSelfSync({ state: 'ok', at: '2026-10-21T00:00:00.000Z', message: '已是最新', repo: 'C:/mock/repo' })
+    // ⚠ 2026-10-21 暮雨实测改：原来正常态不渲染 —— 他装好后想确认"同步没同步"，
+    //   界面上什么都没有，只能来问"待同步在哪看"。**看不见 = 不存在**，所以改成常驻一行。
+    check('★★ 同步正常 → 也常驻一行灰字（"已是最新（今天 hh:mm）"），不再是空白', await (async () => {
+      window.__fcTest.setSelfSync({ state: 'ok', at: '2026-10-21T09:26:00.000Z', message: '已是最新', repo: 'C:/mock/repo' })
       clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
       await pickMs('演示项目'); await sleep(250)
-      return !$('#board.pv .ms-detail .ms-sync')
-    })(), 'ms-sync=' + !!$('#board.pv .ms-detail .ms-sync'))
-    check('★ 非 git 仓库（skipped = 安装版常态）→ 也不渲染（不把常态报成异常）', await (async () => {
+      const el = $('#board.pv .ms-detail .ms-sync')
+      const t = (el || {}).textContent || ''
+      return !!el && /同步：已是最新/.test(t) && /（今天 \d{2}:\d{2}）/.test(t) && el.classList.contains('ms-sync-ok')
+    })(), (($('#board.pv .ms-detail .ms-sync') || {}).textContent || '(没有这一行)').trim())
+    check('★ 非 git 仓库（skipped = 安装版常态）→ **不渲染**（唯一不显示的状态：报出来就是噪音）', await (async () => {
       window.__fcTest.setSelfSync({ state: 'skipped', at: '2026-10-21T00:00:00.000Z', message: '数据根不是 git 仓库（安装版常态），跳过自动同步', repo: '' })
       clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
       await pickMs('演示项目'); await sleep(250)
@@ -1645,13 +1649,37 @@
       if (!d) return false
       return /自动/.test(((d.querySelector('.ms-docs-src') || {}).textContent) || '')
     })(), (($('#board.pv .ms-detail .ms-docs') || {}).textContent || '(没有 .ms-docs)').replace(/\s+/g, ' ').slice(0, 90))
-    check('★★ README 与 ROADMAP 各一行，且**只给摘要**（README 是展示公告，不整篇塞进监控台）', (() => {
-      const rows = $$('#board.pv .ms-detail .ms-doc')
-      const ks = rows.map((r) => ((r.querySelector('.ms-doc-k') || {}).textContent || '').trim())
-      const readmeTxt = (rows[0] && (rows[0].querySelector('.ms-doc-t') || {}).textContent) || ''
-      return ks.length === 2 && ks[0] === 'README' && ks[1] === 'ROADMAP'
-        && readmeTxt.indexOf('一句摘要') >= 0 && readmeTxt.length < 120
+    check('★★ ROADMAP 在前、README 在后（路线才是监控台要回答的问题；README 只是对外说明）', (() => {
+      const ks = $$('#board.pv .ms-detail .ms-doc-k').map((e) => (e.textContent || '').trim())
+      return ks.length === 2 && ks[0] === 'ROADMAP' && ks[1] === 'README'
     })(), JSON.stringify($$('#board.pv .ms-detail .ms-doc-k').map((e) => (e.textContent || '').trim())))
+    // 2026-10-21 暮雨反馈「README 只截一行，通常没什么有用信息」→ 摘要改成**前两段**
+    check('★★ 摘要收的是**两段**（不是一句标语就算完），且默认只有 2 行高度', (() => {
+      const row = $$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || '')))
+      const t = row && row.querySelector('.ms-doc-t')
+      if (!t) return false
+      const txt = (t.textContent || '')
+      const clamp = getComputedStyle(t).webkitLineClamp || getComputedStyle(t).getPropertyValue('-webkit-line-clamp')
+      return /两行摘要/.test(txt) && /第二段也进摘要/.test(txt) && String(clamp).trim() === '2'
+    })(), (() => {
+      const row = $$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || '')))
+      const t = row && row.querySelector('.ms-doc-t')
+      return t ? ('clamp=' + (getComputedStyle(t).webkitLineClamp || '(空)') + ' len=' + (t.textContent || '').length) : '(没有 README 行)'
+    })())
+    check('★★ 点一下 README 行 → 展开成 more 全文；再点收起（内容真读到了，不是只看两行）', await (async () => {
+      const row = () => $$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || '')))
+      const before = ((row().querySelector('.ms-doc-t') || {}).textContent || '').length
+      row().click()
+      const opened = await waitFor(() => {
+        const r2 = row()
+        return r2 && r2.classList.contains('open')
+          && ((r2.querySelector('.ms-doc-t') || {}).textContent || '').length > before
+      }, 2000, '展开')
+      const after = ((row().querySelector('.ms-doc-t') || {}).textContent || '').length
+      row().click()
+      const closed = await waitFor(() => !row().classList.contains('open'), 2000, '收起')
+      return opened && closed && after > before
+    })(), 'len=' + ((($$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || ''))) || { querySelector: () => ({}) }).querySelector('.ms-doc-t') || {}).textContent || '').length)
     check('★ 「最近 docs 变更」那行在：条数 + 最后一条标题（施工日志的文档级实况，不是又列一遍 git 活动）', (() => {
       const t = (($('#board.pv .ms-detail .ms-docs-log') || {}).textContent) || ''
       return /最近 docs 变更/.test(t) && /W1 施工单/.test(t) && /2026-10-20/.test(t)
@@ -1667,6 +1695,23 @@
       await pickMs('演示项目')
       return waitFor(() => /今天读过/.test((($('#board.pv .ms-detail .ms-docs-at') || {}).textContent) || ''), 3000, '今天读过')
     })())
+    // 只有 README、没有 ROADMAP 时，必须明说 —— 否则用户会把"对外说明"当成路线
+    check('★★ 有 README 没 ROADMAP → 明说"没找到 ROADMAP"（不让人把对外说明当路线）', await (async () => {
+      window.__fcTest.setProjectDocs({
+        ok: true, repo: 'E:/CODE/mock/demo', cached: false, readAt: '2026-10-21T00:00:00.000Z',
+        note: '没找到 ROADMAP —— 下面的 README 是项目对外说明，不一定有"接下来做什么"',
+        readme: { rel: 'README.md', title: '演示项目', excerpt: '只有 README。', more: '只有 README。', bytes: 10, mtime: '2026-10-19T00:00:00.000Z' },
+        roadmap: null, docsCommits: [],
+      })
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目')
+      return waitFor(() => {
+        const d = $('#board.pv .ms-detail .ms-docs')
+        const t = (d && d.textContent) || ''
+        return $$('#board.pv .ms-detail .ms-doc').length === 1 && /没找到 ROADMAP/.test(t)
+      }, 3000, '缺 ROADMAP 提示')
+    })(), ((($('#board.pv .ms-detail .ms-docs') || {}).textContent) || '').replace(/\s+/g, ' ').slice(0, 90))
+
     check('★★ 反例：读不到（没登记工作目录）→ 给原因，且**不虚构** README/ROADMAP 行', await (async () => {
       window.__fcTest.setProjectDocs({
         ok: false, repo: '', cached: false, readAt: '2026-10-21T00:00:00.000Z',
@@ -2672,12 +2717,21 @@
         return !!b && (b.textContent || '').indexOf('撤销条样例·甲') >= 0
       }, 4000, '撤销条出现'),
       (($('#undo-bar') || {}).textContent || '(没读到)').slice(0, 80))
-    check('  撤销条贴屏幕**底部**（不与顶部 toast 抢位：y 在下半屏，且 toast 仍在上半屏）', (() => {
+    // ⚠ 2026-10-21 暮雨实测改：原来放**底部**，而他是在**顶部**那条提示上找撤销 —— 找不到就认为"没有"。
+    //   现在撤销条在顶部居中，与 toast 同一视觉带；两者同时出现时 toast 下移一格（不叠在一起）。
+    check('  撤销条贴屏幕**顶部**居中（与 toast 同一视觉带：两条 y 都在上半屏）', (() => {
       const ub = $('#undo-bar'); const ts = $('#toast')
       if (!ub || !ts) return false
       const rb = rect(ub); const rt = rect(ts)
-      return rb.y > window.innerHeight / 2 && rt.y < window.innerHeight / 2
-    })(), (() => { const u = $('#undo-bar'); return u ? 'undo.y=' + Math.round(rect(u).y) : '(撤销条不在 DOM)' })())
+      return rb.y < window.innerHeight / 2 && rt.y < window.innerHeight / 2
+        && Math.abs((rb.x + rb.w / 2) - (rt.x + rt.w / 2)) < 8
+    })(), (() => {
+      const u = $('#undo-bar'); const t2 = $('#toast')
+      return (u ? 'undo.y=' + Math.round(rect(u).y) : '(无撤销条)') + ' ' + (t2 ? 'toast.y=' + Math.round(rect(t2).y) : '(无 toast)')
+    })())
+    check('★ 撤销条上写着快捷键 Ctrl+Z（用户按了没反应时会以为"没这功能"）',
+      /Ctrl\+Z/.test((($('#undo-bar .ub-key') || {}).textContent) || ''),
+      (($('#undo-bar') || {}).textContent || '').slice(0, 60))
     // 连锁红收口：撤销条都没出现的话，后面"点它 / Ctrl+Z / 不抢输入框"全都无从谈起 ——
     // 只报一次原因，不连坐成一排红（连锁红会盖住真正的第一条）。
     if (!$('#undo-bar')) {
@@ -2731,18 +2785,34 @@
       if (nb) nb.click()
       return bar && await waitFor(() => !!$('#log-edit-modal'), 3000, '新建弹窗')
     })())
-    check('★★ 反例：焦点在输入框里按 Ctrl+Z **不抢**（不调 logsReopen，撤销条仍在）', await (async () => {
+    // ⚠ 规则在 2026-10-21 晚被用户实测推翻了：原来"焦点在输入框就放行原生撤销"，
+    //   结果他点完完成、焦点落在某处，按 Ctrl+Z 毫无反应 → 判定"快捷键无用"。
+    //   新规则 = **只要撤销条还在，Ctrl+Z 就撤这一步数据动作（不管焦点在哪）**。
+    check('★★ 焦点在输入框里按 Ctrl+Z **也接管**（用户实测：否则他按了没反应）', await (async () => {
       const ta = $('#log-edit-modal textarea')
       if (!ta) return false
       ta.focus()
-      // ⚠ 必须先确认焦点**真的**落进了输入框：否则"没被抢"只是因为压根没焦点在编辑，
-      //   这条反例就变成了恒绿的空断言（2026-10-21 实测过这个假绿）。
+      // ⚠ 必须先确认焦点**真的**落进了输入框，否则这条测的是"没焦点时能撤"，不是它想说的那件事
       if (document.activeElement !== ta) return false
       const before = window.__fcTest.callCount('logsReopen')
       ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
-      await sleep(600)
-      return window.__fcTest.callCount('logsReopen') === before && !!$('#undo-bar')
-    })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar') + ' same=' + (document.activeElement === $('#log-edit-modal textarea')))
+      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > before && !$('#undo-bar'), 4000, '输入框里也撤')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      return got && ((last.args || [])[0] === 'log-undo-3')
+    })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar'))
+
+    // 反向判据（新规则的另一半）：**没有待撤动作**时，输入框里的 Ctrl+Z 必须还给原生撤销
+    check('★★ 反例：没有待撤动作时，输入框里的 Ctrl+Z 不接管（还给原生撤销）', await (async () => {
+      if ($('#undo-bar')) return false          // 前提：条子已经没了（上一条刚撤完）
+      const ta = $('#log-edit-modal textarea')
+      if (!ta) return false
+      ta.focus()
+      if (document.activeElement !== ta) return false
+      const before = window.__fcTest.callCount('logsReopen')
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+      await sleep(500)
+      return window.__fcTest.callCount('logsReopen') === before && !$('#undo-bar')
+    })(), 'bar=' + !!$('#undo-bar') + ' focus=' + ((document.activeElement || {}).tagName || '(none)'))
     // 收尾：关掉弹窗（丢弃草稿），别把弹窗留给后面的断言
     {
       const bar = $('#log-edit-modal .relay-discard')

@@ -529,8 +529,16 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('projectDocs', [projectId])
     return store.projectDocs || {
       ok: true, repo: 'E:/CODE/mock/demo', cached: false, readAt: '2026-10-21T00:00:00.000Z', note: '',
-      readme: { rel: 'README.md', title: '演示项目', excerpt: '一个用来跑断言的演示项目，README 只给这一句摘要。', bytes: 1024, mtime: '2026-10-19T00:00:00.000Z' },
-      roadmap: { rel: 'docs/ROADMAP.md', title: '路线图', excerpt: '下一步：把看板分组做成可折叠的分区头。', bytes: 2048, mtime: '2026-10-20T00:00:00.000Z' },
+      readme: {
+        rel: 'README.md', title: '演示项目', bytes: 1024, mtime: '2026-10-19T00:00:00.000Z',
+        excerpt: '一个用来跑断言的演示项目，README 默认显示两行摘要。第二段也进摘要，因为它常常才是有信息量的那句。',
+        more: '一个用来跑断言的演示项目，README 默认显示两行摘要。第二段也进摘要，因为它常常才是有信息量的那句。展开之后还能看到第三段与第四段的内容，用来验证点开确实读到了 more。',
+      },
+      roadmap: {
+        rel: 'docs/ROADMAP.md', title: '路线图', bytes: 2048, mtime: '2026-10-20T00:00:00.000Z',
+        excerpt: '下一步：把看板分组做成可折叠的分区头。',
+        more: '下一步：把看板分组做成可折叠的分区头。再往后：把 15074 行拆成组件。',
+      },
       docsCommits: [{ hash: 'abc1234', date: '2026-10-20', subject: 'docs: 补 W1 施工单', files: ['docs/方寸-W1地基施工单.md'] }],
     }
   },

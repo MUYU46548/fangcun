@@ -368,6 +368,29 @@ for (const t of targets) {
       ` —— 文本框里拖选、光标滑出弹窗再松手会被当成"点了遮罩"而关掉整个弹窗（丢草稿）。` +
       `必须改成 @mousedown.self`)
   }
+  // ⑩ <table> 里裸放 <tr>（2026-10-21 暮雨贴终端）：浏览器会自动补 <tbody> 所以"看着没事"，
+  // 但 Vue 编译器每次都刷一串 "cannot be child of <table>"，而且"将来真出 hydration 问题"时
+  // 没人会想到是这里。判据：table 与第一个 tr 之间必须出现 thead/tbody。
+  {
+    const html = fs.readFileSync(abs, 'utf-8')
+    const naked = []
+    const re = /<table\b[^>]*>([\s\S]*?)<\/table>/g
+    let m
+    while ((m = re.exec(html))) {
+      const inner = m[1]
+      const firstTr = inner.search(/<tr\b/)
+      if (firstTr < 0) continue
+      const head = inner.slice(0, firstTr)
+      if (!/<(thead|tbody)\b/.test(head)) {
+        const line = html.slice(0, m.index).split('\n').length
+        naked.push(line)
+      }
+    }
+    if (naked.length) {
+      problems.push(`⑩ <table> 里裸放 <tr>（${naked.length} 处，第 ${naked.join('、')} 行）：` +
+        `必须包 <tbody>（或 <thead>）—— 否则 Vue 编译器每轮都告警 "cannot be child of <table>"`)
+    }
+  }
   if (!problems.length) {
     pass++
     console.log(`PASS  ${rel} —— 模板标识符 / 脚本内调用 / 函数引用 / 遮罩手势全部自洽`)
