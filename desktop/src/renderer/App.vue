@@ -810,6 +810,32 @@
             <!-- 项目说明（2026-10-16 批次第 2 项）：13 份说明从笔记草稿转正进 registry，
                  详情页一句话定位——先看清这项目是什么、不做什么，再谈干不干。 -->
             <div class="ms-note" v-if="pvCurrent.note">{{ pvCurrent.note }}</div>
+            <!-- 路线文档实况（2026-10-21 · W1-批次 2）：把仓库里的 README/ROADMAP **自动**读回来，
+                 与上面那句**手写**说明并列摆着 —— 两边不一致本身就是信息（谁旧了），
+                 代码不裁也不覆盖。README 只给一句话摘要（用户向的展示公告，不该占版面），
+                 ROADMAP 才是"接下来做什么"的正主。读不到就给原因，不糊一句"没有进展"。 -->
+            <div class="ms-docs" v-if="msDocs">
+              <div class="ms-docs-h">
+                <span class="ms-docs-src" title="自动读自仓库：README / ROADMAP + 最近动过 docs/ 的提交（只读，且只读一天一次）">自动 · 只读</span>
+                <span class="ms-docs-at">{{ msDocs.cached ? '今天读过' : '刚读' }}</span>
+              </div>
+              <template v-if="msDocs.readme || msDocs.roadmap">
+                <div class="ms-doc" v-if="msDocs.readme" :title="msDocs.readme.rel">
+                  <span class="ms-doc-k">README</span>
+                  <span class="ms-doc-t">{{ msDocs.readme.excerpt || msDocs.readme.title }}</span>
+                  <span class="ms-doc-m">{{ relativeTime(msDocs.readme.mtime) }}</span>
+                </div>
+                <div class="ms-doc" v-if="msDocs.roadmap" :title="msDocs.roadmap.rel">
+                  <span class="ms-doc-k">ROADMAP</span>
+                  <span class="ms-doc-t">{{ msDocs.roadmap.excerpt || msDocs.roadmap.title }}</span>
+                  <span class="ms-doc-m">{{ relativeTime(msDocs.roadmap.mtime) }}</span>
+                </div>
+              </template>
+              <div class="ms-doc-none" v-else>{{ msDocs.note || '仓库里没有 README / ROADMAP' }}</div>
+              <div class="ms-docs-log" v-if="msDocs.docsCommits && msDocs.docsCommits.length">
+                最近 docs 变更 <b>{{ msDocs.docsCommits.length }}</b> 条 · 最后 <b>{{ msDocs.docsCommits[0].subject }}</b>（{{ msDocs.docsCommits[0].date }}）
+              </div>
+            </div>
             <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
                  与 loadViewData「只在切到那一摆法时才拉」的既有纪律一致） -->
             <div class="ms-git" v-if="msGitRow">
@@ -6750,6 +6776,10 @@ function loadViewData(v: string) {
     if (pvView.value === 'trip') void loadTripBoard()
     // 自仓同步状态（2026-10-21 · W1-1C）：同一条纪律 —— 进门就拉，别让「待同步」等到用户点刷新
     void loadSelfSync()
+    // 路线文档实况（W1-批次 2）：进门重拉一次（主进程按 仓库+日期 缓存，命中不跑 git，很便宜）。
+    // ⚠ 光靠 pvCurrent.id 的 watcher 不够：同一个项目重进页面时 id 没变，watcher 不触发 ——
+    //   那就会一直显示进页面那一刻的旧值（"状态字段懒加载"的变体）。
+    void loadProjectDocs()
   } else {
     loadAll()
   }
@@ -9570,6 +9600,29 @@ const selfSyncWarn = computed(() => {
   return ''
 })
 
+// ── 路线文档实况（2026-10-21 · W1-批次 2）────────────────────────────────
+/**
+ * 把仓库里的 README / ROADMAP 自动读回来，与**手写**的「说明 / 路线图」并列摆着。
+ *
+ * 口径（暮雨 2026-10-21 定的）：README 与 ROADMAP 都算路线文档，但 README 偏"给用户看的
+ * 展示公告"，所以这里 README 只取**一句话摘要**；ROADMAP 才是"接下来做什么"的正主。
+ *
+ * 为什么不覆盖手写值：手写那一栏是人的判断，自动那一栏是仓库的现状 —— 两者不一致本身
+ * 就是信息（要么手写忘了更新，要么文档没跟上）。代码只负责把两边都摆出来，不替人裁决。
+ * ⚠ 一天一批由**主进程缓存**，所以这里每次切项目都调也不贵（命中缓存不跑 git）。
+ */
+const msDocs = ref<any>(null)
+async function loadProjectDocs(): Promise<void> {
+  const p = pvCurrent.value
+  const api: any = (window as any).tegula
+  if (!p || !api || typeof api.projectDocs !== 'function') { msDocs.value = null; return }
+  try {
+    msDocs.value = await api.projectDocs(p.id)
+  } catch {
+    msDocs.value = null   // 读不到就整块不渲染，不糊一个"没有进展"的假结论
+  }
+}
+
 // ── 监控台「建议动作 / 可并行机会」（2026-10-11，死通道 A 组收口）──────────────
 // 这两条 IPC（`suggestActions` / `detectParallelOpportunities`）在主进程 `ipc.ts` 与
 // preload 里存在已久，但**渲染层从来没调用过** —— 典型的"死通道"
@@ -9602,7 +9655,11 @@ async function loadPvInsights(): Promise<void> {
 // ⚠ 盯 `pvCurrent.id` 而不是 `pvSelected`：项目列表是异步 loadAll() 拉回来的，
 //   进门那一刻 pvCurrent 还是 null（选中项回落 projectStats[0]）—— 只盯 pvSelected
 //   会漏掉"列表到货"这一跳，于是刚进项目页时建议那格永远是空的（懒加载 = 说假话的变体）。
-watch(() => pvCurrent.value?.id, () => { void loadPvInsights() }, { immediate: true })
+watch(() => pvCurrent.value?.id, () => {
+  void loadPvInsights()
+  // 换项目就要换文档实况（同一个 watch 里接：只盯 id 的那一套口径别再抄第二份）
+  void loadProjectDocs()
+}, { immediate: true })
 
 /** 从监控台跳日志页签，并**预置该项目筛选**（不是干跳） */
 function openProjectLogs(): void {
@@ -13470,6 +13527,20 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   animation: numIn .4s ease both; }
 .ms-git b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .ms-gitbtn { display: block; width: 100%; margin-top: 9px; height: 26px; font-size: 11.5px; }
+/* 路线文档实况（2026-10-21 · W1-批次 2）—— 与手写说明并列，所以整块刻意做得"轻"：
+   `--tint-3` 面板底 + 小字号，不抢 KPI 与环形图的视线。 */
+.ms-docs { margin-top: 8px; padding: 7px 9px; border-radius: 9px; background: var(--tint-3);
+  border: 1px solid var(--border); animation: numIn .4s ease both; }
+.ms-docs-h { display: flex; align-items: baseline; gap: 8px; font-size: 10.5px; color: var(--muted); }
+.ms-docs-src { font-weight: 700; color: var(--accent); }
+.ms-docs-at { margin-left: auto; }
+.ms-doc { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 11.5px; min-width: 0; }
+.ms-doc-k { flex: none; font-weight: 700; color: var(--ink); font-size: 10.5px; letter-spacing: .02em; }
+.ms-doc-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.ms-doc-m { flex: none; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ms-doc-none { margin-top: 4px; font-size: 11px; color: var(--muted); }
+.ms-docs-log { margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--line-2); font-size: 10.5px; color: var(--muted); }
+.ms-docs-log b { color: var(--ink); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .ms-ring .ring-arc, .ms-num b, .ms-blockers, .ms-git, .ms-detail.hs-stuck::before { animation: none; transition: none; }
 }

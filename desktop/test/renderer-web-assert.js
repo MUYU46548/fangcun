@@ -1636,6 +1636,53 @@
       return waitFor(() => $$('#board.pv .pv-ms .ms-li').length >= 2, 4000, '回到主从')
     })())
 
+    // ── 路线文档实况（2026-10-21 · W1-批次 2）───────────────────────────────
+    // 施工单：监控台除了 git 活动，还要能看见「文档级实况」，与手写值**并列**、标来源、不覆盖手写。
+    // 这一节验四件：①块在且标了来源；②README/ROADMAP 各一行 + 一句话摘要；③docs 变更那行；
+    // ④反向：读不到时给原因，**不虚构**文档行（空数据冒充"没有进展"是这类功能最容易犯的错）。
+    check('★★ 监控台多了「路线文档」块，且标了来源（自动 · 只读）', (() => {
+      const d = $('#board.pv .ms-detail .ms-docs')
+      if (!d) return false
+      return /自动/.test(((d.querySelector('.ms-docs-src') || {}).textContent) || '')
+    })(), (($('#board.pv .ms-detail .ms-docs') || {}).textContent || '(没有 .ms-docs)').replace(/\s+/g, ' ').slice(0, 90))
+    check('★★ README 与 ROADMAP 各一行，且**只给摘要**（README 是展示公告，不整篇塞进监控台）', (() => {
+      const rows = $$('#board.pv .ms-detail .ms-doc')
+      const ks = rows.map((r) => ((r.querySelector('.ms-doc-k') || {}).textContent || '').trim())
+      const readmeTxt = (rows[0] && (rows[0].querySelector('.ms-doc-t') || {}).textContent) || ''
+      return ks.length === 2 && ks[0] === 'README' && ks[1] === 'ROADMAP'
+        && readmeTxt.indexOf('一句摘要') >= 0 && readmeTxt.length < 120
+    })(), JSON.stringify($$('#board.pv .ms-detail .ms-doc-k').map((e) => (e.textContent || '').trim())))
+    check('★ 「最近 docs 变更」那行在：条数 + 最后一条标题（施工日志的文档级实况，不是又列一遍 git 活动）', (() => {
+      const t = (($('#board.pv .ms-detail .ms-docs-log') || {}).textContent) || ''
+      return /最近 docs 变更/.test(t) && /W1 施工单/.test(t) && /2026-10-20/.test(t)
+    })(), (($('#board.pv .ms-detail .ms-docs-log') || {}).textContent || '(没有 docs-log)').replace(/\s+/g, ' '))
+    check('★ 缓存命中（cached=true）→ 写「今天读过」（不冒充刚刷新过）', await (async () => {
+      window.__fcTest.setProjectDocs({
+        ok: true, repo: 'E:/CODE/mock/demo', cached: true, readAt: '2026-10-21T00:00:00.000Z', note: '',
+        readme: { rel: 'README.md', title: '演示项目', excerpt: '今天的缓存。', bytes: 10, mtime: '2026-10-19T00:00:00.000Z' },
+        roadmap: null,
+        docsCommits: [{ hash: 'abc1234', date: '2026-10-20', subject: 'docs: 补 W1 施工单', files: [] }],
+      })
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目')
+      return waitFor(() => /今天读过/.test((($('#board.pv .ms-detail .ms-docs-at') || {}).textContent) || ''), 3000, '今天读过')
+    })())
+    check('★★ 反例：读不到（没登记工作目录）→ 给原因，且**不虚构** README/ROADMAP 行', await (async () => {
+      window.__fcTest.setProjectDocs({
+        ok: false, repo: '', cached: false, readAt: '2026-10-21T00:00:00.000Z',
+        note: '项目没登记工作目录 —— 读不到路线文档', readme: null, roadmap: null, docsCommits: [],
+      })
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目')
+      const ok = await waitFor(() => {
+        const d = $('#board.pv .ms-detail .ms-docs')
+        return !!d && $$('#board.pv .ms-detail .ms-doc').length === 0
+      }, 3000, '空态')
+      const t = (($('#board.pv .ms-detail .ms-doc-none') || {}).textContent) || ''
+      return ok && /没登记工作目录/.test(t)
+    })(), (($('#board.pv .ms-detail .ms-docs') || {}).textContent || '(没有 .ms-docs)').replace(/\s+/g, ' ').slice(0, 100))
+    window.__fcTest.setProjectDocs(null)
+
     // git 行：注入 dirty=null 的夹具 → 拉取后 demo 显真数、demo2 显「—」（反向：绝不显 0）
     window.__fcTest.setTripBoard({
       generatedAt: '2026-10-09 09:00', mode: 'auto', criteria: 'cards_or_commit',

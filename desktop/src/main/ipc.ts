@@ -24,6 +24,7 @@ import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import * as selfSync from './services/selfSync'
+import * as repoDocs from './services/repoDocs'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
@@ -422,6 +423,18 @@ export function registerIpcHandlers(): void {
   // ② 哪些提交信息里提到了本卡 ID（`fix: xxx (#task-20261005-005)` 那类）。
   // 铁律：只读 `git log` —— 不 checkout / 不 fetch / 不写任何仓库、不改任务数据（契约 ③）。
   // 读不到时**显式说明原因**（没归属项目 / 没登记 repo / 不是 git 仓库），不给假数据。
+  // ── 实况回流：项目路线文档（2026-10-21 · W1-批次 2）── 只读
+  // 读 registry 登记的 repo 里的 README / ROADMAP + 最近动过 docs/ 的提交，
+  // **与手写字段并列显示**给用户看真假，绝不覆盖 registry 的手写值。
+  // 一天一批（服务侧按 仓库+日期 缓存），不 fetch、不写仓库（铁律同 git:taskCommits）。
+  guardedHandle('project:docs', async (_event: any, projectId: string) => {
+    const pid = String(projectId || '').trim()
+    if (!pid) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: '没指定项目' }
+    const proj: any = data.parseRegistry().find((p: any) => p.id === pid)
+    if (!proj) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: `registry 里没有项目「${pid}」` }
+    return repoDocs.readProjectDocs(String(proj.repo || ''))
+  })
+
   // ── 方寸自仓启动同步状态（2026-10-21 · W1-1C）── 只读状态
   // 「远端推一笔 → 重启就跟上」是自动的；这里**只报状态**，刻意不提供"立即同步"按钮
   // （用户零动作原则：自动就够，多一个按钮就多一处要维护的失败面）。

@@ -523,6 +523,17 @@ contextBridge.exposeInMainWorld('tegula', {
   logsOpenAttachment: () => { rec('logsOpenAttachment', []); return { ok: true } },
   // 自仓启动同步状态（2026-10-21 · W1-1C）：真主进程启动时跑完 git pull 后给结果，
   // 桩默认「已是最新」；断言用 __fcTest.setSelfSync() 换成「待同步」再看界面说没说真话。
+  // 项目路线文档实况（2026-10-21 · W1-批次 2）：真主进程读仓库 README/ROADMAP + 最近 docs 变更。
+  // 桩给一份「两份文档都在 + 一条 docs 提交」的常态；断言用 __fcTest.setProjectDocs() 换形态。
+  projectDocs: (projectId) => {
+    rec('projectDocs', [projectId])
+    return store.projectDocs || {
+      ok: true, repo: 'E:/CODE/mock/demo', cached: false, readAt: '2026-10-21T00:00:00.000Z', note: '',
+      readme: { rel: 'README.md', title: '演示项目', excerpt: '一个用来跑断言的演示项目，README 只给这一句摘要。', bytes: 1024, mtime: '2026-10-19T00:00:00.000Z' },
+      roadmap: { rel: 'docs/ROADMAP.md', title: '路线图', excerpt: '下一步：把看板分组做成可折叠的分区头。', bytes: 2048, mtime: '2026-10-20T00:00:00.000Z' },
+      docsCommits: [{ hash: 'abc1234', date: '2026-10-20', subject: 'docs: 补 W1 施工单', files: ['docs/方寸-W1地基施工单.md'] }],
+    }
+  },
   selfSyncStatus: () => {
     rec('selfSyncStatus')
     return store.selfSync || { state: 'ok', at: '2026-10-21T00:00:00.000Z', message: '已是最新', repo: 'C:/mock/repo' }
@@ -1029,6 +1040,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   setLogs: (items) => { store.logs = (items || []).slice() },
   /** 自仓同步状态（W1-1C）：传 null 恢复默认「已是最新」 */
   setSelfSync: (obj) => { store.selfSync = obj || null },
+  /** 项目路线文档（W1-批次 2）：传 null 恢复默认夹具；传 ok:false 造「读不到」形态 */
+  setProjectDocs: (obj) => { store.projectDocs = obj || null },
   setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
   // 通知中心点击跳转：注入通知夹具 + 任务夹具（2026-10-01 用户第 1 条）

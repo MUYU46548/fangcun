@@ -199,12 +199,17 @@ async function main() {
       const raw = stripComments(fs.readFileSync(path.join(DESKTOP, 'src', 'main', 'services', 'selfSync.ts'), 'utf-8'))
       check('★ 只允许 --ff-only（源码里不许出现 merge / --force / reset --hard / stash）',
         /'pull', '--ff-only'/.test(raw) && !/--force|reset', '--hard'|'merge'/.test(raw))
+      // 2026-10-21：跑 git 的具体做法已抽进 `services/gitExec.ts`（selfSync 与 repoDocs 共用一份），
+      // 所以"怎么跑"的三条改到那个文件上验，selfSync 只留"拉哪条命令"。
+      const gitExec = stripComments(fs.readFileSync(path.join(DESKTOP, 'src', 'main', 'services', 'gitExec.ts'), 'utf-8'))
       check('★ 凭据提示必须关掉（GIT_TERMINAL_PROMPT=0），否则没凭据时会静默挂成僵尸',
-        /GIT_TERMINAL_PROMPT: '0'/.test(raw))
+        /GIT_TERMINAL_PROMPT: '0'/.test(gitExec))
       check('★ 有硬超时（网络挂住不许把后台任务永远吊着）',
-        /setTimeout\([\s\S]{0,120}child\.kill\(\)/.test(raw))
+        /setTimeout\([\s\S]{0,120}child\.kill\(\)/.test(gitExec))
       check('★ 用异步 spawn，不用 spawnSync/execFileSync（本机一律 EBUSY，且会卡住首屏）',
-        /spawn\(/.test(raw) && !/spawnSync|execFileSync/.test(raw))
+        /spawn\(/.test(gitExec) && !/spawnSync|execFileSync/.test(gitExec))
+      check('  selfSync 自己没有偷偷 spawn（统一走 gitExec，改一处不漏一处）',
+        !/spawn\(/.test(raw))
       // 渲染层：不许出现"手动同步"按钮（用户零动作原则）
       const app = stripComments(fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8'))
       check('★ 界面只显示状态，**没有**"立即同步"按钮（自动就够，不加手动入口）',

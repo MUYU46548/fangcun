@@ -152,6 +152,8 @@ contextBridge.exposeInMainWorld('tegula', {
   gitTaskCommits: (taskId: string) => ipcRenderer.invoke('git:taskCommits', taskId),
   /** 方寸自仓启动同步状态（2026-10-21 · W1-1C）：只读；界面用它显示「待同步」 */
   selfSyncStatus: () => ipcRenderer.invoke('sync:selfStatus'),
+  /** 项目路线文档实况（2026-10-21 · W1-批次 2）：只读 README/ROADMAP + 最近 docs 变更；一天一批 */
+  projectDocs: (projectId: string) => ipcRenderer.invoke('project:docs', projectId),
   
   // Roadmap + Suggestions
   aggregateRoadmap: (projectId?: string) => ipcRenderer.invoke('aggregateRoadmap', projectId),

@@ -12,14 +12,14 @@
  *  ③ **不弹窗、不加手动按钮**（用户零动作原则）：启动后台跑一次；失败静默落应用日志 +
  *     状态行显示「待同步」。用户不需要知道 git 的存在，只在"没跟上"时看到一句实话。
  *
- * ⚠ 用异步 `spawn` 而不是 `spawnSync`：本机 `spawnSync/execFileSync` 一律 EBUSY（见项目记忆），
- *   而且同步等待会卡住首屏。
+ * ⚠ 具体怎么跑 git（异步 spawn / 禁凭据提示 / 硬超时）在 `services/gitExec.ts` 统一实现，
+ *   这里只负责"拉哪条命令、失败怎么说人话"。
  */
-import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getDataDir } from '../data'
 import * as appLog from './appLog'
+import { runGit, type GitRun } from './gitExec'
 
 export type SyncState = 'idle' | 'running' | 'ok' | 'behind' | 'skipped' | 'failed'
 
@@ -37,47 +37,6 @@ let status: SelfSyncStatus = { state: 'idle', at: '', message: '', repo: '' }
 
 export function getSelfSyncStatus(): SelfSyncStatus {
   return { ...status }
-}
-
-interface GitRun {
-  code: number
-  out: string
-  err: string
-  timedOut: boolean
-}
-
-/** 跑一条 git 命令。**异步** + 硬超时（网络挂住时不能把后台任务永远吊着）。 */
-function runGit(repo: string, args: string[], timeoutMs = 20000): Promise<GitRun> {
-  return new Promise((resolve) => {
-    let out = ''
-    let err = ''
-    let timedOut = false
-    let child: ReturnType<typeof spawn>
-    try {
-      child = spawn('git', ['-C', repo, ...args], {
-        // 关键：禁掉交互式凭据提示。否则没凭据时 git 会等终端输入 → 静默挂成僵尸进程。
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'echo', LC_ALL: 'C' },
-        windowsHide: true,
-      })
-    } catch (e) {
-      resolve({ code: -1, out: '', err: (e as Error).message, timedOut: false })
-      return
-    }
-    const timer = setTimeout(() => {
-      timedOut = true
-      try { child.kill() } catch { /* ignore */ }
-    }, timeoutMs)
-    child.stdout?.on('data', (d) => { out += d.toString() })
-    child.stderr?.on('data', (d) => { err += d.toString() })
-    child.on('error', (e) => {
-      clearTimeout(timer)
-      resolve({ code: -1, out, err: out + err + (e as Error).message, timedOut })
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({ code: code == null ? -1 : code, out, err, timedOut })
-    })
-  })
 }
 
 /** 把 git 的英文拒绝理由翻成一句人话（分类而不是原样抛，用户不该读 stderr）。 */
