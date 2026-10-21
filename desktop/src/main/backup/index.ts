@@ -170,7 +170,16 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
   }
 
   // ── 4. 本地轮换（份数线 localKeep + 体积线 maxLocalMb，逐条记账 2026-10-18）──
+  // 2026-10-21（W1-1A 补真缺口）：**先写待删清单、再动手删**。
+  // 原来的顺序是"删完才逐条记账"——功能看着一样，但删除中途崩掉（磁盘占用/权限/断电）
+  // 就会出现"文件没了、日志里查不到删了什么"，而这正是"删除前存档"要挡的唯一场景。
+  // 做法：先 dryRun 一次拿到计划（rotateLocal 本来就有 dryRun，不新造机制），记完再真删。
   try {
+    const plan = rotateLocal(localDir, cfg.localKeep, cfg.maxLocalMb, true)
+    if (plan.removed.length > 0) {
+      const list = plan.removed.map((r) => `${r.base}(${(r.bytes / 1048576).toFixed(2)}MB)`).join('、')
+      appendBackupLog(`轮换计划淘汰 ${plan.removed.length} 组（保留 ${cfg.localKeep} 份 / 上限 ${cfg.maxLocalMb || '不限'}MB）：${list}`)
+    }
     const rep = rotateLocal(localDir, cfg.localKeep, cfg.maxLocalMb)
     result.rotated = rep.removed.map((r, i) => ({
       base: r.base,

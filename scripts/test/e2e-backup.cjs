@@ -511,6 +511,52 @@ async function main() {
   check('审计日志已写入', log.includes('OK trigger=manual'), log.slice(-200))
   check('日志不含密码明文', !log.includes(PASS))
 
+  // ── 轮换「删前存档」（2026-10-21 · W1-1A 补的真缺口）────────────────────
+  // 施工单要求：删除前先把待删清单（文件名+大小+时间）写进存档日志，**再删**。
+  // 判据只能是**顺序**：两条都写进日志是分不出先后的 —— 所以这里量的是
+  // 「轮换计划淘汰」在日志里出现在「轮换淘汰」**之前**，且计划行里点得出被删的组名。
+  // 为什么要这条：删到一半崩掉（占用/权限/断电）时，"文件没了、日志里查不到删了什么"
+  // 正是这条要挡的唯一场景。
+  {
+    const rotReal = bk.getLocalBackupDir()
+    const keep = cfgMod.getBackupConfig().localKeep
+    const seeded = []
+    const oldTime = new Date(Date.now() - 5 * 86400000)
+    for (let i = 1; i <= keep + 2; i++) {
+      const b = `fangcun-data-202603${String(i).padStart(2, '0')}-120000`
+      for (const ext of ['.zip', '.zip.sha256', '.manifest.json']) {
+        const fp = path.join(rotReal, b + ext)
+        fs.writeFileSync(fp, ext === '.zip' ? Buffer.alloc(1024 + i, 0x62) : 'x')
+        fs.utimesSync(fp, oldTime, oldTime)
+      }
+      seeded.push(b)
+    }
+    const beforeLog = fs.readFileSync(cfgMod.getBackupPaths().logPath, 'utf-8')
+    const rRot = await bk.runBackup({ trigger: 'manual' })
+    const afterLog = fs.readFileSync(cfgMod.getBackupPaths().logPath, 'utf-8').slice(beforeLog.length)
+    // ⚠ 期望值一律**从日志/返回值真身算**，不写死数字（写死 = 定时炸弹：
+    //   这台机器上前面几段又造了几份，13 组的账随时会变）。
+    const planN = (afterLog.match(/轮换计划淘汰 (\d+) 组/) || [])[1]
+    check('轮换真跑起来了（造了 ' + seeded.length + ' 组，超过保留线 ' + keep + '）',
+      Array.isArray(rRot.rotated) && rRot.rotated.length > 0, JSON.stringify((rRot.rotated || []).length))
+    const iPlan = afterLog.indexOf('轮换计划淘汰')
+    const iReal = afterLog.indexOf('轮换淘汰 ', iPlan >= 0 ? iPlan + 1 : 0)
+    check('★★ 删前存档：日志里「轮换计划淘汰」出现在「轮换淘汰」**之前**（顺序即证据）',
+      iPlan >= 0 && iReal > iPlan, JSON.stringify(afterLog.slice(0, 300)))
+    check('★ 计划行里点得出被删的组名（不是只写个数字）',
+      iPlan >= 0 && seeded.some((b) => afterLog.slice(iPlan, iReal > 0 ? iReal : undefined).includes(b)),
+      JSON.stringify(seeded.map((x) => x.slice(-12))))
+    check('★★ 计划淘汰的组数 = 真删的组数（预览即所得）',
+      !!planN && Number(planN) === (rRot.rotated || []).length, planN + ' vs ' + (rRot.rotated || []).length)
+    check('★★ 计划里点名的组，删除后文件**真没了**（不是只写了日志没删）',
+      (rRot.rotated || []).every((x) => !fs.existsSync(path.join(rotReal, x.base + '.zip')))
+      && (rRot.rotated || []).every((x) => !fs.existsSync(path.join(rotReal, x.base + '.zip.sha256'))),
+      JSON.stringify((rRot.rotated || []).map((x) => x.base)))
+    check('删除后目录里只剩保留线以内（' + keep + ' 组 + 本轮不重复计数）',
+      fs.readdirSync(rotReal).filter((f) => /^fangcun-data-\d{8}-\d{6}\.zip$/.test(f)).length <= keep,
+      String(fs.readdirSync(rotReal).filter((f) => f.endsWith('.zip')).length))
+  }
+
   // ── 无数据时的失败必须显性 ────────────────────────────────────────────
   const emptyRoot = path.join(TEST_ROOT, '_empty')
   fs.mkdirSync(path.join(emptyRoot, 'task-data'), { recursive: true })
