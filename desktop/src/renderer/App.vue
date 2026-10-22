@@ -1029,6 +1029,10 @@
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
               <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
+              <!-- agent 上下文包（2026-10-22 · b 版落地物）：把契约/方针/决策/未完成卡/最近日志
+                   拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
+              <button class="ghost oact" @click.stop="copyContextPack(pvCurrent)"
+                      title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</button>
               <!-- 不做「打开工作目录」——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <button v-if="pvCurrent.repo" class="ghost oact"
@@ -8928,6 +8932,29 @@ async function copyWithToast(text: unknown, okMsg: string): Promise<boolean> {
 
 async function copyId(id: string) {
   await copyWithToast(id, '已复制 ID')
+}
+
+/**
+ * 复制 agent 上下文包（2026-10-22）。
+ *
+ * 缺什么要**当场说出来**：包里少了契约/方针/决策，agent 就会以为"这项目没这些规矩"，
+ * 那比不给它包还危险。所以缺项单独一条 toast（error 色），不混在"已复制"里。
+ */
+async function copyContextPack(p: any): Promise<void> {
+  if (!p?.id) return
+  try {
+    const r: any = await (window as any).tegula.contextPack(p.id)
+    if (!r || r.ok === false) {
+      showToast(`生不成上下文包：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    const ok = await copyWithToast(String(r.text || ''), `已复制「${p.name || p.id}」的上下文包（${r.chars || 0} 字）`)
+    if (ok && Array.isArray(r.missing) && r.missing.length) {
+      showToast(`这包缺：${r.missing.join('、')} —— 别拿空白当结论`, 'error')
+    }
+  } catch (e: any) {
+    showToast('生成异常：' + (e?.message || e), 'error')
+  }
 }
 
 /**

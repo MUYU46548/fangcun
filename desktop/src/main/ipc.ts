@@ -22,6 +22,7 @@ import * as policies from './services/policies'
 import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
+import * as contextPack from './services/contextPack'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
@@ -631,6 +632,23 @@ export function registerIpcHandlers(): void {
       // 与 trip:board 同一条预热：逐项目**同步** spawn git 会把整段卡住 0.5–3s
       await tripBoard.warmBoardGit()
       return { ok: true, ...ask.answer(String(q || '')) }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // ── agent 上下文包（2026-10-22 · b 版落地物）：把项目现状拼成一段可粘贴的 Markdown ──
+  guardedHandle('context:pack', (_event, projectId: string, opts?: any) => {
+    try {
+      return contextPack.buildContextPack(String(projectId || ''), opts || {})
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('context:packFile', (_event, projectId: string) => {
+    try {
+      return contextPack.writeContextPackFile(String(projectId || ''))
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
