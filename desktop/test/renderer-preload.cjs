@@ -969,7 +969,8 @@ contextBridge.exposeInMainWorld('tegula', {
       return {
         ok: true, kind: 'progress', title: '演示项目：活跃开发中（演示夹具）',
         lines: ['当前步骤：演示任务（来自任务卡）', '卡在谁：暮雨（验收）'],
-        rows: [], needsLlm: false, source: 'registry 手写字段 + tripBoard（任务卡/执行日志/git）',
+        rows: [], projectId: 'demo', needsLlm: false,
+        source: 'registry 手写字段 + tripBoard（任务卡/执行日志/git）',
       }
     }
     return {
@@ -977,6 +978,34 @@ contextBridge.exposeInMainWorld('tegula', {
       lines: ['方寸只在**两种**情况下动模型：模糊问答、批次出单。这一句既没命中结构化意图，也没点名项目——'],
       rows: [], needsLlm: true, source: '',
     }
+  },
+  // 随纠（2026-10-22 · 03 任务二）：桩复刻主进程语义的最小版 —— 只认「改 <字段> 为 <值>」。
+  // ⚠ 必须记账并真返回 before/field：断言要验"撤销真把旧值传回去了"。
+  correctPreview: (text, pid) => {
+    rec('correctPreview', [text, pid])
+    const m = String(text || '').match(/(状态|路线图|说明)\s*(?:改成|改为|为|成)\s*(.+)$/)
+    if (!m) return { ok: false, error: '没认出要改哪个字段' }
+    return { ok: true, projectId: pid, field: m[1], to: m[2].trim(), echo: '「演示项目」的' + m[1] + '：旧 → ' + m[2].trim() }
+  },
+  correctApply: (text, pid) => {
+    rec('correctApply', [text, pid])
+    const m = String(text || '').match(/(状态|路线图|说明)\s*(?:改成|改为|为|成)\s*(.+)$/)
+    if (!m) return { ok: false, error: '没认出要改哪个字段。能改的就三个：状态 / 路线图 / 说明' }
+    const p = (store.projects || []).find((x) => x.id === pid)
+    const before = p ? String(p[m[1]] || '') : ''
+    if (p) p[m[1]] = m[2].trim()
+    return {
+      ok: true,
+      echo: '「' + (p ? p.name : pid) + '」的' + m[1] + '：' + (before || '（空）') + ' → ' + m[2].trim(),
+      projectId: pid, field: m[1], before, decisionId: 'dec-e2e-1',
+    }
+  },
+  correctUndo: (args) => {
+    rec('correctUndo', [args])
+    const p = (store.projects || []).find((x) => x.id === (args && args.projectId))
+    if (!p) return { ok: false, error: '没有这个项目' }
+    p[args.field] = args.before
+    return { ok: true }
   },
   llmAsk: (q) => {
     rec('llmAsk', [q])

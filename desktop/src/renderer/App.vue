@@ -418,6 +418,30 @@
             {{ askLlmBusy ? 'AI 思考中…' : '交给 AI 答（会花 token）' }}
           </button>
         </div>
+        <!-- 随纠（2026-10-22 · 03 任务二）：从这条答案直接改这个项目的方向 ——
+             一句话 + 一次点击，不填表单。改完挂撤销条（Ctrl+Z 同效），决策卡自动留痕。
+             只认固定句式（改 <字段> 为 <值>）：不猜，参数清。 -->
+        <div class="ask-correct" v-if="askAns.projectId">
+          <button class="ghost ask-correct-open" v-if="!correctOpen" @click="openCorrect()">
+            ✎ 一句话改掉这个项目的「状态 / 路线图 / 说明」
+          </button>
+          <template v-else>
+            <div class="ask-correct-row">
+              <input class="ask-in" v-model="correctText" :disabled="correctBusy"
+                     placeholder="改 路线图 为 跑通第一单（项目名可省）" @keyup.enter="runCorrect()" />
+              <button class="pri ask-go" :disabled="correctBusy || !correctText.trim()" @click="runCorrect()">
+                {{ correctBusy ? '改…' : '就这么改' }}
+              </button>
+              <button class="ghost ask-chip" :disabled="correctBusy" @click="closeCorrect()">算了</button>
+            </div>
+            <div class="ask-correct-hint">
+              能改的就三个字段：状态 / 路线图 / 说明（说明就是「欠着」那一栏）。
+              改完自动记一张决策卡（出处「方寸随纠」），顶部撤销条能一步退回去。
+            </div>
+            <div class="ask-correct-err" v-if="correctErr">{{ correctErr }}</div>
+          </template>
+        </div>
+
         <div class="ask-llm-ans" v-if="askLlmAns">
           <div class="ala-h">AI 的回答<em class="ala-meta" v-if="askLlmMeta">{{ askLlmMeta }}</em></div>
           <div class="ala-t">{{ askLlmAns }}</div>
@@ -6615,6 +6639,63 @@ async function askToLlm(): Promise<void> {
     askLlmErr.value = 'AI 调用异常：' + (e?.message || e)
   } finally {
     askLlmBusy.value = false
+  }
+}
+
+// 随纠（2026-10-22 · 03 任务二）：一句话改方向。不填表单、不猜参数。
+const correctOpen = ref(false)
+const correctText = ref('')
+const correctBusy = ref(false)
+const correctErr = ref('')
+
+function openCorrect(): void {
+  correctOpen.value = true
+  correctText.value = ''
+  correctErr.value = ''
+}
+function closeCorrect(): void {
+  correctOpen.value = false
+  correctErr.value = ''
+}
+
+/**
+ * 执行一句话纠偏。三件事必须一起成立，缺一件都不算"纠得动"：
+ *   ① 字段真改了（主进程写前自校验）；② 决策卡留痕（没记上要**说出来**，
+ *   否则台账上看着"改过"，实际只有字段变了）；③ 撤销条挂上（一步退回去）。
+ */
+async function runCorrect(): Promise<void> {
+  const txt = correctText.value.trim()
+  const pid = askAns.value && askAns.value.projectId
+  if (!txt || !pid || correctBusy.value) return
+  correctBusy.value = true
+  correctErr.value = ''
+  try {
+    const r: any = await window.tegula.correctApply(txt, pid)
+    if (!r || r.ok === false) {
+      correctErr.value = String(r?.error || '没改成：未知原因')
+      return
+    }
+    if (r.decisionError) {
+      // 字段改了、台账没记上 —— 这种事必须让人看见，不能只报"成功"
+      correctErr.value = `字段已经改了，但决策卡没记上：${r.decisionError}`
+    }
+    closeCorrect()
+    // 相关视图即时刷新：项目详情页读的是 loadProjects，答案重查一遍（同一句问题）
+    projects.value = await window.tegula.loadProjects()
+    await runAsk()
+    const before = String(r.before ?? '')
+    const args = { projectId: r.projectId, field: r.field, before, decisionId: r.decisionId || '' }
+    offerUndo('已改' + String(r.echo || ''), async () => {
+      const back: any = await window.tegula.correctUndo(toPlain(args))
+      if (!back || back.ok === false) throw new Error(back?.error || '改不回去了')
+      projects.value = await window.tegula.loadProjects()
+      await runAsk()
+      if (back.decisionError) showToast(`字段改回去了，但决策卡没标撤销：${back.decisionError}`, 'error')
+    })
+  } catch (e: any) {
+    correctErr.value = '纠偏异常：' + (e?.message || e)
+  } finally {
+    correctBusy.value = false
   }
 }
 
@@ -13897,6 +13978,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ala-meta { margin-left: 8px; font-style: normal; color: var(--muted); }
 .ala-t { font-size: 12.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; }
 .ask-llm-err { margin-top: 10px; font-size: 11.5px; color: var(--danger); }
+/* 随纠（2026-10-22 · 03 任务二）—— 从答案直接改，不填表单 */
+.ask-correct { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.ask-correct-open { height: 28px; font-size: 11.5px; }
+.ask-correct-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.ask-correct-hint { margin-top: 7px; font-size: 10.5px; color: var(--muted); line-height: 1.6; }
+.ask-correct-err { margin-top: 7px; font-size: 11.5px; color: var(--danger); }
 .ask-empty { margin-top: 16px; font-size: 12px; color: var(--muted); }
 /* 月度花销报表（2026-10-22 · 03 任务三）—— 常驻在「问」页底部 */
 .ask-report { margin-top: 18px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 12px 14px; }

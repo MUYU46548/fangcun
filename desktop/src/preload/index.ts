@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 随问（2026-10-22 · 03 任务一）：结构化查询，零 LLM ──────────────
   askPresets: () => ipcRenderer.invoke('ask:presets'),
   askQuery: (q: string) => ipcRenderer.invoke('ask:query', q),
+  /** 随纠（03 任务二）：一句话改项目方向，决策卡留痕；undo 用 apply 回传的 before 反推 */
+  correctPreview: (text: string, projectId?: string) => ipcRenderer.invoke('correct:preview', text, projectId),
+  correctApply: (text: string, projectId?: string) => ipcRenderer.invoke('correct:apply', text, projectId),
+  correctUndo: (args: any) => ipcRenderer.invoke('correct:undo', args),
 
   // ── 备份 v2（WebDAV + 调度 + 可验证恢复）
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),

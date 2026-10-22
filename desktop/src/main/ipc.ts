@@ -21,6 +21,7 @@ import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
+import * as correct from './services/correct'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
@@ -630,6 +631,32 @@ export function registerIpcHandlers(): void {
       // 与 trip:board 同一条预热：逐项目**同步** spawn git 会把整段卡住 0.5–3s
       await tripBoard.warmBoardGit()
       return { ok: true, ...ask.answer(String(q || '')) }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // ── 随纠（2026-10-22 · 施工单包 03 任务二）：一句话改项目方向，决策卡自动留痕 ──
+  // 只认三种固定句式（不调模型、不猜）：见 services/correct.ts 头部。认不出就明说认不出。
+  guardedHandle('correct:preview', (_event, text: string, projectId?: string) => {
+    try {
+      return correct.parseCorrection(String(text || ''), projectId ? String(projectId) : undefined)
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('correct:apply', (_event, text: string, projectId?: string) => {
+    try {
+      return correct.applyCorrection(String(text || ''), projectId ? String(projectId) : undefined)
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('correct:undo', (_event, args: any) => {
+    try {
+      return correct.undoCorrection(args || {})
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }

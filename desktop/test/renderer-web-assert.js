@@ -4394,6 +4394,84 @@
             }, 4000, 'llm ans'),
             (($('#board.ask-view .ask-llm-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
         }
+        // ── 随纠（2026-10-22 · 03 任务二）：从答案直接改这个项目的方向 ──────
+        // 判据：有项目才有入口；一句话 → 真调 correctApply（参数齐全且不填表单）；
+        //      改完挂撤销条；撤销把**旧值**原样传回去；含糊句（无项目）→ 不给纠偏入口。
+        check('★ 答案命中了项目 → 出现「✎ 一句话改掉…」入口', await (async () => {
+          // 必须用**点名了项目**的问题：问「欠着什么」不指名时 projectId 为空 ——
+          // 那种情况下不给纠偏入口才对（没有目标就无从纠），所以这里走 progress 那条。
+          const ins = $$('#board.ask-view .ask-in')
+          if (!ins.length) return false
+          ins[0].value = '演示项目到哪了'
+          ins[0].dispatchEvent(new Event('input', { bubbles: true }))
+          await sleep(80)
+          const go = $('#board.ask-view .ask-go')
+          if (!go) return false
+          go.click()
+          return waitFor(() => {
+            const a = $('#board.ask-view .ask-ans')
+            return !!a && !!a.querySelector('.ask-correct-open')
+          }, 4000, '纠偏入口')
+        })())
+        check('★ 点入口 → 就地出输入框（不跳页、不弹窗）', await (async () => {
+          const b = $('#board.ask-view .ask-correct-open')
+          if (!b) return false
+          b.click()
+          return waitFor(() => !!$('#board.ask-view .ask-correct-row .ask-in'), 3000, '纠偏输入框')
+        })())
+        check('★ 空输入时「就这么改」是禁用的', await (async () => {
+          const btns = $$('#board.ask-view .ask-correct-row button')
+          const go = btns.find((b) => (b.textContent || '').indexOf('就这么改') >= 0)
+          return !!go && go.disabled === true
+        })())
+        const correctRes = await (async () => {
+          const ins = $$('#board.ask-view .ask-correct-row .ask-in')
+          if (!ins.length) return { err: '没有输入框' }
+          ins[0].value = '改 路线图 为 新路线（夹具）'
+          ins[0].dispatchEvent(new Event('input', { bubbles: true }))
+          await sleep(80)
+          const go = $$('#board.ask-view .ask-correct-row button').find((b) => (b.textContent || '').indexOf('就这么改') >= 0)
+          if (!go) return { err: '没有提交按钮' }
+          const n0 = window.__fcTest.callCount('correctApply')
+          go.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('correctApply') > n0, 4000, 'correctApply')
+          return { hit, args: (window.__fcTest.calls().filter((c) => c.name === 'correctApply').pop() || {}).args }
+        })()
+        check('★★ 一句话 → 真调 correctApply，问题串原样 + 项目 id 一起传（不填表单）',
+          !correctRes.err && correctRes.hit && correctRes.args
+          && correctRes.args[0] === '改 路线图 为 新路线（夹具）' && correctRes.args[1] === 'demo',
+          JSON.stringify(correctRes))
+        check('★★ 改完挂撤销条，且写明改了什么', await waitFor(() => {
+          const ub = $('#undo-bar')
+          if (!ub) return false
+          const t = (ub.textContent || '').replace(/\s+/g, ' ')
+          return t.indexOf('已改') >= 0 && t.indexOf('路线图') >= 0
+        }, 4000, '纠偏撤销条'), (($('#undo-bar') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+        check('★★ 点撤销 → correctUndo 收到的是**旧值本身**（不是让主进程去猜）', await (async () => {
+          const btn = Array.from($$('#undo-bar button')).find((b) => (b.textContent || '').indexOf('撤销') >= 0)
+          if (!btn) return false
+          const n0 = window.__fcTest.callCount('correctUndo')
+          btn.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('correctUndo') > n0, 4000, 'correctUndo')
+          if (!hit) return false
+          const a = (window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args[0] || {}
+          return a.projectId === 'demo' && a.field === '路线图' && a.before === '跑通第一单' && a.decisionId === 'dec-e2e-1'
+        })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args))
+        // 含糊句（没有 projectId）→ 不许给纠偏入口（没有目标就无从纠）
+        const askIn2 = $('#board.ask-view .ask-in')
+        askIn2.value = '你觉得这个方向对不对'
+        askIn2.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(80)
+        $('#board.ask-view .ask-go').click()
+        check('★ 含糊句（没命中项目）→ 不给纠偏入口（没有目标就无从纠）',
+          await waitFor(() => {
+            const a = $('#board.ask-view .ask-ans')
+            return !!a && (a.textContent || '').indexOf('答不了') >= 0
+          }, 4000, 'vague') && !$('#board.ask-view .ask-correct-open'))
+        // 回到「欠着什么」，后面的报表断言要看这一屏
+        const chipBack = $$('#board.ask-view .ask-chip').find((b) => (b.textContent || '').trim() === '欠着什么')
+        if (chipBack) { chipBack.click(); await sleep(400) }
+
         // ── 月度花销报表（2026-10-22 · 03 任务三）：常驻在这一页，不用翻设置页 ──
         check('★ 月度花销报表常驻在「问」页底部',
           await waitFor(() => $$('#board.ask-view .ask-report').length === 1, 4000, 'report'),
