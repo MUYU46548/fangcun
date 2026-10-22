@@ -31,6 +31,17 @@ const DESKTOP = path.join(ROOT, 'desktop')
 const DIST = path.join(DESKTOP, 'dist')
 const ENTRY = path.join(DIST, 'index.js')
 const DRY = process.argv.includes('--dry')
+/**
+ * 额外传给 electron.exe 的参数（空格分隔）。
+ *
+ * 为什么要有这个口子（2026-10-22 实测）：在某些机器/执行环境里 Chromium 的沙箱
+ * 起不来，GPU 进程会连崩（`-1073741819` = 0xC0000005 → `FATAL:gpu_data_manager_impl_private.cc`），
+ * 界面只剩空壳、进程直接退出。加 `--no-sandbox` 就能正常开。
+ * 不给就不加 —— 不默认降低安全性，只在需要时由 `npm run dev:nogpu` 显式打上。
+ */
+const EXTRA_ARGS = String(process.env.FC_ELECTRON_ARGS || '').trim()
+  ? String(process.env.FC_ELECTRON_ARGS).trim().split(/\s+/)
+  : []
 
 const chokidar = require(path.join(DESKTOP, 'node_modules', 'chokidar'))
 
@@ -91,11 +102,22 @@ function startChild() {
     // require('electron') 拿到的是可执行文件路径字符串，报错面目全非。
     delete env.ELECTRON_RUN_AS_NODE
     const electronBin = require(path.join(DESKTOP, 'node_modules', 'electron'))
-    child = spawn(electronBin, ['.'], { cwd: DESKTOP, stdio: 'inherit', env })
+    child = spawn(electronBin, ['.', ...EXTRA_ARGS], { cwd: DESKTOP, stdio: 'inherit', env })
   }
   child.on('exit', (code, signal) => {
     if (restarting) return
-    log(`Electron 退出（code=${code} signal=${signal}）—— 一并结束 dev 进程`)
+    // 0xC0000005（-1073741819 / 2147483651）＝ GPU 进程崩了：这不是代码错，
+    // 是 Chromium 沙箱在这个环境里起不来。只报一句 "退出 code=xxx" 等于让人自己猜。
+    const GPU_CRASH = code === -1073741819 || code === 2147483651
+    if (GPU_CRASH) {
+      log('Electron 起来了，但 GPU 进程崩了（0xC0000005）。这是沙箱/显卡上下文的问题，不是代码错。')
+      log('换这条命令重跑即可（多打一个 --no-sandbox，界面照常）：')
+      log('')
+      log('    npm run dev:nogpu')
+      log('')
+    } else {
+      log(`Electron 退出（code=${code} signal=${signal}）—— 一并结束 dev 进程`)
+    }
     process.exit(code === null ? 0 : code)
   })
 }
