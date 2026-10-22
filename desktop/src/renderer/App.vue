@@ -1601,53 +1601,9 @@
     </main>
 
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
-    <main id="board" class="blockers-view" v-else-if="curView === 'blockers'">
-      <div class="blockers-header">
-        <h3>阻塞源</h3>
-        <span class="blockers-count">{{ blockerChains.length }} 个阻塞源，影响 {{ totalBlockedTasks }} 个任务</span>
-      </div>
-      <!-- 关键路径建议（卡 023，2026-10-06）：只读计算，点它不会自动改任何状态。
-           只在"解了真有人受益"时出现 —— 且 unlock 已把传递效应算进去
-           （A 挡住 B、B 又挡住 C，则解 A 的价值是 2，不是 1）。 -->
-      <div v-if="blockerAdvice" class="blocker-advice">
-        💡 <b>先解这个最划算</b>：
-        <span class="ba-title">{{ blockerAdvice.title }}</span>
-        <span class="ba-id">{{ blockerAdvice.id }}</span>
-        <span class="ba-note">
-          它一解，<b>{{ blockerAdvice.unlock }}</b> 个任务就不再被卡（其中
-          {{ blockerAdvice.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
-        </span>
-      </div>
-      <div class="blocker-chains">
-        <div v-if="!blockerChains.length" class="empty-state">
-          <div class="empty-icon">✓</div>
-          <div class="empty-text">没有阻塞源 — 所有任务畅通</div>
-        </div>
-        <div v-for="src in blockerChains" :key="src.id" class="chain-card">
-          <div class="chain-main">
-            <span class="chain-id">{{ src.id }}</span>
-            <span class="chain-title">{{ src.title }}</span>
-            <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
-          </div>
-          <div class="chain-arrow">
-            ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
-            <!-- 只在"连带解锁 > 它直接挡住的"时标出来：没有传递效应就不制造噪音 -->
-            <span v-if="blockerImpactById[src.id] && blockerImpactById[src.id].unlock > src.blockedTasks.length"
-              class="chain-unlock">
-              · 解它连带解锁 <b>{{ blockerImpactById[src.id].unlock }}</b> 个
-            </span>
-          </div>
-          <div class="chain-blockers">
-            <div v-for="t in src.blockedTasks" :key="t.id" class="chain-blocker">
-              <span class="cb-status">◌</span>
-              <span class="cb-id">{{ t.id }}</span>
-              <span class="cb-title">{{ t.title }}</span>
-              <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
+    <!-- 阻塞源（2026-10-22 拆成组件 · 拆分计划第 1 批第 2 块：只吃一个数据源、零交互）。
+         为什么不是方案原定的 calendar —— 见 BlockersView.vue 头部的实测。 -->
+    <BlockersView v-else-if="curView === 'blockers'" :chains="blockerChains" />
 
     <!-- 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 术语白话化 + UI 基座第 ④ 步第一单）：
          定下来的事都在这——事情 / 哪天定的 / 还算不算数 / 出处。数据 = task-data/decisions.md
@@ -4095,6 +4051,7 @@ import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { computeBlockerImpact } from '../shared/blockers'
+import { statusClass } from '../shared/status'
 import type { BlockerImpact } from '../shared/blockers'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -4121,6 +4078,7 @@ import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, days
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
 import DecisionBoard from './components/DecisionBoard.vue'
 import HelpView from './views/HelpView.vue'
+import BlockersView from './views/BlockersView.vue'
 // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：换掉手搓的 `.ctx-backdrop` + `.ctx-menu` + 指针坐标定位，
 // 改用 reka-ui 的 ContextMenu 原语（自带 flip/shift 防越界、Esc、方向键、role=menu、焦点归还）。
 import TaskCardMenu from './components/TaskCardMenu.vue'
@@ -6924,12 +6882,7 @@ function todoDueTitle(t: any): string {
   return when + `（已逾期 ${overdueDays(t)} 天）`
 }
 
-function statusClass(s: string): string {
-  return {
-    草稿: 'draft', 待审批: 'review', 待办: 'todo',
-    进行中: 'doing', 待验收: 'verify', 完成: 'done', 驳回: 'reject',
-  }[s] || 'draft'
-}
+// statusClass 已移到 shared/status.ts（阻塞视图组件要共用同一份映射，不许两份）
 
 function statusColor(s: string): string {
   return {

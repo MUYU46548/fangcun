@@ -18,7 +18,18 @@
 
 | # | 块 | 提交 | 移出模板 | 移出脚本 | App.vue 剩余 | 验证 |
 |---|---|---|---|---|---|---|
-| 1 | help（帮助手册 → `renderer/views/HelpView.vue`） | 见下一行提交 | **123** | 0 | **15754** | renderer-web 659/0 · e2e-renderer 312/0 · 模板绑定/IPC 对账全绿 |
+| 1 | help（帮助手册 → `renderer/views/HelpView.vue`） | `86152d7` | **123** | 0 | **15754** | renderer-web 659/0 · e2e-renderer 312/0 · 模板绑定/IPC 对账全绿 |
+| 2 | blockers（阻塞源 → `renderer/views/BlockersView.vue`） | 见提交 | **47**（+ `statusClass` 抽到 `shared/status.ts`） | 0 | **15733** | renderer-web 661/0 · e2e-renderer 312/0 |
+
+> **第 2 块换了顺序（有依据，不是随手改）**：方案原定第 2 块是 calendar。
+> 实测它的依赖面比方案预估的大 —— 20+ 个 `cal*` 状态，还要 tasks / todos / logs
+> 与四个弹窗（指派时间 / 编辑日志 / 打开卡片），硬拆必然"边拆边改行为"，撞方案红线。
+> 而 blockers 只吃一个数据源、派生全是 `shared/blockers.ts` 的纯函数、**零交互**，
+> 是真正意义上的低耦合。方案自己的原则是"从耦合最低的开始"，顺序表只是初判。
+>
+> **顺手发现的一个洞**：假 preload 的 `getBlockerChains` 一直返回 `[]`，
+> 于是"阻塞页里有没有东西"从来没被断言覆盖过 —— 拆组件时页是空的也照样全绿。
+> 已补真夹具 + 两条内容断言（链卡片 / 计数 / 关键路径建议 / unlock 数字）。
 
 ## 拆分纪律（从方案抄来，贴在账本里免得每次翻文档）
 

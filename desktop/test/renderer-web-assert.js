@@ -1635,6 +1635,22 @@
       b.click()
       return waitFor(() => !!$('main.blockers-view'), 4000, '跳到阻塞页签')
     })())
+    // 2026-10-22 拆成 views/BlockersView.vue 之后补内容断言：
+    // 只验"页面出现"是不够的 —— 组件拆坏了（props 没接上）页照样出现，只是里面空的。
+    check('★★ 阻塞页内容还是真的（拆组件后）：链卡片 / 计数 / 关键路径建议',
+      await (async () => {
+        const cards = $$('main.blockers-view .chain-card')
+        const head = ($('main.blockers-view .blockers-count') || {}).textContent || ''
+        const advice = $('main.blockers-view .blocker-advice')
+        return cards.length === 1
+          && ((cards[0].textContent || '').indexOf('演示任务') >= 0 || cards[0].querySelector('.chain-title'))
+          && /个阻塞源/.test(head) && /影响/.test(head)
+          && !!advice
+      })(), (($('main.blockers-view') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 90))
+    check('  传递效应算进建议里（unlock 数字来自 shared/blockers，不是拍脑袋）', await (async () => {
+      const note = ($('main.blockers-view .ba-note') || {}).textContent || ''
+      return /\d+\s*个任务就不再被卡/.test(note)
+    })(), (($('main.blockers-view .ba-note') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
     check('  回到项目页签（主从摆法还在）', await (async () => {
       if (!clickText('项目')) return false
       return waitFor(() => $$('#board.pv .pv-ms .ms-li').length >= 2, 4000, '回到主从')

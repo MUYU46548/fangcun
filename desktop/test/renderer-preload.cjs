@@ -340,7 +340,17 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   backupResticScript: () => ({ ok: true, script: '# 夹具脚本' }),
   loadActivity: (n) => { rec('loadActivity', [n]); return store.activity.slice() },
-  getBlockerChains: () => [],
+  // 阻塞链夹具（2026-10-22 修）：此前一律返回 [] —— 于是"阻塞页有没有东西"从来没被验过，
+  // 拆视图组件时页是空的也照样全绿。现在给一条真形状的链（源卡 + 被它挡住的卡）。
+  getBlockerChains: () => {
+    rec('getBlockerChains')
+    return [{
+      id: 'task-demo-002',
+      title: '卡住别人的演示任务',
+      status: '待办',
+      blockedTasks: [{ id: 'task-demo-001', title: '被挡住的演示任务', status: '待办' }],
+    }]
+  },
   aggregateRoadmap: () => ({ projects: [] }),
   backupStatus: () => ({ ok: true, status: { enabled: false, running: false, nextRunAt: null, state: {} } }),
   backupGetConfig: () => ({}),
