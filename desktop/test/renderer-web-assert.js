@@ -1175,6 +1175,200 @@
       await waitFor(() => window.__fcTest.prefs().fc_board_view === 'cols', 4000, 'prefs 回 cols'),
       JSON.stringify(window.__fcTest.prefs()))
 
+    // ══ 想法（2026-10-22 · 暮雨：「随手记一个念头，之后决定做/不做/搁置，
+    //    现有待办、日志、任务都放不下」）══════════════════════════════════
+    // 这条功能的价值不在"能记"，而在**边界**：它不许影响待办/任务/逾期/阻塞。
+    // 所以断言分两半 —— 前半：能记、能决定；后半：点「做」之后**待办里真多了一条**
+    // （只改状态不算，那正是主进程刻意拦掉的那条假账路）。
+    check('★ 页签行里有「想法」（念头有地方去）',
+      $$('#views .vbtn').some((b) => (b.textContent || '').trim() === '想法'),
+      JSON.stringify($$('#views .vbtn').map((b) => (b.textContent || '').trim())))
+    clickText('想法')
+    await sleep(400)
+
+    check('★★ 页面是**纵向单栏**（几何门禁：标题 / 输入区 / 待定区左边缘齐、上下依次排）', (() => {
+      // 与问答页同一个坑：`#board` 是 flex 横排，不显式 display:block 会排成三列挤在左边
+      const h = $('#board.ideas-view .ideas-head')
+      const b = $('#board.ideas-view .ideas-box')
+      const sec = $('#board.ideas-view .ideas-sec')
+      if (!h || !b || !sec) return false
+      const rh = h.getBoundingClientRect(), rb = b.getBoundingClientRect(), rs = sec.getBoundingClientRect()
+      return Math.abs(rh.left - rb.left) < 1 && Math.abs(rb.left - rs.left) < 1
+        && rb.top > rh.top && rs.top > rb.top
+    })(), '取的 .ideas-head / .ideas-box / .ideas-sec 三块')
+    check('★★ 三块**宽度也相同**且都够宽（被拆成并排几列时宽度会各不相同；上一条只验了左边缘）', (() => {
+      const els = ['#board.ideas-view .ideas-head', '#board.ideas-view .ideas-box', '#board.ideas-view .ideas-sec']
+        .map((sel) => $(sel))
+      if (els.some((e) => !e)) return false
+      const ws = els.map((e) => e.getBoundingClientRect().width)
+      // ws[0] > 200：防"三块都宽 0"（那样也相等，是假绿）
+      return ws[0] > 200 && ws.every((w) => Math.abs(w - ws[0]) < 1)
+    })(), (() => {
+      const ws = ['#board.ideas-view .ideas-head', '#board.ideas-view .ideas-box', '#board.ideas-view .ideas-sec']
+        .map((sel) => Math.round(((($(sel) || {}).getBoundingClientRect) ? $(sel).getBoundingClientRect().width : -1)))
+      return JSON.stringify(ws)
+    })())
+    check('★ 主角是那个输入框（随手记，不是填表）',
+      !!$('#board.ideas-view textarea.ideas-in'))
+    check('★★ 空输入时「记下来」是禁用的（不许存空念头）', (() => {
+      const b = $('#board.ideas-view .ideas-save')
+      return !!b && b.disabled === true
+    })())
+    check('★ 待定区/已决区分开：还没决定 1 条、已经有结论 2 条', (() => {
+      const heads = $$('#board.ideas-view .ideas-sec-h').map((x) => (x.textContent || '').replace(/\s+/g, ' '))
+      return heads.length === 2 && /还没决定 1/.test(heads[0]) && /已经有结论 2/.test(heads[1])
+    })(), JSON.stringify($$('#board.ideas-view .ideas-sec-h').map((x) => (x.textContent || '').replace(/\s+/g, ' '))))
+    check('★★ 「已经有结论」默认收起（这一页的主角是还没决定的那堆，不是历史账）',
+      $$('#board.ideas-view .idea-decided').length === 0)
+    check('★ 念头上没有优先级、没有截止日（加了就又变待办了）', (() => {
+      const t = ($('#board.ideas-view .ideas-sec .idea') || {}).textContent || ''
+      return t.indexOf('优先级') < 0 && t.indexOf('截止') < 0 && t.indexOf('到期') < 0
+    })(), (($('#board.ideas-view .ideas-sec .idea') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+
+    // ── 记一条：真调通道 + 参数是原文 + 存下才清空输入 ──
+    const ideaRes = await (async () => {
+      const ta = $('#board.ideas-view textarea.ideas-in')
+      if (!ta) return { err: '没有输入框' }
+      ta.value = '  给想法页加个快捷键  '
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+      await sleep(90)
+      const n0 = window.__fcTest.callCount('ideasAdd')
+      const btn = $('#board.ideas-view .ideas-save')
+      const wasDisabled = btn.disabled
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasAdd') > n0, 4000, 'ideasAdd')
+      return { hit, wasDisabled, args: (window.__fcTest.calls().filter((c) => c.name === 'ideasAdd').pop() || {}).args }
+    })()
+    check('★ 有内容时「记下来」才可点', ideaRes.wasDisabled === false, JSON.stringify(ideaRes))
+    check('★★ 真调 ideasAdd，且传的是**去掉首尾空白的原文**（界面不替用户改写念头）',
+      ideaRes.hit && ideaRes.args && ideaRes.args[0] === '给想法页加个快捷键', JSON.stringify(ideaRes.args))
+    check('★★ 存下之后输入框清空（没清空 = 用户会以为没存上，或者连点存两条）',
+      await waitFor(() => $('#board.ideas-view textarea.ideas-in').value === '', 3000, '清空输入'),
+      JSON.stringify($('#board.ideas-view textarea.ideas-in').value))
+    check('  待定区跟着变 2 条（不是要刷新页面才看得到）',
+      await waitFor(() => $$('#board.ideas-view .ideas-sec .idea').length === 2, 4000, '待定 2 条'),
+      String($$('#board.ideas-view .ideas-sec .idea').length))
+
+    // ── 「做」= 立项 = 待办里**真多一条**（这一条是整块功能的核心）──
+    const doRes = await (async () => {
+      const todosBefore = window.__fcTest.todos().length
+      // 精确取"刚记的那条"的 id —— 断言要按 id 对，不能只判"传了个字符串"
+      // （`typeof args[0] === 'string'` 那种写法等于没验，任何 id 都能过）
+      const target = window.__fcTest.ideas().find((i) => i.text === '给想法页加个快捷键')
+      const row = $$('#board.ideas-view .ideas-sec .idea').find((x) => (x.textContent || '').indexOf('给想法页加个快捷键') >= 0)
+      if (!row || !target) return { err: '没找到刚记的那条' }
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '做')
+      if (!btn) return { err: '这条上没有「做」' }
+      const n0 = window.__fcTest.callCount('ideasPromote')
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasPromote') > n0, 4000, 'ideasPromote')
+      await sleep(300)
+      return {
+        hit,
+        args: (window.__fcTest.calls().filter((c) => c.name === 'ideasPromote').pop() || {}).args,
+        todosBefore,
+        targetId: target.id,
+        todosAfter: window.__fcTest.todos().length,
+        added: window.__fcTest.todos().map((t) => String(t.title || '')).filter((t) => t.indexOf('给想法页加个快捷键') >= 0),
+        toast: ($('#toast') || {}).textContent || '',
+      }
+    })()
+    check('★ 点「做」→ 真调 ideasPromote，且 id 是**这一条**（不是"随便一个字符串"）',
+      !doRes.err && doRes.hit && doRes.args && doRes.args[0] === doRes.targetId,
+      doRes.err || JSON.stringify({ got: doRes.args && doRes.args[0], want: doRes.targetId }))
+    check('★★★ 立项之后**待办里真多了一条**（只把状态改成「已立项」＝假账，主进程刻意拦了那条路）',
+      !doRes.err && doRes.todosAfter === doRes.todosBefore + 1,
+      doRes.err || `${doRes.todosBefore} → ${doRes.todosAfter}`)
+    check('★★ 新那条待办的标题就是念头的第一行（用户一眼能对上）',
+      !doRes.err && doRes.added.length === 1, JSON.stringify(doRes.added))
+    check('★★ toast 说清"去了哪"（只看到条目挪进已决区，用户会怀疑到底建没建）',
+      doRes.toast.indexOf('待办里多了一条') >= 0, doRes.toast.slice(0, 60))
+    check('★ 立项后挂撤销条（一步退得回）', await waitFor(() => {
+      const ub = $('#undo-bar')
+      return !!ub && (ub.textContent || '').indexOf('已立项') >= 0
+    }, 4000, '立项撤销条'), (($('#undo-bar') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 50))
+
+    // 撤销立项：待办那条一起撤（否则就是留了个孤儿待办）
+    check('★★ 点撤销 → 真调 ideasUnpromote，且待办数回到立项前', await (async () => {
+      const btn = Array.from($$('#undo-bar button')).find((b) => (b.textContent || '').indexOf('撤销') >= 0)
+      if (!btn) return false
+      const n0 = window.__fcTest.callCount('ideasUnpromote')
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasUnpromote') > n0, 4000, 'ideasUnpromote')
+      if (!hit) return false
+      await sleep(250)
+      return window.__fcTest.todos().length === doRes.todosBefore
+    })(), String(window.__fcTest.todos().length))
+
+    // ── 「搁置」：改状态 + 挂撤销 ──
+    const holdRes = await (async () => {
+      const row = $$('#board.ideas-view .ideas-sec .idea').find((x) => (x.textContent || '').indexOf('给启动台加个搜索框') >= 0)
+      if (!row) return { err: '没找到新记的那条夹具' }
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '搁置')
+      if (!btn) return { err: '这条上没有「搁置」' }
+      const n0 = window.__fcTest.callCount('ideasSetStatus')
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasSetStatus') > n0, 4000, 'ideasSetStatus')
+      await sleep(250)
+      return { hit, args: (window.__fcTest.calls().filter((c) => c.name === 'ideasSetStatus').pop() || {}).args }
+    })()
+    check('★★ 点「搁置」→ 真调 ideasSetStatus(项目, 「已搁置」)，不是只改本地状态',
+      !holdRes.err && holdRes.hit && holdRes.args && holdRes.args[0] === 'idea-a' && holdRes.args[1] === '已搁置',
+      JSON.stringify(holdRes))
+    check('★ 搁置也挂撤销条（三个决定都能退）', await waitFor(() => {
+      const ub = $('#undo-bar')
+      return !!ub && (ub.textContent || '').indexOf('搁置') >= 0
+    }, 4000, '搁置撤销条'))
+
+    // ── 已决区：展开才有，徽章与「撤销立项」都在 ──
+    check('★ 展开「已经有结论」→ 三种结论都看得见（徽章）', await (async () => {
+      const tog = $('#board.ideas-view .ideas-toggle')
+      if (!tog) return false
+      tog.click()
+      const ok = await waitFor(() => $$('#board.ideas-view .idea-decided').length >= 2, 4000, '已决展开')
+      if (!ok) return false
+      const badges = $$('#board.ideas-view .idea-badge').map((b) => (b.textContent || '').trim())
+      return badges.indexOf('已搁置') >= 0 && badges.indexOf('已立项') >= 0
+    })(), JSON.stringify($$('#board.ideas-view .idea-badge').map((b) => (b.textContent || '').trim())))
+    check('★ 已立项那条给的是「撤销立项」（不是"捡回来"——它已经有待办了）', await (async () => {
+      const row = $$('#board.ideas-view .idea-decided').find((x) => (x.textContent || '').indexOf('做个一键导出周报') >= 0)
+      if (!row) return false
+      const texts = Array.from(row.querySelectorAll('button')).map((b) => (b.textContent || '').trim())
+      return texts.indexOf('撤销立项') >= 0 && texts.indexOf('捡回来') < 0
+    })())
+    check('★ 已搁置那条给的是「捡回来」', await (async () => {
+      const row = $$('#board.ideas-view .idea-decided').find((x) => (x.textContent || '').indexOf('端口面板要不要合并') >= 0)
+      if (!row) return false
+      return Array.from(row.querySelectorAll('button')).some((b) => (b.textContent || '').trim() === '捡回来')
+    })())
+
+    // ── 删 + 撤销删除：原 id、原 createdAt 回来（当没删过）──
+    const delRes = await (async () => {
+      const rows = $$('#board.ideas-view .idea')
+      const row = rows.find((x) => (x.textContent || '').indexOf('给想法页加个快捷键') >= 0)
+      if (!row) return { err: '没找到要删的那条' }
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '×')
+      if (!btn) return { err: '这条上没有 ×' }
+      const before = window.__fcTest.ideas().filter((i) => i.text === '给想法页加个快捷键')[0]
+      const n0 = window.__fcTest.callCount('ideasDelete')
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasDelete') > n0, 4000, 'ideasDelete')
+      await sleep(200)
+      return { hit, before, left: window.__fcTest.ideas().filter((i) => i.text === '给想法页加个快捷键').length }
+    })()
+    check('★ 点 × → 真删掉（不是只从界面上藏起来）',
+      !delRes.err && delRes.hit && delRes.left === 0, JSON.stringify(delRes))
+    check('★★ 撤销删除 → ideasRestore 收到的是**原样那条**（原 id 原 createdAt，当没删过）', await (async () => {
+      const btn = Array.from($$('#undo-bar button')).find((b) => (b.textContent || '').indexOf('撤销') >= 0)
+      if (!btn) return false
+      const n0 = window.__fcTest.callCount('ideasRestore')
+      btn.click()
+      const hit = await waitFor(() => window.__fcTest.callCount('ideasRestore') > n0, 4000, 'ideasRestore')
+      if (!hit) return false
+      const a = (window.__fcTest.calls().filter((c) => c.name === 'ideasRestore').pop() || {}).args[0] || {}
+      return a.id === delRes.before.id && a.createdAt === delRes.before.createdAt
+    })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'ideasRestore').pop() || {}).args))
+
     // ══ 弹药库 · 复制为派工单（卡 031 六字段 schema）══════════════════════
     // 真点右键菜单 → 真读走主进程剪贴板通道 → 断言拼出来的文本。
     // 三条铁律现场验：不新建模块（用既有任务卡）· 字段进模板文本不进 JSON · **零智能不派发**。

@@ -21,6 +21,13 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 想法（2026-10-22）：三条覆盖三种状态 ——
+  //   新记（四个动作都能点）/ 已搁置（能「捡回来」）/ 已立项（能「撤销立项」且带 promoted）
+  ideas: [
+    { id: 'idea-a', text: '给启动台加个搜索框', status: '新记', note: '', createdAt: '2026-10-21T10:00:00.000Z', updatedAt: '2026-10-21T10:00:00.000Z', decidedAt: '', promoted: null },
+    { id: 'idea-b', text: '端口面板要不要合并进服务页', status: '已搁置', note: '等启动台稳了再说', createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-20T10:00:00.000Z', decidedAt: '2026-10-20T10:00:00.000Z', promoted: null },
+    { id: 'idea-c', text: '做个一键导出周报', status: '已立项', note: '', createdAt: '2026-10-18T10:00:00.000Z', updatedAt: '2026-10-18T12:00:00.000Z', decidedAt: '2026-10-18T12:00:00.000Z', promoted: { kind: 'todo', id: 'todo-from-idea-c' } },
+  ],
   // 规划管理（2026-10-16 第 1 项）：预置 1 条带 2 决策点的规划（1 已定 1 待定），
   // 「🗂 规划」弹窗列表/详情/留痕三态都有东西可断言。
   plans: [
@@ -421,6 +428,89 @@ contextBridge.exposeInMainWorld('tegula', {
     store.todos = store.todos.filter(x => x.id !== id)
     return ok()
   },
+
+  // ── 想法（2026-10-22）────────────────────────────────────────────
+  // 桩必须复刻主进程的**四条硬语义**，否则断言等于在测假数据：
+  //   ① 「已立项」不许走 setStatus 进来；② 立项必须真往 store.todos 塞一条；
+  //   ③ 撤销立项要删掉那条待办；④ 删掉的东西能原样插回来。
+  ideasList: () => {
+    rec('ideasList')
+    return store.ideas.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  },
+  ideasSummary: () => {
+    rec('ideasSummary')
+    const out = { 新记: 0, 已立项: 0, 已搁置: 0, 已否决: 0 }
+    for (const i of store.ideas) out[i.status] += 1
+    return out
+  },
+  ideasAdd: (text) => {
+    rec('ideasAdd', [text])
+    const t = String(text || '').trim()
+    if (!t) return { ok: false, error: '念头是空的 —— 写一句再存' }
+    const dup = store.ideas.find((i) => i.status === '新记' && i.text.trim() === t)
+    if (dup) return { ok: true, idea: JSON.parse(JSON.stringify(dup)), duplicate: true }
+    const now = new Date().toISOString()
+    const idea = { id: nextId('idea'), text: t, status: '新记', note: '', createdAt: now, updatedAt: now, decidedAt: '', promoted: null }
+    store.ideas.push(idea)
+    return { ok: true, idea: JSON.parse(JSON.stringify(idea)), duplicate: false }
+  },
+  ideasSetStatus: (id, status, note) => {
+    rec('ideasSetStatus', [id, status, note])
+    if (status === '已立项') return { ok: false, error: '「立项」要走「做」那个动作' }
+    const i = store.ideas.find((x) => x.id === id)
+    if (!i) return { ok: false, error: '没有这条想法（可能已经删了）' }
+    if (i.status === '已立项') return { ok: false, error: '这条已经立项了' }
+    const before = { status: i.status, note: i.note }
+    i.status = status
+    if (note !== undefined) i.note = String(note || '')
+    i.decidedAt = status === '新记' ? '' : (i.decidedAt || new Date().toISOString())
+    i.updatedAt = new Date().toISOString()
+    return { ok: true, idea: JSON.parse(JSON.stringify(i)), before }
+  },
+  ideasPromote: (id) => {
+    rec('ideasPromote', [id])
+    const i = store.ideas.find((x) => x.id === id)
+    if (!i) return { ok: false, error: '没有这条想法（可能已经删了）' }
+    if (i.status === '已立项') return { ok: false, error: '已经立项过了' }
+    // 真往待办塞一条 —— 与主进程 promoteIdea 同语义
+    const now = new Date().toISOString()
+    const todo = { id: nextId('todo'), title: i.text.split('\n')[0].trim(), done: false, priority: '中', createdAt: now, updatedAt: now }
+    store.todos.push(todo)
+    i.status = '已立项'
+    i.decidedAt = i.decidedAt || now
+    i.updatedAt = now
+    i.promoted = { kind: 'todo', id: todo.id }
+    return { ok: true, idea: JSON.parse(JSON.stringify(i)), todoId: todo.id }
+  },
+  ideasUnpromote: (id) => {
+    rec('ideasUnpromote', [id])
+    const i = store.ideas.find((x) => x.id === id)
+    if (!i) return { ok: false, error: '没有这条想法' }
+    if (i.status !== '已立项' || !i.promoted) return { ok: false, error: '这条还没立项，没得撤' }
+    const t = store.todos.find((x) => x.id === i.promoted.id)
+    if (t && t.done) return { ok: false, error: '那条待办你已经做完了 —— 撤不了立项' }
+    if (t) store.todos = store.todos.filter((x) => x.id !== t.id)
+    i.status = '新记'
+    i.decidedAt = ''
+    i.promoted = null
+    i.updatedAt = new Date().toISOString()
+    return { ok: true, idea: JSON.parse(JSON.stringify(i)) }
+  },
+  ideasDelete: (id) => {
+    rec('ideasDelete', [id])
+    const idx = store.ideas.findIndex((x) => x.id === id)
+    if (idx < 0) return { ok: false, error: '没有这条想法（可能已经删了）' }
+    const removed = store.ideas.splice(idx, 1)[0]
+    return { ok: true, removed: JSON.parse(JSON.stringify(removed)) }
+  },
+  ideasRestore: (idea) => {
+    rec('ideasRestore', [idea])
+    if (!idea || !idea.id) return { ok: false, error: '没有可恢复的内容' }
+    if (store.ideas.some((x) => x.id === idea.id)) return { ok: false, error: '这条已经回来了' }
+    store.ideas.push(JSON.parse(JSON.stringify(idea)))
+    return { ok: true, idea: JSON.parse(JSON.stringify(idea)) }
+  },
+  ideasHealth: () => { rec('ideasHealth'); return { ok: true, path: '', lastError: null } },
 
   // ── 日志 ───────────────────────────────────────────────────────
   // 与主进程 listLogs 一致：置顶优先（桩不排序的话，渲染层那条排序断言等于在测假数据）
@@ -1165,6 +1255,9 @@ contextBridge.exposeInMainWorld('__fcTest', {
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   todos: () => JSON.parse(JSON.stringify(store.todos)),
+  // 想法（2026-10-22）：断言要能读到真身 —— 特别是"点「做」之后待办里是不是真多了一条"
+  ideas: () => JSON.parse(JSON.stringify(store.ideas)),
+  setIdeas: (items) => { store.ideas = (items || []).slice() },
   logs: () => JSON.parse(JSON.stringify(store.logs)),
   trash: () => JSON.parse(JSON.stringify(store.trash)),
   tasks: () => JSON.parse(JSON.stringify(store.tasks)),

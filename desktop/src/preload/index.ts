@@ -256,6 +256,20 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 待办数据健康度（坏文件隔离留痕） */
   todosHealth: () => ipcRenderer.invoke('todos:health'),
 
+  // ── 想法（2026-10-22）：随手记一个念头，之后决定 做 / 搁置 / 不做 ──
+  // 只有 内容 / 记下的时间 / 四态。没有优先级、没有截止日、不归属项目。
+  ideasList: (filter?: any) => ipcRenderer.invoke('ideas:list', filter),
+  ideasSummary: () => ipcRenderer.invoke('ideas:summary'),
+  ideasAdd: (text: string) => ipcRenderer.invoke('ideas:add', text),
+  ideasUpdateText: (id: string, text: string) => ipcRenderer.invoke('ideas:updateText', id, text),
+  ideasSetStatus: (id: string, status: string, note?: string) => ipcRenderer.invoke('ideas:setStatus', id, status, note),
+  /** 立项 = 真在待办里生出一条（不是只改个状态） */
+  ideasPromote: (id: string, opts?: any) => ipcRenderer.invoke('ideas:promote', id, opts),
+  ideasUnpromote: (id: string) => ipcRenderer.invoke('ideas:unpromote', id),
+  ideasDelete: (id: string) => ipcRenderer.invoke('ideas:delete', id),
+  ideasRestore: (idea: any) => ipcRenderer.invoke('ideas:restore', idea),
+  ideasHealth: () => ipcRenderer.invoke('ideas:health'),
+
   // ── Dispatch ───────────────────────────────────────────────────────
   // 2026-10-06（卡 004）：`dispatchPreview` / `dispatchExecute` **已删**。
   // 桌面「派活」入口早在 9/20 就判死（用户：派活极不可靠、易失控，执行过程/进度/结果都看不见），

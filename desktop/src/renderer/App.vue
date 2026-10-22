@@ -1630,6 +1630,86 @@
     <HelpView v-else-if="curView === 'help'" @home="goHome" />
 
     <!-- Todos view -->
+    <!-- 想法（2026-10-22 · 念头没有家）：随手记一句，之后决定 做 / 搁置 / 不做。
+         刻意做得很轻 —— 没有优先级、没有截止日、不归属项目、不进逾期、不进待办。
+         一旦给它加上这些，它就又变成待办了（那正是"放不下"的原因）。 -->
+    <main id="board" class="ideas-view" v-else-if="curView === 'ideas'">
+      <div class="ideas-wrap">
+        <div class="ideas-head">
+          <div class="ideas-lead">念头先扔这儿，做不做以后再说</div>
+          <div class="ideas-lead-sub">
+            这里的东西不算任务、不进逾期、不进待办。决定做了才转成待办，转出去也留着记录。
+          </div>
+        </div>
+
+        <div class="ideas-box">
+          <textarea class="ideas-in" v-model="ideaDraft" :disabled="ideaBusy" rows="2"
+            placeholder="想到什么就写一句 —— Ctrl+Enter 存下"
+            @keydown.ctrl.enter.prevent="saveIdea()"
+            @keydown.meta.enter.prevent="saveIdea()"></textarea>
+          <div class="ideas-sub">
+            <span class="ideas-hint">
+              <template v-if="ideaDraft.trim()">{{ ideaDraft.trim().length }} / 4000 字</template>
+              <template v-else>存下来不改任何待办和任务，也不会让任何东西逾期</template>
+            </span>
+            <button class="pri ideas-save" :disabled="ideaBusy || !ideaDraft.trim()" @click="saveIdea()">
+              {{ ideaBusy ? '记…' : '记下来' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="ideas-sec">
+          <div class="ideas-sec-h">
+            还没决定 <em>{{ ideasOpen.length }}</em>
+          </div>
+          <div class="ideas-empty" v-if="!ideasOpen.length">
+            还没有念头。上面写一句就存下了 —— 不用想它要不要做。
+          </div>
+          <div class="idea" v-for="i in ideasOpen" :key="i.id">
+            <div class="idea-t">{{ i.text }}</div>
+            <div class="idea-sub">
+              <span class="idea-when">记于{{ relativeTime(i.createdAt) || '刚刚' }}</span>
+              <div class="idea-acts">
+                <button class="ok idea-do" :disabled="ideaBusy" @click="doIdea(i)"
+                  title="决定做 —— 真的在待办里生出一条，之后能退回来">做</button>
+                <button class="ghost idea-hold" :disabled="ideaBusy" @click="holdIdea(i)"
+                  title="先放着，不是否决 —— 将来还能捡回来">搁置</button>
+                <button class="ghost idea-drop" :disabled="ideaBusy" @click="dropIdea(i)"
+                  title="想过了，不做 —— 这条会留着；想过本身也有价值">不做</button>
+                <button class="ghost idea-del" :disabled="ideaBusy" @click="removeIdea(i)"
+                  title="记错了就删掉（能撤销）">×</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ideas-sec" v-if="ideasDecided.length">
+          <div class="ideas-sec-h ideas-toggle" @click="ideasShowDecided = !ideasShowDecided">
+            <span>已经有结论 <em>{{ ideasDecided.length }}</em></span>
+            <span class="ideas-caret">{{ ideasShowDecided ? '收起' : '展开' }}</span>
+          </div>
+          <template v-if="ideasShowDecided">
+            <div class="idea idea-decided" v-for="i in ideasDecided" :key="i.id">
+              <div class="idea-t">{{ i.text }}</div>
+              <div class="idea-sub">
+                <span class="idea-badge" :class="'is-' + ideaStatusKey(i.status)">{{ i.status }}</span>
+                <span class="idea-note" v-if="i.note">{{ i.note }}</span>
+                <span class="idea-when">{{ relativeTime(i.decidedAt || i.createdAt) }}</span>
+                <div class="idea-acts">
+                  <button class="ghost" v-if="i.status === '已立项'" :disabled="ideaBusy" @click="undoDoIdea(i)">
+                    撤销立项
+                  </button>
+                  <button class="ghost" v-else :disabled="ideaBusy" @click="reviveIdea(i)"
+                    title="捡回来，重新当还没决定的">捡回来</button>
+                  <button class="ghost idea-del" :disabled="ideaBusy" @click="removeIdea(i)" title="删掉（能撤销）">×</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </main>
+
     <main id="board" class="todos-view" v-else-if="curView === 'todos'"
       @dragenter.prevent="dragEnter('todo')"
       @dragover.prevent="dragPulse()"
@@ -6591,6 +6671,9 @@ const views = [
   // 「问」一个字没人看得懂（2026-10-22 暮雨原话）—— 两个字的「问答」才一眼明白这页是干什么的
   { id: 'ask', label: '问答' },
   { id: 'todos', label: '待办' },
+  // 想法（2026-10-22 · 暮雨：「随手记一个念头，之后决定做/不做/搁置，现有待办/日志/任务都放不下」）
+  // 页面紧挨「待办」：两者是同一件事的两个阶段（念头 → 要做的事）
+  { id: 'ideas', label: '想法' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
@@ -7018,6 +7101,9 @@ function loadViewData(v: string) {
     loadRoadmap()
   } else if (v === 'todos') {
     loadTodos()
+  } else if (v === 'ideas') {
+    // 进页面就取：想法是这一页的全部内容，不加载等于开出一张白纸
+    loadIdeas()
   } else if (v === 'logs') {
     loadLogs()
   } else if (v === 'ask') {
@@ -9555,6 +9641,174 @@ async function loadTodos() {
   } catch {
     todoHealthIssue.value = null
   }
+}
+
+// ── 想法（2026-10-22 · 「随手记一个念头，之后决定做/不做/搁置」）────────────
+// 界面这一层只做一件事：把「想法」和「待办/任务」的边界守住 —— 它**不参与**任何
+// 筛选、排序、逾期、阻塞的口径。四态与排序的真相都在主进程 services/ideas.ts。
+const ideas = ref<any[]>([])
+const ideaDraft = ref('')
+const ideaBusy = ref(false)
+/** 「已经有结论」默认收起：这一页的主角是"还没决定的那堆"，不是历史账 */
+const ideasShowDecided = ref(false)
+
+const ideasOpen = computed(() => ideas.value.filter((i) => i.status === '新记'))
+const ideasDecided = computed(() => ideas.value.filter((i) => i.status !== '新记'))
+
+/** 状态 → CSS 后缀（四态各一个色，不许在模板里现编映射） */
+function ideaStatusKey(s: string): string {
+  return ({ 已立项: 'done', 已搁置: 'hold', 已否决: 'no' } as Record<string, string>)[s] || 'new'
+}
+
+async function loadIdeas(): Promise<void> {
+  try {
+    ideas.value = await window.tegula.ideasList()
+  } catch {
+    ideas.value = []
+  }
+}
+
+/** 记一条。空内容按钮本来就是禁用的，这里再挡一次是因为回车也能提交 */
+async function saveIdea(): Promise<void> {
+  const t = ideaDraft.value.trim()
+  if (!t || ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasAdd(t)
+    if (!r || r.ok === false) {
+      showToast(`没记上：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    // 只有真存下了才清空输入 —— 失败还清空，用户写的那句就没了（还得重打一遍）
+    ideaDraft.value = ''
+    await loadIdeas()
+    // 重复不再另发 toast（本来就该悄无声息地不重复），只在真新增时给一句
+    if (!r.duplicate) showToast('记下了', 'success')
+  } catch (e: any) {
+    showToast('记录异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
+/** 改状态 + 挂撤销（一条动作一步退得回，与全站的撤销条同一套） */
+async function setIdeaState(i: any, status: string, note: string, label: string): Promise<void> {
+  if (ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasSetStatus(toPlain(i.id), status, note)
+    if (!r || r.ok === false) {
+      showToast(`没改成：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    await loadIdeas()
+    const before = r.before || {}
+    offerUndo(`「${firstLineOf(i.text)}」→ ${label}`, async () => {
+      const back: any = await window.tegula.ideasSetStatus(toPlain(i.id), before.status, before.note || '')
+      if (!back || back.ok === false) throw new Error(back?.error || '改不回去了')
+      await loadIdeas()
+    })
+  } catch (e: any) {
+    showToast('改动异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
+function holdIdea(i: any): void {
+  return void setIdeaState(i, '已搁置', i.note || '', '搁置')
+}
+function dropIdea(i: any): void {
+  return void setIdeaState(i, '已否决', i.note || '', '不做')
+}
+/** 从"已决"退回"还没决定"—— 搁置的念头本来就可能被捡回来 */
+function reviveIdea(i: any): void {
+  return void setIdeaState(i, '新记', '', '捡回来')
+}
+
+/**
+ * 「做」= 立项 = **真在待办里生出一条**。
+ *
+ * 界面上这里必须把"去了哪"说出来（toast 里点明待办），否则用户点完只看到这条挪到
+ * 了「已经有结论」里，会怀疑到底有没有真建出来 —— 而"看起来成功了"正是最该避免的状态。
+ */
+async function doIdea(i: any): Promise<void> {
+  if (ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasPromote(toPlain(i.id))
+    if (!r || r.ok === false) {
+      showToast(`没法立项：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    await loadIdeas()
+    // 待办数变了 → 让待办页与看板旁边的计数跟着刷新（否则切过去看是旧的）
+    void loadTodos()
+    showToast(`已立项 → 待办里多了一条「${firstLineOf(i.text)}」`, 'success')
+    offerUndo(`「${firstLineOf(i.text)}」→ 已立项`, async () => {
+      const back: any = await window.tegula.ideasUnpromote(toPlain(i.id))
+      if (!back || back.ok === false) throw new Error(back?.error || '撤不回来了')
+      await loadIdeas()
+      void loadTodos()
+    })
+  } catch (e: any) {
+    showToast('立项异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
+/** 撤销立项：待办那条一起撤（主进程负责判断"已被做完就不许撤"） */
+async function undoDoIdea(i: any): Promise<void> {
+  if (ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasUnpromote(toPlain(i.id))
+    if (!r || r.ok === false) {
+      showToast(`没撤成：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    await loadIdeas()
+    void loadTodos()
+    showToast('已撤回，想法回到「还没决定」', 'success')
+  } catch (e: any) {
+    showToast('撤销异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
+/**
+ * 删除 + 撤销。
+ * 主进程把被删的那条**原样**回传，撤销就是把它插回去（原 id、原 createdAt）——
+ * 撤销的语义是"当没删过"，不是"重新记一条"。
+ */
+async function removeIdea(i: any): Promise<void> {
+  if (ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasDelete(toPlain(i.id))
+    if (!r || r.ok === false) {
+      showToast(`没删成：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    await loadIdeas()
+    offerUndo(`删掉「${firstLineOf(i.text)}」`, async () => {
+      const back: any = await window.tegula.ideasRestore(toPlain(r.removed))
+      if (!back || back.ok === false) throw new Error(back?.error || '恢复不了')
+      await loadIdeas()
+    })
+  } catch (e: any) {
+    showToast('删除异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
+/** 取第一行（toast / 撤销条上只放一行，多行会把条子撑高） */
+function firstLineOf(t: string): string {
+  const s = String(t || '').split('\n').map((x) => x.trim()).filter(Boolean)[0] || ''
+  return s.length > 24 ? s.slice(0, 24) + '…' : s
 }
 
 // 「+ 添加」小框已于 2026-09-29 移除（用户第 1 条）：新建只留一个入口 = openTodoCreator() 大框。
@@ -13935,6 +14189,64 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 11px; color: var(--muted); }
 .ask-report-empty { font-size: 12px; color: var(--muted); }
+
+/* ── 想法（2026-10-22 · 念头没有家）──────────────────────────────────────
+   跟「问答」同一套单栏阅读面：内容行 720px、输入框是主角。
+   关于 `#board`（它是 flex 横排，看板靠它并排几栏）：这一页多包了一层 `.ideas-wrap`，
+   所以即使不覆盖 display 也不会被拆成三列 —— 实测过（改成 flex 断言仍全绿）。
+   `display: block` 仍然显式写着，理由是让"单栏"这件事**不依赖 wrap 的存在**：
+   谁哪天把 wrap 去掉（比如为了省一层 div），页面就该当场塌、而不是静默变成三列。
+   ⚠ 但别把这条注释理解成"断言已经咬住 flex 回归" —— 咬住的是 wrap 里面那三块
+     左边缘对齐且上下依次排；真要看塌方，得连 wrap 一起改（见下方断言的反例说明）。 */
+#board.ideas-view { display: block; overflow-x: hidden; }
+.ideas-wrap { max-width: 720px; margin: 0 auto; padding: 22px 4px 48px; }
+.ideas-head { margin-bottom: 14px; }
+.ideas-lead { font-size: 20px; font-weight: 650; color: var(--ink); letter-spacing: .01em; }
+.ideas-lead-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.ideas-box { margin-top: 14px; }
+/* preflight 关着 → 原生控件必须显式给字体与外观（check-ui-base 判据） */
+.ideas-in { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical;
+  padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; font: inherit;
+  font-size: 14px; line-height: 1.7; color: var(--ink); background: #fff; box-shadow: var(--shadow); }
+.ideas-in::placeholder { color: var(--muted); }
+.ideas-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.ideas-hint { flex: 1 1 auto; font-size: 11.5px; color: var(--muted); }
+.ideas-save { flex: none; height: 34px; padding: 0 18px; font-size: 13px; border-radius: 8px; }
+/* 分区 */
+.ideas-sec { margin-top: 22px; }
+.ideas-sec-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12.5px;
+  font-weight: 650; color: var(--ink); padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+.ideas-sec-h em { font-style: normal; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.ideas-toggle { cursor: pointer; user-select: none; }
+.ideas-caret { margin-left: auto; font-weight: 400; font-size: 11px; color: var(--muted); }
+.ideas-empty { margin-top: 12px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+/* 一条念头：第一行是它自己，第二行是时间 + 三个动作 */
+.idea { padding: 11px 0; border-bottom: 1px solid var(--tint-3); }
+.idea:last-child { border-bottom: 0; }
+.idea-t { font-size: 13.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.idea-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.idea-when { font-size: 11px; color: var(--muted); }
+.idea-note { font-size: 11px; color: var(--muted); }
+/* 动作靠右但不拉满；窄视口自动换行到下一行（与顶栏同一套：按钮 nowrap、容器 wrap） */
+.idea-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.idea-acts button { flex: none; height: 26px; padding: 0 11px; font-size: 11.5px; white-space: nowrap; }
+.idea-do { font-weight: 600; }
+/* × 是与前三个**不同性质**的动作（删掉这条，不是给它做决定）——
+   一条细竖线隔开，免得手滑把"不做"点成"删掉"（2026-10-22 截图目检） */
+.idea-del { margin-left: 2px; padding: 0 8px; border-left: 1px solid var(--border); color: var(--muted); }
+/* 「搁置」中性、「不做」更轻（想过了，不做 —— 它比搁置更消极，所以字色更淡；悬停才提示否决议义） */
+.idea-hold { color: var(--ink); }
+.idea-drop { color: var(--muted); }
+.idea-drop:hover { color: var(--danger); }
+.idea-del { padding: 0 9px; color: var(--muted); }
+.idea-del:hover { color: var(--danger); }
+/* 已决区：整条压低存在感（它是历史账，不该和"还没决定"抢眼） */
+.idea-decided .idea-t { color: var(--muted); }
+.idea-badge { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; line-height: 1.6;
+  border: 1px solid var(--border); color: var(--muted); background: var(--tint-2); }
+.idea-badge.is-done { color: var(--ok); border-color: var(--ok); background: transparent; }
+.idea-badge.is-hold { color: var(--warning); border-color: var(--warning); background: transparent; }
+.idea-badge.is-no { color: var(--danger); border-color: var(--danger); background: transparent; }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);

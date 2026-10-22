@@ -9,6 +9,7 @@ import * as tasks from './data/tasks'
 // ⚠ `services` 通配导入已移除（2026-10-11）：它唯一的用处是 scanServices 的死通道，
 //   那条通道删掉后这里就没有引用了。MCP 侧仍直接调 `services.scanServices()`。
 import * as todosService from './services/todos'
+import * as ideasService from './services/ideas'
 import * as logsService from './services/logs'
 import * as notificationsService from './services/notifications'
 import * as notifierService from './services/notifier'
@@ -794,6 +795,85 @@ export function registerIpcHandlers(): void {
   // 否则用户只会看到"待办空了"而不知道发生过什么。
   guardedHandle('todos:health', () => {
     return todosService.todosHealth()
+  })
+
+  // ── 想法（2026-10-22 · 念头没有家：待办/日志/任务都放不下）────────────────
+  // 刻意做得很轻：只有 内容 / 记下的时间 / 四态。没有优先级、没有截止日、不归属项目 ——
+  // 一旦有了这些它就又变成待办了（理由见 services/ideas.ts 头部）。
+  guardedHandle('ideas:list', (_event, filter?: any) => {
+    try {
+      return ideasService.listIdeas(filter || undefined)
+    } catch (e: any) {
+      return []
+    }
+  })
+
+  guardedHandle('ideas:summary', () => {
+    try {
+      return ideasService.ideasSummary()
+    } catch {
+      return { 新记: 0, 已立项: 0, 已搁置: 0, 已否决: 0 }
+    }
+  })
+
+  guardedHandle('ideas:add', (_event, text: string) => {
+    try {
+      return ideasService.addIdea(String(text ?? ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:updateText', (_event, id: string, text: string) => {
+    try {
+      return ideasService.updateIdeaText(String(id || ''), String(text ?? ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:setStatus', (_event, id: string, status: string, note?: string) => {
+    try {
+      return ideasService.setIdeaStatus(String(id || ''), status as any, note)
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:promote', (_event, id: string, opts?: any) => {
+    try {
+      return ideasService.promoteIdea(String(id || ''), opts || undefined)
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:unpromote', (_event, id: string) => {
+    try {
+      return ideasService.unpromoteIdea(String(id || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:delete', (_event, id: string) => {
+    try {
+      return ideasService.deleteIdea(String(id || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:restore', (_event, idea: any) => {
+    try {
+      return ideasService.restoreIdea(idea)
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('ideas:health', () => {
+    return ideasService.ideasHealth()
   })
 
   // ── Logs ────────────────────────────────────────────────────────────
