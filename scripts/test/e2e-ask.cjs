@@ -280,5 +280,40 @@ check('项目选项从 registry 现读（含 released 段，不硬编码）',
   ask.askProjectOptions().length === 4 && ask.askProjectOptions().some((x) => x.id === 'old-one'),
   JSON.stringify(ask.askProjectOptions()))
 
+console.log('\n---- 7. 月度花销报表（03 任务三）：按自然月切，不用滚动 30 天 ----')
+// 另起一份留痕，刻意横跨两个自然月 —— 用"今天"推算月份，不写死年月（否则每月 1 号假红）
+const TRACE2 = path.join(TMP, 'ai-trace-2.jsonl')
+const nowD = new Date()
+const y = nowD.getFullYear()
+const m = nowD.getMonth() + 1
+const prevAt = new Date(y, m - 2, 15, 12, 0, 0)
+const thisAt = new Date(y, m - 1, 3, 12, 0, 0)
+const mkRec = (ts, tokens, ok, trigger, model) => ({
+  ts, trigger, model, prompt_chars: 10, completion_chars: 5, duration_ms: 100,
+  ok, stream: false, ...(typeof tokens === 'number' ? { total_tokens: tokens } : {}),
+})
+fs.writeFileSync(TRACE2, [
+  mkRec(prevAt.toISOString(), 500, true, 'desktop.draftProjectBrief', 'm1'),
+  mkRec(thisAt.toISOString(), 200, true, 'desktop.ask', 'm1'),
+  mkRec(thisAt.toISOString(), undefined, false, 'desktop.ask', 'm2'),
+].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8')
+trace.setTraceFilePathForTest(TRACE2)
+const months = trace.usageByMonth(3)
+check('★ 按自然月切开：本月一条、上月一条（不合并）', months.length === 2, JSON.stringify(months.map((x) => x.month)))
+check('★★ 本月只算本月的账（滚动 30 天会把上月那 500 混进来 —— 这就是不用它的理由）',
+  months[0] && months[0].total_tokens === 200, JSON.stringify(months[0]))
+check('★ 上月那条独立成月', months[1] && months[1].total_tokens === 500, JSON.stringify(months[1]))
+check('★ 没报 usage 的那次只计数、不折算（calls=2 而 token_calls=1）',
+  months[0] && months[0].calls === 2 && months[0].token_calls === 1,
+  JSON.stringify(months[0] && { calls: months[0].calls, token_calls: months[0].token_calls }))
+check('  失败次数单独记（不混进成功）', months[0] && months[0].fail === 1 && months[0].ok === 1, JSON.stringify(months[0] && { ok: months[0].ok, fail: months[0].fail }))
+check('  按月倒序（最近的排在前面）', months[0].month > months[1].month, `${months[0].month} vs ${months[1].month}`)
+check('  按触发点分开计（desktop.ask 与 draftProjectBrief 各自一行）',
+  months[0].byTrigger.some((t) => t.trigger === 'desktop.ask')
+  && months[1].byTrigger.some((t) => t.trigger === 'desktop.draftProjectBrief'),
+  JSON.stringify([months[0].byTrigger, months[1].byTrigger]))
+check('  months 上限生效（只要 1 个月就只给 1 条）', trace.usageByMonth(1).length === 1,
+  String(trace.usageByMonth(1).length))
+
 console.log(`\n==== ${PASS} 通过 / ${FAILS.length} 失败 ====`)
 if (FAILS.length) { FAILS.forEach((f) => console.log('  FAILED: ' + f)); process.exit(1) }

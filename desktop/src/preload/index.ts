@@ -193,6 +193,8 @@ contextBridge.exposeInMainWorld('tegula', {
   llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
   // 2026-10-17 暮雨第 10 条「花销可见」：累计 token / 次数（数据源 = ai-trace.jsonl）
   llmUsageStats: (days?: number) => ipcRenderer.invoke('llm:usageStats', days),
+  /** 月度花销（2026-10-22 · 03 任务三）：按自然月切，不是滚动 30 天 */
+  llmUsageMonthly: (months?: number) => ipcRenderer.invoke('llm:usageMonthly', months),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
   llmResetConfig: () => ipcRenderer.invoke('llm:resetConfig'),
   llmTestConnection: (cfg?: any) => ipcRenderer.invoke('llm:testConnection', cfg),

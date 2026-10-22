@@ -223,3 +223,70 @@ export function usageStats(days = 30): UsageStats {
     lastTs: tsList[tsList.length - 1] || '',
   }
 }
+
+export interface MonthUsage {
+  /** `YYYY-MM`（**本地时区**的自然月 —— 用户说的"这个月"是本地日历，不是 UTC） */
+  month: string
+  calls: number
+  ok: number
+  fail: number
+  /** 有 token 数据的调用次数（早期记录只有字符数） */
+  token_calls: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
+}
+
+/**
+ * 按**自然月**聚合花销（2026-10-22 · 03 任务三「月度 token 报表」）。
+ *
+ * 为什么不用 `usageStats(30)`：那是"滚动 30 天"，跨月时跟用户嘴里的"本月"对不上
+ * （1 号那天会把上个月的账算进"本月"）。月度报表必须按自然月切，否则用户一核对就发现数字不对。
+ *
+ * 口径与本仓其它地方一致：**只有供应商真报了 usage 的调用才计入 token**，
+ * 没报的只计次数（`calls - token_calls`）—— 不拿字符数折算。
+ *
+ * @param months 取最近几个月（含当月），默认 3
+ */
+export function usageByMonth(months = 3): MonthUsage[] {
+  const r = readTrace({ limit: -1 })
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const monthKey = (ts: string): string => {
+    const t = Date.parse(String(ts || ''))
+    if (!Number.isFinite(t)) return ''
+    const d = new Date(t)
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+  }
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const hasTok = (x: TraceRecord) => typeof x.total_tokens === 'number' || typeof x.prompt_tokens === 'number'
+
+  const map = new Map<string, MonthUsage>()
+  for (const x of r.records) {
+    const m = monthKey(String(x.ts || ''))
+    if (!m) continue // 时间戳解析不了 = 不知道属于哪个月，宁可不算也不猜
+    const cur = map.get(m) || {
+      month: m, calls: 0, ok: 0, fail: 0, token_calls: 0,
+      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, byTrigger: [],
+    }
+    cur.calls++
+    if (x.ok) cur.ok++
+    else cur.fail++
+    if (hasTok(x)) {
+      cur.token_calls++
+      cur.prompt_tokens += num(x.prompt_tokens)
+      cur.completion_tokens += num(x.completion_tokens)
+      cur.total_tokens += num(x.total_tokens)
+    }
+    const g = String(x.trigger || '(未记录)')
+    const t = cur.byTrigger.find((y) => y.trigger === g)
+    if (t) { t.calls++; t.total_tokens += num(x.total_tokens) }
+    else cur.byTrigger.push({ trigger: g, calls: 1, total_tokens: num(x.total_tokens) })
+    map.set(m, cur)
+  }
+  const limit = months > 0 ? months : 3
+  return [...map.values()]
+    .sort((a, b) => b.month.localeCompare(a.month))
+    .slice(0, limit)
+    .map((m) => ({ ...m, byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls) }))
+}

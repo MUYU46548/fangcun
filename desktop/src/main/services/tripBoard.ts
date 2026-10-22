@@ -24,7 +24,7 @@ import * as prefs from './prefs'
 export const CONTRACT_BASENAME = '立项契约.md'
 export const TRIP_CRITERIA = ['cards', 'cards_or_commit', 'cards_or_log', 'manual'] as const
 export type TripCriteria = typeof TRIP_CRITERIA[number]
-export const TRIP_COLUMNS = ['end', 'current', 'next', 'who', 'health', 'counts', 'commit', 'dirty'] as const
+export const TRIP_COLUMNS = ['end', 'current', 'next', 'who', 'owe', 'health', 'counts', 'commit', 'dirty'] as const
 export type TripColumn = typeof TRIP_COLUMNS[number]
 export const TRIP_HEALTH = ['active', 'stuck', 'dormant', 'idle', 'paused'] as const
 export type TripHealth = typeof TRIP_HEALTH[number]
@@ -98,6 +98,15 @@ export interface TripRow {
   current: TripCell
   next: TripCell
   who: { text: string; kind: 'exec' | 'review' | 'none' }
+  /**
+   * 「欠着什么」（2026-10-22 · 03 任务三：四栏台账的第四栏）。
+   *
+   * 取 registry 的「说明」字段 —— 它是**手写欠账清单**，不是机器算出来的。
+   * 为什么不用"未完成卡"代替：卡是"要做的事"，欠账是"欠着谁的/欠什么"，两者不是一回事
+   * （用户 10-22 定调：13 行说明里「欠着」那一栏就是要摆在这里的东西）。
+   * 空串 = 没写，界面显示「未写」，不糊一句"暂无欠账"。
+   */
+  owe: string
   health: { value: TripHealth; locked: boolean }
   counts: { todo: number; doing: number; review: number; logs: number }
   lastCommit: string
@@ -575,6 +584,7 @@ export function buildTripBoard(): TripBoard {
       current,
       next,
       who,
+      owe: String(proj?.['说明'] || ''),
       health: { value: hv, locked },
       counts: { todo: todo.length, doing: doing.length, review: review.length, logs: myLogs.length },
       lastCommit: relTime(lastIso),

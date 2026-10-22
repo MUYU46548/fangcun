@@ -897,6 +897,8 @@ contextBridge.exposeInMainWorld('tegula', {
         current: { text: '正在做的事', from: 'task', sub: '' },
         next: { text: '要做的下一件', from: 'task', sub: '1 张待办（最高：中）' },
         who: { text: 'hermes（执行）', kind: 'exec' },
+        // 2026-10-22 · 03 任务三：四栏台账第四栏（demo2 刻意留空 → 界面必须写「未写」）
+        owe: '欠着：①夹具欠账 ②第二件',
         health: { value: 'active', locked: false },
         counts: { todo: 1, doing: 1, review: 0, logs: 0 },
         lastCommit: '1 天前', recentCommit: true, dirty: 3,
@@ -1033,6 +1035,16 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   backupPickRestoreFile: () => null,
   backupPickDir: () => null,
+  // 月度花销（2026-10-22 · 03 任务三）：按自然月。夹具刻意两个月、其中一条无 usage。
+  llmUsageMonthly: () => {
+    rec('llmUsageMonthly')
+    return {
+      months: [
+        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
+        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
+      ],
+    }
+  },
   llmGetConfig: () => ({}),
   llmSetConfig: () => ok(),
   llmResetConfig: () => ok(),

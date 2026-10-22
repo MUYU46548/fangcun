@@ -51,6 +51,8 @@ fs.writeFileSync(path.join(DATA, 'registry.yaml'), [
   '  - id: has-card',
   '    name: 有卡项目',
   `    repo: ${repoA.replace(/\\/g, '/')}`,
+  // 2026-10-22 · 03 任务三：四栏台账的第四栏「欠着什么」读的就是这个字段
+  '    说明: 欠着：①甲项 ②乙项',
   '  - id: no-card',
   '    name: 无卡项目',
   `    repo: ${repoB.replace(/\\/g, '/')}`,
@@ -352,6 +354,25 @@ const init2 = tb.initContractFile('no-card')
 check('★ 建档：文件已存在 → **拒绝且不覆盖**（第二次调用必须失败）',
   init2.ok === false && /已经存在/.test(init2.error || ''), init2.error)
 check('建档：未登记的项目 → 显式报错（不产出路径）', tb.initContractFile('nope').ok === false)
+
+console.log('\n---- 9. 四栏台账第四栏：欠着什么（03 任务三） ----')
+// ⚠ 必须让**至少两个**项目进屏，否则"没写说明的都给空串"会在空集上恒真（假绿）。
+//   这里用 cards_or_log：has-card 有卡、no-card 有执行日志 —— 两个都进屏。
+setPrefs({ fc_trip_mode: 'auto', fc_trip_criteria: 'cards_or_log' })
+board = tb.buildTripBoard()
+check('前置：这一屏里至少两个项目（否则下一条断言会在空集上假绿）',
+  board.rows.length >= 2, JSON.stringify(board.rows.map((r) => r.id)))
+const rowHas = board.rows.find((r) => r.id === 'has-card')
+check('★ registry 的「说明」原样透传到 owe（手写值，不加工不摘要）',
+  !!rowHas && rowHas.owe === '欠着：①甲项 ②乙项', rowHas && rowHas.owe)
+check('★ 没写说明的项目 owe 是空串（界面显示「未写」，不许糊一句"暂无欠账"）',
+  board.rows.filter((r) => r.id !== 'has-card').length >= 1
+  && board.rows.filter((r) => r.id !== 'has-card').every((r) => r.owe === ''),
+  JSON.stringify(board.rows.map((r) => [r.id, r.owe])))
+check('owe 进了列清单（界面列开关按 TRIP_COLUMNS 渲染）', tb.TRIP_COLUMNS.includes('owe'))
+check('四栏齐了：到哪了 / 下一步 / 在等谁 / 欠着什么 都有对应字段',
+  ['current', 'next', 'who', 'owe'].every((k) => tb.TRIP_COLUMNS.includes(k)),
+  JSON.stringify(tb.TRIP_COLUMNS))
 
 console.log(`\n通过 ${PASS} / 失败 ${FAILS.length}`)
 if (FAILS.length) {

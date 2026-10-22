@@ -5,7 +5,7 @@ import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
 import { planToDraft, draftProjectBrief, docToDrafts } from './llm/writeback'
 import { askWithLlm } from './llm/ask-llm'
-import { usageStats } from './llm/trace'
+import { usageStats, usageByMonth } from './llm/trace'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
 function toFailure(e: unknown, fallbackUrl = '') {
@@ -25,6 +25,13 @@ export function registerLlmIpcHandlers(): void {
   // ⚠ 只统计**供应商真报了 usage** 的调用；没报的单独计次数，绝不拿字符数折算成 token。
   guardedHandle('llm:usageStats', (_event: any, days?: number) => {
     return usageStats(Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 30)
+  })
+
+  // 月度报表（2026-10-22 · 03 任务三）：按**自然月**切，不用滚动 30 天 ——
+  // 1 号那天滚动窗口会把上个月的账算进"本月"，用户一核对就发现数字不对。
+  guardedHandle('llm:usageMonthly', (_event: any, months?: number) => {
+    const n = Number(months)
+    return { months: usageByMonth(Number.isFinite(n) && n > 0 ? Math.min(n, 24) : 3) }
   })
 
   guardedHandle('llm:getConfig', () => {

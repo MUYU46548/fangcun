@@ -1848,6 +1848,19 @@
     check('★ 设置入口在（⚙ 显示设置）—— 裁断权在人，不是写死的清单',
       !tp.err && $$('#board.pv .tripboard button')
         .some((b) => (b.textContent || '').indexOf('显示设置') >= 0))
+    // ── 四栏台账第四栏「欠着什么」（2026-10-22 · 03 任务三）──────────────
+    check('★★ 「欠着什么」列在（到哪了 / 下一步 / 在等谁 / 欠着什么 四栏齐）',
+      !tp.err && tp.heads.some((h) => h === '欠着什么'), JSON.stringify(tp.heads))
+    const oweCells = $$('#board.pv .trip-table .trip-owe')
+    check('★ 有说明的行显示 registry 里的欠账原文',
+      oweCells.length >= 2 && (oweCells[0].textContent || '').indexOf('夹具欠账') >= 0,
+      JSON.stringify(oweCells.map((c) => (c.textContent || '').trim())))
+    check('★★ 没写说明的行显示「未写」（不许糊一句"暂无欠账"冒充有结论）',
+      oweCells.some((c) => (c.textContent || '').trim() === '未写'),
+      JSON.stringify(oweCells.map((c) => (c.textContent || '').trim())))
+    check('  长文本挂 title（一眼看不全也能悬停看全文）',
+      !!oweCells[0] && !!oweCells[0].querySelector('.trip-owe-t')
+      && !!oweCells[0].querySelector('.trip-owe-t').getAttribute('title'))
     check('点开设置面板 → 「收哪些项目 / 哪些项目算在途 / 显示哪些列」三块都在', await (async () => {
       const b = $$('#board.pv .tripboard button')
         .find((x) => (x.textContent || '').indexOf('显示设置') >= 0)
@@ -4381,6 +4394,16 @@
             }, 4000, 'llm ans'),
             (($('#board.ask-view .ask-llm-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
         }
+        // ── 月度花销报表（2026-10-22 · 03 任务三）：常驻在这一页，不用翻设置页 ──
+        check('★ 月度花销报表常驻在「问」页底部',
+          await waitFor(() => $$('#board.ask-view .ask-report').length === 1, 4000, 'report'),
+          String($$('#board.ask-view .ask-report').length))
+        const rp = (($('#board.ask-view .ask-report') || {}).textContent || '').replace(/\s+/g, ' ')
+        check('★ 按月列（两个月两行，token 带千分位）',
+          $$('#board.ask-view .ask-report-row').length === 2
+          && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
+        check('★ 没报 usage 的那次明说「不计」（不拿字符数折算 token）',
+          rp.indexOf('没报 usage') >= 0, rp.slice(0, 100))
       }
     }
 

@@ -425,6 +425,25 @@
         <div class="ask-llm-err" v-if="askLlmErr">{{ askLlmErr }}</div>
       </div>
       <div class="ask-empty" v-else>还没问。点上面任一个常用问题，或者自己写一句。</div>
+
+      <!-- 月度花销报表（2026-10-22 · 03 任务三）：**常驻**在这一页底部，不用翻设置页。
+           为什么要按自然月而不是"近 30 天"：1 号那天滚动窗口会把上个月的账算进"本月"，
+           用户一核对就发现数字对不上 —— 报表错一次就没人再信它。
+           ⚠ 只算供应商真报了 usage 的调用，没报的只计数、不折算（10-17 口径）。 -->
+      <div class="ask-report" v-if="usageMonths.length">
+        <div class="ask-report-h">
+          AI 花销 · 按自然月
+          <em class="ask-report-src">数据源 ai-trace.jsonl（本机留痕，不算没留痕的调用）</em>
+        </div>
+        <div class="ask-report-row" v-for="m in usageMonths" :key="m.month">
+          <span class="arr-m">{{ m.month }}</span>
+          <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
+          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没报 usage，不计</em></span>
+        </div>
+      </div>
+      <div class="ask-report ask-report-empty" v-else>
+        AI 花销 · 按自然月：ai-trace 里还没有任何调用记录（一次都没走过 AI 通道）。
+      </div>
     </main>
 
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
@@ -1034,6 +1053,7 @@
                 <th v-if="tripColVisible('current')">当前步骤</th>
                 <th v-if="tripColVisible('next')">下一步</th>
                 <th v-if="tripColVisible('who')">卡在谁</th>
+                <th v-if="tripColVisible('owe')">欠着什么</th>
                 <th v-if="tripColVisible('health')">健康度</th>
                 <th v-if="tripColVisible('counts')">任务 / 日志</th>
                 <th v-if="tripColVisible('commit')">最近提交</th>
@@ -1107,6 +1127,14 @@
                   <span v-else-if="r.who && r.who.kind === 'exec'" class="trip-chip">{{ r.who.text }}</span>
                   <span v-else-if="r.who && r.who.text" class="trip-chip warn">{{ r.who.text }}</span>
                   <span v-else class="trip-dim">—</span>
+                </td>
+
+                <!-- 欠着什么（2026-10-22 · 03 任务三）：registry 手写的「说明」字段 ——
+                     它才是用户自己的欠账清单（卡是"要做的事"，欠账是"欠着谁的"）。
+                     长了就截第一行、全文挂 title：这一列是"扫一眼知道欠着"，不是阅读区。 -->
+                <td v-if="tripColVisible('owe')" class="trip-owe">
+                  <span v-if="r.owe" class="trip-owe-t" :title="r.owe">{{ tripFirstLine(r.owe) }}</span>
+                  <span v-else class="trip-dim">未写</span>
                 </td>
 
                 <!-- 健康度：机器只给默认值，点一下人工覆盖并锁定（右键恢复自动） -->
@@ -4601,6 +4629,15 @@ async function syncBoardPrefs(): Promise<void> {
     if (Array.isArray(p?.fc_trip_cols) && p.fc_trip_cols.length > 0
         && p.fc_trip_cols.every((x: unknown) => (TRIP_COL_OPTIONS as readonly { v: string }[]).some(o => o.v === x))) {
       tripCols.value = p.fc_trip_cols
+      // 2026-10-22 · 03 任务三：新增「欠着什么」列（四栏台账的第四栏）。
+      // 老 prefs 里当然没有它 —— 那是"用户从没见过这一列"，不是"用户关掉了它"。
+      // 所以补一次，并打版本标记：之后用户再关掉，就不会被重新打开（不覆盖用户的选择）。
+      const COLS_MIGRATION = 'owe-v1'
+      if (p?.fc_trip_cols_migrated !== COLS_MIGRATION) {
+        if (!tripCols.value.includes('owe')) tripCols.value = [...tripCols.value, 'owe']
+        saveUiPref('fc_trip_cols', tripCols.value)
+        saveUiPref('fc_trip_cols_migrated', COLS_MIGRATION)
+      }
     } else {
       saveUiPref('fc_trip_cols', tripCols.value)
     }
@@ -4737,6 +4774,8 @@ const TRIP_COL_OPTIONS = [
   { v: 'current', label: '当前步骤' },
   { v: 'next', label: '下一步' },
   { v: 'who', label: '卡在谁' },
+  // 2026-10-22 · 03 任务三：四栏台账的第四栏「欠着什么」（registry 手写欠账清单）
+  { v: 'owe', label: '欠着什么' },
   { v: 'health', label: '健康度' },
   { v: 'counts', label: '卡 / 日志' },
   { v: 'commit', label: '最近提交' },
@@ -6516,6 +6555,17 @@ async function loadAskPresets(): Promise<void> {
   }
 }
 
+/** 月度报表（03 任务三）：按自然月，最近 3 个月。读不到就空 —— 界面会直说"一次都没走过 AI"。 */
+const usageMonths = ref<any[]>([])
+async function loadUsageMonths(): Promise<void> {
+  try {
+    const r: any = await window.tegula.llmUsageMonthly(3)
+    usageMonths.value = Array.isArray(r?.months) ? r.months : []
+  } catch {
+    usageMonths.value = []
+  }
+}
+
 async function runAsk(): Promise<void> {
   const q = askQ.value.trim()
   if (!q || askBusy.value) return
@@ -7009,6 +7059,8 @@ function loadViewData(v: string) {
   } else if (v === 'ask') {
     // 常用问题从主进程拿（懒加载一次就够，presets 是静态表）
     if (!askPresets.value.length) void loadAskPresets()
+    // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
+    void loadUsageMonths()
   } else if (v === 'trash') {
     // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）
     loadTrash()
@@ -13648,6 +13700,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-dim { color: var(--muted); }
 .trip-dim-sm { display: block; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 .trip-who { white-space: nowrap; }
+/* 欠着什么（2026-10-22 · 03 任务三）：这一列是"扫一眼知道欠着"，所以限宽 + 省略号，
+   全文在 title 里。限宽是为了不让一列长文本把整张表撑到横向滚。 */
+.trip-owe { max-width: 260px; }
+.trip-owe-t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .trip-chip { display: inline-block; background: var(--tint, #f1eefb); color: #4a4368; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
 .trip-chip.warn { background: #fdf3e2; color: #8a5c16; }
 .trip-health { white-space: nowrap; }
@@ -13842,6 +13898,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ala-t { font-size: 12.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; }
 .ask-llm-err { margin-top: 10px; font-size: 11.5px; color: var(--danger); }
 .ask-empty { margin-top: 16px; font-size: 12px; color: var(--muted); }
+/* 月度花销报表（2026-10-22 · 03 任务三）—— 常驻在「问」页底部 */
+.ask-report { margin-top: 18px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 12px 14px; }
+.ask-report-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px;
+  font-weight: 600; color: var(--ink); }
+.ask-report-src { font-style: normal; font-weight: 400; font-size: 10.5px; color: var(--muted); }
+.ask-report-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin-top: 6px;
+  padding-top: 6px; border-top: 1px solid var(--tint-3); font-size: 11.5px; }
+.arr-m { flex: 0 0 76px; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+.arr-c { flex: 0 0 auto; color: var(--ink); }
+.arr-t { flex: 1 1 auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+.arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 10.5px; color: var(--muted); }
+.ask-report-empty { font-size: 11.5px; color: var(--muted); }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);
