@@ -99,11 +99,11 @@ function answerCost(): AskAnswer {
   const st = usageStats(30)
   const lines: string[] = []
   if (!st.calls) {
-    lines.push('近 30 天 ai-trace 里一条调用记录都没有 —— 说明这期间没走过 AI 通道。')
+    lines.push('近 30 天一次 AI 调用都没有 —— 这期间没走过 AI 通道。')
   } else {
     if (st.token_calls < st.calls) {
       // 只统计真报了 usage 的，剩下的单独计数，不折算（2026-10-17 第 10 条口径）
-      lines.push(`其中 ${st.token_calls} 次供应商报了 usage，${st.calls - st.token_calls} 次没报 —— 没报的那部分**不计入 token**（不拿字符数折算）。`)
+      lines.push(`其中 ${st.token_calls} 次供应商给了用量，${st.calls - st.token_calls} 次没给 —— 没给的那部分只计数、不折算成 token。`)
     }
     if (st.firstTs) lines.push(`窗口内最早一条：${st.firstTs}；最近一条：${st.lastTs}`)
   }
@@ -116,7 +116,7 @@ function answerCost(): AskAnswer {
     rows: [
       ...st.byModel.map((m) => ({
         k: m.model,
-        v: m.total_tokens ? `${m.total_tokens.toLocaleString()} tokens` : `${m.token_calls}/${m.calls} 次有 usage`,
+        v: m.total_tokens ? `${m.total_tokens.toLocaleString()} tokens` : `${m.token_calls}/${m.calls} 次有数字`,
         sub: `${m.calls} 次调用`,
       })),
       ...st.byTrigger.slice(0, 6).map((t) => ({
@@ -126,7 +126,7 @@ function answerCost(): AskAnswer {
       })),
     ],
     needsLlm: false,
-    source: 'ai-trace 调用留痕（llm:usageStats，近 30 天）',
+    source: '本机 AI 调用留痕（近 30 天）',
   }
 }
 
@@ -137,21 +137,21 @@ function answerOwe(q: string, projects: any[]): AskAnswer {
   for (const p of pool) {
     const note = String(p?.['说明'] || '').trim()
     if (!note) continue
-    rows.push({ k: String(p?.name || p?.id || ''), v: note, sub: 'registry 手写' })
+    rows.push({ k: String(p?.name || p?.id || ''), v: note, sub: '你手写的' })
   }
   const nm = picked ? String(picked?.name || picked?.id) : ''
   return {
     kind: 'owe',
     title: picked
-      ? (rows.length ? `${nm}：欠着这些（见下表）` : `${nm}：registry 里没写「欠着」`)
-      : (rows.length ? `${rows.length} 个项目在 registry 里写了「欠着」` : 'registry 里没有任何项目写「欠着」'),
+      ? (rows.length ? `${nm}：欠着这些（见下表）` : `${nm}：这栏还空着（没写欠着）`)
+      : (rows.length ? `${rows.length} 个项目写了欠账` : '还没有任何项目写过欠账'),
     lines: rows.length
-      ? ['这条读的是 registry 的「说明」字段 —— 它是给人看的欠账清单，方寸不替你裁。']
-      : [`registry 里这${picked ? '个' : '些'}项目的「说明」是空的。要么真没欠账，要么没人写 —— 界面不猜。`],
+      ? ['这条读的是你手写的「说明」—— 方寸不替你裁，也不替你补。']
+      : [`这${picked ? '个' : '些'}项目的「说明」还空着。要么真没欠账，要么还没写 —— 界面不猜。`],
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: 'registry.yaml 说明字段（手写值）',
+    source: '项目登记表里你手写的「说明」',
   }
 }
 
@@ -171,11 +171,11 @@ function answerWho(q: string, projects: any[]): AskAnswer {
     title: picked
       ? (rows.length ? `${String(picked?.name || picked?.id)}：${rows[0].v}` : `${String(picked?.name || picked?.id)} 没有在等谁（没有待验收/进行中的卡）`)
       : (rows.length ? `${rows.length} 个项目在等人` : '没有项目在等人'),
-    lines: ['判据：有「待验收」卡 → 等验收人；否则有「进行中」卡 → 等执行人。都没填名字就写「待指定 / 未指派」，不编人名。'],
+    lines: ['有「待验收」的卡就在等验收人，否则有「进行中」的卡就在等执行人。没填名字就写「未指定」，不编人名。'],
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡的 验收/指派 字段（tripBoard 聚合）',
+    source: '任务卡上的「验收」与「指派」',
   }
 }
 
@@ -216,7 +216,7 @@ function answerBlocked(q: string, projects: any[]): AskAnswer {
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡的 阻塞 字段（未完成 ∩ 有活着的源卡）',
+    source: '任务卡上的「阻塞」关系',
   }
 }
 
@@ -247,13 +247,13 @@ function answerDue(q: string, projects: any[]): AskAnswer {
     kind: 'due',
     title: `逾期 ${overdue.length} 张 · 今天到期 ${today.length} 张 · 三天内 ${soon.length} 张`,
     lines: [
-      '逾期算术走 shared/time.daysSinceDue（与看板/待办的「逾期 N 天」同一份口径，不另算一套）。',
-      '只有填了截止日期的卡才算；没填的不进这个口径 —— 不拿「没填」当「没逾期」。',
+      '和看板、待办上的「逾期 N 天」是同一套算法，不会两处对不上。',
+      '只算填了截止日期的卡 —— 没填不等于没逾期，所以不猜。',
     ],
     rows: [...overdue.sort((a, b) => b.d - a.d), ...today, ...soon.sort((a, b) => a.d - b.d)].map(label),
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡的 截止 字段（未完成 ∩ 有截止日）',
+    source: '任务卡上的「截止」日期',
   }
 }
 
@@ -271,12 +271,12 @@ function answerDormant(): AskAnswer {
     kind: 'dormant',
     title: rows.length ? `${rows.length} 个项目冷下来了` : '没有项目冷下来',
     lines: [
-      '判据：超过 30 天没有任务活动算「休眠」，7~30 天算「停滞」；被用户手动覆盖过的健康度以覆盖为准。',
+      '超过 30 天没动静算「休眠」，7~30 天算「停滞」；你手动标过的以你的为准。',
       hiddenCount ? `另有 ${hiddenCount} 个项目没进这一屏（没有未完结任务、30 天内也没提交）—— 它们其实也算停着，只是不在判据的收口范围里。` : '',
     ].filter(Boolean),
     rows,
     needsLlm: false,
-    source: 'tripBoard 健康度（任务活动 + git 提交时间）',
+    source: '按任务活动和提交时间算出来的',
   }
 }
 
@@ -301,7 +301,7 @@ function answerNext(q: string, projects: any[]): AskAnswer {
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡（待办 ∩ 优先级最高）+ tripBoard 聚合',
+    source: '待办卡里优先级最高的那张',
   }
 }
 
@@ -332,7 +332,7 @@ function answerProgress(q: string, projects: any[], forced?: any): AskAnswer {
       rows: [],
       projectId: String(picked.id),
       needsLlm: false,
-      source: 'registry 手写字段 + tripBoard（任务卡/执行日志/git）',
+      source: '你手写的项目字段 + 任务卡 / 执行日志',
     }
   }
   const rows = board.rows.map((r) => ({
@@ -348,7 +348,7 @@ function answerProgress(q: string, projects: any[], forced?: any): AskAnswer {
       : [],
     rows,
     needsLlm: false,
-    source: 'tripBoard「在途一屏」',
+    source: '在途一屏（任务卡 / 执行日志 / 提交时间）',
   }
 }
 
@@ -372,7 +372,7 @@ function answerCounts(q: string, projects: any[]): AskAnswer {
     rows: [...byStatus.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v: `${v} 张` })),
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡状态字段（活跃区，不含 archive / .trash）',
+    source: '任务卡的状态（不含归档与回收站）',
   }
 }
 
@@ -403,7 +403,7 @@ function answerTasks(q: string, projects: any[]): AskAnswer {
     })),
     projectId: String(picked.id),
     needsLlm: false,
-    source: '任务卡（活跃区）',
+    source: '任务卡',
   }
 }
 
@@ -430,16 +430,27 @@ const INTENTS: Array<{ kind: AskKind; re: RegExp }> = [
 ]
 
 /** 常用问题（界面上的快捷点选）—— 全部走结构化，一条都不烧 token */
-export const ASK_PRESETS: Array<{ label: string; q: string }> = [
-  { label: '都在哪一步', q: '各项目都到哪了' },
-  { label: '下一步干什么', q: '下一步该做什么' },
-  { label: '在等谁', q: '谁在等谁' },
-  { label: '欠着什么', q: '欠着什么' },
-  { label: '卡在哪', q: '卡在哪' },
-  { label: '逾期与快到期的', q: '哪些逾期了' },
-  { label: '哪些项目停着', q: '哪些项目停着' },
-  { label: '还有多少没做完', q: '还有多少没做完' },
-  { label: '本月烧了多少钱', q: '本月烧了多少钱' },
+export interface AskPreset {
+  /** 按钮上的字（≤8 字，得能一眼看懂问的是什么） */
+  label: string
+  /** 真正发给查询的句子（界面不自己拼文案，两边只用这一份） */
+  q: string
+  /** 悬停说明：这个会答出什么（不占版面，但第一次用的人不用猜） */
+  hint: string
+  /** 分组名 —— 九个问题排一行会挤成两行、还孤零零剩一个，分组后每行都整 */
+  group: string
+}
+
+export const ASK_PRESETS: AskPreset[] = [
+  { label: '都在哪一步', q: '各项目都到哪了', group: '看进展', hint: '一行一个项目：现在做到哪、下一步是什么' },
+  { label: '下一步干什么', q: '下一步该做什么', group: '看进展', hint: '待办里优先级最高的那张卡' },
+  { label: '在等谁', q: '谁在等谁', group: '看进展', hint: '哪个项目卡在等人的环节（验收人 / 执行人）' },
+  { label: '欠着什么', q: '欠着什么', group: '看进展', hint: '你自己写下的欠账清单（项目登记表里那栏）' },
+  { label: '卡在哪', q: '卡在哪', group: '看问题', hint: '哪张卡被别的卡挡着、被谁挡' },
+  { label: '哪些逾期了', q: '哪些逾期了', group: '看问题', hint: '逾期几天，外加三天内到期的' },
+  { label: '哪些项目停着', q: '哪些项目停着', group: '看问题', hint: '30 天没动静的项目（休眠 / 停滞）' },
+  { label: '还有多少没做完', q: '还有多少没做完', group: '看账', hint: '未完成的卡有多少，按状态分开' },
+  { label: '本月烧了多少钱', q: '本月烧了多少钱', group: '看账', hint: '按自然月算的 AI 调用与 token' },
 ]
 
 /**
@@ -482,7 +493,7 @@ export function answer(raw: string): AskAnswer {
     title: '这句话结构化答不了',
     lines: [
       '方寸只在**两种**情况下动模型：模糊问答、批次出单。这一句既没命中结构化意图，也没点名项目——',
-      '要么换一种问法（点上面的常用问题），要么把它交给 AI（模糊问答通道，会花 token，且每次花销都会记进 ai-trace）。',
+      '要么换一种问法（点上面的常用问题），要么交给 AI 答 —— 那条会花钱，每次花销都记在下面的月报表里。',
     ],
     rows: [],
     needsLlm: true,

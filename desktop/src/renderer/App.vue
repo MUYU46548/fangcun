@@ -386,21 +386,28 @@
          而且花销当场印在回答头上（03 单成本红线：AI 只进模糊问答与批次出单两处）。
          ⚠ 独立 v-if、不接在别人家的 v-else-if 链上：插在链中间会让后面整片视图不渲染。 -->
     <main id="board" class="ask-view" v-if="curView === 'ask'">
+      <div class="ask-head">
+        <div class="ask-lead">问一句，方寸手里的事实直接答</div>
+        <div class="ask-lead-sub">
+          项目台账、任务卡、执行日志、AI 花销都在这儿，不用一页页翻。
+          答不了会明说「不知道」，不编。
+        </div>
+      </div>
       <div class="ask-box">
         <div class="ask-row">
           <input class="ask-in" v-model="askQ" :disabled="askBusy"
-                 placeholder="问一句：各项目到哪了 / 欠着什么 / 哪个项目停着 / 本月烧了多少钱"
+                 placeholder="比如：方寸到哪了 / 欠着什么 / 哪个项目停着"
                  @keyup.enter="runAsk()" />
-          <button class="pri ask-go" :disabled="askBusy || !askQ.trim()" @click="runAsk()">{{ askBusy ? '查…' : '问' }}</button>
+          <button class="pri ask-go" :disabled="askBusy || !askQ.trim()" @click="runAsk()">{{ askBusy ? '查…' : '查一下' }}</button>
         </div>
-        <div class="ask-chips">
-          <button class="ghost ask-chip" v-for="p in askPresets" :key="p.label"
-                  :disabled="askBusy" @click="askQuick(p.q)">{{ p.label }}</button>
+        <div class="ask-groups">
+          <div class="ask-group" v-for="g in askGroups" :key="g.name">
+            <span class="ask-group-k" v-if="askGroups.length > 1">{{ g.name }}</span>
+            <button class="ghost ask-chip" v-for="p in g.items" :key="p.label"
+                    :title="p.hint" :disabled="askBusy" @click="askQuick(p.q)">{{ p.label }}</button>
+          </div>
         </div>
-        <div class="ask-hint">
-          结构化查询，零 token。数据取自 registry 手写字段、任务卡、执行日志、ai-trace ——
-          每条答案底下都会写清来源，不写就是没来源。
-        </div>
+        <div class="ask-hint">这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。</div>
       </div>
 
       <div class="ask-ans" v-if="askAns">
@@ -415,13 +422,13 @@
         <div class="ask-foot">
           <span class="ask-src" v-if="askAns.source">来源：{{ askAns.source }}</span>
           <button class="ghost ask-llm-btn" v-if="askAns.needsLlm" :disabled="askLlmBusy" @click="askToLlm()">
-            {{ askLlmBusy ? 'AI 思考中…' : '交给 AI 答（会花 token）' }}
+            {{ askLlmBusy ? 'AI 正在答…' : '让 AI 答（会计费）' }}
           </button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
                一次调用 = 一批；产出只落「待审批」（点头才转正）。这是全应用**第二处**会
                为规划花 token 的入口（另一处是上面的模糊问答）。 -->
           <button class="ghost ask-llm-btn ask-batch-btn" v-if="askAns.projectId" :disabled="batchBusy" @click="runBatch()">
-            {{ batchBusy ? '出单中…' : '📋 出下一批任务卡（会花 token）' }}
+            {{ batchBusy ? '正在出…' : '📋 出下一批任务卡（会计费）' }}
           </button>
         </div>
         <!-- 随纠（2026-10-22 · 03 任务二）：从这条答案直接改这个项目的方向 ——
@@ -429,7 +436,7 @@
              只认固定句式（改 <字段> 为 <值>）：不猜，参数清。 -->
         <div class="ask-correct" v-if="askAns.projectId">
           <button class="ghost ask-correct-open" v-if="!correctOpen" @click="openCorrect()">
-            ✎ 一句话改掉这个项目的「状态 / 路线图 / 说明」
+            ✎ 一句话改这个项目（状态 / 路线图 / 说明）
           </button>
           <template v-else>
             <div class="ask-correct-row">
@@ -454,7 +461,7 @@
         </div>
         <div class="ask-llm-err" v-if="askLlmErr">{{ askLlmErr }}</div>
       </div>
-      <div class="ask-empty" v-else>还没问。点上面任一个常用问题，或者自己写一句。</div>
+
 
       <!-- 月度花销报表（2026-10-22 · 03 任务三）：**常驻**在这一页底部，不用翻设置页。
            为什么要按自然月而不是"近 30 天"：1 号那天滚动窗口会把上个月的账算进"本月"，
@@ -463,16 +470,16 @@
       <div class="ask-report" v-if="usageMonths.length">
         <div class="ask-report-h">
           AI 花销 · 按自然月
-          <em class="ask-report-src">数据源 ai-trace.jsonl（本机留痕，不算没留痕的调用）</em>
+          <em class="ask-report-src">数据源：本机 AI 调用留痕</em>
         </div>
         <div class="ask-report-row" v-for="m in usageMonths" :key="m.month">
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
-          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没报 usage，不计</em></span>
+          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em></span>
         </div>
       </div>
       <div class="ask-report ask-report-empty" v-else>
-        AI 花销 · 按自然月：ai-trace 里还没有任何调用记录（一次都没走过 AI 通道）。
+        AI 花销 · 按自然月：还没有任何调用记录（一次都没走过 AI 通道）。
       </div>
     </main>
 
@@ -933,9 +940,9 @@
             </div>
             <template v-else>
               <div class="ms-note" v-if="pvCurrent.statusNow || pvCurrent.roadmap || pvCurrent.note">
-                <div class="msn-row" v-if="pvCurrent.statusNow"><span class="msn-k">状态</span>{{ pvCurrent.statusNow }}</div>
-                <div class="msn-row" v-if="pvCurrent.roadmap"><span class="msn-k">路线图</span>{{ pvCurrent.roadmap }}</div>
-                <div class="msn-row" v-if="pvCurrent.note"><span class="msn-k">说明</span>{{ pvCurrent.note }}</div>
+                <div class="msn-row" v-if="pvCurrent.statusNow"><span class="msn-k">状态</span><span class="msn-v">{{ pvCurrent.statusNow }}</span></div>
+                <div class="msn-row" v-if="pvCurrent.roadmap"><span class="msn-k">路线图</span><span class="msn-v">{{ pvCurrent.roadmap }}</span></div>
+                <div class="msn-row" v-if="pvCurrent.note"><span class="msn-k">说明</span><span class="msn-v">{{ pvCurrent.note }}</span></div>
               </div>
               <button class="ghost ms-editbtn" @click.stop="openNoteEdit(pvCurrent)">✎ 改状态 / 路线图 / 说明</button>
             </template>
@@ -6585,6 +6592,18 @@ async function loadAskPresets(): Promise<void> {
   }
 }
 
+/** 常用问题按 group 归并 —— 九个按钮排一行会挤成两行、还孤零零剩一个（2026-10-22 截图目检） */
+const askGroups = computed(() => {
+  const out: Array<{ name: string; items: Array<{ label: string; q: string; hint?: string }> }> = []
+  for (const p of askPresets.value) {
+    const name = String((p as any).group || '常用')
+    let g = out.find((x) => x.name === name)
+    if (!g) { g = { name, items: [] }; out.push(g) }
+    g.items.push(p)
+  }
+  return out
+})
+
 /** 月度报表（03 任务三）：按自然月，最近 3 个月。读不到就空 —— 界面会直说"一次都没走过 AI"。 */
 const usageMonths = ref<any[]>([])
 async function loadUsageMonths(): Promise<void> {
@@ -6730,7 +6749,8 @@ async function runBatch(): Promise<void> {
 
 const views = [
   { id: 'active', label: '看板' },
-  { id: 'ask', label: '问' },
+  // 「问」一个字没人看得懂（2026-10-22 暮雨原话）—— 两个字的「问答」才一眼明白这页是干什么的
+  { id: 'ask', label: '问答' },
   { id: 'todos', label: '待办' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
@@ -13402,6 +13422,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   flex: 1; display: flex; gap: 12px; padding: 14px;
   align-items: flex-start; overflow-x: auto; min-height: 60vh;
 }
+/* ⚠ 2026-10-22 真 bug：`#board` 是 **flex 横排**（看板/项目靠它并排几栏），
+   而「问答」页是一个纵向的单栏阅读面 —— 不显式改回 block，页里的
+   「输入框区 / 答案 / 月报表」会被当成三列横着排，整页挤在左边 1/3、
+   答案的「项目名 | 值」窄到竖着断行。这类"结构对但排版全塌"只有真截图才看得出来。 */
+/* 用 block 而不是 flex：`#board` 原本是 flex 横排 + `align-items: flex-start`，
+   改成 column 后 align-items 仍会把每个子块按**内容宽度**排、左边参差不齐
+   （2026-10-22 截图目检抓到的：标题/输入框/答案卡左边缘差 70px）。
+   block 下子块天然 100% 宽、左边缘一定齐 —— 这一页是单栏阅读面，不需要 flex。 */
+#board.ask-view { display: block; overflow-x: hidden; }
 #board.pv { flex-direction: column; overflow-x: hidden; align-items: stretch; }
 
 /* 列 = 淡灰底，卡片 = 纯白（2026-09-28 密度方案 B / 对比稿①②④）。
@@ -13956,14 +13985,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 @keyframes numIn { from { opacity: 0; transform: translateY(5px) } }
 .ms-nothing { color: var(--muted); }
 /* 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段一句话定位 */
-.ms-note { margin-top: 9px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--tint-2); font-size: 11.5px; color: var(--ink); line-height: 1.65; }
+/* 三字段块：左边一条 accent 竖线当"引用块" —— 比四面细边框更容易看出
+   "这三行是一组手写说明"，也不会和下面「自动 · 只读」那块抢眼。 */
+.ms-note { margin-top: 9px; padding: 9px 12px; border: 0; border-left: 3px solid var(--accent-soft);
+  border-radius: 4px 8px 8px 4px; background: var(--tint-2);
+  font-size: 11.5px; color: var(--ink); line-height: 1.7; }
 /* 项目三字段（2026-10-22 · 06 单）：状态 / 路线图 / 说明 三行并列 ——
    标签刻意轻（灰、小一号），值才是要读的东西。 */
-.msn-row { margin-top: 3px; }
+/* 两列对齐：三个标签字数不同（状态/路线图/说明），不固定列宽的话每行的值起点都不一样，
+   读起来像一段流水账（2026-10-22 截图目检）。 */
+.msn-row { display: grid; grid-template-columns: 4.2em 1fr; gap: 4px 10px; margin-top: 5px; }
 .msn-row:first-child { margin-top: 0; }
-.msn-k { display: inline-block; min-width: 3.6em; margin-right: 6px; color: var(--muted); font-size: 10.5px; letter-spacing: .02em; }
-.ms-editbtn { display: block; width: 100%; margin-top: 6px; height: 26px; font-size: 11.5px; }
+.msn-k { color: var(--muted); font-size: 10.5px; line-height: 1.7; letter-spacing: .02em; }
+.msn-v { color: var(--ink); overflow-wrap: anywhere; }
+/* 编辑按钮：靠左、按内容宽 —— 拉满整行时它会被容器推成一条横贯全宽的空条，很丑 */
+/* margin-left:0 / margin-right:auto 两手一起给：父容器可能是 flex（那样 align-self 才管用）、
+   也可能是普通块（那样只有 text-align/margin 管用）—— 两种都让它靠左。 */
+.ms-editbtn { display: inline-flex; align-self: flex-start; margin: 10px auto 0 0; height: 26px;
+  padding: 0 10px; font-size: 11.5px; text-align: left; }
 /* 就地编辑块：一个入口一个动作，不加弹窗（06 单红线） */
 .ms-fields { margin-top: 9px; padding: 9px 10px; border: 1px solid var(--accent); border-radius: 8px; background: var(--tint-2); }
 .msf-h { font-size: 11.5px; color: var(--muted); margin-bottom: 7px; }
@@ -13977,56 +14016,68 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .msf-t { resize: vertical; line-height: 1.6; }
 .msf-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .msf-tip { font-size: 10.5px; color: var(--muted); }
-/* ── 随问（2026-10-22 · 施工单包 03 任务一）─────────────────────────────
-   一个输入框 + 常用问题点选 + 结构化答案；AI 只在那一个按钮后面。 */
-.ask-view { max-width: 880px; margin: 0 auto; padding: 18px 20px 40px; }
-.ask-box { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 12px; }
+/* ── 问答（2026-10-22 · 03 控制台）──────────────────────────────────────
+   单栏阅读面，不铺满：内容行最大 780px，读起来才不散。
+   输入框是这一页的主角，所以它最大（44px / 14px 字）；按钮和 chip 都跟着它长。
+   ⚠ 这一页必须覆盖 #board 的 flex 横排（见 #board.ask-view 那条注释）。 */
+.ask-view { max-width: 780px; margin: 0 auto; padding: 22px 4px 48px; }
+.ask-head { margin-bottom: 14px; }
+.ask-lead { font-size: 20px; font-weight: 650; color: var(--ink); letter-spacing: .01em; }
+.ask-lead-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.ask-box { margin-top: 14px; }
 .ask-row { display: flex; gap: 8px; }
 /* preflight 关着 → 原生控件必须显式给字体（check-ui-base 判据） */
-.ask-in { flex: 1 1 auto; min-width: 0; height: 34px; box-sizing: border-box; padding: 0 10px;
-  border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13px;
-  color: var(--ink); background: #fff; }
-.ask-in:disabled { opacity: .6; }
-.ask-go { flex: none; height: 34px; padding: 0 16px; }
-.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.ask-chip { height: 26px; padding: 0 10px; font-size: 11.5px; white-space: nowrap; }
-.ask-hint { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.6; }
-.ask-ans { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 14px; }
-.ask-title { font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.5; }
-.ask-line { margin-top: 6px; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
-.ask-rows { margin-top: 10px; border-top: 1px solid var(--border); }
-.ask-item { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--tint-3); font-size: 12px; }
-.ask-k { flex: 0 0 150px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
-.ask-v { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
-.ask-sub { margin-left: 8px; font-style: normal; font-size: 10.5px; color: var(--muted); }
-.ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 11px; }
-.ask-src { flex: 1 1 auto; font-size: 10.5px; color: var(--muted); }
-/* 「交给 AI 答」与「出下一批」同形（都是花 token 的动作），只靠 class 区分职责 */
-.ask-llm-btn, .ask-batch-btn { flex: none; height: 28px; font-size: 11.5px; }
-.ask-llm-ans { margin-top: 11px; padding: 10px; border-radius: 8px; background: var(--tint-2); border: 1px solid var(--border); }
-.ala-h { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.ask-in { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 10px; font: inherit; font-size: 14px;
+  color: var(--ink); background: #fff; box-shadow: var(--shadow); }
+.ask-in::placeholder { color: var(--muted); }
+.ask-go { flex: none; height: 44px; padding: 0 22px; font-size: 13.5px; border-radius: 10px; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+/* 分组：每组一行，组名居左占固定宽度 —— 这样每行都整，不会出现"第二行只剩一个" */
+.ask-groups { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
+.ask-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ask-group-k { flex: 0 0 auto; width: 4.6em; font-size: 11px; color: var(--muted); }
+.ask-chip { height: 28px; padding: 0 11px; font-size: 12px; white-space: nowrap; }
+.ask-hint { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+/* 答案卡：标题一句话说清，明细两列对齐（键窄、值宽，值下面还能挂来源小字） */
+.ask-ans { margin-top: 18px; margin-bottom: 26px; border: 1px solid var(--border); border-radius: 12px; background: #fff;
+  padding: 16px 18px; box-shadow: var(--shadow); }
+.ask-title { font-size: 16px; font-weight: 650; color: var(--ink); line-height: 1.5; }
+.ask-line { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.75; }
+.ask-rows { margin-top: 12px; border-top: 1px solid var(--border); }
+.ask-item { display: grid; grid-template-columns: 150px 1fr; gap: 4px 14px;
+  padding: 9px 0; border-bottom: 1px solid var(--tint-3); font-size: 13px; align-items: start; }
+.ask-item:last-child { border-bottom: 0; }
+.ask-k { color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
+.ask-v { color: var(--ink); line-height: 1.7; overflow-wrap: anywhere; }
+.ask-sub { display: block; margin-top: 2px; font-style: normal; font-size: 11px; color: var(--muted); }
+.ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.ask-src { flex: 1 1 auto; font-size: 11px; color: var(--muted); }
+/* 「让 AI 答」与「出下一批」同形（都是会计费的动作），只靠 class 区分职责 */
+.ask-llm-btn, .ask-batch-btn { flex: none; height: 30px; padding: 0 12px; font-size: 12px; }
+.ask-llm-ans { margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--tint-2); border: 1px solid var(--border); }
+.ala-h { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
 .ala-meta { margin-left: 8px; font-style: normal; color: var(--muted); }
-.ala-t { font-size: 12.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; }
-.ask-llm-err { margin-top: 10px; font-size: 11.5px; color: var(--danger); }
-/* 随纠（2026-10-22 · 03 任务二）—— 从答案直接改，不填表单 */
-.ask-correct { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.ask-correct-open { height: 28px; font-size: 11.5px; }
+.ala-t { font-size: 13px; color: var(--ink); line-height: 1.75; white-space: pre-wrap; }
+.ask-llm-err { margin-top: 10px; font-size: 12px; color: var(--danger); }
+/* 一句话改（随纠）：从答案直接往下改，所以贴在答案卡里，隔一条虚线 */
+.ask-correct { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.ask-correct-open { height: 30px; padding: 0 12px; font-size: 12px; }
 .ask-correct-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.ask-correct-hint { margin-top: 7px; font-size: 10.5px; color: var(--muted); line-height: 1.6; }
-.ask-correct-err { margin-top: 7px; font-size: 11.5px; color: var(--danger); }
-.ask-empty { margin-top: 16px; font-size: 12px; color: var(--muted); }
-/* 月度花销报表（2026-10-22 · 03 任务三）—— 常驻在「问」页底部 */
-.ask-report { margin-top: 18px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 12px 14px; }
+.ask-correct-hint { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.ask-correct-err { margin-top: 8px; font-size: 12px; color: var(--danger); }
+.ask-empty { margin-top: 18px; font-size: 13px; color: var(--muted); }
+/* 月报表：压成页脚的一条，不跟主内容抢眼（它是"随时可查"，不是每次都要读） */
+.ask-report { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--border); }
 .ask-report-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px;
-  font-weight: 600; color: var(--ink); }
-.ask-report-src { font-style: normal; font-weight: 400; font-size: 10.5px; color: var(--muted); }
-.ask-report-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin-top: 6px;
-  padding-top: 6px; border-top: 1px solid var(--tint-3); font-size: 11.5px; }
-.arr-m { flex: 0 0 76px; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+  font-weight: 600; color: var(--muted); }
+.ask-report-src { font-style: normal; font-weight: 400; font-size: 11px; color: var(--muted); }
+.ask-report-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-top: 5px; font-size: 12px; }
+.arr-m { flex: 0 0 68px; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
 .arr-c { flex: 0 0 auto; color: var(--ink); }
-.arr-t { flex: 1 1 auto; color: var(--ink); font-variant-numeric: tabular-nums; }
-.arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 10.5px; color: var(--muted); }
-.ask-report-empty { font-size: 11.5px; color: var(--muted); }
+.arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 11px; color: var(--muted); }
+.ask-report-empty { font-size: 12px; color: var(--muted); }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);

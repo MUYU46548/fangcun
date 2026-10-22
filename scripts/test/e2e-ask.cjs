@@ -194,9 +194,10 @@ check('  已完成的卡不进未完成统计（a-done 不该出现在按状态�
 const aCost = ask.answer('本月烧了多少钱')
 check('★ token 总数 = ai-trace 真身合计', aCost.title.indexOf(EXPECT_TOKENS.toLocaleString()) >= 0, `${aCost.title} / 期望 ${EXPECT_TOKENS}`)
 check('  失败调用单独计数（不混进"成功"里）', aCost.title.indexOf('失败 1') >= 0, aCost.title)
-check('★ 没报 usage 的那次不折算成 token（只算 2 次有 token 的）',
-  aCost.lines.some((l) => l.indexOf('2 次供应商报了 usage') >= 0), JSON.stringify(aCost.lines))
-check('  来源写清了（ai-trace）', aCost.source.indexOf('ai-trace') >= 0, aCost.source)
+check('★ 没给用量数字的那次不折算成 token（只算 2 次有数字的）',
+  aCost.lines.some((l) => l.indexOf('2 次供应商给了用量') >= 0), JSON.stringify(aCost.lines))
+check('  来源写清了（人话：本机 AI 调用留痕，不是 ai-trace 这种行话）',
+  aCost.source.indexOf('调用留痕') >= 0, aCost.source)
 
 console.log('\n---- 3. 各意图的内容正确性 ----')
 const aProg = ask.answer('方寸演示到哪了')

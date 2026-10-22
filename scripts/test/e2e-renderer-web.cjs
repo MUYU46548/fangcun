@@ -233,6 +233,9 @@ function main() {
       ['项目', '项目墙', 'project-tiles'],
       ['项目', '概览卡', 'project-overview'],
       ['项目', '主从', 'project-master'],
+      // 2026-10-22 · 03 控制台：随问页的空态与"问出一屏答案"态各留一张（目检用）
+      ['问答', '', 'ask'],
+      ['问答', '', 'ask-answer', 'askans'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
       ['日志', '', 'logs'],
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
@@ -343,6 +346,11 @@ function main() {
   if (decF) decF.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
   if (decF) decF.click()
   await sleep(500)` : ''}
+  ${extra === 'askans' ? `
+  // 随问（2026-10-22 · 03 任务一）：点一个常用问题，把"问出来的答案"拍下来
+  const chip = all('.ask-view .ask-chip').find((x) => (x.textContent || '').trim() === '欠着什么')
+  if (chip) chip.click()
+  await sleep(1200)` : ''}
   ${extra === 'ctxmenu' ? `
   // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：在列视图第一张卡上派发 contextmenu，
   // 把 reka-ui ContextMenu 的成品长相拍下来（位置由 floating-ui 给，不是 left/top 内联坐标）

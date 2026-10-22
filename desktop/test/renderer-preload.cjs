@@ -940,16 +940,18 @@ contextBridge.exposeInMainWorld('tegula', {
   askPresets: () => {
     rec('askPresets')
     return {
+      // ⚠ 与主进程 services/ask.ASK_PRESETS 逐字一致（含 group / hint）——
+      //   假 preload 少一栏，界面就会退化成"一个『常用』组里挤九个按钮"（2026-10-22 真踩过）。
       presets: [
-        { label: '都在哪一步', q: '各项目都到哪了' },
-        { label: '下一步干什么', q: '下一步该做什么' },
-        { label: '在等谁', q: '谁在等谁' },
-        { label: '欠着什么', q: '欠着什么' },
-        { label: '卡在哪', q: '卡在哪' },
-        { label: '逾期与快到期的', q: '哪些逾期了' },
-        { label: '哪些项目停着', q: '哪些项目停着' },
-        { label: '还有多少没做完', q: '还有多少没做完' },
-        { label: '本月烧了多少钱', q: '本月烧了多少钱' },
+        { label: '都在哪一步', q: '各项目都到哪了', group: '看进展', hint: '一行一个项目：现在做到哪、下一步是什么' },
+        { label: '下一步干什么', q: '下一步该做什么', group: '看进展', hint: '待办里优先级最高的那张卡' },
+        { label: '在等谁', q: '谁在等谁', group: '看进展', hint: '哪个项目卡在等人的环节（验收人 / 执行人）' },
+        { label: '欠着什么', q: '欠着什么', group: '看进展', hint: '你自己写下的欠账清单（项目登记表里那栏）' },
+        { label: '卡在哪', q: '卡在哪', group: '看问题', hint: '哪张卡被别的卡挡着、被谁挡' },
+        { label: '哪些逾期了', q: '哪些逾期了', group: '看问题', hint: '逾期几天，外加三天内到期的' },
+        { label: '哪些项目停着', q: '哪些项目停着', group: '看问题', hint: '30 天没动静的项目（休眠 / 停滞）' },
+        { label: '还有多少没做完', q: '还有多少没做完', group: '看账', hint: '未完成的卡有多少，按状态分开' },
+        { label: '本月烧了多少钱', q: '本月烧了多少钱', group: '看账', hint: '按自然月算的 AI 调用与 token' },
       ],
       projects: [{ id: 'demo', name: '演示项目' }, { id: 'demo2', name: '第二个项目' }],
     }
@@ -959,10 +961,10 @@ contextBridge.exposeInMainWorld('tegula', {
     const s = String(q || '')
     if (s.indexOf('欠着') >= 0) {
       return {
-        ok: true, kind: 'owe', title: '1 个项目在 registry 里写了「欠着」',
-        lines: ['这条读的是 registry 的「说明」字段 —— 它是给人看的欠账清单，方寸不替你裁。'],
-        rows: [{ k: '演示项目', v: '欠着：①夹具欠账 ②第二件', sub: 'registry 手写' }],
-        needsLlm: false, source: 'registry.yaml 说明字段（手写值）',
+        ok: true, kind: 'owe', title: '1 个项目写了欠账',
+        lines: ['这条读的是你手写的「说明」—— 方寸不替你裁，也不替你补。'],
+        rows: [{ k: '演示项目', v: '欠着：①夹具欠账 ②第二件', sub: '你手写的' }],
+        needsLlm: false, source: '项目登记表里你手写的「说明」',
       }
     }
     if (s.indexOf('到哪') >= 0) {

@@ -4192,6 +4192,12 @@
       check('  三行的值来自 registry（不是占位符）',
         noteTxt().indexOf('活跃开发中（演示夹具）') >= 0 && noteTxt().indexOf('跑通第一单') >= 0,
         noteTxt().slice(0, 60))
+      check('★★ 三字段两列对齐：三个值的左边缘在同一条竖线上（标签列宽固定，不是流水账）', (() => {
+        const vs = $$('#board.pv .ms-detail .msn-v')
+        if (vs.length < 2) return false
+        const lefts = vs.map((v) => v.getBoundingClientRect().left)
+        return lefts.every((l) => Math.abs(l - lefts[0]) < 1)
+      })(), JSON.stringify($$('#board.pv .ms-detail .msn-v').map((v) => Math.round(v.getBoundingClientRect().left))))
       check('★ 编辑入口是一个按钮（06 单：不加设置页、不加确认弹窗链）',
         !!$('#board.pv .ms-detail .ms-editbtn') && !$('#board.pv .ms-detail .ms-fields'))
       check('★ 点「✎ 改状态 / 路线图 / 说明」→ 就地展开编辑块（不跳页、不弹窗）', await (async () => {
@@ -4336,12 +4342,26 @@
     //      ⑤ needsLlm=false 时**不给**「交给 AI」按钮（结构化能答就别把成本口子敞着）；
     //      ⑥ needsLlm=true 才有，且**点了才**真调模型、花销当场印出来。
     {
-      const askTab = $$('#views .vbtn').find((b) => (b.textContent || '').trim() === '问')
-      check('★ 页签行里有「问」（控制台的查询面有入口）', !!askTab)
+      const askTab = $$('#views .vbtn').find((b) => (b.textContent || '').trim() === '问答')
+      check('★ 页签行里有「问答」（两个字的说法才看得懂；一个「问」字会被当成"问号/帮助"）', !!askTab)
       if (askTab) {
         askTab.click()
-        check('★ 点进「问」→ 查询面渲染（输入框 + 常用问题）',
+        check('★ 点进「问答」→ 查询面渲染（输入框 + 常用问题）',
           await waitFor(() => !!$('#board.ask-view .ask-in') && $$('#board.ask-view .ask-chip').length > 0, 4000, 'ask view'))
+        check('★★ 问答页是**纵向单栏**（几何门禁：标题/输入框区/月报表左边缘对齐、上下依次排）', (() => {
+          // 2026-10-22 目检踩过两次：#board 是 flex 横排，不显式改成 block 会把
+          // 「输入框区 / 答案 / 月报表」排成三列、挤在左边 1/3；改成 column 又会因为
+          // 继承 align-items:flex-start 让各块按内容宽各排各的。只有 block 是确定的。
+          const h = $('#board.ask-view .ask-head')
+          const b = $('#board.ask-view .ask-box')
+          const r = $('#board.ask-view .ask-report')
+          if (!h || !b || !r) return false
+          const rh = h.getBoundingClientRect(), rb = b.getBoundingClientRect(), rr = r.getBoundingClientRect()
+          return Math.abs(rh.left - rb.left) < 1 && Math.abs(rb.left - rr.left) < 1
+            && rb.top > rh.top && rr.top > rb.top
+        })(), '取的 .ask-head / .ask-box / .ask-report 三块')
+        check('★ 常用问题按组排（不是九个按钮挤一行、最后孤零零剩一个）',
+          $$('#board.ask-view .ask-group').length >= 2, String($$('#board.ask-view .ask-group').length))
         check('  进视图就去主进程取常用问题（界面不自己写文案）',
           window.__fcTest.callCount('askPresets') >= 1, String(window.__fcTest.callCount('askPresets')))
         check('★ 常用问题够用（≥8 个快捷点选，03 单验收线）',
@@ -4363,7 +4383,7 @@
               const a = $('#board.ask-view .ask-ans')
               if (!a) return false
               return !!a.querySelector('.ask-title') && a.querySelectorAll('.ask-item').length >= 1
-                && ((a.querySelector('.ask-src') || {}).textContent || '').indexOf('registry') >= 0
+                && ((a.querySelector('.ask-src') || {}).textContent || '').indexOf('项目登记表') >= 0
             }, 4000, 'answer'),
             (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
           check('★★ needsLlm=false 的答案**不给**「交给 AI」按钮（能结构化答就别敞着成本口子）',
@@ -4463,7 +4483,7 @@
           return waitFor(() => {
             const btn = $$('#board.ask-view .ask-foot button')
               .find((b) => (b.textContent || '').indexOf('出下一批') >= 0)
-            return !!btn && (btn.textContent || '').indexOf('token') >= 0
+            return !!btn && (btn.textContent || '').indexOf('会计费') >= 0
           }, 4000, '出单入口')
         })())
         check('★★ 点出单 → 真调 llmPlanBatch，项目 id 传对；toast 说清出了几张 + 花销', await (async () => {
@@ -4507,8 +4527,8 @@
         check('★ 按月列（两个月两行，token 带千分位）',
           $$('#board.ask-view .ask-report-row').length === 2
           && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
-        check('★ 没报 usage 的那次明说「不计」（不拿字符数折算 token）',
-          rp.indexOf('没报 usage') >= 0, rp.slice(0, 100))
+        check('★ 没给用量数字的那次明说「只计数」（不拿字符数折算 token）',
+          rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
       }
     }
 
