@@ -568,6 +568,10 @@ export const FIELD_MAP: Record<string, string> = {
   '方案': 'plan',
   '结果记录': 'result_log',
   '派活时间': 'dispatch_time',
+  // 认领（2026-10-22）：Python 侧 MANAGED_KEYS 同步加入并在 render_task 里显式输出 ——
+  // 受管键漏输出 = Python 一写回就把桌面写的认领静默抹掉（这个坑「开始」字段踩过）。
+  '认领人': 'claimed_by',
+  '认领时间': 'claimed_at',
   'agent': 'agent',
   '验收清单': 'review_checklist',
   '预算': 'budget',
@@ -600,7 +604,14 @@ const FM_ORDER = [
   'id', 'title', 'project', 'status', 'priority', 'assignee', 'tags',
   'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
   'source', 'review', 'memo', 'resources', 'plan', 'result_log', 'architecture',
-  'dispatch_time', 'agent', 'review_checklist', 'budget', 'cron', 'context',
+  // 认领（2026-10-22 · 学信箱模式的 claim/ack）：与 dispatch_time 同属「机器写的时刻」，
+  // 刻意**不进 TASK_FIELD_SPECS**（不给界面手改）—— 它们是机制字段，手改一个错时间戳
+  // 会让租约判定错乱。要看的话界面读得到（fm 里就有），只是不给编辑框。
+  // ⚠ 实测（2026-10-22）：这两个键**只是不在 FM_ORDER 里并不会丢** —— renderTask 后面
+  //   还有一段"剩余未知字段原样输出"会兜住它们。列在这里是为了**输出顺序**（跟
+  //   dispatch_time 挨着更易读）。真正决定"会不会丢"的是别名表里的中文键映射：
+  //   少了 `'认领人': 'claimed_by'`，写回去会变成英文键，Python 侧就读不到。
+  'dispatch_time', 'claimed_by', 'claimed_at', 'agent', 'review_checklist', 'budget', 'cron', 'context',
   'type', 'plan_status', 'attribution',
 ]
 

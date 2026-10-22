@@ -568,7 +568,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因", "架构"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "认领人", "认领时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因", "架构"}
 
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
@@ -786,6 +786,16 @@ def render_task(d):
     pd = str(d.get("派活时间") or "").strip()
     if pd:
         lines.append(f"派活时间: {yaml_scalar(pd)}")
+    # 认领（2026-10-22 · 学信箱模式的 claim/ack）：谁取走了、什么时候取的。
+    # ⚠ 受管键必须在这里显式输出，否则 Python 任何一次写回都会把桌面/CLI 写的认领
+    #   静默抹掉 —— 然后那张卡就"又变成没人领"，下一个 agent 再干一遍。
+    #   空则不输出：旧卡读进来是空串，写回不会凭空多两行。
+    cb = str(d.get("认领人") or "").strip()
+    if cb:
+        lines.append(f"认领人: {yaml_scalar(cb)}")
+    ca = str(d.get("认领时间") or "").strip()
+    if ca:
+        lines.append(f"认领时间: {yaml_scalar(ca)}")
     # Plan-specific: type and plan fields
     tp = d.get("type", "")
     if tp:
@@ -1157,7 +1167,11 @@ def api_edit(id, fields):
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
-    for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "附言", "来源", "指派", "验收"]:
+    # ⚠ 这是一张**硬编码白名单**，漏一个键就是静默丢弃（api_edit 返回 ok 但字段没写）。
+    #   2026-10-22 加认领时踩过一次：claim_task 写"成功"，重读却读不到 —— 因为
+    #   认领人/认领时间不在这张表里。**加受管键必须同步这里**，否则 CLI 报成功、盘上没变。
+    for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "附言", "来源", "指派", "验收",
+              "派活时间", "认领人", "认领时间", "归因"]:
         if k in fields and fields[k] is not None:
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):

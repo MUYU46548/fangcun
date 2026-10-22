@@ -9,8 +9,12 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import tegula  # noqa: E402
+_SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_SCRIPTS))
+sys.path.insert(0, _SCRIPTS)
+# 用活模块代理（2026-10-22）：`import tegula` 拿到的是仓库根那个 19 行 wrapper，
+# 上面没有 TASK_DIR / QServer —— 这脚本一直因此跑不起来（一进 try 就 AttributeError）。
+from _tegula_live import teg as tegula  # noqa: E402
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8791
 OUT = os.path.join(os.environ.get("TEMP", "."), "tegula_smoke_result.json")
@@ -19,7 +23,7 @@ res = {"port": PORT, "started": time.strftime("%H:%M:%S"), "checks": {}}
 _t0 = time.time()
 proc = None
 try:
-    tegula.TASK_DIR = tegula.TASK_DIR  # 用真实库
+    # 用真实库（代理下 TASK_DIR 读的就是 core/cli 的真实值，不需要再赋一次）
     proc = subprocess.Popen(
         [sys.executable.replace("pythonw.exe", "python.exe"),
          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

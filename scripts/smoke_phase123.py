@@ -4,9 +4,12 @@
 import importlib.util, json, os, shutil, sys, tempfile, threading, time, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-spec = importlib.util.spec_from_file_location("tegula", os.path.join(ROOT, "tegula.py"))
-teg = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(teg)
+_SCRIPTS = os.path.join(ROOT, "scripts")
+sys.path.insert(0, ROOT)
+sys.path.insert(0, _SCRIPTS)
+# 用活模块代理（2026-10-22）：原来 importlib 加载的是仓库根那个 19 行 wrapper，
+# 上面没有 TASK_DIR / QServer / _STATUS_CACHE —— 这脚本长期是坏的（一跑就 AttributeError）。
+from _tegula_live import teg  # noqa: E402
 
 tmp = tempfile.mkdtemp(prefix="tegula_smoke_")
 teg.TASK_DIR = os.path.join(tmp, "task-data")
@@ -156,9 +159,13 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = [t["name"] for t in resp["result"]["tools"]]
-    check("MCP tools/list 返回 5 个工具", len(names) == 5, str(names))
-    check("MCP 工具名齐全", set(names) == {"list_tasks", "get_task", "get_project_status",
-                                          "list_projects", "search_tasks"}, str(names))
+    # 2026-10-22 修：这两条原来写死「恰好 5 个」+ 精确集合 —— MCP 工具后来长到 21 个，
+    # 断言就长期红了（而脚本本身也长期跑不起来，所以没人发现）。**夹具写死数量是定时炸弹**：
+    # 现在只钉"五个只读核心工具必须在"，数量不写死，但把实际值打出来（不静默）。
+    check("MCP tools/list 返回工具清单", len(names) >= 5, "实际 %d 个" % len(names))
+    check("MCP 五个只读核心工具都在（其余是后来加的能力，不在这一条里钉死）",
+          {"list_tasks", "get_task", "get_project_status",
+           "list_projects", "search_tasks"} <= set(names), str(names))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                            "params": {"name": "list_tasks", "arguments": {}}})
     body = json.loads(resp["result"]["content"][0]["text"])

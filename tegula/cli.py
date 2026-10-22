@@ -392,6 +392,22 @@ def _done_precheck(d, args):
         names = "、".join(str(b) for b in blk[:3])
         warnings.append(f"任务声明了 {len(blk)} 个依赖：{names}（确认它们已就绪）")
 
+    # 认领一致性（2026-10-22）：A 领的活别被 B 交回 —— 那是"串了"，不是"做完了"。
+    # 只传 --by 才校验：不传的老用法一律放行（零破坏），但会给一句提醒。
+    claimer = str(d.get("认领人") or "").strip()
+    by = str(getattr(args, "by", "") or "").strip()
+    if claimer:
+        if by and by != claimer:
+            errors.append(
+                f"这张卡是「{claimer}」认领的，你（{by}）在交回"
+                f" —— 认领人不一致，请让认领它的那个 agent 交回；确实是交接的话加 --force"
+            )
+        elif not by:
+            warnings.append(
+                f"这张卡由「{claimer}」认领 —— 交回时建议带 --by {claimer}，"
+                f"否则无法判断是不是本人交回"
+            )
+
     return errors, warnings
 
 
@@ -514,13 +530,128 @@ def _task_projects(t):
     return [str(x) for x in p if str(x).strip()]
 
 
-def _pick_next(active, project=None):
-    """挑「下一个该做的」：待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。"""
+# ── 认领（claim）与租约（2026-10-22 · 学 DSH 信箱模式的 claim/ack）──────────
+# 背景：方寸此前只有「派活」和「交回」两个时刻，中间是黑的 —— 谁取走了没有记录。
+# 两个 agent（Hermes + DSH）同时跑，各自 `next` 会拿到同一张卡各干一遍，
+# 而界面上看起来一切正常。这里补上"谁取走了"这件事。
+#
+# ⚠ 为什么必须有租约（TTL）：agent 崩了不会来交回。认领若不设期限，那张卡就
+#   **永远锁死** —— 谁 next 都跳过它，而它又没人做。锁死比重复干更糟：
+#   重复干至少有人把活做了。
+CLAIM_TTL_SECONDS = 2 * 3600
+
+
+def _claim_lock_path():
+    """锁文件路径（每次按 TASK_DIR 现算 —— 测试会把它指到临时目录）。"""
+    return os.path.join(TASK_DIR, ".claim.lock")
+
+
+def _claim_lock(timeout=3.0):
+    """拿认领锁：O_CREAT|O_EXCL 是跨进程原子的（单机够用）。
+
+    刻意**不上分布式锁 / sqlite / redis**：方寸是单机单进程 + 一个 CLI，
+    DSH 那套自己都明说"不提供跨进程共识、不是分布式集群"。用文件就够。
+    """
+    lock = _claim_lock_path()
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            return True
+        except FileExistsError:
+            # 30 秒还没放掉的锁当垃圾（进程崩了留下的）—— 不清就会把所有人挡死
+            try:
+                if time.time() - os.path.getmtime(lock) > 30:
+                    os.remove(lock)
+                    continue
+            except OSError:
+                pass
+            time.sleep(0.05)
+    return False
+
+
+def _claim_unlock():
+    try:
+        os.remove(_claim_lock_path())
+    except OSError:
+        pass
+
+
+def _claim_expired(t, now=None):
+    """这张卡的认领是否已过期（过期 = 可以重新被领）。没认领 = True。"""
+    if not str(t.get("认领人") or "").strip():
+        return True
+    try:
+        at = float(t.get("认领时间") or 0)
+    except (TypeError, ValueError):
+        return True          # 时间戳坏了 → 当没认领（宁可重复干，也不要锁死）
+    if at <= 0:
+        return True
+    return (time.time() if now is None else now) - at > CLAIM_TTL_SECONDS
+
+
+def _claim_left(t, now=None):
+    """租约还剩多少秒（给提示语用）。没认领/已过期 → 0。"""
+    if _claim_expired(t, now):
+        return 0
+    try:
+        at = float(t.get("认领时间") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, int(CLAIM_TTL_SECONDS - ((time.time() if now is None else now) - at)))
+
+
+def claim_task(tid, who):
+    """把一张卡**原子地**认领下来。返回 (ok, msg)。
+
+    ⚠ 为什么必须原子：两个 agent 同时 next，如果只是"各自选完写自己名字"，
+      后写的会覆盖前写的 —— 两个都以为自己领到了，然后干同一张活。
+      "检查 + 占用"必须是不可分的一步，所以这里有锁、拿锁后**重读**再判。
+    """
+    who = str(who or "").strip()
+    if not who:
+        return False, "认领要说明是谁（--claim hermes）"
+    fn = os.path.join(TASK_DIR, str(tid) + ".md")
+    if not os.path.exists(fn):
+        return False, f"任务不存在: {tid}"
+    if not _claim_lock():
+        return False, "认领锁被别的进程占着（3 秒内没拿到），稍后重试"
+    try:
+        d = parse_task(fn)          # ← 拿锁后重读：别用加锁前看到的那份
+        if d is None:
+            return False, "解析失败"
+        if str(d.get("状态") or "").strip() in ("完成", "驳回"):
+            return False, f"任务已是终态「{d.get('状态')}」，不用认领"
+        if not _claim_expired(d):
+            return False, (f"这张卡已被「{d.get('认领人')}」认领（还剩 "
+                           f"{_claim_left(d) // 60} 分钟租约），不重复领")
+        ok, msg = api_edit(str(tid), {"认领人": who, "认领时间": str(int(time.time()))})
+        if not ok:
+            return False, f"写入认领失败：{msg}"
+        return True, "ok"
+    finally:
+        _claim_unlock()
+
+
+def _pick_next(active, project=None, include_claimed=False):
+    """挑「下一个该做的」：待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。
+
+    `include_claimed=False` 时**跳过别人正领着且租约未到期的卡** —— 这一句就是
+    「两个 agent 不会拿到同一张」的落点。过期的不跳过：那是崩掉的 agent 留下的，
+    得让下一个补上（锁死比重复干更糟）。
+    """
     cands = []
+    now = time.time()
     for t in active:
         if str(t.get("状态") or "").strip() not in ("待办", "进行中"):
             continue
         if project and project not in _task_projects(t):
+            continue
+        if not include_claimed and not _claim_expired(t, now):
             continue
         cands.append(t)
 
@@ -550,11 +681,37 @@ def cmd_next(args):
 
     picked = _pick_next(load_tasks(None, "active"), project)
 
+    # ── 认领（--claim <名字>）：把「选中」和「占住」做成一个动作 ──────────
+    # 为什么不是在输出之后再写：两个 agent 同时跑，各自"选完再各写自己名字"，
+    # 后写的会覆盖前写的 —— 两个都以为自己领到了，然后干同一张活。必须原子。
+    claim_who = str(getattr(args, "claim", "") or "").strip()
+    claim_msg = ""
+    if claim_who:
+        got = None
+        for cand in picked:
+            ok, msg = claim_task(cand.get("id") or "", claim_who)
+            if ok:
+                got = cand
+                break
+            claim_msg = msg
+        if got is None:
+            picked = []
+            claim_msg = claim_msg or "候选都被别人领走了"
+        else:
+            # 认领成功后**重读**：要把刚写进去的认领人/认领时间读回来给 agent 看
+            _fn = os.path.join(TASK_DIR, str(got.get("id")) + ".md")
+            got = parse_task(_fn) or got
+            picked = [got] + [x for x in picked if (x.get("id") or "") != (got.get("id") or "")]
+
     if fmt == "json":
         head = picked[0] if picked else None
         projs = _task_projects(head) if head else []
         print(json.dumps({
             "count": len(picked),
+            # 认领（2026-10-22）：agent 要能直接判"这张现在是我的"以及"租约还剩多久"
+            "claimed_by_me": bool(claim_who and head and str(head.get("认领人") or "") == claim_who),
+            "claim_error": claim_msg if (claim_who and not picked) else "",
+            "claim_ttl_seconds": CLAIM_TTL_SECONDS,
             "next": head,
             "policy": read_policy(projs[0]) if projs else None,
             # 立项契约（REV-002）：只在读，方寸不写他人仓库；缺契约时 exists=False，由调用方显式处理。
@@ -570,6 +727,18 @@ def cmd_next(args):
 
     if not picked:
         scope = f"项目「{project}」" if project else "全部项目"
+        if claim_who:
+            # ⚠ 这句必须说清：agent 只看到"没活"会以为真没事，实际是活都被别人领着 ——
+            #   两者的后续动作完全不同（一个是等，一个是去抢别人的）
+            print(f"没领到活：{claim_msg}")
+            holders = [x for x in load_tasks(None, "active") if not _claim_expired(x)]
+            if holders:
+                print("")
+                print("现在被别人领着、租约还没到期的：")
+                for h in holders[:5]:
+                    print(f"  {h.get('id')}  {h.get('标题') or ''}"
+                          f"  ← {h.get('认领人')}（还剩 {_claim_left(h) // 60} 分钟）")
+            return
         print(f"没有可执行任务（{scope}）：没有处于「待办 / 进行中」的任务。")
         return
 
@@ -583,6 +752,15 @@ def cmd_next(args):
     print(f"  标题    : {t.get('标题') or ''}")
     print(f"  项目    : {'、'.join(projs) or '（无）'}")
     print(f"  状态    : {t.get('状态') or ''}")
+    # 认领（2026-10-22）：三种状态说三句不同的话 —— 别让 agent 自己猜
+    _cb = str(t.get("认领人") or "").strip()
+    if _cb and not _claim_expired(t):
+        print(f"  认领    : {_cb}（你，租约还剩 {_claim_left(t) // 60} 分钟）"
+              if _cb == claim_who else f"  认领    : {_cb}（还剩 {_claim_left(t) // 60} 分钟）")
+    elif _cb:
+        print(f"  认领    : 原由「{_cb}」认领，**租约已过期**（八成是那个 agent 崩了）—— 你可以接")
+    else:
+        print("  认领    : 还没人领" + ("（这次没加 --claim，所以也没占住它）" if not claim_who else ""))
     print(f"  优先级  : {t.get('优先级') or '（未设）'}")
     print(f"  截止    : {t.get('截止') or '（未设）'}")
     if str(t.get("附言") or "").strip():
@@ -2062,6 +2240,9 @@ def main():
                     help="实际成本（如 $0.05 或 50k tokens），追加到结果记录")
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
+    dn.add_argument("--by", dest="by", default="", metavar="名字",
+                    help="谁在交回（如 --by hermes）：与任务的「认领人」比对，不一致会被拦下。"
+                         "不带则不校验（老用法零变化），只提醒一句")
     dn.add_argument("--force", action="store_true",
                     help="跳过 done 前置体检（结果记录/状态核查）强行回写")
     dn.set_defaults(func=cmd_done)
@@ -2072,6 +2253,9 @@ def main():
     nx.add_argument("--project", "--项目", dest="project", default=None, help="只看某个项目的任务")
     nx.add_argument("--format", choices=["text", "json"], default="text",
                     help="输出格式；json 供 agent 直接解析")
+    nx.add_argument("--claim", default="", metavar="名字",
+                    help="认领这张卡（如 --claim hermes）：写入认领人+认领时间，租约 2 小时。"
+                         "多个 agent 并行时用它，不加就是只读不占（老用法零变化）")
     nx.set_defaults(func=cmd_next)
     bk = sub.add_parser("backup", help="备份所有数据文件（zip，保留最近 10 份）")
     bk.set_defaults(func=cmd_backup)
