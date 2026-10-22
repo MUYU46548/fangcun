@@ -37,11 +37,24 @@
 - 进度总览: `python scripts/gen-progress.py` —— 从 `task-data/*.md` 的**状态字段**汇总成一张总览表，
   写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
   用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
-- 打包安装包: `cd desktop && ELECTRON_OVERRIDE_DIST_PATH="$PWD/node_modules/electron/dist" npx electron-builder`
-  —— ⚠ **那个环境变量不能省**：不带它，electron-builder 会去下载 electron 28.3.3（本机缓存里通常没有，
-  只有别的版本），然后 10 分钟 `Timeout awaiting 'request' for 600000ms` 才能知道失败；带上后约 45 秒。
-  产物落 `desktop/release/`（`Fangcun-Setup.<版本>.exe` + `.blockmap` + `latest.yml`）。
-  **打完必须自检**：读 `win-unpacked/resources/app.asar` 字节，确认本轮新增的标识串真的在里面 ——
+- 打包安装包（**2026-10-22 起要三个环境变量**）：
+  ```
+  cd desktop
+  ELECTRON_OVERRIDE_DIST_PATH="$PWD/node_modules/electron/dist" \
+  ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
+  ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
+  npx electron-builder -c.directories.output=release-<ver>
+  ```
+  · `ELECTRON_OVERRIDE_DIST_PATH` **不能省**：不带它 electron-builder 会去下别的版本，10 分钟超时才报错；
+  · **两个镜像也不能省**（引擎升到 44 后实测）：只带 override 会在 `label=electron progress=100%` 之后
+    立刻 `Response code 502 (Bad Gateway)` —— 它还要从 GitHub 拿 electron zip 的校验文件与 winCodeSign。
+    加上 `ELECTRON_MIRROR` + `ELECTRON_BUILDER_BINARIES_MIRROR` 后 31 秒打包成功；
+  · `-c.directories.output=` 是为了绕开 `release\win-unpacked.tmp\resources\*.asar` 的 EBUSY（见下）。
+  产物落指定目录（`Fangcun-Setup.<版本>.exe` + `.blockmap` + `latest.yml`），`release-*/` 已在 .gitignore。
+  ⚠ 直接打 `release/` 会 **EBUSY**（`win-unpacked.tmp\resources\default_app.asar` 被占）→ 换输出目录再拷回。
+  **打完必须自检**：读 `win-unpacked/resources/app.asar` 字节确认标识串在里面，
+  并跑 `win-unpacked/方寸.exe --version` —— 它打印的是包内 **Node** 版本
+  （Electron 28 → v18 / 44 → v24），这是"引擎真换了"最快的判据。
   "打包命令退出 0" 不等于包里有新代码。
 
 ## 常用验证方式
