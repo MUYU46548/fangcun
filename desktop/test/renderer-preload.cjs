@@ -1007,6 +1007,15 @@ contextBridge.exposeInMainWorld('tegula', {
     p[args.field] = args.before
     return { ok: true }
   },
+  // 出单（2026-10-22 · 03 任务三）：一次调用出一批待审批卡
+  llmPlanBatch: (pid) => {
+    rec('llmPlanBatch', [pid])
+    return {
+      ok: true,
+      created: [{ id: 'ai-batch-1', title: '夹具出单卡一' }, { id: 'ai-batch-2', title: '夹具出单卡二' }],
+      usage: { totalTokens: 999 },
+    }
+  },
   llmAsk: (q) => {
     rec('llmAsk', [q])
     return { ok: true, text: '（AI 回答夹具）事实里没有这一项。', usage: { totalTokens: 321 }, facts_chars: 987 }

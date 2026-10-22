@@ -315,5 +315,20 @@ check('  按触发点分开计（desktop.ask 与 draftProjectBrief 各自一行�
 check('  months 上限生效（只要 1 个月就只给 1 条）', trace.usageByMonth(1).length === 1,
   String(trace.usageByMonth(1).length))
 
-console.log(`\n==== ${PASS} 通过 / ${FAILS.length} 失败 ====`)
-if (FAILS.length) { FAILS.forEach((f) => console.log('  FAILED: ' + f)); process.exit(1) }
+console.log('\n---- 8. 出单（03 任务三）：护栏必须在花钱之前 ----')
+// planBatch 是异步的（成功路径会调模型），错误路径必须在**建请求之前**就返回 ——
+// 这两条就是用来钉"不许为了报个错也烧一次 token"的。
+const wb = require(path.join(DIST, 'llm', 'writeback.js'))
+Promise.all([wb.planBatch(''), wb.planBatch('not-exist')]).then(([b1, b2]) => {
+  check('没给项目 → 显式报错（不许"出个通单"）',
+    b1.ok === false && /哪(个|一)个?项目/.test(b1.error || ''), b1.error)
+  check('★ 项目不存在 → 显式报错', b2.ok === false, b2.error)
+  check('  ★★ 报错来自字段读取、**不是**"模型调用失败"（说明护栏真排在花钱之前）',
+    !/LLM|模型|调用失败/.test(b2.error || ''), b2.error)
+
+  console.log(`\n==== ${PASS} 通过 / ${FAILS.length} 失败 ====`)
+  if (FAILS.length) { FAILS.forEach((f) => console.log('  FAILED: ' + f)); process.exit(1) }
+}).catch((e) => {
+  console.log('FAIL  出单护栏测试本身抛异常：' + (e && e.message))
+  process.exit(1)
+})

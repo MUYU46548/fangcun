@@ -213,6 +213,8 @@ contextBridge.exposeInMainWorld('tegula', {
   llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
   /** 模糊问答（2026-10-22 · 03 任务一）：事实包在主进程拼，模型只许引用事实 */
   llmAsk: (question: string, model?: string) => ipcRenderer.invoke('llm:ask', question, model),
+  /** 出单（2026-10-22 · 03 任务三）：一次调用出一批待审批卡 */
+  llmPlanBatch: (projectId: string, model?: string) => ipcRenderer.invoke('llm:planBatch', projectId, model),
   llmDocToDrafts: (docText: string, projectId?: string, model?: string, maxCards?: number) => ipcRenderer.invoke('llm:docToDrafts', docText, projectId, model, maxCards),
   // 决策卡（2026-10-12）：与 Python CLI 同文件（task-data/decisions.md）
   decisionList: () => ipcRenderer.invoke('decision:list'),

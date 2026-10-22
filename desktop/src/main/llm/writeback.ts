@@ -18,6 +18,7 @@
 import { chatDetailed, ChatUsage, emptyUsage, usageLabel } from './chat'
 import { getProjectSummary, formatTasksForAudit } from './planning'
 import { createTask, updateTask } from '../data/tasks'
+import { readProjectFields, parseRegistry } from '../data'
 import { loadDecisions } from '../data/decisions'
 import type { Task } from '../data/tasks'
 
@@ -378,4 +379,44 @@ export async function docToDrafts(
     created.push({ id: task.id, title: task.fm.title || card.title })
   }
   return { ok: true, created, usage }
+}
+
+// ── 对外入口 4：从台账出下一批（2026-10-22 · 施工方案 03 任务三「阶段性出单」）──
+/**
+ * 给一个项目**出下一批施工任务卡**。
+ *
+ * 03 单的验收线是「第一张由方寸产出的施工单被本地 agent 执行通过」，所以这里不新写一套
+ * 提示词与落卡机制 —— 直接复用 `planToDraft`：它已经有「决策卡注入（已拍板的事不许违背）」
+ * 「一律落待审批」「解析失败原文兜底落草稿卡」「usage 回传」这些真金白银的机制。
+ * 本函数只干一件事：**把台账拼成一个目标**（现状 / 路线图 / 欠着 + 出单要求）。
+ *
+ * ⚠ 刻意不调 tripBoard：那个要逐项目 spawn git，而出单是低频人工动作，
+ *   为了一句话的目标去跑十几条 git 不划算；三字段 + 任务卡 + 决策卡已经够出单了。
+ */
+export async function planBatch(
+  projectId: string,
+  model?: string,
+): Promise<{ ok: true; created: { id: string; title: string }[]; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
+  const pid = String(projectId || '').trim()
+  if (!pid) return { ok: false, error: '要说清给哪个项目出单', usage: emptyUsage }
+
+  const f = readProjectFields(pid)
+  if (!f.ok) return { ok: false, error: f.error || '读不到这个项目的三个手写字段', usage: emptyUsage }
+  const reg = (parseRegistry(true) as any[]).find((p) => String(p?.id) === pid) || {}
+  const name = String(reg?.name || pid)
+
+  const goal = [
+    `给「${name}」出下一批施工任务（3~6 张），供本地 agent 直接执行。`,
+    '',
+    `现状（registry 手写）：${String(f.fields?.['状态'] || '未填')}`,
+    `路线图（registry 手写）：${String(f.fields?.['路线图'] || '未填')}`,
+    `欠着（registry 手写）：${String(f.fields?.['说明'] || '未填')}`,
+    '',
+    '出单要求：',
+    '- 优先消化「欠着」里的事项，方向与「路线图」一致',
+    '- 每张卡的方案里写清「改哪块（文件/模块/界面位置）」和「怎么算做完（可观察的验收判据）」，让本地 agent 不用再问就能干',
+    '- 不重复已有任务，不违背已拍板的决策',
+  ].join('\n')
+
+  return planToDraft(goal, pid, model)
 }

@@ -4367,7 +4367,7 @@
             }, 4000, 'answer'),
             (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
           check('★★ needsLlm=false 的答案**不给**「交给 AI」按钮（能结构化答就别敞着成本口子）',
-            !$('#board.ask-view .ask-llm-btn'))
+            !$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'))
         }
         const llmBefore = window.__fcTest.callCount('llmAsk')
         const askIn = $('#board.ask-view .ask-in')
@@ -4376,11 +4376,11 @@
         await sleep(80)
         $('#board.ask-view .ask-go').click()
         check('★ 含糊句 → 出现「交给 AI 答（会花 token）」按钮',
-          await waitFor(() => !!$('#board.ask-view .ask-llm-btn'), 4000, 'llm btn'),
+          await waitFor(() => !!$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'), 4000, 'llm btn'),
           (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 50))
         check('★★ 光问不点 → **一次模型都没调**（结构化答不了也不许偷偷烧钱）',
           window.__fcTest.callCount('llmAsk') === llmBefore, String(window.__fcTest.callCount('llmAsk')))
-        const llmBtn = $('#board.ask-view .ask-llm-btn')
+        const llmBtn = $('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)')
         if (llmBtn) {
           llmBtn.click()
           check('★★ 点「交给 AI 答」才真调 llmAsk', await waitFor(() => window.__fcTest.callCount('llmAsk') > llmBefore, 4000, 'llmAsk'))
@@ -4457,6 +4457,31 @@
           const a = (window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args[0] || {}
           return a.projectId === 'demo' && a.field === '路线图' && a.before === '跑通第一单' && a.decisionId === 'dec-e2e-1'
         })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args))
+        // ── 出单（2026-10-22 · 03 任务三）：从台账派生下一批待审批卡 ──────────
+        check('★ 有项目的答案 → 出现「出下一批任务卡」入口（标了会花 token）', await (async () => {
+          // 上一步改完撤销后 askQ 还是「演示项目到哪了」，答案带 projectId
+          return waitFor(() => {
+            const btn = $$('#board.ask-view .ask-foot button')
+              .find((b) => (b.textContent || '').indexOf('出下一批') >= 0)
+            return !!btn && (btn.textContent || '').indexOf('token') >= 0
+          }, 4000, '出单入口')
+        })())
+        check('★★ 点出单 → 真调 llmPlanBatch，项目 id 传对；toast 说清出了几张 + 花销', await (async () => {
+          const btn = $$('#board.ask-view .ask-foot button')
+            .find((b) => (b.textContent || '').indexOf('出下一批') >= 0)
+          if (!btn) return false
+          const n0 = window.__fcTest.callCount('llmPlanBatch')
+          btn.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('llmPlanBatch') > n0, 4000, 'llmPlanBatch')
+          if (!hit) return false
+          const a = (window.__fcTest.calls().filter((c) => c.name === 'llmPlanBatch').pop() || {}).args
+          if (!a || a[0] !== 'demo') return false
+          return waitFor(() => {
+            const t = ($('#toast') || {}).textContent || ''
+            return t.indexOf('2 张') >= 0 && t.indexOf('待审批') >= 0 && t.indexOf('999') >= 0
+          }, 4000, '出单 toast')
+        })(), (($('#toast') || {}).textContent || '').slice(0, 60))
+
         // 含糊句（没有 projectId）→ 不许给纠偏入口（没有目标就无从纠）
         const askIn2 = $('#board.ask-view .ask-in')
         askIn2.value = '你觉得这个方向对不对'
@@ -4468,6 +4493,8 @@
             const a = $('#board.ask-view .ask-ans')
             return !!a && (a.textContent || '').indexOf('答不了') >= 0
           }, 4000, 'vague') && !$('#board.ask-view .ask-correct-open'))
+        check('★ 含糊句同样不给「出下一批」入口（出单得先说清给哪个项目出）',
+          !$('#board.ask-view .ask-batch-btn'))
         // 回到「欠着什么」，后面的报表断言要看这一屏
         const chipBack = $$('#board.ask-view .ask-chip').find((b) => (b.textContent || '').trim() === '欠着什么')
         if (chipBack) { chipBack.click(); await sleep(400) }

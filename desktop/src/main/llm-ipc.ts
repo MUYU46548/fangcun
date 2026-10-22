@@ -3,7 +3,7 @@ import { guardedHandle } from './guarded-ipc'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
-import { planToDraft, draftProjectBrief, docToDrafts } from './llm/writeback'
+import { planToDraft, draftProjectBrief, docToDrafts, planBatch } from './llm/writeback'
 import { askWithLlm } from './llm/ask-llm'
 import { usageStats, usageByMonth } from './llm/trace'
 
@@ -150,6 +150,12 @@ export function registerLlmIpcHandlers(): void {
   // 事实包由 services/ask.buildContext() 现拼，模型只在这段事实里找答案；usage 原样回传。
   guardedHandle('llm:ask', async (_event: any, question: string, model?: string) => {
     return askWithLlm(question, model)
+  })
+
+  // 出单（2026-10-22 · 03 任务三）：从台账（三字段）+ 决策卡派生下一批任务卡，
+  // 一次调用 = 一批，产出**只落「待审批」**（用户点头才转正）。复用 planToDraft 的落卡机制。
+  guardedHandle('llm:planBatch', async (_event: any, projectId: string, model?: string) => {
+    return planBatch(projectId, model)
   })
 
   guardedHandle('llm:docToDrafts', async (_event: any, docText: string, projectId?: string, model?: string, maxCards?: number) => {

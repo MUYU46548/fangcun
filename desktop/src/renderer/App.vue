@@ -417,6 +417,12 @@
           <button class="ghost ask-llm-btn" v-if="askAns.needsLlm" :disabled="askLlmBusy" @click="askToLlm()">
             {{ askLlmBusy ? 'AI 思考中…' : '交给 AI 答（会花 token）' }}
           </button>
+          <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
+               一次调用 = 一批；产出只落「待审批」（点头才转正）。这是全应用**第二处**会
+               为规划花 token 的入口（另一处是上面的模糊问答）。 -->
+          <button class="ghost ask-llm-btn ask-batch-btn" v-if="askAns.projectId" :disabled="batchBusy" @click="runBatch()">
+            {{ batchBusy ? '出单中…' : '📋 出下一批任务卡（会花 token）' }}
+          </button>
         </div>
         <!-- 随纠（2026-10-22 · 03 任务二）：从这条答案直接改这个项目的方向 ——
              一句话 + 一次点击，不填表单。改完挂撤销条（Ctrl+Z 同效），决策卡自动留痕。
@@ -6696,6 +6702,29 @@ async function runCorrect(): Promise<void> {
     correctErr.value = '纠偏异常：' + (e?.message || e)
   } finally {
     correctBusy.value = false
+  }
+}
+
+// 出单（2026-10-22 · 03 任务三）：从台账派生下一批卡。一次调用 = 一批，绝不循环。
+const batchBusy = ref(false)
+async function runBatch(): Promise<void> {
+  const pid = askAns.value && askAns.value.projectId
+  if (!pid || batchBusy.value) return
+  batchBusy.value = true
+  try {
+    const r: any = await window.tegula.llmPlanBatch(pid)
+    if (!r || r.ok === false) {
+      showToast(`没出成：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    const n = (r.created || []).length
+    showToast(`已出 ${n} 张「待审批」卡 —— 看板筛待审批过目后转正${aiUsageTail(r.usage)}`, 'success')
+    // 让看板立刻能看到琥珀色草稿卡（否则用户以为没成）
+    await loadAll()
+  } catch (e: any) {
+    showToast('出单异常：' + (e?.message || e), 'error')
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -13972,7 +14001,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ask-sub { margin-left: 8px; font-style: normal; font-size: 10.5px; color: var(--muted); }
 .ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 11px; }
 .ask-src { flex: 1 1 auto; font-size: 10.5px; color: var(--muted); }
-.ask-llm-btn { flex: none; height: 28px; font-size: 11.5px; }
+/* 「交给 AI 答」与「出下一批」同形（都是花 token 的动作），只靠 class 区分职责 */
+.ask-llm-btn, .ask-batch-btn { flex: none; height: 28px; font-size: 11.5px; }
 .ask-llm-ans { margin-top: 11px; padding: 10px; border-radius: 8px; background: var(--tint-2); border: 1px solid var(--border); }
 .ala-h { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
 .ala-meta { margin-left: 8px; font-style: normal; color: var(--muted); }
