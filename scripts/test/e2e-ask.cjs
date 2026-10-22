@@ -320,6 +320,21 @@ console.log('\n---- 8. 出单（03 任务三）：护栏必须在花钱之前 --
 // planBatch 是异步的（成功路径会调模型），错误路径必须在**建请求之前**就返回 ——
 // 这两条就是用来钉"不许为了报个错也烧一次 token"的。
 const wb = require(path.join(DIST, 'llm', 'writeback.js'))
+// 出单的**输入**长什么样，必须能在不花钱的前提下被断言（不然只能真调一次模型才知道拼错）。
+// 2026-10-22 把 buildBatchGoal 从 planBatch 里抽出来的唯一理由就是这条。
+const bg1 = wb.buildBatchGoal('fc-demo')
+check('★ 出单目标里带项目名 + 三字段原值（现况/路线图/欠着 一条不漏）',
+  bg1.ok && bg1.goal.indexOf('方寸演示') >= 0 && bg1.goal.indexOf('活跃开发中（演示夹具）') >= 0
+  && bg1.goal.indexOf('跑通第一单') >= 0 && bg1.goal.indexOf('第一件欠账') >= 0,
+  bg1.ok ? bg1.goal.slice(0, 160) : bg1.error)
+check('★ 目标里写清了"怎么算做完"和"改哪块"（否则出出来的卡没法直接执行）',
+  bg1.ok && bg1.goal.indexOf('怎么算做完') >= 0 && bg1.goal.indexOf('改哪块') >= 0, '')
+const bg2 = wb.buildBatchGoal('cold')
+check('★ 没填的字段写「未填」，不替用户编内容',
+  bg2.ok && bg2.goal.indexOf('未填') >= 0, bg2.ok ? bg2.goal.slice(0, 120) : bg2.error)
+check('空 id / 不存在的项目 → 拼目标阶段就报错（零成本，不发请求）',
+  wb.buildBatchGoal('').ok === false && wb.buildBatchGoal('not-exist').ok === false)
+
 Promise.all([wb.planBatch(''), wb.planBatch('not-exist')]).then(([b1, b2]) => {
   check('没给项目 → 显式报错（不许"出个通单"）',
     b1.ok === false && /哪(个|一)个?项目/.test(b1.error || ''), b1.error)

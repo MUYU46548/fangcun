@@ -393,15 +393,19 @@ export async function docToDrafts(
  * ⚠ 刻意不调 tripBoard：那个要逐项目 spawn git，而出单是低频人工动作，
  *   为了一句话的目标去跑十几条 git 不划算；三字段 + 任务卡 + 决策卡已经够出单了。
  */
-export async function planBatch(
+/**
+ * 把台账拼成出单目标（**纯函数、不花钱、可断言**）。
+ *
+ * 单独抽出来是为了让"出单的输入长什么样"能被测试咬住 —— 否则只能靠真调一次模型才知道
+ * 目标拼错了没有，而那是要花用户的钱的。
+ */
+export function buildBatchGoal(
   projectId: string,
-  model?: string,
-): Promise<{ ok: true; created: { id: string; title: string }[]; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
+): { ok: true; goal: string; projectName: string } | { ok: false; error: string } {
   const pid = String(projectId || '').trim()
-  if (!pid) return { ok: false, error: '要说清给哪个项目出单', usage: emptyUsage }
-
+  if (!pid) return { ok: false, error: '要说清给哪个项目出单' }
   const f = readProjectFields(pid)
-  if (!f.ok) return { ok: false, error: f.error || '读不到这个项目的三个手写字段', usage: emptyUsage }
+  if (!f.ok) return { ok: false, error: f.error || '读不到这个项目的三个手写字段' }
   const reg = (parseRegistry(true) as any[]).find((p) => String(p?.id) === pid) || {}
   const name = String(reg?.name || pid)
 
@@ -418,5 +422,15 @@ export async function planBatch(
     '- 不重复已有任务，不违背已拍板的决策',
   ].join('\n')
 
-  return planToDraft(goal, pid, model)
+  return { ok: true, goal, projectName: name }
+}
+
+export async function planBatch(
+  projectId: string,
+  model?: string,
+): Promise<{ ok: true; created: { id: string; title: string }[]; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
+  const g = buildBatchGoal(projectId)
+  // 护栏排在**建请求之前**：项目不存在 / 读不到字段时，一次模型都不该调
+  if (!g.ok) return { ok: false, error: (g as { ok: false; error: string }).error, usage: emptyUsage }
+  return planToDraft(g.goal, String(projectId).trim(), model)
 }
