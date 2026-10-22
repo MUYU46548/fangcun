@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('tegula', {
   registryReadFields: (id: string) => ipcRenderer.invoke('registry:readFields', id),
   registryUpdateFields: (id: string, patch: any) => ipcRenderer.invoke('registry:updateFields', id, patch),
 
+  // ── 随问（2026-10-22 · 03 任务一）：结构化查询，零 LLM ──────────────
+  askPresets: () => ipcRenderer.invoke('ask:presets'),
+  askQuery: (q: string) => ipcRenderer.invoke('ask:query', q),
+
   // ── 备份 v2（WebDAV + 调度 + 可验证恢复）
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),
   backupSetConfig: (patch: any) => ipcRenderer.invoke('backup:setConfig', patch),
@@ -201,6 +205,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // AI 规划写回层（2026-10-12）：LLM 输出直接落「待审批」卡，用户点头才转正
   llmPlanToDraft: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:planToDraft', goal, projectId, model),
   llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
+  /** 模糊问答（2026-10-22 · 03 任务一）：事实包在主进程拼，模型只许引用事实 */
+  llmAsk: (question: string, model?: string) => ipcRenderer.invoke('llm:ask', question, model),
   llmDocToDrafts: (docText: string, projectId?: string, model?: string, maxCards?: number) => ipcRenderer.invoke('llm:docToDrafts', docText, projectId, model, maxCards),
   // 决策卡（2026-10-12）：与 Python CLI 同文件（task-data/decisions.md）
   decisionList: () => ipcRenderer.invoke('decision:list'),

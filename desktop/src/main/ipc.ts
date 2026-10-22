@@ -20,6 +20,7 @@ import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import * as tripBoard from './services/tripBoard'
+import * as ask from './services/ask'
 import * as prefs from './services/prefs'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
@@ -615,6 +616,23 @@ export function registerIpcHandlers(): void {
       await tripBoard.warmBoardGit()
       return { ok: true, ...tripBoard.buildTripBoard() }
     } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // ── 随问（2026-10-22 · 施工单包 03 任务一）：结构化查询，零 LLM ──────────
+  // 成本红线写在这里：这条通道**永远不调模型**。模糊问题由界面明确告知"这条得靠 AI"，
+  // 要不要花那个 token 由用户点头（AI 只进「模糊问答」「批次出单」两处）。
+  guardedHandle('ask:presets', () => {
+    return { presets: ask.ASK_PRESETS, projects: ask.askProjectOptions() }
+  })
+
+  guardedHandle('ask:query', async (_event, q: string) => {
+    try {
+      // 与 trip:board 同一条预热：逐项目**同步** spawn git 会把整段卡住 0.5–3s
+      await tripBoard.warmBoardGit()
+      return { ok: true, ...ask.answer(String(q || '')) }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
   })
 
   guardedHandle('trip:contractText', (_event, projectId: string) => {

@@ -4317,6 +4317,73 @@
       }
     }
 
+    // ══ 随问（2026-10-22 · 施工单包 03 任务一）══════════════════════════════
+    // 判据：① 页签里有「问」；② 常用问题文案来自主进程（界面不许自己写一份）；
+    //      ③ 点预设 → 把**问题串原样**传下去；④ 结构化答案渲染结论/明细/来源；
+    //      ⑤ needsLlm=false 时**不给**「交给 AI」按钮（结构化能答就别把成本口子敞着）；
+    //      ⑥ needsLlm=true 才有，且**点了才**真调模型、花销当场印出来。
+    {
+      const askTab = $$('#views .vbtn').find((b) => (b.textContent || '').trim() === '问')
+      check('★ 页签行里有「问」（控制台的查询面有入口）', !!askTab)
+      if (askTab) {
+        askTab.click()
+        check('★ 点进「问」→ 查询面渲染（输入框 + 常用问题）',
+          await waitFor(() => !!$('#board.ask-view .ask-in') && $$('#board.ask-view .ask-chip').length > 0, 4000, 'ask view'))
+        check('  进视图就去主进程取常用问题（界面不自己写文案）',
+          window.__fcTest.callCount('askPresets') >= 1, String(window.__fcTest.callCount('askPresets')))
+        check('★ 常用问题够用（≥8 个快捷点选，03 单验收线）',
+          $$('#board.ask-view .ask-chip').length >= 8, String($$('#board.ask-view .ask-chip').length))
+        check('★ 空输入时「问」按钮是禁用的（不让点一个必然为空的查询）',
+          !!$('#board.ask-view .ask-go') && $('#board.ask-view .ask-go').disabled === true)
+        const oweChip = $$('#board.ask-view .ask-chip').find((b) => (b.textContent || '').trim() === '欠着什么')
+        check('  有「欠着什么」这个常用问题（最常用的一条）', !!oweChip)
+        if (oweChip) {
+          const n0 = window.__fcTest.callCount('askQuery')
+          oweChip.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('askQuery') > n0, 4000, 'askQuery')
+          const last = window.__fcTest.calls().filter((c) => c.name === 'askQuery').pop()
+          check('★★ 点预设 → 真调 askQuery，且**原样**传问题串（不是传 label）',
+            hit && last && last.args[0] === '欠着什么',
+            hit ? JSON.stringify(last && last.args) : 'no call')
+          check('★ 结构化答案渲染出来：结论 + 明细 + 来源',
+            await waitFor(() => {
+              const a = $('#board.ask-view .ask-ans')
+              if (!a) return false
+              return !!a.querySelector('.ask-title') && a.querySelectorAll('.ask-item').length >= 1
+                && ((a.querySelector('.ask-src') || {}).textContent || '').indexOf('registry') >= 0
+            }, 4000, 'answer'),
+            (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+          check('★★ needsLlm=false 的答案**不给**「交给 AI」按钮（能结构化答就别敞着成本口子）',
+            !$('#board.ask-view .ask-llm-btn'))
+        }
+        const llmBefore = window.__fcTest.callCount('llmAsk')
+        const askIn = $('#board.ask-view .ask-in')
+        askIn.value = '你觉得这个方向对不对'
+        askIn.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(80)
+        $('#board.ask-view .ask-go').click()
+        check('★ 含糊句 → 出现「交给 AI 答（会花 token）」按钮',
+          await waitFor(() => !!$('#board.ask-view .ask-llm-btn'), 4000, 'llm btn'),
+          (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 50))
+        check('★★ 光问不点 → **一次模型都没调**（结构化答不了也不许偷偷烧钱）',
+          window.__fcTest.callCount('llmAsk') === llmBefore, String(window.__fcTest.callCount('llmAsk')))
+        const llmBtn = $('#board.ask-view .ask-llm-btn')
+        if (llmBtn) {
+          llmBtn.click()
+          check('★★ 点「交给 AI 答」才真调 llmAsk', await waitFor(() => window.__fcTest.callCount('llmAsk') > llmBefore, 4000, 'llmAsk'))
+          const lastLlm = window.__fcTest.calls().filter((c) => c.name === 'llmAsk').pop()
+          check('  传给 AI 的是**同一个问题串**（不是 chip 的 label）',
+            !!lastLlm && lastLlm.args[0] === '你觉得这个方向对不对', JSON.stringify(lastLlm && lastLlm.args))
+          check('★ AI 回答连同**花销**一起显示（03 单：花销每次可见）',
+            await waitFor(() => {
+              const t = ($('#board.ask-view .ask-llm-ans') || {}).textContent || ''
+              return t.indexOf('AI 回答夹具') >= 0 && t.indexOf('321') >= 0
+            }, 4000, 'llm ans'),
+            (($('#board.ask-view .ask-llm-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+        }
+      }
+    }
+
     // ══ 帮助手册视图（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）
     //    它只从**顶栏「?」**进入（页签行不重复放一个）—— 这里就按用户的真实路径点。
     {

@@ -932,6 +932,54 @@ contextBridge.exposeInMainWorld('tegula', {
   createFreshSetup: () => ok(),
   importFromPythonTegula: () => ok(),
   registryAddProject: () => ok(),
+  // ── 随问（2026-10-22 · 施工单包 03 任务一）────────────────────────────
+  // 桩复刻主进程语义的**最小版**：结构化命中 → needsLlm=false；算不出来 → needsLlm=true。
+  // ⚠ 必须记账：断言要验"点常用问题真的把原串传下去了""点交给 AI 才真调 llmAsk"。
+  askPresets: () => {
+    rec('askPresets')
+    return {
+      presets: [
+        { label: '都在哪一步', q: '各项目都到哪了' },
+        { label: '下一步干什么', q: '下一步该做什么' },
+        { label: '在等谁', q: '谁在等谁' },
+        { label: '欠着什么', q: '欠着什么' },
+        { label: '卡在哪', q: '卡在哪' },
+        { label: '逾期与快到期的', q: '哪些逾期了' },
+        { label: '哪些项目停着', q: '哪些项目停着' },
+        { label: '还有多少没做完', q: '还有多少没做完' },
+        { label: '本月烧了多少钱', q: '本月烧了多少钱' },
+      ],
+      projects: [{ id: 'demo', name: '演示项目' }, { id: 'demo2', name: '第二个项目' }],
+    }
+  },
+  askQuery: (q) => {
+    rec('askQuery', [q])
+    const s = String(q || '')
+    if (s.indexOf('欠着') >= 0) {
+      return {
+        ok: true, kind: 'owe', title: '1 个项目在 registry 里写了「欠着」',
+        lines: ['这条读的是 registry 的「说明」字段 —— 它是给人看的欠账清单，方寸不替你裁。'],
+        rows: [{ k: '演示项目', v: '欠着：①夹具欠账 ②第二件', sub: 'registry 手写' }],
+        needsLlm: false, source: 'registry.yaml 说明字段（手写值）',
+      }
+    }
+    if (s.indexOf('到哪') >= 0) {
+      return {
+        ok: true, kind: 'progress', title: '演示项目：活跃开发中（演示夹具）',
+        lines: ['当前步骤：演示任务（来自任务卡）', '卡在谁：暮雨（验收）'],
+        rows: [], needsLlm: false, source: 'registry 手写字段 + tripBoard（任务卡/执行日志/git）',
+      }
+    }
+    return {
+      ok: true, kind: 'unmatched', title: '这句话结构化答不了',
+      lines: ['方寸只在**两种**情况下动模型：模糊问答、批次出单。这一句既没命中结构化意图，也没点名项目——'],
+      rows: [], needsLlm: true, source: '',
+    }
+  },
+  llmAsk: (q) => {
+    rec('llmAsk', [q])
+    return { ok: true, text: '（AI 回答夹具）事实里没有这一项。', usage: { totalTokens: 321 }, facts_chars: 987 }
+  },
   // 2026-10-22 · 施工单包 06：项目三字段读写。
   // ⚠ 桩必须**真改 store 并记账** —— 断言要验"保存后详情页显示新值""撤销真写回旧值"，
   //   桩若只 return ok() 而不动 store，两条断言都会恒绿（MEMORY 第十节的老坑）。

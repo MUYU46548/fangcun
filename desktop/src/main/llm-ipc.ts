@@ -4,6 +4,7 @@ import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLM
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
 import { planToDraft, draftProjectBrief, docToDrafts } from './llm/writeback'
+import { askWithLlm } from './llm/ask-llm'
 import { usageStats } from './llm/trace'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
@@ -136,6 +137,12 @@ export function registerLlmIpcHandlers(): void {
 
   guardedHandle('llm:draftProjectBrief', async (_event: any, projectId: string, model?: string) => {
     return draftProjectBrief(projectId, model)
+  })
+
+  // 模糊问答（2026-10-22 · 03 任务一）：**只有结构化答不了时才走到这里**。
+  // 事实包由 services/ask.buildContext() 现拼，模型只在这段事实里找答案；usage 原样回传。
+  guardedHandle('llm:ask', async (_event: any, question: string, model?: string) => {
+    return askWithLlm(question, model)
   })
 
   guardedHandle('llm:docToDrafts', async (_event: any, docText: string, projectId?: string, model?: string, maxCards?: number) => {

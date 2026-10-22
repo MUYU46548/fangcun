@@ -380,6 +380,53 @@
       <button class="ghost" title="这次先不动，下次启动/刷新还会提示" @click="archiveOverdue = { count: 0, items: [] }">先不管</button>
     </div>
 
+    <!-- 随问（2026-10-22 · 施工单包 03 任务一）——「控制台」的查询面。
+         这一页**不调模型**：答案全从 registry / 任务卡 / 执行日志 / ai-trace 直接算出来。
+         结构化确实算不出来的，右下才给一个「交给 AI 答」的口子 —— 点它才花 token，
+         而且花销当场印在回答头上（03 单成本红线：AI 只进模糊问答与批次出单两处）。
+         ⚠ 独立 v-if、不接在别人家的 v-else-if 链上：插在链中间会让后面整片视图不渲染。 -->
+    <main id="board" class="ask-view" v-if="curView === 'ask'">
+      <div class="ask-box">
+        <div class="ask-row">
+          <input class="ask-in" v-model="askQ" :disabled="askBusy"
+                 placeholder="问一句：各项目到哪了 / 欠着什么 / 哪个项目停着 / 本月烧了多少钱"
+                 @keyup.enter="runAsk()" />
+          <button class="pri ask-go" :disabled="askBusy || !askQ.trim()" @click="runAsk()">{{ askBusy ? '查…' : '问' }}</button>
+        </div>
+        <div class="ask-chips">
+          <button class="ghost ask-chip" v-for="p in askPresets" :key="p.label"
+                  :disabled="askBusy" @click="askQuick(p.q)">{{ p.label }}</button>
+        </div>
+        <div class="ask-hint">
+          结构化查询，零 token。数据取自 registry 手写字段、任务卡、执行日志、ai-trace ——
+          每条答案底下都会写清来源，不写就是没来源。
+        </div>
+      </div>
+
+      <div class="ask-ans" v-if="askAns">
+        <div class="ask-title">{{ askAns.title }}</div>
+        <div class="ask-line" v-for="(l, i) in askAns.lines" :key="'al' + i">{{ l }}</div>
+        <div class="ask-rows" v-if="askAns.rows && askAns.rows.length">
+          <div class="ask-item" v-for="(r, i) in askAns.rows" :key="'ar' + i">
+            <span class="ask-k">{{ r.k }}</span>
+            <span class="ask-v">{{ r.v }}<em class="ask-sub" v-if="r.sub">{{ r.sub }}</em></span>
+          </div>
+        </div>
+        <div class="ask-foot">
+          <span class="ask-src" v-if="askAns.source">来源：{{ askAns.source }}</span>
+          <button class="ghost ask-llm-btn" v-if="askAns.needsLlm" :disabled="askLlmBusy" @click="askToLlm()">
+            {{ askLlmBusy ? 'AI 思考中…' : '交给 AI 答（会花 token）' }}
+          </button>
+        </div>
+        <div class="ask-llm-ans" v-if="askLlmAns">
+          <div class="ala-h">AI 的回答<em class="ala-meta" v-if="askLlmMeta">{{ askLlmMeta }}</em></div>
+          <div class="ala-t">{{ askLlmAns }}</div>
+        </div>
+        <div class="ask-llm-err" v-if="askLlmErr">{{ askLlmErr }}</div>
+      </div>
+      <div class="ask-empty" v-else>还没问。点上面任一个常用问题，或者自己写一句。</div>
+    </main>
+
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
       <!-- 列表视图（多视图第 1 项）。与列视图**共用** columns / collapsedGroups / 拖拽处理：
            拖一行到某个分区里 = 改成该状态，和拖到列里是同一件事。 -->
@@ -6443,8 +6490,87 @@ watch(curView, (val) => {
   // 它自己的 onMounted 就是"每次进门拉一次"，两处都写等于两份真相。
 })
 
+// ── 随问（2026-10-22 · 施工单包 03 任务一）────────────────────────────────
+/**
+ * 结构化查询面。三条纪律，都在这一小块里守住：
+ *   ① **默认零 token** —— 答案由主进程从现有数据算，`needsLlm` 只有结构化真算不出来才是 true；
+ *   ② **不装懂** —— 算不出来就把"交给 AI 答（会花 token）"这个按钮摆出来，让用户自己决定；
+ *   ③ **花销可见** —— AI 那条回答的头上印事实字数与 token（03 单红线），不悄悄花钱。
+ */
+const askQ = ref('')
+const askBusy = ref(false)
+const askAns = ref<any>(null)
+const askPresets = ref<Array<{ label: string; q: string }>>([])
+const askLlmBusy = ref(false)
+const askLlmAns = ref('')
+const askLlmErr = ref('')
+const askLlmMeta = ref('')
+
+/** 常用问题由**主进程**给（界面不许自己写一份文案 —— 两边一漂移就成了两套问题集） */
+async function loadAskPresets(): Promise<void> {
+  try {
+    const r: any = await window.tegula.askPresets()
+    askPresets.value = Array.isArray(r?.presets) ? r.presets : []
+  } catch {
+    askPresets.value = []
+  }
+}
+
+async function runAsk(): Promise<void> {
+  const q = askQ.value.trim()
+  if (!q || askBusy.value) return
+  askBusy.value = true
+  askLlmAns.value = ''
+  askLlmErr.value = ''
+  askLlmMeta.value = ''
+  try {
+    const r: any = await window.tegula.askQuery(q)
+    if (!r || r.ok === false) {
+      // 失败要说出来，不能留上一题的答案在那儿冒充"这题的答案"
+      showToast(`查询失败：${r?.error || '未知原因'}`, 'error')
+      askAns.value = null
+    } else {
+      askAns.value = r
+    }
+  } catch (e: any) {
+    showToast('查询异常：' + (e?.message || e), 'error')
+  } finally {
+    askBusy.value = false
+  }
+}
+
+function askQuick(q: string): void {
+  askQ.value = q
+  void runAsk()
+}
+
+/** 只有用户点了这个按钮才会花 token —— 主进程那边把事实包一起发过去，模型没机会自由发挥 */
+async function askToLlm(): Promise<void> {
+  if (!askAns.value || askLlmBusy.value) return
+  const q = askQ.value.trim()
+  if (!q) return
+  askLlmBusy.value = true
+  askLlmErr.value = ''
+  askLlmAns.value = ''
+  askLlmMeta.value = ''
+  try {
+    const r: any = await window.tegula.llmAsk(q)
+    if (!r || r.ok === false) {
+      askLlmErr.value = 'AI 没答上来：' + (r?.error || '未知原因')
+      return
+    }
+    askLlmAns.value = String(r.text || '')
+    askLlmMeta.value = `事实 ${r.facts_chars || 0} 字${aiUsageTail(r.usage)}`
+  } catch (e: any) {
+    askLlmErr.value = 'AI 调用异常：' + (e?.message || e)
+  } finally {
+    askLlmBusy.value = false
+  }
+}
+
 const views = [
   { id: 'active', label: '看板' },
+  { id: 'ask', label: '问' },
   { id: 'todos', label: '待办' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
@@ -6880,6 +7006,9 @@ function loadViewData(v: string) {
     loadTodos()
   } else if (v === 'logs') {
     loadLogs()
+  } else if (v === 'ask') {
+    // 常用问题从主进程拿（懒加载一次就够，presets 是静态表）
+    if (!askPresets.value.length) void loadAskPresets()
   } else if (v === 'trash') {
     // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）
     loadTrash()
@@ -13682,6 +13811,37 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .msf-t { resize: vertical; line-height: 1.6; }
 .msf-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
 .msf-tip { font-size: 10.5px; color: var(--muted); }
+/* ── 随问（2026-10-22 · 施工单包 03 任务一）─────────────────────────────
+   一个输入框 + 常用问题点选 + 结构化答案；AI 只在那一个按钮后面。 */
+.ask-view { max-width: 880px; margin: 0 auto; padding: 18px 20px 40px; }
+.ask-box { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 12px; }
+.ask-row { display: flex; gap: 8px; }
+/* preflight 关着 → 原生控件必须显式给字体（check-ui-base 判据） */
+.ask-in { flex: 1 1 auto; min-width: 0; height: 34px; box-sizing: border-box; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 13px;
+  color: var(--ink); background: #fff; }
+.ask-in:disabled { opacity: .6; }
+.ask-go { flex: none; height: 34px; padding: 0 16px; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ask-chip { height: 26px; padding: 0 10px; font-size: 11.5px; white-space: nowrap; }
+.ask-hint { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.ask-ans { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 14px; }
+.ask-title { font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.5; }
+.ask-line { margin-top: 6px; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+.ask-rows { margin-top: 10px; border-top: 1px solid var(--border); }
+.ask-item { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--tint-3); font-size: 12px; }
+.ask-k { flex: 0 0 150px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.ask-v { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.ask-sub { margin-left: 8px; font-style: normal; font-size: 10.5px; color: var(--muted); }
+.ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 11px; }
+.ask-src { flex: 1 1 auto; font-size: 10.5px; color: var(--muted); }
+.ask-llm-btn { flex: none; height: 28px; font-size: 11.5px; }
+.ask-llm-ans { margin-top: 11px; padding: 10px; border-radius: 8px; background: var(--tint-2); border: 1px solid var(--border); }
+.ala-h { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.ala-meta { margin-left: 8px; font-style: normal; color: var(--muted); }
+.ala-t { font-size: 12.5px; color: var(--ink); line-height: 1.7; white-space: pre-wrap; }
+.ask-llm-err { margin-top: 10px; font-size: 11.5px; color: var(--danger); }
+.ask-empty { margin-top: 16px; font-size: 12px; color: var(--muted); }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);
