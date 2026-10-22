@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('tegula', {
   // Registry
   registryAddProject: (fields: any) => ipcRenderer.invoke('registry:addProject', fields),
   registryRemoveProject: (id: string) => ipcRenderer.invoke('registry:removeProject', id),
+  /** 项目说明三字段（状态 / 路线图 / 说明）—— 2026-10-22 施工单包 06 */
+  registryReadFields: (id: string) => ipcRenderer.invoke('registry:readFields', id),
+  registryUpdateFields: (id: string, patch: any) => ipcRenderer.invoke('registry:updateFields', id, patch),
 
   // ── 备份 v2（WebDAV + 调度 + 可验证恢复）
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),

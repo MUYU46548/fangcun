@@ -810,9 +810,39 @@
               最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
               <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
             </div>
-            <!-- 项目说明（2026-10-16 批次第 2 项）：13 份说明从笔记草稿转正进 registry，
-                 详情页一句话定位——先看清这项目是什么、不做什么，再谈干不干。 -->
-            <div class="ms-note" v-if="pvCurrent.note">{{ pvCurrent.note }}</div>
+            <!-- 项目三字段（2026-10-16 批次第 2 项起的「说明」；2026-10-22 · 06 单扩成三件）：
+                 状态 / 路线图 / 说明（欠着什么）都是 registry 里的**手写值**，
+                 与下面「自动 · 只读」那块并列摆着 —— 谁旧了由人看，代码不裁。
+                 可就地改：改完走全站同一个撤销条，Ctrl+Z 一步退回去（1B 撤销栈的同一套语义）。 -->
+            <div class="ms-fields" v-if="noteEdit && noteEdit.id === pvCurrent.id">
+              <div class="msf-h">改「{{ pvCurrent.name }}」的三个手写字段</div>
+              <label class="msf">
+                <span class="msf-k">状态</span>
+                <input class="msf-i" v-model="noteEdit.状态" placeholder="一句话说到哪了，带时点，比如（0.3.9，10-21）" />
+              </label>
+              <label class="msf">
+                <span class="msf-k">路线图</span>
+                <input class="msf-i" v-model="noteEdit.路线图" placeholder="目标是什么；「不做」的事关键就带半句" />
+              </label>
+              <label class="msf">
+                <span class="msf-k">说明</span>
+                <textarea class="msf-t" v-model="noteEdit.说明" rows="3"
+                          placeholder="欠着什么——逐条列，不压不删"></textarea>
+              </label>
+              <div class="msf-acts">
+                <button class="ok" :disabled="noteSaving" @click.stop="saveNoteEdit()">{{ noteSaving ? '保存中…' : '保存' }}</button>
+                <button class="ghost" :disabled="noteSaving" @click.stop="cancelNoteEdit()">取消</button>
+                <span class="msf-tip">保存后顶部出撤销条（Ctrl+Z 也能退）</span>
+              </div>
+            </div>
+            <template v-else>
+              <div class="ms-note" v-if="pvCurrent.statusNow || pvCurrent.roadmap || pvCurrent.note">
+                <div class="msn-row" v-if="pvCurrent.statusNow"><span class="msn-k">状态</span>{{ pvCurrent.statusNow }}</div>
+                <div class="msn-row" v-if="pvCurrent.roadmap"><span class="msn-k">路线图</span>{{ pvCurrent.roadmap }}</div>
+                <div class="msn-row" v-if="pvCurrent.note"><span class="msn-k">说明</span>{{ pvCurrent.note }}</div>
+              </div>
+              <button class="ghost ms-editbtn" @click.stop="openNoteEdit(pvCurrent)">✎ 改状态 / 路线图 / 说明</button>
+            </template>
             <!-- 路线文档实况（2026-10-21 · W1-批次 2）：把仓库里的 README/ROADMAP **自动**读回来，
                  与上面那句**手写**说明并列摆着 —— 两边不一致本身就是信息（谁旧了），
                  代码不裁也不覆盖。README 只给一句话摘要（用户向的展示公告，不该占版面），
@@ -5072,6 +5102,81 @@ async function removeProject(p: any): Promise<void> {
   }
 }
 
+// ── 项目三字段就地编辑（2026-10-22 · 施工单包 06）────────────────────────
+/**
+ * 打开编辑：值从主进程读（`registry:readFields`），不从界面缓存抄 ——
+ * 详情页的 `pvCurrent` 是**任务统计派生**的，字段可能已经过时（别让"打开就看到旧值"再犯一次）。
+ */
+async function openNoteEdit(p: any): Promise<void> {
+  if (!p?.id) return
+  try {
+    const r: any = await (window as any).tegula.registryReadFields(p.id)
+    if (!r?.ok) {
+      showToast(`读不到「${p.name || p.id}」这三个字段：${r?.error || '未知原因'}`, 'error')
+      return
+    }
+    const f = r.fields || {}
+    noteEditBase.value = {
+      状态: String(f['状态'] || ''),
+      路线图: String(f['路线图'] || ''),
+      说明: String(f['说明'] || ''),
+    }
+    noteEdit.value = {
+      id: p.id,
+      name: p.name || p.id,
+      状态: noteEditBase.value['状态'],
+      路线图: noteEditBase.value['路线图'],
+      说明: noteEditBase.value['说明'],
+    }
+  } catch (e: any) {
+    showToast('读取异常：' + (e?.message || e), 'error')
+  }
+}
+
+function cancelNoteEdit(): void {
+  noteEdit.value = null
+  noteEditBase.value = {}
+}
+
+/**
+ * 保存：**只提交真改过的字段**（06 单要求 —— 没改就不提交，避免把没展示过的空值顺手写回去）。
+ * 成功后挂撤销条：撤销 = 拿主进程回传的 `before` 再写一次，一步退回去。
+ */
+async function saveNoteEdit(): Promise<void> {
+  const f = noteEdit.value
+  if (!f || noteSaving.value) return
+  const changed = NOTE_FIELDS.filter(k => String((f as any)[k] || '') !== String(noteEditBase.value[k] || ''))
+  if (!changed.length) {
+    showToast('三个字段都没改，没什么可保存的')
+    cancelNoteEdit()
+    return
+  }
+  noteSaving.value = true
+  try {
+    const patch: Record<string, string> = {}
+    for (const k of changed) patch[k] = String((f as any)[k] || '')
+    const r: any = await (window as any).tegula.registryUpdateFields(f.id, toPlain(patch))
+    if (!r?.ok) {
+      showToast(`没保存成：${r?.error || '未知原因'}`, 'error')
+      return
+    }
+    const before = r.before || {}
+    const nm = f.name
+    const id = f.id
+    cancelNoteEdit()
+    projects.value = await (window as any).tegula.loadProjects()
+    offerUndo(`已改「${nm}」的${changed.join(' / ')}`, async () => {
+      const back: any = await (window as any).tegula.registryUpdateFields(id, toPlain(before))
+      if (!back?.ok) throw new Error(back?.error || '这三个字段已被改动，改不回去了')
+      projects.value = await (window as any).tegula.loadProjects()
+    })
+  } catch (e: any) {
+    showToast('保存异常：' + (e?.message || e), 'error')
+  } finally {
+    noteSaving.value = false
+  }
+}
+
 /** 手动模式下勾选/取消一个项目（零硬编码：清单只存在于用户的选择里） */
 function tripToggleManual(id: string): void {
   const set = new Set(tripManualIds.value)
@@ -6521,6 +6626,18 @@ const pvSelected = ref<string>('')
 const pvCurrent = computed(() =>
   projectStats.value.find(p => p.id === pvSelected.value) || projectStats.value[0] || null)
 
+/**
+ * 项目三字段（状态 / 路线图 / 说明）的就地编辑态（2026-10-22 · 施工单包 06）。
+ *
+ * 为什么不做成弹窗 / 设置页：06 单红线「一个入口一个动作，不加设置页不加确认弹窗链」。
+ * 打开时把**打开那一刻**的值另存一份（`noteEditBase`）—— 保存只提交真改过的字段；
+ * 撤销靠主进程回传的 `before` 再写回一次，全程不需要前端猜原值。
+ */
+const noteEdit = ref<{ id: string; name: string; 状态: string; 路线图: string; 说明: string } | null>(null)
+const noteEditBase = ref<Record<string, string>>({})
+const noteSaving = ref(false)
+const NOTE_FIELDS: readonly string[] = ['状态', '路线图', '说明']
+
 const projectStats = computed(() => {
   return projects.value.map(p => {
     const projTasks = tasks.value.filter(t => normProject(t.project) === p.id)
@@ -6539,6 +6656,9 @@ const projectStats = computed(() => {
       repo: p.repo || '',
       // 说明（2026-10-16 批次第 2 项）：13 份项目说明转正，详情页一句话定位
       note: p['说明'] || '',
+      // 2026-10-22 · 06 单：状态 / 路线图 与说明一起在详情页显示并可就地改
+      statusNow: p['状态'] || '',
+      roadmap: p['路线图'] || '',
       taskCount: projTasks.length,
       activeTasks: active.length,
       completedTasks: completed.length,
@@ -13543,6 +13663,25 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段一句话定位 */
 .ms-note { margin-top: 9px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--tint-2); font-size: 11.5px; color: var(--ink); line-height: 1.65; }
+/* 项目三字段（2026-10-22 · 06 单）：状态 / 路线图 / 说明 三行并列 ——
+   标签刻意轻（灰、小一号），值才是要读的东西。 */
+.msn-row { margin-top: 3px; }
+.msn-row:first-child { margin-top: 0; }
+.msn-k { display: inline-block; min-width: 3.6em; margin-right: 6px; color: var(--muted); font-size: 10.5px; letter-spacing: .02em; }
+.ms-editbtn { display: block; width: 100%; margin-top: 6px; height: 26px; font-size: 11.5px; }
+/* 就地编辑块：一个入口一个动作，不加弹窗（06 单红线） */
+.ms-fields { margin-top: 9px; padding: 9px 10px; border: 1px solid var(--accent); border-radius: 8px; background: var(--tint-2); }
+.msf-h { font-size: 11.5px; color: var(--muted); margin-bottom: 7px; }
+.msf { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.msf-k { flex: none; width: 3.6em; padding-top: 5px; font-size: 11px; color: var(--muted); }
+/* preflight 关着 → 原生控件必须显式给字体（check-ui-base 判据） */
+.msf-i, .msf-t { flex: 1 1 auto; min-width: 0; box-sizing: border-box; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 11.5px;
+  color: var(--ink); background: #fff; }
+.msf-i { height: 28px; }
+.msf-t { resize: vertical; line-height: 1.6; }
+.msf-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
+.msf-tip { font-size: 10.5px; color: var(--muted); }
 .ms-blockers { display: block; width: 100%; margin-top: 9px; height: 28px; font-size: 11.5px;
   color: var(--warning); animation: numIn .4s ease both; }
 .ms-git { display: flex; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--muted);

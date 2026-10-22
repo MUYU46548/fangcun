@@ -4169,6 +4169,73 @@
         !!$('#board.pv .ms-detail .ms-note')
         && (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').indexOf('说明条转正断言') >= 0,
         (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').slice(0, 24))
+      // ══ 项目三字段就地编辑（2026-10-22 · 施工单包 06「13 行写回」）══════════
+      // 判据：① 三行并列摆出来（不是只有说明一条）；② 编辑块就在页面上（不是设置页/弹窗链）；
+      //      ③ 保存真调主进程、且**只提交改过的字段**；④ 撤销真写回旧值。
+      const noteTxt = () => (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').replace(/\s+/g, ' ')
+      check('★★ 详情页把 状态 / 路线图 / 说明 三行都摆出来',
+        !!$('#board.pv .ms-detail .ms-note') && $$('#board.pv .ms-detail .msn-row').length === 3,
+        'rows=' + $$('#board.pv .ms-detail .msn-row').length)
+      check('  三行的值来自 registry（不是占位符）',
+        noteTxt().indexOf('活跃开发中（演示夹具）') >= 0 && noteTxt().indexOf('跑通第一单') >= 0,
+        noteTxt().slice(0, 60))
+      check('★ 编辑入口是一个按钮（06 单：不加设置页、不加确认弹窗链）',
+        !!$('#board.pv .ms-detail .ms-editbtn') && !$('#board.pv .ms-detail .ms-fields'))
+      check('★ 点「✎ 改状态 / 路线图 / 说明」→ 就地展开编辑块（不跳页、不弹窗）', await (async () => {
+        const b = $('#board.pv .ms-detail .ms-editbtn')
+        if (!b) return false
+        b.click()
+        return waitFor(() => !!$('#board.pv .ms-detail .ms-fields'), 4000, '编辑块')
+      })())
+      check('★★ 编辑块里值已填好（不是空白让人重打一遍）',
+        $$('#board.pv .ms-detail .msf-i').length === 2
+        && ($$('#board.pv .ms-detail .msf-i')[0] || {}).value === '活跃开发中（演示夹具）',
+        JSON.stringify($$('#board.pv .ms-detail .msf-i').map((i) => i.value)))
+      check('  编辑块出现时只读那条不再同时挂着（同一块内容不重复渲染）',
+        !$('#board.pv .ms-detail .ms-note'))
+      const saveRes = await (async () => {
+        const f = $('#board.pv .ms-detail .ms-fields')
+        if (!f) return { err: '没有编辑块' }
+        const st = f.querySelectorAll('.msf-i')[0]
+        st.value = '已改：新状态（夹具）'
+        st.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(60)
+        const saveBtn = Array.from(f.querySelectorAll('.msf-acts button')).find((b) => (b.textContent || '').indexOf('保存') >= 0)
+        if (!saveBtn) return { err: '没有保存按钮' }
+        const n0 = window.__fcTest.callCount('registryUpdateFields')
+        saveBtn.click()
+        const hit = await waitFor(() => window.__fcTest.callCount('registryUpdateFields') > n0, 4000, 'updateFields')
+        if (!hit) return { err: '没调到 registryUpdateFields' }
+        const c = window.__fcTest.calls().filter((x) => x.name === 'registryUpdateFields').pop()
+        return { args: c.args }
+      })()
+      check('★★ 保存真调主进程 registryUpdateFields（不是在界面上自娱自乐）',
+        !saveRes.err && saveRes.args && saveRes.args[0] === 'demo', JSON.stringify(saveRes))
+      check('★★ 只提交真改过的那一个字段（状态），另两个不跟着写回',
+        !saveRes.err && saveRes.args && Object.keys(saveRes.args[1] || {}).join(',') === '状态',
+        !saveRes.err ? JSON.stringify(saveRes.args && saveRes.args[1]) : saveRes.err)
+      check('★ 保存后详情页立刻显示新值（不用手动刷新）',
+        await waitFor(() => noteTxt().indexOf('已改：新状态（夹具）') >= 0, 4000, '新值'), noteTxt().slice(0, 40))
+      check('★ 保存后编辑块收起（不是原地留着让人以为没保存）', !$('#board.pv .ms-detail .ms-fields'))
+      check('★★ 撤销条出现，且写明「哪个项目的哪些字段」', await waitFor(() => {
+        const ub = $('#undo-bar')
+        if (!ub) return false
+        const t = (ub.textContent || '').replace(/\s+/g, ' ')
+        return t.indexOf('演示项目') >= 0 && t.indexOf('状态') >= 0
+      }, 4000, '撤销条'), (($('#undo-bar') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 40))
+      check('★★ 点撤销 → 真写回旧值，字段回原样（撤销栈对 registry 改动同样生效）', await (async () => {
+        const btn = Array.from($$('#undo-bar button')).find((b) => (b.textContent || '').indexOf('撤销') >= 0)
+        if (!btn) return false
+        const n0 = window.__fcTest.callCount('registryUpdateFields')
+        btn.click()
+        const hit = await waitFor(() => window.__fcTest.callCount('registryUpdateFields') > n0, 4000, '撤销写回')
+        if (!hit) return false
+        return waitFor(() => noteTxt().indexOf('活跃开发中（演示夹具）') >= 0, 4000, '回原值')
+      })(), noteTxt().slice(0, 40))
+      check('  撤销后用 before 写回的是**旧值本身**（不是清空/猜值）', await (async () => {
+        const c = window.__fcTest.calls().filter((x) => x.name === 'registryUpdateFields').pop()
+        return !!c && c.args[1] && c.args[1]['状态'] === '活跃开发中（演示夹具）'
+      })(), JSON.stringify((window.__fcTest.calls().filter((x) => x.name === 'registryUpdateFields').pop() || {}).args))
       const plansBtn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('🗂') >= 0)
       if (plansBtn) {
         plansBtn.click()

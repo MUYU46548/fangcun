@@ -789,6 +789,165 @@ export function removeProjectFromRegistry(id: string): { ok: boolean; error?: st
   return { ok: true }
 }
 
+// ── registry 项目说明三字段（2026-10-22 · 施工单包 06「13 行写回」）───────────
+/**
+ * registry.yaml 里每个项目**可以手改的那三个中文标量**。
+ *
+ * 为什么只放这三个：06 单说死了「不动 members、id/name/tasks/repo/tools/sources、services」——
+ * 白名单写在这里，调用方传别的键一律显式报错（宁可红，也不静默忽略一个用户以为改了的字段）。
+ */
+export const PROJECT_TEXT_FIELDS = ['状态', '路线图', '说明'] as const
+export type ProjectTextField = typeof PROJECT_TEXT_FIELDS[number]
+
+/** 定位某项目在 registry.yaml 里的文本块（行号区间，`end` 含块尾空行）。与 remove 同一套判据。 */
+function locateProjectBlock(
+  lines: string[],
+  pid: string,
+): { start: number; end: number; indent: number } | null {
+  const reStart = new RegExp(`^\\s*-\\s*id:\\s*['"]?${pid.replace(/\./g, '\\.')}['"]?\\s*$`)
+  const start = lines.findIndex((l) => reStart.test(l))
+  if (start < 0) return null
+  const indent = (lines[start].match(/^\s*/) || [''])[0].length
+  let end = start + 1
+  while (end < lines.length) {
+    const l = lines[end]
+    if (!l.trim()) { end++; continue }
+    const li = (l.match(/^\s*/) || [''])[0].length
+    if (/^\s*-/.test(l) && li <= indent) break
+    if (li === 0) break
+    end++
+  }
+  return { start, end, indent }
+}
+
+/** 读这三个字段的当前值（撤销要用「改之前是什么」，界面也要显示现状）。 */
+export function readProjectFields(
+  id: string,
+): { ok: boolean; error?: string; fields?: Partial<Record<ProjectTextField, string>> } {
+  const pid = String(id || '').trim()
+  if (!fs.existsSync(REGISTRY_PATH)) return { ok: false, error: '找不到 registry.yaml' }
+  let parsed: any
+  try {
+    parsed = yaml.load(fs.readFileSync(REGISTRY_PATH, 'utf-8'))
+  } catch (e) {
+    return { ok: false, error: `registry.yaml 解析失败：${(e as Error).message}` }
+  }
+  const all = [...(parsed?.projects || []), ...(parsed?.released || [])]
+  const p = all.find((x: any) => String(x?.id) === pid)
+  if (!p) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+  const fields: Partial<Record<ProjectTextField, string>> = {}
+  for (const f of PROJECT_TEXT_FIELDS) fields[f] = String(p[f] ?? '')
+  return { ok: true, fields }
+}
+
+/**
+ * 改 registry.yaml 里一个项目的 状态 / 路线图 / 说明。
+ *
+ * 纪律（与 add / remove 逐条对齐）：
+ *   · **文本块级替换**，不 yaml.load + dump 重写 —— 顶部注释、字段顺序、别人的自定义字段逐字节保留；
+ *   · 只改白名单里的键，传别的键 → 显式报错（不静默忽略）；
+ *   · 写前自校验：能解析 + 项目总数不变 + 三字段读回值 === 期望值，任一不满足就**放弃写入**；
+ *   · 返回 `before`（改之前的旧值）—— 撤销条要用它反推回滚，不靠"再猜一次原值"；
+ *   · **绝不写空串覆盖成 ""**：传 `''` 是"清空这个字段"的显式意图，会写成 `""`，
+ *     但调用方（界面的"没改就不提交"）负责不要顺手传空。
+ */
+export function updateProjectFields(
+  id: string,
+  patch: Partial<Record<ProjectTextField, string>>,
+): {
+  ok: boolean
+  error?: string
+  before?: Partial<Record<ProjectTextField, string>>
+  changed?: ProjectTextField[]
+} {
+  const pid = String(id || '').trim()
+  if (!pid) return { ok: false, error: '项目 ID 不能为空' }
+  if (!/^[A-Za-z0-9._-]+$/.test(pid)) return { ok: false, error: '项目 ID 含非法字符' }
+  if (!patch || typeof patch !== 'object') return { ok: false, error: '没有要改的字段' }
+
+  const keys = Object.keys(patch)
+  if (!keys.length) return { ok: false, error: '没有要改的字段' }
+  const bad = keys.filter((k) => !(PROJECT_TEXT_FIELDS as readonly string[]).includes(k))
+  if (bad.length) {
+    return { ok: false, error: `只允许改 状态 / 路线图 / 说明，收到不认识的字段：${bad.join('、')}` }
+  }
+
+  if (!fs.existsSync(REGISTRY_PATH)) return { ok: false, error: '找不到 registry.yaml' }
+  const content = fs.readFileSync(REGISTRY_PATH, 'utf-8')
+  let parsed: any
+  try {
+    parsed = yaml.load(content)
+  } catch (e) {
+    return { ok: false, error: `registry.yaml 解析失败：${(e as Error).message}` }
+  }
+  const beforeP = Array.isArray(parsed?.projects) ? parsed.projects : []
+  const beforeR = Array.isArray(parsed?.released) ? parsed.released : []
+  const total = beforeP.length + beforeR.length
+  const proj = [...beforeP, ...beforeR].find((p: any) => String(p?.id) === pid)
+  if (!proj) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+
+  const before: Partial<Record<ProjectTextField, string>> = {}
+  for (const f of keys as ProjectTextField[]) before[f] = String(proj[f] ?? '')
+
+  const lines = content.split(/\r?\n/)
+  const loc = locateProjectBlock(lines, pid)
+  if (!loc) return { ok: false, error: `定位不到项目「${pid}」的文本块（未做任何修改）` }
+
+  const fieldIndent = ' '.repeat(loc.indent + 2)
+  const out = lines.slice()
+  const missing: string[] = []
+  const changed: ProjectTextField[] = []
+
+  for (const f of keys as ProjectTextField[]) {
+    const val = String(patch[f] ?? '').replace(/\r\n?/g, '\n').replace(/\u0000/g, '')
+    if (val === before[f]) continue
+    changed.push(f)
+    const re = new RegExp(`^\\s{${loc.indent + 2}}${f}\\s*:`)
+    let idx = -1
+    for (let i = loc.start; i < loc.end; i++) {
+      if (re.test(out[i])) { idx = i; break }
+    }
+    const line = `${fieldIndent}${f}: ${yamlScalar(val)}`
+    if (idx >= 0) out[idx] = line
+    else missing.push(line)
+  }
+
+  if (!changed.length) return { ok: true, before, changed: [] }
+
+  if (missing.length) {
+    // 插到块内最后一个非空行之后（块尾空行留给下一个项目）
+    let at = loc.end - 1
+    while (at > loc.start && !out[at].trim()) at--
+    out.splice(at + 1, 0, ...missing)
+  }
+
+  const next = out.join('\n')
+
+  // 写前自校验 —— 宁可不写，也不破坏 registry.yaml
+  try {
+    const check = yaml.load(next) as any
+    const afterP = Array.isArray(check?.projects) ? check.projects : []
+    const afterR = Array.isArray(check?.released) ? check.released : []
+    if (afterP.length + afterR.length !== total) {
+      return { ok: false, error: '写入校验失败：项目数变了，已放弃写入' }
+    }
+    const p2 = [...afterP, ...afterR].find((p: any) => String(p?.id) === pid)
+    if (!p2) return { ok: false, error: '写入校验失败：项目不见了，已放弃写入' }
+    for (const f of changed) {
+      const want = String(patch[f] ?? '').replace(/\r\n?/g, '\n')
+      if (String(p2[f] ?? '') !== want) {
+        return { ok: false, error: `写入校验失败：字段「${f}」读回值对不上，已放弃写入` }
+      }
+    }
+  } catch (e) {
+    return { ok: false, error: `写入内容无法解析，已放弃：${(e as Error).message}` }
+  }
+
+  atomicWrite(REGISTRY_PATH, next)
+  logActivity('-', 'registry_update_fields', `${pid}: ${changed.join('、')}`)
+  return { ok: true, before, changed }
+}
+
 export function parseTask(filePath: string): Task | null {
   if (!fs.existsSync(filePath)) return null
 

@@ -262,6 +262,25 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  /** 项目说明三字段（状态 / 路线图 / 说明）读写 —— 2026-10-22 · 06 单「13 行写回」。
+   *  写回走文本块级替换 + 写前自校验，并回传改前旧值供撤销条反推回滚。 */
+  guardedHandle('registry:readFields', (_event, id: string) => {
+    try {
+      return data.readProjectFields(String(id || ''))
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
+  // 单行写法是刻意的：check-ipc-parity 按 `guardedHandle('name'` 同行扫描，拆行会被判成"未注册"。
+  guardedHandle('registry:updateFields', (_event, id: string, patch: Record<string, string>) => {
+    try {
+      return data.updateProjectFields(String(id || ''), (patch || {}) as any)
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+
   // ── First run setup ───────────────────────────────────────────────
   guardedHandle('isFirstRun', () => {
     return data.isFirstRun()

@@ -174,8 +174,11 @@ const store = {
     },
   ],
   // demo 登记了工作目录、demo2 没有 —— 概览卡那条"未登记工作目录"的回退才有东西可验
+  // 2026-10-22 · 06 单：demo 补 状态 / 路线图 两字段，三行并列与就地编辑才有东西可验
   projects: [
-    { id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo', 说明: '演示用项目——说明条转正断言靠这条（批次第 2 项）' },
+    { id: 'demo', name: '演示项目', repo: 'E:/CODE/mock/demo',
+      状态: '活跃开发中（演示夹具）', 路线图: '跑通第一单',
+      说明: '演示用项目——说明条转正断言靠这条（批次第 2 项）' },
     { id: 'demo2', name: '第二个项目' },
   ],
   // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），
@@ -929,6 +932,28 @@ contextBridge.exposeInMainWorld('tegula', {
   createFreshSetup: () => ok(),
   importFromPythonTegula: () => ok(),
   registryAddProject: () => ok(),
+  // 2026-10-22 · 施工单包 06：项目三字段读写。
+  // ⚠ 桩必须**真改 store 并记账** —— 断言要验"保存后详情页显示新值""撤销真写回旧值"，
+  //   桩若只 return ok() 而不动 store，两条断言都会恒绿（MEMORY 第十节的老坑）。
+  registryReadFields: (id) => {
+    rec('registryReadFields', [id])
+    const p = (store.projects || []).find((x) => x.id === id)
+    if (!p) return { ok: false, error: '没有这个项目' }
+    return { ok: true, fields: { 状态: p['状态'] || '', 路线图: p['路线图'] || '', 说明: p['说明'] || '' } }
+  },
+  registryUpdateFields: (id, patch) => {
+    rec('registryUpdateFields', [id, patch])
+    const p = (store.projects || []).find((x) => x.id === id)
+    if (!p) return { ok: false, error: '没有这个项目' }
+    const keys = Object.keys(patch || {})
+    const allowed = ['状态', '路线图', '说明']
+    const bad = keys.filter((k) => allowed.indexOf(k) < 0)
+    // 与主进程同一口径：白名单外一律整体拒绝（不静默忽略）
+    if (bad.length) return { ok: false, error: '只允许改 状态 / 路线图 / 说明' }
+    const before = {}
+    for (const k of keys) { before[k] = String(p[k] || ''); p[k] = String(patch[k] || '') }
+    return { ok: true, before, changed: keys }
+  },
   // 备份 v2（现行家族）；裸 backup/restore/listBackups 已随族3（卡004）删除 —— 夹具同步
   // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证「默认最新」与传参
   backupListLocal: () => { rec('backupListLocal'); return ({
