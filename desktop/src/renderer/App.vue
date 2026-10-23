@@ -2411,58 +2411,9 @@
       @open-card="openCard"
       @open-log="openLogById" />
 
-    <main id="board" class="roadmap-view" v-if="curView === 'roadmap'">
-      <div class="roadmap-header">
-        <h3>路线图</h3>
-        <div class="roadmap-ctrls">
-          <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
-        </div>
-      </div>
-      <!-- 阶段里程碑（2026-10-11，C 组死通道接回）：按批次前缀 P0/P1/P2/P3 算各阶段完成度，
-           例如「核心阶段完成」「功能阶段进行中 60%」—— 一眼看出项目走到哪一段了。 -->
-      <div class="rms-strip" v-if="roadmapMilestones.length">
-        <span class="rms-label">阶段里程碑</span>
-        <span v-for="(m, i) in roadmapMilestones" :key="i" class="rms-item" :class="'rms-' + m.status">
-          <b>{{ m.project_name || m.project }}</b> · {{ m.milestone }}
-          <template v-if="m.status === 'in_progress' && m.progress != null"> {{ m.progress }}%</template>
-        </span>
-      </div>
-      <div class="roadmap-content">
-        <div v-if="!roadmapData.projects || !roadmapData.projects.length" class="empty-state">
-          <div class="empty-icon">🗺️</div>
-          <div class="empty-text">暂无路线图数据</div>
-        </div>
-        <div v-for="proj in (roadmapData.projects || [])" :key="proj.id" class="roadmap-project">
-          <div class="rp-header">
-            <span class="rp-name">{{ proj.name }}</span>
-            <span class="rp-health st" :class="'st-' + proj.health">{{ roadmapHealthLabel(proj.health) }}</span>
-          </div>
-          <div class="rp-batches">
-            <div v-for="batch in proj.batches" :key="batch.name" class="rp-batch" :class="'rb-' + batch.status">
-              <div class="rb-header">
-                <span class="rb-name">{{ batch.name }}</span>
-                <span class="rb-count">{{ batch.done }}/{{ batch.total }}</span>
-              </div>
-              <div class="rb-tasks">
-                <div v-for="t in batch.tasks" :key="t.id" class="rb-task">
-                  <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
-                  <span class="rb-title">{{ t.title }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="rp-next" v-if="proj.nextActions && proj.nextActions.length">
-            <label>下一步</label>
-            <div class="rp-actions">
-              <div v-for="a in proj.nextActions" :key="a.taskId" class="rp-action">
-                <span class="st small" :class="a.priority === '高' ? 'st-review' : 'st-todo'">{{ a.priority }}</span>
-                {{ a.title }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
+    <!-- 路线图（2026-10-23 拆成组件 · 拆分计划第 1 批第 7 块）。
+         它自己 onMounted 拉 roadmap + 里程碑；零交互（唯一按钮是页内「⟳ 刷新」）。 -->
+    <RoadmapView v-if="curView === 'roadmap'" />
 
     <!-- Edit modal -->
     <div id="modal-overlay" class="overlay" v-if="editTask_" @mousedown.self="closeTaskEditor()">
@@ -3832,13 +3783,12 @@ import { toPlain } from '../shared/plain'
 import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
-import { computeBlockerImpact } from '../shared/blockers'
 import { statusClass } from '../shared/status'
 import CalendarView from './views/CalendarView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
+import RoadmapView from './views/RoadmapView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
-import type { BlockerImpact } from '../shared/blockers'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
@@ -5877,26 +5827,9 @@ const reviewModal = ref<{ id: string; title: string } | null>(null)
 const launchpadApps = ref<any[]>([])
 const launchpadConfigPath = ref('')
 const blockerChains = ref<any[]>([])
-const totalBlockedTasks = computed(() => blockerChains.value.reduce((sum, s) => sum + (s.blockedTasks?.length || 0), 0))
-
-/**
- * 阻塞链关键路径（卡 20260925-023）——
- * **算法在 `shared/blockers.ts`**（纯逻辑，`dist/shared/blockers.js` 可被 node 直接断言，
- * 见 `scripts/test/e2e-blockers.cjs`）。这里只负责"把数据接进来"。
- */
-const blockerImpact = computed<BlockerImpact[]>(() => computeBlockerImpact(blockerChains.value))
-/** 顶部那句建议只在"真有传递收益"时出现 —— 解了没人受益就不吹 */
-const blockerAdvice = computed<BlockerImpact | null>(() => {
-  const top = blockerImpact.value[0]
-  return top && top.unlock > 0 ? top : null
-})
-/** 按 id 取，给卡片行用（在 v-for 里 find 也行，但这是个 Map 更直接） */
-const blockerImpactById = computed<Record<string, BlockerImpact>>(() => {
-  const m: Record<string, BlockerImpact> = {}
-  for (const r of blockerImpact.value) m[r.id] = r
-  return m
-})
-const roadmapData = ref<any>({ projects: [] })
+// 阻塞链的派生量（totalBlockedTasks / blockerImpact / blockerAdvice / blockerImpactById）
+// 已于 2026-10-23 随「阻塞源」搬进 views/BlockersView.vue —— 这四个在这里**零引用**，
+// 是第 2 块搬完留下的死代码（守卫只查模板引用，查不到这种脚本内自循环的死簇）。
 const projectProgress = ref<Record<string, any>>({})
 
 // ── 通知中心（Notification Center）─────────────────────────────────
@@ -6804,7 +6737,7 @@ function loadViewData(v: string) {
   } else if (v === 'blockers') {
     loadBlockerChains()
   } else if (v === 'roadmap') {
-    loadRoadmap()
+    // 数据由组件自己 onMounted 拉（views/RoadmapView.vue）—— 这里显式空着，别掉到 else 白跑 loadAll
   } else if (v === 'todos') {
     loadTodos()
   } else if (v === 'ideas') {
@@ -6938,8 +6871,6 @@ async function runSync(): Promise<void> {
   }
 }
 
-/** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
-const roadmapMilestones = ref<any[]>([])
 /** 跨项目建议（卡住 / 空闲项目），项目页顶部那条 */
 const crossSuggest = ref<string[]>([])
 
@@ -6950,24 +6881,8 @@ async function loadCrossSuggest(): Promise<void> {
   } catch { crossSuggest.value = [] }
 }
 
-async function loadRoadmap() {
-  try {
-    const result = await window.tegula.aggregateRoadmap()
-    roadmapData.value = result
-  } catch {
-    roadmapData.value = { projects: [] }
-  }
-  // 阶段里程碑（2026-10-11，C 组死通道接回）：与路线图同一批数据算出来的，顺手一起拉
-  try {
-    const m: any = await (window as any).tegula.suggestMilestones()
-    roadmapMilestones.value = Array.isArray(m) ? m : []
-  } catch { roadmapMilestones.value = [] }
-}
-
-
-function roadmapHealthLabel(h: string): string {
-  return { active: '活跃', stuck: '停滞', idle: '空闲' }[h] || h
-}
+// 路线图的三个东西（roadmapData / roadmapMilestones / loadRoadmap / roadmapHealthLabel）
+// 已于 2026-10-23 整块搬进 views/RoadmapView.vue（拆分第 1 批第 7 块）。
 
 async function loadProjectProgressMap() {
   try {

@@ -4081,6 +4081,31 @@
       String((($('.rms-item') || {}).textContent || '')).indexOf('阶段') >= 0,
       String((($('.rms-item') || {}).textContent || '')))
 
+    // ── 路线图本体（2026-10-23 补：此前夹具恒为 `{projects:[]}`，这四种渲染一条都没验过）──
+    check('★★ 路线图**不是空的**（项目块渲染出来，不再停在「暂无路线图数据」）',
+      !!$('.roadmap-view .roadmap-project') && !$('.roadmap-view .empty-state'),
+      'projects=' + $$('.roadmap-view .roadmap-project').length)
+    const rpEl = $('.roadmap-view .roadmap-project')
+    check('★ 项目名 + 健康度标签（active → 「活跃」，映射不是硬编码在模板里）',
+      !!rpEl && ((rpEl.querySelector('.rp-name') || {}).textContent || '').trim() === '演示项目'
+      && ((rpEl.querySelector('.rp-health') || {}).textContent || '').trim() === '活跃',
+      rpEl ? ((rpEl.querySelector('.rp-name') || {}).textContent || '') + '/' + ((rpEl.querySelector('.rp-health') || {}).textContent || '') : '(无)')
+    const rbEls = $$('.roadmap-view .rp-batch')
+    check('★ 批次卡片：done/total 与状态 class 都来自数据（完成 2/2、进行 2 条）',
+      rbEls.length === 2
+      && ((rbEls[0].querySelector('.rb-count') || {}).textContent || '').trim() === '2/2'
+      && /rb-completed/.test(rbEls[0].className)
+      && /rb-active/.test(rbEls[1].className),
+      JSON.stringify(rbEls.map((b) => ((b.querySelector('.rb-count') || {}).textContent || '').trim() + '|' + b.className)))
+    check('★ 任务状态胶囊的 class 来自 shared/status（完成→st-done、进行中→st-doing）',
+      $$('.roadmap-view .rb-task .st').map((x) => x.className).join('|').indexOf('st-done') >= 0
+      && $$('.roadmap-view .rb-task .st').map((x) => x.className).join('|').indexOf('st-doing') >= 0,
+      JSON.stringify($$('.roadmap-view .rb-task .st').map((x) => x.className)))
+    const rpActs = $$('.roadmap-view .rp-action')
+    check('★ 「下一步」列出行动项，高优先级标红（st-review）',
+      rpActs.length === 2 && /st-review/.test(rpActs[0].className + ' ' + ((rpActs[0].querySelector('.st') || {}).className || '')),
+      JSON.stringify(rpActs.map((a) => (a.textContent || '').trim())))
+
     // ④ 设置 → 诊断页三块（selfCheck / skillsCheck / loadActivity）
     clickText('⚙'); await sleep(900)
     const diagNav = $$('.settings-nav-btn').find((b) => (b.textContent || '').indexOf('诊断') >= 0)

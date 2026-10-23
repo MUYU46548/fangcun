@@ -23,7 +23,24 @@
 | 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | `e7cddd8` | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
 | 4 | calendar **第二步：模板搬成组件** → `renderer/views/CalendarView.vue`（75 行模板 + props/emit） | `e097dac` | **75** | 27（`onCalDrop`→`doCalReschedule`、`openLogById`；`localPriority`/`priorityLabel` 抽到 `shared/priority.ts`） | **15850**（净 −93） | renderer-web 688/0 · e2e-renderer 312/0 |
 | 5 | services（服务/端口 → `renderer/views/ServicesView.vue`，85 行模板 + 118 行脚本） | `31106cf` | **85** | **118**（整块搬：状态 + loadServices + 三个动作 + 快照文案） | **15655**（净 −195） | renderer-web 688/0 · e2e-renderer 312/0 |
-| 6 | skills（技能安装专区 → `renderer/views/SkillsView.vue`，157 行模板 + 434 行脚本） | 见提交 | **157** | **434**（整块搬：清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料） | **15132**（净 −523） | renderer-web 695/0（+7）· e2e-renderer 312/0 |
+| 6 | skills（技能安装专区 → `renderer/views/SkillsView.vue`，157 行模板 + 434 行脚本） | `0030cae` | **157** | **434**（整块搬：清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料） | **15132**（净 −523） | renderer-web 695/0（+7）· e2e-renderer 312/0 |
+
+| 7 | roadmap（路线图 → `renderer/views/RoadmapView.vue`，52 行模板 + 46 行脚本） | 见提交 | **52** | **33**（4 个状态/函数整块搬；顺手清掉阻塞视图留下的 4 个死 computed + 2 个 import） | **15047**（净 −85） | renderer-web 700/0（+5）· e2e-renderer 312/0 |
+
+> **第 7 块：真·最干净的一块，但同样挖出测试洞**。52 行模板、零弹窗、零跨视图状态、
+> 唯一交互是页内「⟳ 刷新」。搬它只花了一次替换。
+>
+> ⚠ 顺手清掉第 2 块留下的**死代码**：`totalBlockedTasks` / `blockerImpact` / `blockerAdvice` /
+> `blockerImpactById` 四个 computed 在 App.vue 里已经零引用（模板早就不在了），
+> 连同 `computeBlockerImpact` / `BlockerImpact` 两个 import 一起删。
+> **为什么守卫没抓到**：`check-template-bindings` 查的是「模板引用了没定义的东西」和
+> 「定义了但零引用」—— 这四个互相引用（A 用 B），所以每一个都有"引用"，凑成一个自循环死簇。
+> 拆组件时该顺手核一遍父文件里还有没有 `xxxById` / `xxxAdvice` 这类派生量。
+>
+> **测试洞（和 blockers / MCP 同型，第三次了）**：假 preload 的 `aggregateRoadmap`
+> 恒返回 `{ projects: [] }` → 路线图页在测试里永远停在「暂无路线图数据」→
+> 项目/批次/任务/下一步**四种渲染逻辑一条都没被验过**。已补真夹具 + 5 条断言。
+> （规律已经很清楚了：**凡是桩返回空数组的地方，那一整块渲染就等于没测**。）
 
 > **第 6 块为什么不切两半**：技能页看着有五个分区（清单 / Hermes / 外部导入 / 别的 agent / MCP），
 > 但它们共用同一份状态（`skillsList` / `skillsTargets` / `agentTargets` / `mcpTargets`），

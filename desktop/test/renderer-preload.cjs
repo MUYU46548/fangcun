@@ -358,7 +358,35 @@ contextBridge.exposeInMainWorld('tegula', {
       blockedTasks: [{ id: 'task-demo-001', title: '被挡住的演示任务', status: '待办' }],
     }]
   },
-  aggregateRoadmap: () => ({ projects: [] }),
+  // 路线图夹具（2026-10-23 补）：此前一律 `{ projects: [] }` —— 于是路线图页在测试里
+  // 永远停在「暂无路线图数据」，项目/批次/任务/下一步**四种渲染逻辑一条都没被验过**。
+  // 拆组件时把它搬丢了，测试照样全绿。现在按 main/data/tasks.ts 的 RoadmapProject 真实形状给。
+  aggregateRoadmap: () => {
+    rec('aggregateRoadmap')
+    return {
+      generatedAt: 1761200000000,
+      projects: [{
+        id: 'demo', name: '演示项目', health: 'active', taskCount: 4,
+        blockers: [],
+        batches: [
+          { name: 'P0 核心', status: 'completed', total: 2, done: 2,
+            tasks: [
+              { id: 'rm-1', title: '核心一', status: '完成' },
+              { id: 'rm-2', title: '核心二', status: '完成' },
+            ] },
+          { name: 'P1 功能', status: 'active', total: 2, done: 0,
+            tasks: [
+              { id: 'rm-3', title: '功能一', status: '进行中' },
+              { id: 'rm-4', title: '功能二', status: '待办' },
+            ] },
+        ],
+        nextActions: [
+          { taskId: 'rm-3', title: '功能一', priority: '高', batch: 'P1 功能' },
+          { taskId: 'rm-4', title: '功能二', priority: '中', batch: 'P1 功能' },
+        ],
+      }],
+    }
+  },
   backupStatus: () => ({ ok: true, status: { enabled: false, running: false, nextRunAt: null, state: {} } }),
   backupGetConfig: () => ({}),
   onBackupStatus: () => () => {},
