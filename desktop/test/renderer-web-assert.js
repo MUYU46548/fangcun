@@ -1908,6 +1908,26 @@
     })())
     window.__fcTest.setSelfSync(null)
 
+    // ── 监控台「建议动作 / 可并行机会」（2026-10-23 补：两条死通道接回后零断言）──
+    // 它们是 10-11「A 组死通道收口」接回来的，桩却一直返回 [] —— 于是「接了但没渲染」
+    // 和「渲染了但字段名写错（o.reason）」两种坏法都不会被发现。
+    check('★★ 建议动作真渲染（suggestActions 按项目 id 调，不是全局糊一把）', await (async () => {
+      clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
+      await pickMs('演示项目')
+      const ok = await waitFor(() => $$('#board.pv .ms-suggest-item').length >= 2, 4000, '建议两条')
+      if (!ok) return false
+      const args = (window.__fcTest.calls().filter((c) => c.name === 'suggestActions').pop() || {}).args || []
+      return args[0] === 'demo'
+    })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'suggestActions').pop() || {}).args))
+    check('★ 建议文案来自主进程（界面不自己编）',
+      (($('#board.pv .ms-detail') || {}).textContent || '').indexOf('夹具建议') >= 0,
+      (($('#board.pv .ms-suggest') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+    check('★★ 可并行机会只显示「跨项目 + 本项目」的，别的项目那条不许串进来', (() => {
+      const box = $$('#board.pv .ms-suggest').map((e) => e.textContent || '').join(' | ')
+      return box.indexOf('跨项目可并行') >= 0 && box.indexOf('本项目两个批次') >= 0
+        && box.indexOf('别的项目的机会') < 0
+    })(), (($('#board.pv .ms-suggest') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 90))
+
     check('★ 点阻塞源入口 → 真跳「阻塞」页签（不是死按钮）', await (async () => {
       const b = $('#board.pv .ms-blockers')
       if (!b) return false

@@ -977,9 +977,22 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   getRoadmapTrend: () => ({}),
   suggestCrossProject: () => { rec('suggestCrossProject'); return store.crossSuggest.slice() },
-  detectParallelOpportunities: () => [],
+  detectParallelOpportunities: () => {
+    rec('detectParallelOpportunities')
+    return [
+      { type: 'parallel', project: '', reason: '夹具：跨项目可并行（A 与 B 互不依赖）' },
+      { type: 'batch', project: 'demo', reason: '夹具：本项目两个批次可并行' },
+      { type: 'batch', project: 'other', reason: '别的项目的机会（不该出现在演示项目页）' },
+    ]
+  },
   suggestMilestones: () => { rec('suggestMilestones'); return store.milestones.slice() },
-  suggestActions: () => [],
+  // 监控台「建议动作 / 可并行机会」（2026-10-23 补）：此前恒返回 [] ——
+  // 它们是 10-11 接回的**死通道**，但接回来之后没有任何断言碰过，
+  // 于是"接了但没渲染 / 渲染了但字段名错"两种坏法都不会被发现。
+  suggestActions: (projectId) => {
+    rec('suggestActions', [projectId])
+    return ['夹具建议：先把 P1 批次收口', '夹具建议：这条卡挡着两张待办']
+  },
   quickAdd: (t) => {
     rec('quickAdd', [t])
     const title = String(t || '')
