@@ -122,8 +122,15 @@ function collectDeclared(script) {
   const declRe = /\b(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)/g
   while ((m = declRe.exec(script))) push(m[1])
   // 解构：const { a, b: c } = … / const [a, b] = …
+  // ⚠ 多行解构里可以写行注释（按组分段时很自然），而 `[^\]}]*` 会连注释一起吃进来：
+  //   注释里的 `/`、`、` 会把「注释 + 紧跟其后的那个名字」粘成一坨，那个名字于是被判"未声明"。
+  //   2026-10-23 实测：views/LogsView.vue 的 5 组分类注释，正好误报 5 个名字
+  //   （loadLogs / openNewLog / toggleLogBatchMode / logStatusClass / onLogDrop —— 都是注释后第一个）。
+  //   先剥行注释再 split，字符串里的 `//` 极少出现在解构默认值里，可接受。
   const destrRe = /\b(?:const|let|var)[ \t]*[\[{]([^\]}]*)[\]}][ \t]*=/g
-  while ((m = destrRe.exec(script))) m[1].split(',').forEach(part => push(part.split(':').pop()))
+  while ((m = destrRe.exec(script))) {
+    m[1].replace(/\/\/[^\n]*/g, '').split(',').forEach(part => push(part.split(':').pop()))
+  }
   const fnRe = /\bfunction[ \t]+([A-Za-z_$][\w$]*)/g
   while ((m = fnRe.exec(script))) push(m[1])
   // import { a, b as c } from '…' / import x from '…' / import * as ns

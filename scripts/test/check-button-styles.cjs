@@ -271,6 +271,54 @@ function main() {
     spinOnButton.length === 0,
     spinOnButton.length ? `挂在按钮上：${spinOnButton.join(' | ')}（应改为挂到内部 span，如 .ico-glyph）` : '')
 
+  // ── 检查 ⑤：views/*.vue 里的按钮 class 也必须有规则（2026-10-23 加）──
+  //
+  // 为什么必须加：8 个视图搬成组件之后（help / blockers / calendar / services / skills /
+  //   roadmap / trash / todos / logs），约 900 行模板不再受本守卫覆盖。组件里把
+  //   `.todo-del` 敲成 `.todo-delete`，**没有任何东西会红** —— 表现就是那个按钮退回
+  //   Chromium 默认样式，正是本守卫最初要抓的那个病（「按钮样式仍为默认」）。
+  //   样式只有一份（App.vue 的全局 <style>），所以判据仍用上面那套 selectors，
+  //   只是把「模板来源」从 App.vue 扩到 views/。组件自带 <style> 的话，它的规则也算数。
+  {
+    const viewsDir = path.resolve(__dirname, '../../desktop/src/renderer/views')
+    const viewFiles = fs.existsSync(viewsDir)
+      ? fs.readdirSync(viewsDir).filter((f) => f.endsWith('.vue')).sort()
+      : []
+    const esc = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const hitSel = (c) => selectors.some(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel))
+    const missing = []
+    let btnCount = 0
+    for (const fn of viewFiles) {
+      const clean = fs.readFileSync(path.join(viewsDir, fn), 'utf-8')
+        .replace(/<!--[\s\S]*?-->/g, (m) => ' '.repeat(m.length))
+      const t0 = clean.indexOf('<template>')
+      const t1 = t0 < 0 ? -1 : matchTagClose(clean, t0, 'template')
+      if (t0 < 0 || t1 < 0) continue
+      const tplV = clean.slice(t0, t1)
+      // 组件自带 <style> 时，本地规则也认（scoped 亦然：class 名照样要对得上）
+      const localSel = []
+      const s0 = clean.indexOf('<style')
+      if (s0 >= 0) {
+        const sb = clean.slice(s0, clean.lastIndexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '')
+        const rr = /([^{}]+)\{/g
+        let mm
+        while ((mm = rr.exec(sb))) for (const sel of mm[1].split(',')) if (sel.trim()) localSel.push(sel.trim())
+      }
+      const seen = new Set()
+      for (const b of scanTags(tplV, 'button')) {
+        btnCount++
+        for (const c of staticClass(b.attrs) || []) seen.add(c)
+      }
+      for (const c of seen) {
+        if (hitSel(c)) continue
+        if (localSel.some(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel))) continue
+        missing.push(`${fn} → .${c}`)
+      }
+    }
+    check(`⑤ views/ 下 ${viewFiles.length} 个组件的按钮 class 都有样式规则`, missing.length === 0,
+      missing.length ? `无任何规则：${missing.join(', ')}` : `组件里的按钮 ${btnCount} 个`)
+  }
+
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {

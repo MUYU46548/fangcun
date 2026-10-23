@@ -565,7 +565,31 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 日志 ───────────────────────────────────────────────────────
   // 与主进程 listLogs 一致：置顶优先（桩不排序的话，渲染层那条排序断言等于在测假数据）
-  logsList: () => store.logs.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)),
+  /**
+   * 日志列表（2026-10-23 补：记账 + 真按 filter 过滤）。
+   * ⚠ 此前是 `() => store.logs.slice()` —— **不看 filter 也不记账**，于是
+   *   「搜索框里打的词到底有没有进 IPC」「项目/Agent/日期筛选有没有生效」全都验不到：
+   *   界面能打字、能选下拉，但传了什么完全看不见（第 11 块拆分时这里正是最容易坏的地方）。
+   *   过滤语义照抄主进程 main/services/logs.ts:listLogs（query 命中标题/正文/下一步/项目）。
+   */
+  logsList: (filter) => {
+    rec('logsList', [filter])
+    const f = filter || {}
+    const q = String(f.query || '').trim().toLowerCase()
+    const hit = (s) => String(s || '').toLowerCase().includes(q)
+    let rows = (store.logs || []).filter((l) => {
+      if (f.project && l.project !== f.project) return false
+      if (f.status && l.status !== f.status) return false
+      if (f.agent && l.agentName !== f.agent) return false
+      const d = String(l.logDate || l.created || '').slice(0, 10)
+      if (f.dateFrom && d < f.dateFrom) return false
+      if (f.dateTo && d > f.dateTo) return false
+      if (q && !(hit(l.title) || hit(l.content) || hit(l.nextSteps) || hit(l.project))) return false
+      return true
+    })
+    rows = rows.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
+    return rows
+  },
   logsCreate: (title, project, content, taskId, extra) => {
     rec('logsCreate', [title, project, content, taskId, extra])
     const l = { id: nextId('log'), title, project, content, taskId, status: 'active', created: new Date().toISOString(),

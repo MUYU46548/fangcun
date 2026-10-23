@@ -3366,6 +3366,59 @@
     if (exitL) exitL.click()
     check('取消退出多选（批量栏收起）', await waitFor(() => $$('.logs-view .batch-bar').length === 0, 3000, '退出多选'))
 
+    // ══ 日志的搜索 / 排序写回父组件（2026-10-23 补 · 第 11 块拆分后新增）
+    //  为什么单列这一块：这两个控件都是 `v-model` 写在**子组件**里、状态真身在父组件。
+    //  拆分时若把 `toRef` 写成直接解构（拿到快照），界面看着完全正常（能打字、能选），
+    //  但值永远回不到父组件：搜索词进不了 IPC、排序永远按默认 —— 用户只会说"搜了没反应"。
+    //  桩 logsList 现在会记账 + 真按 filter 过滤，这条才验得出来。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-s1', title: '搜索断言：甲方案', content: 'x', status: 'active', project: 'demo', created: '2026-10-01T00:00:00.000Z' },
+        { id: 'log-s2', title: '搜索断言：乙方案', content: 'x', status: 'active', project: 'demo', created: '2026-10-05T00:00:00.000Z' },
+        { id: 'log-s3', title: '搜索断言：丙方案', content: 'x', status: 'active', project: 'demo', created: '2026-10-03T00:00:00.000Z' },
+      ])
+      clickText('看板'); await sleep(300); clickText('日志'); await sleep(600)
+      const cardCount = () => $$('.logs-view .log-card').length
+      const firstTitle = () => (($('.logs-view .log-card .log-card-title') || {}).textContent || '')
+      check('  三张日志卡就位（搜索/排序断言前置）', cardCount() === 3, 'cards=' + cardCount())
+
+      // ① 排序：改成「最早创建在前」→ 首条必须是 10-01 那张
+      const sortSel = $$('.logs-view select.log-filter')[1]
+      check('  日志页有排序下拉', !!sortSel, 'selects=' + $$('.logs-view select.log-filter').length)
+      if (sortSel) {
+        sortSel.value = 'created_asc'
+        sortSel.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★★ 排序下拉写回父组件（改成「最早创建在前」→ 首条变最早那张）',
+        await waitFor(() => firstTitle().indexOf('甲方案') >= 0, 3000, 'sort asc'),
+        'first=' + firstTitle())
+
+      // ② 搜索：输入 → 300ms 防抖 → 真落到 IPC 的 filter.query 上 + 列表真被过滤
+      const box = $('.logs-view input.log-search')
+      check('  日志页有搜索框', !!box)
+      if (box) {
+        box.value = '乙方案'
+        box.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const qHit = await waitFor(() => {
+        const cs = window.__fcTest.calls().filter((c) => c.name === 'logsList')
+        const last = cs[cs.length - 1]
+        return !!last && !!last.args[0] && last.args[0].query === '乙方案'
+      }, 4000, 'logsList(query)')
+      check('★★ 搜索词写回父组件（真进了 IPC 的 filter.query，不是只改了输入框）', qHit,
+        JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'logsList').pop() || {}).args))
+      check('★★ 搜索真过滤列表（只剩命中的那一张）',
+        await waitFor(() => cardCount() === 1 && firstTitle().indexOf('乙方案') >= 0, 3000, 'search filtered'),
+        'cards=' + cardCount() + ' first=' + firstTitle())
+
+      // 收尾：清空搜索 + 排序复位、并按默认序重新加载（后面的日志断言要用完整夹具）
+      if (box) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })) }
+      check('  清空搜索后列表复原（否则后面的日志断言只剩 1 条卡）',
+        await waitFor(() => cardCount() === 3, 3000, '搜索已清空'), 'cards=' + cardCount())
+      if (sortSel) { sortSel.value = 'created_desc'; sortSel.dispatchEvent(new Event('change', { bubbles: true })) }
+      await sleep(400)
+    }
+
     // ══ 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）════════════
     // 三个判据：① 两个方向的入口真在、真调 IPC；② **源保留不删**；③ 同一条只转一次（防重靠来源字段）。
     window.__fcTest.setLogs([
