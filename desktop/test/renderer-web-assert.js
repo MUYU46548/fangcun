@@ -3661,6 +3661,46 @@
         $$('.trash-view .trash-item').length === 2, 'left=' + $$('.trash-view .trash-item').length)
     }
 
+    // ══ 回收站 · 点卡片看正文预览（2026-10-23 补：此前这条**零断言**）══════════
+    // 这块是用户原话逼出来的：「每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个」。
+    // 桩 `trashRead` 一直有、`rec` 也一直在记 —— 但**没有任何断言点过卡片**，
+    // 于是"点了没反应""读不出正文""markdown 没渲染"三种坏法都不会被发现。
+    {
+      window.__fcTest.setTrash([
+        { name: 'pv-1.md', id: 'pv-1', title: '预览用甲', status: '待办', project: 'demo', bytes: 777, mtime: '2026-09-20T00:00:00.000Z' },
+        { name: 'pv-2.2.md', id: 'pv-2', title: '预览用乙', status: '完成', project: '', bytes: 100, mtime: '2026-09-19T00:00:00.000Z' },
+      ])
+      clickText('看板'); await sleep(300); clickText('回收站'); await sleep(600)
+      check('前置：两张卡都在（否则下一条会在空列表上假绿）',
+        await waitFor(() => $$('.trash-view .trash-item').length === 2, 3000, '2 张卡'),
+        'n=' + $$('.trash-view .trash-item').length)
+      const nRead = window.__fcTest.callCount('trashRead')
+      const cardMain = $('.trash-view .trash-item .trash-main')
+      if (cardMain) cardMain.click()
+      check('★ 点卡片 → 真去读正文（trashRead 被调用）',
+        await waitFor(() => window.__fcTest.callCount('trashRead') > nRead, 3000, 'trashRead'),
+        'calls=' + window.__fcTest.callCount('trashRead'))
+      const readArgs = (window.__fcTest.calls().filter((c) => c.name === 'trashRead').pop() || {}).args || []
+      check('★★ 传的是**文件名**不是 id（同一 id 可能有多份历史副本 x.md / x.2.md）',
+        readArgs[0] === 'pv-1.md', JSON.stringify(readArgs))
+      check('★ 预览弹窗出现', await waitFor(() => !!$('#trash-preview-modal'), 3000, 'preview modal'))
+      const pvText = (($('#trash-preview-modal') || {}).textContent || '').replace(/\s+/g, ' ')
+      check('  弹窗里写明文件名 / 大小 / 项目（删之前要能认出来是哪份）',
+        pvText.indexOf('pv-1.md') >= 0 && pvText.indexOf('777') >= 0 && pvText.indexOf('demo') >= 0,
+        pvText.slice(0, 90))
+      check('★★ 正文按 markdown 渲染成 HTML（桩返回 "# 预览用甲" → 真出 h1，不是一段纯文本）',
+        !!$('#trash-preview-modal .trash-preview-text h1'),
+        (($('#trash-preview-modal .trash-preview-text') || {}).innerHTML || '').slice(0, 70))
+      // 遮罩关闭：.overlay 用 @mousedown.self → 派发 mousedown 到遮罩本体
+      const pvOpened = !!$('#trash-preview-modal')
+      const ovPv = $('#trash-preview-overlay')
+      if (ovPv) ovPv.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      // ⚠ 必须要求「先前真的打开过」：否则弹窗根本没开时 `!$('#trash-preview-modal')` 恒真 → 假绿
+      check('★ 点遮罩关掉预览（遮罩用 @mousedown.self，不是 @click.self）',
+        pvOpened && await waitFor(() => !$('#trash-preview-modal'), 3000, 'preview closed'),
+        'opened=' + pvOpened)
+    }
+
     // ── P0-1 脏检查快照：判「改没改」而不是「有没有字」（2026-10-01）──
     const origConfirmD = window.confirm
     let confirmHits = 0

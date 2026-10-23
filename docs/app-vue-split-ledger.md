@@ -25,7 +25,25 @@
 | 5 | services（服务/端口 → `renderer/views/ServicesView.vue`，85 行模板 + 118 行脚本） | `31106cf` | **85** | **118**（整块搬：状态 + loadServices + 三个动作 + 快照文案） | **15655**（净 −195） | renderer-web 688/0 · e2e-renderer 312/0 |
 | 6 | skills（技能安装专区 → `renderer/views/SkillsView.vue`，157 行模板 + 434 行脚本） | `0030cae` | **157** | **434**（整块搬：清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料） | **15132**（净 −523） | renderer-web 695/0（+7）· e2e-renderer 312/0 |
 
-| 7 | roadmap（路线图 → `renderer/views/RoadmapView.vue`，52 行模板 + 46 行脚本） | 见提交 | **52** | **33**（4 个状态/函数整块搬；顺手清掉阻塞视图留下的 4 个死 computed + 2 个 import） | **15047**（净 −85） | renderer-web 700/0（+5）· e2e-renderer 312/0 |
+| 7 | roadmap（路线图 → `renderer/views/RoadmapView.vue`，52 行模板 + 46 行脚本） | `871c9de` | **52** | **33**（4 个状态/函数整块搬；顺手清掉阻塞视图留下的 4 个死 computed + 2 个 import） | **15047**（净 −85） | renderer-web 700/0（+5）· e2e-renderer 312/0 |
+
+| 8 | trash（回收站 → `renderer/views/TrashView.vue`，视图 64 行 + 两个弹窗 51 行 + 脚本 240 行） | 见提交 | **115** | **240**（列表/搜索/还原/彻底删除/多选批量/按日期清理/正文预览）+ `renderBody` 抽到 `renderer/markdown.ts` | **14655**（净 −392） | renderer-web 710/0（+7）· e2e-renderer 312/0 |
+
+> **第 8 块纠正了第 5 块那次估错**：当时按"视图 64 行"判断 trash 低耦合，实则它是
+> **一个完整功能**（两个弹窗 + 240 行脚本 + 散在别处的多选状态）。这次按真实总量整块搬。
+>
+> **顺手抽出的共享件**：`renderBody`（markdown→安全 HTML）搬到 `renderer/markdown.ts`。
+> 回收站正文预览要用它，任务详情/日志正文也在用 —— 各写一套就会出现"同一段正文
+> 两个地方渲染不一样"，而 XSS 白名单是最容易漂的那部分。
+>
+> **测试洞（第四次，同一型）**：`trashRead` 桩从 09-26 就有、`rec` 也一直在记，
+> 但**没有任何断言点过卡片** —— "点了没反应 / 读不出正文 / markdown 没渲染" 三种坏法都不会被发现。
+> 已补 7 条（真调 trashRead 且传**文件名**不是 id、弹窗元信息、markdown 真渲染成 h1、遮罩关闭）。
+> 其中遮罩那条踩了一次**真空通过**：弹窗没开时 `!$('#trash-preview-modal')` 恒真 → 已加 `pvOpened` 前置。
+>
+> ⚠ **顺带发现的一个系统性缺口**：`npm run build` 只 tsc 了 main / cli，**渲染层（.vue）完全没有类型检查**
+> （仓里没装 vue-tsc）。这就是为什么 `parseCalDate` 那种「只在某条点击路径才炸」的错误只能靠真点击发现。
+> 要不要加 vue-tsc 是独立决定（新依赖 + 首跑会吐一堆历史错），先记在这里不擅自加。
 
 > **第 7 块：真·最干净的一块，但同样挖出测试洞**。52 行模板、零弹窗、零跨视图状态、
 > 唯一交互是页内「⟳ 刷新」。搬它只花了一次替换。

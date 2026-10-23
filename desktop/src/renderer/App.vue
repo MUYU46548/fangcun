@@ -1300,70 +1300,9 @@
     <ServicesView v-else-if="curView === 'services'" :toast="showToast" />
 
     <!-- 回收站（2026-09-26 卡 034）：数据一直在 task-data/.trash，此前缺的只是界面入口 -->
-    <main id="board" class="trash-view" v-else-if="curView === 'trash'">
-      <div class="trash-header">
-        <h3>回收站</h3>
-        <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
-        <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
-        <button class="trash-refresh" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</button>
-        <button class="ghost" title="按日期批量清理：彻底删除某个日期之前进回收站的所有条目（先预览再确认）"
-          @click="openTrashPurge">🗓 按日期清理</button>
-        <button class="ghost batch-mode-btn" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
-          title="开启批量选择，点击条目即勾选/取消">
-          <span v-if="!trashBatchMode">☑ 多选</span>
-          <span v-else>☑ <i style="color:#fff">{{ selectedTrashBatch.length || 0 }}</i></span>
-        </button>
-      </div>
-      <div v-if="trashBatchMode" class="batch-bar">
-        <span class="batch-count">已选 {{ selectedTrashBatch.length }}</span>
-        <button class="ghost" @click="toggleSelectAllTrash">{{ selectedTrashBatch.length === filteredTrash.length ? '取消全选' : '全选' }}</button>
-        <button class="ghost" title="批量还原：终态回归档区，其余回活跃区；同名冲突不覆盖" @click="executeBatchTrashRestore">批量还原</button>
-        <button class="danger" title="批量从磁盘彻底删除（会二次确认，不可撤销）" @click="executeBatchTrashPurge">彻底删除</button>
-        <button class="ghost" title="退出多选模式并清空选择" @click="exitTrashBatch">取消</button>
-      </div>
-      <div class="trash-notebar">
-        删掉的任务先来这儿 —— 数据没丢，可以还原；「彻底删除」才真的从磁盘删掉，不可撤销。
-        <b>点卡片任意位置能看正文</b>，看完再决定删还是留。
-      </div>
-
-      <div v-if="trashLoading" class="empty-state"><div class="empty-text">读取中…</div></div>
-      <div v-else-if="!trashItems.length" class="empty-state">
-        <div class="empty-icon">🗑</div>
-        <div class="empty-text">回收站是空的 — 没有已删除的任务</div>
-      </div>
-      <div v-else-if="!filteredTrash.length" class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-text">没有匹配「{{ trashQuery }}」的条目</div>
-        <button class="trash-btn" @click="trashQuery = ''">清空搜索</button>
-      </div>
-      <div v-else class="trash-list" :class="{ batching: trashBatchMode }">
-        <div v-for="it in filteredTrash" :key="it.name" class="trash-item"
-          :class="{ selected: trashBatchMode && selectedTrashBatch.includes(it.name) }"
-          @click="onTrashItemClick(it, $event)">
-          <!-- 2026-09-30 用户第 5 条（卡 task-20260930-005）：显式勾选框 —— 此前选中只有
-               边框/底色变化，且 hover 会盖掉它，用户「看不清到底是否选中」。 -->
-          <span v-if="trashBatchMode" class="trash-batch-chk"
-            :class="{ on: selectedTrashBatch.includes(it.name) }">✓</span>
-          <div class="trash-main"
-            :title="trashBatchMode ? '点击勾选/取消勾选' : '点击看正文（只读预览）'">
-            <div class="trash-line1">
-              <span class="trash-id">{{ it.id }}</span>
-              <span class="trash-title">{{ it.title || '(无标题)' }}</span>
-              <span v-if="it.status" class="st small" :class="'st-' + statusClass(it.status)">{{ it.status }}</span>
-              <span v-if="it.project" class="trash-proj">{{ it.project }}</span>
-            </div>
-            <div class="trash-line2">
-              <span class="trash-name" :title="it.name">{{ it.name }}</span>
-              <span class="trash-meta">· {{ it.bytes || 0 }} B · 删于 {{ it.mtime ? relativeTime(it.mtime) : '—' }}</span>
-            </div>
-          </div>
-          <div class="trash-actions" v-show="!trashBatchMode">
-            <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回「归档」，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
-            <button class="trash-btn danger" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</button>
-          </div>
-        </div>
-      </div>
-    </main>
+    <!-- 回收站（2026-10-23 拆成组件 · 拆分计划第 1 批第 8 块）。
+         视图 + 两个弹窗 + 240 行脚本整块搬；它自己 onMounted 加载，toast 由本文件注入。 -->
+    <TrashView v-else-if="curView === 'trash'" :toast="showToast" />
 
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <!-- 阻塞源（2026-10-22 拆成组件 · 拆分计划第 1 批第 2 块：只吃一个数据源、零交互）。
@@ -2014,36 +1953,8 @@
     <!-- 按日期清理回收站（2026-10-17 暮雨第 2 条：「我可以选择特定日期，删除此之前的所有内容」）。
          与「清理已归档日志」同一套交互：先预览命中条数，再确认；差别是这里的删除**不可撤销**
          （删的是回收站里的文件本身），所以文案必须把这件事说满，不能含糊。 -->
-    <div id="trash-purge-overlay" class="overlay" v-if="trashPurgeOpen" @mousedown.self="closeTrashPurge()">
-      <div id="trash-purge-modal">
-        <h3>按日期清理回收站</h3>
-        <div class="hint">
-          彻底删除<b>进回收站时间早于</b>下面所选日期的条目。这里删的是回收站里的文件本身，
-          <b>删了就找不回来</b> —— 所以先「预览命中」看清是哪些，再确认。
-        </div>
-        <div class="lpurge-row">
-          <label>早于</label>
-          <input v-model="trashPurgeDate" type="date" class="log-filter" @change="resetTrashPurgePreview" />
-          <button class="ghost" @click="setTrashCutoff(7)">7 天前</button>
-          <button class="ghost" @click="setTrashCutoff(30)">30 天前</button>
-          <button class="ghost" @click="setTrashCutoff(90)">90 天前</button>
-        </div>
-        <div class="lpurge-actions">
-          <button class="ghost" :disabled="trashPurgeBusy" @click="runTrashPurgePreview">预览命中</button>
-          <button class="danger" :disabled="trashPurgeBusy || !trashPurgePreview || !trashPurgePreview.count"
-            @click="executeTrashPurge">确认彻底删除</button>
-          <button class="ghost" @click="closeTrashPurge">取消</button>
-        </div>
-        <div v-if="trashPurgePreview" class="lpurge-preview">
-          <div><b>将彻底删除 {{ trashPurgePreview.count }} 项</b></div>
-          <ul v-if="trashPurgePreview.count" class="lpurge-list">
-            <li v-for="(t, i) in trashPurgePreview.titles.slice(0, 8)" :key="i">{{ t }}</li>
-            <li v-if="trashPurgePreview.count > 8" class="lpurge-more">…等共 {{ trashPurgePreview.count }} 项</li>
-          </ul>
-          <div v-else>没有早于该日期的条目，无需清理。</div>
-        </div>
-      </div>
-    </div>
+    <!-- 回收站「按日期清理」弹窗已搬进 views/TrashView.vue -->
+
 
     <!-- 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）。
          软删口径：移进 <数据目录>/docs/执行日志/.trash/，**不永久删除**。
@@ -2205,32 +2116,8 @@
     </div>
 
     <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
-    <div id="trash-preview-overlay" class="overlay" v-if="trashPreview" @mousedown.self="trashPreview = null">
-      <div id="trash-preview-modal">
-        <h3>
-          {{ trashPreview.item.title || trashPreview.item.id }}
-          <span class="st" :class="'st-' + statusClass(trashPreview.item.status)">{{ trashPreview.item.status || '—' }}</span>
-        </h3>
-        <div class="meta">
-          <div><span class="k">文件名</span><span class="v">{{ trashPreview.item.name }}</span></div>
-          <div><span class="k">ID</span><span class="v">{{ trashPreview.item.id }}</span></div>
-          <div><span class="k">项目</span><span class="v">{{ trashPreview.item.project || '—' }}</span></div>
-          <div><span class="k">大小</span><span class="v">{{ trashPreview.item.bytes || 0 }} B</span></div>
-          <div><span class="k">删于</span><span class="v">{{ trashPreview.item.mtime ? relativeTime(trashPreview.item.mtime) : '—' }}</span></div>
-        </div>
-        <div v-if="trashPreview.loading" class="hint">读取中…</div>
-        <div v-else-if="trashPreview.error" class="skills-error">{{ trashPreview.error }}</div>
-        <div v-else class="trash-preview-body">
-          <div v-if="trashPreview.truncated" class="hint">文件很大，只显示前 512 KB</div>
-          <div class="trash-preview-text markdown" v-html="renderBody(trashPreview.text)"></div>
-        </div>
-        <div class="trash-preview-actions">
-          <button class="trash-btn" @click="restoreFromPreview()">↩ 还原这一份</button>
-          <button class="trash-btn danger" @click="purgeFromPreview()">🗑 彻底删除（不可撤销）</button>
-          <button class="trash-btn" @click="trashPreview = null">关闭</button>
-        </div>
-      </div>
-    </div>
+    <!-- 回收站正文预览弹窗已搬进 views/TrashView.vue（与它的视图同一处） -->
+
 
     <!-- Task preview modal -->
     <div id="roverlay" class="overlay" v-if="previewTask" @mousedown.self="previewTask = null">
@@ -3766,7 +3653,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
-import { marked } from 'marked'
 // parseCalDate 必须留着：openCalAssignTodo（在 App.vue，它开的是本文件的弹窗）用它把待办 due 转成日期。
 // ⚠ 2026-10-23 抽 composable 时把它一起删了 → 只在「点待办上的 📅」这条路径炸 ReferenceError，
 //   无头断言（当时没点过那个按钮）全绿、真 Electron 真点击当场红 2 条。两层都要跑的原因就是这个。
@@ -3777,17 +3663,18 @@ import {
   classifyLogImport, classifySummary,
   type ImportItem,
 } from './logdedupe'
-import DOMPurify from 'dompurify'
 import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { statusClass } from '../shared/status'
+import { renderBody } from './markdown'
 import CalendarView from './views/CalendarView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
+import TrashView from './views/TrashView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -5802,8 +5689,7 @@ const selectedLogBatch = ref<string[]>([])
 // —— 复用看板/日志同一套交互：工具条开关 + 卡片点选 + 悬浮批量栏。
 const todoBatchMode = ref(false)
 const selectedTodoBatch = ref<string[]>([])
-const trashBatchMode = ref(false)
-const selectedTrashBatch = ref<string[]>([])
+// trashBatchMode / selectedTrashBatch 已随回收站组件搬走（2026-10-23）
 const dataDir = ref('')
 
 // ── Todos ─────────────────────────────────────────────────────────
@@ -6751,8 +6637,8 @@ function loadViewData(v: string) {
     // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
     void loadUsageMonths()
   } else if (v === 'trash') {
-    // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）
-    loadTrash()
+    // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）；
+    // 列表本身由组件 onMounted 拉（views/TrashView.vue）
   } else if (v === 'skills') {
     // 数据由组件自己 onMounted 拉（views/SkillsView.vue）—— 这里显式空着，别掉到 else 白跑 loadAll
   } else if (v === 'services') {
@@ -6894,254 +6780,7 @@ async function loadProjectProgressMap() {
   }
 }
 
-// ── 回收站（2026-09-26 卡 034）──────────────────────────────────────────
-// 现象：`.trash/` 里有几十个文件、数据完好，但界面没有任何入口，用户以为"东西没了"。
-// 语义：一律按**文件名**操作（回收站里同一 id 可能有多份历史副本：`x.md` 与 `x.2.md`），
-//       还原时的同名冲突交给主进程的 moveIntoDir（内容相同去重、不同则新的占规范名、
-//       旧的改名保留）→ 绝不覆盖、绝不删除。
-interface TrashItem {
-  name: string
-  id: string
-  title?: string
-  status?: string
-  project?: string
-  bytes?: number
-  mtime?: string
-}
-
-const trashItems = ref<TrashItem[]>([])
-const trashLoading = ref(false)
-const trashQuery = ref('')
-
-/** 回收站条目总占用（KB）—— 几十项时一眼知道"这些垃圾有多大" */
-const trashTotalKb = computed(() =>
-  Math.round(trashItems.value.reduce((s, x) => s + (x.bytes || 0), 0) / 1024))
-
-/** 回收站内搜索：id / 标题 / 文件名 三个字段都认 */
-const filteredTrash = computed(() => {
-  const q = trashQuery.value.trim().toLowerCase()
-  if (!q) return trashItems.value
-  return trashItems.value.filter(x =>
-    String(x.id || '').toLowerCase().includes(q) ||
-    String(x.title || '').toLowerCase().includes(q) ||
-    String(x.name || '').toLowerCase().includes(q))
-})
-
-async function loadTrash(): Promise<void> {
-  trashLoading.value = true
-  try {
-    const r = await window.tegula.trashList()
-    trashItems.value = (r && r.items) || []
-  } catch {
-    trashItems.value = []
-  } finally {
-    trashLoading.value = false
-  }
-}
-
-async function restoreTrashItem(it: TrashItem): Promise<void> {
-  const r = await window.tegula.trashRestore(it.name)
-  if (r && r.ok) {
-    showToast(`已还原 ${it.id}${r.archived ? '（回归档区）' : ''}`, 'success')
-    await loadTrash()
-    // 只有在任务视图上才顺带刷新（回收站视图不加载任务列表；切过去时 loadViewData 会拉，
-    // 在这里调 loadAll 会把顶栏计数从「—」变成任务条数，属于自相矛盾）
-    if (curView.value !== 'trash') loadAll()
-  } else {
-    showToast(`还原失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
-async function purgeTrashItem(it: TrashItem): Promise<void> {
-  if (!confirm(`彻底删除「${it.title || it.id}」？\n\n文件：${it.name}\n这是从磁盘删除，不可撤销。`)) return
-  const r = await window.tegula.trashPurge(it.name)
-  if (r && r.ok) {
-    showToast(`已彻底删除 ${it.name}`, 'success')
-    await loadTrash()
-  } else {
-    showToast(`删除失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
-// ── 按日期清理回收站（2026-10-17 暮雨第 2 条：「删除此之前的所有内容」）──────
-// 与「清理已归档日志」同构：先预览、再确认。差别只有一个 —— 那边是软删（移进日志回收站），
-// 这边删的是回收站里的文件本身，**不可撤销**，所以文案必须说满。
-const trashPurgeOpen = ref(false)
-const trashPurgeDate = ref('')
-const trashPurgeBusy = ref(false)
-const trashPurgePreview = ref<{ count: number; names: string[]; titles: string[] } | null>(null)
-
-/** 本地日历日 → YYYY-MM-DD。⚠ 不能用 toISOString().slice(0,10)：那是 UTC，
-    东八区晚上 8 点后会退回前一天，用户选"今天"实际删的是"昨天之前"。 */
-function ymdLocal(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-function setTrashCutoff(days: number): void {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  trashPurgeDate.value = ymdLocal(d)
-  resetTrashPurgePreview()
-}
-
-function openTrashPurge(): void {
-  setTrashCutoff(30)
-  trashPurgeOpen.value = true
-}
-function closeTrashPurge(): void { trashPurgeOpen.value = false }
-function resetTrashPurgePreview(): void { trashPurgePreview.value = null }
-
-/** 预览：命中 = 进回收站时间**早于**所选日期零点。先看清再删，不允许盲删。 */
-function runTrashPurgePreview(): void {
-  const cutoff = new Date(`${trashPurgeDate.value}T00:00:00`).getTime()
-  if (!trashPurgeDate.value || !isFinite(cutoff)) {
-    showToast('先选一个日期', 'error')
-    return
-  }
-  const hits = trashItems.value.filter(it => {
-    const t = Date.parse(it.mtime || '')
-    return isFinite(t) && t < cutoff
-  })
-  trashPurgePreview.value = {
-    count: hits.length,
-    names: hits.map(h => h.name),
-    titles: hits.map(h => `${h.title || '(无标题)'} · ${h.id}${h.mtime ? ' · ' + h.mtime.slice(0, 10) : ''}`),
-  }
-}
-
-async function executeTrashPurge(): Promise<void> {
-  const p = trashPurgePreview.value
-  if (!p || !p.count || trashPurgeBusy.value) return
-  trashPurgeBusy.value = true
-  let ok = 0
-  try {
-    for (const name of p.names) {
-      try {
-        const r: any = await window.tegula.trashPurge(name)
-        if (r?.ok) ok++
-      } catch { /* 单条失败不打断整批，最后按成功数报 */ }
-    }
-  } finally {
-    trashPurgeBusy.value = false
-  }
-  showToast(ok === p.count ? `已彻底删除 ${ok} 项` : `已删除 ${ok}/${p.count} 项，其余失败`, ok === p.count ? 'success' : 'error')
-  trashPurgePreview.value = null
-  trashPurgeOpen.value = false
-  await loadTrash()
-}
-
-// ── 回收站多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
-// 交互与看板/日志/待办同一套：工具条开关 → 点条目勾选 → 悬浮批量栏执行。
-// 选中键用 it.name（同 id 可能有同名副本，name = trash 里的文件名，唯一）。
-function toggleTrashBatchMode() {
-  trashBatchMode.value = !trashBatchMode.value
-  if (!trashBatchMode.value) selectedTrashBatch.value = []
-  else showToast('批量模式：点击条目勾选，再从下方批量栏执行', 'success')
-}
-function toggleTrashBatchSelect(name: string) {
-  const idx = selectedTrashBatch.value.indexOf(name)
-  if (idx >= 0) selectedTrashBatch.value.splice(idx, 1)
-  else selectedTrashBatch.value.push(name)
-}
-/**
- * 回收站条目点击（2026-09-30 用户第 5 条，卡 task-20260930-005）。
- * 热区从 .trash-main 扩到**整行** —— 行内 padding / 两行之间的空隙原来都是死区，
- * 点了没反应，用户只能「点好几次」碰运气。动作按钮（还原/删除）的点击不参与选择。
- */
-function onTrashItemClick(it: TrashItem, e: MouseEvent): void {
-  const t = e.target as HTMLElement | null
-  if (t && t.closest && t.closest('.trash-actions')) return
-  if (trashBatchMode.value) toggleTrashBatchSelect(it.name)
-  else openTrashPreview(it)
-}
-function toggleSelectAllTrash() {
-  if (selectedTrashBatch.value.length === filteredTrash.value.length) selectedTrashBatch.value = []
-  else selectedTrashBatch.value = filteredTrash.value.map((t: any) => t.name)
-}
-function exitTrashBatch() {
-  selectedTrashBatch.value = []
-  trashBatchMode.value = false
-}
-async function executeBatchTrashRestore() {
-  const names = [...selectedTrashBatch.value]
-  if (!names.length) return
-  let ok = 0
-  for (const name of names) {
-    try {
-      const r: any = await window.tegula.trashRestore(name)
-      if (r?.ok) ok++
-    } catch { /* skip */ }
-  }
-  showToast(`已还原 ${ok}/${names.length} 项`, ok ? 'success' : 'error')
-  exitTrashBatch()
-  await loadTrash()
-  // 回收站还原会改任务列表；与单条还原一致，只在非回收站视图才刷（此刻就在回收站，不用）
-}
-async function executeBatchTrashPurge() {
-  const names = [...selectedTrashBatch.value]
-  if (!names.length) return
-  if (!confirm(`彻底删除选中的 ${names.length} 项？\n\n将从磁盘删除这些文件，不可撤销：\n` +
-    names.slice(0, 10).map(n => `· ${n}`).join('\n') + (names.length > 10 ? `\n…等 ${names.length} 个` : ''))) return
-  let ok = 0
-  for (const name of names) {
-    try {
-      const r: any = await window.tegula.trashPurge(name)
-      if (r?.ok) ok++
-    } catch { /* skip */ }
-  }
-  showToast(`已彻底删除 ${ok}/${names.length} 项`, ok ? 'success' : 'error')
-  exitTrashBatch()
-  await loadTrash()
-}
-
-/**
- * 回收站卡片预览（2026-09-26 用户回执：「每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个」）
- *
- * 之前只有「还原 / 彻底删除」两个按钮 —— 卡片本体点了没反应，想删又怕删错，只能凭标题猜。
- * 现在点卡片任意位置读该文件的**源码正文**（只读），看完再决定；浮层里也给同一对动作。
- * 关闭时机有讲究：动作成功且这一份**真的从列表里消失了**才关，没删掉就把浮层留着（别骗用户）。
- */
-interface TrashPreviewState {
-  item: TrashItem
-  text: string
-  truncated: boolean
-  loading: boolean
-  error: string
-}
-const trashPreview = ref<TrashPreviewState | null>(null)
-
-async function openTrashPreview(it: TrashItem): Promise<void> {
-  trashPreview.value = { item: it, text: '', truncated: false, loading: true, error: '' }
-  const t: any = window.tegula
-  if (typeof t.trashRead !== 'function') {
-    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: '当前主进程/预加载是旧版本，没有预览通道 —— 托盘右键「退出」后重开' }
-    return
-  }
-  try {
-    const r: any = await t.trashRead(it.name)
-    if (!trashPreview.value || trashPreview.value.item.name !== it.name) return
-    trashPreview.value = r && r.ok
-      ? { item: it, text: String(r.text || ''), truncated: !!r.truncated, loading: false, error: '' }
-      : { item: it, text: '', truncated: false, loading: false, error: `读不出来：${(r && r.error) || '未知原因'}` }
-  } catch (e: any) {
-    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: `读不出来：${e?.message || e}` }
-  }
-}
-
-async function restoreFromPreview(): Promise<void> {
-  const st = trashPreview.value
-  if (!st) return
-  await restoreTrashItem(st.item)
-  if (!trashItems.value.some(x => x.name === st.item.name)) trashPreview.value = null
-}
-
-async function purgeFromPreview(): Promise<void> {
-  const st = trashPreview.value
-  if (!st) return
-  await purgeTrashItem(st.item)
-  if (!trashItems.value.some(x => x.name === st.item.name)) trashPreview.value = null
-}
+// 回收站整块（视图 + 两个弹窗 + 240 行脚本）已于 2026-10-23 搬进 views/TrashView.vue。
 
 // 技能安装专区（技能清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料）
 // 已于 2026-10-23 整块搬进 views/SkillsView.vue（拆分第 1 批第 6 块）。
@@ -7902,38 +7541,7 @@ watch(
 // 关窗前尽力落盘（此时无法 await，但已发出的 IPC 通常能写完）
 window.addEventListener('beforeunload', () => { void flushCheckSaves() })
 
-function renderBody(body: string): string {
-  if (!body) return ''
-  let html = marked.parse(body, { breaks: true, gfm: true }) as string
-  // Sanitize HTML to prevent XSS — allow <input> for checkboxes, data-check attr
-  html = DOMPurify.sanitize(html, {
-    ADD_TAGS: ['input'],
-    ADD_ATTR: ['data-check'],
-    ALLOWED_TAGS: [
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'p', 'br', 'hr',
-      'ul', 'ol', 'li',
-      'strong', 'em', 'b', 'i',
-      'code', 'pre',
-      'blockquote',
-      'a', 'img',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td',
-      'input', 'del'
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'type', 'checked', 'disabled', 'data-check']
-  })
-  // Make checkboxes interactive (replace marked's disabled inputs with clickable ones)
-  html = html.replace(
-    /<input[^>]*disabled[^>]*type="checkbox"[^>]*>/g,
-    (match) => {
-      const isChecked = /checked/.test(match)
-      return `<input type="checkbox" data-check="${isChecked ? 'checked' : 'unchecked'}" ${isChecked ? 'checked' : ''}>`
-    }
-  )
-  // Add check-item class to li elements containing checkboxes
-  html = html.replace(/<li>(<input type="checkbox")/g, '<li class="check-item">$1')
-  return html
-}
+// renderBody 已抽到 renderer/markdown.ts（2026-10-23）—— 回收站组件也要用它，一份就够。
 
 const archivedTasks = ref<Task[]>([])
 
