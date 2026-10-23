@@ -27,7 +27,23 @@
 
 | 7 | roadmap（路线图 → `renderer/views/RoadmapView.vue`，52 行模板 + 46 行脚本） | `871c9de` | **52** | **33**（4 个状态/函数整块搬；顺手清掉阻塞视图留下的 4 个死 computed + 2 个 import） | **15047**（净 −85） | renderer-web 700/0（+5）· e2e-renderer 312/0 |
 
-| 8 | trash（回收站 → `renderer/views/TrashView.vue`，视图 64 行 + 两个弹窗 51 行 + 脚本 240 行） | 见提交 | **115** | **240**（列表/搜索/还原/彻底删除/多选批量/按日期清理/正文预览）+ `renderBody` 抽到 `renderer/markdown.ts` | **14655**（净 −392） | renderer-web 710/0（+7）· e2e-renderer 312/0 |
+| 8 | trash（回收站 → `renderer/views/TrashView.vue`，视图 64 行 + 两个弹窗 51 行 + 脚本 240 行） | `f035f70` | **115** | **240**（列表/搜索/还原/彻底删除/多选批量/按日期清理/正文预览）+ `renderBody` 抽到 `renderer/markdown.ts` | **14655**（净 −392） | renderer-web 710/0（+7）· e2e-renderer 312/0 |
+
+| 9 | todos **第一步：只抽状态与逻辑** → `renderer/composables/useTodos.ts`（398 行） | 见提交 | 0（模板这步不动） | **327**（净 −327，另抽出 prefs / dirtyGuard / isOverdue 三个共享件） | **14281** | renderer-web 719/0 · e2e-renderer 312/0 |
+
+> **第 9 块为什么只能先抽 composable**：`todos` 这一个 ref 被 App.vue **60 处**共用
+> （日历、在途一屏、日志转待办、快速记、项目统计都读它）。直接搬模板就得把这些全变成 props/emit。
+> 先按日历那套分两步：状态与动作收进 composable（零行为变化、整层可回归），
+> 下一步才是把模板搬成 `views/TodosView.vue`（那时只需要「传一个 todos 进去」）。
+>
+> **顺手修的守卫假阳性**：模板里 `tripHiddenNotPicked.map(h => h.name)` 的 `h`，
+> 一直因为脚本某处恰好有 `const h = await …todosHealth()` 被当成"已声明"。
+> 那段脚本搬走后，守卫才报「模板引用了未声明：h」—— 报的不是真问题，是"巧合被移走了"。
+> 已让 `check-template-bindings` 把**模板表达式里的箭头形参**和 v-for 的 locals 同等对待。
+>
+> **覆盖率缺口（如实记）**：把 `filteredTodos` 的「只看未完成」过滤整段注释掉，719 条里**一条都没红** ——
+> 待办的筛选 / 排序 / 统计三条路径至今没有断言（勾选、撤销、多选、编辑弹窗、指派时间都有）。
+> 下一步搬模板之前先补这三条，否则搬坏了照样全绿。
 
 > **第 8 块纠正了第 5 块那次估错**：当时按"视图 64 行"判断 trash 低耦合，实则它是
 > **一个完整功能**（两个弹窗 + 240 行脚本 + 散在别处的多选状态）。这次按真实总量整块搬。

@@ -300,12 +300,30 @@ function checkFile(file) {
   const attrRe = /(?:v-if|v-else-if|v-show|v-for|v-model(?::[\w-]+)?|:[\w.-]+|@[\w.-]+|v-bind(?::[\w.-]+)?)\s*=\s*"([^"]*)"/g
   while ((m = attrRe.exec(tpl))) exprs.push(m[1])
 
+  // 模板表达式里的**箭头函数形参**是局部名，不是"未声明"（2026-10-23 修）。
+  //
+  // 起因：模板里写 `tripHiddenNotPicked.map(h => h.name)`，而 `h` 恰好因为脚本某处
+  // `const h = await …` 被 collectDeclared 收进了 declared —— 所以它一直没报错。
+  // 等那段脚本搬进 composable，`h` 从 declared 里消失，这条**假阳性**才浮出来：
+  // 它报的不是"模板用了没声明的变量"，而是"我们把一个恰好的巧合移走了"。
+  // 处置：把模板里所有箭头形参收成一个局部集合，和 v-for 的 locals 同等对待。
+  const arrowLocals = new Set()
+  const arrowParen = /\(([^()]*)\)\s*=>/g
+  while ((m = arrowParen.exec(tpl))) {
+    m[1].split(',').forEach((raw) => {
+      const t = raw.trim().split(':')[0].trim()
+      if (/^[A-Za-z_$][\w$]*$/.test(t)) arrowLocals.add(t)
+    })
+  }
+  const arrowBare = /([A-Za-z_$][\w$]*)\s*=>/g
+  while ((m = arrowBare.exec(tpl))) arrowLocals.add(m[1])
+
   const missing = new Set()
   for (const e of exprs) {
     for (const id of identifiers(e)) {
       if (id.startsWith('$')) continue            // $event / $slots 等 Vue 内置
       if (/^[A-Z]/.test(id)) continue             // 组件名 / 构造器
-      if (GLOBALS.has(id) || locals.has(id) || declared.has(id)) continue
+      if (GLOBALS.has(id) || locals.has(id) || arrowLocals.has(id) || declared.has(id)) continue
       missing.add(id)
     }
   }
