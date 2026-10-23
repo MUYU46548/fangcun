@@ -136,3 +136,29 @@ export function relTimeShort(v: unknown): string {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
   return formatDate(v)
 }
+
+/**
+ * 逾期判定（任务 + 待办共用）。
+ *
+ * 2026-09-26 卡 033：这里原本是 `return false` 的**空桩** —— 任务逾期从来没实现过。
+ * 待办专项整修要用同一个概念，就地补齐（而不是再写一个同名函数）：
+ *   · 待办看 `done`；任务看 `status`（完成/驳回不算逾期）；
+ *   · 日期字段任务叫 deadline/截止，待办叫 due，都认；
+ *   · 只有**严格过期**才算（今天到期不算逾期）—— 用 daysSince >= 1 判断。
+ */
+export function isOverdue(t: any): boolean {
+  if (!t) return false
+  if (t.done === true) return false
+  const status = String(t.status || '')
+  if (status === '完成' || status === '驳回') return false
+  // 2026-10-12：待办可能带**可选时间**（`dueTime`）—— 有时分时按**分钟级**判逾期
+  // （21:39 过了就是过了，而不是"今天整天都算没过"）；没时间时保持老行为（按天）。
+  if (t.dueTime) {
+    const at = parseDueAt(t.due, t.dueTime)
+    return Number.isFinite(at) && Date.now() > at
+  }
+  const due = t.due || t.deadline || (t.fm && (t.fm.deadline || t.fm['截止']))
+  if (!due) return false
+  const d = daysSince(due)
+  return Number.isFinite(d) && d >= 1
+}

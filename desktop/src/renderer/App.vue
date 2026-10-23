@@ -3670,6 +3670,8 @@ import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
+import { readUiPref, saveUiPref } from './prefs'
+import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import CalendarView from './views/CalendarView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
@@ -3687,7 +3689,7 @@ import { buildLayerDiagram } from '../shared/layerDiagram'
 // ⚠ 2026-10-16：`describeLaunchCommand` / `explainStartObserved` 的导入已随
 //   「服务页应用分区 + 启动台端口行」一起删掉（那两处是唯一调用方）。
 //   纯函数本体仍在 `shared/launchpadDiag.ts`（`e2e-launchpad-diag` 仍在测）。
-import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue } from '../shared/time'
+import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue, isOverdue } from '../shared/time'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -3912,30 +3914,7 @@ applyTheme(theme.value)
 // ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
 // 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
 // 真身存主进程 prefs.json（与 014 同一套），localStorage 只当读缓存。
-function readUiPref<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    if (raw === null) return fallback
-    const v = JSON.parse(raw)
-    return (v ?? fallback) as T
-  } catch { return fallback }
-}
-/**
- * 写一个 UI 偏好键（真身在主进程 prefs.json，localStorage 只当读缓存）。
- *
- * ⚠ **必须过 `toPlain()`**（2026-10-05 实锤）：`value` 常常是 Vue 响应式代理
- *   （`someRef.value`、v-for 元素），而 contextBridge 搬参数走**结构化克隆**，
- *   Proxy 在「页面世界 → 隔离世界」这一跳直接抛 `An object could not be cloned` ——
- *   报文进不到 preload、更进不到主进程，**主进程日志里一个字都没有**，界面表现为
- *   "点了没反应 / 存不住"（在途一屏「勾一下闪退一下」就是这么来的：数组类偏好从来没写进去过，
- *   于是每次 loadTripBoard 都判定"从没做过手动选择"→ 勾选被清掉）。
- *   同一个坑 2026-09-25 踩过一次（启动台无法启动应用，修了 6 次）。
- *   裸的字符串/数字/布尔是原始值，过 toPlain 无副作用。
- */
-function saveUiPref(key: string, value: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 缓存失败无所谓 */ }
-  try { (window as any).tegula?.prefsSet?.(key, toPlain(value))?.catch?.(() => {}) } catch { /* 真身失败已在主进程记日志 */ }
-}
+// readUiPref / saveUiPref 已抽到 renderer/prefs.ts（2026-10-23）—— 组合式函数也要用。
 /**
  * 终态分组默认折叠（2026-09-28 密度方案 B）。
  *
@@ -6447,31 +6426,7 @@ function isStale(t: Task): boolean {
   return Number.isFinite(days) && days > 14 && isActiveStatus(t.status || '')
 }
 
-/**
- * 逾期判定（任务 + 待办共用）。
- *
- * 2026-09-26 卡 033：这里原本是 `return false` 的**空桩** —— 任务逾期从来没实现过。
- * 待办专项整修要用同一个概念，就地补齐（而不是再写一个同名函数）：
- *   · 待办看 `done`；任务看 `status`（完成/驳回不算逾期）；
- *   · 日期字段任务叫 deadline/截止，待办叫 due，都认；
- *   · 只有**严格过期**才算（今天到期不算逾期）—— 用 daysSince >= 1 判断。
- */
-function isOverdue(t: any): boolean {
-  if (!t) return false
-  if (t.done === true) return false
-  const status = String(t.status || '')
-  if (status === '完成' || status === '驳回') return false
-  // 2026-10-12：待办可能带**可选时间**（`dueTime`）—— 有时分时按**分钟级**判逾期
-  // （21:39 过了就是过了，而不是"今天整天都算没过"）；没时间时保持老行为（按天）。
-  if (t.dueTime) {
-    const at = parseDueAt(t.due, t.dueTime)
-    return Number.isFinite(at) && Date.now() > at
-  }
-  const due = t.due || t.deadline || (t.fm && (t.fm.deadline || t.fm['截止']))
-  if (!due) return false
-  const d = daysSince(due)
-  return Number.isFinite(d) && d >= 1
-}
+// isOverdue 已移到 shared/time.ts（2026-10-23）—— 待办与看板共用同一个逾期判据。
 
 /** 待办到期提示（title）：把"日期 + 可选时间 + 逾期情况"一次说清，别让用户猜。 */
 function todoDueTitle(t: any): string {
@@ -7124,7 +7079,6 @@ function isDirtyFields(o: any, keys: string[]): boolean {
  */
 let taskEditSnap: string | null = null
 let logEditSnap: string | null = null
-const snapOf = (o: any): string => JSON.stringify(o ?? null)
 
 /** 日志编辑器快照：表单本体 + 完成/归档对话框里的「保留天数/备注/批量」
  *  （只填备注不改表单，老逻辑同样会丢 —— 一并纳入比对）。 */
@@ -7239,23 +7193,7 @@ function logDirtyNames(): string[] {
   return Object.keys(s).filter(k => now[k] !== s[k]).map(k => LOG_FIELD_LABELS[k] || k)
 }
 
-/**
- * 关闭防丢统一口径（2026-10-03 卡 task-20261003-004·族1收敛）：
- * 打开存快照、关闭逐字节比对、**改过才问**。
- * 收编的旧实现：方针卡/项目/应用曾走 hasAnyText（「有字就弹」= 确认疲劳，只改下拉/勾选
- * 则静默丢——P0-1 判错一直没迁移）；待办此前零防护（closeTodoEditor 裸置 null）。
- * 任务/日志编辑器已是同口径（taskEditSnap/logSnapNow，注释明写「不另发明」）——
- * 本函数是该口径的可复用形态：新增编辑类弹窗一律 makeDirtyGuard，禁止再长第二种。
- */
-function makeDirtyGuard() {
-  let snap: string | null = null
-  // 用 const 箭头而非对象方法简写：check-template-bindings 把 `open(v){…}` 这种
-  // 简写定义当「调用了未定义的 open()」（collectCalled 只认 function/const 声明）。
-  const open = (v: any): void => { snap = snapOf(v) }
-  const dirty = (v: any): boolean => snap !== null && snapOf(v) !== snap
-  const clear = (): void => { snap = null }
-  return { open, dirty, clear }
-}
+// makeDirtyGuard / snapOf 已抽到 renderer/dirtyGuard.ts（2026-10-23）—— 组合式函数也要用。
 const policyGuard = makeDirtyGuard()
 const projGuard = makeDirtyGuard()
 const appGuard = makeDirtyGuard()
