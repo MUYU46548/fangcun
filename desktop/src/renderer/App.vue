@@ -4116,10 +4116,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { marked } from 'marked'
-import {
-  parseCalDate, calISO, dayStart, addDays, buildMonth, rangeLabel, shiftRange,
-  type CalEvent as CalEventT,
-} from './calendar'
+// parseCalDate 必须留着：openCalAssignTodo（在 App.vue，它开的是本文件的弹窗）用它把待办 due 转成日期。
+// ⚠ 2026-10-23 抽 composable 时把它一起删了 → 只在「点待办上的 📅」这条路径炸 ReferenceError，
+//   无头断言（当时没点过那个按钮）全绿、真 Electron 真点击当场红 2 条。两层都要跑的原因就是这个。
+// ⚠ import 必须是**单行**：模板绑定守卫的正则是 /import[ \t]+([^'"]+?)[ \t]+from/
+//   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成「调用了但未定义」。
+import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
 import {
   classifyLogImport, classifySummary,
   type ImportItem,
@@ -4132,6 +4134,7 @@ import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { computeBlockerImpact } from '../shared/blockers'
 import { statusClass } from '../shared/status'
+import { useCalendar, type CalEvent } from './composables/useCalendar'
 import type { BlockerImpact } from '../shared/blockers'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -9268,123 +9271,25 @@ async function copyPolicyText(projectId: string) {
 //       任务卡右键 / 任务详情 / 待办项 / 未安排条目四处都有「指派时间」；
 //       未安排拆成「无日期」与「其它月份（可一键跳转）」，跨月不再是一锅粥。
 const CAL_DOW = ['一', '二', '三', '四', '五', '六', '日']
-const calYear = ref(new Date().getFullYear())
-const calMonth = ref(new Date().getMonth())
-const calDragOverDay = ref<number | null>(null)
-const calShowTodos = ref(localStorage.getItem('fc_cal_show_todos') !== '0')
-const calShowLogs = ref(localStorage.getItem('fc_cal_show_logs') !== '0')
-let calDragId: string | null = null
-let calDragKind: 'task' | 'todo' = 'task'
-
-// ── 格子内事件折叠（2026-09-29 用户选「改法 A」）──────────────────────────
-// 035 卡的原话是「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
-// 剩下的密在**格子内部**：某天挂 5 条，格子里就是 5 根横条在抢同一份注意力。
-// 口径：最多 2 条 + 「+N 条」，点它**就地展开**（不跳页、不弹窗），再点收起。
-// ⚠ 跨天的时间段任务（span !== 'only'）不参与折叠 —— 折了会把连续色带切成断头。
-const CAL_CELL_LIMIT = 2
-// 2026-10-12：把上限值播给 e2e —— 断言原先自己写死「2」，改上限时两边会静默分叉。
-// 只读一个数，无副作用；生产环境（真 preload）不读它，纯属白写。
-try { (globalThis as any).__fcCalCellCap = CAL_CELL_LIMIT } catch { /* 沙箱里没有 globalThis 也无妨 */ }
-const calExpandedDays = ref<string[]>([])
-const calCellKey = (cell: any): string => `${calYear.value}-${calMonth.value}-${cell.day}`
-function calCellExpanded(cell: any): boolean {
-  return !!cell && calExpandedDays.value.includes(calCellKey(cell))
-}
-function calCellShown(cell: any): any[] {
-  if (!cell) return []
-  if (calCellExpanded(cell)) return cell.events
-  const out: any[] = []
-  let n = 0
-  for (const ev of cell.events) {
-    if (ev.span !== 'only') { out.push(ev); continue }
-    if (n < CAL_CELL_LIMIT) { out.push(ev); n++ }
-  }
-  return out
-}
-function calCellMore(cell: any): number {
-  return cell ? cell.events.length - calCellShown(cell).length : 0
-}
-function toggleCalCell(cell: any): void {
-  const k = calCellKey(cell)
-  calExpandedDays.value = calCellExpanded(cell)
-    ? calExpandedDays.value.filter(x => x !== k)
-    : calExpandedDays.value.concat(k)
-}
-/** 换月时清掉展开痕迹，否则下个月的同一天号会"莫名是展开的" */
-function clearCalExpanded(): void { calExpandedDays.value = [] }
-
-const pad2 = (n: number): string => String(n).padStart(2, '0')
-
-function calMove(delta: number) {
-  let m = calMonth.value + delta
-  let y = calYear.value
-  if (m < 0) { m = 11; y-- } else if (m > 11) { m = 0; y++ }
-  calMonth.value = m; calYear.value = y
-  clearCalExpanded()
-}
-function calToday() {
-  calYear.value = new Date().getFullYear()
-  calMonth.value = new Date().getMonth()
-  clearCalExpanded()
-}
-function calGoto(y: number, m: number) {
-  calYear.value = y
-  calMonth.value = m
-  clearCalExpanded()
-}
-function calToggleTodos() {
-  calShowTodos.value = !calShowTodos.value
-  localStorage.setItem('fc_cal_show_todos', calShowTodos.value ? '1' : '0')
-}
-function calToggleLogs() {
-  calShowLogs.value = !calShowLogs.value
-  localStorage.setItem('fc_cal_show_logs', calShowLogs.value ? '1' : '0')
-}
-
-// 日期算术全部在 calendar.ts 里（纯函数，可被 scripts/test/e2e-calendar.cjs 直接断言）——
-// 跨月边界这类错误在界面上只表现为"少一天/多一天"，肉眼抓不住，必须靠脚本。
-const taskStart = (t: any): Date | null => parseCalDate(t?.start ?? t?.fm?.start)
-const taskDue = (t: any): Date | null => parseCalDate(t?.deadline ?? t?.fm?.deadline)
-
-/** 日历只关心非终态任务 */
-const calActiveTasks = computed(() =>
-  filteredTasks.value.filter(t => t.status !== '完成' && t.status !== '驳回'))
-
-/** 未完成的待办（done 的不占日历） */
-const calActiveTodos = computed(() => todos.value.filter(t => !t.done))
-
-type CalEvent = CalEventT<Task, Todo>
-
-/** 一次算清：格子 / 未安排 / 其它月份（纯函数，见 calendar.ts） */
-const calMonthData = computed(() => buildMonth<Task, Todo, any>({
-  year: calYear.value,
-  month: calMonth.value,
-  today: new Date(),
-  tasks: calActiveTasks.value.map(t => ({
-    ...t,
-    priority: localPriority(t.priority),
-    start: (t as any).start ?? t.fm?.start,
-    deadline: (t as any).deadline ?? t.fm?.deadline,
-  })),
-  todos: calActiveTodos.value.map(td => ({ ...td, priority: localPriority(td.priority) })),
-  showTodos: calShowTodos.value,
-  // 2026-09-23（用户第 3 条）：日志上日历
-  logs: logs.value,
-  showLogs: calShowLogs.value,
-}))
-
-const calCells = computed(() => calMonthData.value.cells)
-const calUnscheduled = computed(() => calMonthData.value.unscheduled as unknown as Task[])
-const calOtherMonths = computed(() => calMonthData.value.otherMonths)
-const calOtherTotal = computed(() => calMonthData.value.otherTotal)
-// 2026-09-25（用户第 10 条）：「日历下方的横条很密集很让人畏惧」——底部两排 chip 一多
-// 就是一片横条墙。默认收起，只留一行摘要，点开才铺开。
-const calBottomOpen = ref(false)
-
-function prioColor(p: any): string {
-  const s = localPriority(p)
-  return s === '高' ? '#c96a6a' : s === '中' ? '#d9a44a' : s === '低' ? '#7a9e6b' : '#d5d3e0'
-}
+// 日历的状态与算法已抽到 composables/useCalendar.ts（2026-10-22 · 拆分第 1 批第 3 块）——
+// 先只抽状态与算法，行为一模一样；下一步搬模板时，副作用用 emit 上抛。
+// 留下来的：calAssign_ 与三个函数（它们开的是本文件里的「指派时间」弹窗）、
+//           onCalEventClick / onCalDrop（会调 openCard / openLog / loadTodos 等父组件能力）。
+const {
+  calYear, calMonth, calDragOverDay, calShowTodos, calShowLogs,
+  calCellExpanded, calCellShown, calCellMore, toggleCalCell,
+  calMove, calToday, calGoto, calToggleTodos, calToggleLogs,
+  taskStart, taskDue,
+  calActiveTasks, calActiveTodos,
+  calMonthData, calCells, calUnscheduled, calOtherMonths, calOtherTotal, calBottomOpen,
+  prioColor, onCalDragStart, takeDrag,
+} = useCalendar({
+  // ⚠ 日历显示的是「顶栏筛选后」的任务 —— 这是既有行为，别顺手改成全量
+  activeTasks: () => filteredTasks.value,
+  todos: () => todos.value,
+  logs: () => logs.value,
+  priority: localPriority,
+})
 
 // ── 指派时间（模态：开始 + 截止 / 待办只有到期日）──────────────────────
 const calAssign_ = ref<{
@@ -9452,13 +9357,7 @@ async function saveCalAssign() {
 }
 
 // ── 拖拽改期 ───────────────────────────────────────────────────────────
-function onCalDragStart(e: DragEvent, id: string, kind: 'task' | 'todo' | 'log' = 'task') {
-  calDragId = id
-  calDragKind = kind
-  e.dataTransfer?.setData('text/plain', id)
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-}
-
+// onCalDragStart 已进 composable（它只记住拖的是谁）；这里只剩落盘那半（要 window.tegula + toast）。
 function onCalEventClick(ev: CalEvent) {
   if (ev.kind === 'todo') { openCalAssignTodo(ev.id); return }
   // 2026-09-23（用户第 3 条）：日志事件点击 → 打开日志编辑框
@@ -9475,9 +9374,10 @@ async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
   e.preventDefault()
   calDragOverDay.value = null
   if (!cell) return
-  const id = calDragId || e.dataTransfer?.getData('text/plain')
-  const kind = calDragKind
-  calDragId = null
+  // 拖拽目标由 composable 记（`calDragId` 是它的内部 let），这里取一次就清空
+  const drag = takeDrag()
+  const id = drag?.id || e.dataTransfer?.getData('text/plain')
+  const kind = drag?.kind || 'task'
   if (!id) return
   const target = calISO(new Date(calYear.value, calMonth.value, cell.day))
   try {

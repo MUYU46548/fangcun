@@ -20,6 +20,26 @@
 |---|---|---|---|---|---|---|
 | 1 | help（帮助手册 → `renderer/views/HelpView.vue`） | `86152d7` | **123** | 0 | **15754** | renderer-web 659/0 · e2e-renderer 312/0 · 模板绑定/IPC 对账全绿 |
 | 2 | blockers（阻塞源 → `renderer/views/BlockersView.vue`） | 见提交 | **47**（+ `statusClass` 抽到 `shared/status.ts`） | 0 | **15733** | renderer-web 661/0 · e2e-renderer 312/0 |
+| 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | 见提交 | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
+
+
+> **第 3 块为什么只抽 composable、没搬模板（这是方案原话，不是偷懒）**：
+> 方案对 calendar 的处置就是「先抽 `composables/useCalendar.ts`，再搬组件」。
+> 实测为什么必须分两步 —— 日历有三个**副作用出口**（`onCalEventClick` 要 openCard / openLog，
+> `onCalDrop` 要 window.tegula + toast + loadTodos/loadLogs），还挂着一个「指派时间」弹窗
+> （`calAssign_` 的状态在 App.vue、弹窗模板也在 App.vue）。一步搬完＝把副作用一起卷进去，
+> 那就是"边拆边改行为"。
+>
+> 这一步的边界划得很硬：
+> · **进 composable**：所有 `cal*` 状态 + 日期算法 + 折叠/翻月/拖拽"记住拖的是谁"（纯逻辑）；
+> · **留在 App.vue**：`calAssign_` 与三个弹窗函数、`onCalEventClick` / `onCalDrop`（副作用）；
+> · `onCalDragStart` 只记本地变量 → 进 composable；落盘那半留父组件，靠 `takeDrag()` 交接
+>   （"取一次就清空"，一次 drop 只该改一张卡）。
+>
+> ⚠ 行数对比别直接和上面的 15733 比：这一轮中间还加了「想法」页（+309），
+> 拆前实际是 **16046**，拆完 **15943**。
+>
+> 下一步（第 4 块）才是把日历模板搬进 `views/CalendarView.vue`，用 emit 把三个副作用上抛。
 
 > **第 2 块换了顺序（有依据，不是随手改）**：方案原定第 2 块是 calendar。
 > 实测它的依赖面比方案预估的大 —— 20+ 个 `cal*` 状态，还要 tasks / todos / logs

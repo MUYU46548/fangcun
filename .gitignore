@@ -20,11 +20,16 @@ backups/
 # 运行时数据目录（都派生自数据根；2026-09-22 数据目录修复后落在项目根，
 # 与 task-data/ 同类，属使用数据不入库）
 todos/
+# 想法（2026-10-22）：与 todos 同类，是使用数据不入库。
+# 2026-10-23 补：加功能时忘了同步这里，`git status` 一直挂着 `?? ideas/`。
+ideas/
 notifications/
 policies/
 project-status.md
 # AI 调用链留痕（2026-10-17）：每次模型调用一行元数据，落数据根，属使用数据不入库
 ai-trace.jsonl
+# 看板服务的端口文件（运行时写的，2026-10-23 补：此前一直挂在 git status 里）
+.tegula-port
 docs/执行日志/
 docs/阶段总结/*.md~
 方寸-app/

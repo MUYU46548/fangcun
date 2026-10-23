@@ -912,6 +912,40 @@
     check('  造出一条长标题待办（网格断言就位）',
       await waitFor(() => $$('main.todos-view .todo-item').some((it) => (it.textContent || '').indexOf('最多三行不截断') >= 0), 5000, '长标题待办'))
 
+    // ══ 待办的「📅 指派到期日」→ 真打开指派弹窗（2026-10-23 补）══════════════════
+    // 这条断言是被真事逼出来的：抽 calendar composable 时把 `parseCalDate` 的 import
+    // 一起删了，而**只有这条路径**（openCalAssignTodo）还在用它。
+    // 结果：无头断言 686/0 全绿、真 Electron 真点击红 2 条（ReferenceError）。
+    // 补上这条之后，无头这层也能咬住"某个只在特定点击路径才用到的符号被删"。
+    const assignDiag = await (async () => {
+      // 列表是异步拉的 → 等按钮出现，别用"此刻没看到"当结论
+      // ⚠ waitFor 返回的是**布尔**，不是元素 —— 直接 `btn.click()` 会炸
+      //   「btn.click is not a function」（2026-10-23 踩过）。等到了再取一次。
+      const appeared = await waitFor(() => !!$('main.todos-view .todo-assign'), 4000, 'todo-assign')
+      if (!appeared) return { err: '没有 .todo-assign' }
+      const btn = $('main.todos-view .todo-assign')
+      btn.click()
+      await sleep(400)
+      const d = {
+        overlays: document.querySelectorAll('.overlay').length,
+        modal: !!document.querySelector('#cal-assign-modal'),
+        btnVisible: btn.offsetParent !== null,
+        hasHandler: typeof btn.onclick === 'function' || !!btn.__vueParentComponent,
+        btns: document.querySelectorAll('main.todos-view .todo-assign').length,
+      }
+      if (d.modal) {
+        // 关掉，别把弹窗留给后面的断言（遮罩用 @mousedown.self → 派发 mousedown 到遮罩本体）
+        const ov = document.querySelector('.overlay')
+        if (ov) ov.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+        await sleep(250)
+      }
+      return d
+    })()
+    check('★★ 待办上的 📅 能真打开「指派时间」弹窗（parseCalDate 只在这条路径上用）',
+      assignDiag && assignDiag.modal === true, JSON.stringify(assignDiag))
+    check('  关掉之后弹窗真的没了（不然下一个断言会在遮罩上面点空）',
+      !$('#cal-assign-modal'))
+
     // ══ 待办的**可选到期时间**（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
     //    如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）══════════════════════════
     // 四件事必须同时成立，缺一条这个功能就是"看着有、用不了"：
