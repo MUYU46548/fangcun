@@ -7002,6 +7002,21 @@ async function executeNaturalQuery() {
   isNaturalQuery.value = true
 }
 
+/**
+ * 清空搜索框 = 退出自然查询（2026-10-23 修，被断言抓出来的真 bug）。
+ *
+ * 原行为：只有「光标在框里再按一次回车」才会走到上面那个 `if (!q)` 分支重置。
+ * 用户按 Esc 或直接删掉关键字后，`isNaturalQuery` 还挂着 true、`naturalResults` 还非空，
+ * 于是 `filteredTasks` 第一行直接把板子锁死在"自然查询那几张卡"上 ——
+ * 界面上**没有任何提示**，看起来就像"别的卡被删了"。这类静默收窄最难排查。
+ */
+watch(searchQuery, (v) => {
+  if (!String(v || '').trim() && isNaturalQuery.value) {
+    isNaturalQuery.value = false
+    naturalResults.value = []
+  }
+})
+
 // ── Task operations ─────────────────────────────────────────────────────
 
 function emptyTaskForm(): Record<string, string> {

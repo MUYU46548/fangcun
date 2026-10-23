@@ -968,7 +968,13 @@ contextBridge.exposeInMainWorld('tegula', {
     }
     return out
   },
-  naturalQuery: () => [],
+  // 自然语言搜索（2026-10-23 补）：此前恒返回 `[]` —— 而 App 那边读的是 `result.tasks`，
+  // 于是「回车搜 #标签 @项目」这条路**从来没被验过**（返回 [] → 结果永远是空列表）。
+  naturalQuery: (q, opts) => {
+    rec('naturalQuery', [q, opts])
+    const hit = store.tasks.filter((t) => String(t.id) === 'task-demo-001')
+    return { ok: true, tasks: JSON.parse(JSON.stringify(hit)), parsed: { raw: q } }
+  },
   getRoadmapTrend: () => ({}),
   suggestCrossProject: () => { rec('suggestCrossProject'); return store.crossSuggest.slice() },
   detectParallelOpportunities: () => [],

@@ -367,6 +367,42 @@
             const bar = $('#bar'), c = $('#bar .ctrls')
             return (bar && c) ? `ctrls=${Math.round(c.getBoundingClientRect().width)} bar=${bar.clientWidth}` : 'no bar'
           })())
+        // ── 自然语言搜索（2026-10-23 补：这条路此前**一条断言都没有**）────────────
+        // 桩 `naturalQuery` 一直返回 `[]`，而 App 读的是 `result.tasks` ——
+        // 所以「回车搜 #标签 @项目」从头到尾没被验过：真调没调、参数对不对、
+        // 结果有没有真的把板子收窄，三件事全是空白。
+        {
+          const sin = $('.fbar .search')
+          check('前置：顶栏搜索框在（否则下面的回车无从谈起）', !!sin)
+          const nQ0 = window.__fcTest.callCount('naturalQuery')
+          if (sin) {
+            sin.value = '#bug @demo'
+            sin.dispatchEvent(new Event('input', { bubbles: true }))
+            await sleep(80)
+            sin.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+          }
+          check('★★ 搜索框回车 → 真调 naturalQuery（不是本地字符串过滤）',
+            await waitFor(() => window.__fcTest.callCount('naturalQuery') > nQ0, 4000, 'naturalQuery'),
+            'calls=' + window.__fcTest.callCount('naturalQuery'))
+          const nqArgs = (window.__fcTest.calls().filter((c) => c.name === 'naturalQuery').pop() || {}).args || []
+          check('★★ 原文整串传下去（解析在主进程，界面不许自己拆 #标签 @项目）',
+            nqArgs[0] === '#bug @demo', JSON.stringify(nqArgs))
+          check('★ 「含归档」开关一起传（此前主进程硬跳过 archive，勾了也搜不到）',
+            !!nqArgs[1] && typeof nqArgs[1].includeArchive === 'boolean', JSON.stringify(nqArgs[1]))
+          check('★★ 结果真的收窄板子（只剩主进程返回的那张卡）',
+            await waitFor(() => $$('#board .card, #board .task-card, #board .tcard').length === 1, 4000, '1 张卡'),
+            'cards=' + $$('#board .card, #board .task-card, #board .tcard').length)
+          // 收尾：清空搜索，别把"只剩 1 张"留给后面的断言（几乎每条都假设板子是全的）
+          if (sin) {
+            sin.value = ''
+            sin.dispatchEvent(new Event('input', { bubbles: true }))
+            await sleep(300)
+          }
+          check('  清空搜索后恢复全部卡（自然查询状态被重置，不是粘住）',
+            await waitFor(() => $$('#board .card, #board .task-card, #board .tcard').length > 1, 4000, '恢复'),
+            'cards=' + $$('#board .card, #board .task-card, #board .tcard').length)
+        }
+
         // 2026-10-12：搜索框固定宽之后，"把筛选控件推到右端"的活由 `.fbar-grow` 撑杆干。
         // 判据用**可用空间**而不是"已用尺寸占比"（memory：几何断言别拿占比当判据）：
         //   排序按钮的右缘 应当贴近 顶栏右缘（中间的空白由撑杆吸收）。
