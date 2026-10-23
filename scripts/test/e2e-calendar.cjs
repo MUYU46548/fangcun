@@ -182,11 +182,17 @@ function main() {
   check('rangeLabel 未指派', cal.rangeLabel(undefined, undefined) === '未指派')
 
   // ── 11. 渲染层确实在用这份逻辑（防漂移）──────────────────────────
-  const appVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8')
-  check('App.vue 导入 calendar.ts', /from '\.\/calendar'/.test(appVue))
-  check('App.vue 使用 buildMonth', /buildMonth</.test(appVue) || /buildMonth\(/.test(appVue))
-  check('App.vue 使用 shiftRange', /shiftRange\(/.test(appVue))
-  check('App.vue 不再自己写日期算术（无内联 86400000 天差）', !/86400000/.test(appVue))
+  // ⚠ 2026-10-23：日历在拆分第 3/4 块搬进了 composables/useCalendar.ts + views/CalendarView.vue，
+  //   所以这几条改扫**全部渲染层源码**（判据只更严，不更松）。
+  const appVue = require('./_sources.cjs').rendererSource()
+  check('渲染层导入 calendar.ts（日历逻辑的唯一来源）', /from '\.\.?\/calendar'/.test(appVue))
+  check('渲染层使用 buildMonth', /buildMonth</.test(appVue) || /buildMonth\(/.test(appVue))
+  check('渲染层使用 shiftRange', /shiftRange\(/.test(appVue))
+  // ⚠ 这条只扫**界面层**（App.vue + views/）：`calendar.ts` 里的 `const MS_DAY = 86400000`
+  //   正是它该在的地方 —— 判据的本意是"界面别手搓天数，去调共享纯函数"。
+  const viewSrc = require('./_sources.cjs').viewSource()
+  check('界面层不再自己写日期算术（无内联 86400000 天差；该常量只许活在 calendar.ts）',
+    !/86400000/.test(viewSrc))
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {

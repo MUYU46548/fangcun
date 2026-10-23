@@ -81,7 +81,9 @@ function main() {
     t.formatDateTime(String(MS)))
 
   // ── D. 接线（源码断言，防漂移 / 防有人把本地实现加回来）───────────
-  const vue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf8')
+  // ⚠ 2026-10-23：自 App.vue 拆分后，模板/样式散在 App.vue + views/*.vue + composables/*.ts，
+  //   这里扫全部渲染层源码（判据只更严：原来"App.vue 里不许有"现在等于"任何渲染层文件都不许有"）。
+  const vue = require('./_sources.cjs').rendererSource()
   check('D1 App.vue 从 shared/time 取日期工具', /from '\.\.\/shared\/time'/.test(vue))
   check('D2 没有再把本地 formatDate 定义加回来', !/function formatDate\(/.test(vue))
   check('D3 没有本地 relativeTime 定义', !/function relativeTime\(/.test(vue))
@@ -116,8 +118,23 @@ function main() {
     /querySelector<HTMLButtonElement>\('\.acts button\.pri'\)/.test(vueNoComment) &&
     !/querySelector[^\n]*\.acts button\.(ok|danger)/.test(vueNoComment),
     '缺挂载/卸载，或动了裁决按钮')
-  check('D11 快捷键不接管 Ctrl+Z（输入框原生撤销保持原样）',
-    !/key === 'z'/i.test(vueNoComment) && !/key === 'Z'/.test(vueNoComment))
+  // ⚠ 2026-10-23 改写：原判据是「**完全不**接管 Ctrl+Z」，那是 2026-09-25 的规则。
+  //   2026-10-21 暮雨第 1 条（「狂按 Ctrl+Z 也没用」）改成了**有条件的接管**：
+  //   撤销条上有待撤动作 → 撤这一步数据动作；没有 → 放行输入框的原生撤销。
+  //   所以新的判据不是"不许出现 key === 'z'"，而是**顺序**：
+  //   必须先 `if (!undoBar.value) return` 再 `preventDefault()`。
+  //   顺序反了就会把输入框里的撤销吃掉 —— 这正是当初那条断言要保护的用户体验。
+  // ⚠ 判据必须看**顺序**，不能用「A 之后 B 在 200 字内」那种窗口：
+  //   第一版就是这么写的，结果把 Ctrl+S 分支里的 preventDefault 匹配上了 ——
+  //   把两行顺序颠倒（先拦后判）照样全绿，等于没写。现在先切出 Ctrl+Z 这一段，再比下标。
+  const zBranch = (vueNoComment.match(/if \(e\.key === 'z' \|\| e\.key === 'Z'\) \{([\s\S]{0,900}?)\n  \}/) || [])[1] || ''
+  const zGuard = zBranch.indexOf('if (!undoBar.value) return')
+  const zPrevent = zBranch.indexOf('e.preventDefault()')
+  check('D11 Ctrl+Z：撤销条在才接管，没有待撤动作就放行原生撤销（先判后拦）',
+    !!zBranch && zGuard >= 0 && zPrevent > zGuard,
+    zBranch
+      ? `guard@${zGuard} preventDefault@${zPrevent}（必须是 guard 在前）`
+      : '没找到 Ctrl+Z 分支（快捷键被删了？）')
   check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
     /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
 

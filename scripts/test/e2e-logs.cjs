@@ -368,7 +368,10 @@ function main() {
 
   // ── 10. 渲染层接线守卫（2026-09-25 第 2/13 条）─────────────────────
   // 数据层通了不等于界面通了 —— 上一轮「三层早通、UI 无入口」的坑（卡 022）就是这么来的。
-  const APP = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/App.vue'), 'utf-8')
+  // ⚠ 2026-10-23：日志页已拆进 views/LogsView.vue（第 11 块），待办拆进 views/TodosView.vue。
+  //   这些「界面入口在不在」的断言从此扫**全部渲染层源码**，否则每拆一块就凭空红一批
+  //   （见 _sources.cjs 头部）。
+  const APP = require('./_sources.cjs').rendererSource()
   const IPC_SRC = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/ipc.ts'), 'utf-8')
 
   // ── 10b. 搜索与筛选合流（2026-10-01 用户第 3 条「日常卡点」）─────────────

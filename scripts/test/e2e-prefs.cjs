@@ -84,7 +84,9 @@ function main() {
   const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf-8').replace(/\r\n/g, '\n')
   const ipcSrc = readSrc(path.join('main', 'ipc.ts'))
   const preloadSrc = readSrc(path.join('preload', 'index.ts'))
-  const vueSrc = readSrc(path.join('renderer', 'App.vue'))
+  // ⚠ 2026-10-23：`saveUiPref` 已抽到 renderer/prefs.ts（拆分第 9 块铺路），
+  //   D11 那三条"载荷必须过 toPlain"的判据因此不能只看 App.vue → 扫全部渲染层源码。
+  const vueSrc = require('./_sources.cjs').rendererSource()
 
   check('C1 主进程注册 prefs:get', /guardedHandle\('prefs:get'/.test(ipcSrc))
   check('C2 主进程注册 prefs:set', /guardedHandle\('prefs:set'/.test(ipcSrc))

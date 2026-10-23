@@ -211,9 +211,10 @@ async function main() {
       check('  selfSync 自己没有偷偷 spawn（统一走 gitExec，改一处不漏一处）',
         !/spawn\(/.test(raw))
       // 渲染层：不许出现"手动同步"按钮（用户零动作原则）
-      const app = stripComments(fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8'))
+      // 2026-10-23：扫全部渲染层源码（App.vue 已拆分）。
+      const app = stripComments(require('./_sources.cjs').rendererSource())
       check('★ 界面只显示状态，**没有**"立即同步"按钮（自动就够，不加手动入口）',
-        /selfSyncWarn/.test(app) && !/selfSyncForce|sync:force|立即同步/.test(app))
+        /selfSyncLine/.test(app) && !/selfSyncForce|sync:force|立即同步/.test(app))
     }
 
     console.log('')
