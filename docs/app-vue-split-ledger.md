@@ -208,6 +208,14 @@
 5. 每步跑 **renderer-web（无头 DOM）+ e2e-renderer（真 Electron 真点击）** 两层，
    拆视图最容易坏的是"视图互斥链"和"entry 点不到"。
 
+6. **每拆完一步，必须顺手跑一遍「全量 e2e 48 个文件」**（不是只跑那两个渲染层套件）。
+   `e2e-*.cjs` 里有一大批**源码扫描型**断言（"日志页有排序下拉吗""App.vue 不许出现 X"），
+   它们按路径找代码 —— 代码搬走就红。2026-10-23 一次性冒出 **18 条**（logs 8 / calendar 1 /
+   timefmt 2 / prefs 1 / self-sync 1，还有几条在同一批里被顺带发现）。
+   **已统一收口到 `scripts/test/_sources.cjs`**：`rendererSource()` 扫全部渲染层、
+   `viewSource()` 只扫界面层（App.vue + views/）。新写这类断言**不许再写死 App.vue**。
+   ⚠ 比红更危险的是**负向判据变真空**：`!/X/.test(App.vue)` 在 X 搬走之后依然绿，
+   但已经什么也没在守 —— 这类断言一律要跟着改扫全量。
 ## 回滚
 
 ```
