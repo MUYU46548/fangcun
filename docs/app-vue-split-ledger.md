@@ -20,7 +20,9 @@
 |---|---|---|---|---|---|---|
 | 1 | help（帮助手册 → `renderer/views/HelpView.vue`） | `86152d7` | **123** | 0 | **15754** | renderer-web 659/0 · e2e-renderer 312/0 · 模板绑定/IPC 对账全绿 |
 | 2 | blockers（阻塞源 → `renderer/views/BlockersView.vue`） | 见提交 | **47**（+ `statusClass` 抽到 `shared/status.ts`） | 0 | **15733** | renderer-web 661/0 · e2e-renderer 312/0 |
-| 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | 见提交 | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
+| 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | `e7cddd8` | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
+| 4 | calendar **第二步：模板搬成组件** → `renderer/views/CalendarView.vue`（75 行模板 + props/emit） | 见提交 | **75** | 27（`onCalDrop`→`doCalReschedule`、`openLogById`；`localPriority`/`priorityLabel` 抽到 `shared/priority.ts`） | **15850**（净 −93） | renderer-web 688/0 · e2e-renderer 312/0 |
+
 
 
 > **第 3 块为什么只抽 composable、没搬模板（这是方案原话，不是偷懒）**：
@@ -39,7 +41,18 @@
 > ⚠ 行数对比别直接和上面的 15733 比：这一轮中间还加了「想法」页（+309），
 > 拆前实际是 **16046**，拆完 **15943**。
 >
-> 下一步（第 4 块）才是把日历模板搬进 `views/CalendarView.vue`，用 emit 把三个副作用上抛。
+> **第 4 块（模板搬成组件）的边界**：组件只做「显示 + 收集意图」，五个动作全部 emit 上抛：
+> `assign-task` / `assign-todo`（开「指派时间」弹窗，弹窗模板还在 App.vue）、
+> `reschedule`（组件算"改到哪天"，IPC + toast + 重新加载留父组件）、
+> `open-card` / `open-log`（点条目）。
+>
+> 组件**自己调 `useCalendar`**（接收 `tasks`/`todos`/`logs` 三个 prop），App.vue 不再 import 它 ——
+> 否则得把 20 多个返回值当 props 传下去。`<main id="board" class="calendar-view">` 这层壳留在
+> 组件根上：视图互斥与几何断言都按 `#board.calendar-view` 选，换成 div 要改一堆断言。
+>
+> ⚠ `taskStart` / `taskDue` 在 App.vue 里**又定义了一份小的**（弹窗要用）。这不算重复实现：
+> 两处都是同一句 `parseCalDate(t.start ?? t.fm.start)`，而且必须同口径 —— 各写一套的话，
+> 日历画出来的时间和弹窗里显示的时间迟早对不上。
 
 > **第 2 块换了顺序（有依据，不是随手改）**：方案原定第 2 块是 calendar。
 > 实测它的依赖面比方案预估的大 —— 20+ 个 `cal*` 状态，还要 tasks / todos / logs

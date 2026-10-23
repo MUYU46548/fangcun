@@ -2635,81 +2635,16 @@
 
     <!-- Roadmap view -->
     <!-- Calendar view -->
-    <main id="board" class="calendar-view" v-if="curView === 'calendar'">
-      <div class="calhead">
-        <button class="ghost" @click="calMove(-1)">&#9664; 上月</button>
-        <span class="m">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
-        <button class="ghost" @click="calMove(1)">下月 &#9654;</button>
-        <button class="ghost" @click="calToday">回到本月</button>
-        <label class="chk cal-chk"><input type="checkbox" :checked="calShowTodos" @change="calToggleTodos" /> 显示待办</label>
-        <!-- 2026-09-23（用户第 3 条）：日志上日历 -->
-        <label class="chk cal-chk"><input type="checkbox" :checked="calShowLogs" @change="calToggleLogs" /> 显示日志</label>
-        <span class="cal-hint">拖动条目可改期；点条目可指派时间；时间段任务会横跨多天</span>
-      </div>
-      <div class="calgrid">
-        <div v-for="d in CAL_DOW" :key="d" class="caldow">{{ d }}</div>
-        <div v-for="(cell, i) in calCells" :key="i" class="calcell"
-          :class="{ blank: !cell, today: cell && cell.isToday, past: cell && cell.isPast, dragover: cell && cell.day === calDragOverDay }"
-          @dragover.prevent="cell && (calDragOverDay = cell.day)"
-          @dragleave="calDragOverDay = null"
-          @drop="onCalDrop($event, cell)"
-        >
-          <template v-if="cell">
-            <div class="dnum">{{ cell.day }}</div>
-            <!-- 2026-09-29 用户选「改法 A」（035 卡）：格子里最多 2 条 + 「+N 条」。
-                 时间段任务不折（见 calCellShown），所以连续色带不会断头。 -->
-            <div v-for="ev in calCellShown(cell)" :key="ev.kind + ev.id + '-' + cell.day"
-              class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : ev.kind === 'log' ? 'cev-log' : 'cev-task']"
-              draggable="true"
-              :title="(ev.kind === 'todo' ? '待办：' : ev.kind === 'log' ? '日志：' : '任务：') + ev.title + (ev.rangeDays > 1 ? `（共 ${ev.rangeDays} 天）` : '')"
-              @dragstart="onCalDragStart($event, ev.id, ev.kind)"
-              @click="onCalEventClick(ev)"
-            >
-              <span class="pd" :style="{ background: ev.kind === 'todo' ? '#5b8dd6' : ev.kind === 'log' ? '#8b7fb8' : prioColor(ev.priority) }"></span>
-              <span class="t">{{ ev.title }}</span>
-            </div>
-            <button v-if="calCellMore(cell)" class="cal-cell-more" :title="`还有 ${calCellMore(cell)} 条，点开就地铺满这一天`"
-              @click.stop="toggleCalCell(cell)">+{{ calCellMore(cell) }} 条</button>
-            <button v-else-if="calCellExpanded(cell)" class="cal-cell-more less" title="收回前面几条，只留 2 条"
-              @click.stop="toggleCalCell(cell)">收起</button>
-          </template>
-        </div>
-      </div>
-      <div class="calunsched">
-        <!-- 2026-09-25（用户第 10 条）：底部这两排 chip 一旦多起来就是一片「横条墙」，
-             视觉压迫感极强。改成默认收起的一行摘要，点开才铺开。 -->
-        <button class="cal-more" :aria-expanded="calBottomOpen" @click="calBottomOpen = !calBottomOpen">
-          <span class="caret" :class="{ open: calBottomOpen }">▸</span>
-          未排期 <b>{{ calUnscheduled.length }}</b> 项
-          <template v-if="calOtherMonths.length">· 其它月份 <b>{{ calOtherMonths.length }}</b> 个</template>
-          <span class="cal-more-hint">{{ calBottomOpen ? '收起' : '展开' }}</span>
-        </button>
-        <div v-show="calBottomOpen" class="cal-more-body">
-          <h4>
-            未安排 · 无时间（{{ calUnscheduled.length }} 个）
-            <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
-          </h4>
-          <div class="items">
-          <span v-for="t in calUnscheduled" :key="t.id" class="cev chip" draggable="true"
-            :title="'拖动或点击指派时间：' + (t.title || t.id)"
-            @dragstart="onCalDragStart($event, t.id, 'task')"
-            @click="openCalAssignTask(t)">
-            <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
-            <span class="t">{{ t.title || t.id }}</span>
-          </span>
-          <span v-if="!calUnscheduled.length" class="cal-empty">本月任务都已安排时间</span>
-        </div>
-        <template v-if="calOtherMonths.length">
-          <h4 class="cal-other-head">其它月份（{{ calOtherTotal }} 个）—— 点一下跳过去</h4>
-          <div class="items">
-            <span v-for="g in calOtherMonths" :key="g.key" class="cev chip other" @click="calGoto(g.year, g.month)">
-              {{ g.label }} · {{ g.count }} 个 →
-            </span>
-          </div>
-        </template>
-        </div>
-      </div>
-    </main>
+    <!-- 日历（2026-10-23 拆成组件 · 拆分计划第 1 批第 4 块）。
+         状态与算法在第 3 块已进 composables/useCalendar.ts，组件自己调它 ——
+         这里只需给三份数据 + 接五个动作（组件只收集意图，落盘/开弹窗都留在本文件）。 -->
+    <CalendarView v-if="curView === 'calendar'"
+      :tasks="filteredTasks" :todos="todos" :logs="logs"
+      @assign-task="openCalAssignTask"
+      @assign-todo="openCalAssignTodo"
+      @reschedule="doCalReschedule"
+      @open-card="openCard"
+      @open-log="openLogById" />
 
     <main id="board" class="roadmap-view" v-if="curView === 'roadmap'">
       <div class="roadmap-header">
@@ -4134,7 +4069,8 @@ import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { computeBlockerImpact } from '../shared/blockers'
 import { statusClass } from '../shared/status'
-import { useCalendar, type CalEvent } from './composables/useCalendar'
+import CalendarView from './views/CalendarView.vue'
+import { localPriority, priorityLabel } from '../shared/priority'
 import type { BlockerImpact } from '../shared/blockers'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -8807,21 +8743,8 @@ const archivedTasks = ref<Task[]>([])
  * 展示层优先级兜底归一。主进程 parseTask 已做过归一，这里只防历史数据里的英文残留。
  * 不要在别处再写一套映射 —— 优先级别名表在主进程 data/index.ts。
  */
-function localPriority(p: any): string {
-  const s = String(p ?? '').trim()
-  if (!s) return '中'
-  const map: Record<string, string> = {
-    '高': '高', '中': '中', '低': '低',
-    high: '高', urgent: '高', critical: '高',
-    medium: '中', normal: '中',
-    low: '低',
-  }
-  return map[s.toLowerCase()] || s
-}
-
-function priorityLabel(p: string): string {
-  return p ? localPriority(p) : '—'
-}
+// localPriority / priorityLabel 已抽到 shared/priority.ts（2026-10-23）——
+// 日历组件里的 prioColor 也要用同一份映射，各写一套迟早出现"看板是红、日历是灰"。
 
 /** 日志优先级徽章的 class key（卡 001）。ASCII 而不是直接拼中文：CSS 选择器里中文虽合法，
  *  但转义/编码链上多一个可出错的环节，值域也只需三档映射。空/未知一律给 'low'（灰、不抢眼）。 */
@@ -9270,26 +9193,13 @@ async function copyPolicyText(projectId: string) {
 // 现在：start + deadline 组成时间段（跨天画成连续色带）；待办按 due 上日历；
 //       任务卡右键 / 任务详情 / 待办项 / 未安排条目四处都有「指派时间」；
 //       未安排拆成「无日期」与「其它月份（可一键跳转）」，跨月不再是一锅粥。
-const CAL_DOW = ['一', '二', '三', '四', '五', '六', '日']
-// 日历的状态与算法已抽到 composables/useCalendar.ts（2026-10-22 · 拆分第 1 批第 3 块）——
-// 先只抽状态与算法，行为一模一样；下一步搬模板时，副作用用 emit 上抛。
-// 留下来的：calAssign_ 与三个函数（它们开的是本文件里的「指派时间」弹窗）、
-//           onCalEventClick / onCalDrop（会调 openCard / openLog / loadTodos 等父组件能力）。
-const {
-  calYear, calMonth, calDragOverDay, calShowTodos, calShowLogs,
-  calCellExpanded, calCellShown, calCellMore, toggleCalCell,
-  calMove, calToday, calGoto, calToggleTodos, calToggleLogs,
-  taskStart, taskDue,
-  calActiveTasks, calActiveTodos,
-  calMonthData, calCells, calUnscheduled, calOtherMonths, calOtherTotal, calBottomOpen,
-  prioColor, onCalDragStart, takeDrag,
-} = useCalendar({
-  // ⚠ 日历显示的是「顶栏筛选后」的任务 —— 这是既有行为，别顺手改成全量
-  activeTasks: () => filteredTasks.value,
-  todos: () => todos.value,
-  logs: () => logs.value,
-  priority: localPriority,
-})
+// 日历：状态与算法在 composables/useCalendar.ts（第 3 块），模板在 views/CalendarView.vue（第 4 块）。
+// 这个文件里只剩两件父组件的活儿：**「指派时间」弹窗**（模板在本文件）与**拖拽落盘**
+// （要 IPC + toast + 重新加载）。CAL_DOW 跟着进组件了（只有日历用）。
+// ⚠ taskStart/taskDue 在这里再定义一份小的：弹窗要按同一套字段回退（t.start ?? t.fm.start）
+//   读时间。各写一套的话，日历画出来的时间和弹窗里显示的时间迟早对不上。
+const taskStart = (t: any): Date | null => parseCalDate(t?.start ?? t?.fm?.start)
+const taskDue = (t: any): Date | null => parseCalDate(t?.deadline ?? t?.fm?.deadline)
 
 // ── 指派时间（模态：开始 + 截止 / 待办只有到期日）──────────────────────
 const calAssign_ = ref<{
@@ -9356,30 +9266,24 @@ async function saveCalAssign() {
   }
 }
 
-// ── 拖拽改期 ───────────────────────────────────────────────────────────
-// onCalDragStart 已进 composable（它只记住拖的是谁）；这里只剩落盘那半（要 window.tegula + toast）。
-function onCalEventClick(ev: CalEvent) {
-  if (ev.kind === 'todo') { openCalAssignTodo(ev.id); return }
-  // 2026-09-23（用户第 3 条）：日志事件点击 → 打开日志编辑框
-  if (ev.kind === 'log') {
-    const log = logs.value.find((l: any) => l.id === ev.id)
-    if (log) openLog(log)
-    return
-  }
-  const t = calActiveTasks.value.find(x => x.id === ev.id)
-  if (t) openCard(t)
+// ── 日历的两个副作用入口（组件 emit 过来，落盘/开窗留在本文件）─────────────
+// 组件只负责"显示 + 收集意图"：点条目 / 拖拽都只 emit 一个 id 加一个目标日期，
+// 真正要 window.tegula + toast + loadTodos/loadLogs 的部分全在这里。
+
+/** 点日历上的日志条目 → 打开日志编辑框（组件只 emit id，openLog 要整个 log 对象） */
+function openLogById(id: string): void {
+  const log = logs.value.find((l: any) => l.id === id)
+  if (log) openLog(log)
 }
 
-async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
-  e.preventDefault()
-  calDragOverDay.value = null
-  if (!cell) return
-  // 拖拽目标由 composable 记（`calDragId` 是它的内部 let），这里取一次就清空
-  const drag = takeDrag()
-  const id = drag?.id || e.dataTransfer?.getData('text/plain')
-  const kind = drag?.kind || 'task'
-  if (!id) return
-  const target = calISO(new Date(calYear.value, calMonth.value, cell.day))
+/**
+ * 拖拽落盘（2026-10-23 从 onCalDrop 改过来：日期在组件里算完了，这里只负责写盘）。
+ * ⚠ 找任务用 `filteredTasks` 而不是日历那份 `calActiveTasks` —— 后者已经进 composable，
+ *   而这里只需要读 start/deadline，筛选后的集合足够（日历本来也只显示这些）。
+ */
+async function doCalReschedule(p: { id: string; kind: 'task' | 'todo' | 'log'; date: string }): Promise<void> {
+  const { id, kind, date: target } = p
+  if (!id || !target) return
   try {
     if (kind === 'todo') {
       const r: any = await window.tegula.todosUpdate(id, { due: target })
@@ -9396,7 +9300,7 @@ async function onCalDrop(e: DragEvent, cell: { day: number } | null) {
       await loadLogs()
       return
     }
-    const t = calActiveTasks.value.find(x => x.id === id)
+    const t = filteredTasks.value.find((x: any) => x.id === id)
     const s = t ? taskStart(t) : null
     const ed = t ? taskDue(t) : null
     let patch: Record<string, string>
