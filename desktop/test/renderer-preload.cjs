@@ -398,7 +398,22 @@ contextBridge.exposeInMainWorld('tegula', {
   backupStatus: () => ({ ok: true, status: { enabled: false, running: false, nextRunAt: null, state: {} } }),
   backupGetConfig: () => ({}),
   onBackupStatus: () => () => {},
-  backupLog: () => [],
+  /**
+   * 备份日志（2026-10-23 补夹具）。
+   * ⚠ 形状必须是 `{ ok, lines }` —— 主进程 `backup:log` 回的就是这个（main/backup-ipc.ts:161）。
+   *   此前桩返回**裸数组** `[]`：渲染层 `if (r.ok) bkLogLines = r.lines` 两个分支都拿不到东西，
+   *   于是「查看备份日志」面板从来没被真渲染过一次 —— 空桩让整块界面等于没测。
+   */
+  backupLog: (n) => {
+    rec('backupLog', [n])
+    const all = [
+      '[2026-10-23 21:00:01] INFO  备份 开始（range=full）',
+      '[2026-10-23 21:00:04] INFO  备份 已打包 5 个文件 → fangcun-data-20261023-210004.zip',
+      '[2026-10-23 21:00:05] WARN  备份 WebDAV 未配置，已跳过远端',
+    ]
+    const max = Number(n) || 120
+    return { ok: true, lines: all.slice(Math.max(0, all.length - max)) }
+  },
   notificationsList: () => (store.notifications || []).slice(),
   // ⚠ 必须返回 Promise（真 IPC 是异步的）：渲染层写的是 `.then(...)`，
   //   返回裸数字会抛 "then is not a function" —— 这个错只会在测试跑得够久、
@@ -621,7 +636,14 @@ contextBridge.exposeInMainWorld('tegula', {
     l.project = project
     return ok({ log: l })
   },
-  logsCleanup: () => [],
+  /**
+   * 清理超期日志（2026-10-23 补夹具）：主进程返回**被归档的日志 id 数组**
+   * （main/services/logs.ts:878 `cleanupLogs(): string[]`），界面按 `length` 说
+   * 「已将 N 条超期日志标为「已归档」」。
+   * ⚠ 此前桩恒返回空数组 → 那句话里的 N 永远是 0，界面只会说「没有超期日志」，
+   *   于是「真清理到东西之后文案对不对」这一支从没被验过。
+   */
+  logsCleanup: () => { rec('logsCleanup'); return ['log-old-a', 'log-old-b'] },
   // 2026-10-13 暮雨第 2 条：按日期批量清理「已归档」日志（软删）。
   // 桩与真后端同形：dryRun 只报命中、**不改 store**；非 dryRun 才把命中项移出。
   logsPurgeArchived: (beforeDate, opts) => {
@@ -1023,7 +1045,19 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 诊断日志（新通道；渲染层错误上报会用到）────────────────────
   applogPath: () => 'C:/mock/data/logs/fangcun-20260922.log',
-  applogTail: () => [],
+  /**
+   * 诊断日志尾部（2026-10-23 补夹具）：主进程返回 `string[]`（main/services/appLog.ts:134），
+   * 界面直接把数组 join('\n') 塞进 `.errpanel-body`。
+   * ⚠ 此前桩恒返回空数组 → 抽屉里永远只有「（日志为空）」这一句，
+   *   等于「日志抽屉显示的行到底是不是主进程给的」从来没被断言过。
+   */
+  applogTail: (n) => {
+    rec('applogTail', [n])
+    return [
+      '[2026-10-23 20:58:11] ERROR 备份 远端连接超时（ECONNRESET）',
+      '[2026-10-23 20:58:12] INFO  renderer 已上报错误到日志文件',
+    ]
+  },
   applogOpenDir: () => ok(),
   applogWrite: (level, scope, message, detail) => { rec('applogWrite', [level, scope, message, detail]); return ok() },
 
@@ -1239,13 +1273,33 @@ contextBridge.exposeInMainWorld('tegula', {
       { name: 'fangcun-data-20260925-202020.zip', path: 'C:/mock/backups/fangcun-data-20260925-202020.zip', bytes: 222222, mtime: '2026-09-25T20:20:20.000Z', sha256: null },
     ],
   }) },
-  backupListRemote: () => [],
+  /**
+   * 远端备份列表（2026-10-23 补夹具）：形状与 `backupListLocal` 一样是 `{ ok, items }`
+   * （main/backup-ipc.ts:108）。⚠ 此前桩返回裸 `[]` → `rr.ok ? rr.items : []` 恒走 else，
+   * 「远端 (N)」那个计数永远 0、远端备份行从来不渲染 ——
+   * 于是「远端恢复传的是 name 还是 path」这条最容易错的分支从没被点过。
+   */
+  backupListRemote: () => {
+    rec('backupListRemote')
+    return ({
+      ok: true,
+      items: [
+        { name: 'fangcun-data-20261021-030000.zip', path: 'dav:/fc/fangcun-data-20261021-030000.zip', bytes: 333333, mtime: '2026-10-21T03:00:00.000Z', sha256: null },
+      ],
+    })
+  },
   backupRun: () => ok(),
   backupRunLocalOnly: () => ok(),
   backupSaveConfig: () => ok(),
   backupSetConfig: () => ok(),
   backupTestRemote: () => ok(),
-  backupRestore: () => ok(),
+  /**
+   * 恢复备份（2026-10-23 补记账 + 真形状）。
+   * ⚠ 必须 `rec` 出 source：远端恢复要求传 `{ kind: 'remote', name }`、本地恢复传
+   *   `{ kind: 'local', path }` —— 传错主进程会去本地找这个"路径"，
+   *   用户看到的是"远端备份恢复不了"。不记账就只能断言"按钮存在"，抓不到这条。
+   */
+  backupRestore: (source) => { rec('backupRestore', [source]); return ok({ restoredFiles: 5, snapshotDir: 'C:/mock/snap-20261023' }) },
   backupOpenDir: () => ok(),
   backupExportTo: (input) => { rec('backupExportTo', [input]); return ok({ result: { files: 3, bytes: 2048, dir: 'C:/mock/out' } }) },
   // 2026-09-28 卡 026-001：点备份行 = 校验这一份（取 manifest 摘要给用户看）

@@ -4330,6 +4330,58 @@
       check('★★ Git 通道在「备份范围：…」说明**下面**（用户第 1 条：防止和手动备份压缩包混在一起）',
         !!$('.bk-git') && ord('.bk-git') > ord('.bk-sect-hint'),
         'git=' + ord('.bk-git') + ' hint=' + ord('.bk-sect-hint'))
+
+      // ── 2026-10-23：三处「空桩」补上夹具之后的真界面断言 ─────────────────
+      // 背景：假 preload 里 backupLog / backupListRemote 原本返回**裸数组**，
+      //   而真主进程回的是 `{ ok, lines }` / `{ ok, items }`。形状不对 → 渲染层
+      //   `r.ok ? … : …` 恒走空分支 → 这两个界面**从来没被真渲染过**，
+      //   空桩让整块界面等于没测（本项目踩过六次的同一个洞）。
+      {
+        const t = $('.bk-log-toggle')
+        check('★ 备份区有「查看备份日志」入口', !!t, t ? (t.textContent || '').trim() : 'null')
+        if (t) {
+          t.click()
+          check('★★ 备份日志面板真显示主进程给的行（桩形状 { ok, lines }）',
+            await waitFor(() => {
+              const pre = $('.bk-log')
+              return !!pre && (pre.textContent || '').indexOf('已打包') >= 0
+            }, 4000, '备份日志行'),
+            String((($('.bk-log') || {}).textContent || '').slice(0, 80)))
+          // 收起来，别把下面的块挤下去（几何断言按实测位置判，多一截日志会改动布局）
+          if ($('.bk-log')) t.click()
+        }
+
+        const remoteTab = $$('.bk-tabs span').find((s) => (s.textContent || '').indexOf('远端') === 0)
+        check('  备份区有「远端」页签', !!remoteTab, remoteTab ? remoteTab.textContent : 'null')
+        if (remoteTab) {
+          remoteTab.click()
+          check('★★ 切到「远端」真列出远端备份（此前桩返回裸数组，这一页永远是空的）',
+            await waitFor(() => $$('.bk-item-name').some((n) => (n.textContent || '').indexOf('20261021') >= 0), 4000, '远端备份行'),
+            $$('.bk-item-name').map((n) => n.textContent).join('|'))
+          check('  远端页签计数跟着列表走（不是写死 0）',
+            (($$('.bk-tabs span')[1] || {}).textContent || '').indexOf('(1)') >= 0,
+            String(($$('.bk-tabs span')[1] || {}).textContent || ''))
+        }
+      }
+
+      // 远端恢复**必须传 name**（远端没有本地路径可给）—— 这条只有真点一次才验得到：
+      // 传成 path 的话主进程会去本地找这个"路径"，用户看到的是"远端备份恢复不了"。
+      {
+        const rb = $$('.bk-item .bk-restore')[0]
+        check('  远端行上有「恢复」按钮', !!rb)
+        if (rb) {
+          const realConfirm2 = window.confirm
+          window.confirm = () => true
+          const n0 = window.__fcTest.callCount('backupRestore')
+          rb.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('backupRestore') > n0, 4000, 'backupRestore(remote)')
+          window.confirm = realConfirm2
+          const src = hit ? (window.__fcTest.calls().filter((c) => c.name === 'backupRestore').pop() || {}).args : null
+          check('★★ 远端恢复传的是 { kind: remote, name }（不是本地路径）',
+            !!src && src[0] && src[0].kind === 'remote' && String(src[0].name || '').indexOf('20261021') >= 0,
+            JSON.stringify(src && src[0]))
+        }
+      }
       void bkSect
     }
     maskClick('#soverlay'); await sleep(300)
@@ -5121,6 +5173,25 @@
       check('  清理完自动关上清理框', await waitFor(() => !$('#log-purge-modal'), 2000, 'modal closed'))
     }
 
+    // ══ 日志页「清理超期」→ toast 说清条数（2026-10-23 补）
+    //  此前这条**没法验**：假 preload 的 logsCleanup 恒返回空数组，界面永远只走
+    //  「没有超期日志」那一支，`已将 N 条…` 里的 N 从来没不是 0。
+    //  桩补上两条 id 之后，这条才真正可断言（空集上的断言等于没写）。
+    {
+      const n0 = window.__fcTest.callCount('logsCleanup')
+      const btn = $$('.logs-view button').find((b) => (b.textContent || '').trim() === '清理超期')
+      check('  日志页有「清理超期」入口', !!btn)
+      if (btn) {
+        btn.click()
+        check('★★ 点「清理超期」真调 logsCleanup（不是看着像按钮的装饰）',
+          await waitFor(() => window.__fcTest.callCount('logsCleanup') > n0, 4000, 'logsCleanup'),
+          'before=' + n0 + ' after=' + window.__fcTest.callCount('logsCleanup'))
+        check('★★ toast 说出**条数**（2 条），而不是糊成「没有超期日志」',
+          await waitFor(() => (($('#toast') || {}).textContent || '').indexOf('已将 2 条') >= 0, 4000, 'cleanup toast'),
+          (($('#toast') || {}).textContent || '').slice(0, 60))
+      }
+    }
+
     // ══ 项目说明卡内嵌架构图（2026-10-13 暮雨第 2 条 · 方案 A）════════════════
     //  纯函数本身在 e2e-layer-diagram 里真跑；这里验的是**接线**：任务 previewTask.architecture
     //  → JSON.parse → buildLayerDiagram → v-html。坏 JSON 必须说人话（不静默留白）。
@@ -5363,6 +5434,43 @@
         JSON.stringify($$('.services-view button').map(b => b.textContent)))
 
       clickText('看板'); await sleep(300)
+    }
+
+    // ══ 错误日志抽屉（2026-10-23 补）
+    //  此前假 preload 的 applogTail 恒返回空数组 → 抽屉里永远只有「（日志为空）」，
+    //  于是「抽屉里显示的行到底是不是主进程给的」从来没被验过（又是空桩造的真空）。
+    {
+      // 造一条错误：main.ts 的 window.onerror 就是广播成这个事件，App 监听同一个名字
+      window.dispatchEvent(new CustomEvent('fc-app-error', {
+        detail: { scope: 'e2e', message: 'e2e 造的错误（日志抽屉断言用）' },
+      }))
+      const barOk = await waitFor(() => $$('.errbar').length > 0, 3000, 'errbar')
+      check('★ 渲染层出错时顶部出错误条（失败有可见出口，不静默）', barOk,
+        String((($('.errbar-msg') || {}).textContent || '').slice(0, 60)))
+      const openBtn = $$('.errbar button').find((b) => (b.textContent || '').trim() === '查看日志')
+      check('  错误条上有「查看日志」入口', !!openBtn)
+      if (openBtn) {
+        openBtn.click()
+        check('★★ 日志抽屉显示的是主进程 applogTail 给的行（不是「（日志为空）」）',
+          await waitFor(() => {
+            const p = $('.errpanel-body')
+            return !!p && (p.textContent || '').indexOf('远端连接超时') >= 0
+          }, 4000, 'applog 行'),
+          String((($('.errpanel-body') || {}).textContent || '').slice(0, 80)))
+        check('  抽屉里带日志文件路径（用户能自己去翻）',
+          (($('.errpanel-head') || {}).textContent || '').indexOf('fangcun-20260922.log') >= 0,
+          String((($('.errpanel-head') || {}).textContent || '').slice(0, 80)))
+      }
+      // 收尾：按「忽略」清空错误条 + 收起抽屉 —— 最后一条断言要求错误条为空
+      const ignore = $$('.errbar button').find((b) => (b.textContent || '').trim() === '忽略')
+      if (ignore) ignore.click()
+      const closePanel = $$('.errpanel-head button').find((b) => (b.textContent || '').trim() === '收起')
+      if (closePanel) closePanel.click()
+      // ⚠ 必须等一拍：Vue 的状态更新走 nextTick，点完立刻查 DOM 还是旧样子 ——
+      //   第一版就是没等，两条"收掉了"的断言当场假红（DOM 里 errbar 还在）。
+      await sleep(300)
+      check('  收尾：错误条与抽屉都收掉了（不会污染后面的断言）',
+        $$('.errbar').length === 0 && !$('.errpanel'))
     }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
