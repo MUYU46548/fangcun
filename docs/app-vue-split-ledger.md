@@ -22,7 +22,25 @@
 | 2 | blockers（阻塞源 → `renderer/views/BlockersView.vue`） | 见提交 | **47**（+ `statusClass` 抽到 `shared/status.ts`） | 0 | **15733** | renderer-web 661/0 · e2e-renderer 312/0 |
 | 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | `e7cddd8` | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
 | 4 | calendar **第二步：模板搬成组件** → `renderer/views/CalendarView.vue`（75 行模板 + props/emit） | `e097dac` | **75** | 27（`onCalDrop`→`doCalReschedule`、`openLogById`；`localPriority`/`priorityLabel` 抽到 `shared/priority.ts`） | **15850**（净 −93） | renderer-web 688/0 · e2e-renderer 312/0 |
-| 5 | services（服务/端口 → `renderer/views/ServicesView.vue`，85 行模板 + 118 行脚本） | 见提交 | **85** | **118**（整块搬：状态 + loadServices + 三个动作 + 快照文案） | **15655**（净 −195） | renderer-web 688/0 · e2e-renderer 312/0 |
+| 5 | services（服务/端口 → `renderer/views/ServicesView.vue`，85 行模板 + 118 行脚本） | `31106cf` | **85** | **118**（整块搬：状态 + loadServices + 三个动作 + 快照文案） | **15655**（净 −195） | renderer-web 688/0 · e2e-renderer 312/0 |
+| 6 | skills（技能安装专区 → `renderer/views/SkillsView.vue`，157 行模板 + 434 行脚本） | 见提交 | **157** | **434**（整块搬：清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料） | **15132**（净 −523） | renderer-web 695/0（+7）· e2e-renderer 312/0 |
+
+> **第 6 块为什么不切两半**：技能页看着有五个分区（清单 / Hermes / 外部导入 / 别的 agent / MCP），
+> 但它们共用同一份状态（`skillsList` / `skillsTargets` / `agentTargets` / `mcpTargets`），
+> 切开就得把这些状态提到父组件再传下去 —— 那不是解耦，是把耦合搬到 props 上。
+> 整块搬之后，父组件只给四个**能力**（toast / copy / pulse / dragAlive），一个业务数据都不传。
+>
+> ⚠ `pulse` 与 `dragAlive` 必须由父组件给：拖拽心跳是 todo / log / skills 三个投放区**共用**的。
+> 在这一页自己造一份，会出现"那边拖完、这边遮罩还留着"。
+>
+> **顺手补了一个真洞（和 blockers 那次同型）**：假 preload 里**连 `mcpInfo` 都没有** →
+> `typeof t.mcpInfo !== 'function'` 恒真 → MCP 接入区在任何测试里都是空的，拆坏了也没人知道。
+> 已补 4 个桩（mcpInfo / mcpSnippet / mcpSelfInstall / mcpOpenConfig）+ 7 条断言。
+>
+> **同时修掉一处"界面说假话"**：`loadMcpInfo` 在通道缺失时把错误置成空串，于是界面永远停在
+> 「检测中…」—— 那不是检测中，是根本读不到。现在两处（别的 agent / MCP）都改成三态：
+> 读失败 → 明说原因；还在读 → 检测中；读到但为空 → 「本机没检测到…，不是还在检测」。
+
 
 
 

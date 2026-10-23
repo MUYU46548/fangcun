@@ -806,6 +806,37 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({ installed: ['fangcun-bridge', 'skill-management-policy'], skipped: [], errors: [] })
   },
   agentsOpen: (id) => { rec('agentsOpen', [id]); return ok({ ok: true, message: '已打开 ' + id }) },
+  // ── MCP 接入材料（2026-10-23 补）────────────────────────────────────
+  // 此前**一组都没有**：`typeof t.mcpInfo !== 'function'` 恒为 true，于是 MCP 那一区
+  // 在任何断言里都是空的（永远「检测中…」），组件拆坏了也没人知道。
+  // 现在按主进程真实形状给：两个入口（A 可用 / B 不可用）+ 两个目标（一个检测到、一个没有）。
+  mcpInfo: () => {
+    rec('mcpInfo')
+    return ok({
+      entries: [
+        { id: 'A', label: 'MCP 客户端配置（A）', available: true, usage: '写进对方的 MCP servers 段', detail: '' },
+        { id: 'B', label: '整文件替换（B）', available: false, usage: '', detail: '需要对方没有既有配置才可用' },
+      ],
+      targets: [
+        { id: 'hermes', name: 'Hermes', detected: true, evidence: 'C:/mock/hermes/config.json',
+          configPath: 'C:/mock/hermes/config.json', howTo: '复制配置段 → 打开配置文件粘贴保存' },
+        { id: 'dsh', name: 'DSH', detected: false, evidence: 'C:/mock/home/.dsh/cordis.patch.yml',
+          configPath: 'C:/mock/home/.dsh/cordis.patch.yml', howTo: '复制配置段 → 粘贴保存' },
+      ],
+    })
+  },
+  mcpSnippet: (targetId, entryId) => {
+    rec('mcpSnippet', [targetId, entryId])
+    return ok({ ok: true, snippet: '[mcp_servers.fangcun]\ncommand = "node"  # entry=' + entryId + ' target=' + targetId })
+  },
+  mcpSelfInstall: (targetId, entryId) => {
+    rec('mcpSelfInstall', [targetId, entryId])
+    return ok({ ok: true, prompt: '把 fangcun 的 MCP 配置写进你自己的配置（entry=' + entryId + '）' })
+  },
+  mcpOpenConfig: (targetId) => {
+    rec('mcpOpenConfig', [targetId])
+    return ok({ ok: true, message: '已打开 ' + targetId + ' 的配置文件' })
+  },
   skillsReveal: (p) => { rec('skillsReveal', [p]); return ok({ ok: true, message: '已在资源管理器里亮出 SKILL.md' }) },
 
   // ── 已完成任务自动归档（2026-10-03 卡 012）──────────────────────────

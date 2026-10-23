@@ -3862,6 +3862,46 @@
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'skillsInstallTo' && c.args && c.args[0] === 'dsh'), 4000, 'installTo(dsh)'),
         'calls=' + JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'skillsInstallTo').map((c) => c.args)))
     }
+    // ── MCP 接入材料区（2026-10-23 补：这块此前**一条断言都没有**）────────────
+    // 为什么会漏：假 preload 里连 `mcpInfo` 都没有 → `typeof t.mcpInfo !== 'function'` 恒真 →
+    // 这一区在任何测试里都是空的。拆组件时把它搬坏了也不会有人知道。
+    const mcpBox = $('.skills-view .mcp-connect')
+    check('★ MCP 接入区渲染出来（不是停在「检测中…」）', !!mcpBox
+      && !mcpBox.querySelector('.skills-agent'), mcpBox ? (mcpBox.textContent || '').slice(0, 40) : '(没有 .mcp-connect)')
+    const mcpRows = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.agent-row')) : []
+    check('★ MCP 区按本机检测结果列目标（检测到的 + 没检测到的都在，没检测到的标灰）',
+      mcpRows.length === 2 && mcpRows.some((r) => r.className.indexOf('agent-off') >= 0),
+      'rows=' + mcpRows.length)
+    const entryBtns = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.mcp-entry-pick button')) : []
+    check('★★ 入口切换按可用性禁用（B 不可用就是 disabled，不做成"点了没反应"的死按钮）',
+      entryBtns.length === 2 && !!entryBtns.find((b) => b.disabled === true)
+      && !!entryBtns.find((b) => b.disabled === false),
+      JSON.stringify(entryBtns.map((b) => ({ t: (b.textContent || '').trim(), d: b.disabled }))))
+    const hermesMcp = mcpRows.find((r) => (((r.querySelector('.agent-name') || {}).textContent) || '') === 'Hermes')
+    const snippetBtn = hermesMcp
+      ? Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('复制配置段') >= 0)
+      : null
+    check('★ Hermes 行有「📋 复制配置段」', !!snippetBtn)
+    if (snippetBtn) {
+      snippetBtn.click()
+      check('★★ 点「复制配置段」真调 mcpSnippet(hermes, A) 并把配置段写进剪贴板',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpSnippet'
+          && c.args && c.args[0] === 'hermes' && c.args[1] === 'A'), 4000, 'mcpSnippet')
+        && window.__fcTest.calls().some((c) => c.name === 'clipboardWriteText'
+          && String((c.args || [])[0] || '').indexOf('mcp_servers.fangcun') >= 0),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'mcpSnippet' || c.name === 'clipboardWriteText').map((c) => c.name)))
+    }
+    const selfBtn = hermesMcp
+      ? Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('让它自装') >= 0)
+      : null
+    check('★ Hermes 行有「🤖 让它自装」', !!selfBtn)
+    if (selfBtn) {
+      selfBtn.click()
+      check('★ 点「让它自装」真调 mcpSelfInstall（方寸只出材料、不写别人的配置）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpSelfInstall'), 4000, 'mcpSelfInstall'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'mcpSelfInstall').map((c) => c.args)))
+    }
+
     await sleep(300)
 
     // ══ 设置页 · 侧边栏分类（2026-10-03 用户：设置项不要挤在一条长名单里）══════
