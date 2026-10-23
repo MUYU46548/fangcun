@@ -21,7 +21,9 @@
 | 1 | help（帮助手册 → `renderer/views/HelpView.vue`） | `86152d7` | **123** | 0 | **15754** | renderer-web 659/0 · e2e-renderer 312/0 · 模板绑定/IPC 对账全绿 |
 | 2 | blockers（阻塞源 → `renderer/views/BlockersView.vue`） | 见提交 | **47**（+ `statusClass` 抽到 `shared/status.ts`） | 0 | **15733** | renderer-web 661/0 · e2e-renderer 312/0 |
 | 3 | calendar **第一步：只抽状态与算法** → `renderer/composables/useCalendar.ts`（184 行） | `e7cddd8` | 0（模板这步不动） | **129**（净 −103） | **15943** | renderer-web 686/0 · e2e-renderer 312/0 |
-| 4 | calendar **第二步：模板搬成组件** → `renderer/views/CalendarView.vue`（75 行模板 + props/emit） | 见提交 | **75** | 27（`onCalDrop`→`doCalReschedule`、`openLogById`；`localPriority`/`priorityLabel` 抽到 `shared/priority.ts`） | **15850**（净 −93） | renderer-web 688/0 · e2e-renderer 312/0 |
+| 4 | calendar **第二步：模板搬成组件** → `renderer/views/CalendarView.vue`（75 行模板 + props/emit） | `e097dac` | **75** | 27（`onCalDrop`→`doCalReschedule`、`openLogById`；`localPriority`/`priorityLabel` 抽到 `shared/priority.ts`） | **15850**（净 −93） | renderer-web 688/0 · e2e-renderer 312/0 |
+| 5 | services（服务/端口 → `renderer/views/ServicesView.vue`，85 行模板 + 118 行脚本） | 见提交 | **85** | **118**（整块搬：状态 + loadServices + 三个动作 + 快照文案） | **15655**（净 −195） | renderer-web 688/0 · e2e-renderer 312/0 |
+
 
 
 
@@ -41,6 +43,14 @@
 > ⚠ 行数对比别直接和上面的 15733 比：这一轮中间还加了「想法」页（+309），
 > 拆前实际是 **16046**，拆完 **15943**。
 >
+> **第 5 块为什么是 services 而不是 trash（估错过一次，记下来）**：
+> 上一轮我按"模板行数"估 trash 最低耦合（视图只有 64 行），**量完才发现估错了** ——
+> trash 还挂着「按日期清理」和「正文预览」两个弹窗、批量选择状态散在 6088 行，
+> 总量约 340 行模板 + 270 行脚本，是**一个完整功能块**，不是一块视图。
+> services 反过来：引用全在 1451-1535（模板）+ 7836-7953（脚本），零弹窗、零跨视图状态，
+> 唯一外部能力是 `showToast`（用 prop 注入）。**教训：估耦合要看"这一页挂着几个弹窗、状态散在几处"，
+> 不能只看视图模板多少行。**
+
 > **第 4 块（模板搬成组件）的边界**：组件只做「显示 + 收集意图」，五个动作全部 emit 上抛：
 > `assign-task` / `assign-todo`（开「指派时间」弹窗，弹窗模板还在 App.vue）、
 > `reschedule`（组件算"改到哪天"，IPC + toast + 重新加载留父组件）、
