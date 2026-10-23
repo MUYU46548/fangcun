@@ -31,6 +31,7 @@
 
 | 9 | todos **第一步：只抽状态与逻辑** → `renderer/composables/useTodos.ts`（398 行） | 见提交 | 0（模板这步不动） | **327**（净 −327，另抽出 prefs / dirtyGuard / isOverdue 三个共享件） | **14281** | renderer-web 719/0 · e2e-renderer 312/0 |
 
+| 10 | todos **第二步：模板搬成组件** → `renderer/views/TodosView.vue`（170 行：模板 + 一个 `ctl` prop） | `324a041` | **123** | 34（`todoViewCtl` —— 把 useTodos 的返回值与四个父组件能力打包成一个 reactive 对象） | **14192**（净 −89） | renderer-web 727/0 · e2e-renderer 312/0 · 六守卫全绿 |
 > **第 9 块为什么只能先抽 composable**：`todos` 这一个 ref 被 App.vue **60 处**共用
 > （日历、在途一屏、日志转待办、快速记、项目统计都读它）。直接搬模板就得把这些全变成 props/emit。
 > 先按日历那套分两步：状态与动作收进 composable（零行为变化、整层可回归），
@@ -148,6 +149,26 @@
 > 于是"阻塞页里有没有东西"从来没被断言覆盖过 —— 拆组件时页是空的也照样全绿。
 > 已补真夹具 + 两条内容断言（链卡片 / 计数 / 关键路径建议 / unlock 数字）。
 
+
+> **第 10 块：为什么是「一个 reactive prop」而不是 40 个 props**。
+> 这一块要 14 个状态 + 17 个动作 + 6 个能力（右键菜单 / 撤销已转出 / 转日志确认 / 指派日期 / 拖入导入 / 拖拽高亮）。
+> 逐个绑会在 App.vue 挤成一大片，而漏一个的后果是**点了没反应**（与 2026-09-22「启动台 + 添加应用」
+> 那个 ReferenceError 同型，界面毫无提示）。所以父组件把 `useTodos()` 的返回值 + 那几个能力
+> 用 `reactive()` 包成一个对象，作为唯一 prop `ctl` 传下去。
+>
+> **`reactive()` 不是修饰，是必需**：`useTodos()` 返回的是一堆 ref，直接当 prop 传进子组件时，
+> 模板**不会**自动解包（解包只作用于 `<script setup>` 顶层绑定）。不包一层的话下拉框会显示成
+> `[object Object]`、`ctl.todoBatchMode` 恒为真。reactive 的属性访问才解包，子组件的写法才能与原来逐字一致。
+>
+> **`todoViewCtl` 必须放在 App.vue 文件末尾**：`todoDragOver` 是 `const computed`，在前面构建对象会撞
+> TDZ（`Cannot access before initialization`）。函数声明会提升，`const` 不会 —— 你把它往上挪"看着整齐"，
+> 启动就是白屏。
+>
+> **`todoDueTitle` 忘传，当场被 `check-template-bindings` 的「死函数」抓到**：模板里 `main.todos-view`
+> 搬走之后，App.vue 里这个函数就零引用了；而组件里 `ctl.todoDueTitle` 是 undefined，
+> **任何带到期日的待办一渲染就抛**。守卫抓到的正是"模板搬走了、能力没跟着走"这一类漏。
+> 这条纪律记下：搬模板时，凡组件里写了 `ctl.X`，X 就必须真的出现在那个对象里 —— 搬完照着组件里
+> 的 `ctl.*` 逐个对一遍，比等运行时白屏快得多。
 ## 拆分纪律（从方案抄来，贴在账本里免得每次翻文档）
 
 1. **先搬视图，不动状态** —— 336 个 `ref` 里绝大多数是"某视图的局部状态 + 几个 handler"，
