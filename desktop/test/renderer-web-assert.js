@@ -997,6 +997,7 @@
     check('  关掉之后弹窗真的没了（不然下一个断言会在遮罩上面点空）',
       !$('#cal-assign-modal'))
 
+
     // ══ 待办的**可选到期时间**（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
     //    如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）══════════════════════════
     // 四件事必须同时成立，缺一条这个功能就是"看着有、用不了"：
@@ -1259,6 +1260,63 @@
     check('  切回后真身也同步回默认值（不是只改了界面）',
       await waitFor(() => window.__fcTest.prefs().fc_board_view === 'cols', 4000, 'prefs 回 cols'),
       JSON.stringify(window.__fcTest.prefs()))
+
+    // ══ 待办的筛选 / 排序 / 统计（2026-10-23 补：把「只看未完成」整段注释掉都全绿，
+    //    说明这三条路径此前**零断言**。勾选/撤销/多选/编辑都有，唯独它们没有。）══
+    {
+      const ago = (n) => new Date(Date.now() - n * 86400000).toISOString()
+      const dstr = (n) => ago(n).slice(0, 10)
+      // ⚠ 必须备份并还原：这一段后面还有「网格/编辑弹窗/勾选写回」一整套待办断言，
+      //   它们依赖前文建出来的待办。我第一版收尾写 `setTodos([])`，直接把它们全打红（706/16）。
+      const todosBackup = JSON.parse(JSON.stringify(window.__fcTest.todos()))
+      window.__fcTest.setTodos([
+        { id: 'tf-1', title: '夹具·逾期的高', done: false, priority: '高', due: dstr(2), createdAt: ago(3), updatedAt: ago(3) },
+        { id: 'tf-2', title: '夹具·明天到期的高', done: false, priority: '高', due: dstr(-1), createdAt: ago(2), updatedAt: ago(2) },
+        { id: 'tf-3', title: '夹具·已完成的低', done: true, priority: '低', createdAt: ago(1), updatedAt: ago(1) },
+      ])
+      clickText('看板'); await sleep(300); clickText('待办'); await sleep(600)
+      const stats = () => (($('main.todos-view .todos-stats') || {}).textContent || '').replace(/\s+/g, ' ')
+      check('★★ 统计口径与数据一致（共 3 · 未完成 2 · 已完成 1）',
+        /共 3 条/.test(stats()) && /未完成 2/.test(stats()) && /已完成 1/.test(stats()), stats())
+      check('★★ 逾期单独算（只有那条 due 在前天且未完成 → 逾期 1）',
+        /逾期 1/.test(stats()), stats())
+      const selOf = (val) => $$('main.todos-view select.todo-filter')
+        .find((x) => Array.prototype.slice.call(x.options).some((o) => o.value === val))
+      const pick = async (val, idx) => {
+        const el = selOf(val)
+        if (!el) return false
+        el.value = val
+        el.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(350)
+        return true
+      }
+      const titles = () => $$('main.todos-view .todo-item').map((x) => (x.textContent || '').trim())
+      check('前置：三张卡都在（否则下面几条会在空列表上假绿）',
+        titles().length === 3, 'n=' + titles().length)
+      await pick('active')
+      check('★★ 筛选「未完成」→ 只剩 2 张（已完成那张被筛掉）',
+        await waitFor(() => titles().length === 2, 3000, '未完成 2'),
+        JSON.stringify(titles()))
+      check('★ 遮住的条数明说（当前筛选遮住 1 条）+ 给「清除筛选」',
+        /遮住 1 条/.test(stats()) && !!$('main.todos-view .todos-clear'), stats())
+      await pick('done')
+      check('★★ 筛选「已完成」→ 只剩 1 张', await waitFor(() => titles().length === 1, 3000, '已完成 1'),
+        JSON.stringify(titles()))
+      await pick('all')
+      check('  切回「全部」→ 3 张都回来', await waitFor(() => titles().length === 3, 3000, '全部 3'),
+        JSON.stringify(titles()))
+      // 排序：优先级从高到低（前两张都是「高」，第三张是「低」）
+      await pick('priority')
+      await sleep(250)
+      const t3 = $$('main.todos-view .todo-item')
+      check('★★ 排序「优先级从高到低」：最后一张一定是「低」那条（排序真生效，不是摆设）',
+        t3.length === 3 && (t3[2].textContent || '').indexOf('已完成的低') >= 0,
+        JSON.stringify(t3.map((x) => (x.textContent || '').slice(0, 14))))
+      await pick('default')
+      // 收尾：还原成进来时的样子，再回看板（后面那批待办断言接着用）
+      window.__fcTest.setTodos(todosBackup)
+      clickText('看板'); await sleep(300)
+    }
 
     // ══ 想法（2026-10-22 · 暮雨：「随手记一个念头，之后决定做/不做/搁置，
     //    现有待办、日志、任务都放不下」）══════════════════════════════════
