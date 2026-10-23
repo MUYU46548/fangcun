@@ -21,6 +21,8 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
+  parseErrors: ['task-20261001-001.md', 'task-20261002-002.md'],
   // 想法（2026-10-22）：三条覆盖三种状态 ——
   //   新记（四个动作都能点）/ 已搁置（能「捡回来」）/ 已立项（能「撤销立项」且带 promoted）
   ideas: [
@@ -291,7 +293,13 @@ contextBridge.exposeInMainWorld('tegula', {
   findBlockers: () => [
     { id: 'task-demo-001', title: '演示任务', blockers: ['task-demo-002'] },
   ],
-  parseErrors: () => [],
+  // 解析失败清单（2026-10-23 补）：此前恒返回 `[]` —— 于是顶栏那条「⚠ N 个文件无法解析」
+  // **从来没有在任何断言里出现过**。而这条提示正是「任务静默消失」的防线（parseTask 失败
+  // 返 null 被跳过 = 卡人间蒸发，用户几个月才发现）。桩返空数组 = 这道防线等于没测。
+  parseErrors: () => {
+    rec('parseErrors')
+    return store.parseErrors.slice()
+  },
   allProjectProgress: () => ({}),
   // ── Plan 四通道（2026-10-16 第 1 项）：真 preload 早已暴露、渲染层今天接；
   //    假实现贴 main/data/tasks.ts 同语义（decidePlanPoint 全定完自动转 active）。

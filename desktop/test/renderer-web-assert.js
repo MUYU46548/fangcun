@@ -268,6 +268,21 @@
         !!homeBtn && !!helpBtn && !!syncBtn,
         `home=${!!homeBtn} help=${!!helpBtn} sync=${!!syncBtn}`)
 
+      // ── 顶栏「⚠ N 个文件无法解析」（2026-10-23 补：这条此前**零断言**）──────────
+      // 为什么它值得单独立断言：parseTask 失败返 null 被静默跳过 = 任务卡"人间蒸发"，
+      // 这是用户几个月后才发现的那类事故。这条红 chip 就是唯一的防线，
+      // 而假 preload 的 `parseErrors` 一直恒返回 [] → 防线等于没测。
+      const pw = $('#bar .parse-warn')
+      check('★★ 顶栏有「⚠ N 个文件无法解析」红 chip（任务静默消失的唯一防线）',
+        !!pw && pw.offsetWidth > 0, pw ? String(pw.textContent).trim() : '(不在 DOM)')
+      check('★ 数字来自 parseErrors 的条数（2 个 → 显示 2，不是写死的文案）',
+        !!pw && /2\s*个文件无法解析/.test(String(pw.textContent || '')),
+        pw ? String(pw.textContent).trim() : '')
+      check('★★ 悬停 title 里逐个列出坏文件名（光说"有 2 个"没法去修）',
+        !!pw && String(pw.getAttribute('title') || '').indexOf('task-20261001-001.md') >= 0
+        && String(pw.getAttribute('title') || '').indexOf('task-20261002-002.md') >= 0,
+        String((pw && pw.getAttribute('title')) || '(无 title)'))
+
       const stB = $('.fbar-filter-btn')
       if (stB) {
         stB.click()
