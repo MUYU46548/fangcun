@@ -233,10 +233,22 @@ def check_tag(repo, tag, head, move_tag):
     if cur == head:
         return E_OK, [f"远端 {tag} 已指向 HEAD（{short(head)}）—— 重发同一版，幂等"]
     if not move_tag:
+        # 两种"指向不对"要分开说，否则提示会骗人：
+        # ① tag 在 HEAD 身后（发版之后又提交了）→ 正常现象，重发才需要 --move-tag；
+        # ② tag 与 HEAD 不在一条线上 → 真危险（下载到源码旧、资产新的版本）。
+        is_anc = git(repo, "merge-base", "--is-ancestor", cur, head)[0] == 0
+        rc_n, out_n, _ = git(repo, "rev-list", "--count", f"{cur}..{head}")
+        n = out_n if rc_n == 0 and out_n.isdigit() else ""
+        if is_anc and n:
+            return E_TAG_STALE, [
+                f"远端 {tag} 指向 {short(cur)} —— HEAD 在它之后又动了 {n} 笔（发版后又提交了）",
+                "重发同一个版本号会把这个 tag 的指向改掉。确认要重发就加 --move-tag；",
+                "如果是新东西要发，换个版本号，别覆盖已经发出去的那一版。",
+            ]
         return E_TAG_STALE, [
-            f"远端 {tag} 指向 {short(cur)}，不是 HEAD {short(head)}",
+            f"远端 {tag} 指向 {short(cur)}，与 HEAD {short(head)} 不在一条线上",
             "这会让人下载到源码旧、资产新的版本。确认要搬过去就加 --move-tag：",
-            f"    bash scripts/publish-release.sh <版本> --move-tag",
+            "    bash scripts/publish-release.sh <版本> --move-tag",
         ]
     log(f"[tag] 远端 {tag} 在 {short(cur)} → 搬到 HEAD {short(head)}")
     rc, _, err = git(repo, "tag", "-f", tag, head)

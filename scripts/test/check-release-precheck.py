@@ -189,8 +189,10 @@ def main():
     git("tag", f"v{VER}", old, cwd=w5)
     git("push", "-q", "origin", f"refs/tags/v{VER}", cwd=w5)
     rc, out = precheck(w5)
-    check("★ tag 指向旧提交：判 13", rc == 13, f"rc={rc} out={out[-300:]}")
-    check("★ tag 指向旧提交：说清楚危害（下载到源码旧、资产新）", "源码旧" in out, out[-300:])
+    check("★ tag 在 HEAD 身后（发版后又提交）：判 13", rc == 13, f"rc={rc} out={out[-300:]}")
+    check("★ tag 在 HEAD 身后：说「又动了 1 笔」，不吓唬人", "又动了 1 笔" in out, out[-300:])
+    check("★ tag 在 HEAD 身后：提示「要重发才 --move-tag，新东西换版本号」",
+          "--move-tag" in out and "换个版本号" in out, out[-300:])
     check("★ 反例：判 13 时远端 tag 一个字节没动",
           git("ls-remote", "--tags", "origin", f"refs/tags/v{VER}", cwd=w5).split()[0] == old,
           git("ls-remote", "--tags", "origin", f"refs/tags/v{VER}", cwd=w5))
@@ -205,6 +207,22 @@ def main():
     rc, out = precheck(w5)
     check("重发同一版（tag 已指 HEAD）：判 0，幂等", rc == 0, f"rc={rc} out={out[-300:]}")
     check("重发同一版：明说「幂等」", "幂等" in out, out[-200:])
+
+    # ── 4b. tag 与 HEAD 不在一条线上（tag 是别处来的）──────────────────
+    o5b, w5b = make_repo("foreign-tag")
+    side = tmpdir("foreign")
+    run(["git", "clone", "-q", o5b, side])
+    git("config", "user.email", "t@t", cwd=side)
+    git("config", "user.name", "t", cwd=side)
+    git("config", "commit.gpgsign", "false", cwd=side)
+    git("checkout", "-q", "main", cwd=side)
+    commit_more(side, "foreign.txt", "foreign")
+    git("tag", f"v{VER}", cwd=side)
+    git("push", "-q", "origin", f"refs/tags/v{VER}", cwd=side)
+    rc, out = precheck(w5b)
+    check("★ tag 与 HEAD 不在一条线上（别处来的 tag）：判 13", rc == 13, f"rc={rc} out={out[-300:]}")
+    check("★ 这一种才说「下载到源码旧、资产新」的危害",
+          "不在一条线上" in out and "源码旧" in out, out[-300:])
 
     # ── 5. 版本号与资产 ───────────────────────────────────────────────
     _, w6 = make_repo("badpkg")
