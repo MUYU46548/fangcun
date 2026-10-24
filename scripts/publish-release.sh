@@ -2,7 +2,18 @@
 # ─────────────────────────────────────────────────────────────────────
 # 发布方寸到 GitHub Releases（2026-10-13 重写凭据段）
 #
-#   用法：  bash scripts/publish-release.sh 0.3.4
+#   用法：  bash scripts/publish-release.sh 0.3.4 [--move-tag]
+#
+# ★ 2026-10-24 补的两道闸（起因见下）：
+#   ① **前置体检**（`scripts/release-precheck.py`）：版本号三处一致、待发资产与 latest.yml 对得上、
+#      **本地 HEAD 必须与 origin/main 是同一个提交**、远端同名 tag 必须指向 HEAD（否则要 `--move-tag`）。
+#      不过就发不出去（退出码 10–16，含义见该脚本头部）。
+#   ② **发布后复核**：`gh api` 把 Release 读回来，逐项比 asset 的 size / state、说明非空、不是草稿。
+#      不看"命令退出 0"。
+#
+#   ⚠ 事故现场（0.4.1）：本地领先 50 笔没推，`origin/main` 停在 10-18。`gh release create` 把 tag
+#   打在**远端 HEAD** 上 —— 资产新、说明新、tag 指旧代码，而脚本一路退出 0。这就是"假成功"。
+#   顺序永远是：**先 `git push origin main`，再发版**；脚本现在会替你把这条卡住。
 #
 # 为什么要这个脚本（而不是手敲 gh 命令）：
 #   ① **凭据只从环境/文件取，绝不回显** —— token 不进命令行参数（会留在 shell 历史与进程列表里）；
@@ -100,9 +111,24 @@ try_candidate() {
 
 VER="${1:-}"
 if [ -z "$VER" ]; then
-  echo "用法: bash scripts/publish-release.sh <版本号>   例: bash scripts/publish-release.sh 0.3.4" >&2
+  cat >&2 <<'MSG'
+用法: bash scripts/publish-release.sh <版本号> [--move-tag]
+  例: bash scripts/publish-release.sh 0.3.4
+
+  --move-tag  远端同名 tag 指向旧提交时，把它强制搬到当前 HEAD（默认不搬，直接报错）
+MSG
   exit 2
 fi
+shift || true
+
+MOVE_TAG=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --move-tag) MOVE_TAG=1 ;;
+    *) echo "[!] 不认识的参数: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAG="v${VER}"
@@ -110,6 +136,19 @@ REL_DIR="$REPO_ROOT/desktop/release"
 NOTES="$REPO_ROOT/docs/${VER}-发布说明.md"
 
 command -v gh >/dev/null 2>&1 || { echo "[!] 找不到 gh CLI" >&2; exit 4; }
+
+# ── 前置体检：版本 / 资产 / 远端同步 / tag ─────────────────────────────
+# 为什么要在这一步就拦（2026-10-24 的坑）：`gh release create` 把 tag 打在**远端 HEAD** 上，
+# 不看本地。0.4.1 那次本地领先 50 笔没推，于是资产是新的、tag 指向 10-18 的旧提交，
+# 脚本一路退出 0。现在判据在 scripts/release-precheck.py（可测），不过就发不出去。
+PRECHECK_ARGS=("$REPO_ROOT" "$VER")
+if [ "$MOVE_TAG" -eq 1 ]; then PRECHECK_ARGS+=(--move-tag); fi
+PRC=0
+python "$REPO_ROOT/scripts/release-precheck.py" "${PRECHECK_ARGS[@]}" || PRC=$?
+if [ "$PRC" -ne 0 ]; then
+  echo "[!] 前置体检未过 —— 不发版（退出码 ${PRC}，含义见上面那几行）" >&2
+  exit "$PRC"
+fi
 
 # ── 凭据：逐个来源验证，命中即用 ───────────────────────────────────────
 GOT=0
@@ -161,4 +200,20 @@ else
   gh release create "$TAG" --title "方寸 ${TAG}" --notes-file "$NOTES" "${ASSETS[@]}"
 fi
 
-echo "[完成] https://github.com/MUYU46548/fangcun/releases/tag/${TAG}"
+SLUG="MUYU46548/fangcun"
+echo "[完成] https://github.com/${SLUG}/releases/tag/${TAG}"
+
+# ── 发布后复核：把远端的东西读回来逐项比对 ─────────────────────────────
+# 不看 `gh` 的退出码就算完 —— 资产 size / state / 说明 / draft 全对才叫发出去了。
+VRC=0
+python "$REPO_ROOT/scripts/release-precheck.py" "$REPO_ROOT" "$VER" --verify-release "$SLUG" "$TAG" || VRC=$?
+if [ "$VRC" -ne 0 ]; then
+  cat >&2 <<'MSG'
+[!] 发布后复核没过（退出码 17 的几种情形见上）：
+    · 资产大小不符 → 本地包与传上去的不是同一个（重传：`gh release upload <tag> <文件> --clobber`）
+    · 说明为空 → --notes-file 没读到（查 docs/<版本>-发布说明.md）
+    · 状态不是 uploaded → 还在传或传失败了
+MSG
+  exit "$VRC"
+fi
+
