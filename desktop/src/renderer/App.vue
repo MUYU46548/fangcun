@@ -238,17 +238,23 @@
           </button>
         </PopoverTrigger>
         <PopoverPortal>
-          <PopoverContent class="fpop more-pop" align="start" :side-offset="6" :collision-padding="8"
+          <!-- 2026-10-25 第二轮：暮雨拿系统菜单截图对比后否掉了第一版 ——
+               「底下那坨文本把框挤长而且完全没必要」。所以：
+               ① 去掉标题栏（「收起的页签」+ ✕）② 去掉底部说明段落
+               ③ 说明改成一条**真能点**的菜单项「顶栏页签设置…」——
+                  菜单里每一行都该能点，纯文本不该出现在下拉里。 -->
+          <PopoverContent class="more-pop" align="start" :side-offset="6" :collision-padding="8"
             update-position-strategy="always">
-            <div class="fpop-h">
-              <b>收起的页签</b><span class="fpop-grow"></span>
-              <button class="fpop-close" title="收起" @click="moreOpen = false">✕</button>
-            </div>
-            <div class="more-list">
-              <button v-for="v in moreViews" :key="'mv-' + v.id" class="fpop-opt more-opt"
-                :class="{ on: curView === v.id }" @click="pickMoreView(v.id)">{{ v.label }}</button>
-            </div>
-            <div class="more-hint">想改哪些收起来？设置 → 通用 → 「顶栏页签」（至少留 {{ VIEWS_MIN_VISIBLE }} 个在外面）。</div>
+            <button v-for="v in moreViews" :key="'mv-' + v.id" class="more-opt"
+              :class="{ on: curView === v.id }" @click="pickMoreView(v.id)">
+              <span class="more-tick">{{ curView === v.id ? '✓' : '' }}</span>
+              <span class="more-txt">{{ v.label }}</span>
+            </button>
+            <div class="more-sep"></div>
+            <button class="more-opt more-set" @click="openViewsSetting">
+              <span class="more-tick">⚙</span>
+              <span class="more-txt">顶栏页签设置…</span>
+            </button>
           </PopoverContent>
         </PopoverPortal>
       </PopoverRoot>
@@ -6130,6 +6136,18 @@ function onViewVisibleChange(id: string, ev: Event): void {
   }
   collapsedViews.value = next
   saveUiPref(VIEWS_COLLAPSED_KEY, next)
+}
+
+/**
+ * 从「更多」菜单直达 设置 → 通用 → 顶栏页签。
+ * 2026-10-25：原来那段说明是**纯文本**摆在菜单底部（把浮层撑长，暮雨否掉）；
+ * 改成菜单项后它至少真能点 —— 顺带把「勾哪些收起」这件事带到用户眼前。
+ */
+function openViewsSetting(): void {
+  moreOpen.value = false
+  settingsTab.value = 'general'
+  saveUiPref('fc_settings_tab', 'general')
+  showSettings()
 }
 
 function resetCollapsedViews(): void {
@@ -13042,14 +13060,30 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 顶栏「更多」(2026-10-25)：页签行放不下的低频页签收进这里。观感与 .vbtn 一致。 */
 #views .more-btn { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 #views .more-btn .more-caret { font-size: 9px; opacity: .7; line-height: 1; }
-.more-pop { min-width: 172px; }
-.more-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; }
-/* 菜单项不是输入框：`.fpop-opt` 那套是"筛选胶囊"，全宽套过来会像一排输入框（目检抓到的）。
-   这里改成标准菜单行的样子：无边框、hover 才上底色。 */
-.more-opt { text-align: left; width: 100%; background: transparent; border-color: transparent; }
-.more-opt:hover { background: var(--tint); border-color: var(--accent); }
-.more-hint { font-size: 11px; color: var(--muted); line-height: 1.6; padding-top: 6px;
-  margin-top: 4px; border-top: 1px dashed var(--border); }
+/* 顶栏「更多」= 标准下拉菜单（2026-10-25 第二轮：对齐系统菜单的观感）。
+   ⚠ 刻意**不用** `.fpop`：那是筛选面板（336px 宽、带标题栏与内边距），套过来就是一个迷你面板。
+   菜单该是：窄、紧、一行 28px、无标题、无说明文字。
+   ⚠ 底色/边框/阴影必须自己写一遍 —— 原来靠的是 `.fpop`，去掉那个 class 就变成
+     "透明浮层贴在看板上"（第一版重做后截图里，菜单后面的看板列直接透了出来）。 */
+.more-pop { width: auto; min-width: 148px; padding: 4px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(30,30,60,.18); }
+.more-opt { display: flex; align-items: center; gap: 2px; width: 100%; height: 28px;
+  padding: 0 12px 0 6px; border: 0; border-radius: 6px; background: transparent;
+  font-family: inherit; font-size: 12.5px; color: var(--ink); text-align: left;
+  cursor: default; white-space: nowrap; }
+.more-opt:hover { background: var(--tint); }
+/* 菜单的焦点圈画在**行内**：全局那条 `outline-offset: 2px` 会把圈推到行外面，
+   两行紧挨着时像给首行套了个方框（重拍截图里一眼就看出来）。 */
+.more-pop .more-opt:focus-visible { outline-offset: -2px; }
+.more-opt.on { font-weight: 700; color: var(--accent); }
+/* 勾选列定宽：有勾没勾都对齐，文字不会跳 */
+.more-tick { flex: 0 0 14px; font-size: 11px; color: var(--accent); text-align: center; }
+.more-opt.on .more-tick { font-size: 12px; }
+.more-txt { flex: 1 1 auto; }
+/* 与系统菜单一致：分隔线上下各留 4px，不占满整宽（贴边更好看） */
+.more-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.more-set .more-tick { color: var(--muted); font-size: 11px; }
 /* 设置 → 通用 → 顶栏页签：一排可勾的页签名 */
 #smodal .views-pick { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0 6px; }
 #smodal .views-pick-item { display: inline-flex; align-items: center; gap: 5px;

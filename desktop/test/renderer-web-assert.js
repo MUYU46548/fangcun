@@ -349,12 +349,34 @@
           await sleep(500)
           const pop = $('.more-pop')
           check('★★ 点「更多」弹出被收起的页签', !!pop, pop ? '' : '(没有 .more-pop)')
-          const opts = pop ? $$('.more-pop .more-opt').map((b) => (b.textContent || '').trim()) : []
-          check('★★ 菜单里就是那三个（技能 / 服务 / 启动台）',
-            opts.length === 3 && opts.some((t) => t.indexOf('技能') >= 0)
-            && opts.some((t) => t.indexOf('服务') >= 0) && opts.some((t) => t.indexOf('启动台') >= 0),
-            JSON.stringify(opts))
-          const skillOpt = pop ? $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('技能') >= 0) : null
+          const rows = pop ? $$('.more-pop .more-opt') : []
+          const labels = rows.map((b) => ((b.querySelector('.more-txt') || b).textContent || '').trim())
+          check('★★ 菜单 = 三个页签 + 一条设置入口（四行，不多不少）',
+            labels.length === 4
+            && ['技能', '服务', '启动台'].every((t) => labels.some((x) => x.indexOf(t) >= 0))
+            && labels[3].indexOf('设置') >= 0,
+            JSON.stringify(labels))
+
+          // ── 形状（2026-10-25 第二轮，暮雨拿系统菜单截图对比后否掉第一版）─────────
+          // 原话：「收起页签太丑了，底下那坨文本把框挤长而且完全没必要。」
+          // 所以这三条钉的是**菜单不是面板**：无标题栏、无说明段落、整体不臃肿。
+          check('★★ 菜单里没有标题栏（旧版「收起的页签」+ ✕ 已删）',
+            !!pop && !pop.querySelector('.fpop-h') && !pop.querySelector('.fpop-close'))
+          check('★★ 菜单里没有底部说明段落（就是它把框撑长的）',
+            !!pop && !pop.querySelector('.more-hint')
+            && (pop.textContent || '').indexOf('想改哪些收起来') < 0,
+            pop ? (pop.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '')
+          if (pop) {
+            const ph = pop.getBoundingClientRect().height
+            check('★★ 浮层不臃肿（整体高度 <= 160px；旧版光那段说明就占两行）',
+              ph > 0 && ph <= 160, 'height=' + ph.toFixed(1))
+            const rowHs = rows.map((b) => b.getBoundingClientRect().height)
+            check('  四行等高（28px ± 2），不像一排输入框',
+              rowHs.length === 4 && rowHs.every((h) => Math.abs(h - 28) <= 2),
+              JSON.stringify(rowHs.map((h) => Math.round(h))))
+          }
+
+          const skillOpt = rows.find((b) => (b.textContent || '').indexOf('技能') >= 0) || null
           if (skillOpt) {
             skillOpt.click()
             await sleep(800)
@@ -371,6 +393,32 @@
               (($('#views .more-btn') || {}).textContent || '').indexOf('看板') < 0)
           } else {
             check('  菜单里有「技能」项', false, '没找到')
+          }
+
+          // 最后一条：底部那句话改成的菜单项**真能点**（纯文本换成一个入口，不是删了了事）
+          const moreBtn2 = $('#views .more-btn')
+          if (moreBtn2) {
+            moreBtn2.click()
+            await sleep(450)
+            const setOpt = $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('顶栏页签设置') >= 0)
+            check('★★ 「顶栏页签设置…」是一条真菜单项（不是干巴巴的说明文字）', !!setOpt,
+              $$('.more-pop .more-opt').map((b) => (b.textContent || '').trim()).join(' | '))
+            if (setOpt) {
+              setOpt.click()
+              await sleep(900)
+              check('★★ 点它 → 设置打开且停在「通用」（能直接勾页签）',
+                !!$('#smodal') && $('.sect:not([style*="display: none"]) h4') !== null)
+              const generalOn = $$('#smodal .sect').some((x) => {
+                const h = x.querySelector('h4')
+                const vis = x.offsetParent !== null
+                return vis && h && (h.textContent || '').indexOf('顶栏页签') >= 0
+              })
+              check('★★ 停的那一页里真能看到「顶栏页签」小节', generalOn)
+              const closeS = $$('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
+              if (closeS) closeS.click()
+              await sleep(500)
+              check('  收尾：设置已关闭（不污染后面的断言）', !$('#smodal'))
+            }
           }
         }
       }
