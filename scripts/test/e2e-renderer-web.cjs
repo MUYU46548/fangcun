@@ -249,6 +249,9 @@ function main() {
       // 2026-10-25 卡 005：账户口径（余额差值）—— 截图要同时看见「月报表(token)」和
       // 「账户口径(真钱)」两块，并且能读到「归不到具体某一次调用」那句。
       ['问答', '', 'ask-account', 'askacc'],
+      // 2026-10-25 卡 005 B 档：设置 → Agent → 模型单价（可选）。截图要看得出
+      // 「元 / 百万 tokens」「不填就是未折算」与一行真实单价。
+      ['看板', '列视图', 'settings-price', 'priceui'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
       ['日志', '', 'logs'],
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
@@ -489,6 +492,17 @@ function main() {
     window.__fcTest.emitSyncProgress('push')
     await sleep(2400)   // 让秒数爬到 2s，截图里看得出"真的在计时"
   }
+` : ''}
+  ${extra === 'priceui' ? `
+  const gear2 = all('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+  if (gear2) gear2.click()
+  await sleep(700)
+  const navA = all('#smodal .settings-nav-btn').filter((b) => (b.textContent || '').indexOf('Agent') >= 0)[0]
+  if (navA) navA.click()
+  await sleep(600)
+  const pr = document.querySelector('#smodal .price-row')
+  if (pr) pr.scrollIntoView({ block: 'center' })
+  await sleep(400)
 ` : ''}
   ${extra === 'askacc' ? `
   // 滚到页面底部：账户口径块在月报表下面

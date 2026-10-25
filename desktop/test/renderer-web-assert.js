@@ -407,6 +407,80 @@
         }
       }
 
+      // ── 设置 → Agent → 模型单价（2026-10-25 卡 005 B 档）────────────────────
+      // 这块的立场：**空表就是一律未折算**，方寸不预置任何默认价（暮雨 19:00 那次异议）。
+      {
+        // 顶栏的 ⚙ 没有 title，按文字找（`:has()` 别用 —— 选择器一抛，整份断言就断了）
+        const gearBtn = $$('#views button, #bar button').find((b) => (b.textContent || '').trim() === '⚙')
+        if (gearBtn) gearBtn.click()
+        await sleep(700)
+        const navAgent = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('Agent') >= 0)
+        check('★ 设置侧边栏有「Agent」分类', !!navAgent)
+        if (navAgent) {
+          navAgent.click()
+          await sleep(500)
+          const sect = $$('#smodal .sect').find((x) => {
+            const h = x.querySelector('h4')
+            return x.offsetParent !== null && h && (h.textContent || '').indexOf('模型单价') >= 0
+          })
+          check('★★ Agent 分类里有「模型单价（可选）」小节', !!sect)
+          if (sect) {
+            const st = (sect.textContent || '').replace(/\s+/g, ' ')
+            check('★ 说明写明单位「元 / 百万 tokens」', st.indexOf('元 / 百万 tokens') >= 0, st.slice(0, 90))
+            check('★★ 说明写明「不填就是未折算」与「不内置任何默认价」（口径不许含糊）',
+              st.indexOf('不填就是') >= 0 && st.indexOf('不内置任何默认价') >= 0, st.slice(0, 160))
+            const rows0 = $$('#smodal .price-row').length
+            check('★ 夹具那一行单价读出来了（deepseek-chat）',
+              st.indexOf('deepseek-chat') >= 0
+              || $$('#smodal .price-model').some((i) => (i.value || '').indexOf('deepseek-chat') >= 0), st.slice(0, 120))
+
+            const addBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('加一行') >= 0)
+            check('★ 有「＋ 加一行」', !!addBtn)
+            if (addBtn) {
+              addBtn.click()
+              await sleep(250)
+              check('★ 点它能多一行输入', $$('#smodal .price-row').length === rows0 + 1,
+                rows0 + ' → ' + $$('#smodal .price-row').length)
+              // 填一行新单价并保存 → 真过桥、真落盘（读 __fcTest.prices() 真身）
+              const last = $$('#smodal .price-row').pop()
+              const inputs = last ? last.querySelectorAll('input') : []
+              if (inputs.length === 3) {
+                const set = (el, v) => {
+                  el.value = v
+                  el.dispatchEvent(new Event('input', { bubbles: true }))
+                  el.dispatchEvent(new Event('change', { bubbles: true }))
+                }
+                set(inputs[0], 'mimo-v2.6-flash')
+                set(inputs[1], '0.5')
+                set(inputs[2], '1')
+                await sleep(200)
+                const n0 = window.__fcTest.callCount('llmSetPrices')
+                const saveBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('保存单价') >= 0)
+                check('★ 有「保存单价」按钮', !!saveBtn)
+                if (saveBtn) {
+                  saveBtn.click()
+                  await sleep(600)
+                  check('★★ 点保存真的过桥（llmSetPrices 被调用）',
+                    window.__fcTest.callCount('llmSetPrices') > n0,
+                    n0 + ' → ' + window.__fcTest.callCount('llmSetPrices'))
+                  const saved = window.__fcTest.prices()
+                  check('★★ 存下来的真身里有这一行（不是界面自说自话）',
+                    saved.some((r) => r.model === 'mimo-v2.6-flash'), JSON.stringify(saved))
+                  check('★ 保存后给了明确的落地反馈', (($('#toast') || {}).textContent || '').indexOf('单价已保存') >= 0,
+                    (($('#toast') || {}).textContent || '').slice(0, 50))
+                }
+              }
+            }
+          }
+        }
+        // 收尾：把夹具改回去，别污染后面的断言
+        window.__fcTest.restorePrices && window.__fcTest.restorePrices()
+        const closeS = $$('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
+        if (closeS) closeS.click()
+        await sleep(400)
+        check('  收尾：设置已关闭', !$('#smodal'))
+      }
+
       // ── 顶栏「更多」：低频页签折叠（2026-10-25 暮雨）────────────────────────
       // 原话：「帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来……
       //        最少维持 7 个功能按钮在场。」
@@ -5405,6 +5479,19 @@
           && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
         check('★ 没给用量数字的那次明说「只计数」（不拿字符数折算 token）',
           rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
+
+        // ── 逐笔金额（2026-10-25 卡 005 B 档）────────────────────────────────
+        // 有金额就写「≈ ¥X」并带上"还有几笔没折算"；一笔都没有就写「未折算」。
+        // ⚠ 绝不出现「¥0」：那会把"没数据"说成"没花钱"。
+        {
+          const rows = $$('#board.ask-view .ask-report-row')
+          const t10 = rows[0] ? (rows[0].textContent || '') : ''
+          const t09 = rows[1] ? (rows[1].textContent || '') : ''
+          check('★★ 有金额的月显示「≈ ¥0.42」（夹具真身，不是写死的）', t10.indexOf('¥0.42') >= 0, t10)
+          check('★★ 同一行点名还有 1 笔未折算（否则金额像全量账）', t10.indexOf('1 次未折算') >= 0, t10)
+          check('★★ 一笔金额都没有的月写「未折算」，**不许写 ¥0**',
+            t09.indexOf('未折算') >= 0 && t09.indexOf('¥') < 0, t09)
+        }
 
         // ── 账户口径 · 余额差值（2026-10-25 卡 005）──────────────────────────
         // 暮雨给的参考实现（DSH 小鲸鱼）点破关键：金额准不是因为价格表准，而是

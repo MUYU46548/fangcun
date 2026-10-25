@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { guardedHandle } from './guarded-ipc'
 import { getBalanceStatus, observeBalance } from './llm/balance'
+import { getPrices, setPrices } from './llm/prices'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
@@ -38,7 +39,10 @@ export function registerLlmIpcHandlers(): void {
   // ── 账户口径（2026-10-25 卡 005）：余额差值，不是价格表 ────────────────
   // 暮雨给的参考实现点破了关键：准的办法是**不经过价格表** —— 官方余额接口的下降额
   // 就是真花掉的钱。`balance:status` 只读（不联网），`balance:observe` 才真去查一次。
+  // 单价表（2026-10-25 卡 005 B 档）：用户自己填，方寸不预置任何默认价。
   guardedHandle('llm:balanceStatus', () => getBalanceStatus())
+  guardedHandle('llm:getPrices', () => getPrices())
+  guardedHandle('llm:setPrices', (_e: any, rows: unknown) => setPrices(rows))
   guardedHandle('llm:balanceObserve', () => observeBalance())
 
   guardedHandle('llm:getConfig', () => {

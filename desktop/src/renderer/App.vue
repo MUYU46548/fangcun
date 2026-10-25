@@ -533,6 +533,12 @@
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
           <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em></span>
+          <!-- 金额（2026-10-25 卡 005）：**没有就是「未折算」**，不写 0 元。
+               「未折算」后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
+          <span class="arr-cost" :class="{ none: !m.cost_calls }">
+            <template v-if="m.cost_calls">≈ ¥{{ fmtCost(m.cost) }}<em v-if="m.unpriced_calls">· {{ m.unpriced_calls }} 次未折算</em></template>
+            <template v-else>未折算</template>
+          </span>
         </div>
       </div>
       <div class="ask-report ask-report-empty" v-else>
@@ -3070,6 +3076,39 @@
             <button class="ghost" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
             <button class="pri" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
             <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
+          </div>
+        </div>
+        <!-- 模型单价（可选，2026-10-25 卡 005 B 档）——**空表就是"一律未折算"**。
+             为什么不内置默认价：暮雨原话「单价表从哪里来？每家都不一样，还随时可能变」。
+             内置常量过半年就是谎话，而且不会报错，只会安静地算错。 -->
+        <div class="sect" v-show="settingsTab === 'agent'">
+          <h4>模型单价（可选）</h4>
+          <div class="hint">
+            单位：<b>元 / 百万 tokens</b>。填了才会在月度报表里折算金额，并标「按你填的单价」；
+            <b>不填就是「未折算」</b> —— 方寸不内置任何默认价。
+            <br>DeepSeek / OpenRouter 这类<b>有官方余额接口</b>的端点优先看「账户口径」，那条不需要单价。
+          </div>
+          <div class="price-head" v-if="priceRows.length">
+            <span class="price-model">模型名</span>
+            <span class="price-num">输入价</span>
+            <span class="price-num">输出价</span>
+            <span class="price-del"></span>
+          </div>
+          <div class="price-rows">
+            <div class="price-row" v-for="(r, i) in priceRows" :key="'pr-' + i">
+              <input class="price-model" v-model="r.model" placeholder="模型名（与请求里一致）" />
+              <input class="price-num" type="number" min="0" step="0.01" v-model="r.in" placeholder="输入价" />
+              <input class="price-num" type="number" min="0" step="0.01" v-model="r.out" placeholder="输出价" />
+              <button class="ghost price-del" title="删掉这一行（保存后生效）" @click="priceRows.splice(i, 1)">✕</button>
+            </div>
+            <div class="price-empty" v-if="!priceRows.length">
+              还没有单价 —— 现在所有调用都是「未折算」。要用金额报表就加一行（模型名照抄设置里的那个）。
+            </div>
+          </div>
+          <div class="sect-btns">
+            <button class="ghost" @click="addPriceRow">＋ 加一行</button>
+            <button class="pri" :disabled="priceSaving" @click="savePrices">{{ priceSaving ? '保存中…' : '保存单价' }}</button>
+            <span class="price-state" v-if="priceMsg">{{ priceMsg }}</span>
           </div>
         </div>
         <!-- AI 用量（2026-10-17 暮雨第 10 条：「说花销可见，但我看不到啊」）。
@@ -5985,6 +6024,68 @@ function providerLabel(p: string): string {
   if (p === 'deepseek') return 'DeepSeek'
   if (p === 'openrouter') return 'OpenRouter'
   return p || '未知端点'
+}
+
+/** 模型单价表（2026-10-25 卡 005 B 档）：**空表 = 一律未折算**，方寸不预置任何默认价 */
+const priceRows = ref<Array<{ model: string; in: string; out: string }>>([])
+const priceSaving = ref(false)
+const priceMsg = ref('')
+
+/**
+ * 金额显示：定点字符串（"0.00320000"）→ 人话。
+ * ⚠ 只做**截断**不做四舍五入：宁可显示少一点，也不把 0.00349 说成 0.0035 让人以为花了更多。
+ */
+function fmtCost(v: unknown): string {
+  const raw = String(v ?? '0')
+  const dot = raw.indexOf('.')
+  if (dot < 0) return raw
+  const frac = (raw.slice(dot + 1) + '0000').slice(0, 4).replace(/0+$/, '')
+  return frac ? `${raw.slice(0, dot)}.${frac}` : raw.slice(0, dot)
+}
+
+/** 定点字符串 → 输入框里好看的形式：`2.00000000` → `2`、`0.50000000` → `0.5` */
+function trimFixed(v: unknown): string {
+  const s = String(v ?? '').trim()
+  if (!s || s.indexOf('.') < 0) return s
+  return s.replace(/0+$/, '').replace(/\.$/, '')
+}
+
+async function loadPrices(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.llmGetPrices()
+    priceRows.value = (Array.isArray(r?.rows) ? r.rows : []).map((x: any) => ({
+      model: String(x?.model || ''), in: trimFixed(x?.in), out: trimFixed(x?.out),
+    }))
+    priceMsg.value = r?.warn || ''
+  } catch {
+    priceRows.value = []
+  }
+}
+
+function addPriceRow(): void {
+  priceRows.value.push({ model: '', in: '', out: '' })
+}
+
+async function savePrices(): Promise<void> {
+  if (priceSaving.value) return
+  priceSaving.value = true
+  priceMsg.value = ''
+  try {
+    // ⚠ 过桥必须给裸对象：`priceRows.value` 是 Vue 响应式代理，contextBridge 走结构化克隆会抛
+    //   「An object could not be cloned」。这是本项目第四次踩（前三次：tiers / 偏好 / IPC 载荷）——
+    //   假 preload 的 cloneGuard 当场把它抓成红，否则界面上只会看到"保存失败"。
+    const r: any = await (window as any).tegula.llmSetPrices(toPlain(priceRows.value))
+    if (!r?.ok) { priceMsg.value = r?.error || '保存失败'; showToast('单价保存失败：' + (r?.error || '未知原因'), 'error'); return }
+    // 界面显示的必须是**真存下来的那份**（清洗会丢空名行、非法价行）
+    priceRows.value = (r.rows || []).map((x: any) => ({ model: String(x.model), in: String(x.in), out: String(x.out) }))
+    priceMsg.value = `已保存 ${priceRows.value.length} 个模型的单价`
+    showToast('单价已保存', 'success')
+  } catch (e: any) {
+    priceMsg.value = e?.message || String(e)
+    showToast('单价保存失败：' + priceMsg.value, 'error')
+  } finally {
+    priceSaving.value = false
+  }
 }
 
 async function refreshBalance(): Promise<void> {
@@ -11002,6 +11103,8 @@ function showSettings() {
   void loadGitStatus()
   // 体积报告：进门就拉（"包为什么大"得能当场看到，而不是等打完包才发现）
   void bkLoadSizeReport()
+  // 模型单价：进门就拉（空表也是信息 —— 说明现在是"一律未折算"）
+  void loadPrices()
   // 诊断页（上次停在诊断时直接进它 —— 那三块要当场有数）
   if (settingsTab.value === 'diag') void loadDiag()
   // ⚠ 合入（2026-10-12）：这一行是外部整包加的，与上面三条**并列不冲突** ——
@@ -12898,6 +13001,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 11px; color: var(--muted); }
 .ask-report-empty { font-size: 12px; color: var(--muted); }
+/* 月报表里的金额（2026-10-25 卡 005）：没有金额时写「未折算」而不是 0 元 */
+.arr-cost { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+.arr-cost em { margin-left: 5px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--muted); }
+.arr-cost.none { color: var(--muted); font-weight: 400; }
+/* 设置 → 模型单价（可选）：一行 = 模型名 + 输入价 + 输出价 + 删 */
+#smodal .price-head { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px;
+  font-size: 11px; color: var(--muted); }
+#smodal .price-head .price-model { flex: 1 1 auto; padding-left: 2px; }
+#smodal .price-head .price-num { flex: 0 0 96px; }
+#smodal .price-head .price-del { flex: none; width: 28px; }
+#smodal .price-rows { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; }
+#smodal .price-row { display: flex; align-items: center; gap: 6px; }
+#smodal .price-model { flex: 1 1 auto; min-width: 0; }
+#smodal .price-num { flex: 0 0 96px; font-variant-numeric: tabular-nums; }
+#smodal .price-del { flex: none; height: 26px; padding: 0 8px; font-size: 11px; }
+#smodal .price-empty { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+#smodal .price-state { font-size: 11.5px; color: var(--muted); margin-left: 4px; }
 
 /* ── 想法（2026-10-22 · 念头没有家）──────────────────────────────────────
    跟「问答」同一套单栏阅读面：内容行 720px、输入框是主角。

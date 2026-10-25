@@ -97,6 +97,70 @@ console.log('\n── ④ 余额接口解析 ──')
   check('OpenRouter 缺字段 → 失败给原因', !B.isBalanceOk(orBad) && /total_credits/.test(orBad.reason))
 }
 
+// ── ④b 逐笔金额（B 档：用户自填单价）与月度聚合 ──────────────────────
+console.log('\n── ④b 单价折算与月度聚合 ──')
+function pricingChecks() {
+  const P = require(path.join(REPO, 'desktop/dist/shared/pricing.js'))
+
+  // 清洗：空名/非法价的行丢掉，不猜成 0（0 会把花销静默算成"免费"）
+  const rows = P.cleanPriceRows([
+    { model: 'deepseek-chat', in: '2', out: '8' },
+    { model: '  ', in: '1', out: '1' },
+    { model: 'bad-price', in: 'abc', out: '1' },
+    { model: 'neg', in: '-1', out: '1' },
+    { model: 'DEEPSEEK-CHAT', in: '9', out: '9' },   // 大小写重复 → 保留第一条
+  ])
+  check('★ 清洗单价表：空名/非法价/负价的行全丢，同名（不分大小写）只留第一条',
+    rows.length === 1 && rows[0].model === 'deepseek-chat', JSON.stringify(rows))
+  check('清洗后的价格是定点字符串（不存浮点）', rows[0].in === '2.00000000', rows[0].in)
+
+  const hit = P.findPrice(rows, 'DeepSeek-Chat')
+  check('★ 找单价不区分大小写', !!hit && hit.in === B.parseAmount('2') && hit.out === B.parseAmount('8'))
+  check('没填过的模型 → null（= 未折算，不是 0 元）', P.findPrice(rows, 'mimo-v2.6-flash') === null)
+
+  // 折算：2000 输入 + 1000 输出，价 2 / 8 元每百万
+  const c = P.costOf({ promptTokens: 2000, completionTokens: 1000 }, hit)
+  // 2000*2/1e6 = 0.004 ；1000*8/1e6 = 0.008 → 合计 0.012
+  check('★★ 折算：(2000×2 + 1000×8)/1e6 = 0.012 元（定点，不差一分）',
+    c === B.parseAmount('0.012'), B.formatAmount(c, 8))
+  check('★ 向下取整（0.0000019 元不会被吹成 0.000002）', (() => {
+    const tiny = P.costOf({ promptTokens: 1, completionTokens: 0 }, { model: 'x', in: B.parseAmount('1'), out: 0n })
+    // 1 token × 1 元/1M = 1e-6 元 = 100 个 1e-8 单位
+    return tiny === 100n
+  })(), String(P.costOf({ promptTokens: 1, completionTokens: 0 }, { model: 'x', in: B.parseAmount('1'), out: 0n })))
+  check('★ 两个 token 都缺 → null（没有用量就没法折算，不给 0）',
+    P.costOf({ promptTokens: null, completionTokens: null }, hit) === null)
+  check('只有一个 token 有值也能算（另一个按 0）',
+    P.costOf({ promptTokens: 2000, completionTokens: null }, hit) === B.parseAmount('0.004'),
+    B.formatAmount(P.costOf({ promptTokens: 2000, completionTokens: null }, hit), 8))
+
+  // 月度聚合：真写一份 ai-trace.jsonl，再让 usageByMonth 读
+  const tmp = path.join(os.tmpdir(), 'fc-trace-' + Date.now() + '.jsonl')
+  const T = require(path.join(REPO, 'desktop/dist/main/llm/trace.js'))
+  T.setTraceFilePathForTest(tmp)
+  const day = new Date()
+  const ym = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}`
+  const recs = [
+    // 供应商自报 0.5 元
+    { ts: `${ym}-01T10:00:00`, trigger: 't', model: 'm', ok: true, stream: false, prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: '0.50000000', cost_source: 'provider' },
+    // 按用户单价折算 0.012 元（带单价快照）
+    { ts: `${ym}-02T10:00:00`, trigger: 't', model: 'm', ok: true, stream: false, prompt_tokens: 2000, completion_tokens: 1000, total_tokens: 3000, cost: '0.01200000', cost_source: 'user-price', unit_price: { in: '2.00000000', out: '8.00000000', at: '2026-10-25' } },
+    // 有 token 但没金额 = 未折算
+    { ts: `${ym}-03T10:00:00`, trigger: 't', model: 'm', ok: true, stream: false, prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+    // 连 token 都没有（老记录）：既不算金额也不算未折算
+    { ts: `${ym}-04T10:00:00`, trigger: 't', model: 'm', ok: false, stream: false },
+  ]
+  fs.writeFileSync(tmp, recs.map((x) => JSON.stringify(x)).join('\n') + '\n', 'utf-8')
+  const m = T.usageByMonth(3)[0]
+  check('★★ 月度金额 = 定点相加 0.5 + 0.012 = 0.512（浮点这里会出现 0.5120000000000001）',
+    m.cost === '0.51200000', m.cost)
+  check('★ 有金额 2 笔、其中供应商自报 1 笔、未折算 1 笔 —— 三个数分别可读',
+    m.cost_calls === 2 && m.provider_cost_calls === 1 && m.unpriced_calls === 1,
+    JSON.stringify({ cost_calls: m.cost_calls, provider: m.provider_cost_calls, unpriced: m.unpriced_calls }))
+  check('  没有 token 的那笔既不算金额也不算"未折算"（它本来就没数据）', m.calls === 4)
+  try { fs.unlinkSync(tmp) } catch { /* 忽略 */ }
+}
+
 // ── ⑤ 端到端：真跑记账（假 fetch，临时账本）────────────────────────────
 console.log('\n── ⑤ 真跑记账（临时 userData + 假余额接口）──')
 async function realLedger() {
@@ -230,6 +294,7 @@ function guardsRun() {
 
 ;(async () => {
   await realLedger()
+  pricingChecks()
   guardsRun()
   console.log('\n──────────────────────────────')
   if (fails.length) {

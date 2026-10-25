@@ -229,6 +229,9 @@ contextBridge.exposeInMainWorld('tegula', {
    */
   llmBalanceStatus: () => ipcRenderer.invoke('llm:balanceStatus'),
   llmBalanceObserve: () => ipcRenderer.invoke('llm:balanceObserve'),
+  /** 模型单价（2026-10-25 卡 005 B 档）：元/百万 tokens，用户自己填；空表 = 一律未折算 */
+  llmGetPrices: () => ipcRenderer.invoke('llm:getPrices'),
+  llmSetPrices: (rows: any) => ipcRenderer.invoke('llm:setPrices', rows),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
   llmResetConfig: () => ipcRenderer.invoke('llm:resetConfig'),
   llmTestConnection: (cfg?: any) => ipcRenderer.invoke('llm:testConnection', cfg),

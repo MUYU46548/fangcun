@@ -12,6 +12,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
+import { parseAmount, formatAmount } from '../../shared/balance'
 
 export interface TraceRecord {
   ts: string
@@ -27,6 +28,13 @@ export interface TraceRecord {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   total_tokens?: number | null
+  // 2026-10-25 卡 005：金额。**没有这三个字段 = 未折算**（不是 0 元）。
+  /** 1e-8 定点字符串（"0.00320000"），不存浮点 —— 对账不差一分 */
+  cost?: string
+  /** provider = 供应商自报（唯一可信）；user-price = 按你填的单价折算 */
+  cost_source?: 'provider' | 'user-price'
+  /** B 档写入时的单价**快照**（元/1M tokens）；改价不影响历史记录 */
+  unit_price?: { in: string; out: string; at: string }
 }
 
 let cachedPath: string | null = null
@@ -235,6 +243,14 @@ export interface MonthUsage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** 该月**已折算**的金额（1e-8 定点字符串；一次都没折算就是 "0.00000000"） */
+  cost: string
+  /** 有金额的调用笔数 */
+  cost_calls: number
+  /** 其中供应商自报的笔数（比"按单价折算"更可信） */
+  provider_cost_calls: number
+  /** 有 token 但**没有金额**的笔数 —— 界面必须显示这个数，否则金额像全量账 */
+  unpriced_calls: number
   byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
 }
 
@@ -260,14 +276,20 @@ export function usageByMonth(months = 3): MonthUsage[] {
   }
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
   const hasTok = (x: TraceRecord) => typeof x.total_tokens === 'number' || typeof x.prompt_tokens === 'number'
+  // 金额全程 BigInt 定点累加：一遍加完再格式化，绝不在中途转浮点
+  const zero = parseAmount('0') ?? 0n
 
-  const map = new Map<string, MonthUsage>()
+  // 累加期用一个内部类型带 BigInt 和；出参时摘掉（MonthUsage 里不该有 bigint，过不了 IPC 克隆）
+  type MonthAcc = MonthUsage & { _costSum: bigint }
+  const map = new Map<string, MonthAcc>()
   for (const x of r.records) {
     const m = monthKey(String(x.ts || ''))
     if (!m) continue // 时间戳解析不了 = 不知道属于哪个月，宁可不算也不猜
-    const cur = map.get(m) || {
+    const cur: MonthAcc = map.get(m) || {
       month: m, calls: 0, ok: 0, fail: 0, token_calls: 0,
-      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, byTrigger: [],
+      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
+      cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 0,
+      byTrigger: [], _costSum: zero,
     }
     cur.calls++
     if (x.ok) cur.ok++
@@ -277,6 +299,15 @@ export function usageByMonth(months = 3): MonthUsage[] {
       cur.prompt_tokens += num(x.prompt_tokens)
       cur.completion_tokens += num(x.completion_tokens)
       cur.total_tokens += num(x.total_tokens)
+      // 金额三态：有金额 / 有金额且供应商自报 / 有 token 但没金额（未折算）
+      const c = parseAmount(x.cost)
+      if (c !== null) {
+        cur._costSum += c
+        cur.cost_calls++
+        if (x.cost_source === 'provider') cur.provider_cost_calls++
+      } else {
+        cur.unpriced_calls++
+      }
     }
     const g = String(x.trigger || '(未记录)')
     const t = cur.byTrigger.find((y) => y.trigger === g)
@@ -288,5 +319,8 @@ export function usageByMonth(months = 3): MonthUsage[] {
   return [...map.values()]
     .sort((a, b) => b.month.localeCompare(a.month))
     .slice(0, limit)
-    .map((m) => ({ ...m, byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls) }))
+    .map((m) => {
+      const { _costSum, ...rest } = m as MonthUsage & { _costSum: bigint }
+      return { ...rest, cost: formatAmount(_costSum, 8), byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls) }
+    })
 }

@@ -1,5 +1,8 @@
 import { LLMConfig, LLMError, getConfig, isMaskedKey } from './config'
 import { appendTrace, traceFilePath } from './trace'
+import { findPrice, costOf } from '../../shared/pricing'
+import { parseAmount, formatAmount } from '../../shared/balance'
+import { getPrices } from './prices'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -107,6 +110,12 @@ export interface ChatUsage {
   promptTokens: number | null
   completionTokens: number | null
   totalTokens: number | null
+  /**
+   * 供应商自己报的**金额**（2026-10-25 卡 005）：目前只有少数网关给（OpenRouter 的
+   * `usage.cost` / 部分中转的 `total_cost`）。有就原样用 —— 这是唯一"不是我推算"的金额；
+   * 没有就是 undefined（别写成 0，0 会被当成"免费"）。
+   */
+  providerCost?: number | null
 }
 
 function extractUsage(data: any): ChatUsage {
@@ -116,6 +125,8 @@ function extractUsage(data: any): ChatUsage {
     promptTokens: num(u?.prompt_tokens),
     completionTokens: num(u?.completion_tokens),
     totalTokens: num(u?.total_tokens),
+    // 金额不是所有供应商都给 —— 认 `cost` 与 `total_cost` 两种写法，没有就 undefined
+    providerCost: num(u?.cost) ?? num(u?.total_cost) ?? null,
   }
 }
 
@@ -203,7 +214,34 @@ function traceOnce(opts: {
           total_tokens: opts.usage.totalTokens,
         }
       : {}),
+    ...costFields(opts.model, opts.usage),
   })
+}
+
+/**
+ * 一次调用的金额（2026-10-25 卡 005）。
+ *
+ * A 档 **供应商自报**（`usage.cost`）：原样落，标 `cost_source: 'provider'` —— 唯一可信的金额。
+ * B 档 **用户自填单价**：`costOf()` 折算，标 `'user-price'`，并把当时用的单价
+ *     **快照**进这条记录。否则半年后改价，上个月的金额会跟着变（账本漂移）。
+ * C 档 都没有：**什么都不写**（读侧按"未折算"处理）—— 宁缺不猜。
+ */
+function costFields(model: string, usage?: ChatUsage): Record<string, unknown> {
+  if (!usage) return {}
+  const pc = usage.providerCost
+  if (typeof pc === 'number' && Number.isFinite(pc) && pc >= 0) {
+    const a = parseAmount(pc.toFixed(8))
+    if (a !== null) return { cost: formatAmount(a, 8), cost_source: 'provider' }
+  }
+  const price = findPrice(getPrices().rows, model)
+  if (!price) return {}
+  const a = costOf({ promptTokens: usage.promptTokens, completionTokens: usage.completionTokens }, price)
+  if (a === null) return {}
+  return {
+    cost: formatAmount(a, 8),
+    cost_source: 'user-price',
+    unit_price: { in: formatAmount(price.in, 8), out: formatAmount(price.out, 8), at: new Date().toISOString().slice(0, 10) },
+  }
 }
 
 function promptLen(content: string | ChatMessage[]): number {

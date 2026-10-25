@@ -28,6 +28,8 @@ const store = {
   // 账户口径（2026-10-25 卡 005）：默认"有官方余额接口"，可用 __fcTest.setBalanceUnsupported(true)
   // 切到"这个端点没有余额接口"的真实常见态 —— 那条降级路径必须被验过。
   balanceUnsupported: false,
+  // 模型单价夹具（2026-10-25 卡 005）：一行真数据，够验"读得到 + 改得动"
+  prices: [{ model: 'deepseek-chat', in: '2.00000000', out: '8.00000000' }],
   syncHold: false,
   syncResolve: null,
   // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
@@ -1388,8 +1390,9 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('llmUsageMonthly')
     return {
       months: [
-        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
-        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
+        // 金额三态各来一条（2026-10-25 卡 005）：十月有金额且 1 笔未折算；九月纯未折算
+        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
+        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
       ],
     }
   },
@@ -1423,6 +1426,24 @@ contextBridge.exposeInMainWorld('tegula', {
         observations: 4, updatedAt: '2026-10-25T10:05:00.000Z', note: '',
       },
     }
+  },
+  /**
+   * 模型单价（2026-10-25 卡 005 B 档）：夹具预置一行，用来验"设置里能改、改完真的过桥"。
+   * ⚠ 空表也是合法状态（= 一律未折算），这条降级在断言里单独验。
+   */
+  llmGetPrices: () => {
+    rec('llmGetPrices', [])
+    return { ok: true, rows: store.prices.slice(), updatedAt: '2026-10-25T10:00:00.000Z' }
+  },
+  llmSetPrices: (rows) => {
+    cloneGuard('llmSetPrices', [rows])
+    rec('llmSetPrices', [rows])
+    // 与真主进程同样的清洗口径：空模型名的行丢掉；价格原样收（夹具不做数值校验）
+    const clean = (Array.isArray(rows) ? rows : [])
+      .filter((r) => String((r && r.model) || '').trim())
+      .map((r) => ({ model: String(r.model).trim(), in: String(r.in || '0'), out: String(r.out || '0') }))
+    store.prices = clean
+    return { ok: true, rows: clean.slice() }
   },
   llmGetConfig: () => ({}),
   llmSetConfig: () => ok(),
@@ -1517,6 +1538,10 @@ contextBridge.exposeInMainWorld('__fcTest', {
     if (f) f(ok ? { ok: true, message: message || '已同步 12 个文件' } : { ok: false, message: message || '连不上远端' })
     return true
   },
+  /** 把单价夹具改回初始那行（断言收尾用，别污染后面的用例） */
+  restorePrices: () => { store.prices = [{ model: 'deepseek-chat', in: '2.00000000', out: '8.00000000' }] },
+  /** 单价表真身（改完断言读它，不读界面） */
+  prices: () => JSON.parse(JSON.stringify(store.prices)),
   /** 账户口径降级夹具：切到"这个端点没有余额接口"（多数中转/MiMo 的真实情况） */
   setBalanceUnsupported: (v) => { store.balanceUnsupported = !!v },
   /** 还挂着几个阶段订阅 —— 收尾不干净时会越挂越多（每次同步 +1） */
