@@ -25,6 +25,7 @@ import * as ask from './services/ask'
 import * as correct from './services/correct'
 import * as contextPack from './services/contextPack'
 import * as prefs from './services/prefs'
+import * as projectOrder from './services/projectOrder'
 import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import * as selfSync from './services/selfSync'
@@ -1029,6 +1030,15 @@ export function registerIpcHandlers(): void {
   //（dev 的 localhost→127.0.0.1、打包版 file://）——换 origin 就清空。真身移到主进程 prefs.json。
   guardedHandle('prefs:get', () => prefs.getPrefs())
   guardedHandle('prefs:set', (_event, key: string, value: unknown) => prefs.setPref(key, value))
+
+  // ── 项目优先级排序（2026-10-25）：只服务「优先级」这个可选视图 ──────────
+  // 边界见 services/projectOrder.ts 顶部注释：不参与看板分组、不影响一屏、不动 registry。
+  guardedHandle('projectOrder:get', () => projectOrder.readOrder())
+  guardedHandle('projectOrder:set', (_event, ids: string[]) => {
+    const r = projectOrder.writeOrder(Array.isArray(ids) ? ids : [])
+    if (r.ok) appLog.info('projectOrder', `项目排序已更新（${r.order.length} 项）`)
+    return r
+  })
 
   // 一次写完多个偏好键 + 回读校验（2026-10-05）：见 prefs.setPrefs 的注释 ——
   // 「提示保存了但实际没保存」的老路必须堵死，凡是用户点了保存的路径都要能回答"存住没有"。

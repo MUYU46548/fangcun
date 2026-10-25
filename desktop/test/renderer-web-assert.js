@@ -4204,13 +4204,23 @@
     }
 
     // ⚠ 这是「通用」类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
-    //   2026-10-25 加了「念头长度上限」，旧断言写死 length===2 当场变红 —— 它挡对了：
+    //   2026-10-25 加了「念头长度上限」与「优先级页签」，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限']
+    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限', '优先级页签']
     check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
       JSON.stringify(sectTitles()))
+    // 可选启用的优先级页签：默认必须是**关**的（顶栏已经 15 个页签，小玩具不该默认占一格）
+    const prioChk = $$('#smodal .chk input').find((i) => {
+      const lb = i.closest('.chk')
+      return lb && (lb.textContent || '').indexOf('优先级') >= 0
+    })
+    check('★ 设置里有「优先级页签」开关', !!prioChk)
+    check('★ 它默认是关的（可选启用，不是默认塞给你）', !!prioChk && prioChk.checked === false,
+      prioChk ? 'checked=' + prioChk.checked : '(没有开关)')
+    check('★ 默认关时顶栏没有「优先级」页签',
+      !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '优先级'))
     check('  「通用」在导航上高亮',
       navBtns().some((b) => (b.textContent || '').indexOf('通用') >= 0 && b.classList.contains('on')))
 

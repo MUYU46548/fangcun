@@ -80,6 +80,10 @@ const store = {
   // UI 偏好真身（userData/prefs.json）。空对象 = 首次运行，界面走默认值 ——
   // 多视图的"旧视图永远是默认"这条断言就是靠它成立。
   prefs: {},
+  // 项目优先级排序（2026-10-25）：单独一条有序 id 列表，落 task-data/project-order.json。
+  // ⚠ 假 preload 必须与真 preload 同步（少一条 API，视图 onMounted 直接抛，
+  //   断言只会看到一片「读取失败」）—— 这条已在 attach/pickFiles 那一轮踩过一次。
+  projectOrder: [],
   // 技能直接导入（2026-09-26 卡 005）：一条已导入的外部技能
   imported: [
     {
@@ -1099,6 +1103,14 @@ contextBridge.exposeInMainWorld('tegula', {
   //   所以这里按真机语义补上：参数过不了结构化克隆，就当它是真机里的那种失败。
   prefsGet: () => JSON.parse(JSON.stringify(store.prefs)),
   prefsSet: (key, value) => { cloneGuard('prefsSet', [key, value]); rec('prefsSet', [key, value]); store.prefs[key] = value; return ok() },
+  /** 项目优先级排序（2026-10-25）：可选启用页签里的手动排行，真身是 task-data/project-order.json */
+  projectOrderGet: () => { rec('projectOrderGet', []); return ok({ order: store.projectOrder.slice(), path: 'task-data/project-order.json' }) },
+  projectOrderSet: (ids) => {
+    cloneGuard('projectOrderSet', [ids])
+    rec('projectOrderSet', [ids])
+    store.projectOrder = Array.isArray(ids) ? ids.slice() : []
+    return ok({ order: store.projectOrder.slice() })
+  },
   // 2026-10-05 补：在途一屏的「保存」改走**一次写多键 + 回读校验**（prefs:setMany）。
   // 假 preload 缺这个 API 的话，渲染层的 `?.prefsSetMany?.(...)` 会静默变 undefined，
   // 「保存到底写没写进去」在渲染层 e2e 里就**永远验证不到**（记忆里的老坑）。
@@ -1425,6 +1437,10 @@ contextBridge.exposeInMainWorld('__fcTest', {
   logs: () => JSON.parse(JSON.stringify(store.logs)),
   trash: () => JSON.parse(JSON.stringify(store.trash)),
   tasks: () => JSON.parse(JSON.stringify(store.tasks)),
+  /** 项目列表（2026-10-25 优先级视图断言要用它算期望行数，不写死条数） */
+  projects: () => JSON.parse(JSON.stringify(store.projects)),
+  /** 优先级排序真身（拖完落盘后断言读它，而不是读界面） */
+  projectOrder: () => store.projectOrder.slice(),
   imported: () => JSON.parse(JSON.stringify(store.imported)),
   services: () => JSON.parse(JSON.stringify(store.services)),
   /** 启动台应用行（端口=观测结果）—— 断言用它算期望值，不写死条数 */

@@ -216,7 +216,7 @@
          搬过来的按钮 `v-if` 条件原样保留（新建/快速记/任务多选仍只在任务视图出现）。 -->
     <nav id="views" :class="{ 'batch-on': batchMode }">
       <button
-        v-for="v in views"
+        v-for="v in visibleViews"
         :key="v.id"
         class="vbtn"
         :class="{ on: curView === v.id }"
@@ -1332,6 +1332,10 @@
     <!-- 回收站（2026-10-23 拆成组件 · 拆分计划第 1 批第 8 块）。
          视图 + 两个弹窗 + 240 行脚本整块搬；它自己 onMounted 加载，toast 由本文件注入。 -->
     <TrashView v-else-if="curView === 'trash'" :toast="showToast" />
+
+    <!-- 项目优先级（2026-10-25 暮雨）：**可选启用**的独立视图 —— 手动拖拽排行。
+         边界写死在 views/PriorityView.vue 顶部：只服务这一页，不改看板分组、不改一屏顺序。 -->
+    <PriorityView v-else-if="curView === 'priority'" />
 
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <!-- 阻塞源（2026-10-22 拆成组件 · 拆分计划第 1 批第 2 块：只吃一个数据源、零交互）。
@@ -2808,6 +2812,17 @@
           </div>
           <div class="hint">改完立刻生效（落进 prefs.json，重启也在）；滑块到头也不会超过 {{ IDEA_TEXT_HARD_MAX }}。</div>
         </div>
+        <div class="sect" v-show="settingsTab === 'general'">
+          <h4>优先级页签</h4>
+          <div class="hint">
+            打开后顶栏多一个「优先级」页签：<b>手动拖拽</b>排项目先后，只给自己看。
+            <br>不受影响的：看板分组顺序、一屏（在途）的行序 —— 它就一个排序小玩具，不改别处。
+          </div>
+          <label class="chk" title="打开/关闭顶栏的「优先级」页签">
+            <input type="checkbox" :checked="priorityViewOn" @change="onPriorityToggle" />
+            在顶栏显示「优先级」页签
+          </label>
+        </div>
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
@@ -3439,6 +3454,7 @@ import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
 import TrashView from './views/TrashView.vue'
+import PriorityView from './views/PriorityView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -3856,6 +3872,12 @@ async function syncBoardPrefs(): Promise<void> {
         Math.max(IDEA_TEXT_MIN, Math.floor(p.fc_idea_max_chars)))
     } else {
       saveUiPref('fc_idea_max_chars', ideaMaxChars.value)
+    }
+    // 优先级页签开关（2026-10-25）：只认布尔真身，坏值回落"关"
+    if (typeof p?.fc_priority_view === 'boolean') {
+      priorityViewOn.value = p.fc_priority_view
+    } else {
+      saveUiPref('fc_priority_view', priorityViewOn.value)
     }
     // 已完成日志默认保留天数（2026-09-29 用户第 6 条）
     if (typeof p?.fc_log_retain_days === 'number' && Number.isFinite(p.fc_log_retain_days) && p.fc_log_retain_days >= 0) {
@@ -5987,6 +6009,9 @@ const views = [
   { id: 'ideas', label: '想法' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
+  // 优先级（2026-10-25 暮雨）：**可选启用**的独立页签 —— 一个手动拖拽的项目排行小玩具，
+  // 不影响看板分组、不影响一屏。默认不在顶栏出现（`fc_priority_view` 开关，见 visibleViews）。
+  { id: 'priority', label: '优先级' },
   { id: 'blockers', label: '阻塞' },
   { id: 'roadmap', label: '路线图' },
   { id: 'calendar', label: '日历' },
@@ -6001,7 +6026,23 @@ const views = [
     不在页签行里再放一个重复的（页签行已经 13 个）。
     但 `curViewLabel` 与视图分支都按 id 查表，所以它必须在这里。 */
 const ALL_VIEWS = [...views, { id: 'help', label: '帮助手册' }]
-/** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
+/**
+ * 优先级页签是否显示（2026-10-25 暮雨：「单独搞个**可选启用**的项目优先级视图」）。
+ * 默认**关** —— 顶栏已经 15 个页签，一个手动排序的小玩具不该默认占一格。
+ * 开关在「设置 → 通用 → 优先级页签」；真身 = prefs.json 的 `fc_priority_view`。
+ */
+const priorityViewOn = ref<boolean>(readUiPref<boolean>('fc_priority_view', false))
+/** 顶栏实际渲染的页签：只有优先级这一项受开关控制，其余恒定 */
+const visibleViews = computed(() => views.filter(v => v.id !== 'priority' || priorityViewOn.value))
+function setPriorityViewOn(on: boolean): void {
+  priorityViewOn.value = !!on
+  saveUiPref('fc_priority_view', !!on)
+  // 关掉开关时人还停在这一页 → 退回看板。不能留「页签没了、内容还在」的鬼页面。
+  if (!on && curView.value === 'priority') switchView('active')
+}
+function onPriorityToggle(ev: Event): void {
+  setPriorityViewOn((ev.target as HTMLInputElement).checked)
+}/** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
 const curViewLabel = computed(() => ALL_VIEWS.find(v => v.id === curView.value)?.label || curView.value)
 
 const pickerStyle = {
@@ -14304,6 +14345,28 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ── 服务 / 端口（2026-09-26 卡 006）────────────────────────────────── */
 /* ⚠ 同 skills-view：`#board` 是横向 flex 行，单列页面必须自己声明 column（否则页头与列表并排） */
 .services-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+/* ── 项目优先级视图（2026-10-25）：可选启用页签里的手动拖拽排行。
+      观感对齐 .services-view（同一套 padding + 卡片边），不另造一套皮肤。 ── */
+.priority-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
+.pri-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pri-head h3 { margin: 0; font-size: 15px; }
+.pri-count { font-size: 12px; color: var(--muted); }
+.pri-f1 { flex: 1; }
+.pri-note { font-size: 12px; color: var(--muted); line-height: 1.8; margin-bottom: 14px; max-width: 720px; }
+.pri-list { display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+.pri-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: #fff;
+  border: 1px solid var(--border); border-radius: 10px; cursor: grab; user-select: none; }
+.pri-row:hover { border-color: var(--accent); }
+.pri-row.dragging { opacity: .45; cursor: grabbing; }
+.pri-row.over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.pri-rank { width: 24px; flex: none; text-align: right; font-size: 12px; font-weight: 700;
+  color: var(--accent); font-variant-numeric: tabular-nums; }
+.pri-handle { flex: none; color: var(--muted); font-size: 13px; line-height: 1; }
+.pri-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.pri-state { font-size: 11px; color: var(--muted); background: var(--tint); padding: 2px 8px;
+  border-radius: 999px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pri-id { margin-left: auto; flex: none; font-size: 11px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .services-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
 .services-header h3 { font-size: 16px; font-weight: 700; }
 .services-stats { font-size: 12px; color: var(--muted); }
