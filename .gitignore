@@ -30,6 +30,8 @@ project-status.md
 ai-trace.jsonl
 # 看板服务的端口文件（运行时写的，2026-10-23 补：此前一直挂在 git status 里）
 .tegula-port
+# 数据根指向（每台机器不同，是本机配置不是项目资产；2026-10-25 补，此前一直挂在 git status 里）
+data-dir.json
 docs/执行日志/
 docs/阶段总结/*.md~
 方寸-app/

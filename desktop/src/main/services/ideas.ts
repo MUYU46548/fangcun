@@ -57,8 +57,55 @@ export interface Idea {
   promoted: { kind: 'todo'; id: string } | null
 }
 
-/** 单条念头的长度上限。念头是"随手记"，不写论文 —— 超了直接报错，不静默截断 */
-const MAX_TEXT = 4000
+/**
+ * 单条念头的长度上限。
+ *
+ * 2026-10-25（暮雨）：「MAX_TEXT = 4000 太小了，或者弄个用户可以自己设置的设置项
+ *  ……但是设个硬上限 20000」。所以现在三件东西：
+ *   · 默认 10000（比原来宽一倍多，贴一段长建议够用）
+ *   · 设置页滑块可调（1000 ~ 20000，步长 1000），落 `prefs.json` 的 `fc_idea_max_chars`
+ *   · **硬上限 20000** —— 用户能从界面上调到这个数，但代码不接受比它更大（prefs.json
+ *     是可以手改的，手改出 999999 也得被夹回来，否则"硬上限"就是句空话）
+ *
+ * ⚠ 仍然是**超了直接报错，不静默截断**（截断 = 用户以为存住了，其实后半段没了）。
+ */
+export const IDEA_TEXT_MIN = 1000
+export const IDEA_TEXT_DEFAULT = 10000
+export const IDEA_TEXT_HARD_MAX = 20000
+
+function clampIdeaLimit(n: number): number {
+  if (!Number.isFinite(n)) return IDEA_TEXT_DEFAULT
+  return Math.min(IDEA_TEXT_HARD_MAX, Math.max(IDEA_TEXT_MIN, Math.floor(n)))
+}
+
+/**
+ * 当前生效的上限（每次调用现读 prefs，改了立刻生效，不用重启）。
+ *
+ * 读取失败一律回默认 —— 上限是"守门"，不是"阻塞用户记念头"的理由。
+ */
+export function ideaTextLimit(): number {
+  let raw: unknown = undefined
+  try {
+    // 延迟 require：让本模块能脱离 electron 单测（prefs 依赖 app.getPath）
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    raw = require('./prefs').getPref('fc_idea_max_chars')
+  } catch {
+    return IDEA_TEXT_DEFAULT
+  }
+  if (raw === undefined || raw === null || raw === '') return IDEA_TEXT_DEFAULT
+  // ⚠ **不许直接 Number(raw)**（2026-10-25 测试当场抓到）：
+  //   `Number([]) === 0` / `Number('') === 0` / `Number(true) === 1` —— 把「读不懂的值」
+  //   静默变成 0 再夹到下限 1000，用户手改出个 `[]` 会得到「上限 1000」这种完全无关的结果。
+  //   所以先按类型分类：数字直接用；字符串（手改常带引号）容错；其余一律回落默认。
+  if (typeof raw === 'number') return Number.isFinite(raw) ? clampIdeaLimit(raw) : IDEA_TEXT_DEFAULT
+  if (typeof raw === 'string') {
+    const s = raw.trim()
+    if (!s) return IDEA_TEXT_DEFAULT
+    const n = Number(s)
+    return Number.isFinite(n) ? clampIdeaLimit(n) : IDEA_TEXT_DEFAULT
+  }
+  return IDEA_TEXT_DEFAULT
+}
 
 function getIdeasPath(): string {
   const dir = path.join(getDataDir(), 'ideas')
@@ -169,8 +216,9 @@ export function addIdea(
 ): { ok: true; idea: Idea; duplicate: boolean } | { ok: false; error: string } {
   const t = String(text ?? '').trim()
   if (!t) return { ok: false, error: '念头是空的 —— 写一句再存' }
+  const MAX_TEXT = ideaTextLimit()
   if (t.length > MAX_TEXT) {
-    return { ok: false, error: `太长了（${t.length} 字）—— 想法是随手记，不是写方案；${MAX_TEXT} 字以内` }
+    return { ok: false, error: `太长了（${t.length} 字）—— 上限 ${MAX_TEXT} 字，可在「设置 → 通用 → 念头长度上限」调整（最大 ${IDEA_TEXT_HARD_MAX}）` }
   }
   const all = loadIdeas()
   const dup = all.find((i) => i.status === '新记' && i.text.trim() === t)
@@ -199,7 +247,10 @@ export function updateIdeaText(
 ): { ok: true; idea: Idea } | { ok: false; error: string } {
   const t = String(text ?? '').trim()
   if (!t) return { ok: false, error: '内容不能清空 —— 想删就删这条' }
-  if (t.length > MAX_TEXT) return { ok: false, error: `太长了（${t.length} 字），${MAX_TEXT} 字以内` }
+  const maxNow = ideaTextLimit()
+  if (t.length > maxNow) {
+    return { ok: false, error: `太长了（${t.length} 字）—— 上限 ${maxNow} 字，可在设置页调大（最大 ${IDEA_TEXT_HARD_MAX}）` }
+  }
   const all = loadIdeas()
   const idx = all.findIndex((i) => i.id === id)
   if (idx < 0) return { ok: false, error: '没有这条想法（可能已经删了）' }
@@ -265,8 +316,14 @@ export function promoteIdea(
 
   let todo: any
   try {
-    // 标题取念头的第一行：待办列表是一行一条，多行正文塞进去会把列表撑歪
-    const title = cur.text.split('\n').map((x) => x.trim()).filter(Boolean)[0] || cur.text.trim()
+    // ⚠ 2026-10-25（暮雨第 3 条）：「标题取念头第一行，多行正文塞进去会把列表撑歪」——
+    //   这条注释本身就是错的。待办的「内容」字段一直是**可以写长的 textarea**
+    //   （`App.vue` 的 `todoEdit_.title`，placeholder 原话「待办内容（可以写长一点）」），
+    //   列表里靠 `.todo-title { white-space: nowrap; text-overflow: ellipsis }` 压成一行显示。
+    //   所以「日志 → 待办」那条路（`logToTodoText`）早就把全文塞进 title 了，只有这里砍成首行
+    //   —— 结果是念头的正文**立项即永久丢失**（用户原话：「转进来只剩日志里的标题，甚至
+    //   不是正文，还被截断了」）。现在与 `logToTodoText` 同范式：**全文进 title，一位不丢**。
+    const title = cur.text.trim()
     todo = todosService.createTodo(title, opts?.priority || '中')
   } catch (e: any) {
     return { ok: false, error: `待办没建成：${e?.message || e}` }

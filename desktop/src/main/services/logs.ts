@@ -965,7 +965,120 @@ export function addAttachments(logId: string, sources: string[]): { ok: boolean;
 /**
  * 解除关联（**不删文件**）。「移除」在界面上的语义是"这条日志不再引用它"，
  * 不是销毁数据 —— 真要删文件是另一件事，且属于破坏性操作，不做隐藏在按钮后面的事。
+ *//**
+ * 「从内存字节挂附件」允许的类型（粘贴图片 / 拖文件进弹窗，2026-10-25 暮雨第 4 / 7 条）。
+ *
+ * ⚠ 这是**反向表**（mime → 扩展名），和上面的 `ATTACH_MIME`（扩展名 → mime）是两回事：
+ *   那条路收的是本机文件、扩展名已知；这条路收的是浏览器给的 mime，只能反过来推扩展名。
+ *
+ * 覆盖范围 = 常见「截图 / 报告 / 日志 / 表格 / 压缩包」。
+ * **不收**可执行文件（exe/msi/bat/dll）—— 不是限制用户，是这类东西挂进日志没意义且迟早出事；
+ * 真要挂，走「＋ 添加文件…」（本机路径复制，不经这条内存通道）。
  */
+const ATTACH_EXT_BY_MIME: Record<string, string> = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
+  'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+  'application/pdf': '.pdf',
+  'text/plain': '.txt', 'text/markdown': '.md', 'text/csv': '.csv', 'text/html': '.html',
+  'application/json': '.json',
+  'application/zip': '.zip',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+}
+
+/** 单条「从内存挂」的上限（解码后字节）。20MB 够放整屏截图与普通报告；
+ *  再大就不该走这条路 —— base64 还要再涨三分之一，白占内存。 */
+const MAX_PASTE_BYTES = 20 * 1024 * 1024
+
+/**
+ * 从**内存里的 data URL** 落盘并挂到日志上
+ * （2026-10-25 暮雨第 4 / 7 条：粘贴图片 + 拖文件进弹窗）。
+ *
+ * 为什么必须新增这条路：现有 `addAttachments` 的输入是**本机文件路径**，
+ * 而剪贴板里的图片、拖进弹窗的 File 都只有 blob（Chromium 不给路径；
+ * Electron 44 起 `File.path` 也已移除，preload 的 `webUtils.getPathForFile`
+ * 又拿不到跨 world 的 File 对象）→ 只能把字节送进主进程再写盘。
+ *
+ * 安全边界（这条通道收的是渲染层来的任意字节，必须自己把关）：
+ *   ① mime 白名单（`ATTACH_EXT_BY_MIME`）—— 扩展名按 **mime 推导**，不信客户端给的文件名；
+ *   ② 解码后大小上限 `MAX_PASTE_BYTES`；
+ *   ③ 文件名过 `safeAttachName`（去路径穿越 / 去逗号引号 —— 两个解析器都要吃这个名字）；
+ *   ④ logId 必须真的存在（不存在就不落盘，不造孤立目录）；
+ *   ⑤ 只写 `_attachments/<logId>/` 下。
+ *
+ * 部分失败**逐条记账**返回 `skipped`，不静默丢弃。
+ */
+export function addAttachmentsFromData(
+  logId: string,
+  items: Array<{ name?: string; dataUrl: string }>,
+): { ok: boolean; data?: LogEntry; error?: string; added?: number; skipped?: string[] } {
+  const list = Array.isArray(items) ? items : []
+  if (!list.length) return { ok: false, error: '没有要添加的内容' }
+
+  const dir = getLogsDir()
+  const filePath = path.join(dir, `${logId}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+
+  const destDir = attachmentsDir(logId)
+  const added: string[] = []
+  const skipped: string[] = []
+
+  for (const it of list) {
+    const label = String(it?.name || '粘贴的图片')
+    const m = /^data:([a-z0-9.+/-]+);base64,([\s\S]+)$/i.exec(String(it?.dataUrl || '').trim())
+    if (!m) { skipped.push(`${label}：不是合法的 data URL`); continue }
+    const mime = m[1].toLowerCase()
+    const ext = ATTACH_EXT_BY_MIME[mime]
+    if (!ext) {
+      // 说清"为什么不收"和"那该怎么办"—— 用户拖了个不认识的文件时，不该只看到一句「不支持」。
+      skipped.push(`${label}：类型 ${mime} 不收（只收图片/PDF/文本/Markdown/CSV/JSON/ZIP/Office 文档）；` +
+        `这类文件请用「＋ 添加文件…」按本机路径挂（那条路不限类型、也不受 20MB 限制）`)
+      continue
+    }
+    let buf: Buffer
+    try {
+      buf = Buffer.from(m[2], 'base64')
+    } catch {
+      skipped.push(`${label}：base64 解码失败`); continue
+    }
+    if (!buf.length) { skipped.push(`${label}：内容是空的`); continue }
+    if (buf.length > MAX_PASTE_BYTES) {
+      skipped.push(`${label}：${(buf.length / 1024 / 1024).toFixed(1)}MB，超过 ${MAX_PASTE_BYTES / 1024 / 1024}MB —— ` +
+        `大文件请用「＋ 添加文件…」（按本机路径复制，不受这个上限限制）`)
+      continue
+    }
+    try {
+      fs.mkdirSync(destDir, { recursive: true })
+      // 名字：清洗后**把扩展名换成 mime 推导的那个** —— 客户端可能叫 `image.png` 而内容是 jpeg，
+      // 按内容落盘才不会出现「后缀骗人、预览打不开」。
+      const stem = safeAttachName(path.basename(label, path.extname(label)))
+      let name = `${stem}${ext}`
+      let dest = path.join(destDir, name)
+      let n = 1
+      while (fs.existsSync(dest)) {
+        name = `${stem} (${n})${ext}`
+        dest = path.join(destDir, name)
+        n++
+      }
+      fs.writeFileSync(dest, buf)
+      added.push(toRelPosix(dest))
+    } catch (e: any) {
+      skipped.push(`${label}：写入失败（${e?.message || e}）`)
+    }
+  }
+
+  if (!added.length) {
+    return { ok: false, error: `一张都没加上：${skipped.join('；') || '未知原因'}`, skipped }
+  }
+  entry.attachments = Array.from(new Set([...(entry.attachments || []), ...added]))
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry, added: added.length, skipped }
+}
+
 export function detachAttachment(logId: string, relPath: string): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
   const filePath = path.join(dir, `${logId}.md`)

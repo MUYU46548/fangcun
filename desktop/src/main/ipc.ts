@@ -949,16 +949,35 @@ export function registerIpcHandlers(): void {
   // ── 附件（2026-10-01 用户第 1 条 → 卡 036）：日志 ↔ 文件的唯一入口 ──────
   // 选文件在这里做（要用 BrowserWindow 的模态对话框），复制/挂载逻辑全在 logs.ts，
   // 渲染层只管拿到更新后的 entry。文件**复制**进数据目录，源文件不动。
-  guardedHandle('logs:attachFiles', async (_event, logId: string) => {
-    const opts: Electron.OpenDialogOptions = {
-      title: '选择要关联到这条日志的文件（截图 / 分析报告）',
-      properties: ['openFile', 'multiSelections'],
+  //
+  // 2026-10-25（暮雨第 4 / 7 条）加了两个入口，解决两件事：
+  //   ① 「新建日志时必须先创建才能挂附件」—— 现在可以先选文件（`logs:pickFiles` 只拿路径，
+  //      不落盘），等日志存好再带着路径调 `logs:attachFiles(logId, sources)` 一次挂上；
+  //   ② 「附件能不能粘贴图片」—— 剪贴板里只有 blob 没有路径（Electron 44 起 `File.path`
+  //      也已移除），所以另走 `logs:attachData`：字节进主进程，校验与写盘全在 logs.ts。
+  guardedHandle('logs:pickFiles', async () => {
+    const picked = await pickFilesForAttach('选择要关联到这条日志的文件（截图 / 分析报告）')
+    if (picked.canceled || !picked.filePaths.length) return { ok: false, error: 'canceled', paths: [] }
+    return { ok: true, paths: picked.filePaths }
+  })
+
+  guardedHandle('logs:attachFiles', async (_event, logId: string, sources?: string[]) => {
+    // sources 有值 = 调用方已经选好了（新建态暂存的那批），不再弹第二次框
+    let paths = (Array.isArray(sources) ? sources : []).map((s) => String(s || '')).filter(Boolean)
+    if (!paths.length) {
+      const picked = await pickFilesForAttach('选择要关联到这条日志的文件（截图 / 分析报告）')
+      if (picked.canceled || !picked.filePaths.length) return { ok: false, error: 'canceled' }
+      paths = picked.filePaths
     }
-    const win = BrowserWindow.getFocusedWindow()
-    const picked = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
-    if (picked.canceled || !picked.filePaths.length) return { ok: false, error: 'canceled' }
-    const r = logsService.addAttachments(String(logId || ''), picked.filePaths)
-    if (r.ok) appLog.info('logs', `日志 ${logId} 新增附件 ${picked.filePaths.length} 个`)
+    const r = logsService.addAttachments(String(logId || ''), paths)
+    if (r.ok) appLog.info('logs', `日志 ${logId} 新增附件 ${paths.length} 个`)
+    return r
+  })
+
+  // 粘贴图片：只收 data URL（字节由渲染层从剪贴板读出来），校验/落盘在 logs.ts
+  guardedHandle('logs:attachData', (_event, logId: string, items: any) => {
+    const r = logsService.addAttachmentsFromData(String(logId || ''), Array.isArray(items) ? items : [])
+    if (r.ok) appLog.info('logs', `日志 ${logId} 粘贴附件 ${r.added ?? 0} 个`)
     return r
   })
 
@@ -1090,29 +1109,54 @@ export function registerIpcHandlers(): void {
 // 它们是 dispatch:preview / dispatch:execute 的唯一调用方，随通道一起退役。
 // （executeDispatch 还会 moveStatus 到「进行中」—— 死代码里藏着状态变更，更该删。）
 
-function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): { ok: boolean; error?: string } {
+/**
+ * 附件选择框（新建态与编辑态共用）。只负责"弹框 + 拿路径"，落盘在 `logs.ts`。
+ * 抽出来是因为新建态要**先选后存**（暮雨第 4 条）：那时候还没有 logId，
+ * 不能走"选完立刻挂"那条老路，但选文件这件事本身一模一样。
+ */
+async function pickFilesForAttach(title: string): Promise<Electron.OpenDialogReturnValue> {
+  const opts: Electron.OpenDialogOptions = {
+    title,
+    properties: ['openFile', 'multiSelections'],
+  }
+  const win = BrowserWindow.getFocusedWindow()
+  return win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+}
+
+export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): { ok: boolean; error?: string } {
   const task = tasks.readTask(id)
   if (!task) return { ok: false, error: '任务不存在' }
-  if (task.fm.status !== '待验收') {
-    return { ok: false, error: `当前状态为「${task.fm.status || '未知'}」，仅「待验收」可验收` }
+  // 2026-10-25（暮雨第 1 条，第二次提）：「待审批」此前**没有任何正向出口** ——
+  // 预览面板只给「待验收」开了裁决入口，AI 落的待审批卡只能用 forceCloseTask
+  // 直接完成/驳回（跳过流程、不写结论）。后果是审批这件事在卡上无迹可查，
+  // 「AI 产出只落待审批、用户点头才转正」这条契约在界面上只剩半句。
+  // 现在两种状态共用同一条裁决通道：
+  //   待审批 accept → 待办（转正）｜reject → 驳回
+  //   待验收 accept → 完成        ｜reject → 驳回
+  const from = String(task.fm.status || '')
+  const isApproval = from === '待审批'
+  if (from !== '待验收' && !isApproval) {
+    return { ok: false, error: `当前状态为「${from || '未知'}」，仅「待审批」「待验收」可裁决` }
   }
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 16)
+  const passWord = isApproval ? '审批通过（转正「待办」）' : '验收通过'
+  const failWord = isApproval ? '审批驳回' : '验收驳回'
   if (verdict === 'accept') {
-    tasks.moveStatus(id, '完成')
+    tasks.moveStatus(id, isApproval ? '待办' : '完成')
     // 2026-09-25（用户第 7 条）：通过同样写结果记录 —— 此前只有驳回留痕，
     // 「通过」这件事在卡上完全无迹可查（用户原话：验收裁决只能填驳回理由，那通过呢？）
     const note = (reason || '').trim()
-    const line = note ? `[${ts}] 验收通过：${note}` : `[${ts}] 验收通过`
+    const line = note ? `[${ts}] ${passWord}：${note}` : `[${ts}] ${passWord}`
     const prev = String((task.fm as any).result_log || '')
     tasks.updateTask(id, { result_log: (prev + '\n' + line).trim() } as any)
     return { ok: true }
   } else {
     if (!reason || !reason.trim()) {
-      return { ok: false, error: '驳回理由必填（写入结果记录，留痕可追溯）' }
+      return { ok: false, error: `${failWord}理由必填（写入结果记录，留痕可追溯）` }
     }
     tasks.moveStatus(id, '驳回')
     // Append rejection reason to result log
-    const logLine = `[${ts}] 验收驳回：${reason}`
+    const logLine = `[${ts}] ${failWord}：${reason}`
     const prevLog = (task.fm as any).result_log || ''
     ;(task.fm as any).result_log = (prevLog + '\n' + logLine).trim()
     tasks.updateTask(id, { result_log: (task.fm as any).result_log } as any)

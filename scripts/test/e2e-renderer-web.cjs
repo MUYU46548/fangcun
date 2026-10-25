@@ -252,6 +252,15 @@ function main() {
       // 2026-10-14 任务卡右键菜单（第 ④ 步第二单）：换 reka-ui ContextMenu 后的成品长相
       ['看板', '列视图', 'ctx-menu', 'ctxmenu'],
       ['设置', '', 'settings'],
+      // 2026-10-25：念头长度上限滑块（暮雨第 3 条跟进）—— 拍「拉到 15000」的成品态，
+      // 目检就两件事：滑块位置对得上数值、数值与轨道在同一行不换行不溢出。
+      ['设置', '', 'settings-idea-limit', 'idealimit'],
+      // 2026-10-25：新建日志弹窗的附件区（暮雨第 4 / 7 条）—— 要点：按钮不再置灰、
+      // 有「Ctrl+V 粘图」提示、粘一张图后出现「待挂 1 个」的虚线胶囊。
+      ['日志', '', 'log-new-attach', 'lognew'],
+      // 2026-10-25：拖两个文件进新建弹窗 → 点「取消」→ 必须弹「改动还没保存」条（待挂也算脏）。
+      // 这一张同时证明 drop 通了、二次确认在。
+      ['日志', '', 'log-new-attach-guard', 'attachguard'],
     ]
     const SEED_TODOS = [
       '多视图断言用：这是一条刻意写得很长的待办标题，用来验证卡片网格里标题最多三行不截断',
@@ -359,6 +368,68 @@ function main() {
   const cw = all('#board .col > .card')[0]
   if (cw) cw.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }))
   await sleep(800)` : ''}
+  ${extra === 'idealimit' ? `
+  // 念头长度上限滑块（2026-10-25）：拉到 15000 —— 截图要能同时看到
+  // ① 滑块停在约 3/4 处 ② 右侧数值跟着变成 15,000 字 ③ 两者在同一行
+  const sl = all('#smodal .slider')[0]
+  if (sl) { sl.value = '15000'; sl.dispatchEvent(new Event('input', { bubbles: true })) }
+  await sleep(400)` : ''}
+  ${extra === 'lognew' ? `
+  // 新建日志 → 在弹窗上派发一次真 paste（带一张 120x80 的 PNG）——
+  // 走的是 onLogPaste 的新建态分支（只进内存，不碰 IPC），所以无头里也能看到"待挂 1 个"。
+  const nb = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nb) nb.click()
+  await sleep(600)
+  const modal = document.querySelector('#log-edit-modal')
+  if (modal) {
+    const blob = await new Promise((res) => {
+      const c = document.createElement('canvas')
+      c.width = 120; c.height = 80
+      const g = c.getContext('2d')
+      g.fillStyle = '#7c5cbf'; g.fillRect(0, 0, 120, 80)
+      g.fillStyle = '#ffffff'; g.font = '16px sans-serif'; g.fillText('PASTE DEMO', 8, 46)
+      c.toBlob(res, 'image/png')
+    })
+    const dt = new DataTransfer()
+    dt.items.add(new File([blob], 'paste-demo.png', { type: 'image/png' }))
+    modal.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+    await sleep(500)
+    // 附件区在弹窗底部（弹窗自己滚动），不滚到底截图里根本看不到
+    modal.scrollTop = modal.scrollHeight
+    await sleep(350)
+  }
+` : ''}
+  ${extra === 'attachguard' ? `
+  // 拖两个文件进新建弹窗（走真 DragEvent + DataTransfer），再点「取消」——
+  // 待挂附件必须算"未保存的改动"，否则用户点 × 就一声不响丢了（暮雨第 4 条追加）。
+  const nb2 = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nb2) nb2.click()
+  await sleep(600)
+  const m2 = document.querySelector('#log-edit-modal')
+  if (m2) {
+    const mkPng = (color) => new Promise((res) => {
+      const c = document.createElement('canvas')
+      c.width = 80; c.height = 60
+      const g = c.getContext('2d')
+      g.fillStyle = color; g.fillRect(0, 0, 80, 60)
+      c.toBlob(res, 'image/png')
+    })
+    const p1 = await mkPng('#7c5cbf')
+    const p2 = await mkPng('#3f8f5f')
+    const dt2 = new DataTransfer()
+    dt2.items.add(new File([p1], 'drag-a.png', { type: 'image/png' }))
+    dt2.items.add(new File([p2], 'drag-b.png', { type: 'image/png' }))
+    m2.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt2, bubbles: true, cancelable: true }))
+    await sleep(250)
+    m2.dispatchEvent(new DragEvent('drop', { dataTransfer: dt2, bubbles: true, cancelable: true }))
+    await sleep(600)
+    const cancelBtn = all('#log-edit-modal button').find((b) => (b.textContent || '').trim() === '取消')
+    if (cancelBtn) cancelBtn.click()
+    await sleep(500)
+    m2.scrollTop = m2.scrollHeight
+    await sleep(350)
+  }
+` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)

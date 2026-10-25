@@ -141,8 +141,17 @@ contextBridge.exposeInMainWorld('tegula', {
   // 与项目/Agent/日期筛选同一条取数路径（此前两条路互不相干，一刷新搜索就丢）。
   // 需要"全文搜"的调用方（MCP search_logs）直接用 services/logs.ts 的 searchLogs()。
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
-  /** 附件（2026-10-01 卡 036）：主进程弹系统选文件框 → 复制进数据目录 → 返回更新后的日志 */
-  logsAttachFiles: (logId: string) => ipcRenderer.invoke('logs:attachFiles', logId),
+  /**
+   * 附件（2026-10-01 卡 036）：主进程弹系统选文件框 → 复制进数据目录 → 返回更新后的日志。
+   * 2026-10-25（第 4 条）：传 `sources` 时**不再弹框**，直接用这批路径 —— 新建日志时先选好，
+   * 存好之后再挂（`logsPickFiles` 拿路径 → 保存成功 → 带 sources 调这里）。
+   */
+  logsAttachFiles: (logId: string, sources?: string[]) => ipcRenderer.invoke('logs:attachFiles', logId, sources),
+  /** 只弹选文件框、拿路径，不落盘（新建态用；落盘要等日志有 id） */
+  logsPickFiles: () => ipcRenderer.invoke('logs:pickFiles'),
+  /** 粘贴图片：data URL → 主进程校验（mime 白名单 / 20MB / 文件名清洗）→ 落盘 */
+  logsAttachData: (logId: string, items: Array<{ name?: string; dataUrl: string }>) =>
+    ipcRenderer.invoke('logs:attachData', logId, items),
   /** 解除关联（文件不删） */
   logsDetachAttachment: (logId: string, rel: string) => ipcRenderer.invoke('logs:detachAttachment', logId, rel),
   /** 附件 → data URL（预览唯一通道）；超大文件返回 tooLarge */

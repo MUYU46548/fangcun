@@ -1658,23 +1658,27 @@
       </div>
     </div>
 
-    <!-- Review modal -->
+    <!-- Review modal（2026-10-25：待审批 / 待验收共用，文案按 kind 切换） -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
       <div id="review-modal">
-        <h3>✅ 验收裁决</h3>
+        <h3>{{ reviewModal.kind === 'approval' ? '⚖ 审批裁决（批准 → 待办 / 驳回）' : '✅ 验收裁决' }}</h3>
         <div class="review-info">
           <div class="review-task-title">{{ reviewModal.title }}</div>
           <div class="review-task-id">{{ reviewModal.id }}</div>
         </div>
         <!-- 2026-09-25（用户第 7 条）：原来这里只有「驳回理由」一个输入框 ——
              通过按钮虽然在，但通过时**无处写结论**，等于「通过」这件事不留痕。
-             改成双用的验收结论：驳回必填、通过选填，两者都写进「结果记录」。 -->
-        <label>验收结论（驳回必填 · 通过选填，均写入结果记录）</label>
-        <textarea v-model="reviewReason" class="review-reason" placeholder="驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项"></textarea>
+             改成双用的验收结论：驳回必填、通过选填，两者都写进「结果记录」。
+             2026-10-25：审批裁决同样走这里（批准 = 转正待办，理由同样留痕）。 -->
+        <label>{{ reviewModal.kind === 'approval' ? '审批意见（驳回必填 · 批准选填，均写入结果记录）' : '验收结论（驳回必填 · 通过选填，均写入结果记录）' }}</label>
+        <textarea v-model="reviewReason" class="review-reason"
+          :placeholder="reviewModal.kind === 'approval'
+            ? '批准：为什么可以转正；驳回：缺什么、要改成什么样'
+            : '驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项'"></textarea>
         <div class="acts">
           <button class="ghost" @click="reviewModal = null">取消</button>
           <button class="danger" @click="rejectTask">↩ 驳回</button>
-          <button class="ok" @click="acceptTask">✅ 通过</button>
+          <button class="ok" @click="acceptTask">{{ reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
         </div>
       </div>
     </div>
@@ -1921,12 +1925,19 @@
                    后端 review:accept / review:reject 通道齐全，openReview 也写好了，
                    但没人调用它。这里补上正式入口：待验收任务可走完整裁决流程，
                    不想走流程的仍可用下面的「完成/驳回」直达。 -->
+              <!-- 2026-10-25（暮雨第 1 条）：待审批卡此前**没有正向出口** —— 只有下面两个
+                   forceClose 按钮（跳过流程、不写结论），用户原话「要么完成要么驳回，
+                   没有其他去处，理由都填不了」。现在待审批与待验收共用同一个裁决弹窗：
+                   待审批 →「批准」转正为「待办」/「驳回」；待验收 →「通过」/「驳回」。
+                   理由一律写入结果记录，卡片上查得到。 -->
               <button
-                v-if="previewTask.status === '待验收'"
+                v-if="previewTask.status === '待验收' || previewTask.status === '待审批'"
                 class="pri"
-                title="正式验收裁决：通过 / 驳回（驳回必须填理由，会写进结果记录）"
+                :title="previewTask.status === '待审批'
+                  ? '审批裁决：批准转正为「待办」/ 驳回（驳回必须填理由，会写进结果记录）'
+                  : '正式验收裁决：通过 / 驳回（驳回必须填理由，会写进结果记录）'"
                 @click="openReview(previewTask)"
-              >✅ 验收裁决</button>
+              >{{ previewTask.status === '待审批' ? '⚖ 审批裁决' : '✅ 验收裁决' }}</button>
               <button
                 class="ok"
                 title="直接标记完成（跳过验收，适用于挂死/废弃任务）"
@@ -2096,7 +2107,15 @@
 
 
     <div id="log-edit-overlay" class="overlay" v-if="logEdit_" @mousedown.self="closeLogEditor()">
-      <div id="log-edit-modal">
+      <!-- 粘贴图片 / 拖文件成附件（2026-10-25 暮雨第 4 / 7 条）：监听挂在整个弹窗上，
+           所以标题 / 内容 / 下一步哪一格粘（或往哪一格拖）都算；只有剪贴板里真有图片时才拦，
+           粘文字照常走浏览器默认行为。拖动进入时整块高亮，松手才落。 -->
+      <div id="log-edit-modal" :class="{ 'drop-on': logAttachDragOver }"
+        @paste="onLogPaste($event)"
+        @dragenter.prevent="onLogAttachDragEnter()"
+        @dragover.prevent="onLogAttachDragEnter()"
+        @dragleave.prevent="onLogAttachDragLeave()"
+        @drop.prevent="onLogAttachDrop($event)">
         <h3>{{ logCompleting ? '完成日志' : logArchiveMode ? '归档日志' : logEdit_.id ? '编辑日志' : '新建日志' }}</h3>
         <!-- 已完成的日志也能改（2026-10-18）：此前后端直接拒改，界面却一直给编辑入口。
              现在直说"能改 + 会留痕"，用户不必再复制出来新建一条。 -->
@@ -2192,17 +2211,37 @@
           <textarea v-model="logNote" placeholder="备注..."></textarea>
         </template>
         <!-- 附件（2026-10-01 用户第 1 条 → 卡 036）：与只读预览同一套入口。
-             新建态没有 id 可挂，先创建再添加（按钮置灰并说明，而不是点完报错）。 -->
+             2026-10-25（暮雨第 4 / 7 条）两处改：
+               ① 新建态**不再禁用** —— 可以先选文件/粘贴截图，存好日志时一起挂上
+                  （之前是「先创建这条日志，再回来挂附件」，为了加张图要建两次）；
+               ② 支持直接粘贴截图（Ctrl+V），详见 onLogPaste。 -->
         <div class="attach-block" data-attach-block>
           <div class="attach-head">
             <label class="attach-lbl">附件</label>
-            <button class="ghost attach-add" :disabled="!logEdit_.id"
-              :title="logEdit_.id ? '从本机选文件；文件会复制进数据目录（随日志一起备份），源文件不动'
-                : '先创建这条日志，再回来挂附件'"
-              @click="attachAdd(logEdit_.id)">＋ 添加文件…</button>
+            <span class="attach-head-r">
+              <span class="attach-paste-hint" title="在弹窗任意位置按 Ctrl+V 粘贴截图，直接变成这条日志的附件">Ctrl+V 粘图</span>
+              <button class="ghost attach-add"
+                :title="logEdit_.id
+                  ? '从本机选文件；文件会复制进数据目录（随日志一起备份），源文件不动'
+                  : '还没保存也能先选：文件会在保存这条日志时一起挂上（源文件不动）'"
+                @click="attachPickOrAdd()">＋ 添加文件…</button>
+            </span>
+          </div>
+          <!-- 新建态的待挂清单（还没落盘，所以真的"待"） -->
+          <div v-if="!logEdit_.id && logPendingCount" class="attach-pending">
+            <span class="attach-pending-lbl">待挂 {{ logPendingCount }} 个</span>
+            <span class="attach-pending-item" v-for="(p, i) in logPendingPaths" :key="'pp' + i">
+              📄 {{ pendingBaseName(p) }}
+              <button class="attach-x" title="不挂了" @click="logPendingPaths.splice(i, 1)">✕</button>
+            </span>
+            <span class="attach-pending-item" v-for="(p, i) in logPendingData" :key="'pd' + i">
+              🖼 {{ p.name }}
+              <button class="attach-x" title="不挂了" @click="logPendingData.splice(i, 1)">✕</button>
+            </span>
+            <span class="attach-pending-tip">保存这条日志时会一起挂上</span>
           </div>
           <div v-if="!logEdit_.attachments || !logEdit_.attachments.length" class="attach-empty">
-            {{ logEdit_.id ? '还没有附件 —— 截图、分析报告、日志文件都可以挂上来' : '创建后可挂附件（截图 / 报告 / 日志文件）' }}
+            {{ logEdit_.id ? '还没有附件 —— 截图、报告、日志文件都可以选 / 拖 / 直接 Ctrl+V 粘上来' : '还没保存也能先选文件、拖进来或粘图，保存时一起挂上' }}
           </div>
           <div v-else class="attach-grid">
             <div class="attach-item" v-for="a in logEdit_.attachments" :key="a">
@@ -2720,6 +2759,25 @@
               <span v-if="theme === t.id" class="sw-check">✓</span>
             </button>
           </div>
+        </div>
+        <!-- 念头长度上限（2026-10-25 暮雨：「MAX_TEXT = 4000 太小了，或者弄个用户可以
+             自己设置的设置项……但是设个硬上限 20000」）。
+             ⚠ 三个数与主进程 `services/ideas.ts` 的 IDEA_TEXT_* 必须一致 ——
+               主进程是真守门人（prefs.json 可手改，它会再夹一次），这里是给人看的量程。 -->
+        <div class="sect" v-show="settingsTab === 'general'">
+          <h4>念头长度上限</h4>
+          <div class="hint">
+            「想法池」里单条念头最多能写多少<b>字符</b>（含标点与换行）。超了会明确报错，不会静默截断。
+            默认 {{ IDEA_TEXT_DEFAULT }}，最大 {{ IDEA_TEXT_HARD_MAX }}。
+          </div>
+          <div class="slider-row">
+            <input type="range" class="slider font-[inherit]"
+              :min="IDEA_TEXT_MIN" :max="IDEA_TEXT_HARD_MAX" step="1000"
+              v-model.number="ideaMaxChars" @change="onIdeaMaxChange"
+              :aria-label="'念头长度上限（字）'" />
+            <span class="slider-val">{{ ideaMaxChars.toLocaleString() }} 字</span>
+          </div>
+          <div class="hint">改完立刻生效（落进 prefs.json，重启也在）；滑块到头也不会超过 {{ IDEA_TEXT_HARD_MAX }}。</div>
         </div>
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>数据目录</h4>
@@ -3632,6 +3690,24 @@ function selectSettingsTab(id: string): void {
   if (id === 'diag') void loadDiag()
 }
 
+// ── 念头长度上限（2026-10-25 暮雨）─────────────────────────────────────
+// ⚠ 三个常量与主进程 `services/ideas.ts` 的 IDEA_TEXT_MIN / DEFAULT / HARD_MAX
+//   **必须逐字一致**（`e2e-ideas-flow` 有一条源码守卫专门比对两边，改一边忘了另一边会红）。
+//   主进程才是真守门人：prefs.json 可以手改，它会再夹一次，这里只是给人看的量程。
+const IDEA_TEXT_MIN = 1000
+const IDEA_TEXT_DEFAULT = 10000
+const IDEA_TEXT_HARD_MAX = 20000
+const ideaMaxChars = ref<number>(readUiPref<number>('fc_idea_max_chars', IDEA_TEXT_DEFAULT))
+function onIdeaMaxChange(): void {
+  // 滑块本身量程已经在 min~max 内，但手改的 localStorage / prefs 可能越界 → 存之前夹一次
+  const n = Number(ideaMaxChars.value)
+  const fixed = Number.isFinite(n)
+    ? Math.min(IDEA_TEXT_HARD_MAX, Math.max(IDEA_TEXT_MIN, Math.floor(n)))
+    : IDEA_TEXT_DEFAULT
+  ideaMaxChars.value = fixed
+  saveUiPref('fc_idea_max_chars', fixed)
+}
+
 // ── 诊断页三块（2026-10-11，卡 20261006-002 E 组死通道接回）────────────────
 // `selfCheck` / `skillsCheck` / `loadActivity` 三条通道一直躺在主进程里，界面从来没有入口。
 const diagSelf = ref<any>(null)
@@ -3743,6 +3819,14 @@ async function syncBoardPrefs(): Promise<void> {
       if (p.fc_theme !== theme.value) applyTheme(p.fc_theme)
     } else {
       saveUiPref('fc_theme', theme.value)
+    }
+    // 念头长度上限（2026-10-25）：真身优先；手改出来的越界值当场夹回量程，再补写回去
+    // —— 不夹的话设置页滑块会显示一个拉不到的数，用户以为坏了。
+    if (typeof p?.fc_idea_max_chars === 'number' && Number.isFinite(p.fc_idea_max_chars)) {
+      ideaMaxChars.value = Math.min(IDEA_TEXT_HARD_MAX,
+        Math.max(IDEA_TEXT_MIN, Math.floor(p.fc_idea_max_chars)))
+    } else {
+      saveUiPref('fc_idea_max_chars', ideaMaxChars.value)
     }
     // 已完成日志默认保留天数（2026-09-29 用户第 6 条）
     if (typeof p?.fc_log_retain_days === 'number' && Number.isFinite(p.fc_log_retain_days) && p.fc_log_retain_days >= 0) {
@@ -5344,7 +5428,7 @@ const dataDir = ref('')
 
 
 // ── Review ─────────────────────────────────────────────────────────
-const reviewModal = ref<{ id: string; title: string } | null>(null)
+const reviewModal = ref<{ id: string; title: string; kind: 'approval' | 'acceptance' } | null>(null)
 const launchpadApps = ref<any[]>([])
 // 待办：数据 / 筛选 / 排序 / 多选 / 编辑弹窗在 composables/useTodos.ts（2026-10-23 · 拆分第 9 块）。
 // 模板在 views/TodosView.vue（第 10 块）。
@@ -6767,6 +6851,9 @@ function taskEditDirty(): boolean {
 }
 
 function logEditDirty(): boolean {
+  // 2026-10-25（暮雨第 4 条追加）：待挂附件还没落盘 —— 关掉就没了，所以它本身就是"脏"。
+  // 不并进这里的话，「选了 3 个附件没保存就点 ×」会一声不响地丢掉（他点名说这是有害的）。
+  if (logPendingCount.value > 0) return true
   if (logEditSnap !== null) return logSnapNow() !== logEditSnap
   return isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])
 }
@@ -6810,6 +6897,8 @@ function closeLogNow(): void {
   logEditSnap = null
   logSnapFields = null
   logDiscard_.value = false
+  // 待挂附件跟着窗一起出清：没保存的日志本来就不该在磁盘上留孤儿目录
+  resetPendingAttach()
 }
 
 /** 条上的「丢弃并关闭」——唯一丢弃入口 */
@@ -6863,6 +6952,8 @@ function logDirtyNames(): string[] {
     retain: String(logRetainDays.value ?? ''),
   }
   return Object.keys(s).filter(k => now[k] !== s[k]).map(k => LOG_FIELD_LABELS[k] || k)
+    // 待挂附件不是"字段"，但它同样会丢 —— 提示条里必须点名，否则用户看到「改动还没保存：标题」会以为只丢了标题
+    .concat(logPendingCount.value ? [`待挂的 ${logPendingCount.value} 个附件`] : [])
 }
 
 // makeDirtyGuard / snapOf 已抽到 renderer/dirtyGuard.ts（2026-10-23）—— 组合式函数也要用。
@@ -7008,7 +7099,10 @@ async function archiveTask(t: Task) {
 /** 非终态直达完成/驳回：挂死任务（如超时未回写）没有验收方可走，必须给终结入口 */
 async function forceCloseTask(t: Task, status: '完成' | '驳回') {
   const word = status === '完成' ? '标记完成' : '驳回'
-  if (!confirm(`确认将「${t.title}」直接${word}？\n此操作跳过验收流程（适用于挂死/废弃任务），留痕于结果记录。`)) return
+  // ⚠ 2026-10-25：原文案写「留痕于结果记录」——**这是假话**。本函数只调 moveStatus，
+  // 结果记录一个字都不写（只有活动日志会记一条状态变更）。用户看不到结论栏有任何东西。
+  // 现在如实说清：直达 = 不写结论；要留结论请走上面的「审批裁决 / 验收裁决」。
+  if (!confirm(`确认将「${t.title}」直接${word}？\n\n这是跳过裁决的直接改状态：不写结论、不填理由。\n要留下理由与依据，请用「审批裁决 / 验收裁决」。`)) return
   const result = await window.tegula.moveStatus(t.id, status)
   if (result.ok) {
     previewTask.value = null
@@ -8497,13 +8591,21 @@ async function convertTodoToLog(todo: any, archiveSource = false): Promise<void>
       showToast(`这条待办已经转过了：${dup.id} —— 源待办保留，不再重复建日志`, 'info')
       return
     }
-    const title = String(todo?.title || '').trim()
-    if (!title) { showToast('这条待办没有内容，转不了', 'error'); return }
+    const full = String(todo?.title || '').trim()
+    if (!full) { showToast('这条待办没有内容，转不了', 'error'); return }
+    // ⚠ 2026-10-25（暮雨第 3 条）：原来把 `title` **整条**当日志标题传下去，正文留空
+    //   —— 多行待办转过去只剩第一行可见，用户原话「转进来只剩日志里的标题，甚至不是正文」。
+    //   现在：标题 = 首行；正文 = 到期行 + **全文**（多行时才重复一次全文，单行不重复，
+    //   否则标题与正文是同一句话，复制成派工单时会显脏）。
+    const titleLines = full.split('\n')
+    const title = titleLines.map(x => x.trim()).filter(Boolean)[0] || full
+    const bodyParts: string[] = []
+    if (todo.due) bodyParts.push(`到期：${todo.due}`)
+    if (titleLines.length > 1) bodyParts.push(full)
     const r: any = await window.tegula.logsCreate(
       title,
       todo.project || '',
-      // due 是待办字段、日志没有 → 压进正文首行（拍板口径）；执行内容本身留空给用户
-      todo.due ? `到期：${todo.due}` : '',
+      bodyParts.join('\n\n'),
       undefined,
       { priority: todo.priority || '', fromTodo: todo.id, logDate: '' },
     )
@@ -8800,6 +8902,201 @@ function applyAttachments(logId: string, entry: any): void {
 }
 
 /** 弹系统选文件框 → 主进程复制进数据目录 → 三处视图同步 */
+// ── 新建态的「待挂附件」（2026-10-25 暮雨第 4 / 7 条）────────────────────
+// 病根：附件落盘目录是 `_attachments/<logId>/`，没有 id 就没地方放，
+// 于是界面直接禁用按钮 + 一句「先创建这条日志，再回来挂附件」——
+// 用户为了加张图要建两次日志（原话：「经常为了加附件（防止遗忘）点个创建再进去重新编辑」）。
+// 现在：没 id 时先**暂存**（选好的路径 / 粘好的 data URL 都只留在内存），
+// 保存成功那一刻再一次性落盘。代价是"关掉弹窗就没了"—— 这是对的：
+// 没保存的日志本来就不存在，附件也不该偷偷留在磁盘上变成孤儿目录。
+const logPendingPaths = ref<string[]>([])
+const logPendingData = ref<Array<{ name: string; dataUrl: string }>>([])
+const logPendingCount = computed(() => logPendingPaths.value.length + logPendingData.value.length)
+
+function pendingBaseName(p: string): string {
+  const s = String(p || '').replace(/\\/g, '/')
+  return s.slice(s.lastIndexOf('/') + 1) || s
+}
+
+function resetPendingAttach(): void {
+  logPendingPaths.value = []
+  logPendingData.value = []
+}
+
+/** 附件按钮的统一入口：有 id 就直接挂；没 id 就只选不挂 */
+async function attachPickOrAdd(): Promise<void> {
+  const id = logEdit_.value?.id || ''
+  if (id) { await attachAdd(id); return }
+  try {
+    const r: any = await (window as any).tegula.logsPickFiles()
+    if (r?.error === 'canceled') return
+    if (!r?.ok) { showToast('选文件失败：' + (r?.error || '未知原因'), 'error'); return }
+    const add = (r.paths || []).filter((p: string) => p && !logPendingPaths.value.includes(p))
+    if (!add.length) return
+    logPendingPaths.value = [...logPendingPaths.value, ...add]
+    showToast(`已选 ${add.length} 个 —— 保存这条日志时一起挂上`, 'info')
+  } catch (e: any) {
+    showToast('选文件失败：' + (e?.message || e), 'error')
+  }
+}
+
+function readAsDataUrl(f: File): Promise<{ name: string; dataUrl: string } | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve({ name: f.name || ('粘贴图片-' + Date.now()), dataUrl: fixDataUrlMime(String(reader.result || ''), f.name || '') })
+    reader.onerror = () => resolve(null)
+    reader.readAsDataURL(f)
+  })
+}
+
+/**
+ * 有些来源（拖进来的文件、部分系统的剪贴板）给的 mime 是 `application/octet-stream`，
+ * 主进程按 mime 白名单就会把一张明明是 png 的图拒掉。这里**按扩展名把 mime 补全**，
+ * 补不出来的保持原样（主进程照样会拒，并给出"请用＋添加文件"的退路）。
+ * ⚠ 这不是"信客户端"：主进程仍按 mime 白名单校验，扩展名只是把已知信息补齐。
+ */
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+  pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv',
+  html: 'text/html', json: 'application/json', zip: 'application/zip',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+function fixDataUrlMime(dataUrl: string, fileName: string): string {
+  if (!/^data:application\/octet-stream/i.test(dataUrl)) return dataUrl
+  const ext = (String(fileName).split('.').pop() || '').toLowerCase()
+  const mime = MIME_BY_EXT[ext]
+  return mime ? dataUrl.replace(/^data:application\/octet-stream/i, 'data:' + mime) : dataUrl
+}
+
+/**
+ * 把一批 File（粘贴来的 / 拖进来的）变成附件：新建态进内存待挂，已有 id 就直接落盘。
+ * 粘贴与拖拽共用这一段 —— 两条路的差别只在"怎么拿到 File"。
+ */
+function acceptAttachBlobs(files: File[], word: string): void {
+  if (!files.length) return
+  const id = logEdit_.value?.id || ''
+  void Promise.all(files.map(readAsDataUrl)).then(async (items) => {
+    const ok = items.filter(Boolean) as Array<{ name: string; dataUrl: string }>
+    if (!ok.length) { showToast(`这${word === '拖入' ? '些' : '张'}文件读不出来（可能太大）`, 'error'); return }
+    if (!id) {
+      logPendingData.value = [...logPendingData.value, ...ok]
+      showToast(`已${word} ${ok.length} 个 —— 保存这条日志时一起挂上`, 'info')
+      return
+    }
+    try {
+      const r: any = await (window as any).tegula.logsAttachData(id, ok)
+      if (!r?.ok) { showToast(`${word}附件失败：` + (r?.error || '未知原因'), 'error'); return }
+      applyAttachments(id, r.data)
+      const skip = Array.isArray(r.skipped) ? r.skipped : []
+      showToast(skip.length
+        ? `已挂 ${r.added ?? 0} 个；${skip.length} 个没挂上：${skip.join('；')}`
+        : `已挂 ${r.added ?? ok.length} 个附件`,
+        skip.length ? 'info' : 'success')
+    } catch (e: any) {
+      showToast(`${word}附件失败：` + (e?.message || e), 'error')
+    }
+  })
+}
+
+// ── 拖文件进弹窗（2026-10-25 暮雨第 4 条追加：「用户不一定开最大化」）──────────
+// 拖拽比"点按钮 → 找路径"快，窗口小的时候尤其明显。用 dragenter 计数是为了避免
+// 从子元素之间划过时 dragleave 把高亮抖掉（经典坑）。
+const logAttachDragOver = ref(false)
+let logAttachDragDepth = 0
+function onLogAttachDragEnter(): void {
+  logAttachDragDepth++
+  logAttachDragOver.value = true
+}
+function onLogAttachDragLeave(): void {
+  logAttachDragDepth = Math.max(0, logAttachDragDepth - 1)
+  if (!logAttachDragDepth) logAttachDragOver.value = false
+}
+function onLogAttachDrop(ev: DragEvent): void {
+  logAttachDragDepth = 0
+  logAttachDragOver.value = false
+  const files = Array.from(ev.dataTransfer?.files || [])
+  if (!files.length) return
+  acceptAttachBlobs(files, '拖入')
+}
+
+/**
+ * 粘贴图片 → 附件。挂在弹窗根节点上，所以标题/内容/下一步哪一格粘都算。
+ *
+ * 只拦"剪贴板里真有图片"的情况；粘文字照常走浏览器默认行为 ——
+ * 否则用户复制一段话粘进正文会莫名其妙没反应。
+ */
+function onLogPaste(ev: ClipboardEvent): void {
+  const dt = ev.clipboardData
+  if (!dt) return
+  const files = Array.from(dt.files || []).filter((f) => /^image\//.test(f.type))
+  if (!files.length) return   // 不是图片 = 普通文字粘贴，交回浏览器默认行为
+  ev.preventDefault()         // 别让图片被粘成一大串 base64 文本塞进正文
+  acceptAttachBlobs(files, '粘贴')
+}
+
+/**
+ * 保存后把待挂的一次性挂上。返回 **是否全部挂成功**。
+ *
+ * 两条纪律（2026-10-25 暮雨第 4 条追加后定）：
+ *   ① 逐条报结果：挂了几个、哪几个没挂上，都要说 —— 这正是"看起来成功了"的反面；
+ *   ② **没挂上的放回待挂清单**，调用方据此**不关弹窗**。否则用户只看到一条可能没读完的 toast，
+ *      附件就永久没了（比"关掉静默丢"更坏，因为它看起来像成功了）。
+ */
+async function flushPendingAttach(logId: string): Promise<boolean> {
+  const paths = [...logPendingPaths.value]
+  const data = [...logPendingData.value]
+  resetPendingAttach()
+  if (!paths.length && !data.length) return true
+
+  const skippedText: string[] = []
+  const keepPaths: string[] = []
+  const keepData: Array<{ name: string; dataUrl: string }> = []
+  let okCount = 0
+
+  if (paths.length) {
+    try {
+      const r: any = await (window as any).tegula.logsAttachFiles(logId, paths)
+      if (r?.ok) {
+        okCount += (Array.isArray(r.data?.attachments) ? paths.length : paths.length)
+        applyAttachments(logId, r.data)
+      } else keepPaths.push(...paths)
+    } catch { keepPaths.push(...paths) }
+  }
+  if (data.length) {
+    try {
+      const r: any = await (window as any).tegula.logsAttachData(logId, data)
+      const skipped = Array.isArray(r?.skipped) ? r.skipped.map((x: unknown) => String(x)) : []
+      if (!r?.ok) keepData.push(...data)
+      else {
+        okCount += (r.added ?? data.length)
+        applyAttachments(logId, r.data)
+        // 只把**没挂上的那几条**放回待挂（skipped 文案以文件名开头），挂上过的不重复挂
+        for (const d of data) {
+          if (skipped.some((s: string) => s.startsWith(d.name))) keepData.push(d)
+        }
+      }
+      skippedText.push(...skipped)
+    } catch { keepData.push(...data) }
+  }
+
+  // 失败的回填待挂清单 —— 弹窗不关，用户再点一次保存就能重试
+  logPendingPaths.value = keepPaths
+  logPendingData.value = keepData
+
+  if (keepPaths.length || keepData.length) {
+    const reason = skippedText.length ? skippedText.join('；') : keepPaths.map(pendingBaseName).join('；')
+    showToast(`日志已保存，但 ${keepPaths.length + keepData.length} 个附件没挂上：${reason || '未知原因'} —— 还留在弹窗里，再点一次保存可重试`, 'error')
+    return false
+  }
+  showToast(`日志已保存，附件挂上 ${okCount} 个`, 'success')
+  return true
+}
+
 async function attachAdd(logId: string): Promise<void> {
   if (!logId) { showToast('先保存日志再挂附件', 'info'); return }
   try {
@@ -8844,6 +9141,7 @@ function openLog(log: any) {
   logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
   logTaskQuery.value = ''
   logTaskExtra.value = ''
+  resetPendingAttach()   // 编辑现有日志：不带上一轮新建态的待挂附件
   markLogSnap()   // P0-1：打开即存快照（改没改才算数）
   // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
   // 自动聚焦到标题输入框，确保用户可以立即输入
@@ -8871,6 +9169,7 @@ function openNewLog() {
   logTaskExtra.value = ''
   logRetainDays.value = String(logRetainDefault.value)
   logNote.value = ''
+  resetPendingAttach()   // 新建：上一轮没保存的待挂附件不带进来（它们属于弹出那张日志）
   markLogSnap()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
 }
 
@@ -9313,7 +9612,13 @@ async function saveLogEdit() {
         showToast(`更新失败：${r.error || '未知原因'}`, 'error')
         return
       }
-      showToast('已更新', 'success')
+      // 更新分支也要挂一次：新建时附件没挂上（留在弹窗里重试）走的就是这条路
+      if (logPendingCount.value) {
+        const attached = await flushPendingAttach(e.id)
+        if (!attached) { await loadLogs(); return }
+      } else {
+        showToast('已更新', 'success')
+      }
     } else {
       // 2026-09-30 用户第 1 条（卡 task-20260930-002）：创建分支此前**漏传 nextSteps** ——
       // 对话框里填的「下一步」保存后静默丢失（更新分支一直有传，只有新建没有）。
@@ -9325,7 +9630,26 @@ async function saveLogEdit() {
         showToast(`创建失败：${r.error || '未知原因'}`, 'error')
         return
       }
-      showToast('已创建', 'success')
+      // 2026-10-25（暮雨第 4 条）：新建态暂存的附件在这里才真正落盘。
+      // ⚠ 有附件要挂时**以附件结果为主提示** —— 先弹一句「已创建」会把它盖住，那就是假成功。
+      const newLogId = String((r as any)?.data?.id || '')
+      if (logPendingCount.value) {
+        if (!newLogId) {
+          showToast('日志已创建，但没拿到它的 id —— 刚选的附件没挂上，请打开这条日志重新添加', 'error')
+          resetPendingAttach()
+        } else {
+          // ⚠ 先把 id 写回表单：附件没挂上时弹窗不关，用户再点「保存」必须走**更新**分支，
+          //   否则会再创建一条日志（重复卡）而附件还是挂不上。
+          e.id = newLogId
+          const attached = await flushPendingAttach(newLogId)
+          if (!attached) {
+            await loadLogs()   // 日志确实建成了，列表要跟上；但弹窗留着，待挂清单也在
+            return
+          }
+        }
+      } else {
+        showToast('已创建', 'success')
+      }
     }
     logEdit_.value = null
     logCompleting.value = false
@@ -9662,7 +9986,12 @@ async function executeLogCleanup() {
 const reviewReason = ref('')
 
 function openReview(t: Task) {
-  reviewModal.value = { id: t.id, title: t.title || t.id }
+  // 待审批 = 审批裁决（批准转正待办 / 驳回）；其余（待验收）= 验收裁决（通过 / 驳回）
+  reviewModal.value = {
+    id: t.id,
+    title: t.title || t.id,
+    kind: t.status === '待审批' ? 'approval' : 'acceptance',
+  }
   reviewReason.value = ''
   previewTask.value = null
 }
@@ -9670,9 +9999,10 @@ function openReview(t: Task) {
 async function acceptTask() {
   if (!reviewModal.value) return
   // 2026-09-25（用户第 7 条）：通过也带上结论 → 主进程写入结果记录留痕
+  const isApproval = reviewModal.value.kind === 'approval'
   const result = await window.tegula.reviewAccept(reviewModal.value.id, reviewReason.value)
   if (result.ok) {
-    showToast('已通过', 'success')
+    showToast(isApproval ? '已批准 —— 已转正为「待办」' : '已通过', 'success')
     reviewModal.value = null
     loadAll()
   } else {
@@ -11778,6 +12108,17 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .attach-head .attach-lbl { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
 .attach-add { height: 26px; padding: 0 10px; font-size: 12px; }
 .attach-add:disabled { opacity: .55; cursor: not-allowed; }
+/* 2026-10-25：右侧「Ctrl+V 粘图」提示 + 新建态的待挂清单（虚线胶囊 = 还没落盘） */
+.attach-head-r { display: flex; align-items: center; gap: 8px; }
+.attach-paste-hint { font-size: 11px; color: var(--muted); user-select: none; }
+.attach-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 8px; font-size: 11.5px; }
+.attach-pending-lbl { color: var(--accent); font-weight: 600; }
+.attach-pending-item { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+  border: 1px dashed var(--border); border-radius: 999px; color: var(--ink); background: var(--tint); }
+.attach-pending-item .attach-x { padding: 0 2px; border: 0; background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 11px; font-family: inherit; }
+.attach-pending-item .attach-x:hover { color: #c96a6a; }
+.attach-pending-tip { color: var(--muted); }
 .attach-empty { font-size: 12px; color: var(--muted); line-height: 1.7; }
 .attach-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .attach-item { width: 150px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
@@ -12295,6 +12636,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #smodal .theme-swatch .sw-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.14); flex: none; }
 #smodal .theme-swatch .sw-check { color: var(--accent); }
 #smodal .retain-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+/* 念头长度上限滑块（2026-10-25）：观感跟 .theme-swatch / .retain-row 同一套。
+   preflight 关着 → 原生 range 必须自己给外观与字体，否则各浏览器各长一样。 */
+#smodal .slider-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+/* 铺满整行（目检：首版只给 320px 定宽，在 440px 的 sect 里显得又短又飘） */
+#smodal .slider { flex: 1 1 auto; min-width: 160px; accent-color: var(--accent); cursor: pointer;
+  font-family: inherit; font-size: 12px; }
+#smodal .slider-val { font-size: 12px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums; min-width: 74px; text-align: right; flex: none; }
 #smodal .retain-input { width: 92px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 #smodal .retain-input:focus { border-color: var(--accent); }
 #smodal .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
@@ -13296,7 +13645,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 2026-09-25 第 13 条「编辑框不够大」：原宽 560px，且 `textarea.tall` 的高度规则只写在
    `#modal textarea.tall` 下 —— 日志编辑器是 #log-edit-modal，**`.tall` 从未生效**，
    所以「执行内容」一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
-#log-edit-modal, #relay-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
+#log-edit-modal, #relay-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); position: relative; }
+/* 拖文件进弹窗（2026-10-25）：拖动经过时整块虚线描边 + 一句"松手会怎样"。
+   松手之前用户必须知道文件会落到哪，不能靠猜。 */
+#log-edit-modal.drop-on { outline: 2px dashed var(--accent); outline-offset: 3px; }
+#log-edit-modal.drop-on::after {
+  content: '松手 = 挂到这条日志的附件';
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+  padding: 6px 14px; border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 12px; font-weight: 600; pointer-events: none; z-index: 5; white-space: nowrap;
+}
 #log-edit-modal h3, #relay-modal h3 { margin: 0 0 12px; font-size: 16px; }
 #log-edit-modal label, #relay-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 #log-edit-modal input, #relay-modal input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
