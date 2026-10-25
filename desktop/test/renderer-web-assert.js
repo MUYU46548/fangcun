@@ -4204,22 +4204,16 @@
     }
 
     // ⚠ 这是「通用」类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
-    //   2026-10-25 加了「念头长度上限」与「优先级页签」，旧断言写死 length===2 当场变红 —— 它挡对了：
+    //   2026-10-25 加了「念头长度上限」，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限', '优先级页签']
+    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限']
     check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
       JSON.stringify(sectTitles()))
-    // 可选启用的优先级页签：默认必须是**关**的（顶栏已经 15 个页签，小玩具不该默认占一格）
-    const prioChk = $$('#smodal .chk input').find((i) => {
-      const lb = i.closest('.chk')
-      return lb && (lb.textContent || '').indexOf('优先级') >= 0
-    })
-    check('★ 设置里有「优先级页签」开关', !!prioChk)
-    check('★ 它默认是关的（可选启用，不是默认塞给你）', !!prioChk && prioChk.checked === false,
-      prioChk ? 'checked=' + prioChk.checked : '(没有开关)')
-    check('★ 默认关时顶栏没有「优先级」页签',
+    // 「梯度榜」是**项目页的一种摆法**，不是独立顶级页签（2026-10-25 暮雨：
+    // 「放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级」）
+    check('★ 顶栏没有独立「优先级」页签（它在项目页里）',
       !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '优先级'))
     check('  「通用」在导航上高亮',
       navBtns().some((b) => (b.textContent || '').indexOf('通用') >= 0 && b.classList.contains('on')))
@@ -5590,6 +5584,60 @@
       await sleep(300)
       check('  收尾：错误条与抽屉都收掉了（不会污染后面的断言）',
         $$('.errbar').length === 0 && !$('.errpanel'))
+    }
+
+    // ══ 项目梯度榜（2026-10-25 暮雨）════════════════════════════════════
+    // 原话：「放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
+    //        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。」
+    // 判据三条：它是项目页的一种**摆法**（不是顶级页签）· 分档渲染（不是一维名次）· 拖完真落盘。
+    {
+      clickText('项目')
+      await sleep(700)
+      const tabLabels = $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim())
+      const tierTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('梯度榜') >= 0)
+      check('★★ 项目页多出「梯度榜」摆法（小玩具归位到项目页）', !!tierTab, tabLabels.join(' | '))
+      check('★ 顶栏仍然没有独立「优先级」页签（没被提到顶级）',
+        !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '优先级'))
+      if (tierTab) {
+        tierTab.click()
+        await sleep(900)
+        const rows = $$('.tierboard .tier-row')
+        check('★★ 渲染成**分档**而不是一维名次（>=2 个 .tier-row）', rows.length >= 2, 'rows=' + rows.length)
+        check('  有「未分档」池（新登记的项目不会凭空消失）', !!$('.tierboard .tier-pool'))
+        check('  档位标签可点着改名（.tier-label-txt 在）', $$('.tierboard .tier-label-txt').length > 0)
+        check('  有「＋ 加一档」入口',
+          $$('.tierboard button').some((b) => (b.textContent || '').indexOf('加一档') >= 0))
+
+        const chips = $$('.tierboard .tier-chip')
+        check('  档位里有项目胶囊（夹具 demo / demo2 已分档）', chips.length >= 1, 'chips=' + chips.length)
+        if (chips.length >= 1) {
+          const chip = chips[0]
+          const pid = chip.getAttribute('data-pid')
+          const poolRow = $('.tierboard .tier-pool')
+          const beforeCalls = window.__fcTest.callCount('projectTiersSet')
+          const dt = new DataTransfer()
+          chip.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }))
+          await sleep(150)
+          poolRow.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
+          await sleep(150)
+          poolRow.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+          await sleep(700)
+          check('★★ 拖进「未分档」→ 立刻落盘（projectTiersSet 真被调用，没有保存按钮）',
+            window.__fcTest.callCount('projectTiersSet') > beforeCalls,
+            'calls=' + window.__fcTest.callCount('projectTiersSet'))
+          const tiersNow = window.__fcTest.projectTiers()
+          const allIds = tiersNow.reduce((a, t) => a.concat(t.items || []), [])
+          check('★★ 落盘后这个项目**不在任何档**（一个项目只能在一档）',
+            pid && allIds.indexOf(pid) < 0, 'pid=' + pid + ' 档内=' + JSON.stringify(allIds))
+          check('  未分档池里出现了它', $$('.tierboard .tier-pool .tier-chip').some((c) => c.getAttribute('data-pid') === pid),
+            '池=' + $$('.tierboard .tier-pool .tier-chip').map((c) => c.getAttribute('data-pid')).join(','))
+        }
+
+        // 收尾：切回项目墙，别污染后面的断言
+        const tilesTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('项目墙') >= 0)
+        if (tilesTab) { tilesTab.click(); await sleep(500) }
+        check('  收尾：切回项目墙后梯度榜不在 DOM 里', !$('.tierboard'))
+      }
     }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条

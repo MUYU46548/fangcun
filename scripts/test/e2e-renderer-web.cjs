@@ -264,9 +264,9 @@ function main() {
       // 2026-10-25：多选模式下的「分区头整组勾选」（暮雨第 11 条）——
       // 拍「点了一个分区头的框、整组进选择」的成品态，别的组一个没动。
       ['看板', '列视图', 'board-group-select', 'grpselect'],
-      // 2026-10-25：项目优先级视图（可选启用）—— 真开开关 → 切页签 → 真拖一行，
-      // 截图要看得出「第 2 名被拖到了第 1 位」（拖完立即落盘，没有保存按钮）。
-      ['看板', '', 'priority-view', 'prioview'],
+      // 2026-10-25：项目梯度榜（Tier List）—— 它是项目页的第 5 种摆法，不是顶级页签。
+      // 截图要看得出「一个项目被拖进了「搁置」档」（拖完立即落盘，没有保存按钮）。
+      ['项目', '', 'project-tier', 'tierview'],
     ]
     const SEED_TODOS = [
       '多视图断言用：这是一条刻意写得很长的待办标题，用来验证卡片网格里标题最多三行不截断',
@@ -449,30 +449,23 @@ function main() {
   }
   await sleep(600)
 ` : ''}
-  ${extra === 'prioview' ? `
-  // 优先级视图（2026-10-25）：设置里开开关 → 顶栏出现页签 → 切进去 → 真拖一行
-  const gear = all('button').find((b) => (b.textContent || '').trim() === '⚙')
-  if (gear) gear.click()
+  ${extra === 'tierview' ? `
+  // 项目梯度榜（2026-10-25）：项目页 → 「▥ 梯度榜」→ 把一个胶囊拖进最后一档（搁置）
+  clickText('项目')
   await sleep(700)
-  const pchk = all('#smodal .chk input').find((i) => {
-    const lb = i.closest('.chk')
-    return lb && (lb.textContent || '').indexOf('优先级') >= 0
-  })
-  if (pchk) pchk.click()
-  await sleep(400)
-  const closeS = all('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
-  if (closeS) closeS.click()
-  await sleep(500)
-  clickText('优先级')
+  const tierTab = all('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('梯度榜') >= 0)
+  if (tierTab) tierTab.click()
   await sleep(900)
-  const prows = all('.priority-view .pri-row')
-  if (prows.length >= 2) {
+  const tchips = all('.tierboard .tier-chip')
+  const trows = all('.tierboard .tier-rows .tier-row')
+  const lastTier = trows[trows.length - 1]
+  if (tchips.length && lastTier) {
     const dt = new DataTransfer()
-    prows[0].dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    tchips[0].dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true, cancelable: true }))
     await sleep(150)
-    prows[1].dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    lastTier.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
     await sleep(150)
-    prows[1].dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    lastTier.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
     await sleep(700)
   }
 ` : ''}

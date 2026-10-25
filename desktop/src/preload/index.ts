@@ -163,9 +163,9 @@ contextBridge.exposeInMainWorld('tegula', {
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
   prefsGet: () => ipcRenderer.invoke('prefs:get'),
   prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
-  /** 项目优先级排序（2026-10-25）：只给「优先级」视图用，见 services/projectOrder.ts */
-  projectOrderGet: () => ipcRenderer.invoke('projectOrder:get'),
-  projectOrderSet: (ids: string[]) => ipcRenderer.invoke('projectOrder:set', ids),
+  /** 项目梯度榜（2026-10-25）：只给项目页的「梯度榜」摆法用，见 services/projectTiers.ts */
+  projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),
+  projectTiersSet: (tiers: unknown) => ipcRenderer.invoke('projectTiers:set', tiers),
   /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */
   prefsSetMany: (patch: Record<string, any>) => ipcRenderer.invoke('prefs:setMany', patch),
   logsCleanup: () => ipcRenderer.invoke('logs:cleanup'),
