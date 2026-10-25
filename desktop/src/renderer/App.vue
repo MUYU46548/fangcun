@@ -240,12 +240,29 @@
           <span v-if="ncUnread > 0" class="nc-badge">{{ ncUnread > 99 ? '99+' : ncUnread }}</span>
         </button>
         <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
+        <!-- 2026-10-25：页签行已经满了（15 个页签），这三个低频操作打包成一组 ——
+             换行时**整组一起下去**，不会出现「刷新」孤零零掉到第三行开头那种样子。 -->
+        <span class="views-ops">
         <!-- 任务多选同样只在看板/归档有意义（批量改状态/归档作用于看板列） -->
         <button v-if="isBoardView" class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
           <span v-if="!batchMode">☑ 任务多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
         <button class="ghost" @click="showSettings">⚙</button>
+        <!-- 重读全部数据（2026-10-25 暮雨：「顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
+             不然用户会以为是第二个同步按钮」）。
+             ⚠ 三条硬要求：
+               ① **文字必须写「刷新」**，不能只有 ⟳ —— 左上那个 ⟳ 是「自仓 git 同步」，纯图标一定被认成一样的东西；
+               ② 转的是**字符**不是按钮本体（check-button-styles ④ 守着）；
+               ③ 外部改动（agent 经 MCP 写卡、手改 md）只有点这里才会反映到界面 —— 这是它存在的唯一理由。
+             位置刻意放最右：页签行本来就在临界点，放中间会把「☑ 任务多选」和 ⚙ 拆成孤儿。 -->
+        <button class="ghost refresh-all" :class="{ busy: refreshBusy }" :disabled="refreshBusy"
+          :title="'重读全部数据：任务 / 项目 / 日志 / 待办 / 想法 / 方针 / 阻塞链 / 通知\n（这不是同步 —— 同步是左上那个 ⟳，它只拉方寸自己的 git 仓库）'"
+          @click="refreshAllData">
+          <span class="ico-glyph" :class="{ spinning: refreshBusy }">⟳</span>
+          <span class="refresh-all-txt">{{ refreshBusy ? '刷新中' : '刷新' }}</span>
+        </button>
+        </span>
     </nav>
 
     <!-- 错误条（2026-09-22，用户第 8 条）：任何失败都在这里有痕迹。
@@ -6571,6 +6588,36 @@ async function loadProjectProgressMap() {
 //   否则切页会拉两遍（同 help / decisions 那两条教训）。
 
 
+// ── 顶栏「刷新」：重读全部数据（2026-10-25 暮雨）──────────────────────────
+// 为什么要它：方寸的数据是**白盒文件**（task-data/*.md、日志、待办 json）——
+// agent 经 MCP 写卡、你手改 md、git pull 下来别人的提交，这些改动界面根本不会自己知道。
+// 以前只能靠"切个视图"或"做一次操作"碰运气触发重读；碰不到就一直看着旧数据（= 界面说假话）。
+const refreshBusy = ref(false)
+async function refreshAllData(): Promise<void> {
+  if (refreshBusy.value) return
+  refreshBusy.value = true
+  const t0 = Date.now()
+  const failed: string[] = []
+  // ⚠ 一步一记账：某一份数据坏了不该让整套刷新失败，但也**不许静默跳过**（最后点名）。
+  const step = async (name: string, fn: () => any): Promise<void> => {
+    try { await fn() } catch (e: any) { failed.push(`${name}（${e?.message || e}）`) }
+  }
+  try {
+    await step('任务与项目', () => loadAll())
+    await step('日志', () => loadLogs())
+    await step('待办', () => loadTodos())
+    await step('想法', () => loadIdeas())
+    await step('方针与结构地图', () => loadPolicyMap())
+    await step('阻塞链', () => loadBlockerChains())
+    await step('通知中心', () => ncLoad())
+    const ms = Date.now() - t0
+    if (failed.length) showToast(`刷新完成，但 ${failed.length} 项失败：${failed.join('；')}`, 'error')
+    else showToast(`已重读全部数据（${ms}ms）`, 'success')
+  } finally {
+    refreshBusy.value = false
+  }
+}
+
 async function loadAll() {
   const [t, p, b, dd] = await Promise.all([
     window.tegula.loadTasks(curView.value),
@@ -12880,6 +12927,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 @keyframes nav-spin { to { transform: rotate(360deg); } }
 #bar .navgroup .ico .ico-glyph { display: inline-block; }
 #bar .navgroup .ico.syncing .ico-glyph { animation: nav-spin .9s linear infinite; }
+/* 顶栏「刷新」（2026-10-25）：注意它活在**页签行 `#views`** 里（不是 `#bar` ——
+   `#bar` 是上面那一行，同步按钮在那边；分开两行反而更难被认成第二个同步按钮）。
+   转的是**字符**不是按钮本体 —— `check-button-styles ④` 专门守着这条。 */
+/* 紧凑版：页签行本来就挤（15 个页签 + 六个操作按钮），多 70px 会把
+   「☑ 任务多选」挤到下一行 —— 目检抓到过一次，所以 padding/字号都收一档。 */
+.views-ops { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+#views .refresh-all { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+  padding: 0 8px; }
+#views .refresh-all .ico-glyph { display: inline-block; font-size: 12px; }
+#views .refresh-all .ico-glyph.spinning { animation: nav-spin .9s linear infinite; }
+#views .refresh-all.busy { color: var(--accent); }
+#views .refresh-all-txt { font-size: 11.5px; }
 #bar .parse-warn { flex: none; }
 .batch-count { font-weight: 600; color: var(--ink); flex: none; }
 .batch-actions { display: flex; gap: 4px; flex-wrap: wrap; }

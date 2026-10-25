@@ -268,6 +268,49 @@
         !!homeBtn && !!helpBtn && !!syncBtn,
         `home=${!!homeBtn} help=${!!helpBtn} sync=${!!syncBtn}`)
 
+      // ── 顶栏「刷新」= 真的重读全部数据（2026-10-25 暮雨）─────────────────────
+      // 原话：「顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
+      //        不然用户会以为是第二个同步按钮。」
+      // 三条判据：① 文字里真的有「刷新」两个字（不是纯图标）；② 和左边那个同步是两个按钮；
+      //          ③ 点一下**多份数据**都被重读（不是只刷任务）。
+      {
+        const refreshBtn = $('#views .refresh-all')
+        const txt = refreshBtn ? String(refreshBtn.textContent || '').trim() : ''
+        check('★★ 顶栏有「刷新」按钮', !!refreshBtn, refreshBtn ? '' : '(没找到 #views .refresh-all)')
+        check('★★ 按钮上有**文字**「刷新」（纯图标会被当成第二个同步按钮）',
+          txt.indexOf('刷新') >= 0, 'text="' + txt + '"')
+        check('★ 它和「同步」是两个不同的按钮（不是同一个换了文案）',
+          !!refreshBtn && !!syncBtn && refreshBtn !== syncBtn && !refreshBtn.classList.contains('ico'))
+        check('  它的 title 说清"这不是同步"',
+          !!refreshBtn && (refreshBtn.getAttribute('title') || '').indexOf('不是同步') >= 0,
+          refreshBtn ? String(refreshBtn.getAttribute('title') || '').slice(0, 40) : '')
+
+        if (refreshBtn) {
+          const before = {
+            tasks: window.__fcTest.callCount('loadTasks'),
+            logs: window.__fcTest.callCount('logsList'),
+            todos: window.__fcTest.callCount('todosList'),
+            ideas: window.__fcTest.callCount('ideasList'),
+          }
+          refreshBtn.click()
+          await sleep(1200)
+          const after = {
+            tasks: window.__fcTest.callCount('loadTasks'),
+            logs: window.__fcTest.callCount('logsList'),
+            todos: window.__fcTest.callCount('todosList'),
+            ideas: window.__fcTest.callCount('ideasList'),
+          }
+          check('★★ 点「刷新」= 任务真的被重读', after.tasks > before.tasks,
+            before.tasks + ' → ' + after.tasks)
+          check('★★ 日志 / 待办 / 想法也一起重读了（不是只刷任务）',
+            after.logs > before.logs && after.todos > before.todos && after.ideas > before.ideas,
+            JSON.stringify({ logs: [before.logs, after.logs], todos: [before.todos, after.todos], ideas: [before.ideas, after.ideas] }))
+          const toastTxt = (($('#toast') || {}).textContent || '')
+          check('  刷完有反馈（toast 说重读了 / 或点名哪几项失败）',
+            toastTxt.indexOf('重读') >= 0 || toastTxt.indexOf('失败') >= 0, toastTxt.slice(0, 60))
+        }
+      }
+
       // ── 顶栏「⚠ N 个文件无法解析」（2026-10-23 补：这条此前**零断言**）──────────
       // 为什么它值得单独立断言：parseTask 失败返 null 被静默跳过 = 任务卡"人间蒸发"，
       // 这是用户几个月后才发现的那类事故。这条红 chip 就是唯一的防线，
