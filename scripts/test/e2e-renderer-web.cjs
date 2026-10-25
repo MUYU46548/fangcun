@@ -226,6 +226,12 @@ function main() {
       ['看板', '列视图', 'board-cols'],
       // 2026-10-25：顶栏「更多」菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
       ['看板', '列视图', 'top-more', 'moremenu'],
+      // 2026-10-25 卡 004：同步状态胶囊（进行中那一帧）—— 真的按住 push、真的喂阶段，
+      // 截图里要看得出「⟳ 推送 2s」而不是光秃秃一个转圈图标。
+      // 第 5 项 = 本张图的 virtual-time 预算（毫秒）。默认 20000，但这张不能给那么大：
+      // virtual time 会把 `Date.now()` 一起快进，秒数会爬到 "18s" —— 拍出来像卡死了。
+      // 给小一点，正好落在「推送 3s」这种真实可读的状态。
+      ['看板', '列视图', 'sync-capsule', 'synccap', 4500],
       ['看板', '列表视图', 'board-list'],
       ['待办', '清单', 'todo-list'],
       ['待办', '卡片网格', 'todo-grid'],
@@ -471,6 +477,16 @@ function main() {
     await sleep(700)
   }
 ` : ''}
+  ${extra === 'synccap' ? `
+  if (window.__fcTest && window.__fcTest.holdSync) {
+    window.__fcTest.holdSync()
+    const sb = document.querySelector('#bar .navgroup .sync-btn')
+    if (sb) sb.click()
+    await sleep(300)
+    window.__fcTest.emitSyncProgress('push')
+    await sleep(2400)   // 让秒数爬到 2s，截图里看得出"真的在计时"
+  }
+` : ''}
   ${extra === 'moremenu' ? `
   const mBtn = document.querySelector('#views .more-btn')
   if (mBtn) mBtn.click()
@@ -485,7 +501,7 @@ function main() {
     let n = 0
     const next = () => {
       if (n >= CASES.length) return done()
-      const [page, view, name, extra] = CASES[n++]
+      const [page, view, name, extra, vtBudget] = CASES[n++]
       fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED), 'utf-8')
       const png = path.join(outDir, name + '.png')
       // ⚠ 先删旧图再拍：判据是「这张图是**这次**拍出来的」，不是「目录里有这么个文件」。
@@ -505,7 +521,7 @@ function main() {
         //   所以它不是"修了什么 bug"，而是防止换到 DPI 不同的机器上悄悄变成 0.75/1.25 倍 ——
         //   截图是给人目检的，尺寸漂移会让前后两张根本没法对比。
         '--force-device-scale-factor=' + (process.env.FC_SHOT_SCALE || '1'),
-        '--virtual-time-budget=20000', '--screenshot=' + png,
+        '--virtual-time-budget=' + (vtBudget || 20000), '--screenshot=' + png,
         'file:///' + harnessPath.replace(/\\/g, '/'),
       ], { stdio: ['ignore', 'pipe', 'pipe'], env })
       c.on('close', () => {

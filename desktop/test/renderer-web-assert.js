@@ -286,6 +286,84 @@
         !!homeBtn && !!helpBtn && !!syncBtn,
         `home=${!!homeBtn} help=${!!helpBtn} sync=${!!syncBtn}`)
 
+      // ── 同步状态胶囊：阶段 + 耗时（2026-10-25 卡 004）────────────────────────
+      // 暮雨原话：「Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
+      //           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。」
+      // ⚠ 这里不写真 git：夹具把 push "按住"，手动喂阶段，再手动结束 ——
+      //   否则真 git 几百毫秒就跑完，"进行中"那一帧根本抓不到（这也是以前只能验"点了没"的原因）。
+      if (syncBtn) {
+        const capTxt = () => {
+          const el = $('#bar .navgroup .sync-cap-txt')
+          return el ? String(el.textContent || '').trim() : ''
+        }
+        const glyph = () => {
+          const g = $('#bar .navgroup .sync-btn .ico-glyph')
+          return g ? String(g.textContent || '').trim() : ''
+        }
+        const syncEl = () => $('#bar .navgroup .sync-btn')
+
+        window.__fcTest.holdSync()
+        syncBtn.click()
+        await sleep(150)
+        check('★★ 点同步后按钮变成**胶囊**（不再只是一个转圈图标）', capTxt() !== '',
+          'cap="' + capTxt() + '"')
+        // ⚠ 必须跨过**一个计时器周期**再断言：只在 150ms 时看，就算阶段是"按时间猜"的
+        //   也还没猜到（第一版反例注入到计时器里就是这么漏过去的 —— 断言绿了，行为是错的）。
+        await sleep(800)
+        check('★ 还没收到阶段时说「同步中」（不许硬编一个阶段糊弄）',
+          /^同步中 \d+s$/.test(capTxt()), capTxt())
+        check('★ 阶段不会被计时器猜出来（跨过一个周期后仍不是「推送」）',
+          capTxt().indexOf('推送') < 0, capTxt())
+        const subs = window.__fcTest.emitSyncProgress('push')
+        check('★ 阶段流真的订阅上了（主进程报阶段时渲染层有人接）', subs === 1, 'subs=' + subs)
+        await sleep(120)
+        // 期望值从**真身**算（此刻已过 0.9 秒，秒数可能是 0 或 1）—— 关键是阶段变了，
+        // 不写死 0s（写死就是每月一跳的定时炸弹，这里已经踩过一次）
+        check('★★ 主进程报「推送」→ 胶囊立刻显示「推送 Ns」',
+          /^推送 \d+s$/.test(capTxt()), capTxt())
+        check('★ 不编进度：胶囊里没有百分号', capTxt().indexOf('%') < 0)
+        check('★ 转的还是**字符**不是按钮本体',
+          !!$('#bar .navgroup .sync-btn.syncing') && !!$('#bar .navgroup .sync-btn .ico-glyph'))
+
+        await sleep(1200)
+        const t2 = capTxt()
+        check('★★ 秒数是**真实计时**（1.2 秒后 >= 1s）', /(^|\s)([1-9]\d*)s$/.test(t2), t2)
+        check('★ 阶段不会被时间悄悄改掉（仍是「推送」）', t2.indexOf('推送') >= 0, t2)
+
+        window.__fcTest.releaseSync(true)
+        await sleep(450)
+        check('★★ 成功后胶囊变「已同步」', capTxt() === '已同步', capTxt())
+        check('★ 图标换成 ✓', glyph() === '✓', 'glyph=' + glyph())
+        check('★ 成功态有绿色标记（.sync-ok）', !!$('#bar .navgroup .sync-btn.sync-ok'))
+        const toastOk = (($('#toast') || {}).textContent || '')
+        check('  toast 说的是同步成功 + 消息原文（不吞消息）',
+          toastOk.indexOf('同步成功') >= 0 && toastOk.indexOf('12 个文件') >= 0, toastOk.slice(0, 60))
+        check('★ 收尾退订了阶段流（不留监听，否则每同步一次多挂一个）',
+          window.__fcTest.syncSubs() === 0, 'subs=' + window.__fcTest.syncSubs())
+
+        await sleep(3300)
+        check('★★ 3 秒后回到图标态（胶囊消失，glyph 回 ⟳）',
+          capTxt() === '' && glyph() === '⟳', 'cap="' + capTxt() + '" glyph=' + glyph())
+
+        // 失败态：必须说「未同步」，不能糊成成功
+        window.__fcTest.holdSync()
+        const syncEl2 = syncEl()
+        if (syncEl2) syncEl2.click()
+        await sleep(150)
+        window.__fcTest.releaseSync(false, '连不上远端（网络或地址不可达）')
+        await sleep(450)
+        check('★★ 失败态是「未同步」+ ⚠（绝不显示已同步）',
+          capTxt() === '未同步' && glyph() === '⚠', 'cap="' + capTxt() + '" glyph=' + glyph())
+        check('★ 失败态有红色标记（.sync-bad）', !!$('#bar .navgroup .sync-btn.sync-bad'))
+        check('★ 失败也退订了（成功失败都不能漏）', window.__fcTest.syncSubs() === 0)
+        const toastBad = (($('#toast') || {}).textContent || '')
+        check('  失败 toast 里有主进程给的原因（不甩 git stderr 也不吞掉）',
+          toastBad.indexOf('连不上远端') >= 0, toastBad.slice(0, 70))
+        await sleep(3300)
+        check('  失败态同样 3 秒后回图标', capTxt() === '' && glyph() === '⟳',
+          'cap="' + capTxt() + '"')
+      }
+
       // ── 顶栏「刷新」= 真的重读全部数据（2026-10-25 暮雨）─────────────────────
       // 原话：「顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
       //        不然用户会以为是第二个同步按钮。」
@@ -5386,8 +5464,15 @@
         {
           const b = $('#bar .navgroup button[title*="同步"]')
           const g = b && b.querySelector('.ico-glyph')
+          // 2026-10-25 卡 004：同步结束后按钮先在**结束态**停 3 秒（✓ 已同步 / ⚠ 未同步），
+          // 再回 ⟳。所以这里必须等它回图标再断言字符 —— 否则抓到的是结束态字形（假红，
+          // 本行就是这么红的：glyph=⚠）。等不到也要显式失败，不许跳过。
+          const back = await waitFor(() => {
+            const gg = $('#bar .navgroup .sync-btn .ico-glyph')
+            return !!gg && gg.textContent.trim() === '⟳'
+          }, 4500, 'sync glyph back to arrow')
           check('★★ 同步按钮的 ⟳ 单独包在 .ico-glyph 里（旋转的是字符，不是整个方块）',
-            !!g && g.textContent.trim() === '⟳', g ? 'glyph=' + g.textContent.trim() : 'no .ico-glyph')
+            !!g && back, (g ? 'glyph=' + g.textContent.trim() : 'no .ico-glyph') + ' back=' + back)
         }
       } else {
         check('  ⟳ 同步按钮存在', false, 'no syncBtn')

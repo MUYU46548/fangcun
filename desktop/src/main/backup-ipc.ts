@@ -262,8 +262,16 @@ export function registerBackupIpcHandlers(): void {
   // ⚠ 2026-10-11 用户第 1 条：这条通道**不再推压缩包**，改成把数据目录的真实文件镜像进仓库。
   //   通道名沿用（`backup:gitPush`）以免动三方对账，但语义与文案都变了。
   //   入参已无意义（旧版传 zip 路径），保留签名只为兼容旧 preload 调用。
-  guardedHandle('backup:gitPush', async () => {
-    try { return await gitSyncData() } catch (e) { return failMsg(e) }
+  guardedHandle('backup:gitPush', async (event) => {
+    try {
+      // 阶段往回送（2026-10-25 卡 004）：界面上的「准备仓库 / 扫描改动 / 推送」
+      // 必须是**主进程真走到哪一步**，不许渲染层按时间猜。
+      // ⚠ 送不出去（窗口已关）不算失败：同步本身照跑，只是没人看。
+      const push = (phase: string): void => {
+        try { event?.sender?.send('sync:progress', { phase, at: Date.now() }) } catch { /* 窗口没了 */ }
+      }
+      return await gitSyncData(push)
+    } catch (e) { return failMsg(e) }
   })
 
   /**

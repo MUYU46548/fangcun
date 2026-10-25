@@ -43,6 +43,9 @@ const EXEMPTIONS = {
     'update:progress': '主→渲染推送通道（webContents.send）',
     'update:downloaded': '主→渲染推送通道（webContents.send）',
     'update:error': '主→渲染推送通道（webContents.send）',
+    // 2026-10-25 卡 004：同步阶段流。同样是主→渲染单向推送（backup-ipc.ts 里 sender.send），
+    // 渲染层 onSyncProgress 订阅。它不是 invoke 通道，扫描器看不到 send，故豁免。
+    'sync:progress': '主→渲染推送通道（sender.send，同步阶段：prepare/scan/mirror/commit/push）',
   },
   // 未接线模块：文件路径（相对仓库根，正斜杠）
   // ⚠ 2026-09-22：入口探测修正为 src/index.ts 后，updater.ts **已达可达集**

@@ -28,6 +28,7 @@ import {
   hostOfRemote, splitInlineCredential, isPushRejected, pushRecoverySteps,
   GIT_TOKEN_ENV, GIT_USER_ENV,
 } from './gitBackupPure'
+import type { SyncPhase } from '../../shared/syncPhase'
 import { scopeSources, REPO_GITIGNORE } from './scope'
 import { planSnapshot } from './packer'
 
@@ -239,7 +240,14 @@ export interface GitSyncResult {
  * 流程：clone / 对齐远端 → 清空重铺镜像 → add/commit/push；推送被拒就自动救一次。
  * ⚠ 失败**不丢数据**：commit 已经在本地工作副本里，网络/权限好了再点一次即可。
  */
-export async function gitSyncData(): Promise<GitSyncResult> {
+export async function gitSyncData(
+  /**
+   * 阶段回调（2026-10-25 卡 004）。**只在真正走到那一步时调用** ——
+   * 界面上的"准备仓库 / 扫描改动 / 推送"必须与真实执行顺序一致，
+   * 所以回调点跟着代码走，不跟着时间走。
+   */
+  onPhase?: (phase: SyncPhase) => void,
+): Promise<GitSyncResult> {
   const cfg = readGitConfig()
   if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点「同步」。' }
   const token = getGitToken()
@@ -249,6 +257,7 @@ export async function gitSyncData(): Promise<GitSyncResult> {
   // 1. 准备一个与远端一致的工作副本。
   //    ⚠ clone 失败不再盲目退化成 init —— 那会把「令牌被拒 / 网络不通」的真因吞掉。
   //    （空仓库不需要 init：实测 `git clone` 空仓库是**成功退出**的。）
+  onPhase?.('prepare')
   if (!fs.existsSync(gitDir)) {
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 清不掉就让 clone 自己报错 */ }
     fs.mkdirSync(dir, { recursive: true })
@@ -262,6 +271,7 @@ export async function gitSyncData(): Promise<GitSyncResult> {
   }
 
   // 2. 算出要镜像哪些文件 —— 与 zip 通道**同一套判据**（范围 + 密钥排除 + 瘦身）。
+  onPhase?.('scan')
   let plan
   try {
     plan = planSnapshot(scopeSources())
@@ -271,6 +281,7 @@ export async function gitSyncData(): Promise<GitSyncResult> {
   if (!plan.files.length) return { ok: false, message: '没有可同步的文件（task-data / registry.yaml / policies / docs 都是空的？）' }
 
   // 3. 清空重铺镜像。
+  onPhase?.('mirror')
   try {
     mirrorInto(dir, plan.files)
   } catch (e: any) {
@@ -281,6 +292,7 @@ export async function gitSyncData(): Promise<GitSyncResult> {
   const msg = `sync: ${plan.files.length} 个文件 @ ${stamp}`
 
   const commitAndPush = async (): Promise<GitRun> => {
+    onPhase?.('commit')
     await runGit(['add', '-A'], dir, token)
     const commit = await runGit([
       '-c', `user.name=${cfg.authorName}`, '-c', `user.email=${cfg.authorEmail}`,
@@ -288,6 +300,8 @@ export async function gitSyncData(): Promise<GitSyncResult> {
     ], dir, token)
     // 「没有改动」不算失败（数据没变时再点一次）
     if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.out)) return commit
+    // 推送通常是最慢的一步 —— 用户盯着转圈的时间几乎全长在这里
+    onPhase?.('push')
     return runGit(['push', 'origin', `HEAD:${cfg.branch}`], dir, token)
   }
 
@@ -297,6 +311,7 @@ export async function gitSyncData(): Promise<GitSyncResult> {
   // → 重新 commit + push（**绝不用 --force** —— 仓库里可能有别的机器的提交）。
   let recovered = false
   if (!push.ok && isPushRejected(push.out)) {
+    onPhase?.('recover')
     let canRecover = true
     for (const step of pushRecoverySteps(cfg.branch)) {
       const s = await runGit(step, dir, token)

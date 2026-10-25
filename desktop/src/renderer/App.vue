@@ -68,10 +68,16 @@
         <!-- 2026-10-16 用户第 9 条：「同步的时候整个方块都在旋转」——
              真因是动画加在 button 本身（.ico.syncing），边框与底色跟着一起转。
              现在 ⟳ 单独包一层 span，只有**字符**转，按钮本体不动。 -->
-        <button class="ghost nav ico" :class="{ syncing: syncBusy }"
+        <!-- 2026-10-25 卡 004：不再只是一个转圈的图标 —— 长成**状态胶囊**：
+             `⟳ 推送 3s` → `✓ 已同步`（3 秒后回图标）。阶段由主进程真报到哪一步算哪一步，
+             秒数是本地真实计时；**不编百分比**（git 不给字节进度，编一个就是假成功）。 -->
+        <button class="ghost nav ico sync-btn" :class="syncBtnClass"
           :disabled="syncBusy"
           :title="syncTooltip"
-          @click="runSync"><span class="ico-glyph">⟳</span></button>
+          @click="runSync">
+          <span class="ico-glyph">{{ syncGlyph }}</span>
+          <span v-if="syncCapsule" class="sync-cap-txt">{{ syncCapsule }}</span>
+        </button>
       </span>
       <span v-if="parseErrors.length" class="parse-warn" :title="parseErrors.join('\n')" @click="showParseErrors">
         ⚠ {{ parseErrors.length }} 个文件无法解析
@@ -3524,6 +3530,9 @@ import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards
 import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
 import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
+// 同步按钮的阶段/秒数文案是纯函数（shared/syncPhase.ts）—— 放在 shared 里才能喂假秒数断言，
+// 不用在测试里真等 15 秒去验"网络慢"那一档。
+import { syncCapsuleText, syncDoneText, syncPhaseLabel, isSyncPhase } from '../shared/syncPhase'
 import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 // 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
@@ -6644,19 +6653,78 @@ function goHelp(): void {
 
 /** ⟳ 同步：一键 Git 推送（复用既有 backup:gitPush 通道）。
  *  暮雨 2026-10-12：「只做按钮，状态由它自己报」—— 所以不做配置向导，
- *  但**也不许静默失败**：未配置 / 失败都要在按钮的 title 与提示条上说清。 */
+ *  但**也不许静默失败**：未配置 / 失败都要在按钮的 title 与提示条上说清。
+ *
+ *  2026-10-25 卡 004（暮雨第 8 条）：「Git 同步转圈依然很抽象…全世界那么多软件
+ *  没见过这样整个按钮拿去旋转的」。这一轮把按钮改成**状态胶囊**：
+ *    idle `⟳` → busy `⟳ 推送 3s`（阶段来自主进程真实上报）→ `✓ 已同步`（3 秒后回图标）
+ *  两条不肯让步的：① 不编百分比；② 阶段不许渲染层按时间猜。 */
 const syncBusy = ref(false)
 const syncResult = ref<{ ok: boolean; msg: string; at: number } | null>(null)
+/** 主进程上报的当前阶段（认不出就留空 → 界面显示「同步中」而不是瞎编一个阶段） */
+const syncPhase = ref<string>('')
+/** 本地真实计时（毫秒） */
+const syncElapsedMs = ref(0)
+/** 结束态：true/false 停留 3 秒后回图标 */
+const syncFinal = ref<boolean | null>(null)
+let syncT0 = 0
+let syncSecTimer: number | null = null
+let syncRevertTimer: number | null = null
+let syncOffProgress: null | (() => void) = null
+
+const syncCapsule = computed(() => {
+  if (syncBusy.value) return syncCapsuleText(syncPhase.value, syncElapsedMs.value)
+  if (syncFinal.value !== null) return syncDoneText(syncFinal.value)
+  return ''
+})
+const syncGlyph = computed(() => {
+  if (syncBusy.value) return '⟳'
+  if (syncFinal.value === true) return '✓'
+  if (syncFinal.value === false) return '⚠'
+  return '⟳'
+})
+const syncBtnClass = computed(() => ({
+  syncing: syncBusy.value,
+  cap: syncCapsule.value !== '',
+  'sync-ok': syncFinal.value === true,
+  'sync-bad': syncFinal.value === false,
+}))
 const syncTooltip = computed(() => {
-  if (syncBusy.value) return '正在同步…（推到 Git 仓库）'
+  if (syncBusy.value) {
+    const secs = Math.floor(syncElapsedMs.value / 1000)
+    return `正在${syncPhaseLabel(syncPhase.value)}… 已 ${secs} 秒（推到 Git 仓库）`
+  }
   const r = syncResult.value
   if (!r) return '同步：把数据一键推送到你配好的 Git 仓库'
   return '同步' + (r.ok ? '成功' : '失败') + '：' + r.msg + '（' + formatDateTime(new Date(r.at).toISOString()) + '）'
 })
 
+/** 收计时器与阶段订阅 —— 三条出清路径（成功/失败/组件走了）都得过这里，别越挂越多 */
+function stopSyncTimers(): void {
+  if (syncSecTimer !== null) { window.clearInterval(syncSecTimer); syncSecTimer = null }
+  if (syncOffProgress) { try { syncOffProgress() } catch { /* 桥已断 */ } syncOffProgress = null }
+}
+
 async function runSync(): Promise<void> {
   if (syncBusy.value) return
+  // 上一轮的结束态可能还挂着（3 秒窗口内又点了一次）—— 先清掉，别顶着「已同步」开始新一轮
+  if (syncRevertTimer !== null) { window.clearTimeout(syncRevertTimer); syncRevertTimer = null }
+  syncFinal.value = null
+  syncPhase.value = ''
+  syncElapsedMs.value = 0
+  syncT0 = Date.now()
   syncBusy.value = true
+  // 500ms 一跳：秒数要"看得出在动"，但不必每帧重渲染
+  syncSecTimer = window.setInterval(() => { syncElapsedMs.value = Date.now() - syncT0 }, 500)
+  // 订阅阶段流。旧主进程没有这条通道 → 不报错、也不编阶段，界面老老实实是「同步中 + 秒数」
+  try {
+    const api: any = window as any
+    if (typeof api?.tegula?.onSyncProgress === 'function') {
+      syncOffProgress = api.tegula.onSyncProgress((p: any) => {
+        if (isSyncPhase(p?.phase)) syncPhase.value = String(p.phase)
+      })
+    }
+  } catch { syncOffProgress = null }
   try {
     const r: any = await (window as any).tegula.backupGitPush()
     // 主进程返回形状不统一（有 ok/message，也有 {error}）：两种都认，别把失败说成成功。
@@ -6664,12 +6732,21 @@ async function runSync(): Promise<void> {
     const msg = r?.message || r?.error || (ok ? '已推送' : '未推送（可能还没配好仓库）')
     syncResult.value = { ok, msg, at: Date.now() }
     showToast((ok ? '同步成功：' : '同步未完成：') + msg, ok ? 'success' : 'error')
+    syncFinal.value = ok
   } catch (e: any) {
     const msg = e?.message || String(e)
     syncResult.value = { ok: false, msg, at: Date.now() }
     showToast('同步失败：' + msg, 'error')
+    syncFinal.value = false
   } finally {
     syncBusy.value = false
+    stopSyncTimers()
+    // 结束态留 3 秒给人看见，再回图标（不回的话按钮永远停在「已同步」，看不出是新的一次）
+    syncRevertTimer = window.setTimeout(() => {
+      syncFinal.value = null
+      syncPhase.value = ''
+      syncRevertTimer = null
+    }, 3000)
   }
 }
 
@@ -13051,6 +13128,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 @keyframes nav-spin { to { transform: rotate(360deg); } }
 #bar .navgroup .ico .ico-glyph { display: inline-block; }
 #bar .navgroup .ico.syncing .ico-glyph { animation: nav-spin .9s linear infinite; }
+/* 同步状态胶囊（2026-10-25 卡 004）：进行中把宽度撑到能放「推送 12s」，
+   结束态是「✓ 已同步」。宽度只由内容决定、秒数用 tabular-nums，所以数字跳动时不会再抖。 */
+#bar .navgroup .ico.sync-btn { display: inline-flex; align-items: center; justify-content: center;
+  gap: 5px; flex: none; }
+#bar .navgroup .ico.sync-btn.cap { padding: 2px 9px; }
+#bar .navgroup .sync-cap-txt { font-size: 11.5px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+#bar .navgroup .ico.sync-ok { color: var(--success); }
+#bar .navgroup .ico.sync-bad { color: var(--danger); }
 /* 顶栏「刷新」（2026-10-25）：注意它活在**页签行 `#views`** 里（不是 `#bar` ——
    `#bar` 是上面那一行，同步按钮在那边；分开两行反而更难被认成第二个同步按钮）。
    转的是**字符**不是按钮本体 —— `check-button-styles ④` 专门守着这条。 */

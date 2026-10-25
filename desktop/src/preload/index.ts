@@ -92,6 +92,15 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGitTest: () => ipcRenderer.invoke('backup:gitTest'),
   // 2026-10-11 用户第 1 条：改成把**真实文件**镜像进仓库（不再推压缩包），所以没有入参
   backupGitPush: () => ipcRenderer.invoke('backup:gitPush'),
+  /**
+   * 同步阶段流（2026-10-25 卡 004）：主进程真走到哪一步就报哪一步。
+   * 返回退订函数（组件卸载/重开时要摘掉，别越挂越多）。
+   */
+  onSyncProgress: (cb: (p: { phase: string; at: number }) => void) => {
+    const listener = (_e: any, p: any) => cb(p)
+    ipcRenderer.on('sync:progress', listener)
+    return () => ipcRenderer.removeListener('sync:progress', listener)
+  },
   backupPickRestoreFile: () => ipcRenderer.invoke('backup:pickRestoreFile'),
   backupPickDir: () => ipcRenderer.invoke('backup:pickDir'),
   onBackupStatus: (cb: (status: any) => void) => {

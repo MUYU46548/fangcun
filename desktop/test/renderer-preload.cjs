@@ -21,6 +21,12 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 同步阶段流（2026-10-25 卡 004）：订阅者列表 + 一个"按住不放的 push"。
+  // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
+  // 否则「阶段文字」「秒数在动」「结束态停留 3 秒」这三件事在测试里根本无从验起。
+  syncSubs: [],
+  syncHold: false,
+  syncResolve: null,
   // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
   parseErrors: ['task-20261001-001.md', 'task-20261002-002.md'],
   // 想法（2026-10-22）：三条覆盖三种状态 ——
@@ -360,7 +366,22 @@ contextBridge.exposeInMainWorld('tegula', {
   //   全局纪律：凡是断言要按"调用次数"判的通道，假 preload 里**一律先 rec**。
   backupGitPush: () => {
     rec('backupGitPush', [])
+    // 被 __fcTest.holdSync() 按住时返回一个悬着的 Promise —— 断言就能在"进行中"这一帧
+    // 检查胶囊文字与秒数（真 git 跑完得太快，抓不到中间态）
+    if (store.syncHold) {
+      return new Promise((resolve) => { store.syncResolve = resolve })
+    }
     return { ok: false, message: '（夹具：没有真 git）' }
+  },
+  /**
+   * 同步阶段流（2026-10-25 卡 004）：与真 preload 同名同形状，返回退订函数。
+   * ⚠ 假桩必须与真桩同步（少一条 → 视图里 onSyncProgress 是 undefined，
+   *   `syncPhase` 永远空 → 断言会看到「同步中」，把"没接线"误当成"降级正确"）。
+   */
+  onSyncProgress: (cb) => {
+    rec('onSyncProgress', [])
+    store.syncSubs.push(cb)
+    return () => { store.syncSubs = store.syncSubs.filter((f) => f !== cb) }
   },
   backupResticScript: () => ({ ok: true, script: '# 夹具脚本' }),
   loadActivity: (n) => { rec('loadActivity', [n]); return store.activity.slice() },
@@ -1445,6 +1466,25 @@ contextBridge.exposeInMainWorld('__fcTest', {
   logs: () => JSON.parse(JSON.stringify(store.logs)),
   trash: () => JSON.parse(JSON.stringify(store.trash)),
   tasks: () => JSON.parse(JSON.stringify(store.tasks)),
+  // ── 同步阶段流（2026-10-25 卡 004）─────────────────────────────────────
+  /** 让下一次 backupGitPush 悬着不返回（于是能停在"进行中"那一帧做断言） */
+  holdSync: () => { store.syncHold = true },
+  /** 主进程"报一个阶段" —— 真通道是 git 跑到哪报到哪，这里手动喂 */
+  emitSyncProgress: (phase) => {
+    const at = Date.now()
+    store.syncSubs.slice().forEach((cb) => { try { cb({ phase, at }) } catch { /* 组件已卸 */ } })
+    return store.syncSubs.length
+  },
+  /** 结束那次 push（ok=true → ✓ 已同步；false → ⚠ 未同步） */
+  releaseSync: (ok, message) => {
+    store.syncHold = false
+    const f = store.syncResolve
+    store.syncResolve = null
+    if (f) f(ok ? { ok: true, message: message || '已同步 12 个文件' } : { ok: false, message: message || '连不上远端' })
+    return true
+  },
+  /** 还挂着几个阶段订阅 —— 收尾不干净时会越挂越多（每次同步 +1） */
+  syncSubs: () => store.syncSubs.length,
   /** 项目列表（2026-10-25 优先级视图断言要用它算期望行数，不写死条数） */
   projects: () => JSON.parse(JSON.stringify(store.projects)),
   /** 梯度榜真身（拖完落盘后断言读它，而不是读界面） */
