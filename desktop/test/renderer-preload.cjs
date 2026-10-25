@@ -25,6 +25,9 @@ const store = {
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
   // 否则「阶段文字」「秒数在动」「结束态停留 3 秒」这三件事在测试里根本无从验起。
   syncSubs: [],
+  // 账户口径（2026-10-25 卡 005）：默认"有官方余额接口"，可用 __fcTest.setBalanceUnsupported(true)
+  // 切到"这个端点没有余额接口"的真实常见态 —— 那条降级路径必须被验过。
+  balanceUnsupported: false,
   syncHold: false,
   syncResolve: null,
   // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
@@ -1390,6 +1393,37 @@ contextBridge.exposeInMainWorld('tegula', {
       ],
     }
   },
+  /**
+   * 账户口径（2026-10-25 卡 005）：余额差值。
+   * ⚠ 夹具给的数字是**定死的**（3.60 / 100.00 充值 / 3 次观测），断言按它核对界面；
+   *   `balanceUnsupported` 切到"没有余额接口"的真实常见态，验降级文案不编数字。
+   */
+  llmBalanceStatus: () => {
+    rec('llmBalanceStatus', [])
+    if (store.balanceUnsupported) {
+      return {
+        supported: false, reason: '这个端点没有官方余额接口 —— 账户口径不可用，只能看 token（或自己填单价）',
+        provider: 'unknown', currency: '', spent: '0.00', recharged: '0.00', lastBalance: '',
+        observations: 0, updatedAt: '', note: '',
+      }
+    }
+    return {
+      supported: true, reason: '', provider: 'deepseek', currency: 'CNY',
+      spent: '3.60', recharged: '100.00', lastBalance: '196.40',
+      observations: 3, updatedAt: '2026-10-25T10:00:00.000Z', note: '',
+    }
+  },
+  llmBalanceObserve: () => {
+    rec('llmBalanceObserve', [])
+    return {
+      ok: true, message: '本次观测到消费 1.20 CNY（余额 195.20）',
+      status: {
+        supported: true, reason: '', provider: 'deepseek', currency: 'CNY',
+        spent: '4.80', recharged: '100.00', lastBalance: '195.20',
+        observations: 4, updatedAt: '2026-10-25T10:05:00.000Z', note: '',
+      },
+    }
+  },
   llmGetConfig: () => ({}),
   llmSetConfig: () => ok(),
   llmResetConfig: () => ok(),
@@ -1483,6 +1517,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
     if (f) f(ok ? { ok: true, message: message || '已同步 12 个文件' } : { ok: false, message: message || '连不上远端' })
     return true
   },
+  /** 账户口径降级夹具：切到"这个端点没有余额接口"（多数中转/MiMo 的真实情况） */
+  setBalanceUnsupported: (v) => { store.balanceUnsupported = !!v },
   /** 还挂着几个阶段订阅 —— 收尾不干净时会越挂越多（每次同步 +1） */
   syncSubs: () => store.syncSubs.length,
   /** 项目列表（2026-10-25 优先级视图断言要用它算期望行数，不写死条数） */

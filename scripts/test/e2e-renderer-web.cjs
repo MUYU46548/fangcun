@@ -246,6 +246,9 @@ function main() {
       ['想法', '', 'ideas'],
       ['问答', '', 'ask'],
       ['问答', '', 'ask-answer', 'askans'],
+      // 2026-10-25 卡 005：账户口径（余额差值）—— 截图要同时看见「月报表(token)」和
+      // 「账户口径(真钱)」两块，并且能读到「归不到具体某一次调用」那句。
+      ['问答', '', 'ask-account', 'askacc'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
       ['日志', '', 'logs'],
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
@@ -486,6 +489,12 @@ function main() {
     window.__fcTest.emitSyncProgress('push')
     await sleep(2400)   // 让秒数爬到 2s，截图里看得出"真的在计时"
   }
+` : ''}
+  ${extra === 'askacc' ? `
+  // 滚到页面底部：账户口径块在月报表下面
+  const accEl = document.querySelector('#board.ask-view .ask-acc')
+  if (accEl) accEl.scrollIntoView({ block: 'end' })
+  await sleep(500)
 ` : ''}
   ${extra === 'moremenu' ? `
   const mBtn = document.querySelector('#views .more-btn')

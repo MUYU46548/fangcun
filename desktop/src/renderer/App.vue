@@ -538,6 +538,36 @@
       <div class="ask-report ask-report-empty" v-else>
         AI 花销 · 按自然月：还没有任何调用记录（一次都没走过 AI 通道）。
       </div>
+
+      <!-- 账户口径（2026-10-25 卡 005）：这一行**不是估算**，是官方余额接口的差值。
+           暮雨给的参考实现点破了关键 —— 准的办法是不经过价格表：价格怎么变，
+           余额下降额都是真花掉的钱。代价（粒度粗、要充值不混进消费）也写在这里。 -->
+      <div class="ask-acc" v-if="balanceStatus">
+        <div class="ask-report-h">
+          账户口径 · 余额差值
+          <em class="ask-report-src">
+            {{ balanceStatus.supported ? '来自供应商余额接口，不是按 token 估算' : '这一口径不可用' }}
+          </em>
+        </div>
+        <template v-if="balanceStatus.supported">
+          <div class="ask-acc-row">
+            <span class="arr-m">{{ providerLabel(balanceStatus.provider) }}</span>
+            <span class="arr-c">观测 {{ balanceStatus.observations }} 次</span>
+            <span class="arr-t">
+              已观测消费 <b>{{ balanceStatus.spent }} {{ balanceStatus.currency }}</b>
+              <em v-if="Number(balanceStatus.recharged) > 0">· 另有充值 {{ balanceStatus.recharged }}</em>
+            </span>
+          </div>
+          <div class="ask-acc-note">
+            <span v-if="balanceStatus.note">{{ balanceStatus.note }}</span>
+            <span v-else>这是账户真实扣款（两次观测之间的差额），<b>归不到具体某一次调用</b>；逐笔要看上面的 token。</span>
+            <button class="ghost ask-acc-btn" :disabled="balanceObserving" @click="refreshBalance">
+              {{ balanceObserving ? '查…' : '⟳ 立刻查一次' }}
+            </button>
+          </div>
+        </template>
+        <div class="ask-acc-note" v-else>{{ balanceStatus.reason }}</div>
+      </div>
     </main>
 
     <main id="board" :class="boardClass" v-if="curView === 'active' || curView === 'archive'">
@@ -5936,6 +5966,41 @@ const askGroups = computed(() => {
 
 /** 月度报表（03 任务三）：按自然月，最近 3 个月。读不到就空 —— 界面会直说"一次都没走过 AI"。 */
 const usageMonths = ref<any[]>([])
+/** 账户口径（2026-10-25 卡 005）：只读状态，真正的余额请求在 refreshBalance 里按需发 */
+const balanceStatus = ref<any>(null)
+const balanceObserving = ref(false)
+
+async function loadBalanceStatus(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.llmBalanceStatus()
+    balanceStatus.value = r || null
+  } catch {
+    // 旧主进程没有这条通道 → 不显示这块（不报假）
+    balanceStatus.value = null
+  }
+}
+
+/** 端点 id → 人话品牌名（界面上别直接摆 `deepseek` 这种内部 id） */
+function providerLabel(p: string): string {
+  if (p === 'deepseek') return 'DeepSeek'
+  if (p === 'openrouter') return 'OpenRouter'
+  return p || '未知端点'
+}
+
+async function refreshBalance(): Promise<void> {
+  if (balanceObserving.value) return
+  balanceObserving.value = true
+  try {
+    const r: any = await (window as any).tegula.llmBalanceObserve()
+    if (r?.status) balanceStatus.value = r.status
+    showToast(r?.message || (r?.ok ? '已查一次余额' : '查余额失败'), r?.ok ? 'success' : 'error')
+  } catch (e: any) {
+    showToast('查余额失败：' + (e?.message || e), 'error')
+  } finally {
+    balanceObserving.value = false
+  }
+}
+
 async function loadUsageMonths(): Promise<void> {
   try {
     const r: any = await window.tegula.llmUsageMonthly(3)
@@ -6561,6 +6626,7 @@ function loadViewData(v: string) {
     if (!askPresets.value.length) void loadAskPresets()
     // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
     void loadUsageMonths()
+    void loadBalanceStatus()
   } else if (v === 'trash') {
     // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）；
     // 列表本身由组件 onMounted 拉（views/TrashView.vue）
@@ -12811,11 +12877,22 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ask-correct-err { margin-top: 8px; font-size: 12px; color: var(--danger); }
 .ask-empty { margin-top: 18px; font-size: 13px; color: var(--muted); }
 /* 月报表：压成页脚的一条，不跟主内容抢眼（它是"随时可查"，不是每次都要读） */
-.ask-report { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ask-report, .ask-acc { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--border); }
+/* ⚠ 账户口径**不叫** .ask-report：月报表那条断言按 `.ask-report` 数"这一页只有一块"，
+   给它套同一个 class 会把那条断言变成假红（数到 2 块）。同壳不同名，样式靠分组选择器共享。 */
+.ask-acc { margin-top: 18px; }
 .ask-report-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px;
   font-weight: 600; color: var(--muted); }
 .ask-report-src { font-style: normal; font-weight: 400; font-size: 11px; color: var(--muted); }
-.ask-report-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-top: 5px; font-size: 12px; }
+/* 账户口径那一块（2026-10-25 卡 005）：与月报表同壳，但内容不同 —— 它是"账户扣款"，
+   不是"按 token 估算"，所以标题里直接把来源写死。 */
+.ask-acc-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--muted); line-height: 1.7; padding-top: 2px; }
+.ask-acc-note b { color: var(--ink); font-weight: 600; }
+.ask-acc-btn { height: 22px; padding: 0 8px; font-size: 11px; flex: none; }
+/* ⚠ 行样式做成共用；但类名必须分开 —— 月报表断言按 `.ask-report-row` 数"两个月两行"，
+   账户口径套同一个类会数到 3 行（与上面 `.ask-report` 同一个坑，今天第二次）。 */
+.ask-report-row, .ask-acc-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-top: 5px; font-size: 12px; }
 .arr-m { flex: 0 0 68px; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
 .arr-c { flex: 0 0 auto; color: var(--ink); }
 .arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }

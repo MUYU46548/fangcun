@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { guardedHandle } from './guarded-ipc'
+import { getBalanceStatus, observeBalance } from './llm/balance'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
@@ -33,6 +34,12 @@ export function registerLlmIpcHandlers(): void {
     const n = Number(months)
     return { months: usageByMonth(Number.isFinite(n) && n > 0 ? Math.min(n, 24) : 3) }
   })
+
+  // ── 账户口径（2026-10-25 卡 005）：余额差值，不是价格表 ────────────────
+  // 暮雨给的参考实现点破了关键：准的办法是**不经过价格表** —— 官方余额接口的下降额
+  // 就是真花掉的钱。`balance:status` 只读（不联网），`balance:observe` 才真去查一次。
+  guardedHandle('llm:balanceStatus', () => getBalanceStatus())
+  guardedHandle('llm:balanceObserve', () => observeBalance())
 
   guardedHandle('llm:getConfig', () => {
     // 密钥只出掩码 + 提示串，原值永不过 IPC
@@ -84,6 +91,9 @@ export function registerLlmIpcHandlers(): void {
   guardedHandle('llm:chat', async (_event, content: string, options: ChatOptions) => {
     try {
       const result = await chat(content, { ...options, trigger: options.trigger || 'desktop.chat' })
+      // 调用刚结束就观测一次余额：差值更能归到"这一次"（轮询式 60s 反而更糊）。
+      // ⚠ fire-and-forget：查余额失败绝不能影响已经拿到的回答。
+      void observeBalance().catch(() => { /* 已在服务里落日志 */ })
       return { ok: true, content: result }
     } catch (e) {
       return toFailure(e)

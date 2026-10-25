@@ -5405,6 +5405,53 @@
           && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
         check('★ 没给用量数字的那次明说「只计数」（不拿字符数折算 token）',
           rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
+
+        // ── 账户口径 · 余额差值（2026-10-25 卡 005）──────────────────────────
+        // 暮雨给的参考实现（DSH 小鲸鱼）点破关键：金额准不是因为价格表准，而是
+        // **根本不经过价格表** —— 余额下降额就是真扣的钱。所以这块必须：
+        // ① 标题写清来源；② 消费与充值分开；③ 明说"归不到具体某一次调用"；④ 没有接口就说没有。
+        {
+          const acc = () => $('#board.ask-view .ask-acc')
+          check('★★ 问答页底部有「账户口径 · 余额差值」块（不是只有 token）', !!acc())
+          const at = ((acc() || {}).textContent || '').replace(/\s+/g, ' ')
+          check('★★ 标题写明来源：「来自供应商余额接口，不是按 token 估算」',
+            at.indexOf('余额差值') >= 0 && at.indexOf('不是按 token 估算') >= 0, at.slice(0, 80))
+          check('★★ 账户真实扣款显示出来了（夹具 3.60 CNY）',
+            at.indexOf('已观测消费') >= 0 && at.indexOf('3.60') >= 0 && at.indexOf('CNY') >= 0, at.slice(0, 90))
+          check('★ 充值单列（100.00），不与消费混成一个数',
+            at.indexOf('充值') >= 0 && at.indexOf('100.00') >= 0, at.slice(0, 110))
+          check('★★ 明说粒度代价：**归不到具体某一次调用**（这句不许省）',
+            at.indexOf('归不到具体某一次调用') >= 0, at.slice(-80))
+
+          const n0 = window.__fcTest.callCount('llmBalanceObserve')
+          const btn = $('#board.ask-view .ask-acc-btn')
+          check('★ 有「⟳ 立刻查一次」按钮（不想等下次调用也能核）', !!btn)
+          if (btn) {
+            btn.click()
+            await sleep(700)
+            check('★★ 点它真的发请求', window.__fcTest.callCount('llmBalanceObserve') > n0,
+              n0 + ' → ' + window.__fcTest.callCount('llmBalanceObserve'))
+            const at2 = ((acc() || {}).textContent || '').replace(/\s+/g, ' ')
+            check('★★ 查完数字跟着变（3.60 → 4.80，不是只弹一句 toast）',
+              at2.indexOf('4.80') >= 0, at2.slice(0, 90))
+            const tst = (($('#toast') || {}).textContent || '')
+            check('  同时把本次观测结果说清（消费多少 / 余额多少）',
+              tst.indexOf('消费') >= 0 && tst.indexOf('195.20') >= 0, tst.slice(0, 70))
+          }
+
+          // 降级：多数中转 / MiMo 根本没有余额接口 —— 这条路径必须验，否则上线就被当成"坏了"
+          window.__fcTest.setBalanceUnsupported(true)
+          clickText('看板'); await sleep(500)
+          clickText('问答'); await sleep(900)
+          const at3 = ((($('#board.ask-view .ask-acc') || {}).textContent) || '').replace(/\s+/g, ' ')
+          check('★★ 端点没有余额接口时：如实说原因，不编数字',
+            at3.indexOf('没有官方余额接口') >= 0, at3.slice(0, 90))
+          check('★★ 而且**不显示**「已观测消费」（半个字都不许让人误会）',
+            at3.indexOf('已观测消费') < 0 && at3.indexOf('0.00') < 0, at3.slice(0, 90))
+          check('  也没有「立刻查一次」按钮（查不了就别给按钮）',
+            !$('#board.ask-view .ask-acc-btn'))
+          window.__fcTest.setBalanceUnsupported(false)
+        }
       }
     }
 

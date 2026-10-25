@@ -223,6 +223,12 @@ contextBridge.exposeInMainWorld('tegula', {
   llmUsageStats: (days?: number) => ipcRenderer.invoke('llm:usageStats', days),
   /** 月度花销（2026-10-22 · 03 任务三）：按自然月切，不是滚动 30 天 */
   llmUsageMonthly: (months?: number) => ipcRenderer.invoke('llm:usageMonthly', months),
+  /**
+   * 账户口径（2026-10-25 卡 005）：余额差值。
+   * `balanceStatus` 纯读不联网（进页面就能显示口径）；`balanceObserve` 才真去查一次。
+   */
+  llmBalanceStatus: () => ipcRenderer.invoke('llm:balanceStatus'),
+  llmBalanceObserve: () => ipcRenderer.invoke('llm:balanceObserve'),
   llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
   llmResetConfig: () => ipcRenderer.invoke('llm:resetConfig'),
   llmTestConnection: (cfg?: any) => ipcRenderer.invoke('llm:testConnection', cfg),

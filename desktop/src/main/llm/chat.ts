@@ -59,6 +59,12 @@ function buildHeaders(cfg: LLMConfig): Record<string, string> {
     'Content-Type': 'application/json',
     Accept: 'application/json',
     Authorization: token,
+    // 客户端标识（2026-10-25 卡 005 第 6 条）：供应商后台看到"未归因应用"，就是因为
+    // 请求里没有任何身份信息。这三行是方寸**能做的那一步**；能不能被识别取决于
+    // 供应商是否收录（国内多数不收录）—— 那是对方的事，不是继续改我们能解决的。
+    'User-Agent': 'Fangcun-Desktop',
+    'X-Title': 'Fangcun',
+    'HTTP-Referer': 'https://github.com/MUYU46548/fangcun',
   }
 }
 
