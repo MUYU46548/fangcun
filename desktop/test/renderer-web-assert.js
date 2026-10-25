@@ -32,6 +32,24 @@
     return true
   }
   /**
+   * 切到某个视图页签 —— **低频页签现在收在「更多」里**（2026-10-25 暮雨要求折叠）。
+   * 断言不能再假设"页签行一定有那个按钮"：先找页签行，找不到就开「更多」菜单再点。
+   * ⚠ 必须是 async：浮层要一帧才渲染出来，同步点不到。
+   */
+  const openViewTab = async (label) => {
+    const direct = $$('#views .vbtn').find((e) => (e.textContent || '').trim().indexOf(label) >= 0)
+    if (direct) { direct.click(); await sleep(600); return true }
+    const more = $('#views .more-btn')
+    if (!more) return false
+    more.click()
+    await sleep(450)
+    const opt = $$('.more-pop .more-opt').find((e) => (e.textContent || '').trim().indexOf(label) >= 0)
+    if (!opt) return false
+    opt.click()
+    await sleep(750)
+    return true
+  }
+  /**
    * 「点遮罩」的正确模拟（2026-10-11 用户第 3 条）。
    *
    * 遮罩的关闭手势已从 `@click.self` 改成 `@mousedown.self` —— 因为在文本框里按住拖选、
@@ -308,6 +326,52 @@
           const toastTxt = (($('#toast') || {}).textContent || '')
           check('  刷完有反馈（toast 说重读了 / 或点名哪几项失败）',
             toastTxt.indexOf('重读') >= 0 || toastTxt.indexOf('失败') >= 0, toastTxt.slice(0, 60))
+        }
+      }
+
+      // ── 顶栏「更多」：低频页签折叠（2026-10-25 暮雨）────────────────────────
+      // 原话：「帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来……
+      //        最少维持 7 个功能按钮在场。」
+      // 判据：① 那三个默认不在页签行；② 在「更多」里；③ 点它能切过去且按钮显示当前页名。
+      {
+        const tabTexts = $$('#views .vbtn').map((b) => (b.textContent || '').trim())
+        const moreBtn = $('#views .more-btn')
+        check('★★ 顶栏有「更多」按钮', !!moreBtn, tabTexts.join(' | '))
+        check('★★ 默认收起「技能 / 服务 / 启动台」三个低频页签（不在页签行）',
+          tabTexts.every((t) => t.indexOf('技能') < 0 && t.indexOf('服务') < 0 && t.indexOf('启动台') < 0),
+          tabTexts.join(' | '))
+        check('★ 页签行仍有 >= 7 个页签在场（最少维持 7 个）',
+          tabTexts.filter((t) => t && t.indexOf('更多') < 0).length >= 7,
+          '在场 ' + tabTexts.filter((t) => t && t.indexOf('更多') < 0).length + ' 个')
+
+        if (moreBtn) {
+          moreBtn.click()
+          await sleep(500)
+          const pop = $('.more-pop')
+          check('★★ 点「更多」弹出被收起的页签', !!pop, pop ? '' : '(没有 .more-pop)')
+          const opts = pop ? $$('.more-pop .more-opt').map((b) => (b.textContent || '').trim()) : []
+          check('★★ 菜单里就是那三个（技能 / 服务 / 启动台）',
+            opts.length === 3 && opts.some((t) => t.indexOf('技能') >= 0)
+            && opts.some((t) => t.indexOf('服务') >= 0) && opts.some((t) => t.indexOf('启动台') >= 0),
+            JSON.stringify(opts))
+          const skillOpt = pop ? $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('技能') >= 0) : null
+          if (skillOpt) {
+            skillOpt.click()
+            await sleep(800)
+            check('★★ 点菜单项真的切过去了（技能页渲染）', !!$('#board.skills-view, .skills-view'),
+              '当前 DOM 里没有 .skills-view')
+            const moreTxt = ($('#views .more-btn') || {}).textContent || ''
+            check('★★ 停在被收起的页签里时，「更多」按钮显示那一页的名字（不许"不知道自己在哪"）',
+              moreTxt.indexOf('技能') >= 0, 'more-btn="' + moreTxt.trim() + '"')
+            check('  且它是高亮态', !!$('#views .more-btn.on'))
+            // 收尾：回看板
+            clickText('看板')
+            await sleep(600)
+            check('  收尾：回到看板，「更多」按钮恢复成"更多"两个字',
+              (($('#views .more-btn') || {}).textContent || '').indexOf('看板') < 0)
+          } else {
+            check('  菜单里有「技能」项', false, '没找到')
+          }
         }
       }
 
@@ -4120,7 +4184,7 @@
     // ══ 技能页 · 多目标装机状态（2026-10-03 卡 010/011）══════════════════
     //   用户原话：「DSH 在上一轮已经完成安装，但方寸**检测不到** DSH 安装了」——
     //   装卡区此前连 DSH 这一行都没有。这里把它钉在**真渲染出来的 DOM** 上。
-    check('能切到「技能」页签', clickText('技能'))
+    check('能切到「技能」页签', await openViewTab('技能'))
     await sleep(500)
     check('技能页渲染出来（.skills-view 在）', await waitFor(() => !!$('.skills-view'), 4000, '技能视图'))
 
@@ -4249,7 +4313,7 @@
     // ⚠ 这是「通用」类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
     //   2026-10-25 加了「念头长度上限」，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限']
+    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限', '顶栏页签']
     check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
@@ -5245,7 +5309,7 @@
         }
       }
       // 首页：切到别的视图 → 点 ⌂ → 必须回看板
-      clickText('服务')
+      await openViewTab('服务')
       const homeBtn = $('#bar .navgroup button[title*="首页"]')
       if (homeBtn) {
         homeBtn.click()
@@ -5494,7 +5558,7 @@
     //   ① 启动台 = 纯启动器：点卡片就开，卡片上**不出现端口**（端口不属于这里）；
     //   ② 服务页 = 纯端口监控：**不再**列启动台应用（那块已搬走），只留"已登记 + 方寸扫到的"。
     {
-      clickText('启动台'); await sleep(400)
+      await openViewTab('启动台')
       const lpCards = $$('.lp-card')
       check('★ 启动台渲染出登记的卡片（夹具 2 张）', lpCards.length === 2, 'cards=' + lpCards.length)
 
@@ -5568,7 +5632,7 @@
       }
 
       // 服务页（2026-10-16 用户第 2 条：应用分区已搬走，本页回归纯端口监控）
-      clickText('服务'); await sleep(600)
+      await openViewTab('服务')
       check('  进得了服务页（.services-view）', !!$('.services-view'))
       check('★★ 服务页**不再**有「启动台应用」分区（启动回启动台，这页只管端口）',
         !$$('.svc-group-title').some(t => (t.textContent || '').indexOf('启动台应用') >= 0),

@@ -224,6 +224,8 @@ function main() {
     fs.mkdirSync(outDir, { recursive: true })
     const CASES = [
       ['看板', '列视图', 'board-cols'],
+      // 2026-10-25：顶栏「更多」菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
+      ['看板', '列视图', 'top-more', 'moremenu'],
       ['看板', '列表视图', 'board-list'],
       ['待办', '清单', 'todo-list'],
       ['待办', '卡片网格', 'todo-grid'],
@@ -468,6 +470,11 @@ function main() {
     lastTier.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
     await sleep(700)
   }
+` : ''}
+  ${extra === 'moremenu' ? `
+  const mBtn = document.querySelector('#views .more-btn')
+  if (mBtn) mBtn.click()
+  await sleep(600)
 ` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子

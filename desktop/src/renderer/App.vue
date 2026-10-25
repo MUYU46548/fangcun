@@ -216,7 +216,7 @@
          搬过来的按钮 `v-if` 条件原样保留（新建/快速记/任务多选仍只在任务视图出现）。 -->
     <nav id="views" :class="{ 'batch-on': batchMode }">
       <button
-        v-for="v in views"
+        v-for="v in visibleViews"
         :key="v.id"
         class="vbtn"
         :class="{ on: curView === v.id }"
@@ -224,6 +224,34 @@
       >
         {{ v.label }}
       </button>
+      <!-- 更多（2026-10-25 暮雨：「帮我搞个更多菜单，该折叠的就折叠」）——
+           默认收起「启动台 / 技能 / 服务」三个低频页签；它们在设置里可自己勾（至少留 7 个在外面）。
+           ⚠ 停在被收起的页签里时，这个按钮显示**那一页的名字**并高亮 ——
+             否则会出现"人在技能页、顶栏却没有任何高亮"的鬼状态。 -->
+      <PopoverRoot v-if="moreViews.length" v-model:open="moreOpen">
+        <PopoverTrigger as-child>
+          <button class="vbtn more-btn" :class="{ on: curViewInMore }"
+            :title="curViewInMore
+              ? '你现在在「' + curViewLabel + '」—— 它是被收起的页签；点这里换别的'
+              : '还有 ' + moreViews.length + ' 个页签收在这里：' + moreViews.map(v => v.label).join(' / ')">
+            {{ curViewInMore ? curViewLabel : '更多' }}<span class="more-caret">▾</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverPortal>
+          <PopoverContent class="fpop more-pop" align="start" :side-offset="6" :collision-padding="8"
+            update-position-strategy="always">
+            <div class="fpop-h">
+              <b>收起的页签</b><span class="fpop-grow"></span>
+              <button class="fpop-close" title="收起" @click="moreOpen = false">✕</button>
+            </div>
+            <div class="more-list">
+              <button v-for="v in moreViews" :key="'mv-' + v.id" class="fpop-opt more-opt"
+                :class="{ on: curView === v.id }" @click="pickMoreView(v.id)">{{ v.label }}</button>
+            </div>
+            <div class="more-hint">想改哪些收起来？设置 → 通用 → 「顶栏页签」（至少留 {{ VIEWS_MIN_VISIBLE }} 个在外面）。</div>
+          </PopoverContent>
+        </PopoverPortal>
+      </PopoverRoot>
       <span class="views-grow"></span>
         <button v-if="isTaskView" class="pri" title="新建任务（走完整表单）" @click="openNew">+ 新建</button>
         <!-- 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）：
@@ -2835,6 +2863,24 @@
           </div>
           <div class="hint">改完立刻生效（落进 prefs.json，重启也在）；滑块到头也不会超过 {{ IDEA_TEXT_HARD_MAX }}。</div>
         </div>
+        <div class="sect" v-show="settingsTab === 'general'">
+          <h4>顶栏页签</h4>
+          <div class="hint">
+            勾上 = 顶栏直接显示；取消 = 收进顶栏的「更多 ▾」。
+            <b>至少留 {{ VIEWS_MIN_VISIBLE }} 个在外面</b> —— 否则工具会被藏没。
+          </div>
+          <div class="views-pick">
+            <label v-for="v in views" :key="'vp-' + v.id" class="views-pick-item"
+              :class="{ off: collapsedViews.includes(v.id) }">
+              <input type="checkbox" :checked="!collapsedViews.includes(v.id)"
+                @change="onViewVisibleChange(v.id, $event)" />
+              <span>{{ v.label }}</span>
+            </label>
+          </div>
+          <div class="sect-btns">
+            <button class="ghost" @click="resetCollapsedViews">恢复默认（收 启动台 / 技能 / 服务）</button>
+          </div>
+        </div>
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
@@ -3876,6 +3922,15 @@ async function syncBoardPrefs(): Promise<void> {
       if (p.fc_theme !== theme.value) applyTheme(p.fc_theme)
     } else {
       saveUiPref('fc_theme', theme.value)
+    }
+    // 顶栏折叠的页签（2026-10-25）：只认真实存在的页签 id；真身里若写成"几乎全收起来"，
+    // 同样撞「至少留 7 个」这道护栏 → 回落默认（不然一次手改就能把工具全藏了）。
+    if (Array.isArray(p?.fc_views_collapsed)) {
+      const known = new Set(views.map(v => v.id))
+      const clean = Array.from(new Set(p.fc_views_collapsed.map((x: unknown) => String(x)).filter((id: string) => known.has(id))))
+      collapsedViews.value = (views.length - clean.length) >= VIEWS_MIN_VISIBLE ? clean : [...DEFAULT_COLLAPSED_VIEWS]
+    } else {
+      saveUiPref(VIEWS_COLLAPSED_KEY, collapsedViews.value)
     }
     // 念头长度上限（2026-10-25）：真身优先；手改出来的越界值当场夹回量程，再补写回去
     // —— 不夹的话设置页滑块会显示一个拉不到的数，用户以为坏了。
@@ -6031,6 +6086,57 @@ const views = [
     不在页签行里再放一个重复的（页签行已经 13 个）。
     但 `curViewLabel` 与视图分支都按 id 查表，所以它必须在这里。 */
 const ALL_VIEWS = [...views, { id: 'help', label: '帮助手册' }]
+
+// ── 顶栏「更多」：低频页签折叠（2026-10-25 暮雨）──────────────────────────
+// 原话：「帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来，
+//        至少对我而言是低频功能。或者后续改成用户可以自己设置哪些功能折叠，最少维持 7 个功能按钮在场。」
+//
+// 所以两件都做了：① 默认收三个低频页签；② 设置里可自己勾（含「至少 7 个在场」这道护栏）。
+// ⚠ 当前视图若在被折叠里，「更多」按钮显示它的名字并高亮 —— 不能让人"不知道自己现在在哪一页"。
+const VIEWS_COLLAPSED_KEY = 'fc_views_collapsed'
+/** 顶栏至少留几个页签在外面（暮雨定的下限，也是护栏） */
+const VIEWS_MIN_VISIBLE = 7
+/** 默认收起：他点名的三个低频功能 */
+const DEFAULT_COLLAPSED_VIEWS = ['launchpad', 'skills', 'services']
+
+const collapsedViews = ref<string[]>(readUiPref<string[]>(VIEWS_COLLAPSED_KEY, DEFAULT_COLLAPSED_VIEWS))
+const moreOpen = ref(false)
+/** 顶栏上直接显示的页签 */
+const visibleViews = computed(() => views.filter(v => !collapsedViews.value.includes(v.id)))
+/** 收在「更多」里的页签 */
+const moreViews = computed(() => views.filter(v => collapsedViews.value.includes(v.id)))
+/** 当前停在被折叠的页签里？（决定「更多」按钮显不显示它的名字） */
+const curViewInMore = computed(() => moreViews.value.some(v => v.id === curView.value))
+
+function pickMoreView(id: string): void {
+  moreOpen.value = false
+  switchView(id)
+}
+
+/**
+ * 勾/取消勾一个页签在顶栏的可见性。
+ * 护栏：收起来之后顶栏至少还得有 `VIEWS_MIN_VISIBLE` 个 —— 否则"折叠"会把工具藏没。
+ */
+function onViewVisibleChange(id: string, ev: Event): void {
+  const wantVisible = (ev.target as HTMLInputElement).checked
+  const next = wantVisible
+    ? collapsedViews.value.filter(x => x !== id)
+    : Array.from(new Set([...collapsedViews.value, id]))
+  const visibleCount = views.length - next.length
+  if (visibleCount < VIEWS_MIN_VISIBLE) {
+    // 说清为什么不行 + 现在几个 —— 直接拒绝，不改状态（复选框由 :checked 回弹）
+    showToast(`顶栏至少留 ${VIEWS_MIN_VISIBLE} 个页签（收起后就只剩 ${visibleCount} 个）—— 先放回几个再收`, 'error')
+    return
+  }
+  collapsedViews.value = next
+  saveUiPref(VIEWS_COLLAPSED_KEY, next)
+}
+
+function resetCollapsedViews(): void {
+  collapsedViews.value = [...DEFAULT_COLLAPSED_VIEWS]
+  saveUiPref(VIEWS_COLLAPSED_KEY, collapsedViews.value)
+  showToast('已恢复默认：收起「启动台 / 技能 / 服务」', 'success')
+}
 /** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
 const curViewLabel = computed(() => ALL_VIEWS.find(v => v.id === curView.value)?.label || curView.value)
 
@@ -12933,6 +13039,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 紧凑版：页签行本来就挤（15 个页签 + 六个操作按钮），多 70px 会把
    「☑ 任务多选」挤到下一行 —— 目检抓到过一次，所以 padding/字号都收一档。 */
 .views-ops { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+/* 顶栏「更多」(2026-10-25)：页签行放不下的低频页签收进这里。观感与 .vbtn 一致。 */
+#views .more-btn { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+#views .more-btn .more-caret { font-size: 9px; opacity: .7; line-height: 1; }
+.more-pop { min-width: 172px; }
+.more-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; }
+/* 菜单项不是输入框：`.fpop-opt` 那套是"筛选胶囊"，全宽套过来会像一排输入框（目检抓到的）。
+   这里改成标准菜单行的样子：无边框、hover 才上底色。 */
+.more-opt { text-align: left; width: 100%; background: transparent; border-color: transparent; }
+.more-opt:hover { background: var(--tint); border-color: var(--accent); }
+.more-hint { font-size: 11px; color: var(--muted); line-height: 1.6; padding-top: 6px;
+  margin-top: 4px; border-top: 1px dashed var(--border); }
+/* 设置 → 通用 → 顶栏页签：一排可勾的页签名 */
+#smodal .views-pick { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0 6px; }
+#smodal .views-pick-item { display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--ink); cursor: pointer; }
+#smodal .views-pick-item.off { color: var(--muted); }
+#smodal .views-pick-item input { accent-color: var(--accent); font-family: inherit; cursor: pointer; }
 #views .refresh-all { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
   padding: 0 8px; }
 #views .refresh-all .ico-glyph { display: inline-block; font-size: 12px; }
