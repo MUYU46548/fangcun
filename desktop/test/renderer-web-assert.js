@@ -820,6 +820,58 @@
       }
     }
 
+    // ══ 看板 · 分区头整组勾选（2026-10-25 暮雨第 11 条）══════════════════
+    // 原话：「一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点」。
+    // 判据：点某分区的组选框 = 只选中该组；其他组不受影响；再点一次 = 只取消该组。
+    {
+      const batchBtn = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
+      if (batchBtn) {
+        batchBtn.click()
+        await sleep(400)
+
+        const cols = $$('#board .col')
+        const nonEmpty = cols.filter((c) => c.querySelectorAll('.card[data-id]').length > 0)
+        const withBox = nonEmpty.filter((c) => c.querySelector('h3 .grp-chk input'))
+        check('★★ 多选模式下「每个有卡的分区头」都出现组选框',
+          nonEmpty.length > 0 && withBox.length === nonEmpty.length,
+          '有框 ' + withBox.length + ' / 有卡分区 ' + nonEmpty.length)
+
+        const idx = cols.findIndex((c) => c.querySelector('h3 .grp-chk input') && c.querySelectorAll('.card[data-id]').length > 1)
+        check('  找一个卡数 >1 的分区做实验', idx >= 0, 'idx=' + idx)
+        if (idx >= 0) {
+          const col = cols[idx]
+          const ids = Array.prototype.slice.call(col.querySelectorAll('.card[data-id]')).map((c) => c.getAttribute('data-id'))
+          const box = col.querySelector('h3 .grp-chk input')
+          const otherCol = cols.find((c, i) => i !== idx && c.querySelectorAll('.card[data-id]').length > 0)
+          const otherIds = otherCol ? Array.prototype.slice.call(otherCol.querySelectorAll('.card[data-id]')).map((c) => c.getAttribute('data-id')) : []
+
+          box.click()
+          await sleep(400)
+          const cnt1 = $('.batch-bar .batch-count')
+          check('★★ 点组选框 = 这一组整组进选择（已选 ' + ids.length + '）',
+            !!cnt1 && (cnt1.textContent || '').indexOf('已选 ' + ids.length) >= 0,
+            cnt1 ? cnt1.textContent : '(批量栏没了)')
+          const selectedNow = $$('#board .card.selected').map((c) => c.getAttribute('data-id'))
+          check('★★ 选中集合 = 该组全部，且**不含**其他分区的卡',
+            ids.every((id) => selectedNow.indexOf(id) >= 0) && !otherIds.some((id) => selectedNow.indexOf(id) >= 0),
+            'selected=' + JSON.stringify(selectedNow))
+
+          box.click()
+          await sleep(350)
+          const cnt2 = $('.batch-bar .batch-count')
+          check('★★ 再点一次 = 只取消这一组（已选 0，其他组的选择保留）',
+            !!cnt2 && (cnt2.textContent || '').indexOf('已选 0') >= 0,
+            cnt2 ? cnt2.textContent : '(批量栏没了)')
+        }
+
+        const cancel2 = $$('.batch-bar button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cancel2) cancel2.click()
+        await sleep(300)
+        check('  收尾：退出多选后组选框也消失（它只属于多选模式）',
+          !$('.batch-bar') && !$('#board .col h3 .grp-chk'))
+      }
+    }
+
     // 切列表视图
     check('★ 能点到「列表视图」', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('列表视图') >= 0)

@@ -506,6 +506,15 @@
               <span class="gn">{{ col.tasks.length }}</span>
             </button>
             <span class="f1"></span>
+            <!-- 分区头整组勾选（2026-10-25 第 11 条），与列视图同一套逻辑 -->
+            <label v-if="batchMode && col.tasks.length" class="grp-chk"
+              :title="groupAllSelected(col)
+                ? `取消这一整组「${col.label}」（${col.tasks.length} 个）`
+                : `把这一整组「${col.label}」（${col.tasks.length} 个）加进选择`"
+              @click.stop>
+              <input type="checkbox" :checked="groupAllSelected(col)"
+                :indeterminate="groupSomeSelected(col)" @change="toggleGroupSelect(col)" />
+            </label>
           </div>
           <TaskCardMenu v-for="t in col.tasks" :key="'blr-' + t.id" :task="t" @pick="onCardMenuPick">
             <div
@@ -582,6 +591,15 @@
               <span class="gn">{{ col.tasks.length }}</span>
             </button>
             <span class="pwg-line"></span>
+            <!-- 分区头整组勾选（2026-10-25 第 11 条），与列/列表视图同一套逻辑 -->
+            <label v-if="batchMode && col.tasks.length" class="grp-chk"
+              :title="groupAllSelected(col)
+                ? `取消这一整组「${col.label}」（${col.tasks.length} 个）`
+                : `把这一整组「${col.label}」（${col.tasks.length} 个）加进选择`"
+              @click.stop>
+              <input type="checkbox" :checked="groupAllSelected(col)"
+                :indeterminate="groupSomeSelected(col)" @change="toggleGroupSelect(col)" />
+            </label>
           </div>
           <div class="pwc-grid" v-show="!groupCollapsed(col.key)">
             <TaskCardMenu v-for="t in col.tasks" :key="'pwc-' + t.id" :task="t" @pick="onCardMenuPick">
@@ -653,6 +671,17 @@
             {{ col.label }}
           </span>
           <span class="n">{{ col.tasks.length }}</span>
+          <!-- 2026-10-25（暮雨第 11 条）：多选模式下分区头整组勾选。
+               「一堆空草稿想全部归档」以前要走 筛选草稿 → 多选 → 全选 → 归档 四步；
+               现在点这一下就选中整组，其他组不受影响。-->
+          <label v-if="batchMode && col.tasks.length" class="grp-chk"
+            :title="groupAllSelected(col)
+              ? `取消这一整组「${col.label}」（${col.tasks.length} 个）`
+              : `把这一整组「${col.label}」（${col.tasks.length} 个）加进选择`"
+            @click.stop>
+            <input type="checkbox" :checked="groupAllSelected(col)"
+              :indeterminate="groupSomeSelected(col)" @change="toggleGroupSelect(col)" />
+          </label>
         </h3>
         <TaskCardMenu v-for="t in col.tasks" :key="'kan-' + t.id" :task="t" @pick="onCardMenuPick">
           <div
@@ -5425,6 +5454,28 @@ const logBatchMode = ref(false)
 const selectedLogBatch = ref<string[]>([])
 // trashBatchMode / selectedTrashBatch 已随回收站组件搬走（2026-10-23）
 const dataDir = ref('')
+
+// ── 分区头整组选择（2026-10-25 暮雨第 11 条）──────────────────────────────
+// 「一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点」。
+// 归档视图早有「按状态快选」，但看板没有 —— 整理时反而要绕四步。
+// 现在列 / 列表 / 卡片三种视图的分区头各有一个框，语义与邮箱一致：
+// 全选态打勾、部分选中打横线（indeterminate）、点一下选中整组、再点只取消这组。
+function groupAllSelected(col: { tasks: Array<{ id: string }> }): boolean {
+  return col.tasks.length > 0 && col.tasks.every((t) => selectedBatch.value.includes(t.id))
+}
+function groupSomeSelected(col: { tasks: Array<{ id: string }> }): boolean {
+  const n = col.tasks.filter((t) => selectedBatch.value.includes(t.id)).length
+  return n > 0 && n < col.tasks.length
+}
+function toggleGroupSelect(col: { tasks: Array<{ id: string }> }): void {
+  const ids = col.tasks.map((t) => t.id)
+  if (ids.every((id) => selectedBatch.value.includes(id))) {
+    // 整组取消：只摘掉这组，别的组的选择保留（与归档区「可叠加」同口径）
+    selectedBatch.value = selectedBatch.value.filter((id) => !ids.includes(id))
+  } else {
+    selectedBatch.value = Array.from(new Set([...selectedBatch.value, ...ids]))
+  }
+}
 
 
 // ── Review ─────────────────────────────────────────────────────────
@@ -11861,6 +11912,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .col.dragover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(112,95,171,0.18); background: var(--tint); }
 /* 分组折叠（2026-09-25）：点标题折叠/展开；折叠后这列只占一行，长单子立刻变短 */
 .col h3 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+/* 分区头整组勾选（2026-10-25 第 11 条）：多选模式下才出现，推到分区头最右端。
+   `.col h3` 是 flex，用 margin-left:auto 顶过去；列表/卡片视图的 head 有弹性撑杆，不用顶。 */
+.grp-chk { display: inline-flex; align-items: center; flex: none; cursor: pointer; margin-left: auto; }
+.blgrp-head .grp-chk, .pwg-head .grp-chk { margin-left: 0; }
+.grp-chk input { cursor: pointer; accent-color: var(--accent); font-family: inherit; }
 /* 三角用 CSS 边框画，不用 ▸/▾ 字形 —— 应用字体里这两个字符可能缺字，渲染成看不见的空白 */
 .col h3 .chev {
   flex: 0 0 auto; width: 0; height: 0; margin-right: 2px;

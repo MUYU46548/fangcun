@@ -261,6 +261,9 @@ function main() {
       // 2026-10-25：拖两个文件进新建弹窗 → 点「取消」→ 必须弹「改动还没保存」条（待挂也算脏）。
       // 这一张同时证明 drop 通了、二次确认在。
       ['日志', '', 'log-new-attach-guard', 'attachguard'],
+      // 2026-10-25：多选模式下的「分区头整组勾选」（暮雨第 11 条）——
+      // 拍「点了一个分区头的框、整组进选择」的成品态，别的组一个没动。
+      ['看板', '列视图', 'board-group-select', 'grpselect'],
     ]
     const SEED_TODOS = [
       '多视图断言用：这是一条刻意写得很长的待办标题，用来验证卡片网格里标题最多三行不截断',
@@ -429,6 +432,19 @@ function main() {
     m2.scrollTop = m2.scrollHeight
     await sleep(350)
   }
+` : ''}
+  ${extra === 'grpselect' ? `
+  // 分区头整组勾选（2026-10-25 第 11 条）：开多选 → 点第一个「卡数 >1」分区的组选框
+  const bb = all('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
+  if (bb) bb.click()
+  await sleep(500)
+  const gcols = all('#board .col')
+  const gc = gcols.find((c) => c.querySelectorAll('.card[data-id]').length > 1)
+  if (gc) {
+    const gbox = gc.querySelector('h3 .grp-chk input')
+    if (gbox) gbox.click()
+  }
+  await sleep(600)
 ` : ''}
   ${extra === '2026-09-30' ? `
   // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子
