@@ -3,7 +3,7 @@ import argparse, os, sys, json, shutil, datetime, subprocess, time, threading, z
 from urllib.parse import parse_qs
 
 from tegula.core import (
-    ROOT, TASK_DIR, REGISTRY_PATH, REGISTRY_BAK, BACKUP_DIR, BACKUP_KEEP,
+    ROOT, TASK_DIR, DATA_DIR, REGISTRY_PATH, REGISTRY_BAK, BACKUP_DIR, BACKUP_KEEP,
     ACTIVITY_LOG, STATUSES, illegal_status, _NOWIN, MANAGED_KEYS, TASKFN, _GATES,
     ALLOWED_SYNC_PROFILE, AGENT_RUNS_LOG, _AGENT_CMD_MAP, RULES_PATH,
     DEFAULT_RULES, LAST_REQUEST, _STATUS_CACHE, STATUS_TTL, WRITE_ACTIONS,
@@ -670,6 +670,50 @@ def _pick_next(active, project=None, include_claimed=False):
     return cands
 
 
+def _read_usage_stat(task_id, days=30):
+    """这张卡近 N 天被读过几次（数据源 = MCP 计量日志 `mcp-usage.jsonl`，只读）。
+
+    为什么要这个（卡 006，2026-10-25）：「看板任务一堆待办，很多我都不知道到底做了没有。」
+    状态字段只反映"有人改过它"，不反映"有人读过它" —— 一张卡放三个月没人打开，
+    和"今天刚看过准备做"在数据上一模一样。这个函数就是补那一维。
+    坏行跳过、文件不存在返回 0：计量是附加信息，不能因为它坏了让 next 报错。
+    """
+    out = {"reads": 0, "last": "", "via": ""}
+    if not task_id:
+        return out
+    p = os.path.join(DATA_DIR, "mcp-usage.jsonl")
+    if not os.path.exists(p):
+        return out
+    since = (time.time() - days * 86400) if days and days > 0 else 0
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    ev = json.loads(s)
+                except Exception:
+                    continue
+                ids = ev.get("ids") or []
+                if task_id not in [str(x) for x in ids]:
+                    continue
+                ts = str(ev.get("ts") or "")
+                try:
+                    epoch = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    epoch = 0
+                if since and epoch and epoch < since:
+                    continue
+                out["reads"] += 1
+                if not out["last"] or ts > out["last"]:
+                    out["last"] = ts
+                    out["via"] = str(ev.get("via") or "")
+    except Exception:
+        return {"reads": 0, "last": "", "via": ""}
+    return out
+
+
 def cmd_next(args):
     """给出「下一个该做什么」—— agent 面入口（next 取活 / done 回写 / status 看全局）。
 
@@ -714,6 +758,8 @@ def cmd_next(args):
             "claim_ttl_seconds": CLAIM_TTL_SECONDS,
             "next": head,
             "policy": read_policy(projs[0]) if projs else None,
+            # 被读过几次（卡 006）：agent 应能判断"这是不是一张没人碰过的卡"
+            "usage": _read_usage_stat(head.get("id") or "") if head else {"reads": 0, "last": "", "via": ""},
             # 立项契约（REV-002）：只在读，方寸不写他人仓库；缺契约时 exists=False，由调用方显式处理。
             "contract": read_contract(projs[0]) if projs else None,
             "candidates": [
@@ -763,6 +809,23 @@ def cmd_next(args):
         print("  认领    : 还没人领" + ("（这次没加 --claim，所以也没占住它）" if not claim_who else ""))
     print(f"  优先级  : {t.get('优先级') or '（未设）'}")
     print(f"  截止    : {t.get('截止') or '（未设）'}")
+    # 触发条件 + 被读过（卡 006）：前者回答"这张为什么现在该做"，后者回答"有没有人真碰过"。
+    # 两者都**只用已有字段推导**，不编新的业务含义。
+    _trig = []
+    if str(t.get("优先级") or "") == "高":
+        _trig.append("高优先")
+    _dl = str(t.get("截止") or "").strip()
+    if _dl:
+        _trig.append("截止 " + _dl)
+    _blk = t.get("阻塞") or []
+    if isinstance(_blk, list) and _blk:
+        _trig.append(f"被 {len(_blk)} 张卡挡着")
+    print("  触发条件: " + (" · ".join(_trig) if _trig else "无硬条件（按优先级排）"))
+    _us = _read_usage_stat(tid)
+    if _us["reads"]:
+        print(f"  被读过  : {_us['reads']} 次（最近 {_us['last'][:16].replace('T', ' ')}，via {_us['via']}）")
+    else:
+        print("  被读过  : 近 30 天 0 次 —— 这张卡还没被任何 agent 打开过")
     if str(t.get("附言") or "").strip():
         print(f"  附言    : {str(t.get('附言')).strip()}")
     body = str(t.get("正文") or t.get("_body") or "").strip()

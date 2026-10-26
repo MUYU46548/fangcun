@@ -6,6 +6,7 @@ import * as logs from '../services/logs'
 import type { Task } from '../data'
 import { appendTrace } from '../llm/trace'
 import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
+import { recordRead, readStats } from './usage'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
@@ -84,6 +85,21 @@ export const MCP_TOOLS: MCPTool[] = [
         currency: { type: 'string', description: 'Only CNY / 元 accepted; default CNY' },
         at: { type: 'string', description: 'ISO time of the call; defaults to now' },
         note: { type: 'string', description: 'Free-form note (max 120 chars)' },
+      },
+    },
+  },
+  {
+    name: 'never_read',
+    description:
+      'List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). '
+      + 'This is the answer to "which todos has nobody actually touched" — status alone cannot tell '
+      + 'whether a card was ever opened.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Look-back window in days (default 30)', default: 30 },
+        project: { type: 'string', description: 'Only tasks of this project id' },
+        limit: { type: 'number', description: 'Max rows (default 50)', default: 50 },
       },
     },
   },
@@ -247,12 +263,17 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
         const wantSt = String(args.status)
         result = result.filter((t: any) => String(val(t, 'status') || '') === wantSt)
       }
+      // 读了哪些卡就记哪些（2026-10-25 卡 006）：只落独立日志，**任务文件不动**
+      recordRead('list_tasks', result.map((t: any) => t.id))
       return { content: [{ type: 'text', text: JSON.stringify(result.map((t: any) => ({ id: t.id, title: val(t, 'title'), status: val(t, 'status'), project: val(t, 'project') })), null, 2) }] }
     }
     
     case 'get_task': {
       const task = tasks.readTask(args.id)
-      if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
+      if (!task) 
+      return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
+      // 只有真读到了才记（读一张不存在的卡不算"碰过它"）
+      recordRead('get_task', [task.id])
       return { content: [{ type: 'text', text: JSON.stringify({ id: task.id, title: task.fm.title, status: task.fm.status, priority: task.fm.priority, project: task.fm.project, created: task.fm.created, updated: task.fm.updated, tags: task.fm.tags, body: task.body }, null, 2) }] }
     }
     
@@ -340,6 +361,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
           t.body.toLowerCase().includes(q) ||
           (t.fm.tags || []).some((tag: string) => tag.toLowerCase().includes(q))
       })
+      recordRead('search_tasks', results.map((t: any) => t && t.id))
       return { content: [{ type: 'text', text: JSON.stringify(results.map((t: any) => ({
         id: t.id, title: t.fm.title, status: t.fm.status, project: t.fm.project
       })), null, 2) }] }
@@ -425,6 +447,40 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
           upstream: ch.upstream.map(mini),    // 旧 → 新，直到链头
           downstream: ch.downstream.map(mini), // 近 → 远，直到链尾
         },
+      }, null, 2) }] }
+    }
+
+    case 'never_read': {
+      // 「哪些待办其实没人碰过」—— 只读，不写任何东西。
+      const days = Number(args.days) > 0 ? Number(args.days) : 30
+      const limit = Number(args.limit) > 0 ? Math.min(Number(args.limit), 200) : 50
+      const pool = loadTasks('active') as any[]
+      const val = (t: any, k: string) => (t && t.fm && t.fm[k] !== undefined) ? t.fm[k] : t[k]
+      const wanted = args.project ? String(args.project) : ''
+      const rows = pool
+        .filter((t: any) => {
+          if (!wanted) return true
+          const proj = val(t, 'project')
+          return (Array.isArray(proj) ? proj : [proj]).some((x: any) => String(x || '') === wanted)
+        })
+        .map((t: any) => ({
+          id: t.id,
+          title: val(t, 'title'),
+          status: val(t, 'status'),
+          priority: val(t, 'priority'),
+          project: val(t, 'project'),
+          updated: val(t, 'updated'),
+        }))
+      const stats = readStats(days)
+      const never = rows.filter((r: any) => !stats.has(String(r.id)))
+      const read = rows.filter((r: any) => stats.has(String(r.id)))
+      return { content: [{ type: 'text', text: JSON.stringify({
+        window_days: days,
+        total_open: rows.length,
+        never_read: never.length,
+        read: read.length,
+        // 「多久没更新」是判断"卡死了"的辅助：从没读过 + 很久没更新 = 大概率没人管
+        items: never.slice(0, limit),
       }, null, 2) }] }
     }
 
