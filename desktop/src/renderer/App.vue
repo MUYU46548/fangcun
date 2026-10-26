@@ -527,12 +527,12 @@
       <div class="ask-report" v-if="usageMonths.length">
         <div class="ask-report-h">
           AI 花销 · 按自然月
-          <em class="ask-report-src">数据源：本机 AI 调用留痕</em>
+          <em class="ask-report-src">数据源：本机 AI 调用留痕（外部客户端经 MCP 上报的另计，不混算）</em>
         </div>
         <div class="ask-report-row" v-for="m in usageMonths" :key="m.month">
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
-          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em></span>
+          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em><em v-if="m.external_calls" class="arr-ext">· 其中 {{ m.external_calls }} 笔是外部上报</em></span>
           <!-- 金额（2026-10-25 卡 005）：**没有就是「未折算」**，不写 0 元。
                「未折算」后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
           <span class="arr-cost" :class="{ none: !m.cost_calls }">
@@ -13005,6 +13005,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .arr-cost { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
 .arr-cost em { margin-left: 5px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--muted); }
 .arr-cost.none { color: var(--muted); font-weight: 400; }
+/* 外部上报单列（2026-10-25 卡 005）：它既没法复验也不含本机上下文，颜色上与本地实测区分开 */
+.arr-ext { color: var(--warning) !important; }
 /* 设置 → 模型单价（可选）：一行 = 模型名 + 输入价 + 输出价 + 删 */
 #smodal .price-head { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px;
   font-size: 11px; color: var(--muted); }

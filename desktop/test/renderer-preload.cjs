@@ -1391,8 +1391,8 @@ contextBridge.exposeInMainWorld('tegula', {
     return {
       months: [
         // 金额三态各来一条（2026-10-25 卡 005）：十月有金额且 1 笔未折算；九月纯未折算
-        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
-        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
+        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
+        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, external_calls: 0, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
       ],
     }
   },

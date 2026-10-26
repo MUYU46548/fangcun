@@ -73,6 +73,7 @@
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
 | **阻塞链关键路径（卡 023）** | `node scripts/test/e2e-blockers.cjs` | **本机可跑**：真跑编译产物 `dist/shared/blockers.js`（算法在 `src/shared/blockers.ts`，**不埋在组件里**）。判据 = 「解哪个阻塞最划算要算**传递效应**」：A 挡住 B、B 又挡住 C ⇒ 解 A 值 **4** 而不是 2（只数 `blockedTasks.length` 是错的）；另覆盖「一个任务被多个源挡着时解一个不够」「已终态的源不进推荐」「已完成的被阻塞任务不算收益」「纯函数不改传入数组」。9 条 |
 | **看板信息卡墙（卡 20261010-003）** | `node scripts/test/e2e-board-cards.cjs` | **本机可跑**：真跑编译产物 `dist/shared/boardCards.js`（纯逻辑在 `src/shared/boardCards.ts`，**不埋在组件里**）。判据 =「**卡面上宁缺勿滥**」：取不到的值**整格不渲染**（不写 0、不写「—」、也不糊一个近似色档）。覆盖短 ID 只剥已知前缀、优先级只认三档中文、阻塞索引（多源 / 去重 / 终态不计 / 源已终态不进计数）、`openOnly` 只看未完成（**空状态算未完成** —— 没填 ≠ 做完）；另含 **9 条源码守卫**：卡片墙必须跑 `columns` 分区（首版平铺 filteredTasks → **分组整个丢失**，用户截图才发现）、分区头可折叠、组容器接 drop、开关**默认关**且**只读过滤不回写 columns**。41 条，含两处反例自证 |
+| **过桥参数（静态）** | `node scripts/test/check-bridge-args.cjs` | 扫渲染层：**对象 ref 的 `.value` 被整个交给 `window.tegula.*`** 就红（Vue 代理过 contextBridge 必抛 `could not be cloned`）。这条是给 `e2e-bridge-clone` 补的静态兜底 —— 那个测试在本机起不来 Electron 时行为部分会 SKIP |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
 | **渲染层 DOM（无头浏览器兜底）** | `node scripts/test/e2e-renderer-web.cjs` | **本机可跑的渲染层断言（358/0）**：多视图互斥与几何、排序/视图选择落盘、弹药库派工单六字段、**遮罩拖选不误关**（拖选滑出弹窗 → 不许关；真点遮罩 → 仍关得掉）、**死通道接回验收**（快速记必须真调 `quickAdd` 且**原样传整段简写串**、跨项目建议/里程碑/诊断三块的文案必须来自主进程、备份列表刷新必须真重读）—— 用系统 Edge/Chrome 无头加载 `dist/renderer` + 同一份假 preload；产物必须单块（有顶层 import/export 会显式报错而不是静默降级）。它验不了真 IPC / 真点击，那些仍以 `e2e-renderer` 为准 |
 | **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
@@ -216,6 +217,62 @@
 - **task-data 与代码分割**：任务内容永不入 git（.gitignore 配置 pattern 拦截时间戳_hex 大文件）
 - **回归铁律**：改 `tegula/cli.py` 或 `tegula/core.py` 的解析/写入逻辑 → 必跑 `python verify.py` 全绿才算完；改 UI/IPC 再加跑 `node scripts/test/check-ipc-parity.cjs`
 - fangcun 本体未正式投用/未公开（2026-09），结构改动自由度高，但仍走 verify.py 基线
+
+## 踩过的坑（会再犯的硬规则）
+
+> 只收**同一个错误犯过 2 次以上**的条目。每条都必须带：判据（怎么一眼看出）、
+> 守卫（哪个脚本会当场变红）、以及"为什么之前的防护没挡住"。
+> **一次性事实、环境怪癖别往这里放** —— 那些进 `.workbuddy/memory/`，30 天蒸馏一次。
+
+### 1. Vue 响应式代理不能过 contextBridge（已犯 4 次）
+
+`An object could not be cloned` —— 界面只显示一句"保存失败"，真因看不出，排查要重跑一轮。
+
+- **判据**：任何 `window.tegula.xxx(someRef.value)`，只要那个 ref 装的是对象/数组。
+  原始类型（string/number/boolean）不用管。
+- **改法**：实参换成 `toPlain(xxx.value)`（`desktop/src/shared/plain.ts`）。
+- **守卫**：`node scripts/test/check-bridge-args.cjs` —— 静态扫渲染层，抓
+  "整个实参就是某个对象 ref.value" 这一种。**改 UI 必跑**。
+- **为什么前三次的防护没挡住第四次**（重要）：
+  - `e2e-bridge-clone.cjs` 是真 Electron 跑的，**本机起不来 Electron 时行为部分直接 SKIP**，
+    只剩静态断言 —— 它不可能发现"新通道传了 ref.value"。
+  - 假 preload 的 `cloneGuard` 确实会抓，但它只在**跑渲染层断言**时才响，而且要求新通道
+    **已经在假 preload 里登记过**。写代码的人跳过那一步就过去了。
+  - 结论：**新通道必须在假 preload 里同步登记（`cloneGuard` + `rec`）**；
+    否则"守卫存在"只是纸面事实。
+- 历史现场：偏好落盘（10-05）· 梯度榜 `tiers`（10-25）· IPC 载荷 · 模型单价 `priceRows`（10-25）。
+
+### 2. 新增 UI 块不要复用旧块的 class
+
+断言里常按 class 数"这一页有几块/几行"。新块套旧 class → 旧断言凭空变红，
+而**界面看起来完全正常**，很容易被当成"测试写死了数量"而改断言糊过去。
+
+- **判据**：新块模板里出现的 class，是否已被既有断言用 `$$('.x').length === N` 数过。
+- **改法**：新块用自己的类名（`.ask-acc` 而不是 `.ask-report`），样式用**分组选择器**共享：
+  `.ask-report, .ask-acc { ... }`。
+- 历史现场：账户口径块复用了 `.ask-report` / `.ask-report-row`（10-25，一次红两条）。
+
+### 3. 断言含"时间演化"的量，必须跨过至少一个 tick
+
+只在点击后 150ms 断言，注入"按时间猜"的代码照样绿 —— 因为还没到第一个计时器周期。
+同步胶囊的"阶段不许猜"就吃过这个亏（10-25）。
+
+- **判据**：断言依赖"1 秒后变成什么样"，却在 <1 个周期内取样。
+
+### 4. 折叠/隐藏按钮前，先扫一遍"按文字点它"的断言
+
+页签折叠后，`clickText('技能')` 之类直接点不到 → 连带整页断言全挂（10-25 一次红 20 条）。
+- **改法**：统一用 `openViewTab(label)`（先找页签行，找不到就开「更多」再点）。
+
+### 5. `tsconfig` 是 `strict: false`：`if (!r.ok)` 不收窄可辨识联合
+
+没有 `strictNullChecks` 时，可辨识联合**不会**被 truthy 检查收窄，读 `r.reason` 直接编译失败。
+- **改法**：写类型谓词 `isXxxOk(r): r is XxxOk`，别指望 `if (!r.ok)`（10-25 账户口径踩过）。
+
+### 6. 截图 harness 的 `--virtual-time-budget` 会把 `Date.now()` 一起快进
+
+默认 20s 预算下，任何"真实秒数"类界面拍出来都是 20 秒后（同步胶囊拍成"推送 18s"，像卡死）。
+- **改法**：`CASES` 第 5 项给单图预算（如 4500）。
 
 ## 开工流程（铁律）
 

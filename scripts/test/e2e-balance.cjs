@@ -161,6 +161,77 @@ function pricingChecks() {
   try { fs.unlinkSync(tmp) } catch { /* 忽略 */ }
 }
 
+// ── ④c 外部用量上报（MCP usage_report，2026-10-25 卡 005 第三件）──────────
+console.log('\n── ④c 外部上报（MCP usage_report）──')
+function usageReportChecks() {
+  const U = require(path.join(REPO, 'desktop/dist/shared/usageReport.js'))
+  const NOW = '2026-10-25T12:00:00.000Z'
+
+  const ok = U.buildExternalUsageRecord({ client: 'dsh', model: 'deepseek-chat', prompt_tokens: 1200, completion_tokens: 300, cost: '0.0173' }, NOW)
+  check('★ 合法上报能过：origin=external、client 进 reported_by、trigger 带 external: 前缀',
+    U.isUsageReportOk(ok) && ok.record.origin === 'external'
+    && ok.record.reported_by === 'dsh' && ok.record.trigger === 'external:dsh',
+    U.isUsageReportOk(ok) ? JSON.stringify({ o: ok.record.origin, r: ok.record.reported_by, t: ok.record.trigger }) : ok.error)
+  check('★ 金额按定点落（0.0173 → "0.01730000"）且标 cost_source=provider（供应商自报口径）',
+    U.isUsageReportOk(ok) && ok.record.cost === '0.01730000' && ok.record.cost_source === 'provider',
+    U.isUsageReportOk(ok) ? String(ok.record.cost) : ok.error)
+  check('  total_tokens 没报就按 in+out 求和（1500）',
+    U.isUsageReportOk(ok) && ok.record.total_tokens === 1500, U.isUsageReportOk(ok) ? String(ok.record.total_tokens) : ok.error)
+
+  const onlyTok = U.buildExternalUsageRecord({ model: 'm', prompt_tokens: 10 }, NOW)
+  check('  只报 token 不报钱也收（金额留空 = 未折算，不是 0 元）',
+    U.isUsageReportOk(onlyTok) && onlyTok.record.cost === undefined)
+
+  const cases = [
+    ['什么都没报 → 拒绝（空账不写）', {}, /至少要报 token|空记录/],
+    ['token 是负数 → 拒绝', { prompt_tokens: -5 }, /非负整数/],
+    ['token 是小数 → 拒绝', { prompt_tokens: 1.5 }, /非负整数/],
+    ['token 是字符串乱码 → 拒绝', { prompt_tokens: 'abc' }, /非负整数/],
+    ['美元 → 拒绝（不做汇率换算）', { prompt_tokens: 10, cost: '1', currency: 'USD' }, /只接受人民币/],
+    ['金额非法 → 拒绝', { prompt_tokens: 10, cost: 'abc' }, /不是合法金额/],
+    ['金额为负 → 拒绝', { prompt_tokens: 10, cost: '-1' }, /负数/],
+  ]
+  for (const [name, input, re] of cases) {
+    const r = U.buildExternalUsageRecord(input, NOW)
+    check(`★ 拒绝：${name}`, !U.isUsageReportOk(r) && re.test(r.error), U.isUsageReportOk(r) ? '(竟然通过了)' : r.error)
+  }
+
+  const cny = U.buildExternalUsageRecord({ prompt_tokens: 1, cost: '2', currency: '元' }, NOW)
+  check('  币种写「元」也认（中文口径）', U.isUsageReportOk(cny) && cny.record.cost === '2.00000000')
+
+  const badAt = U.buildExternalUsageRecord({ prompt_tokens: 1, at: '不是时间' }, NOW)
+  check('  时间戳解析不了 → 退回当前时间（不因为一句坏时间丢掉整笔账）',
+    U.isUsageReportOk(badAt) && badAt.record.ts === NOW.slice(0, 19), U.isUsageReportOk(badAt) ? badAt.record.ts : badAt.error)
+
+  const longNote = U.buildExternalUsageRecord({ prompt_tokens: 1, note: 'x'.repeat(300) }, NOW)
+  check('  备注截断到 120 字（别让外部数据把留痕撑爆）',
+    U.isUsageReportOk(longNote) && longNote.record.note.length === 120)
+
+  // 真写一条 → 月度聚合必须**单独计数**
+  const tmp = path.join(os.tmpdir(), 'fc-trace-ext-' + Date.now() + '.jsonl')
+  const T = require(path.join(REPO, 'desktop/dist/main/llm/trace.js'))
+  T.setTraceFilePathForTest(tmp)
+  fs.writeFileSync(tmp, '', 'utf-8')
+  const day = new Date()
+  const ym = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}`
+  const local = { ts: `${ym}-01T09:00:00`, trigger: 'desktop.chat', model: 'm', ok: true, stream: false, prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+  const ext = U.buildExternalUsageRecord({ client: 'dsh', model: 'm', prompt_tokens: 1000, completion_tokens: 200, cost: '0.02' }, `${ym}-02T09:00:00.000Z`)
+  fs.writeFileSync(tmp, [local, ext.record].map((x) => JSON.stringify(x)).join('\n') + '\n', 'utf-8')
+  const m = T.usageByMonth(3)[0]
+  check('★★ 月度里外部上报单独计数（1 笔 external / 共 2 笔）',
+    m.external_calls === 1 && m.calls === 2, JSON.stringify({ ext: m.external_calls, calls: m.calls }))
+  check('★★ 外部上报的钱不为 0（0.02 进月度金额）', m.cost === '0.02000000', m.cost)
+  try { fs.unlinkSync(tmp) } catch { /* 忽略 */ }
+
+  // MCP 侧：工具必须登记 + handler 必须真的走这条校验
+  const src = fs.readFileSync(path.join(REPO, 'desktop/src/main/mcp/tools.ts'), 'utf8').replace(/\r\n/g, '\n')
+  check('★ MCP 工具表里有 usage_report（对外可见，不是只写了个函数）',
+    /name: 'usage_report'/.test(src))
+  check('★ handler 真的接上（调 buildExternalUsageRecord 并落 trace）',
+    /case 'usage_report'/.test(src) && /buildExternalUsageRecord\(args/.test(src) && /appendTrace\(r\.record/.test(src))
+  check('★ 参数不合法时返回 isError（不静默吞掉）', /isError: true/.test(src.slice(src.indexOf("case 'usage_report'"))))
+}
+
 // ── ⑤ 端到端：真跑记账（假 fetch，临时账本）────────────────────────────
 console.log('\n── ⑤ 真跑记账（临时 userData + 假余额接口）──')
 async function realLedger() {
@@ -295,6 +366,7 @@ function guardsRun() {
 ;(async () => {
   await realLedger()
   pricingChecks()
+  usageReportChecks()
   guardsRun()
   console.log('\n──────────────────────────────')
   if (fails.length) {

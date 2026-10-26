@@ -4,6 +4,8 @@ import * as tasks from '../data/tasks'
 import * as services from '../services'
 import * as logs from '../services/logs'
 import type { Task } from '../data'
+import { appendTrace } from '../llm/trace'
+import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
@@ -62,6 +64,27 @@ export const MCP_TOOLS: MCPTool[] = [
         body: { type: 'string', description: 'Task body/content' },
       },
       required: ['title'],
+    },
+  },
+  {
+    name: 'usage_report',
+    description:
+      'Report AI usage from an external client (e.g. DSH / Hermes) into the Fangcun ledger. '
+      + 'Records are marked origin=external and counted separately from Fangcun\'s own calls. '
+      + 'Currency must be CNY (no FX conversion). At least one token field or cost is required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        client: { type: 'string', description: 'Who reports (e.g. dsh / hermes); default "external"' },
+        model: { type: 'string', description: 'Model name as you called it' },
+        prompt_tokens: { type: 'number', description: 'Non-negative integer' },
+        completion_tokens: { type: 'number', description: 'Non-negative integer' },
+        total_tokens: { type: 'number', description: 'Non-negative integer (auto-summed if omitted)' },
+        cost: { type: 'string', description: 'Provider-reported cost in CNY, optional' },
+        currency: { type: 'string', description: 'Only CNY / 元 accepted; default CNY' },
+        at: { type: 'string', description: 'ISO time of the call; defaults to now' },
+        note: { type: 'string', description: 'Free-form note (max 120 chars)' },
+      },
     },
   },
   {
@@ -401,6 +424,29 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
         chain: {
           upstream: ch.upstream.map(mini),    // 旧 → 新，直到链头
           downstream: ch.downstream.map(mini), // 近 → 远，直到链尾
+        },
+      }, null, 2) }] }
+    }
+
+    case 'usage_report': {
+      // 外部用量上报（2026-10-25 卡 005 第三件）。
+      // ⚠ 写进去的记录带 origin='external'，月度报表**单独计数** ——
+      //   外部数据既没法复验也不含本机上下文，混算就是"账本说假话"。
+      const r = buildExternalUsageRecord(args, new Date().toISOString())
+      if (!isUsageReportOk(r)) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error }) }], isError: true }
+      appendTrace(r.record as any)
+      const rec = r.record
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        recorded: {
+          ts: rec.ts,
+          trigger: rec.trigger,
+          model: rec.model,
+          prompt_tokens: rec.prompt_tokens,
+          completion_tokens: rec.completion_tokens,
+          total_tokens: rec.total_tokens,
+          ...(rec.cost ? { cost: rec.cost, currency: 'CNY' } : {}),
+          origin: 'external',
         },
       }, null, 2) }] }
     }

@@ -35,6 +35,16 @@ export interface TraceRecord {
   cost_source?: 'provider' | 'user-price'
   /** B 档写入时的单价**快照**（元/1M tokens）；改价不影响历史记录 */
   unit_price?: { in: string; out: string; at: string }
+  /**
+   * 这条记录是谁观测到的（2026-10-25 卡 005 第三件）。
+   * 缺省 = `local`（方寸自己发起的调用）；`external` = 别的客户端自己报上来的。
+   * ⚠ **两者不许混算**：外部上报既没法复验、也不含方寸的调用上下文。
+   */
+  origin?: 'local' | 'external'
+  /** 外部上报方（client 名）；仅 origin=external 时有 */
+  reported_by?: string
+  /** 上报方自己写的备注（已截断、已去换行） */
+  note?: string
 }
 
 let cachedPath: string | null = null
@@ -251,6 +261,8 @@ export interface MonthUsage {
   provider_cost_calls: number
   /** 有 token 但**没有金额**的笔数 —— 界面必须显示这个数，否则金额像全量账 */
   unpriced_calls: number
+  /** 其中**外部上报**的笔数（DSH / Hermes 等别的客户端自己报的，不是方寸实测） */
+  external_calls: number
   byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
 }
 
@@ -288,10 +300,11 @@ export function usageByMonth(months = 3): MonthUsage[] {
     const cur: MonthAcc = map.get(m) || {
       month: m, calls: 0, ok: 0, fail: 0, token_calls: 0,
       prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
-      cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 0,
+      cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 0, external_calls: 0,
       byTrigger: [], _costSum: zero,
     }
     cur.calls++
+    if (x.origin === 'external') cur.external_calls++
     if (x.ok) cur.ok++
     else cur.fail++
     if (hasTok(x)) {
