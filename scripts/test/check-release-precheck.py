@@ -74,7 +74,7 @@ def tmpdir(tag):
 
 
 def write_latest_yml(repo, version=VER, url=EXE, size=EXE_BYTES):
-    p = os.path.join(repo, "desktop", "release", "latest.yml")
+    p = os.path.join(repo, "desktop", "pkg", "latest.yml")
     with open(p, "w", encoding="utf-8") as f:
         f.write(
             f"version: {version}\n"
@@ -101,15 +101,15 @@ def make_repo(tag="a", ver=VER):
     git("config", "commit.gpgsign", "false", cwd=work)
     git("checkout", "-q", "-b", "main", cwd=work)
 
-    os.makedirs(os.path.join(work, "desktop", "release"))
+    os.makedirs(os.path.join(work, "desktop", "pkg"))
     os.makedirs(os.path.join(work, "skills"))
     with open(os.path.join(work, "desktop", "package.json"), "w", encoding="utf-8") as f:
         json.dump({"name": "fangcun-desktop", "version": ver}, f)
     with open(os.path.join(work, "skills", "manifest.json"), "w", encoding="utf-8") as f:
         json.dump({"version": ver}, f)
-    with open(os.path.join(work, "desktop", "release", EXE), "wb") as f:
+    with open(os.path.join(work, "desktop", "pkg", EXE), "wb") as f:
         f.write(b"x" * EXE_BYTES)
-    with open(os.path.join(work, "desktop", "release", BLOCK), "wb") as f:
+    with open(os.path.join(work, "desktop", "pkg", BLOCK), "wb") as f:
         f.write(b"y" * BLOCK_BYTES)
     write_latest_yml(work)
 
@@ -248,7 +248,7 @@ def main():
     check("★ latest.yml 大小不符：判 15", rc == 15, f"rc={rc} out={out[-300:]}")
 
     _, w10 = make_repo("noexe")
-    os.remove(os.path.join(w10, "desktop", "release", EXE))
+    os.remove(os.path.join(w10, "desktop", "pkg", EXE))
     rc, out = precheck(w10)
     check("缺 exe：判 15", rc == 15, f"rc={rc} out={out[-300:]}")
 
@@ -278,7 +278,7 @@ def main():
             if n == drop:
                 continue
             sz = s if n != "latest.yml" else os.path.getsize(
-                os.path.join(w12, "desktop", "release", "latest.yml"))
+                os.path.join(w12, "desktop", "pkg", "latest.yml"))
             assets.append({"name": n, "size": sz, "state": state})
         return {"tag_name": f"v{VER}", "name": f"方寸 v{VER}", "draft": draft,
                 "prerelease": False, "body": body, "assets": assets}
@@ -335,6 +335,20 @@ def main():
     i_ver = code.find("--verify-release")
     check("★ 守卫：复核在 `gh release create` 之后", i_ver > i_pub > 0, f"ver={i_ver} pub={i_pub}")
 
+    # ── 9. 三处路径必须一致：pack.cjs 写哪 / publish-release.sh 读哪 / release-precheck.py 查哪 ──
+    # 为什么要这条：2026-10-27 把输出从 `release` 改成 `pkg` 时，只改了 pack.cjs，
+    # 而发版脚本仍读 `release` → 链路当场就断了，但要等**真发版**才暴露（exit 7 缺资产）。
+    # 这三条断言就是为了让这种"改一半"在本地先红，而不是在发版时才发现。
+    with open(os.path.join(HERE, "pack.cjs"), encoding="utf-8") as f:
+        pack_src = f.read()
+    with open(PRECHECK, encoding="utf-8") as f:
+        pre_src = f.read().replace("\r\n", "\n")
+    check("★ 守卫：pack.cjs 输出到 desktop/pkg",
+          "path.join(DESKTOP, 'pkg')" in pack_src, "")
+    check("★ 守卫：publish-release.sh 从 desktop/pkg 取件",
+          "desktop/pkg" in sh, "")
+    n_pkg = pre_src.count('"desktop", "pkg"')
+    check("★ 守卫：release-precheck.py 两处都查 desktop/pkg", n_pkg == 2, f"count={n_pkg}")
 
     print(f"\n通过 {PASS} / 失败 {FAIL}")
     return 1 if FAIL else 0

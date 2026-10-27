@@ -19,18 +19,12 @@ if not exist "%PS1%" (
   exit /b 1
 )
 
-net session >nul 2>&1
-if errorlevel 1 (
-  echo [WARN] Not running as Administrator.
-  echo        Right-click - "Run as administrator".
-  echo        It will still try, but the OneDrive lock will not be released.
-  echo.
-)
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -StopHolders -LogPath "%LOG%"
+REM No admin needed: the lock is held by a file indexer (close it), not by a service.
+REM desktop\pkg is the release pickup dir - this script never touches it.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -LogPath "%LOG%"
 echo.
 echo ---- log ----
 type "%LOG%"
 echo.
-echo Done. If folders are still there, reboot and run clean-release.bat instead.
+echo Done. If files are still locked, quit the indexer app (tray - Exit) and run again.
 pause

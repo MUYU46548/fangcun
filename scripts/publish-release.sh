@@ -132,7 +132,7 @@ done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAG="v${VER}"
-REL_DIR="$REPO_ROOT/desktop/release"
+REL_DIR="$REPO_ROOT/desktop/pkg"
 NOTES="$REPO_ROOT/docs/${VER}-发布说明.md"
 
 command -v gh >/dev/null 2>&1 || { echo "[!] 找不到 gh CLI" >&2; exit 4; }

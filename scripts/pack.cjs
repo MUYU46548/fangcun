@@ -8,9 +8,9 @@
  * 三个月积了 15 个（3.4GB），其中 6 个是打包中断留下的半成品（只有 app.asar，36MB）。
  *
  * 这个脚本把流程钉成一条：
- *   ① 打包前**清空** `desktop/release`（逐文件删，跳过被系统进程锁住的，报告不隐瞒）
+ *   ① 打包前清空暂存，并顺手清掉工作区里遗留的旧产物目录（`pkg/`、`release-<ver>/`，删不掉的如实列出）
  *   ② 三件环境变量照 AGENTS（少一个不是慢，是直接失败）
- *   ③ 输出**固定** `desktop/release`，不再按版本命名
+ *   ③ 输出**固定**到 `desktop/pkg`（单目录、发版取件目录，.gitignore 已忽略，不按版本命名）
  *   ④ 打完自检：`app.asar` 里读得到版本号 + 安装包体积合理；不过就非零退出
  *
  * 用法：
@@ -22,19 +22,27 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 
 const DESKTOP = path.resolve(__dirname, '..', 'desktop')
-// ⚠ 输出目录叫 `pkg`（不是 `release`）：`release*` 是历史遗留名，里面全是删不掉的老 asar，
-//   连目录改名都会 EPERM。换一个干净名字 = 一次性的隔离，之后 `release*` 交给
-//   `清理打包残留.bat` 慢慢清，不再影响打包。
+// 输出目录：**固定一个** `desktop/pkg`（已写在 .gitignore 里，不入库、不堆积）。
+// ⚠ 这个目录是**发版取件目录**：`publish-release.sh` 与 `release-precheck.py` 都从这里取资产。
+//   三处路径必须一致（`pack.cjs` 的 OUT / `publish-release.sh` 的 REL_DIR /
+//   `release-precheck.py` 的 `desktop/pkg`），改一处就要改三处。
+// ⚠ 2026-10-27 的教训，两条都别重走：
+//   ① 堆积的病根是「每打一版新建一个 `release-<ver>` 目录」，**不是**「产物放在工作区里」。
+//      修法只有一条：永远用同一个目录。搬到工作区外是过度反应 —— 暮雨当场纠正：
+//      「自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？」
+//   ② 打包会撞 `EPERM/EBUSY`：工作区里的 `*.asar` 会被**索引器长期持有句柄**
+//      （实测点名 = WorkBuddy 后台 daemon `daemon-app-server-entry.js --stdio`；
+//      不是 OneDrive、不是 Windows Search —— 这两个停过，`释放 0 MB`）。
+//      撞上时**退出索引器再打**，不要去改输出路径。
 const OUT = path.join(DESKTOP, 'pkg')
-// ⚠ 不能直接往 `release/` 里打：electron-builder 会先建 `win-unpacked.tmp`，
-//   而旧 `release/win-unpacked.tmp/resources/default_app.asar` 常被系统进程占着 →
-//   `EBUSY: resource busy or locked, unlink ...`（AGENTS.md 里 10-22 就记过这一条）。
-//   所以每次都打到**新**的 `release.tmp`，成功后再原子改名 —— 既绕开 EBUSY，也不会堆目录。
+// 暂存目录（已在 .gitignore）：先打到这里，成功后整体改名成 release，避免半成品污染 release
 const STAGE = path.join(DESKTOP, '.pkg-tmp')
 
 function log(m) { console.log(m) }
 
-/** 逐文件清空目录：跳过被锁的，能删多少删多少（锁多半来自 OneDrive / Windows Search 索引） */
+/** 逐文件清空目录：跳过被锁的，能删多少删多少
+ *  （锁的真实来源见文件头：索引器持有 `*.asar`，不是 OneDrive / Windows Search —— 那两个
+ *    2026-10-27 停过，`释放 0 MB`，纯属误判） */
 function emptyDir(dir) {
   if (!fs.existsSync(dir)) return { freed: 0, locked: 0 }
   let freed = 0, locked = 0
@@ -72,6 +80,21 @@ function main() {
     if (r.freed || r.locked) log(`清暂存目录：释放 ${(r.freed / 1048576).toFixed(1)}MB` + (r.locked ? `，${r.locked} 个被占` : ''))
   }
 
+  // ①b 顺手清掉工作区里**历史堆积**的产物目录：`release-<ver>/`、`release/`。
+  //    ⚠ `pkg/` 是正式输出（发版取件目录），**永远不进这个列表** —— 清了就没得发了。
+  //    这些位置删不掉是常态（索引器锁着 asar）→ 尽力删，删不掉的如实列出，不假装干净。
+  if (!noClean) {
+    const legacy = fs.readdirSync(DESKTOP, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name.startsWith('release'))
+      .map((e) => e.name)
+    for (const name of legacy) {
+      const p = path.join(DESKTOP, name)
+      const r2 = emptyDir(p)
+      if (r2.locked) log(`⚠ 工作区里还剩旧产物 ${name}/：已释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个文件被占用`)
+      else log(`✓ 已清掉工作区里的旧产物 ${name}/（${(r2.freed / 1048576).toFixed(1)}MB）`)
+    }
+  }
+
   // ② 三件环境变量（缺 ELECTRON_OVERRIDE_DIST_PATH 会去下别的版本，10 分钟超时才报错）
   const env = {
     ...process.env,
@@ -84,45 +107,47 @@ function main() {
     process.exit(1)
   }
 
-  // ③ 打
-  log(`开始打包 ${ver} → ${path.basename(STAGE)}（完成后改名为 pkg）`)
-  const r = spawnSync('npx', ['electron-builder', '-c.directories.output=.pkg-tmp'], {
+  // ③ 打（输出目录用相对名，electron-builder 相对 cwd=desktop 解析）
+  fs.mkdirSync(STAGE, { recursive: true })
+  const stageRel = path.relative(DESKTOP, STAGE)
+  log(`开始打包 ${ver} → ${STAGE}`)
+  const r = spawnSync('npx', ['electron-builder', `-c.directories.output=${stageRel}`], {
     cwd: DESKTOP, env, stdio: 'inherit', shell: true,
   })
   if (r.status !== 0) {
-    log(`✗ 打包失败（exit ${r.status}）。半成品在 ${path.basename(STAGE)}，下次打包会先清掉`)
+    log(`✗ 打包失败（exit ${r.status}）。半成品在 ${STAGE}，下次打包会先清掉`)
     process.exit(r.status || 1)
   }
 
-  // ③b 原子换名：旧 release 先挪走，再把 tmp 改名成 release，最后尽力删旧的
-  //    （旧目录里被锁的 asar 删不掉没关系 —— 名字已让位，不影响本次产物）
+  // ③b 原子换名：旧产物先挪走，再把 tmp 改名成正式目录，最后尽力删旧的
+  //    （旧目录里万一还有被锁的文件，名字已让位，不影响本次产物）
   let oldDir = ''
   try {
     if (fs.existsSync(OUT)) {
       oldDir = OUT + '.old-' + Date.now()
       fs.renameSync(OUT, oldDir)
-      log(`旧 pkg 已挪到 ${path.basename(oldDir)}`)
+      log(`旧产物已挪到 ${path.basename(oldDir)}`)
     }
     fs.renameSync(STAGE, OUT)
-    log('✓ 已切换为新的 pkg')
+    log(`✓ 已切换为新的产物目录 ${OUT}`)
   } catch (e) {
-    // 退回方案：pkg 里有被系统进程锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
+    // 退回方案：目录里有被锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
     log(`  直接换名失败（${e.code || e.message}），改用"清空 + 复制"`)
     try {
       const c = emptyDir(OUT)
-      if (c.locked) throw new Error(`pkg 里还有 ${c.locked} 个文件被占用，需要重启后重试`)
+      if (c.locked) throw new Error(`产物目录里还有 ${c.locked} 个文件被占用（有进程在读这份包），关掉它再跑`)
       fs.cpSync(STAGE, OUT, { recursive: true })
       fs.rmSync(STAGE, { recursive: true, force: true })
-      log('✓ 已用复制方式切到新 pkg')
+      log('✓ 已用复制方式切到新产物目录')
     } catch (e2) {
       log(`✗ 切换失败：${e2.message}`)
-      log(`  新包仍在 ${path.basename(STAGE)}，重启后再跑一次即可`)
+      log(`  新包仍在 ${STAGE}，处理掉占用后再跑一次即可`)
       process.exit(1)
     }
   }
   if (oldDir) {
     const r2 = emptyDir(oldDir)
-    if (r2.locked) log(`  旧目录释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个被系统进程占用（重启后用「清理打包残留.bat」再清）`)
+    if (r2.locked) log(`  旧目录释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个被占用（多半是索引器还开着；退出它后再跑 clean-release.bat）`)
     else { try { fs.rmdirSync(oldDir) } catch { /* ignore */ } ; log(`  旧目录已清空（释放 ${(r2.freed / 1048576).toFixed(1)}MB）`) }
   }
 

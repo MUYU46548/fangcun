@@ -138,7 +138,7 @@ def check_assets(repo, ver):
 
     这一段防的是"包里是上一版" —— 0.4.0 就发过一次说明书和包对不上的包。
     """
-    rel_dir = os.path.join(repo, "desktop", "release")
+    rel_dir = os.path.join(repo, "desktop", "pkg")
     bad = []
     sizes = {}
     for pat in ASSET_NAMES:
@@ -292,7 +292,7 @@ def verify_release(repo, ver, slug, tag):
     else:
         ok.append(f"说明 {len(body)} 字")
 
-    rel_dir = os.path.join(repo, "desktop", "release")
+    rel_dir = os.path.join(repo, "desktop", "pkg")
     got = {a.get("name"): a for a in (data.get("assets") or [])}
     for pat in ASSET_NAMES:
         name = pat.format(v=ver)
