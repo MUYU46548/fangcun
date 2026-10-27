@@ -19,6 +19,10 @@ param(
   # 锁的持有者实测是 OneDrive 的 FileSyncHelper（服务，Manual）。停它需要管理员。
   # 用户态停不了（报"无法打开服务"），所以这一步只能在提权会话里做。
   [switch]$StopOneDrive,
+  # 停掉**所有已知的可能持有 asar 句柄的后台**再删：OneDrive 的文件同步助手 + Windows 搜索索引。
+  # 2026-10-27 实测：只停 OneDrive 助手时仍报"22 个文件被占用、释放 0MB"→ 说明还有别的持有者，
+  # 索引（WSearch）是下一个怀疑对象。两个都停再把服务恢复，失败也不留后患。
+  [switch]$StopHolders,
   # 输出同时写一份到文件（管理员窗口常常一闪而过，看不到内容）
   [string]$LogPath = ''
 )
@@ -61,20 +65,44 @@ if (-not $dirs) { Say "只剩 $Keep，无需清理。"; exit 0 }
 Say "保留: $Keep"
 Say ('待清: ' + (($dirs | ForEach-Object { $_.Name }) -join ', '))
 
-if ($StopOneDrive) {
-  try { Stop-Service FileSyncHelper -Force -ErrorAction Stop; Say '已暂停 OneDrive 文件同步助手（删完会恢复）'; Start-Sleep -Seconds 3 }
-  catch { Say ('停 FileSyncHelper 失败（可能不是管理员）: ' + $_.Exception.Message.Split([char]10)[0]) }
+$svcBackup = @{}   # 服务名 → 原 StartType，恢复时用
+if ($StopOneDrive -or $StopHolders) {
+  foreach ($svc in @('FileSyncHelper', 'WSearch')) {
+    if ($StopHolders -and $svc -eq 'WSearch' -or ($svc -eq 'FileSyncHelper')) {
+      if ($StopHolders -or $svc -eq 'FileSyncHelper') {
+        try {
+          $cur = Get-Service $svc -ErrorAction Stop
+          $svcBackup[$svc] = $cur.StartType
+          # 服务带"失败自动重启"策略时，Stop-Service 后 3 秒它又起来了 → 先置 Disabled 再停
+          if ($StopHolders) { Set-Service $svc -StartupType Disabled -ErrorAction SilentlyContinue }
+          Stop-Service $svc -Force -ErrorAction Stop
+          Say ('已暂停服务: ' + $svc)
+        } catch {
+          Say ('停服务失败 ' + $svc + ' : ' + $_.Exception.Message.Split([char]10)[0])
+        }
+      }
+    }
+  }
+  # 进程残留（服务已停但进程还在的情况）
+  foreach ($pn in @('FileSyncHelper')) {
+    Get-Process $pn -ErrorAction SilentlyContinue | ForEach-Object {
+      try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; Say ('已结束进程: ' + $pn + ' (' + $_.Id + ')') } catch { Say ('结束进程失败 ' + $pn + ': ' + $_.Exception.Message.Split([char]10)[0]) }
+    }
+  }
+  Start-Sleep -Seconds 2
 }
 
 $freed = 0; $locked = 0; $lockedFiles = @()
 foreach ($d in $dirs) {
   Get-ChildItem $d.FullName -Recurse -Force -File | ForEach-Object {
-    $len = $_.Length
+    $file = $_
+    $len = $file.Length
     if ($DryRun) { $freed += $len; return }
-    try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop; $freed += $len }
+    try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop; $freed += $len }
     catch {
       $locked++
-      if ($lockedFiles.Count -lt 10) { $lockedFiles += ($_.FullName -replace [regex]::Escape($desktop + '\'), '') }
+      # ⚠ catch 块里的 $_ 是 ErrorRecord，不是文件对象 —— 第一版用 $_ 取路径，清单永远是空行
+      if ($lockedFiles.Count -lt 10) { $lockedFiles += ($file.FullName -replace [regex]::Escape($desktop + '\'), '') }
     }
   }
   # 空目录收拾掉（被锁文件所在目录会留下来，这是正常的）
@@ -89,9 +117,15 @@ if ($locked -gt 0) {
   Say ("仍被占用: $locked 个文件（这些是系统后台进程握着句柄，重启后再跑一次本脚本即可）")
   $lockedFiles | ForEach-Object { Say ('  - ' + $_) }
 }
-if ($StopOneDrive) {
-  try { Start-Service FileSyncHelper -ErrorAction Stop; Say '已恢复 OneDrive 文件同步助手' }
-  catch { Say '恢复 FileSyncHelper 失败（重启后会自动起来，不影响使用）' }
+foreach ($svc in @('FileSyncHelper', 'WSearch')) {
+  if ($svcBackup.ContainsKey($svc)) {
+    try {
+      $st = $svcBackup[$svc]
+      if ($st -and $st -ne 'Disabled') { Set-Service $svc -StartupType $st -ErrorAction SilentlyContinue }
+      Start-Service $svc -ErrorAction Stop
+      Say ('已恢复服务: ' + $svc)
+    } catch { Say ('恢复服务失败 ' + $svc + '（重启后会自动起来，不影响使用）: ' + $_.Exception.Message.Split([char]10)[0]) }
+  }
 }
 
 $left = Get-ChildItem $desktop -Directory -Filter 'release*'

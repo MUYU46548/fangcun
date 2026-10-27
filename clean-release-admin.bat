@@ -27,7 +27,7 @@ if errorlevel 1 (
   echo.
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -StopOneDrive -LogPath "%LOG%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -StopHolders -LogPath "%LOG%"
 echo.
 echo ---- log ----
 type "%LOG%"
