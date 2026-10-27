@@ -255,6 +255,9 @@ function main() {
       // 2026-10-25 卡 005 B 档：设置 → Agent → 模型单价（可选）。截图要看得出
       // 「元 / 百万 tokens」「不填就是未折算」与一行真实单价。
       ['看板', '列视图', 'settings-price', 'priceui'],
+      // 2026-10-27：模型通道表单重排（暮雨「那输入框丑的要死，整个布局又难看又难用」）。
+      // 这张**停在顶部**——状态条与预设按钮在区块最上面，priceui 那张滚到单价区就拍不到它们。
+      ['看板', '列视图', 'settings-llm', 'llmui'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
       ['日志', '', 'logs'],
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
@@ -511,6 +514,17 @@ function main() {
   const pr = document.querySelector('#smodal .price-row')
   if (pr) pr.scrollIntoView({ block: 'center' })
   await sleep(400)
+` : ''}
+  ${extra === 'llmui' ? `
+  const gear3 = all('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+  if (gear3) gear3.click()
+  await sleep(700)
+  const navB = all('#smodal .settings-nav-btn').filter((b) => (b.textContent || '').indexOf('Agent') >= 0)[0]
+  if (navB) navB.click()
+  await sleep(600)
+  const sect = document.querySelector('#smodal .llm-status')
+  if (sect) sect.scrollIntoView({ block: 'start' })
+  await sleep(300)
 ` : ''}
   ${extra === 'askacc' ? `
   // 滚到页面底部：账户口径块在月报表下面

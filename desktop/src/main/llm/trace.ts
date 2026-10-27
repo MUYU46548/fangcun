@@ -205,6 +205,18 @@ export interface UsageStats {
   byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
   firstTs: string
   lastTs: string
+  /**
+   * 最近一次调用的摘要（2026-10-27，设置页「模型通道」状态条用）。
+   * 一次都没有时为 `null` —— 状态条据此显示"还没跑过"，而不是拿 0 糊一个数字。
+   */
+  last: {
+    ts: string
+    model: string
+    trigger: string
+    total_tokens: number | null
+    duration_ms: number
+    ok: boolean
+  } | null
 }
 
 /**
@@ -240,6 +252,15 @@ export function usageStats(days = 30): UsageStats {
     triggerMap.set(g, gm)
   }
   const tsList = recs.map((x) => String(x.ts || '')).filter(Boolean).sort()
+  // 最近一次：**不要**直接用 recs[0]。ts 字符串存在两种格式（带 Z / 不带 Z，见 parseTs 注释），
+  // 按字典序排会把无标记的排错位置 → 用 parseTs 比真实时间取最大。
+  let lastRec: TraceRecord | null = null
+  for (const x of recs) {
+    if (!lastRec) { lastRec = x; continue }
+    const a = parseTs(x.ts)
+    const b = parseTs(lastRec.ts)
+    if (Number.isFinite(a) && (!Number.isFinite(b) || a > b)) lastRec = x
+  }
   return {
     days,
     calls: recs.length,
@@ -257,6 +278,16 @@ export function usageStats(days = 30): UsageStats {
       .sort((a, b) => b.calls - a.calls),
     firstTs: tsList[0] || '',
     lastTs: tsList[tsList.length - 1] || '',
+    last: lastRec
+      ? {
+          ts: String(lastRec.ts || ''),
+          model: String(lastRec.model || ''),
+          trigger: String(lastRec.trigger || ''),
+          total_tokens: typeof lastRec.total_tokens === 'number' ? lastRec.total_tokens : null,
+          duration_ms: num(lastRec.duration_ms),
+          ok: !!lastRec.ok,
+        }
+      : null,
   }
 }
 

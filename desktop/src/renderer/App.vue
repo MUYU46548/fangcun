@@ -3050,33 +3050,82 @@
              密钥只存本机（llm-config.json，0600），回显永远只有掩码；不预填任何默认端点（含国外）。 -->
         <div class="sect" v-show="settingsTab === 'agent'">
           <h4>✨ 模型通道（AI 规划用）</h4>
-          <div class="hint">项目详情页「✨ AI 规划」按钮走这里。密钥只存本机、回显只有掩码；每次调用的 token 用量随结果提示（花销可见）。</div>
+          <div class="hint">项目详情页「✨ AI 规划」按钮走这里。密钥只存本机、回显只有掩码；每次调用的 token 与耗时随结果提示。</div>
+
+          <!-- 状态条（2026-10-27）：此前界面上**完全看不出配没配好** —— 用户得自己比对四个输入框
+               猜上一次到底通没通。这里直接摊开「配没配 + 上次什么时候用过、花了多少」。
+               数据来自 ai-trace（llm:usageStats 的 last 字段），不额外读文件。 -->
+          <div class="llm-status" :class="llmCfg.baseUrl ? 'on' : 'off'">
+            <span class="llm-status-dot"></span>
+            <span v-if="!llmCfg.baseUrl">未配置 —— 填好下面三项，点「测试连接」确认再保存</span>
+            <span v-else-if="llmLastCall">
+              已配置 · {{ llmHostOf(llmCfg.baseUrl) }} · 最近一次 {{ fmtShort(llmLastCall.ts) }}，
+              <template v-if="llmLastCall.total_tokens != null">{{ llmLastCall.total_tokens }} tokens / </template>
+              {{ (llmLastCall.duration_ms / 1000).toFixed(1) }} 秒<template v-if="!llmLastCall.ok">（失败）</template>
+            </span>
+            <span v-else>已配置 · {{ llmHostOf(llmCfg.baseUrl) }} · 还没跑过调用</span>
+          </div>
+
           <div class="llm-presets">
             <button class="ghost" @click="applyLlmPreset('deepseek')">DeepSeek 一键填</button>
             <button class="ghost" @click="applyLlmPreset('mimo-api')">MiMo 按量付费</button>
             <button class="ghost" @click="applyLlmPreset('mimo-plan')">MiMo Token Plan</button>
           </div>
-          <!-- 小米两个端点（2026-10-18 暮雨第 3 条）：按量付费与 Token Plan 的 Base URL / Key 都不同，
-               控制台各自一键复制。这里把两个都摆出来，并说清哪条适用方寸 —— 别让用户拿 Plan 的 key
-               去连按量付费端点（必 401，且报错还看不出是端点错了）。 -->
-          <div class="hint">
-            小米有<b>两套凭证</b>，不能混用：按量付费 = <code>api.xiaomimimo.com/v1</code> + <code>sk-</code> 开头的 Key；
-            Token Plan = <code>token-plan-cn.xiaomimimo.com/v1</code> + <code>tp-</code> 开头的 Key（控制台各自一键复制）。
-            按小米条款，<b>Token Plan 仅限编程工具内使用，不要用于方寸这类应用后端</b>；给方寸用请选按量付费。
+
+          <!-- 覆盖确认条（2026-10-27）：预设会**直接盖掉已填的端点/模型**，此前一点就没、无法撤销。
+               照 relay-discard 那套（不用原生 confirm，用户已踩过两次「防护未生效」）：
+               对话框内条子 + 必须点「覆盖」才生效。API Key 预设一律不碰。 -->
+          <div v-if="llmPresetPending" class="llm-overwrite" role="alertdialog" aria-live="polite">
+            <span class="lo-text">
+              ⚠ 会覆盖当前配置：<b>{{ llmHostOf(llmCfg.baseUrl) }} · {{ llmCfg.model || '（空）' }}</b>
+              → <b>{{ llmHostOf(llmPresetPending.baseUrl) }} · {{ llmPresetPending.model }}</b>（API Key 不动）
+            </span>
+            <span class="lo-acts">
+              <button class="ghost" @click="llmPresetPending = null">取消</button>
+              <button class="danger" @click="confirmLlmPreset()">覆盖</button>
+            </span>
           </div>
-          <label>Base URL（API 端点）</label>
-          <input v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
-          <label>模型名</label>
-          <input v-model="llmCfg.model" placeholder="如 deepseek-chat / mimo-v2.6-flash" />
-          <label>API Key（保存后回显为掩码；修改就重填）</label>
-          <input v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
-          <label>超时（秒）</label>
-          <input type="number" min="10" step="10" v-model.number="llmCfg.timeout" />
+
+          <div class="llm-grid">
+            <div>
+              <label>Base URL（API 端点）</label>
+              <input v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
+            </div>
+            <div class="llm-row2">
+              <div>
+                <label>模型名</label>
+                <input v-model="llmCfg.model" placeholder="如 deepseek-chat / mimo-v2.6-flash" />
+              </div>
+              <div>
+                <label>超时（秒）</label>
+                <input type="number" min="10" step="10" v-model.number="llmCfg.timeout" />
+              </div>
+            </div>
+            <div>
+              <label>API Key（保存后回显为掩码；修改就重填）</label>
+              <input v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
+            </div>
+          </div>
+
           <div class="sect-btns">
             <button class="ghost" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
             <button class="pri" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
             <button class="ghost" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
           </div>
+
+          <!-- 小米两个端点（2026-10-18 暮雨第 3 条）：按量付费与 Token Plan 的 Base URL / Key 都不同，
+               控制台各自一键复制。这里把两个都摆出来，并说清哪条适用方寸 —— 别让用户拿 Plan 的 key
+               去连按量付费端点（必 401，且报错还看不出是端点错了）。
+               2026-10-27：改成折叠。这段只对"想用小米"的人有用，却常驻挡在所有输入框上方 ——
+               暮雨配的是第三方中转站，每次都要跨过一段与他无关的说明。 -->
+          <details class="llm-mimo">
+            <summary>用小米 MiMo？看两套凭证的区别</summary>
+            <div class="hint">
+              小米有<b>两套凭证</b>，不能混用：按量付费 = <code>api.xiaomimimo.com/v1</code> + <code>sk-</code> 开头的 Key；
+              Token Plan = <code>token-plan-cn.xiaomimimo.com/v1</code> + <code>tp-</code> 开头的 Key（控制台各自一键复制）。
+              按小米条款，<b>Token Plan 仅限编程工具内使用，不要用于方寸这类应用后端</b>；给方寸用请选按量付费。
+            </div>
+          </details>
         </div>
         <!-- 模型单价（可选，2026-10-25 卡 005 B 档）——**空表就是"一律未折算"**。
              为什么不内置默认价：暮雨原话「单价表从哪里来？每家都不一样，还随时可能变」。
@@ -11124,6 +11173,60 @@ const llmKeyHint = ref('')
 const llmTesting = ref(false)
 const llmSaving = ref(false)
 const llmResetting = ref(false)
+/** 最近一次调用（状态条用）。数据来自 ai-trace 的 llm:usageStats.last —— 不额外读文件。
+ *  一次都没跑过时是 null，状态条显示「还没跑过调用」，不拿 0 糊一个数字。 */
+const llmLastCall = ref<{
+  ts: string; model: string; trigger: string
+  total_tokens: number | null; duration_ms: number; ok: boolean
+} | null>(null)
+/** 待确认的预设（2026-10-27）：点了会**覆盖已有端点/模型**，必须先确认再应用。 */
+const llmPresetPending = ref<{ kind: LlmPresetKind; baseUrl: string; model: string } | null>(null)
+
+type LlmPresetKind = 'deepseek' | 'mimo-api' | 'mimo-plan'
+/** 预设数据集中在这里 —— 以前三个分支各写一遍 baseUrl/model/toast，改一处容易漏两处。 */
+const LLM_PRESETS: Record<LlmPresetKind, { baseUrl: string; model: string; toast: string; level: 'info' | 'error' }> = {
+  deepseek: {
+    baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat',
+    toast: '已填 DeepSeek 官方端点与模型名——Key 在你手里，填好测试连接', level: 'info',
+  },
+  'mimo-api': {
+    baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
+    toast: '已填小米「按量付费」端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', level: 'info',
+  },
+  'mimo-plan': {
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
+    toast: '已填 Token Plan 端点——⚠ 小米条款限编程工具内使用，方寸属应用后端，建议改用按量付费', level: 'error',
+  },
+}
+
+/** 从 URL 取主机名（状态条/确认条显示用）；解析失败就原样返回，不抛错 */
+function llmHostOf(url: string): string {
+  const s = String(url || '').trim()
+  if (!s) return '（空）'
+  try { return new URL(s).host || s } catch { return s }
+}
+
+/** ai-trace 的 ts 有两种历史格式（带 Z / 不带 Z，见主进程 parseTs 注释）。
+ *  无标记的按 UTC 解释，与主进程口径一致 —— 否则这里又会差 8 小时。 */
+function fmtShort(ts: string): string {
+  const s = String(ts || '').trim()
+  if (!s) return '—'
+  const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/.test(s)
+  const t = Date.parse(hasTz ? s : s + 'Z')
+  if (!Number.isFinite(t)) return s
+  const d = new Date(t)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+async function loadLlmLastCall() {
+  try {
+    const r: any = await window.tegula.llmUsageStats?.(30)
+    llmLastCall.value = r?.last || null
+  } catch {
+    llmLastCall.value = null
+  }
+}
 
 async function llmLoad() {
   try {
@@ -11140,6 +11243,8 @@ async function llmLoad() {
   } catch (e: any) {
     showToast(`读取模型配置失败：${e?.message || e}`, 'error')
   }
+  // 状态条要的「最近一次调用」与配置解耦：配置读失败也照样显示用量
+  void loadLlmLastCall()
 }
 
 /** 预设：只填**有据可查**的端点与模型名（官方文档写明的那几个），密钥一律不预填。
@@ -11153,20 +11258,35 @@ async function llmLoad() {
  *  ⚠ 模型名用官方文档的**小写连字符**写法（mimo-v2.6-flash）：以前这里填的是
  *    `MiMo-V2.6-Flash`，与接口返回的 model id 对不上，用户"一键填完还是失败"。
  */
-function applyLlmPreset(kind: 'deepseek' | 'mimo-api' | 'mimo-plan') {
-  if (kind === 'deepseek') {
-    llmCfg.value.baseUrl = 'https://api.deepseek.com'
-    llmCfg.value.model = 'deepseek-chat'
-    showToast('已填 DeepSeek 官方端点与模型名——Key 在你手里，填好测试连接', 'info')
-  } else if (kind === 'mimo-api') {
-    llmCfg.value.baseUrl = 'https://api.xiaomimimo.com/v1'
-    llmCfg.value.model = 'mimo-v2.6-flash'
-    showToast('已填小米「按量付费」端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', 'info')
-  } else {
-    llmCfg.value.baseUrl = 'https://token-plan-cn.xiaomimimo.com/v1'
-    llmCfg.value.model = 'mimo-v2.6-flash'
-    showToast('已填 Token Plan 端点——⚠ 小米条款限编程工具内使用，方寸属应用后端，建议改用按量付费', 'error')
+function applyLlmPreset(kind: LlmPresetKind) {
+  const preset = LLM_PRESETS[kind]
+  if (!preset) return
+  const cur = llmCfg.value
+  // 2026-10-27（暮雨：「真正缺的是二次确认」）：预设会**直接盖掉已填的端点与模型名**，
+  // 此前一点就没、也没法撤销。现在：已经有配置且与预设不同 → 先弹确认条，不直接写。
+  // 配置是空的时候不问 —— 那不叫覆盖，那叫填空。
+  const hasCfg = !!(cur.baseUrl.trim() || cur.model.trim())
+  const differs = cur.baseUrl.trim() !== preset.baseUrl || cur.model.trim() !== preset.model
+  if (hasCfg && differs) {
+    llmPresetPending.value = { kind, baseUrl: preset.baseUrl, model: preset.model }
+    return
   }
+  commitLlmPreset(kind)
+}
+
+/** 确认条上的「覆盖」：真正写入（预设只动端点与模型名，API Key 一律不碰） */
+function confirmLlmPreset() {
+  const p = llmPresetPending.value
+  if (!p) return
+  llmPresetPending.value = null
+  commitLlmPreset(p.kind)
+}
+
+function commitLlmPreset(kind: LlmPresetKind) {
+  const preset = LLM_PRESETS[kind]
+  llmCfg.value.baseUrl = preset.baseUrl
+  llmCfg.value.model = preset.model
+  showToast(preset.toast, preset.level)
 }
 
 async function llmTest() {
@@ -13166,6 +13286,36 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #smodal .hint.logpath { word-break: break-all; color: var(--ink); }
 #smodal .sect .pri { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 8px; }
 #smodal .sect .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+/* ── 模型通道表单（2026-10-27 重排）────────────────────────────────────
+   这一块此前**没有任何专属样式**：`#smodal` 里既没有 label 也没有 input 规则，
+   label 是 inline、input 是浏览器默认 inline-block，于是十几个控件挤成参差的行流 ——
+   暮雨原话「那输入框丑的要死，整个布局又难看又难用」。
+   现在改成「label 在上、input 满宽」的纵向栅格，短字段两列并排。
+   ⚠ preflight 关着 → 原生控件必须自己给全外观与 font-family，别指望继承。 */
+#smodal .llm-status { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  border-radius: 8px; font-size: 12px; margin: 8px 0 12px; line-height: 1.5;
+  background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+#smodal .llm-status.on { background: var(--tint); color: var(--ink); border-color: var(--accent-soft); }
+#smodal .llm-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+#smodal .llm-status.on .llm-status-dot { background: var(--accent); }
+#smodal .llm-presets { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+#smodal .llm-overwrite { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; margin: 0 0 12px; border-radius: 8px; font-size: 12px; line-height: 1.6;
+  background: #fff8e6; border: 1px solid #e8c46a; color: #6b4a00; }
+#smodal .llm-overwrite .lo-text { flex: 1 1 240px; }
+#smodal .llm-overwrite .lo-acts { display: flex; gap: 8px; flex: none; }
+#smodal .llm-grid { display: grid; gap: 12px; }
+#smodal .llm-grid label { display: block; font-size: 12px; color: var(--muted);
+  margin: 0 0 5px; font-weight: 600; }
+#smodal .llm-grid input { width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 13px;
+  font-family: inherit; color: var(--ink); background: #fff; border: 1px solid var(--border);
+  border-radius: 8px; outline: none; }
+#smodal .llm-grid input:focus { border-color: var(--accent); }
+#smodal .llm-row2 { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 12px; }
+#smodal .llm-mimo { margin-top: 12px; font-size: 12px; }
+#smodal .llm-mimo summary { cursor: pointer; color: var(--muted); font-family: inherit; }
+#smodal .llm-mimo summary:hover { color: var(--ink); }
+#smodal .llm-mimo .hint { margin-top: 6px; line-height: 1.7; }
 .projlist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .proj-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
 .proj-row:hover { background: var(--tint); border-color: var(--accent); }
