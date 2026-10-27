@@ -37,7 +37,14 @@
 - 进度总览: `python scripts/gen-progress.py` —— 从 `task-data/*.md` 的**状态字段**汇总成一张总览表，
   写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
   用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
-- 打包安装包（**2026-10-22 起要三个环境变量**）：
+- **打包（推荐，2026-10-27 起）**：`node scripts/pack.cjs <版本号>`
+  一条命令做四件事：① 打包前**清空** `desktop/release`；② 设好三件环境变量；③ 输出固定到
+  `desktop/release`（**不再按版本建目录**）；④ 自检 `app.asar` 里的版本号 + 安装包体积 + 包内 Node 版本。
+  ⚠ 版本号真源只有 `desktop/package.json` 一处，脚本会先核对，不一致直接拒绝。
+  ⚠ **为什么改成固定目录**：旧习惯是 `-c.directories.output=release-<ver>`，每打一版新建一个目录，
+  三个月积了 15 个（3.4GB），其中 6 个是中断留下的半成品（只有 `app.asar`）。清理用根目录的
+  `清理打包残留.bat`（保留最新一个；被系统进程占用的会跳过并列出，重启后再跑一次）。
+- 打包安装包（手工方式，**2026-10-22 起要三个环境变量**）：
   ```
   cd desktop
   ELECTRON_OVERRIDE_DIST_PATH="$PWD/node_modules/electron/dist" \
