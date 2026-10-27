@@ -186,6 +186,39 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
     files.length > 0 && bad.length === 0, bad.length ? '缺兜底：' + bad.join(',') : '')
 }
 
+// ── 同卡同貌（2026-10-27）：Card 组件与 App.vue 的 .card 必须逐值一致 ──────────
+// 暮雨原话：「UI 统一依旧迟迟未做，决策仍为另一套带阴影的 UI 风格」。
+// 真因不是"没统一"，而是**统一到两个不同的数值上**：新组件 Card 是 14px 圆角 + 独立阴影，
+// 看板老卡 .card 是 9px + 0 1px 2px rgba(90,90,130,.05) —— 同一屏两种圆角两种阴影，
+// 看上去就是两套 UI。这里钉住"两边必须相等"，改一边不改另一边就红。
+{
+  const cardVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'components', 'ui', 'Card.vue'), 'utf-8')
+  const appVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8').replace(/\r\n/g, '\n')
+  // ⚠ 只在 `cn(...)` 之后找：文件头注释里也写着历史值（`rounded-[14px]`），
+  //   直接全文匹配会先命中注释 —— 判据抓错对象，绿红都不可信。
+  const classStr = cardVue.slice(cardVue.indexOf('cn('))
+  const mR = /rounded-\[(\d+)px\]/.exec(classStr)
+  const mS = /shadow-\[0_(\d+)px_(\d+)px_rgba\((\d+),(\d+),(\d+),([0-9.]+)\)\]/.exec(classStr)
+  const block2 = /\.card \{([\s\S]*?)\}/.exec(appVue)
+  const oR = block2 ? /border-radius:\s*(\d+)px/.exec(block2[1]) : null
+  const oS = block2 ? /box-shadow:\s*0 (\d+)px (\d+)px rgba\((\d+),(\d+),(\d+),([0-9.]+)\)/.exec(block2[1]) : null
+
+  check('★ Card 组件写了圆角与阴影（否则这条判据等于没测）',
+    !!mR && !!mS, 'r=' + (mR && mR[1]) + ' s=' + !!mS)
+  check('★ 老 .card 也解析到了圆角与阴影（App.vue 里那个块还在）', !!oR && !!oS)
+  if (mR && oR) {
+    check('★★ 新 Card 与老 .card **圆角相同**（同一屏两种圆角 = 看起来两套 UI）',
+      mR[1] === oR[1], 'Card=' + mR[1] + 'px vs .card=' + oR[1] + 'px')
+  }
+  if (mS && oS) {
+    const same = mS[1] === oS[1] && mS[2] === oS[2]
+      && mS[3] === oS[3] && mS[4] === oS[4] && mS[5] === oS[5] && Number(mS[6]) === Number(oS[6])
+    check('★★ 新 Card 与老 .card **阴影同一档**（偏移/模糊/RGBA 逐值相等）', same,
+      'Card=' + mS[1] + ' ' + mS[2] + ' rgba(' + mS[3] + ',' + mS[4] + ',' + mS[5] + ',' + mS[6] + ')'
+      + ' vs .card=' + oS[1] + ' ' + oS[2] + ' rgba(' + oS[3] + ',' + oS[4] + ',' + oS[5] + ',' + oS[6] + ')')
+  }
+}
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) { console.log('\n失败项：'); for (const f of failures) console.log(' -', f) }
 console.log(`RESULT ${pass} / ${fail}`)
