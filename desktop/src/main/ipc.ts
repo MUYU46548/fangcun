@@ -1148,7 +1148,12 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
   if (from !== '待验收' && !isApproval) {
     return { ok: false, error: `当前状态为「${from || '未知'}」，仅「待审批」「待验收」可裁决` }
   }
-  const ts = new Date().toISOString().replace('T', ' ').slice(0, 16)
+  // ⚠ 2026-10-27 修时区：原先 `new Date().toISOString()` 取的是 **UTC**，却直接当本地时间写进
+  //   结果记录。暮雨看到「[2026-10-27 04:24] 审批通过」而那个点人根本不在电脑前，一度怀疑是幽灵 ——
+  //   实际是当天中午 12:24。结果记录是**写给人看**的，必须是本地时间（无时区歧义）。
+  const _d = new Date()
+  const _p2 = (n: number) => String(n).padStart(2, '0')
+  const ts = `${_d.getFullYear()}-${_p2(_d.getMonth() + 1)}-${_p2(_d.getDate())} ${_p2(_d.getHours())}:${_p2(_d.getMinutes())}`
   const passWord = isApproval ? '审批通过（转正「待办」）' : '验收通过'
   const failWord = isApproval ? '审批驳回' : '验收驳回'
   if (verdict === 'accept') {

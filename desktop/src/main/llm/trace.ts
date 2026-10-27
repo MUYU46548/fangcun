@@ -120,6 +120,24 @@ export interface TraceResult {
   error?: string
 }
 
+/**
+ * 解析 ai-trace 的时间戳（2026-10-27 修时区 bug 时补）。
+ *
+ * 历史记录的 `ts` 有两种缺陷：
+ *   · TS 旧代码 `toISOString().slice(0,19)` 把 `Z` 切掉了 —— 值本身是 UTC，但没有标记；
+ *   · Python 旧代码 `datetime.now().isoformat()` 写的是**本地时间**，也没有标记。
+ * 于是同一个文件里混着两种时间基准，直接 `Date.parse` 会按本地解释，差 8 小时。
+ *
+ * 无标记的一律按 **UTC** 解释：实测库里 4 条旧记录全是 TS 写的（`trigger=desktop.*`）。
+ * 补标记之后两端都带时区，本函数不再需要猜。
+ */
+function parseTs(v: unknown): number {
+  const s = String(v == null ? '' : v).trim()
+  if (!s) return NaN
+  const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/.test(s)
+  return Date.parse(hasTz ? s : s + 'Z')
+}
+
 /** 读取留痕（桌面查看口 / 未来 UI 页共用）。按 ts 倒序。 */
 export function readTrace(q: TraceQuery = {}): TraceResult {
   const p = traceFilePath()
@@ -201,7 +219,7 @@ export function usageStats(days = 30): UsageStats {
   const since = days > 0 ? Date.now() - days * 86400000 : 0
   const recs = r.records.filter((x) => {
     if (!since) return true
-    const t = Date.parse(String(x.ts || ''))
+    const t = parseTs(x.ts)
     return !Number.isFinite(t) || t >= since
   })
   const hasTok = (x: TraceRecord) => typeof x.total_tokens === 'number' || typeof x.prompt_tokens === 'number'
@@ -281,7 +299,7 @@ export function usageByMonth(months = 3): MonthUsage[] {
   const r = readTrace({ limit: -1 })
   const pad = (n: number) => String(n).padStart(2, '0')
   const monthKey = (ts: string): string => {
-    const t = Date.parse(String(ts || ''))
+    const t = parseTs(ts)
     if (!Number.isFinite(t)) return ''
     const d = new Date(t)
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`

@@ -198,7 +198,11 @@ function traceOnce(opts: {
   usage?: ChatUsage
 }): void {
   appendTrace({
-    ts: new Date().toISOString().slice(0, 19),
+    // ⚠ 2026-10-27 修：原先 `.slice(0, 19)` 把 `toISOString()` 末尾的时区标记 `Z` 切掉了，
+    //   于是这个"UTC 数值"被读侧 `Date.parse` 当成**本地时间**解析 —— 用户看到的调用时间差 8 小时。
+    //   暮雨看到审批留痕「04:24」而人不在电脑前，一度怀疑是幽灵：实际是中午 12:24。
+    //   现在保留完整 ISO（带 Z）；读侧 parseTs() 对无标记的旧记录按 UTC 兜底。
+    ts: new Date().toISOString(),
     trigger: opts.trigger,
     model: opts.model,
     prompt_chars: opts.promptChars,

@@ -196,7 +196,10 @@ def _trace_call(*, trigger: str, model: str, prompt_chars: int,
     """追加一条调用留痕（JSONL，一行一调）。见上方铁律。"""
     try:
         rec = {
-            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            # ⚠ 2026-10-27 修：原先写的是**本地时间且不带时区标记**，而 TS 侧写的是 UTC，
+            #   两端混在同一个 ai-trace.jsonl 里 —— 同一天两条记录能差 8 小时，月报跨月会算错月。
+            #   现在统一写 **UTC 且带 +00:00**（与 TS 侧的 Z 等价），两端可比。
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
             "trigger": str(trigger or "unknown"),
             "model": str(model or ""),
             "prompt_chars": int(prompt_chars),
