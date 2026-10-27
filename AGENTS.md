@@ -279,7 +279,14 @@
 没有 `strictNullChecks` 时，可辨识联合**不会**被 truthy 检查收窄，读 `r.reason` 直接编译失败。
 - **改法**：写类型谓词 `isXxxOk(r): r is XxxOk`，别指望 `if (!r.ok)`（10-25 账户口径踩过）。
 
-### 6. 截图 harness 的 `--virtual-time-budget` 会把 `Date.now()` 一起快进
+### 6. 给 Windows 写 `.ps1` 必须存成 **UTF-8 带 BOM**
+
+无 BOM 的 UTF-8 会被 Windows 自带脚本宿主按 ANSI 解码 → 中文变乱码，甚至让引号配对失败
+（2026-10-27 实际报错：`字符串缺少终止符: "`，一个看起来"语法明明对"的脚本跑不起来）。
+- **判据**：文件前 3 字节必须是 `EF BB BF`；自查 `node -e "…slice(0,3)"`。
+- 顺带：`.bat` 里调脚本先 `chcp 65001`，否则中文输出乱码。
+
+### 7. 截图 harness 的 `--virtual-time-budget` 会把 `Date.now()` 一起快进
 
 默认 20s 预算下，任何"真实秒数"类界面拍出来都是 20 秒后（同步胶囊拍成"推送 18s"，像卡死）。
 - **改法**：`CASES` 第 5 项给单图预算（如 4500）。

@@ -1,4 +1,4 @@
-# 清理 desktop/release* 旧打包产物（2026-10-27）
+﻿# 清理 desktop/release* 旧打包产物（2026-10-27）
 #
 # 为什么要有这个脚本：electron-builder 每打一次版就新建一个 `release-<ver>` 目录，
 # 三个月积了 15 个（3.4GB）。而且这些目录里的 `app.asar` 常被**系统后台进程**
@@ -15,7 +15,10 @@
 
 param(
   [string]$Keep = '',
-  [switch]$DryRun
+  [switch]$DryRun,
+  # 锁的持有者实测是 OneDrive 的 FileSyncHelper（服务，Manual）。停它需要管理员。
+  # 用户态停不了（报"无法打开服务"），所以这一步只能在提权会话里做。
+  [switch]$StopOneDrive
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -34,6 +37,11 @@ if (-not $dirs) { Write-Output "只剩 $Keep，无需清理。"; exit 0 }
 
 Write-Output "保留: $Keep"
 Write-Output ('待清: ' + (($dirs | ForEach-Object { $_.Name }) -join ', '))
+
+if ($StopOneDrive) {
+  try { Stop-Service FileSyncHelper -Force -ErrorAction Stop; Write-Output '已暂停 OneDrive 文件同步助手（删完会恢复）'; Start-Sleep -Seconds 3 }
+  catch { Write-Output ('停 FileSyncHelper 失败（可能不是管理员）: ' + $_.Exception.Message.Split([char]10)[0]) }
+}
 
 $freed = 0; $locked = 0; $lockedFiles = @()
 foreach ($d in $dirs) {
@@ -58,6 +66,11 @@ if ($locked -gt 0) {
   Write-Output ("仍被占用: $locked 个文件（这些是系统后台进程握着句柄，重启后再跑一次本脚本即可）")
   $lockedFiles | ForEach-Object { Write-Output ('  - ' + $_) }
 }
+if ($StopOneDrive) {
+  try { Start-Service FileSyncHelper -ErrorAction Stop; Write-Output '已恢复 OneDrive 文件同步助手' }
+  catch { Write-Output '恢复 FileSyncHelper 失败（重启后会自动起来，不影响使用）' }
+}
+
 $left = Get-ChildItem $desktop -Directory -Filter 'release*'
 Write-Output '--- 剩余 ---'
 $left | ForEach-Object {
