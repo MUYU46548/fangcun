@@ -28,6 +28,9 @@ policies/
 project-status.md
 # AI 调用链留痕（2026-10-17）：每次模型调用一行元数据，落数据根，属使用数据不入库
 ai-trace.jsonl
+# MCP 读卡计量（2026-10-27 补）：agent 每次 get_task/list_tasks 记一行，同为运行时使用数据。
+# 与 ai-trace.jsonl 同类，此前漏了，一直挂在 git status 里等被 `git add .` 误提交。
+mcp-usage.jsonl
 # 看板服务的端口文件（运行时写的，2026-10-23 补：此前一直挂在 git status 里）
 .tegula-port
 # 数据根指向（每台机器不同，是本机配置不是项目资产；2026-10-25 补，此前一直挂在 git status 里）
