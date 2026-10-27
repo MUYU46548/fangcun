@@ -139,6 +139,18 @@
                   <button v-for="d in DUE_OPTIONS" :key="'fd-' + d.v" class="fpop-opt"
                     :class="{ on: dueFilter === d.v }" @click="dueFilter = d.v">{{ d.label }}</button>
                 </div>
+                <!-- 「读取情况」（卡 20261025-006 第三件）——「哪些待办其实没人碰过」的出口。
+                     为什么放在筛选里而不是另开一页：筛完的看板**本身就是清单**（能点开、能批量归档），
+                     再弹一个只读清单等于同一批数据两套装法。
+                     ⚠ 口径必须跟数字在一起（同卡 005 第①条）：这里只统计 **agent 经 MCP 读卡**，
+                       你自己在界面里点开一张卡**不算**被读过 —— 不说清就会被当成假话。 -->
+                <div class="fpop-row">
+                  <span class="fpop-row-label">读取</span>
+                  <button class="fpop-opt" :class="{ on: !readFilter }" @click="readFilter = ''">不限</button>
+                  <button class="fpop-opt" :class="{ on: readFilter === 'never' }"
+                    :title="neverReadHint" @click="readFilter = 'never'">{{ neverReadLabel }}</button>
+                </div>
+                <div class="fpop-note">{{ neverReadHint }}</div>
                 <!-- 「含归档」只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
                      2026-09-25 决定：归档视图下直接不给这个选项。 -->
                 <div class="fpop-row" v-if="curView !== 'archive'">
@@ -3659,6 +3671,9 @@ import { buildLayerDiagram } from '../shared/layerDiagram'
 //   「服务页应用分区 + 启动台端口行」一起删掉（那两处是唯一调用方）。
 //   纯函数本体仍在 `shared/launchpadDiag.ts`（`e2e-launchpad-diag` 仍在测）。
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue, isOverdue } from '../shared/time'
+// 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
+import { neverReadSummary } from '../shared/neverRead'
+import type { NeverReadResult } from '../shared/neverRead'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -4971,8 +4986,52 @@ const fbarPanel = ref<'' | FbarPanel>('')
 
 /** reka-ui 的 `update:open` 回传（点外面 / Esc / 再点触发按钮都会走到这里） */
 function onPanelOpen(p: FbarPanel, v: boolean): void {
-  if (v) fbarPanel.value = p
+  if (v) {
+    fbarPanel.value = p
+    // 打发开筛选的那一刻重拉一次读卡记录（卡 20261025-006 第三件）：
+    // 这个数字会因 agent 读卡随时变，进门时那份已经旧了 —— 而且面板里就要显示它，
+    // 所以"打开时刷新"比"进视图时刷新"更贴合它被看的时机。
+    if (p === 'filter') void loadNeverRead()
+  }
   else if (fbarPanel.value === p) fbarPanel.value = ''
+}
+
+// ── 读取情况：「哪些待办其实没人碰过」（卡 20261025-006 第三件）────────────
+// 数据来自 `mcp-usage.jsonl`（**agent 经 MCP 读卡**），不是"你在界面点开过"的记录 —— 口径见 shared/neverRead.ts。
+// 三条不许踩：① 读不到就说读不到，绝不把"没数据"画成"全部没人碰过"；
+//            ② 完成/驳回不进清单（那是主进程的判定，界面不重算）；
+//            ③ 数字旁边必须有口径文案（`neverReadHint`），否则这个数会被当成别的东西。
+const readFilter = ref<'' | 'never'>('')
+const neverRead = ref<NeverReadResult | null>(null)
+/** 是否已尝试过加载 —— 用来区分「还没拉」与「拉到了 0 张」 */
+const neverReadLoaded = ref(false)
+const neverReadIds = computed(() => new Set((neverRead.value?.rows || []).map(r => r.id)))
+const neverReadLabel = computed(() => {
+  const r = neverRead.value
+  return r ? `没人碰过 ${r.count}` : '没人碰过'
+})
+const neverReadHint = computed(() => {
+  const r = neverRead.value
+  if (!r) {
+    return neverReadLoaded.value
+      ? '读卡记录读不出来 —— 这不等于「都有人读过」'
+      : '正在读读卡记录…'
+  }
+  return neverReadSummary(r)
+})
+
+async function loadNeverRead(days = 30): Promise<void> {
+  try {
+    const api = (window as any).tegula
+    if (!api?.usageNeverRead) throw new Error('preload 里没有 usageNeverRead')
+    const r: any = await api.usageNeverRead(days)
+    if (!r?.ok) throw new Error(r?.message || '主进程没返回结果')
+    neverRead.value = r as NeverReadResult
+  } catch {
+    neverRead.value = null
+  } finally {
+    neverReadLoaded.value = true
+  }
 }
 /** 换视图一定收起来（否则它会跟着跑到别的页签上，像一块甩不掉的浮层） */
 function closeFbar(): void { fbarPanel.value = '' }
@@ -4994,6 +5053,7 @@ const activeFilterChips = computed(() => {
   if (curStatus.value) out.push({ key: 'status', label: curStatus.value })
   const due = DUE_OPTIONS.find(d => d.v === dueFilter.value)
   if (due) out.push({ key: 'due', label: due.label })
+  if (readFilter.value === 'never') out.push({ key: 'read', label: '没人碰过' })
   if (searchIncludeArchive.value) out.push({ key: 'archive', label: '含归档' })
   return out
 })
@@ -5003,6 +5063,7 @@ function clearFilterChip(key: string): void {
   if (key === 'proj') curProj.value = '__all__'
   else if (key === 'status') curStatus.value = ''
   else if (key === 'due') dueFilter.value = ''
+  else if (key === 'read') readFilter.value = ''
   else if (key === 'archive') searchIncludeArchive.value = false
 }
 
@@ -5011,6 +5072,7 @@ function clearAllFilters(): void {
   curProj.value = '__all__'
   curStatus.value = ''
   dueFilter.value = ''
+  readFilter.value = ''
   searchIncludeArchive.value = false
 }
 const naturalResults = ref<Task[]>([])
@@ -6817,6 +6879,11 @@ function loadViewData(v: string) {
     // ⚠ 光靠 pvCurrent.id 的 watcher 不够：同一个项目重进页面时 id 没变，watcher 不触发 ——
     //   那就会一直显示进页面那一刻的旧值（"状态字段懒加载"的变体）。
     void loadProjectDocs()
+  } else if (v === 'active' || v === 'archive') {
+    loadAll()
+    // 读卡记录进门就拉（卡 20261025-006 第三件）—— 同"派生状态懒加载 = 界面说假话"那条纪律：
+    // 筛选浮层里那个「没人碰过 N」不能等到用户点开面板才有数字。
+    void loadNeverRead()
   } else {
     loadAll()
   }
@@ -7867,6 +7934,14 @@ const filteredTasks = computed(() => {
       if (dueFilter.value === 'week') return dueDate >= today && dueDate <= weekLater
       return true
     })
+  }
+  // 0 引用筛选（卡 20261025-006 第三件）：口径由主进程按 shared/neverRead.ts 裁好，
+  // 这里只做集合命中 —— 界面**不重算**"算不算未完成"，免得两边各有一套规矩。
+  // ⚠ 读不到读卡记录时 neverReadIds 是空的：筛出来是**空板 + 生效标签**，
+  //   而不是"全部合格"。空板会被 `neverReadHint` 那句"读不出来"解释掉。
+  if (readFilter.value === 'never') {
+    const ids = neverReadIds.value
+    result = result.filter(t => ids.has(t.id))
   }
   return applySortMode(result)
 })
@@ -12248,6 +12323,14 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 .fpop-close:hover { background: var(--tint); color: var(--ink); }
 .fpop-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 4px 0; }
 .fpop-row-label { flex: 0 0 34px; font-size: 11px; color: var(--muted); }
+/* 口径说明行（卡 20261025-006 第三件）——它不是装饰，是上面那个数字的**意思**：
+   「没人碰过 13」到底是"13 张卡没 agent 读过"还是"13 张卡从来没人看过"，全靠这一行。
+   所以它跟选项同层常驻，不许折叠、不许只放进 title。
+   左缩进 39px = 标签宽 34 + 间距 5，跟同排选项左对齐；行高压紧，别把筛选面板撑长
+   （暮雨 2026-10-25：「底下那坨文本把框挤长」）。 */
+.fpop-note {
+  padding: 0 0 2px 39px; font-size: 11px; line-height: 1.45; color: var(--muted);
+}
 .fpop-opt {
   padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px;
   background: #fff; color: var(--ink); font-size: 12px; font-weight: 400; cursor: pointer;

@@ -37,6 +37,8 @@ import { detectAgentTargets } from './services/agents'
 import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallPrompt } from './services/mcpConnect'
 import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
+import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
+import { pickNeverRead } from '../shared/neverRead'
 
 export function registerIpcHandlers(): void {
   // Initialize paths
@@ -1262,6 +1264,25 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     if (!t.configPath) return { ok: false, message: `${t.name} 的配置文件本机未检测到，方寸不代建 —— 先按上面的步骤新建` }
     const err = await shell.openPath(t.configPath)
     return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${t.configPath}` }
+  })
+
+  // ── 「哪些待办其实没人碰过」的界面出口（2026-10-27 卡 20261025-006 第三件）──
+  // 在此之前这件事**只在 MCP 侧存在**：`never_read` 是个 MCP 工具，主进程没有 IPC、
+  // preload 没暴露、界面没有入口 —— 所以「agent 主动发现 / 哪些卡没人读」这句承诺
+  // 在桌面端一直是空的（卡里写的「IPC 都通了」是错的，2026-10-27 实证）。
+  // 口径三条（都写进界面，别只写在这里）：
+  //   ① 只认 `mcp-usage.jsonl`（agent 经 MCP 读卡）；**你在界面点开一张卡不算被读过**；
+  //   ② 完成 / 驳回不进清单（做完了没人读是正常的）；
+  //   ③ 窗口内一条读卡记录都没有时，界面不许报「N 张没人碰过」—— 那是计量没开始。
+  guardedHandle('usage:neverRead', (_event, days?: number) => {
+    // 空值要单独判：`Number('')` 和 `Number(null)` 都是 0，而 0 在这里是「不限时间」——
+    // 直接 Number 会把"没传参"静默变成"不限时间"（卡 20261025-006 第一版就是这么写的）。
+    const blank = days === undefined || days === null || String(days).trim() === ''
+    const raw = blank ? 30 : Number(days)
+    const win = Number.isFinite(raw) ? (raw > 0 ? Math.floor(raw) : 0) : 30
+    const { stats, events } = readUsageSummary(win)
+    const tasks = data.loadTasks('active').map(taskToNeverReadInput)
+    return { ok: true, ...pickNeverRead(tasks, stats, { days: win, windowEvents: events }) }
   })
 
   // 在资源管理器里显示某个技能的 SKILL.md（给 WorkBuddy 这类只能手动导入的 agent 用）

@@ -349,6 +349,8 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpSnippet: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:snippet', targetId, entryId),
   mcpSelfInstall: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:selfInstall', targetId, entryId),
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
+  /** 「哪些待办没人碰过」（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
+  usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
   /** 日志置顶 / 改项目归属（卡 037 右键菜单） */
   logsSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('logs:setPinned', id, pinned),
   logsSetProject: (id: string, project: string) => ipcRenderer.invoke('logs:setProject', id, project),

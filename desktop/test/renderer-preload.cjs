@@ -30,6 +30,13 @@ const store = {
   balanceUnsupported: false,
   // 模型单价夹具（2026-10-25 卡 005）：一行真数据，够验"读得到 + 改得动"
   prices: [{ model: 'deepseek-chat', in: '2.00000000', out: '8.00000000' }],
+  // 读取情况：「哪些待办其实没人碰过」（卡 20261025-006 第三件）
+  // ⚠ 桩**不许写成空数组**（`rows: []` 会让"没人碰过 0"永远成立，那一整片断言等于没测）。
+  // ⚠ 也**不许把 id 写死**：任务夹具在整个断言流程里会被前面若干节换成别的卡
+  //   （2026-10-27 实测：写死 task-demo-001 → 到这一节时任务夹具只剩 2 张别的卡，
+  //   于是"筛完只剩那几张"永远红，且看起来像筛选坏了）。
+  //   所以默认**从当前任务夹具现算**；`setNeverRead()` 用于造特定形态（冻结一份）。
+  neverRead: null,
   syncHold: false,
   syncResolve: null,
   // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
@@ -243,6 +250,35 @@ const store = {
 
 function rec(name, args) {
   store.calls.push({ name, args: JSON.parse(JSON.stringify(args || [])) })
+}
+
+/**
+ * 「哪些待办没人碰过」的假数据（卡 20261025-006 第三件）。
+ *
+ * 两件必须同时做到，否则这一片断言是假绿：
+ *  ① **不能是空数组** —— `rows: []` 会让"没人碰过 0"永远成立，看起来全绿其实什么都没验；
+ *  ② **不能写死 id** —— 任务夹具在断言流程里会被前面若干节换掉（2026-10-27 实测：
+ *     写死 task-demo-001 后，到这一节时任务夹具只剩两张别的卡，"筛完只剩那几张"永远红，
+ *     而且看起来像筛选坏了）。所以默认**从当前任务夹具现算**。
+ * `__fcTest.setNeverRead(...)` 会冻结一份，用来造特定形态（如 windowEvents=0）。
+ */
+function computeNeverRead() {
+  if (store.neverRead) return store.neverRead
+  const CLOSED = ['完成', '驳回']
+  const all = (store.tasks || []).map((t) => ({
+    id: t.id,
+    title: t.title || (t.fm && t.fm.title) || t.id,
+    project: t.project || (t.fm && t.fm.project) || '',
+    status: t.status || (t.fm && t.fm.status) || '',
+    priority: t.priority || (t.fm && t.fm.priority) || '中',
+    updated: t.updated || (t.fm && t.fm.updated) || '2026-09-20T00:00:00.000Z',
+    reads: 0,
+  }))
+  let open = all.filter((t) => CLOSED.indexOf(t.status) < 0)
+  // 兜底：当前夹具全是完成卡时，仍然给一条（不然"筛完 0 张"分不清是逻辑坏还是夹具没料）
+  if (!open.length) open = all.slice(0, 1)
+  const rows = open.slice(0, 2)
+  return { ok: true, rows, count: rows.length, openTotal: Math.max(open.length, rows.length), windowEvents: 5, days: 30 }
 }
 
 let seq = 0
@@ -954,6 +990,12 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('mcpOpenConfig', [targetId])
     return ok({ ok: true, message: '已打开 ' + targetId + ' 的配置文件' })
   },
+  // 读取情况（卡 20261025-006 第三件）—— 真通道是 `usage:neverRead`（主进程读 mcp-usage.jsonl）。
+  // 记账：`__fcTest.callCount('usageNeverRead')` 能验"打开筛选面板时真拉了一次"。
+  usageNeverRead: (days) => {
+    rec('usageNeverRead', [days])
+    return ok(JSON.parse(JSON.stringify(computeNeverRead())))
+  },
   skillsReveal: (p) => { rec('skillsReveal', [p]); return ok({ ok: true, message: '已在资源管理器里亮出 SKILL.md' }) },
 
   // ── 已完成任务自动归档（2026-10-03 卡 012）──────────────────────────
@@ -1542,6 +1584,21 @@ contextBridge.exposeInMainWorld('__fcTest', {
   restorePrices: () => { store.prices = [{ model: 'deepseek-chat', in: '2.00000000', out: '8.00000000' }] },
   /** 单价表真身（改完断言读它，不读界面） */
   prices: () => JSON.parse(JSON.stringify(store.prices)),
+  // ── 读取情况（卡 20261025-006 第三件）────────────────────────────────
+  /** 读卡夹具真身（动态算出来的那份，不是写死的常量） */
+  neverRead: () => JSON.parse(JSON.stringify(computeNeverRead())),
+  /**
+   * 冻结一份读卡夹具。两种必须能造的形态：
+   *  ① `windowEvents: 0` —— 计量还没开始。此时界面**不许**说「N 张没人碰过」
+   *     （那会冤枉所有卡），必须换成"还没有任何 agent 读卡记录"；
+   *  ② `rows: []` —— 有记录但全都有人读过，筛出来是空板。
+   */
+  setNeverRead: (patch) => {
+    store.neverRead = Object.assign({ ok: true }, computeNeverRead(), patch || {})
+    return JSON.parse(JSON.stringify(store.neverRead))
+  },
+  /** 恢复动态模式（收尾用，别污染后面的用例） */
+  restoreNeverRead: () => { store.neverRead = null; return true },
   /** 账户口径降级夹具：切到"这个端点没有余额接口"（多数中转/MiMo 的真实情况） */
   setBalanceUnsupported: (v) => { store.balanceUnsupported = !!v },
   /** 还挂着几个阶段订阅 —— 收尾不干净时会越挂越多（每次同步 +1） */

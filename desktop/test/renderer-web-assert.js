@@ -6035,6 +6035,110 @@
       }
     }
 
+    // ══ 读取情况「哪些待办其实没人碰过」（卡 20261025-006 第三件）════════════
+    // 这一节守的是**口径**，不是布局。三件事：
+    //   ① 数字必须跟口径文案**并排**出现 —— 「2 张没人碰过」孤零零摆着会被读成
+    //      "这 2 张从来没人看过"，而它只代表"没有 agent 经 MCP 读过"；
+    //   ② 计量还没开始时（windowEvents=0）**不许**报「N 张没人碰过」——
+    //      那会把全部未完成卡一起冤枉成"没人碰过"，而且看起来像是工具坏了；
+    //   ③ 选了它，看板必须**真的只剩那几张** —— 只换标签不改数据的假筛选要被抓住。
+    {
+      // ⚠ 先**自己灌一份有区分度**的任务夹具（2026-10-27 反例自证抓到的坑）：
+      //   上一版依赖"当时恰好在板上的卡"，而那一刻板上只有 2 张、读卡夹具也只给 2 张 ——
+      //   "筛完只剩那几张"在**不筛选**的情况下也成立 → 把过滤逻辑整个删掉照样全绿。
+      //   现在固定 4 张未完成、读卡夹具只认其中 2 张，删掉过滤必然红。
+      const NR = (id, st) => ({
+        id, title: '读卡样例 ' + id, status: st, priority: '中', project: 'demo', tags: [], body: '',
+        created: '2026-08-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
+        fm: { id, title: '读卡样例 ' + id, status: st, priority: '中', project: 'demo' },
+        path: 'C:/mock/task-data/' + id + '.md',
+      })
+      window.__fcTest.setTasks([NR('nr-a', '待办'), NR('nr-b', '进行中'), NR('nr-c', '待办'), NR('nr-d', '待审批')])
+      // 切走再切回，逼界面重读（否则还是旧的一批卡）
+      await openViewTab('待办')
+      await sleep(400)
+      await openViewTab('看板')
+      await sleep(700)
+      // 前面几节可能留下项目/状态筛选 —— 先清干净，否则"筛前 4 张"这个前提不成立
+      const clearAllBtn = $('.fbar-clear')
+      if (clearAllBtn) { clearAllBtn.click(); await sleep(400) }
+      const beforeCount = $$('#board .card').length
+      check('  （自检）灌进来的 4 张未完成卡都在板上（本节的前提）', beforeCount === 4, 'before=' + beforeCount)
+
+      const fbtn = $('.fbar-filter-btn')
+      check('  看板上有筛选入口（本节的落点）', !!fbtn)
+      if (fbtn) {
+        fbtn.click()
+        await sleep(700)
+        check('★ 打开筛选面板时真去拉了读卡记录（usageNeverRead 被调用，不是拿进页面时的旧值）',
+          window.__fcTest.callCount('usageNeverRead') >= 1,
+          'calls=' + window.__fcTest.callCount('usageNeverRead'))
+
+        const fx = window.__fcTest.neverRead()
+        const noteEl0 = $('.fpop .fpop-note')
+        const note0 = noteEl0 ? (noteEl0.textContent || '').trim() : ''
+        check('★★ 口径文案跟数字并排出现（常驻，不是只塞进 title）',
+          !!noteEl0 && note0.length > 0, 'note=' + note0)
+        check('★★ 文案把口径说明白：只算 agent 经 MCP 读卡，界面里点开不算',
+          note0.indexOf('agent') >= 0 && note0.indexOf('MCP') >= 0 && note0.indexOf('界面') >= 0,
+          note0)
+
+        const neverBtn = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').indexOf('没人碰过') >= 0)
+        check('★ 筛选里出现「没人碰过 N」，N 来自夹具真身（不写死数字）',
+          !!neverBtn && (neverBtn.textContent || '').indexOf(String(fx.count)) >= 0,
+          neverBtn ? (neverBtn.textContent || '').trim() : '(没有这个选项)')
+
+        if (neverBtn) {
+          neverBtn.click()
+          await sleep(450)
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          await sleep(500)
+          const wantIds = fx.rows.map((r) => r.id).sort()
+          // 自检：夹具 rows 里的 id 必须真在任务夹具里 —— 否则"筛选后 0 张"是夹具问题，
+          // 不是筛选坏了（这条先红会省掉一轮瞎猜）。
+          const taskIds = window.__fcTest.tasks().map((t) => t.id)
+          const overlap = wantIds.filter((id) => taskIds.indexOf(id) >= 0)
+          check('  （自检）读卡夹具的 id 真在任务夹具里（不是两套对不上的夹具）',
+            overlap.length === wantIds.length,
+            'overlap=' + overlap.join(',') + ' / want=' + wantIds.join(',') + ' / tasks=' + taskIds.length)
+          // ★★ 这条是"区分度"自检：筛前张数必须**多于**筛后，否则把过滤逻辑删掉也照样绿
+          //    （2026-10-27 实测踩过：板上恰好只有那几张时，假筛选反例没变红）
+          check('  （自检）筛前张数多于筛后（这条断言有区分度，不是恒真）',
+            beforeCount > wantIds.length, 'before=' + beforeCount + ' 筛后=' + wantIds.length)
+          await waitFor(() => $$('#board .card').length === wantIds.length, 4000, '筛选后卡片数')
+          const gotIds = $$('#board .card').map((c) => c.getAttribute('data-id')).sort()
+          check('★★ 选了「没人碰过」→ 看板真的只剩那几张（不是只换了标签）',
+            gotIds.length === wantIds.length && gotIds.join(',') === wantIds.join(','),
+            '期望=' + wantIds.join(',') + ' 实际=' + gotIds.join(',')
+            + ' | board=' + !!$('#board') + ' 所有data-id=' + $$('#board [data-id]').map((c) => c.getAttribute('data-id')).join(','))
+          check('★ 「生效中」区出现「没人碰过」标签（一眼看到筛了什么）',
+            $$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0),
+            'chips=' + $$('.fbar-chip').map((c) => (c.textContent || '').trim()).join(' | '))
+
+          // 反例①：一条读卡记录都没有 → 文案必须换掉，不许继续报「N 张没人碰过」
+          window.__fcTest.setNeverRead({ rows: [], count: 0, openTotal: fx.openTotal, windowEvents: 0 })
+          fbtn.click()
+          await sleep(700)
+          const noteEmpty = (($('.fpop .fpop-note') || {}).textContent || '').trim()
+          check('★★ 反例：一条读卡记录都没有时，不许报「N 张没人碰过」',
+            noteEmpty.indexOf('还没有任何 agent 读卡记录') >= 0 &&
+            noteEmpty.indexOf('张 / 共') < 0 &&
+            noteEmpty.indexOf(' 张') < 0,
+            'note=' + noteEmpty)
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+          await sleep(300)
+
+          // 收尾两件都得做：撤掉筛选（否则后面的断言在空板上跑）+ 恢复夹具
+          const chipNow = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('没人碰过') >= 0)
+          const chipX = chipNow ? chipNow.querySelector('.fbar-x') : null
+          if (chipX) { chipX.click(); await sleep(500) }
+          check('  收尾：撤掉「没人碰过」后筛选标签消失', !$$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0))
+          window.__fcTest.restoreNeverRead()
+          await sleep(200)
+        }
+      }
+    }
+
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))
