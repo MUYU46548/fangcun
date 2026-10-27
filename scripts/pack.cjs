@@ -22,7 +22,15 @@ const path = require('path')
 const { spawnSync } = require('child_process')
 
 const DESKTOP = path.resolve(__dirname, '..', 'desktop')
-const OUT = path.join(DESKTOP, 'release')
+// ⚠ 输出目录叫 `pkg`（不是 `release`）：`release*` 是历史遗留名，里面全是删不掉的老 asar，
+//   连目录改名都会 EPERM。换一个干净名字 = 一次性的隔离，之后 `release*` 交给
+//   `清理打包残留.bat` 慢慢清，不再影响打包。
+const OUT = path.join(DESKTOP, 'pkg')
+// ⚠ 不能直接往 `release/` 里打：electron-builder 会先建 `win-unpacked.tmp`，
+//   而旧 `release/win-unpacked.tmp/resources/default_app.asar` 常被系统进程占着 →
+//   `EBUSY: resource busy or locked, unlink ...`（AGENTS.md 里 10-22 就记过这一条）。
+//   所以每次都打到**新**的 `release.tmp`，成功后再原子改名 —— 既绕开 EBUSY，也不会堆目录。
+const STAGE = path.join(DESKTOP, '.pkg-tmp')
 
 function log(m) { console.log(m) }
 
@@ -58,10 +66,10 @@ function main() {
     process.exit(1)
   }
 
-  // ① 清旧产物
+  // ① 清掉上一轮的暂存目录（lock 住的就跳过，下面 ELBUSY 也不会发生，因为每次都换新目录名）
   if (!noClean) {
-    const r = emptyDir(OUT)
-    log(`清理旧产物：释放 ${(r.freed / 1048576).toFixed(1)}MB` + (r.locked ? `，${r.locked} 个文件被系统进程占用（重启后再清）` : ''))
+    const r = emptyDir(STAGE)
+    if (r.freed || r.locked) log(`清暂存目录：释放 ${(r.freed / 1048576).toFixed(1)}MB` + (r.locked ? `，${r.locked} 个被占` : ''))
   }
 
   // ② 三件环境变量（缺 ELECTRON_OVERRIDE_DIST_PATH 会去下别的版本，10 分钟超时才报错）
@@ -77,13 +85,45 @@ function main() {
   }
 
   // ③ 打
-  log(`开始打包 ${ver} → ${OUT}`)
-  const r = spawnSync('npx', ['electron-builder', '-c.directories.output=release'], {
+  log(`开始打包 ${ver} → ${path.basename(STAGE)}（完成后改名为 pkg）`)
+  const r = spawnSync('npx', ['electron-builder', '-c.directories.output=.pkg-tmp'], {
     cwd: DESKTOP, env, stdio: 'inherit', shell: true,
   })
   if (r.status !== 0) {
-    log(`✗ 打包失败（exit ${r.status}）。半成品留在 ${OUT}，下次打包会自动清掉`)
+    log(`✗ 打包失败（exit ${r.status}）。半成品在 ${path.basename(STAGE)}，下次打包会先清掉`)
     process.exit(r.status || 1)
+  }
+
+  // ③b 原子换名：旧 release 先挪走，再把 tmp 改名成 release，最后尽力删旧的
+  //    （旧目录里被锁的 asar 删不掉没关系 —— 名字已让位，不影响本次产物）
+  let oldDir = ''
+  try {
+    if (fs.existsSync(OUT)) {
+      oldDir = OUT + '.old-' + Date.now()
+      fs.renameSync(OUT, oldDir)
+      log(`旧 pkg 已挪到 ${path.basename(oldDir)}`)
+    }
+    fs.renameSync(STAGE, OUT)
+    log('✓ 已切换为新的 pkg')
+  } catch (e) {
+    // 退回方案：pkg 里有被系统进程锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
+    log(`  直接换名失败（${e.code || e.message}），改用"清空 + 复制"`)
+    try {
+      const c = emptyDir(OUT)
+      if (c.locked) throw new Error(`pkg 里还有 ${c.locked} 个文件被占用，需要重启后重试`)
+      fs.cpSync(STAGE, OUT, { recursive: true })
+      fs.rmSync(STAGE, { recursive: true, force: true })
+      log('✓ 已用复制方式切到新 pkg')
+    } catch (e2) {
+      log(`✗ 切换失败：${e2.message}`)
+      log(`  新包仍在 ${path.basename(STAGE)}，重启后再跑一次即可`)
+      process.exit(1)
+    }
+  }
+  if (oldDir) {
+    const r2 = emptyDir(oldDir)
+    if (r2.locked) log(`  旧目录释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个被系统进程占用（重启后用「清理打包残留.bat」再清）`)
+    else { try { fs.rmdirSync(oldDir) } catch { /* ignore */ } ; log(`  旧目录已清空（释放 ${(r2.freed / 1048576).toFixed(1)}MB）`) }
   }
 
   // ④ 自检：退出码 0 ≠ 包里有新代码

@@ -44,6 +44,9 @@ apps.json
 desktop/node_modules/
 desktop/dist/
 desktop/release/
+desktop/release*/
+desktop/pkg/
+desktop/.pkg-tmp/
 desktop/.vite/
 
 # ── 一次性产物 ──
