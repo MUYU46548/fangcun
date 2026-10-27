@@ -1217,11 +1217,18 @@ def cmd_report(args):
             if g["uncommitted"]:
                 parts.append(f"未提交: {g['uncommitted']}文件")
             if t["total"]:
+                # ⚠ 每个标签必须对应它自己的桶（2026-10-27 修）：
+                #   原先把 `done` 当成「待验收」显示，而 core 里 `done` 统计的是「完成+驳回」
+                #   → 报告长期在报一个不存在的数（全库 0 张待验收，报告却写 26）。
                 tp = []
-                if t["active"]: tp.append(f"{t['active']}进行中")
-                if t["pending"]: tp.append(f"{t['pending']}待办")
-                if t["blocked"]: tp.append(f"{t['blocked']}阻塞")
-                if t["done"]: tp.append(f"{t['done']}待验收")
+                if t.get("active"): tp.append(f"{t['active']}进行中")
+                if t.get("accepting"): tp.append(f"{t['accepting']}待验收")
+                if t.get("waiting_approval"): tp.append(f"{t['waiting_approval']}待审批")
+                if t.get("pending"): tp.append(f"{t['pending']}待办")
+                if t.get("blocked"): tp.append(f"{t['blocked']}阻塞")
+                if t.get("done"): tp.append(f"{t['done']}完成")
+                if t.get("rejected"): tp.append(f"{t['rejected']}驳回")
+                if t.get("draft"): tp.append(f"{t['draft']}草稿")
                 if tp:
                     parts.append(f"任务: {', '.join(tp)}")
             lines.append("- " + " | ".join(parts))

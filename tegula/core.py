@@ -3778,7 +3778,21 @@ def scan_project_status(p):
         "repo": repo,
         "released": is_released,
         "git": {"recent_commits": 0, "last_commit_days": None, "uncommitted": 0, "active_branch": None},
-        "tasks": {"total": 0, "active": 0, "blocked": 0, "blocked_names": [], "pending": 0, "done": 0},
+        # ⚠ 口径（2026-10-27 修）：`done` 以前把「完成 + 驳回」混在一起，而 cli 又把它显示成
+        #   「N 待验收」—— 于是报告里的"待验收"根本不是待验收（实测全库 0 张待验收，报告却报 26）。
+        #   现在七个状态各归各桶，且各桶之和 == total（见下方累加处的守卫注释）。
+        "tasks": {
+            "total": 0,
+            "draft": 0,             # 草稿
+            "waiting_approval": 0,  # 待审批（AI 产出，等用户点头）
+            "pending": 0,           # 待办
+            "active": 0,            # 进行中
+            "accepting": 0,         # 待验收
+            "done": 0,              # 完成（**不含**驳回）
+            "rejected": 0,          # 驳回
+            "blocked": 0,
+            "blocked_names": [],
+        },
         "health": "released" if is_released else "unknown",
         "summary": "已发布 / 无后续计划" if is_released else "",
         # 增强字段
@@ -3842,10 +3856,18 @@ def scan_project_status(p):
                 "plan_done": plan_done,
                 "plan_total": plan_total,
             })
+        elif st == "草稿":
+            s["tasks"]["draft"] += 1
+        elif st == "待审批":
+            s["tasks"]["waiting_approval"] += 1
         elif st == "待办":
             s["tasks"]["pending"] += 1
-        elif st in ("完成", "驳回"):
+        elif st == "待验收":
+            s["tasks"]["accepting"] += 1
+        elif st == "完成":
             s["tasks"]["done"] += 1
+        elif st == "驳回":
+            s["tasks"]["rejected"] += 1
 
         blk = blockers_of(tid)
         if blk:
