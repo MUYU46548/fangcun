@@ -12068,6 +12068,26 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 :where(input:not([type='checkbox']):not([type='radio']), textarea):focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* ── 表单控件**基线外观**（2026-10-27）────────────────────────────────
+   全站此前只有上面那条 `:focus` 有 :where 兜底，**常态外观全靠各自局部选择器补** ——
+   于是每新增一块表单就漏一次：模型通道那四个框、模型单价那三个框都裸奔过。
+   暮雨原话：「这个问题在整个项目里应该出现过三次以上了，说明没吸取教训」。
+   这里补**只含外观、不含布局**的基线（不写 width / display / margin，交给各局部决定）。
+   用 :where() 让特异性恒为 0 → 任何局部规则都能盖住它，不会打乱既有排版。
+   checkbox / radio / file / range / color 一律排除（它们有各自的原生语义，撑成圆角框就毁了）。 */
+:where(input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']):not([type='color']),
+       textarea,
+       select) {
+  padding: 6px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  box-sizing: border-box;
+}
 
 /* 装饰光斑：**保留视觉，只改合成策略**（2026-09-25 用户第 4 条 + 第 1/3/9 条）。
    两个 460/420px 的元素挂着 blur(70px) —— 高斯模糊是最贵的栅格化操作之一，

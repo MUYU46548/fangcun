@@ -219,6 +219,36 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   }
 }
 
+// ── ⑤ 表单控件基线外观（2026-10-27）──────────────────────────────────
+// 为什么要有这条：全站此前**只有 `:focus` 有 :where 兜底，常态外观全靠各局部选择器补**，
+// 于是每新增一块表单就漏一次 —— 模型通道那四个框、模型单价那三个框都裸奔过（浏览器默认样式）。
+// 暮雨原话：「这个问题在整个项目里应该出现过三次以上了，说明没吸取教训」。
+// 所以把"基线存在、且只含外观不含布局"钉成断言，而不是再靠人记得补。
+const appSrc = read('src/renderer/App.vue').replace(/\r\n/g, '\n')
+const BASE_SEL = ":where(input:not([type='checkbox']):not([type='radio']):not([type='file'])"
+/** 从源码里抠出基线规则体（用选择器前缀定位，取到第一个 `}`） */
+function pickBaseRule(src) {
+  const i = src.indexOf(BASE_SEL)
+  if (i < 0) return ''
+  const j = src.indexOf('}', i)
+  return j < 0 ? '' : src.slice(i, j)
+}
+const baseRule = pickBaseRule(appSrc)
+check('★ 存在表单控件基线外观规则（:where(input…, textarea, select)）', baseRule.length > 0, '')
+check('★ 基线只含外观、不含布局（不许写 width / display / margin，否则会打乱各局部排版）',
+  baseRule.length > 0 && !/(^|[;{\s])(width|display|margin)\s*:/.test(baseRule), '')
+check('★ 基线把 checkbox / radio / file / range / color 全排除了（否则这些原生控件会被撑成圆角框）',
+  ['checkbox', 'radio', 'file', 'range', 'color'].every((t) => baseRule.includes(t)), '')
+check('★ 基线给了 font-family: inherit（preflight 关着，不给就各浏览器各长一样）',
+  /font-family\s*:\s*inherit/.test(baseRule), '')
+check('★ 基线含 textarea 与 select（不只是 input）',
+  /textarea/.test(baseRule) && /select/.test(baseRule), '')
+// 反例自证：旧的"只有 :focus 兜底"版本必须提取为空 —— 证明 pickBaseRule 真的在咬"基线"而不是"任何 input 规则"
+check('反例：只有 :focus 兜底的旧版本 → 提取为空',
+  pickBaseRule(":where(input:not([type='checkbox']):not([type='radio']), textarea):focus { color: red }") === '', '')
+check('反例：基线里塞了 width 会被咬住',
+  /(^|[;{\s])(width|display|margin)\s*:/.test(`${BASE_SEL}, textarea) { width: 100%; }`), '')
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) { console.log('\n失败项：'); for (const f of failures) console.log(' -', f) }
 console.log(`RESULT ${pass} / ${fail}`)
