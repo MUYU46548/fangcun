@@ -226,6 +226,9 @@ function main() {
       ['看板', '列视图', 'board-cols'],
       // 2026-10-25：顶栏「更多」菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
       ['看板', '列视图', 'top-more', 'moremenu'],
+      // 2026-10-27 暮雨截图抓到的 bug：**日志页**上菜单被 sticky 栏压住只露半截。
+      // 这张图放在日志页，就是为了让"层级"这种只在特定页面出现的错有机会被看见。
+      ['日志', '', 'log-more', 'logmore'],
       // 2026-10-25 卡 004：同步状态胶囊（进行中那一帧）—— 真的按住 push、真的喂阶段，
       // 截图里要看得出「⟳ 推送 2s」而不是光秃秃一个转圈图标。
       // 第 5 项 = 本张图的 virtual-time 预算（毫秒）。默认 20000，但这张不能给那么大：
@@ -492,6 +495,11 @@ function main() {
     window.__fcTest.emitSyncProgress('push')
     await sleep(2400)   // 让秒数爬到 2s，截图里看得出"真的在计时"
   }
+` : ''}
+  ${extra === 'logmore' ? `
+  const mb = document.querySelector('#views .more-btn')
+  if (mb) mb.click()
+  await sleep(600)
 ` : ''}
   ${extra === 'priceui' ? `
   const gear2 = all('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]

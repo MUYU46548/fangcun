@@ -520,7 +520,22 @@
             pop ? (pop.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '')
           if (pop) {
             const ph = pop.getBoundingClientRect().height
-            check('★★ 浮层不臃肿（整体高度 <= 160px；旧版光那段说明就占两行）',
+            // 层级（2026-10-27 暮雨截图抓到的真 bug）：菜单在日志页被 sticky 栏压在下面，
+          // 只露出下半截。真因是重做时把 `.fpop` 去掉、**连带丢了它的 z-index**，
+          // 而 reka-ui 是靠 getComputedStyle(内容).zIndex 读走写到外层 wrapper 的 —— 没有就是 auto。
+          check('★★ 浮层有显式 z-index（没有就会被页面 sticky 栏压住、只露半截）', (() => {
+            const el = $('.more-pop')
+            if (!el) return false
+            const wrap = el.closest('[data-reka-popper-content-wrapper]') || el.parentElement
+            const z = wrap ? getComputedStyle(wrap).zIndex : ''
+            return z !== '' && z !== 'auto' && Number(z) >= 20
+          })(), (() => {
+            const el = $('.more-pop')
+            const wrap = el && (el.closest('[data-reka-popper-content-wrapper]') || el.parentElement)
+            return 'wrapper z=' + (wrap ? getComputedStyle(wrap).zIndex : '?')
+          })())
+
+          check('★★ 浮层不臃肿（整体高度 <= 160px；旧版光那段说明就占两行）',
               ph > 0 && ph <= 160, 'height=' + ph.toFixed(1))
             const rowHs = rows.map((b) => b.getBoundingClientRect().height)
             check('  四行等高（28px ± 2），不像一排输入框',

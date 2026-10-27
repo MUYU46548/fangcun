@@ -13352,7 +13352,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
      "透明浮层贴在看板上"（第一版重做后截图里，菜单后面的看板列直接透了出来）。 */
 .more-pop { width: auto; min-width: 148px; padding: 4px;
   background: #fff; border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(30,30,60,.18); }
+  box-shadow: 0 8px 24px rgba(30,30,60,.18);
+  /* ⚠ z-index 必须留在这：reka-ui 会 getComputedStyle(内容).zIndex 读走它、写到外层 wrapper。
+     第一版重做菜单时把 `.fpop` 整个去掉，**连带丢了它的 z-index: 62** → 菜单被日志页
+     sticky 栏（z-index 2/3）压在下面，表现为"只露出下半截"（暮雨 10-27 截图抓到）。 */
+  z-index: 66; }
 .more-opt { display: flex; align-items: center; gap: 2px; width: 100%; height: 28px;
   padding: 0 12px 0 6px; border: 0; border-radius: 6px; background: transparent;
   font-family: inherit; font-size: 12.5px; color: var(--ink); text-align: left;
