@@ -12088,6 +12088,19 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
   outline: none;
   box-sizing: border-box;
 }
+/* 行内代码基线（2026-10-27）：全站 31 处 `<code>` 此前**一条样式规则都没有**，
+   靠浏览器默认等宽字体 —— 和正文几乎分不开（`task-data/archive/` 这种路径读起来很吃力）。
+   与上面 input 基线同一个思路：给一次基线，不再各处补。
+   ⚠ `.ver-num` 用的 `var(--mono, monospace)` 里 --mono 从未定义（有 fallback 所以没坏），
+     这里直接用字体栈，不去造一个新变量。 */
+:where(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
 
 /* 装饰光斑：**保留视觉，只改合成策略**（2026-09-25 用户第 4 条 + 第 1/3/9 条）。
    两个 460/420px 的元素挂着 blur(70px) —— 高斯模糊是最贵的栅格化操作之一，
