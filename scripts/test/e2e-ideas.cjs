@@ -100,9 +100,12 @@ function snapshot() {
   const cnt0 = ideas.listIdeas().length
   const empty = ideas.addIdea('   \n  ')
   check('空内容 → 显式报错', empty.ok === false && /空/i.test(empty.error), empty.error)
-  const long = ideas.addIdea('啊'.repeat(4001))
-  check('超长（4001 字）→ 报错并说清上限，不静默截断',
-    long.ok === false && /4000/.test(long.error), long.error)
+  // ⚠ 别再写死 4001/4000：上限后来做成了**设置项**（默认 10000，硬顶 20000），
+  //   写死数字会让这条断言在默认值一改时红掉，而红的原因与"截断"无关。
+  const limit = ideas.ideaTextLimit()
+  const long = ideas.addIdea('啊'.repeat(limit + 1))
+  check(`超长（上限+1 = ${limit + 1} 字）→ 报错并说清上限，不静默截断`,
+    long.ok === false && String(long.error).includes(String(limit)), long.error)
   check('★ 这两次都没落盘（条目数不变）', ideas.listIdeas().length === cnt0, String(ideas.listIdeas().length))
 
   console.log('\n---- 3. 手滑连点两下不会记两条 ----')

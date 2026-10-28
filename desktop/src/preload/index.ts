@@ -351,6 +351,13 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
   /** 「哪些待办没人碰过」（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
   usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
+  checkMismatch: (days?: number) => ipcRenderer.invoke('mismatch:check', days),
+  // 需求矩阵（RICE · 2026-10-28）：读池 / 幂等灌分 / 拍板落账 / 改月预算。
+  // ⚠ 页面零网络：这里只是本地文件 IPC，不连任何端点。
+  riceGet: () => ipcRenderer.invoke('rice:get'),
+  riceUpsert: (items: unknown, meta?: unknown) => ipcRenderer.invoke('rice:upsert', items, meta),
+  riceDecide: (items: unknown, meta?: unknown) => ipcRenderer.invoke('rice:decide', items, meta),
+  riceSetBudget: (budget: number) => ipcRenderer.invoke('rice:setBudget', budget),
   /** 日志置顶 / 改项目归属（卡 037 右键菜单） */
   logsSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('logs:setPinned', id, pinned),
   logsSetProject: (id: string, project: string) => ipcRenderer.invoke('logs:setProject', id, project),

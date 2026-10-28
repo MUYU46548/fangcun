@@ -1187,6 +1187,22 @@
         :projects="projects"
         :toast="showToast"
       />
+      <!-- ══ ⑥ 对不上（2026-10-27 · REV-008 一期 R4「让对不上可见」）════════
+           状态过期 / 引用断裂 / 完成但没判据 —— 三类全是**只读报告**，不阻挡任何操作。
+           判定在 shared/mismatch.ts（e2e-mismatch 32 条纯 Node 断言），这里只管摆。
+           ⚠ 必须紧接在上一分支之后：v-if 链中间插元素会让其后视图整页不渲染。 -->
+      <MismatchView
+        v-else-if="pvView === 'mismatch'"
+        :toast="showToast"
+      />
+      <!-- ══ ⑦ 需求矩阵（2026-10-28 · RICE 决策矩阵）══════════════════════
+           散点 + 表格 + 手改即时重算 + 拍板导出。口径全在 shared/rice.ts
+           （e2e-rice 用纯 Node 验），数据在 task-data/rice-pool.md。
+           ⚠ 页签**零网络**；分数只存四个原始分，总分现算、不落盘。 -->
+      <RiceMatrixView
+        v-else-if="pvView === 'rice'"
+        :toast="showToast"
+      />
 
       <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）══════════════
            一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志。
@@ -3655,6 +3671,8 @@ import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
 import TrashView from './views/TrashView.vue'
 import ProjectTierBoard from './views/ProjectTierBoard.vue'
+import MismatchView from './views/MismatchView.vue'
+import RiceMatrixView from './views/RiceMatrixView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -4142,7 +4160,10 @@ async function syncBoardPrefs(): Promise<void> {
       tripHealthOverrides.value = p.fc_health_overrides
     }
     // 项目页签摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
-    if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master' || p?.fc_pv_view === 'trip') {
+    // ⚠ 白名单是**持久化的闸门**：新增摆法忘了加进来，重启后会静默退回项目墙
+    //   （trip 之外，tier / mismatch / rice 都曾踩在这种"加了视图没加白名单"的坑上）。
+    if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master' || p?.fc_pv_view === 'trip'
+      || p?.fc_pv_view === 'tier' || p?.fc_pv_view === 'mismatch' || p?.fc_pv_view === 'rice') {
       pvView.value = p.fc_pv_view
     } else {
       saveUiPref(PV_VIEW_KEY, pvView.value)
@@ -4247,10 +4268,10 @@ const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY,
 // 项目页签的摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」；
 //   2026-10-05 Q2 新增第四种「在途一屏」—— 立项契约 ② 验收线之①）。
 // ⚠ 默认仍是**旧的项目墙** —— 方寸铁律「加视图一律新增可选、旧的保留、旧视图永远是默认」。
-const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier'>(
-  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier'>(PV_VIEW_KEY, 'tiles'))
+const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(
+  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(PV_VIEW_KEY, 'tiles'))
 /** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
-const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier']
+const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice']
 
 // ── 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）────────────────────
 // 一行一个在途项目，回答「在哪一步 / 下一步 / 卡在谁」。数据全部来自主进程只读聚合
@@ -4804,6 +4825,10 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'trip', label: '◉ 在途一屏', hint: '一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度；缺值写「未填」，不编内容' },
     // 2026-10-25 暮雨：「放进项目页签里面就好。这玩意纯属小玩具」+「我丢的参考图里的梯度榜」
     { v: 'tier', label: '▥ 梯度榜', hint: '手动把项目拖进不同档位（核心/次优先/排队/搁置…）；只给自己看，不改看板与一屏' },
+    // 2026-10-27 REV-008 一期 R4：让「对不上」可见（状态过期 / 引用断裂 / 完成但没判据）
+    { v: 'mismatch', label: '⚠ 对不上', hint: 'registry 状态与实际进度对不上、卡里写的路径已不存在、完成却没有验收判据；只报告，不阻挡' },
+    // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
+    { v: 'rice', label: '▦ 需求矩阵', hint: '按 RICE 打分排需求：横轴成本、纵轴得分、气泡大小=使用频次；手改分项即时重排，拍板导出到决策卡（零网络）' },
   ]
   return []
 })
@@ -15090,8 +15115,27 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .services-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 /* ── 项目梯度榜（2026-10-25）：项目页的第 5 种摆法。左侧档位块 + 右侧可拖胶囊。
       观感对齐项目页其它摆法（同一套边框/圆角/字号），不另造一套皮肤。 ── */
-.tierboard { display: flex; flex-direction: column; padding: 4px 2px 40px; }
-.tier-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+/* ── ⑥ 对不上（MismatchView.vue，2026-10-27 REV-008 R4）── */
+.mm { display: flex; flex-direction: column; padding: 6px 4px 40px; font-size: 13px; color: var(--ink); }
+.mm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.mm-ttl { font-size: 15px; font-weight: 600; }
+.mm-sub { font-size: 12px; color: var(--muted); }
+.mm-grow { flex: 1; }
+.mm-note { margin: 10px 0 4px; padding: 8px 10px; font-size: 12px; color: var(--muted); background: var(--line-2, #f7f7f5); border-radius: 8px; }
+.mm-err { margin-top: 12px; padding: 10px; font-size: 13px; color: #a32d2d; background: #fcebeb; border-radius: 8px; }
+.mm-empty { margin-top: 16px; font-size: 13px; color: var(--muted); }
+.mm-group { margin-top: 16px; }
+.mm-ghead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.mm-gttl { font-size: 13px; font-weight: 600; }
+.mm-gcnt { font-size: 12px; color: var(--ink); background: var(--line); border-radius: 10px; padding: 0 7px; }
+.mm-ghint { font-size: 11.5px; color: var(--muted); }
+.mm-none { padding: 7px 2px; font-size: 12px; color: var(--muted); }
+.mm-row { display: flex; gap: 12px; align-items: baseline; padding: 7px 2px; border-bottom: 1px solid var(--line-2, #f0efec); }
+.mm-l { flex: 0 0 210px; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-r { flex: 1; font-size: 12px; color: var(--muted); word-break: break-all; }
+.mm-foot { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+.tierboard { display: flex; flex-direction: column; padding: 4px 2px 40px; }.tier-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .tier-ttl { font-size: 14px; font-weight: 700; color: var(--ink); }
 .tier-sub { font-size: 12px; color: var(--muted); }
 .tier-grow { flex: 1; }

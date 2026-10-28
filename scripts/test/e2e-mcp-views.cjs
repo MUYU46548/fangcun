@@ -59,8 +59,11 @@ const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: Str
 const tools = require(D + '/dist/main/mcp/tools.js')
 const data = require(D + '/dist/main/data/index.js')
 
-check('MCP 模块可加载，20 个工具（名字是 fangcun-bridge 的对外契约）',
-  Array.isArray(tools.MCP_TOOLS) && tools.MCP_TOOLS.length === 20,
+// ⚠ 不再钉死"恰好 20 个"：每加一个工具（如 2026-10-28 的需求矩阵三件）都会让它红，
+//   而红的原因与"读口一致性"毫无关系。判据 = 工具表非空 + 核心读口还在。
+check('MCP 模块可加载，工具表非空且核心读口都在（名字是 fangcun-bridge 的对外契约）',
+  Array.isArray(tools.MCP_TOOLS) && tools.MCP_TOOLS.length >= 20
+  && ['list_tasks', 'get_task', 'search_tasks', 'get_log', 'never_read', 'rice_pool_list'].every((n) => tools.MCP_TOOLS.some((t) => t.name === n)),
   Array.isArray(tools.MCP_TOOLS) ? tools.MCP_TOOLS.length : typeof tools.MCP_TOOLS)
 
 const DATA_DIR = ${JSON.stringify(DATA)}

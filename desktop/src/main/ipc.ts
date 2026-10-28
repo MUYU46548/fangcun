@@ -39,6 +39,8 @@ import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { pickNeverRead } from '../shared/neverRead'
+import { checkMismatch } from './services/mismatch'
+import * as rice from './data/rice'
 
 export function registerIpcHandlers(): void {
   // Initialize paths
@@ -1284,6 +1286,32 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     const tasks = data.loadTasks('active').map(taskToNeverReadInput)
     return { ok: true, ...pickNeverRead(tasks, stats, { days: win, windowEvents: events }) }
   })
+
+  // ── 「对不上」检测（2026-10-27，REV-008 一期 R4「让对不上可见」）──
+  // 三类：① 状态过期（registry 写的日期 vs 仓库最后提交）② 引用断裂（卡里的路径磁盘上没了）
+  //      ③ 完成但没判据（自报完成，无从复核）。判定全在 `shared/mismatch.ts`（e2e-mismatch 用纯 Node 验）。
+  // ⚠ 口径三条，界面必须一起写：**它只是对不上，不是做错了；不阻挡任何操作；取不到 git 的项目要单独列出**。
+  guardedHandle('mismatch:check', async (_event, days?: number) => {
+    // 空值单独判：Number('') 和 Number(null) 都是 0，而 0 在这里是"不算过期"——直接 Number 会把它静默变成 0
+    const blank = days === undefined || days === null || String(days).trim() === ''
+    const raw = blank ? 3 : Number(days)
+    const win = Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 3
+    return await checkMismatch({ days: win })
+  })
+
+  // ── 需求矩阵（RICE · 2026-10-28）────────────────────────────────────
+  // 页签只读/写池文件，**零网络**（格式闸红线）。分数与等级的算法在 `shared/rice.ts`，
+  // 这里不重复实现任何口径 —— 界面拿到整池后自己算，主进程只负责数据与审计。
+  guardedHandle('rice:get', () => rice.getRicePool())
+  guardedHandle('rice:upsert', (_event, items: any[], meta?: any) => {
+    return rice.upsertRiceItems(Array.isArray(items) ? items : [], {
+      by: meta?.by, batch: meta?.batch,
+    })
+  })
+  guardedHandle('rice:decide', (_event, items: any[], meta?: any) => {
+    return rice.recordRiceDecisions(Array.isArray(items) ? items : [], { batch: meta?.batch })
+  })
+  guardedHandle('rice:setBudget', (_event, budget: number) => rice.setRiceBudget(Number(budget)))
 
   // 在资源管理器里显示某个技能的 SKILL.md（给 WorkBuddy 这类只能手动导入的 agent 用）
   // 路径裁决（白名单两个根）抽成纯函数 `resolveRevealTarget` —— e2e-skills 直接断言它。

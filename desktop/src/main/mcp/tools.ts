@@ -7,6 +7,11 @@ import type { Task } from '../data'
 import { appendTrace } from '../llm/trace'
 import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
 import { recordRead, readStats } from './usage'
+// 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
+// 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
+// 决策卡与池文件此前根本没有通道（spec §四 引用的"现有写回层入口"对它们不存在）。
+import { getRicePool, upsertRiceItems, recordRiceDecisions } from '../data/rice'
+import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
@@ -235,6 +240,90 @@ export const MCP_TOOLS: MCPTool[] = [
       type: 'object',
       properties: { id: { type: 'string', description: 'Log ID' } },
       required: ['id'],
+    },
+  },
+  // ── 需求矩阵（RICE · 2026-10-28）────────────────────────────────────
+  // 口径真源 docs/ADR-002-需求矩阵.md；池宿主 task-data/rice-pool.md。
+  // ⚠ 总分不落盘：池里只有 R/I/C/E 四个原始分，RICE 由读取方现算。
+  {
+    name: 'rice_pool_list',
+    description:
+      'Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, '
+      + 'computed RICE score, pool-relative level (P0/P1/P2/CUT), verdict and decision id. '
+      + 'The total score is computed on read — it is never stored.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Only items whose task origin belongs to this project id' },
+      },
+    },
+  },
+  {
+    name: 'rice_pool_upsert',
+    description:
+      'Upsert RICE initial scores into the requirement pool (idempotent). Same eid twice: '
+      + 'overwrites scores/note/scorer and KEEPS the existing verdict + decision id — it never duplicates '
+      + 'the entry. Invalid items are rejected one by one (the rest of the batch is still written). '
+      + 'Value domains: I ∈ {0.25,0.5,1,2,3}; C ∈ {0.95,0.85,0.7,0.6}; '
+      + 'evidence ∈ {亲口要,实测踩过,agent推断,纯直觉}. Agents must not record the user’s verdict.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        batch: { type: 'string', description: 'Batch label for the audit log (e.g. 20261028-批1)' },
+        by: { type: 'string', description: 'Who scored (default "agent")' },
+        items: {
+          type: 'array',
+          description: 'Items to upsert',
+          items: {
+            type: 'object',
+            properties: {
+              eid: { type: 'string', description: 'rice-<type>-<原id> (external: rice-ext-<短hash>)' },
+              title: { type: 'string' },
+              origin: { type: 'string', description: 'type:id, type ∈ task/idea/todo/external' },
+              R: { type: 'number', description: '每周使用频次（估数，非负）' },
+              I: { type: 'number', description: '省手工量，∈ {0.25,0.5,1,2,3}' },
+              C: { type: 'number', description: '信心，∈ {0.95,0.85,0.7,0.6}；省略则按证据等级推' },
+              E_days: { type: 'number', description: '占几天（正整数，进公式）' },
+              E_cost: { type: 'number', description: '预估花费（元，旁注，默认 0）' },
+              evidence: { type: 'string', description: '证据等级：亲口要/实测踩过/agent推断/纯直觉' },
+              by: { type: 'string', description: '本条打分人（省略用批次的 by）' },
+              note: { type: 'string', description: '备注（多行会原样保留）' },
+            },
+            required: ['eid', 'title', 'origin', 'R', 'I', 'E_days', 'evidence'],
+          },
+        },
+      },
+      required: ['items'],
+    },
+  },
+  {
+    name: 'decision_record',
+    description:
+      'Record the user’s verdicts for requirement-pool items into decisions.md (wraps addDecision, so '
+      + 'same content+date is idempotent), then backfill the pool item’s 拍板/决策id. '
+      + 'CUT = 状态 已撤销. This is a USER action: agents may call it only after the user explicitly approved '
+      + 'that item; agents must never decide on their own.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        batch: { type: 'string', description: 'Batch label (e.g. rice-export-20261028)' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              eid: { type: 'string', description: 'Pool item id' },
+              内容: { type: 'string', description: 'Decision text (default: item title)' },
+              项目: { type: 'string', description: 'Project id (default: derived from task origin)' },
+              状态: { type: 'string', description: '有效 (default) or 已撤销 (= CUT)' },
+              出处: { type: 'string', description: 'Source (default: 需求矩阵拍板 <batch>)' },
+              备注: { type: 'string', description: 'Note (default: computed RICE + evidence + cost)' },
+            },
+            required: ['eid'],
+          },
+        },
+      },
+      required: ['items'],
     },
   },
 ]
@@ -505,6 +594,83 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
           origin: 'external',
         },
       }, null, 2) }] }
+    }
+
+    case 'rice_pool_list': {
+      // 只读：总分与等级在这里现算（池文件里没有总分，手改分项后读出来就是新分）。
+      const r = getRicePool()
+      if (!r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error, path: r.path }) }], isError: true }
+      const levels = levelOfMap(r.pool.items)
+      const want = String(args.project || '').trim()
+      const rows = r.pool.items
+        .filter((it) => {
+          if (!want) return true
+          // 池条目本身不带 project；按 task 来源的卡归属过滤
+          const m = /^task:(.+)$/.exec(String(it.origin || ''))
+          if (!m) return false
+          const t = tasks.readTask(m[1])
+          const p = (t?.fm as any)?.project
+          return (Array.isArray(p) ? p : [p]).some((x: any) => String(x || '') === want)
+        })
+        .map((it) => ({
+          eid: it.eid,
+          title: it.title,
+          origin: it.origin,
+          R: it.R, I: it.I, C: it.C,
+          E_days: it.E_days, E_cost: it.E_cost,
+          evidence: it.evidence,
+          score: scoreOf(it),
+          level: levels[it.eid] || '',
+          verdict: it.verdict || '',
+          decisionId: it.decisionId || '',
+          note: it.note || '',
+          by: it.by || '',
+        }))
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        path: r.path,
+        budget: r.pool.budget,
+        summary: riceSummary(r.pool).text,
+        total: r.pool.items.length,
+        items: rows,
+      }, null, 2) }] }
+    }
+
+    case 'rice_pool_upsert': {
+      // 幂等写：同 eid 连灌两遍条目数不变；拒该条不拒整批。
+      const r = upsertRiceItems(Array.isArray(args.items) ? args.items : [], {
+        by: args.by, batch: args.batch,
+      })
+      if (!r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error }) }], isError: true }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        batch: r.batch,
+        added: r.added,
+        updated: r.updated,
+        rejected: r.rejected,
+        warnings: r.warnings,
+        // 回传整池：调用方不用再猜"合入后长什么样"（也不许自己算）
+        total: r.pool ? r.pool.items.length : 0,
+        budget: r.pool ? r.pool.budget : 0,
+        items: (r.pool ? r.pool.items : []).map((it) => ({
+          eid: it.eid, title: it.title, origin: it.origin,
+          R: it.R, I: it.I, C: it.C, E_days: it.E_days, E_cost: it.E_cost,
+          evidence: it.evidence, score: scoreOf(it),
+          verdict: it.verdict || '', decisionId: it.decisionId || '',
+        })),
+      }, null, 2) }] }
+    }
+
+    case 'decision_record': {
+      const r = recordRiceDecisions(Array.isArray(args.items) ? args.items : [], { batch: args.batch })
+      const payload = {
+        ok: r.ok,
+        error: r.error,
+        batch: r.batch,
+        results: r.results,
+        total: r.pool ? r.pool.items.length : 0,
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: !r.ok }
     }
 
     default:

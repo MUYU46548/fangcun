@@ -1448,6 +1448,249 @@ def decision_set_status(did, 状态, 备注=None):
     return False, f"决策卡 {did} 不存在"
 
 
+# ---------- 需求矩阵 / RICE 评估池（2026-10-28）----------
+# 施工输入：《方寸-RICE打分口径》v1.1 +《方寸-RICE格式闸结论-全栈》schema v1；
+# 设计判断与"为什么不会再丢"：docs/ADR-002-需求矩阵.md。
+#
+# 宿主：task-data/rice-pool.md（节式，与 decisions.md 同款）。
+# **双腿同文件**：TS 侧 desktop/src/shared/rice.ts + main/data/rice.ts，
+# Python 侧就是这里；逐字节兼容由 scripts/test/check-rice.py 对账。
+#
+# 四条硬约束（与 TS 侧逐字一致，改一处必须改两处）：
+#   ① 总分不落盘（池里只有 R/I/C/E 四个原始分，RICE 现算）；
+#   ② 幂等 upsert（同 eid 覆盖分数/备注/打分，保留拍板 + 决策id）；
+#   ③ 取值域硬校验（I/C/证据四档）；
+#   ④ 不替人做决定（等级是池内相对位置，拍板是用户动作）。
+
+RICE_POOL_PATH = os.path.join(TASK_DIR, "rice-pool.md")
+RICE_IMPACT_VALUES = (0.25, 0.5, 1.0, 2.0, 3.0)
+RICE_CONFIDENCE_VALUES = (0.95, 0.85, 0.7, 0.6)
+RICE_EVIDENCE_TO_C = {"亲口要": 0.95, "实测踩过": 0.85, "agent推断": 0.7, "纯直觉": 0.6}
+RICE_ORIGIN_TYPES = ("task", "idea", "todo", "external")
+RICE_HEADER = (
+    "# 需求矩阵评估池（RICE）\n"
+    "\n"
+    "> 四个原始分在这里，总分由页签现算（不落盘）。口径见 docs/ADR-002-需求矩阵.md。"
+)
+_RICE_KNOWN = ("标题", "来源", "R", "I", "C", "E天", "E元", "证据", "打分", "备注", "拍板", "决策id")
+
+
+def _rice_num(v):
+    """解析数值；解析不出返回 None（不拿 0 假装有分）。"""
+    try:
+        s = str(v or "").strip()
+        if not s:
+            return None
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _rice_num_text(value, raw=None):
+    """与 TS `String(number)` 对齐：整数不带 .0（否则双腿写回会逐字节分叉）。"""
+    if raw is not None:
+        return str(raw)
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def load_rice_pool():
+    """解析 rice-pool.md → {"budget": float, "items": [dict]}。
+
+    坏行宽容跳过（别让手改坏一行拖死整页）；但**已知字段解析不出的原文留在 raw 里**，
+    写回时原样吐回 —— 不静默清空（与 TS parseRicePool 同规则）。"""
+    pool = {"budget": 0.0, "items": []}
+    if not os.path.exists(RICE_POOL_PATH):
+        return pool
+    try:
+        with open(RICE_POOL_PATH, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return pool
+    m = re.search(r"月预算\s*[（(]?\s*元\s*[）)]?\s*[:：]\s*(-?\d+(?:\.\d+)?)", text)
+    if m:
+        pool["budget"] = max(0.0, float(m.group(1)))
+
+    cur = None
+    last = None  # ("field", name) | ("extra", idx)
+
+    def flush():
+        nonlocal cur, last
+        if cur is not None:
+            pool["items"].append(cur)
+        cur, last = None, None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        sec = re.match(r"^##\s+(rice-\S+)\s*(.*)$", line)
+        if sec:
+            flush()
+            cur = {
+                "eid": sec.group(1), "title": sec.group(2).strip(), "origin": "",
+                "R": None, "I": None, "C": None, "E_days": None, "E_cost": 0.0,
+                "evidence": "", "by": "", "note": "", "verdict": "", "decision_id": "",
+            }
+            continue
+        if cur is None:
+            continue
+        kv = re.match(r"^-\s*([^:：]{1,24}?)\s*[:：]\s*(.*)$", line)
+        if kv:
+            k, v = kv.group(1).strip(), kv.group(2).strip()
+            if k == "标题":
+                cur["title"] = v
+                last = ("field", "title")
+            elif k == "来源":
+                cur["origin"] = v
+                last = ("field", "origin")
+            elif k in ("R", "I", "C", "E天", "E元"):
+                field = {"E天": "E_days", "E元": "E_cost"}.get(k, k)
+                n = _rice_num(v)
+                cur[field] = n
+                if n is None:
+                    cur.setdefault("raw", {})[field] = v
+                last = ("field", field)
+            elif k == "证据":
+                cur["evidence"] = v
+                last = ("field", "evidence")
+            elif k == "打分":
+                cur["by"] = v
+                last = ("field", "by")
+            elif k == "备注":
+                cur["note"] = v
+                last = ("field", "note")
+            elif k == "拍板":
+                cur["verdict"] = v if v in ("有效", "CUT") else ""
+                last = ("field", "verdict")
+            elif k == "决策id":
+                cur["decision_id"] = v
+                last = ("field", "decision_id")
+            elif k in _RICE_KNOWN:
+                last = None
+            else:
+                cur.setdefault("extra", []).append({"k": k, "v": v})
+                last = ("extra", len(cur["extra"]) - 1)
+            continue
+        if line and last:
+            if last[0] == "field":
+                name = last[1]
+                prev = cur.get(name)
+                if isinstance(prev, str):
+                    cur[name] = (prev + "\n" + line) if prev else line
+            elif cur.get("extra") and last[1] < len(cur["extra"]):
+                ex = cur["extra"][last[1]]
+                ex["v"] = (ex["v"] + "\n" + line) if ex["v"] else line
+    flush()
+    return pool
+
+
+def _render_rice_pool(pool):
+    out = [RICE_HEADER]
+    budget = pool.get("budget", 0)
+    out.append("> 月预算（元）: " + _rice_num_text(budget if isinstance(budget, (int, float)) else 0))
+    out.append("")
+    for it in pool.get("items", []):
+        raw = it.get("raw") or {}
+        out.append(f"## {it.get('eid', '')} {it.get('title', '')}".rstrip())
+        out.append(f"- 标题: {it.get('title', '')}")
+        out.append(f"- 来源: {it.get('origin', '')}")
+        out.append(f"- R: {_rice_num_text(it.get('R'), raw.get('R'))}")
+        out.append(f"- I: {_rice_num_text(it.get('I'), raw.get('I'))}")
+        out.append(f"- C: {_rice_num_text(it.get('C'), raw.get('C'))}")
+        out.append(f"- E天: {_rice_num_text(it.get('E_days'), raw.get('E_days'))}")
+        out.append(f"- E元: {_rice_num_text(it.get('E_cost'), raw.get('E_cost'))}")
+        out.append(f"- 证据: {it.get('evidence', '')}")
+        out.append(f"- 打分: {it.get('by', '')}")
+        out.append(f"- 备注: {it.get('note', '')}")
+        out.append(f"- 拍板: {it.get('verdict', '')}")
+        out.append(f"- 决策id: {it.get('decision_id', '')}")
+        for ex in it.get("extra", []) or []:
+            out.append(f"- {ex.get('k', '')}: {ex.get('v', '')}")
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def save_rice_pool(pool):
+    """原子写（tmp + os.replace + 读回验证），与 save_decisions 同模式。"""
+    os.makedirs(TASK_DIR, exist_ok=True)
+    tmp = RICE_POOL_PATH + ".tmp"
+    content = _render_rice_pool(pool)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    with open(tmp, encoding="utf-8") as f:
+        if not f.read():
+            os.remove(tmp)
+            raise RuntimeError("rice pool atomic write verification failed")
+    os.replace(tmp, RICE_POOL_PATH)
+    return True
+
+
+def _rice_round2(n):
+    """与 TS `round2`（Math.round(x*100)/100）逐字一致。
+    ⚠ Python 内置 round() 是银行家舍入：2.125 → 2.12，而 JS 给 2.13 —— 同一张条目
+      两条腿算出不同分数，比不四舍五入更糟。**必须显式 half-up**。"""
+    return int(float(n) * 100 + 0.5) / 100
+
+
+def rice_score(it):
+    """RICE = R×I×C÷E；任一项缺失/非法或 E<=0 → None（不假装算得出）。"""
+    vals = [it.get("R"), it.get("I"), it.get("C"), it.get("E_days")]
+    if any(v is None for v in vals):
+        return None
+    r, i, c, e = [float(v) for v in vals]
+    if e <= 0:
+        return None
+    return _rice_round2(r * i * c / e)
+
+
+def rice_levels(items):
+    """等级 = **池内相对位置**：P0 前 20%，P1 到中位，其余 P2；已拍板 CUT 恒 CUT。
+    同分共享档位（按切分分数比较），与 shared/rice.ts 的 riceLevels 同规则。"""
+    scored = [(it, rice_score(it)) for it in items]
+    live = [(it, s) for it, s in scored if s is not None and it.get("verdict") != "CUT"]
+    live.sort(key=lambda x: (-x[1], str(x[0].get("eid", ""))))
+    n = len(live)
+    p0n = max(1, -(-n * 20 // 100)) if n else 0       # ceil(n*0.2)
+    p1n = max(p0n, -(-n * 50 // 100)) if n else 0     # ceil(n*0.5)
+    p0cut = live[p0n - 1][1] if p0n else float("inf")
+    p1cut = live[p1n - 1][1] if p1n else float("inf")
+    out = {}
+    for it, s in scored:
+        if it.get("verdict") == "CUT":
+            out[it.get("eid", "")] = "CUT"
+        elif s is None:
+            out[it.get("eid", "")] = "P2"
+        else:
+            out[it.get("eid", "")] = "P0" if s >= p0cut else ("P1" if s >= p1cut else "P2")
+    return out
+
+
+def rice_summary(pool):
+    """一行汇总：条数 / 未拍板 / 已拍板 / CUT / P0 花费 vs 月预算。
+    预算未设置（0）时明说"未设置"，**不许说成 0%**（R7：数字要带局限）。"""
+    items = pool.get("items", [])
+    levels = rice_levels(items)
+    total = len(items)
+    cut = sum(1 for it in items if it.get("verdict") == "CUT")
+    decided = sum(1 for it in items if it.get("verdict") in ("有效", "CUT"))
+    pending = total - decided
+    p0cost = _rice_round2(sum((it.get("E_cost") or 0) for it in items if levels.get(it.get("eid", "")) == "P0"))
+    budget = pool.get("budget", 0) or 0
+    parts = [f"{total} 条", f"未拍板 {pending}", f"已拍板 {decided}"]
+    if cut:
+        parts.append(f"CUT {cut}")
+    if budget > 0:
+        parts.append(f"P0 花费 ¥{p0cost} / 预算 ¥{_rice_num_text(budget)}（{int(p0cost / budget * 100 + 0.5)}%）")
+    else:
+        parts.append("月预算未设置")
+    return " · ".join(parts)
+
+
+
+
+
 def load_template():
     """读 _template.md 的 frontmatter 作为新任务底稿；不存在则返回空 dict。"""
     tp = os.path.join(TASK_DIR, "_template.md")

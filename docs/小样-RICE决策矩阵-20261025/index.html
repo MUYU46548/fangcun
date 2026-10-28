@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求优先级 · RICE 决策矩阵</title>
+<style>
+  :root{
+    --ink:#17181c;
+    --ink-2:#3c3f47;
+    --gray:#777b84;
+    --gray-2:#a0a4ac;
+    --line:#e6e5e2;
+    --line-2:#f0efec;
+    --bg:#f7f7f5;
+    --card:#ffffff;
+    --accent:#2f4fbf;
+    --accent-deep:#1f3a99;
+    --accent-soft:#eef1fc;
+    --accent-line:#cfd8f2;
+    --p1:#868b95;
+    --p2:#b6bbc3;
+    --cut:#c6c2ba;
+    --radius:16px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    font-feature-settings:"tnum" 1;
+  }
+  .page{max-width:1100px;margin:0 auto;padding:60px 34px 88px;}
+
+  /* ============ masthead ============ */
+  .masthead{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:32px;
+    padding-bottom:30px;border-bottom:1px solid var(--line);flex-wrap:wrap;
+  }
+  .eyebrow{
+    font-size:11.5px;letter-spacing:.2em;color:var(--accent);font-weight:700;
+    text-transform:uppercase;margin-bottom:16px;
+  }
+  h1{font-size:36px;line-height:1.22;font-weight:700;letter-spacing:-.025em;}
+  h1 .em{color:var(--gray-2);font-weight:600;}
+  .sub{margin-top:16px;font-size:14.5px;color:var(--gray);max-width:620px;line-height:1.75;}
+  .creed{
+    margin-top:22px;display:inline-flex;align-items:center;gap:9px;
+    font-size:12.5px;color:var(--ink-2);background:var(--accent-soft);
+    border:1px solid var(--accent-line);padding:7px 14px;border-radius:999px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;flex:0 0 auto;padding-top:4px;}
+  .brand .glyph{
+    width:40px;height:40px;border:1.4px solid var(--ink);border-radius:11px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .brand .who{font-size:11.5px;color:var(--gray-2);line-height:1.5;letter-spacing:.02em;}
+  .brand .who b{display:block;color:var(--ink);font-size:13.5px;font-weight:600;letter-spacing:0;}
+
+  /* ============ KPI ============ */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:38px;}
+  .kpi{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px 22px 18px;position:relative;
+  }
+  .kpi .k-label{font-size:12px;color:var(--gray);display:flex;align-items:center;gap:6px;}
+  .kpi .k-val{font-size:33px;font-weight:700;letter-spacing:-.03em;margin-top:8px;line-height:1.15;}
+  .kpi .k-val .u{font-size:14px;font-weight:600;color:var(--gray);margin-left:4px;letter-spacing:0;}
+  .kpi .k-foot{font-size:11.5px;color:var(--gray-2);margin-top:5px;}
+  .kpi.is-accent{
+    border-color:var(--accent-line);
+    background:linear-gradient(178deg,var(--accent-soft) 0%,#fff 72%);
+  }
+  .kpi.is-accent .k-val{color:var(--accent);}
+  .kpi.is-accent .k-label svg{opacity:1;}
+
+  /* ============ section ============ */
+  .section{margin-top:54px;}
+  .sec-head{display:flex;align-items:baseline;gap:13px;margin-bottom:18px;}
+  .sec-head .no{
+    font-size:11.5px;font-weight:700;color:#fff;background:var(--ink);
+    width:21px;height:21px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+    flex:0 0 auto;transform:translateY(1px);
+  }
+  .sec-head h2{font-size:20px;font-weight:700;letter-spacing:-.015em;}
+  .sec-head .hint{font-size:12.5px;color:var(--gray-2);margin-left:auto;text-align:right;}
+  .panel{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:26px 28px 22px;
+  }
+
+  /* ============ filters ============ */
+  .toolbar{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding-bottom:16px;margin-bottom:4px;border-bottom:1px solid var(--line-2);
+  }
+  .toolbar .tlabel{font-size:11.5px;color:var(--gray-2);margin-right:2px;}
+  .chips{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+    font-family:inherit;font-size:12px;font-weight:600;color:var(--ink-2);
+    background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:5px 11px 5px 9px;transition:.16s;
+  }
+  .chip:hover{border-color:var(--gray-2);}
+  .chip i{width:9px;height:9px;border-radius:50%;display:block;flex:0 0 auto;}
+  .chip .cnt{font-size:11px;color:var(--gray-2);font-variant-numeric:tabular-nums;}
+  .chip[data-tier="P0"] i{background:var(--accent);}
+  .chip[data-tier="P1"] i{background:var(--p1);}
+  .chip[data-tier="P2"] i{background:var(--p2);}
+  .chip[data-tier="CUT"] i{background:transparent;border:1.3px dashed var(--cut);}
+  .chip[aria-pressed="false"]{opacity:.42;border-style:dashed;background:transparent;}
+  .size-legend{
+    margin-left:auto;display:flex;align-items:center;gap:9px;
+    font-size:11.5px;color:var(--gray-2);
+  }
+  .size-legend .c{border:1.3px solid var(--gray-2);border-radius:50%;display:block;}
+
+  /* ============ matrix ============ */
+  .matrix-wrap{position:relative;width:100%;overflow-x:auto;padding-top:10px;}
+  .mx-note{
+    margin-top:14px;padding-top:14px;border-top:1px solid var(--line-2);
+    font-size:11.5px;color:var(--gray-2);line-height:1.85;
+  }
+  .mx-note b{color:var(--gray);font-weight:600;}
+  .matrix-wrap svg{width:100%;height:auto;display:block;min-width:660px;}
+  svg text{font-family:inherit;}
+  .pt{cursor:pointer;animation:pop .5s cubic-bezier(.22,.8,.3,1) backwards;}
+  @keyframes pop{from{opacity:0;}to{opacity:1;}}
+  .pt .b-main{transition:fill-opacity .16s,stroke-width .16s;}
+  .pt .b-num{pointer-events:none;transition:opacity .16s;}
+  .pt.t-P0 .b-main{fill:#2f4fbf;fill-opacity:.14;stroke:#2f4fbf;}
+  .pt.t-P1 .b-main{fill:#868b95;fill-opacity:.12;stroke:#868b95;}
+  .pt.t-P2 .b-main{fill:#b6bbc3;fill-opacity:.11;stroke:#b6bbc3;}
+  .pt.t-CUT .b-main{fill:#fff;fill-opacity:.6;stroke:#c6c2ba;stroke-dasharray:4 3;}
+  .pt.t-P0 .b-num{fill:#1f3a99;}
+  .pt.t-P1 .b-num{fill:#5b606a;}
+  .pt.t-P2 .b-num{fill:#8f949c;}
+  .pt.t-CUT .b-num{fill:#a9a49b;}
+  .pt.hot .b-main{fill-opacity:.3;stroke-width:2.3;}
+  .pt.t-CUT.hot .b-main{fill-opacity:.9;}
+  .pt.mute{opacity:.16;pointer-events:none;}
+  .pt.mute .b-num{opacity:.4;}
+
+  /* tooltip */
+  .tt{
+    position:absolute;z-index:6;pointer-events:none;width:238px;
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:13px 15px 12px;box-shadow:0 12px 30px rgba(22,22,32,.11),0 2px 6px rgba(22,22,32,.05);
+    opacity:0;transform:translateY(5px);transition:opacity .14s,transform .14s;
+  }
+  .tt.on{opacity:1;transform:translateY(0);}
+  .tt .tt-top{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .tt .tt-rk{
+    font-size:10.5px;font-weight:700;color:#fff;background:var(--ink);
+    padding:1px 6px;border-radius:5px;font-variant-numeric:tabular-nums;
+  }
+  .tt .tt-rk.p0{background:var(--accent);}
+  .tt h4{font-size:12.5px;font-weight:700;line-height:1.4;}
+  .tt .tt-note{font-size:11px;color:var(--gray-2);margin-bottom:9px;}
+  .tt .tt-score{
+    display:flex;align-items:baseline;gap:7px;padding:8px 0;
+    border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);
+  }
+  .tt .tt-score span{font-size:10.5px;color:var(--gray-2);letter-spacing:.04em;}
+  .tt .tt-score b{font-size:19px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  .tt .tt-score em{
+    margin-left:auto;font-style:normal;font-size:10.5px;font-weight:700;
+    padding:1px 7px;border-radius:5px;background:var(--accent-soft);color:var(--accent);
+  }
+  .tt .tt-score em.p1{background:#f1f2f4;color:var(--ink-2);}
+  .tt .tt-score em.p2{background:#f5f5f6;color:var(--gray);}
+  .tt .tt-score em.cut{background:#faf9f7;color:var(--gray-2);border:1px dashed var(--line);}
+  .tt .tt-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;
+    margin-top:8px;font-size:11px;color:var(--gray);
+  }
+  .tt .tt-grid b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums;}
+  .tt .tt-quad{margin-top:8px;font-size:10.5px;color:var(--gray-2);}
+
+  /* ============ table ============ */
+  .tbl-wrap{width:100%;overflow-x:auto;}
+  .tbl{width:100%;border-collapse:collapse;font-size:13px;}
+  .tbl th{
+    text-align:left;font-weight:600;color:var(--gray-2);font-size:11px;
+    letter-spacing:.05em;padding:0 12px 11px;border-bottom:1px solid var(--line);
+    white-space:nowrap;text-transform:uppercase;
+  }
+  .tbl th.num,.tbl td.num{text-align:right;}
+  .lat{
+    font-size:9.5px;color:#c2c6cc;letter-spacing:.05em;margin-left:4px;
+    font-weight:600;text-transform:uppercase;
+  }
+  .tbl td{padding:14px 12px;border-bottom:1px solid var(--line-2);vertical-align:middle;}
+  .tbl tr:last-child td{border-bottom:none;}
+  .tbl tbody tr{transition:background .14s,opacity .16s;}
+  .tbl tbody tr:hover{background:#fbfbfa;}
+  .tbl tr.is-p0{background:var(--accent-soft);}
+  .tbl tr.is-p0:hover{background:#e8edfb;}
+  .tbl tr.off{opacity:.28;}
+  .rk{
+    font-weight:700;color:var(--gray-2);font-size:12px;width:34px;
+    font-variant-numeric:tabular-nums;
+  }
+  .tbl tr.is-p0 .rk{color:var(--accent);}
+  .name{font-weight:600;color:var(--ink);font-size:13.5px;line-height:1.4;}
+  .tbl tr.is-cut .name{color:var(--gray);font-weight:500;}
+  .tbl tr.hot{background:#f1f4fd;}
+  .tbl tr.is-p0.hot{background:#e8edfb;}
+  .note{font-size:11.5px;font-weight:400;color:var(--gray-2);margin-top:2px;}
+  .num{font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;}
+  .num .sm{font-size:10.5px;color:var(--gray-2);}
+  .tbl tr.is-cut .num{color:var(--gray-2);}
+  .score{display:flex;align-items:center;gap:9px;justify-content:flex-end;}
+  .score .bar{flex:0 0 74px;height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;}
+  .score .bar i{display:block;height:100%;border-radius:3px;background:var(--p2);}
+  .tbl tr.is-p0 .score .bar i{background:var(--accent);}
+  .tbl tr.is-p1 .score .bar i{background:var(--p1);}
+  .tbl tr.is-cut .score .bar i{background:var(--cut);}
+  .score .v{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink);min-width:48px;text-align:right;}
+  .tbl tr.is-cut .score .v{color:var(--gray-2);}
+  .badge{
+    display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;
+    padding:3px 8px;border-radius:5px;letter-spacing:.04em;white-space:nowrap;
+  }
+  .badge.b-p0{background:var(--accent);color:#fff;}
+  .badge.b-p1{background:#eceef1;color:var(--ink-2);}
+  .badge.b-p2{background:#f4f5f6;color:var(--gray);}
+  .badge.b-cut{background:#fff;color:var(--gray-2);border:1px dashed var(--cut);}
+  .tbl-foot{
+    margin-top:16px;padding-top:14px;border-top:1px solid var(--line-2);
+    font-size:11.5px;color:var(--gray-2);display:flex;gap:16px;flex-wrap:wrap;
+  }
+
+  /* ============ judgement ============ */
+  .judge{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:28px 30px;display:grid;grid-template-columns:196px 1fr;gap:30px;
+  }
+  .judge .sig{border-right:1px solid var(--line-2);padding-right:26px;display:flex;flex-direction:column;}
+  .judge .sig .note{margin-top:auto;padding-top:20px;font-size:11px;color:var(--gray-2);line-height:1.85;}
+  .judge .sig .role{font-size:11.5px;color:var(--accent);font-weight:700;letter-spacing:.08em;}
+  .judge .sig .nm{font-size:17px;font-weight:700;margin-top:5px;letter-spacing:-.01em;}
+  .judge .sig .mt{font-size:11.5px;color:var(--gray-2);margin-top:8px;line-height:1.75;}
+  .judge .sig .stats{margin-top:18px;display:flex;flex-direction:column;gap:9px;}
+  .judge .sig .stat{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;color:var(--gray);}
+  .judge .sig .stat b{font-size:13px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+  .judge .sig .stat b.accent{color:var(--accent);}
+  .judge .body p{font-size:13.5px;color:var(--ink-2);margin-bottom:13px;line-height:1.85;}
+  .judge .body p:last-child{margin-bottom:0;}
+  .judge .body strong{color:var(--ink);font-weight:700;}
+  .judge .body .hl{color:var(--accent);font-weight:700;}
+  .judge .body .lead{font-size:14.5px;color:var(--ink);font-weight:600;margin-bottom:12px;}
+  .verdicts{
+    margin-top:20px;padding-top:18px;border-top:1px solid var(--line-2);
+    display:grid;grid-template-columns:repeat(4,1fr);gap:14px;
+  }
+  .verdict{border-left:2px solid var(--line);padding-left:11px;}
+  .verdict.v0{border-color:var(--accent);}
+  .verdict.v1{border-color:var(--p1);}
+  .verdict.v2{border-color:var(--p2);}
+  .verdict.v3{border-color:var(--cut);}
+  .verdict .vt{font-size:11.5px;color:var(--gray-2);letter-spacing:.02em;}
+  .verdict .vv{font-size:13px;font-weight:700;color:var(--ink);margin-top:2px;}
+  .verdict .vd{font-size:11px;color:var(--gray-2);margin-top:1px;}
+
+  /* ============ footnote ============ */
+  .meta{
+    margin-top:26px;background:#fbfbfa;border:1px solid var(--line);border-radius:12px;
+    padding:18px 22px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px 34px;
+  }
+  .meta .mi{font-size:11.5px;color:var(--gray);display:flex;gap:8px;line-height:1.7;}
+  .meta .mi b{color:var(--ink-2);font-weight:600;flex:0 0 auto;}
+  .foot{
+    margin-top:44px;padding-top:20px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+    font-size:11.5px;color:var(--gray-2);
+  }
+  .foot .formula{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:var(--gray);background:#fff;border:1px solid var(--line);
+    padding:4px 10px;border-radius:7px;font-size:11.5px;
+  }
+
+  @media(max-width:900px){
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    .judge{grid-template-columns:1fr;gap:22px;}
+    .judge .sig{border-right:none;border-bottom:1px solid var(--line-2);padding-right:0;padding-bottom:20px;}
+    .verdicts{grid-template-columns:repeat(2,1fr);}
+    .meta{grid-template-columns:1fr;}
+  }
+  @media(max-width:430px){
+    .verdicts{grid-template-columns:1fr;}
+    .judge{padding:20px 16px;}
+  }
+  @media(max-width:640px){
+    .page{padding:38px 18px 64px;}
+    h1{font-size:26px;}
+    .kpis{gap:11px;}
+    .kpi{padding:16px 15px 14px;}
+    .kpi .k-val{font-size:25px;}
+    .panel{padding:18px 14px 16px;}
+    .sec-head .hint{display:none;}
+    .tbl{font-size:12px;}
+    .tbl th:nth-child(4),.tbl td:nth-child(4),
+    .tbl th:nth-child(5),.tbl td:nth-child(5),
+    .tbl th:nth-child(6),.tbl td:nth-child(6){display:none;}
+    .size-legend{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">价值判断 · 路线图优先级</div>
+      <h1>需求优先级<br>RICE 决策矩阵</h1>
+      <p class="sub">用 Reach × Impact × Confidence ÷ Effort 把「拍脑袋排期」变成「可解释的价值判断」。10 个候选需求逐项打分，一张散点矩阵区分「优先做 / 规划 / 填空 / 砍掉」。</p>
+      <div class="creed">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1.4 13.6 4v4.1c0 3.4-2.4 5.4-5.6 6.4-3.2-1-5.6-3-5.6-6.4V4L8 1.4Z" stroke="#2f4fbf" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.6 8.1 7.3 9.8 10.6 6" stroke="#2f4fbf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        产品经理不是需求搬运工，是价值判断官
+      </div>
+    </div>
+    <div class="brand">
+      <div class="glyph">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="7.4" height="7.4" rx="1.6" fill="#17181c"/>
+          <rect x="13.6" y="3" width="7.4" height="7.4" rx="1.6" stroke="#17181c" stroke-width="1.3"/>
+          <rect x="3" y="13.6" width="7.4" height="7.4" rx="1.6" stroke="#17181c" stroke-width="1.3"/>
+          <rect x="13.6" y="13.6" width="7.4" height="7.4" rx="1.6" stroke="#17181c" stroke-width="1.3"/>
+        </svg>
+      </div>
+      <div class="who"><b>产品管理</b>决策工具</div>
+    </div>
+  </header>
+
+  <!-- ================= KPI ================= -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- ================= MATRIX ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="no">1</span>
+      <h2>RICE 散点矩阵</h2>
+      <p class="hint">横轴 = 工程成本（人月）　纵轴 = RICE 得分　气泡大小 = 触达用户数</p>
+    </div>
+    <div class="panel">
+      <div class="toolbar" id="toolbar">
+        <span class="tlabel">筛选</span>
+        <div class="chips" id="chips"></div>
+        <div class="size-legend">
+          气泡大小 = 触达
+          <i class="c" style="width:7px;height:7px"></i>
+          <i class="c" style="width:12px;height:12px"></i>
+          <i class="c" style="width:18px;height:18px"></i>
+        </div>
+      </div>
+      <div class="matrix-wrap" id="matrixWrap">
+        <div class="tt" id="tt"></div>
+      </div>
+      <p class="mx-note">象限按「成本 <b>6.5</b> 人月 / 得分 <b>600</b>」切分，看的是<b>相对位置</b>；P 级按<b>绝对分数阈值</b>划分。两者不一致时以 P 级为准——象限负责解释原因，分数负责决定顺序。</p>
+    </div>
+  </section>
+
+  <!-- ================= TABLE ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="no">2</span>
+      <h2>打分与排序</h2>
+      <p class="hint">总分降序　·　P0 ≥ 2000　P1 ≥ 500　P2 ≥ 120　其余砍掉</p>
+    </div>
+    <div class="panel">
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th class="rkcol">#</th>
+            <th>需求</th>
+            <th class="num">触达<span class="lat">Reach</span></th>
+            <th class="num">影响<span class="lat">Impact</span></th>
+            <th class="num">信心<span class="lat">Conf.</span></th>
+            <th class="num">成本<span class="lat">Effort</span></th>
+            <th class="num">RICE 总分</th>
+            <th>建议</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      </div>
+      <div class="tbl-foot">
+        <span>Impact：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
+        <span>Confidence：95% 实测 · 85% 强信号 · 70% 类比 · ≤60% 直觉</span>
+        <span>Effort：人月，含设计 / 开发 / 测试 / 联调</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= JUDGEMENT ================= -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="no">3</span>
+      <h2>为什么做，为什么砍</h2>
+      <p class="hint">分数负责排序，人负责解释</p>
+    </div>
+    <div class="judge">
+      <div class="sig">
+        <div class="role">决策记录</div>
+        <div class="nm">本轮 RICE 评估</div>
+        <div class="mt">RICE 只把判断显性化，<br>不替你做决定。<br>真正的取舍在分数之外。</div>
+        <div class="stats">
+          <div class="stat"><span>评估池</span><b>10 项</b></div>
+          <div class="stat"><span>需求总成本</span><b>59 人月</b></div>
+          <div class="stat"><span>当季容量</span><b>24 人月</b></div>
+          <div class="stat"><span>P0 占用</span><b class="accent">71%</b></div>
+        </div>
+        <div class="note">分数与理由均来自本轮评估记录。<br>触发重评的条件只有一个：当季容量变动超过 20%。</div>
+      </div>
+      <div class="body">
+        <p class="lead">四个 P0，四种完全不同的逻辑。分数只是入口，理由各不相同。</p>
+        <p><strong>协同实时编辑 · 命脉型投入。</strong>触达 8,500、Impact 2.0，6 人月换全表最高分 <span class="hl">2,408</span>。它其实不是在和别的需求竞争——它决定其他功能有没有人来用。</p>
+        <p><strong>一键数据导出 · 便宜的确定性。</strong>2 人月、85% 信心、5,500 触达，<span class="hl">2,338</span> 分排第二。这类高 ROI 快赢要尽早做掉：两周内可交付，换的是团队节奏和用户信任，不是功能数量。</p>
+        <p><strong>AI 智能摘要 · 买一张验证券。</strong>触达全池最高 9,200，但信心只有 60%。我们不假装确定：给 5 人月 + 两周灰度，用真实留存把 60% 校准成事实；不达预期就立刻降级，不做沉没成本辩护。</p>
+        <p><strong>权限精细化管控 · 分数替战略说话。</strong>触达仅 3,000，却把 Impact 拉到 3.0（大客户签约前置门槛），4 人月换 <span class="hl">2,025</span> 分。战略权重是显式的加分项——我们写进 Impact 的取值里，而不是偷偷改总分。</p>
+        <p><strong>砍掉 VR / 3D 沉浸式看板 · 26 分。</strong>800 触达、30% 信心、14 人月，精确落在「低价值高成本」象限最深处。它最危险的地方是<strong>听起来很酷</strong>——RICE 的唯一作用，就是把审美冲动挡在排期之外。不进 backlog，也不在路线图上留占位。</p>
+        <p><strong>两个 P1 的差别要看清。</strong>全文搜索 1,867 分，只差 133 分掉出 P0，卡的是 Impact 只有 1.0 而不是性价比——容量一释放，它第一个顶上来。暗黑模式 1,425 分是典型「填空型」：2 人月、95% 信心，谁顺手谁做，别单独排期。移动离线 683 分，需求真实但 8 人月把它压到中游，先用「只读离线」轻方案探路。</p>
+        <p><strong>容量护栏。</strong>P0 合计 17 人月 ≈ 当季 24 人月的 71%，留 29%（7 人月）给线上故障与需求变更。<strong>把排期排满，等于一次 P0 故障就让整季延期。</strong></p>
+        <div class="verdicts">
+          <div class="verdict v0"><div class="vt">立即启动</div><div class="vv">P0 · 4 项</div><div class="vd">17 人月 / 占容量 71%</div></div>
+          <div class="verdict v1"><div class="vt">排队候补</div><div class="vv">P1 · 3 项</div><div class="vd">13 人月 / 容量释放即启动</div></div>
+          <div class="verdict v2"><div class="vt">有余量再说</div><div class="vv">P2 · 2 项</div><div class="vd">15 人月 / 重评后再议</div></div>
+          <div class="verdict v3"><div class="vt">砍掉</div><div class="vv">1 项</div><div class="vd">14 人月 / 不进 backlog</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="meta">
+      <div class="mi"><b>口径 01</b>RICE = Reach × Impact × Confidence ÷ Effort，取整后排序；分数只用于同一轮评估内横向比较。</div>
+      <div class="mi"><b>口径 02</b>Reach 为季度去重触达用户数；同一用户被多个需求覆盖时，P0 汇总口径去重。</div>
+      <div class="mi"><b>口径 03</b>Impact 按「对留存 / 收入的影响强度」赋值，战略门槛型需求可上浮到 3.0，须写明理由。</div>
+      <div class="mi"><b>口径 04</b>分级阈值随季度容量调整；容量变化超过 20% 时应整轮重评，不做局部微调。</div>
+    </div>
+
+    <div class="foot">
+      <span class="formula">RICE = R × I × C ÷ E</span>
+      <span>示例数据 · 用于对齐判断，不替代战略决策</span>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- 数据 ---------------- */
+  var RAW = [
+    {id:1,  name:"协同文档实时多人编辑",   note:"核心使用场景 · 留存第一驱动", R:8500, I:2.0,  C:0.85, E:6},
+    {id:2,  name:"一键数据导出（PDF / Excel）", note:"高频呼声 · 成本极低",       R:5500, I:1.0,  C:0.85, E:2},
+    {id:3,  name:"AI 智能摘要与提炼",      note:"触达最广 · 信心待验证",       R:9200, I:2.0,  C:0.60, E:5},
+    {id:4,  name:"企业级权限精细化管控",   note:"大客户签约前置条件",          R:3000, I:3.0,  C:0.90, E:4},
+    {id:5,  name:"全文搜索增强（语义检索）", note:"性价比高 · 排队第一",        R:7000, I:1.0,  C:0.80, E:3},
+    {id:6,  name:"暗黑模式",               note:"影响面有限 · 投入小",         R:6000, I:0.5,  C:0.95, E:2},
+    {id:7,  name:"移动端离线编辑",         note:"成本偏高 · 拖累得分",         R:5200, I:1.5,  C:0.70, E:8},
+    {id:8,  name:"第三方集成市场",         note:"信心与成本双重不利",          R:4000, I:2.0,  C:0.50, E:12},
+    {id:9,  name:"自定义主题皮肤",         note:"影响微弱 · 锦上添花",         R:2500, I:0.25, C:0.90, E:3},
+    {id:10, name:"VR / 3D 沉浸式看板",     note:"触达极小 · 信心低 · 成本最高", R:800,  I:1.5,  C:0.30, E:14}
+  ];
+
+  var CAPACITY = 24;          // 当季研发容量（人月）
+  var TIER_TH  = {P0:2000, P1:500, P2:120};
+  var EFF_SPLIT = 6.5;        // 象限横轴分割：单需求成本线
+  var SCORE_SPLIT = 600;      // 象限纵轴分割：价值线
+
+  var TIER_NAME = {P0:"P0", P1:"P1", P2:"P2", CUT:"砍掉"};
+  var TIER_TXT  = {P0:"本季必做", P1:"排队", P2:"有余量", CUT:"砍掉"};
+  var QUAD_TXT  = {
+    "do":  "优先做 · 高价值低成本",
+    "plan":"规划 · 高价值高成本",
+    "fill":"填空 · 低价值低成本",
+    "cut": "砍掉 · 低价值高成本"
+  };
+
+  function tierOf(s){
+    if(s >= TIER_TH.P0) return "P0";
+    if(s >= TIER_TH.P1) return "P1";
+    if(s >= TIER_TH.P2) return "P2";
+    return "CUT";
+  }
+  function quadOf(e, s){
+    if(e <= EFF_SPLIT) return s >= SCORE_SPLIT ? "do" : "fill";
+    return s >= SCORE_SPLIT ? "plan" : "cut";
+  }
+  function fmt(n){ return n.toLocaleString("en-US"); }
+  function imp(v){ return v.toFixed(2).replace(/0+$/,"").replace(/\.$/,""); }
+  function pad2(n){ return n < 10 ? "0" + n : "" + n; }
+
+  /* ---------------- 计算 ---------------- */
+  var items = RAW.map(function(d){
+    return {
+      id:d.id, name:d.name, note:d.note,
+      R:d.R, I:d.I, C:d.C, E:d.E,
+      rice: Math.round(d.R * d.I * d.C / d.E)
+    };
+  });
+
+  var ranked = items.slice().sort(function(a,b){ return b.rice - a.rice; });
+  ranked.forEach(function(d, i){
+    d.rank = i + 1;
+    d.tier = tierOf(d.rice);
+    d.quad = quadOf(d.E, d.rice);
+  });
+  var byId = {};
+  ranked.forEach(function(d){ byId[d.id] = d; });
+
+  var MAX_RICE = ranked[0].rice;
+  var p0 = ranked.filter(function(d){ return d.tier === "P0"; });
+  var p0Effort = p0.reduce(function(a,d){ return a + d.E; }, 0);
+  var p0Reach  = p0.reduce(function(a,d){ return a + d.R; }, 0);
+  var totalEffort = ranked.reduce(function(a,d){ return a + d.E; }, 0);
+
+  /* ---------------- KPI ---------------- */
+  (function renderKPI(){
+    var reachTxt = (p0Reach/10000).toFixed(2);
+    var usePct = Math.round(p0Effort / CAPACITY * 100);
+    var icon = {
+      doc:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2.4" stroke="#777b84" stroke-width="1.3"/><path d="M5.2 8h5.6M5.2 5.3h5.6M5.2 10.7h3.6" stroke="#777b84" stroke-width="1.3" stroke-linecap="round"/></svg>',
+      star:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 1.6 9.85 5.6l4.4.5-3.3 2.95.97 4.3L8 11.15 4.08 13.35l.97-4.3L1.75 6.1l4.4-.5L8 1.6Z" stroke="#2f4fbf" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+      clock:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.2" stroke="#777b84" stroke-width="1.3"/><path d="M8 4.7V8l2.3 1.6" stroke="#777b84" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      eye:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M1.9 8c1.55-2.9 3.3-4.35 6.1-4.35S12.55 5.1 14.1 8c-1.55 2.9-3.3 4.35-6.1 4.35S3.45 10.9 1.9 8Z" stroke="#777b84" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.85" stroke="#777b84" stroke-width="1.3"/></svg>'
+    };
+    var cards = [
+      {label:"候选需求", icon:icon.doc, val:ranked.length, unit:"项", foot:"进入本轮 RICE 评估池", accent:false},
+      {label:"入选 P0", icon:icon.star, val:p0.length, unit:"项", foot:"RICE ≥ " + fmt(TIER_TH.P0) + " · 本季度必做", accent:true},
+      {label:"P0 总投入", icon:icon.clock, val:p0Effort, unit:"人月", foot:"占当季容量 " + CAPACITY + " 人月的 " + usePct + "%", accent:false},
+      {label:"P0 预期触达", icon:icon.eye, val:reachTxt, unit:"万", foot:"月活用户去重覆盖", accent:false}
+    ];
+    document.getElementById("kpis").innerHTML = cards.map(function(c){
+      return '<div class="kpi' + (c.accent ? " is-accent" : "") + '">'
+        + '<div class="k-label">' + c.icon + c.label + '</div>'
+        + '<div class="k-val">' + c.val + '<span class="u">' + c.unit + '</span></div>'
+        + '<div class="k-foot">' + c.foot + '</div>'
+        + '</div>';
+    }).join("");
+  })();
+
+  /* ---------------- 工具栏 ---------------- */
+  var order = ["P0","P1","P2","CUT"];
+  var counts = {};
+  order.forEach(function(t){ counts[t] = ranked.filter(function(d){ return d.tier === t; }).length; });
+
+  (function renderToolbar(){
+    var html = order.map(function(t){
+      var txt = (t === "CUT") ? "砍掉" : TIER_NAME[t] + " · " + TIER_TXT[t];
+      return '<button class="chip" data-tier="' + t + '" aria-pressed="true" type="button">'
+        + '<i></i>' + txt
+        + '<span class="cnt">' + counts[t] + '</span></button>';
+    }).join("");
+    document.getElementById("chips").innerHTML = html;
+  })();
+
+  /* ---------------- 散点矩阵 ---------------- */
+  var W = 880, H = 548;
+  var PAD = {l:80, r:36, t:56, b:104};
+  var x0 = PAD.l, x1 = W - PAD.r, y0 = PAD.t, y1 = H - PAD.b;
+  var XMAX = 15, YMAX = 2800;
+  var R_MIN = 7, R_MAX = 28;
+
+  function sx(v){ return x0 + (v / XMAX) * (x1 - x0); }
+  function sy(v){ return y1 - (v / YMAX) * (y1 - y0); }
+
+  var reachMin = Math.min.apply(null, ranked.map(function(d){ return d.R; }));
+  var reachMax = Math.max.apply(null, ranked.map(function(d){ return d.R; }));
+  var sqrtMin = Math.sqrt(reachMin), sqrtMax = Math.sqrt(reachMax);
+  function radius(r){
+    var t = (Math.sqrt(r) - sqrtMin) / (sqrtMax - sqrtMin || 1);
+    return R_MIN + t * (R_MAX - R_MIN);
+  }
+
+  var qx = sx(EFF_SPLIT), qy = sy(SCORE_SPLIT);
+  var TINT = {
+    do:  "#f1f4fd",
+    plan:"#f9f9f7",
+    fill:"#fbfbfa",
+    cut: "#f7f6f3"
+  };
+
+  var svg = [];
+  svg.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="RICE 价值与成本散点矩阵" id="matrixSvg">');
+
+  // 象限底色
+  svg.push('<g>');
+  svg.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + (qx-x0) + '" height="' + (qy-y0) + '" fill="' + TINT.do + '"/>');
+  svg.push('<rect x="' + qx + '" y="' + y0 + '" width="' + (x1-qx) + '" height="' + (qy-y0) + '" fill="' + TINT.plan + '"/>');
+  svg.push('<rect x="' + x0 + '" y="' + qy + '" width="' + (qx-x0) + '" height="' + (y1-qy) + '" fill="' + TINT.fill + '"/>');
+  svg.push('<rect x="' + qx + '" y="' + qy + '" width="' + (x1-qx) + '" height="' + (y1-qy) + '" fill="' + TINT.cut + '"/>');
+  svg.push('</g>');
+
+  // 网格
+  svg.push('<g stroke="#ecebe8" stroke-width="1">');
+  for(var yv = 0; yv <= YMAX; yv += 400){
+    var yy = sy(yv);
+    svg.push('<line x1="' + x0 + '" y1="' + yy.toFixed(1) + '" x2="' + x1 + '" y2="' + yy.toFixed(1) + '"/>');
+  }
+  for(var xv = 0; xv <= XMAX; xv += 3){
+    var xx = sx(xv);
+    svg.push('<line x1="' + xx.toFixed(1) + '" y1="' + y0 + '" x2="' + xx.toFixed(1) + '" y2="' + y1 + '"/>');
+  }
+  svg.push('</g>');
+
+  // P0 阈值线
+  svg.push('<line x1="' + x0 + '" y1="' + sy(TIER_TH.P0).toFixed(1) + '" x2="' + x1 + '" y2="' + sy(TIER_TH.P0).toFixed(1) + '" stroke="#b9c6ee" stroke-width="1.2" stroke-dasharray="2 4"/>');
+  svg.push('<text x="' + (x1 - 4) + '" y="' + (sy(TIER_TH.P0) - 7).toFixed(1) + '" font-size="10.5" fill="#8fa0d0" text-anchor="end" letter-spacing=".04em">P0 阈值 ' + fmt(TIER_TH.P0) + '</text>');
+
+  // 象限分割线
+  svg.push('<line x1="' + qx.toFixed(1) + '" y1="' + y0 + '" x2="' + qx.toFixed(1) + '" y2="' + y1 + '" stroke="#b9c6ee" stroke-width="1.2" stroke-dasharray="5 4"/>');
+  svg.push('<line x1="' + x0 + '" y1="' + qy.toFixed(1) + '" x2="' + x1 + '" y2="' + qy.toFixed(1) + '" stroke="#b9c6ee" stroke-width="1.2" stroke-dasharray="5 4"/>');
+
+  // 坐标轴
+  svg.push('<line x1="' + x0 + '" y1="' + y0 + '" x2="' + x0 + '" y2="' + y1 + '" stroke="#d6d5d1" stroke-width="1.3"/>');
+  svg.push('<line x1="' + x0 + '" y1="' + y1 + '" x2="' + x1 + '" y2="' + y1 + '" stroke="#d6d5d1" stroke-width="1.3"/>');
+
+  // 象限标签
+  svg.push('<g font-size="12" font-weight="700" letter-spacing=".05em" paint-order="stroke" stroke="#ffffff" stroke-width="3.4" stroke-opacity=".9" stroke-linejoin="round">');
+  svg.push('<text x="' + (x0+16) + '" y="' + (y0+26) + '" fill="#2f4fbf">优先做 · 高价值低成本</text>');
+  svg.push('<text x="' + (qx+16) + '" y="' + (y0+26) + '" fill="#9a9ea6">规划 · 高价值高成本</text>');
+  svg.push('<text x="' + (x0+16) + '" y="' + (qy+24).toFixed(1) + '" fill="#b3b0a9">填空 · 低价值低成本</text>');
+  svg.push('<text x="' + (x1-16) + '" y="' + (qy+24).toFixed(1) + '" fill="#b3b0a9" text-anchor="end">砍掉 · 低价值高成本</text>');
+  svg.push('</g>');
+
+  // 刻度
+  svg.push('<g font-size="10.5" fill="#a0a4ac" text-anchor="end">');
+  for(var yv2 = 0; yv2 <= YMAX; yv2 += 400){
+    svg.push('<text x="' + (x0 - 12) + '" y="' + (sy(yv2) + 3.5).toFixed(1) + '">' + (yv2 === 0 ? "0" : (yv2/1000).toFixed(1) + "k") + '</text>');
+  }
+  svg.push('</g>');
+  svg.push('<g font-size="10.5" fill="#a0a4ac" text-anchor="middle">');
+  for(var xv2 = 0; xv2 <= XMAX; xv2 += 3){
+    svg.push('<text x="' + sx(xv2).toFixed(1) + '" y="' + (y1 + 20) + '">' + xv2 + '</text>');
+  }
+  svg.push('</g>');
+
+  // 轴标题
+  svg.push('<text x="' + ((x0+x1)/2) + '" y="' + (H - 52) + '" font-size="12" fill="#777b84" text-anchor="middle" font-weight="600">工程成本 Effort（人月）→ 越右越贵</text>');
+  svg.push('<text x="-236" y="28" transform="rotate(-90)" font-size="12" fill="#777b84" text-anchor="middle" font-weight="600">RICE 得分 ↑ 越高越值</text>');
+
+  // 气泡（低优先级先画，P0 压在最上层）
+  var weight = {CUT:0, P2:1, P1:2, P0:3};
+  var draw = ranked.slice().sort(function(a,b){
+    if(weight[a.tier] !== weight[b.tier]) return weight[a.tier] - weight[b.tier];
+    return a.rice - b.rice;
+  });
+
+  draw.forEach(function(d, i){
+    var cx = Math.min(sx(d.E), x1 - 15);
+    cx = Math.max(cx, x0 + 15);
+    var cy = Math.min(sy(d.rice), y1 - 15);
+    var r  = radius(d.R);
+    var fs = d.rank >= 10 ? 10 : 11.5;
+    svg.push('<g class="pt t-' + d.tier + '" data-id="' + d.id + '" data-tier="' + d.tier + '" style="animation-delay:' + (60 + i*38) + 'ms">');
+    svg.push('<circle class="b-main" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + r.toFixed(1) + '" stroke-width="1.4"/>');
+    svg.push('<text class="b-num" x="' + cx.toFixed(1) + '" y="' + (cy + fs*0.36).toFixed(1) + '" font-size="' + fs + '" font-weight="700" text-anchor="middle">' + d.rank + '</text>');
+    svg.push('</g>');
+  });
+
+  svg.push('</svg>');
+
+  var wrap = document.getElementById("matrixWrap");
+  wrap.insertAdjacentHTML("afterbegin", svg.join(""));
+
+  /* ---------------- 表格 ---------------- */
+  (function renderTable(){
+    var rows = ranked.map(function(d){
+      var cls = d.tier === "P0" ? " is-p0" : (d.tier === "P1" ? " is-p1" : (d.tier === "CUT" ? " is-cut" : " is-p2"));
+      var badge = '<span class="badge b-' + d.tier.toLowerCase() + '">' + TIER_NAME[d.tier] + '</span>';
+      var barW = Math.max(3, Math.round(d.rice / MAX_RICE * 100));
+      return '<tr class="row' + cls + '" data-id="' + d.id + '">'
+        + '<td class="rk">' + pad2(d.rank) + '</td>'
+        + '<td><div class="name">' + d.name + '</div><div class="note">' + d.note + '</div></td>'
+        + '<td class="num">' + fmt(d.R) + '</td>'
+        + '<td class="num">' + imp(d.I) + '</td>'
+        + '<td class="num">' + Math.round(d.C*100) + '%</td>'
+        + '<td class="num">' + d.E + ' <span class="sm">人月</span></td>'
+        + '<td class="num"><div class="score"><span class="bar"><i style="width:' + barW + '%"></i></span><span class="v">' + fmt(d.rice) + '</span></div></td>'
+        + '<td>' + badge + '</td>'
+        + '</tr>';
+    }).join("");
+    document.getElementById("tbody").innerHTML = rows;
+  })();
+
+  /* ---------------- 交互：tooltip + 联动 ---------------- */
+  var tt = document.getElementById("tt");
+  var activeId = null;
+
+  function tipHTML(d){
+    var tierCls = d.tier.toLowerCase();
+    return '<div class="tt-top"><span class="tt-rk' + (d.tier==="P0" ? " p0" : "") + '">#' + d.rank + '</span>'
+      + '<h4>' + d.name + '</h4></div>'
+      + '<div class="tt-note">' + d.note + '</div>'
+      + '<div class="tt-score"><span>RICE</span><b>' + fmt(d.rice) + '</b><em class="' + tierCls + '">' + TIER_NAME[d.tier] + '</em></div>'
+      + '<div class="tt-grid">'
+      + '<div>Reach <b>' + fmt(d.R) + '</b></div>'
+      + '<div>Effort <b>' + d.E + ' 人月</b></div>'
+      + '<div>Impact <b>' + imp(d.I) + '</b></div>'
+      + '<div>Conf. <b>' + Math.round(d.C*100) + '%</b></div>'
+      + '</div>'
+      + '<div class="tt-quad">所处象限 · ' + QUAD_TXT[d.quad] + '</div>';
+  }
+
+  function showTip(d, ev){
+    tt.innerHTML = tipHTML(d);
+    tt.classList.add("on");
+    moveTip(ev);
+  }
+  function moveTip(ev){
+    var wr = wrap.getBoundingClientRect();
+    if(!ev || ev.clientX === undefined) return;
+    var x = ev.clientX - wr.left + wrap.scrollLeft + 16;
+    var y = ev.clientY - wr.top + 14;
+    var tw = 238, th = tt.offsetHeight || 150;
+    if(x + tw > wrap.clientWidth - 8) x = ev.clientX - wr.left - tw - 16;
+    if(y + th > wr.height - 6) y = Math.max(6, ev.clientY - wr.top - th - 12);
+    tt.style.left = Math.max(6, x) + "px";
+    tt.style.top = y + "px";
+  }
+  function hideTip(){ tt.classList.remove("on"); }
+
+  function hot(id, on){
+    document.querySelectorAll('.pt[data-id="' + id + '"]').forEach(function(el){
+      el.classList.toggle("hot", on);
+    });
+    document.querySelectorAll('tr[data-id="' + id + '"]').forEach(function(el){
+      el.classList.toggle("hot", on);
+    });
+  }
+
+  document.querySelectorAll(".pt").forEach(function(g){
+    var id = g.getAttribute("data-id");
+    g.addEventListener("mouseenter", function(ev){ activeId = id; hot(id, true); showTip(byId[id], ev); });
+    g.addEventListener("mousemove", function(ev){ if(activeId === id) moveTip(ev); });
+    g.addEventListener("mouseleave", function(){ activeId = null; hot(id, false); hideTip(); });
+  });
+
+  document.querySelectorAll("tr.row").forEach(function(tr){
+    var id = tr.getAttribute("data-id");
+    tr.addEventListener("mouseenter", function(){ hot(id, true); });
+    tr.addEventListener("mouseleave", function(){ hot(id, false); });
+  });
+
+  /* ---------------- 筛选 ---------------- */
+  var muted = {};
+  document.querySelectorAll(".chip").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var t = btn.getAttribute("data-tier");
+      muted[t] = !muted[t];
+      btn.setAttribute("aria-pressed", muted[t] ? "false" : "true");
+      applyFilter();
+    });
+  });
+  function applyFilter(){
+    document.querySelectorAll(".pt").forEach(function(g){
+      g.classList.toggle("mute", !!muted[g.getAttribute("data-tier")]);
+    });
+    document.querySelectorAll("tr.row").forEach(function(tr){
+      var d = byId[tr.getAttribute("data-id")];
+      tr.classList.toggle("off", !!muted[d.tier]);
+    });
+  }
+
+  // 点击气泡 → 滚动到对应表格行并闪一下
+  document.querySelectorAll(".pt").forEach(function(g){
+    g.addEventListener("click", function(){
+      var tr = document.querySelector('tr[data-id="' + g.getAttribute("data-id") + '"]');
+      if(!tr) return;
+      tr.scrollIntoView({behavior:"smooth", block:"center"});
+      tr.style.transition = "background .3s";
+      var old = tr.style.background;
+      tr.style.background = "#e8edfb";
+      setTimeout(function(){ tr.style.background = old || ""; }, 900);
+    });
+  });
+
+})();
+</script>
+</body>
+</html>

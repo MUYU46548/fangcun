@@ -91,8 +91,11 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 **读**：`list_tasks` / `search_tasks` / `get_task` / `list_projects` / `get_project_status` /
 `find_blockers` / `scan_services` / `get_roadmap` / `get_data_dir` / `plan_list` / `plan_get` / `plan_pending` / `gate_list`
 `list_logs` / `search_logs` / `get_log` — 执行日志读取（拿日志 ID 直接 `get_log` 取，不必整篇注入）
+`rice_pool_list` — 需求矩阵池（现算 RICE 分数与等级；池文件 `task-data/rice-pool.md`）
 
 **写**（仅入口 A）：`create_task` / `update_task` / `move_status` / `delete_task`
+`rice_pool_upsert`（幂等：同 eid 覆盖分数/备注/打分，保留拍板与决策id；拒该条不拒整批）
+`decision_record`（拍板落 decisions.md 并回填池条目；**这是用户动作，agent 不得代拍**）
 
 > 快照会滞后。以 tools.ts 为准；新增工具后回来补这一行。
 > 入口 B（`python tegula.py mcp`）只含上面的**读**工具。

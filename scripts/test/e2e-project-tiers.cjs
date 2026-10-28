@@ -157,8 +157,10 @@ function main() {
       /confirm\(`删掉「\$\{t\.label\}」这一档/.test(board))
 
     const appSrc = read('desktop/src/renderer/App.vue')
-    check('⑦ 它是项目页的第 5 种摆法（PV_VIEWS 含 tier）',
-      /\['tiles', 'overview', 'master', 'trip', 'tier'\]/.test(appSrc))
+    // ⚠ 别再钉死整个数组：每加一种摆法（trip/tier/mismatch/rice…）都会让「逐字相等」变红，
+    //   而红的原因与梯度榜毫无关系。判据是"它在这个列表里"，不是"列表恰好只有这五个"。
+    check('⑦ 它是项目页的一种摆法（PV_VIEWS 含 tier）',
+      /const PV_VIEWS: string\[\] = \[[^\]]*'tier'/.test(appSrc))
     check('⑦ 顶栏没有独立 priority 页签（没被提到顶级）',
       !/\{ id: 'priority', label: '优先级' \}/.test(appSrc))
   }

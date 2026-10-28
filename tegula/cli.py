@@ -19,6 +19,11 @@ from tegula.core import (
     api_review, gate_open, gate_check, gate_list, gate_close,
     DECISIONS_PATH, DECISION_STATUSES, load_decisions, decision_add, decision_set_status,
     _normalize_decision_status,
+    # 需求矩阵（2026-10-28）：Python 侧只做**解析/渲染 + 只读 CLI**；
+    # 写口按格式闸结论只放在桌面端 MCP（rice_pool_upsert / decision_record），
+    # 避免两条写路径绕过同一套审计。
+    load_rice_pool, save_rice_pool, rice_score, rice_levels, rice_summary,
+    RICE_POOL_PATH, RICE_HEADER, RICE_EVIDENCE_TO_C, RICE_IMPACT_VALUES, RICE_CONFIDENCE_VALUES,
     load_template, api_new, _parse_decision_points, _render_decision_points,
     # archify 卡导入（清单第 9 条，2026-10-14）—— 同一条纪律：**在 cli.py 里用的都必须进这张清单**
     archify_check, archify_summary, archify_import,
@@ -1477,6 +1482,57 @@ def cmd_decision(args):
     return 1
 
 
+# ---------- 需求矩阵（RICE · 2026-10-28）----------
+def cmd_rice(args):
+    """rice：只读列出评估池（分数与等级现算，池里没有总分）。
+
+    写口**刻意不在这里**：格式闸结论只给桌面端 MCP 开了两个写工具
+    （rice_pool_upsert / decision_record），Python 侧保持读，避免第二套写路径绕过审计。
+    """
+    pool = load_rice_pool()
+    items = pool.get("items", [])
+    levels = rice_levels(items)
+    if getattr(args, "json", False):
+        out = {
+            "budget": pool.get("budget", 0),
+            "summary": rice_summary(pool) if items else "",
+            "items": [
+                {
+                    **{k: it.get(k) for k in ("eid", "title", "origin", "R", "I", "C", "E_days", "E_cost", "evidence", "by", "note", "verdict")},
+                    "decision_id": it.get("decision_id", ""),
+                    "score": rice_score(it),
+                    "level": levels.get(it.get("eid", ""), ""),
+                }
+                for it in items
+            ],
+        }
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print("（池里还没有条目）")
+        print(f"宿主：{RICE_POOL_PATH}")
+        print("灌分走桌面端 MCP 工具 rice_pool_upsert（同 eid 重复灌是幂等的）。")
+        return 0
+    want = getattr(args, "level", "") or ""
+    rows = [it for it in items if not want or levels.get(it.get("eid", "")) == want]
+    rows.sort(key=lambda it: (-(rice_score(it) or 0), it.get("eid", "")))
+    print(f"需求矩阵 · {rice_summary(pool)}")
+    print(f"宿主：{RICE_POOL_PATH}")
+    if not rows:
+        print(f"（没有等级为 {want} 的条目）")
+        return 0
+    for it in rows:
+        s = rice_score(it)
+        lv = levels.get(it.get("eid", ""), "?")
+        vd = ""
+        if it.get("verdict"):
+            vd = f"  拍板={it.get('verdict')}" + (f" ({it.get('decision_id')})" if it.get("decision_id") else "")
+        note = f"  // {it.get('note', '').splitlines()[0]}" if it.get("note") else ""
+        print(f"{lv:<3} {('%.2f' % s) if s is not None else '—':>7}  {it.get('eid', ''):<28} {it.get('title', '')}"
+              f"  [R{it.get('R')} I{it.get('I')} C{it.get('C')} E{it.get('E_days')}] {it.get('origin', '')}{vd}{note}")
+    return 0
+
+
 # ---------- MCP 只读接口（P3）：零依赖手写 JSON-RPC 2.0 over stdio ----------
 # MCP 常量定义在 tegula.core 中（mcp_handle 在 core.py）。
 # 此处不再重复定义，直接从 core 导入供本模块引用。
@@ -2546,6 +2602,13 @@ def main():
     ds.add_argument("状态", choices=list(DECISION_STATUSES), help="目标状态")
     ds.add_argument("--备注", dest="备注", default="", help="为什么改（追加进备注，不覆盖）")
     ds.set_defaults(func=cmd_decision)
+
+    # ── 需求矩阵（RICE · 2026-10-28）──
+    # 只读：写口在桌面端 MCP（rice_pool_upsert / decision_record），见 docs/ADR-002-需求矩阵.md
+    rs = sub.add_parser("rice", help="需求矩阵评估池：只读列出（分数/等级现算，池里只有四个原始分）")
+    rs.add_argument("--level", default="", help="只看某等级（P0/P1/P2/CUT）；空=全部")
+    rs.add_argument("--json", action="store_true", help="输出 JSON（机器读 / 双腿对账用）")
+    rs.set_defaults(func=cmd_rice)
 
     # archify 卡导入（中长期清单第 9 条，2026-10-14）：只导入、不替它分发
     af = sub.add_parser("archify", help="导入 archify 技能卡（只导入，不替它分发）")
