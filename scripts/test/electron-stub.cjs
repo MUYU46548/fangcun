@@ -5,12 +5,20 @@
 const os = require('os')
 const path = require('path')
 
+const BrowserWindowStub = { windows: [] }
+
 const userData = process.env.FC_TEST_USERDATA || path.join(os.tmpdir(), 'fc-e2e-userdata')
 
 class NotificationStub {
-  constructor(opts) { this.opts = opts }
-  show() { NotificationStub.lastShown = this.opts }
+  constructor(opts) { this.opts = opts; this.handlers = {} }
+  // 2026-10-29：真机通知支持 click（点通知回到具体对象）。桩必须同形，
+  // 否则 notifier 里 n.on('click', …) 会直接抛，把"点通知"这条链永远测不到。
+  on(ev, cb) { this.handlers[ev] = cb; return this }
+  show() { NotificationStub.lastShown = this.opts; NotificationStub.last = this }
+  /** 模拟用户点了这条系统通知 */
+  click() { if (this.handlers.click) return this.handlers.click() }
 }
+NotificationStub.last = null
 // 2026-10-17 改 true：挂机提醒 e2e 要走真弹断言；e2e-notifications 自带临时覆写不受影响
 NotificationStub.isSupported = () => true
 NotificationStub.lastShown = null
@@ -35,7 +43,11 @@ module.exports = {
       return s.slice(6)
     },
   },
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: {
+    // 默认没有窗口（通知类断言不依赖窗口）；要测「聚焦/点通知」时用 _setTestWindows 注入假窗口
+    getAllWindows: () => BrowserWindowStub.windows,
+    _setTestWindows: (arr) => { BrowserWindowStub.windows = arr || [] },
+  },
   Notification: NotificationStub,
   // shell 桩：记录调用 + 支持注入失败，便于断言"打开失败"路径
   shell: {

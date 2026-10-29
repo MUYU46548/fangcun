@@ -6357,6 +6357,32 @@
     }
 
     // ③ 无未捕获错误：main.ts 把 window.onerror 广播成 fc-app-error，App 顶部会出错误条
+
+    // ══ 点系统通知 → 回到具体对象（2026-10-29 · dsh-notify-tray 借鉴 #2）══════
+    // 判据不是"能不能收事件"，而是**点了之后用户看到的是不是那件东西**：
+    // 通知说「任务逾期：X」，点开必须看到 X 那张卡，而不是一屏卡片让人自己找。
+    {
+      // 夹具不写死：取当前 fixture 里第一张有 id 的卡（前面的用例会换 fixture）
+      const anyTask = (window.__fcTest.tasks() || []).find((t) => t && t.id) || {}
+      const wantId = String(anyTask.id || '')
+      const wantTitle = String((anyTask.fm && anyTask.fm.title) || anyTask.title || '')
+      const subs = window.__fcTest.emitNotifyFocus('task-deadline', wantId)
+      check('★ 渲染层订阅了 notify:focus（preload 通道真接上了）', subs >= 1, 'subs=' + subs)
+      const opened = await waitFor(() => !!$('#roverlay') &&
+        (($('#rmodal') || {}).textContent || '').indexOf(wantTitle) >= 0, 4000, 'notify focus → 开卡')
+      check('★★ 点「任务逾期」通知 → 切到看板并**打开那张卡**（不是只把窗口拉到前台）', opened,
+        'want=' + wantTitle + ' | got=' + (($('#rmodal') || {}).textContent || '').slice(0, 60))
+      const closeR = $$('#roverlay .acts button, #rmodal .acts button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (closeR) closeR.click()
+      await sleep(250)
+      // 对象不在了不能装没事 —— 要明说
+      window.__fcTest.emitNotifyFocus('task-deadline', 'task-does-not-exist')
+      const said = await waitFor(() => (($('#toast') || {}).textContent || '').indexOf('已经不在了') >= 0, 3000, 'missing toast')
+      check('★★ 通知指向的对象已不存在 → 明说（不许静默什么都不做）', said,
+        (($('#toast') || {}).textContent || '').slice(0, 80))
+    }
+
+
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))
   } catch (e) {

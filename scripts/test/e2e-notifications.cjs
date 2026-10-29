@@ -302,6 +302,67 @@ function main() {
   notifier._setSuppressOsNotify(true)
   notif.clearAll()
 
+  // ══ B8b. 免打扰 + 点通知回到对象（2026-10-29 · dsh-notify-tray 借鉴 #1/#2）══════
+  // 病根两条：
+  //   ① 窗口正看着方寸时照样弹系统气泡 —— 面板里已经有红点，再弹一个只是打断；
+  //   ② 点通知只能把整窗拉到前台 —— 通知说「任务逾期：X」，用户点了还得自己去找那张卡。
+  {
+    const stub2 = require(STUB)
+    const origSup2 = stub2.Notification.isSupported
+    stub2.Notification.isSupported = () => true
+    stub2.Notification.lastShown = null
+    notifier._setSuppressOsNotify(false)
+
+    // ① 聚焦时静默（但通知中心照样留一条）
+    notifier._setFocusProbe(() => true)
+    const okFocused = notifier.notifyUpdateReady('0.3.1')
+    check('★★ 窗口正看着 → 不弹系统通知（只留红点）',
+      okFocused === true && stub2.Notification.lastShown === null,
+      JSON.stringify(stub2.Notification.lastShown))
+    check('  但通知中心仍然记了这条（不弹 ≠ 不记账）',
+      notif.listNotifications().some(n => n.sourceId === '0.3.1'))
+
+    // ② 不在前台时照常弹
+    notifier._setFocusProbe(() => false)
+    const okBg = notifier.notifyUpdateReady('0.3.2')
+    check('★ 窗口在后台 → 照常弹（免打扰不能变成"永远不提醒"）',
+      okBg === true && !!stub2.Notification.lastShown
+      && String(stub2.Notification.lastShown.title).includes('0.3.2'),
+      JSON.stringify(stub2.Notification.lastShown))
+
+    // ③ 点通知 → 聚焦窗口 + 把 type/sourceId 交给渲染层
+    const fakeWin = {
+      shown: false, focused: false, sent: null,
+      isDestroyed: () => false, isMinimized: () => false,
+      restore() {}, show() { this.shown = true }, focus() { this.focused = true },
+      webContents: { send: (ch, p) => { fakeWin.sent = { ch, p } } },
+    }
+    stub2.BrowserWindow._setTestWindows([fakeWin])
+    const lastN = stub2.Notification.last
+    if (lastN && lastN.click) lastN.click()
+    check('★★ 点系统通知 → 窗口恢复并聚焦', fakeWin.shown === true && fakeWin.focused === true)
+    check('★★ 点系统通知 → 发 notify:focus，带 type 与 sourceId（渲染层据此开卡）',
+      !!fakeWin.sent && fakeWin.sent.ch === 'notify:focus'
+      && fakeWin.sent.p && fakeWin.sent.p.sourceId === '0.3.2',
+      JSON.stringify(fakeWin.sent))
+    stub2.BrowserWindow._setTestWindows([])
+    notifier._setFocusProbe(null)
+    stub2.Notification.isSupported = origSup2
+    notifier._setSuppressOsNotify(true)
+    notif.clearAll()
+
+    // 源码守卫：两处接线缺一个，这条链就是纸面功能
+    const preloadSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')
+    check('源码守卫：preload 暴露 onNotifyFocus（不暴露 = 渲染层永远收不到）',
+      /onNotifyFocus:\s*\(cb/.test(preloadSrc) && /notify:focus/.test(preloadSrc))
+    const notifierSrc = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
+    check('源码守卫：push 里给系统通知绑了 click → focusSource',
+      /osNotify\([\s\S]{0,220}?focusSource\(input\.type/.test(notifierSrc))
+    check('源码守卫：osNotify 先判窗口聚焦（免打扰不是靠调用方自觉）',
+      /function osNotify[\s\S]{0,400}?windowFocused\(\)/.test(notifierSrc))
+  }
+
+
   // ══ B9. 阻塞链断裂（2026-10-01 用户定稿 B 类）═══════════════════════════
   // 真实案例：task-20260910-001 依赖的 task-20260910-002 只在 .trash 里，链断了但毫无表示。
   const depA = tasks.createTask({ title: '会被删的依赖' })

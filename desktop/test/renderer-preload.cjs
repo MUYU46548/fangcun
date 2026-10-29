@@ -790,6 +790,14 @@ contextBridge.exposeInMainWorld('tegula', {
   // 2026-10-29：这两个此前**完全没登记** —— 单条「📋 复制」与新的「⧉ 开工单」在无头断言里都是死通道。
   // 桩只负责**记账 + 返回可辨认的文本**；真正的拼接语义（主日志在前、副日志标「并行」）
   // 由 e2e-mcp-logs 跑真 services/logs.injectLogs 验 —— 桩里再实现一遍就等于自欺。
+  // 点系统通知回到对象（2026-10-29）：真通道是主进程 webContents.send('notify:focus')。
+  // 桩负责订阅 + 提供 __fcTest.emitNotifyFocus 供断言手动喂一条。
+  onNotifyFocus: (cb) => {
+    rec('onNotifyFocus')
+    store.notifySubs = store.notifySubs || []
+    store.notifySubs.push(cb)
+    return () => { store.notifySubs = (store.notifySubs || []).filter(x => x !== cb) }
+  },
   logsInject: (id) => {
     cloneGuard('logsInject', [id])
     rec('logsInject', [id])
@@ -1654,6 +1662,12 @@ contextBridge.exposeInMainWorld('__fcTest', {
   /** 让下一次 backupGitPush 悬着不返回（于是能停在"进行中"那一帧做断言） */
   holdSync: () => { store.syncHold = true },
   /** 主进程"报一个阶段" —— 真通道是 git 跑到哪报到哪，这里手动喂 */
+  /** 主进程"推送一条通知点击" —— 真通道由系统通知 click 触发，这里手动喂 */
+  emitNotifyFocus: (type, sourceId) => {
+    const subs = (store.notifySubs || []).slice()
+    subs.forEach((cb) => { try { cb({ type, sourceId }) } catch { /* 组件已卸 */ } })
+    return subs.length
+  },
   emitSyncProgress: (phase) => {
     const at = Date.now()
     store.syncSubs.slice().forEach((cb) => { try { cb({ phase, at }) } catch { /* 组件已卸 */ } })

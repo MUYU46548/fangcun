@@ -11928,7 +11928,32 @@ const logsViewCtl = reactive({
   onLogDrop, dragEnter, dragPulse, dragLeave,
 })
 
+/**
+ * 点系统通知 → **回到具体对象**（2026-10-29 · dsh-notify-tray 借鉴 #2）。
+ *
+ * 光把窗口拉到前台不够：通知说的是「任务逾期：X」，用户点了却只看到一屏卡片，还得自己找。
+ * 这里按 type 切视图，再把那张卡打开；对象已经不在了就**说出来**（不许静默什么都不做）。
+ */
+async function onNotifyFocus(p: any): Promise<void> {
+  const type = String(p?.type || '')
+  const id = String(p?.sourceId || '')
+  if (type === 'todo-due') { switchView('todos'); return }
+  if (type === 'parse-error') { showToast('任务文件解析失败：' + id, 'error'); return }
+  if (type === 'backup-failed') { switchView('settings'); return }
+  if (!id) return
+  switchView('board')
+  let t = (tasks.value || []).find((x: any) => x.id === id)
+  if (!t) {
+    try { await loadAll() } catch { /* 读不到就走下面的"不在了" */ }
+    t = (tasks.value || []).find((x: any) => x.id === id)
+  }
+  if (t) openCard(t)
+  else showToast('这条通知指向的对象已经不在了：' + id, 'info')
+}
+
 onMounted(() => {
+  // 点通知回到具体对象（2026-10-29 dsh-notify 借鉴 #2）；preload 没这个通道时静默跳过，不留僵尸监听
+  try { offNotifyFocus = (window as any).tegula?.onNotifyFocus?.((pp: any) => { void onNotifyFocus(pp) }) || null } catch { offNotifyFocus = null }
   // ⚠ 免责声明优先于一切引导：没同意之前不弹数据目录向导（先同意再用）。
   //   同意后由 onDisclaimerAck 接着跑 bootAfterDisclaimer()。
   if (!hasAckedDisclaimer()) {
@@ -12005,7 +12030,11 @@ onMounted(() => {
   window.addEventListener('drop', dragResetAll)
 })
 
+// 点系统通知回到对象（2026-10-29）：主进程 `notify:focus` → 这里切视图并开卡。
+let offNotifyFocus: null | (() => void) = null
+
 onUnmounted(() => {
+  if (offNotifyFocus) { try { offNotifyFocus() } catch { /* ignore */ } ; offNotifyFocus = null }
   if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
   if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
   if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }

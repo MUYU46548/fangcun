@@ -14,7 +14,7 @@
  * 到点只弹一次：去重键含事件指纹（due 值），改期后是新事件。
  * 事件消失时自动消解对应未读通知（resolveNotifications）。
  */
-import { Notification as OsNotification } from 'electron'
+import { BrowserWindow, Notification as OsNotification } from 'electron'
 import * as appLog from './appLog'
 import * as todos from './todos'
 import * as notifications from './notifications'
@@ -43,17 +43,57 @@ export function parseDueValue(v: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d
 }
 
-function osNotify(title: string, body: string): void {
+/**
+ * 2026-10-29（暮雨第 8 条「全部修完直到稳定」+ dsh-notify-tray 借鉴 #1「免打扰」）：
+ * **窗口正看着方寸时不该弹系统通知** —— 面板里已经有红点，再弹一个系统气泡只是打断。
+ * 判定来源可注入（`_setFocusProbe`），因为 e2e 里没有真 BrowserWindow。
+ */
+let focusProbe: (() => boolean) | null = null
+export function _setFocusProbe(fn: (() => boolean) | null): void { focusProbe = fn }
+
+function windowFocused(): boolean {
+  if (focusProbe) { try { return !!focusProbe() } catch { return false } }
+  try { return BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isFocused()) } catch { return false }
+}
+
+function osNotify(title: string, body: string, onClick?: () => void): void {
   if (suppressOsNotify) return
+  if (windowFocused()) return   // 正看着方寸：留红点，不打断
   try {
-    if (OsNotification.isSupported()) new OsNotification({ title, body }).show()
+    if (OsNotification.isSupported()) {
+      const n = new OsNotification({ title, body })
+      if (onClick) n.on('click', onClick)
+      n.show()
+    }
   } catch { /* 通知失败不影响主流程 */ }
 }
+
+/**
+ * 点系统通知 → **回到具体对象**（借鉴 #2）。
+ * 光把窗口拉到前台不够：通知说的是「任务逾期：X」，用户点了却只看到一屏卡片，
+ * 还得自己找。这里把 type+sourceId 交给渲染层，由它切视图并打开那张卡/那条日志。
+ */
+export function focusSource(type: string, sourceId?: string): void {
+  try {
+    const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed())
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('notify:focus', { type, sourceId: sourceId || '' })
+  } catch (e: any) {
+    appLog.warn('notifier', '聚焦通知来源失败：' + (e?.message || e))
+  }
+}
+
+/** 测试用：直接调点击路径（真机上由系统通知的 click 事件触发） */
+export const _focusForTest = focusSource
 
 function push(input: notifications.PushInput): boolean {
   const r = notifications.pushNotification(input)
   if (r.created && input.osNotify !== false) {
-    osNotify('方寸 · ' + input.title, input.body ?? '')
+    // 点通知 → 回到具体对象（任务卡 / 日志 / 待办）。没有 sourceId 的通知（如备份失败）只聚焦窗口。
+    osNotify('方寸 · ' + input.title, input.body ?? '', () => focusSource(input.type, input.sourceId))
   }
   return r.created
 }

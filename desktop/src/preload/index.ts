@@ -330,6 +330,15 @@ contextBridge.exposeInMainWorld('tegula', {
   updateQuitAndInstall: () => ipcRenderer.invoke('update:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   onUpdateAvailable: (callback: any) => ipcRenderer.on('update:available', (_e, data) => callback(data)),
+  /**
+   * 点系统通知 → 渲染层回到具体对象（2026-10-29 dsh-notify 借鉴 #2）。
+   * 主进程发 `notify:focus`，渲染层按 type 切视图并打开那张卡；返回取消订阅函数。
+   */
+  onNotifyFocus: (cb: (p: { type: string; sourceId: string }) => void) => {
+    const listener = (_e: any, p: any) => cb(p || { type: '', sourceId: '' })
+    ipcRenderer.on('notify:focus', listener)
+    return () => ipcRenderer.removeListener('notify:focus', listener)
+  },
   onUpdateNotAvailable: (callback: any) => ipcRenderer.on('update:not-available', (_e, data) => callback(data)),
   onUpdateProgress: (callback: any) => ipcRenderer.on('update:progress', (_e, data) => callback(data)),
   onUpdateDownloaded: (callback: any) => ipcRenderer.on('update:downloaded', (_e, data) => callback(data)),
