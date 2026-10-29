@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "方寸（tegula）· 实际结构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1320, 620],
+    "repository": { "url": "https://github.com/MUYU46548/fangcun", "revision": "aceafa58abf4e3c7b7e5b547b153fd8e07de130a" }
+  },
+  "components": [
+    { "id": "agents", "type": "external", "label": "外部 agent", "sublabel": "Hermes / DSH / Claude Code", "pos": [440, 60], "size": [170, 64] },
+    { "id": "pipe", "type": "messagebus", "label": "MCP 命名管道", "sublabel": "tegula-mcp", "pos": [680, 60], "size": [170, 64], "tag": "stdio 桥" },
+    { "id": "mcptools", "type": "backend", "label": "MCP 工具层", "sublabel": "30 个工具", "pos": [920, 60], "size": [170, 64], "sources": [{ "path": "desktop/src/main/mcp/tools.ts" }] },
+
+    { "id": "user", "type": "external", "label": "暮雨", "sublabel": "桌面窗口 / 托盘", "pos": [40, 300], "size": [150, 64] },
+    { "id": "renderer", "type": "frontend", "label": "渲染层", "sublabel": "Vue 3 · 15 个视图", "pos": [250, 300], "size": [170, 64], "sources": [{ "path": "desktop/src/renderer/App.vue" }] },
+    { "id": "preload", "type": "security", "label": "preload 桥", "sublabel": "contextBridge", "pos": [480, 300], "size": [170, 64], "tag": "236 个入口", "sources": [{ "path": "desktop/src/preload/index.ts" }] },
+    { "id": "ipc", "type": "backend", "label": "主进程 IPC", "sublabel": "guarded-ipc", "pos": [710, 300], "size": [170, 64], "tag": "229 个通道", "sources": [{ "path": "desktop/src/main/ipc.ts" }] },
+    { "id": "services", "type": "backend", "label": "服务层", "sublabel": "日志 · 通知 · 备份", "pos": [940, 300], "size": [170, 64], "sources": [{ "path": "desktop/src/main/services/logs.ts" }, { "path": "desktop/src/main/services/notifier.ts" }] },
+    { "id": "storage", "type": "database", "label": "文件即数据", "sublabel": "task-data/*.md", "pos": [1140, 300], "size": [150, 64], "tag": "零数据库" },
+
+    { "id": "release", "type": "cloud", "label": "打包与更新", "sublabel": "NSIS · Releases", "pos": [900, 470], "size": [170, 64], "sources": [{ "path": "scripts/pack.cjs" }] },
+    { "id": "python", "type": "backend", "label": "Python 腿", "sublabel": "tegula/core.py", "pos": [1140, 470], "size": [170, 64], "sources": [{ "path": "tegula/core.py" }] }
+  ],
+  "connections": [
+    { "id": "agents-to-pipe", "from": "agents", "to": "pipe", "variant": "emphasis" },
+    { "id": "pipe-to-tools", "from": "pipe", "to": "mcptools", "label": "JSON-RPC", "labelDy": 48 },
+    { "id": "tools-to-services", "from": "mcptools", "to": "services", "label": "同一套 services", "fromSide": "bottom", "toSide": "top" },
+
+    { "id": "user-to-renderer", "from": "user", "to": "renderer", "variant": "emphasis" },
+    { "id": "renderer-to-preload", "from": "renderer", "to": "preload", "label": "window.tegula.*", "labelDy": 58 },
+    { "id": "preload-to-ipc", "from": "preload", "to": "ipc", "label": "invoke / send", "labelDy": 58 },
+    { "id": "ipc-to-services", "from": "ipc", "to": "services" },
+    { "id": "services-to-storage", "from": "services", "to": "storage", "label": "读 / 原子写", "labelDy": 58, "variant": "emphasis" },
+
+    { "id": "python-to-storage", "from": "python", "to": "storage", "label": "同一批文件", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "release-to-services", "from": "release", "to": "services", "label": "latest.yml", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "一条数据，两个入口", "items": ["界面：preload → IPC → services", "agent：命名管道 → MCP 工具 → 同一套 services"] },
+    { "dot": "emerald", "title": "文件即数据", "items": ["任务 = task-data/*.md；项目 = registry.yaml", "原子写 + 乐观锁，没有数据库"] },
+    { "dot": "rose", "title": "双腿", "items": ["TS 壳与 Python 腿读同一批文件", "工具链之外的运行时零依赖"] }
+  ]
+}

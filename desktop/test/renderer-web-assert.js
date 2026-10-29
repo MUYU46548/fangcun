@@ -6223,9 +6223,9 @@
     }
 
     // ══ 项目结构图（2026-10-29 暮雨第 2 条）══════════════════════════════
-    // 暮雨问的是「现在方寸能一键出项目结构图了吗？对接 archify 还是内置内核？」
-    // 事实：archify 那半只做了**导入**；这一版补的是方寸自己的内核（项目 → 在途 → 已完成 → 日志）。
-    // 判据四件：入口在项目卡上、点了真走 IPC、图画出来（svg）、**界线写在图上**（不是代码架构图）。
+    // 第一版是错的：拿任务数据画分层图还叫"项目结构图"。暮雨当场否掉。
+    // archify 的产物是一份架构图 HTML，方寸只负责**指到它**；找不到就说清怎么生成。
+    //（判据：入口在卡上 / 真走 IPC / 找不到要说清怎么生成 / 本地画图那套已删）
     {
       clickText('项目'); await sleep(400)
       const tileBtn = $$('.tile .pv-diagram').find((b) => (b.textContent || '').indexOf('结构图') >= 0)
@@ -6235,18 +6235,14 @@
       if (tileBtn) tileBtn.click()
       check('★★ 点了真走 project:diagram IPC', await waitFor(() => window.__fcTest.callCount('projectDiagram') > 0, 4000, 'projectDiagram'),
         JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
-      check('★★ 图画出来了（模态里真有 svg）', await waitFor(() => !!$('#proj-diagram .pd-svg svg'), 4000, 'pd svg'),
-        (($('#proj-diagram') || {}).textContent || '').slice(0, 80))
-      check('★★ 界线写在图上：不是代码架构图（否则用户拿它当架构图使）',
-        (($('#proj-diagram .pd-note') || {}).textContent || '').indexOf('不是代码架构图') >= 0,
-        (($('#proj-diagram .pd-note') || {}).textContent || '').slice(0, 100))
-      check('  图上带真实计数（不是一句空话）',
-        (($('#proj-diagram .pd-note') || {}).textContent || '').indexOf('1 张在途') >= 0,
-        (($('#proj-diagram .pd-note') || {}).textContent || '').slice(0, 80))
-      const pdClose = $$('#proj-diagram .acts button').find((b) => (b.textContent || '').trim() === '关闭')
-      if (pdClose) pdClose.click()
-      await sleep(250)
-      check('  关闭后模态退场', !$('#proj-diagram'))
+      check('★★ 找不到产物时**说清怎么生成**（点名 archify 与 docs/，不许静默）',
+        await waitFor(() => {
+          const t = (($('#toast') || {}).textContent || '')
+          return t.indexOf('archify') >= 0 && t.indexOf('docs/') >= 0
+        }, 4000, 'toast 指引'),
+        (($('#toast') || {}).textContent || '').slice(0, 120))
+      check('★★ 不再有本地画的「结构图」模态（旧的那套必须删干净，不许新旧并存）', !$('#proj-diagram'))
+      clickText('看板'); await sleep(300)
     }
 
 

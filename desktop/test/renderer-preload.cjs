@@ -1526,25 +1526,15 @@ contextBridge.exposeInMainWorld('tegula', {
    * 模型单价（2026-10-25 卡 005 B 档）：夹具预置一行，用来验"设置里能改、改完真的过桥"。
    * ⚠ 空表也是合法状态（= 一律未折算），这条降级在断言里单独验。
    */
-  // ── 项目结构图桩（2026-10-29）：主进程真身从 registry + 任务 + 日志装配，桩只回一份可辨认的 spec
+  // ── 项目结构图桩（2026-10-29 修正版）：真身是"找到该项目仓库里的 archify 产物并打开"。
+  // 桩按**找不到**的情况回话 —— 那正是界面最需要说清楚的路径（不许静默、不许自己画一张）。
   projectDiagram: (projectId) => {
     cloneGuard('projectDiagram', [projectId])
     rec('projectDiagram', [projectId])
     if (!projectId) return { ok: false, error: '没给项目 id' }
     return {
-      ok: true,
-      project: { id: projectId, name: '演示项目' },
-      spec: {
-        lanes: [
-          { name: '项目', color: 'accent', cards: [{ label: '演示项目', sub: '开发中' }] },
-          { name: '在途', color: 'warning', cards: [{ label: '做甲', sub: '进行中 · 高' }] },
-          { name: '执行日志', color: 'muted', cards: [{ label: '这一轮干了什么', sub: '进行中' }] },
-        ],
-        between: ['在途', '执行日志'],
-        width: 900,
-      },
-      note: '方寸视角：1 张在途 · 0 张完成 · 1 条日志 —— 这是任务/日志结构，不是代码架构图；要看代码架构，用 archify 生成后导入。',
-      counts: { open: 1, done: 0, logs: 1, hiddenOpen: 0, hiddenDone: 0 },
+      ok: false,
+      error: '演示项目 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下（文件名带「架构图」或 architecture），再点这里；方寸不自己画架构图。',
     }
   },
   // ── 需求矩阵（RICE）桩（2026-10-29）：页签此前在无头断言里完全没被打开过 ──

@@ -1,20 +1,25 @@
 #!/usr/bin/env node
 /**
- * 项目结构图断言（2026-10-29 暮雨第 2 条 / 卡 20261029-002）
+ * 项目结构图断言（2026-10-29 修正版）
  *
- * 真跑**编译产物** `dist/shared/projectDiagram.js`（纯逻辑，不需要 electron、不起子进程）。
- * 判据不是"画得好看"，而是**这张图说了什么、没说谎什么**：
- *   ① 层顺序 = 项目 → 在途 → 已完成 → 执行日志（空层不画）；
- *   ② 在途按优先级排（高→中→低），超出的**必须写出来**（…还有 N 张），不许静默截断；
- *   ③ note 必须把界线说死：这是任务/日志结构，**不是代码架构图**（否则用户拿它当架构图使）；
- *   ④ 没任务/没日志时也只画项目那一层，不许出一张空图或崩掉。
+ * 背景（必须留在文件头，防止有人又把它改回"画一张分层图"）：
+ *   第一版是错的 —— 拿「项目 → 在途 → 已完成 → 执行日志」画了张分层图，还叫它"项目结构图"。
+ *   暮雨原话：「你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。」
+ *   archify 的产物是**一份可交互的架构图 HTML**，方寸没有生成它的能力。
+ *
+ * 现在的判据只有四条：
+ *   ① 认得出哪些文件名是 archify 产物（架构图 / architecture / archify + .html）；
+ *   ② 多份时挑**最新**那份（按 mtime），不挑字母序；
+ *   ③ 只在该项目仓库的 docs/ 里找（不扫全仓、不猜别的目录）；
+ *   ④ 找不到就说清**怎么生成**，不许静默、不许退化成"我给你画一张"。
  */
 
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '../..')
-const ART = path.join(REPO, 'desktop', 'dist', 'shared', 'projectDiagram.js')
+const ART = path.join(REPO, 'desktop', 'dist', 'main', 'services', 'projectDiagram.js')
 
 let pass = 0, fail = 0
 const failures = []
@@ -33,80 +38,81 @@ if (!fs.existsSync(ART)) {
 }
 const P = require(ART)
 
-const T = (title, status, priority) => ({ title, status, priority })
-const L = (title, status) => ({ title, status })
-const PROJ = { id: 'fangcun-base', name: '方寸', status: '开发中' }
+console.log('== ① 认得出 archify 产物 ==')
+check('「架构图-方寸-20261029.html」认', P.isArchifyArtifactName('架构图-方寸-20261029.html'))
+check('「architecture.html」认', P.isArchifyArtifactName('architecture.html'))
+check('「tegula-architecture.html」认', P.isArchifyArtifactName('tegula-architecture.html'))
+check('「archify-fangcun.html」认', P.isArchifyArtifactName('archify-fangcun.html'))
+check('日报 html 不认', !P.isArchifyArtifactName('日报-20261029.html'))
+check('架构图 .docx 不认（必须是 HTML，archify 交付物形态）', !P.isArchifyArtifactName('架构图.docx'))
+check('README.md 不认', !P.isArchifyArtifactName('README.md'))
 
-console.log('== ① 层与顺序 ==')
+console.log('\n== ② 多份时挑最新 ==')
 {
-  const r = P.buildProjectDiagram({
-    project: PROJ,
-    tasks: [T('做甲', '进行中', '高'), T('做乙', '待办', '低'), T('已完成丙', '完成', ''), T('驳回丁', '驳回', '')],
-    logs: [L('这一轮干了什么', '进行中')],
-  })
-  const names = r.spec.lanes.map((l) => l.name)
-  check('★★ 层顺序 = 项目 → 在途 → 已完成 → 执行日志', names.join('>') === '项目>在途>已完成>执行日志', names.join('>'))
-  check('项目层只有一张卡（项目身份 + 状态）',
-    r.spec.lanes[0].cards.length === 1 && r.spec.lanes[0].cards[0].sub === '开发中',
-    JSON.stringify(r.spec.lanes[0].cards))
-  check('★ 驳回的卡不进「在途」也不进「已完成」', r.counts.open === 2 && r.counts.done === 1,
-    JSON.stringify(r.counts))
-  check('★ 层间标签数 = 层数 - 1（多给会被忽略，少给就少一行说明）',
-    r.spec.between.length === r.spec.lanes.length - 1, JSON.stringify(r.spec.between))
+  const hit = P.pickNewestArtifact([
+    { path: '/r/docs/architecture-old.html', mtime: 1000 },
+    { path: '/r/docs/架构图-新.html', mtime: 3000 },
+    { path: '/r/docs/日报.html', mtime: 5000 },
+  ])
+  check('★ 按 mtime 挑最新（不是字母序、也不是第一个）', hit && hit.path === '/r/docs/架构图-新.html', JSON.stringify(hit))
+  check('  不匹配的文件名直接排除', !hit || hit.path.indexOf('日报') < 0)
+  check('  空清单 → null（不许编一个路径出来）', P.pickNewestArtifact([]) === null)
 }
 
-console.log('\n== ② 在途排序与截断 ==')
+console.log('\n== ③ 只在 repo/docs 里找 ==')
 {
-  const many = []
-  for (let i = 0; i < 9; i++) many.push(T('低优先' + i, '待办', '低'))
-  many.push(T('高优先A', '待办', '高'), T('高优先B', '进行中', '高'))
-  const r = P.buildProjectDiagram({ project: PROJ, tasks: many, logs: [] })
-  const lane = r.spec.lanes.find((l) => l.name === '在途')
-  check('★★ 在途按优先级排：高的先进图', /高优先/.test(lane.cards[0].label) && /高优先/.test(lane.cards[1].label),
-    lane.cards.map((c) => c.label).join('|'))
-  // 夹具共 11 张在途（9 低 + 2 高）→ 画 6 张 + 一张「还有 5 张」。数字现算，不写死。
-  const EXPECT_OPEN = many.length
-  const MAX_IN_VIEW = 6
-  check('★★ 画不下就说出来（…还有 N 张），不许静默截断',
-    lane.cards.length === MAX_IN_VIEW + 1 && lane.cards[MAX_IN_VIEW].label.indexOf('还有') >= 0
-    && r.counts.hiddenOpen === EXPECT_OPEN - MAX_IN_VIEW,
-    JSON.stringify([lane.cards.length, lane.cards[MAX_IN_VIEW].label, r.counts.hiddenOpen]))
-  check('计数与图一致：图上 6 张真卡 + 1 张"还有"，且总数是全部在途',
-    r.counts.open === EXPECT_OPEN && r.counts.hiddenOpen === EXPECT_OPEN - MAX_IN_VIEW,
-    JSON.stringify(r.counts))
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-find-'))
+  const docs = path.join(tmp, 'docs')
+  fs.mkdirSync(docs, { recursive: true })
+  fs.writeFileSync(path.join(docs, 'architecture-a.html'), 'a')
+  fs.writeFileSync(path.join(docs, '架构图-b.html'), 'b')
+  const old = new Date(Date.now() - 60000)
+  fs.utimesSync(path.join(docs, '架构图-b.html'), old, old)
+  fs.mkdirSync(path.join(docs, 'node_modules'), { recursive: true })
+  fs.writeFileSync(path.join(docs, 'node_modules', 'architecture-x.html'), 'x')
+  fs.writeFileSync(path.join(tmp, '架构图-root.html'), 'r')
+
+  const hit = P.findProjectArchitectureArtifact(tmp)
+  check('★★ 找到最新那份（架构图-b 反而更旧 → 应选 architecture-a）',
+    hit && /architecture-a\.html$/.test(hit.path), JSON.stringify(hit))
+  check('  rel 是相对仓库根的路径（界面要给人看）', hit && hit.rel === 'docs/architecture-a.html', hit && hit.rel)
+  check('  不扫 node_modules（那里面的同名文件不算产物）', hit && hit.path.indexOf('node_modules') < 0)
+  check('  不碰仓库根的散落文件（只看 docs/）', hit && hit.path.indexOf('架构图-root') < 0)
+
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-empty-'))
+  check('  没有 docs/ 且根目录没有产物 → null', P.findProjectArchitectureArtifact(empty) === null)
+  check('  路径不存在 → null（不抛）', P.findProjectArchitectureArtifact(path.join(empty, 'nope')) === null)
 }
 
-console.log('\n== ③ 界线必须写在图上 ==')
+console.log('\n== ④ 找不到要说清怎么生成 ==')
 {
-  const r = P.buildProjectDiagram({ project: PROJ, tasks: [T('甲', '待办', '中')], logs: [L('日志一', '待处理')] })
-  check('★★ note 明写「不是代码架构图」（否则用户会拿它当架构图使）',
-    r.note.indexOf('不是代码架构图') >= 0, r.note)
-  check('★ note 指路 archify（要看代码架构去那边生成再导入）', r.note.indexOf('archify') >= 0, r.note)
-  check('★ note 带真实计数（不是一句空话）',
-    r.note.indexOf('1 张在途') >= 0 && r.note.indexOf('1 条日志') >= 0, r.note)
+  const r0 = P.findArtifactForProject('')
+  check('空 id → 明确报错', r0.ok === false && /没给项目 id/.test(r0.error), r0.error)
+
+  const r1 = P.findArtifactForProject('项目-根本不存在')
+  check('★ registry 里没有 → 明说没有这个项目', r1.ok === false && /registry 里没有/.test(r1.error), r1.error)
 }
 
-console.log('\n== ④ 空数据的退化 ==')
+console.log('\n== ⑤ 真实仓库：方寸自己那张图找得到 ==')
 {
-  const r = P.buildProjectDiagram({ project: PROJ, tasks: [], logs: [] })
-  check('★★ 没任务没日志也只画项目层（不出空图、不抛）',
-    r.spec.lanes.length === 1 && r.spec.lanes[0].name === '项目', JSON.stringify(r.spec.lanes.map((l) => l.name)))
-  check('  空层不画（不造"这里本该有东西"的空框）', r.spec.lanes.every((l) => l.cards.length > 0))
-  check('  计数全 0', r.counts.open === 0 && r.counts.done === 0 && r.counts.logs === 0, JSON.stringify(r.counts))
+  const data = require(path.join(REPO, 'desktop', 'dist', 'main', 'data', 'index.js'))
+  data.setDataDir(REPO)
+  const r = P.findArtifactForProject('fangcun-base')
+  check('★★ fangcun-base 能找到 archify 产物（2026-10-29 生成的那张）',
+    r.ok === true && /架构图-方寸/.test(String(r.hit && r.hit.path)),
+    JSON.stringify({ ok: r.ok, err: r.error, hit: r.hit && r.hit.rel }))
+  check('  产物文件真的在盘上', r.ok === true && fs.existsSync(r.hit.path))
 }
 
-console.log('\n== ⑤ 渲染得出来（真跑 buildLayerDiagram）==')
+console.log('\n== ⑥ 源码守卫：不许再"自己画一张" ==')
 {
-  const LD = require(path.join(REPO, 'desktop', 'dist', 'shared', 'layerDiagram.js'))
-  const r = P.buildProjectDiagram({
-    project: PROJ,
-    tasks: [T('做甲', '进行中', '高'), T('已完成丙', '完成', '')],
-    logs: [L('这一轮干了什么', '进行中')],
-  })
-  let svg = ''
-  try { svg = LD.buildLayerDiagram(r.spec) } catch (e) { svg = 'ERR:' + e.message }
-  check('★★ 出得了 SVG（spec 与渲染器口径对得上）', svg.startsWith('<svg'), svg.slice(0, 80))
-  check('  图上真带项目名与卡标题', svg.indexOf('方寸') >= 0 && svg.indexOf('做甲') >= 0)
+  const svc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'services', 'projectDiagram.ts'), 'utf-8')
+  check('★★ 主进程侧不再有 buildProjectDiagram / 分层图生成（那就是编）',
+    !/buildProjectDiagram/.test(svc) && !/lanes:/.test(svc))
+  const oldShared = path.join(REPO, 'desktop', 'src', 'shared', 'projectDiagram.ts')
+  check('★★ 那个"用任务数据画图"的纯函数文件已删除', !fs.existsSync(oldShared))
+  const app = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
+  check('  项目卡按钮文案不再承诺"出一张图"', !/出一张结构图/.test(app))
 }
 
 console.log(`\nRESULT ${pass} / ${fail ? pass + fail : pass}` + (fail ? `  (${fail} 条失败)` : ''))

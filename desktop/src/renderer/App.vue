@@ -932,7 +932,7 @@
           <!-- 项目结构图（2026-10-29 暮雨第 2 条）：方寸自己的内核 —— 项目 → 在途 → 已完成 → 日志。
                入口放在卡上（同方针按钮），不塞进设置页：项目级的东西要在项目那一屏一眼看见。 -->
           <button class="ghost pv-policy pv-diagram" @click.stop="openProjectDiagram(p)"
-                  title="用方寸自己的数据出一张结构图：项目 → 在途 → 已完成 → 执行日志（不是代码架构图）">🗺 结构图</button>
+                  title="打开这个项目的 archify 架构图（HTML）；没有就先让 archify 生成一份放进该仓库 docs/">🗺 结构图</button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -1958,22 +1958,6 @@
     <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
     <!-- 回收站正文预览弹窗已搬进 views/TrashView.vue（与它的视图同一处） -->
 
-
-    <!-- 项目结构图（2026-10-29 暮雨第 2 条 · 方寸内置内核）
-         ⚠ 界线必须写在图上：这是「任务/日志结构」，不是代码架构图。
-         代码架构归 archify（方寸只导入它的产物）—— 两件事混起来，用户会拿它当架构图使。 -->
-    <div id="proj-diagram" class="overlay" v-if="projectDiagram_" @mousedown.self="projectDiagram_ = null">
-      <div class="pd-modal">
-        <h3>项目结构图 · {{ projectDiagram_.name }}</h3>
-        <div class="pd-note" v-if="projectDiagram_.note">{{ projectDiagram_.note }}</div>
-        <div v-if="projectDiagram_.loading" class="pd-loading">⟳ 生成中…</div>
-        <div v-else-if="projectDiagram_.err" class="pd-err">{{ projectDiagram_.err }}</div>
-        <div v-else class="arch-svg pd-svg" v-html="projectDiagram_.svg"></div>
-        <div class="acts">
-          <button class="ghost" @click="projectDiagram_ = null">关闭</button>
-        </div>
-      </div>
-    </div>
 
     <!-- Task preview modal -->
     <div id="roverlay" class="overlay" v-if="previewTask" @mousedown.self="previewTask = null">
@@ -5778,7 +5762,6 @@ const selectedBatch = ref<string[]>([])
 const logBatchMode = ref(false)
 
 /** 项目结构图模态（2026-10-29 暮雨第 2 条）：null = 没开 */
-const projectDiagram_ = ref<{ name: string; loading: boolean; svg: string; note: string; err: string } | null>(null)
 const selectedLogBatch = ref<string[]>([])
 // trashBatchMode / selectedTrashBatch 已随回收站组件搬走（2026-10-23）
 const dataDir = ref('')
@@ -10645,20 +10628,17 @@ async function copyLogAsPrompt(id: string): Promise<void> {
  */
 async function openProjectDiagram(p: any): Promise<void> {
   const id = String(p?.id || p?.name || '')
-  projectDiagram_.value = { name: String(p?.name || id), loading: true, svg: '', note: '', err: '' }
   try {
+    // 2026-10-29 暮雨当场纠正：这不是"用任务数据画一张图"，而是**打开 archify 产出的架构图**。
+    // 找不到就明说怎么生成 —— 方寸没有生成架构图的能力，硬凑一张就是编。
     const r: any = await (window as any).tegula.projectDiagram(id)
     if (!r || r.ok === false) {
-      projectDiagram_.value.err = String(r?.error || '生成失败')
-      projectDiagram_.value.loading = false
+      showToast(String(r?.error || '没找到这个项目的结构图'), 'error')
       return
     }
-    projectDiagram_.value.svg = buildLayerDiagram(r.spec)
-    projectDiagram_.value.note = String(r.note || '')
-    projectDiagram_.value.loading = false
+    showToast('已用浏览器打开结构图：' + String(r.rel || r.path || ''), 'success')
   } catch (e: any) {
-    projectDiagram_.value.err = '生成失败：' + (e?.message || e)
-    projectDiagram_.value.loading = false
+    showToast('打开结构图失败：' + (e?.message || e), 'error')
   }
 }
 
@@ -15219,19 +15199,6 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lpurge-list { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .lpurge-list li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lpurge-more { list-style: none; margin-left: -18px; font-style: italic; }
-
-/* ── 项目结构图模态（2026-10-29 暮雨第 2 条）──────────────────────────────── */
-#proj-diagram .pd-modal {
-  background: var(--card); border-radius: var(--radius); padding: 16px 18px;
-  width: min(1000px, 94vw); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow);
-}
-.pd-modal h3 { margin: 0 0 8px; font-size: 16px; color: var(--ink); }
-.pd-note { font-size: 12px; color: var(--muted); line-height: 1.65; margin-bottom: 10px; }
-.pd-loading, .pd-err { font-size: 12.5px; color: var(--muted); padding: 18px 0; }
-.pd-err { color: var(--danger); }
-.pd-svg { overflow-x: auto; }
-.pd-svg svg { width: 100%; height: auto; display: block; }
-.pd-modal .acts { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── 任务详情里的架构图（2026-10-13 暮雨第 2 条 · 方案 A）────────────────── */
 .arch-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }

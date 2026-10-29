@@ -40,7 +40,7 @@ import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { pickNeverRead } from '../shared/neverRead'
 import { checkMismatch } from './services/mismatch'
-import { checkProjectDiagram } from './services/projectDiagram'
+import { findArtifactForProject } from './services/projectDiagram'
 import * as rice from './data/rice'
 
 export function registerIpcHandlers(): void {
@@ -1301,8 +1301,17 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
   // 项目结构图（2026-10-29 暮雨第 2 条）：方寸自己的内核出图 ——
   // 项目 → 在途 → 已完成 → 执行日志。**不是代码架构图**（不读源码、不猜依赖），
   // 那双眼睛归 archify（只导入它的产物）。判断全在 shared/projectDiagram.ts。
-  guardedHandle('project:diagram', (_event, projectId: string) => {
-    return checkProjectDiagram(String(projectId || ''))
+  guardedHandle('project:diagram', async (_event, projectId: string) => {
+    const r = findArtifactForProject(String(projectId || ''))
+    if (!r.ok || !r.hit) return r
+    // 方寸**不重画**架构图：archify 的产物是它自己的 HTML，这里只负责用系统浏览器打开。
+    try {
+      const err = await shell.openPath(r.hit.path)
+      if (err) return { ok: false, error: '打开失败：' + err }
+      return { ok: true, path: r.hit.path, rel: r.hit.rel, project: r.project }
+    } catch (e: any) {
+      return { ok: false, error: '打开失败：' + (e?.message || e) }
+    }
   })
 
   guardedHandle('mismatch:check', async (_event, days?: number) => {
