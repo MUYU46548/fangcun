@@ -176,8 +176,17 @@ function main() {
   // 引擎版本（Electron 44 → v24）；这是"包真换了"最快的判据
   const exeBin = path.join(OUT, 'win-unpacked', '方寸.exe')
   if (fs.existsSync(exeBin)) {
-    const v = spawnSync(exeBin, ['--version'], { encoding: 'utf-8', timeout: 30000 })
-    if (v.stdout) log(`✓ 包内 Node 版本（= Electron 引擎）：${String(v.stdout).trim()}`)
+    // ⚠ 2026-10-29 实测修正：**必须带 ELECTRON_RUN_AS_NODE=1**。
+    //   不带它时 exe 按 GUI 模式启动真实应用（开窗口、抢单实例锁），30s 后被 timeout 杀掉、
+    //   输出为空 —— 看起来像"自检跳过"，实际是把应用拉起又掐掉（很脏）。
+    //   带上它 exe 就是纯 node，`--version` 直接打印包内 Node 版本（Electron 44 → v24.x）。
+    const v = spawnSync(exeBin, ['--version'], {
+      encoding: 'utf-8', timeout: 30000,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    })
+    const line = String(v.stdout || '').trim()
+    if (/^v[0-9]+\./.test(line)) log(`✓ 包内 Node 版本（= Electron 引擎）：${line}`)
+    else { log(`⚠ 读不到包内 Node 版本（输出：${(line || v.stderr || '').slice(0, 120)}）`); ok = false }
   }
 
   log(ok ? `\n完成：${exe}` : '\n有自检项没过，别发版')
