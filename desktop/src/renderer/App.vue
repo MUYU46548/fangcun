@@ -9676,11 +9676,19 @@ function onLogPaste(ev: ClipboardEvent): void {
  *      附件就永久没了（比"关掉静默丢"更坏，因为它看起来像成功了）。
  */
 async function flushPendingAttach(logId: string): Promise<boolean> {
-  const paths = [...logPendingPaths.value]
-  const data = [...logPendingData.value]
+  // ⚠ 2026-10-29（暮雨「创建日志加附件就不能保存，多次重试无果」的真因）：
+  //   原来这里是 `[...logPendingData.value]` —— 展开出来的是**数组元素本身**，
+  //   而 ref 里的元素读出来是 **Vue 响应式代理**。代理过 contextBridge 会在
+  //   「页面 → 隔离世界」那一跳抛 `An object could not be cloned.`：
+  //     · 报文根本没进主进程（应用日志里零 IPC 记录，只有一句"附件没挂上"）；
+  //     · 重试永远同一个结果，因为载荷永远是代理。
+  //   修法：**就地造新的裸对象**（不是把代理再包一层）。路径分支只传字符串，本来没这个问题。
+  const paths = logPendingPaths.value.map((p) => String(p))
+  const data = logPendingData.value.map((x) => ({ name: String(x?.name || ''), dataUrl: String(x?.dataUrl || '') }))
   resetPendingAttach()
   if (!paths.length && !data.length) return true
 
+  const errText: string[] = []
   const skippedText: string[] = []
   const keepPaths: string[] = []
   const keepData: Array<{ name: string; dataUrl: string }> = []
@@ -9693,7 +9701,13 @@ async function flushPendingAttach(logId: string): Promise<boolean> {
         okCount += (Array.isArray(r.data?.attachments) ? paths.length : paths.length)
         applyAttachments(logId, r.data)
       } else keepPaths.push(...paths)
-    } catch { keepPaths.push(...paths) }
+    } catch (e: any) {
+      // 不再静默：渲染层这一跳的异常（典型就是 contextBridge 克隆失败）必须说出来，
+      // 否则界面只能给一句"未知原因"，既查不到也修不掉。
+      errText.push(`添加文件通道异常：${e?.message || e}`)
+      console.warn('[logEdit] 附件（按路径）没挂上：', e)
+      keepPaths.push(...paths)
+    }
   }
   if (data.length) {
     try {
@@ -9709,7 +9723,11 @@ async function flushPendingAttach(logId: string): Promise<boolean> {
         }
       }
       skippedText.push(...skipped)
-    } catch { keepData.push(...data) }
+    } catch (e: any) {
+      errText.push(`粘贴/拖入通道异常：${e?.message || e}`)
+      console.warn('[logEdit] 附件（按内存字节）没挂上：', e)
+      keepData.push(...data)
+    }
   }
 
   // 失败的回填待挂清单 —— 弹窗不关，用户再点一次保存就能重试
@@ -9717,7 +9735,9 @@ async function flushPendingAttach(logId: string): Promise<boolean> {
   logPendingData.value = keepData
 
   if (keepPaths.length || keepData.length) {
-    const reason = skippedText.length ? skippedText.join('；') : keepPaths.map(pendingBaseName).join('；')
+    const reason = skippedText.length || errText.length
+      ? [...skippedText, ...errText].join('；')
+      : keepPaths.map(pendingBaseName).join('；')
     showToast(`日志已保存，但 ${keepPaths.length + keepData.length} 个附件没挂上：${reason || '未知原因'} —— 还留在弹窗里，再点一次保存可重试`, 'error')
     return false
   }

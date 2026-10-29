@@ -62,9 +62,9 @@ const existsUnder = (root: string) => (rel: string): boolean => {
   }
 }
 
-export async function checkMismatch(opts: { days?: number } = {}): Promise<MismatchReport> {
+export async function checkMismatch(opts: { days?: number; noOutputDays?: number } = {}): Promise<MismatchReport> {
   const root = getDataDir()
-  if (!root) return { ok: false, error: '取不到数据根目录', stale: [], noDate: [], broken: [], moved: [], nocriteria: [], total: 0 }
+  if (!root) return { ok: false, error: '取不到数据根目录', stale: [], noDate: [], broken: [], moved: [], nocriteria: [], nooutput: [], total: 0 }
 
   let projects: any[] = []
   try {
@@ -72,7 +72,7 @@ export async function checkMismatch(opts: { days?: number } = {}): Promise<Misma
   } catch (e) {
     return {
       ok: false, error: 'registry 读不出来：' + ((e as Error)?.message || String(e)),
-      stale: [], noDate: [], broken: [], moved: [], nocriteria: [], total: 0,
+      stale: [], noDate: [], broken: [], moved: [], nocriteria: [], nooutput: [], total: 0,
     }
   }
 
@@ -112,6 +112,6 @@ export async function checkMismatch(opts: { days?: number } = {}): Promise<Misma
     return out
   }
 
-  const res = collectMismatch({ repos, tasks, todayISO: todayISO(), exists, reposOf, days: opts.days ?? 3 })
+  const res = collectMismatch({ repos, tasks, todayISO: todayISO(), exists, reposOf, days: opts.days ?? 3, noOutputDays: opts.noOutputDays })
   return { ok: true, ...res, scanned: { projects: repos.length, tasks: tasks.length }, noGit }
 }

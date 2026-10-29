@@ -754,15 +754,38 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: true, dryRun: false, count: ids.length, ids, titles, trashDir: 'mock/.trash' }
   },
   // ── 附件（2026-10-01 卡 036）：假 preload 返回与真 IPC 同形的 { ok, data } ──
-  logsAttachFiles: (id) => {
-    rec('logsAttachFiles', [id])
+  // ⚠ 2026-10-29：这三个入口此前**根本没登记**（`logsPickFiles` / `logsAttachData` 缺，
+  //   `logsAttachFiles` 也不收 sources）——
+  //   于是「新建日志时先选附件、保存时一起挂上」这条链路在无头断言里**从未被跑过**，
+  //   真机上「创建日志 + 粘贴图 → 保存永远失败」就这么漏过去了。
+  //   现在按真 preload 的签名登记，并给每条**都加 cloneGuard**（真实机第一跳语义）。
+  logsPickFiles: () => {
+    rec('logsPickFiles')
+    return { ok: true, paths: ['C:/fake/截图A.png'] }
+  },
+  logsAttachFiles: (id, sources) => {
+    cloneGuard('logsAttachFiles', [id, sources])
+    rec('logsAttachFiles', [id, sources])
     const row = (store.logs || []).find(x => x.id === id)
     if (!row) return { ok: false, error: '日志不存在' }
-    // 真实现是主进程弹系统框后复制进数据目录；这里直接追加一个不同名的条目，
-    // 让「点添加 → 网格多一项」这条 UI 链路可断言。
-    const rel = `docs/执行日志/_attachments/${id}/新添加_${(row.attachments || []).length + 1}.png`
-    row.attachments = [...(row.attachments || []), rel]
-    return { ok: true, data: { ...row } }
+    // 真实现是主进程弹系统框（sources 为空时）或直接复制这批路径（有 sources 时）；
+    // 桩两种都走「追加条目」，并**如实记下调用方给了几个 sources**，供断言对账。
+    const n = Array.isArray(sources) && sources.length ? sources.length : 1
+    const add = Array.from({ length: n }, (_, i) =>
+      `docs/执行日志/_attachments/${id}/新添加_${(row.attachments || []).length + i + 1}.png`)
+    row.attachments = [...(row.attachments || []), ...add]
+    return { ok: true, data: { ...row }, added: add.length }
+  },
+  logsAttachData: (id, items) => {
+    cloneGuard('logsAttachData', [id, items])
+    rec('logsAttachData', [id, items])
+    const row = (store.logs || []).find(x => x.id === id)
+    if (!row) return { ok: false, error: '日志不存在' }
+    const list = Array.isArray(items) ? items : []
+    const add = list.map((it, i) =>
+      `docs/执行日志/_attachments/${id}/${String((it && it.name) || '粘贴')}_${(row.attachments || []).length + i + 1}.png`)
+    row.attachments = [...(row.attachments || []), ...add]
+    return { ok: true, data: { ...row }, added: add.length, skipped: [] }
   },
   logsDetachAttachment: (id, rel) => {
     rec('logsDetachAttachment', [id, rel])

@@ -3198,6 +3198,60 @@
     if (attClose) attClose.click()
     await sleep(300)
 
+    // ══ 新建日志 + 待挂附件（2026-10-29 暮雨第 5 条：「创建日志加附件则不能保存」）══════
+    // 真机现场（应用日志 2026-10-28 21:51）：新建弹窗里挂了 7 张粘贴图 → 点创建 →
+    // 弹窗不关、附件永远挂不上、**重试永远同一个结果**；主进程日志里一条 IPC 失败都没有。
+    // 根因：`[...logPendingData.value]` 展开出来的元素是 **Vue 响应式代理**，
+    // 过 contextBridge 在「页面 → 隔离世界」那一跳抛 `could not be cloned` —— 报文根本没进主进程。
+    // 这条断言就是钉住它：**创建要成功、两条附件通道都要被真的调用到**。
+    check('回到日志页（新建 + 附件断言前置）', clickText('日志'))
+    await sleep(400)
+    const lgCallsBefore = window.__fcTest.calls().length
+    const lgNewBtn = $$('button').find(b => (b.textContent || '').indexOf('新建日志') >= 0)
+    if (lgNewBtn) lgNewBtn.click()
+    check('★ 新建日志弹窗打开', await waitFor(() => !!$('#log-edit-modal'), 3000, 'log edit modal'))
+    const lgPickBtn = $('#log-edit-modal .attach-add')
+    if (lgPickBtn) lgPickBtn.click()
+    check('★★ 新建态也能选附件，且进「待挂」清单（不必先创建再回来挂）',
+      await waitFor(() => $$('#log-edit-modal .attach-pending-item').length === 1, 3000, 'pending path'),
+      'items=' + $$('#log-edit-modal .attach-pending-item').length)
+    // 拖一张真图进去 —— 走的是「内存字节」那条通道（真机出事的正是它）
+    const lgDropInfo = await (async () => {
+      const modal = $('#log-edit-modal')
+      if (!modal) return { ok: false, why: 'no modal' }
+      try {
+        const dt = new DataTransfer()
+        dt.items.add(new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], '拖入截图.png', { type: 'image/png' }))
+        modal.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+        return { ok: true }
+      } catch (e) { return { ok: false, why: String(e && e.message) } }
+    })()
+    check('  夹具可用：能构造一次真实 drop', lgDropInfo.ok, JSON.stringify(lgDropInfo))
+    check('★★ 拖进来的图也进「待挂」（两条通道共用一份清单）',
+      await waitFor(() => $$('#log-edit-modal .attach-pending-item').length === 2, 4000, 'pending data'),
+      'items=' + $$('#log-edit-modal .attach-pending-item').length)
+    const lgTitle = $('#log-edit-modal input[placeholder="日志标题"]')
+    if (lgTitle) {
+      lgTitle.value = '带附件的日志'
+      lgTitle.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    const lgCreateBtn = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
+    if (lgCreateBtn) lgCreateBtn.click()
+    const lgCalls = () => window.__fcTest.calls().slice(lgCallsBefore)
+    check('★★ 点「创建」真的走了 logsCreate', await waitFor(() => lgCalls().some(c => c.name === 'logsCreate'), 4000, 'logsCreate'),
+      JSON.stringify(lgCalls().map(c => c.name)))
+    check('★★ 附件真的送进了主进程（两条通道都要到：按路径复制 + 按内存字节）',
+      await waitFor(() => {
+        const cs = lgCalls()
+        const byPath = cs.some(c => c.name === 'logsAttachFiles' && Array.isArray(c.args && c.args[1]) && c.args[1].length > 0)
+        const byData = cs.some(c => c.name === 'logsAttachData' && Array.isArray(c.args && c.args[1]) && c.args[1].length > 0)
+        return byPath && byData
+      }, 5000, 'attach calls'),
+      JSON.stringify(lgCalls().filter(c => /attach/i.test(c.name)).map(c => c.name)))
+    check('★★ 创建 + 挂附件之后弹窗**关掉**了（不再卡在"看起来没保存"）',
+      await waitFor(() => !$('#log-edit-modal'), 4000, 'modal closed'))
+    await sleep(300)
+
     // ══ 日志优先级（2026-10-08 卡 task-20261008-001，拍板=新增字段）════════
     // 数据层往返由 e2e-logs（198）与 e2e-fm-contract（25）钉住；这里只测**界面链路**：
     // 编辑框有这个下拉 → 保存真把它送进 IPC → 卡面看得见 → 排序真的按它排。
@@ -4836,6 +4890,44 @@
       $$('[data-dec="badge"]').map((x) => x.textContent.trim()).join('|'))
     check('  已撤销的卡整体降调（视觉死账）',
       $$('[data-dec="card"]').some((c) => (c.textContent || '').indexOf('已撤销') >= 0 && /line-through/.test(String(c.innerHTML))))
+    // ── 2026-10-29 暮雨第 3 条：「决策的 UI 疑似没和其他页签统一，按钮还是带阴影」──
+    // 不靠印象，直接量计算样式：决策卡必须与**看板老卡 `.card`** 同一档圆角/阴影，
+    // 且决策页里的按钮一律不许自带投影（老按钮全是扁平的）。
+    {
+      const decCard = $('[data-dec="card"]')
+      const decCS = decCard ? getComputedStyle(decCard) : null
+      // ⚠ 立刻把值取成字符串：换页签后组件会被卸载，CSSStyleDeclaration 会变空
+      const decRadius = decCS ? decCS.borderTopLeftRadius : ''
+      const decShadow = decCS ? decCS.boxShadow : ''
+      // 换个页签把老卡的实测值取回来（同一份 CSS，同一屏比）
+      clickText('看板'); await sleep(350)
+      const boardCard = $('.card')
+      const boardCS = boardCard ? getComputedStyle(boardCard) : null
+      const boardRadius = boardCS ? boardCS.borderTopLeftRadius : ''
+      const boardShadow = boardCS ? boardCS.boxShadow : ''
+      clickText('决策'); await sleep(500)
+      check('★★ 决策卡与看板老卡**同圆角**（两套 UI 的分界线就在这两个值上）',
+        !!decRadius && decRadius === boardRadius,
+        `dec=${decRadius} board=${boardRadius}`)
+      // ⚠ 不能直接比字符串：Tailwind 的 box-shadow 会带两层**全透明占位**
+      // 按**整层**删掉全透明占位（不能按逗号切：rgba(0, 0, 0, 0) 自己就带逗号）。
+      const normShadow = (v) => String(v || '')
+        .replace(/rgba?\(0,\s*0,\s*0,\s*0\)[^,]*?(,\s*|$)/g, '')
+        .replace(/,\s*$/, '')
+        .trim()
+      const decN = normShadow(decShadow)
+      const boardN = normShadow(boardShadow)
+      check('★★ 决策卡与看板老卡**同阴影**（此前是 14px 圆角 + 独立投影 = 一眼两套）',
+        !!decN && decN === boardN,
+        `dec=${decN} board=${boardN}`)
+      const shadowedBtn = $$('.decisions-view button').filter(b => {
+        const s = getComputedStyle(b).boxShadow
+        return s && s !== 'none'
+      })
+      check('★★ 决策页按钮没有投影（扁平方角，跟其他页签一致）',
+        shadowedBtn.length === 0,
+        shadowedBtn.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + getComputedStyle(b).boxShadow).join(' | '))
+    }
     check('★ 界面只说白话中文（决策页签/视图里不许再出现「拍板」「作数」「已并入」「已作废」）',
       ((($('#bar') || {}).textContent || '') + (($('.decisions-view') || {}).textContent || ''))
         .match(/拍板|作数|已并入|已作废/) === null)

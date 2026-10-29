@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.5.0
+version: 1.6.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -86,19 +86,86 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
    报「方寸桌面版没有在运行」或超时 → 桌面版未启动或 pipe 未就绪，**停止调用并报错**，不静默回退。
 2. **入口 B**：直接发一条 `tools/list`，期望返回只读工具列表。
 
-## 工具清单（真源 `desktop/src/main/mcp/tools.ts`，下面是快照）
+## 工具清单（自动生成，别去读源码）
 
-**读**：`list_tasks` / `search_tasks` / `get_task` / `list_projects` / `get_project_status` /
-`find_blockers` / `scan_services` / `get_roadmap` / `get_data_dir` / `plan_list` / `plan_get` / `plan_pending` / `gate_list`
-`list_logs` / `search_logs` / `get_log` — 执行日志读取（拿日志 ID 直接 `get_log` 取，不必整篇注入）
-`rice_pool_list` — 需求矩阵池（现算 RICE 分数与等级；池文件 `task-data/rice-pool.md`）
+<!-- MCP-TOOLS:BEGIN -->
 
-**写**（仅入口 A）：`create_task` / `update_task` / `move_status` / `delete_task`
-`rice_pool_upsert`（幂等：同 eid 覆盖分数/备注/打分，保留拍板与决策id；拒该条不拒整批）
-`decision_record`（拍板落 decisions.md 并回填池条目；**这是用户动作，agent 不得代拍**）
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **30** 个。
+> **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
-> 快照会滞后。以 tools.ts 为准；新增工具后回来补这一行。
-> 入口 B（`python tegula.py mcp`）只含上面的**读**工具。
+| 工具 | 干什么 |
+|---|---|
+| `list_tasks` | List tasks with optional filters |
+| `search_tasks` | Full-text search across task titles, bodies, and tags |
+| `get_task` | Get a single task by ID |
+| `create_task` | Create a new task |
+| `usage_report` | Report AI usage from an external client (e.g. |
+| `never_read` | List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). |
+| `update_task` | Update a task |
+| `move_status` | Move a task to a different status |
+| `delete_task` | Delete a task (move to trash) |
+| `list_projects` | List all registered projects |
+| `get_project_status` | Get detailed project status and health |
+| `find_blockers` | Find tasks with blocking dependencies |
+| `scan_services` | Scan running services declared in registry |
+| `get_roadmap` | Get project roadmap with progress |
+| `get_data_dir` | Get current data directory path |
+| `plan_list` | List all plans |
+| `plan_get` | Get a single plan by task ID |
+| `plan_pending` | List plans with pending decisions |
+| `gate_list` | List all acceptance gates |
+| `list_logs` | List execution logs (方寸执行日志). |
+| `search_logs` | Full-text search across log titles, contents and project names |
+| `get_log` | Get one execution log by ID (e.g. |
+| `create_log` | Create an execution log (方寸执行日志) for this round of work. |
+| `update_log` | Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). |
+| `set_log_status` | Move a log along its lifecycle: complete (完成, optional retainDays) / archive (归档) / reopen (退回待处理) / running ( |
+| `attach_log_files` | Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. |
+| `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r |
+| `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, |
+| `rice_pool_upsert` | Upsert RICE initial scores into the requirement pool (idempotent). |
+| `decision_record` | Record the user’s verdicts for requirement-pool items into decisions.md (wraps addDecision, so |
+
+<!-- MCP-TOOLS:END -->
+
+入口 B（`python tegula.py mcp`）只含**读**工具；写工具只在入口 A。
+`decision_record` 是**用户动作**，agent 不得代拍。
+
+## 常做的四件事（照抄参数，别探索）
+
+> 这一段存在的原因：agent 每次干活都要「先看看有什么工具、再摸摸参数怎么写」——
+> 那就是 token 白烧。下面四条覆盖 90% 的日常，参数直接照抄。
+
+**① 开工：拿上一轮的执行日志（含并行副日志）**
+```
+get_log        { id: "log_20261028140158_yo07jt" }        # 单条；附件会带 abs 绝对路径
+inject_logs    { ids: ["<主日志>", "<副日志>"] }            # 主在前，其余标"并行日志"
+list_logs      { chain: "<任一日志 id>" }                  # 整条接力链（老 → 新）
+```
+
+**② 收工：写这一轮的日志（可挂截图）**
+```
+create_log       { title, project: "fangcun-base", content, nextSteps }
+attach_log_files { id: "<返回的 id>", paths: ["C:/…/shot.png"] }   # 本机绝对路径，复制进数据目录
+set_log_status   { id: "<id>", action: "complete", retainDays: 7 }  # 或 archive / reopen / running
+```
+⚠ 建日志**不要**先问用户「要不要记一条」——收工就记，这是方寸存在的理由。
+
+**③ 看项目：状态与路线**
+```
+list_projects {}  →  get_project_status { project: "fangcun-base" }
+get_roadmap   { project: "fangcun-base" }     find_blockers { project: "..." }
+```
+
+**④ 改任务**
+```
+create_task { title, project, status: "待办", priority: "中", body }
+update_task { id, fields…, expected_update: <读到的 updated> }   # 乐观锁，冲突就重读再写
+move_status { id, status: "进行中" }
+```
+
+**不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
+
 
 **写操作规则**：
 - `create_task` / `update_task` 等写操作通过 MCP 调用（桌面版已登录用户身份）
@@ -129,4 +196,6 @@ cd <NF_ROOT> && .venv/Scripts/python.exe scripts/nfctl.py check
 
 1. **调用前先自检**：入口 A 的 pipe 不存在 / CLI 无响应 → 停止，告诉用户「方寸桌面版未运行，请重启」（入口 B 不依赖桌面版，不受此限）
 2. **不静默回退**：连接失败 ≠ 数据为空。报错比假装没有更安全
-3. **工具清单现场读**：`desktop/src/main/mcp/tools.ts` 是唯一真源，skill 不维护工具列表快照
+3. **工具清单看卡里的生成表，不要去读 `tools.ts`**（2026-10-29 暮雨第 9 条：
+   「每次都查一堆东西，极度浪费 TOKEN」）。那张表由 `node scripts/gen-skill-tools.cjs` 从源码生成，
+   `--check` 可核对是否落后；落后就重跑，别手改。

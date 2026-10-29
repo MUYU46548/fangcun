@@ -128,6 +128,51 @@ console.log('\n== ③ 完成但没判据 ==')
   check('总数 = 1', r.length === 1, JSON.stringify(r))
 }
 
+console.log('\n== ④ 完成但找不到产出（2026-10-29 暮雨第 4 条 A 项）==')
+{
+  // 判据一句话：③ 问「写没写判据」，④ 问「东西在不在」。
+  // RICE 那张卡写了「验收通过」却什么都没有 —— 这一组就是兜它的。
+  const mk = (name, status, body, updated) => task(name,
+    '---\n状态: ' + status + '\n标题: ' + name + '\n更新: ' + updated + '\n---\n' + body)
+  const opts = (exists) => ({ todayISO: TODAY, exists, minAgeDays: 7 })
+
+  const r1 = M.pickNoOutput([mk('bare.md', '完成', '做完了，验收通过。', '2026-10-10')], opts(() => false))
+  check('★★ 完成 17 天、卡里没有任何产出 → 报（RICE 那一类）', r1.length === 1, JSON.stringify(r1))
+  check('  报的时候带年龄（界面要能说「完成 N 天」）', r1[0] && r1[0].ageDays === 17, JSON.stringify(r1[0] || {}))
+
+  const r2 = M.pickNoOutput([mk('path.md', '完成', '改了 `desktop/src/shared/rice.ts`。', '2026-10-10')],
+    opts((rel) => rel === 'desktop/src/shared/rice.ts'))
+  check('★★ 卡里提到的路径**真的存在** → 不报（有产出就先放过）', r2.length === 0, JSON.stringify(r2))
+
+  const r3 = M.pickNoOutput([mk('ghost.md', '完成', '改了 `desktop/src/shared/ghost.ts`。', '2026-10-10')], opts(() => false))
+  check('★ 提了路径但磁盘上没有 → 仍然报（正是「说明写了、东西不在」）', r3.length === 1, JSON.stringify(r3))
+
+  const r4 = M.pickNoOutput([
+    mk('cmt.md', '完成', '提交 d389741 之后验收通过。', '2026-10-10'),
+    mk('url.md', '完成', '详见 https://example.com/pr/1 。', '2026-10-10'),
+  ], opts(() => false))
+  check('★ 带上下文的提交号 → 不报', !r4.some((x) => x.task === 'cmt.md'), JSON.stringify(r4))
+  check('★ 带链接 → 不报', !r4.some((x) => x.task === 'url.md'), JSON.stringify(r4))
+
+  const r5 = M.pickNoOutput([mk('fresh.md', '完成', '刚做完。', '2026-10-26')], opts(() => false))
+  check('★★ 刚关的卡（1 天）不质疑 —— 门槛 7 天，否则全站刷屏', r5.length === 0, JSON.stringify(r5))
+
+  const r6 = M.pickNoOutput([mk('todo2.md', '待办', '还没做。', '2026-10-10')], opts(() => false))
+  check('  非完成态不管', r6.length === 0, JSON.stringify(r6))
+
+  const r7 = M.pickNoOutput([mk('xrepo.md', '完成', '脚本在 scripts/gen.py 里。', '2026-10-10')],
+    { todayISO: TODAY, exists: () => false, minAgeDays: 7,
+      reposOf: () => [{ name: 'nf', exists: (rel) => rel === 'scripts/gen.py' }] })
+  check('★★ 跨仓库也算产出（卡属于另一个项目时，别在方寸里找不到就报）', r7.length === 0, JSON.stringify(r7))
+
+  const r8 = M.collectMismatch({
+    repos: [], tasks: [mk('bare2.md', '完成', '做完了。', '2026-10-10')],
+    todayISO: TODAY, exists: () => false,
+  })
+  check('★ collectMismatch 把这一组接进来了（total 含它）', r8.nooutput.length === 1 && r8.total >= 1, JSON.stringify(r8.total))
+  check('★ 汇总文案点名这一组', M.mismatchSummary(r8).includes('完成但找不到产出 1'), M.mismatchSummary(r8))
+}
+
 console.log('\n== 汇总与文案 ==')
 
 {

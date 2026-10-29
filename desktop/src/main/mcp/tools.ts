@@ -235,11 +235,87 @@ export const MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'get_log',
-    description: 'Get one execution log by ID (e.g. log_20260929052313_ddimzo): content, next steps, status, links, plus relay chain up/downstream (接力链上下游) so the agent can walk the chain itself.',
+    description: 'Get one execution log by ID (e.g. log_20260929052313_ddimzo): content, next steps, status, links, plus relay chain up/downstream (接力链上下游) so the agent can walk the chain itself. Attachments are returned with ABSOLUTE paths (attachments[].abs) plus attachmentsHint saying how many were not included as text — open those paths with a file/vision reader instead of asking for images inline.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'Log ID' } },
       required: ['id'],
+    },
+  },
+  // ── 日志写口（2026-10-29 暮雨第 7 条）────────────────────────────────
+  // 此前 MCP 只有读日志三件：agent 想建/改/归档日志只能让用户在界面上点。
+  // 四条写工具与桌面版同一套 services/logs，不存在第二套写路径。
+  {
+    name: 'create_log',
+    description: 'Create an execution log (方寸执行日志) for this round of work. Returns its id — keep it, the next steps (attach_log_files / update_log / set_log_status) need it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Log title (required)' },
+        project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
+        content: { type: 'string', description: 'What was done (Markdown; the body of the log)' },
+        nextSteps: { type: 'string', description: 'What the next agent should do' },
+        taskId: { type: 'string', description: 'Single related task id (legacy field)' },
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'Related task ids' },
+        priority: { type: 'string', description: '高 | 中 | 低 (leave empty for unmarked)' },
+        agentName: { type: 'string', description: 'Who wrote it (agent name)' },
+        continueFrom: { type: 'string', description: 'Previous log id this one continues (接力)' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'update_log',
+    description: 'Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). Lifecycle fields (status) are NOT here — use set_log_status. Content edits leave an "edited" stamp on the card.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Log ID' },
+        title: { type: 'string' },
+        content: { type: 'string' },
+        nextSteps: { type: 'string' },
+        project: { type: 'string' },
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'Pass [] to clear the links' },
+        priority: { type: 'string', description: '高 | 中 | 低 | empty to clear' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'set_log_status',
+    description: 'Move a log along its lifecycle: complete (完成, optional retainDays) / archive (归档) / reopen (退回待处理) / running (标进行中) / idle (取消进行中). Same semantics as the desktop buttons — a status change is a single step and can be undone with reopen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Log ID' },
+        action: { type: 'string', description: 'complete | archive | reopen | running | idle' },
+        retainDays: { type: 'number', description: 'For complete: keep N days before purge (0 = never clean up)' },
+        note: { type: 'string', description: 'Optional note appended to the log' },
+      },
+      required: ['id', 'action'],
+    },
+  },
+  {
+    name: 'attach_log_files',
+    description: 'Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. Files are COPIED into the data dir under docs/执行日志/_attachments/<logId>/ — the source is untouched. Returns each attachment with its absolute path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Log ID' },
+        paths: { type: 'array', items: { type: 'string' }, description: 'Absolute local file paths' },
+      },
+      required: ['id', 'paths'],
+    },
+  },
+  {
+    name: 'inject_logs',
+    description: 'Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same round). Use this when a work order must carry a main log plus side logs (e.g. progress notices from parallel work) — injecting only the main log loses the other half. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, description: 'Log ids, main log first' },
+      },
+      required: ['ids'],
     },
   },
   // ── 需求矩阵（RICE · 2026-10-28）────────────────────────────────────
@@ -526,17 +602,137 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       // 接力链上下游（方案二）：agent 拿到这条就能看见前后文，顺链自己走
       const ch = logs.logChain(entry.id)
       const mini = (l: any) => ({ id: l.id, title: l.title, status: logs.logStatusText(l), created: l.created })
+      // ── 附件（2026-10-29 暮雨第 9 条②）：**必须给绝对路径** ──────────────
+      // 此前 `get_log` 只回正文，日志里写的 `![](docs/screenshots/x.png)` 对 agent 来说
+      // 就是一行相对路径文本：它既不知道这是图，也不知道该从哪读起 ——
+      // 于是"贴了一堆图"被读成"只有文字"。相对路径是相对**数据目录**的，
+      // 这里解析成绝对路径，并把"有 N 个附件没随文本返回"明写出来。
+      // ⚠ 不 base64 内联：一张截图就是几 MB，token 会当场爆掉。
+      const atts = (entry.attachments || []).map((rel: string) => {
+        const abs = logs.resolveAttachment(rel)
+        const ext = String(rel).slice(String(rel).lastIndexOf('.') + 1).toLowerCase()
+        return {
+          rel,
+          abs: abs || '',
+          kind: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext) ? 'image' : 'file',
+          missing: !abs,
+        }
+      })
+      const images = atts.filter(a => a.kind === 'image' && a.abs)
       return { content: [{ type: 'text', text: JSON.stringify({
         id: entry.id, title: entry.title, status: logs.logStatusText(entry), project: entry.project,
         created: entry.created, completed: entry.completed || '', running: !!entry.running,
         taskId: entry.taskId || '', agentName: entry.agentName || '',
         content: entry.content, nextSteps: entry.nextSteps || '',
         continuesFrom: entry.continueFrom || '',
+        attachments: atts,
+        // 给 agent 的一句人话（它能读到这条提示，就不会再说"只有文本"）
+        attachmentsHint: atts.length
+          ? `这条日志有 ${atts.length} 个附件（其中 ${images.length} 张图）**没有随文本返回**。`
+            + `要看内容请用文件读取工具打开上面的 abs 绝对路径；不要把图片 base64 内联进上下文。`
+            + (atts.some(a => a.missing) ? '（标 missing=true 的已不在盘上）' : '')
+          : '',
         chain: {
           upstream: ch.upstream.map(mini),    // 旧 → 新，直到链头
           downstream: ch.downstream.map(mini), // 近 → 远，直到链尾
         },
       }, null, 2) }] }
+    }
+
+    // ── 日志写口（2026-10-29 暮雨第 7 条）──────────────────────────────
+    // 事实核对：MCP 此前**只有读日志三件**（list/search/get），写口一个都没有 ——
+    // 所以 agent 说"我改不了它的状态，只能在界面上点"是对的。
+    // 补齐四条：建 / 改 / 状态流转 / 挂附件。语义与主进程 IPC 完全同源（都调 services/logs），
+    // 不新开第二套写路径。
+    case 'create_log': {
+      const r = logs.createLog(
+        String(args.title || '').trim(),
+        String(args.project || '').trim(),
+        String(args.content || ''),
+        args.taskId ? String(args.taskId) : undefined,
+        {
+          nextSteps: args.nextSteps ? String(args.nextSteps) : '',
+          taskIds: Array.isArray(args.taskIds) ? args.taskIds.map((x: any) => String(x)) : [],
+          priority: args.priority ? String(args.priority) : '',
+          agentName: args.agentName ? String(args.agentName) : '',
+          continueFrom: args.continueFrom ? String(args.continueFrom) : '',
+        },
+      )
+      if (!r.ok || !r.data) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '创建失败' }) }], isError: true }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, id: r.data.id, title: r.data.title, project: r.data.project,
+        status: logs.logStatusText(r.data), created: r.data.created,
+        hint: '后面用 attach_log_files 挂附件、用 set_log_status 完成/归档。',
+      }) }] }
+    }
+
+    case 'update_log': {
+      const id = String(args.id || '')
+      const r = logs.updateLog(id, {
+        ...(args.title !== undefined ? { title: String(args.title) } : {}),
+        ...(args.content !== undefined ? { content: String(args.content) } : {}),
+        ...(args.nextSteps !== undefined ? { nextSteps: String(args.nextSteps) } : {}),
+        ...(args.project !== undefined ? { project: String(args.project) } : {}),
+        ...(args.taskIds !== undefined ? { taskIds: Array.isArray(args.taskIds) ? args.taskIds.map((x: any) => String(x)) : [] } : {}),
+        ...(args.priority !== undefined ? { priority: String(args.priority) } : {}),
+      })
+      if (!r.ok || !r.data) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '更新失败' }) }], isError: true }
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: r.data.id, status: logs.logStatusText(r.data) }) }] }
+    }
+
+    case 'set_log_status': {
+      const id = String(args.id || '')
+      const action = String(args.action || '')
+      let r: any
+      if (action === 'complete') {
+        const rd = Number.isFinite(Number(args.retainDays)) ? Number(args.retainDays) : null
+        r = logs.completeLog(id, rd, args.note ? String(args.note) : undefined)
+      } else if (action === 'archive') {
+        r = logs.archiveLog(id, args.note ? String(args.note) : undefined)
+      } else if (action === 'reopen') {
+        r = logs.reopenLog(id)
+      } else if (action === 'running') {
+        r = logs.setLogRunning(id, true)
+      } else if (action === 'idle') {
+        r = logs.setLogRunning(id, false)
+      } else {
+        return { content: [{ type: 'text', text: `Unknown action: ${action} (complete | archive | reopen | running | idle)` }], isError: true }
+      }
+      if (!r || !r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r?.error || '状态没改成功' }) }], isError: true }
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, status: r.data ? logs.logStatusText(r.data) : action }) }] }
+    }
+
+    case 'attach_log_files': {
+      const id = String(args.id || '')
+      const paths = (Array.isArray(args.paths) ? args.paths : []).map((p: any) => String(p || '')).filter(Boolean)
+      if (!paths.length) return { content: [{ type: 'text', text: 'paths 不能为空（传本机绝对路径）' }], isError: true }
+      const r = logs.addAttachments(id, paths)
+      if (!r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '挂附件失败' }) }], isError: true }
+      // 回传挂上之后的绝对路径 —— 让 agent 下次能直接读回来核对
+      const atts = (r.data?.attachments || []).map((rel: string) => ({ rel, abs: logs.resolveAttachment(rel) || '' }))
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, count: atts.length, attachments: atts }) }] }
+    }
+
+    // ── 多日志一起灌（2026-10-29 暮雨第 6 条：「主日志带多条副日志一起进开工单」）──
+    // 真实用法长出来的需求：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
+    // 只灌主日志，agent 就会漏掉并行的另一半。这里按**给定顺序**拼成一份，主日志在前。
+    case 'inject_logs': {
+      const ids: string[] = (Array.isArray(args.ids) ? args.ids : []).map((x: any) => String(x || '')).filter(Boolean)
+      if (!ids.length) return { content: [{ type: 'text', text: 'ids 不能为空（主日志放第一个）' }], isError: true }
+      const parts: string[] = []
+      const missing: string[] = []
+      let n = 0
+      for (const id of ids) {
+        const text = logs.injectLog(id)
+        if (!text) { missing.push(id); continue }
+        n++
+        const entry = logs.getLog(id)
+        // 第二条起标明这是**并行副日志**，否则 agent 会以为是同一轮的续写
+        const head = n === 1 ? '' : `\n\n---\n\n> 以下是并行日志（同一轮的另一条通道，${entry?.created || ''}）\n`
+        parts.push(head + text)
+      }
+      if (!n) return { content: [{ type: 'text', text: `这些日志都不存在：${ids.join(', ')}` }], isError: true }
+      return { content: [{ type: 'text', text: parts.join('\n') + (missing.length ? `\n\n（未找到：${missing.join(', ')}）` : '') }] }
     }
 
     case 'never_read': {

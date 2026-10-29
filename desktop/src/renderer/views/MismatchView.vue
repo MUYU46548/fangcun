@@ -46,6 +46,14 @@ const groups = computed(() => {
     { key: 'broken', ttl: '引用断裂', hint: '卡里写的路径，磁盘上已经没有了', rows: d.moved ? d.broken || [] : [] },
     { key: 'moved', ttl: '指向已归档的卡', hint: '东西搬了，引用没回改', rows: d.moved || [] },
     { key: 'nocriteria', ttl: '完成但没判据', hint: '状态是完成，正文找不到验收标准', rows: d.nocriteria || [] },
+    // 2026-10-29 暮雨第 4 条 A 项：③ 问"写没写判据"，这一组问"东西在不在"。
+    // RICE 那张卡 ③ 放过它（写了「验收通过」），产品里却根本没有入口 —— 判据是自述，产出才是事实。
+    // ⚠ 门槛 7 天：刚关的卡不质疑；文案必须带「只是提示」（很多卡本来就没有文件产出）。
+    {
+      key: 'nooutput', ttl: '完成但找不到产出',
+      hint: '已完成 7 天以上，卡里没有任何可核实的东西（存在的路径 / 提交号 / 链接）—— 只是提示，不是判决',
+      rows: d.nooutput || [],
+    },
   ]
 })
 
@@ -60,6 +68,10 @@ function rowText(kind: string, r: any): { left: string; right: string } {
   if (kind === 'noDate') return { left: r.project, right: `${r.why}｜最后提交 ${r.lastCommit}` }
   if (kind === 'broken') return { left: r.task, right: `${r.ref}  [找过: ${(r.searched || []).join('/')}]` }
   if (kind === 'moved') return { left: r.task, right: `${r.ref}  ${r.why}` }
+  if (kind === 'nooutput') {
+    const age = r.ageDays === null || r.ageDays === undefined ? '完成时间未知' : `完成 ${r.ageDays} 天`
+    return { left: r.title || r.task, right: `${age}｜${r.why}` }
+  }
   return { left: r.task, right: r.title }
 }
 </script>

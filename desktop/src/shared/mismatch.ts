@@ -62,6 +62,21 @@ export interface NoCriteriaRow {
   title: string
 }
 
+/**
+ * 「完成但找不到产出」（2026-10-29 暮雨第 4 条 A 项）。
+ *
+ * 为什么单独一组：上一组只判\"有没有写验收判据\"，而 RICE 那张卡**写了判据**
+ * （`结果记录：[…] 验收通过`）却**东西根本不在** —— 判据是自述，产出才是事实。
+ * 这一组只回答一个问题：这张已完成卡上，有没有**任何一件可核实的东西**。
+ */
+export interface NoOutputRow {
+  task: string
+  title: string
+  /** 完成/更新距今多少天（判据的一部分：昨天刚关的卡不质疑） */
+  ageDays: number | null
+  why: string
+}
+
 export interface MismatchResult {
   stale: StaleRow[]
   /** 状态里连日期都没写 —— 不算过期，但也不能当作"已核对" */
@@ -69,6 +84,7 @@ export interface MismatchResult {
   broken: BrokenRow[]
   moved: MovedRow[]
   nocriteria: NoCriteriaRow[]
+  nooutput: NoOutputRow[]
   total: number
 }
 
@@ -251,6 +267,119 @@ export function pickNoCriteria(tasks: TaskRef[]): NoCriteriaRow[] {
   return out
 }
 
+/** ④ 完成但找不到产出（2026-10-29 暮雨第 4 条 A 项）─────────────────────
+ *
+ * 与 ③ 的分工：③ 问"写没写判据"，④ 问"东西在不在"。
+ * RICE 那张卡 ③ 放它过去（写了「验收通过」），可产品里根本没有入口 ——
+ * 判据是自述，产出才是事实。这一组只认**可核实的东西**：
+ *   · 卡里提到的仓库内路径，磁盘上真的存在（本仓，或该卡项目对应的仓库）
+ *   · 带上下文的提交号（`提交 abc1234` / `commit abc1234`）
+ *   · http(s) 链接
+ * 三样一个都没有，且这张卡已经关了一段时间 → 才报。
+ *
+ * ⚠ 这不是"判决"：很多卡本来就没有文件产出（口头拍板、调研结论）。所以界面文案
+ *   必须带"只是提示"的口径，且**默认门槛是 7 天**——昨天刚关的卡不质疑。
+ */
+const RE_URL = /https?:\/\/[^\s)）]+/
+const RE_COMMIT_CTX = /(提交|commit|sha)[^\n]{0,24}?\b[0-9a-f]{7,40}\b/i
+/** 正文里裸露的疑似路径（不是反引号包着的那种，②③ 已有自己的口径） */
+const PATH_BARE = /(?:^|[\s（("'`、,，:：])((?:[\w.-]+\/)+[\w.-]+\.[A-Za-z0-9]{1,6})(?=$|[\s）)"'`,，。;；])/g
+
+function stripFrontmatter(text: string): string {
+  const s = String(text ?? '')
+  if (!s.startsWith('---')) return s
+  const end = s.indexOf('\n---', 3)
+  return end < 0 ? s : s.slice(end + 4)
+}
+
+function titleOfCard(text: string): string {
+  const ti = /^标题:[ \t]*(.*)$/m.exec(String(text ?? ''))
+  return ti ? (ti[1] || '').trim().replace(/^['"]|['"]$/g, '') : ''
+}
+
+/** 卡上的「更新」离今天多少天（认 ISO / MM-DD / 秒级时间戳三种写法） */
+function ageDaysOf(text: string, todayISO: string): number | null {
+  const m = /^更新:[ \t]*(.*)$/m.exec(String(text ?? ''))
+  if (!m) return null
+  const v = (m[1] || '').trim()
+  let iso: string | null = null
+  const full = RE_FULL_DATE.exec(v)
+  if (full) iso = toISO(Number(full[1]), Number(full[2]), Number(full[3]))
+  else if (/^\d{9,13}$/.test(v)) {
+    const n = Number(v)
+    const d = new Date(n > 1e12 ? n : n * 1000)
+    if (!Number.isNaN(d.getTime())) {
+      iso = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate())
+    }
+  } else {
+    const md = RE_MD_DATE.exec(v)
+    if (md) {
+      const y = Number((todayISO || '').slice(0, 4)) || new Date().getUTCFullYear()
+      iso = toISO(y, Number(md[1]), Number(md[2]))
+    }
+  }
+  if (!iso || !todayISO) return null
+  return daysBetween(iso, todayISO)
+}
+
+/** 这张完成卡上有没有「可核实的一件东西」 */
+function hasVerifiableOutput(
+  body: string,
+  task: TaskRef,
+  opts: { exists: (rel: string) => boolean; reposOf?: (t: TaskRef) => { name: string; exists: (rel: string) => boolean }[] },
+): boolean {
+  if (RE_URL.test(body)) return true
+  if (RE_COMMIT_CTX.test(body)) return true
+  const cands: string[] = []
+  const back = new RegExp(PATH_IN_TEXT.source, 'g')
+  let bm: RegExpExecArray | null
+  while ((bm = back.exec(body))) cands.push(bm[1])
+  const bare = new RegExp(PATH_BARE.source, 'g')
+  let pm: RegExpExecArray | null
+  while ((pm = bare.exec(body))) cands.push(pm[1])
+  const alts = opts.reposOf ? opts.reposOf(task) : []
+  for (const raw of cands) {
+    let rel = String(raw || '').split(String.fromCharCode(92)).join('/')
+    while (rel.startsWith('./') || rel.startsWith('/')) rel = rel.slice(rel.startsWith('./') ? 2 : 1)
+    rel = rel.trim()
+    if (!rel || /\.\.|[*{}]/.test(rel)) continue   // 通配 / 省略号不是可判路径
+    if (opts.exists(rel)) return true
+    for (const a of alts) if (a.exists(rel)) return true
+  }
+  return false
+}
+
+export function pickNoOutput(
+  tasks: TaskRef[],
+  opts: {
+    todayISO: string
+    exists: (rel: string) => boolean
+    reposOf?: (t: TaskRef) => { name: string; exists: (rel: string) => boolean }[]
+    /** 完成/更新少于这么多天的卡不质疑（默认 7） */
+    minAgeDays?: number
+  },
+): NoOutputRow[] {
+  const minAge = Number.isFinite(opts.minAgeDays as number) ? Number(opts.minAgeDays) : 7
+  const out: NoOutputRow[] = []
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (isNoiseTaskName(t.name)) continue
+    const text = String(t.text ?? '')
+    const st = /^状态:[ 	]*(.*)$/m.exec(text)
+    if (!st || (st[1] || '').trim() !== '完成') continue
+    const body = stripFrontmatter(text)
+    if (hasVerifiableOutput(body, t, opts)) continue
+    const age = ageDaysOf(text, opts.todayISO)
+    if (age !== null && age < minAge) continue
+    out.push({
+      task: t.name,
+      title: titleOfCard(text) || t.name,
+      ageDays: age,
+      why: '已完成，但卡里找不到可核实的产出（没有存在的文件路径 / 提交号 / 链接）',
+    })
+  }
+  return out
+}
+
 export function collectMismatch(input: {
   repos: RepoInfo[]
   tasks: TaskRef[]
@@ -258,17 +387,26 @@ export function collectMismatch(input: {
   exists: (relPath: string) => boolean
   reposOf?: (task: TaskRef) => { name: string; exists: (relPath: string) => boolean }[]
   days?: number
+  /** ④ 的门槛（天）：完成多久之后才开始被要求"东西在哪"。默认 7 */
+  noOutputDays?: number
 }): MismatchResult {
   const { stale, noDate } = pickStale(input.repos, input.todayISO, input.days ?? 3)
   const { broken, moved } = pickBroken(input.tasks, input.exists, { reposOf: input.reposOf })
   const nocriteria = pickNoCriteria(input.tasks)
+  const nooutput = pickNoOutput(input.tasks, {
+    todayISO: input.todayISO,
+    exists: input.exists,
+    reposOf: input.reposOf,
+    minAgeDays: input.noOutputDays ?? 7,
+  })
   return {
     stale,
     noDate,
     broken,
     moved,
     nocriteria,
-    total: stale.length + noDate.length + broken.length + moved.length + nocriteria.length,
+    nooutput,
+    total: stale.length + noDate.length + broken.length + moved.length + nocriteria.length + nooutput.length,
   }
 }
 
@@ -284,5 +422,6 @@ export function mismatchSummary(r: MismatchResult): string {
   if (r.broken.length) parts.push(`引用断裂 ${r.broken.length}`)
   if (r.moved.length) parts.push(`指向已归档 ${r.moved.length}`)
   if (r.nocriteria.length) parts.push(`完成但没判据 ${r.nocriteria.length}`)
+  if (r.nooutput.length) parts.push(`完成但找不到产出 ${r.nooutput.length}`)
   return parts.join(' · ') + '（只是对不上，不是做错了；不阻挡任何操作）'
 }
