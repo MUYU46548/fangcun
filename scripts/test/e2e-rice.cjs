@@ -207,6 +207,49 @@ console.log('\n== ④ 散点几何 / 汇总 ==')
   check('预算设置 → P0 花费/占用比', s1.p0Cost === 10 && s1.budgetRatio === 0.1, JSON.stringify(s1))
 }
 
+// ── 原型里「分数之外」的四件（2026-10-29 暮雨第 1 条）──────────────────────
+console.log('\n== ④b 容量护栏 / 立场句 / 为什么做为什么砍 / 重评触发 ==')
+{
+  const it2 = (o) => ({ eid: 'e', title: 't', origin: 'external:x', R: 1, I: 1, C: 1, E_days: 1, E_cost: 0, evidence: '纯直觉', by: '', note: '', verdict: '', decisionId: '', ...o })
+  const mk = (cost, days) => ({ budget: 100, items: [it2({ eid: 'p0', E_cost: cost, E_days: days, R: 100, I: 3, C: 0.95 })] })
+
+  const unset = R.riceSummary({ budget: 0, items: [it2({ E_cost: 10 })] })
+  check('★★ 没设预算 → guard=unset，且话说清「别读成没超支」',
+    unset.guard === 'unset' && unset.guardText.indexOf('没超支') >= 0, unset.guardText)
+  const okS = R.riceSummary(mk(10, 3))
+  check('★ 占 10% → guard=ok，文案给余量', okS.guard === 'ok' && okS.headroom === 90, JSON.stringify([okS.guard, okS.headroom]))
+  const tight = R.riceSummary(mk(85, 10))
+  check('★★ 占 85% → guard=tight（原型：排满等于一次故障就让整季延期）',
+    tight.guard === 'tight' && tight.guardText.indexOf('线上故障') >= 0, tight.guardText)
+  const over = R.riceSummary(mk(120, 10))
+  check('★★ 超支 → guard=over，余量是负数且文案说超了多少',
+    over.guard === 'over' && over.headroom === -20 && over.guardText.indexOf('超预算') >= 0, over.guardText)
+  check('★ P0 合计人天现算（预算没设时唯一能看的容量口径）',
+    R.riceSummary({ budget: 0, items: [it2({ eid: 'a', E_days: 7, R: 100, I: 3, C: 0.95 })] }).p0Days === 7)
+
+  check('★★ 立场句是独立常量（不许只混在五条局限里）',
+    typeof R.RICE_STANCE === 'string' && R.RICE_STANCE.indexOf('不替你做决定') >= 0, R.RICE_STANCE)
+  check('★★ 重评触发写死成一句（容量变动 20%）',
+    typeof R.RICE_RECHECK === 'string' && R.RICE_RECHECK.indexOf('20%') >= 0, R.RICE_RECHECK)
+
+  const pool2 = { budget: 0, items: [
+    it2({ eid: 'k1', title: '要做的', verdict: '有效', note: '每周省 3 次手工' }),
+    it2({ eid: 'k2', title: '没写理由就做了', verdict: '有效', note: '' }),
+    it2({ eid: 'c1', title: '被砍的', verdict: 'CUT', note: '听起来很酷，但没人要' }),
+    it2({ eid: 'p1', title: '还没拍板', verdict: '' }),
+  ] }
+  const why = R.riceWhyReview(pool2)
+  check('★★ 做/砍分两栏（分数只是入口，理由逐条）', why.keep.length === 2 && why.cut.length === 1,
+    JSON.stringify([why.keep.length, why.cut.length]))
+  check('★★ 拍板了但没写理由 → 点名（说不清为什么就是没拍板）', why.missingWhy === 1, String(why.missingWhy))
+  check('  未拍板的单独计数', why.pending === 1, String(why.pending))
+  check('  文案同时说三件事（拍板数 / 缺理由 / 未拍板）',
+    why.text.indexOf('已拍板 3') >= 0 && why.text.indexOf('没写理由') >= 0 && why.text.indexOf('没拍板') >= 0, why.text)
+  check('  空池 → 说「还没有拍板记录」，不吐空串',
+    R.riceWhyReview({ budget: 0, items: [] }).text === '还没有拍板记录')
+}
+
+
 console.log('\n== ⑤ 数据层：幂等 upsert（临时数据目录）==')
 const made = tasks.createTask({ title: '关窗行为开关', project: 'fangcun-base', status: '待办', priority: '中' })
 const tid = made.id

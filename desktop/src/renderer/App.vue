@@ -929,6 +929,10 @@
                : policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
                : '＋ 立项目方针' }}
           </button>
+          <!-- 项目结构图（2026-10-29 暮雨第 2 条）：方寸自己的内核 —— 项目 → 在途 → 已完成 → 日志。
+               入口放在卡上（同方针按钮），不塞进设置页：项目级的东西要在项目那一屏一眼看见。 -->
+          <button class="ghost pv-policy pv-diagram" @click.stop="openProjectDiagram(p)"
+                  title="用方寸自己的数据出一张结构图：项目 → 在途 → 已完成 → 执行日志（不是代码架构图）">🗺 结构图</button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -1954,6 +1958,22 @@
     <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
     <!-- 回收站正文预览弹窗已搬进 views/TrashView.vue（与它的视图同一处） -->
 
+
+    <!-- 项目结构图（2026-10-29 暮雨第 2 条 · 方寸内置内核）
+         ⚠ 界线必须写在图上：这是「任务/日志结构」，不是代码架构图。
+         代码架构归 archify（方寸只导入它的产物）—— 两件事混起来，用户会拿它当架构图使。 -->
+    <div id="proj-diagram" class="overlay" v-if="projectDiagram_" @mousedown.self="projectDiagram_ = null">
+      <div class="pd-modal">
+        <h3>项目结构图 · {{ projectDiagram_.name }}</h3>
+        <div class="pd-note" v-if="projectDiagram_.note">{{ projectDiagram_.note }}</div>
+        <div v-if="projectDiagram_.loading" class="pd-loading">⟳ 生成中…</div>
+        <div v-else-if="projectDiagram_.err" class="pd-err">{{ projectDiagram_.err }}</div>
+        <div v-else class="arch-svg pd-svg" v-html="projectDiagram_.svg"></div>
+        <div class="acts">
+          <button class="ghost" @click="projectDiagram_ = null">关闭</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Task preview modal -->
     <div id="roverlay" class="overlay" v-if="previewTask" @mousedown.self="previewTask = null">
@@ -5756,6 +5776,9 @@ async function bkRestoreFromFile() {  if (bkBusy.value) return
 const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
 const logBatchMode = ref(false)
+
+/** 项目结构图模态（2026-10-29 暮雨第 2 条）：null = 没开 */
+const projectDiagram_ = ref<{ name: string; loading: boolean; svg: string; note: string; err: string } | null>(null)
 const selectedLogBatch = ref<string[]>([])
 // trashBatchMode / selectedTrashBatch 已随回收站组件搬走（2026-10-23）
 const dataDir = ref('')
@@ -10614,6 +10637,61 @@ async function copyLogAsPrompt(id: string): Promise<void> {
   }
 }
 
+/**
+ * 打开项目结构图（2026-10-29 暮雨第 2 条）。
+ *
+ * 数据真身在主进程（services/projectDiagram → shared/projectDiagram 纯函数），这里只负责画。
+ * 失败必须说出来：registry 里没这个项目 / 读不出来 —— 不许给一张空图糊弄过去。
+ */
+async function openProjectDiagram(p: any): Promise<void> {
+  const id = String(p?.id || p?.name || '')
+  projectDiagram_.value = { name: String(p?.name || id), loading: true, svg: '', note: '', err: '' }
+  try {
+    const r: any = await (window as any).tegula.projectDiagram(id)
+    if (!r || r.ok === false) {
+      projectDiagram_.value.err = String(r?.error || '生成失败')
+      projectDiagram_.value.loading = false
+      return
+    }
+    projectDiagram_.value.svg = buildLayerDiagram(r.spec)
+    projectDiagram_.value.note = String(r.note || '')
+    projectDiagram_.value.loading = false
+  } catch (e: any) {
+    projectDiagram_.value.err = '生成失败：' + (e?.message || e)
+    projectDiagram_.value.loading = false
+  }
+}
+
+/**
+ * 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条）。
+ *
+ * 真实用法：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
+ * 只灌主日志，agent 就漏掉并行的另一半 —— 这不是"想要的新功能"，是使用中长出来的需求。
+ * 顺序即语义：**先勾选的那条是主日志**，其余会被标成「并行日志」（拼接在 services/logs.injectLogs）。
+ */
+async function copyLogsAsPrompt(idsIn: string[]): Promise<void> {
+  const ids = (Array.isArray(idsIn) ? idsIn : []).map((x) => String(x || '')).filter(Boolean)
+  if (!ids.length) { showToast('先勾选要灌的日志（第一条当主日志）', 'info'); return }
+  try {
+    const r: any = await window.tegula.logsInjectMany(toPlain(ids))
+    if (!r || !r.text) {
+      showToast('这些日志都读不出来（可能已被销毁）', 'error')
+      return
+    }
+    console.warn('[renderer:copy] logs:injectMany n=' + ids.length + ' len=' + String(r.text).length)
+    const n = Array.isArray(r.found) ? r.found.length : ids.length
+    const miss = Array.isArray(r.missing) ? r.missing.length : 0
+    const copied = await copyWithToast(
+      String(r.text),
+      n > 1 ? `已复制 ${n} 条日志为一份开工单（第一条主日志，其余标「并行日志」）` : '已复制为提示词，可直接粘给 agent',
+    )
+    if (!copied) return
+    if (miss) showToast(`另有 ${miss} 条没找到，已跳过`, 'info')
+  } catch (e: any) {
+    showToast('复制失败：' + (e?.message || e), 'error')
+  }
+}
+
 async function executeLogCleanup() {
   try {
     const result = await window.tegula.logsCleanup()
@@ -11838,7 +11916,7 @@ const logsViewCtl = reactive({
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,
   // 单条
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
-  copyId, copyLogAsPrompt, askConvertLog,
+  copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
   // 批量
@@ -14200,6 +14278,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .policy-state.has { color: #5e9154; border-color: #5e9154; }
 /* 项目卡上的方针入口：卡内全宽小按钮，颜色弱化，不抢主统计的视线 */
 .pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
+/* 结构图按钮：与方针按钮上下排（同宽、间距 6px）；单独给一条规则不是装饰 ——
+   check-button-styles 要求「模板里出现的 class 必须有样式规则」（僵尸按钮守卫的反面）。 */
+.pv-diagram { margin-top: 6px; }
 #policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 700px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
 /* 方针弹窗必须盖在设置面板之上：两者都用 .overlay（z-index:60），而设置面板在 DOM 里更靠后，
    同层级下后出现的赢 —— 于是从设置里点方针，弹窗被设置整个盖住（用户 2026-09-25 第 3 条）。
@@ -15109,6 +15190,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lpurge-list { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .lpurge-list li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lpurge-more { list-style: none; margin-left: -18px; font-style: italic; }
+
+/* ── 项目结构图模态（2026-10-29 暮雨第 2 条）──────────────────────────────── */
+#proj-diagram .pd-modal {
+  background: var(--card); border-radius: var(--radius); padding: 16px 18px;
+  width: min(1000px, 94vw); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow);
+}
+.pd-modal h3 { margin: 0 0 8px; font-size: 16px; color: var(--ink); }
+.pd-note { font-size: 12px; color: var(--muted); line-height: 1.65; margin-bottom: 10px; }
+.pd-loading, .pd-err { font-size: 12.5px; color: var(--muted); padding: 18px 0; }
+.pd-err { color: var(--danger); }
+.pd-svg { overflow-x: auto; }
+.pd-svg svg { width: 100%; height: auto; display: block; }
+.pd-modal .acts { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── 任务详情里的架构图（2026-10-13 暮雨第 2 条 · 方案 A）────────────────── */
 .arch-section { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }

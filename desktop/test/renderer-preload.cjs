@@ -787,6 +787,28 @@ contextBridge.exposeInMainWorld('tegula', {
     row.attachments = [...(row.attachments || []), ...add]
     return { ok: true, data: { ...row }, added: add.length, skipped: [] }
   },
+  // 2026-10-29：这两个此前**完全没登记** —— 单条「📋 复制」与新的「⧉ 开工单」在无头断言里都是死通道。
+  // 桩只负责**记账 + 返回可辨认的文本**；真正的拼接语义（主日志在前、副日志标「并行」）
+  // 由 e2e-mcp-logs 跑真 services/logs.injectLogs 验 —— 桩里再实现一遍就等于自欺。
+  logsInject: (id) => {
+    cloneGuard('logsInject', [id])
+    rec('logsInject', [id])
+    const row = (store.logs || []).find(x => x.id === id)
+    if (!row) return null
+    return 'mock-log:' + id + ':' + String(row.content || '')
+  },
+  logsInjectMany: (ids) => {
+    cloneGuard('logsInjectMany', [ids])
+    rec('logsInjectMany', [ids])
+    const list = Array.isArray(ids) ? ids.map(String) : []
+    const rows = list.map(id => (store.logs || []).find(x => x.id === id)).filter(Boolean)
+    if (!rows.length) return { text: '', found: [], missing: list }
+    return {
+      text: 'mock-bundle ' + list.join(' + '),
+      found: rows.map(r => r.id),
+      missing: list.filter(id => !rows.some(r => r.id === id)),
+    }
+  },
   logsDetachAttachment: (id, rel) => {
     rec('logsDetachAttachment', [id, rel])
     const row = (store.logs || []).find(x => x.id === id)
@@ -1496,6 +1518,48 @@ contextBridge.exposeInMainWorld('tegula', {
    * 模型单价（2026-10-25 卡 005 B 档）：夹具预置一行，用来验"设置里能改、改完真的过桥"。
    * ⚠ 空表也是合法状态（= 一律未折算），这条降级在断言里单独验。
    */
+  // ── 项目结构图桩（2026-10-29）：主进程真身从 registry + 任务 + 日志装配，桩只回一份可辨认的 spec
+  projectDiagram: (projectId) => {
+    cloneGuard('projectDiagram', [projectId])
+    rec('projectDiagram', [projectId])
+    if (!projectId) return { ok: false, error: '没给项目 id' }
+    return {
+      ok: true,
+      project: { id: projectId, name: '演示项目' },
+      spec: {
+        lanes: [
+          { name: '项目', color: 'accent', cards: [{ label: '演示项目', sub: '开发中' }] },
+          { name: '在途', color: 'warning', cards: [{ label: '做甲', sub: '进行中 · 高' }] },
+          { name: '执行日志', color: 'muted', cards: [{ label: '这一轮干了什么', sub: '进行中' }] },
+        ],
+        between: ['在途', '执行日志'],
+        width: 900,
+      },
+      note: '方寸视角：1 张在途 · 0 张完成 · 1 条日志 —— 这是任务/日志结构，不是代码架构图；要看代码架构，用 archify 生成后导入。',
+      counts: { open: 1, done: 0, logs: 1, hiddenOpen: 0, hiddenDone: 0 },
+    }
+  },
+  // ── 需求矩阵（RICE）桩（2026-10-29）：页签此前在无头断言里完全没被打开过 ──
+  // 夹具刻意做成「两条已拍板 + 一条没写理由 + 一条未拍板」，好让四种界面判断都能被验到。
+  riceGet: () => {
+    rec('riceGet', [])
+    return {
+      ok: true,
+      path: 'E:/demo/task-data/rice-pool.md',
+      pool: {
+        budget: 100,
+        items: [
+          { eid: 'rice-task-k1', title: '要做的功能', origin: 'task:task-k1', R: 10, I: 3, C: 0.95, E_days: 3, E_cost: 85, evidence: '亲口要', by: 'hermes 2026-10-29', note: '每周省三次手工', verdict: '有效', decisionId: 'D-001' },
+          { eid: 'rice-task-k2', title: '没写理由就做了', origin: 'task:task-k2', R: 8, I: 2, C: 0.85, E_days: 2, E_cost: 10, evidence: '实测踩过', by: 'hermes 2026-10-29', note: '', verdict: '有效', decisionId: 'D-002' },
+          { eid: 'rice-ext-c1', title: '听起来很酷的东西', origin: 'external:c1', R: 2, I: 0.5, C: 0.6, E_days: 8, E_cost: 30, evidence: '纯直觉', by: 'hermes 2026-10-29', note: '听起来很酷，但没人要', verdict: 'CUT', decisionId: 'D-003' },
+          { eid: 'rice-task-p1', title: '还没拍板的', origin: 'task:task-p1', R: 5, I: 1, C: 0.7, E_days: 4, E_cost: 5, evidence: 'agent 共识', by: 'hermes 2026-10-29', note: '', verdict: '', decisionId: '' },
+        ],
+      },
+    }
+  },
+  riceSetBudget: (n) => { rec('riceSetBudget', [n]); return { ok: true, pool: { budget: n, items: [] } } },
+  riceUpsert: (items) => { cloneGuard('riceUpsert', [items]); rec('riceUpsert', [items]); return { ok: true, added: (items || []).length, updated: 0, rejected: [], warnings: [] } },
+  riceDecide: (payload) => { cloneGuard('riceDecide', [payload]); rec('riceDecide', [payload]); return { ok: true } },
   llmGetPrices: () => {
     rec('llmGetPrices', [])
     return { ok: true, rows: store.prices.slice(), updatedAt: '2026-10-25T10:00:00.000Z' }

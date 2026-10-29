@@ -150,6 +150,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // 与项目/Agent/日期筛选同一条取数路径（此前两条路互不相干，一刷新搜索就丢）。
   // 需要"全文搜"的调用方（MCP search_logs）直接用 services/logs.ts 的 searchLogs()。
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
+  /** 多条日志拼成一份开工单（第一条当主日志，其余标「并行日志」）—— 与 MCP inject_logs 同一段文本 */
+  logsInjectMany: (ids: string[]) => ipcRenderer.invoke('logs:injectMany', ids),
   /**
    * 附件（2026-10-01 卡 036）：主进程弹系统选文件框 → 复制进数据目录 → 返回更新后的日志。
    * 2026-10-25（第 4 条）：传 `sources` 时**不再弹框**，直接用这批路径 —— 新建日志时先选好，
@@ -173,6 +175,8 @@ contextBridge.exposeInMainWorld('tegula', {
   prefsGet: () => ipcRenderer.invoke('prefs:get'),
   prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
   /** 项目梯度榜（2026-10-25）：只给项目页的「梯度榜」摆法用，见 services/projectTiers.ts */
+  /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
+  projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),
   projectTiersSet: (tiers: unknown) => ipcRenderer.invoke('projectTiers:set', tiers),
   /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */

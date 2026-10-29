@@ -113,6 +113,12 @@
         <option value="低">低</option>
         <option value="__clear__">清除</option>
       </select>
+      <!-- 开工单（2026-10-29 暮雨第 6 条）：把选中的几条日志拼成**一份**提示词。
+           顺序即语义 —— 先勾的那条当主日志，其余标「并行日志」；两者文本与 MCP `inject_logs` 完全相同。 -->
+      <button class="ghost"
+        :disabled="!selectedLogBatch.length"
+        title="把选中的日志拼成一份开工单：先勾的那条当主日志，其余标成「并行日志」（与 agent 走 MCP inject_logs 拿到的文本一致）"
+        @click="copyLogsAsPrompt(selectedLogBatch)">⧉ 开工单</button>
       <button class="ghost" title="批量标为已完成（不需要先标「进行中」）" @click="executeBatchLogComplete">批量完成</button>
       <button class="ghost" title="批量收进「已归档」分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
       <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
@@ -273,7 +279,7 @@ const {
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,
   // 单条
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
-  copyId, copyLogAsPrompt, askConvertLog,
+  copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
   // 批量

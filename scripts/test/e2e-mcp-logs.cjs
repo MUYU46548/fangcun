@@ -118,10 +118,26 @@ check('  running 置「进行中」', run.ok === true && /进行中/.test(String
 const bad = call('set_log_status', { id: mainId, action: 'nope' })
 check('  非法 action 明确报错（不静默什么都不做）', bad.__raw !== undefined || bad.ok === false)
 
+// ── 界面「⧉ 开工单」与 MCP 共用同一段拼接（2026-10-29 第 6 条）────────────
+// 两处各拼一次是最容易分叉的地方（界面改了文案、MCP 没跟上），所以这里直接钉：
+// services/logs.injectLogs 是唯一实现，MCP 的 inject_logs 只是它的出口。
+{
+  const logsSvc = require(D + '/dist/main/services/logs.js')
+  const r = logsSvc.injectLogs([mainId, 'log_nope_y', sideId])
+  check('★★ services/logs.injectLogs 是唯一拼接实现（found/missing 都如实回）',
+    r && r.found.length === 2 && r.missing.length === 1 && r.found[0] === mainId,
+    JSON.stringify({ found: r && r.found, missing: r && r.missing }))
+  check('★ 缺的那条在文本里点出来（不许静默少一段）', /未找到/ .test(String(r && r.text)) && String(r.text).indexOf('log_nope_y') >= 0,
+    String(r && r.text).slice(-80))
+}
 // ── 源码守卫 ────────────────────────────────────────────────────────
 const src = fs.readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')
 check('源码守卫：写口走 services/logs（不新开第二套写路径）',
   /case 'create_log'[\\s\\S]{0,200}?logs\\.createLog\\(/.test(src))
+check('源码守卫：MCP inject_logs 走 services（不在 tools 里另拼一份）', (() => {
+  const i = src.indexOf("case 'inject_logs'")
+  return i >= 0 && src.slice(i, i + 400).indexOf('logs.injectLogs(') >= 0
+})(), 'not found')
 check('源码守卫：get_log 的附件不再只回相对路径（必须调 resolveAttachment）',
   /case 'get_log'[\\s\\S]{0,900}?resolveAttachment\\(/.test(src))
 
@@ -142,7 +158,7 @@ const check = (name, cond, detail) => {
 }
 
 if (r.status !== 0) {
-  check('MCP 日志写口驱动能跑通', false, `exit=${r.status} ${String(r.stderr || '').slice(-500)}`)
+  check('MCP 日志写口驱动能跑通', false, `exit=${r.status} ${String(r.stderr || '').slice(0, 1200)}`)
 } else {
   let res
   try { res = JSON.parse(String(r.stdout || '').trim().split('\n').pop()) } catch (e) { res = null }

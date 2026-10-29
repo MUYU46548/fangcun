@@ -95,6 +95,16 @@ export const RICE_LIMITS = [
   'RICE 只把判断显性化，不替你做决定；真正的取舍在分数之外。',
 ]
 
+/**
+ * 原型里那句写在最显眼处的立场（2026-10-29 暮雨第 1 条）：
+ * 「RICE 只把判断显性化，不替你做决定。真正的取舍在分数之外。」
+ * 单独成常量、单独渲染 —— 混在 RICE_LIMITS 五条里就没人看得见（而它是最该被看见的一句）。
+ */
+export const RICE_STANCE = 'RICE 只把判断显性化，不替你做决定。真正的取舍在分数之外。'
+
+/** 原型的重评触发条件：只有一个，不搞一堆阈值 */
+export const RICE_RECHECK = '重评触发：当季容量变动超过 20%，或出现新的实测证据。'
+
 export const RICE_EMPTY_TEXT =
   '池里还没有条目 —— 用 MCP 工具 rice_pool_upsert 灌入初分（同 eid 重复灌是幂等的）。'
 
@@ -576,7 +586,62 @@ export function riceGeometry(items: RiceItem[], width = 560, height = 320, pad =
   return { points, maxX, maxY, splitX, splitY }
 }
 
+// ── 「为什么做，为什么砍」（原型第 3 条设计判断，2026-10-29）──────────────
+//
+// 原型原话：「分数只是入口，理由逐条写」。它最狠的一句是关于被砍项：
+// 「它最危险的地方是**听起来很酷** —— RICE 的唯一作用，就是把审美冲动挡在排期之外。」
+// 所以这一节不能只列结论：**拍板了却写不出理由**的条目必须被点名，那就是没拍板。
+
+export interface RiceWhyRow {
+  eid: string
+  title: string
+  verdict: '有效' | 'CUT'
+  /** 备注（理由）；空 = 没写 */
+  why: string
+  evidence: string
+  hasWhy: boolean
+}
+
+export interface RiceWhyReview {
+  keep: RiceWhyRow[]
+  cut: RiceWhyRow[]
+  /** 已拍板但备注为空 —— 说不清为什么，就是没拍板 */
+  missingWhy: number
+  /** 还没拍板的条数 */
+  pending: number
+  text: string
+}
+
+export function riceWhyReview(pool: RicePool): RiceWhyReview {
+  const items = pool?.items || []
+  const rows: RiceWhyRow[] = items
+    .filter((it) => it.verdict === '有效' || it.verdict === 'CUT')
+    .map((it) => {
+      const why = String(it.note || '').trim()
+      return {
+        eid: it.eid,
+        title: it.title,
+        verdict: it.verdict as '有效' | 'CUT',
+        why,
+        evidence: String(it.evidence || '').trim(),
+        hasWhy: !!why,
+      }
+    })
+  const keep = rows.filter((r) => r.verdict === '有效')
+  const cut = rows.filter((r) => r.verdict === 'CUT')
+  const missingWhy = rows.filter((r) => !r.hasWhy).length
+  const pending = items.length - rows.length
+  const parts: string[] = []
+  if (rows.length) parts.push(`已拍板 ${rows.length}（做 ${keep.length} / 砍 ${cut.length}）`)
+  if (missingWhy) parts.push(`${missingWhy} 条拍板没写理由`)
+  if (pending) parts.push(`还有 ${pending} 条没拍板`)
+  const text = parts.join(' · ') || '还没有拍板记录'
+  return { keep, cut, missingWhy, pending, text }
+}
+
 // ── 汇总 / 预算护栏 ───────────────────────────────────────────────────
+
+export type RiceGuard = 'unset' | 'ok' | 'tight' | 'over'
 
 export interface RiceSummary {
   total: number
@@ -585,9 +650,17 @@ export interface RiceSummary {
   cut: number
   /** P0 合计花费（元） */
   p0Cost: number
+  /** P0 合计成本天数（人天）—— 预算没设时，这是唯一能看的容量口径 */
+  p0Days: number
   budget: number
   /** 预算占用比例；预算未设置（0）= null，**不许说成 0%** */
   budgetRatio: number | null
+  /** 余量（元）；预算未设置 = null */
+  headroom: number | null
+  /** 护栏判定：unset（没设预算）/ ok（有余量）/ tight（≥80%，排满风险）/ over（≥100%） */
+  guard: RiceGuard
+  /** 护栏那句话（与数字一起出现，不许只有数字） */
+  guardText: string
   text: string
 }
 
@@ -603,10 +676,27 @@ export function riceSummary(pool: RicePool): RiceSummary {
       .filter((it) => levels[it.eid] === 'P0')
       .reduce((s, it) => s + (Number.isFinite(it.E_cost) ? it.E_cost : 0), 0)
   )
+  const p0Days = items
+    .filter((it) => levels[it.eid] === 'P0')
+    .reduce((s, it) => s + (Number.isFinite(it.E_days) ? it.E_days : 0), 0)
   const budget = Number.isFinite(pool?.budget) ? pool.budget : 0
   const budgetRatio = budget > 0 ? round2(p0Cost / budget) : null
+  const headroom = budget > 0 ? round2(budget - p0Cost) : null
+  const ratio = budgetRatio || 0
+  const guard: RiceGuard = budget <= 0 ? 'unset' : ratio >= 1 ? 'over' : ratio >= 0.8 ? 'tight' : 'ok'
+  // 原型那句话的口径：**排满不等于好**——一次线上故障就会让整轮延期。
+  const guardText = guard === 'unset'
+    ? '月预算未设置 —— 不要把「没设预算」读成「没超支」'
+    : guard === 'over'
+      ? `P0 已超预算 ¥${Math.abs(headroom || 0)}：排满之后，一次线上故障就会让整轮延期`
+      : guard === 'tight'
+        ? `P0 占 ${Math.round(ratio * 100)}%，只剩 ¥${headroom} 余量 —— 排满等于把风险全押给线上故障`
+        : `P0 占 ${Math.round(ratio * 100)}%，余量 ¥${headroom}（留给线上故障与需求变更）`
   const parts = [`${total} 条`, `未拍板 ${pending}`, `已拍板 ${decided}`, cut ? `CUT ${cut}` : '']
-  parts.push(budget > 0 ? `P0 花费 ¥${p0Cost} / 预算 ¥${budget}（${Math.round((budgetRatio || 0) * 100)}%）` : '月预算未设置')
+  parts.push(budget > 0
+    ? `P0 花费 ¥${p0Cost} / 预算 ¥${budget}（${Math.round(ratio * 100)}%）`
+    : '月预算未设置')
+  if (p0Days > 0) parts.push(`P0 合计 ${p0Days} 人天`)
   const text = (total ? parts.filter(Boolean).join(' · ') : '') || ''
-  return { total, decided, pending, cut, p0Cost, budget, budgetRatio, text }
+  return { total, decided, pending, cut, p0Cost, p0Days, budget, budgetRatio, headroom, guard, guardText, text }
 }

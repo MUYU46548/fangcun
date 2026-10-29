@@ -719,20 +719,10 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     case 'inject_logs': {
       const ids: string[] = (Array.isArray(args.ids) ? args.ids : []).map((x: any) => String(x || '')).filter(Boolean)
       if (!ids.length) return { content: [{ type: 'text', text: 'ids 不能为空（主日志放第一个）' }], isError: true }
-      const parts: string[] = []
-      const missing: string[] = []
-      let n = 0
-      for (const id of ids) {
-        const text = logs.injectLog(id)
-        if (!text) { missing.push(id); continue }
-        n++
-        const entry = logs.getLog(id)
-        // 第二条起标明这是**并行副日志**，否则 agent 会以为是同一轮的续写
-        const head = n === 1 ? '' : `\n\n---\n\n> 以下是并行日志（同一轮的另一条通道，${entry?.created || ''}）\n`
-        parts.push(head + text)
-      }
-      if (!n) return { content: [{ type: 'text', text: `这些日志都不存在：${ids.join(', ')}` }], isError: true }
-      return { content: [{ type: 'text', text: parts.join('\n') + (missing.length ? `\n\n（未找到：${missing.join(', ')}）` : '') }] }
+      // 拼接逻辑在 services/logs（与界面「多选 → 开工单」同一份文本，不许两处各拼一次）
+      const r = logs.injectLogs(ids)
+      if (!r.found.length) return { content: [{ type: 'text', text: `这些日志都不存在：${ids.join(', ')}` }], isError: true }
+      return { content: [{ type: 'text', text: r.text }] }
     }
 
     case 'never_read': {

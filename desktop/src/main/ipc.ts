@@ -40,6 +40,7 @@ import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { pickNeverRead } from '../shared/neverRead'
 import { checkMismatch } from './services/mismatch'
+import { checkProjectDiagram } from './services/projectDiagram'
 import * as rice from './data/rice'
 
 export function registerIpcHandlers(): void {
@@ -951,6 +952,12 @@ export function registerIpcHandlers(): void {
     return logsService.injectLog(id)
   })
 
+  // 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：「主日志带多条副日志一起灌入」）。
+  // 与 MCP `inject_logs` 共用 services/logs.injectLogs —— 两处各拼一次必然分叉。
+  guardedHandle('logs:injectMany', (_event, ids: any) => {
+    return logsService.injectLogs(Array.isArray(ids) ? ids.map((x: any) => String(x || '')) : [])
+  })
+
   // ── 附件（2026-10-01 用户第 1 条 → 卡 036）：日志 ↔ 文件的唯一入口 ──────
   // 选文件在这里做（要用 BrowserWindow 的模态对话框），复制/挂载逻辑全在 logs.ts，
   // 渲染层只管拿到更新后的 entry。文件**复制**进数据目录，源文件不动。
@@ -1291,6 +1298,13 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
   // 三类：① 状态过期（registry 写的日期 vs 仓库最后提交）② 引用断裂（卡里的路径磁盘上没了）
   //      ③ 完成但没判据（自报完成，无从复核）。判定全在 `shared/mismatch.ts`（e2e-mismatch 用纯 Node 验）。
   // ⚠ 口径三条，界面必须一起写：**它只是对不上，不是做错了；不阻挡任何操作；取不到 git 的项目要单独列出**。
+  // 项目结构图（2026-10-29 暮雨第 2 条）：方寸自己的内核出图 ——
+  // 项目 → 在途 → 已完成 → 执行日志。**不是代码架构图**（不读源码、不猜依赖），
+  // 那双眼睛归 archify（只导入它的产物）。判断全在 shared/projectDiagram.ts。
+  guardedHandle('project:diagram', (_event, projectId: string) => {
+    return checkProjectDiagram(String(projectId || ''))
+  })
+
   guardedHandle('mismatch:check', async (_event, days?: number) => {
     // 空值单独判：Number('') 和 Number(null) 都是 0，而 0 在这里是"不算过期"——直接 Number 会把它静默变成 0
     const blank = days === undefined || days === null || String(days).trim() === ''

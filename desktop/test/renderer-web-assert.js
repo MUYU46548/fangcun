@@ -3794,6 +3794,56 @@
     if (exitL) exitL.click()
     check('取消退出多选（批量栏收起）', await waitFor(() => $$('.logs-view .batch-bar').length === 0, 3000, '退出多选'))
 
+    // ══ 日志并行 · 「⧉ 开工单」（2026-10-29 暮雨第 6 条）══════════════════
+    // 真实用法长出来的需求：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
+    // 只灌主日志，agent 就漏掉并行的另一半。判据三条：
+    //   ① 多选里真有这个入口；② 传给主进程的 **id 顺序 = 勾选顺序**（第一条当主日志）；
+    //   ③ 文本真进了剪贴板（走主进程通道，不是 navigator.clipboard）。
+    // ⚠ 拼接语义（副日志标「并行日志」）由 e2e-mcp-logs 跑真服务验，这里只验接线。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-multi-a', title: '主日志：这一轮做了什么', content: 'MAIN-A', status: 'active', project: 'demo', created: '2026-10-29T01:00:00.000Z' },
+        { id: 'log-multi-b', title: '副日志：并行通道进度', content: 'SIDE-B', status: 'active', project: 'demo', created: '2026-10-29T02:00:00.000Z' },
+      ])
+      clickText('看板'); await sleep(350); clickText('日志'); await sleep(600)
+      const batchOn = $$('.logs-view .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
+      if (batchOn) batchOn.click()
+      await waitFor(() => !!$('.logs-view .batch-bar'), 3000, '日志批量栏(开工单)')
+      const bundleBtn = () => $$('.logs-view .batch-bar button').find(b => (b.textContent || '').indexOf('开工单') >= 0)
+      check('★★ 多选栏里有「⧉ 开工单」（主日志带副日志一起灌的入口）', !!bundleBtn(),
+        $$('.logs-view .batch-bar button').map(b => (b.textContent || '').trim()).join('|'))
+      check('★ 一条没勾时它是 disabled（不许点了没反应）', !!bundleBtn() && bundleBtn().disabled === true)
+      const cardsM = $$('.logs-view .log-card')
+      const mainCard = cardsM.find(c => (c.textContent || '').indexOf('主日志：这一轮做了什么') >= 0)
+      const sideCard = cardsM.find(c => (c.textContent || '').indexOf('副日志：并行通道进度') >= 0)
+      window.__fcTest.reset()
+      if (sideCard) sideCard.click()   // 先点副日志
+      await sleep(150)
+      if (mainCard) mainCard.click()   // 再点主日志 —— 顺序应该被原样保留
+      await sleep(250)
+      check('  先点副日志、再点主日志 → 已选 2（顺序由勾选顺序决定，不按时间排）',
+        (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
+        (($('.logs-view .batch-bar .batch-count') || {}).textContent || ''))
+      if (bundleBtn()) bundleBtn().click()
+      check('★★ 点它 → 走 logsInjectMany（不是逐条复制两次）',
+        await waitFor(() => window.__fcTest.calls().some(c => c.name === 'logsInjectMany'), 4000, 'logsInjectMany'),
+        JSON.stringify(window.__fcTest.calls().map(c => c.name)))
+      check('★★ 传进去的 id 顺序 = 勾选顺序（第一条就是主日志）', (() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsInjectMany').pop()
+        const ids = (c && c.args && c.args[0]) || []
+        return Array.isArray(ids) && ids[0] === 'log-multi-b' && ids[1] === 'log-multi-a'
+      })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsInjectMany').pop() || {}).args))
+      check('★★ 拼好的文本真进了剪贴板（主进程通道）', await waitFor(() => (() => {
+        const cs = window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText')
+        const txt = cs.length ? String(cs[cs.length - 1].args[0] || '') : ''
+        return txt.indexOf('mock-bundle') >= 0 && txt.indexOf('log-multi-b') >= 0 && txt.indexOf('log-multi-a') >= 0
+      })(), 4000, 'clipboard bundle'),
+        JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => String(c.args[0]).slice(0, 60))))
+      const exitBtn = $$('.logs-view .batch-bar button').find(b => (b.textContent || '').trim() === '取消')
+      if (exitBtn) exitBtn.click()
+      await sleep(200)
+    }
+
     // ══ 日志的搜索 / 排序写回父组件（2026-10-23 补 · 第 11 块拆分后新增）
     //  为什么单列这一块：这两个控件都是 `v-model` 写在**子组件**里、状态真身在父组件。
     //  拆分时若把 `toRef` 写成直接解构（拿到快照），界面看着完全正常（能打字、能选），
@@ -6125,6 +6175,81 @@
         if (tilesTab) { tilesTab.click(); await sleep(500) }
         check('  收尾：切回项目墙后梯度榜不在 DOM 里', !$('.tierboard'))
       }
+
+    // ══ 需求矩阵 · 原型里「分数之外」的四件（2026-10-29 暮雨第 1 条）════════
+    // 原型（docs/小样-RICE决策矩阵-20261025）的四个设计判断，判据都在**页面上看得见**，
+    // 不是只活在 shared/rice.ts 里（e2e-rice 已验逻辑，这里验露没露出来）：
+    //   ① 容量护栏（排满 = 一次线上故障就让整轮延期）② 立场句写在显眼处
+    //   ③ 「为什么做，为什么砍」独立一节，拍板没写理由要被点名 ④ 重评触发条件
+    {
+      clickText('项目'); await sleep(400)
+      const riceTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('需求矩阵') >= 0)
+      if (riceTab) riceTab.click()
+      check('★★ 项目页能切到「需求矩阵」', await waitFor(() => !!$('.rice'), 4000, 'rice view'))
+      check('  页面显示池文件绝对路径（防"找不到在哪"）',
+        (($('.rice-where') || {}).textContent || '').indexOf('rice-pool.md') >= 0,
+        (($('.rice-where') || {}).textContent || '').slice(0, 80))
+      check('★★ 立场句写在显眼处（不是只混在底部五条局限里）', (() => {
+        const el = $('.rice-stance')
+        return !!el && (el.textContent || '').indexOf('不替你做决定') >= 0
+      })(), (($('.rice-stance') || {}).textContent || '').slice(0, 80))
+      // 夹具：P0 花费 85 / 预算 100 → tight（85%）
+      check('★★ 容量护栏给判定 + 余量（85% → tight，话说"排满等于把风险押给线上故障"）', (() => {
+        const g = $('.rice-guard')
+        return !!g && /tight|over/.test(g.className) && (g.textContent || '').indexOf('线上故障') >= 0
+      })(), (($('.rice-guard') || {}).className || '') + '|' + (($('.rice-guard') || {}).textContent || '').slice(0, 80))
+      check('  预算行同时给余量（数字与话术在一起，不是只有百分比）',
+        (($('.rice-budget') || {}).textContent || '').indexOf('余量') >= 0,
+        (($('.rice-budget') || {}).textContent || '').slice(0, 100))
+      check('★★ 「为什么做，为什么砍」独立一节', !!$('.rice-why') &&
+        (($('.rice-why-h') || {}).textContent || '').indexOf('为什么做') >= 0)
+      check('★★ 做/砍分两栏（分数只是入口，理由逐条写）',
+        $$('.rice-why-col').length === 2 &&
+        /做（2）/.test((($$('.rice-why-t')[0] || {}).textContent) || '') &&
+        /砍（1）/.test((($$('.rice-why-t')[1] || {}).textContent) || ''),
+        $$('.rice-why-t').map((x) => (x.textContent || '').trim()).join('|'))
+      check('★★ 拍板没写理由的那条被点名（说不清为什么就是没拍板）',
+        $$('.rice-why-reason.missing').length >= 1,
+        $$('.rice-why-reason').map((x) => (x.textContent || '').trim().slice(0, 20)).join('|'))
+      check('★★ 重评触发条件写在页面上（容量变动 20%）',
+        (($('.rice-why-foot') || {}).textContent || '').indexOf('20%') >= 0,
+        (($('.rice-why-foot') || {}).textContent || '').slice(0, 80))
+      check('  局限仍在（数字旁边必须带"证明不了什么"）', $$('.rice-limit').length >= 4,
+        String($$('.rice-limit').length))
+      // 收尾：回项目墙
+      const backTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('项目墙') >= 0)
+      if (backTab) { backTab.click(); await sleep(400) }
+      check('  收尾：切回项目墙后需求矩阵不在 DOM 里', !$('.rice'))
+    }
+
+    // ══ 项目结构图（2026-10-29 暮雨第 2 条）══════════════════════════════
+    // 暮雨问的是「现在方寸能一键出项目结构图了吗？对接 archify 还是内置内核？」
+    // 事实：archify 那半只做了**导入**；这一版补的是方寸自己的内核（项目 → 在途 → 已完成 → 日志）。
+    // 判据四件：入口在项目卡上、点了真走 IPC、图画出来（svg）、**界线写在图上**（不是代码架构图）。
+    {
+      clickText('项目'); await sleep(400)
+      const tileBtn = $$('.tile .pv-diagram').find((b) => (b.textContent || '').indexOf('结构图') >= 0)
+      check('★★ 项目卡上有「🗺 结构图」入口（项目级的东西不许藏进设置页）', !!tileBtn,
+        $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 8).join('|'))
+      window.__fcTest.reset()
+      if (tileBtn) tileBtn.click()
+      check('★★ 点了真走 project:diagram IPC', await waitFor(() => window.__fcTest.callCount('projectDiagram') > 0, 4000, 'projectDiagram'),
+        JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+      check('★★ 图画出来了（模态里真有 svg）', await waitFor(() => !!$('#proj-diagram .pd-svg svg'), 4000, 'pd svg'),
+        (($('#proj-diagram') || {}).textContent || '').slice(0, 80))
+      check('★★ 界线写在图上：不是代码架构图（否则用户拿它当架构图使）',
+        (($('#proj-diagram .pd-note') || {}).textContent || '').indexOf('不是代码架构图') >= 0,
+        (($('#proj-diagram .pd-note') || {}).textContent || '').slice(0, 100))
+      check('  图上带真实计数（不是一句空话）',
+        (($('#proj-diagram .pd-note') || {}).textContent || '').indexOf('1 张在途') >= 0,
+        (($('#proj-diagram .pd-note') || {}).textContent || '').slice(0, 80))
+      const pdClose = $$('#proj-diagram .acts button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (pdClose) pdClose.click()
+      await sleep(250)
+      check('  关闭后模态退场', !$('#proj-diagram'))
+    }
+
+
     }
 
     // ══ 读取情况「哪些待办其实没人碰过」（卡 20261025-006 第三件）════════════

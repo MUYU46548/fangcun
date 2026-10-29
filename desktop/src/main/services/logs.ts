@@ -875,6 +875,43 @@ export function injectLog(id: string): string | null {
   return parts.join('\n')
 }
 
+/**
+ * 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：「某条主日志带多条副日志一起灌入开工单」）。
+ *
+ * ids 的**顺序就是语义**：第一条是主日志，其余标成「并行日志」。
+ * 为什么要标：真实用法里它们是同一轮的另一条通道（比如并行会话的进度通知），
+ * 不标清楚，agent 会当成同一条日志的续写（`continuesFrom` 才表示续写）。
+ *
+ * 为什么放在这里而不是 MCP：界面侧「多选 → 开工单」和 MCP `inject_logs` 必须是**同一份文本**，
+ * 两处各拼一次就会分叉（一处改了文案，另一处没跟上）。
+ */
+export function injectLogs(ids: string[]): { text: string; found: string[]; missing: string[] } {
+  const parts: string[] = []
+  const found: string[] = []
+  const missing: string[] = []
+  let n = 0
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    const id = String(raw || '').trim()
+    if (!id) continue
+    const text = injectLog(id)
+    if (!text) { missing.push(id); continue }
+    n++
+    found.push(id)
+    const entry = getLog(id)
+    // 换行一律用 fromCharCode(10)：这个文件被脚本改过多次，反斜杠转义在写回时会被吃掉
+    const nl = String.fromCharCode(10)
+    const head = n === 1
+      ? ''
+      : nl + nl + '---' + nl + nl
+        + '> 以下是并行日志（同一轮的另一条通道，' + (entry?.created || '') + '）' + nl
+    parts.push(head + text)
+  }
+  const tail = missing.length
+    ? String.fromCharCode(10) + String.fromCharCode(10) + '（未找到：' + missing.join(', ') + '）'
+    : ''
+  return { text: parts.join(String.fromCharCode(10)) + tail, found, missing }
+}
+
 export function cleanupLogs(): string[] {
   const dir = getLogsDir()
   if (!fs.existsSync(dir)) return []

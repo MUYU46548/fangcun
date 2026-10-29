@@ -20,6 +20,9 @@ import {
   RICE_EVIDENCE_TO_C,
   RICE_EMPTY_TEXT,
   RICE_LIMITS,
+  RICE_STANCE,
+  RICE_RECHECK,
+  riceWhyReview,
   RICE_IMPACT_VALUES,
   RICE_CONFIDENCE_VALUES,
   levelOfMap,
@@ -167,6 +170,8 @@ async function decide(it: RiceItem, cut: boolean) {
 
 const levels = computed(() => levelOfMap(items.value))
 const summary = computed(() => riceSummary(poolOf()))
+// 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 拍板却没写理由的要被点名（原型第 3 条设计判断）
+const why = computed(() => riceWhyReview(poolOf()))
 
 /** 表格：按总分降序；总分算不出的排最后（不拿 0 假装有分） */
 const rows = computed(() => {
@@ -221,6 +226,9 @@ const filters = [
         {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
     </div>
 
+    <!-- 原型里那句写在最显眼处的立场：分数不替你做决定（不许只塞进底部局限列表） -->
+    <div class="rice-stance">{{ RICE_STANCE }}</div>
+
     <div class="rice-where" v-if="poolPath">
       池文件：<code>{{ poolPath }}</code>
       <span class="rice-where-hint">（分数只存 R/I/C/E 四个原始分；总分与等级由本页现算，不落盘）</span>
@@ -231,9 +239,11 @@ const filters = [
       <input class="rice-num" type="number" min="0" step="1" v-model.number="budget" @change="setBudget" />
       <span class="rice-budget-hint" v-if="summary.budget > 0">
         P0 花费 ¥{{ summary.p0Cost }} / ¥{{ summary.budget }}
-        <b :class="{ over: (summary.budgetRatio || 0) > 1 }">{{ Math.round((summary.budgetRatio || 0) * 100) }}%</b>
+        <b :class="{ over: summary.guard === 'over' || summary.guard === 'tight' }">{{ Math.round((summary.budgetRatio || 0) * 100) }}%</b>
+        · 余量 ¥{{ summary.headroom }}
       </span>
       <span class="rice-budget-hint" v-else>预算未设置 —— 页面不会把「没设预算」说成「没超支」</span>
+      <span class="rice-guard" :class="summary.guard">{{ summary.guardText }}</span>
     </div>
 
     <div v-if="err" class="rice-err">{{ err }}</div>
@@ -341,6 +351,44 @@ const filters = [
       </div>
     </template>
 
+    <!-- 「为什么做，为什么砍」（2026-10-29 暮雨第 1 条 · 原型第 3 条设计判断）：
+         分数只是入口，理由逐条写；拍板却没写理由的条目必须被点名 —— 那就是没拍板。
+         被砍项的判据来自原型原话：「它最危险的地方是听起来很酷」。 -->
+    <div class="rice-why" v-if="items.length">
+      <div class="rice-why-h">
+        为什么做，为什么砍
+        <span class="rice-why-sub">{{ why.text }}</span>
+      </div>
+      <div class="rice-why-cols" v-if="why.keep.length || why.cut.length">
+        <div class="rice-why-col">
+          <div class="rice-why-t">✓ 做（{{ why.keep.length }}）</div>
+          <div class="rice-why-row" v-for="r in why.keep" :key="'k' + r.eid">
+            <b>{{ r.title }}</b>
+            <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
+              {{ r.hasWhy ? r.why : '⚠ 拍板时没写理由 —— 说不清为什么，就是没拍板' }}
+            </span>
+            <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+          </div>
+          <div class="rice-why-none" v-if="!why.keep.length">还没有决定要做的</div>
+        </div>
+        <div class="rice-why-col">
+          <div class="rice-why-t cut">✕ 砍（{{ why.cut.length }}）</div>
+          <div class="rice-why-row" v-for="r in why.cut" :key="'c' + r.eid">
+            <b>{{ r.title }}</b>
+            <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
+              {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以「听起来很酷」的样子回来' }}
+            </span>
+            <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+          </div>
+          <div class="rice-why-none" v-if="!why.cut.length">还没有砍掉的</div>
+        </div>
+      </div>
+      <div class="rice-why-empty" v-else>
+        还没有拍板记录 —— 在表格里点「有效 / CUT」，把理由写进备注，这里就是这季度取舍的底稿。
+      </div>
+      <div class="rice-why-foot">{{ RICE_RECHECK }}</div>
+    </div>
+
     <div class="rice-limits">
       <div class="rice-limits-h">这页证明不了什么</div>
       <div class="rice-limit" v-for="(l, i) in RICE_LIMITS" :key="i">· {{ l }}</div>
@@ -362,6 +410,24 @@ const filters = [
 .rice-budget label { font-weight: 600; color: var(--ink); }
 .rice-budget-hint b { color: var(--success); }
 .rice-budget-hint b.over { color: var(--danger); }
+.rice-guard { flex-basis: 100%; font-size: 11.5px; color: var(--muted); }
+.rice-guard.tight { color: var(--warning); }
+.rice-guard.over { color: var(--danger); }
+.rice-stance { margin-top: 8px; font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.rice-why { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 12px 14px; }
+.rice-why-h { font-size: 13px; font-weight: 700; }
+.rice-why-sub { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.rice-why-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+.rice-why-t { font-size: 12px; font-weight: 600; color: var(--success); margin-bottom: 6px; }
+.rice-why-t.cut { color: var(--danger); }
+.rice-why-row { padding: 6px 0; border-top: 1px dashed var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.rice-why-row b { font-weight: 600; }
+.rice-why-reason { color: var(--muted); line-height: 1.55; }
+.rice-why-reason.missing { color: var(--warning); }
+.rice-why-ev { color: var(--muted); font-size: 11.5px; }
+.rice-why-none, .rice-why-empty { font-size: 11.5px; color: var(--muted); }
+.rice-why-empty { margin-top: 10px; }
+.rice-why-foot { margin-top: 10px; font-size: 11.5px; color: var(--muted); }
 .rice-err { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); background: var(--card); }
 .rice-empty { margin-top: 18px; padding: 18px; border: 1px dashed var(--line-2); border-radius: var(--radius); background: var(--tint-3); }
 .rice-empty-sub { margin-top: 8px; font-size: 12px; color: var(--muted); }
