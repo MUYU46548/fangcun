@@ -49,7 +49,11 @@ desktop/dist/
 desktop/release/
 desktop/release*/
 desktop/pkg/
+# 绕过文件锁时的临时输出目录（`FC_PKG_OUT=pkg-<ver>`，见 scripts/pack.cjs 顶部注释）——
+# 只是打完等索引器退出后挪回 pkg/，永不入库
+desktop/pkg-*/
 desktop/.pkg-tmp/
+desktop/.pkg-tmp-*/
 desktop/.vite/
 
 # ── 一次性产物 ──

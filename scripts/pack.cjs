@@ -34,9 +34,14 @@ const DESKTOP = path.resolve(__dirname, '..', 'desktop')
 //      （实测点名 = WorkBuddy 后台 daemon `daemon-app-server-entry.js --stdio`；
 //      不是 OneDrive、不是 Windows Search —— 这两个停过，`释放 0 MB`）。
 //      撞上时**退出索引器再打**，不要去改输出路径。
-const OUT = path.join(DESKTOP, 'pkg')
+// ⚠ 2026-10-29 加的口子（**只为绕过文件锁**，不是换流程）：
+//   工作区里的 `*.asar` 会被索引器长期持有句柄（见下方 ② 的说明），一旦撞上，
+//   `pkg/` 与 `.pkg-tmp/` 两个目录**连改名都会被拒**（WinError 5），这一轮就打不下去。
+//   此时用 `FC_PKG_OUT=pkg-<ver> FC_PKG_STAGE=.pkg-tmp-<ver>` 打到一个**新名字**的目录，
+//   退出索引器后再把产物挪回 `pkg/`。默认值不变 —— 正经发版永远打 `pkg/`。
+const OUT = path.join(DESKTOP, process.env.FC_PKG_OUT || 'pkg')
 // 暂存目录（已在 .gitignore）：先打到这里，成功后整体改名成 release，避免半成品污染 release
-const STAGE = path.join(DESKTOP, '.pkg-tmp')
+const STAGE = path.join(DESKTOP, process.env.FC_PKG_STAGE || '.pkg-tmp')
 
 function log(m) { console.log(m) }
 
@@ -68,6 +73,10 @@ function main() {
   if (!ver || ver.startsWith('-')) {
     log(`用法: node scripts/pack.cjs <版本号>   （当前 package.json = ${pkg.version}）`)
     process.exit(1)
+  }
+  if (process.env.FC_PKG_OUT || process.env.FC_PKG_STAGE) {
+    log(`⚠ 用了目录覆盖（OUT=${path.basename(OUT)} STAGE=${path.basename(STAGE)}）—— 这是绕过文件锁的临时口子，`
+      + `退出索引器后请把产物挪回 pkg/`)
   }
   if (pkg.version !== ver) {
     log(`⚠ package.json 的 version 是 ${pkg.version}，你要求打 ${ver} —— 先把 package.json 改成 ${ver}（版本号只有这一处真源）`)
