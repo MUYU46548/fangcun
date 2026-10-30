@@ -440,46 +440,16 @@
       <span class="pagehead-hint">{{ viewHint }}</span>
     </div>
 
-    <!-- 已完成任务自动归档提示条（2026-10-03 卡 012）：只在**真有超期任务**时出现，
-         且不自动动手 —— 点按钮才移文件（与日志页「清理超期」同一种交互）。
-         归档可逆（进 archive/，可在「归档」标签还原），所以按钮文案直说后果。 -->
-    <div v-if="curView === 'active' && archiveDays > 0 && archiveOverdue.count > 0" class="archive-overdue-bar">
-      <span>📦 有 <b>{{ archiveOverdue.count }}</b> 个已完成任务超过 {{ archiveDays }} 天没更新（如：{{ (archiveOverdue.items[0] || {}).title || (archiveOverdue.items[0] || {}).id || '—' }}）</span>
-      <button class="ghost" @click="runArchiveOverdue()">移进归档区</button>
-      <button class="ghost" title="这次先不动，下次启动/刷新还会提示" @click="archiveOverdue = { count: 0, items: [] }">先不管</button>
-    </div>
-
-    <!-- 驳回返工台（2026-10-30 暮雨第 3 条）：
-         「驳回的东西好像也永远不看，是方寸的缺陷吗？」——是。
-         「完成 / 驳回」两列默认折叠，而驳回**不是终态**：它欠一个返工或一个"算了"。
-         这条只做两件事：把被驳回后没人再管的卡重新推到眼前（带最近一次驳回理由 +
-         晾了几天），并给两个出口。不自动改任何卡 —— 下一站是你决定。 -->
-    <div v-if="curView === 'active' && rework.count > 0 && !reworkHidden" class="rework-bar">
-      <span class="rework-ico">↩</span>
-      <span class="rework-txt">
-        <b>{{ rework.count }}</b> 张卡被驳回后没人再管<template v-if="Number.isFinite(rework.oldestDays)">，最早的是 <b>{{ rework.oldestDays }}</b> 天前</template>
-      </span>
-      <button class="ghost" @click="reworkOpen = !reworkOpen">{{ reworkOpen ? '收起' : '逐张过一遍' }}</button>
-      <button class="ghost" title="本次不提醒；下次启动或刷新还会出现" @click="reworkHidden = true">先不管</button>
-      <span class="rework-why">「完成 / 驳回」两列默认是折叠的 —— 不推这一条，被驳回的卡就是石沉大海</span>
-    </div>
-    <div v-if="curView === 'active' && reworkOpen && rework.count > 0" class="rework-panel">
-      <div class="rework-row" v-for="r in rework.rows" :key="'rw-' + r.id">
-        <div class="rework-main">
-          <div class="rework-title">{{ r.title }}<span class="rework-id">{{ r.id }}</span></div>
-          <div class="rework-reason" :class="{ missing: !r.hasReason }">
-            {{ r.hasReason ? '驳回理由：' + r.reason : '⚠ 驳回时没写理由 —— 那就说不清为什么退回来' }}
-          </div>
-        </div>
-        <span class="rework-age" :title="Number.isFinite(r.ageDays) ? '按任务更新时间算' : '更新时间认不出来，不替你编天数'">
-          {{ Number.isFinite(r.ageDays) ? r.ageDays + ' 天' : '时间不详' }}</span>
-        <button class="ok" title="退回「待办」重新开工（只改状态，驳回理由留在卡上）" @click="reworkRestore(r.id)">↩ 退回返工</button>
-        <button class="ghost" title="移进归档区（文件移到 task-data/archive/，可还原）" @click="reworkArchive(r.id)">📦 归档</button>
-      </div>
-      <div class="rework-foot">
-        退回返工 = 接着做；归档 = 这件事不要了（归档就是处置过了，会从这条里消失）；「先不管」只藏这一次。
-      </div>
-    </div>
+    <!-- 看板横幅（超期归档 + 驳回返工台）：已切到 components/BoardBanners.vue
+         （App.vue 拆分第二刀，2026-10-30）。状态仍在 App，组件只接 props / 发事件。 -->
+    <BoardBanners v-if="curView === 'active'"
+      :archive-days="archiveDays" :archive-overdue="archiveOverdue"
+      :rework="rework" :rework-open="reworkOpen" :rework-hidden="reworkHidden"
+      @archive-now="runArchiveOverdue()"
+      @archive-skip="archiveOverdue = { count: 0, items: [] }"
+      @toggle-rework="reworkOpen = !reworkOpen"
+      @hide-rework="reworkHidden = true"
+      @rework-back="reworkRestore" @rework-archive="reworkArchive" />
 
     <!-- 随问（2026-10-22 · 施工单包 03 任务一）——「控制台」的查询面。
          这一页**不调模型**：答案全从 registry / 任务卡 / 执行日志 / ai-trace 直接算出来。
@@ -3749,6 +3719,7 @@ import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import ArchDiagram from './components/ArchDiagram.vue'
 import DataHygienePanel from './components/DataHygienePanel.vue'
+import BoardBanners from './components/BoardBanners.vue'
 import type { ArchGraph } from '../shared/archGraph'
 import TodosView from './views/TodosView.vue'
 import LogsView from './views/LogsView.vue'
@@ -14179,42 +14150,6 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Archive hint */
 .archive-hint { margin: 8px 16px; padding: 8px 12px; background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a6f4a; position: relative; z-index: 2; }
 .archive-hint button { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; flex: none; }
-/* 已完成任务自动归档提示条（2026-10-03 卡 012）：改成蓝色系以区别"只读提示"的归档说明条 */
-.archive-overdue-bar {
-  margin: 8px 16px 0; padding: 8px 12px; background: #f4f8ff; border: 1px solid #d6e4f7;
-  border-radius: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font-size: 12px; color: var(--ink); position: relative; z-index: 2;
-}
-.archive-overdue-bar b { color: var(--accent); }
-.archive-overdue-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
-.archive-overdue-bar span { flex: 1 1 320px; }
-
-/* 驳回返工台（2026-10-30）：与「已超期归档」同一套房线，但用警示色 ——
-   它不是一条通知，是一个**还欠着决定**的欠条。⚠ 不用新 class 复用旧块（AGENTS 踩坑 2）。 */
-.rework-bar {
-  margin: 8px 16px 0; padding: 8px 12px; background: #fff8f4; border: 1px solid #f2d6c8;
-  border-radius: 10px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-  font-size: 12px; color: var(--ink); position: relative; z-index: 2;
-}
-.rework-ico { color: var(--danger); font-weight: 700; }
-.rework-txt { flex: 0 1 auto; }
-.rework-bar b { color: var(--danger); }
-.rework-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
-.rework-why { flex: 1 1 260px; text-align: right; font-size: 10.5px; color: var(--muted); }
-.rework-panel {
-  margin: 6px 16px 0; padding: 6px 10px; background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; position: relative; z-index: 2; max-height: 46vh; overflow: auto;
-}
-.rework-row { display: flex; align-items: center; gap: 10px; padding: 7px 2px; border-bottom: 1px dashed var(--border); flex-wrap: wrap; }
-.rework-row:last-of-type { border-bottom: none; }
-.rework-main { flex: 1 1 320px; min-width: 0; }
-.rework-title { font-size: 12.5px; font-weight: 600; }
-.rework-id { margin-left: 7px; font-size: 10.5px; color: var(--muted); font-weight: 400; }
-.rework-reason { margin-top: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.55; }
-.rework-reason.missing { color: var(--warning); }
-.rework-age { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-.rework-row .ok, .rework-row .ghost { font-size: 11.5px; padding: 3px 9px; flex: 0 0 auto; }
-.rework-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--muted); }
 
 /* 归档区按状态快选（2026-10-17 第 1 条）：一行工具条，位置固定在归档列表上方。
    ⚠ 与 .archive-hint 一样带 z-index —— 看板是 position 定位的，不加就被压在下面。 */
