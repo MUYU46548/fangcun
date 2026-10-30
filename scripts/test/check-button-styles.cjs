@@ -150,7 +150,13 @@ function main() {
     process.exit(1)
   }
   const tpl = srcTags.slice(tplStart, tplEnd)
-  const style = src.slice(styleStart, styleEnd)
+  // 2026-10-30：样式可能内联，也可能用 <style src="..."> 外置（App.vue 的全局样式已外置）。
+  // 外置就顺着 src 把那份 CSS 读进来 —— 否则守卫会把"样式全在"误判成"一个选择器都没有"。
+  const styleTag = src.slice(styleStart, styleEnd)
+  const srcAttr = /<style[^>]*\bsrc\s*=\s*["']([^"']+)["']/.exec(styleTag)
+  const style = srcAttr
+    ? fs.readFileSync(path.resolve(path.dirname(FILE), srcAttr[1]), 'utf-8')
+    : styleTag
 
   // 样式表选择器清单
   const selectors = []

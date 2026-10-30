@@ -20,6 +20,9 @@ const fs = require('fs')
 const path = require('path')
 
 const APP = path.resolve(__dirname, '..', '..', 'desktop', 'src', 'renderer', 'App.vue')
+// 2026-10-30：全局样式已从 App.vue 外置到 styles/app.css（<style src>）——
+// 令牌仍在同一份文件里，守卫只是把两处拼起来读；**断言一条没放宽**。
+const APP_CSS = path.resolve(__dirname, '..', '..', 'desktop', 'src', 'renderer', 'styles', 'app.css')
 
 let pass = 0
 let fail = 0
@@ -47,7 +50,7 @@ function contrast(a, b) {
 const AA = 4.5
 
 // ── 解析令牌 ──────────────────────────────────────────────────────────
-const src = fs.readFileSync(APP, 'utf-8')
+const src = fs.readFileSync(APP, 'utf-8') + '\n' + fs.readFileSync(APP_CSS, 'utf-8')
 
 function parseBlock(re) {
   const m = src.match(re)

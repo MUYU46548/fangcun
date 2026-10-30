@@ -118,7 +118,8 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 //      同名不同义，接错的表现是**白字压浅染底直接消失**（不是"好看不好看"）；
 //   ③ 引用一个**根本不存在的**令牌名 —— CSS 不会报错，元素静默变黑（2026-10-13 踩过同款）。
 {
-  const app = read('src/renderer/App.vue')
+  // 2026-10-30：样式外置后令牌在 styles/app.css 里 —— 两处拼起来读（断言没放宽）
+  const app = read('src/renderer/App.vue') + '\n' + read('src/renderer/styles/app.css')
   const uiDecls = [...app.matchAll(/--(ui-[a-z0-9-]+)\s*:\s*([^;]+);/g)]
   const defined = new Set([...app.matchAll(/--([a-z0-9-]+)\s*:/g)].map((m) => m[1]))
   const map = {}
@@ -194,6 +195,7 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 {
   const cardVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'components', 'ui', 'Card.vue'), 'utf-8')
   const appVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8').replace(/\r\n/g, '\n')
+    + '\n' + fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf-8').replace(/\r\n/g, '\n')
   // ⚠ 只在 `cn(...)` 之后找：文件头注释里也写着历史值（`rounded-[14px]`），
   //   直接全文匹配会先命中注释 —— 判据抓错对象，绿红都不可信。
   const classStr = cardVue.slice(cardVue.indexOf('cn('))
@@ -243,7 +245,7 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 // 于是每新增一块表单就漏一次 —— 模型通道那四个框、模型单价那三个框都裸奔过（浏览器默认样式）。
 // 暮雨原话：「这个问题在整个项目里应该出现过三次以上了，说明没吸取教训」。
 // 所以把"基线存在、且只含外观不含布局"钉成断言，而不是再靠人记得补。
-const appSrc = read('src/renderer/App.vue').replace(/\r\n/g, '\n')
+const appSrc = (read('src/renderer/App.vue') + '\n' + read('src/renderer/styles/app.css')).replace(/\r\n/g, '\n')
 const BASE_SEL = ":where(input:not([type='checkbox']):not([type='radio']):not([type='file'])"
 /** 从源码里抠出基线规则体（用选择器前缀定位，取到第一个 `}`） */
 function pickBaseRule(src) {
