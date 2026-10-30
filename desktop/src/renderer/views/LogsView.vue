@@ -198,9 +198,9 @@
             <span class="lg-box-count">{{ log.attached.length }} 条</span>
             <span v-if="logGroupStat(log)" class="lg-box-stat">{{ logGroupStat(log) }}</span>
             <span class="lg-box-grow"></span>
-            <button class="ghost lg-bind" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
+            <button v-if="log.status !== 'archived'" class="ghost lg-bind" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
               @click="openLogAttach(log)">改绑定</button>
-            <button class="ghost lg-done"
+            <button v-if="log.status !== 'archived'" class="ghost lg-done"
               title="主日志 + 全部附属一起完成（已完成/已归档的跳过；保留天数用默认值）"
               @click="completeLogGroupItem(log)">✅ 全组完成</button>
             <button class="ghost lg-prompt"
