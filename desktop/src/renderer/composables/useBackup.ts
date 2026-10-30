@@ -16,7 +16,7 @@ export interface UseBackupOptions {
   toast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }
 
-export function useBackup(opts: UseBackupOptions) {
+function createBackup(opts: UseBackupOptions) {
   const toast = opts.toast
   // ── 备份 v2（WebDAV + 静默调度 + 可验证恢复） ────────────────────────
 
@@ -574,6 +574,16 @@ export function useBackup(opts: UseBackupOptions) {
     }
   }
 
+  /** 最近一次备份的产物（路径 + 大小）—— 顶栏备份后、设置页要能"定位到那个文件" */
+  const backupInfo = ref<{ path: string; sizeKB: number } | null>(null)
+
+  async function openBackupFolder(): Promise<void> {
+    const p = backupInfo.value?.path
+    if (!p) { await bkOpenDir(); return }
+    const dir = p.replace(/[\\/][^\\/]*$/, '')
+    const r: any = await window.tegula.launchpadOpenFolder(dir)
+    if (r && r.ok === false) bkMsg.value = '打开目录失败：' + (r.error || '')
+  }
   onUnmounted(() => {
     if (bkUnsub) { try { bkUnsub() } catch { /* ignore */ } ; bkUnsub = null }
   })
@@ -581,4 +591,19 @@ export function useBackup(opts: UseBackupOptions) {
   return {
     bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile
   }
+}
+
+/**
+ * 2026-10-30：改成**模块级单例**。
+ * 原因：备份这块状态有两个使用者 —— App（顶栏备份指示灯 / 工具提示）与设置页「备份」页签。
+ * 传 50 个 props 既难维护又容易漏；改成"第一次调用创建、之后共用"，两边拿到的是同一组 ref。
+ * ⚠ 因此 `opts` 只在**首次**调用时生效（toast 注入要在 App setup 里先发生）。
+ */
+let store: ReturnType<typeof createBackup> | null = null
+
+export function useBackup(opts?: UseBackupOptions) {
+  if (!store) {
+    store = createBackup(opts || { toast: (m: string) => console.warn('[backup]', m) })
+  }
+  return store
 }
