@@ -1685,10 +1685,10 @@ contextBridge.exposeInMainWorld('tegula', {
       pool: {
         budget: 100,
         items: [
-          { eid: 'rice-task-k1', title: '要做的功能', origin: 'task:task-k1', R: 10, I: 3, C: 0.95, E_days: 3, E_cost: 85, evidence: '亲口要', by: 'hermes 2026-10-29', note: '每周省三次手工', verdict: '有效', decisionId: 'D-001' },
-          { eid: 'rice-task-k2', title: '没写理由就做了', origin: 'task:task-k2', R: 8, I: 2, C: 0.85, E_days: 2, E_cost: 10, evidence: '实测踩过', by: 'hermes 2026-10-29', note: '', verdict: '有效', decisionId: 'D-002' },
-          { eid: 'rice-ext-c1', title: '听起来很酷的东西', origin: 'external:c1', R: 2, I: 0.5, C: 0.6, E_days: 8, E_cost: 30, evidence: '纯直觉', by: 'hermes 2026-10-29', note: '听起来很酷，但没人要', verdict: 'CUT', decisionId: 'D-003' },
-          { eid: 'rice-task-p1', title: '还没拍板的', origin: 'task:task-p1', R: 5, I: 1, C: 0.7, E_days: 4, E_cost: 5, evidence: 'agent 共识', by: 'hermes 2026-10-29', note: '', verdict: '', decisionId: '' },
+          { eid: 'rice-task-k1', title: '要做的功能', origin: 'task:task-demo-001', R: 10, I: 3, C: 0.95, E_days: 3, E_cost: 85, evidence: '亲口要', by: 'hermes 2026-10-29', note: '每周省三次手工', verdict: '有效', decisionId: 'D-001', project: 'demo' },
+          { eid: 'rice-task-k2', title: '没写理由就做了', origin: 'task:task-demo-002', R: 8, I: 2, C: 0.85, E_days: 2, E_cost: 10, evidence: '实测踩过', by: 'hermes 2026-10-29', note: '', verdict: '有效', decisionId: 'D-002', project: 'ghost-proj' },
+          { eid: 'rice-ext-c1', title: '听起来很酷的东西', origin: 'external:c1', R: 2, I: 0.5, C: 0.6, E_days: 8, E_cost: 30, evidence: '纯直觉', by: 'hermes 2026-10-29', note: '听起来很酷，但没人要', verdict: 'CUT', decisionId: 'D-003', project: '' },
+          { eid: 'rice-task-p1', title: '还没决定的', origin: 'task:task-demo-003', R: 5, I: 1, C: 0.7, E_days: 4, E_cost: 5, evidence: 'agent 共识', by: 'hermes 2026-10-29', note: '', verdict: '', decisionId: '', project: '' },
         ],
       },
     }

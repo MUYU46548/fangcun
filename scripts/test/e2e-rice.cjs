@@ -241,12 +241,12 @@ console.log('\n== ④b 容量护栏 / 立场句 / 为什么做为什么砍 / 重
   const why = R.riceWhyReview(pool2)
   check('★★ 做/砍分两栏（分数只是入口，理由逐条）', why.keep.length === 2 && why.cut.length === 1,
     JSON.stringify([why.keep.length, why.cut.length]))
-  check('★★ 拍板了但没写理由 → 点名（说不清为什么就是没拍板）', why.missingWhy === 1, String(why.missingWhy))
-  check('  未拍板的单独计数', why.pending === 1, String(why.pending))
-  check('  文案同时说三件事（拍板数 / 缺理由 / 未拍板）',
-    why.text.indexOf('已拍板 3') >= 0 && why.text.indexOf('没写理由') >= 0 && why.text.indexOf('没拍板') >= 0, why.text)
-  check('  空池 → 说「还没有拍板记录」，不吐空串',
-    R.riceWhyReview({ budget: 0, items: [] }).text === '还没有拍板记录')
+  check('★★ 决定了但没写理由 → 点名（说不清为什么就是没决定）', why.missingWhy === 1, String(why.missingWhy))
+  check('  未决定的单独计数', why.pending === 1, String(why.pending))
+  check('  文案同时说三件事（决定数 / 缺理由 / 未决定）',
+    why.text.indexOf('已决定 3') >= 0 && why.text.indexOf('没写理由') >= 0 && why.text.indexOf('未决定') >= 0, why.text)
+  check('  空池 → 说「还没有决定记录」，不吐空串',
+    R.riceWhyReview({ budget: 0, items: [] }).text === '还没有决定记录')
 }
 
 
@@ -372,7 +372,7 @@ function checks() {
   const app = read('desktop/src/renderer/App.vue')
   check('项目页第 7 种摆法注册（PV_VIEWS 含 rice）', /\['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice'\]/.test(app))
   check('★ 持久化白名单含 rice（忘了就会重启退回项目墙）', /fc_pv_view === 'rice'/.test(app))
-  check('视图选项有入口 + 文案', /v: 'rice', label: '▦ 需求矩阵'/.test(app))
+  check('视图选项有入口 + 文案', /v: 'rice', label: '▦ 需求优先级矩阵'/.test(app))
 
   const preload = read('desktop/src/preload/index.ts')
   check('preload 暴露 riceGet/riceUpsert/riceDecide/riceSetBudget',

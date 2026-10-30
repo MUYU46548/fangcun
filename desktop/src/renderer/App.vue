@@ -1233,6 +1233,8 @@
       <RiceMatrixView
         v-else-if="pvView === 'rice'"
         :toast="showToast"
+        :tasks="tasks"
+        :projects="projects"
       />
 
       <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）══════════════
@@ -2876,7 +2878,7 @@
         <div v-if="!planDetail && !planCreating">
           <div class="hint" v-if="planListBusy">读取中…</div>
           <div class="hint" v-else-if="!planList.length">
-            这个项目还没有规划——点下面「＋ 新建规划」：目标、里程碑、要拍板的决策点一次写清，
+            这个项目还没有规划——点下面「＋ 新建规划」：目标、里程碑、要决定的决策点一次写清，
             决策点逐个选定后规划自动转「进行中」。
           </div>
           <div class="plan-row" v-for="t in planList" :key="t.fm.id" :data-plan-id="t.fm.id">
@@ -2920,7 +2922,7 @@
           <label>里程碑（每行一条，可空；格式 名称|截止，截止可省）</label>
           <textarea v-model="planForm.milestones" rows="2" placeholder="设计稿定稿|2026-10-20&#10;发版"></textarea>
           <template v-for="(dp, i) in planForm.dps" :key="'dpf' + i">
-            <label>决策点 {{ i + 1 }} · 要拍板的问题 *</label>
+            <label>决策点 {{ i + 1 }} · 要决定的问题 *</label>
             <input v-model="dp.question" placeholder="例：端口模型走哪版？" />
             <label>选项（每行一个）*</label>
             <textarea v-model="dp.options" rows="2" placeholder="端口=配置项&#10;端口=观测结果"></textarea>
@@ -3256,6 +3258,7 @@ import { readUiPref, saveUiPref } from './prefs'
 import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import { useNotifications } from './composables/useNotifications'
+import { useBoardColumns } from './composables/useBoardColumns'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -3282,7 +3285,7 @@ import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
-import { buildProjectGroups, toggleCollapsed, isCollapsed } from '../shared/grouping'
+import { toggleCollapsed, isCollapsed } from '../shared/grouping'
 // 同步按钮的阶段/秒数文案是纯函数（shared/syncPhase.ts）—— 放在 shared 里才能喂假秒数断言，
 // 不用在测试里真等 15 秒去验"网络慢"那一档。
 import { syncCapsuleText, syncDoneText, syncPhaseLabel, isSyncPhase } from '../shared/syncPhase'
@@ -4504,7 +4507,7 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     // 「对不上」不是人话，统一叫「状态提醒」）
     { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
-    { v: 'rice', label: '▦ 需求矩阵', hint: '按 RICE 打分排需求：横轴成本、纵轴得分、气泡大小=使用频次；手改分项即时重排，拍板导出到决策卡（零网络）' },
+    { v: 'rice', label: '▦ 需求优先级矩阵', hint: '按价值与成本排需求：横轴成本、纵轴得分、气泡大小=使用频次；手改分项即时重排，结论导出到决策卡（零网络）' },
   ]
   return []
 })
@@ -5392,43 +5395,6 @@ function normProject(p: any): string {
 }
 
 // filteredTasks defined after archiveTask below
-
-const columns = computed(() => {
-  const filtered = filteredTasks.value
-  const cols: Record<string, Task[]> = {}
-
-  if (groupMode.value === 'status') {
-    STATUSES.forEach(s => (cols[s] = []))
-    filtered.forEach(t => {
-      const k = t.status || '草稿'
-      if (!cols[k]) cols[k] = []
-      cols[k].push(t)
-    })
-    return STATUSES.map(s => ({ key: s, label: s, tasks: cols[s] || [] }))
-  }
-
-  if (groupMode.value === 'priority') {
-    const groups: Record<string, Task[]> = {}
-    filtered.forEach(t => {
-      const k = localPriority(t.priority)
-      if (!groups[k]) groups[k] = []
-      groups[k].push(t)
-    })
-    // 已识别优先级固定三列；无法识别的值兜底成「其他」一列。
-    // 早期这里用 high/normal/low 作 key，而数据里是中文，导致所有有优先级的任务在
-    // 「按优先级」视图下集体消失。
-    const cols = taskPriorities.value.map(p => ({ key: p, label: p + '优先级', tasks: groups[p] || [] }))
-    const others = Object.keys(groups).filter(k => !taskPriorities.value.includes(k))
-    if (others.length) {
-      cols.push({ key: '其他', label: '其他优先级', tasks: others.flatMap(k => groups[k]) })
-    }
-    return cols
-  }
-
-  // 按项目：规则抽到 shared/grouping.ts（纯逻辑，可脚本断言）；标签解析成**项目名**，
-  // 不再把 fangcun-base 这种内部 id 直接当标题（用户 2026-09-25：「看了等于没看」）。
-  return buildProjectGroups(filtered as any, projectNameOf)
-})
 
 /** 项目 id → 显示名（找不到就回退 id，绝不留空标题） */
 function projectNameOf(id: string): string {
@@ -6702,12 +6668,15 @@ async function forceCloseTask(t: Task, status: '完成' | '驳回') {
 }
 
 async function restoreTask(t: Task) {
+  const wasRejected = t.status === '驳回' || !!String((t as any).reject_reason || (t as any).reject_at || '').trim()
   if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态；若已归档，会一并移回活跃区。`)) return
   const snap = snapOfTask(t.id)
   const result = await window.tegula.unarchiveTask(t.id)
   if (result.ok) {
     previewTask.value = null
-    showToast('已还原', 'success')
+    showToast(wasRejected
+      ? '已退回待办：agent 下次取活会先读到驳回理由并优先返工'
+      : '已还原', 'success')
     loadAll()
     if (snap) {
       offerUndo(`已退回「${t.title}」`, async () => {
@@ -6944,6 +6913,18 @@ const filteredTasks = computed(() => {
     result = result.filter(t => ids.has(t.id))
   }
   return applySortMode(result)
+})
+
+// 看板列（2026-10-30 · 渲染层拆分第二批第一刀）：
+// 分组规则已抽到 shared/grouping.ts::buildBoardColumns（纯函数，e2e-grouping 断言），
+// 这里只把 ref 接进去。⚠ 必须放在 filteredTasks 之后 —— 传的是 ref 本体，
+// 在它初始化前调用会撞 TDZ（整块看板直接渲染不出来）。模板搬迁（views/BoardView.vue）是下一刀。
+const columns = useBoardColumns({
+  tasks: filteredTasks,
+  mode: groupMode,
+  statuses: STATUSES,
+  priorities: taskPriorities,
+  nameOf: projectNameOf,
 })
 
 /**
@@ -8023,10 +8004,10 @@ const visibleLogs = computed(() => filteredLogs.value.filter((l: any) => !logNes
 
 // ── 按状态分区（2026-09-28）────────────────────────────────────────────
 const LOG_GROUP_DEFS = [
-  // 2026-10-30 暮雨：「我根本不知道这玩意到底派没派」——
-  // 把两个分区的语义直接写在分区头上，别让人靠记忆区分。
-  { key: 'running', label: '进行中', hint: '= 你已经派给 AI（只有你手动点「标为进行中」才会进来）' },
-  { key: 'active', label: '待处理', hint: '还没派出去（要派给 AI 就点那张卡的「▶ 标为进行中」）' },
+  // 2026-10-30 暮雨第 2 轮：「分区头别写解释」—— 用户原话「直接什么都不写都更好，
+  // 写了反而画蛇添足」。状态名本身已经够清楚，说明只在第一次用时靠帮助页。
+  { key: 'running', label: '进行中', hint: '' },
+  { key: 'active', label: '待处理', hint: '' },
   { key: 'completed', label: '已完成', hint: '' },
   { key: 'archived', label: '已归档', hint: '' },
 ] as const

@@ -22,7 +22,7 @@
   ⚠ 零网络：只走 window.tegula 上的 rice 系列通道（本地文件 IPC）。
 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   RICE_EVIDENCE_LEVELS,
   RICE_EVIDENCE_TO_C,
@@ -37,13 +37,15 @@ import {
   riceGeometry,
   riceSummary,
   scoreOf,
+  splitOrigin,
   type RiceItem,
   type RiceLevel,
   type RicePool,
 } from '../../shared/rice'
 import { toPlain } from '../../shared/plain'
+import { copyText } from '../../shared/clipboard'
 
-const props = defineProps<{ toast?: (m: string) => void }>()
+const props = defineProps<{ toast?: (m: string) => void; tasks?: any[]; projects?: any[] }>()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -52,12 +54,75 @@ const poolPath = ref('')
 const budget = ref(0)
 const items = ref<RiceItem[]>([])
 const filter = ref<'all' | 'P0' | 'P1' | 'P2' | 'CUT' | 'pending'>('all')
+/** 项目切换（2026-10-30 暮雨第 5 条：「完全不能按项目切换吗？」） */
+const projectFilter = ref<string>('all')
 const highlight = ref('')
 const hover = ref('')
+// 筛选/项目一变，右侧明细里的旧条目就不该继续挂着（否则会出现"筛了 P1，明细还是 P0"）
+watch([filter, projectFilter], () => { highlight.value = ''; hover.value = '' })
 const tip = (m: string) => { if (props.toast) props.toast(m) }
 
+/** 任务 id → 任务（只用于把 origin 映射回项目；读不到就归「未归属」） */
+const taskMap = computed(() => {
+  const m = new Map<string, any>()
+  for (const t of props.tasks || []) if (t && t.id) m.set(String(t.id), t)
+  return m
+})
+
+function normProj(p: any): string {
+  if (!p) return ''
+  return Array.isArray(p) ? String(p[0] || '') : String(p)
+}
+
+/** 这条需求属于哪个项目：优先用主进程补的只读字段，其次从任务缓存推；都没有 = 未归属 */
+function projectOf(it: RiceItem): string {
+  const direct = normProj((it as any).project)
+  if (direct) return direct
+  const o = splitOrigin(it.origin || '')
+  if (!o || o.type !== 'task') return ''
+  const t = taskMap.value.get(o.id)
+  if (!t) return ''
+  return normProj(t.project ?? t.fm?.project)
+}
+
+const projectName = (id: string): string => {
+  if (!id) return '未归属'
+  const p = (props.projects || []).find((x: any) => String(x.id) === id)
+  return p ? String(p.name || p.id) : id
+}
+
+const projectOptions = computed(() => {
+  const m = new Map<string, string>()
+  for (const p of props.projects || []) {
+    if (p && p.id) m.set(String(p.id), String(p.name || p.id))
+  }
+  for (const it of items.value) {
+    const pid = projectOf(it)
+    if (pid && !m.has(pid)) m.set(pid, pid)
+  }
+  return [
+    { id: 'all', name: '全部项目' },
+    ...Array.from(m, ([id, name]) => ({ id, name })),
+    { id: '__none__', name: '未归属' },
+  ]
+})
+
+/** 当前项目范围（项目切换后才算「这一屏」） */
+const scopedItems = computed(() => items.value.filter((it) => {
+  const pid = projectOf(it)
+  if (projectFilter.value === 'all') return true
+  if (projectFilter.value === '__none__') return !pid
+  return pid === projectFilter.value
+}))
+
+const projectByEid = computed(() => {
+  const m = new Map<string, string>()
+  for (const it of items.value) m.set(it.eid, projectOf(it))
+  return m
+})
+
 function poolOf(): RicePool {
-  return { budget: budget.value, items: items.value }
+  return { budget: budget.value, items: scopedItems.value }
 }
 
 async function load() {
@@ -160,32 +225,32 @@ function today() {
 
 /** 拍板是**用户动作**：页面按钮 = 用户点，agent 不代拍 */
 async function decide(it: RiceItem, cut: boolean) {
-  if (cut && !confirm(`把「${it.title}」记为 CUT（砍掉）？\n会在 decisions.md 记一张「已撤销」的决策卡，池里留痕不删。`)) return
+  if (cut && !confirm(`把「${it.title}」记为「砍掉」？\n会在 decisions.md 记一张「已撤销」的决策卡，池里留痕不删。`)) return
   const status = cut ? '已撤销' : '有效'
   const r: any = await (window as any).tegula.riceDecide(
     toPlain([{ eid: it.eid, 状态: status }]),
     toPlain({ batch: 'rice-export-' + today().replace(/-/g, '') })
   )
-  if (!r) return tip('落账失败：没有返回结果')
+  if (!r) return tip('记录失败：没有返回结果')
   if (r.ok === false && !(r.results && r.results.some((x: any) => x.ok))) {
-    return tip(String(r.error || r.results?.[0]?.error || '落账失败'))
+    return tip(String(r.error || r.results?.[0]?.error || '记录失败'))
   }
   if (r.pool) {
     budget.value = Number(r.pool.budget) || 0
     items.value = Array.isArray(r.pool.items) ? r.pool.items : []
   }
   const one = (r.results || [])[0]
-  tip(one && one.ok ? `已落账 ${one.decisionId}${one.exists ? '（已存在，幂等）' : ''}` : String(one?.error || '落账失败'))
+  tip(one && one.ok ? `已记进决策卡 ${one.decisionId}${one.exists ? '（已存在，幂等）' : ''}` : String(one?.error || '记录失败'))
 }
 
 const levels = computed(() => levelOfMap(items.value))
 const summary = computed(() => riceSummary(poolOf()))
-// 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 拍板却没写理由的要被点名（原型第 3 条设计判断）
+// 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 定了却没写理由的要被点名（原型第 3 条设计判断）
 const why = computed(() => riceWhyReview(poolOf()))
 
-/** 全池按总分降序；总分算不出的排最后（不拿 0 假装有分） */
+/** 当前项目范围内的条目按总分降序；总分算不出的排最后（不拿 0 假装有分） */
 const allRows = computed(() => {
-  return items.value
+  return scopedItems.value
     .map((it) => ({ it, s: scoreOf(it), level: (levels.value[it.eid] || 'P2') as RiceLevel }))
     .sort((a, b) => {
       const av = Number.isFinite(a.s) ? a.s : -Infinity
@@ -194,6 +259,12 @@ const allRows = computed(() => {
       return a.it.eid < b.it.eid ? -1 : 1
     })
     .map((r, i) => ({ ...r, rank: i + 1 }))
+})
+
+const itemByEid = computed(() => {
+  const m = new Map<string, RiceItem>()
+  for (const it of items.value) m.set(it.eid, it)
+  return m
 })
 
 /** # 列与气泡里的编号必须是同一套（原型：气泡编号 = 表格排名） */
@@ -228,7 +299,7 @@ const kpis = computed(() => {
   const over = summary.value.guard === 'over'
   const tight = summary.value.guard === 'tight'
   return [
-    { key: 'total', label: '候选需求', val: items.value.length, unit: '项', foot: '进入本轮评估池', accent: false, over: false, tight: false },
+    { key: 'total', label: '候选需求', val: scopedItems.value.length, unit: '项', foot: projectFilter.value === 'all' ? '进入本轮评估池' : '当前项目范围内', accent: false, over: false, tight: false },
     { key: 'p0', label: '入选 P0', val: p0, unit: '项', foot: '等级 = 池内相对位置（前 20%）', accent: true, over: false, tight: false },
     { key: 'days', label: 'P0 合计成本', val: summary.value.p0Days, unit: '人天', foot: '按 E天 直接加总，不折算', accent: false, over: false, tight: false },
     {
@@ -261,20 +332,20 @@ const verdicts = computed(() => {
 
 const filterChips = computed(() => {
   const counts: Record<string, number> = {
-    all: items.value.length,
+    all: scopedItems.value.length,
     P0: allRows.value.filter((r) => r.level === 'P0').length,
     P1: allRows.value.filter((r) => r.level === 'P1').length,
     P2: allRows.value.filter((r) => r.level === 'P2').length,
     CUT: allRows.value.filter((r) => r.level === 'CUT').length,
-    pending: items.value.filter((it) => !it.verdict).length,
+    pending: scopedItems.value.filter((it) => !it.verdict).length,
   }
   const list: Array<{ v: typeof filter.value; label: string }> = [
     { v: 'all', label: '全部' },
-    { v: 'P0', label: 'P0' },
-    { v: 'P1', label: 'P1' },
-    { v: 'P2', label: 'P2' },
-    { v: 'CUT', label: 'CUT' },
-    { v: 'pending', label: '未拍板' },
+    { v: 'P0', label: 'P0 立即启动' },
+    { v: 'P1', label: 'P1 排队候补' },
+    { v: 'P2', label: 'P2 有余量再说' },
+    { v: 'CUT', label: 'CUT 砍掉' },
+    { v: 'pending', label: '未决定' },
   ]
   return list.map((x) => ({ ...x, count: counts[x.v] || 0 }))
 })
@@ -284,7 +355,17 @@ const H = 460
 const PAD = 46
 const innerW = W - PAD * 2
 const innerH = H - PAD * 2
-const geo = computed(() => riceGeometry(items.value, W, H, PAD))
+const geoAll = computed(() => riceGeometry(items.value, W, H, PAD))
+/** 散点只画当前项目范围内的条目；坐标轴仍按全池算，换项目不会把图缩成一条线 */
+const geo = computed(() => {
+  const g = geoAll.value
+  if (projectFilter.value === 'all') return g
+  const points = g.points.filter((p) => {
+    const pid = projectByEid.value.get(p.eid) || ''
+    return projectFilter.value === '__none__' ? !pid : pid === projectFilter.value
+  })
+  return { ...g, points }
+})
 const splitPx = computed(() => {
   const g = geo.value
   return g.maxX > 0 ? PAD + (g.splitX / g.maxX) * innerW : W / 2
@@ -327,8 +408,15 @@ const drawPoints = computed(() => {
  * 不夹的话半个气泡跑到框外、编号也看不见（2026-10-30 截图目检当场抓到）。
  * 原型也是这么做的（`Math.min(sy, y1 - 15)`）。
  */
+/** 筛选 chip 必须同时作用于**散点和表格**（2026-10-30 暮雨第 5 条：点 P1/P2 没反应） */
+function pointMatchesFilter(p: { eid: string; level: RiceLevel }): boolean {
+  if (filter.value === 'all') return true
+  if (filter.value === 'pending') return !itemByEid.value.get(p.eid)?.verdict
+  return p.level === filter.value
+}
+
 const bubbles = computed(() =>
-  drawPoints.value.map((p) => ({
+  drawPoints.value.filter(pointMatchesFilter).map((p) => ({
     ...p,
     cx: Math.min(Math.max(p.x, PAD + p.r), W - PAD - p.r),
     cy: Math.min(Math.max(p.y, PAD + p.r), H - PAD - p.r),
@@ -339,9 +427,72 @@ const activeEid = computed(() => highlight.value || hover.value)
 const detail = computed(() => allRows.value.find((r) => r.it.eid === activeEid.value) || null)
 
 const levelCls: Record<string, string> = { P0: 'lv0', P1: 'lv1', P2: 'lv2', CUT: 'lvx' }
+const ORIGIN_LABEL: Record<string, string> = { task: '任务', idea: '想法', todo: '待办', external: '外部' }
 const coord = (n: number) => Math.round(n * 10) / 10
 const scoreText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
+/** 来源显示成「任务 · id」而不是一串 `task:xxx`（用户原话：根本看不懂每一条是做什么的） */
+function originText(it: RiceItem): string {
+  const o = splitOrigin(it.origin || '')
+  if (!o) return it.origin || '—'
+  return `${ORIGIN_LABEL[o.type] || o.type} · ${o.id}`
+}
+/** 结论是用户点出来的；界面只说「采纳 / 砍掉 / 未决定」，不把内部枚举直接印出来 */
+function verdictText(v: string): string {
+  if (v === '有效') return '采纳'
+  if (v === 'CUT') return '砍掉'
+  return '未决定'
+}
+
+/**
+ * 开工交接单（2026-10-30 暮雨第 7 条）。
+ *
+ * 矩阵现在只回答「先做哪个」，不回答「怎么把它做对」。这张单子把
+ * grill-me → to-spec → to-tickets → TDD/双路 review 的顺序写成一段可直接粘给 agent 的要求：
+ * 先问清楚，再写规格，再拆成「能验收的一件事」，最后用测试和两路 review 把合格线提前钉死。
+ * 不自动跑、不改状态 —— 仍然是用户点一下复制。
+ */
+function kickoffText(it: RiceItem): string {
+  const s = scoreOf(it)
+  const level = levels.value[it.eid] || 'P2'
+  return [
+    `# 需求开工交接单：${it.title}`,
+    '',
+    `- 项目：${projectName(projectOf(it))}`,
+    `- 来源：${originText(it)}`,
+    `- 当前判断：得分 ${scoreText(s)}（${level}）· 结论 ${verdictText(it.verdict)}`,
+    `- 已知证据：${it.evidence || '（没写）'}`,
+    `- 已知成本：${daysText(it.E_days)} 天 · ¥${it.E_cost}`,
+    `- 已知备注：${it.note || '（没写）'}`,
+    '',
+    '## 0. 先问清楚（不要直接开做）',
+    '请先只做澄清，逐条回答或追问我；答不清就不要进入实现：',
+    '1. 这件事的“完成”是什么样？谁验收？',
+    '2. 明确不做什么（非目标）？',
+    '3. 现在的证据够吗？缺哪一条会推翻整个判断？',
+    '4. 最坏情况 / 失败样例是什么？',
+    '5. 硬约束有哪些（时间、预算、兼容、数据、不可逆操作）？',
+    '',
+    '## 1. 写成规格（to-spec）',
+    '把澄清结果整理成一页：目标 / 非目标 / 用户场景 / 输入输出 / 边界条件 / 验收线。',
+    '',
+    '## 2. 拆成“能验收的一件事”（to-tickets）',
+    '每个工单必须包含：能独立验收的行为 + 验收命令或检查 + 失败样例。',
+    '拆不出验收线，就继续拆；不要把几件事糊成一张大工单。',
+    '',
+    '## 3. 施工与验收（TDD + 双路 review）',
+    '先写失败测试 / 验收脚本，再实现；完成后走两路 review：',
+    '一路看行为与测试是否真覆盖，一路看回归、安全与边界。没有验收证据不算完成。',
+    '',
+    '## 4. 交回方寸',
+    '把规格、工单、验收结果写进任务卡或执行日志；不要改这里的分数（除非有新证据）。',
+  ].join('\n')
+}
+
+async function copyKickoff(it: RiceItem): Promise<void> {
+  const r = await copyText(kickoffText(it))
+  tip(r.ok ? '已复制开工交接单（先问清楚 → 规格 → 能验收的工单 → TDD/双路 review）' : `复制失败：${r.error || '未知原因'}`)
+}
 </script>
 
 <template>
@@ -349,11 +500,19 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
     <div class="rice-head">
       <div class="rice-head-main">
         <div class="rice-eyebrow">价值判断 · 路线图优先级</div>
-        <div class="rice-ttl">需求优先级 <span class="rice-ttl-dim">RICE 决策矩阵</span></div>
+        <div class="rice-ttl">需求优先级矩阵</div>
         <div class="rice-sub">{{ summary.text || '池里还没有条目' }}</div>
       </div>
-      <button class="ghost rice-refresh" :disabled="loading || saving" @click="load">
-        {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
+      <div class="rice-head-tools">
+        <label class="rice-projsel" title="按项目查看这张矩阵（项目从需求来源的任务卡推导）">
+          <span>项目</span>
+          <select v-model="projectFilter">
+            <option v-for="p in projectOptions" :key="'rp-' + p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </label>
+        <button class="ghost rice-refresh" :disabled="loading || saving" @click="load">
+          {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
+      </div>
     </div>
 
     <!-- 原型里那句写在最显眼处的立场：分数不替你做决定（不许只塞进底部局限列表） -->
@@ -393,14 +552,18 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
         池文件不存在时这里是空的，<b>不是</b>读取失败；灌入后会出现在下方散点与表格里。
       </div>
     </div>
+    <div v-else-if="!scopedItems.length" class="rice-empty">
+      <div>这个项目下还没有需求。</div>
+      <div class="rice-empty-sub">在右上角把「项目」切回「全部项目」，或先把需求挂到这个项目下。</div>
+    </div>
 
     <template v-else>
-      <!-- ① 散点矩阵：横轴成本（天），纵轴 RICE，气泡大小 = 使用频次 -->
+      <!-- ① 散点矩阵：横轴成本（天），纵轴优先级得分，气泡大小 = 使用频次 -->
       <section class="rice-sec">
         <div class="rice-sec-h">
           <span class="rice-no">1</span>
-          <h3>RICE 散点矩阵</h3>
-          <span class="rice-hint">横轴 = 成本（天）　纵轴 = RICE 得分　气泡大小 = 使用频次 R</span>
+          <h3>散点图：成本 × 得分</h3>
+          <span class="rice-hint">横轴 = 成本（天）　纵轴 = 优先级得分　气泡大小 = 使用频次</span>
         </div>
         <div class="rice-panel">
           <div class="rice-chips">
@@ -420,7 +583,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
           </div>
 
           <div class="rice-plotwrap">
-            <svg :viewBox="`0 0 ${W} ${H}`" class="rice-svg" role="img" aria-label="RICE 决策矩阵散点图">
+            <svg :viewBox="`0 0 ${W} ${H}`" class="rice-svg" role="img" aria-label="需求优先级矩阵散点图">
               <!-- 象限底色：相对位置负责解释原因，P 级负责决定顺序 -->
               <rect :x="PAD" :y="PAD" :width="splitPx - PAD" :height="splitPy - PAD" class="rice-quad-fill q-do" />
               <rect :x="splitPx" :y="PAD" :width="W - PAD - splitPx" :height="splitPy - PAD" class="rice-quad-fill q-plan" />
@@ -457,7 +620,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 
               <!-- 轴标题 -->
               <text :x="PAD + innerW / 2" :y="H - 10" class="rice-axis-title" text-anchor="middle">工程成本 E天（越右越贵）</text>
-              <text :x="-(PAD + innerH / 2)" :y="16" transform="rotate(-90)" class="rice-axis-title" text-anchor="middle">RICE 得分（越高越值）</text>
+              <text :x="-(PAD + innerH / 2)" :y="16" transform="rotate(-90)" class="rice-axis-title" text-anchor="middle">优先级得分（越高越值）</text>
 
               <!-- 气泡：编号 = 表格 # 列；点击高亮同行，悬停看明细 -->
               <g v-for="p in bubbles" :key="p.eid" class="rice-pt" :class="[levelCls[p.level], { on: activeEid === p.eid }]"
@@ -465,9 +628,14 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
                 <circle :cx="p.cx" :cy="p.cy" :r="p.r" class="rice-bubble" :class="levelCls[p.level]" />
                 <text v-if="p.r >= 8" :x="p.cx" :y="coord(p.cy + 3.5)" class="rice-bubble-n" :class="levelCls[p.level]"
                   text-anchor="middle">{{ rankOf[p.eid] }}</text>
-                <title>{{ p.title }}｜RICE {{ scoreText(p.score) }}｜{{ p.level }}｜{{ p.quadrant }}</title>
+                <title>{{ p.title }}｜得分 {{ scoreText(p.score) }}｜{{ p.level }}｜{{ p.quadrant }}</title>
               </g>
             </svg>
+
+            <!-- 筛选后没有气泡时明说，不让整块图看起来"坏掉了" -->
+            <div v-if="!bubbles.length" class="rice-plot-empty">
+              当前筛选下没有可画的需求 —— 换「全部」或切回全部项目。
+            </div>
 
             <!-- 悬停/点击明细：不占表格位置，也不弹窗 -->
             <div class="rice-detail" v-if="detail">
@@ -477,17 +645,22 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
                 <span class="rice-badge" :class="levelCls[detail.level]">{{ detail.level }}</span>
               </div>
               <div class="rice-detail-score">
-                <span>RICE</span><b>{{ scoreText(detail.s) }}</b>
-                <span class="rice-detail-formula">R{{ detail.it.R }} × I{{ detail.it.I }} × C{{ detail.it.C }} ÷ E{{ detail.it.E_days }}</span>
+                <span>得分</span><b>{{ scoreText(detail.s) }}</b>
+                <span class="rice-detail-formula">频次 {{ detail.it.R }} × 省工 {{ detail.it.I }} × 信心 {{ detail.it.C }} ÷ 工期 {{ detail.it.E_days }}</span>
               </div>
               <div class="rice-detail-grid">
-                <span>来源 <b>{{ detail.it.origin || '—' }}</b></span>
+                <span>项目 <b>{{ projectName(projectOf(detail.it)) }}</b></span>
+                <span>来源 <b>{{ originText(detail.it) }}</b></span>
                 <span>证据 <b>{{ detail.it.evidence || '—' }}</b></span>
                 <span>成本 <b>{{ daysText(detail.it.E_days) }} 天 · ¥{{ detail.it.E_cost }}</b></span>
-                <span>拍板 <b>{{ detail.it.verdict || '未拍板' }}</b></span>
+                <span>结论 <b>{{ verdictText(detail.it.verdict) }}</b></span>
               </div>
               <div class="rice-detail-note" v-if="detail.it.note">{{ detail.it.note }}</div>
-              <div class="rice-detail-hint">注明：数字只说明相对位置，不替你做决定</div>
+              <div class="rice-detail-hint">
+                注明：数字只说明相对位置，不替你做决定
+                <button class="ghost rice-kick" title="复制一段开工交接单：先问清楚 → 规格 → 能验收的工单 → TDD/双路 review"
+                  @click="copyKickoff(detail.it)">⧉ 复制开工交接单</button>
+              </div>
             </div>
             <div class="rice-detail rice-detail-empty" v-else>
               点气泡或表格行看这一条的四项分与理由；气泡编号就是表格的 # 排名。
@@ -506,7 +679,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
         <div class="rice-sec-h">
           <span class="rice-no">2</span>
           <h3>打分与排序</h3>
-          <span class="rice-hint">总分降序 · 改任一分项立即重算并落盘 · 拍板是用户动作</span>
+          <span class="rice-hint">总分降序 · 改任一分项立即重算并落盘 · 采纳 / 砍掉由你点</span>
         </div>
         <div class="rice-panel">
           <div class="rice-tablewrap">
@@ -514,9 +687,9 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
               <thead>
                 <tr>
                   <th class="rice-th-rank">#</th>
-                  <th>需求</th><th>来源</th>
-                  <th>R 频次</th><th>I 省工</th><th>C 信心</th><th>E 天</th><th>E 元</th>
-                  <th>证据</th><th class="rice-th-score">RICE 总分</th><th>拍板</th>
+                  <th>需求</th><th>项目</th><th>来源</th>
+                  <th>频次 R</th><th>省工 I</th><th>信心 C</th><th>工期 E天</th><th>成本 E元</th>
+                  <th>证据</th><th class="rice-th-score">总分</th><th>结论</th>
                 </tr>
               </thead>
               <tbody>
@@ -528,7 +701,8 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
                     <div class="rice-title-note" v-if="r.it.note">{{ r.it.note }}</div>
                     <div class="rice-eid">{{ r.it.eid }}</div>
                   </td>
-                  <td class="rice-origin">{{ r.it.origin }}</td>
+                  <td class="rice-proj">{{ projectName(projectOf(r.it)) }}</td>
+                  <td class="rice-origin">{{ originText(r.it) }}</td>
                   <td><input class="rice-num" type="number" min="0" step="1" :value="r.it.R"
                     @change="onNum(r.it, 'R', $event)" /></td>
                   <td>
@@ -559,32 +733,32 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
                   </td>
                   <td class="rice-verdict">
                     <template v-if="r.it.verdict">
-                      <span class="rice-vd" :class="{ cut: r.it.verdict === 'CUT' }">{{ r.it.verdict }}</span>
+                      <span class="rice-vd" :class="{ cut: r.it.verdict === 'CUT' }">{{ verdictText(r.it.verdict) }}</span>
                       <span class="rice-did">{{ r.it.decisionId }}</span>
                     </template>
                     <template v-else>
-                      <button class="ghost rice-vbtn" :disabled="saving" @click.stop="decide(r.it, false)">有效</button>
-                      <button class="ghost rice-vbtn cut" :disabled="saving" @click.stop="decide(r.it, true)">CUT</button>
+                      <button class="ghost rice-vbtn" :disabled="saving" @click.stop="decide(r.it, false)">采纳</button>
+                      <button class="ghost rice-vbtn cut" :disabled="saving" @click.stop="decide(r.it, true)">砍掉</button>
                     </template>
                   </td>
                 </tr>
                 <tr v-if="!rows.length">
-                  <td colspan="11" class="rice-none">这个筛选下没有条目（换「全部」看看）</td>
+                  <td colspan="12" class="rice-none">这个筛选下没有条目（换「全部」看看）</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="rice-tbl-foot">
-            <span>Impact：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
-            <span>Confidence：95% 实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
-            <span>Effort：E天 进公式，E元 只作旁注</span>
+            <span>省工：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
+            <span>信心：95% 实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
+            <span>工期 E天 进公式，成本 E元 只作旁注</span>
           </div>
         </div>
       </section>
 
       <!-- ③ 为什么做，为什么砍（原型第 3 条设计判断）：
-           分数只是入口，理由逐条写；拍板却没写理由的条目必须被点名 —— 那就是没拍板。 -->
-      <section class="rice-sec" v-if="items.length">
+           分数只是入口，理由逐条写；定了却没写理由的条目必须被点名 —— 那就是没决定。 -->
+      <section class="rice-sec" v-if="scopedItems.length">
         <div class="rice-sec-h">
           <span class="rice-no">3</span>
           <h3>为什么做，为什么砍</h3>
@@ -593,15 +767,15 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
         <div class="rice-why">
           <div class="rice-why-sig">
             <div class="rice-why-role">决策记录</div>
-            <div class="rice-why-nm">本轮 RICE 评估</div>
-            <div class="rice-why-mt">RICE 只把判断显性化，<br />不替你做决定。<br />真正的取舍在分数之外。</div>
+            <div class="rice-why-nm">本轮评估</div>
+            <div class="rice-why-mt">分数只把判断显性化，<br />不替你做决定。<br />真正的取舍在分数之外。</div>
             <div class="rice-why-stats">
-              <div class="rice-why-stat"><span>评估池</span><b>{{ items.length }} 项</b></div>
+              <div class="rice-why-stat"><span>评估池</span><b>{{ scopedItems.length }} 项</b></div>
               <div class="rice-why-stat"><span>P0 合计</span><b>{{ summary.p0Days }} 人天</b></div>
-              <div class="rice-why-stat"><span>已拍板</span><b>{{ summary.decided }} 项</b></div>
+              <div class="rice-why-stat"><span>已决定</span><b>{{ summary.decided }} 项</b></div>
               <div class="rice-why-stat"><span>没写理由</span><b :class="{ over: why.missingWhy > 0 }">{{ why.missingWhy }} 项</b></div>
             </div>
-            <div class="rice-why-sig-note">理由空的拍板不算拍板 —— 下次它还会以「听起来很酷」的样子回来。</div>
+            <div class="rice-why-sig-note">没写理由的决定不算决定 —— 下次它还会以「听起来很酷」的样子回来。</div>
           </div>
           <div class="rice-why-body">
             <div class="rice-why-h">为什么做，为什么砍<span class="rice-why-sub">{{ why.text }}</span></div>
@@ -611,7 +785,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
                 <div class="rice-why-row" v-for="r in why.keep" :key="'k' + r.eid">
                   <b>{{ r.title }}</b>
                   <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
-                    {{ r.hasWhy ? r.why : '⚠ 拍板时没写理由 —— 说不清为什么，就是没拍板' }}
+                    {{ r.hasWhy ? r.why : '⚠ 决定时没写理由 —— 说不清为什么，就不算决定' }}
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
                 </div>
@@ -630,7 +804,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
               </div>
             </div>
             <div class="rice-why-empty" v-else>
-              还没有拍板记录 —— 在表格里点「有效 / CUT」，把理由写进备注，这里就是这季度取舍的底稿。
+              还没有决定记录 —— 在表格里点「采纳 / 砍掉」，把理由写进备注，这里就是这季度取舍的底稿。
             </div>
             <div class="rice-verdicts">
               <div v-for="v in verdicts" :key="v.lv" class="rice-vd-block" :class="levelCls[v.lv]">
@@ -651,7 +825,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
     </div>
 
     <div class="rice-foot">
-      <span class="rice-formula">RICE = R × I × C ÷ E</span>
+      <span class="rice-formula">得分 = 频次 × 省工 × 信心 ÷ 工期</span>
       <span>分数只用于同一轮评估内横向比较</span>
     </div>
   </div>
@@ -668,7 +842,10 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 .rice-ttl { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
 .rice-ttl-dim { color: var(--muted); font-weight: 600; }
 .rice-sub { font-size: 12.5px; color: var(--muted); max-width: 720px; line-height: 1.7; }
-.rice-refresh { margin-left: auto; align-self: flex-start; }
+.rice-head-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; align-self: flex-start; }
+.rice-projsel { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.rice-projsel select { padding: 5px 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+.rice-refresh { margin-left: 0; align-self: flex-start; }
 
 .rice-stance {
   margin-top: 14px; display: inline-block;
@@ -741,7 +918,10 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 .rice-size { border: 1.3px solid var(--line-2); border-radius: 50%; display: block; }
 
 /* ── 散点 ─────────────────────────────────────────────── */
-.rice-plotwrap { position: relative; padding-top: 6px; }
+.rice-plotwrap { position: relative; padding-top: 6px; min-height: 460px; }
+/* 筛选后没有气泡：图不能塌成一条线，明说原因 */
+.rice-plot-empty { position: absolute; inset: 36px 12px 12px; display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; color: var(--muted); text-align: center; background: var(--card); pointer-events: none; }
 .rice-svg { width: 100%; height: auto; display: block; }
 .rice-quad-fill { fill: var(--tint-3); }
 .rice-quad-fill.q-do { fill: var(--tint); }
@@ -787,13 +967,15 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 .rice-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
 .rice-detail-grid b { color: var(--ink); font-weight: 600; }
 .rice-detail-note { margin-top: 6px; color: var(--ink); font-size: 12px; line-height: 1.6; }
-.rice-detail-hint { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.rice-detail-hint { margin-top: 6px; font-size: 11px; color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rice-kick { font-size: 11px; padding: 2px 8px; line-height: 1.6; }
 .rice-mx-note { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); line-height: 1.8; }
 .rice-mx-note b { color: var(--ink); font-weight: 600; }
 
 /* ── 表格 ─────────────────────────────────────────────── */
-.rice-tablewrap { overflow: auto; }
-.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1040px; }
+.rice-tablewrap { overflow: auto; min-height: 220px; }
+.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1120px; }
 .rice-table th { text-align: left; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 0 8px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .rice-table td { padding: 8px; border-bottom: 1px solid var(--line-2); text-align: left; vertical-align: middle; }
 .rice-table tbody tr { transition: background .14s; }
@@ -809,6 +991,7 @@ const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 .rice-title { font-weight: 600; font-size: 12.5px; line-height: 1.4; }
 .rice-title-note { font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.45; }
 .rice-eid, .rice-origin { font-size: 10.5px; color: var(--muted); }
+.rice-proj { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .rice-num { width: 56px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); }
 .rice-sel { padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 100px; }
 .rice-score-cell { text-align: right; white-space: nowrap; }

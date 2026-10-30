@@ -71,6 +71,12 @@ export interface RiceItem {
   raw?: Record<string, string>
   /** 未知字段（手写的扩展列）：原样透传，写回时不丢 */
   extra?: Array<{ k: string; v: string }>
+  /**
+   * 这条需求属于哪个项目（只读派生，不落盘）。
+   * 由主进程在 rice:get 时按 origin 真读任务 / 待办 / 想法补上；
+   * 界面不自己猜、也不依赖当前已加载的任务列表。
+   */
+  project?: string
 }
 
 export interface RicePool {
@@ -88,25 +94,25 @@ export const RICE_HEADER = [
 
 /** 界面上与数字一起出现的「它证明不了什么」（R7：只有数字没有局限 = 不合格） */
 export const RICE_LIMITS = [
-  '总分 = R×I×C÷E，由页签现算、不落盘；改任一分项，总分与等级当场重算。',
+  '总分 = 频次 × 省工 × 信心 ÷ 工期，由页面现算、不落盘；改任一分项，总分与等级当场重算。',
   '等级只是「池内相对位置」（P0 = 前 20%，P1 到中位），池子一变等级就变，它不是绝对标准。',
-  '使用频次 R、省手工量 I 都是估数；没有实测来源时，它证明不了"该做"。',
-  '证据等级是 C 的唯一依据：agent 推断上限 0.7，"agent 们都说好"不算证据。',
-  'RICE 只把判断显性化，不替你做决定；真正的取舍在分数之外。',
+  '使用频次、省手工量都是估数；没有实测来源时，它证明不了"该做"。',
+  '证据等级是信心的唯一依据：agent 推断上限 70%，"agent 们都说好"不算证据。',
+  '分数只把判断显性化，不替你做决定；真正的取舍在分数之外。',
 ]
 
 /**
  * 原型里那句写在最显眼处的立场（2026-10-29 暮雨第 1 条）：
- * 「RICE 只把判断显性化，不替你做决定。真正的取舍在分数之外。」
+ * 「分数只把判断显性化，不替你做决定。真正的取舍在分数之外。」
  * 单独成常量、单独渲染 —— 混在 RICE_LIMITS 五条里就没人看得见（而它是最该被看见的一句）。
  */
-export const RICE_STANCE = 'RICE 只把判断显性化，不替你做决定。真正的取舍在分数之外。'
+export const RICE_STANCE = '分数只把判断显性化，不替你做决定。真正的取舍在分数之外。'
 
 /** 原型的重评触发条件：只有一个，不搞一堆阈值 */
 export const RICE_RECHECK = '重评触发：当季容量变动超过 20%，或出现新的实测证据。'
 
 export const RICE_EMPTY_TEXT =
-  '池里还没有条目 —— 用 MCP 工具 rice_pool_upsert 灌入初分（同 eid 重复灌是幂等的）。'
+  '评估池里还没有条目 —— 先把候选需求加进来，再回来看分数与等级。'
 
 // ── 小工具 ────────────────────────────────────────────────────────────
 
@@ -632,10 +638,10 @@ export function riceWhyReview(pool: RicePool): RiceWhyReview {
   const missingWhy = rows.filter((r) => !r.hasWhy).length
   const pending = items.length - rows.length
   const parts: string[] = []
-  if (rows.length) parts.push(`已拍板 ${rows.length}（做 ${keep.length} / 砍 ${cut.length}）`)
-  if (missingWhy) parts.push(`${missingWhy} 条拍板没写理由`)
-  if (pending) parts.push(`还有 ${pending} 条没拍板`)
-  const text = parts.join(' · ') || '还没有拍板记录'
+  if (rows.length) parts.push(`已决定 ${rows.length}（做 ${keep.length} / 砍 ${cut.length}）`)
+  if (missingWhy) parts.push(`${missingWhy} 条决定没写理由`)
+  if (pending) parts.push(`还有 ${pending} 条未决定`)
+  const text = parts.join(' · ') || '还没有决定记录'
   return { keep, cut, missingWhy, pending, text }
 }
 
@@ -692,7 +698,7 @@ export function riceSummary(pool: RicePool): RiceSummary {
       : guard === 'tight'
         ? `P0 占 ${Math.round(ratio * 100)}%，只剩 ¥${headroom} 余量 —— 排满等于把风险全押给线上故障`
         : `P0 占 ${Math.round(ratio * 100)}%，余量 ¥${headroom}（留给线上故障与需求变更）`
-  const parts = [`${total} 条`, `未拍板 ${pending}`, `已拍板 ${decided}`, cut ? `CUT ${cut}` : '']
+  const parts = [`${total} 条`, `未决定 ${pending}`, `已决定 ${decided}`, cut ? `砍掉 ${cut}` : '']
   parts.push(budget > 0
     ? `P0 花费 ¥${p0Cost} / 预算 ¥${budget}（${Math.round(ratio * 100)}%）`
     : '月预算未设置')

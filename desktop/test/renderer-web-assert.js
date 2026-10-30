@@ -2941,11 +2941,11 @@
       stickyW > 0 && viewW > 0 && Math.abs(stickyW - viewW) < 2,
       `sticky=${stickyW} view=${viewW}`)
 
-    // 2026-10-30 暮雨：「我根本不知道这玩意到底派没派」——
-    // 分区头必须直说，不靠用户记「进行中」是哪来的。
-    check('★★ 「待处理」分区头直说"还没派出去"（不再只是一个状态词）',
-      /还没派出去/.test((($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || ''),
-      (($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || '(no hint)')
+    // 2026-10-30 暮雨第 2 轮：「分区头别写解释」——
+    // 旧版写「还没派出去（要派给 AI 就点那张卡的…）」，用户原话「直接什么都不写都更好」。
+    check('★★ 分区头不再画蛇添足地解释状态（用户已明确说不要）',
+      $$('.log-group-sep .log-group-hint').length === 0,
+      $$('.log-group-sep .log-group-hint').map(h => (h.textContent || '').trim()).join(' | ') || '(none)')
 
     // ══ 日志 · 主日志 + 附属（2026-10-30 暮雨第 2/3 条返工）══════════════
     // 现场：主日志点「进行中」只改了自己 → 附属还散在「待处理」区，视觉极乱；
@@ -3189,9 +3189,9 @@
     check('★★ 分区视图恢复：分区头回来了、链头消失',
       $$('.log-group-sep').length >= 1 && $$('.chain-header').length === 0,
       'sep=' + $$('.log-group-sep').length + ' chain=' + $$('.chain-header').length)
-    check('★ 「进行中」分区头直说"已经派给 AI"（夹具里那条 running=true）',
-      /已经派给 AI/.test((($('.log-group-sep.g-running .log-group-hint') || {}).textContent) || ''),
-      (($('.log-group-sep.g-running .log-group-hint') || {}).textContent) || '(no hint/running section)')
+    check('★ 分区头仍只有状态名，不再附一句「已经派给 AI」',
+      !/已经派给 AI/.test((($('.log-group-sep.g-running') || {}).textContent) || ''),
+      (($('.log-group-sep.g-running') || {}).textContent || '(no running section)').trim())
     check('  链标签在分区视图同样可见（链关系不只按链才有）',
       $$('.chain-tag').length >= 1)
     check('  pref 回 groups', window.__fcTest.prefs().fc_logs_view_mode === 'groups',
@@ -6694,19 +6694,37 @@
         check('  收尾：切回项目墙后梯度榜不在 DOM 里', !$('.tierboard'))
       }
 
-    // ══ 需求矩阵 · 原型里「分数之外」的四件（2026-10-29 暮雨第 1 条）════════
+    // ══ 需求优先级矩阵（2026-10-30 第 4/5/6 条：去 RICE / 去拍板 / 项目切换 / 筛选真生效）══
     // 原型（docs/小样-RICE决策矩阵-20261025）的四个设计判断，判据都在**页面上看得见**，
     // 不是只活在 shared/rice.ts 里（e2e-rice 已验逻辑，这里验露没露出来）：
     //   ① 容量护栏（排满 = 一次线上故障就让整轮延期）② 立场句写在显眼处
-    //   ③ 「为什么做，为什么砍」独立一节，拍板没写理由要被点名 ④ 重评触发条件
+    //   ③ 「为什么做，为什么砍」独立一节，定了没写理由要被点名 ④ 重评触发条件
     {
       clickText('项目'); await sleep(400)
-      const riceTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('需求矩阵') >= 0)
+      const riceTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('需求优先级矩阵') >= 0)
       if (riceTab) riceTab.click()
-      check('★★ 项目页能切到「需求矩阵」', await waitFor(() => !!$('.rice'), 4000, 'rice view'))
+      check('★★ 项目页能切到「需求优先级矩阵」', await waitFor(() => !!$('.rice'), 4000, 'rice view'))
+      check('★★ 正式名称就是「需求优先级矩阵」',
+        (($('.rice-ttl') || {}).textContent || '').trim() === '需求优先级矩阵',
+        (($('.rice-ttl') || {}).textContent || '').trim())
+      check('★★ 界面不再出现 RICE 这个词（用户：放出来太怪）',
+        !/RICE/.test(($('.rice') || {}).textContent || ''),
+        (($('.rice') || {}).textContent || '').match(/.{0,20}RICE.{0,20}/)?.[0] || '(none)')
+      check('★★ 界面不再出现「拍板」这个词（用户：根本看不懂）',
+        !/拍板/.test(($('.rice') || {}).textContent || ''),
+        (($('.rice') || {}).textContent || '').match(/.{0,20}拍板.{0,20}/)?.[0] || '(none)')
       check('  页面显示池文件绝对路径（防"找不到在哪"）',
         (($('.rice-where') || {}).textContent || '').indexOf('rice-pool.md') >= 0,
         (($('.rice-where') || {}).textContent || '').slice(0, 80))
+      check('★★ 有项目切换（不再只能看全池）', (() => {
+        const sel = $('.rice-projsel select')
+        if (!sel) return false
+        const opts = Array.prototype.map.call(sel.options, (o) => o.textContent.trim())
+        return opts.indexOf('全部项目') >= 0 && opts.indexOf('演示项目') >= 0
+      })(), (() => {
+        const sel = $('.rice-projsel select')
+        return sel ? Array.prototype.map.call(sel.options, (o) => o.textContent.trim()).join('|') : '(no select)'
+      })())
       check('★★ 立场句写在显眼处（不是只混在底部五条局限里）', (() => {
         const el = $('.rice-stance')
         return !!el && (el.textContent || '').indexOf('不替你做决定') >= 0
@@ -6726,7 +6744,7 @@
         /做（2）/.test((($$('.rice-why-t')[0] || {}).textContent) || '') &&
         /砍（1）/.test((($$('.rice-why-t')[1] || {}).textContent) || ''),
         $$('.rice-why-t').map((x) => (x.textContent || '').trim()).join('|'))
-      check('★★ 拍板没写理由的那条被点名（说不清为什么就是没拍板）',
+      check('★★ 定了没写理由的那条被点名（说不清为什么就是没决定）',
         $$('.rice-why-reason.missing').length >= 1,
         $$('.rice-why-reason').map((x) => (x.textContent || '').trim().slice(0, 20)).join('|'))
       check('★★ 重评触发条件写在页面上（容量变动 20%）',
@@ -6768,13 +6786,67 @@
       })(), `ranks=${$$('.rice-rank').map((x) => (x.textContent || '').trim()).join(',')} badges=${$$('.rice-badge').map((b) => (b.textContent || '').trim()).join(',')}`)
       check('★★ 结尾四格结论（立即启动 / 排队候补 / 有余量再说 / 砍掉）', $$('.rice-vd-block').length === 4,
         $$('.rice-vd-block').map((b) => (b.textContent || '').trim().slice(0, 14)).join(' | '))
-      check('  页脚公式常驻（RICE = R × I × C ÷ E）',
-        (($('.rice-formula') || {}).textContent || '').indexOf('R × I × C ÷ E') >= 0)
+      check('  页脚公式常驻（得分 = 频次 × 省工 × 信心 ÷ 工期）',
+        (($('.rice-formula') || {}).textContent || '').indexOf('频次 × 省工 × 信心 ÷ 工期') >= 0,
+        (($('.rice-formula') || {}).textContent || '').slice(0, 40))
       check('  点气泡/悬停有明细区（不是只能靠 title 猜）', !!$('.rice-detail'))
+      // 2026-10-30 第 7 条：矩阵要能把「先问清楚 → 规格 → 能验收的工单 → TDD/双路 review」
+      // 交给 agent，而不是只给一个分数。它是复制动作，不改任何状态。
+      const firstPt = $('.rice-pt')
+      if (firstPt) firstPt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await sleep(250)
+      check('★★ 点气泡后明细里有「复制开工交接单」', !!$('.rice-kick'),
+        (($('.rice-detail') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 80))
+      const beforeKick = window.__fcTest.callCount('clipboardWriteText')
+      if ($('.rice-kick')) $('.rice-kick').click()
+      check('★★ 交接单真的复制出去，且包含澄清 / 规格 / 可验收工单 / 双路 review 四段',
+        await waitFor(() => window.__fcTest.callCount('clipboardWriteText') > beforeKick, 3000, 'kickoff copy') &&
+        (() => {
+          const c = window.__fcTest.calls().filter(x => x.name === 'clipboardWriteText').pop()
+          const t = String(c && c.args && c.args[0] || '')
+          return t.indexOf('先问清楚') >= 0 && t.indexOf('to-spec') >= 0 &&
+            t.indexOf('能验收的一件事') >= 0 && t.indexOf('双路 review') >= 0
+        })(),
+        (() => {
+          const c = window.__fcTest.calls().filter(x => x.name === 'clipboardWriteText').pop()
+          return String(c && c.args && c.args[0] || '').slice(0, 160).replace(/\n/g, ' | ')
+        })())
+
+      // ── P1 筛选必须同时动散点和表格（2026-10-30 第 5 条：点了没反应）────────
+      const p1Chip = $$('.rice-chip').find((c) => (c.textContent || '').indexOf('P1') >= 0)
+      if (p1Chip) p1Chip.click()
+      await sleep(350)
+      check('★★ 点 P1 不是"没反应"：散点气泡和表格行一起缩小到 P1',
+        $$('.rice-bubble').length === 1 && $$('.rice-rank').length === 1,
+        `bubbles=${$$('.rice-bubble').length} rows=${$$('.rice-rank').length}`)
+      check('★ 表格行只剩 P1 徽章', $$('.rice-badge').length >= 1 &&
+        $$('.rice-badge').every((b) => (b.textContent || '').trim() === 'P1'))
+      // 切到 demo 项目 + CUT：0 条，但面板不许缩窄
+      const projSel = $('.rice-projsel select')
+      if (projSel) { projSel.value = 'demo'; projSel.dispatchEvent(new Event('change', { bubbles: true })) }
+      await sleep(400)
+      const cutChip = $$('.rice-chip').find((c) => (c.textContent || '').indexOf('CUT') >= 0)
+      if (cutChip) cutChip.click()
+      await sleep(400)
+      check('★★ CUT 0 条时表格区不塌（仍有最小高度 + 明说"这个筛选下没有"）',
+        (() => {
+          const w = $('.rice-tablewrap')
+          return !!w && w.getBoundingClientRect().height >= 200 &&
+            !!$('.rice-none') && !!$('.rice-plot-empty')
+        })(),
+        (() => {
+          const w = $('.rice-tablewrap')
+          return `h=${w ? Math.round(w.getBoundingClientRect().height) : -1} none=${!!$('.rice-none')} plotEmpty=${!!$('.rice-plot-empty')}`
+        })())
+      // 切回全部项目 / 全部筛选，别污染后面的断言
+      if (projSel) { projSel.value = 'all'; projSel.dispatchEvent(new Event('change', { bubbles: true })) }
+      const allChip = $$('.rice-chip').find((c) => (c.textContent || '').indexOf('全部') >= 0)
+      if (allChip) allChip.click()
+      await sleep(350)
       // 收尾：回项目墙
       const backTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('项目墙') >= 0)
       if (backTab) { backTab.click(); await sleep(400) }
-      check('  收尾：切回项目墙后需求矩阵不在 DOM 里', !$('.rice'))
+      check('  收尾：切回项目墙后需求优先级矩阵不在 DOM 里', !$('.rice'))
     }
 
     // ══ 项目架构图（2026-10-29 暮雨第 2 条；2026-10-30 再改）══════════════

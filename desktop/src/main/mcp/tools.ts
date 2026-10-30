@@ -19,6 +19,15 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 // 一律走 data.loadTasks / tasks.listTrash，两个对外读口一个口径
 // （契约由 scripts/test/e2e-mcp-views.cjs 真跑编译产物钉死）。
 
+// 2026-10-30 暮雨第 3 条：被驳回后「退回返工」的卡，agent 必须读得到上次为什么被打回。
+// 没有这一段，MCP 只回标题/状态，返工卡就退化成一张大号待办。
+function reworkOf(fm: any): { is_rework: boolean; reason: string } {
+  const reason = String(fm?.reject_reason ?? fm?.['驳回理由'] ?? '').trim()
+  const at = String(fm?.reject_at ?? fm?.['驳回时间'] ?? '').trim()
+  const log = String(fm?.result_log ?? fm?.['结果记录'] ?? '')
+  return { is_rework: !!(reason || at || /驳回/.test(log)), reason }
+}
+
 // ── Tool Definitions ────────────────────────────────────────────────────
 
 export const MCP_TOOLS: MCPTool[] = [
@@ -403,7 +412,14 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       }
       // 读了哪些卡就记哪些（2026-10-25 卡 006）：只落独立日志，**任务文件不动**
       recordRead('list_tasks', result.map((t: any) => t.id))
-      return { content: [{ type: 'text', text: JSON.stringify(result.map((t: any) => ({ id: t.id, title: val(t, 'title'), status: val(t, 'status'), project: val(t, 'project') })), null, 2) }] }
+      return { content: [{ type: 'text', text: JSON.stringify(result.map((t: any) => {
+        const rw = reworkOf(t.fm || t)
+        return {
+          id: t.id, title: val(t, 'title'), status: val(t, 'status'), project: val(t, 'project'),
+          // 返工卡：列表里就标出来，agent 不用先 get_task 才知道它是被打回的
+          rework: rw.is_rework, reject_reason: rw.reason,
+        }
+      }), null, 2) }] }
     }
     
     case 'get_task': {
@@ -412,7 +428,18 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
       // 只有真读到了才记（读一张不存在的卡不算"碰过它"）
       recordRead('get_task', [task.id])
-      return { content: [{ type: 'text', text: JSON.stringify({ id: task.id, title: task.fm.title, status: task.fm.status, priority: task.fm.priority, project: task.fm.project, created: task.fm.created, updated: task.fm.updated, tags: task.fm.tags, body: task.body }, null, 2) }] }
+      const rw = reworkOf(task.fm)
+      return { content: [{ type: 'text', text: JSON.stringify({
+        id: task.id, title: task.fm.title, status: task.fm.status, priority: task.fm.priority,
+        project: task.fm.project, created: task.fm.created, updated: task.fm.updated, tags: task.fm.tags,
+        // 2026-10-30 暮雨第 3 条：驳回理由 / 结果记录 / 返工标记必须一起回，
+        // 否则 agent 读到的「驳回后待办」和普通待办完全一样。
+        result_log: task.fm.result_log || '',
+        reject_reason: rw.reason,
+        reject_at: task.fm.reject_at || '',
+        rework: rw.is_rework,
+        body: task.body,
+      }, null, 2) }] }
     }
     
     case 'create_task': {

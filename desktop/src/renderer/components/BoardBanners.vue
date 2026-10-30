@@ -70,13 +70,13 @@ const finite = (n: unknown) => Number.isFinite(Number(n))
         </div>
         <span class="rework-age" :title="finite(r.ageDays) ? '按任务更新时间算' : '更新时间认不出来，不替你编天数'">
           {{ finite(r.ageDays) ? r.ageDays + ' 天' : '时间不详' }}</span>
-        <button class="ok font-[inherit]" title="退回「待办」重新开工（只改状态，驳回理由留在卡上）"
+        <button class="ok font-[inherit]" title="回到待办；agent 下次取活会先读到驳回理由并优先返工"
           @click="emit('rework-back', r.id)">↩ 退回返工</button>
         <button class="ghost font-[inherit]" title="移进归档区（文件移到 task-data/archive/，可还原）"
           @click="emit('rework-archive', r.id)">📦 归档</button>
       </div>
       <div class="rework-foot">
-        退回返工 = 接着做；归档 = 这件事不要了（归档就是处置过了，会从这条里消失）；「先不管」只藏这一次。
+        退回返工 = 回到待办，<b>agent 取活时会先读到这条驳回理由并优先返工</b>；归档 = 这件事不要了（归档就是处置过了，会从这条里消失）；「先不管」只藏这一次。
       </div>
     </div>
   </div>

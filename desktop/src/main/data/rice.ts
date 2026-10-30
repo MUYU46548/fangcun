@@ -69,7 +69,37 @@ function savePool(pool: RicePool): void {
 
 export function getRicePool(): RiceReadResult {
   const { pool, error } = readPool()
+  if (!error && pool?.items) {
+    // 2026-10-30 暮雨第 5 条：界面要能按项目切换。项目不落进池文件（保持单一事实来源），
+    // 每次读池时按 origin 真读对应数据源补一个只读字段；读不到 = 空串（未归属），不猜。
+    pool.items = pool.items.map((it) => ({ ...it, project: projectOfOrigin(it.origin) }))
+  }
   return { ok: !error, error, pool, path: ricePoolPath() }
+}
+
+/** origin → 项目 id（task / todo / idea 各读各的真身；external 或读不到 = 空串） */
+function projectOfOrigin(origin: string): string {
+  const o = splitOrigin(origin)
+  if (!o) return ''
+  const normalize = (p: any): string => {
+    if (!p) return ''
+    return Array.isArray(p) ? String(p[0] || '') : String(p)
+  }
+  try {
+    if (o.type === 'task') {
+      const t: any = tasks.readTask(o.id)
+      return normalize(t?.fm?.project ?? t?.project)
+    }
+    if (o.type === 'todo') {
+      const t: any = listTodos().find((x: any) => String(x.id) === o.id)
+      return normalize(t?.project ?? t?.fm?.project)
+    }
+    if (o.type === 'idea') {
+      const t: any = listIdeas().find((x: any) => String(x.id) === o.id)
+      return normalize(t?.project ?? t?.fm?.project)
+    }
+  } catch { /* 读不到就归未归属，不猜 */ }
+  return ''
 }
 
 /** 来源存在性：只认能真读到的条目；external 永远算存在（它本来就没有原条目） */

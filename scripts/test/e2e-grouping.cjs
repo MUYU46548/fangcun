@@ -94,21 +94,50 @@ function main() {
   const pruned = g.pruneCollapsed(['sitian', '已删除的项目'], ['sitian'])
   check('D5 陈旧分组键被清理（不留幽灵折叠）', pruned.length === 1 && pruned[0] === 'sitian', JSON.stringify(pruned))
 
-  // ── E. 接线（源码断言，防漂移）─────────────────────────────────────
+  // ── E. 看板列（2026-10-30 · 拆分第二批第一刀）────────────────────────
+  const boardTasks = [
+    { id: 's1', status: '待办', priority: 'high', project: 'fangcun-base' },
+    { id: 's2', status: '待办', priority: '中', project: 'sitian' },
+    { id: 's3', status: '进行中', priority: '', project: '' },
+    { id: 's4', status: '历史拼写', priority: '低', project: 'fangcun-base' },
+  ]
+  const statusCols = g.buildBoardColumns(boardTasks, 'status', {
+    statuses: ['草稿', '待办', '进行中', '完成'], priorities: ['高', '中', '低'],
+  })
+  check('E1 status 分组保留空列（用户看得见"这列现在是 0"）',
+    statusCols.length === 5 && statusCols[0].key === '草稿' && statusCols[0].tasks.length === 0,
+    JSON.stringify(statusCols.map(c => [c.key, c.tasks.length])))
+  check('E2 status 分组不丢未知状态（追加在末尾，不静默吞掉）',
+    statusCols[4].key === '历史拼写' && statusCols[4].tasks.length === 1,
+    JSON.stringify(statusCols.map(c => c.key)))
+  const prioCols = g.buildBoardColumns(boardTasks, 'priority', {
+    statuses: [], priorities: ['高', '中', '低'],
+  })
+  check('E3 priority 分组固定三列，中文/英文优先级都归到同一档',
+    prioCols.length === 3 && prioCols[0].key === '高' && prioCols[0].tasks.length === 1 &&
+    prioCols[1].tasks.length === 2, JSON.stringify(prioCols.map(c => [c.key, c.tasks.length])))
+  const projCols = g.buildBoardColumns(boardTasks, 'project', { statuses: [], priorities: [], nameOf })
+  check('E4 project 分组复用 buildProjectGroups（项目名解析 + 未归属桶）',
+    projCols.some(c => c.key === 'fangcun-base' && c.label === '方寸') &&
+    projCols.some(c => c.key === '__none__'), JSON.stringify(projCols.map(c => [c.key, c.label])))
+
+  // ── F. 接线（源码断言，防漂移）─────────────────────────────────────
   const vue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf8')
-  check('E1 App.vue 引用了 shared/grouping', /from '\.\.\/shared\/grouping'/.test(vue))
-  check('E2 按项目分支走 buildProjectGroups', /return buildProjectGroups\(filtered as any, projectNameOf\)/.test(vue))
-  check('E3 有项目名解析函数', /function projectNameOf\(id: string\)/.test(vue))
-  check('E4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(vue))
-  check('E5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(vue))
-  check('E6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(vue) && /\.col\.collapsed-col \{/.test(vue))
+  check('F1 App.vue 引用了 composables/useBoardColumns', /from '\.\/composables\/useBoardColumns'/.test(vue))
+  check('F2 列派生走 useBoardColumns（不再在 App 里手写三分支）',
+    /const columns = useBoardColumns\(\{/.test(vue) && !/const cols: Record<string, Task\[\]> = \{\}/.test(vue))
+  check('F3 有项目名解析函数', /function projectNameOf\(id: string\)/.test(vue))
+  check('F4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(vue))
+  check('F5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(vue))
+  const boardCss = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf8')
+  check('F6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(vue) && /\.col\.collapsed-col \{/.test(boardCss))
   // 2026-09-28 用户第 3 条把「折叠全部 / 展开」两个并排按钮（必有一个无效）改成**单按钮开关**，
   // 断言还钉在老的 setAllCollapsed(true/false) 上 → 一直红着（本机跑不到这套，直到今天才被跑出来）。
-  check('E7 有一键折叠/展开（已是单按钮开关 toggleAllCollapsed）',
+  check('F7 有一键折叠/展开（已是单按钮开关 toggleAllCollapsed）',
     /function toggleAllCollapsed\(/.test(vue) && /toggleAllCollapsed\(\)/.test(vue) &&
     /折叠全部/.test(vue) && /展开全部/.test(vue))
-  check('E8 折叠状态与分组方式持久化到 prefs', /saveUiPref\('fc_collapsed_groups'/.test(vue) && /saveUiPref\('fc_board_group_mode'/.test(vue))
-  check('E9 启动时与真身对齐', /syncBoardPrefs\(\)/.test(vue))
+  check('F8 折叠状态与分组方式持久化到 prefs', /saveUiPref\('fc_collapsed_groups'/.test(vue) && /saveUiPref\('fc_board_group_mode'/.test(vue))
+  check('F9 启动时与真身对齐', /syncBoardPrefs\(\)/.test(vue))
 
   console.log('─'.repeat(50))
   console.log(`通过 ${pass} / 失败 ${fail}`)

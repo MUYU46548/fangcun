@@ -1,5 +1,5 @@
 """tegula.cli — 命令行入口 + 所有 cmd_* 函数"""
-import argparse, os, sys, json, shutil, datetime, subprocess, time, threading, zipfile
+import argparse, os, sys, json, shutil, datetime, subprocess, time, threading, zipfile, re
 from urllib.parse import parse_qs
 
 from tegula.core import (
@@ -642,8 +642,47 @@ def claim_task(tid, who):
         _claim_unlock()
 
 
+def _task_rework_reason(t):
+    """这张卡是不是「返工卡」，以及上次为什么被驳回。
+
+    2026-10-30 暮雨第 3 条：他原意是「AI 会读驳回里的任务自己重做」，
+    实际却只变成一张大号待办 —— 因为 `next` 只打印标题/优先级，**从来没把驳回理由
+    交给 agent**。这里把理由取出来，`next` 会优先挑它、并把理由顶在最前面。
+    兼容三种写法：独立字段 `驳回理由` / `reject_reason`，或老卡只写在结果记录里。
+    """
+    for k in ("驳回理由", "reject_reason"):
+        v = str(t.get(k) or "").strip()
+        if v:
+            return v
+    for line in reversed(str(t.get("结果记录") or "").splitlines()):
+        s = line.strip()
+        if not s:
+            continue
+        m = re.match(r"^(?:\[[^\]]+\]\s*)?(?:验收驳回|审批驳回|驳回)\s*[:：]?\s*(.*)$", s)
+        if not m:
+            continue
+        reason = m.group(1).strip()
+        if not reason or re.match(r"^（?没写理由）?$", reason):
+            return ""
+        return reason
+    return ""
+
+
+def _task_is_rework(t):
+    """返工卡判定：有驳回理由，或有驳回时间，或结果记录里出现过驳回轨迹。
+
+    理由可以为空（用户当时没写），但「它被驳回过」这件事必须让 agent 看见 ——
+    空理由也是一条要求：先问清楚哪里不行，不要假装它是普通待办。
+    """
+    if _task_rework_reason(t):
+        return True
+    if str(t.get("驳回时间") or t.get("reject_at") or "").strip():
+        return True
+    return "驳回" in str(t.get("结果记录") or "")
+
+
 def _pick_next(active, project=None, include_claimed=False):
-    """挑「下一个该做的」：待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。
+    """挑「下一个该做的」：返工卡最优先，其次待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。
 
     `include_claimed=False` 时**跳过别人正领着且租约未到期的卡** —— 这一句就是
     「两个 agent 不会拿到同一张」的落点。过期的不跳过：那是崩掉的 agent 留下的，
@@ -662,7 +701,9 @@ def _pick_next(active, project=None, include_claimed=False):
 
     def key(t):
         st = str(t.get("状态") or "").strip()
+        # 返工卡排最前：驳回理由还没被处理，就不该和普通待办一起排优先级。
         return (
+            0 if _task_is_rework(t) else 1,
             0 if st == "待办" else 1,
             _NEXT_PRIO_RANK.get(str(t.get("优先级") or "").strip(), 3),
             0 if str(t.get("截止") or "").strip() else 1,
@@ -762,6 +803,12 @@ def cmd_next(args):
             "claim_error": claim_msg if (claim_who and not picked) else "",
             "claim_ttl_seconds": CLAIM_TTL_SECONDS,
             "next": head,
+            # 返工卡（2026-10-30 暮雨第 3 条）：agent 必须读到上次为什么被驳回，
+            # 否则「退回返工」只是把它变成一张大号待办。
+            "rework": {
+                "is_rework": bool(head and _task_is_rework(head)),
+                "reason": _task_rework_reason(head) if head else "",
+            },
             "policy": read_policy(projs[0]) if projs else None,
             # 被读过几次（卡 006）：agent 应能判断"这是不是一张没人碰过的卡"
             "usage": _read_usage_stat(head.get("id") or "") if head else {"reads": 0, "last": "", "via": ""},
@@ -770,6 +817,7 @@ def cmd_next(args):
             "candidates": [
                 {"id": t.get("id"), "标题": t.get("标题"), "状态": t.get("状态"),
                  "优先级": t.get("优先级"), "截止": t.get("截止"),
+                 "返工": bool(_task_is_rework(t)),
                  "项目": _task_projects(t)}
                 for t in picked[:10]
             ],
@@ -803,6 +851,17 @@ def cmd_next(args):
     print(f"  标题    : {t.get('标题') or ''}")
     print(f"  项目    : {'、'.join(projs) or '（无）'}")
     print(f"  状态    : {t.get('状态') or ''}")
+    # 返工卡（2026-10-30 暮雨第 3 条）：把「上次为什么被打回」顶到标题下面。
+    # 没有这一行，agent 只会看到一张普通待办，然后原样重做一遍。
+    if _task_is_rework(t):
+        _rw = _task_rework_reason(t)
+        print("  返工    : 是（上次被驳回）")
+        if _rw:
+            print(f"  驳回理由: {_rw}")
+            print("  返工要求: 先解决上面这条理由，再动手；不要把原方案原样重交")
+        else:
+            print("  驳回理由: 当时没写 —— 先问清楚哪里不行，不要按普通待办直接开做")
+            print("  返工要求: 不要把原方案原样重交")
     # 认领（2026-10-22）：三种状态说三句不同的话 —— 别让 agent 自己猜
     _cb = str(t.get("认领人") or "").strip()
     if _cb and not _claim_expired(t):

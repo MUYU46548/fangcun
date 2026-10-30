@@ -46,6 +46,23 @@ const mkTask = (id, title, extra) => [
 
 fs.writeFileSync(path.join(DATA, 'task-data', 'task-live.md'),
   mkTask('task-live', '契约夹具活跃任务', { status: '待办', where: 'active' }), 'utf-8')
+// 2026-10-30 暮雨第 3 条：驳回后「退回返工」的卡必须让 agent 读得到理由。
+fs.writeFileSync(path.join(DATA, 'task-data', 'task-rework.md'), [
+  '---',
+  'id: task-rework',
+  '标题: 返工夹具：按钮点不动',
+  '项目: [other-proj]',
+  '状态: 进行中',
+  '优先级: 中',
+  'reject_reason: 按钮点不动，先修交互再交',
+  'reject_at: 2026-10-29T10:00:00.000Z',
+  '结果记录: "[2026-10-29 10:00] 验收驳回：按钮点不动，先修交互再交"',
+  '更新: 2026-10-30T09:00:00+08:00',
+  '---',
+  '## 方案',
+  '- [ ] 修按钮',
+  '',
+].join('\n'), 'utf-8')
 fs.writeFileSync(path.join(DATA, 'task-data', 'archive', 'task-arch.md'),
   mkTask('task-arch', '契约夹具归档任务', { status: '完成', where: 'archive' }), 'utf-8')
 fs.writeFileSync(path.join(DATA, 'task-data', '.trash', 'task-gone.md'),
@@ -109,6 +126,18 @@ check('★ list_tasks 按项目过滤真的生效（fm.project 是数组，旧�
   Array.isArray(pf) && pf.length === 1, JSON.stringify(pf).slice(0, 160))
 const st = call('list_tasks', { view: 'active', status: '待办' })
 check('list_tasks 按状态过滤生效', Array.isArray(st) && st.length === 1, JSON.stringify(st).slice(0, 160))
+
+// 2026-10-30 暮雨第 3 条：返工卡不是普通待办，MCP 读口必须带出「上次为什么被驳回」。
+const rw = call('get_task', { id: 'task-rework' })
+check('★★ get_task 返回驳回理由 / 结果记录 / rework 标记（agent 才能按理由重做）',
+  rw && rw.rework === true && String(rw.reject_reason || '').indexOf('按钮点不动') >= 0
+  && String(rw.result_log || '').indexOf('验收驳回') >= 0,
+  JSON.stringify({ rework: rw && rw.rework, reject_reason: rw && rw.reject_reason, result_log: rw && rw.result_log }).slice(0, 220))
+const rwList = call('list_tasks', { view: 'active' })
+const rwRow = Array.isArray(rwList) ? rwList.find((x) => x.id === 'task-rework') : null
+check('★★ list_tasks 在列表里就标出返工卡与理由（不用先 get_task 才发现）',
+  !!rwRow && rwRow.rework === true && String(rwRow.reject_reason || '').indexOf('按钮点不动') >= 0,
+  JSON.stringify(rwRow).slice(0, 220))
 
 // 源码守卫：私有扫描不许回来
 const src = require('fs').readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')
