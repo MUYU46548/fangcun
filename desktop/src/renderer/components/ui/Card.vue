@@ -18,14 +18,14 @@ const props = defineProps<{ class?: any }>()
 </script>
 
 <template>
+  <!-- 与 App.vue 的 `.card` 同一档：贴地 --el-1、hover --el-2。
+       ⚠ 2026-10-30 起投影走**全局外观令牌**（flat 下这两个都是 none）——
+       不许再写字面量，否则「切回扁平」会在这里留下一块散不掉的影子。 -->
   <div
-    :class="
-      cn(
-        // 与 App.vue 的 `.card` 逐值对齐（圆角 9 / 阴影 .05 / hover .10）
-        'rounded-[9px] border border-[var(--ui-border)] bg-[var(--ui-card)] shadow-[0_1px_2px_rgba(90,90,130,0.05)] transition-shadow hover:shadow-[0_2px_8px_rgba(90,90,130,0.10)]',
-        props.class
-      )
-    "
+    :class="cn(
+      'rounded-[9px] border border-[var(--ui-border)] bg-[var(--ui-card)] shadow-[var(--el-1)] transition-shadow hover:shadow-[var(--el-2)]',
+      props.class
+    )"
   >
     <slot />
   </div>

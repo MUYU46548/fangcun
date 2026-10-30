@@ -978,6 +978,11 @@
                方寸自己生成架构图是目标，还没做（卡 task-20261030-002）。 -->
           <button class="ghost pv-policy pv-diagram" @click.stop="openProjectDiagram(p)"
                   title="打开这个项目的架构图（仓库 docs/ 里 archify 生成的 HTML）；没有就先让 archify 生成一份放进去">架构图</button>
+          <!-- 方寸自绘架构图（2026-10-30，卡 task-20261030-002）：不一样的东西 ——
+               「架构图」打开的是**别人画好的** HTML；这个按钮是方寸**只读扫源码**自己画一张。
+               两个按钮并列是刻意的：用户一眼能分清"看现成的"与"让我扫一遍"。 -->
+          <button class="ghost pv-policy pv-archself" @click.stop="openSelfArch(p)"
+                  title="方寸自己扫这个仓库的源码画一张：节点 = 真实目录，连线 = 真实 import / IPC 计数（只读，不改仓库）">自绘架构图</button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -2282,9 +2287,14 @@
 
     <!-- 结构地图一览（029）：**这是「结构地图在哪」的答案**。
          列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
+    <!-- 方寸自绘架构图（2026-10-30，卡 task-20261030-002）：只读扫源码出的图。
+         与「架构图」按钮（打开 archify 产物）并存：一个是看别人画的，一个是自己扫的。 -->
+    <div id="arch-overlay" class="overlay" v-if="archOpen && archGraph" @mousedown.self="archOpen = false">
+      <ArchDiagram :graph="archGraph" :busy="archBusy" @close="archOpen = false" @export="exportSelfArch" />
+    </div>
+
     <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
-      <div id="smap-modal">
-        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
+      <div id="smap-modal">        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
         <p class="smap-hint">
           每张方针卡里有一个「结构地图」小节。第一行必须是<b>最后核实日期</b>——
           烂地图比没地图危险，因为读者不知道它烂。内容由 agent 起草、你过目。
@@ -2973,6 +2983,22 @@
             </button>
           </div>
         </div>
+        <!-- 2026-10-30 卡 004：全局外观（阴影 / 扁平）——
+             与上面的主题**互相独立**：换主题不改影子，换外观不改配色。
+             默认扁平；选阴影后卡片 / 按钮 / 弹层按三档高度浮起来，即时生效、落 prefs.json。 -->
+        <div class="sect" v-show="settingsTab === 'general'">
+          <h4>外观形态</h4>
+          <div class="hint">只换「有没有影子」，不改配色与布局；与上面的主题互不影响，随时可切回来。</div>
+          <div class="appearance-row">
+            <button v-for="a in APPEARANCE_LIST" :key="a.id" class="appearance-btn"
+              :class="[{ on: appearance === a.id }, 'ap-' + a.id]"
+              :title="a.hint" @click="setAppearance(a.id)">
+              <span class="ap-preview"><span class="ap-card"></span></span>
+              <span class="ap-name">{{ a.name }}</span>
+              <span class="ap-hint">{{ a.id === 'flat' ? '零阴影' : '三档高度' }}</span>
+            </button>
+          </div>
+        </div>
         <!-- 念头长度上限（2026-10-25 暮雨：「MAX_TEXT = 4000 太小了，或者弄个用户可以
              自己设置的设置项……但是设个硬上限 20000」）。
              ⚠ 三个数与主进程 `services/ideas.ts` 的 IDEA_TEXT_* 必须一致 ——
@@ -3018,6 +3044,11 @@
             <button class="ghost" @click="openDataDir">打开目录</button>
           </div>
         </div>
+        <!-- 整理体检 + 大附件：已切到 components/DataHygienePanel.vue
+             （App.vue 拆分第一刀，2026-10-30）。两块都是只读通道 + 两个跳转事件，
+             边界干净；破坏性动作（删附件）仍只在主进程一条通道里，组件只负责确认与刷新。 -->
+        <DataHygienePanel v-show="settingsTab === 'data'" :toast="showToast"
+          @goto-never-read="gotoNeverRead" @goto-rework="gotoRework" />
         <div class="sect" v-show="settingsTab === 'diag'">
           <h4>⚖ 免责与知情声明</h4>
           <div class="hint">方寸怎么用、你的数据在哪、AI 功能会不会花钱、备份能不能指望 —— 都在这份里说清楚。首次使用前的强制确认也是它；改过条款后下次启动会再弹一次。</div>
@@ -3716,6 +3747,9 @@ import { renderBody } from './markdown'
 import { readUiPref, saveUiPref } from './prefs'
 import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
+import ArchDiagram from './components/ArchDiagram.vue'
+import DataHygienePanel from './components/DataHygienePanel.vue'
+import type { ArchGraph } from '../shared/archGraph'
 import TodosView from './views/TodosView.vue'
 import LogsView from './views/LogsView.vue'
 import CalendarView from './views/CalendarView.vue'
@@ -3967,6 +4001,23 @@ function reworkArchive(id: string): void {
   if (t) void archiveTask(t)
 }
 
+// ── 整理体检的跳转（2026-10-30）：面板本身已切到 components/DataHygienePanel.vue，
+// 这里只留"回到看板"的两个动作 —— 打开哪个视图、筛选谁，是 App 的状态。
+/** 体检 → 回看板把「没人碰过」筛出来（筛完的板子本身就是清单，不另开只读页） */
+async function gotoNeverRead(): Promise<void> {
+  showSettings_.value = false
+  readFilter.value = 'never'
+  switchView('active')
+  await loadNeverRead()
+}
+
+/** 体检 → 回看板展开返工台，逐张处置 */
+function gotoRework(): void {
+  showSettings_.value = false
+  switchView('active')
+  reworkOpen.value = true
+}
+
 // ── 主题（2026-09-29 用户第 4 条：「多主题颜色外观并不存在…参考绒花墨坊做一下」）──
 // 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
 // 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
@@ -3991,6 +4042,26 @@ function setTheme(id: string): void {
   showToast(`已切换主题：${name}`, 'success')
 }
 applyTheme(theme.value)
+
+// ── 全局外观：扁平 / 阴影（2026-10-30，卡 task-20261030-004）────────────
+// 与主题正交：主题换色，外观换"有没有影子"。默认 flat（用户：「我更喜欢扁平化圆角」）。
+// 落 prefs.json（fc_appearance），换 origin 也不会丢 —— 与主题同一套真身。
+const APPEARANCE_LIST = [
+  { id: 'flat', name: '扁平', hint: '零阴影 · 默认，也是用户明确喜欢的那套' },
+  { id: 'shadow', name: '阴影', hint: '三档高度（贴地 / 浮起 / 弹层），卡片和弹层浮起来' },
+]
+const appearance = ref(readUiPref<string>('fc_appearance', 'flat'))
+function applyAppearance(id: string): void {
+  appearance.value = APPEARANCE_LIST.some(a => a.id === id) ? id : 'flat'
+  document.documentElement.dataset.appearance = appearance.value
+}
+function setAppearance(id: string): void {
+  applyAppearance(id)
+  saveUiPref('fc_appearance', appearance.value)
+  const name = APPEARANCE_LIST.find(a => a.id === appearance.value)?.name || '扁平'
+  showToast(`已切换外观：${name}`, 'success')
+}
+applyAppearance(appearance.value)
 
 // ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
 // 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
@@ -4167,6 +4238,12 @@ async function syncBoardPrefs(): Promise<void> {
       if (p.fc_theme !== theme.value) applyTheme(p.fc_theme)
     } else {
       saveUiPref('fc_theme', theme.value)
+    }
+    // 全局外观（2026-10-30 卡 004）：只认两档；坏值回落 flat 并补写
+    if (typeof p?.fc_appearance === 'string' && APPEARANCE_LIST.some(a => a.id === p.fc_appearance)) {
+      if (p.fc_appearance !== appearance.value) applyAppearance(p.fc_appearance)
+    } else {
+      saveUiPref('fc_appearance', appearance.value)
     }
     // 顶栏折叠的页签（2026-10-25）：只认真实存在的页签 id；真身里若写成"几乎全收起来"，
     // 同样撞「至少留 7 个」这道护栏 → 回落默认（不然一次手改就能把工具全藏了）。
@@ -10744,6 +10821,53 @@ async function openProjectDiagram(p: any): Promise<void> {
   }
 }
 
+// ── 方寸自绘架构图（2026-10-30，卡 task-20261030-002）────────────────────
+// 与上面那个「架构图」的分工写在按钮 title 里：这里扫源码自己画，不碰 archify 产物。
+// 图模型来自主进程只读扫描（services/projectArch.ts）；这里只负责开面板与导出。
+const archOpen = ref(false)
+const archBusy = ref(false)
+const archGraph = ref<ArchGraph | null>(null)
+const archProjectId = ref('')
+
+async function openSelfArch(p: any): Promise<void> {
+  const id = String(p?.id || p?.name || '').trim()
+  if (!id) return
+  archProjectId.value = id
+  archBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.archGet(id)
+    if (r?.graph) {
+      archGraph.value = r.graph
+      archOpen.value = true
+      if (r.ok === false) showToast(String(r.error || '图没生成完整，缺什么已在面板里列出'), 'error')
+      return
+    }
+    showToast(String(r?.error || '扫不出这个项目的代码结构'), 'error')
+  } catch (e: any) {
+    showToast('生成架构图失败：' + (e?.message || e), 'error')
+  } finally {
+    archBusy.value = false
+  }
+}
+
+async function exportSelfArch(): Promise<void> {
+  if (!archProjectId.value) return
+  archBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.archExport(archProjectId.value)
+    if (r?.canceled) return
+    if (!r || r.ok === false) {
+      showToast(String(r?.error || '导出失败'), 'error')
+      return
+    }
+    showToast('已导出：' + String(r.path || ''), 'success')
+  } catch (e: any) {
+    showToast('导出失败：' + (e?.message || e), 'error')
+  } finally {
+    archBusy.value = false
+  }
+}
+
 /**
  * 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条）。
  *
@@ -12157,7 +12281,14 @@ onUnmounted(() => {
   --accent-soft: #c3bce0;
   --card: #ffffff;
   --border: #e4e2ee;
-  --shadow: 0 8px 32px rgba(90,90,130,0.12);
+  /* 全局外观（2026-10-30，卡 task-20261030-004）：阴影 / 扁平两套**正交于主题**的皮肤。
+     为什么做成令牌：以前 box-shadow 是 87 处写死的字面量，想"切回扁平"只能一处处删。
+     现在只有三档高度 —— 贴地 / 浮起 / 弹层，所有卡片、按钮、弹层、下拉都读这三个令牌。
+     ⚠ 默认 flat（用户：「我更喜欢扁平化圆角」）：三档全 none，切 shadow 才给真阴影。 */
+  --el-1: none;
+  --el-2: none;
+  --el-3: none;
+  --shadow: var(--el-3);
   --radius: 18px;
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
@@ -12218,6 +12349,19 @@ onUnmounted(() => {
   --ui-input: var(--border);
   --ui-ring: var(--accent);
   --ui-radius: var(--radius);
+}
+
+/* ── 全局外观：阴影 / 扁平（2026-10-30，卡 task-20261030-004）────────────
+   用户原话：「要不就阴影单独做一套外观全局生效，和现有外观风格可以随时切换。整一半干什么？」
+   做法：`data-appearance` 挂在 <html>，与 `data-theme` **正交**
+   （换主题不换外观、换外观不换色）。flat = :root 里三档全 none（默认）；
+   shadow 只给三档高度 —— 贴地(el-1) / 浮起(el-2) / 弹层(el-3)。
+   ⚠ 三档之外还剩「选中环」（`0 0 0 Npx`）与「页签下划线」（inset）：它们是**状态**不是**高度**，
+     扁平外观下也该看得见（否则选中了看不出来），所以不归这三档管。 */
+:root[data-appearance='shadow'] {
+  --el-1: 0 1px 2px rgba(90,90,130,.06), 0 2px 4px rgba(90,90,130,.05);
+  --el-2: 0 2px 8px rgba(90,90,130,.12), 0 6px 18px rgba(90,90,130,.10);
+  --el-3: 0 12px 40px rgba(30,35,50,.18), 0 24px 64px rgba(30,35,50,.12);
 }
 
 /* ── 主题（2026-09-29 用户第 4 条：「似乎多主题颜色外观并不存在…参考绒花墨坊做一下」）──
@@ -12557,7 +12701,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 .fpop {
   z-index: 62; width: 336px; max-height: 70vh; overflow: auto;
   background: #fff; border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 8px 10px;
+  box-shadow: var(--el-3); padding: 8px 10px;
 }
 /* 只有一行选项的浮层（分组 / 排序）不必占满 336px */
 .fpop-narrow { width: auto; min-width: 168px; }
@@ -12717,7 +12861,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   display: flex; align-items: center; gap: 8px;
   background: #fff; border: 1px solid #e7e7ef; border-radius: 9px;
   padding: 4px 10px; margin-bottom: 4px;
-  box-shadow: 0 1px 2px rgba(90,90,130,0.05); cursor: pointer;
+  box-shadow: var(--el-1); cursor: pointer;
   transition: background 0.12s, border-color 0.12s;
 }
 .brow:hover { background: var(--tint-2); border-color: var(--line-2); }
@@ -12759,10 +12903,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   display: flex; flex-direction: column; min-width: 0;
   padding: 9px 11px; background: #fff; border: 1px solid var(--border);
   border-left: 3px solid var(--border); border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(90,90,130,0.06);
+  box-shadow: var(--el-1);
   cursor: pointer; transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
-.pvcard:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+.pvcard:hover { background: var(--tint-2); box-shadow: var(--el-2); }
 /* 左缘 3px = 优先级。认不出优先级（tone-none）就维持中性描边，不假装有档位。 */
 .pvcard.tone-high { border-left-color: var(--danger); }
 .pvcard.tone-mid { border-left-color: var(--warning); }
@@ -12864,10 +13008,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card {
   background: #fff; border: 1px solid #e7e7ef; border-radius: 9px;
   padding: 4px 9px; margin-bottom: 5px;
-  box-shadow: 0 1px 2px rgba(90,90,130,0.05);
+  box-shadow: var(--el-1);
   cursor: pointer; transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
-.card:hover { background: var(--tint-2); border-color: var(--line-2); box-shadow: 0 2px 8px rgba(90,90,130,0.10); }
+.card:hover { background: var(--tint-2); border-color: var(--line-2); box-shadow: var(--el-2); }
 /* 左边色条只留给"要注意的事"（逾期 / 阻塞）—— 其余状态不再染色 */
 .card.overdue { border-left: 3px solid var(--danger); }
 .card.stale { opacity: 0.55; }
@@ -12876,7 +13020,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   background: var(--tint);
-  box-shadow: 0 2px 12px rgba(112,95,171,0.20);
+  box-shadow: var(--el-2);
 }
 .card.dragging { opacity: 0.35; transform: scale(0.97); }
 
@@ -12932,7 +13076,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   position: fixed; z-index: 70; pointer-events: none;
   max-width: 340px; padding: 8px 10px;
   background: #fff; border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(90,90,130,0.16);
+  box-shadow: var(--el-2);
 }
 .card-tip-title { font-size: 12.5px; font-weight: 600; line-height: 1.45; word-break: break-word; }
 .card-tip-body { margin-top: 4px; font-size: 11.5px; color: var(--muted); line-height: 1.5; word-break: break-word; }
@@ -13175,7 +13319,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .alertbar b { color: #8a4343; }
 .pvgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; width: 100%; }
 .tile { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 8px 15px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; overflow: hidden; box-shadow: var(--shadow); }
-.tile:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
+.tile:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
 .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 4px 0 0 4px; }
 .t-active::before { background: #5e9154; }
 .t-stuck::before { background: #c2706f; }
@@ -13291,7 +13435,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-foot code { background: var(--tint, #f0f1f5); border-radius: 4px; padding: 0 4px; }
 /* 设置面板（裁断入口） */
 .trip-modal-mask { position: fixed; inset: 0; background: rgba(40,40,60,.35); z-index: 60; display: flex; align-items: center; justify-content: center; }
-.trip-modal { background: #fff; border-radius: 14px; box-shadow: 0 18px 48px rgba(60,50,100,.28); width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; }
+.trip-modal { background: #fff; border-radius: 14px; box-shadow: var(--el-3); width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; }
 .trip-modal-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .trip-modal-b { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 14px 16px; overflow: auto; }
 .trip-modal-f { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
@@ -13311,7 +13455,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow);
   transition: box-shadow 0.15s, transform 0.15s;
 }
-.ocard:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
+.ocard:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
 /* 主从右侧那张不点整块（详情本身没有"点进去"的语义），去掉悬停浮起 */
 .ocard.bare { box-shadow: none; border: 0; padding: 0; cursor: default; }
 .ocard.bare:hover { box-shadow: none; transform: none; }
@@ -13646,6 +13790,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #smodal .theme-swatch.on { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
 #smodal .theme-swatch .sw-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.14); flex: none; }
 #smodal .theme-swatch .sw-check { color: var(--accent); }
+
+/* 外观形态（2026-10-30 卡 004）：两张小卡，预览里那个方块就是"有没有影子"的差别。
+   ⚠ 新块用自己的 class（不复用 .theme-swatch —— 旧断言按 class 数过它）。 */
+#smodal .appearance-row { display: flex; flex-wrap: wrap; gap: 10px; }
+#smodal .appearance-btn { display: inline-flex; align-items: center; gap: 9px; padding: 8px 14px;
+  border: 1px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink);
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; }
+#smodal .appearance-btn:hover { border-color: var(--accent); background: var(--tint-2); }
+#smodal .appearance-btn.on { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
+#smodal .appearance-btn .ap-preview { width: 30px; height: 22px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; background: var(--bg); border: 1px solid var(--line-2); }
+#smodal .appearance-btn .ap-card { width: 18px; height: 12px; border-radius: 3px; background: #fff; border: 1px solid var(--border); display: block; }
+#smodal .appearance-btn.ap-shadow .ap-card { filter: drop-shadow(0 2px 4px rgba(40,40,70,.35)); }
+#smodal .appearance-btn.ap-flat .ap-card { filter: none; }
+#smodal .appearance-btn .ap-name { font-size: 12.5px; }
+#smodal .appearance-btn .ap-hint { font-size: 10.5px; font-weight: 400; color: var(--muted); }
+
 #smodal .retain-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 /* 念头长度上限滑块（2026-10-25）：观感跟 .theme-swatch / .retain-row 同一套。
    preflight 关着 → 原生 range 必须自己给外观与字体，否则各浏览器各长一样。 */
@@ -13699,7 +13860,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .proj-row-desc { width: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 
 /* Toast */
-#toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.18); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.3s; max-width: 90vw; text-align: center; }
+#toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: var(--el-3); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.3s; max-width: 90vw; text-align: center; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 /* 撤销条也在顶部时，toast 下移一格（否则两条叠在一起，用户只看见一条） */
 #toast.has-undo { top: 70px; }
@@ -13716,7 +13877,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   display: flex; align-items: center; gap: 10px; max-width: min(680px, 92vw);
   padding: 9px 10px 9px 16px; border-radius: 12px; font-size: 13px;
   background: var(--card); color: var(--ink); border: 1px solid var(--border);
-  box-shadow: 0 10px 28px rgba(90,90,130,0.22); }
+  box-shadow: var(--el-3); }
 #undo-bar .ub-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #undo-bar .ub-btn { flex: none; white-space: nowrap; padding: 5px 12px; border-radius: 8px; cursor: pointer;
   font: inherit; font-weight: 700; background: var(--accent); color: #fff; border: 1px solid var(--accent); }
@@ -13731,7 +13892,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Drag status picker */
 .drag-status-picker {
   position: fixed; z-index: 999; background: #fff; border: 2px solid var(--accent);
-  border-radius: 16px; padding: 16px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  border-radius: 16px; padding: 16px 14px; box-shadow: var(--el-3);
   display: flex; flex-direction: column; gap: 6px;
 }
 .drag-status-picker .sp-title { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; text-align: center; }
@@ -13753,7 +13914,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .lp-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; box-shadow: var(--shadow); }
-.lp-card:hover { box-shadow: 0 4px 16px rgba(120,110,170,0.16); transform: translateY(-1px); }
+.lp-card:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
 .lp-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--tint); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
 .lp-info { flex: 1; min-width: 0; }
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -13809,7 +13970,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; align-items: center; gap: 8px; padding: 8px 16px;
   background: #fffdf5; border: 1px solid #f0e8d0; border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(90,90,130,0.18); font-size: 12px; flex-wrap: wrap;
+  box-shadow: var(--el-3); font-size: 12px; flex-wrap: wrap;
   max-width: calc(100vw - 32px);
 }
 /* 批量栏出现时给内容区留底部空间，避免遮住最后一条 */
@@ -13877,7 +14038,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
      "透明浮层贴在看板上"（第一版重做后截图里，菜单后面的看板列直接透了出来）。 */
 .more-pop { width: auto; min-width: 148px; padding: 4px;
   background: #fff; border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(30,30,60,.18);
+  box-shadow: var(--el-3);
   /* ⚠ z-index 必须留在这：reka-ui 会 getComputedStyle(内容).zIndex 读走它、写到外层 wrapper。
      第一版重做菜单时把 `.fpop` 整个去掉，**连带丢了它的 z-index: 62** → 菜单被日志页
      sticky 栏（z-index 2/3）压在下面，表现为"只露出下半截"（暮雨 10-27 截图抓到）。 */
@@ -14153,7 +14314,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* Wizard */
 .wizard-overlay { z-index: 100; }
-.wizard { background: #fff; border-radius: 18px; padding: 28px 32px; width: 560px; max-width: 90vw; box-shadow: 0 12px 48px rgba(90,90,130,0.2); border: 1px solid var(--border); }
+.wizard { background: #fff; border-radius: 18px; padding: 28px 32px; width: 560px; max-width: 90vw; box-shadow: var(--el-3); border: 1px solid var(--border); }
 .wizard-header { margin-bottom: 20px; }
 .wizard-header h2 { font-size: 20px; color: var(--ink); margin: 0; }
 .wizard-step-indicator { font-size: 12px; color: var(--muted); margin-top: 4px; }
@@ -14443,7 +14604,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
 /* 结构图按钮：与方针按钮上下排（同宽、间距 6px）；单独给一条规则不是装饰 ——
    check-button-styles 要求「模板里出现的 class 必须有样式规则」（僵尸按钮守卫的反面）。 */
-.pv-diagram { margin-top: 6px; }
+.pv-diagram, .pv-archself { margin-top: 6px; }
 #policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 700px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
 /* 方针弹窗必须盖在设置面板之上：两者都用 .overlay（z-index:60），而设置面板在 DOM 里更靠后，
    同层级下后出现的赢 —— 于是从设置里点方针，弹窗被设置整个盖住（用户 2026-09-25 第 3 条）。
@@ -14460,7 +14621,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
      （日志 / 待办那份仍是手搓，样式不动）。别把 `.ctx-menu` 的样式规则加回来：
      它的特异性（0,1,1）会压过组件里的工具类（0,1,0），等于把新菜单打回旧长相。 */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 60; }
-.ctx-other { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(30,30,60,.18); padding: 4px; }
+.ctx-other { position: fixed; z-index: 61; min-width: 172px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--el-3); padding: 4px; }
 .ctx-title { padding: 6px 10px 4px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .ctx-other button { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; color: var(--ink); font-family: inherit; }
 .ctx-other button:hover { background: var(--tint); }
@@ -14581,7 +14742,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   background: rgba(112,95,171,.96); color: #fff;
   border-radius: 999px; padding: 8px 18px;
   font-size: 12px; font-weight: 700; white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(90,90,130,.28);
+  box-shadow: var(--el-3);
 }
 .drop-hint.global { background: rgba(107,113,128,.97); }
 .todo-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
@@ -14675,9 +14836,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   align-content: space-between;
   column-gap: 8px; row-gap: 3px;
   min-height: 92px; padding: 9px 11px; border-radius: 11px;
-  box-shadow: 0 1px 2px rgba(90,90,130,0.05);
+  box-shadow: var(--el-1);
 }
-.todos-list.as-grid .todo-item:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+.todos-list.as-grid .todo-item:hover { background: var(--tint-2); box-shadow: var(--el-2); }
 .todos-list.as-grid .todo-chk { grid-column: 1; grid-row: 1; margin-top: 1px; }
 .todos-list.as-grid .todo-body { grid-column: 1 / -1; grid-row: 2; }
 .todos-list.as-grid .todo-line { align-items: flex-start; }
@@ -14717,8 +14878,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    待处理/已完成/已归档三种状态改用徽章颜色 + 极淡的卡底差异表达；
    只有「进行中」保留一条醒目色条，因为它是唯一需要一眼扫到的状态。
    阴影也从 var(--shadow)（0 8px 32px，几乎是浮起来的）压到 1px 的贴地投影。 */
-.log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 3px rgba(90,90,130,0.06); transition: background 0.15s, box-shadow 0.15s; cursor: pointer; }
-.log-card:hover { background: var(--tint-2); box-shadow: 0 3px 12px rgba(90,90,130,0.12); }
+.log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--el-1); transition: background 0.15s, box-shadow 0.15s; cursor: pointer; }
+.log-card:hover { background: var(--tint-2); box-shadow: var(--el-2); }
 .log-card.completed { background: #fcfdfb; }
 .log-card.archived { background: #fafafb; opacity: .82; }
 .log-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -14994,7 +15155,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-card.running {
   border-left: 4px solid var(--accent);
   background: linear-gradient(90deg, #f1eefe 0%, #fff 55%);
-  box-shadow: 0 0 0 1px rgba(112, 95, 171, 0.22), 0 2px 10px rgba(90, 90, 130, 0.08);
+  box-shadow: 0 0 0 1px rgba(112, 95, 171, 0.22), var(--el-2);
 }
 .log-card.running .log-status-badge.running { background: #5a5ce0; color: #fff; }
 .log-card.running .log-card-title { color: #4a3f7d; }
@@ -15068,7 +15229,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   position: absolute; top: -4px; right: -4px;
   background: #FF3B30; color: #fff; font-size: 10px; font-weight: 700;
   padding: 1px 5px; border-radius: 99px; min-width: 16px; text-align: center;
-  box-shadow: 0 2px 7px rgba(255,59,48,.36);
+  box-shadow: var(--el-2);
   animation: nc-pop .5s cubic-bezier(.34,1.4,.64,1) both;
 }
 @keyframes nc-pop { from { transform: scale(.4); opacity: 0 } to { transform: scale(1); opacity: 1 } }
@@ -15083,7 +15244,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .nc-panel {
   width: 460px; max-width: calc(100vw - 48px); max-height: calc(100vh - 120px);
   background: #fff; border: 1px solid var(--border); border-radius: 16px;
-  box-shadow: 0 24px 64px rgba(0,0,0,.18);
+  box-shadow: var(--el-3);
   display: flex; flex-direction: column; overflow: hidden;
   animation: nc-in .34s cubic-bezier(.16,1,.3,1) both;
 }
@@ -15094,7 +15255,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .nc-count {
   background: #FF3B30; color: #fff; font-size: 11px; font-weight: 700;
   padding: 2px 7px; border-radius: 99px; min-width: 20px; text-align: center;
-  box-shadow: 0 2px 7px rgba(255,59,48,.36);
+  box-shadow: var(--el-2);
 }
 .nc-head-title p { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .nc-head-act { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -15123,7 +15284,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   display: inline-flex; align-items: center; gap: 6px; transition: color .2s; white-space: nowrap;
 }
 .nc-seg button:hover { color: var(--ink); }
-.nc-seg button.on { color: var(--ink); background: #fff; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.nc-seg button.on { color: var(--ink); background: #fff; font-weight: 600; box-shadow: var(--el-1); }
 .nc-seg .n { font-size: 11px; font-weight: 600; color: var(--muted); }
 .nc-seg button.on .n { color: var(--accent); }
 
@@ -15147,7 +15308,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .nc-av {
   width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; color: #fff;
   display: flex; align-items: center; justify-content: center; font-size: 16px;
-  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 3px 9px rgba(0,0,0,.08);
+  box-shadow: var(--el-2);
   transition: transform .3s cubic-bezier(.34,1.4,.64,1);
 }
 .nc-item:hover .nc-av { transform: scale(1.06); }
@@ -15299,7 +15460,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #trash-preview-modal {
   width: min(780px, 92vw); max-height: 88vh; overflow: auto;
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 18px 20px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+  padding: 18px 20px; box-shadow: var(--el-3);
 }
 
 /* 「装到别的 agent」目标行 */
@@ -15337,7 +15498,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #log-project-modal {
   width: min(460px, 92vw); max-height: 80vh; overflow: auto;
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 16px 18px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+  padding: 16px 18px; box-shadow: var(--el-3);
 }
 .proj-pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .proj-pick-list .skills-btn { justify-content: flex-start; text-align: left; }
@@ -15347,7 +15508,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #trash-purge-modal {
   width: min(480px, 92vw); max-height: 80vh; overflow: auto;
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 16px 18px; box-shadow: 0 12px 40px rgba(30,35,50,0.22);
+  padding: 16px 18px; box-shadow: var(--el-3);
 }
 #log-purge-modal h3,
 #trash-purge-modal h3 { margin: 0 0 10px; font-size: 16px; }

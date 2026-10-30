@@ -25,6 +25,7 @@ import {
 } from './backup/gitBackup'
 import { SECRET_BASENAMES } from './backup/rules'
 import { getDataDir } from './data/index'
+import { listBigAttachments, deleteAttachment, attachmentsRoot } from './services/attachments'
 
 // ── 2026-10-06 删了 3 条被取代的旧通道 ─────────────────────────────────
 // `backup:listSources`（被 `backup:listLocal` + `backup:listRemote` 取代）
@@ -300,6 +301,34 @@ export function registerBackupIpcHandlers(): void {
   guardedHandle('backup:sizeReport', () => {
     try {
       return { ok: true, report: sizeReport() }
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  // ── 大附件清单与删除（2026-10-30，卡 task-20261018-004）──────────────
+  // 体积黑洞是 `docs/执行日志/_attachments` 里误挂的大文件（实锤过 57MB 一份）。
+  // 这里**只列不删**；删除是用户点、且路径必须真实落在附件目录内（防 ../ 与符号链接）。
+  guardedHandle('backup:bigAttachments', (_e, minMb?: number) => {
+    try {
+      return { ok: true, report: listBigAttachments(Number.isFinite(Number(minMb)) ? Number(minMb) : 10) }
+    } catch (e) {
+      return fail(e)
+    }
+  })
+  guardedHandle('backup:deleteAttachment', (_e, rel: string) => {
+    try {
+      return deleteAttachment(String(rel || ''))
+    } catch (e) {
+      return fail(e)
+    }
+  })
+  guardedHandle('backup:openAttachments', async () => {
+    try {
+      const root = attachmentsRoot()
+      if (!fs.existsSync(root)) return { ok: false, error: '还没有附件目录（还没挂过任何附件）' }
+      const err = await shell.openPath(root)
+      return err ? { ok: false, error: err } : { ok: true, path: root }
     } catch (e) {
       return fail(e)
     }

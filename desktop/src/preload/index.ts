@@ -84,6 +84,10 @@ contextBridge.exposeInMainWorld('tegula', {
   backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
   // 体积报告（2026-10-11 用户第 2 条）：把"备份范围里什么最占地方、按当前瘦身设置会跳过什么"摊开
   backupSizeReport: () => ipcRenderer.invoke('backup:sizeReport'),
+  /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */
+  backupBigAttachments: (minMb?: number) => ipcRenderer.invoke('backup:bigAttachments', minMb),
+  backupDeleteAttachment: (rel: string) => ipcRenderer.invoke('backup:deleteAttachment', rel),
+  backupOpenAttachments: () => ipcRenderer.invoke('backup:openAttachments'),
   // Git 通道（2026-10-11）：只推不拉；令牌在渲染层只出现一次（填进去），之后再没回传
   backupGitStatus: () => ipcRenderer.invoke('backup:gitStatus'),
   backupGitSave: (patch: any) => ipcRenderer.invoke('backup:gitSave', patch),
@@ -177,6 +181,11 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 项目梯度榜（2026-10-25）：只给项目页的「梯度榜」摆法用，见 services/projectTiers.ts */
   /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
   projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
+  /** 方寸自绘架构图（2026-10-30）：只读扫源码 → 图模型；导出由用户选保存位置 */
+  archGet: (projectId: string) => ipcRenderer.invoke('arch:get', projectId),
+  archExport: (projectId: string) => ipcRenderer.invoke('arch:export', projectId),
+  /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
+  cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),
   projectTiersSet: (tiers: unknown) => ipcRenderer.invoke('projectTiers:set', tiers),
   /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */

@@ -4776,7 +4776,7 @@
     // ⚠ 这是「通用」类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
     //   2026-10-25 加了「念头长度上限」，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '念头长度上限', '顶栏页签']
+    const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签']
     check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
@@ -6442,6 +6442,60 @@
       clickText('看板'); await sleep(300)
     }
 
+    // ══ 方寸自绘架构图（2026-10-30，卡 task-20261030-002）══════════════════
+    // 与上一块的区别：上一块验"打开别人画好的 HTML"，这一块验**方寸自己扫源码画的图**。
+    // 判据不是"能出图"，而是：节点可点、连线按证据类型分组、缺项与证据都摆出来、导出真走通道。
+    {
+      clickText('项目'); await sleep(400)
+      const selfBtn = $$('.tile .pv-archself').find((b) => (b.textContent || '').indexOf('自绘架构图') >= 0)
+      check('★★ 项目卡上有「自绘架构图」入口（与「架构图」并列，不混成一个）', !!selfBtn,
+        $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 10).join('|'))
+      window.__fcTest.reset()
+      if (selfBtn) selfBtn.click()
+      check('★★ 点了真走 arch:get IPC', await waitFor(() => window.__fcTest.callCount('archGet') > 0, 4000, 'archGet'),
+        JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+      const opened = await waitFor(() => !!$('#arch-modal'), 4000, 'arch modal')
+      check('★★ 面板打开且标题带项目名（不是一张没头没尾的图）',
+        opened && (($('.archd-ttl') || {}).textContent || '').indexOf('演示项目') >= 0,
+        (($('.archd-ttl') || {}).textContent || '').slice(0, 40))
+      check('★★ 图里 6 个节点都能点（data-node 逐个渲染出来，不是一张死图）',
+        $$('#arch-modal [data-node]').length === 6, String($$('#arch-modal [data-node]').length))
+      check('★ 连线按证据类型分组（import / ipc / bridge 三组都在）',
+        $$('#arch-modal .archd-edge').length === 3,
+        $$('#arch-modal .archd-edge').map((e) => e.getAttribute('class')).join(' | '))
+      check('★★ 缺项摆出来（端口清单 + 为什么没列）',
+        (($('.archd-side') || {}).textContent || '').indexOf('端口清单') >= 0)
+      check('★ 证据清单摆出来（package.json + 只读扫描）', (() => {
+        const t = (($('.archd-side') || {}).textContent || '')
+        return t.indexOf('package.json') >= 0 && t.indexOf('只读扫描') >= 0
+      })(), (($('.archd-side') || {}).textContent || '').slice(0, 120))
+      // 点一个节点 → 右侧换成它的文件明细
+      const mainNode = $$('#arch-modal [data-node]').find((g) => g.getAttribute('data-node') === 'src/main')
+      if (mainNode) {
+        const box = mainNode.querySelector('rect') || mainNode
+        box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      }
+      await sleep(350)
+      check('★★ 点节点 → 右侧显示它的文件样例（选中真的有反应）',
+        (($('.archd-side') || {}).textContent || '').indexOf('src/main/index.ts') >= 0,
+        (($('.archd-side') || {}).textContent || '').slice(0, 100))
+      // 导出：用户点按钮才写盘
+      window.__fcTest.reset()
+      const expBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('导出') >= 0)
+      check('  面板上有「导出 HTML…」入口', !!expBtn)
+      if (expBtn) expBtn.click()
+      check('★★ 「导出」真走 arch:export IPC', await waitFor(() => window.__fcTest.callCount('archExport') > 0, 4000, 'archExport'),
+        JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+      check('★ 导出成功后明说落到哪（不是静默）',
+        await waitFor(() => (($('#toast') || {}).textContent || '').indexOf('已导出') >= 0, 3000, 'toast'),
+        (($('#toast') || {}).textContent || '').slice(0, 100))
+      const closeBtn = $$('#arch-modal button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (closeBtn) closeBtn.click()
+      await sleep(300)
+      check('  关闭后从 DOM 消失', !$('#arch-modal'))
+      clickText('看板'); await sleep(300)
+    }
+
 
     }
 
@@ -6575,6 +6629,152 @@
         (($('#toast') || {}).textContent || '').slice(0, 80))
     }
 
+
+    // ══ 全局外观：扁平 / 阴影两套（2026-10-30，卡 task-20261030-004）════════
+    // 判据不是"设置里有俩按钮"，而是**真按下去、真量计算样式、真落盘**：
+    //   ① 默认扁平 → 看板卡片 box-shadow 必须是 none（不是"看起来很淡"）；
+    //   ② 切阴影 → <html data-appearance=shadow> 且卡片真的浮起来；
+    //   ③ 切回扁平 → 又归零；④ 选择落进 prefs.json（换 origin 也不丢）。
+    {
+      const T = (id, title, extra = {}) => Object.assign({
+        id, title, status: '待办', priority: '中', project: 'demo', tags: [], body: '',
+        created: '2026-10-01T00:00:00.000Z', updated: '2026-10-02T00:00:00.000Z',
+        fm: { id, title, status: '待办', project: 'demo' }, path: 'C:/mock/task-data/' + id + '.md',
+      }, extra)
+      window.__fcTest.setTasks([T('ap-1', '外观样例甲'), T('ap-2', '外观样例乙')])
+      await openViewTab('待办'); await sleep(300)
+      await openViewTab('看板'); await sleep(800)
+      const cardEl = $$('#board .card')[0]
+      check('  （自检）板上有卡片可量样式', !!cardEl, String($$('#board .card').length))
+      check('★★ 默认扁平：看板卡片计算样式里没有阴影（box-shadow: none）',
+        !!cardEl && getComputedStyle(cardEl).boxShadow === 'none',
+        cardEl ? getComputedStyle(cardEl).boxShadow : '(无卡)')
+
+      const gear = $$('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+      if (gear) gear.click()
+      await sleep(700)
+      const apBtns = $$('#smodal .appearance-btn')
+      check('★ 设置页有「外观形态」两档（扁平 / 阴影）', apBtns.length === 2,
+        apBtns.map((b) => (b.textContent || '').trim()).join(' | '))
+      const nameOf = (b) => ((b.querySelector('.ap-name') || {}).textContent || '').trim()
+      const shadowBtn = apBtns.find((b) => nameOf(b) === '阴影')
+      check('  两档里有一档叫「阴影」', !!shadowBtn,
+        apBtns.map((b) => nameOf(b)).join('|'))
+      if (shadowBtn) {
+        shadowBtn.click()
+        await sleep(450)
+        check('★★ 切阴影 → <html data-appearance="shadow">（纯 CSS 生效）',
+          document.documentElement.getAttribute('data-appearance') === 'shadow',
+          String(document.documentElement.getAttribute('data-appearance')))
+        check('★★ 卡片真的浮起来了（计算样式不再是 none）',
+          !!cardEl && getComputedStyle(cardEl).boxShadow !== 'none',
+          cardEl ? getComputedStyle(cardEl).boxShadow.slice(0, 80) : '(无卡)')
+        check('★★ 选择落进 prefs.json（fc_appearance=shadow，换 origin 也不丢）',
+          window.__fcTest.prefs().fc_appearance === 'shadow',
+          JSON.stringify(window.__fcTest.prefs().fc_appearance))
+        check('★ 换外观不动主题（data-theme 保持原样）',
+          (document.documentElement.getAttribute('data-theme') || 'default') ===
+          (window.__fcTest.prefs().fc_theme || 'default'),
+          'theme=' + String(document.documentElement.getAttribute('data-theme')))
+
+        const flatBtn = $$('#smodal .appearance-btn').find((b) => ((b.querySelector('.ap-name') || {}).textContent || '').trim() === '扁平')
+        if (flatBtn) flatBtn.click()
+        await sleep(450)
+        check('★★ 切回扁平 → 又归零（不是"再加一层"）',
+          document.documentElement.getAttribute('data-appearance') === 'flat' &&
+          !!cardEl && getComputedStyle(cardEl).boxShadow === 'none',
+          String(document.documentElement.getAttribute('data-appearance')) + ' / ' +
+          (cardEl ? getComputedStyle(cardEl).boxShadow : '(无卡)'))
+        check('★ 切回扁平也落盘（fc_appearance=flat）',
+          window.__fcTest.prefs().fc_appearance === 'flat',
+          JSON.stringify(window.__fcTest.prefs().fc_appearance))
+      }
+      const closeS = $$('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (closeS) closeS.click()
+      await sleep(300)
+    }
+
+    // ══ 整理体检：never_read 接进「整理/体检」（2026-10-30，卡 20261025-006）══
+    // 用户原话是「看板一堆待办，不知道到底做了没有」。判据：
+    //   ① 两个数字并排出现（没人碰过 / 驳回没人管）；② 口径文案跟数字一起（不是优先级）；
+    //   ③ 两个出口真能用 —— 回看板真筛出那批卡、看返工台真展开。
+    {
+      const T = (id, title, st) => ({
+        id, title, status: st, priority: '中', project: 'demo', tags: [], body: '',
+        created: '2026-09-01T00:00:00.000Z', updated: '2026-09-02T00:00:00.000Z',
+        fm: { id, title, status: st, project: 'demo' }, path: 'C:/mock/task-data/' + id + '.md',
+      })
+      // 驳回卡真喂一张，这样「看返工台」才验得到（不能只验按钮存在）
+      window.__fcTest.setTasks([T('ck-1', '体检样例甲', '待办'), T('ck-2', '被驳回的乙', '驳回')])
+      await openViewTab('待办'); await sleep(300)
+      await openViewTab('看板'); await sleep(700)
+
+      const gearC = $$('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+      if (gearC) gearC.click()
+      await sleep(700)
+      const dataNav = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('数据') >= 0)
+      check('  设置里有「数据」分类（体检的落点）', !!dataNav)
+      if (dataNav) dataNav.click()
+      await sleep(500)
+
+      const ckBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('整理体检') >= 0)
+      check('★ 数据页有「跑一次整理体检」入口', !!ckBtn,
+        $$('#smodal h4').map((h) => (h.textContent || '').trim()).join('|'))
+      window.__fcTest.reset()
+      if (ckBtn) ckBtn.click()
+      check('★★ 点体检真走 cleanup:scan（不是本地凑数）',
+        await waitFor(() => window.__fcTest.callCount('cleanupScan') > 0, 4000, 'cleanupScan'),
+        JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+      // IPC 是异步的：callCount 先动，状态落进页面还要一帧 —— 等结果块出来再断言
+      check('★★ 体检结果块渲染出来', await waitFor(() => !!$('.cleanup'), 4000, '.cleanup'))
+      check('★★ 两个数字并排出现（没人碰过 2 / 驳回没人管 1）', (() => {
+        const t = (($('.cleanup') || {}).textContent || '')
+        return t.indexOf('没人碰过') >= 0 && t.indexOf('2') >= 0 && t.indexOf('驳回') >= 0 && t.indexOf('1') >= 0
+      })(), (($('.cleanup') || {}).textContent || '').slice(0, 120))
+      check('★★ 口径跟着数字（清理候选，不是优先级）',
+        (($('.cleanup-rule') || {}).textContent || '').indexOf('不是优先级') >= 0,
+        (($('.cleanup-rule') || {}).textContent || '').slice(0, 80))
+      check('★ 清单里能看到具体是哪张卡（不是只有一个数）',
+        (($('.cleanup-list') || {}).textContent || '').indexOf('没人读过的甲') >= 0)
+
+      const toNR = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('回看板筛出来') >= 0)
+      check('  体检结果里有「回看板筛出来」出口', !!toNR)
+      if (toNR) toNR.click()
+      await sleep(900)
+      check('★★ 点了真回到看板并筛出「没人碰过」（设置关了、筛选生效）', (() => {
+        const t = (($('#toast') || {}).textContent || '')
+        return !$('#smodal') && ($$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0) ||
+          (($('.fbar') || {}).textContent || '').indexOf('没人碰过') >= 0)
+      })(), $$('.fbar-chip').map((c) => (c.textContent || '').trim()).join('|'))
+      // 收尾：撤掉筛选，别把后面几节拖进空板
+      const clearAllC = $('.fbar-clear')
+      if (clearAllC) { clearAllC.click(); await sleep(400) }
+      const chipXC = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('没人碰过') >= 0)
+      if (chipXC) { const x = chipXC.querySelector('.fbar-x'); if (x) { x.click(); await sleep(400) } }
+
+      // 出口二：看返工台 → 板子上的返工台要真的展开
+      const gearD = $$('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+      if (gearD) gearD.click()
+      await sleep(600)
+      const dataNav2 = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('数据') >= 0)
+      if (dataNav2) dataNav2.click()
+      await sleep(400)
+      // 设置弹窗关掉再开，面板是重新挂载的（结果不跨会话留存）—— 再体检一次，模拟真实第二次使用
+      const ckBtn2 = $$('#smodal button').find((b) => (b.textContent || '').indexOf('整理体检') >= 0)
+      if (ckBtn2) ckBtn2.click()
+      await waitFor(() => !!$('.cleanup'), 4000, '.cleanup 第二次')
+      const toRW = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('看返工台') >= 0)
+      check('  体检结果里有「看返工台」出口', !!toRW)
+      if (toRW) toRW.click()
+      await sleep(900)
+      check('★★ 点了真回看板并展开返工台（逐张处置那一栏出现）',
+        !$('#smodal') && !!$('.rework-panel') &&
+        (($('.rework-panel') || {}).textContent || '').indexOf('被驳回的乙') >= 0,
+        'panel=' + !!$('.rework-panel'))
+      // 收尾：折叠返工台，别让下一节（它要验"展开"这一步）拿到已展开的状态
+      const collapse = $$('.rework-bar button').find((b) => (b.textContent || '').trim() === '收起')
+      if (collapse) { collapse.click(); await sleep(350) }
+    }
 
     // ══ 驳回返工台（2026-10-30 暮雨第 3 条）════════════════════════════════
     // 「驳回的东西好像也永远不看，是方寸的缺陷吗？」——是，两层：

@@ -39,8 +39,12 @@ import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { pickNeverRead } from '../shared/neverRead'
+import { buildCleanupReport } from './services/cleanup'
 import { checkMismatch } from './services/mismatch'
 import { findArtifactForProject } from './services/projectDiagram'
+import { archForProject, scanProject } from './services/projectArch'
+import { buildArchGraph } from '../shared/archGraph'
+import { renderArchHtml } from '../shared/archSvg'
 import * as rice from './data/rice'
 
 export function registerIpcHandlers(): void {
@@ -1294,6 +1298,21 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     return { ok: true, ...pickNeverRead(tasks, stats, { days: win, windowEvents: events }) }
   })
 
+  // ── 整理体检（2026-10-30，卡 20261025-006 剩下的「接进整理流程」）──────
+  // 一次摊开两批**清理候选**：没人碰过 + 驳回后没人管。判据与口径全在
+  // services/cleanup.ts（纯函数，e2e-cleanup 用真数据根跑）。
+  guardedHandle('cleanup:scan', (_event, days?: number) => {
+    const blank = days === undefined || days === null || String(days).trim() === ''
+    const raw = blank ? 30 : Number(days)
+    const win = Number.isFinite(raw) ? (raw > 0 ? Math.floor(raw) : 0) : 30
+    const { stats, events } = readUsageSummary(win)
+    const tasks = data.loadTasks('active').map((t) => ({
+      ...taskToNeverReadInput(t),
+      result_log: String((t.fm as any)?.result_log ?? ''),
+    }))
+    return { ok: true, ...buildCleanupReport(tasks, stats, { days: win, windowEvents: events }) }
+  })
+
   // ── 「对不上」检测（2026-10-27，REV-008 一期 R4「让对不上可见」）──
   // 三类：① 状态过期（registry 写的日期 vs 仓库最后提交）② 引用断裂（卡里的路径磁盘上没了）
   //      ③ 完成但没判据（自报完成，无从复核）。判定全在 `shared/mismatch.ts`（e2e-mismatch 用纯 Node 验）。
@@ -1313,6 +1332,34 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
       return { ok: false, error: '打开失败：' + (e?.message || e) }
     }
   })
+
+  // ── 方寸自绘架构图（2026-10-30，卡 task-20261030-002）────────────────
+  // 与上面那条的分工：archify 产物 = 打开别人画的；这两条 = 方寸**自己只读扫源码**出图。
+  // 扫描纪律写在 services/projectArch.ts 顶部（只读 / 不联网 / 不写项目仓库）。
+  guardedHandle('arch:get', (_event, projectId: string) => {
+    return archForProject(String(projectId || ''))
+  })
+  // 导出：用户点「导出 HTML」→ 选保存位置 → 才写盘（默认落在该仓库 docs/ 下，
+  // 但**写这个动作是用户做的**，方寸不自动往项目仓库写）。
+  guardedHandle('arch:export', async (_event, projectId: string) => {
+    const r = archForProject(String(projectId || ''))
+    if (!r.ok || !r.graph) return { ok: false, error: r.error || '这张图生成失败' }
+    const safe = String((r.project && r.project.name) || '项目').replace(/[\\/:*?"<>|]/g, '_')
+    const defDir = path.join(String(r.repo || ''), 'docs')
+    const defaultPath = path.join(fs.existsSync(defDir) ? defDir : String(r.repo || ''), `方寸架构图-${safe}.html`)
+    const win = BrowserWindow.getFocusedWindow()
+    const picked = win
+      ? await dialog.showSaveDialog(win, { title: '导出架构图 HTML', defaultPath, filters: [{ name: 'HTML', extensions: ['html'] }] })
+      : await dialog.showSaveDialog({ title: '导出架构图 HTML', defaultPath, filters: [{ name: 'HTML', extensions: ['html'] }] })
+    if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+    try {
+      fs.writeFileSync(picked.filePath, renderArchHtml(r.graph), 'utf8')
+      return { ok: true, path: picked.filePath }
+    } catch (e: any) {
+      return { ok: false, error: '写入失败：' + (e?.message || e) }
+    }
+  })
+
 
   guardedHandle('mismatch:check', async (_event, days?: number) => {
     // 空值单独判：Number('') 和 Number(null) 都是 0，而 0 在这里是"不算过期"——直接 Number 会把它静默变成 0

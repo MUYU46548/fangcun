@@ -198,24 +198,25 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   //   直接全文匹配会先命中注释 —— 判据抓错对象，绿红都不可信。
   const classStr = cardVue.slice(cardVue.indexOf('cn('))
   const mR = /rounded-\[(\d+)px\]/.exec(classStr)
-  const mS = /shadow-\[0_(\d+)px_(\d+)px_rgba\((\d+),(\d+),(\d+),([0-9.]+)\)\]/.exec(classStr)
+  // 2026-10-30：两边都改成读**外观令牌**（--el-1 贴地 / --el-2 浮起）。
+  // 判据从"逐值相等"改成"两边读的是同一档" —— 逐值比对的意图没变，只是值搬进了令牌。
+  const mS = /shadow-\[var\(--el-1\)\]/.exec(classStr)
+  const mHover = /hover:shadow-\[var\(--el-2\)\]/.exec(classStr)
   const block2 = /\.card \{([\s\S]*?)\}/.exec(appVue)
   const oR = block2 ? /border-radius:\s*(\d+)px/.exec(block2[1]) : null
-  const oS = block2 ? /box-shadow:\s*0 (\d+)px (\d+)px rgba\((\d+),(\d+),(\d+),([0-9.]+)\)/.exec(block2[1]) : null
+  const oS = block2 ? /box-shadow:\s*var\(--el-1\)/.exec(block2[1]) : null
+  const oHover = block2 ? /\.card:hover\s*\{[^}]*box-shadow:\s*var\(--el-2\)/.exec(appVue) : null
 
-  check('★ Card 组件写了圆角与阴影（否则这条判据等于没测）',
+  check('★ Card 组件写了圆角与贴地令牌（否则这条判据等于没测）',
     !!mR && !!mS, 'r=' + (mR && mR[1]) + ' s=' + !!mS)
-  check('★ 老 .card 也解析到了圆角与阴影（App.vue 里那个块还在）', !!oR && !!oS)
+  check('★ 老 .card 也解析到了圆角与贴地令牌（App.vue 里那个块还在）', !!oR && !!oS)
+  check('★★ 新 Card 与老 .card 用了**同一档**贴地阴影（都是 --el-1，不许任何一边写死字面量）',
+    !!mS && !!oS)
+  check('★ 悬停档也统一（两边都是 --el-2）', !!mHover && !!oHover,
+    'Card=' + !!mHover + ' .card=' + !!oHover)
   if (mR && oR) {
     check('★★ 新 Card 与老 .card **圆角相同**（同一屏两种圆角 = 看起来两套 UI）',
       mR[1] === oR[1], 'Card=' + mR[1] + 'px vs .card=' + oR[1] + 'px')
-  }
-  if (mS && oS) {
-    const same = mS[1] === oS[1] && mS[2] === oS[2]
-      && mS[3] === oS[3] && mS[4] === oS[4] && mS[5] === oS[5] && Number(mS[6]) === Number(oS[6])
-    check('★★ 新 Card 与老 .card **阴影同一档**（偏移/模糊/RGBA 逐值相等）', same,
-      'Card=' + mS[1] + ' ' + mS[2] + ' rgba(' + mS[3] + ',' + mS[4] + ',' + mS[5] + ',' + mS[6] + ')'
-      + ' vs .card=' + oS[1] + ' ' + oS[2] + ' rgba(' + oS[3] + ',' + oS[4] + ',' + oS[5] + ',' + oS[6] + ')')
   }
 }
 
@@ -266,6 +267,47 @@ check('反例：只有 :focus 兜底的旧版本 → 提取为空',
   pickBaseRule(":where(input:not([type='checkbox']):not([type='radio']), textarea):focus { color: red }") === '', '')
 check('反例：基线里塞了 width 会被咬住',
   /(^|[;{\s])(width|display|margin)\s*:/.test(`${BASE_SEL}, textarea) { width: 100%; }`), '')
+
+// ── ⑥ 全局外观：阴影 / 扁平两套（2026-10-30，卡 task-20261030-004）──────
+// 判据三条：① 默认扁平（三档高度全 none）；② shadow 只换高度、不许顺手改配色；
+// ③ 三档之外**不许再有写死的高度阴影**（否则"切回扁平"会留下散不掉的影子）。
+{
+  const css = appSrc.slice(appSrc.indexOf('<style>'))
+  const rootIdx = css.indexOf(':root {')
+  const rootBlock = rootIdx >= 0 ? css.slice(rootIdx, css.indexOf('}', rootIdx)) : ''
+  check('★★ 默认扁平：--el-1/2/3 在 :root 里都是 none',
+    ['--el-1', '--el-2', '--el-3'].every((k) => new RegExp(k + '\\s*:\\s*none').test(rootBlock)),
+    rootBlock.slice(0, 200))
+  check('★ 只留一个高度来源：--shadow 指向 --el-3（不是又写一遍字面量）',
+    /--shadow\s*:\s*var\(--el-3\)/.test(rootBlock))
+  const shIdx = css.indexOf(":root[data-appearance='shadow']")
+  const shBlock = shIdx >= 0 ? css.slice(shIdx, css.indexOf('}', shIdx)) : ''
+  check('★★ 有 shadow 外观块，且三档都有真实阴影',
+    ['--el-1', '--el-2', '--el-3'].every((k) => new RegExp(k + '\\s*:\\s*0 ').test(shBlock)),
+    shBlock.slice(0, 200))
+  check('★★ shadow 块只换高度、不许改配色（--bg / --ink / --accent 一个都不许出现）',
+    !/--(bg|ink|accent|muted|card)\s*:/.test(shBlock), shBlock.slice(0, 200))
+  // 所有 box-shadow 值：只允许 none / --el-* / --shadow / 选中环(0 0 0) / inset
+  const values = []
+  const re = /box-shadow:\s*([^;]+);/g
+  let m
+  while ((m = re.exec(css))) values.push(m[1].trim())
+  const bad = values.filter((v) => {
+    if (v === 'none') return false
+    if (/^var\(--(el-[123]|shadow)\)$/.test(v)) return false
+    if (/^0 0 0 /.test(v)) return false          // 选中/聚焦环：是状态，不是高度
+    if (/^inset /.test(v)) return false          // 页签下划线等内阴影
+    if (/^0 0 0 [^,]+, var\(--el-[123]\)$/.test(v)) return false // 环 + 高度组合
+    return true
+  })
+  check('★★ 三档之外没有写死的高度阴影（切回扁平才能真的零阴影）', bad.length === 0,
+    bad.slice(0, 4).join(' | '))
+  check('★ 外观档位只有两档（flat / shadow），默认 flat',
+    /readUiPref<string>\('fc_appearance',\s*'flat'\)/.test(appSrc) &&
+    /id:\s*'flat'/.test(appSrc) && /id:\s*'shadow'/.test(appSrc))
+  check('★ 切外观会写到 <html data-appearance>（纯 CSS 生效，不靠组件重绘）',
+    /dataset\.appearance\s*=/.test(appSrc))
+}
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) { console.log('\n失败项：'); for (const f of failures) console.log(' -', f) }

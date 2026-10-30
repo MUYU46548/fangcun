@@ -79,7 +79,17 @@ function browserPreload() {
  * ⚠ 必须用独立 `--user-data-dir`：否则新实例的命令会被转发给用户正在用的浏览器，
  *   进程秒退、什么都拿不到（而 Chrome 进程数为 0 时也照样失败 → 与"实例冲突"无关）。
  */
-function viaCdp(browser, url, env, budgetMs = 150000) {
+/**
+ * CDP 兜底的时间预算（2026-10-30）：断言已经涨到 950+ 条，**实跑**（CDP 路径不用虚拟时间）
+ * 要几十秒到两分钟；环境一抖动 dump-dom 拿不到结果就只能走这条路，150s 开始不够。
+ * 默认 300s，可用 FC_CDP_BUDGET_MS 覆盖。
+ */
+function cdpBudget() {
+  const n = Number(process.env.FC_CDP_BUDGET_MS)
+  return Number.isFinite(n) && n > 5000 ? Math.floor(n) : 300000
+}
+
+function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
   const port = 9411 + (process.pid % 500)
   const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cdp-'))
   const child = spawn(browser, [
@@ -293,6 +303,9 @@ function main() {
       ['项目', '需求矩阵', 'rice-why', 'ricewhy'],
       // 2026-10-30：驳回返工台 —— 提示条 + 逐张面板（理由取最后一次驳回）。
       ['看板', '列视图', 'rework-bar', 'rework'],
+      // 2026-10-30：方寸自绘架构图（面板打开态）+ 外观形态（两张小卡）
+      ['项目', '', 'arch-self', 'archself'],
+      ['看板', '列视图', 'settings-appearance', 'apui'],
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -510,6 +523,21 @@ function main() {
   if (ob) ob.click()
   await sleep(600)
 ` : ''}
+  ${extra === 'archself' ? `
+  // 方寸自绘架构图（2026-10-30）：项目卡 → 自绘架构图 → 拍面板（含证据 / 缺项）
+  const ab = all('.tile .pv-archself')[0]
+  if (ab) ab.click()
+  await sleep(1200)
+` : ''}
+  ${extra === 'apui' ? `
+  // 外观形态（2026-10-30 卡 004）：设置 → 通用 → 滚到「外观形态」
+  const gearA = all('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+  if (gearA) gearA.click()
+  await sleep(700)
+  const apRow = document.querySelector('#smodal .appearance-row')
+  if (apRow) apRow.scrollIntoView({ block: 'center' })
+  await sleep(400)
+` : ''}
   ${extra === 'tierview' ? `
   // 项目梯度榜（2026-10-25）：项目页 → 「▥ 梯度榜」→ 把一个胶囊拖进最后一档（搁置）
   clickText('项目')
@@ -678,9 +706,9 @@ function main() {
     console.log('INFO  --dump-dom 没拿到结果，改走「常驻 + CDP」重试…')
     clearTimeout(watchdog)
     watchdog = setTimeout(() => {
-      console.log('FAIL  CDP 兜底超时（150s）')
+      console.log('FAIL  CDP 兜底超时（' + Math.round(cdpBudget() / 1000) + 's）')
       process.exit(1)
-    }, 150000)
+    }, cdpBudget())
     let html = ''
     try {
       html = await viaCdp(browser, 'file:///' + harnessPath.replace(/\\/g, '/'), env)

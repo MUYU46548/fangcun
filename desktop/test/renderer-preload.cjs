@@ -1536,7 +1536,70 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!projectId) return { ok: false, error: '没给项目 id' }
     return {
       ok: false,
-      error: '演示项目 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下（文件名带「架构图」或 architecture），再点这里；方寸不自己画架构图。',
+      error: '演示项目 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下（文件名带「架构图」或 architecture），再点这里；方寸自绘是旁边那个按钮。',
+    }
+  },
+  // ── 方寸自绘架构图桩（2026-10-30，卡 task-20261030-002）──────────────
+  // 图模型照真身字段造：节点=目录、边=import/ipc/bridge、证据与缺项都有内容 ——
+  // 断言要验的是「界面有没有把证据和缺项**摆出来**」，不是"能不能跑通"。
+  archGet: (projectId) => {
+    cloneGuard('archGet', [projectId])
+    rec('archGet', [projectId])
+    if (!projectId) return { ok: false, error: '没给项目 id' }
+    return {
+      ok: true,
+      repo: 'C:/mock/demo',
+      project: { id: projectId, name: '演示项目', repo: 'C:/mock/demo' },
+      graph: {
+        title: '演示项目 · 架构图',
+        subtitle: '证据来自 package.json 与源码里的真实 import / IPC 计数 · C:/mock/demo',
+        text: '6 个组件 · 3 条连线 · 扫描 11 个文件',
+        scannedFiles: 11,
+        truncated: false,
+        nodes: [
+          { id: 'src/renderer', label: '渲染层（界面）', kind: 'layer', files: 2, samples: ['src/renderer/App.vue'], note: 'src/renderer · .vue' },
+          { id: 'src/preload', label: '预加载 / 桥', kind: 'layer', files: 1, samples: ['src/preload/index.ts'], note: 'src/preload · .ts' },
+          { id: 'src/main', label: '主进程', kind: 'layer', files: 3, samples: ['src/main/index.ts', 'src/main/ipc.ts'], note: 'src/main · .ts' },
+          { id: 'src/shared', label: '共享逻辑', kind: 'shared', files: 4, samples: ['src/shared/util.ts'], note: 'src/shared · .ts' },
+          { id: '__entry__', label: '入口', kind: 'entry', files: 1, samples: ['src/main/index.ts'], note: 'package.json main: src/main/index.ts' },
+          { id: '__deps__', label: '外部依赖', kind: 'external', files: 7, samples: ['vue', 'electron'], note: '来自 package.json（未扫 node_modules）' },
+        ],
+        edges: [
+          { from: 'src/renderer', to: 'src/shared', kind: 'import', label: 'import ×2', count: 2, samples: ['src/renderer/App.vue → ../shared/util'] },
+          { from: 'src/preload', to: 'src/main', kind: 'ipc', label: 'IPC：3 个 handle / 1 个 invoke', count: 4, samples: ['src/preload/index.ts:2 · ipcRenderer.invoke(...)'] },
+          { from: 'src/renderer', to: 'src/preload', kind: 'bridge', label: '桥调用 ×12', count: 12, samples: ['src/renderer/App.vue:3 · window.tegula.get(...)'] },
+        ],
+        missing: [{ what: '端口清单', why: '源码里没有读到 listen(...) —— 端口不是猜出来的，没读到就不列' }],
+        evidence: ['package.json：demo 1.0.0 · main=src/main/index.ts', '只读扫描：11 个文件'],
+      },
+    }
+  },
+  archExport: (projectId) => {
+    cloneGuard('archExport', [projectId])
+    rec('archExport', [projectId])
+    return { ok: true, path: 'C:/mock/demo/docs/方寸架构图-演示项目.html' }
+  },
+  // ── 整理体检桩（2026-10-30，卡 20261025-006）：两批清理候选一起回 ──
+  cleanupScan: (days) => {
+    rec('cleanupScan', [days])
+    return {
+      ok: true,
+      days: 30,
+      text: '没人碰过 2 张 · 驳回后没人管 1 张',
+      rule: '口径：没人碰过只算 agent 经 MCP 读卡（你在界面里点开不算）；它只是清理候选，不是优先级，也不代表"不重要"。',
+      neverRead: {
+        rows: [
+          { id: 'nr-1', title: '没人读过的甲', project: 'demo', status: '待办', priority: '高', updated: '2026-09-01T00:00:00.000Z', reads: 0 },
+          { id: 'nr-2', title: '没人读过的乙', project: 'demo', status: '待办', priority: '中', updated: '2026-09-02T00:00:00.000Z', reads: 0 },
+        ],
+        count: 2, openTotal: 5, windowEvents: 7, days: 30,
+      },
+      rework: {
+        count: 1,
+        oldestDays: 12,
+        text: '1 张卡被驳回后没人再管（最早 12 天前）',
+        rows: [{ id: 'rw-1', title: '被驳回的甲', reason: '按钮点不动', hasReason: true, ageDays: 12, updatedMs: 0 }],
+      },
     }
   },
   // ── 需求矩阵（RICE）桩（2026-10-29）：页签此前在无头断言里完全没被打开过 ──
