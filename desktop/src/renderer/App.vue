@@ -1932,36 +1932,100 @@
       </div>
     </div>
 
-    <!-- 绑定附属日志（2026-10-30 暮雨第 4 条）：一篇主日志带若干附属，关系落盘。
-         不再要求"先多选再找批量栏"—— 直接在主日志卡上点「🔗 绑定附属」。 -->
+    <!-- 绑定附属日志（2026-10-30 暮雨第 4 条；第 2 条二次返工）：
+         一篇主日志带若干附属，关系落盘。候选来自**全量日志**，弹窗自己有
+         关键词 / 项目 / 状态 / Agent / 优先级 / 日期六个可叠加条件 ——
+         不再受主界面筛选影响，也不再是一张没有查询能力的裸名单。 -->
     <div v-if="logAttachTarget" class="overlay" @mousedown.self="logAttachTarget = null">
       <div id="log-attach-modal">
         <h3>🔗 绑定附属日志</h3>
         <div class="la-main">
           <span class="la-lbl">主日志</span>
           <b>{{ logAttachTarget.title || logAttachTarget.id }}</b>
+          <span v-if="logAttachLoading" class="la-loading">正在读取全部日志…</span>
         </div>
         <div class="la-hint">
-          勾选同一轮一起跑的那几条（进度通知 / 并行通道）。绑定后主日志卡上会多出
-          「全组进行中 / 全组完成 / 开工单」—— 一次点全组，不必再逐条点。
-          一个附属只能归一个主日志；已完成/已归档的也能绑（只是全组动作会跳过它们）。
+          勾选同一轮一起跑的那几条（进度通知 / 并行通道）。绑定后它们会收进主日志下面的框，
+          每条仍可单独打开、单独改、单独完成；绑定关系落盘，下次还在。
+          一个附属只能归一个主日志；最多 20 条。勾选顺序 = 开工单里的顺序。
+        </div>
+        <div class="la-filters">
+          <input v-model="logAttachQuery" class="la-search" spellcheck="false"
+            placeholder="搜索标题 / 正文 / ID / 任务 / 会话…" />
+          <select v-model="logAttachProject" class="la-sel" title="按项目筛选">
+            <option value="">全部项目</option>
+            <option v-for="p in logAttachProjects" :key="'lap-' + p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <select v-model="logAttachStatus" class="la-sel" title="按状态筛选">
+            <option value="">全部状态</option>
+            <option value="running">进行中</option>
+            <option value="active">待处理</option>
+            <option value="completed">已完成</option>
+            <option value="archived">已归档</option>
+          </select>
+          <select v-model="logAttachAgent" class="la-sel" title="按执行 Agent 筛选">
+            <option value="">全部 Agent</option>
+            <option v-for="a in logAttachAgents" :key="'laa-' + a" :value="a">{{ a }}</option>
+          </select>
+          <select v-model="logAttachPrio" class="la-sel" title="按优先级筛选">
+            <option value="">全部优先级</option>
+            <option value="高">高</option>
+            <option value="中">中</option>
+            <option value="低">低</option>
+            <option value="__none__">未标</option>
+          </select>
+          <input v-model="logAttachDateFrom" type="date" class="la-sel la-date" title="起始日期（含）" />
+          <span class="la-sep">→</span>
+          <input v-model="logAttachDateTo" type="date" class="la-sel la-date" title="截止日期（含）" />
+          <button class="ghost" title="清空全部筛选条件" @click="clearLogAttachFilters">清空筛选</button>
+          <label class="la-toggle" title="已被别的组占用的日志不能重复绑定；打开这里可以看清它们为什么不出现">
+            <input type="checkbox" v-model="logAttachShowBlocked" /> 显示已占用
+          </label>
+        </div>
+        <div class="la-countline">
+          <span>筛出 <b>{{ logAttachRows.length }}</b> 条</span>
+          <span v-if="logAttachBlockedCount && !logAttachShowBlocked" class="la-blocked-note">
+            · 另有 {{ logAttachBlockedCount }} 条已被别的组占用或自己就是主日志
+          </span>
+          <span v-else-if="logAttachBlockedCount" class="la-blocked-note">
+            · 其中 {{ logAttachBlockedCount }} 条已被占用（灰显，不可选）
+          </span>
+          <span class="la-grow"></span>
+          <button class="ghost" title="把当前筛选出来的可绑定日志全部勾上（最多 20 条）"
+            @click="selectAllLogAttachFiltered">全选筛选结果</button>
+          <button class="ghost" @click="clearLogAttachPick">清空已选</button>
         </div>
         <div class="la-list">
-          <label v-for="l in logAttachCandidates" :key="'la-' + l.id" class="la-row">
-            <input type="checkbox" :checked="logAttachPick.includes(l.id)"
-              @change="toggleLogAttachPick(l.id)" />
-            <span class="log-status-badge" :class="logStatusClass(l)">{{ logStatusLabel(l) }}</span>
-            <span class="la-title">{{ l.title || l.id }}</span>
-            <span class="la-meta">{{ l.project || '未归属' }} · {{ formatDate(l.created) }}</span>
+          <label v-for="row in logAttachRows" :key="'la-' + row.log.id" class="la-row"
+            :class="{ picked: row.picked, blocked: row.blocked }">
+            <input type="checkbox" :checked="row.picked" :disabled="row.blocked"
+              @change="toggleLogAttachPick(row.log.id)" />
+            <span class="log-status-badge" :class="logStatusClass(row.log)">{{ logStatusLabel(row.log) }}</span>
+            <span v-if="row.log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(row.log.priority)"
+              :title="'优先级：' + localPriority(row.log.priority)">{{ localPriority(row.log.priority) }}</span>
+            <span class="la-text">
+              <span class="la-title">{{ row.log.title || row.log.id }}</span>
+              <span class="la-sub">
+                <span>{{ row.log.project || '未归属' }}</span>
+                <span v-if="row.log.agentName">🤖 {{ row.log.agentName }}</span>
+                <span>{{ formatDate(row.log.created) }}</span>
+                <span class="la-id">{{ row.log.id }}</span>
+              </span>
+            </span>
+            <span v-if="row.blocked" class="la-blocked">{{ row.reason }}</span>
+            <span v-else-if="row.picked" class="la-picked">已选</span>
           </label>
-          <div v-if="!logAttachCandidates.length" class="la-empty">
-            没有可绑的日志 —— 另一条日志如果自己已经是主日志，或已归到别的组，就不会出现在这里。
+          <div v-if="!logAttachRows.length" class="la-empty">
+            没有符合条件的日志。换个关键词 / 放宽日期，或点「清空筛选」看全部。
+            <template v-if="logAttachBlockedCount">（另有 {{ logAttachBlockedCount }} 条被占用，勾「显示已占用」可查看原因）</template>
           </div>
         </div>
         <div class="acts">
-          <span class="la-count">已选 {{ logAttachPick.length }} 条</span>
+          <span class="la-count">
+            已选 {{ logAttachPick.length }} / 20 条<template v-if="logAttachPickedOutside">（{{ logAttachPickedOutside }} 条不在当前筛选内）</template>
+          </span>
           <button class="ghost" @click="logAttachTarget = null">取消</button>
-          <button class="ok" :disabled="logAttachBusy" @click="saveLogAttach">{{ logAttachBusy ? '保存中…' : '保存绑定' }}</button>
+          <button class="ok" :disabled="logAttachBusy || logAttachPick.length > 20" @click="saveLogAttach">{{ logAttachBusy ? '保存中…' : '保存绑定' }}</button>
         </div>
       </div>
     </div>
@@ -7913,6 +7977,50 @@ const filteredLogs = computed(() => {
   }
 })
 
+// ── 主日志 + 附属日志：关系表（2026-10-30 暮雨第 4 条；2026-10-30 二次返工）──
+// 关系的真源是主日志的 `attached` 数组（见 main/services/logs.ts）；界面只做两件事：
+// ① 把「谁是谁的附属」算成两张表；② 收集动作（绑定 / 全组进行中 / 全组完成 / 开工单）。
+//
+// ⚠ 2026-10-30 暮雨第 2 条：附属日志**不再作为独立卡片散布在分区里** ——
+//   用户原话「干脆主日志下面弄个框，把附属日志一条一条套进去」。
+//   所以下面多算一层 `logNestedChildIds` / `visibleLogs`：
+//   当前列表里能看到主日志时，它的附属只在主日志框里出现一次，顶层不再重复出卡。
+const logGroupChildren = computed(() => {
+  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
+  const m = new Map<string, any[]>()
+  for (const l of logs.value || []) {
+    const ids = Array.isArray(l.attached) ? l.attached : []
+    if (!ids.length) continue
+    m.set(l.id, ids.map((id: string) => byId.get(id)).filter(Boolean))
+  }
+  return m
+})
+const logGroupParent = computed(() => {
+  const m = new Map<string, any>()
+  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
+  for (const l of logs.value || []) {
+    for (const id of Array.isArray(l.attached) ? l.attached : []) {
+      const child = byId.get(id)
+      if (child) m.set(id, l)
+    }
+  }
+  return m
+})
+/** 当前列表里**已经被主日志框收走**的附属 id（顶层不再单独出卡） */
+const logNestedChildIds = computed(() => {
+  const s = new Set<string>()
+  for (const kids of logGroupChildren.value.values()) {
+    for (const k of kids) s.add(k.id)
+  }
+  return s
+})
+/**
+ * 顶层日志（分区 / 按链 / 批量全选都用这一份）。
+ * 与 `filteredLogs` 只差一件事：附属日志已收进主日志框，不再重复。
+ * 主日志被筛掉时，它的附属仍会出现在顶层（带「↳ 附属」标），不会凭空消失。
+ */
+const visibleLogs = computed(() => filteredLogs.value.filter((l: any) => !logNestedChildIds.value.has(l.id)))
+
 // ── 按状态分区（2026-09-28）────────────────────────────────────────────
 const LOG_GROUP_DEFS = [
   // 2026-10-30 暮雨：「我根本不知道这玩意到底派没派」——
@@ -7929,7 +8037,7 @@ const LOG_GROUP_DEFS = [
  * 反而看不懂。独立成区既保住承诺，又不骗人。
  */
 const groupedLogs = computed(() => {
-  const all = filteredLogs.value
+  const all = visibleLogs.value
   const groups: Array<{ key: string; label: string; hint: string; logs: any[] }> = []
   const pinned = all.filter(l => l.pinned)
   if (pinned.length) groups.push({ key: 'pinned', label: '置顶', hint: '', logs: pinned })
@@ -7972,7 +8080,7 @@ function setLogsViewMode(m: 'groups' | 'chain'): void {
 /** 当前渲染单元：分区视图 = 原 groupedLogs；按链视图 = 链/单条 sections */
 const renderSections = computed(() => {
   if (logsViewMode.value !== 'chain') return groupedLogs.value as any[]
-  return buildChainSections(filteredLogs.value)
+  return buildChainSections(visibleLogs.value)
 })
 
 function buildChainSections(all: any[]): any[] {
@@ -8068,31 +8176,49 @@ function logStatusClass(log: any): string {
 }
 
 // ── 主日志 + 附属日志（2026-10-30 暮雨第 4 条）────────────────────────────
-// 关系的真源是主日志的 `attached` 数组（见 main/services/logs.ts）；界面只做两件事：
-// ① 把「谁是谁的附属」算成两张表；② 收集动作（绑定 / 全组进行中 / 全组完成 / 开工单）。
-const logGroupChildren = computed(() => {
-  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
-  const m = new Map<string, any[]>()
-  for (const l of logs.value || []) {
-    const ids = Array.isArray(l.attached) ? l.attached : []
-    if (!ids.length) continue
-    m.set(l.id, ids.map((id: string) => byId.get(id)).filter(Boolean))
+// 关系表在 filteredLogs 之后就算好了（logGroupChildren / logGroupParent）；
+// 这里只放卡面要用的几个派生 + 绑定弹窗状态。
+
+/** 这条日志是不是「主日志」（挂了附属；即使当前筛选把附属藏起来也算） */
+function logHasGroup(log: any): boolean {
+  return Array.isArray(log?.attached) && log.attached.length > 0
+}
+
+/** 主日志上挂着、但当前筛选没显示的附属条数（用来如实说明，不假装没有） */
+function logGroupHiddenCount(log: any): number {
+  const total = Array.isArray(log?.attached) ? log.attached.length : 0
+  return Math.max(0, total - (logGroupChildren.value.get(log?.id) || []).length)
+}
+
+/** 组内状态概览：`2 进行中 · 1 待处理`（空组返回空串，不占位） */
+function logGroupStat(log: any): string {
+  const kids = logGroupChildren.value.get(log?.id) || []
+  const members = [log, ...kids].filter(Boolean)
+  const count: Record<string, number> = { running: 0, active: 0, completed: 0, archived: 0 }
+  for (const m of members) {
+    const k = logGroupKey(m)
+    if (k in count) count[k]++
   }
-  return m
-})
-const logGroupParent = computed(() => {
-  const m = new Map<string, any>()
-  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
-  for (const l of logs.value || []) {
-    for (const id of Array.isArray(l.attached) ? l.attached : []) {
-      const child = byId.get(id)
-      if (child) m.set(id, l)
-    }
-  }
-  return m
-})
-/** 全组是否都已经在「进行中」——用于按钮文案（混合态显示"全部进行中"） */
+  const parts: string[] = []
+  if (count.running) parts.push(`${count.running} 进行中`)
+  if (count.active) parts.push(`${count.active} 待处理`)
+  if (count.completed) parts.push(`${count.completed} 已完成`)
+  if (count.archived) parts.push(`${count.archived} 已归档`)
+  return parts.join(' · ')
+}
+
+/** 主日志卡上那个运行开关的文案：有组就是「全组」，没组才是单条 */
+function logRunningLabel(log: any): string {
+  if (logHasGroup(log)) return logGroupAllRunning(log) ? '⏸ 全组撤销' : '▶ 全组进行中'
+  return log?.running ? '⏸ 撤销进行中' : '▶ 标为进行中'
+}
+
+/** 全组是否都已经在「进行中」——用于按钮文案（混合态显示"全组进行中"） */
 function logGroupAllRunning(main: any): boolean {
+  // 当前筛选把部分附属藏起来时，看不到它们的 running —— 不能凭可见的几条就断言"全组都在跑"。
+  // 保守返回 false，按钮文案就是「全组进行中」（幂等：已在跑的会被后端跳过），
+  // 避免用户以为在"撤销"，结果只撤了看得见的那几条。
+  if (logGroupHiddenCount(main) > 0) return false
   const kids = logGroupChildren.value.get(main?.id) || []
   const members = [main, ...kids].filter((x: any) => x && x.status === 'active')
   return members.length > 0 && members.every((x: any) => !!x.running)
@@ -8103,31 +8229,221 @@ const logAttachTarget = ref<any>(null)
 const logAttachPick = ref<string[]>([])
 const logAttachBusy = ref(false)
 
-function openLogAttach(main: any): void {
+/**
+ * 打开绑定弹窗时**重新取全量日志**（2026-10-30 暮雨第 2 条）。
+ *
+ * 旧实现从 `logs.value` 取候选 —— 那是**当前视图已经筛过**的一份数据：
+ * 用户在主界面按项目 / 搜索词筛过之后，绑定弹窗里的候选也跟着只剩那几条，
+ * 看起来就是「完全没有筛选能力」。候选必须来自全量，再由弹窗自己的条件去筛。
+ */
+async function openLogAttach(main: any): Promise<void> {
   if (!main || main.status === 'archived') return
   logAttachTarget.value = main
   logAttachPick.value = (Array.isArray(main.attached) ? main.attached : []).slice()
+  logAttachQuery.value = ''
+  logAttachProject.value = ''
+  logAttachStatus.value = ''
+  logAttachAgent.value = ''
+  logAttachPrio.value = ''
+  logAttachDateFrom.value = ''
+  logAttachDateTo.value = ''
+  logAttachShowBlocked.value = false
+  logAttachLoading.value = true
+  try {
+    const all: any[] = await window.tegula.logsList({})
+    // 主日志自己也得在全集里（正常情况下一定在；不在时退回当前列表，避免弹窗空白）
+    logAttachAll.value = Array.isArray(all) && all.length
+      ? all
+      : (logs.value || []).slice()
+  } catch {
+    logAttachAll.value = (logs.value || []).slice()
+    showToast('读取全部日志失败，只能从当前列表里选', 'error')
+  } finally {
+    logAttachLoading.value = false
+  }
 }
+// ── 绑定弹窗的查询条件（2026-10-30 暮雨第 2 条）──────────────────────────
+// 用户原话：「绑定附属日志功能完全无筛选能力，那我搞那么多字段干嘛？懂不懂数据库？」
+// 这里把日志已有的字段都变成**可叠加的查询维度**：关键词 / 项目 / 状态 / Agent /
+// 优先级 / 日期范围。候选来自全量（openLogAttach 里取），不再受主界面筛选影响。
+const logAttachAll = ref<any[]>([])
+const logAttachLoading = ref(false)
+const logAttachQuery = ref('')
+const logAttachProject = ref('')
+const logAttachStatus = ref('')
+const logAttachAgent = ref('')
+const logAttachPrio = ref('')
+const logAttachDateFrom = ref('')
+const logAttachDateTo = ref('')
+const logAttachShowBlocked = ref(false)
+
+/** 一行日志的「人话状态」键：running 优先于 status（与分区同一口径） */
+function logAttachStatusOf(l: any): string {
+  if (!l) return ''
+  if (l.status === 'active') return l.running ? 'running' : 'active'
+  return String(l.status || 'active')
+}
+
+/** 反向索引：附属 id → 主日志。一次算好，候选行按 O(1) 查（不逐行扫全表）。 */
+const logAttachOwnerMap = computed(() => {
+  const m = new Map<string, any>()
+  for (const x of logAttachAll.value || []) {
+    for (const id of Array.isArray(x.attached) ? x.attached : []) {
+      if (!m.has(id)) m.set(id, x)
+    }
+  }
+  return m
+})
+
+/** 谁把这条日记绑成了自己的附属（只看全量候选，不看当前视图） */
+function logAttachOwnerOf(id: string): any {
+  return logAttachOwnerMap.value.get(id) || null
+}
+
+/** 一条候选是否命中当前的全部筛选条件（关键词是多字段 OR，其余是 AND） */
+function logAttachMatches(l: any, q: string): boolean {
+  if (logAttachProject.value && l.project !== logAttachProject.value) return false
+  if (logAttachStatus.value && logAttachStatusOf(l) !== logAttachStatus.value) return false
+  if (logAttachAgent.value && l.agentName !== logAttachAgent.value) return false
+  if (logAttachPrio.value) {
+    if (logAttachPrio.value === '__none__') { if (l.priority) return false }
+    else if (l.priority !== logAttachPrio.value) return false
+  }
+  const d = String(l.logDate || l.created || '').slice(0, 10)
+  if (logAttachDateFrom.value && d < logAttachDateFrom.value) return false
+  if (logAttachDateTo.value && d > logAttachDateTo.value) return false
+  if (q) {
+    const hit = (s: any) => String(s || '').toLowerCase().includes(q)
+    const taskIds = Array.isArray(l.taskIds) ? l.taskIds.join(' ') : String(l.taskId || '')
+    if (!(hit(l.id) || hit(l.title) || hit(l.content) || hit(l.nextSteps)
+      || hit(l.project) || hit(l.agentName) || hit(taskIds) || hit(l.sessionId))) return false
+  }
+  return true
+}
+
+/** 项目下拉：登记项目 + 全量日志里出现过但未登记的项目（不把任何日志藏起来） */
+const logAttachProjects = computed(() => {
+  const m = new Map<string, string>()
+  for (const p of projects.value || []) {
+    if (p && p.id) m.set(p.id, p.name || p.id)
+  }
+  for (const l of logAttachAll.value || []) {
+    if (l.project && !m.has(l.project)) m.set(l.project, l.project)
+  }
+  return Array.from(m, ([id, name]) => ({ id, name }))
+})
+
+/** Agent 下拉：常用预设 + 全量日志里出现过的 Agent */
+const logAttachAgents = computed(() => {
+  const s = new Set<string>()
+  for (const a of agentPresets.value || []) if (a) s.add(String(a))
+  for (const l of logAttachAll.value || []) if (l.agentName) s.add(String(l.agentName))
+  return Array.from(s).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+})
+
+/**
+ * 候选行。三条纪律：
+ *  ① 已勾选的即使不命中筛选也**必须留下**（否则勾了又被筛没了，人会以为丢了）；
+ *  ② 已被别的组占走 / 自己是一组主日志的，默认不列（勾了也存不进去），
+ *     打开「显示已占用」才列出来并写明原因；
+ *  ③ 排序跟着使用频率走：已选 → 进行中 → 待处理 → 已完成/归档，同级按创建倒序。
+ */
+const logAttachRows = computed(() => {
+  const main = logAttachTarget.value
+  if (!main) return []
+  const q = logAttachQuery.value.trim().toLowerCase()
+  const rank = (r: any) => {
+    if (r.picked) return 0
+    if (r.blocked) return 5
+    const st = logAttachStatusOf(r.log)
+    return st === 'running' ? 1 : st === 'active' ? 2 : st === 'completed' ? 3 : 4
+  }
+  const rows: any[] = []
+  for (const l of logAttachAll.value || []) {
+    if (l.id === main.id) continue
+    const picked = logAttachPick.value.includes(l.id)
+    const ownGroup = Array.isArray(l.attached) && l.attached.length > 0
+    const owner = logAttachOwnerOf(l.id)
+    const blocked = !picked && (ownGroup || (owner && owner.id !== main.id))
+    if (blocked && !logAttachShowBlocked.value) continue
+    if (!picked && !logAttachMatches(l, q)) continue
+    rows.push({
+      log: l,
+      picked,
+      blocked: !!blocked,
+      reason: ownGroup
+        ? '它自己是一组的主日志'
+        : (owner && owner.id !== main.id ? `已被「${owner.title || owner.id}」绑定` : ''),
+    })
+  }
+  return rows.sort((a, b) => (rank(a) - rank(b))
+    || String(b.log.created || '').localeCompare(String(a.log.created || '')))
+})
+
+/** 默认视图下有多少条「存在但不可选」的日志（用于如实说明） */
+const logAttachBlockedCount = computed(() => {
+  const main = logAttachTarget.value
+  if (!main) return 0
+  let n = 0
+  for (const l of logAttachAll.value || []) {
+    if (l.id === main.id || logAttachPick.value.includes(l.id)) continue
+    const ownGroup = Array.isArray(l.attached) && l.attached.length > 0
+    const owner = logAttachOwnerOf(l.id)
+    if (ownGroup || (owner && owner.id !== main.id)) n++
+  }
+  return n
+})
+
+/** 已勾选、但不在当前筛选结果里的条数（弹窗底部如实显示） */
+const logAttachPickedOutside = computed(() => {
+  const visible = new Set(logAttachRows.value.map((r: any) => r.log.id))
+  return logAttachPick.value.filter((id) => !visible.has(id)).length
+})
+
 function toggleLogAttachPick(id: string): void {
   const i = logAttachPick.value.indexOf(id)
   if (i >= 0) logAttachPick.value.splice(i, 1)
-  else logAttachPick.value.push(id)
+  else {
+    if (logAttachPick.value.length >= 20) {
+      showToast('一个主日志最多带 20 条附属日志', 'error')
+      return
+    }
+    logAttachPick.value.push(id)
+  }
 }
-/** 可被绑定的候选：存在的、不是自己、自己不是主日志、也没被别人绑走 */
-const logAttachCandidates = computed(() => {
-  const main = logAttachTarget.value
-  if (!main) return []
-  return (logs.value || [])
-    .filter((l: any) => l.id !== main.id)
-    .filter((l: any) => !(Array.isArray(l.attached) && l.attached.length))
-    .filter((l: any) => !logGroupParent.value.has(l.id) || (main.attached || []).includes(l.id))
-    .slice()
-    .sort((a: any, b: any) => String(b.created || '').localeCompare(String(a.created || '')))
-})
+
+/** 全选当前筛选结果（最多 20 条）；已选但被筛掉的不动 */
+function selectAllLogAttachFiltered(): void {
+  const ids = logAttachRows.value.filter((r: any) => !r.blocked).map((r: any) => r.log.id)
+  const keep = logAttachPick.value.filter((id) => !ids.includes(id))
+  const next = Array.from(new Set([...keep, ...ids]))
+  if (next.length > 20) {
+    logAttachPick.value = next.slice(0, 20)
+    showToast('一个主日志最多带 20 条附属日志，已选前 20 条', 'info')
+  } else {
+    logAttachPick.value = next
+  }
+}
+
+function clearLogAttachPick(): void { logAttachPick.value = [] }
+
+function clearLogAttachFilters(): void {
+  logAttachQuery.value = ''
+  logAttachProject.value = ''
+  logAttachStatus.value = ''
+  logAttachAgent.value = ''
+  logAttachPrio.value = ''
+  logAttachDateFrom.value = ''
+  logAttachDateTo.value = ''
+}
 
 async function saveLogAttach(): Promise<void> {
   const main = logAttachTarget.value
   if (!main) return
+  if (logAttachPick.value.length > 20) {
+    showToast('一个主日志最多带 20 条附属日志', 'error')
+    return
+  }
   logAttachBusy.value = true
   try {
     const r: any = await window.tegula.logsSetAttached(main.id, toPlain(logAttachPick.value))
@@ -8142,10 +8458,24 @@ async function saveLogAttach(): Promise<void> {
   }
 }
 
-/** 快照一组日志的当前状态（撤销用） */
-function snapLogsById(ids: string[]): Array<{ id: string; snap: any }> {
+/** 组内全部成员 id（主日志在第一位；含当前筛选没显示的附属 —— 动作不能只作用于看见的） */
+function logGroupMemberIds(main: any): string[] {
+  const ids = [main?.id, ...(Array.isArray(main?.attached) ? main.attached : [])].filter(Boolean)
+  return Array.from(new Set(ids))
+}
+
+/** 快照一组日志的当前状态（撤销用）。筛选把某条藏起来时，仍然去全量里把它读回来。 */
+async function snapLogsById(ids: string[]): Promise<Array<{ id: string; snap: any }>> {
+  const byId = new Map<string, any>((logs.value || []).map((x: any) => [x.id, x]))
+  const missing = ids.filter((id) => !byId.has(id))
+  if (missing.length) {
+    try {
+      const all: any[] = await window.tegula.logsList({})
+      for (const l of all || []) byId.set(l.id, l)
+    } catch { /* 读不到就少撤几条，toast 会如实报 */ }
+  }
   return ids.map((id) => {
-    const l: any = (logs.value || []).find((x: any) => x.id === id)
+    const l: any = byId.get(id)
     if (!l) return null
     return {
       id,
@@ -8172,8 +8502,8 @@ async function restoreLogSnaps(snaps: Array<{ id: string; snap: any }>): Promise
 
 /** 一键全进行中 / 全部撤销（只动待处理/进行中的成员） */
 async function toggleLogGroupRunning(main: any, running: boolean): Promise<void> {
-  const ids = [main.id, ...(logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)]
-  const snaps = snapLogsById(ids)
+  const ids = logGroupMemberIds(main)
+  const snaps = await snapLogsById(ids)
   const r: any = await window.tegula.logsGroupRunning(main.id, !!running)
   if (!r?.ok) { showToast(`操作失败：${r?.error || '未知原因'}`, 'error'); return }
   const n = (r.changed || []).length
@@ -8190,8 +8520,8 @@ async function toggleLogGroupRunning(main: any, running: boolean): Promise<void>
 
 /** 一键全完成（不再要求先勾选；跳过已完成/已归档） */
 async function completeLogGroupItem(main: any): Promise<void> {
-  const ids = [main.id, ...(logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)]
-  const snaps = snapLogsById(ids)
+  const ids = logGroupMemberIds(main)
+  const snaps = await snapLogsById(ids)
   const days = logRetainDefault.value
   const r: any = await window.tegula.logsGroupComplete(main.id, days, '')
   if (!r?.ok) { showToast(`完成失败：${r?.error || '未知原因'}`, 'error'); return }
@@ -8210,8 +8540,8 @@ async function completeLogGroupItem(main: any): Promise<void> {
 
 /** 开工单：主日志 + 全部附属，一次复制（不再依赖多选顺序） */
 async function copyLogGroupAsPrompt(main: any): Promise<void> {
-  const kids = (logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)
-  await copyLogsAsPrompt([main.id, ...kids])
+  // 顺序 = 主日志 + 绑定时勾选的顺序（即使当前筛选把某条藏起来，也要带给 agent）
+  await copyLogsAsPrompt(logGroupMemberIds(main))
 }
 
 /**
@@ -8226,6 +8556,14 @@ async function copyLogGroupAsPrompt(main: any): Promise<void> {
  * 纪律：任何改状态的动作要么 offerUndo 顶掉旧条，要么 dismissUndo 清掉 —— 不许留着旧条装没事。
  */
 async function toggleLogRunning(log: any): Promise<void> {
+  // 2026-10-30 暮雨第 2 条：主日志卡上的运行开关**就是全组开关**。
+  // 用户实测「点了进行中，附属日志没有跟着一起变成进行中 —— 视觉上极为混乱」，
+  // 期待的是主日志一派出去、同一轮的并行通道也一起变成进行中。
+  // 单条控制没有丢：主日志框里每一条附属都有自己的「▶ / ⏸」。
+  if (logHasGroup(log)) {
+    await toggleLogGroupRunning(log, !logGroupAllRunning(log))
+    return
+  }
   const next = !log.running
   const r: any = await window.tegula.logsSetRunning(log.id, next)
   if (r && r.ok) {
@@ -8389,10 +8727,10 @@ function toggleLogBatchMode() {
 }
 
 function toggleSelectAllLogs() {
-  if (selectedLogBatch.value.length === filteredLogs.value.length) {
+  if (selectedLogBatch.value.length === visibleLogs.value.length) {
     selectedLogBatch.value = []
   } else {
-    selectedLogBatch.value = filteredLogs.value.map((l: any) => l.id)
+    selectedLogBatch.value = visibleLogs.value.map((l: any) => l.id)
   }
 }
 
@@ -11270,9 +11608,9 @@ const logsViewCtl = reactive({
   // 状态（含 4 个 computed：logMoreFilterCount / filteredLogs / renderSections / logDragOver）
   logSearchInput, logProjectFilter, logSort, logMoreFilterOpen, logMoreFilterCount,
   logAgentFilter, logDateFrom, logDateTo, logBatchMode, selectedLogBatch,
-  logsViewMode, filteredLogs, renderSections, logDragOver,
+  logsViewMode, filteredLogs, visibleLogs, renderSections, logDragOver,
   projects, agentPresets,
-  logGroupChildren, logGroupParent,
+  logGroupChildren, logGroupParent, logHasGroup, logGroupStat, logGroupHiddenCount, logRunningLabel,
   // 读 / 筛 / 排序
   loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,

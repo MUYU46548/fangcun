@@ -306,6 +306,9 @@ function main() {
       // 2026-10-30：方寸自绘架构图（面板打开态）+ 外观形态（两张小卡）
       ['项目', '', 'arch-self', 'archself'],
       ['看板', '列视图', 'settings-appearance', 'apui'],
+      // 2026-10-30 二次返工：主日志 + 附属日志收进框里；绑定弹窗的六维筛选。
+      ['日志', '', 'log-groups', 'loggroups'],
+      ['日志', '', 'log-attach', 'logattach'],
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -478,6 +481,32 @@ function main() {
     m2.scrollTop = m2.scrollHeight
     await sleep(350)
   }
+` : ''}
+  ${extra === 'loggroups' || extra === 'logattach' ? `
+  // 主日志 + 附属日志（2026-10-30 返工）：灌一组真关系，重进日志页。
+  // 三种状态各一条，截图里要能同时看到「框 / 逐行 / 每行的单独动作」。
+  window.__fcTest.setLogs([
+    { id: 'log-grp-main', title: '主日志·0.5.2 六件事收口', content: '这一轮把日志组重做：框内嵌套、主日志级联、绑定弹窗六维筛选。', status: 'active', running: true,
+      project: 'demo', created: '2026-10-30T03:00:00.000Z', attached: ['log-grp-a', 'log-grp-b'] },
+    { id: 'log-grp-a', title: '附属·白屏修复（安装包附件）', content: 'exe 只定位不运行，渲染进程崩了自动重载一次。', status: 'active', running: true,
+      project: 'demo', created: '2026-10-30T02:00:00.000Z', agentName: 'DSH' },
+    { id: 'log-grp-b', title: '附属·日志组语义（已收口）', content: '没派出去不许「等你确认」。', status: 'completed', completed: '2026-10-30T02:30:00.000Z',
+      project: 'demo', created: '2026-10-30T01:00:00.000Z' },
+    { id: 'log-grp-free', title: '可绑的独立日志', content: '还没绑进任何组。', status: 'active', project: 'demo',
+      created: '2026-10-29T00:00:00.000Z' },
+    { id: 'log-grp-other', title: '另一组的主日志', content: '用来展示「已被别的组占用」的不可选态。', status: 'active', project: 'demo',
+      created: '2026-10-28T00:00:00.000Z', attached: ['log-grp-x'] },
+    { id: 'log-grp-x', title: '已被占用的附属', content: 'x', status: 'active', project: 'demo',
+      created: '2026-10-27T00:00:00.000Z' },
+  ])
+  clickText('看板'); await sleep(450); clickText('日志'); await sleep(800)
+  ${extra === 'logattach' ? `
+  const bind = all('.log-card[data-log-id="log-grp-main"] .lg-bind')[0]
+  if (bind) bind.click()
+  await sleep(900)
+  const blocked = all('#log-attach-modal .la-toggle input')[0]
+  if (blocked) { blocked.checked = true; blocked.dispatchEvent(new Event('change', { bubbles: true })) }
+  await sleep(500)` : ''}
 ` : ''}
   ${extra === 'grpselect' ? `
   // 分区头整组勾选（2026-10-25 第 11 条）：开多选 → 点第一个「卡数 >1」分区的组选框

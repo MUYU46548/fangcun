@@ -2947,6 +2947,199 @@
       /还没派出去/.test((($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || ''),
       (($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || '(no hint)')
 
+    // ══ 日志 · 主日志 + 附属（2026-10-30 暮雨第 2/3 条返工）══════════════
+    // 现场：主日志点「进行中」只改了自己 → 附属还散在「待处理」区，视觉极乱；
+    // 绑定弹窗是一张没有查询能力的裸名单；「开工单」三个字没人知道是复制还是干活。
+    window.__fcTest.setLogs([
+      { id: 'log-grp-main', title: '主日志·本轮六件事', content: '主日志正文', status: 'active',
+        project: 'demo', created: '2026-10-30T03:00:00.000Z', attached: ['log-grp-a', 'log-grp-b'] },
+      { id: 'log-grp-a', title: '附属·白屏修复', content: 'A 正文', status: 'active',
+        project: 'demo', created: '2026-10-30T02:00:00.000Z', agentName: 'hermes' },
+      { id: 'log-grp-b', title: '附属·附件策略', content: 'B 正文', status: 'active',
+        project: 'demo', created: '2026-10-30T01:00:00.000Z' },
+      { id: 'log-grp-other', title: '别的主日志', content: 'C', status: 'active', project: 'demo',
+        created: '2026-10-29T00:00:00.000Z', attached: ['log-grp-x'] },
+      { id: 'log-grp-x', title: '别人的附属', content: 'X', status: 'active', project: 'demo',
+        created: '2026-10-28T00:00:00.000Z' },
+      { id: 'log-grp-free', title: '可绑的独立日志', content: 'free', status: 'active', project: 'demo',
+        created: '2026-10-27T00:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(300); check('重进日志页（附属夹具就位）', clickText('日志')); await sleep(700)
+    const groupCard = () => $('.log-card[data-log-id="log-grp-main"]')
+    check('★★ 附属收进主日志下面的框（.log-group-box 出现）',
+      !!groupCard() && !!groupCard().querySelector('.log-group-box'),
+      groupCard() ? groupCard().textContent.replace(/\s+/g, ' ').slice(0, 120) : 'no main card')
+    check('★★ 附属不再作为顶层卡重复出现（log-grp-a / log-grp-b 各 0 张）',
+      $$('.log-card[data-log-id="log-grp-a"]').length === 0 &&
+      $$('.log-card[data-log-id="log-grp-b"]').length === 0,
+      'a=' + $$('.log-card[data-log-id="log-grp-a"]').length + ' b=' + $$('.log-card[data-log-id="log-grp-b"]').length)
+    check('★ 顶层只剩两张主日志 + 一张独立日志（3 张）', $$('.log-card').length === 3,
+      'cards=' + $$('.log-card').map(c => c.getAttribute('data-log-id')).join(','))
+    check('★ 主日志框里逐条列出 2 行附属',
+      !!groupCard() && groupCard().querySelectorAll('.log-kid-row').length === 2,
+      'rows=' + (groupCard() ? groupCard().querySelectorAll('.log-kid-row').length : -1))
+    check('★ 每一行都有自己的 ▶ / 完成 / 编辑 三个出口',
+      (() => {
+        const rows = groupCard() ? groupCard().querySelectorAll('.log-kid-row') : []
+        return rows.length === 2 && Array.prototype.every.call(rows, r =>
+          !!r.querySelector('.lk-run') && !!r.querySelector('.lk-done') && !!r.querySelector('.lk-edit'))
+      })())
+    check('  几何：附属框不溢出主卡、每行高度在可点范围内（不是挤成一条线）',
+      (() => {
+        const card = groupCard()
+        const box = card && card.querySelector('.log-group-box')
+        const row = card && card.querySelector('.log-kid-row')
+        if (!card || !box || !row) return false
+        const cr = card.getBoundingClientRect(), br = box.getBoundingClientRect(), rr = row.getBoundingClientRect()
+        return br.width <= cr.width + 1 && br.left >= cr.left - 1 && rr.height >= 22 && rr.height <= 52
+      })(),
+      (() => {
+        const card = groupCard()
+        const box = card && card.querySelector('.log-group-box')
+        const row = card && card.querySelector('.log-kid-row')
+        if (!card || !box || !row) return 'no box/row'
+        const cr = card.getBoundingClientRect(), br = box.getBoundingClientRect(), rr = row.getBoundingClientRect()
+        return `card=${Math.round(cr.width)} box=${Math.round(br.width)} rowH=${Math.round(rr.height)}`
+      })())
+    check('★★ 「开工单」写明只复制、不改状态（不再是三个字的黑盒）',
+      (() => {
+        const box = groupCard() && groupCard().querySelector('.log-group-box')
+        const t = (box && box.textContent) || ''
+        return t.indexOf('复制开工单') >= 0 && t.indexOf('只复制') >= 0 && t.indexOf('不改状态') >= 0
+      })(), ((groupCard() && groupCard().querySelector('.lg-box-hint') || {}).textContent || '(no hint)').trim())
+
+    // 点主日志的「进行中」= 全组进行中（用户实测期望）
+    const runCalls = () => window.__fcTest.calls().filter(c => c.name === 'logsGroupRunning')
+    const beforeGroupRun = runCalls().length
+    const runBtn = groupCard() && groupCard().querySelector('.log-run-btn')
+    check('★★ 主日志上的运行开关写的是「全组进行中」（不是单条）',
+      !!runBtn && (runBtn.textContent || '').indexOf('全组进行中') >= 0,
+      runBtn ? String(runBtn.textContent).trim() : 'no run btn')
+    if (runBtn) runBtn.click()
+    check('★★ 点主日志「进行中」真走全组通道（logsGroupRunning 主日志 id + true）',
+      await waitFor(() => runCalls().length > beforeGroupRun, 4000, 'group running') &&
+      (() => { const c = runCalls().pop(); return c.args[0] === 'log-grp-main' && c.args[1] === true })(),
+      JSON.stringify(runCalls().pop() || null))
+    check('★★ 附属跟着变成「进行中」（不再出现主日志在跑、附属还待处理的乱象）',
+      await waitFor(() => {
+        const c = groupCard()
+        if (!c) return false
+        const rows = c.querySelectorAll('.log-kid-row')
+        return rows.length === 2 && Array.prototype.every.call(rows, r => /进行中/.test(r.textContent || ''))
+      }, 5000, 'children running'),
+      groupCard() ? Array.prototype.map.call(groupCard().querySelectorAll('.log-kid-row'), r => (r.textContent || '').slice(0, 20)).join(' | ') : 'no card')
+
+    // 附属行仍可单独控制（关系不丢，但每条是独立日志）
+    const kidRunCalls = () => window.__fcTest.calls().filter(c => c.name === 'logsSetRunning' && c.args[0] === 'log-grp-a')
+    const beforeKid = kidRunCalls().length
+    const kidA = groupCard() && groupCard().querySelector('.log-kid-row[data-kid-id="log-grp-a"]')
+    if (kidA) kidA.querySelector('.lk-run').click()
+    check('★★ 附属行能单独撤销「进行中」（不碰主日志、不碰别的附属）',
+      await waitFor(() => kidRunCalls().length > beforeKid, 4000, 'kid run') &&
+      kidRunCalls().pop().args[1] === false,
+      JSON.stringify(kidRunCalls().pop() || null))
+
+    // 单独完成打开的是**这一条**的完成框，不是整组
+    const doneCalls = () => window.__fcTest.calls().filter(c => c.name === 'logsComplete')
+    const beforeKidDone = doneCalls().length
+    const kidA2 = groupCard() && groupCard().querySelector('.log-kid-row[data-kid-id="log-grp-a"]')
+    if (kidA2) kidA2.querySelector('.lk-done').click()
+    check('★ 附属行「完成」打开这条日志的完成框',
+      await waitFor(() => !!$('#log-edit-modal'), 3000, 'kid complete modal') &&
+      (() => {
+        const t = $('#log-edit-modal input[placeholder="日志标题"]')
+        return !!t && t.value === '附属·白屏修复'
+          && /完成日志/.test((($('#log-edit-modal h3') || {}).textContent) || '')
+      })(),
+      (() => {
+        const t = $('#log-edit-modal input[placeholder="日志标题"]')
+        return 'title=' + (t ? t.value : '(none)') + ' h3=' + ((($('#log-edit-modal h3') || {}).textContent) || '')
+      })())
+    const cancelKidDone = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
+    if (cancelKidDone) cancelKidDone.click()
+    await sleep(250)
+    check('  取消后没有写完成（不是点开就等于完成）', doneCalls().length === beforeKidDone)
+
+    // 点行 = 打开这一条的只读预览（每条都能单独看）
+    const kidB = groupCard() && groupCard().querySelector('.log-kid-row[data-kid-id="log-grp-b"]')
+    if (kidB) kidB.click()
+    check('★ 点附属行能单独打开只读预览',
+      await waitFor(() => !!$('#log-preview-modal'), 3000, 'kid preview') &&
+      (($('#log-preview-modal') || {}).textContent || '').indexOf('附属·附件策略') >= 0)
+    const closeKidPreview = $$('#log-preview-modal .acts button').find(b => /关闭|取消/.test(b.textContent || ''))
+    if (closeKidPreview) closeKidPreview.click()
+    await sleep(250)
+
+    // 开工单：真把主日志 + 全部附属按顺序送进 injectMany（只复制，不改状态）
+    const injectCalls = () => window.__fcTest.calls().filter(c => c.name === 'logsInjectMany')
+    const beforeInject = injectCalls().length
+    const promptBtn = groupCard() && groupCard().querySelector('.lg-prompt')
+    if (promptBtn) promptBtn.click()
+    check('★★ 「复制开工单」真走 logsInjectMany（主日志在第一位 + 全部附属）',
+      await waitFor(() => injectCalls().length > beforeInject, 4000, 'inject group') &&
+      JSON.stringify(injectCalls().pop().args[0]) === JSON.stringify(['log-grp-main', 'log-grp-a', 'log-grp-b']),
+      JSON.stringify((injectCalls().pop() || {}).args || null))
+
+    // 绑定弹窗：六个查询维度 + 全量候选 + 已占用原因
+    const bindBtn = groupCard() && groupCard().querySelector('.lg-bind')
+    if (bindBtn) bindBtn.click()
+    check('打开绑定附属弹窗', await waitFor(() => !!$('#log-attach-modal'), 3000, 'attach modal'))
+    check('★★ 弹窗里有搜索 / 项目 / 状态 / Agent / 优先级 / 日期 六个查询维度',
+      !!$('#log-attach-modal .la-search') &&
+      $$('#log-attach-modal .la-filters select').length >= 4 &&
+      $$('#log-attach-modal .la-filters input[type="date"]').length === 2,
+      'selects=' + $$('#log-attach-modal .la-filters select').length +
+      ' dates=' + $$('#log-attach-modal .la-filters input[type="date"]').length)
+    const attachRows = () => $$('#log-attach-modal .la-row')
+    check('★★ 候选来自全量日志（主界面筛选影响不到它）',
+      await waitFor(() => attachRows().some(r => /可绑的独立日志/.test(r.textContent || '')), 4000, 'attach all logs'),
+      attachRows().map(r => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 18)).join(' | '))
+    check('  已被别的组占用的日志默认不列',
+      !attachRows().some(r => /别人的附属/.test(r.textContent || '')))
+    // 清空已选后再验筛选（否则「已选」会为了不丢选择而越过筛选）
+    const clearPick = $$('#log-attach-modal .la-countline button').find(b => /清空已选/.test(b.textContent || ''))
+    if (clearPick) clearPick.click()
+    await sleep(150)
+
+    const q = $('#log-attach-modal .la-search')
+    if (q) { q.value = '可绑'; q.dispatchEvent(new Event('input', { bubbles: true })) }
+    check('★★ 关键词筛选真缩小候选（只剩「可绑的独立日志」）',
+      await waitFor(() => attachRows().length === 1 && /可绑的独立日志/.test(attachRows()[0].textContent || ''), 3000, 'attach query'),
+      'rows=' + attachRows().length)
+    if (q) { q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })) }
+    await sleep(200)
+
+    const selByOption = (txt) => $$('#log-attach-modal .la-filters select')
+      .find(s => Array.prototype.some.call(s.options, o => (o.textContent || '').trim() === txt))
+    const statusSel = selByOption('全部状态')
+    if (statusSel) { statusSel.value = 'completed'; statusSel.dispatchEvent(new Event('change', { bubbles: true })) }
+    check('★ 状态筛选真生效（没有已完成 → 空结果并说明怎么放宽）',
+      await waitFor(() => attachRows().length === 0 && !!$('#log-attach-modal .la-empty'), 3000, 'attach status'),
+      'rows=' + attachRows().length)
+    if (statusSel) { statusSel.value = ''; statusSel.dispatchEvent(new Event('change', { bubbles: true })) }
+    await sleep(200)
+
+    const showBlocked = $('#log-attach-modal .la-toggle input')
+    if (showBlocked) { showBlocked.checked = true; showBlocked.dispatchEvent(new Event('change', { bubbles: true })) }
+    check('★★ 打开「显示已占用」能看到被别的组占走的日志，并写明原因',
+      await waitFor(() => attachRows().some(r => /别人的附属/.test(r.textContent || '')
+        && /已被/.test(r.textContent || '')), 3000, 'attach blocked'),
+      attachRows().map(r => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 28)).join(' | '))
+
+    // 勾一条 → 保存：主日志 + 勾选结果送进 logsSetAttached
+    const freeRow = attachRows().find(r => /可绑的独立日志/.test(r.textContent || ''))
+    const freeCb = freeRow && freeRow.querySelector('input[type="checkbox"]')
+    if (freeCb) { freeCb.checked = true; freeCb.dispatchEvent(new Event('change', { bubbles: true })) }
+    await sleep(200)
+    const saveAttach = $$('#log-attach-modal .acts button').find(b => /保存绑定/.test(b.textContent || ''))
+    if (saveAttach) saveAttach.click()
+    check('★★ 保存绑定把主日志 + 勾选结果一起送进 logsSetAttached',
+      await waitFor(() => window.__fcTest.calls().some(c => c.name === 'logsSetAttached'
+        && c.args[0] === 'log-grp-main' && Array.isArray(c.args[1]) && c.args[1].length === 1
+        && c.args[1][0] === 'log-grp-free'), 4000, 'setAttached'),
+      JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsSetAttached').pop() || {}).args || null))
+    await sleep(300)
+
     // 阴性对照（先造「没有链」的数据）：按链视图不该冒出链头 —— 防「按链=全都框起来」的假实现
     window.__fcTest.setLogs([
       { id: 'log-x1', title: '无链甲', content: 'a', status: 'active', project: 'demo', created: '2026-09-28T00:00:00.000Z' },

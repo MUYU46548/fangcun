@@ -101,7 +101,7 @@
     </div>
     <div v-if="logBatchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
-      <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === filteredLogs.length ? '取消全选' : '全选' }}</button>
+      <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === visibleLogs.length ? '取消全选' : '全选' }}</button>
       <!-- 批量优先级（2026-10-09 用户第 4 条「日志多选更智能，比如批量修改日志优先级」）：
            改元数据可逆 → 不弹确认、做完**不退出多选**，连着调几档是正常用法；
            非「待处理」的日志后端拒改 → 跳过几条如实 toast，不静默。 -->
@@ -177,9 +177,9 @@
             :title="'日志优先级：' + localPriority(log.priority)">{{ localPriority(log.priority) }}</span>
           <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
           <!-- 主日志 / 附属日志（2026-10-30 暮雨第 4 条）：关系落盘了，卡面必须一眼看出来 -->
-          <span v-if="(logGroupChildren.get(log.id) || []).length" class="log-group-badge main"
-            :title="'这是主日志，带 ' + logGroupChildren.get(log.id).length + ' 条附属日志 —— 可一键全进行中 / 全完成 / 开工单'"
-          >🔗 主日志 · 附属 {{ logGroupChildren.get(log.id).length }}</span>
+          <span v-if="logHasGroup(log)" class="log-group-badge main"
+            :title="'这是主日志，带 ' + log.attached.length + ' 条附属日志 —— 下面框里逐条可见/可改'"
+          >🔗 主日志 · 附属 {{ log.attached.length }}</span>
           <span v-else-if="logGroupParent.get(log.id)" class="log-group-badge child"
             :title="'附属在「' + (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id) + '」下面'"
             @click.stop="openLogPreview(logGroupParent.get(log.id))"
@@ -189,13 +189,64 @@
           <span class="log-card-date" :title="log.created">{{ formatDateTime(log.created) }}</span>
         </div>
         <div class="log-card-body">{{ truncate(logCardText(log), 120) }}</div>
-        <!-- 附属日志一览（只在主日志卡上出现）：点一行直接看那条，不用去别的分区找 -->
-        <div v-if="(logGroupChildren.get(log.id) || []).length" class="log-kids">
-          <div v-for="k in logGroupChildren.get(log.id)" :key="'kid-' + k.id" class="log-kid"
-            :title="'打开附属日志：' + (k.title || k.id)" @click.stop="openLogPreview(k)">
-            <span class="log-status-badge" :class="logStatusClass(k)">{{ logStatusLabel(k) }}</span>
-            <span class="lk-title">{{ k.title || k.id }}</span>
-            <span class="lk-id">{{ shortLogId(k.id) }}</span>
+        <!-- 附属日志框（2026-10-30 暮雨第 2 条）：**收在主日志里面**，不再散落到各个分区。
+             用户原话「干脆主日志下面弄个框，把附属日志一条一条套进去。每条单独能打开看，
+             打开改，甚至单独标记完成。但附属关系不丢」。 -->
+        <div v-if="logHasGroup(log)" class="log-group-box" @click.stop>
+          <div class="log-group-box-head">
+            <span class="lg-box-title">附属日志</span>
+            <span class="lg-box-count">{{ log.attached.length }} 条</span>
+            <span v-if="logGroupStat(log)" class="lg-box-stat">{{ logGroupStat(log) }}</span>
+            <span class="lg-box-grow"></span>
+            <button class="ghost lg-bind" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
+              @click="openLogAttach(log)">改绑定</button>
+            <button class="ghost lg-done"
+              title="主日志 + 全部附属一起完成（已完成/已归档的跳过；保留天数用默认值）"
+              @click="completeLogGroupItem(log)">✅ 全组完成</button>
+            <button class="ghost lg-prompt"
+              title="把主日志 + 全部附属按顺序拼成一段提示词复制到剪贴板。只复制，不改任何日志、不启动 agent"
+              @click="copyLogGroupAsPrompt(log)">⧉ 复制开工单</button>
+          </div>
+          <div class="lg-box-hint">
+            开工单 = 复制给 agent 的开场白（主日志一段 + 每条附属标「并行日志」）；<b>只复制，不改状态</b>。
+          </div>
+          <div class="lg-box-rows">
+            <div v-for="k in (logGroupChildren.get(log.id) || [])" :key="'kid-' + k.id"
+              class="log-kid-row" :class="{ done: k.status === 'completed', archived: k.status === 'archived' }"
+              :data-kid-id="k.id"
+              :title="'打开附属日志：' + (k.title || k.id)"
+              @click="openLogPreview(k)"
+              @contextmenu.prevent="openLogMenu($event, k)">
+              <span class="log-status-badge" :class="logStatusClass(k)">{{ logStatusLabel(k) }}</span>
+              <span v-if="k.agentDone && k.status === 'active'" class="log-agent-done"
+                title="AI 说这条做完了；「完成」只能由你点">⏳ 等你确认</span>
+              <span class="lk-title">{{ k.title || k.id }}</span>
+              <span class="lk-meta">
+                <span v-if="k.project">{{ (projects.find(p => p.id === k.project)?.name) || k.project }}</span>
+                <span v-if="k.agentName">🤖 {{ k.agentName }}</span>
+                <span>{{ formatDate(k.created) }}</span>
+              </span>
+              <span class="lk-actions" @click.stop>
+                <button v-if="k.status === 'active'" class="ghost lk-btn lk-run" :class="{ on: k.running }"
+                  :title="k.running ? '单独撤销这条的「进行中」' : '单独把这条标为「进行中」（不影响同组其它条）'"
+                  @click="toggleLogRunning(k)">{{ k.running ? '⏸' : '▶' }}</button>
+                <button v-if="k.status !== 'completed' && k.status !== 'archived'"
+                  class="ghost lk-btn lk-done" :class="{ ok: k.agentDone }"
+                  :title="k.agentDone ? 'AI 已申请收口 —— 点这里才真的标记完成' : '单独完成这一条（不要求先标进行中）'"
+                  @click="completeLogItem(k.id)">{{ k.agentDone ? '确认' : '完成' }}</button>
+                <button v-if="k.status === 'completed' || k.status === 'archived'"
+                  class="ghost lk-btn lk-reopen" title="单独撤销完成 / 归档，退回「待处理」"
+                  @click="reopenLogItem(k.id)">↩</button>
+                <button class="ghost lk-btn lk-edit" title="单独编辑这一条（只读预览也可以点整行）"
+                  @click="openLog(k)">编辑</button>
+              </span>
+            </div>
+            <div v-if="!(logGroupChildren.get(log.id) || []).length" class="lg-box-empty">
+              当前筛选下没有可显示的附属日志。
+            </div>
+          </div>
+          <div v-if="logGroupHiddenCount(log)" class="lg-box-hidden">
+            另有 {{ logGroupHiddenCount(log) }} 条附属不在当前筛选内（清空搜索 / 项目筛选即可看到；动作仍会作用于全组）。
           </div>
         </div>
         <div class="log-card-meta">
@@ -229,19 +280,11 @@
           <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
           <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
           <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
-               不再要求「先点多选 → 再找批量栏」。 -->
-          <button v-if="!logGroupParent.get(log.id) && log.status !== 'archived'" class="ghost log-bind-btn"
+               不再要求「先点多选 → 再找批量栏」。有组时「全组完成 / 开工单」收进下面的
+               附属框头（那里才是组的地盘），卡上只留一个「绑定 / 改绑定」入口。 -->
+          <button v-if="!logHasGroup(log) && !logGroupParent.get(log.id) && log.status !== 'archived'" class="ghost log-bind-btn"
             title="把同一轮的其它日志绑到这条主日志下面（绑定关系会落盘，下次还在）"
-            @click="openLogAttach(log)">🔗 {{ (logGroupChildren.get(log.id) || []).length ? '改绑定' : '绑定附属' }}</button>
-          <template v-if="(logGroupChildren.get(log.id) || []).length">
-            <button class="ghost log-group-run" :class="{ on: logGroupAllRunning(log) }"
-              :title="logGroupAllRunning(log) ? '把全组「进行中」一起撤销' : '把主日志 + 全部附属一起标为「进行中」'"
-              @click="toggleLogGroupRunning(log, !logGroupAllRunning(log))">{{ logGroupAllRunning(log) ? '⏸ 全组撤销' : '▶ 全组进行中' }}</button>
-            <button class="ghost log-group-done" title="主日志 + 全部附属一起完成（已完成/已归档的自动跳过）"
-              @click="completeLogGroupItem(log)">✅ 全组完成</button>
-            <button class="ghost log-group-prompt" title="把主日志 + 全部附属拼成一份开工单（一条主日志，其余标并行日志）"
-              @click="copyLogGroupAsPrompt(log)">⧉ 开工单</button>
-          </template>
+            @click="openLogAttach(log)">🔗 绑定附属</button>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
                2026-10-09 用户第 1 条：先开确认框（可顺手勾「归档源」）；同一条只转一次（待办记 fromLog 防重）。 -->
           <button class="ghost" title="把这条日志的「下一步」变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
@@ -251,10 +294,14 @@
             title="接力：出清这条 + 建新日志继承「下一步」/项目/任务/Agent —— 一个对话框做完四件事"
             @click="openRelay(log)">⏭ 从这里继续</button>
           <button class="ghost log-run-btn" :class="{ on: log.running }"
-            :title="log.running
-              ? '撤销「进行中」标记，回到「待处理」'
-              : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）'"
-            @click="toggleLogRunning(log)">{{ log.running ? '⏸ 撤销进行中' : '▶ 标为进行中' }}</button>
+            :title="logHasGroup(log)
+              ? (logGroupAllRunning(log)
+                ? '撤销全组「进行中」（主日志 + 全部附属）'
+                : '把主日志 + 全部附属一起标为「进行中」；要单独改某一条，用下面框里那行的 ▶ / ⏸')
+              : (log.running
+                ? '撤销「进行中」标记，回到「待处理」'
+                : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）')"
+            @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</button>
           <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
             :class="{ ok: log.agentDone }"
             :title="log.agentDone
@@ -304,6 +351,7 @@ const logBatchMode = toRef(ctl, 'logBatchMode')
 const selectedLogBatch = toRef(ctl, 'selectedLogBatch')
 const logsViewMode = toRef(ctl, 'logsViewMode')
 const filteredLogs = toRef(ctl, 'filteredLogs')
+const visibleLogs = toRef(ctl, 'visibleLogs')
 const renderSections = toRef(ctl, 'renderSections')
 const logDragOver = toRef(ctl, 'logDragOver')
 const projects = toRef(ctl, 'projects')
@@ -345,8 +393,9 @@ const {
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
   // 主日志 + 附属日志（2026-10-30 第 4 条）
-  openLogAttach, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt,
-  logGroupAllRunning, openLogPreview,
+  openLogAttach, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt, logGroupAllRunning,
+  logHasGroup, logGroupStat, logGroupHiddenCount, logRunningLabel,
+  openLogPreview,
   // 批量
   toggleLogBatchMode, toggleSelectAllLogs,
   executeBatchLogPriority, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy,

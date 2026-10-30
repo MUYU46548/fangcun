@@ -160,7 +160,27 @@ function main() {
     check('  非法快照被拒（不写盘）', bad.ok === false && /不合法/.test(bad.error || ''), JSON.stringify(bad))
   }
 
-  console.log('\n== ⑤ 销毁副日志会清掉主日志里的断链 ==')
+  console.log('\n== ⑤ 单独完成一条附属：关系不丢，全组动作跳过它 ==')
+  {
+    const m = mk('单独完成测试主日志')
+    const s = mk('会被单独完成的副日志')
+    logs.setLogAttached(m.id, [s.id])
+    const done = logs.completeLog(s.id, 3, '这条先完成')
+    check('★ 单独完成副日志成功', done.ok === true, JSON.stringify(done))
+    check('★★ 单独完成后主日志 attached 里仍然有它（关系不因状态变化而丢）',
+      (logs.getLog(m.id).attached || []).includes(s.id),
+      JSON.stringify(logs.getLog(m.id).attached))
+    const run = logs.setLogGroupRunning(m.id, true)
+    check('★ 全组进行中只动主日志（已完成的副日志跳过）',
+      run.ok && run.changed.length === 1 && run.changed[0] === m.id && run.skipped.includes(s.id),
+      JSON.stringify(run))
+    const off = logs.setLogGroupRunning(m.id, false)
+    check('  全组撤销只动仍挂「进行中」的主日志',
+      off.ok && off.changed.length === 1 && off.changed[0] === m.id,
+      JSON.stringify(off))
+  }
+
+  console.log('\n== ⑥ 销毁副日志会清掉主日志里的断链 ==')
   {
     const m = mk('断链测试主日志')
     const s = mk('会被销毁的副日志')
@@ -171,7 +191,7 @@ function main() {
       JSON.stringify(logs.getLog(m.id).attached))
   }
 
-  console.log('\n== ⑥ 源码守卫（谁在写 running） ==')
+  console.log('\n== ⑦ 源码守卫（谁在写 running） ==')
   {
     const src = strip(fs.readFileSync(path.join(ROOT, 'desktop/src/main/services/logs.ts'), 'utf8'))
     const fn = (name) => {
