@@ -222,7 +222,7 @@ function main() {
       shotArg.includes('=') ? shotArg.split('=')[1] : path.join(ROOT, 'docs', 'views-web')
     )
     fs.mkdirSync(outDir, { recursive: true })
-    const CASES = [
+    const CASES_ALL = [
       ['看板', '列视图', 'board-cols'],
       // 2026-10-25：顶栏「更多」菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
       ['看板', '列视图', 'top-more', 'moremenu'],
@@ -287,7 +287,17 @@ function main() {
       // 2026-10-25：项目梯度榜（Tier List）—— 它是项目页的第 5 种摆法，不是顶级页签。
       // 截图要看得出「一个项目被拖进了「搁置」档」（拖完立即落盘，没有保存按钮）。
       ['项目', '', 'project-tier', 'tierview'],
+      // 2026-10-30：RICE 视觉照原型重画 —— 留三张目检（顶部 KPI / 散点 / 做砍 + 四格结论）。
+      ['项目', '需求矩阵', 'rice'],
+      ['项目', '需求矩阵', 'rice-plot', 'riceplot'],
+      ['项目', '需求矩阵', 'rice-why', 'ricewhy'],
+      // 2026-10-30：驳回返工台 —— 提示条 + 逐张面板（理由取最后一次驳回）。
+      ['看板', '列视图', 'rework-bar', 'rework'],
     ]
+    // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
+    //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
+    const ONLY = String(process.env.FC_SHOT_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean)
+    const CASES = (ONLY.length ? CASES_ALL.filter((c) => ONLY.includes(c[2])) : CASES_ALL)
     const SEED_TODOS = [
       '多视图断言用：这是一条刻意写得很长的待办标题，用来验证卡片网格里标题最多三行不截断',
       '去便利店买咖啡豆',
@@ -467,6 +477,37 @@ function main() {
     const gbox = gc.querySelector('h3 .grp-chk input')
     if (gbox) gbox.click()
   }
+  await sleep(600)
+` : ''}
+  ${extra === 'riceplot' ? `
+  // 散点整块进画面（原型里它是主角）：滚到图表顶
+  const pw = document.querySelector('.rice .rice-plotwrap')
+  if (pw) pw.scrollIntoView({ block: 'start' })
+  await sleep(400)
+` : ''}
+  ${extra === 'ricewhy' ? `
+  // 「为什么做，为什么砍」+ 四格结论
+  const why = document.querySelector('.rice .rice-why')
+  if (why) why.scrollIntoView({ block: 'start' })
+  await sleep(400)
+` : ''}
+  ${extra === 'rework' ? `
+  // 驳回返工台：灌 2 张驳回卡（一张有理由、一张没写），重进看板 → 展开逐张面板
+  const RW = (id, extra) => Object.assign({
+    id, title: '返工样例：' + id, status: '驳回', priority: '中', project: 'demo', tags: [], body: '',
+    created: '2026-10-01T00:00:00.000Z', updated: '2026-10-05T00:00:00.000Z',
+    result_log: '[2026-10-05 10:00] 验收驳回：第一次：按钮点不动',
+    fm: { id, title: '返工样例：' + id, status: '驳回', project: 'demo' },
+    path: 'C:/mock/task-data/' + id + '.md',
+  }, extra)
+  window.__fcTest.setTasks([
+    RW('rw-1', { result_log: '[2026-10-05 10:00] 验收驳回：第一次：按钮点不动\\n[2026-10-20 09:30] 验收驳回：第二次：驳回之后没人再管了' }),
+    RW('rw-2', { updated: '2026-10-25T00:00:00.000Z', result_log: '[2026-10-25 09:30] 验收驳回' }),
+    RW('rw-3', { status: '完成', title: '做完的不进返工台' }),
+  ])
+  clickText('待办'); await sleep(400); clickText('看板'); await sleep(800)
+  const ob = all('.rework-bar button').find((b) => (b.textContent || '').indexOf('逐张过一遍') >= 0)
+  if (ob) ob.click()
   await sleep(600)
 ` : ''}
   ${extra === 'tierview' ? `

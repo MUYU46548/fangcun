@@ -1121,8 +1121,10 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   batchArchive: () => ok(),
   batchDelete: () => ok(),
-  archiveTask: () => ok(),
-  unarchiveTask: () => ok(),
+  // 2026-10-30 驳回返工台：这两个原先只回 ok()、**不记账**，于是「点了到底有没有走通道」
+  // 根本断言不出来。补上 rec（与 moveStatus 同口径），断言才能分辨真动作与假动作。
+  archiveTask: (id) => { rec('archiveTask', [id]); return ok() },
+  unarchiveTask: (id) => { rec('unarchiveTask', [id]); return ok() },
   deleteTask: () => ok(),
   copyTask: () => ok(),
   // 2026-10-13：此前是 `() => ({})`（永远空表单）。「架构图」的条件显示与表单回填都靠它拿值 ——

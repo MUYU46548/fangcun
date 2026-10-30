@@ -449,6 +449,38 @@
       <button class="ghost" title="这次先不动，下次启动/刷新还会提示" @click="archiveOverdue = { count: 0, items: [] }">先不管</button>
     </div>
 
+    <!-- 驳回返工台（2026-10-30 暮雨第 3 条）：
+         「驳回的东西好像也永远不看，是方寸的缺陷吗？」——是。
+         「完成 / 驳回」两列默认折叠，而驳回**不是终态**：它欠一个返工或一个"算了"。
+         这条只做两件事：把被驳回后没人再管的卡重新推到眼前（带最近一次驳回理由 +
+         晾了几天），并给两个出口。不自动改任何卡 —— 下一站是你决定。 -->
+    <div v-if="curView === 'active' && rework.count > 0 && !reworkHidden" class="rework-bar">
+      <span class="rework-ico">↩</span>
+      <span class="rework-txt">
+        <b>{{ rework.count }}</b> 张卡被驳回后没人再管<template v-if="Number.isFinite(rework.oldestDays)">，最早的是 <b>{{ rework.oldestDays }}</b> 天前</template>
+      </span>
+      <button class="ghost" @click="reworkOpen = !reworkOpen">{{ reworkOpen ? '收起' : '逐张过一遍' }}</button>
+      <button class="ghost" title="本次不提醒；下次启动或刷新还会出现" @click="reworkHidden = true">先不管</button>
+      <span class="rework-why">「完成 / 驳回」两列默认是折叠的 —— 不推这一条，被驳回的卡就是石沉大海</span>
+    </div>
+    <div v-if="curView === 'active' && reworkOpen && rework.count > 0" class="rework-panel">
+      <div class="rework-row" v-for="r in rework.rows" :key="'rw-' + r.id">
+        <div class="rework-main">
+          <div class="rework-title">{{ r.title }}<span class="rework-id">{{ r.id }}</span></div>
+          <div class="rework-reason" :class="{ missing: !r.hasReason }">
+            {{ r.hasReason ? '驳回理由：' + r.reason : '⚠ 驳回时没写理由 —— 那就说不清为什么退回来' }}
+          </div>
+        </div>
+        <span class="rework-age" :title="Number.isFinite(r.ageDays) ? '按任务更新时间算' : '更新时间认不出来，不替你编天数'">
+          {{ Number.isFinite(r.ageDays) ? r.ageDays + ' 天' : '时间不详' }}</span>
+        <button class="ok" title="退回「待办」重新开工（只改状态，驳回理由留在卡上）" @click="reworkRestore(r.id)">↩ 退回返工</button>
+        <button class="ghost" title="移进归档区（文件移到 task-data/archive/，可还原）" @click="reworkArchive(r.id)">📦 归档</button>
+      </div>
+      <div class="rework-foot">
+        退回返工 = 接着做；归档 = 这件事不要了（归档就是处置过了，会从这条里消失）；「先不管」只藏这一次。
+      </div>
+    </div>
+
     <!-- 随问（2026-10-22 · 施工单包 03 任务一）——「控制台」的查询面。
          这一页**不调模型**：答案全从 registry / 任务卡 / 执行日志 / ai-trace 直接算出来。
          结构化确实算不出来的，右下才给一个「交给 AI 答」的口子 —— 点它才花 token，
@@ -3713,6 +3745,7 @@ import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, days
 // 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
 import { neverReadSummary } from '../shared/neverRead'
 import type { NeverReadResult } from '../shared/neverRead'
+import { pickRework } from '../shared/rework'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -3907,6 +3940,31 @@ async function runArchiveOverdue(auto = false): Promise<void> {
   else if (!auto) showToast('没有超期的已完成任务', 'info')
   await loadAll()
   await refreshArchiveOverdue()
+}
+
+// ── 驳回返工台（2026-10-30 暮雨第 3 条：「驳回的东西好像也永远不看，是方寸的缺陷吗？」）──
+// 是缺陷，而且有两层：
+//   ① **结构性**：看板把「完成 / 驳回」两列默认折叠（DEFAULT_COLLAPSED_GROUPS），
+//      驳回卡在现实中等于「这活没通过，还欠返工或一个"算了"的决定」，却和做完的一样被收起来；
+//   ② **口径性**：`never_read` / 体检都把「驳回」当终态排除，于是连"没人管"都统计不到。
+// 这条提示条只解决最要紧的一半：**让它重新出现在眼前**，并给两个出口（退回返工 / 归档）。
+// ⚠ 不做成自动动作：驳回卡的下一站是用户决定，方寸只负责不让它沉底。
+const reworkOpen = ref(false)
+const reworkHidden = ref(false)
+const reworkNow = ref(Date.now())
+const rework = computed(() => pickRework(tasks.value as any[], reworkNow.value))
+
+/** 从 id 找回任务对象；找不到（刚被别处改了）就静默不给按钮乱动 */
+function reworkTask(id: string): Task | null {
+  return tasks.value.find(t => t.id === id) || null
+}
+function reworkRestore(id: string): void {
+  const t = reworkTask(id)
+  if (t) void restoreTask(t)
+}
+function reworkArchive(id: string): void {
+  const t = reworkTask(id)
+  if (t) void archiveTask(t)
 }
 
 // ── 主题（2026-09-29 用户第 4 条：「多主题颜色外观并不存在…参考绒花墨坊做一下」）──
@@ -7179,6 +7237,8 @@ async function loadAll() {
   } catch {
     parseErrors.value = []
   }
+  // 返工台的天数按"现在"算（不要用挂载那一刻的 now，否则开一天窗口会显示旧天数）
+  reworkNow.value = Date.now()
 }
 
 function showParseErrors() {
@@ -13967,6 +14027,33 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .archive-overdue-bar b { color: var(--accent); }
 .archive-overdue-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
 .archive-overdue-bar span { flex: 1 1 320px; }
+
+/* 驳回返工台（2026-10-30）：与「已超期归档」同一套房线，但用警示色 ——
+   它不是一条通知，是一个**还欠着决定**的欠条。⚠ 不用新 class 复用旧块（AGENTS 踩坑 2）。 */
+.rework-bar {
+  margin: 8px 16px 0; padding: 8px 12px; background: #fff8f4; border: 1px solid #f2d6c8;
+  border-radius: 10px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  font-size: 12px; color: var(--ink); position: relative; z-index: 2;
+}
+.rework-ico { color: var(--danger); font-weight: 700; }
+.rework-txt { flex: 0 1 auto; }
+.rework-bar b { color: var(--danger); }
+.rework-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
+.rework-why { flex: 1 1 260px; text-align: right; font-size: 10.5px; color: var(--muted); }
+.rework-panel {
+  margin: 6px 16px 0; padding: 6px 10px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; position: relative; z-index: 2; max-height: 46vh; overflow: auto;
+}
+.rework-row { display: flex; align-items: center; gap: 10px; padding: 7px 2px; border-bottom: 1px dashed var(--border); flex-wrap: wrap; }
+.rework-row:last-of-type { border-bottom: none; }
+.rework-main { flex: 1 1 320px; min-width: 0; }
+.rework-title { font-size: 12.5px; font-weight: 600; }
+.rework-id { margin-left: 7px; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.rework-reason { margin-top: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+.rework-reason.missing { color: var(--warning); }
+.rework-age { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.rework-row .ok, .rework-row .ghost { font-size: 11.5px; padding: 3px 9px; flex: 0 0 auto; }
+.rework-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-2); font-size: 10.5px; color: var(--muted); }
 
 /* 归档区按状态快选（2026-10-17 第 1 条）：一行工具条，位置固定在归档列表上方。
    ⚠ 与 .archive-hint 一样带 z-index —— 看板是 position 定位的，不加就被压在下面。 */

@@ -3884,15 +3884,20 @@ def check_registry_consistency():
 
     # 2 & 3. 与 Hermes 侧对比
     try:
+        # ⚠ 2026-10-30：`text=True` 走的是**系统 locale**（本机 cp936/GBK），而 hermes 的输出
+        #   是 UTF-8 的项目名 —— 解码在线程里炸掉后 `stdout` 变成 None，下面 `.splitlines()`
+        #   直接把 `tegula doctor` 打成 AttributeError。这里显式按 UTF-8 解、解不出的替换掉，
+        #   并且对 stdout 为空也留一条可读的话（doctor 只读，绝不能因为外部命令坏掉就崩）。
         out = subprocess.run(["hermes", "project", "list"],
-                             capture_output=True, text=True, timeout=30,
+                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             timeout=30,
                              creationflags=_NOWIN)
     except Exception as e:
         issues.append(f"[hermes 不可达] 无法获取 Hermes 项目列表：{e}")
         return issues
 
     hermes_ids = set()
-    for line in out.stdout.splitlines():
+    for line in (out.stdout or "").splitlines():
         s = line.strip()
         if s.startswith("*"):
             s = s[1:].strip()

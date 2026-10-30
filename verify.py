@@ -1080,11 +1080,13 @@ with open(py_path, "w", encoding="utf-8") as f:
 
 # 用 TS 解析器读
 import subprocess
+# ⚠ 2026-10-30：显式按 UTF-8 解 —— `text=True` 用系统 locale（本机 cp936），
+#   而 TS 解析器吐的是含中文的 JSON；解码一炸 stdout 就是 None，测试自己崩（不是产品坏）。
 ts_result = subprocess.run(
     ["node", os.path.join(ROOT, "scripts", "ts-parse.mjs"), py_path],
-    capture_output=True, text=True, timeout=10
+    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
 )
-if ts_result.returncode == 0 and ts_result.stdout.strip() != "null":
+if ts_result.returncode == 0 and (ts_result.stdout or "").strip() != "null":
     ts_parsed = json.loads(ts_result.stdout)
     check("TS 读 Python 写 标题一致", ts_parsed.get("title") == "往返测试", str(ts_parsed.get("title")))
     check("TS 读 Python 写 状态一致", ts_parsed.get("status") == "进行中", str(ts_parsed.get("status")))
@@ -1092,7 +1094,7 @@ if ts_result.returncode == 0 and ts_result.stdout.strip() != "null":
     check("TS 读 Python 写 标签一致", ts_parsed.get("tags") == ["cross-lang"], str(ts_parsed.get("tags")))
     check("TS 读 Python 写 正文保留", "Python 写入" in (ts_parsed.get("body") or ""), "")
 else:
-    check("TS 解析器可用", False, ts_result.stderr[:200])
+    check("TS 解析器可用", False, (ts_result.stderr or "")[:200])
 
 # TS 格式写 → Python 读（用 parse_task 读 TS 风格文件）
 ts_style_sample = """---

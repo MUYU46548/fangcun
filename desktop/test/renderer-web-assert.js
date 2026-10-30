@@ -6376,6 +6376,43 @@
         (($('.rice-why-foot') || {}).textContent || '').slice(0, 80))
       check('  局限仍在（数字旁边必须带"证明不了什么"）', $$('.rice-limit').length >= 4,
         String($$('.rice-limit').length))
+      // ── 视觉按原型重画（2026-10-30 暮雨：「视觉还没照原型重画」）─────────────
+      // 原型是 docs/小样-RICE决策矩阵-20261025：先给 KPI，再给散点，再给打分表，
+      // 最后是「为什么做，为什么砍」+ 四格结论。断言只钉**结构与口径**，不钉像素。
+      check('★★ 顶部四格 KPI（候选 / P0 / P0 成本 / 预算占用）', $$('.rice-kpi').length === 4,
+        $$('.rice-kpi').map((k) => (k.textContent || '').trim().slice(0, 18)).join(' | '))
+      check('★ KPI 第一格就是「候选需求」且数字来自夹具（4 项，不写死）', (() => {
+        const t = (($$('.rice-kpi')[0] || {}).textContent || '').replace(/\s+/g, ' ')
+        return t.indexOf('候选需求') >= 0 && t.indexOf('4') >= 0
+      })(), (($$('.rice-kpi')[0] || {}).textContent || '').slice(0, 60))
+      check('★★ 三节结构带编号（1 散点 / 2 打分 / 3 做砍）', (() => {
+        const nos = $$('.rice-no').map((n) => (n.textContent || '').trim())
+        return nos.join(',') === '1,2,3'
+      })(), $$('.rice-no').map((n) => (n.textContent || '').trim()).join(','))
+      check('★★ 散点有象限底色 / 网格 / 坐标轴标题（照原型的矩阵，不是一个空框）',
+        $$('.rice-quad-fill').length === 4 && $$('.rice-grid').length >= 4 &&
+        $$('.rice-axis-title').length === 2,
+        `quad=${$$('.rice-quad-fill').length} grid=${$$('.rice-grid').length} axis=${$$('.rice-axis-title').length}`)
+      check('★★ 气泡按池内条目真身画（4 条都算得出分）+ 气泡编号与表格 # 同一套',
+        $$('.rice-bubble').length === 4 && $$('.rice-bubble-n').length >= 3,
+        `bubbles=${$$('.rice-bubble').length} nums=${$$('.rice-bubble-n').length}`)
+      check('★ P0 阈值线画出来了（阈值 = 最低的那个 P0 分，不是写死的分数线）',
+        !!$('.rice-threshold') && (($('.rice-threshold-t') || {}).textContent || '').indexOf('P0 线') >= 0,
+        (($('.rice-threshold-t') || {}).textContent || '').slice(0, 24))
+      check('★ 筛选 chips 带条数（原型那样：勾哪个显哪个）', $$('.rice-chip').length === 6,
+        $$('.rice-chip').map((c) => (c.textContent || '').trim()).join(' | '))
+      check('★★ 打分表有 # 排名 + 条形长度 + 等级徽章（不只一个数字）', (() => {
+        const ranks = $$('.rice-rank').map((x) => (x.textContent || '').trim())
+        const bars = $$('.rice-bar i').filter((i) => (i.getAttribute('style') || '').indexOf('width') >= 0)
+        const badges = $$('.rice-badge').map((b) => (b.textContent || '').trim())
+        return ranks[0] === '1' && ranks.length >= 4 && bars.length >= 4 &&
+          ['P0', 'P1', 'P2', 'CUT'].every((lv) => badges.indexOf(lv) >= 0)
+      })(), `ranks=${$$('.rice-rank').map((x) => (x.textContent || '').trim()).join(',')} badges=${$$('.rice-badge').map((b) => (b.textContent || '').trim()).join(',')}`)
+      check('★★ 结尾四格结论（立即启动 / 排队候补 / 有余量再说 / 砍掉）', $$('.rice-vd-block').length === 4,
+        $$('.rice-vd-block').map((b) => (b.textContent || '').trim().slice(0, 14)).join(' | '))
+      check('  页脚公式常驻（RICE = R × I × C ÷ E）',
+        (($('.rice-formula') || {}).textContent || '').indexOf('R × I × C ÷ E') >= 0)
+      check('  点气泡/悬停有明细区（不是只能靠 title 猜）', !!$('.rice-detail'))
       // 收尾：回项目墙
       const backTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('项目墙') >= 0)
       if (backTab) { backTab.click(); await sleep(400) }
@@ -6538,6 +6575,92 @@
         (($('#toast') || {}).textContent || '').slice(0, 80))
     }
 
+
+    // ══ 驳回返工台（2026-10-30 暮雨第 3 条）════════════════════════════════
+    // 「驳回的东西好像也永远不看，是方寸的缺陷吗？」——是，两层：
+    //   ① 看板把「完成 / 驳回」默认折叠，驳回卡和做完的一样被收起来；
+    //   ② 驳回不是终态：它欠一个返工或一个"算了"。这条要把它重新推回眼前。
+    // 判据：条数来自夹具真身、理由取**最后一条**、没写理由要点名、两个出口真走通道。
+    {
+      const rw = (id, extra = {}) => Object.assign({
+        id, title: '返工样例 ' + id, status: '驳回', priority: '中', project: 'demo', tags: [], body: '',
+        created: '2026-09-01T00:00:00.000Z', updated: '2026-10-01T00:00:00.000Z',
+        result_log: '[2026-10-01 10:00] 验收驳回：第一次：按钮点不动\n[2026-10-20 09:30] 验收驳回：第二次：驳回后没人管了',
+        fm: { id, title: '返工样例 ' + id, status: '驳回', project: 'demo' },
+        path: 'C:/mock/task-data/' + id + '.md',
+      }, extra)
+      window.__fcTest.setTasks([
+        rw('rw-old'),
+        // 最新一条只写「验收驳回」不写理由：必须被点名，而不是继承上一条的旧理由
+        rw('rw-new', { updated: '2026-10-28T00:00:00.000Z', result_log: '[2026-10-28 09:30] 验收驳回' }),
+        rw('rw-done', { status: '完成', title: '做完的不算' }),
+        rw('rw-todo', { status: '待办', title: '在做的也不算' }),
+      ])
+      await openViewTab('待办'); await sleep(300)
+      await openViewTab('看板'); await sleep(800)
+
+      const bar = $('.rework-bar')
+      check('★★ 被驳回后没人管的卡会重新推到眼前（提示条出现）', !!bar,
+        $$('#board .card').length + ' 张卡 / bar=' + !!bar)
+      check('★ 条数来自夹具真身（2 张，完成与待办不算）',
+        !!bar && (bar.textContent || '').indexOf('2') >= 0, ((bar || {}).textContent || '').slice(0, 80))
+      check('★ 文案说清为什么要这条（两列默认折叠，不推就石沉大海）',
+        !!bar && (bar.textContent || '').indexOf('折叠') >= 0, ((bar || {}).textContent || '').slice(0, 120))
+
+      const openBtn = $$('.rework-bar button').find((b) => (b.textContent || '').indexOf('逐张过一遍') >= 0)
+      check('  有「逐张过一遍」入口', !!openBtn)
+      if (openBtn) {
+        openBtn.click()
+        await sleep(350)
+        const rows = $$('.rework-row')
+        check('★★ 展开后逐张列出（2 行，不含完成/待办）', rows.length === 2,
+          rows.map((r) => (r.textContent || '').trim().slice(0, 16)).join(' | '))
+        check('★ 晾得最久的排最前（rw-old 第一行）',
+          !!rows[0] && (rows[0].textContent || '').indexOf('rw-old') >= 0,
+          (rows[0] ? (rows[0].textContent || '') : '').slice(0, 40))
+        check('★★ 理由取**最后一条**驳回记录（第二次，不是第一次）', (() => {
+          const t = (rows[0] || {}).textContent || ''
+          return t.indexOf('第二次：驳回后没人管了') >= 0 && t.indexOf('第一次') < 0
+        })(), (rows[0] ? (rows[0].textContent || '') : '').slice(0, 120))
+        check('★★ 最新驳回没写理由的那条被点名（不继承旧理由、不装没问题）', (() => {
+          const r = rows.find((x) => (x.textContent || '').indexOf('rw-new') >= 0)
+          return !!r && (r.textContent || '').indexOf('没写理由') >= 0 && (r.textContent || '').indexOf('第二次') < 0
+        })(), (rows.find((x) => (x.textContent || '').indexOf('rw-new') >= 0) || {}).textContent || '')
+
+        // 出口一：退回返工 —— 真走通道（unarchiveTask），不是只把行藏起来
+        const _oc = window.confirm
+        const confirms = []
+        window.confirm = (m) => { confirms.push(String(m)); return true }
+        window.__fcTest.reset()
+        const backBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('退回返工') >= 0)
+        check('  每行有「退回返工」出口', !!backBtn)
+        if (backBtn) {
+          backBtn.click()
+          await sleep(600)
+          check('★★ 点「退回返工」真走 unarchiveTask（不是假动作）',
+            window.__fcTest.callCount('unarchiveTask') > 0, JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+          check('★ 确认框说清后果（回到待办、理由保留）',
+            confirms.some((m) => m.indexOf('待办') >= 0), confirms.join(' | ').slice(0, 120))
+        }
+        // 出口二：归档 —— 真走 archiveTask
+        window.__fcTest.reset()
+        const archBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('归档') >= 0)
+        check('  每行有「归档」出口', !!archBtn)
+        if (archBtn) {
+          archBtn.click()
+          await sleep(600)
+          check('★★ 点「归档」真走 archiveTask', window.__fcTest.callCount('archiveTask') > 0,
+            JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+        }
+        window.confirm = _oc
+      }
+
+      // 反例：全部处置完（没有驳回卡）→ 这条不许出现（否则它会变成常驻噪音）
+      window.__fcTest.setTasks([rw('rw-x', { status: '完成' })])
+      await openViewTab('待办'); await sleep(300)
+      await openViewTab('看板'); await sleep(700)
+      check('★★ 反例：没有驳回卡时提示条消失（不常驻、不吓人）', !$('.rework-bar'))
+    }
 
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,
       String((($('.errbar-msg') || {}).textContent || '').slice(0, 160)))

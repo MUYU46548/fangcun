@@ -1,16 +1,24 @@
 <!--
-  需求矩阵（RICE 决策矩阵）—— 项目页第 7 种摆法（2026-10-28）
+  需求矩阵（RICE 决策矩阵）—— 项目页第 7 种摆法（2026-10-28，2026-10-30 视觉重画）
 
   施工输入：
     · 《方寸-RICE打分口径-20261024.md》v1.1（四维口径 / 证据映射 / 池宿主 / 拍板回写）
     · 《方寸-RICE格式闸结论-全栈-20261024.md》schema v1（节式格式 / 两个 MCP 写工具 / 验收线）
     · 设计判断与「为什么不再丢」：docs/ADR-002-需求矩阵.md
+    · 视觉原型：docs/小样-RICE决策矩阵-20261025/（2026-10-30 暮雨：「视觉还没照原型重画」）
 
   口径全在 shared/rice.ts（e2e-rice 纯 Node 跑），这里只管摆与手改。
   三条必须出现在界面上：
-   ① **总分不落盘** —— 池里只有 R/I/C/E，总分与等级现算；
-   ② **分数不替人做决定** —— 等级只是池内相对位置，拍板是用户动作；
-   ③ **每个数字带得走局限** —— 页面底部常驻 RICE_LIMITS，不许只有数字。
+    ① 总分不落盘 —— 池里只有 R/I/C/E，总分与等级现算；
+    ② 分数不替人做决定 —— 等级只是池内相对位置，拍板是用户动作；
+    ③ 每个数字带得走局限 —— 页面底部常驻 RICE_LIMITS，不许只有数字。
+
+  视觉按原型重画（2026-10-30），搬的是**结构与口径**，不搬原型里的演示数据：
+    · 顶部 KPI 四格（候选 / P0 / P0 成本 / 预算占用）—— 先给结论，再给明细
+    · 散点 = 主角：象限底色 + 网格 + P0 阈值线 + 气泡编号（编号与表格 # 列同一套）
+    · 打分表带条形长度与等级徽章 —— 排序看的是相对位置，不只看一个数字
+    · 「为什么做，为什么砍」独立成一节，左边是决策记录与容量统计，右边逐条理由
+    · 结尾的「立即启动 / 排队候补 / 有余量再说 / 砍掉」四格与底部口径条
   ⚠ 零网络：只走 window.tegula 上的 rice 系列通道（本地文件 IPC）。
 -->
 <script setup lang="ts">
@@ -30,6 +38,7 @@ import {
   riceSummary,
   scoreOf,
   type RiceItem,
+  type RiceLevel,
   type RicePool,
 } from '../../shared/rice'
 import { toPlain } from '../../shared/plain'
@@ -44,6 +53,7 @@ const budget = ref(0)
 const items = ref<RiceItem[]>([])
 const filter = ref<'all' | 'P0' | 'P1' | 'P2' | 'CUT' | 'pending'>('all')
 const highlight = ref('')
+const hover = ref('')
 const tip = (m: string) => { if (props.toast) props.toast(m) }
 
 function poolOf(): RicePool {
@@ -173,56 +183,176 @@ const summary = computed(() => riceSummary(poolOf()))
 // 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 拍板却没写理由的要被点名（原型第 3 条设计判断）
 const why = computed(() => riceWhyReview(poolOf()))
 
-/** 表格：按总分降序；总分算不出的排最后（不拿 0 假装有分） */
-const rows = computed(() => {
-  const list = items.value
-    .map((it) => ({ it, s: scoreOf(it), level: levels.value[it.eid] || 'P2' }))
+/** 全池按总分降序；总分算不出的排最后（不拿 0 假装有分） */
+const allRows = computed(() => {
+  return items.value
+    .map((it) => ({ it, s: scoreOf(it), level: (levels.value[it.eid] || 'P2') as RiceLevel }))
     .sort((a, b) => {
       const av = Number.isFinite(a.s) ? a.s : -Infinity
       const bv = Number.isFinite(b.s) ? b.s : -Infinity
       if (bv !== av) return bv - av
       return a.it.eid < b.it.eid ? -1 : 1
     })
+    .map((r, i) => ({ ...r, rank: i + 1 }))
+})
+
+/** # 列与气泡里的编号必须是同一套（原型：气泡编号 = 表格排名） */
+const rankOf = computed(() => {
+  const m: Record<string, number> = {}
+  for (const r of allRows.value) m[r.it.eid] = r.rank
+  return m
+})
+
+const rows = computed(() => {
+  const list = allRows.value
   if (filter.value === 'all') return list
   if (filter.value === 'pending') return list.filter((r) => !r.it.verdict)
   return list.filter((r) => r.level === filter.value)
 })
 
-const W = 720
-const H = 320
-const PAD = 30
+const maxScore = computed(() => {
+  let m = 0
+  for (const r of allRows.value) if (Number.isFinite(r.s) && r.s > m) m = r.s
+  return m
+})
+
+const barWidth = (s: number) => {
+  if (!Number.isFinite(s) || !maxScore.value) return 0
+  return Math.max(3, Math.round((s / maxScore.value) * 100))
+}
+
+/** 顶部四格：先给结论（有几条 / P0 几条 / 多少成本 / 预算占多少），明细在下面 */
+const kpis = computed(() => {
+  const p0 = allRows.value.filter((r) => r.level === 'P0').length
+  const ratio = summary.value.budgetRatio
+  const over = summary.value.guard === 'over'
+  const tight = summary.value.guard === 'tight'
+  return [
+    { key: 'total', label: '候选需求', val: items.value.length, unit: '项', foot: '进入本轮评估池', accent: false, over: false, tight: false },
+    { key: 'p0', label: '入选 P0', val: p0, unit: '项', foot: '等级 = 池内相对位置（前 20%）', accent: true, over: false, tight: false },
+    { key: 'days', label: 'P0 合计成本', val: summary.value.p0Days, unit: '人天', foot: '按 E天 直接加总，不折算', accent: false, over: false, tight: false },
+    {
+      key: 'budget',
+      label: '预算占用',
+      val: ratio === null ? '未设' : Math.round((ratio || 0) * 100),
+      unit: ratio === null ? '' : '%',
+      foot: ratio === null ? '月预算未设置 —— 不等于没超支' : `P0 ¥${summary.value.p0Cost} / ¥${summary.value.budget}`,
+      accent: false,
+      over,
+      tight,
+    },
+  ]
+})
+
+/** 四格结论（原型结尾那排）：本季必做 / 排队 / 有余量 / 砍掉 */
+const verdicts = computed(() => {
+  const meta: Record<RiceLevel, { label: string; sub: string }> = {
+    P0: { label: '立即启动', sub: '本季必做' },
+    P1: { label: '排队候补', sub: '容量释放即启动' },
+    P2: { label: '有余量再说', sub: '重评后再议' },
+    CUT: { label: '砍掉', sub: '不进 backlog' },
+  }
+  return (['P0', 'P1', 'P2', 'CUT'] as RiceLevel[]).map((lv) => {
+    const list = allRows.value.filter((r) => r.level === lv)
+    const days = list.reduce((s, r) => s + (Number.isFinite(r.it.E_days) ? r.it.E_days : 0), 0)
+    return { lv, count: list.length, days, ...meta[lv] }
+  })
+})
+
+const filterChips = computed(() => {
+  const counts: Record<string, number> = {
+    all: items.value.length,
+    P0: allRows.value.filter((r) => r.level === 'P0').length,
+    P1: allRows.value.filter((r) => r.level === 'P1').length,
+    P2: allRows.value.filter((r) => r.level === 'P2').length,
+    CUT: allRows.value.filter((r) => r.level === 'CUT').length,
+    pending: items.value.filter((it) => !it.verdict).length,
+  }
+  const list: Array<{ v: typeof filter.value; label: string }> = [
+    { v: 'all', label: '全部' },
+    { v: 'P0', label: 'P0' },
+    { v: 'P1', label: 'P1' },
+    { v: 'P2', label: 'P2' },
+    { v: 'CUT', label: 'CUT' },
+    { v: 'pending', label: '未拍板' },
+  ]
+  return list.map((x) => ({ ...x, count: counts[x.v] || 0 }))
+})
+
+const W = 880
+const H = 460
+const PAD = 46
+const innerW = W - PAD * 2
+const innerH = H - PAD * 2
 const geo = computed(() => riceGeometry(items.value, W, H, PAD))
 const splitPx = computed(() => {
   const g = geo.value
-  const innerW = W - PAD * 2
-  const innerH = H - PAD * 2
-  return {
-    x: g.maxX > 0 ? PAD + (g.splitX / g.maxX) * innerW : W / 2,
-    y: g.maxY > 0 ? H - PAD - (g.splitY / g.maxY) * innerH : H / 2,
-  }
+  return g.maxX > 0 ? PAD + (g.splitX / g.maxX) * innerW : W / 2
 })
+const splitPy = computed(() => {
+  const g = geo.value
+  return g.maxY > 0 ? H - PAD - (g.splitY / g.maxY) * innerH : H / 2
+})
+
+function axisTicks(max: number, n: number): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0]
+  const step = max / n
+  return Array.from({ length: n + 1 }, (_, i) => Math.round(step * i * 10) / 10)
+}
+const xTicks = computed(() => axisTicks(geo.value.maxX, 4))
+const yTicks = computed(() => axisTicks(geo.value.maxY, 4))
+const xPos = (v: number) => (geo.value.maxX > 0 ? PAD + (v / geo.value.maxX) * innerW : PAD)
+const yPos = (v: number) => (geo.value.maxY > 0 ? H - PAD - (v / geo.value.maxY) * innerH : H - PAD)
+
+/** P0 阈值线：等级是池内相对位置，所以阈值就是「最低的那个 P0 分」，不是写死的分数线 */
+const p0Line = computed(() => {
+  const scores = allRows.value.filter((r) => r.level === 'P0' && Number.isFinite(r.s)).map((r) => r.s)
+  if (!scores.length || !geo.value.maxY) return null
+  return { score: Math.min(...scores), y: yPos(Math.min(...scores)) }
+})
+
+/** 低等级先画、P0 压最上层（和原型一致：重要的气泡不许被盖住） */
+const drawPoints = computed(() => {
+  const weight: Record<string, number> = { CUT: 0, P2: 1, P1: 2, P0: 3 }
+  return geo.value.points.slice().sort((a, b) => {
+    const aw = weight[a.level] ?? 0
+    const bw = weight[b.level] ?? 0
+    if (aw !== bw) return aw - bw
+    return a.score - b.score
+  })
+})
+
+/**
+ * 气泡坐标要**夹在绘图区内**：池里最高分那条本来就落在纵轴顶边（y = PAD），
+ * 不夹的话半个气泡跑到框外、编号也看不见（2026-10-30 截图目检当场抓到）。
+ * 原型也是这么做的（`Math.min(sy, y1 - 15)`）。
+ */
+const bubbles = computed(() =>
+  drawPoints.value.map((p) => ({
+    ...p,
+    cx: Math.min(Math.max(p.x, PAD + p.r), W - PAD - p.r),
+    cy: Math.min(Math.max(p.y, PAD + p.r), H - PAD - p.r),
+  }))
+)
+
+const activeEid = computed(() => highlight.value || hover.value)
+const detail = computed(() => allRows.value.find((r) => r.it.eid === activeEid.value) || null)
 
 const levelCls: Record<string, string> = { P0: 'lv0', P1: 'lv1', P2: 'lv2', CUT: 'lvx' }
 const coord = (n: number) => Math.round(n * 10) / 10
 const scoreText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
-
-const filters = [
-  { v: 'all', label: '全部' },
-  { v: 'P0', label: 'P0' },
-  { v: 'P1', label: 'P1' },
-  { v: 'P2', label: 'P2' },
-  { v: 'CUT', label: 'CUT' },
-  { v: 'pending', label: '未拍板' },
-] as const
+const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 </script>
 
 <template>
   <div class="rice">
     <div class="rice-head">
-      <span class="rice-ttl">需求矩阵</span>
-      <span class="rice-sub">{{ summary.text }}</span>
-      <span class="rice-grow"></span>
-      <button class="ghost" :disabled="loading || saving" @click="load">
+      <div class="rice-head-main">
+        <div class="rice-eyebrow">价值判断 · 路线图优先级</div>
+        <div class="rice-ttl">需求优先级 <span class="rice-ttl-dim">RICE 决策矩阵</span></div>
+        <div class="rice-sub">{{ summary.text || '池里还没有条目' }}</div>
+      </div>
+      <button class="ghost rice-refresh" :disabled="loading || saving" @click="load">
         {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
     </div>
 
@@ -234,6 +364,16 @@ const filters = [
       <span class="rice-where-hint">（分数只存 R/I/C/E 四个原始分；总分与等级由本页现算，不落盘）</span>
     </div>
 
+    <!-- KPI：先给结论，再给明细 -->
+    <div class="rice-kpis">
+      <div v-for="k in kpis" :key="k.key" class="rice-kpi" :class="{ accent: k.accent, over: k.over, tight: k.tight }">
+        <div class="rice-kpi-label">{{ k.label }}</div>
+        <div class="rice-kpi-val">{{ k.val }}<span class="rice-kpi-u">{{ k.unit }}</span></div>
+        <div class="rice-kpi-foot">{{ k.foot }}</div>
+      </div>
+    </div>
+
+    <!-- 预算护栏：数字 + 判定 + 余量必须一起出现 -->
     <div class="rice-budget">
       <label>月预算（元）</label>
       <input class="rice-num" type="number" min="0" step="1" v-model.number="budget" @change="setBudget" />
@@ -250,232 +390,498 @@ const filters = [
     <div v-else-if="!items.length" class="rice-empty">
       <div>{{ RICE_EMPTY_TEXT }}</div>
       <div class="rice-empty-sub">
-        池文件不存在时这里是空的，<b>不是</b>读取失败；灌入后会出现在下方表格与散点里。
+        池文件不存在时这里是空的，<b>不是</b>读取失败；灌入后会出现在下方散点与表格里。
       </div>
     </div>
 
     <template v-else>
-      <!-- 散点：横轴成本（天），纵轴 RICE，气泡大小 = 使用频次 -->
-      <div class="rice-chart">
-        <svg :viewBox="`0 0 ${W} ${H}`" class="rice-svg" role="img" aria-label="RICE 决策矩阵散点图">
-          <rect :x="PAD" :y="PAD" :width="W - PAD * 2" :height="H - PAD * 2" class="rice-plot" />
-          <!-- 象限分割线（成本中位 / 得分中位） -->
-          <line :x1="splitPx.x" :y1="PAD" :x2="splitPx.x" :y2="H - PAD" class="rice-split" />
-          <line :x1="PAD" :y1="splitPx.y" :x2="W - PAD" :y2="splitPx.y" class="rice-split" />
-          <text :x="PAD + 6" :y="PAD + 14" class="rice-quad">高收益 · 低成本（优先做）</text>
-          <text :x="W - PAD - 6" :y="PAD + 14" class="rice-quad" text-anchor="end">高收益 · 高成本（要想清楚）</text>
-          <text :x="PAD + 6" :y="H - PAD - 8" class="rice-quad">低收益 · 低成本（顺手）</text>
-          <text :x="W - PAD - 6" :y="H - PAD - 8" class="rice-quad" text-anchor="end">低收益 · 高成本（别做）</text>
-
-          <circle
-            v-for="p in geo.points" :key="p.eid"
-            :cx="p.x" :cy="p.y" :r="p.r"
-            class="rice-dot" :class="[levelCls[p.level], { on: highlight === p.eid }]"
-            @click="highlight = p.eid"
-          >
-            <title>{{ p.title }}｜RICE {{ p.score }}｜{{ p.level }}｜{{ p.quadrant }}</title>
-          </circle>
-
-          <text :x="W - PAD" :y="H - 6" class="rice-axis" text-anchor="end">成本（天）→</text>
-          <text :x="PAD - 8" :y="PAD + 2" class="rice-axis" text-anchor="end">得分</text>
-        </svg>
-        <div class="rice-legend">
-          <span v-for="p in geo.points" :key="'lg' + p.eid" class="rice-lg" :class="levelCls[p.level]">
-            {{ p.level }} {{ p.title }}
-          </span>
+      <!-- ① 散点矩阵：横轴成本（天），纵轴 RICE，气泡大小 = 使用频次 -->
+      <section class="rice-sec">
+        <div class="rice-sec-h">
+          <span class="rice-no">1</span>
+          <h3>RICE 散点矩阵</h3>
+          <span class="rice-hint">横轴 = 成本（天）　纵轴 = RICE 得分　气泡大小 = 使用频次 R</span>
         </div>
-      </div>
+        <div class="rice-panel">
+          <div class="rice-chips">
+            <span class="rice-chips-label">筛选</span>
+            <button v-for="f in filterChips" :key="f.v" class="rice-chip" :class="{ on: filter === f.v }"
+              :aria-pressed="filter === f.v ? 'true' : 'false'" @click="filter = f.v">
+              <i class="rice-chip-dot" :class="f.v === 'all' || f.v === 'pending' ? '' : levelCls[f.v]"></i>
+              {{ f.label }}<span class="rice-chip-n">{{ f.count }}</span>
+            </button>
+            <span class="rice-grow"></span>
+            <span class="rice-size-legend">
+              气泡大小 = 使用频次
+              <i class="rice-size" style="width:7px;height:7px"></i>
+              <i class="rice-size" style="width:11px;height:11px"></i>
+              <i class="rice-size" style="width:15px;height:15px"></i>
+            </span>
+          </div>
 
-      <div class="rice-filters">
-        <button v-for="f in filters" :key="f.v" class="ghost rice-fbtn" :class="{ on: filter === f.v }"
-          @click="filter = f.v">{{ f.label }}</button>
-        <span class="rice-grow"></span>
-        <span class="rice-tip">点气泡高亮同行；改任一分项立即重算并落盘</span>
-      </div>
+          <div class="rice-plotwrap">
+            <svg :viewBox="`0 0 ${W} ${H}`" class="rice-svg" role="img" aria-label="RICE 决策矩阵散点图">
+              <!-- 象限底色：相对位置负责解释原因，P 级负责决定顺序 -->
+              <rect :x="PAD" :y="PAD" :width="splitPx - PAD" :height="splitPy - PAD" class="rice-quad-fill q-do" />
+              <rect :x="splitPx" :y="PAD" :width="W - PAD - splitPx" :height="splitPy - PAD" class="rice-quad-fill q-plan" />
+              <rect :x="PAD" :y="splitPy" :width="splitPx - PAD" :height="H - PAD - splitPy" class="rice-quad-fill q-fill" />
+              <rect :x="splitPx" :y="splitPy" :width="W - PAD - splitPx" :height="H - PAD - splitPy" class="rice-quad-fill q-cut" />
 
-      <div class="rice-tablewrap">
-        <table class="rice-table">
-          <thead>
-            <tr>
-              <th>等级</th><th>需求</th><th>来源</th>
-              <th>R 频次</th><th>I 省工</th><th>C 信心</th><th>E 天</th><th>E 元</th>
-              <th>证据</th><th>总分</th><th>拍板</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in rows" :key="r.it.eid" :class="{ on: highlight === r.it.eid }" @click="highlight = r.it.eid">
-              <td><span class="rice-lv" :class="levelCls[r.level]">{{ r.level }}</span></td>
-              <td class="rice-name">
-                <div class="rice-title" :title="(r.it.note ? r.it.note + '\n' : '') + '打分：' + (r.it.by || '—')">{{ r.it.title }}</div>
-                <div class="rice-eid">{{ r.it.eid }}</div>
-              </td>
-              <td class="rice-origin">{{ r.it.origin }}</td>
-              <td><input class="rice-num" type="number" min="0" step="1" :value="r.it.R"
-                @change="onNum(r.it, 'R', $event)" /></td>
-              <td>
-                <select class="rice-sel" :value="r.it.I" @change="onNum(r.it, 'I', $event)">
-                  <option v-for="v in RICE_IMPACT_VALUES" :key="v" :value="v">{{ v }}</option>
-                </select>
-              </td>
-              <td>
-                <select class="rice-sel" :value="r.it.C" @change="onNum(r.it, 'C', $event)">
-                  <option v-for="v in RICE_CONFIDENCE_VALUES" :key="v" :value="v">{{ v }}</option>
-                </select>
-              </td>
-              <td><input class="rice-num" type="number" min="1" step="1" :value="r.it.E_days"
-                @change="onNum(r.it, 'E_days', $event)" /></td>
-              <td><input class="rice-num" type="number" min="0" step="1" :value="r.it.E_cost"
-                @change="onNum(r.it, 'E_cost', $event)" /></td>
-              <td>
-                <select class="rice-sel" :value="r.it.evidence" @change="onEvidenceEv(r.it, $event)">
-                  <option v-for="v in RICE_EVIDENCE_LEVELS" :key="v" :value="v">{{ v }}</option>
-                </select>
-              </td>
-              <td class="rice-score" :title="`R${r.it.R} × I${r.it.I} × C${r.it.C} ÷ E${r.it.E_days}`">{{ scoreText(r.s) }}</td>
-              <td class="rice-verdict">
-                <template v-if="r.it.verdict">
-                  <span class="rice-vd" :class="{ cut: r.it.verdict === 'CUT' }">{{ r.it.verdict }}</span>
-                  <span class="rice-did">{{ r.it.decisionId }}</span>
-                </template>
-                <template v-else>
-                  <button class="ghost rice-vbtn" :disabled="saving" @click.stop="decide(r.it, false)">有效</button>
-                  <button class="ghost rice-vbtn cut" :disabled="saving" @click.stop="decide(r.it, true)">CUT</button>
-                </template>
-              </td>
-            </tr>
-            <tr v-if="!rows.length">
-              <td colspan="11" class="rice-none">这个筛选下没有条目（换「全部」看看）</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              <!-- 网格 -->
+              <line v-for="t in yTicks" :key="'gy' + t" :x1="PAD" :y1="yPos(t)" :x2="W - PAD" :y2="yPos(t)" class="rice-grid" />
+              <line v-for="t in xTicks" :key="'gx' + t" :x1="xPos(t)" :y1="PAD" :x2="xPos(t)" :y2="H - PAD" class="rice-grid" />
+
+              <!-- 象限分割线 -->
+              <line :x1="splitPx" :y1="PAD" :x2="splitPx" :y2="H - PAD" class="rice-split" />
+              <line :x1="PAD" :y1="splitPy" :x2="W - PAD" :y2="splitPy" class="rice-split" />
+
+              <!-- P0 阈值线（最低的那个 P0 分；不是写死的分数线） -->
+              <g v-if="p0Line">
+                <line :x1="PAD" :y1="p0Line.y" :x2="W - PAD" :y2="p0Line.y" class="rice-threshold" />
+                <text :x="W - PAD - 4" :y="p0Line.y - 6" class="rice-threshold-t" text-anchor="end">P0 线 {{ scoreText(p0Line.score) }}</text>
+              </g>
+
+              <!-- 坐标轴 -->
+              <line :x1="PAD" :y1="PAD" :x2="PAD" :y2="H - PAD" class="rice-axis-line" />
+              <line :x1="PAD" :y1="H - PAD" :x2="W - PAD" :y2="H - PAD" class="rice-axis-line" />
+
+              <!-- 象限标签 -->
+              <text :x="PAD + 12" :y="PAD + 22" class="rice-quad-label q-do">优先做 · 高价值低成本</text>
+              <text :x="W - PAD - 12" :y="PAD + 22" class="rice-quad-label q-plan" text-anchor="end">要想清楚 · 高价值高成本</text>
+              <text :x="PAD + 12" :y="H - PAD - 12" class="rice-quad-label q-fill">顺手 · 低价值低成本</text>
+              <text :x="W - PAD - 12" :y="H - PAD - 12" class="rice-quad-label q-cut" text-anchor="end">别做 · 低价值高成本</text>
+
+              <!-- 刻度 -->
+              <text v-for="t in yTicks" :key="'ty' + t" :x="PAD - 10" :y="yPos(t) + 3" class="rice-axis" text-anchor="end">{{ t }}</text>
+              <text v-for="t in xTicks" :key="'tx' + t" :x="xPos(t)" :y="H - PAD + 18" class="rice-axis" text-anchor="middle">{{ t }}</text>
+
+              <!-- 轴标题 -->
+              <text :x="PAD + innerW / 2" :y="H - 10" class="rice-axis-title" text-anchor="middle">工程成本 E天（越右越贵）</text>
+              <text :x="-(PAD + innerH / 2)" :y="16" transform="rotate(-90)" class="rice-axis-title" text-anchor="middle">RICE 得分（越高越值）</text>
+
+              <!-- 气泡：编号 = 表格 # 列；点击高亮同行，悬停看明细 -->
+              <g v-for="p in bubbles" :key="p.eid" class="rice-pt" :class="[levelCls[p.level], { on: activeEid === p.eid }]"
+                @click="highlight = p.eid" @mouseenter="hover = p.eid" @mouseleave="hover = ''">
+                <circle :cx="p.cx" :cy="p.cy" :r="p.r" class="rice-bubble" :class="levelCls[p.level]" />
+                <text v-if="p.r >= 8" :x="p.cx" :y="coord(p.cy + 3.5)" class="rice-bubble-n" :class="levelCls[p.level]"
+                  text-anchor="middle">{{ rankOf[p.eid] }}</text>
+                <title>{{ p.title }}｜RICE {{ scoreText(p.score) }}｜{{ p.level }}｜{{ p.quadrant }}</title>
+              </g>
+            </svg>
+
+            <!-- 悬停/点击明细：不占表格位置，也不弹窗 -->
+            <div class="rice-detail" v-if="detail">
+              <div class="rice-detail-top">
+                <span class="rice-detail-rank" :class="levelCls[detail.level]">#{{ detail.rank }}</span>
+                <span class="rice-detail-title">{{ detail.it.title }}</span>
+                <span class="rice-badge" :class="levelCls[detail.level]">{{ detail.level }}</span>
+              </div>
+              <div class="rice-detail-score">
+                <span>RICE</span><b>{{ scoreText(detail.s) }}</b>
+                <span class="rice-detail-formula">R{{ detail.it.R }} × I{{ detail.it.I }} × C{{ detail.it.C }} ÷ E{{ detail.it.E_days }}</span>
+              </div>
+              <div class="rice-detail-grid">
+                <span>来源 <b>{{ detail.it.origin || '—' }}</b></span>
+                <span>证据 <b>{{ detail.it.evidence || '—' }}</b></span>
+                <span>成本 <b>{{ daysText(detail.it.E_days) }} 天 · ¥{{ detail.it.E_cost }}</b></span>
+                <span>拍板 <b>{{ detail.it.verdict || '未拍板' }}</b></span>
+              </div>
+              <div class="rice-detail-note" v-if="detail.it.note">{{ detail.it.note }}</div>
+              <div class="rice-detail-hint">注明：数字只说明相对位置，不替你做决定</div>
+            </div>
+            <div class="rice-detail rice-detail-empty" v-else>
+              点气泡或表格行看这一条的四项分与理由；气泡编号就是表格的 # 排名。
+            </div>
+          </div>
+
+          <p class="rice-mx-note">
+            象限按池内中位切分，看的是<b>相对位置</b>；P 级按<b>池内相对位置</b>（P0 = 前 20%）划分。
+            两者不一致时以 P 级为准 —— 象限负责解释原因，分数负责决定顺序。
+          </p>
+        </div>
+      </section>
+
+      <!-- ② 打分与排序 -->
+      <section class="rice-sec">
+        <div class="rice-sec-h">
+          <span class="rice-no">2</span>
+          <h3>打分与排序</h3>
+          <span class="rice-hint">总分降序 · 改任一分项立即重算并落盘 · 拍板是用户动作</span>
+        </div>
+        <div class="rice-panel">
+          <div class="rice-tablewrap">
+            <table class="rice-table">
+              <thead>
+                <tr>
+                  <th class="rice-th-rank">#</th>
+                  <th>需求</th><th>来源</th>
+                  <th>R 频次</th><th>I 省工</th><th>C 信心</th><th>E 天</th><th>E 元</th>
+                  <th>证据</th><th class="rice-th-score">RICE 总分</th><th>拍板</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in rows" :key="r.it.eid" :class="[levelCls[r.level], { on: activeEid === r.it.eid }]"
+                  @click="highlight = r.it.eid" @mouseenter="hover = r.it.eid" @mouseleave="hover = ''">
+                  <td class="rice-rank">{{ r.rank }}</td>
+                  <td class="rice-name">
+                    <div class="rice-title" :title="(r.it.note ? r.it.note + '\n' : '') + '打分：' + (r.it.by || '—')">{{ r.it.title }}</div>
+                    <div class="rice-title-note" v-if="r.it.note">{{ r.it.note }}</div>
+                    <div class="rice-eid">{{ r.it.eid }}</div>
+                  </td>
+                  <td class="rice-origin">{{ r.it.origin }}</td>
+                  <td><input class="rice-num" type="number" min="0" step="1" :value="r.it.R"
+                    @change="onNum(r.it, 'R', $event)" /></td>
+                  <td>
+                    <select class="rice-sel" :value="r.it.I" @change="onNum(r.it, 'I', $event)">
+                      <option v-for="v in RICE_IMPACT_VALUES" :key="v" :value="v">{{ v }}</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select class="rice-sel" :value="r.it.C" @change="onNum(r.it, 'C', $event)">
+                      <option v-for="v in RICE_CONFIDENCE_VALUES" :key="v" :value="v">{{ v }}</option>
+                    </select>
+                  </td>
+                  <td><input class="rice-num" type="number" min="1" step="1" :value="r.it.E_days"
+                    @change="onNum(r.it, 'E_days', $event)" /></td>
+                  <td><input class="rice-num" type="number" min="0" step="1" :value="r.it.E_cost"
+                    @change="onNum(r.it, 'E_cost', $event)" /></td>
+                  <td>
+                    <select class="rice-sel" :value="r.it.evidence" @change="onEvidenceEv(r.it, $event)">
+                      <option v-for="v in RICE_EVIDENCE_LEVELS" :key="v" :value="v">{{ v }}</option>
+                    </select>
+                  </td>
+                  <td class="rice-score-cell">
+                    <div class="rice-score">
+                      <span class="rice-bar"><i :style="{ width: barWidth(r.s) + '%' }"></i></span>
+                      <span class="rice-score-v">{{ scoreText(r.s) }}</span>
+                    </div>
+                    <span class="rice-badge" :class="levelCls[r.level]">{{ r.level }}</span>
+                  </td>
+                  <td class="rice-verdict">
+                    <template v-if="r.it.verdict">
+                      <span class="rice-vd" :class="{ cut: r.it.verdict === 'CUT' }">{{ r.it.verdict }}</span>
+                      <span class="rice-did">{{ r.it.decisionId }}</span>
+                    </template>
+                    <template v-else>
+                      <button class="ghost rice-vbtn" :disabled="saving" @click.stop="decide(r.it, false)">有效</button>
+                      <button class="ghost rice-vbtn cut" :disabled="saving" @click.stop="decide(r.it, true)">CUT</button>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="!rows.length">
+                  <td colspan="11" class="rice-none">这个筛选下没有条目（换「全部」看看）</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="rice-tbl-foot">
+            <span>Impact：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
+            <span>Confidence：95% 实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
+            <span>Effort：E天 进公式，E元 只作旁注</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 为什么做，为什么砍（原型第 3 条设计判断）：
+           分数只是入口，理由逐条写；拍板却没写理由的条目必须被点名 —— 那就是没拍板。 -->
+      <section class="rice-sec" v-if="items.length">
+        <div class="rice-sec-h">
+          <span class="rice-no">3</span>
+          <h3>为什么做，为什么砍</h3>
+          <span class="rice-hint">分数负责排序，人负责解释</span>
+        </div>
+        <div class="rice-why">
+          <div class="rice-why-sig">
+            <div class="rice-why-role">决策记录</div>
+            <div class="rice-why-nm">本轮 RICE 评估</div>
+            <div class="rice-why-mt">RICE 只把判断显性化，<br />不替你做决定。<br />真正的取舍在分数之外。</div>
+            <div class="rice-why-stats">
+              <div class="rice-why-stat"><span>评估池</span><b>{{ items.length }} 项</b></div>
+              <div class="rice-why-stat"><span>P0 合计</span><b>{{ summary.p0Days }} 人天</b></div>
+              <div class="rice-why-stat"><span>已拍板</span><b>{{ summary.decided }} 项</b></div>
+              <div class="rice-why-stat"><span>没写理由</span><b :class="{ over: why.missingWhy > 0 }">{{ why.missingWhy }} 项</b></div>
+            </div>
+            <div class="rice-why-sig-note">理由空的拍板不算拍板 —— 下次它还会以「听起来很酷」的样子回来。</div>
+          </div>
+          <div class="rice-why-body">
+            <div class="rice-why-h">为什么做，为什么砍<span class="rice-why-sub">{{ why.text }}</span></div>
+            <div class="rice-why-cols" v-if="why.keep.length || why.cut.length">
+              <div class="rice-why-col">
+                <div class="rice-why-t">✓ 做（{{ why.keep.length }}）</div>
+                <div class="rice-why-row" v-for="r in why.keep" :key="'k' + r.eid">
+                  <b>{{ r.title }}</b>
+                  <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
+                    {{ r.hasWhy ? r.why : '⚠ 拍板时没写理由 —— 说不清为什么，就是没拍板' }}
+                  </span>
+                  <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+                </div>
+                <div class="rice-why-none" v-if="!why.keep.length">还没有决定要做的</div>
+              </div>
+              <div class="rice-why-col">
+                <div class="rice-why-t cut">✕ 砍（{{ why.cut.length }}）</div>
+                <div class="rice-why-row" v-for="r in why.cut" :key="'c' + r.eid">
+                  <b>{{ r.title }}</b>
+                  <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
+                    {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以「听起来很酷」的样子回来' }}
+                  </span>
+                  <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+                </div>
+                <div class="rice-why-none" v-if="!why.cut.length">还没有砍掉的</div>
+              </div>
+            </div>
+            <div class="rice-why-empty" v-else>
+              还没有拍板记录 —— 在表格里点「有效 / CUT」，把理由写进备注，这里就是这季度取舍的底稿。
+            </div>
+            <div class="rice-verdicts">
+              <div v-for="v in verdicts" :key="v.lv" class="rice-vd-block" :class="levelCls[v.lv]">
+                <div class="rice-vd-label">{{ v.label }}</div>
+                <div class="rice-vd-v">{{ v.lv }} · {{ v.count }} 项</div>
+                <div class="rice-vd-d">{{ v.days }} 人天 · {{ v.sub }}</div>
+              </div>
+            </div>
+            <div class="rice-why-foot">{{ RICE_RECHECK }}</div>
+          </div>
+        </div>
+      </section>
     </template>
-
-    <!-- 「为什么做，为什么砍」（2026-10-29 暮雨第 1 条 · 原型第 3 条设计判断）：
-         分数只是入口，理由逐条写；拍板却没写理由的条目必须被点名 —— 那就是没拍板。
-         被砍项的判据来自原型原话：「它最危险的地方是听起来很酷」。 -->
-    <div class="rice-why" v-if="items.length">
-      <div class="rice-why-h">
-        为什么做，为什么砍
-        <span class="rice-why-sub">{{ why.text }}</span>
-      </div>
-      <div class="rice-why-cols" v-if="why.keep.length || why.cut.length">
-        <div class="rice-why-col">
-          <div class="rice-why-t">✓ 做（{{ why.keep.length }}）</div>
-          <div class="rice-why-row" v-for="r in why.keep" :key="'k' + r.eid">
-            <b>{{ r.title }}</b>
-            <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
-              {{ r.hasWhy ? r.why : '⚠ 拍板时没写理由 —— 说不清为什么，就是没拍板' }}
-            </span>
-            <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
-          </div>
-          <div class="rice-why-none" v-if="!why.keep.length">还没有决定要做的</div>
-        </div>
-        <div class="rice-why-col">
-          <div class="rice-why-t cut">✕ 砍（{{ why.cut.length }}）</div>
-          <div class="rice-why-row" v-for="r in why.cut" :key="'c' + r.eid">
-            <b>{{ r.title }}</b>
-            <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
-              {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以「听起来很酷」的样子回来' }}
-            </span>
-            <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
-          </div>
-          <div class="rice-why-none" v-if="!why.cut.length">还没有砍掉的</div>
-        </div>
-      </div>
-      <div class="rice-why-empty" v-else>
-        还没有拍板记录 —— 在表格里点「有效 / CUT」，把理由写进备注，这里就是这季度取舍的底稿。
-      </div>
-      <div class="rice-why-foot">{{ RICE_RECHECK }}</div>
-    </div>
 
     <div class="rice-limits">
       <div class="rice-limits-h">这页证明不了什么</div>
       <div class="rice-limit" v-for="(l, i) in RICE_LIMITS" :key="i">· {{ l }}</div>
+    </div>
+
+    <div class="rice-foot">
+      <span class="rice-formula">RICE = R × I × C ÷ E</span>
+      <span>分数只用于同一轮评估内横向比较</span>
     </div>
   </div>
 </template>
 
 <style scoped>
 /* 新块用自己的 .rice-* 类：不复用旧块的 class（旧断言按 class 数块会凭空变红，见 AGENTS 踩坑 2） */
-.rice { padding: 14px 18px 24px; color: var(--ink); }
-.rice-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.rice-ttl { font-size: 16px; font-weight: 700; }
-.rice-sub { font-size: 12px; color: var(--muted); }
-.rice-grow { flex: 1; }
-.rice-where { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.rice { padding: 14px 18px 28px; color: var(--ink); max-width: 1180px; margin: 0 auto; }
+
+/* ── 页头 ─────────────────────────────────────────────── */
+.rice-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.rice-head-main { display: flex; flex-direction: column; gap: 4px; }
+.rice-eyebrow { font-size: 11px; letter-spacing: .16em; font-weight: 700; color: var(--accent); text-transform: uppercase; }
+.rice-ttl { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.rice-ttl-dim { color: var(--muted); font-weight: 600; }
+.rice-sub { font-size: 12.5px; color: var(--muted); max-width: 720px; line-height: 1.7; }
+.rice-refresh { margin-left: auto; align-self: flex-start; }
+
+.rice-stance {
+  margin-top: 14px; display: inline-block;
+  font-size: 12.5px; font-weight: 600; color: var(--ink);
+  background: var(--tint); border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 14px;
+}
+.rice-where { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .rice-where code { background: var(--tint-3); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; color: var(--ink); }
 .rice-where-hint { margin-left: 6px; }
-.rice-budget { margin-top: 10px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+
+/* ── KPI ──────────────────────────────────────────────── */
+.rice-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+.rice-kpi { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 12px; }
+.rice-kpi.accent { border-color: var(--accent); background: linear-gradient(178deg, var(--tint) 0%, var(--card) 72%); }
+.rice-kpi.over { border-color: var(--danger); }
+.rice-kpi.tight { border-color: var(--warning); }
+.rice-kpi-label { font-size: 11.5px; color: var(--muted); }
+.rice-kpi-val { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; line-height: 1.15; }
+.rice-kpi.accent .rice-kpi-val { color: var(--accent); }
+.rice-kpi.over .rice-kpi-val { color: var(--danger); }
+.rice-kpi.tight .rice-kpi-val { color: var(--warning); }
+.rice-kpi-u { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-left: 3px; letter-spacing: 0; }
+.rice-kpi-foot { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ── 预算护栏 ─────────────────────────────────────────── */
+.rice-budget {
+  margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--muted);
+  background: var(--tint-3); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px;
+}
 .rice-budget label { font-weight: 600; color: var(--ink); }
 .rice-budget-hint b { color: var(--success); }
 .rice-budget-hint b.over { color: var(--danger); }
 .rice-guard { flex-basis: 100%; font-size: 11.5px; color: var(--muted); }
 .rice-guard.tight { color: var(--warning); }
 .rice-guard.over { color: var(--danger); }
-.rice-stance { margin-top: 8px; font-size: 12.5px; color: var(--ink); font-weight: 600; }
-.rice-why { margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 12px 14px; }
-.rice-why-h { font-size: 13px; font-weight: 700; }
-.rice-why-sub { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: var(--muted); }
-.rice-why-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
-.rice-why-t { font-size: 12px; font-weight: 600; color: var(--success); margin-bottom: 6px; }
-.rice-why-t.cut { color: var(--danger); }
-.rice-why-row { padding: 6px 0; border-top: 1px dashed var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
-.rice-why-row b { font-weight: 600; }
-.rice-why-reason { color: var(--muted); line-height: 1.55; }
-.rice-why-reason.missing { color: var(--warning); }
-.rice-why-ev { color: var(--muted); font-size: 11.5px; }
-.rice-why-none, .rice-why-empty { font-size: 11.5px; color: var(--muted); }
-.rice-why-empty { margin-top: 10px; }
-.rice-why-foot { margin-top: 10px; font-size: 11.5px; color: var(--muted); }
-.rice-err { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); background: var(--card); }
-.rice-empty { margin-top: 18px; padding: 18px; border: 1px dashed var(--line-2); border-radius: var(--radius); background: var(--tint-3); }
-.rice-empty-sub { margin-top: 8px; font-size: 12px; color: var(--muted); }
-.rice-chart { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 8px; }
+
+/* ── 节 ───────────────────────────────────────────────── */
+.rice-sec { margin-top: 26px; }
+.rice-sec-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.rice-sec-h h3 { font-size: 16px; font-weight: 700; }
+.rice-no {
+  font-size: 11px; font-weight: 700; color: var(--card); background: var(--ink);
+  width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; transform: translateY(1px);
+}
+.rice-hint { margin-left: auto; font-size: 11.5px; color: var(--muted); text-align: right; }
+.rice-panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px 12px; }
+
+/* ── 筛选 chips ───────────────────────────────────────── */
+.rice-chips { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--line-2); }
+.rice-chips-label { font-size: 11.5px; color: var(--muted); margin-right: 2px; }
+.rice-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink);
+  background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px 4px 8px;
+  transition: .16s;
+}
+.rice-chip:hover { border-color: var(--line-2); }
+.rice-chip[aria-pressed="false"] { opacity: .45; border-style: dashed; background: transparent; }
+.rice-chip.on { border-color: var(--accent); color: var(--accent); background: var(--tint); }
+.rice-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); display: block; flex: 0 0 auto; }
+.rice-chip-dot.lv0 { background: var(--accent); }
+.rice-chip-dot.lv1 { background: var(--warning); }
+.rice-chip-dot.lv2 { background: var(--muted); }
+.rice-chip-dot.lvx { background: transparent; border: 1.3px dashed var(--danger); }
+.rice-chip-n { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rice-grow { flex: 1; }
+.rice-size-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.rice-size { border: 1.3px solid var(--line-2); border-radius: 50%; display: block; }
+
+/* ── 散点 ─────────────────────────────────────────────── */
+.rice-plotwrap { position: relative; padding-top: 6px; }
 .rice-svg { width: 100%; height: auto; display: block; }
-.rice-plot { fill: var(--tint-3); stroke: var(--border); }
-.rice-split { stroke: var(--line-2); stroke-dasharray: 4 4; }
-.rice-quad { font-size: 10px; fill: var(--muted); }
+.rice-quad-fill { fill: var(--tint-3); }
+.rice-quad-fill.q-do { fill: var(--tint); }
+.rice-grid { stroke: var(--line-2); stroke-width: 1; opacity: .55; }
+.rice-split { stroke: var(--accent); stroke-width: 1.1; stroke-dasharray: 5 4; opacity: .45; }
+.rice-threshold { stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 2 4; opacity: .8; }
+.rice-threshold-t { font-size: 10px; fill: var(--accent); }
+.rice-axis-line { stroke: var(--border); stroke-width: 1.2; }
 .rice-axis { font-size: 10px; fill: var(--muted); }
-.rice-dot { stroke: var(--card); stroke-width: 1.5; cursor: pointer; opacity: 0.85; }
-.rice-dot:hover, .rice-dot.on { opacity: 1; stroke: var(--ink); stroke-width: 2; }
-.rice-dot.lv0 { fill: var(--accent); }
-.rice-dot.lv1 { fill: var(--warning); }
-.rice-dot.lv2 { fill: var(--muted); }
-.rice-dot.lvx { fill: var(--danger); }
-.rice-legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 6px 6px; font-size: 11px; color: var(--muted); }
-.rice-lg::before { content: '●'; margin-right: 4px; }
-.rice-lg.lv0::before { color: var(--accent); }
-.rice-lg.lv1::before { color: var(--warning); }
-.rice-lg.lv2::before { color: var(--muted); }
-.rice-lg.lvx::before { color: var(--danger); }
-.rice-filters { display: flex; align-items: center; gap: 6px; margin: 12px 0 8px; flex-wrap: wrap; }
-.rice-fbtn.on { background: var(--tint); border-color: var(--accent); color: var(--accent); }
-.rice-tip { font-size: 11px; color: var(--muted); }
-.rice-tablewrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
-.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1020px; }
-.rice-table th, .rice-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
-.rice-table th { position: sticky; top: 0; background: var(--tint-3); font-weight: 600; color: var(--muted); white-space: nowrap; }
-.rice-table tr.on { background: var(--tint-2); }
-.rice-name { min-width: 190px; }
-.rice-title { font-weight: 600; }
-.rice-eid, .rice-origin { font-size: 11px; color: var(--muted); }
-.rice-num { width: 58px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); }
-.rice-sel { padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 104px; }
-.rice-score { font-weight: 700; white-space: nowrap; }
-.rice-lv { display: inline-block; min-width: 30px; text-align: center; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.rice-lv.lv0 { color: var(--card); background: var(--accent); }
-.rice-lv.lv1 { color: var(--card); background: var(--warning); }
-.rice-lv.lv2 { color: var(--ink); background: var(--tint); }
-.rice-lv.lvx { color: var(--card); background: var(--danger); }
+.rice-axis-title { font-size: 11.5px; fill: var(--muted); font-weight: 600; }
+.rice-quad-label { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+.rice-quad-label.q-do { fill: var(--accent); }
+.rice-quad-label.q-plan { fill: var(--muted); }
+.rice-quad-label.q-fill { fill: var(--muted); opacity: .8; }
+.rice-quad-label.q-cut { fill: var(--muted); opacity: .8; }
+.rice-pt { cursor: pointer; }
+.rice-bubble { stroke-width: 1.4; fill-opacity: .14; transition: fill-opacity .16s, stroke-width .16s; }
+.rice-bubble.lv0 { fill: var(--accent); stroke: var(--accent); }
+.rice-bubble.lv1 { fill: var(--warning); stroke: var(--warning); }
+.rice-bubble.lv2 { fill: var(--muted); stroke: var(--muted); }
+.rice-bubble.lvx { fill: var(--card); stroke: var(--danger); stroke-dasharray: 4 3; fill-opacity: .5; }
+.rice-pt:hover .rice-bubble, .rice-pt.on .rice-bubble { fill-opacity: .32; stroke-width: 2.2; }
+.rice-bubble-n { font-size: 11px; font-weight: 700; pointer-events: none; }
+.rice-bubble-n.lv0 { fill: var(--accent); }
+.rice-bubble-n.lv1 { fill: var(--warning); }
+.rice-bubble-n.lv2 { fill: var(--muted); }
+.rice-bubble-n.lvx { fill: var(--danger); }
+
+/* 悬停/点击明细 */
+.rice-detail {
+  margin-top: 8px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--tint-3); padding: 10px 12px; font-size: 12px;
+}
+.rice-detail-empty { color: var(--muted); font-size: 11.5px; }
+.rice-detail-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rice-detail-rank { font-size: 10.5px; font-weight: 700; color: var(--card); background: var(--ink); padding: 1px 6px; border-radius: 5px; }
+.rice-detail-rank.lv0 { background: var(--accent); }
+.rice-detail-title { font-weight: 700; }
+.rice-detail-score { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; }
+.rice-detail-score span:first-child { font-size: 10.5px; color: var(--muted); letter-spacing: .04em; }
+.rice-detail-score b { font-size: 19px; font-weight: 700; }
+.rice-detail-formula { margin-left: auto; font-size: 11px; color: var(--muted); }
+.rice-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
+.rice-detail-grid b { color: var(--ink); font-weight: 600; }
+.rice-detail-note { margin-top: 6px; color: var(--ink); font-size: 12px; line-height: 1.6; }
+.rice-detail-hint { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.rice-mx-note { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); line-height: 1.8; }
+.rice-mx-note b { color: var(--ink); font-weight: 600; }
+
+/* ── 表格 ─────────────────────────────────────────────── */
+.rice-tablewrap { overflow: auto; }
+.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1040px; }
+.rice-table th { text-align: left; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 0 8px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rice-table td { padding: 8px; border-bottom: 1px solid var(--line-2); text-align: left; vertical-align: middle; }
+.rice-table tbody tr { transition: background .14s; }
+.rice-table tbody tr:hover { background: var(--tint-2); }
+.rice-table tbody tr.on { background: var(--tint); }
+.rice-table tbody tr.lv0 { background: var(--tint-2); }
+.rice-table tbody tr.lv0:hover { background: var(--tint); }
+.rice-th-rank { width: 34px; }
+.rice-th-score { text-align: right; }
+.rice-rank { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; width: 34px; }
+.rice-table tbody tr.lv0 .rice-rank { color: var(--accent); }
+.rice-name { min-width: 200px; }
+.rice-title { font-weight: 600; font-size: 12.5px; line-height: 1.4; }
+.rice-title-note { font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.45; }
+.rice-eid, .rice-origin { font-size: 10.5px; color: var(--muted); }
+.rice-num { width: 56px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); }
+.rice-sel { padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 100px; }
+.rice-score-cell { text-align: right; white-space: nowrap; }
+.rice-score { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.rice-bar { flex: 0 0 64px; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.rice-bar i { display: block; height: 100%; border-radius: 3px; background: var(--muted); }
+.rice-table tbody tr.lv0 .rice-bar i { background: var(--accent); }
+.rice-table tbody tr.lv1 .rice-bar i { background: var(--warning); }
+.rice-table tbody tr.lvx .rice-bar i { background: var(--danger); }
+.rice-score-v { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+.rice-badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; letter-spacing: .03em; white-space: nowrap; }
+.rice-badge.lv0 { background: var(--accent); color: var(--card); }
+.rice-badge.lv1 { background: var(--tint); color: var(--ink); }
+.rice-badge.lv2 { background: var(--tint-3); color: var(--muted); border: 1px solid var(--border); }
+.rice-badge.lvx { background: var(--card); color: var(--danger); border: 1px dashed var(--danger); }
 .rice-verdict { white-space: nowrap; }
 .rice-vd { font-weight: 600; margin-right: 6px; }
 .rice-vd.cut { color: var(--danger); }
-.rice-did { font-size: 11px; color: var(--muted); }
+.rice-did { font-size: 10.5px; color: var(--muted); }
 .rice-vbtn { padding: 2px 8px; font-size: 11px; margin-right: 4px; }
 .rice-vbtn.cut { color: var(--danger); }
-.rice-none { color: var(--muted); text-align: center !important; padding: 14px !important; }
-.rice-limits { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--line-2); border-radius: 10px; background: var(--tint-3); }
-.rice-limits-h { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-.rice-limit { font-size: 11px; color: var(--muted); line-height: 1.6; }
+.rice-none { color: var(--muted); text-align: center !important; padding: 16px !important; }
+.rice-tbl-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-2); display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+
+/* ── 为什么做，为什么砍 ───────────────────────────────── */
+.rice-why { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); display: grid; grid-template-columns: 210px 1fr; gap: 24px; padding: 20px 22px; }
+.rice-why-sig { border-right: 1px solid var(--line-2); padding-right: 20px; display: flex; flex-direction: column; }
+.rice-why-role { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--accent); }
+.rice-why-nm { font-size: 16px; font-weight: 700; margin-top: 4px; }
+.rice-why-mt { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.75; }
+.rice-why-stats { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.rice-why-stat { display: flex; justify-content: space-between; align-items: baseline; font-size: 11.5px; color: var(--muted); }
+.rice-why-stat b { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rice-why-stat b.over { color: var(--warning); }
+.rice-why-sig-note { margin-top: auto; padding-top: 14px; font-size: 10.5px; color: var(--muted); line-height: 1.75; }
+.rice-why-body { min-width: 0; }
+.rice-why-h { font-size: 14px; font-weight: 700; }
+.rice-why-sub { margin-left: 8px; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.rice-why-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+.rice-why-t { font-size: 12px; font-weight: 600; color: var(--success); margin-bottom: 6px; }
+.rice-why-t.cut { color: var(--danger); }
+.rice-why-row { padding: 7px 0; border-top: 1px dashed var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.rice-why-row b { font-weight: 600; }
+.rice-why-reason { color: var(--muted); line-height: 1.6; }
+.rice-why-reason.missing { color: var(--warning); }
+.rice-why-ev { color: var(--muted); font-size: 11px; }
+.rice-why-none, .rice-why-empty { font-size: 11.5px; color: var(--muted); }
+.rice-why-empty { margin-top: 10px; }
+.rice-why-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); }
+.rice-verdicts { margin-top: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.rice-vd-block { border-left: 3px solid var(--line-2); padding-left: 9px; }
+.rice-vd-block.lv0 { border-color: var(--accent); }
+.rice-vd-block.lv1 { border-color: var(--warning); }
+.rice-vd-block.lvx { border-color: var(--danger); }
+.rice-vd-label { font-size: 11px; color: var(--muted); }
+.rice-vd-v { font-size: 12.5px; font-weight: 700; margin-top: 1px; }
+.rice-vd-d { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+
+/* ── 局限 / 页脚 ──────────────────────────────────────── */
+.rice-limits { margin-top: 22px; padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: 12px; background: var(--tint-3); }
+.rice-limits-h { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+.rice-limit { font-size: 11px; color: var(--muted); line-height: 1.65; }
+.rice-foot { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.rice-formula { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 3px 9px; }
+
+.rice-err { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); background: var(--card); }
+.rice-empty { margin-top: 18px; padding: 18px; border: 1px dashed var(--line-2); border-radius: var(--radius); background: var(--tint-3); }
+.rice-empty-sub { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .rice-kpis { grid-template-columns: repeat(2, 1fr); }
+  .rice-why { grid-template-columns: 1fr; }
+  .rice-why-sig { border-right: none; border-bottom: 1px solid var(--line-2); padding-right: 0; padding-bottom: 14px; }
+  .rice-verdicts { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
