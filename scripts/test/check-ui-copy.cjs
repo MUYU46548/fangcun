@@ -77,6 +77,7 @@ function rel(p) { return path.relative(REPO, p).replace(/\\/g, '/') }
 function scanUiStrings(file) {
   const bold = []   // 含 ** 的
   const tick = []   // 单/双引号串里含反引号的
+  const personal = [] // 含开发者个人名（方寸是公开发布的产品，界面只该说「用户」）
   const lines = fs.readFileSync(file, 'utf-8').split('\n')
   lines.forEach((line, i) => {
     if (!UI_LINE_RE.test(line)) return
@@ -94,9 +95,12 @@ function scanUiStrings(file) {
       if (body.includes('${')) continue
       if (body.includes('**')) bold.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
       if (quote !== '`' && body.includes('`')) tick.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
+      // 2026-10-30（暮雨第 2 条）：「方寸从来都是公开发布的」—— 界面文案不许出现开发者个人名。
+      // 只在**界面文案行**里查；源码注释里保留出处没问题。
+      if (body.includes('暮雨')) personal.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
     }
   })
-  return { bold, tick }
+  return { bold, tick, personal }
 }
 
 function main() {
@@ -109,6 +113,7 @@ function main() {
   const appVue = path.join(SRC, 'renderer', 'App.vue')
   let tplHits = []
   let tplLen = 0
+  let tpl = ''
   if (fs.existsSync(appVue)) {
     const raw = fs.readFileSync(appVue, 'utf-8')
     const s = raw.indexOf('<template>')
@@ -118,7 +123,7 @@ function main() {
     const e = raw.lastIndexOf('\n</template>')
     if (s >= 0 && e > s) {
       const lineOffset = raw.slice(0, s).split('\n').length - 1
-      const tpl = stripHtmlComments(raw.slice(s, e))
+      tpl = stripHtmlComments(raw.slice(s, e))
       tplLen = tpl.length
       tpl.split('\n').forEach((line, i) => {
         if (/\*\*/.test(line)) tplHits.push(`App.vue:${lineOffset + i + 1}  「${line.trim().slice(0, 100)}」`)
@@ -130,19 +135,26 @@ function main() {
     tplLen > 20000, 'len=' + tplLen)
   check('★ App.vue 模板区没有 Markdown 粗体标记（Vue 不解析 Markdown —— 用户会看到字面星号）',
     tplHits.length === 0, tplHits.join(' | '))
+  check('★★ App.vue 模板区不许出现开发者个人名「暮雨」（公开发布的产品只说「用户」）',
+    tplLen > 0 && !tpl.includes('暮雨'),
+    (tpl.includes('暮雨') ? '模板里仍有「暮雨」' : ''))
 
   // ── B/C. 界面文案行里的字符串 ────────────────────────────────────────
   const boldHits = []
   const tickHits = []
+  const personalHits = []
   for (const f of files) {
     const r = scanUiStrings(f)
     boldHits.push(...r.bold)
     tickHits.push(...r.tick)
+    personalHits.push(...r.personal)
   }
   check('★ 界面文案（howTo / toast / 提示语）里没有 Markdown 粗体标记 `**`',
     boldHits.length === 0, boldHits.slice(0, 6).join(' | '))
   check('★ 界面文案的单引号字符串里没有反引号（Markdown 行内代码）',
     tickHits.length === 0, tickHits.slice(0, 6).join(' | '))
+  check('★★ 界面文案里不许出现开发者个人名「暮雨」（改用「用户」）',
+    personalHits.length === 0, personalHits.slice(0, 6).join(' | '))
 
   // ── 反例自证：剥注释逻辑本身是有效的（注释里的 ** 不该被算进来）──────
   const probe = stripHtmlComments('<!-- **这是注释** -->\n<b>**这是文案**</b>')

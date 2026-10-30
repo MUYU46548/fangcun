@@ -2226,7 +2226,7 @@
         <label>当前目标（本阶段要达成什么 + 完成判据）</label>
         <textarea v-model="policyEdit_.goal" placeholder="例：稳定可用、承接真实业务数据"></textarea>
         <label>应用场景（给谁用、在哪用）</label>
-        <textarea v-model="policyEdit_.scenario" placeholder="例：暮雨个人，桌面日常使用"></textarea>
+        <textarea v-model="policyEdit_.scenario" placeholder="例：个人，桌面日常使用"></textarea>
         <label>方针边界（怎么干、不干什么）</label>
         <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
         <!-- 029：结构地图此前**只存在于文件里**，界面上完全看不到 —— 用户验收驳回原话

@@ -465,7 +465,7 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
   { key: 'status', label: '状态', type: 'select', span: 'half', options: STATUSES },
   { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES },
-  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 暮雨' },
+  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 用户' },
   // 2026-09-22（用户第 6 条）：日历要能"指派时间或时间段"。
   // 单日截止用 deadline；开始+截止构成时间段，日历上画成跨天横条。
   { key: 'start', label: '开始', type: 'text', span: 'half', placeholder: 'YYYY-MM-DD（可选）' },
