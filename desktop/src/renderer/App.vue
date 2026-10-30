@@ -2914,98 +2914,7 @@
           </button>
         </nav>
         <div class="settings-body">
-        <div class="sect" v-show="settingsTab === 'general'">
-          <h4>版本与更新</h4>
-          <div class="ver-row">
-            <span class="ver-num">v{{ appVersion }}</span>
-            <span v-if="updateState.checked" class="hint">{{ updateState.msg }}</span>
-          </div>
-          <div class="sect-btns">
-            <button class="ghost" :disabled="updateState.busy" @click="checkUpdate">
-              {{ updateState.busy ? '检查中…' : '检查更新' }}
-            </button>
-            <button v-if="updateState.available" class="pri" :disabled="updateState.busy" @click="downloadUpdate">
-              下载 v{{ updateState.version }}
-            </button>
-            <button v-if="updateState.downloaded" class="pri" @click="installUpdate">
-              退出并安装
-            </button>
-          </div>
-          <div class="hint">更新包托管在 GitHub Releases，检查与下载需联网。</div>
-          <!-- 2026-09-25（用户第 1/3/9 条）：界面卡顿/点不动的人工验证杠杆。
-               去完全部实时模糊层后若仍复发，那就是合成器/核显驱动层的问题
-               —— 关掉硬件加速重启即可验证（必须重启才生效）。 -->
-          <label class="chk gpu-chk" title="关掉 Chromium 的 GPU 合成。若「点输入框要切窗口才恢复」仍复发，勾上它重启再试。">
-            <input type="checkbox" v-model="disableGpu" @change="onDisableGpuChange" />
-            禁用硬件加速（界面若出现卡顿/点不动的兜底，需重启生效）
-          </label>
-        </div>
-        <!-- 2026-09-29 用户第 4 条：多主题外观（参考绒花墨坊的色板与摆法） -->
-        <div class="sect" v-show="settingsTab === 'general'">
-          <h4>外观主题</h4>
-          <div class="hint">只换配色，不改布局；六套全部过可读性检查（正文 / 次要文字 / 按钮白字对比度 ≥ WCAG AA）。</div>
-          <div class="theme-swatches">
-            <button v-for="t in THEME_LIST" :key="t.id" class="theme-swatch"
-              :class="{ on: theme === t.id }" :title="'切换到主题：' + t.name" @click="setTheme(t.id)">
-              <span class="sw-dot" :style="{ background: t.dot }"></span>
-              <span class="sw-name">{{ t.name }}</span>
-              <span v-if="theme === t.id" class="sw-check">✓</span>
-            </button>
-          </div>
-        </div>
-        <!-- 2026-10-30 卡 004：全局外观（阴影 / 扁平）——
-             与上面的主题**互相独立**：换主题不改影子，换外观不改配色。
-             默认扁平；选阴影后卡片 / 按钮 / 弹层按三档高度浮起来，即时生效、落 prefs.json。 -->
-        <div class="sect" v-show="settingsTab === 'general'">
-          <h4>外观形态</h4>
-          <div class="hint">只换「有没有影子」，不改配色与布局；与上面的主题互不影响，随时可切回来。</div>
-          <div class="appearance-row">
-            <button v-for="a in APPEARANCE_LIST" :key="a.id" class="appearance-btn"
-              :class="[{ on: appearance === a.id }, 'ap-' + a.id]"
-              :title="a.hint" @click="setAppearance(a.id)">
-              <span class="ap-preview"><span class="ap-card"></span></span>
-              <span class="ap-name">{{ a.name }}</span>
-              <span class="ap-hint">{{ a.id === 'flat' ? '零阴影' : '三档高度' }}</span>
-            </button>
-          </div>
-        </div>
-        <!-- 念头长度上限（2026-10-25 暮雨：「MAX_TEXT = 4000 太小了，或者弄个用户可以
-             自己设置的设置项……但是设个硬上限 20000」）。
-             ⚠ 三个数与主进程 `services/ideas.ts` 的 IDEA_TEXT_* 必须一致 ——
-               主进程是真守门人（prefs.json 可手改，它会再夹一次），这里是给人看的量程。 -->
-        <div class="sect" v-show="settingsTab === 'general'">
-          <h4>念头长度上限</h4>
-          <div class="hint">
-            「想法池」里单条念头最多能写多少<b>字符</b>（含标点与换行）。超了会明确报错，不会静默截断。
-            默认 {{ IDEA_TEXT_DEFAULT }}，最大 {{ IDEA_TEXT_HARD_MAX }}。
-          </div>
-          <div class="slider-row">
-            <input type="range" class="slider font-[inherit]"
-              :min="IDEA_TEXT_MIN" :max="IDEA_TEXT_HARD_MAX" step="1000"
-              v-model.number="ideaMaxChars" @change="onIdeaMaxChange"
-              :aria-label="'念头长度上限（字）'" />
-            <span class="slider-val">{{ ideaMaxChars.toLocaleString() }} 字</span>
-          </div>
-          <div class="hint">改完立刻生效（落进 prefs.json，重启也在）；滑块到头也不会超过 {{ IDEA_TEXT_HARD_MAX }}。</div>
-        </div>
-        <div class="sect" v-show="settingsTab === 'general'">
-          <h4>顶栏页签</h4>
-          <div class="hint">
-            勾上 = 顶栏直接显示；取消 = 收进顶栏的「更多 ▾」。
-            <b>至少留 {{ VIEWS_MIN_VISIBLE }} 个在外面</b> —— 否则工具会被藏没。
-          </div>
-          <div class="views-pick">
-            <label v-for="v in views" :key="'vp-' + v.id" class="views-pick-item"
-              :class="{ off: collapsedViews.includes(v.id) }">
-              <input type="checkbox" :checked="!collapsedViews.includes(v.id)"
-                @change="onViewVisibleChange(v.id, $event)" />
-              <span>{{ v.label }}</span>
-            </label>
-          </div>
-          <div class="sect-btns">
-            <button class="ghost" @click="resetCollapsedViews">恢复默认（收 启动台 / 技能 / 服务）</button>
-          </div>
-        </div>
+        <GeneralSettings :active="settingsTab === 'general'" />
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>数据目录</h4>
           <div class="hint">{{ dataDir }}</div>
@@ -3019,85 +2928,7 @@
              边界干净；破坏性动作（删附件）仍只在主进程一条通道里，组件只负责确认与刷新。 -->
         <DataHygienePanel v-show="settingsTab === 'data'" :toast="showToast"
           @goto-never-read="gotoNeverRead" @goto-rework="gotoRework" />
-        <div class="sect" v-show="settingsTab === 'diag'">
-          <h4>⚖ 免责与知情声明</h4>
-          <div class="hint">方寸怎么用、你的数据在哪、AI 功能会不会花钱、备份能不能指望 —— 都在这份里说清楚。首次使用前的强制确认也是它；改过条款后下次启动会再弹一次。</div>
-          <div class="sect-btns">
-            <button class="ghost" @click="openDisclaimer('view')">查看完整声明</button>
-          </div>
-        </div>
-        <div class="sect" v-show="settingsTab === 'diag'">
-          <h4>诊断日志</h4>
-          <div class="hint logpath">{{ appLogFile || '（未取到日志路径）' }}</div>
-          <div class="sect-btns">
-            <button class="ghost" @click="openAppLogDir">打开日志目录</button>
-            <button class="ghost" @click="copyAppLogPath">复制路径</button>
-            <button class="ghost" @click="showAppLogFromSettings">查看最近 200 行</button>
-            <button class="ghost" title="删掉 7 天前的日志文件（不动今天的）" @click="purgeLogs(7)">清理 7 天前</button>
-            <button class="ghost" title="清空全部日志（当天那份也会被清空，之后照常记录）" @click="purgeLogs(0)">清空全部</button>
-          </div>
-          <!-- 2026-10-17 暮雨第 5 条：原文案写着「报问题时把最后几十行发我即可」——
-               「发我」是谁？用户看不懂代码、也不该被要求发日志。改成人话：你不用读、也不用发。 -->
-          <div class="hint">
-            这里记录方寸自己的运行痕迹（崩溃、IPC 失败、渲染层异常、启动失败）。
-            <b>你不用读它，也不用发给任何人</b> —— 它只在真的出问题时用来倒查。
-            按天分文件，只会越来越大，所以给了上面两个清理按钮。
-          </div>
-        </div>
-
-        <!-- 数据自检 + 技能副本检查（2026-10-11，卡 20261006-002 E 组死通道接回）：
-             `selfCheck` / `skillsCheck` 两条通道在主进程里一直存在，界面从没有入口。
-             它们是最该有入口的一类 —— 数据目录写不了、registry 坏了、技能副本被改坏，
-             都只有主动查一次才知道。 -->
-        <div class="sect" v-show="settingsTab === 'diag'">
-          <h4>数据自检</h4>
-          <div class="hint">查 task-data 在不在、registry.yaml 能不能解析、任务能不能读出来。动手前先跑一次，比出事后猜省事。</div>
-          <div class="sect-btns">
-            <button class="ghost" :disabled="diagBusy" @click="runSelfCheck">运行自检</button>
-          </div>
-          <div v-if="diagSelf" class="diag-result" :class="diagSelf.ok ? 'ok' : 'bad'">
-            {{ diagSelf.ok ? '✅ 一切正常' : '❌ ' + diagSelf.message }}
-          </div>
-        </div>
-
-        <div class="sect" v-show="settingsTab === 'diag'">
-          <h4>技能副本检查</h4>
-          <div class="hint">逐个比对「方寸自带的技能」与「已经装到各 agent 目录里的副本」—— 副本被改坏或落后时会在这里报出来。</div>
-          <div class="sect-btns">
-            <button class="ghost" :disabled="diagBusy" @click="checkSkillsCopies">检查技能副本</button>
-          </div>
-          <div v-if="diagSkills" class="diag-skills">
-            <div class="diag-skills-head">
-              <b>{{ diagSkills.targetName || diagSkills.targetId || '（未检测到目标）' }}</b>
-              <span :class="'diag-tag ' + (diagSkills.needsInstall ? 'bad' : 'ok')">
-                {{ diagSkills.needsInstall ? '有副本需要更新' : '全部一致' }}</span>
-            </div>
-            <div v-for="s in diagSkills.skills" :key="s.name" class="diag-skill-row">
-              <span class="diag-skill-name">{{ s.name }}</span>
-              <span class="diag-tag" :class="!s.installed ? 'bad' : (s.outdated ? 'warn' : 'ok')">
-                {{ !s.installed ? '未安装' : (s.outdated ? '副本已过时/被改' : '一致') }}</span>
-            </div>
-            <div v-if="!diagSkills.skills || !diagSkills.skills.length" class="hint">没有查到可检查的技能（可能本机没有 Hermes/DSH 目录）。</div>
-          </div>
-        </div>
-
-        <div class="sect" v-show="settingsTab === 'diag'">
-          <h4>最近活动</h4>
-          <div class="hint">谁在什么时候改了什么（<code>task-data/.activity.log</code>）。排查「这张卡怎么突然变了」时先看这里。</div>
-          <div class="sect-btns">
-            <button class="ghost" @click="loadDiagActivity">刷新活动日志</button>
-          </div>
-          <div class="diag-act">
-            <div v-for="(a, i) in diagActivity" :key="i" class="diag-act-row">
-              <span class="diag-act-ts">{{ a.ts ? relativeTime(a.ts) : '—' }}</span>
-              <span class="diag-act-action">{{ a.action }}</span>
-              <span class="diag-act-tid">{{ a.tid || '—' }}</span>
-              <span class="diag-act-detail" :title="String(a.detail || '')">{{ a.detail || '' }}</span>
-            </div>
-            <div v-if="!diagActivity.length" class="hint">（暂时没有活动记录）</div>
-          </div>
-        </div>
-        <!-- 2026-09-29 用户第 6 条：设置里要能自定义「已完成日志的自动清理」 -->
+        <DiagSettings :active="settingsTab === 'diag'" />
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>日志清理</h4>
           <div class="hint">已完成日志默认保留这么多天，到期后点日志页的「清理超期」标为「已归档」（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
@@ -3448,7 +3279,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provide } from 'vue'
 // parseCalDate 必须留着：openCalAssignTodo（在 App.vue，它开的是本文件的弹窗）用它把待办 due 转成日期。
 // ⚠ 2026-10-23 抽 composable 时把它一起删了 → 只在「点待办上的 📅」这条路径炸 ReferenceError，
 //   无头断言（当时没点过那个按钮）全绿、真 Electron 真点击当场红 2 条。两层都要跑的原因就是这个。
@@ -3471,6 +3302,8 @@ import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import { useNotifications } from './composables/useNotifications'
 import BackupSettings from './components/settings/BackupSettings.vue'
+import GeneralSettings from './components/settings/GeneralSettings.vue'
+import DiagSettings from './components/settings/DiagSettings.vue'
 import { useBackup } from './composables/useBackup'
 import ArchDiagram from './components/ArchDiagram.vue'
 import DataHygienePanel from './components/DataHygienePanel.vue'
@@ -11105,6 +10938,17 @@ async function onNotifyFocus(p: any): Promise<void> {
   if (t) openCard(t)
   else showToast('这条通知指向的对象已经不在了：' + id, 'info')
 }
+
+// 设置页各页签通过 provide 共享同一组 ref（拆分第七刀）——不传几十个 props，也不会出现第二份状态。
+provide('fc-settings', {
+  appVersion, updateState, checkUpdate, downloadUpdate, installUpdate,
+  disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme,
+  APPEARANCE_LIST, appearance, setAppearance,
+  IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange,
+  views, collapsedViews, VIEWS_MIN_VISIBLE, onViewVisibleChange, resetCollapsedViews,
+  appLogFile, openAppLogDir, copyAppLogPath, showAppLogFromSettings, purgeLogs, openDisclaimer,
+  diagSelf, diagSkills, diagActivity, diagBusy, runSelfCheck, checkSkillsCopies, loadDiagActivity, relativeTime,
+})
 
 onMounted(() => {
   // 点通知回到具体对象（2026-10-29 dsh-notify 借鉴 #2）；preload 没这个通道时静默跳过，不留僵尸监听
