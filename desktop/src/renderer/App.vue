@@ -839,6 +839,16 @@
                 <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
               </span>
             </div>
+            <!-- 2026-10-30（暮雨第 3 条）：「待验收」的卡在列表里**没有任何可点的出口**，
+                 只能先点开详情、再滚到底部才能裁决 —— 看起来就是个动不了的尴尬状态。
+                 把两个出口直接放到卡上：通过 / 驳回都进同一个裁决框（要留痕），
+                 区别只是打开后焦点落在哪 —— 不再需要先猜"点哪里"。 -->
+            <div v-if="t.status === '待验收'" class="card-verdict" @click.stop @mousedown.stop>
+              <button class="ok" title="通过验收（可填验收结论，会写进结果记录）"
+                @click.stop="openReview(t, 'accept')">✅ 通过</button>
+              <button class="danger" title="驳回（必须填理由，会写进结果记录）"
+                @click.stop="openReview(t, 'reject')">↩ 驳回</button>
+            </div>
           </div>
         </TaskCardMenu>
         <div v-if="!col.tasks.length" v-show="!groupCollapsed(col.key)" class="emptyhint">拖拽卡片到此处</div>
@@ -929,10 +939,13 @@
                : policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
                : '＋ 立项目方针' }}
           </button>
-          <!-- 项目结构图（2026-10-29 暮雨第 2 条）：方寸自己的内核 —— 项目 → 在途 → 已完成 → 日志。
-               入口放在卡上（同方针按钮），不塞进设置页：项目级的东西要在项目那一屏一眼看见。 -->
+          <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 2 条再改）：
+               以前挂世界地图 Emoji + 「结构图」，画出来却是"项目 → 在途 → 已完成 → 日志"的大号看板 ——
+               那不是架构图，用户当场否掉。现在只做**打开仓库里已有的 archify 产物**，
+               名字也叫「架构图」，不再用地图 Emoji 冒充结构图。
+               方寸自己生成架构图是目标，还没做（卡 task-20261030-002）。 -->
           <button class="ghost pv-policy pv-diagram" @click.stop="openProjectDiagram(p)"
-                  title="打开这个项目的 archify 架构图（HTML）；没有就先让 archify 生成一份放进该仓库 docs/">🗺 结构图</button>
+                  title="打开这个项目的架构图（仓库 docs/ 里 archify 生成的 HTML）；没有就先让 archify 生成一份放进去">架构图</button>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -2521,6 +2534,10 @@
             :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
           <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
         </select>
+        <!-- 2026-10-30（暮雨第 6 条）：以前只能"先创建、再点编辑、再贴会话 ID"——
+             一个字段强制点两次。会话 ID 是创建时就知道的，必须在这张表里一次填完。 -->
+        <label>本次会话 ID（粘贴这次 agent 会话的 ID，可留空）</label>
+        <input v-model="relay_.sessionId" placeholder="例如 019a… / hermes-… —— 建好后卡面上直接可查，不用再编辑一次" />
         <div class="hint">上次的执行 Agent：<b>{{ relay_.prevAgentName || '（源日志没记）' }}</b>（从源日志继承）· 本次：<b>{{ relay_.agentName || '（不指定）' }}</b>（默认沿用源）；会话 ID 与日期按新日志重新记</div>
         <div class="relay-opts">
           <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
@@ -4671,7 +4688,7 @@ function tripContractMissing(r: any): { text: string; title: string } {
   const sections: { name: string; field: string | null }[] = c.sections || []
   if (unmatched.length) {
     return {
-      text: '小节名跟标准六节对不上',
+      text: '小节名不在标准六节里',
       title: '文件里的小节是：' + sections.map(s => s.name).join(' / ')
         + '\n\n方寸只认名字里含标准字段名（或别名）的小节：\n'
         + '终态形态 · 验收线 · 不要什么 · 选型定死 · 现状底数 · 下一队列\n\n'
@@ -4829,8 +4846,9 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'trip', label: '◉ 在途一屏', hint: '一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度；缺值写「未填」，不编内容' },
     // 2026-10-25 暮雨：「放进项目页签里面就好。这玩意纯属小玩具」+「我丢的参考图里的梯度榜」
     { v: 'tier', label: '▥ 梯度榜', hint: '手动把项目拖进不同档位（核心/次优先/排队/搁置…）；只给自己看，不改看板与一屏' },
-    // 2026-10-27 REV-008 一期 R4：让「对不上」可见（状态过期 / 引用断裂 / 完成但没判据）
-    { v: 'mismatch', label: '⚠ 对不上', hint: 'registry 状态与实际进度对不上、卡里写的路径已不存在、完成却没有验收判据；只报告，不阻挡' },
+    // 2026-10-27 REV-008 一期 R4：让状态不一致的地方可见（2026-10-30 暮雨第 1 条改名：
+    // 「对不上」不是人话，统一叫「状态提醒」）
+    { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
     { v: 'rice', label: '▦ 需求矩阵', hint: '按 RICE 打分排需求：横轴成本、纵轴得分、气泡大小=使用频次；手改分项即时重排，拍板导出到决策卡（零网络）' },
   ]
@@ -5790,7 +5808,7 @@ function toggleGroupSelect(col: { tasks: Array<{ id: string }> }): void {
 
 
 // ── Review ─────────────────────────────────────────────────────────
-const reviewModal = ref<{ id: string; title: string; kind: 'approval' | 'acceptance' } | null>(null)
+const reviewModal = ref<{ id: string; title: string; kind: 'approval' | 'acceptance'; intent?: 'accept' | 'reject' } | null>(null)
 const launchpadApps = ref<any[]>([])
 // 待办：数据 / 筛选 / 排序 / 多选 / 编辑弹窗在 composables/useTodos.ts（2026-10-23 · 拆分第 9 块）。
 // 模板在 views/TodosView.vue（第 10 块）。
@@ -9164,6 +9182,12 @@ function logStatusClass(log: any): string {
  * 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。
  * 这是「进行中」的唯一入口：创建不会再自动打上，完成/归档也只会把它关掉。
  * 可撤销 —— 关掉即回到「待处理」，不会误伤任何东西。
+ *
+ * ⚠ 2026-10-30（暮雨第 5 条，重大 bug）：这里**必须 offerUndo**。
+ * 真实现场：用户误点「标为进行中」→ 按 Ctrl+Z（或点顶部撤销条）→ 撤掉的不是这次，
+ * 而是 60 秒前那条「已完成 → 待处理」的旧动作 → 进行中没撤销、另一个已完成反而被退回待处理。
+ * 根因是撤销条只记**上一笔可撤动作**，而这个入口当时**没有登记自己**，旧条子就一直挂着。
+ * 纪律：任何改状态的动作要么 offerUndo 顶掉旧条，要么 dismissUndo 清掉 —— 不许留着旧条装没事。
  */
 async function toggleLogRunning(log: any): Promise<void> {
   const next = !log.running
@@ -9171,6 +9195,16 @@ async function toggleLogRunning(log: any): Promise<void> {
   if (r && r.ok) {
     showToast(next ? '已标为「进行中」' : '已撤销「进行中」，回到待处理', 'success')
     await loadLogs()
+    // 撤销 = 再点一次同一个开关（唯一写入路径），并把列表刷回真值。
+    offerUndo(
+      `${next ? '已标为「进行中」' : '已撤销「进行中」'}：${log.title || log.id}`,
+      async () => {
+        const back: any = await window.tegula.logsSetRunning(log.id, !next)
+        if (!back?.ok) throw new Error(back?.error || '未知原因')
+        await loadLogs()
+        showToast(next ? '已撤销「进行中」，回到待处理' : '已标为「进行中」', 'success')
+      },
+    )
   } else {
     showToast(`操作失败：${(r && r.error) || '未知原因'}`, 'error')
   }
@@ -9869,6 +9903,9 @@ function openRelay(src: any): void {
     prevAgentName: src.agentName || src.prevAgentName || '',
     // 本次执行 Agent：默认沿用源（同一 agent 继续跑），可改
     agentName: src.agentName || '',
+    // 2026-10-30（暮雨第 6 条）：会话 ID 创建时就能填，不再"建完再点编辑"。
+    // **不继承源** —— 源里那个 ID 属于上一段会话，继承过来就是假账。
+    sessionId: '',
     // 卡 001：优先级随接力继承（下一段跟上一段一样要紧；不想要就在新日志里改）
     priority: src.priority || '',
     archiveSource: true,
@@ -9885,6 +9922,7 @@ function openRelay(src: any): void {
     content: String(r.content || '').trim(),
     agentName: String(r.agentName || '').trim(),
     prevAgentName: String(r.prevAgentName || '').trim(),
+    sessionId: String(r.sessionId || '').trim(),
     taskIds: [...(r.taskIds || [])].sort().join(','),
     archiveSource: !!r.archiveSource,
     completeSourceTasks: !!r.completeSourceTasks,
@@ -9929,6 +9967,7 @@ function relayChanges(r: any): string[] {
   if (t(r.nextSteps) !== ini.nextSteps) ch.push('下一步')
   if (t(r.prevAgentName) !== ini.prevAgentName) ch.push('上次执行 Agent')
   if (t(r.agentName) !== ini.agentName) ch.push('本次执行 Agent')
+  if (t(r.sessionId) !== ini.sessionId) ch.push('会话 ID')
   if ([...(r.taskIds || [])].sort().join(',') !== ini.taskIds) ch.push('关联任务')
   if (!!r.archiveSource !== ini.archiveSource) ch.push('源归档开关')
   if (!!r.completeSourceTasks !== ini.completeSourceTasks) ch.push('源任务置完成开关')
@@ -9998,6 +10037,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
       taskIds: [...(r.taskIds || [])],
       agentName: r.agentName || '',
       prevAgentName: r.prevAgentName || '',
+      sessionId: r.sessionId || '',
       nextSteps: r.nextSteps || '',
       continueFrom: src.id,
       logDate: '',
@@ -10410,6 +10450,9 @@ function archiveLogItem(id: string) {
 async function reopenLogItem(id: string) {
   const r: any = await window.tegula.logsReopen(id)
   if (r && r.ok) {
+    // 这一步本身就是"撤"：先把上一条可撤动作清掉，别让用户再按 Ctrl+Z 时撤到更早的对象
+    // （2026-10-30 暮雨第 5 条：撤销条串对象，根因就是旧动作一直挂着）。
+    dismissUndo()
     showToast('已撤销，回到「待处理」', 'success')
     await loadLogs()
     // 任务详情的「关联日志」列表是另一份数据源，两边都要刷（2026-10-21）
@@ -10621,24 +10664,23 @@ async function copyLogAsPrompt(id: string): Promise<void> {
 }
 
 /**
- * 打开项目结构图（2026-10-29 暮雨第 2 条）。
+ * 打开项目架构图（2026-10-29 暮雨第 2 条；2026-10-30 改名）。
  *
- * 数据真身在主进程（services/projectDiagram → shared/projectDiagram 纯函数），这里只负责画。
- * 失败必须说出来：registry 里没这个项目 / 读不出来 —— 不许给一张空图糊弄过去。
+ * 数据真身在主进程（services/projectDiagram → 找仓库 docs/ 里的 archify 产物），这里只负责打开。
+ * 失败必须说出来：没登记仓库 / 目录里没有产物 —— 不许给一张空图糊弄过去。
+ * ⚠ 这不是"用任务数据画一张图"（那是大号看板，已被否）；也不是方寸自绘 —— 自绘是目标，还没做。
  */
 async function openProjectDiagram(p: any): Promise<void> {
   const id = String(p?.id || p?.name || '')
   try {
-    // 2026-10-29 暮雨当场纠正：这不是"用任务数据画一张图"，而是**打开 archify 产出的架构图**。
-    // 找不到就明说怎么生成 —— 方寸没有生成架构图的能力，硬凑一张就是编。
     const r: any = await (window as any).tegula.projectDiagram(id)
     if (!r || r.ok === false) {
-      showToast(String(r?.error || '没找到这个项目的结构图'), 'error')
+      showToast(String(r?.error || '没找到这个项目的架构图'), 'error')
       return
     }
-    showToast('已用浏览器打开结构图：' + String(r.rel || r.path || ''), 'success')
+    showToast('已用浏览器打开架构图：' + String(r.rel || r.path || ''), 'success')
   } catch (e: any) {
-    showToast('打开结构图失败：' + (e?.message || e), 'error')
+    showToast('打开架构图失败：' + (e?.message || e), 'error')
   }
 }
 
@@ -10691,15 +10733,28 @@ async function executeLogCleanup() {
 
 const reviewReason = ref('')
 
-function openReview(t: Task) {
+function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
   // 待审批 = 审批裁决（批准转正待办 / 驳回）；其余（待验收）= 验收裁决（通过 / 驳回）
+  // 2026-10-30（暮雨第 3 条）：卡上直接给「通过 / 驳回」两个入口，靠 intent 决定打开后焦点在哪。
   reviewModal.value = {
     id: t.id,
     title: t.title || t.id,
     kind: t.status === '待审批' ? 'approval' : 'acceptance',
+    intent,
   }
   reviewReason.value = ''
   previewTask.value = null
+  nextTick(() => {
+    const box = document.getElementById('review-modal')
+    if (!box) return
+    if (intent === 'reject') {
+      const ta = box.querySelector('textarea') as HTMLTextAreaElement | null
+      ta?.focus()
+    } else {
+      const ok = box.querySelector('.acts .ok') as HTMLButtonElement | null
+      ok?.focus()
+    }
+  })
 }
 
 async function acceptTask() {
@@ -12766,6 +12821,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card.dragging { opacity: 0.35; transform: scale(0.97); }
 
 .card-head { display: flex; align-items: center; gap: 6px; }
+/* 「待验收」卡上的两个出口（2026-10-30 暮雨第 3 条）：直接可点，不再"先点开详情再滚到底"。
+   用极简小按钮：这一行只在待验收列出现，不抢标题的宽度，也不引入第二套按钮语言。 */
+.card-verdict { display: flex; gap: 6px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
+.card-verdict button {
+  flex: 1; height: 24px; border-radius: 6px; font: inherit; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; background: #fff; border: 1px solid var(--border);
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.card-verdict .ok { color: #3f6b3a; border-color: #bcd4b4; }
+.card-verdict .ok:hover { background: #e3f1de; border-color: #3f6b3a; }
+.card-verdict .danger { color: #8a4343; border-color: #e2c4c4; }
+.card-verdict .danger:hover { background: #f6e2e2; border-color: #8a4343; }
 .card .ttl {
   flex: 1; min-width: 0;
   font-size: 12.5px; font-weight: 500;

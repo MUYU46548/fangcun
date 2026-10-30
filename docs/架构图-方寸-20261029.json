@@ -13,7 +13,7 @@
     { "id": "pipe", "type": "messagebus", "label": "MCP 命名管道", "sublabel": "tegula-mcp", "pos": [680, 60], "size": [170, 64], "tag": "stdio 桥" },
     { "id": "mcptools", "type": "backend", "label": "MCP 工具层", "sublabel": "30 个工具", "pos": [920, 60], "size": [170, 64], "sources": [{ "path": "desktop/src/main/mcp/tools.ts" }] },
 
-    { "id": "user", "type": "external", "label": "暮雨", "sublabel": "桌面窗口 / 托盘", "pos": [40, 300], "size": [150, 64] },
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "桌面窗口 / 托盘", "pos": [40, 300], "size": [150, 64] },
     { "id": "renderer", "type": "frontend", "label": "渲染层", "sublabel": "Vue 3 · 15 个视图", "pos": [250, 300], "size": [170, 64], "sources": [{ "path": "desktop/src/renderer/App.vue" }] },
     { "id": "preload", "type": "security", "label": "preload 桥", "sublabel": "contextBridge", "pos": [480, 300], "size": [170, 64], "tag": "236 个入口", "sources": [{ "path": "desktop/src/preload/index.ts" }] },
     { "id": "ipc", "type": "backend", "label": "主进程 IPC", "sublabel": "guarded-ipc", "pos": [710, 300], "size": [170, 64], "tag": "229 个通道", "sources": [{ "path": "desktop/src/main/ipc.ts" }] },

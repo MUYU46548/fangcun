@@ -1966,6 +1966,36 @@
       check('  按 Esc 能关掉菜单（手搓版只能点全屏遮罩）', !$('.ctx-menu'))
     }
 
+    // 2026-10-30（暮雨第 3 条）：待验收的卡在列表里必须**当场能裁决** ——
+    // 以前只有"点开详情 → 滚到底"这一条路，用户的原话是"点不了验收也点不了驳回"。
+    {
+      const vc = $$(CARD_SEL).find((r) => (r.textContent || '').indexOf('数组项目的任务') >= 0)
+      const vbtns = vc ? Array.prototype.slice.call(vc.querySelectorAll('.card-verdict button')) : []
+      check('★★ 「待验收」卡上直接有「通过 / 驳回」两个出口',
+        vbtns.length === 2
+        && (vbtns[0].textContent || '').indexOf('通过') >= 0
+        && (vbtns[1].textContent || '').indexOf('驳回') >= 0,
+        vbtns.map((b) => (b.textContent || '').trim()).join('|'))
+      if (vbtns.length === 2) {
+        vbtns[0].click()
+        await sleep(300)
+        check('★ 点卡上的「通过」→ 裁决框打开（不用先点开详情）',
+          !!$('#review-modal') && ($('#review-modal').textContent || '').indexOf('验收') >= 0)
+        const cx = $$('#review-modal .acts button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cx) cx.click()
+        await sleep(250)
+        const vbtns2 = vc ? Array.prototype.slice.call(vc.querySelectorAll('.card-verdict button')) : []
+        if (vbtns2[1]) vbtns2[1].click()
+        await sleep(300)
+        check('★ 点卡上的「驳回」→ 同一个裁决框，且焦点落在理由框（驳回必填）',
+          !!$('#review-modal') && document.activeElement === $('#review-modal textarea'),
+          'active=' + (document.activeElement && document.activeElement.tagName))
+        const cx2 = $$('#review-modal .acts button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cx2) cx2.click()
+        await sleep(200)
+      }
+    }
+
     const DISPATCH = await copyFor('演示任务')
     check('  点它真的走主进程剪贴板通道（渲染层不许有裸 navigator.clipboard）',
       DISPATCH.length > 0 && window.__fcTest.calls().some((c) => c.name === 'clipboardWriteText'))
@@ -2735,7 +2765,7 @@
       return $$('#board.pv .trip-table tbody tr')[0] || null
     }
 
-    check('★★ 契约有文件但小节名对不上 → 必须说「小节名跟标准六节对不上」，'
+    check('★★ 契约有文件但小节名对不上 → 必须说「小节名不在标准六节里」，'
       + '**不许**说成「内容未填」（用户 2026-10-11 就是被这句误导的）', await (async () => {
       tripWithContract({
         exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
@@ -2748,7 +2778,7 @@
       const txt = (row.textContent || '').replace(/\s+/g, ' ')
       const minis = Array.prototype.slice.call(row.querySelectorAll('.trip-mini'))
         .map((b) => (b.textContent || '').trim())
-      const ok = txt.indexOf('文件已建 · 小节名跟标准六节对不上') >= 0
+      const ok = txt.indexOf('文件已建 · 小节名不在标准六节里') >= 0
         && txt.indexOf('内容未填') < 0
         && minis.some((t) => t.indexOf('打开契约') >= 0)
         && !minis.some((t) => t.indexOf('建契约文件') >= 0)
@@ -2992,6 +3022,13 @@
         const texts = $$('#relay-modal label').map(l => l.textContent || '')
         return texts.some(t => t.indexOf('上次的执行 Agent') >= 0) && texts.some(t => t.indexOf('本次执行 Agent') >= 0)
       })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 10)).join(' | '))
+    // 2026-10-30（暮雨第 6 条）：会话 ID 必须能在接力对话框里一次填完 ——
+    // 以前要"先创建，再点编辑，再贴 ID"，一个字段强制点两次。
+    check('★★ 接力对话框里能直接填「本次会话 ID」（不用建完再点编辑）',
+      (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('本次会话 ID') >= 0)
+        return !!lab && lab.nextElementSibling && lab.nextElementSibling.tagName === 'INPUT'
+      })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 8)).join(' | '))
     check('★ 上次字段预填源日志的执行 Agent（hermes，可改可补）',
       (() => {
         const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('上次的执行 Agent') >= 0)
@@ -3107,6 +3144,80 @@
     const cancel2 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancel2) cancel2.click()
     await waitFor(() => !$('#relay-modal'), 2000, 'relay 关闭 2')
+
+    // 2026-10-30（暮雨第 6 条）：会话 ID 一次填完 —— 真的建一条，验 IPC 收到 sessionId
+    {
+      const rb4 = $$('.relay-btn')[0]
+      if (rb4) rb4.click()
+      await waitFor(() => !!$('#relay-modal'), 3000, 'relay session modal')
+      const t = $('#relay-modal input[placeholder*="标题"]')
+      if (t) {
+        t.value = '会话ID接力验证'
+        t.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const sessLab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('本次会话 ID') >= 0)
+      const sessIn = sessLab && sessLab.nextElementSibling
+      if (sessIn) {
+        sessIn.value = 'sess-e2e-001'
+        sessIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const createBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
+      const beforeCreate = window.__fcTest.callCount('logsCreate')
+      if (createBtn) createBtn.click()
+      check('★★ 接力创建时把「本次会话 ID」一起送进 logsCreate（不再建完再编辑）',
+        await waitFor(() => window.__fcTest.callCount('logsCreate') > beforeCreate, 4000, 'relay create'),
+        'before=' + beforeCreate + ' after=' + window.__fcTest.callCount('logsCreate'))
+      const created = window.__fcTest.calls().filter(c => c.name === 'logsCreate').pop()
+      check('  传的是刚填的 sess-e2e-001（不是继承源会话）',
+        !!created && !!created.args && !!created.args[4] && created.args[4].sessionId === 'sess-e2e-001',
+        JSON.stringify(created && created.args && created.args[4] && created.args[4].sessionId))
+      await waitFor(() => !$('#relay-modal'), 3000, 'relay session closed')
+    }
+
+    // ══ 2026-10-30 暮雨第 5 条：撤销条串对象（重大 bug）════════════════════
+    // 现场：误点「标为进行中」→ 按 Ctrl+Z / 点顶部撤销 → 进行中没撤掉，
+    // 反而把 60 秒前那条「已完成」撤回了「待处理」。
+    // 真因：`toggleLogRunning` 当时**没有登记自己的撤销**，旧条子一直挂着，Ctrl+Z 撤的是旧对象。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-undo-a', title: '撤销串对象A', content: '', status: 'active', project: 'demo', created: '2026-10-30T00:00:00.000Z' },
+        { id: 'log-undo-b', title: '撤销串对象B', content: '', status: 'active', project: 'demo', created: '2026-10-30T00:01:00.000Z' },
+      ])
+      clickText('看板'); await sleep(300); clickText('日志'); await sleep(700)
+      const cardOf = (t) => $$('.log-card').find((c) => (c.textContent || '').indexOf(t) >= 0)
+      const ca = cardOf('撤销串对象A')
+      const doneA = ca && Array.prototype.slice.call(ca.querySelectorAll('.log-card-actions button'))
+        .find((b) => (b.textContent || '').trim() === '完成')
+      if (doneA) doneA.click()
+      await waitFor(() => !!$('#log-edit-modal'), 3000, 'complete modal')
+      const confirmDone = $$('#log-edit-modal .acts button').find((b) => (b.textContent || '').trim() === '确认完成')
+      if (confirmDone) confirmDone.click()
+      await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsComplete'), 4000, 'logsComplete')
+      await sleep(400)
+      const bar1 = $('#undo-bar') ? ($('#undo-bar').textContent || '') : ''
+      check('  前置：完成 A 之后撤销条记的是这一笔', bar1.indexOf('撤销串对象A') >= 0, bar1)
+
+      const cb = cardOf('撤销串对象B')
+      const runB = cb && Array.prototype.slice.call(cb.querySelectorAll('.log-card-actions button'))
+        .find((b) => (b.textContent || '').indexOf('标为进行中') >= 0)
+      if (runB) runB.click()
+      await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning'
+        && c.args[0] === 'log-undo-b' && c.args[1] === true), 4000, 'run B')
+      await sleep(300)
+      const bar2 = $('#undo-bar') ? ($('#undo-bar').textContent || '') : ''
+      check('★★ 点「进行中」后撤销条立刻换成这一笔（不是 60 秒前的「完成」）',
+        bar2.indexOf('进行中') >= 0 && bar2.indexOf('撤销串对象B') >= 0, bar2)
+      const ub = $('#undo-bar .ub-btn')
+      if (ub) ub.click()
+      check('★★ 撤销真的撤掉了 B 的「进行中」',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning'
+          && c.args[0] === 'log-undo-b' && c.args[1] === false), 4000, 'undo B'))
+      check('★★ 已完成的 A 没有被退回待处理（原 bug：撤 B 却把 A 改成待处理）',
+        !window.__fcTest.calls().some((c) => c.name === 'logsReopen' && c.args[0] === 'log-undo-a'))
+      const caAfter = cardOf('撤销串对象A')
+      check('  A 卡仍然是「已完成」', !!caAfter && (caAfter.textContent || '').indexOf('已完成') >= 0,
+        caAfter ? (caAfter.textContent || '').slice(0, 60) : 'no card')
+    }
 
     // ══ 日志 → 待办：内容**一条不丢**（2026-10-11 用户实测的丢内容 bug）══════════
     // 原话：「我把 log_20260925113550_0z73dy 转待办，发现内容全丢，变成空待办。本以为文本会留住的。」
@@ -4977,6 +5088,22 @@
       check('★★ 决策页按钮没有投影（扁平方角，跟其他页签一致）',
         shadowedBtn.length === 0,
         shadowedBtn.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + getComputedStyle(b).boxShadow).join(' | '))
+      // 2026-10-30 暮雨第 4 条（第三次提）真因：preflight 关着 → `<button>` 的 UA
+      // `border-style: outset` 还在，Tailwind 的 border 只设宽度不设样式。屏幕上看起来就是
+      // 一圈"外凸阴影"——量 box-shadow 永远是 none，所以前几次断言全绿而问题还在。
+      const badBorder = $$('.decisions-view button').filter(b => {
+        const cs = getComputedStyle(b)
+        return cs.borderTopStyle !== 'solid' || cs.borderBottomStyle !== 'solid'
+      })
+      check('★★ 决策页按钮的边框是 solid（UA 的 outset 就是用户看到的"阴影"）',
+        badBorder.length === 0,
+        badBorder.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + getComputedStyle(b).borderTopStyle).join(' | '))
+      const nativeLook = $$('.decisions-view button').filter(b => {
+        const ap = getComputedStyle(b).appearance || getComputedStyle(b).webkitAppearance || ''
+        return ap && ap !== 'none'
+      })
+      check('★ 决策页按钮不是系统原生外观（appearance:none）', nativeLook.length === 0,
+        nativeLook.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + (getComputedStyle(b).appearance || '?')).join(' | '))
     }
     check('★ 界面只说白话中文（决策页签/视图里不许再出现「拍板」「作数」「已并入」「已作废」）',
       ((($('#bar') || {}).textContent || '') + (($('.decisions-view') || {}).textContent || ''))
@@ -6222,14 +6349,14 @@
       check('  收尾：切回项目墙后需求矩阵不在 DOM 里', !$('.rice'))
     }
 
-    // ══ 项目结构图（2026-10-29 暮雨第 2 条）══════════════════════════════
-    // 第一版是错的：拿任务数据画分层图还叫"项目结构图"。暮雨当场否掉。
+    // ══ 项目架构图（2026-10-29 暮雨第 2 条；2026-10-30 再改）══════════════
+    // 第一版是错的：拿任务数据画分层图还叫"项目结构图"。暮雨当场否掉，并明确：
+    //   ① 不要世界地图 Emoji；② 它打开的是**架构图**；③ 方寸自绘是目标（还没做）。
     // archify 的产物是一份架构图 HTML，方寸只负责**指到它**；找不到就说清怎么生成。
-    //（判据：入口在卡上 / 真走 IPC / 找不到要说清怎么生成 / 本地画图那套已删）
     {
       clickText('项目'); await sleep(400)
-      const tileBtn = $$('.tile .pv-diagram').find((b) => (b.textContent || '').indexOf('结构图') >= 0)
-      check('★★ 项目卡上有「🗺 结构图」入口（项目级的东西不许藏进设置页）', !!tileBtn,
+      const tileBtn = $$('.tile .pv-diagram').find((b) => (b.textContent || '').indexOf('架构图') >= 0)
+      check('★★ 项目卡上有「架构图」入口（不叫「结构图」、不带地图 Emoji）', !!tileBtn,
         $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 8).join('|'))
       window.__fcTest.reset()
       if (tileBtn) tileBtn.click()

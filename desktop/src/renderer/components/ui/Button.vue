@@ -13,7 +13,13 @@ import { cn } from './cn'
 const buttonVariants = cva(
   // ⚠ `font-[inherit]` 不能省：preflight 是关着的（本仓有意），`<button>` 的 UA 默认字体还在，
   //   不重置就跟周围的老界面不是一个字体。判据：check-ui-base.cjs 的"原生控件兜底"一节。
-  'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
+  // ⚠⚠ 2026-10-30（暮雨第 4 条，第三次提）：**`border-0 border-solid appearance-none` 三件缺一不可**。
+  //   真因不是"阴影没去掉"，是 preflight 关着 → `<button>` 的 UA `border-style: outset` 还在！
+  //   Tailwind 的 `border` 只设宽度、不设样式，于是每个按钮都带着 Windows 那圈**外凸立体边**
+  //   （截图里看起来就是"带阴影"）。决策页是唯一大量用 Button 组件的页，所以只有它"永远和别人不一样"。
+  //   `border-0` 兜底，ghost/outline 再用 `border` 把宽度加回来 —— tailwind-merge 按后者生效。
+  //   守卫：check-ui-base.cjs 钉死这三个类；e2e-renderer-web 量 computedStyle 的 border-style。
+  'inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {

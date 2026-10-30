@@ -219,6 +219,24 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   }
 }
 
+// ── 按钮原生边框（2026-10-30，暮雨第 4 条 · 第三次提）────────────────────────
+// 症状：决策页的「编辑 / 删除 / 记下」看起来带一圈立体阴影，别的按钮都是平的。
+// 真因不是"忘了去掉 box-shadow"，是 preflight 关着 → `<button>` 的 UA `border-style: outset`
+// **一直都在**；Tailwind 的 `border` 只设宽度不设样式。于是每个按钮都被系统描了一圈"外凸"。
+// 判据：Button.vue 的 cva 基类必须同时有 `border-0`（宽度兜底）+ `border-solid`（样式兜底）
+//      + `appearance-none`（去掉系统控件外观）；三个缺一个都会在屏幕上复活成系统按钮。
+{
+  const btnVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'components', 'ui', 'Button.vue'), 'utf-8')
+  const classStr = btnVue.slice(btnVue.indexOf('cva('))
+  check('★★ Button 基类写了 `border-solid`（preflight 关着 → 不写就是 UA 的 outset，看起来像带阴影）',
+    /\bborder-solid\b/.test(classStr), '')
+  check('★★ Button 基类写了 `border-0` 兜底（primary/danger 没有 border 类，不兜底会留 2px 系统边）',
+    /\bborder-0\b/.test(classStr), '')
+  check('★ Button 基类写了 `appearance-none`（去掉系统按钮外观）', /\bappearance-none\b/.test(classStr), '')
+  check('★ Button 基类不写 box-shadow（阴影只属于卡片/浮层，按钮一律扁平）',
+    !/\bshadow-\[/.test(classStr), '')
+}
+
 // ── ⑤ 表单控件基线外观（2026-10-27）──────────────────────────────────
 // 为什么要有这条：全站此前**只有 `:focus` 有 :where 兜底，常态外观全靠各局部选择器补**，
 // 于是每新增一块表单就漏一次 —— 模型通道那四个框、模型单价那三个框都裸奔过（浏览器默认样式）。

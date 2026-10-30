@@ -373,7 +373,7 @@ onMounted(refresh)
             :key="s"
             :value="s"
             data-dec="tab"
-            class="inline-flex h-[28px] cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-[13px] text-[12.5px] font-medium text-[var(--ui-muted-foreground)] outline-none transition-colors hover:text-[var(--ui-foreground)] data-[state=active]:bg-[var(--ui-card)] data-[state=active]:font-semibold data-[state=active]:text-[var(--ui-foreground)]"
+            class="inline-flex h-[28px] cursor-pointer appearance-none items-center gap-1 rounded-md border-0 border-solid bg-transparent px-[13px] text-[12.5px] font-medium text-[var(--ui-muted-foreground)] outline-none transition-colors hover:text-[var(--ui-foreground)] data-[state=active]:bg-[var(--ui-card)] data-[state=active]:font-semibold data-[state=active]:text-[var(--ui-foreground)]"
           >
             {{ s }}<span class="text-[11px] font-normal text-[var(--ui-muted-foreground)]">{{ countOf(s) }}</span>
           </TabsTrigger>

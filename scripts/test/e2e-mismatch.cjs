@@ -170,7 +170,7 @@ console.log('\n== ④ 完成但找不到产出（2026-10-29 暮雨第 4 条 A �
     todayISO: TODAY, exists: () => false,
   })
   check('★ collectMismatch 把这一组接进来了（total 含它）', r8.nooutput.length === 1 && r8.total >= 1, JSON.stringify(r8.total))
-  check('★ 汇总文案点名这一组', M.mismatchSummary(r8).includes('完成但找不到产出 1'), M.mismatchSummary(r8))
+  check('★ 汇总文案点名这一组', M.mismatchSummary(r8).includes('完成了但找不到产出 1'), M.mismatchSummary(r8))
 }
 
 console.log('\n== 汇总与文案 ==')
@@ -178,7 +178,7 @@ console.log('\n== 汇总与文案 ==')
 {
   const r = M.collectMismatch({ repos: [], tasks: [], todayISO: TODAY, exists: () => true })
   check('空输入 → total 0，不抛', r.total === 0)
-  check('空集文案不说"没问题"，说"没发现对不上"', M.mismatchSummary(r) === '没发现对不上的地方')
+  check('空集文案不说"没问题"，说"没有需要提醒的地方"', M.mismatchSummary(r) === '没有需要提醒的地方')
 }
 {
   const r = M.collectMismatch({
@@ -188,7 +188,7 @@ console.log('\n== 汇总与文案 ==')
     exists: () => false,
   })
   const s = M.mismatchSummary(r)
-  check('文案带三类计数', s.includes('状态过期 1') && s.includes('引用断裂 1'), s)
+  check('文案带三类计数', s.includes('状态该更新了 1') && s.includes('引用的文件找不到了 1'), s)
   check('文案必须带「不阻挡任何操作」', s.includes('不阻挡'), s)
 }
 

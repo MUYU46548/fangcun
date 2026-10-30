@@ -412,16 +412,19 @@ export function collectMismatch(input: {
 
 /**
  * 界面上那一行文案 —— 口径必须跟数字在一起（同 `neverReadSummary` 的理由）。
- * 三件事都不能说成"错误"：它们只是**对不上**，不是"做错了"。
+ * 三件事都不能说成"错误"：它们只是**提醒**，不是"做错了"。
+ *
+ * 2026-10-30（暮雨第 1 条）：「对不上」这三个字在中文里没人看得懂，哪怕叫「状态提醒」。
+ * 现在标题与逐项文案全部换成"发生了什么"的直说，不再用内部术语。
  */
 export function mismatchSummary(r: MismatchResult): string {
-  if (!r || !r.total) return '没发现对不上的地方'
+  if (!r || !r.total) return '没有需要提醒的地方'
   const parts: string[] = []
-  if (r.stale.length) parts.push(`状态过期 ${r.stale.length}`)
+  if (r.stale.length) parts.push(`状态该更新了 ${r.stale.length}`)
   if (r.noDate.length) parts.push(`状态没写日期 ${r.noDate.length}`)
-  if (r.broken.length) parts.push(`引用断裂 ${r.broken.length}`)
-  if (r.moved.length) parts.push(`指向已归档 ${r.moved.length}`)
-  if (r.nocriteria.length) parts.push(`完成但没判据 ${r.nocriteria.length}`)
-  if (r.nooutput.length) parts.push(`完成但找不到产出 ${r.nooutput.length}`)
-  return parts.join(' · ') + '（只是对不上，不是做错了；不阻挡任何操作）'
+  if (r.broken.length) parts.push(`引用的文件找不到了 ${r.broken.length}`)
+  if (r.moved.length) parts.push(`指向了已归档的卡 ${r.moved.length}`)
+  if (r.nocriteria.length) parts.push(`完成了但没写怎么验收 ${r.nocriteria.length}`)
+  if (r.nooutput.length) parts.push(`完成了但找不到产出 ${r.nooutput.length}`)
+  return parts.join(' · ') + '（只是提醒，不是做错了；不阻挡任何操作）'
 }

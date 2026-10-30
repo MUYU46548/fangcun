@@ -5,7 +5,9 @@
  *   我拿「项目 → 在途 → 已完成 → 执行日志」画了一张分层图，还叫它"项目结构图"。
  *   暮雨原话：「你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。」
  *   他说得对：archify 的产物是 **一份可交互的架构图 HTML**（组件/边界/连线/连线说明/视图章节），
- *   不是任务状态分层。方寸**没有能力**自己生成那种图 —— 硬拿任务数据凑一张，就是编。
+ *   不是任务状态分层。方寸目前**没有能力**自己生成那种图 —— 硬拿任务数据凑一张，就是编。
+ *   但"方寸自己画架构图"是他的目标（2026-10-30 第 2 条原话），已落卡 task-20261030-002；
+ *   这一版先做能做的事，不冒充那个目标。
  *
  * 所以这一版只做一件事：**找到该项目仓库里最新的一份 archify 产物，打开它。**
  *   · 找不到 → 明说「还没有 archify 结构图」，并给出生成方法。
@@ -92,14 +94,14 @@ export function findArtifactForProject(projectId: string): {
   if (!p) return { ok: false, error: `registry 里没有这个项目：${want}` }
   const repo = String(p.repo ?? '').trim()
   const name = String(p.name ?? p.id ?? want)
-  if (!repo) return { ok: false, error: `${name} 没有登记 repo 路径，找不到它的结构图` }
+  if (!repo) return { ok: false, error: `${name} 没有登记仓库路径，找不到它的架构图` }
   if (!fs.existsSync(repo)) return { ok: false, error: `${name} 的仓库目录不存在：${repo}` }
   const hit = findProjectArchitectureArtifact(repo)
   if (!hit) {
     return {
       ok: false,
-      error: `${name} 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下`
-        + `（文件名带「架构图」或 architecture），再点这里；方寸不自己画架构图。`,
+      error: `${name} 还没有架构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下`
+        + `（文件名带「架构图」或 architecture），再点这里。`,
       project: { id: String(p.id ?? want), name, repo },
     }
   }
