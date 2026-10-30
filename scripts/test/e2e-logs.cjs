@@ -453,11 +453,15 @@ function main() {
 
   // ── 11b. AI 申请收口（2026-10-30 用户拍板：「完成是签字，不是干活」）────
   // agent 只能 request_close 打 agent_done；真正 completed 只能由用户点。
+  // ⚠ 2026-10-30 第二次追问：只有用户标了「进行中」（= 派出去）的日志才允许申请收口，
+  //   否则卡片会同时写「待处理」和「等你确认」—— 用户根本不知道派没派。
   const rA = logs.createLog('等你确认样例', 'demo', 'x').data
+  logs.setLogRunning(rA.id, true)
   const rc1 = logs.requestLogClose(rA.id)
-  check('★★ requestLogClose 只打 agent_done，不改 status（还是待处理）',
-    rc1.ok === true && logs.getLog(rA.id).agentDone === true && logs.getLog(rA.id).status === 'active',
-    JSON.stringify({ ok: rc1.ok, d: logs.getLog(rA.id).agentDone, s: logs.getLog(rA.id).status }))
+  check('★★ requestLogClose 只打 agent_done，不改 status / 不动 running',
+    rc1.ok === true && logs.getLog(rA.id).agentDone === true
+    && logs.getLog(rA.id).status === 'active' && logs.getLog(rA.id).running === true,
+    JSON.stringify({ ok: rc1.ok, d: logs.getLog(rA.id).agentDone, s: logs.getLog(rA.id).status, run: logs.getLog(rA.id).running }))
   check('★ 文件里落的是 agent_done: true（不是 status: completed）',
     /^agent_done: true$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rA.id}.md`), 'utf-8')))
   check('★★ 改正文写回不丢 agent_done（parse→render 白名单必须列它）', (() => {
@@ -474,7 +478,14 @@ function main() {
     const r = logs.getLog(rA.id)
     return r.status === 'completed' && r.agentDone !== true
   })())
+  // 反例：没标进行中 = 没派出去 → 不许申请收口（否则「待处理 + 等你确认」自相矛盾）
+  const rC = logs.createLog('还没派出去', 'demo', 'x').data
+  const rcC = logs.requestLogClose(rC.id)
+  check('★★ 没标「进行中」→ 申请收口被拒（卡面不再自相矛盾）',
+    rcC.ok === false && logs.getLog(rC.id).agentDone !== true && /还没标|没派出去/.test(rcC.error || ''),
+    JSON.stringify({ ok: rcC.ok, err: rcC.error, d: logs.getLog(rC.id).agentDone }))
   const rB = logs.createLog('撤回收口样例', 'demo', 'x').data
+  logs.setLogRunning(rB.id, true)
   logs.requestLogClose(rB.id)
   check('★ cancelLogClose 能撤回申请（agent 继续干活时用）',
     logs.cancelLogClose(rB.id).ok === true && logs.getLog(rB.id).agentDone !== true)
@@ -536,12 +547,15 @@ function main() {
 
   // 渲染层接线守卫：数据层通了不等于界面有入口（卡 022 的坑就是这么来的）
   const PRELOAD = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/preload/index.ts'), 'utf-8')
+  // 2026-10-30：全局样式已外置到 styles/app.css（拆分第八刀），
+  // 读 App.vue 找不到 `.log-card.running` / `:is(#relay-modal…)` —— 不是产品坏了，是判据路径旧了。
+  const CSS = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/styles/app.css'), 'utf-8')
   check('★ 日志卡有「进行中」手动开关（模板按钮 + 函数都在）',
     /toggleLogRunning\(log\)/.test(APP) && /async function toggleLogRunning/.test(APP))
   check('★ 开关走的是新通道 logs:setRunning（preload 也暴露了）',
     /window\.tegula\.logsSetRunning\(log\.id, next\)/.test(APP) && /logsSetRunning: \(id: string, running: boolean\) => ipcRenderer\.invoke\('logs:setRunning'/.test(PRELOAD))
   check('★ 只有 running 的卡才有醒目卡面（修前是 active —— 而 active 是"每一条新建日志"的默认值）',
-    /\.log-card\.running \{[\s\S]{0,240}linear-gradient/.test(APP) && !/\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(APP))
+    /\.log-card\.running \{[\s\S]{0,240}linear-gradient/.test(CSS) && !/\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(CSS))
   check('★ `active` 的中文显示是「待处理」，不再是「进行中」',
     /return \{ active: '待处理'/.test(APP))
   check('★ 「完成」按钮不再要求先「进行中」（任何未完成/未归档都可用）',
@@ -816,7 +830,7 @@ function main() {
       /function closeLogEditor[\s\S]{0,600}logDiscard_\.value = true/.test(APP) &&
       !/日志内容尚未保存，确定关闭并丢弃吗/.test(APP))
     check('★★ 卡005：CSS 层面也共用（:is 圈住 #relay-modal 与 #log-edit-modal 两个宿主）',
-      /:is\(#relay-modal, #log-edit-modal\) \.relay-discard/.test(APP))
+      /:is\(#relay-modal, #log-edit-modal\) \.relay-discard/.test(CSS))
   }
 
   // ── 2026-10-03 族2 写盘收敛（源码守卫，静态）────────────────────────────

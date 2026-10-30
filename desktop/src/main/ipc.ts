@@ -38,6 +38,7 @@ import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallProm
 import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
+import { attachmentOpenPolicy } from '../shared/attachments'
 import { pickNeverRead } from '../shared/neverRead'
 import { buildCleanupReport } from './services/cleanup'
 import { checkMismatch } from './services/mismatch'
@@ -948,6 +949,26 @@ export function registerIpcHandlers(): void {
     return logsService.reopenLog(id)
   })
 
+  // 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定落盘，一键全进行中 / 全完成。
+  guardedHandle('logs:setAttached', (_event, mainId: string, ids: any) => {
+    return logsService.setLogAttached(String(mainId || ''), Array.isArray(ids) ? ids.map((x: any) => String(x || '')) : [])
+  })
+  guardedHandle('logs:groupRunning', (_event, mainId: string, running: boolean) => {
+    return logsService.setLogGroupRunning(String(mainId || ''), !!running)
+  })
+  guardedHandle('logs:groupComplete', (_event, mainId: string, retainDays: number | null, note?: string) => {
+    return logsService.completeLogGroup(String(mainId || ''), retainDays, note)
+  })
+
+  // 状态快照 / 还原（2026-10-30 暮雨第 5 条）：撤销要回到点之前那一格，
+  // 而不是统一退回「待处理」（那会把用户手动标的「进行中」吃掉）。
+  guardedHandle('logs:stateSnapshot', (_event, id: string) => {
+    return logsService.logStateSnapshot(String(id || ''))
+  })
+  guardedHandle('logs:restoreState', (_event, id: string, snap: any) => {
+    return logsService.restoreLogState(String(id || ''), snap)
+  })
+
   guardedHandle('logs:destroy', (_event, id: string) => {
     return logsService.destroyLog(id)
   })
@@ -1008,9 +1029,28 @@ export function registerIpcHandlers(): void {
   guardedHandle('logs:openAttachment', async (_event, rel: string) => {
     const abs = logsService.resolveAttachment(String(rel || ''))
     if (!abs) return { ok: false, error: '附件不存在（或路径不在数据目录内，已拒绝）' }
+    // 2026-10-30 暮雨报障：点附件里的安装包 → 方寸白屏成空壳。
+    // 旧实现把任何附件都交给 shell.openPath；`.exe` 会被直接**运行安装程序**，
+    // 覆盖到正在跑的方寸就白屏。现在可执行/安装文件一律**不运行**，只允许定位。
+    const policy = attachmentOpenPolicy(String(rel || ''))
+    if (!policy.run) {
+      return { ok: false, needsReveal: true, ext: policy.ext, error: policy.reason, hint: policy.hint }
+    }
     try {
       const err = await shell.openPath(abs)
       return err ? { ok: false, error: err } : { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // 可执行附件只能「在文件夹中显示」，由用户确认来源后自己双击。
+  guardedHandle('logs:revealAttachment', (_event, rel: string) => {
+    const abs = logsService.resolveAttachment(String(rel || ''))
+    if (!abs) return { ok: false, error: '附件不存在（或路径不在数据目录内，已拒绝）' }
+    try {
+      shell.showItemInFolder(abs)
+      return { ok: true, path: abs }
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -1083,6 +1123,15 @@ export function registerIpcHandlers(): void {
     try {
       const result = reviewTask(id, 'reject', reason)
       return result
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  // 直接驳回（2026-10-30 暮雨第 2 条）：任何非终态卡都能退回，并留下可选理由。
+  guardedHandle('review:rejectDirect', (_event: any, id: string, reason?: string) => {
+    try {
+      return rejectTaskDirect(id, reason)
     } catch (e: any) {
       return { ok: false, error: e.message }
     }
@@ -1181,17 +1230,51 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     tasks.updateTask(id, { result_log: (prev + '\n' + line).trim() } as any)
     return { ok: true }
   } else {
-    if (!reason || !reason.trim()) {
-      return { ok: false, error: `${failWord}理由必填（写入结果记录，留痕可追溯）` }
-    }
+    // 2026-10-30 暮雨第 2 条：**理由不再必填**。真实场景是"这张卡看都看不懂 / 整个就是错的"，
+    // 逼他先写一段作文才能退回去，只会让人干脆点「归档」。留空也算一次驳回，
+    // 但要在卡上明说「没写理由」；写得出来就原样留在独立的「驳回理由」字段里。
+    const note = (reason || '').trim()
     tasks.moveStatus(id, '驳回')
-    // Append rejection reason to result log
-    const logLine = `[${ts}] ${failWord}：${reason}`
-    const prevLog = (task.fm as any).result_log || ''
-    ;(task.fm as any).result_log = (prevLog + '\n' + logLine).trim()
-    tasks.updateTask(id, { result_log: (task.fm as any).result_log } as any)
+    const logLine = note ? `[${ts}] ${failWord}：${note}` : `[${ts}] ${failWord}（没写理由）`
+    const prevLog = String((task.fm as any).result_log || '')
+    tasks.updateTask(id, {
+      result_log: (prevLog + '\n' + logLine).trim(),
+      reject_reason: note,
+      reject_at: _d.toISOString(),
+    } as any)
     return { ok: true }
   }
+}
+
+/**
+ * 直接驳回（2026-10-30 暮雨第 2 条）：不限于「待审批 / 待验收」。
+ *
+ * 为什么单开一条而不是放宽 `reviewTask`：裁决通道有它的语义边界（审批/验收两种），
+ * 而「这张卡看都看不懂 / 整个就是错的」可能发生在待办、进行中、草稿任何一步。
+ * 这条只做一件事：把非终态卡置为「驳回」并留下（可选的）理由。
+ * ⚠ 终态（完成 / 驳回）不许再“直接驳回”——那会让一张已签字的卡凭空变成退回，
+ *   要改就走「退回返工」或撤销。
+ */
+export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; error?: string } {
+  const task = tasks.readTask(id)
+  if (!task) return { ok: false, error: '任务不存在' }
+  const from = String(task.fm.status || '')
+  if (from === '完成' || from === '驳回') {
+    return { ok: false, error: `「${from}」是终态，先「退回返工」再驳回` }
+  }
+  const note = String(reason || '').trim()
+  const d = new Date()
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const ts = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+  tasks.moveStatus(id, '驳回')
+  const prevLog = String((task.fm as any).result_log || '')
+  const line = note ? `[${ts}] 驳回：${note}` : `[${ts}] 驳回（没写理由）`
+  tasks.updateTask(id, {
+    result_log: (prevLog + '\n' + line).trim(),
+    reject_reason: note,
+    reject_at: d.toISOString(),
+  } as any)
+  return { ok: true }
 }
 
 
@@ -1309,6 +1392,7 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     const tasks = data.loadTasks('active').map((t) => ({
       ...taskToNeverReadInput(t),
       result_log: String((t.fm as any)?.result_log ?? ''),
+      reject_reason: String((t.fm as any)?.reject_reason ?? ''),
     }))
     return { ok: true, ...buildCleanupReport(tasks, stats, { days: win, windowEvents: events }) }
   })
@@ -1336,14 +1420,25 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
   // ── 方寸自绘架构图（2026-10-30，卡 task-20261030-002）────────────────
   // 与上面那条的分工：archify 产物 = 打开别人画的；这两条 = 方寸**自己只读扫源码**出图。
   // 扫描纪律写在 services/projectArch.ts 顶部（只读 / 不联网 / 不写项目仓库）。
-  guardedHandle('arch:get', (_event, projectId: string) => {
-    return archForProject(String(projectId || ''))
+  guardedHandle('arch:get', (_event, projectId: string, opts?: any) => {
+    // opts：strict = 驳回后重画；excluded = 人工剔掉的节点（2026-10-30 第 3 条）
+    return archForProject(String(projectId || ''), {
+      strict: opts?.strict === true,
+      excluded: Array.isArray(opts?.excluded) ? opts.excluded.map((x: any) => String(x || '')) : [],
+    })
   })
   // 导出：用户点「导出 HTML」→ 选保存位置 → 才写盘（默认落在该仓库 docs/ 下，
   // 但**写这个动作是用户做的**，方寸不自动往项目仓库写）。
-  guardedHandle('arch:export', async (_event, projectId: string) => {
-    const r = archForProject(String(projectId || ''))
+  guardedHandle('arch:export', async (_event, projectId: string, opts?: any) => {
+    const r = archForProject(String(projectId || ''), {
+      strict: opts?.strict === true,
+      excluded: Array.isArray(opts?.excluded) ? opts.excluded.map((x: any) => String(x || '')) : [],
+    })
     if (!r.ok || !r.graph) return { ok: false, error: r.error || '这张图生成失败' }
+    // 校验没过不许导出（2026-10-30 第 3 条）：图是给人看的，不是把诊断一起塞进 HTML 就算完。
+    if (r.review && !r.review.ok) {
+      return { ok: false, error: '这张图还有校验没过，先按提示重画或剔除问题节点：' + r.review.text }
+    }
     const safe = String((r.project && r.project.name) || '项目').replace(/[\\/:*?"<>|]/g, '_')
     const defDir = path.join(String(r.repo || ''), 'docs')
     const defaultPath = path.join(fs.existsSync(defDir) ? defDir : String(r.repo || ''), `方寸架构图-${safe}.html`)

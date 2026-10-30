@@ -717,6 +717,64 @@ contextBridge.exposeInMainWorld('tegula', {
     l.running = !!running
     return ok({ log: l })
   },
+  // ── 主日志 + 附属日志（2026-10-30 暮雨第 4 条）──────────────────────
+  // 桩按真后端语义：关系只存在主日志的 attached 上；全组动作跳过完成/归档。
+  logsSetAttached: (mainId, ids) => {
+    cloneGuard('logsSetAttached', [mainId, ids])
+    rec('logsSetAttached', [mainId, ids])
+    const main = store.logs.find(x => x.id === mainId)
+    if (!main) return { ok: false, error: '主日志不存在' }
+    const want = (Array.isArray(ids) ? ids : []).map(String).filter((x) => x && x !== mainId)
+    main.attached = Array.from(new Set(want))
+    return ok({ data: main })
+  },
+  logsGroupRunning: (mainId, running) => {
+    rec('logsGroupRunning', [mainId, running])
+    const main = store.logs.find(x => x.id === mainId)
+    if (!main) return { ok: false, error: '主日志不存在' }
+    const ids = [main.id, ...(main.attached || [])]
+    const changed = []
+    const skipped = []
+    for (const id of ids) {
+      const l = store.logs.find(x => x.id === id)
+      if (!l || l.status !== 'active' || !!l.running === !!running) { skipped.push(id); continue }
+      l.running = !!running
+      changed.push(id)
+    }
+    return ok({ changed, skipped })
+  },
+  logsGroupComplete: (mainId, retainDays, note) => {
+    rec('logsGroupComplete', [mainId, retainDays, note])
+    const main = store.logs.find(x => x.id === mainId)
+    if (!main) return { ok: false, error: '主日志不存在' }
+    const ids = [main.id, ...(main.attached || [])]
+    const changed = []
+    const skipped = []
+    for (const id of ids) {
+      const l = store.logs.find(x => x.id === id)
+      if (!l || l.status === 'completed' || l.status === 'archived') { skipped.push(id); continue }
+      l.status = 'completed'; l.running = false; l.completed = new Date().toISOString(); l.retainDays = retainDays
+      changed.push(id)
+    }
+    return ok({ changed, skipped })
+  },
+  logsStateSnapshot: (id) => {
+    rec('logsStateSnapshot', [id])
+    const l = store.logs.find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    return ok({
+      status: l.status, running: !!l.running, agentDone: !!l.agentDone,
+      completed: l.completed || null, retainDays: l.retainDays ?? null,
+      retainUntil: l.retainUntil || null, note: l.note || '', archiveNote: l.archiveNote || '',
+    })
+  },
+  logsRestoreState: (id, snap) => {
+    rec('logsRestoreState', [id, snap])
+    const l = store.logs.find(x => x.id === id)
+    if (!l) return { ok: false, error: '日志不存在' }
+    Object.assign(l, snap || {})
+    return ok({ data: l })
+  },
   logsSetPinned: (id, pinned) => {
     rec('logsSetPinned', [id, pinned])
     const l = store.logs.find(x => x.id === id)
@@ -829,7 +887,16 @@ contextBridge.exposeInMainWorld('tegula', {
     // 1×1 透明 PNG，够断言「img 的 src 真是 data:image/png」
     data: { mime: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', name: 'x.png' },
   }),
-  logsOpenAttachment: () => { rec('logsOpenAttachment', []); return { ok: true } },
+  logsOpenAttachment: (rel) => {
+    rec('logsOpenAttachment', [rel])
+    // 2026-10-30 白屏事故：可执行/安装包不直接运行，只返回"去文件夹里定位"
+    if (/\.(exe|msi|bat|cmd|ps1|lnk|scr|jar)$/i.test(String(rel || ''))) {
+      return { ok: false, needsReveal: true, ext: '.exe', error: '「Fangcun-Setup.exe」是可执行 / 安装文件，方寸不会直接运行它', hint: '请先在文件夹中定位，确认来源后再双击。' }
+    }
+    return { ok: true }
+  },
+  // 可执行附件不直接运行，只定位（2026-10-30 白屏事故）
+  logsRevealAttachment: (rel) => { rec('logsRevealAttachment', [rel]); return { ok: true, path: 'C:/mock/' + rel } },
   // 自仓启动同步状态（2026-10-21 · W1-1C）：真主进程启动时跑完 git pull 后给结果，
   // 桩默认「已是最新」；断言用 __fcTest.setSelfSync() 换成「待同步」再看界面说没说真话。
   // 项目路线文档实况（2026-10-21 · W1-批次 2）：真主进程读仓库 README/ROADMAP + 最近 docs 变更。
@@ -1097,6 +1164,12 @@ contextBridge.exposeInMainWorld('tegula', {
   // 2026-09-28：改成**记录调用** —— 多视图断言要验证"列表视图里拖一行到别的分区
   // 仍然等于改状态"。此前它只是 `() => ok()`，调没调用在 e2e 里看不出来。
   moveStatus: (id, status) => { rec('moveStatus', [id, status]); return ok() },
+  // 裁决（2026-10-30）：此前两个通道**根本没登记**，界面一点就抛。
+  // ⚠ 桩只记账、**不改 store**：改 store 会污染后面「按状态列排序/批量还原」等断言
+  //   （2026-10-30 实测：拖拽测试把 task-demo-001 移出待办，排序块只剩一张卡）。
+  reviewAccept: (id, reason) => { rec('reviewAccept', [id, reason]); return ok() },
+  reviewReject: (id, reason) => { rec('reviewReject', [id, reason]); return ok() },
+  rejectTaskDirect: (id, reason) => { rec('rejectTaskDirect', [id, reason]); return ok() },
   // 2026-10-18 Bundle A：此前是 `() => ok()` —— 返回布尔形状，与真主进程
   // `{ ok: 数量, fails: [...] }` 不符（批量栏 toast 会把数量显示成 "true"）；
   // 且不落 store，"确定改期后卡面日期刷新"这类断言无从验起。改成真改 + 记录调用。
@@ -1542,9 +1615,9 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 方寸自绘架构图桩（2026-10-30，卡 task-20261030-002）──────────────
   // 图模型照真身字段造：节点=目录、边=import/ipc/bridge、证据与缺项都有内容 ——
   // 断言要验的是「界面有没有把证据和缺项**摆出来**」，不是"能不能跑通"。
-  archGet: (projectId) => {
-    cloneGuard('archGet', [projectId])
-    rec('archGet', [projectId])
+  archGet: (projectId, opts) => {
+    cloneGuard('archGet', [projectId, opts])
+    rec('archGet', [projectId, opts])
     if (!projectId) return { ok: false, error: '没给项目 id' }
     return {
       ok: true,
@@ -1574,9 +1647,9 @@ contextBridge.exposeInMainWorld('tegula', {
       },
     }
   },
-  archExport: (projectId) => {
-    cloneGuard('archExport', [projectId])
-    rec('archExport', [projectId])
+  archExport: (projectId, opts) => {
+    cloneGuard('archExport', [projectId, opts])
+    rec('archExport', [projectId, opts])
     return { ok: true, path: 'C:/mock/demo/docs/方寸架构图-演示项目.html' }
   },
   // ── 整理体检桩（2026-10-30，卡 20261025-006）：两批清理候选一起回 ──

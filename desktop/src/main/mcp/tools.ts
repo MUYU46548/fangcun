@@ -569,6 +569,8 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
         created: l.created, completed: l.completed || '', taskId: l.taskId || '', running: !!l.running,
         agentDone: !!l.agentDone,
         continuesFrom: l.continueFrom || '',
+        // 主日志 + 附属（2026-10-30 第 4 条）：agent 也要能看见"这一轮还有哪几条并行通道"
+        attached: Array.isArray(l.attached) ? l.attached : [],
       }))
       return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
     }

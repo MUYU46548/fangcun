@@ -113,12 +113,9 @@
         <option value="低">低</option>
         <option value="__clear__">清除</option>
       </select>
-      <!-- 开工单（2026-10-29 暮雨第 6 条）：把选中的几条日志拼成**一份**提示词。
-           顺序即语义 —— 先勾的那条当主日志，其余标「并行日志」；两者文本与 MCP `inject_logs` 完全相同。 -->
-      <button class="ghost"
-        :disabled="!selectedLogBatch.length"
-        title="把选中的日志拼成一份开工单：先勾的那条当主日志，其余标成「并行日志」（与 agent 走 MCP inject_logs 拿到的文本一致）"
-        @click="copyLogsAsPrompt(selectedLogBatch)">⧉ 开工单</button>
+      <!-- 开工单入口已移到**主日志卡上**（2026-10-30 暮雨第 4 条）：
+           以前必须先点多选、再在批量栏里找，既隐蔽又和"多选"语义打架。
+           现在主日志卡上直接「⧉ 开工单」，带的就是落盘的附属关系。 -->
       <button class="ghost" title="批量标为已完成（不需要先标「进行中」）" @click="executeBatchLogComplete">批量完成</button>
       <button class="ghost" title="批量收进「已归档」分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
       <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
@@ -163,6 +160,7 @@
           v-for="log in g.logs"
           :key="log.id"
           class="log-card"
+          :data-log-id="log.id"
           :class="{ active: log.status === 'active', running: log.running, completed: log.status === 'completed', archived: log.status === 'archived', pinned: log.pinned, selected: logBatchMode && selectedLogBatch.includes(log.id) }"
           @click="onLogCardClick(log)"
           @contextmenu.prevent="openLogMenu($event, log)"
@@ -178,11 +176,28 @@
           <span v-if="log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(log.priority)"
             :title="'日志优先级：' + localPriority(log.priority)">{{ localPriority(log.priority) }}</span>
           <span class="log-card-title">{{ log.title || '(无标题)' }}</span>
+          <!-- 主日志 / 附属日志（2026-10-30 暮雨第 4 条）：关系落盘了，卡面必须一眼看出来 -->
+          <span v-if="(logGroupChildren.get(log.id) || []).length" class="log-group-badge main"
+            :title="'这是主日志，带 ' + logGroupChildren.get(log.id).length + ' 条附属日志 —— 可一键全进行中 / 全完成 / 开工单'"
+          >🔗 主日志 · 附属 {{ logGroupChildren.get(log.id).length }}</span>
+          <span v-else-if="logGroupParent.get(log.id)" class="log-group-badge child"
+            :title="'附属在「' + (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id) + '」下面'"
+            @click.stop="openLogPreview(logGroupParent.get(log.id))"
+          >↳ 附属：{{ (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id).slice(0, 18) }}</span>
           <span v-if="log.attachments && log.attachments.length" class="log-attach-badge"
             :title="log.attachments.length + ' 个附件（截图 / 报告）'">📎{{ log.attachments.length }}</span>
           <span class="log-card-date" :title="log.created">{{ formatDateTime(log.created) }}</span>
         </div>
-        <div class="log-card-body">{{ truncate(log.content, 120) }}</div>
+        <div class="log-card-body">{{ truncate(logCardText(log), 120) }}</div>
+        <!-- 附属日志一览（只在主日志卡上出现）：点一行直接看那条，不用去别的分区找 -->
+        <div v-if="(logGroupChildren.get(log.id) || []).length" class="log-kids">
+          <div v-for="k in logGroupChildren.get(log.id)" :key="'kid-' + k.id" class="log-kid"
+            :title="'打开附属日志：' + (k.title || k.id)" @click.stop="openLogPreview(k)">
+            <span class="log-status-badge" :class="logStatusClass(k)">{{ logStatusLabel(k) }}</span>
+            <span class="lk-title">{{ k.title || k.id }}</span>
+            <span class="lk-id">{{ shortLogId(k.id) }}</span>
+          </div>
+        </div>
         <div class="log-card-meta">
           <span v-if="log.project" class="log-project">{{ (projects.find(p => p.id === log.project)?.name) || log.project }}</span>
           <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
@@ -213,6 +228,20 @@
         <div class="log-card-actions" @click.stop>
           <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
           <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
+          <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
+               不再要求「先点多选 → 再找批量栏」。 -->
+          <button v-if="!logGroupParent.get(log.id) && log.status !== 'archived'" class="ghost log-bind-btn"
+            title="把同一轮的其它日志绑到这条主日志下面（绑定关系会落盘，下次还在）"
+            @click="openLogAttach(log)">🔗 {{ (logGroupChildren.get(log.id) || []).length ? '改绑定' : '绑定附属' }}</button>
+          <template v-if="(logGroupChildren.get(log.id) || []).length">
+            <button class="ghost log-group-run" :class="{ on: logGroupAllRunning(log) }"
+              :title="logGroupAllRunning(log) ? '把全组「进行中」一起撤销' : '把主日志 + 全部附属一起标为「进行中」'"
+              @click="toggleLogGroupRunning(log, !logGroupAllRunning(log))">{{ logGroupAllRunning(log) ? '⏸ 全组撤销' : '▶ 全组进行中' }}</button>
+            <button class="ghost log-group-done" title="主日志 + 全部附属一起完成（已完成/已归档的自动跳过）"
+              @click="completeLogGroupItem(log)">✅ 全组完成</button>
+            <button class="ghost log-group-prompt" title="把主日志 + 全部附属拼成一份开工单（一条主日志，其余标并行日志）"
+              @click="copyLogGroupAsPrompt(log)">⧉ 开工单</button>
+          </template>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
                2026-10-09 用户第 1 条：先开确认框（可顺手勾「归档源」）；同一条只转一次（待办记 fromLog 防重）。 -->
           <button class="ghost" title="把这条日志的「下一步」变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
@@ -279,6 +308,31 @@ const renderSections = toRef(ctl, 'renderSections')
 const logDragOver = toRef(ctl, 'logDragOver')
 const projects = toRef(ctl, 'projects')
 const agentPresets = toRef(ctl, 'agentPresets')
+// 主日志 / 附属日志（2026-10-30 第 4 条）：两张映射由父组件算好，模板只查表
+const logGroupChildren = toRef(ctl, 'logGroupChildren')
+const logGroupParent = toRef(ctl, 'logGroupParent')
+
+/**
+ * 卡面摘要：日志正文是 Markdown，卡面却是纯文本 —— 直接把 `##` / `**` 印出来
+ * 会让人以为"这是什么乱码"（2026-10-30 暮雨截图）。这里只做"去掉标记留人话"：
+ * 代码块整段跳过，标题去掉 #，链接留文字，多余空白压成一行。
+ * ⚠ 只用于摘要；正文渲染仍走 renderBody（marked + DOMPurify），两件事别混。
+ */
+function logCardText(log: any): string {
+  const raw = String(log?.content || '')
+  if (!raw) return ''
+  return raw
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/~~~[\s\S]*?~~~/g, ' ')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/[*_`>~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 // ── 动作（不需要响应式）────────────────────────────────────────────────
 const {
@@ -290,6 +344,9 @@ const {
   copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
+  // 主日志 + 附属日志（2026-10-30 第 4 条）
+  openLogAttach, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt,
+  logGroupAllRunning, openLogPreview,
   // 批量
   toggleLogBatchMode, toggleSelectAllLogs,
   executeBatchLogPriority, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy,

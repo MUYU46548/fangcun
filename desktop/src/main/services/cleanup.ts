@@ -16,9 +16,10 @@
 import { pickNeverRead, type NeverReadInput, type NeverReadResult } from '../../shared/neverRead'
 import { pickRework, type ReworkRow } from '../../shared/rework'
 
-/** 任务视图 + 结果记录（驳回理由在里面） */
+/** 任务视图 + 结果记录 / 独立驳回理由 */
 export interface CleanupTask extends NeverReadInput {
   result_log?: string
+  reject_reason?: string
 }
 
 export interface CleanupReworkBrief {
@@ -55,6 +56,7 @@ export function buildCleanupReport(
     status: t.status,
     updated: t.updated,
     result_log: t.result_log,
+    reject_reason: t.reject_reason,
   })))
   const rework: CleanupReworkBrief = {
     count: rw.count,

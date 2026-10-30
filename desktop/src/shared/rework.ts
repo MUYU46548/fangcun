@@ -24,6 +24,8 @@ export interface ReworkTaskLike {
   archived?: boolean
   /** 结果记录（fm.result_log 摊平后就在顶层；也允许从 fm 里读） */
   result_log?: string
+  /** 独立驳回理由（2026-10-30 起是权威来源；老卡没有这个字段时回落到 result_log） */
+  reject_reason?: string
   fm?: Record<string, any>
   updated?: string | number
   created?: string | number
@@ -82,10 +84,14 @@ export function lastRejectReason(resultLog: unknown): string {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim()
     if (!line) continue
-    // 「验收驳回」「审批驳回」都算；前缀里的时间戳不参与
-    const m = /(?:验收|审批)驳回\s*[:：]?\s*(.*)$/.exec(line)
+    // 「验收驳回」「审批驳回」「驳回（直接驳回）」都算；必须是一行**裁决记录**：
+    // 要么以 `[时间]` 开头，要么整行以驳回词开头 —— 正文里"这一段在讨论驳回"不算。
+    const m = /^(?:\[[^\]]+\]\s*)?(?:验收驳回|审批驳回|驳回)\s*[:：]?\s*(.*)$/.exec(line)
     if (!m) continue
-    return m[1].trim()
+    const reason = m[1].trim()
+    // 「（没写理由）」是留痕占位，不是理由 —— 当成没写，界面才会如实点名
+    if (!reason || /^（?没写理由）?$/.test(reason)) return ''
+    return reason
   }
   return ''
 }
@@ -125,7 +131,8 @@ export function pickRework(tasks: ReworkTaskLike[], nowMs?: number): ReworkList 
     if (!t || !t.id) continue
     if (statusOf(t) !== '驳回') continue
     if (t.archived) continue
-    const reason = lastRejectReason(logOf(t))
+    const direct = String(t.reject_reason ?? t.fm?.reject_reason ?? '').trim()
+    const reason = direct || lastRejectReason(logOf(t))
     const updatedMs = parseWhen(updatedOf(t))
     const ageDays = Number.isFinite(updatedMs)
       ? Math.max(0, Math.floor((now - updatedMs) / DAY))

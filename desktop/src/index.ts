@@ -67,6 +67,8 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+/** 渲染进程崩过一次就自动重载一次（2026-10-30 白屏事故的兜底） */
+let rendererRecovered = false
 
 // ── 单实例锁（2026-09-25，用户第 11 条）──────────────────────────────────
 // 用户双击桌面快捷方式时，若方寸已在运行，第二个实例会把现有窗口提到前台
@@ -164,6 +166,17 @@ function createWindow(): void {
   })
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     appLog.error('window', `渲染进程退出: ${details.reason}`, details)
+    // 2026-10-30 暮雨报障：点安装包附件后整个方寸白屏成空壳、持续卡死、只能退出重进。
+    // 根因在附件打开策略（可执行文件不再直接运行），但这里补一道兜底：
+    // 渲染进程非正常退出 → 自动重载一次；30 秒后才允许下一次，避免崩溃循环。
+    if (details.reason !== 'clean-exit' && !rendererRecovered) {
+      rendererRecovered = true
+      appLog.warn('window', '渲染进程非正常退出，800ms 后自动重载一次')
+      setTimeout(() => {
+        try { mainWindow?.webContents.reload() } catch (e: any) { appLog.error('window', '自动重载失败', e?.message || String(e)) }
+      }, 800)
+      setTimeout(() => { rendererRecovered = false }, 30_000)
+    }
   })
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     // level: 0=verbose 1=info 2=warning 3=error
@@ -172,7 +185,18 @@ function createWindow(): void {
         `${message} (${sourceId}:${line})`)
     }
   })
-  mainWindow.webContents.on('unresponsive', () => appLog.warn('window', '窗口无响应'))
+  mainWindow.webContents.on('unresponsive', () => {
+    appLog.warn('window', '窗口无响应')
+    // 2026-10-30 白屏/卡死：渲染层卡住时用户只能退出重进。这里补一次自动重载兜底。
+    if (!rendererRecovered && !isQuitting) {
+      rendererRecovered = true
+      appLog.warn('window', '窗口无响应超过阈值，1s 后自动重载一次')
+      setTimeout(() => {
+        try { mainWindow?.webContents.reload() } catch (e: any) { appLog.error('window', '无响应后自动重载失败', e?.message || String(e)) }
+      }, 1000)
+      setTimeout(() => { rendererRecovered = false }, 30_000)
+    }
+  })
 
   // ── 输入框右键菜单（2026-10-11 用户：「写日志时在文本框里无法鼠标右键粘贴，
   //    workbuddy 都能右键剪切复制粘贴」）────────────────────────────────────

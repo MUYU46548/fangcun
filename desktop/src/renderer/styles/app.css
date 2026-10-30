@@ -772,6 +772,17 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card-verdict .ok:hover { background: #e3f1de; border-color: #3f6b3a; }
 .card-verdict .danger { color: #8a4343; border-color: #e2c4c4; }
 .card-verdict .danger:hover { background: #f6e2e2; border-color: #8a4343; }
+/* 驳回理由常驻（2026-10-30 暮雨第 2 条）：一行灰底，不抢标题，但一定看得见。
+   退回返工后仍显示「上次驳回」，否则「驳回」在卡面上等于没发生。 */
+.card-reject {
+  display: flex; align-items: baseline; gap: 6px; margin-top: 4px;
+  padding: 2px 7px; border-radius: 6px; background: #fbf1f0;
+  border: 1px solid #efd9d6; font-size: 11px; line-height: 1.5; color: #7a4a45;
+}
+.card-reject .cr-lbl { flex: none; font-weight: 700; color: #9a4f49; }
+.card-reject .cr-txt {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .card .ttl {
   flex: 1; min-width: 0;
   font-size: 12.5px; font-weight: 500;
@@ -1623,6 +1634,25 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 快捷键角标：用户按了没反应时会以为"没这功能"，把键名写在条子上 */
 #undo-bar .ub-key { flex: none; font-size: 10.5px; font-weight: 700; color: var(--muted);
   border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; letter-spacing: .02em; }
+/* 多级撤销（2026-10-30 暮雨第 5 条）：条上显示还有几步可撤，点开看历史。 */
+#undo-bar .ub-count { flex: none; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer;
+  color: var(--ink); background: var(--tint); border: 1px solid var(--border); border-radius: 999px;
+  padding: 2px 8px; white-space: nowrap; }
+#undo-bar .ub-count:hover { filter: brightness(.97); }
+#undo-hist { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  width: min(560px, 92vw); max-height: min(60vh, 440px); overflow: auto;
+  background: var(--card); color: var(--ink); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--el-3); padding: 8px; }
+#undo-hist .uh-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 700; padding: 2px 6px 8px; }
+#undo-hist .uh-head span { font-size: 10.5px; font-weight: 400; color: var(--muted); }
+#undo-hist .uh-row { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  font: inherit; font-size: 12px; color: var(--ink); background: transparent; border: 0;
+  border-radius: 7px; padding: 6px 8px; cursor: pointer; }
+#undo-hist .uh-row:hover { background: var(--tint); }
+#undo-hist .uh-i { flex: none; width: 20px; color: var(--muted); font-size: 10.5px; }
+#undo-hist .uh-l { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#undo-hist .uh-t { flex: none; font-size: 10.5px; color: var(--muted); }
+#undo-hist .uh-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 6px 2px; border-top: 1px solid var(--line-2); margin-top: 6px; }
 
 /* Drag status picker */
 .drag-status-picker {
@@ -2303,7 +2333,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
 /* 结构图按钮：与方针按钮上下排（同宽、间距 6px）；单独给一条规则不是装饰 ——
    check-button-styles 要求「模板里出现的 class 必须有样式规则」（僵尸按钮守卫的反面）。 */
-.pv-diagram, .pv-archself { margin-top: 6px; }
+/* 2026-10-30 第 3 条：两个入口收成一个**分段控件**（一个外框、中间一条分隔线），
+   不再像两个抢位置的独立按钮。左「架构图」（打开已有）/ 右「绘制架构图」（扫源码画）。 */
+.pv-arch-group {
+  display: flex; margin-top: 6px; width: 100%;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff;
+}
+.pv-arch-group .pv-diagram, .pv-arch-group .pv-archself {
+  margin: 0; flex: 1 1 50%; width: auto; border: 0; border-radius: 0;
+  font-size: 11px; padding: 4px 6px; background: transparent;
+}
+.pv-arch-group .pv-diagram { border-right: 1px solid var(--border); }
+.pv-arch-group .pv-diagram:hover, .pv-arch-group .pv-archself:hover { background: var(--tint); }
+.pv-arch-group .pv-archself { color: var(--accent); font-weight: 600; }
 #policy-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 700px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); }
 /* 方针弹窗必须盖在设置面板之上：两者都用 .overlay（z-index:60），而设置面板在 DOM 里更靠后，
    同层级下后出现的赢 —— 于是从设置里点方针，弹窗被设置整个盖住（用户 2026-09-25 第 3 条）。
@@ -2627,6 +2669,45 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2); }
 .log-card-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
+/* 主日志 / 附属日志（2026-10-30 暮雨第 4 条）：
+   关系要一眼看得出来 —— 主日志带链标，附属日志带指向标，主日志卡内再列一遍成员。 */
+.log-group-badge {
+  font-size: 10.5px; font-weight: 700; white-space: nowrap; border-radius: 6px; padding: 1px 6px;
+  border: 1px solid var(--border); cursor: default;
+}
+.log-group-badge.main { color: #5a478f; background: #f1edfb; border-color: #d9d0f2; }
+.log-group-badge.child { color: #6b6250; background: #f7f4ea; border-color: #e5ddc8; cursor: pointer; }
+.log-group-badge.child:hover { border-color: var(--accent); color: var(--accent); }
+.log-kids { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; padding: 5px 7px;
+  border-left: 2px solid #d9d0f2; background: #faf9fe; border-radius: 0 7px 7px 0; }
+.log-kid { display: flex; align-items: center; gap: 7px; font-size: 11.5px; padding: 2px 4px;
+  border-radius: 5px; cursor: pointer; }
+.log-kid:hover { background: #f1edfb; }
+.log-kid .lk-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-kid .lk-id { flex: none; color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 9.5px; }
+.log-card-actions .log-bind-btn { color: #5a478f; border-color: #d9d0f2; background: #faf9fe; }
+.log-card-actions .log-group-run.on { background: #fff4e2; border-color: #e2c08c; color: #8a5a00; }
+.log-card-actions .log-group-done { color: #3f6b3a; border-color: #bcd4b4; }
+.log-card-actions .log-group-prompt { color: #2f6f8f; border-color: #bcd8e2; }
+
+/* 绑定附属弹窗 */
+#log-attach-modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  width: 640px; max-width: calc(100vw - 48px); max-height: 84vh; display: flex; flex-direction: column;
+  padding: 18px 20px; box-shadow: var(--shadow); }
+#log-attach-modal h3 { margin: 0 0 10px; font-size: 16px; }
+.la-main { display: flex; align-items: baseline; gap: 8px; font-size: 13px; margin-bottom: 8px; }
+.la-lbl { font-size: 11px; color: var(--muted); }
+.la-hint { font-size: 11.5px; color: var(--muted); line-height: 1.7; background: var(--tint-3);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.la-list { flex: 1 1 auto; min-height: 80px; overflow: auto; border: 1px solid var(--border);
+  border-radius: 10px; padding: 4px; }
+.la-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.la-row:hover { background: var(--tint); }
+.la-row .la-title { flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.la-row .la-meta { flex: none; font-size: 10.5px; color: var(--muted); }
+.la-empty { font-size: 11.5px; color: var(--muted); padding: 16px 10px; text-align: center; line-height: 1.7; }
+.la-count { margin-right: auto; font-size: 11.5px; color: var(--muted); }
+
 /* Agent 预设列表（2026-09-23） */
 .agent-presets-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .agent-preset-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f3f0fa; border: 1px solid #e0daf5; border-radius: 12px; font-size: 11px; color: #6b5b9e; }
@@ -2921,6 +3002,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .review-task-title { font-size: 14px; font-weight: 700; }
 .review-task-id { font-size: 11px; color: var(--muted); }
 .review-reason { width: 100%; box-sizing: border-box; min-height: 80px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.5; }
+/* 常用驳回理由（2026-10-30 暮雨第 2 条）：一键填，省掉"写作文"；
+   选中态要明显，再点一次取消（不逼人选）。 */
+.review-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.review-presets .rp {
+  font-size: 11.5px; padding: 2px 9px; height: 24px; border-radius: 999px;
+  background: var(--tint-3); border: 1px solid var(--border); color: var(--ink);
+}
+.review-presets .rp.on { background: #f3e6e4; border-color: #c98d86; color: #7a3f39; font-weight: 600; }
+
+/* 任务详情里的驳回理由块（可改） */
+.reject-block { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid #efd9d6; background: #fbf6f5; border-radius: 10px; }
+.reject-block label { display: block; font-size: 11.5px; font-weight: 700; color: #8a4d47; margin-bottom: 4px; }
+.reject-block .reject-at { font-weight: 400; color: var(--muted); }
+.reject-text { font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; color: #5d3833; }
+.reject-edit { width: 100%; box-sizing: border-box; min-height: 54px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 12.5px; resize: vertical; }
+.reject-acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.reject-edit-btn { margin-top: 6px; font-size: 11.5px; height: 24px; padding: 0 8px; }
 
 /* ============ Notification Center（原型 notification-center.html 移植） ============ */
 .nc-bell { position: relative; }

@@ -147,6 +147,13 @@ contextBridge.exposeInMainWorld('tegula', {
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
   /** 撤销完成 / 撤销归档，退回「待处理」（2026-09-28：不再等于「进行中」） */
   logsReopen: (id: string) => ipcRenderer.invoke('logs:reopen', id),
+  /** 读状态快照 / 按快照还原（2026-10-30 撤销要回到点之前那一格，含「进行中」） */
+  logsStateSnapshot: (id: string) => ipcRenderer.invoke('logs:stateSnapshot', id),
+  logsRestoreState: (id: string, snap: any) => ipcRenderer.invoke('logs:restoreState', id, snap),
+  /** 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：关系落盘，一键全进行中 / 全完成 */
+  logsSetAttached: (mainId: string, ids: string[]) => ipcRenderer.invoke('logs:setAttached', mainId, ids),
+  logsGroupRunning: (mainId: string, running: boolean) => ipcRenderer.invoke('logs:groupRunning', mainId, running),
+  logsGroupComplete: (mainId: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:groupComplete', mainId, retainDays, note),
   /** 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。可撤销，且不是完成/归档的前置条件。 */
   logsSetRunning: (id: string, running: boolean) => ipcRenderer.invoke('logs:setRunning', id, running),
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
@@ -173,6 +180,8 @@ contextBridge.exposeInMainWorld('tegula', {
   logsAttachmentData: (rel: string) => ipcRenderer.invoke('logs:attachmentData', rel),
   /** 用系统程序打开附件 */
   logsOpenAttachment: (rel: string) => ipcRenderer.invoke('logs:openAttachment', rel),
+  /** 可执行/安装包附件不直接运行，只在文件夹中定位（2026-10-30 白屏事故） */
+  logsRevealAttachment: (rel: string) => ipcRenderer.invoke('logs:revealAttachment', rel),
   /** 复制到剪贴板（主进程通道：不受 file:// 起源与窗口焦点限制，见 shared/clipboard.ts） */
   clipboardWriteText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
@@ -182,8 +191,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
   projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
   /** 方寸自绘架构图（2026-10-30）：只读扫源码 → 图模型；导出由用户选保存位置 */
-  archGet: (projectId: string) => ipcRenderer.invoke('arch:get', projectId),
-  archExport: (projectId: string) => ipcRenderer.invoke('arch:export', projectId),
+  archGet: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:get', projectId, opts),
+  archExport: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:export', projectId, opts),
   /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
   cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),
@@ -324,6 +333,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── Review ─────────────────────────────────────────────────────────
   reviewAccept: (id: string, reason?: string) => ipcRenderer.invoke('review:accept', id, reason),
   reviewReject: (id: string, reason: string) => ipcRenderer.invoke('review:reject', id, reason),
+  /** 直接驳回（2026-10-30 暮雨第 2 条）：非终态卡都能退回，理由可选 */
+  rejectTaskDirect: (id: string, reason?: string) => ipcRenderer.invoke('review:rejectDirect', id, reason),
 
   // ── File open ─────────────────────────────────────────────────────
   openFile: (filePath: string) => ipcRenderer.invoke('openFile', filePath),

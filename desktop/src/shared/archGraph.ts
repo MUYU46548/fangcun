@@ -105,11 +105,49 @@ const ROLE: Record<string, { label: string; row: number; kind: ArchNodeKind }> =
   tests: { label: '测试', row: 4, kind: 'shared' },
 }
 
+/**
+ * 目录 → 分层。2026-10-30（质量重做）：节点可能到第三层
+ * （`src/main/services`），不能只看最后一段 —— 否则 `services` 会掉进"未知层"。
+ * 这里按**路径前缀**认层，子目录在层名后带上自己的名字（「主进程 / services」）。
+ */
+const SHORT: Record<string, string> = {
+  renderer: '界面', preload: '桥', main: '主进程', cli: '命令行', shared: '共享',
+  common: '共享', lib: '库', scripts: '脚本', test: '测试', tests: '测试',
+}
+/** 子目录短名（2026-10-30 视觉返工：214px 的方块装不下「渲染层（界面） / components」） */
+const SUB_LABEL: Record<string, string> = {
+  components: '组件', views: '视图', services: '服务', backup: '备份',
+  mcp: 'MCP', llm: 'LLM', data: '数据', ui: 'UI', styles: '样式', composables: '组合式',
+  shared: '共享', renderer: '界面', main: '主进程', preload: '桥', test: '测试', tests: '测试',
+}
 export function roleOfDir(dirPath: string): { label: string; row: number; kind: ArchNodeKind } {
   const seg = String(dirPath || '').split('/').filter(Boolean)
   const last = (seg[seg.length - 1] || '').toLowerCase()
-  if (ROLE[last]) return ROLE[last]
-  return { label: last || dirPath, row: 4, kind: 'layer' }
+  // 精确的顶层角色（保持原来的名字，截图/旧断言不变）
+  if (ROLE[last] && seg.length <= 2) return ROLE[last]
+  // 2026-10-30：仓库根可能带包名前缀（`desktop/src/main/services`）——
+  // 认层要看 `src` 后面那一段，不能把 head 认成 `desktop`。
+  const rootAt = seg.findIndex((d) => d === 'src' || d === 'app' || d === 'packages')
+  const head = rootAt >= 0
+    ? String(seg[rootAt + 1] || '').toLowerCase()
+    : (['src', 'app', 'packages'].includes((seg[0] || '').toLowerCase())
+      ? (seg[1] || '').toLowerCase()
+      : (seg[0] || '').toLowerCase())
+  if (ROLE[head]) {
+    const base = ROLE[head]
+    const sub = rootAt >= 0 ? seg.slice(rootAt + 2) : seg.slice(1)
+    // 子目录用短名（「界面 / 组件」而不是「渲染层（界面） / components」）——
+    // 方块只有 214px，长名字会被截成「渲染层（界面） / v…」，等于没说。
+    const subText = sub.map((s) => SUB_LABEL[s] || s).join('/')
+    return {
+      label: sub.length ? `${SHORT[head] || base.label} / ${subText}` : base.label,
+      row: base.row,
+      kind: base.kind,
+    }
+  }
+  if (last === 'desktop' && seg.length === 1) return { label: '桌面端（配置 / 测试）', row: 4, kind: 'layer' }
+  if (last === 'src') return { label: '源码根', row: 4, kind: 'layer' }
+  return { label: seg.slice(rootAt >= 0 ? rootAt + 1 : 0).join('/') || last || dirPath, row: 4, kind: 'layer' }
 }
 
 export const ARCH_EMPTY_TEXT = '这个项目没有可扫的代码目录 —— 缺什么下面逐条列了，缺不等于没有。'
@@ -120,7 +158,7 @@ export const ARCH_EMPTY_TEXT = '这个项目没有可扫的代码目录 —— �
  *  · 边只从 `facts.imports` / `facts.ipc` 来（那两个数字真的从源码里数出来）；
  *  · 没有 entry 就写"没有识别到入口"，不补一个假的。
  */
-export function buildArchGraph(facts: ArchScanFacts): ArchGraph {
+export function buildArchGraph(facts: ArchScanFacts, opts: { strict?: boolean; maxNodes?: number } = {}): ArchGraph {
   const f = facts || ({} as ArchScanFacts)
   const project = f.project || { id: '', name: '', repo: '' }
   const missing: ArchMissing[] = []
@@ -182,7 +220,9 @@ export function buildArchGraph(facts: ArchScanFacts): ArchGraph {
       kind: 'entry',
       files: entries.length,
       samples: entries.slice(0, 5),
-      note: pkg?.main ? `package.json main: ${pkg.main}` : '从常见入口位置识别',
+      note: pkg?.main
+        ? '源码入口（构建产物已跳过）'
+        : '从常见入口位置识别（package.json 没写 main）',
     })
   }
   // 外部依赖：只列名字与个数，不画内部关系（我们没扫 node_modules）
@@ -202,6 +242,9 @@ export function buildArchGraph(facts: ArchScanFacts): ArchGraph {
   const edges: ArchEdge[] = []
   for (const im of imports) {
     if (!nodeIds.has(im.from) || !nodeIds.has(im.to) || im.from === im.to) continue
+    // 严格模式（用户点「驳回重画」后）：只留 ≥2 条的 import，细碎连线不画 ——
+    // 宁可少画，也不把图糊成一团。数量仍在证据里，不丢事实。
+    if (opts.strict && im.count < 2) continue
     edges.push({
       from: im.from,
       to: im.to,
@@ -274,4 +317,33 @@ export function rowOfNode(n: ArchNode): number {
   if (n.kind === 'entry') return -1
   if (n.kind === 'external') return 5
   return roleOfDir(n.id).row
+}
+
+/** 分层标题（SVG 左侧的分层带用） */
+export function rowLabel(row: number): string {
+  return ({
+    [-1]: '入口',
+    0: '界面层',
+    1: '桥接层',
+    2: '主进程',
+    3: '共享层',
+    4: '工具 / 脚本',
+    5: '外部依赖',
+  } as Record<number, string>)[row] ?? `第 ${row} 层`
+}
+
+/**
+ * 人工剔除若干节点（2026-10-30「画一笔都要审批」）：
+ * 用户在图上看哪一块不对，就把它剔掉再重画 —— 不是假装修好了，而是**如实少画**。
+ * 被剔除的节点连同它的连线一起消失；文字里明写剔了几块，不静默。
+ */
+export function filterArchGraph(graph: ArchGraph, excluded: string[]): ArchGraph {
+  const drop = new Set((Array.isArray(excluded) ? excluded : []).map(String).filter(Boolean))
+  if (!drop.size) return graph
+  const nodes = (graph.nodes || []).filter((n) => !drop.has(n.id))
+  const keep = new Set(nodes.map((n) => n.id))
+  const edges = (graph.edges || []).filter((e) => keep.has(e.from) && keep.has(e.to))
+  const text = `${nodes.length} 个组件 · ${edges.length} 条连线 · 扫描 ${graph.scannedFiles} 个文件` +
+    ` · 已剔除 ${drop.size} 块`
+  return { ...graph, nodes, edges, text }
 }

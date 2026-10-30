@@ -2941,6 +2941,12 @@
       stickyW > 0 && viewW > 0 && Math.abs(stickyW - viewW) < 2,
       `sticky=${stickyW} view=${viewW}`)
 
+    // 2026-10-30 暮雨：「我根本不知道这玩意到底派没派」——
+    // 分区头必须直说，不靠用户记「进行中」是哪来的。
+    check('★★ 「待处理」分区头直说"还没派出去"（不再只是一个状态词）',
+      /还没派出去/.test((($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || ''),
+      (($('.log-group-sep.g-active .log-group-hint') || {}).textContent) || '(no hint)')
+
     // 阴性对照（先造「没有链」的数据）：按链视图不该冒出链头 —— 防「按链=全都框起来」的假实现
     window.__fcTest.setLogs([
       { id: 'log-x1', title: '无链甲', content: 'a', status: 'active', project: 'demo', created: '2026-09-28T00:00:00.000Z' },
@@ -2990,6 +2996,9 @@
     check('★★ 分区视图恢复：分区头回来了、链头消失',
       $$('.log-group-sep').length >= 1 && $$('.chain-header').length === 0,
       'sep=' + $$('.log-group-sep').length + ' chain=' + $$('.chain-header').length)
+    check('★ 「进行中」分区头直说"已经派给 AI"（夹具里那条 running=true）',
+      /已经派给 AI/.test((($('.log-group-sep.g-running .log-group-hint') || {}).textContent) || ''),
+      (($('.log-group-sep.g-running .log-group-hint') || {}).textContent) || '(no hint/running section)')
     check('  链标签在分区视图同样可见（链关系不只按链才有）',
       $$('.chain-tag').length >= 1)
     check('  pref 回 groups', window.__fcTest.prefs().fc_logs_view_mode === 'groups',
@@ -3179,6 +3188,7 @@
     // 反而把 60 秒前那条「已完成」撤回了「待处理」。
     // 真因：`toggleLogRunning` 当时**没有登记自己的撤销**，旧条子一直挂着，Ctrl+Z 撤的是旧对象。
     {
+      window.__fcTest.clearUndo?.()
       window.__fcTest.setLogs([
         { id: 'log-undo-a', title: '撤销串对象A', content: '', status: 'active', project: 'demo', created: '2026-10-30T00:00:00.000Z' },
         { id: 'log-undo-b', title: '撤销串对象B', content: '', status: 'active', project: 'demo', created: '2026-10-30T00:01:00.000Z' },
@@ -3341,6 +3351,44 @@
     const attClose = $$('#log-preview-modal .acts button').find(b => (b.textContent || '').indexOf('关闭') >= 0)
     if (attClose) attClose.click()
     await sleep(300)
+
+    // ══ 安装包附件不直接运行（2026-10-30 暮雨白屏事故）════════════════════════
+    // 现场：点日志里挂的安装包 → 方寸白屏成空壳，只能退出重进。
+    // 根因是旧实现把所有附件都交给 shell.openPath，`.exe` 会直接启动安装程序。
+    // 现在：可执行文件只返回 needsReveal，界面确认后走「在文件夹中显示」。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-att-exe', title: '安装包附件样例', content: 'x', status: 'active', project: 'demo',
+          created: '2026-10-30T00:00:00.000Z',
+          attachments: ['docs/执行日志/_attachments/log-att-exe/Fangcun-Setup.0.5.0.exe'] },
+      ])
+      clickText('看板'); await sleep(300); clickText('日志'); await sleep(600)
+      const c = $$('.log-card').find(x => (x.textContent || '').indexOf('安装包附件样例') >= 0)
+      if (c) c.click()
+      check('  安装包附件的预览打开', await waitFor(() => !!$('#log-preview-modal'), 3000, 'exe preview'))
+      const fileRow = $('#log-preview-modal .attach-file')
+      check('★★ 可执行附件的悬停提示写明"不会直接运行"',
+        !!fileRow && /不会直接运行|文件夹/.test(fileRow.getAttribute('title') || ''),
+        fileRow ? fileRow.getAttribute('title') : 'no .attach-file')
+      const origConfirmExe = window.confirm
+      let confirmMsg = ''
+      window.confirm = (m) => { confirmMsg = String(m); return true }
+      window.__fcTest.reset()
+      if (fileRow) fileRow.click()
+      check('★★ 点安装包 → 真走 logs:openAttachment（由主进程判策略）',
+        await waitFor(() => window.__fcTest.callCount('logsOpenAttachment') > 0, 3000, 'openAttachment'),
+        JSON.stringify(window.__fcTest.calls().map((x) => x.name)))
+      check('★★ 主进程回 needsReveal 后，界面弹确认并改走「在文件夹中显示」',
+        await waitFor(() => window.__fcTest.callCount('logsRevealAttachment') > 0, 3000, 'revealAttachment'),
+        JSON.stringify(window.__fcTest.calls().map((x) => x.name)))
+      check('★ 确认框说清风险（可执行 / 安装 / 白屏），不是一句"打开失败"',
+        /可执行|安装/.test(confirmMsg) && /文件夹|双击/.test(confirmMsg),
+        confirmMsg.slice(0, 100))
+      window.confirm = origConfirmExe
+      const close2 = $$('#log-preview-modal .acts button').find(b => (b.textContent || '').indexOf('关闭') >= 0)
+      if (close2) close2.click()
+      await sleep(250)
+    }
 
     // ══ 新建日志 + 待挂附件（2026-10-29 暮雨第 5 条：「创建日志加附件则不能保存」）══════
     // 真机现场（应用日志 2026-10-28 21:51）：新建弹窗里挂了 7 张粘贴图 → 点创建 →
@@ -3655,6 +3703,7 @@
     // 刻意不接管的（原生撤销）。修法：状态动作成功后当场挂一条撤销条 + Ctrl+Z 等价。
     // 这一节验四条：①条子当场出现且带标题；②点它=真 logsReopen（撤的是这条）；
     // ③Ctrl+Z 与点它等价；④**反例**：焦点在输入框里时 Ctrl+Z 不许被抢。
+    window.__fcTest.clearUndo?.()
     window.__fcTest.setLogs([
       { id: 'log-undo-1', title: '撤销条样例·甲', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T00:00:00.000Z' },
       { id: 'log-undo-2', title: '撤销条样例·乙', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T01:00:00.000Z' },
@@ -3695,18 +3744,19 @@
     if (!$('#undo-bar')) {
       out.push('SKIP  撤销条后续 4 条断言（前置未成立：完成后没出现撤销条）')
     } else {
-    const undoReopenBefore = window.__fcTest.callCount('logsReopen')
-    check('★ 点撤销条「↩ 撤销」→ 真调 logsReopen（撤的是那一条），条子自己消失', await (async () => {
+    const undoReopenBefore = window.__fcTest.callCount('logsRestoreState')
+    check('★ 点撤销条「↩ 撤销」→ 真按快照还原（撤的是那一条），条子自己消失', await (async () => {
       const btn = $('#undo-bar .ub-btn')
       if (!btn) return false
       btn.click()
-      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > undoReopenBefore
-        && !$('#undo-bar'), 4000, 'reopen + 条子消失')
-      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      const got = await waitFor(() => window.__fcTest.callCount('logsRestoreState') > undoReopenBefore
+        && !$('#undo-bar'), 4000, 'restore + 条子消失')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}
       return got && ((last.args || [])[0] === 'log-undo-1')
-    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}).args))
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}).args))
 
     // Ctrl+Z：再造一笔（乙），焦点在 body（不在输入框）→ 必须等价于点按钮
+    window.__fcTest.clearUndo?.()
     check('Ctrl+Z 前置：完成「撤销条样例·乙」', await (async () => {
       const b = btnOnCard('撤销条样例·乙', '完成')
       if (!b) return false
@@ -3716,17 +3766,18 @@
       if (opened && pri) pri.click()
       return opened && await waitFor(() => !!$('#undo-bar'), 4000, '撤销条乙')
     })())
-    const zReopenBefore = window.__fcTest.callCount('logsReopen')
+    const zReopenBefore = window.__fcTest.callCount('logsRestoreState')
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
-    check('★★ Ctrl+Z（焦点不在输入框）= 点撤销条：真调 logsReopen 且条子消失', await (async () => {
-      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > zReopenBefore && !$('#undo-bar'), 4000, 'ctrl+z reopen')
-      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+    check('★★ Ctrl+Z（焦点不在输入框）= 点撤销条：真按快照还原且条子消失', await (async () => {
+      const got = await waitFor(() => window.__fcTest.callCount('logsRestoreState') > zReopenBefore && !$('#undo-bar'), 4000, 'ctrl+z restore')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}
       return got && ((last.args || [])[0] === 'log-undo-2')
-    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}).args))
+    })(), JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}).args))
 
     // ⚠ 反例（缺这条，上面那条照样绿 —— 因为"抢不抢输入框"根本没人管）：
     //   焦点在 textarea 里按 Ctrl+Z，必须**放行原生撤销**：不调 logsReopen，条子也不消失。
+    window.__fcTest.clearUndo?.()
     check('Ctrl+Z 反例前置：再完成一笔并打开一个带输入框的弹窗', await (async () => {
       window.__fcTest.setLogs([
         { id: 'log-undo-3', title: '撤销条样例·丙', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T02:00:00.000Z' },
@@ -3752,10 +3803,10 @@
       ta.focus()
       // ⚠ 必须先确认焦点**真的**落进了输入框，否则这条测的是"没焦点时能撤"，不是它想说的那件事
       if (document.activeElement !== ta) return false
-      const before = window.__fcTest.callCount('logsReopen')
+      const before = window.__fcTest.callCount('logsRestoreState')
       ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
-      const got = await waitFor(() => window.__fcTest.callCount('logsReopen') > before && !$('#undo-bar'), 4000, '输入框里也撤')
-      const last = window.__fcTest.calls().filter(c => c.name === 'logsReopen').pop() || {}
+      const got = await waitFor(() => window.__fcTest.callCount('logsRestoreState') > before && !$('#undo-bar'), 4000, '输入框里也撤')
+      const last = window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}
       return got && ((last.args || [])[0] === 'log-undo-3')
     })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar'))
 
@@ -3766,10 +3817,10 @@
       if (!ta) return false
       ta.focus()
       if (document.activeElement !== ta) return false
-      const before = window.__fcTest.callCount('logsReopen')
+      const before = window.__fcTest.callCount('logsRestoreState')
       ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
       await sleep(500)
-      return window.__fcTest.callCount('logsReopen') === before && !$('#undo-bar')
+      return window.__fcTest.callCount('logsRestoreState') === before && !$('#undo-bar')
     })(), 'bar=' + !!$('#undo-bar') + ' focus=' + ((document.activeElement || {}).tagName || '(none)'))
     // 收尾：关掉弹窗（丢弃草稿），别把弹窗留给后面的断言
     {
@@ -3823,6 +3874,7 @@
     // 只解决"刚点错这一下"，不新建全站撤销栈：待办勾选（一行一个 checkbox，最容易手滑）
     // 与决策三态下拉（"已撤销/已合并"挨着）各接一条。判据两条：
     // ①改完当场出现撤销条且写清"哪条 + 原值"；②点撤销 = 真把数据改回原样（不是只弹个提示）。
+    window.__fcTest.clearUndo?.()
     window.__fcTest.setTodos([
       { id: 'td-undo-1', title: '撤销样例待办', priority: '中', done: false, created: 1 },
     ])
@@ -3850,6 +3902,7 @@
     })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'todosUpdate').pop() || {}).args))
 
     // 决策改状态 → 撤销回原状态
+    window.__fcTest.clearUndo?.()
     clickText('看板'); await sleep(350); clickText('决策'); await sleep(700)
     check('决策改状态 → 撤销条写清「从什么改成什么」', await (async () => {
       const sel = $('[data-dec="status"]')
@@ -3938,54 +3991,166 @@
     if (exitL) exitL.click()
     check('取消退出多选（批量栏收起）', await waitFor(() => $$('.logs-view .batch-bar').length === 0, 3000, '退出多选'))
 
-    // ══ 日志并行 · 「⧉ 开工单」（2026-10-29 暮雨第 6 条）══════════════════
-    // 真实用法长出来的需求：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
-    // 只灌主日志，agent 就漏掉并行的另一半。判据三条：
-    //   ① 多选里真有这个入口；② 传给主进程的 **id 顺序 = 勾选顺序**（第一条当主日志）；
-    //   ③ 文本真进了剪贴板（走主进程通道，不是 navigator.clipboard）。
-    // ⚠ 拼接语义（副日志标「并行日志」）由 e2e-mcp-logs 跑真服务验，这里只验接线。
+    // ══ 主日志 + 附属日志（2026-10-30 暮雨第 4 条）════════════════════════
+    // 用户原话：「我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成，
+    // 有那么难吗？而且你搞得还要点多选才出来，那么隐蔽。」
+    // 所以这一块钉的不是"有复制按钮"，而是：
+    //   ① 绑定在主日志**卡上**（不是藏在多选栏）；② 关系落盘（logsSetAttached）；
+    //   ③ 全组进行中 / 全组完成各一次调用；④ 开工单按 [主, 副...] 顺序灌。
     {
+      const btns = (root) => root ? Array.prototype.slice.call(root.querySelectorAll('button')) : []
       window.__fcTest.setLogs([
         { id: 'log-multi-a', title: '主日志：这一轮做了什么', content: 'MAIN-A', status: 'active', project: 'demo', created: '2026-10-29T01:00:00.000Z' },
         { id: 'log-multi-b', title: '副日志：并行通道进度', content: 'SIDE-B', status: 'active', project: 'demo', created: '2026-10-29T02:00:00.000Z' },
       ])
       clickText('看板'); await sleep(350); clickText('日志'); await sleep(600)
-      const batchOn = $$('.logs-view .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
-      if (batchOn) batchOn.click()
-      await waitFor(() => !!$('.logs-view .batch-bar'), 3000, '日志批量栏(开工单)')
-      const bundleBtn = () => $$('.logs-view .batch-bar button').find(b => (b.textContent || '').indexOf('开工单') >= 0)
-      check('★★ 多选栏里有「⧉ 开工单」（主日志带副日志一起灌的入口）', !!bundleBtn(),
-        $$('.logs-view .batch-bar button').map(b => (b.textContent || '').trim()).join('|'))
-      check('★ 一条没勾时它是 disabled（不许点了没反应）', !!bundleBtn() && bundleBtn().disabled === true)
       const cardsM = $$('.logs-view .log-card')
-      const mainCard = cardsM.find(c => (c.textContent || '').indexOf('主日志：这一轮做了什么') >= 0)
-      const sideCard = cardsM.find(c => (c.textContent || '').indexOf('副日志：并行通道进度') >= 0)
+      const mainCard = $('.logs-view .log-card[data-log-id="log-multi-a"]')
+      const sideCard = $('.logs-view .log-card[data-log-id="log-multi-b"]')
+      check('  夹具里主/副两条日志都在', !!mainCard && !!sideCard)
+      const bindBtn = mainCard && btns(mainCard).find(b => (b.textContent || '').indexOf('绑定附属') >= 0)
+      check('★★ 绑定入口在**主日志卡上**（不用先点多选）', !!bindBtn,
+        mainCard ? btns(mainCard).map(b => (b.textContent || '').trim()).join('|') : 'no main card')
       window.__fcTest.reset()
-      if (sideCard) sideCard.click()   // 先点副日志
+      if (bindBtn) bindBtn.click()
+      const picker = await waitFor(() => !!$('#log-attach-modal'), 3000, '绑定弹窗')
+      check('★★ 点它打开绑定弹窗（候选是真日志）', !!picker && $$('#log-attach-modal .la-row').length >= 1,
+        String($$('#log-attach-modal .la-row').length))
+      const sideRow = $$('#log-attach-modal .la-row').find(r => (r.textContent || '').indexOf('副日志：并行通道进度') >= 0)
+      if (sideRow) {
+        const cb = sideRow.querySelector('input[type=checkbox]')
+        if (cb) cb.click()
+      }
       await sleep(150)
-      if (mainCard) mainCard.click()   // 再点主日志 —— 顺序应该被原样保留
-      await sleep(250)
-      check('  先点副日志、再点主日志 → 已选 2（顺序由勾选顺序决定，不按时间排）',
-        (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
-        (($('.logs-view .batch-bar .batch-count') || {}).textContent || ''))
-      if (bundleBtn()) bundleBtn().click()
-      check('★★ 点它 → 走 logsInjectMany（不是逐条复制两次）',
+      const saveBind = $$('#log-attach-modal button').find(b => (b.textContent || '').indexOf('保存绑定') >= 0)
+      if (saveBind) saveBind.click()
+      check('★★ 保存绑定真走 logsSetAttached（关系落盘，不是只在界面上挂着）',
+        await waitFor(() => window.__fcTest.callCount('logsSetAttached') > 0, 4000, 'logsSetAttached'),
+        JSON.stringify(window.__fcTest.calls().map(c => c.name)))
+      check('★ 传给主进程的是 [主日志自己, 副日志] 的落盘关系', (() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsSetAttached').pop()
+        return !!c && c.args[0] === 'log-multi-a' && Array.isArray(c.args[1]) && c.args[1][0] === 'log-multi-b'
+      })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsSetAttached').pop() || {}).args))
+      await sleep(500)
+      const mainCard2 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
+      check('★★ 主日志卡上标出「主日志 · 附属 1」', !!mainCard2 && (mainCard2.textContent || '').indexOf('主日志 · 附属 1') >= 0,
+        mainCard2 ? (mainCard2.textContent || '').slice(0, 120) : 'no card')
+      check('★ 主日志卡内列出附属那条（点得到，不用去别的分区翻）',
+        !!mainCard2 && (mainCard2.textContent || '').indexOf('副日志：并行通道进度') >= 0)
+      check('★★ 卡上有「全组进行中 / 全组完成 / 开工单」三个出口', !!mainCard2 && (() => {
+        const t = btns(mainCard2).map(b => (b.textContent || '').trim()).join('|')
+        return t.indexOf('全组进行中') >= 0 && t.indexOf('全组完成') >= 0 && t.indexOf('开工单') >= 0
+      })(), mainCard2 ? btns(mainCard2).map(b => (b.textContent || '').trim()).join('|') : 'no card')
+      check('★ 多选栏里不再藏一个「开工单」（语义已经移到卡上）',
+        !$$('.logs-view .batch-bar button').some(b => (b.textContent || '').indexOf('开工单') >= 0))
+
+      window.__fcTest.reset()
+      const groupRun = mainCard2 && btns(mainCard2).find(b => (b.textContent || '').indexOf('全组进行中') >= 0)
+      if (groupRun) groupRun.click()
+      check('★★ 一键「全组进行中」真走 logsGroupRunning（不是逐条点）',
+        await waitFor(() => window.__fcTest.callCount('logsGroupRunning') > 0, 3000, 'logsGroupRunning'),
+        JSON.stringify(window.__fcTest.calls().map(c => c.name)))
+      check('★ 传的是主日志 id + running=true', (() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'logsGroupRunning').pop()
+        return !!c && c.args[0] === 'log-multi-a' && c.args[1] === true
+      })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsGroupRunning').pop() || {}).args))
+      await sleep(400)
+      const mainCard3 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
+      const groupDone = mainCard3 && btns(mainCard3).find(b => (b.textContent || '').indexOf('全组完成') >= 0)
+      if (groupDone) groupDone.click()
+      check('★★ 一键「全组完成」真走 logsGroupComplete', await waitFor(() => window.__fcTest.callCount('logsGroupComplete') > 0, 3000, 'logsGroupComplete'),
+        JSON.stringify(window.__fcTest.calls().map(c => c.name)))
+      await sleep(400)
+      const mainCard4 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
+      const promptBtn = mainCard4 && btns(mainCard4).find(b => (b.textContent || '').indexOf('开工单') >= 0)
+      window.__fcTest.reset()
+      if (promptBtn) promptBtn.click()
+      check('★★ 卡上的「开工单」把主 + 附属一次灌进去（顺序：主日志在前）',
         await waitFor(() => window.__fcTest.calls().some(c => c.name === 'logsInjectMany'), 4000, 'logsInjectMany'),
         JSON.stringify(window.__fcTest.calls().map(c => c.name)))
-      check('★★ 传进去的 id 顺序 = 勾选顺序（第一条就是主日志）', (() => {
+      check('★ 传入 id 顺序 = [主日志, 副日志]（不再靠勾选顺序）', (() => {
         const c = window.__fcTest.calls().filter(x => x.name === 'logsInjectMany').pop()
         const ids = (c && c.args && c.args[0]) || []
-        return Array.isArray(ids) && ids[0] === 'log-multi-b' && ids[1] === 'log-multi-a'
+        return Array.isArray(ids) && ids[0] === 'log-multi-a' && ids[1] === 'log-multi-b'
       })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsInjectMany').pop() || {}).args))
-      check('★★ 拼好的文本真进了剪贴板（主进程通道）', await waitFor(() => (() => {
-        const cs = window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText')
-        const txt = cs.length ? String(cs[cs.length - 1].args[0] || '') : ''
-        return txt.indexOf('mock-bundle') >= 0 && txt.indexOf('log-multi-b') >= 0 && txt.indexOf('log-multi-a') >= 0
-      })(), 4000, 'clipboard bundle'),
-        JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => String(c.args[0]).slice(0, 60))))
-      const exitBtn = $$('.logs-view .batch-bar button').find(b => (b.textContent || '').trim() === '取消')
-      if (exitBtn) exitBtn.click()
-      await sleep(200)
+    }
+
+    // ══ 多级撤销 + 误点「通过」（2026-10-30 暮雨第 5 条）══════════════════
+    // 现场：误点了通过（卡变完成），想改驳回；狂按 Ctrl+Z 一点用都没有 ——
+    // 因为 acceptTask 根本没登记撤销，条子上挂的是更早的旧动作。
+    {
+      window.__fcTest.clearUndo?.()
+      const savedTasks = window.__fcTest.tasks()
+      const st = { status: '待验收', priority: '中', project: 'demo', tags: [], body: '' }
+      window.__fcTest.setTasks([
+        { id: 'task-undo-pass', title: '误点通过的卡', ...st, created: '2026-10-30T00:00:00.000Z',
+          fm: { id: 'task-undo-pass', title: '误点通过的卡', ...st }, path: 'C:/mock/task-data/task-undo-pass.md' },
+      ])
+      clickText('看板'); await sleep(450)
+      const card = $$('#board .card').find((c) => (c.textContent || '').indexOf('误点通过的卡') >= 0)
+      check('  夹具：待验收卡在板上', !!card)
+      if (card) card.click()
+      await waitFor(() => !!$('#roverlay'), 3000, '任务详情')
+      const reviewBtn = $$('#roverlay button').find((b) => (b.textContent || '').indexOf('验收裁决') >= 0)
+      check('★★ 待验收卡有「验收裁决」入口', !!reviewBtn)
+      if (reviewBtn) reviewBtn.click()
+      await waitFor(() => !!$('#review-modal'), 3000, '裁决弹窗')
+      check('★★ 驳回理由改为可选（弹窗里不再写"必填"、且有常用理由）',
+        (($('#review-modal') || {}).textContent || '').indexOf('可选') >= 0
+        && $$('#review-modal .review-presets .rp').length >= 3,
+        (($('#review-modal') || {}).textContent || '').slice(0, 120))
+      window.__fcTest.reset()
+      const passBtn = $('#review-modal .acts .ok')
+      if (passBtn) passBtn.click()
+      check('  前置：通过真走 reviewAccept', await waitFor(() => window.__fcTest.callCount('reviewAccept') > 0, 4000, 'reviewAccept'))
+      const bar = await waitFor(() => !!$('#undo-bar'), 4000, '通过后的撤销条')
+      check('★★ 误点「通过」后当场出现撤销条（写清哪张卡）',
+        !!bar && (($('#undo-bar') || {}).textContent || '').indexOf('误点通过的卡') >= 0,
+        (($('#undo-bar') || {}).textContent || '').slice(0, 80))
+      const undoBtn = $('#undo-bar .ub-btn')
+      if (undoBtn) undoBtn.click()
+      check('★★ 点撤销 → 任务回到「待验收」（不是只弹提示、也不是退回待办）', await waitFor(() => {
+        const e = window.__fcTest.calls().filter((c) => c.name === 'editTask').pop()
+        return !!e && e.args[0] === 'task-undo-pass' && e.args[1] && e.args[1].status === '待验收'
+      }, 4000, 'editTask restore'), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'editTask').pop() || {}).args))
+      await sleep(300)
+      window.__fcTest.setTasks(savedTasks)
+      window.__fcTest.clearUndo?.()
+    }
+
+    // 多级栈：两笔动作 → 条上写「共 2 步」→ Ctrl+Z 一笔一笔往回走
+    {
+      window.__fcTest.clearUndo?.()
+      window.__fcTest.setLogs([
+        { id: 'log-multiundo-a', title: '多级撤销甲', content: '', status: 'active', project: 'demo', created: '2026-10-30T02:00:00.000Z' },
+        { id: 'log-multiundo-b', title: '多级撤销乙', content: '', status: 'active', project: 'demo', created: '2026-10-30T02:01:00.000Z' },
+      ])
+      clickText('看板'); await sleep(250); clickText('日志'); await sleep(600)
+      const cardBtn = (title, label) => {
+        const c = $$('.log-card').find((x) => (x.textContent || '').indexOf(title) >= 0)
+        return c && Array.prototype.slice.call(c.querySelectorAll('.log-card-actions button')).find((b) => (b.textContent || '').indexOf(label) >= 0)
+      }
+      const runA = cardBtn('多级撤销甲', '标为进行中')
+      if (runA) runA.click()
+      await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-a' && c.args[1] === true), 3000, 'A running')
+      const runB = cardBtn('多级撤销乙', '标为进行中')
+      if (runB) runB.click()
+      await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-b' && c.args[1] === true), 3000, 'B running')
+      await sleep(300)
+      check('★★ 两笔动作都在栈里（条上写「共 2 步」，不是只记上一笔）',
+        (($('#undo-bar') || {}).textContent || '').indexOf('共 2 步') >= 0,
+        (($('#undo-bar') || {}).textContent || '').slice(0, 80))
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+      check('★ Ctrl+Z 第一次：撤掉最近那笔（乙）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-b' && c.args[1] === false), 3000, 'undo B'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'logsSetRunning').slice(-3).map((c) => c.args)))
+      check('★ 再按一次 Ctrl+Z：继续撤更早那笔（甲）—— 不是「一次就没了」',
+        await (async () => {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+          return waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-a' && c.args[1] === false), 3000, 'undo A')
+        })(), JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'logsSetRunning').slice(-3).map((c) => c.args)))
+      await sleep(250)
+      check('★ 栈清空后撤销条消失', !$('#undo-bar'), (($('#undo-bar') || {}).textContent || '').slice(0, 60))
     }
 
     // ══ 日志的搜索 / 排序写回父组件（2026-10-23 补 · 第 11 块拆分后新增）
@@ -6442,14 +6607,17 @@
       clickText('看板'); await sleep(300)
     }
 
-    // ══ 方寸自绘架构图（2026-10-30，卡 task-20261030-002）══════════════════
-    // 与上一块的区别：上一块验"打开别人画好的 HTML"，这一块验**方寸自己扫源码画的图**。
-    // 判据不是"能出图"，而是：节点可点、连线按证据类型分组、缺项与证据都摆出来、导出真走通道。
+    // ══ 方寸绘制架构图（2026-10-30，卡 task-20261030-002；同日第 3 条重做）════
+    // 判据不是"能出图"，而是：① 与「架构图」收成一个分段控件；② 七道校验门逐条摆出来；
+    // ③ 每一块都能被人工剔除/放回；④ 驳回后真按诊断重画；⑤ **通过之后才允许导出**。
     {
       clickText('项目'); await sleep(400)
-      const selfBtn = $$('.tile .pv-archself').find((b) => (b.textContent || '').indexOf('自绘架构图') >= 0)
-      check('★★ 项目卡上有「自绘架构图」入口（与「架构图」并列，不混成一个）', !!selfBtn,
-        $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 10).join('|'))
+      const archGroup = $$('.tile .pv-arch-group')[0]
+      const selfBtn = $$('.tile .pv-archself').find((b) => (b.textContent || '').indexOf('绘制架构图') >= 0)
+      check('★★ 「架构图 / 绘制架构图」收成一个分段控件（不再是两个抢位置的按钮）',
+        !!archGroup && !!selfBtn, $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 10).join('|'))
+      check('★ 不再叫「自绘架构图」（用户点名要改的名字）',
+        !$$('.tile button').some((b) => (b.textContent || '').indexOf('自绘架构图') >= 0))
       window.__fcTest.reset()
       if (selfBtn) selfBtn.click()
       check('★★ 点了真走 arch:get IPC', await waitFor(() => window.__fcTest.callCount('archGet') > 0, 4000, 'archGet'),
@@ -6463,6 +6631,10 @@
       check('★ 连线按证据类型分组（import / ipc / bridge 三组都在）',
         $$('#arch-modal .archd-edge').length === 3,
         $$('#arch-modal .archd-edge').map((e) => e.getAttribute('class')).join(' | '))
+      check('★★ 分层校验门逐条摆出来（不是一句"生成成功"）',
+        $$('#arch-modal .archd-gate').length >= 9, String($$('#arch-modal .archd-gate').length))
+      check('★ 校验结论带通过数与分数', /道通过|分/.test(($('.archd-side') || {}).textContent || ''),
+        (($('.archd-side') || {}).textContent || '').slice(0, 120))
       check('★★ 缺项摆出来（端口清单 + 为什么没列）',
         (($('.archd-side') || {}).textContent || '').indexOf('端口清单') >= 0)
       check('★ 证据清单摆出来（package.json + 只读扫描）', (() => {
@@ -6479,11 +6651,58 @@
       check('★★ 点节点 → 右侧显示它的文件样例（选中真的有反应）',
         (($('.archd-side') || {}).textContent || '').indexOf('src/main/index.ts') >= 0,
         (($('.archd-side') || {}).textContent || '').slice(0, 100))
-      // 导出：用户点按钮才写盘
+
+      // ── 逐块审批（2026-10-30 第 3 条）：不认可这一笔就剔掉，能放回 ──
+      const beforeNodes = $$('#arch-modal [data-node]').length
+      const excludeBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('剔除这一块') >= 0)
+      check('★ 选中块有「剔除这一块」（画一笔也要人点头）', !!excludeBtn)
+      if (excludeBtn) { excludeBtn.click(); await sleep(350) }
+      check('★★ 剔除后图里真的少了一块',
+        $$('#arch-modal [data-node]').length === beforeNodes - 1,
+        `${$$('#arch-modal [data-node]').length} vs ${beforeNodes}`)
+      check('★ 剔除的块在侧栏列出来并标明可放回',
+        (($('.archd-side') || {}).textContent || '').indexOf('已剔除的块') >= 0)
+      const backBtn = $$('#arch-modal button').find((b) => (b.textContent || '').trim() === '放回')
+      if (backBtn) { backBtn.click(); await sleep(350) }
+      check('★ 放回后块数恢复', $$('#arch-modal [data-node]').length === beforeNodes,
+        String($$('#arch-modal [data-node]').length))
+
+      // ── 驳回重画：真按 strict 再扫一版，并记版本 ──
       window.__fcTest.reset()
-      const expBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('导出') >= 0)
-      check('  面板上有「导出 HTML…」入口', !!expBtn)
-      if (expBtn) expBtn.click()
+      const rejectBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('驳回重画') >= 0)
+      check('★ 面板上有「驳回重画」', !!rejectBtn)
+      if (rejectBtn) { rejectBtn.click(); await sleep(250) }
+      const whyIn = $('#arch-modal .archd-reject-in')
+      check('★ 驳回要写一句哪里不行（不是静默重扫）', !!whyIn)
+      if (whyIn) {
+        whyIn.value = '主进程太碎，看不清边界'
+        whyIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const redoBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('驳回并按诊断重画') >= 0)
+      if (redoBtn) redoBtn.click()
+      check('★★ 驳回后真按 strict 重画（不是把原图再贴一遍）',
+        await waitFor(() => {
+          const last = window.__fcTest.calls().filter((c) => c.name === 'archGet').pop()
+          return !!last && last.args[1] && last.args[1].strict === true
+        }, 4000, 'strict archGet'),
+        JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'archGet').pop() || {}).args))
+      check('★ 重画后标出「第 N 版」', (($('.archd-ver') || {}).textContent || '').indexOf('2') >= 0,
+        (($('.archd-ver') || {}).textContent || '').slice(0, 20))
+      // 重画是异步的（archGet → 校验 → 重新渲染）：等按钮真的可用再点，别测出"点了没反应"的假象
+      await sleep(600)
+
+      // ── 通过之后才允许导出（没签字的图不落盘）──
+      const expBtn = () => $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('导出') >= 0)
+      check('★★ 没点「通过」之前导出是禁用的', !!expBtn() && expBtn().disabled === true)
+      const approveBtn = () => $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('通过这张图') >= 0)
+      check('★ 面板上有「通过这张图」', !!approveBtn())
+      check('  重画完成后「通过」按钮可用（不是卡在 busy）',
+        await waitFor(() => !!approveBtn() && approveBtn().disabled === false, 3000, 'approve enabled'))
+      if (approveBtn()) { approveBtn().click(); await sleep(350) }
+      check('★ 通过后显示「已通过」', (($('.archd-ok') || {}).textContent || '').indexOf('已通过') >= 0,
+        (($('.archd-ok') || {}).textContent || '').slice(0, 20))
+      window.__fcTest.reset()
+      if (expBtn()) expBtn().click()
       check('★★ 「导出」真走 arch:export IPC', await waitFor(() => window.__fcTest.callCount('archExport') > 0, 4000, 'archExport'),
         JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
       check('★ 导出成功后明说落到哪（不是静默）',

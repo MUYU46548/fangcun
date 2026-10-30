@@ -86,20 +86,21 @@ function main() {
     check('① 结果记录带时间前缀', /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]/.test(log), log.slice(0, 60))
   }
 
-  // ── ② 待审批 + reject 无理由 → 报错且卡零改动（反例） ────────────────
+  // ── ② 待审批 + reject 无理由 → **也算一次驳回**（2026-10-30 第 2 条） ──────
   {
     const t = mk('没理由驳回试试', '待审批')
-    const before = fs.readFileSync(t.path, 'utf-8')
     const r = ipc.reviewTask(t.id, 'reject', '   ')
     const after = rd(t.id)
-    check('② 待审批无理由驳回 → ok=false', r.ok === false, JSON.stringify(r))
-    check('② 错误信息说清「审批驳回理由必填」', /审批驳回理由必填/.test(String(r.error)), String(r.error))
-    check('② 状态没变（仍待审批）', after.fm.status === '待审批', String(after.fm.status))
-    check('② 文件字节没变（宁可不动也不写半条账）',
-      fs.readFileSync(t.path, 'utf-8') === before)
+    check('② 无理由驳回 → ok（不再逼人写作文）', r.ok === true, JSON.stringify(r))
+    check('② 状态变「驳回」', after.fm.status === '驳回', String(after.fm.status))
+    check('② 结果记录如实写「没写理由」', String(after.fm.result_log || '').includes('没写理由'),
+      String(after.fm.result_log).slice(0, 120))
+    check('② 独立「驳回理由」字段为空（不是塞进一句占位）',
+      String(after.fm.reject_reason || '') === '', String(after.fm.reject_reason))
+    check('② 驳回时间落盘（卡上能显示什么时候退的）', !!after.fm.reject_at)
   }
 
-  // ── ③ 待审批 + reject 有理由 → 驳回 + 理由留痕 ───────────────────────
+  // ── ③ 待审批 + reject 有理由 → 驳回 + 理由留痕（独立字段 + 结果记录） ──
   {
     const t = mk('要驳回的 AI 卡', '待审批')
     const r = ipc.reviewTask(t.id, 'reject', '验收线写的是「能跑」，这不是判据，重写')
@@ -109,6 +110,32 @@ function main() {
     const log = String(after.fm.result_log || '')
     check('③ 结果记录写了「审批驳回」', log.includes('审批驳回'), log.slice(0, 120))
     check('③ 驳回理由原文进结果记录', log.includes('这不是判据'), log.slice(0, 160))
+    check('③★ 理由同时进独立字段（可编辑 / 常驻可见的权威来源）',
+      String(after.fm.reject_reason || '') === '验收线写的是「能跑」，这不是判据，重写',
+      String(after.fm.reject_reason))
+
+    // 2026-10-30 第 2 条：退回返工后，理由不能消失（否则「驳回」等于没发生）
+    tasks.unarchiveTask(t.id)
+    const returned = rd(t.id)
+    check('③★★ 退回返工后仍留着上次驳回理由（不是点完就看不见）',
+      returned.fm.status === '待办' && String(returned.fm.reject_reason || '').includes('这不是判据'),
+      JSON.stringify({ status: returned.fm.status, reason: returned.fm.reject_reason }))
+  }
+
+  // ── ③b 直接驳回：任何非终态卡都能退（2026-10-30 第 2 条） ─────────────
+  {
+    for (const st of ['待办', '进行中']) {
+      const t = mk('直接驳回的 ' + st, st)
+      const r = ipc.rejectTaskDirect(t.id, '看不懂这张卡在说什么')
+      const after = rd(t.id)
+      check(`③b 「${st}」可直接驳回（不必先到待验收）`, r.ok === true && after.fm.status === '驳回',
+        JSON.stringify({ r, status: after.fm.status }))
+      check(`③b 「${st}」理由进独立字段`, String(after.fm.reject_reason || '').includes('看不懂'),
+        String(after.fm.reject_reason))
+    }
+    const done = mk('已完成的卡', '完成')
+    const r2 = ipc.rejectTaskDirect(done.id, 'x')
+    check('③b 终态卡不许直接驳回（先退回返工）', r2.ok === false, JSON.stringify(r2))
   }
 
   // ── ④ 待验收两条老语义不回归 ─────────────────────────────────────────
@@ -154,6 +181,18 @@ function main() {
     // 反例：不许再出现"只认待验收"的旧写法单独存在
     const legacyOnly = /v-if="previewTask\.status === '待验收'"\s*\n\s*class="pri"/.test(vue)
     check('⑥ 旧的「只认待验收」写法已不存在', !legacyOnly, '旧写法还在 = 待审批又被锁回去了')
+    // 2026-10-30 第 2 条：驳回理由改为可选，界面与主进程都不许再逼人必填
+    check('★★ 界面不再出现「驳回理由必填」', !/驳回理由必填/.test(vue))
+    check('★ 直接驳回有独立入口（openDirectReject，任何非终态卡可用）',
+      /function openDirectReject/.test(vue) && /kind: 'direct'/.test(vue))
+    check('★ 常用驳回理由一键填（不是每次写作文）',
+      /reviewPresets/.test(vue) && /看不懂这张卡在说什么/.test(vue))
+    // 2026-10-30 第 2 条后半：理由要**一直看得见、还能改**，不是点完就消失。
+    check('★★ 卡面常驻驳回理由（老卡从 result_log 回退，不误报"没写理由"）',
+      /card-reject/.test(vue) && /function rejectReasonOf/.test(vue) && /lastRejectReason/.test(vue))
+    check('★★ 任务详情可就地改理由（只写 reject_reason，不动状态）',
+      /function startRejectEdit/.test(vue) && /editTask\(t\.id, \{ reject_reason/.test(vue)
+      && /rejectEditText/.test(vue))
   }
 
   console.log(`\n== 结果：${pass}/${fail} ==`)

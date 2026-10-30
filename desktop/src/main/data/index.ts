@@ -474,6 +474,15 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug' },
   { key: 'blockers', label: '阻塞', type: 'list', span: 'full', placeholder: '逗号分隔的任务 ID' },
   { key: 'memo', label: '附言', type: 'textarea', span: 'full', placeholder: '给执行者的一句提醒' },
+  // 驳回理由（2026-10-30 暮雨第 2 条）：可选（有些卡一看就是错的，不必逼人写作文）、
+  // 可编辑（点完还能改）、卡面与详情常驻（退回返工也不消失）。
+  // 只在有值时出现 —— 没被驳回过的卡不该多一个空框。
+  {
+    key: 'reject_reason', label: '驳回理由', type: 'textarea', span: 'full',
+    placeholder: '哪里不行 / 要改成什么样（可留空；留空也算一次驳回）',
+    hint: '上一次驳回为什么退回来。可以改；退回返工后仍留在卡上，直到下一次裁决。',
+    visibleWhen: { hasValue: true },
+  },
   // 机制条款 3（2026-10-06 卡 003）：每轮返工收尾打一枚**归因**标签。
   // 不是追责，是让三个月后能回答「这三档各占多少」—— 哪一环在漏，看分布就知道。
   // 三档 + 空：留空 = 这一轮不算返工，或者还没顾上归因。旧卡没有这个键 → 不渲染、零影响。
@@ -567,6 +576,11 @@ export const FIELD_MAP: Record<string, string> = {
   '资源': 'resources',
   '方案': 'plan',
   '结果记录': 'result_log',
+  // 驳回理由（2026-10-30 暮雨第 2 条）：以前理由只追加在 `结果记录` 一段长文本里，
+  // 驳回后再点「退回返工」，卡面就再也看不到为什么被退回来 —— 于是「驳回」等于没发生。
+  // 现在独立成字段：可选、可编辑、卡面常驻、退回返工也不抹掉。
+  '驳回理由': 'reject_reason',
+  '驳回时间': 'reject_at',
   '派活时间': 'dispatch_time',
   // 认领（2026-10-22）：Python 侧 MANAGED_KEYS 同步加入并在 render_task 里显式输出 ——
   // 受管键漏输出 = Python 一写回就把桌面写的认领静默抹掉（这个坑「开始」字段踩过）。
@@ -603,7 +617,8 @@ const REVERSE_FIELD_MAP: Record<string, string> = Object.fromEntries(
 const FM_ORDER = [
   'id', 'title', 'project', 'status', 'priority', 'assignee', 'tags',
   'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
-  'source', 'review', 'memo', 'resources', 'plan', 'result_log', 'architecture',
+  'source', 'review', 'memo', 'resources', 'plan', 'result_log',
+  'reject_reason', 'reject_at', 'architecture',
   // 认领（2026-10-22 · 学信箱模式的 claim/ack）：与 dispatch_time 同属「机器写的时刻」，
   // 刻意**不进 TASK_FIELD_SPECS**（不给界面手改）—— 它们是机制字段，手改一个错时间戳
   // 会让租约判定错乱。要看的话界面读得到（fm 里就有），只是不给编辑框。

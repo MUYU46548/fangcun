@@ -14,7 +14,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { parseRegistry } from '../data'
-import { buildArchGraph, type ArchGraph, type ArchScanFacts } from '../../shared/archGraph'
+import { buildArchGraph, filterArchGraph, type ArchGraph, type ArchScanFacts } from '../../shared/archGraph'
+import { evaluateArchGraph, repairArchGraph, type ArchReview } from '../../shared/archValidate'
 
 const CODE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue'])
 const SKIP_DIR = new Set([
@@ -62,19 +63,61 @@ function walkFiles(repo: string): { files: string[]; truncated: boolean } {
   return { files, truncated }
 }
 
-/** 文件 → 目录级节点 id（`src/main/x.ts` → `src/main`；根目录散文件 → `(根目录)`） */
+/** 文件 → 目录级节点 id（`src/main/services/logs.ts` → `src/main/services`；根目录散文件 → `(根目录)`）
+ *
+ * 2026-10-30（暮雨：「质量极差，无实战意义」）：原实现只到 `src/main` 一层 —— 整个主进程
+ * 四百多个文件被画成一个方块，那不是架构图，是目录清单。现在**先到第三层**，
+ * 再由 scanProject 把"只有一两个文件"的碎目录并回父级（见 rollupFineNodes）：
+ * 真项目里 `src/main/services` / `src/renderer/components` 会各自成块，碎目录不占坑。
+ */
 export function nodeIdOfRel(rel: string): string {
   const seg = String(rel || '').split('/').filter(Boolean)
-  if (!seg.length) return ''
-  if (seg.length === 1) return '(根目录)'
-  if (seg[0] === 'src' || seg[0] === 'app' || seg[0] === 'packages') {
-    return seg.length >= 2 ? seg[0] + '/' + seg[1] : seg[0]
+  const dirs = seg.slice(0, -1)          // 末段是文件名，节点只到目录
+  if (!dirs.length) return '(根目录)'
+  // 2026-10-30：仓库根不一定就是代码根 —— 常见形态是 `desktop/src/main/services/...`
+  // （方寸自己就是）。先前只认 `src` 在第一段，结果整个 desktop 被压成一个方块。
+  // 现在**在任意一段找 src/app/packages**，带上它前面的包名前缀，再取其后最多三层。
+  const rootAt = dirs.findIndex((d) => d === 'src' || d === 'app' || d === 'packages')
+  if (rootAt >= 0) {
+    const tail = dirs.slice(rootAt + 1, rootAt + 4)
+    const head = dirs.slice(0, rootAt)
+    return [...head, dirs[rootAt], ...tail].join('/')
   }
-  return seg[0]
+  return dirs[0]
 }
 
-function readPackageJson(repo: string): ArchScanFacts['packageJson'] {
-  const p = path.join(repo, 'package.json')
+/**
+ * 把「文件数 < 2 的第三层目录」并回父级，并把节点总数压到上限内。
+ * 纯函数（输入 rawCount，输出 raw → final 映射），`e2e-project-arch` 直接断言。
+ *
+ * 为什么按文件数而不是按名字：名字无从判断重要性；文件数是扫出来的事实。
+ */
+export function rollupFineNodes(rawCount: Map<string, number>, maxNodes = 13): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const raw of rawCount.keys()) map.set(raw, raw)
+  const parentOf = (raw: string): string => raw.split('/').slice(0, -1).join('/')
+  // 有些目录**不能并**：preload 只有 1 个文件，但它是 IPC / 桥两类证据的唯一落点；
+  // renderer / main / shared / cli 同理 —— 并掉它们，图上就只剩一堆"大目录"，又回到目录清单。
+  const PROTECTED = new Set(['preload', 'renderer', 'main', 'shared', 'cli'])
+  const keep = (raw: string) => PROTECTED.has(raw.split('/').filter(Boolean).pop() || '')
+  for (const [raw, n] of rawCount) {
+    const depth = raw.split('/').filter(Boolean).length
+    if (depth >= 3 && n < 2 && !keep(raw)) map.set(raw, parentOf(raw))
+  }
+  // 节点太多：每次把"文件最少"的第三层目录并回父级，直到压进上限
+  let guard = 0
+  while (new Set(map.values()).size > maxNodes && guard++ < 200) {
+    const cand = Array.from(rawCount.entries())
+      .filter(([raw]) => map.get(raw) === raw && raw.split('/').filter(Boolean).length >= 3 && !keep(raw))
+      .sort((a, b) => a[1] - b[1])[0]
+    if (!cand) break
+    map.set(cand[0], parentOf(cand[0]))
+  }
+  return map
+}
+
+function readPackageJson(dir: string): ArchScanFacts['packageJson'] {
+  const p = path.join(dir, 'package.json')
   if (!fs.existsSync(p)) return null
   const text = safeReadText(p).replace(/^\uFEFF/, '')
   let j: any = null
@@ -98,18 +141,48 @@ function readPackageJson(repo: string): ArchScanFacts['packageJson'] {
   }
 }
 
-function collectEntries(repo: string, pkg: ArchScanFacts['packageJson']): string[] {
+/**
+ * 找这个仓库的 package.json（2026-10-30 修正：方寸自己就是 monorepo）。
+ *
+ * 上一版只读仓库根 —— 方寸的 package.json 在 `desktop/` 下，于是图上写着
+ * 「缺 package.json / 缺入口」，而它明明就在那儿。这不是"缺"，是扫描器的盲区。
+ * 顺序：根 → desktop / app / packages/*（只认真实存在的，不猜）。
+ */
+function findPackageJson(repo: string): { pkg: ArchScanFacts['packageJson']; base: string } {
+  const rootPkg = readPackageJson(repo)
+  if (rootPkg) return { pkg: rootPkg, base: '' }
+  const cands: string[] = ['desktop', 'app', 'client', 'web']
+  try {
+    const pkgs = path.join(repo, 'packages')
+    if (fs.existsSync(pkgs)) {
+      for (const e of fs.readdirSync(pkgs, { withFileTypes: true })) {
+        if (e.isDirectory()) cands.push('packages/' + e.name)
+      }
+    }
+  } catch { /* 读不到 packages 就只试固定候选 */ }
+  for (const base of cands) {
+    const pkg = readPackageJson(path.join(repo, base))
+    if (pkg) return { pkg, base }
+  }
+  return { pkg: null, base: '' }
+}
+
+function collectEntries(repo: string, pkg: ArchScanFacts['packageJson'], base = ''): string[] {
   const out: string[] = []
   const push = (rel: string) => {
-    const r = String(rel || '').replace(/\\/g, '/').replace(/^\.\//, '')
+    const r0 = String(rel || '').replace(/\\/g, '/').replace(/^\.\//, '')
+    const r = base ? `${base}/${r0}` : r0
     if (!r || out.includes(r)) return
+    // 构建产物不是架构入口（`dist/boot.js` 是 tsc 的输岀，不是“从哪进”）——
+    // 2026-10-30 实测：入口节点差点变成 dist/boot.js，图上等于没有源码入口。
+    if (/(^|\/)(dist|build|out|release)\//.test(r)) return
     if (fs.existsSync(path.join(repo, r))) out.push(r)
   }
   if (pkg?.main) push(pkg.main)
   if (pkg?.bin && typeof pkg.bin === 'object') for (const v of Object.values(pkg.bin)) push(String(v))
   for (const c of [
     'src/main.ts', 'src/main.js', 'src/main/index.ts', 'src/main/index.js',
-    'src/index.ts', 'src/index.js', 'index.ts', 'index.js',
+    'src/index.ts', 'src/index.js', 'src/boot.ts', 'src/boot.js', 'index.ts', 'index.js',
     'src/renderer/main.ts', 'src/renderer/main.js', 'main.js', 'main.ts',
   ]) push(c)
   return out
@@ -166,17 +239,30 @@ export interface ScanOptions {
  */
 export function scanProject(repo: string, opts: ScanOptions = {}): ArchScanFacts {
   const root = String(repo || '').trim()
-  const pkg = root && fs.existsSync(root) ? readPackageJson(root) : null
+  const pkgInfo = root && fs.existsSync(root) ? findPackageJson(root) : { pkg: null, base: '' }
+  const pkg = pkgInfo.pkg
   const { files, truncated } = root && fs.existsSync(root) ? walkFiles(root) : { files: [], truncated: false }
   const limit = Number(opts.maxFiles) > 0 ? Number(opts.maxFiles) : MAX_FILES
   const used = files.slice(0, limit)
 
   const dirMap = new Map<string, { files: number; samples: string[]; exts: Set<string> }>()
   const relOf = new Map<string, string>()
+  // 先按"细粒度"数一遍文件，再决定哪些碎目录并回父级（2026-10-30 质量重做）。
+  const rawCount = new Map<string, number>()
   for (const f of used) {
     const rel = path.relative(root, f).split(path.sep).join('/')
     relOf.set(f, rel)
-    const id = nodeIdOfRel(rel)
+    const raw = nodeIdOfRel(rel)
+    rawCount.set(raw, (rawCount.get(raw) || 0) + 1)
+  }
+  const finalMap = rollupFineNodes(rawCount)
+  const finalOf = (rel: string): string => {
+    const raw = nodeIdOfRel(rel)
+    return finalMap.get(raw) || raw
+  }
+  for (const f of used) {
+    const rel = relOf.get(f) || ''
+    const id = finalOf(rel)
     if (!dirMap.has(id)) dirMap.set(id, { files: 0, samples: [], exts: new Set() })
     const d = dirMap.get(id)!
     d.files++
@@ -197,7 +283,7 @@ export function scanProject(repo: string, opts: ScanOptions = {}): ArchScanFacts
     const text = safeReadText(f)
     if (!text) continue
     const rel = relOf.get(f) || ''
-    const from = nodeIdOfRel(rel)
+    const from = finalOf(rel)
     if (ipc.handles < 9999 && reHandle.test(text)) {
       ipc.handles += (text.match(new RegExp(reHandle.source, 'g')) || []).length
       ipc.handleSamples.push(...lineSamples(text, reHandle, rel, 2))
@@ -225,7 +311,7 @@ export function scanProject(repo: string, opts: ScanOptions = {}): ArchScanFacts
     for (const spec of importsOf(text)) {
       const target = resolveImport(f, spec)
       if (!target) continue
-      const to = nodeIdOfRel(path.relative(root, target).split(path.sep).join('/'))
+      const to = finalOf(path.relative(root, target).split(path.sep).join('/'))
       if (!to || to === from) continue
       const key = from + '\u0000' + to
       if (!edgeMap.has(key)) edgeMap.set(key, { from, to, count: 0, samples: [] })
@@ -241,7 +327,7 @@ export function scanProject(repo: string, opts: ScanOptions = {}): ArchScanFacts
     dirs: Array.from(dirMap.entries())
       .map(([p, d]) => ({ path: p, files: d.files, samples: d.samples, exts: Array.from(d.exts).sort() }))
       .sort((a, b) => a.path.localeCompare(b.path)),
-    entries: collectEntries(root, pkg),
+    entries: collectEntries(root, pkg, pkgInfo.base),
     imports: Array.from(edgeMap.values()).sort((a, b) => b.count - a.count),
     ipc,
     ports,
@@ -251,10 +337,12 @@ export function scanProject(repo: string, opts: ScanOptions = {}): ArchScanFacts
 }
 
 /** 项目 id/name → 图。失败说清为什么（没登记 / 没 repo / 目录不在 / 扫不出东西）。 */
-export function archForProject(projectId: string): {
+export function archForProject(projectId: string, opts: { strict?: boolean; excluded?: string[] } = {}): {
   ok: boolean
   error?: string
   graph?: ArchGraph
+  review?: ArchReview
+  repairs?: string[]
   repo?: string
   project?: { id: string; name: string; repo: string }
 } {
@@ -272,15 +360,32 @@ export function archForProject(projectId: string): {
   if (!fs.existsSync(repo)) return { ok: false, error: `${name} 的仓库目录不存在：${repo}` }
   const facts = scanProject(repo)
   facts.project = { id: String(p.id ?? want), name, repo }
-  const graph = buildArchGraph(facts)
+  let graph = buildArchGraph(facts, { strict: !!opts.strict })
+  const repairs: string[] = []
+  // 「驳回重画」（2026-10-30 第 3 条）：不是在原图上涂改，而是按诊断做减法，
+  // 最多重画 3 版；每一版做了什么都要能说出来。
+  if (opts.strict) {
+    for (let round = 1; round <= 3; round++) {
+      const rev = evaluateArchGraph(graph)
+      if (rev.ok) break
+      const rep = repairArchGraph(graph, round)
+      graph = rep.graph
+      repairs.push(...rep.repairs)
+    }
+  }
+  const excluded = (Array.isArray(opts.excluded) ? opts.excluded : []).map(String).filter(Boolean)
+  if (excluded.length) graph = filterArchGraph(graph, excluded)
+  const review = evaluateArchGraph(graph)
   if (!graph.nodes.length) {
     return {
       ok: false,
       error: `${name} 里没有可扫的代码目录（不是 TS/JS 项目，或者仓库路径指错了）—— 缺什么已在卡上列出`,
       graph,
+      review,
+      repairs,
       repo,
       project: { id: String(p.id ?? want), name, repo },
     }
   }
-  return { ok: true, graph, repo, project: { id: String(p.id ?? want), name, repo } }
+  return { ok: true, graph, review, repairs, repo, project: { id: String(p.id ?? want), name, repo } }
 }

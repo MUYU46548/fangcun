@@ -140,6 +140,19 @@ export interface LogEntry {
    *   普通日志零变化。parse/render 白名单两处都必须在 —— 漏一处 = 下次写回即丢。
    */
   fromTodo?: string
+  /**
+   * 附属日志（2026-10-30 暮雨第 4 条）。
+   *
+   * 用户原话：「我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成」。
+   * 以前只有一个「多选 → 开工单」的复制按钮：多选本身还是临时状态，复制完就散，
+   * 下次还得重新勾。现在把关系**落盘**在主日志上：
+   *   · 只有主日志有这个字段（`attached: [副日志 id...]`），副日志不存反向指针 ——
+   *     单一事实来源，不会出现两边不一致；
+   *   · 一个副日志只能属于一个主日志（写之前校验），最多 20 条；
+   *   · 只在有值时落盘，历史日志不会凭空多字段；
+   *   · 与接力链（continues_from）是两件事：接力 = 先后续写，附属 = 同一轮并行通道。
+   */
+  attached?: string[]
 }
 
 /**
@@ -270,6 +283,8 @@ function parseLogFile(filePath: string): LogEntry | null {
       priority: raw.priority ? String(raw.priority) : undefined,
       // 卡 004 来源链：同上，白名单漏列 = 下一次写回把来源静默删掉
       fromTodo: raw.from_todo ? String(raw.from_todo) : undefined,
+      // 附属日志（2026-10-30 第 4 条）：与 tasks/attachments 同款，块式与内联两种写法都认
+      attached: parseAttachments(raw.attached).slice(0, 20),
     }
   } catch {
     return null
@@ -322,6 +337,11 @@ function renderLog(log: LogEntry): string {
   // 改正文的时间戳（2026-10-18）：只在有值时落盘，历史日志零变化
   if (log.edited) fm.edited = log.edited
   let fmText = yaml.dump(fm, { lineWidth: -1, noRefs: true, flowLevel: -1 })
+  // 附属日志（2026-10-30 第 4 条）：手工内联，理由同 attachments ——
+  // Python 侧逐行 kv 解析只认 `[a, b]`，yaml.dump 的块式列表会被读成空值。
+  if (log.attached?.length) {
+    fmText += 'attached: [' + log.attached.map(id => `'${String(id)}'`).join(', ') + ']\n'
+  }
   // 附件清单走**手工内联行**，不交给 yaml.dump（2026-10-01）：
   // Python 侧 `tegula/core.py::_parse_log` 是逐行 kv 解析、只认 `[a, b]` 这种内联列表，
   // yaml.dump 出的块式列表（`attachments:` + `  - x`）会被它读成空值，下一次 Python 写盘
@@ -767,20 +787,142 @@ export function setLogRunning(id: string, running: boolean): { ok: boolean; data
 }
 
 /**
+ * 主日志 + 附属日志（2026-10-30 暮雨第 4 条）。
+ *
+ * 关系的唯一事实来源是**主日志的 `attached` 数组**：副日志文件里不写反向指针，
+ * 所以不存在"两边不一致"。下面三个动作都只走这一份数据。
+ */
+
+/** 组内全部**真实存在**的日志 id（主日志在第一位；断掉的引用自动忽略）。 */
+export function logGroupIds(mainId: string): string[] {
+  const main = getLog(String(mainId || '').trim())
+  if (!main) return []
+  const all = new Map(listLogs().map((l) => [l.id, l]))
+  const out = [main.id]
+  for (const id of main.attached || []) {
+    if (id && id !== main.id && all.has(id) && !out.includes(id)) out.push(id)
+  }
+  return out
+}
+
+/**
+ * 绑定 / 解绑附属日志（只写主日志）。返回**更新后**的主日志。
+ *
+ * 校验（错就整批拒绝，不写半条）：
+ *   · 主日志必须存在；不能把自己绑成自己的附属；
+ *   · 目标日志必须存在；
+ *   · 目标自己不能是另一个组的主日志（不支持嵌套）；
+ *   · 目标不能已经属于别的组（一个副日志只归一个主日志）；
+ *   · 最多 20 条（再多就不像"同一轮并行通道"了）。
+ */
+export function setLogAttached(mainId: string, ids: string[]): { ok: boolean; data?: LogEntry; error?: string } {
+  const id = String(mainId || '').trim()
+  const main = getLog(id)
+  if (!main) return { ok: false, error: '主日志不存在' }
+  const want: string[] = []
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    const x = String(raw || '').trim()
+    if (!x || x === id || want.includes(x)) continue
+    want.push(x)
+  }
+  if (want.length > 20) return { ok: false, error: '一个主日志最多带 20 条附属日志' }
+  const all = listLogs()
+  const byId = new Map(all.map((l) => [l.id, l]))
+  const ownerOfMain = all.find((l) => l.id !== id && (l.attached || []).includes(id))
+  if (ownerOfMain) return { ok: false, error: `这条本身是「${ownerOfMain.title || ownerOfMain.id}」的附属，不能反过来当主日志` }
+  for (const x of want) {
+    const t = byId.get(x)
+    if (!t) return { ok: false, error: `附属日志不存在：${x}` }
+    if ((t.attached || []).length) return { ok: false, error: `「${t.title || x}」自己也是主日志，不能再当附属` }
+    const owner = all.find((l) => l.id !== id && (l.attached || []).includes(x))
+    if (owner) return { ok: false, error: `「${t.title || x}」已经属于「${owner.title || owner.id}」` }
+  }
+  main.attached = want
+  atomicallyWrite(path.join(getLogsDir(), `${id}.md`), renderLog(main))
+  return { ok: true, data: main }
+}
+
+/** 一键全进行中 / 全部撤销（只动 **待处理/进行中** 的成员；已完成/已归档不悄悄拉回来）。 */
+export function setLogGroupRunning(mainId: string, running: boolean): {
+  ok: boolean
+  changed: string[]
+  skipped: string[]
+  error?: string
+} {
+  const ids = logGroupIds(mainId)
+  if (!ids.length) return { ok: false, changed: [], skipped: [], error: '主日志不存在' }
+  const on = !!running
+  const changed: string[] = []
+  const skipped: string[] = []
+  for (const id of ids) {
+    const entry = getLog(id)
+    if (!entry) { skipped.push(id); continue }
+    if (entry.status !== 'active') { skipped.push(id); continue }
+    if (!!entry.running === on) { skipped.push(id); continue }
+    entry.running = on
+    if (on) entry.agentDone = false
+    atomicallyWrite(path.join(getLogsDir(), `${id}.md`), renderLog(entry))
+    changed.push(id)
+  }
+  return { ok: true, changed, skipped }
+}
+
+/** 一键全完成（跳过已完成/已归档；保留天数与备注按主日志这一次的填写套到全组）。 */
+export function completeLogGroup(mainId: string, retainDays: number | null, note?: string): {
+  ok: boolean
+  changed: string[]
+  skipped: string[]
+  error?: string
+} {
+  const ids = logGroupIds(mainId)
+  if (!ids.length) return { ok: false, changed: [], skipped: [], error: '主日志不存在' }
+  const changed: string[] = []
+  const skipped: string[] = []
+  for (const id of ids) {
+    const entry = getLog(id)
+    if (!entry) { skipped.push(id); continue }
+    if (entry.status === 'completed' || entry.status === 'archived') { skipped.push(id); continue }
+    const r = completeLog(id, retainDays, note)
+    if (r.ok) changed.push(id)
+    else skipped.push(id)
+  }
+  return { ok: true, changed, skipped }
+}
+
+/**
  * AI 申请收口（2026-10-30 用户拍板）—— **只标记，不签字**。
  *
  * agent 唯一能做的「结束」动作：在 active 日志上打 `agent_done`，界面卡上显示
  * 「⏳ 等你确认」+「✅ 确认完成」。真正变 completed/archived 只能由用户点。
  * 对已完成的日志再请求收口 = ok（幂等），但不会把状态改回去。
+ *
+ * ⚠ 2026-10-30 暮雨第 1/6 条（真事故）：本函数以前顺手写了 `entry.running = false`。
+ * 后果是用户手动标好的「进行中」在 agent 申请收口的那一刻**无声消失**，卡面变回
+ * 「待处理 / 等你确认」—— 用户再回来根本分不清这条到底派出去没有。
+ * 现在收紧成一条硬规矩：**「进行中」只有 `setLogRunning` 能改，任何 agent 侧路径
+ * 都不许碰它**（申请收口、撤回收口都不行）。`agent_done` 是「我说完了」，
+ * `running` 是「人已经派出去了」，两件事互相独立。
  */
 export function requestLogClose(id: string): { ok: boolean; data?: LogEntry; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.status !== 'active') return { ok: true, data: entry }
   if (entry.agentDone) return { ok: true, data: entry }
+  if (entry.status !== 'active') return { ok: true, data: entry }
+  // 2026-10-30 暮雨第二次追问（截图：卡片同时写「待处理」和「等你确认」）：
+  // 「我根本不知道这玩意到底派没派。」
+  // 根因是 agent 可以在**没标进行中**的日志上申请收口 —— 卡片就成了
+  // 「待处理（=没派出去）」+「等你确认（=AI 说做完了）」自相矛盾。
+  // 现在收紧：**只有你手动标了「进行中」（= 派给 AI）的日志，AI 才能申请收口。**
+  // 没派出去的日志，AI 只能把内容写好，完成与否由你决定。
+  if (!entry.running) {
+    return {
+      ok: false,
+      error: '这条日志还没标「进行中」（= 还没派出去），不能申请收口。先由你在卡上点「▶ 标为进行中」，或直接点「完成」。',
+    }
+  }
   entry.agentDone = true
-  entry.running = false
+  // 不碰 entry.running —— 见上面的 2026-10-30 事故说明
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }
@@ -800,7 +942,75 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
   if (!fs.existsSync(filePath)) return { ok: false, error: '文件不存在' }
   fs.unlinkSync(filePath)
+  // 2026-10-30：销毁一条副日志后，主日志的 attached 里不能留断链 ——
+  // 界面上会显示一个点不开的「附属」，用户以为是 bug。顺手清掉引用（只改主日志）。
+  try {
+    for (const main of listLogs()) {
+      if (!(main.attached || []).includes(id)) continue
+      main.attached = (main.attached || []).filter((x) => x !== id)
+      atomicallyWrite(path.join(getLogsDir(), `${main.id}.md`), renderLog(main))
+    }
+  } catch { /* 清理引用失败不影响日志已删这个事实 */ }
   return { ok: true }
+}
+
+/**
+ * 日志状态快照 / 还原（2026-10-30 暮雨第 5 条：撤销要**真的回到点之前那一格**）。
+ *
+ * 为什么不用「撤销完成 = reopen」那套：reopen 只会退回「待处理」，把用户手动标的
+ * 「进行中」、保留天数、完成时间全抹掉 —— 那不是撤销，是另一种改动。
+ * 这里只做一件事：把一组白名单字段原样写回（历史文件不多字段，空值不落盘）。
+ */
+export interface LogStateSnapshot {
+  status: 'active' | 'completed' | 'archived'
+  running?: boolean
+  agentDone?: boolean
+  completed?: string | null
+  retainDays?: number | null
+  retainUntil?: string | null
+  note?: string
+  archiveNote?: string
+}
+
+/** 读一条日志的当前状态（撤销栈在动作前拍快照用；不写盘）。 */
+export function logStateSnapshot(id: string): LogStateSnapshot | null {
+  const entry = parseLogFile(path.join(getLogsDir(), `${id}.md`))
+  if (!entry) return null
+  return {
+    status: entry.status,
+    running: !!entry.running,
+    agentDone: !!entry.agentDone,
+    completed: entry.completed ?? null,
+    retainDays: entry.retainDays ?? null,
+    retainUntil: entry.retainUntil ?? null,
+    note: entry.note ?? '',
+    archiveNote: entry.archiveNote ?? '',
+  }
+}
+
+/** 把快照写回（撤销用）。只认白名单里的键，状态非法直接拒绝。 */
+export function restoreLogState(id: string, snap: LogStateSnapshot): { ok: boolean; data?: LogEntry; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  const s = snap || ({} as LogStateSnapshot)
+  const status = String(s.status || '')
+  if (status !== 'active' && status !== 'completed' && status !== 'archived') {
+    return { ok: false, error: `快照里的状态不合法：${status || '(空)'}` }
+  }
+  entry.status = status
+  entry.running = !!s.running
+  entry.agentDone = !!s.agentDone
+  entry.completed = s.completed ? String(s.completed) : null
+  const rdRaw = s.retainDays
+  entry.retainDays = (rdRaw === null || rdRaw === undefined || rdRaw === ('' as any))
+    ? null
+    : (Number.isFinite(Number(rdRaw)) ? Number(rdRaw) : null)
+  entry.retainUntil = s.retainUntil ? String(s.retainUntil) : null
+  entry.note = s.note ? String(s.note) : undefined
+  entry.archiveNote = s.archiveNote ? String(s.archiveNote) : undefined
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
 }
 
 /** 「清理归档」的返回形状（2026-10-13 暮雨第 2 条）。 */

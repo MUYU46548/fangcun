@@ -35,7 +35,8 @@ Module._resolveFilename = function (request, ...rest) {
 const SCANNER = path.join(DIST, 'main', 'services', 'projectArch.js')
 const GRAPH = path.join(DIST, 'shared', 'archGraph.js')
 const SVG = path.join(DIST, 'shared', 'archSvg.js')
-if (![SCANNER, GRAPH, SVG].every((p) => fs.existsSync(p))) {
+const VALIDATE = path.join(DIST, 'shared', 'archValidate.js')
+if (![SCANNER, GRAPH, SVG, VALIDATE].every((p) => fs.existsSync(p))) {
   console.log('FAIL  编译产物存在（先跑 cd desktop && npm run build）')
   console.log('RESULT 0 / 1')
   process.exit(1)
@@ -45,6 +46,7 @@ data.setDataDir(DATA)
 const arch = require(SCANNER)
 const G = require(GRAPH)
 const S = require(SVG)
+const V = require(VALIDATE)
 
 let pass = 0, fail = 0
 const failures = []
@@ -194,6 +196,59 @@ check('证据清单逐条说来源（package.json / import / IPC / 只读扫描�
 })(), graph.evidence.join(' | '))
 check('没有缺项时 missing 为空（夹具是完整的）', graph.missing.length === 0,
   JSON.stringify(graph.missing))
+
+console.log('\n== ②b 分层校验 / 逐块剔除 / 驳回重画（2026-10-30 第 3 条）==')
+{
+  const review = V.evaluateArchGraph(graph)
+  check('★★ 完整图过全部校验门（7 硬门 + 2 警告门）', review.ok === true && review.total >= 9,
+    review.text)
+  check('  每道门都说清"在查什么 / 查到了什么"', review.gates.every((g) => String(g.detail || '').length > 4),
+    JSON.stringify(review.gates.map((g) => g.detail).slice(0, 3)))
+  check('  不通过的门给修法（不是只说"不合格"）',
+    review.gates.filter((g) => !g.pass).every((g) => !!g.fix) || review.ok)
+
+  // 反例：节点没有样例 / 连线端点不存在 / 重复连线 / 规模超限 → 必须精确变红
+  const bad = {
+    ...graph,
+    nodes: [
+      ...graph.nodes,
+      { id: 'src/bad', label: '没证据的节点', kind: 'layer', files: 0, samples: [], note: '编的' },
+    ],
+    edges: [
+      ...graph.edges,
+      { from: 'src/renderer', to: 'src/shared', kind: 'import', label: 'dup', count: 1, samples: ['x'] },
+      { from: 'src/renderer', to: '不存在的节点', kind: 'import', label: 'ghost', count: 1, samples: ['x'] },
+    ],
+  }
+  const badReview = V.evaluateArchGraph(bad)
+  const failed = (id) => badReview.gates.some((g) => g.id === id && !g.pass)
+  check('★★ 没证据的节点 → 「节点有证据」门变红', failed('evidence-nodes'), badReview.text)
+  check('★★ 端点不存在的连线 → 「连线有证据」门变红', failed('evidence-edges'))
+  check('★ 重复连线 → 「唯一」门变红', failed('unique'))
+
+  // 逐块剔除：只影响这张图，不编也不改数据
+  const filtered = G.filterArchGraph(graph, ['src/main'])
+  check('★★ 人工剔除一块 → 节点没了，连着它的边也没了',
+    !filtered.nodes.some((n) => n.id === 'src/main')
+    && !filtered.edges.some((e) => e.from === 'src/main' || e.to === 'src/main'))
+  check('  剔除后文字如实写「已剔除 1 块」', filtered.text.indexOf('已剔除 1 块') >= 0, filtered.text)
+  check('  剔除只产出一份新图，原图不动', graph.nodes.some((n) => n.id === 'src/main'))
+
+  // 驳回重画：按诊断做减法，且每次都说做了什么
+  const many = {
+    ...graph,
+    nodes: Array.from({ length: 22 }, (_, i) => ({
+      id: 'src/n' + i, label: '块' + i, kind: 'layer', files: 1, samples: ['src/n' + i + '/x.ts'], note: 'n' + i,
+    })).concat([{ id: '__entry__', label: '入口', kind: 'entry', files: 1, samples: ['src/main/index.ts'], note: 'e' }]),
+    edges: [],
+  }
+  const rep = V.repairArchGraph(many, 1)
+  check('★★ 节点超限 → 重画真的减下来（不是原样再贴一遍）', rep.graph.nodes.length < many.nodes.length,
+    `${many.nodes.length} → ${rep.graph.nodes.length}`)
+  check('  重画逐条报告做了什么', rep.repairs.length > 0 && rep.repairs.every((x) => String(x).length > 4),
+    JSON.stringify(rep.repairs))
+}
+
 
 console.log('\n== ③ 空仓库：缺什么必须说出来，不许装 ==')
 const emptyRoot = path.join(TMP, 'empty-repo')

@@ -841,6 +841,14 @@
                 <span class="card-proj" :title="normProject(t.project) || '未归属任何项目'">{{ projShort(t.project) }}</span>
               </span>
             </div>
+            <!-- 2026-10-30 暮雨第 2 条：驳回理由必须**一直看得见**。
+                 以前理由只埋在 result_log 一段长文本里，退回返工后卡面没有任何痕迹，
+                 「驳回」等于白做。现在独立字段 + 卡面一行，退回返工也不消失。 -->
+            <div v-if="rejectReasonOf(t) || t.reject_at" class="card-reject"
+              :title="(rejectReasonOf(t) || '当时没写理由') + (t.reject_at ? '\n驳回于 ' + formatDateTime(t.reject_at) : '')">
+              <span class="cr-lbl">{{ t.status === '驳回' ? '↩ 驳回理由' : '↩ 上次驳回' }}</span>
+              <span class="cr-txt">{{ rejectReasonOf(t) || '没写理由' }}</span>
+            </div>
             <!-- 2026-10-30（暮雨第 3 条）：「待验收」的卡在列表里**没有任何可点的出口**，
                  只能先点开详情、再滚到底部才能裁决 —— 看起来就是个动不了的尴尬状态。
                  把两个出口直接放到卡上：通过 / 驳回都进同一个裁决框（要留痕），
@@ -941,18 +949,17 @@
                : policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
                : '＋ 立项目方针' }}
           </button>
-          <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 2 条再改）：
-               以前挂世界地图 Emoji + 「结构图」，画出来却是"项目 → 在途 → 已完成 → 日志"的大号看板 ——
-               那不是架构图，用户当场否掉。现在只做**打开仓库里已有的 archify 产物**，
-               名字也叫「架构图」，不再用地图 Emoji 冒充结构图。
-               方寸自己生成架构图是目标，还没做（卡 task-20261030-002）。 -->
-          <button class="ghost pv-policy pv-diagram" @click.stop="openProjectDiagram(p)"
-                  title="打开这个项目的架构图（仓库 docs/ 里 archify 生成的 HTML）；没有就先让 archify 生成一份放进去">架构图</button>
-          <!-- 方寸自绘架构图（2026-10-30，卡 task-20261030-002）：不一样的东西 ——
-               「架构图」打开的是**别人画好的** HTML；这个按钮是方寸**只读扫源码**自己画一张。
-               两个按钮并列是刻意的：用户一眼能分清"看现成的"与"让我扫一遍"。 -->
-          <button class="ghost pv-policy pv-archself" @click.stop="openSelfArch(p)"
-                  title="方寸自己扫这个仓库的源码画一张：节点 = 真实目录，连线 = 真实 import / IPC 计数（只读，不改仓库）">自绘架构图</button>
+          <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 3 条再改）：
+               以前是相邻两个几乎同名的按钮（「架构图」「自绘架构图」）—— 暮雨原话
+               「和架构图按钮放在一起你自己不觉得尴尬吗」。现在收成**一个分段控件**：
+               左半「架构图」= 打开仓库里已有的 archify 产物；右半「绘制架构图」= 方寸只读扫源码画一张。
+               一个控件、两种来源，不再是两个抢位置的按钮。 -->
+          <div class="pv-arch-group" role="group" aria-label="架构图">
+            <button class="ghost pv-diagram" @click.stop="openProjectDiagram(p)"
+              title="打开这个项目的架构图（仓库 docs/ 里 archify 生成的 HTML）；没有就先让 archify 生成一份放进去">架构图</button>
+            <button class="ghost pv-archself" @click.stop="openSelfArch(p)"
+              title="绘制架构图：方寸只读扫源码，节点 = 真实目录、连线 = 真实 import / IPC 计数；先过校验、你点头才允许导出">✎ 绘制架构图</button>
+          </div>
         </div>
         <div class="tile tile-add" @click="openNewProject">
           <div class="add-icon">+</div>
@@ -1845,7 +1852,9 @@
     <!-- Review modal（2026-10-25：待审批 / 待验收共用，文案按 kind 切换） -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
       <div id="review-modal">
-        <h3>{{ reviewModal.kind === 'approval' ? '⚖ 审批裁决（批准 → 待办 / 驳回）' : '✅ 验收裁决' }}</h3>
+        <h3>{{ reviewModal.kind === 'approval'
+          ? '⚖ 审批裁决（批准 → 待办 / 驳回）'
+          : reviewModal.kind === 'direct' ? '↩ 驳回任务' : '✅ 验收裁决' }}</h3>
         <div class="review-info">
           <div class="review-task-title">{{ reviewModal.title }}</div>
           <div class="review-task-id">{{ reviewModal.id }}</div>
@@ -1854,7 +1863,14 @@
              通过按钮虽然在，但通过时**无处写结论**，等于「通过」这件事不留痕。
              改成双用的验收结论：驳回必填、通过选填，两者都写进「结果记录」。
              2026-10-25：审批裁决同样走这里（批准 = 转正待办，理由同样留痕）。 -->
-        <label>{{ reviewModal.kind === 'approval' ? '审批意见（驳回必填 · 批准选填，均写入结果记录）' : '验收结论（驳回必填 · 通过选填，均写入结果记录）' }}</label>
+        <label>{{ reviewModal.kind === 'direct'
+          ? '驳回理由（可选 —— 写不清就点下面一个常用理由，或直接留空）'
+          : '裁决意见（可选；驳回后仍会常驻在卡上，随时能改）' }}</label>
+        <!-- 2026-10-30（暮雨第 2 条）：常用理由一键填，不必每次写作文。再点一次取消选择。 -->
+        <div class="review-presets">
+          <button v-for="p in reviewPresets" :key="p" type="button" class="ghost rp"
+            :class="{ on: reviewReason === p }" @click="reviewReason = reviewReason === p ? '' : p">{{ p }}</button>
+        </div>
         <textarea v-model="reviewReason" class="review-reason"
           :placeholder="reviewModal.kind === 'approval'
             ? '批准：为什么可以转正；驳回：缺什么、要改成什么样'
@@ -1862,7 +1878,7 @@
         <div class="acts">
           <button class="ghost" @click="reviewModal = null">取消</button>
           <button class="danger" @click="rejectTask">↩ 驳回</button>
-          <button class="ok" @click="acceptTask">{{ reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
+          <button v-if="reviewModal.kind !== 'direct'" class="ok" @click="acceptTask">{{ reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
         </div>
       </div>
     </div>
@@ -1916,6 +1932,40 @@
       </div>
     </div>
 
+    <!-- 绑定附属日志（2026-10-30 暮雨第 4 条）：一篇主日志带若干附属，关系落盘。
+         不再要求"先多选再找批量栏"—— 直接在主日志卡上点「🔗 绑定附属」。 -->
+    <div v-if="logAttachTarget" class="overlay" @mousedown.self="logAttachTarget = null">
+      <div id="log-attach-modal">
+        <h3>🔗 绑定附属日志</h3>
+        <div class="la-main">
+          <span class="la-lbl">主日志</span>
+          <b>{{ logAttachTarget.title || logAttachTarget.id }}</b>
+        </div>
+        <div class="la-hint">
+          勾选同一轮一起跑的那几条（进度通知 / 并行通道）。绑定后主日志卡上会多出
+          「全组进行中 / 全组完成 / 开工单」—— 一次点全组，不必再逐条点。
+          一个附属只能归一个主日志；已完成/已归档的也能绑（只是全组动作会跳过它们）。
+        </div>
+        <div class="la-list">
+          <label v-for="l in logAttachCandidates" :key="'la-' + l.id" class="la-row">
+            <input type="checkbox" :checked="logAttachPick.includes(l.id)"
+              @change="toggleLogAttachPick(l.id)" />
+            <span class="log-status-badge" :class="logStatusClass(l)">{{ logStatusLabel(l) }}</span>
+            <span class="la-title">{{ l.title || l.id }}</span>
+            <span class="la-meta">{{ l.project || '未归属' }} · {{ formatDate(l.created) }}</span>
+          </label>
+          <div v-if="!logAttachCandidates.length" class="la-empty">
+            没有可绑的日志 —— 另一条日志如果自己已经是主日志，或已归到别的组，就不会出现在这里。
+          </div>
+        </div>
+        <div class="acts">
+          <span class="la-count">已选 {{ logAttachPick.length }} 条</span>
+          <button class="ghost" @click="logAttachTarget = null">取消</button>
+          <button class="ok" :disabled="logAttachBusy" @click="saveLogAttach">{{ logAttachBusy ? '保存中…' : '保存绑定' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 日志只读预览（2026-09-25 用户第 13 条）：用户明说日志用得比看板多，
          而日志正文此前是纯文本 —— 全项目只有任务预览一处 v-html。
          现在单击日志卡 = 打开只读预览（复用 renderBody：marked + DOMPurify，
@@ -1956,8 +2006,8 @@
           <div v-else class="attach-grid">
             <div class="attach-item" v-for="a in logPreview.attachments" :key="a">
               <img v-if="isImageRel(a) && attachSrc(a)" :src="attachSrc(a)" :alt="attachName(a)"
-                :title="attachName(a) + '（点一下用系统程序打开）'" @click.stop="attachOpen(a)" />
-              <div v-else class="attach-file" :title="a" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
+                :title="attachName(a) + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)" />
+              <div v-else class="attach-file" :title="a + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
               <div class="attach-cap">
                 <span class="attach-fn" :title="a">{{ attachName(a) }}</span>
                 <button class="attach-x" title="解除关联（文件保留，不删）"
@@ -1998,6 +2048,27 @@
           <div v-if="previewTask.archived"><span class="k">来源</span><span class="v">📦 已归档</span></div>
           <div><span class="k">创建</span><span class="v">{{ formatDate(previewTask.created) }}</span></div>
           <div><span class="k">更新</span><span class="v">{{ formatDate(previewTask.updated) }}</span></div>
+        </div>
+        <!-- 上次驳回（2026-10-30 暮雨第 2 条）：理由可选、可改、退回返工后仍在卡上。
+             没有理由也如实说「当时没写理由」—— 那不是"没问题"。 -->
+        <div class="reject-block" v-if="rejectReasonOf(previewTask) || previewTask.reject_at || previewTask.status === '驳回'">
+          <label>
+            上次驳回
+            <span v-if="previewTask.reject_at" class="reject-at">· {{ formatDateTime(previewTask.reject_at) }}</span>
+          </label>
+          <template v-if="rejectEdit">
+            <textarea v-model="rejectEditText" class="reject-edit" rows="2"
+              placeholder="哪里不行 / 要改成什么样（可以留空）"></textarea>
+            <div class="reject-acts">
+              <button class="ghost" @click="rejectEdit = false">取消</button>
+              <button class="ok" :disabled="rejectSaving" @click="saveRejectEdit">{{ rejectSaving ? '保存中…' : '保存理由' }}</button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="reject-text">{{ rejectReasonOf(previewTask) || '（当时没写理由）' }}</div>
+            <button class="ghost reject-edit-btn" title="改这条驳回理由（不影响状态）"
+              @click="startRejectEdit">✏️ 改理由</button>
+          </template>
         </div>
         <div class="body" v-if="previewTask.body">
           <label>正文</label>
@@ -2129,8 +2200,8 @@
               >✓ 完成</button>
               <button
                 class="danger"
-                title="直接驳回（跳过验收，适用于挂死/废弃任务）"
-                @click="forceCloseTask(previewTask, '驳回')"
+                title="直接驳回（不要求先到待验收；理由可选，会留在卡上）"
+                @click="openDirectReject(previewTask)"
               >✕ 驳回</button>
             </template>
             <button
@@ -2260,7 +2331,12 @@
     <!-- 方寸自绘架构图（2026-10-30，卡 task-20261030-002）：只读扫源码出的图。
          与「架构图」按钮（打开 archify 产物）并存：一个是看别人画的，一个是自己扫的。 -->
     <div id="arch-overlay" class="overlay" v-if="archOpen && archGraph" @mousedown.self="archOpen = false">
-      <ArchDiagram :graph="archGraph" :busy="archBusy" @close="archOpen = false" @export="exportSelfArch" />
+      <ArchDiagram :graph="archGraph" :review="archReview" :repairs="archRepairs" :rejects="archRejects"
+        :busy="archBusy" :version="archVersion" :approved="archApproved"
+        :excluded="archExcluded.map(x => x.id)" :excluded-info="archExcluded"
+        @close="archOpen = false" @export="exportSelfArch"
+        @exclude="excludeArchNode" @restore="restoreArchNode"
+        @approve="approveArch" @reject="rejectArch" />
     </div>
 
     <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
@@ -2435,8 +2511,8 @@
           <div v-else class="attach-grid">
             <div class="attach-item" v-for="a in logEdit_.attachments" :key="a">
               <img v-if="isImageRel(a) && attachSrc(a)" :src="attachSrc(a)" :alt="attachName(a)"
-                :title="attachName(a) + '（点一下用系统程序打开）'" @click.stop="attachOpen(a)" />
-              <div v-else class="attach-file" :title="a" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
+                :title="attachName(a) + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)" />
+              <div v-else class="attach-file" :title="a + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
               <div class="attach-cap">
                 <span class="attach-fn" :title="a">{{ attachName(a) }}</span>
                 <button class="attach-x" title="解除关联（文件保留，不删）"
@@ -2991,9 +3067,24 @@
          ⚠ 不做全站撤销栈：这里只记「上一笔状态动作」，而且只认能真撤回的那几种。 -->
     <div id="undo-bar" v-if="undoBar" role="status" aria-live="polite">
       <span class="ub-text">{{ undoBar.label }}</span>
+      <button v-if="undoCount > 1" class="ub-count" title="查看全部可撤动作（可以一次退回好几步）"
+        @click="undoHistOpen = !undoHistOpen">共 {{ undoCount }} 步</button>
       <span class="ub-key" title="键盘快捷键：Ctrl+Z（焦点在输入框里也照样撤这一步数据动作）">Ctrl+Z</span>
       <button class="ub-btn" title="撤回上一步（同 Ctrl+Z）" @click="runUndo">↩ 撤销</button>
-      <button class="ub-x" title="知道就行，关掉这条提示（不撤回）" @click="dismissUndo">✕</button>
+      <button class="ub-x" title="不再提示这些可撤动作（不会替你撤回）" @click="dismissUndo">✕</button>
+    </div>
+    <!-- 撤销历史（2026-10-30 暮雨第 5 条）：不只是"上一笔" —— 点哪一条就退到那一步之前。 -->
+    <div id="undo-hist" v-if="undoHistOpen && undoCount" role="dialog" aria-label="可撤动作">
+      <div class="uh-head">可撤动作（{{ undoCount }}）<span>点一条 = 把它及之后一起撤掉</span></div>
+      <button v-for="h in undoHistory" :key="'uh-' + h.index" class="uh-row" @click="undoTo(h.index)">
+        <span class="uh-i">{{ h.index + 1 }}</span>
+        <span class="uh-l">{{ h.label }}</span>
+        <span class="uh-t">{{ h.at ? new Date(h.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '' }}</span>
+      </button>
+      <div class="uh-foot">
+        <button class="ghost" @click="undoHistOpen = false">收起</button>
+        <button class="danger" @click="dismissUndo(); undoHistOpen = false">全部忘掉（不撤回）</button>
+      </div>
     </div>
 
     <!-- Drag status picker -->
@@ -3092,7 +3183,7 @@ import {
 } from './logdedupe'
 import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
-import { undoBar, offerUndo, dismissUndo, runUndo as runUndoCore } from './undo'
+import { undoBar, undoCount, undoHistory, offerUndo, dismissUndo, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { statusClass } from '../shared/status'
@@ -3111,6 +3202,8 @@ import ArchDiagram from './components/ArchDiagram.vue'
 import DataHygienePanel from './components/DataHygienePanel.vue'
 import BoardBanners from './components/BoardBanners.vue'
 import type { ArchGraph } from '../shared/archGraph'
+import { filterArchGraph } from '../shared/archGraph'
+import { evaluateArchGraph, type ArchReview } from '../shared/archValidate'
 import TodosView from './views/TodosView.vue'
 import LogsView from './views/LogsView.vue'
 import CalendarView from './views/CalendarView.vue'
@@ -3140,7 +3233,8 @@ import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, days
 // 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
 import { neverReadSummary } from '../shared/neverRead'
 import type { NeverReadResult } from '../shared/neverRead'
-import { pickRework } from '../shared/rework'
+import { isExecutableAttachment } from '../shared/attachments'
+import { pickRework, lastRejectReason } from '../shared/rework'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -4755,7 +4849,7 @@ function toggleGroupSelect(col: { tasks: Array<{ id: string }> }): void {
 
 
 // ── Review ─────────────────────────────────────────────────────────
-const reviewModal = ref<{ id: string; title: string; kind: 'approval' | 'acceptance'; intent?: 'accept' | 'reject' } | null>(null)
+const reviewModal = ref<{ id: string; title: string; kind: 'approval' | 'acceptance' | 'direct'; intent?: 'accept' | 'reject' } | null>(null)
 const launchpadApps = ref<any[]>([])
 // 待办：数据 / 筛选 / 排序 / 多选 / 编辑弹窗在 composables/useTodos.ts（2026-10-23 · 拆分第 9 块）。
 // 模板在 views/TodosView.vue（第 10 块）。
@@ -5912,11 +6006,31 @@ function batchSetStatus(status: string) {
 
 async function executeBatchStatus(status: string) {
   const ids = [...selectedBatch.value]
+  // 批量改状态最容易"手滑一整屏"：先记下每张卡的原来那一格（2026-10-30 第 5 条）
+  const before = new Map<string, string>()
+  for (const id of ids) {
+    const s = String((tasks.value.find((x: any) => x.id === id) || {}).status || '')
+    if (s) before.set(id, s)
+  }
   const result = await window.tegula.batchEdit(ids, { status })
   if (result.fails.length === 0) {
     showToast(`已将 ${result.ok} 个任务设为「${status}」`, 'success')
   } else {
     showToast(`${result.ok} 成功，${result.fails.length} 失败`, 'error')
+  }
+  if (before.size) {
+    offerUndo(`批量设为「${status}」（${before.size} 个）`, async () => {
+      let ok = 0
+      for (const [id, prev] of before) {
+        try {
+          const r: any = await window.tegula.moveStatus(id, prev)
+          if (r?.ok) ok++
+        } catch { /* 单条失败不中断 */ }
+      }
+      await loadAll()
+      if (ok !== before.size) showToast(`只撤回了 ${ok}/${before.size} 个（其余可能已被改动）`, 'error')
+      else showToast(`已撤回：${ok} 个回到原状态`, 'success')
+    })
   }
   selectedBatch.value = []
   batchMode.value = false
@@ -6407,7 +6521,29 @@ async function saveEdit() {
 
   try {
     if (e.id) {
+      // 2026-10-30 暮雨第 5 条：编辑保存也要能撤（不是所有改动都叫"改状态"）。
+      const cur: any = tasks.value.find((x: any) => x.id === e.id)
+      const prev: any = {}
+      if (cur) {
+        for (const spec of taskFieldSpecs.value) {
+          if (spec.key === 'body') { prev.body = cur.body ?? ''; continue }
+          const v = cur[spec.key] ?? cur.fm?.[spec.key]
+          if (spec.type === 'tags' || spec.type === 'list') {
+            prev[spec.key] = Array.isArray(v) ? v.slice() : (v ? String(v).split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+          } else {
+            prev[spec.key] = v === undefined || v === null ? '' : String(v)
+          }
+        }
+      }
       await window.tegula.editTask(e.id, payload)
+      if (cur) {
+        offerUndo(`已编辑任务「${e.title || e.id}」`, async () => {
+          const r: any = await window.tegula.editTask(e.id, prev)
+          if (!r?.ok) throw new Error(r?.error || '写回失败')
+          await loadAll()
+          showToast('已撤回这次编辑', 'success')
+        })
+      }
     } else {
       await window.tegula.newTask(payload)
     }
@@ -6425,12 +6561,24 @@ async function deleteTask(id: string) {
   // 主进程这次可能抛异常（历史上：目标同名文件已存在于 .trash → renameSync 抛 →
   // 这里没有 try/catch → 按钮点了完全没反应，用户 2026-09-25 第 5 条）。
   // 任何失败都必须变成看得见的一句话 + 日志留痕。
+  const snap = snapOfTask(id)
+  const title = String(tasks.value.find((x: any) => x.id === id)?.title || id)
   try {
     const result = await window.tegula.deleteTask(id)
     if (result) {
       previewTask.value = null
       showToast('已删除', 'success')
       loadAll()
+      // 任务删除是**软删**（进 .trash），所以可撤；真正不可撤的是二次确认过的「彻底删除」。
+      if (snap) {
+        offerUndo(`已删除「${title}」`, async () => {
+          const r: any = await window.tegula.trashRestore(`${id}.md`)
+          if (!r?.ok) throw new Error(r?.error || '回收站里找不到这个文件')
+          await loadAll()
+          await restoreTaskSnap(id, snap)
+          showToast('已从回收站还原', 'success')
+        })
+      }
     } else {
       const msg = `删除失败：任务不存在（${id}）`
       showToast(msg, 'error')
@@ -6445,11 +6593,18 @@ async function deleteTask(id: string) {
 
 async function archiveTask(t: Task) {
   if (!confirm(`确认归档「${t.title}」？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
+  const snap = snapOfTask(t.id)
   const result = await window.tegula.archiveTask(t.id)
   if (result.ok) {
     previewTask.value = null
     showToast('已归档', 'success')
     loadAll()
+    if (snap && !snap.archived) {
+      offerUndo(`已归档「${t.title}」`, async () => {
+        await restoreTaskSnap(t.id, snap)
+        showToast('已撤回：回到归档之前', 'success')
+      })
+    }
   } else {
     showToast(`归档失败: ${result.error || '未知错误'}`, 'error')
   }
@@ -6457,16 +6612,26 @@ async function archiveTask(t: Task) {
 
 /** 非终态直达完成/驳回：挂死任务（如超时未回写）没有验收方可走，必须给终结入口 */
 async function forceCloseTask(t: Task, status: '完成' | '驳回') {
-  const word = status === '完成' ? '标记完成' : '驳回'
+  // 2026-10-30（暮雨第 2 条）：直达「驳回」也必须有地方写理由（可选），否则又回到
+  // "点完再也看不见为什么"。所以驳回统一走裁决框；完成仍是一步直达。
+  if (status === '驳回') { openDirectReject(t); return }
+  const word = '标记完成'
   // ⚠ 2026-10-25：原文案写「留痕于结果记录」——**这是假话**。本函数只调 moveStatus，
   // 结果记录一个字都不写（只有活动日志会记一条状态变更）。用户看不到结论栏有任何东西。
   // 现在如实说清：直达 = 不写结论；要留结论请走上面的「审批裁决 / 验收裁决」。
   if (!confirm(`确认将「${t.title}」直接${word}？\n\n这是跳过裁决的直接改状态：不写结论、不填理由。\n要留下理由与依据，请用「审批裁决 / 验收裁决」。`)) return
+  const snap = snapOfTask(t.id)
   const result = await window.tegula.moveStatus(t.id, status)
   if (result.ok) {
     previewTask.value = null
     showToast(`已${word}`, 'success')
     loadAll()
+    if (snap) {
+      offerUndo(`已${word}「${t.title}」`, async () => {
+        await restoreTaskSnap(t.id, snap)
+        showToast('已撤回', 'success')
+      })
+    }
   } else {
     showToast(`${word}失败: ${result.error || '未知错误'}`, 'error')
   }
@@ -6474,11 +6639,18 @@ async function forceCloseTask(t: Task, status: '完成' | '驳回') {
 
 async function restoreTask(t: Task) {
   if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态；若已归档，会一并移回活跃区。`)) return
+  const snap = snapOfTask(t.id)
   const result = await window.tegula.unarchiveTask(t.id)
   if (result.ok) {
     previewTask.value = null
     showToast('已还原', 'success')
     loadAll()
+    if (snap) {
+      offerUndo(`已退回「${t.title}」`, async () => {
+        await restoreTaskSnap(t.id, snap)
+        showToast('已撤回：回到「' + snap.status + '」', 'success')
+      })
+    }
   } else {
     showToast(`还原失败: ${result.error || '未知错误'}`, 'error')
   }
@@ -6545,7 +6717,7 @@ async function quickCompleteLog(log: any) {
       showToast(`完成失败：${r.error || '未知原因'}`, 'error')
       return
     }
-    offerLogReopenUndo(days > 0 ? `已完成（保留 ${days} 天）：${log.title || log.id}` : `已完成（永不清理）：${log.title || log.id}`, [log.id])
+    offerLogReopenUndo(days > 0 ? `已完成（保留 ${days} 天）：${log.title || log.id}` : `已完成（永不清理）：${log.title || log.id}`, [log.id], [log])
     await loadLogs()
     await loadLogsForTask(previewTask.value?.id || '')
   } catch (e: any) {
@@ -7743,8 +7915,10 @@ const filteredLogs = computed(() => {
 
 // ── 按状态分区（2026-09-28）────────────────────────────────────────────
 const LOG_GROUP_DEFS = [
-  { key: 'running', label: '进行中', hint: '手动标了「进行中」的' },
-  { key: 'active', label: '待处理', hint: '' },
+  // 2026-10-30 暮雨：「我根本不知道这玩意到底派没派」——
+  // 把两个分区的语义直接写在分区头上，别让人靠记忆区分。
+  { key: 'running', label: '进行中', hint: '= 你已经派给 AI（只有你手动点「标为进行中」才会进来）' },
+  { key: 'active', label: '待处理', hint: '还没派出去（要派给 AI 就点那张卡的「▶ 标为进行中」）' },
   { key: 'completed', label: '已完成', hint: '' },
   { key: 'archived', label: '已归档', hint: '' },
 ] as const
@@ -7891,6 +8065,153 @@ function logStatusLabel(log: any): string {
 function logStatusClass(log: any): string {
   if (!log) return ''
   return log.status === 'active' && log.running ? 'running' : String(log.status || '')
+}
+
+// ── 主日志 + 附属日志（2026-10-30 暮雨第 4 条）────────────────────────────
+// 关系的真源是主日志的 `attached` 数组（见 main/services/logs.ts）；界面只做两件事：
+// ① 把「谁是谁的附属」算成两张表；② 收集动作（绑定 / 全组进行中 / 全组完成 / 开工单）。
+const logGroupChildren = computed(() => {
+  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
+  const m = new Map<string, any[]>()
+  for (const l of logs.value || []) {
+    const ids = Array.isArray(l.attached) ? l.attached : []
+    if (!ids.length) continue
+    m.set(l.id, ids.map((id: string) => byId.get(id)).filter(Boolean))
+  }
+  return m
+})
+const logGroupParent = computed(() => {
+  const m = new Map<string, any>()
+  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
+  for (const l of logs.value || []) {
+    for (const id of Array.isArray(l.attached) ? l.attached : []) {
+      const child = byId.get(id)
+      if (child) m.set(id, l)
+    }
+  }
+  return m
+})
+/** 全组是否都已经在「进行中」——用于按钮文案（混合态显示"全部进行中"） */
+function logGroupAllRunning(main: any): boolean {
+  const kids = logGroupChildren.value.get(main?.id) || []
+  const members = [main, ...kids].filter((x: any) => x && x.status === 'active')
+  return members.length > 0 && members.every((x: any) => !!x.running)
+}
+
+// 绑定弹窗（不再藏在多选里：卡上直接「🔗 绑定附属」）
+const logAttachTarget = ref<any>(null)
+const logAttachPick = ref<string[]>([])
+const logAttachBusy = ref(false)
+
+function openLogAttach(main: any): void {
+  if (!main || main.status === 'archived') return
+  logAttachTarget.value = main
+  logAttachPick.value = (Array.isArray(main.attached) ? main.attached : []).slice()
+}
+function toggleLogAttachPick(id: string): void {
+  const i = logAttachPick.value.indexOf(id)
+  if (i >= 0) logAttachPick.value.splice(i, 1)
+  else logAttachPick.value.push(id)
+}
+/** 可被绑定的候选：存在的、不是自己、自己不是主日志、也没被别人绑走 */
+const logAttachCandidates = computed(() => {
+  const main = logAttachTarget.value
+  if (!main) return []
+  return (logs.value || [])
+    .filter((l: any) => l.id !== main.id)
+    .filter((l: any) => !(Array.isArray(l.attached) && l.attached.length))
+    .filter((l: any) => !logGroupParent.value.has(l.id) || (main.attached || []).includes(l.id))
+    .slice()
+    .sort((a: any, b: any) => String(b.created || '').localeCompare(String(a.created || '')))
+})
+
+async function saveLogAttach(): Promise<void> {
+  const main = logAttachTarget.value
+  if (!main) return
+  logAttachBusy.value = true
+  try {
+    const r: any = await window.tegula.logsSetAttached(main.id, toPlain(logAttachPick.value))
+    if (!r?.ok) { showToast(`绑定失败：${r?.error || '未知原因'}`, 'error'); return }
+    showToast(logAttachPick.value.length ? `已绑定 ${logAttachPick.value.length} 条附属日志` : '已解除全部附属', 'success')
+    logAttachTarget.value = null
+    await loadLogs()
+  } catch (e: any) {
+    showToast(`绑定异常：${e?.message || e}`, 'error')
+  } finally {
+    logAttachBusy.value = false
+  }
+}
+
+/** 快照一组日志的当前状态（撤销用） */
+function snapLogsById(ids: string[]): Array<{ id: string; snap: any }> {
+  return ids.map((id) => {
+    const l: any = (logs.value || []).find((x: any) => x.id === id)
+    if (!l) return null
+    return {
+      id,
+      snap: {
+        status: l.status, running: !!l.running, agentDone: !!l.agentDone,
+        completed: l.completed || null, retainDays: l.retainDays ?? null,
+        retainUntil: l.retainUntil || null, note: l.note || '', archiveNote: l.archiveNote || '',
+      },
+    }
+  }).filter(Boolean) as Array<{ id: string; snap: any }>
+}
+
+async function restoreLogSnaps(snaps: Array<{ id: string; snap: any }>): Promise<number> {
+  let ok = 0
+  for (const s of snaps) {
+    try {
+      const r: any = await window.tegula.logsRestoreState(s.id, s.snap)
+      if (r?.ok) ok++
+    } catch { /* 单条失败不中断 */ }
+  }
+  await loadLogs()
+  return ok
+}
+
+/** 一键全进行中 / 全部撤销（只动待处理/进行中的成员） */
+async function toggleLogGroupRunning(main: any, running: boolean): Promise<void> {
+  const ids = [main.id, ...(logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)]
+  const snaps = snapLogsById(ids)
+  const r: any = await window.tegula.logsGroupRunning(main.id, !!running)
+  if (!r?.ok) { showToast(`操作失败：${r?.error || '未知原因'}`, 'error'); return }
+  const n = (r.changed || []).length
+  if (!n) showToast(running ? '全组都已在「进行中」或已完成' : '全组都没有挂「进行中」', 'info')
+  else showToast(running ? `全组 ${n} 条已标为「进行中」` : `全组 ${n} 条已撤销「进行中」`, 'success')
+  await loadLogs()
+  if (snaps.length) {
+    offerUndo(`${running ? '全组进行中' : '全组撤销进行中'}：${main.title || main.id}`, async () => {
+      await restoreLogSnaps(snaps)
+      showToast('已撤回全组状态', 'success')
+    })
+  }
+}
+
+/** 一键全完成（不再要求先勾选；跳过已完成/已归档） */
+async function completeLogGroupItem(main: any): Promise<void> {
+  const ids = [main.id, ...(logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)]
+  const snaps = snapLogsById(ids)
+  const days = logRetainDefault.value
+  const r: any = await window.tegula.logsGroupComplete(main.id, days, '')
+  if (!r?.ok) { showToast(`完成失败：${r?.error || '未知原因'}`, 'error'); return }
+  const n = (r.changed || []).length
+  const skipped = (r.skipped || []).length
+  showToast(n ? `全组已完成 ${n} 条${skipped ? `（${skipped} 条已是完成/归档，跳过）` : ''}` : '全组都已经完成或归档', n ? 'success' : 'info')
+  await loadLogs()
+  if (n && snaps.length) {
+    offerUndo(`全组完成：${main.title || main.id}`, async () => {
+      const ok = await restoreLogSnaps(snaps)
+      if (ok !== snaps.length) showToast(`只撤回了 ${ok}/${snaps.length} 条`, 'error')
+      else showToast('已撤回全组完成', 'success')
+    })
+  }
+}
+
+/** 开工单：主日志 + 全部附属，一次复制（不再依赖多选顺序） */
+async function copyLogGroupAsPrompt(main: any): Promise<void> {
+  const kids = (logGroupChildren.value.get(main.id) || []).map((k: any) => k.id)
+  await copyLogsAsPrompt([main.id, ...kids])
 }
 
 /**
@@ -8526,14 +8847,31 @@ async function attachRemove(logId: string, rel: string): Promise<void> {
   }
 }
 
-/** 用系统程序打开（图片看大图、报告开 PDF） */
+/** 用系统程序打开（图片看大图、报告开 PDF）。
+ *  ⚠ 2026-10-30 白屏事故：可执行/安装包**绝不直接运行** —— 先问，再只在文件夹里定位。 */
 async function attachOpen(rel: string): Promise<void> {
   try {
-    const r = await (window as any).tegula.logsOpenAttachment(rel)
-    if (!r?.ok) showToast('打开失败：' + (r?.error || '未知原因'), 'error')
+    const r: any = await (window as any).tegula.logsOpenAttachment(rel)
+    if (r?.ok) return
+    if (r?.needsReveal) {
+      const yes = confirm(`${r.error || '这是可执行文件，方寸不会直接运行它'}\n\n${r.hint || ''}\n\n要在文件夹里显示它吗？（确认来源后再自己双击）`)
+      if (!yes) return
+      const s: any = await (window as any).tegula.logsRevealAttachment(rel)
+      if (s?.ok) showToast('已在文件夹中定位 —— 确认来源后再双击运行', 'info')
+      else showToast('定位失败：' + (s?.error || '未知原因'), 'error')
+      return
+    }
+    showToast('打开失败：' + (r?.error || '未知原因'), 'error')
   } catch (e: any) {
     showToast('打开失败：' + (e?.message || e), 'error')
   }
+}
+
+/** 附件行的悬停提示：可执行文件说清"只定位、不直接跑" */
+function attachOpenHint(rel: string): string {
+  return isExecutableAttachment(rel)
+    ? '这是安装包 / 可执行文件：不会直接运行，点一下只在文件夹中定位'
+    : '点一下用系统程序打开'
 }
 
 function openLog(log: any) {
@@ -8998,7 +9336,7 @@ async function saveLogEdit() {
       if (result.ok) {
         // 2026-10-21：这里原来还配一条 toast —— 两条提示一上一下、内容几乎一样，用户只会看见一条。
         // 撤销条的文案已经把"做了什么"说全了，所以完成/归档只留撤销条。
-        offerLogReopenUndo(rd > 0 ? `已标记完成（保留 ${rd} 天）：${e.title || e.id}` : `已标记完成（永不清理）：${e.title || e.id}`, [e.id])
+        offerLogReopenUndo(rd > 0 ? `已标记完成（保留 ${rd} 天）：${e.title || e.id}` : `已标记完成（永不清理）：${e.title || e.id}`, [e.id], [e])
       } else {
         showToast(`完成失败：${result.error || '未知原因'}`, 'error')
         return
@@ -9006,7 +9344,7 @@ async function saveLogEdit() {
     } else if (logArchiveMode.value) {
       const result = await window.tegula.logsArchive(e.id, logNote.value || undefined)
       if (result.ok) {
-        offerLogReopenUndo(`已归档：${e.title || e.id}`, [e.id])
+        offerLogReopenUndo(`已归档：${e.title || e.id}`, [e.id], [e])
       } else {
         showToast(`归档失败：${result.error || '未知原因'}`, 'error')
         return
@@ -9163,15 +9501,29 @@ function archiveLogItem(id: string) {
  * 现在撤销只回到待处理；要不再要「进行中」由 `toggleLogRunning` 那只开关决定。
  */
 async function reopenLogItem(id: string) {
+  // 2026-10-30 暮雨第 5 条：撤销本身也要能撤 —— 点错「↩ 撤销」不该比误点更惨。
+  const before = logs.value.find((l: any) => l.id === id)
+  const snap = before ? {
+    status: before.status, running: !!before.running, agentDone: !!before.agentDone,
+    completed: before.completed || null, retainDays: before.retainDays ?? null,
+    retainUntil: before.retainUntil || null, note: before.note || '', archiveNote: before.archiveNote || '',
+  } : null
+  const title = String(before?.title || id)
   const r: any = await window.tegula.logsReopen(id)
   if (r && r.ok) {
-    // 这一步本身就是"撤"：先把上一条可撤动作清掉，别让用户再按 Ctrl+Z 时撤到更早的对象
-    // （2026-10-30 暮雨第 5 条：撤销条串对象，根因就是旧动作一直挂着）。
-    dismissUndo()
     showToast('已撤销，回到「待处理」', 'success')
     await loadLogs()
     // 任务详情的「关联日志」列表是另一份数据源，两边都要刷（2026-10-21）
     await loadLogsForTask(previewTask.value?.id || '')
+    if (snap) {
+      offerUndo(`已撤销「${title}」`, async () => {
+        const back: any = await window.tegula.logsRestoreState(id, snap)
+        if (!back?.ok) throw new Error(back?.error || '未知原因')
+        await loadLogs()
+        await loadLogsForTask(previewTask.value?.id || '')
+        showToast('已恢复撤销前的状态', 'success')
+      })
+    }
   } else {
     showToast(`撤销失败：${(r && r.error) || '未知原因'}`, 'error')
   }
@@ -9399,23 +9751,52 @@ async function openProjectDiagram(p: any): Promise<void> {
   }
 }
 
-// ── 方寸自绘架构图（2026-10-30，卡 task-20261030-002）────────────────────
+// ── 方寸绘制架构图（2026-10-30，卡 task-20261030-002；同日按第 3 条重做）────
 // 与上面那个「架构图」的分工写在按钮 title 里：这里扫源码自己画，不碰 archify 产物。
-// 图模型来自主进程只读扫描（services/projectArch.ts）；这里只负责开面板与导出。
+// 图模型来自主进程只读扫描（services/projectArch.ts）；这里负责开面板、校验展示、
+// 逐块剔除、驳回重画与导出。**没点「通过」不许导出**（导出通道也会再核一遍校验）。
 const archOpen = ref(false)
 const archBusy = ref(false)
 const archGraph = ref<ArchGraph | null>(null)
+const archBaseGraph = ref<ArchGraph | null>(null)
+const archReview = ref<ArchReview | null>(null)
+const archRepairs = ref<string[]>([])
 const archProjectId = ref('')
+const archVersion = ref(1)
+const archApproved = ref(false)
+const archStrict = ref(false)
+const archExcluded = ref<Array<{ id: string; label: string }>>([])
+const archRejects = ref<string[]>([])
 
-async function openSelfArch(p: any): Promise<void> {
+/** 把人工剔除应用到底图，并重跑校验（纯函数，不重新扫盘） */
+function applyArchFilter(): void {
+  const base = archBaseGraph.value
+  if (!base) return
+  const g = filterArchGraph(base, archExcluded.value.map((x) => x.id))
+  archGraph.value = g
+  archReview.value = evaluateArchGraph(g)
+  archApproved.value = false
+}
+
+async function openSelfArch(p: any, opts: { keepExcluded?: boolean } = {}): Promise<void> {
   const id = String(p?.id || p?.name || '').trim()
   if (!id) return
+  if (archProjectId.value !== id || !opts.keepExcluded) {
+    archExcluded.value = []
+    archVersion.value = 1
+    archRejects.value = []
+    archStrict.value = false
+  }
   archProjectId.value = id
   archBusy.value = true
   try {
-    const r: any = await (window as any).tegula.archGet(id)
+    const r: any = await (window as any).tegula.archGet(id, { strict: archStrict.value })
     if (r?.graph) {
+      archBaseGraph.value = r.graph
+      archRepairs.value = Array.isArray(r.repairs) ? r.repairs : []
+      archReview.value = r.review || evaluateArchGraph(r.graph)
       archGraph.value = r.graph
+      applyArchFilter()
       archOpen.value = true
       if (r.ok === false) showToast(String(r.error || '图没生成完整，缺什么已在面板里列出'), 'error')
       return
@@ -9428,11 +9809,44 @@ async function openSelfArch(p: any): Promise<void> {
   }
 }
 
+/** 这一笔画得不认可：从图里剔掉（只影响这张图，不改仓库、不改数据） */
+function excludeArchNode(id: string): void {
+  const n = archBaseGraph.value?.nodes.find((x) => x.id === id)
+  if (!n) return
+  if (!archExcluded.value.some((x) => x.id === id)) archExcluded.value.push({ id, label: n.label })
+  applyArchFilter()
+  showToast(`已剔除「${n.label}」—— 校验已按新图重跑`, 'success')
+}
+function restoreArchNode(id: string): void {
+  archExcluded.value = archExcluded.value.filter((x) => x.id !== id)
+  applyArchFilter()
+}
+
+function approveArch(): void {
+  if (!archReview.value?.ok) { showToast('校验没过，先重画或剔除问题块', 'error'); return }
+  archApproved.value = true
+  showToast('已通过这张图 —— 现在可以导出', 'success')
+}
+
+/** 驳回：记下理由 → 按诊断做减法重画一版（不重新编节点） */
+async function rejectArch(reason: string): Promise<void> {
+  archRejects.value.push(String(reason || '').trim() || '（没写理由）')
+  archStrict.value = true
+  archVersion.value += 1
+  archApproved.value = false
+  showToast(`已驳回第 ${archVersion.value - 1} 版，按诊断重画第 ${archVersion.value} 版…`, 'info')
+  await openSelfArch({ id: archProjectId.value }, { keepExcluded: true })
+}
+
 async function exportSelfArch(): Promise<void> {
   if (!archProjectId.value) return
+  if (!archApproved.value) { showToast('先点「✅ 通过这张图」再导出', 'info'); return }
   archBusy.value = true
   try {
-    const r: any = await (window as any).tegula.archExport(archProjectId.value)
+    const r: any = await (window as any).tegula.archExport(archProjectId.value, {
+      strict: archStrict.value,
+      excluded: archExcluded.value.map((x) => x.id),
+    })
     if (r?.canceled) return
     if (!r || r.ok === false) {
       showToast(String(r?.error || '导出失败'), 'error')
@@ -9494,6 +9908,14 @@ async function executeLogCleanup() {
 // ── Review ─────────────────────────────────────────────────────────
 
 const reviewReason = ref('')
+/** 常用驳回理由（2026-10-30 暮雨第 2 条）：不是替他下判断，只是省掉"写作文"这一步 */
+const reviewPresets = [
+  '看不懂这张卡在说什么',
+  '方向就是错的',
+  '不需要了 / 先放下',
+  '和已有任务重复',
+  '验收线不成立',
+]
 
 function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
   // 待审批 = 审批裁决（批准转正待办 / 驳回）；其余（待验收）= 验收裁决（通过 / 驳回）
@@ -9519,15 +9941,77 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
   })
 }
 
+/**
+ * 直接驳回（2026-10-30 暮雨第 2 条）—— 任何非终态卡都能退，不要求它先到「待验收」。
+ * 与 openReview 的区别只在 kind：这里没有「通过」按钮，也不会写审批/验收措辞。
+ */
+function openDirectReject(t: Task): void {
+  reviewModal.value = { id: t.id, title: t.title || t.id, kind: 'direct', intent: 'reject' }
+  reviewReason.value = ''
+  previewTask.value = null
+  nextTick(() => {
+    const ta = document.querySelector('#review-modal textarea') as HTMLTextAreaElement | null
+    ta?.focus()
+  })
+}
+
+// ── 驳回理由就地编辑（2026-10-30 暮雨第 2 条：不可编辑 / 点完看不见）──
+const rejectEdit = ref(false)
+const rejectEditText = ref('')
+const rejectSaving = ref(false)
+/** 驳回理由：新卡读独立字段；老卡没有这个字段，回退到结果记录里最后一条驳回（不然会误报"没写理由"） */
+function rejectReasonOf(t: any): string {
+  if (!t) return ''
+  const direct = String(t.reject_reason ?? t.fm?.reject_reason ?? '').trim()
+  if (direct) return direct
+  return lastRejectReason(t.result_log ?? t.fm?.result_log ?? '')
+}
+// 换一张卡时收起上一条的就地编辑态（否则会把 A 的理由框带到 B 上）
+watch(() => previewTask.value?.id, () => { rejectEdit.value = false; rejectEditText.value = '' })
+
+function startRejectEdit(): void {
+  rejectEditText.value = rejectReasonOf(previewTask.value)
+  rejectEdit.value = true
+}
+
+async function saveRejectEdit(): Promise<void> {
+  const t = previewTask.value
+  if (!t) return
+  rejectSaving.value = true
+  try {
+    const r: any = await window.tegula.editTask(t.id, { reject_reason: rejectEditText.value })
+    if (!r?.ok) { showToast(`保存失败：${r?.error || '未知原因'}`, 'error'); return }
+    // 主进程只回 ok；预览这里的值与列表都刷新一次（不拿本地串假装保存成功）
+    ;(previewTask.value as any).reject_reason = rejectEditText.value
+    rejectEdit.value = false
+    showToast('驳回理由已更新（状态没动）', 'success')
+    loadAll()
+  } catch (e: any) {
+    showToast(`保存异常：${e?.message || e}`, 'error')
+  } finally {
+    rejectSaving.value = false
+  }
+}
+
 async function acceptTask() {
   if (!reviewModal.value) return
   // 2026-09-25（用户第 7 条）：通过也带上结论 → 主进程写入结果记录留痕
   const isApproval = reviewModal.value.kind === 'approval'
-  const result = await window.tegula.reviewAccept(reviewModal.value.id, reviewReason.value)
+  const id = reviewModal.value.id
+  const title = reviewModal.value.title
+  const snap = snapOfTask(id)
+  const result = await window.tegula.reviewAccept(id, reviewReason.value)
   if (result.ok) {
     showToast(isApproval ? '已批准 —— 已转正为「待办」' : '已通过', 'success')
     reviewModal.value = null
     loadAll()
+    // 2026-10-30 暮雨第 5 条：误点「通过」必须能一键撤回（含结果记录，不只是改状态）
+    if (snap) {
+      offerUndo(`已通过「${title}」`, async () => {
+        await restoreTaskSnap(id, snap)
+        showToast('已撤回：回到点「通过」之前的状态', 'success')
+      })
+    }
   } else {
     showToast(result.error || '操作失败', 'error')
   }
@@ -9535,15 +10019,24 @@ async function acceptTask() {
 
 async function rejectTask() {
   if (!reviewModal.value) return
-  if (!reviewReason.value.trim()) {
-    showToast('驳回理由必填', 'error')
-    return
-  }
-  const result = await window.tegula.reviewReject(reviewModal.value.id, reviewReason.value)
+  // 2026-10-30 暮雨第 2 条：理由**可选**。留空也是一次有效驳回，卡上会标「没写理由」。
+  const kind = reviewModal.value.kind
+  const id = reviewModal.value.id
+  const title = reviewModal.value.title
+  const snap = snapOfTask(id)
+  const result: any = kind === 'direct'
+    ? await window.tegula.rejectTaskDirect(id, reviewReason.value)
+    : await window.tegula.reviewReject(id, reviewReason.value)
   if (result.ok) {
-    showToast('已驳回', 'success')
+    showToast(kind === 'direct' ? '已驳回（可随时在卡上改理由）' : '已驳回', 'success')
     reviewModal.value = null
     loadAll()
+    if (snap) {
+      offerUndo(`已驳回「${title}」`, async () => {
+        await restoreTaskSnap(id, snap)
+        showToast('已撤回：这张卡回到驳回之前', 'success')
+      })
+    }
   } else {
     showToast(result.error || '操作失败', 'error')
   }
@@ -9577,10 +10070,19 @@ async function onDrop(e: DragEvent, status: string) {
   e.preventDefault()
   const id = draggingId.value || e.dataTransfer?.getData('text/plain')
   if (id) {
+    const snap = snapOfTask(id)
+    const title = String(tasks.value.find((x: any) => x.id === id)?.title || id)
     try {
       const result = await window.tegula.moveStatus(id, status)
       if (result.ok) {
         showToast(`已移动到「${status}」`, 'success')
+        // 拖拽最容易手滑跨列：可撤（2026-10-30 暮雨第 5 条）
+        if (snap && snap.status !== status) {
+          offerUndo(`「${title}」拖到「${status}」`, async () => {
+            await restoreTaskSnap(id, snap)
+            showToast(`已撤回：回到「${snap.status}」`, 'success')
+          })
+        }
       } else {
         showToast(`移动失败: ${result.error || '未知错误'}`, 'error')
       }
@@ -10451,13 +10953,82 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 function runUndo(): Promise<boolean> {
   return runUndoCore((msg) => showToast(msg, 'error'))
 }
-/** 日志「完成 / 归档」撤销：退回「待处理」。多条（批量）逐条撤，按真成功数报账。 */
-function offerLogReopenUndo(label: string, ids: string[]): void {
+/** 历史面板里点某一条：把它及之后一起撤掉（2026-10-30 多级栈） */
+const undoHistOpen = ref(false)
+async function undoTo(index: number): Promise<void> {
+  const n = await runUndoToCore(index, (msg) => showToast(msg, 'error'))
+  if (!undoCount.value) undoHistOpen.value = false
+  if (n > 0) showToast(`已撤回 ${n} 步`, 'success')
+}
+
+// ── 任务状态的撤销快照（2026-10-30 暮雨第 5 条）────────────────────────
+// 误点「通过」是最容易发生、也最气人的一次误操作。以前 acceptTask 成功后就只剩
+// 「再手动改回来」；现在任何改状态的动作都先拍一张快照（状态 + 结果记录 + 驳回理由），
+// 撤销时原样写回去 —— 不是"改成待办"，是真的回到点之前那一格。
+interface TaskSnap {
+  status: string
+  result_log: string
+  reject_reason: string
+  reject_at: string
+  archived: boolean
+}
+function snapOfTask(id: string): TaskSnap | null {
+  const t: any = tasks.value.find((x: any) => x.id === id)
+  if (!t) return null
+  return {
+    status: String(t.status || ''),
+    result_log: String(t.result_log ?? t.fm?.result_log ?? ''),
+    reject_reason: String(t.reject_reason ?? t.fm?.reject_reason ?? ''),
+    reject_at: String(t.reject_at ?? t.fm?.reject_at ?? ''),
+    archived: !!t.archived,
+  }
+}
+/** 把任务写回快照。文件已在归档区就先搬回活跃区（只影响位置，不改状态）。 */
+async function restoreTaskSnap(id: string, snap: TaskSnap): Promise<void> {
+  const cur: any = tasks.value.find((x: any) => x.id === id)
+  if (cur?.archived && !snap.archived) {
+    await window.tegula.unarchiveTask(id)
+  }
+  const r: any = await window.tegula.editTask(id, {
+    status: snap.status,
+    result_log: snap.result_log,
+    reject_reason: snap.reject_reason,
+    reject_at: snap.reject_at,
+  })
+  if (!r?.ok) throw new Error(r?.error || '写回失败')
+  if (snap.archived && !cur?.archived) {
+    const a: any = await window.tegula.archiveTask(id)
+    if (!a?.ok) throw new Error(a?.error || '搬回归档区失败')
+  }
+  await loadAll()
+}
+/** 日志「完成 / 归档」撤销：按**动作前的快照**原样写回（2026-10-30 第 5 条）。
+ *  以前这里统一 reopen 到「待处理」—— 那会吃掉用户手动标的「进行中」和保留天数，
+ *  不是撤销，是另一种改动。快照由调用点在动作前拍好（那时 logs.value 还是旧值）。 */
+function offerLogReopenUndo(label: string, ids: string[], sources?: any[]): void {
+  const from = Array.isArray(sources) && sources.length ? sources : logs.value
+  const snaps = ids.map((id) => {
+    const l: any = from.find((x: any) => x && x.id === id)
+    if (!l) return null
+    return {
+      id,
+      snap: {
+        status: l.status,
+        running: !!l.running,
+        agentDone: !!l.agentDone,
+        completed: l.completed || null,
+        retainDays: l.retainDays ?? null,
+        retainUntil: l.retainUntil || null,
+        note: l.note || '',
+        archiveNote: l.archiveNote || '',
+      },
+    }
+  }).filter(Boolean) as Array<{ id: string; snap: any }>
   offerUndo(label, async () => {
     let ok = 0
-    for (const id of ids) {
+    for (const s of snaps) {
       try {
-        const r: any = await window.tegula.logsReopen(id)
+        const r: any = await window.tegula.logsRestoreState(s.id, s.snap)
         if (r && r.ok) ok++
       } catch { /* 单条失败不中断：下面按 ok 数说实话 */ }
     }
@@ -10465,8 +11036,8 @@ function offerLogReopenUndo(label: string, ids: string[]): void {
     // 任务详情的「关联日志」列表是另一份数据（logsForTask），不跟着 loadLogs 刷 ——
     // 不补这一句，在任务详情里点完「撤销」列表还显示「已完成」，等于没撤。
     await loadLogsForTask(previewTask.value?.id || '')
-    if (ok === ids.length) showToast(ids.length > 1 ? `已撤销：${ok} 条回到「待处理」` : '已撤销，回到「待处理」', 'success')
-    else showToast(`只撤回了 ${ok}/${ids.length} 条（其余可能已被改动），刷新后见列表`, 'error')
+    if (ok === snaps.length) showToast(snaps.length > 1 ? `已撤回：${ok} 条回到动作前` : '已撤回，回到动作前', 'success')
+    else showToast(`只撤回了 ${ok}/${snaps.length} 条（其余可能已被改动），刷新后见列表`, 'error')
   })
 }
 
@@ -10701,14 +11272,17 @@ const logsViewCtl = reactive({
   logAgentFilter, logDateFrom, logDateTo, logBatchMode, selectedLogBatch,
   logsViewMode, filteredLogs, renderSections, logDragOver,
   projects, agentPresets,
+  logGroupChildren, logGroupParent,
   // 读 / 筛 / 排序
   loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,
   // 单条
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
-  copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog,
+  copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog, openLogPreview,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
+  // 主日志 + 附属日志（2026-10-30 第 4 条）
+  openLogAttach, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt, logGroupAllRunning,
   // 批量
   toggleLogBatchMode, toggleSelectAllLogs,
   executeBatchLogPriority, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy,
@@ -10755,6 +11329,10 @@ provide('fc-settings', {
 })
 
 onMounted(() => {
+  // 测试专用（假 preload 才有 __fcTest）：清空撤销栈。多级栈之后，
+  // 「撤一步 → 条子消失」不再天然成立，e2e 需要一个"从零开始"的按钮。
+  const fcTest = (window as any).__fcTest
+  if (fcTest && typeof fcTest === 'object') fcTest.clearUndo = () => dismissUndo()
   // 点通知回到具体对象（2026-10-29 dsh-notify 借鉴 #2）；preload 没这个通道时静默跳过，不留僵尸监听
   try { offNotifyFocus = (window as any).tegula?.onNotifyFocus?.((pp: any) => { void onNotifyFocus(pp) }) || null } catch { offNotifyFocus = null }
   // ⚠ 免责声明优先于一切引导：没同意之前不弹数据目录向导（先同意再用）。

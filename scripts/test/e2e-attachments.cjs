@@ -131,6 +131,26 @@ check('★ 删完再列：只剩那个 10MB', (() => {
 })())
 check('★★ 目录外文件仍然完好（整轮没被碰过）', fs.readFileSync(OUTSIDE, 'utf8') === 'do not delete')
 
+console.log('\n== ③b 可执行附件：不直接运行，只许定位（2026-10-30 白屏事故）==')
+const OPEN_POLICY = require(path.join(DIST, 'shared', 'attachments.js'))
+{
+  const bad = ['Fangcun-Setup.0.5.0.exe', '绒花墨坊安装包.EXE', 'x.msi', 'x.bat', 'x.cmd', 'x.ps1', 'x.lnk', 'x.scr', 'x.jar']
+  const good = ['报告.pdf', '截图.png', 'bundle.zip', '说明.md', 'no-ext']
+  check('★★ 安装包 / 可执行文件 → 一律不交给 shell.openPath（否则点一下就运行）',
+    bad.every((n) => OPEN_POLICY.attachmentOpenPolicy(n).run === false),
+    JSON.stringify(bad.map((n) => [n, OPEN_POLICY.attachmentOpenPolicy(n).run])))
+  check('  大小写不敏感（.EXE 也算）', OPEN_POLICY.isExecutableAttachment('A.EXE') === true)
+  check('  文档 / 图片 / 压缩包仍可正常打开', good.every((n) => OPEN_POLICY.attachmentOpenPolicy(n).run === true),
+    JSON.stringify(good.map((n) => [n, OPEN_POLICY.attachmentOpenPolicy(n).run])))
+  check('★ 拒绝时给出原因与下一步（不是只说"失败"）', (() => {
+    const p = OPEN_POLICY.attachmentOpenPolicy('Fangcun-Setup.exe')
+    return /安装|可执行/.test(p.reason || '') && /文件夹|双击/.test(p.hint || '')
+  })())
+  check('  路径前缀不影响判据（只认最后一段的扩展名）',
+    OPEN_POLICY.isExecutableAttachment('docs/执行日志/_attachments/log-x/Setup.Exe') === true
+    && OPEN_POLICY.isExecutableAttachment('docs/执行日志/_attachments/log-x/report.pdf') === false)
+}
+
 console.log('\n== ④ 源码守卫 ==')
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf-8')
 const strip = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
@@ -142,6 +162,17 @@ check('★ 界面入口存在，且删除有二次确认', (() => {
   const ui = read('desktop/src/renderer/App.vue') + read('desktop/src/renderer/components/DataHygienePanel.vue')
   return /scanBigAttachments/.test(ui) && /deleteBigAttachment/.test(ui) && /confirm\(/.test(ui)
 })())
+{
+  // 白屏事故的根：openAttachment 里先 shell.openPath、后判策略（或压根不判）。
+  // 判据：策略调用必须出现在 shell.openPath 之前。
+  const ipc = strip(read('desktop/src/main/ipc.ts'))
+  const seg = (ipc.match(/logs:openAttachment[\s\S]{0,1200}/) || [''])[0]
+  const at = seg.indexOf('attachmentOpenPolicy')
+  const run = seg.indexOf('shell.openPath')
+  check('★★ 打开附件前先过可执行策略（顺序断言：策略在 shell.openPath 之前）',
+    at >= 0 && run > at, `policy=${at} openPath=${run}`)
+  check('★★ 可执行附件的替代出口是「在文件夹中显示」', /logs:revealAttachment/.test(ipc) && /showItemInFolder/.test(ipc))
+}
 
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) {

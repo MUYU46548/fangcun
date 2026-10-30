@@ -135,6 +135,9 @@ check('★★ set_log_status complete 被拒（不再出现"AI 自己把日志�
 const reo = call('set_log_status', { id: mainId, action: 'reopen' })
 check('★ set_log_status reopen 也被拒（退回同样是生命周期签字）',
   reo.ok === false && /只能由用户/.test(String(reo.error || '')), JSON.stringify(reo).slice(0, 200))
+const run0 = call('set_log_status', { id: mainId, action: 'running' })
+check('  前置：先标「进行中」= 用户已派出去（新语义：没派出去不许收口）',
+  run0.ok === true && /进行中/.test(String(run0.status || '')), JSON.stringify(run0).slice(0, 160))
 const req = call('set_log_status', { id: mainId, action: 'request_close' })
 check('★★ request_close 只标记「等你确认」，不改 completed/archived',
   req.ok === true && req.agentDone === true && /待处理|进行中/.test(String(req.status || '')),
@@ -145,6 +148,11 @@ check('★★ get_log 读得回 agentDone（界面据此显示「⏳ 等你确�
 const cancel = call('set_log_status', { id: mainId, action: 'cancel_close' })
 check('  cancel_close 撤回申请（agent 继续干活时用）', cancel.ok === true && cancel.agentDone === false,
   JSON.stringify(cancel).slice(0, 160))
+const idle0 = call('set_log_status', { id: mainId, action: 'idle' })
+check('  撤掉「进行中」→ 回到没派出去', idle0.ok === true && /待处理/.test(String(idle0.status || '')), JSON.stringify(idle0).slice(0, 160))
+const reqNo = call('set_log_status', { id: mainId, action: 'request_close' })
+check('★★ 没派出去时 request_close 被拒（不再出现「待处理 + 等你确认」）',
+  reqNo.ok === false, JSON.stringify(reqNo).slice(0, 200))
 const run = call('set_log_status', { id: mainId, action: 'running' })
 check('  running 仍然允许（标「进行中」不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
 const bad = call('set_log_status', { id: mainId, action: 'nope' })
