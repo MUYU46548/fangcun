@@ -451,6 +451,39 @@ function main() {
     !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
   check('  不存在的 id 返回 ok:false（不抛）', logs.setLogRunning('不存在', true).ok === false)
 
+  // ── 11b. AI 申请收口（2026-10-30 用户拍板：「完成是签字，不是干活」）────
+  // agent 只能 request_close 打 agent_done；真正 completed 只能由用户点。
+  const rA = logs.createLog('等你确认样例', 'demo', 'x').data
+  const rc1 = logs.requestLogClose(rA.id)
+  check('★★ requestLogClose 只打 agent_done，不改 status（还是待处理）',
+    rc1.ok === true && logs.getLog(rA.id).agentDone === true && logs.getLog(rA.id).status === 'active',
+    JSON.stringify({ ok: rc1.ok, d: logs.getLog(rA.id).agentDone, s: logs.getLog(rA.id).status }))
+  check('★ 文件里落的是 agent_done: true（不是 status: completed）',
+    /^agent_done: true$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rA.id}.md`), 'utf-8')))
+  check('★★ 改正文写回不丢 agent_done（parse→render 白名单必须列它）', (() => {
+    logs.updateLog(rA.id, { content: '改一句再存' })
+    return logs.getLog(rA.id).agentDone === true
+  })())
+  check('★ 重新标「进行中」= 撤回收口申请（不会同时显示进行中 + 等你确认）', (() => {
+    logs.setLogRunning(rA.id, true)
+    return logs.getLog(rA.id).agentDone !== true
+  })())
+  logs.requestLogClose(rA.id)
+  check('★ 用户完成后 agent_done 自动清掉（不留假标记）', (() => {
+    logs.completeLog(rA.id, 7)
+    const r = logs.getLog(rA.id)
+    return r.status === 'completed' && r.agentDone !== true
+  })())
+  const rB = logs.createLog('撤回收口样例', 'demo', 'x').data
+  logs.requestLogClose(rB.id)
+  check('★ cancelLogClose 能撤回申请（agent 继续干活时用）',
+    logs.cancelLogClose(rB.id).ok === true && logs.getLog(rB.id).agentDone !== true)
+  check('  对已完成日志 requestLogClose 幂等、不改状态', (() => {
+    logs.completeLog(rB.id, 7)
+    const r = logs.requestLogClose(rB.id)
+    return r.ok === true && logs.getLog(rB.id).status === 'completed'
+  })())
+
   // 「进行中」不是完成/归档的前置条件
   const r2 = logs.createLog('直接的完成', 'demo', 'x').data
   check('★ 「待处理」状态直接完成，不被拒绝（进行中不是前置条件）',
@@ -512,7 +545,7 @@ function main() {
   check('★ `active` 的中文显示是「待处理」，不再是「进行中」',
     /return \{ active: '待处理'/.test(APP))
   check('★ 「完成」按钮不再要求先「进行中」（任何未完成/未归档都可用）',
-    /log\.status !== 'completed' && log\.status !== 'archived'[\s\S]{0,120}completeLogItem\(log\.id\)/.test(APP))
+    /log\.status !== 'completed' && log\.status !== 'archived'[\s\S]{0,400}completeLogItem\(log\.id\)/.test(APP))
   // ⚠ 2026-10-11 收窄：原判据是「整个 App.vue 里不许出现『全部状态』字样」——
   //   而看板在 2026-10-10 按用户**明确要求**新增了自己的状态筛选（页头 .st-filter），
   //   于是这条被误伤成红（202/1）。用户第 5 条说的是**日志页**：状态由分区表达、不要下拉。

@@ -14642,6 +14642,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-status-badge.running { background: #dbeafe; color: #1d4ed8; }
 .log-status-badge.completed { background: #dcfce7; color: #166534; }
 .log-status-badge.archived { background: #f3f4f6; color: #5f6672; }
+/* AI 申请收口（2026-10-30）：不是状态，是一句「等你确认」。琥珀色 = 待你动手，别和完成态混淆 */
+.log-agent-done {
+  font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; white-space: nowrap;
+}
 .log-card-title { flex: 1; font-size: 13px; font-weight: 600; }
 /* 日志优先级徽章（卡 001）：三档配色沿用待办的同款语义色（高=红底深红字 / 中=琥珀 / 低=灰），
    且都是深字压浅底 —— 与 check-themes 的对比度口径一致 */

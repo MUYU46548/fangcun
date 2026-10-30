@@ -38,6 +38,17 @@ export interface LogEntry {
    *   - 只在 true 时落盘（`running: true`），关掉即从文件里消失，历史文件不会凭空多出字段。
    */
   running?: boolean
+  /**
+   * AI 申请收口（2026-10-30 用户拍板「完成是签字，不是干活」）。
+   *
+   * 为什么不是 status 的第四个值：状态机是 待处理 / 已完成 / 已归档 三态，
+   * 「等你确认」不是生命周期的一站，而是**一句话**——"我这边做完了，你点一下"。
+   * 所以它是与 status 正交的布尔，只在 active 上有意义：
+   *   - agent 只能 `request_close` 打开它，**不能**自己 complete/archive；
+   *   - 用户在卡上点「✅ 确认完成」才真的进 completed；
+   *   - 完成 / 归档 / 重新标进行中 / 撤销时自动清掉，历史文件不多字段。
+   */
+  agentDone?: boolean
   created: string
   completed: string | null
   retainDays: number | null
@@ -228,6 +239,8 @@ function parseLogFile(filePath: string): LogEntry | null {
       status: (raw.status || 'active') as LogEntry['status'],
       // 「进行中」是手动标记（2026-09-28），只在文件里显式写了 true 才算数
       running: raw.running === true || raw.running === 'true',
+      // AI 申请收口（2026-10-30）：只在 true 时落盘，历史文件不多字段
+      agentDone: raw.agent_done === true || raw.agent_done === 'true',
       created: String(raw.created || ''),
       completed: raw.completed ? String(raw.completed) : null,
       retainDays: raw.retain_days != null ? Number(raw.retain_days) : null,
@@ -297,6 +310,7 @@ function renderLog(log: LogEntry): string {
   // 只在 true 时落字段（false = 不写，历史文件不会凭空多出 pinned: false）
   if (log.pinned) fm.pinned = true
   if (log.running) fm.running = true
+  if (log.agentDone) fm.agent_done = true
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
   // 上次的执行 Agent：与 continues_from 同款「只在有值时落盘」
@@ -658,6 +672,7 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   // 当成必经状态了。现在从「待处理」直接完成、或从「已归档」补完成，都放行。
   entry.status = 'completed'
   entry.running = false   // 已完成的东西不该还挂着「进行中」
+  entry.agentDone = false // 已签字，AI 的「等你确认」标记自然消失
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
   if (retainDays != null && retainDays > 0) {
@@ -681,6 +696,7 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   if (entry.status === 'archived' && !entry.running) return { ok: true, data: entry }
   entry.status = 'archived'
   entry.running = false
+  entry.agentDone = false
   // 归档备注落 archiveNote（## 归档备注），不再借道 note —— 两者是不同节，
   // 借道会让「完成确认」被归档动作覆盖掉。
   if (note) entry.archiveNote = note
@@ -706,6 +722,7 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
   if (entry.status === 'active') return { ok: true, data: entry }
   entry.status = 'active'
   entry.running = false
+  entry.agentDone = false
   entry.completed = null
   entry.retainDays = null
   entry.retainUntil = null
@@ -742,7 +759,39 @@ export function setLogRunning(id: string, running: boolean): { ok: boolean; data
     entry.retainDays = null
     entry.retainUntil = null
   }
+  // 重新开跑 = 撤回上一次收口请求（不然卡上会同时写「进行中」和「等你确认」）
+  if (on) entry.agentDone = false
   entry.running = on
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/**
+ * AI 申请收口（2026-10-30 用户拍板）—— **只标记，不签字**。
+ *
+ * agent 唯一能做的「结束」动作：在 active 日志上打 `agent_done`，界面卡上显示
+ * 「⏳ 等你确认」+「✅ 确认完成」。真正变 completed/archived 只能由用户点。
+ * 对已完成的日志再请求收口 = ok（幂等），但不会把状态改回去。
+ */
+export function requestLogClose(id: string): { ok: boolean; data?: LogEntry; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (entry.status !== 'active') return { ok: true, data: entry }
+  if (entry.agentDone) return { ok: true, data: entry }
+  entry.agentDone = true
+  entry.running = false
+  atomicallyWrite(filePath, renderLog(entry))
+  return { ok: true, data: entry }
+}
+
+/** 撤回「申请收口」（agent 继续干活时用；界面不提供这个动作，用户直接完成即可）。 */
+export function cancelLogClose(id: string): { ok: boolean; data?: LogEntry; error?: string } {
+  const filePath = path.join(getLogsDir(), `${id}.md`)
+  const entry = parseLogFile(filePath)
+  if (!entry) return { ok: false, error: '日志不存在' }
+  if (!entry.agentDone) return { ok: true, data: entry }
+  entry.agentDone = false
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }

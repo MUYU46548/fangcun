@@ -10,7 +10,7 @@ import { recordRead, readStats } from './usage'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
 // 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
 // 决策卡与池文件此前根本没有通道（spec §四 引用的"现有写回层入口"对它们不存在）。
-import { getRicePool, upsertRiceItems, recordRiceDecisions } from '../data/rice'
+import { getRicePool, upsertRiceItems } from '../data/rice'
 import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
@@ -283,13 +283,16 @@ export const MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'set_log_status',
-    description: 'Move a log along its lifecycle: complete (完成, optional retainDays) / archive (归档) / reopen (退回待处理) / running (标进行中) / idle (取消进行中). Same semantics as the desktop buttons — a status change is a single step and can be undone with reopen.',
+    description:
+      'Move a log along its lifecycle. ALLOWED for agents: running (标进行中) / idle (取消进行中) / '
+      + 'request_close (申请收口 → 界面显示「等你确认」) / cancel_close (撤回申请). '
+      + 'complete / archive / reopen are USER-ONLY: they are the sign-off, and this tool rejects them. '
+      + 'Never claim a round is finished on the user\'s behalf — request_close and let the user click 确认完成.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Log ID' },
-        action: { type: 'string', description: 'complete | archive | reopen | running | idle' },
-        retainDays: { type: 'number', description: 'For complete: keep N days before purge (0 = never clean up)' },
+        action: { type: 'string', description: 'request_close | cancel_close | running | idle' },
         note: { type: 'string', description: 'Optional note appended to the log' },
       },
       required: ['id', 'action'],
@@ -372,36 +375,6 @@ export const MCP_TOOLS: MCPTool[] = [
       required: ['items'],
     },
   },
-  {
-    name: 'decision_record',
-    description:
-      'Record the user’s verdicts for requirement-pool items into decisions.md (wraps addDecision, so '
-      + 'same content+date is idempotent), then backfill the pool item’s 拍板/决策id. '
-      + 'CUT = 状态 已撤销. This is a USER action: agents may call it only after the user explicitly approved '
-      + 'that item; agents must never decide on their own.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        batch: { type: 'string', description: 'Batch label (e.g. rice-export-20261028)' },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              eid: { type: 'string', description: 'Pool item id' },
-              内容: { type: 'string', description: 'Decision text (default: item title)' },
-              项目: { type: 'string', description: 'Project id (default: derived from task origin)' },
-              状态: { type: 'string', description: '有效 (default) or 已撤销 (= CUT)' },
-              出处: { type: 'string', description: 'Source (default: 需求矩阵拍板 <batch>)' },
-              备注: { type: 'string', description: 'Note (default: computed RICE + evidence + cost)' },
-            },
-            required: ['eid'],
-          },
-        },
-      },
-      required: ['items'],
-    },
-  },
 ]
 
 // ── Tool Handler ────────────────────────────────────────────────────────
@@ -461,6 +434,16 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     }
     
     case 'move_status': {
+      // 2026-10-30（用户拍板「完成是签字，不是干活」）：
+      // agent 最多把卡移到「待验收」；完成 / 驳回是用户的验收签字，硬拒。
+      const want = String(args.status || '')
+      if (want === '完成' || want === '驳回') {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: `「${want}」只能由用户验收裁决：agent 最多移到「待验收」。`,
+          suggested: '待验收',
+        }) }], isError: true }
+      }
       const task = tasks.moveStatus(args.id, args.status)
       if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id, status: args.status }) }] }
@@ -584,6 +567,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       const rows = logs.listLogs(filter).slice(0, limit).map((l: any) => ({
         id: l.id, title: l.title, status: logs.logStatusText(l), project: l.project,
         created: l.created, completed: l.completed || '', taskId: l.taskId || '', running: !!l.running,
+        agentDone: !!l.agentDone,
         continuesFrom: l.continueFrom || '',
       }))
       return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
@@ -622,6 +606,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({
         id: entry.id, title: entry.title, status: logs.logStatusText(entry), project: entry.project,
         created: entry.created, completed: entry.completed || '', running: !!entry.running,
+        agentDone: !!entry.agentDone,
         taskId: entry.taskId || '', agentName: entry.agentName || '',
         content: entry.content, nextSteps: entry.nextSteps || '',
         continuesFrom: entry.continueFrom || '',
@@ -662,7 +647,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, id: r.data.id, title: r.data.title, project: r.data.project,
         status: logs.logStatusText(r.data), created: r.data.created,
-        hint: '后面用 attach_log_files 挂附件、用 set_log_status 完成/归档。',
+        hint: '后面用 attach_log_files 挂附件；本轮做完用 set_log_status action=request_close 申请收口（完成只能由用户点）。',
       }) }] }
     }
 
@@ -683,23 +668,36 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     case 'set_log_status': {
       const id = String(args.id || '')
       const action = String(args.action || '')
+      // 2026-10-30（用户拍板「完成是签字，不是干活」）：
+      // 完成 / 归档 / 退回都是**用户签字**，agent 只能申请收口。
+      // 这里硬拒，不靠技能卡自觉 —— 拒了才知道自己越权了。
+      if (action === 'complete' || action === 'archive' || action === 'reopen') {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: `「${action}」只能由用户在界面点：完成/归档/退回是签字，不是干活。`
+            + '你可以用 set_log_status action=request_close 标记「等你确认」，用户在卡上点「✅ 确认完成」。',
+          allowed: ['request_close', 'cancel_close', 'running', 'idle'],
+        }) }], isError: true }
+      }
       let r: any
-      if (action === 'complete') {
-        const rd = Number.isFinite(Number(args.retainDays)) ? Number(args.retainDays) : null
-        r = logs.completeLog(id, rd, args.note ? String(args.note) : undefined)
-      } else if (action === 'archive') {
-        r = logs.archiveLog(id, args.note ? String(args.note) : undefined)
-      } else if (action === 'reopen') {
-        r = logs.reopenLog(id)
+      if (action === 'request_close') {
+        r = logs.requestLogClose(id)
+      } else if (action === 'cancel_close') {
+        r = logs.cancelLogClose(id)
       } else if (action === 'running') {
         r = logs.setLogRunning(id, true)
       } else if (action === 'idle') {
         r = logs.setLogRunning(id, false)
       } else {
-        return { content: [{ type: 'text', text: `Unknown action: ${action} (complete | archive | reopen | running | idle)` }], isError: true }
+        return { content: [{ type: 'text', text: `Unknown action: ${action} (request_close | cancel_close | running | idle)` }], isError: true }
       }
       if (!r || !r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r?.error || '状态没改成功' }) }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, status: r.data ? logs.logStatusText(r.data) : action }) }] }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, id,
+        status: r.data ? logs.logStatusText(r.data) : action,
+        agentDone: !!(r.data && r.data.agentDone),
+        hint: r.data && r.data.agentDone ? '已标记「等你确认」——完成只能由用户点。' : '',
+      }) }] }
     }
 
     case 'attach_log_files': {
@@ -847,17 +845,9 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       }, null, 2) }] }
     }
 
-    case 'decision_record': {
-      const r = recordRiceDecisions(Array.isArray(args.items) ? args.items : [], { batch: args.batch })
-      const payload = {
-        ok: r.ok,
-        error: r.error,
-        batch: r.batch,
-        results: r.results,
-        total: r.pool ? r.pool.items.length : 0,
-      }
-      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: !r.ok }
-    }
+    // 2026-10-30（用户拍板「决策是拍板，AI 只能记，不能替你表决」）：
+    // `decision_record` 已从 MCP 移除。决策落账只走桌面界面的「需求矩阵」页（rice:decide 是用户点击触发的 IPC），
+    // agent 再也不能替用户把某条需求记成「有效 / CUT」。
 
     default:
       return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }

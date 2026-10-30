@@ -3219,6 +3219,39 @@
         caAfter ? (caAfter.textContent || '').slice(0, 60) : 'no card')
     }
 
+    // ══ 2026-10-30 用户拍板：AI 只能申请收口，完成必须人点 ══════════════════
+    // 现场：agent 调 set_log_status complete 直接把日志完成了，用户没机会看。
+    // 现在 agent 只能 request_close → 卡上出现「⏳ 等你确认」+「✅ 确认完成」，
+    // 点下去才真的进 completed（这里走真按钮 + 真 logsComplete）。
+    {
+      window.__fcTest.setLogs([
+        { id: 'log-close-req', title: '等你确认样例', content: '这一轮做完了', status: 'active',
+          agentDone: true, project: 'demo', created: '2026-10-30T01:00:00.000Z' },
+      ])
+      clickText('看板'); await sleep(250); clickText('日志'); await sleep(600)
+      const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('等你确认样例') >= 0)
+      check('★★ AI 申请收口后卡上出现「⏳ 等你确认」（不是完成态）',
+        !!card && !!card.querySelector('.log-agent-done')
+        && (card.querySelector('.log-agent-done').textContent || '').indexOf('等你确认') >= 0,
+        card ? (card.textContent || '').slice(0, 80) : 'no card')
+      const confirm = card && Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button'))
+        .find((b) => (b.textContent || '').indexOf('确认完成') >= 0)
+      check('★★ 卡上给用户「✅ 确认完成」按钮（签字入口在人这边）', !!confirm,
+        card ? Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button')).map((b) => b.textContent.trim()).join('|') : 'no card')
+      if (confirm) {
+        confirm.click()
+        await waitFor(() => !!$('#log-edit-modal'), 3000, 'complete modal')
+        const okBtn = $$('#log-edit-modal .acts button').find((b) => (b.textContent || '').trim() === '确认完成')
+        if (okBtn) okBtn.click()
+        check('★★ 用户点「确认完成」才真的走 logsComplete',
+          await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsComplete' && c.args[0] === 'log-close-req'), 4000, 'logsComplete'))
+        await sleep(400)
+        const card2 = $$('.log-card').find((c) => (c.textContent || '').indexOf('等你确认样例') >= 0)
+        check('  完成后「等你确认」标记消失（不会留成假待办）',
+          !!card2 && !card2.querySelector('.log-agent-done'))
+      }
+    }
+
     // ══ 日志 → 待办：内容**一条不丢**（2026-10-11 用户实测的丢内容 bug）══════════
     // 原话：「我把 log_20260925113550_0z73dy 转待办，发现内容全丢，变成空待办。本以为文本会留住的。」
     // 真因两处：① 只取「下一步」首条当标题，而那条日志的下一步是占位 `（待填写）`；

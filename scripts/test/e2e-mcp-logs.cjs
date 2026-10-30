@@ -53,6 +53,24 @@ check('★★ MCP 有了日志写口（create_log / update_log / set_log_status 
   names.join(','))
 check('★★ 有多日志合并入口 inject_logs（主日志带副日志一起灌）',
   names.includes('inject_logs'), names.join(','))
+check('★★ decision_record 已从 MCP 移除（决策只能用户在界面拍板，AI 不代表决）',
+  !names.includes('decision_record'), names.join(','))
+
+// ── 任务终态：agent 最多到「待验收」（2026-10-30 用户拍板）──────────────
+{
+  const nt = call('create_task', { title: '收口权限测试卡', project: 'fm-demo', status: '待办' })
+  const tid = String(nt.id || '')
+  const mvDone = call('move_status', { id: tid, status: '完成' })
+  check('★★ move_status → 完成 被拒（完成是用户验收签字）',
+    mvDone.ok === false && /只能由用户/.test(String(mvDone.error || '')) && mvDone.suggested === '待验收',
+    JSON.stringify(mvDone).slice(0, 200))
+  const mvReject = call('move_status', { id: tid, status: '驳回' })
+  check('★ move_status → 驳回 也被拒', mvReject.ok === false && /只能由用户/.test(String(mvReject.error || '')),
+    JSON.stringify(mvReject).slice(0, 160))
+  const mvReview = call('move_status', { id: tid, status: '待验收' })
+  check('★ move_status → 待验收 允许（agent 的正确出口）', mvReview.ok === true,
+    JSON.stringify(mvReview).slice(0, 160))
+}
 
 // ── 建主日志 ────────────────────────────────────────────────────────
 const created = call('create_log', {
@@ -106,15 +124,29 @@ check('  主日志不带那个标记（只有第二条起才有）',
 const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
 check('  一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
 
-// ── 状态流转 ────────────────────────────────────────────────────────
+// ── 状态流转（2026-10-30 用户拍板「完成是签字，不是干活」）──────────────
+// agent 只能申请收口；complete / archive / reopen 是用户签字，MCP 必须硬拒。
 const arc = call('set_log_status', { id: mainId, action: 'archive' })
-check('★★ set_log_status archive → 归档（此前只能用户在界面上点）',
-  arc.ok === true && /已归档/.test(String(arc.status || '')), JSON.stringify(arc).slice(0, 200))
+check('★★ set_log_status archive 被拒（归档是用户签字，agent 不能代按）',
+  arc.ok === false && /只能由用户/.test(String(arc.error || '')), JSON.stringify(arc).slice(0, 200))
+const cmp = call('set_log_status', { id: mainId, action: 'complete' })
+check('★★ set_log_status complete 被拒（不再出现"AI 自己把日志完成了"）',
+  cmp.ok === false && /只能由用户/.test(String(cmp.error || '')), JSON.stringify(cmp).slice(0, 200))
 const reo = call('set_log_status', { id: mainId, action: 'reopen' })
-check('★ reopen 能撤回来（状态是单行道就没人敢用）',
-  reo.ok === true && /待处理/.test(String(reo.status || '')), JSON.stringify(reo).slice(0, 200))
+check('★ set_log_status reopen 也被拒（退回同样是生命周期签字）',
+  reo.ok === false && /只能由用户/.test(String(reo.error || '')), JSON.stringify(reo).slice(0, 200))
+const req = call('set_log_status', { id: mainId, action: 'request_close' })
+check('★★ request_close 只标记「等你确认」，不改 completed/archived',
+  req.ok === true && req.agentDone === true && /待处理|进行中/.test(String(req.status || '')),
+  JSON.stringify(req).slice(0, 200))
+const reqMeta = call('get_log', { id: mainId })
+check('★★ get_log 读得回 agentDone（界面据此显示「⏳ 等你确认」）', reqMeta.agentDone === true,
+  JSON.stringify({ agentDone: reqMeta.agentDone, status: reqMeta.status }))
+const cancel = call('set_log_status', { id: mainId, action: 'cancel_close' })
+check('  cancel_close 撤回申请（agent 继续干活时用）', cancel.ok === true && cancel.agentDone === false,
+  JSON.stringify(cancel).slice(0, 160))
 const run = call('set_log_status', { id: mainId, action: 'running' })
-check('  running 置「进行中」', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
+check('  running 仍然允许（标「进行中」不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
 const bad = call('set_log_status', { id: mainId, action: 'nope' })
 check('  非法 action 明确报错（不静默什么都不做）', bad.__raw !== undefined || bad.ok === false)
 

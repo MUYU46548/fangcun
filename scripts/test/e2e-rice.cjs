@@ -350,9 +350,9 @@ console.log('\n== ⑨ MCP 三件（agent 的真入口）==')
     up.ok === true && up.added.includes('rice-ext-mcp') && up.items.some((x) => x.eid === 'rice-ext-mcp' && x.C === 0.7), JSON.stringify(up).slice(0, 260))
   const list = call('rice_pool_list', {})
   check('rice_pool_list 读回现算分数/等级', list.ok === true && list.items.some((x) => x.eid === 'rice-ext-mcp' && x.score === 1.4 && x.level), JSON.stringify(list).slice(0, 260))
-  const dec = call('decision_record', { batch: 'e2e-mcp', items: [{ eid: 'rice-ext-mcp', 状态: '有效', 内容: 'MCP 拍板条目' }] })
-  check('decision_record 经 MCP 落账并回填决策 id',
-    dec.ok === true && /^D-/.test(dec.results[0].decisionId) && dec.total >= 1, JSON.stringify(dec).slice(0, 260))
+  const toolNames = (tools.MCP_TOOLS || []).map((t) => t.name)
+  check('★★ decision_record 已从 MCP 移除（决策是用户拍板，AI 不代表决；界面 rice:decide 仍在）',
+    !toolNames.includes('decision_record'), toolNames.join(','))
   const bad = call('rice_pool_upsert', { items: [{ eid: 'rice-bad', title: 'x', origin: 'external:x', R: 1, I: 0.9, E_days: 1, evidence: '纯直觉' }] })
   check('MCP 侧同样逐条拒非法 I（不整批失败）', bad.ok === true && bad.rejected.length === 1, JSON.stringify(bad).slice(0, 200))
 }
@@ -385,10 +385,10 @@ function checks() {
     && /guardedHandle\('rice:decide'/.test(ipc) && /guardedHandle\('rice:setBudget'/.test(ipc))
 
   const tools = read('desktop/src/main/mcp/tools.ts')
-  check('MCP 工具三件：rice_pool_list / rice_pool_upsert / decision_record',
-    /name: 'rice_pool_list'/.test(tools) && /name: 'rice_pool_upsert'/.test(tools) && /name: 'decision_record'/.test(tools))
+  check('MCP 只剩两件：rice_pool_list / rice_pool_upsert（decision_record 已移除）',
+    /name: 'rice_pool_list'/.test(tools) && /name: 'rice_pool_upsert'/.test(tools) && !/name: 'decision_record'/.test(tools))
   check('MCP 工具真的接了实现（不是只写 schema）',
-    /case 'rice_pool_upsert'/.test(tools) && /case 'decision_record'/.test(tools) && /case 'rice_pool_list'/.test(tools))
+    /case 'rice_pool_upsert'/.test(tools) && /case 'rice_pool_list'/.test(tools) && !/case 'decision_record'/.test(tools))
 
   const py = read('tegula/core.py')
   check('Python 侧有池解析/渲染（双腿）', /def load_rice_pool/.test(py) && /def _render_rice_pool/.test(py) && /RICE_POOL_PATH/.test(py))

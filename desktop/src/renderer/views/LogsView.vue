@@ -170,6 +170,10 @@
         <div class="log-card-head">
           <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
           <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
+          <!-- 2026-10-30（用户拍板）：AI 只能申请收口，完成必须由人点。
+               这个标记就是「它说做完了，等你签字」—— 不是完成态。 -->
+          <span v-if="log.agentDone && log.status === 'active'" class="log-agent-done"
+            title="AI 说这一轮做完了；「完成」只能由你点，点右边「✅ 确认完成」">⏳ 等你确认</span>
           <!-- 卡 001：标了优先级的日志在卡面上直接看得见（不标就不占位，历史日志零变化） -->
           <span v-if="log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(log.priority)"
             :title="'日志优先级：' + localPriority(log.priority)">{{ localPriority(log.priority) }}</span>
@@ -223,7 +227,11 @@
               : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）'"
             @click="toggleLogRunning(log)">{{ log.running ? '⏸ 撤销进行中' : '▶ 标为进行中' }}</button>
           <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
-            title="标记完成（不需要先标「进行中」）" @click="completeLogItem(log.id)">完成</button>
+            :class="{ ok: log.agentDone }"
+            :title="log.agentDone
+              ? 'AI 已申请收口 —— 点这里才真的标记完成（可填保留天数与备注）'
+              : '标记完成（不需要先标「进行中」）'"
+            @click="completeLogItem(log.id)">{{ log.agentDone ? '✅ 确认完成' : '完成' }}</button>
           <button v-if="log.status === 'completed' || log.status === 'archived'" class="ghost"
             title="撤销完成 / 撤销归档，退回「待处理」（只改状态，不删文件）"
             @click="reopenLogItem(log.id)">↩ 撤销</button>

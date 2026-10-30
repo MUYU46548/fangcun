@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.6.0
+version: 1.7.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -90,7 +90,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **30** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **29** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -119,17 +119,22 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `get_log` | Get one execution log by ID (e.g. |
 | `create_log` | Create an execution log (方寸执行日志) for this round of work. |
 | `update_log` | Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). |
-| `set_log_status` | Move a log along its lifecycle: complete (完成, optional retainDays) / archive (归档) / reopen (退回待处理) / running ( |
+| `set_log_status` | Move a log along its lifecycle. |
 | `attach_log_files` | Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. |
 | `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r |
 | `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, |
 | `rice_pool_upsert` | Upsert RICE initial scores into the requirement pool (idempotent). |
-| `decision_record` | Record the user’s verdicts for requirement-pool items into decisions.md (wraps addDecision, so |
 
 <!-- MCP-TOOLS:END -->
 
 入口 B（`python tegula.py mcp`）只含**读**工具；写工具只在入口 A。
-`decision_record` 是**用户动作**，agent 不得代拍。
+
+> **2026-10-30 用户拍板（硬规则）：完成是签字，不是干活。**
+> - 任务卡：agent 最多移到「待验收」；`move_status` 传「完成 / 驳回」会被**硬拒**。
+> - 执行日志：agent 只能 `set_log_status action=request_close` 申请收口；`complete / archive / reopen` 会被**硬拒**。
+>   用户在卡上看到「⏳ 等你确认」，点「✅ 确认完成」才真的完成。
+> - 决策：`decision_record` 已从 MCP 移除；拍板只在方寸界面「需求矩阵」页由用户点。
+> 越权不是"会被批评"，是接口直接报错 —— 看到 `只能由用户` 就停手，别换条路绕。
 
 ## 常做的四件事（照抄参数，别探索）
 
@@ -147,9 +152,10 @@ list_logs      { chain: "<任一日志 id>" }                  # 整条接力链
 ```
 create_log       { title, project: "fangcun-base", content, nextSteps }
 attach_log_files { id: "<返回的 id>", paths: ["C:/…/shot.png"] }   # 本机绝对路径，复制进数据目录
-set_log_status   { id: "<id>", action: "complete", retainDays: 7 }  # 或 archive / reopen / running
+set_log_status   { id: "<id>", action: "request_close" }           # 只申请收口；complete 由用户点
 ```
 ⚠ 建日志**不要**先问用户「要不要记一条」——收工就记，这是方寸存在的理由。
+⚠ **不要**把 `complete` 当成收工的最后一步：它会被拒，而且那本来就是用户的签字。
 
 **③ 看项目：状态与路线**
 ```
@@ -161,7 +167,7 @@ get_roadmap   { project: "fangcun-base" }     find_blockers { project: "..." }
 ```
 create_task { title, project, status: "待办", priority: "中", body }
 update_task { id, fields…, expected_update: <读到的 updated> }   # 乐观锁，冲突就重读再写
-move_status { id, status: "进行中" }
+move_status { id, status: "进行中" }                              # 最多到「待验收」；完成/驳回被硬拒
 ```
 
 **不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
