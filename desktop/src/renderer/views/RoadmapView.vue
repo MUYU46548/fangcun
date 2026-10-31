@@ -60,6 +60,12 @@
           <div class="rp-bar" v-if="proj.current" :title="proj.current.done + ' / ' + proj.current.total">
             <span class="rp-bar-in" :style="{ width: proj.percent + '%' }"></span>
           </div>
+          <!-- 2026-10-31 第二轮：没排批次的卡不再伪装成一个「未分类」阶段，
+               而是摊在这儿说清欠账有多少、怎么归位。 -->
+          <div class="rp-unbatched" v-if="proj.unbatched">
+            ⚠ <b>{{ proj.unbatched }}</b> 张卡没排批次 —— 它们不属于任何阶段，也不会出现在上面。
+            <span class="rp-unbatched-hint">在任务里填「批次」（如 P0 核心 / 2026-Q3）就会归位；同一个名字 = 同一批。</span>
+          </div>
 
           <div class="rp-batches">
             <div v-for="batch in batchesOf(pi)" :key="batch.name" class="rp-batch" :class="['rb-' + batch.status, { 'is-current': !!proj.current && batch.name === proj.current.name }]">
@@ -108,11 +114,12 @@ function toggleAll(id: string): void { showAll[id] = !showAll[id] }
 
 /** 决策视图：当前批次 / 还剩几张 / 排序 / 跨项目结论 —— 算法在 shared/roadmapFocus.ts */
 const focus = computed(() => focusRoadmap((roadmapData.value?.projects || []) as RoadmapProjectLike[]))
-/** 按 focus 的行顺序取回原始项目（批次顺序保持主进程给的顺序，不在这里重排） */
+/** 按 focus 的行顺序取回原始项目；批次顺序保持主进程给的顺序，且**剔除「未分类」**
+ *  （2026-10-31：它不是阶段，是欠账 —— 由上面那行 `proj.unbatched` 单独说明） */
 function batchesOf(index: number): any[] {
   const row = focus.value.rows[index]
   const raw = (roadmapData.value?.projects || []).find((p: any) => String(p.id) === row?.id)
-  return (raw?.batches || []) as any[]
+  return ((raw?.batches || []) as any[]).filter((b) => b && b.name !== '未分类')
 }
 
 /**

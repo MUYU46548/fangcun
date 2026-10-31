@@ -1964,7 +1964,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blocker-advice .ba-id { font-size: 11px; color: var(--muted); }
 .blocker-advice .ba-note { margin-top: 6px; color: var(--muted); }
 .blocker-advice .ba-who { margin-top: 4px; font-size: 11.5px; color: var(--ink); }
-.blocker-advice .ba-go { margin-left: auto; height: 30px; padding: 0 14px; font-size: 12px; }
+.blocker-advice .ba-go { height: 30px; padding: 0 12px; font-size: 12px; }
+.blocker-advice .ba-done { margin-left: auto; height: 30px; padding: 0 12px; font-size: 12px; }
 /* 其余按收益排队 */
 .blocker-queue { margin-bottom: 12px; }
 .bq-head { font-size: 11.5px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
@@ -1978,6 +1979,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .bq-id { margin-left: 7px; font-size: 10.5px; color: var(--muted); font-weight: 400; }
 .bq-why { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
 .bq-go { flex: none; height: 26px; padding: 0 10px; font-size: 11.5px; }
+.bq-done { flex: none; height: 26px; padding: 0 9px; font-size: 11.5px; }
 /* 证据区（完整阻塞链）：默认折叠，不占第一屏 */
 .blocker-evidence { margin-top: 4px; border-top: 1px dashed var(--line-2); padding-top: 8px; }
 .blocker-evidence > summary { cursor: pointer; font-size: 11.5px; color: var(--muted); margin-bottom: 8px; }
@@ -2098,6 +2100,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .rp-focus { font-size: 12px; color: var(--muted); }
 .rp-focus b { color: var(--accent); }
 .rp-focus.done { color: var(--ok-text); }
+.rp-unbatched { margin: -2px 0 10px; padding: 7px 10px; border-radius: 8px;
+  background: #fdf7e8; border: 1px solid #e8d9a8; font-size: 11.5px; line-height: 1.6; color: var(--warn-text); }
+.rp-unbatched b { color: var(--warn-text); }
+.rp-unbatched-hint { display: block; color: var(--muted); }
 .rp-toggle { flex: none; height: 24px; padding: 0 9px; font-size: 11px; }
 .rp-bar { height: 5px; background: var(--tint-3); border-radius: 3px; overflow: hidden; margin: -2px 0 10px; }
 .rp-bar-in { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
@@ -2485,7 +2491,20 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blk-x { background: none; border: 0; cursor: pointer; color: inherit; font-size: 13px; line-height: 1; padding: 0 3px; border-radius: 50%; }
 .blk-x:hover { background: rgba(0,0,0,.08); }
 .blk-empty { font-size: 11px; color: var(--muted); }
-.blk-pick { width: 100%; }
+/* 2026-10-31：阻塞挑选器从 300 项原生 select 改成「搜索 + 结果列表」 */
+.blk-search { width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid var(--border);
+  border-radius: 7px; font: inherit; font-size: 12px; background: #fff; color: var(--ink); }
+.blk-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.blk-results { margin-top: 5px; max-height: 176px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 8px; background: #fff; }
+.blk-hit { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 6px 9px;
+  background: none; border: 0; border-bottom: 1px solid var(--tint-3); cursor: pointer; font: inherit; }
+.blk-hit:last-child { border-bottom: 0; }
+.blk-hit:hover { background: var(--tint); }
+.blk-hit-t { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blk-hit-id { flex: none; font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+.blk-hit-s { flex: none; font-size: 10.5px; color: var(--muted); }
+.blk-none, .blk-more { padding: 7px 9px; font-size: 11px; color: var(--muted); }
 /* 日志视图的拖入提示 */
 .logs-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
 
@@ -2515,6 +2534,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .cal-weekbar .cw-txt { flex: 1 1 320px; }
 .cal-weekbar .cw-busy { flex: none; font-size: 11.5px; color: var(--muted); }
 .cal-weekbar .cw-go { flex: none; height: 26px; padding: 0 10px; font-size: 11.5px; }
+/* 未排期列表的搜索（2026-10-31）：一百多项先能搜 */
+.cal-unsched-filter { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.cal-unsched-q { flex: 1 1 260px; max-width: 420px; box-sizing: border-box; height: 30px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 12px; background: #fff; color: var(--ink); }
+.cal-unsched-q:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cal-unsched-n { flex: none; font-size: 11.5px; color: var(--muted); }
+.cal-unsched-reset { flex: none; height: 26px; padding: 0 9px; font-size: 11px; }
 .cal-hint { font-size: 11px; color: var(--muted); margin-left: auto; }
 .calgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; width: 100%; }
 .caldow { font-size: 11px; color: var(--muted); text-align: center; font-weight: 700; padding: 3px 0; }
@@ -3194,6 +3220,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 驳回之后去哪（2026-10-31）：两选一，默认退回待办。做成两张可点整行的卡，
    不是两个小圆点 —— 这一项决定"AI 会不会接着干"，值得看得清。 */
 .review-where-label { display: block; margin: 10px 0 5px; font-size: 11.5px; font-weight: 700; color: var(--ink); }
+/* 2026-10-31：这组只在「驳回」时生效 —— 从「通过」入口打开时**明显降级**，
+   免得用户以为要通过还得先选一个驳回去向。 */
+.review-where .rw-scope { font-weight: 400; font-size: 10.5px; color: var(--muted); }
+.review-where.is-secondary { opacity: .55; }
 .review-where { display: flex; flex-direction: column; gap: 6px; }
 .review-where .rw-opt {
   display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px; cursor: pointer;

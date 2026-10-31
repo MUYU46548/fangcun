@@ -998,7 +998,8 @@
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <!-- 阻塞源（2026-10-22 拆成组件 · 拆分计划第 1 批第 2 块：只吃一个数据源、零交互）。
          为什么不是方案原定的 calendar —— 见 BlockersView.vue 头部的实测。 -->
-    <BlockersView v-else-if="curView === 'blockers'" :chains="blockerChains" @open-task="openTaskById" />
+    <BlockersView v-else-if="curView === 'blockers'" :chains="blockerChains"
+      @open-task="openTaskById" @finish-task="finishTaskById" />
 
     <!-- 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 术语白话化 + UI 基座第 ④ 步第一单）：
          定下来的事都在这——事情 / 哪天定的 / 还算不算数 / 出处。数据 = task-data/decisions.md
@@ -1360,9 +1361,11 @@
         <!-- 2026-10-31（暮雨第 2 条：「驳回到底怎么用？每次都要手动点移动到待办，那有什么用？」）：
              驳回之后卡停在哪，必须当场选，不能默认停在「驳回」等人来搬。
              默认「退回待办」= 驳回即返工单，agent 下次取活就接着干（这才是它该有的样子）；
-             「先停着」= 这次只是记一笔，晚点自己决定。 -->
-        <label class="review-where-label">驳回之后</label>
-        <div class="review-where">
+             「先停着」= 这次只是记一笔，晚点自己决定。
+             2026-10-31 第二轮（暮雨：「我需要通过，但『驳回之后』显示在那里会误导」）：
+             这块只对「驳回」生效，所以标题后面直接写死这句话 —— 点「通过」时它一个字都不影响。 -->
+        <label class="review-where-label">驳回之后 <span class="rw-scope">（只在点「驳回」时生效 —— 点「通过」不受这一项影响）</span></label>
+        <div class="review-where" :class="{ 'is-secondary': reviewModal.intent === 'accept' }">
           <label class="rw-opt" :class="{ on: reviewRework }">
             <input type="radio" :checked="reviewRework" @change="reviewRework = true" />
             <span><b>退回待办，让 AI 返工</b>（默认）—— 理由留在卡上，agent 取活会先读它</span>
@@ -1596,17 +1599,41 @@
                 </span>
                 <span v-if="!blockerList.length" class="blk-empty">未设置依赖</span>
               </div>
-              <select class="blk-pick" :value="''" @change="onBlockerPick">
-                <option value="">+ 从当前项目的任务里挑选…</option>
-                <option v-for="t in blockerCandidates" :key="t.id" :value="t.id">
-                  {{ t.title || '(无标题)' }} —— {{ t.id }}
-                </option>
-              </select>
+              <!-- 2026-10-31 第二轮（暮雨：「和附属日志一样的问题，毫无筛选能力，一堆列表拉出来」）：
+                   原来是一个装 300 项的原生 <select>，找一张卡要滚半天。改成**搜索优先**：
+                   输入即筛（标题/ID 都认），不输入时只露最近 8 张，并说清"从哪来的"。
+                   原生 select 在几百项时没有搜索框，这是系统控件的硬伤，不是样式问题。 -->
+              <input class="blk-search" v-model="blockerQuery" spellcheck="false"
+                placeholder="搜标题或 ID（只列当前项目的任务）" />
+              <div class="blk-results">
+                <button v-for="t in blockerPickList" :key="'bp-' + t.id" type="button" class="blk-hit"
+                  @click="pickBlocker(t.id)">
+                  <span class="blk-hit-t">{{ t.title || '(无标题)' }}</span>
+                  <span class="blk-hit-id">{{ t.id }}</span>
+                  <span class="blk-hit-s">{{ t.status || '—' }}</span>
+                </button>
+                <div v-if="!blockerPickList.length" class="blk-none">
+                  {{ blockerQuery.trim() ? '没搜到 —— 换个词，或先把这个任务的项目改对' : '当前项目还没有可挑的任务' }}
+                </div>
+                <div v-else-if="!blockerQuery.trim() && blockerCandidates.length > blockerPickList.length" class="blk-more">
+                  还有 {{ blockerCandidates.length - blockerPickList.length }} 张没列 —— 输入标题或 ID 直接筛
+                </div>
+              </div>
             </template>
 
             <select v-else-if="spec.type === 'select'" v-model="editTask_[spec.key]">
               <option v-for="o in specOptions(spec)" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
+
+            <!-- 2026-10-31 第二轮（暮雨：「批次从来没被有效利用，每次都自己瞎编，最后越来越乱」）：
+                 批次框改成**带候选**的输入框 —— 已存在的批次名直接可选，想新造仍然可以打。
+                 路线图只认名字相同的一批，所以"顺手变成一个新的"才是乱源。 -->
+            <template v-else-if="spec.key === 'batch'">
+              <input v-model="editTask_[spec.key]" list="fc-batch-options" :placeholder="spec.placeholder || ''" />
+              <datalist id="fc-batch-options">
+                <option v-for="b in batchOptions" :key="'bt-' + b" :value="b"></option>
+              </datalist>
+            </template>
 
             <textarea
               v-else-if="spec.type === 'textarea'"
@@ -4829,6 +4856,7 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
 
 function openNew() {
   editTask_.value = emptyTaskForm()
+  blockerQuery.value = ''
   taskEditSnap = snapOf(editTask_.value)   // P0-1：关窗按「改没改」判
 }
 
@@ -4887,6 +4915,7 @@ async function openEdit(t: Task) {
     values = emptyTaskForm()
   }
   editTask_.value = { ...values, id: t.id }
+  blockerQuery.value = ''
   resetTaskHistory()
   taskEditSnap = snapOf(editTask_.value)   // P0-1：打开即存快照，否则一动不动也会被追问
   previewTask.value = null
@@ -4957,7 +4986,10 @@ const blockerList = computed<string[]>(() => {
   return raw.split(',').map(s => s.trim()).filter(Boolean)
 })
 
-/** 候选任务：跟随表单里所选的项目，排除自己与已选中的 */
+/**
+ * 候选任务：跟随表单里所选的项目，排除自己与已选中的。
+ * 2026-10-31：排序改成**最近更新优先** —— 找的多半是刚在动的那张，而不是列表里最早的那张。
+ */
 const blockerCandidates = computed<any[]>(() => {
   const e = editTask_.value
   if (!e) return []
@@ -4970,7 +5002,35 @@ const blockerCandidates = computed<any[]>(() => {
       const p = t.project
       return Array.isArray(p) ? p.includes(proj) : p === proj
     })
+    .slice()
+    .sort((a: any, b: any) => String(b.updated || '').localeCompare(String(a.updated || '')))
     .slice(0, 300)
+})
+
+/** 搜索词（2026-10-31：原生 select 装几百项等于没有筛选） */
+const blockerQuery = ref('')
+
+/** 已有批次名的候选（给「批次」框做 datalist）：只认现存的，别再顺手造新名字 */
+const batchOptions = computed<string[]>(() => {
+  const set = new Set<string>()
+  for (const t of tasks.value as any[]) {
+    const b = String(t?.batch ?? '').trim()
+    if (b && b !== '未分类') set.add(b)
+  }
+  return Array.from(set).sort()
+})
+
+/** 搜索结果：标题 / ID / 状态都能搜；不输入时只露 8 张 */
+const blockerPickList = computed<any[]>(() => {
+  const q = blockerQuery.value.trim().toLowerCase()
+  const list = blockerCandidates.value
+  if (!q) return list.slice(0, 8)
+  return list
+    .filter((t: any) => {
+      const hay = `${t.title || ''}\n${t.id}\n${t.status || ''}`.toLowerCase()
+      return q.split(/\s+/).every((w) => hay.includes(w))
+    })
+    .slice(0, 20)
 })
 
 function taskTitleById(id: string): string {
@@ -4982,11 +5042,11 @@ function setBlockers(ids: string[]) {
   if (editTask_.value) editTask_.value.blockers = ids.join(', ')
 }
 
-function onBlockerPick(e: Event) {
-  const el = e.target as HTMLSelectElement
-  if (!el.value) return
-  setBlockers([...blockerList.value, el.value])
-  el.value = ''
+/** 选中一张：加进依赖并清空搜索（否则会挡住下一张） */
+function pickBlocker(id: string) {
+  if (!id) return
+  setBlockers([...blockerList.value, id])
+  blockerQuery.value = ''
 }
 
 function removeBlocker(id: string) {
@@ -5492,6 +5552,24 @@ function openCard(t: Task) {
   previewTask.value = t
   loadLogsForTask(t.id)
   void loadTaskCommits(t.id)
+}
+
+/**
+ * 按 id 直接标完成（2026-10-31 第二轮）。
+ * 阻塞页的「标完成」用它：这张卡通常就是"做完它后面的才解锁"，
+ * 所以让它在原地一步解掉，而不是打开卡片再找按钮（用户原话："点进去实际上什么都处理不了"）。
+ * 确认与留痕全走 forceCloseTask 那一条，不另开通道。
+ */
+async function finishTaskById(id: string): Promise<void> {
+  const t = tasks.value.find(x => x.id === id)
+  if (t) { await forceCloseTask(t, '完成'); return }
+  try {
+    const remote: any = await window.tegula.getTask(id)
+    if (!remote) { showToast(`任务 ${id} 已不在活跃区（可能被删除或已归档）`, 'error'); return }
+    await forceCloseTask(remote, '完成')
+  } catch (e: any) {
+    showToast('改状态失败：' + (e?.message || e), 'error')
+  }
 }
 
 /**

@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.7.0
+version: 1.7.1
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -165,10 +165,14 @@ get_roadmap   { project: "fangcun-base" }     find_blockers { project: "..." }
 
 **④ 改任务**
 ```
-create_task { title, project, status: "待办", priority: "中", body }
+create_task { title, project, status: "待办", priority: "中", batch, body }
 update_task { id, fields…, expected_update: <读到的 updated> }   # 乐观锁，冲突就重读再写
 move_status { id, status: "进行中" }                              # 最多到「待验收」；完成/驳回被硬拒
 ```
+⚠ **`batch`（批次）必须沿用项目里已有的名字**，不要自己新造一个：
+`get_roadmap { project }` 先看一眼现有批次（如 `P1 功能` / `2026-Q3`），能归就归；
+真的都不合适再起新名字，并在日志里说明为什么。**批次名字一乱，路线图就变成一堆「未分类」**——
+方寸不会替你猜"这两张算不算一批"。
 
 **不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
 

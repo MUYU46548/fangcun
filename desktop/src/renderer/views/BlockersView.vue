@@ -30,7 +30,9 @@
           <span class="ba-title">{{ queue.top.title }}</span>
           <span class="ba-id">{{ queue.top.id }}</span>
           <span v-if="queue.top.status" class="st small" :class="'st-' + statusClass(queue.top.status)">{{ queue.top.status }}</span>
-          <button class="ghost ba-go" @click="emit('open-task', queue.top.id)">去处理 →</button>
+          <button class="ok ba-done" title="直接标记完成（跳过裁决，会二次确认）—— 解掉它，后面那几张就解锁了"
+            @click="emit('finish-task', queue.top.id)">✓ 标完成</button>
+          <button class="ghost ba-go" @click="emit('open-task', queue.top.id)">打开卡片 →</button>
         </div>
         <div class="ba-note">
           它一解，<b>{{ queue.top.unlock }}</b> 个任务就不再被卡（其中
@@ -50,7 +52,9 @@
             <div class="bq-title">{{ r.title }}<span class="bq-id">{{ r.id }}</span></div>
             <div class="bq-why">{{ r.why }}</div>
           </div>
-          <button class="ghost bq-go" @click="emit('open-task', r.id)">去处理 →</button>
+          <button class="ghost bq-go" @click="emit('open-task', r.id)">打开卡片 →</button>
+          <button v-if="!r.status || (r.status !== '完成' && r.status !== '驳回')" class="ok bq-done"
+            title="直接标记完成（跳过裁决，会二次确认）" @click="emit('finish-task', r.id)">✓</button>
         </div>
       </div>
 
@@ -63,7 +67,7 @@
               <span class="chain-id">{{ src.id }}</span>
               <span class="chain-title">{{ src.title }}</span>
               <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
-              <button class="ghost chain-go" @click="emit('open-task', src.id)">去处理 →</button>
+              <button class="ghost chain-go" @click="emit('open-task', src.id)">打开卡片 →</button>
             </div>
             <div class="chain-arrow">
               ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
@@ -100,8 +104,11 @@ import { statusClass } from '../../shared/status'
 
 /** 唯一输入：主进程 findBlockers 给的阻塞链 */
 const props = defineProps<{ chains: any[] }>()
-/** 2026-10-31：点「去处理」→ 打开那张卡（落盘与跳转留给 App，组件只发意图） */
-const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
+/** 2026-10-31：点「打开卡片」→ 打开那张卡；点「标完成」→ 直接解掉（落盘与确认都在 App，组件只发意图） */
+const emit = defineEmits<{
+  (e: 'open-task', id: string): void
+  (e: 'finish-task', id: string): void
+}>()
 
 /** 决策队列（结论 / 先解这个 / 其余排序）—— 算法在 shared/blockers.ts */
 const queue = computed(() => buildBlockerQueue(props.chains))

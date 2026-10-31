@@ -80,15 +80,27 @@
           未安排 · 无时间（{{ calUnscheduled.length }} 个）
           <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
         </h4>
+        <!-- 2026-10-31 第二轮（暮雨：「日历底下的排期也没筛选，看起来一团乱」）：
+             112 个 chip 铺开等于没有列表。加一个搜索框，标题 / ID 都认，回车不用按。 -->
+        <div class="cal-unsched-filter" v-if="calUnscheduled.length > 6">
+          <input class="cal-unsched-q" v-model="unschedQuery" spellcheck="false"
+            placeholder="在 {{ calUnscheduled.length }} 项里搜标题或 ID…" />
+          <span class="cal-unsched-n" v-if="unschedQuery.trim()">
+            命中 {{ unschedList.length }} / {{ calUnscheduled.length }}
+          </span>
+          <button class="ghost cal-unsched-reset" v-if="unschedQuery.trim()" @click="unschedQuery = ''">清空</button>
+        </div>
         <div class="items">
-        <span v-for="t in calUnscheduled" :key="t.id" class="cev chip" draggable="true"
+        <span v-for="t in unschedList" :key="t.id" class="cev chip" draggable="true"
           :title="'拖动或点击指派时间：' + (t.title || t.id)"
           @dragstart="onCalDragStart($event, t.id, 'task')"
           @click="emit('assign-task', t)">
           <span class="pd" :style="{ background: prioColor(t.priority) }"></span>
           <span class="t">{{ t.title || t.id }}</span>
         </span>
-        <span v-if="!calUnscheduled.length" class="cal-empty">本月任务都已安排时间</span>
+        <span v-if="!unschedList.length" class="cal-empty">
+          {{ calUnscheduled.length ? '没搜到 —— 换个词' : '本月任务都已安排时间' }}
+        </span>
       </div>
       <template v-if="calOtherMonths.length">
         <h4 class="cal-other-head">其它月份（{{ calOtherTotal }} 个）—— 点一下跳过去</h4>
@@ -107,7 +119,7 @@
 import { useCalendar } from '../composables/useCalendar'
 import { localPriority } from '../../shared/priority'
 import { buildWeekPlan } from '../calendar'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{
   /** 顶栏筛选后的任务（日历跟着筛选走，这是既有行为） */
@@ -142,6 +154,18 @@ const {
 
 /** 本周体检（周一起）：今天几件 / 本周几件 / 逾期 / 没排期 / 最挤的那天 —— 纯函数在 calendar.ts */
 const week = computed(() => buildWeekPlan(props.tasks || [], props.todos || []))
+
+/** 未排期列表的搜索词（2026-10-31：一百多项铺开一团乱，先能搜再谈排期） */
+const unschedQuery = ref('')
+const unschedList = computed(() => {
+  const q = unschedQuery.value.trim().toLowerCase()
+  const list = calUnscheduled.value as any[]
+  if (!q) return list
+  return list.filter((t: any) => {
+    const hay = `${t.title || ''}\n${t.id}\n${t.project || ''}`.toLowerCase()
+    return q.split(/\s+/).every((w) => hay.includes(w))
+  })
+})
 
 /**
  * 点条目：按 kind 分三种去向。

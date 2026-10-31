@@ -64,16 +64,24 @@ check('★★ 全收口 → 没有当前批次（不糊一个"最后一版"当�
 check('★ 全收口文案明说"该规划下一批"', /全部收口|该规划下一批/.test(allDone.text), allDone.text)
 
 const noBatch = focusOfProject(P('d', '丁项目', 'idle', []))
-check('★ 一张批次都没有 → 明说"还没排批"（不造一个阶段）',
-  noBatch.current === null && /还没排批|还没有排批/.test(noBatch.text), noBatch.text)
+check('★ 一张批次都没有 → 不装出阶段（current 为空，文案如实说"没有/还没"）',
+  noBatch.current === null && /没有|还没/.test(noBatch.text), noBatch.text)
 
-console.log('\n== ② 空的「未分类」不算一个阶段 ==')
+console.log('\n== ② 「未分类」永远不是阶段（2026-10-31 第二轮修）==')
 
 const unclassified = focusOfProject(P('e', '戊项目', 'idle', [B('未分类', 'pending', 0, 3)]))
-check('★ 「未分类」且一张都没完成 → 不算批次（current 为空）', unclassified.current === null,
+check('★ 「未分类」不进批次列表（current 为空）', unclassified.current === null,
   JSON.stringify(unclassified.current && unclassified.current.name))
-check('★ 但真有「未分类」的活时 totalBatches 仍如实算 0（那 3 张不算一个阶段）',
-  unclassified.totalBatches === 0, String(unclassified.totalBatches))
+check('★★ 「未分类」里完成了一半也不算阶段（19/41 那种把真阶段挤掉了）',
+  (() => {
+    const f = focusOfProject(P('f', '己项目', 'idle', [B('未分类', 'active', 19, 41), B('P1', 'active', 1, 2)]))
+    return f.totalBatches === 1 && f.current && f.current.name === 'P1' && f.unbatched === 22
+  })(), JSON.stringify(focusOfProject(P('f', '己项目', 'idle', [B('未分类', 'active', 19, 41), B('P1', 'active', 1, 2)]))))
+check('★ 没排批的数量单独报（只数未完成的，不把它算成一个批次）',
+  unclassified.unbatched === 3 && unclassified.totalBatches === 0,
+  `${unclassified.unbatched}/${unclassified.totalBatches}`)
+check('★ 只有未分类时，文案明说"这不是一个阶段，是欠账"',
+  /欠账|还没排批次/.test(unclassified.text), unclassified.text)
 
 console.log('\n== ③ 排序：该先看的在前 ==')
 
