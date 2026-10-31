@@ -2461,6 +2461,7 @@ import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
 import { useLogEditGuard } from './composables/useLogEditGuard'
 import { useLogEditorSave } from './composables/useLogEditorSave'
+import { useLogStatusActions } from './composables/useLogStatusActions'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7424,46 +7425,6 @@ async function copyLogGroupAsPrompt(main: any): Promise<void> {
   await copyLogsAsPrompt(logGroupMemberIds(main))
 }
 
-/**
- * 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。
- * 这是「进行中」的唯一入口：创建不会再自动打上，完成/归档也只会把它关掉。
- * 可撤销 —— 关掉即回到「待处理」，不会误伤任何东西。
- *
- * ⚠ 2026-10-30（暮雨第 5 条，重大 bug）：这里**必须 offerUndo**。
- * 真实现场：用户误点「标为进行中」→ 按 Ctrl+Z（或点顶部撤销条）→ 撤掉的不是这次，
- * 而是 60 秒前那条「已完成 → 待处理」的旧动作 → 进行中没撤销、另一个已完成反而被退回待处理。
- * 根因是撤销条只记**上一笔可撤动作**，而这个入口当时**没有登记自己**，旧条子就一直挂着。
- * 纪律：任何改状态的动作要么 offerUndo 顶掉旧条，要么 dismissUndo 清掉 —— 不许留着旧条装没事。
- */
-async function toggleLogRunning(log: any): Promise<void> {
-  // 2026-10-30 暮雨第 2 条：主日志卡上的运行开关**就是全组开关**。
-  // 用户实测「点了进行中，附属日志没有跟着一起变成进行中 —— 视觉上极为混乱」，
-  // 期待的是主日志一派出去、同一轮的并行通道也一起变成进行中。
-  // 单条控制没有丢：主日志框里每一条附属都有自己的「▶ / ⏸」。
-  if (logHasGroup(log)) {
-    await toggleLogGroupRunning(log, !logGroupAllRunning(log))
-    return
-  }
-  const next = !log.running
-  const r: any = await window.tegula.logsSetRunning(log.id, next)
-  if (r && r.ok) {
-    showToast(next ? '已标为「进行中」' : '已撤销「进行中」，回到待处理', 'success')
-    await loadLogs()
-    // 撤销 = 再点一次同一个开关（唯一写入路径），并把列表刷回真值。
-    offerUndo(
-      `${next ? '已标为「进行中」' : '已撤销「进行中」'}：${log.title || log.id}`,
-      async () => {
-        const back: any = await window.tegula.logsSetRunning(log.id, !next)
-        if (!back?.ok) throw new Error(back?.error || '未知原因')
-        await loadLogs()
-        showToast(next ? '已撤销「进行中」，回到待处理' : '已标为「进行中」', 'success')
-      },
-    )
-  } else {
-    showToast(`操作失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
 // ── 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）──────────────
 // 纪律（卡 004 正文）：**源保留不删**；目标记「由 X 转来」（prev 范式，与接力链同款）；
 // 靠来源字段**防重** —— 同一条只转一次，手滑点两下不产出两条。
@@ -7673,6 +7634,14 @@ const { saveLogEdit, saveLogFieldsOnly } = useLogEditorSave({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   logPendingCount, normalizeLogTaskIds, flushPendingAttach, resetPendingAttach,
   closeLogNow, offerLogReopenUndo, toast: showToast, reload: loadLogs,
+})
+
+/** 日志状态动作：进行中 / 完成入口 / 归档入口 / 撤销 / 销毁 */
+const { toggleLogRunning, completeLogItem, archiveLogItem, reopenLogItem, destroyLogItem } = useLogStatusActions({
+  logs, logEdit_, logBatchMode, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
+  previewTask, resetLogHistory, markLogSnap, normalizeLogTaskIds,
+  showToast, loadLogs, loadLogsForTask, offerUndo, offerLogReopenUndo,
+  toggleLogGroupRunning, logHasGroup, logGroupAllRunning,
 })
 
 function openNewLog() {
@@ -8140,79 +8109,6 @@ async function restoreLogVersionItem(v: any): Promise<void> {
     await loadLogs()
   } catch (err: any) {
     showToast(`恢复异常：${err?.message || err}`, 'error')
-  }
-}
-
-function completeLogItem(id: string) {
-  const log = logs.value.find(l => l.id === id)
-  if (!log) return
-  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
-  resetLogHistory()
-  logCompleting.value = true
-  logArchiveMode.value = false
-  logRetainDays.value = String(logRetainDefault.value)
-  logNote.value = ''
-  logBatchMode.value = false
-  markLogSnap()   // P0-1：只填「备注」也要算改动，别静默丢
-}
-
-function archiveLogItem(id: string) {
-  const log = logs.value.find(l => l.id === id)
-  if (!log) return
-  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
-  resetLogHistory()
-  logCompleting.value = false
-  logArchiveMode.value = true
-  logRetainDays.value = String(logRetainDefault.value)
-  logNote.value = ''
-  logBatchMode.value = false
-  markLogSnap()
-}
-
-/**
- * 撤销「完成 / 归档」，退回**待处理**（2026-09-28 用户第 2 条重新定位）。
- *
- * 用户要的是"误操作能撤"：以前这个按钮叫「▶ 进行中」，撤销的同时顺手把你标成进行中，
- * 于是撤销一个误点的「完成」反而多出一个「进行中」—— 撤销本身变成了新的意外。
- * 现在撤销只回到待处理；要不再要「进行中」由 `toggleLogRunning` 那只开关决定。
- */
-async function reopenLogItem(id: string) {
-  // 2026-10-30 暮雨第 5 条：撤销本身也要能撤 —— 点错「↩ 撤销」不该比误点更惨。
-  const before = logs.value.find((l: any) => l.id === id)
-  const snap = before ? {
-    status: before.status, running: !!before.running, agentDone: !!before.agentDone,
-    completed: before.completed || null, retainDays: before.retainDays ?? null,
-    retainUntil: before.retainUntil || null, note: before.note || '', archiveNote: before.archiveNote || '',
-  } : null
-  const title = String(before?.title || id)
-  const r: any = await window.tegula.logsReopen(id)
-  if (r && r.ok) {
-    showToast('已撤销，回到「待处理」', 'success')
-    await loadLogs()
-    // 任务详情的「关联日志」列表是另一份数据源，两边都要刷（2026-10-21）
-    await loadLogsForTask(previewTask.value?.id || '')
-    if (snap) {
-      offerUndo(`已撤销「${title}」`, async () => {
-        const back: any = await window.tegula.logsRestoreState(id, snap)
-        if (!back?.ok) throw new Error(back?.error || '未知原因')
-        await loadLogs()
-        await loadLogsForTask(previewTask.value?.id || '')
-        showToast('已恢复撤销前的状态', 'success')
-      })
-    }
-  } else {
-    showToast(`撤销失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
-async function destroyLogItem(id: string) {
-  if (!confirm('确定销毁此日志？文件将被永久删除。')) return
-  const result = await window.tegula.logsDestroy(id)
-  if (result.ok) {
-    showToast('已销毁', 'success')
-    await loadLogs()
-  } else {
-    showToast(`销毁失败：${result.error || '未知原因'}`, 'error')
   }
 }
 
