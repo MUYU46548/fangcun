@@ -3607,3 +3607,27 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mcp-entry-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mcp-entry-label { font-size: 12px; color: var(--muted); }
 .mcp-entry-note { font-size: 11.5px; color: var(--muted); }
+
+/* ── 历史版本面板（2026-10-18 卡 001；2026-10-31 收口）────────────────────
+   日志与任务卡共用。目的：把 .backup 里的版本"看得见、挑得动"，
+   而不是只留一个盲退一步的按钮。 */
+.ver-sect { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.ver-toggle { font-size: 12.5px; }
+.ver-panel { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--tint-3); padding: 8px 10px; }
+.ver-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 6px; }
+.ver-head b { font-weight: 600; }
+.ver-sub { color: var(--muted); font-size: 11.5px; }
+.ver-x { margin-left: auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.ver-x:hover { background: var(--tint-2); color: var(--text); }
+.ver-empty { font-size: 12px; color: var(--muted); padding: 6px 2px; }
+.ver-list { display: flex; flex-direction: column; gap: 4px; max-height: 210px; overflow: auto; }
+.ver-row { display: flex; align-items: stretch; gap: 6px; border: 1px solid transparent; border-radius: 6px; }
+.ver-row:hover { border-color: var(--border); background: var(--tint-2); }
+.ver-row.on { border-color: var(--brand); background: var(--tint-2); }
+.ver-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; background: transparent; color: var(--text); text-align: left; padding: 5px 7px; cursor: pointer; border-radius: 6px; }
+.ver-title { font-size: 12.5px; font-weight: 500; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ver-meta { font-size: 11px; color: var(--muted); }
+.ver-restore { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 6px; padding: 0 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.ver-restore:hover { border-color: var(--brand); color: var(--brand); }
+.ver-preview { margin: 6px 0 0; padding: 8px 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.ver-next { margin-top: 6px; font-size: 12px; }

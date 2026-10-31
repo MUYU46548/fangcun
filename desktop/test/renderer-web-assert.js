@@ -5461,10 +5461,12 @@
       check('★★ 决策卡与看板老卡**同圆角**（两套 UI 的分界线就在这两个值上）',
         !!decRadius && decRadius === boardRadius,
         `dec=${decRadius} board=${boardRadius}`)
-      // ⚠ 不能直接比字符串：Tailwind 的 box-shadow 会带两层**全透明占位**
-      // 按**整层**删掉全透明占位（不能按逗号切：rgba(0, 0, 0, 0) 自己就带逗号）。
+      // ⚠ 不能直接比字符串：Tailwind 的 box-shadow 会带两层**全透明占位**。
+      // 2026-10-31：过渡收尾时颜色已是 `rgba(90,90,130,0)`（alpha=0，肉眼不可见），
+      // 偏移量还留着 8e-10px 的尾巴 —— 按「alpha=0 的层一律算没有」归一，
+      // 而不是只认纯黑透明（旧写法会把这层漏掉，切成"产品还有影子"）。
       const normShadow = (v) => String(v || '')
-        .replace(/rgba?\(0,\s*0,\s*0,\s*0\)[^,]*?(,\s*|$)/g, '')
+        .replace(/rgba?\([^)]*,\s*0(?:\.0+)?\)[^,]*?(,\s*|$)/g, '')
         .replace(/,\s*$/, '')
         .trim()
       /** 没有影子 = 空 或 计算值 'none'；"两边同阴影"那条要用原值比较，不能把 none 抹成空 */

@@ -2353,6 +2353,32 @@
             <div v-if="spec.hint" class="tf-hint">{{ spec.hint }}</div>
           </div>
         </div>
+        <!-- 历史版本（2026-10-18 卡 001；2026-10-31 收口）：把 atomicWrite 本来就在写的
+             .backup 接出来 —— 看见列表、逐版预览、恢复任意一版。恢复前会自动备份当前版。 -->
+        <div v-if="editTask_.id" class="ver-sect">
+          <button class="ghost ver-toggle" @click="toggleTaskHistory">
+            🕘 历史版本<span v-if="taskVersions.length"> · {{ taskVersions.length }}</span>
+          </button>
+          <div v-if="taskHistoryOpen" class="ver-panel">
+            <div class="ver-head">
+              <b>这张卡的历史版本</b>
+              <span class="ver-sub">本机最近 10 版；恢复前会把当前版再备份一次</span>
+              <button class="ver-x" title="收起" @click="taskHistoryOpen = false">×</button>
+            </div>
+            <div v-if="taskVersionBusy" class="ver-empty">读取中…</div>
+            <div v-else-if="!taskVersions.length" class="ver-empty">没有历史版本（本机只留最近 10 版，更早的要靠整包备份）</div>
+            <div v-else class="ver-list">
+              <div v-for="v in taskVersions" :key="v.file" class="ver-row" :class="{ on: taskVersionPreview?.file === v.file }">
+                <button class="ver-main" @click="previewTaskVersion(v)">
+                  <span class="ver-title">{{ v.title || '(无标题)' }}</span>
+                  <span class="ver-meta">{{ v.at ? formatDateTime(v.at) : '时间不详' }} · {{ versionSizeText(v.size) }} · {{ v.status || '状态未知' }}</span>
+                </button>
+                <button class="ver-restore" @click="restoreTaskVersionItem(v)">恢复</button>
+              </div>
+            </div>
+            <pre v-if="taskVersionPreview" class="ver-preview">{{ taskVersionPreview.content }}</pre>
+          </div>
+        </div>
         <div class="acts">
           <button class="ghost" @click="closeTaskEditor()">取消</button>
           <button class="pri" @click="saveEdit">保存</button>
@@ -2452,7 +2478,7 @@
              现在直说"能改 + 会留痕"，用户不必再复制出来新建一条。 -->
         <div class="hint log-closed-hint" v-if="logEdit_.id && logEdit_.status && logEdit_.status !== 'active'">
           这条已{{ logEdit_.status === 'completed' ? '完成' : '归档' }}。<b>内容仍然可以改</b>（改完点保存即可）；
-          改动会在卡面留一个「✎ 改过」戳，不是静默篡改。点错保存就按左下「↩ 撤回上次保存」。
+          改动会在卡面留一个「✎ 改过」戳，不是静默篡改。点错保存就按左下「🕘 历史版本」挑一版恢复。
         </div>
         <label>标题</label>
         <input v-model="logEdit_.title" placeholder="日志标题" />
@@ -2597,17 +2623,41 @@
             <button class="danger" @click="discardLogEdit">丢弃并关闭</button>
           </span>
         </div>
+        <!-- 历史版本（2026-10-18 卡 001；2026-10-31 收口）：从"只能退一步"扩到
+             "看见列表 + 逐版预览 + 恢复任意一版"。接的仍是 atomicWrite 既有的 .backup，
+             不是新造一套撤销机制；恢复前会把当前版再备份一次，撤错了还能再恢复回来。 -->
+        <div v-if="logEdit_.id" class="ver-sect">
+          <button class="ghost ver-toggle" @click="toggleLogHistory">
+            🕘 历史版本<span v-if="logVersions.length"> · {{ logVersions.length }}</span>
+          </button>
+          <div v-if="logHistoryOpen" class="ver-panel">
+            <div class="ver-head">
+              <b>这条日志的历史版本</b>
+              <span class="ver-sub">本机最近 10 版；恢复前会把当前版再备份一次</span>
+              <button class="ver-x" title="收起" @click="logHistoryOpen = false">×</button>
+            </div>
+            <div v-if="logVersionBusy" class="ver-empty">读取中…</div>
+            <div v-else-if="!logVersions.length" class="ver-empty">没有历史版本（本机只留最近 10 版，更早的要靠整包备份）</div>
+            <div v-else class="ver-list">
+              <div v-for="v in logVersions" :key="v.file" class="ver-row" :class="{ on: logVersionPreview?.file === v.file }">
+                <button class="ver-main" @click="previewLogVersion(v)">
+                  <span class="ver-title">{{ v.title || '(无标题)' }}</span>
+                  <span class="ver-meta">{{ v.at ? formatDateTime(v.at) : '时间不详' }} · {{ versionSizeText(v.size) }} · {{ v.status === 'completed' ? '已完成' : v.status === 'archived' ? '已归档' : '待处理' }}</span>
+                </button>
+                <button class="ver-restore" @click="restoreLogVersionItem(v)">恢复</button>
+              </div>
+            </div>
+            <pre v-if="logVersionPreview" class="ver-preview">{{ logVersionPreview.content }}</pre>
+            <div v-if="logVersionPreview && logVersionPreview.nextSteps" class="ver-next">
+              <b>下一步</b>
+              <pre class="ver-preview">{{ logVersionPreview.nextSteps }}</pre>
+            </div>
+          </div>
+        </div>
         <div class="acts">
           <button class="ghost" @click="closeLogEditor">取消</button>
           <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
           <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
-          <!-- 撤回上一次保存（2026-10-18 暮雨第 1 条：「根本没有撤回选项，狂按 Ctrl+Z 也没用」）。
-               接的是本机 `.backup` 里既有的上一版（每条日志留 10 版），不是新造一套撤销机制。
-               为什么不在顶栏做全局 Ctrl+Z：编辑框里的原生撤销只覆盖"这次输入"，保存并关窗之后
-               就无从撤起；真要做全站撤销栈得动每一条写路径（见 docs/方寸-全面检查与中期规划-20261018.md）。 -->
-          <button v-if="logEdit_.id" class="ghost"
-            title="撤回上一次保存 —— 用本机自动备份的上一版覆盖当前内容（写前会把当前版再备份一次，撤错可再撤回来）"
-            @click="restoreLogPrev">↩ 撤回上次保存</button>
           <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
           <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补「保存修改」：
                只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在「确认完成」和「丢弃」里二选一。 -->
@@ -4867,6 +4917,11 @@ const visibleFieldSpecs = computed(() => {
   })
 })
 const editTask_ = ref<any>(null)
+// 任务卡历史版本（2026-10-18 卡 001；2026-10-31 收口）：列表 / 单版预览 / 恢复
+const taskHistoryOpen = ref(false)
+const taskVersions = ref<any[]>([])
+const taskVersionPreview = ref<any>(null)
+const taskVersionBusy = ref(false)
 // 启动台「添加/编辑应用」模态的开关 + 表单载体。
 // ⚠ 此前 template（v-if / v-model / 取消按钮）与 openAddApp / saveEditApp 全都在用它，
 // 唯独这里没声明 → 点「+ 添加应用」立刻 ReferenceError，界面毫无反应；
@@ -6314,6 +6369,7 @@ async function openEdit(t: Task) {
     values = emptyTaskForm()
   }
   editTask_.value = { ...values, id: t.id }
+  resetTaskHistory()
   taskEditSnap = snapOf(editTask_.value)   // P0-1：打开即存快照，否则一动不动也会被追问
   previewTask.value = null
 }
@@ -6584,6 +6640,67 @@ async function saveEdit() {
   editTask_.value = null
   showToast(e.id ? '已更新' : '已创建', 'success')
   loadAll()
+}
+
+function resetTaskHistory(): void {
+  taskHistoryOpen.value = false
+  taskVersions.value = []
+  taskVersionPreview.value = null
+  taskVersionBusy.value = false
+}
+
+async function toggleTaskHistory(): Promise<void> {
+  if (taskHistoryOpen.value) { taskHistoryOpen.value = false; return }
+  const e = editTask_.value
+  if (!e?.id) return
+  taskHistoryOpen.value = true
+  taskVersionPreview.value = null
+  taskVersionBusy.value = true
+  try {
+    const vs: any = await window.tegula.tasksVersions(e.id)
+    taskVersions.value = Array.isArray(vs) ? vs : []
+  } catch (err: any) {
+    taskVersions.value = []
+    showToast(`读取历史版本失败：${err?.message || err}`, 'error')
+  } finally {
+    taskVersionBusy.value = false
+  }
+}
+
+async function previewTaskVersion(v: any): Promise<void> {
+  const e = editTask_.value
+  if (!e?.id || !v?.file) return
+  taskVersionBusy.value = true
+  try {
+    const r: any = await window.tegula.tasksVersionGet(e.id, v.file)
+    if (!r?.ok) { showToast(`预览失败：${r?.error || '未知原因'}`, 'error'); return }
+    taskVersionPreview.value = r.data
+  } catch (err: any) {
+    showToast(`预览异常：${err?.message || err}`, 'error')
+  } finally {
+    taskVersionBusy.value = false
+  }
+}
+
+async function restoreTaskVersionItem(v: any): Promise<void> {
+  const e = editTask_.value
+  if (!e?.id || !v?.file) return
+  const when = v.at ? formatDateTime(v.at) : '这个版本'
+  const dirtyTip = taskEditDirty() ? '\n\n⚠ 表单里还没保存的改动会被这一版覆盖。' : ''
+  if (!confirm(`恢复到「${v.title || '(无标题)'}」（${when}）？\n\n卡片字段与正文都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
+  try {
+    const r: any = await window.tegula.tasksRestoreVersion(e.id, v.file)
+    if (!r?.ok) { showToast(`恢复失败：${r?.error || '未知原因'}`, 'error'); return }
+    const fresh: any = await window.tegula.taskFormValues(e.id)
+    editTask_.value = { ...fresh, id: e.id }
+    taskEditSnap = snapOf(editTask_.value)
+    taskHistoryOpen.value = false
+    taskVersionPreview.value = null
+    showToast(`已恢复（回到 ${when} 那一版）`, 'success')
+    await loadAll()
+  } catch (err: any) {
+    showToast(`恢复异常：${err?.message || err}`, 'error')
+  }
 }
 
 async function deleteTask(id: string) {
@@ -7702,6 +7819,11 @@ const logAgentFilter = ref('')
 const logDateFrom = ref('')
 const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
+// 日志历史版本（2026-10-18 卡 001；2026-10-31 收口）：列表 / 单版预览 / 恢复
+const logHistoryOpen = ref(false)
+const logVersions = ref<any[]>([])
+const logVersionPreview = ref<any>(null)
+const logVersionBusy = ref(false)
 
 // ── 监控台的两块派生数据（2026-10-11，监控台 P0 两件）──────────────────────
 /**
@@ -9196,6 +9318,7 @@ function attachOpenHint(rel: string): string {
 function openLog(log: any) {
   // 2026-09-25（用户第 2 条）：把关联任务归一成数组，供多选 UI 绑定
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
+  resetLogHistory()
   logCompleting.value = false
   logArchiveMode.value = false
   logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
@@ -9222,6 +9345,7 @@ function openNewLog() {
     ? curProj.value
     : (projects.value[0]?.id || '')
   logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '', priority: '' }
+  resetLogHistory()
   logCompleting.value = false
   logArchiveMode.value = false
   logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
@@ -9754,37 +9878,78 @@ async function saveLogFieldsOnly() {
 }
 
 /**
- * 撤回上一次保存（2026-10-18 暮雨第 1 条）。
+ * 历史版本面板的公共小工具（2026-10-18 卡 001；2026-10-31 收口）。
  *
- * 用本机 `.backup` 里的上一版覆盖当前文件 —— 备份是 atomicWrite 本来就有的，
- * 这里只是补一个入口。写回前会把当前版再备份一次，所以「撤错了」可以再撤回来。
- * 不是全局撤销栈：只覆盖"这条日志的上一次保存"（原因见按钮注释）。
+ * 这里补的不是"全站撤销栈"（那要动每条写路径），而是把 `atomicWrite` 本来就在写的
+ * `.backup` 接出来：日志与任务卡都能**看见列表、逐版预览、恢复任意一版**。
  */
-async function restoreLogPrev(): Promise<void> {
+function versionSizeText(n: any): string {
+  const v = Number(n) || 0
+  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+  if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
+  return `${v} B`
+}
+
+function resetLogHistory(): void {
+  logHistoryOpen.value = false
+  logVersions.value = []
+  logVersionPreview.value = null
+  logVersionBusy.value = false
+}
+
+async function toggleLogHistory(): Promise<void> {
+  if (logHistoryOpen.value) { logHistoryOpen.value = false; return }
   const e = logEdit_.value
   if (!e?.id) return
+  logHistoryOpen.value = true
+  logVersionPreview.value = null
+  logVersionBusy.value = true
   try {
     const vs: any = await window.tegula.logsVersions(e.id)
-    if (!Array.isArray(vs) || !vs.length) {
-      showToast('没有可撤回的版本：本机只留最近 10 版，更早的要靠整包备份', 'info')
-      return
-    }
-    const when = vs[0]?.at ? formatDateTime(vs[0].at) : '上一版'
-    if (!confirm(`撤回上一次保存？\n\n会用本机自动备份（${when}）覆盖当前这条日志，\n标题 / 正文 / 下一步 / 状态都回到那一版。\n当前版本会先备份，撤错了可以再撤回来。`)) return
-    const r: any = await window.tegula.logsRestorePrev(e.id)
-    if (!r?.ok) {
-      showToast(`撤回失败：${r?.error || '未知原因'}`, 'error')
-      return
-    }
+    logVersions.value = Array.isArray(vs) ? vs : []
+  } catch (err: any) {
+    logVersions.value = []
+    showToast(`读取历史版本失败：${err?.message || err}`, 'error')
+  } finally {
+    logVersionBusy.value = false
+  }
+}
+
+async function previewLogVersion(v: any): Promise<void> {
+  const e = logEdit_.value
+  if (!e?.id || !v?.file) return
+  logVersionBusy.value = true
+  try {
+    const r: any = await window.tegula.logsVersionGet(e.id, v.file)
+    if (!r?.ok) { showToast(`预览失败：${r?.error || '未知原因'}`, 'error'); return }
+    logVersionPreview.value = r.data
+  } catch (err: any) {
+    showToast(`预览异常：${err?.message || err}`, 'error')
+  } finally {
+    logVersionBusy.value = false
+  }
+}
+
+async function restoreLogVersionItem(v: any): Promise<void> {
+  const e = logEdit_.value
+  if (!e?.id || !v?.file) return
+  const when = v.at ? formatDateTime(v.at) : '这个版本'
+  const dirtyTip = logEditDirty() ? '\n\n⚠ 表单里还没保存的改动会被这一版覆盖。' : ''
+  if (!confirm(`恢复到「${v.title || '(无标题)'}」（${when}）？\n\n标题 / 正文 / 下一步 / 状态都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
+  try {
+    const r: any = await window.tegula.logsRestoreVersion(e.id, v.file)
+    if (!r?.ok) { showToast(`恢复失败：${r?.error || '未知原因'}`, 'error'); return }
     const fresh: any = await window.tegula.logsGet(e.id)
     if (fresh?.id) {
       logEdit_.value = { ...fresh, taskIds: normalizeLogTaskIds(fresh) }
       markLogSnap()
     }
-    showToast(`已撤回上一次保存（回到 ${when} 那一版）`, 'success')
+    logHistoryOpen.value = false
+    logVersionPreview.value = null
+    showToast(`已恢复（回到 ${when} 那一版）`, 'success')
     await loadLogs()
   } catch (err: any) {
-    showToast(`撤回异常：${err?.message || err}`, 'error')
+    showToast(`恢复异常：${err?.message || err}`, 'error')
   }
 }
 
@@ -9792,6 +9957,7 @@ function completeLogItem(id: string) {
   const log = logs.value.find(l => l.id === id)
   if (!log) return
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
+  resetLogHistory()
   logCompleting.value = true
   logArchiveMode.value = false
   logRetainDays.value = String(logRetainDefault.value)
@@ -9804,6 +9970,7 @@ function archiveLogItem(id: string) {
   const log = logs.value.find(l => l.id === id)
   if (!log) return
   logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
+  resetLogHistory()
   logCompleting.value = false
   logArchiveMode.value = true
   logRetainDays.value = String(logRetainDefault.value)

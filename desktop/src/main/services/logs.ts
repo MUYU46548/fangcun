@@ -592,10 +592,31 @@ export interface LogVersion {
   /** 落盘时间（ISO，UTC） */
   at: string
   size: number
+  /** 这一版的标题 —— 列表里必须能认出"是哪一版"，只给时间等于让人盲选 */
+  title: string
+  /** 这一版的生命周期状态（预览时一起看，避免恢复完才发现状态也回去了） */
+  status?: string
+}
+
+/** 单版预览：列表只给元数据，正文按需读（避免一次把 10 版全文塞给渲染层） */
+export interface LogVersionDetail {
+  file: string
+  at: string
+  size: number
+  title: string
+  status?: string
+  content: string
+  nextSteps: string
 }
 
 function logBackupDir(): string {
   return path.join(getLogsDir(), '.backup')
+}
+
+function versionAtFromName(name: string, prefix: string): string {
+  const stamp = name.slice(prefix.length, -4)          // YYYYMMDDHHmmss[SSS]（rotateBackup 按 UTC 生成）
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{3})?$/.exec(stamp)
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] ? '.' + m[7] : ''}Z` : ''
 }
 
 /** 这条日志本地留着的历史版本，**最新在前**。 */
@@ -608,38 +629,81 @@ export function listLogVersions(id: string): LogVersion[] {
   const out: LogVersion[] = []
   for (const name of fs.readdirSync(dir)) {
     if (!name.startsWith(prefix) || !name.endsWith('.bak')) continue
-    const stamp = name.slice(prefix.length, -4)          // YYYYMMDDHHmmss[SSS]（rotateBackup 按 UTC 生成）
-    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{3})?$/.exec(stamp)
-    let filePath = path.join(dir, name)
+    const filePath = path.join(dir, name)
     let size = 0
     try { size = fs.statSync(filePath).size } catch { continue }
-    const at = m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] ? '.' + m[7] : ''}Z` : ''
-    out.push({ file: name, at, size })
+    const parsed = parseLogFile(filePath)
+    out.push({
+      file: name,
+      at: versionAtFromName(name, prefix),
+      size,
+      title: parsed?.title || '',
+      status: parsed?.status,
+    })
   }
   return out.sort((a, b) => (a.file < b.file ? 1 : a.file > b.file ? -1 : 0))
 }
 
 /**
- * 撤回上一次保存：用 `.backup` 里最新的一版覆盖当前文件。
+ * 把一个版本文件名解析成**已校验的绝对路径**。
  *
- * - 写之前 `atomicallyWrite` 会先把**当前版**再备份一次 —— 所以撤错了还能再撤回来（互为反悔）；
- * - 恢复前做结构校验：不是合法日志（缺 frontmatter）就中止，绝不把半截文件写回去；
- * - 生命周期字段（status/completed/retain_until）随上一版一起回去，符合"撤回"的直觉。
+ * 安全边界写死：只认 `listLogVersions` 刚列出来的文件名，绝不把调用方传来的
+ * 字符串直接拼进路径 —— `../` 与绝对路径在第一步就出局（版本列表里不会有它们）。
  */
-export function restorePreviousLogVersion(id: string): { ok: boolean; data?: { at: string; title: string }; error?: string } {
-  const filePath = path.join(getLogsDir(), `${id}.md`)
-  if (!fs.existsSync(filePath)) return { ok: false, error: '日志不存在' }
-  const versions = listLogVersions(id)
-  if (!versions.length) return { ok: false, error: '没有可撤回的版本：本机只留最近 10 版，更早的要靠整包备份' }
-  const newest = versions[0]
+function safeLogVersionPath(id: string, file: string): string | null {
+  const safe = String(id || '')
+  const name = String(file || '')
+  if (!safe || !name || path.basename(name) !== name) return null
+  if (!listLogVersions(safe).some(v => v.file === name)) return null
+  return path.join(logBackupDir(), name)
+}
+
+/** 读某一版的历史内容（预览用；零写入）。 */
+export function getLogVersion(id: string, file: string): { ok: boolean; data?: LogVersionDetail; error?: string } {
+  const versionPath = safeLogVersionPath(id, file)
+  if (!versionPath) return { ok: false, error: '版本不存在，或文件名不合法' }
+  const parsed = parseLogFile(versionPath)
+  if (!parsed) return { ok: false, error: '这一版结构异常（不是合法日志），无法预览' }
+  const meta = listLogVersions(id).find(v => v.file === file)!
+  return {
+    ok: true,
+    data: {
+      file: meta.file,
+      at: meta.at,
+      size: meta.size,
+      title: parsed.title,
+      status: parsed.status,
+      content: parsed.content,
+      nextSteps: parsed.nextSteps,
+    },
+  }
+}
+
+/**
+ * 恢复到**指定**历史版本（2026-10-18 卡 001：从"只能退一步"扩到"能挑版本"）。
+ *
+ * - 恢复前 `atomicallyWrite` 会先把**当前版**备份一次 —— 撤错了还能再撤回来（互为反悔）；
+ * - 结构校验：不是合法日志、或 frontmatter 里的 id 对不上，一律中止，绝不写半截文件；
+ * - 生命周期字段（status/completed/retain_until）随所选版本一起回去，符合"恢复版本"的直觉。
+ */
+export function restoreLogVersion(id: string, file: string): { ok: boolean; data?: { at: string; title: string }; error?: string } {
+  const safe = String(id || '')
+  const filePath = path.join(getLogsDir(), `${safe}.md`)
+  if (!safe || !fs.existsSync(filePath)) return { ok: false, error: '日志不存在' }
+  const versionPath = safeLogVersionPath(safe, file)
+  if (!versionPath) return { ok: false, error: '版本不存在，或文件名不合法' }
   let text = ''
   try {
-    text = fs.readFileSync(path.join(logBackupDir(), newest.file), 'utf-8')
+    text = fs.readFileSync(versionPath, 'utf-8')
   } catch (e: any) {
-    return { ok: false, error: `读取上一版失败：${e?.message || e}` }
+    return { ok: false, error: `读取版本失败：${e?.message || e}` }
   }
   if (!/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(text)) {
-    return { ok: false, error: '上一版结构异常（不是合法日志），已中止，未改动当前文件' }
+    return { ok: false, error: '这一版结构异常（不是合法日志），已中止，未改动当前文件' }
+  }
+  const parsed = parseLogFile(versionPath)
+  if (!parsed || parsed.id !== safe) {
+    return { ok: false, error: '这一版的 id 与当前日志对不上，已中止，未改动当前文件' }
   }
   try {
     atomicallyWrite(filePath, text)
@@ -648,7 +712,19 @@ export function restorePreviousLogVersion(id: string): { ok: boolean; data?: { a
   }
   const back = parseLogFile(filePath)
   if (!back) return { ok: false, error: '写回后解析失败 —— 请立即用整包备份恢复，别再保存' }
-  return { ok: true, data: { at: newest.at, title: back.title } }
+  return { ok: true, data: { at: versionAtFromName(file, `${safe}.md.`), title: back.title } }
+}
+
+/**
+ * 撤回上一次保存：用 `.backup` 里最新的一版覆盖当前文件。
+ * 语义不变（2026-10-18 第 1 条），实现收口到 `restoreLogVersion`，避免两套恢复逻辑。
+ */
+export function restorePreviousLogVersion(id: string): { ok: boolean; data?: { at: string; title: string }; error?: string } {
+  const versions = listLogVersions(String(id || ''))
+  if (!versions.length) {
+    return { ok: false, error: '没有可撤回的版本：本机只留最近 10 版，更早的要靠整包备份' }
+  }
+  return restoreLogVersion(id, versions[0].file)
 }
 
 /**

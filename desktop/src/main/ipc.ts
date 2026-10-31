@@ -105,6 +105,18 @@ export function registerIpcHandlers(): void {
     return { ok: !!task, id }
   })
 
+  // 任务卡历史版本（2026-10-18 卡 001；2026-10-31 收口）：
+  // 与日志侧同款 —— 列表只给元数据，正文按需取，恢复只认列表里出现过的文件名。
+  guardedHandle('tasks:versions', (_event, id: string) => {
+    return tasks.listTaskVersions(String(id || ''))
+  })
+  guardedHandle('tasks:versionGet', (_event, id: string, file: string) => {
+    return tasks.getTaskVersion(String(id || ''), String(file || ''))
+  })
+  guardedHandle('tasks:restoreVersion', (_event, id: string, file: string) => {
+    return tasks.restoreTaskVersion(String(id || ''), String(file || ''))
+  })
+
   guardedHandle('moveStatus', (_event, id: string, status: string) => {
     try {
       const task = tasks.moveStatus(id, status as any)
@@ -921,13 +933,15 @@ export function registerIpcHandlers(): void {
     return logsService.updateLog(id, updates)
   })
 
-  // 撤回上一次保存（2026-10-18 暮雨第 1 条）：用 .backup 里最新一版覆盖当前文件。
-  // 写前 atomicWrite 会把当前版再备份一次 → 撤错了还能再撤回来。
-  guardedHandle('logs:restorePrev', (_event, id: string) => {
-    return logsService.restorePreviousLogVersion(String(id || ''))
-  })
   guardedHandle('logs:versions', (_event, id: string) => {
     return logsService.listLogVersions(String(id || ''))
+  })
+  // 逐版预览 / 恢复（2026-10-18 卡 001）：从"只能退一步"扩到"能挑版本"。
+  guardedHandle('logs:versionGet', (_event, id: string, file: string) => {
+    return logsService.getLogVersion(String(id || ''), String(file || ''))
+  })
+  guardedHandle('logs:restoreVersion', (_event, id: string, file: string) => {
+    return logsService.restoreLogVersion(String(id || ''), String(file || ''))
   })
 
   guardedHandle('logs:complete', (_event, id: string, retainDays: number | null, note?: string) => {

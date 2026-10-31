@@ -358,6 +358,134 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
   return task
 }
 
+// ── 历史版本 / 撤回（2026-10-18 卡 001；2026-10-31 收口）──────────────────
+//
+// 事实基础与日志侧完全相同：`atomicWrite` 每次落盘前都会把旧文件复制进同目录
+// `.backup/`（rotateBackup，每份最多留 10 版）。任务卡此前只有**撤销条**能退回
+// "这次表单里改的字段"，关掉界面或刷新后就再也回不去 —— 这里把磁盘上的既有备份接出来。
+//
+// 边界：不做全站撤销栈（要动每条写路径），只做"这张卡的历史版本"。
+
+export interface TaskVersion {
+  /** `.backup` 里的文件名 */
+  file: string
+  /** 落盘时间（ISO，UTC） */
+  at: string
+  size: number
+  title: string
+  status?: string
+}
+
+export interface TaskVersionDetail extends TaskVersion {
+  /** 该版本的原文（Markdown，预览用） */
+  content: string
+}
+
+function taskVersionAt(name: string, prefix: string): string {
+  const stamp = name.slice(prefix.length, -4)
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{3})?$/.exec(stamp)
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] ? '.' + m[7] : ''}Z` : ''
+}
+
+/**
+ * 这张卡可能留下备份的目录，按优先级排列：
+ *   ① 当前文件所在目录（活跃卡 / 已归档卡各自的 .backup）
+ *   ② 活跃区 .backup（卡从活跃区归档后，旧备份仍留在原地）
+ *   ③ 归档区 .backup（卡从归档区退回后，旧备份仍留在原地）
+ * 去重后逐个扫；同名版本以排在前面的目录为准。
+ */
+function taskBackupDirs(task: Task): string[] {
+  const dirs = [
+    path.dirname(task.path),
+    path.join(getTaskDir(), '.backup'),
+    path.join(getTaskDir(), 'archive', '.backup'),
+  ].map(d => path.resolve(d))
+  return dirs.filter((d, i) => dirs.indexOf(d) === i)
+}
+
+interface TaskVersionEntry { version: TaskVersion; path: string }
+
+function taskVersionEntries(id: string): TaskVersionEntry[] {
+  const safe = String(id || '')
+  if (!safe || /[\\/]/.test(safe)) return []
+  const task = readTask(safe)
+  if (!task) return []
+  const prefix = `${safe}.md.`
+  const seen = new Set<string>()
+  const out: TaskVersionEntry[] = []
+  for (const dir of taskBackupDirs(task)) {
+    if (!fs.existsSync(dir)) continue
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(prefix) || !name.endsWith('.bak') || seen.has(name)) continue
+      const full = path.join(dir, name)
+      let size = 0
+      try { size = fs.statSync(full).size } catch { continue }
+      const parsed = parseTask(full)
+      if (!parsed || parsed.id !== safe) continue   // 坏文件 / 别家卡的备份：不进列表
+      seen.add(name)
+      out.push({
+        path: full,
+        version: {
+          file: name,
+          at: taskVersionAt(name, prefix),
+          size,
+          title: parsed.fm.title || '',
+          status: parsed.fm.status,
+        },
+      })
+    }
+  }
+  return out.sort((a, b) => (a.version.file < b.version.file ? 1 : a.version.file > b.version.file ? -1 : 0))
+}
+
+/** 这张任务卡本地留着的历史版本，**最新在前**。 */
+export function listTaskVersions(id: string): TaskVersion[] {
+  return taskVersionEntries(id).map(e => e.version)
+}
+
+/** 读某一版的历史内容（预览用；零写入）。 */
+export function getTaskVersion(id: string, file: string): { ok: boolean; data?: TaskVersionDetail; error?: string } {
+  const entry = taskVersionEntries(id).find(e => e.version.file === String(file || ''))
+  if (!entry) return { ok: false, error: '版本不存在，或文件名不合法' }
+  let content = ''
+  try { content = fs.readFileSync(entry.path, 'utf-8') } catch (e: any) {
+    return { ok: false, error: `读取版本失败：${e?.message || e}` }
+  }
+  return { ok: true, data: { ...entry.version, content } }
+}
+
+/**
+ * 恢复到指定历史版本。
+ *
+ * - 恢复前 `atomicWrite` 会先把**当前版**备份一次（撤错了还能再撤回来）；
+ * - 只认 `listTaskVersions` 刚列出来的文件，调用方传 `../` 或任意绝对路径一律出局；
+ * - 结构校验 + id 校验：不是任务卡、或 id 对不上，一律中止，当前卡零改动。
+ */
+export function restoreTaskVersion(id: string, file: string): { ok: boolean; data?: { at: string; title: string }; error?: string } {
+  const safe = String(id || '')
+  const task = readTask(safe)
+  if (!task) return { ok: false, error: '任务不存在' }
+  const entry = taskVersionEntries(safe).find(e => e.version.file === String(file || ''))
+  if (!entry) return { ok: false, error: '版本不存在，或文件名不合法' }
+  let text = ''
+  try { text = fs.readFileSync(entry.path, 'utf-8') } catch (e: any) {
+    return { ok: false, error: `读取版本失败：${e?.message || e}` }
+  }
+  const parsed = parseTask(entry.path)
+  if (!parsed || parsed.id !== safe) {
+    return { ok: false, error: '这一版的 id 与当前任务对不上，已中止，未改动当前文件' }
+  }
+  try {
+    atomicWrite(task.path, text)
+  } catch (e: any) {
+    return { ok: false, error: `写回失败：${e?.message || e}` }
+  }
+  const back = readTask(safe)
+  if (!back) return { ok: false, error: '写回后解析失败 —— 请立即用整包备份恢复，别再保存' }
+  logActivity(safe, 'restored', entry.version.file)
+  return { ok: true, data: { at: entry.version.at, title: back.fm.title || '' } }
+}
+
 export function moveStatus(id: string, newStatus: Status): Task | null {
   const task = readTask(id)
   if (!task) return null

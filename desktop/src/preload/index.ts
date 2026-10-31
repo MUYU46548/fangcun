@@ -8,6 +8,10 @@ contextBridge.exposeInMainWorld('tegula', {
   loadTasks: (view = 'active') => ipcRenderer.invoke('loadTasks', view),
   newTask: (fields: any) => ipcRenderer.invoke('newTask', fields),
   editTask: (id: string, fields: any) => ipcRenderer.invoke('editTask', id, fields),
+  /** 任务卡历史版本（2026-10-18 卡 001）：列表 / 单版预览 / 恢复到指定版本 */
+  tasksVersions: (id: string) => ipcRenderer.invoke('tasks:versions', id),
+  tasksVersionGet: (id: string, file: string) => ipcRenderer.invoke('tasks:versionGet', id, file),
+  tasksRestoreVersion: (id: string, file: string) => ipcRenderer.invoke('tasks:restoreVersion', id, file),
   moveStatus: (id: string, status: string) => ipcRenderer.invoke('moveStatus', id, status),
   deleteTask: (id: string) => ipcRenderer.invoke('deleteTask', id),
   archiveTask: (id: string) => ipcRenderer.invoke('archiveTask', id),
@@ -139,10 +143,12 @@ contextBridge.exposeInMainWorld('tegula', {
   logsGet: (id: string) => ipcRenderer.invoke('logs:get', id),
   logsCreate: (title: string, project: string, content: string, taskId?: string, extra?: { sessionId?: string; agentName?: string; prevAgentName?: string; logDate?: string; taskIds?: string[]; nextSteps?: string; continueFrom?: string; priority?: string; fromTodo?: string }) => ipcRenderer.invoke('logs:create', title, project, content, taskId, extra),
   logsUpdate: (id: string, updates: any) => ipcRenderer.invoke('logs:update', id, updates),
-  /** 撤回上一次保存（2026-10-18）：用本机 .backup 里的上一版覆盖当前文件，可再撤回来 */
-  logsRestorePrev: (id: string) => ipcRenderer.invoke('logs:restorePrev', id),
-  /** 该日志本地留着的历史版本（最新在前）—— 只给界面显示"能撤到什么时候"，不读内容 */
+  /** 该日志本地留着的历史版本（最新在前）—— 列表带标题 / 时间 / 大小 */
   logsVersions: (id: string) => ipcRenderer.invoke('logs:versions', id),
+  /** 单版预览（正文按需读，避免一次把 10 版全文塞给渲染层） */
+  logsVersionGet: (id: string, file: string) => ipcRenderer.invoke('logs:versionGet', id, file),
+  /** 恢复到指定历史版本（写前自动备份当前版） */
+  logsRestoreVersion: (id: string, file: string) => ipcRenderer.invoke('logs:restoreVersion', id, file),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
   /** 撤销完成 / 撤销归档，退回「待处理」（2026-09-28：不再等于「进行中」） */
