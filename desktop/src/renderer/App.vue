@@ -2460,6 +2460,7 @@ import { useLogsView } from './composables/useLogsView'
 import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
 import { useLogEditGuard } from './composables/useLogEditGuard'
+import { useLogEditorSave } from './composables/useLogEditorSave'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7667,6 +7668,13 @@ const {
   logBatchMode, logPendingCount, resetPendingAttach, normalizeLogTaskIds,
 })
 
+/** 日志保存 / 保存修改（字段集单源 + 完成归档先回写 + 附件 flush） */
+const { saveLogEdit, saveLogFieldsOnly } = useLogEditorSave({
+  logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
+  logPendingCount, normalizeLogTaskIds, flushPendingAttach, resetPendingAttach,
+  closeLogNow, offerLogReopenUndo, toast: showToast, reload: loadLogs,
+})
+
 function openNewLog() {
   // 项目默认跟随顶栏的项目筛选（没筛选就用第一个登记项目），而不是硬编码一个 id
   const project = curProj.value !== '__all__'
@@ -8057,152 +8065,6 @@ function openLogForTask(taskId: string) {
   const t = previewTask.value
   if (t?.project) logEdit_.value.project = normProject(t.project)
   if (t?.title) logEdit_.value.title = `${t.title} — 执行记录`
-}
-
-/** 日志编辑弹窗 → logsUpdate 的全字段 updates。
- *  三处共用同一份字段集（2026-10-17 收拢）：普通编辑「保存」、完成/归档前的回写、
- *  「保存修改」次按钮 —— 字段集漂移一处就是一次"改了没存上"，必须单一出处。 */
-function logFormUpdates(e: any) {
-  return {
-    title: e.title,
-    content: e.content,
-    nextSteps: e.nextSteps,
-    project: e.project,
-    taskIds: normalizeLogTaskIds(e),
-    sessionId: e.sessionId || '',
-    agentName: e.agentName || '',
-    prevAgentName: e.prevAgentName || '',
-    logDate: e.logDate || '',
-    // 卡 001：优先级一并回写（此前编辑框压根没这个字段）
-    priority: e.priority || '',
-  }
-}
-
-async function saveLogEdit() {
-  const e = logEdit_.value
-  if (!e.title?.trim()) {
-    showToast('标题不能为空', 'error')
-    return
-  }
-  try {
-    // 2026-10-17 用户报障（「点完成后保存按钮会被替换，输入一万字也会全丢」）：
-    // 完成/归档弹窗的表单照常可编辑，但主按钮换成「确认完成/确认归档」后只调
-    // logsComplete/logsArchive —— 弹窗里改的每一个字静默蒸发，成功提示还盖住了丢失。
-    // 修法：完成/归档**先全量回写字段再走状态**——「确认完成」不能等于丢改动；
-    // 回写失败就中止（宁可没完成/归档，不能没内容），改动仍留在弹窗里可再存。
-    // 此时日志状态还是 active（完成/归档入口只对未完成的日志出现），logsUpdate 不会被拒。
-    if ((logCompleting.value || logArchiveMode.value) && e.id) {
-      const up: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
-      if (up && !up.ok) {
-        showToast(`内容更新失败：${up.error || '未知原因'} —— ${logCompleting.value ? '完成' : '归档'}动作已中止，改动还在弹窗里`, 'error')
-        return
-      }
-    }
-    if (logCompleting.value) {
-      // ⚠ 原来是 `parseInt(...) || 7` —— 用户填 0（永不清理）会被 `||` 吃成 7，
-      //    「0=永不」这个标注过的选项根本落不了地（2026-09-29 用户第 6 条顺手修）。
-      const parsed = parseInt(logRetainDays.value, 10)
-      const rd = Number.isNaN(parsed) || parsed < 0 ? logRetainDefault.value : parsed
-      const result = await window.tegula.logsComplete(e.id, rd, logNote.value || undefined)
-      if (result.ok) {
-        // 2026-10-21：这里原来还配一条 toast —— 两条提示一上一下、内容几乎一样，用户只会看见一条。
-        // 撤销条的文案已经把"做了什么"说全了，所以完成/归档只留撤销条。
-        offerLogReopenUndo(rd > 0 ? `已标记完成（保留 ${rd} 天）：${e.title || e.id}` : `已标记完成（永不清理）：${e.title || e.id}`, [e.id], [e])
-      } else {
-        showToast(`完成失败：${result.error || '未知原因'}`, 'error')
-        return
-      }
-    } else if (logArchiveMode.value) {
-      const result = await window.tegula.logsArchive(e.id, logNote.value || undefined)
-      if (result.ok) {
-        offerLogReopenUndo(`已归档：${e.title || e.id}`, [e.id], [e])
-      } else {
-        showToast(`归档失败：${result.error || '未知原因'}`, 'error')
-        return
-      }
-    } else if (e.id) {
-      // 2026-09-22：此前只回写 title/content/nextSteps —— 在界面上改了「项目」或
-      // 「关联任务」点保存会提示"已更新"，但字段被静默丢弃（用户报障「改不了项目」）。
-      // 2026-09-23：补上 sessionId/agentName/logDate 三个新字段。
-      // 2026-10-17：字段集收拢进 logFormUpdates()（与完成/归档回写、「保存修改」同一份）。
-      const r: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
-      if (r && !r.ok) {
-        showToast(`更新失败：${r.error || '未知原因'}`, 'error')
-        return
-      }
-      // 更新分支也要挂一次：新建时附件没挂上（留在弹窗里重试）走的就是这条路
-      if (logPendingCount.value) {
-        const attached = await flushPendingAttach(e.id)
-        if (!attached) { await loadLogs(); return }
-      } else {
-        showToast('已更新', 'success')
-      }
-    } else {
-      // 2026-09-30 用户第 1 条（卡 task-20260930-002）：创建分支此前**漏传 nextSteps** ——
-      // 对话框里填的「下一步」保存后静默丢失（更新分支一直有传，只有新建没有）。
-      const r: any = await window.tegula.logsCreate(
-        e.title, e.project, e.content, (e.taskIds || [])[0] || undefined,
-        { sessionId: e.sessionId || '', agentName: e.agentName || '', prevAgentName: e.prevAgentName || '', logDate: e.logDate || '', taskIds: normalizeLogTaskIds(e), nextSteps: e.nextSteps || '', priority: e.priority || '' },
-      )
-      if (r && !r.ok) {
-        showToast(`创建失败：${r.error || '未知原因'}`, 'error')
-        return
-      }
-      // 2026-10-25（暮雨第 4 条）：新建态暂存的附件在这里才真正落盘。
-      // ⚠ 有附件要挂时**以附件结果为主提示** —— 先弹一句「已创建」会把它盖住，那就是假成功。
-      const newLogId = String((r as any)?.data?.id || '')
-      if (logPendingCount.value) {
-        if (!newLogId) {
-          showToast('日志已创建，但没拿到它的 id —— 刚选的附件没挂上，请打开这条日志重新添加', 'error')
-          resetPendingAttach()
-        } else {
-          // ⚠ 先把 id 写回表单：附件没挂上时弹窗不关，用户再点「保存」必须走**更新**分支，
-          //   否则会再创建一条日志（重复卡）而附件还是挂不上。
-          e.id = newLogId
-          const attached = await flushPendingAttach(newLogId)
-          if (!attached) {
-            await loadLogs()   // 日志确实建成了，列表要跟上；但弹窗留着，待挂清单也在
-            return
-          }
-        }
-      } else {
-        showToast('已创建', 'success')
-      }
-    }
-    logEdit_.value = null
-    logCompleting.value = false
-    logArchiveMode.value = false
-    logSnapFields = null
-    logDiscard_.value = false
-    await loadLogs()
-  } catch (err: any) {
-    showToast(`保存失败: ${err.message || err}`, 'error')
-  }
-}
-
-/** 完成/归档弹窗里的「保存修改」：只回写表单字段，不碰状态（2026-10-17 用户报障补的出口）。
- *  场景：误点了「完成」进了这张弹窗、内容写了一大堆，其实并不想完成 —— 此前唯一的
- *  确认按钮就是「确认完成」（且不存字段），「取消」只有丢弃一条路，内容必丢其一。
- *  与 saveLogEdit 完成分支的回写同一份字段集（logFormUpdates）；成功即关窗（与「保存」口径一致）。 */
-async function saveLogFieldsOnly() {
-  const e = logEdit_.value
-  if (!e || !e.id) return
-  if (!e.title?.trim()) {
-    showToast('标题不能为空', 'error')
-    return
-  }
-  try {
-    const r: any = await window.tegula.logsUpdate(e.id, logFormUpdates(e))
-    if (r && !r.ok) {
-      showToast(`保存失败：${r.error || '未知原因'}`, 'error')
-      return
-    }
-    showToast('已保存修改（状态未变）', 'success')
-    closeLogNow()
-    await loadLogs()
-  } catch (err: any) {
-    showToast(`保存失败: ${err.message || err}`, 'error')
-  }
 }
 
 /**
