@@ -83,7 +83,10 @@ function main() {
   // ── D. 接线（源码断言，防漂移 / 防有人把本地实现加回来）───────────
   // ⚠ 2026-10-23：自 App.vue 拆分后，模板/样式散在 App.vue + views/*.vue + composables/*.ts，
   //   这里扫全部渲染层源码（判据只更严：原来"App.vue 里不许有"现在等于"任何渲染层文件都不许有"）。
+  // ⚠ 2026-10-31：全局样式已外置到 styles/app.css（`<style src>`），D6/D9/D16 要找的
+  //   `.overlay` / `.blob` 规则现在只住在那里 —— 把 css 一起纳入扫描，否则三条断言永远绿不了。
   const vue = require('./_sources.cjs').rendererSource()
+    + '\n' + fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf8')
   check('D1 App.vue 从 shared/time 取日期工具', /from '\.\.\/shared\/time'/.test(vue))
   check('D2 没有再把本地 formatDate 定义加回来', !/function formatDate\(/.test(vue))
   check('D3 没有本地 relativeTime 定义', !/function relativeTime\(/.test(vue))

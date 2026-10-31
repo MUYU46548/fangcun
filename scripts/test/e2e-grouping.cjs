@@ -123,14 +123,17 @@ function main() {
 
   // ── F. 接线（源码断言，防漂移）─────────────────────────────────────
   const vue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf8')
+  // 2026-10-31：看板模板已搬进 views/BoardView.vue（三摆法整体搬出）。F4–F6 问的是**模板**
+  // 还接不接折叠逻辑 —— 跟着模板走，不是放宽：状态与函数仍在 App，模板在 BoardView。
+  const boardVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'views', 'BoardView.vue'), 'utf8')
   check('F1 App.vue 引用了 composables/useBoardColumns', /from '\.\/composables\/useBoardColumns'/.test(vue))
   check('F2 列派生走 useBoardColumns（不再在 App 里手写三分支）',
     /const columns = useBoardColumns\(\{/.test(vue) && !/const cols: Record<string, Task\[\]> = \{\}/.test(vue))
   check('F3 有项目名解析函数', /function projectNameOf\(id: string\)/.test(vue))
-  check('F4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(vue))
-  check('F5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(vue))
+  check('F4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(boardVue))
+  check('F5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(boardVue))
   const boardCss = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf8')
-  check('F6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(vue) && /\.col\.collapsed-col \{/.test(boardCss))
+  check('F6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(boardVue) && /\.col\.collapsed-col \{/.test(boardCss))
   // 2026-09-28 用户第 3 条把「折叠全部 / 展开」两个并排按钮（必有一个无效）改成**单按钮开关**，
   // 断言还钉在老的 setAllCollapsed(true/false) 上 → 一直红着（本机跑不到这套，直到今天才被跑出来）。
   check('F7 有一键折叠/展开（已是单按钮开关 toggleAllCollapsed）',

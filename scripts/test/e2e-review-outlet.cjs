@@ -169,9 +169,10 @@ function main() {
 
   // ── ⑥ 源码守卫：入口条件必须同时认两种状态 ───────────────────────────
   {
-    // 本机 core.autocrlf=true（工作区 CRLF）→ 先归一化，否则字符窗口断言会假红
-    const vue = fs.readFileSync(path.join(REPO, 'desktop/src/renderer/App.vue'), 'utf-8')
-      .replace(/\r\n/g, '\n')
+    // 2026-10-31：预览面板 / 卡面驳回理由已随拆分搬进 components/TaskPreview.vue 与
+    //   views/BoardView.vue，`reviewModal` / `openReview` 仍在 App —— 扫全部渲染层源码
+    //   （判据不放松：「App 里必须有」变成「渲染层任何文件里必须有」）。
+    const vue = require('./_sources.cjs').rendererSource()
     const need = `v-if="previewTask.status === '待验收' || previewTask.status === '待审批'"`
     check('⑥ 预览面板裁决入口同时认「待验收」与「待审批」', vue.includes(need))
     check('⑥ 裁决弹窗按 kind 区分审批 / 验收措辞',

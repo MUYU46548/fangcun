@@ -159,7 +159,8 @@ function main() {
   // ── 三、界面接线（静态守卫）─────────────────────────────────────────
   // 这一节防的是「主进程能力做完了、界面还是只有一个旧按钮」——上一轮的日志撤回
   // 就只接了"最新一版"，列表根本没人调。
-  const app = fs.readFileSync(path.join(REPO, 'desktop/src/renderer/App.vue'), 'utf-8')
+  // 2026-10-31：日志历史面板已搬进 `composables/useLogHistory.ts` → 扫全部渲染层源码。
+  const app = require('./_sources.cjs').rendererSource()
   for (const [name, needle] of [
     ['日志：读历史版本列表', 'logsVersions'],
     ['日志：读单版内容', 'logsVersionGet'],

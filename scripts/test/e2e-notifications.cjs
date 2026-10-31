@@ -480,7 +480,8 @@ function main() {
   const notifierSrc2 = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
   check('★★ 扫描异常落应用日志（此前 catch{} 静默吞 = 停摆无人知）',
     /catch \([^)]*\) \{[\s\S]{0,160}?appLog\.error\('notifier'/.test(notifierSrc2))
-  const appSrc = fs.readFileSync(path.join(SRC, 'renderer', 'App.vue'), 'utf-8')
+  // 2026-10-31：标签表已随通知中心搬进 `composables/useNotifications.ts` → 扫全部渲染层源码。
+  const appSrc = require('./_sources.cjs').rendererSource()
   check('★ 渲染层给两类都配了标签（否则面板显示裸 type 名）',
     appSrc.includes("'blocker-broken'") && appSrc.includes("'task-stalled'"))
   const tasksSrc = fs.readFileSync(path.join(SRC, 'main', 'data', 'tasks.ts'), 'utf-8')
