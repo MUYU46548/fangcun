@@ -19,7 +19,11 @@ const buttonVariants = cva(
   //   （截图里看起来就是"带阴影"）。决策页是唯一大量用 Button 组件的页，所以只有它"永远和别人不一样"。
   //   `border-0` 兜底，ghost/outline 再用 `border` 把宽度加回来 —— tailwind-merge 按后者生效。
   //   守卫：check-ui-base.cjs 钉死这三个类；e2e-renderer-web 量 computedStyle 的 border-style。
-  'inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
+  // ⚠ 2026-10-31（用户：外观只影响卡片，按钮从不变）：按钮也读 --el-1/--el-2。
+  //   flat 下两档都是 none，shadow 下才有贴地/浮起；与 Card.vue 同一套高度。
+  //   ⚠ 必须用 `.ui-elev-1`，不能写 `shadow-[var(--el-1)]` —— Tailwind 会把后者当颜色，
+  //     生成 --tw-shadow-color，计算值仍是 none（2026-10-31 实测抓到的真因）。
+  'ui-elev-1 inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity,box-shadow] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {

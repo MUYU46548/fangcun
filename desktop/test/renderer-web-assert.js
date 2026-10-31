@@ -5467,18 +5467,35 @@
         .replace(/rgba?\(0,\s*0,\s*0,\s*0\)[^,]*?(,\s*|$)/g, '')
         .replace(/,\s*$/, '')
         .trim()
+      /** 没有影子 = 空 或 计算值 'none'；"两边同阴影"那条要用原值比较，不能把 none 抹成空 */
+      const isEmptyShadow = (v) => { const s = normShadow(v); return !s || s === 'none' }
       const decN = normShadow(decShadow)
       const boardN = normShadow(boardShadow)
       check('★★ 决策卡与看板老卡**同阴影**（此前是 14px 圆角 + 独立投影 = 一眼两套）',
         !!decN && decN === boardN,
         `dec=${decN} board=${boardN}`)
-      const shadowedBtn = $$('.decisions-view button').filter(b => {
-        const s = getComputedStyle(b).boxShadow
-        return s && s !== 'none'
-      })
-      check('★★ 决策页按钮没有投影（扁平方角，跟其他页签一致）',
-        shadowedBtn.length === 0,
-        shadowedBtn.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + getComputedStyle(b).boxShadow).join(' | '))
+      // 2026-10-31（用户：外观只影响卡片，按钮从不变）：按钮也必须跟着外观走。
+      // 判据不是"永远没有影子"，而是**扁平归零、阴影浮起、切回归零**三态。
+      const decBtn = $('[data-dec="select-mode"]')
+      const flatBtnShadow = decBtn ? getComputedStyle(decBtn).boxShadow : 'X'
+      check('★★ 扁平外观下决策页按钮没有投影（与老按钮一致）', isEmptyShadow(flatBtnShadow),
+        flatBtnShadow)
+      const beforeAppearance = document.documentElement.dataset.appearance || 'flat'
+      document.documentElement.dataset.appearance = 'shadow'
+      await sleep(120)
+      const shadowBtn = decBtn ? getComputedStyle(decBtn).boxShadow : ''
+      // ⚠ 必须重新查：换过页签后旧 `decCard` 已经脱离 DOM，量它是空值（本断言第一版就栽在这）
+      const decCardNow = $('[data-dec="card"]')
+      const shadowCard2 = decCardNow ? getComputedStyle(decCardNow).boxShadow : ''
+      check('★★ 切「阴影」外观 → 按钮真的浮起来（不再只有卡片变）', !isEmptyShadow(shadowBtn),
+        `btn=${shadowBtn || '(none)'} cls=${decBtn ? String(decBtn.className) : '(null)'}`)
+      check('★★ 切「阴影」外观 → 卡片与按钮同一档高度都在',
+        !isEmptyShadow(shadowCard2) && !isEmptyShadow(shadowBtn),
+        `card=${shadowCard2 || '(none)'} btn=${shadowBtn || '(none)'}`)
+      document.documentElement.dataset.appearance = beforeAppearance
+      await sleep(120)
+      const flatAgain = decBtn ? getComputedStyle(decBtn).boxShadow : 'X'
+      check('★★ 切回扁平 → 按钮投影归零（不是只加不减）', isEmptyShadow(flatAgain), flatAgain)
       // 2026-10-30 暮雨第 4 条（第三次提）真因：preflight 关着 → `<button>` 的 UA
       // `border-style: outset` 还在，Tailwind 的 border 只设宽度不设样式。屏幕上看起来就是
       // 一圈"外凸阴影"——量 box-shadow 永远是 none，所以前几次断言全绿而问题还在。

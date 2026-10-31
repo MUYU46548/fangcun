@@ -92,6 +92,14 @@
   --ui-radius: var(--radius);
 }
 
+/* ── shadcn 组件的「高度」类（2026-10-31）──────────────────────────────
+   ⚠ 不许写成 Tailwind 的 `shadow-[var(--el-1)]`：Tailwind 会把它当**阴影颜色**
+   （生成 `--tw-shadow-color: var(--el-1)` / `--tw-shadow: var(--tw-shadow-colored)`），
+   计算出来永远是 none —— 决策页的 Card/Button 就这样一直没影子。
+   显式 class 直接写 `box-shadow`，flat 下 `--el-1 = none` 自然归零。 */
+.ui-elev-1 { box-shadow: var(--el-1); }
+.ui-elev-1:hover { box-shadow: var(--el-2); }
+
 /* ── 全局外观：阴影 / 扁平（2026-10-30，卡 task-20261030-004）────────────
    用户原话：「要不就阴影单独做一套外观全局生效，和现有外观风格可以随时切换。整一半干什么？」
    做法：`data-appearance` 挂在 <html>，与 `data-theme` **正交**
@@ -219,31 +227,37 @@ body {
 }
 button { font-family: inherit; cursor: pointer; }
 button[disabled] { opacity: .55; cursor: not-allowed; }
+/* 2026-10-31（用户：外观只影响卡片，按钮从不变）：按钮也要跟着 --el-1/--el-2 走。
+   flat 下三档都是 none，shadow 下才有贴地/浮起 —— 与卡片同一套高度，不再"卡片浮、按钮钉死"。
+   ⚠ 只给**动作按钮**（ghost/pri/ok/warning/danger + Button 组件）加；
+     分段控件 / 页签 / chip 是"选择器"不是"动作"，加影子反而像浮层。 */
 button:not([class]) {
   display: inline-flex; align-items: center; justify-content: center;
   height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
   font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: #fff; box-shadow: var(--el-1);
 }
 :where(button.ghost)   { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 1px solid var(--border); border-radius: var(--btn-r);
-                         font-size: var(--btn-fs); font-weight: 600; line-height: 1; background: #fff; color: var(--ink); }
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1; background: #fff; color: var(--ink); box-shadow: var(--el-1); }
 :where(button.pri)     { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--accent); color: #fff; }
+                         background: var(--accent); color: #fff; box-shadow: var(--el-1); }
 :where(button.ok)      { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--success); color: #fff; }
+                         background: var(--success); color: #fff; box-shadow: var(--el-1); }
 :where(button.warning) { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--warning); color: #fff; }
+                         background: var(--warning); color: #fff; box-shadow: var(--el-1); }
 :where(button.danger)  { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--danger); color: #fff; }
+                         background: var(--danger); color: #fff; box-shadow: var(--el-1); }
+:where(button.ghost):hover, :where(button.pri):hover, :where(button.ok):hover,
+:where(button.warning):hover, :where(button.danger):hover { box-shadow: var(--el-2); }
 :where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }

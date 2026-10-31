@@ -202,8 +202,10 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   const mR = /rounded-\[(\d+)px\]/.exec(classStr)
   // 2026-10-30：两边都改成读**外观令牌**（--el-1 贴地 / --el-2 浮起）。
   // 判据从"逐值相等"改成"两边读的是同一档" —— 逐值比对的意图没变，只是值搬进了令牌。
-  const mS = /shadow-\[var\(--el-1\)\]/.exec(classStr)
-  const mHover = /hover:shadow-\[var\(--el-2\)\]/.exec(classStr)
+  // 2026-10-31：Tailwind 的 `shadow-[var(--el-1)]` 会被当成**阴影颜色**（计算值 none），
+  // 所以组件改用显式 `.ui-elev-1`；判据跟着改成"类名 + 全局规则"两段都在。
+  const mS = /\bui-elev-1\b/.exec(classStr)
+  const mHover = /\.ui-elev-1:hover\s*\{[^}]*box-shadow:\s*var\(--el-2\)/.exec(appVue)
   const block2 = /\.card \{([\s\S]*?)\}/.exec(appVue)
   const oR = block2 ? /border-radius:\s*(\d+)px/.exec(block2[1]) : null
   const oS = block2 ? /box-shadow:\s*var\(--el-1\)/.exec(block2[1]) : null
@@ -222,21 +224,29 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   }
 }
 
-// ── 按钮原生边框（2026-10-30，暮雨第 4 条 · 第三次提）────────────────────────
+// ── 按钮原生边框 + 外观高度（2026-10-30，暮雨第 4 条 · 第三次提；2026-10-31 补）────
 // 症状：决策页的「编辑 / 删除 / 记下」看起来带一圈立体阴影，别的按钮都是平的。
 // 真因不是"忘了去掉 box-shadow"，是 preflight 关着 → `<button>` 的 UA `border-style: outset`
 // **一直都在**；Tailwind 的 `border` 只设宽度不设样式。于是每个按钮都被系统描了一圈"外凸"。
-// 判据：Button.vue 的 cva 基类必须同时有 `border-0`（宽度兜底）+ `border-solid`（样式兜底）
-//      + `appearance-none`（去掉系统控件外观）；三个缺一个都会在屏幕上复活成系统按钮。
+// 判据：Button.vue 的 cva 基类必须同时有 `border-0` + `border-solid` + `appearance-none`。
+//
+// 2026-10-31 用户：「外观只影响卡片，按钮从不变」—— 按钮也要跟着 --el-1/--el-2 走：
+// flat 下令牌是 none（仍然扁平），shadow 下才有贴地/浮起。**不许写死阴影字面量**。
 {
   const btnVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'components', 'ui', 'Button.vue'), 'utf-8')
-  const classStr = btnVue.slice(btnVue.indexOf('cva('))
+  // 先剥行注释：cva(...) 里的注释会提到旧写法 `shadow-[var(--el-1)]`，不剥会把注释当代码判红
+  const classStr = btnVue.slice(btnVue.indexOf('cva(')).replace(/\/\/[^\n]*/g, '')
+  const appCss = read('src/renderer/styles/app.css')
   check('★★ Button 基类写了 `border-solid`（preflight 关着 → 不写就是 UA 的 outset，看起来像带阴影）',
     /\bborder-solid\b/.test(classStr), '')
   check('★★ Button 基类写了 `border-0` 兜底（primary/danger 没有 border 类，不兜底会留 2px 系统边）',
     /\bborder-0\b/.test(classStr), '')
   check('★ Button 基类写了 `appearance-none`（去掉系统按钮外观）', /\bappearance-none\b/.test(classStr), '')
-  check('★ Button 基类不写 box-shadow（阴影只属于卡片/浮层，按钮一律扁平）',
+  check('★★ Button 与卡片读同一档高度（.ui-elev-1 → --el-1 / hover --el-2）',
+    /\bui-elev-1\b/.test(classStr) &&
+    /\.ui-elev-1\s*\{[^}]*box-shadow:\s*var\(--el-1\)/.test(appCss) &&
+    /\.ui-elev-1:hover\s*\{[^}]*box-shadow:\s*var\(--el-2\)/.test(appCss), '')
+  check('★ Button 的阴影只许读令牌，不许写死字面量（也不许再用 Tailwind 的 shadow-[…]）',
     !/\bshadow-\[/.test(classStr), '')
 }
 

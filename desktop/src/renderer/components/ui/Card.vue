@@ -20,10 +20,12 @@ const props = defineProps<{ class?: any }>()
 <template>
   <!-- 与 App.vue 的 `.card` 同一档：贴地 --el-1、hover --el-2。
        ⚠ 2026-10-30 起投影走**全局外观令牌**（flat 下这两个都是 none）——
-       不许再写字面量，否则「切回扁平」会在这里留下一块散不掉的影子。 -->
+       不许再写字面量，否则「切回扁平」会在这里留下一块散不掉的影子。
+       ⚠ 2026-10-31：原来写 `shadow-[var(--el-1)]`，Tailwind 把它当**阴影颜色**解析
+       （生成 --tw-shadow-color），计算值一直是 none。改用 `.ui-elev-1` 显式写 box-shadow。 -->
   <div
     :class="cn(
-      'rounded-[9px] border border-[var(--ui-border)] bg-[var(--ui-card)] shadow-[var(--el-1)] transition-shadow hover:shadow-[var(--el-2)]',
+      'ui-elev-1 rounded-[9px] border border-[var(--ui-border)] bg-[var(--ui-card)] transition-shadow',
       props.class
     )"
   >

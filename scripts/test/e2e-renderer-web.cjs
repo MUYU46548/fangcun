@@ -278,6 +278,8 @@ function main() {
       ['回收站', '', 'trash-batch', 'trashbatch'],
       // 2026-10-12 决策卡（AI 规划包第 3 件）：三态渲染 + 记一条/改状态交互
       ['决策', '', 'decisions'],
+      // 2026-10-31：外观「阴影」档下，决策页的卡片与按钮都要浮起来（此前只有老 .card 会变）
+      ['决策', '', 'decisions-shadow', 'decshadow'],
       ['决策', '', 'decisions-act', 'decact'],
       // 2026-10-14 任务卡右键菜单（第 ④ 步第二单）：换 reka-ui ContextMenu 后的成品长相
       ['看板', '列视图', 'ctx-menu', 'ctxmenu'],
@@ -388,6 +390,12 @@ function main() {
     ? `const its = all('.todos-view .todo-item'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`
     : `const its = all('.trash-view .trash-main'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`}
   await sleep(500)` : ''}
+  ${extra === 'decshadow' ? `
+  // 外观「阴影」档（2026-10-31）：决策页的 Card/Button 此前读 Tailwind shadow-[var(...)]，
+  // 被当成"阴影颜色"解析 → 计算值永远 none；改成 .ui-elev-1 后这里必须真的浮起来。
+  document.documentElement.dataset.appearance = 'shadow'
+  await sleep(450)
+` : ''}
   ${extra === 'decact' ? `
   // 决策卡交互（2026-10-12；2026-10-14 改走 data-dec 钩子 —— 视图已切到 components/DecisionBoard.vue）：
   // 记一条新决策 → 改 D-001 状态 → 筛「已撤销」——三步全真链路（mock IPC）
