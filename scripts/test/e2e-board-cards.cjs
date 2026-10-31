@@ -126,15 +126,20 @@ check('★ 纯函数：算完不修改传入的 chains / task（可被 Vue compu
 // 这条守卫就钉住那次修复。渲染层真点击 e2e（e2e-renderer.cjs）常年 SKIP、
 // 无头浏览器在某些环境也跑不出来 —— 源码守卫是这两种情况下唯一还能防回归的一层。
 const APP = path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue')
+// 2026-10-31：看板三摆法的模板已搬进 views/BoardView.vue（渲染层拆分第二批）。
+// 源码守卫跟着模板走 —— 不是放宽，是**换到它现在真正住的地方**；状态/派生仍在 App.vue，
+// 所以下面一部分断言读 appSrc、一部分读 boardSrc。
+const BOARD = path.join(REPO, 'desktop', 'src', 'renderer', 'views', 'BoardView.vue')
 const appSrc = fs.readFileSync(APP, 'utf-8')
-const wallStart = appSrc.indexOf("boardView === 'cards'")
+const boardSrc = fs.readFileSync(BOARD, 'utf-8')
+const wallStart = boardSrc.indexOf("boardView === 'cards'")
 check('源码里找得到卡片墙区块', wallStart >= 0)
 if (wallStart >= 0) {
-  const endAt = appSrc.indexOf('<!-- 列视图', wallStart)
-  const seg = appSrc.slice(wallStart, endAt > wallStart ? endAt : wallStart + 8000)
+  const endAt = boardSrc.indexOf('<!-- 列视图', wallStart)
+  const seg = boardSrc.slice(wallStart, endAt > wallStart ? endAt : wallStart + 8000)
   check('★ 卡片墙切片有效（切到了内容，守卫不会因切片失败而假绿）', seg.length > 500, String(seg.length))
-  check('★ 卡片墙按 columns 分区，而不是平铺 filteredTasks',
-    /v-for="col in columns"/.test(seg) && !/v-for="t in cardWallTasks"/.test(seg))
+  check('★ 卡片墙按 columns 派生的 cardWallGroups 分区，而不是平铺 filteredTasks',
+    /v-for="col in cardWallGroups"/.test(seg) && !/v-for="t in cardWallTasks"/.test(seg))
   check('★ 分组头可折叠（复用列表视图那套 lpill 药丸 + toggleGroup）',
     /class="lpill"/.test(seg) && /toggleGroup\(col\.key\)/.test(seg))
   check('★ 卡片墙支持拖拽改状态（组容器接 drop → onDrop，与另两种摆法一致）',
