@@ -21,6 +21,9 @@
   const check = (name, cond, detail) => {
     if (cond) { pass++; out.push('PASS  ' + name) }
     else { fail++; out.push('FAIL  ' + name + (detail ? '  → ' + detail : '')) }
+    // 2026-10-31：把进度写进 title —— 断言卡在某个 await 上时，CDP 侧只能看到
+    // 「DOM 不再变长、title 停在 FC harness」，根本不知道卡在哪一段。
+    document.title = 'FC ' + pass + '/' + fail + ' · ' + String(name).replace(/\s+/g, ' ').slice(0, 28)
   }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const $ = (s) => document.querySelector(s)

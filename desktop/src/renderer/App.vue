@@ -963,247 +963,11 @@
         :projects="projects"
       />
 
-      <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）══════════════
+      <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）—— 已搬进 views/TripBoardView.vue
            一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志。
-           数据来自主进程**只读**聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律「未填」。
+           数据来自主进程只读聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律「未填」。
            旧三摆法一个字没动，「在途一屏」是新增的第 4 项。 -->
-      <div class="tripboard" v-else-if="pvView === 'trip'">
-        <div class="trip-head">
-          <span class="trip-ttl">在途一屏</span>
-          <span class="trip-sub">{{ tripSubtitle }}</span>
-          <span class="trip-grow"></span>
-          <button class="ghost trip-headbtn" @click="tripSettingsOpen = true">⚙ 显示设置</button>
-          <!-- 读取中要在**按钮上**也看得出来（2026-10-11 用户：「每次进都要卡一下，哪怕有个加载小提示」）：
-               第二次进这一屏时旧数据还在屏上，光靠"空表才显示读取中"是不够的 —— 用户看到的是
-               一张不会动的旧表，除了"卡了"什么也读不出来。 -->
-          <button class="ghost trip-headbtn" :disabled="tripLoading" @click="loadTripBoard()">
-            {{ tripLoading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
-        </div>
-
-        <!-- 还没数据 → 整屏「读取中」；已经有旧数据 → 保留旧表 + 顶上一条细刷新提示
-             （直接把旧表换成"读取中"会更差：用户刚看到的东西突然消失，像是被清了）。 -->
-        <div v-if="tripLoading && !tripRows.length" class="trip-empty">读取中…<span class="trip-loading-sub">（正在读各项目的立项契约与 git 信息）</span></div>
-        <div v-else-if="!tripRows.length" class="trip-empty">
-          <template v-if="tripError">
-            <div class="trip-err">读取失败：{{ tripError }}</div>
-            <div class="trip-err-hint">
-              如果上面那句里有「no handler registered」这类话，说明方寸的后台还是旧代码 ——
-              界面会自动更新，后台只在启动时读一次。<b>请完全退出方寸再打开</b>
-              （关掉窗口不算退出，它常驻托盘：右键托盘图标 → 退出）。
-            </div>
-          </template>
-          <template v-else>
-            <div>{{ tripEmptyHint }}</div>
-            <!-- 空屏 + 手动模式 = 死局（用户只会以为界面坏了）。给条一步就能走出去的路。 -->
-            <button v-if="tripMode === 'manual'" class="ghost trip-headbtn trip-empty-act"
-                    @click="tripBackToAuto()">改回自动</button>
-          </template>
-        </div>
-
-        <div v-if="tripLoading && tripRows.length" class="trip-refreshing">
-          ⟳ 正在刷新（读取各项目立项契约与 git 信息）…
-        </div>
-        <div v-if="tripRows.length" class="trip-scroll">
-          <table class="trip-table">
-            <thead>
-              <tr>
-                <th class="trip-th-pj">项目</th>
-                <th v-if="tripColVisible('end')">终态（一句话）</th>
-                <th v-if="tripColVisible('current')">当前步骤</th>
-                <th v-if="tripColVisible('next')">下一步</th>
-                <th v-if="tripColVisible('who')">卡在谁</th>
-                <th v-if="tripColVisible('owe')">欠着什么</th>
-                <th v-if="tripColVisible('health')">健康度</th>
-                <th v-if="tripColVisible('counts')">任务 / 日志</th>
-                <th v-if="tripColVisible('commit')">最近提交</th>
-                <th v-if="tripColVisible('dirty')">未提交</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in tripRows" :key="r.id" :class="{ 'trip-anomaly': r.flags && r.flags.noCards }"
-                  @click="tripOpenRow(r, $event)">
-                <td class="trip-pj">
-                  <b>{{ r.name }}</b>
-                  <span class="trip-pid">{{ r.id }}</span>
-                  <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
-                          @click.stop="removeProject(r)">🗑</button>
-                </td>
-
-                <!-- 终态：读各 repo 的 立项契约.md；没有就显式「未填」+ 两个按钮（不给假默认值）
-                     ⚠ 分支先看 exists 再看内容（卡 002）：旧版把「文件在但还没填内容」并进了
-                     「未填」分支 —— 于是文件建完之后界面上只剩「建契约文件」（会被主进程拒绝），
-                     用户原话「创完就改不了、懒得去文件夹自己找」。 -->
-                <td v-if="tripColVisible('end')" class="trip-end">
-                  <template v-if="r.contract && r.contract.exists">
-                    <span v-if="tripFirstLine(r.contract.endState)" class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
-                    <!-- 空的原因要**分类**（2026-10-11 真机修正）。旧版一律写「内容未填」——
-                         绒花墨坊的契约明明写得很完整，只因小节名是「① 终态三段」而不是「终态形态」，
-                         就被报成"内容未填"（用户原话「已经有内容了啊？」）。**这是界面说假话。** -->
-                    <span v-else class="trip-unset" :title="tripContractMissing(r).title || r.contract.path">
-                      文件已建 · {{ tripContractMissing(r).text }}
-                    </span>
-                    <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
-                            title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
-                    <!-- 「让 AI 填」的可复制提示词（2026-10-10 用户要求：原话「之前说让 AI 填，
-                         但是不知道怎么弄」）。上一版只在旁边写了句「也可以让 AI 填」——
-                         没给**能粘贴的东西**，等于没说。这里给的是一段可直接贴进
-                         「该项目仓库里开的 AI 会话」的话（含逐节念回签收的规矩）。 -->
-                    <button class="ghost trip-mini" @click.stop="tripCopyContractPrompt(r)"
-                            title="复制一段话 —— 贴到这个项目仓库里开的 AI 会话，它就会按契约骨架逐节填，并逐节念回给你确认">⧉ 复制 AI 提示词</button>
-                  </template>
-                  <template v-else>
-                    <span class="trip-unset">未填</span>
-                    <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripInitContract(r)"
-                            title="方寸直接在这个项目文件夹里建好「立项契约.md」（文件已存在就不动它）">📝 建契约文件</button>
-                    <button class="ghost trip-mini" @click.stop="tripCopyContract(r)"
-                            title="只复制文字，你自己挑地方落盘">复制模板</button>
-                    <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
-                            title="打开该项目的文件夹">📁 打开项目文件夹</button>
-                    <span class="trip-dim-sm">建好后打开它填内容（也可以让 AI 填）</span>
-                  </template>
-                </td>
-
-                <!-- 当前步骤：进行中的卡 → 没有就回落到最近一条执行日志（司天这类 0 卡项目靠它） -->
-                <td v-if="tripColVisible('current')" class="trip-step">
-                  <template v-if="r.current && r.current.text">
-                    <span class="trip-step-k">{{ r.current.text }}<span v-if="r.current.from === 'log'" class="trip-from">日志</span></span>
-                    <span v-if="r.current.sub" class="trip-dim-sm">{{ r.current.sub }}</span>
-                  </template>
-                  <span v-else-if="r.flags && r.flags.noCards" class="trip-dim">还没有任务卡</span>
-                  <span v-else class="trip-dim">没有正在进行的任务</span>
-                </td>
-
-                <td v-if="tripColVisible('next')" class="trip-step">
-                  <template v-if="r.next && r.next.text">
-                    <span class="trip-step-k">{{ r.next.text }}</span>
-                    <span v-if="r.next.sub" class="trip-dim-sm">{{ r.next.sub }}</span>
-                  </template>
-                  <span v-else class="trip-dim">没有待办任务</span>
-                </td>
-
-                <td v-if="tripColVisible('who')" class="trip-who">
-                  <span v-if="r.who && r.who.kind === 'review'" class="trip-chip warn">{{ r.who.text }}</span>
-                  <span v-else-if="r.who && r.who.kind === 'exec'" class="trip-chip">{{ r.who.text }}</span>
-                  <span v-else-if="r.who && r.who.text" class="trip-chip warn">{{ r.who.text }}</span>
-                  <span v-else class="trip-dim">—</span>
-                </td>
-
-                <!-- 欠着什么（2026-10-22 · 03 任务三）：registry 手写的「说明」字段 ——
-                     它才是用户自己的欠账清单（卡是"要做的事"，欠账是"欠着谁的"）。
-                     长了就截第一行、全文挂 title：这一列是"扫一眼知道欠着"，不是阅读区。 -->
-                <td v-if="tripColVisible('owe')" class="trip-owe">
-                  <span v-if="r.owe" class="trip-owe-t" :title="r.owe">{{ tripFirstLine(r.owe) }}</span>
-                  <span v-else class="trip-dim">未写</span>
-                </td>
-
-                <!-- 健康度：机器只给默认值，点一下人工覆盖并锁定（右键恢复自动） -->
-                <td v-if="tripColVisible('health')" class="trip-health">
-                  <span class="trip-hdot" :class="'h-' + tripHealthClass(r.health.value)"></span>
-                  <button class="trip-hbtn" :class="{ locked: r.health.locked }"
-                          :title="r.health.locked
-                            ? '你标过（已锁定）—— 点一下换下一档；右键恢复自动'
-                            : '方寸按这个项目最近有没有提交算出来的默认值 —— 点一下可人工改成你的判断'"
-                          @click.stop="tripCycleHealth(r)" @contextmenu.prevent="tripUnlockHealth(r)">
-                    {{ tripHealthLabel(r.health.value) }}<span v-if="r.health.locked" class="trip-lock">🔒</span>
-                  </button>
-                </td>
-
-                <td v-if="tripColVisible('counts')" class="trip-cnt">
-                  <span :class="{ 'trip-dim': !(r.counts.doing || r.counts.todo || r.counts.review) }">
-                    <template v-if="r.counts.doing">{{ r.counts.doing }} 进行</template>
-                    <template v-if="r.counts.todo">{{ r.counts.todo }} 待办</template>
-                    <template v-if="r.counts.review">{{ r.counts.review }} 待验</template>
-                    <template v-if="!(r.counts.doing || r.counts.todo || r.counts.review)">0 卡</template>
-                  </span>
-                  <span class="trip-dim-sm">{{ r.counts.logs }} 条日志</span>
-                </td>
-
-                <td v-if="tripColVisible('commit')" class="trip-dim">{{ r.lastCommit || '读不到' }}</td>
-                <td v-if="tripColVisible('dirty')" class="trip-dim">{{ r.dirty === null || r.dirty === undefined ? '—' : r.dirty }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- 管理入口：添加入口在四种摆法里必须都在（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」） -->
-        <div class="trip-actions">
-          <button class="ghost trip-headbtn" @click="openNewProject">＋ 添加项目</button>
-          <span class="trip-dim-sm">新登记的项目按规则自动进这一屏；想固定，用右上「⚙ 显示设置」改成手动指定</span>
-        </div>
-
-        <p class="trip-hidden" v-if="tripHidden.length">
-          <template v-if="tripHiddenNotPicked.length">
-            另有 {{ tripHiddenNotPicked.length }} 个已登记项目没进这一屏
-            （{{ tripHiddenNotPicked.map(h => h.name).join('、') }}）——
-            你选的是「手动指定」，但没有勾它们，所以它们不显示。
-            点「⚙ 显示设置」把它们勾上就行（勾选会自动切成手动）。
-          </template>
-          <template v-if="tripHiddenNoActivity.length">
-            <template v-if="tripHiddenNotPicked.length"><br></template>
-            另有 {{ tripHiddenNoActivity.length }} 个已登记项目没进这一屏
-            （{{ tripHiddenNoActivity.map(h => h.name).join('、') }}）——
-            它们没有未完结任务，30 天内也没有提交。
-            想看到它们：点「⚙ 显示设置」把「哪些项目算在途」放宽，或改成「手动指定」自己勾。
-          </template>
-        </p>
-
-        <p class="trip-foot">
-          这一屏读的是：各项目里的 <code>立项契约.md</code>、任务卡、执行日志、文件夹最近提交时间。
-          读不到的地方一律写「未填」，不替你猜。
-        </p>
-
-        <!-- 裁断入口：机器口径只是默认值，用户改过就以用户的为准 -->
-        <div v-if="tripSettingsOpen" class="trip-modal-mask" @mousedown.self="tripSettingsOpen = false">
-          <div class="trip-modal">
-            <div class="trip-modal-h">
-              <b>显示设置</b>
-              <button class="ghost trip-headbtn" @click="tripSettingsOpen = false">关闭</button>
-            </div>
-            <div class="trip-modal-b">
-              <div class="trip-col">
-                <h4>收哪些项目</h4>
-                <p class="trip-hint">「自动」按下面的规则筛；「手动指定」按你勾的来 —— 默认不写死任何一个项目名。</p>
-                <div class="trip-modes">
-                  <label :class="{ on: tripMode === 'auto' }">
-                    <input type="radio" name="tripmode" :checked="tripMode === 'auto'" @change="tripSetMode('auto')"> 自动
-                  </label>
-                  <label :class="{ on: tripMode === 'manual' }">
-                    <input type="radio" name="tripmode" :checked="tripMode === 'manual'" @change="tripSetMode('manual')"> 手动指定
-                  </label>
-                </div>
-                <div class="trip-chips">
-                  <label v-for="p in projectStats" :key="p.id" class="trip-chk" :class="{ on: tripManualIds.includes(p.id) }">
-                    <input type="checkbox" :checked="tripManualIds.includes(p.id)" @change="tripToggleManual(p.id)">
-                    {{ p.name }}
-                  </label>
-                </div>
-              </div>
-              <div class="trip-col">
-                <h4>哪些项目算「在途」</h4>
-                <p class="trip-hint">自动模式下按这条规则筛。</p>
-                <div class="trip-chips">
-                  <label v-for="c in TRIP_CRITERIA_OPTIONS" :key="c.v" class="trip-chk" :class="{ on: tripCriteria === c.v }">
-                    <input type="radio" name="tripcrit" :checked="tripCriteria === c.v" @change="tripSetCriteria(c.v)">
-                    {{ c.label }}
-                  </label>
-                </div>
-                <h4 style="margin-top:12px">显示哪些列</h4>
-                <div class="trip-chips">
-                  <label v-for="c in TRIP_COL_OPTIONS" :key="c.v" class="trip-chk" :class="{ on: tripCols.includes(c.v) }">
-                    <input type="checkbox" :checked="tripCols.includes(c.v)" @change="tripToggleCol(c.v)">
-                    {{ c.label }}
-                  </label>
-                </div>
-              </div>
-            </div>
-            <div class="trip-modal-f">
-              <button class="ghost" @click="tripResetSettings()">恢复默认</button>
-              <span class="trip-grow"></span>
-              <button class="pri" @click="tripCloseAfterSave()">保存</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <TripBoardView v-else-if="pvView === 'trip'" :ctl="tripBoardCtl" />
     </main>
 
     <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块「看得见 + 能复制」的说明面板 -->
@@ -2451,6 +2215,7 @@ import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import { useNotifications } from './composables/useNotifications'
 import { useBoardColumns } from './composables/useBoardColumns'
+import { useTripBoard } from './composables/useTripBoard'
 import { useLogsView } from './composables/useLogsView'
 import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
@@ -2485,6 +2250,7 @@ import TodosView from './views/TodosView.vue'
 import LogsView from './views/LogsView.vue'
 import CalendarView from './views/CalendarView.vue'
 import BoardView from './views/BoardView.vue'
+import TripBoardView from './views/TripBoardView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
@@ -3161,539 +2927,6 @@ const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch
 /** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
 const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice']
 
-// ── 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）────────────────────
-// 一行一个在途项目，回答「在哪一步 / 下一步 / 卡在谁」。数据全部来自主进程只读聚合
-// （`trip:board`：各 repo 的 立项契约.md + 任务卡 + 执行日志 + git 提交时间）。
-//
-// 三条红线（暮雨 2026-10-05 拍板）：
-//   ① **零硬编码项目清单** —— 由判据推导，用户可手动指定并落 prefs；
-//   ② **缺值显示「未填」**，绝不回退默认值；
-//   ③ 方寸**不写任何项目仓库**（"打开 repo" 只传 projectId，路径由主进程从 registry 取）。
-const TRIP_CRITERIA_OPTIONS = [
-  { v: 'cards', label: '有未完结卡' },
-  { v: 'cards_or_commit', label: '有未完结卡 或 30 天内有提交' },
-  { v: 'cards_or_log', label: '有未完结卡 或 有执行日志' },
-  { v: 'manual', label: '手填清单（手动指定）' },
-] as const
-const TRIP_COL_OPTIONS = [
-  { v: 'end', label: '终态一句话' },
-  { v: 'current', label: '当前步骤' },
-  { v: 'next', label: '下一步' },
-  { v: 'who', label: '卡在谁' },
-  // 2026-10-22 · 03 任务三：四栏台账的第四栏「欠着什么」（registry 手写欠账清单）
-  { v: 'owe', label: '欠着什么' },
-  { v: 'health', label: '健康度' },
-  { v: 'counts', label: '卡 / 日志' },
-  { v: 'commit', label: '最近提交' },
-  { v: 'dirty', label: '未提交文件数' },
-] as const
-// 健康度点一下换一档（机器给默认，人可覆盖 —— 司天那种「在动但冻结」机器算不出来）
-const TRIP_HEALTH_CYCLE = ['active', 'stuck', 'dormant', 'paused', 'idle'] as const
-const TRIP_HEALTH_LABEL: Record<string, string> = {
-  active: '活跃', stuck: '停滞', dormant: '休眠', paused: '搁置', idle: '空闲',
-}
-
-const tripRows = ref<any[]>([])
-/** 登记了但没进这一屏的项目（判据没命中）—— 必须说出来，否则用户以为"我加的项目没了" */
-const tripHidden = ref<{ id: string; name: string; reason: string }[]>([])
-/** 上一次读取失败的原因。**空屏时要说真话**：是"确实没有"还是"根本没读到"（2026-10-05 用户连报三次看不见） */
-const tripError = ref('')
-const tripLoading = ref(false)
-/** 详情页 git 行：在途一屏数据已在内存时按项目取行；没拉过 = null（界面给「拉取」按钮，不编数据） */
-const msGitRow = computed(() => {
-  const id = pvCurrent.value?.id
-  if (!id || !tripRows.value.length) return null
-  return tripRows.value.find((r: any) => r.id === id) || null
-})
-const tripSettingsOpen = ref(false)
-const tripMeta = ref<{ generatedAt: string; mode: string; criteria: string }>(
-  { generatedAt: '', mode: 'auto', criteria: 'cards_or_commit' })
-// ⚠ 四个键都从 readUiPref 起手（而不是空值等 syncBoardPrefs 回填）：
-//   否则 syncBoardPrefs 因任何原因没跑到时，界面会拿着空值去覆盖用户已存的选择。
-const tripMode = ref<'auto' | 'manual'>(readUiPref<'auto' | 'manual'>('fc_trip_mode', 'auto'))
-const tripCriteria = ref<string>(readUiPref<string>('fc_trip_criteria', 'cards_or_commit'))
-const tripManualIds = ref<string[]>(readUiPref<string[]>('fc_trip_projects', []))
-const tripCols = ref<string[]>(readUiPref<string[]>('fc_trip_cols', TRIP_COL_OPTIONS.map(o => o.v)))
-
-const tripSubtitle = computed(() => {
-  const c = TRIP_CRITERIA_OPTIONS.find(o => o.v === tripMeta.value.criteria)?.label || tripMeta.value.criteria
-  const mode = tripMeta.value.mode === 'manual' ? '手动指定' : '自动'
-  const when = tripMeta.value.generatedAt ? ` · 更新于 ${tripMeta.value.generatedAt}` : ''
-  return `${tripRows.value.length} 个项目 · ${mode}（${c}）${when}`
-})
-
-// 空屏时说什么：要分清「门槛太严」和「你选了手动却还没勾」——后者说成前者就是骗人
-const tripEmptyHint = computed(() => {
-  if (tripMode.value === 'manual' && !tripManualIds.value.length) {
-    return '你选的是「手动指定」，但还没勾任何项目 —— 点「⚙ 显示设置」勾几个，它们就会出现在这里。'
-  }
-  return '按现在的规则，没有项目算在途。点「⚙ 显示设置」把规则放宽，或改成「手动指定」自己勾。'
-})
-
-// 没进这一屏的项目要**按原因分开说**：把"你没勾它"说成"它没有未完结任务"就是假话
-// （2026-10-05：方寸自己有几十张未完结卡，却被那句统一文案说成"没有未完结任务"）。
-const tripHiddenNotPicked = computed(() => tripHidden.value.filter(h => h?.kind === 'not-picked'))
-const tripHiddenNoActivity = computed(() => tripHidden.value.filter(h => h?.kind !== 'not-picked'))
-
-async function loadTripBoard(): Promise<void> {
-  tripLoading.value = true
-  try {
-    const res: any = await (window as any).tegula.tripBoard()
-    if (res?.ok) {
-      tripError.value = ''
-      tripRows.value = Array.isArray(res.rows) ? res.rows : []
-      tripHidden.value = Array.isArray(res.hidden) ? res.hidden : []
-      tripMeta.value = {
-        generatedAt: res.generatedAt || '',
-        mode: res.mode || 'auto',
-        criteria: res.criteria || 'cards_or_commit',
-      }
-      // ⚠ 这里**绝对不能**去"同步" tripManualIds（曾经写过一版：把 rows 的 id 回填给勾选清单）。
-      //   后果：用户勾的项目正因为"没进屏"才需要留在清单里，回填等于**当场把他的勾选抹掉** ——
-      //   表现为「提示保存了，但重新打开勾选全没了」（2026-10-05 用户实测）。
-      //
-      // 数据层的**兜底回自动**：prefs 里写着「手动指定」却从没勾过任何项目（旧写法只落了字符串键，
-      // 数组键丢了）—— 照字面执行会让这一屏空得像界面坏了。数据层此时按自动走并回传 modeFallback，
-      // 界面必须把这件事说出来，并且把面板上的模式同步成"自动"，否则会出现
-      // 「面板高亮手动、屏上是自动结果」的自相矛盾。
-      if (res.modeFallback) {
-        tripMode.value = 'auto'
-        tripManualIds.value = []
-        showToast('之前选过「手动指定」但从没勾过项目，这次按规则自动显示 —— 要固定就打开「显示设置」勾几个', 'info')
-      }
-    } else {
-      tripRows.value = []
-      tripHidden.value = []
-      tripError.value = String(res?.error || '未知错误')
-      showToast('读取在途一屏失败：' + (res?.error || '未知错误'), 'error')
-    }
-  } catch (e: any) {
-    tripRows.value = []
-    tripHidden.value = []
-    tripError.value = String(e?.message || e)
-    showToast('读取在途一屏异常：' + (e?.message || e), 'error')
-  } finally {
-    tripLoading.value = false
-  }
-}
-
-function tripColVisible(c: string): boolean {
-  return tripCols.value.includes(c)
-}
-
-function tripHealthLabel(v: string): string {
-  return TRIP_HEALTH_LABEL[v] || v || '空闲'
-}
-
-function tripHealthClass(v: string): string {
-  return v === 'active' ? 'g' : v === 'stuck' ? 'y' : v === 'paused' ? 'p' : 'gray'
-}
-
-/** 点健康度：在档位之间循环一次，并**锁定**（机器不再覆盖）。回到「活跃」以外都可撤销。 */
-function tripCycleHealth(row: any): void {
-  const cur = String(row?.health?.value || 'active')
-  const i = TRIP_HEALTH_CYCLE.indexOf(cur)
-  const next = TRIP_HEALTH_CYCLE[(i + 1) % TRIP_HEALTH_CYCLE.length]
-  const overrides = { ...(tripHealthOverrides.value || {}) }
-  overrides[row.id] = next
-  tripHealthOverrides.value = overrides
-  saveUiPref('fc_health_overrides', overrides)
-  showToast(`「${row.name}」健康度标为「${tripHealthLabel(next)}」（已锁定，点它可继续切换）`, 'info')
-}
-
-/** 解除人工锁定：回到机器默认 */
-function tripUnlockHealth(row: any): void {
-  const overrides = { ...(tripHealthOverrides.value || {}) }
-  delete overrides[row.id]
-  tripHealthOverrides.value = overrides
-  saveUiPref('fc_health_overrides', overrides)
-  void loadTripBoard()
-  showToast(`「${row.name}」健康度已恢复自动`, 'info')
-}
-
-const tripHealthOverrides = ref<Record<string, string>>(readUiPref<Record<string, string>>('fc_health_overrides', {}))
-
-/**
- * 落盘 + 立即刷新这一屏。
- *
- * 2026-10-05 改：原来有个「保存」按钮，用户实测「提示保存了，但每次重新勾选都被取消」——
- * 真身里 `fc_trip_mode` 存进去了、`fc_trip_projects` 却没有：说明"点保存"这条路径本身
- * 就是**假成功的温床**（中间任何一步出错，用户看到的仍是一句"已保存"）。
- * 现在改成**任何改动即时落盘**，界面不提供"保存"这个动作，也就没有"存没存"的疑问。
- */
-/**
- * 落盘这一屏的四个偏好键 + 立刻重取数据。
- *
- * ⚠ 2026-10-05 用户实测「提示保存了但实际并未保存，每次重新勾选都被取消」：
- *   · 旧写法是**连续四次** saveUiPref（四次 IPC、四次整文件改写），且**不看返回值** ——
- *     prefs.json 里最终只落了两个字符串键，两个数组键丢了，界面却照样说"已保存"。
- *   · 现在改为**一次 IPC 写完四个键**（主进程合并读-改-写 + 回读校验），
- *     并且**校验结果必须传回界面**：写失败就说失败，绝不假成功。
- */
-async function tripApplySettings(): Promise<boolean> {
-  const patch = toPlain({
-    fc_trip_mode: tripMode.value,
-    fc_trip_criteria: tripCriteria.value,
-    fc_trip_projects: [...tripManualIds.value],  // 展开成裸数组，别把响应式数组塞进载荷
-    fc_trip_cols: [...tripCols.value],
-  })
-  // localStorage 只当读缓存（真身永远在主进程 prefs.json）
-  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* 缓存失败无所谓 */ }
-  }
-  let ok = true
-  try {
-    const res: any = await (window as any).tegula?.prefsSetMany?.(patch)
-    // ⚠ 返回值必须**明确成功**才算成功：`undefined` = 通道根本没通（旧主进程 / preload 缺这个 API），
-    //   那也是"没存住"，不能当成成功（2026-10-05 用户「提示保存了但没保存」的老路）。
-    if (!res || res.ok !== true) {
-      ok = false
-      showToast('设置没存住：' + ((res && res.error) || '主进程没回应（可能还是旧代码）') + ' —— 请把这句话告诉开发者', 'error')
-    }
-  } catch (e: any) {
-    ok = false
-    showToast('设置写入异常：' + (e?.message || e), 'error')
-  }
-  await loadTripBoard()
-  return ok
-}
-
-function tripSetMode(m: 'auto' | 'manual'): void {
-  tripMode.value = m
-  void tripApplySettings()
-}
-
-function tripSetCriteria(c: string): void {
-  tripCriteria.value = c
-  void tripApplySettings()
-}
-
-/**
- * 「保存」= 落盘 + 关面板 + 明确告知存了什么。
- *
- * 2026-10-05 用户口径：「用户不需要理解运行机制，只要看到最终保存了就行」——
- * 所以按钮就叫「保存」，点下去要有一句带**可核对事实**的确认（而不是"已保存"三个字）。
- * 而"存住了没有"以**写盘回读校验**的返回值为准 —— 校验不过就报错，不假成功。
- */
-async function tripCloseAfterSave(): Promise<void> {
-  const ok = await tripApplySettings()
-  tripSettingsOpen.value = false
-  if (!ok) return  // 失败时 tripApplySettings 已经报过错了
-  const n = tripRows.value.length
-  showToast(tripMode.value === 'manual'
-    ? `已保存：这一屏按你勾的项目显示，共 ${n} 个`
-    : `已保存：按门槛自动筛，这一屏 ${n} 个项目`, 'success')
-}
-
-/** 空屏时的出口：从「手动指定」一步走回自动（并落盘） */
-function tripBackToAuto(): void {
-  tripMode.value = 'auto'
-  tripCriteria.value = 'cards_or_commit'
-  tripManualIds.value = []
-  void tripApplySettings().then(() => {
-    showToast('已改回自动：按规则筛项目，这一屏现在 ' + tripRows.value.length + ' 个', 'success')
-  })
-}
-
-function tripResetSettings(): void {
-  tripMode.value = 'auto'
-  tripCriteria.value = 'cards_or_commit'
-  tripManualIds.value = []
-  tripCols.value = TRIP_COL_OPTIONS.map(o => o.v)
-  void tripApplySettings()
-}
-
-/** 复制契约模板 / 查看已有契约原文（方寸只给文本，落盘由用户自己做） */
-async function tripCopyContract(row: any): Promise<void> {
-  try {
-    const res: any = await (window as any).tegula.contractText(row.id)
-    if (!res?.ok) { showToast('读取契约失败：' + (res?.error || '未知错误'), 'error'); return }
-    const ok = await copyWithToast(res.text, res.exists ? '契约原文已复制' : '契约模板已复制 —— 去仓库根存成 立项契约.md')
-    if (ok && !res.exists) {
-      showToast(`建议落点：${row.repo}/立项契约.md`, 'info')
-    }
-  } catch (e: any) {
-    showToast('复制契约异常：' + (e?.message || e), 'error')
-  }
-}
-
-/**
- * 「让 AI 填契约」的可复制提示词（2026-10-10 用户要求）。
- *
- * 用户原话：「契约文件如何完善？之前说让 AI 填，但是不知道怎么弄。」
- * 上一版界面上只有一句「建好后打开它填内容（也可以让 AI 填）」——
- * **没给能粘贴的东西，等于没说**。这里给的是一段可直接贴进「该项目仓库里开的 AI 会话」的话：
- *   · 说清读哪几个文件当依据（不然它凭空编）；
- *   · 六节逐条填 + **找不到证据就写「未填」不许编**（契约自己写着「缺值不得填默认」）；
- *   · **逐节念回签收** —— 那是契约模板五条机制条款之一，不写进去它会一口气填完，你来不及看；
- *   · 圈定改动范围（只碰 立项契约.md）。
- */
-function contractFillPrompt(row: any): string {
-  const name = String(row?.name || row?.id || '这个项目').trim()
-  const repo = String(row?.repo || '').trim()
-  const lines = [
-    `请帮我填写「${name}」的立项契约。`,
-    ``,
-    `1. 先读本仓库根目录的 立项契约.md（目前是骨架，还没填内容）。`,
-    `2. 再读 AGENTS.md、README.md 和主要代码目录，作为事实依据。`,
-    `3. 按六个小节逐条填：① 终态形态 ② 验收线 ③ 不要什么 ④ 选型定死 ⑤ 现状底数 ⑥ 下一队列。`,
-    ``,
-    `规矩（这几条必须守）：`,
-    `- 只写仓库里找得到证据的内容；找不到就写「未填」并说明缺什么 —— 不要编。`,
-    `- 每填完一节，用「原话 + 翻译」念回给我确认，我点头你再填下一节。`,
-    `- 除了 立项契约.md，不要修改任何其它文件。`,
-  ]
-  if (repo) lines.push(`- 这个仓库的路径是：${repo}`)
-  return lines.join('\n')
-}
-
-async function tripCopyContractPrompt(row: any): Promise<void> {
-  const ok = await copyWithToast(contractFillPrompt(row),
-    '提示词已复制 —— 贴到这个项目仓库里开的 AI 会话即可')
-  if (ok) showToast('它会按契约骨架逐节填，并逐节念回给你确认', 'info')
-}
-
-/** 打开该项目的文件夹（只传 id，路径由主进程从 registry 取 —— 不接任意路径） */
-async function tripOpenRepo(row: any): Promise<void> {
-  try {
-    const res: any = await (window as any).tegula.tripOpenRepo(row.id)
-    if (!res?.ok) { showToast('打开项目文件夹失败：' + (res?.error || '未知错误'), 'error'); return }
-    // 打开之后必须有抓手（用户原话：打开之后只能对着资源管理器发呆）——
-    // 契约还缺着就把下一步说清；已有契约就不多嘴。
-    if (!(row?.contract && row.contract.exists)) {
-      showToast('已打开项目文件夹 —— 下一步：在里面新建「立项契约.md」，点「① 复制模板」粘进去就好', 'info')
-    }
-  } catch (e: any) {
-    showToast('打开项目文件夹异常：' + (e?.message || e), 'error')
-  }
-}
-
-/**
- * 「📄 打开契约」（卡 002）：文件建了就总得有地方改它。
- * 走既有 openFile 通道（主进程 validateAndOpenFile：存在性检查 + 系统默认程序打开），
- * 路径来自主进程聚合出来的 contract.path —— 渲染层不自己拼路径。
- */
-async function tripOpenContract(row: any): Promise<void> {
-  const p = String(row?.contract?.path || '')
-  if (!p) { showToast('这个项目还没登记文件夹路径 —— 先在项目设置里补上', 'error'); return }
-  try {
-    const res: any = await (window as any).tegula.openFile(p)
-    if (res && res.ok === false) showToast('打开契约失败：' + (res.error || '未知错误'), 'error')
-  } catch (e: any) {
-    showToast('打开契约异常：' + (e?.message || e), 'error')
-  }
-}
-
-/**
- * 点整行 = 进这个项目的详情（卡 002：行此前不可点，只有健康度与🗑两个热点）。
- * 复用主从摆法的 ms-detail，不新造详情页 —— 所以是「切到 master + 选中该项目」。
- * ⚠ 行内按钮一律 .stop，点击不会漏到这里；这里再兜一层（按钮在 span 里时 target 是内层元素）。
- * ⚠ 只切内存状态、不写 prefs：这是一次性浏览动作，用户选好的摆法（在途一屏）不该被顺手改掉。
- */
-function tripOpenRow(row: any, e?: MouseEvent): void {
-  const t = (e && (e.target as HTMLElement | null)) || null
-  if (t && typeof t.closest === 'function' && t.closest('button')) return
-  pvSelected.value = row?.id || ''
-  pvView.value = 'master'
-}
-
-/**
- * 「📝 建契约文件」：让方寸在该项目文件夹里**创建**「立项契约.md」。
- *
- * 2026-10-05 用户口径：「让方寸直接写仓库文件更方便，用户打字输错一个字可能就无法识别。
- * 弹窗让用户确认权限即可，方寸不静默做。」→ 先弹确认框把「写到哪 / 写什么 / 什么情况拒绝」
- * 念清楚，再动手；主进程侧只建不覆盖。
- */
-async function tripInitContract(row: any): Promise<void> {
-  const repo = String(row?.repo || '')
-  if (!repo) {
-    showToast('这个项目还没登记文件夹路径 —— 先在项目设置里补上', 'error')
-    return
-  }
-  const msg = `让方寸在项目文件夹里创建「立项契约.md」？\n\n`
-    + `写到哪里：${repo}\\立项契约.md\n`
-    + `写什么：一份空白契约（六个小节 + 五条通用条款）—— 里面的内容由你或 AI 之后填\n`
-    + `安全：这个文件已经存在的话，方寸会直接拒绝，不会覆盖\n\n`
-    + `确认创建吗？`
-  if (!confirm(msg)) return
-  try {
-    const res: any = await (window as any).tegula.tripInitContract(row.id)
-    if (!res?.ok) { showToast('创建失败：' + (res?.error || '未知错误'), 'error'); return }
-    showToast(`已创建：${res.path} —— 打开它填内容，或者交给 AI 填`, 'success')
-    await loadTripBoard()
-  } catch (e: any) {
-    showToast('创建异常：' + (e?.message || e), 'error')
-  }
-}
-
-/** 契约某一节的正文 → 一行摘要（表格里放不下整节；完整版在仓库文件里，agent 自己去读） */
-function tripFirstLine(text: unknown): string {
-  const s = String(text || '').trim()
-  if (!s) return ''
-  for (const raw of s.split('\n')) {
-    const t = raw.trim().replace(/^[#>\-*\s]+/, '').replace(/\*\*/g, '').trim()
-    if (t) return t.length > 84 ? t.slice(0, 84) + '…' : t
-  }
-  return ''
-}
-
-/**
- * 契约「终态」为空时，**把原因说清楚**（2026-10-11 真机修正）。
- *
- * 触发的真事：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点」这套自定义小节名，
- * 方寸只认标准六节名 → 六个字段全空 → 界面写「内容未填」。用户当场反问「已经有内容了啊？」。
- * **把"小节名对不上"说成"未填"，就是界面说假话** —— 比空白更糟，因为它让人以为文件是空的。
- * 三种原因分开说：模板占位 / 小节名对不上（并把文件里实际的小节列出来）/ 真没写。
- */
-function tripContractMissing(r: any): { text: string; title: string } {
-  const c = r && r.contract
-  if (!c || !c.exists) return { text: '未填', title: '' }
-  if ((c.placeholderFields || []).includes('终态形态')) {
-    return { text: '还是模板占位（没填）', title: '这一节在文件里只是"该写什么"的说明，不是内容' }
-  }
-  const unmatched: string[] = c.unmatched || []
-  const sections: { name: string; field: string | null }[] = c.sections || []
-  if (unmatched.length) {
-    return {
-      text: '小节名不在标准六节里',
-      title: '文件里的小节是：' + sections.map(s => s.name).join(' / ')
-        + '\n\n方寸只认名字里含标准字段名（或别名）的小节：\n'
-        + '终态形态 · 验收线 · 不要什么 · 选型定死 · 现状底数 · 下一队列\n\n'
-        + '（文件不是空的 —— 把小节标题改成上面这类名字，就能被读到了）',
-    }
-  }
-  return { text: '这一节空着', title: c.path || '' }
-}
-
-/**
- * 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
- *
- * 边界说死：**只从 registry.yaml 删掉那一条登记** —— 任务卡、方针卡、项目仓库文件一个都不动；
- * 删完该项目下的卡变成「未归属项目」。破坏性 + 影响面不可猜 → 二次确认里逐条写明。
- * （随时可在「＋ 添加项目」重新登记回来，所以这不是不可逆操作。）
- */
-async function removeProject(p: any): Promise<void> {
-  const nm = p?.name || p?.id || ''
-  const n = p?.taskCount != null
-    ? p.taskCount
-    : (Number(p?.counts?.todo || 0) + Number(p?.counts?.doing || 0) + Number(p?.counts?.review || 0))
-  const msg = `移除项目登记「${nm}」？\n\n`
-    + `· 只从 registry.yaml 删掉这一条登记\n`
-    + `· 任务卡（${n} 张）全部保留 —— 只是变成「未归属项目」\n`
-    + `· 方针卡与项目文件夹里的文件，一个字节都不动\n\n`
-    + `（随时可以在项目页签「＋ 添加项目」重新登记回来）`
-  if (!confirm(msg)) return
-  try {
-    const res: any = await (window as any).tegula.registryRemoveProject(p.id)
-    if (!res?.ok) { showToast('移除失败：' + (res?.error || '未知错误'), 'error'); return }
-    showToast(`已移除项目登记「${nm}」—— 还能在「＋ 添加项目」里重新登记`, 'success')
-    await loadAll()
-    if (pvView.value === 'trip') await loadTripBoard()
-  } catch (e: any) {
-    showToast('移除异常：' + (e?.message || e), 'error')
-  }
-}
-
-// ── 项目三字段就地编辑（2026-10-22 · 施工单包 06）────────────────────────
-/**
- * 打开编辑：值从主进程读（`registry:readFields`），不从界面缓存抄 ——
- * 详情页的 `pvCurrent` 是**任务统计派生**的，字段可能已经过时（别让"打开就看到旧值"再犯一次）。
- */
-async function openNoteEdit(p: any): Promise<void> {
-  if (!p?.id) return
-  try {
-    const r: any = await (window as any).tegula.registryReadFields(p.id)
-    if (!r?.ok) {
-      showToast(`读不到「${p.name || p.id}」这三个字段：${r?.error || '未知原因'}`, 'error')
-      return
-    }
-    const f = r.fields || {}
-    noteEditBase.value = {
-      状态: String(f['状态'] || ''),
-      路线图: String(f['路线图'] || ''),
-      说明: String(f['说明'] || ''),
-    }
-    noteEdit.value = {
-      id: p.id,
-      name: p.name || p.id,
-      状态: noteEditBase.value['状态'],
-      路线图: noteEditBase.value['路线图'],
-      说明: noteEditBase.value['说明'],
-    }
-  } catch (e: any) {
-    showToast('读取异常：' + (e?.message || e), 'error')
-  }
-}
-
-function cancelNoteEdit(): void {
-  noteEdit.value = null
-  noteEditBase.value = {}
-}
-
-/**
- * 保存：**只提交真改过的字段**（06 单要求 —— 没改就不提交，避免把没展示过的空值顺手写回去）。
- * 成功后挂撤销条：撤销 = 拿主进程回传的 `before` 再写一次，一步退回去。
- */
-async function saveNoteEdit(): Promise<void> {
-  const f = noteEdit.value
-  if (!f || noteSaving.value) return
-  const changed = NOTE_FIELDS.filter(k => String((f as any)[k] || '') !== String(noteEditBase.value[k] || ''))
-  if (!changed.length) {
-    showToast('三个字段都没改，没什么可保存的')
-    cancelNoteEdit()
-    return
-  }
-  noteSaving.value = true
-  try {
-    const patch: Record<string, string> = {}
-    for (const k of changed) patch[k] = String((f as any)[k] || '')
-    const r: any = await (window as any).tegula.registryUpdateFields(f.id, toPlain(patch))
-    if (!r?.ok) {
-      showToast(`没保存成：${r?.error || '未知原因'}`, 'error')
-      return
-    }
-    const before = r.before || {}
-    const nm = f.name
-    const id = f.id
-    cancelNoteEdit()
-    projects.value = await (window as any).tegula.loadProjects()
-    offerUndo(`已改「${nm}」的${changed.join(' / ')}`, async () => {
-      const back: any = await (window as any).tegula.registryUpdateFields(id, toPlain(before))
-      if (!back?.ok) throw new Error(back?.error || '这三个字段已被改动，改不回去了')
-      projects.value = await (window as any).tegula.loadProjects()
-    })
-  } catch (e: any) {
-    showToast('保存异常：' + (e?.message || e), 'error')
-  } finally {
-    noteSaving.value = false
-  }
-}
-
-/** 手动模式下勾选/取消一个项目（零硬编码：清单只存在于用户的选择里） */
-function tripToggleManual(id: string): void {
-  const set = new Set(tripManualIds.value)
-  if (set.has(id)) set.delete(id)
-  else set.add(id)
-  tripManualIds.value = Array.from(set)
-  // 勾选就说明"我要自己定" → 自动切到手动模式。
-  // （2026-10-05 用户：「收哪些项目里勾选「测试」也看不到」—— 因为他勾完了模式还在「自动」，
-  //   勾选根本没生效。两个互相耦合的控件不该指望用户自己悟出先后关系。）
-  if (tripManualIds.value.length) tripMode.value = 'manual'
-  void tripApplySettings()
-}
-
-function tripToggleCol(c: string): void {
-  const set = new Set(tripCols.value)
-  if (set.has(c)) set.delete(c)
-  else set.add(c)
-  // 至少留一列，否则表格只剩项目名（用户会以为坏了）
-  tripCols.value = set.size ? Array.from(set) : ['end']
-  void tripApplySettings()
-}
-
-// 切到「在途一屏」时按需拉一次数据（放在 watch 里而不是 setViewMode 内 —— 后者被 e2e-prefs 的
-// 源码断言盯着「两个 saveUiPref 之间的距离」，塞逻辑进去会把那条断言挤红）。
-watch(pvView, (v) => { if (v === 'trip') void loadTripBoard() })
 
 /** 当前页签可选的视图（空数组 = 这个页签没有多视图，页头整条不渲染） */
 const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(() => {
@@ -4715,6 +3948,121 @@ const noteEdit = ref<{ id: string; name: string; 状态: string; 路线图: stri
 const noteEditBase = ref<Record<string, string>>({})
 const noteSaving = ref(false)
 const NOTE_FIELDS: readonly string[] = ['状态', '路线图', '说明']
+
+/**
+ * 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+ *
+ * 边界说死：**只从 registry.yaml 删掉那一条登记** —— 任务卡、方针卡、项目仓库文件一个都不动；
+ * 删完该项目下的卡变成「未归属项目」。破坏性 + 影响面不可猜 → 二次确认里逐条写明。
+ * （随时可在「＋ 添加项目」重新登记回来，所以这不是不可逆操作。）
+ */
+async function removeProject(p: any): Promise<void> {
+  const nm = p?.name || p?.id || ''
+  const n = p?.taskCount != null
+    ? p.taskCount
+    : (Number(p?.counts?.todo || 0) + Number(p?.counts?.doing || 0) + Number(p?.counts?.review || 0))
+  const msg = `移除项目登记「${nm}」？\n\n`
+    + `· 只从 registry.yaml 删掉这一条登记\n`
+    + `· 任务卡（${n} 张）全部保留 —— 只是变成「未归属项目」\n`
+    + `· 方针卡与项目文件夹里的文件，一个字节都不动\n\n`
+    + `（随时可以在项目页签「＋ 添加项目」重新登记回来）`
+  if (!confirm(msg)) return
+  try {
+    const res: any = await (window as any).tegula.registryRemoveProject(p.id)
+    if (!res?.ok) { showToast('移除失败：' + (res?.error || '未知错误'), 'error'); return }
+    showToast(`已移除项目登记「${nm}」—— 还能在「＋ 添加项目」里重新登记`, 'success')
+    await loadAll()
+    if (pvView.value === 'trip') await loadTripBoard()
+  } catch (e: any) {
+    showToast('移除异常：' + (e?.message || e), 'error')
+  }
+}
+
+// ── 项目三字段就地编辑（2026-10-22 · 施工单包 06）────────────────────────
+/**
+ * 打开编辑：值从主进程读（`registry:readFields`），不从界面缓存抄 ——
+ * 详情页的 `pvCurrent` 是**任务统计派生**的，字段可能已经过时（别让"打开就看到旧值"再犯一次）。
+ */
+async function openNoteEdit(p: any): Promise<void> {
+  if (!p?.id) return
+  try {
+    const r: any = await (window as any).tegula.registryReadFields(p.id)
+    if (!r?.ok) {
+      showToast(`读不到「${p.name || p.id}」这三个字段：${r?.error || '未知原因'}`, 'error')
+      return
+    }
+    const f = r.fields || {}
+    noteEditBase.value = {
+      状态: String(f['状态'] || ''),
+      路线图: String(f['路线图'] || ''),
+      说明: String(f['说明'] || ''),
+    }
+    noteEdit.value = {
+      id: p.id,
+      name: p.name || p.id,
+      状态: noteEditBase.value['状态'],
+      路线图: noteEditBase.value['路线图'],
+      说明: noteEditBase.value['说明'],
+    }
+  } catch (e: any) {
+    showToast('读取异常：' + (e?.message || e), 'error')
+  }
+}
+
+function cancelNoteEdit(): void {
+  noteEdit.value = null
+  noteEditBase.value = {}
+}
+
+/**
+ * 保存：**只提交真改过的字段**（06 单要求 —— 没改就不提交，避免把没展示过的空值顺手写回去）。
+ * 成功后挂撤销条：撤销 = 拿主进程回传的 `before` 再写一次，一步退回去。
+ */
+async function saveNoteEdit(): Promise<void> {
+  const f = noteEdit.value
+  if (!f || noteSaving.value) return
+  const changed = NOTE_FIELDS.filter(k => String((f as any)[k] || '') !== String(noteEditBase.value[k] || ''))
+  if (!changed.length) {
+    showToast('三个字段都没改，没什么可保存的')
+    cancelNoteEdit()
+    return
+  }
+  noteSaving.value = true
+  try {
+    const patch: Record<string, string> = {}
+    for (const k of changed) patch[k] = String((f as any)[k] || '')
+    const r: any = await (window as any).tegula.registryUpdateFields(f.id, toPlain(patch))
+    if (!r?.ok) {
+      showToast(`没保存成：${r?.error || '未知原因'}`, 'error')
+      return
+    }
+    const before = r.before || {}
+    const nm = f.name
+    const id = f.id
+    cancelNoteEdit()
+    projects.value = await (window as any).tegula.loadProjects()
+    offerUndo(`已改「${nm}」的${changed.join(' / ')}`, async () => {
+      const back: any = await (window as any).tegula.registryUpdateFields(id, toPlain(before))
+      if (!back?.ok) throw new Error(back?.error || '这三个字段已被改动，改不回去了')
+      projects.value = await (window as any).tegula.loadProjects()
+    })
+  } catch (e: any) {
+    showToast('保存异常：' + (e?.message || e), 'error')
+  } finally {
+    noteSaving.value = false
+  }
+}
+
+
+// ── 在途一屏（2026-10-31 · 状态/动作已整体搬进 composables/useTripBoard.ts）──────
+// App 只留「项目页还要用的那几个」：偏好同步（syncBoardPrefs）读的五个 ref、
+// 主从详情页的 msGitRow / loadTripBoard、以及移除项目后按需刷新。
+const tripBoard = useTripBoard({ pvCurrent, pvSelected, pvView, showToast, copyWithToast })
+const {
+  TRIP_CRITERIA_OPTIONS, TRIP_COL_OPTIONS,
+  tripMode, tripCriteria, tripManualIds, tripCols, tripHealthOverrides,
+  msGitRow, loadTripBoard,
+} = tripBoard
 
 const projectStats = computed(() => {
   return projects.value.map(p => {
@@ -9053,6 +8401,21 @@ const boardViewCtl = reactive({
   openCard, openColumnMenu, openReview, copyId, cw,
   toggleGroup, groupCollapsed, groupAllSelected, groupSomeSelected, toggleGroupSelect,
   toggleBatchSelect, isStale, isOverdue, cardDate, projShort, normProject, rejectReasonOf,
+})
+
+/**
+ * 在途一屏的控制器（2026-10-31 · 渲染层拆分「项目页刀」第一块）：与看板 / 日志同一套做法 ——
+ * `reactive()` 包一层再当 prop 传，子组件用 `toRef` 接状态、解构接动作，**模板一字不改**。
+ *
+ * ⚠ 状态与动作的真身在 `composables/useTripBoard.ts`：这里 spread 进来的是它返回的同一批 ref，
+ *   不存在第二份。另外补三样它不生产、但这一屏要用：项目统计 / 移除登记 / 新建项目。
+ * ⚠ 必须放在文件末尾：`tripSubtitle` / `msGitRow` 等是 `const`，前面构建会撞 TDZ。
+ */
+const tripBoardCtl = reactive({
+  ...tripBoard,
+  projectStats,
+  removeProject,
+  openNewProject,
 })
 
 /**

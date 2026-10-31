@@ -93,7 +93,10 @@ function main() {
   check('C3 preload 暴露 prefsGet', /prefsGet:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('prefs:get'\)/.test(preloadSrc))
   check('C4 preload 暴露 prefsSet', /prefsSet:\s*\(key: string, value: any\)\s*=>\s*ipcRenderer\.invoke\('prefs:set'/.test(preloadSrc))
   check('C5 渲染层有与主进程对齐的同步逻辑', /async function syncAgentPresets/.test(vueSrc) && /syncAgentPresets\(\)/.test(vueSrc))
-  check('C6 启动时调用同步（onMounted 内）', /onMounted\(\(\) => \{[\s\S]{0,400}syncAgentPresets\(\)/.test(vueSrc))
+  // ⚠ 窗口 2026-10-31 由 400 放宽到 1500：onMounted 里先后加了「清空撤销栈」测试钩子
+  //   （带 try/catch 与说明注释）与通知焦点订阅，几十行说明把原窗口撑爆了。
+  //   判据本身没变：**启动时**（onMounted 内）必须调用 syncAgentPresets。
+  check('C6 启动时调用同步（onMounted 内）', /onMounted\(\(\) => \{[\s\S]{0,1500}syncAgentPresets\(\)/.test(vueSrc))
   check('C7 预设写入同时落缓存与真身', /function saveAgentPresets[\s\S]{0,400}prefsSet\('fc_agent_presets'/.test(vueSrc))
   check('C8 真身空而缓存有值时做一次性迁移',
     /cached && cached\.length[\s\S]{0,160}prefsSet\('fc_agent_presets', cached\)/.test(vueSrc))

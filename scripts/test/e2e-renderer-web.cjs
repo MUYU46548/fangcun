@@ -145,8 +145,12 @@ function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
         })
         html = (r && r.result && r.result.result && r.result.result.value) || ''
         if (html.indexOf('[[FC-END]]') >= 0) break
-        // 每 10 秒报一次进度：页面在长、但断言没结束时，这条能区分"页面没渲染"和"断言还在跑"
-        if (++ticks % 10 === 0) console.log('      [cdp] 等待断言完成… dom=' + html.length)
+        // 每 10 秒报一次进度：页面在长、但断言没结束时，这条能区分"页面没渲染"和"断言还在跑"。
+        // 2026-10-31 加 title：断言脚本卡在某个 await 上时，只报 dom 长度看不出卡在哪一段。
+        if (++ticks % 10 === 0) {
+          const tm = html.match(/<title>([^<]*)<\/title>/)
+          console.log('      [cdp] 等待断言完成… dom=' + html.length + ' title=' + (tm ? tm[1] : '?'))
+        }
       }
       try { ws.close() } catch { /* ignore */ }
       return html
@@ -257,7 +261,9 @@ function main() {
       ['项目', '项目墙', 'project-tiles'],
       ['项目', '概览卡', 'project-overview'],
       ['项目', '主从', 'project-master'],
-      // 2026-10-22 · 03 控制台：随问页的空态与"问出一屏答案"态各留一张（目检用）
+      // 2026-10-31：在途一屏此前**没有任何截图证据**（拆成 views/TripBoardView.vue 后补目检）——
+      // 要看的是：表头 10 列、契约「未填」三按钮、健康度锁标、没进屏项目的点名原因都在画面里。
+      ['项目', '在途一屏', 'project-trip', 'tripview'],      // 2026-10-22 · 03 控制台：随问页的空态与"问出一屏答案"态各留一张（目检用）
       // 想法（2026-10-22 · 念头没有家）
       ['想法', '', 'ideas'],
       ['问答', '', 'ask'],

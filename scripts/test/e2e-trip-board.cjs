@@ -321,10 +321,12 @@ check('★★ 源码守卫：trip:board 必须**先预热再聚合**（少了这
   /guardedHandle\('trip:board',\s*async[\s\S]{0,200}warmBoardGit\(\)[\s\S]{0,200}buildTripBoard\(\)/.test(IPCSRC),
   IPCSRC.slice(IPCSRC.indexOf("trip:board"), IPCSRC.indexOf("trip:board") + 200).replace(/\n/g, ' '))
 
-const APPSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
+// 2026-10-31：在途一屏整体搬进 `views/TripBoardView.vue`（状态在 composables/useTripBoard.ts）。
+// 源码守卫跟到模板现在真正住的地方 —— 不是放宽，是换路径。
+const VIEWSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'views', 'TripBoardView.vue'), 'utf-8')
 check('★ 源码守卫：读取中要有**小提示**（按钮文案 + 屏上提示），不许让用户对着不动的旧表猜',
-  /tripLoading \? '⟳ 读取中…'/.test(APPSRC) && /trip-refreshing/.test(APPSRC)
-  && /tripLoading && !tripRows\.length/.test(APPSRC))
+  /tripLoading \? '⟳ 读取中…'/.test(VIEWSRC) && /trip-refreshing/.test(VIEWSRC)
+  && /tripLoading && !tripRows\.length/.test(VIEWSRC))
 
 console.log('\n---- 7. 路径安全与模板 ----')
 setPrefs({})
