@@ -2459,6 +2459,7 @@ import { useLogEditGuard } from './composables/useLogEditGuard'
 import { useLogEditorSave } from './composables/useLogEditorSave'
 import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
+import { useLogEditorOpen } from './composables/useLogEditorOpen'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7594,25 +7595,6 @@ const {
   onLogAttachDragEnter, onLogAttachDragLeave, onLogAttachDrop, onLogPaste,
   flushPendingAttach, attachAdd, attachRemove, attachOpen, attachOpenHint,
 } = useLogAttachments({ logs, logPreview, logEdit_, toast: showToast })
-function openLog(log: any) {
-  // 2026-09-25（用户第 2 条）：把关联任务归一成数组，供多选 UI 绑定
-  logEdit_.value = { ...log, taskIds: normalizeLogTaskIds(log) }
-  resetLogHistory()
-  logCompleting.value = false
-  logArchiveMode.value = false
-  logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
-  logTaskQuery.value = ''
-  logTaskExtra.value = ''
-  resetPendingAttach()   // 编辑现有日志：不带上一轮新建态的待挂附件
-  markLogSnap()   // P0-1：打开即存快照（改没改才算数）
-  // 2026-09-23（用户第2条）：修复日志模态框输入聚焦问题
-  // 自动聚焦到标题输入框，确保用户可以立即输入
-  setTimeout(() => {
-    const titleInput = document.querySelector('#log-edit-modal input[placeholder="日志标题"]') as HTMLInputElement
-    if (titleInput) titleInput.focus()
-  }, 50)
-}
-
 const logCompleting = ref(false)
 const logArchiveMode = ref(false)
 const logRetainDays = ref(String(logRetainDefault.value))
@@ -7646,23 +7628,17 @@ const { importTextFilesAsLogs, importLogFile, onLogDrop } = useLogImport({
   curProj, projects, showToast, reload: loadLogs, resetDrag: dragResetAll,
 })
 
-function openNewLog() {
-  // 项目默认跟随顶栏的项目筛选（没筛选就用第一个登记项目），而不是硬编码一个 id
-  const project = curProj.value !== '__all__'
-    ? curProj.value
-    : (projects.value[0]?.id || '')
-  logEdit_.value = { id: '', title: '', project, content: '', nextSteps: '', taskIds: [], sessionId: '', agentName: '', prevAgentName: '', logDate: '', priority: '' }
-  resetLogHistory()
-  logCompleting.value = false
-  logArchiveMode.value = false
-  logTaskOpen.value = false    // 关联任务候选默认折叠（chips 改造）
-  logTaskQuery.value = ''
-  logTaskExtra.value = ''
-  logRetainDays.value = String(logRetainDefault.value)
-  logNote.value = ''
-  resetPendingAttach()   // 新建：上一轮没保存的待挂附件不带进来（它们属于弹出那张日志）
-  markLogSnap()   // P0-1：新建只改下拉也不许静默丢（老逻辑三键全空 → 不提示）
-}
+/** 打开日志编辑器 + 关联任务候选/回显 */
+const {
+  openLog, openNewLog, openLogForTask,
+  logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
+  taskTitleOf, unlinkLogTask, addLogTaskExtra,
+} = useLogEditorOpen({
+  tasks, archivedTasks, projects, curProj,
+  logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
+  previewTask, resetLogHistory, resetPendingAttach, markLogSnap,
+  normalizeLogTaskIds, normProject,
+})
 
 /** 日志 ID 缩写：`log_20260927…c73e`（卡面链标签用，完整 ID 挂 title） */
 function shortLogId(id: string): string {
@@ -7887,76 +7863,11 @@ async function executeRelay(startRunning: boolean): Promise<void> {
   }
 }
 
-/** 关联任务候选（2026-10-09 用户第 3 条再收）：同项目 + 关键词过滤 + 最近更新排序，
- *  首屏 12 条。索引字段不是**任务浏览器** —— 全量 checkbox 铺一屏的选择成本 > 收益，
- *  用户原话「每次都加载一堆任务，让我头疼，于是干脆什么都不选」。 */
-const LOG_TASK_CAP = 12
-const logTaskOpen = ref(false)
-const logTaskQuery = ref('')
-const logTaskMatched = computed(() => {
-  const proj = logEdit_.value?.project
-  const q = (logTaskQuery.value || '').trim().toLowerCase()
-  const all = [...tasks.value, ...archivedTasks.value]
-  const byId = new Map(all.map(t => [t.id, t]))
-  const seen = new Set<string>()
-  const out: Array<{ id: string; title: string; status: string }> = []
-  for (const t of all) {
-    if (seen.has(t.id)) continue
-    if (proj && normProject(t.project) !== proj) continue
-    if (q && !(String(t.id).toLowerCase().includes(q) || String(t.title || '').toLowerCase().includes(q))) continue
-    seen.add(t.id)
-    out.push({ id: t.id, title: t.title || '', status: t.status })
-    if (out.length >= 500) break
-  }
-  // 最近更新优先：首屏要的是「最可能要挂的那几张」，不是文件序
-  out.sort((a, b) =>
-    Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
-  return out
-})
-const logTaskOptions = computed(() => logTaskMatched.value.slice(0, LOG_TASK_CAP))
-const logTaskMoreHidden = computed(() => logTaskMatched.value.length > LOG_TASK_CAP)
-
-/** chips 回显：id → 标题（列表外给空，界面回退显示 id 本身） */
-function taskTitleOf(id: string): string {
-  const all = [...tasks.value, ...archivedTasks.value]
-  return all.find(x => x.id === id)?.title || ''
-}
-
-/** chip 上的 × ：摘掉一条关联（与取消勾选同一条数据路径） */
-function unlinkLogTask(id: string): void {
-  const e = logEdit_.value
-  if (!e) return
-  e.taskIds = normalizeLogTaskIds(e).filter(x => x !== id)
-}
-
 /** 把日志的关联任务归一成字符串数组（2026-09-25 用户第 2 条：支持多个） */
 function normalizeLogTaskIds(log: any): string[] {
   if (Array.isArray(log?.taskIds) && log.taskIds.length) return log.taskIds.filter(Boolean)
   if (Array.isArray(log?.tasks) && log.tasks.length) return log.tasks.map((x: any) => String(x)).filter(Boolean)
   return log?.taskId ? [String(log.taskId)] : []
-}
-
-/** 手填的「列表外 ID」：逗号/空格分隔，回车或失焦时并入已选 */
-const logTaskExtra = ref('')
-function addLogTaskExtra(): void {
-  const raw = logTaskExtra.value || ''
-  const ids = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
-  if (!ids.length) return
-  const e = logEdit_.value
-  if (!e) return
-  const cur = normalizeLogTaskIds(e)
-  for (const id of ids) if (!cur.includes(id)) cur.push(id)
-  e.taskIds = cur
-  logTaskExtra.value = ''
-}
-
-/** 从任务详情写一条执行日志：预填 taskId 与项目，省得再手填一遍 */
-function openLogForTask(taskId: string) {
-  openNewLog()
-  logEdit_.value.taskId = taskId
-  const t = previewTask.value
-  if (t?.project) logEdit_.value.project = normProject(t.project)
-  if (t?.title) logEdit_.value.title = `${t.title} — 执行记录`
 }
 
 /**
