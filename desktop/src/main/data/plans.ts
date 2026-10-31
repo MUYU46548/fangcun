@@ -86,9 +86,12 @@ function parseStage(id: string, title: string, lines: string[]): PlanStage {
     if (mode === 'approach' && /^\s+-\s+/.test(line)) { stage.approach.push(t.replace(/^-\s+/, '')); continue }
     if (mode === 'criteria' && /^\s+-\s+/.test(line)) { stage.criteria.push(t.replace(/^-\s+/, '')); continue }
     if (mode === 'copy' && t.startsWith('|')) { stage.copyRows.push(splitRow(line)); continue }
-    // 其它行（正文、空行、小节）打断当前收集，但不动已收内容
-    if (t === '' || SECTION_HEAD.test(t) || STAGE_HEAD.test(t)) mode = mode === 'copy' ? 'copy' : ''
-    else if (!/^\s/.test(line)) mode = mode === 'copy' ? 'copy' : ''
+    // ⚠ 空行**不**打断收集：真实计划卡里 `- 判据:` 与第一条之间常常隔一个空行
+    //   （2026-10-31 实测：按"空行即结束"解析，8 张卡全被判成"缺判据"）。
+    if (t === '') continue
+    // 小节标题 / 下一张卡 / 顶格的其它键 —— 这些才是真正的结束信号
+    if (SECTION_HEAD.test(t) || STAGE_HEAD.test(t)) { mode = ''; continue }
+    if (!/^\s/.test(line)) mode = ''
   }
   if (!stage.approach.length) stage.missing.push('技术方案')
   // 表格至少要有表头 + 分隔线 + 一行数据（否则等于没有）
