@@ -6720,11 +6720,48 @@
         const sel = $('.rice-projsel select')
         if (!sel) return false
         const opts = Array.prototype.map.call(sel.options, (o) => o.textContent.trim())
-        return opts.indexOf('全部项目') >= 0 && opts.indexOf('演示项目') >= 0
+        return opts.some((t) => t.indexOf('全部项目') === 0) && opts.some((t) => t.indexOf('演示项目') === 0)
       })(), (() => {
         const sel = $('.rice-projsel select')
         return sel ? Array.prototype.map.call(sel.options, (o) => o.textContent.trim()).join('|') : '(no select)'
       })())
+      check('★★ 项目下拉直接写出条数（免得切过去才发现是空的）', (() => {
+        const sel = $('.rice-projsel select')
+        if (!sel) return false
+        const opts = Array.prototype.map.call(sel.options, (o) => o.textContent.trim())
+        return opts.every((t) => /（\d+ 条）$/.test(t)) &&
+          opts.some((t) => /^演示项目（1 条）$/.test(t)) &&
+          opts.some((t) => /^第二个项目（0 条）$/.test(t))
+      })(), (() => {
+        const sel = $('.rice-projsel select')
+        return sel ? Array.prototype.map.call(sel.options, (o) => o.textContent.trim()).join('|') : '(no select)'
+      })())
+      // 2026-10-31 第 1 条：hover 表格行时画面剧烈抖动。
+      // 根因 = 明细面板挂在表格上方，内容一变高就把整张表推下去 → 指针离开那一行 →
+      // 面板缩回 → 表又回来，如此反复。判据不是"高度是多少"，而是 **hover 前后表格位置不动**。
+      const riceW0 = Math.round(($('.rice') || { getBoundingClientRect: () => ({ width: -1 }) }).getBoundingClientRect().width)
+      const riceRow0 = $('.rice-table tbody tr')
+      const riceTableTop0 = $('.rice-table') ? $('.rice-table').getBoundingClientRect().top : -1
+      const riceDetailH0 = $('.rice-detail') ? $('.rice-detail').getBoundingClientRect().height : -1
+      if (riceRow0) riceRow0.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+      await sleep(300)
+      check('★★ hover 表格行不会把表格推走（明细面板固定高度，抖动根因已堵）', (() => {
+        if (!riceRow0 || !$('.rice-table') || !$('.rice-detail')) return false
+        const top = $('.rice-table').getBoundingClientRect().top
+        const h = $('.rice-detail').getBoundingClientRect().height
+        return Math.abs(top - riceTableTop0) <= 1 && Math.abs(h - riceDetailH0) <= 1 &&
+          (($('.rice-detail') || {}).textContent || '').indexOf('优先级分') >= 0
+      })(), `tableTop ${Math.round(riceTableTop0)} → ${$('.rice-table') ? Math.round($('.rice-table').getBoundingClientRect().top) : 'n/a'} · detailH ${Math.round(riceDetailH0)} → ${$('.rice-detail') ? Math.round($('.rice-detail').getBoundingClientRect().height) : 'n/a'}`)
+      if (riceRow0) riceRow0.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }))
+      await sleep(150)
+      check('★★ 界面不再有"人天 / E天 / E元"这类黑话（用户第 3 条）',
+        !/人天|E天|E元/.test(($('.rice') || {}).textContent || ''),
+        (($('.rice') || {}).textContent || '').match(/.{0,16}(人天|E天|E元).{0,16}/)?.[0] || '(none)')
+      check('★ 打分表表头说人话（每周用几次 / 省多少事 / 把握多大 / 要做几天 / 花多少钱）', (() => {
+        const th = $$('.rice-table th').map((x) => (x.textContent || '').trim())
+        return ['每周用几次', '省多少事', '把握多大', '要做几天', '花多少钱', '优先级分', '你的决定']
+          .every((t) => th.indexOf(t) >= 0)
+      })(), $$('.rice-table th').map((x) => (x.textContent || '').trim()).join('|'))
       check('★★ 立场句写在显眼处（不是只混在底部五条局限里）', (() => {
         const el = $('.rice-stance')
         return !!el && (el.textContent || '').indexOf('不替你做决定') >= 0
@@ -6747,6 +6784,32 @@
       check('★★ 定了没写理由的那条被点名（说不清为什么就是没决定）',
         $$('.rice-why-reason.missing').length >= 1,
         $$('.rice-why-reason').map((x) => (x.textContent || '').trim().slice(0, 20)).join('|'))
+      // 点名之后必须给出口：否则「不算决定」只是一句骂人的话（2026-10-31 补）
+      const whyFix = $$('.rice-why-act button').find((b) => (b.textContent || '').indexOf('补一句理由') >= 0)
+      check('★★ 缺理由的决定能当场补（不是只点名）', !!whyFix,
+        $$('.rice-why-act button').map((b) => (b.textContent || '').trim()).join('|'))
+      if (whyFix) whyFix.click()
+      await sleep(150)
+      check('★ 点了「补一句理由」出现输入框', !!$('.rice-why-edit textarea'))
+      const upCount0 = window.__fcTest.callCount('riceUpsert')
+      if ($('.rice-why-edit textarea')) {
+        const ta = $('.rice-why-edit textarea')
+        ta.value = '补上的理由：每周省三次手工'
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        const saveBtn = $$('.rice-why-edit-act button')[0]
+        if (saveBtn) saveBtn.click()
+      }
+      check('★★ 补的理由真走 riceUpsert 落盘（不是只改界面）',
+        await waitFor(() => window.__fcTest.callCount('riceUpsert') > upCount0, 3000, 'reason save') &&
+        (() => {
+          const c = window.__fcTest.calls().filter((x) => x.name === 'riceUpsert').pop()
+          const row = c && c.args && c.args[0] && c.args[0][0]
+          return !!row && row.note === '补上的理由：每周省三次手工'
+        })(),
+        (() => {
+          const c = window.__fcTest.calls().filter((x) => x.name === 'riceUpsert').pop()
+          return JSON.stringify(c && c.args && c.args[0] && c.args[0][0] || null).slice(0, 200)
+        })())
       check('★★ 重评触发条件写在页面上（容量变动 20%）',
         (($('.rice-why-foot') || {}).textContent || '').indexOf('20%') >= 0,
         (($('.rice-why-foot') || {}).textContent || '').slice(0, 80))
@@ -6773,7 +6836,7 @@
         $$('.rice-bubble').length === 4 && $$('.rice-bubble-n').length >= 3,
         `bubbles=${$$('.rice-bubble').length} nums=${$$('.rice-bubble-n').length}`)
       check('★ P0 阈值线画出来了（阈值 = 最低的那个 P0 分，不是写死的分数线）',
-        !!$('.rice-threshold') && (($('.rice-threshold-t') || {}).textContent || '').indexOf('P0 线') >= 0,
+        !!$('.rice-threshold') && (($('.rice-threshold-t') || {}).textContent || '').indexOf('P0 分界线') >= 0,
         (($('.rice-threshold-t') || {}).textContent || '').slice(0, 24))
       check('★ 筛选 chips 带条数（原型那样：勾哪个显哪个）', $$('.rice-chip').length === 6,
         $$('.rice-chip').map((c) => (c.textContent || '').trim()).join(' | '))
@@ -6786,9 +6849,9 @@
       })(), `ranks=${$$('.rice-rank').map((x) => (x.textContent || '').trim()).join(',')} badges=${$$('.rice-badge').map((b) => (b.textContent || '').trim()).join(',')}`)
       check('★★ 结尾四格结论（立即启动 / 排队候补 / 有余量再说 / 砍掉）', $$('.rice-vd-block').length === 4,
         $$('.rice-vd-block').map((b) => (b.textContent || '').trim().slice(0, 14)).join(' | '))
-      check('  页脚公式常驻（得分 = 频次 × 省工 × 信心 ÷ 工期）',
-        (($('.rice-formula') || {}).textContent || '').indexOf('频次 × 省工 × 信心 ÷ 工期') >= 0,
-        (($('.rice-formula') || {}).textContent || '').slice(0, 40))
+      check('  页脚公式常驻（优先级分 = 每周用几次 × 省多少事 × 把握 ÷ 要做几天）',
+        (($('.rice-formula') || {}).textContent || '').indexOf('每周用几次 × 省多少事 × 把握 ÷ 要做几天') >= 0,
+        (($('.rice-formula') || {}).textContent || '').slice(0, 60))
       check('  点气泡/悬停有明细区（不是只能靠 title 猜）', !!$('.rice-detail'))
       // 2026-10-30 第 7 条：矩阵要能把「先问清楚 → 规格 → 能验收的工单 → TDD/双路 review」
       // 交给 agent，而不是只给一个分数。它是复制动作，不改任何状态。
@@ -6838,6 +6901,42 @@
           const w = $('.rice-tablewrap')
           return `h=${w ? Math.round(w.getBoundingClientRect().height) : -1} none=${!!$('.rice-none')} plotEmpty=${!!$('.rice-plot-empty')}`
         })())
+      // 2026-10-31 第 2/4 条：切到一个**没有需求**的项目 ——
+      // 页面宽度不许跟着内容收缩（此前 .rice 是 flex 项 + margin:0 auto，auto 边距取消 stretch，
+      // 整块按内容宽度收缩，条目一少就突然变窄）；空状态也不许只甩一句"还没有需求"。
+      if (projSel) { projSel.value = 'demo2'; projSel.dispatchEvent(new Event('change', { bubbles: true })) }
+      await sleep(400)
+      check('★★ 切到 0 条的项目：页面宽度不变（不是按内容收缩）', (() => {
+        const el = $('.rice')
+        if (!el) return false
+        return Math.abs(el.getBoundingClientRect().width - riceW0) <= 1
+      })(), (() => {
+        const el = $('.rice')
+        return `rice ${Math.round(riceW0)} → ${el ? Math.round(el.getBoundingClientRect().width) : 'n/a'}`
+      })())
+      check('★★ 切到 0 条的项目：预算仍是全池口径（不许变成 0% 假装没花钱）', (() => {
+        const k = $$('.rice-kpi')
+        const budget = k.length ? (k[k.length - 1].textContent || '').replace(/\s+/g, ' ') : ''
+        return budget.indexOf('85') >= 0 && budget.indexOf('全池') >= 0
+      })(), (() => {
+        const k = $$('.rice-kpi')
+        return k.length ? (k[k.length - 1].textContent || '').replace(/\s+/g, ' ') : '(no kpi)'
+      })())
+      check('★ 空项目的副标题说清「全池还有几条」（不是"池里还没有条目"）', (() => {
+        const t = (($('.rice-sub') || {}).textContent || '').trim()
+        return t.indexOf('第二个项目') >= 0 && t.indexOf('全池 4 条') >= 0
+      })(), (($('.rice-sub') || {}).textContent || '').slice(0, 80))
+      check('★★ 空项目给的是出口而不是死胡同（说明归属 + 看全部项目 + 可复制给 agent 的指令）', (() => {
+        const t = ($('.rice-empty') || {}).textContent || ''
+        const btns = $$('.rice-empty-act button').map((b) => (b.textContent || '').trim())
+        return !!$('.rice-empty-t') && t.indexOf('第二个项目') >= 0 && t.indexOf('任务卡') >= 0 &&
+          btns.some((x) => x.indexOf('看全部项目') >= 0) &&
+          btns.some((x) => x.indexOf('复制') >= 0)
+      })(), ($('.rice-empty') ? ($('.rice-empty').textContent || '').replace(/\s+/g, ' ').slice(0, 180) : '(no empty)'))
+      check('★ 空状态的「看全部项目」真能点回去', (() => {
+        const b = $$('.rice-empty-act button').find((x) => (x.textContent || '').indexOf('看全部项目') >= 0)
+        return !!b
+      })(), $$('.rice-empty-act button').map((b) => (b.textContent || '').trim()).join('|'))
       // 切回全部项目 / 全部筛选，别污染后面的断言
       if (projSel) { projSel.value = 'all'; projSel.dispatchEvent(new Event('change', { bubbles: true })) }
       const allChip = $$('.rice-chip').find((c) => (c.textContent || '').indexOf('全部') >= 0)

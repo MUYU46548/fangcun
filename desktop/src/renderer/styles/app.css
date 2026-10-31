@@ -689,7 +689,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    （2026-10-22 截图目检抓到的：标题/输入框/答案卡左边缘差 70px）。
    block 下子块天然 100% 宽、左边缘一定齐 —— 这一页是单栏阅读面，不需要 flex。 */
 #board.ask-view { display: block; overflow-x: hidden; }
-#board.pv { flex-direction: column; overflow-x: hidden; align-items: stretch; }
+/* scrollbar-gutter: stable —— 2026-10-31 第 2 条（切项目/切摆法宽度不许跳）。
+   `#board` 内容是纵向滚动的：条目多时出现滚动条会把内容区挤窄 ~17px，
+   切到条目少的项目滚动条又消失 → 整页宽度忽宽忽窄。预留滚动条槽位，宽度恒定。 */
+#board.pv { flex-direction: column; overflow-x: hidden; align-items: stretch; scrollbar-gutter: stable; }
 
 /* 列 = 淡灰底，卡片 = 纯白（2026-09-28 密度方案 B / 对比稿①②④）。
    原来是反的（列白底 + 卡近白底），层次只能靠"每列一条 4px 左边色条 + 卡片边框 + 重阴影"堆出来，

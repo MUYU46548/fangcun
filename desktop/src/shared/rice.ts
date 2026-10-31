@@ -94,10 +94,10 @@ export const RICE_HEADER = [
 
 /** 界面上与数字一起出现的「它证明不了什么」（R7：只有数字没有局限 = 不合格） */
 export const RICE_LIMITS = [
-  '总分 = 频次 × 省工 × 信心 ÷ 工期，由页面现算、不落盘；改任一分项，总分与等级当场重算。',
-  '等级只是「池内相对位置」（P0 = 前 20%，P1 到中位），池子一变等级就变，它不是绝对标准。',
-  '使用频次、省手工量都是估数；没有实测来源时，它证明不了"该做"。',
-  '证据等级是信心的唯一依据：agent 推断上限 70%，"agent 们都说好"不算证据。',
+  '优先级分 = 每周用几次 × 省多少事 × 把握 ÷ 要做几天，由页面现算、不写回文件；改任何一格，分数与等级当场重算。',
+  '等级只是「池内相对位置」（P0 = 最靠前的 20%，P1 到中间，剩下的 P2），池子一变等级就变，它不是绝对标准。',
+  '「每周用几次」「省多少事」都是估出来的；没有实测来源时，它证明不了该做。',
+  '「把握」只能靠证据：agent 推断最高 70%，"agent 们都说好"不算证据。',
   '分数只把判断显性化，不替你做决定；真正的取舍在分数之外。',
 ]
 
@@ -112,7 +112,7 @@ export const RICE_STANCE = '分数只把判断显性化，不替你做决定。�
 export const RICE_RECHECK = '重评触发：当季容量变动超过 20%，或出现新的实测证据。'
 
 export const RICE_EMPTY_TEXT =
-  '评估池里还没有条目 —— 先把候选需求加进来，再回来看分数与等级。'
+  '评估池里还没有需求 —— 这一页只负责排序，不负责录入；让 agent 把候选需求写进 rice-pool.md，刷新后就会出现在这里。'
 
 // ── 小工具 ────────────────────────────────────────────────────────────
 
@@ -702,7 +702,7 @@ export function riceSummary(pool: RicePool): RiceSummary {
   parts.push(budget > 0
     ? `P0 花费 ¥${p0Cost} / 预算 ¥${budget}（${Math.round(ratio * 100)}%）`
     : '月预算未设置')
-  if (p0Days > 0) parts.push(`P0 合计 ${p0Days} 人天`)
+  if (p0Days > 0) parts.push(`P0 合计工期 ${p0Days} 天`)
   const text = (total ? parts.filter(Boolean).join(' · ') : '') || ''
   return { total, decided, pending, cut, p0Cost, p0Days, budget, budgetRatio, headroom, guard, guardText, text }
 }

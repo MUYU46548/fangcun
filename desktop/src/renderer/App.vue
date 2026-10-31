@@ -2367,7 +2367,7 @@
         <h3>项目方针：{{ policyEdit_.name }}</h3>
         <label>使命（一句话：这项目是干嘛的）</label>
         <textarea v-model="policyEdit_.mission" placeholder="例：本地优先的多 agent 任务调度台"></textarea>
-        <label>当前目标（本阶段要达成什么 + 完成判据）</label>
+        <label>当前目标（本阶段要达成什么 + 怎么算完成）</label>
         <textarea v-model="policyEdit_.goal" placeholder="例：稳定可用、承接真实业务数据"></textarea>
         <label>应用场景（给谁用、在哪用）</label>
         <textarea v-model="policyEdit_.scenario" placeholder="例：个人，桌面日常使用"></textarea>
@@ -4507,7 +4507,7 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     // 「对不上」不是人话，统一叫「状态提醒」）
     { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
-    { v: 'rice', label: '▦ 需求优先级矩阵', hint: '按价值与成本排需求：横轴成本、纵轴得分、气泡大小=使用频次；手改分项即时重排，结论导出到决策卡（零网络）' },
+    { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴「要做几天」、纵轴「优先级分」，气泡越大用得越多；改一格立即重排，「采纳 / 砍掉」你点。' },
   ]
   return []
 })

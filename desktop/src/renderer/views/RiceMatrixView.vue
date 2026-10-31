@@ -58,6 +58,36 @@ const filter = ref<'all' | 'P0' | 'P1' | 'P2' | 'CUT' | 'pending'>('all')
 const projectFilter = ref<string>('all')
 const highlight = ref('')
 const hover = ref('')
+/** 「补理由」内联编辑（只服务「为什么做，为什么砍」里被点名的缺理由项） */
+const reasonFor = ref('')
+const reasonDraft = ref('')
+const reasonSaving = ref(false)
+
+function openReason(eid: string) {
+  const it = itemByEid.value.get(eid)
+  if (!it) return
+  reasonFor.value = eid
+  reasonDraft.value = String(it.note || '')
+}
+
+function closeReason() {
+  reasonFor.value = ''
+  reasonDraft.value = ''
+}
+
+async function saveReason(eid: string) {
+  const it = itemByEid.value.get(eid)
+  if (!it || reasonSaving.value) return
+  const text = reasonDraft.value.trim()
+  if (!text) { tip('理由不能是空的 —— 写一句为什么做 / 为什么砍'); return }
+  reasonSaving.value = true
+  try {
+    await patch(it, { note: text })
+    closeReason()
+  } finally {
+    reasonSaving.value = false
+  }
+}
 // 筛选/项目一变，右侧明细里的旧条目就不该继续挂着（否则会出现"筛了 P1，明细还是 P0"）
 watch([filter, projectFilter], () => { highlight.value = ''; hover.value = '' })
 const tip = (m: string) => { if (props.toast) props.toast(m) }
@@ -91,6 +121,16 @@ const projectName = (id: string): string => {
   return p ? String(p.name || p.id) : id
 }
 
+/** 每个项目下有几条需求 —— 下拉里直接写出来，免得切过去才发现是空的（2026-10-31 第 2/4 条） */
+const projectCounts = computed(() => {
+  const m = new Map<string, number>()
+  for (const it of items.value) {
+    const key = projectOf(it) || '__none__'
+    m.set(key, (m.get(key) || 0) + 1)
+  }
+  return m
+})
+
 const projectOptions = computed(() => {
   const m = new Map<string, string>()
   for (const p of props.projects || []) {
@@ -100,12 +140,56 @@ const projectOptions = computed(() => {
     const pid = projectOf(it)
     if (pid && !m.has(pid)) m.set(pid, pid)
   }
-  return [
+  const list = [
     { id: 'all', name: '全部项目' },
     ...Array.from(m, ([id, name]) => ({ id, name })),
     { id: '__none__', name: '未归属' },
   ]
+  return list.map((o) => ({
+    ...o,
+    count: o.id === 'all' ? items.value.length : (projectCounts.value.get(o.id) || 0),
+  }))
 })
+
+/** 任务卡属于哪个项目（任务缓存里两种写法都有：t.project / t.fm.project） */
+function projectOfTask(t: any): string {
+  if (!t) return ''
+  return normProj(t.project ?? t.fm?.project)
+}
+
+/** 这个项目下的任务卡（只用来回答「为什么这里没有需求、我该怎么办」） */
+const projectTasks = computed(() => {
+  if (projectFilter.value === 'all' || projectFilter.value === '__none__') return []
+  return (props.tasks || []).filter((t: any) => projectOfTask(t) === projectFilter.value)
+})
+
+/** 已经在池里的任务 id（用来算「还有几张任务卡没进池」） */
+const pooledTaskIds = computed(() => {
+  const s = new Set<string>()
+  for (const it of items.value) {
+    const o = splitOrigin(it.origin || '')
+    if (o && o.type === 'task') s.add(String(o.id))
+  }
+  return s
+})
+
+const projectMissingTasks = computed(() => projectTasks.value.filter((t: any) => !pooledTaskIds.value.has(String(t.id))))
+
+/** 空项目的出口：把「往池里加需求」这件事写成一张能直接粘给 agent 的指令 */
+async function copyAddPrompt(): Promise<void> {
+  const name = projectName(projectFilter.value)
+  const list = projectMissingTasks.value.slice(0, 12).map((t: any) =>
+    `- ${t.id}｜${t.title || t.fm?.title || '（无标题）'}（当前状态：${t.status || t.fm?.status || '未填'}）`)
+  const text = [
+    `请把这批候选需求写进方寸的需求评估池（项目：${name}），用 MCP 工具 rice_pool_upsert。`,
+    '',
+    '每条的字段：eid / title / origin（type:id）/ R（每周大概用几次）/ I（省多少事，只取 0.25、0.5、1、2、3）/ C（把握，只取 0.95、0.85、0.7、0.6）/ E_days（要做几天，正整数）/ E_cost（花多少钱，元）/ evidence（证据等级：亲口要、实测踩过、agent推断、纯直觉）。',
+    '分数只用来排序，不要替我写「采纳 / 砍掉」。拿不准的就按最低证据写，并在 note 里说明缺哪条证据。',
+    list.length ? '\n候选项（来自这个项目下还没进池的任务卡）：\n' + list.join('\n') : '',
+  ].filter(Boolean).join('\n')
+  const r = await copyText(text)
+  tip(r.ok ? '已复制，粘给 agent 就能把需求加进池' : `复制失败：${r.error || '未知原因'}`)
+}
 
 /** 当前项目范围（项目切换后才算「这一屏」） */
 const scopedItems = computed(() => items.value.filter((it) => {
@@ -177,7 +261,7 @@ async function patch(it: RiceItem, patch: Record<string, any>) {
       budget.value = Number(r.pool.budget) || 0
       items.value = Array.isArray(r.pool.items) ? r.pool.items : []
     }
-    tip('已保存，总分与等级已重算')
+    tip('已保存，优先级分与等级已重算')
   } catch (e: any) {
     tip(String(e?.message || e || '保存失败'))
   } finally {
@@ -240,11 +324,23 @@ async function decide(it: RiceItem, cut: boolean) {
     items.value = Array.isArray(r.pool.items) ? r.pool.items : []
   }
   const one = (r.results || [])[0]
-  tip(one && one.ok ? `已记进决策卡 ${one.decisionId}${one.exists ? '（已存在，幂等）' : ''}` : String(one?.error || '记录失败'))
+  tip(one && one.ok ? `已记进决策卡 ${one.decisionId}${one.exists ? '（之前记过，没有重复写）' : ''}` : String(one?.error || '记录失败'))
 }
 
 const levels = computed(() => levelOfMap(items.value))
+/** 当前项目范围内（切项目跟着变）：候选数 / P0 数 / 工期 */
 const summary = computed(() => riceSummary(poolOf()))
+/**
+ * 全池（切项目不变）：月预算是一份、面向整池的，**不能随项目切换变成 0%** ——
+ * 那会让「本项目暂无需求」看起来像「这个月一分钱没花」。（2026-10-31 第 2/4 条顺带修的）
+ */
+const poolSummary = computed(() => riceSummary({ budget: budget.value, items: items.value }))
+const subText = computed(() => {
+  if (!items.value.length) return '池里还没有需求'
+  if (scopedItems.value.length) return summary.value.text
+  const who = projectFilter.value === '__none__' ? '未归属' : projectName(projectFilter.value)
+  return `「${who}」下还没有需求 · 全池 ${items.value.length} 条`
+})
 // 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 定了却没写理由的要被点名（原型第 3 条设计判断）
 const why = computed(() => riceWhyReview(poolOf()))
 
@@ -295,19 +391,19 @@ const barWidth = (s: number) => {
 /** 顶部四格：先给结论（有几条 / P0 几条 / 多少成本 / 预算占多少），明细在下面 */
 const kpis = computed(() => {
   const p0 = allRows.value.filter((r) => r.level === 'P0').length
-  const ratio = summary.value.budgetRatio
-  const over = summary.value.guard === 'over'
-  const tight = summary.value.guard === 'tight'
+  const ratio = poolSummary.value.budgetRatio
+  const over = poolSummary.value.guard === 'over'
+  const tight = poolSummary.value.guard === 'tight'
   return [
     { key: 'total', label: '候选需求', val: scopedItems.value.length, unit: '项', foot: projectFilter.value === 'all' ? '进入本轮评估池' : '当前项目范围内', accent: false, over: false, tight: false },
     { key: 'p0', label: '入选 P0', val: p0, unit: '项', foot: '等级 = 池内相对位置（前 20%）', accent: true, over: false, tight: false },
-    { key: 'days', label: 'P0 合计成本', val: summary.value.p0Days, unit: '人天', foot: '按 E天 直接加总，不折算', accent: false, over: false, tight: false },
+    { key: 'days', label: 'P0 合计工期', val: summary.value.p0Days, unit: '天', foot: '把入选 P0 的「要做几天」直接相加', accent: false, over: false, tight: false },
     {
       key: 'budget',
       label: '预算占用',
       val: ratio === null ? '未设' : Math.round((ratio || 0) * 100),
       unit: ratio === null ? '' : '%',
-      foot: ratio === null ? '月预算未设置 —— 不等于没超支' : `P0 ¥${summary.value.p0Cost} / ¥${summary.value.budget}`,
+      foot: ratio === null ? '月预算未设置 —— 不等于没超支' : `全池 P0 ¥${poolSummary.value.p0Cost} / ¥${poolSummary.value.budget}`,
       accent: false,
       over,
       tight,
@@ -321,7 +417,7 @@ const verdicts = computed(() => {
     P0: { label: '立即启动', sub: '本季必做' },
     P1: { label: '排队候补', sub: '容量释放即启动' },
     P2: { label: '有余量再说', sub: '重评后再议' },
-    CUT: { label: '砍掉', sub: '不进 backlog' },
+    CUT: { label: '砍掉', sub: '不排进待办' },
   }
   return (['P0', 'P1', 'P2', 'CUT'] as RiceLevel[]).map((lv) => {
     const list = allRows.value.filter((r) => r.level === lv)
@@ -426,6 +522,17 @@ const bubbles = computed(() =>
 const activeEid = computed(() => highlight.value || hover.value)
 const detail = computed(() => allRows.value.find((r) => r.it.eid === activeEid.value) || null)
 
+/**
+ * 下拉与明细里别直接印原始倍数（2026-10-31 第 3 条：「人天」这类看不懂的文案）：
+ * 0.25 / 0.5 / 1 / 2 / 3 对用户没有意义，说的是「省多少事」；0.95 说的是「把握」。
+ * 值仍然是原始数字（落盘口径不变），只换显示。
+ */
+const IMPACT_TEXT: Record<string, string> = {
+  '0.25': '极小（0.25）', '0.5': '低（0.5）', '1': '中（1）', '2': '高（2）', '3': '极大（3）',
+}
+const impactText = (v: number) => IMPACT_TEXT[String(v)] || String(v)
+const confidenceText = (v: number) => (Number.isFinite(v) ? Math.round(v * 100) + '%' : '—')
+
 const levelCls: Record<string, string> = { P0: 'lv0', P1: 'lv1', P2: 'lv2', CUT: 'lvx' }
 const ORIGIN_LABEL: Record<string, string> = { task: '任务', idea: '想法', todo: '待办', external: '外部' }
 const coord = (n: number) => Math.round(n * 10) / 10
@@ -491,7 +598,7 @@ function kickoffText(it: RiceItem): string {
 
 async function copyKickoff(it: RiceItem): Promise<void> {
   const r = await copyText(kickoffText(it))
-  tip(r.ok ? '已复制开工交接单（先问清楚 → 规格 → 能验收的工单 → TDD/双路 review）' : `复制失败：${r.error || '未知原因'}`)
+  tip(r.ok ? '已复制开工交接单（先问清楚 → 写规格 → 拆成能验收的工单 → 先写测试再实现 + 两路复查）' : `复制失败：${r.error || '未知原因'}`)
 }
 </script>
 
@@ -501,13 +608,13 @@ async function copyKickoff(it: RiceItem): Promise<void> {
       <div class="rice-head-main">
         <div class="rice-eyebrow">价值判断 · 路线图优先级</div>
         <div class="rice-ttl">需求优先级矩阵</div>
-        <div class="rice-sub">{{ summary.text || '池里还没有条目' }}</div>
+        <div class="rice-sub">{{ subText }}</div>
       </div>
       <div class="rice-head-tools">
-        <label class="rice-projsel" title="按项目查看这张矩阵（项目从需求来源的任务卡推导）">
+        <label class="rice-projsel" title="按项目查看这张矩阵（项目从需求的来源推导；括号里是这个项目下已有几条）">
           <span>项目</span>
           <select v-model="projectFilter">
-            <option v-for="p in projectOptions" :key="'rp-' + p.id" :value="p.id">{{ p.name }}</option>
+            <option v-for="p in projectOptions" :key="'rp-' + p.id" :value="p.id">{{ p.name }}（{{ p.count }} 条）</option>
           </select>
         </label>
         <button class="ghost rice-refresh" :disabled="loading || saving" @click="load">
@@ -520,7 +627,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
     <div class="rice-where" v-if="poolPath">
       池文件：<code>{{ poolPath }}</code>
-      <span class="rice-where-hint">（分数只存 R/I/C/E 四个原始分；总分与等级由本页现算，不落盘）</span>
+      <span class="rice-where-hint">（池里只存四个原始分：每周用几次、省多少事、把握多大、要做几天；优先级分和等级由本页现算，不写回文件）</span>
     </div>
 
     <!-- KPI：先给结论，再给明细 -->
@@ -534,15 +641,15 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
     <!-- 预算护栏：数字 + 判定 + 余量必须一起出现 -->
     <div class="rice-budget">
-      <label>月预算（元）</label>
+      <label>月预算（元，全池共用）</label>
       <input class="rice-num" type="number" min="0" step="1" v-model.number="budget" @change="setBudget" />
-      <span class="rice-budget-hint" v-if="summary.budget > 0">
-        P0 花费 ¥{{ summary.p0Cost }} / ¥{{ summary.budget }}
-        <b :class="{ over: summary.guard === 'over' || summary.guard === 'tight' }">{{ Math.round((summary.budgetRatio || 0) * 100) }}%</b>
-        · 余量 ¥{{ summary.headroom }}
+      <span class="rice-budget-hint" v-if="poolSummary.budget > 0">
+        全池 P0 花费 ¥{{ poolSummary.p0Cost }} / ¥{{ poolSummary.budget }}
+        <b :class="{ over: poolSummary.guard === 'over' || poolSummary.guard === 'tight' }">{{ Math.round((poolSummary.budgetRatio || 0) * 100) }}%</b>
+        · 余量 ¥{{ poolSummary.headroom }}
       </span>
       <span class="rice-budget-hint" v-else>预算未设置 —— 页面不会把「没设预算」说成「没超支」</span>
-      <span class="rice-guard" :class="summary.guard">{{ summary.guardText }}</span>
+      <span class="rice-guard" :class="poolSummary.guard">{{ poolSummary.guardText }}</span>
     </div>
 
     <div v-if="err" class="rice-err">{{ err }}</div>
@@ -553,8 +660,31 @@ async function copyKickoff(it: RiceItem): Promise<void> {
       </div>
     </div>
     <div v-else-if="!scopedItems.length" class="rice-empty">
-      <div>这个项目下还没有需求。</div>
-      <div class="rice-empty-sub">在右上角把「项目」切回「全部项目」，或先把需求挂到这个项目下。</div>
+      <div class="rice-empty-t">
+        <template v-if="projectFilter === '__none__'">没有「未归属」的需求。</template>
+        <template v-else>「{{ projectName(projectFilter) }}」这个项目下还没有需求。</template>
+      </div>
+      <div class="rice-empty-sub" v-if="projectFilter === '__none__'">
+        外部清单条目、想法（想法本身不挂项目）、以及没填项目的任务卡，都会落在「未归属」——
+        这些不是丢了，只是没有项目可归。
+      </div>
+      <div class="rice-empty-sub" v-else>
+        需求挂在哪个项目，看它来自哪张任务卡 / 哪条待办；想法没有项目归属，会落在「未归属」。
+        <template v-if="projectTasks.length">
+          这个项目下现有 <b>{{ projectTasks.length }}</b> 张任务卡，其中 <b>{{ projectMissingTasks.length }}</b> 张还没进评估池。
+        </template>
+        <template v-else>
+          这个项目下还没有任何任务卡 —— 先在任务卡里把「项目」填成「{{ projectName(projectFilter) }}」，需求才挂得上来。
+        </template>
+      </div>
+      <div class="rice-empty-act">
+        <button class="ghost" @click="projectFilter = 'all'">← 看全部项目（{{ items.length }} 条）</button>
+        <button class="ghost" v-if="projectFilter !== '__none__'" @click="copyAddPrompt()">
+          ⧉ 复制「往池里加需求」的指令</button>
+      </div>
+      <div class="rice-empty-foot">
+        这一页只负责排序和取舍，不负责录入 —— 需求由 agent 写进 rice-pool.md，刷新后就出现在这里。
+      </div>
     </div>
 
     <template v-else>
@@ -562,8 +692,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
       <section class="rice-sec">
         <div class="rice-sec-h">
           <span class="rice-no">1</span>
-          <h3>散点图：成本 × 得分</h3>
-          <span class="rice-hint">横轴 = 成本（天）　纵轴 = 优先级得分　气泡大小 = 使用频次</span>
+          <h3>散点图：要做几天 × 优先级分</h3>
+          <span class="rice-hint">横轴 = 要做几天　纵轴 = 优先级分　气泡越大 = 每周用得越多</span>
         </div>
         <div class="rice-panel">
           <div class="rice-chips">
@@ -575,7 +705,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
             </button>
             <span class="rice-grow"></span>
             <span class="rice-size-legend">
-              气泡大小 = 使用频次
+              气泡越大 = 每周用得越多
               <i class="rice-size" style="width:7px;height:7px"></i>
               <i class="rice-size" style="width:11px;height:11px"></i>
               <i class="rice-size" style="width:15px;height:15px"></i>
@@ -601,7 +731,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
               <!-- P0 阈值线（最低的那个 P0 分；不是写死的分数线） -->
               <g v-if="p0Line">
                 <line :x1="PAD" :y1="p0Line.y" :x2="W - PAD" :y2="p0Line.y" class="rice-threshold" />
-                <text :x="W - PAD - 4" :y="p0Line.y - 6" class="rice-threshold-t" text-anchor="end">P0 线 {{ scoreText(p0Line.score) }}</text>
+                <text :x="W - PAD - 4" :y="p0Line.y - 6" class="rice-threshold-t" text-anchor="end">P0 分界线 {{ scoreText(p0Line.score) }}</text>
               </g>
 
               <!-- 坐标轴 -->
@@ -619,8 +749,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
               <text v-for="t in xTicks" :key="'tx' + t" :x="xPos(t)" :y="H - PAD + 18" class="rice-axis" text-anchor="middle">{{ t }}</text>
 
               <!-- 轴标题 -->
-              <text :x="PAD + innerW / 2" :y="H - 10" class="rice-axis-title" text-anchor="middle">工程成本 E天（越右越贵）</text>
-              <text :x="-(PAD + innerH / 2)" :y="16" transform="rotate(-90)" class="rice-axis-title" text-anchor="middle">优先级得分（越高越值）</text>
+              <text :x="PAD + innerW / 2" :y="H - 10" class="rice-axis-title" text-anchor="middle">要做几天（越右越花时间）</text>
+              <text :x="-(PAD + innerH / 2)" :y="16" transform="rotate(-90)" class="rice-axis-title" text-anchor="middle">优先级分（越高越该先做）</text>
 
               <!-- 气泡：编号 = 表格 # 列；点击高亮同行，悬停看明细 -->
               <g v-for="p in bubbles" :key="p.eid" class="rice-pt" :class="[levelCls[p.level], { on: activeEid === p.eid }]"
@@ -637,39 +767,53 @@ async function copyKickoff(it: RiceItem): Promise<void> {
               当前筛选下没有可画的需求 —— 换「全部」或切回全部项目。
             </div>
 
-            <!-- 悬停/点击明细：不占表格位置，也不弹窗 -->
-            <div class="rice-detail" v-if="detail">
-              <div class="rice-detail-top">
-                <span class="rice-detail-rank" :class="levelCls[detail.level]">#{{ detail.rank }}</span>
-                <span class="rice-detail-title">{{ detail.it.title }}</span>
-                <span class="rice-badge" :class="levelCls[detail.level]">{{ detail.level }}</span>
+            <!-- 悬停/点击明细。
+                 ⚠ 这块**必须固定高度**（2026-10-31 第 1 条：鼠标放在表格行上画面剧烈抖动）：
+                 它挂在表格上方，若随内容伸缩，hover 一行 → 面板变高 → 整张表被推下去 →
+                 鼠标离开那一行 → 面板缩回 → 表又回来 → 反复触发，视觉上就是抽搐。
+                 固定高度 + 内部滚动，让 hover 只换内容、不动布局。 -->
+            <div class="rice-detail" :class="{ 'rice-detail-empty': !detail }">
+              <template v-if="detail">
+                <div class="rice-detail-top">
+                  <span class="rice-detail-rank" :class="levelCls[detail.level]">#{{ detail.rank }}</span>
+                  <span class="rice-detail-title">{{ detail.it.title }}</span>
+                  <span class="rice-badge" :class="levelCls[detail.level]">{{ detail.level }}</span>
+                </div>
+                <div class="rice-detail-score">
+                  <span>优先级分</span><b>{{ scoreText(detail.s) }}</b>
+                  <span class="rice-detail-formula">每周用 {{ detail.it.R }} 次 × 省多少事 {{ impactText(detail.it.I) }} × 把握 {{ confidenceText(detail.it.C) }} ÷ 要做 {{ detail.it.E_days }} 天</span>
+                </div>
+                <div class="rice-detail-grid">
+                  <span>项目 <b>{{ projectName(projectOf(detail.it)) }}</b></span>
+                  <span>来源 <b>{{ originText(detail.it) }}</b></span>
+                  <span>证据 <b>{{ detail.it.evidence || '—' }}</b></span>
+                  <span>成本 <b>{{ daysText(detail.it.E_days) }} 天 · ¥{{ detail.it.E_cost }}</b></span>
+                  <span>你的决定 <b>{{ verdictText(detail.it.verdict) }}</b></span>
+                </div>
+                <div class="rice-detail-note" v-if="detail.it.note">{{ detail.it.note }}</div>
+                <div class="rice-detail-hint">
+                  数字只说明相对位置，不替你做决定
+                  <button class="ghost rice-kick" title="复制一段开工交接单：先问清楚 → 写规格 → 拆成能验收的工单 → 先写测试再实现 + 两路复查"
+                    @click="copyKickoff(detail.it)">⧉ 复制开工交接单</button>
+                </div>
+              </template>
+              <div class="rice-detail-idle" v-else>
+                <div class="rice-detail-idle-h">
+                  把鼠标放在气泡或表格行上，这里显示这一条为什么排在这儿；气泡里的编号就是表格的 # 排名。
+                </div>
+                <div class="rice-detail-idle-grid">
+                  <span><b>每周用几次</b>　估出来的使用次数，不是统计</span>
+                  <span><b>省多少事</b>　3 极大 → 0.25 极小</span>
+                  <span><b>把握多大</b>　只由证据决定，最高 95%</span>
+                  <span><b>要做几天</b>　进公式；花多少钱只作参考</span>
+                </div>
               </div>
-              <div class="rice-detail-score">
-                <span>得分</span><b>{{ scoreText(detail.s) }}</b>
-                <span class="rice-detail-formula">频次 {{ detail.it.R }} × 省工 {{ detail.it.I }} × 信心 {{ detail.it.C }} ÷ 工期 {{ detail.it.E_days }}</span>
-              </div>
-              <div class="rice-detail-grid">
-                <span>项目 <b>{{ projectName(projectOf(detail.it)) }}</b></span>
-                <span>来源 <b>{{ originText(detail.it) }}</b></span>
-                <span>证据 <b>{{ detail.it.evidence || '—' }}</b></span>
-                <span>成本 <b>{{ daysText(detail.it.E_days) }} 天 · ¥{{ detail.it.E_cost }}</b></span>
-                <span>结论 <b>{{ verdictText(detail.it.verdict) }}</b></span>
-              </div>
-              <div class="rice-detail-note" v-if="detail.it.note">{{ detail.it.note }}</div>
-              <div class="rice-detail-hint">
-                注明：数字只说明相对位置，不替你做决定
-                <button class="ghost rice-kick" title="复制一段开工交接单：先问清楚 → 规格 → 能验收的工单 → TDD/双路 review"
-                  @click="copyKickoff(detail.it)">⧉ 复制开工交接单</button>
-              </div>
-            </div>
-            <div class="rice-detail rice-detail-empty" v-else>
-              点气泡或表格行看这一条的四项分与理由；气泡编号就是表格的 # 排名。
             </div>
           </div>
 
           <p class="rice-mx-note">
-            象限按池内中位切分，看的是<b>相对位置</b>；P 级按<b>池内相对位置</b>（P0 = 前 20%）划分。
-            两者不一致时以 P 级为准 —— 象限负责解释原因，分数负责决定顺序。
+            四个象限按池子中间值切分，只看<b>相对位置</b>；P0 / P1 / P2 按<b>池内排名</b>划分（P0 = 最靠前的 20%）。
+            两者不一致时以 P 级为准 —— 象限解释为什么，分数决定先后。
           </p>
         </div>
       </section>
@@ -679,7 +823,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
         <div class="rice-sec-h">
           <span class="rice-no">2</span>
           <h3>打分与排序</h3>
-          <span class="rice-hint">总分降序 · 改任一分项立即重算并落盘 · 采纳 / 砍掉由你点</span>
+          <span class="rice-hint">按优先级分从高到低 · 改任何一格立即重算并保存 · 「采纳 / 砍掉」由你点</span>
         </div>
         <div class="rice-panel">
           <div class="rice-tablewrap">
@@ -688,8 +832,12 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                 <tr>
                   <th class="rice-th-rank">#</th>
                   <th>需求</th><th>项目</th><th>来源</th>
-                  <th>频次 R</th><th>省工 I</th><th>信心 C</th><th>工期 E天</th><th>成本 E元</th>
-                  <th>证据</th><th class="rice-th-score">总分</th><th>结论</th>
+                  <th title="这条需求每周大概会被用几次">每周用几次</th>
+                  <th title="做成之后能省多少手工：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小">省多少事</th>
+                  <th title="对「它真的有用」有多大把握">把握多大</th>
+                  <th title="预计要做几天（正整数，进公式）">要做几天</th>
+                  <th title="预计花多少钱（元，只作参考）">花多少钱</th>
+                  <th>证据来源</th><th class="rice-th-score">优先级分</th><th>你的决定</th>
                 </tr>
               </thead>
               <tbody>
@@ -707,12 +855,12 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                     @change="onNum(r.it, 'R', $event)" /></td>
                   <td>
                     <select class="rice-sel" :value="r.it.I" @change="onNum(r.it, 'I', $event)">
-                      <option v-for="v in RICE_IMPACT_VALUES" :key="v" :value="v">{{ v }}</option>
+                      <option v-for="v in RICE_IMPACT_VALUES" :key="v" :value="v">{{ impactText(v) }}</option>
                     </select>
                   </td>
                   <td>
                     <select class="rice-sel" :value="r.it.C" @change="onNum(r.it, 'C', $event)">
-                      <option v-for="v in RICE_CONFIDENCE_VALUES" :key="v" :value="v">{{ v }}</option>
+                      <option v-for="v in RICE_CONFIDENCE_VALUES" :key="v" :value="v">{{ confidenceText(v) }}</option>
                     </select>
                   </td>
                   <td><input class="rice-num" type="number" min="1" step="1" :value="r.it.E_days"
@@ -749,9 +897,9 @@ async function copyKickoff(it: RiceItem): Promise<void> {
             </table>
           </div>
           <div class="rice-tbl-foot">
-            <span>省工：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
-            <span>信心：95% 实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
-            <span>工期 E天 进公式，成本 E元 只作旁注</span>
+            <span>省多少事：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
+            <span>把握多大：95% 见过实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
+            <span>「要做几天」进公式；「花多少钱」只作参考，不影响排序</span>
           </div>
         </div>
       </section>
@@ -771,7 +919,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
             <div class="rice-why-mt">分数只把判断显性化，<br />不替你做决定。<br />真正的取舍在分数之外。</div>
             <div class="rice-why-stats">
               <div class="rice-why-stat"><span>评估池</span><b>{{ scopedItems.length }} 项</b></div>
-              <div class="rice-why-stat"><span>P0 合计</span><b>{{ summary.p0Days }} 人天</b></div>
+              <div class="rice-why-stat"><span>P0 合计工期</span><b>{{ summary.p0Days }} 天</b></div>
               <div class="rice-why-stat"><span>已决定</span><b>{{ summary.decided }} 项</b></div>
               <div class="rice-why-stat"><span>没写理由</span><b :class="{ over: why.missingWhy > 0 }">{{ why.missingWhy }} 项</b></div>
             </div>
@@ -788,6 +936,17 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                     {{ r.hasWhy ? r.why : '⚠ 决定时没写理由 —— 说不清为什么，就不算决定' }}
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+                  <!-- 缺理由的当场就能补：点名之后必须给出口，否则那句「不算决定」只是骂人 -->
+                  <div class="rice-why-act" v-if="!r.hasWhy">
+                    <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
+                    <div class="rice-why-edit" v-else>
+                      <textarea v-model="reasonDraft" rows="2" placeholder="为什么做？一句话就够"></textarea>
+                      <div class="rice-why-edit-act">
+                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</button>
+                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="closeReason()">取消</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rice-why-none" v-if="!why.keep.length">还没有决定要做的</div>
               </div>
@@ -799,6 +958,16 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                     {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以「听起来很酷」的样子回来' }}
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
+                  <div class="rice-why-act" v-if="!r.hasWhy">
+                    <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
+                    <div class="rice-why-edit" v-else>
+                      <textarea v-model="reasonDraft" rows="2" placeholder="为什么砍？一句话就够（下次它还会以「听起来很酷」回来）"></textarea>
+                      <div class="rice-why-edit-act">
+                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</button>
+                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="closeReason()">取消</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rice-why-none" v-if="!why.cut.length">还没有砍掉的</div>
               </div>
@@ -809,8 +978,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
             <div class="rice-verdicts">
               <div v-for="v in verdicts" :key="v.lv" class="rice-vd-block" :class="levelCls[v.lv]">
                 <div class="rice-vd-label">{{ v.label }}</div>
-                <div class="rice-vd-v">{{ v.lv }} · {{ v.count }} 项</div>
-                <div class="rice-vd-d">{{ v.days }} 人天 · {{ v.sub }}</div>
+                <div class="rice-vd-v">{{ v.count }} 项</div>
+                <div class="rice-vd-d">{{ v.days }} 天 · {{ v.sub }}</div>
               </div>
             </div>
             <div class="rice-why-foot">{{ RICE_RECHECK }}</div>
@@ -825,7 +994,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
     </div>
 
     <div class="rice-foot">
-      <span class="rice-formula">得分 = 频次 × 省工 × 信心 ÷ 工期</span>
+      <span class="rice-formula">优先级分 = 每周用几次 × 省多少事 × 把握 ÷ 要做几天</span>
       <span>分数只用于同一轮评估内横向比较</span>
     </div>
   </div>
@@ -833,7 +1002,10 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
 <style scoped>
 /* 新块用自己的 .rice-* 类：不复用旧块的 class（旧断言按 class 数块会凭空变红，见 AGENTS 踩坑 2） */
-.rice { padding: 14px 18px 28px; color: var(--ink); max-width: 1180px; margin: 0 auto; }
+/* ⚠ width:100% 不能省（2026-10-31 第 2 条）：#board.pv 是 flex 列，
+   而 `margin: 0 auto` 会让 auto 横向边距**取消 stretch**，于是这块按内容宽度收缩 ——
+   换到条目少的项目时整页突然变窄。固定占满、再用 max-width 封顶，切项目宽度不变。 */
+.rice { width: 100%; box-sizing: border-box; padding: 14px 18px 28px; color: var(--ink); max-width: 1180px; margin: 0 auto; }
 
 /* ── 页头 ─────────────────────────────────────────────── */
 .rice-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
@@ -950,12 +1122,20 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 .rice-bubble-n.lv2 { fill: var(--muted); }
 .rice-bubble-n.lvx { fill: var(--danger); }
 
-/* 悬停/点击明细 */
+/* 悬停/点击明细。
+   ⚠ 固定高度是**功能需求**，不是审美：这块在表格上方，内容一变高就会把整张表往下推，
+   hover 行 → 面板变高 → 指针离开行 → 面板缩回 → 行又回来，形成持续抖动
+   （2026-10-31 第 1 条，第一条最明显）。所以内容换、高度不动，溢出在框内滚动。 */
 .rice-detail {
   margin-top: 8px; border: 1px solid var(--border); border-radius: 12px;
   background: var(--tint-3); padding: 10px 12px; font-size: 12px;
+  height: 158px; box-sizing: border-box; overflow-y: auto;
 }
 .rice-detail-empty { color: var(--muted); font-size: 11.5px; }
+.rice-detail-idle { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 10px; color: var(--muted); line-height: 1.7; }
+.rice-detail-idle-h { font-size: 11.5px; }
+.rice-detail-idle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; font-size: 11px; }
+.rice-detail-idle-grid b { color: var(--ink); font-weight: 600; }
 .rice-detail-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rice-detail-rank { font-size: 10.5px; font-weight: 700; color: var(--card); background: var(--ink); padding: 1px 6px; border-radius: 5px; }
 .rice-detail-rank.lv0 { background: var(--accent); }
@@ -975,9 +1155,9 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
 /* ── 表格 ─────────────────────────────────────────────── */
 .rice-tablewrap { overflow: auto; min-height: 220px; }
-.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1120px; }
-.rice-table th { text-align: left; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 0 8px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.rice-table td { padding: 8px; border-bottom: 1px solid var(--line-2); text-align: left; vertical-align: middle; }
+.rice-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1040px; table-layout: auto; }
+.rice-table th { text-align: left; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); font-weight: 600; padding: 0 6px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rice-table td { padding: 7px 6px; border-bottom: 1px solid var(--line-2); text-align: left; vertical-align: middle; }
 .rice-table tbody tr { transition: background .14s; }
 .rice-table tbody tr:hover { background: var(--tint-2); }
 .rice-table tbody tr.on { background: var(--tint); }
@@ -987,16 +1167,16 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 .rice-th-score { text-align: right; }
 .rice-rank { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; width: 34px; }
 .rice-table tbody tr.lv0 .rice-rank { color: var(--accent); }
-.rice-name { min-width: 200px; }
+.rice-name { min-width: 170px; max-width: 280px; }
 .rice-title { font-weight: 600; font-size: 12.5px; line-height: 1.4; }
 .rice-title-note { font-size: 11px; color: var(--muted); margin-top: 1px; line-height: 1.45; }
 .rice-eid, .rice-origin { font-size: 10.5px; color: var(--muted); }
 .rice-proj { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
-.rice-num { width: 56px; padding: 3px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); }
-.rice-sel { padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 100px; }
+.rice-num { width: 48px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); }
+.rice-sel { padding: 3px 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 86px; }
 .rice-score-cell { text-align: right; white-space: nowrap; }
 .rice-score { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.rice-bar { flex: 0 0 64px; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.rice-bar { flex: 0 0 52px; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
 .rice-bar i { display: block; height: 100%; border-radius: 3px; background: var(--muted); }
 .rice-table tbody tr.lv0 .rice-bar i { background: var(--accent); }
 .rice-table tbody tr.lv1 .rice-bar i { background: var(--warning); }
@@ -1038,6 +1218,15 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 .rice-why-reason { color: var(--muted); line-height: 1.6; }
 .rice-why-reason.missing { color: var(--warning); }
 .rice-why-ev { color: var(--muted); font-size: 11px; }
+.rice-why-act { margin-top: 4px; }
+.rice-why-btn { font-size: 10.5px; padding: 1px 7px; line-height: 1.7; }
+.rice-why-edit { display: flex; flex-direction: column; gap: 4px; }
+.rice-why-edit textarea {
+  width: 100%; box-sizing: border-box; min-height: 48px; resize: vertical;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 7px;
+  font-family: inherit; font-size: 12px; line-height: 1.6; color: var(--ink); background: var(--card); outline: none;
+}
+.rice-why-edit-act { display: flex; gap: 6px; }
 .rice-why-none, .rice-why-empty { font-size: 11.5px; color: var(--muted); }
 .rice-why-empty { margin-top: 10px; }
 .rice-why-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line-2); font-size: 11.5px; color: var(--muted); }
@@ -1058,8 +1247,12 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 .rice-formula { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--card); border: 1px solid var(--border); border-radius: 7px; padding: 3px 9px; }
 
 .rice-err { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 10px; color: var(--danger); background: var(--card); }
-.rice-empty { margin-top: 18px; padding: 18px; border: 1px dashed var(--line-2); border-radius: var(--radius); background: var(--tint-3); }
-.rice-empty-sub { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.rice-empty { margin-top: 18px; padding: 18px 20px; border: 1px dashed var(--line-2); border-radius: var(--radius); background: var(--tint-3); }
+.rice-empty-t { font-size: 14px; font-weight: 700; }
+.rice-empty-sub { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.8; }
+.rice-empty-sub b { color: var(--ink); font-weight: 600; }
+.rice-empty-act { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rice-empty-foot { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2); font-size: 11.5px; color: var(--muted); line-height: 1.7; }
 
 @media (max-width: 900px) {
   .rice-kpis { grid-template-columns: repeat(2, 1fr); }

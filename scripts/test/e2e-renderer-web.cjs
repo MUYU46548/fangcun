@@ -300,6 +300,8 @@ function main() {
       // 2026-10-30：RICE 视觉照原型重画 —— 留三张目检（顶部 KPI / 散点 / 做砍 + 四格结论）。
       ['项目', '需求优先级矩阵', 'rice'],
       ['项目', '需求优先级矩阵', 'rice-plot', 'riceplot'],
+      ['项目', '需求优先级矩阵', 'rice-table', 'ricetable'],
+      ['项目', '需求优先级矩阵', 'rice-empty', 'riceempty'],
       ['项目', '需求优先级矩阵', 'rice-why', 'ricewhy'],
       // 2026-10-30：驳回返工台 —— 提示条 + 逐张面板（理由取最后一次驳回）。
       ['看板', '列视图', 'rework-bar', 'rework'],
@@ -526,6 +528,18 @@ function main() {
   const pw = document.querySelector('.rice .rice-plotwrap')
   if (pw) pw.scrollIntoView({ block: 'start' })
   await sleep(400)
+` : ''}
+  ${extra === 'ricetable' ? `
+  // 打分与排序整表（2026-10-31：表头改成说人话后要能一眼目检，别再截在半个表上）
+  const tw = document.querySelector('.rice .rice-tablewrap')
+  if (tw) tw.scrollIntoView({ block: 'start' })
+  await sleep(400)
+` : ''}
+  ${extra === 'riceempty' ? `
+  // 空项目态（2026-10-31 第 2/4 条）：切到没有需求的「第二个项目」，拍出口与宽度
+  const sel = document.querySelector('.rice .rice-projsel select')
+  if (sel) { sel.value = 'demo2'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
+  await sleep(500)
 ` : ''}
   ${extra === 'ricewhy' ? `
   // 「为什么做，为什么砍」+ 四格结论
