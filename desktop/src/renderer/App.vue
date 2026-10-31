@@ -2456,6 +2456,7 @@ import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import { useNotifications } from './composables/useNotifications'
 import { useBoardColumns } from './composables/useBoardColumns'
+import { useLogsView } from './composables/useLogsView'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -4093,10 +4094,8 @@ const {
 
 const batchMode = ref(false)
 const selectedBatch = ref<string[]>([])
-const logBatchMode = ref(false)
 
 /** 项目结构图模态（2026-10-29 暮雨第 2 条）：null = 没开 */
-const selectedLogBatch = ref<string[]>([])
 // trashBatchMode / selectedTrashBatch 已随回收站组件搬走（2026-10-23）
 const dataDir = ref('')
 
@@ -6963,14 +6962,21 @@ function onTodoDrop(e: DragEvent) {
  * 现在：批内去重 + 与现存待办比对，重复的集中问一次，再报"写入 N 条 / 跳过 M 条重复"。
  */
 // ── Logs ───────────────────────────────────────────────────────────
+// 日志页状态 / 纯派生 / 取数已搬进 composables/useLogsView.ts（2026-10-31）。
+// 这里解构出同名绑定：模板与既有函数一个字都不用改，状态仍只有一份。
+const {
+  logs, logSearchInput, logProjectFilter, logAgentFilter, logDateFrom, logDateTo,
+  logSort, logBatchMode, selectedLogBatch, logsViewMode, collapsedLogGroups,
+  logMoreFilterOpen, logMoreFilterCount,
+  filteredLogs, visibleLogs, groupedLogs, renderSections,
+  logGroupChildren, logGroupParent, logNestedChildIds,
+  loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
+  setLogsViewMode, toggleLogGroup, isLogGroupCollapsed, logGroupKey,
+  logStatusLabel, logStatusClass,
+  logHasGroup, logGroupHiddenCount, logGroupStat, logGroupAllRunning, logRunningLabel,
+  toggleLogBatchMode,
+} = useLogsView()
 
-const logs = ref<any[]>([])
-const logSearchInput = ref('')
-// 2026-09-28 用户第 5 条：`logStatusFilter` 已删除 —— 状态由分区表达，不再用下拉筛。
-const logProjectFilter = ref('')
-const logAgentFilter = ref('')
-const logDateFrom = ref('')
-const logDateTo = ref('')
 const logEdit_ = ref<any>(null)
 // 日志历史版本（2026-10-18 卡 001；2026-10-31 收口）：列表 / 单版预览 / 恢复
 const logHistoryOpen = ref(false)
@@ -7205,281 +7211,6 @@ let logPollingTimer: ReturnType<typeof setInterval> | null = null
  * 不再往数据层加第二个排序入口（同一条取数路径的原则，见 loadLogs 注释）。
  * 置顶分组不受影响：pinned 是在分组阶段单独拎出来的（logGroups 里）。
  */
-const logSort = ref<string>(readUiPref<string>('fc_log_sort', 'created_desc'))
-watch(logSort, v => saveUiPref('fc_log_sort', v))
-
-const filteredLogs = computed(() => {
-  const arr = [...logs.value]
-  const byStr = (f: (l: any) => string, locale?: string) =>
-    (a: any, b: any) => String(f(a)).localeCompare(String(f(b)), locale)
-  switch (logSort.value) {
-    case 'created_asc': return arr.sort(byStr(l => l.created))
-    case 'date_desc': return arr.sort((a, b) => String(b.logDate || b.created).localeCompare(String(a.logDate || a.created)))
-    case 'title_asc': return arr.sort(byStr(l => l.title || '', 'zh-Hans-CN'))
-    // 卡 001：高→中→低→未标（未标一律沉底 —— 否则"没排过序"的老日志会盖住真要紧的）；
-    // 同级按创建倒序，与默认排序同一口径，保证结果稳定。
-    // ⚠ 不能直接拿 localPriority 判「未标」：它对空值兜底返回 '中'（任务卡的口径），
-    //   会把没标过的老日志全排进「中」档 —— 这里必须先看原值。
-    case 'prio_desc': {
-      const rank = (l: any): number => {
-        const raw = String(l?.priority || '').trim()
-        if (!raw) return 3
-        const p = localPriority(raw)
-        return p === '高' ? 0 : p === '中' ? 1 : p === '低' ? 2 : 3
-      }
-      return arr.sort((a, b) => (rank(a) - rank(b)) || String(b.created).localeCompare(String(a.created)))
-    }
-    default: return arr.sort((a, b) => String(b.created).localeCompare(String(a.created)))
-  }
-})
-
-// ── 主日志 + 附属日志：关系表（2026-10-30 暮雨第 4 条；2026-10-30 二次返工）──
-// 关系的真源是主日志的 `attached` 数组（见 main/services/logs.ts）；界面只做两件事：
-// ① 把「谁是谁的附属」算成两张表；② 收集动作（绑定 / 全组进行中 / 全组完成 / 开工单）。
-//
-// ⚠ 2026-10-30 暮雨第 2 条：附属日志**不再作为独立卡片散布在分区里** ——
-//   用户原话「干脆主日志下面弄个框，把附属日志一条一条套进去」。
-//   所以下面多算一层 `logNestedChildIds` / `visibleLogs`：
-//   当前列表里能看到主日志时，它的附属只在主日志框里出现一次，顶层不再重复出卡。
-const logGroupChildren = computed(() => {
-  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
-  const m = new Map<string, any[]>()
-  for (const l of logs.value || []) {
-    const ids = Array.isArray(l.attached) ? l.attached : []
-    if (!ids.length) continue
-    m.set(l.id, ids.map((id: string) => byId.get(id)).filter(Boolean))
-  }
-  return m
-})
-const logGroupParent = computed(() => {
-  const m = new Map<string, any>()
-  const byId = new Map<string, any>((logs.value || []).map((l: any) => [l.id, l]))
-  for (const l of logs.value || []) {
-    for (const id of Array.isArray(l.attached) ? l.attached : []) {
-      const child = byId.get(id)
-      if (child) m.set(id, l)
-    }
-  }
-  return m
-})
-/** 当前列表里**已经被主日志框收走**的附属 id（顶层不再单独出卡） */
-const logNestedChildIds = computed(() => {
-  const s = new Set<string>()
-  for (const kids of logGroupChildren.value.values()) {
-    for (const k of kids) s.add(k.id)
-  }
-  return s
-})
-/**
- * 顶层日志（分区 / 按链 / 批量全选都用这一份）。
- * 与 `filteredLogs` 只差一件事：附属日志已收进主日志框，不再重复。
- * 主日志被筛掉时，它的附属仍会出现在顶层（带「↳ 附属」标），不会凭空消失。
- */
-const visibleLogs = computed(() => filteredLogs.value.filter((l: any) => !logNestedChildIds.value.has(l.id)))
-
-// ── 按状态分区（2026-09-28）────────────────────────────────────────────
-const LOG_GROUP_DEFS = [
-  // 2026-10-30 暮雨第 2 轮：「分区头别写解释」—— 用户原话「直接什么都不写都更好，
-  // 写了反而画蛇添足」。状态名本身已经够清楚，说明只在第一次用时靠帮助页。
-  { key: 'running', label: '进行中', hint: '' },
-  { key: 'active', label: '待处理', hint: '' },
-  { key: 'completed', label: '已完成', hint: '' },
-  { key: 'archived', label: '已归档', hint: '' },
-] as const
-
-/**
- * 分区结果。**置顶单独成区放最前**（2026-09-26 卡 037 的承诺：钉住的一直看得见）——
- * 原来置顶是靠"把卡片插到列表最前"，有了分区以后那样做会把一条归档日志混进待处理区，
- * 反而看不懂。独立成区既保住承诺，又不骗人。
- */
-const groupedLogs = computed(() => {
-  const all = visibleLogs.value
-  const groups: Array<{ key: string; label: string; hint: string; logs: any[] }> = []
-  const pinned = all.filter(l => l.pinned)
-  if (pinned.length) groups.push({ key: 'pinned', label: '置顶', hint: '', logs: pinned })
-  const rest = all.filter(l => !l.pinned)
-  for (const d of LOG_GROUP_DEFS) {
-    const list = rest.filter(l => logGroupKey(l) === d.key)
-    if (list.length) groups.push({ key: d.key, label: d.label, hint: d.hint, logs: list })
-  }
-  return groups
-})
-
-/** 一条日志属于哪个分区： running 优先于 status（进行中必然是未完成的） */
-function logGroupKey(l: any): string {
-  if (l.status === 'active') return l.running ? 'running' : 'active'
-  return String(l.status || 'active')
-}
-
-/** 分区折叠状态（写回真身，重启保留）。默认收起「已归档」——归档的语义就是「先别看了」。 */
-const collapsedLogGroups = ref<string[]>(readUiPref<string[]>('fc_log_group_collapsed', ['archived']))
-function isLogGroupCollapsed(key: string): boolean {
-  return collapsedLogGroups.value.includes(key)
-}
-function toggleLogGroup(key: string): void {
-  const idx = collapsedLogGroups.value.indexOf(key)
-  if (idx >= 0) collapsedLogGroups.value.splice(idx, 1)
-  else collapsedLogGroups.value.push(key)
-  saveUiPref('fc_log_group_collapsed', collapsedLogGroups.value)
-}
-
-// ── 按链视图（2026-09-29 第 3 条方案二）──────────────────────────────
-// 分段开关「分区｜按链」。默认仍是分区 —— 加视图不改旧的。
-// 按链 = 连通分量：沿 continueFrom（续自）把前后相承的日志串成一条竖轨，
-// 不引入新实体、不建数据库，链只活在渲染层的一次计算里。
-const logsViewMode = ref<'groups' | 'chain'>(readUiPref<'groups' | 'chain'>('fc_logs_view_mode', 'groups'))
-function setLogsViewMode(m: 'groups' | 'chain'): void {
-  logsViewMode.value = m
-  saveUiPref('fc_logs_view_mode', m)
-}
-
-/** 当前渲染单元：分区视图 = 原 groupedLogs；按链视图 = 链/单条 sections */
-const renderSections = computed(() => {
-  if (logsViewMode.value !== 'chain') return groupedLogs.value as any[]
-  return buildChainSections(visibleLogs.value)
-})
-
-function buildChainSections(all: any[]): any[] {
-  const byId = new Map(all.map(l => [l.id, l] as const))
-  // 链头：沿 continueFrom 走到走不动为止（环/断链/筛选掉的父级都算尽头，guard 防自指环）
-  const rootOf = (l: any): string => {
-    let cur = l
-    const seen = new Set<string>()
-    let guard = 0
-    while (cur?.continueFrom && byId.has(cur.continueFrom) && !seen.has(cur.id) && guard++ < 50) {
-      seen.add(cur.id)
-      cur = byId.get(cur.continueFrom)
-    }
-    return cur.id
-  }
-  const comps = new Map<string, any[]>()
-  for (const l of all) {
-    const r = rootOf(l)
-    const arr = comps.get(r) || []
-    arr.push(l)
-    comps.set(r, arr)
-  }
-  const sections: any[] = []
-  for (const [root, members] of comps) {
-    members.sort((a, b) => String(a.created || '').localeCompare(String(b.created || '')))
-    if (members.length >= 2) {
-      const head = members[0]
-      const tail = members[members.length - 1]
-      sections.push({
-        key: 'chain:' + root,
-        label: '', hint: '', logs: members,
-        chain: {
-          name: members.length === 2 ? `${head.title} → ${tail.title}` : `${head.title} → … → ${tail.title}`,
-          count: members.length,
-          since: formatDate(head.created),
-          recent: formatDate(tail.created),
-          tail,
-        },
-      })
-    } else {
-      sections.push({ key: 'single:' + root, label: '', hint: '', logs: members, chain: null })
-    }
-  }
-  // 排序：谁最近活跃谁在前（链头字符串 = 最后一个成员的 created）
-  sections.sort((a, b) => String(a.logs[a.logs.length - 1]?.created || '').localeCompare(String(b.logs[b.logs.length - 1]?.created || '')))
-  return sections.reverse()
-}
-
-// ── 「更多筛选」抽屉（2026-09-28 用户第 5 条）──────────────────────────
-// Agent / 日期范围此前和搜索框并排摊开，6 个控件挤在一条线上 —— 用户「看起来还是晕」。
-// 低频的那两个收进抽屉，默认收起；抽屉里有值时给按钮打个角标，避免"筛了却忘"。
-const logMoreFilterOpen = ref(false)
-const logMoreFilterCount = computed(() =>
-  (logAgentFilter.value ? 1 : 0) + (logDateFrom.value ? 1 : 0) + (logDateTo.value ? 1 : 0))
-function toggleLogMoreFilter(): void { logMoreFilterOpen.value = !logMoreFilterOpen.value }
-async function clearLogMoreFilters(): Promise<void> {
-  logAgentFilter.value = ''
-  logDateFrom.value = ''
-  logDateTo.value = ''
-  await loadLogs()
-}
-
-async function loadLogs() {
-  try {
-    const filter: any = {}
-    if (logProjectFilter.value) filter.project = logProjectFilter.value
-    if (logAgentFilter.value) filter.agent = logAgentFilter.value
-    if (logDateFrom.value) filter.dateFrom = logDateFrom.value
-    if (logDateTo.value) filter.dateTo = logDateTo.value
-    // 搜索词 = 筛选的一个维度（2026-10-01 用户第 3 条）。此前搜索另走 logs:search，
-    // 与这里的筛选互不相干，而且完成/归档/改筛选任何一次 loadLogs 都会把搜索结果冲掉、
-    // 框里的词却还留着 —— 「搜了又没了」。现在只有一条取数路径，刷新也不会丢。
-    const q = logSearchInput.value.trim()
-    if (q) filter.query = q
-    logs.value = await window.tegula.logsList(filter)
-  } catch {
-    logs.value = []
-  }
-}
-
-function logStatusLabel(log: any): string {
-  if (!log) return ''
-  // 2026-09-28 用户第 2 条：`active` 的中文从「进行中」改成「**待处理**」——
-  // 「进行中」现在是 running 这个手动标记的专属名字，不再由 status 自动带来。
-  if (log.status === 'active' && log.running) return '进行中'
-  return { active: '待处理', completed: '已完成', archived: '已归档' }[log.status] || String(log.status || '')
-}
-
-/** 徽章 class：running 优先（进行中的视觉最醒目） */
-function logStatusClass(log: any): string {
-  if (!log) return ''
-  return log.status === 'active' && log.running ? 'running' : String(log.status || '')
-}
-
-// ── 主日志 + 附属日志（2026-10-30 暮雨第 4 条）────────────────────────────
-// 关系表在 filteredLogs 之后就算好了（logGroupChildren / logGroupParent）；
-// 这里只放卡面要用的几个派生 + 绑定弹窗状态。
-
-/** 这条日志是不是「主日志」（挂了附属；即使当前筛选把附属藏起来也算） */
-function logHasGroup(log: any): boolean {
-  return Array.isArray(log?.attached) && log.attached.length > 0
-}
-
-/** 主日志上挂着、但当前筛选没显示的附属条数（用来如实说明，不假装没有） */
-function logGroupHiddenCount(log: any): number {
-  const total = Array.isArray(log?.attached) ? log.attached.length : 0
-  return Math.max(0, total - (logGroupChildren.value.get(log?.id) || []).length)
-}
-
-/** 组内状态概览：`2 进行中 · 1 待处理`（空组返回空串，不占位） */
-function logGroupStat(log: any): string {
-  const kids = logGroupChildren.value.get(log?.id) || []
-  const members = [log, ...kids].filter(Boolean)
-  const count: Record<string, number> = { running: 0, active: 0, completed: 0, archived: 0 }
-  for (const m of members) {
-    const k = logGroupKey(m)
-    if (k in count) count[k]++
-  }
-  const parts: string[] = []
-  if (count.running) parts.push(`${count.running} 进行中`)
-  if (count.active) parts.push(`${count.active} 待处理`)
-  if (count.completed) parts.push(`${count.completed} 已完成`)
-  if (count.archived) parts.push(`${count.archived} 已归档`)
-  return parts.join(' · ')
-}
-
-/** 主日志卡上那个运行开关的文案：有组就是「全组」，没组才是单条 */
-function logRunningLabel(log: any): string {
-  if (logHasGroup(log)) return logGroupAllRunning(log) ? '⏸ 全组撤销' : '▶ 全组进行中'
-  return log?.running ? '⏸ 撤销进行中' : '▶ 标为进行中'
-}
-
-/** 全组是否都已经在「进行中」——用于按钮文案（混合态显示"全组进行中"） */
-function logGroupAllRunning(main: any): boolean {
-  // 当前筛选把部分附属藏起来时，看不到它们的 running —— 不能凭可见的几条就断言"全组都在跑"。
-  // 保守返回 false，按钮文案就是「全组进行中」（幂等：已在跑的会被后端跳过），
-  // 避免用户以为在"撤销"，结果只撤了看得见的那几条。
-  if (logGroupHiddenCount(main) > 0) return false
-  const kids = logGroupChildren.value.get(main?.id) || []
-  const members = [main, ...kids].filter((x: any) => x && x.status === 'active')
-  return members.length > 0 && members.every((x: any) => !!x.running)
-}
-
 // 绑定弹窗（不再藏在多选里：卡上直接「🔗 绑定附属」）
 const logAttachTarget = ref<any>(null)
 const logAttachPick = ref<string[]>([])
@@ -7975,11 +7706,6 @@ async function convertLogToTodo(log: any, archiveSource = false): Promise<void> 
   } catch (e: any) {
     showToast(`转待办异常：${e?.message || e}`, 'error')
   }
-}
-
-function toggleLogBatchMode() {
-  logBatchMode.value = !logBatchMode.value
-  if (!logBatchMode.value) selectedLogBatch.value = []
 }
 
 function toggleSelectAllLogs() {
@@ -9178,28 +8904,6 @@ async function destroyLogItem(id: string) {
     showToast(`销毁失败：${result.error || '未知原因'}`, 'error')
   }
 }
-
-/**
- * 回车 = 立即搜（平时边打边搜，见下面的 watcher）。2026-10-01 用户第 3 条：
- * 原来这里**只有**这一条路 —— 打完字没反应必须按回车，像是卡住；
- * 而且它另调 logs:search，绕开了 loadLogs 的筛选，一刷新搜索结果就没了。
- * 现在两件事合流：搜索词进 loadLogs 的 filter，只有一条取数路径。
- */
-let logSearchTimer: ReturnType<typeof setTimeout> | null = null
-async function executeLogSearch() {
-  if (logSearchTimer) { clearTimeout(logSearchTimer); logSearchTimer = null }
-  await loadLogs()
-}
-
-// 边打边搜（300ms 防抖）：日志是高频场景，关键词通常几秒钟就敲完，
-// 让它像所有搜索框一样即时生效；回车仍可强制立即执行。
-watch(logSearchInput, () => {
-  if (logSearchTimer) clearTimeout(logSearchTimer)
-  logSearchTimer = setTimeout(() => {
-    logSearchTimer = null
-    loadLogs()
-  }, 300)
-})
 
 /**
  * 把一条日志复制成可直接粘给 agent 的提示词块。
