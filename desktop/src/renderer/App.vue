@@ -2440,10 +2440,6 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provi
 // ⚠ import 必须是**单行**：模板绑定守卫的正则是 /import[ \t]+([^'"]+?)[ \t]+from/
 //   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成「调用了但未定义」。
 import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
-import {
-  classifyLogImport, classifySummary,
-  type ImportItem,
-} from './logdedupe'
 import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, undoCount, undoHistory, offerUndo, dismissUndo, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
@@ -2462,6 +2458,7 @@ import { useLogMaintenance } from './composables/useLogMaintenance'
 import { useLogEditGuard } from './composables/useLogEditGuard'
 import { useLogEditorSave } from './composables/useLogEditorSave'
 import { useLogStatusActions } from './composables/useLogStatusActions'
+import { useLogImport } from './composables/useLogImport'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7644,6 +7641,11 @@ const { toggleLogRunning, completeLogItem, archiveLogItem, reopenLogItem, destro
   toggleLogGroupRunning, logHasGroup, logGroupAllRunning,
 })
 
+/** 日志导入（选文件 / 拖入；按文件名 + 内容指纹判重） */
+const { importTextFilesAsLogs, importLogFile, onLogDrop } = useLogImport({
+  curProj, projects, showToast, reload: loadLogs, resetDrag: dragResetAll,
+})
+
 function openNewLog() {
   // 项目默认跟随顶栏的项目筛选（没筛选就用第一个登记项目），而不是硬编码一个 id
   const project = curProj.value !== '__all__'
@@ -7946,85 +7948,6 @@ function addLogTaskExtra(): void {
   for (const id of ids) if (!cur.includes(id)) cur.push(id)
   e.taskIds = cur
   logTaskExtra.value = ''
-}
-
-// ── 日志：导入外部文本（老版本有，桌面化时丢了）────────────────────────
-// 按钮选择与直接拖入两条路都通；每个文件生成一条日志，标题取文件名。
-// 2026-09-22（用户第 4 条）：同名/重复此前**静默生成**，现在先判重、集中问一次。
-// 2026-09-22（补）：判重口径从"仅文件名"扩到「文件名 + 正文内容指纹」——
-//   改名重导同一份内容同样会被拦住（用户："防呆不防傻"→ 这一版把"傻"也补上）。
-const LOG_IMPORT_RE = /\.(txt|md|markdown|log)$/i
-
-async function importTextFilesAsLogs(files: File[]): Promise<number> {
-  const usable = files.filter(f => LOG_IMPORT_RE.test(f.name))
-  if (!usable.length) {
-    if (files.length) showToast('仅支持 .txt / .md / .log 文件', 'error')
-    return 0
-  }
-  // 取**全量**日志参与判重（logs.value 可能正被状态/搜索条件过滤，
-  // 用过滤后的列表判重会漏过"已归档的同名/同内容"，那就等于没有判重）
-  let existing: any[] = []
-  try {
-    existing = await window.tegula.logsList()
-  } catch { /* 取不到就退化为"不判重"，不阻断导入 */ }
-
-  const items: ImportItem[] = []
-  for (const f of usable) {
-    try {
-      items.push({ title: f.name.replace(/\.[^.]+$/, ''), text: await f.text() })
-    } catch { /* 单个文件读失败不阻断其余 */ }
-  }
-  if (!items.length) {
-    showToast('文件读取失败，没有可导入的内容', 'error')
-    return 0
-  }
-
-  const cls = classifyLogImport(items, existing)
-  const skipped = cls.dupTitle.length + cls.dupContent.length + cls.dupInBatch.length
-  if (!cls.fresh.length) {
-    showToast(`全部被拦截，未新增 —— ${classifySummary(cls)}`, 'info')
-    return 0
-  }
-  if (skipped) {
-    const lines: string[] = []
-    const sample = (arr: string[]) => arr.slice(0, 3).join('、') + (arr.length > 3 ? ' …' : '')
-    if (cls.dupTitle.length) lines.push(`同名：${sample(cls.dupTitle)}`)
-    if (cls.dupContent.length) lines.push(`内容相同（只是改了名）：${sample(cls.dupContent)}`)
-    if (cls.dupInBatch.length) lines.push(`同一批里重复：${sample(cls.dupInBatch)}`)
-    if (!confirm(`检测到 ${skipped} 个重复文件（按「文件名 + 正文内容指纹」判定）：\n${lines.join('\n')}\n\n重复的跳过，继续导入其余 ${cls.fresh.length} 个？`)) {
-      showToast('已取消导入', 'info')
-      return 0
-    }
-  }
-
-  const project = curProj.value !== '__all__' ? curProj.value : (projects.value[0]?.id || '')
-  let ok = 0
-  for (const it of cls.fresh) {
-    try {
-      const r = await window.tegula.logsCreate(it.title, project, it.text)
-      if (r?.ok) ok++
-    } catch { /* 单个文件失败不阻断其余 */ }
-  }
-  showToast(`已导入 ${ok} 条日志${skipped ? `，跳过 ${skipped} 个重复` : ''}`, ok ? 'success' : 'error')
-  loadLogs()
-  return ok
-}
-
-function importLogFile() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.txt,.md,.markdown,.log'
-  input.multiple = true
-  input.onchange = async (e: any) => {
-    await importTextFilesAsLogs(Array.from(e.target.files || []))
-  }
-  input.click()
-}
-
-async function onLogDrop(e: DragEvent) {
-  e.preventDefault()
-  dragResetAll()
-  await importTextFilesAsLogs(Array.from(e.dataTransfer?.files || []))
 }
 
 /** 从任务详情写一条执行日志：预填 taskId 与项目，省得再手填一遍 */
