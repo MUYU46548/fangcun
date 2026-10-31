@@ -263,7 +263,10 @@ function main() {
       ['项目', '主从', 'project-master'],
       // 2026-10-31：在途一屏此前**没有任何截图证据**（拆成 views/TripBoardView.vue 后补目检）——
       // 要看的是：表头 10 列、契约「未填」三按钮、健康度锁标、没进屏项目的点名原因都在画面里。
-      ['项目', '在途一屏', 'project-trip', 'tripview'],      // 2026-10-22 · 03 控制台：随问页的空态与"问出一屏答案"态各留一张（目检用）
+      ['项目', '在途一屏', 'project-trip', 'tripview'],
+      // 2026-10-31：通知中心此前没有截图证据（拆成 components/NotificationCenter.vue 后补目检）——
+      // 要看的是：未读计数 / 类型标签 / 可跳转箭头 / 静音条 / 页脚扫描状态都在。
+      ['看板', '列视图', 'notifications', 'nc'],      // 2026-10-22 · 03 控制台：随问页的空态与"问出一屏答案"态各留一张（目检用）
       // 想法（2026-10-22 · 念头没有家）
       ['想法', '', 'ideas'],
       ['问答', '', 'ask'],
@@ -378,6 +381,31 @@ function main() {
   const b = all('.pagehead button.vsb').find((x) => x.textContent.indexOf(${JSON.stringify(view)}) >= 0)
   if (b) b.click()
   await sleep(1000)
+  ${extra === 'nc' ? `
+  // 通知中心（2026-10-31 拆成 components/NotificationCenter.vue 后补首张截图证据）
+  // ⚠ 铃铛是 v-if="ncReady"，而且**不在 #bar 里**（在页签/操作那一行）—— 按全局 .nc-bell 找；
+  //   刚挂载时它可能还没出现，点早了等于没点。所以「面板还没出现就再点一次」重试，
+  //   且**只在没打开时**点，避免第二次把面板关掉。
+  if (window.__fcTest && window.__fcTest.setNotifications) {
+    const t = new Date().toISOString()
+    window.__fcTest.setNotifications([
+      { id: 'nc-shot-1', type: 'task-stalled', level: 'warning', title: '任务没动静：数据迁移脚本',
+        body: '任务文件已 72 小时没有任何写入', sourceId: 'shot-task-1', key: 'stalled',
+        read: false, createdAt: t, updatedAt: t },
+      { id: 'nc-shot-2', type: 'todo-due', level: 'warning', title: '待办到期：整理 0.6.0 交付清单',
+        body: '今天到期', sourceId: 'shot-todo-1', key: 'due',
+        read: false, createdAt: t, updatedAt: t },
+      { id: 'nc-shot-3', type: 'backup-failed', level: 'error', title: '备份失败：磁盘空间不足',
+        body: '上次备份跳过 3 个文件', sourceId: '', key: 'backup',
+        read: true, createdAt: t, updatedAt: t },
+    ])
+  }
+  for (let i = 0; i < 20 && !document.querySelector('.nc-wrap'); i++) {
+    const bell = document.querySelector('.nc-bell')
+    if (bell) bell.click()
+    await sleep(200)
+  }
+  await sleep(700)` : ''}
   ${extra === 'chain' || extra === 'relay' ? `
   // 日志接力（第 3 条方案二）：先灌一条真链 A(已完成) → B(进行中)，再重进日志页
   window.__fcTest.setLogs([
