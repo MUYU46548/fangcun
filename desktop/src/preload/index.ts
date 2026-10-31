@@ -75,8 +75,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGetConfig: () => ipcRenderer.invoke('backup:getConfig'),
   backupSetConfig: (patch: any) => ipcRenderer.invoke('backup:setConfig', patch),
   backupStatus: () => ipcRenderer.invoke('backup:status'),
-  backupRun: (opt?: { password?: string }) => ipcRenderer.invoke('backup:run', opt),
-  backupRunLocalOnly: (opt?: { password?: string }) => ipcRenderer.invoke('backup:runLocalOnly', opt),
+  backupRun: (opt?: { password?: string }) => ipcRenderer.invoke('backup:run', opt),  backupRunLocalOnly: (opt?: { password?: string }) => ipcRenderer.invoke('backup:runLocalOnly', opt),
   backupListLocal: () => ipcRenderer.invoke('backup:listLocal'),
   backupListRemote: () => ipcRenderer.invoke('backup:listRemote'),
   backupTestRemote: (input: any) => ipcRenderer.invoke('backup:testRemote', input),
@@ -88,6 +87,10 @@ contextBridge.exposeInMainWorld('tegula', {
   backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
   // 体积报告（2026-10-11 用户第 2 条）：把"备份范围里什么最占地方、按当前瘦身设置会跳过什么"摊开
   backupSizeReport: () => ipcRenderer.invoke('backup:sizeReport'),
+  // 作战计划（0.6.0 P1）：只有读与裁决两个口
+  plansGet: (file?: string) => ipcRenderer.invoke('plans:get', file),
+  plansVerdict: (input: { file: string; stageId: string; action: 'pass' | 'reject' | 'amend'; text?: string }) =>
+    ipcRenderer.invoke('plans:verdict', input),
   /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */
   backupBigAttachments: (minMb?: number) => ipcRenderer.invoke('backup:bigAttachments', minMb),
   backupDeleteAttachment: (rel: string) => ipcRenderer.invoke('backup:deleteAttachment', rel),

@@ -976,6 +976,8 @@
            数据来自主进程只读聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律「未填」。
            旧三摆法一个字没动，「在途一屏」是新增的第 4 项。 -->
       <TripBoardView v-else-if="pvView === 'trip'" :ctl="tripBoardCtl" />
+      <!-- 2026-10-31（0.6.0 P1）：第 8 种摆法 —— 作战计划裁决。 -->
+      <PlanView v-else-if="pvView === 'plan'" />
     </main>
 
     <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块「看得见 + 能复制」的说明面板 -->
@@ -2264,6 +2266,7 @@ import LogsView from './views/LogsView.vue'
 import CalendarView from './views/CalendarView.vue'
 import BoardView from './views/BoardView.vue'
 import TripBoardView from './views/TripBoardView.vue'
+import PlanView from './views/PlanView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
@@ -2856,7 +2859,7 @@ async function syncBoardPrefs(): Promise<void> {
     // ⚠ 白名单是**持久化的闸门**：新增摆法忘了加进来，重启后会静默退回项目墙
     //   （trip 之外，tier / mismatch / rice 都曾踩在这种"加了视图没加白名单"的坑上）。
     if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master' || p?.fc_pv_view === 'trip'
-      || p?.fc_pv_view === 'tier' || p?.fc_pv_view === 'mismatch' || p?.fc_pv_view === 'rice') {
+      || p?.fc_pv_view === 'tier' || p?.fc_pv_view === 'mismatch' || p?.fc_pv_view === 'rice' || p?.fc_pv_view === 'plan') {
       pvView.value = p.fc_pv_view
     } else {
       saveUiPref(PV_VIEW_KEY, pvView.value)
@@ -2990,6 +2993,8 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
     { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴「要做几天」、纵轴「优先级分」，气泡越大用得越多；改一格立即重排，「采纳 / 砍掉」你点。' },
+    // 2026-10-31（0.6.0 P1）：作战计划 —— 第 8 种摆法，裁决第一次有地方发生
+    { v: 'plan', label: '◫ 作战计划', hint: '阶段卡三块（技术方案 / 照抄点 / 判据）缺一块就报红且不能通过；通过=冻结、打回=写理由、改一句=留痕' },
   ]
   return []
 })

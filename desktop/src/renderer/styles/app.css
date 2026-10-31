@@ -1947,6 +1947,49 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blockers-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .blockers-header h3 { font-size: 16px; font-weight: 700; }
 .blockers-count { font-size: 12px; color: var(--muted); }
+/* 作战计划（0.6.0 P1）：三块缺一即红；三个动作恰好三个 */
+.plan-view { padding: 14px 4px 40px; max-width: 1080px; }
+.plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.plan-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.plan-sub { font-size: 11.5px; color: var(--muted); }
+.plan-reload { margin-left: auto; height: 26px; padding: 0 10px; font-size: 11.5px; }
+.plan-empty { padding: 24px 0; font-size: 12.5px; color: var(--muted); }
+.plan-code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
+.plan-doc { margin-bottom: 18px; }
+.plan-doc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.plan-doc-head b { font-size: 14px; }
+.plan-file { font-size: 11px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+.plan-stat { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.plan-stage { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow-card); }
+.plan-stage.bad { border-color: #e6b9b3; background: #fffbfa; }
+.plan-stage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.plan-id { font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 8px; }
+.plan-title { font-size: 13px; font-weight: 700; }
+.plan-status { font-size: 11px; color: var(--muted); background: var(--tint-3); border-radius: 999px; padding: 1px 8px; }
+.plan-miss { font-size: 11px; color: var(--danger-text); font-weight: 600; }
+.plan-ok { font-size: 11px; color: var(--ok-text); }
+.plan-what { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 6px; }
+.plan-block { margin-top: 6px; }
+.plan-block-h { font-size: 11.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; }
+.plan-block-miss { margin-left: 6px; color: var(--danger-text); font-weight: 400; }
+.plan-ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.75; color: var(--ink); }
+.plan-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.plan-table th, .plan-table td { border: 1px solid var(--border); padding: 4px 7px; text-align: left; vertical-align: top; }
+.plan-table th { background: var(--tint-3); font-weight: 700; }
+.plan-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.plan-acts button { height: 28px; padding: 0 12px; font-size: 12px; }
+/* 守卫要求"模板里出现的每个 class 都要有自己的规则"（不许借邻居） */
+.plan-act-pass { font-weight: 600; }
+.plan-act-reject { font-weight: 600; }
+.plan-act-amend { font-weight: 500; }
+.plan-reason, .plan-verdict { font-size: 11px; color: var(--muted); }
+.plan-text { margin-top: 8px; }
+.plan-ta { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; resize: vertical; }
+.plan-text-acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.plan-msg { position: sticky; bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; }
+.plan-msg.ok { background: #e9f5e4; border: 1px solid #cfe4c8; color: var(--ok-text); }
+.plan-msg.bad { background: #fbeceb; border: 1px solid #eecfcc; color: var(--danger-text); }
+
 /* 2026-10-31（暮雨第 7 条）：把"这一页干什么、点哪儿"写在最上面 —— 以前是零说明的只读列表 */
 .blockers-lead { margin-bottom: 10px; font-size: 12.5px; line-height: 1.75; color: var(--ink); }
 .blockers-lead b { color: var(--ink); }

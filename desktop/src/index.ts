@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
+import { registerPlanIpcHandlers } from './main/plan-ipc'
 import { registeredChannels } from './main/guarded-ipc'
 import { getPref } from './main/services/prefs'
 import { startMCPServer, stopMCPServer } from './main/mcp'
@@ -123,6 +124,8 @@ function createWindow(): void {
   // 备份 IPC 此前只注册在假入口 src/main/index.ts（从不被加载）——
   // 真实入口漏注册导致设置页全部备份按钮是僵尸（2026-09-21 用户实测暴露）
   registerBackupIpcHandlers()
+  // 作战计划（0.6.0 P1）：只读 + 裁决两个口
+  registerPlanIpcHandlers()
 
   // ── 主进程自证：本进程到底是哪份构建、关键通道在不在 ──────────────────
   // 2026-09-25 用户报「启动台依旧报错」，日志里却有渲染层的点击痕迹、没有主进程的
