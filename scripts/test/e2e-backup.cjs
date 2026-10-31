@@ -608,6 +608,14 @@ async function main() {
     check('★★ 正确口令能真恢复（加密包不是"打得开但恢复不了"）',
       okR.ok && okR.restoredFiles > 0 && fs.existsSync(path.join(goodDir, 'task-data')),
       JSON.stringify({ ok: okR.ok, files: okR.restoredFiles, errors: okR.errors }))
+
+    // 应用内「校验备份包」也必须认 .fcz（2026-10-31：此前只认 zip）
+    const vEnc = bk.verifyPackage(rEnc.localPath, ENC_PW)
+    check('★★ 应用内校验认加密包（解密后走四层校验）',
+      vEnc.ok && vEnc.encrypted === true, JSON.stringify(vEnc.errors))
+    const vNoPw = bk.verifyPackage(rEnc.localPath)
+    check('★ 校验加密包却没口令 → 明说"需要口令"（不是"包损坏"）',
+      !vNoPw.ok && vNoPw.errors.join(' ').includes('需要口令'), JSON.stringify(vNoPw.errors))
   }
   cfgMod.setBackupConfig({ encrypt: { enabled: false, remember: false, passwordEnc: '' }, localDir: '' })
 

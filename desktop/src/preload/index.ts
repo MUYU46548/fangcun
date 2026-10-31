@@ -84,7 +84,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupLog: (lines?: number) => ipcRenderer.invoke('backup:log', lines),
   backupOpenDir: () => ipcRenderer.invoke('backup:openDir'),
   backupExportTo: (input: any) => ipcRenderer.invoke('backup:exportTo', input),
-  backupVerifyPackage: (zipPath?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath),
+  backupVerifyPackage: (zipPath?: string, password?: string) => ipcRenderer.invoke('backup:verifyPackage', zipPath, password),
   backupResticScript: (os?: 'win' | 'posix') => ipcRenderer.invoke('backup:resticScript', os),
   // 体积报告（2026-10-11 用户第 2 条）：把"备份范围里什么最占地方、按当前瘦身设置会跳过什么"摊开
   backupSizeReport: () => ipcRenderer.invoke('backup:sizeReport'),

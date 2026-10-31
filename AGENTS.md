@@ -354,6 +354,22 @@
 - **规则**：用户报的是一处症状，就只消那一处症状。要动目录结构 / 输出位置 / 流程边界，
   **先问一句**，不许拿"顺手治本"当理由 —— 架构是产品决策，不是清理垃圾的副产品。
 
+### 10. 绝不允许按进程名杀浏览器（2026-10-31，严重）
+
+我为了清一个"看起来卡住"的 e2e，跑过
+`Get-Process msedge | Where StartTime > 现在-30分钟 | Stop-Process -Force` ——
+**把用户正在用的 Edge 窗口一起杀了**，而且同一天发生过两次（第二次未复现原因，但先认下再查）。
+
+- **判据**：任何按**进程名**批量结束进程的命令，都是越界。它分不清"测试拉起的"和"用户正在用的"。
+- **改法**：浏览器 e2e 只 kill **自己 spawn 的那个 PID**（`e2e-renderer-web.cjs` 现在就是这么做的，
+  并且用独立 `--user-data-dir`，命令不会被转发到用户实例）。
+- **本机有专用浏览器**：`C:\Program Files\Google\Chrome\Application\chrome.exe`（暮雨留给 AI 用，他自己不用）。
+  跑渲染层 e2e 时显式指定，别碰 Edge：
+  ```
+  FC_WEB_BROWSER="C:/Program Files/Google/Chrome/Application/chrome.exe" node scripts/test/e2e-renderer-web.cjs
+  ```
+- **顺带**：用户在用电脑时，不主动跑会拉起浏览器的测试；要么先问，要么等他不在。
+
 ## 开工流程（铁律）
 
 每次会话开工，**必须先执行**：

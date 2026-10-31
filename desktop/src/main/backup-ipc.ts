@@ -341,7 +341,7 @@ export function registerBackupIpcHandlers(): void {
    * 校验任意位置的备份包（含手动上传后又下载回来的）。
    * 不传 path 则弹出文件选择框。
    */
-  guardedHandle('backup:verifyPackage', async (e, zipPath?: string) => {
+  guardedHandle('backup:verifyPackage', async (e, zipPath?: string, password?: string) => {
     try {
       let target = (zipPath || '').trim()
       if (!target) {
@@ -349,13 +349,13 @@ export function registerBackupIpcHandlers(): void {
         const opts = {
           title: '选择要校验的备份包',
           properties: ['openFile' as const],
-          filters: [{ name: '方寸备份包', extensions: ['zip'] }],
+          filters: [{ name: '方寸备份包', extensions: ['zip', 'fcz'] }],
         }
         const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
         if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
         target = r.filePaths[0]
       }
-      const v = verifyPackage(target)
+      const v = verifyPackage(target, password)
       return { ok: v.ok, path: target, ...v }
     } catch (e) {
       return fail(e)
@@ -369,7 +369,7 @@ export function registerBackupIpcHandlers(): void {
       const opts = {
         title: '选择要恢复的备份包',
         properties: ['openFile' as const],
-        filters: [{ name: '方寸备份包', extensions: ['zip'] }],
+        filters: [{ name: '方寸备份包', extensions: ['zip', 'fcz'] }],
         defaultPath: getLocalBackupDir(),
       }
       const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)

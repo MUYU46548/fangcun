@@ -23,7 +23,7 @@ import {
 import { BACKUP_INCLUDES, LOG_ATTACHMENTS_REL, scopeSources } from './scope'
 import { extractZipTo, extractFileFromZip } from './packer'
 import { WebdavClient, WebdavError } from './webdav'
-import { encryptBackup, BackupCryptoError } from './crypto'
+import { encryptBackup, decryptBackup, isEncryptedBackup, BackupCryptoError } from './crypto'
 import { getBackupEncryptPassword } from './config'
 
 export interface RunOptions {
@@ -660,10 +660,15 @@ export function exportExistingPackageTo(
     return result
   }
 
-  const verify = verifyZip(buf)
-  if (!verify.ok) {
-    errors.push(`备份包自校验失败，已中止：${verify.errors.slice(0, 3).join('；')}`)
-    return result
+  // 2026-10-31：加密包（.fcz）没法在不给口令时验内容 —— 但导出只是"拷一份"，
+  // 所以这里验**密文哈希**（sidecar）即可；内容校验请用「校验备份包」（会要口令）。
+  let verify: ReturnType<typeof verifyZip> | null = null
+  if (!isEncryptedBackup(buf)) {
+    verify = verifyZip(buf)
+    if (!verify.ok) {
+      errors.push(`备份包自校验失败，已中止：${verify.errors.slice(0, 3).join('；')}`)
+      return result
+    }
   }
 
   const name = path.basename(src)
@@ -684,7 +689,7 @@ export function exportExistingPackageTo(
 
     result.zipPath = zipPath
     result.bytes = readBack.length
-    result.files = (verify.manifest && verify.manifest.totalFiles) || verify.entryCount
+    result.files = (verify && verify.manifest && verify.manifest.totalFiles) || (verify && verify.entryCount) || 0
     result.ok = errors.length === 0
 
     appendBackupLog(
@@ -698,27 +703,29 @@ export function exportExistingPackageTo(
 }
 
 /** 校验任意路径下的备份包（含手动上传/下载回来的包） */
-export function verifyPackage(zipPath: string): {
+export function verifyPackage(zipPath: string, password?: string): {
   ok: boolean
   errors: string[]
   manifest: BackupManifest | null
   entries: number
   sidecarChecked: boolean
   actualSha256: string
+  encrypted: boolean
 } {
   const errors: string[] = []
   let sidecarChecked = false
   let actualSha256 = ''
+  let encrypted = false
 
   if (!fs.existsSync(zipPath)) {
-    return { ok: false, errors: [`文件不存在：${zipPath}`], manifest: null, entries: 0, sidecarChecked, actualSha256 }
+    return { ok: false, errors: [`文件不存在：${zipPath}`], manifest: null, entries: 0, sidecarChecked, actualSha256, encrypted }
   }
 
   let buf: Buffer
   try {
     buf = fs.readFileSync(zipPath)
   } catch (e) {
-    return { ok: false, errors: [`读取失败：${(e as Error).message}`], manifest: null, entries: 0, sidecarChecked, actualSha256 }
+    return { ok: false, errors: [`读取失败：${(e as Error).message}`], manifest: null, entries: 0, sidecarChecked, actualSha256, encrypted }
   }
   actualSha256 = sha256OfBuffer(buf)
 
@@ -728,6 +735,27 @@ export function verifyPackage(zipPath: string): {
     const expected = fs.readFileSync(sidecar, 'utf-8').trim()
     if (expected && expected !== actualSha256) {
       errors.push(`sha256 不匹配（期望 ${expected.slice(0, 16)}…，实际 ${actualSha256.slice(0, 16)}…）—— 文件已改动或传输损坏`)
+    }
+  }
+
+  // 2026-10-31：加密包（.fcz）先验密文哈希，再解密验内容 —— 注意密文哈希对不上就不该再解
+  if (isEncryptedBackup(buf)) {
+    encrypted = true
+    if (errors.length) {
+      return { ok: false, errors, manifest: null, entries: 0, sidecarChecked, actualSha256, encrypted }
+    }
+    const pw = String(password || '').trim() || getBackupEncryptPassword()
+    if (!pw) {
+      return { ok: false, errors: ['这是加密备份（.fcz），校验需要口令 —— 请在设置里填一次'], manifest: null, entries: 0, sidecarChecked, actualSha256, encrypted }
+    }
+    try {
+      buf = decryptBackup(buf, pw)
+    } catch (e) {
+      return {
+        ok: false,
+        errors: [e instanceof BackupCryptoError ? e.message : `解密失败：${(e as Error).message}`],
+        manifest: null, entries: 0, sidecarChecked, actualSha256, encrypted,
+      }
     }
   }
 
@@ -741,6 +769,7 @@ export function verifyPackage(zipPath: string): {
     entries: v.entryCount,
     sidecarChecked,
     actualSha256,
+    encrypted,
   }
 }
 

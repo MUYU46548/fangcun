@@ -592,7 +592,8 @@ function createBackup(opts: UseBackupOptions) {
     bkBusy.value = true
     bkVerifyResult.value = null
     try {
-      const r = await window.tegula.backupVerifyPackage()
+      // 2026-10-31：加密包（.fcz）用输入框里的口令；没填就交给主进程用"记住的那个"
+      const r = await window.tegula.backupVerifyPackage(undefined, bkForm.value.encryptPassword.trim() || undefined)
       if (r.canceled) return
       bkVerifyResult.value = {
         ok: !!r.ok,
@@ -600,6 +601,7 @@ function createBackup(opts: UseBackupOptions) {
         errors: r.errors || [],
         manifest: r.manifest || null,
         entries: r.entries || 0,
+        encrypted: !!r.encrypted,
       }
     } finally {
       bkBusy.value = false

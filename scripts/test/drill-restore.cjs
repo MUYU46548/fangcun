@@ -35,6 +35,7 @@ function argOf(name) {
 }
 const ZIP_ARG = argOf('zip')
 const DATADIR_ARG = argOf('data-dir')
+const PASSWORD_ARG = argOf('password')
 const NO_REPORT = process.argv.includes('--no-report')
 
 let pass = 0, fail = 0
@@ -125,7 +126,8 @@ async function main() {
   console.log('\n── 段3 恢复（零破坏，落位临时目录） ──')
   lines.push('\n## 段3 恢复（零破坏）')
   const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-drill-'))
-  const r = await restore.restoreFrom({ kind: 'local', path: zipPath }, { targetDir })
+  // 2026-10-31：加密包（.fcz）要口令 —— --password 传进来就带上，没有就交给"记住的那个"
+  const r = await restore.restoreFrom({ kind: 'local', path: zipPath }, { targetDir, password: PASSWORD_ARG })
   check('恢复流程成功（sha256→结构→解压→落位全链）', r.ok, JSON.stringify(r.errors))
   check('恢复落位在临时目录（targetDir 生效=真实数据未动）', r.dataDir === targetDir, `落位=${r.dataDir} 期望=${targetDir}`)
   check('恢复文件数 > 0', r.restoredFiles > 0, String(r.restoredFiles))
