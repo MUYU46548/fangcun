@@ -17,19 +17,19 @@
           <p>{{ ncHeadSub }}</p>
         </div>
         <div class="nc-head-act">
-          <button class="nc-icon-btn" :class="{ spin: ncLoading }" title="刷新" @click="ncRefresh">
+          <button class="nc-icon-btn font-[inherit]" :class="{ spin: ncLoading }" title="刷新" @click="ncRefresh">
             <span class="nc-ico">⟳</span>
           </button>
-          <button class="nc-btn-primary" :disabled="ncUnread === 0" @click="ncMarkAllRead">✓ 全部标为已读</button>
-          <button class="nc-icon-btn" title="关闭" @click="closePanel">✕</button>
+          <button class="nc-btn-primary font-[inherit]" :disabled="ncUnread === 0" @click="ncMarkAllRead">✓ 全部标为已读</button>
+          <button class="nc-icon-btn font-[inherit]" title="关闭" @click="closePanel">✕</button>
         </div>
       </header>
 
       <div class="nc-filters">
         <div class="nc-seg">
-          <button :class="{ on: ncFilter === 'all' }" @click="ncSetFilter('all')">全部<span class="n">{{ ncCounts.all }}</span></button>
-          <button :class="{ on: ncFilter === 'unread' }" @click="ncSetFilter('unread')">未读<span class="n">{{ ncCounts.unread }}</span></button>
-          <button :class="{ on: ncFilter === 'read' }" @click="ncSetFilter('read')">已读<span class="n">{{ ncCounts.read }}</span></button>
+          <button class="font-[inherit]" :class="{ on: ncFilter === 'all' }" @click="ncSetFilter('all')">全部<span class="n">{{ ncCounts.all }}</span></button>
+          <button class="font-[inherit]" :class="{ on: ncFilter === 'unread' }" @click="ncSetFilter('unread')">未读<span class="n">{{ ncCounts.unread }}</span></button>
+          <button class="font-[inherit]" :class="{ on: ncFilter === 'read' }" @click="ncSetFilter('read')">已读<span class="n">{{ ncCounts.read }}</span></button>
         </div>
       </div>
 
@@ -55,8 +55,8 @@
           <!-- 2026-10-01 用户第 1 条：能跳的行给个明确信号，别让人点了以为是死按钮 -->
           <span v-if="ncTargetOf(n)" class="nc-go" aria-hidden="true">→</span>
           <div class="nc-acts">
-            <button class="nc-act keep" :title="n.read ? '标为已读' : '标为已读'" @click.stop="ncToggleRead(n)">✓</button>
-            <button class="nc-act danger" title="删除通知" @click.stop="ncDelete(n)">🗑</button>
+            <button class="nc-act keep font-[inherit]" :title="n.read ? '标为已读' : '标为已读'" @click.stop="ncToggleRead(n)">✓</button>
+            <button class="nc-act danger font-[inherit]" title="删除通知" @click.stop="ncDelete(n)">🗑</button>
           </div>
         </div>
         <div v-if="ncVisible.length === 0" class="nc-empty">
@@ -69,13 +69,13 @@
       <!-- P0-5：删过通知 = 静音 7 天，必须看得见、能恢复（此前 listMuted 全无入口） -->
       <div v-if="ncMuted.length" class="nc-muted">
         <span>被忽略 {{ ncMuted.length }} 条（7 天后自动恢复）</span>
-        <button class="nc-link" @click="ncUnmuteAll">全部恢复 →</button>
+        <button class="nc-link font-[inherit]" @click="ncUnmuteAll">全部恢复 →</button>
       </div>
       <footer class="nc-foot">
         <div class="stat">共 <b>{{ ncCounts.all }}</b> 条 · 未读 <b>{{ ncCounts.unread }}</b> 条</div>
         <!-- P0-4：扫描器状态 —— "停摆"与"扫不到"此前在界面上长得一模一样 -->
         <div class="nc-scan" :title="String(ncStatus?.lastScanAt || '')">{{ ncStatusText }}</div>
-        <button class="nc-link" @click="ncClearAll">清空历史 →</button>
+        <button class="nc-link font-[inherit]" @click="ncClearAll">清空历史 →</button>
       </footer>
     </div>
   </div>
