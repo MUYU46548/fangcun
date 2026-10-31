@@ -2461,6 +2461,7 @@ import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
 import { useLogEditorOpen } from './composables/useLogEditorOpen'
 import { useLogConvert } from './composables/useLogConvert'
+import { useLogAux } from './composables/useLogAux'
 import { useLogGroups } from './composables/useLogGroups'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
@@ -7101,6 +7102,12 @@ let logPollingTimer: ReturnType<typeof setInterval> | null = null
  * 不再往数据层加第二个排序入口（同一条取数路径的原则，见 loadLogs 注释）。
  * 置顶分组不受影响：pinned 是在分组阶段单独拎出来的（logGroups 里）。
  */
+/** 日志复制 / 置顶 / 改归属 */
+const {
+  logProjectPicker, logFullText, logMetaText, copyLogFull, copyLogMeta, copyAndDispatchLog,
+  toggleLogPin, changeLogProject, applyLogProject, copyLogAsPrompt, copyLogsAsPrompt,
+} = useLogAux({ showToast, loadLogs, copyWithToast })
+
 const {
   logAttachTarget, logAttachPick, logAttachBusy, logAttachAll, logAttachLoading,
   logAttachQuery, logAttachProject, logAttachStatus, logAttachAgent, logAttachPrio,
@@ -7487,81 +7494,6 @@ function ctxOtherRun(fn: (item: any) => void): void {
   if (c) fn(c.item)
 }
 
-/** 日志正文（标题 + 执行内容 + 下一步）——「复制全文」用 */
-function logFullText(log: any): string {
-  const parts = [String(log.title || '')]
-  if (log.content) parts.push(String(log.content))
-  if (log.nextSteps) parts.push('## 下一步\n' + String(log.nextSteps))
-  return parts.filter(Boolean).join('\n\n')
-}
-
-/** 带元信息：`[日期] [项目] 标题` + 正文 —— 粘进开发日志/派工卡不用手动补头（用户原话） */
-function logMetaText(log: any): string {
-  const date = (log.logDate || log.created || '').slice(0, 10) || '—'
-  const proj = log.project ? `[${log.project}]` : '[无项目]'
-  return `[${date}] ${proj} ${String(log.title || '')}\n\n${logFullText(log)}`
-}
-
-async function copyLogFull(log: any): Promise<void> {
-  await copyWithToast(logFullText(log), '已复制全文')
-}
-
-async function copyLogMeta(log: any): Promise<void> {
-  await copyWithToast(logMetaText(log), '已复制（带日期 + 项目标签）')
-}
-
-/**
- * 复制并标记已派（用户原话：「复制→粘给 agent→这条其实已派出去了」两步并一步）。
- *
- * 2026-09-28 调整：「已派」= 这条**正在跑**，所以走的是手动开「进行中」那条路
- * （`logs:setRunning`）。以前走 `logs:reopen`（把状态改成 active）—— 那时 active 就等于
- * 进行中；现在 active 是「待处理」，再走老通道会变成"复制一下，反而标记成没在跑"。
- */
-async function copyAndDispatchLog(log: any): Promise<void> {
-  const ok = await copyWithToast(logMetaText(log), '已复制并标记已派（这条已置为「进行中」）')
-  if (!ok) return
-  if (log.running) return
-  const r: any = await window.tegula.logsSetRunning(log.id, true)
-  if (r && r.ok) await loadLogs()
-  else showToast(`已复制，但标记「进行中」失败：${(r && r.error) || '未知原因'}`, 'error')
-}
-
-async function toggleLogPin(log: any): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.logsSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道 —— 托盘右键「退出」后重开', 'error'); return }
-  const r: any = await t.logsSetPinned(log.id, !log.pinned)
-  if (r && r.ok) {
-    showToast(log.pinned ? '已取消置顶' : '已置顶', 'success')
-    await loadLogs()
-  } else {
-    showToast(`置顶失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
-/** 改项目归属：不进编辑页，顺手改（用户原话）。
- *  ⚠ 刻意**不用 window.prompt** —— Electron 不实现它（仓里有静态守卫钉着这条），
- *  改成应用内轻浮层选项目，一层点完，比 prompt 还顺手。 */
-const logProjectPicker = ref<any>(null)
-
-function changeLogProject(log: any): void {
-  const t: any = window.tegula
-  if (typeof t.logsSetProject !== 'function') { showToast('当前主进程是旧版本，没有改归属通道', 'error'); return }
-  logProjectPicker.value = log
-}
-
-async function applyLogProject(projectId: string): Promise<void> {
-  const log = logProjectPicker.value
-  if (!log) return
-  logProjectPicker.value = null
-  const r: any = await window.tegula.logsSetProject(log.id, String(projectId || '').trim())
-  if (r && r.ok) {
-    showToast(projectId ? `已改归属：${projectId}` : '已清空归属', 'success')
-    await loadLogs()
-  } else {
-    showToast(`改归属失败：${(r && r.error) || '未知原因'}`, 'error')
-  }
-}
-
 /** 菜单里的归档/删除复用既有入口（归档要填保留天数，删除自带二次确认） */
 function runDestroyLog(log: any): void { destroyLogItem(log.id) }
 
@@ -7586,22 +7518,6 @@ function editTodoFromMenu(todo: any): void { openTodoEditor(todo) }
 async function deleteTodoFromMenu(todo: any): Promise<void> {
   if (!confirm(`删除待办「${todo.title}」？\n\n待办是随手记的清单，删掉不进回收站。`)) return
   await deleteTodo(todo.id)
-}
-
-async function copyLogAsPrompt(id: string): Promise<void> {
-  try {
-    const text: any = await window.tegula.logsInject(id)
-    if (!text) {
-      showToast('这条日志注入不了（可能已被销毁或归档）', 'error')
-      return
-    }
-    // 留痕：日志里能查到「点了哪条、走了哪条复制通道」（渲染层 console 会转发进应用日志）
-    console.warn('[renderer:copy] logs:inject id=' + id + ' len=' + String(text).length)
-    const copied = await copyWithToast(String(text), '已复制为提示词，可直接粘给 agent')
-    if (!copied) return
-  } catch (e: any) {
-    showToast('复制失败：' + (e?.message || e), 'error')
-  }
 }
 
 /**
@@ -7741,29 +7657,6 @@ async function exportSelfArch(): Promise<void> {
  * 只灌主日志，agent 就漏掉并行的另一半 —— 这不是"想要的新功能"，是使用中长出来的需求。
  * 顺序即语义：**先勾选的那条是主日志**，其余会被标成「并行日志」（拼接在 services/logs.injectLogs）。
  */
-async function copyLogsAsPrompt(idsIn: string[]): Promise<void> {
-  const ids = (Array.isArray(idsIn) ? idsIn : []).map((x) => String(x || '')).filter(Boolean)
-  if (!ids.length) { showToast('先勾选要灌的日志（第一条当主日志）', 'info'); return }
-  try {
-    const r: any = await window.tegula.logsInjectMany(toPlain(ids))
-    if (!r || !r.text) {
-      showToast('这些日志都读不出来（可能已被销毁）', 'error')
-      return
-    }
-    console.warn('[renderer:copy] logs:injectMany n=' + ids.length + ' len=' + String(r.text).length)
-    const n = Array.isArray(r.found) ? r.found.length : ids.length
-    const miss = Array.isArray(r.missing) ? r.missing.length : 0
-    const copied = await copyWithToast(
-      String(r.text),
-      n > 1 ? `已复制 ${n} 条日志为一份开工单（第一条主日志，其余标「并行日志」）` : '已复制为提示词，可直接粘给 agent',
-    )
-    if (!copied) return
-    if (miss) showToast(`另有 ${miss} 条没找到，已跳过`, 'info')
-  } catch (e: any) {
-    showToast('复制失败：' + (e?.message || e), 'error')
-  }
-}
-
 async function executeLogCleanup() {
   try {
     const result = await window.tegula.logsCleanup()
