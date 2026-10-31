@@ -2461,6 +2461,7 @@ import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
 import { useLogEditorOpen } from './composables/useLogEditorOpen'
 import { useLogConvert } from './composables/useLogConvert'
+import { useLogGroups } from './composables/useLogGroups'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7100,326 +7101,18 @@ let logPollingTimer: ReturnType<typeof setInterval> | null = null
  * 不再往数据层加第二个排序入口（同一条取数路径的原则，见 loadLogs 注释）。
  * 置顶分组不受影响：pinned 是在分组阶段单独拎出来的（logGroups 里）。
  */
-// 绑定弹窗（不再藏在多选里：卡上直接「🔗 绑定附属」）
-const logAttachTarget = ref<any>(null)
-const logAttachPick = ref<string[]>([])
-const logAttachBusy = ref(false)
-
-/**
- * 打开绑定弹窗时**重新取全量日志**（2026-10-30 暮雨第 2 条）。
- *
- * 旧实现从 `logs.value` 取候选 —— 那是**当前视图已经筛过**的一份数据：
- * 用户在主界面按项目 / 搜索词筛过之后，绑定弹窗里的候选也跟着只剩那几条，
- * 看起来就是「完全没有筛选能力」。候选必须来自全量，再由弹窗自己的条件去筛。
- */
-async function openLogAttach(main: any): Promise<void> {
-  if (!main || main.status === 'archived') return
-  logAttachTarget.value = main
-  logAttachPick.value = (Array.isArray(main.attached) ? main.attached : []).slice()
-  logAttachQuery.value = ''
-  logAttachProject.value = ''
-  logAttachStatus.value = ''
-  logAttachAgent.value = ''
-  logAttachPrio.value = ''
-  logAttachDateFrom.value = ''
-  logAttachDateTo.value = ''
-  logAttachShowBlocked.value = false
-  logAttachLoading.value = true
-  try {
-    const all: any[] = await window.tegula.logsList({})
-    // 主日志自己也得在全集里（正常情况下一定在；不在时退回当前列表，避免弹窗空白）
-    logAttachAll.value = Array.isArray(all) && all.length
-      ? all
-      : (logs.value || []).slice()
-  } catch {
-    logAttachAll.value = (logs.value || []).slice()
-    showToast('读取全部日志失败，只能从当前列表里选', 'error')
-  } finally {
-    logAttachLoading.value = false
-  }
-}
-// ── 绑定弹窗的查询条件（2026-10-30 暮雨第 2 条）──────────────────────────
-// 用户原话：「绑定附属日志功能完全无筛选能力，那我搞那么多字段干嘛？懂不懂数据库？」
-// 这里把日志已有的字段都变成**可叠加的查询维度**：关键词 / 项目 / 状态 / Agent /
-// 优先级 / 日期范围。候选来自全量（openLogAttach 里取），不再受主界面筛选影响。
-const logAttachAll = ref<any[]>([])
-const logAttachLoading = ref(false)
-const logAttachQuery = ref('')
-const logAttachProject = ref('')
-const logAttachStatus = ref('')
-const logAttachAgent = ref('')
-const logAttachPrio = ref('')
-const logAttachDateFrom = ref('')
-const logAttachDateTo = ref('')
-const logAttachShowBlocked = ref(false)
-
-/** 一行日志的「人话状态」键：running 优先于 status（与分区同一口径） */
-function logAttachStatusOf(l: any): string {
-  if (!l) return ''
-  if (l.status === 'active') return l.running ? 'running' : 'active'
-  return String(l.status || 'active')
-}
-
-/** 反向索引：附属 id → 主日志。一次算好，候选行按 O(1) 查（不逐行扫全表）。 */
-const logAttachOwnerMap = computed(() => {
-  const m = new Map<string, any>()
-  for (const x of logAttachAll.value || []) {
-    for (const id of Array.isArray(x.attached) ? x.attached : []) {
-      if (!m.has(id)) m.set(id, x)
-    }
-  }
-  return m
+const {
+  logAttachTarget, logAttachPick, logAttachBusy, logAttachAll, logAttachLoading,
+  logAttachQuery, logAttachProject, logAttachStatus, logAttachAgent, logAttachPrio,
+  logAttachDateFrom, logAttachDateTo, logAttachShowBlocked,
+  logAttachProjects, logAttachAgents, logAttachRows, logAttachBlockedCount, logAttachPickedOutside,
+  logAttachStatusOf, logAttachOwnerOf, logAttachMatches,
+  openLogAttach, toggleLogAttachPick, selectAllLogAttachFiltered, clearLogAttachPick,
+  clearLogAttachFilters, saveLogAttach,
+  logGroupMemberIds, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt,
+} = useLogGroups({
+  logs, projects, agentPresets, showToast, loadLogs, offerUndo, logRetainDefault, copyLogsAsPrompt,
 })
-
-/** 谁把这条日记绑成了自己的附属（只看全量候选，不看当前视图） */
-function logAttachOwnerOf(id: string): any {
-  return logAttachOwnerMap.value.get(id) || null
-}
-
-/** 一条候选是否命中当前的全部筛选条件（关键词是多字段 OR，其余是 AND） */
-function logAttachMatches(l: any, q: string): boolean {
-  if (logAttachProject.value && l.project !== logAttachProject.value) return false
-  if (logAttachStatus.value && logAttachStatusOf(l) !== logAttachStatus.value) return false
-  if (logAttachAgent.value && l.agentName !== logAttachAgent.value) return false
-  if (logAttachPrio.value) {
-    if (logAttachPrio.value === '__none__') { if (l.priority) return false }
-    else if (l.priority !== logAttachPrio.value) return false
-  }
-  const d = String(l.logDate || l.created || '').slice(0, 10)
-  if (logAttachDateFrom.value && d < logAttachDateFrom.value) return false
-  if (logAttachDateTo.value && d > logAttachDateTo.value) return false
-  if (q) {
-    const hit = (s: any) => String(s || '').toLowerCase().includes(q)
-    const taskIds = Array.isArray(l.taskIds) ? l.taskIds.join(' ') : String(l.taskId || '')
-    if (!(hit(l.id) || hit(l.title) || hit(l.content) || hit(l.nextSteps)
-      || hit(l.project) || hit(l.agentName) || hit(taskIds) || hit(l.sessionId))) return false
-  }
-  return true
-}
-
-/** 项目下拉：登记项目 + 全量日志里出现过但未登记的项目（不把任何日志藏起来） */
-const logAttachProjects = computed(() => {
-  const m = new Map<string, string>()
-  for (const p of projects.value || []) {
-    if (p && p.id) m.set(p.id, p.name || p.id)
-  }
-  for (const l of logAttachAll.value || []) {
-    if (l.project && !m.has(l.project)) m.set(l.project, l.project)
-  }
-  return Array.from(m, ([id, name]) => ({ id, name }))
-})
-
-/** Agent 下拉：常用预设 + 全量日志里出现过的 Agent */
-const logAttachAgents = computed(() => {
-  const s = new Set<string>()
-  for (const a of agentPresets.value || []) if (a) s.add(String(a))
-  for (const l of logAttachAll.value || []) if (l.agentName) s.add(String(l.agentName))
-  return Array.from(s).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-})
-
-/**
- * 候选行。三条纪律：
- *  ① 已勾选的即使不命中筛选也**必须留下**（否则勾了又被筛没了，人会以为丢了）；
- *  ② 已被别的组占走 / 自己是一组主日志的，默认不列（勾了也存不进去），
- *     打开「显示已占用」才列出来并写明原因；
- *  ③ 排序跟着使用频率走：已选 → 进行中 → 待处理 → 已完成/归档，同级按创建倒序。
- */
-const logAttachRows = computed(() => {
-  const main = logAttachTarget.value
-  if (!main) return []
-  const q = logAttachQuery.value.trim().toLowerCase()
-  const rank = (r: any) => {
-    if (r.picked) return 0
-    if (r.blocked) return 5
-    const st = logAttachStatusOf(r.log)
-    return st === 'running' ? 1 : st === 'active' ? 2 : st === 'completed' ? 3 : 4
-  }
-  const rows: any[] = []
-  for (const l of logAttachAll.value || []) {
-    if (l.id === main.id) continue
-    const picked = logAttachPick.value.includes(l.id)
-    const ownGroup = Array.isArray(l.attached) && l.attached.length > 0
-    const owner = logAttachOwnerOf(l.id)
-    const blocked = !picked && (ownGroup || (owner && owner.id !== main.id))
-    if (blocked && !logAttachShowBlocked.value) continue
-    if (!picked && !logAttachMatches(l, q)) continue
-    rows.push({
-      log: l,
-      picked,
-      blocked: !!blocked,
-      reason: ownGroup
-        ? '它自己是一组的主日志'
-        : (owner && owner.id !== main.id ? `已被「${owner.title || owner.id}」绑定` : ''),
-    })
-  }
-  return rows.sort((a, b) => (rank(a) - rank(b))
-    || String(b.log.created || '').localeCompare(String(a.log.created || '')))
-})
-
-/** 默认视图下有多少条「存在但不可选」的日志（用于如实说明） */
-const logAttachBlockedCount = computed(() => {
-  const main = logAttachTarget.value
-  if (!main) return 0
-  let n = 0
-  for (const l of logAttachAll.value || []) {
-    if (l.id === main.id || logAttachPick.value.includes(l.id)) continue
-    const ownGroup = Array.isArray(l.attached) && l.attached.length > 0
-    const owner = logAttachOwnerOf(l.id)
-    if (ownGroup || (owner && owner.id !== main.id)) n++
-  }
-  return n
-})
-
-/** 已勾选、但不在当前筛选结果里的条数（弹窗底部如实显示） */
-const logAttachPickedOutside = computed(() => {
-  const visible = new Set(logAttachRows.value.map((r: any) => r.log.id))
-  return logAttachPick.value.filter((id) => !visible.has(id)).length
-})
-
-function toggleLogAttachPick(id: string): void {
-  const i = logAttachPick.value.indexOf(id)
-  if (i >= 0) logAttachPick.value.splice(i, 1)
-  else {
-    if (logAttachPick.value.length >= 20) {
-      showToast('一个主日志最多带 20 条附属日志', 'error')
-      return
-    }
-    logAttachPick.value.push(id)
-  }
-}
-
-/** 全选当前筛选结果（最多 20 条）；已选但被筛掉的不动 */
-function selectAllLogAttachFiltered(): void {
-  const ids = logAttachRows.value.filter((r: any) => !r.blocked).map((r: any) => r.log.id)
-  const keep = logAttachPick.value.filter((id) => !ids.includes(id))
-  const next = Array.from(new Set([...keep, ...ids]))
-  if (next.length > 20) {
-    logAttachPick.value = next.slice(0, 20)
-    showToast('一个主日志最多带 20 条附属日志，已选前 20 条', 'info')
-  } else {
-    logAttachPick.value = next
-  }
-}
-
-function clearLogAttachPick(): void { logAttachPick.value = [] }
-
-function clearLogAttachFilters(): void {
-  logAttachQuery.value = ''
-  logAttachProject.value = ''
-  logAttachStatus.value = ''
-  logAttachAgent.value = ''
-  logAttachPrio.value = ''
-  logAttachDateFrom.value = ''
-  logAttachDateTo.value = ''
-}
-
-async function saveLogAttach(): Promise<void> {
-  const main = logAttachTarget.value
-  if (!main) return
-  if (logAttachPick.value.length > 20) {
-    showToast('一个主日志最多带 20 条附属日志', 'error')
-    return
-  }
-  logAttachBusy.value = true
-  try {
-    const r: any = await window.tegula.logsSetAttached(main.id, toPlain(logAttachPick.value))
-    if (!r?.ok) { showToast(`绑定失败：${r?.error || '未知原因'}`, 'error'); return }
-    showToast(logAttachPick.value.length ? `已绑定 ${logAttachPick.value.length} 条附属日志` : '已解除全部附属', 'success')
-    logAttachTarget.value = null
-    await loadLogs()
-  } catch (e: any) {
-    showToast(`绑定异常：${e?.message || e}`, 'error')
-  } finally {
-    logAttachBusy.value = false
-  }
-}
-
-/** 组内全部成员 id（主日志在第一位；含当前筛选没显示的附属 —— 动作不能只作用于看见的） */
-function logGroupMemberIds(main: any): string[] {
-  const ids = [main?.id, ...(Array.isArray(main?.attached) ? main.attached : [])].filter(Boolean)
-  return Array.from(new Set(ids))
-}
-
-/** 快照一组日志的当前状态（撤销用）。筛选把某条藏起来时，仍然去全量里把它读回来。 */
-async function snapLogsById(ids: string[]): Promise<Array<{ id: string; snap: any }>> {
-  const byId = new Map<string, any>((logs.value || []).map((x: any) => [x.id, x]))
-  const missing = ids.filter((id) => !byId.has(id))
-  if (missing.length) {
-    try {
-      const all: any[] = await window.tegula.logsList({})
-      for (const l of all || []) byId.set(l.id, l)
-    } catch { /* 读不到就少撤几条，toast 会如实报 */ }
-  }
-  return ids.map((id) => {
-    const l: any = byId.get(id)
-    if (!l) return null
-    return {
-      id,
-      snap: {
-        status: l.status, running: !!l.running, agentDone: !!l.agentDone,
-        completed: l.completed || null, retainDays: l.retainDays ?? null,
-        retainUntil: l.retainUntil || null, note: l.note || '', archiveNote: l.archiveNote || '',
-      },
-    }
-  }).filter(Boolean) as Array<{ id: string; snap: any }>
-}
-
-async function restoreLogSnaps(snaps: Array<{ id: string; snap: any }>): Promise<number> {
-  let ok = 0
-  for (const s of snaps) {
-    try {
-      const r: any = await window.tegula.logsRestoreState(s.id, s.snap)
-      if (r?.ok) ok++
-    } catch { /* 单条失败不中断 */ }
-  }
-  await loadLogs()
-  return ok
-}
-
-/** 一键全进行中 / 全部撤销（只动待处理/进行中的成员） */
-async function toggleLogGroupRunning(main: any, running: boolean): Promise<void> {
-  const ids = logGroupMemberIds(main)
-  const snaps = await snapLogsById(ids)
-  const r: any = await window.tegula.logsGroupRunning(main.id, !!running)
-  if (!r?.ok) { showToast(`操作失败：${r?.error || '未知原因'}`, 'error'); return }
-  const n = (r.changed || []).length
-  if (!n) showToast(running ? '全组都已在「进行中」或已完成' : '全组都没有挂「进行中」', 'info')
-  else showToast(running ? `全组 ${n} 条已标为「进行中」` : `全组 ${n} 条已撤销「进行中」`, 'success')
-  await loadLogs()
-  if (snaps.length) {
-    offerUndo(`${running ? '全组进行中' : '全组撤销进行中'}：${main.title || main.id}`, async () => {
-      await restoreLogSnaps(snaps)
-      showToast('已撤回全组状态', 'success')
-    })
-  }
-}
-
-/** 一键全完成（不再要求先勾选；跳过已完成/已归档） */
-async function completeLogGroupItem(main: any): Promise<void> {
-  const ids = logGroupMemberIds(main)
-  const snaps = await snapLogsById(ids)
-  const days = logRetainDefault.value
-  const r: any = await window.tegula.logsGroupComplete(main.id, days, '')
-  if (!r?.ok) { showToast(`完成失败：${r?.error || '未知原因'}`, 'error'); return }
-  const n = (r.changed || []).length
-  const skipped = (r.skipped || []).length
-  showToast(n ? `全组已完成 ${n} 条${skipped ? `（${skipped} 条已是完成/归档，跳过）` : ''}` : '全组都已经完成或归档', n ? 'success' : 'info')
-  await loadLogs()
-  if (n && snaps.length) {
-    offerUndo(`全组完成：${main.title || main.id}`, async () => {
-      const ok = await restoreLogSnaps(snaps)
-      if (ok !== snaps.length) showToast(`只撤回了 ${ok}/${snaps.length} 条`, 'error')
-      else showToast('已撤回全组完成', 'success')
-    })
-  }
-}
-
-/** 开工单：主日志 + 全部附属，一次复制（不再依赖多选顺序） */
-async function copyLogGroupAsPrompt(main: any): Promise<void> {
-  // 顺序 = 主日志 + 绑定时勾选的顺序（即使当前筛选把某条藏起来，也要带给 agent）
-  await copyLogsAsPrompt(logGroupMemberIds(main))
-}
-
 const {
   toggleSelectAllLogs, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy, executeBatchLogPriority,
   logPurgeOpen, logPurgeDate, logPurgePreview, logPurgeBusy,
@@ -9589,7 +9282,10 @@ onMounted(() => {
   // 测试专用（假 preload 才有 __fcTest）：清空撤销栈。多级栈之后，
   // 「撤一步 → 条子消失」不再天然成立，e2e 需要一个"从零开始"的按钮。
   const fcTest = (window as any).__fcTest
-  if (fcTest && typeof fcTest === 'object') fcTest.clearUndo = () => dismissUndo()
+  if (fcTest && typeof fcTest === 'object') {
+    // 真 Electron 里 __fcTest 可能被冻结/不可扩展；测试钩子失败不该变成产品未捕获错误。
+    try { (fcTest as any).clearUndo = () => dismissUndo() } catch { /* noop */ }
+  }
   // 点通知回到具体对象（2026-10-29 dsh-notify 借鉴 #2）；preload 没这个通道时静默跳过，不留僵尸监听
   try { offNotifyFocus = (window as any).tegula?.onNotifyFocus?.((pp: any) => { void onNotifyFocus(pp) }) || null } catch { offNotifyFocus = null }
   // ⚠ 免责声明优先于一切引导：没同意之前不弹数据目录向导（先同意再用）。

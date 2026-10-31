@@ -52,6 +52,35 @@ async function js(code) {
 }
 
 /**
+ * 打开一个页签：先找常驻 .vbtn，找不到就开「更多」再点菜单项。
+ *
+ * 2026-10-25 起低频页签（启动台 / 技能 / 服务）被收进「更多」菜单，
+ * 旧断言直接找 `.vbtn` 会一直超时 —— 那是测试路径过期，不是页签没了。
+ * 返回 'direct' | 'more' | 'no'（'no' = 真的没有这个页签）。
+ */
+async function openViewTab(label) {
+  const r = await js(`(() => {
+    const d = Array.prototype.slice.call(document.querySelectorAll('.vbtn'))
+      .find(b => (b.textContent || '').trim() === ${JSON.stringify(label)})
+    if (d) { d.click(); return 'direct' }
+    const m = document.querySelector('.more-btn')
+    if (m) { m.click(); return 'more' }
+    return 'no'
+  })()`)
+  if (r === 'more') {
+    await sleep(300)
+    const clicked = await js(`(() => {
+      const b = Array.prototype.slice.call(document.querySelectorAll('.more-opt'))
+        .find(x => (x.textContent || '').indexOf(${JSON.stringify(label)}) >= 0)
+      if (b) { b.click(); return true }
+      return false
+    })()`)
+    return clicked ? 'more' : 'no'
+  }
+  return r
+}
+
+/**
  * 预写「免责声明已确认」记录再重载（2026-10-17）。
  *
  * 背景：10-16 落地的**首启强制免责声明**是覆盖全窗的合规闸。测试 profile 里没有确认
@@ -1495,9 +1524,9 @@ async function main() {
 
   // ── 17. 技能安装专区（2026-09-26 卡 038：功能在、界面不在）──────────────
   //     真点：页签 → 卡片 → 复制提示词 / 复制全文 / 装到 Hermes / 打开目录
-  const skillsNavOk = await waitFor(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '技能')`, 4000, '技能页签出现')
-  check('★ 有「技能」页签（此前完全没有入口，所以"毫无存在感"）', skillsNavOk)
-  check('★ 能点到「技能」页签', await js(CLICK_BY_TEXT('技能')))
+  const skillsNav = await openViewTab('技能')
+  check('★ 有「技能」页签（此前完全没有入口，所以"毫无存在感"）', skillsNav !== 'no')
+  check('★ 能点到「技能」页签', skillsNav !== 'no')
   const skillsViewOk = await waitFor(`document.querySelector('main.skills-view')`, 6000, '技能视图渲染')
   check('★ 技能安装专区已渲染（不是白屏/占位）', skillsViewOk)
   check('技能卡片按真源条数渲染（只数自发布的那类，外部导入的另算）',
@@ -1653,8 +1682,9 @@ async function main() {
   //     vite 的 8090 被登在打包 exe 上 → 点「启动」永远"空闲" → 被读成"启动台坏了"。
   //     暮雨口径：「端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。」
   //     新模型：**入口是应用，端口是观测结果**；用户一个端口都不用填。
-  check('★ 有「服务」页签', await js(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '服务')`))
-  check('★ 能点到「服务」页签', await js(CLICK_BY_TEXT('服务')))
+  const servicesNav = await openViewTab('服务')
+  check('★ 有「服务」页签', servicesNav !== 'no')
+  check('★ 能点到「服务」页签', servicesNav !== 'no')
   check('★ 服务页已渲染（不是白屏/占位）', await waitFor(`document.querySelector('main.services-view')`, 6000, '服务视图'))
   check('★ 切过去就真去拉了服务状态', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
   // ⚠ 2026-10-16（用户第 2 条「启动台还是被端口束缚住了」）：那块「启动台应用」分区
@@ -1921,7 +1951,7 @@ async function main() {
 
   // ── 21. 装到别的 agent（回执第 2 条：只有 Hermes 可装）─────────────────
   //   原话：「技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes，我赶时间懒得做，没测。」
-  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '技能'); if (b) b.click(); return !!b })()`)
+  await openViewTab('技能')
   check('切到技能页会去拉 agent 目标', await waitFor(`window.__fcTest.callCount('agentsList') >= 1`, 5000, 'agentsList'))
   check('agent 目标列表渲染出来', await waitFor(`document.querySelectorAll('.agent-row').length >= 3`, 5000, 'agent 行'),
     String(await js(`document.querySelectorAll('.agent-row').length`)))
@@ -1950,7 +1980,7 @@ async function main() {
   // ── 22. 服务页：导出快照 + 空闲一键启动（回执第 3 条）──────────────────
   //   原话：「服务页没看到 8090 有动静：绒花墨坊 :8090 空闲 启动台 没有进程在监听
   //          也没任何导出分析功能，直接复制给你了，懒得搞。」
-  await js(`(() => { const b = [...document.querySelectorAll('.vbtn')].find(x => x.textContent.trim() === '服务'); if (b) b.click(); return !!b })()`)
+  await openViewTab('服务')
   check('切到服务页拉到清单', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
   // 前面的服务测试改过清单（取消了 8753、把未登记的 8090 登记走了）——
   // 快照断言要的是"内容真的反映当前清单"，所以先灌一份确定的数据再刷新
@@ -2168,8 +2198,8 @@ async function main() {
   // 关联日志条目：单击就能打开（修前这条列表项**没有任何点击处理器** —— 点了毫无反应，
   // 用户只好反复点、以为是"要双击"，所以这条用源码级断言钉死入口存在）
   check('★ 任务详情的关联日志条目绑定了单击打开（修前是个死 div，怎么点都没反应）',
-    /class="task-log-item"[\s\S]{0,120}@click="openLogPreview\(log\)"/.test(
-      require('fs').readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'App.vue'), 'utf-8')))
+    /class="task-log-item"[\s\S]{0,160}@click="openLogPreview\(log\)"/.test(
+      require(path.resolve(__dirname, '../../scripts/test/_sources.cjs')).rendererSource()))
 
   // ── 24. 卡 037 第二批：待办右键菜单 + 置顶（不动托盘，用户已定口径）────
   await js(`window.__fcTest.setTodos([])`)
@@ -2305,7 +2335,7 @@ async function main() {
     !(await js(`!!document.querySelector('.todo-drop-hint') || !!document.querySelector('.drop-hint.global')`)))
 
   // 技能页自己有投放区 —— 不该再被误判成「本页不支持导入」并盖一层全局灰条
-  await js(CLICK_BY_TEXT('技能'))
+  await openViewTab('技能')
   await sleep(500)
   await js(`(() => { const z = document.querySelector('main.skills-view'); const dt = new DataTransfer()
     z.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt })); return 1 })()`)
