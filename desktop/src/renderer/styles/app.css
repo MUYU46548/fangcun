@@ -1077,8 +1077,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* Preview modal */
 .meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.meta .k { font-size: 11px; color: var(--muted); font-weight: 600; }
-.meta .v { font-size: 13px; }
+/* 2026-10-31（截图目检抓到）：k/v 两个 span 直接相邻 → 「IDtask-demo-001」糊成一串。
+   任务详情与回收站预览共用这一组；固定标签列 + 值可换行，长文件名不会撑破弹窗。 */
+.meta > div { display: flex; align-items: baseline; gap: 8px; }
+.meta .k { flex: none; min-width: 52px; font-size: 11px; color: var(--muted); font-weight: 600; }
+.meta .v { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .body label { font-size: 11px; color: var(--muted); font-weight: 600; display: block; margin-bottom: 4px; }
 .body-text { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 

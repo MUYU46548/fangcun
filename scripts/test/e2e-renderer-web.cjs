@@ -246,6 +246,9 @@ function main() {
       // 给小一点，正好落在「推送 3s」这种真实可读的状态。
       ['看板', '列视图', 'sync-capsule', 'synccap', 4500],
       ['看板', '列表视图', 'board-list'],
+      // 2026-10-31：看板第三摆法（信息卡墙）此前**没有任何截图证据** —— 拆分时最容易
+      // "DOM 断言全绿、看起来却坏了"的恰恰是它（网格/色档/ID 芯片）。补一张，目检用。
+      ['看板', '信息卡墙', 'board-cards'],
       ['待办', '清单', 'todo-list'],
       ['待办', '卡片网格', 'todo-grid'],
       // 没有视图切换器的页签：view 传空，driver 只会切页签
@@ -283,6 +286,9 @@ function main() {
       ['决策', '', 'decisions-act', 'decact'],
       // 2026-10-14 任务卡右键菜单（第 ④ 步第二单）：换 reka-ui ContextMenu 后的成品长相
       ['看板', '列视图', 'ctx-menu', 'ctxmenu'],
+      // 2026-10-31：任务预览弹窗此前**没有截图证据**（拆分浮层刀时最容易只剩 DOM 断言）。
+      // 拍一张详情弹窗：元信息 / 正文 / 关联日志 / 流转与操作两组按钮都要在画面里。
+      ['看板', '列视图', 'task-preview', 'roverlay'],
       ['设置', '', 'settings'],
       // 2026-10-25：念头长度上限滑块（暮雨第 3 条跟进）—— 拍「拉到 15000」的成品态，
       // 目检就两件事：滑块位置对得上数值、数值与轨道在同一行不换行不溢出。
@@ -424,6 +430,12 @@ function main() {
   const chip = all('.ask-view .ask-chip').find((x) => (x.textContent || '').trim() === '欠着什么')
   if (chip) chip.click()
   await sleep(1200)` : ''}
+  ${extra === 'roverlay' ? `
+  // 任务预览弹窗（2026-10-31）：点列视图第一张卡，把详情弹窗拍下来。
+  // 目检点：标题状态、元信息行、正文、关联日志、底部「流转 / 操作」两组按钮都在。
+  const pcard = all('#board .col > .card')[0]
+  if (pcard) pcard.click()
+  await sleep(800)` : ''}
   ${extra === 'ctxmenu' ? `
   // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：在列视图第一张卡上派发 contextmenu，
   // 把 reka-ui ContextMenu 的成品长相拍下来（位置由 floating-ui 给，不是 left/top 内联坐标）
