@@ -569,6 +569,48 @@ async function main() {
   check('空数据备份明确报错而非假成功', !rEmpty.ok && rEmpty.errors.length > 0, JSON.stringify(rEmpty.errors))
   dataMod.setDataDir(TEST_ROOT)
 
+  // ── 加密备份（2026-10-31）：开了就必须有口令，且产出可被解开的 .fcz ──────
+  const encDir = path.join(TEST_ROOT, 'backups-enc')
+  cfgMod.setBackupConfig({ encrypt: { enabled: true, remember: false, passwordEnc: '' }, localDir: encDir })
+  const rNoPw = await bk.runBackup({ trigger: 'manual', localOnly: true })
+  check('★★ 开了加密却没口令 → 明确失败，且**不产出明文包**',
+    !rNoPw.ok && rNoPw.errors.join(' ').includes('没有可用口令') &&
+    (!fs.existsSync(encDir) || fs.readdirSync(encDir).filter((f) => /\.(zip|fcz)$/.test(f)).length === 0),
+    JSON.stringify(rNoPw.errors))
+
+  const ENC_PW = 'correct-horse-2026'
+  const rEnc = await bk.runBackup({ trigger: 'manual', localOnly: true, password: ENC_PW })
+  check('★ 给口令后产出 .fcz 且结果标了 encrypted', rEnc.ok && rEnc.encrypted && /\.fcz$/.test(String(rEnc.localPath)),
+    JSON.stringify({ ok: rEnc.ok, path: rEnc.localPath, errors: rEnc.errors }))
+  if (rEnc.ok && rEnc.localPath) {
+    const buf = fs.readFileSync(rEnc.localPath)
+    const cryptoMod = require(path.join(DIST, 'backup', 'crypto.js'))
+    check('★★ .fcz 不是能直接打开的 zip（FCENC1 头）', cryptoMod.isEncryptedBackup(buf))
+    check('★ 解开后是合法 zip（校验通过）', (() => {
+      try { return packer.verifyZip(cryptoMod.decryptBackup(buf, ENC_PW)).ok } catch { return false }
+    })())
+    check('★ 本地列表能列出 .fcz（不是只认 .zip）',
+      bk.listLocalBackups().some((x) => x.name.endsWith('.fcz')))
+    check('★ sidecar 的 sha256 是对**密文**算的',
+      (() => {
+        const sc = rEnc.localPath + '.sha256'
+        if (!fs.existsSync(sc)) return false
+        return fs.readFileSync(sc, 'utf-8').trim() === packer.sha256OfBuffer(buf)
+      })())
+
+    const badDir = path.join(TEST_ROOT, 'restore-bad')
+    const badR = await rs.restoreFrom({ kind: 'local', path: rEnc.localPath }, { targetDir: badDir, password: 'wrong-password-x' })
+    check('★★ 错口令恢复被拒（不是"恢复了个空目录"）',
+      !badR.ok && badR.errors.join(' ').includes('口令不对'), JSON.stringify(badR.errors))
+
+    const goodDir = path.join(TEST_ROOT, 'restore-enc')
+    const okR = await rs.restoreFrom({ kind: 'local', path: rEnc.localPath }, { targetDir: goodDir, password: ENC_PW })
+    check('★★ 正确口令能真恢复（加密包不是"打得开但恢复不了"）',
+      okR.ok && okR.restoredFiles > 0 && fs.existsSync(path.join(goodDir, 'task-data')),
+      JSON.stringify({ ok: okR.ok, files: okR.restoredFiles, errors: okR.errors }))
+  }
+  cfgMod.setBackupConfig({ encrypt: { enabled: false, remember: false, passwordEnc: '' }, localDir: '' })
+
   srv.kill()
   return summary()
 }
@@ -616,8 +658,10 @@ function checkBackupOrder() {
   check('★ 远端备份列表也是 mtime 倒序（同一类 bug 的另一处）',
     /listRemoteBackups[\s\S]{0,900}Date\.parse\(b\.mtime/.test(rsrc))
   check('渲染层取「最新一份」备份同样按 mtime 倒序（2026-09-26：已无下拉，取最新靠这个排序）', (() => {
-    const vue = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/App.vue'), 'utf-8')
-    return /bkExportCandidates[\s\S]{0,600}mtimeMs|bkExportCandidates[\s\S]{0,600}Date\.parse/.test(vue)
+    // 2026-10-31：这段逻辑已随备份设置搬进 composables/useBackup.ts（App.vue 拆分），
+    // 判据改成扫全部渲染层源码 —— 只更严，不更松。
+    const src = require('./_sources.cjs').rendererSource()
+    return /bkExportCandidates[\s\S]{0,600}Date\.parse/.test(src)
   })())
 }
 

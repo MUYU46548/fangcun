@@ -54,6 +54,20 @@ export interface BackupConfig {
   remote: BackupRemote
   /** 瘦身旋钮（体积控制）。老配置里没有这个键 → 走默认值 */
   slim: BackupSlimConfig
+  /** 备份加密（2026-10-31）：默认关。开了之后产出 .fcz（FCENC1 容器）。 */
+  encrypt: BackupEncrypt
+}
+
+export interface BackupEncrypt {
+  enabled: boolean
+  /**
+   * 是否用系统密钥库（safeStorage）记住口令。
+   * ⚠ 记住 = 方寸自己能解开（自动备份才跑得起来），防的是"网盘/别人拿到文件"，
+   *   **不防"这台机器已经被别人登录"** —— 这句必须原样告诉用户。
+   */
+  remember: boolean
+  /** safeStorage 密文（base64）；空 = 没记住 */
+  passwordEnc: string
 }
 
 export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
@@ -76,6 +90,8 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
   // 默认就瘦身：>10MB 的单文件不进包（记进 manifest 的 omittedFiles，不静默）。
   // 附件目录**默认不排除** —— 那是用户自己的东西，去留应该由他在界面上看见体积后再决定。
   slim: { excludeLogAttachments: false, maxFileMB: 10 },
+  // 默认不加密：加密会把"恢复"从"双击就行"变成"要记得口令"，不该替用户默认打开。
+  encrypt: { enabled: false, remember: false, passwordEnc: '' },
 }
 
 /** 执行日志附件目录（相对数据根的路径前缀，用来做瘦身判定与体积报告） */
@@ -118,6 +134,7 @@ export function getBackupConfig(): BackupConfig {
           remote: { ...DEFAULT_BACKUP_CONFIG.remote, ...(parsed.remote || {}) },
           // 老配置里没有 slim 键 → 走默认（否则会把瘦身旋钮读成 undefined）
           slim: { ...DEFAULT_BACKUP_CONFIG.slim, ...(parsed.slim || {}) },
+          encrypt: { ...DEFAULT_BACKUP_CONFIG.encrypt, ...(parsed.encrypt || {}) },
         }
         return _config
       }
@@ -131,7 +148,7 @@ export function getBackupConfig(): BackupConfig {
   return _config
 }
 
-export function setBackupConfig(patch: Partial<BackupConfig> & { remote?: Partial<BackupRemote> & { password?: string } }): BackupConfig {
+export function setBackupConfig(patch: Partial<BackupConfig> & { remote?: Partial<BackupRemote> & { password?: string }; encrypt?: Partial<BackupEncrypt> & { password?: string } }): BackupConfig {
   const current = getBackupConfig()
   const next: BackupConfig = {
     ...current,
@@ -140,6 +157,8 @@ export function setBackupConfig(patch: Partial<BackupConfig> & { remote?: Partia
     // ⚠ slim 必须**嵌套合并**，不能靠上面的浅展开 —— 否则渲染层只传 `{maxFileMB}` 时
     //   `excludeLogAttachments` 会被整块覆盖成 undefined（"只改一项却把另一项清零"）。
     slim: { ...current.slim, ...(patch.slim || {}) } as BackupSlimConfig,
+    // 加密同理：只传 `{enabled}` 时不能把 remember/passwordEnc 抹掉。
+    encrypt: { ...current.encrypt, ...(patch.encrypt || {}) } as BackupEncrypt,
   }
 
   // password 是明文入参，绝不落盘 —— 立即转密文
@@ -149,6 +168,18 @@ export function setBackupConfig(patch: Partial<BackupConfig> & { remote?: Partia
   }
   // 删除可能混入的明文字段，防止上游手滑
   delete (next.remote as any).password
+
+  // 备份加密口令：同样只在内存里过一手 → safeStorage 密文。空字符串 = 清除。
+  const encPw = patch.encrypt?.password
+  if (typeof encPw === 'string') {
+    if (encPw === '') {
+      next.encrypt.passwordEnc = ''
+      next.encrypt.remember = false
+    } else if (next.encrypt.remember) {
+      next.encrypt.passwordEnc = encryptSecret(encPw)
+    }
+  }
+  delete (next.encrypt as any).password
 
   normalize(next)
   _config = next
@@ -169,6 +200,12 @@ function normalize(cfg: BackupConfig): void {
   cfg.slim.excludeLogAttachments = !!cfg.slim.excludeLogAttachments
   // 0 = 不限；上限 10240MB（10GB —— 再大就不是"瘦身"了，是误操作）
   cfg.slim.maxFileMB = clampInt(cfg.slim.maxFileMB, 0, 10240, DEFAULT_BACKUP_CONFIG.slim.maxFileMB)
+  if (!cfg.encrypt || typeof cfg.encrypt !== 'object') cfg.encrypt = { ...DEFAULT_BACKUP_CONFIG.encrypt }
+  cfg.encrypt.enabled = !!cfg.encrypt.enabled
+  cfg.encrypt.remember = !!cfg.encrypt.remember
+  cfg.encrypt.passwordEnc = String(cfg.encrypt.passwordEnc || '')
+  // 没记住口令 = 没有密文（防止"关掉记住"之后旧密文还留在配置里）
+  if (!cfg.encrypt.remember) cfg.encrypt.passwordEnc = ''
 }
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
@@ -224,15 +261,32 @@ export function hasRemotePassword(): boolean {
   return !!getBackupConfig().remote.passwordEnc
 }
 
+/** 备份加密口令（明文，只在内存里用；调用方用完别留）。没记住 / 解不开都返回空串。 */
+export function getBackupEncryptPassword(): string {
+  const cfg = getBackupConfig()
+  if (!cfg.encrypt.passwordEnc) return ''
+  try {
+    return decryptSecret(cfg.encrypt.passwordEnc)
+  } catch {
+    return ''
+  }
+}
+
 /** 出 IPC 的配置：密码字段一律替换为布尔标记 */
 export function getBackupConfigForRenderer() {
   const cfg = getBackupConfig()
   const { passwordEnc, ...remoteSafe } = cfg.remote
+  const { passwordEnc: encPw, ...encSafe } = cfg.encrypt
   return {
     ...cfg,
     remote: {
       ...remoteSafe,
       hasPassword: !!passwordEnc,
+      password: '',
+    },
+    encrypt: {
+      ...encSafe,
+      hasPassword: !!encPw,
       password: '',
     },
     secretStorageAvailable: isSecretStorageAvailable(),

@@ -10,7 +10,7 @@ import { useBackup } from '../../composables/useBackup'
 
 // 单例：拿到的就是 App 里那份状态（toast 已在 App 首次调用时注入）
 const {
-  backupInfo, openBackupFolder, bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile,
+  backupInfo, openBackupFolder, bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkSaveEncrypt, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile,
 } = useBackup()
 </script>
 
@@ -250,10 +250,39 @@ const {
               </div>
             </div>
   
+            <!-- 备份加密（2026-10-31）：默认关。开了产出 .fcz，恢复要口令。
+                 为什么不做成默认：加密会把"双击就能恢复"变成"必须记得口令"，
+                 这不是能替用户默认打开的东西。 -->
+            <div class="bk-enc">
+              <div class="bk-enc-head">
+                <b>🔐 备份加密</b>
+                <span class="bk-dim">默认关；开了产出 <code>.fcz</code>（AES-256-CTR + HMAC-SHA256）</span>
+              </div>
+              <label class="bk-cb">
+                <input class="font-[inherit]" type="checkbox" v-model="bkForm.encryptEnabled" @change="bkSaveEncrypt" />
+                加密备份包
+                <span class="bk-dim">—— 备份离开这台机器时是密文；没装方寸也能用 <code>fangcun-restore.py</code> 解</span>
+              </label>
+              <div class="bk-inline" v-if="bkForm.encryptEnabled">
+                <span>口令</span>
+                <input class="bk-enc-pw font-[inherit]" type="password" v-model="bkForm.encryptPassword"
+                  :placeholder="bkForm.hasEncryptPassword ? '已保存（留空=不修改）' : '至少 8 位；忘了就打不开备份'" />
+                <label class="bk-cb">
+                  <input class="font-[inherit]" type="checkbox" v-model="bkForm.encryptRemember" @change="bkSaveEncrypt" />
+                  用系统密钥库记住（自动备份才跑得起来）
+                </label>
+                <button class="ghost bk-mini" @click="bkSaveEncrypt">保存口令</button>
+              </div>
+              <div class="bk-dim bk-enc-warn" v-if="bkForm.encryptEnabled">
+                ⚠ 记住口令 = 方寸自己能解开（自动备份才能跑）。它防的是「网盘/别人拿到文件」，
+                <b>不防「这台电脑已经被人登录」</b>。口令忘了 = 备份打不开，方寸没有后门。
+              </div>
+            </div>
+
             <div class="bk-notice">
               <b>数据安全须知</b>
               <ul>
-                <li>备份包内含任务数据<strong>完整明文内容</strong>，未加密。请勿放入公开可访问的目录或公开分享链接。</li>
+                <li>备份包内含任务数据<strong>完整明文内容</strong>，除非你开了上面的「备份加密」。未加密的包请勿放入公开可访问的目录或公开分享链接。</li>
                 <li>API Key 等密钥<strong>永不进入备份包</strong>；从备份恢复后，LLM 与 WebDAV 配置需要重新填写。</li>
                 <li>恢复会覆盖当前数据。应用会自动为现有数据打快照并在失败时回滚，但请勿在恢复过程中断电或强制退出。</li>
                 <li>云端副本由你所用的网盘客户端负责同步，方寸无法校验远端是否完整。建议定期用「校验备份包」抽查下载回来的副本。</li>

@@ -35,6 +35,11 @@ function createBackup(opts: UseBackupOptions) {
     /** 备份瘦身（2026-10-11 用户第 2 条） */
     excludeLogAttachments: boolean
     maxFileMB: number
+    /** 备份加密（2026-10-31） */
+    encryptEnabled: boolean
+    encryptRemember: boolean
+    encryptPassword: string
+    hasEncryptPassword: boolean
   }
 
   const bkForm = ref<BkForm>({
@@ -42,6 +47,7 @@ function createBackup(opts: UseBackupOptions) {
     enabled: true, intervalHours: 6, firstDelayMinutes: 5,
     localKeep: 10, remoteKeep: 10, allowSelfSigned: false, localDir: '',
     excludeLogAttachments: false, maxFileMB: 10,
+    encryptEnabled: false, encryptRemember: false, encryptPassword: '', hasEncryptPassword: false,
   })
   /** 备份体积报告（进门时拉一次；改瘦身旋钮后重拉）*/
   const bkSize = ref<any>(null)
@@ -119,6 +125,10 @@ function createBackup(opts: UseBackupOptions) {
       localDir: c.localDir || '',
       excludeLogAttachments: !!(c.slim && c.slim.excludeLogAttachments),
       maxFileMB: (c.slim && typeof c.slim.maxFileMB === 'number') ? c.slim.maxFileMB : 10,
+      encryptEnabled: !!(c.encrypt && c.encrypt.enabled),
+      encryptRemember: !!(c.encrypt && c.encrypt.remember),
+      encryptPassword: '',
+      hasEncryptPassword: !!(c.encrypt && c.encrypt.hasPassword),
     }
   }
 
@@ -196,9 +206,15 @@ function createBackup(opts: UseBackupOptions) {
         allowSelfSigned: f.allowSelfSigned,
       },
       slim: { excludeLogAttachments: f.excludeLogAttachments, maxFileMB: f.maxFileMB },
+      encrypt: {
+        enabled: f.encryptEnabled,
+        remember: f.encryptRemember,
+      },
     }
     // 留空 = 沿用已保存密文；只有真输入了新密码才提交
     if (f.password.trim()) patch.remote.password = f.password.trim()
+    // 加密口令同理：留空 = 不改；remember 关掉时后端会顺手清掉旧密文
+    if (f.encryptPassword.trim()) patch.encrypt.password = f.encryptPassword.trim()
 
     const r = await window.tegula.backupSetConfig(patch)
     if (!r.ok) {
@@ -208,6 +224,8 @@ function createBackup(opts: UseBackupOptions) {
     }
     bkForm.value.password = ''
     bkForm.value.hasPassword = !!r.config.remote.hasPassword
+    bkForm.value.encryptPassword = ''
+    bkForm.value.hasEncryptPassword = !!(r.config.encrypt && r.config.encrypt.hasPassword)
     if (!silent) {
       bkMsg.value = '配置已保存'
       bkMsgType.value = 'success'
@@ -232,6 +250,31 @@ function createBackup(opts: UseBackupOptions) {
     bkMsg.value = '瘦身设置已保存'
     bkMsgType.value = 'success'
     await bkLoadSizeReport()
+  }
+
+  /**
+   * 只保存加密开关（2026-10-31）：勾上/取消立刻生效，与瘦身那组同一套手感。
+   * ⚠ 勾了「开启」但没填口令、也没记住过 → 直接拦下并说清，而不是等点备份才失败。
+   */
+  async function bkSaveEncrypt(): Promise<void> {
+    const f = bkForm.value
+    if (f.encryptEnabled && !f.encryptPassword.trim() && !f.hasEncryptPassword) {
+      bkMsg.value = '开启加密需要先填一个口令（至少 8 位）—— 没口令就没法加密，方寸不会退回明文'
+      bkMsgType.value = 'error'
+      return
+    }
+    const patch: any = { encrypt: { enabled: f.encryptEnabled, remember: f.encryptRemember } }
+    if (f.encryptPassword.trim()) patch.encrypt.password = f.encryptPassword.trim()
+    const r: any = await (window as any).tegula.backupSetConfig(patch)
+    if (!r?.ok) {
+      bkMsg.value = '加密设置保存失败：' + (r?.error || '未知错误')
+      bkMsgType.value = 'error'
+      return
+    }
+    bkForm.value.encryptPassword = ''
+    bkForm.value.hasEncryptPassword = !!(r.config?.encrypt && r.config.encrypt.hasPassword)
+    bkMsg.value = f.encryptEnabled ? '已开启备份加密（产出 .fcz）' : '已关闭备份加密（产出 .zip）'
+    bkMsgType.value = 'success'
   }
 
   function bkReportResult(r: any, label: string) {
@@ -261,7 +304,7 @@ function createBackup(opts: UseBackupOptions) {
     bkBusy.value = true
     bkMsg.value = ''
     try {
-      bkReportResult(await window.tegula.backupRun(), '备份')
+      bkReportResult(await window.tegula.backupRun({ password: bkRunPassword() }), '备份')
     } finally {
       bkBusy.value = false
       await bkLoadList()
@@ -269,12 +312,20 @@ function createBackup(opts: UseBackupOptions) {
     }
   }
 
+  /** 本次备份用的加密口令：输入框里刚填的优先；没填就让主进程用设置里记住的那个 */
+  function bkRunPassword(): string | undefined {
+    const f = bkForm.value
+    if (!f.encryptEnabled) return undefined
+    const typed = f.encryptPassword.trim()
+    return typed || undefined
+  }
+
   async function bkRunLocalOnly() {
     if (bkBusy.value) return
     bkBusy.value = true
     bkMsg.value = ''
     try {
-      bkReportResult(await window.tegula.backupRunLocalOnly(), '本地备份')
+      bkReportResult(await window.tegula.backupRunLocalOnly({ password: bkRunPassword() }), '本地备份')
     } finally {
       bkBusy.value = false
       await bkLoadList()
@@ -309,7 +360,15 @@ function createBackup(opts: UseBackupOptions) {
       const source = bkTab.value === 'local'
         ? { kind: 'local', path: b.path }
         : { kind: 'remote', name: b.name }
-      const r = await window.tegula.backupRestore(source)
+      // 2026-10-31：加密备份（.fcz）要口令 —— 填过就带上，没填就交给主进程用"记住的那个"
+      const isEnc = /\.fcz$/i.test(String(b.name || b.path || ''))
+      const typed = bkForm.value.encryptPassword.trim()
+      if (isEnc && !typed && !bkForm.value.hasEncryptPassword) {
+        bkMsg.value = '这份备份是加密的（.fcz）：请在下面「备份加密」里填一次口令（或勾选记住），再点恢复'
+        bkMsgType.value = 'error'
+        return
+      }
+      const r = await window.tegula.backupRestore(source, isEnc ? (typed || undefined) : undefined)
       if (r.ok) {
         bkMsg.value = `已恢复 ${r.restoredFiles} 个文件；恢复前快照：${r.snapshotDir || '(无)'}`
         bkMsgType.value = 'success'
@@ -559,7 +618,17 @@ function createBackup(opts: UseBackupOptions) {
     )) return
     bkBusy.value = true
     try {
-      const r = await window.tegula.backupRestore({ kind: 'local', path: pick.path })
+      const isEnc = /\.fcz$/i.test(String(pick.path || ''))
+      const typed = bkForm.value.encryptPassword.trim()
+      if (isEnc && !typed && !bkForm.value.hasEncryptPassword) {
+        bkMsg.value = '这份备份是加密的（.fcz）：请在下面「备份加密」里填一次口令（或勾选记住），再点恢复'
+        bkMsgType.value = 'error'
+        return
+      }
+      const r = await window.tegula.backupRestore(
+        { kind: 'local', path: pick.path },
+        isEnc ? (typed || undefined) : undefined,
+      )
       if (r.ok) {
         bkMsg.value = `已恢复 ${r.restoredFiles} 个文件；恢复前快照：${r.snapshotDir || '(无)'}`
         bkMsgType.value = 'success'
@@ -589,7 +658,7 @@ function createBackup(opts: UseBackupOptions) {
   })
 
   return {
-    bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile
+    bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkSaveEncrypt, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile
   }
 }
 

@@ -11,6 +11,7 @@ import * as path from 'path'
 import * as os from 'os'
 import * as data from '../data'
 import { verifyZip, extractZipTo, sha256OfBuffer, BackupManifest } from './packer'
+import { isEncryptedBackup, decryptBackup, BackupCryptoError } from './crypto'
 import { getLocalBackupDir, listLocalBackups } from './index'
 import { downloadRemote, makeClient } from './index'
 
@@ -36,7 +37,7 @@ const RESTORE_TARGETS = ['task-data', 'registry.yaml', 'docs']
  */
 export async function restoreFrom(
   source: { kind: 'local'; path: string } | { kind: 'remote'; name: string },
-  opts?: { targetDir?: string }
+  opts?: { targetDir?: string; password?: string }
 ): Promise<RestoreResult> {
   const errors: string[] = []
   const warnings: string[] = []
@@ -82,6 +83,22 @@ export async function restoreFrom(
     }
   } else {
     warnings.push('缺少 .sha256 校验文件，已退化为结构校验')
+  }
+
+  // ── 2.5 加密包先解密（sha256 是对**密文**算的，所以校验顺序不能反）──────
+  if (isEncryptedBackup(zipBuffer)) {
+    const pw = String(opts?.password || '').trim()
+    if (!pw) {
+      errors.push('这是加密备份（.fcz），恢复需要口令 —— 请在恢复对话框里填一次')
+      return result
+    }
+    try {
+      zipBuffer = decryptBackup(zipBuffer, pw)
+      warnings.push('加密备份，已用你给的口令解开')
+    } catch (e) {
+      errors.push(e instanceof BackupCryptoError ? e.message : `解密失败：${(e as Error).message}`)
+      return result
+    }
   }
 
   const verify = verifyZip(zipBuffer)

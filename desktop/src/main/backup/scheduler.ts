@@ -71,7 +71,7 @@ function scheduleNext(explicitDelayMs?: number): void {
   if (typeof timer.unref === 'function') timer.unref()
 }
 
-async function tick(trigger: 'manual' | 'scheduled' | 'startup'): Promise<RunResult | null> {
+async function tick(trigger: 'manual' | 'scheduled' | 'startup', opts: { password?: string } = {}): Promise<RunResult | null> {
   if (running) {
     appendBackupLog(`SKIP trigger=${trigger} 上一次备份尚未结束`)
     return null
@@ -80,7 +80,7 @@ async function tick(trigger: 'manual' | 'scheduled' | 'startup'): Promise<RunRes
   broadcast()
   let result: RunResult | null = null
   try {
-    result = await runBackup({ trigger })
+    result = await runBackup({ trigger, password: opts.password })
     if (result.ok) {
       lastSummary = `成功 · ${result.files} 个文件 · ${(result.rawBytes / 1024).toFixed(0)} KB` +
         (result.remotePath ? ' · 已上云' : result.warnings.length ? ' · 仅本地' : '')
@@ -111,9 +111,9 @@ async function tick(trigger: 'manual' | 'scheduled' | 'startup'): Promise<RunRes
   return result
 }
 
-/** 手动触发（IPC 用），会重置下一次定时 */
-export async function runBackupNow(): Promise<RunResult | null> {
-  return tick('manual')
+/** 手动触发（IPC 用），会重置下一次定时。2026-10-31：可传一次性口令（加密备份用，不落盘）。 */
+export async function runBackupNow(opts: { password?: string } = {}): Promise<RunResult | null> {
+  return tick('manual', opts)
 }
 
 export function startScheduler(): void {

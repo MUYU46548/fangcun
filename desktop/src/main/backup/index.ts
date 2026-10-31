@@ -23,11 +23,15 @@ import {
 import { BACKUP_INCLUDES, LOG_ATTACHMENTS_REL, scopeSources } from './scope'
 import { extractZipTo, extractFileFromZip } from './packer'
 import { WebdavClient, WebdavError } from './webdav'
+import { encryptBackup, BackupCryptoError } from './crypto'
+import { getBackupEncryptPassword } from './config'
 
 export interface RunOptions {
   trigger?: 'manual' | 'scheduled' | 'startup'
   /** 只备本地，跳过远端（远端未配置时自动跳过） */
   localOnly?: boolean
+  /** 本次加密口令（只在内存里过一手；不给就用设置里记住的那个） */
+  password?: string
 }
 
 export interface RunResult {
@@ -43,6 +47,8 @@ export interface RunResult {
   durationMs: number
   zipSha256: string
   verifyOk: boolean
+  /** 这份包是不是加密的（.fcz / FCENC1） */
+  encrypted: boolean
   errors: string[]
   warnings: string[]
   excludedSecrets: string[]
@@ -92,7 +98,7 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     localPath: null, localBytes: 0,
     remotePath: null, remoteBytes: 0,
     files: 0, rawBytes: 0, durationMs: 0,
-    zipSha256: '', verifyOk: false,
+    zipSha256: '', verifyOk: false, encrypted: false,
     errors, warnings, excludedSecrets: [],
     omittedFiles: [], omittedBytes: 0,
     rotated: [], rotatedFreedBytes: 0,
@@ -115,7 +121,6 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
   result.excludedSecrets = snapshot.manifest.excludedSecrets
   result.omittedFiles = snapshot.manifest.omittedFiles || []
   result.omittedBytes = snapshot.manifest.omittedBytes || 0
-
   if (result.files === 0) {
     errors.push('没有可备份的数据文件（task-data/registry.yaml/docs 均为空或不存在）')
     return finish(result, started)
@@ -131,6 +136,7 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
   }
 
   // ── 2. 强制自校验（不通过就不落盘、不上传） ──────────────────────────
+  // ⚠ 校验对象**永远是明文 zip**：加密是在校验之后做的，不能因为"要加密"就跳过校验。
   const verify = verifyZip(snapshot.zipBuffer)
   result.verifyOk = verify.ok
   if (!verify.ok) {
@@ -138,16 +144,42 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     return finish(result, started)
   }
 
+  // ── 2.5 加密（2026-10-31，可选）──────────────────────────────────────
+  // 开了加密就必须有口令：本次传入 > 设置里记住的 > 直接报错（**不许静默退回明文**）。
+  let payload = snapshot.zipBuffer
+  let payloadSha = snapshot.zipSha256
+  let ext = '.zip'
+  let contentType = 'application/zip'
+  if (cfg.encrypt.enabled) {
+    const pw = String(opts.password || '').trim() || getBackupEncryptPassword()
+    if (!pw) {
+      errors.push('备份加密已开启，但没有可用口令 —— 请在设置里填一次（或勾选"记住口令"），本次已中止（不会偷偷退回明文）')
+      return finish(result, started)
+    }
+    try {
+      payload = encryptBackup(snapshot.zipBuffer, pw)
+      payloadSha = sha256OfBuffer(payload)
+      ext = '.fcz'
+      contentType = 'application/octet-stream'
+      result.encrypted = true
+      result.zipSha256 = payloadSha
+    } catch (e) {
+      const msg = e instanceof BackupCryptoError ? e.message : (e as Error).message
+      errors.push(`加密失败：${msg}`)
+      return finish(result, started)
+    }
+  }
+
   // ── 3. 本地落盘 ──────────────────────────────────────────────────────
   const localDir = getLocalBackupDir()
   const base = backupFileBase()
   try {
     fs.mkdirSync(localDir, { recursive: true })
-    const zipPath = path.join(localDir, `${base}.zip`)
-    fs.writeFileSync(zipPath, snapshot.zipBuffer)
+    const archivePath = path.join(localDir, `${base}${ext}`)
+    fs.writeFileSync(archivePath, payload)
 
-    // sidecar：sha256 + manifest，恢复与审计用
-    fs.writeFileSync(`${zipPath}.sha256`, snapshot.zipSha256, 'utf-8')
+    // sidecar：sha256（**对落盘那份文件**算，加密包就是密文的哈希）+ manifest，恢复与审计用
+    fs.writeFileSync(`${archivePath}.sha256`, payloadSha, 'utf-8')
     fs.writeFileSync(
       path.join(localDir, `${base}.manifest.json`),
       JSON.stringify(snapshot.manifest, null, 2),
@@ -155,14 +187,14 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     )
 
     // 回读校验：确认落盘内容与内存一致（防磁盘写入静默损坏）
-    const readBack = fs.readFileSync(zipPath)
-    if (sha256OfBuffer(readBack) !== snapshot.zipSha256) {
+    const readBack = fs.readFileSync(archivePath)
+    if (sha256OfBuffer(readBack) !== payloadSha) {
       errors.push('本地写入后回读校验失败（磁盘内容与内存不一致）')
-      try { fs.rmSync(zipPath, { force: true }) } catch {}
+      try { fs.rmSync(archivePath, { force: true }) } catch {}
       return finish(result, started)
     }
 
-    result.localPath = zipPath
+    result.localPath = archivePath
     result.localBytes = readBack.length
   } catch (e) {
     errors.push(`本地写入失败：${(e as Error).message}`)
@@ -218,9 +250,9 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
 
     await client.ensureCollection('')
 
-    const zipName = `${base}.zip`
-    await client.put(zipName, snapshot.zipBuffer, 'application/zip')
-    await client.put(`${zipName}.sha256`, Buffer.from(snapshot.zipSha256, 'utf-8'), 'text/plain')
+    const archiveName = `${base}${ext}`
+    await client.put(archiveName, payload, contentType)
+    await client.put(`${archiveName}.sha256`, Buffer.from(payloadSha, 'utf-8'), 'text/plain')
     await client.put(
       `${base}.manifest.json`,
       Buffer.from(JSON.stringify(snapshot.manifest, null, 2), 'utf-8'),
@@ -228,12 +260,12 @@ export async function runBackup(opts: RunOptions = {}): Promise<RunResult> {
     )
 
     // 核对远端大小 —— 上传"看起来成功"但截断的情况必须抓出来
-    const remoteSize = await client.statSize(zipName)
-    if (remoteSize !== null && remoteSize !== snapshot.zipBuffer.length) {
-      errors.push(`远端大小与本地不一致（远端 ${remoteSize} / 本地 ${snapshot.zipBuffer.length}），备份可能被截断`)
+    const remoteSize = await client.statSize(archiveName)
+    if (remoteSize !== null && remoteSize !== payload.length) {
+      errors.push(`远端大小与本地不一致（远端 ${remoteSize} / 本地 ${payload.length}），备份可能被截断`)
     } else {
-      result.remotePath = `${cfg.remote.url}/${zipName}`
-      result.remoteBytes = snapshot.zipBuffer.length
+      result.remotePath = `${cfg.remote.url}/${archiveName}`
+      result.remoteBytes = payload.length
     }
 
     // 远端轮换：一次备份产出 3 个文件，按 base 聚合成一个"备份组"
@@ -301,7 +333,7 @@ export function listLocalBackups(): Array<{ name: string; path: string; bytes: n
   if (!fs.existsSync(dir)) return []
   const out: Array<{ name: string; path: string; bytes: number; mtime: string; sha256: string | null }> = []
   for (const f of fs.readdirSync(dir)) {
-    if (!f.endsWith('.zip')) continue
+    if (!/\.(zip|fcz)$/.test(f)) continue
     const p = path.join(dir, f)
     try {
       const st = fs.statSync(p)
@@ -353,7 +385,7 @@ export function diagnoseRotation(dir: string, keep: number, maxMb: number): {
   }
   const groups = collectGroups(dir)
   const bytes = groups.reduce((s, g) => s + g.bytes, 0)
-  const unrecognized = fs.readdirSync(dir).filter((f) => f.endsWith('.zip') && !/^fangcun-data-\d{8}-\d{6}\.zip$/.test(f))
+  const unrecognized = fs.readdirSync(dir).filter((f) => /\.(zip|fcz)$/.test(f) && !/^fangcun-data-\d{8}-\d{6}\.(zip|fcz)$/.test(f))
   const sorted = [...groups].sort((a, b) => a.mtimeMs - b.mtimeMs)
   const oldest = sorted[0] || null
   const newest = sorted[sorted.length - 1] || null
@@ -387,13 +419,13 @@ export function diagnoseRotation(dir: string, keep: number, maxMb: number): {
 function collectGroups(dir: string): Array<{ base: string; bytes: number; mtimeMs: number }> {
   const bases = new Map<string, { bytes: number; mtimeMs: number }>()
   for (const f of fs.readdirSync(dir)) {
-    const m = f.match(/^(fangcun-data-\d{8}-\d{6})\.(zip|zip\.sha256|manifest\.json)$/)
+    const m = f.match(/^(fangcun-data-\d{8}-\d{6})\.(zip|fcz|zip\.sha256|fcz\.sha256|manifest\.json)$/)
     if (!m) continue
     try {
       const st = fs.statSync(path.join(dir, f))
       const cur = bases.get(m[1]) || { bytes: 0, mtimeMs: 0 }
       cur.bytes += st.size
-      if (m[2] === 'zip') cur.mtimeMs = st.mtimeMs
+      if (m[2] === 'zip' || m[2] === 'fcz') cur.mtimeMs = st.mtimeMs
       bases.set(m[1], cur)
     } catch { /* 单个不可读跳过 */ }
   }
@@ -412,12 +444,13 @@ export function rotateLocal(dir: string, keep: number, maxMb = 0, dryRun = false
   const empty: RotateReport = { removed: [], freedBytes: 0, kept: 0, unrecognized: [], reasons: [] }
   if (!fs.existsSync(dir)) return empty
   const groups = collectGroups(dir)
-  const unrecognized = fs.readdirSync(dir).filter((f) => f.endsWith('.zip') && !/^fangcun-data-\d{8}-\d{6}\.zip$/.test(f))
+  const unrecognized = fs.readdirSync(dir).filter((f) => /\.(zip|fcz)$/.test(f) && !/^fangcun-data-\d{8}-\d{6}\.(zip|fcz)$/.test(f))
   // 最旧在前（mtime 升序；mtime 异常的按 base 兜底排序，保证确定性）
   const sorted = [...groups].sort((a, b) => a.mtimeMs - b.mtimeMs || a.base.localeCompare(b.base))
   const report: RotateReport = { removed: [], freedBytes: 0, kept: sorted.length, unrecognized, reasons: [] }
 
-  const groupFiles = (base: string) => ['.zip', '.zip.sha256', '.manifest.json'].map((ext) => path.join(dir, base + ext))
+  // 加密包是 .fcz：删除时两种扩展名都扫一遍，谁在删谁（同 base 不会同时存在两份，但手工导入可能）
+  const groupFiles = (base: string) => ['.zip', '.zip.sha256', '.fcz', '.fcz.sha256', '.manifest.json'].map((ext) => path.join(dir, base + ext))
 
   for (const g of sorted) {
     const overCount = sorted.length - report.removed.length > keep
@@ -448,10 +481,11 @@ async function rotateRemote(client: WebdavClient, keep: number): Promise<number>
   let removed = 0
   while (sorted.length > keep) {
     const b = sorted.shift()!
-    for (const name of [`${b}.zip`, `${b}.zip.sha256`, `${b}.manifest.json`]) {
+    // 加密与非加密两种扩展名都试一遍（.fcz / .zip），删不到就跳过
+    for (const name of [`${b}.zip`, `${b}.zip.sha256`, `${b}.fcz`, `${b}.fcz.sha256`, `${b}.manifest.json`]) {
       try {
         await client.remove(name)
-        if (name.endsWith('.zip')) removed++
+        if (/\.(zip|fcz)$/.test(name)) removed++
       } catch { /* 远端删除失败不中断轮换 */ }
     }
   }

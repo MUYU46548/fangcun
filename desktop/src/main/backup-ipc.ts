@@ -10,7 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {
   getBackupConfig, setBackupConfig, getBackupConfigForRenderer,
-  getBackupPaths, decryptSecret, BackupConfig,
+  getBackupPaths, decryptSecret, BackupConfig, getBackupEncryptPassword,
 } from './backup/config'
 import {
   runBackup, listLocalBackups, listRemoteBackups, getLocalBackupDir,
@@ -79,9 +79,9 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  guardedHandle('backup:run', async () => {
+  guardedHandle('backup:run', async (_e, input?: { password?: string }) => {
     try {
-      const result = await runBackupNow()
+      const result = await runBackupNow({ password: input?.password })
       if (!result) return { ok: false, error: '已有备份任务在执行中' }
       return { ok: result.ok, result }
     } catch (e) {
@@ -89,9 +89,9 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  guardedHandle('backup:runLocalOnly', async () => {
+  guardedHandle('backup:runLocalOnly', async (_e, input?: { password?: string }) => {
     try {
-      const result = await runBackup({ trigger: 'manual', localOnly: true })
+      const result = await runBackup({ trigger: 'manual', localOnly: true, password: input?.password })
       return { ok: result.ok, result }
     } catch (e) {
       return fail(e)
@@ -147,12 +147,15 @@ export function registerBackupIpcHandlers(): void {
     }
   })
 
-  guardedHandle('backup:restore', async (_e, source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }) => {
+  guardedHandle('backup:restore', async (_e, source: { kind: 'local'; path: string } | { kind: 'remote'; name: string }, password?: string) => {
     try {
       if (!source || (source.kind === 'local' && !source.path) || (source.kind === 'remote' && !source.name)) {
         return { ok: false, error: '恢复来源参数不完整' }
       }
-      const r = await restoreFrom(source)
+      const r = await restoreFrom(source, {
+        // 本次填的口令优先；没填就用设置里记住的那个（都没给时 restoreFrom 会明确报错）
+        password: String(password || '').trim() || getBackupEncryptPassword(),
+      })
       return { ok: r.ok, ...r }
     } catch (e) {
       return fail(e)
