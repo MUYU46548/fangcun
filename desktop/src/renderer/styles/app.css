@@ -28,6 +28,12 @@
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
   --danger:  #b44141;    /* 白字 3.65 → 5.57 */
+  /* 语义色的「当文字」档（2026-10-31）：--success/--warning/--danger 是按**白字压深底**调的，
+     反过来当浅底上的小字时，--warning 压 --tint 只有 4.12（低于 AA）。这三个更深一档，
+     专用于浅底文字；语义色本身仍保持不变。 */
+  --ok-text: #3f6b3a;
+  --warn-text: #8a5a00;
+  --danger-text: #b3261e;
   /* 主题令牌（2026-09-29 用户第 4 条）：下面五个此前**散落在各处的写死十六进制**
      （hover 染色、面板底、次级描边、装饰光斑），主题只是把它们换成随主题变的令牌。
      默认值 = 原值，所以「雾灰紫（默认）」一个像素都不动。 */
@@ -520,7 +526,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 }
 .viewsw {
   display: inline-flex; gap: 2px; flex: none;
-  background: #ecedf3; border: 1px solid var(--border); border-radius: 10px; padding: 2px;
+  background: var(--tint); border: 1px solid var(--border); border-radius: 10px; padding: 2px;
 }
 button.vsb {
   border: 0; background: transparent; font-family: inherit; cursor: pointer;
@@ -532,7 +538,7 @@ button.vsb:hover { color: var(--ink); }
 /* 2026-10-17 暮雨第 4 条：「有些带阴影，有些是扁平化圆角按钮（我更喜欢这种）」——
    视图切换这里原来靠一层 1px 投影表示"选中"，与旁边的扁平按钮不是一套语言。
    改成**扁平**：白底 + 一圈描边，选中靠底色与描边说话，不用阴影。 */
-button.vsb.on { background: #fff; color: var(--ink); box-shadow: none; border: 1px solid var(--border); padding: 3px 11px; }
+button.vsb.on { background: var(--card); color: var(--ink); box-shadow: none; border: 1px solid var(--border); padding: 3px 11px; }
 .pagehead-hint {
   font-size: 11.5px; color: var(--muted); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -542,7 +548,7 @@ button.vsb.on { background: #fff; color: var(--ink); box-shadow: none; border: 1
 .pvw-switch {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   font-size: 12px; color: var(--ink); cursor: pointer; user-select: none;
-  padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: #fff;
+  padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--card);
 }
 .pvw-switch:hover { border-color: var(--accent-soft); background: var(--tint-2); }
 .pvw-switch-chk { margin: 0; accent-color: var(--accent); cursor: pointer; }
@@ -578,13 +584,13 @@ button.lpill {
 button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2); }
 .lpill .chev {
   flex: 0 0 auto; width: 0; height: 0;
-  border-left: 5px solid #8b8b9e; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
   transition: transform 0.15s ease;
 }
 .lpill .chev.open { transform: rotate(90deg); }
 .lpill .gdot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
 .lpill .glabel { font-weight: 700; }
-.lpill .gn { background: var(--accent-soft); color: #4a4368; border-radius: 999px; padding: 0 7px; font-size: 10.5px; font-weight: 600; }
+.lpill .gn { background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 0 7px; font-size: 10.5px; font-weight: 600; }
 .gdot-draft { background: #9ca3af; }
 .gdot-review { background: #d9a44a; }
 .gdot-todo { background: #9ca3af; }
@@ -715,7 +721,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 三角用 CSS 边框画，不用 ▸/▾ 字形 —— 应用字体里这两个字符可能缺字，渲染成看不见的空白 */
 .col h3 .chev {
   flex: 0 0 auto; width: 0; height: 0; margin-right: 2px;
-  border-left: 5px solid #8b8b9e;
+  border-left: 5px solid var(--muted);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   transition: transform 0.15s ease;
@@ -830,7 +836,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card-tip-title { font-size: 12.5px; font-weight: 600; line-height: 1.45; word-break: break-word; }
 .card-tip-body { margin-top: 4px; font-size: 11.5px; color: var(--muted); line-height: 1.5; word-break: break-word; }
 .card-tip-meta { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
-.card-tip-pri { background: var(--tint); color: #4a4368; border-radius: 6px; padding: 0 5px; font-weight: 600; }
+.card-tip-pri { background: var(--tint); color: var(--ink); border-radius: 6px; padding: 0 5px; font-weight: 600; }
 .card-tip .ptags { margin-top: 5px; }
 
 /* 详情面板按钮分组：流转（改状态）与操作（不改状态）分开，避免一排按钮堆砌 */
@@ -888,7 +894,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .ttl { font-size: 13px; font-weight: 600; line-height: 1.4; }
-.batch { display: inline-block; background: var(--accent-soft); color: #4a4368; border-radius: 6px; font-size: 10px; padding: 1px 6px; margin-right: 5px; font-weight: 600; }
+.batch { display: inline-block; background: var(--accent-soft); color: var(--ink); border-radius: 6px; font-size: 10px; padding: 1px 6px; margin-right: 5px; font-weight: 600; }
 .st { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
 .st-draft { background: #eceded; color: #5f6672; }
 .st-review { background: #fef3c7; color: #92400e; }
@@ -1027,7 +1033,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 日志「关联任务」多选列表（2026-09-25 第 2 条） */
 .log-task-multi {
   max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
-  background: #fff; padding: 4px 6px; margin-bottom: 6px;
+  background: var(--card); padding: 4px 6px; margin-bottom: 6px;
 }
 .log-task-opt {
   display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
@@ -1115,7 +1121,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 行可点（卡 002：点整行进项目详情）—— 可点的东西必须看起来可点；
    异常行保持自己的底色，只给普通行加悬停浅染 */
 .trip-table tbody tr { cursor: pointer; }
-.trip-table tbody tr:not(.trip-anomaly):hover td { background: var(--tint-2, #fbfaff); }
+.trip-table tbody tr:not(.trip-anomaly):hover td { background: var(--tint-2); }
 .trip-th-pj { width: 132px; }
 .trip-pj b { display: block; white-space: nowrap; }
 .trip-pid { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
@@ -1143,7 +1149,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    全文在 title 里。限宽是为了不让一列长文本把整张表撑到横向滚。 */
 .trip-owe { max-width: 260px; }
 .trip-owe-t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
-.trip-chip { display: inline-block; background: var(--tint, #f1eefb); color: #4a4368; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
+.trip-chip { display: inline-block; background: var(--tint); color: var(--ink); border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
 .trip-chip.warn { background: #fdf3e2; color: #8a5c16; }
 .trip-health { white-space: nowrap; }
 .trip-hdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
@@ -1196,7 +1202,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-modes label.on { border-color: var(--accent-soft, #c3bce0); background: var(--tint, #f7f5fd); }
 .trip-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .trip-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 9px; background: #fff; cursor: pointer; }
-.trip-chk.on { border-color: var(--accent-soft, #c3bce0); background: var(--tint, #f7f5fd); color: #4a4368; font-weight: 600; }
+.trip-chk.on { border-color: var(--accent-soft); background: var(--tint); color: var(--ink); font-weight: 600; }
 
 .ovgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; width: 100%; }
 .ocard {
@@ -2483,7 +2489,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-drop-hint, .log-drop-hint, .drop-hint {
   position: fixed; left: 50%; top: 92px; transform: translateX(-50%);
   z-index: 60; pointer-events: none;
-  background: rgba(112,95,171,.96); color: #fff;
+  background: var(--accent); color: var(--card);
   border-radius: 999px; padding: 8px 18px;
   font-size: 12px; font-weight: 700; white-space: nowrap;
   box-shadow: var(--el-3);
@@ -2491,7 +2497,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .drop-hint.global { background: rgba(107,113,128,.97); }
 .todo-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 卡 004：由日志转来的待办 —— 来源徽章（与日志侧 .log-from 成对，prev 范式） */
-.todo-from { font-size: 10px; color: #8b7fb8; background: var(--tint, #f1eefb); border: 1px solid var(--accent-soft, #c3bce0);
+.todo-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 卡 004：待办 → 日志 的入口按钮。与 📅/✏️/× 同款 24×24 图标钮（027 规范）——
    check-button-styles 要求模板里出现的每个 class 都有独立规则，不能借邻居的尺寸类。 */
@@ -2612,9 +2618,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .logs-header h3 { font-size: 16px; font-weight: 700; }
 .logs-ctrls { display: flex; gap: 8px; align-items: center; }
-.log-search { width: 240px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
-.log-search::placeholder { color: #9ca3af; font-size: 10.5px; }
-.log-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+.log-search { width: 240px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }
+.log-search::placeholder { color: var(--muted); font-size: 10.5px; }
+.log-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }
 /* 左右/下内边距从 #board.logs-view 挪到这里（2026-10-11）：容器归零后吸顶条才能满宽 */
 .logs-list { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
 /* 日志卡（2026-09-28 用户第 4/5 条）：
@@ -2622,54 +2628,58 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    待处理/已完成/已归档三种状态改用徽章颜色 + 极淡的卡底差异表达；
    只有「进行中」保留一条醒目色条，因为它是唯一需要一眼扫到的状态。
    阴影也从 var(--shadow)（0 8px 32px，几乎是浮起来的）压到 1px 的贴地投影。 */
-.log-card { padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--el-1); transition: background 0.15s, box-shadow 0.15s; cursor: pointer; }
+/* 2026-10-31（用户：有些元素不随主题换色）：这一整段原来写死了紫/蓝/绿/琥珀，
+   切到粉/蓝/绿/橙/灰主题时只有品牌色变了，这些面还停在默认紫。
+   现在**只读主题令牌**：装饰面走 --tint/--tint-2/--tint-3/--line-2/--accent，
+   状态语义走 --success/--warning/--danger；守卫 check-themes 会检查这一段没有十六进制色。 */
+.log-card { padding: 10px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--el-1); transition: background 0.15s, box-shadow 0.15s; cursor: pointer; }
 .log-card:hover { background: var(--tint-2); box-shadow: var(--el-2); }
-.log-card.completed { background: #fcfdfb; }
-.log-card.archived { background: #fafafb; opacity: .82; }
+.log-card.completed { background: var(--tint-3); }
+.log-card.archived { background: var(--tint-3); opacity: .82; }
 .log-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.log-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; }
-/* 待处理 = 中性灰，刻意不抢眼：它是「默认态」，不是一种"进展" */
-.log-status-badge.active { background: #eceef2; color: #4b5162; }
-/* 进行中 = 唯一的醒目徽章（只能手动打上） */
-.log-status-badge.running { background: #dbeafe; color: #1d4ed8; }
-.log-status-badge.completed { background: #dcfce7; color: #166534; }
-.log-status-badge.archived { background: #f3f4f6; color: #5f6672; }
+.log-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; border: 1px solid transparent; }
+/* 待处理 = 中性，刻意不抢眼：它是「默认态」，不是一种"进展" */
+.log-status-badge.active { background: var(--tint); color: var(--ink); border-color: var(--border); }
+/* 进行中 = 唯一的醒目徽章（只能手动打上），用品牌色而不是写死的蓝 */
+.log-status-badge.running { background: var(--accent); color: var(--card); }
+.log-status-badge.completed { background: var(--success); color: var(--card); }
+.log-status-badge.archived { background: var(--tint-3); color: var(--muted); border-color: var(--border); }
 /* AI 申请收口（2026-10-30）：不是状态，是一句「等你确认」。琥珀色 = 待你动手，别和完成态混淆 */
 .log-agent-done {
   font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
-  background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; white-space: nowrap;
+  background: var(--tint-3); color: var(--warn-text); border: 1px solid var(--warning); white-space: nowrap;
 }
 .log-card-title { flex: 1; font-size: 13px; font-weight: 600; }
 /* 日志优先级徽章（卡 001）：三档配色沿用待办的同款语义色（高=红底深红字 / 中=琥珀 / 低=灰），
    且都是深字压浅底 —— 与 check-themes 的对比度口径一致 */
 .log-prio-badge { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; flex: none; line-height: 1.5; }
-.log-prio-badge.lp-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
-.log-prio-badge.lp-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
-.log-prio-badge.lp-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
+.log-prio-badge.lp-high { background: var(--tint-3); color: var(--danger-text); border: 1px solid var(--danger); }
+.log-prio-badge.lp-mid { background: var(--tint-3); color: var(--warn-text); border: 1px solid var(--warning); }
+.log-prio-badge.lp-low { background: var(--tint-3); color: var(--muted); border: 1px solid var(--border); }
 .log-card-date { font-size: 10.5px; color: var(--muted); }
 .log-card-body { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
 .log-card-meta { display: flex; flex-wrap: wrap; align-items: center; row-gap: 4px; gap: 10px; font-size: 10.5px; color: var(--muted); }
 .log-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .log-task { color: var(--accent); }
-.log-completed { color: #5e9154; }
+.log-completed { color: var(--ok-text); }
 /* 「✎ 改过」戳（2026-10-18）：已完成的日志可改，但改过要看得见 —— 与完成戳同排、用中性色，
    不抢 ✓ 的绿，也不做成告警（改日志是正当操作，不是事故）。 */
-.log-edited { font-size: 10px; color: #8a6d3b; background: #fdf5e3; border: 1px solid #e8d5a8;
+.log-edited { font-size: 10px; color: var(--warn-text); background: var(--tint-3); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 编辑已完成的日志时，弹窗顶部那句"能改 + 会留痕"的说明（不是报错，用信息底色） */
 #log-edit-modal .log-closed-hint { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
   background: var(--tint); border: 1px solid var(--border); line-height: 1.65; }
-.log-agent { color: #8b7fb8; }
-.log-prev-agent { color: #8b7fb8; }
-.log-session { color: #6b7a99; font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-agent { color: var(--accent); }
+.log-prev-agent { color: var(--accent); }
+.log-session { color: var(--muted); font-family: monospace; font-size: 9.5px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 卡 004：由待办转来的日志 —— 来源徽章（与待办侧 .todo-from 成对，prev 范式） */
-.log-from { font-size: 10px; color: #8b7fb8; background: var(--tint, #f1eefb); border: 1px solid var(--accent-soft, #c3bce0);
+.log-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 日志 ID：卡面可见 + 点一下只复制 ID（2026-09-29 用户第 2 条）。
    --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是「可点复制」的通用暗示。 */
 .log-id { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 10px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: copy; border-bottom: 1px dotted var(--border); user-select: none; }
 .log-id:hover { color: var(--accent); border-bottom-color: var(--accent); }
-.log-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.2); }
+.log-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
 .log-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 /* 主日志 / 附属日志（2026-10-30 暮雨第 4 条；第 2 条二次返工）：
@@ -2679,31 +2689,32 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 10.5px; font-weight: 700; white-space: nowrap; border-radius: 6px; padding: 1px 6px;
   border: 1px solid var(--border); cursor: default;
 }
-.log-group-badge.main { color: #5a478f; background: #f1edfb; border-color: #d9d0f2; }
-.log-group-badge.child { color: #6b6250; background: #f7f4ea; border-color: #e5ddc8; cursor: pointer; }
+.log-group-badge.main { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
+.log-group-badge.child { color: var(--muted); background: var(--tint-3); border-color: var(--border); cursor: pointer; }
 .log-group-badge.child:hover { border-color: var(--accent); color: var(--accent); }
 
-/* 附属框：浅紫底 + 左侧实线，像主日志伸出来的一层抽屉，而不是又一张卡。 */
-.log-group-box { margin-top: 8px; border: 1px solid #e3dcf6; border-radius: 9px;
-  background: #fbfaff; overflow: hidden; }
+/* 附属框：浅染底 + 左侧实线，像主日志伸出来的一层抽屉，而不是又一张卡。
+   颜色一律走主题令牌 —— 2026-10-31 之前这里是写死的浅紫，切主题不跟着变。 */
+.log-group-box { margin-top: 8px; border: 1px solid var(--line-2); border-radius: 9px;
+  background: var(--tint-3); overflow: hidden; }
 .log-group-box-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  padding: 5px 8px; background: #f5f1fe; border-bottom: 1px solid #ebe4fa; }
-.log-group-box-head .lg-box-title { font-size: 11.5px; font-weight: 700; color: #5a478f; }
-.log-group-box-head .lg-box-count { font-size: 10.5px; color: #7a6aa8; }
+  padding: 5px 8px; background: var(--tint); border-bottom: 1px solid var(--line-2); }
+.log-group-box-head .lg-box-title { font-size: 11.5px; font-weight: 700; color: var(--accent); }
+.log-group-box-head .lg-box-count { font-size: 10.5px; color: var(--muted); }
 .log-group-box-head .lg-box-stat { font-size: 10.5px; color: var(--muted); }
 .log-group-box-head .lg-box-grow { flex: 1 1 auto; }
-.log-group-box-head .lg-bind { color: #5a478f; border-color: #d9d0f2; background: #fff; }
-.log-group-box-head .lg-done { color: #3f6b3a; border-color: #bcd4b4; background: #fff; }
-.log-group-box-head .lg-prompt { color: #2f6f8f; border-color: #bcd8e2; background: #fff; }
+.log-group-box-head .lg-bind { color: var(--accent); border-color: var(--accent-soft); background: var(--card); }
+.log-group-box-head .lg-done { color: var(--success); border-color: var(--success); background: var(--card); }
+.log-group-box-head .lg-prompt { color: var(--accent); border-color: var(--accent-soft); background: var(--card); }
 .log-group-box-head button { padding: 2px 8px; font-size: 11px; border-radius: 6px; line-height: 1.6; }
 .lg-box-hint { font-size: 10.5px; color: var(--muted); line-height: 1.6; padding: 4px 9px 5px;
-  border-bottom: 1px dashed #eee8fa; }
-.lg-box-hint b { color: #5a478f; font-weight: 600; }
+  border-bottom: 1px dashed var(--line-2); }
+.lg-box-hint b { color: var(--accent); font-weight: 600; }
 .lg-box-rows { display: flex; flex-direction: column; }
 .log-kid-row { display: flex; align-items: center; gap: 7px; min-width: 0;
-  padding: 5px 9px; cursor: pointer; border-top: 1px dashed #f0ebfa; }
+  padding: 5px 9px; cursor: pointer; border-top: 1px dashed var(--line-2); }
 .log-kid-row:first-child { border-top: none; }
-.log-kid-row:hover { background: #f5f1fe; }
+.log-kid-row:hover { background: var(--tint-2); }
 .log-kid-row.done { opacity: .78; }
 .log-kid-row.archived { opacity: .62; }
 .log-kid-row .lk-title { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600;
@@ -2713,18 +2724,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-kid-row .lk-actions { flex: none; display: flex; align-items: center; gap: 3px; opacity: .72; }
 .log-kid-row:hover .lk-actions { opacity: 1; }
 .log-kid-row .lk-btn { padding: 1px 6px; font-size: 10.5px; line-height: 1.6; border-radius: 6px; }
-.log-kid-row .lk-btn.on { background: #fff4e2; border-color: #e2c08c; color: #8a5a00; }
-.log-kid-row .lk-btn.ok { color: #3f6b3a; border-color: #bcd4b4; }
-.log-kid-row .lk-done { color: #3f6b3a; }
+.log-kid-row .lk-btn.on { background: var(--tint-3); border-color: var(--warning); color: var(--warn-text); }
+.log-kid-row .lk-btn.ok { color: var(--ok-text); border-color: var(--success); }
+.log-kid-row .lk-done { color: var(--ok-text); }
 .log-kid-row .lk-edit { color: var(--muted); }
-.log-kid-row .lk-reopen { color: #8a6d3b; }
+.log-kid-row .lk-reopen { color: var(--warn-text); }
 .log-kid-row .lk-run { min-width: 24px; text-align: center; }
 .lg-box-empty, .lg-box-hidden { font-size: 10.5px; color: var(--muted); padding: 7px 10px; line-height: 1.65; }
-.lg-box-hidden { border-top: 1px dashed #eee8fa; background: #fcfbfe; }
-.log-card-actions .log-bind-btn { color: #5a478f; border-color: #d9d0f2; background: #faf9fe; }
-.log-card-actions .log-group-run.on { background: #fff4e2; border-color: #e2c08c; color: #8a5a00; }
-.log-card-actions .log-group-done { color: #3f6b3a; border-color: #bcd4b4; }
-.log-card-actions .log-group-prompt { color: #2f6f8f; border-color: #bcd8e2; }
+.lg-box-hidden { border-top: 1px dashed var(--line-2); background: var(--tint-2); }
+.log-card-actions .log-bind-btn { color: var(--accent); border-color: var(--accent-soft); background: var(--card); }
+.log-card-actions .log-group-run.on { background: var(--tint-3); border-color: var(--warning); color: var(--warn-text); }
+.log-card-actions .log-group-done { color: var(--ok-text); border-color: var(--success); }
+.log-card-actions .log-group-prompt { color: var(--accent); border-color: var(--accent-soft); }
 
 /* 绑定附属弹窗 */
 #log-attach-modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px;
@@ -2739,9 +2750,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 六个可叠加的查询维度：一行放不下就换行，不挤成一条看不懂的工具栏 */
 .la-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
 .la-filters .la-search { flex: 1 1 210px; min-width: 180px; padding: 5px 9px; border: 1px solid var(--border);
-  border-radius: 7px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+  border-radius: 7px; font-size: 12px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }
 .la-filters .la-sel { padding: 4px 7px; border: 1px solid var(--border); border-radius: 7px;
-  font-size: 11.5px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
+  font-size: 11.5px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }
 .la-filters .la-date { font-size: 11px; }
 .la-filters .la-sep { font-size: 11px; color: var(--muted); }
 .la-filters .la-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
@@ -2749,14 +2760,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .la-countline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px;
   color: var(--muted); padding: 1px 0 6px; }
 .la-countline b { color: var(--ink); }
-.la-blocked-note { color: #8a6d3b; }
+.la-blocked-note { color: var(--warning); }
 .la-countline .la-grow { flex: 1 1 auto; }
 .la-countline button { padding: 2px 8px; font-size: 11px; border-radius: 6px; line-height: 1.6; }
 .la-list { flex: 1 1 auto; min-height: 80px; overflow: auto; border: 1px solid var(--border);
   border-radius: 10px; padding: 4px; }
 .la-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
 .la-row:hover { background: var(--tint); }
-.la-row.picked { background: #f5f1fe; }
+.la-row.picked { background: var(--tint); }
 .la-row.blocked { opacity: .68; cursor: not-allowed; }
 .la-row .la-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .la-row .la-title { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2764,8 +2775,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 10px; color: var(--muted); }
 .la-row .la-id { font-family: ui-monospace, Consolas, monospace; font-size: 9.5px; }
 .la-row .la-meta { flex: none; font-size: 10.5px; color: var(--muted); }
-.la-row .la-picked { flex: none; font-size: 10px; font-weight: 700; color: #5a478f; }
-.la-row .la-blocked { flex: none; font-size: 10px; color: #8a6d3b; max-width: 190px;
+.la-row .la-picked { flex: none; font-size: 10px; font-weight: 700; color: var(--accent); }
+.la-row .la-blocked { flex: none; font-size: 10px; color: var(--warning); max-width: 190px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .la-empty { font-size: 11.5px; color: var(--muted); padding: 16px 10px; text-align: center; line-height: 1.7; }
 .la-count { margin-right: auto; font-size: 11.5px; color: var(--muted); }
@@ -2866,7 +2877,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-group-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .log-group-toggle {
   display: inline-flex; align-items: center; gap: 7px; flex: none;
-  background: #fff; border: 1px solid var(--border); border-radius: 99px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 99px;
   padding: 4px 12px 4px 10px; font-size: 12px; color: var(--ink);
   cursor: pointer; font-family: inherit; user-select: none;
 }
@@ -2874,18 +2885,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 三角同样用 CSS 边框画（▸/▾ 字形在应用字体里可能缺字，渲染成看不见的空白） */
 .log-group-toggle .chev {
   flex: 0 0 auto; width: 0; height: 0;
-  border-left: 5px solid #8b8b9e; border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
   transition: transform 0.15s ease;
 }
 .log-group-toggle .chev.open { transform: rotate(90deg); }
 .log-group-toggle .gdot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .log-group-toggle .glabel { font-weight: 700; }
-.log-group-toggle .gn { background: var(--accent-soft); color: #4a4368; border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
+.log-group-toggle .gn { background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
 .log-group-sep.g-pinned .gdot { background: var(--warning); }
-.log-group-sep.g-running .gdot { background: #5a5ce0; }
-.log-group-sep.g-active .gdot { background: #9ca3af; }
+.log-group-sep.g-running .gdot { background: var(--accent); }
+.log-group-sep.g-active .gdot { background: var(--muted); }
 .log-group-sep.g-completed .gdot { background: var(--success); }
-.log-group-sep.g-archived .gdot { background: #b6b2c4; }
+.log-group-sep.g-archived .gdot { background: var(--muted); }
 .log-group-hint { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
 /* ── 日志接力（2026-09-29 第 3 条方案二）：分段开关 / 链头 / 竖轨 / 链标签 / 接力对话框 ── */
@@ -2898,8 +2909,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .log-view-seg .lvs:hover { background: var(--tint-2); color: var(--ink); }
 .log-view-seg .lvs:active { transform: translateY(1px) scale(0.98); }
-.log-view-seg .lvs.on { background: var(--accent); color: #fff; }
-.log-view-seg .lvs.on:hover { background: var(--accent); color: #fff; }
+.log-view-seg .lvs.on { background: var(--accent); color: var(--card); }
+.log-view-seg .lvs.on:hover { background: var(--accent); color: var(--card); }
 
 /* section 包裹层：分区/单条 = display:contents（对布局透明）；链 = 竖轨 */
 .log-section { display: contents; }
@@ -2914,7 +2925,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .chain-rail .log-card { position: relative; }
 .chain-rail .log-card::before {
   content: ""; position: absolute; left: -21px; top: 16px; width: 9px; height: 9px;
-  border-radius: 50%; background: #fff; border: 2px solid var(--accent);
+  border-radius: 50%; background: var(--card); border: 2px solid var(--accent);
 }
 .chain-rail .log-card:last-child::before { background: var(--accent); }
 
@@ -2982,7 +2993,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-more-btn.on { background: var(--tint); border-color: var(--accent-soft); }
 .log-more-btn .more-badge {
   display: inline-block; margin-left: 5px; min-width: 15px; text-align: center;
-  background: var(--accent); color: #fff; border-radius: 999px;
+  background: var(--accent); color: var(--card); border-radius: 999px;
   font-size: 10px; font-weight: 700; padding: 0 4px;
 }
 .log-filter-sep { color: var(--muted); font-size: 11px; }
@@ -2996,13 +3007,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    现在只有手动开了进行中的卡片才有这套外观。 */
 .log-card.running {
   border-left: 4px solid var(--accent);
-  background: linear-gradient(90deg, #f1eefe 0%, #fff 55%);
-  box-shadow: 0 0 0 1px rgba(112, 95, 171, 0.22), var(--el-2);
+  background: linear-gradient(90deg, var(--tint) 0%, var(--card) 55%);
+  box-shadow: 0 0 0 1px var(--accent-soft), var(--el-2);
 }
-.log-card.running .log-status-badge.running { background: #5a5ce0; color: #fff; }
-.log-card.running .log-card-title { color: #4a3f7d; }
+.log-card.running .log-status-badge.running { background: var(--accent); color: var(--card); }
+.log-card.running .log-card-title { color: var(--accent); }
 /* 手动开关按钮：打开时点亮，一眼看出"这条正在跑" */
-.log-run-btn.on { background: #eef4ff; border-color: #9dbdf0; color: #1d4ed8; }
+.log-run-btn.on { background: var(--tint); border-color: var(--accent-soft); color: var(--accent); }
 /* 列表首行 = 最新一份（按最后更新倒序）—— 面对一堆 .zip 时不用自己找 */
 .bk-newest { flex: none; font-size: 10px; font-weight: 700; color: #3f6b3a; background: #e3f1de; border: 1px solid #bcd4b4; border-radius: 99px; padding: 1px 7px; }
 /* 设置页「禁用硬件加速」（2026-09-25 第 1/3/9 条的人工验证杠杆） */
@@ -3288,7 +3299,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   padding: 11px 14px; box-shadow: var(--shadow);
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
 }
-.trash-item:hover { border-color: #d9d2ea; background: #fcfbfe; }
+.trash-item:hover { border-color: var(--accent-soft); background: var(--tint-2); }
 /* 两行式：上行"这是什么任务"、下行"哪个文件 · 多大 · 什么时候删的"。
    原来 4 个信息点挤一行，宽屏下中间空一大片（用户回执"左边很空"的直接观感来源之一）。 */
 .trash-main { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }

@@ -180,6 +180,27 @@ for (const spec of TEXT_COLOR_SELECTORS) {
     bad.length === 0, bad.join('；'))
 }
 
+// ── 日志页的装饰面不许写死颜色（2026-10-31 用户：「有些元素不随主题切换，是写死了吗？」）──
+// 判据：日志卡 / 附属日志框 / 分区头这三段是**纯装饰 + 语义色**，必须全走令牌。
+// 只扫这三段而不是全文件 —— 红=错误、绿=完成这类语义色留在别处是刻意的，一刀切会误杀。
+const cssOnly = fs.readFileSync(APP_CSS, 'utf-8')
+function sliceBetween(start, end) {
+  const a = cssOnly.indexOf(start)
+  const b = end ? cssOnly.indexOf(end, a + 1) : cssOnly.length
+  return a >= 0 && b > a ? cssOnly.slice(a, b) : ''
+}
+const THEMED_BLOCKS = [
+  { label: '日志卡 / 附属框', start: '/* 日志卡（', end: '/* 绑定附属弹窗 */' },
+  { label: '日志分区头', start: '/* 日志页「按状态分区」', end: '/* ── 日志接力' },
+  { label: '进行中卡面', start: '/* 「进行中」的卡面', end: '/* 列表首行' },
+]
+for (const blk of THEMED_BLOCKS) {
+  const body = sliceBetween(blk.start, blk.end)
+  check(`${blk.label}：切片找得到（改名了就把守卫一起改）`, body.length > 80, `length=${body.length}`)
+  const hard = body.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) || []
+  check(`★★ ${blk.label}不写死颜色（切主题必须跟着变）`, hard.length === 0, hard.join(','))
+}
+
 // ── 主题只许是浅色（半吊子暗色 = 文字看不见，墨坊同款硬规矩） ──────────
 for (const id of listNonDefault) {
   const t = Object.assign({}, base, themeBlocks[id])
