@@ -2455,6 +2455,7 @@ import { useLogsView } from './composables/useLogsView'
 import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
 import { useLogEditGuard } from './composables/useLogEditGuard'
+import { useLogHistory } from './composables/useLogHistory'
 import { useLogEditorSave } from './composables/useLogEditorSave'
 import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
@@ -6871,10 +6872,6 @@ const {
 
 const logEdit_ = ref<any>(null)
 // 日志历史版本（2026-10-18 卡 001；2026-10-31 收口）：列表 / 单版预览 / 恢复
-const logHistoryOpen = ref(false)
-const logVersions = ref<any[]>([])
-const logVersionPreview = ref<any>(null)
-const logVersionBusy = ref(false)
 
 // ── 监控台的两块派生数据（2026-10-11，监控台 P0 两件）──────────────────────
 /**
@@ -7471,6 +7468,14 @@ const {
   logBatchMode, logPendingCount, resetPendingAttach, normalizeLogTaskIds,
 })
 
+/** 日志历史版本面板（列表 / 逐版预览 / 恢复任意一版） */
+const {
+  logHistoryOpen, logVersions, logVersionPreview, logVersionBusy,
+  versionSizeText, resetLogHistory, toggleLogHistory, previewLogVersion, restoreLogVersionItem,
+} = useLogHistory({
+  logEdit_, showToast, logEditDirty, markLogSnap, normalizeLogTaskIds, loadLogs,
+})
+
 /** 日志保存 / 保存修改（字段集单源 + 完成归档先回写 + 附件 flush） */
 const { saveLogEdit, saveLogFieldsOnly } = useLogEditorSave({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
@@ -7736,82 +7741,6 @@ function normalizeLogTaskIds(log: any): string[] {
   if (Array.isArray(log?.taskIds) && log.taskIds.length) return log.taskIds.filter(Boolean)
   if (Array.isArray(log?.tasks) && log.tasks.length) return log.tasks.map((x: any) => String(x)).filter(Boolean)
   return log?.taskId ? [String(log.taskId)] : []
-}
-
-/**
- * 历史版本面板的公共小工具（2026-10-18 卡 001；2026-10-31 收口）。
- *
- * 这里补的不是"全站撤销栈"（那要动每条写路径），而是把 `atomicWrite` 本来就在写的
- * `.backup` 接出来：日志与任务卡都能**看见列表、逐版预览、恢复任意一版**。
- */
-function versionSizeText(n: any): string {
-  const v = Number(n) || 0
-  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
-  if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
-  return `${v} B`
-}
-
-function resetLogHistory(): void {
-  logHistoryOpen.value = false
-  logVersions.value = []
-  logVersionPreview.value = null
-  logVersionBusy.value = false
-}
-
-async function toggleLogHistory(): Promise<void> {
-  if (logHistoryOpen.value) { logHistoryOpen.value = false; return }
-  const e = logEdit_.value
-  if (!e?.id) return
-  logHistoryOpen.value = true
-  logVersionPreview.value = null
-  logVersionBusy.value = true
-  try {
-    const vs: any = await window.tegula.logsVersions(e.id)
-    logVersions.value = Array.isArray(vs) ? vs : []
-  } catch (err: any) {
-    logVersions.value = []
-    showToast(`读取历史版本失败：${err?.message || err}`, 'error')
-  } finally {
-    logVersionBusy.value = false
-  }
-}
-
-async function previewLogVersion(v: any): Promise<void> {
-  const e = logEdit_.value
-  if (!e?.id || !v?.file) return
-  logVersionBusy.value = true
-  try {
-    const r: any = await window.tegula.logsVersionGet(e.id, v.file)
-    if (!r?.ok) { showToast(`预览失败：${r?.error || '未知原因'}`, 'error'); return }
-    logVersionPreview.value = r.data
-  } catch (err: any) {
-    showToast(`预览异常：${err?.message || err}`, 'error')
-  } finally {
-    logVersionBusy.value = false
-  }
-}
-
-async function restoreLogVersionItem(v: any): Promise<void> {
-  const e = logEdit_.value
-  if (!e?.id || !v?.file) return
-  const when = v.at ? formatDateTime(v.at) : '这个版本'
-  const dirtyTip = logEditDirty() ? '\n\n⚠ 表单里还没保存的改动会被这一版覆盖。' : ''
-  if (!confirm(`恢复到「${v.title || '(无标题)'}」（${when}）？\n\n标题 / 正文 / 下一步 / 状态都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
-  try {
-    const r: any = await window.tegula.logsRestoreVersion(e.id, v.file)
-    if (!r?.ok) { showToast(`恢复失败：${r?.error || '未知原因'}`, 'error'); return }
-    const fresh: any = await window.tegula.logsGet(e.id)
-    if (fresh?.id) {
-      logEdit_.value = { ...fresh, taskIds: normalizeLogTaskIds(fresh) }
-      markLogSnap()
-    }
-    logHistoryOpen.value = false
-    logVersionPreview.value = null
-    showToast(`已恢复（回到 ${when} 那一版）`, 'success')
-    await loadLogs()
-  } catch (err: any) {
-    showToast(`恢复异常：${err?.message || err}`, 'error')
-  }
 }
 
 /**
