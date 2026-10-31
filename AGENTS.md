@@ -208,7 +208,7 @@
 - **成员**: `registry.yaml` 顶部 `members:`（hermes/human/暮雨），页面设置可增删
 - **项目注册三类**: `projects:`（活跃）/ 文件内注释说明跳过项 / `released:`（已稳定，报告折叠不参与活跃排序）
 - **派活模式 B**（2026-09-06 定案）: `dispatch` 默认只生成命令不拉起 agent，`--go` 保留旧自动拉起
-- **Hermes 集成（2026-10-31 定性）**: **方寸只管自己登记的项目，不镜像 agent 的项目表**。`hermes-sync` / `hermes-open` 是历史接线（sync 读 `hermes project list`，13 个项目全在 Hermes 侧 → 零写入），文档不再承诺双向同步；活着的互操作只有 **MCP**（agent 读方寸）。`project-status.md` 已无仓库内读取方，只当历史产物。
+- **Hermes 集成（2026-10-31 暮雨拍板：保留并维护）**: `hermes-sync` / `hermes-open` **保留**，不做"反向镜像 agent 项目表"这套（sync 读 `hermes project list`，13 个项目全在 Hermes 侧 → 全部 skip、零写入；Hermes 的 `projects.db` 自 9-09 起没再变）。**方寸登记自己的项目，agent 通过 MCP 读方寸** —— 这条是唯一在用的互操作，要持续维护。⚠ Hermes 的 home 是 `HERMES_HOME`（本机 `%LOCALAPPDATA%\hermes`），**不是** `~/.hermes`：`mcpConnect.ts` 与 `check-agent-mcp.cjs` 已按这个顺序解析（2026-10-31 修，此前会把"没接上"报成绿）。
 - **自检**: `tegula doctor`（只读：frontmatter/锁字段/阻塞引用健康检查）
 
 ## 锚点（读文档后先核对 2-3 个，不符以代码为准）

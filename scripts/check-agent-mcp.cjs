@@ -62,9 +62,21 @@ function readDsh() {
   }
 }
 
+/** Hermes 的 home：HERMES_HOME → %LOCALAPPDATA%\hermes → ~/.hermes（2026-10-31 修，见 mcpConnect.ts） */
+function hermesHome() {
+  const env = String(process.env.HERMES_HOME || '').trim()
+  if (env) return env
+  const la = String(process.env.LOCALAPPDATA || '').trim()
+  if (la) {
+    const p = path.join(la, 'hermes')
+    if (fs.existsSync(p)) return p
+  }
+  return path.join(os.homedir(), '.hermes')
+}
+
 /** 从 Hermes 的 config.yaml 里抠出 mcp_servers.fangcun */
 function readHermes() {
-  const p = path.join(os.homedir(), '.hermes', 'config.yaml')
+  const p = path.join(hermesHome(), 'config.yaml')
   if (!fs.existsSync(p)) return { found: false, path: p }
   const txt = fs.readFileSync(p, 'utf-8').replace(/\r\n/g, '\n')
   // 取 `mcp_servers:` 段：从它开始，到下一个**顶格**键（或文件尾）

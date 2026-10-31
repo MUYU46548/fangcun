@@ -194,6 +194,50 @@ function main() {
   check('界面层不再自己写日期算术（无内联 86400000 天差；该常量只许活在 calendar.ts）',
     !/86400000/.test(viewSrc))
 
+  // ── 12. 本周排期（2026-10-31 暮雨第 7 条：日历服务「这周怎么排」）──────
+  // 判据：数字必须与夹具真身对得上；完成/已勾选的不许占负担；时间段任务占满每一天；
+  //      逾期按自然日算；没填时间的不许塞进任何一天。
+  const week = cal.buildWeekPlan(
+    [
+      { id: 'T1', title: '跨三天', status: '进行中', start: '2026-09-21', deadline: '2026-09-23' },
+      { id: 'T2', title: '今天到', status: '待办', deadline: '2026-09-22' },
+      { id: 'T3', title: '没排期', status: '待办' },
+      { id: 'T4', title: '逾期了', status: '待办', deadline: '2026-09-18' },
+      { id: 'T5', title: '做完了', status: '完成', deadline: '2026-09-22' },
+      { id: 'T6', title: '也今天', status: '待办', deadline: '2026-09-22' },
+    ],
+    [
+      { id: 'D1', title: '周六的待办', done: false, due: '2026-09-26' },
+      { id: 'D2', title: '已勾选', done: true, due: '2026-09-21' },
+    ],
+    TODAY,
+  )
+  check('★ 本周从周一起、共 7 天（不是"最近 7 天"）',
+    week.days.length === 7 && week.days[0].iso === '2026-09-21' && week.days[6].iso === '2026-09-27',
+    week.days.map((d) => d.iso).join(','))
+  check('★★ 完成的任务 / 已勾选的待办**不占**本周负担',
+    week.days.reduce((n, d) => n + d.items.filter((x) => x.id === 'T5' || x.id === 'D2').length, 0) === 0)
+  check('★ 时间段任务在覆盖的每一天都算（T1 → 21/22/23 各一件）',
+    ['2026-09-21', '2026-09-22', '2026-09-23'].every((iso) =>
+      week.days.find((d) => d.iso === iso).items.some((x) => x.id === 'T1')),
+    JSON.stringify(week.days.map((d) => d.dow + ':' + d.count)))
+  check('★ 今天几件 = 真身（T1 覆盖今天 + T2 + T6 = 3）', week.todayCount === 3, String(week.todayCount))
+  check('★ 本周合计 = 各天之和（6 件）', week.weekCount === 6, String(week.weekCount))
+  check('★★ 逾期按自然日算（09-18 距今 4 天），且只算未完成的',
+    week.overdue.length === 1 && week.overdue[0].id === 'T4' && week.overdue[0].days === 4,
+    JSON.stringify(week.overdue))
+  check('★ 没填时间的不塞进任何一天，单独计数（T3 + 无 due 的待办）',
+    week.unscheduled === 1, String(week.unscheduled))
+  check('★ 单日 ≥3 件算挤（今天 3 件 → 进 heavyDays）',
+    week.heavyDays.length === 1 && week.heavyDays[0].iso === '2026-09-22',
+    JSON.stringify(week.heavyDays.map((d) => d.dow)))
+  check('★ 一行结论把「本周/今天/逾期/没排期」都说了',
+    /本周排了 6 件/.test(week.text) && /今天 3 件/.test(week.text) && /1 张已逾期/.test(week.text) &&
+    /1 件还没排期/.test(week.text), week.text)
+  check('★ 空数据不抛：0 件也不编"最挤的一天"',
+    (() => { const w = cal.buildWeekPlan([], [], TODAY); return w.weekCount === 0 && w.busiest === null })(),
+    String(cal.buildWeekPlan([], [], TODAY).text))
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')

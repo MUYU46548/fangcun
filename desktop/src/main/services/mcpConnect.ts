@@ -72,6 +72,25 @@ function devRepoRoot(): string {
   return path.resolve(__dirname, '../../../..')
 }
 
+/**
+ * Hermes 的 home 目录（2026-10-31 修）。
+ *
+ * 此前这里（以及 `check-agent-mcp.cjs`）一律按 `~/.hermes` 找 config.yaml ——
+ * 但那不是 Hermes 真正读的位置：本机 `HERMES_HOME` = `%LOCALAPPDATA%\hermes`，
+ * 于是方寸把自己的 fangcun 段念给一个**不生效的文件**听，自检还把「Hermes 已接入」报成绿。
+ * 顺序：`HERMES_HOME` → `%LOCALAPPDATA%\hermes`（存在才用）→ `~/.hermes`。
+ */
+function hermesHome(): string {
+  const env = String(process.env.HERMES_HOME || '').trim()
+  if (env) return env
+  const la = String(process.env.LOCALAPPDATA || '').trim()
+  if (la) {
+    const p = path.join(la, 'hermes')
+    if (isDir(p) || isFile(path.join(p, 'config.yaml'))) return p
+  }
+  return home('.hermes')
+}
+
 /** 开发态的 app 目录（electron 需要它作为第一个参数）：dist/main/services → 上溯 3 层 = desktop/ */
 function devAppDir(): string {
   return path.resolve(__dirname, '../../..')
@@ -264,16 +283,17 @@ export function detectMcpTargets(): McpTarget[] {
     })
   }
 
-  // ⑥ Hermes：~/.hermes/config.yaml
+  // ⑥ Hermes：`HERMES_HOME`（本机 = %LOCALAPPDATA%\hermes）下的 config.yaml —— 不是 ~/.hermes
   {
-    const cfg = home('.hermes', 'config.yaml')
+    const hHome = hermesHome()
+    const cfg = path.join(hHome, 'config.yaml')
     out.push({
       id: 'hermes',
       name: 'Hermes',
-      detected: isFile(cfg) || isDir(home('.hermes')),
-      evidence: isFile(cfg) ? cfg : home('.hermes'),
+      detected: isFile(cfg) || isDir(hHome),
+      evidence: isFile(cfg) ? cfg : hHome,
       configPath: isFile(cfg) ? cfg : undefined,
-      howTo: '把配置段并进 ~/.hermes/config.yaml 的 mcp_servers，会话里 /reload-mcp 即连（技能卡另见上方「装到别的 agent」）。',
+      howTo: `把配置段并进 ${cfg} 的 mcp_servers，会话里 /reload-mcp 即连（技能卡另见上方「装到别的 agent」）。`,
     })
   }
 

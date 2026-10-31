@@ -316,3 +316,120 @@ export function buildMonth<
     otherTotal: otherMonths.reduce((n, g) => n + g.count, 0),
   }
 }
+
+// ── 本周排期（2026-10-31，暮雨第 7 条）──────────────────────────────────
+// 日历要服务的决策只有一句：**这周怎么排？**
+// 月历回答"哪天有什么"，但"这周要不要挪、今天先干哪件、是不是挤爆了"没人回答。
+// 这段就是那三句：本周 / 今天 / 逾期 / 没排期 / 挤爆的那天 —— 全部从真身算。
+
+export interface WeekDayPlan {
+  iso: string
+  /** 周一…周日 */
+  dow: string
+  day: number
+  isToday: boolean
+  count: number
+  items: { kind: 'task' | 'todo'; id: string; title: string }[]
+}
+
+export interface WeekPlan {
+  days: WeekDayPlan[]
+  todayCount: number
+  weekCount: number
+  overdue: { id: string; title: string; days: number }[]
+  /** 一张时间都没填的任务 + 待办（它们才是"要排期"的对象） */
+  unscheduled: number
+  busiest: WeekDayPlan | null
+  /** 单日 ≥3 件的天（挤爆了，该挪） */
+  heavyDays: WeekDayPlan[]
+  /** 一行结论（界面直印，不重算） */
+  text: string
+}
+
+const DOW_CN = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const HEAVY = 3
+
+/**
+ * 本周（周一起）的排期体检。
+ * 口径：
+ *  · 完成 / 驳回 的任务、已勾选的待办**不占**本周负担（它们不用再做）；
+ *  · 时间段任务在覆盖到的每一天都算一件 —— 这是"那几天被占着"的诚实表达；
+ *  · 逾期按 `deadline < 今天`（不含今天）；天数按自然日算，**认不出来不编**；
+ *  · 没填时间的单独计数，不塞进任何一天。
+ */
+export function buildWeekPlan(
+  tasks: CalTaskLike[],
+  todos: CalTodoLike[],
+  today: Date = new Date(),
+): WeekPlan {
+  const base = dayStart(today)
+  const offset = (base.getDay() + 6) % 7           // 周一 = 0
+  const monday = addDays(base, -offset)
+  const days: WeekDayPlan[] = []
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i)
+    days.push({
+      iso: calISO(d),
+      dow: DOW_CN[i],
+      day: d.getDate(),
+      isToday: d.getTime() === base.getTime(),
+      count: 0,
+      items: [],
+    })
+  }
+  const byIso = new Map(days.map((d) => [d.iso, d]))
+
+  let unscheduled = 0
+  const overdue: { id: string; title: string; days: number }[] = []
+
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t || !t.id || isTerminal(t.status)) continue
+    const r = taskRange(t, today)
+    if (!r) { unscheduled++; continue }
+    const dl = parseCalDate(t.deadline, today)
+    if (dl && dayStart(dl) < base) {
+      overdue.push({
+        id: t.id,
+        title: String(t.title || t.id),
+        days: Math.round((base.getTime() - dayStart(dl).getTime()) / MS_DAY),
+      })
+    }
+    for (let d = new Date(r.lo); d.getTime() <= r.hi.getTime(); d = addDays(d, 1)) {
+      const cell = byIso.get(calISO(d))
+      if (!cell) continue
+      cell.count++
+      cell.items.push({ kind: 'task', id: String(t.id), title: String(t.title || t.id) })
+    }
+  }
+
+  for (const td of Array.isArray(todos) ? todos : []) {
+    if (!td || !td.id || td.done) continue
+    const due = parseCalDate(td.due, today)
+    if (!due) { unscheduled++; continue }
+    const cell = byIso.get(calISO(dayStart(due)))
+    if (!cell) continue
+    cell.count++
+    cell.items.push({ kind: 'todo', id: String(td.id), title: String(td.title || td.id) })
+  }
+
+  const weekCount = days.reduce((n, d) => n + d.count, 0)
+  const todayCell = days.find((d) => d.isToday) || null
+  const heavyDays = days.filter((d) => d.count >= HEAVY)
+  const busiest = days.slice().sort((a, b) => b.count - a.count)[0] || null
+  const parts: string[] = [`本周排了 ${weekCount} 件`]
+  if (todayCell) parts.push(`今天 ${todayCell.count} 件`)
+  if (overdue.length) parts.push(`${overdue.length} 张已逾期`)
+  if (unscheduled) parts.push(`${unscheduled} 件还没排期`)
+  if (heavyDays.length) parts.push(`${heavyDays.map((d) => d.dow).join('、')} 挤了 ${HEAVY} 件以上`)
+  return {
+    days,
+    todayCount: todayCell ? todayCell.count : 0,
+    weekCount,
+    overdue,
+    unscheduled,
+    busiest: busiest && busiest.count > 0 ? busiest : null,
+    heavyDays,
+    text: parts.join(' · '),
+  }
+}
+

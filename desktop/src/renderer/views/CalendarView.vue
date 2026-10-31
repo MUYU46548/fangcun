@@ -26,6 +26,17 @@
       <label class="chk cal-chk"><input type="checkbox" :checked="calShowLogs" @change="calToggleLogs" /> 显示日志</label>
       <span class="cal-hint">拖动条目可改期；点条目可指派时间；时间段任务会横跨多天</span>
     </div>
+    <!-- 2026-10-31（暮雨第 7 条）：日历服务的是「这周怎么排？」——
+         月历回答"哪天有什么"，这一条回答"这周挤不挤、今天几件、还有几件没排"。
+         数字全来自 shared 的 buildWeekPlan（纯函数，e2e-calendar 直接断言）。 -->
+    <div class="cal-weekbar">
+      <span class="cw-ico">🗓</span>
+      <span class="cw-txt">{{ week.text }}</span>
+      <span v-if="week.busiest" class="cw-busy">最挤：{{ week.busiest.dow }}（{{ week.busiest.count }} 件）</span>
+      <button v-if="week.unscheduled" class="ghost cw-go" @click="calBottomOpen = true">
+        去排没排期的 {{ week.unscheduled }} 件 →
+      </button>
+    </div>
     <div class="calgrid">
       <div v-for="d in CAL_DOW" :key="d" class="caldow">{{ d }}</div>
       <div v-for="(cell, i) in calCells" :key="i" class="calcell"
@@ -95,6 +106,8 @@
 <script setup lang="ts">
 import { useCalendar } from '../composables/useCalendar'
 import { localPriority } from '../../shared/priority'
+import { buildWeekPlan } from '../calendar'
+import { computed } from 'vue'
 
 const props = defineProps<{
   /** 顶栏筛选后的任务（日历跟着筛选走，这是既有行为） */
@@ -127,12 +140,14 @@ const {
   priority: localPriority,
 })
 
+/** 本周体检（周一起）：今天几件 / 本周几件 / 逾期 / 没排期 / 最挤的那天 —— 纯函数在 calendar.ts */
+const week = computed(() => buildWeekPlan(props.tasks || [], props.todos || []))
+
 /**
  * 点条目：按 kind 分三种去向。
  * 任务要传整个对象（父组件的 openCalAssignTask 要读 start/deadline），
  * 待办只传 id（父组件自己去 todos 里找 due）—— 这是两边函数签名的差异，不是我随手定的。
- */
-function onCalEventClick(ev: any): void {
+ */function onCalEventClick(ev: any): void {
   if (ev.kind === 'todo') { emit('assign-todo', ev.id); return }
   if (ev.kind === 'log') { emit('open-log', ev.id); return }
   const t = calActiveTasks.value.find((x: any) => x.id === ev.id)

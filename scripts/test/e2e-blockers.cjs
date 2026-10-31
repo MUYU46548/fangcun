@@ -29,7 +29,7 @@ if (!fs.existsSync(ART)) {
   console.log('RESULT 0 / 1')
   process.exit(1)
 }
-const { computeBlockerImpact } = require(ART)
+const { computeBlockerImpact, buildBlockerQueue } = require(ART)
 
 console.log('== 阻塞链关键路径 ==')
 
@@ -90,6 +90,34 @@ const before = JSON.stringify(chain)
 computeBlockerImpact(chain)
 check('★ 纯函数：算完不修改传入的 chains（可重复调用 / 可被 Vue computed 反复求值）',
   JSON.stringify(chain) === before)
+
+// ── ⑦ 决策队列（2026-10-31 暮雨第 7 条：这一页服务「先解哪一张」）────────
+// 判据不是"能排出序"，而是三件不许含糊的事：
+//   ① top 只能是**真有人受益**的那张（unlock > 0）；
+//   ② 每行要能说出"解了谁"（列名字，不是只给个数字）；
+//   ③ 解了没人受益的源仍要列出来，但必须明说没收益（不许悄悄藏掉）。
+const q = buildBlockerQueue(chain)
+check('★ 队列 total / blocked 与输入真身对得上',
+  q.total === computeBlockerImpact(chain).length && q.blocked > 0,
+  `total=${q.total} blocked=${q.blocked}`)
+check('★★ top 必须是「真有人受益」的那张（unlock > 0，不推荐白干）',
+  !!q.top && q.top.unlock > 0, JSON.stringify(q.top && { id: q.top.id, unlock: q.top.unlock }))
+check('★ 每行给出解锁名单（最多 5 个，不是只给数字）',
+  q.rows.every((r) => Array.isArray(r.unlockTitles) && r.unlockTitles.length <= 5) &&
+  q.rows.some((r) => r.unlockTitles.length > 0),
+  JSON.stringify(q.rows.map((r) => r.unlockTitles.length)))
+check('★ 一行结论把数字与"先解谁"一起说（界面直印，不重算）',
+  q.text.indexOf(String(q.total)) >= 0 && (!q.top || q.text.indexOf(q.top.title) >= 0), q.text)
+
+const qInert = buildBlockerQueue([
+  { id: 'IDLE', title: '解了也没用', status: '进行中', isDone: false, blockedTasks: [{ id: 'X', title: '早就做完', status: '完成' }] },
+])
+check('★★ 解了没人受益的源：仍列出来、但 top 为 null 且文案明说没有值得先解的',
+  qInert.total === 1 && qInert.top === null && qInert.inert === 1 && /没有值得先解/.test(qInert.text),
+  qInert.text)
+check('★ 一条阻塞都没有 → 明说"没有阻塞"，不报 0 张挡着',
+  buildBlockerQueue([]).text.indexOf('没有阻塞') >= 0, buildBlockerQueue([]).text)
+check('★ 脏输入不抛（null / 非数组）', buildBlockerQueue(null).total === 0 && buildBlockerQueue('x').total === 0)
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) {

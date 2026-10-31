@@ -1,29 +1,33 @@
 <!--
   路线图（2026-10-23 拆成组件 · 拆分计划第 1 批第 7 块）
 
-  这块是**真正干净**的一块：52 行模板 + 4 个状态/函数，零弹窗、零跨视图状态、
-  零用户操作（唯一交互就是「⟳ 刷新」）。数据全来自两个 IPC：
-  `aggregateRoadmap`（项目 / 批次 / 任务）与 `suggestMilestones`（阶段里程碑）。
+  这块是**真正干净**的一块：52 行模板 + 4 个状态/函数，零弹窗、零跨视图状态。
+  数据全来自两个 IPC：`aggregateRoadmap`（项目 / 批次 / 任务）与 `suggestMilestones`（阶段里程碑）。
 
-  `statusClass` 从 `shared/status.ts` 取，与看板、阻塞页共用同一份映射 ——
-  各写一套会出现「同一个状态在路线图是灰、在看板是红」。
+  **2026-10-31 结构重做（暮雨第 7 条）**：这一页服务一个决策 —— **这个项目现在该推哪一批？**
+    · 顶部：一行跨项目结论（谁在推、谁卡着、最接近收口的是哪批）；
+    · 每个项目：**当前批次**顶到第一行（名字 + 还剩几张 + 进度条），其余批次默认收起；
+    · 「下一步」仍是那 2-3 张能立刻动的卡，点行进卡。
+  批次**数据顺序不动**（`rb-completed` 在前之类是老断言的口径），收起来的只是视觉 ——
+  用 `.focus` + CSS 隐藏，DOM 里一条不少（renderer-web 按 `.rp-batch` 数过 2 条）。
 -->
 <template>
     <main id="board" class="roadmap-view">
       <div class="roadmap-header">
-        <h3>路线图</h3>
+        <h3>路线图 · 该推哪一批</h3>
         <div class="roadmap-ctrls">
           <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
         </div>
       </div>
-      <!-- 2026-10-31（暮雨第 7 条）：路线图以前是"看完了什么也做不了"的一张图。
-           现在每个任务行都能点进卡里；把"下一步"顶到眼前，这一页才有出口。 -->
       <div class="roadmap-lead">
-        按批次看每个项目走到哪；<b>点任意任务行</b>进卡。<b>「下一步」</b>是各项目优先级最高的待办 ——
-        不知道先干哪个，就从这里挑一个。
+        按批次看每个项目走到哪。<b>点任意任务行</b>进卡；不知道先干哪个，就从「下一步」挑一个。
       </div>
+      <!-- 一行跨项目结论：这一页的"先干什么" -->
+      <div class="roadmap-focus-bar" v-if="roadmapData.projects && roadmapData.projects.length">{{ focus.text }}</div>
+
       <!-- 阶段里程碑（2026-10-11，C 组死通道接回）：按批次前缀 P0/P1/P2/P3 算各阶段完成度，
-           例如「核心阶段完成」「功能阶段进行中 60%」—— 一眼看出项目走到哪一段了。 -->
+           例如「核心阶段完成」「功能阶段进行中 60%」—— 一眼看出项目走到哪一段了。
+           ⚠ 类名 `.rms-strip` 不能动：renderer-web 按它等"里程碑条出现"。 -->
       <div class="rms-strip" v-if="roadmapMilestones.length">
         <span class="rms-label">阶段里程碑</span>
         <span v-for="(m, i) in roadmapMilestones" :key="i" class="rms-item" :class="'rms-' + m.status">
@@ -31,18 +35,34 @@
           <template v-if="m.status === 'in_progress' && m.progress != null"> {{ m.progress }}%</template>
         </span>
       </div>
+
       <div class="roadmap-content">
         <div v-if="!roadmapData.projects || !roadmapData.projects.length" class="empty-state">
           <div class="empty-icon">🗺️</div>
-          <div class="empty-text">暂无路线图数据</div>
+          <div class="empty-text">还没有排过批次的任务</div>
+          <div class="empty-sub">给任务卡填上「批次」（如 P0 核心 / 2026-Q3），它们就会按批聚到这里。</div>
         </div>
-        <div v-for="proj in (roadmapData.projects || [])" :key="proj.id" class="roadmap-project">
+        <div v-for="(proj, pi) in focus.rows" :key="proj.id" class="roadmap-project"
+          :class="{ focus: !showAll[proj.id] }">
           <div class="rp-header">
             <span class="rp-name">{{ proj.name }}</span>
             <span class="rp-health st" :class="'st-' + proj.health">{{ roadmapHealthLabel(proj.health) }}</span>
+            <!-- 当前批次：这一页的答案。没有可推的批次就明说，不糊一个空进度条 -->
+            <span class="rp-focus" v-if="proj.current">
+              现在推 <b>{{ proj.current.name }}</b> · 还剩 {{ proj.remaining }} 张
+            </span>
+            <span class="rp-focus done" v-else>{{ proj.totalBatches ? '全部批次已收口' : '还没排批' }}</span>
+            <button class="ghost rp-toggle" @click="toggleAll(proj.id)">
+              {{ showAll[proj.id] ? '只看当前批次' : '看全部批次（' + proj.totalBatches + '）' }}
+            </button>
           </div>
+          <!-- 进度条：只在真有当前批次时出现（0/0 不画） -->
+          <div class="rp-bar" v-if="proj.current" :title="proj.current.done + ' / ' + proj.current.total">
+            <span class="rp-bar-in" :style="{ width: proj.percent + '%' }"></span>
+          </div>
+
           <div class="rp-batches">
-            <div v-for="batch in proj.batches" :key="batch.name" class="rp-batch" :class="'rb-' + batch.status">
+            <div v-for="batch in batchesOf(pi)" :key="batch.name" class="rp-batch" :class="['rb-' + batch.status, { 'is-current': !!proj.current && batch.name === proj.current.name }]">
               <div class="rb-header">
                 <span class="rb-name">{{ batch.name }}</span>
                 <span class="rb-count">{{ batch.done }}/{{ batch.total }}</span>
@@ -56,6 +76,7 @@
               </div>
             </div>
           </div>
+
           <div class="rp-next" v-if="proj.nextActions && proj.nextActions.length">
             <label>下一步</label>
             <div class="rp-actions">
@@ -72,14 +93,27 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { statusClass } from '../../shared/status'
+import { focusRoadmap, type RoadmapProjectLike } from '../../shared/roadmapFocus'
 
 const roadmapData = ref<any>({ projects: [] })
 /** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
 const roadmapMilestones = ref<any[]>([])
 /** 2026-10-31：点任务行 → 打开卡（跳转与落盘在 App，组件只发意图） */
 const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
+/** 哪些项目展开"全部批次"。默认收起 —— 这一页先回答"推哪一批" */
+const showAll = reactive<Record<string, boolean>>({})
+function toggleAll(id: string): void { showAll[id] = !showAll[id] }
+
+/** 决策视图：当前批次 / 还剩几张 / 排序 / 跨项目结论 —— 算法在 shared/roadmapFocus.ts */
+const focus = computed(() => focusRoadmap((roadmapData.value?.projects || []) as RoadmapProjectLike[]))
+/** 按 focus 的行顺序取回原始项目（批次顺序保持主进程给的顺序，不在这里重排） */
+function batchesOf(index: number): any[] {
+  const row = focus.value.rows[index]
+  const raw = (roadmapData.value?.projects || []).find((p: any) => String(p.id) === row?.id)
+  return (raw?.batches || []) as any[]
+}
 
 /**
  * 拉路线图 + 里程碑。

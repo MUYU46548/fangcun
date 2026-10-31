@@ -33,11 +33,8 @@
   </script>
   <!-- Async font load: a blackholed network must not block first paint.
        The body font stack falls back to system monospace until it lands. -->
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet" media="print" onload="this.media='all'">
   <noscript>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   </noscript>
   <style>
     /* ==========================================================
@@ -351,7 +348,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace;
       background: var(--bg);
       min-height: 100vh;
       padding: 2rem;
@@ -6210,7 +6207,7 @@
 
           style.textContent =
             fontFallback + "\n" +
-            "svg { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace; }\n" +
+            "svg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace; }\n" +
             hostStyle + "\n" +
             ":root, svg { " + darkVars + " }\n" +
             "@media (prefers-color-scheme: light) { :root, svg { " + lightVars + " } }\n" +
@@ -6238,7 +6235,7 @@
           // Keep this order.
           style.textContent =
             fontFallback + "\n" +
-            "svg { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace; }\n" +
+            "svg { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace; }\n" +
             hostStyle + "\n" +
             ":root, svg { " + vars + " }\n";
 
@@ -6349,7 +6346,7 @@
       function fitCanvasText(ctx, text, maxWidth, startSize, minSize, weight) {
         var value = String(text || '').trim();
         var size = startSize;
-        var family = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        var family = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         while (size > minSize) {
           ctx.font = (weight || '600') + ' ' + size + 'px ' + family;
           if (ctx.measureText(value).width <= maxWidth) return value;
@@ -6456,7 +6453,7 @@
               var fittedSubtitle = fitCanvasText(ctx, subtitle, SHARE_CARD_WIDTH - SHARE_CARD_PADDING * 2 - 280, 13, 11, '500');
               ctx.fillText(fittedSubtitle, SHARE_CARD_PADDING, 87);
 
-              ctx.font = "600 12px 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+              ctx.font = "600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
               ctx.textAlign = 'right';
               ctx.fillStyle = accent;
               ctx.fillText(cardLabel, SHARE_CARD_WIDTH - SHARE_CARD_PADDING, 50);

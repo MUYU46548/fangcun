@@ -1,75 +1,101 @@
 <!--
   阻塞源视图（从 App.vue 抽出，2026-10-22 · 拆分计划第 1 批第 2 块）
 
-  **为什么是它而不是方案原定的 calendar**：量了一遍依赖才决定的 ——
-  这块只吃一个数据源（chains），派生全靠 `shared/blockers.ts` 的纯函数，**零交互**
-  （没有按钮、没有 emit、只读）。calendar 反过来：20+ 个 `cal*` 状态还依赖
-  tasks/todos/logs 与四个弹窗，硬拆就是"边拆边改行为"，违背方案的红线。
+  **2026-10-31 结构重做（暮雨第 7 条：「按它们该服务哪个决策做一次结构重做，单加出口不能从根本解决」）**：
+  这一页只服务一个决策 —— **现在先解哪一张？**
+  所以三层，从上到下就是读的顺序：
+    ① 一行结论（有几个源、挡着几张、先解谁）；
+    ② 「先解这个」一张大卡（收益 + 解锁名单 + 去处理）；
+    ③ 「其余按收益排队」的队列（每行一句为什么 + 去处理）。
+  原来的完整阻塞链**没有删**，降级成折叠的"证据"—— 想核对"到底谁挡谁"才展开。
 
-  派生量在组件里重算而不是从父组件传下来：算法本来就是 `shared/blockers.ts` 的纯函数，
-  重算等于走同一份代码，不会有两份真相。
+  派生全在 `shared/blockers.ts` 的纯函数里（`buildBlockerQueue`），组件不重算 ——
+  与 `e2e-blockers.cjs` 跑的是同一份代码，界面和测试不会各说一套。
 -->
 <template>
     <main id="board" class="blockers-view">
       <div class="blockers-header">
-        <h3>阻塞源</h3>
-        <span class="blockers-count">{{ chains.length }} 个阻塞源，影响 {{ totalBlockedTasks }} 个任务</span>
+        <h3>阻塞 · 先解哪一张</h3>
+        <span class="blockers-count">{{ queue.total }} 个阻塞源，影响 {{ queue.blocked }} 个任务</span>
       </div>
-      <!-- 2026-10-31（暮雨第 7 条）：这一页以前**只读** —— 看得出"谁挡了谁"，却点不动任何东西，
-           看完只能自己回看板找那张卡。现在每一行都能点进卡里去处置。 -->
       <div class="blockers-lead">
-        这一页只回答一件事：<b>现在哪张卡挡着别人</b>。点任意一行进卡处置（改状态 / 拆小 / 归档），
-        解完之后它会自己从这一页消失。
+        {{ queue.text }}
+        <span v-if="queue.inert" class="bl-inert">其中 {{ queue.inert }} 个源挡着的卡都已收口，解了没有收益。</span>
       </div>
-      <!-- 关键路径建议（卡 023，2026-10-06）：只读计算，点它不会自动改任何状态。
-           只在"解了真有人受益"时出现 —— 且 unlock 已把传递效应算进去
-           （A 挡住 B、B 又挡住 C，则解 A 的价值是 2，不是 1）。 -->
-      <div v-if="blockerAdvice" class="blocker-advice">
-        💡 <b>先解这个最划算</b>：
-        <span class="ba-title">{{ blockerAdvice.title }}</span>
-        <span class="ba-id">{{ blockerAdvice.id }}</span>
-        <span class="ba-note">
-          它一解，<b>{{ blockerAdvice.unlock }}</b> 个任务就不再被卡（其中
-          {{ blockerAdvice.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
-        </span>
-        <button class="ghost ba-go" @click="emit('open-task', blockerAdvice.id)">去处理 →</button>
-      </div>
-      <div class="blocker-chains">
-        <div v-if="!chains.length" class="empty-state">
-          <div class="empty-icon">✓</div>
-          <div class="empty-text">没有阻塞源 — 所有任务畅通</div>
+
+      <!-- ① 先解这个（收益最高且真有人受益）—— 只在真有收益时出现 -->
+      <div v-if="queue.top" class="blocker-advice">
+        <div class="ba-head">
+          <span class="ba-kicker">先解这个</span>
+          <span class="ba-title">{{ queue.top.title }}</span>
+          <span class="ba-id">{{ queue.top.id }}</span>
+          <span v-if="queue.top.status" class="st small" :class="'st-' + statusClass(queue.top.status)">{{ queue.top.status }}</span>
+          <button class="ghost ba-go" @click="emit('open-task', queue.top.id)">去处理 →</button>
         </div>
-        <div v-for="src in chains" :key="src.id" class="chain-card">
-          <div class="chain-main">
-            <span class="chain-id">{{ src.id }}</span>
-            <span class="chain-title">{{ src.title }}</span>
-            <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
-            <button class="ghost chain-go" @click="emit('open-task', src.id)">去处理 →</button>
+        <div class="ba-note">
+          它一解，<b>{{ queue.top.unlock }}</b> 个任务就不再被卡（其中
+          {{ queue.top.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
+        </div>
+        <div v-if="queue.top.unlockTitles.length" class="ba-who">
+          解开后能动：{{ queue.top.unlockTitles.join('、') }}<span v-if="queue.top.unlock > queue.top.unlockTitles.length"> 等</span>
+        </div>
+      </div>
+
+      <!-- ② 其余按收益排队 -->
+      <div v-if="rest.length" class="blocker-queue">
+        <div class="bq-head">其余按收益排队 <em>（解了没人受益的不排前面）</em></div>
+        <div class="bq-row" v-for="(r, i) in rest" :key="r.id" :class="{ inert: !r.unlock }">
+          <span class="bq-rank">{{ i + 2 }}</span>
+          <div class="bq-main">
+            <div class="bq-title">{{ r.title }}<span class="bq-id">{{ r.id }}</span></div>
+            <div class="bq-why">{{ r.why }}</div>
           </div>
-          <div class="chain-arrow">
-            ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
-            <!-- 只在"连带解锁 > 它直接挡住的"时标出来：没有传递效应就不制造噪音 -->
-            <span v-if="blockerImpactById[src.id] && blockerImpactById[src.id].unlock > src.blockedTasks.length"
-              class="chain-unlock">
-              · 解它连带解锁 <b>{{ blockerImpactById[src.id].unlock }}</b> 个
-            </span>
-          </div>
-          <div class="chain-blockers">
-            <div v-for="t in src.blockedTasks" :key="t.id" class="chain-blocker">
-              <span class="cb-status">◌</span>
-              <span class="cb-id">{{ t.id }}</span>
-              <span class="cb-title">{{ t.title }}</span>
-              <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+          <button class="ghost bq-go" @click="emit('open-task', r.id)">去处理 →</button>
+        </div>
+      </div>
+
+      <!-- ③ 证据：完整阻塞链（默认折叠） -->
+      <details class="blocker-evidence" v-if="chains.length">
+        <summary>完整阻塞链 · {{ chains.length }} 条（点开核对「谁挡谁」）</summary>
+        <div class="blocker-chains">
+          <div v-for="src in chains" :key="src.id" class="chain-card">
+            <div class="chain-main">
+              <span class="chain-id">{{ src.id }}</span>
+              <span class="chain-title">{{ src.title }}</span>
+              <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
+              <button class="ghost chain-go" @click="emit('open-task', src.id)">去处理 →</button>
+            </div>
+            <div class="chain-arrow">
+              ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
+              <!-- 只在"连带解锁 > 它直接挡住的"时标出来：没有传递效应就不制造噪音 -->
+              <span v-if="blockerImpactById[src.id] && blockerImpactById[src.id].unlock > src.blockedTasks.length"
+                class="chain-unlock">
+                · 解它连带解锁 <b>{{ blockerImpactById[src.id].unlock }}</b> 个
+              </span>
+            </div>
+            <div class="chain-blockers">
+              <div v-for="t in src.blockedTasks" :key="t.id" class="chain-blocker">
+                <span class="cb-status">◌</span>
+                <span class="cb-id">{{ t.id }}</span>
+                <span class="cb-title">{{ t.title }}</span>
+                <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
+              </div>
             </div>
           </div>
         </div>
+      </details>
+
+      <div v-if="!chains.length" class="empty-state">
+        <div class="empty-icon">✓</div>
+        <div class="empty-text">没有阻塞源 — 没有任何一张卡在等别的卡</div>
+        <div class="empty-sub">要加依赖：在任务详情里填「阻塞」，或在新建任务时挑一张「做完它才能开始」的卡。</div>
       </div>
     </main>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { computeBlockerImpact, type BlockerImpact } from '../../shared/blockers'
+import { buildBlockerQueue, computeBlockerImpact, type BlockerImpact } from '../../shared/blockers'
 import { statusClass } from '../../shared/status'
 
 /** 唯一输入：主进程 findBlockers 给的阻塞链 */
@@ -77,20 +103,17 @@ const props = defineProps<{ chains: any[] }>()
 /** 2026-10-31：点「去处理」→ 打开那张卡（落盘与跳转留给 App，组件只发意图） */
 const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
 
-const totalBlockedTasks = computed(() =>
-  props.chains.reduce((sum, s) => sum + (s.blockedTasks?.length || 0), 0))
-
-/** 传递效应（A 挡 B、B 又挡 C ⇒ 解 A 值 2，不是 1）—— 算法在 shared/blockers.ts */
-const blockerImpact = computed<BlockerImpact[]>(() => computeBlockerImpact(props.chains))
-/** 顶部那句建议只在"真有传递收益"时出现 —— 解了没人受益就不吹 */
-const blockerAdvice = computed<BlockerImpact | null>(() => {
-  const top = blockerImpact.value[0]
-  return top && top.unlock > 0 ? top : null
+/** 决策队列（结论 / 先解这个 / 其余排序）—— 算法在 shared/blockers.ts */
+const queue = computed(() => buildBlockerQueue(props.chains))
+/** 「先解这个」之外的行（按同一份排序，编号从 2 起） */
+const rest = computed(() => {
+  const topId = queue.value.top?.id
+  return queue.value.rows.filter((r) => r.id !== topId)
 })
-/** 按 id 取，给卡片行用 */
+/** 按 id 取，给证据区用 */
 const blockerImpactById = computed<Record<string, BlockerImpact>>(() => {
   const m: Record<string, BlockerImpact> = {}
-  for (const r of blockerImpact.value) m[r.id] = r
+  for (const r of computeBlockerImpact(props.chains)) m[r.id] = r
   return m
 })
 </script>
