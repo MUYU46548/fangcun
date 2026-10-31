@@ -1547,35 +1547,7 @@
     <!-- 回收站「按日期清理」弹窗已搬进 views/TrashView.vue -->
 
 
-    <!-- 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）。
-         软删口径：移进 <数据目录>/docs/执行日志/.trash/，**不永久删除**。
-         必须先「预览命中」看到条数再「确认清理」—— 不允许盲删（日期一旦设错不可逆）。 -->
-    <div id="log-purge-overlay" class="overlay" v-if="logPurgeOpen" @mousedown.self="closeLogPurge()">
-      <div id="log-purge-modal">
-        <h3>清理已归档日志</h3>
-        <div class="hint">
-          删除<b>归档日期早于</b>下面所选日期的日志。文件不会永久消失 ——
-          会移进 <code>docs/执行日志/.trash/</code> 回收站，需要时可手动找回。
-        </div>
-        <div class="lpurge-row">
-          <label>早于</label>
-          <input v-model="logPurgeDate" type="date" class="log-filter" @change="resetLogPurgePreview" />
-        </div>
-        <div class="lpurge-actions">
-          <button class="ghost" :disabled="logPurgeBusy" @click="runLogPurgePreview">预览命中</button>
-          <button class="danger" :disabled="logPurgeBusy || !logPurgePreview" @click="executeLogPurge">确认清理</button>
-          <button class="ghost" @click="closeLogPurge">取消</button>
-        </div>
-        <div v-if="logPurgePreview" class="lpurge-preview">
-          <div><b>将清理 {{ logPurgePreview.count }} 条</b></div>
-          <ul v-if="logPurgePreview.count" class="lpurge-list">
-            <li v-for="(t, i) in logPurgePreview.titles.slice(0, 8)" :key="i">{{ t || '(无标题)' }}</li>
-            <li v-if="logPurgePreview.count > 8" class="lpurge-more">…等共 {{ logPurgePreview.count }} 条</li>
-          </ul>
-          <div v-else>没有早于该日期的归档日志，无需清理。</div>
-        </div>
-      </div>
-    </div>
+    <LogPurgeModal v-if="logPurgeOpen" :ctl="logPurgeCtl" />
 
     <!-- Review modal（2026-10-25：待审批 / 待验收共用，文案按 kind 切换） -->
     <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
@@ -1758,64 +1730,7 @@
       </div>
     </div>
 
-    <!-- 日志只读预览（2026-09-25 用户第 13 条）：用户明说日志用得比看板多，
-         而日志正文此前是纯文本 —— 全项目只有任务预览一处 v-html。
-         现在单击日志卡 = 打开只读预览（复用 renderBody：marked + DOMPurify，
-         表格/任务列表/代码/图片都支持），编辑移进预览与卡片操作行。 -->
-    <div v-if="logPreview" class="overlay" @mousedown.self="logPreview = null">
-      <div id="log-preview-modal">
-        <h3>
-          <span class="log-status-badge" :class="logStatusClass(logPreview)">{{ logStatusLabel(logPreview) }}</span>
-          {{ logPreview.title || '(无标题)' }}
-        </h3>
-        <div class="lp-meta">
-          <span class="log-id" title="日志 ID —— 点一下复制，贴给 AI 就能精确定位这一条"
-            @click="copyId(logPreview.id)">⧉ {{ logPreview.id }}</span>
-          <span v-if="logPreview.project">{{ (projects.find(p => p.id === logPreview.project)?.name) || logPreview.project }}</span>
-          <span v-if="logPreview.taskId">📍 {{ logPreview.taskId }}</span>
-          <span v-if="logPreview.agentName">🤖 {{ logPreview.agentName }}</span>
-          <span>{{ formatDateTime(logPreview.created) }}</span>
-          <span v-if="logPreview.completed">✓ {{ formatDateTime(logPreview.completed) }}</span>
-        </div>
-        <label>执行内容</label>
-        <div class="body-text markdown" v-html="renderBody(logPreview.content)"></div>
-        <template v-if="logPreview.nextSteps">
-          <label>下一步</label>
-          <div class="body-text markdown" v-html="renderBody(logPreview.nextSteps)"></div>
-        </template>
-
-        <!-- 附件（2026-10-01 用户第 1 条 → 卡 036）：日志 ↔ 文件的唯一入口。
-             图片就地内联（走 logs:attachmentData 的 data URL，不碰 file:// 权限），
-             其它类型给「用系统程序打开」；移除只解除关联，文件仍留在数据目录。 -->
-        <div class="attach-block" data-attach-block>
-          <div class="attach-head">
-            <label class="attach-lbl">附件</label>
-            <button class="ghost attach-add" @click="attachAdd(logPreview.id)">＋ 添加文件…</button>
-          </div>
-          <div v-if="!logPreview.attachments || !logPreview.attachments.length" class="attach-empty">
-            还没有附件 —— 截图、分析报告、日志文件都可以挂上来（文件会复制进数据目录，随日志一起备份）
-          </div>
-          <div v-else class="attach-grid">
-            <div class="attach-item" v-for="a in logPreview.attachments" :key="a">
-              <img v-if="isImageRel(a) && attachSrc(a)" :src="attachSrc(a)" :alt="attachName(a)"
-                :title="attachName(a) + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)" />
-              <div v-else class="attach-file" :title="a + ' · ' + attachOpenHint(a)" @click.stop="attachOpen(a)">📄 {{ attachName(a) }}</div>
-              <div class="attach-cap">
-                <span class="attach-fn" :title="a">{{ attachName(a) }}</span>
-                <button class="attach-x" title="解除关联（文件保留，不删）"
-                  @click.stop="attachRemove(logPreview.id, a)">✕</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="acts">
-          <button class="ghost" @click="openLogFromPreview">✏️ 编辑</button>
-          <button class="ghost" @click="copyLogAsPrompt(logPreview.id)">📋 复制</button>
-          <button class="ghost" @click="logPreview = null">关闭</button>
-        </div>
-      </div>
-    </div>
+    <LogPreviewModal v-if="logPreview" :ctl="logPreviewCtl" />
 
     <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
     <!-- 回收站正文预览弹窗已搬进 views/TrashView.vue（与它的视图同一处） -->
@@ -2553,6 +2468,8 @@ import BoardBanners from './components/BoardBanners.vue'
 import TaskPreview from './components/TaskPreview.vue'
 import LogEditModal from './components/LogEditModal.vue'
 import RelayModal from './components/RelayModal.vue'
+import LogPurgeModal from './components/LogPurgeModal.vue'
+import LogPreviewModal from './components/LogPreviewModal.vue'
 import type { ArchGraph } from '../shared/archGraph'
 import { filterArchGraph } from '../shared/archGraph'
 import { evaluateArchGraph, type ArchReview } from '../shared/archValidate'
@@ -10976,6 +10893,19 @@ const todoViewCtl = reactive({
   todoDueTitle,
   // 拖拽高亮三件套是全站的拖拽态，不是待办私有 —— 组件只调，不改它的归属。
   dragEnter, dragPulse, dragLeave,
+})
+
+/**
+ * 日志清理归档弹窗 / 日志只读预览的控制器（2026-10-31 · 浮层刀第四、五块）。
+ * 与其余弹窗同一套：reactive 包一层，子组件 toRef 接状态、解构接动作。
+ */
+const logPurgeCtl = reactive({
+  logPurgeOpen, logPurgeDate, logPurgeBusy, logPurgePreview,
+  resetLogPurgePreview, runLogPurgePreview, executeLogPurge, closeLogPurge,
+})
+const logPreviewCtl = reactive({
+  logPreview, projects, logStatusClass, logStatusLabel, copyId, attachAdd, isImageRel,
+  attachSrc, attachName, attachOpenHint, attachOpen, attachRemove, openLogFromPreview, copyLogAsPrompt,
 })
 
 /**

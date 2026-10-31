@@ -273,6 +273,9 @@ function main() {
       ['看板', '列视图', 'settings-llm', 'llmui'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
       ['日志', '', 'logs'],
+      // 2026-10-31：日志清理归档框 / 日志只读预览此前没有截图证据（浮层刀搬出后补目检）
+      ['日志', '', 'log-purge', 'logpurge'],
+      ['日志', '', 'log-preview', 'logpreview'],
       // 2026-09-29 第 3 条（方案二）：日志接力 —— 按链视图 + 接力对话框各留一张真机证据
       ['日志', '', 'logs-chain', 'chain'],
       ['日志', '', 'logs-relay', 'relay'],
@@ -436,6 +439,21 @@ function main() {
   const chip = all('.ask-view .ask-chip').find((x) => (x.textContent || '').trim() === '欠着什么')
   if (chip) chip.click()
   await sleep(1200)` : ''}
+  ${extra === 'logpurge' ? `
+  // 清理归档框（2026-10-31）：点「清理归档…」→ 点「预览命中」，把命中清单拍下来。
+  // 目检点：说明文案、日期行、三个按钮、预览条数与标题列表都在。
+  const lpb = all('button').find((b) => (b.textContent || '').indexOf('清理归档') >= 0)
+  if (lpb) lpb.click()
+  await sleep(500)
+  const lpv = all('#log-purge-modal button').find((b) => (b.textContent || '').trim() === '预览命中')
+  if (lpv) lpv.click()
+  await sleep(500)` : ''}
+  ${extra === 'logpreview' ? `
+  // 日志只读预览（2026-10-31）：点第一张日志卡，拍预览弹窗。
+  // 目检点：状态徽章 / 标题 / ID / 正文 / 下一步 / 附件区 / 底部按钮。
+  const lc = all('.logs-view .log-card')[0]
+  if (lc) lc.click()
+  await sleep(600)` : ''}
   ${extra === 'roverlay' ? `
   // 任务预览弹窗（2026-10-31）：点列视图第一张卡，把详情弹窗拍下来。
   // 目检点：标题状态、元信息行、正文、关联日志、底部「流转 / 操作」两组按钮都在。
