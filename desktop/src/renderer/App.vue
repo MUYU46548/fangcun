@@ -2000,107 +2000,8 @@
 
     <LogEditModal v-if="logEdit_" :ctl="logEditCtl" />
 
-    <!-- 接力对话框（2026-09-29 第 3 条方案二）：
-         一个动作做完四件事 —— 出清旧的、继承上下文、建立新日志、可以立刻开跑。
-         「为什么是一个对话框而不是一个字段」：真实动作分两步做必然漏一件（源日志忘归档 →
-         待处理区越堆越长），字段 续自 只是这次动作留下的副产品。 -->
-    <div id="relay-overlay" class="overlay" v-if="relay_" @mousedown.self="closeRelay">
-      <div id="relay-modal">
-        <h3>⏭ 接力 · 从这里继续</h3>
-        <div class="hint">一次动作做完四件事：出清旧的、继承上下文、建立新日志、可以立刻开跑。</div>
-        <div class="relay-src">
-          <span class="rs-label">源</span>
-          <span class="rs-id">{{ relay_.src.id }}</span>
-          <span>「{{ relay_.src.title || '(无标题)' }}」· <b>{{ relay_.src.status === 'completed' ? '已完成' : relay_.src.status === 'archived' ? '已归档' : '待处理' }}</b></span>
-          <span class="rs-grow"></span>
-          <span>执行内容与下一步都留空待写 · 要旧内容点行尾「带入」</span>
-        </div>
-        <label>新日志标题</label>
-        <input v-model="relay_.title" placeholder="给接下来这段工作起个标题" />
-        <label>项目</label>
-        <select v-model="relay_.project" class="logsel">
-          <option value="">（不归属）</option>
-          <option v-if="relay_.project && !projects.some(p => p.id === relay_.project)"
-            :value="relay_.project">{{ relay_.project }}（未在登记表中）</option>
-          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-        </select>
-        <div class="hint">继承自源：<b>{{ (projects.find(p => p.id === relay_.project)?.name) || relay_.project || '（不归属）' }}</b></div>
-        <!-- 2026-09-30 用户第 3 条（卡 004）补的「执行内容」框；同日用户第 1 条（卡 006）指出
-             两框上下颠倒：人类认知与日志卡的读法都是「先做了什么 → 接下来做什么」，
-             所以执行内容在上、下一步在下（与「新建/编辑日志」对话框同序）。 -->
-        <label>执行内容（本次做了什么；可粘贴上次会话的完成情况汇总）</label>
-        <textarea v-model="relay_.content" placeholder="执行内容...（留空则新日志正文为空，之后可再编辑补写）"></textarea>
-        <!-- 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：不再预填源的下一步，
-             改为**默认留空**（与执行内容同一口径：源的「下一步」属于上一段的计划，新日志该写本次的），
-             需要旧内容时点行尾「带入」按钮**主动取** —— 挪用变申请，主动权在用户手里。
-             保留 label 紧邻 textarea 的兄弟结构：renderer-web 的 relayTaOf() 与顺序断言都靠它定位。 -->
-        <label class="ns-label">下一步
-          <button type="button" class="ghost relay-bring" title="把源日志的「下一步」原文放进本框（框里已有内容时不会覆盖）"
-            @click.stop="bringSourceNextSteps">⧉ 带入源的下一步</button>
-        </label>
-        <textarea v-model="relay_.nextSteps" placeholder="下一步...（默认留空，本次自己写；要用源里的内容点上方「带入源的下一步」）"></textarea>
-        <label>关联任务</label>
-        <div v-if="relay_.taskCandidates.length" class="log-task-multi">
-          <label v-for="t in relay_.taskCandidates" :key="t.id" class="log-task-opt">
-            <input type="checkbox" :value="t.id" v-model="relay_.taskIds" />
-            <span class="lto-id">{{ t.id }}</span>
-            <span class="lto-title">{{ t.title || '(无标题)' }}</span>
-            <span class="lto-st">{{ t.status }}</span>
-          </label>
-        </div>
-        <div v-else class="hint">源日志没有关联任务 —— 新日志先不挂任务</div>
-        <!-- 2026-10-03 用户反馈1（卡 task-20261003-001，用户拍板拆两字段）：
-             此前一个「执行 Agent」字段承担两种含义（编辑框还把它标成「上次执行 Agent」），
-             用户原话「接力只能填执行 Agent，不能填上次的执行 Agent，明明上次更重要」。
-             现在：上次 = 接力来源那段是谁跑的（找上次会话用，继承源、可改、可手补）；
-             本次 = 新日志这段由谁跑（默认沿用源）。 -->
-        <label>上次的执行 Agent（接力来源这段是谁跑的 —— 找上次的会话看这里）</label>
-        <select v-model="relay_.prevAgentName" class="logsel">
-          <option value="">（不指定）</option>
-          <option v-if="relay_.prevAgentName && !agentPresets.includes(relay_.prevAgentName)"
-            :value="relay_.prevAgentName">{{ relay_.prevAgentName }}（继承自源）</option>
-          <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
-        </select>
-        <input v-model="relay_.prevAgentName" placeholder="或手动输入上次的执行 Agent（源没记录时在这里补）" />
-        <label>本次执行 Agent（新日志这段由谁跑）</label>
-        <select v-model="relay_.agentName" class="logsel">
-          <option value="">（不指定）</option>
-          <option v-if="relay_.agentName && !agentPresets.includes(relay_.agentName)"
-            :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
-          <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
-        </select>
-        <!-- 2026-10-30（暮雨第 6 条）：以前只能"先创建、再点编辑、再贴会话 ID"——
-             一个字段强制点两次。会话 ID 是创建时就知道的，必须在这张表里一次填完。 -->
-        <label>本次会话 ID（粘贴这次 agent 会话的 ID，可留空）</label>
-        <input v-model="relay_.sessionId" placeholder="例如 019a… / hermes-… —— 建好后卡面上直接可查，不用再编辑一次" />
-        <div class="hint">上次的执行 Agent：<b>{{ relay_.prevAgentName || '（源日志没记）' }}</b>（从源日志继承）· 本次：<b>{{ relay_.agentName || '（不指定）' }}</b>（默认沿用源）；会话 ID 与日期按新日志重新记</div>
-        <div class="relay-opts">
-          <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
-            <span>接力后把源日志归档（出清）
-              <i>旧的移进「已归档」，不占「待处理」，也不进「已完成」的清理队列 —— 调度台干净。</i></span></label>
-          <label class="relay-opt"><input type="checkbox" v-model="relay_.completeSourceTasks" />
-            <span>顺手把源日志的关联任务置「完成」
-              <i>旧任务一次性出清；不勾则任务状态保持不动。</i></span></label>
-        </div>
-        <!-- 关闭防丢确认条（2026-09-30 用户第 2 条，卡 006）：
-             此前走原生 window.confirm，用户实测两次「点到旁边数据全丢、防护未生效」——
-             ① 脏检查只比对三个文本框，只动过勾选/下拉时判定为「没改」，直接静默关；
-             ② 原生框在窗口外/被回车一击带过，起不到「必须看一眼」的作用。
-             现在：任何字段与打开时的快照不同 → 对话框内出确认条，必须点「丢弃」才真关。 -->
-        <div v-if="relayDiscard_" ref="relayDiscardBar" class="relay-discard" role="alertdialog" aria-live="polite">
-          <span class="rd-text">⚠ 这次的改动还没创建，关掉就没了：<b>{{ relayDirtyHint }}</b></span>
-          <span class="rd-acts">
-            <button class="ghost" @click="relayDiscard_ = false">继续填写</button>
-            <button class="danger" @click="discardRelay">丢弃并关闭</button>
-          </span>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="closeRelay">取消</button>
-          <button class="ghost" title="只建新日志（待处理），不改源日志" @click="executeRelay(false)">创建</button>
-          <button class="pri" title="建新日志并标「进行中」，随时可跑" @click="executeRelay(true)">创建并开跑</button>
-        </div>
-      </div>
-    </div>
+    <!-- 接力对话框（已搬进 components/RelayModal.vue） -->
+    <RelayModal v-if="relay_" :ctl="relayCtl" />
 
     <!-- 指派时间（2026-09-22，用户第 6 条）：任务可设开始+截止时间段，待办只有到期日 -->
     <div v-if="calAssign_" class="overlay" @mousedown.self="calAssign_ = null">
@@ -2651,6 +2552,7 @@ import DataHygienePanel from './components/DataHygienePanel.vue'
 import BoardBanners from './components/BoardBanners.vue'
 import TaskPreview from './components/TaskPreview.vue'
 import LogEditModal from './components/LogEditModal.vue'
+import RelayModal from './components/RelayModal.vue'
 import type { ArchGraph } from '../shared/archGraph'
 import { filterArchGraph } from '../shared/archGraph'
 import { evaluateArchGraph, type ArchReview } from '../shared/archValidate'
@@ -7313,8 +7215,8 @@ const relayDiscard_ = ref(false)
 /** 确认条上列出到底改了什么，让用户判断值不值得丢 */
 const relayDirtyHint = computed(() => relayChanges(relay_.value).join('、') || '（改动未识别）')
 /** 确认条本身 —— 接力对话框内容长（88vh 内可滚动），条子可能在折叠线下方，
- *  出现时必须把它滚进视野并把焦点放在「继续填写」上（默认动作 = 留下，回车不会误丢）。 */
-const relayDiscardBar = ref<HTMLElement | null>(null)
+ *  出现时必须把它滚进视野并把焦点放在「继续填写」上（默认动作 = 留下，回车不会误丢）。
+ *  ⚠ 模板已搬进 RelayModal：不再用 ref，按弹窗内唯一钩子查。 */
 // Agent 预设列表（设置页可增删）。
 // 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
 // localStorage 绑定 origin，dev 换 host（localhost→127.0.0.1）或打包版 file:// 都会把预设清空。
@@ -8822,7 +8724,7 @@ function closeRelay(): void {
       // 又要报一次「防护未生效」。
       relayDiscard_.value = true
       nextTick(() => {
-        const bar = relayDiscardBar.value
+        const bar = document.querySelector('#relay-modal .relay-discard') as HTMLElement | null
         if (!bar) return
         try { bar.scrollIntoView({ block: 'nearest' }) } catch { /* 老 Chromium：不支持 options */ }
         const keep = bar.querySelector('button') as HTMLButtonElement | null
@@ -11074,6 +10976,16 @@ const todoViewCtl = reactive({
   todoDueTitle,
   // 拖拽高亮三件套是全站的拖拽态，不是待办私有 —— 组件只调，不改它的归属。
   dragEnter, dragPulse, dragLeave,
+})
+
+/**
+ * 接力对话框的控制器（2026-10-31 · 渲染层拆分「浮层刀」第三块）：
+ * 与日志编辑同一套 —— `reactive()` 包一层，子组件 `toRef` 接状态、解构接动作。
+ * ⚠ 必须放在文件末尾（`relayDirtyHint` 是 computed，前面构建会撞 TDZ）。
+ */
+const relayCtl = reactive({
+  relay_, relayDiscard_, relayDirtyHint, projects, agentPresets,
+  closeRelay, bringSourceNextSteps, discardRelay, executeRelay,
 })
 
 /**
