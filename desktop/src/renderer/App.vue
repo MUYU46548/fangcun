@@ -2458,6 +2458,7 @@ import { useNotifications } from './composables/useNotifications'
 import { useBoardColumns } from './composables/useBoardColumns'
 import { useLogsView } from './composables/useLogsView'
 import { useLogAttachments } from './composables/useLogAttachments'
+import { useLogMaintenance } from './composables/useLogMaintenance'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7708,162 +7709,14 @@ async function convertLogToTodo(log: any, archiveSource = false): Promise<void> 
   }
 }
 
-function toggleSelectAllLogs() {
-  if (selectedLogBatch.value.length === visibleLogs.value.length) {
-    selectedLogBatch.value = []
-  } else {
-    selectedLogBatch.value = visibleLogs.value.map((l: any) => l.id)
-  }
-}
-
-async function executeBatchLogComplete() {
-  const ids = [...selectedLogBatch.value]
-  if (ids.length === 0) return
-  if (!confirm(`批量完成 ${ids.length} 条日志？`)) return
-  let ok = 0
-  const done: string[] = []
-  for (const id of ids) {
-    try {
-      const r = await window.tegula.logsComplete(id, 7, '')
-      if (r?.ok) { ok++; done.push(id) }
-    } catch { /* skip */ }
-  }
-  // 批量完成：成功时不再另发 toast（撤销条已经是那条提示）；失败仍要 toast，否则人以为全成了
-  if (ok < ids.length) showToast(`已批量完成 ${ok}/${ids.length} 条日志`, ok ? 'info' : 'error')
-  // 批量是最容易"手滑一整屏"的路径（勾错、点错），撤销条在这里更该在（2026-10-21）。
-  // ⚠ 撤的是**真成功的那几条**（done 数组），不是 `ids.slice(0, ok)` —— 中间失败时
-  //   下标和成功数对不上，那会撤错日志。
-  if (done.length) offerLogReopenUndo(`已批量完成 ${ok} 条日志`, done)
-  selectedLogBatch.value = []
-  logBatchMode.value = false
-  loadLogs()
-}
-
-async function executeBatchLogArchive() {
-  const ids = [...selectedLogBatch.value]
-  if (ids.length === 0) return
-  if (!confirm(`批量归档 ${ids.length} 条日志？`)) return
-  let ok = 0
-  const done: string[] = []
-  for (const id of ids) {
-    try {
-      const r = await window.tegula.logsArchive(id)
-      if (r?.ok) { ok++; done.push(id) }
-    } catch { /* skip */ }
-  }
-  if (ok < ids.length) showToast(`已批量归档 ${ok}/${ids.length} 条日志`, ok ? 'info' : 'error')
-  if (done.length) offerLogReopenUndo(`已批量归档 ${ok} 条日志`, done)
-  selectedLogBatch.value = []
-  logBatchMode.value = false
-  loadLogs()
-}
-
-async function executeBatchLogDestroy() {
-  const ids = [...selectedLogBatch.value]
-  if (ids.length === 0) return
-  if (!confirm(`批量销毁 ${ids.length} 条日志？文件将被永久删除。`)) return
-  let ok = 0
-  for (const id of ids) {
-    try {
-      const r = await window.tegula.logsDestroy(id)
-      if (r?.ok) ok++
-    } catch { /* skip */ }
-  }
-  showToast(`已批量销毁 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
-  selectedLogBatch.value = []
-  logBatchMode.value = false
-  loadLogs()
-}
-
-/* ── 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）────────────────────
-   与「批量彻底删除」的分工：那个要你**逐条勾选**且**硬删**；这个按**日期**一把筛、
-   且**软删**（移进 docs/执行日志/.trash，可恢复）。
-   流程强制两步：先 `dryRun` 预览命中条数 → 再确认执行。日期一旦设错只是删多了，
-   但因为进回收站，仍可找回。 */
-const logPurgeOpen = ref(false)
-const logPurgeDate = ref('')
-const logPurgePreview = ref<{ count: number; ids: string[]; titles: string[] } | null>(null)
-const logPurgeBusy = ref(false)
-
-/** 默认「早于 30 天」—— 最常见的用法；仍是用户显式点「确认清理」才动手。 */
-function defaultLogPurgeDate(daysAgo = 30): string {
-  const d = new Date()
-  d.setDate(d.getDate() - daysAgo)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-function openLogPurge() {
-  logPurgeDate.value = defaultLogPurgeDate(30)
-  logPurgePreview.value = null
-  logPurgeOpen.value = true
-}
-function closeLogPurge() { logPurgeOpen.value = false }
-/** 改了日期就作废旧预览 —— 否则「预览 71 条」和「按新日期删」对不上，是假成功。 */
-function resetLogPurgePreview() { logPurgePreview.value = null }
-
-async function runLogPurgePreview() {
-  const before = String(logPurgeDate.value || '').slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(before)) { showToast('请选择有效日期', 'error'); return }
-  logPurgeBusy.value = true
-  try {
-    const r: any = await (window as any).tegula?.logsPurgeArchived?.(before, { dryRun: true })
-    if (!r?.ok) { showToast(`预览失败：${r?.error || '未知原因'}`, 'error'); return }
-    logPurgePreview.value = { count: r.count || 0, ids: r.ids || [], titles: r.titles || [] }
-  } catch (e: any) {
-    showToast(`预览失败：${e?.message || e}`, 'error')
-  } finally {
-    logPurgeBusy.value = false
-  }
-}
-
-async function executeLogPurge() {
-  const before = String(logPurgeDate.value || '').slice(0, 10)
-  const pv = logPurgePreview.value
-  if (!pv) return
-  if (!pv.count) { showToast('没有早于该日期的归档日志', 'info'); closeLogPurge(); return }
-  if (!confirm(`确认清理 ${pv.count} 条归档日志？\n文件会移进回收站（docs/执行日志/.trash/），可手动找回。`)) return
-  logPurgeBusy.value = true
-  try {
-    const r: any = await (window as any).tegula?.logsPurgeArchived?.(before, { dryRun: false })
-    if (r?.ok) {
-      showToast(`已清理 ${r.count} 条归档日志（可恢复）`, 'success')
-      closeLogPurge()
-      await loadLogs()
-    } else {
-      showToast(`清理失败：${r?.error || '未知原因'}`, 'error')
-    }
-  } catch (e: any) {
-    showToast(`清理失败：${e?.message || e}`, 'error')
-  } finally {
-    logPurgeBusy.value = false
-  }
-}
-
-/** 批量改优先级（2026-10-09 用户第 4 条）。与完成/归档的两点不同：
- *  ① 不弹确认 —— 改元数据可逆；② 做完**不退出多选** —— 连着调几档是正常用法。
- *  updateLog 只放行「待处理」态（logs.ts:495）→ 成功/跳过如实报数，不静默。 */
-async function executeBatchLogPriority(ev: Event) {
-  const sel = ev.target as HTMLSelectElement
-  const val = sel.value
-  sel.value = ''                       // 用完即复位（占位项重新可见，还能再选同一档）
-  const ids = [...selectedLogBatch.value]
-  if (!val || !ids.length) return
-  const prio = val === '__clear__' ? '' : val
-  let ok = 0
-  for (const id of ids) {
-    try {
-      const r = await window.tegula.logsUpdate(id, { priority: prio })
-      if (r?.ok) ok++
-    } catch { /* 拒改/异常都算跳过，下面统一报数 */ }
-  }
-  const skip = ids.length - ok
-  showToast(skip
-    ? `优先级已更新 ${ok}/${ids.length} 条（${skip} 条跳过：非「待处理」不可改）`
-    : `已给 ${ok} 条日志设优先级「${prio || '不标'}」`, ok ? 'success' : 'error')
-  loadLogs()                            // 选择与多选模式都保留（元数据批量不踢人）
-}
-
+const {
+  toggleSelectAllLogs, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy, executeBatchLogPriority,
+  logPurgeOpen, logPurgeDate, logPurgePreview, logPurgeBusy,
+  openLogPurge, closeLogPurge, resetLogPurgePreview, runLogPurgePreview, executeLogPurge,
+} = useLogMaintenance({
+  selectedLogBatch, visibleLogs, logBatchMode, toast: showToast,
+  reload: loadLogs, offerLogReopenUndo,
+})
 function onLogCardClick(log: any) {
   if (logBatchMode.value) {
     const idx = selectedLogBatch.value.indexOf(log.id)
