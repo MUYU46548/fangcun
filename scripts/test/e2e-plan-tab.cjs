@@ -199,6 +199,20 @@ const ipc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-ipc.
 check('★ IPC 只有两个口（plans:get / plans:verdict），没有第三个',
   (ipc.match(/guardedHandle\('/g) || []).length === 2, String((ipc.match(/guardedHandle\('/g) || []).length))
 
+console.log('\n== ⑦ 真卡回归：真实 fangcun-base.md 必须每张三块齐全 ==')
+// 2026-10-31 实测踩过：真实卡里 `- 判据:` 与首条之间隔一个空行，
+// 按"空行即结束"解析会把 8 张卡全判成**缺判据**（假红，界面上会禁止通过）。
+// 这条用真文件钉住，防解析器再退回那种写法。
+data.setDataDir(REPO)
+const real = plans.readPlan('fangcun-base.md')
+check('★★ 真卡能读出来（≥1 张）', !!real && real.stages.length >= 1, String(real && real.stages.length))
+check('★★ 真卡每张都不缺块（三块齐全）',
+  !!real && real.stages.every((s) => s.missing.length === 0),
+  JSON.stringify((real ? real.stages : []).map((s) => s.id + ':' + (s.missing.join('/') || 'ok'))))
+check('★ 真卡的判据不是空数组（空行没打断收集）',
+  !!real && real.stages.every((s) => s.criteria.length > 0),
+  JSON.stringify((real ? real.stages : []).map((s) => s.criteria.length)))
+
 try { fs.rmSync(TMP, { recursive: true, force: true }) } catch {}
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
