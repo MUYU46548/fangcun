@@ -324,6 +324,12 @@ function main() {
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
     const ONLY = String(process.env.FC_SHOT_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean)
     const CASES = (ONLY.length ? CASES_ALL.filter((c) => ONLY.includes(c[2])) : CASES_ALL)
+    // 2026-10-31：`FC_SHOT_ONLY` 写错名字 / 没匹配到任何用例时，旧逻辑会**静默零产出并退出 0**
+    // ——「一张没拍」被当成成功，正是"截图脚本坏了却没人知道"的那类假绿。这里显式失败。
+    if (!CASES.length) {
+      console.error('FAIL  没有任何截图用例被选中（FC_SHOT_ONLY=' + ONLY.join(',') + '）')
+      process.exit(2)
+    }
     const SEED_TODOS = [
       '多视图断言用：这是一条刻意写得很长的待办标题，用来验证卡片网格里标题最多三行不截断',
       '去便利店买咖啡豆',
