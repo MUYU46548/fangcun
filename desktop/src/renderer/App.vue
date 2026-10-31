@@ -2461,6 +2461,7 @@ import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
 import { useLogEditorOpen } from './composables/useLogEditorOpen'
 import { useLogConvert } from './composables/useLogConvert'
+import { useContextMenus } from './composables/useContextMenus'
 import { useLogAux } from './composables/useLogAux'
 import { useLogGroups } from './composables/useLogGroups'
 import BackupSettings from './components/settings/BackupSettings.vue'
@@ -7448,55 +7449,10 @@ function normalizeLogTaskIds(log: any): string[] {
  * 后端 `logs:inject`（返回"上次执行日志"格式的文本）早就写好并注册了通道，
  * 但界面从来没有入口 —— 而"日志 → 提示词"正是方寸定位里的核心动作。
  */
-// ── 日志 / 待办右键菜单（2026-09-26 卡 037）──────────────────────────────
-// 用户给的规格铁律：菜单是「出口加速器」，只放**已实际发生**的流的快捷方式；
-// 一层封顶、单项 ≤7；删除放最末且二次确认；「发给 AI / 智能总结」永不进菜单（元层铁律）。
-const ctxOther = ref<{ x: number; y: number; kind: 'log' | 'todo' | 'column'; item: any } | null>(null)
-
-/**
- * 看板分区空白处右键 → 「在此列新建任务」（2026-10-17 暮雨第 3 条：看板右键新建）。
- * 挂在三种摆法的分区容器上（列视图 .col / 列表视图 .blgrp / 卡片墙 .pwg）。
- * 两条边界：
- *  ① 指针落在任务卡上就**放行给卡片的右键菜单**（TaskCardMenu 挂在卡上）——
- *     contextmenu 会冒泡，这里用「目标在 [data-id] 内」识别卡内区域，不抢；
- *  ② 归档区不弹「新建」：新建出来的是活动任务，在归档页弹这个语义不通。
- */
-function openColumnMenu(e: MouseEvent, status: string): void {
-  if (curView.value !== 'active') return
-  const t = e.target as HTMLElement | null
-  // ⚠ 卡片区域内一律放行：不放行的话卡片的 reka 右键菜单会被"列菜单"顶掉
-  //   （2026-10-17 实测：模板层 `.prevent` 会让同一次 contextmenu 在到达卡片之前就被拦，
-  //    卡片菜单再也打不开 —— 17 条断言连锁红。所以 preventDefault 只在本函数**真正要弹列菜单时**调）。
-  if (t && (t.closest('[data-id]') || t.closest('.ctx-menu'))) return
-  e.preventDefault()
-  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'column', item: { status } }
-}
-/** 右键列 → 新建任务，状态预选成点的那一列（emptyTaskForm 默认给「待办」，这里覆盖）。 */
-function newTaskInColumn(item: { status: string }): void {
-  openNew()
-  if (editTask_.value) editTask_.value.status = item.status
-}
-
-function openLogMenu(e: MouseEvent, log: any): void {
-  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'log', item: log }
-}
-/** 右键「编辑」→ 复用日志卡点击的 openLog。
- *  ⚠ 必须走它，不能自己 `logEdit_.value = {...log}`：完成日志 / 归档日志 / 编辑日志**共用同一个模态**，
- *  只赋值不清 mode 标志，会打开「完成日志」的框（`completeLogItem` 就是这么写的，但它是另一个动作）。 */
-function editLogFromMenu(log: any): void { openLog(log) }
-function openTodoMenu(e: MouseEvent, todo: any): void {
-  ctxOther.value = { x: e.clientX, y: e.clientY, kind: 'todo', item: todo }
-}
-function closeOtherMenu(): void { ctxOther.value = null }
-function ctxOtherRun(fn: (item: any) => void): void {
-  const c = ctxOther.value
-  closeOtherMenu()
-  if (c) fn(c.item)
-}
-
-/** 菜单里的归档/删除复用既有入口（归档要填保留天数，删除自带二次确认） */
-function runDestroyLog(log: any): void { destroyLogItem(log.id) }
-
+const {
+  ctxOther, openColumnMenu, newTaskInColumn, openLogMenu, editLogFromMenu,
+  openTodoMenu, closeOtherMenu, ctxOtherRun, runDestroyLog,
+} = useContextMenus({ curView, openNew, editTask_, openLog, destroyLogItem })
 async function toggleTodoPin(todo: any): Promise<void> {
   const t: any = window.tegula
   if (typeof t.todosSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道', 'error'); return }
