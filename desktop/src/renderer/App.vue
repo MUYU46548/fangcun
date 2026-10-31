@@ -2459,6 +2459,7 @@ import { useBoardColumns } from './composables/useBoardColumns'
 import { useLogsView } from './composables/useLogsView'
 import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
+import { useLogEditGuard } from './composables/useLogEditGuard'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -5546,28 +5547,9 @@ function isDirtyFields(o: any, keys: string[]): boolean {
  * （relayChanges，开发日志 2026-09-30 卡 006）是同一范式，不另发明。
  */
 let taskEditSnap: string | null = null
-let logEditSnap: string | null = null
-
-/** 日志编辑器快照：表单本体 + 完成/归档对话框里的「保留天数/备注/批量」
- *  （只填备注不改表单，老逻辑同样会丢 —— 一并纳入比对）。 */
-const logSnapNow = (): string => JSON.stringify({
-  form: snapOf(logEdit_.value),
-  note: String(logNote.value ?? ''),
-  retain: String(logRetainDays.value ?? ''),
-  batch: !!logBatchMode.value,
-})
-
 function taskEditDirty(): boolean {
   if (taskEditSnap !== null) return snapOf(editTask_.value) !== taskEditSnap
   return isDirtyFields(editTask_.value, ['title', 'blockers', 'memo', 'body', 'tags'])
-}
-
-function logEditDirty(): boolean {
-  // 2026-10-25（暮雨第 4 条追加）：待挂附件还没落盘 —— 关掉就没了，所以它本身就是"脏"。
-  // 不并进这里的话，「选了 3 个附件没保存就点 ×」会一声不响地丢掉（他点名说这是有害的）。
-  if (logPendingCount.value > 0) return true
-  if (logEditSnap !== null) return logSnapNow() !== logEditSnap
-  return isDirtyFields(logEdit_.value, ['title', 'content', 'nextSteps'])
 }
 
 /** 关闭任务编辑器：**改过**才问（遮罩按下 @mousedown.self 也走这里）。 */
@@ -5575,97 +5557,6 @@ function closeTaskEditor() {
   if (taskEditDirty() && !confirm('编辑内容尚未保存，确定关闭并丢弃吗？')) return
   editTask_.value = null
   taskEditSnap = null
-}
-
-/** 关闭日志编辑器（2026-10-03 卡 task-20261003-005）：与接力**同一套**防丢 ——
- *  对话框内警告条，不再原生 window.confirm（用户点名「创建日志和日志接力两种实现」，统一）。
- *  交互与 closeRelay 同构：第一次点取消/遮罩出条不关（滚进视野+焦点落「继续填写」+warn 留痕）；
- *  条子出着时再点仍不关；唯一丢弃入口 = 条上的「丢弃并关闭」。 */
-const logDiscard_ = ref(false)
-function closeLogEditor(): void {
-  if (logEditDirty()) {
-    if (!logDiscard_.value) {
-      logDiscard_.value = true
-      nextTick(() => {
-        // 模板已搬进 LogEditModal：ref 不再登记在 App，按弹窗内唯一钩子查。
-        const bar = document.querySelector('#log-edit-modal .relay-discard') as HTMLElement | null
-        if (!bar) return
-        try { bar.scrollIntoView({ block: 'nearest' }) } catch { /* 老 Chromium：不支持 options */ }
-        const keep = bar.querySelector('button') as HTMLButtonElement | null
-        keep?.focus()
-      })
-      console.warn(`[logEdit] 关闭被拦下：未保存的改动（${logDirtyNames().join('、') || '表单改动'}），等用户选择丢弃或继续填写`)
-    }
-    return
-  }
-  closeLogNow()
-}
-
-/** 真正关窗：保存成功 / 销毁 / 丢弃确认共用这一条出清路径（防条子与快照残留到下次打开） */
-function closeLogNow(): void {
-  logEdit_.value = null
-  logCompleting.value = false
-  logArchiveMode.value = false
-  logEditSnap = null
-  logSnapFields = null
-  logDiscard_.value = false
-  // 待挂附件跟着窗一起出清：没保存的日志本来就不该在磁盘上留孤儿目录
-  resetPendingAttach()
-}
-
-/** 条上的「丢弃并关闭」——唯一丢弃入口 */
-function discardLogEdit(): void {
-  console.warn(`[logEdit] 用户确认丢弃未保存的日志改动（${logDirtyNames().join('、') || '无'}）`)
-  closeLogNow()
-}
-
-/** 结构化快照：字符串快照（logSnapNow）负责判脏，结构化快照负责在条子里点名改了什么 */
-let logSnapFields: Record<string, string> | null = null
-function markLogSnap(): void {
-  logEditSnap = logSnapNow()
-  const f = logEdit_.value
-  logSnapFields = f ? {
-    title: String(f.title ?? ''),
-    content: String(f.content ?? ''),
-    nextSteps: String(f.nextSteps ?? ''),
-    project: String(f.project ?? ''),
-    taskIds: normalizeLogTaskIds(f).join(','),
-    sessionId: String(f.sessionId ?? ''),
-    agentName: String(f.agentName ?? ''),
-    prevAgentName: String(f.prevAgentName ?? ''),
-    logDate: String(f.logDate ?? ''),
-    note: String(logNote.value ?? ''),
-    retain: String(logRetainDays.value ?? ''),
-  } : null
-}
-
-const LOG_FIELD_LABELS: Record<string, string> = {
-  title: '标题', content: '执行内容', nextSteps: '下一步', project: '项目', taskIds: '关联任务',
-  sessionId: '会话 ID', agentName: '执行 Agent', prevAgentName: '上次执行 Agent',
-  logDate: '日志日期', note: '备注', retain: '保留天数',
-}
-
-/** 相对打开时的快照逐字段点名（与接力 relayChanges 同构，不另发明） */
-function logDirtyNames(): string[] {
-  const f = logEdit_.value
-  const s = logSnapFields
-  if (!f || !s) return []
-  const now: Record<string, string> = {
-    title: String(f.title ?? ''),
-    content: String(f.content ?? ''),
-    nextSteps: String(f.nextSteps ?? ''),
-    project: String(f.project ?? ''),
-    taskIds: normalizeLogTaskIds(f).join(','),
-    sessionId: String(f.sessionId ?? ''),
-    agentName: String(f.agentName ?? ''),
-    prevAgentName: String(f.prevAgentName ?? ''),
-    logDate: String(f.logDate ?? ''),
-    note: String(logNote.value ?? ''),
-    retain: String(logRetainDays.value ?? ''),
-  }
-  return Object.keys(s).filter(k => now[k] !== s[k]).map(k => LOG_FIELD_LABELS[k] || k)
-    // 待挂附件不是"字段"，但它同样会丢 —— 提示条里必须点名，否则用户看到「改动还没保存：标题」会以为只丢了标题
-    .concat(logPendingCount.value ? [`待挂的 ${logPendingCount.value} 个附件`] : [])
 }
 
 // makeDirtyGuard / snapOf 已抽到 renderer/dirtyGuard.ts（2026-10-23）—— 组合式函数也要用。
@@ -7767,6 +7658,14 @@ const logCompleting = ref(false)
 const logArchiveMode = ref(false)
 const logRetainDays = ref(String(logRetainDefault.value))
 const logNote = ref('')
+
+/** 日志编辑器防丢守卫（快照 / 判脏 / 警告条 / 关窗出清）—— 详见 composables/useLogEditGuard.ts */
+const {
+  logDiscard_, logEditDirty, closeLogEditor, closeLogNow, discardLogEdit, markLogSnap, logDirtyNames,
+} = useLogEditGuard({
+  logEdit_, logCompleting, logArchiveMode, logRetainDays, logNote,
+  logBatchMode, logPendingCount, resetPendingAttach, normalizeLogTaskIds,
+})
 
 function openNewLog() {
   // 项目默认跟随顶栏的项目筛选（没筛选就用第一个登记项目），而不是硬编码一个 id
