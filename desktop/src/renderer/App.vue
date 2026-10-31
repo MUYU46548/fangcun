@@ -2444,7 +2444,6 @@ import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, undoCount, undoHistory, offerUndo, dismissUndo, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
-import { isPlaceholderText, firstBulletLine } from '../shared/placeholder'
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
 import { readUiPref, saveUiPref } from './prefs'
@@ -2460,6 +2459,7 @@ import { useLogEditorSave } from './composables/useLogEditorSave'
 import { useLogStatusActions } from './composables/useLogStatusActions'
 import { useLogImport } from './composables/useLogImport'
 import { useLogEditorOpen } from './composables/useLogEditorOpen'
+import { useLogConvert } from './composables/useLogConvert'
 import BackupSettings from './components/settings/BackupSettings.vue'
 import GeneralSettings from './components/settings/GeneralSettings.vue'
 import DiagSettings from './components/settings/DiagSettings.vue'
@@ -7423,143 +7423,6 @@ async function copyLogGroupAsPrompt(main: any): Promise<void> {
   await copyLogsAsPrompt(logGroupMemberIds(main))
 }
 
-// ── 日志 ⇄ 待办互转（2026-10-08 卡 task-20261008-004，拍板=双向）──────────────
-// 纪律（卡 004 正文）：**源保留不删**；目标记「由 X 转来」（prev 范式，与接力链同款）；
-// 靠来源字段**防重** —— 同一条只转一次，手滑点两下不产出两条。
-// 字段映射（拍板：待办简单字段全压一起、日志只填执行内容）：
-//   待办 → 日志：title/project/priority 全走 frontmatter（priority 用卡 001 的字段），
-//                due 没有日志字段 → 压进正文首行；执行内容留空给用户填。
-//   日志 → 待办：下一步首条最像"要做的事" → 作为标题（没有就退回日志标题）；
-//                project/priority 跟着走，due 待办侧本来就支持（日志无 due 可传）。
-
-/** 撤销「已转出」：清掉 converted 字段（空串 = 字段从 JSON 消失），源回到常规列表 */
-async function undoConverted(todo: any): Promise<void> {
-  try {
-    const r: any = await window.tegula.todosUpdate(todo.id, { converted: '' })
-    if (r?.ok) { showToast('已撤销「已转出」标记', 'success'); await loadTodos() }
-    else showToast(`撤销失败：${r?.error || '未知原因'}`, 'error')
-  } catch (e: any) {
-    showToast(`撤销异常：${e?.message || e}`, 'error')
-  }
-}
-
-/** 转换确认（2026-10-09 用户第 1 条「能不能自动把源移入回收站？」拍板：
- *  不自动动源 —— 把「源怎么办」做成转换对话框里的勾选项（relay completeSourceTasks 同款范式），
- *  **默认不勾**（卡 004「源保留」铁律不破）。日志侧归档走现成 archived（可 reopen 找回）；
- *  待办侧标 converted = 折叠进「已转出」（不是删除，展开可撤销）。 */
-const convAsk_ = ref<{ kind: 'log2todo' | 'todo2log'; src: any; archive: boolean } | null>(null)
-function askConvertLog(log: any): void {
-  convAsk_.value = { kind: 'log2todo', src: log, archive: false }
-}
-function askConvertTodo(todo: any): void {
-  convAsk_.value = { kind: 'todo2log', src: todo, archive: false }
-}
-function runConvert(): void {
-  const ask = convAsk_.value
-  convAsk_.value = null          // 先关框再跑（转换本身有 toast 反馈）
-  if (!ask) return
-  if (ask.kind === 'log2todo') void convertLogToTodo(ask.src, ask.archive)
-  else void convertTodoToLog(ask.src, ask.archive)
-}
-
-/** 待办 → 日志：源默认保留；勾了「标已转出」才折叠源（不删） */
-async function convertTodoToLog(todo: any, archiveSource = false): Promise<void> {
-  try {
-    // 防重：读全量日志找来源（与 loadLogs 同一条取数路径，不新造查询）
-    const all: any[] = (await window.tegula.logsList({})) || []
-    const dup = all.find(l => l && l.fromTodo === todo.id)
-    if (dup) {
-      showToast(`这条待办已经转过了：${dup.id} —— 源待办保留，不再重复建日志`, 'info')
-      return
-    }
-    const full = String(todo?.title || '').trim()
-    if (!full) { showToast('这条待办没有内容，转不了', 'error'); return }
-    // ⚠ 2026-10-25（暮雨第 3 条）：原来把 `title` **整条**当日志标题传下去，正文留空
-    //   —— 多行待办转过去只剩第一行可见，用户原话「转进来只剩日志里的标题，甚至不是正文」。
-    //   现在：标题 = 首行；正文 = 到期行 + **全文**（多行时才重复一次全文，单行不重复，
-    //   否则标题与正文是同一句话，复制成派工单时会显脏）。
-    const titleLines = full.split('\n')
-    const title = titleLines.map(x => x.trim()).filter(Boolean)[0] || full
-    const bodyParts: string[] = []
-    if (todo.due) bodyParts.push(`到期：${todo.due}`)
-    if (titleLines.length > 1) bodyParts.push(full)
-    const r: any = await window.tegula.logsCreate(
-      title,
-      todo.project || '',
-      bodyParts.join('\n\n'),
-      undefined,
-      { priority: todo.priority || '', fromTodo: todo.id, logDate: '' },
-    )
-    if (!r?.ok) { showToast(`转日志失败：${r?.error || '未知原因'}`, 'error'); return }
-    let convNote = '源待办保留未删'
-    if (archiveSource) {
-      const logId = r.data?.id || ''
-      const ur: any = logId ? await window.tegula.todosUpdate(todo.id, { converted: logId }) : null
-      if (ur?.ok) convNote = '源待办已标「已转出」（默认折叠，展开可撤销）'
-    }
-    showToast(`已转成日志 ${r.data?.id || ''} —— ${convNote}`, 'success')
-    await loadLogs()
-    if (archiveSource) await loadTodos()   // 折叠要立刻反映出来
-  } catch (e: any) {
-    showToast(`转日志异常：${e?.message || e}`, 'error')
-  }
-}
-
-/**
- * 日志 → 待办要搬过去的**全部内容**（2026-10-11 修的真 bug）。
- *
- * 旧实现只取「下一步」的第一条当待办标题，**正文一个字都不带**。而日志的「下一步」默认是
- * `（待填写）` 这种模板占位 —— 于是整条待办只剩「（待填写）」四个字。用户原话：
- * **「内容全丢，变成空待办，本以为文本会留住的。」** 两处都错：
- *   ① **占位当内容** —— `（待填写）` 不是"下一步"。与契约读取那条规则同类，
- *      现在归一到一个共享 helper（`shared/placeholder.ts`），不再各写一遍；
- *   ② **只挑一行搬** —— 日志的正文与下一步都是内容，不该由"哪一行最像要做的事"来决定去留。
- * 现在：摘要行 + 来源行 + **正文全文** + 下一步全文（占位则跳过），一条不丢。
- * ⚠ 待办的「内容」字段本来就是那个可以写长的 textarea（卡片上只显示首行），
- *   所以这里**不需要新增字段**就能把全文留住。
- */
-function logToTodoText(log: any): string {
-  const srcTitle = String(log?.title || '').trim()
-  const nextSteps = String(log?.nextSteps || '').trim()
-  const summary = (!isPlaceholderText(nextSteps) ? firstBulletLine(nextSteps) : '') || srcTitle
-  const out: string[] = [summary || '（这条日志没有标题，也没有下一步）']
-  out.push(`—— 由日志「${srcTitle || srcTitle || log?.id || ''}」转来${log?.id ? '（' + log.id + '）' : ''}`)
-  const body = String(log?.content || '').trim()
-  if (body) out.push('', body)
-  if (nextSteps && !isPlaceholderText(nextSteps)) out.push('', '下一步：', nextSteps)
-  return out.join('\n')
-}
-
-/** 日志 → 待办：源默认保留；勾了「归档源」才把日志移进已归档分区（可 reopen 找回） */
-async function convertLogToTodo(log: any, archiveSource = false): Promise<void> {
-  try {
-    const all: any[] = (await window.tegula.todosList()) || []
-    const dup = all.find(t => t && t.fromLog === log.id)
-    if (dup) {
-      showToast(`这条日志已经转过了待办：「${dup.title}」—— 源日志保留，不再重复建`, 'info')
-      return
-    }
-    // ⚠ 判据是"标题与下一步**都**没有"才算转不了 —— 不能因为下一步是占位
-    //   （`（待填写）`）就把整条日志判成"没有内容"。旧实现正是用占位当了标题。
-    if (!String(log?.title || '').trim() && !String(log?.nextSteps || '').trim()) {
-      showToast('这条日志没有标题也没有下一步，转不了', 'error'); return
-    }
-    const title = logToTodoText(log)
-    const r: any = await window.tegula.todosCreate(title, log.priority || '中', undefined, log.project || '', log.id)
-    if (!r?.ok) { showToast(`转待办失败：${r?.error || '未知原因'}`, 'error'); return }
-    let convNote = '源日志保留未删'
-    if (archiveSource) {
-      const ar: any = await window.tegula.logsArchive(log.id)
-      if (ar?.ok) convNote = '源日志已归档（日志页「已归档」分区可找回）'
-    }
-    showToast(`已转成待办 —— ${convNote}`, 'success')
-    await loadTodos()
-    if (archiveSource) await loadLogs()    // 源日志状态变了，列表要刷新
-  } catch (e: any) {
-    showToast(`转待办异常：${e?.message || e}`, 'error')
-  }
-}
-
 const {
   toggleSelectAllLogs, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy, executeBatchLogPriority,
   logPurgeOpen, logPurgeDate, logPurgePreview, logPurgeBusy,
@@ -7638,6 +7501,11 @@ const {
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   previewTask, resetLogHistory, resetPendingAttach, markLogSnap,
   normalizeLogTaskIds, normProject,
+})
+
+/** 日志 ⇄ 待办互转（双向、防重、来源字段、转出折叠/撤销） */
+const { convAsk_, askConvertLog, askConvertTodo, runConvert, undoConverted } = useLogConvert({
+  showToast, loadLogs, loadTodos,
 })
 
 /** 日志 ID 缩写：`log_20260927…c73e`（卡面链标签用，完整 ID 挂 title） */
