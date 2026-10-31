@@ -52,6 +52,7 @@ export interface ReworkList {
   text: string
 }
 
+
 const DAY = 86400000
 
 /** 时间文本 → 毫秒。三种写法与 `data/tasks.ts` 的 `taskUpdatedMs` 同口径；认不出 = NaN。 */
@@ -156,9 +157,78 @@ export function pickRework(tasks: ReworkTaskLike[], nowMs?: number): ReworkList 
   const oldestDays = known.length ? Math.max(...known) : NaN
   const count = rows.length
   const text = count === 0
-    ? '没有被驳回后没人管的卡'
+    ? '没有被驳回的卡'
     : Number.isFinite(oldestDays)
-      ? `${count} 张卡被驳回后没人再管（最早 ${oldestDays} 天前）`
-      : `${count} 张卡被驳回后没人再管（时间认不出来，不敢替你算天数）`
+      ? `${count} 张卡停在「驳回」，还欠一个决定：返工还是不要了（最早${formatAge(oldestDays)}）`
+      : `${count} 张卡停在「驳回」，还欠一个决定：返工还是不要了（时间认不出来，不敢替你算天数）`
+  return { rows, count, oldestDays, text }
+}
+
+/**
+ * 天数 → 人话（2026-10-31）。
+ * 用户原话：「最早的是 0 天前」—— 0 天不是"0 天前"，是今天。
+ * NaN（时间认不出来）必须给「时间不详」，**不许**退成 0 或空白。
+ */
+export function formatAge(days: number): string {
+  if (!Number.isFinite(days)) return '时间不详'
+  const d = Math.max(0, Math.floor(days))
+  if (d === 0) return '今天'
+  if (d === 1) return '昨天'
+  return `${d} 天前`
+}
+
+// ── 待验收 · 同一类「欠条」（2026-10-31）───────────────────────────────
+// 用户原话：「看板里没做完的东西叫我怎么待验收？我不是只能一直挂在那里？」
+// 「待验收」不是终态，它欠用户一个签字；但此前它**没有任何推送** ——
+// 卡停在那一列，只有用户自己翻到、点开、滚到底，才知道有这么个东西。
+// 于是和驳回返工台并列，把「等验收」也做成一条会自己冒出来的欠条。
+
+export interface PendingReviewList {
+  rows: ReworkRow[]
+  count: number
+  oldestDays: number
+  text: string
+}
+
+/**
+ * 挑出「在等你验收」的卡。
+ * 口径：只认 `status === '待验收'`；已归档的不算（归档 = 这件事已经收口了）。
+ * 排序：等得最久的排最前；时间认不出来的排最后（不许编天数）。
+ */
+export function pickPendingReview(tasks: ReworkTaskLike[], nowMs?: number): PendingReviewList {
+  const now = Number.isFinite(nowMs as number) ? Number(nowMs) : Date.now()
+  const rows: ReworkRow[] = []
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t || !t.id) continue
+    if (statusOf(t) !== '待验收') continue
+    if (t.archived) continue
+    const direct = String(t.reject_reason ?? t.fm?.reject_reason ?? '').trim()
+    const updatedMs = parseWhen(updatedOf(t))
+    const ageDays = Number.isFinite(updatedMs)
+      ? Math.max(0, Math.floor((now - updatedMs) / DAY))
+      : NaN
+    rows.push({
+      id: String(t.id),
+      title: titleOf(t) || String(t.id),
+      reason: direct,
+      hasReason: !!direct,
+      ageDays,
+      updatedMs,
+    })
+  }
+  rows.sort((a, b) => {
+    const av = Number.isFinite(a.updatedMs) ? a.updatedMs : Infinity
+    const bv = Number.isFinite(b.updatedMs) ? b.updatedMs : Infinity
+    if (av !== bv) return av - bv
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+  const known = rows.filter((r) => Number.isFinite(r.ageDays)).map((r) => r.ageDays)
+  const oldestDays = known.length ? Math.max(...known) : NaN
+  const count = rows.length
+  const text = count === 0
+    ? '没有在等验收的卡'
+    : Number.isFinite(oldestDays)
+      ? `${count} 张卡在等你验收（等得最久的${formatAge(oldestDays)}）`
+      : `${count} 张卡在等你验收（时间认不出来，不敢替你算天数）`
   return { rows, count, oldestDays, text }
 }

@@ -20,11 +20,12 @@
 import { buildTripBoard, relTime } from './tripBoard'
 import { parseRegistry, loadAllTasksRaw } from '../data'
 import { usageStats } from '../llm/trace'
+import { searchLogs } from './logs'
 import { daysSinceDue } from '../../shared/time'
 
 export const ASK_KINDS = [
   'cost', 'owe', 'blocked', 'who', 'due', 'dormant',
-  'next', 'progress', 'counts', 'tasks', 'unmatched',
+  'next', 'progress', 'counts', 'tasks', 'advice', 'unmatched',
 ] as const
 export type AskKind = typeof ASK_KINDS[number]
 
@@ -485,6 +486,12 @@ export function answer(raw: string): AskAnswer {
       case 'tasks': return answerTasks(q, projects)
     }
   }
+  // 「该怎么办」类问题（2026-10-31）
+  // ⚠ 必须排在"点名了项目就答进展"**前面**：上一版「方寸的阴影问题怎么处理」因为含「方寸」，
+  //   被当成"问项目进展"，答了一屏在途一屏，还顺手把 needsLlm 置 false →
+  //   用户看到的既不是答案、也**没有**「让 AI 答」的按钮（他的原话：「纯看运气」）。
+  //   这里先把"问办法"的问题认出来，再去项目兜底。
+  if (looksLikeAdvice(q)) return answerAdvice(q)
   // 兜底：点名了项目 + 问号/含糊 → 至少把该项目的实况给全，比一句"我不懂"有用
   const picked = pickProject(q, projects)
   if (picked) return answerProgress(q, projects, picked)
@@ -518,8 +525,7 @@ export function askProjectOptions(): Array<{ id: string; name: string }> {
  *   · **只读**：本函数不写盘、不调模型（调模型的是 llm-ipc，它拿这段当提示词的一部分）。
  *   · **不美化**：缺值就写「未填」，让模型看到的是缺的，而不是被我们补过的。
  */
-export function buildContext(): string {
-  const MAX = 4000
+export function buildContext(): string {  const MAX = 4000
   const projects = projectList()
   const tasks = loadAllTasksRaw('active')
   const board = buildTripBoard()
@@ -553,4 +559,137 @@ export function buildContext(): string {
   let text = out.join('\n')
   if (text.length > MAX) text = text.slice(0, MAX) + '\n…（后面的事实被截断了，回答时请说明"数据不完整"）'
   return text
+}
+
+// ── 「这事该怎么办」类问题（2026-10-31）───────────────────────────────────
+// 用户原话：「问答功能依然很蠢……我测了一个具体问题『方寸的阴影问题怎么处理』，
+// 根本没给我有用的答案。让 AI 回答的选项还是隐藏功能，我自己都不知道什么机制能刷出来，
+// 纯看运气。你自己想想这玩意能用吗？」
+//
+// 两个真问题，各修一处：
+//   ① **路由错了**：这句话里有「方寸」→ 被当成"问项目进展"，答一屏在途一屏；
+//      而且 needsLlm 被置成 false → 界面那个「让 AI 答」按钮**根本不出现**（"纯看运气"就是这个）。
+//      修法：先认"问办法"的句式，再走项目兜底。
+//   ② **答得空**：这类问题结构化算不出来是事实，但"算不出来"不等于"没东西给你"。
+//      台账里真正相关的卡和日志就是线索 —— 先把它们摆出来，再说要不要交给 AI。
+//
+// ⚠ 口径没变：这一页仍然**不调模型**。这里只多给"线索 + 一句话说明为什么答不了"，
+//   真要模型答仍然必须用户亲手点（成本红线 03 单）。
+const ADVICE_RE = /怎么|怎样|如何|咋办|为什么|为啥|该不该|要不要|能不能|可不可以|有没有办法|建议|排查|根治/
+/** 从问题里剥掉的"问法词"与产品名 —— 剩下的才是要找的关键词 */
+const KW_STOP_PHRASES = [
+  '怎么处理', '怎么办', '怎么改', '怎么弄', '怎么解', '怎么才', '该怎么', '到底该',
+  '为什么', '为啥', '怎么样', '怎么', '怎样', '如何', '咋办',
+  '问题', '建议', '排查', '解决', '处理', '修复', '优化', '改进', '根治',
+  '应该', '可以', '需要', '有没有', '能不能', '要不要', '该不该',
+  '方寸', 'tegula', '这个', '那个', '一下', '一直', '现在', '目前',
+  '我们', '你们', '他们', '什么', '哪些', '哪个', '是不是',
+  '的', '了', '吗', '呢', '吧', '啊', '呀', '我', '你', '他', '要', '该',
+]
+
+/** 问题 → 关键词（剥掉问法词后剩下的实词；中文按 2-gram 兜底，因为中文不空格） */
+export function keywordsOf(raw: string): string[] {
+  let s = String(raw || '').toLowerCase().trim()
+  if (!s) return []
+  for (const w of [...KW_STOP_PHRASES].sort((a, b) => b.length - a.length)) {
+    s = s.split(w).join('|')
+  }
+  const runs = s.split(/[^\u4e00-\u9fa5a-z0-9]+/).filter((r) => r.length >= 2)
+  const out: string[] = []
+  for (const r of runs) {
+    out.push(r)
+    if (/^[\u4e00-\u9fa5]+$/.test(r) && r.length > 2) {
+      for (let i = 0; i + 2 <= r.length; i++) out.push(r.slice(i, i + 2))
+    }
+  }
+  const stop = new Set(KW_STOP_PHRASES)
+  return Array.from(new Set(out.filter((k) => k.length >= 2 && !stop.has(k)))).slice(0, 8)
+}
+
+export function looksLikeAdvice(raw: string): boolean {
+  const q = String(raw || '').trim()
+  return q.length >= 4 && ADVICE_RE.test(q)
+}
+
+/** 台账里跟这些关键词相关的卡 / 日志 —— 按"命中几个关键词"排序，最多 6 条 */
+function adviceHits(keywords: string[]): { rows: AskRow[]; taskHits: number; logHits: number } {
+  const kws = keywords.filter(Boolean)
+  if (!kws.length) return { rows: [], taskHits: 0, logHits: 0 }
+  const scoreOf = (text: string): number => {
+    const s = text.toLowerCase()
+    let n = 0
+    for (const k of kws) if (s.includes(k)) n++
+    return n
+  }
+  const scored: Array<{ score: number; row: AskRow; when: string }> = []
+  let taskHits = 0
+  for (const t of loadAllTasksRaw('active') as any[]) {
+    const fm = t?.fm || {}
+    const title = String(fm.title || t?.id || '')
+    const score = scoreOf(title + '\n' + String(t?.body || ''))
+    if (!score) continue
+    taskHits++
+    scored.push({
+      score,
+      when: String(fm.updated || fm.created || ''),
+      row: {
+        k: `卡 ${String(t?.id || '')}`,
+        v: title || '(无标题)',
+        sub: `状态 ${String(fm.status || '未填')}`,
+      },
+    })
+  }
+  let logHits = 0
+  const seenLog = new Set<string>()
+  for (const k of kws) {
+    for (const l of searchLogs(k, 30)) {
+      if (!l || seenLog.has(l.id)) continue
+      const score = scoreOf(`${l.title}\n${l.content}\n${l.nextSteps}`)
+      if (!score) continue
+      seenLog.add(l.id)
+      logHits++
+      scored.push({
+        score,
+        when: String(l.created || ''),
+        row: {
+          k: `日志 ${l.id}`,
+          v: l.title || '(无标题)',
+          sub: `${l.project || '未归属'} · ${l.status === 'archived' ? '已归档' : l.status === 'completed' ? '已完成' : '待处理'}`,
+        },
+      })
+    }
+  }
+  scored.sort((a, b) => (b.score - a.score) || String(b.when).localeCompare(String(a.when)))
+  return { rows: scored.slice(0, 6).map((x) => x.row), taskHits, logHits }
+}
+
+/**
+ * 「该怎么办」的答案：**先给台账里真有的线索**，再明说这类问题结构化算不出来。
+ * needsLlm 恒为 true —— 这是"确实没算出来"，界面据此给出「让 AI 答」的口子（不再取决于运气）。
+ */
+export function answerAdvice(raw: string): AskAnswer {
+  const q = String(raw || '').trim()
+  const kws = keywordsOf(q)
+  const kwText = kws.length ? kws.join(' / ') : '（没抽出关键词）'
+  const { rows, taskHits, logHits } = adviceHits(kws)
+  const picked = pickProject(q, projectList())
+  const lines: string[] = []
+  if (rows.length) {
+    lines.push(`台账里跟「${kwText}」沾得上的有 ${taskHits} 张卡、${logHits} 条日志，先摆在这儿 —— 这是线索，不是结论。`)
+    lines.push('点开对应的卡/日志看细节；要不要让 AI 在这些事实上再答一遍，由你决定（会花钱）。')
+  } else {
+    lines.push(kws.length
+      ? `台账里没有跟「${kwText}」相关的卡或日志 —— 方寸手里没有这件事的记录。`
+      : '这句话里没抽出可检索的关键词，方寸不知道去台账里找什么。')
+    lines.push('这类"该怎么办"的问题，方寸的结构化查询算不出来；要么写得更具体（点上面常用问题那种），要么交给 AI。')
+  }
+  return {
+    kind: 'advice',
+    title: rows.length ? `关于「${kws[0] || q}」：台账里有这些记录` : '这件事方寸手里没有记录',
+    lines,
+    rows,
+    projectId: picked ? String(picked.id) : undefined,
+    needsLlm: true,
+    source: '任务卡 / 执行日志',
+  }
 }

@@ -15,6 +15,12 @@
         <h3>阻塞源</h3>
         <span class="blockers-count">{{ chains.length }} 个阻塞源，影响 {{ totalBlockedTasks }} 个任务</span>
       </div>
+      <!-- 2026-10-31（暮雨第 7 条）：这一页以前**只读** —— 看得出"谁挡了谁"，却点不动任何东西，
+           看完只能自己回看板找那张卡。现在每一行都能点进卡里去处置。 -->
+      <div class="blockers-lead">
+        这一页只回答一件事：<b>现在哪张卡挡着别人</b>。点任意一行进卡处置（改状态 / 拆小 / 归档），
+        解完之后它会自己从这一页消失。
+      </div>
       <!-- 关键路径建议（卡 023，2026-10-06）：只读计算，点它不会自动改任何状态。
            只在"解了真有人受益"时出现 —— 且 unlock 已把传递效应算进去
            （A 挡住 B、B 又挡住 C，则解 A 的价值是 2，不是 1）。 -->
@@ -26,6 +32,7 @@
           它一解，<b>{{ blockerAdvice.unlock }}</b> 个任务就不再被卡（其中
           {{ blockerAdvice.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
         </span>
+        <button class="ghost ba-go" @click="emit('open-task', blockerAdvice.id)">去处理 →</button>
       </div>
       <div class="blocker-chains">
         <div v-if="!chains.length" class="empty-state">
@@ -37,6 +44,7 @@
             <span class="chain-id">{{ src.id }}</span>
             <span class="chain-title">{{ src.title }}</span>
             <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
+            <button class="ghost chain-go" @click="emit('open-task', src.id)">去处理 →</button>
           </div>
           <div class="chain-arrow">
             ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
@@ -66,6 +74,8 @@ import { statusClass } from '../../shared/status'
 
 /** 唯一输入：主进程 findBlockers 给的阻塞链 */
 const props = defineProps<{ chains: any[] }>()
+/** 2026-10-31：点「去处理」→ 打开那张卡（落盘与跳转留给 App，组件只发意图） */
+const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
 
 const totalBlockedTasks = computed(() =>
   props.chains.reduce((sum, s) => sum + (s.blockedTasks?.length || 0), 0))

@@ -10,6 +10,7 @@
 ## 下载安装
 
 到 [Releases](https://github.com/MUYU46548/fangcun/releases) 下载最新版 `Fangcun-Setup.<版本>.exe`（NSIS 安装包，Windows x64），双击安装即可。同 appId 覆盖安装，无需先卸载。
+当前版本 **0.5.6**（版本号真源只有 `desktop/package.json` 一处）；本版改了什么见 [0.5.6-发布说明](docs/0.5.6-发布说明.md)。
 
 安装包未做代码签名，Windows SmartScreen 可能提示"未知发布者"，选「仍要运行」即可。为了设备安全，请只从官方渠道下载并核对哈希值。
 
@@ -24,7 +25,7 @@
 | 任务散落在会话里，换个窗口就忘了 | 任务只在**一处**登记；agent 通过 CLI / MCP 取活与回写 |
 | 新会话从零开始，上次干到哪不知道 | **执行日志跨会话接力**：承接上一次的「下一步」与执行 Agent |
 | 每个项目的要求靠口头交代 | **项目方针卡**（使命/目标/场景/边界），派活时随任务下发 |
-| 装完就忘，看不出做过什么 | 看板 / 待办 / 日志 / 项目 / 阻塞 / 路线图 / 日历 / 归档 / 回收站 / 启动台 / 决策 / 技能 / 服务，**13 个页签 + 帮助手册** |
+| 装完就忘，看不出做过什么 | 看板 / 问答 / 待办 / 想法 / 日志 / 项目 / 阻塞 / 路线图 / 日历 / 归档 / 回收站 / 启动台 / 决策 / 技能 / 服务，**15 个页签 + 帮助手册** |
 | 删错就没了 | 删除进**回收站**可还原；归档按文件路径判定；备份包可校验、可还原 |
 
 定位很明确：**任务收口 + 方针载体**。不追"全周期管理平台"。内置的 LLM 智能层按 **BYOK** 接：
@@ -36,6 +37,7 @@
 - **看板**：7 个状态列，拖拽切换；列视图 / 列表视图 / 信息卡墙三种摆法（卡墙可开「只看未完成」）；按状态 / 项目 / 优先级分组，分区可折叠，终态列默认收起
 - **待办**：清单 / 卡片网格两种摆法；设了到期日会出现在日历上
 - **执行日志**：跨会话接力、归档分区、批量归档与删除、按项目 / 执行 Agent 筛选、一键复制成提示词
+- **撤销与历史版本**：日志和任务卡都能看历史版本、逐版预览、恢复任意一版（恢复前自动备份当前版）
 - **项目**：健康度总览（活跃 / 停滞 / 休眠 / 空闲）+ 每个项目的**方针卡**
 - **阻塞 / 路线图 / 日历**：依赖链追踪、跨天时间段、四处指派入口
 - **归档 / 回收站**：归档以**文件路径**为唯一判定标准；删除先进回收站，可还原、可彻底删除
@@ -44,7 +46,7 @@
   WorkBuddy 这类落点不可知的，给真源文件 + 真源指纹，由你手动导入或让它自装
 - **MCP 接入材料**：按各家官方格式生成配置段（Claude Code / Cursor / Codex / OpenCode / Hermes / DSH / WorkBuddy），
   并支持生成「自装指令」让对面的 agent 自己动手 —— 方寸**不写任何外部应用的文件**
-- **备份与恢复**：一键打包（zip + `.sha256` + manifest + 说明 + 恢复脚本）、校验、WebDAV 定时备份；
+- **备份与恢复**：一键打包（zip + `.sha256` + manifest + 说明 + 恢复脚本）、校验、WebDAV 定时备份、Git 镜像备份；
   **密钥永不入包**，恢复前必做 sha256 + 结构双校验
 - **决策记录**：定下来的事记成卡 —— 内容 / 日期 / 出处 + 三态「**有效 / 已撤销 / 已合并**」；
   跨会话、跨项目防遗忘（数据 = `task-data/decisions.md`，桌面端与 CLI 同文件）
@@ -57,10 +59,10 @@
 fangcun/                     # 单一 monorepo
 ├── desktop/                 # Electron 桌面版（主产品）
 │   ├── src/
-│   │   ├── index.ts         #     主进程真入口 → dist/index.js
+│   │   ├── boot.ts          #     真入口 → dist/boot.js（桌面 / MCP 桥二段式分流）
+│   │   ├── index.ts         #     桌面主进程 → dist/index.js
 │   │   ├── main/            #     数据层 / MCP / 启动台 / 服务 / 备份 / 技能安装
-│   │   ├── renderer/        #     Vue 3 看板 UI + 纯逻辑模块（calendar / timefmt / logdedupe）
-│   │   │   └── components/  #     UI 基座落点：ui/ 基础件（shadcn-vue 口径）+ 视图组合组件
+│   │   ├── renderer/        #     Vue 3 看板 UI（views / components / composables）+ 纯逻辑（calendar / logdedupe / shared 下 time / grouping / boardCards 等）
 │   │   └── preload/         #     IPC 桥接
 │   └── package.json         #     Node 依赖 + electron-builder（NSIS）
 │
@@ -69,7 +71,7 @@ fangcun/                     # 单一 monorepo
 ├── tegula/                  #   核心模块（core / cli / web）
 ├── templates/               #   Web 看板模板
 │
-├── scripts/test/            # 回归与守卫（36 套 e2e + 7 个静态守卫 + 3 个 Python 校验 + verify.py）
+├── scripts/test/            # 回归与守卫（70 套 e2e + check-* 静态守卫 + verify.py）
 ├── docs/                    # 架构图 / 发布说明 / 备份说明
 ├── registry.yaml            # 项目注册表（改这里即加项目，无需改代码）
 └── task-data/               # 任务数据（Markdown + YAML frontmatter，不入 git）
@@ -83,19 +85,27 @@ fangcun/                     # 单一 monorepo
 cd desktop
 npm install
 npm run dev            # 热更新调试
-npm run build          # 构建
-npm run electron:build # 打包 NSIS 安装包 → release/
+npm run build          # 构建（vite + tsc 主进程 / CLI）
+cd ..
+node scripts/pack.cjs <版本号>   # 打包 NSIS 安装包 → desktop/pkg（发版取件目录）
 ```
+
+> `desktop/pkg` 是**固定**产物目录（`.gitignore` 已忽略），不要再用
+> `electron-builder -c.directories.output=release-<ver>` 一版新建一个目录。
+> 版本号必须先改 `desktop/package.json`，`pack.cjs` 会核对不一致直接拒绝。
 
 > 开发调试注意：改主进程 / preload 后必须重启 Electron（渲染层热更、主进程只在启动时读一次）。
 > `npm run dev` 的 `dev:electron` 已带 dist 监听自动重启。
+
+> **帮助手册**：装好后点顶栏的「?」打开（离线、视图内渲染）；每个页签干什么、搜索语法、
+> 备份恢复都在里面，不跳外部页面。开发态同样可用。
 
 ### CLI（可选）
 
 ```bash
 python tegula.py serve   # 启动 Web 看板（默认 127.0.0.1:8753）
 python tegula.py next    # agent 取活（带出项目方针卡）
-python tegula.py list    # 列出任务
+python tegula.py status  # 项目健康状态（git 活动 + 任务关联）
 ```
 
 零外部依赖，纯 Python 标准库。
@@ -112,15 +122,15 @@ python tegula.py list    # 列出任务
   [《免责声明与用户协议》](docs/免责声明与用户协议.md)
 
 > 用之前请读一遍 [docs/免责声明与用户协议.md](docs/免责声明与用户协议.md) ——
-> 尤其是「LLM 智能层（BYOK）专项条款」「备份与恢复」「免责声明」三节。
+> 尤其是「LLM 智能层（BYOK）专项条款」「备份、恢复与数据丢失风险」「免责声明」三节。
 
 ## 开发者
 
 | 层 | 命令 | 作用 |
 |---|---|---|
-| 数据层 | `python verify.py` | 解析 / 渲染 / 乐观锁 / 备份 / 老 YAML 写法（**276 项**，24 个检查组） |
-| 主进程 e2e | `node scripts/test/e2e-*.cjs` | 备份、字段、通知、数据根、日志、启动台、技能、回收站、MCP 契约…（34 套） |
-| 渲染层 DOM | `node scripts/test/e2e-renderer-web.cjs` | 无头浏览器跑真实构建产物（多视图、设置页、技能页、决策卡、右键菜单、导入防呆…，**458 项**）；`--shots` 顺带出真机截图 |
+| 数据层 | `python verify.py` | 解析 / 渲染 / 乐观锁 / 备份 / 老 YAML 写法（**293 项**，0.5.6 实测） |
+| 主进程 e2e | `node scripts/test/e2e-*.cjs` | 备份、字段、通知、数据根、日志、启动台、技能、回收站、MCP 契约…（70 套） |
+| 渲染层 DOM | `node scripts/test/e2e-renderer-web.cjs` | 无头浏览器跑真实构建产物（多视图、设置页、技能页、决策卡、右键菜单、导入防呆…，**1051 项**，0.5.6 实测）；`--shots` 顺带出真机截图 |
 | 静态守卫 | `node scripts/test/check-*.cjs` / `check-*.py` | 僵尸按钮 / 未声明标识符 / 按钮样式 / 主题对比度 / 界面文案 / UI 基座 / 技能版本漂移 / 决策卡两侧一致 |
 
 改完必跑：`verify.py` + 相关 e2e + 相关 `check-*` 守卫；改渲染层再跑一次 `e2e-renderer-web`

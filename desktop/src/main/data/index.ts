@@ -462,18 +462,31 @@ export interface TaskFieldSpec {
 
 export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'title', label: '标题', type: 'text', span: 'full', placeholder: '一句话说清要做什么' },
-  { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
-  { key: 'status', label: '状态', type: 'select', span: 'half', options: STATUSES },
-  { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES },
-  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 用户' },
+  { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects',
+    hint: '不选 = 未归属，照样能在看板上看见' },
+  // 2026-10-31（暮雨第 2 条：「感觉很难填写，而且部分字段容易让人误解」）：
+  // 字段一个没减（减了老卡就编辑不了），但每个会让人犹豫的都补一句"它到底影响什么"。
+  // 判据：看这句 hint 之后，不会再去猜"选了这个会不会动到别的东西"。
+  { key: 'status', label: '状态', type: 'select', span: 'half', options: STATUSES,
+    hint: '新建一般选「待办」；「待审批」只给 AI 出的卡，点头才转正' },
+  { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES,
+    hint: '只影响排序与「下一步」推荐，不影响能不能做' },
+  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 用户',
+    hint: '写谁来做；留空 = 还没人领，agent 照样能取' },
   // 2026-09-22（用户第 6 条）：日历要能"指派时间或时间段"。
   // 单日截止用 deadline；开始+截止构成时间段，日历上画成跨天横条。
-  { key: 'start', label: '开始', type: 'text', span: 'half', placeholder: 'YYYY-MM-DD（可选）' },
-  { key: 'deadline', label: '截止', type: 'text', span: 'half', placeholder: 'MM-DD 或 YYYY-MM-DD' },
-  { key: 'batch', label: '批次', type: 'text', span: 'half', placeholder: '如 2026-Q3' },
-  { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug' },
-  { key: 'blockers', label: '阻塞', type: 'list', span: 'full', placeholder: '逗号分隔的任务 ID' },
-  { key: 'memo', label: '附言', type: 'textarea', span: 'full', placeholder: '给执行者的一句提醒' },
+  { key: 'start', label: '开始', type: 'text', span: 'half', placeholder: 'YYYY-MM-DD（可选）',
+    hint: '和「截止」都填 = 一段时间，日历上画成跨天横条' },
+  { key: 'deadline', label: '截止', type: 'text', span: 'half', placeholder: 'MM-DD 或 YYYY-MM-DD',
+    hint: '只填这个 = 单日截止；逾期会进「哪些逾期了」' },
+  { key: 'batch', label: '批次', type: 'text', span: 'half', placeholder: '如 2026-Q3',
+    hint: '同一批一起验收的卡共用一个名字；路线图按它分组' },
+  { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug',
+    hint: '自由分类，能搜能筛；不会变成页签' },
+  { key: 'blockers', label: '阻塞', type: 'list', span: 'full', placeholder: '逗号分隔的任务 ID',
+    hint: '只填「做完它才能开始」的卡 —— 填"相关"的卡会让阻塞页失真' },
+  { key: 'memo', label: '附言', type: 'textarea', span: 'full', placeholder: '给执行者的一句提醒',
+    hint: '不进正文，只给执行的人看' },
   // 驳回理由（2026-10-30 暮雨第 2 条）：可选（有些卡一看就是错的，不必逼人写作文）、
   // 可编辑（点完还能改）、卡面与详情常驻（退回返工也不消失）。
   // 只在有值时出现 —— 没被驳回过的卡不该多一个空框。

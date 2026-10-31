@@ -299,14 +299,17 @@ check('反例：基线里塞了 width 会被咬住',
     shBlock.slice(0, 200))
   check('★★ shadow 块只换高度、不许改配色（--bg / --ink / --accent 一个都不许出现）',
     !/--(bg|ink|accent|muted|card)\s*:/.test(shBlock), shBlock.slice(0, 200))
-  // 所有 box-shadow 值：只允许 none / --el-* / --shadow / 选中环(0 0 0) / inset
+  // 所有 box-shadow 值：只允许 none / --el-* / --shadow / --shadow-card / 选中环(0 0 0) / inset
+  // 2026-10-31：新增 `--shadow-card`（页内卡片贴地档）。它是 --el-1 的别名，
+  // 因为 `--shadow` 一直等于 el-3（弹层档），卡片借用它就会被 40~64px 的大黑影糊住。
+  // ⚠ 允许它之前必须证明它**真会归零** —— 下面那条 `shadow-card 指回 el-1` 就是这条的护栏。
   const values = []
   const re = /box-shadow:\s*([^;]+);/g
   let m
   while ((m = re.exec(css))) values.push(m[1].trim())
   const bad = values.filter((v) => {
     if (v === 'none') return false
-    if (/^var\(--(el-[123]|shadow)\)$/.test(v)) return false
+    if (/^var\(--(el-[123]|shadow|shadow-card)\)$/.test(v)) return false
     if (/^0 0 0 /.test(v)) return false          // 选中/聚焦环：是状态，不是高度
     if (/^inset /.test(v)) return false          // 页签下划线等内阴影
     if (/^0 0 0 [^,]+, var\(--el-[123]\)$/.test(v)) return false // 环 + 高度组合
@@ -314,6 +317,10 @@ check('反例：基线里塞了 width 会被咬住',
   })
   check('★★ 三档之外没有写死的高度阴影（切回扁平才能真的零阴影）', bad.length === 0,
     bad.slice(0, 4).join(' | '))
+  // --shadow-card 不许自己长成一个字面量：它必须只是 --el-1 的别名（两处声明都要）
+  const cardTok = (css.match(/--shadow-card:\s*([^;]+);/g) || []).map((s) => s.split(':')[1].replace(/;\s*$/, '').trim())
+  check('★★ --shadow-card 只是 --el-1 的别名（不是第二套字面量，flat 下才会一起归零）',
+    cardTok.length >= 1 && cardTok.every((v) => v === 'var(--el-1)'), cardTok.join(' | '))
   check('★ 外观档位只有两档（flat / shadow），默认 flat',
     /readUiPref<string>\('fc_appearance',\s*'flat'\)/.test(appSrc) &&
     /id:\s*'flat'/.test(appSrc) && /id:\s*'shadow'/.test(appSrc))

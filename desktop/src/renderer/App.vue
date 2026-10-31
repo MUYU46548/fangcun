@@ -440,16 +440,19 @@
       <span class="pagehead-hint">{{ viewHint }}</span>
     </div>
 
-    <!-- 看板横幅（超期归档 + 驳回返工台）：已切到 components/BoardBanners.vue
+    <!-- 看板横幅（超期归档 + 驳回返工台 + 待验收欠条）：已切到 components/BoardBanners.vue
          （App.vue 拆分第二刀，2026-10-30）。状态仍在 App，组件只接 props / 发事件。 -->
     <BoardBanners v-if="curView === 'active'"
       :archive-days="archiveDays" :archive-overdue="archiveOverdue"
       :rework="rework" :rework-open="reworkOpen" :rework-hidden="reworkHidden"
+      :review-pending="reviewPending" :review-open="reviewOpen" :review-hidden="reviewHidden"
       @archive-now="runArchiveOverdue()"
       @archive-skip="archiveOverdue = { count: 0, items: [] }"
       @toggle-rework="reworkOpen = !reworkOpen"
       @hide-rework="reworkHidden = true"
-      @rework-back="reworkRestore" @rework-archive="reworkArchive" />
+      @rework-back="reworkRestore" @rework-archive="reworkArchive"
+      @toggle-review="reviewOpen = !reviewOpen" @hide-review="reviewHidden = true"
+      @accept-card="reviewVerdict($event, 'accept')" @reject-card="reviewVerdict($event, 'reject')" />
 
     <!-- 随问（2026-10-22 · 施工单包 03 任务一）——「控制台」的查询面。
          这一页**不调模型**：答案全从 registry / 任务卡 / 执行日志 / ai-trace 直接算出来。
@@ -478,7 +481,12 @@
                     :title="p.hint" :disabled="askBusy" @click="askQuick(p.q)">{{ p.label }}</button>
           </div>
         </div>
-        <div class="ask-hint">这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。</div>
+        <div class="ask-hint">
+          这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。
+          <br />
+          <b>「让 AI 答」什么时候出现？</b>只有结构化真算不出来的时候（比如「这事该怎么办」这类要判断的问题）——
+          出现就一定给，不出现就是这题已经答完了，不用猜。
+        </div>
       </div>
 
       <div class="ask-ans" v-if="askAns">
@@ -493,7 +501,7 @@
         <div class="ask-foot">
           <span class="ask-src" v-if="askAns.source">来源：{{ askAns.source }}</span>
           <button class="ghost ask-llm-btn" v-if="askAns.needsLlm" :disabled="askLlmBusy" @click="askToLlm()">
-            {{ askLlmBusy ? 'AI 正在答…' : '让 AI 答（会计费）' }}
+            {{ askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
           </button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
                一次调用 = 一批；产出只落「待审批」（点头才转正）。这是全应用**第二处**会
@@ -990,7 +998,7 @@
     <!-- Blockers view: 2026-09-23 改为按阻塞源分组（用户第 4 条） -->
     <!-- 阻塞源（2026-10-22 拆成组件 · 拆分计划第 1 批第 2 块：只吃一个数据源、零交互）。
          为什么不是方案原定的 calendar —— 见 BlockersView.vue 头部的实测。 -->
-    <BlockersView v-else-if="curView === 'blockers'" :chains="blockerChains" />
+    <BlockersView v-else-if="curView === 'blockers'" :chains="blockerChains" @open-task="openTaskById" />
 
     <!-- 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 术语白话化 + UI 基座第 ④ 步第一单）：
          定下来的事都在这——事情 / 哪天定的 / 还算不算数 / 出处。数据 = task-data/decisions.md
@@ -1027,6 +1035,16 @@
           <div class="ideas-lead-sub">
             这里的东西不算任务、不进逾期、不进待办。决定做了才转成待办，转出去也留着记录。
           </div>
+          <!-- 2026-10-31（暮雨第 6 条）：这条链一直存在，但只有一个「做」字、没有任何说明 ——
+               用户的原话是「不像待办那样方便，也不像日志那样直接，中转问题一堆」。
+               把三步写出来，并指出每一步在哪儿点，比再造一个入口有用。 -->
+          <div class="ideas-chain">
+            <span class="ic-step"><b>① 想法</b>这一页：随手记，不用想清</span>
+            <span class="ic-arrow">→</span>
+            <span class="ic-step"><b>② 待办</b>点「变成待办」：真的在待办里生出一条，能派活/排期</span>
+            <span class="ic-arrow">→</span>
+            <span class="ic-step"><b>③ 日志</b>做完在待办那条上点「→ 日志」：留痕，可回看</span>
+          </div>
         </div>
 
         <div class="ideas-box">
@@ -1058,7 +1076,7 @@
               <span class="idea-when">记于{{ relativeTime(i.createdAt) || '刚刚' }}</span>
               <div class="idea-acts">
                 <button class="ok idea-do" :disabled="ideaBusy" @click="doIdea(i)"
-                  title="决定做 —— 真的在待办里生出一条，之后能退回来">做</button>
+                  title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</button>
                 <button class="ghost idea-hold" :disabled="ideaBusy" @click="holdIdea(i)"
                   title="先放着，不是否决 —— 将来还能捡回来">搁置</button>
                 <button class="ghost idea-drop" :disabled="ideaBusy" @click="dropIdea(i)"
@@ -1339,40 +1357,72 @@
           :placeholder="reviewModal.kind === 'approval'
             ? '批准：为什么可以转正；驳回：缺什么、要改成什么样'
             : '驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项'"></textarea>
+        <!-- 2026-10-31（暮雨第 2 条：「驳回到底怎么用？每次都要手动点移动到待办，那有什么用？」）：
+             驳回之后卡停在哪，必须当场选，不能默认停在「驳回」等人来搬。
+             默认「退回待办」= 驳回即返工单，agent 下次取活就接着干（这才是它该有的样子）；
+             「先停着」= 这次只是记一笔，晚点自己决定。 -->
+        <label class="review-where-label">驳回之后</label>
+        <div class="review-where">
+          <label class="rw-opt" :class="{ on: reviewRework }">
+            <input type="radio" :checked="reviewRework" @change="reviewRework = true" />
+            <span><b>退回待办，让 AI 返工</b>（默认）—— 理由留在卡上，agent 取活会先读它</span>
+          </label>
+          <label class="rw-opt" :class="{ on: !reviewRework }">
+            <input type="radio" :checked="!reviewRework" @change="reviewRework = false" />
+            <span><b>先停在「驳回」</b> —— 不派活，晚点在看板的返工台里再决定</span>
+          </label>
+        </div>
         <div class="acts">
           <button class="ghost" @click="reviewModal = null">取消</button>
-          <button class="danger" @click="rejectTask">↩ 驳回</button>
+          <button class="danger" @click="rejectTask">{{ reviewRework ? '↩ 驳回并退回待办' : '↩ 驳回' }}</button>
           <button v-if="reviewModal.kind !== 'direct'" class="ok" @click="acceptTask">{{ reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
         </div>
       </div>
     </div>
 
-    <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有 -->
+    <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有
+         2026-10-31（暮雨第 10 条）：原来只有版本号 + 一句"数据是你的"，没有简介、作者、版权、
+         免责声明、使用手册入口 —— 「但凡抄自家产品司天和绒花墨坊都不至于这么惨」。
+         现在补齐：是什么 / 谁做的 / 什么许可 / 会花钱的地方 / 三个配套入口。 -->
     <div v-if="aboutOpen" class="overlay" @mousedown.self="aboutOpen = false">
       <div id="about-modal">
         <h3>关于方寸</h3>
         <div class="about-brand">
           <span class="about-logo">方</span>
           <div>
-            <b>方寸 tegula</b>
-            <div class="about-sub">本地优先的 agent 任务调度台</div>
+            <b>方寸 tegula</b><span class="about-ver">v{{ appVersion || '…' }}</span>
+            <div class="about-sub">本地优先的 agent 任务调度台 · 零依赖 · 数据在你自己手里</div>
           </div>
         </div>
+        <p class="about-intro">
+          把「任务收口 + 方针载体」做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
+          agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，AI 不能背着你往里塞东西。
+          会花钱的只有 AI 问答与出单，且必须走你自己的 API（BYOK），不配就一分不花。
+        </p>
         <div class="about-rows">
           <div><span class="k">版本</span><span class="v">{{ appVersion || '读取中…' }}</span></div>
+          <div><span class="k">作者</span><span class="v">MUYU46548</span></div>
+          <div><span class="k">许可证</span><span class="v">MIT · 免费开源，按「现状」提供</span></div>
           <div><span class="k">数据目录</span><span class="v about-path" :title="dataDir">{{ dataDir || '—' }}</span></div>
           <div><span class="k">当前视图</span><span class="v">{{ curViewLabel }} · {{ countText }}</span></div>
-          <div><span class="k">任务数据</span><span class="v about-path">task-data/ · 纯 Markdown + YAML</span></div>
         </div>
-        <div class="acts">
-          <button class="ghost" @click="openAppLogDir">打开日志目录</button>
+        <div class="about-links">
+          <button class="ghost" @click="aboutGoHelp">📖 使用手册</button>
+          <button class="ghost" @click="aboutGoDisclaimer">📄 免责声明与用户协议</button>
+          <button class="ghost" @click="aboutGoSettings">⚙ 设置</button>
           <button class="ghost" @click="bkOpenDir">打开备份目录</button>
-          <button class="ghost" @click="aboutOpen = false">关闭</button>
+          <button class="ghost" @click="openAppLogDir">打开日志目录</button>
         </div>
         <p class="about-note">
           数据是你的：任务就是 <code>task-data/</code> 里的 Markdown 文件，不进 git；
           删除只移入 <code>.trash/</code>；本地备份在 <code>backups/</code>。
+          <br />
+          © 2026 MUYU46548 · MIT License。使用前请读一遍免责声明：AI 会产生费用、
+          备份可能失败、最终的数据保管责任在你自己。
         </p>
+        <div class="acts">
+          <button class="pri" @click="aboutOpen = false">关闭</button>
+        </div>
       </div>
     </div>
 
@@ -1518,12 +1568,15 @@
 
     <!-- 路线图（2026-10-23 拆成组件 · 拆分计划第 1 批第 7 块）。
          它自己 onMounted 拉 roadmap + 里程碑；零交互（唯一按钮是页内「⟳ 刷新」）。 -->
-    <RoadmapView v-if="curView === 'roadmap'" />
+    <RoadmapView v-if="curView === 'roadmap'" @open-task="openTaskById" />
 
     <!-- Edit modal -->
     <div id="modal-overlay" class="overlay" v-if="editTask_" @mousedown.self="closeTaskEditor()">
       <div id="modal" class="task-modal">
         <h3>{{ editTask_.id ? '编辑任务' : '新建任务' }}</h3>
+        <!-- 2026-10-31（暮雨第 2 条「感觉很难填写」）：先把"最少要填什么"说清，
+             免得一屏十几个框看着像必须全填。 -->
+        <div class="tf-lead">只填<b>标题</b>就能建卡；其余留空不影响任何东西。每个框下面都写清它到底影响什么。</div>
         <div class="tf-grid">
           <div
             v-for="spec in visibleFieldSpecs"
@@ -2210,7 +2263,7 @@ import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, days
 // 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
 import { neverReadSummary } from '../shared/neverRead'
 import type { NeverReadResult } from '../shared/neverRead'
-import { pickRework, lastRejectReason } from '../shared/rework'
+import { pickRework, pickPendingReview, lastRejectReason } from '../shared/rework'
 // 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -2340,6 +2393,19 @@ function openAbout(): void {
   aboutOpen.value = true
   if (!appVersion.value) void loadAppVersion()
 }
+/** 关于页的三个配套入口（2026-10-31 第 10 条）：手册 / 免责声明 / 设置 —— 以前一个都没有。 */
+function aboutGoHelp(): void {
+  aboutOpen.value = false
+  switchView('help')
+}
+function aboutGoDisclaimer(): void {
+  aboutOpen.value = false
+  openDisclaimer('view')
+}
+function aboutGoSettings(): void {
+  aboutOpen.value = false
+  showSettings_.value = true
+}
 
 // 硬件加速开关（2026-09-25 用户第 1/3/9 条的人工验证杠杆）。真身 prefs.json，
 // 主进程在 app ready 之前同步读它决定是否 disableHardwareAcceleration() → 必须重启生效。
@@ -2418,6 +2484,19 @@ const reworkOpen = ref(false)
 const reworkHidden = ref(false)
 const reworkNow = ref(Date.now())
 const rework = computed(() => pickRework(tasks.value as any[], reworkNow.value))
+
+// ── 待验收欠条（2026-10-31 暮雨第 5 条：「没做完的东西叫我怎么待验收？我不是只能一直挂在那里？」）
+// 与返工台同一套思路：**让"欠你一个签字"的东西自己冒出来**，而不是等用户翻到那一列。
+// 判据在 shared/rework.ts 的 pickPendingReview（界面不重算）；这里只管开关与两个出口。
+const reviewOpen = ref(false)
+const reviewHidden = ref(false)
+const reviewPending = computed(() => pickPendingReview(tasks.value as any[], reworkNow.value))
+/** 从欠条里直接裁决：走与卡片上「通过/驳回」同一个入口（reviewModal），不另开一条通道 */
+function reviewVerdict(id: string, intent: 'accept' | 'reject'): void {
+  const t = tasks.value.find(x => x.id === id)
+  if (!t) { showToast('这张卡已经不在了（可能刚被别处改过）', 'error'); return }
+  openReview(t, intent)
+}
 
 /** 从 id 找回任务对象；找不到（刚被别处改了）就静默不给按钮乱动 */
 function reworkTask(id: string): Task | null {
@@ -5416,6 +5495,28 @@ function openCard(t: Task) {
 }
 
 /**
+ * 按 id 打开一张卡（2026-10-31）。
+ * 阻塞页 / 路线图以前是纯只读的：看得到"这张卡挡着别人"或"它是下一步"，
+ * 但点不动 —— 得自己回看板找。这条通道让只读页有出口。
+ * 口径：任务不在活跃区（被删/归档）就**如实说**，不假装打开一张空卡。
+ */
+async function openTaskById(id: string): Promise<void> {
+  const local = tasks.value.find(t => t.id === id)
+  if (local && (curView.value === 'active' || curView.value === 'archive')) {
+    openCard(local)
+    return
+  }
+  try {
+    const t: any = await window.tegula.getTask(id)
+    if (!t) { showToast(`任务 ${id} 已不在活跃区（可能被删除或已归档）`, 'error'); return }
+    navigateTo('active')
+    openCard(t)
+  } catch (e: any) {
+    showToast('打开任务失败：' + (e?.message || e), 'error')
+  }
+}
+
+/**
  * Git 联动（卡 20260925-017，2026-10-06）—— 任务详情里的「相关提交」。
  *
  * 只读：主进程跑 `git log`（时间窗 + 提到本卡 ID 的），**不写任何仓库、不改这张卡**。
@@ -6912,6 +7013,8 @@ async function executeLogCleanup() {
 // ── Review ─────────────────────────────────────────────────────────
 
 const reviewReason = ref('')
+/** 驳回后是否立刻退回待办（2026-10-31）。默认是 —— 驳回即返工单，不让人再手动搬一次。 */
+const reviewRework = ref(true)
 /** 常用驳回理由（2026-10-30 暮雨第 2 条）：不是替他下判断，只是省掉"写作文"这一步 */
 const reviewPresets = [
   '看不懂这张卡在说什么',
@@ -6931,6 +7034,7 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
     intent,
   }
   reviewReason.value = ''
+  reviewRework.value = true
   previewTask.value = null
   nextTick(() => {
     const box = document.getElementById('review-modal')
@@ -6952,6 +7056,7 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
 function openDirectReject(t: Task): void {
   reviewModal.value = { id: t.id, title: t.title || t.id, kind: 'direct', intent: 'reject' }
   reviewReason.value = ''
+  reviewRework.value = true
   previewTask.value = null
   nextTick(() => {
     const ta = document.querySelector('#review-modal textarea') as HTMLTextAreaElement | null
@@ -7027,16 +7132,29 @@ async function rejectTask() {
   const kind = reviewModal.value.kind
   const id = reviewModal.value.id
   const title = reviewModal.value.title
+  // 2026-10-31：驳回落点先定死（默认退回待办），再发驳回请求 —— 两件事的顺序不能反：
+  // 必须先有「驳回」这个状态与理由，退回待办才不会把理由一起丢了（unarchiveTask 只改状态）。
+  const alsoRework = reviewRework.value
   const snap = snapOfTask(id)
   const result: any = kind === 'direct'
     ? await window.tegula.rejectTaskDirect(id, reviewReason.value)
     : await window.tegula.reviewReject(id, reviewReason.value)
   if (result.ok) {
-    showToast(kind === 'direct' ? '已驳回（可随时在卡上改理由）' : '已驳回', 'success')
+    let moved = false
+    if (alsoRework) {
+      // unarchiveTask = 回活跃区 + 状态置「待办」；理由字段不动，所以卡面仍看得见驳回理由。
+      const back: any = await window.tegula.unarchiveTask(id)
+      moved = !!back && back.ok !== false
+    }
+    showToast(
+      alsoRework && moved
+        ? '已驳回并退回待办 —— agent 下次取活会先读到理由'
+        : '已驳回' + (alsoRework ? '（退回待办没成功，去返工台里点一次「退回返工」）' : ''),
+      alsoRework && !moved ? 'error' : 'success')
     reviewModal.value = null
     loadAll()
     if (snap) {
-      offerUndo(`已驳回「${title}」`, async () => {
+      offerUndo(`已驳回「${title}」${moved ? '并退回待办' : ''}`, async () => {
         await restoreTaskSnap(id, snap)
         showToast('已撤回：这张卡回到驳回之前', 'success')
       })

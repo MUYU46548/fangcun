@@ -1777,8 +1777,9 @@
       const target = window.__fcTest.ideas().find((i) => i.text === '给想法页加个快捷键')
       const row = $$('#board.ideas-view .ideas-sec .idea').find((x) => (x.textContent || '').indexOf('给想法页加个快捷键') >= 0)
       if (!row || !target) return { err: '没找到刚记的那条' }
-      const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '做')
-      if (!btn) return { err: '这条上没有「做」' }
+      // 2026-10-31（暮雨第 6 条）：按钮文字从「做」改成「变成待办 →」（一个"做"字说不清做了什么）
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('变成待办') >= 0)
+      if (!btn) return { err: '这条上没有「变成待办」' }
       const n0 = window.__fcTest.callCount('ideasPromote')
       btn.click()
       const hit = await waitFor(() => window.__fcTest.callCount('ideasPromote') > n0, 4000, 'ideasPromote')

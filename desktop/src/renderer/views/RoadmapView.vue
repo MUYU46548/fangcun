@@ -16,6 +16,12 @@
           <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
         </div>
       </div>
+      <!-- 2026-10-31（暮雨第 7 条）：路线图以前是"看完了什么也做不了"的一张图。
+           现在每个任务行都能点进卡里；把"下一步"顶到眼前，这一页才有出口。 -->
+      <div class="roadmap-lead">
+        按批次看每个项目走到哪；<b>点任意任务行</b>进卡。<b>「下一步」</b>是各项目优先级最高的待办 ——
+        不知道先干哪个，就从这里挑一个。
+      </div>
       <!-- 阶段里程碑（2026-10-11，C 组死通道接回）：按批次前缀 P0/P1/P2/P3 算各阶段完成度，
            例如「核心阶段完成」「功能阶段进行中 60%」—— 一眼看出项目走到哪一段了。 -->
       <div class="rms-strip" v-if="roadmapMilestones.length">
@@ -42,7 +48,8 @@
                 <span class="rb-count">{{ batch.done }}/{{ batch.total }}</span>
               </div>
               <div class="rb-tasks">
-                <div v-for="t in batch.tasks" :key="t.id" class="rb-task">
+                <div v-for="t in batch.tasks" :key="t.id" class="rb-task rb-click" title="点这张卡进详情"
+                  @click="emit('open-task', t.id)">
                   <span class="st small" :class="'st-' + statusClass(t.status)">{{ t.status }}</span>
                   <span class="rb-title">{{ t.title }}</span>
                 </div>
@@ -52,7 +59,8 @@
           <div class="rp-next" v-if="proj.nextActions && proj.nextActions.length">
             <label>下一步</label>
             <div class="rp-actions">
-              <div v-for="a in proj.nextActions" :key="a.taskId" class="rp-action">
+              <div v-for="a in proj.nextActions" :key="a.taskId" class="rp-action rb-click" title="点这张卡进详情"
+                @click="emit('open-task', a.taskId)">
                 <span class="st small" :class="a.priority === '高' ? 'st-review' : 'st-todo'">{{ a.priority }}</span>
                 {{ a.title }}
               </div>
@@ -70,6 +78,8 @@ import { statusClass } from '../../shared/status'
 const roadmapData = ref<any>({ projects: [] })
 /** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
 const roadmapMilestones = ref<any[]>([])
+/** 2026-10-31：点任务行 → 打开卡（跳转与落盘在 App，组件只发意图） */
+const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
 
 /**
  * 拉路线图 + 里程碑。

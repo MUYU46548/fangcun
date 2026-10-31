@@ -252,8 +252,18 @@ check('  提示了成本红线（AI 只进模糊问答/批次出单两处）',
   JSON.stringify(aVague.lines))
 // 反例之二：一句判断题里带「接下来」—— 不许被 next 认领（2026-10-22 实测踩过）
 const aJudge = ask.answer('你觉得我接下来该不该砍掉它')
+// 2026-10-31：这类"该不该 / 怎么办"的问题归到 advice（先摆台账线索、再明说算不出来）。
+// 判据不变：不许被 next 抢答，且必须 needsLlm=true。
 check('★★ 「接下来该不该…」是判断题，不许被当成 next 答成"下一步做哪张卡"',
-  aJudge.kind === 'unmatched', `kind=${aJudge.kind} title=${aJudge.title}`)
+  aJudge.kind === 'advice' && aJudge.kind !== 'next' && aJudge.needsLlm === true,
+  `kind=${aJudge.kind} needsLlm=${aJudge.needsLlm} title=${aJudge.title}`)
+// 2026-10-31（暮雨第 8 条）：真问题「方寸的阴影问题怎么处理」——
+// 以前因为含「方寸」被当成"问项目进展"，答一屏在途一屏，AI 按钮还不出现。
+const aHowto = ask.answer('方寸的阴影问题怎么处理')
+check('★★ 「怎么处理」类问题不再被项目名劫持成"进展汇报"（必须落到 advice）',
+  aHowto.kind === 'advice' && aHowto.needsLlm === true, `kind=${aHowto.kind} title=${aHowto.title}`)
+check('★ advice 会先把台账里相关的卡/日志摆出来（不是一句"我不懂"）',
+  /方寸手里|台账里/.test(aHowto.lines.join(' ')), JSON.stringify(aHowto.lines))
 const aEmpty = ask.answer('   ')
 check('空输入 → 教一句怎么问，且**不**烧 token', aEmpty.needsLlm === false && aEmpty.title.indexOf('问一句') >= 0, aEmpty.title)
 const aNameOnly = ask.answer('冷项目是什么')

@@ -5,9 +5,9 @@
 >
 > **不知道文档在哪 → 先读 `task-data/plans/fangcun-base.md`（唯一施工跑道 P0–P7），
 > 再在 `docs/执行日志/` 里搜标题含「跑道交接」的日志（一张可直接执行的交接单）。**
-> `docs/` 下 236 份 md 绝大多数是过程附件，**别按目录顺序读**；`开发日志.md` 已停用，只当历史存档。
+> `docs/` 下 307 份 md 绝大多数是过程附件，**别按目录顺序读**；`开发日志.md` 已停用，只当历史存档。
 
-**零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` 1991 + `core.py` 4231 + `web.py` 711，`tegula.py` 只是 19 行 wrapper；看板用 http.server，端口 8753）。为您创造全部项目的统一任务入口。
+**零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` 2363 + `core.py` 4688 + `web.py` 662，`tegula.py` 只是 19 行 wrapper；看板用 http.server，端口 8753）。为您创造全部项目的统一任务入口。
 
 ## 定位（边界写在这里，省得每次重新吵）
 
@@ -201,23 +201,23 @@
 
 > 慢变量事实层。运行期产物（project-status.md 等）会变，不在此维护。
 
-- **包结构**: `tegula.py` 是 19 行 wrapper → `tegula/cli.py`（1991 行，cmd_* 函数按子命令命名）+ `tegula/core.py`（4231 行，数据层 + API）+ `tegula/web.py`（711 行，HTTP/看板/托盘）；另有 `tegula_planning.py` / `tegula_llm.py` 两个顶层模块
+- **包结构**: `tegula.py` 是 19 行 wrapper → `tegula/cli.py`（2363 行，cmd_* 函数按子命令命名）+ `tegula/core.py`（4688 行，数据层 + API）+ `tegula/web.py`（662 行，HTTP/看板/托盘）；另有 `tegula_planning.py` / `tegula_llm.py` 两个顶层模块
 - **数据流**: `registry.yaml`（项目登记）+ `task-data/*.md`（任务，frontmatter 含 状态/成员/expected_update 锁）→ `tegula.py` 读写 → 看板 `templates/board.html`（零依赖轮询渲染）+ `project-status.md`（`tegula report` 覆盖式生成）
 - **状态机**: 草稿→待审批→待办→进行中→待验收→完成（+驳回），定义在 `tegula.py` 顶部 `STATUSES`
 - **并发纪律**: mtime 乐观锁 + `expected_update` 版本字段（verify.py 检查项 3）；无数据库，文件即数据
 - **成员**: `registry.yaml` 顶部 `members:`（hermes/human/暮雨），页面设置可增删
 - **项目注册三类**: `projects:`（活跃）/ 文件内注释说明跳过项 / `released:`（已稳定，报告折叠不参与活跃排序）
 - **派活模式 B**（2026-09-06 定案）: `dispatch` 默认只生成命令不拉起 agent，`--go` 保留旧自动拉起
-- **Hermes 集成**: `hermes-sync` 幂等注册 registry 项目进 Hermes；派活命令形如 `hermes chat --in <repo>`
+- **Hermes 集成（2026-10-31 定性）**: **方寸只管自己登记的项目，不镜像 agent 的项目表**。`hermes-sync` / `hermes-open` 是历史接线（sync 读 `hermes project list`，13 个项目全在 Hermes 侧 → 零写入），文档不再承诺双向同步；活着的互操作只有 **MCP**（agent 读方寸）。`project-status.md` 已无仓库内读取方，只当历史产物。
 - **自检**: `tegula doctor`（只读：frontmatter/锁字段/阻塞引用健康检查）
 
 ## 锚点（读文档后先核对 2-3 个，不符以代码为准）
 
 | 锚点 | 期望值 | 核对命令 |
 |---|---|---|
-| cli.py 行数 | ~1991（`tegula.py` 仅 19 行 wrapper） | `wc -l tegula.py tegula/*.py` |
-| core.py 行数 | 4231 | 同上 |
-| 子命令数 | 56 | `grep -c "add_parser" tegula/cli.py` |
+| cli.py 行数 | ~2363（`tegula.py` 仅 19 行 wrapper；2026-10-31 实测） | `wc -l tegula.py tegula/*.py` |
+| core.py 行数 | 4688 | 同上 |
+| 子命令数 | 71 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
 | 回归断言数 | **2026-10-14 实测**：`verify.py` **276/0** · e2e `renderer-web` **458/0** · `logs` **218/0**；守卫 `check-ui-base` **18/0** · `check-decisions.py` **31/0** · `check-writeback.py` **32/0** · `check-skills` **19/0** · `check-themes` **16/0** · `check-ui-copy` **6/0** · `check-button-styles` **5/0** · `check-ipc-parity` **6/0** · `check-template-bindings` **1/0**；`check-render-roundtrip.py` = 「两侧往返全部一致 ✓」。脚本规模：e2e **36 套** · `check-*.cjs` **7** · `check-*.py` **3**（逐套数字以 `scripts/test/` 实跑为准） | `python verify.py \| tail -1` |
@@ -239,7 +239,7 @@
 ## 项目状态感知（原规则保留）
 
 - `tegula status` = git 活动 + 任务关联健康度（active/stuck/dormant/idle/unknown）
-- `tegula report` = 生成 `project-status.md`（覆盖式更新，供 Hermes 启动读取）；**运行期生成物，不入库**
+- `tegula report` = 生成 `project-status.md`（覆盖式更新；**仓库内已无读取方**，Hermes 侧那份 SOUL.md 引用已 stale —— 只当历史产物）
 - `scan_project_status(p)` = 对应感知函数（`tegula/core.py` 内）
 
 ## 重要约束
@@ -455,5 +455,5 @@ Hermes 用户可额外安装 `fangcun-bridge` skill 获取：
 - Hermes 侧语义指南（何时用哪个工具）
 - 错误处理最佳实践
 
-安装：将 `docs/agents/fangcun-bridge/SKILL.md` 复制到 `~/.hermes/skills/` 后重载。
+安装：将 `docs/agents/fangcun-bridge/SKILL.md` 复制到 `HERMES_HOME` 下的 `skills/`（2026-10-31 实测：本机 `HERMES_HOME=%LOCALAPPDATA%\hermes`，**不是** `~/.hermes/skills`；桌面端 `agents.ts` 也按这个落点写）后重载。
 

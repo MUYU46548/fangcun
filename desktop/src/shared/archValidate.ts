@@ -61,6 +61,22 @@ export function evaluateArchGraph(graph: ArchGraph): ArchReview {
   const lay = layoutArch(graph)
   const gates: ArchGate[] = []
 
+  // 2026-10-31（用户第 4 条复核发现的漏洞）：**空图 / 零连线也能一路"通过"**。
+  // 之前 9 道门量的都是"图里有的东西对不对"，没有一道量"图里到底有没有东西" ——
+  // 于是 1 个节点、0 条连线的图 review.ok=true，用户可以点「通过这张图」再导出，
+  // 导出的是一张"什么都说明不了"的图，而界面上还写着「9 道校验全部通过」。
+  // 这条是硬门（error）：没有连线就不叫架构图，宁可不让导出。
+  gates.push({
+    id: 'has-content', name: '图里有东西', severity: 'error',
+    pass: nodes.length >= 1 && edges.length >= 1,
+    detail: nodes.length === 0
+      ? '一个节点都没有 —— 这个仓库里没有可扫的代码目录'
+      : edges.length === 0
+        ? `${nodes.length} 个节点但**零连线**：看不出谁依赖谁，这不是架构图`
+        : `${nodes.length} 个节点 / ${edges.length} 条连线`,
+    fix: '零连线多半是扫描目录选错了（真源在别的目录），或这个项目本来就没有代码；先查 missing 说明',
+  })
+
   const badNodeEvidence = nodes.filter((n) => !(n.files > 0) || !(n.samples || []).length)
   gates.push({
     id: 'evidence-nodes', name: '节点有证据', severity: 'error',

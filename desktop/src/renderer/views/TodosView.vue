@@ -137,9 +137,11 @@
           <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="ctl.openCalAssignTodo(todo.id)">📅</button>
           <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="ctl.openTodoEditor(todo)">✏️</button>
           <!-- 卡 004（拍板=双向）：待办 → 日志。先开确认框（2026-10-09 用户第 1 条：
-               里面可以顺手勾「标已转出」折叠源）；同一条只转一次（日志记 fromTodo 防重）。 -->
+               里面可以顺手勾「标已转出」折叠源）；同一条只转一次（日志记 fromTodo 防重）。
+              2026-10-31（暮雨第 6 条）：原来只有一个「⤴」，不知道点下去会发生什么 ——
+               中转之所以"问题一堆"，一半是因为搬运工没挂牌子。按钮写明「→ 日志」。 -->
           <button class="todo-conv" title="转成执行日志：先确认（可顺手把源标「已转出」折叠）—— 同一条只转一次"
-            @click.stop="ctl.askConvertTodo(todo)">⤴</button>
+            @click.stop="ctl.askConvertTodo(todo)">→ 日志</button>
           <button class="todo-del" title="删除这条待办" @click.stop="ctl.deleteTodo(todo.id)">×</button>
         </div>
       </div>

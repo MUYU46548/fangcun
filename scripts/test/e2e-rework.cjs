@@ -35,7 +35,7 @@ if (!fs.existsSync(ART)) {
   console.log('RESULT 0 / 1')
   process.exit(1)
 }
-const { parseWhen, lastRejectReason, pickRework } = require(ART)
+const { parseWhen, lastRejectReason, pickRework, pickPendingReview, formatAge } = require(ART)
 
 console.log('== ① 时间解析（三种写法，认不出 = NaN 不是 0）==')
 
@@ -124,6 +124,54 @@ check('传 null / 非数组不抛，返回空清单',
   pickRework('x', NOW).count === 0)
 check('缺 id 的条目直接跳过（不让它变成一行空卡）',
   pickRework([{ title: '没 id', status: '驳回' }], NOW).count === 0)
+
+// ── ⑤ 待验收欠条（2026-10-31 暮雨第 5 条）──────────────────────────────
+// 「看板里没做完的东西叫我怎么待验收？我不是只能一直挂在那里？」
+// 这条把「等验收」也做成会自己冒出来的欠条；判据与返工台同一套，但**只收待验收**。
+console.log('\n== ⑤ 待验收欠条 ==')
+
+const P = (id, extra = {}) => ({
+  id, title: '待验收样例：' + id, status: '待验收', project: 'demo',
+  updated: '2026-10-20T00:00:00.000Z', fm: { id, title: '待验收样例：' + id, status: '待验收' }, ...extra,
+})
+const pr = pickPendingReview([
+  P('rv-old', { updated: '2026-10-01T00:00:00.000Z' }),
+  P('rv-new', { updated: '2026-10-30T00:00:00.000Z' }),
+  P('rv-archived', { archived: true }),
+  T('rv-reject', { status: '驳回' }),
+  T('rv-done', { status: '完成' }),
+], NOW)
+
+check('★★ 只收「待验收」：驳回 / 完成 / 已归档都不进',
+  pr.rows.map((x) => x.id).join(',') === 'rv-old,rv-new', pr.rows.map((x) => x.id).join(','))
+check('★ 等得最久的排最前', pr.rows[0] && pr.rows[0].id === 'rv-old', pr.rows.map((x) => x.id).join(','))
+check('★ 文案说「在等你验收」而不是「没人再管」',
+  pr.text.indexOf('等你验收') >= 0 && pr.text.indexOf('没人再管') < 0, pr.text)
+check('★ 0 天写「今天」，不写「0 天前」',
+  formatAge(0) === '今天' && formatAge(1) === '昨天' && formatAge(9) === '9 天前',
+  [formatAge(0), formatAge(1), formatAge(9)].join(' / '))
+check('★ 时间认不出来 = 时间不详（不编天数）', formatAge(NaN) === '时间不详', formatAge(NaN))
+const prEmpty = pickPendingReview([T('x', { status: '待办' })], NOW)
+check('★ 没有待验收卡时 count=0 且明说', prEmpty.count === 0 && prEmpty.text.indexOf('没有') >= 0, prEmpty.text)
+
+// ── ⑥ 源码守卫：这条欠条真接线了（不是只写了个纯函数）──────────────────
+// 纯函数绿、界面没接 = 用户还是看不见。这条按源码钉三处：App 传参、组件渲染、两个出口。
+console.log('\n== ⑥ 待验收欠条 · 接线守卫 ==')
+const APP_VUE = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf8')
+const BANNERS = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'components', 'BoardBanners.vue'), 'utf8')
+check('★ App 把 reviewPending 传给横幅（不是自己算完就完）',
+  /:review-pending="reviewPending"/.test(APP_VUE))
+check('★ App 有裁决入口（点「通过/驳回」走 openReview，不另开一条通道）',
+  /function reviewVerdict\(/.test(APP_VUE) && /openReview\(t, intent\)/.test(APP_VUE))
+check('★ 横幅真渲染 .review-bar / .review-row（单独类名，不蹭 .rework-row 的计数）',
+  /class="review-bar"/.test(BANNERS) && /class="review-row"/.test(BANNERS) &&
+  !/class="rework-row"[^>]*review/.test(BANNERS))
+check('★ 两个出口都发事件（通过 / 驳回）',
+  /emit\('accept-card'/.test(BANNERS) && /emit\('reject-card'/.test(BANNERS))
+check('★ 驳回弹窗默认「退回待办」（驳回即返工单，不用再手动搬）',
+  /const reviewRework = ref\(true\)/.test(APP_VUE) && /驳回并退回待办/.test(APP_VUE))
+check('★ 驳回后真调 unarchiveTask（不是只改个提示）',
+  /alsoRework[\s\S]{0,400}unarchiveTask\(id\)/.test(APP_VUE))
 
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) {

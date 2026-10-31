@@ -23,7 +23,16 @@
   --el-1: none;
   --el-2: none;
   --el-3: none;
+  /* 2026-10-31（暮雨：「当前阴影模式下许多地方的阴影都过粗，已经影响阅读了」）：
+     真因不是"阴影档太深"，而是**页内卡片借用了弹层那一档**——`--shadow` 一直等于 el-3
+     （0 12px 40px + 0 24px 64px），于是 .tile / .chain-card / .ms-list 这些平铺在页面上的
+     小卡片，每个都拖着一圈 40~64px 的大黑影，字还没读先被灰边糊住。
+     所以拆成两个名字：
+       · `--shadow`      = 弹层（对话框 / 下拉 / 遮罩上的浮层）—— 只有它该"浮起来"；
+       · `--shadow-card` = 页内卡片 —— 贴地那一档（el-1），悬停才抬到 el-2。
+     新加的卡片请用 `--shadow-card`，别再用 `--shadow`。 */
   --shadow: var(--el-3);
+  --shadow-card: var(--el-1);
   --radius: 18px;
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
@@ -107,10 +116,16 @@
    shadow 只给三档高度 —— 贴地(el-1) / 浮起(el-2) / 弹层(el-3)。
    ⚠ 三档之外还剩「选中环」（`0 0 0 Npx`）与「页签下划线」（inset）：它们是**状态**不是**高度**，
      扁平外观下也该看得见（否则选中了看不出来），所以不归这三档管。 */
+/* 2026-10-31 重调（暮雨：「阴影过粗，影响阅读」）：三档全部**收窄扩散半径、降透明度**。
+   旧值 el-2 = 8px+18px / el-3 = 40px+64px，落在白卡上会形成一圈明显的灰边，
+   小字号正文尤其糊。新值只保留"边缘微微分离"的感觉：el-1 几乎不可见、el-3 也只有 14/30。
+   ⚠ 判据不是"看起来有没有影子"，是**正文对比度有没有被灰边拖低**；
+     真要更淡就直接把这一档调到 none（flat），别去改各组件。 */
 :root[data-appearance='shadow'] {
-  --el-1: 0 1px 2px rgba(90,90,130,.06), 0 2px 4px rgba(90,90,130,.05);
-  --el-2: 0 2px 8px rgba(90,90,130,.12), 0 6px 18px rgba(90,90,130,.10);
-  --el-3: 0 12px 40px rgba(30,35,50,.18), 0 24px 64px rgba(30,35,50,.12);
+  --el-1: 0 1px 1px rgba(90,90,130,.05), 0 1px 3px rgba(90,90,130,.05);
+  --el-2: 0 1px 2px rgba(90,90,130,.06), 0 4px 10px rgba(90,90,130,.07);
+  --el-3: 0 4px 14px rgba(30,35,50,.10), 0 10px 30px rgba(30,35,50,.08);
+  --shadow-card: var(--el-1);
 }
 
 /* ── 主题（2026-09-29 用户第 4 条：「似乎多主题颜色外观并不存在…参考绒花墨坊做一下」）──
@@ -888,6 +903,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .batch-count { font-weight: 600; color: var(--accent); }
 
 /* 任务表单：字段清单驱动，CSS Grid 自动分列 */
+.task-modal .tf-lead { margin: -4px 0 10px; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+.task-modal .tf-lead b { color: var(--ink); }
 .task-modal .tf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-bottom: 12px; }
 .task-modal .tf-field { display: flex; flex-direction: column; min-width: 0; }
 .task-modal .tf-field.tf-full { grid-column: 1 / -1; }
@@ -964,18 +981,28 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
 .quickadd-err { margin-top: 8px; font-size: 12px; color: #8a4343; }
 
-/* 关于（左上角 LOGO 入口，2026-09-25 第 12 条） */
+/* 关于（左上角 LOGO 入口，2026-09-25 第 12 条；2026-10-31 第 10 条补齐简介/作者/版权/入口） */
 #about-modal {
-  background: #fff; border-radius: 16px; padding: 18px 20px; width: 440px; max-height: 88vh;
+  background: #fff; border-radius: 16px; padding: 18px 20px; width: 500px; max-height: 88vh;
   overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
 }
 #about-modal h3 { margin: 0 0 14px; font-size: 16px; color: var(--ink); }
-#about-modal .about-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+#about-modal .about-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 #about-modal .about-logo {
   flex: none; width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; font-family: inherit;
 }
 #about-modal .about-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#about-modal .about-ver {
+  margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--muted);
+  background: var(--tint-3); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+}
+#about-modal .about-intro {
+  margin: 0 0 12px; font-size: 12.5px; line-height: 1.75; color: var(--ink);
+  background: var(--tint-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+}
+#about-modal .about-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+#about-modal .about-links .ghost { font-size: 11.5px; padding: 4px 10px; height: 28px; }
 #about-modal .about-rows { border-top: 1px solid var(--border); padding-top: 10px; }
 #about-modal .about-rows > div { display: flex; gap: 10px; font-size: 12.5px; padding: 4px 0; align-items: baseline; }
 #about-modal .about-rows .k { flex: none; width: 62px; color: var(--muted); }
@@ -1090,7 +1117,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .alertbar .ico { flex: none; }
 .alertbar b { color: #8a4343; }
 .pvgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; width: 100%; }
-.tile { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 8px 15px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; overflow: hidden; box-shadow: var(--shadow); }
+.tile { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 8px 15px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; overflow: hidden; box-shadow: var(--shadow-card); }
 .tile:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
 .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 4px 0 0 4px; }
 .t-active::before { background: #5e9154; }
@@ -1224,7 +1251,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ovgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; width: 100%; }
 .ocard {
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
-  padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow);
+  padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow-card);
   transition: box-shadow 0.15s, transform 0.15s;
 }
 .ocard:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
@@ -1256,13 +1283,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   border: 2px dashed var(--border); background: var(--tint-3); min-height: 140px; transition: all 0.15s;
 }
-.ocard-add:hover { border-color: var(--accent); background: var(--tint); transform: none; box-shadow: var(--shadow); }
+.ocard-add:hover { border-color: var(--accent); background: var(--tint); transform: none; box-shadow: var(--el-2); }
 .ocard-add .add-icon { font-size: 32px; color: var(--muted); font-weight: 300; }
 .ocard-add .add-text { font-size: 12px; color: var(--muted); font-weight: 600; }
 
 /* 主从布局：左列常驻项目（带迷你进度），右侧摊开所选项目 */
 .pv-ms { display: grid; grid-template-columns: 212px minmax(0, 1fr); gap: 10px; align-items: start; width: 100%; }
-.ms-list { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: var(--shadow); }
+.ms-list { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: var(--shadow-card); }
 .ms-li { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; font-size: 12.5px; cursor: pointer; }
 .ms-li:hover { background: var(--tint-2); }
 .ms-li.on { background: var(--tint); font-weight: 600; }
@@ -1277,7 +1304,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-n { font-size: 10.5px; color: var(--muted); flex: none; min-width: 12px; text-align: right; }
 .ms-add { padding: 7px 9px; font-size: 11.5px; color: var(--muted); cursor: pointer; border-radius: 8px; }
 .ms-add:hover { background: var(--tint-2); color: var(--accent); }
-.ms-detail { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.ms-detail { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow-card); }
 .ms-detail.empty { color: var(--muted); font-size: 12.5px; }
 /* ── 监控台（卡 task-20261009-001）──────────────────────────────────
    契约「健康度=左缘 4px 色条，无异常=干净白卡」：stuck/dormant 才有色条，active/idle 一个像素都不加 */
@@ -1352,7 +1379,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* preflight 关着 → 原生控件必须显式给字体（check-ui-base 判据） */
 .ask-in { flex: 1 1 auto; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 14px;
   border: 1px solid var(--border); border-radius: 10px; font: inherit; font-size: 14px;
-  color: var(--ink); background: #fff; box-shadow: var(--shadow); }
+  color: var(--ink); background: #fff; box-shadow: var(--shadow-card); }
 .ask-in::placeholder { color: var(--muted); }
 .ask-go { flex: none; height: 44px; padding: 0 22px; font-size: 13.5px; border-radius: 10px; }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -1364,7 +1391,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ask-hint { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
 /* 答案卡：标题一句话说清，明细两列对齐（键窄、值宽，值下面还能挂来源小字） */
 .ask-ans { margin-top: 18px; margin-bottom: 26px; border: 1px solid var(--border); border-radius: 12px; background: #fff;
-  padding: 16px 18px; box-shadow: var(--shadow); }
+  padding: 16px 18px; box-shadow: var(--shadow-card); }
 .ask-title { font-size: 16px; font-weight: 650; color: var(--ink); line-height: 1.5; }
 .ask-line { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.75; }
 .ask-rows { margin-top: 12px; border-top: 1px solid var(--border); }
@@ -1445,11 +1472,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ideas-head { margin-bottom: 14px; }
 .ideas-lead { font-size: 20px; font-weight: 650; color: var(--ink); letter-spacing: .01em; }
 .ideas-lead-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+/* 想法 → 待办 → 日志（2026-10-31 第 6 条）：三步写成一条链，点哪儿、得到什么都说清。 */
+.ideas-chain {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px;
+  padding: 9px 12px; border: 1px dashed var(--line-2); border-radius: 10px;
+  background: var(--tint-3); font-size: 11.5px; line-height: 1.6; color: var(--muted);
+}
+.ideas-chain .ic-step b { color: var(--ink); font-weight: 700; margin-right: 5px; }
+.ideas-chain .ic-arrow { color: var(--accent); font-weight: 700; }
 .ideas-box { margin-top: 14px; }
 /* preflight 关着 → 原生控件必须显式给字体与外观（check-ui-base 判据） */
 .ideas-in { display: block; width: 100%; box-sizing: border-box; min-height: 64px; resize: vertical;
   padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; font: inherit;
-  font-size: 14px; line-height: 1.7; color: var(--ink); background: #fff; box-shadow: var(--shadow); }
+  font-size: 14px; line-height: 1.7; color: var(--ink); background: #fff; box-shadow: var(--shadow-card); }
 .ideas-in::placeholder { color: var(--muted); }
 .ideas-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
 .ideas-hint { flex: 1 1 auto; font-size: 11.5px; color: var(--muted); }
@@ -1704,7 +1739,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
 .lp-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 .lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-.lp-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; box-shadow: var(--shadow); }
+.lp-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; box-shadow: var(--shadow-card); }
 .lp-card:hover { box-shadow: var(--el-2); transform: translateY(-1px); }
 .lp-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--tint); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex: none; }
 .lp-info { flex: 1; min-width: 0; }
@@ -1912,6 +1947,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blockers-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .blockers-header h3 { font-size: 16px; font-weight: 700; }
 .blockers-count { font-size: 12px; color: var(--muted); }
+/* 2026-10-31（暮雨第 7 条）：把"这一页干什么、点哪儿"写在最上面 —— 以前是零说明的只读列表 */
+.blockers-lead { margin-bottom: 10px; font-size: 12px; line-height: 1.75; color: var(--muted); }
+.blockers-lead b { color: var(--ink); }
 .blocker-chains { display: flex; flex-direction: column; gap: 12px; }
 /* 关键路径建议条（卡 023）：用 --tint 而不是写死色，跟主题走 */
 .blocker-advice { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
@@ -1919,8 +1957,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blocker-advice .ba-title { font-weight: 700; }
 .blocker-advice .ba-id { font-size: 11px; color: var(--muted); margin-left: 6px; }
 .blocker-advice .ba-note { color: var(--muted); }
+.blocker-advice .ba-go { margin-left: 8px; height: 26px; padding: 0 10px; font-size: 11.5px; vertical-align: baseline; }
+.chain-main .chain-go { flex: none; height: 24px; padding: 0 9px; font-size: 11px; }
 .chain-arrow .chain-unlock { color: var(--accent); font-weight: 600; }
-.chain-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.chain-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow-card); }
 .chain-main { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .chain-id { font-size: 11px; color: var(--muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; }
 .chain-title { font-weight: 600; flex: 1; }
@@ -2000,6 +2040,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .roadmap-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .roadmap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .roadmap-header h3 { font-size: 16px; font-weight: 700; }
+/* 2026-10-31（暮雨第 7 条）：说明 + 可点行 —— 路线图从"看完没事干"变成"点了能进卡" */
+.roadmap-lead { margin-bottom: 10px; font-size: 12px; line-height: 1.75; color: var(--muted); }
+.roadmap-lead b { color: var(--ink); }
+.rb-click { cursor: pointer; border-radius: 6px; padding: 1px 4px; margin: -1px -4px; }
+.rb-click:hover { background: var(--tint); color: var(--accent); }
 /* 阶段里程碑（2026-10-11，C 组死通道接回） */
 .rms-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px;
   background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
@@ -2018,7 +2063,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .roadmap-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
 .roadmap-ctrls button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 .roadmap-content { display: flex; flex-direction: column; gap: 14px; }
-.roadmap-project { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+.roadmap-project { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow-card); }
 .rp-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .rp-name { font-size: 14px; font-weight: 700; flex: 1; }
 .rp-batches { display: flex; flex-direction: column; gap: 8px; }
@@ -2516,12 +2561,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 卡 004：由日志转来的待办 —— 来源徽章（与日志侧 .log-from 成对，prev 范式） */
 .todo-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
-/* 卡 004：待办 → 日志 的入口按钮。与 📅/✏️/× 同款 24×24 图标钮（027 规范）——
-   check-button-styles 要求模板里出现的每个 class 都有独立规则，不能借邻居的尺寸类。 */
+/* 卡 004：待办 → 日志 的入口按钮。2026-10-31（暮雨第 6 条）从 24×24 图标钮改成带字按钮 ——
+   只有一个「⤴」时没人知道那是"转日志"，中转链就断在这。宽度自适应，高度仍与邻居对齐。 */
 .todo-conv { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
+  height: var(--btn-h-sm); padding: 0 6px; cursor: pointer; white-space: nowrap;
   background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
-  color: var(--muted); font-size: 12px; line-height: 1; }
+  color: var(--muted); font-size: 11.5px; line-height: 1; }
 .todo-conv:hover { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
@@ -2540,7 +2585,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   align-items: center;
   padding: 7px 12px;
   background: #fff; border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: var(--shadow); transition: background 0.15s;
+  box-shadow: var(--shadow-card); transition: background 0.15s;
 }
 .todo-item:hover { background: var(--tint); }
 .todo-item.prio { border-left: 3px solid var(--danger); }
@@ -3100,6 +3145,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   background: var(--tint-3); border: 1px solid var(--border); color: var(--ink);
 }
 .review-presets .rp.on { background: #f3e6e4; border-color: #c98d86; color: #7a3f39; font-weight: 600; }
+/* 驳回之后去哪（2026-10-31）：两选一，默认退回待办。做成两张可点整行的卡，
+   不是两个小圆点 —— 这一项决定"AI 会不会接着干"，值得看得清。 */
+.review-where-label { display: block; margin: 10px 0 5px; font-size: 11.5px; font-weight: 700; color: var(--ink); }
+.review-where { display: flex; flex-direction: column; gap: 6px; }
+.review-where .rw-opt {
+  display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  font-size: 12px; line-height: 1.55; color: var(--ink);
+}
+.review-where .rw-opt.on { border-color: var(--accent); background: var(--tint); }
+.review-where .rw-opt b { font-weight: 700; }
+.review-where .rw-opt input { margin-top: 2px; accent-color: var(--accent); }
 
 /* 任务详情里的驳回理由块（可改） */
 .reject-block { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid #efd9d6; background: #fbf6f5; border-radius: 10px; }
@@ -3313,7 +3370,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trash-list { display: flex; flex-direction: column; gap: 8px; }
 .trash-item {
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
-  padding: 11px 14px; box-shadow: var(--shadow);
+  padding: 11px 14px; box-shadow: var(--shadow-card);
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
 }
 .trash-item:hover { border-color: var(--accent-soft); background: var(--tint-2); }
@@ -3496,7 +3553,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .services-list { display: flex; flex-direction: column; gap: 8px; }
 .svc-item {
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
-  padding: 11px 14px; box-shadow: var(--shadow);
+  padding: 11px 14px; box-shadow: var(--shadow-card);
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
 }
 .svc-item.small { padding: 8px 12px; opacity: .92; }
@@ -3579,7 +3636,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .skills-list { display: flex; flex-direction: column; gap: 10px; }
 .skill-card {
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
-  padding: 12px 14px; box-shadow: var(--shadow);
+  padding: 12px 14px; box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; gap: 8px;
 }
 .skill-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
