@@ -293,6 +293,19 @@ export function useLogsView() {
     return log?.running ? '⏸ 撤销进行中' : '▶ 标为进行中'
   }
 
+  /**
+   * 撤销「进行中」会退回到哪一格（2026-11-01 暮雨报障）。
+   *
+   * 以前无论从哪一格点开，撤销都写死「回到待处理」—— 已完成的日志被误点后
+   * 就再也回不去了。现在主进程记 `running_from`，这里只负责把要说的话对齐：
+   * 有记忆就说「已完成 / 已归档」，没有才是「待处理」。
+   */
+  function logRunningRestoreLabel(log: any): string {
+    if (log?.runningFrom === 'completed') return '已完成'
+    if (log?.runningFrom === 'archived') return '已归档'
+    return '待处理'
+  }
+
   // ── 批量选择 ──────────────────────────────────────────────────────
   const logBatchMode = ref(false)
   const selectedLogBatch = ref<string[]>([])
@@ -311,7 +324,7 @@ export function useLogsView() {
     loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
     setLogsViewMode, toggleLogGroup, isLogGroupCollapsed, logGroupKey,
     logStatusLabel, logStatusClass,
-    logHasGroup, logGroupHiddenCount, logGroupStat, logGroupAllRunning, logRunningLabel,
+    logHasGroup, logGroupHiddenCount, logGroupStat, logGroupAllRunning, logRunningLabel, logRunningRestoreLabel,
     toggleLogBatchMode,
   }
 }

@@ -43,6 +43,17 @@ export function useLogStatusActions(deps: Deps) {
   } = deps
 
   /**
+   * 「进行中」开/关之后，这句话该怎么说（2026-11-01 暮雨报障）。
+   * 撤销不再是写死的「回到待处理」—— 主进程会退回点开之前那一格（已完成 / 已归档 / 待处理），
+   * 这里只把返回的状态翻成中文，别让 toast 说的和卡面显示的不一致。
+   */
+  function restoredStatusLabel(data: any): string {
+    if (data?.status === 'completed') return '已完成'
+    if (data?.status === 'archived') return '已归档'
+    return '待处理'
+  }
+
+  /**
    * 手动开 / 关「进行中」——「进行中」的唯一入口。
    * ⚠ 必须 offerUndo：任何改状态的动作要么顶掉旧撤销条，要么清掉，不许留着旧条装没事。
    */
@@ -55,7 +66,7 @@ export function useLogStatusActions(deps: Deps) {
     const next = !log.running
     const r: any = await window.tegula.logsSetRunning(log.id, next)
     if (r && r.ok) {
-      showToast(next ? '已标为「进行中」' : '已撤销「进行中」，回到待处理', 'success')
+      showToast(next ? '已标为「进行中」' : `已撤销「进行中」，回到「${restoredStatusLabel(r.data)}」`, 'success')
       await loadLogs()
       // 撤销 = 再点一次同一个开关（唯一写入路径），并把列表刷回真值。
       offerUndo(
@@ -64,7 +75,7 @@ export function useLogStatusActions(deps: Deps) {
           const back: any = await window.tegula.logsSetRunning(log.id, !next)
           if (!back?.ok) throw new Error(back?.error || '未知原因')
           await loadLogs()
-          showToast(next ? '已撤销「进行中」，回到待处理' : '已标为「进行中」', 'success')
+          showToast(next ? `已撤销「进行中」，回到「${restoredStatusLabel(back?.data)}」` : '已标为「进行中」', 'success')
         },
       )
     } else {

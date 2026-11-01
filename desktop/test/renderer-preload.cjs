@@ -389,6 +389,30 @@ contextBridge.exposeInMainWorld('tegula', {
     }
     return { ok: true }
   },
+  // 作战计划卡读口（0.6.0 P1）+ 每日推进面（P2）——
+  // 日志页顶部那条「今天推哪一格」靠它渲染。夹具必须带**判据原文**，
+  // 否则「3 秒内看到今天推哪一格及其判据」这条只能在纯逻辑里验，界面侧永远验不到。
+  plansGet: (file) => {
+    rec('plansGet', [file])
+    const docs = [{
+      file: 'demo.md',
+      title: '演示 · 作战计划',
+      stages: [
+        {
+          id: 'P0', title: '格式与机检', status: '已冻结', what: '把结构定成文件格式',
+          approach: ['存储 task-data/plans/<项目id>.md'],
+          copyRows: [['抄哪块', '落到哪', '不抄什么', '怎么算抄到位'], ['---', '---', '---', '---'], ['SOW 五段', '五个二级标题', '合同语言', '五个节名都在']],
+          criteria: ['cmd: echo ok', 'str: 五个二级标题都在', 'num: 照抄点行数 ≥ 1'],
+          verdict: '通过 · 2026-10-29', rejectReason: '', missing: [],
+        },
+        {
+          id: 'P1', title: '作战计划页签', status: '待裁决', what: '',
+          approach: [], copyRows: [], criteria: [], verdict: '', rejectReason: '', missing: [],
+        },
+      ],
+    }]
+    return { ok: true, files: ['demo.md'], docs: file ? docs.filter((d) => d.file === file) : docs }
+  },
   // 停滞卡（2026-10-11 监控台 P0）：夹具给一条**属于 demo 项目**的 —— 让监控台那块有东西可断。
   // 不给的话"僵尸卡"整块永远不渲染，断言就成空转（反面教材见 tegula-testing：
   // 假 preload 缺 API → await 抛了被 catch 吞掉 → 那条断言永远验不到）。
@@ -709,11 +733,19 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({ log: l })
   },
   // 2026-09-28 用户第 2 条：「进行中」是手动开关，唯一写入路径
+  // 2026-11-01：同步真后端的"退回上一格"语义（已完成/已归档点开再撤销要回原格，不是待处理）
   logsSetRunning: (id, running) => {
     rec('logsSetRunning', [id, running])
     const l = store.logs.find(x => x.id === id)
     if (!l) return { ok: false, error: '日志不存在' }
-    if (running && l.status !== 'active') { l.status = 'active'; l.completed = null }
+    if (running) {
+      if (l.status !== 'active') { l.runningFrom = l.status; l.status = 'active' }
+      l.agentDone = false
+    } else if (l.status === 'active' && l.runningFrom) {
+      l.status = l.runningFrom
+      l.runningFrom = undefined
+      l.agentDone = false
+    }
     l.running = !!running
     return ok({ log: l })
   },

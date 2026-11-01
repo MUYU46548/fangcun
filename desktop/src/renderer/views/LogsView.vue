@@ -99,6 +99,19 @@
           @click="openLogPurge">清理归档…</button>
       </div>
     </div>
+    <!-- 每日推进面（0.6.0 P2「今天推哪一格」）——
+         挂在日志页（唯一每天都用的视图），不新增页面；**不让人选**，只报当前该推的那一格。
+         三行恒定：推哪格 / 判据 / 状态（空态也是三行，见 shared/dailyBand.ts）。
+         选格与文案全在纯函数里，这里只渲染 —— 判据没跑过按"未过"算（fail-closed），
+         绝不在查不到结果时把这一格当成做完了。 -->
+    <div v-if="dailyBand" class="daily-band" :class="'db-' + dailyBand.kind"
+      role="status" aria-live="polite" :title="dailyBand.lines.join('\n')">
+      <span class="db-ic" aria-hidden="true">{{ dailyBand.kind === 'ready' ? '◈' : '◇' }}</span>
+      <div class="db-lines">
+        <div v-for="(ln, i) in dailyBand.lines" :key="'db-' + i" class="db-line" :class="'db-line-' + (i + 1)">{{ ln }}</div>
+      </div>
+    </div>
+    <div v-else-if="dailyBandError" class="daily-band db-error" role="status">{{ dailyBandError }}</div>
     <div v-if="logBatchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
       <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === visibleLogs.length ? '取消全选' : '全选' }}</button>
@@ -228,7 +241,7 @@
               </span>
               <span class="lk-actions" @click.stop>
                 <button v-if="k.status === 'active'" class="ghost lk-btn lk-run" :class="{ on: k.running }"
-                  :title="k.running ? '单独撤销这条的「进行中」' : '单独把这条标为「进行中」（不影响同组其它条）'"
+                  :title="k.running ? '单独撤销这条的「进行中」，回到「' + logRunningRestoreLabel(k) + '」' : '单独把这条标为「进行中」（不影响同组其它条）'"
                   @click="toggleLogRunning(k)">{{ k.running ? '⏸' : '▶' }}</button>
                 <button v-if="k.status !== 'completed' && k.status !== 'archived'"
                   class="ghost lk-btn lk-done" :class="{ ok: k.agentDone }"
@@ -258,7 +271,9 @@
           <span v-if="log.prevAgentName" class="log-prev-agent"
             title="上次的执行 Agent（接力来源那段是谁跑的）—— 找上次的会话就去这个 Agent 里找">⤴ 上次 {{ log.prevAgentName }}</span>
           <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
-          <span v-if="log.completed" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
+          <!-- 完成时间：只在**不再进行中**时显示。误点「进行中」不会抹掉这个时间戳
+               （它是"退回到已完成"的证据），但既然现在在跑，卡面就别同时报"已完成"。 -->
+          <span v-if="log.completed && !log.running" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           <!-- 改过留痕（2026-10-18 暮雨第 2 条）：已完成的日志现在能改，但改过就亮这个戳 ——
                不是拦着不让改，而是让"这条被事后动过"看得见。 -->
           <span v-if="log.edited" class="log-edited" :title="'最后一次改正文：' + formatDateTime(log.edited)">✎ 改过</span>
@@ -299,7 +314,7 @@
                 ? '撤销全组「进行中」（主日志 + 全部附属）'
                 : '把主日志 + 全部附属一起标为「进行中」；要单独改某一条，用下面框里那行的 ▶ / ⏸')
               : (log.running
-                ? '撤销「进行中」标记，回到「待处理」'
+                ? '撤销「进行中」标记，回到「' + logRunningRestoreLabel(log) + '」'
                 : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）')"
             @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</button>
           <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
@@ -322,7 +337,7 @@
 </template>
 
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { onMounted, toRef } from 'vue'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { localPriority } from '../../shared/priority'
 
@@ -356,6 +371,9 @@ const renderSections = toRef(ctl, 'renderSections')
 const logDragOver = toRef(ctl, 'logDragOver')
 const projects = toRef(ctl, 'projects')
 const agentPresets = toRef(ctl, 'agentPresets')
+// 每日推进面（0.6.0 P2）：选格结果与读取错误都由父组件给，模板只显示三行
+const dailyBand = toRef(ctl, 'dailyBand')
+const dailyBandError = toRef(ctl, 'dailyBandError')
 // 主日志 / 附属日志（2026-10-30 第 4 条）：两张映射由父组件算好，模板只查表
 const logGroupChildren = toRef(ctl, 'logGroupChildren')
 const logGroupParent = toRef(ctl, 'logGroupParent')
@@ -387,6 +405,8 @@ const {
   // 读 / 筛 / 排序
   loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,
+  // 每日推进面（0.6.0 P2）—— 进入日志页读一次，切回来就是最新裁决结果
+  loadDailyBand,
   // 单条
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
   copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog,
@@ -394,7 +414,7 @@ const {
   executeLogCleanup, importLogFile,
   // 主日志 + 附属日志（2026-10-30 第 4 条）
   openLogAttach, toggleLogGroupRunning, completeLogGroupItem, copyLogGroupAsPrompt, logGroupAllRunning,
-  logHasGroup, logGroupStat, logGroupHiddenCount, logRunningLabel,
+  logHasGroup, logGroupStat, logGroupHiddenCount, logRunningLabel, logRunningRestoreLabel,
   openLogPreview,
   // 批量
   toggleLogBatchMode, toggleSelectAllLogs,
@@ -404,4 +424,7 @@ const {
   // 拖入导入 + 拖拽高亮（全站拖拽态）
   onLogDrop, dragEnter, dragPulse, dragLeave,
 } = ctl
+
+// 进入日志页就读一次「今天推哪一格」：裁决发生在项目页，这里不做长时间缓存
+onMounted(() => { void loadDailyBand() })
 </script>

@@ -537,13 +537,58 @@ function main() {
   check('撤销不存在的日志给可读原因',
     logs.reopenLog('nope-999').ok === false && /不存在/.test(logs.reopenLog('nope-999').error || ''),
     JSON.stringify(logs.reopenLog('nope-999')))
-  check('★ 对已完成的日志开「进行中」= 连带退回未完成（否则卡面自相矛盾）', (() => {
-    const r = logs.createLog('已完成又开跑', 'demo', 'x').data
-    logs.completeLog(r.id, 7)
-    logs.setLogRunning(r.id, true)
-    const e = logs.getLog(r.id)
-    return e.running === true && e.status === 'active' && !e.completed
-  })())
+  // ── 11c. 「进行中」撤销 = 退回**点它之前那一格**（2026-11-01 暮雨报障）──────
+  // 用户原话：「已完成的日志如果不小心误点进行中，再撤销就会变成待处理，而不是变成已完成。
+  //           不是应该撤到上一步吗？我甚至测了两遍。」
+  // 真因：开跑时把 completed / 保留期一起清了，关闭时没有"上一步"可回。
+  // 现在的口径：开跑记 running_from，关闭原样退回去；普通待处理日志不受影响。
+  const rf = logs.createLog('误点进行中', 'demo', 'x').data
+  logs.completeLog(rf.id, 7, '本来就做完了')
+  const rfCompletedAt = logs.getLog(rf.id).completed
+  const rfRetainUntil = logs.getLog(rf.id).retainUntil
+  check('前置：这是一条已完成、带保留期的日志',
+    logs.getLog(rf.id).status === 'completed' && !!rfCompletedAt && !!rfRetainUntil)
+  logs.setLogRunning(rf.id, true)
+  const rfOn = logs.getLog(rf.id)
+  check('★ 已完成日志点「进行中」→ 卡面只显示进行中（status=active + running）',
+    rfOn.status === 'active' && rfOn.running === true, JSON.stringify({ s: rfOn.status, r: rfOn.running }))
+  check('★ 完成时间 / 保留期**不被抹掉**（它们是退回"已完成"的证据）',
+    rfOn.completed === rfCompletedAt && rfOn.retainUntil === rfRetainUntil,
+    JSON.stringify({ c: rfOn.completed, u: rfOn.retainUntil }))
+  check('★ 文件里记下来源格 running_from: completed',
+    /^running_from: completed$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rf.id}.md`), 'utf-8')))
+  const rfOff = logs.setLogRunning(rf.id, false)
+  const rfBack = logs.getLog(rf.id)
+  check('★★ 撤销「进行中」回到「已完成」（不是待处理）—— 这就是用户报的那条',
+    rfOff.ok === true && rfBack.status === 'completed' && rfBack.running !== true,
+    JSON.stringify({ ok: rfOff.ok, s: rfBack.status, r: rfBack.running }))
+  check('★ 回到已完成后，完成时间原样还在', rfBack.completed === rfCompletedAt)
+  check('★ running_from 用完即删（历史文件不凭空多字段）',
+    !/running_from/.test(fs.readFileSync(path.join(LOGS_DIR, `${rf.id}.md`), 'utf-8')))
+
+  const rg = logs.createLog('误点进行中-归档', 'demo', 'x').data
+  logs.archiveLog(rg.id)
+  logs.setLogRunning(rg.id, true)
+  logs.setLogRunning(rg.id, false)
+  check('★ 从「已归档」点开的进行中，撤销后回到「已归档」',
+    logs.getLog(rg.id).status === 'archived', logs.getLog(rg.id).status)
+
+  // 反例：普通「待处理」日志开/关仍是待处理 —— 记忆机制不许把别的东西带跑
+  const rh = logs.createLog('普通开关', 'demo', 'x').data
+  logs.setLogRunning(rh.id, true)
+  logs.setLogRunning(rh.id, false)
+  check('★ 反例：待处理日志开再关 → 仍是待处理（没有来源格可回）',
+    logs.getLog(rh.id).status === 'active' && !logs.getLog(rh.id).runningFrom)
+  check('★ 反例：普通开关不在文件里留 running_from',
+    !/running_from/.test(fs.readFileSync(path.join(LOGS_DIR, `${rh.id}.md`), 'utf-8')))
+
+  // 明确的「撤销完成」仍按原语义退回待处理，并且把"进行中记忆"清干净
+  const ri = logs.createLog('撤销完成仍回待处理', 'demo', 'x').data
+  logs.completeLog(ri.id, 7)
+  logs.setLogRunning(ri.id, true)
+  logs.reopenLog(ri.id)
+  check('★ 「撤销完成」仍是明确动作：退回待处理，不被进行中记忆干扰',
+    logs.getLog(ri.id).status === 'active' && !logs.getLog(ri.id).runningFrom)
 
   // 渲染层接线守卫：数据层通了不等于界面有入口（卡 022 的坑就是这么来的）
   const PRELOAD = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/preload/index.ts'), 'utf-8')
@@ -554,6 +599,13 @@ function main() {
     /toggleLogRunning\(log\)/.test(APP) && /async function toggleLogRunning/.test(APP))
   check('★ 开关走的是新通道 logs:setRunning（preload 也暴露了）',
     /window\.tegula\.logsSetRunning\(log\.id, next\)/.test(APP) && /logsSetRunning: \(id: string, running: boolean\) => ipcRenderer\.invoke\('logs:setRunning'/.test(PRELOAD))
+  // 2026-11-01：撤销「进行中」要说清"退回哪一格"，不许再写死「待处理」
+  check('★ 撤销「进行中」的提示按返回状态说话（已完成 / 已归档 / 待处理），不是写死"待处理"',
+    /restoredStatusLabel\(r\.data\)/.test(APP) && /restoredStatusLabel\(back\?\.data\)/.test(APP)
+    && /function restoredStatusLabel/.test(APP))
+  check('★ 卡面「撤销进行中」按钮的 title 也按 runningFrom 说话',
+    /logRunningRestoreLabel\(log\)/.test(APP) && /logRunningRestoreLabel\(k\)/.test(APP)
+    && /function logRunningRestoreLabel/.test(APP))
   check('★ 只有 running 的卡才有醒目卡面（修前是 active —— 而 active 是"每一条新建日志"的默认值）',
     /\.log-card\.running \{[\s\S]{0,240}linear-gradient/.test(CSS) && !/\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(CSS))
   check('★ `active` 的中文显示是「待处理」，不再是「进行中」',

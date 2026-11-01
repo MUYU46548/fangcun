@@ -2945,6 +2945,20 @@
       stickyW > 0 && viewW > 0 && Math.abs(stickyW - viewW) < 2,
       `sticky=${stickyW} view=${viewW}`)
 
+    // ── 每日推进面（0.6.0 P2「今天推哪一格」）──────────────────────────
+    // 判据不是"有块 UI"，而是：① 挂在日志页（不新开页面）；② **恒 3 行**；
+    // ③ 第一行点名今天推的那一格、第二行带**判据原文**（这条是 P2 里程碑的原话）。
+    const dbLines = $$('.daily-band .db-line').map((x) => (x.textContent || '').trim())
+    check('★ 日志页顶部有「每日推进面」（.logs-sticky 里的 .daily-band，不是新开的一页）',
+      !!$('.logs-sticky .daily-band'))
+    check('★★ 推进面恒 3 行：今天推哪一格 / 判据 / 状态',
+      dbLines.length === 3, dbLines.length + ' 行：' + dbLines.join(' || '))
+    check('★★ 第一行点名推哪一格、第二行带判据原文（不是只报条数）',
+      /^今天推：/.test(dbLines[0] || '') && /判据 3 条/.test(dbLines[1] || '') && /cmd: echo ok/.test(dbLines[1] || ''),
+      dbLines.slice(0, 2).join(' || '))
+    check('★ 第三行说清状态与判据执行情况',
+      /状态：已冻结/.test(dbLines[2] || '') && /尚未执行/.test(dbLines[2] || ''), dbLines[2])
+
     // 2026-10-30 暮雨第 2 轮：「分区头别写解释」——
     // 旧版写「还没派出去（要派给 AI 就点那张卡的…）」，用户原话「直接什么都不写都更好」。
     check('★★ 分区头不再画蛇添足地解释状态（用户已明确说不要）',

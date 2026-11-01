@@ -33,8 +33,22 @@ export interface UndoAction {
 
 const MAX_STACK = 30
 
+/**
+ * 撤销条驻留时长（2026-11-01 暮雨第 2 条）。
+ *
+ * 用户原话：「撤回的横幅提示是否滞留时间过长？我觉得放个5秒就差不多了，一直挂在顶上很烦。」
+ * 所以**横幅的表现**只在刚改完的 5 秒里：说得清"刚才做了什么 + 还能不能撤"。
+ * 但**撤销能力**不跟着消失 —— 栈还留着，Ctrl+Z 照样撤，缩成角上一个「↩ 可撤 N 步」的小胶囊，
+ * 点一下能把条子叫回来（"误点十分钟后也该撤得回来"是 2026-10-30 暮雨自己定的口径，不能被
+ * 这次"嫌它烦"顺手推翻）。
+ */
+export const UNDO_BAR_MS = 5000
+
 /** 整个会话的撤销栈（旧 → 新） */
 export const undoStack = ref<UndoAction[]>([])
+
+/** 横幅是否展开（5 秒后收起；栈本身不动） */
+export const undoBarVisible = ref(false)
 
 /** 当前栈顶（模板里 `v-if="undoBar"` / `undoBar.label` 仍按旧接口用） */
 export const undoBar = computed<UndoAction | null>(() => {
@@ -53,9 +67,25 @@ export const undoHistory = computed(() =>
     .reverse(),
 )
 
+let hideTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearHideTimer(): void {
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
+}
+
+/** 把横幅再展开 5 秒（点小胶囊 / 新动作都会调它） */
+export function showUndoBar(): void {
+  if (!undoStack.value.length) return
+  undoBarVisible.value = true
+  clearHideTimer()
+  hideTimer = setTimeout(() => { undoBarVisible.value = false; hideTimer = null }, UNDO_BAR_MS)
+}
+
 /** 清空全部可撤动作（不是撤销，是"别再拿旧动作来撤"） */
 export function dismissUndo(): void {
+  clearHideTimer()
   undoStack.value = []
+  undoBarVisible.value = false
 }
 
 /**
@@ -75,6 +105,8 @@ export function offerUndo(label: string, run: () => Promise<void>, key?: string)
   s.push(entry)
   // 只保留最近 MAX_STACK 笔：更早的不是"不能撤"，是"已经滚出记忆"（历史面板会显示真实步数）
   undoStack.value = s.length > MAX_STACK ? s.slice(s.length - MAX_STACK) : s
+  // 新动作 = 重新把横幅摆出来 5 秒（哪怕刚被收起来）
+  showUndoBar()
 }
 
 /**
@@ -88,11 +120,16 @@ export async function runUndo(onError?: (msg: string) => void): Promise<boolean>
   const b = s.pop()
   if (!b) return false
   undoStack.value = s
+  if (!s.length) {
+    clearHideTimer()
+    undoBarVisible.value = false
+  }
   try {
     await b.run()
     return true
   } catch (e: any) {
     undoStack.value = [...undoStack.value, b]
+    showUndoBar()
     onError?.(`撤销失败：${e?.message || e}`)
     return false
   }

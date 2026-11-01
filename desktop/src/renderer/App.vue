@@ -2105,8 +2105,10 @@
          那条日志就滑到别的分区、甚至不在当前屏，人只能回头翻。误操作的回路必须
          **留在原地、留在眼前** —— 所以状态类动作成功后在这里挂一条，点一下就回去；
          Ctrl+Z 等价于点它（只在焦点不在输入框里时接管，见 onShortcutKeydown）。
-         ⚠ 不做全站撤销栈：这里只记「上一笔状态动作」，而且只认能真撤回的那几种。 -->
-    <div id="undo-bar" v-if="undoBar" role="status" aria-live="polite">
+         ⚠ 2026-11-01 暮雨第 2 条：「一直挂在顶上很烦，放个 5 秒就差不多了」——
+           横幅只展开 5 秒（见 undo.ts 的 UNDO_BAR_MS），之后收成角上小胶囊；
+           **撤销栈不丢**，Ctrl+Z 与历史面板照旧可用（"误点十分钟也该撤得回来"是 10-30 定的口径）。 -->
+    <div id="undo-bar" v-if="undoBar && undoBarVisible" role="status" aria-live="polite">
       <span class="ub-text">{{ undoBar.label }}</span>
       <button v-if="undoCount > 1" class="ub-count" title="查看全部可撤动作（可以一次退回好几步）"
         @click="undoHistOpen = !undoHistOpen">共 {{ undoCount }} 步</button>
@@ -2114,6 +2116,10 @@
       <button class="ub-btn" title="撤回上一步（同 Ctrl+Z）" @click="runUndo">↩ 撤销</button>
       <button class="ub-x" title="不再提示这些可撤动作（不会替你撤回）" @click="dismissUndo">✕</button>
     </div>
+    <!-- 收起后的极小入口：条子不挂在顶上了，但"还能撤"必须一眼可见（否则误点就真找不回来） -->
+    <button v-else-if="undoBar" id="undo-chip"
+      :title="'还有 ' + undoCount + ' 步可撤 —— 点开撤销条（Ctrl+Z 直接撤上一步）'"
+      @click="showUndoBar">↩ {{ undoCount }}</button>
     <!-- 撤销历史（2026-10-30 暮雨第 5 条）：不只是"上一笔" —— 点哪一条就退到那一步之前。 -->
     <div id="undo-hist" v-if="undoHistOpen && undoCount" role="dialog" aria-label="可撤动作">
       <div class="uh-head">可撤动作（{{ undoCount }}）<span>点一条 = 把它及之后一起撤掉</span></div>
@@ -2220,7 +2226,7 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provi
 import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
 import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
-import { undoBar, undoCount, undoHistory, offerUndo, dismissUndo, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
+import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo, showUndoBar, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
 // 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
@@ -2231,6 +2237,7 @@ import { useNotifications } from './composables/useNotifications'
 import { useBoardColumns } from './composables/useBoardColumns'
 import { useTripBoard } from './composables/useTripBoard'
 import { useLogsView } from './composables/useLogsView'
+import { useDailyBand } from './composables/useDailyBand'
 import { useLogAttachments } from './composables/useLogAttachments'
 import { useLogMaintenance } from './composables/useLogMaintenance'
 import { useLogEditGuard } from './composables/useLogEditGuard'
@@ -6335,8 +6342,15 @@ const {
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed, logGroupKey,
   logStatusLabel, logStatusClass,
   logHasGroup, logGroupHiddenCount, logGroupStat, logGroupAllRunning, logRunningLabel,
+  logRunningRestoreLabel,
   toggleLogBatchMode,
 } = useLogsView()
+
+/**
+ * 每日推进面（0.6.0 P2）：日志页顶部「今天推哪一格 + 这一格的判据」。
+ * 选格规则在 `shared/dailyBand.ts`（纯逻辑）；日志页挂载时重读一次。
+ */
+const { dailyBand, dailyBandLoading, dailyBandError, loadDailyBand } = useDailyBand()
 
 const logEdit_ = ref<any>(null)
 // 日志历史版本（2026-10-18 卡 001；2026-10-31 收口）：列表 / 单版预览 / 恢复
@@ -8574,7 +8588,10 @@ const logsViewCtl = reactive({
   logAgentFilter, logDateFrom, logDateTo, logBatchMode, selectedLogBatch,
   logsViewMode, filteredLogs, visibleLogs, renderSections, logDragOver,
   projects, agentPresets,
+  // 每日推进面（0.6.0 P2）：选格结果由 shared/dailyBand 算好，模板只显示
+  dailyBand, dailyBandLoading, dailyBandError, loadDailyBand,
   logGroupChildren, logGroupParent, logHasGroup, logGroupStat, logGroupHiddenCount, logRunningLabel,
+  logRunningRestoreLabel,
   // 读 / 筛 / 排序
   loadLogs, executeLogSearch, toggleLogMoreFilter, clearLogMoreFilters,
   setLogsViewMode, toggleLogGroup, isLogGroupCollapsed,

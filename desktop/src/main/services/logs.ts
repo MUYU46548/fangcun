@@ -39,6 +39,21 @@ export interface LogEntry {
    */
   running?: boolean
   /**
+   * 「进行中」是从哪一格点开的（2026-11-01 暮雨报障）。
+   *
+   * 用户原话：「误点了一个日志，它变成了已完成…… 已完成的日志如果不小心误点进行中，
+   * 再撤销就会变成待处理，而不是变成已完成。不是应该撤到上一步吗？」
+   *
+   * 真因：`setLogRunning(true)` 把 status 改成 active 时**把 completed / 保留期也一起清了**，
+   * 关闭时只能回到「待处理」—— 上一步是什么已经没有记录了。
+   *
+   * 现在：从 已完成 / 已归档 点开「进行中」时，把原来的 status 记在这里（值域就这两个，
+   * 因为 active 不需要记忆）；关闭「进行中」且 status 还是 active 时**原样退回去**。
+   * 完成 / 归档 / 主动撤销完成这些明确的状态动作会把它清掉 —— 记忆只服务于"撤销进行中"。
+   * 文件键 `running_from`；只在有值时落盘（普通日志零变化）。
+   */
+  runningFrom?: 'completed' | 'archived'
+  /**
    * AI 申请收口（2026-10-30 用户拍板「完成是签字，不是干活」）。
    *
    * 为什么不是 status 的第四个值：状态机是 待处理 / 已完成 / 已归档 三态，
@@ -252,6 +267,9 @@ function parseLogFile(filePath: string): LogEntry | null {
       status: (raw.status || 'active') as LogEntry['status'],
       // 「进行中」是手动标记（2026-09-28），只在文件里显式写了 true 才算数
       running: raw.running === true || raw.running === 'true',
+      // 从哪一格点开的「进行中」（2026-11-01）：只认两个合法值，其余当没记过
+      runningFrom: raw.running_from === 'completed' || raw.running_from === 'archived'
+        ? raw.running_from : undefined,
       // AI 申请收口（2026-10-30）：只在 true 时落盘，历史文件不多字段
       agentDone: raw.agent_done === true || raw.agent_done === 'true',
       created: String(raw.created || ''),
@@ -325,6 +343,8 @@ function renderLog(log: LogEntry): string {
   // 只在 true 时落字段（false = 不写，历史文件不会凭空多出 pinned: false）
   if (log.pinned) fm.pinned = true
   if (log.running) fm.running = true
+  // 「进行中」的来源格（2026-11-01）：只在有值时落盘，历史日志零变化
+  if (log.runningFrom) fm.running_from = log.runningFrom
   if (log.agentDone) fm.agent_done = true
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
@@ -768,6 +788,7 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   // 当成必经状态了。现在从「待处理」直接完成、或从「已归档」补完成，都放行。
   entry.status = 'completed'
   entry.running = false   // 已完成的东西不该还挂着「进行中」
+  entry.runningFrom = undefined // 明确的完成动作会覆盖掉"从哪一格点开"的记忆
   entry.agentDone = false // 已签字，AI 的「等你确认」标记自然消失
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
@@ -792,6 +813,7 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   if (entry.status === 'archived' && !entry.running) return { ok: true, data: entry }
   entry.status = 'archived'
   entry.running = false
+  entry.runningFrom = undefined
   entry.agentDone = false
   // 归档备注落 archiveNote（## 归档备注），不再借道 note —— 两者是不同节，
   // 借道会让「完成确认」被归档动作覆盖掉。
@@ -815,9 +837,14 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
   const filePath = path.join(getLogsDir(), `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.status === 'active') return { ok: true, data: entry }
+  // 本来就是待处理且没有"从哪儿开跑"的记忆 → 幂等，不写盘
+  if (entry.status === 'active' && !entry.runningFrom) return { ok: true, data: entry }
+  const wasActive = entry.status === 'active'
   entry.status = 'active'
-  entry.running = false
+  // 已经从完成/归档点开「进行中」的（active + runningFrom）保持正在跑 ——
+  // 用户撤的是"完成"这件事，不是"我在弄它"这件事
+  if (!wasActive) entry.running = false
+  entry.runningFrom = undefined
   entry.agentDone = false
   entry.completed = null
   entry.retainDays = null
@@ -830,33 +857,45 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
 }
 
 /**
- * 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。
+ * 手动开 / 关「进行中」（2026-09-28 用户第 2 条；2026-11-01 补「撤到上一步」）。
  *
  * 这是「进行中」**唯一的写入路径** —— 创建、完成、归档都只会把它关掉，绝不会打开它，
  * 所以「谁在跑」这件事 100% 来自用户的手动开关。
  *
- * 打开时若日志已「完成 / 已归档」，连带把它退回「待处理」（同 reopenLog 的清理），
+ * 打开时若日志已「完成 / 已归档」，连带把它退回「未完成」（status=active、卡面显示进行中），
  * 否则卡片会同时显示「已完成」和「进行中」，自相矛盾 —— 用户点「进行中」的意思
  * 本来就是「这条我又在弄了」。
+ *
+ * ⚠ 2026-11-01 暮雨报障：**退回时不能丢"上一步是哪一格"**。
+ *   原实现把 status 改 active 的同时清掉 completed / 保留期，关闭时只能回到「待处理」——
+ *   用户误点「进行中」再撤销，一条已完成的日志就永久变成了未完成。
+ *   现在开的时候记 `running_from`，关的时候**原样退回去**（已完成回到已完成，归档回到归档）。
  */
 export function setLogRunning(id: string, running: boolean): { ok: boolean; data?: LogEntry; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
   const on = !!running
-  if (on && entry.status !== 'active') {
-    entry.status = 'active'
-    entry.completed = null
+  if (on) {
+    if (entry.status !== 'active') {
+      // 记住来源格（只可能是 completed / archived）；completed / 保留期**原样留着**，
+      // 它们是"退回已完成"时卡面要显示的证据，清掉就真的回不去了。
+      entry.runningFrom = entry.status
+      entry.status = 'active'
+    }
+    // 重新开跑 = 撤回上一次收口请求（不然卡上会同时写「进行中」和「等你确认」）
+    entry.agentDone = false
+  } else if (entry.status === 'active' && entry.runningFrom) {
+    // 撤销「进行中」= 退回到点它之前那一格（这就是用户说的"撤到上一步"）
+    entry.status = entry.runningFrom
+    entry.runningFrom = undefined
+    // 退回完成/归档的人已经不在跑了，"等你确认"不该跟着回去
+    entry.agentDone = false
+  } else if (entry.status === 'active') {
+    // 本来就是待处理：关掉进行中就是干净的一条待处理（保留期不会有值）
     entry.retainDays = null
     entry.retainUntil = null
   }
-  // 关掉时同样顺手清「已完成」残留：从进行中撤销回来的人要的是干净的一条待处理
-  if (!on && entry.status === 'active' && !entry.completed) {
-    entry.retainDays = null
-    entry.retainUntil = null
-  }
-  // 重新开跑 = 撤回上一次收口请求（不然卡上会同时写「进行中」和「等你确认」）
-  if (on) entry.agentDone = false
   entry.running = on
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
@@ -935,10 +974,10 @@ export function setLogGroupRunning(mainId: string, running: boolean): {
     if (!entry) { skipped.push(id); continue }
     if (entry.status !== 'active') { skipped.push(id); continue }
     if (!!entry.running === on) { skipped.push(id); continue }
-    entry.running = on
-    if (on) entry.agentDone = false
-    atomicallyWrite(path.join(getLogsDir(), `${id}.md`), renderLog(entry))
-    changed.push(id)
+    // 走**唯一写入路径**，组开关与单条开关才有同一套语义（含 2026-11-01 的"退回上一格"）
+    const r = setLogRunning(id, on)
+    if (r.ok) changed.push(id)
+    else skipped.push(id)
   }
   return { ok: true, changed, skipped }
 }
@@ -1040,6 +1079,8 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
 export interface LogStateSnapshot {
   status: 'active' | 'completed' | 'archived'
   running?: boolean
+  /** 「进行中」是从哪一格点开的（2026-11-01）；撤销要连这条记忆一起还原 */
+  runningFrom?: 'completed' | 'archived' | null
   agentDone?: boolean
   completed?: string | null
   retainDays?: number | null
@@ -1055,6 +1096,7 @@ export function logStateSnapshot(id: string): LogStateSnapshot | null {
   return {
     status: entry.status,
     running: !!entry.running,
+    runningFrom: entry.runningFrom ?? null,
     agentDone: !!entry.agentDone,
     completed: entry.completed ?? null,
     retainDays: entry.retainDays ?? null,
@@ -1076,6 +1118,7 @@ export function restoreLogState(id: string, snap: LogStateSnapshot): { ok: boole
   }
   entry.status = status
   entry.running = !!s.running
+  entry.runningFrom = s.runningFrom === 'completed' || s.runningFrom === 'archived' ? s.runningFrom : undefined
   entry.agentDone = !!s.agentDone
   entry.completed = s.completed ? String(s.completed) : null
   const rdRaw = s.retainDays

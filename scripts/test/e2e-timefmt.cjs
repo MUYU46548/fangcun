@@ -141,6 +141,20 @@ function main() {
   check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
     /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
 
+  // D19–D21（2026-11-01 暮雨第 2 条）：「撤回的横幅……一直挂在顶上很烦，放个 5 秒就差不多了」。
+  //   要钉两件事，缺一条就会变成另一种事故：
+  //     ① 横幅真的会自己收起（不是靠用户点 ✕）；
+  //     ② **收起 ≠ 失去撤销能力** —— 栈不清、Ctrl+Z 照旧、还有一个小胶囊能把条子叫回来
+  //        （2026-10-30 暮雨自己定的"误点十分钟也该撤得回来"，不能被这次"嫌它烦"推翻）。
+  check('D19 撤销横幅 5 秒后自动收起（UNDO_BAR_MS = 5000）',
+    /UNDO_BAR_MS\s*=\s*5000/.test(vueNoComment) && /undoBarVisible\.value = false/.test(vueNoComment))
+  check('D20 收起后留一个能点开的小胶囊，不是让入口凭空消失',
+    /id="undo-chip"/.test(vueNoComment) && /@click="showUndoBar"/.test(vueNoComment)
+    && /v-if="undoBar && undoBarVisible"/.test(vueNoComment))
+  check('D21 收起只隐藏横幅、**不清撤销栈**（否则等于 5 秒后就不能撤了）',
+    /undoStack\.value = \[\]/.test(vueNoComment) && !/undoBarVisible\.value = false[\s\S]{0,80}undoStack\.value = \[\]/.test(vueNoComment),
+    '定时收起处不应清空 undoStack')
+
   // D13–D15（2026-09-27 用户第 2/3 条：「怪异遮罩挡字」+「不同颜色外观下可读性差」）
   //   D13 Python 版看板还有 13 处 backdrop-filter（含常驻顶栏）——同一条铁律只清了桌面版，
   //       这次扫到就把两个前端一起钉住（判据仍是「全文件零容忍」）。
