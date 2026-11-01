@@ -2588,6 +2588,32 @@
     check('  还原后演示项目的阻塞源入口仍在', (await pickMs('演示项目')) && msSnap().blockers.length === 1,
       JSON.stringify(msSnap().blockers))
 
+    // ══ 项目页第 8 摆法「作战计划」· 投入产出账（0.6.0 P5）══════════════════
+    // 判据：三格都渲染；每个数字同格带「它证明不了什么」；口径声明点名 ai-trace + 外部 agent。
+    // （三格取不到就不渲染那一格 —— 那条在 e2e-waste 的纯逻辑里钉，这里只验真 DOM。）
+    {
+      const planTab = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf('作战计划') >= 0)
+      check('能点到「作战计划」', !!planTab && (planTab.click(), true),
+        $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim()).join('|'))
+      check('★ 「作战计划」摆法渲染出来（PlanView 真挂上）',
+        await waitFor(() => $$('#board.pv .plan-view').length === 1, 5000, '作战计划'))
+      check('★ 投入产出账三格都渲染（花的 / 产出的 / 被否的）',
+        await waitFor(() => $$('.plan-view .waste-cell').length === 3, 3000, 'waste cells'),
+        $$('.plan-view .waste-cell').length + ' 格')
+      const cells = $$('.plan-view .waste-cell')
+      check('★★ 每个数字节点同格带「它证明不了什么」',
+        cells.length === 3 && cells.every((c) => {
+          const cav = c.querySelector('.waste-caveat')
+          return !!c.querySelector('.waste-value') && !!cav && /它证明不了什么/.test(cav.textContent || '')
+        }),
+        cells.map((c) => ((c.querySelector('.waste-caveat') || {}).textContent || '').slice(0, 20)).join(' | '))
+      const note = ($('.plan-view .waste-note') || {}).textContent || ''
+      check('★★ 页面口径声明点名 ai-trace + 外部 agent',
+        /ai-trace/.test(note) && /外部 agent/.test(note), note.slice(0, 120))
+      const mTab = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf('主从') >= 0)
+      if (mTab) { mTab.click(); await sleep(300) }
+    }
+
     // ══ 项目页签 · 第 4 摆法「在途一屏」（2026-10-05 Q2 · 立项契约 ② 验收线之①）══
     // 要点：四摆法互斥、六列齐、缺契约显式「未填」、无卡项目 current 回落到日志、
     //       健康度人工锁定可见、设置入口在（裁断权在人）。

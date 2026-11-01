@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('tegula', {
   plansGet: (file?: string) => ipcRenderer.invoke('plans:get', file),
   plansVerdict: (input: { file: string; stageId: string; action: 'pass' | 'reject' | 'amend'; text?: string }) =>
     ipcRenderer.invoke('plans:verdict', input),
+  // 投入产出账（0.6.0 P5）：只读
+  wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
   /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */
   backupBigAttachments: (minMb?: number) => ipcRenderer.invoke('backup:bigAttachments', minMb),
   backupDeleteAttachment: (rel: string) => ipcRenderer.invoke('backup:deleteAttachment', rel),

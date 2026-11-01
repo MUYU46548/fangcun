@@ -19,6 +19,28 @@
       <button class="ghost plan-reload" @click="load()">⟳ 重读</button>
     </div>
 
+    <!-- 投入产出账（0.6.0 P5）—— 只显示取得到的格子；每个数字旁边都有「它证明不了什么」。
+         口径声明**永远在**：ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在这一格。 -->
+    <div v-if="wasteLedger" class="waste-block" data-waste-block>
+      <div class="waste-head">
+        <b>投入产出账</b>
+        <span class="waste-span">近 {{ wasteLedger.days || '全部' }} 天</span>
+        <span class="waste-note">{{ wasteLedger.note }}</span>
+      </div>
+      <div v-if="wasteLedger.cells.length" class="waste-grid">
+        <div v-for="c in wasteLedger.cells" :key="c.key" class="waste-cell" :data-waste="c.key">
+          <div class="waste-label">{{ c.label }}</div>
+          <div class="waste-value">{{ c.value }}</div>
+          <div v-if="c.detail" class="waste-detail">{{ c.detail }}</div>
+          <div class="waste-caveat">{{ c.caveat }}</div>
+        </div>
+      </div>
+      <div v-else class="waste-empty">{{ wasteLedger.emptyText }}</div>
+    </div>
+    <div v-else-if="wasteError" class="waste-block waste-error">
+      投入产出账读取失败：{{ wasteError }}
+    </div>
+
     <div v-if="loading" class="plan-empty">读取中…</div>
     <div v-else-if="!docs.length" class="plan-empty">
       还没有计划卡 —— 真源是 <code class="plan-code">task-data/plans/&lt;项目id&gt;.md</code>
@@ -36,6 +58,7 @@
           <span class="plan-id">{{ s.id }}</span>
           <span class="plan-title">{{ s.title }}</span>
           <span class="plan-status">{{ s.status || '未填状态' }}</span>
+          <span v-if="s.evidence" class="plan-evidence" :title="'完成证据：' + s.evidence">✔ {{ s.evidence }}</span>
           <span v-if="s.missing.length" class="plan-miss">缺 {{ s.missing.join(' / ') }} —— 不能通过</span>
           <span v-else class="plan-ok">三块齐全</span>
         </div>
@@ -94,11 +117,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useWasteLedger } from '../composables/useWasteLedger'
 
 interface Stage {
   id: string; title: string; status: string; what: string
   approach: string[]; copyRows: string[][]; criteria: string[]
-  verdict: string; rejectReason: string; missing: string[]
+  verdict: string; rejectReason: string; evidence: string; missing: string[]
 }
 interface Doc { file: string; title: string; stages: Stage[] }
 
@@ -109,6 +133,8 @@ const msg = ref('')
 const msgType = ref<'ok' | 'bad'>('ok')
 const text = ref('')
 const textTarget = ref<{ file: string; stageId: string; action: 'reject' | 'amend' } | null>(null)
+// 投入产出账（P5）：只读；三格取不到就不渲染那一格
+const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 
 const missCount = (doc: Doc) => doc.stages.filter((s) => s.missing.length).length
 
@@ -168,5 +194,5 @@ function submitText(): void {
   if (doc && s) void verdict(doc, s, t.action, text.value.trim())
 }
 
-onMounted(() => { void load() })
+onMounted(() => { void load(); void loadWasteLedger() })
 </script>

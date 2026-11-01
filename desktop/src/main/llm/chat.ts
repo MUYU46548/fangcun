@@ -19,6 +19,12 @@ export interface ChatOptions {
   apiKey?: string
   /** 调用链留痕触发点（如 "desktop.planToDraft"）。留痕只落元数据，不落正文。 */
   trigger?: string
+  /**
+   * 关掉本次的 traceOnce（2026-11-01 P6 用）。
+   * 计划生成器要写一条**带 total_tokens 的**自有记录，不能和这里的记录重复计费；
+   * 它关掉这里的，自己写一条。默认不关（其它调用行为零变化）。
+   */
+  noTrace?: boolean
 }
 
 /** 由 baseUrl 推导出三个端点。用户填 .../v1 或 .../v1/chat/completions 都能工作。 */
@@ -302,7 +308,7 @@ export async function chatDetailed(
         chatUrl
       )
     }
-    traceOnce({
+    if (!options.noTrace) traceOnce({
       trigger: options.trigger || 'unknown',
       model: cfg.model || options.model || '',
       promptChars: pChars,
@@ -314,7 +320,7 @@ export async function chatDetailed(
     })
     return { text, usage: extractUsage(data), finish }
   } catch (e) {
-    traceOnce({
+    if (!options.noTrace) traceOnce({
       trigger: options.trigger || 'unknown',
       model: cfg.model || options.model || '',
       promptChars: pChars,

@@ -413,6 +413,27 @@ contextBridge.exposeInMainWorld('tegula', {
     }]
     return { ok: true, files: ['demo.md'], docs: file ? docs.filter((d) => d.file === file) : docs }
   },
+  // 投入产出账（0.6.0 P5）：三格齐全的夹具。
+  // 三格的 caveat 必须带「它证明不了什么」—— 界面断言会逐格检查（缺一格就红）。
+  wasteGet: (opts) => {
+    rec('wasteGet', [opts])
+    return {
+      ok: true,
+      ledger: {
+        days: 30,
+        note: '口径：ai-trace 只记方寸自己发起的调用；外部 agent 的花销不在这一格；提交只算数据目录所在的仓库，其它仓库不算。',
+        emptyText: '三格都取不到（ai-trace / git / 任务都没读到）—— 不拿 0 或「—」冒充。',
+        cells: [
+          { key: 'spend', label: '花了多少（近 30 天）', value: '¥0.0123 · 1,234 tokens',
+            detail: '3 次调用', caveat: '它证明不了什么：ai-trace 只记方寸自己发起的调用，外部 agent 没上报的花销不在这一格；它也没有项目字段，不能分摊到某个项目。' },
+          { key: 'output', label: '产出了什么（近 30 天）', value: '12 次提交 · 3 张卡完成',
+            detail: '提交按数据目录所在的仓库统计', caveat: '它证明不了什么：提交数只说明仓库被改过，不说明改动有用；完成卡数是自报状态，不等于验收通过。' },
+          { key: 'rejected', label: '哪几条被否', value: '2 张',
+            detail: '驳回样例甲、驳回样例乙', caveat: '它证明不了什么：只列当前状态为「驳回」的卡；被否后删掉/归档的不在这里，也不代表它们没被否过。' },
+        ],
+      },
+    }
+  },
   // 停滞卡（2026-10-11 监控台 P0）：夹具给一条**属于 demo 项目**的 —— 让监控台那块有东西可断。
   // 不给的话"僵尸卡"整块永远不渲染，断言就成空转（反面教材见 tegula-testing：
   // 假 preload 缺 API → await 抛了被 catch 吞掉 → 那条断言永远验不到）。

@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { registerPlanIpcHandlers } from './main/plan-ipc'
+import { registerWasteIpcHandlers } from './main/waste-ipc'
 import { registeredChannels } from './main/guarded-ipc'
 import { getPref } from './main/services/prefs'
 import { startMCPServer, stopMCPServer } from './main/mcp'
@@ -126,6 +127,8 @@ function createWindow(): void {
   registerBackupIpcHandlers()
   // 作战计划（0.6.0 P1）：只读 + 裁决两个口
   registerPlanIpcHandlers()
+  // 投入产出账（0.6.0 P5）：只读
+  registerWasteIpcHandlers()
 
   // ── 主进程自证：本进程到底是哪份构建、关键通道在不在 ──────────────────
   // 2026-09-25 用户报「启动台依旧报错」，日志里却有渲染层的点击痕迹、没有主进程的

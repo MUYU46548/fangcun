@@ -1962,6 +1962,21 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-reload { margin-left: auto; height: 26px; padding: 0 10px; font-size: 11.5px; }
 .plan-empty { padding: 24px 0; font-size: 12.5px; color: var(--muted); }
 .plan-code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
+/* 投入产出账（0.6.0 P5）：三格各自带「它证明不了什么」；取不到就整格不渲染 */
+.waste-block { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+.waste-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.waste-head b { font-size: 13px; }
+.waste-span { font-size: 11px; color: var(--muted); }
+.waste-note { flex: 1 1 100%; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.waste-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.waste-cell { background: var(--tint); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; min-width: 0; }
+.waste-label { font-size: 11px; color: var(--muted); }
+.waste-value { font-size: 15px; font-weight: 700; color: var(--ink); margin: 2px 0 3px; }
+.waste-detail { font-size: 11px; color: var(--ink); opacity: .82; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; }
+.waste-caveat { font-size: 10.5px; color: var(--muted); line-height: 1.55; margin-top: 4px; }
+.waste-empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
+.waste-error { color: var(--danger-text); font-size: 12px; }
 .plan-doc { margin-bottom: 18px; }
 .plan-doc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .plan-doc-head b { font-size: 14px; }
@@ -1973,6 +1988,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-id { font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 8px; }
 .plan-title { font-size: 13px; font-weight: 700; }
 .plan-status { font-size: 11px; color: var(--muted); background: var(--tint-3); border-radius: 999px; padding: 1px 8px; }
+/* 完成证据（P4）：判据全过后写进卡里的一行引用；截断时 title 有全文 */
+.plan-evidence { font-size: 11px; color: var(--success); border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 8px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-miss { font-size: 11px; color: var(--danger-text); font-weight: 600; }
 .plan-ok { font-size: 11px; color: var(--ok-text); }
 .plan-what { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 6px; }

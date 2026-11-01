@@ -194,6 +194,15 @@ const projBlock = (appVue.split("curView.value === 'projects'")[1] || '').split(
 const optionCount = (projBlock.match(/\{ v: '[a-z]+', label:/g) || []).length
 check('★★ 项目页摆法总数 = 8（P1 判据 file 那条）', optionCount === 8, String(optionCount))
 check('★ 持久化白名单也加了 plan（否则重启静默退回项目墙）', /fc_pv_view === 'plan'/.test(appVue))
+// ⚠ 2026-11-01（P5 DOM 实测抓到的真 bug）：P1 只把 plan 加进了 viewOptions 与持久化读取，
+//   **没加进 PV_VIEWS**（setViewMode 的白名单）—— 点「作战计划」会被 `PV_VIEWS.includes(v)?v:'tiles'`
+//   静默退回项目墙，P1 的页面其实一直点不开。这里改钉白名单本身。
+const pvViewsSrc = (appVue.match(/const PV_VIEWS: string\[\] = \[([^\]]*)\]/) || [])[1] || ''
+check('★★ 摆法切换白名单含 plan（PV_VIEWS；漏了 = 点页签静默退回项目墙）',
+  /'plan'/.test(pvViewsSrc), pvViewsSrc)
+check('★ 白名单条数 = 摆法数（两处注册不许漂移）',
+  (pvViewsSrc.match(/'[a-z]+'/g) || []).length === optionCount,
+  `PV_VIEWS=${(pvViewsSrc.match(/'[a-z]+'/g) || []).length} options=${optionCount}`)
 
 const ipc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-ipc.ts'), 'utf-8')
 check('★ IPC 只有两个口（plans:get / plans:verdict），没有第三个',

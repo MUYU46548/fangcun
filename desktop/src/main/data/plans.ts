@@ -17,6 +17,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getTaskDir } from './index'
+import type { StageGateResult } from '../../shared/stageGate'
 
 export interface PlanStage {
   /** 阶段 id（`P0`/`P1`…，取自标题前缀；没有就退化成标题） */
@@ -32,6 +33,8 @@ export interface PlanStage {
   criteria: string[]
   verdict: string
   rejectReason: string
+  /** 完成证据引用（P4 判据全过后写：自检时间 / 报告路径 / 命令） */
+  evidence: string
   /** 缺了哪几块（技术方案 / 照抄点 / 判据）—— 界面据此报红 */
   missing: string[]
 }
@@ -70,7 +73,7 @@ function splitRow(line: string): string[] {
 function parseStage(id: string, title: string, lines: string[]): PlanStage {
   const stage: PlanStage = {
     id, title, status: '', what: '', approach: [], copyRows: [], criteria: [],
-    verdict: '', rejectReason: '', missing: [],
+    verdict: '', rejectReason: '', evidence: '', missing: [],
   }
   let mode: '' | 'approach' | 'copy' | 'criteria' = ''
   for (const raw of lines) {
@@ -80,6 +83,7 @@ function parseStage(id: string, title: string, lines: string[]): PlanStage {
     if (/^-\s*做什么\s*[:：]/.test(t)) { stage.what = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*裁决\s*[:：]/.test(t)) { stage.verdict = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*打回理由\s*[:：]/.test(t)) { stage.rejectReason = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
+    if (/^-\s*证据\s*[:：]/.test(t)) { stage.evidence = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*技术方案\s*[:：]\s*$/.test(t)) { mode = 'approach'; continue }
     if (/^-\s*照抄点\s*[:：]?\s*$/.test(t)) { mode = 'copy'; continue }
     if (/^-\s*判据\s*[:：]?\s*$/.test(t)) { mode = 'criteria'; continue }
@@ -143,6 +147,42 @@ export interface VerdictInput {
   text?: string
 }
 
+interface StageRange { head: number; end: number }
+
+/** 找阶段块的行号区间（`end` 不含：下一个阶段标题 / 二级标题之前） */
+function findStageRange(lines: string[], stageId: string): StageRange | null {
+  const head = lines.findIndex((l) => {
+    const m = STAGE_HEAD.exec(l)
+    return !!m && m[1] === stageId
+  })
+  if (head < 0) return null
+  let end = head + 1
+  while (end < lines.length && !STAGE_HEAD.test(lines[end]) && !SECTION_HEAD.test(lines[end])) end++
+  return { head, end }
+}
+
+/** 在阶段块内就地改一行 `- 键:`；没有就插在 `- 状态:` 后面（行级，不重写整篇） */
+function setStageField(lines: string[], range: StageRange, key: string, value: string): void {
+  const re = new RegExp(`^-\\s*${key}\\s*[:：]`)
+  for (let k = range.head + 1; k < range.end; k++) {
+    if (re.test(lines[k].trim())) { lines[k] = `- ${key}: ${value}`; return }
+  }
+  const stat = lines.findIndex((l, k) => k > range.head && k < range.end && /^-\s*状态\s*[:：]/.test(l.trim()))
+  const at = stat >= 0 ? stat + 1 : range.head + 1
+  lines.splice(at, 0, `- ${key}: ${value}`)
+  range.end++
+}
+
+/** 在「修订记录」节末尾追加一行（不排序、不改旧条目） */
+function appendRevision(lines: string[], day: string, note: string): void {
+  const rIdx = lines.findIndex((l) => /^##\s*修订记录/.test(l))
+  if (rIdx < 0) return
+  let insertAt = rIdx + 1
+  while (insertAt < lines.length && !/^-\s+/.test(lines[insertAt].trim()) && !/^##\s/.test(lines[insertAt])) insertAt++
+  while (insertAt < lines.length && /^-\s+/.test(lines[insertAt].trim())) insertAt++
+  lines.splice(insertAt, 0, `- ${day} · ${note}`)
+}
+
 /**
  * 写出一次裁决。**行级就地改**，保留原文的空行、表格、缩进。
  * 返回 changed 让界面能如实说"改了哪几行"。
@@ -160,58 +200,113 @@ export function writePlanVerdict(input: VerdictInput): { ok: boolean; error?: st
   if (input.action === 'amend' && !text) return { ok: false, error: '「改一句」要写清楚改什么' }
 
   const lines = doc.raw.replace(/\r\n/g, '\n').split('\n')
-  const headIdx = lines.findIndex((l) => {
-    const m = STAGE_HEAD.exec(l)
-    return !!m && m[1] === input.stageId
-  })
-  if (headIdx < 0) return { ok: false, error: '找不到这个阶段' }
+  const range = findStageRange(lines, input.stageId)
+  if (!range) return { ok: false, error: '找不到这个阶段' }
 
   const today = new Date()
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const rel = doc.stages.filter((s) => !s.missing.length).length
 
-  // 在阶段块内找/插 `- 状态:` 与 `- 裁决:` / `- 打回理由:`
-  let end = headIdx + 1
-  while (end < lines.length && !STAGE_HEAD.test(lines[end]) && !SECTION_HEAD.test(lines[end])) end++
-
-  const setField = (key: string, value: string): void => {
-    const re = new RegExp(`^-\\s*${key}\\s*[:：]`)
-    for (let k = headIdx + 1; k < end; k++) {
-      if (re.test(lines[k].trim())) { lines[k] = `- ${key}: ${value}`; return }
-    }
-    // 没有就插在 `- 状态:` 后面（没有状态就插在标题下第一行）
-    const stat = lines.findIndex((l, k) => k > headIdx && k < end && /^-\s*状态\s*[:：]/.test(l.trim()))
-    const at = stat >= 0 ? stat + 1 : headIdx + 1
-    lines.splice(at, 0, `- ${key}: ${value}`)
-    end++
-  }
-
   if (input.action === 'pass') {
     // 缺块不许通过 —— 判据说的"缺一即报红"，这里再兜一层，防止绕过界面
     if (stage.missing.length) return { ok: false, error: `缺 ${stage.missing.join(' / ')}，不能通过` }
-    setField('状态', '已冻结')
-    setField('裁决', `通过 · ${day}`)
+    setStageField(lines, range, '状态', '已冻结')
+    setStageField(lines, range, '裁决', `通过 · ${day}`)
   } else if (input.action === 'reject') {
-    setField('状态', '待裁决')
-    setField('打回理由', text.replace(/\n+/g, ' '))
+    setStageField(lines, range, '状态', '待裁决')
+    setStageField(lines, range, '打回理由', text.replace(/\n+/g, ' '))
   } else {
-    setField('状态', '待裁决（未冻结）')
+    setStageField(lines, range, '状态', '待裁决（未冻结）')
   }
 
-  // 修订记录：多一行，（改一句时）带改动内容
-  const rIdx = lines.findIndex((l) => /^##\s*修订记录/.test(l))
-  if (rIdx >= 0) {
-    let insertAt = rIdx + 1
-    while (insertAt < lines.length && !/^-\s+/.test(lines[insertAt].trim()) && !/^##\s/.test(lines[insertAt])) insertAt++
-    while (insertAt < lines.length && /^-\s+/.test(lines[insertAt].trim())) insertAt++
-    const note = input.action === 'pass'
-      ? `P${input.stageId.replace(/^P/, '')} 通过 · 阶段卡冻结（${rel} 张已无缺块）`
-      : input.action === 'reject'
-        ? `P${input.stageId.replace(/^P/, '')} 打回：${text.replace(/\n+/g, ' ')}`
-        : `P${input.stageId.replace(/^P/, '')} 改一句：${text.replace(/\n+/g, ' ')}`
-    lines.splice(insertAt, 0, `- ${day} · ${note}`)
-  }
+  const note = input.action === 'pass'
+    ? `P${input.stageId.replace(/^P/, '')} 通过 · 阶段卡冻结（${rel} 张已无缺块）`
+    : input.action === 'reject'
+      ? `P${input.stageId.replace(/^P/, '')} 打回：${text.replace(/\n+/g, ' ')}`
+      : `P${input.stageId.replace(/^P/, '')} 改一句：${text.replace(/\n+/g, ' ')}`
+  appendRevision(lines, day, note)
 
   fs.writeFileSync(p, lines.join('\n'), 'utf-8')
   return { ok: true, doc: readPlan(file) || undefined }
+}
+
+// ── P4 阶段推进（判据不过不许跨格）──────────────────────────────────────
+
+export interface AdvanceStageInput {
+  file: string
+  stageId: string
+  /** 由 `shared/stageGate.evaluateStageGate` 算出的闸门结果 */
+  gate: StageGateResult
+  /** 证据引用（自检报告路径 / 命令 / 日期）；缺省写自检时间 */
+  evidenceRef?: string
+  /** 固定时间（测试用，正式调用不传） */
+  now?: string
+}
+
+export interface AdvanceStageResult {
+  ok: boolean
+  /** true = 真的写成了「完成」；false = 被闸门挡下（或本身不合法） */
+  advanced: boolean
+  error?: string
+  doc?: PlanDoc
+  stage?: PlanStage
+  gate: StageGateResult
+}
+
+/**
+ * 推进一格：**判据全过才写得进「完成」**，否则只停在「未完成」并把 diff 写进打回理由。
+ *
+ * 为什么写回也在这里卡一道，而不是只信界面：裁决/推进是写盘动作，
+ * 界面可以绕过（MCP、脚本、手改），但「判据没过却出现 完成」是假账 —— 必须在数据层拒绝。
+ */
+export function advanceStage(input: AdvanceStageInput): AdvanceStageResult {
+  const gate = input?.gate
+  const file = path.basename(String(input?.file || ''))
+  const p = path.join(plansDir(), file)
+  if (!file.endsWith('.md') || !fs.existsSync(p)) {
+    return { ok: false, advanced: false, error: '计划卡不存在', gate }
+  }
+  const doc = readPlan(file)
+  const stage = doc?.stages.find((s) => s.id === input.stageId)
+  if (!doc || !stage) return { ok: false, advanced: false, error: '找不到这个阶段', gate }
+  if (!gate || typeof gate.canAdvance !== 'boolean') {
+    return { ok: false, advanced: false, error: '闸门结果缺失（先跑判据）', gate }
+  }
+  const status = String(stage.status || '').trim()
+  if (status === '待裁决' || status === '待裁决（未冻结）' || status === '待起草' || status === '未冻结') {
+    return { ok: false, advanced: false, error: '这张卡还没裁决（待裁决/未冻结），先通过再推', gate }
+  }
+  // 防"嘴上放行、账上没全过"的坏输入
+  if (gate.canAdvance && (gate.total <= 0 || gate.passed !== gate.total)) {
+    return { ok: false, advanced: false, error: '闸门结果自相矛盾：说放行但判据没全过', gate }
+  }
+
+  const iso = String(input.now || new Date().toISOString())
+  const day = iso.slice(0, 10)
+  const lines = doc.raw.replace(/\r\n/g, '\n').split('\n')
+  const range = findStageRange(lines, input.stageId)
+  if (!range) return { ok: false, advanced: false, error: '找不到这个阶段', gate }
+
+  if (gate.canAdvance) {
+    const ref = String(input.evidenceRef || '').trim()
+    const evidence = `${ref ? ref + ' · ' : `自检 ${iso} · `}${gate.passed}/${gate.total} 判据通过`
+    setStageField(lines, range, '状态', '完成')
+    setStageField(lines, range, '证据', evidence)
+    appendRevision(lines, day, `${input.stageId} 判据全过 → 完成（${gate.passed}/${gate.total}）`)
+    fs.writeFileSync(p, lines.join('\n'), 'utf-8')
+    const back = readPlan(file) || undefined
+    return { ok: true, advanced: true, gate, doc: back, stage: back?.stages.find((s) => s.id === input.stageId) }
+  }
+
+  // 被挡：状态只能停在「未完成」，diff（判据原文 + 实际值）写进打回理由
+  const diffOneLine = String(gate.diff || gate.reason || '判据未过').replace(/\s*\n\s*/g, '；')
+  setStageField(lines, range, '状态', '未完成')
+  setStageField(lines, range, '打回理由', diffOneLine)
+  appendRevision(lines, day, `${input.stageId} P4 打回：${gate.failed} 未过 / ${gate.unknown} 未判定`)
+  fs.writeFileSync(p, lines.join('\n'), 'utf-8')
+  const back = readPlan(file) || undefined
+  return {
+    ok: false, advanced: false, error: '判据未过，不能跨格', gate,
+    doc: back, stage: back?.stages.find((s) => s.id === input.stageId),
+  }
 }
