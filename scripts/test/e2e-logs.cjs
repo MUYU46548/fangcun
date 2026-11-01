@@ -590,6 +590,19 @@ function main() {
   check('★ 「撤销完成」仍是明确动作：退回待处理，不被进行中记忆干扰',
     logs.getLog(ri.id).status === 'active' && !logs.getLog(ri.id).runningFrom)
 
+  // 撤销快照也必须带上 runningFrom —— 否则从"撤销条"退回时会再次丢掉上一格
+  const rj = logs.createLog('快照往返', 'demo', 'x').data
+  logs.completeLog(rj.id, 7)
+  logs.setLogRunning(rj.id, true)
+  const rjSnap = logs.logStateSnapshot(rj.id)
+  check('★ 快照带上 runningFrom（撤销条靠它把"上一格"一起还原）',
+    rjSnap.runningFrom === 'completed', JSON.stringify(rjSnap))
+  logs.setLogRunning(rj.id, false)
+  logs.restoreLogState(rj.id, rjSnap)
+  check('★ 快照还原后仍是「进行中 + 来源=已完成」',
+    logs.getLog(rj.id).status === 'active' && logs.getLog(rj.id).runningFrom === 'completed',
+    JSON.stringify({ s: logs.getLog(rj.id).status, f: logs.getLog(rj.id).runningFrom }))
+
   // 渲染层接线守卫：数据层通了不等于界面有入口（卡 022 的坑就是这么来的）
   const PRELOAD = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/preload/index.ts'), 'utf-8')
   // 2026-10-30：全局样式已外置到 styles/app.css（拆分第八刀），
