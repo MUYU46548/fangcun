@@ -248,6 +248,16 @@ console.log('\n== ② 执行：str / num / file ==')
     const p3cmd = (p3 ? p3.criteria : []).map((l) => parseCheckLine(l)).find((p) => p.kind === 'cmd')
     check('★ P3 自己的 cmd 判据解析成真命令（node scripts/test/e2e-checks.cjs）',
       !!p3cmd && p3cmd.command === 'node scripts/test/e2e-checks.cjs', p3cmd && p3cmd.command)
+    // 真卡 P0 的 cmd 判据**真跑一次**：解析 → 执行 → 结果，整条链都在真实数据上走通
+    const p0 = doc && doc.stages.find((s) => s.id === 'P0')
+    const p0cmd = (p0 ? p0.criteria : []).map((l) => parseCheckLine(l)).find((p) => p.kind === 'cmd')
+    if (p0cmd) {
+      const real = await runCriterion(p0cmd.raw, { root: REPO })
+      check('★★ 真卡 P0 的 cmd 判据真跑通过（解析→执行整条链，不是夹具）',
+        real.state === 'pass', real.detail)
+    } else {
+      skip('真卡 P0 cmd 真跑', 'P0 卡上没有可解析的 cmd 判据')
+    }
     check('★ 解析本身不跑命令、不读判据目标（只出结构）',
       parsed.every((p) => p.kind === 'unknown' || !('exitCode' in p)))
   }
