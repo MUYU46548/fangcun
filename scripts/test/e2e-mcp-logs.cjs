@@ -124,35 +124,33 @@ check('  主日志不带那个标记（只有第二条起才有）',
 const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
 check('  一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
 
-// ── 状态流转（2026-10-30 用户拍板「完成是签字，不是干活」）──────────────
-// agent 只能申请收口；complete / archive / reopen 是用户签字，MCP 必须硬拒。
+// ── 状态流转（2026-11-01 暮雨：收口进任务「待验收」，日志只记过程）──────────
+// complete / archive / reopen 是用户签字；request_close / cancel_close 这套“日志收口”已取消，
+// AI 干完只能 move_status 把任务移到「待验收」。
 const arc = call('set_log_status', { id: mainId, action: 'archive' })
 check('★★ set_log_status archive 被拒（归档是用户签字，agent 不能代按）',
   arc.ok === false && /只能由用户/.test(String(arc.error || '')), JSON.stringify(arc).slice(0, 200))
 const cmp = call('set_log_status', { id: mainId, action: 'complete' })
-check('★★ set_log_status complete 被拒（不再出现"AI 自己把日志完成了"）',
+check('★★ set_log_status complete 被拒（日志不是签字对象）',
   cmp.ok === false && /只能由用户/.test(String(cmp.error || '')), JSON.stringify(cmp).slice(0, 200))
 const reo = call('set_log_status', { id: mainId, action: 'reopen' })
 check('★ set_log_status reopen 也被拒（退回同样是生命周期签字）',
   reo.ok === false && /只能由用户/.test(String(reo.error || '')), JSON.stringify(reo).slice(0, 200))
 const run0 = call('set_log_status', { id: mainId, action: 'running' })
-check('  前置：先标「进行中」= 用户已派出去（新语义：没派出去不许收口）',
+check('  前置：先标「进行中」（日志唯一允许的写动作之一）',
   run0.ok === true && /进行中/.test(String(run0.status || '')), JSON.stringify(run0).slice(0, 160))
 const req = call('set_log_status', { id: mainId, action: 'request_close' })
-check('★★ request_close 只标记「等你确认」，不改 completed/archived',
-  req.ok === true && req.agentDone === true && /待处理|进行中/.test(String(req.status || '')),
-  JSON.stringify(req).slice(0, 200))
-const reqMeta = call('get_log', { id: mainId })
-check('★★ get_log 读得回 agentDone（界面据此显示「⏳ 等你确认」）', reqMeta.agentDone === true,
-  JSON.stringify({ agentDone: reqMeta.agentDone, status: reqMeta.status }))
+check('★★ request_close 被拒，并明确指向 move_status → 待验收（日志不再有「等你确认」）',
+  req.ok === false && /待验收/.test(String(req.error || '')) && /move_status/.test(String(req.error || '')),
+  JSON.stringify(req).slice(0, 240))
 const cancel = call('set_log_status', { id: mainId, action: 'cancel_close' })
-check('  cancel_close 撤回申请（agent 继续干活时用）', cancel.ok === true && cancel.agentDone === false,
-  JSON.stringify(cancel).slice(0, 160))
+check('★ cancel_close 同样被拒（没有收口标记，就没有“撤回”这回事）',
+  cancel.ok === false, JSON.stringify(cancel).slice(0, 200))
+const reqMeta = call('get_log', { id: mainId })
+check('★★ get_log 不再回 agentDone（界面不会再有「⏳ 等你确认」）',
+  !('agentDone' in reqMeta), JSON.stringify({ agentDone: reqMeta.agentDone, status: reqMeta.status }))
 const idle0 = call('set_log_status', { id: mainId, action: 'idle' })
 check('  撤掉「进行中」→ 回到没派出去', idle0.ok === true && /待处理/.test(String(idle0.status || '')), JSON.stringify(idle0).slice(0, 160))
-const reqNo = call('set_log_status', { id: mainId, action: 'request_close' })
-check('★★ 没派出去时 request_close 被拒（不再出现「待处理 + 等你确认」）',
-  reqNo.ok === false, JSON.stringify(reqNo).slice(0, 200))
 const run = call('set_log_status', { id: mainId, action: 'running' })
 check('  running 仍然允许（标「进行中」不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
 const bad = call('set_log_status', { id: mainId, action: 'nope' })
@@ -180,6 +178,10 @@ check('源码守卫：MCP inject_logs 走 services（不在 tools 里另拼一�
 })(), 'not found')
 check('源码守卫：get_log 的附件不再只回相对路径（必须调 resolveAttachment）',
   /case 'get_log'[\\s\\S]{0,900}?resolveAttachment\\(/.test(src))
+check('★★ 源码守卫：MCP 不再调用 requestLogClose / cancelLogClose（日志收口已删）',
+  !/requestLogClose|cancelLogClose/.test(src))
+check('★ 源码守卫：set_log_status 的拒绝消息把 agent 引到 move_status + 待验收',
+  /move_status/.test(src) && /待验收/.test(src))
 
 console.log(JSON.stringify(out))
 `

@@ -451,49 +451,40 @@ function main() {
     !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
   check('  不存在的 id 返回 ok:false（不抛）', logs.setLogRunning('不存在', true).ok === false)
 
-  // ── 11b. AI 申请收口（2026-10-30 用户拍板：「完成是签字，不是干活」）────
-  // agent 只能 request_close 打 agent_done；真正 completed 只能由用户点。
-  // ⚠ 2026-10-30 第二次追问：只有用户标了「进行中」（= 派出去）的日志才允许申请收口，
-  //   否则卡片会同时写「待处理」和「等你确认」—— 用户根本不知道派没派。
-  const rA = logs.createLog('等你确认样例', 'demo', 'x').data
+  // ── 11b. 日志不再是签字对象（2026-11-01 暮雨：「该进任务看板的待验收」）────
+  // 收口属于任务卡；日志只记过程。所以 request_close / agent_done 这套彻底删掉，
+  // 历史文件里的 agent_done 读取时忽略、下一次写回自然消失（不做迁移、不留双状态）。
+  check('★★ 日志服务不再导出 requestLogClose / cancelLogClose（连入口一起删）',
+    typeof logs.requestLogClose === 'undefined' && typeof logs.cancelLogClose === 'undefined')
+  const rA = logs.createLog('日志不再等你确认', 'demo', 'x').data
   logs.setLogRunning(rA.id, true)
-  const rc1 = logs.requestLogClose(rA.id)
-  check('★★ requestLogClose 只打 agent_done，不改 status / 不动 running',
-    rc1.ok === true && logs.getLog(rA.id).agentDone === true
-    && logs.getLog(rA.id).status === 'active' && logs.getLog(rA.id).running === true,
-    JSON.stringify({ ok: rc1.ok, d: logs.getLog(rA.id).agentDone, s: logs.getLog(rA.id).status, run: logs.getLog(rA.id).running }))
-  check('★ 文件里落的是 agent_done: true（不是 status: completed）',
-    /^agent_done: true$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rA.id}.md`), 'utf-8')))
-  check('★★ 改正文写回不丢 agent_done（parse→render 白名单必须列它）', (() => {
-    logs.updateLog(rA.id, { content: '改一句再存' })
-    return logs.getLog(rA.id).agentDone === true
-  })())
-  check('★ 重新标「进行中」= 撤回收口申请（不会同时显示进行中 + 等你确认）', (() => {
-    logs.setLogRunning(rA.id, true)
-    return logs.getLog(rA.id).agentDone !== true
-  })())
-  logs.requestLogClose(rA.id)
-  check('★ 用户完成后 agent_done 自动清掉（不留假标记）', (() => {
-    logs.completeLog(rA.id, 7)
-    const r = logs.getLog(rA.id)
-    return r.status === 'completed' && r.agentDone !== true
-  })())
-  // 反例：没标进行中 = 没派出去 → 不许申请收口（否则「待处理 + 等你确认」自相矛盾）
-  const rC = logs.createLog('还没派出去', 'demo', 'x').data
-  const rcC = logs.requestLogClose(rC.id)
-  check('★★ 没标「进行中」→ 申请收口被拒（卡面不再自相矛盾）',
-    rcC.ok === false && logs.getLog(rC.id).agentDone !== true && /还没标|没派出去/.test(rcC.error || ''),
-    JSON.stringify({ ok: rcC.ok, err: rcC.error, d: logs.getLog(rC.id).agentDone }))
-  const rB = logs.createLog('撤回收口样例', 'demo', 'x').data
-  logs.setLogRunning(rB.id, true)
-  logs.requestLogClose(rB.id)
-  check('★ cancelLogClose 能撤回申请（agent 继续干活时用）',
-    logs.cancelLogClose(rB.id).ok === true && logs.getLog(rB.id).agentDone !== true)
-  check('  对已完成日志 requestLogClose 幂等、不改状态', (() => {
-    logs.completeLog(rB.id, 7)
-    const r = logs.requestLogClose(rB.id)
-    return r.ok === true && logs.getLog(rB.id).status === 'completed'
-  })())
+  check('★ 进行中的日志没有 agentDone 字段（日志不承载收口标记）',
+    logs.getLog(rA.id).agentDone === undefined && logs.getLog(rA.id).running === true)
+  check('★ 文件里不写 agent_done',
+    !/^agent_done\s*:/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rA.id}.md`), 'utf-8')))
+
+  // 历史文件兼容：老数据里有 agent_done，读的时候直接忽略，下一次写回消失
+  const legacyId = 'log_legacy_agent_done'
+  const legacyPath = path.join(LOGS_DIR, `${legacyId}.md`)
+  fs.writeFileSync(legacyPath, [
+    '---', 'type: execution-log', `id: ${legacyId}`, 'project: demo', 'title: 历史收口标记',
+    'status: active', 'created: 2026-10-30T00:00:00.000Z', 'completed: null',
+    'retain_days: null', 'retain_until: null', 'tags: []', 'tasks: []', 'agent_done: true',
+    '---', '', '# 历史收口标记', '', '## 执行内容', '', 'x', '', '## 下一步', '', 'y',
+  ].join('\n'), 'utf-8')
+  check('★★ 历史 agent_done 读取时忽略（界面不该再出现「等你确认」）',
+    logs.getLog(legacyId) && logs.getLog(legacyId).agentDone === undefined)
+  const legacyUpd = logs.updateLog(legacyId, { content: 'z' })
+  check('★ 下一次写回把历史 agent_done 清掉（不做迁移、不留双状态）',
+    !/^agent_done\s*:/m.test(fs.readFileSync(legacyPath, 'utf-8')),
+    JSON.stringify({ ok: legacyUpd.ok, err: legacyUpd.error,
+      bad: fs.readFileSync(legacyPath, 'utf-8').split('\n').filter((l) => /^agent_done\s*:/.test(l)) }))
+
+  // 源码守卫：防止「日志收口」这套回潮（注释里解释可以，代码里不许再有）
+  const LOGS_SRC_NC = require('./_sources.cjs').stripComments(
+    fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/services/logs.ts'), 'utf-8'))
+  check('★★ 日志服务源码里没有 agent_done / requestLogClose（防止回潮）',
+    !/agent_done|agentDone|requestLogClose|cancelLogClose/.test(LOGS_SRC_NC))
 
   // 「进行中」不是完成/归档的前置条件
   const r2 = logs.createLog('直接的完成', 'demo', 'x').data
@@ -610,6 +601,12 @@ function main() {
   const CSS = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/styles/app.css'), 'utf-8')
   check('★ 日志卡有「进行中」手动开关（模板按钮 + 函数都在）',
     /toggleLogRunning\(log\)/.test(APP) && /async function toggleLogRunning/.test(APP))
+  // 2026-11-01：日志不再是签字对象 —— 界面上不许再出现「等你确认」这套
+  // ⚠ 模板注释（<!-- -->）也要剥掉：它不渲染，但会把判据撞红（假失败）
+  const APP_NC = require('./_sources.cjs').rendererNoComment().replace(/<!--[\s\S]*?-->/g, '')
+  check('★★ 界面不再有日志收口标记（等你确认 / agentDone）',
+    !/等你确认|agentDone/.test(APP_NC),
+    (APP_NC.match(/等你确认|agentDone/g) || []).join(' | '))
   check('★ 开关走的是新通道 logs:setRunning（preload 也暴露了）',
     /window\.tegula\.logsSetRunning\(log\.id, next\)/.test(APP) && /logsSetRunning: \(id: string, running: boolean\) => ipcRenderer\.invoke\('logs:setRunning'/.test(PRELOAD))
   // 2026-11-01：撤销「进行中」要说清"退回哪一格"，不许再写死「待处理」

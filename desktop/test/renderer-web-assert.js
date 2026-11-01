@@ -3440,35 +3440,33 @@
         caAfter ? (caAfter.textContent || '').slice(0, 60) : 'no card')
     }
 
-    // ══ 2026-10-30 用户拍板：AI 只能申请收口，完成必须人点 ══════════════════
-    // 现场：agent 调 set_log_status complete 直接把日志完成了，用户没机会看。
-    // 现在 agent 只能 request_close → 卡上出现「⏳ 等你确认」+「✅ 确认完成」，
-    // 点下去才真的进 completed（这里走真按钮 + 真 logsComplete）。
+    // ══ 2026-11-01 暮雨：日志不再承载收口（收口进任务「待验收」）══════════════
+    // 历史数据里可能还有 agentDone:true；界面必须**忽略**它，不许再长出「⏳ 等你确认」队列。
     {
       window.__fcTest.setLogs([
-        { id: 'log-close-req', title: '等你确认样例', content: '这一轮做完了', status: 'active',
-          agentDone: true, project: 'demo', created: '2026-10-30T01:00:00.000Z' },
+        { id: 'log-close-req', title: '历史收口标记样例', content: '这一轮做完了', status: 'active',
+          agentDone: true, project: 'demo', created: '2026-11-01T01:00:00.000Z' },
       ])
       clickText('看板'); await sleep(250); clickText('日志'); await sleep(600)
-      const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('等你确认样例') >= 0)
-      check('★★ AI 申请收口后卡上出现「⏳ 等你确认」（不是完成态）',
-        !!card && !!card.querySelector('.log-agent-done')
-        && (card.querySelector('.log-agent-done').textContent || '').indexOf('等你确认') >= 0,
-        card ? (card.textContent || '').slice(0, 80) : 'no card')
-      const confirm = card && Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button'))
-        .find((b) => (b.textContent || '').indexOf('确认完成') >= 0)
-      check('★★ 卡上给用户「✅ 确认完成」按钮（签字入口在人这边）', !!confirm,
+      const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('历史收口标记样例') >= 0)
+      check('★★ 历史 agentDone 不再渲染成「⏳ 等你确认」（日志只记过程）',
+        !!card && !card.querySelector('.log-agent-done')
+        && (card.textContent || '').indexOf('等你确认') < 0,
+        card ? (card.textContent || '').slice(0, 100) : 'no card')
+      const doneBtn = card && Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button'))
+        .find((b) => (b.textContent || '').trim() === '完成')
+      check('★★ 完成入口就是普通「完成」（没有"AI 已申请收口"这套）', !!doneBtn,
         card ? Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button')).map((b) => b.textContent.trim()).join('|') : 'no card')
-      if (confirm) {
-        confirm.click()
+      if (doneBtn) {
+        doneBtn.click()
         await waitFor(() => !!$('#log-edit-modal'), 3000, 'complete modal')
         const okBtn = $$('#log-edit-modal .acts button').find((b) => (b.textContent || '').trim() === '确认完成')
         if (okBtn) okBtn.click()
-        check('★★ 用户点「确认完成」才真的走 logsComplete',
+        check('★ 用户点完成才真的走 logsComplete',
           await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsComplete' && c.args[0] === 'log-close-req'), 4000, 'logsComplete'))
         await sleep(400)
-        const card2 = $$('.log-card').find((c) => (c.textContent || '').indexOf('等你确认样例') >= 0)
-        check('  完成后「等你确认」标记消失（不会留成假待办）',
+        const card2 = $$('.log-card').find((c) => (c.textContent || '').indexOf('历史收口标记样例') >= 0)
+        check('  完成后也不会冒出一个收口标记（不常驻、不吓人）',
           !!card2 && !card2.querySelector('.log-agent-done'))
       }
     }

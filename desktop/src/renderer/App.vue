@@ -8234,7 +8234,8 @@ function offerLogReopenUndo(label: string, ids: string[], sources?: any[]): void
       snap: {
         status: l.status,
         running: !!l.running,
-        agentDone: !!l.agentDone,
+        // 2026-11-01：快照连"进行中的来源格"一起存；日志不再有 agentDone
+        runningFrom: l.runningFrom || null,
         completed: l.completed || null,
         retainDays: l.retainDays ?? null,
         retainUntil: l.retainUntil || null,

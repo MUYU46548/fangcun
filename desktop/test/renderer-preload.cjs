@@ -740,11 +740,9 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!l) return { ok: false, error: '日志不存在' }
     if (running) {
       if (l.status !== 'active') { l.runningFrom = l.status; l.status = 'active' }
-      l.agentDone = false
     } else if (l.status === 'active' && l.runningFrom) {
       l.status = l.runningFrom
       l.runningFrom = undefined
-      l.agentDone = false
     }
     l.running = !!running
     return ok({ log: l })
@@ -795,7 +793,8 @@ contextBridge.exposeInMainWorld('tegula', {
     const l = store.logs.find(x => x.id === id)
     if (!l) return { ok: false, error: '日志不存在' }
     return ok({
-      status: l.status, running: !!l.running, agentDone: !!l.agentDone,
+      status: l.status, running: !!l.running,
+      runningFrom: l.runningFrom || null,
       completed: l.completed || null, retainDays: l.retainDays ?? null,
       retainUntil: l.retainUntil || null, note: l.note || '', archiveNote: l.archiveNote || '',
     })

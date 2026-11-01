@@ -293,15 +293,15 @@ export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'set_log_status',
     description:
-      'Move a log along its lifecycle. ALLOWED for agents: running (标进行中) / idle (取消进行中) / '
-      + 'request_close (申请收口 → 界面显示「等你确认」) / cancel_close (撤回申请). '
-      + 'complete / archive / reopen are USER-ONLY: they are the sign-off, and this tool rejects them. '
-      + 'Never claim a round is finished on the user\'s behalf — request_close and let the user click 确认完成.',
+      'Mark a log as running (进行中) or idle (取消进行中). That is ALL an agent may do to a log. '
+      + 'Logs are execution records, NOT acceptance items: there is no request_close / cancel_close. '
+      + 'When the work is done, move the linked TASK to 待验收 with move_status — 完成 / 驳回 stay user-only sign-off. '
+      + 'complete / archive / reopen on a log are USER-ONLY and are rejected here.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Log ID' },
-        action: { type: 'string', description: 'request_close | cancel_close | running | idle' },
+        action: { type: 'string', description: 'running | idle' },
         note: { type: 'string', description: 'Optional note appended to the log' },
       },
       required: ['id', 'action'],
@@ -594,7 +594,6 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       const rows = logs.listLogs(filter).slice(0, limit).map((l: any) => ({
         id: l.id, title: l.title, status: logs.logStatusText(l), project: l.project,
         created: l.created, completed: l.completed || '', taskId: l.taskId || '', running: !!l.running,
-        agentDone: !!l.agentDone,
         continuesFrom: l.continueFrom || '',
         // 主日志 + 附属（2026-10-30 第 4 条）：agent 也要能看见"这一轮还有哪几条并行通道"
         attached: Array.isArray(l.attached) ? l.attached : [],
@@ -635,7 +634,6 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({
         id: entry.id, title: entry.title, status: logs.logStatusText(entry), project: entry.project,
         created: entry.created, completed: entry.completed || '', running: !!entry.running,
-        agentDone: !!entry.agentDone,
         taskId: entry.taskId || '', agentName: entry.agentName || '',
         content: entry.content, nextSteps: entry.nextSteps || '',
         continuesFrom: entry.continueFrom || '',
@@ -676,7 +674,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, id: r.data.id, title: r.data.title, project: r.data.project,
         status: logs.logStatusText(r.data), created: r.data.created,
-        hint: '后面用 attach_log_files 挂附件；本轮做完用 set_log_status action=request_close 申请收口（完成只能由用户点）。',
+        hint: '后面用 attach_log_files 挂附件；日志只记过程 —— 本轮做完把关联任务移到「待验收」（move_status），完成/驳回由用户点。',
       }) }] }
     }
 
@@ -697,35 +695,37 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
     case 'set_log_status': {
       const id = String(args.id || '')
       const action = String(args.action || '')
-      // 2026-10-30（用户拍板「完成是签字，不是干活」）：
-      // 完成 / 归档 / 退回都是**用户签字**，agent 只能申请收口。
-      // 这里硬拒，不靠技能卡自觉 —— 拒了才知道自己越权了。
+      // 2026-11-01 暮雨：「日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
+      // 对。**签字对象是任务卡，不是日志**：日志只记过程，AI 干完把任务移到「待验收」。
+      // 所以 request_close / cancel_close 这套“日志收口”彻底取消；完成/归档/退回仍是用户点。
+      if (action === 'request_close' || action === 'cancel_close') {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: '日志不再有「等你确认」：收口属于任务卡，不属于日志。'
+            + '请用 move_status 把关联任务移到「待验收」，日志只记过程；完成/驳回由用户点。',
+          allowed: ['running', 'idle'],
+        }) }], isError: true }
+      }
       if (action === 'complete' || action === 'archive' || action === 'reopen') {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false,
           error: `「${action}」只能由用户在界面点：完成/归档/退回是签字，不是干活。`
-            + '你可以用 set_log_status action=request_close 标记「等你确认」，用户在卡上点「✅ 确认完成」。',
-          allowed: ['request_close', 'cancel_close', 'running', 'idle'],
+            + 'AI 的收口动作只有一个：move_status 把关联任务移到「待验收」。',
+          allowed: ['running', 'idle'],
         }) }], isError: true }
       }
       let r: any
-      if (action === 'request_close') {
-        r = logs.requestLogClose(id)
-      } else if (action === 'cancel_close') {
-        r = logs.cancelLogClose(id)
-      } else if (action === 'running') {
+      if (action === 'running') {
         r = logs.setLogRunning(id, true)
       } else if (action === 'idle') {
         r = logs.setLogRunning(id, false)
       } else {
-        return { content: [{ type: 'text', text: `Unknown action: ${action} (request_close | cancel_close | running | idle)` }], isError: true }
+        return { content: [{ type: 'text', text: `Unknown action: ${action} (running | idle)` }], isError: true }
       }
       if (!r || !r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r?.error || '状态没改成功' }) }], isError: true }
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, id,
         status: r.data ? logs.logStatusText(r.data) : action,
-        agentDone: !!(r.data && r.data.agentDone),
-        hint: r.data && r.data.agentDone ? '已标记「等你确认」——完成只能由用户点。' : '',
       }) }] }
     }
 

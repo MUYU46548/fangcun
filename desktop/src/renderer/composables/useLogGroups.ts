@@ -252,7 +252,7 @@ export function useLogGroups(deps: Deps) {
       return {
         id,
         snap: {
-          status: l.status, running: !!l.running, agentDone: !!l.agentDone,
+          status: l.status, running: !!l.running,
           // 2026-11-01：撤销快照也要带上"从哪一格点开"——否则还原后记忆丢了，
           // 再撤「进行中」就会落回待处理（用户报的那条 bug 会从撤销路径复现）。
           runningFrom: l.runningFrom || null,

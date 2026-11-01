@@ -54,16 +54,17 @@ export interface LogEntry {
    */
   runningFrom?: 'completed' | 'archived'
   /**
-   * AI 申请收口（2026-10-30 用户拍板「完成是签字，不是干活」）。
+   * ⚠ 2026-11-01 移除 `agentDone`（「等你确认」）。
    *
-   * 为什么不是 status 的第四个值：状态机是 待处理 / 已完成 / 已归档 三态，
-   * 「等你确认」不是生命周期的一站，而是**一句话**——"我这边做完了，你点一下"。
-   * 所以它是与 status 正交的布尔，只在 active 上有意义：
-   *   - agent 只能 `request_close` 打开它，**不能**自己 complete/archive；
-   *   - 用户在卡上点「✅ 确认完成」才真的进 completed；
-   *   - 完成 / 归档 / 重新标进行中 / 撤销时自动清掉，历史文件不多字段。
+   * 用户原话：「现状日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
+   * 对。**签字对象是任务卡，不是日志**：
+   *   · 日志 = 执行记录（过程），只记发生了什么；
+   *   · 任务卡 = 交付物，AI 干完只能把它移到「待验收」，完成/驳回由用户在任务卡上点。
+   * 以前把任务那套「完成是签字」照搬到日志上，于是每轮 agent 收口都会在日志页堆一条
+   * 「⏳ 等你确认」—— 该进待验收的东西跑到了过程记录里，这就是滥用。
+   * 现在日志里**不再有任何收口标记**；历史文件里的 `agent_done` 读取时直接忽略，
+   * 下次写回自然消失（不迁移、不做第二套状态）。
    */
-  agentDone?: boolean
   created: string
   completed: string | null
   retainDays: number | null
@@ -270,8 +271,6 @@ function parseLogFile(filePath: string): LogEntry | null {
       // 从哪一格点开的「进行中」（2026-11-01）：只认两个合法值，其余当没记过
       runningFrom: raw.running_from === 'completed' || raw.running_from === 'archived'
         ? raw.running_from : undefined,
-      // AI 申请收口（2026-10-30）：只在 true 时落盘，历史文件不多字段
-      agentDone: raw.agent_done === true || raw.agent_done === 'true',
       created: String(raw.created || ''),
       completed: raw.completed ? String(raw.completed) : null,
       retainDays: raw.retain_days != null ? Number(raw.retain_days) : null,
@@ -345,7 +344,7 @@ function renderLog(log: LogEntry): string {
   if (log.running) fm.running = true
   // 「进行中」的来源格（2026-11-01）：只在有值时落盘，历史日志零变化
   if (log.runningFrom) fm.running_from = log.runningFrom
-  if (log.agentDone) fm.agent_done = true
+  // ⚠ 不再写 agent_done（2026-11-01）：日志不承载"等你确认"，历史键不保留
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
   // 上次的执行 Agent：与 continues_from 同款「只在有值时落盘」
@@ -789,7 +788,6 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   entry.status = 'completed'
   entry.running = false   // 已完成的东西不该还挂着「进行中」
   entry.runningFrom = undefined // 明确的完成动作会覆盖掉"从哪一格点开"的记忆
-  entry.agentDone = false // 已签字，AI 的「等你确认」标记自然消失
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
   if (retainDays != null && retainDays > 0) {
@@ -814,7 +812,6 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   entry.status = 'archived'
   entry.running = false
   entry.runningFrom = undefined
-  entry.agentDone = false
   // 归档备注落 archiveNote（## 归档备注），不再借道 note —— 两者是不同节，
   // 借道会让「完成确认」被归档动作覆盖掉。
   if (note) entry.archiveNote = note
@@ -845,7 +842,6 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
   // 用户撤的是"完成"这件事，不是"我在弄它"这件事
   if (!wasActive) entry.running = false
   entry.runningFrom = undefined
-  entry.agentDone = false
   entry.completed = null
   entry.retainDays = null
   entry.retainUntil = null
@@ -883,14 +879,10 @@ export function setLogRunning(id: string, running: boolean): { ok: boolean; data
       entry.runningFrom = entry.status
       entry.status = 'active'
     }
-    // 重新开跑 = 撤回上一次收口请求（不然卡上会同时写「进行中」和「等你确认」）
-    entry.agentDone = false
   } else if (entry.status === 'active' && entry.runningFrom) {
     // 撤销「进行中」= 退回到点它之前那一格（这就是用户说的"撤到上一步"）
     entry.status = entry.runningFrom
     entry.runningFrom = undefined
-    // 退回完成/归档的人已经不在跑了，"等你确认"不该跟着回去
-    entry.agentDone = false
   } else if (entry.status === 'active') {
     // 本来就是待处理：关掉进行中就是干净的一条待处理（保留期不会有值）
     entry.retainDays = null
@@ -1005,53 +997,13 @@ export function completeLogGroup(mainId: string, retainDays: number | null, note
 }
 
 /**
- * AI 申请收口（2026-10-30 用户拍板）—— **只标记，不签字**。
+ * ⚠ 2026-11-01：`requestLogClose` / `cancelLogClose` **已删除**。
  *
- * agent 唯一能做的「结束」动作：在 active 日志上打 `agent_done`，界面卡上显示
- * 「⏳ 等你确认」+「✅ 确认完成」。真正变 completed/archived 只能由用户点。
- * 对已完成的日志再请求收口 = ok（幂等），但不会把状态改回去。
- *
- * ⚠ 2026-10-30 暮雨第 1/6 条（真事故）：本函数以前顺手写了 `entry.running = false`。
- * 后果是用户手动标好的「进行中」在 agent 申请收口的那一刻**无声消失**，卡面变回
- * 「待处理 / 等你确认」—— 用户再回来根本分不清这条到底派出去没有。
- * 现在收紧成一条硬规矩：**「进行中」只有 `setLogRunning` 能改，任何 agent 侧路径
- * 都不许碰它**（申请收口、撤回收口都不行）。`agent_done` 是「我说完了」，
- * `running` 是「人已经派出去了」，两件事互相独立。
+ * 用户原话：「日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
+ * 收口（签字）属于任务卡，不属于日志。AI 干完活应该 `move_status(id, '待验收')`；
+ * 日志只记过程，用户要收尾直接点完成。
+ * 留着这两个函数 = 留着"日志再长出一条待办队列"的入口，所以连函数一起删。
  */
-export function requestLogClose(id: string): { ok: boolean; data?: LogEntry; error?: string } {
-  const filePath = path.join(getLogsDir(), `${id}.md`)
-  const entry = parseLogFile(filePath)
-  if (!entry) return { ok: false, error: '日志不存在' }
-  if (entry.agentDone) return { ok: true, data: entry }
-  if (entry.status !== 'active') return { ok: true, data: entry }
-  // 2026-10-30 暮雨第二次追问（截图：卡片同时写「待处理」和「等你确认」）：
-  // 「我根本不知道这玩意到底派没派。」
-  // 根因是 agent 可以在**没标进行中**的日志上申请收口 —— 卡片就成了
-  // 「待处理（=没派出去）」+「等你确认（=AI 说做完了）」自相矛盾。
-  // 现在收紧：**只有你手动标了「进行中」（= 派给 AI）的日志，AI 才能申请收口。**
-  // 没派出去的日志，AI 只能把内容写好，完成与否由你决定。
-  if (!entry.running) {
-    return {
-      ok: false,
-      error: '这条日志还没标「进行中」（= 还没派出去），不能申请收口。先由你在卡上点「▶ 标为进行中」，或直接点「完成」。',
-    }
-  }
-  entry.agentDone = true
-  // 不碰 entry.running —— 见上面的 2026-10-30 事故说明
-  atomicallyWrite(filePath, renderLog(entry))
-  return { ok: true, data: entry }
-}
-
-/** 撤回「申请收口」（agent 继续干活时用；界面不提供这个动作，用户直接完成即可）。 */
-export function cancelLogClose(id: string): { ok: boolean; data?: LogEntry; error?: string } {
-  const filePath = path.join(getLogsDir(), `${id}.md`)
-  const entry = parseLogFile(filePath)
-  if (!entry) return { ok: false, error: '日志不存在' }
-  if (!entry.agentDone) return { ok: true, data: entry }
-  entry.agentDone = false
-  atomicallyWrite(filePath, renderLog(entry))
-  return { ok: true, data: entry }
-}
 
 export function destroyLog(id: string): { ok: boolean; error?: string } {
   const filePath = path.join(getLogsDir(), `${id}.md`)
@@ -1081,7 +1033,6 @@ export interface LogStateSnapshot {
   running?: boolean
   /** 「进行中」是从哪一格点开的（2026-11-01）；撤销要连这条记忆一起还原 */
   runningFrom?: 'completed' | 'archived' | null
-  agentDone?: boolean
   completed?: string | null
   retainDays?: number | null
   retainUntil?: string | null
@@ -1097,7 +1048,6 @@ export function logStateSnapshot(id: string): LogStateSnapshot | null {
     status: entry.status,
     running: !!entry.running,
     runningFrom: entry.runningFrom ?? null,
-    agentDone: !!entry.agentDone,
     completed: entry.completed ?? null,
     retainDays: entry.retainDays ?? null,
     retainUntil: entry.retainUntil ?? null,
@@ -1119,7 +1069,6 @@ export function restoreLogState(id: string, snap: LogStateSnapshot): { ok: boole
   entry.status = status
   entry.running = !!s.running
   entry.runningFrom = s.runningFrom === 'completed' || s.runningFrom === 'archived' ? s.runningFrom : undefined
-  entry.agentDone = !!s.agentDone
   entry.completed = s.completed ? String(s.completed) : null
   const rdRaw = s.retainDays
   entry.retainDays = (rdRaw === null || rdRaw === undefined || rdRaw === ('' as any))

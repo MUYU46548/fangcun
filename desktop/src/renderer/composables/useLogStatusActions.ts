@@ -117,7 +117,7 @@ export function useLogStatusActions(deps: Deps) {
     // 撤销本身也要能撤 —— 点错「↩ 撤销」不该比误点更惨。
     const before = logs.value.find((l: any) => l.id === id)
     const snap = before ? {
-      status: before.status, running: !!before.running, agentDone: !!before.agentDone,
+      status: before.status, running: !!before.running,
       // 2026-11-01：快照连"进行中的来源格"一起存，撤销才真的回到点之前那一格
       runningFrom: before.runningFrom || null,
       completed: before.completed || null, retainDays: before.retainDays ?? null,

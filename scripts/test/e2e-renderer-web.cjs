@@ -570,7 +570,7 @@ function main() {
       project: 'demo', created: '2026-10-30T03:00:00.000Z', attached: ['log-grp-a', 'log-grp-b'] },
     { id: 'log-grp-a', title: '附属·白屏修复（安装包附件）', content: 'exe 只定位不运行，渲染进程崩了自动重载一次。', status: 'active', running: true,
       project: 'demo', created: '2026-10-30T02:00:00.000Z', agentName: 'DSH' },
-    { id: 'log-grp-b', title: '附属·日志组语义（已收口）', content: '没派出去不许「等你确认」。', status: 'completed', completed: '2026-10-30T02:30:00.000Z',
+    { id: 'log-grp-b', title: '附属·日志组语义（已收口）', content: '日志只记过程；收口进任务「待验收」。', status: 'completed', completed: '2026-10-30T02:30:00.000Z',
       project: 'demo', created: '2026-10-30T01:00:00.000Z' },
     { id: 'log-grp-free', title: '可绑的独立日志', content: '还没绑进任何组。', status: 'active', project: 'demo',
       created: '2026-10-29T00:00:00.000Z' },

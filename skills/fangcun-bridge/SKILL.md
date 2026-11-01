@@ -119,7 +119,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `get_log` | Get one execution log by ID (e.g. |
 | `create_log` | Create an execution log (方寸执行日志) for this round of work. |
 | `update_log` | Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). |
-| `set_log_status` | Move a log along its lifecycle. |
+| `set_log_status` | Mark a log as running (进行中) or idle (取消进行中). |
 | `attach_log_files` | Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. |
 | `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r |
 | `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, |
@@ -130,9 +130,11 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 入口 B（`python tegula.py mcp`）只含**读**工具；写工具只在入口 A。
 
 > **2026-10-30 用户拍板（硬规则）：完成是签字，不是干活。**
+> **2026-11-01 追加：签字对象是任务卡，不是日志。**
 > - 任务卡：agent 最多移到「待验收」；`move_status` 传「完成 / 驳回」会被**硬拒**。
-> - 执行日志：agent 只能 `set_log_status action=request_close` 申请收口；`complete / archive / reopen` 会被**硬拒**。
->   用户在卡上看到「⏳ 等你确认」，点「✅ 确认完成」才真的完成。
+> - 执行日志：只记过程，agent 只能 `running / idle`；`complete / archive / reopen` 会被**硬拒**。
+>   **没有 `request_close` 这套「等你确认」** —— 日志页不该堆待验收队列。
+> - 收工动作 = 把关联任务移到「待验收」（`move_status`），不是给日志打标记。
 > - 决策：`decision_record` 已从 MCP 移除；拍板只在方寸界面「需求矩阵」页由用户点。
 > 越权不是"会被批评"，是接口直接报错 —— 看到 `只能由用户` 就停手，别换条路绕。
 
@@ -148,13 +150,14 @@ inject_logs    { ids: ["<主日志>", "<副日志>"] }            # 主在前，
 list_logs      { chain: "<任一日志 id>" }                  # 整条接力链（老 → 新）
 ```
 
-**② 收工：写这一轮的日志（可挂截图）**
+**② 收工：写这一轮的日志（可挂截图）+ 把任务移进「待验收」**
 ```
 create_log       { title, project: "fangcun-base", content, nextSteps }
 attach_log_files { id: "<返回的 id>", paths: ["C:/…/shot.png"] }   # 本机绝对路径，复制进数据目录
-set_log_status   { id: "<id>", action: "request_close" }           # 只申请收口；complete 由用户点
+move_status      { id: "<关联任务 id>", status: "待验收" }          # 收口：任务进待验收，日志只记过程
 ```
 ⚠ 建日志**不要**先问用户「要不要记一条」——收工就记，这是方寸存在的理由。
+⚠ **不要**给日志打「等你确认」（`request_close` 已取消）：那会把待验收队列堆到日志页。
 ⚠ **不要**把 `complete` 当成收工的最后一步：它会被拒，而且那本来就是用户的签字。
 
 **③ 看项目：状态与路线**

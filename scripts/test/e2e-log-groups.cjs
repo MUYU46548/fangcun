@@ -5,15 +5,15 @@
  * 真跑编译产物 `dist/main/services/logs.js` + 临时数据目录（真 .md 文件）。
  *
  * 钉住的事，每一条都对应一次真事故：
- *  ① **AI 申请收口不许动「进行中」**：requestLogClose 以前顺手写 `running=false`，
- *     用户手动标的「进行中」在 agent 说"做完了"那一刻无声消失 —— 第 1 / 6 条。
+ *  ① **日志不再承载收口**（2026-11-01 暮雨）：requestLogClose 已删，签字对象是任务卡；
+ *     日志只允许 running / idle，其它生命周期动作只能用户点。
  *  ② 绑定是落盘的：主日志 `attached: [id]` 经 parse → render 往返不丢；
  *     一个副日志只能归一个主日志，主日志不能当附属。
  *  ③ 一键全进行中 / 全完成：只动该动的（完成/归档的跳过），按真成功数报账。
  *  ④ 撤销按快照还原：complete 后撤销要把「进行中 + 完成时间 + 保留天数」原样还回去，
  *     不是统一退回「待处理」。
  *  ⑤ 销毁副日志会清掉主日志里的断链。
- *  ⑥ 源码守卫：requestLogClose 里不许出现 `running = false`；「进行中」只有 setLogRunning 能写。
+ *  ⑥ 源码守卫：没有 requestLogClose / agent_done；「进行中」只有 setLogRunning 能写。
  *
  * 运行：node scripts/test/e2e-log-groups.cjs
  */
@@ -58,32 +58,16 @@ function main() {
     return r.data
   }
 
-  console.log('== ① AI 申请收口不许动「进行中」 ==')
+  console.log('== ① 日志不再承载收口（2026-11-01 暮雨：收口进任务「待验收」） ==')
   {
     const l = mk('用户已派出去的活')
     logs.setLogRunning(l.id, true)
     check('  手动标「进行中」生效', logs.getLog(l.id).running === true)
-    const r = logs.requestLogClose(l.id)
+    check('★★ 日志服务没有 requestLogClose / cancelLogClose（签字对象是任务卡，不是日志）',
+      typeof logs.requestLogClose === 'undefined' && typeof logs.cancelLogClose === 'undefined')
     const after = logs.getLog(l.id)
-    check('★ 申请收口返回 ok', r.ok === true, JSON.stringify(r))
-    check('★★ AI 说做完了 ≠ 用户撤销派活：running 仍是 true（第 1/6 条的真事故）',
-      after.running === true, String(after.running))
-    check('  申请收口本身有标记（agentDone=true）', after.agentDone === true)
-    check('  状态仍是 active（AI 不能替用户完成）', after.status === 'active', after.status)
-    logs.cancelLogClose(l.id)
-    check('  撤回收口后 running 依旧不变', logs.getLog(l.id).running === true)
-  }
-
-  // 2026-10-30 第二次追问（截图：同一张卡同时写「待处理」和「等你确认」）：
-  // 没标「进行中」= 没派出去，AI 就不该能申请收口，否则卡面自相矛盾。
-  {
-    const l = mk('还没派出去的活')
-    const r = logs.requestLogClose(l.id)
-    const after = logs.getLog(l.id)
-    check('★★ 没标「进行中」→ 申请收口被拒（不然「待处理 + 等你确认」自相矛盾）',
-      r.ok === false && /还没标|没派出去/.test(r.error || ''), JSON.stringify(r))
-    check('★★ 被拒后 agentDone 仍是 false（卡面不会出现「等你确认」）', after.agentDone !== true)
-    check('  拒绝消息直接告诉人下一步该点哪', /标为进行中|完成/.test(r.error || ''), String(r.error))
+    check('★ 标进行中不改状态、不产生任何收口标记',
+      after.status === 'active' && after.agentDone === undefined, JSON.stringify({ s: after.status, d: after.agentDone }))
   }
 
   console.log('\n== ② 主日志 + 附属日志：绑定落盘、校验、往返 ==')
@@ -191,22 +175,15 @@ function main() {
       JSON.stringify(logs.getLog(m.id).attached))
   }
 
-  console.log('\n== ⑦ 源码守卫（谁在写 running） ==')
+  console.log('\n== ⑦ 源码守卫（谁在写 running / 收口标记已删） ==')
   {
     const src = strip(fs.readFileSync(path.join(ROOT, 'desktop/src/main/services/logs.ts'), 'utf8'))
-    const fn = (name) => {
-      const i = src.indexOf('export function ' + name)
-      if (i < 0) return ''
-      const j = src.indexOf('\nexport function ', i + 10)
-      return src.slice(i, j < 0 ? src.length : j)
-    }
-    check('★★ requestLogClose 里没有 `running = false`（第 1/6 条的病根）',
-      !/\.running\s*=\s*false/.test(fn('requestLogClose')), fn('requestLogClose').slice(0, 200))
+    check('★★ 源码里没有 requestLogClose / cancelLogClose（日志收口这套已删，不留回潮入口）',
+      !/requestLogClose|cancelLogClose/.test(src))
+    check('★ 日志服务源码里没有 agent_done（日志不写收口标记）', !/agent_done/.test(src))
     check('★ 「进行中」只有一个自动写入点：setLogRunning / restoreLogState 之外不许成片写',
       (src.match(/\.running\s*=\s*(true|false|on)/g) || []).length <= 8,
       String((src.match(/\.running\s*=\s*(true|false|on)/g) || []).length))
-    check('★ AI 收口只有 agent_done，不碰 running（源码顺序断言：requestLogClose 里没有 running 赋值）',
-      !/\.running\s*=/.test(fn('requestLogClose')))
   }
 
   console.log(`\nRESULT ${pass} / ${fail}`)
