@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.7.1
+version: 1.8.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -90,7 +90,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **29** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **30** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -99,6 +99,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `search_tasks` | Full-text search across task titles, bodies, and tags |
 | `get_task` | Get a single task by ID |
 | `create_task` | Create a new task |
+| `intake_task` | 收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。 |
 | `usage_report` | Report AI usage from an external client (e.g. |
 | `never_read` | List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). |
 | `update_task` | Update a task |
@@ -176,6 +177,37 @@ move_status { id, status: "进行中" }                              # 最多到
 `get_roadmap { project }` 先看一眼现有批次（如 `P1 功能` / `2026-Q3`），能归就归；
 真的都不合适再起新名字，并在日志里说明为什么。**批次名字一乱，路线图就变成一堆「未分类」**——
 方寸不会替你猜"这两张算不算一批"。
+
+**⑤ 交单：有交付物就用 `intake_task`（2026-11-02 新增）**
+
+干完一段活、出了报告/清单/代码改动 → **用 `intake_task`，不要用 `create_task` 裸交**。
+它会把**交付物**和**卡上判据**一起机检，结果写进卡正文：
+
+```
+intake_task {
+  title, project,
+  deliverable: "<交付物全文，Markdown>",
+  criteria: ["str: 'CJK 统一表意文字'", "count: '诉求' == 6", "format: /^# 功能缺口判定/", "file: docs/功能缺口判定-20261102.md 存在"],
+  agent: "<你的名字>", model: "<模型名>", priority: "中"
+}
+```
+
+- **全过 → 落「待审批」**（用户点头才转正）
+- **有不过 → 落「草稿」+ 正文里一节「⚠ 红标（这几条没过）」逐条列出原文与实际值**
+  —— 卡照样建，东西不会丢；你返工后再交一次
+- 返回体里的 `intake.redFlags` 就是返工清单，`next` 说明下一步该干什么
+
+判据四类（写的都是**可复算**的东西）：
+
+| 写法 | 判什么 |
+|---|---|
+| `str: '原文'` | 交付物必须含这段原文（引号必需） |
+| `count: '原文' == N` | 出现次数（`>=` `<=` `==` `!=` `>` `<` 都收） |
+| `format: <正则>` | 交付物必须匹配（写坏正则 → 未判定，不算不过） |
+| `file: docs/x.md 存在` | 仓库里真存在（相对仓库根；`../` 与绝对路径一律 false） |
+
+⚠ `cmd:` 判据在收卡时**不跑**（跑测试套件归「待验收」阶段人点自检），传了也是"未判定"，会挡住"全过"。
+⚠ 判据别写「效果更好」「体验流畅」这类话——那不是判据，收卡机检会判不了，卡的结论就是空话。
 
 **不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
 

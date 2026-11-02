@@ -7,6 +7,11 @@ import type { Task } from '../data'
 import { appendTrace } from '../llm/trace'
 import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
 import { recordRead, readStats } from './usage'
+// 收卡机检（ADR-003 一期 · 2026-11-02）：外部 agent 交单时先机检再落卡。
+// 四类判据面向**交付物文本**，不起进程（cmd 在这里一律 unknown，跑测试是「待验收」的事）。
+import { renderIntakeSection } from '../../shared/intake'
+// 存在性检查与报告跑一次都收在 services/intake（tools 里不再写第二份口径）
+import { checkIntake } from '../services/intake'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
 // 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
 // 决策卡与池文件此前根本没有通道（spec §四 引用的"现有写回层入口"对它们不存在）。
@@ -79,6 +84,35 @@ export const MCP_TOOLS: MCPTool[] = [
         body: { type: 'string', description: 'Task body/content' },
       },
       required: ['title'],
+    },
+  },
+  {
+    name: 'intake_task',
+    description:
+      '收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。'
+      + '判据四类：str: \'原文\' / count: \'原文\' == N / format: <正则> / file: <相对路径> 存在。'
+      + '全过 → 落「待审批」（REV-009）；有不过 → 落「草稿」+ 正文红标 + 逐条留痕（**不阻挡，东西不丢**）。'
+      + '返回机检报告；agent 据此决定是否返工。cmd: 判据在收卡时不跑（归「待验收」阶段）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Card title' },
+        project: { type: 'string', description: 'Project id' },
+        deliverable: { type: 'string', description: '交付物全文（Markdown）。空字符串 = 每条判据都不过' },
+        criteria: {
+          type: 'array', items: { type: 'string' },
+          description: "收卡判据，四类：str: '原文' / count: '原文' == 6 / format: <正则> / file: docs/x.md 存在",
+        },
+        agent: { type: 'string', description: '交单人（写进留痕）' },
+        model: { type: 'string', description: '模型名（写进留痕）' },
+        priority: { type: 'string', description: '高 / 中 / 低', default: '中' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
+        force_status: {
+          type: 'string',
+          description: '强制落卡状态（默认按机检自动：全过→待审批，有不过→草稿）',
+        },
+      },
+      required: ['title', 'deliverable', 'criteria'],
     },
   },
   {
@@ -454,6 +488,46 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
     }
     
+    case 'intake_task': {
+      // 收卡 = 机检 + 落卡。**不阻挡**：机检不过照样建卡，东西不许丢；
+      // 区别只在状态（过 → 待审批；不过 → 草稿）与正文里的红标留痕。
+      const criteria = Array.isArray(args.criteria) ? args.criteria.map((c: any) => String(c)) : []
+      const deliverable = String(args.deliverable ?? '')
+      const report = checkIntake(deliverable, criteria)
+      const at = new Date().toISOString()
+      const status = String(args.force_status || (report.ok ? '待审批' : '草稿'))
+      const body = [
+        '## 交付物', '',
+        deliverable || '（空 —— 交单方没给交付物）', '',
+        renderIntakeSection(report, { at, agent: args.agent, model: args.model }),
+      ].join('\n')
+      const task = tasks.createTask({
+        title: args.title,
+        status: status as any,
+        project: args.project,
+        priority: args.priority,
+        tags: args.tags,
+        body,
+      })
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        id: task.id,
+        status: task.fm?.status || status,
+        intake: {
+          ok: report.ok,
+          total: report.total,
+          passed: report.passed,
+          failed: report.failed,
+          unknown: report.unknown,
+          summary: report.summary,
+          redFlags: report.redFlags,
+        },
+        next: report.ok
+          ? '全过 → 落「待审批」，等用户点头转正'
+          : '有不过 → 落「草稿」并标红：东西没丢，但判据没过，返工后再交',
+      }, null, 2) }] }
+    }
+
     case 'update_task': {
       const task = tasks.updateTask(args.id, args.fields)
       if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
