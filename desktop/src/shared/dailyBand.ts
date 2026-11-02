@@ -55,6 +55,8 @@ export interface DailyBandResult {
   stageIndex: number
   criteriaCount: number
   criteriaKinds: Record<DailyCriteriaKind, number>
+  /** 还有多少张阶段卡等你裁决（待裁决 / 未冻结）—— 0 表示没有积压 */
+  pendingCount: number
   /** 恒为 3 行（含空态）—— 界面按行渲染，不做二次加工 */
   lines: string[]
   /** 空态/完成态的一句话（ready 时为空串） */
@@ -62,6 +64,14 @@ export interface DailyBandResult {
 }
 
 const FROZEN = '已冻结'
+/**
+ * 「等你裁决」的几种写法（2026-11-02）：
+ * 计划卡的状态字段是**它自己的一套词**（已冻结 / 待裁决 / 未冻结 / 完成 / 未完成），
+ * 不是任务的 7 态、也不是决策卡的 3 态。此前这一条带只认「已冻结」，
+ * 于是 7 张待裁决的卡在唯一的日频入口里一个字都看不到 —— 用户原话「待裁决的东西在哪里？没看见」。
+ * 现在它们必须**在条上被数出来**，哪怕今天推的是别的格子。
+ */
+const PENDING = ['待裁决', '待裁决（未冻结）', '未冻结']
 
 /** `P12` → 12；不是 P 序号 → Infinity（排最后，不猜它排第几） */
 export function stageOrdinal(id: string): number {
@@ -164,29 +174,42 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
     if (!p || !Array.isArray(p.stages)) return n
     return n + p.stages.filter((s) => s && String(s.status ?? '').trim() === FROZEN).length
   }, 0)
+  // 待裁决的卡数 —— 必须始终在条上说出来，否则它们只存在于计划文件里，界面上一眼都看不到
+  const pendingCount = list.reduce((n, p) => {
+    if (!p || !Array.isArray(p.stages)) return n
+    return n + p.stages.filter((s) => s && PENDING.includes(String(s.status ?? '').trim())).length
+  }, 0)
 
   if (!picked) {
     if (!frozenTotal) {
-      const lines = [
-        '本仓还没有冻结的作战计划',
-        '到「项目页 → 作战计划」点「通过」冻结一张阶段卡',
-        '冻结之后，这里每天告诉你推哪一格、这一格要过哪些判据',
-      ]
+      const lines = pendingCount
+        ? [
+            `有 ${pendingCount} 张阶段卡等你裁决`,
+            '到「项目页 → 作战计划」逐张点「通过」冻结 —— 没冻结的格子推不动',
+            '冻结之后，这里每天告诉你推哪一格、这一格要过哪些判据',
+          ]
+        : [
+            '本仓还没有冻结的作战计划',
+            '到「项目页 → 作战计划」点「通过」冻结一张阶段卡',
+            '冻结之后，这里每天告诉你推哪一格、这一格要过哪些判据',
+          ]
       return {
         kind: 'none', file: '', planTitle: '', stage: null, stageIndex: -1,
         criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
-        lines, message: lines[0],
+        pendingCount, lines, message: lines[0],
       }
     }
     const lines = [
       '已冻结的阶段都过了判据',
-      '今天没有要推的格子 —— 去项目页裁决下一张',
+      pendingCount
+        ? `还有 ${pendingCount} 张卡待裁决 —— 去项目页裁决下一张`
+        : '今天没有要推的格子 —— 去项目页裁决下一张',
       '本仓当前没有「未过」的已冻结阶段',
     ]
     return {
       kind: 'all-passed', file: '', planTitle: '', stage: null, stageIndex: -1,
       criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
-      lines, message: lines[0],
+      pendingCount, lines, message: lines[0],
     }
   }
 
@@ -203,7 +226,8 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
   const lines = [
     `今天推：${name} · ${stage.id} · ${String(stage.title ?? '').trim() || '(无标题)'}`,
     criteriaLine(stage),
-    `状态：${status}${verdict ? ` · 裁决 ${verdict}` : ''} · ${execText}`,
+    `状态：${status}${verdict ? ` · 裁决 ${verdict}` : ''} · ${execText}`
+      + (pendingCount ? ` · 另有 ${pendingCount} 张待裁决（项目页 → 作战计划）` : ''),
   ]
   return {
     kind: 'ready',
@@ -213,6 +237,7 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
     stageIndex: stageOrdinal(stage.id),
     criteriaCount: criteria.length,
     criteriaKinds: kinds,
+    pendingCount,
     lines,
     message: '',
   }

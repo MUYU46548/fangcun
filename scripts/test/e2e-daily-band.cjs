@@ -114,15 +114,39 @@ for (const [name, plans, results] of cases) {
 }
 
 // ── ⑤ 空态：说人话，不渲染空格子 ─────────────────────────────────────────
-const empty = buildDailyBand([plan('x.md', [stage('P0', '待裁决')])])
-check('★★ 无已冻结计划 → 首行就是「本仓还没有冻结的作战计划」',
-  empty.kind === 'none' && empty.lines[0] === '本仓还没有冻结的作战计划', empty.lines[0])
+// 2026-11-02（暮雨「待裁决的东西在哪里？没看见」）：等裁决的卡**必须被数出来**。
+// 此前这条带只认「已冻结」，7 张待裁决的卡在唯一的日频入口里一个字都没有。
+const pendingOnly = buildDailyBand([plan('x.md', [stage('P0', '待裁决')])])
+check('★★ 只有待裁决的卡 → 首行直接说「有 1 张阶段卡等你裁决」',
+  pendingOnly.kind === 'none' && pendingOnly.pendingCount === 1
+  && pendingOnly.lines[0] === '有 1 张阶段卡等你裁决', pendingOnly.lines[0])
+check('★ 待裁决空态的 message 与首行一致（界面/日志同一个口径）',
+  pendingOnly.message === pendingOnly.lines[0])
+
+const empty = buildDailyBand([plan('x.md', [])])
+check('★★ 一张卡都没有 → 仍是「本仓还没有冻结的作战计划」（不报 0 张待裁决）',
+  empty.kind === 'none' && empty.pendingCount === 0
+  && empty.lines[0] === '本仓还没有冻结的作战计划', empty.lines[0])
 check('★ 空态 message 与首行一致（界面/日志同一个口径）', empty.message === empty.lines[0])
 check('★ 空态 stage 为 null（不是造一张空格子出来）', empty.stage === null)
+
+// 三种「等裁决」写法都算积压（打回/改一句之后都会落到这几个值）
+check('★★ 待裁决 / 待裁决（未冻结）/ 未冻结 都计入 pendingCount',
+  buildDailyBand([plan('x.md', [
+    stage('P0', '待裁决'), stage('P1', '待裁决（未冻结）'), stage('P2', '未冻结'), stage('P3', '已冻结'),
+  ])]).pendingCount === 3,
+  String(buildDailyBand([plan('x.md', [
+    stage('P0', '待裁决'), stage('P1', '待裁决（未冻结）'), stage('P2', '未冻结'), stage('P3', '已冻结'),
+  ])]).pendingCount))
 
 const allPassed = buildDailyBand([plan('y.md', [stage('P0', '已冻结')])], { 'y.md': { P0: true } })
 check('★ 冻结的格子全通过 → 明确说「都过了判据」，不退回空态话术',
   allPassed.kind === 'all-passed' && /都过了判据/.test(allPassed.lines[0]), allPassed.lines[0])
+const allPassedWithPending = buildDailyBand(
+  [plan('y.md', [stage('P0', '已冻结'), stage('P1', '待裁决')])], { 'y.md': { P0: true } })
+check('★★ 全过但还有待裁决 → 第二行报出待裁决张数（不让人以为没事了）',
+  allPassedWithPending.kind === 'all-passed'
+  && /还有 1 张卡待裁决/.test(allPassedWithPending.lines[1]), allPassedWithPending.lines[1])
 
 // ── ⑥ 有格子：第一行点名阶段，第二行**带判据原文**（不只是条数） ──────────
 const rich = plan('demo.md', [stage('P2', '已冻结', {
@@ -148,6 +172,17 @@ check('★ 未执行与"已跑过未过"分开说（不把 unknown 说成 fail�
 const b2 = buildDailyBand([rich], { 'demo.md': { P2: false } })
 check('★ 有 false 结果 → 第三行说「判据已跑过：未过」',
   /判据已跑过：未过/.test(b2.lines[2]), b2.lines[2])
+
+// 2026-11-02：推的格子之外还有等裁决的卡 → 第三行必须报出来
+const withPending = buildDailyBand([plan('demo.md', [
+  stage('P2', '已冻结', { criteria: ['cmd: echo ok'] }),
+  stage('P3', '待裁决'), stage('P4', '待裁决'),
+])])
+check('★★ 推着一格、另有 2 张待裁决 → 第三行报出张数（否则它们永远看不见）',
+  withPending.kind === 'ready' && withPending.pendingCount === 2
+  && /另有 2 张待裁决/.test(withPending.lines[2]), withPending.lines[2])
+check('★ 没有积压时不写「另有 0 张」（不制造噪音）',
+  !/另有/.test(b1.lines[2]), b1.lines[2])
 
 const noCriteria = plan('nc.md', [stage('P5', '已冻结', { criteria: [], missing: ['判据'] })])
 const b3 = buildDailyBand([noCriteria])

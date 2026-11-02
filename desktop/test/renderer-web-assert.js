@@ -2621,6 +2621,20 @@
         return Array.prototype.slice.call(box.querySelectorAll('button'))
           .find((b) => (b.textContent || '').indexOf(label) >= 0) || null
       }
+      // 待裁决清单（2026-11-02）：暮雨「待裁决的东西在哪里？没看见」
+      const pendingBar = $('.plan-view .plan-pending')
+      check('★★ 作战计划页顶部有「待裁决 N 张」清单（不再只藏在状态胶囊里）',
+        !!pendingBar, pendingBar ? (pendingBar.textContent || '').slice(0, 60) : '没有 .plan-pending')
+      const pendingItems = $$('.plan-view .plan-pending-item')
+      check('★ 清单逐张列出（夹具 1 张待裁决 → 1 个可点条目）',
+        pendingItems.length === 1, pendingItems.length + ' 项')
+      check('★ 条目点名阶段号（点了能跳过去，不是一句光话）',
+        /P1/.test(((pendingItems[0] || {}).textContent) || ''), ((pendingItems[0] || {}).textContent) || '')
+      if (pendingItems[0]) pendingItems[0].click()
+      await sleep(250)
+      check('★ 点条目不炸（滚动到那张卡）', $$('.errbar').length === 0,
+        ((($('.errbar-msg') || {}).textContent) || '').slice(0, 80))
+
       check('★ 每张阶段卡都有「跑判据」「推进这一格」（P4 不再是只有数据层的死功能）',
         !!stageBtn('P0', '跑判据') && !!stageBtn('P0', '推进这一格')
         && !!stageBtn('P1', '跑判据') && !!stageBtn('P1', '推进这一格'),
@@ -3048,6 +3062,10 @@
       dbLines.slice(0, 2).join(' || '))
     check('★ 第三行说清状态与判据执行情况',
       /状态：已冻结/.test(dbLines[2] || '') && /尚未执行/.test(dbLines[2] || ''), dbLines[2])
+    // 2026-11-02（暮雨「待裁决的东西在哪里？没看见」）：这条带以前只认「已冻结」，
+    // 等裁决的卡在唯一日频入口里一个字都没有。夹具里 P1 是待裁决 → 必须被数出来。
+    check('★★ 待裁决的卡在日志页也被数出来（第三行「另有 N 张待裁决」）',
+      /另有 1 张待裁决/.test(dbLines[2] || ''), dbLines[2])
 
     // 2026-10-30 暮雨第 2 轮：「分区头别写解释」——
     // 旧版写「还没派出去（要派给 AI 就点那张卡的…）」，用户原话「直接什么都不写都更好」。

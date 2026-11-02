@@ -2014,6 +2014,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-msg { position: sticky; bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; }
 .plan-msg.ok { background: #e9f5e4; border: 1px solid #cfe4c8; color: var(--ok-text); }
 .plan-msg.bad { background: #fbeceb; border: 1px solid #eecfcc; color: var(--danger-text); }
+/* ── 待裁决清单（2026-11-02）：此前这些卡在界面上等于不存在 ── */
+.plan-pending { margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--accent-soft); border-radius: 12px; background: var(--tint); }
+.plan-pending-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink); }
+.plan-pending-hint { font-size: 11.5px; color: var(--muted); }
+.plan-pending-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.plan-pending-item { height: 26px; padding: 0 10px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 999px; background: #fff; }
+.plan-pending-id { font-weight: 700; margin-right: 6px; color: var(--accent); }
+.plan-pending-title { color: var(--ink); }
+.plan-pending-miss { margin-left: 6px; color: var(--danger-text); }
 /* ── P4 跑判据 / 推进（2026-11-02）──
    按钮与结果块各自独立类名（不复用 .plan-act-*）：旧断言按 class 数过，复用会凭空变红。 */
 .plan-run-checks { font-weight: 500; }

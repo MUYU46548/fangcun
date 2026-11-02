@@ -19,6 +19,24 @@
       <button class="ghost plan-reload" @click="load()">⟳ 重读</button>
     </div>
 
+    <!-- 待裁决清单（2026-11-02）—— 此前「待裁决」只藏在每张卡的状态胶囊里，
+         而日志页的每日推进面只认「已冻结」，于是 7 张等裁决的卡在界面上等于不存在
+         （暮雨原话：「待裁决的东西在哪里？没看见」）。这里给一个显式出口：
+         几张、哪几张、缺什么，点一下滚过去。 -->
+    <div v-if="pendingStages.length" class="plan-pending" data-plan-pending>
+      <div class="plan-pending-head">
+        <b>{{ pendingStages.length }} 张阶段卡等你裁决</b>
+        <span class="plan-pending-hint">没冻结的格子推不动 —— 逐张点「通过（冻结）」或「打回」，或「改一句」退回重写</span>
+      </div>
+      <div class="plan-pending-list">
+        <button v-for="p in pendingStages" :key="p.key" class="plan-pending-item" @click="scrollToStage(p.key)">
+          <span class="plan-pending-id">{{ p.stageId }}</span>
+          <span class="plan-pending-title">{{ p.title }}</span>
+          <span v-if="p.missing" class="plan-pending-miss">缺 {{ p.missing }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- 投入产出账（0.6.0 P5）—— 只显示取得到的格子；每个数字旁边都有「它证明不了什么」。
          口径声明**永远在**：ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在这一格。 -->
     <div v-if="wasteLedger" class="waste-block" data-waste-block>
@@ -53,7 +71,8 @@
         <span class="plan-stat">{{ doc.stages.length }} 个阶段 · 缺块 {{ missCount(doc) }} 张</span>
       </div>
 
-      <div v-for="s in doc.stages" :key="doc.file + s.id" class="plan-stage" :class="{ bad: s.missing.length }">
+      <div v-for="s in doc.stages" :key="doc.file + s.id" class="plan-stage" :class="{ bad: s.missing.length }"
+        :data-stage="doc.file + '::' + s.id">
         <div class="plan-stage-head">
           <span class="plan-id">{{ s.id }}</span>
           <span class="plan-title">{{ s.title }}</span>
@@ -155,6 +174,32 @@ const textTarget = ref<{ file: string; stageId: string; action: 'reject' | 'amen
 const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 
 const missCount = (doc: Doc) => doc.stages.filter((s) => s.missing.length).length
+
+/** 等你裁决的阶段卡（2026-11-02）—— 与 `shared/dailyBand` 的 PENDING 同一套词。
+ *  为什么要在页面顶部数一遍：计划卡的状态词是它自己的一套，任务 7 态 / 决策 3 态里都没有「待裁决」，
+ *  除了这张卡上的小胶囊，没有任何地方会告诉你"有 N 张在等你"。 */
+const pendingStages = computed(() => {
+  const out: Array<{ key: string; stageId: string; title: string; missing: string }> = []
+  for (const d of docs.value) {
+    for (const s of d.stages) {
+      const st = String(s.status || '').trim()
+      if (st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结') {
+        out.push({
+          key: d.file + '::' + s.id,
+          stageId: s.id,
+          title: s.title || '(无标题)',
+          missing: (s.missing || []).join(' / '),
+        })
+      }
+    }
+  }
+  return out
+})
+
+function scrollToStage(key: string): void {
+  const el = document.querySelector('[data-stage="' + key + '"]') as HTMLElement | null
+  if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
 
 // ── P4：跑判据 / 推进一格（2026-11-02 接上界面）────────────────────────
 // 结果按「文件::阶段」各存一份，不互相覆盖；**没点过就整块不渲染**（不写"未跑"占位）。
