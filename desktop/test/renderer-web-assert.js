@@ -5886,7 +5886,8 @@
       const box = (el) => el
         ? { h: Math.round(el.getBoundingClientRect().height), r: getComputedStyle(el).borderTopLeftRadius }
         : null
-      const okBox = (b) => !!b && b.h === 32 && parseFloat(b.r) === 8
+      // 2026-11-02 外观返工：大档改回 0.3.5 决策页那套（34 / 10）
+      const okBox = (b) => !!b && b.h === 34 && parseFloat(b.r) === 10
       const addBtn = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
       const probes = [
         ['搜索输入框', box($('[data-dec="search"]'))],
@@ -5897,7 +5898,7 @@
         ['新增内容输入框', box($('[data-dec="add-input"]'))],
       ]
       const bad = probes.filter(([, b]) => !okBox(b))
-      check('★★ 决策页控件尺寸统一：输入框 / 下拉 / 按钮 一律 h=32、圆角=8px',
+      check('★★ 决策页控件尺寸统一：输入框 / 下拉 / 按钮 一律 h=34、圆角=10px',
         bad.length === 0,
         bad.length ? JSON.stringify(bad) : JSON.stringify(probes.map(([n, b]) => n + ':' + (b ? b.h + '/' + b.r : 'null'))))
       // 卡片内的动作按钮是密集档（24）—— 与老界面 --btn-h-sm 同档，不是"另一种按钮"

@@ -394,7 +394,7 @@ onMounted(refresh)
         v-model="projFilter"
         data-dec="proj-filter"
         title="按项目筛选"
-        class="h-[var(--btn-h-lg)] max-w-[170px] cursor-pointer appearance-none rounded-[var(--btn-r)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)]"
+        class="h-[var(--btn-h-lg)] max-w-[170px] cursor-pointer appearance-none rounded-[var(--btn-r-lg)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)]"
       >
         <option v-for="o in projOptions" :key="o" :value="o">{{ o }}</option>
       </select>
@@ -572,7 +572,7 @@ onMounted(refresh)
           <span class="relative flex-none">
             <select
               data-dec="status"
-              class="h-[var(--btn-h-lg)] cursor-pointer appearance-none rounded-[var(--btn-r)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] font-semibold text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)] disabled:opacity-50"
+              class="h-[var(--btn-h-lg)] cursor-pointer appearance-none rounded-[var(--btn-r-lg)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] font-semibold text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)] disabled:opacity-50"
               :value="d.状态"
               :disabled="busy"
               @change="setStatusFromEvent(d, $event)"

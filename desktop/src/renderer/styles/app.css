@@ -234,9 +234,17 @@ body {
    ⚠ **不改任何现有 class 名** —— 模板一行不动，只把这些 class 的长相统一。 */
 :root {
   --btn-h: 28px;      /* 工具行 */
-  --btn-h-lg: 32px;   /* 弹窗主按钮 */
+  /* 2026-11-02 外观返工：大档改回 0.3.5 决策页那套（34px / 10px 圆角 / 13 号字）。
+     来历有据可查：git show 6374013:desktop/src/renderer/components/ui/Button.vue
+       md: 'h-[34px] rounded-[10px] px-4 text-[13px]'
+     而 0.3.7（c89cbef）把它“统一”成 32px / 8px —— 暮雨 10-31 驳回说的“决策那种按钮复现不了”，
+     指的就是这套更圆、更大一号的规格被覆盖掉了。这次把**他那套**提升为全局标准，而不是把老的那套压上去。 */
+  --btn-h-lg: 34px;   /* 弹窗主按钮 / 决策页控件 */
   --btn-h-sm: 24px;   /* 密集列表（待办行尾那一串） */
-  --btn-r: 8px;
+  --btn-r: 8px;       /* 小/中档圆角：24 与 28 高的按钮，8 刚好 */
+  /* 大档单独一档圆角：24 高的按钮配 10 会圆成胶囊，所以圆角也跟着尺寸分档。
+     只有 34 高的（弹窗主按钮 / 决策页控件 / 输入框）用 10 —— 就是暮雨记着的那套。 */
+  --btn-r-lg: 10px;
   --btn-fs: 12px;
   --btn-px: 14px;
 }
@@ -276,10 +284,10 @@ button:not([class]) {
 :where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }
-/* 第二档：弹窗里的主/次按钮大一号（32）—— 弹窗里动作更重，按钮更好点 */
+/* 第二档：弹窗里的主/次按钮大一号（34 / 10）—— 弹窗里动作更重，按钮更好点 */
 .overlay .acts button.ghost, .overlay .acts button.pri, .overlay .acts button.ok,
 .overlay .acts button.danger, .overlay .acts button.warning {
-  height: var(--btn-h-lg); padding: 0 16px; font-size: 12.5px;
+  height: var(--btn-h-lg); border-radius: var(--btn-r-lg); padding: 0 16px; font-size: 12.5px;
 }
 
 /* ── 控件交互反馈（2026-09-29 用户第 5 条：“控件交互可以强化，提高反馈体验”）────
