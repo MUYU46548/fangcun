@@ -28,9 +28,13 @@ export function getTaskMirror(taskId: string): { ok: boolean; data?: MirrorResul
     ok: true,
     data: {
       id: t.id || taskId,
-      title: String(t.fm?.标题 || ''),
-      status: String(t.fm?.状态 || ''),
-      project: String(t.fm?.项目 || ''),
+      // ⚠ 英文键：loadTasks/readTask 把 YAML 中文键名映射成 fm.title / fm.status / fm.project
+      title: String(t.fm?.title || ''),
+      status: String(t.fm?.status || ''),
+      project: (() => {
+        const p: any = t.fm?.project
+        return String(Array.isArray(p) ? p[0] || '' : p || '')
+      })(),
       ...pair,
     },
   }

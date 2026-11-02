@@ -25,6 +25,16 @@ export interface DraftTaskRef {
   id: string
   title?: string
   status?: string
+  /**
+   * 这张卡当初的「## 方案」原文（截断）。
+   *
+   * 2026-11-02 补：此前**只给标题**，正文一个字不进上下文 —— 这是卡 task-20261027-003
+   * 列出的四条根因里的第 2 条，正是它让规划输出像"待办清单"而不是"规划"：
+   * 模型不知道哪张卡已经写好了施工方案、哪张做到一半、哪张是空壳。
+   */
+  plan?: string
+  /** 这张卡的「## 结果记录」原文（截断）—— 已经踩过的坑、已经自报没做的部分都在这里 */
+  actual?: string
 }
 
 export interface PlanDraftInput {
@@ -127,6 +137,12 @@ function evidenceLines(input: PlanDraftInput): string[] {
   for (const t of Array.isArray(input.tasks) ? input.tasks : []) {
     if (!t || !t.id) continue
     lines.push(`- [task:${t.id}] ${String(t.title || t.id).trim()}${t.status ? `（状态：${t.status}）` : ''}`)
+    // 2026-11-02：正文进上下文。没有它，模型只看得到"有这么些卡"，
+    // 看不到"这张卡里已经写好了方案 / 这张卡自报了没做的部分"——规划就退化成罗列。
+    const plan = String(t.plan || '').replace(/\s+/g, ' ').trim()
+    const actual = String(t.actual || '').replace(/\s+/g, ' ').trim()
+    if (plan) lines.push(`    当初的方案：${plan.slice(0, 220)}`)
+    if (actual) lines.push(`    实际结果：${actual.slice(0, 260)}`)
   }
   for (const c of input.ledger?.cells || []) {
     if (!c) continue
@@ -156,6 +172,12 @@ export function buildPlanDraftPrompt(input: PlanDraftInput): { system: string; u
     `\n当前证据（只能引用这些 id）：\n${evidenceLines(input).join('\n') || '（没有可用依据）'}`,
     `\n可用依据 id：${allowed.join(' , ') || '（空）'}`,
     '\n请把下一版计划拆成 2–5 张阶段卡，按 P0/P1/... 编号；每张卡都要有依据。',
+    // 2026-11-02：这几句是针对"输出像待办清单"的直接处置 ——
+    // 要它回答"先做哪件、砍什么"，而不是"该做的事有哪几件"。
+    '\n注意：每条卡下面若带了“当初的方案 / 实际结果”，说明这张卡已经有历史。',
+    '已经做过的事不要再列成新阶段；自报了没做的部分才值得列。',
+    '如果某件旧事不值得做，就在对应阶段的 what 里直说“本轮不做 X，因为 Y”——不要默默省略。',
+    '每条 stage 的 what 必须回答“为什么是现在做这件”，而不只是“这件是什么”。',
   ].join('\n')
   return { system, user }
 }

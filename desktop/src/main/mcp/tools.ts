@@ -14,6 +14,8 @@ import { renderIntakeSection } from '../../shared/intake'
 import { checkIntake } from '../services/intake'
 // agent 直接要点架构图（2026-11-02）：与界面按钮同一个服务，不另写一套生成
 import { archForProject } from '../services/projectArch'
+import { generatePlanDraft } from '../llm/planDraft'
+import { buildPlanDraftInputFromDisk } from '../llm/planDraftInput'
 import { generateArchGraph } from '../services/archAi'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
 // 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
@@ -102,6 +104,24 @@ export const MCP_TOOLS: MCPTool[] = [
       properties: {
         project: { type: 'string', description: '项目 id 或项目名（registry 里登记的）' },
         max_attempts: { type: 'number', description: '最多重画几次（默认 2，上限 3）' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'plan_draft',
+    description:
+      '让方寸**给自己起草一份作战计划草案**（BYOK，会真调模型并产生花销）。'
+      + '输入是该项目未结卡的「方案 + 结果记录原文」和已完成卡标题 —— '
+      + '所以它能看见哪张卡已写好施工方案、哪张自报了没做的部分。'
+      + '输出是 2–5 张阶段卡（P0/P1…）+ 每条的机器判据 + 依据引用，落 plans/_drafts，状态恒“待裁决”。'
+      + '引不出真实依据的条目会被丢弃并计入 dropped，不会编造。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: '项目 id（如 fangcun-base）' },
+        max_open: { type: 'number', description: '未结卡最多带几张正文（默认 24，上限 60）' },
+        max_done: { type: 'number', description: '已完成卡最多列几张标题（默认 8，上限 40）' },
       },
       required: ['project'],
     },
@@ -508,6 +528,39 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
     }
     
+    case 'plan_draft': {
+      // 让方寸给自己起草一份计划（2026-11-02）。此前 generatePlanDraft 没有任何调用方 ——
+      // 生成器写好了两个月，方寸从没真的规划过自己。
+      // 输入 = 该项目未结卡的【方案 + 结果记录原文】+ 已完成卡标题；输出落 plans/_drafts，状态恒“待裁决”。
+      const proj = String(args.project || '').trim()
+      if (!proj) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id）' }) }], isError: true }
+      }
+      const input = buildPlanDraftInputFromDisk({
+        project: proj,
+        maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
+        maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
+      })
+      return generatePlanDraft(input).then((r) => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: r.ok,
+            error: r.error,
+            file: r.file,
+            stages: (r.stages || []).length,
+            dropped: (r.dropped || []).length,
+            missing_citations: r.missingCitations,
+            model: r.model,
+            // REV-005 边界③：每次花销可见
+            usage: r.usage,
+            preview: (r.markdown || '').slice(0, 1200),
+          }),
+        }],
+        isError: !r.ok,
+      }))
+    }
+
     case 'arch_generate': {
       // 让 agent 直接要点图（0.6.0）。与界面按钮走同一个服务：AI 画 → 审计 → 不过重画 → 降级。
       // ⚠ 这里会真调模型（花钱），所以返回体里必须带 usage —— REV-005 边界③“花销每次可见”。
