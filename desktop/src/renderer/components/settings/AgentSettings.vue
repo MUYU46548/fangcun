@@ -2,13 +2,70 @@
   设置 · Agent（2026-10-30 App.vue 拆分第八刀）：模型通道（BYOK）/ 模型单价 / 挂机提醒 / Agent 预设。状态经 provide("fc-settings") 共享。
 -->
 <script setup lang="ts">
-import { inject } from 'vue'
+import { inject, onMounted, reactive, ref } from 'vue'
 
 defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
   addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
 } = ctx
+
+// ── 备用通道 / 降级链（0.6.0 第 2 批 · 2026-11-02）──────────────────────
+// 为什么不放进 fc-settings：这一块只在本页用，塞进全局 provide 会让 ctx 再多七个字段。
+const llmChannels = ref<any[]>([])
+const chanBusy = ref(false)
+const chanMsg = ref('')
+const chanMsgBad = ref(false)
+const chanForm = reactive({ label: '', baseUrl: '', model: '', apiKey: '' })
+
+async function loadChannels(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.llmChannelsList()
+    llmChannels.value = r?.ok ? (r.channels || []) : []
+  } catch {
+    llmChannels.value = []
+  }
+}
+
+async function addChannel(): Promise<void> {
+  if (chanBusy.value) return
+  if (!chanForm.baseUrl.trim() || !chanForm.model.trim()) {
+    chanMsg.value = '端点地址和模型名都要填 —— 只填一半的通道会被降级链跳过'
+    chanMsgBad.value = true
+    return
+  }
+  chanBusy.value = true
+  chanMsg.value = ''
+  try {
+    const r: any = await (window as any).tegula.llmChannelsUpsert({
+      label: chanForm.label, baseUrl: chanForm.baseUrl, model: chanForm.model, apiKey: chanForm.apiKey,
+    })
+    if (!r?.ok) { chanMsg.value = '没存成：' + (r?.error || '未知错误'); chanMsgBad.value = true; return }
+    llmChannels.value = r.channels || []
+    chanForm.label = ''; chanForm.baseUrl = ''; chanForm.model = ''; chanForm.apiKey = ''
+    chanMsg.value = '已加一条备用通道 —— 主通道失败时会自动切到它'
+    chanMsgBad.value = false
+  } finally {
+    chanBusy.value = false
+  }
+}
+
+async function removeChannel(id: string): Promise<void> {
+  if (chanBusy.value) return
+  chanBusy.value = true
+  chanMsg.value = ''
+  try {
+    const r: any = await (window as any).tegula.llmChannelsRemove(id)
+    if (!r?.ok) { chanMsg.value = '没删成：' + (r?.error || '未知错误'); chanMsgBad.value = true; return }
+    llmChannels.value = r.channels || []
+    chanMsg.value = '已删掉这条备用通道'
+    chanMsgBad.value = false
+  } finally {
+    chanBusy.value = false
+  }
+}
+
+onMounted(loadChannels)
 </script>
 
 <template>
@@ -75,6 +132,32 @@ const {
         <button class="ghost font-[inherit]" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
         <button class="pri font-[inherit]" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
         <button class="ghost font-[inherit]" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
+      </div>
+
+      <!-- 备用通道 / 降级链（0.6.0 第 2 批 · 2026-11-02）
+           主通道失败自动换下一条；但 **400 类请求错不换**（换通道也是同样的错，白烧一次额度）。
+           密钥只回掩码；主通道在 llm-config.json，这里管的是 llm-channels.json。 -->
+      <div class="lb-block">
+        <div class="lb-head">
+          <b>备用通道（降级链）</b>
+          <span class="lb-hint">主通道失败自动切下一条；请求本身不合法（400）不会切。密钥只回掩码。</span>
+        </div>
+        <div class="lb-row" v-for="c in llmChannels" :key="c.id" :data-lb-chan="c.id">
+          <span class="lb-name">{{ c.label }}<em v-if="c.primary" class="lb-tag">主</em></span>
+          <span class="lb-url">{{ c.baseUrl || '（未填端点）' }}</span>
+          <span class="lb-model">{{ c.model || '（未填模型）' }}</span>
+          <span class="lb-key">{{ c.hasApiKey ? c.keyHint : '没密钥' }}</span>
+          <button v-if="!c.primary" class="ghost lb-del font-[inherit]" :disabled="chanBusy"
+            @click="removeChannel(c.id)">删</button>
+        </div>
+        <div class="lb-form">
+          <input class="lb-in font-[inherit]" v-model="chanForm.label" placeholder="名字（如 备用·小米）" />
+          <input class="lb-in font-[inherit]" v-model="chanForm.baseUrl" placeholder="端点 https://…/v1" />
+          <input class="lb-in font-[inherit]" v-model="chanForm.model" placeholder="模型名" />
+          <input class="lb-in font-[inherit]" v-model="chanForm.apiKey" placeholder="密钥（留空=不改）" />
+          <button class="ghost lb-add font-[inherit]" :disabled="chanBusy" @click="addChannel">加一条</button>
+        </div>
+        <div class="lb-msg" :class="{ bad: chanMsgBad }" v-if="chanMsg">{{ chanMsg }}</div>
       </div>
 
       <!-- 小米两个端点（2026-10-18 暮雨第 3 条）：按量付费与 Token Plan 的 Base URL / Key 都不同，

@@ -16,7 +16,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { atomicWrite, getTaskDir } from '../data'
 import { appendTrace } from './trace'
-import { chatDetailed } from './chat'
+import { chatWithFallback } from './fallback'
 import { getConfig } from './config'
 import type { WasteLedger } from '../../shared/waste'
 import { parseCheckLine } from '../../shared/checkSpec'
@@ -342,10 +342,13 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
   let usage: DraftUsage | undefined
   let model = ''
   try {
+    // 2026-11-02 BYOK 多通道：走降级链（主通道挂了自动换备用，失败与降级都留痕）。
+    // 降级只改"用哪条通道发"，不改"产出只落待裁决"这条语义。
     const call = deps.callLlm || (async (prompt: string, sys: string) => {
-      const r = await chatDetailed(prompt, {
+      const r = await chatWithFallback(prompt, {
         system: sys, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${input.project}`, noTrace: true, maxTokens: 4096,
       })
+      if (!r.ok) throw new Error(r.error || r.note || '模型调用失败（所有通道都试过了）')
       return {
         text: r.text,
         usage: {
@@ -353,7 +356,7 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
           completionTokens: r.usage?.completionTokens ?? undefined,
           totalTokens: r.usage?.totalTokens ?? undefined,
         },
-        model: String(getConfig().model || ''),
+        model: String(r.model || getConfig().model || ''),
       }
     })
     const r = await call(user, system)

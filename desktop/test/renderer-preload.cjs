@@ -25,6 +25,10 @@ const store = {
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
   // 否则「阶段文字」「秒数在动」「结束态停留 3 秒」这三件事在测试里根本无从验起。
   syncSubs: [],
+  // BYOK 多通道（2026-11-02）：只有主通道（备用要断言"加完真的出现在列表里"）
+  llmChannels: [
+    { id: 'main', label: '主通道', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', enabled: true, hasApiKey: true, keyHint: 'sk-****wxyz', primary: true },
+  ],
   // AI 生成图（2026-11-02）：默认走"过审"分支；setArchScanOnly(true) 换降级分支
   archScanOnly: false,
   archGraph: null,
@@ -471,6 +475,38 @@ contextBridge.exposeInMainWorld('tegula', {
       evidence: '自检 2026-11-02T01:00:00.000Z · 2/2 判据通过',
       rejectReason: '',
     })
+  },
+  // BYOK 多通道（2026-11-02）：主通道 + 一条备用；upsert / remove 都回"落盘后的真相"
+  llmChannelsList: () => {
+    rec('llmChannelsList')
+    return { ok: true, primaryId: 'main', channels: store.llmChannels.slice() }
+  },
+  llmChannelsUpsert: (input) => {
+    cloneGuard('llmChannelsUpsert', [input])
+    rec('llmChannelsUpsert', [input])
+    const list = store.llmChannels.map((c) => ({ ...c }))
+    const i = list.findIndex((c) => c.id === 'backup-1')
+    const one = {
+      id: 'backup-1',
+      label: (input && input.label) || '备用通道 1',
+      baseUrl: (input && input.baseUrl) || '',
+      model: (input && input.model) || '',
+      enabled: true,
+      hasApiKey: !!(input && input.apiKey),
+      keyHint: input && input.apiKey ? 'sk-****abcd' : '',
+      primary: false,
+    }
+    if (i >= 0) list[i] = one
+    else list.push(one)
+    store.llmChannels = list
+    return { ok: true, primaryId: 'main', channels: list.slice() }
+  },
+  llmChannelsRemove: (id) => {
+    cloneGuard('llmChannelsRemove', [id])
+    rec('llmChannelsRemove', [id])
+    if (String(id) === 'main') return { ok: false, error: '主通道不能删' }
+    store.llmChannels = store.llmChannels.filter((c) => c.id !== id)
+    return { ok: true, primaryId: 'main', channels: store.llmChannels.slice() }
   },
   // 跨渠道 token 对比（2026-11-02）：夹具覆盖三种金额标注 + 一个"没给 token 数字"的渠道
   channelsGet: (opts) => {

@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { registerPlanIpcHandlers } from './main/plan-ipc'
+import { registerLlmChannelIpcHandlers } from './main/channel-ipc'
 import { registerPlanRunIpcHandlers } from './main/plan-run-ipc'
 import { registerWasteIpcHandlers } from './main/waste-ipc'
 import { registeredChannels } from './main/guarded-ipc'
@@ -130,6 +131,8 @@ function createWindow(): void {
   registerPlanIpcHandlers()
   // 作战计划 · 跑判据 / 推进（0.6.0 P4）：执行器只在这个文件里，打开卡不会跑命令
   registerPlanRunIpcHandlers()
+  // BYOK 多通道（0.6.0 第 2 批）：主通道 + 备用通道的增删查（密钥只回掩码）
+  registerLlmChannelIpcHandlers()
   // 投入产出账（0.6.0 P5）：只读
   registerWasteIpcHandlers()
 

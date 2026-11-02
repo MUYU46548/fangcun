@@ -1424,6 +1424,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ask-acc { margin-top: 18px; }
 /* ── 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）──
    独立类名前缀 chan-*：旧断言按 .ask-report 数块，复用会凭空变红。 */
+/* ── 备用通道 / 降级链（0.6.0 第 2 批 · 2026-11-02）──
+   lb-* 独立类名：设置页别的地方按 .llm-* 数块，复用会凭空变红。 */
+.lb-block { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--tint-3); }
+.lb-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.lb-hint { font-size: 11px; color: var(--muted); }
+.lb-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; font-size: 11.5px; border-top: 1px dashed var(--border); }
+.lb-name { flex: 0 0 18%; font-weight: 600; }
+.lb-tag { margin-left: 4px; font-style: normal; font-size: 10px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 0 6px; }
+.lb-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.lb-model { flex: 0 0 18%; color: var(--ink); }
+.lb-key { flex: 0 0 14%; font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--muted); }
+.lb-del { height: 24px; padding: 0 8px; font-size: 11px; }
+.lb-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.lb-in { flex: 1 1 150px; min-width: 120px; height: 28px; padding: 0 8px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; }
+.lb-add { height: 28px; padding: 0 12px; font-size: 11.5px; }
+.lb-msg { margin-top: 6px; font-size: 11.5px; color: var(--ok-text); }
+.lb-msg.bad { color: var(--danger-text); }
 .chan-report { margin-top: 12px; padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
 .chan-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .chan-src { font-size: 11px; color: var(--muted); }

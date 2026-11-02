@@ -209,8 +209,9 @@ async function main() {
     const read = (p) => fs.readFileSync(path.join(REPO, p), 'utf-8')
     const SRC = read('desktop/src/main/llm/planDraft.ts')
     check('★ 草案只落 _drafts（不覆盖正式计划卡）', /plans', '_drafts'/.test(SRC) && /_drafts/.test(SRC))
-    check('★ 走既有 BYOK 通道（chatDetailed + noTrace，自己写带 total_tokens 的留痕）',
-      /chatDetailed\(/.test(SRC) && /noTrace: true/.test(SRC) && /total_tokens/.test(SRC))
+    // 2026-11-02：改成走降级链 —— 主通道挂了自动换备用（chatWithFallback 内部仍调 chatDetailed）
+    check('★ 走既有 BYOK 降级链（chatWithFallback + noTrace，自己写带 total_tokens 的留痕）',
+      /chatWithFallback\(/.test(SRC) && /noTrace: true/.test(SRC) && /total_tokens/.test(SRC))
     check('★ 生成器没有"通过/冻结"能力（源码里没有 advanceStage / writePlanVerdict）',
       !/advanceStage|writePlanVerdict/.test(SRC))
     check('★ 状态只写「待裁决」（源码里不写 `状态: 已冻结`）', !/状态:\s*已冻结/.test(SRC))

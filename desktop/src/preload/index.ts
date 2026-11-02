@@ -100,6 +100,11 @@ contextBridge.exposeInMainWorld('tegula', {
   wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
   /** 跨渠道 token 对比（0.6.0 第 2 批）：只读，只比 token */
   channelsGet: (opts?: { days?: number; channels?: string[] }) => ipcRenderer.invoke('channels:get', opts),
+  /** BYOK 多通道配置（2026-11-02）：主通道 + 备用通道；密钥只回掩码，永远不回原值 */
+  llmChannelsList: () => ipcRenderer.invoke('llm-channels:list'),
+  llmChannelsUpsert: (input: { id?: string; label?: string; baseUrl?: string; apiKey?: string; model?: string; enabled?: boolean }) =>
+    ipcRenderer.invoke('llm-channels:upsert', input),
+  llmChannelsRemove: (id: string) => ipcRenderer.invoke('llm-channels:remove', id),
   /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */
   backupBigAttachments: (minMb?: number) => ipcRenderer.invoke('backup:bigAttachments', minMb),
   backupDeleteAttachment: (rel: string) => ipcRenderer.invoke('backup:deleteAttachment', rel),

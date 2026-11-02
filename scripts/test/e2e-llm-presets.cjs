@@ -29,19 +29,24 @@ function check(name, cond, detail = '') {
 }
 
 function main() {
-  // 本机 core.autocrlf=true → 统一成 LF 再扫，避免字符窗口断言被 \r 撑破
-  const app = fs.readFileSync(APP, 'utf-8').replace(/\r\n/g, '\n')
-  const cfg = fs.readFileSync(CFG, 'utf-8').replace(/\r\n/g, '\n')
+  // 本机 core.autocrlf=true → 统一成 LF 再扫，避免字符窗口断言被回车符撑破
+  const app = fs.readFileSync(APP, 'utf-8').split('\r\n').join('\n')
+  const cfg = fs.readFileSync(CFG, 'utf-8').split('\r\n').join('\n')
+  // 2026-11-02：预设数据 2026-10-27 已从三处各写一遍 llmCfg.value.xxx 收成 LLM_PRESETS 常量表（App.vue），
+  // 按钮搬进拆分后的 AgentSettings.vue。旧断言查的是已不存在的写法，从那次重构起就一直红着。
+  const SET = fs.readFileSync(path.join(path.dirname(APP), 'components/settings/AgentSettings.vue'), 'utf-8').split('\r\n').join('\n')
+  const both = app + '\n' + SET
 
   // ── ① 两个端点 ────────────────────────────────────────────────────
-  check('★ 有「按量付费」端点 api.xiaomimimo.com/v1', /llmCfg\.value\.baseUrl = 'https:\/\/api\.xiaomimimo\.com\/v1'/.test(app))
-  check('★ 有「Token Plan」端点 token-plan-cn.xiaomimimo.com/v1', /llmCfg\.value\.baseUrl = 'https:\/\/token-plan-cn\.xiaomimimo\.com\/v1'/.test(app))
+  check('★ 有「按量付费」端点 api.xiaomimimo.com/v1', /baseUrl: 'https:\/\/api\.xiaomimimo\.com\/v1'/.test(app))
+  check('★ 有「Token Plan」端点 token-plan-cn.xiaomimimo.com/v1', /baseUrl: 'https:\/\/token-plan-cn\.xiaomimimo\.com\/v1'/.test(app))
   check('★ 两个预设是两个不同按钮（不是又合并成一个"MiMo 建议"）',
-    /applyLlmPreset\('mimo-api'\)/.test(app) && /applyLlmPreset\('mimo-plan'\)/.test(app))
-  check('★ 预设函数收三种 kind', /function applyLlmPreset\(kind: 'deepseek' \| 'mimo-api' \| 'mimo-plan'\)/.test(app))
+    /applyLlmPreset\('mimo-api'\)/.test(both) && /applyLlmPreset\('mimo-plan'\)/.test(both))
+  check('★ 预设收三种 kind（预设表的类型只允许这三个）',
+    /type LlmPresetKind = 'deepseek' \| 'mimo-api' \| 'mimo-plan'/.test(app))
 
   // ── ② 模型名大小写（接口 id 是小写连字符）─────────────────────────
-  check('★ 预设里写的是 mimo-v2.6-flash（小写）', /llmCfg\.value\.model = 'mimo-v2\.6-flash'/.test(app))
+  check('★ 预设里写的是 mimo-v2.6-flash（小写）', /model: 'mimo-v2\.6-flash'/.test(app))
   // 只剥注释再查"旧写法残留"：这段字符串本身在注释里讲历史（说明为什么改），
   // 注释里出现旧名是合法的，代码/模板里出现才是 bug。
   const appCode = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')

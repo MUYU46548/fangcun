@@ -16,7 +16,7 @@
  *  · 无 AI（未配置 / 调用失败）**仍然出图**，但 `source` 必须是 `scan`，文案写明"这是扫描图，不是生成图"。
  */
 import { getConfig, isMaskedKey } from '../llm/config'
-import { chatDetailed } from '../llm/chat'
+import { chatWithFallback } from '../llm/fallback'
 import { appendTrace } from '../llm/trace'
 import { buildArchGraph, type ArchGraph, type ArchScanFacts } from '../../shared/archGraph'
 import {
@@ -167,10 +167,12 @@ export async function generateArchGraph(
 
   const maxAttempts = Math.max(1, Number(opts.maxAttempts) || DEFAULT_MAX_ATTEMPTS)
   const nowIso = String(opts.now || new Date().toISOString())
+  // 2026-11-02 BYOK 多通道：主通道挂了自动换备用；降级话术写进 note，失败逐次留痕。
   const call = opts.callLlm || (async (prompt: string, system: string) => {
-    const r = await chatDetailed(prompt, {
+    const r = await chatWithFallback(prompt, {
       system, trigger: ARCH_TRIGGER, noTrace: true, maxTokens: 2048, temperature: 0,
     })
+    if (!r.ok) throw new Error(r.error || r.note || '模型调用失败（所有通道都试过了）')
     return {
       text: r.text,
       usage: {
@@ -178,7 +180,7 @@ export async function generateArchGraph(
         completionTokens: r.usage?.completionTokens,
         totalTokens: r.usage?.totalTokens,
       },
-      model: String(getConfig().model || ''),
+      model: String(r.model || getConfig().model || ''),
     }
   })
 
