@@ -44,6 +44,8 @@ import { buildCleanupReport } from './services/cleanup'
 import { checkMismatch } from './services/mismatch'
 import { findArtifactForProject } from './services/projectDiagram'
 import { archForProject, scanProject } from './services/projectArch'
+// AI 生成图（2026-11-02）：模型画 → 证据审计 → 不过重画 → 仍不过降级扫描图
+import { generateArchGraph } from './services/archAi'
 import { buildArchGraph } from '../shared/archGraph'
 import { renderArchHtml } from '../shared/archSvg'
 import * as rice from './data/rice'
@@ -1469,6 +1471,30 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     }
   })
 
+
+  // ── 方寸自绘架构图 · AI 生成（2026-11-02 重做，卡 task-20261030-002）──────────
+  // 与 arch:get 的分工：`arch:get` 是"打开就看"的只读口，**绝不调模型**；
+  // 这里才是"点一下才花钱"的口 —— 模型画图 → 逐条证据审计 → 不过按意见重画 → 仍不过降级扫描图。
+  guardedHandle('arch:generate', async (_event, projectId: string) => {
+    try {
+      const v = archForProject(String(projectId || ''))
+      if (!v.ok || !v.facts) return { ok: false, error: v.error || '扫不出可用的扫描事实' }
+      const r = await generateArchGraph(v.facts)
+      return {
+        ok: true,
+        source: r.source,
+        graph: r.graph,
+        reason: r.reason,
+        attempts: r.attempts,
+        issues: r.audit ? r.audit.issues : [],
+        notes: r.audit ? r.audit.notes : [],
+        usage: r.usage,
+        model: r.model,
+      }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
 
   guardedHandle('mismatch:check', async (_event, days?: number) => {
     // 空值单独判：Number('') 和 Number(null) 都是 0，而 0 在这里是"不算过期"——直接 Number 会把它静默变成 0

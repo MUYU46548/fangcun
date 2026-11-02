@@ -7159,6 +7159,33 @@
         (($('.archd-side') || {}).textContent || '').indexOf('src/main/index.ts') >= 0,
         (($('.archd-side') || {}).textContent || '').slice(0, 100))
 
+      // ── AI 生成图（0.6.0 · 2026-11-02）：点一下才调模型，回来必须自报来源 ──
+      // 判据：① 按钮在；② 点了真走 arch:generate；③ 生成图和扫描图在界面上必须说得出区别。
+      const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('AI 生成图') >= 0)
+      check('★ 面板里有「AI 生成图」按钮（打开面板不花钱，点它才调模型）', !!genBtn,
+        $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
+      window.__fcTest.reset()
+      if (genBtn) { genBtn.click() }
+      check('★★ 点了真走 arch:generate IPC', await waitFor(() => window.__fcTest.callCount('archGenerate') > 0, 5000, 'archGenerate'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'archGenerate').map((c) => c.args)))
+      check('★★ 生成图自报「AI 生成图」（不冒充扫描结果）',
+        await waitFor(() => /AI 生成图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
+        (($('.archd-text') || {}).textContent || '').slice(0, 90))
+      // 降级分支：没配模型 / 审计没过 → 必须写"扫描图，不是生成图"
+      window.__fcTest.setArchScanOnly(true)
+      if (genBtn) { genBtn.click() }
+      check('★★ 降级时自报「扫描图，不是生成图」（不许拿扫描图冒充生成图）',
+        await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'scan text'),
+        (($('.archd-text') || {}).textContent || '').slice(0, 90))
+      window.__fcTest.setArchScanOnly(false)
+      // AI 生成换了图 → ArchDiagram 会清空选中态（watch props.graph），后面「剔除这一块」要用它，这里补点一次
+      await sleep(250)
+      const mainAgain = $$('#arch-modal [data-node]').find((g) => g.getAttribute('data-node') === 'src/main')
+      if (mainAgain) {
+        (mainAgain.querySelector('rect') || mainAgain).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      }
+      await sleep(300)
+
       // ── 逐块审批（2026-10-30 第 3 条）：不认可这一笔就剔掉，能放回 ──
       const beforeNodes = $$('#arch-modal [data-node]').length
       const excludeBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('剔除这一块') >= 0)

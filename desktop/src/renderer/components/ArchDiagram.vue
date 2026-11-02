@@ -41,6 +41,8 @@ const emit = defineEmits<{
   (e: 'restore', id: string): void
   (e: 'approve'): void
   (e: 'reject', reason: string): void
+  /** AI 生成图（2026-11-02）：点一下才调模型；审计不过会自动降级成扫描图 */
+  (e: 'generate'): void
 }>()
 
 const active = ref('')
@@ -84,6 +86,11 @@ function submitReject(): void {
       <span v-if="version && version > 1" class="archd-ver" :title="'被驳回后重画到第 ' + version + ' 版'">第 {{ version }} 版</span>
       <span v-if="approved" class="archd-ok">✅ 已通过</span>
       <span class="archd-grow"></span>
+      <button class="ghost archd-gen font-[inherit]" :disabled="busy"
+        title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型）"
+        @click="emit('generate')">
+        {{ busy ? '生成中…' : '✦ AI 生成图' }}
+      </button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点「通过这张图」' : '导出成一份独立 HTML（保存位置由你选）')"
         @click="emit('export')">
@@ -209,6 +216,7 @@ function submitReject(): void {
 .archd-side-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
 .archd-side-item { font-size: 11px; color: var(--ink); line-height: 1.55; word-break: break-all; }
 .archd-side-none { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.archd-gen { font-weight: 600; }
 .archd-exclude { margin-top: 8px; width: 100%; font-size: 11.5px; height: 26px; color: #8a4d47; border-color: #e2c4c4; }
 .archd-gate { display: flex; gap: 6px; margin-top: 6px; font-size: 11px; line-height: 1.5; }
 .archd-gate .ag-i { flex: none; width: 12px; font-weight: 700; color: #3f6b3a; }

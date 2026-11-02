@@ -345,6 +345,8 @@ export function archForProject(projectId: string, opts: { strict?: boolean; excl
   repairs?: string[]
   repo?: string
   project?: { id: string; name: string; repo: string }
+  /** 扫描事实（2026-11-02）：AI 生成图的输入 —— 内部本来就算好了，顺手带出来，不重复扫 */
+  facts?: ArchScanFacts
 } {
   const want = String(projectId || '').trim()
   if (!want) return { ok: false, error: '没给项目 id' }
@@ -385,7 +387,8 @@ export function archForProject(projectId: string, opts: { strict?: boolean; excl
       repairs,
       repo,
       project: { id: String(p.id ?? want), name, repo },
+      facts,
     }
   }
-  return { ok: true, graph, review, repairs, repo, project: { id: String(p.id ?? want), name, repo } }
+  return { ok: true, graph, review, repairs, repo, project: { id: String(p.id ?? want), name, repo }, facts }
 }

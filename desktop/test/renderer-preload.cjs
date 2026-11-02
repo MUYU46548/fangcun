@@ -25,6 +25,9 @@ const store = {
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
   // 否则「阶段文字」「秒数在动」「结束态停留 3 秒」这三件事在测试里根本无从验起。
   syncSubs: [],
+  // AI 生成图（2026-11-02）：默认走"过审"分支；setArchScanOnly(true) 换降级分支
+  archScanOnly: false,
+  archGraph: null,
   // 账户口径（2026-10-25 卡 005）：默认"有官方余额接口"，可用 __fcTest.setBalanceUnsupported(true)
   // 切到"这个端点没有余额接口"的真实常见态 —— 那条降级路径必须被验过。
   balanceUnsupported: false,
@@ -1727,7 +1730,7 @@ contextBridge.exposeInMainWorld('tegula', {
     cloneGuard('archGet', [projectId, opts])
     rec('archGet', [projectId, opts])
     if (!projectId) return { ok: false, error: '没给项目 id' }
-    return {
+    const RESULT = {
       ok: true,
       repo: 'C:/mock/demo',
       project: { id: projectId, name: '演示项目', repo: 'C:/mock/demo' },
@@ -1753,6 +1756,26 @@ contextBridge.exposeInMainWorld('tegula', {
         missing: [{ what: '端口清单', why: '源码里没有读到 listen(...) —— 端口不是猜出来的，没读到就不列' }],
         evidence: ['package.json：demo 1.0.0 · main=src/main/index.ts', '只读扫描：11 个文件'],
       },
+    }
+    store.archGraph = RESULT.graph
+    return RESULT
+  },
+  // AI 生成图（2026-11-02）：点一下才调模型。默认走"过审"；store.archScanOnly=true 换成降级分支。
+  archGenerate: (projectId) => {
+    cloneGuard('archGenerate', [projectId])
+    rec('archGenerate', [projectId])
+    if (!projectId) return { ok: false, error: '没给项目 id' }
+    const g = store.archGraph || { title: '演示项目 · 架构图', subtitle: '', text: '', nodes: [], edges: [], missing: [], evidence: [], scannedFiles: 0, truncated: false }
+    if (store.archScanOnly) {
+      return {
+        ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
+        reason: '没配模型（缺 端点地址 / 密钥）—— 先出扫描图，配好模型再重画',
+        graph: { ...g, subtitle: '没配模型（缺 端点地址 / 密钥）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
+      }
+    }
+    return {
+      ok: true, source: 'ai', attempts: 1, issues: [], notes: [], usage: { totalTokens: 456 }, model: 'mock-model',
+      graph: { ...g, subtitle: 'AI 生成 · 逐条证据审计', text: '这是 **AI 生成图**（每个节点/连线都过了证据审计） · ' + g.text },
     }
   },
   archExport: (projectId, opts) => {
@@ -1938,6 +1961,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   restoreNeverRead: () => { store.neverRead = null; return true },
   /** 账户口径降级夹具：切到"这个端点没有余额接口"（多数中转/MiMo 的真实情况） */
   setBalanceUnsupported: (v) => { store.balanceUnsupported = !!v },
+  /** AI 架构图降级夹具（2026-11-02）：true = 没配模型 → 后端返回 source=scan */
+  setArchScanOnly: (v) => { store.archScanOnly = !!v },
   /** 还挂着几个阶段订阅 —— 收尾不干净时会越挂越多（每次同步 +1） */
   syncSubs: () => store.syncSubs.length,
   /** 项目列表（2026-10-25 优先级视图断言要用它算期望行数，不写死条数） */

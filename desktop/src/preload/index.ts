@@ -209,6 +209,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 方寸自绘架构图（2026-10-30）：只读扫源码 → 图模型；导出由用户选保存位置 */
   archGet: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:get', projectId, opts),
   archExport: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:export', projectId, opts),
+  /** AI 生成图（0.6.0）：点一下才会调模型；返回 source=ai|scan，界面按它写"生成图 / 扫描图" */
+  archGenerate: (projectId: string) => ipcRenderer.invoke('arch:generate', projectId),
   /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
   cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),

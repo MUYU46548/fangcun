@@ -1724,7 +1724,7 @@
         :excluded="archExcluded.map(x => x.id)" :excluded-info="archExcluded"
         @close="archOpen = false" @export="exportSelfArch"
         @exclude="excludeArchNode" @restore="restoreArchNode"
-        @approve="approveArch" @reject="rejectArch" />
+        @approve="approveArch" @reject="rejectArch" @generate="generateSelfArch" />
     </div>
 
     <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
@@ -6987,6 +6987,8 @@ const archBaseGraph = ref<ArchGraph | null>(null)
 const archReview = ref<ArchReview | null>(null)
 const archRepairs = ref<string[]>([])
 const archProjectId = ref('')
+/** 这张图是哪来的：ai = 模型画且过审；scan = 降级扫描图（2026-11-02） */
+const archSource = ref<'' | 'ai' | 'scan'>('')
 const archVersion = ref(1)
 const archApproved = ref(false)
 const archStrict = ref(false)
@@ -7001,6 +7003,31 @@ function applyArchFilter(): void {
   archGraph.value = g
   archReview.value = evaluateArchGraph(g)
   archApproved.value = false
+}
+
+/** AI 生成图（2026-11-02）。三条口径与主进程一致：
+ *  · 点一下才调模型（打开面板不花钱）；
+ *  · 回来必须自报来源：ai = 模型画且过审 / scan = 降级扫描图；
+ *  · 降级不是错误，是"这次没画成"，要说清为什么（没配模型 / 审计没过）。 */
+async function generateSelfArch(): Promise<void> {
+  const id = archProjectId.value
+  if (!id || archBusy.value) return
+  archBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.archGenerate(id)
+    if (!r?.ok) { showToast(String(r?.error || '生成失败'), 'error'); return }
+    archBaseGraph.value = r.graph
+    archGraph.value = r.graph
+    archSource.value = r.source === 'ai' ? 'ai' : 'scan'
+    archReview.value = evaluateArchGraph(r.graph)
+    applyArchFilter()
+    if (r.source === 'ai') showToast(`AI 生成图：${r.attempts || 1} 次过审 —— 每个节点与连线都指回证据`, 'success')
+    else showToast(`已降级为扫描图：${r.reason || '没配模型'}`, 'info')
+  } catch (e: any) {
+    showToast('生成异常：' + (e?.message || e), 'error')
+  } finally {
+    archBusy.value = false
+  }
 }
 
 async function openSelfArch(p: any, opts: { keepExcluded?: boolean } = {}): Promise<void> {
@@ -8738,8 +8765,10 @@ onMounted(() => {
 let offNotifyFocus: null | (() => void) = null
 
 onUnmounted(() => {
-  if (offNotifyFocus) { try { offNotifyFocus() } catch { /* ignore */ } ; offNotifyFocus = null }  if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
-  if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }  document.removeEventListener('keydown', onShortcutKeydown)
+  if (offNotifyFocus) { try { offNotifyFocus() } catch { /* ignore */ } ; offNotifyFocus = null }
+  if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
+  if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }
+  document.removeEventListener('keydown', onShortcutKeydown)
   window.removeEventListener('fc-app-error', onAppError as EventListener)
   window.removeEventListener('dragend', dragResetAll)
   window.removeEventListener('drop', dragResetAll)
