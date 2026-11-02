@@ -153,7 +153,7 @@ function main() {
   // P0-5（2026-10-01）：静音表必须**可读可恢复** —— 此前 listMuted/unmuteAll 在
   // ipc/preload/App 三处零命中，点过 🗑 的提醒 7 天内彻底消失且用户不知情。
   const mutedNow = notif.listMuted()
-  check('★ listMuted 把期内被静音的 key 列出来（面板「被忽略 N 条」的数据源）',
+  check('★ listMuted 把期内被静音的 key 列出来（面板“被忽略 N 条”的数据源）',
     mutedNow.includes('mute-ttl|mtl-1|k'), JSON.stringify(mutedNow))
   const unmutedCount = notif.unmuteAll()
   check('★★ unmuteAll 返回条数并清空（IPC 通道 notifications:unmuteAll 直接用它）',
@@ -280,7 +280,7 @@ function main() {
   notifier.stopScanner()
   check('stopScanner 后停止', notifier.getScannerStatus().running === false)
 
-  // B8. 更新包下载完成必须「看得见」（012，2026-09-25）
+  // B8. 更新包下载完成必须“看得见”（012，2026-09-25）
   // 方寸关窗=缩进托盘：只改设置页状态时用户什么都看不到 → 必须落通知中心 + 弹系统通知
   const stub = require(STUB)
   const origSupported = stub.Notification.isSupported
@@ -305,7 +305,7 @@ function main() {
   // ══ B8b. 免打扰 + 点通知回到对象（2026-10-29 · dsh-notify-tray 借鉴 #1/#2）══════
   // 病根两条：
   //   ① 窗口正看着方寸时照样弹系统气泡 —— 面板里已经有红点，再弹一个只是打断；
-  //   ② 点通知只能把整窗拉到前台 —— 通知说「任务逾期：X」，用户点了还得自己去找那张卡。
+  //   ② 点通知只能把整窗拉到前台 —— 通知说“任务逾期：X”，用户点了还得自己去找那张卡。
   {
     const stub2 = require(STUB)
     const origSup2 = stub2.Notification.isSupported
@@ -393,13 +393,13 @@ function main() {
   notif.clearAll()
 
   // ══ B10. 进行中却没动静（2026-10-01 用户定稿 C 类）══════════════════════
-  // 「状态=进行中」= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活（用户原话）。
+  // “状态=进行中”= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活（用户原话）。
   const stTask = tasks.createTask({ title: '点进行中后没人回写' })
   tasks.moveStatus(stTask.id, '进行中')
   notifier.scanOnce()
   check('★ 刚点进行中、还没超时 → 不报（时钟从点按钮那一刻才开始走）',
     !notif.listNotifications().some(n => n.type === 'task-stalled' && n.sourceId === stTask.id))
-  // 把 更新 拨回 3 天前 = 「点了进行中之后 72 小时没有任何写入」
+  // 把 更新 拨回 3 天前 = “点了进行中之后 72 小时没有任何写入”
   const stPath = path.join(TEST_ROOT, 'task-data', `${stTask.id}.md`)
   let stTxt = fs.readFileSync(stPath, 'utf-8')
   const staleIso = new Date(Date.now() - 72 * 3600_000).toISOString()
@@ -415,9 +415,9 @@ function main() {
     stalledNotifs.length === 1 && stalledNotifs[0].key === 'stalled', stalledNotifs[0] && String(stalledNotifs[0].key))
   check('★ 文案写明卡了多久（72 小时）',
     stalledNotifs.length === 1 && /72 小时/.test(String(stalledNotifs[0].body)), stalledNotifs[0] && stalledNotifs[0].body)
-  // 只认「进行中」：其它状态天然不回写，扫了就是噪音（用户 2026-10-01 否决按更新比时间的原因）
+  // 只认“进行中”：其它状态天然不回写，扫了就是噪音（用户 2026-10-01 否决按更新比时间的原因）
   const zeroHits = tasks.findStalledTasks(0)
-  check('★★ findStalledTasks 返回的全是「进行中」（待办/待验收/完成一律不扫）',
+  check('★★ findStalledTasks 返回的全是“进行中”（待办/待验收/完成一律不扫）',
     zeroHits.length >= 1 && zeroHits.every(t => tasks.readTask(t.id) && tasks.readTask(t.id).fm.status === '进行中'),
     JSON.stringify(zeroHits.map(t => t.id)))
   // 回写一次 → 时钟重置 → 消解（这才是"真回写检查"，不是派活后一路倒计时）
@@ -464,8 +464,8 @@ function main() {
 
   // C2. 2026-10-01 用户定稿：只加这两类 + 形态（不弹系统通知）+ 渲染层有标签
   const notifierSrc = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
-  check('扫描器接了「阻塞链断裂」检测', notifierSrc.includes('detectBrokenBlockers'))
-  check('扫描器接了「进行中没动静」检测', notifierSrc.includes('findStalledTasks'))
+  check('扫描器接了“阻塞链断裂”检测', notifierSrc.includes('detectBrokenBlockers'))
+  check('扫描器接了“进行中没动静”检测', notifierSrc.includes('findStalledTasks'))
   check('★ 新增两类都 osNotify:false（角标红点+面板，不弹系统通知 —— 用户拍板的形态）',
     /'blocker-broken'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc) &&
     /'task-stalled'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc))
@@ -485,7 +485,7 @@ function main() {
   check('★ 渲染层给两类都配了标签（否则面板显示裸 type 名）',
     appSrc.includes("'blocker-broken'") && appSrc.includes("'task-stalled'"))
   const tasksSrc = fs.readFileSync(path.join(SRC, 'main', 'data', 'tasks.ts'), 'utf-8')
-  check('★ C 类判据是「文件多久没写」而不是「派活后多久」（真回写检查）',
+  check('★ C 类判据是“文件多久没写”而不是“派活后多久”（真回写检查）',
     /findStalledTasks[\s\S]{0,400}?taskLastTouchedMs/.test(tasksSrc))
   check('★ B 类把归档区算进"健在"（归档 = 链被解开，不是断裂）',
     /detectBrokenBlockers[\s\S]{0,300}?loadAllTasksRaw\('all'\)/.test(tasksSrc))

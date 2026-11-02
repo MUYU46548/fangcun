@@ -5,10 +5,10 @@
   （技能清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料），
   **零弹窗、零跨视图状态**。和 services 那块的处置一样：整块搬，不切两半。
 
-  ⚠ 四个注入项，都不是数据而是「本页没有的能力」：
+  ⚠ 四个注入项，都不是数据而是“本页没有的能力”：
     toast        —— 提示条是全站状态，不归这一页；
     copy         —— 复制要走主进程剪贴板 + 统一 toast（copyWithToast），19 处共用；
-    pulse        —— 拖拽心跳（全局拖拽遮罩靠它兜底，见 App.vue「心跳兜底」那段）；
+    pulse        —— 拖拽心跳（全局拖拽遮罩靠它兜底，见 App.vue“心跳兜底”那段）；
     dragAlive    —— 同上：拖拽是不是真的还在进行，遮罩必须跟它一起消失。
 
   最后两项必须由父组件给：心跳状态是 todo/log/skills 三个投放区**共用**的，
@@ -26,11 +26,11 @@
       <div class="skills-header">
         <h3>技能安装专区</h3>
         <span class="skills-hint">技能本质只是模块化提示词，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。</span>
-        <!-- 维护机制说清楚（2026-10-03 用户问「方寸自带 skill 后续如何保持更新和维护？」）：
+        <!-- 维护机制说清楚（2026-10-03 用户问“方寸自带 skill 后续如何保持更新和维护？”）：
              答案就在这一行 —— 随版本分发 + 启动自动同步 + 手动目标用指纹对账。 -->
         <span class="skills-hint skills-maint">
           技能随方寸版本分发：<b>升级方寸后启动会自动把新版同步到 Hermes / DSH</b>（哈希不一致就重装）；
-          WorkBuddy 这类只能手动导入的，用卡片上的「真源指纹」对照你拖进去的那份是不是同一版。
+          WorkBuddy 这类只能手动导入的，用卡片上的“真源指纹”对照你拖进去的那份是不是同一版。
         </span>
         <button class="skills-btn primary" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</button>
         <button class="skills-btn primary" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</button>
@@ -105,12 +105,12 @@
             装到别的 agent（不只有 Hermes）
             <span class="skills-agents-sub">本机实际检测到的才列出来；方寸只往 Hermes 直装 —— 别人的目录不猜、不写</span>
           </div>
-          <!-- 三态而不是两态（2026-10-23）：原来只有「有数据 / 检测中…」两种，于是**通道不存在**时
-               会永远停在「检测中…」—— 那不是检测中，是根本读不到（界面说假话）。
+          <!-- 三态而不是两态（2026-10-23）：原来只有“有数据 / 检测中…”两种，于是**通道不存在**时
+               会永远停在“检测中…”—— 那不是检测中，是根本读不到（界面说假话）。
                现在：读失败 → 明说；还在读 → 检测中；读到了但为空 → 本机没检测到。 -->
           <div v-if="agentsError" class="skills-error">{{ agentsError }}</div>
           <div v-else-if="agentsLoading && !agentTargets.length" class="skills-agent">检测中…</div>
-          <div v-else-if="!agentTargets.length" class="skills-agent">本机没检测到可装的 agent —— 不是「还在检测」</div>
+          <div v-else-if="!agentTargets.length" class="skills-agent">本机没检测到可装的 agent —— 不是“还在检测”</div>
           <div v-for="a in agentTargets" :key="a.id" class="agent-row" :class="{ 'agent-off': !a.detected }">
             <div class="agent-line1">
               <span class="agent-name">{{ a.name }}</span>
@@ -120,7 +120,7 @@
               <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
               <!-- Hermes 的安装入口在顶部（同一个动作不摆两遍）；其余可直装目标在本行给自己装 -->
               <span v-if="a.detected && a.mode === 'installable' && a.id === 'hermes'" class="agent-note">
-                装入口在顶部「⚡ 装到 Hermes」
+                装入口在顶部“⚡ 装到 Hermes”
               </span>
               <button v-if="a.detected && a.mode === 'installable' && a.id !== 'hermes'"
                       class="skills-btn primary" @click="installToTarget(a)">⚡ 装到 {{ a.name }}</button>
@@ -160,7 +160,7 @@
           </div>
           <div v-if="mcpInfoError" class="skills-error">{{ mcpInfoError }}</div>
           <div v-else-if="mcpLoading && !mcpTargets.length" class="skills-agent">检测中…</div>
-          <div v-else-if="!mcpTargets.length" class="skills-agent">本机没检测到可接入的目标 —— 不是「还在检测」</div>
+          <div v-else-if="!mcpTargets.length" class="skills-agent">本机没检测到可接入的目标 —— 不是“还在检测”</div>
           <div v-for="m in mcpTargets" :key="m.id" class="agent-row" :class="{ 'agent-off': !m.detected }">
             <div class="agent-line1">
               <span class="agent-name">{{ m.name }}</span>
@@ -195,10 +195,10 @@ const props = defineProps<{
 }>()
 
 // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────────────
-// 用户原话：「方寸技能毫无存在感」+「技能本质只是模块化提示词，不是硬性限制」。
+// 用户原话：“方寸技能毫无存在感”+“技能本质只是模块化提示词，不是硬性限制”。
 // 所以这里**不做插件市场**，就是一块看得见、能复制的安装说明面板：
 //   · 真源是随包分发的 skills/manifest.json（面板只读它，不自己编清单）；
-//   · 主按钮是「复制安装提示词」—— 贴给任何 agent，它自己知道技能目录在哪，
+//   · 主按钮是“复制安装提示词”—— 贴给任何 agent，它自己知道技能目录在哪，
 //     提示词里带**绝对路径**，从根上杜绝手抄出错；
 //   · 顺带给 Hermes 一键装（这正是主进程里早就有、但渲染层一直没入口的能力）。
 interface SkillUiRow {
@@ -292,7 +292,7 @@ function skillTargetTitle(t: SkillTargetRow, sk: SkillUiRow): string {
   const base = `${t.name} · ${t.dir}`
   switch (targetSkillState(t, sk)) {
     case 'absent': return `${base}\n本机没有 ${t.name} —— 不给它造目录，也不往里写`
-    case 'idle': return `${base}\n技能副本不在（用上面的「⚡ 装到 ${t.name}」）`
+    case 'idle': return `${base}\n技能副本不在（用上面的“⚡ 装到 ${t.name}”）`
     case 'warn': return `${base}\n磁盘上那份与真源不一致 —— 重装即更新（不是"已存在就永远跳过"）`
     default: return `${base}\n副本与真源逐字节一致`
   }
@@ -318,12 +318,12 @@ function skillStateClass(sk: SkillUiRow): string {
 }
 
 async function copySkillPrompt(sk: SkillUiRow): Promise<void> {
-  await props.copy(sk.prompt, `已复制「${sk.id}」安装提示词 —— 粘给 agent 就能自己装`)
+  await props.copy(sk.prompt, `已复制“${sk.id}”安装提示词 —— 粘给 agent 就能自己装`)
 }
 
 async function copySkillBody(sk: SkillUiRow): Promise<void> {
   if (!sk.body) { props.toast('这份 SKILL.md 读不出来（文件缺失或为空）', 'error'); return }
-  await props.copy(sk.body, `已复制「${sk.id}」SKILL.md 全文（${sk.body.length} 字）`)
+  await props.copy(sk.body, `已复制“${sk.id}”SKILL.md 全文（${sk.body.length} 字）`)
 }
 
 async function installSkillsToHermes(): Promise<void> {
@@ -345,13 +345,13 @@ async function importSkillPath(srcPath: string, overwrite = false): Promise<bool
   const r: any = await window.tegula.skillsImport(srcPath, { overwrite })
   if (!r) { props.toast('导入失败：主进程没有返回', 'error'); return false }
   if (r.ok) {
-    props.toast(`已导入「${r.name}」→ ${r.target}（${r.files} 个文件）`, 'success')
+    props.toast(`已导入“${r.name}”→ ${r.target}（${r.files} 个文件）`, 'success')
     await loadSkills()
     return true
   }
   if (r.code === 'exists') {
-    const yes = confirm(`「${r.name}」已经存在。\n\n覆盖 = 用这个包替换掉现在那份；同名旧目录会先备份再替换，失败会还原。\n\n要覆盖吗？`)
-    if (!yes) { props.toast(`已取消导入「${r.name}」`, 'info'); return false }
+    const yes = confirm(`“${r.name}”已经存在。\n\n覆盖 = 用这个包替换掉现在那份；同名旧目录会先备份再替换，失败会还原。\n\n要覆盖吗？`)
+    if (!yes) { props.toast(`已取消导入“${r.name}”`, 'info'); return false }
     return await importSkillPath(srcPath, true)
   }
   props.toast(`导入失败：${r.error || '未知原因'}`, 'error')
@@ -395,7 +395,7 @@ function onSkillsDragLeave(ev: DragEvent): void {
 async function onSkillsDrop(ev: DragEvent): Promise<void> {
   skillsDragging.value = false
   const paths = dropPaths(ev.dataTransfer)
-  if (!paths.length) { props.toast('没读到拖入的路径 —— 请改用「📥 导入技能…」按钮', 'error'); return }
+  if (!paths.length) { props.toast('没读到拖入的路径 —— 请改用“📥 导入技能…”按钮', 'error'); return }
   let ok = 0
   for (const p of paths) {
     if (await importSkillPath(p)) ok++
@@ -404,10 +404,10 @@ async function onSkillsDrop(ev: DragEvent): Promise<void> {
 }
 
 async function removeImportedSkill(im: { name: string; dir: string }): Promise<void> {
-  if (!confirm(`移除「${im.name}」？\n\n只删这一个目录（${im.dir}），方寸自发布技能不受影响。`)) return
+  if (!confirm(`移除“${im.name}”？\n\n只删这一个目录（${im.dir}），方寸自发布技能不受影响。`)) return
   const r: any = await window.tegula.skillsRemove(im.name)
   if (r && r.ok) {
-    props.toast(`已移除「${im.name}」`, 'success')
+    props.toast(`已移除“${im.name}”`, 'success')
     await loadSkills()
   } else {
     props.toast(`移除失败：${(r && r.error) || '未知原因'}`, 'error')
@@ -415,11 +415,11 @@ async function removeImportedSkill(im: { name: string; dir: string }): Promise<v
 }
 
 /**
- * 「装到别的 agent」目标（2026-09-26 用户回执：「技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes」）
+ * “装到别的 agent”目标（2026-09-26 用户回执：“技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes”）
  *
  * 事实（本机查过）：本机只有 ~/.hermes/skills 与 ~/.config/opencode，没有 .claude/.codex/.cursor；
  * WorkBuddy 是打包过的 Electron 应用，技能目录不在 %APPDATA%\WorkBuddy（空的）——**我们不能猜、不能瞎写**。
- * 所以：能直装的只有 Hermes；其余的给「显示 SKILL.md + 打开对方」，用户拖一下即可。
+ * 所以：能直装的只有 Hermes；其余的给“显示 SKILL.md + 打开对方”，用户拖一下即可。
  */
 interface AgentTargetUi {
   id: string; name: string; mode: 'installable' | 'manual'
@@ -430,12 +430,12 @@ interface AgentTargetUi {
   linkText?: string; linkClass?: string
 }
 const agentTargets = ref<AgentTargetUi[]>([])
-/** 还在读（模板靠它区分「检测中」与「真没有」——两个态文案完全不同） */
+/** 还在读（模板靠它区分“检测中”与“真没有”——两个态文案完全不同） */
 const agentsLoading = ref(true)
 /** 读失败/没通道时的一句人话；空 = 正常 */
 const agentsError = ref('')
 
-/** 「已接入」徽章：两个事实都说 true→已接入；都说 false→未接入；一半→部分；有不可知→不可知 */
+/** “已接入”徽章：两个事实都说 true→已接入；都说 false→未接入；一半→部分；有不可知→不可知 */
 function agentLinkBadge(a: AgentTargetUi): { text: string; cls: string } {
   const known = [a.skillLinked, a.mcpLinked].filter(v => v !== undefined) as boolean[]
   const yes = known.filter(Boolean).length
@@ -452,7 +452,7 @@ async function loadAgents(): Promise<void> {
     const t: any = window.tegula
     if (typeof t.agentsList !== 'function') {
       agentTargets.value = []
-      agentsError.value = '当前主进程没有「检测 agent」这个通道（旧版本）—— 这一块读不到'
+      agentsError.value = '当前主进程没有“检测 agent”这个通道（旧版本）—— 这一块读不到'
       return
     }
     const r: any = await t.agentsList()
@@ -469,7 +469,7 @@ async function loadAgents(): Promise<void> {
   }
 }
 
-/** 「⚡ 装到 X」：只对可直装且检测到的目标开（其余走「显示 SKILL.md + 打开对方」） */
+/** “⚡ 装到 X”：只对可直装且检测到的目标开（其余走“显示 SKILL.md + 打开对方”） */
 async function installToTarget(a: AgentTargetUi): Promise<void> {
   const t: any = window.tegula
   if (typeof t.skillsInstallTo !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
@@ -506,7 +506,7 @@ const mcpEntries = ref<McpEntryUi[]>([])
 const mcpTargets = ref<McpTargetUi[]>([])
 const mcpEntry = ref<string>('A')
 const mcpInfoError = ref('')
-/** 同 agentsLoading：区分「还在读」与「读到了但为空」 */
+/** 同 agentsLoading：区分“还在读”与“读到了但为空” */
 const mcpLoading = ref(true)
 
 const mcpEntryDetail = computed(() => {
@@ -520,11 +520,11 @@ async function loadMcpInfo(): Promise<void> {
   try {
     const t: any = window.tegula
     if (typeof t.mcpInfo !== 'function') {
-      // ⚠ 这里原来是 `mcpInfoError.value = ''` —— 于是通道不存在时界面永远停在「检测中…」。
+      // ⚠ 这里原来是 `mcpInfoError.value = ''` —— 于是通道不存在时界面永远停在“检测中…”。
       //   那不是检测中，是根本读不到。必须说出来。
       mcpEntries.value = []
       mcpTargets.value = []
-      mcpInfoError.value = '当前主进程没有「MCP 接入信息」这个通道（旧版本）—— 这一块读不到'
+      mcpInfoError.value = '当前主进程没有“MCP 接入信息”这个通道（旧版本）—— 这一块读不到'
       return
     }
     const r: any = await t.mcpInfo()
@@ -598,7 +598,7 @@ async function openSkillsDir(which: string): Promise<void> {
 const skillsDropMaskVisible = computed(() => skillsDragging.value && props.dragAlive)
 
 // 进页面就加载三份：技能清单 / 别的 agent 的检测结果 / MCP 接入材料。
-// ⚠ 三份都是这一页的全部内容，缺哪个界面上就有一块是空的（"装到别的 agent" 会永远停在「检测中…」）。
+// ⚠ 三份都是这一页的全部内容，缺哪个界面上就有一块是空的（"装到别的 agent" 会永远停在“检测中…”）。
 onMounted(() => {
   void loadSkills()
   void loadAgents()

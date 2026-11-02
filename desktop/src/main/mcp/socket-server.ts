@@ -6,7 +6,7 @@ import { pipeNameFor } from './pipe'
 
 /**
  * 管道名单一出处（2026-10-18）：桥（bridge-standalone）与服务器都从 pipe.ts 取。
- * 此前两边各写一份字符串，任何一个改动都会让「方寸在跑但连不上」——这种 bug 只会被
+ * 此前两边各写一份字符串，任何一个改动都会让“方寸在跑但连不上”——这种 bug 只会被
  * 用户看见，不会在测试里红。
  */
 export function getPipeName(): string {

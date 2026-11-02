@@ -3,8 +3,8 @@
  * 项目结构图断言（2026-10-29 修正版）
  *
  * 背景（必须留在文件头，防止有人又把它改回"画一张分层图"）：
- *   第一版是错的 —— 拿「项目 → 在途 → 已完成 → 执行日志」画了张分层图，还叫它"项目结构图"。
- *   暮雨原话：「你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。」
+ *   第一版是错的 —— 拿“项目 → 在途 → 已完成 → 执行日志”画了张分层图，还叫它"项目结构图"。
+ *   暮雨原话：“你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。”
  *   archify 的产物是**一份可交互的架构图 HTML**；方寸自绘架构图是目标（卡 task-20261030-002），
  *   但这一版**还没有**那个能力，所以只负责打开仓库里已有的产物。
  *
@@ -40,10 +40,10 @@ if (!fs.existsSync(ART)) {
 const P = require(ART)
 
 console.log('== ① 认得出 archify 产物 ==')
-check('「架构图-方寸-20261029.html」认', P.isArchifyArtifactName('架构图-方寸-20261029.html'))
-check('「architecture.html」认', P.isArchifyArtifactName('architecture.html'))
-check('「tegula-architecture.html」认', P.isArchifyArtifactName('tegula-architecture.html'))
-check('「archify-fangcun.html」认', P.isArchifyArtifactName('archify-fangcun.html'))
+check('“架构图-方寸-20261029.html”认', P.isArchifyArtifactName('架构图-方寸-20261029.html'))
+check('“architecture.html”认', P.isArchifyArtifactName('architecture.html'))
+check('“tegula-architecture.html”认', P.isArchifyArtifactName('tegula-architecture.html'))
+check('“archify-fangcun.html”认', P.isArchifyArtifactName('archify-fangcun.html'))
 check('日报 html 不认', !P.isArchifyArtifactName('日报-20261029.html'))
 check('架构图 .docx 不认（必须是 HTML，archify 交付物形态）', !P.isArchifyArtifactName('架构图.docx'))
 check('README.md 不认', !P.isArchifyArtifactName('README.md'))
@@ -115,9 +115,9 @@ console.log('\n== ⑥ 源码守卫：不许再"自己画一张" ==')
   const app = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
   check('  项目卡按钮文案不再承诺"出一张图"', !/出一张结构图/.test(app))
   // 2026-10-30（暮雨第 2 条）：世界地图 Emoji 让入口看不懂，而且画出来的根本不是架构图。
-  check('★★ 入口不再叫「结构图」、也不再带 🗺 Emoji（它打开的是架构图）',
+  check('★★ 入口不再叫“结构图”、也不再带 🗺 Emoji（它打开的是架构图）',
     !/🗺\s*结构图/.test(app) && /架构图<\/button>/.test(app))
-  check('  找不到时的提示不许再说「方寸不自己画架构图」（自绘是目标，卡 20261030-002）',
+  check('  找不到时的提示不许再说“方寸不自己画架构图”（自绘是目标，卡 20261030-002）',
     !/方寸不自己画架构图/.test(fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'services', 'projectDiagram.ts'), 'utf-8')))
 }
 

@@ -2,12 +2,12 @@
 /**
  * 导入防呆端到端测试（开发清单第 6 条，2026-10-14）
  *
- * 起因（用户原话）：「自己手搓导入文件用错字段名时，现在会静默落一个空壳还报"成功"」——
+ * 起因（用户原话）：“自己手搓导入文件用错字段名时，现在会静默落一个空壳还报"成功"”——
  * 老实现只认英文键（`title`），手搓的人写中文（`标题`，因为任务卡 frontmatter 就是中文键），
  * 结果字段全被丢掉、落一张 `(无标题)` 的空卡，还回 `{ok: true, imported: 1}`。
  *
  * 本测试真跑**主进程编译产物** `dist/main/data/tasks.js`（electron 桩 + 临时数据目录），
- * 因此同时也盖住了「界面背后跟主程序通信那层」的批量导入接口 —— 开发清单第 7 条指出
+ * 因此同时也盖住了“界面背后跟主程序通信那层”的批量导入接口 —— 开发清单第 7 条指出
  * 三次"测试全绿、真机就炸"都炸在这一层。判据：**报错要指明错哪，且一个文件都不许写。**
  *
  * 运行：node scripts/test/e2e-import-guard.cjs
@@ -104,7 +104,7 @@ console.log('数据目录：' + TASK_DIR)
 {
   const before = files().length
   const r = tasks.importTasks([{ 项目: '方寸' }])
-  check('★ ④ 没有「标题」被拦下（不再落 (无标题) 空壳）',
+  check('★ ④ 没有“标题”被拦下（不再落 (无标题) 空壳）',
     r.ok === false && String(r.error || '').includes('标题'), JSON.stringify(r))
   check('★ ④ 同样一个文件都没写', files().length === before, `${before} → ${files().length}`)
 }

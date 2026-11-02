@@ -56,7 +56,7 @@ check('★★ 有多日志合并入口 inject_logs（主日志带副日志一起
 check('★★ decision_record 已从 MCP 移除（决策只能用户在界面拍板，AI 不代表决）',
   !names.includes('decision_record'), names.join(','))
 
-// ── 任务终态：agent 最多到「待验收」（2026-10-30 用户拍板）──────────────
+// ── 任务终态：agent 最多到“待验收”（2026-10-30 用户拍板）──────────────
 {
   const nt = call('create_task', { title: '收口权限测试卡', project: 'fm-demo', status: '待办' })
   const tid = String(nt.id || '')
@@ -98,7 +98,7 @@ check('★★ get_log 回 attachments[].abs **绝对路径**（修复前：只�
   String(a0.abs || '').indexOf(':') > 0 && fs.existsSync(a0.abs),
   JSON.stringify(a0).slice(0, 200))
 check('  标了 kind=image（agent 才知道这是图、该用看图工具读）', a0.kind === 'image', JSON.stringify(a0).slice(0, 160))
-check('★★ 有一句人话说明「N 个附件没随文本返回」', /1 个附件/.test(String(got.attachmentsHint || '')),
+check('★★ 有一句人话说明“N 个附件没随文本返回”', /1 个附件/.test(String(got.attachmentsHint || '')),
   JSON.stringify(String(got.attachmentsHint || '')).slice(0, 200))
 check('  没有 base64 内联（token 会爆）', !/base64,[A-Za-z0-9+/]{40}/.test(JSON.stringify(got)))
 
@@ -117,16 +117,16 @@ check('★★ inject_logs 把主日志和副日志拼成一份（主在前）',
   bundle.indexOf('MAIN') >= 0 && bundle.indexOf('SIDE') >= 0
   && bundle.indexOf('MAIN') < bundle.indexOf('SIDE'),
   bundle.slice(0, 200))
-check('★★ 副日志被标成「并行日志」而不是续写（否则 agent 会当成同一轮的回头路）',
+check('★★ 副日志被标成“并行日志”而不是续写（否则 agent 会当成同一轮的回头路）',
   /并行日志/.test(bundle), bundle.slice(0, 260))
 check('  主日志不带那个标记（只有第二条起才有）',
   bundle.indexOf('并行日志') > bundle.indexOf('MAIN'))
 const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
 check('  一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
 
-// ── 状态流转（2026-11-01 暮雨：收口进任务「待验收」，日志只记过程）──────────
+// ── 状态流转（2026-11-01 暮雨：收口进任务“待验收”，日志只记过程）──────────
 // complete / archive / reopen 是用户签字；request_close / cancel_close 这套“日志收口”已取消，
-// AI 干完只能 move_status 把任务移到「待验收」。
+// AI 干完只能 move_status 把任务移到“待验收”。
 const arc = call('set_log_status', { id: mainId, action: 'archive' })
 check('★★ set_log_status archive 被拒（归档是用户签字，agent 不能代按）',
   arc.ok === false && /只能由用户/.test(String(arc.error || '')), JSON.stringify(arc).slice(0, 200))
@@ -137,26 +137,26 @@ const reo = call('set_log_status', { id: mainId, action: 'reopen' })
 check('★ set_log_status reopen 也被拒（退回同样是生命周期签字）',
   reo.ok === false && /只能由用户/.test(String(reo.error || '')), JSON.stringify(reo).slice(0, 200))
 const run0 = call('set_log_status', { id: mainId, action: 'running' })
-check('  前置：先标「进行中」（日志唯一允许的写动作之一）',
+check('  前置：先标“进行中”（日志唯一允许的写动作之一）',
   run0.ok === true && /进行中/.test(String(run0.status || '')), JSON.stringify(run0).slice(0, 160))
 const req = call('set_log_status', { id: mainId, action: 'request_close' })
-check('★★ request_close 被拒，并明确指向 move_status → 待验收（日志不再有「等你确认」）',
+check('★★ request_close 被拒，并明确指向 move_status → 待验收（日志不再有“等你确认”）',
   req.ok === false && /待验收/.test(String(req.error || '')) && /move_status/.test(String(req.error || '')),
   JSON.stringify(req).slice(0, 240))
 const cancel = call('set_log_status', { id: mainId, action: 'cancel_close' })
 check('★ cancel_close 同样被拒（没有收口标记，就没有“撤回”这回事）',
   cancel.ok === false, JSON.stringify(cancel).slice(0, 200))
 const reqMeta = call('get_log', { id: mainId })
-check('★★ get_log 不再回 agentDone（界面不会再有「⏳ 等你确认」）',
+check('★★ get_log 不再回 agentDone（界面不会再有“⏳ 等你确认”）',
   !('agentDone' in reqMeta), JSON.stringify({ agentDone: reqMeta.agentDone, status: reqMeta.status }))
 const idle0 = call('set_log_status', { id: mainId, action: 'idle' })
-check('  撤掉「进行中」→ 回到没派出去', idle0.ok === true && /待处理/.test(String(idle0.status || '')), JSON.stringify(idle0).slice(0, 160))
+check('  撤掉“进行中”→ 回到没派出去', idle0.ok === true && /待处理/.test(String(idle0.status || '')), JSON.stringify(idle0).slice(0, 160))
 const run = call('set_log_status', { id: mainId, action: 'running' })
-check('  running 仍然允许（标「进行中」不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
+check('  running 仍然允许（标“进行中”不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
 const bad = call('set_log_status', { id: mainId, action: 'nope' })
 check('  非法 action 明确报错（不静默什么都不做）', bad.__raw !== undefined || bad.ok === false)
 
-// ── 界面「⧉ 开工单」与 MCP 共用同一段拼接（2026-10-29 第 6 条）────────────
+// ── 界面“⧉ 开工单”与 MCP 共用同一段拼接（2026-10-29 第 6 条）────────────
 // 两处各拼一次是最容易分叉的地方（界面改了文案、MCP 没跟上），所以这里直接钉：
 // services/logs.injectLogs 是唯一实现，MCP 的 inject_logs 只是它的出口。
 {

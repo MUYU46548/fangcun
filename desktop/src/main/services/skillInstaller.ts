@@ -70,17 +70,17 @@ export function getHermesSkillsDirPath(): string {
  * 方寸**真源** skills 目录（manifest.json 所在处）。
  *
  * 2026-09-28 导出理由：`skills:reveal` 的路径白名单此前只放行 Hermes 侧，
- * 于是技能页「📂 显示 SKILL.md」在"方寸自发布技能"那张卡上**必然失败**
+ * 于是技能页“📂 显示 SKILL.md”在"方寸自发布技能"那张卡上**必然失败**
  * （日志实测 4 条 `路径不在技能目录内`）。那个按钮的用户故事恰恰是
- * 「装到 WorkBuddy 这类只能手动导入的 agent」—— 要拖的正是真源这一份。
+ * “装到 WorkBuddy 这类只能手动导入的 agent”—— 要拖的正是真源这一份。
  */
 export function getResourcesSkillsDirPath(): string {
   return getResourcesSkillsDir()
 }
 
 /**
- * 方寸「自发布」技能 id 集合 = manifest 登记的 + resources/skills 下带 SKILL.md 的目录。
- * 用途：外部导入**不许覆盖**这些技能（它们是方寸自己的交付物，该走「⚡ 装到 Hermes」）。
+ * 方寸“自发布”技能 id 集合 = manifest 登记的 + resources/skills 下带 SKILL.md 的目录。
+ * 用途：外部导入**不许覆盖**这些技能（它们是方寸自己的交付物，该走“⚡ 装到 Hermes”）。
  */
 export function getPublishedSkillIds(): Set<string> {
   const ids = new Set<string>(SKILL_DIRS)
@@ -186,7 +186,7 @@ export function checkSkillsStatus(targetId = 'hermes'): {
     const installed = fs.existsSync(destSkillMd)
     // ⚠ 只看 manifest 里记的 hash 是不够的（2026-09-26 修）：那份记录只说明"上次装成功过"，
     //   说明不了"现在磁盘上这份还对"。装好的副本被改坏/半途写坏时，旧逻辑会永远跳过。
-    //   所以「过时」= 没装，或**磁盘上那份**与真源不一致。
+    //   所以“过时”= 没装，或**磁盘上那份**与真源不一致。
     const outdated = !installed || fileMd5Safe(destSkillMd) !== currentHash
 
     skills.push({
@@ -299,16 +299,16 @@ export function autoCheckSkills(): void {
 
 // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────────────────
 //
-// 用户观察：「方寸技能毫无存在感」。真因：主进程早就有 checkSkillsStatus/installSkills
+// 用户观察：“方寸技能毫无存在感”。真因：主进程早就有 checkSkillsStatus/installSkills
 // 和 `skills:check`/`skills:install` 两条通道，**渲染层从来没有入口** —— 功能在，界面不在。
 //
 // 用户给的边界（原话）：技能本质只是模块化提示词，不是硬性限制 → **不做插件市场**，
-// 就是一块「看得见 + 能复制」的安装说明面板。所以这里只读真源、生成可复制的提示词，
+// 就是一块“看得见 + 能复制”的安装说明面板。所以这里只读真源、生成可复制的提示词，
 // 让 agent 自己去装（它才知道自己的技能目录在哪），顺带提供一键装到 Hermes。
 //
 // 真源：`skills/manifest.json`（与 skills/ 同源，随包分发到 resources/skills/）。
 // 一致性：manifest 里登记的每个文件都必须在磁盘上存在；磁盘上有 SKILL.md 但没登记的
-// 目录单独报出来（unlisted）—— 「登记了却不存在」和「存在却没登记」都要看得见。
+// 目录单独报出来（unlisted）—— “登记了却不存在”和“存在却没登记”都要看得见。
 
 export interface SkillUiItem {
   id: string
@@ -324,7 +324,7 @@ export interface SkillUiItem {
   installed: boolean
   outdated: boolean
   hash: string
-  /** SKILL.md 全文（供「复制全文」用；超过 200KB 时截断并标注） */
+  /** SKILL.md 全文（供“复制全文”用；超过 200KB 时截断并标注） */
   body: string
   /** 可复制给任何 agent 的安装提示词（agent 自己判断装哪儿） */
   prompt: string
@@ -342,7 +342,7 @@ export interface SkillsUiPayload {
   skills: SkillUiItem[]
   /**
    * 每个**可直装目标**的逐技能安装状态（卡 010/011）——
-   * 界面据此显示「装到：Hermes ✓ · DSH ⬆」，不再是"只认 Hermes"。
+   * 界面据此显示“装到：Hermes ✓ · DSH ⬆”，不再是"只认 Hermes"。
    * `present=false` 的目标（DSH 未安装）照样列出来，只是标"不在场、不写"。
    */
   targets: {
@@ -356,7 +356,7 @@ export interface SkillsUiPayload {
 
 function buildInstallPrompt(it: { id: string; target: string; absPath: string }): string {
   return [
-    `请把方寸（tegula）的「${it.id}」这个技能装到你自己身上：`,
+    `请把方寸（tegula）的“${it.id}”这个技能装到你自己身上：`,
     `- 技能 ID：${it.id}（manifest 里标注的目标 agent：${it.target}）`,
     `- 技能文件（绝对路径）：${it.absPath}`,
     '',
@@ -430,7 +430,7 @@ export function listSkillsForUi(): SkillsUiPayload {
     })
   }
 
-  // 「存在却没登记」也要看得见
+  // “存在却没登记”也要看得见
   try {
     for (const d of fs.readdirSync(skillsDir, { withFileTypes: true })) {
       if (!d.isDirectory()) continue
@@ -439,7 +439,7 @@ export function listSkillsForUi(): SkillsUiPayload {
     }
   } catch { /* 目录不存在 → 前面已经报 ok:false */ }
 
-  // 每个可直装目标的逐技能安装状态（卡 010/011）—— 界面「装到：Hermes ✓ · DSH ⬆」用它。
+  // 每个可直装目标的逐技能安装状态（卡 010/011）—— 界面“装到：Hermes ✓ · DSH ⬆”用它。
   // ⚠ 每个目标的已装判据都必须**看磁盘实际内容**，不能只看各自那本 manifest（同 checkSkillsStatus 的道理）。
   out.targets = INSTALL_TARGETS.map(t => {
     const dir = t.dir()
@@ -456,14 +456,14 @@ export function listSkillsForUi(): SkillsUiPayload {
 }
 
 /**
- * 「在资源管理器里亮出 SKILL.md」的**路径裁决**（纯函数，e2e 直接断言）。
+ * “在资源管理器里亮出 SKILL.md”的**路径裁决**（纯函数，e2e 直接断言）。
  *
  * 白名单 = 两个根，两个根**都由主进程自己算**：`Hermes 侧已装副本` 与 `方寸真源`。
  * 渲染层传任意路径都进不来。
  *
  * 2026-09-28 修（真因在应用日志里，当天 4 条 `路径不在技能目录内`）：
- * 此前只放行 Hermes 侧，于是技能页「📂 显示 SKILL.md」在**方寸自发布技能**那张卡上
- * **必然失败** —— 而那个按钮的用户故事恰恰是「装到 WorkBuddy 这类只能手动导入的 agent」，
+ * 此前只放行 Hermes 侧，于是技能页“📂 显示 SKILL.md”在**方寸自发布技能**那张卡上
+ * **必然失败** —— 而那个按钮的用户故事恰恰是“装到 WorkBuddy 这类只能手动导入的 agent”，
  * 要拖进对方导入面板的**就是真源这一份**，不是 Hermes 侧的副本。
  *
  * ⚠ 前缀判定必须带 `path.sep`：`startsWith(root)` 会让 `<root>-evil` 混进来。
@@ -504,7 +504,7 @@ export async function openSkillsDir(which: string): Promise<{ ok: boolean; dir?:
   const dir = t ? t.dir() : getResourcesSkillsDir()
   try {
     if (!fs.existsSync(dir)) {
-      // Hermes（present 恒 true）→ 先建出来，用户点「打开」不该看到失败；
+      // Hermes（present 恒 true）→ 先建出来，用户点“打开”不该看到失败；
       // DSH 未安装（present=false）→ 报错不建（不给没装 DSH 的机器凭空造 ~/.dsh/skills）。
       if (t && t.present()) fs.mkdirSync(dir, { recursive: true })
       else return { ok: false, error: `目录不存在：${dir}`, dir }

@@ -1,7 +1,7 @@
 <!--
-  通知中心（2026-10-31 · 渲染层拆分「领域刀」第二块）
+  通知中心（2026-10-31 · 渲染层拆分“领域刀”第二块）
 
-  **边界**：与 `BoardView.vue` / `TripBoardView.vue` 同一套 —— 组件只「显示 + 收集意图」，
+  **边界**：与 `BoardView.vue` / `TripBoardView.vue` 同一套 —— 组件只“显示 + 收集意图”，
   状态与动作全部来自 `composables/useNotifications.ts`（拆分第五刀就已搬好）。
   父组件把那一坨用 `reactive()` 包成 `notificationsCtl` 传进来，组件 `toRef` 接状态、解构接动作。
 

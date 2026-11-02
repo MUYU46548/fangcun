@@ -4,14 +4,14 @@
  * 为什么先抽组合式函数、而不是直接把模板搬成组件：
  * `todos` 这一个 ref 被 App.vue 里 **60 处**共用（日历、在途一屏、日志转待办、快速记、
  * 项目统计都读它）。先把它和它的全部动作收进一处，界面仍留在 App.vue —— 这一步零行为变化、
- * 可整层回归；等这块稳了，再搬模板时才只需要「传一个 todos 进去」。
+ * 可整层回归；等这块稳了，再搬模板时才只需要“传一个 todos 进去”。
  *
  * 依赖只有两样**能力**（不是数据）：
  *   `toast`     —— 提示条是全站状态；
  *   `offerUndo` —— 撤销条也是全站的（勾选待办是最容易误点的一处，改完当场给撤销）。
  *
  * ⚠ 逾期判据不在这里算：走 `shared/time.isOverdue`（与看板任务卡同一个函数）。
- *   在别处再写一套「done/status/dueTime 三分支」迟早两处判据对不上。
+ *   在别处再写一套“done/status/dueTime 三分支”迟早两处判据对不上。
  */
 import { computed, ref, watch } from 'vue'
 import { readUiPref, saveUiPref } from '../prefs'
@@ -24,7 +24,7 @@ interface Todo {
   id: string
   title: string
   done: boolean
-  /** ⚠ 实际存的是中文「高/中/低」（主进程 normalizePriority 归一） */
+  /** ⚠ 实际存的是中文“高/中/低”（主进程 normalizePriority 归一） */
   priority: string
   due?: string
   dueTime?: string
@@ -46,7 +46,7 @@ interface Todo {
   id: string
   title: string
   done: boolean
-  // ⚠ 实际存的是中文「高/中/低」（主进程 normalizePriority 归一）。
+  // ⚠ 实际存的是中文“高/中/低”（主进程 normalizePriority 归一）。
   // 这里此前写成 'high' | 'normal' | 'low' —— 类型与数据不符，是历史残留。
   priority: string
   due?: string
@@ -57,7 +57,7 @@ interface Todo {
 const todos = ref<Todo[]>([])
 const todoFilter = ref('all')
 
-// 多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）
+// 多选（2026-09-30 用户补充：“待办和回收站也加入多选，这些也是常用场景”）
 // —— 复用看板/日志同一套交互：工具条开关 + 卡片点选 + 悬浮批量栏。
 const todoBatchMode = ref(false)
 const selectedTodoBatch = ref<string[]>([])
@@ -65,9 +65,9 @@ const selectedTodoBatch = ref<string[]>([])
 // ── 待办列表：筛选 / 排序 / 逾期 / 统计（2026-09-26 卡 033 专项整修）──────
 // 本次修的四件事（都是"用起来别扭"的真因，不是零敲碎打）：
 //   ① 项目筛选原来是**漏筛**（`!t.project || t.project === X`）：选了项目 X 还会显示不归属的，
-//      看着就像"筛选坏了"。现在精确匹配，并单列「（不归属任何项目）」这一项。
+//      看着就像"筛选坏了"。现在精确匹配，并单列“（不归属任何项目）”这一项。
 //   ② 同一个下拉既当筛选又当"新建默认归属"，两件事挤在一个控件里 → 现在只当筛选；
-//      新建归属走「＋ 新建待办」（弹窗里本来就有项目字段，且默认跟随当前筛选）。
+//      新建归属走“＋ 新建待办”（弹窗里本来就有项目字段，且默认跟随当前筛选）。
 //   ③ 排序规则不可见、也不可选 → 加排序下拉（默认 / 到期日 / 最新创建），选择持久化。
 //   ④ 有到期日却不标逾期、优先级只有"高"有徽章 → 现在三档都显示，逾期单独标红并算天数。
 const todoProjectFilter = ref('__all__')
@@ -75,7 +75,7 @@ const todoSort = ref<string>(readUiPref<string>('fc_todo_sort', 'default'))
 watch(todoSort, v => saveUiPref('fc_todo_sort', v))
 
 function overdueDays(t: any): number {
-  // 有时分时按合成的分钟级时间算（否则「21:39 已过 10 分钟」会算成"逾期 0 天"）。
+  // 有时分时按合成的分钟级时间算（否则“21:39 已过 10 分钟”会算成"逾期 0 天"）。
   // 算术本体在 shared/time.daysSinceDue —— App.vue 里不许内联"一天多少毫秒"的除法（守卫盯着）。
   const d = daysSinceDue(t?.due, t?.dueTime)
   return Number.isFinite(d) ? Math.floor(d) : 0
@@ -95,7 +95,7 @@ const filteredTodos = computed(() => {
   if (todoFilter.value === 'done') list = list.filter(t => t.done)
   if (todoProjectFilter.value === '__none__') list = list.filter(t => !t.project)
   else if (todoProjectFilter.value !== '__all__') list = list.filter(t => t.project === todoProjectFilter.value)
-  // 已转出（转换时勾了「顺手标已转出」）默认折叠 —— 这是**折叠不是删除**，展开按钮在列表末尾
+  // 已转出（转换时勾了“顺手标已转出”）默认折叠 —— 这是**折叠不是删除**，展开按钮在列表末尾
   if (!showConvertedTodos.value) list = list.filter(t => !t.converted)
 
   const arr = list.slice()
@@ -143,7 +143,7 @@ const todoStats = computed(() => {
   return {
     active: todos.value.filter(t => !t.done).length,
     overdue: todos.value.filter(t => isOverdue(t)).length,
-    // hidden 只统计**筛选**遮住的：折叠掉的「已转出」有自己的展开入口，不算进「清除筛选」
+    // hidden 只统计**筛选**遮住的：折叠掉的“已转出”有自己的展开入口，不算进“清除筛选”
     hidden: total - filteredTodos.value.length
       - (showConvertedTodos.value ? 0 : convertedTodosCount.value),
   }
@@ -248,7 +248,7 @@ async function deleteTodo(id: string) {
   loadTodos()
 }
 
-// ── 待办多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
+// ── 待办多选（2026-09-30 用户补充：“待办和回收站也加入多选，这些也是常用场景”）──
 // 交互与看板/日志同一套：工具条开关 → 点卡片勾选 → 悬浮批量栏执行。
 // 批量完成走 todosUpdate({done}) 显式置值（todosToggle 是翻转，混合状态下批量翻会错乱）。
 function toggleTodoBatchMode() {
@@ -280,7 +280,7 @@ async function executeBatchTodoDone(done: boolean) {
   for (const id of ids) {
     try {
       const r: any = await window.tegula.todosUpdate(id, { done } as any)
-      // 真后端返回 Todo|null（null = 没这条）；假后端返回 {ok:...} —— 两边都按「真成功」计数
+      // 真后端返回 Todo|null（null = 没这条）；假后端返回 {ok:...} —— 两边都按“真成功”计数
       if (r && r.ok !== false) ok++
     } catch { /* skip */ }
   }
@@ -306,7 +306,7 @@ async function executeBatchTodoDelete() {
 
 // ── 待办编辑弹窗（2026-09-25 用户第 12、14 条）───────────────────────
 // 真因：`todosUpdate` 在 preload / IPC / service **三层早就通了**（service 也不拦已完成的任务），
-// 但渲染层**从来没有入口** —— 用户感知就是「待办不能编辑」「签下（勾选）之后更不能改」。
+// 但渲染层**从来没有入口** —— 用户感知就是“待办不能编辑”“签下（勾选）之后更不能改”。
 // 所以第 12 条（要模态大框）和第 14 条（签下后不能编辑）是同一件事：补一个编辑弹窗。
 const todoEdit_ = ref<any>(null)
 const todoEditSaving = ref(false)
@@ -333,7 +333,7 @@ function closeTodoEditor() {
   todoGuard.clear()
 }
 
-// 同一弹窗复用成「新建」（第 12 条要的是**创建**也用大框，不只是编辑）
+// 同一弹窗复用成“新建”（第 12 条要的是**创建**也用大框，不只是编辑）
 function openTodoCreator() {
   todoEdit_.value = {
     id: '',

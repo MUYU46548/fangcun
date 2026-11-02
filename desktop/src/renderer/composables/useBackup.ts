@@ -1,5 +1,5 @@
 /**
- * 备份 / Git 通道 / 导出 —— 从 App.vue 切出来的第一块「领域逻辑」（2026-10-30 拆分第四刀）。
+ * 备份 / Git 通道 / 导出 —— 从 App.vue 切出来的第一块“领域逻辑”（2026-10-30 拆分第四刀）。
  *
  * 为什么先切它：App.vue 里它是一整块**连续、只依赖 window.tegula 与 toast** 的代码
  * （备份 v2 + 导出 + Git 通道 + 校验/恢复/选目录），边界清楚、能一次搬完。
@@ -134,7 +134,7 @@ function createBackup(opts: UseBackupOptions) {
 
   /**
    * 体积报告（2026-10-11 用户第 2 条）。
-   * 「包怎么这么大」此前是**答不上来的** —— 界面只给一个 62.6MB 的结果。
+   * “包怎么这么大”此前是**答不上来的** —— 界面只给一个 62.6MB 的结果。
    * 这里把构成摊开：谁最占地方、当前的瘦身旋钮会跳过什么、跳过多少。
    */
   async function bkLoadSizeReport(): Promise<void> {
@@ -162,8 +162,8 @@ function createBackup(opts: UseBackupOptions) {
   }
 
   // ── 导出备份（2026-09-26 用户第 1、2 条：一次点击、只落一个 zip）────────
-  // 用户原话：「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」＋
-  //          「导出的备份文件要手动选下拉列表…必须逐字核对，很难受」。
+  // 用户原话：“导出又是导出四个文件，我只认识压缩包…只应该存在一样东西”＋
+  //          “导出的备份文件要手动选下拉列表…必须逐字核对，很难受”。
   // 因此这里没有下拉了：直接取**最新一份已有备份**，点一下就导出（主进程只落一个 zip）；
   // 一份备份都没有时才让主进程现打一份全量包。
   /** 已有备份按**最后更新**倒序（2026-09-25 第 5 条：用户要的是"最后更新的排前面"） */
@@ -235,8 +235,8 @@ function createBackup(opts: UseBackupOptions) {
   }
 
   /**
-   * 只保存「备份瘦身」两项，并立刻重算体积报告 —— 勾一下就能看到"能省多少"。
-   * 单开一个函数是为了让勾选**立即生效**，不用先滚到下面点「保存配置」。
+   * 只保存“备份瘦身”两项，并立刻重算体积报告 —— 勾一下就能看到"能省多少"。
+   * 单开一个函数是为了让勾选**立即生效**，不用先滚到下面点“保存配置”。
    */
   async function bkSaveSlim(): Promise<void> {
     const r: any = await (window as any).tegula.backupSetConfig({
@@ -254,7 +254,7 @@ function createBackup(opts: UseBackupOptions) {
 
   /**
    * 只保存加密开关（2026-10-31）：勾上/取消立刻生效，与瘦身那组同一套手感。
-   * ⚠ 勾了「开启」但没填口令、也没记住过 → 直接拦下并说清，而不是等点备份才失败。
+   * ⚠ 勾了“开启”但没填口令、也没记住过 → 直接拦下并说清，而不是等点备份才失败。
    */
   async function bkSaveEncrypt(): Promise<void> {
     const f = bkForm.value
@@ -364,7 +364,7 @@ function createBackup(opts: UseBackupOptions) {
       const isEnc = /\.fcz$/i.test(String(b.name || b.path || ''))
       const typed = bkForm.value.encryptPassword.trim()
       if (isEnc && !typed && !bkForm.value.hasEncryptPassword) {
-        bkMsg.value = '这份备份是加密的（.fcz）：请在下面「备份加密」里填一次口令（或勾选记住），再点恢复'
+        bkMsg.value = '这份备份是加密的（.fcz）：请在下面“备份加密”里填一次口令（或勾选记住），再点恢复'
         bkMsgType.value = 'error'
         return
       }
@@ -427,7 +427,7 @@ function createBackup(opts: UseBackupOptions) {
   /**
    * 把当前表单里的仓库地址 / 分支 / 令牌落盘。
    * ⚠ 2026-10-11 真机教训：主进程只读**已保存**的配置，而用户很自然的是
-   *   「填完地址直接点测试连接」→ 于是被回一句「还没填仓库地址」，看着像软件坏了。
+   *   “填完地址直接点测试连接”→ 于是被回一句“还没填仓库地址”，看着像软件坏了。
    *   所以测试 / 推送前一律先跑一次这个，把输入框里的东西先存住。
    * 返回 false = 地址是空的（真没填），调用方直接提示即可。
    */
@@ -501,7 +501,7 @@ function createBackup(opts: UseBackupOptions) {
   }
 
   /**
-   * restic 增量备份脚本（2026-10-11 用户拍板「方案 A」）。
+   * restic 增量备份脚本（2026-10-11 用户拍板“方案 A”）。
    * 方寸只**生成脚本 + 说明**并复制走 —— 定时你自己挂，仓库密码也只在你自己环境里。
    * 为什么不做成方寸内建：那要方寸管仓库密码（进 safeStorage）+ 随包分发 restic 二进制，包会变大。
    */
@@ -523,7 +523,7 @@ function createBackup(opts: UseBackupOptions) {
     bkMsg.value = ''
     try {
       // 2026-09-26 用户第 1、2 条：不再让用户挑包，直接导最新那份（没有才现打）；
-      // 主进程只落一个 zip，所以这里报的就是「那一个文件」。
+      // 主进程只落一个 zip，所以这里报的就是“那一个文件”。
       const latest = bkLatestPackagePath()
       const r = await window.tegula.backupExportTo(latest ? { package: latest } : {})
       if (r.canceled) return
@@ -551,9 +551,9 @@ function createBackup(opts: UseBackupOptions) {
   /**
    * 点某一行备份 = **看这一份里到底有什么**（2026-09-28 卡 026-001 的验收驳回）。
    *
-   * 用户原话：「依然不能手动点来选中备份，回收站都能点了，备份不能点，无语。」
-   * 真因：`.bk-item` 是一个**没有 @click 的死 div**，行上只有「恢复」按钮；
-   * 想确认内容只能另点「🔍 校验备份包…」——那会弹文件选择器，让人从零开始找那个 zip，
+   * 用户原话：“依然不能手动点来选中备份，回收站都能点了，备份不能点，无语。”
+   * 真因：`.bk-item` 是一个**没有 @click 的死 div**，行上只有“恢复”按钮；
+   * 想确认内容只能另点“🔍 校验备份包…”——那会弹文件选择器，让人从零开始找那个 zip，
    * 而这一份明明就在眼前。
    *
    * 复用现成的 `backup:verifyPackage`（它本来就支持直接传路径）。
@@ -562,7 +562,7 @@ function createBackup(opts: UseBackupOptions) {
   async function bkInspectRow(b: any) {
     if (bkBusy.value) return
     if (bkTab.value === 'remote') {
-      toast('远端备份要先下载到本地才能看内容；点「恢复」会自动下载并校验', 'info')
+      toast('远端备份要先下载到本地才能看内容；点“恢复”会自动下载并校验', 'info')
       return
     }
     const p = String(b?.path || '')
@@ -623,7 +623,7 @@ function createBackup(opts: UseBackupOptions) {
       const isEnc = /\.fcz$/i.test(String(pick.path || ''))
       const typed = bkForm.value.encryptPassword.trim()
       if (isEnc && !typed && !bkForm.value.hasEncryptPassword) {
-        bkMsg.value = '这份备份是加密的（.fcz）：请在下面「备份加密」里填一次口令（或勾选记住），再点恢复'
+        bkMsg.value = '这份备份是加密的（.fcz）：请在下面“备份加密”里填一次口令（或勾选记住），再点恢复'
         bkMsgType.value = 'error'
         return
       }
@@ -666,7 +666,7 @@ function createBackup(opts: UseBackupOptions) {
 
 /**
  * 2026-10-30：改成**模块级单例**。
- * 原因：备份这块状态有两个使用者 —— App（顶栏备份指示灯 / 工具提示）与设置页「备份」页签。
+ * 原因：备份这块状态有两个使用者 —— App（顶栏备份指示灯 / 工具提示）与设置页“备份”页签。
  * 传 50 个 props 既难维护又容易漏；改成"第一次调用创建、之后共用"，两边拿到的是同一组 ref。
  * ⚠ 因此 `opts` 只在**首次**调用时生效（toast 注入要在 App setup 里先发生）。
  */

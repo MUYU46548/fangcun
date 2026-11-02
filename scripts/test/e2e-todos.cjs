@@ -1,5 +1,5 @@
 /**
- * 待办服务 —— 数据安全 + 排序（2026-09-26 卡 033「待办几乎各种问题都没修」专项整修）
+ * 待办服务 —— 数据安全 + 排序（2026-09-26 卡 033“待办几乎各种问题都没修”专项整修）
  *
  * 专项整修先盘了问题清单，本测试钉住其中**数据层**那三条（最要命的）：
  *   ① 写入必须是原子的：不再 writeFileSync 直接覆盖（写一半崩 = 整个 index.json 损坏）；
@@ -148,7 +148,7 @@ function main() {
   }
 
   // ── 9. 来源链 fromLog（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）────
-  // 两件事：① 「日志转来」能写能读回（防重与卡面徽章都靠它）；② 普通新建**不落这个键**
+  // 两件事：① “日志转来”能写能读回（防重与卡面徽章都靠它）；② 普通新建**不落这个键**
   //   （JSON 里连键都不许出现 —— 否则存量待办在下一次写入时会凭空多出 fromLog: null）。
   {
     const raw0 = JSON.parse(fs.readFileSync(todosFile, 'utf-8'))
@@ -163,10 +163,10 @@ function main() {
     check('★★ fromLog 真落盘（重读仍是来源日志 id）',
       !!reread && reread.fromLog === 'log_20261008_abc123',
       JSON.stringify(reread && reread.fromLog))
-    check('★ 带来源的待办能被「按来源」查到（防重要靠这条）',
+    check('★ 带来源的待办能被“按来源”查到（防重要靠这条）',
       todos.listTodos().some(t => t.fromLog === 'log_20261008_abc123'))
 
-    // 来源键必须活过「改别的字段」—— 漏在归一里就会被下一次写回吞掉
+    // 来源键必须活过“改别的字段”—— 漏在归一里就会被下一次写回吞掉
     todos.updateTodo(conv.id, { title: '改了标题，来源还在吗' })
     const afterUpd = todos.listTodos().find(t => t.id === conv.id)
     check('★★ 改标题写回后 fromLog 不丢（normalizeTodo 漏列 = 静默丢来源）',

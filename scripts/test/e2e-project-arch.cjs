@@ -222,16 +222,16 @@ console.log('\n== ②b 分层校验 / 逐块剔除 / 驳回重画（2026-10-30 �
   }
   const badReview = V.evaluateArchGraph(bad)
   const failed = (id) => badReview.gates.some((g) => g.id === id && !g.pass)
-  check('★★ 没证据的节点 → 「节点有证据」门变红', failed('evidence-nodes'), badReview.text)
-  check('★★ 端点不存在的连线 → 「连线有证据」门变红', failed('evidence-edges'))
-  check('★ 重复连线 → 「唯一」门变红', failed('unique'))
+  check('★★ 没证据的节点 → “节点有证据”门变红', failed('evidence-nodes'), badReview.text)
+  check('★★ 端点不存在的连线 → “连线有证据”门变红', failed('evidence-edges'))
+  check('★ 重复连线 → “唯一”门变红', failed('unique'))
 
   // 逐块剔除：只影响这张图，不编也不改数据
   const filtered = G.filterArchGraph(graph, ['src/main'])
   check('★★ 人工剔除一块 → 节点没了，连着它的边也没了',
     !filtered.nodes.some((n) => n.id === 'src/main')
     && !filtered.edges.some((e) => e.from === 'src/main' || e.to === 'src/main'))
-  check('  剔除后文字如实写「已剔除 1 块」', filtered.text.indexOf('已剔除 1 块') >= 0, filtered.text)
+  check('  剔除后文字如实写“已剔除 1 块”', filtered.text.indexOf('已剔除 1 块') >= 0, filtered.text)
   check('  剔除只产出一份新图，原图不动', graph.nodes.some((n) => n.id === 'src/main'))
 
   // 驳回重画：按诊断做减法，且每次都说做了什么
@@ -278,7 +278,7 @@ const emptyOne = arch.archForProject('nope')
 check('★ 扫不出代码目录 → ok:false 且说明原因', emptyOne.ok === false && /代码目录/.test(emptyOne.error || ''), emptyOne.error)
 check('  仍把图（含缺项）回传，界面能照实展示', !!emptyOne.graph && emptyOne.graph.missing.length >= 1)
 const ghost = arch.archForProject('不存在的项目')
-check('★ 没登记的项目 → 明说「没有这个项目」', ghost.ok === false && /没有这个项目/.test(ghost.error || ''), ghost.error)
+check('★ 没登记的项目 → 明说“没有这个项目”', ghost.ok === false && /没有这个项目/.test(ghost.error || ''), ghost.error)
 const noPath = arch.archForProject('nopath')
 check('★ 没登记仓库路径 → 明说缺什么', noPath.ok === false && /仓库路径/.test(noPath.error || ''), noPath.error)
 
@@ -301,7 +301,7 @@ const missingHtml = S.renderArchHtml({ ...graph, missing: [{ what: 'X', why: '�
 check('★ 有缺项时 HTML 里逐条列出（what + why 都在）', missingHtml.indexOf('X') >= 0 && missingHtml.indexOf('没有 X 就没法 Y') >= 0)
 
 console.log('\n== ⑥ 源码守卫（改了实现就红）==')
-/** 源码守卫先剥注释：注释里写「没有 fetch / http / LLM」是解释，不是调用。
+/** 源码守卫先剥注释：注释里写“没有 fetch / http / LLM”是解释，不是调用。
  *  （方寸的老规矩：判据先剥注释行，否则守的是文档不是代码。） */
 const stripComments = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 const scannerCode = stripComments(read('desktop/src/main/services/projectArch.ts'))

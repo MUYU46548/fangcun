@@ -3,16 +3,16 @@
  *
  * 为什么要有它：这类缺陷**反复出现**，而且每次都是人脸肉发现的 ——
  *   · `App.vue` 在途一屏的空屏提示里写了 `**主进程还是旧代码**`
- *   · 设置页「看板归档」的说明里写了 `**不删文件**`
+ *   · 设置页“看板归档”的说明里写了 `**不删文件**`
  *   · `mcpConnect.ts` 的 howTo 里写了 `**原样追加**` / `**不猜、不代写**`
  *   · `chat.ts` 的鉴权失败提示里写了 `` `Bearer ` `` / `` `***` ``
  * Vue 模板与 `{{ }}` 都**不解析 Markdown** —— 用户看到的是字面的星号和反引号。
  *
- * 判据（只认「最终会以纯文本渲染给用户看」的位置，避免误伤有意为之的 Markdown）：
+ * 判据（只认“最终会以纯文本渲染给用户看”的位置，避免误伤有意为之的 Markdown）：
  *   A. `App.vue` 的 `<template>` 段（剥掉 HTML 注释）里不得出现 `**`；
  *   B. **界面文案行**的字符串字面量里不得出现 `**`：
  *      howTo: / showToast( / message: ' / label: ' / hint: ' / placeholder="
- *      —— 这些位置是「技能页说明 / toast / 错误条 / 下拉项 / 提示语」，一律纯文本渲染。
+ *      —— 这些位置是“技能页说明 / toast / 错误条 / 下拉项 / 提示语”，一律纯文本渲染。
  *   C. 同一批位置里的**单/双引号**字符串不得含反引号（Markdown 行内代码）。
  *
  * 明确**不查**（有意放 Markdown，是给 AI 读的，不是给界面渲染的）：
@@ -22,7 +22,7 @@
  *   它们都走 `parts.push(...)` / 数组字面量，不命中上面的行级特征，天然不在检查范围。
  *
  * 掩码白名单：内容形如 `***`（纯星号）的字符串是密钥掩码，不是 Markdown ——
- * 用「除最后一位全是 ASCII 可打印且首位非空白」近似判断，避免误报。
+ * 用“除最后一位全是 ASCII 可打印且首位非空白”近似判断，避免误报。
  *
  * 运行：node scripts/test/check-ui-copy.cjs
  */
@@ -77,7 +77,7 @@ function rel(p) { return path.relative(REPO, p).replace(/\\/g, '/') }
 function scanUiStrings(file) {
   const bold = []   // 含 ** 的
   const tick = []   // 单/双引号串里含反引号的
-  const personal = [] // 含开发者个人名（方寸是公开发布的产品，界面只该说「用户」）
+  const personal = [] // 含开发者个人名（方寸是公开发布的产品，界面只该说“用户”）
   const lines = fs.readFileSync(file, 'utf-8').split('\n')
   lines.forEach((line, i) => {
     if (!UI_LINE_RE.test(line)) return
@@ -93,11 +93,11 @@ function scanUiStrings(file) {
       //   2026-10-12 加：外部整包带到 App.vue:3084 就是这么一处，被这条守卫误判成"文案里漏进反引号"。
       //   ——修的是**守卫的误报**，不是让代码绕着守卫写（后者会把守卫变成为难人的规矩）。
       if (body.includes('${')) continue
-      if (body.includes('**')) bold.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
-      if (quote !== '`' && body.includes('`')) tick.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
-      // 2026-10-30（暮雨第 2 条）：「方寸从来都是公开发布的」—— 界面文案不许出现开发者个人名。
+      if (body.includes('**')) bold.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
+      if (quote !== '`' && body.includes('`')) tick.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
+      // 2026-10-30（暮雨第 2 条）：“方寸从来都是公开发布的”—— 界面文案不许出现开发者个人名。
       // 只在**界面文案行**里查；源码注释里保留出处没问题。
-      if (body.includes('暮雨')) personal.push(`${rel(file)}:${i + 1}  「${body.slice(0, 80)}」`)
+      if (body.includes('暮雨')) personal.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
     }
   })
   return { bold, tick, personal }
@@ -126,7 +126,7 @@ function main() {
       tpl = stripHtmlComments(raw.slice(s, e))
       tplLen = tpl.length
       tpl.split('\n').forEach((line, i) => {
-        if (/\*\*/.test(line)) tplHits.push(`App.vue:${lineOffset + i + 1}  「${line.trim().slice(0, 100)}」`)
+        if (/\*\*/.test(line)) tplHits.push(`App.vue:${lineOffset + i + 1}  “${line.trim().slice(0, 100)}”`)
       })
     }
   }
@@ -135,9 +135,9 @@ function main() {
     tplLen > 20000, 'len=' + tplLen)
   check('★ App.vue 模板区没有 Markdown 粗体标记（Vue 不解析 Markdown —— 用户会看到字面星号）',
     tplHits.length === 0, tplHits.join(' | '))
-  check('★★ App.vue 模板区不许出现开发者个人名「暮雨」（公开发布的产品只说「用户」）',
+  check('★★ App.vue 模板区不许出现开发者个人名“暮雨”（公开发布的产品只说“用户”）',
     tplLen > 0 && !tpl.includes('暮雨'),
-    (tpl.includes('暮雨') ? '模板里仍有「暮雨」' : ''))
+    (tpl.includes('暮雨') ? '模板里仍有“暮雨”' : ''))
 
   // ── B/C. 界面文案行里的字符串 ────────────────────────────────────────
   const boldHits = []
@@ -153,7 +153,7 @@ function main() {
     boldHits.length === 0, boldHits.slice(0, 6).join(' | '))
   check('★ 界面文案的单引号字符串里没有反引号（Markdown 行内代码）',
     tickHits.length === 0, tickHits.slice(0, 6).join(' | '))
-  check('★★ 界面文案里不许出现开发者个人名「暮雨」（改用「用户」）',
+  check('★★ 界面文案里不许出现开发者个人名“暮雨”（改用“用户”）',
     personalHits.length === 0, personalHits.slice(0, 6).join(' | '))
 
   // ── 反例自证：剥注释逻辑本身是有效的（注释里的 ** 不该被算进来）──────

@@ -152,7 +152,7 @@ export interface UpsertInput {
  */
 export function upsertBackupChannel(input: UpsertInput): { ok: boolean; error?: string; channels?: StoredChannel[] } {
   const id = s(input?.id) || `backup-${Date.now().toString(36)}`
-  if (id === 'main') return { ok: false, error: '主通道请在「模型通道」那块改，不在这里' }
+  if (id === 'main') return { ok: false, error: '主通道请在“模型通道”那块改，不在这里' }
   const list = loadBackupChannels()
   const i = list.findIndex((c) => c.id === id)
   const base: StoredChannel = i >= 0

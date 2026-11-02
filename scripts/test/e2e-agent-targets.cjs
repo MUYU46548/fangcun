@@ -1,13 +1,13 @@
 /**
- * 「装到别的 agent」目标检测 + 多目标技能安装（2026-10-03 卡 task-20261003-011 / 010）
+ * “装到别的 agent”目标检测 + 多目标技能安装（2026-10-03 卡 task-20261003-011 / 010）
  *
- * 用户原话：「**DSH 在上一轮已经完成安装，但方寸检测不到 DSH 安装了**。」
- * 真因：`agents.ts` 的目标清单里**根本没有 DSH 这一条**（小尾巴⑩「装卡区加 DSH 第四探测目标」
- * 一直没开工）—— 技能页「装到别的 agent」里自然看不见它。
+ * 用户原话：“**DSH 在上一轮已经完成安装，但方寸检测不到 DSH 安装了**。”
+ * 真因：`agents.ts` 的目标清单里**根本没有 DSH 这一条**（小尾巴⑩“装卡区加 DSH 第四探测目标”
+ * 一直没开工）—— 技能页“装到别的 agent”里自然看不见它。
  *
  * 本测试钉住：
  *   ① 目标清单里有 DSH，且落点/可直装口径与 Hermes 同级（都是实测过的目录）；
- *   ② 「已接入」两问 = 技能副本 + MCP 配置含 fangcun，纯文件探测，落点不可知时给 undefined 而不是 false；
+ *   ② “已接入”两问 = 技能副本 + MCP 配置含 fangcun，纯文件探测，落点不可知时给 undefined 而不是 false；
  *   ③ 多目标安装：装到 DSH 真落在 DSH 技能目录、幂等、未知目标显式报错；
  *   ④ **不许往猜出来的目录写**：DSH 不在场（没有 ~/.dsh）时自动安装不得给它造目录。
  *
@@ -51,7 +51,7 @@ function check(name, cond, detail = '') {
 
 function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ } }
 
-/** 造出「装了 DSH」的现场：profiles/<档>/cordis.patch.yml（含 fangcun 段） */
+/** 造出“装了 DSH”的现场：profiles/<档>/cordis.patch.yml（含 fangcun 段） */
 function fakeDsh(withFangcun = true) {
   fs.mkdirSync(path.join(DSH_HOME, 'profiles', 'desktop'), { recursive: true })
   const body = [
@@ -87,7 +87,7 @@ async function main() {
 
   let targets = agents.detectAgentTargets(hermesSkillsDir)
   const ids = targets.map(t => t.id)
-  check('★ 目标清单里有 DSH（此前根本没有这一条 —— 用户「检测不到」的真因）', ids.includes('dsh'), JSON.stringify(ids))
+  check('★ 目标清单里有 DSH（此前根本没有这一条 —— 用户“检测不到”的真因）', ids.includes('dsh'), JSON.stringify(ids))
 
   const dsh = targets.find(t => t.id === 'dsh')
   check('DSH 是对外可直装目标（落点已知，与 Hermes 同级）', dsh && dsh.mode === 'installable', JSON.stringify(dsh))
@@ -96,8 +96,8 @@ async function main() {
   check('★ DSH 被检测到（profiles/desktop/cordis.patch.yml 在）', dsh && dsh.detected === true, dsh && dsh.evidence)
   check('  DSH 的 evidence 指向那份配置文件', dsh && /cordis\.patch\.yml$/.test(String(dsh.evidence)), dsh && dsh.evidence)
 
-  check('★ DSH 已接入里「MCP 配置含 fangcun」为真（读了配置原文）', dsh && dsh.mcpLinked === true, JSON.stringify(dsh && dsh.mcpLinked))
-  check('★ DSH 已接入里「技能副本已装」为假（还没装）', dsh && dsh.skillLinked === false, JSON.stringify(dsh && dsh.skillLinked))
+  check('★ DSH 已接入里“MCP 配置含 fangcun”为真（读了配置原文）', dsh && dsh.mcpLinked === true, JSON.stringify(dsh && dsh.mcpLinked))
+  check('★ DSH 已接入里“技能副本已装”为假（还没装）', dsh && dsh.skillLinked === false, JSON.stringify(dsh && dsh.skillLinked))
   check('  linkDetail 把人话事实写出来', dsh && /技能副本未装/.test(String(dsh.linkDetail)) && /MCP 配置含 fangcun/.test(String(dsh.linkDetail)),
     dsh && dsh.linkDetail)
 
@@ -127,7 +127,7 @@ async function main() {
     path.join(LOCAL, 'hermes', 'skills'))
 
   const dshNow = agents.detectAgentTargets(hermesSkillsDir).find(t => t.id === 'dsh')
-  check('★ 装完之后 DSH 的「技能副本已装」变真（徽章会显示 已接入）',
+  check('★ 装完之后 DSH 的“技能副本已装”变真（徽章会显示 已接入）',
     dshNow && dshNow.skillLinked === true, JSON.stringify(dshNow && dshNow.skillLinked))
 
   // 幂等
@@ -164,7 +164,7 @@ async function main() {
 
   // ── 场景 E：resolveRevealTarget 放行 DSH 侧副本，兄弟目录仍拒绝 ────────
   const rDsh = skillsMod.resolveRevealTarget(dshSkill)
-  check('★ DSH 侧副本允许「显示 SKILL.md」（新目标没被白名单漏掉）',
+  check('★ DSH 侧副本允许“显示 SKILL.md”（新目标没被白名单漏掉）',
     rDsh.ok === true && /DSH 侧副本/.test(String(rDsh.message)), JSON.stringify(rDsh))
   const evil = path.dirname(path.resolve(DSH_HOME, 'skills')) + path.sep + 'skills-evil'
   fs.mkdirSync(evil, { recursive: true })

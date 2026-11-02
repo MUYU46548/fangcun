@@ -18,7 +18,7 @@
 ## 为什么 `tailwind.config.js` 的 `content` 只扫 `components/`
 
 `App.vue` 里有 `.fixed` / `.hidden` / `.block` / `.table` 这类**与 Tailwind 工具类同名**的老类名 ——
-一旦扫它，就会凭空多出 `.fixed{position:fixed}` 之类的规则，第 ① 步「产物 CSS 逐字节不变」当场破功。
+一旦扫它，就会凭空多出 `.fixed{position:fixed}` 之类的规则，第 ① 步“产物 CSS 逐字节不变”当场破功。
 第 ④ 步逐个换控件时，新界面写在 `components/` 下的组件里，**App.vue 本身仍然不扫**。
 （判据：`check-ui-base.cjs` —— 每个 glob 必须落在 `src/renderer/components/` 内、且不匹配 App.vue，
 并且 `components/` 下**每个**源码文件都被覆盖到。）
@@ -28,10 +28,10 @@
 | 步 | 内容 | 状态 |
 |---|---|---|
 | ① | 装 + 接线（**零观感回归**） | ✅ 完成（产物 CSS 逐字节不变） |
-| ② | token 映射（`:root` → `--ui-*`，六套主题逐套过 `check-themes`） | ✅ 完成（`var()` 链，见 App.vue 的「UI 基座 ②」块） |
+| ② | token 映射（`:root` → `--ui-*`，六套主题逐套过 `check-themes`） | ✅ 完成（`var()` 链，见 App.vue 的“UI 基座 ②”块） |
 | ③ | 只让新组件用 utilities | ✅ 完成（`components/**` 只出工具类，App.vue 仍是老 CSS） |
-| ④ | 逐个换手搓控件 | **进行中**：① 决策视图（`DecisionBoard.vue`，2026-10-14 含「按项目筛选 / 项目字段 / 贴一句话自动拆字段」）；② 任务卡右键菜单（`TaskCardMenu.vue`）。下一单候选：`.overlay` 模态 → Dialog；`ctx-other`（日志 / 待办菜单）→ 同一个 ContextMenu |
-| ⑤ | 退出条件：新交互先找 shadcn | 进行中（已成文，见上「纪律」） |
+| ④ | 逐个换手搓控件 | **进行中**：① 决策视图（`DecisionBoard.vue`，2026-10-14 含“按项目筛选 / 项目字段 / 贴一句话自动拆字段”）；② 任务卡右键菜单（`TaskCardMenu.vue`）。下一单候选：`.overlay` 模态 → Dialog；`ctx-other`（日志 / 待办菜单）→ 同一个 ContextMenu |
+| ⑤ | 退出条件：新交互先找 shadcn | 进行中（已成文，见上“纪律”） |
 
 ## 已落地的基础件
 
@@ -69,7 +69,7 @@
    现由 `check-ui-base.cjs` 拦一道（**文件级**判据，一个文件里只兜底一部分它抓不住）。
 4. **`--shadow`（0 8px 32px）是弹窗那档**，别用在列表卡上；列表卡用 `shadow-sm` 档。
 5. 组件里的**文字色不要写死在组件里**：提成 App.vue 的令牌，否则 `check-themes` 量不到，
-   掉到 AA 以下也没人拦（2026-10-13「色板名写了却不存在 → SVG 整体变黑、断言全绿」同款死法）。
+   掉到 AA 以下也没人拦（2026-10-13“色板名写了却不存在 → SVG 整体变黑、断言全绿”同款死法）。
 6. ⚠ **菜单项样式别跟 App.vue 的老规则重名**：`.ctx-menu button`（特异性 0,1,1）会压过工具类（0,1,0）。
    新菜单的内容根只保留 `class="ctx-menu"` 作**测试钩子**（真 Electron 那套 e2e 按它选元素），
    老规则已收窄到 `.ctx-other`。

@@ -198,7 +198,7 @@ export interface RiceDecisionResult {
   pool?: RicePool
 }
 
-/** 条目挂在哪个项目：task 来源读卡的「项目」第一个值；其余留空（不猜） */
+/** 条目挂在哪个项目：task 来源读卡的“项目”第一个值；其余留空（不猜） */
 function projectOfItem(it: RiceItem): string {
   const sp = splitOrigin(it.origin)
   if (!sp || sp.type !== 'task') return ''
@@ -224,7 +224,7 @@ export function defaultDecisionNote(it: RiceItem): string {
 
 /**
  * 拍板导出：逐条落 decisions.md（addDecision 幂等白得），成功后回填池条目
- * `拍板:` / `决策id:`。CUT = 状态「已撤销」，池里留痕不删。
+ * `拍板:` / `决策id:`。CUT = 状态“已撤销”，池里留痕不删。
  *
  * ⚠ 先校验 eid 在池里、状态合法，再落账 —— 不许出现"决策建了但池里回填不上"。
  * ⚠ 拍板是**用户动作**：这个函数只能由页签按钮或用户直接调用，agent 不代拍。

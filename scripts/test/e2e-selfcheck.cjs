@@ -8,7 +8,7 @@
  * 判据一句话：**逐格必须有三态，未过必须带实际值；额外一格引用 P5 数字，算不出就说原因。**
  *   · 通过 / 未过 / 未开工 三态，每格恰好一个；
  *   · 未过项附实际值（不是只说"未过"）；
- *   · 额外一格从投入产出账算；算不出 → 只允许一条「算不出，因为 X」；
+ *   · 额外一格从投入产出账算；算不出 → 只允许一条“算不出，因为 X”；
  *   · 报告至少一条结论引用 P5 数字；
  *   · 自检不改计划卡。
  *
@@ -110,7 +110,7 @@ console.log('== ① 报告结构：三态 + 实际值 + 引用 P5 ==')
     })
   })(), md.split('\n').filter((l) => /^\| demo\.md \|/.test(l)).join('\n'))
   check('★★ 未过项带实际值（不是只说"未过"）',
-    /「num: docs\/x\.txt 行数 >= 5」→ 实际值 3（未过）/.test(md), md.split('\n').filter((l) => l.includes('num:')).join(' | '))
+    /“num: docs\/x\.txt 行数 >= 5”→ 实际值 3（未过）/.test(md), md.split('\n').filter((l) => l.includes('num:')).join(' | '))
   check('★★ 额外一格引用 P5 数字（¥ 与完成卡数）',
     /额外一格[\s\S]*按投入产出账[\s\S]*¥/.test(md) && /完成 2 张卡/.test(md), md.split('### 额外一格')[1]?.slice(0, 160))
   check('★ 结论里也有一条 P5 产出数字（门槛第 ④ 条）',
@@ -123,8 +123,8 @@ console.log('\n== ② 算不出：只允许一条，且必须写原因 ==')
   const md = buildSelfCheckMarkdown(reportOf([stage('P0', '未开工')], noSpend))
   const n = (md.match(/算不出/g) || []).length
   check('★ 算不出条数 ≤ 1', n <= 1, String(n))
-  check('★★ 算不出必须带「因为 X」', /算不出，因为/.test(md), md.split('### 额外一格')[1]?.slice(0, 160))
-  check('★ 缺「花了多少」时指明缺哪一格', /缺少「花了多少」/.test(md))
+  check('★★ 算不出必须带“因为 X”', /算不出，因为/.test(md), md.split('### 额外一格')[1]?.slice(0, 160))
+  check('★ 缺“花了多少”时指明缺哪一格', /缺少“花了多少”/.test(md))
 }
 
 console.log('\n== ③ 真跑：临时计划卡 → 三态 + 实际值 + 不改卡 ==')
@@ -157,7 +157,7 @@ async function main() {
   const r = await runSelfCheck({ repo: TEST_ROOT, days: 30, now: '2026-11-01T00:00:00.000Z' }, {
     ledger: () => LEDGER,
   })
-  check('★ 只跑「已冻结」的格子；待裁决记未开工',
+  check('★ 只跑“已冻结”的格子；待裁决记未开工',
     r.stages.length === 2 && r.stages[0].conclusion === '未过' && r.stages[1].conclusion === '未开工',
     JSON.stringify(r.stages.map((s) => ({ id: s.id, c: s.conclusion }))))
   check('★ 判据计数如实：1 通过 / 1 未过 / 1 未判定',
@@ -193,7 +193,7 @@ async function main() {
       check('★★ 真报告有投入产出账 + P5 数字', /## 投入产出账/.test(text) && /(¥|tokens|次提交)/.test(text))
       check('★★ 真报告至少一条结论引用 P5 数字（门槛第 ④ 条）',
         /## 结论[\s\S]*(?:产出：|按投入产出账)/.test(text), text.split('## 结论')[1]?.slice(0, 200))
-      check('★ 真报告里没有「算不出」超过 1 条', (text.match(/算不出/g) || []).length <= 1)
+      check('★ 真报告里没有“算不出”超过 1 条', (text.match(/算不出/g) || []).length <= 1)
     }
   }
 

@@ -1,7 +1,7 @@
 /**
- * 日志附属绑定 + 全组动作（2026-10-31 · 渲染层拆分第二批「日志辅助动作收口」第一刀）
+ * 日志附属绑定 + 全组动作（2026-10-31 · 渲染层拆分第二批“日志辅助动作收口”第一刀）
  *
- * 搬出来的是「主日志 ↔ 附属日志」这一组：
+ * 搬出来的是“主日志 ↔ 附属日志”这一组：
  *   · 绑定弹窗：全量候选（不受主界面筛选影响）+ 六维筛选 + 已占用原因 + 最多 20 条；
  *   · 保存绑定（logsSetAttached）；
  *   · 全组进行中 / 全组完成（带快照撤销）；
@@ -65,7 +65,7 @@ export function useLogGroups(deps: Deps) {
     }
   }
 
-  /** 一行日志的「人话状态」键：running 优先于 status（与分区同一口径） */
+  /** 一行日志的“人话状态”键：running 优先于 status（与分区同一口径） */
   function logAttachStatusOf(l: any): string {
     if (!l) return ''
     if (l.status === 'active') return l.running ? 'running' : 'active'
@@ -127,7 +127,7 @@ export function useLogGroups(deps: Deps) {
   /**
    * 候选行。三条纪律：
    *  ① 已勾选的即使不命中筛选也留下；
-   *  ② 已被别的组占走 / 自己是一组主日志的默认不列，打开「显示已占用」才列并写明原因；
+   *  ② 已被别的组占走 / 自己是一组主日志的默认不列，打开“显示已占用”才列并写明原因；
    *  ③ 排序：已选 → 进行中 → 待处理 → 已完成/归档，同级按创建倒序。
    */
   const logAttachRows = computed(() => {
@@ -154,7 +154,7 @@ export function useLogGroups(deps: Deps) {
         picked,
         blocked: !!blocked,
         reason: ownGroup ? '它自己是一组的主日志'
-          : (owner && owner.id !== main.id ? `已被「${owner.title || owner.id}」绑定` : ''),
+          : (owner && owner.id !== main.id ? `已被“${owner.title || owner.id}”绑定` : ''),
       })
     }
     return rows.sort((a, b) => (rank(a) - rank(b))
@@ -254,7 +254,7 @@ export function useLogGroups(deps: Deps) {
         snap: {
           status: l.status, running: !!l.running,
           // 2026-11-01：撤销快照也要带上"从哪一格点开"——否则还原后记忆丢了，
-          // 再撤「进行中」就会落回待处理（用户报的那条 bug 会从撤销路径复现）。
+          // 再撤“进行中”就会落回待处理（用户报的那条 bug 会从撤销路径复现）。
           runningFrom: l.runningFrom || null,
           completed: l.completed || null, retainDays: l.retainDays ?? null,
           retainUntil: l.retainUntil || null, note: l.note || '', archiveNote: l.archiveNote || '',
@@ -282,8 +282,8 @@ export function useLogGroups(deps: Deps) {
     const r: any = await window.tegula.logsGroupRunning(main.id, !!running)
     if (!r?.ok) { showToast(`操作失败：${r?.error || '未知原因'}`, 'error'); return }
     const n = (r.changed || []).length
-    if (!n) showToast(running ? '全组都已在「进行中」或已完成' : '全组都没有挂「进行中」', 'info')
-    else showToast(running ? `全组 ${n} 条已标为「进行中」` : `全组 ${n} 条已撤销「进行中」`, 'success')
+    if (!n) showToast(running ? '全组都已在“进行中”或已完成' : '全组都没有挂“进行中”', 'info')
+    else showToast(running ? `全组 ${n} 条已标为“进行中”` : `全组 ${n} 条已撤销“进行中”`, 'success')
     await loadLogs()
     if (snaps.length) {
       offerUndo(`${running ? '全组进行中' : '全组撤销进行中'}：${main.title || main.id}`, async () => {

@@ -2,15 +2,15 @@
  * 项目结构图 —— **打开该项目的 archify 产物**（2026-10-29 暮雨当场纠正后重写）。
  *
  * 上一版是错的，写在这里留个诊断：
- *   我拿「项目 → 在途 → 已完成 → 执行日志」画了一张分层图，还叫它"项目结构图"。
- *   暮雨原话：「你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。」
+ *   我拿“项目 → 在途 → 已完成 → 执行日志”画了一张分层图，还叫它"项目结构图"。
+ *   暮雨原话：“你是不是根本他妈不知道 archify 的结构图产物长什么样？这结构图有问题啊。”
  *   他说得对：archify 的产物是 **一份可交互的架构图 HTML**（组件/边界/连线/连线说明/视图章节），
  *   不是任务状态分层。方寸目前**没有能力**自己生成那种图 —— 硬拿任务数据凑一张，就是编。
  *   但"方寸自己画架构图"是他的目标（2026-10-30 第 2 条原话），已落卡 task-20261030-002；
  *   这一版先做能做的事，不冒充那个目标。
  *
  * 所以这一版只做一件事：**找到该项目仓库里最新的一份 archify 产物，打开它。**
- *   · 找不到 → 明说「还没有 archify 结构图」，并给出生成方法。
+ *   · 找不到 → 明说“还没有 archify 结构图”，并给出生成方法。
  *   · 找到了 → 交给 shell.openPath 用系统浏览器打开（方寸不重画、不改写）。
  */
 import * as fs from 'fs'
@@ -33,7 +33,7 @@ export function isArchifyArtifactName(name: string): boolean {
   return /(架构图|架构|architecture|archify)/i.test(n)
 }
 
-/** 从「文件名 + mtime」里挑最新的一份（纯函数，供 Node 直跑断言）。 */
+/** 从“文件名 + mtime”里挑最新的一份（纯函数，供 Node 直跑断言）。 */
 export function pickNewestArtifact(
   files: Array<{ path: string; rel?: string; mtime: number }>,
 ): ArchifyArtifactHit | null {
@@ -101,7 +101,7 @@ export function findArtifactForProject(projectId: string): {
     return {
       ok: false,
       error: `${name} 还没有架构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下`
-        + `（文件名带「架构图」或 architecture），再点这里。`,
+        + `（文件名带“架构图”或 architecture），再点这里。`,
       project: { id: String(p.id ?? want), name, repo },
     }
   }

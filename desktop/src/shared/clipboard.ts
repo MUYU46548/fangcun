@@ -1,13 +1,13 @@
 /**
  * 复制到剪贴板 —— 三层兜底。
  *
- * 为什么不能直接用 navigator.clipboard（2026-09-25「日志复制失败」的真因）：
+ * 为什么不能直接用 navigator.clipboard（2026-09-25“日志复制失败”的真因）：
  *   ① 打包版页面是 file:// 起源，`navigator.clipboard` 可能整个不存在；
  *   ② 即使存在，Chromium 要求 document **处于焦点**，失焦/内嵌/自动化下 writeText() 会 reject；
  *   ③ 失败是**静默**的：剪贴板里仍留着上一次的内容 —— 用户以为复制成功，粘出来是旧东西
- *      （这就是「我复制的是方寸待修复0924内容」的来源）。
+ *      （这就是“我复制的是方寸待修复0924内容”的来源）。
  * 主进程的 electron clipboard 模块没有以上限制，所以第一优先走 IPC。
- * 最后的 execCommand('copy') 兜底对「有用户手势但剪贴板 API 不可用」的场景有效。
+ * 最后的 execCommand('copy') 兜底对“有用户手势但剪贴板 API 不可用”的场景有效。
  */
 
 export interface CopyResult {

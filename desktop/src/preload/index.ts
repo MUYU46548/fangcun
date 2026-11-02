@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld('tegula', {
   listPlans: () => ipcRenderer.invoke('listPlans'),
   getPlan: (id: string) => ipcRenderer.invoke('getPlan', id),
   decidePlanPoint: (id: string, dpId: string, choice: string) => ipcRenderer.invoke('decidePlanPoint', id, dpId, choice),
-  // `findTimeoutTasks` 死通道已删（2026-10-11）：它是**既有命名误导**（只算「派活→现在」，与文件变没变无关），
+  // `findTimeoutTasks` 死通道已删（2026-10-11）：它是**既有命名误导**（只算“派活→现在”，与文件变没变无关），
   // 真僵尸卡判据是下面的 stalledTasks；函数本体保留给内部 detectEvents 用。
   stalledTasks: (thresholdHours?: number) => ipcRenderer.invoke('stalledTasks', thresholdHours),
   
@@ -146,9 +146,9 @@ contextBridge.exposeInMainWorld('tegula', {
   // Notes ── 2026-10-06 整块删除（暮雨批：笔记功能可以删）
   // 10 条通道（notesForTask / createNote / updateNote / listNotes / deleteNote /
   // attachNote / detachNote / exportNotes / importNotes / importNoteFromFile）都是
-  // 「渲染层零调用」—— 界面里从来没有过笔记入口。`notes/` 数据文件没动。
+  // “渲染层零调用”—— 界面里从来没有过笔记入口。`notes/` 数据文件没动。
 
-  // ── Tasks Import/Export（设置页「导出/导入任务 JSON」按钮）────────────
+  // ── Tasks Import/Export（设置页“导出/导入任务 JSON”按钮）────────────
   // 此前渲染层在调 window.tegula.exportTasks/importTasks，主进程也注册了同名
   // handler（ipc.ts），唯独 preload 这层没有暴露 → 点击必 TypeError（僵尸按钮第 4、5 例）。
   exportTasks: () => ipcRenderer.invoke('exportTasks'),
@@ -168,23 +168,23 @@ contextBridge.exposeInMainWorld('tegula', {
   logsRestoreVersion: (id: string, file: string) => ipcRenderer.invoke('logs:restoreVersion', id, file),
   logsComplete: (id: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:complete', id, retainDays, note),
   logsArchive: (id: string, note?: string) => ipcRenderer.invoke('logs:archive', id, note),
-  /** 撤销完成 / 撤销归档，退回「待处理」（2026-09-28：不再等于「进行中」） */
+  /** 撤销完成 / 撤销归档，退回“待处理”（2026-09-28：不再等于“进行中”） */
   logsReopen: (id: string) => ipcRenderer.invoke('logs:reopen', id),
-  /** 读状态快照 / 按快照还原（2026-10-30 撤销要回到点之前那一格，含「进行中」） */
+  /** 读状态快照 / 按快照还原（2026-10-30 撤销要回到点之前那一格，含“进行中”） */
   logsStateSnapshot: (id: string) => ipcRenderer.invoke('logs:stateSnapshot', id),
   logsRestoreState: (id: string, snap: any) => ipcRenderer.invoke('logs:restoreState', id, snap),
   /** 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：关系落盘，一键全进行中 / 全完成 */
   logsSetAttached: (mainId: string, ids: string[]) => ipcRenderer.invoke('logs:setAttached', mainId, ids),
   logsGroupRunning: (mainId: string, running: boolean) => ipcRenderer.invoke('logs:groupRunning', mainId, running),
   logsGroupComplete: (mainId: string, retainDays: number | null, note?: string) => ipcRenderer.invoke('logs:groupComplete', mainId, retainDays, note),
-  /** 手动开 / 关「进行中」（2026-09-28 用户第 2 条）。可撤销，且不是完成/归档的前置条件。 */
+  /** 手动开 / 关“进行中”（2026-09-28 用户第 2 条）。可撤销，且不是完成/归档的前置条件。 */
   logsSetRunning: (id: string, running: boolean) => ipcRenderer.invoke('logs:setRunning', id, running),
   logsDestroy: (id: string) => ipcRenderer.invoke('logs:destroy', id),
   // logs:search 已删（2026-10-01）：搜索改由 logs:list 的 filter.query 承担，
   // 与项目/Agent/日期筛选同一条取数路径（此前两条路互不相干，一刷新搜索就丢）。
   // 需要"全文搜"的调用方（MCP search_logs）直接用 services/logs.ts 的 searchLogs()。
   logsInject: (id: string) => ipcRenderer.invoke('logs:inject', id),
-  /** 多条日志拼成一份开工单（第一条当主日志，其余标「并行日志」）—— 与 MCP inject_logs 同一段文本 */
+  /** 多条日志拼成一份开工单（第一条当主日志，其余标“并行日志”）—— 与 MCP inject_logs 同一段文本 */
   logsInjectMany: (ids: string[]) => ipcRenderer.invoke('logs:injectMany', ids),
   /**
    * 附件（2026-10-01 卡 036）：主进程弹系统选文件框 → 复制进数据目录 → 返回更新后的日志。
@@ -210,7 +210,7 @@ contextBridge.exposeInMainWorld('tegula', {
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
   prefsGet: () => ipcRenderer.invoke('prefs:get'),
   prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
-  /** 项目梯度榜（2026-10-25）：只给项目页的「梯度榜」摆法用，见 services/projectTiers.ts */
+  /** 项目梯度榜（2026-10-25）：只给项目页的“梯度榜”摆法用，见 services/projectTiers.ts */
   /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
   projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
   /** 方寸自绘架构图（2026-10-30）：只读扫源码 → 图模型；导出由用户选保存位置 */
@@ -225,14 +225,14 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 一次写多个键（合并为一次读-改-写，并回读校验）；返回 { ok, written, error } */
   prefsSetMany: (patch: Record<string, any>) => ipcRenderer.invoke('prefs:setMany', patch),
   logsCleanup: () => ipcRenderer.invoke('logs:cleanup'),
-  /** 按日期批量清理「已归档」日志（软删：移进 logsDir/.trash，可恢复）。dryRun=只报命中条数 */
+  /** 按日期批量清理“已归档”日志（软删：移进 logsDir/.trash，可恢复）。dryRun=只报命中条数 */
   logsPurgeArchived: (beforeDate: string, opts?: { dryRun?: boolean }) => ipcRenderer.invoke('logs:purgeArchived', beforeDate, opts),
 
   // Blockers
   getBlockerChains: () => ipcRenderer.invoke('getBlockerChains'),
   /** Git 联动（卡 017）：只读某张卡存续期间它所属仓库的提交 + 提到本卡 ID 的提交 */
   gitTaskCommits: (taskId: string) => ipcRenderer.invoke('git:taskCommits', taskId),
-  /** 方寸自仓启动同步状态（2026-10-21 · W1-1C）：只读；界面用它显示「待同步」 */
+  /** 方寸自仓启动同步状态（2026-10-21 · W1-1C）：只读；界面用它显示“待同步” */
   selfSyncStatus: () => ipcRenderer.invoke('sync:selfStatus'),
   /** 项目路线文档实况（2026-10-21 · W1-批次 2）：只读 README/ROADMAP + 最近 docs 变更；一天一批 */
   projectDocs: (projectId: string) => ipcRenderer.invoke('project:docs', projectId),
@@ -266,7 +266,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // 端口清单来自 `ports:*`；MCP 侧直接调 `services.scanServices()` 函数、不走 IPC。
   // LLM
   llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
-  // 2026-10-17 暮雨第 10 条「花销可见」：累计 token / 次数（数据源 = ai-trace.jsonl）
+  // 2026-10-17 暮雨第 10 条“花销可见”：累计 token / 次数（数据源 = ai-trace.jsonl）
   llmUsageStats: (days?: number) => ipcRenderer.invoke('llm:usageStats', days),
   /** 月度花销（2026-10-22 · 03 任务三）：按自然月切，不是滚动 30 天 */
   llmUsageMonthly: (months?: number) => ipcRenderer.invoke('llm:usageMonthly', months),
@@ -288,7 +288,7 @@ contextBridge.exposeInMainWorld('tegula', {
   llmDecide: (dp: any, model?: string) => ipcRenderer.invoke('llm:decideDP', dp, model),
   llmReview: (projectId?: string, model?: string) => ipcRenderer.invoke('llm:quarterlyReview', projectId, model),
   llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
-  // AI 规划写回层（2026-10-12）：LLM 输出直接落「待审批」卡，用户点头才转正
+  // AI 规划写回层（2026-10-12）：LLM 输出直接落“待审批”卡，用户点头才转正
   llmPlanToDraft: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:planToDraft', goal, projectId, model),
   llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
   /** 模糊问答（2026-10-22 · 03 任务一）：事实包在主进程拼，模型只许引用事实 */
@@ -349,8 +349,8 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── Dispatch ───────────────────────────────────────────────────────
   // 2026-10-06（卡 004）：`dispatchPreview` / `dispatchExecute` **已删**。
-  // 桌面「派活」入口早在 9/20 就判死（用户：派活极不可靠、易失控，执行过程/进度/结果都看不见），
-  // 现在右键只给「📐 复制为派工单」（纯文本拼接、只复制不派发）。
+  // 桌面“派活”入口早在 9/20 就判死（用户：派活极不可靠、易失控，执行过程/进度/结果都看不见），
+  // 现在右键只给“📐 复制为派工单”（纯文本拼接、只复制不派发）。
   // 但这两个通道一直留在 preload + 主进程里 —— **渲染层零调用**，整条是死代码。
   // 删掉它，并给 check-ipc-parity 补了第 ⑤ 类（死通道）断言，下次这类残留会被查出来。
   // ⚠ CLI 侧的 `tegula dispatch` / `_build_prompt` **不是死代码**（agent 面在用），未动。
@@ -399,7 +399,7 @@ contextBridge.exposeInMainWorld('tegula', {
   skillsOpenDir: (which: string) => ipcRenderer.invoke('skills:openDir', which),
   /** 在资源管理器里显示某个技能的 SKILL.md（装到 WorkBuddy 这类只能手动导入的 agent） */
   skillsReveal: (dirOrFile: string) => ipcRenderer.invoke('skills:reveal', dirOrFile),
-  /** 「装到别的 agent」目标检测（Hermes 可直装；其余给文件+打开对方） */
+  /** “装到别的 agent”目标检测（Hermes 可直装；其余给文件+打开对方） */
   agentsList: () => ipcRenderer.invoke('agents:list'),
   agentsOpen: (id: string) => ipcRenderer.invoke('agents:open', id),
   // MCP 接入材料（卡 002 · A 路线：只出材料，方寸不写外部应用文件）
@@ -407,7 +407,7 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpSnippet: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:snippet', targetId, entryId),
   mcpSelfInstall: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:selfInstall', targetId, entryId),
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
-  /** 「哪些待办没人碰过」（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
+  /** “哪些待办没人碰过”（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
   usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
   checkMismatch: (days?: number) => ipcRenderer.invoke('mismatch:check', days),
   // 需求矩阵（RICE · 2026-10-28）：读池 / 幂等灌分 / 拍板落账 / 改月预算。
@@ -423,7 +423,7 @@ contextBridge.exposeInMainWorld('tegula', {
   todosSetPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('todos:setPinned', id, pinned),
   /** 回收站文件正文预览（不是 id，是文件名） */
   trashRead: (name: string) => ipcRenderer.invoke('trash:read', name),
-  // ⚠ 2026-10-16（用户第 2 条）：`servicesStartApp` 已删 —— 启动应用走「启动台」页
+  // ⚠ 2026-10-16（用户第 2 条）：`servicesStartApp` 已删 —— 启动应用走“启动台”页
   //   的 `launchpadLaunchApp`，服务页只管端口监控（详见 main/ipc.ts 那段说明）。
   // 技能直接导入（2026-09-26 卡 005）：kind='folder' | 'file'
   skillsImported: () => ipcRenderer.invoke('skills:imported'),
@@ -439,7 +439,7 @@ contextBridge.exposeInMainWorld('tegula', {
   servicesAdopt: (port: number, name?: string) => ipcRenderer.invoke('services:adopt', port, name),
 
   // ── 应用日志（诊断）────────────────────────────────────────────────
-  // 渲染层出错时主动回报主进程落盘；界面提供「打开日志目录 / 查看尾部」。
+  // 渲染层出错时主动回报主进程落盘；界面提供“打开日志目录 / 查看尾部”。
   applogWrite: (level: string, scope: string, message: string, detail?: string) =>
     ipcRenderer.invoke('applog:write', level, scope, message, detail),
   applogPath: () => ipcRenderer.invoke('applog:path'),

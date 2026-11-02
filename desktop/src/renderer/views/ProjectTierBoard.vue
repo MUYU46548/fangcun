@@ -2,11 +2,11 @@
   项目梯度榜（Tier List）—— 2026-10-25 暮雨
 
   两轮口径合并后才是它现在的样子：
-    ① 「单独搞个可选启用的项目优先级视图就可以了，并没有改其他任何现成功能的理由，
-        就一个手动排序小玩具。」
-    ② 「放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
-        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。」
-  → 所以：不占顶级页签（是项目页的第 5 种摆法），形状是「分档 + 拖进拖出」，不是一维名次。
+    ① “单独搞个可选启用的项目优先级视图就可以了，并没有改其他任何现成功能的理由，
+        就一个手动排序小玩具。”
+    ② “放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
+        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。”
+  → 所以：不占顶级页签（是项目页的第 5 种摆法），形状是“分档 + 拖进拖出”，不是一维名次。
 
   **边界（写死在 services/projectTiers.ts 顶部，另有测试守着）**
   只服务这一页：不参与看板分组、不影响一屏行序、不动 registry。
@@ -44,7 +44,7 @@
             @blur="commitRename(t)"
           />
           <span v-else class="tier-label-txt" title="点一下改名" @click="startRename(t)">{{ t.label }}</span>
-          <button class="tier-del" title="删掉这一档（档里的项目回到「未分档」）" @click.stop="removeTier(t)">✕</button>
+          <button class="tier-del" title="删掉这一档（档里的项目回到“未分档”）" @click.stop="removeTier(t)">✕</button>
         </div>
         <div class="tier-items">
           <span
@@ -87,7 +87,7 @@
 
     <div class="tier-note">
       这一页只给自己看：<b>不改看板分组、也不改一屏的顺序</b>。档位名可点着改，
-      「＋ 加一档」随便加；删档时档里的项目会回到「未分档」，不会消失。
+      “＋ 加一档”随便加；删档时档里的项目会回到“未分档”，不会消失。
     </div>
   </div>
 </template>
@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 // ⚠ 过桥必须给裸对象：`tiers.value` 是 Vue 响应式代理，contextBridge 走结构化克隆会抛
-//   「An object could not be cloned」——本项目 09-25 / 10-05 各踩过一次，这里第三次。
+//   “An object could not be cloned”——本项目 09-25 / 10-05 各踩过一次，这里第三次。
 import { toPlain } from '../../shared/plain'
 
 interface Tier { id: string; label: string; items: string[] }
@@ -208,7 +208,7 @@ async function onDrop(target: string): Promise<void> {
   tiers.value = next
   const ok = await save()
   if (!ok) tiers.value = prev
-  else props.toast?.(target === POOL ? '已移到「未分档」' : '已改档', 'success')
+  else props.toast?.(target === POOL ? '已移到“未分档”' : '已改档', 'success')
 }
 
 function addTier(): void {
@@ -218,7 +218,7 @@ function addTier(): void {
 }
 
 function removeTier(t: Tier): void {
-  if (!confirm(`删掉「${t.label}」这一档？\n\n档里的 ${t.items.length} 个项目会回到下面「未分档」，不会被删掉。`)) return
+  if (!confirm(`删掉“${t.label}”这一档？\n\n档里的 ${t.items.length} 个项目会回到下面“未分档”，不会被删掉。`)) return
   tiers.value = tiers.value.filter((x) => x.id !== t.id)
   void save()
 }

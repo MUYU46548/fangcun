@@ -9,7 +9,7 @@
  *  ① **只读**：只用 readdirSync / readFileSync / statSync；本文件里出现 write/rm/mkdir 就是红。
  *  ② **不联网、不调模型**：没有 fetch / http / LLM 调用。
  *  ③ **不写项目仓库**：导出的 HTML 由用户在保存对话框里选位置（IPC 里做），
- *     这条是为了守住契约「对项目 repo 只读」。
+ *     这条是为了守住契约“对项目 repo 只读”。
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -65,7 +65,7 @@ function walkFiles(repo: string): { files: string[]; truncated: boolean } {
 
 /** 文件 → 目录级节点 id（`src/main/services/logs.ts` → `src/main/services`；根目录散文件 → `(根目录)`）
  *
- * 2026-10-30（暮雨：「质量极差，无实战意义」）：原实现只到 `src/main` 一层 —— 整个主进程
+ * 2026-10-30（暮雨：“质量极差，无实战意义”）：原实现只到 `src/main` 一层 —— 整个主进程
  * 四百多个文件被画成一个方块，那不是架构图，是目录清单。现在**先到第三层**，
  * 再由 scanProject 把"只有一两个文件"的碎目录并回父级（见 rollupFineNodes）：
  * 真项目里 `src/main/services` / `src/renderer/components` 会各自成块，碎目录不占坑。
@@ -87,7 +87,7 @@ export function nodeIdOfRel(rel: string): string {
 }
 
 /**
- * 把「文件数 < 2 的第三层目录」并回父级，并把节点总数压到上限内。
+ * 把“文件数 < 2 的第三层目录”并回父级，并把节点总数压到上限内。
  * 纯函数（输入 rawCount，输出 raw → final 映射），`e2e-project-arch` 直接断言。
  *
  * 为什么按文件数而不是按名字：名字无从判断重要性；文件数是扫出来的事实。
@@ -145,7 +145,7 @@ function readPackageJson(dir: string): ArchScanFacts['packageJson'] {
  * 找这个仓库的 package.json（2026-10-30 修正：方寸自己就是 monorepo）。
  *
  * 上一版只读仓库根 —— 方寸的 package.json 在 `desktop/` 下，于是图上写着
- * 「缺 package.json / 缺入口」，而它明明就在那儿。这不是"缺"，是扫描器的盲区。
+ * “缺 package.json / 缺入口”，而它明明就在那儿。这不是"缺"，是扫描器的盲区。
  * 顺序：根 → desktop / app / packages/*（只认真实存在的，不猜）。
  */
 function findPackageJson(repo: string): { pkg: ArchScanFacts['packageJson']; base: string } {
@@ -364,7 +364,7 @@ export function archForProject(projectId: string, opts: { strict?: boolean; excl
   facts.project = { id: String(p.id ?? want), name, repo }
   let graph = buildArchGraph(facts, { strict: !!opts.strict })
   const repairs: string[] = []
-  // 「驳回重画」（2026-10-30 第 3 条）：不是在原图上涂改，而是按诊断做减法，
+  // “驳回重画”（2026-10-30 第 3 条）：不是在原图上涂改，而是按诊断做减法，
   // 最多重画 3 版；每一版做了什么都要能说出来。
   if (opts.strict) {
     for (let round = 1; round <= 3; round++) {

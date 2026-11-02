@@ -139,8 +139,8 @@ const AUDIT = `(function () {
   if (minPx < 8) out.problems.push('最小投影字号过低 ' + minPx.toFixed(2) + 'px (' + minWho + ')');
 
   // 7.5) 连通性标签 / 层提示文字之间不许互相压字
-  //      （真事：左侧「Metrics / Logs」竖排标签压在监控层「MONITORING」上；
-  //        「承载全部工作负载」压在核心服务层右上角提示上 → 都靠这条抓出来）
+  //      （真事：左侧“Metrics / Logs”竖排标签压在监控层“MONITORING”上；
+  //        “承载全部工作负载”压在核心服务层右上角提示上 → 都靠这条抓出来）
   const wantCollide = ['wire-tag', 'lane-code', 'lane-hint', 'lane-name'];
   const items = [];
   svg.querySelectorAll('text').forEach(function (t) {

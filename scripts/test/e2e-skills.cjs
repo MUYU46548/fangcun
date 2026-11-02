@@ -1,5 +1,5 @@
 /**
- * 技能安装专区（2026-09-26 卡 038「方寸技能毫无存在感」）
+ * 技能安装专区（2026-09-26 卡 038“方寸技能毫无存在感”）
  *
  * 本轮真因：主进程早就有 checkSkillsStatus / installSkills 和 `skills:check` /
  * `skills:install` 两条通道，**渲染层从来没有入口** —— 功能在、界面不在。
@@ -66,22 +66,22 @@ async function main() {
 
   for (const e of manifest.skills) {
     const it = payload.skills.find(x => x.id === e.id)
-    check(`manifest 登记的「${e.id}」出现在面板里`, !!it)
+    check(`manifest 登记的“${e.id}”出现在面板里`, !!it)
     if (!it) continue
-    check(`「${e.id}」文件真的在磁盘上（登记了就必须存在）`, it.exists === true, it.absPath)
-    check(`「${e.id}」给的是绝对路径`, path.isAbsolute(it.absPath), it.absPath)
-    check(`「${e.id}」路径与 manifest 的 file 字段一致`,
+    check(`“${e.id}”文件真的在磁盘上（登记了就必须存在）`, it.exists === true, it.absPath)
+    check(`“${e.id}”给的是绝对路径`, path.isAbsolute(it.absPath), it.absPath)
+    check(`“${e.id}”路径与 manifest 的 file 字段一致`,
       path.resolve(it.absPath) === path.resolve(skillsDir, String(e.file).replace(/^skills[\\/]/, '')), it.absPath)
-    check(`「${e.id}」带正文（供「复制全文」）`, typeof it.body === 'string' && it.body.length > 100, String(it.body || '').length)
-    check(`「${e.id}」正文就是 SKILL.md 原文（以 --- 开头）`, String(it.body || '').startsWith('---'))
-    check(`「${e.id}」正文与磁盘文件逐字节一致`,
+    check(`“${e.id}”带正文（供“复制全文”）`, typeof it.body === 'string' && it.body.length > 100, String(it.body || '').length)
+    check(`“${e.id}”正文就是 SKILL.md 原文（以 --- 开头）`, String(it.body || '').startsWith('---'))
+    check(`“${e.id}”正文与磁盘文件逐字节一致`,
       String(it.body || '') === fs.readFileSync(it.absPath, 'utf-8'), '')
-    check(`★ 「${e.id}」安装提示词里带绝对路径（这就是杜绝手抄的落点）`, it.prompt.includes(it.absPath))
-    check(`「${e.id}」提示词带技能 ID 与目标 agent`, it.prompt.includes(it.id) && it.prompt.includes(String(e.target)))
-    check(`「${e.id}」target/version 透传自 manifest`,
+    check(`★ “${e.id}”安装提示词里带绝对路径（这就是杜绝手抄的落点）`, it.prompt.includes(it.absPath))
+    check(`“${e.id}”提示词带技能 ID 与目标 agent`, it.prompt.includes(it.id) && it.prompt.includes(String(e.target)))
+    check(`“${e.id}”target/version 透传自 manifest`,
       it.target === String(e.target) && it.version === String(e.version), `${it.target}/${it.version}`)
-    check(`「${e.id}」hash 是 32 位 md5`, /^[0-9a-f]{32}$/.test(it.hash), it.hash)
-    check(`「${e.id}」未装时 installed=false / outdated=true`, it.installed === false && it.outdated === true)
+    check(`“${e.id}”hash 是 32 位 md5`, /^[0-9a-f]{32}$/.test(it.hash), it.hash)
+    check(`“${e.id}”未装时 installed=false / outdated=true`, it.installed === false && it.outdated === true)
   }
 
   // ── 2. 磁盘上有、manifest 没登记的 → 必须报出来（不静默漏装）────────
@@ -100,8 +100,8 @@ async function main() {
     JSON.stringify(first))
   for (const e of manifest.skills) {
     const dest = path.join(payload.hermesDir, e.id, 'SKILL.md')
-    check(`「${e.id}」落到 Hermes 技能目录`, fs.existsSync(dest), dest)
-    check(`「${e.id}」落位内容与真源一致`,
+    check(`“${e.id}”落到 Hermes 技能目录`, fs.existsSync(dest), dest)
+    check(`“${e.id}”落位内容与真源一致`,
       fs.existsSync(dest) && fs.readFileSync(dest, 'utf-8') === fs.readFileSync(path.join(skillsDir, e.id, 'SKILL.md'), 'utf-8'))
   }
   const installedManifest = JSON.parse(fs.readFileSync(path.join(payload.hermesDir, '.fangcun-installed.json'), 'utf-8'))
@@ -117,7 +117,7 @@ async function main() {
   check('状态里每条都 installed 且非 outdated',
     statusAfter.skills.every(s => s.installed && !s.outdated), JSON.stringify(statusAfter.skills))
 
-  // 模拟「用户手上那份被改脏了」→ 必须能识别并重装
+  // 模拟“用户手上那份被改脏了”→ 必须能识别并重装
   const victim = manifest.skills[0].id
   const victimDest = path.join(payload.hermesDir, victim, 'SKILL.md')
   fs.writeFileSync(victimDest, '---\nname: 被改坏的\n---\n', 'utf-8')
@@ -148,8 +148,8 @@ async function main() {
   const openFail = await skillsMod.openSkillsDir('resources')
   check('★ 打开失败要返回原因（不是静默 ok）', openFail.ok === false && !!openFail.error, JSON.stringify(openFail))
 
-  // ── 5. 「📂 显示 SKILL.md」的路径裁决（resolveRevealTarget）──────────────
-  // 2026-09-28 用户实测报障：「安装方寸技能会显示路径问题，导致错误」。
+  // ── 5. “📂 显示 SKILL.md”的路径裁决（resolveRevealTarget）──────────────
+  // 2026-09-28 用户实测报障：“安装方寸技能会显示路径问题，导致错误”。
   // 真因（在 userData/logs 的当日日志里，4 条 `路径不在技能目录内`）：
   // 白名单只放行 Hermes 侧，而技能页那张卡传的是**方寸真源**的路径
   // （`skills/<id>/SKILL.md`）→ 按钮在自发布技能上 100% 失败。
@@ -158,10 +158,10 @@ async function main() {
   const hermesDir = skillsMod.getHermesSkillsDirPath()
 
   const rSrc = skillsMod.resolveRevealTarget(path.join(skillsDir, 'fangcun-bridge', 'SKILL.md'))
-  check('★ 真源 SKILL.md 允许显示（此前必定失败 —— 用户报的「路径问题」）',
+  check('★ 真源 SKILL.md 允许显示（此前必定失败 —— 用户报的“路径问题”）',
     rSrc.ok === true && rSrc.skillMd === path.join(skillsDir, 'fangcun-bridge', 'SKILL.md'),
     JSON.stringify(rSrc))
-  check('  真源那条的提示里写明是「方寸真源」', /方寸真源/.test(String(rSrc.message)), String(rSrc.message))
+  check('  真源那条的提示里写明是“方寸真源”', /方寸真源/.test(String(rSrc.message)), String(rSrc.message))
 
   const rDir = skillsMod.resolveRevealTarget(path.join(skillsDir, 'skill-management-policy'))
   check('  传目录时自动补成 <目录>/SKILL.md',
@@ -169,7 +169,7 @@ async function main() {
 
   const rHermes = skillsMod.resolveRevealTarget(path.join(hermesDir, 'fangcun-bridge', 'SKILL.md'))
   check('★ Hermes 侧副本仍允许显示（原有行为不能被修坏）', rHermes.ok === true, JSON.stringify(rHermes))
-  check('  Hermes 那条的提示里写明是「Hermes 侧副本」', /Hermes 侧副本/.test(String(rHermes.message)), String(rHermes.message))
+  check('  Hermes 那条的提示里写明是“Hermes 侧副本”', /Hermes 侧副本/.test(String(rHermes.message)), String(rHermes.message))
 
   const rOut = skillsMod.resolveRevealTarget('C:/Windows/System32/drivers/etc/hosts')
   check('★ 技能目录之外的任意路径一律拒绝（白名单没被放宽成"什么都能开"）',
@@ -184,7 +184,7 @@ async function main() {
   const evilMd = path.join(evilDir, 'SKILL.md')
   fs.writeFileSync(evilMd, '---\nname: evil\ndescription: 兄弟目录，不该被放行\n---\n', 'utf-8')
   const rEvil = skillsMod.resolveRevealTarget(evilMd)
-  check('★ 兄弟目录「skills-evil」（真实存在）不能蒙混过关 —— 前缀判定必须带分隔符',
+  check('★ 兄弟目录“skills-evil”（真实存在）不能蒙混过关 —— 前缀判定必须带分隔符',
     rEvil.ok === false && /路径不在技能目录内/.test(String(rEvil.message)), JSON.stringify(rEvil))
   const rNoFile = skillsMod.resolveRevealTarget(path.join(skillsDir, '不存在的技能', 'SKILL.md'))
   check('  目录内但文件不存在 → 明确说找不到，不是假 ok',

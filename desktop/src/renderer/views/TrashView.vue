@@ -38,7 +38,7 @@
         <button class="ghost" title="退出多选模式并清空选择" @click="exitTrashBatch">取消</button>
       </div>
       <div class="trash-notebar">
-        删掉的任务先来这儿 —— 数据没丢，可以还原；「彻底删除」才真的从磁盘删掉，不可撤销。
+        删掉的任务先来这儿 —— 数据没丢，可以还原；“彻底删除”才真的从磁盘删掉，不可撤销。
         <b>点卡片任意位置能看正文</b>，看完再决定删还是留。
       </div>
 
@@ -49,7 +49,7 @@
       </div>
       <div v-else-if="!filteredTrash.length" class="empty-state">
         <div class="empty-icon">🔍</div>
-        <div class="empty-text">没有匹配「{{ trashQuery }}」的条目</div>
+        <div class="empty-text">没有匹配“{{ trashQuery }}”的条目</div>
         <button class="trash-btn" @click="trashQuery = ''">清空搜索</button>
       </div>
       <div v-else class="trash-list" :class="{ batching: trashBatchMode }">
@@ -57,7 +57,7 @@
           :class="{ selected: trashBatchMode && selectedTrashBatch.includes(it.name) }"
           @click="onTrashItemClick(it, $event)">
           <!-- 2026-09-30 用户第 5 条（卡 task-20260930-005）：显式勾选框 —— 此前选中只有
-               边框/底色变化，且 hover 会盖掉它，用户「看不清到底是否选中」。 -->
+               边框/底色变化，且 hover 会盖掉它，用户“看不清到底是否选中”。 -->
           <span v-if="trashBatchMode" class="trash-batch-chk"
             :class="{ on: selectedTrashBatch.includes(it.name) }">✓</span>
           <div class="trash-main"
@@ -74,7 +74,7 @@
             </div>
           </div>
           <div class="trash-actions" v-show="!trashBatchMode">
-            <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回「归档」，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
+            <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回“归档”，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
             <button class="trash-btn danger" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</button>
           </div>
         </div>
@@ -86,7 +86,7 @@
         <h3>按日期清理回收站</h3>
         <div class="hint">
           彻底删除<b>进回收站时间早于</b>下面所选日期的条目。这里删的是回收站里的文件本身，
-          <b>删了就找不回来</b> —— 所以先「预览命中」看清是哪些，再确认。
+          <b>删了就找不回来</b> —— 所以先“预览命中”看清是哪些，再确认。
         </div>
         <div class="lpurge-row">
           <label>早于</label>
@@ -202,7 +202,7 @@ async function restoreTrashItem(it: TrashItem): Promise<void> {
   if (r && r.ok) {
     props.toast(`已还原 ${it.id}${r.archived ? '（回归档区）' : ''}`, 'success')
     await loadTrash()
-    // 还原会改任务列表，但**这里不能刷任务**：回收站视图的顶栏计数刻意显示「—」
+    // 还原会改任务列表，但**这里不能刷任务**：回收站视图的顶栏计数刻意显示“—”
     // （见 countText 注释），在这儿 loadAll 会把它变成任务条数，自相矛盾。
     // 切回看板时 loadViewData 自己会拉 —— 原来那句 `if (curView !== 'trash')` 于是恒为真，
     // 搬进组件后连判断都不需要了。
@@ -212,7 +212,7 @@ async function restoreTrashItem(it: TrashItem): Promise<void> {
 }
 
 async function purgeTrashItem(it: TrashItem): Promise<void> {
-  if (!confirm(`彻底删除「${it.title || it.id}」？\n\n文件：${it.name}\n这是从磁盘删除，不可撤销。`)) return
+  if (!confirm(`彻底删除“${it.title || it.id}”？\n\n文件：${it.name}\n这是从磁盘删除，不可撤销。`)) return
   const r = await window.tegula.trashPurge(it.name)
   if (r && r.ok) {
     props.toast(`已彻底删除 ${it.name}`, 'success')
@@ -222,8 +222,8 @@ async function purgeTrashItem(it: TrashItem): Promise<void> {
   }
 }
 
-// ── 按日期清理回收站（2026-10-17 暮雨第 2 条：「删除此之前的所有内容」）──────
-// 与「清理已归档日志」同构：先预览、再确认。差别只有一个 —— 那边是软删（移进日志回收站），
+// ── 按日期清理回收站（2026-10-17 暮雨第 2 条：“删除此之前的所有内容”）──────
+// 与“清理已归档日志”同构：先预览、再确认。差别只有一个 —— 那边是软删（移进日志回收站），
 // 这边删的是回收站里的文件本身，**不可撤销**，所以文案必须说满。
 const trashPurgeOpen = ref(false)
 const trashPurgeDate = ref('')
@@ -290,7 +290,7 @@ async function executeTrashPurge(): Promise<void> {
   await loadTrash()
 }
 
-// ── 回收站多选（2026-09-30 用户补充：「待办和回收站也加入多选，这些也是常用场景」）──
+// ── 回收站多选（2026-09-30 用户补充：“待办和回收站也加入多选，这些也是常用场景”）──
 // 交互与看板/日志/待办同一套：工具条开关 → 点条目勾选 → 悬浮批量栏执行。
 // 选中键用 it.name（同 id 可能有同名副本，name = trash 里的文件名，唯一）。
 function toggleTrashBatchMode() {
@@ -306,7 +306,7 @@ function toggleTrashBatchSelect(name: string) {
 /**
  * 回收站条目点击（2026-09-30 用户第 5 条，卡 task-20260930-005）。
  * 热区从 .trash-main 扩到**整行** —— 行内 padding / 两行之间的空隙原来都是死区，
- * 点了没反应，用户只能「点好几次」碰运气。动作按钮（还原/删除）的点击不参与选择。
+ * 点了没反应，用户只能“点好几次”碰运气。动作按钮（还原/删除）的点击不参与选择。
  */
 function onTrashItemClick(it: TrashItem, e: MouseEvent): void {
   const t = e.target as HTMLElement | null
@@ -355,9 +355,9 @@ async function executeBatchTrashPurge() {
 }
 
 /**
- * 回收站卡片预览（2026-09-26 用户回执：「每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个」）
+ * 回收站卡片预览（2026-09-26 用户回执：“每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个”）
  *
- * 之前只有「还原 / 彻底删除」两个按钮 —— 卡片本体点了没反应，想删又怕删错，只能凭标题猜。
+ * 之前只有“还原 / 彻底删除”两个按钮 —— 卡片本体点了没反应，想删又怕删错，只能凭标题猜。
  * 现在点卡片任意位置读该文件的**源码正文**（只读），看完再决定；浮层里也给同一对动作。
  * 关闭时机有讲究：动作成功且这一份**真的从列表里消失了**才关，没删掉就把浮层留着（别骗用户）。
  */
@@ -374,7 +374,7 @@ async function openTrashPreview(it: TrashItem): Promise<void> {
   trashPreview.value = { item: it, text: '', truncated: false, loading: true, error: '' }
   const t: any = window.tegula
   if (typeof t.trashRead !== 'function') {
-    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: '当前主进程/预加载是旧版本，没有预览通道 —— 托盘右键「退出」后重开' }
+    trashPreview.value = { item: it, text: '', truncated: false, loading: false, error: '当前主进程/预加载是旧版本，没有预览通道 —— 托盘右键“退出”后重开' }
     return
   }
   try {

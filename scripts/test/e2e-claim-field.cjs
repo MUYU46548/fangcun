@@ -65,9 +65,9 @@ const list = data.loadTasks('active')
 check('卡被读到（认领字段若导致解析失败，这里会是 0 张 —— 卡直接隐身）',
   list.length === 1, String(list.length))
 const t = list[0] || { fm: {} }
-check('★★ 中文键「认领人」→ claimed_by（别名表映射生效）',
+check('★★ 中文键“认领人”→ claimed_by（别名表映射生效）',
   t.fm.claimed_by === 'hermes', String(t.fm.claimed_by))
-check('★★ 「认领时间」→ claimed_at', String(t.fm.claimed_at) === CLAIM_AT, String(t.fm.claimed_at))
+check('★★ “认领时间”→ claimed_at', String(t.fm.claimed_at) === CLAIM_AT, String(t.fm.claimed_at))
 check('★ 没掉进未知字段里（未知字段会被原样透传，但界面/逻辑读不到）',
   !(t.fm['认领人']), String(t.fm['认领人']))
 
@@ -83,7 +83,7 @@ check('★★ 认领时间也还在（漏一个就等于把租约起点清了）
 check('  标题确实改了（证明这次写盘真发生了，不是"没动所以没丢"）',
   /标题:\s*改了个标题/.test(raw), raw.split('\n').filter((l) => /标题/.test(l)).join(' | '))
 
-console.log('\n---- 3. 桌面改「状态」这类会走另一条分支的字段，认领还是不丢 ----')
+console.log('\n---- 3. 桌面改“状态”这类会走另一条分支的字段，认领还是不丢 ----')
 tasksData.updateTask('task-20261022-001', { status: '待验收' })
 raw = fs.readFileSync(CARD, 'utf-8')
 check('★ 改状态后认领仍在（状态迁移不该顺手把认领导致丢失）',
@@ -111,7 +111,7 @@ fs.writeFileSync(CARD2, [
 ].join('\n'), 'utf-8')
 tasksData.updateTask('task-20261022-002', { title: '改一下' })
 const raw2 = fs.readFileSync(CARD2, 'utf-8')
-check('★ 旧卡（从来没有认领）写回后仍然没有「认领人」这行',
+check('★ 旧卡（从来没有认领）写回后仍然没有“认领人”这行',
   !/认领人/.test(raw2) && !/认领时间/.test(raw2), raw2.slice(0, 160))
 const t2 = data.loadTasks('active').find((x) => x.id === 'task-20261022-002')
 check('  读出来 claimed_by 是空（不是 undefined 挂着一个假值）',

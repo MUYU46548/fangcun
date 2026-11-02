@@ -2,14 +2,14 @@
  * 回归：方针卡未知节保留 + 项目事实注入链路（2026-09-25 六字段派工单）
  *
  * 背景：savePolicy 原本从 interface 四字段整体重建 policies/<id>.md ——
- *   手写加的「项目事实」「结构地图」节会在 UI 保存时被静默吃掉。
- *   同时 Python 侧 read_policy/_build_prompt 新增「项目事实」读取与任务书注入。
+ *   手写加的“项目事实”“结构地图”节会在 UI 保存时被静默吃掉。
+ *   同时 Python 侧 read_policy/_build_prompt 新增“项目事实”读取与任务书注入。
  *
  * 断言：
  *  A 保留 —— savePolicy 后未知节原样存活；已知四节内容更新正常；无节时零残留
- *  B 注入 —— core.py read_policy 读到「项目事实」；_build_prompt 含项目事实节+
+ *  B 注入 —— core.py read_policy 读到“项目事实”；_build_prompt 含项目事实节+
  *     开工纪律（先搜后写/抽象档位/兜底报备）；无方针卡时任务书无噪音节
- *  C 接线 —— TS/Python 两侧节名约定一致（「## 项目事实」）
+ *  C 接线 —— TS/Python 两侧节名约定一致（“## 项目事实”）
  */
 const path = require('path')
 const fs = require('fs')
@@ -52,7 +52,7 @@ function main() {
     fs.writeFileSync(path.join(TEST_ROOT, 'registry.yaml'), 'members: {}\nprojects: []\n', 'utf-8')
     data.setDataDir(TEST_ROOT)
 
-    // A1 未知节存活：先手写一张含「项目事实」节的方针卡
+    // A1 未知节存活：先手写一张含“项目事实”节的方针卡
     const pid = 'testproj'
     const dir = path.join(TEST_ROOT, 'policies')
     fs.mkdirSync(dir, { recursive: true })
@@ -69,7 +69,7 @@ function main() {
     pol.savePolicy({ projectId: pid, mission: '新使命', goal: '新目标', scenario: '自用', boundary: '红线不动', updatedAt: '' })
 
     const after = fs.readFileSync(path.join(dir, pid + '.md'), 'utf-8')
-    check('A2 未知节「项目事实」在 UI 保存后存活', after.includes('## 项目事实') && after.includes('guarded-ipc'),
+    check('A2 未知节“项目事实”在 UI 保存后存活', after.includes('## 项目事实') && after.includes('guarded-ipc'),
       after.slice(0, 200))
     check('A3 已知四节内容更新生效', after.includes('新使命') && after.includes('新目标'))
     // A4 未知节未知标题也保留（现场笔记 —— 手写追加的任意节）
@@ -80,7 +80,7 @@ function main() {
     check('A4 未知节未知标题也保留（现场笔记）',
       a2.includes('## 现场笔记') && a2.includes('手写的东西') && a2.includes('## 项目事实'), a2.slice(-300))
     // A4b（029）：结构地图骨架已在卡上（A2 那次保存落的）→ 不得再追加第二份
-    check('A4b 已有「结构地图」节不被重复追加（节标题恰好 1 个）',
+    check('A4b 已有“结构地图”节不被重复追加（节标题恰好 1 个）',
       (a2.match(/^##\s*结构地图\s*$/gm) || []).length === 1,
       String((a2.match(/^##\s*结构地图\s*$/gm) || []).length))
     // A4c（029）：agent 起草好的地图内容（骨架被换成真内容）在 UI 保存后必须存活
@@ -96,14 +96,14 @@ function main() {
         && (a3.match(/^##\s*结构地图\s*$/gm) || []).length === 1
     })())
 
-    // A5（029 改）：全新骨架**必须带**「结构地图」节标题 —— 缺口可见（与章程缺口同一机制）；
-    //   同时「项目事实」仍不得凭空冒出（它只走保留，不靠生成）。
+    // A5（029 改）：全新骨架**必须带**“结构地图”节标题 —— 缺口可见（与章程缺口同一机制）；
+    //   同时“项目事实”仍不得凭空冒出（它只走保留，不靠生成）。
     pol.savePolicy({ projectId: 'fresh-proj', mission: 'm', goal: 'g', scenario: 's', boundary: 'b', updatedAt: '' })
     const fresh = fs.readFileSync(path.join(dir, 'fresh-proj.md'), 'utf-8')
-    check('A5 全新骨架带「结构地图」节标题 + 最后核实占位（缺口可见）',
+    check('A5 全新骨架带“结构地图”节标题 + 最后核实占位（缺口可见）',
       fresh.includes('## 结构地图') && /最后核实/.test(fresh), fresh.slice(-200))
-    check('A5b 骨架不带「项目事实」（只保留、不生成）', !fresh.includes('## 项目事实'))
-    check('A5c 再保存一次仍只有一个「结构地图」节', (() => {
+    check('A5b 骨架不带“项目事实”（只保留、不生成）', !fresh.includes('## 项目事实'))
+    check('A5c 再保存一次仍只有一个“结构地图”节', (() => {
       pol.savePolicy({ projectId: 'fresh-proj', mission: 'm2', goal: 'g', scenario: 's', boundary: 'b', updatedAt: '' })
       const f2 = fs.readFileSync(path.join(dir, 'fresh-proj.md'), 'utf-8')
       return (f2.match(/^##\s*结构地图\s*$/gm) || []).length === 1
@@ -116,15 +116,15 @@ function main() {
       const got = pol.getPolicy('ml-proj')
       return !!got && got.mission === '第一行\n第二行\n第三行'
     })(), JSON.stringify(pol.getPolicy('ml-proj')?.mission))
-    // A8（029）：结构地图节可被读出（渲染层用它判断「缺口」），且多行内容完整
-    check('A8 getPolicy 读到「结构地图」节（多行完整）', (() => {
+    // A8（029）：结构地图节可被读出（渲染层用它判断“缺口”），且多行内容完整
+    check('A8 getPolicy 读到“结构地图”节（多行完整）', (() => {
       const g = pol.getPolicy(pid)
       const s = String(g?.structureMap || '')
       return s.includes('core.py') && s.includes('最后核实：2026-09-27') && s.includes('主数据流')
     })(), JSON.stringify(pol.getPolicy(pid)?.structureMap))
 
     // ── A9–A11（2026-09-28 卡 029 入口改造）：结构地图要能从界面改 ──────────
-    // 用户驳回原话「找不到在哪里」——真因是它只存在于文件里，界面既看不到也改不了。
+    // 用户驳回原话“找不到在哪里”——真因是它只存在于文件里，界面既看不到也改不了。
     // 现在 `savePolicy` 显式写这一节，所以必须钉住三件事（尤其第 2 条，那是数据丢失风险）。
     const MAPV = '> 最后核实：2026-09-28（界面改的）\n- 模块清单：UI_MAP_MARKER\n- 主数据流：A → B → C'
     pol.savePolicy({ projectId: pid, mission: '新使命', goal: '', scenario: '', boundary: '', structureMap: MAPV, updatedAt: '' })
@@ -132,7 +132,7 @@ function main() {
     check('★ A9 界面传入的 structureMap 真的落盘（不是只读得到）',
       afterUi.includes('UI_MAP_MARKER') && afterUi.includes('最后核实：2026-09-28'),
       afterUi.slice(-260))
-    check('   A9b 且只写了一份「结构地图」节（显式写出 + 旧节保留不得叠加）',
+    check('   A9b 且只写了一份“结构地图”节（显式写出 + 旧节保留不得叠加）',
       (afterUi.match(/^##\s*结构地图\s*$/gm) || []).length === 1,
       String((afterUi.match(/^##\s*结构地图\s*$/gm) || []).length))
     check('★ A10 **不传** structureMap 时沿用文件里已有的（"没传" ≠ "清空" —— 最危险的一类回归）', (() => {
@@ -158,7 +158,7 @@ sys.path.insert(0, ${JSON.stringify(REPO.replace(/\\/g, '/'))})
 os.environ['FC_TEST_USERDATA'] = ''  # 不覆盖——直接用真实 DATA_DIR 读
 from tegula import core
 
-# B1: read_policy 读「项目事实」节（真实 bianjishi 卡先补一节到临时文件测试）
+# B1: read_policy 读“项目事实”节（真实 bianjishi 卡先补一节到临时文件测试）
 import tempfile, shutil
 # 用临时项目 id 隔离：直接测 section 逻辑（造一张临时卡在真实 policies 目录，测完删）
 pid = 'zz-e2e-test-proj'
@@ -178,7 +178,7 @@ try:
     assert '## 项目事实' in prompt and 'guarded-ipc' in prompt, '任务书未注入项目事实'
     assert '## 开工纪律' in prompt and '先搜后写' in prompt, '任务书缺开工纪律'
     assert '报备' in prompt, '任务书缺兜底报备'
-    assert '数据流五句话' in prompt, '任务书缺「数据流五句话」纪律（029）'
+    assert '数据流五句话' in prompt, '任务书缺“数据流五句话”纪律（029）'
     print('B2_OK')
     # B4（029）：结构地图只指路、不整段内联（否则每份任务书灌一屏地图）
     assert '结构地图' in prompt, '任务书未指路方针卡的结构地图'
@@ -207,18 +207,18 @@ finally:
   // ══ C. 两侧节名约定一致（源码静态守卫，防漂移） ═════════════════════
   const pySrc = fs.readFileSync(path.join(REPO, 'tegula/core.py'), 'utf-8')
   const tsSrc = fs.readFileSync(path.join(REPO, 'desktop/src/main/services/policies.ts'), 'utf-8')
-  check('C1 Python 侧读「项目事实」', pySrc.includes('section("项目事实")') || pySrc.includes("section('项目事实')"))
-  check('C2 TS 侧保留列表不含「项目事实」（它走保留而非重建）',
+  check('C1 Python 侧读“项目事实”', pySrc.includes('section("项目事实")') || pySrc.includes("section('项目事实')"))
+  check('C2 TS 侧保留列表不含“项目事实”（它走保留而非重建）',
     tsSrc.includes("known.includes(h.name)") && !tsSrc.includes("'项目事实'"))
   check('C3 TS 侧结构地图同样受保护（通用保留，非白名单）', tsSrc.includes('preserveSections'))
   // C4/C5（029）：结构地图两侧都认得 + 骨架必须带节标题（缺口可见）
-  check('C4 TS 侧会读「结构地图」节（section(\'结构地图\')）', /section\('结构地图'\)/.test(tsSrc))
+  check('C4 TS 侧会读“结构地图”节（section(\'结构地图\')）', /section\('结构地图'\)/.test(tsSrc))
   // 2026-09-28：节标题改由 savePolicy 显式写出（结构地图要能从界面改），骨架只剩**正文**，
   // 所以常量名从 SKELETON_STRUCTURE_MAP 改成 ..._BODY；这条按新结构对齐（行为断言见 A5）。
-  check('C5 骨架生成器带「结构地图」节标题（缺口可见）',
+  check('C5 骨架生成器带“结构地图”节标题（缺口可见）',
     tsSrc.includes('SKELETON_STRUCTURE_MAP_BODY') && tsSrc.includes('## 结构地图'))
-  check('C6 Python 侧会读「结构地图」节', /section\("结构地图"\)/.test(pySrc))
-  check('C7 任务书含「数据流五句话」纪律（卡 029 配套）', pySrc.includes('数据流五句话'))
+  check('C6 Python 侧会读“结构地图”节', /section\("结构地图"\)/.test(pySrc))
+  check('C7 任务书含“数据流五句话”纪律（卡 029 配套）', pySrc.includes('数据流五句话'))
 
   console.log(`\n${fail === 0 ? 'RESULT PASS' : 'RESULT FAIL'} — ${pass}/${pass + fail}`)
   if (failures.length) { console.log('失败项:'); failures.forEach(f => console.log('  ✗ ' + f)) }

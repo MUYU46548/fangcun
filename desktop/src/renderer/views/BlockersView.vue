@@ -1,12 +1,12 @@
 <!--
   阻塞源视图（从 App.vue 抽出，2026-10-22 · 拆分计划第 1 批第 2 块）
 
-  **2026-10-31 结构重做（暮雨第 7 条：「按它们该服务哪个决策做一次结构重做，单加出口不能从根本解决」）**：
+  **2026-10-31 结构重做（暮雨第 7 条：“按它们该服务哪个决策做一次结构重做，单加出口不能从根本解决”）**：
   这一页只服务一个决策 —— **现在先解哪一张？**
   所以三层，从上到下就是读的顺序：
     ① 一行结论（有几个源、挡着几张、先解谁）；
-    ② 「先解这个」一张大卡（收益 + 解锁名单 + 去处理）；
-    ③ 「其余按收益排队」的队列（每行一句为什么 + 去处理）。
+    ② “先解这个”一张大卡（收益 + 解锁名单 + 去处理）；
+    ③ “其余按收益排队”的队列（每行一句为什么 + 去处理）。
   原来的完整阻塞链**没有删**，降级成折叠的"证据"—— 想核对"到底谁挡谁"才展开。
 
   派生全在 `shared/blockers.ts` 的纯函数里（`buildBlockerQueue`），组件不重算 ——
@@ -36,7 +36,7 @@
         </div>
         <div class="ba-note">
           它一解，<b>{{ queue.top.unlock }}</b> 个任务就不再被卡（其中
-          {{ queue.top.direct }} 个是它直接挡住的，其余是「挡住的人又被它挡住」的连带）
+          {{ queue.top.direct }} 个是它直接挡住的，其余是“挡住的人又被它挡住”的连带）
         </div>
         <div v-if="queue.top.unlockTitles.length" class="ba-who">
           解开后能动：{{ queue.top.unlockTitles.join('、') }}<span v-if="queue.top.unlock > queue.top.unlockTitles.length"> 等</span>
@@ -60,7 +60,7 @@
 
       <!-- ③ 证据：完整阻塞链（默认折叠） -->
       <details class="blocker-evidence" v-if="chains.length">
-        <summary>完整阻塞链 · {{ chains.length }} 条（点开核对「谁挡谁」）</summary>
+        <summary>完整阻塞链 · {{ chains.length }} 条（点开核对“谁挡谁”）</summary>
         <div class="blocker-chains">
           <div v-for="src in chains" :key="src.id" class="chain-card">
             <div class="chain-main">
@@ -92,7 +92,7 @@
       <div v-if="!chains.length" class="empty-state">
         <div class="empty-icon">✓</div>
         <div class="empty-text">没有阻塞源 — 没有任何一张卡在等别的卡</div>
-        <div class="empty-sub">要加依赖：在任务详情里填「阻塞」，或在新建任务时挑一张「做完它才能开始」的卡。</div>
+        <div class="empty-sub">要加依赖：在任务详情里填“阻塞”，或在新建任务时挑一张“做完它才能开始”的卡。</div>
       </div>
     </main>
 </template>
@@ -104,7 +104,7 @@ import { statusClass } from '../../shared/status'
 
 /** 唯一输入：主进程 findBlockers 给的阻塞链 */
 const props = defineProps<{ chains: any[] }>()
-/** 2026-10-31：点「打开卡片」→ 打开那张卡；点「标完成」→ 直接解掉（落盘与确认都在 App，组件只发意图） */
+/** 2026-10-31：点“打开卡片”→ 打开那张卡；点“标完成”→ 直接解掉（落盘与确认都在 App，组件只发意图） */
 const emit = defineEmits<{
   (e: 'open-task', id: string): void
   (e: 'finish-task', id: string): void
@@ -112,7 +112,7 @@ const emit = defineEmits<{
 
 /** 决策队列（结论 / 先解这个 / 其余排序）—— 算法在 shared/blockers.ts */
 const queue = computed(() => buildBlockerQueue(props.chains))
-/** 「先解这个」之外的行（按同一份排序，编号从 2 起） */
+/** “先解这个”之外的行（按同一份排序，编号从 2 起） */
 const rest = computed(() => {
   const topId = queue.value.top?.id
   return queue.value.rows.filter((r) => r.id !== topId)

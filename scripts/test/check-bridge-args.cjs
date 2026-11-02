@@ -125,7 +125,7 @@ if (require.main === module) {
   console.log(`扫到 ${scanned.length} 处"对象 ref 进 IPC"的调用：`)
   scanned.forEach((s) => console.log('  · ' + s))
   if (problems.length) {
-    console.log(`\n失败 ${problems.length} 处 —— 这些会把 Vue 代理直接交给 contextBridge，真机上表现为「保存失败」：`)
+    console.log(`\n失败 ${problems.length} 处 —— 这些会把 Vue 代理直接交给 contextBridge，真机上表现为“保存失败”：`)
     problems.forEach((p) => console.log(`  ✗ ${p.where}  ${p.ref}.value 未过 toPlain\n      ${p.code}`))
     console.log('\n改法：把实参换成 toPlain(xxx.value)；`toPlain` 见 desktop/src/shared/plain.ts。')
     process.exit(1)

@@ -72,7 +72,7 @@ const sample = [
   '> 月预算（元）: 500',
   '',
   '## rice-task-T-042 关窗行为开关',
-  '- 标题: 设置页加「关窗行为」开关（默认真退出）',
+  '- 标题: 设置页加“关窗行为”开关（默认真退出）',
   '- 来源: task:task-T-042',
   '- R: 5',
   '- I: 1',
@@ -207,14 +207,14 @@ console.log('\n== ④ 散点几何 / 汇总 ==')
   check('预算设置 → P0 花费/占用比', s1.p0Cost === 10 && s1.budgetRatio === 0.1, JSON.stringify(s1))
 }
 
-// ── 原型里「分数之外」的四件（2026-10-29 暮雨第 1 条）──────────────────────
+// ── 原型里“分数之外”的四件（2026-10-29 暮雨第 1 条）──────────────────────
 console.log('\n== ④b 容量护栏 / 立场句 / 为什么做为什么砍 / 重评触发 ==')
 {
   const it2 = (o) => ({ eid: 'e', title: 't', origin: 'external:x', R: 1, I: 1, C: 1, E_days: 1, E_cost: 0, evidence: '纯直觉', by: '', note: '', verdict: '', decisionId: '', ...o })
   const mk = (cost, days) => ({ budget: 100, items: [it2({ eid: 'p0', E_cost: cost, E_days: days, R: 100, I: 3, C: 0.95 })] })
 
   const unset = R.riceSummary({ budget: 0, items: [it2({ E_cost: 10 })] })
-  check('★★ 没设预算 → guard=unset，且话说清「别读成没超支」',
+  check('★★ 没设预算 → guard=unset，且话说清“别读成没超支”',
     unset.guard === 'unset' && unset.guardText.indexOf('没超支') >= 0, unset.guardText)
   const okS = R.riceSummary(mk(10, 3))
   check('★ 占 10% → guard=ok，文案给余量', okS.guard === 'ok' && okS.headroom === 90, JSON.stringify([okS.guard, okS.headroom]))
@@ -245,7 +245,7 @@ console.log('\n== ④b 容量护栏 / 立场句 / 为什么做为什么砍 / 重
   check('  未决定的单独计数', why.pending === 1, String(why.pending))
   check('  文案同时说三件事（决定数 / 缺理由 / 未决定）',
     why.text.indexOf('已决定 3') >= 0 && why.text.indexOf('没写理由') >= 0 && why.text.indexOf('未决定') >= 0, why.text)
-  check('  空池 → 说「还没有决定记录」，不吐空串',
+  check('  空池 → 说“还没有决定记录”，不吐空串',
     R.riceWhyReview({ budget: 0, items: [] }).text === '还没有决定记录')
 }
 
@@ -261,7 +261,7 @@ const base = {
   const r1 = rice.upsertRiceItems([base], { by: '全栈', batch: 'b1', date: '2026-10-24' })
   check('首次 upsert 成功并新增 1 条', r1.ok && r1.added.length === 1, JSON.stringify(r1))
   const file = fs.readFileSync(rice.ricePoolPath(), 'utf-8')
-  check('★ 池文件里有四个原始分、没有「- 总分:」列', file.includes('- R: 5') && file.includes('- E天: 2') && !/- 总分:/.test(file), file.slice(0, 400))
+  check('★ 池文件里有四个原始分、没有“- 总分:”列', file.includes('- R: 5') && file.includes('- E天: 2') && !/- 总分:/.test(file), file.slice(0, 400))
   check('打分列 = by + date', file.includes('- 打分: 全栈 2026-10-24'), file.match(/- 打分:.*/)?.[0])
 
   const r2 = rice.upsertRiceItems([{ ...base, R: 9 }], { by: '全栈', batch: 'b1', date: '2026-10-24' })

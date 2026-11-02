@@ -9,7 +9,7 @@ import { MCP_TOOLS, handleMCPToolCall } from './tools'
  *     → {"jsonrpc":"2.0","method":"notifications/initialized"}
  *     ← {"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found: notifications/initialized"}}
  *   严格实现的客户端（DSH 用的 @deepseek-ai/dsh-mcp-client）会把它判成协议违规并断开整条会话，
- *   用户看到的就是「方寸明明开着，agent 却说调用不到」。同时 `ping` 也返回 -32601，
+ *   用户看到的就是“方寸明明开着，agent 却说调用不到”。同时 `ping` 也返回 -32601，
  *   不少客户端在心跳失败时直接重连/放弃。
  */
 export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<MCPResponse | null> {
@@ -24,7 +24,7 @@ export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<
 
   switch (method) {
     case 'initialize': {
-      // 规范要求服务端回「自己支持的版本」；对已知版本回显客户端所请求的，
+      // 规范要求服务端回“自己支持的版本”；对已知版本回显客户端所请求的，
       // 避免客户端因版本号更旧而主动降级或拒绝（2024-11-05 只是我们最早对齐的基线）。
       const asked = req.params && typeof req.params.protocolVersion === 'string'
         ? req.params.protocolVersion : ''

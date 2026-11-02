@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 探针②：按「方寸.exe --mcp-bridge」自举方式走完整 MCP 握手。
+ * 探针②：按“方寸.exe --mcp-bridge”自举方式走完整 MCP 握手。
  * 用法：node scripts/test/probe-mcp-bridge.cjs [exe] [extraArg...]
  *   默认 exe = desktop/node_modules/electron/dist/electron.exe
  *   dev 态额外第一个参数必须是 app 目录（electron 的约定），脚本自动补。

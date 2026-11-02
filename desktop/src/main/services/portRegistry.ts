@@ -1,7 +1,7 @@
 /**
  * Fangcun Desktop — 端口 / 服务登记与监控（2026-09-26 卡 006）
  *
- * 用户回执原文：「之前想让方寸管理端口，事实上端口从未被管理，依旧乱七八糟。」
+ * 用户回执原文：“之前想让方寸管理端口，事实上端口从未被管理，依旧乱七八糟。”
  * 查证结论（别再从记忆猜）：
  *   - `launchpad/config.ts` 的 `LaunchApp` **早有 `port?: number` 字段，但全仓无人读**；
  *     `public/apps.json.sample` 里 4 个应用一个都没填 → "从未被管理"是字面事实。
@@ -67,15 +67,15 @@ export interface UnregisteredRow {
 /**
  * 启动台应用（2026-10-15 新模型）。
  *
- * ⚠ 口径变了：**端口是观测结果，不是配置项**（暮雨：「端口永远是记不住的，不要指望根据端口去配置。
- * 你永远不知道用户有什么端口。」）。所以这里不要求用户填任何端口 ——
+ * ⚠ 口径变了：**端口是观测结果，不是配置项**（暮雨：“端口永远是记不住的，不要指望根据端口去配置。
+ * 你永远不知道用户有什么端口。”）。所以这里不要求用户填任何端口 ——
  * `observedPorts` 是"上次启动时观测到它新开了哪些端口"，由方寸自己 diff 监听表得出；
  * `listeningPorts` 是其中**此刻真的在监听**的那些。
  */
 export interface AppPortRow {
   id: string
   name: string
-  /** 启动命令（服务页要显示出来，否则用户不知道点「启动」会跑什么） */
+  /** 启动命令（服务页要显示出来，否则用户不知道点“启动”会跑什么） */
   cmd: string
   path: string
   description: string
@@ -92,7 +92,7 @@ export interface AppPortRow {
 }
 
 /**
- * 「像服务/开发进程」的进程名白名单（2026-09-26）。
+ * “像服务/开发进程”的进程名白名单（2026-09-26）。
  *
  * 为什么需要它：`netstat` 会把**整机**监听端口都给出来 —— 实测一次就倒出 14 个，
  * 里面是 QQ（4001/4301/5283/9210/9410）、svchost、System、msedge 的 devtools（9222）。
@@ -104,13 +104,13 @@ const SERVERISH = /^(node|python|pythonw|py|java|javaw|dotnet|go|bun|deno|ruby|p
 
 /**
  * 一键启动某个登记端口对应的**启动台应用**（2026-09-26 用户回执：
- * 「服务页没看到 8090 有动静」—— 页面是对的（那天 vite 真退了），但光显示"空闲"不解决问题，
+ * “服务页没看到 8090 有动静”—— 页面是对的（那天 vite 真退了），但光显示"空闲"不解决问题，
  * 得能当场把它拉起来）。
  *
  * 安全线：**只认启动台里带 port 的应用**；端口对不上就拒绝，方寸不会替用户拉起陌生东西，
  * 也永远不会"杀"任何进程（本模块全程只读 + 这一处 spawn 走的是启动台既有执行器）。
  */
-/** 取「此刻正在监听的端口」集合（netstat 优先；拿不到就退回逐端口探活，返回 null 表示无从判断） */
+/** 取“此刻正在监听的端口”集合（netstat 优先；拿不到就退回逐端口探活，返回 null 表示无从判断） */
 async function snapshotListening(): Promise<Set<number> | null> {
   const listen = await buildListenMap()
   if (listen.size) return new Set(listen.keys())
@@ -121,7 +121,7 @@ async function snapshotListening(): Promise<Set<number> | null> {
  * 启动一个**启动台应用**，并**观测**它开了哪些端口（2026-10-15 新模型）。
  *
  * 为什么按"应用"启动、而不是按"端口"启动：
- *   按端口的前提是用户知道端口 —— 而暮雨的原话是「端口永远是记不住的」。
+ *   按端口的前提是用户知道端口 —— 而暮雨的原话是“端口永远是记不住的”。
  *   应用是用户认识的东西（"绒花墨坊"），端口是它的**结果**。所以入口只能是应用。
  *
  * 观测怎么做的（纯事实，不猜）：
@@ -149,20 +149,20 @@ export async function startAppAndObserve(appId: string): Promise<{
     return { ok: false, message: `读启动台配置失败：${e?.message || e}` }
   }
   const target = apps.find((a: any) => String(a?.id) === id)
-  if (!target) return { ok: false, message: '这个应用不在启动台登记里（先到「启动台」页添加它）' }
+  if (!target) return { ok: false, message: '这个应用不在启动台登记里（先到“启动台”页添加它）' }
 
   const before = await snapshotListening()
   try {
     const r: any = await (launchpad as any).launchApp(target)
     if (!(r && r.ok)) {
-      return { ok: false, message: (r && r.message) || `启动「${target.name}」失败`, appName: String(target.name || '') }
+      return { ok: false, message: (r && r.message) || `启动“${target.name}”失败`, appName: String(target.name || '') }
     }
     await new Promise(res => setTimeout(res, 2800))
     const after = await snapshotListening()
     if (!before || !after) {
       return {
         ok: true, observed: false, appName: String(target.name || ''), newPorts: [], allPorts: Array.isArray(target.observedPorts) ? target.observedPorts : [],
-        message: `已启动「${target.name}」；这台机器上读不到监听表（netstat 不可用），本次没能观测端口`,
+        message: `已启动“${target.name}”；这台机器上读不到监听表（netstat 不可用），本次没能观测端口`,
       }
     }
     const fresh: number[] = []
@@ -175,8 +175,8 @@ export async function startAppAndObserve(appId: string): Promise<{
       ok: true, observed: true, appName: String(target.name || ''), newPorts: fresh,
       allPorts: Array.isArray(row.observedPorts) ? row.observedPorts : [],
       message: fresh.length
-        ? `已启动「${target.name}」，观测到它开了 :${fresh.join(' :')}`
-        : `已启动「${target.name}」；这次没观测到它新开端口（桌面程序大多不监听端口，属正常）`,
+        ? `已启动“${target.name}”，观测到它开了 :${fresh.join(' :')}`
+        : `已启动“${target.name}”；这次没观测到它新开端口（桌面程序大多不监听端口，属正常）`,
     }
   } catch (e: any) {
     appLog.error('services', '启动应用失败', e?.stack || e)
@@ -334,7 +334,7 @@ function probeByConnect(port: number, timeoutMs = 700): Promise<boolean> {
 }
 
 /**
- * 「未登记但正在监听」要过滤掉系统噪声：
+ * “未登记但正在监听”要过滤掉系统噪声：
  * 排除 <1024 的特权端口（系统服务）与 49152-65535 的 RPC 动态端口（Windows 上几十个）。
  * 剩下的（比如 3000/8080/8753/8765）才是用户自己起的服务。
  */
@@ -348,7 +348,7 @@ export async function listServices(): Promise<ServicesPayload> {
   const manual = readManualServices()
   const out: ServicesPayload = {
     // ⚠ 坏文件必须显式 ok=false（2026-09-26 测试抓出来的真 bug）：
-    //   渲染层是「ok===false 才把 error 摆到页面上」，所以 ok 留 true 时
+    //   渲染层是“ok===false 才把 error 摆到页面上”，所以 ok 留 true 时
     //   用户会看到一个空的清单、却看不到"文件坏了"这个原因 —— 静默失败。
     ok: manual.ok,
     error: manual.ok ? undefined : manual.error,
@@ -427,7 +427,7 @@ export async function listServices(): Promise<ServicesPayload> {
   // 观测到端口的排前面（这些才是"有服务形态"的），其余按名字
   out.apps.sort((a, b) => (b.observedPorts.length - a.observedPorts.length) || a.name.localeCompare(b.name, 'zh'))
 
-  // 「未登记但在监听」要排除两类已知端口：手填清单 + **启动台应用观测到的**（后者已经有主了，
+  // “未登记但在监听”要排除两类已知端口：手填清单 + **启动台应用观测到的**（后者已经有主了，
   // 再在下面列一遍就是重复噪音 —— 用户会以为"这个端口没人认领"）。
   const registered = new Set<number>(seeds.map(s => s.port))
   for (const a of out.apps) for (const p of a.observedPorts) registered.add(p)

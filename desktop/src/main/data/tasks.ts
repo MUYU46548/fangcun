@@ -33,12 +33,12 @@ export function batchEdit(ids: string[], fields: Partial<TaskFrontmatter>): { ok
 }
 
 /**
- * 批量归档 = 逐个**真正归档**（把文件移进 task-data/archive/），与单任务「归档」按钮同一语义。
+ * 批量归档 = 逐个**真正归档**（把文件移进 task-data/archive/），与单任务“归档”按钮同一语义。
  *
  * 旧实现是 `batchEdit(ids, { status: '完成' })` —— 只改状态、不移动文件。
  * 而归档视图是按**路径**判定的（loadTasks('archive') → ARCHIVE_SEG_RE），
  * 于是批量归档过的任务：状态看着像终态、文件却还在活跃区，归档视图里也找不到 →
- * 「批量归档有时会失效」，产出一批「假归档」（用户 2026-09-25 报告）。
+ * “批量归档有时会失效”，产出一批“假归档”（用户 2026-09-25 报告）。
  */
 export function batchArchive(ids: string[]): { ok: number; fails: { id: string; error: string }[] } {
   let ok = 0
@@ -99,7 +99,7 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
       if ((STATUSES as readonly string[]).includes(sv)) {
         status = sv as Status
       } else {
-        return { ok: false, error: `未知状态「${sv}」` }
+        return { ok: false, error: `未知状态“${sv}”` }
       }
     } else if (low.startsWith('due:') && tk.length > 4) {
       const dv = tk.slice(4).trim()
@@ -107,7 +107,7 @@ export function quickAdd(text: string): { ok: boolean; id?: string; error?: stri
       if (/^\d{1,2}-\d{1,2}$/.test(dv)) {
         deadline = dv
       } else {
-        return { ok: false, error: `截止日期格式错误「${dv}」，应为 MM-DD（如 due:12-31）` }
+        return { ok: false, error: `截止日期格式错误“${dv}”，应为 MM-DD（如 due:12-31）` }
       }
     } else {
       titleTokens.push(tk)
@@ -259,7 +259,7 @@ export function createTask(fields: NewTaskFields): Task {
     id,
     title: fields.title,
     project: fields.project || '',
-    // 2026-10-21：新建/更新前把「已完成 / 待处理」这类误写归一（白名单见 STATUS_ALIASES）。
+    // 2026-10-21：新建/更新前把“已完成 / 待处理”这类误写归一（白名单见 STATUS_ALIASES）。
     // 写入路径此前一个校验都没有 —— 外部账本导进来的脏状态能一路落盘，只能靠 verify 事后抓。
     status: normalizeStatusAlias(fields.status || '待办'),
     priority: normalizePriority(fields.priority) || '中',
@@ -338,7 +338,7 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
   if (fields.status !== undefined) {
     fields.status = normalizeStatusAlias(fields.status) as any
     if (!isStatusLegal(fields.status)) {
-      console.warn(`[tasks] 状态「${String(fields.status)}」不在白名单里，已照写（体检会继续报）`)
+      console.warn(`[tasks] 状态“${String(fields.status)}”不在白名单里，已照写（体检会继续报）`)
     }
   }
 
@@ -570,7 +570,7 @@ export function deleteTask(id: string): boolean {
         walk(full)
       } else if (entry.name === `${id}.md` || entry.name.startsWith(`${id}.`)) {
         // 宽松匹配与 readTask 保持一致（它退化为前缀匹配，能看到 `${id}.2.md` / `${id}.md.old`）；
-        // 删除若按 `${id}.md` 精确找，就会「看得见、删不掉」（用户 2026-09-24 第 1 条）。
+        // 删除若按 `${id}.md` 精确找，就会“看得见、删不掉”（用户 2026-09-24 第 1 条）。
         // 用 `${id}.` 而不是裸 `${id}`：否则 id=`task-1` 会误命中 `task-10.md`，删错别人的任务。
         if (entry.name.endsWith('.tmp')) continue
         sources.push(full)
@@ -580,7 +580,7 @@ export function deleteTask(id: string): boolean {
   walk(taskDir)
 
   if (sources.length === 0) {
-    // 活跃/归档区已无此任务：若回收站里已有那份（含 `${id}.2.md` 这类旧名副本），就是「早就删过了」，幂等成功
+    // 活跃/归档区已无此任务：若回收站里已有那份（含 `${id}.2.md` 这类旧名副本），就是“早就删过了”，幂等成功
     try {
       const trashed = fs.readdirSync(trashDir).some(n => n === `${id}.md` || n.startsWith(`${id}.`))
       if (trashed) return true
@@ -606,7 +606,7 @@ export function deleteTask(id: string): boolean {
 /** 归档 = 把任务文件移进 `task-data/archive/`（归档视图按**路径**判定，见 isArchivedPath）。
  *
  *  此前实现是 `updateTask(id, { status: '完成' })` —— 只改状态、不移动文件，
- *  于是 `task-data/archive/` 永远是空的：用户点了「归档」，任务仍留在活跃区，
+ *  于是 `task-data/archive/` 永远是空的：用户点了“归档”，任务仍留在活跃区，
  *  归档视图里什么也看不到；而且终态（完成/驳回）的任务连这个按钮都没有。
  */
 export function archiveTask(id: string): Task | null {
@@ -615,7 +615,7 @@ export function archiveTask(id: string): Task | null {
   const archiveDir = path.join(getTaskDir(), 'archive')
   if (path.resolve(t.path) !== path.resolve(path.join(archiveDir, path.basename(t.path)))) {
     // ⚠ 旧实现目标存在时 `fs.rmSync(t.path)` —— 直接**销毁刚归档的那份（当前版本）**、
-    //   留下归档区里的陈旧副本，是静默数据丢失。moveIntoDir 改为「新的占规范名、旧的改名让位」，
+    //   留下归档区里的陈旧副本，是静默数据丢失。moveIntoDir 改为“新的占规范名、旧的改名让位”，
     //   两份都保留（2026-09-25）。
     moveIntoDir(t.path, archiveDir)
     invalidateTaskCache()
@@ -624,7 +624,7 @@ export function archiveTask(id: string): Task | null {
   return readTask(id)
 }
 
-/** 从归档区还原回活跃区并把状态置回「待办」；不在归档区的任务只改状态。 */
+/** 从归档区还原回活跃区并把状态置回“待办”；不在归档区的任务只改状态。 */
 export function unarchiveTask(id: string): Task | null {
   const t = readTask(id)
   if (!t) return null
@@ -641,16 +641,16 @@ export function unarchiveTask(id: string): Task | null {
 
 // ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）──────────────
 //
-// 用户口径：「看板已完成任务自动归档，**仿日志清理的保留天数设置**，默认关闭」。
+// 用户口径：“看板已完成任务自动归档，**仿日志清理的保留天数设置**，默认关闭”。
 // 与日志清理同构：设置一个保留天数（0 = 关闭），到期的那批由用户点按钮归档
-// （或显式勾选「启动时自动执行」）—— **不静默移动文件**。
+// （或显式勾选“启动时自动执行”）—— **不静默移动文件**。
 //
-// ⚠ 判据是「**更新时间**早于 N 天前」而不是「状态=完成就收」：
+// ⚠ 判据是“**更新时间**早于 N 天前”而不是“状态=完成就收”：
 //   任务完成后再改一笔（写结果记录、补附言）就会刷新更新时间，天然不会被误收。
 //   更新时间解析必须认三种老写法（ISO 字符串 / 秒级 Unix / 毫秒），与渲染层 `timefmt` 同规矩。
 
 /**
- * 任务「更新时间」毫秒数。
+ * 任务“更新时间”毫秒数。
  *
  * ⚠ 上游 `parseTask` 会把 frontmatter 里的**数字**时间戳按**秒级 Unix**归一成 ISO 字符串
  *   （真实数据写的是 `创建: 1791024659`；写毫秒会被当秒 → 跑到 58616 年，这条已在
@@ -718,16 +718,16 @@ export function archiveOverdueCompleted(days: number): {
 
 // ── 回收站（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）────────
 //
-// 用户现象：「删掉的东西不知道去哪了」。`.trash/` 里 64 个文件数据完好，只是没有任何界面。
+// 用户现象：“删掉的东西不知道去哪了”。`.trash/` 里 64 个文件数据完好，只是没有任何界面。
 // 设计要点：
 //   · 一切以**文件名**为准（回收站里同一 id 可能有多份：`.trash/task-x.md` 与
-//     `.trash/task-x.2.md`，历史遗留），不按 id 猜、不擅自合并 —— 用户要的是「把我删的那份还我」；
+//     `.trash/task-x.2.md`，历史遗留），不按 id 猜、不擅自合并 —— 用户要的是“把我删的那份还我”；
 //   · 还原目标：终态（完成/驳回）回 archive/，其余回活跃区；同名冲突走 moveIntoDir
 //     （内容相同去重、不同则新的占规范名、旧的改名保留）—— **绝不覆盖、绝不删除**；
 //   · 彻底删除只删回收站里的那一个文件，且路径必须真的在回收站内（防目录穿越）。
 //
 // 幂等/健壮：archive/ 与 .trash/ 同名同 id 是常态（见 e2e-task-delete），这里全部按文件操作，
-// 不依赖 id 唯一，因此不会因为「别处也有同名副本」而抛异常或删错东西。
+// 不依赖 id 唯一，因此不会因为“别处也有同名副本”而抛异常或删错东西。
 
 export interface TrashItem {
   /** 文件名 = 操作句柄（还原 / 彻底删除都用它，不用 id） */
@@ -750,7 +750,7 @@ function resolveTrashFile(name: string): string | null {
   return full
 }
 
-/** 列出回收站内容（mtime 新的在前）。读不出 frontmatter 的文件**也要列出来** —— 「看得见」优先。 */
+/** 列出回收站内容（mtime 新的在前）。读不出 frontmatter 的文件**也要列出来** —— “看得见”优先。 */
 export function listTrash(): TrashItem[] {
   const trashDir = getTrashDir()
   if (!fs.existsSync(trashDir)) return []
@@ -778,7 +778,7 @@ export function listTrash(): TrashItem[] {
 }
 
 /**
- * 读回收站里那一份的正文（2026-09-26 用户回执：「回收站每个卡片都是不能点的死卡」）。
+ * 读回收站里那一份的正文（2026-09-26 用户回执：“回收站每个卡片都是不能点的死卡”）。
  *
  * 为什么要有它：卡片的还原/彻底删除是两个按钮，但**卡片本身点了没反应** ——
  * 用户没法先看内容再决定，只能凭标题猜。这里把文件源码交出来只读预览。
@@ -898,11 +898,11 @@ function computeHealth(tasks: Task[], lastActivity: string | null): ProjectStatu
 /**
  * 扫描任务目录。
  * includeArchive=true 时才进 archive/ —— 自然查询此前是硬跳过归档，
- * 导致用户勾了「含归档」也搜不到归档任务，与界面开关语义不符。
+ * 导致用户勾了“含归档”也搜不到归档任务，与界面开关语义不符。
  */
 function loadAllTasks(includeArchive = false): Task[] {
   // 委托到带签名缓存的全量扫描（data/index.ts）——
-  // 这里原本每次自建一次完整扫描，是「一次刷新扫 15 遍」的一大来源。
+  // 这里原本每次自建一次完整扫描，是“一次刷新扫 15 遍”的一大来源。
   return loadAllTasksRaw(includeArchive ? 'all' : 'active')
 }
 
@@ -946,7 +946,7 @@ export function createPlan(fields: {
     risks: fields.risks || [],
   }
   // ensure DP ids + 默认态（2026-10-16 e2e-plans 抓到的真 bug：不补 status 时
-  // undefined 渲染成「跳过」→ 决策点全变 skipped、选定一个就秒转 active）
+  // undefined 渲染成“跳过”→ 决策点全变 skipped、选定一个就秒转 active）
   plan.decisions.forEach((dp, i) => {
     if (!dp.id) dp.id = `dp_${String(i + 1).padStart(3, '0')}`
     if (!dp.status) dp.status = 'pending'
@@ -1012,7 +1012,7 @@ export function parsePlanFromTask(task: Task): PlanData | null {
     else if (heading === '里程碑') {
       plan.milestones = content.split('\n').filter(l => l.trim().startsWith('- [')).map(l => {
         const m = l.match(/^- \[[ x]\]\s*(.+?)\s*\(截止:\s*(.+?)\)\s*$/)
-        // 「未设定」是渲染层给空截止的人话显示，解析时还原成空串（往返不丢）
+        // “未设定”是渲染层给空截止的人话显示，解析时还原成空串（往返不丢）
         return m ? { name: m[1], deadline: m[2] === '未设定' ? '' : m[2] } : { name: l.replace(/^- \[[ x]\]\s*/, ''), deadline: '' }
       })
     } else if (heading === '决策点') {
@@ -1090,7 +1090,7 @@ export function findTimeoutTasks(thresholdHours = 24): { id: string; title: stri
     .filter(Boolean) as any
 }
 
-/** 任务文件「上次被写入」的时刻：优先 frontmatter 的 更新，缺失/坏值退回文件 mtime。 */
+/** 任务文件“上次被写入”的时刻：优先 frontmatter 的 更新，缺失/坏值退回文件 mtime。 */
 function taskLastTouchedMs(t: Task): number | null {
   const u = t.fm.updated ? Date.parse(String(t.fm.updated)) : NaN
   if (!isNaN(u)) return u
@@ -1098,7 +1098,7 @@ function taskLastTouchedMs(t: Task): number | null {
 }
 
 /**
- * **真「没动静」检查**（2026-10-01 用户定稿 C 类）。
+ * **真“没动静”检查**（2026-10-01 用户定稿 C 类）。
  *
  * 语义：`状态 === '进行中'`（= 用户已把手动写的提示词扔给 AI、回方寸点了进行中，
  * 这就是本项目的"已派活"信号）且任务文件自上次写入起 ≥ thresholdHours 没有任何变化。
@@ -1106,10 +1106,10 @@ function taskLastTouchedMs(t: Task): number | null {
  * 与 `findTimeoutTasks` 的区别（那个是既有命名误导）：它只算 `派活时间 → 现在`，
  * 与文件变没变毫无关系；而 `moveStatus` 会把 `更新` 刷成当前时刻
  * （见 moveStatus: `task.fm.updated = new Date().toISOString()`）——
- * 点「进行中」那一刻时钟开始走，agent 中途回写一次时钟就重置。
+ * 点“进行中”那一刻时钟开始走，agent 中途回写一次时钟就重置。
  *
  * 只扫 `进行中`：待办/待验收/完成/驳回天然不会回写，扫了就是噪音（用户 2026-10-01 明确否决按 `更新`
- * 对所有任务比时间的做法——「有些任务就是不会回写的」）。
+ * 对所有任务比时间的做法——“有些任务就是不会回写的”）。
  */
 export function findStalledTasks(thresholdHours = 24): { id: string; title: string; hours: number }[] {
   const nowMs = Date.now()
@@ -1197,7 +1197,7 @@ export function getProjectProgress(projectId: string): { total: number; complete
 }
 
 // ── Blocker Chain Visualization ──────────────────────────────────────
-// 2026-09-23（用户第 4 条）：改为按阻塞源分组，显示「N 个阻塞源」而非「N 条活跃阻塞链」。
+// 2026-09-23（用户第 4 条）：改为按阻塞源分组，显示“N 个阻塞源”而非“N 条活跃阻塞链”。
 // 多个任务共享同一阻塞源时，合并为一个阻塞源条目，反向列出被它阻塞的任务。
 
 export interface BlockerSource {
@@ -1429,16 +1429,16 @@ export function importTasks(data: any[]): { ok: boolean; imported?: number; erro
       for (const k of Object.keys(raw)) {
         const en = IMPORT_CN_ALIAS[k] || k
         if (!IMPORT_KEYS.includes(en)) {
-          problems.push(`第 ${n} 条的字段名「${k}」不认识（可用：${IMPORT_KEYS.join(' / ')}）`)
+          problems.push(`第 ${n} 条的字段名“${k}”不认识（可用：${IMPORT_KEYS.join(' / ')}）`)
           continue
         }
         if (item[en] !== undefined) {
-          problems.push(`第 ${n} 条同一个字段写了两次（「${k}」与它的中英别名）`)
+          problems.push(`第 ${n} 条同一个字段写了两次（“${k}”与它的中英别名）`)
         }
         item[en] = raw[k]
       }
       if (!String(item.title ?? '').trim()) {
-        problems.push(`第 ${n} 条没有「标题 / title」（照现在的默认值会落一张 (无标题) 的空壳）`)
+        problems.push(`第 ${n} 条没有“标题 / title”（照现在的默认值会落一张 (无标题) 的空壳）`)
       }
       normalized.push(item)
     })
@@ -1573,7 +1573,7 @@ export function suggestMilestones(): any[] {
 export function detectEvents(eventType: string): string | null {
   if (eventType === 'timeout' || eventType === 'all') {
     const timeouts = findTimeoutTasks()
-    if (timeouts.length) return `⚠️ ${timeouts.length} 个任务超时未回写：${timeouts.slice(0, 5).map(t => `「${t.title}」${t.hours}h`).join('、')}`
+    if (timeouts.length) return `⚠️ ${timeouts.length} 个任务超时未回写：${timeouts.slice(0, 5).map(t => `“${t.title}”${t.hours}h`).join('、')}`
   }
   if (eventType === 'stuck' || eventType === 'all') {
     const statuses = scanProjectStatus()

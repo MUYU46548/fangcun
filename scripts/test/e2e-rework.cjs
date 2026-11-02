@@ -2,8 +2,8 @@
 /**
  * 驳回返工台 —— 纯逻辑断言（2026-10-30）
  *
- * 用户原话：「驳回的东西好像也永远不看，是方寸的缺陷吗？」
- * 是。看板把「完成 / 驳回」默认折叠，而「驳回」不是终态 —— 它欠一个返工或一个"算了"。
+ * 用户原话：“驳回的东西好像也永远不看，是方寸的缺陷吗？”
+ * 是。看板把“完成 / 驳回”默认折叠，而“驳回”不是终态 —— 它欠一个返工或一个"算了"。
  *
  * 真跑**编译产物** `dist/shared/rework.js`（纯逻辑，不碰 electron / 不起子进程 → 本机可跑）。
  * 这里钉的是**口径**，不是布局：
@@ -44,7 +44,7 @@ check('ISO 字符串 → 毫秒', parseWhen('2026-10-20T00:00:00.000Z') === ISO_
 check('秒级 Unix（真实数据写 `更新: 1791024659`）→ 乘 1000', parseWhen(1791024659) === 1791024659000)
 check('数字字符串同样按秒级', parseWhen('1791024659') === 1791024659000)
 check('毫秒数字原样返回（>1e12 不乘 1000）', parseWhen(1791024659000) === 1791024659000)
-check('★★ 空 / 0 / 坏串 / 负数一律 NaN（不许当成 1970 年 → 「晾了 20000 天」）',
+check('★★ 空 / 0 / 坏串 / 负数一律 NaN（不许当成 1970 年 → “晾了 20000 天”）',
   [parseWhen(''), parseWhen(null), parseWhen(undefined), parseWhen(0), parseWhen('0'),
     parseWhen('不是时间'), parseWhen(-5)].every((v) => Number.isNaN(v)),
   JSON.stringify([parseWhen(''), parseWhen(0), parseWhen('不是时间'), parseWhen(-5)]))
@@ -59,12 +59,12 @@ const LOG = [
 check('★★ 取**最后一条**驳回理由（前几条是历史，不能拿旧的当这次为什么）',
   lastRejectReason(LOG) === '第二次：驳回后没人管了', lastRejectReason(LOG))
 check('审批驳回同样认', lastRejectReason('[2026-10-20 09:30] 审批驳回：不需要这个方向') === '不需要这个方向')
-check('★ 只写了「验收驳回」没写理由 → 空串（不编一句话替用户补）',
+check('★ 只写了“验收驳回”没写理由 → 空串（不编一句话替用户补）',
   lastRejectReason('[2026-10-20 09:30] 验收驳回') === '' &&
   lastRejectReason('[2026-10-20 09:30] 验收驳回：') === '')
 check('没有任何驳回记录 → 空串', lastRejectReason('[2026-10-20 09:30] 验收通过：可以') === '')
 check('结果记录为空 / null → 空串且不抛', lastRejectReason('') === '' && lastRejectReason(null) === '')
-check('「驳回」只出现在正文里不算（只认裁决写的那种行）',
+check('“驳回”只出现在正文里不算（只认裁决写的那种行）',
   lastRejectReason('这一段在讨论驳回的语义，不是一条裁决') === '')
 
 console.log('\n== ③ 挑卡口径 ==')
@@ -87,7 +87,7 @@ const tasks = [
 ]
 const r = pickRework(tasks, NOW)
 
-check('★★ 只收「驳回」：完成 / 待办一张都不进',
+check('★★ 只收“驳回”：完成 / 待办一张都不进',
   !r.rows.some((x) => x.id === 'done') && !r.rows.some((x) => x.id === 'todo'),
   r.rows.map((x) => x.id).join(','))
 check('★★ 已归档的驳回卡不进（归档本身就是处置过了）', !r.rows.some((x) => x.id === 'archived'))
@@ -97,7 +97,7 @@ check('★ 时间认不出的排最后（不混进"最久"里）',
   r.rows[r.rows.length - 1] && r.rows[r.rows.length - 1].id === 'badtime', r.rows.map((x) => x.id).join(','))
 check('★ 天数按"现在"算：10-10 → 20 天', r.rows.find((x) => x.id === 'old').ageDays === 20,
   String(r.rows.find((x) => x.id === 'old').ageDays))
-check('★ 时间认不出 → ageDays = NaN（界面显示「时间不详」，不是 0 天）',
+check('★ 时间认不出 → ageDays = NaN（界面显示“时间不详”，不是 0 天）',
   Number.isNaN(r.rows.find((x) => x.id === 'badtime').ageDays))
 check('oldestDays 只从算得出的里取（20 天）', r.oldestDays === 20, String(r.oldestDays))
 check('★ 没写理由的 hasReason=false（要能点名）',
@@ -111,7 +111,7 @@ check('★ 文案把数字和事实一起说（不是只给一个数）',
   r.text.indexOf(String(r.count)) >= 0 && r.text.indexOf('20 天前') >= 0, r.text)
 
 const empty = pickRework([T('a', { status: '完成' })], NOW)
-check('★★ 一条都没有时明说「没有被驳回后没人管的卡」，不报 0 天', empty.count === 0 &&
+check('★★ 一条都没有时明说“没有被驳回后没人管的卡”，不报 0 天', empty.count === 0 &&
   empty.text.indexOf('没有被驳回') >= 0, empty.text)
 check('空清单 oldestDays = NaN', Number.isNaN(empty.oldestDays))
 const noTime = pickRework([T('x', { updated: '' })], NOW)
@@ -126,8 +126,8 @@ check('缺 id 的条目直接跳过（不让它变成一行空卡）',
   pickRework([{ title: '没 id', status: '驳回' }], NOW).count === 0)
 
 // ── ⑤ 待验收欠条（2026-10-31 暮雨第 5 条）──────────────────────────────
-// 「看板里没做完的东西叫我怎么待验收？我不是只能一直挂在那里？」
-// 这条把「等验收」也做成会自己冒出来的欠条；判据与返工台同一套，但**只收待验收**。
+// “看板里没做完的东西叫我怎么待验收？我不是只能一直挂在那里？”
+// 这条把“等验收”也做成会自己冒出来的欠条；判据与返工台同一套，但**只收待验收**。
 console.log('\n== ⑤ 待验收欠条 ==')
 
 const P = (id, extra = {}) => ({
@@ -142,12 +142,12 @@ const pr = pickPendingReview([
   T('rv-done', { status: '完成' }),
 ], NOW)
 
-check('★★ 只收「待验收」：驳回 / 完成 / 已归档都不进',
+check('★★ 只收“待验收”：驳回 / 完成 / 已归档都不进',
   pr.rows.map((x) => x.id).join(',') === 'rv-old,rv-new', pr.rows.map((x) => x.id).join(','))
 check('★ 等得最久的排最前', pr.rows[0] && pr.rows[0].id === 'rv-old', pr.rows.map((x) => x.id).join(','))
-check('★ 文案说「在等你验收」而不是「没人再管」',
+check('★ 文案说“在等你验收”而不是“没人再管”',
   pr.text.indexOf('等你验收') >= 0 && pr.text.indexOf('没人再管') < 0, pr.text)
-check('★ 0 天写「今天」，不写「0 天前」',
+check('★ 0 天写“今天”，不写“0 天前”',
   formatAge(0) === '今天' && formatAge(1) === '昨天' && formatAge(9) === '9 天前',
   [formatAge(0), formatAge(1), formatAge(9)].join(' / '))
 check('★ 时间认不出来 = 时间不详（不编天数）', formatAge(NaN) === '时间不详', formatAge(NaN))
@@ -161,14 +161,14 @@ const APP_VUE = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'A
 const BANNERS = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'components', 'BoardBanners.vue'), 'utf8')
 check('★ App 把 reviewPending 传给横幅（不是自己算完就完）',
   /:review-pending="reviewPending"/.test(APP_VUE))
-check('★ App 有裁决入口（点「通过/驳回」走 openReview，不另开一条通道）',
+check('★ App 有裁决入口（点“通过/驳回”走 openReview，不另开一条通道）',
   /function reviewVerdict\(/.test(APP_VUE) && /openReview\(t, intent\)/.test(APP_VUE))
 check('★ 横幅真渲染 .review-bar / .review-row（单独类名，不蹭 .rework-row 的计数）',
   /class="review-bar"/.test(BANNERS) && /class="review-row"/.test(BANNERS) &&
   !/class="rework-row"[^>]*review/.test(BANNERS))
 check('★ 两个出口都发事件（通过 / 驳回）',
   /emit\('accept-card'/.test(BANNERS) && /emit\('reject-card'/.test(BANNERS))
-check('★ 驳回弹窗默认「退回待办」（驳回即返工单，不用再手动搬）',
+check('★ 驳回弹窗默认“退回待办”（驳回即返工单，不用再手动搬）',
   /const reviewRework = ref\(true\)/.test(APP_VUE) && /驳回并退回待办/.test(APP_VUE))
 check('★ 驳回后真调 unarchiveTask（不是只改个提示）',
   /alsoRework[\s\S]{0,400}unarchiveTask\(id\)/.test(APP_VUE))

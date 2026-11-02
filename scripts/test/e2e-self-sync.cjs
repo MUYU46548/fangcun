@@ -1,8 +1,8 @@
 /**
- * 「方寸自仓启动同步」端到端（2026-10-21 · W1-1C）
+ * “方寸自仓启动同步”端到端（2026-10-21 · W1-1C）
  *
  * 要钉住的是三条边界，不是"代码里有 pull 这个词"：
- *  ① **只 ff-only**：本地领先/分叉时 git 必须拒，我们报「待同步」，**一个文件都不许动**；
+ *  ① **只 ff-only**：本地领先/分叉时 git 必须拒，我们报“待同步”，**一个文件都不许动**；
  *  ② **不弹窗不挂起**：没网/没凭据/没上游时必须自己收手（GIT_TERMINAL_PROMPT=0 + 硬超时）；
  *  ③ **不误伤**：数据根不是 git 仓库（安装版常态）→ skipped，不报成异常。
  *
@@ -70,7 +70,7 @@ async function main() {
   }
   const v = await git(['--version'], os.tmpdir())
   if (v.code !== 0) {
-    console.log('SKIP  本机没有可用的 git —— 「启动自动同步」这条链路无法真跑（不伪装通过）')
+    console.log('SKIP  本机没有可用的 git —— “启动自动同步”这条链路无法真跑（不伪装通过）')
     process.exit(0)
   }
 
@@ -143,7 +143,7 @@ async function main() {
       fs.readFileSync(path.join(local, 'registry.yaml'), 'utf-8').slice(0, 60))
 
     // ── ③ 本地领先（未推送提交）→ 必须拒，且**一个文件都不许动** ─────────
-    // 场景就是施工单写的「本地领先时重启 → 显示待同步，数据无损」
+    // 场景就是施工单写的“本地领先时重启 → 显示待同步，数据无损”
     {
       const localFile = path.join(local, 'registry.yaml')
       const beforeLocal = fs.readFileSync(localFile, 'utf-8')

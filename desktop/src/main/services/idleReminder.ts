@@ -1,11 +1,11 @@
 /**
  * 挂机提醒（2026-10-17 用户拍板四件补立项④）
  *
- * 治的病（9-07 借鉴清单 Super Productivity「idle 检测提醒」条）：用户让 agent 跑活，
+ * 治的病（9-07 借鉴清单 Super Productivity“idle 检测提醒”条）：用户让 agent 跑活，
  * 人长时间不回来看板——挂机回来该有一声轻提示，别让干完的活在琥珀色里晾着。
  *
  * 红线（写代码时不可回退）：
- *   1. **不进 notifier 的 7 类扫描定稿**（2026-10-01 用户原话「加一堆噪音很吵」）——
+ *   1. **不进 notifier 的 7 类扫描定稿**（2026-10-01 用户原话“加一堆噪音很吵”）——
  *      独立机制：一次挂机最多弹一次（回来即重置），文案不带没查证的任务数（不撒谎）。
  *   2. 判定逻辑纯函数化（computeIdleAction）——主进程的 powerMonitor 不可云测，
  *      可测的都抽出去，测试只喂秒数。
@@ -35,7 +35,7 @@ export function readIdlePrefs(): { enabled: boolean; thresholdMin: number } {
 }
 
 /** 纯函数：一轮轮询里给定状态算下一步动作。null=什么都不做。
- *  「回来了」判定=idleSeconds<5（轮询间隔 60s，人活跃时几乎必然踩中）。 */
+ *  “回来了”判定=idleSeconds<5（轮询间隔 60s，人活跃时几乎必然踩中）。 */
 export function computeIdleAction(opts: {
   enabled: boolean
   thresholdMin: number

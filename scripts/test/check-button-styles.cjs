@@ -1,5 +1,5 @@
 /**
- * 按钮样式守卫 —— 「模板用了 class，但 CSS 里没有与祖先无关的规则」
+ * 按钮样式守卫 —— “模板用了 class，但 CSS 里没有与祖先无关的规则”
  *
  * 背景（2026-09-22，用户两轮反馈）：
  *   `.ghost/.pri/.ok/.danger/.warning` 一度**只在特定祖先下**定义
@@ -11,7 +11,7 @@
  * 检查项：
  *   ① 模板里出现的每个按钮 class，样式表里至少要有一条**能命中它**的规则
  *      （完全不存在的 class → 默认样式，直接失败）
- *   ② 项目约定「可跨页签复用」的 5 个共享 class（ghost/pri/ok/danger/warning）
+ *   ② 项目约定“可跨页签复用”的 5 个共享 class（ghost/pri/ok/danger/warning）
  *      必须有一条**与祖先无关**的全局规则（`.x` / `button.x` / `:where(button.x)`）
  *   ③ 无 class 的 `<button>` 必须落在已有裸按钮样式的区域（#bar），
  *      否则需要全局 `button:not([class])` 基座
@@ -85,7 +85,7 @@ function enclosingIds(text, index) {
   return ids
 }
 
-/** 选择器里去掉伪类/伪元素与 :where()/:not() 外壳，返回「最后一段复合选择器」 */
+/** 选择器里去掉伪类/伪元素与 :where()/:not() 外壳，返回“最后一段复合选择器” */
 function lastCompound(selector) {
   let s = selector.replace(/:where\(([^)]*)\)/g, '$1').replace(/:not\(([^)]*)\)/g, '')
   s = s.replace(/::?[a-z-]+(\([^)]*\))?/g, '')
@@ -129,7 +129,7 @@ function main() {
   /**
    * ⚠ HTML 注释必须先"掏空"再数标签（2026-09-28 修）。
    *
-   * 真事：模板里加了一条注释，文字是「用 `<template v-if>` 包住是为了…」——
+   * 真事：模板里加了一条注释，文字是“用 `<template v-if>` 包住是为了…”——
    * 守卫当场报 `FAIL 无法切分 template / style 块`。产品完全正常，是守卫瞎了：
    * `matchTagClose` 只数 `<template>` / `</template>`，注释里那个开标签让深度永远回不到 0。
    * 修法：把注释**按原长度替换成空格**（所有下标保持不动）后专门用来配标签。
@@ -140,7 +140,7 @@ function main() {
 
   // ⚠ 深度感知（2026-09-26 修）：Vue 模板里**合法地可以嵌套 template v-if**。
   // 旧写法 `indexOf('</template>')` 取的是**第一个**闭合标签 → 模板被截断在嵌套块处，
-  // 表现为「模板中检出按钮 → 实际 4」这种荒谬数字（守卫自己坏了，产品其实是好的）。
+  // 表现为“模板中检出按钮 → 实际 4”这种荒谬数字（守卫自己坏了，产品其实是好的）。
   const tplStart = srcTags.indexOf('<template>')
   const tplEnd = tplStart < 0 ? -1 : matchTagClose(srcTags, tplStart, 'template')
   const styleStart = src.indexOf('<style')
@@ -187,7 +187,7 @@ function main() {
     for (const c of cls) classSet.add(c)
   }
 
-  // ── 检查 ①：每个 class 至少能被一条规则命中（合并「同一条规则里的 class」）──
+  // ── 检查 ①：每个 class 至少能被一条规则命中（合并“同一条规则里的 class”）──
   const unstyled = []
   for (const c of classSet) {
     const hit = selectors.some(sel => {
@@ -199,7 +199,7 @@ function main() {
   check('① 模板中所有按钮 class 都有对应样式规则', unstyled.length === 0,
     unstyled.length ? `无任何规则：${unstyled.join(', ')}` : '')
 
-  // ── 检查 ②：共享 class 必须有「与祖先无关」的全局规则 ──
+  // ── 检查 ②：共享 class 必须有“与祖先无关”的全局规则 ──
   const missingGlobal = []
   for (const c of SHARED) {
     const re = new RegExp(`\\.${c}(?![\\w-])`)
@@ -224,16 +224,16 @@ function main() {
     bareOutsideBar === 0 || hasBase,
     bareOutsideBar && !hasBase ? `有 ${bareOutsideBar} 个无 class 按钮在 #bar 之外且无基座` : '')
 
-  // ── 检查 ④：旋转动画不许挂在「按钮本体」上（2026-10-16 用户第 9 条）──
+  // ── 检查 ④：旋转动画不许挂在“按钮本体”上（2026-10-16 用户第 9 条）──
   //
   // 真事：顶栏同步按钮的 `#bar .navgroup .ico.syncing { animation: nav-spin … }`
-  //   让**整个方块**（含边框、底色）跟着转 —— 用户原话「整个方块都在旋转，把我气笑了」。
+  //   让**整个方块**（含边框、底色）跟着转 —— 用户原话“整个方块都在旋转，把我气笑了”。
   //   动画要挂的是**里面那个字符**（.ico-glyph），不是按钮。
   //
   // 判据：凡 @keyframes 体里出现 rotate() 的，其宿主选择器的**最后一段**
   //   若只由 class 组成、且其中至少一个 class 出现在模板的 `<button class="…">` 上
   //   → 宿主就是按钮本体 → 失败。
-  //   （用「模板里 button 真用过的 class」当按钮语义来源，不硬编码白名单：
+  //   （用“模板里 button 真用过的 class”当按钮语义来源，不硬编码白名单：
   //    所以 `.nc-ico` / `.ico-glyph` / `.bk-spin` 这些字符 span 不会误伤。）
   const rotNames = new Set()
   {
@@ -273,7 +273,7 @@ function main() {
       }
     }
   }
-  check('④ 旋转动画挂在「字符」上、不挂在按钮本体上（否则整个方块打转）',
+  check('④ 旋转动画挂在“字符”上、不挂在按钮本体上（否则整个方块打转）',
     spinOnButton.length === 0,
     spinOnButton.length ? `挂在按钮上：${spinOnButton.join(' | ')}（应改为挂到内部 span，如 .ico-glyph）` : '')
 
@@ -282,9 +282,9 @@ function main() {
   // 为什么必须加：8 个视图搬成组件之后（help / blockers / calendar / services / skills /
   //   roadmap / trash / todos / logs），约 900 行模板不再受本守卫覆盖。组件里把
   //   `.todo-del` 敲成 `.todo-delete`，**没有任何东西会红** —— 表现就是那个按钮退回
-  //   Chromium 默认样式，正是本守卫最初要抓的那个病（「按钮样式仍为默认」）。
+  //   Chromium 默认样式，正是本守卫最初要抓的那个病（“按钮样式仍为默认”）。
   //   样式只有一份（App.vue 的全局 <style>），所以判据仍用上面那套 selectors，
-  //   只是把「模板来源」从 App.vue 扩到 views/。组件自带 <style> 的话，它的规则也算数。
+  //   只是把“模板来源”从 App.vue 扩到 views/。组件自带 <style> 的话，它的规则也算数。
   {
     const viewsDir = path.resolve(__dirname, '../../desktop/src/renderer/views')
     const viewFiles = fs.existsSync(viewsDir)

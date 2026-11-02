@@ -1,7 +1,7 @@
 /**
  * 规划管理（Plan）四通道端到端测试（2026-10-16 批次第 1 项）
  *
- * 覆盖 main/data/tasks.ts 的规划链路（此前渲染层零调用=死通道，本批接「🗂 规划」弹窗）：
+ * 覆盖 main/data/tasks.ts 的规划链路（此前渲染层零调用=死通道，本批接“🗂 规划”弹窗）：
  *  - createPlan：建规划（草稿态、决策点 id 自动补齐 dp_001…）
  *  - listPlans：type=plan 过滤
  *  - getPlan：读回 plan 数据（目标/里程碑/决策点往返一致）
@@ -97,7 +97,7 @@ function main() {
   check('风险往返一致', g.plan.risks.length === 1 && g.plan.risks[0] === '打包器先走通', JSON.stringify(g.plan.risks))
   check('getPlan 不存在的 id → null', tasks.getPlan('no-such-plan') === null)
 
-  // ── decidePlanPoint：选定留痕 + 全定完自动转「进行中」 ────────────────
+  // ── decidePlanPoint：选定留痕 + 全定完自动转“进行中” ────────────────
   let d1 = tasks.decidePlanPoint(r.id, 'dp_001', '端口=观测结果')
   check('决策点 1 选定成功', d1.ok === true, JSON.stringify(d1))
   let g2 = tasks.getPlan(r.id)
@@ -131,7 +131,7 @@ function main() {
   const t = tasks.createPlan({ title: '无决策点规划', project: 'demo' })
   check('无决策点的规划也能建（目标+里程碑空壳）', !!t.id && tasks.getPlan(t.id).plan.decisions.length === 0)
   const t2 = tasks.createTask({ title: '普通任务卡' })
-  check('对非 plan 任务调 decidePlanPoint → ok:false + 「不是规划任务」',
+  check('对非 plan 任务调 decidePlanPoint → ok:false + “不是规划任务”',
     (() => { const x = tasks.decidePlanPoint(t2.id, 'dp_001', 'a'); return x.ok === false && /不是规划任务/.test(x.error) })())
 
   // ── 往返：决策点状态序列化后仍可解析（renderPlanBody→parsePlanFromTask）──

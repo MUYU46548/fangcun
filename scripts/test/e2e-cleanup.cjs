@@ -9,7 +9,7 @@
  *   · 走主进程真链路：`data.loadTasks` → `taskToNeverReadInput` → `readSummary` →
  *     `buildCleanupReport`（与 IPC `cleanup:scan` 同一段代码）；
  *   · 判据：读过的那张**不进**清单、驳回复工卡**不进**没人碰过但**进**返工清单、
- *     计量没开始时说「不算数」、口径文案必须跟着数字、任务文件**逐字节不变**。
+ *     计量没开始时说“不算数”、口径文案必须跟着数字、任务文件**逐字节不变**。
  *
  * 运行：node scripts/test/e2e-cleanup.cjs
  */
@@ -100,14 +100,14 @@ const r = scan(30)
 check('读到 3 张活跃卡（真 md → loadTasks；驳回也在活跃区）',
   data.loadTasks('active').length === 3, String(data.loadTasks('active').length))
 check('分母 = 未完成卡（3 张里 1 张驳回 → 2）', r.neverRead.openTotal === 2, String(r.neverRead.openTotal))
-check('★★ 只有 task-b 进「没人碰过」（task-a 读过、task-c 是驳回）',
+check('★★ 只有 task-b 进“没人碰过”（task-a 读过、task-c 是驳回）',
   r.neverRead.rows.length === 1 && r.neverRead.rows[0].id === 'task-b',
   JSON.stringify(r.neverRead.rows.map((x) => x.id)))
 check('★ 计数与行数一致（不许一个数一个清单）', r.neverRead.count === r.neverRead.rows.length)
-check('★★ 驳回卡进「返工」清单，理由来自 result_log',
+check('★★ 驳回卡进“返工”清单，理由来自 result_log',
   r.rework.count === 1 && r.rework.rows[0].id === 'task-c' && r.rework.rows[0].reason.indexOf('按钮点不动') >= 0,
   JSON.stringify(r.rework.rows))
-check('★ 已驳回的不重复进「没人碰过」（它不是未完成卡）',
+check('★ 已驳回的不重复进“没人碰过”（它不是未完成卡）',
   !r.neverRead.rows.some((x) => x.id === 'task-c'))
 check('★ 计量有记录时 windowEvents > 0（数字算数）', r.neverRead.windowEvents > 0, String(r.neverRead.windowEvents))
 check('★ 总览把两个数字说在一句里', r.text.indexOf('1') >= 0 && r.text.indexOf('没人碰过') >= 0 && r.text.indexOf('驳回') >= 0, r.text)
@@ -115,7 +115,7 @@ check('★★ 口径文案与数字同源（清理候选 ≠ 优先级）',
   r.rule === CLEANUP_RULE && r.rule.indexOf('不是优先级') >= 0, r.rule)
 check('★ 返工清单最多带 5 条样例（不把整板搬进设置页）', r.rework.rows.length <= 5)
 
-console.log('\n== ② 计量没开始：不许报「N 张没人碰过」 ==')
+console.log('\n== ② 计量没开始：不许报“N 张没人碰过” ==')
 fs.rmSync(path.join(DATA, 'mcp-usage.jsonl'), { force: true })
 const r0 = scan(30)
 check('没有 mcp-usage.jsonl → windowEvents = 0', r0.neverRead.windowEvents === 0, String(r0.neverRead.windowEvents))

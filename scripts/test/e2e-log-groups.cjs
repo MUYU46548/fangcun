@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 日志「进行中 / 主日志 + 附属 / 状态撤销」端到端（2026-10-30 暮雨第 1 / 4 / 6 条）
+ * 日志“进行中 / 主日志 + 附属 / 状态撤销”端到端（2026-10-30 暮雨第 1 / 4 / 6 条）
  *
  * 真跑编译产物 `dist/main/services/logs.js` + 临时数据目录（真 .md 文件）。
  *
@@ -10,10 +10,10 @@
  *  ② 绑定是落盘的：主日志 `attached: [id]` 经 parse → render 往返不丢；
  *     一个副日志只能归一个主日志，主日志不能当附属。
  *  ③ 一键全进行中 / 全完成：只动该动的（完成/归档的跳过），按真成功数报账。
- *  ④ 撤销按快照还原：complete 后撤销要把「进行中 + 完成时间 + 保留天数」原样还回去，
- *     不是统一退回「待处理」。
+ *  ④ 撤销按快照还原：complete 后撤销要把“进行中 + 完成时间 + 保留天数”原样还回去，
+ *     不是统一退回“待处理”。
  *  ⑤ 销毁副日志会清掉主日志里的断链。
- *  ⑥ 源码守卫：没有 requestLogClose / agent_done；「进行中」只有 setLogRunning 能写。
+ *  ⑥ 源码守卫：没有 requestLogClose / agent_done；“进行中”只有 setLogRunning 能写。
  *
  * 运行：node scripts/test/e2e-log-groups.cjs
  */
@@ -58,11 +58,11 @@ function main() {
     return r.data
   }
 
-  console.log('== ① 日志不再承载收口（2026-11-01 暮雨：收口进任务「待验收」） ==')
+  console.log('== ① 日志不再承载收口（2026-11-01 暮雨：收口进任务“待验收”） ==')
   {
     const l = mk('用户已派出去的活')
     logs.setLogRunning(l.id, true)
-    check('  手动标「进行中」生效', logs.getLog(l.id).running === true)
+    check('  手动标“进行中”生效', logs.getLog(l.id).running === true)
     check('★★ 日志服务没有 requestLogClose / cancelLogClose（签字对象是任务卡，不是日志）',
       typeof logs.requestLogClose === 'undefined' && typeof logs.cancelLogClose === 'undefined')
     const after = logs.getLog(l.id)
@@ -136,7 +136,7 @@ function main() {
     logs.completeLog(l.id, 3, '完成一下')
     logs.restoreLogState(l.id, snap)
     const back = logs.getLog(l.id)
-    check('★★ 按快照还原后 running 回来了（这是「撤销」不是「退回待处理」）', back.running === true, String(back.running))
+    check('★★ 按快照还原后 running 回来了（这是“撤销”不是“退回待处理”）', back.running === true, String(back.running))
     check('  状态回到 active', back.status === 'active', back.status)
     check('  完成时间/保留天数一并清回快照值', back.completed === null && back.retainDays === null,
       JSON.stringify({ completed: back.completed, retainDays: back.retainDays }))
@@ -159,7 +159,7 @@ function main() {
       run.ok && run.changed.length === 1 && run.changed[0] === m.id && run.skipped.includes(s.id),
       JSON.stringify(run))
     const off = logs.setLogGroupRunning(m.id, false)
-    check('  全组撤销只动仍挂「进行中」的主日志',
+    check('  全组撤销只动仍挂“进行中”的主日志',
       off.ok && off.changed.length === 1 && off.changed[0] === m.id,
       JSON.stringify(off))
   }
@@ -181,7 +181,7 @@ function main() {
     check('★★ 源码里没有 requestLogClose / cancelLogClose（日志收口这套已删，不留回潮入口）',
       !/requestLogClose|cancelLogClose/.test(src))
     check('★ 日志服务源码里没有 agent_done（日志不写收口标记）', !/agent_done/.test(src))
-    check('★ 「进行中」只有一个自动写入点：setLogRunning / restoreLogState 之外不许成片写',
+    check('★ “进行中”只有一个自动写入点：setLogRunning / restoreLogState 之外不许成片写',
       (src.match(/\.running\s*=\s*(true|false|on)/g) || []).length <= 8,
       String((src.match(/\.running\s*=\s*(true|false|on)/g) || []).length))
   }

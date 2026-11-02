@@ -44,7 +44,7 @@ for _s in (sys.stdout, sys.stderr):
 #
 # 构造（与方寸主进程 desktop/src/main/backup/crypto.ts 必须逐字节一致）：
 #   scrypt(口令, salt) → 64B → encKey(32) + macKey(32)
-#   AES-256-CTR 加密 zip；HMAC-SHA256 覆盖「头部前 51 字节 + 密文」
+#   AES-256-CTR 加密 zip；HMAC-SHA256 覆盖“头部前 51 字节 + 密文”
 # 格式：magic 6B | ver 1B | N/r/p 各 4B | salt 16B | iv 16B | tag 32B | 密文
 #
 # ⚠ Python 标准库没有 AES，所以下面自带一份 AES-256 块加密（只做加密方向，CTR 不需要解密）。

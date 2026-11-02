@@ -1,7 +1,7 @@
 <!--
-  在途一屏（2026-10-31 · 渲染层拆分「项目页刀」第一块）
+  在途一屏（2026-10-31 · 渲染层拆分“项目页刀”第一块）
 
-  **边界**：与 `BoardView.vue` 同一套做法 —— 组件只「显示 + 收集意图」，状态与动作在
+  **边界**：与 `BoardView.vue` 同一套做法 —— 组件只“显示 + 收集意图”，状态与动作在
   `composables/useTripBoard.ts`。父组件把这一屏的状态/动作 + 它还要用的项目页数据
   （`projectStats` / `removeProject` / `openNewProject`）包成 `tripBoardCtl` 传进来。
 
@@ -16,21 +16,21 @@
       <span class="trip-sub">{{ tripSubtitle }}</span>
       <span class="trip-grow"></span>
       <button class="ghost trip-headbtn" @click="tripSettingsOpen = true">⚙ 显示设置</button>
-      <!-- 读取中要在**按钮上**也看得出来（2026-10-11 用户：「每次进都要卡一下，哪怕有个加载小提示」）：
+      <!-- 读取中要在**按钮上**也看得出来（2026-10-11 用户：“每次进都要卡一下，哪怕有个加载小提示”）：
            第二次进这一屏时旧数据还在屏上，光靠"空表才显示读取中"是不够的 —— 用户看到的是
            一张不会动的旧表，除了"卡了"什么也读不出来。 -->
       <button class="ghost trip-headbtn" :disabled="tripLoading" @click="loadTripBoard()">
         {{ tripLoading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
     </div>
 
-    <!-- 还没数据 → 整屏「读取中」；已经有旧数据 → 保留旧表 + 顶上一条细刷新提示
+    <!-- 还没数据 → 整屏“读取中”；已经有旧数据 → 保留旧表 + 顶上一条细刷新提示
          （直接把旧表换成"读取中"会更差：用户刚看到的东西突然消失，像是被清了）。 -->
     <div v-if="tripLoading && !tripRows.length" class="trip-empty">读取中…<span class="trip-loading-sub">（正在读各项目的立项契约与 git 信息）</span></div>
     <div v-else-if="!tripRows.length" class="trip-empty">
       <template v-if="tripError">
         <div class="trip-err">读取失败：{{ tripError }}</div>
         <div class="trip-err-hint">
-          如果上面那句里有「no handler registered」这类话，说明方寸的后台还是旧代码 ——
+          如果上面那句里有“no handler registered”这类话，说明方寸的后台还是旧代码 ——
           界面会自动更新，后台只在启动时读一次。<b>请完全退出方寸再打开</b>
           （关掉窗口不算退出，它常驻托盘：右键托盘图标 → 退出）。
         </div>
@@ -72,32 +72,32 @@
                       @click.stop="removeProject(r)">🗑</button>
             </td>
 
-            <!-- 终态：读各 repo 的 立项契约.md；没有就显式「未填」+ 两个按钮（不给假默认值）
-                 ⚠ 分支先看 exists 再看内容（卡 002）：旧版把「文件在但还没填内容」并进了
-                 「未填」分支 —— 于是文件建完之后界面上只剩「建契约文件」（会被主进程拒绝），
-                 用户原话「创完就改不了、懒得去文件夹自己找」。 -->
+            <!-- 终态：读各 repo 的 立项契约.md；没有就显式“未填”+ 两个按钮（不给假默认值）
+                 ⚠ 分支先看 exists 再看内容（卡 002）：旧版把“文件在但还没填内容”并进了
+                 “未填”分支 —— 于是文件建完之后界面上只剩“建契约文件”（会被主进程拒绝），
+                 用户原话“创完就改不了、懒得去文件夹自己找”。 -->
             <td v-if="tripColVisible('end')" class="trip-end">
               <template v-if="r.contract && r.contract.exists">
                 <span v-if="tripFirstLine(r.contract.endState)" class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
-                <!-- 空的原因要**分类**（2026-10-11 真机修正）。旧版一律写「内容未填」——
-                     绒花墨坊的契约明明写得很完整，只因小节名是「① 终态三段」而不是「终态形态」，
-                     就被报成"内容未填"（用户原话「已经有内容了啊？」）。**这是界面说假话。** -->
+                <!-- 空的原因要**分类**（2026-10-11 真机修正）。旧版一律写“内容未填”——
+                     绒花墨坊的契约明明写得很完整，只因小节名是“① 终态三段”而不是“终态形态”，
+                     就被报成"内容未填"（用户原话“已经有内容了啊？”）。**这是界面说假话。** -->
                 <span v-else class="trip-unset" :title="tripContractMissing(r).title || r.contract.path">
                   文件已建 · {{ tripContractMissing(r).text }}
                 </span>
                 <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
                         title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
-                <!-- 「让 AI 填」的可复制提示词（2026-10-10 用户要求：原话「之前说让 AI 填，
-                     但是不知道怎么弄」）。上一版只在旁边写了句「也可以让 AI 填」——
+                <!-- “让 AI 填”的可复制提示词（2026-10-10 用户要求：原话“之前说让 AI 填，
+                     但是不知道怎么弄”）。上一版只在旁边写了句“也可以让 AI 填”——
                      没给**能粘贴的东西**，等于没说。这里给的是一段可直接贴进
-                     「该项目仓库里开的 AI 会话」的话（含逐节念回签收的规矩）。 -->
+                     “该项目仓库里开的 AI 会话”的话（含逐节念回签收的规矩）。 -->
                 <button class="ghost trip-mini" @click.stop="tripCopyContractPrompt(r)"
                         title="复制一段话 —— 贴到这个项目仓库里开的 AI 会话，它就会按契约骨架逐节填，并逐节念回给你确认">⧉ 复制 AI 提示词</button>
               </template>
               <template v-else>
                 <span class="trip-unset">未填</span>
                 <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripInitContract(r)"
-                        title="方寸直接在这个项目文件夹里建好「立项契约.md」（文件已存在就不动它）">📝 建契约文件</button>
+                        title="方寸直接在这个项目文件夹里建好“立项契约.md”（文件已存在就不动它）">📝 建契约文件</button>
                 <button class="ghost trip-mini" @click.stop="tripCopyContract(r)"
                         title="只复制文字，你自己挑地方落盘">复制模板</button>
                 <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
@@ -131,7 +131,7 @@
               <span v-else class="trip-dim">—</span>
             </td>
 
-            <!-- 欠着什么（2026-10-22 · 03 任务三）：registry 手写的「说明」字段 ——
+            <!-- 欠着什么（2026-10-22 · 03 任务三）：registry 手写的“说明”字段 ——
                  它才是用户自己的欠账清单（卡是"要做的事"，欠账是"欠着谁的"）。
                  长了就截第一行、全文挂 title：这一列是"扫一眼知道欠着"，不是阅读区。 -->
             <td v-if="tripColVisible('owe')" class="trip-owe">
@@ -168,31 +168,31 @@
       </table>
     </div>
 
-    <!-- 管理入口：添加入口在四种摆法里必须都在（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」） -->
+    <!-- 管理入口：添加入口在四种摆法里必须都在（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”） -->
     <div class="trip-actions">
       <button class="ghost trip-headbtn" @click="openNewProject">＋ 添加项目</button>
-      <span class="trip-dim-sm">新登记的项目按规则自动进这一屏；想固定，用右上「⚙ 显示设置」改成手动指定</span>
+      <span class="trip-dim-sm">新登记的项目按规则自动进这一屏；想固定，用右上“⚙ 显示设置”改成手动指定</span>
     </div>
 
     <p class="trip-hidden" v-if="tripHidden.length">
       <template v-if="tripHiddenNotPicked.length">
         另有 {{ tripHiddenNotPicked.length }} 个已登记项目没进这一屏
         （{{ tripHiddenNotPicked.map(h => h.name).join('、') }}）——
-        你选的是「手动指定」，但没有勾它们，所以它们不显示。
-        点「⚙ 显示设置」把它们勾上就行（勾选会自动切成手动）。
+        你选的是“手动指定”，但没有勾它们，所以它们不显示。
+        点“⚙ 显示设置”把它们勾上就行（勾选会自动切成手动）。
       </template>
       <template v-if="tripHiddenNoActivity.length">
         <template v-if="tripHiddenNotPicked.length"><br></template>
         另有 {{ tripHiddenNoActivity.length }} 个已登记项目没进这一屏
         （{{ tripHiddenNoActivity.map(h => h.name).join('、') }}）——
         它们没有未完结任务，30 天内也没有提交。
-        想看到它们：点「⚙ 显示设置」把「哪些项目算在途」放宽，或改成「手动指定」自己勾。
+        想看到它们：点“⚙ 显示设置”把“哪些项目算在途”放宽，或改成“手动指定”自己勾。
       </template>
     </p>
 
     <p class="trip-foot">
       这一屏读的是：各项目里的 <code>立项契约.md</code>、任务卡、执行日志、文件夹最近提交时间。
-      读不到的地方一律写「未填」，不替你猜。
+      读不到的地方一律写“未填”，不替你猜。
     </p>
 
     <!-- 裁断入口：机器口径只是默认值，用户改过就以用户的为准 -->
@@ -205,7 +205,7 @@
         <div class="trip-modal-b">
           <div class="trip-col">
             <h4>收哪些项目</h4>
-            <p class="trip-hint">「自动」按下面的规则筛；「手动指定」按你勾的来 —— 默认不写死任何一个项目名。</p>
+            <p class="trip-hint">“自动”按下面的规则筛；“手动指定”按你勾的来 —— 默认不写死任何一个项目名。</p>
             <div class="trip-modes">
               <label :class="{ on: tripMode === 'auto' }">
                 <input type="radio" name="tripmode" :checked="tripMode === 'auto'" @change="tripSetMode('auto')"> 自动
@@ -222,7 +222,7 @@
             </div>
           </div>
           <div class="trip-col">
-            <h4>哪些项目算「在途」</h4>
+            <h4>哪些项目算“在途”</h4>
             <p class="trip-hint">自动模式下按这条规则筛。</p>
             <div class="trip-chips">
               <label v-for="c in TRIP_CRITERIA_OPTIONS" :key="c.v" class="trip-chk" :class="{ on: tripCriteria === c.v }">

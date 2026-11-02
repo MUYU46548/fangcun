@@ -1,14 +1,14 @@
 /**
  * 任务删除/归档 —— 同名重复副本的健壮性回归
  *
- * 背景（2026-09-25 用户第 5 条「完成和驳回任务依旧删不掉」）：
+ * 背景（2026-09-25 用户第 5 条“完成和驳回任务依旧删不掉”）：
  *   真实数据里同一 id 同时存在于 `task-data/archive/` 与 `task-data/.trash/`（8 个任务如此）。
  *   `fs.renameSync` 在 Windows 上目标已存在就直接抛 EPERM/EEXIST →
  *   guardedHandle rethrow → 渲染层 await 收到 rejected promise →
  *   按钮点了完全没反应（静默失败）。
  *
  * 本测试固定三件事：
- *   ① 目标同名文件已存在时，删除/归档/还原都不是「抛」，而是去重或幂等成功；
+ *   ① 目标同名文件已存在时，删除/归档/还原都不是“抛”，而是去重或幂等成功；
  *   ② readTask 优先返回活跃区副本，绝不优先命中回收站里的那份；
  *   ③ 删除一次后再删（幂等）仍返回 true，不产生无限重复的 trash 文件。
  *
@@ -135,7 +135,7 @@ function main() {
   check('删除未知 id 不抛异常', threw === null, threw ? String(threw.message) : '')
   check('删除未知 id 返回 false', r6 === false, String(r6))
 
-  // ── 7. 批量归档必须「真归档」（用户 2026-09-25 第 2 条：假归档）────────
+  // ── 7. 批量归档必须“真归档”（用户 2026-09-25 第 2 条：假归档）────────
   const b1 = tasks.createTask({ title: '批量归档甲', project: 'demo', status: '进行中' })
   const b2 = tasks.createTask({ title: '批量归档乙', project: 'demo', status: '待办' })
   const br = tasks.batchArchive([b1.id, b2.id, 'task-19990101-999'])
@@ -146,7 +146,7 @@ function main() {
   check('批量归档后文件确实进了 archive/', fs.existsSync(path.join(archiveDir, `${b1.id}.md`)) && fs.existsSync(path.join(archiveDir, `${b2.id}.md`)))
   check('批量归档后活跃区已无文件', !fs.existsSync(path.join(taskDir, `${b1.id}.md`)) && !fs.existsSync(path.join(taskDir, `${b2.id}.md`)))
 
-  // 关键：旧实现只把 status 改成「完成」而不移动文件 —— 断言状态没被偷改
+  // 关键：旧实现只把 status 改成“完成”而不移动文件 —— 断言状态没被偷改
   const b1After = tasks.readTask(b1.id)
   check('批量归档不偷改状态（不再用 status=完成 冒充归档）', b1After?.fm.status === '进行中',
     String(b1After?.fm.status))
@@ -212,9 +212,9 @@ function main() {
 
   // ── 9. 文件名不是 `${id}.md` 的副本：板子上看得见、却删不掉 ────────────
   // 真实数据里躺着 `task-20260904-001.2.md` / `task-20260907-001.2.md` 这类旧名副本
-  // （状态正是「驳回/完成」—— 用户 2026-09-24 第 1 条「驳回和完成依旧是删不掉的」）。
+  // （状态正是“驳回/完成”—— 用户 2026-09-24 第 1 条“驳回和完成依旧是删不掉的”）。
   // 根因：loadTasks 会把这些 `.md` 读成任务（板子上看得见），而 deleteTask 只按
-  // `${id}.md` 精确找文件 → 找不到 → 返回 false → 界面「删除失败：任务不存在」。
+  // `${id}.md` 精确找文件 → 找不到 → 返回 false → 界面“删除失败：任务不存在”。
   console.log('\n== 9. 非规范文件名的副本（看得见但删不掉）==')
   const d1 = tasks.createTask({ title: '完成态要能删', project: 'demo', status: '完成' })
   const d1Canon = path.join(taskDir, `${d1.id}.md`)
@@ -228,18 +228,18 @@ function main() {
   let del9 = null
   try { del9 = tasks.deleteTask(d1.id) } catch (e) { threw9 = e }
   check('非规范名副本存在时删除不抛异常', threw9 === null, threw9 ? String(threw9.message) : '')
-  check('★ 非规范名副本存在时删除返回 true（不再是「任务不存在」）', del9 === true, String(del9))
+  check('★ 非规范名副本存在时删除返回 true（不再是“任务不存在”）', del9 === true, String(del9))
   check('★ 活跃区两份都被清掉（不留看得见却删不掉的孤儿）',
     !fs.existsSync(d1Canon) && !fs.existsSync(d1Copy))
   check('回收站里能看到该任务（可人工找回）',
     fs.readdirSync(trashDir).some(n => n === `${d1.id}.md` || n.startsWith(`${d1.id}.`)))
-  check('★ 再删一次幂等返回 true（旧名副本也算「已删过」）', tasks.deleteTask(d1.id) === true)
+  check('★ 再删一次幂等返回 true（旧名副本也算“已删过”）', tasks.deleteTask(d1.id) === true)
 
-  // 9b. 归档区里的终态任务必须能删 —— 用户报的「完成/驳回删不掉」正是这一批
+  // 9b. 归档区里的终态任务必须能删 —— 用户报的“完成/驳回删不掉”正是这一批
   const d2 = tasks.createTask({ title: '归档区驳回态', project: 'demo', status: '驳回' })
   tasks.archiveTask(d2.id)
   const del10 = tasks.deleteTask(d2.id)
-  check('★ 归档区里的「驳回」任务能删（用户第 1 条）', del10 === true, String(del10))
+  check('★ 归档区里的“驳回”任务能删（用户第 1 条）', del10 === true, String(del10))
   check('删除后归档区不再有该文件', !fs.existsSync(path.join(archiveDir, `${d2.id}.md`)))
 
   // 9c. 前缀相似的不同 id 不能互相误伤（匹配必须带点号）
@@ -253,7 +253,7 @@ function main() {
   check('同批只删掉了自己的那份', !fs.existsSync(p1File))
 
   // ── 10. 回收站界面入口（2026-09-26 卡 034）────────────────────────────
-  //     数据一直在 task-data/.trash（线上 64 个文件），缺的是「看得见 + 能还原 + 能彻底删」。
+  //     数据一直在 task-data/.trash（线上 64 个文件），缺的是“看得见 + 能还原 + 能彻底删”。
   //     全部按**文件名**操作：同一 id 可能有多份历史副本，用户要动的是"那一份"。
   const rt = tasks.createTask({ title: '待还原的活任务', project: 'demo', status: '待办' })
   const rtBody = fs.readFileSync(path.join(taskDir, `${rt.id}.md`), 'utf-8')
@@ -281,7 +281,7 @@ function main() {
     fs.readFileSync(path.join(taskDir, `${rt.id}.md`), 'utf-8') === rtBody)
   check('还原后能正常读到任务', !!tasks.readTask(rt.id))
 
-  // 10b. 终态任务还原因回归档区 —— 落位由状态决定，不是「一律回活跃区」
+  // 10b. 终态任务还原因回归档区 —— 落位由状态决定，不是“一律回活跃区”
   const rt2 = tasks.createTask({ title: '已完成的要回归档', project: 'demo', status: '完成' })
   tasks.archiveTask(rt2.id)
   tasks.deleteTask(rt2.id)
@@ -345,7 +345,7 @@ function main() {
     elThrew === null && Array.isArray(emptyList) && emptyList.length === 0,
     elThrew ? String(elThrew.message) : JSON.stringify(emptyList))
 
-  // ── 回收站正文预览（2026-09-26 用户回执：「每个卡片都是不能点的死卡」）──────
+  // ── 回收站正文预览（2026-09-26 用户回执：“每个卡片都是不能点的死卡”）──────
   //   卡片可点之后要能读到正文，读的口子必须和还原/彻底删除**同一条安全线**。
   {
     const tasks = require(path.join(DIST, 'data/tasks.js'))

@@ -1,12 +1,12 @@
 <!--
   方寸绘制架构图（2026-10-30，卡 task-20261030-002；同日按暮雨第 3 条重做）
 
-  与「架构图」按钮（打开仓库里 archify 产物）的分工：
+  与“架构图”按钮（打开仓库里 archify 产物）的分工：
     · 那个是打开**别人画好的**；
     · 这个是方寸**只读扫源码**自己画的（节点=真实目录，连线=真实 import/IPC 计数）。
 
-  2026-10-30 暮雨原话：「质量极差，无实战意义……人家 archify 是层层校验才能画出来的，
-  agent 画一笔都要审批，不通过自己重画。」所以这一版不是"扫完直接画"：
+  2026-10-30 暮雨原话：“质量极差，无实战意义……人家 archify 是层层校验才能画出来的，
+  agent 画一笔都要审批，不通过自己重画。”所以这一版不是"扫完直接画"：
     · 七道校验门（证据 / 唯一 / 规模 / 行宽 / 标签 / 几何 / 比例）逐条摆出来；
     · 人可以**逐块剔除**（这一笔画得不认可），也可以整张**驳回重画**（按诊断做减法）；
     · **通过**之后才允许导出 —— 没签字的图不落盘。
@@ -31,7 +31,7 @@ const props = defineProps<{
   approved?: boolean
   /** 已剔除的节点 id（父组件持有，切图后仍在） */
   excluded?: string[]
-  /** 已剔除节点的名字（节点已不在图里，侧栏要能列出来并「放回」） */
+  /** 已剔除节点的名字（节点已不在图里，侧栏要能列出来并“放回”） */
   excludedInfo?: Array<{ id: string; label: string }>
 }>()
 const emit = defineEmits<{
@@ -92,7 +92,7 @@ function submitReject(): void {
         {{ busy ? '生成中…' : '✦ AI 生成图' }}
       </button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
-        :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点「通过这张图」' : '导出成一份独立 HTML（保存位置由你选）')"
+        :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
         @click="emit('export')">
         {{ busy ? '导出中…' : '导出 HTML…' }}
       </button>
@@ -118,7 +118,7 @@ function submitReject(): void {
           <div class="archd-side-note">
             点一个方块看它由哪些文件构成；点一下再点一次取消。
             方块里的大数字是扫到的代码文件数，不是"应该有"的模块数。
-            不认可哪一块，就点开它再点「剔除这一块」。
+            不认可哪一块，就点开它再点“剔除这一块”。
           </div>
           <div class="archd-side-none">没有选中的节点</div>
         </div>
@@ -170,7 +170,7 @@ function submitReject(): void {
     <div class="archd-foot">
       <div class="archd-foot-text">
         节点只来自真实存在的目录；连线只来自真实的 import / IPC 计数 —— 没有证据的地方不画箭头，也不编模块。
-        <b>导出前必须过校验并点「通过」</b>：没签字的图不落盘。
+        <b>导出前必须过校验并点“通过”</b>：没签字的图不落盘。
       </div>
       <div class="archd-foot-acts">
         <template v-if="!rejecting">

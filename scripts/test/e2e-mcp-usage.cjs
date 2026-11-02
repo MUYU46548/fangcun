@@ -1,8 +1,8 @@
 /**
  * 卡 006 · MCP 读卡计量（2026-10-26）
  *
- * 要回答的问题（暮雨原话）：「看板任务一堆待办，很多我都不知道到底做了没有。
- * 而且不是应该 agent 会自己发现待办吗？做完会不会回写？」
+ * 要回答的问题（暮雨原话）：“看板任务一堆待办，很多我都不知道到底做了没有。
+ * 而且不是应该 agent 会自己发现待办吗？做完会不会回写？”
  *
  * 前半句的根因不是状态字段不准，而是**状态只反映"有人改过它"**：
  * 一张卡放三个月没人打开，和"今天刚看过准备做"在数据上一模一样。
@@ -66,7 +66,7 @@ function usageChecks() {
       JSON.stringify([...stats].map(([k, v]) => [k, v.reads])))
     check('  记下最后来源（via）', stats.get('task-x').lastVia === 'list_tasks', stats.get('task-x').lastVia)
 
-    check('「从未读过」清单只含没出现过的卡', (() => {
+    check('“从未读过”清单只含没出现过的卡', (() => {
       const never = U.neverRead(['task-x', 'task-y', 'task-z'])
       return never.length === 1 && never[0] === 'task-z'
     })(), JSON.stringify(U.neverRead(['task-x', 'task-y', 'task-z'])))
@@ -117,8 +117,8 @@ function cliChecks() {
     check('tegula next 能跑', false, (e && e.message) || String(e))
     return
   }
-  check('★ 文本输出里有「触发条件」一行（为什么现在该做它）', /触发条件\s*:/.test(out))
-  check('★★ 文本输出里有「被读过」一行（这张卡到底有没有人碰过）', /被读过\s*:/.test(out), out.slice(0, 120))
+  check('★ 文本输出里有“触发条件”一行（为什么现在该做它）', /触发条件\s*:/.test(out))
+  check('★★ 文本输出里有“被读过”一行（这张卡到底有没有人碰过）', /被读过\s*:/.test(out), out.slice(0, 120))
   check('  没被读过时说清是 0 次，而不是留空', /被读过\s*: 近 30 天 0 次/.test(out) || /被读过\s*: \d+ 次/.test(out))
 
   let json = null

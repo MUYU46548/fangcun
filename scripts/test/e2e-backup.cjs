@@ -47,7 +47,7 @@ function resolvePy() {
   const cands = [process.env.PYTHON_BIN, 'python', 'python3', 'py'].filter(Boolean)
   // 再补一组**按存在性发现**的落点：本机 (以及同类开发机) 的解释器常常装在
   // 用户目录下的版本化目录里，只出现在交互式 shell 的 PATH 上 ——
-  // Node `spawnSync` 看不到。这里只做「存在就用」，找不到就算了，不猜也不报错。
+  // Node `spawnSync` 看不到。这里只做“存在就用”，找不到就算了，不猜也不报错。
   try {
     const base = path.join(os.homedir(), '.workbuddy', 'binaries', 'python', 'versions')
     if (fs.existsSync(base)) {
@@ -390,7 +390,7 @@ async function main() {
   check('远端已有备份', remoteBefore.length >= 1, String(remoteBefore.length))
 
   // ── 手动导出到任意目录（网盘同步文件夹场景） ──────────────────────────
-  // 2026-09-26 用户第 1 条：「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」
+  // 2026-09-26 用户第 1 条：“导出又是导出四个文件，我只认识压缩包…只应该存在一样东西”
   // → 导出只落**一个 zip**（此前连 README / sha256 sidecar / manifest / 恢复脚本一共 4 个文件）。
   const exportDir = path.join(TEST_ROOT, '_export-target')
   fs.mkdirSync(exportDir, { recursive: true })
@@ -406,8 +406,8 @@ async function main() {
     !!exp.zipPath && exp.bytes === fs.statSync(exp.zipPath).size,
     JSON.stringify({ bytes: exp.bytes, real: exp.zipPath ? fs.statSync(exp.zipPath).size : -1 }))
 
-  // ── 导出「指定的一份已有备份」（2026-09-25 第 10 条：默认最新）──────────
-  // 用户原话：「导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新」
+  // ── 导出“指定的一份已有备份”（2026-09-25 第 10 条：默认最新）──────────
+  // 用户原话：“导出只能全量（91 文件/1097KB），需要只导指定备份、默认最新”
   const localBkDir = bk.getLocalBackupDir()
   check('本地备份目录在测试沙箱内（不会污染真实备份）', localBkDir.startsWith(TEST_ROOT), localBkDir)
   fs.mkdirSync(localBkDir, { recursive: true })
@@ -515,10 +515,10 @@ async function main() {
   check('审计日志已写入', log.includes('OK trigger=manual'), log.slice(-200))
   check('日志不含密码明文', !log.includes(PASS))
 
-  // ── 轮换「删前存档」（2026-10-21 · W1-1A 补的真缺口）────────────────────
+  // ── 轮换“删前存档”（2026-10-21 · W1-1A 补的真缺口）────────────────────
   // 施工单要求：删除前先把待删清单（文件名+大小+时间）写进存档日志，**再删**。
   // 判据只能是**顺序**：两条都写进日志是分不出先后的 —— 所以这里量的是
-  // 「轮换计划淘汰」在日志里出现在「轮换淘汰」**之前**，且计划行里点得出被删的组名。
+  // “轮换计划淘汰”在日志里出现在“轮换淘汰”**之前**，且计划行里点得出被删的组名。
   // 为什么要这条：删到一半崩掉（占用/权限/断电）时，"文件没了、日志里查不到删了什么"
   // 正是这条要挡的唯一场景。
   {
@@ -545,7 +545,7 @@ async function main() {
       Array.isArray(rRot.rotated) && rRot.rotated.length > 0, JSON.stringify((rRot.rotated || []).length))
     const iPlan = afterLog.indexOf('轮换计划淘汰')
     const iReal = afterLog.indexOf('轮换淘汰 ', iPlan >= 0 ? iPlan + 1 : 0)
-    check('★★ 删前存档：日志里「轮换计划淘汰」出现在「轮换淘汰」**之前**（顺序即证据）',
+    check('★★ 删前存档：日志里“轮换计划淘汰”出现在“轮换淘汰”**之前**（顺序即证据）',
       iPlan >= 0 && iReal > iPlan, JSON.stringify(afterLog.slice(0, 300)))
     check('★ 计划行里点得出被删的组名（不是只写个数字）',
       iPlan >= 0 && seeded.some((b) => afterLog.slice(iPlan, iReal > 0 ? iReal : undefined).includes(b)),
@@ -609,7 +609,7 @@ async function main() {
       okR.ok && okR.restoredFiles > 0 && fs.existsSync(path.join(goodDir, 'task-data')),
       JSON.stringify({ ok: okR.ok, files: okR.restoredFiles, errors: okR.errors }))
 
-    // 应用内「校验备份包」也必须认 .fcz（2026-10-31：此前只认 zip）
+    // 应用内“校验备份包”也必须认 .fcz（2026-10-31：此前只认 zip）
     const vEnc = bk.verifyPackage(rEnc.localPath, ENC_PW)
     check('★★ 应用内校验认加密包（解密后走四层校验）',
       vEnc.ok && vEnc.encrypted === true, JSON.stringify(vEnc.errors))
@@ -630,11 +630,11 @@ function verifyNames(zipBuf) {
   return v.manifest ? v.manifest.files.map(f => f.path) : []
 }
 
-// ── 排序：按「最后更新」倒序，不是按文件名（2026-09-25 用户第 5 条）────────
-// 症状：用户面对一堆 .zip「想按日期排序但排不了」。真因是列表按**文件名**倒序排，
+// ── 排序：按“最后更新”倒序，不是按文件名（2026-09-25 用户第 5 条）────────
+// 症状：用户面对一堆 .zip“想按日期排序但排不了”。真因是列表按**文件名**倒序排，
 // 而文件名里的时间戳 = 打包那一刻，重跑/导入的包名与内容时间会错位 ——
-// 真正该排的是文件 mtime（最后更新）。下面用「文件名顺序 ≠ mtime 顺序」的
-// 三件数据把这个坑钉死；再顺带断言列表带 mtime 字段（渲染层「最新」标靠它）。
+// 真正该排的是文件 mtime（最后更新）。下面用“文件名顺序 ≠ mtime 顺序”的
+// 三件数据把这个坑钉死；再顺带断言列表带 mtime 字段（渲染层“最新”标靠它）。
 function checkBackupOrder() {
   const bk = require(path.join(DIST, 'backup', 'index.js'))
   const bkDir = bk.getLocalBackupDir()
@@ -660,12 +660,12 @@ function checkBackupOrder() {
   const want = ['20230101-000000-cccc.zip', '20260101-000000-bbbb.zip', '20200101-000000-aaaa.zip']
   check('★ 备份列表按 mtime 倒序（最新在前），不是按文件名倒序',
     JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got))
-  check('备份列表每项带 mtime（渲染层「最新」标要用）',
+  check('备份列表每项带 mtime（渲染层“最新”标要用）',
     bk.listLocalBackups().every(x => typeof x.mtime === 'string' && x.mtime.length > 0))
   const rsrc = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/backup/index.ts'), 'utf-8')
   check('★ 远端备份列表也是 mtime 倒序（同一类 bug 的另一处）',
     /listRemoteBackups[\s\S]{0,900}Date\.parse\(b\.mtime/.test(rsrc))
-  check('渲染层取「最新一份」备份同样按 mtime 倒序（2026-09-26：已无下拉，取最新靠这个排序）', (() => {
+  check('渲染层取“最新一份”备份同样按 mtime 倒序（2026-09-26：已无下拉，取最新靠这个排序）', (() => {
     // 2026-10-31：这段逻辑已随备份设置搬进 composables/useBackup.ts（App.vue 拆分），
     // 判据改成扫全部渲染层源码 —— 只更严，不更松。
     const src = require('./_sources.cjs').rendererSource()

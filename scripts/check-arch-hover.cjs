@@ -1,4 +1,4 @@
-/* 无头浏览器「纯 CSS 交互」真验证：用 CDP 强制 :hover / :focus-within，
+/* 无头浏览器“纯 CSS 交互”真验证：用 CDP 强制 :hover / :focus-within，
  * 读回计算样式，证明交互真的生效（不是"写了 CSS 就当它生效"）。
  * 用法：node check-arch-hover.cjs <html路径>
  */
@@ -139,7 +139,7 @@ function wsConnect(url) {
     await cmd('Page.navigate', { url: 'file:///' + HTML.replace(/\\/g, '/') });
     await new Promise(r => setTimeout(r, 2200));
 
-    // ---- 1) 悬停「核心服务层」：层填充/描边必须变化 ----
+    // ---- 1) 悬停“核心服务层”：层填充/描边必须变化 ----
     // ⚠ 规则写作 `.lane-group:hover .lane`（后代选择器）→ forcePseudoState 必须作用在
     //   `g.lane-group` 本体上。作用在子元素 rect.lane 上会得到"点不动"的假红。
     const beforeLane = await evaluate(`(() => {

@@ -1,11 +1,11 @@
 /**
- * 回归：渲染层 → IPC 载荷过 contextBridge（2026-09-25「启动台第 6 次报修」真因）
+ * 回归：渲染层 → IPC 载荷过 contextBridge（2026-09-25“启动台第 6 次报修”真因）
  *
  * 为什么必须有这一套：
- *   该 bug 的表现是「点了完全没反应」，而且**主进程一条日志都没有** ——
+ *   该 bug 的表现是“点了完全没反应”，而且**主进程一条日志都没有** ——
  *   故障发生在渲染层的序列化阶段（页面参数搬进隔离世界那一跳），
  *   任何只测主进程执行器 / preload 的用例都抓不到它（前 6 次修复全栽在这）。
- *   这里用「真 Electron + 真 preload + 真 contextBridge」把这条路径钉死。
+ *   这里用“真 Electron + 真 preload + 真 contextBridge”把这条路径钉死。
  *
  * 两组断言：
  *   ① 静态守卫 —— 对象列表的 v-for 元素被整只传进处理器、又整只当 IPC 载荷时必须过 toPlain()。
@@ -37,7 +37,7 @@ function report() {
 // ── ① 静态守卫（精确规则，零误报）────────────────────────────────────────
 /**
  * 扫描思路：
- *   1) 找出「持有对象数组」的 ref（ref<string[]> 这类原始值列表天然安全，跳过）
+ *   1) 找出“持有对象数组”的 ref（ref<string[]> 这类原始值列表天然安全，跳过）
  *   2) 找 v-for="X in 该列表" —— X 是响应式代理
  *   3) 模板里若把 X **整只**传给某个处理器（f(app) / f(app, ...)），记下处理器名
  *   4) 到该处理器的函数体内找 window.tegula.*(X) —— 整只当载荷，必须写成 toPlain(X)
@@ -85,7 +85,7 @@ function scanBridgePayloads(src) {
 
 ;(function staticGuard() {
   const src = fs.readFileSync(APP_VUE, 'utf8')
-  check('静态守卫：能识别出「对象列表的 v-for 元素」这条路径（非空转）',
+  check('静态守卫：能识别出“对象列表的 v-for 元素”这条路径（非空转）',
     /launchpadApps/.test(src) && scanBridgePayloads(src) !== null)
   check('静态守卫：整只当 IPC 载荷的响应式元素必经 toPlain()',
     scanBridgePayloads(src).length === 0, '未包装：' + scanBridgePayloads(src).join(' | '))

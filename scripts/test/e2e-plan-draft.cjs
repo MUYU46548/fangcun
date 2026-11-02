@@ -3,9 +3,9 @@
  * 计划生成器 e2e（0.6.0 P6，2026-11-01）
  *
  * 真跑**编译产物** `dist/main/llm/planDraft.js`（模型调用用注入的假函数，不联网）。
- * 判据一句话：**生成物只能落「待裁决」，每条建议必须引出依据** ——
+ * 判据一句话：**生成物只能落“待裁决”，每条建议必须引出依据** ——
  *   · 没引用 / 引用不存在的依据 → 不进草案（missingCitations 计数如实）；
- *   · 生成物出现「已冻结」→ 红；
+ *   · 生成物出现“已冻结”→ 红；
  *   · 一次生成在 ai-trace.jsonl 留一条含 total_tokens 的记录；
  *   · 没有可引用依据时**不编**，直接拒绝。
  *
@@ -92,7 +92,7 @@ console.log('== ① 依据清单 + 提示词：模型只能从真凭据里挑 ==
   check('★ 提示词带产品定义与项目名', /让方寸对任意项目/.test(p.user) && /演示项目/.test(p.user))
   check('★★ 提示词逐条列出可引用依据（task:t1 / ledger:spend / git:commits）',
     /\[task:t1\]/.test(p.user) && /\[ledger:spend\]/.test(p.user) && /\[git:commits\]/.test(p.user))
-  check('★★ 硬规则写死：只输出 JSON / 每条必须引用 / 不许写「已冻结」',
+  check('★★ 硬规则写死：只输出 JSON / 每条必须引用 / 不许写“已冻结”',
     /只输出一个 JSON/.test(p.system) && /cites 至少 1 个/.test(p.system) && /已冻结/.test(p.system))
 }
 
@@ -164,8 +164,8 @@ async function main() {
     !!result.file && result.file.indexOf(path.join('task-data', 'plans', '_drafts')) >= 0
     && /demo-2026-11-01\.md$/.test(result.file), result.file)
   const text = fs.readFileSync(result.file, 'utf-8')
-  check('★★ 生成物状态恒为「待裁决」', /^- 状态: 待裁决$/m.test(text), text.split('\n').slice(0, 6).join(' | '))
-  check('★★ 生成物里不出现「已冻结」（出现即红）', !/已冻结/.test(text))
+  check('★★ 生成物状态恒为“待裁决”', /^- 状态: 待裁决$/m.test(text), text.split('\n').slice(0, 6).join(' | '))
+  check('★★ 生成物里不出现“已冻结”（出现即红）', !/已冻结/.test(text))
   check('★ 每张阶段卡都带 `- 依据:` 且引用真实 id', /^- 依据: task:t1 · ledger:spend$/m.test(text),
     (text.match(/^- 依据:.*$/m) || [''])[0])
   check('★ 五段齐全（范围 / 交付物 / 验收标准 / 里程碑 / 除外责任）',
@@ -214,7 +214,7 @@ async function main() {
       /chatWithFallback\(/.test(SRC) && /noTrace: true/.test(SRC) && /total_tokens/.test(SRC))
     check('★ 生成器没有"通过/冻结"能力（源码里没有 advanceStage / writePlanVerdict）',
       !/advanceStage|writePlanVerdict/.test(SRC))
-    check('★ 状态只写「待裁决」（源码里不写 `状态: 已冻结`）', !/状态:\s*已冻结/.test(SRC))
+    check('★ 状态只写“待裁决”（源码里不写 `状态: 已冻结`）', !/状态:\s*已冻结/.test(SRC))
     check('★ 引用校验只认真实存在的依据（allowed 集合，不许自由编）',
       /allowedCitations/.test(SRC) && /!allow\.has\(c\)/.test(SRC))
   }

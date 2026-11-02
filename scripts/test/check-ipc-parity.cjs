@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * IPC 三方对账扫描器 —— 抓「僵尸按钮」
+ * IPC 三方对账扫描器 —— 抓“僵尸按钮”
  *
  * 背景：方寸已出现三次同类事故——
  *   ① 备份按钮全僵尸（registerBackupIpcHandlers 未在真入口调用）
  *   ② loadNotes 未定义（渲染层调用 4 次，函数从未存在）
  *   ③ batchDelete 数据层函数不存在（渲染层在调，后端空白）
- * 根因是「UI 先行、后端跟进时漏项」，而 stub e2e 只测已实现的函数，抓不到。
+ * 根因是“UI 先行、后端跟进时漏项”，而 stub e2e 只测已实现的函数，抓不到。
  *
  * 本扫描器做四组对账：
  *   ① 僵尸按钮  渲染层调用 ∌ preload 暴露      → 前端 undefined，点了必报错
@@ -17,7 +17,7 @@
  * 退出码：①②③ 任一非空 → 1（可进 e2e）。
  * 用法：node scripts/test/check-ipc-parity.cjs [--json] [--all]
  *        --all 把 ④ 孤儿通道 / ⑤ 死通道的清单**全部列出**（默认各只列前 12 条）——
- *        「死通道」那份清单是用来圈选要不要删的，只给 12 条没法用。
+ *        “死通道”那份清单是用来圈选要不要删的，只给 12 条没法用。
  */
 const fs = require('fs')
 const path = require('path')
@@ -28,13 +28,13 @@ const SRC = path.join(DESKTOP, 'src')
 const JSON_OUT = process.argv.includes('--json')
 
 // ── 显式豁免名单 ──────────────────────────────────────────────────────
-// 纪律：只允许「有意为之 + 写明原因」的项，禁止用它掩盖真 bug。
+// 纪律：只允许“有意为之 + 写明原因”的项，禁止用它掩盖真 bug。
 // 扫描器每次都会把豁免清单打印出来，避免被悄悄遗忘成永久红灯。
 const EXEMPTIONS = {
   // 僵尸按钮：渲染层调用名
   zombieButtons: {},
   // 僵尸通道：channel 名
-  // ⚠ 2026-09-22 更正原因：这 5 个不是「未接线」，而是**主→渲染方向的推送通道**。
+  // ⚠ 2026-09-22 更正原因：这 5 个不是“未接线”，而是**主→渲染方向的推送通道**。
   // preload 用 ipcRenderer.on 订阅，主进程用 webContents.send 推送；
   // 本扫描器只统计 handle/handleOnce/on 三种注册写法，看不到 send，故仍列为豁免项。
   zombieChannels: {
@@ -64,7 +64,7 @@ const EXEMPTIONS = {
     detectEvents: '主进程内部/CLI 用，无渲染层入口',
   },
   // 死通道（第 ⑤ 类，2026-10-06 卡 004 新增）：preload 暴露 + 主进程注册，
-  // 但渲染层从不调用。⚠ 只当**信息**报，不当缺陷 —— 「渲染层不调」可能是合法的
+  // 但渲染层从不调用。⚠ 只当**信息**报，不当缺陷 —— “渲染层不调”可能是合法的
   // （留给 e2e / 数据迁移 / 未来版本的兼容口）。要红灯的请在此登记明确理由。
   //
   // 2026-10-11（卡 20261006-002 收口）：44 → 31 → **18 → 0**。
@@ -78,7 +78,7 @@ const EXEMPTIONS = {
   //     每条后面都跟着"为什么可以留着"。真正没决定的项不要往这里加。
   dead: {
     // ── A 组：LLM 智能层 10 项（**用户拍板保留**，不是遗漏）──────────────
-    llmGetConfig: '卡 20261006-002 A 组：用户 2026-10-06 拍板保留（原话「等后续解决技术问题再添加，属于长期规划项目」）。契约 REV-003 保留了这条通道。',
+    llmGetConfig: '卡 20261006-002 A 组：用户 2026-10-06 拍板保留（原话“等后续解决技术问题再添加，属于长期规划项目”）。契约 REV-003 保留了这条通道。',
     llmSetConfig: '同上（A 组 · 用户拍板保留）',
     llmResetConfig: '同上（A 组 · 用户拍板保留）',
     llmTestConnection: '同上（A 组 · 用户拍板保留）',
@@ -91,10 +91,10 @@ const EXEMPTIONS = {
 
     // ── C 组：路线图趋势（半成品，已单独立卡）────
     // 规划管理 4 条（createPlan/listPlans/getPlan/decidePlanPoint）2026-10-16 第 1 项已接
-    // 「🗂 规划」弹窗（项目详情入口），从 dead 豁免里摘卡。
+    // “🗂 规划”弹窗（项目详情入口），从 dead 豁免里摘卡。
     getRoadmapTrend: 'C 组 · 路线图趋势：当前是**半成品**（只产出一个数据点，没有真"趋势"）。要接得先补历史采样，已并入 task-20261011-002。',
 
-    // ── E 组：确认为「不需要界面入口」的 3 条 ──────────────────────────
+    // ── E 组：确认为“不需要界面入口”的 3 条 ──────────────────────────
     logsGet: 'E 组 · 按 id 单取执行日志：渲染层的日志列表**自带完整内容**，打开详情不需要再按 id 取一次；MCP 侧有自己的读口。',
     cronCheck: 'E 组 · 周期检查：职责已由**通知中心**（services/notifier.ts 每小时扫 stalled，含指纹去重与自动消解）与 Python 侧 `tegula cron` 承担，界面上没有它的位置。',
     launchpadOpenUrl: 'E 组 · 启动台打开网址：启动台条目目前只有**可执行文件 / 文件夹**两种类型，没有网址类型 → 没有入口可接。将来若加网址条目，接线是 2 行。',
@@ -190,7 +190,7 @@ function scanRendererCalls() {
       aliasRe.lastIndex = 0
       while ((m = aliasRe.exec(ln))) {
         const name = m[1]
-        // ⚠ `\\??` = 「0 或 1 个问号」（可选链）。写成 `\\?` 是**字面问号** —— 那样
+        // ⚠ `\\??` = “0 或 1 个问号”（可选链）。写成 `\\?` 是**字面问号** —— 那样
         //   `t.foo()` 匹配不上、只有 `t?.foo()` 能匹配，别名识别会静默失效
         //   （第一版就这么写的：`notificationsScannerStatus` 明明在用却仍被报成死通道）。
         const re = new RegExp('\\b' + name + '\\s*\\??\\.\\s*([A-Za-z_$][\\w$]*)', 'g')
@@ -337,11 +337,11 @@ function scanReachable() {
 // ── ⑥ IPC 载荷收口（2026-10-06 卡 005）────────────────────────────────
 //
 // 为什么必须有：渲染层把 **Vue 响应式代理**（`xxx.value` 里的数组/对象、v-for 元素）
-// 直接当 IPC 载荷时，contextBridge 在「页面世界 → 隔离世界」这一跳就抛
+// 直接当 IPC 载荷时，contextBridge 在“页面世界 → 隔离世界”这一跳就抛
 // `An object could not be cloned` —— **报文连 preload 都进不去**，主进程日志一片空白，
-// 排查时极易误判成「主进程没重启」。这个坑已经踩了三次：
+// 排查时极易误判成“主进程没重启”。这个坑已经踩了三次：
 //   ① 2026-09-25 启动台无法启动任何应用（修了 6 次才定位）② 2026-09-30 日志创建按钮全炸
-//   ③ 2026-10-05 在途一屏勾选被清空（写盘从未成功 → 读回判定「从没做过选择」）
+//   ③ 2026-10-05 在途一屏勾选被清空（写盘从未成功 → 读回判定“从没做过选择”）
 // 三次都只在**出事的那个点**打补丁，从未收口。
 //
 // 判据（比"含 .value 就报"精确得多）：实测渲染层 12 处 `.value` 实参**全是字符串/数字/布尔**，
@@ -438,7 +438,7 @@ function main() {
   }
 
   // ⑤ 死通道：preload 暴露 + 主进程注册，但渲染层从不调用（2026-10-06 卡 004）
-  //    为什么值钱：桌面「派活链」（dispatchPreview / dispatchExecute）整条是死代码，
+  //    为什么值钱：桌面“派活链”（dispatchPreview / dispatchExecute）整条是死代码，
   //    而当时没有任何守卫能发现它 —— 是人工读代码才挖出来的。这里把这一类变成可查项。
   //    信息级：不作 fail（合法保留的口子很多），但每次把清单打出来供圈选。
   const deadChannels = []
@@ -514,7 +514,7 @@ function main() {
 
   // ⑥ IPC 载荷：裸传数组/对象型 ref = Vue 代理过 contextBridge 必抛
   if (riskyPayloads.length === 0) ok(`⑥ IPC 载荷无裸传的数组/对象 ref（本仓识别到这类 ref ${riskyTotal} 个，全部没裸传）`)
-  else riskyPayloads.forEach(p => bad(`⑥ IPC 裸传数组/对象 ref：${p.name}.value 直接进 IPC —— Vue 代理过 contextBridge 必抛「could not be cloned」（${p.file}:${p.line}）｜ ${p.src}`))
+  else riskyPayloads.forEach(p => bad(`⑥ IPC 裸传数组/对象 ref：${p.name}.value 直接进 IPC —— Vue 代理过 contextBridge 必抛“could not be cloned”（${p.file}:${p.line}）｜ ${p.src}`))
 
   // 豁免清单：每次都打印，防止"豁免"变成永久红灯的遮羞布
   const exemptTotal = Object.values(exempted).reduce((a, b) => a + b.length, 0)

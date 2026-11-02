@@ -91,7 +91,7 @@ computeBlockerImpact(chain)
 check('★ 纯函数：算完不修改传入的 chains（可重复调用 / 可被 Vue computed 反复求值）',
   JSON.stringify(chain) === before)
 
-// ── ⑦ 决策队列（2026-10-31 暮雨第 7 条：这一页服务「先解哪一张」）────────
+// ── ⑦ 决策队列（2026-10-31 暮雨第 7 条：这一页服务“先解哪一张”）────────
 // 判据不是"能排出序"，而是三件不许含糊的事：
 //   ① top 只能是**真有人受益**的那张（unlock > 0）；
 //   ② 每行要能说出"解了谁"（列名字，不是只给个数字）；
@@ -100,7 +100,7 @@ const q = buildBlockerQueue(chain)
 check('★ 队列 total / blocked 与输入真身对得上',
   q.total === computeBlockerImpact(chain).length && q.blocked > 0,
   `total=${q.total} blocked=${q.blocked}`)
-check('★★ top 必须是「真有人受益」的那张（unlock > 0，不推荐白干）',
+check('★★ top 必须是“真有人受益”的那张（unlock > 0，不推荐白干）',
   !!q.top && q.top.unlock > 0, JSON.stringify(q.top && { id: q.top.id, unlock: q.top.unlock }))
 check('★ 每行给出解锁名单（最多 5 个，不是只给数字）',
   q.rows.every((r) => Array.isArray(r.unlockTitles) && r.unlockTitles.length <= 5) &&

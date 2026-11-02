@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 「随问」结构化查询测试（2026-10-22 · 施工单包 03 任务一）
+ * “随问”结构化查询测试（2026-10-22 · 施工单包 03 任务一）
  *
  * 真跑编译产物 `dist/main/services/ask.js` + **临时数据目录**
  * （不碰真实 registry / task-data / ai-trace；git 预热在临时目录里读不到仓库不影响断言）。
@@ -176,7 +176,7 @@ for (const [kind, q, , pid] of CASES) {
   const okKind = a.kind === kind
   const okLlm = a.needsLlm === false
   const okPid = pid ? a.projectId === pid : true
-  check(`「${q}」→ kind=${kind} 且零 LLM`, okKind && okLlm && okPid,
+  check(`“${q}”→ kind=${kind} 且零 LLM`, okKind && okLlm && okPid,
     `kind=${a.kind} needsLlm=${a.needsLlm} projectId=${a.projectId} title=${a.title}`)
   if (a.needsLlm === false) ZERO_LLM.push(q)
 }
@@ -207,7 +207,7 @@ check('  同时给出任务级实况（当前步骤/下一步/卡在谁/计数�
   aProg.lines.some((l) => l.indexOf('当前步骤') >= 0) && aProg.lines.some((l) => l.indexOf('卡在谁') >= 0),
   JSON.stringify(aProg.lines))
 const aWho = ask.answer('谁在等谁')
-check('★ 有「待验收」卡 → 等验收人（暮雨）',
+check('★ 有“待验收”卡 → 等验收人（暮雨）',
   aWho.rows.some((r) => r.v.indexOf('暮雨') >= 0 && r.sub.indexOf('验收') >= 0), JSON.stringify(aWho.rows))
 const aNext = ask.answer('方寸演示下一步')
 check('★ 下一步取待办里优先级最高的那张（高）',
@@ -221,15 +221,15 @@ check('★ 逾期张数 = 夹具里那个拖了 19 天的（1 张）',
   aDue.title.indexOf('逾期 1 张') >= 0, aDue.title)
 check('★ 逾期卡被点名，且天数按 shared/time.daysSinceDue 算（19 上下）',
   aDue.rows.some((r) => r.k === '拖了很久的活' && /逾期 \d+ 天/.test(r.v)), JSON.stringify(aDue.rows))
-check('  两天后到期的进「三天内」那一档',
+check('  两天后到期的进“三天内”那一档',
   aDue.rows.some((r) => r.k === '快到期了' && r.v.indexOf('天后到期') >= 0), JSON.stringify(aDue.rows))
-check('★ 没填截止日的卡不进逾期口径（不拿「没填」当「没逾期」也不算它逾期）',
+check('★ 没填截止日的卡不进逾期口径（不拿“没填”当“没逾期”也不算它逾期）',
   !aDue.rows.some((r) => r.k === '正在做的活'), JSON.stringify(aDue.rows.map((r) => r.k)))
 const aDormant = ask.answer('哪些项目停着')
-check('★ 60 天没动的项目被判「休眠」',
+check('★ 60 天没动的项目被判“休眠”',
   aDormant.rows.some((r) => r.k === '冷项目' && r.v === '休眠'), JSON.stringify(aDormant.rows))
 const aOwe = ask.answer('欠着什么')
-check('★ 欠着读的是 registry「说明」字段，逐项目列出',
+check('★ 欠着读的是 registry“说明”字段，逐项目列出',
   aOwe.rows.some((r) => r.k === '方寸演示' && r.v.indexOf('第一件欠账') >= 0), JSON.stringify(aOwe.rows))
 check('  没写说明的项目不硬凑一行（冷项目不该出现）',
   !aOwe.rows.some((r) => r.k === '冷项目'), JSON.stringify(aOwe.rows.map((r) => r.k)))
@@ -250,17 +250,17 @@ check('  并且**没有**假装给出答案（title 明说答不了）',
 check('  提示了成本红线（AI 只进模糊问答/批次出单两处）',
   aVague.lines.join(' ').indexOf('两种') >= 0 && aVague.lines.join(' ').indexOf('批次出单') >= 0,
   JSON.stringify(aVague.lines))
-// 反例之二：一句判断题里带「接下来」—— 不许被 next 认领（2026-10-22 实测踩过）
+// 反例之二：一句判断题里带“接下来”—— 不许被 next 认领（2026-10-22 实测踩过）
 const aJudge = ask.answer('你觉得我接下来该不该砍掉它')
 // 2026-10-31：这类"该不该 / 怎么办"的问题归到 advice（先摆台账线索、再明说算不出来）。
 // 判据不变：不许被 next 抢答，且必须 needsLlm=true。
-check('★★ 「接下来该不该…」是判断题，不许被当成 next 答成"下一步做哪张卡"',
+check('★★ “接下来该不该…”是判断题，不许被当成 next 答成"下一步做哪张卡"',
   aJudge.kind === 'advice' && aJudge.kind !== 'next' && aJudge.needsLlm === true,
   `kind=${aJudge.kind} needsLlm=${aJudge.needsLlm} title=${aJudge.title}`)
-// 2026-10-31（暮雨第 8 条）：真问题「方寸的阴影问题怎么处理」——
-// 以前因为含「方寸」被当成"问项目进展"，答一屏在途一屏，AI 按钮还不出现。
+// 2026-10-31（暮雨第 8 条）：真问题“方寸的阴影问题怎么处理”——
+// 以前因为含“方寸”被当成"问项目进展"，答一屏在途一屏，AI 按钮还不出现。
 const aHowto = ask.answer('方寸的阴影问题怎么处理')
-check('★★ 「怎么处理」类问题不再被项目名劫持成"进展汇报"（必须落到 advice）',
+check('★★ “怎么处理”类问题不再被项目名劫持成"进展汇报"（必须落到 advice）',
   aHowto.kind === 'advice' && aHowto.needsLlm === true, `kind=${aHowto.kind} title=${aHowto.title}`)
 check('★ advice 会先把台账里相关的卡/日志摆出来（不是一句"我不懂"）',
   /方寸手里|台账里/.test(aHowto.lines.join(' ')), JSON.stringify(aHowto.lines))
@@ -340,7 +340,7 @@ check('★ 出单目标里带项目名 + 三字段原值（现况/路线图/欠�
 check('★ 目标里写清了"怎么算做完"和"改哪块"（否则出出来的卡没法直接执行）',
   bg1.ok && bg1.goal.indexOf('怎么算做完') >= 0 && bg1.goal.indexOf('改哪块') >= 0, '')
 const bg2 = wb.buildBatchGoal('cold')
-check('★ 没填的字段写「未填」，不替用户编内容',
+check('★ 没填的字段写“未填”，不替用户编内容',
   bg2.ok && bg2.goal.indexOf('未填') >= 0, bg2.ok ? bg2.goal.slice(0, 120) : bg2.error)
 check('空 id / 不存在的项目 → 拼目标阶段就报错（零成本，不发请求）',
   wb.buildBatchGoal('').ok === false && wb.buildBatchGoal('not-exist').ok === false)

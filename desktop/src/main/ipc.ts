@@ -70,7 +70,7 @@ export function registerIpcHandlers(): void {
    * Task → 渲染层视图对象。
    *
    * 用展开而不是手写字段列表：之前两处各写一份，都漏了 deadline/memo，
-   * 直接后果是「截止日期筛选」永远拿不到值。新增字段不需要再来改这里。
+   * 直接后果是“截止日期筛选”永远拿不到值。新增字段不需要再来改这里。
    * 同时保留 fm 与 path，供需要完整 frontmatter / 文件路径的场景使用。
    */
   function flattenTask(t: data.Task) {
@@ -146,7 +146,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）────────────
-  // 仿日志清理：设置保留天数（0 = 关闭），列出「已超期」的那批 + 一键归档。
+  // 仿日志清理：设置保留天数（0 = 关闭），列出“已超期”的那批 + 一键归档。
   // 归档动作仍走既有 archiveTask（移动文件 + 失效缓存 + 记活动日志），且**逐条可追溯**。
   guardedHandle('tasks:overdue', (_event, days: number) => {
     const d = Number(days)
@@ -224,12 +224,12 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Timeout + Progress ──────────────────────────────────────────────
-  // `findTimeoutTasks` 通道已删（2026-10-11，卡 20261006-002 E 组）：命名误导（只算「派活→现在」，
+  // `findTimeoutTasks` 通道已删（2026-10-11，卡 20261006-002 E 组）：命名误导（只算“派活→现在”，
   // 与任务文件有没有变**毫无关系**）＋渲染层零调用。函数本体保留给内部 detectEvents 用。
 
-  // 「进行中但文件 N 小时没变」= **真**僵尸卡判据（2026-10-11，监控台 P0）。
-  // ⚠ 别拿 findTimeoutTasks 当它用 —— 那个只算「派活 → 现在」，与文件有没有变**毫无关系**
-  //   （点「进行中」会把 `更新` 刷成当下，agent 每小时回写一次在它眼里照样"超时"）。
+  // “进行中但文件 N 小时没变”= **真**僵尸卡判据（2026-10-11，监控台 P0）。
+  // ⚠ 别拿 findTimeoutTasks 当它用 —— 那个只算“派活 → 现在”，与文件有没有变**毫无关系**
+  //   （点“进行中”会把 `更新` 刷成当下，agent 每小时回写一次在它眼里照样"超时"）。
   // 通知中心（services/notifier.ts）一直在用同一条判据，这里只是把它**接到界面上**。
   guardedHandle('stalledTasks', (_event, thresholdHours?: number) => {
     return tasks.findStalledTasks(thresholdHours)
@@ -282,7 +282,7 @@ export function registerIpcHandlers(): void {
 
   // ── Registry ──────────────────────────────────────────────────────
   // 原 regSave 是 `return { ok: true }` 的空实现：前端拿到成功、实际什么都没写，
-  // 属于「假成功」，已移除。新建项目改走 registry:addProject（真写入 + 写前自校验）。
+  // 属于“假成功”，已移除。新建项目改走 registry:addProject（真写入 + 写前自校验）。
   guardedHandle('registry:addProject', (_event, fields: data.NewProjectFields) => {
     try {
       return data.addProjectToRegistry(fields || { id: '' })
@@ -291,7 +291,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  /** 项目说明三字段（状态 / 路线图 / 说明）读写 —— 2026-10-22 · 06 单「13 行写回」。
+  /** 项目说明三字段（状态 / 路线图 / 说明）读写 —— 2026-10-22 · 06 单“13 行写回”。
    *  写回走文本块级替换 + 写前自校验，并回传改前旧值供撤销条反推回滚。 */
   guardedHandle('registry:readFields', (_event, id: string) => {
     try {
@@ -335,7 +335,7 @@ export function registerIpcHandlers(): void {
 
   /**
    * 目录选择。
-   * 必须传父窗口：不传时 Windows 上对话框不置顶，用户点「浏览…」看不到任何变化，
+   * 必须传父窗口：不传时 Windows 上对话框不置顶，用户点“浏览…”看不到任何变化，
    * 表现得就像按钮坏了。同时加 try/catch —— 对话框异常不应把 IPC 变成静默挂起。
    */
   guardedHandle('browseDirectory', async (event) => {
@@ -406,7 +406,7 @@ export function registerIpcHandlers(): void {
    * 搬迁数据目录：备份 → 复制 → 切换指针。
    *
    * 关键纪律：
-   *  - 用「复制」而非「移动」，源目录原样保留，出问题数据还在
+   *  - 用“复制”而非“移动”，源目录原样保留，出问题数据还在
    *  - 备份失败直接中止（没有回滚点的写操作不做）
    *  - 目标已有数据时必须显式 allowExisting，不静默覆盖
    */
@@ -459,7 +459,7 @@ export function registerIpcHandlers(): void {
   // 判据：preload 暴露 + 主进程注册，但**渲染层零调用** —— 界面里从来没有过笔记入口。
   // 通道、`services` 的笔记实现、`tasks` 的笔记导入导出一并删。
   // ⚠ `notes/` 数据目录**不动**：历史笔记文件仍在磁盘上（只是没有界面/通道了）。
-  // ⚠ 别误伤：下面 `exportTasks` / `importTasks` 是「导出/导入任务 JSON」（设置页在用）。
+  // ⚠ 别误伤：下面 `exportTasks` / `importTasks` 是“导出/导入任务 JSON”（设置页在用）。
 
   // ── Blocker chains ─────────────────────────────────────────────────
   guardedHandle('getBlockerChains', () => {
@@ -479,12 +479,12 @@ export function registerIpcHandlers(): void {
     const pid = String(projectId || '').trim()
     if (!pid) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: '没指定项目' }
     const proj: any = data.parseRegistry().find((p: any) => p.id === pid)
-    if (!proj) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: `registry 里没有项目「${pid}」` }
+    if (!proj) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: `registry 里没有项目“${pid}”` }
     return repoDocs.readProjectDocs(String(proj.repo || ''))
   })
 
   // ── 方寸自仓启动同步状态（2026-10-21 · W1-1C）── 只读状态
-  // 「远端推一笔 → 重启就跟上」是自动的；这里**只报状态**，刻意不提供"立即同步"按钮
+  // “远端推一笔 → 重启就跟上”是自动的；这里**只报状态**，刻意不提供"立即同步"按钮
   // （用户零动作原则：自动就够，多一个按钮就多一处要维护的失败面）。
   guardedHandle('sync:selfStatus', () => selfSync.getSelfSyncStatus())
 
@@ -499,7 +499,7 @@ export function registerIpcHandlers(): void {
       const repo = String(proj?.repo || '')
       if (!repo) {
         return { ok: true, repo: '', commits: [], mentioned: [],
-          note: `项目「${proj?.name || pid}」没登记工作目录，定位不到仓库` }
+          note: `项目“${proj?.name || pid}”没登记工作目录，定位不到仓库` }
       }
       if (!(await gitLink.isGitRepo(repo))) {
         return { ok: true, repo, commits: [], mentioned: [],
@@ -589,8 +589,8 @@ export function registerIpcHandlers(): void {
   })
 
   // ── 2026-10-01 P0-4：扫描器状态可见 ────────────────────────────────
-  // 此前 getScannerStatus() 没有通道：「扫描器停摆」与「扫不到事件」在界面上长得
-  // 一模一样，用户只能得出通知中心是坏的。面板页脚显示「上次扫描 / 运行中」。
+  // 此前 getScannerStatus() 没有通道：“扫描器停摆”与“扫不到事件”在界面上长得
+  // 一模一样，用户只能得出通知中心是坏的。面板页脚显示“上次扫描 / 运行中”。
   guardedHandle('notifications:scannerStatus', () => {
     return notifierService.getScannerStatus()
   })
@@ -636,7 +636,7 @@ export function registerIpcHandlers(): void {
   // ── 在途一屏（Q2 · 立项契约 ② 验收线之①）──────────────────────────────
   // 只读聚合：读各 repo 的 `立项契约.md` + 任务卡 + 执行日志 + git 提交时间。
   // 方寸**不写任何项目仓库**；"打开 repo"只收 projectId（路径由主进程从 registry 取），不放任意路径。
-  // 2026-10-11 用户：「每次进在途一屏都要卡一下」。真因是**逐项目同步 spawn git**
+  // 2026-10-11 用户：“每次进在途一屏都要卡一下”。真因是**逐项目同步 spawn git**
   //（8 个项目 × 2 条命令 = 0.5–3s 整段阻塞）。现在先并发预热缓存再走原来的同步聚合 ——
   // 命令/缓存键/TTL/失败语义一条没改，只是把等待从"串行阻塞"换成"并发等待"。
   guardedHandle('trip:board', async () => {
@@ -648,7 +648,7 @@ export function registerIpcHandlers(): void {
 
   // ── 随问（2026-10-22 · 施工单包 03 任务一）：结构化查询，零 LLM ──────────
   // 成本红线写在这里：这条通道**永远不调模型**。模糊问题由界面明确告知"这条得靠 AI"，
-  // 要不要花那个 token 由用户点头（AI 只进「模糊问答」「批次出单」两处）。
+  // 要不要花那个 token 由用户点头（AI 只进“模糊问答”“批次出单”两处）。
   guardedHandle('ask:presets', () => {
     return { presets: ask.ASK_PRESETS, projects: ask.askProjectOptions() }
   })
@@ -719,15 +719,15 @@ export function registerIpcHandlers(): void {
     } catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  // 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+  // 移除项目登记（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”）。
   // **只动 registry.yaml 的那一段文本块** —— 任务卡 / 方针卡 / 项目仓库一个字节都不碰；
-  // 删掉登记后该项目下的卡会变成「未归属项目」（卡还在）。写前自校验在 data 层。
+  // 删掉登记后该项目下的卡会变成“未归属项目”（卡还在）。写前自校验在 data 层。
   guardedHandle('registry:removeProject', (_event, id: string) => {
     try { return data.removeProjectFromRegistry(id) }
     catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  // 在项目文件夹里**创建**「立项契约.md」（2026-10-05 用户：让方寸直接写，弹窗确认即可）。
+  // 在项目文件夹里**创建**“立项契约.md”（2026-10-05 用户：让方寸直接写，弹窗确认即可）。
   // 只建不覆盖：文件已存在一律拒绝；只写固定文件名 + 固定模板，不接任意路径/内容。
   guardedHandle('trip:initContract', (_event, projectId: string) => {
     try { return tripBoard.initContractFile(projectId) }
@@ -902,7 +902,7 @@ export function registerIpcHandlers(): void {
   })
 
   // ── Logs ────────────────────────────────────────────────────────────
-  // 卡 037 右键菜单：置顶与改归属都不受「非 active 不可编辑」守卫限制（视图/归类属性）
+  // 卡 037 右键菜单：置顶与改归属都不受“非 active 不可编辑”守卫限制（视图/归类属性）
   guardedHandle('logs:setPinned', (_event, id: string, pinned: boolean) => {
     return logsService.setLogPinned(String(id || ''), !!pinned)
   })
@@ -954,13 +954,13 @@ export function registerIpcHandlers(): void {
     return logsService.archiveLog(id, note)
   })
 
-  // 2026-09-28 用户第 2 条：「进行中」只能手动开关，且可撤销。
+  // 2026-09-28 用户第 2 条：“进行中”只能手动开关，且可撤销。
   // 这是 running 的**唯一写入路径**（创建/完成/归档只会关掉它）。
   guardedHandle('logs:setRunning', (_event, id: string, running: boolean) => {
     return logsService.setLogRunning(String(id || ''), !!running)
   })
 
-  // 撤销完成 / 撤销归档，退回「待处理」。**不等于「进行中」** —— 要不要进行中由用户另外开。
+  // 撤销完成 / 撤销归档，退回“待处理”。**不等于“进行中”** —— 要不要进行中由用户另外开。
   guardedHandle('logs:reopen', (_event, id: string) => {
     return logsService.reopenLog(id)
   })
@@ -977,7 +977,7 @@ export function registerIpcHandlers(): void {
   })
 
   // 状态快照 / 还原（2026-10-30 暮雨第 5 条）：撤销要回到点之前那一格，
-  // 而不是统一退回「待处理」（那会把用户手动标的「进行中」吃掉）。
+  // 而不是统一退回“待处理”（那会把用户手动标的“进行中”吃掉）。
   guardedHandle('logs:stateSnapshot', (_event, id: string) => {
     return logsService.logStateSnapshot(String(id || ''))
   })
@@ -993,7 +993,7 @@ export function registerIpcHandlers(): void {
     return logsService.injectLog(id)
   })
 
-  // 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：「主日志带多条副日志一起灌入」）。
+  // 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：“主日志带多条副日志一起灌入”）。
   // 与 MCP `inject_logs` 共用 services/logs.injectLogs —— 两处各拼一次必然分叉。
   guardedHandle('logs:injectMany', (_event, ids: any) => {
     return logsService.injectLogs(Array.isArray(ids) ? ids.map((x: any) => String(x || '')) : [])
@@ -1004,9 +1004,9 @@ export function registerIpcHandlers(): void {
   // 渲染层只管拿到更新后的 entry。文件**复制**进数据目录，源文件不动。
   //
   // 2026-10-25（暮雨第 4 / 7 条）加了两个入口，解决两件事：
-  //   ① 「新建日志时必须先创建才能挂附件」—— 现在可以先选文件（`logs:pickFiles` 只拿路径，
+  //   ① “新建日志时必须先创建才能挂附件”—— 现在可以先选文件（`logs:pickFiles` 只拿路径，
   //      不落盘），等日志存好再带着路径调 `logs:attachFiles(logId, sources)` 一次挂上；
-  //   ② 「附件能不能粘贴图片」—— 剪贴板里只有 blob 没有路径（Electron 44 起 `File.path`
+  //   ② “附件能不能粘贴图片”—— 剪贴板里只有 blob 没有路径（Electron 44 起 `File.path`
   //      也已移除），所以另走 `logs:attachData`：字节进主进程，校验与写盘全在 logs.ts。
   guardedHandle('logs:pickFiles', async () => {
     const picked = await pickFilesForAttach('选择要关联到这条日志的文件（截图 / 分析报告）')
@@ -1038,7 +1038,7 @@ export function registerIpcHandlers(): void {
   guardedHandle('logs:detachAttachment', (_event, logId: string, rel: string) =>
     logsService.detachAttachment(String(logId || ''), String(rel || '')))
 
-  // 预览用 data URL；超大文件由 logs.ts 返回 tooLarge，界面改给「用系统程序打开」
+  // 预览用 data URL；超大文件由 logs.ts 返回 tooLarge，界面改给“用系统程序打开”
   guardedHandle('logs:attachmentData', (_event, rel: string) =>
     logsService.readAttachmentData(String(rel || '')))
 
@@ -1060,7 +1060,7 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // 可执行附件只能「在文件夹中显示」，由用户确认来源后自己双击。
+  // 可执行附件只能“在文件夹中显示”，由用户确认来源后自己双击。
   guardedHandle('logs:revealAttachment', (_event, rel: string) => {
     const abs = logsService.resolveAttachment(String(rel || ''))
     if (!abs) return { ok: false, error: '附件不存在（或路径不在数据目录内，已拒绝）' }
@@ -1076,7 +1076,7 @@ export function registerIpcHandlers(): void {
     return logsService.cleanupLogs()
   })
 
-  // 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）：
+  // 按日期批量清理“已归档”日志（2026-10-13 暮雨第 2 条）：
   // 不是硬删 —— 移进 `<数据目录>/docs/执行日志/.trash/`，可恢复。
   // dryRun=true 只报命中条数（界面先预览再确认），绝不落盘。
   guardedHandle('logs:purgeArchived', (_event, beforeDate: string, opts?: { dryRun?: boolean }) => {
@@ -1085,7 +1085,7 @@ export function registerIpcHandlers(): void {
 
   // ── 剪贴板 ──────────────────────────────────────────────────────────
   // 渲染层的 navigator.clipboard 在打包版(file://)或被拒时会**静默失败**：剪贴板里仍留着
-  // 上一次的内容，用户以为复制成功（2026-09-25「日志复制失败，粘出来是旧的 0924 内容」的真因）。
+  // 上一次的内容，用户以为复制成功（2026-09-25“日志复制失败，粘出来是旧的 0924 内容”的真因）。
   // 主进程的 clipboard 模块不受起源/焦点限制，渲染层统一优先走这条通道。
   guardedHandle('clipboard:writeText', (_event, text: string) => {
     try {
@@ -1102,7 +1102,7 @@ export function registerIpcHandlers(): void {
   guardedHandle('prefs:get', () => prefs.getPrefs())
   guardedHandle('prefs:set', (_event, key: string, value: unknown) => prefs.setPref(key, value))
 
-  // ── 项目梯度榜（2026-10-25）：只服务项目页的「梯度榜」摆法 ──────────────
+  // ── 项目梯度榜（2026-10-25）：只服务项目页的“梯度榜”摆法 ──────────────
   // 边界见 services/projectTiers.ts 顶部注释：不参与看板分组、不影响一屏、不动 registry。
   guardedHandle('projectTiers:get', () => projectTiers.readTiers())
   guardedHandle('projectTiers:set', (_event, tiers: unknown) => {
@@ -1112,7 +1112,7 @@ export function registerIpcHandlers(): void {
   })
 
   // 一次写完多个偏好键 + 回读校验（2026-10-05）：见 prefs.setPrefs 的注释 ——
-  // 「提示保存了但实际没保存」的老路必须堵死，凡是用户点了保存的路径都要能回答"存住没有"。
+  // “提示保存了但实际没保存”的老路必须堵死，凡是用户点了保存的路径都要能回答"存住没有"。
   guardedHandle('prefs:setMany', (_event, patch: Record<string, unknown>) => {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
       return { ok: false, written: [], error: '参数必须是 { 键: 值 } 对象' }
@@ -1123,7 +1123,7 @@ export function registerIpcHandlers(): void {
   // ── Dispatch ── 已于 2026-10-06（卡 004）整条删除 ────────────────────
   // `dispatch:preview` / `dispatch:execute` 两个 handler + preload 的两条通道一起删。
   // 理由：桌面派活入口 9/20 就判死，渲染层零调用 —— 留着只会骗后来者（本次就骗了一次）。
-  // 需要派工单时走「📐 复制为派工单」（纯文本，只复制不派发）。
+  // 需要派工单时走“📐 复制为派工单”（纯文本，只复制不派发）。
 
   // ── Review ──────────────────────────────────────────────────────────
   guardedHandle('review:accept', (_event: any, id: string, reason?: string) => {
@@ -1160,7 +1160,7 @@ export function registerIpcHandlers(): void {
 
   // ── 应用日志（诊断）────────────────────────────────────────────────
   // 之前任何失败都查不到原因（用户第 8 条）。这里把主进程日志目录、
-  // 尾部内容与「打开日志目录」暴露给界面，并在渲染层出错时由前端主动回报。
+  // 尾部内容与“打开日志目录”暴露给界面，并在渲染层出错时由前端主动回报。
   //
   // ⚠ 2026-09-22 事故：这段曾误缩进进 reviewTask() 函数体内、位于 return 之后，
   //   成了不可达死代码 —— 通道从未注册，界面上"运行中的主进程是旧代码"横幅
@@ -1197,7 +1197,7 @@ export function registerIpcHandlers(): void {
 // ── Dispatch helpers ─────────────────────────────────────────────────────
 // 2026-10-06（卡 004）：buildDispatchPrompt / executeDispatch **已删**。
 // 它们是 dispatch:preview / dispatch:execute 的唯一调用方，随通道一起退役。
-// （executeDispatch 还会 moveStatus 到「进行中」—— 死代码里藏着状态变更，更该删。）
+// （executeDispatch 还会 moveStatus 到“进行中”—— 死代码里藏着状态变更，更该删。）
 
 /**
  * 附件选择框（新建态与编辑态共用）。只负责"弹框 + 拿路径"，落盘在 `logs.ts`。
@@ -1216,30 +1216,30 @@ async function pickFilesForAttach(title: string): Promise<Electron.OpenDialogRet
 export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: string): { ok: boolean; error?: string } {
   const task = tasks.readTask(id)
   if (!task) return { ok: false, error: '任务不存在' }
-  // 2026-10-25（暮雨第 1 条，第二次提）：「待审批」此前**没有任何正向出口** ——
-  // 预览面板只给「待验收」开了裁决入口，AI 落的待审批卡只能用 forceCloseTask
+  // 2026-10-25（暮雨第 1 条，第二次提）：“待审批”此前**没有任何正向出口** ——
+  // 预览面板只给“待验收”开了裁决入口，AI 落的待审批卡只能用 forceCloseTask
   // 直接完成/驳回（跳过流程、不写结论）。后果是审批这件事在卡上无迹可查，
-  // 「AI 产出只落待审批、用户点头才转正」这条契约在界面上只剩半句。
+  // “AI 产出只落待审批、用户点头才转正”这条契约在界面上只剩半句。
   // 现在两种状态共用同一条裁决通道：
   //   待审批 accept → 待办（转正）｜reject → 驳回
   //   待验收 accept → 完成        ｜reject → 驳回
   const from = String(task.fm.status || '')
   const isApproval = from === '待审批'
   if (from !== '待验收' && !isApproval) {
-    return { ok: false, error: `当前状态为「${from || '未知'}」，仅「待审批」「待验收」可裁决` }
+    return { ok: false, error: `当前状态为“${from || '未知'}”，仅“待审批”“待验收”可裁决` }
   }
   // ⚠ 2026-10-27 修时区：原先 `new Date().toISOString()` 取的是 **UTC**，却直接当本地时间写进
-  //   结果记录。暮雨看到「[2026-10-27 04:24] 审批通过」而那个点人根本不在电脑前，一度怀疑是幽灵 ——
+  //   结果记录。暮雨看到“[2026-10-27 04:24] 审批通过”而那个点人根本不在电脑前，一度怀疑是幽灵 ——
   //   实际是当天中午 12:24。结果记录是**写给人看**的，必须是本地时间（无时区歧义）。
   const _d = new Date()
   const _p2 = (n: number) => String(n).padStart(2, '0')
   const ts = `${_d.getFullYear()}-${_p2(_d.getMonth() + 1)}-${_p2(_d.getDate())} ${_p2(_d.getHours())}:${_p2(_d.getMinutes())}`
-  const passWord = isApproval ? '审批通过（转正「待办」）' : '验收通过'
+  const passWord = isApproval ? '审批通过（转正“待办”）' : '验收通过'
   const failWord = isApproval ? '审批驳回' : '验收驳回'
   if (verdict === 'accept') {
     tasks.moveStatus(id, isApproval ? '待办' : '完成')
     // 2026-09-25（用户第 7 条）：通过同样写结果记录 —— 此前只有驳回留痕，
-    // 「通过」这件事在卡上完全无迹可查（用户原话：验收裁决只能填驳回理由，那通过呢？）
+    // “通过”这件事在卡上完全无迹可查（用户原话：验收裁决只能填驳回理由，那通过呢？）
     const note = (reason || '').trim()
     const line = note ? `[${ts}] ${passWord}：${note}` : `[${ts}] ${passWord}`
     const prev = String((task.fm as any).result_log || '')
@@ -1247,8 +1247,8 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
     return { ok: true }
   } else {
     // 2026-10-30 暮雨第 2 条：**理由不再必填**。真实场景是"这张卡看都看不懂 / 整个就是错的"，
-    // 逼他先写一段作文才能退回去，只会让人干脆点「归档」。留空也算一次驳回，
-    // 但要在卡上明说「没写理由」；写得出来就原样留在独立的「驳回理由」字段里。
+    // 逼他先写一段作文才能退回去，只会让人干脆点“归档”。留空也算一次驳回，
+    // 但要在卡上明说“没写理由”；写得出来就原样留在独立的“驳回理由”字段里。
     const note = (reason || '').trim()
     tasks.moveStatus(id, '驳回')
     const logLine = note ? `[${ts}] ${failWord}：${note}` : `[${ts}] ${failWord}（没写理由）`
@@ -1263,20 +1263,20 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
 }
 
 /**
- * 直接驳回（2026-10-30 暮雨第 2 条）：不限于「待审批 / 待验收」。
+ * 直接驳回（2026-10-30 暮雨第 2 条）：不限于“待审批 / 待验收”。
  *
  * 为什么单开一条而不是放宽 `reviewTask`：裁决通道有它的语义边界（审批/验收两种），
- * 而「这张卡看都看不懂 / 整个就是错的」可能发生在待办、进行中、草稿任何一步。
- * 这条只做一件事：把非终态卡置为「驳回」并留下（可选的）理由。
+ * 而“这张卡看都看不懂 / 整个就是错的”可能发生在待办、进行中、草稿任何一步。
+ * 这条只做一件事：把非终态卡置为“驳回”并留下（可选的）理由。
  * ⚠ 终态（完成 / 驳回）不许再“直接驳回”——那会让一张已签字的卡凭空变成退回，
- *   要改就走「退回返工」或撤销。
+ *   要改就走“退回返工”或撤销。
  */
 export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; error?: string } {
   const task = tasks.readTask(id)
   if (!task) return { ok: false, error: '任务不存在' }
   const from = String(task.fm.status || '')
   if (from === '完成' || from === '驳回') {
-    return { ok: false, error: `「${from}」是终态，先「退回返工」再驳回` }
+    return { ok: false, error: `“${from}”是终态，先“退回返工”再驳回` }
   }
   const note = String(reason || '').trim()
   const d = new Date()
@@ -1319,7 +1319,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   })
 
   // ── 技能直接导入（2026-09-26 卡 005，用户参照 WorkBuddy）──────────────
-  // 三件事：列出「外部导入」的技能 / 选包（文件或文件夹）+ 导入 / 移除。
+  // 三件事：列出“外部导入”的技能 / 选包（文件或文件夹）+ 导入 / 移除。
   // 导入逻辑全在主进程（解压、校验、落位、防穿越），渲染层只传路径与一个"要不要覆盖"的布尔。
   guardedHandle('skills:imported', () => {
     return { ok: true, items: listImportedSkills() }
@@ -1378,16 +1378,16 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${t.configPath}` }
   })
 
-  // ── 「哪些待办其实没人碰过」的界面出口（2026-10-27 卡 20261025-006 第三件）──
+  // ── “哪些待办其实没人碰过”的界面出口（2026-10-27 卡 20261025-006 第三件）──
   // 在此之前这件事**只在 MCP 侧存在**：`never_read` 是个 MCP 工具，主进程没有 IPC、
-  // preload 没暴露、界面没有入口 —— 所以「agent 主动发现 / 哪些卡没人读」这句承诺
-  // 在桌面端一直是空的（卡里写的「IPC 都通了」是错的，2026-10-27 实证）。
+  // preload 没暴露、界面没有入口 —— 所以“agent 主动发现 / 哪些卡没人读”这句承诺
+  // 在桌面端一直是空的（卡里写的“IPC 都通了”是错的，2026-10-27 实证）。
   // 口径三条（都写进界面，别只写在这里）：
   //   ① 只认 `mcp-usage.jsonl`（agent 经 MCP 读卡）；**你在界面点开一张卡不算被读过**；
   //   ② 完成 / 驳回不进清单（做完了没人读是正常的）；
-  //   ③ 窗口内一条读卡记录都没有时，界面不许报「N 张没人碰过」—— 那是计量没开始。
+  //   ③ 窗口内一条读卡记录都没有时，界面不许报“N 张没人碰过”—— 那是计量没开始。
   guardedHandle('usage:neverRead', (_event, days?: number) => {
-    // 空值要单独判：`Number('')` 和 `Number(null)` 都是 0，而 0 在这里是「不限时间」——
+    // 空值要单独判：`Number('')` 和 `Number(null)` 都是 0，而 0 在这里是“不限时间”——
     // 直接 Number 会把"没传参"静默变成"不限时间"（卡 20261025-006 第一版就是这么写的）。
     const blank = days === undefined || days === null || String(days).trim() === ''
     const raw = blank ? 30 : Number(days)
@@ -1397,7 +1397,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     return { ok: true, ...pickNeverRead(tasks, stats, { days: win, windowEvents: events }) }
   })
 
-  // ── 整理体检（2026-10-30，卡 20261025-006 剩下的「接进整理流程」）──────
+  // ── 整理体检（2026-10-30，卡 20261025-006 剩下的“接进整理流程”）──────
   // 一次摊开两批**清理候选**：没人碰过 + 驳回后没人管。判据与口径全在
   // services/cleanup.ts（纯函数，e2e-cleanup 用真数据根跑）。
   guardedHandle('cleanup:scan', (_event, days?: number) => {
@@ -1413,7 +1413,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     return { ok: true, ...buildCleanupReport(tasks, stats, { days: win, windowEvents: events }) }
   })
 
-  // ── 「对不上」检测（2026-10-27，REV-008 一期 R4「让对不上可见」）──
+  // ── “对不上”检测（2026-10-27，REV-008 一期 R4“让对不上可见”）──
   // 三类：① 状态过期（registry 写的日期 vs 仓库最后提交）② 引用断裂（卡里的路径磁盘上没了）
   //      ③ 完成但没判据（自报完成，无从复核）。判定全在 `shared/mismatch.ts`（e2e-mismatch 用纯 Node 验）。
   // ⚠ 口径三条，界面必须一起写：**它只是对不上，不是做错了；不阻挡任何操作；取不到 git 的项目要单独列出**。
@@ -1443,7 +1443,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
       excluded: Array.isArray(opts?.excluded) ? opts.excluded.map((x: any) => String(x || '')) : [],
     })
   })
-  // 导出：用户点「导出 HTML」→ 选保存位置 → 才写盘（默认落在该仓库 docs/ 下，
+  // 导出：用户点“导出 HTML”→ 选保存位置 → 才写盘（默认落在该仓库 docs/ 下，
   // 但**写这个动作是用户做的**，方寸不自动往项目仓库写）。
   guardedHandle('arch:export', async (_event, projectId: string, opts?: any) => {
     const r = archForProject(String(projectId || ''), {
@@ -1534,7 +1534,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   // ⚠ 2026-10-16（用户第 2 条）：`services:startApp` 通道已删。
   //   原设计是"启动一个启动台应用 + 观测它开了哪些端口"，但启动台被正名为**快捷入口**
   //   （用户原话：类似 steam 启动非 steam 游戏的入口，方寸本身不提供服务）——
-  //   启动应用回「启动台」页走 `launchpad:launchApp`，本页（服务/端口）只管端口监控。
+  //   启动应用回“启动台”页走 `launchpad:launchApp`，本页（服务/端口）只管端口监控。
   //   实现本体 `startAppAndObserve` 保留在 `services/portRegistry.ts`（e2e-ports 仍在测），
   //   只是不再有 IPC 入口。
 

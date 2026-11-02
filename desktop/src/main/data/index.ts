@@ -31,7 +31,7 @@ export function initPaths(): void {
   // ── 用户显式指定的数据目录优先（2026-09-22 数据分裂事故）─────────
   // 背景：安装版探测链（cwd → 父目录 → exeDir → userData）在安装目录与仓库
   // 无父子关系时必然回退 userData，与 dev 会话 / Python CLI / Hermes agent
-  // 使用的仓库根分叉 —— 用户在两边各写各的数据，表现为「数据丢了」。
+  // 使用的仓库根分叉 —— 用户在两边各写各的数据，表现为“数据丢了”。
   // 修复：设置里切换过数据目录后，把选择持久化到 userData/data-dir.json，
   // 启动时优先读取。探测链只作为首次启动的默认值。
   const dataDirConfigPath = path.join(userData, 'data-dir.json')
@@ -56,7 +56,7 @@ export function initPaths(): void {
   // Priority: cwd (dev) → parent dirs (monorepo) → exeDir (portable) → userData (installed)
   // Walk up from cwd to find registry.yaml or task-data (monorepo: desktop/ → project root)
   //
-  // ⚠ task-data 必须用 lstat 判定为「真实目录」，不能跟随链接。
+  // ⚠ task-data 必须用 lstat 判定为“真实目录”，不能跟随链接。
   // 原因（2026-09-22 定位）：dev 态 desktop/task-data 是指向项目根真身的 junction，
   // 若把"存在 task-data"当作数据根标志，探测会在 desktop/ 这一层就命中 →
   // DATA_DIR 锁死在 desktop/：registry.yaml 找不到，notifications/todos/policies/
@@ -113,7 +113,7 @@ export function setDataDir(newDir: string): void {
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
   invalidateTaskCache()
   // 持久化用户选择（2026-09-22）：否则重启后又回到探测默认值，
-  // 用户表现为「切了目录但数据又丢了」。写失败不炸（下次启动回退探测链）。
+  // 用户表现为“切了目录但数据又丢了”。写失败不炸（下次启动回退探测链）。
   try {
     const cfgPath = path.join(app.getPath('userData'), 'data-dir.json')
     atomicWrite(cfgPath, JSON.stringify({ dir: newDir, savedAt: new Date().toISOString() }, null, 2))
@@ -339,7 +339,7 @@ export type Status = typeof STATUSES[number]
  * 写盘前要**归一**的已知误写（2026-10-21，与 Python `core.STATUS_ALIASES` 逐字一致）。
  *
  * 为什么要有它：状态白名单此前只在体检（doctor / verify / `core.illegal_status`）里被用，
- * **写入路径一个校验都没有** —— 2026-10-19 那批从外部账本导进来的 7 张卡把「已完成」
+ * **写入路径一个校验都没有** —— 2026-10-19 那批从外部账本导进来的 7 张卡把“已完成”
  * 直接写进了 `状态:`，看板分组/统计全靠猜，直到 verify 变红才被发现。
  * 归一表只收语义无歧义的两种：`已完成`＝`完成`、`待处理`（日志页分区叫法）＝`待办`。
  * 未识别的非法值**不吞也不拦**（照写 + 警告）：硬抛会把批量导入/回写打断在半途，
@@ -418,9 +418,9 @@ export interface Task {
   /**
    * 是否位于归档区（task-data/archive/）—— **由路径推导、由主进程统一盖章**。
    *
-   * 归档的唯一权威定义是路径（见 AGENTS.md「归档视图语义铁律」）。此前渲染层拿
-   * `t.archived` 画「📦 已归档」角标，而主进程从不赋这个字段 → 角标永远是假的；
-   * 而 batchArchive 只改 status 不移动文件 → 造出「假归档」（用户 2026-09-25）。
+   * 归档的唯一权威定义是路径（见 AGENTS.md“归档视图语义铁律”）。此前渲染层拿
+   * `t.archived` 画“📦 已归档”角标，而主进程从不赋这个字段 → 角标永远是假的；
+   * 而 batchArchive 只改 status 不移动文件 → 造出“假归档”（用户 2026-09-25）。
    * 现在在 loadAllTasksRaw 里按路径盖一次章，角标 / 详情 / 归档视图三个消费方同源。
    */
   archived?: boolean
@@ -447,7 +447,7 @@ export interface TaskFieldSpec {
    * 这份 spec 要过 IPC（`taskFieldSpecs`），函数过不去。
    *
    * 语义 = **任一命中即显示**（OR）：值非空 ｜ 标签里有 `tag` ｜ 标题以 `titlePrefix` 开头。
-   * 用途：像「架构图」这种**只对一类卡有意义**的字段，别在每张卡的编辑器里都堆一个空文本框。
+   * 用途：像“架构图”这种**只对一类卡有意义**的字段，别在每张卡的编辑器里都堆一个空文本框。
    * ⚠ 隐藏 ≠ 不保存：`saveEdit` 仍按**全量 spec** 收集，隐藏字段的已有值不会被清掉。
    */
   visibleWhen?: {
@@ -464,27 +464,27 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
   { key: 'title', label: '标题', type: 'text', span: 'full', placeholder: '一句话说清要做什么' },
   { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects',
     hint: '不选 = 未归属，照样能在看板上看见' },
-  // 2026-10-31（暮雨第 2 条：「感觉很难填写，而且部分字段容易让人误解」）：
+  // 2026-10-31（暮雨第 2 条：“感觉很难填写，而且部分字段容易让人误解”）：
   // 字段一个没减（减了老卡就编辑不了），但每个会让人犹豫的都补一句"它到底影响什么"。
   // 判据：看这句 hint 之后，不会再去猜"选了这个会不会动到别的东西"。
   { key: 'status', label: '状态', type: 'select', span: 'half', options: STATUSES,
-    hint: '新建一般选「待办」；「待审批」只给 AI 出的卡，点头才转正' },
+    hint: '新建一般选“待办”；“待审批”只给 AI 出的卡，点头才转正' },
   { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES,
-    hint: '只影响排序与「下一步」推荐，不影响能不能做' },
+    hint: '只影响排序与“下一步”推荐，不影响能不能做' },
   { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 用户',
     hint: '写谁来做；留空 = 还没人领，agent 照样能取' },
   // 2026-09-22（用户第 6 条）：日历要能"指派时间或时间段"。
   // 单日截止用 deadline；开始+截止构成时间段，日历上画成跨天横条。
   { key: 'start', label: '开始', type: 'text', span: 'half', placeholder: 'YYYY-MM-DD（可选）',
-    hint: '和「截止」都填 = 一段时间，日历上画成跨天横条' },
+    hint: '和“截止”都填 = 一段时间，日历上画成跨天横条' },
   { key: 'deadline', label: '截止', type: 'text', span: 'half', placeholder: 'MM-DD 或 YYYY-MM-DD',
-    hint: '只填这个 = 单日截止；逾期会进「哪些逾期了」' },
+    hint: '只填这个 = 单日截止；逾期会进“哪些逾期了”' },
   { key: 'batch', label: '批次', type: 'text', span: 'half', placeholder: '如 2026-Q3',
     hint: '同一批一起验收的卡共用一个名字；路线图按它分组' },
   { key: 'tags', label: '标签', type: 'tags', span: 'full', placeholder: '逗号分隔，如 ui, bug',
     hint: '自由分类，能搜能筛；不会变成页签' },
   { key: 'blockers', label: '阻塞', type: 'list', span: 'full', placeholder: '逗号分隔的任务 ID',
-    hint: '只填「做完它才能开始」的卡 —— 填"相关"的卡会让阻塞页失真' },
+    hint: '只填“做完它才能开始”的卡 —— 填"相关"的卡会让阻塞页失真' },
   { key: 'memo', label: '附言', type: 'textarea', span: 'full', placeholder: '给执行者的一句提醒',
     hint: '不进正文，只给执行的人看' },
   // 驳回理由（2026-10-30 暮雨第 2 条）：可选（有些卡一看就是错的，不必逼人写作文）、
@@ -497,7 +497,7 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
     visibleWhen: { hasValue: true },
   },
   // 机制条款 3（2026-10-06 卡 003）：每轮返工收尾打一枚**归因**标签。
-  // 不是追责，是让三个月后能回答「这三档各占多少」—— 哪一环在漏，看分布就知道。
+  // 不是追责，是让三个月后能回答“这三档各占多少”—— 哪一环在漏，看分布就知道。
   // 三档 + 空：留空 = 这一轮不算返工，或者还没顾上归因。旧卡没有这个键 → 不渲染、零影响。
   {
     key: 'attribution', label: '返工归因', type: 'select', span: 'half',
@@ -513,7 +513,7 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
     key: 'architecture', label: '架构图', type: 'textarea', span: 'full',
     placeholder: '{"lanes":[{"name":"客户端层","cards":[{"label":"Web App"}]}],"between":["HTTP / WSS"],"width":900}',
     hint: '留空 = 不画。填 JSON（层 / 卡片 / 层间协议），任务预览里会渲染成分层架构图。',
-    // 只在「填过值」或「项目说明卡」（标签带 `项目说明` / 标题以「项目说明」开头）时出现 ——
+    // 只在“填过值”或“项目说明卡”（标签带 `项目说明` / 标题以“项目说明”开头）时出现 ——
     // 别的卡用不上它，别在每张卡的编辑器里都塞一个空文本框。
     visibleWhen: { hasValue: true, tag: '项目说明', titlePrefix: '项目说明' },
   },
@@ -573,8 +573,8 @@ export const FIELD_MAP: Record<string, string> = {
   '项目': 'project',
   '状态': 'status',
   '批次': 'batch',
-  // 「开始」与「截止」组成时间段（2026-09-22，用户第 6 条）。
-  // Python 侧 MANAGED_KEYS 同步加入「开始」并在 render_task 里显式输出 ——
+  // “开始”与“截止”组成时间段（2026-09-22，用户第 6 条）。
+  // Python 侧 MANAGED_KEYS 同步加入“开始”并在 render_task 里显式输出 ——
   // 否则桌面版写的时间段会被 Python 的 render_task 丢掉（受管键漏输出=静默丢字段）。
   '开始': 'start',
   '截止': 'deadline',
@@ -590,13 +590,13 @@ export const FIELD_MAP: Record<string, string> = {
   '方案': 'plan',
   '结果记录': 'result_log',
   // 驳回理由（2026-10-30 暮雨第 2 条）：以前理由只追加在 `结果记录` 一段长文本里，
-  // 驳回后再点「退回返工」，卡面就再也看不到为什么被退回来 —— 于是「驳回」等于没发生。
+  // 驳回后再点“退回返工”，卡面就再也看不到为什么被退回来 —— 于是“驳回”等于没发生。
   // 现在独立成字段：可选、可编辑、卡面常驻、退回返工也不抹掉。
   '驳回理由': 'reject_reason',
   '驳回时间': 'reject_at',
   '派活时间': 'dispatch_time',
   // 认领（2026-10-22）：Python 侧 MANAGED_KEYS 同步加入并在 render_task 里显式输出 ——
-  // 受管键漏输出 = Python 一写回就把桌面写的认领静默抹掉（这个坑「开始」字段踩过）。
+  // 受管键漏输出 = Python 一写回就把桌面写的认领静默抹掉（这个坑“开始”字段踩过）。
   '认领人': 'claimed_by',
   '认领时间': 'claimed_at',
   'agent': 'agent',
@@ -606,9 +606,9 @@ export const FIELD_MAP: Record<string, string> = {
   'context': 'context',
   'id': 'id',
   'tags': 'tags',
-  // Python CLI（tegula/core.py MANAGED_KEYS）用中文键「标签」写 tags。
+  // Python CLI（tegula/core.py MANAGED_KEYS）用中文键“标签”写 tags。
   // 漏掉这条映射会导致 Python 写的标签在桌面版读到 undefined —— 放在 'tags' 之后，
-  // 保证 REVERSE_FIELD_MAP 反向映射回来是中文「标签」，与 Python 对齐。
+  // 保证 REVERSE_FIELD_MAP 反向映射回来是中文“标签”，与 Python 对齐。
   '标签': 'tags',
   'type': 'type',
   'plan_status': 'plan_status',
@@ -632,7 +632,7 @@ const FM_ORDER = [
   'created', 'updated', 'blockers', 'expected_update', 'batch', 'start', 'deadline',
   'source', 'review', 'memo', 'resources', 'plan', 'result_log',
   'reject_reason', 'reject_at', 'architecture',
-  // 认领（2026-10-22 · 学信箱模式的 claim/ack）：与 dispatch_time 同属「机器写的时刻」，
+  // 认领（2026-10-22 · 学信箱模式的 claim/ack）：与 dispatch_time 同属“机器写的时刻”，
   // 刻意**不进 TASK_FIELD_SPECS**（不给界面手改）—— 它们是机制字段，手改一个错时间戳
   // 会让租约判定错乱。要看的话界面读得到（fm 里就有），只是不给编辑框。
   // ⚠ 实测（2026-10-22）：这两个键**只是不在 FM_ORDER 里并不会丢** —— renderTask 后面
@@ -676,7 +676,7 @@ function yamlScalar(v: unknown): string {
 /**
  * 往 registry.yaml 追加一个项目。
  *
- * 用「文本块追加」而不是 yaml.load + yaml.dump 重写：
+ * 用“文本块追加”而不是 yaml.load + yaml.dump 重写：
  * registry.yaml 是给人手改的，顶部有大段说明注释、每行还有自定义中文字段，
  * dump 重写会把注释全部丢掉、字段顺序打乱。这里只在 projects 段落末尾插一段，
  * 其余内容逐字节保留。
@@ -702,7 +702,7 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
   }
   const existing = Array.isArray(parsed?.projects) ? parsed.projects : []
   if (existing.some((p: any) => String(p?.id) === id)) {
-    return { ok: false, error: `项目 ID「${id}」已存在` }
+    return { ok: false, error: `项目 ID“${id}”已存在` }
   }
 
   const lines = [
@@ -720,7 +720,7 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
 
   // 插到 released: 之前（若存在），否则追加到末尾。
   // ⚠ 2026-10-05 修：不能直接把插入点定在 `released:` 那一行 —— 它**上面紧邻的注释是在描述
-  //   已发布段**（「# 已发布 / 历史项目…」），新项目插到注释下面会看起来像"已发布项目"
+  //   已发布段**（“# 已发布 / 历史项目…”），新项目插到注释下面会看起来像"已发布项目"
   //   （实际发生过：TEST/TEST2 落到那两条注释之后，Python 侧解析器又因此漏读）。
   //   所以从 released: 往上跳过紧邻的空行与注释，插在它们**之前**。
   let next: string
@@ -755,11 +755,11 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
 }
 
 /**
- * 从 registry.yaml **移除**一个项目的登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+ * 从 registry.yaml **移除**一个项目的登记（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”）。
  *
  * 边界说死（避免变成"删数据"）：
  *   · **只动 registry.yaml 里的那一段文本块** —— 不删任务卡、不删方针卡、不碰项目仓库任何文件；
- *   · 删掉登记后，该项目下的任务卡会变成「未归属项目」（卡还在，只是不再挂在这个项目下）；
+ *   · 删掉登记后，该项目下的任务卡会变成“未归属项目”（卡还在，只是不再挂在这个项目下）；
  *   · 与 add 对称：文本块删除（不 dump 重写，保留注释与字段顺序）+ 写前自校验。
  *
  * 写前自校验：新内容必须能解析、项目总数恰好 -1、该 id 不再出现 —— 任一不满足就放弃写入。
@@ -783,14 +783,14 @@ export function removeProjectFromRegistry(id: string): { ok: boolean; error?: st
   const beforeP = Array.isArray(parsed?.projects) ? parsed.projects : []
   const beforeR = Array.isArray(parsed?.released) ? parsed.released : []
   const exists = [...beforeP, ...beforeR].some((p: any) => String(p?.id) === pid)
-  if (!exists) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+  if (!exists) return { ok: false, error: `registry.yaml 里没有项目“${pid}”` }
 
   // ── 文本块定位：从 `- id: <pid>` 那行起，到下一个同级列表项或下一个顶级键为止
   const lines = content.split(/\r?\n/)
   const reStart = new RegExp(`^\\s*-\\s*id:\\s*['"]?${pid.replace(/\./g, '\\.')}['"]?\\s*$`)
   const start = lines.findIndex((l) => reStart.test(l))
   if (start < 0) {
-    return { ok: false, error: `定位不到项目「${pid}」的文本块（未做任何修改）` }
+    return { ok: false, error: `定位不到项目“${pid}”的文本块（未做任何修改）` }
   }
   const indent = (lines[start].match(/^\s*/) || [''])[0].length
   let end = start + 1
@@ -828,11 +828,11 @@ export function removeProjectFromRegistry(id: string): { ok: boolean; error?: st
   return { ok: true }
 }
 
-// ── registry 项目说明三字段（2026-10-22 · 施工单包 06「13 行写回」）───────────
+// ── registry 项目说明三字段（2026-10-22 · 施工单包 06“13 行写回”）───────────
 /**
  * registry.yaml 里每个项目**可以手改的那三个中文标量**。
  *
- * 为什么只放这三个：06 单说死了「不动 members、id/name/tasks/repo/tools/sources、services」——
+ * 为什么只放这三个：06 单说死了“不动 members、id/name/tasks/repo/tools/sources、services”——
  * 白名单写在这里，调用方传别的键一律显式报错（宁可红，也不静默忽略一个用户以为改了的字段）。
  */
 export const PROJECT_TEXT_FIELDS = ['状态', '路线图', '说明'] as const
@@ -859,7 +859,7 @@ function locateProjectBlock(
   return { start, end, indent }
 }
 
-/** 读这三个字段的当前值（撤销要用「改之前是什么」，界面也要显示现状）。 */
+/** 读这三个字段的当前值（撤销要用“改之前是什么”，界面也要显示现状）。 */
 export function readProjectFields(
   id: string,
 ): { ok: boolean; error?: string; fields?: Partial<Record<ProjectTextField, string>> } {
@@ -873,7 +873,7 @@ export function readProjectFields(
   }
   const all = [...(parsed?.projects || []), ...(parsed?.released || [])]
   const p = all.find((x: any) => String(x?.id) === pid)
-  if (!p) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+  if (!p) return { ok: false, error: `registry.yaml 里没有项目“${pid}”` }
   const fields: Partial<Record<ProjectTextField, string>> = {}
   for (const f of PROJECT_TEXT_FIELDS) fields[f] = String(p[f] ?? '')
   return { ok: true, fields }
@@ -923,14 +923,14 @@ export function updateProjectFields(
   const beforeR = Array.isArray(parsed?.released) ? parsed.released : []
   const total = beforeP.length + beforeR.length
   const proj = [...beforeP, ...beforeR].find((p: any) => String(p?.id) === pid)
-  if (!proj) return { ok: false, error: `registry.yaml 里没有项目「${pid}」` }
+  if (!proj) return { ok: false, error: `registry.yaml 里没有项目“${pid}”` }
 
   const before: Partial<Record<ProjectTextField, string>> = {}
   for (const f of keys as ProjectTextField[]) before[f] = String(proj[f] ?? '')
 
   const lines = content.split(/\r?\n/)
   const loc = locateProjectBlock(lines, pid)
-  if (!loc) return { ok: false, error: `定位不到项目「${pid}」的文本块（未做任何修改）` }
+  if (!loc) return { ok: false, error: `定位不到项目“${pid}”的文本块（未做任何修改）` }
 
   const fieldIndent = ' '.repeat(loc.indent + 2)
   const out = lines.slice()
@@ -975,7 +975,7 @@ export function updateProjectFields(
     for (const f of changed) {
       const want = String(patch[f] ?? '').replace(/\r\n?/g, '\n')
       if (String(p2[f] ?? '') !== want) {
-        return { ok: false, error: `写入校验失败：字段「${f}」读回值对不上，已放弃写入` }
+        return { ok: false, error: `写入校验失败：字段“${f}”读回值对不上，已放弃写入` }
       }
     }
   } catch (e) {
@@ -1081,10 +1081,10 @@ export function renderTask(task: Task): string {
  * 一次页面刷新等价 15 次全量扫描（active + archive + blockers + getProjectProgress×项目数），
  * 500 任务 805ms、1000 任务 1.5s、5000 任务 18.4s。
  *
- * 这里按「目录签名」缓存解析结果：每次调用只做一次 readdir + stat
+ * 这里按“目录签名”缓存解析结果：每次调用只做一次 readdir + stat
  * （5000 文件约 30ms，对照完整加载 914ms），签名未变就直接复用已解析的任务。
  *
- * 为什么用签名而不是时间 TTL：TTL 会把「别人刚写的改动」挡在缓存外，形成静默读到旧数据。
+ * 为什么用签名而不是时间 TTL：TTL 会把“别人刚写的改动”挡在缓存外，形成静默读到旧数据。
  * 签名覆盖 文件名 + size + mtime，外部工具（Python CLI）写入、手动编辑、增删文件
  * 都能被检测到；桌面版自己的写操作还会走 atomicWrite 主动失效，双重保险。
  */
@@ -1095,7 +1095,7 @@ const _taskCaches: Partial<Record<ScanMode, TaskCache>> = {}
 
 /**
  * 文件头是否像任务文件（以 --- 或 === 开头）。
- * 用来把「文件本身就是坏的」和「本来就不是任务文件」（如 docs 性质的 md）
+ * 用来把“文件本身就是坏的”和“本来就不是任务文件”（如 docs 性质的 md）
  * 区分开 —— 前者要报警，后者跳过是正确行为。
  */
 function looksLikeTaskFile(p: string): boolean {
@@ -1120,7 +1120,7 @@ function looksLikeTaskFile(p: string): boolean {
  */
 export function getParseErrors(): string[] {
   // 先确保缓存与磁盘一致：签名没变就是白捡（复用），变了会自动重扫。
-  // 不能只读上次的缓存 —— 那会让「文件已修好」仍然显示报错。
+  // 不能只读上次的缓存 —— 那会让“文件已修好”仍然显示报错。
   loadAllTasksRaw('all')
   return _taskCaches.all ? _taskCaches.all.errors : []
 }
@@ -1191,8 +1191,8 @@ export function loadAllTasksRaw(mode: ScanMode = 'all'): Task[] {
   const errors: string[] = []
   // 同一 id 在**同一区域**里出现多份文件（`x.md` 与 `x.2.md` 并存 —— 旧版归档/删除改名留下的），
   // 会让板子上出现两张一模一样的卡，而且删除代码按 `${id}.md` 精确找文件、找不到那份 →
-  // 看得见但删不掉（用户 2026-09-24「驳回和完成依旧是删不掉的」的真因之一）。
-  // 这里按「id + 区域」去重，规范名 `${id}.md` 优先；跨区域（活跃 vs 归档）不去重：
+  // 看得见但删不掉（用户 2026-09-24“驳回和完成依旧是删不掉的”的真因之一）。
+  // 这里按“id + 区域”去重，规范名 `${id}.md` 优先；跨区域（活跃 vs 归档）不去重：
   // 归档视图按路径判定，合并显示时由渲染层负责去重（活跃区为准）。
   const byKey = new Map<string, Task>()
   const dup: string[] = []
@@ -1217,9 +1217,9 @@ export function loadAllTasksRaw(mode: ScanMode = 'all'): Task[] {
     }
   }
   if (dup.length) {
-    // 同一 id 的多余副本不是「解析失败」，但必须留痕（落应用日志）：
-    // 用户遇到「删不掉/显示两遍」时要能追到原因。不塞进 errors —— 那会让顶栏弹
-    // 一个写着「解析失败」的红条，语义不符。
+    // 同一 id 的多余副本不是“解析失败”，但必须留痕（落应用日志）：
+    // 用户遇到“删不掉/显示两遍”时要能追到原因。不塞进 errors —— 那会让顶栏弹
+    // 一个写着“解析失败”的红条，语义不符。
     try {
       console.warn(`[tasks] 同一任务存在多份副本，已按规范名取一份：${dup.join(', ')}`)
     } catch { /* 日志永不抛 */ }
@@ -1264,15 +1264,15 @@ export function atomicWrite(filePath: string, content: string, mode?: number): v
   // Atomic rename
   fs.renameSync(tmp, filePath)
 
-  // 写后失效读取缓存 —— 否则同一毫秒内的「写→读」可能命中旧签名
+  // 写后失效读取缓存 —— 否则同一毫秒内的“写→读”可能命中旧签名
   invalidateTaskCache()
 }
 
-// 与 Python write_task_file「写前备份→原子写」同语义的数据文件写入口：atomicWrite 本体（:1022）。
+// 与 Python write_task_file“写前备份→原子写”同语义的数据文件写入口：atomicWrite 本体（:1022）。
 // ⚠ atomicWrite **内部已含** rotateBackup（写前备份 + 读回校验 + 原子改名）——
 // 调用点直接用它即可，不要再旋转第二次：同一旧版本会占两个 keep-10 名额。
 // 2026-10-18 纸面小修：曾有个零参数转发壳 atomicWriteBackup，名字让人误以为
-// 「atomicWrite 不带备份、这个才带」——纯属误导，已删除；6 个调用点全部直连 atomicWrite。
+// “atomicWrite 不带备份、这个才带”——纯属误导，已删除；6 个调用点全部直连 atomicWrite。
 // 数据/配置落盘必须走这条带滚动备份的管线，禁止再手写 tmp+rename（源码守卫见 e2e-logs 族2b）。
 
 export function rotateBackup(filePath: string): void {
@@ -1281,8 +1281,8 @@ export function rotateBackup(filePath: string): void {
   const dir = path.dirname(filePath)
   const base = path.basename(filePath)
   // 2026-10-18：时间戳补到毫秒。原先是秒级 —— 同一秒内连写两次（批量操作、改完立刻撤回）
-  // 会撞同一个文件名，`copyFileSync` 直接把上一份备份覆盖掉，「写前备份」静默少一版。
-  // 固定 17 位、字典序即时间序，rotateBackup 末尾的「留最近 10 版」排序不受影响。
+  // 会撞同一个文件名，`copyFileSync` 直接把上一份备份覆盖掉，“写前备份”静默少一版。
+  // 固定 17 位、字典序即时间序，rotateBackup 末尾的“留最近 10 版”排序不受影响。
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').replace('.', '').slice(0, 17)
   const backupPath = path.join(dir, '.backup', `${base}.${stamp}.bak`)
 

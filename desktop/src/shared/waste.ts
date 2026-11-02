@@ -1,14 +1,14 @@
 /**
- * 投入产出账（0.6.0 P5）—— 「花了多少 / 产出了什么 / 哪几条被否」的纯逻辑
+ * 投入产出账（0.6.0 P5）—— “花了多少 / 产出了什么 / 哪几条被否”的纯逻辑
  *
  * 这一层只做**编排与口径**，不读盘、不起 git：
  *   · 读 ai-trace、跑 git、读任务在 `main/usage/ledger.ts`；
  *   · 三格各自的算法与"它证明不了什么"在这里定死，界面只渲染。
  *
  * 四条硬口径：
- *  ① **取不到就整格不渲染** —— 不填 0、不写「—」、不拿字符数折算 token。
+ *  ① **取不到就整格不渲染** —— 不填 0、不写“—”、不拿字符数折算 token。
  *     0 是一个可核对的真值；"没有数据"不是 0。
- *  ② **每个数字都带局限**（`caveat`，以「它证明不了什么」开头）——
+ *  ② **每个数字都带局限**（`caveat`，以“它证明不了什么”开头）——
  *     数字离开口径就是假话，所以缺 caveat 的格子直接不产出（不是偷偷少一行）。
  *  ③ **ai-trace 只算方寸自己发起的调用**（origin 缺省=local；external 排除），
  *     并且明说它没有项目字段、不能分摊到项目。
@@ -55,7 +55,7 @@ export interface WasteCell {
   label: string
   /** 一个可读数字（不含占位符） */
   value: string
-  /** 「它证明不了什么：…」—— 必填，缺了整格不产出 */
+  /** “它证明不了什么：…”—— 必填，缺了整格不产出 */
   caveat: string
   /** 构成说明（调用次数 / 未折算笔数 / 卡名…） */
   detail?: string
@@ -189,7 +189,7 @@ export function buildWasteLedger(input: WasteInput = {}): WasteLedger {
     const names = rej.slice(0, 3).map((t) => String(t.title || t.id || '')).filter(Boolean)
     const cell = makeCell(
       'rejected', '哪几条被否', rej.length ? `${rej.length} 张` : '没有被否的卡',
-      `${CAVEAT_PREFIX}：只列当前状态为「驳回」的卡；被否后删掉/归档的不在这里，也不代表它们没被否过。`,
+      `${CAVEAT_PREFIX}：只列当前状态为“驳回”的卡；被否后删掉/归档的不在这里，也不代表它们没被否过。`,
       rej.length ? names.join('、') + (rej.length > 3 ? ` 等 ${rej.length} 张` : '') : '',
       { rejected: rej.length },
     )
@@ -200,11 +200,11 @@ export function buildWasteLedger(input: WasteInput = {}): WasteLedger {
     days,
     cells,
     note: '口径：ai-trace 只记方寸自己发起的调用；外部 agent 的花销不在这一格；提交只算数据目录所在的仓库，其它仓库不算。',
-    emptyText: '三格都取不到（ai-trace / git / 任务都没读到）—— 不拿 0 或「—」冒充。',
+    emptyText: '三格都取不到（ai-trace / git / 任务都没读到）—— 不拿 0 或“—”冒充。',
   }
 }
 
-/** 界面渲染前再兜一道：没有「它证明不了什么」的格子一律不显示（防旧主进程/坏数据） */
+/** 界面渲染前再兜一道：没有“它证明不了什么”的格子一律不显示（防旧主进程/坏数据） */
 export function sanitizeWasteLedger(ledger: WasteLedger | null): WasteLedger | null {
   if (!ledger) return null
   const cells = (Array.isArray(ledger.cells) ? ledger.cells : [])
@@ -214,24 +214,24 @@ export function sanitizeWasteLedger(ledger: WasteLedger | null): WasteLedger | n
 
 export interface WasteInsight {
   ok: boolean
-  /** 算得出 = 一条引用 P5 数字的结论；算不出 = 「算不出，因为 X」 */
+  /** 算得出 = 一条引用 P5 数字的结论；算不出 = “算不出，因为 X” */
   text: string
   reason?: string
   cites: string[]
 }
 
 /**
- * P7 的「额外一格」：从投入产出账算一条**原来不知道的事**。
+ * P7 的“额外一格”：从投入产出账算一条**原来不知道的事**。
  *
  * 只做可复算的除法（每张完成卡摊到多少花销/token）—— 不做"效率评分"这种拍脑袋指标。
- * 缺数据就明写「算不出，因为 X」，不编。
+ * 缺数据就明写“算不出，因为 X”，不编。
  */
 export function deriveWasteInsight(ledger: WasteLedger): WasteInsight {
   const spend = ledger.cells.find((c) => c.key === 'spend')
   const output = ledger.cells.find((c) => c.key === 'output')
   const done = output?.raw?.done
   if (!spend) {
-    return { ok: false, text: '算不出，因为 投入产出账缺少「花了多少」这一格。', reason: '缺少「花了多少」', cites: [] }
+    return { ok: false, text: '算不出，因为 投入产出账缺少“花了多少”这一格。', reason: '缺少“花了多少”', cites: [] }
   }
   if (!done) {
     return { ok: false, text: '算不出，因为 投入产出账里完成卡为 0（或任务读不到）。', reason: '完成卡为 0', cites: ['ledger:output'] }

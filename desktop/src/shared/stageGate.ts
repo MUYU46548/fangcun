@@ -1,8 +1,8 @@
 /**
- * 阶段推进闸门（0.6.0 P4）—— 「这一格能不能标完成 / 跨到下一格」的纯逻辑
+ * 阶段推进闸门（0.6.0 P4）—— “这一格能不能标完成 / 跨到下一格”的纯逻辑
  *
  * 为什么单独成文件（与 `shared/blockers.ts` / `shared/dailyBand.ts` 同一理由）：
- * 「过没过」是**口径**，不是页面装饰。写进组件里就只有起得来界面的人能验；
+ * “过没过”是**口径**，不是页面装饰。写进组件里就只有起得来界面的人能验；
  * 放 shared/ 就能用 Node 直接跑，反例也能钉死。
  *
  * 三条硬口径：
@@ -101,7 +101,7 @@ export function evaluateStageGate(checks: GateCheck[]): StageGateResult {
   const head = `判据未过：${failed} 条未过 / ${unknown} 条未判定 / 共 ${total} 条`
   const rows = blocked.map((b, i) => {
     const tag = b.state === 'unknown' ? '未判定' : '未过'
-    return `${i + 1}. 「${b.raw}」→ ${b.actual}（${tag}）`
+    return `${i + 1}. “${b.raw}”→ ${b.actual}（${tag}）`
   })
   const diff = [head].concat(rows).join('\n')
   const reason = unknown

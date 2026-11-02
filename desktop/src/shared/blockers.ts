@@ -7,10 +7,10 @@
  * 而真正贵的是**传递效应** —— A 挡住 B、B 又挡住 C，解 A 的价值是 2 不是 1。
  *
  * 算法（只读、无副作用）：
- *   ① 从 chains 反推「被谁挡着」：任务 → 挡它的阻塞源集合（一个任务可被多个源挡）；
+ *   ① 从 chains 反推“被谁挡着”：任务 → 挡它的阻塞源集合（一个任务可被多个源挡）；
  *   ② 对每个**未完成**的候选源 S，模拟"S 被解掉"：把 S 从所有人的集合里摘掉，
  *      然后迭代 —— 谁集合空了谁解锁；解锁的人若本身也在挡别人，就从别人的集合里再摘掉它；
- *   ③ 记「因 S 而解锁的任务数」（不含 S 自己）。
+ *   ③ 记“因 S 而解锁的任务数”（不含 S 自己）。
  *
  * 为什么放 shared/：它是纯逻辑，`tsc` 编出 `dist/shared/blockers.js` 后可直接断言
  * （见 `scripts/test/e2e-blockers.cjs`）—— 埋在 App.vue 里就只能靠真点界面才验得到。
@@ -175,7 +175,7 @@ export function buildBlockerQueue(chains: BlockerSourceLike[] | null | undefined
   const text = total === 0
     ? '没有阻塞 —— 没有任何一张卡在等别的卡'
     : top
-      ? `${total} 个阻塞源挡着 ${blocked} 张卡；先解「${top.title}」最划算（它能放 ${top.unlock} 张）`
+      ? `${total} 个阻塞源挡着 ${blocked} 张卡；先解“${top.title}”最划算（它能放 ${top.unlock} 张）`
       : `${total} 个阻塞源，但被挡的卡都已收口 —— 没有值得先解的一张`
   return { rows, top, total, blocked, inert, text }
 }

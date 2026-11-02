@@ -159,7 +159,7 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = [t["name"] for t in resp["result"]["tools"]]
-    # 2026-10-22 修：这两条原来写死「恰好 5 个」+ 精确集合 —— MCP 工具后来长到 21 个，
+    # 2026-10-22 修：这两条原来写死“恰好 5 个”+ 精确集合 —— MCP 工具后来长到 21 个，
     # 断言就长期红了（而脚本本身也长期跑不起来，所以没人发现）。**夹具写死数量是定时炸弹**：
     # 现在只钉"五个只读核心工具必须在"，数量不写死，但把实际值打出来（不静默）。
     check("MCP tools/list 返回工具清单", len(names) >= 5, "实际 %d 个" % len(names))

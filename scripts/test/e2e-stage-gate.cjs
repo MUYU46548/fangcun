@@ -8,8 +8,8 @@
  * 判据一句话：**判据不过就不许跨格** ——
  *   · 任何一条 fail / unknown 都挡住（unknown 不是通过）；
  *   · 没判据也挡住（没判据 = 没验过）；
- *   · 被挡时状态只能停在「未完成」，且打回理由必须同时含**判据原文 + 实际值**；
- *   · 全过才写「完成」+ 一条证据引用。
+ *   · 被挡时状态只能停在“未完成”，且打回理由必须同时含**判据原文 + 实际值**；
+ *   · 全过才写“完成”+ 一条证据引用。
  *
  * 运行：node scripts/test/e2e-stage-gate.cjs
  */
@@ -120,7 +120,7 @@ const PLAN_TEXT = `# 测试计划
 `
 fs.writeFileSync(PLAN_FILE, PLAN_TEXT, 'utf-8')
 
-console.log('\n== ② 被挡：状态只能停在「未完成」+ 打回理由带 diff ==')
+console.log('\n== ② 被挡：状态只能停在“未完成”+ 打回理由带 diff ==')
 let rejected = 0
 {
   const gate = evaluateStageGate([FAIL_NUM, PASS_CMD])
@@ -129,10 +129,10 @@ let rejected = 0
   check('★★ 注入一条未过判据 → 跨格尝试被拒（计数 = 1）', rejected === 1 && r.advanced === false, JSON.stringify({ rejected, advanced: r.advanced }))
   check('★ 返回可读原因', /判据未过/.test(r.error || ''), r.error)
   const text = fs.readFileSync(PLAN_FILE, 'utf-8')
-  check('★★ 状态只能停在「未完成」，写不进「完成」',
+  check('★★ 状态只能停在“未完成”，写不进“完成”',
     /^- 状态: 未完成$/m.test(text) && !/^- 状态: 完成$/m.test(text), text.split('\n').filter((l) => l.startsWith('- 状态')).join(' | '))
   const reasonLine = (text.match(/^- 打回理由: (.*)$/m) || [])[1] || ''
-  check('★★ 打回理由同时含「判据原文」与「实际值」',
+  check('★★ 打回理由同时含“判据原文”与“实际值”',
     reasonLine.includes(FAIL_NUM.raw) && /实际值\s*2/.test(reasonLine), reasonLine)
   check('★ 打回理由是一行（不把多行 diff 撑进 frontmatter 结构）', !!reasonLine && reasonLine.indexOf('\n') < 0)
   check('★ 修订记录多一条 P4 打回', /P4 打回：1 未过 \/ 0 未判定/.test(text), text.split('\n').filter((l) => l.includes('P4 打回')).join(' | '))
@@ -140,7 +140,7 @@ let rejected = 0
     /- 做什么: 把闸门跑一遍/.test(text) && /### P5 · 还没裁决/.test(text) && /## 修订记录/.test(text))
 }
 
-console.log('\n== ③ 重试全过：写「完成」+ 证据引用 ==')
+console.log('\n== ③ 重试全过：写“完成”+ 证据引用 ==')
 {
   const gate = evaluateStageGate([{ ...FAIL_NUM, state: 'pass', detail: '行数 = 4，要求 >= 4', evidence: { actual: 4 } }, PASS_CMD])
   check('前置：闸门放行', gate.canAdvance === true)
@@ -151,11 +151,11 @@ console.log('\n== ③ 重试全过：写「完成」+ 证据引用 ==')
   })
   check('★ 全部通过 → advanced=true', r.ok === true && r.advanced === true, JSON.stringify({ ok: r.ok, err: r.error }))
   const text = fs.readFileSync(PLAN_FILE, 'utf-8')
-  check('★★ 该格真的变成「完成」', /^- 状态: 完成$/m.test(text), text.split('\n').filter((l) => l.startsWith('- 状态')).join(' | '))
+  check('★★ 该格真的变成“完成”', /^- 状态: 完成$/m.test(text), text.split('\n').filter((l) => l.startsWith('- 状态')).join(' | '))
   const evidenceLine = (text.match(/^- 证据: (.*)$/m) || [])[1] || ''
   check('★★ 带一条证据引用（报告/命令）+ 通过数',
     evidenceLine.includes('node scripts/test/e2e-stage-gate.cjs') && evidenceLine.includes('2/2 判据通过'), evidenceLine)
-  check('★ 修订记录多一条「判据全过 → 完成」', /P4 判据全过 → 完成（2\/2）/.test(text))
+  check('★ 修订记录多一条“判据全过 → 完成”', /P4 判据全过 → 完成（2\/2）/.test(text))
   check('★ 重新读计划卡，evidence 字段解析得到', (() => {
     const doc = plans.readPlan('demo.md')
     const s = doc && doc.stages.find((x) => x.id === 'P4')
@@ -193,7 +193,7 @@ console.log('\n== ⑤ 真卡：未裁决的 P4 不许被误推进（只读验证
     const beforeStat = fs.statSync(real)
     const gate = evaluateStageGate([PASS_CMD]) // 假装全过
     const r = plans.advanceStage({ file: 'fangcun-base.md', stageId: 'P4', gate })
-    check('★★ 真卡 P4 还是「待裁决」→ 即使判据全过也拒绝推进',
+    check('★★ 真卡 P4 还是“待裁决”→ 即使判据全过也拒绝推进',
       r.advanced === false && /还没裁决/.test(r.error || ''), r.error)
     check('★ 真卡零改动（字节 + mtime 都不变）',
       fs.readFileSync(real, 'utf-8') === beforeText && fs.statSync(real).mtimeMs === beforeStat.mtimeMs)

@@ -1,17 +1,17 @@
 /**
  * 待审批卡出口端到端测试（2026-10-25 暮雨第 1 条，第二次提）
  *
- * 病根：AI 产出一律落「待审批」（契约红线），但预览面板只给「待验收」开了裁决入口
- *   → 待审批卡在界面上只有 forceCloseTask 那两条「直接完成 / 直接驳回」，
- *     既不转正、也不写结论。用户原话：「要么完成要么驳回，没有其他去处，理由都填不了。」
+ * 病根：AI 产出一律落“待审批”（契约红线），但预览面板只给“待验收”开了裁决入口
+ *   → 待审批卡在界面上只有 forceCloseTask 那两条“直接完成 / 直接驳回”，
+ *     既不转正、也不写结论。用户原话：“要么完成要么驳回，没有其他去处，理由都填不了。”
  *
  * 本测试钉住修复后的语义（直接 require 编译产物里的 reviewTask，真跑数据层）：
- *   ① 待审批 + accept → 状态变「待办」（转正），结果记录留一行「审批通过」
+ *   ① 待审批 + accept → 状态变“待办”（转正），结果记录留一行“审批通过”
  *   ② 待审批 + reject 无理由 → 显式报错且**卡一个字节都没动**（反例）
- *   ③ 待审批 + reject 有理由 → 状态变「驳回」，理由进结果记录
+ *   ③ 待审批 + reject 有理由 → 状态变“驳回”，理由进结果记录
  *   ④ 待验收 两条老语义不回归（accept → 完成 / reject → 驳回）
  *   ⑤ 待办/草稿 两种裁决都拒（不能拿裁决绕过流程）—— 反例自证
- *   ⑥ 源码守卫：预览面板的裁决按钮必须同时认「待审批」与「待验收」
+ *   ⑥ 源码守卫：预览面板的裁决按钮必须同时认“待审批”与“待验收”
  *      （只认待验收 = 这次的病根；只认待审批 = 把验收流程弄丢）
  *
  * 运行：node scripts/test/e2e-review-outlet.cjs
@@ -79,9 +79,9 @@ function main() {
     const r = ipc.reviewTask(t.id, 'accept', '结论清楚、验收线可查，可以转正')
     const after = rd(t.id)
     check('① 待审批 accept 返回 ok', r.ok === true, JSON.stringify(r))
-    check('① 待审批 accept → 状态变「待办」', after.fm.status === '待办', String(after.fm.status))
+    check('① 待审批 accept → 状态变“待办”', after.fm.status === '待办', String(after.fm.status))
     const log = String(after.fm.result_log || '')
-    check('① 结果记录写了「审批通过（转正「待办」）」', log.includes('审批通过'), log.slice(0, 120))
+    check('① 结果记录写了“审批通过（转正“待办”）”', log.includes('审批通过'), log.slice(0, 120))
     check('① 结果记录带上用户填的意见', log.includes('结论清楚、验收线可查'), log.slice(0, 120))
     check('① 结果记录带时间前缀', /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]/.test(log), log.slice(0, 60))
   }
@@ -92,10 +92,10 @@ function main() {
     const r = ipc.reviewTask(t.id, 'reject', '   ')
     const after = rd(t.id)
     check('② 无理由驳回 → ok（不再逼人写作文）', r.ok === true, JSON.stringify(r))
-    check('② 状态变「驳回」', after.fm.status === '驳回', String(after.fm.status))
-    check('② 结果记录如实写「没写理由」', String(after.fm.result_log || '').includes('没写理由'),
+    check('② 状态变“驳回”', after.fm.status === '驳回', String(after.fm.status))
+    check('② 结果记录如实写“没写理由”', String(after.fm.result_log || '').includes('没写理由'),
       String(after.fm.result_log).slice(0, 120))
-    check('② 独立「驳回理由」字段为空（不是塞进一句占位）',
+    check('② 独立“驳回理由”字段为空（不是塞进一句占位）',
       String(after.fm.reject_reason || '') === '', String(after.fm.reject_reason))
     check('② 驳回时间落盘（卡上能显示什么时候退的）', !!after.fm.reject_at)
   }
@@ -103,18 +103,18 @@ function main() {
   // ── ③ 待审批 + reject 有理由 → 驳回 + 理由留痕（独立字段 + 结果记录） ──
   {
     const t = mk('要驳回的 AI 卡', '待审批')
-    const r = ipc.reviewTask(t.id, 'reject', '验收线写的是「能跑」，这不是判据，重写')
+    const r = ipc.reviewTask(t.id, 'reject', '验收线写的是“能跑”，这不是判据，重写')
     const after = rd(t.id)
     check('③ 待审批 reject 返回 ok', r.ok === true, JSON.stringify(r))
-    check('③ 状态变「驳回」', after.fm.status === '驳回', String(after.fm.status))
+    check('③ 状态变“驳回”', after.fm.status === '驳回', String(after.fm.status))
     const log = String(after.fm.result_log || '')
-    check('③ 结果记录写了「审批驳回」', log.includes('审批驳回'), log.slice(0, 120))
+    check('③ 结果记录写了“审批驳回”', log.includes('审批驳回'), log.slice(0, 120))
     check('③ 驳回理由原文进结果记录', log.includes('这不是判据'), log.slice(0, 160))
     check('③★ 理由同时进独立字段（可编辑 / 常驻可见的权威来源）',
-      String(after.fm.reject_reason || '') === '验收线写的是「能跑」，这不是判据，重写',
+      String(after.fm.reject_reason || '') === '验收线写的是“能跑”，这不是判据，重写',
       String(after.fm.reject_reason))
 
-    // 2026-10-30 第 2 条：退回返工后，理由不能消失（否则「驳回」等于没发生）
+    // 2026-10-30 第 2 条：退回返工后，理由不能消失（否则“驳回”等于没发生）
     tasks.unarchiveTask(t.id)
     const returned = rd(t.id)
     check('③★★ 退回返工后仍留着上次驳回理由（不是点完就看不见）',
@@ -128,9 +128,9 @@ function main() {
       const t = mk('直接驳回的 ' + st, st)
       const r = ipc.rejectTaskDirect(t.id, '看不懂这张卡在说什么')
       const after = rd(t.id)
-      check(`③b 「${st}」可直接驳回（不必先到待验收）`, r.ok === true && after.fm.status === '驳回',
+      check(`③b “${st}”可直接驳回（不必先到待验收）`, r.ok === true && after.fm.status === '驳回',
         JSON.stringify({ r, status: after.fm.status }))
-      check(`③b 「${st}」理由进独立字段`, String(after.fm.reject_reason || '').includes('看不懂'),
+      check(`③b “${st}”理由进独立字段`, String(after.fm.reject_reason || '').includes('看不懂'),
         String(after.fm.reject_reason))
     }
     const done = mk('已完成的卡', '完成')
@@ -144,14 +144,14 @@ function main() {
     const r1 = ipc.reviewTask(t1.id, 'accept', '按验收线逐条核过')
     const a1 = rd(t1.id)
     check('④ 待验收 accept → 完成', r1.ok && a1.fm.status === '完成', String(a1.fm.status))
-    check('④ 待验收通过仍写「验收通过」措辞（不串成审批）',
+    check('④ 待验收通过仍写“验收通过”措辞（不串成审批）',
       String(a1.fm.result_log || '').includes('验收通过'), String(a1.fm.result_log).slice(0, 80))
 
     const t2 = mk('待验收驳回', '待验收')
     const r2 = ipc.reviewTask(t2.id, 'reject', '截图里第二条没做到')
     const a2 = rd(t2.id)
     check('④ 待验收 reject → 驳回', r2.ok && a2.fm.status === '驳回', String(a2.fm.status))
-    check('④ 待验收驳回仍写「验收驳回」措辞',
+    check('④ 待验收驳回仍写“验收驳回”措辞',
       String(a2.fm.result_log || '').includes('验收驳回'), String(a2.fm.result_log).slice(0, 80))
   }
 
@@ -160,10 +160,10 @@ function main() {
     const t = mk('不该能裁决的 ' + st, st)
     const ra = ipc.reviewTask(t.id, 'accept', 'x')
     const rr = ipc.reviewTask(t.id, 'reject', 'y')
-    check(`⑤ 「${st}」accept 被拒`, ra.ok === false, JSON.stringify(ra))
-    check(`⑤ 「${st}」reject 被拒`, rr.ok === false, JSON.stringify(rr))
-    check(`⑤ 「${st}」状态未变`, rd(t.id).fm.status === st, String(rd(t.id).fm.status))
-    check(`⑤ 「${st}」错误信息列出可裁决的两种状态`,
+    check(`⑤ “${st}”accept 被拒`, ra.ok === false, JSON.stringify(ra))
+    check(`⑤ “${st}”reject 被拒`, rr.ok === false, JSON.stringify(rr))
+    check(`⑤ “${st}”状态未变`, rd(t.id).fm.status === st, String(rd(t.id).fm.status))
+    check(`⑤ “${st}”错误信息列出可裁决的两种状态`,
       /待审批/.test(String(ra.error)) && /待验收/.test(String(ra.error)), String(ra.error))
   }
 
@@ -171,19 +171,19 @@ function main() {
   {
     // 2026-10-31：预览面板 / 卡面驳回理由已随拆分搬进 components/TaskPreview.vue 与
     //   views/BoardView.vue，`reviewModal` / `openReview` 仍在 App —— 扫全部渲染层源码
-    //   （判据不放松：「App 里必须有」变成「渲染层任何文件里必须有」）。
+    //   （判据不放松：“App 里必须有”变成“渲染层任何文件里必须有”）。
     const vue = require('./_sources.cjs').rendererSource()
     const need = `v-if="previewTask.status === '待验收' || previewTask.status === '待审批'"`
-    check('⑥ 预览面板裁决入口同时认「待验收」与「待审批」', vue.includes(need))
+    check('⑥ 预览面板裁决入口同时认“待验收”与“待审批”', vue.includes(need))
     check('⑥ 裁决弹窗按 kind 区分审批 / 验收措辞',
       vue.includes("reviewModal.kind === 'approval'"), '少了 kind 分支 = 审批弹窗还是写着"验收"')
     check('⑥ openReview 真的按状态判 kind',
       /kind:\s*t\.status === '待审批' \? 'approval' : 'acceptance'/.test(vue))
     // 反例：不许再出现"只认待验收"的旧写法单独存在
     const legacyOnly = /v-if="previewTask\.status === '待验收'"\s*\n\s*class="pri"/.test(vue)
-    check('⑥ 旧的「只认待验收」写法已不存在', !legacyOnly, '旧写法还在 = 待审批又被锁回去了')
+    check('⑥ 旧的“只认待验收”写法已不存在', !legacyOnly, '旧写法还在 = 待审批又被锁回去了')
     // 2026-10-30 第 2 条：驳回理由改为可选，界面与主进程都不许再逼人必填
-    check('★★ 界面不再出现「驳回理由必填」', !/驳回理由必填/.test(vue))
+    check('★★ 界面不再出现“驳回理由必填”', !/驳回理由必填/.test(vue))
     check('★ 直接驳回有独立入口（openDirectReject，任何非终态卡可用）',
       /function openDirectReject/.test(vue) && /kind: 'direct'/.test(vue))
     check('★ 常用驳回理由一键填（不是每次写作文）',

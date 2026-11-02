@@ -4,8 +4,8 @@
  * 真跑编译产物 `desktop/dist/shared/launchpadDiag.js` —— 纯函数，不依赖 electron / DOM。
  *
  * 为什么单列这一层（旧案回顾）：
- *   `apps.json` 里「绒花墨坊」把 **vite dev server 的 8090** 登记在**打包好的 Electron exe** 上。
- *   服务页对「空闲 + 来源=启动台」的行给「▶ 启动」，用户点完仍是「空闲」→ 又一次得出"启动台坏了"。
+ *   `apps.json` 里“绒花墨坊”把 **vite dev server 的 8090** 登记在**打包好的 Electron exe** 上。
+ *   服务页对“空闲 + 来源=启动台”的行给“▶ 启动”，用户点完仍是“空闲”→ 又一次得出"启动台坏了"。
  *   根因是**两个概念被混成一个**：`port`（对外提供哪个端口）≠ `cmd`（点一下会跑什么）。
  *
  * 本测试钉住：
@@ -14,7 +14,7 @@
  *   ③ `.bat/.cmd/.ps1/目录/网址` + port → `ok`（不许误报 —— 误报比漏报更伤，见下反例）；
  *   ④ 没 port / port 非法 → `none`（不许把"没登记端口"也说成 suspect）；
  *   ⑤ 手填登记（没有启动命令）走 `none/manual`，不许对它喊"接错了"；
- *   ⑥ 「拉起成功但端口没起来」的那句话必须**同时**给出"发生了什么"和"下一步做什么"。
+ *   ⑥ “拉起成功但端口没起来”的那句话必须**同时**给出"发生了什么"和"下一步做什么"。
  *
  * 运行：node scripts/test/e2e-launchpad-diag.cjs
  */
@@ -49,7 +49,7 @@ function main() {
   const d1 = diagnosePortRegistration(ronghua)
   check('★★ 旧案复现：exe + :8090 → suspect', d1.level === 'suspect', JSON.stringify(d1))
   check('★★ 判据认机器码 exe-cmd（不认文案）', d1.code === 'exe-cmd', d1.code)
-  check('★ 文案里点出「桌面程序通常不会监听这个端口」这件事实',
+  check('★ 文案里点出“桌面程序通常不会监听这个端口”这件事实',
     d1.message.includes('桌面程序') && d1.message.includes('8090'), d1.message)
   check('★ 文案给出两条可行动作（改命令 / 去掉端口登记）',
     d1.message.includes('启动命令') && d1.message.includes('去掉'), d1.message)
@@ -111,7 +111,7 @@ function main() {
 
   // ── ⑨ 启动完之后跟用户说的话（2026-10-15 新模型：**措辞必须中性**）────────
   //   旧模型在这里说的是"这条登记接错了"——那是**错误的预设**（默认"启动一个应用就该有个端口起来"）。
-  //   用户原话「端口永远是记不住的，不要指望根据端口去配置」，所以"没观测到端口"是正常结果。
+  //   用户原话“端口永远是记不住的，不要指望根据端口去配置”，所以"没观测到端口"是正常结果。
   const msg0 = explainStartObserved('绒花墨坊', [])
   check('★ 没观测到端口时带应用名', msg0.includes('绒花墨坊'), msg0)
   check('★★ 没观测到端口**不许**说成失败 / 接错（旧模型的错误预设）——且要主动否认一次',

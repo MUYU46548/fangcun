@@ -23,7 +23,7 @@ function toFailure(e: unknown, fallbackUrl = '') {
 
 export function registerLlmIpcHandlers(): void {
   // ── LLM Config ────────────────────────────────────────────────────
-  // 2026-10-17 暮雨第 10 条「花销可见」：把 ai-trace.jsonl 里的 token 汇总算出个准数。
+  // 2026-10-17 暮雨第 10 条“花销可见”：把 ai-trace.jsonl 里的 token 汇总算出个准数。
   // ⚠ 只统计**供应商真报了 usage** 的调用；没报的单独计次数，绝不拿字符数折算成 token。
   guardedHandle('llm:usageStats', (_event: any, days?: number) => {
     return usageStats(Number.isFinite(Number(days)) && Number(days) > 0 ? Number(days) : 30)
@@ -151,7 +151,7 @@ export function registerLlmIpcHandlers(): void {
   })
 
   // ── AI 规划写回层（2026-10-12，方案卡：AI 规划功能；详见 llm/writeback.ts）──
-  // 红线：AI 卡只落「待审批」，转正唯一路径是用户点头；source=ai-planning 审计可查。
+  // 红线：AI 卡只落“待审批”，转正唯一路径是用户点头；source=ai-planning 审计可查。
   guardedHandle('llm:planToDraft', async (_event: any, goal: string, projectId?: string, model?: string) => {
     return planToDraft(goal, projectId || '', model)
   })
@@ -167,7 +167,7 @@ export function registerLlmIpcHandlers(): void {
   })
 
   // 出单（2026-10-22 · 03 任务三）：从台账（三字段）+ 决策卡派生下一批任务卡，
-  // 一次调用 = 一批，产出**只落「待审批」**（用户点头才转正）。复用 planToDraft 的落卡机制。
+  // 一次调用 = 一批，产出**只落“待审批”**（用户点头才转正）。复用 planToDraft 的落卡机制。
   guardedHandle('llm:planBatch', async (_event: any, projectId: string, model?: string) => {
     return planBatch(projectId, model)
   })

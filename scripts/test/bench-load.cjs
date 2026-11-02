@@ -1,7 +1,7 @@
 /**
  * 数据层压测 —— 找 loadTasks 全量扫描的性能拐点
  *
- * 背景：loadTasks/loadAllTasks 是「全量扫描目录 + 全量 readFileSync + 全量 yaml.load」，
+ * 背景：loadTasks/loadAllTasks 是“全量扫描目录 + 全量 readFileSync + 全量 yaml.load”，
  * 无任何索引或缓存。26 个任务时无感，但拐点在哪从未测过。
  *
  * 本脚本在临时目录造 N 个真实格式任务，分阶段计时，回答三个问题：
@@ -217,7 +217,7 @@ function main() {
     if (coldN !== warmN) throw new Error(`缓存一致性失败: cold=${coldN} warm=${warmN}`)
     const sigCheck = (() => {
       const before = data.loadTasks('active').length
-      // 注意：探针文件名不能以 _ 开头 —— 那是「模板文件」约定，会被扫描跳过
+      // 注意：探针文件名不能以 _ 开头 —— 那是“模板文件”约定，会被扫描跳过
       const probe = path.join(TASK_DIR, 'bench-probe.md')
       fs.writeFileSync(probe, '---\nid: bench-probe\n标题: 探针\n状态: 草稿\n---\nbody\n', 'utf-8')
       const after = data.loadTasks('active').length

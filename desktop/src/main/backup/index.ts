@@ -344,7 +344,7 @@ export function listLocalBackups(): Array<{ name: string; path: string; bytes: n
       })
     } catch { /* 跳过不可读条目 */ }
   }
-  // 2026-09-25（用户第 5 条）：用户要的是「最后更新的自动排在前面」。
+  // 2026-09-25（用户第 5 条）：用户要的是“最后更新的自动排在前面”。
   // 原来只按**文件名**倒序 —— 名字里的时间戳是代理值，一旦有手工改名/导入的包就失序。
   // 主判据改成 mtime（真正的最后更新），文件名只做同毫秒的稳定 tiebreak。
   return out.sort((a, b) =>
@@ -353,7 +353,7 @@ export function listLocalBackups(): Array<{ name: string; path: string; bytes: n
 
 /**
  * 轮换执行报告（2026-10-18 体积线+逐条记账改造）。
- * 「先预览再删」：dryRun=true 时只算不删，返回的 removed 就是将要删的清单。
+ * “先预览再删”：dryRun=true 时只算不删，返回的 removed 就是将要删的清单。
  */
 export interface RotateReport {
   /** 逐条删除记录：base + 该组 zip 字节数（含 .zip / .zip.sha256 / .manifest.json 三件套） */
@@ -435,10 +435,10 @@ function collectGroups(dir: string): Array<{ base: string; bytes: number; mtimeM
 /**
  * 保留最新 keep 份、总占用不超 maxMb（0=不限），超出部分从最旧删除。返回逐条报告。
  * 2026-10-18 两处升级（体积线 task-20261018-004）：
- *  ① 排序判据从「文件名字典序」改为 zip 的 mtime —— 与 listLocalBackups 的 2026-09-25
+ *  ① 排序判据从“文件名字典序”改为 zip 的 mtime —— 与 listLocalBackups 的 2026-09-25
  *    修正对齐（名字是代理值，手工改名/导入包会失序；mtime 才是真正的"最新"）；
  *  ② 新增体积线：份数达标但总占用超 maxMb 时，继续从最旧淘汰到线下。
- * 兼容：keep 语义不变；原「返回删除份数」的老调用（e2e）改用 report.removed.length。
+ * 兼容：keep 语义不变；原“返回删除份数”的老调用（e2e）改用 report.removed.length。
  */
 export function rotateLocal(dir: string, keep: number, maxMb = 0, dryRun = false): RotateReport {
   const empty: RotateReport = { removed: [], freedBytes: 0, kept: 0, unrecognized: [], reasons: [] }
@@ -545,7 +545,7 @@ export interface ExportResult {
  * 典型用途：导出到网盘同步文件夹（OneDrive / 坚果云 / 群晖 Drive 等），由客户端负责上传。
  *
  * 2026-09-26（用户第 1 条）：**只落一个 zip**。此前这里连同 sidecar / manifest / README /
- * 恢复脚本一共写 4 个文件，用户原话「导出又是导出四个文件，我只认识压缩包…只应该存在一样东西」。
+ * 恢复脚本一共写 4 个文件，用户原话“导出又是导出四个文件，我只认识压缩包…只应该存在一样东西”。
  * 完整性不靠外层附件撑着：zip 内含逐文件 sha256 的 manifest，导出前 verifyZip 自校验、
  * 落盘后回读比对 sha256 —— 去掉的那几个只是给人看的说明，不是校验依据。
  */
@@ -616,8 +616,8 @@ export function exportSnapshotTo(destDir: string): ExportResult {
 /**
  * 导出**已有的**某个备份包到指定目录（2026-09-25 第 10 条：只导指定备份、默认最新）。
  *
- * 与 `exportSnapshotTo` 的区别：那个是「现在重新打一份」（所以永远是全量、文件名是此刻的时间戳），
- * 这个是「把已经存在的那一份搬出去」—— 用户抱怨的正是「导出只能全量（91 文件/1097KB）」，
+ * 与 `exportSnapshotTo` 的区别：那个是“现在重新打一份”（所以永远是全量、文件名是此刻的时间戳），
+ * 这个是“把已经存在的那一份搬出去”—— 用户抱怨的正是“导出只能全量（91 文件/1097KB）”，
  * 而他真正想做的往往是把某一次备份复制到网盘。
  *
  * 安全：只允许导出**本地备份目录内**的包（否则这个方法就成了任意文件读取/外带通道）。
@@ -661,7 +661,7 @@ export function exportExistingPackageTo(
   }
 
   // 2026-10-31：加密包（.fcz）没法在不给口令时验内容 —— 但导出只是"拷一份"，
-  // 所以这里验**密文哈希**（sidecar）即可；内容校验请用「校验备份包」（会要口令）。
+  // 所以这里验**密文哈希**（sidecar）即可；内容校验请用“校验备份包”（会要口令）。
   let verify: ReturnType<typeof verifyZip> | null = null
   if (!isEncryptedBackup(buf)) {
     verify = verifyZip(buf)
@@ -776,7 +776,7 @@ export function verifyPackage(zipPath: string, password?: string): {
 /**
  * 备份体积报告（2026-10-11 用户第 2 条）。
  *
- * 用户问「包怎么这么大？」，方寸此前**答不上来** —— 界面上只有一个 62.6MB 的结果，看不到构成。
+ * 用户问“包怎么这么大？”，方寸此前**答不上来** —— 界面上只有一个 62.6MB 的结果，看不到构成。
  * 这里把"备份范围里到底有什么、谁最占地方、按当前瘦身设置会跳过什么"摊开，
  * 让"为什么大"变成可判断的事实，而不是让用户猜。
  *

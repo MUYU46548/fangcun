@@ -2,11 +2,11 @@
  * 自检报告（0.6.0 P7）—— 方寸跑一遍计划卡里的全部判据，出逐格结论
  *
  * 复用 P3 执行器（四类真跑）与 P4 准入逻辑（全过才算通过）：
- *   · 只跑「已冻结 / 未完成 / 完成」的格子；「待裁决 / 未冻结」记「未开工」——
+ *   · 只跑“已冻结 / 未完成 / 完成”的格子；“待裁决 / 未冻结”记“未开工”——
  *     没批的计划不该被自检偷偷跑；
  *   · 每条判据的结果原样保留（通过 / 未过 / 未判定），未过项附**实际值**；
  *   · 额外一格：从 P5 的投入产出账算一条"原来不知道的事"（每张完成卡摊多少花销/token），
- *     算不出就明写「算不出，因为 X」；
+ *     算不出就明写“算不出，因为 X”；
  *   · 报告只写 `docs/自检报告-<日期>.md`，不改计划卡（推进是 P4 的事，且要人点）。
  *
  * 为什么 P7 自己的 `selfcheck-plan.py` 不跑：那会递归。在结果里如实记 `unknown` + 原因。
@@ -144,8 +144,8 @@ export function buildSelfCheckMarkdown(report: Omit<SelfCheckReport, 'markdown'>
   L.push(`- 投入产出账窗口：近 ${report.days || '全部'} 天`)
   L.push(`- 逐格：通过 ${report.totals.pass} / 未过 ${report.totals.fail} / 未开工 ${report.totals.notStarted}（共 ${report.totals.stages} 格）`)
   L.push(`- 判据：通过 ${report.totals.passed} / 未过 ${report.totals.failed} / 未判定 ${report.totals.unknown}（共 ${report.totals.criteria} 条）`)
-  L.push('- 口径：自检只跑「已冻结 / 未完成 / 完成」的格子；「待裁决 / 未冻结」记「未开工」。'
-    + '未知前缀、超时、自检自身命令记「未判定」——**都不算通过**。')
+  L.push('- 口径：自检只跑“已冻结 / 未完成 / 完成”的格子；“待裁决 / 未冻结”记“未开工”。'
+    + '未知前缀、超时、自检自身命令记“未判定”——**都不算通过**。')
   L.push('')
   L.push('## 逐格结论', '')
   if (!report.stages.length) {
@@ -167,7 +167,7 @@ export function buildSelfCheckMarkdown(report: Omit<SelfCheckReport, 'markdown'>
   } else {
     for (const { s, r } of bad) {
       const tag = r.state === 'unknown' ? '未判定' : '未过'
-      L.push(`- ${s.file} · ${s.id}「${r.raw}」→ ${actualOf(r)}（${tag}）`)
+      L.push(`- ${s.file} · ${s.id}“${r.raw}”→ ${actualOf(r)}（${tag}）`)
     }
   }
   L.push('')
@@ -190,8 +190,8 @@ export function buildSelfCheckMarkdown(report: Omit<SelfCheckReport, 'markdown'>
     L.push(`- ${s.file} · ${s.id} ${s.conclusion}${counts}`)
   }
   const output = report.ledger.cells.find((c) => c.key === 'output')
-  if (output) L.push(`- 近 ${report.days || '全部'} 天产出：${output.value}（口径见「投入产出账」）`)
-  // 「算不出」只允许出现一次（P7 判据）：算不出时结论里不再重复同一句
+  if (output) L.push(`- 近 ${report.days || '全部'} 天产出：${output.value}（口径见“投入产出账”）`)
+  // “算不出”只允许出现一次（P7 判据）：算不出时结论里不再重复同一句
   if (report.insight.ok) L.push(`- ${report.insight.text}`)
   else L.push('- 额外一格没有可算的结论（原因见上）。')
   return L.join('\n') + '\n'

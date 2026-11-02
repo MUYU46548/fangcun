@@ -1,13 +1,13 @@
 /**
  * 通知中心 —— 从 App.vue 切出来的第五刀（2026-10-30）。
  *
- * 为什么切它：通知的「取数 / 未读 / 过滤 / 跳转 / 全局点击与 Esc」是一整块闭环，
+ * 为什么切它：通知的“取数 / 未读 / 过滤 / 跳转 / 全局点击与 Esc”是一整块闭环，
  * 只依赖 4 个外部动作（切视图、开卡、报解析错误、开设置）+ 一个 toast。
  *
  * 纪律：
  *  · 未读数轮询、document 上的点击/键盘监听、`ncTimer` 的收尾**全在这里**，App 不再管；
  *  · 跳转动作由调用方注入（它要切的是 App 的视图、开的是 App 的预览）—— 不在这里偷偷改视图；
- *  · 「通知 IPC 缺失 → 铃铛隐藏」的判据保持原样（防僵尸按钮）。
+ *  · “通知 IPC 缺失 → 铃铛隐藏”的判据保持原样（防僵尸按钮）。
  */
 import { computed, onUnmounted, ref } from 'vue'
 import { relTimeShort } from '../../shared/time'
@@ -134,7 +134,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   /**
    * 通知 → 可跳目标的标签。**返回 null = 这条没有可跳对象（只标已读）**。
    * 同一个函数同时驱动三件事：行尾箭头显不显示、title 提示、点击后跳哪 —— 三处必须一致，
-   * 否则会出现「箭头亮着点了没反应」这种新的"无效按钮"（2026-10-01 用户第 1 条原话）。
+   * 否则会出现“箭头亮着点了没反应”这种新的"无效按钮"（2026-10-01 用户第 1 条原话）。
    */
   function ncTargetOf(n: any): string | null {
     const t = String(n.type || '')
@@ -148,7 +148,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   }
 
   /**
-   * 通知点击跳转（2026-10-01 用户第 1 条：「目前点下去是无效按钮」）。
+   * 通知点击跳转（2026-10-01 用户第 1 条：“目前点下去是无效按钮”）。
    *
    * 口径：先按原行为标已读，再跳。跳不成（任务已被删除/已归档）只 toast 说明，不影响已读 ——
    * 不能因为目标没了就让面板卡在原地。
@@ -222,37 +222,37 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (e.key !== 'Escape') return
     if (ncOpen.value) { closePanel(); return }
     // 2026-09-26 卡 033：Esc 关掉**最上层弹窗**。同样不逐个维护弹窗清单：
-    // 取 DOM 里最后一个 .overlay，点它的「取消」（.acts .ghost）。找不到就什么都不做。
+    // 取 DOM 里最后一个 .overlay，点它的“取消”（.acts .ghost）。找不到就什么都不做。
     // ⚠ 必须**先滤掉 display:none 的**（同下面 Ctrl+S 那条口径）：
     //   方寸有几块 `.overlay` 是**常驻 DOM 但靠 display 藏起来**的（roverlay / soverlay 等），
     //   它们的模板位置排在待办编辑弹窗**后面**。不滤可见性时，`overlays[length-1]` 拿到的是
-    //   那块**看不见**的，于是「待办编辑弹窗开着时按 Esc 关不掉」—— 2026-10-14 真点击 e2e
+    //   那块**看不见**的，于是“待办编辑弹窗开着时按 Esc 关不掉”—— 2026-10-14 真点击 e2e
     //   解锁后实测到的（此前这一层恒 SKIP，从没验过）。
     const overlays = (Array.from(document.querySelectorAll('.overlay')) as HTMLElement[])
       .filter(el => window.getComputedStyle(el).display !== 'none')
     const top = overlays[overlays.length - 1]
     if (!top) return
-    // ① 有「取消」按钮就点它（多数弹窗的约定：`.acts .ghost`）。
+    // ① 有“取消”按钮就点它（多数弹窗的约定：`.acts .ghost`）。
     const cancel = top.querySelector('.acts .ghost') as HTMLElement | null
     if (cancel) { cancel.click(); return }
-    // ② 兜底：这块弹窗**没有**「取消」按钮（设置面板就是这样）—— 派发一次 mousedown 到遮罩本体，
+    // ② 兜底：这块弹窗**没有**“取消”按钮（设置面板就是这样）—— 派发一次 mousedown 到遮罩本体，
     //    走它自己的 `@mousedown.self` 关闭路径（全站遮罩统一绑的那条）。
-    //    ⚠ 2026-10-15：此前只有 ①，于是「设置弹窗开着时按 Esc 什么都不发生」——
+    //    ⚠ 2026-10-15：此前只有 ①，于是“设置弹窗开着时按 Esc 什么都不发生”——
     //    真点击 e2e 实测到的（那时 Esc 会先被更靠后的设置遮罩截住，表现为"待办弹窗关不掉"）。
     //    兜底只发事件、不猜状态，所以对没有绑定关闭手势的遮罩也**不会误关**任何东西。
     top.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
   }
 
-  /** 全局快捷键（2026-09-25 用户第 6 条：「希望有一些简单的快捷键，比如保存和撤销」）
+  /** 全局快捷键（2026-09-25 用户第 6 条：“希望有一些简单的快捷键，比如保存和撤销”）
    *
    *  Ctrl/Cmd+S = 保存当前打开的弹窗。
-   *  · 不逐个维护「哪个弹窗开着」：`v-if` 的弹窗关着时根本不在 DOM 里，所以直接取
+   *  · 不逐个维护“哪个弹窗开着”：`v-if` 的弹窗关着时根本不在 DOM 里，所以直接取
    *    当前 DOM 里可见的最后一个 `.overlay`，点它的**主操作按钮 `.acts .pri`**。
-   *    以后新增弹窗自动被覆盖，不会漏接线（上一轮「通道早通、UI 无入口」就是漏接线）。
-   *  · **只认 `.pri`**：验收弹窗的「通过」是 `.ok`、驳回是 `.danger` —— 裁决类按钮
+   *    以后新增弹窗自动被覆盖，不会漏接线（上一轮“通道早通、UI 无入口”就是漏接线）。
+   *  · **只认 `.pri`**：验收弹窗的“通过”是 `.ok`、驳回是 `.danger` —— 裁决类按钮
    *    **刻意不接管**，Ctrl+S 误触一下就把任务验收了，代价太大，必须用手点。
-   *  · Ctrl+Z 只在**焦点不在输入控件里**时接管（2026-10-21 暮雨第 1 条：「狂按 Ctrl+Z
-   *    也没用」）：它撤的是撤销条上那**一笔状态动作**（完成 / 归档），不是文字。
+   *  · Ctrl+Z 只在**焦点不在输入控件里**时接管（2026-10-21 暮雨第 1 条：“狂按 Ctrl+Z
+   *    也没用”）：它撤的是撤销条上那**一笔状态动作**（完成 / 归档），不是文字。
    *    焦点在 input/textarea/contenteditable 时一律放行原生撤销 —— 那里覆盖的是
    *    "这次输入"，抢过来只会让人更没法改错字。
    */

@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """返工卡取活（tegula next）回归 —— 2026-10-30 暮雨第 3 条
 
-用户原话：「我原意是 AI 会读驳回里的任务自己重做，现在感觉就是个大号待办。」
+用户原话：“我原意是 AI 会读驳回里的任务自己重做，现在感觉就是个大号待办。”
 真因不是 UI，而是 agent 面入口 `next` 只打印标题/优先级，从来没把驳回理由交给 agent。
 
 这个脚本真跑 `tegula.cli`（临时 task-data），钉四件事：
   ① 返工卡能被认出来（独立字段 / 老卡只写在结果记录里都能认）；
   ② `next` 把返工卡排在最前（不会先被普通待办淹没）；
-  ③ 文本输出把「驳回理由 + 返工要求」顶在状态下面；
+  ③ 文本输出把“驳回理由 + 返工要求”顶在状态下面；
   ④ JSON 输出带 `rework.is_rework / reason`，agent 可以直接判。
 
 跑法：python scripts/test/check-next-rework.py
@@ -73,7 +73,7 @@ def mk_task(tid, title, status="待办", priority="低", reject_reason=None, rej
 
 
 def main():
-    # 普通卡优先级「高」，返工卡「低」—— 排序必须把返工卡顶上来，不能只比优先级。
+    # 普通卡优先级“高”，返工卡“低”—— 排序必须把返工卡顶上来，不能只比优先级。
     mk_task("task-normal", "普通待办", priority="高")
     mk_task("task-rework", "返工卡：按钮点不动", priority="低",
             reject_reason="按钮点不动，先修交互再交",
@@ -106,7 +106,7 @@ def main():
     with contextlib.redirect_stdout(buf):
         CLI.cmd_next(ns)
     text = buf.getvalue()
-    check("★★ 文本输出标出「返工」", "返工    : 是" in text, text[:160].replace("\n", " | "))
+    check("★★ 文本输出标出“返工”", "返工    : 是" in text, text[:160].replace("\n", " | "))
     check("★★ 文本输出带驳回理由", "驳回理由: 按钮点不动，先修交互再交" in text, text[:300].replace("\n", " | "))
     check("文本输出带返工要求（不许原样重交）", "返工要求:" in text and "原方案原样重交" in text)
 
@@ -123,7 +123,7 @@ def main():
     check("候选列表也标了返工", any(c.get("返工") for c in data.get("candidates", [])),
           json.dumps(data.get("candidates"), ensure_ascii=False)[:220])
 
-    # 没写理由的返工卡：不能假装普通待办，要明说「当时没写」并让 agent 先问清楚。
+    # 没写理由的返工卡：不能假装普通待办，要明说“当时没写”并让 agent 先问清楚。
     mk_task("task-rework-empty", "返工卡：当时没写理由", reject_at="2026-10-29T10:00:00.000Z")
     t2 = {t.get("id"): t for t in CLI.load_tasks(None, "active")}
     check("空理由仍算返工（有驳回时间）", CLI._task_is_rework(t2["task-rework-empty"]))

@@ -1,9 +1,9 @@
 /**
- * 主题可读性守卫 —— 2026-09-29（用户第 4 条：「多主题颜色外观…别把文字弄得看不见，
- * 注意文本和按钮对比度」）
+ * 主题可读性守卫 —— 2026-09-29（用户第 4 条：“多主题颜色外观…别把文字弄得看不见，
+ * 注意文本和按钮对比度”）
  *
  * 存在的理由（一句话）：**没跑过的断言等于没有。** 主题是拿肉眼最容易放过去的改动 ——
- * 换个色板当场好看，但「白字压品牌色」「次要文字压底色」这类对比度只有量了才知道，
+ * 换个色板当场好看，但“白字压品牌色”“次要文字压底色”这类对比度只有量了才知道，
  * 2026-09-27 那轮就是全量实测后才发现默认主题有 5 处掉在 WCAG AA（4.5）以下。
  *
  * 这里对**每个主题**（默认 + data-theme 覆盖）逐对量：
@@ -107,7 +107,7 @@ for (const id of ['default', ...listNonDefault]) {
     ['正文压次级描边上的字 --ink/--line-2', t.ink, t['line-2']],
     ['徽章字压 --accent-soft', BADGE_TEXT, t['accent-soft']],
     // 决策三态徽章（2026-10-14 第 ④ 步第一单）：组件里的文字色，值来自 App.vue 的令牌 ——
-    // 就是因为「色值散在组件里就没人量」才把它们提成令牌（同 2026-10-13 SVG 整体变黑那次教训）。
+    // 就是因为“色值散在组件里就没人量”才把它们提成令牌（同 2026-10-13 SVG 整体变黑那次教训）。
     ['决策徽章 有效（字/底）', t['badge-ok-fg'], t['badge-ok-bg']],
     ['决策徽章 已撤销（字/底）', t['badge-revoked-fg'], t['badge-revoked-bg']],
     ['决策徽章 已合并（字/底）', t['badge-merged-fg'], t['badge-merged-bg']],
@@ -122,7 +122,7 @@ for (const id of ['default', ...listNonDefault]) {
     else if (c < AA) bad.push(`${label} = ${c.toFixed(2)}`)
   }
   // ⚠ 对数写在名字里会漂（"13 对"改完忘了改），所以直接读 pairs.length
-  check(`主题「${id}」全部 ${pairs.length} 对对比度 ≥ WCAG AA (4.5)`, bad.length === 0, bad.join('；'))
+  check(`主题“${id}”全部 ${pairs.length} 对对比度 ≥ WCAG AA (4.5)`, bad.length === 0, bad.join('；'))
   if (bad.length === 0) {
     const min = Math.min(...pairs.map(([, fg, bg]) => contrast(fg, bg)))
     console.log(`      ↳ 最低 ${min.toFixed(2)}`)
@@ -133,7 +133,7 @@ for (const id of ['default', ...listNonDefault]) {
 //
 // 为什么要单独量：`.card-date.dim` 当年写死 `#8b90a0`，在卡片底色上只有 **3.18**，
 // 11px 小字远低于 AA —— 而它**不在主题令牌里**，所以 2026-09-29 那轮
-//「六套主题全量调 AA」从它身上直接漏过去了（令牌全绿、这一个选择器没人管）。
+//“六套主题全量调 AA”从它身上直接漏过去了（令牌全绿、这一个选择器没人管）。
 //
 // 这里把这类"组件里的文字色"拉进守卫：
 //   · 写成 `var(--x)` → 跟当前主题取 --x 的值；
@@ -160,7 +160,7 @@ function extractDeclColor(sel) {
 
 for (const spec of TEXT_COLOR_SELECTORS) {
   const decl = extractDeclColor(spec.sel)
-  check(`${spec.label}「${spec.sel}」能在 App.vue 定位到 color 声明`,
+  check(`${spec.label}“${spec.sel}”能在 App.vue 定位到 color 声明`,
     decl.found && !!decl.color,
     decl.found ? '这条规则里没有 color 声明' : 'App.vue 里找不到这个选择器（改名了就把守卫一起改）')
   if (!decl.found || !decl.color) continue
@@ -176,11 +176,11 @@ for (const spec of TEXT_COLOR_SELECTORS) {
       if (c < AA) bad.push(`${id}/${bgName}=${c.toFixed(2)}`)
     }
   }
-  check(`★ ${spec.label}「${spec.sel}」六套主题下都 ≥ AA（写死的颜色会被当场量出来）`,
+  check(`★ ${spec.label}“${spec.sel}”六套主题下都 ≥ AA（写死的颜色会被当场量出来）`,
     bad.length === 0, bad.join('；'))
 }
 
-// ── 日志页的装饰面不许写死颜色（2026-10-31 用户：「有些元素不随主题切换，是写死了吗？」）──
+// ── 日志页的装饰面不许写死颜色（2026-10-31 用户：“有些元素不随主题切换，是写死了吗？”）──
 // 判据：日志卡 / 附属日志框 / 分区头这三段是**纯装饰 + 语义色**，必须全走令牌。
 // 只扫这三段而不是全文件 —— 红=错误、绿=完成这类语义色留在别处是刻意的，一刀切会误杀。
 const cssOnly = fs.readFileSync(APP_CSS, 'utf-8')
@@ -191,8 +191,8 @@ function sliceBetween(start, end) {
 }
 const THEMED_BLOCKS = [
   { label: '日志卡 / 附属框', start: '/* 日志卡（', end: '/* 绑定附属弹窗 */' },
-  { label: '日志分区头', start: '/* 日志页「按状态分区」', end: '/* ── 日志接力' },
-  { label: '进行中卡面', start: '/* 「进行中」的卡面', end: '/* 列表首行' },
+  { label: '日志分区头', start: '/* 日志页“按状态分区”', end: '/* ── 日志接力' },
+  { label: '进行中卡面', start: '/* “进行中”的卡面', end: '/* 列表首行' },
 ]
 for (const blk of THEMED_BLOCKS) {
   const body = sliceBetween(blk.start, blk.end)
@@ -204,7 +204,7 @@ for (const blk of THEMED_BLOCKS) {
 // ── 主题只许是浅色（半吊子暗色 = 文字看不见，墨坊同款硬规矩） ──────────
 for (const id of listNonDefault) {
   const t = Object.assign({}, base, themeBlocks[id])
-  check(`主题「${id}」是浅色（bg 亮度 > 卡面亮度的 0.5）`,
+  check(`主题“${id}”是浅色（bg 亮度 > 卡面亮度的 0.5）`,
     lum(t.bg) > 0.5, `bg=${t.bg} lum=${(lum(t.bg) || 0).toFixed(3)}`)
 }
 

@@ -5,7 +5,7 @@
 盘点维度（15 项，逐项可机械复验）：
 
  1. 项目 id           2. 显示名            3. repo 路径存在（lstat）
- 4. registry「状态」   5. registry「路线图」  6. 方针卡 policies/<id>.md
+ 4. registry“状态”   5. registry“路线图”  6. 方针卡 policies/<id>.md
  7. 契约文件 <repo>/立项契约.md（契约主线新增维度）
  8. 未归档卡（在库）    9. 其中已完成        10. 待办
 11. 进行中          12. 待验收          13. 带阻塞的卡
@@ -13,8 +13,8 @@
 16. 执行日志条数     17. 在途判据命中（有未完结卡 or 30 天内有提交）
 18. 最新日志标题
 
-口径：第 8 项 = task-data 根下未被归档的卡（含已完成未归档），**不等于「未完结」**。
-第 16 项：执行日志（`docs/执行日志/*.md`）—— 对「0 张卡但一直在写日志」的项目（如司天）是唯一数据源。
+口径：第 8 项 = task-data 根下未被归档的卡（含已完成未归档），**不等于“未完结”**。
+第 16 项：执行日志（`docs/执行日志/*.md`）—— 对“0 张卡但一直在写日志”的项目（如司天）是唯一数据源。
 
 **只读**：不写任何任务/注册表/项目文件。唯一写入 = `--out` 指定的报告路径。
 复跑：`python scripts/step0-inventory.py`（默认写 docs/step0-盘点-<日期>.md）
@@ -97,7 +97,7 @@ def collect() -> dict:
     for v in logs_by_proj.values():
         v.sort(key=lambda x: str(x.get("created") or ""), reverse=True)
 
-    # 任务按项目归集（frontmatter「项目」是数组，必须先归一化）
+    # 任务按项目归集（frontmatter“项目”是数组，必须先归一化）
     by_proj: dict[str, dict] = {}
     for t in active + archived:
         for pid in _as_list(t.get("项目")):
@@ -220,10 +220,10 @@ def render_md(data: dict) -> str:
         "",
         "## 三、口径说明",
         "",
-        "- 「在库卡」= task-data 根下**未被归档**的卡（**含已完成未归档**，所以不等于「未完结」）；",
-        "- 「完成/待办/进行/待验」按 frontmatter `状态` 字面统计（唯一权威来源，不做二次推断）。",
-        "- 「阻塞」= `core.blockers_of(tid)` 非空（前置未终态）的卡数。",
-        "- 「契约」= 各项目 repo 内 `立项契约.md`（与 AGENTS.md 同级）是否存在；方寸只读，不写他人仓库。",
+        "- “在库卡”= task-data 根下**未被归档**的卡（**含已完成未归档**，所以不等于“未完结”）；",
+        "- “完成/待办/进行/待验”按 frontmatter `状态` 字面统计（唯一权威来源，不做二次推断）。",
+        "- “阻塞”= `core.blockers_of(tid)` 非空（前置未终态）的卡数。",
+        "- “契约”= 各项目 repo 内 `立项契约.md`（与 AGENTS.md 同级）是否存在；方寸只读，不写他人仓库。",
         "- 本脚本不修改任何数据；如 `git` 不在 PATH 或该目录非仓库，相关两列为 `—`/`0`。",
         "",
     ]

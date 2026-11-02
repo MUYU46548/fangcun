@@ -127,7 +127,7 @@ async function main() {
     ipcMod.registerIpcHandlers()
     // ⚠ 2026-10-15：`applog:dir` 已从期望列表里拿掉 —— 它 **2026-10-11 被有意删除**
     //   （卡 20261006-002 E 组：与 applog:openDir 重复，后者本就回 dir；见 ipc.ts 第 877 行注释）。
-    //   旧断言还在要它，于是长期红着（「长期红 = 没保护」）。下面另加一条**反向**断言钉住它不许悄悄长回来。
+    //   旧断言还在要它，于是长期红着（“长期红 = 没保护”）。下面另加一条**反向**断言钉住它不许悄悄长回来。
     for (const ch of ['applog:write', 'applog:path', 'applog:tail', 'applog:openDir',
       // 卡 002 · MCP 接入材料三通道（同样必须注册在 registerIpcHandlers 顶层）
       'mcp:info', 'mcp:snippet', 'mcp:openConfig',
@@ -142,7 +142,7 @@ async function main() {
     // 族3（2026-10-03 卡 task-20261003-004）：裸 backup/restore/listBackups 是渲染层
     // **零调用**的僵尸平行实现（现行备份走 backup:run / backup:restore = packer.ts 家族，
     // 本地列表走 backup:listLocal），三端（ipc/preload/渲染层）已同批删除。
-    // 这里钉住「不许悄悄长回来」——真要恢复，必须同时给渲染层入口并更新本断言。
+    // 这里钉住“不许悄悄长回来”——真要恢复，必须同时给渲染层入口并更新本断言。
     for (const ch of ['backup', 'restore', 'listBackups']) {
       check(`僵尸裸通道 ${ch} 未复活（渲染层零调用，族3 已删）`, !handlers.has(ch))
     }

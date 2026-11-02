@@ -14,7 +14,7 @@
  *  ② **幂等** —— 同 eid 再灌只覆盖分数/备注/打分，**保留已存在的 拍板 与 决策id**。
  *  ③ **取值域硬校验** —— I/C/证据四档照 schema §3.2；非法条目**拒该条不拒整批**。
  *  ④ **不替人做决定** —— 等级只是池内相对位置（前 20% / 中位），拍板是用户动作；
- *     每个数字都要带得走「它证明不了什么」（RICE_LIMITS）。
+ *     每个数字都要带得走“它证明不了什么”（RICE_LIMITS）。
  */
 
 // ── 取值域（与 Python 侧 tegula/core.py 逐一对应；check-rice.py 会逐字对账）──
@@ -92,18 +92,18 @@ export const RICE_HEADER = [
   '> 四个原始分在这里，总分由页签现算（不落盘）。口径见 docs/ADR-002-需求矩阵.md。',
 ].join('\n')
 
-/** 界面上与数字一起出现的「它证明不了什么」（R7：只有数字没有局限 = 不合格） */
+/** 界面上与数字一起出现的“它证明不了什么”（R7：只有数字没有局限 = 不合格） */
 export const RICE_LIMITS = [
   '优先级分 = 每周用几次 × 省多少事 × 把握 ÷ 要做几天，由页面现算、不写回文件；改任何一格，分数与等级当场重算。',
-  '等级只是「池内相对位置」（P0 = 最靠前的 20%，P1 到中间，剩下的 P2），池子一变等级就变，它不是绝对标准。',
-  '「每周用几次」「省多少事」都是估出来的；没有实测来源时，它证明不了该做。',
-  '「把握」只能靠证据：agent 推断最高 70%，"agent 们都说好"不算证据。',
+  '等级只是“池内相对位置”（P0 = 最靠前的 20%，P1 到中间，剩下的 P2），池子一变等级就变，它不是绝对标准。',
+  '“每周用几次”“省多少事”都是估出来的；没有实测来源时，它证明不了该做。',
+  '“把握”只能靠证据：agent 推断最高 70%，"agent 们都说好"不算证据。',
   '分数只把判断显性化，不替你做决定；真正的取舍在分数之外。',
 ]
 
 /**
  * 原型里那句写在最显眼处的立场（2026-10-29 暮雨第 1 条）：
- * 「分数只把判断显性化，不替你做决定。真正的取舍在分数之外。」
+ * “分数只把判断显性化，不替你做决定。真正的取舍在分数之外。”
  * 单独成常量、单独渲染 —— 混在 RICE_LIMITS 五条里就没人看得见（而它是最该被看见的一句）。
  */
 export const RICE_STANCE = '分数只把判断显性化，不替你做决定。真正的取舍在分数之外。'
@@ -372,7 +372,7 @@ export function validateRiceInput(raw: any): ValidatedRice {
   } else if (!RICE_CONFIDENCE_VALUES.includes(C)) {
     errors.push('C 必须 ∈ {' + RICE_CONFIDENCE_VALUES.join(',') + '}，收到：' + C)
   } else if (RICE_EVIDENCE_TO_C[ev] !== undefined && RICE_EVIDENCE_TO_C[ev] !== C) {
-    warnings.push('C=' + C + ' 与证据「' + ev + '」对应的 ' + RICE_EVIDENCE_TO_C[ev] + ' 不一致（按入参写，不替你改）')
+    warnings.push('C=' + C + ' 与证据“' + ev + '”对应的 ' + RICE_EVIDENCE_TO_C[ev] + ' 不一致（按入参写，不替你改）')
   }
 
   const E_days = num(r.E_days)
@@ -592,10 +592,10 @@ export function riceGeometry(items: RiceItem[], width = 560, height = 320, pad =
   return { points, maxX, maxY, splitX, splitY }
 }
 
-// ── 「为什么做，为什么砍」（原型第 3 条设计判断，2026-10-29）──────────────
+// ── “为什么做，为什么砍”（原型第 3 条设计判断，2026-10-29）──────────────
 //
-// 原型原话：「分数只是入口，理由逐条写」。它最狠的一句是关于被砍项：
-// 「它最危险的地方是**听起来很酷** —— RICE 的唯一作用，就是把审美冲动挡在排期之外。」
+// 原型原话：“分数只是入口，理由逐条写”。它最狠的一句是关于被砍项：
+// “它最危险的地方是**听起来很酷** —— RICE 的唯一作用，就是把审美冲动挡在排期之外。”
 // 所以这一节不能只列结论：**拍板了却写不出理由**的条目必须被点名，那就是没拍板。
 
 export interface RiceWhyRow {
@@ -692,7 +692,7 @@ export function riceSummary(pool: RicePool): RiceSummary {
   const guard: RiceGuard = budget <= 0 ? 'unset' : ratio >= 1 ? 'over' : ratio >= 0.8 ? 'tight' : 'ok'
   // 原型那句话的口径：**排满不等于好**——一次线上故障就会让整轮延期。
   const guardText = guard === 'unset'
-    ? '月预算未设置 —— 不要把「没设预算」读成「没超支」'
+    ? '月预算未设置 —— 不要把“没设预算”读成“没超支”'
     : guard === 'over'
       ? `P0 已超预算 ¥${Math.abs(headroom || 0)}：排满之后，一次线上故障就会让整轮延期`
       : guard === 'tight'

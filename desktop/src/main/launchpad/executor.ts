@@ -1,7 +1,7 @@
 /**
  * Fangcun Desktop — 启动台执行器
  *
- * 2026-09-22 重写（用户第 7 条「启动台可以添加应用了，但是启动失败」）。
+ * 2026-09-22 重写（用户第 7 条“启动台可以添加应用了，但是启动失败”）。
  *
  * 旧实现只有一个 `spawn(appConfig.cmd)`，实测对示例配置直接返回
  * `{"ok":false,"message":"启动失败: spawn EINVAL"}` —— 因为 `.bat/.cmd`
@@ -100,7 +100,7 @@ function spawnAndWait(
 }
 
 /**
- * 交给资源管理器（explorer.exe）代启动 —— 2026-10-17 修「点启动只出空壳窗口」。
+ * 交给资源管理器（explorer.exe）代启动 —— 2026-10-17 修“点启动只出空壳窗口”。
  *
  * 真因（实测对照，不是猜的）：本机把 `E:\Software\SiTian\SiTian.exe`
  *   ① 用 explorer 打开 → 窗口正常出现（标题 `SiTian — 世界观动态构建系统`）；
@@ -155,7 +155,7 @@ function launchViaExplorer(target: string, label: string): Promise<LaunchResult>
  * 存在的理由：交给 explorer 之后**拿不到子进程 PID**（explorer 不回报），
  * 于是"启动成功"只能靠猜。这里用启动前后两次快照做差集，把"猜"换成"看见"。
  * ⚠ tasklist 查不到（名称含特殊字符 / 权限所限 / 系统语言换了输出列）时返回空集，
- *   调用方必须把「空集」当成「没查到」而不是「没在跑」—— 否则会把正常启动报成失败。
+ *   调用方必须把“空集”当成“没查到”而不是“没在跑”—— 否则会把正常启动报成失败。
  */
 export function listImagePids(image: string): Promise<Set<number>> {
   return new Promise<Set<number>>((resolve) => {
@@ -172,7 +172,7 @@ export function listImagePids(image: string): Promise<Set<number>> {
           // ⚠ 2026-10-17 实测踩到的坑：Node 拿到的是**系统代码页（GBK）字节**，按 UTF-8 解出来是
           //   `"�޻�ī��.exe"` —— 于是"按名字比对"对中文映像名（绒花墨坊.exe）**永远不相等**，
           //   表现为"每次启动都说没能复查到进程"（一句看着诚实、其实是坏了的提示）。
-          //   因此这里**只信 /FI 的过滤结果**，不做名字比对；只用行数做一道「过滤器是否失效」的保险。
+          //   因此这里**只信 /FI 的过滤结果**，不做名字比对；只用行数做一道“过滤器是否失效”的保险。
           //   （tasklist 过滤不到时输出的是"信息: 没有运行的任务…"这类非 CSV 行，正则自然不命中。）
           for (const line of lines) {
             const m = /^"([^"]*)","(\d+)"/.exec(line.trim())
@@ -216,7 +216,7 @@ async function launchAndVerify(target: string, label: string, image: string): Pr
   }
 }
 
-/** shell.openPath 返回的是「错误字符串」，空串才算成功 —— 旧实现直接忽略它 */async function openViaShell(target: string, label: string): Promise<LaunchResult> {
+/** shell.openPath 返回的是“错误字符串”，空串才算成功 —— 旧实现直接忽略它 */async function openViaShell(target: string, label: string): Promise<LaunchResult> {
   try {
     const err = await shell.openPath(target)
     if (err) {

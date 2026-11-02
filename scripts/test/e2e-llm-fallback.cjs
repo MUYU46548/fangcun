@@ -65,7 +65,7 @@ function err(code, message = 'boom') {
   check('★ 停用的通道与"没配完"分开说',
     /已停用/.test(channelProblem({ ...MAIN, enabled: false })) && /缺/.test(channelProblem(half)))
   check('★ 端点不像地址 → 拒绝', /不像地址/.test(channelProblem({ ...MAIN, baseUrl: 'a.example' })))
-  check('★ 通道标签：主通道带「（主）」', channelTag(MAIN, 'main') === '主通道（主）' && channelTag(BACKUP, 'main') === '备用通道 1')
+  check('★ 通道标签：主通道带“（主）”', channelTag(MAIN, 'main') === '主通道（主）' && channelTag(BACKUP, 'main') === '备用通道 1')
 
   console.log('\n== ② 失败分类：该换的换，不该换的停 ==')
   check('★★ 401 → 换下一条', classifyFailure(err(401)).verdict === 'retry-next')
@@ -87,7 +87,7 @@ function err(code, message = 'boom') {
     { channelId: 'main', channelLabel: '主通道', ok: false, reason: '限流（429）' },
     { channelId: 'bk1', channelLabel: '备用通道 1', ok: true },
   ], 'bk1')
-  check('★★ 降级说明谁失败、为什么、切到谁', /已切到「备用通道 1」/.test(said) && /限流/.test(said), said)
+  check('★★ 降级说明谁失败、为什么、切到谁', /已切到“备用通道 1”/.test(said) && /限流/.test(said), said)
   const allFail = describeChain([
     { channelId: 'main', channelLabel: '主通道', ok: false, reason: '限流（429）' },
     { channelId: 'bk1', channelLabel: '备用通道 1', ok: false, reason: '超时' },
@@ -114,7 +114,7 @@ function err(code, message = 'boom') {
     appendTrace: (r) => traces.push(r),
   })
   check('★★ 主通道 429 → 自动切备用并成功', ok2.ok && n === 2 && ok2.channelId === 'bk1', JSON.stringify({ ok: ok2.ok, n, ch: ok2.channelId }))
-  check('★★ 返回里说清降级了（界面 toast 直接用这句）', /已切到「备用通道 1」/.test(ok2.note) && /限流/.test(ok2.note), ok2.note)
+  check('★★ 返回里说清降级了（界面 toast 直接用这句）', /已切到“备用通道 1”/.test(ok2.note) && /限流/.test(ok2.note), ok2.note)
   check('★★ 每次失败都留痕（带通道 id + 原因）',
     traces.length === 1 && traces[0].ok === false && traces[0].channel === 'main' && /限流/.test(traces[0].error),
     JSON.stringify(traces.map((t) => ({ ch: t.channel, e: String(t.error).slice(0, 20) }))))
@@ -161,10 +161,10 @@ function err(code, message = 'boom') {
   console.log('\n== ⑤ 接线守卫：设置页真的能加/删备用通道 ==')
   const read = (p) => fs.readFileSync(path.join(REPO, p), 'utf-8')
   const SET = read('desktop/src/renderer/components/settings/AgentSettings.vue')
-  check('★★ 设置页有「备用通道（降级链）」块', /lb-block/.test(SET) && /备用通道（降级链）/.test(SET))
-  check('★★ 「加一条」真走 llmChannelsUpsert', /llmChannelsUpsert\(/.test(SET))
-  check('★ 「删」真走 llmChannelsRemove', /llmChannelsRemove\(/.test(SET))
-  check('★ 密钥输入框写明「留空=不改」（与主通道同一条防线）', /留空=不改/.test(SET))
+  check('★★ 设置页有“备用通道（降级链）”块', /lb-block/.test(SET) && /备用通道（降级链）/.test(SET))
+  check('★★ “加一条”真走 llmChannelsUpsert', /llmChannelsUpsert\(/.test(SET))
+  check('★ “删”真走 llmChannelsRemove', /llmChannelsRemove\(/.test(SET))
+  check('★ 密钥输入框写明“留空=不改”（与主通道同一条防线）', /留空=不改/.test(SET))
   check('★ 界面说清 400 不会切通道（不是"什么错都重试"）', /请求本身不合法（400）不会切/.test(SET), '')
   const PRE = read('desktop/src/preload/index.ts')
   check('★★ preload 暴露这三个口', /llmChannelsList/.test(PRE) && /llmChannelsUpsert/.test(PRE) && /llmChannelsRemove/.test(PRE))

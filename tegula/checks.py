@@ -22,7 +22,7 @@ import re
 
 CHECK_KINDS = ("cmd", "str", "num", "file")
 _KIND_SET = set(CHECK_KINDS)
-_QUOTES = (("'", "'"), ('"', '"'), ("`", "`"), ("「", "」"), ("『", "』"))
+_QUOTES = (("'", "'"), ('"', '"'), ("`", "`"), ("“", "”"), ("『", "』"))
 
 
 def normalize_check_line(raw):
@@ -85,7 +85,7 @@ def looks_relative_path(p):
 
 
 def extract_command(body):
-    """`cmd:` 后面取命令：反引号开头取反引号里的；否则去掉尾部「退出码 0」与 `# 注释`。"""
+    """`cmd:` 后面取命令：反引号开头取反引号里的；否则去掉尾部“退出码 0”与 `# 注释`。"""
     s = str(body or "").strip()
     m = re.match(r"^`([^`]+)`\s*([\s\S]*)$", s)
     if m:
@@ -109,7 +109,7 @@ def parse_criterion(raw):
     body = m.group(2).strip()
 
     if prefix == "human":
-        return _unknown(line, "human: 合法，但那是「人来验」，不是可机检判据")
+        return _unknown(line, "human: 合法，但那是“人来验”，不是可机检判据")
     if prefix not in _KIND_SET:
         return _unknown(
             line,
@@ -125,12 +125,12 @@ def parse_criterion(raw):
     if prefix == "str":
         sm = re.match(r"^(\S+)\s+(?:含|包含|contains)\s+(\S[\s\S]*)$", body, flags=re.I)
         if not sm:
-            return _unknown(line, "str: 只认「<相对路径> 含 '<原文>'」—— 含 两侧要有空格，原文要带引号")
+            return _unknown(line, "str: 只认“<相对路径> 含 '<原文>'”—— 含 两侧要有空格，原文要带引号")
         file_path = unquote_full(sm.group(1)) or sm.group(1).strip()
         if not looks_relative_path(file_path):
             return _unknown(
                 line,
-                "str: 目标文件要写相对路径（拿到的是「%s」；「本文件」这类指代不认）" % file_path,
+                "str: 目标文件要写相对路径（拿到的是“%s”；“本文件”这类指代不认）" % file_path,
             )
         text = parse_literal(sm.group(2))
         if text is None:
@@ -144,20 +144,20 @@ def parse_criterion(raw):
         if not nm:
             return _unknown(
                 line,
-                "num: 只认「<相对路径> <指标> <比较> <数字>」，指标 = 行数 / 条目数 / 字节数 / 字符数",
+                "num: 只认“<相对路径> <指标> <比较> <数字>”，指标 = 行数 / 条目数 / 字节数 / 字符数",
             )
         file_path = unquote_full(nm.group(1)) or nm.group(1).strip()
         if not looks_relative_path(file_path):
-            return _unknown(line, "num: 目标文件要写相对路径（拿到的是「%s」）" % file_path)
+            return _unknown(line, "num: 目标文件要写相对路径（拿到的是“%s”）" % file_path)
         metric = parse_metric(nm.group(2))
         if not metric:
             return _unknown(
                 line,
-                "num: 认不出指标「%s」—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）" % nm.group(2),
+                "num: 认不出指标“%s”—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）" % nm.group(2),
             )
         op = normalize_op(nm.group(3))
         if not op:
-            return _unknown(line, "num: 认不出比较符「%s」" % nm.group(3))
+            return _unknown(line, "num: 认不出比较符“%s”" % nm.group(3))
         num = nm.group(4)
         expected = float(num) if "." in num else int(num)
         return {
@@ -171,7 +171,7 @@ def parse_criterion(raw):
         return _unknown(line, "file: 后面没有路径")
     pattern = unquote_full(fm.group(1)) or fm.group(1).strip()
     if not looks_relative_path(pattern):
-        return _unknown(line, "file: 目标要写相对路径（拿到的是「%s」）" % pattern)
+        return _unknown(line, "file: 目标要写相对路径（拿到的是“%s”）" % pattern)
     rest = str(fm.group(2) or "").strip()
     rest = re.sub(r"[，,。；;]", " ", rest)
     rest = " ".join(rest.split())
@@ -193,7 +193,7 @@ def parse_criterion(raw):
         if contains:
             literal = parse_literal(r.group(1))
             if literal is None:
-                return _unknown(line, "file: 「含」后面的原文要带引号（或写成不含空格的单个词）")
+                return _unknown(line, "file: “含”后面的原文要带引号（或写成不含空格的单个词）")
         out = {"kind": "file", "raw": line, "pattern": pattern.replace("\\", "/"), "requireExists": True}
         if contains == "any":
             out["contains"] = literal
@@ -202,7 +202,7 @@ def parse_criterion(raw):
         return out
     return _unknown(
         line,
-        "file: 只认「<路径> 存在」「<路径> 存在且含 '<原文>'」「<路径> 存在且每行含 '<原文>'」",
+        "file: 只认“<路径> 存在”“<路径> 存在且含 '<原文>'”“<路径> 存在且每行含 '<原文>'”",
     )
 
 

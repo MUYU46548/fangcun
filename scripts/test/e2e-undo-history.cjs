@@ -1,8 +1,8 @@
 /**
  * 撤销能力收口（卡 task-20261018-001）
  *
- * 用户原话（2026-10-18）：「根本没有撤回选项，狂按 Ctrl+Z 也没用」。
- * 本轮补的不是「全站撤销栈」，而是把已经躺在 `.backup` 里的历史版本接出来：
+ * 用户原话（2026-10-18）：“根本没有撤回选项，狂按 Ctrl+Z 也没用”。
+ * 本轮补的不是“全站撤销栈”，而是把已经躺在 `.backup` 里的历史版本接出来：
  *   - 日志：历史版本列表（时间 + 标题 + 大小）→ 逐版预览 / 恢复到任意一版；
  *   - 任务卡：同样的历史版本列表 → 逐版预览 / 恢复；
  *   - 恢复前必须先把当前版备份一次（撤错了还能再撤回来）；
@@ -41,7 +41,7 @@ function check(name, cond, detail = '') {
 }
 
 /** 同一毫秒内连写会撞备份文件名（rotateBackup 已补到毫秒，但同毫秒仍会覆盖）——
- *  测试里每次写前跨过一个毫秒，钉的是「版本能力」而不是「时钟分辨率」。 */
+ *  测试里每次写前跨过一个毫秒，钉的是“版本能力”而不是“时钟分辨率”。 */
 function tick() {
   const end = Date.now() + 3
   while (Date.now() < end) { /* spin */ }
@@ -157,7 +157,7 @@ function main() {
     Array.isArray(noTask) && noTask.length === 0, JSON.stringify(noTask))
 
   // ── 三、界面接线（静态守卫）─────────────────────────────────────────
-  // 这一节防的是「主进程能力做完了、界面还是只有一个旧按钮」——上一轮的日志撤回
+  // 这一节防的是“主进程能力做完了、界面还是只有一个旧按钮”——上一轮的日志撤回
   // 就只接了"最新一版"，列表根本没人调。
   // 2026-10-31：日志历史面板已搬进 `composables/useLogHistory.ts` → 扫全部渲染层源码。
   const app = require('./_sources.cjs').rendererSource()
@@ -171,10 +171,10 @@ function main() {
   ]) {
     check(`★ 界面接线：${name}`, app.includes(needle), needle)
   }
-  check('★ 日志弹窗有「历史版本」入口',
+  check('★ 日志弹窗有“历史版本”入口',
     /logHistoryOpen/.test(app) && (app.match(/历史版本/g) || []).length >= 2,
     'App.vue 未出现历史版本面板')
-  check('★ 任务弹窗也有「历史版本」入口', /taskHistoryOpen/.test(app), 'App.vue 未出现任务历史面板')
+  check('★ 任务弹窗也有“历史版本”入口', /taskHistoryOpen/.test(app), 'App.vue 未出现任务历史面板')
 
   // ── 四、源码守卫：恢复只能走已知备份目录 ─────────────────────────────
   const logsSrc = fs.readFileSync(path.join(REPO, 'desktop/src/main/services/logs.ts'), 'utf-8')

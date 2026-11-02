@@ -4,10 +4,10 @@
  *
  * 真跑编译产物 `dist/main/services/correct.js` + **临时数据目录**（不碰真实 registry / 决策卡）。
  *
- * 这套钉的是「纠得动」的三个前提：
+ * 这套钉的是“纠得动”的三个前提：
  *   ★ 只认**三种固定句式** —— 认不出就明说认不出（零写入），绝不猜一个方向出来改掉
- *   ★ 改完**必须留痕** —— 决策卡里有「谁 / 何时 / 从什么改成什么」，出处标「方寸随纠」
- *   ★ **一步退得回** —— 撤销把字段写回旧值，并且把那张决策卡一并标「已撤销」
+ *   ★ 改完**必须留痕** —— 决策卡里有“谁 / 何时 / 从什么改成什么”，出处标“方寸随纠”
+ *   ★ **一步退得回** —— 撤销把字段写回旧值，并且把那张决策卡一并标“已撤销”
  *     （只改回字段却留着"已定案"的卡，等于在台账上写假话）
  *
  * 另有两条反例自证：
@@ -78,18 +78,18 @@ const cardCount = () => decisions.loadDecisions().length
 
 console.log('---- 1. 三种句式都要认 ----')
 const p1 = correct.parseCorrection('改 路线图 为 跑通第一单', 'fc-demo')
-check('「改 <字段> 为 <值>」+ 项目由查询结果带进来 → 认得出', p1.ok, p1.error)
+check('“改 <字段> 为 <值>”+ 项目由查询结果带进来 → 认得出', p1.ok, p1.error)
 check('  解析出的是真字段名与目标值（别名已归一）',
   p1.field === '路线图' && p1.to === '跑通第一单', JSON.stringify({ f: p1.field, to: p1.to }))
 const p2 = correct.parseCorrection('把 第二个项目 的 状态 改成 已挂起（10-22）')
-check('「把 <项目> 的 <字段> 改成 <值>」→ 认得出且指明项目',
+check('“把 <项目> 的 <字段> 改成 <值>”→ 认得出且指明项目',
   p2.ok && p2.projectId === 'second' && p2.field === '状态' && p2.to === '已挂起（10-22）',
   JSON.stringify(p2))
 const p3 = correct.parseCorrection('改 欠着 为 欠着：①新欠账 ②第二件', 'fc-demo')
-check('别名「欠着」→ 落到 registry 的「说明」字段',
+check('别名“欠着”→ 落到 registry 的“说明”字段',
   p3.ok && p3.field === '说明' && p3.to === '欠着：①新欠账 ②第二件', JSON.stringify(p3))
 const p4 = correct.parseCorrection('改 目标 = 第一本真书试产', 'fc-demo')
-check('别名「目标」→ 路线图；`=` 也当连接词', p4.ok && p4.field === '路线图', JSON.stringify(p4))
+check('别名“目标”→ 路线图；`=` 也当连接词', p4.ok && p4.field === '路线图', JSON.stringify(p4))
 check('回执是人话（说清哪个项目哪个字段：从什么到什么）',
   p1.ok && p1.echo.indexOf('方寸演示') >= 0 && p1.echo.indexOf('旧路线') >= 0 && p1.echo.indexOf('跑通第一单') >= 0,
   p1.ok ? p1.echo : '')
@@ -124,10 +124,10 @@ const c1 = cards.find((c) => c.id === r1.decisionId)
 check('★★ 决策卡真写了：内容含项目名 + 字段 + 从什么到什么',
   !!c1 && c1.内容.indexOf('方寸演示') >= 0 && c1.内容.indexOf('旧路线') >= 0 && c1.内容.indexOf('跑通第一单') >= 0,
   c1 && c1.内容)
-check('★ 决策卡标明出处「方寸随纠」（看得出是随口改的，不是群里拍板的）',
+check('★ 决策卡标明出处“方寸随纠”（看得出是随口改的，不是群里拍板的）',
   !!c1 && c1.出处 === '方寸随纠', c1 && c1.出处)
 check('★ 决策卡归属那个项目（决策页能按项目筛）', !!c1 && c1.项目 === 'fc-demo', c1 && c1.项目)
-check('★ 决策卡初始状态是「有效」', !!c1 && c1.状态 === '有效', c1 && c1.状态)
+check('★ 决策卡初始状态是“有效”', !!c1 && c1.状态 === '有效', c1 && c1.状态)
 check('  决策卡有日期（谁/何时/改了什么，三件齐全）', !!c1 && /^\d{4}-\d{2}-\d{2}$/.test(String(c1.日期)), c1 && c1.日期)
 
 console.log('\n---- 4. 一步退得回：字段回去 + 决策卡标已撤销 ----')
@@ -135,7 +135,7 @@ const undo = correct.undoCorrection({ projectId: 'fc-demo', field: '路线图', 
 check('撤销成功', undo.ok, undo.error)
 check('★ 字段回到旧值（读回）', proj('fc-demo')['路线图'] === '旧路线', String(proj('fc-demo')['路线图']))
 const c1b = decisions.loadDecisions().find((c) => c.id === r1.decisionId)
-check('★★ 决策卡同步标成「已撤销」（不留一张"已定案"的假卡在台账上）',
+check('★★ 决策卡同步标成“已撤销”（不留一张"已定案"的假卡在台账上）',
   !!c1b && c1b.状态 === '已撤销', c1b && c1b.状态)
 check('★ 撤销原因记在备注里（看得出是撤销条撤回的）',
   !!c1b && String(c1b.备注 || '').indexOf('撤回') >= 0, c1b && c1b.备注)
@@ -162,12 +162,12 @@ correct.undoCorrection({ projectId: 'fc-demo', field: '路线图', before: r2.be
 console.log('\n---- 7. 带项目名的句子不会改错项目 ----')
 const before2 = proj('second')['状态']
 const r3 = correct.applyCorrection('把方寸演示的状态改成 已挂起', 'second')
-check('★ 句子点名了「方寸演示」，即使调用方给的是 second，也按句子走',
+check('★ 句子点名了“方寸演示”，即使调用方给的是 second，也按句子走',
   r3.ok && r3.projectId === 'fc-demo', JSON.stringify({ ok: r3.ok, pid: r3.projectId, err: r3.error }))
 check('★ second 没被误改', proj('second')['状态'] === before2, String(proj('second')['状态']))
 correct.undoCorrection({ projectId: 'fc-demo', field: '状态', before: '活跃开发中', decisionId: r3.decisionId })
 
-console.log('\n---- 8. 只在「改」时才写盘：preview 零副作用 ----')
+console.log('\n---- 8. 只在“改”时才写盘：preview 零副作用 ----')
 const snap2 = sha(fs.readFileSync(REG))
 const n2 = cardCount()
 correct.parseCorrection('改 路线图 为 随便什么', 'fc-demo')

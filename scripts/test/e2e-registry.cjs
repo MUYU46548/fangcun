@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * registry 增删项目测试（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）
+ * registry 增删项目测试（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”）
  *
  * 真跑编译产物 `dist/main/data/index.js` + **临时数据目录**（不碰真实 registry.yaml / task-data）。
  *
@@ -11,7 +11,7 @@
  *   · 删：只吃掉目标项目的块 —— **不吃掉隔壁项目、不吃掉 released 段、不吃掉注释**
  *   · 两者都：写前自校验不过就**放弃写入**（宁可不写，也不破坏注册表）
  *   · 删不存在的 / 非法 id → 显式报错且文件一个字节没变
- *   · 删登记**不动 task-data**（任务卡还在，只是变「未归属」）
+ *   · 删登记**不动 task-data**（任务卡还在，只是变“未归属”）
  */
 const fs = require('fs')
 const os = require('os')
@@ -117,7 +117,7 @@ check('非法 id 被拒（字符集约束）',
   data.addProjectToRegistry({ id: 'a b/c', name: 'x' }).ok === false)
 // 2026-10-05 真 bug：插入点定在 `released:` 那行 → 新项目落到**描述已发布段的注释下面**，
 // 看起来像"已发布项目"；而 Python 侧解析器又因注释丢段（已在 verify.py 第 26 组钉住）。
-check('★ 新项目插在「已发布」注释**之前**（不落到注释下面冒充已发布项目）',
+check('★ 新项目插在“已发布”注释**之前**（不落到注释下面冒充已发布项目）',
   raw().indexOf('id: new-one') < raw().indexOf('# 已发布 / 历史项目'),
   `new-one@${raw().indexOf('id: new-one')} note@${raw().indexOf('# 已发布 / 历史项目')}`)
 check('★ 注释仍在（插入点移动不许删掉它们）', raw().includes('# 已发布 / 历史项目'))
@@ -133,7 +133,7 @@ check('★ 隔壁项目一个没伤（keep-a / keep-b 都在，且字段完整�
 check('★ released 段没被吃掉（old-one 还在，released: 键还在）',
   ids().includes('old-one') && /^released:\s*$/m.test(raw()))
 check('★ 注释仍然活下来', raw().includes('# ⚠ 这段注释必须活下来'))
-check('★ 只少了「待删项目」那一块：新增行数 = 原行数 - 它自己的行数',
+check('★ 只少了“待删项目”那一块：新增行数 = 原行数 - 它自己的行数',
   before.split('\n').length - raw().split('\n').length === 7,
   `before=${before.split('\n').length} after=${raw().split('\n').length}`)
 check('★ 任务卡没被动（删的是登记，不是数据）',

@@ -1,5 +1,5 @@
 /**
- * 启动台执行器端到端测试（2026-09-22，用户第 7 条「启动失败」）
+ * 启动台执行器端到端测试（2026-09-22，用户第 7 条“启动失败”）
  *
  * 真实启动，不 mock：
  *  - .bat / .cmd 经 cmd.exe 真的被执行（写 marker 文件再断言文件存在）
@@ -119,7 +119,7 @@ async function main() {
   check('子进程 error 事件被消费（无未捕获异常）', uncaught === null, uncaught ? String(uncaught.message) : '')
 
   // ── 11. .exe + 启动参数（2026-09-25）────────────────────────────────
-  // ShellExecute 传不了参数 → 界面上的「启动参数」对 .exe 曾静默失效。
+  // ShellExecute 传不了参数 → 界面上的“启动参数”对 .exe 曾静默失效。
   // 用真 exe（把 cmd.exe 复制到临时目录当替身）验证：参数真的生效、cwd 真的是 exe 所在目录。
   {
     const appDir = path.join(TEST_ROOT, 'exedir')
@@ -127,7 +127,7 @@ async function main() {
     const fakeExe = path.join(appDir, 'fake-app.exe')
     fs.copyFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), fakeExe)
 
-    // 无参数 .exe：2026-10-17 用户「点启动只出空壳窗口」后改的口径 ——
+    // 无参数 .exe：2026-10-17 用户“点启动只出空壳窗口”后改的口径 ——
     // **不再由本方 CreateProcess，改让 explorer.exe 当中间人**（实测：从方寸进程树直接派生，
     // 子 Electron 应用 GPU 进程连崩 -1073741819，只剩空壳；explorer 代启动则正常）。
     // 这条不是"换个 API"，判据是**父进程到底是谁**，所以拦 spawn 断言参数。

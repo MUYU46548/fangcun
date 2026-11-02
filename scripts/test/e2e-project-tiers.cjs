@@ -1,12 +1,12 @@
 /**
  * 项目梯度榜（Tier List）数据层与边界 —— 2026-10-25 暮雨
  *
- * 两轮口径：「就一个手动排序小玩具」+「放进项目页签里面就好……和我丢的参考图里的梯度榜完全不同」。
+ * 两轮口径：“就一个手动排序小玩具”+“放进项目页签里面就好……和我丢的参考图里的梯度榜完全不同”。
  * 所以形状是**分档**（几档 + 每档若干项目），不是一维名次。
  *
  * 本测试钉住：
  *  ① 读写往返 / 默认四档 / 跨档去重（一个项目只能在一档）/ 坏文件不抛
- *  ② **边界**：只能被项目页的「梯度榜」摆法用 —— 不参与看板分组、不影响一屏、不写 registry
+ *  ② **边界**：只能被项目页的“梯度榜”摆法用 —— 不参与看板分组、不影响一屏、不写 registry
  *
  * 运行：node scripts/test/e2e-project-tiers.cjs
  */
@@ -55,7 +55,7 @@ function main() {
   {
     const r = pt.readTiers()
     check('① 文件不存在 → ok 且给默认四档', r.ok === true && r.tiers.length === 4, JSON.stringify(r.tiers))
-    check('① 默认最后一档叫「搁置」（对应"没钱做、先放着"的场景）',
+    check('① 默认最后一档叫“搁置”（对应"没钱做、先放着"的场景）',
       r.tiers[3].label === '搁置', r.tiers.map((t) => t.label).join('/'))
     check('① 默认档位都是空的（不替用户预设归属）',
       r.tiers.every((t) => t.items.length === 0))
@@ -131,7 +131,7 @@ function main() {
       w.ok && JSON.stringify(pt.readTiers().tiers.map((t) => t.items)) === JSON.stringify([['z']]))
   }
 
-  // ── ⑦ 边界：只服务项目页的「梯度榜」摆法 ───────────────────────────
+  // ── ⑦ 边界：只服务项目页的“梯度榜”摆法 ───────────────────────────
   {
     const grouping = read('desktop/src/shared/grouping.ts')
     check('⑦ 看板分组不认识梯度榜（grouping.ts 里没有 projectTiers/project-tiers）',
@@ -149,15 +149,15 @@ function main() {
     check('⑦ 胶囊可拖 + 落点有 drop 处理',
       board.includes('draggable="true"') && board.includes('@drop.prevent="onDrop'))
     check('⑦ 拖完立即保存（没有"保存"按钮）', /await .*projectTiersSet/.test(board))
-    // ⚠ 这条是真 bug 的回归：tiers.value 是 Vue 代理，直接过桥必抛「could not be cloned」
+    // ⚠ 这条是真 bug 的回归：tiers.value 是 Vue 代理，直接过桥必抛“could not be cloned”
     check('⑦ 过桥前过了 toPlain（Vue 代理不能直接进 IPC）',
       /projectTiersSet\(toPlain\(tiers\.value\)\)/.test(board),
       '直接传 tiers.value 会在结构化克隆那一跳抛错，界面表现为"拖了没反应"')
-    check('⑦ 删档有确认（项目会回「未分档」而不是消失）',
-      /confirm\(`删掉「\$\{t\.label\}」这一档/.test(board))
+    check('⑦ 删档有确认（项目会回“未分档”而不是消失）',
+      /confirm\(`删掉“\$\{t\.label\}”这一档/.test(board))
 
     const appSrc = read('desktop/src/renderer/App.vue')
-    // ⚠ 别再钉死整个数组：每加一种摆法（trip/tier/mismatch/rice…）都会让「逐字相等」变红，
+    // ⚠ 别再钉死整个数组：每加一种摆法（trip/tier/mismatch/rice…）都会让“逐字相等”变红，
     //   而红的原因与梯度榜毫无关系。判据是"它在这个列表里"，不是"列表恰好只有这五个"。
     check('⑦ 它是项目页的一种摆法（PV_VIEWS 含 tier）',
       /const PV_VIEWS: string\[\] = \[[^\]]*'tier'/.test(appSrc))

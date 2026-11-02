@@ -3,7 +3,7 @@
 """对不上检测（只读，零写入）
 
 判三件事，全部机械可判、不需要 LLM：
-  ① 状态过期：registry 的「状态」里写的日期，比该仓库最后一次提交旧了 >= 阈值
+  ① 状态过期：registry 的“状态”里写的日期，比该仓库最后一次提交旧了 >= 阈值
   ② 引用断裂：卡正文里写的仓库内路径，文件已经不存在
   ③ 无判据完成：状态=完成的卡，正文里找不到任何验收判据字样
 
@@ -141,7 +141,7 @@ def check_stale(days, today):
 
 
 def task_projects(text):
-    """取卡的「项目」字段（数组或标量），返回去空后的列表。"""
+    """取卡的“项目”字段（数组或标量），返回去空后的列表。"""
     m = re.search(r"^项目:\s*(.*)$", text, re.M)
     if not m:
         return []
@@ -180,7 +180,7 @@ def is_noise(fname):
 
 
 def check_broken():
-    """引用断裂：卡正文里写的路径，在本仓库与该卡「项目」对应的仓库里都找不到。"""
+    """引用断裂：卡正文里写的路径，在本仓库与该卡“项目”对应的仓库里都找不到。"""
     rows = []
     if not os.path.isdir(TASK_DIR):
         return rows
@@ -288,7 +288,7 @@ def main():
                 print("    %-30s → %-46s [%s]" % (r["task"], r["ref"], r["why"]))
             elif kind == "nocriteria":
                 print("    %-28s %s" % (r["task"], r["title"][:44]))
-    print("\n合计 %d 条。这只是「对不上」，不是「该做什么」。" % len(out))
+    print("\n合计 %d 条。这只是“对不上”，不是“该做什么”。" % len(out))
     return 0
 
 

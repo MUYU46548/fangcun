@@ -4,12 +4,12 @@
  * 背景：小米有**两套凭证**，端点与 Key 都不能互换 ——
  *   · 按量付费  https://api.xiaomimimo.com/v1            Key: sk-xxxxx
  *   · Token Plan https://token-plan-cn.xiaomimimo.com/v1  Key: tp-xxxxx / ttp-xxxxx
- * 此前方寸的「MiMo 模型建议」只填模型名、不填端点，而且模型名写成 `MiMo-V2.6-Flash`
+ * 此前方寸的“MiMo 模型建议”只填模型名、不填端点，而且模型名写成 `MiMo-V2.6-Flash`
  * （与接口的 model id 大小写不一致）—— 用户"一键填完还是连不上"，只能自己去翻文档。
  *
  * 本测试钉死三件事：
  *  ① 两个端点都在，且各自带对 Key 前缀提示（防止又合并成一个"通用 MiMo"按钮）；
- *  ② Token Plan 必须写明「仅限编程工具、别用于应用后端」—— 小米条款白纸黑字；
+ *  ② Token Plan 必须写明“仅限编程工具、别用于应用后端”—— 小米条款白纸黑字；
  *  ③ 预设**永不预填密钥**（BYOK 红线：方寸不预置任何钥匙）。
  *
  * 运行：node scripts/test/e2e-llm-presets.cjs
@@ -38,8 +38,8 @@ function main() {
   const both = app + '\n' + SET
 
   // ── ① 两个端点 ────────────────────────────────────────────────────
-  check('★ 有「按量付费」端点 api.xiaomimimo.com/v1', /baseUrl: 'https:\/\/api\.xiaomimimo\.com\/v1'/.test(app))
-  check('★ 有「Token Plan」端点 token-plan-cn.xiaomimimo.com/v1', /baseUrl: 'https:\/\/token-plan-cn\.xiaomimimo\.com\/v1'/.test(app))
+  check('★ 有“按量付费”端点 api.xiaomimimo.com/v1', /baseUrl: 'https:\/\/api\.xiaomimimo\.com\/v1'/.test(app))
+  check('★ 有“Token Plan”端点 token-plan-cn.xiaomimimo.com/v1', /baseUrl: 'https:\/\/token-plan-cn\.xiaomimimo\.com\/v1'/.test(app))
   check('★ 两个预设是两个不同按钮（不是又合并成一个"MiMo 建议"）',
     /applyLlmPreset\('mimo-api'\)/.test(both) && /applyLlmPreset\('mimo-plan'\)/.test(both))
   check('★ 预设收三种 kind（预设表的类型只允许这三个）',
@@ -54,7 +54,7 @@ function main() {
     !/MiMo-V2\.6-Flash/.test(appCode))
 
   // ── ③ Token Plan 条款必须写在界面上，而不是只写在文档里 ─────────────
-  check('★★ Token Plan 窗口提示了「仅限编程工具 / 别用于应用后端」',
+  check('★★ Token Plan 窗口提示了“仅限编程工具 / 别用于应用后端”',
     /Token Plan[^<]{0,80}仅限编程工具/.test(app.replace(/\s+/g, ' ')) || /仅限编程工具内使用/.test(app))
   check('★ 预设 toast 也对 Plan 给了明确劝退（不是静默填完就走）',
     /建议改用按量付费/.test(app))

@@ -2,11 +2,11 @@
  * 真·入口分发（2026-10-18）
  *
  * 为什么需要这一层：TypeScript 会把 `import` 全部编译成**顶部的 require**，
- * 所以「在 index.ts 里写 if (argv 含 --mcp-bridge)」根本来不及 —— `require('./main/ipc')`
+ * 所以“在 index.ts 里写 if (argv 含 --mcp-bridge)”根本来不及 —— `require('./main/ipc')`
  * 已经在分流判断之前执行完毕（注册 897 个通道的顶层副作用，其中 `ipcMain.handle` 在纯 node
  * 模式下是 undefined，当场 TypeError）。2026-10-18 的实测就是死在 dist/index.js:39。
  *
- * 桥模式的实现方式（**二段式**，别改成「在 Electron 主进程里直接收发 stdio」）：
+ * 桥模式的实现方式（**二段式**，别改成“在 Electron 主进程里直接收发 stdio”）：
  *   本进程（Electron 模式）只做一件事 —— 用 `ELECTRON_RUN_AS_NODE=1` **fork 自己**，
  *   把 stdio 原样继承给那个纯 node 子进程，然后等它退出。
  *

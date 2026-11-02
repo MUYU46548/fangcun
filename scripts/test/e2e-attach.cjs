@@ -2,9 +2,9 @@
  * 日志附件：粘贴图片 + 新建态先选后挂（2026-10-25 暮雨第 4 / 7 条）
  *
  * 两条病根：
- *   ① 「日志创建后才能挂附件」—— 附件目录是 `_attachments/<logId>/`，没 id 只能禁用按钮，
+ *   ① “日志创建后才能挂附件”—— 附件目录是 `_attachments/<logId>/`，没 id 只能禁用按钮，
  *      用户为了加张图要建两次日志；
- *   ② 「附件不能粘贴图片」—— 全仓 `grep paste` 曾经 0 命中。
+ *   ② “附件不能粘贴图片”—— 全仓 `grep paste` 曾经 0 命中。
  *
  * 本测试钉住主进程侧的守门逻辑（`addAttachmentsFromData`）：
  *   data URL 解析 / mime 白名单 / 按内容定扩展名 / 20MB 上限 / 文件名清洗 /
@@ -184,7 +184,7 @@ function main() {
     check('⑦ 新建态附件按钮不再被 disabled 锁死',
       !/:disabled="!logEdit_\.id"/.test(app),
       '又出现了 :disabled="!logEdit_.id" = 又回到"先创建再挂"')
-    check('⑦ 新建态走「只选不挂」（logsPickFiles）', /logsPickFiles\(\)/.test(app))
+    check('⑦ 新建态走“只选不挂”（logsPickFiles）', /logsPickFiles\(\)/.test(app))
     check('⑦ 保存创建分支真的 flush 待挂附件', /await flushPendingAttach\(newLogId\)/.test(app))
     check('⑦ 拿不到 id 时必须明说附件没挂上（不许静默丢）',
       /没拿到它的 id —— 刚选的附件没挂上/.test(app))
@@ -207,17 +207,17 @@ function main() {
       /if \(!paths\.length\) \{\n\s+const picked = await pickFilesForAttach/.test(ipcSrc))
 
     // ── ⑧ 拖文件 + 待挂附件不许静默丢（2026-10-25 第 4 条追加）──────────────
-    //    「用户不一定开最大化」→ 拖拽要做；「待挂清单直接清空有害」→ 必须二次确认。
+    //    “用户不一定开最大化”→ 拖拽要做；“待挂清单直接清空有害”→ 必须二次确认。
     check('⑧ 弹窗挂了 drop 监听', /@drop\.prevent="onLogAttachDrop\(\$event\)"/.test(app))
-    check('⑧ 拖动经过时整块高亮，且写明「松手 = 挂附件」',
+    check('⑧ 拖动经过时整块高亮，且写明“松手 = 挂附件”',
       /:class="\{ 'drop-on': logAttachDragOver \}"/.test(app) && /松手 = 挂到这条日志的附件/.test(app))
     check('⑧ dragenter/dragleave 用计数（否则划过子元素高亮会抖）',
       /logAttachDragDepth\+\+/.test(app) && /Math\.max\(0, logAttachDragDepth - 1\)/.test(app))
     check('⑧ octet-stream 按扩展名补 mime（拖进来的 png 不会被白名单误拒）',
       /application\\\/octet-stream/.test(app) && /MIME_BY_EXT/.test(app))
-    check('⑧ 待挂附件算进「脏」→ 点 × 一定弹确认',
+    check('⑧ 待挂附件算进“脏”→ 点 × 一定弹确认',
       /if \(logPendingCount\.value > 0\) return true/.test(app))
-    check('⑧ 确认条里点名「待挂的 N 个附件」（用户要知道丢的是什么）',
+    check('⑧ 确认条里点名“待挂的 N 个附件”（用户要知道丢的是什么）',
       app.includes('待挂的 ${logPendingCount.value} 个附件'))
 
     // 关窗出清路径里才允许清空待挂（切片判据，不用字符窗口 —— 窗口断言会假红）
@@ -226,7 +226,7 @@ function main() {
       const j = app.indexOf('function discardLogEdit')
       return i >= 0 && j > i ? app.slice(i, j) : ''
     })()
-    check('⑧ 「丢弃并关闭 / 保存成功」这条出清路径里清待挂', closeNow.includes('resetPendingAttach()'))
+    check('⑧ “丢弃并关闭 / 保存成功”这条出清路径里清待挂', closeNow.includes('resetPendingAttach()'))
 
     // 附件没挂上必须不关窗 + 待挂回填（否则就是"看起来成功了"）
     const createBranch = (() => {

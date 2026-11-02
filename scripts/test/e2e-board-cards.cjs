@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 看板「信息卡墙」派生逻辑断言（卡 20261010-003，2026-10-10）
+ * 看板“信息卡墙”派生逻辑断言（卡 20261010-003，2026-10-10）
  *
  * 真跑**编译产物** `dist/shared/boardCards.js`（纯逻辑，不要 electron、不起子进程 → 本机可跑）。
- * 判据一句话：**卡面上宁缺勿滥** —— 取不到的值宁可整格不渲染，也不能编个 0 或「—」糊上去。
+ * 判据一句话：**卡面上宁缺勿滥** —— 取不到的值宁可整格不渲染，也不能编个 0 或“—”糊上去。
  *
  * 运行：node scripts/test/e2e-board-cards.cjs
  */
@@ -73,7 +73,7 @@ check('★ 一个任务被两个源挡 → blockedBy 记 2 条（不能只记最
   JSON.stringify(idx.blockedBy.C))
 check('★ 同一个源重复列出同一个被挡任务 → 只记一次（不重复计数）',
   buildBlockerIndex([{ id: 'S', blockedTasks: [{ id: 'X' }, { id: 'X' }] }]).blockedBy.X.length === 1)
-check('★ 已终态的被挡任务不算「还被卡着」（完成 / 驳回都不进 blockedBy）',
+check('★ 已终态的被挡任务不算“还被卡着”（完成 / 驳回都不进 blockedBy）',
   Object.keys(buildBlockerIndex([{ id: 'S', isDone: false, blockedTasks: [
     { id: 'X', status: '完成' }, { id: 'Y', status: '驳回' }] }]).blockedBy).length === 0)
 check('★ 自身已终态的源不进 blocks 计数（解一个做完的源没有意义）',
@@ -122,7 +122,7 @@ check('★ 纯函数：算完不修改传入的 chains / task（可被 Vue compu
 
 // ── ⑥ 源码守卫：卡片墙必须跑 columns（分区），不许退回平铺 ────────────────
 // 首版把 filteredTasks 直接铺成网格 → **分组整个丢失**，一百多张卡糊成一面没有结构的墙
-// （用户 2026-10-10 截图反馈「压迫感十足」，且选了「按项目」也不生效）。
+// （用户 2026-10-10 截图反馈“压迫感十足”，且选了“按项目”也不生效）。
 // 这条守卫就钉住那次修复。渲染层真点击 e2e（e2e-renderer.cjs）常年 SKIP、
 // 无头浏览器在某些环境也跑不出来 —— 源码守卫是这两种情况下唯一还能防回归的一层。
 const APP = path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue')
@@ -148,7 +148,7 @@ if (wallStart >= 0) {
     /class="pwc-id"/.test(seg) && /'tone-' \+ \(cw\(t\)\.tone/.test(seg))
   check('★ 卡片墙的元数据源是 columns 摊平（不是 filteredTasks）',
     /cardWallTasks = computed\(\(\) => cardWallGroups\.value\.flatMap/.test(appSrc))
-  check('★ 「只看未完成」开关**默认关**（加选项不改旧行为）',
+  check('★ “只看未完成”开关**默认关**（加选项不改旧行为）',
     /CARD_WALL_OPEN_ONLY_KEY, false/.test(appSrc))
   check('★ 开关是**只读过滤**：走 cardWallGroups + openOnly，没有回写 columns',
     /const cardWallGroups = computed/.test(appSrc) && /openOnly\(c\.tasks\)/.test(appSrc))
@@ -156,8 +156,8 @@ if (wallStart >= 0) {
     /fc_card_wall_open_only/.test(appSrc) && /saveUiPref\(CARD_WALL_OPEN_ONLY_KEY/.test(appSrc))
 }
 
-// ── ⑦ 「只看未完成」的判据本体 ────────────────────────────────────────
-check('★ isOpenTask: 完成 / 驳回算终态（不算「未完成」）',
+// ── ⑦ “只看未完成”的判据本体 ────────────────────────────────────────
+check('★ isOpenTask: 完成 / 驳回算终态（不算“未完成”）',
   isOpenTask({ status: '完成' }) === false && isOpenTask({ status: '驳回' }) === false)
 check('isOpenTask: 待办 / 进行中 / 待验收 / 草稿 都算未完成',
   ['待办', '进行中', '待验收', '草稿'].every((s) => isOpenTask({ status: s }) === true))

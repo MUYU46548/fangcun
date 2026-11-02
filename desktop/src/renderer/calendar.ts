@@ -142,7 +142,7 @@ export function taskRange(
 }
 
 /**
- * 时间段平移：把「开始」落到目标日，保持长度不变（拖动整个区间的手感）。
+ * 时间段平移：把“开始”落到目标日，保持长度不变（拖动整个区间的手感）。
  * 返回的日期字符串可直接写回 frontmatter。
  */
 export function shiftRange(
@@ -250,7 +250,7 @@ export function buildMonth<
       const d = parseCalDate(td.due, today)
       if (!d) continue
       if (!inMonth(d)) {
-        // 下月到期的待办也要出现在「其它月份」里 —— 否则开关一开，
+        // 下月到期的待办也要出现在“其它月份”里 —— 否则开关一开，
         // 它会从本月视图凭空消失且没有任何去处（静默丢数据的老毛病）。
         const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`
         groups[key] = groups[key] || {

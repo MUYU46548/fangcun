@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把「项目需求对账账本」落进方寸（2026-10-15 · 清单第 1 条「AI 规划真活」的等价动作）
+把“项目需求对账账本”落进方寸（2026-10-15 · 清单第 1 条“AI 规划真活”的等价动作）
 
 为什么要有这个脚本（一句话）：
     账本把"提过、没做完、也没被否决"的挂账盘出来了，但它自己躺在一个 md 文件里 ——
@@ -82,7 +82,7 @@ def sec_title(head, n=44):
 # 病灶：原来三处写死 `txt[:56]`，按**字符**硬切，于是
 #   欠账盘点 v4 的"等你 3"余项：word 模板 / 样例清洗点头（"大件派谁"已销——你自己派了自己，0b02e48 规划四态）
 # 被切成 `…你自己派了自己，0b0` —— commit hash 砍掉一半、**且没有省略号**，
-# 卡面上看起来就是一个完整但读不懂的标题（用户原话「方寸里一堆看不懂的东西」）。
+# 卡面上看起来就是一个完整但读不懂的标题（用户原话“方寸里一堆看不懂的东西”）。
 #
 # 现在的判据三条：
 #   ① 放得下就**一个字不动**（绝大多数条目走这条，标题 === 原文）；
@@ -192,7 +192,7 @@ def parse_numbered_items(body):
 def parse_c_list(body):
     """C 表 / E 表：第一段被 `·` 串起来的清单 → (条目列表, 其余段落)
 
-    ⚠ 不能把整段一起 join 再切 —— C 表后面还有一段「观察」（那是判词，不是条目），
+    ⚠ 不能把整段一起 join 再切 —— C 表后面还有一段“观察”（那是判词，不是条目），
     混进去会让最后一条条目粘上整段观察。按空行分段，只切第一段。
     """
     paras = [p.strip() for p in body.split("\n\n") if p.strip()]
@@ -270,7 +270,7 @@ def build_plan(ledger, version):
         if letter == "A":
             rows = parse_a(body)
             lines = ["- [ ] **这是索引，不是任务本身** —— 表中每一件在 B 表都有独立卡，"
-                     "去那张卡上推进；此卡只负责留住「提了几遍」这个事实。", ""]
+                     "去那张卡上推进；此卡只负责留住“提了几遍”这个事实。", ""]
             for r in rows:
                 lines.append("- `%s` %s ｜ %s ｜ 次数 %s ｜ %s" % (r[0], r[1], r[2], r[3], r[4]))
             lines += ["", "- [ ] 来源：《项目需求对账账本-20261015-终版v2.md》（2026-10-15 三方终验）"]
@@ -291,7 +291,7 @@ def build_plan(ledger, version):
                     n += 1
                     k = "%s-%d" % (base, n)
                 # 账本里带 `→ 已修 / 已落地 / 已合入 / 已被你的产线做掉` 的条目**已经是闭环**，
-                # 直接建成「完成」卡 —— 不许让做完的事继续挂在待办上冒充欠账（那就是账变浆糊的起点）。
+                # 直接建成“完成”卡 —— 不许让做完的事继续挂在待办上冒充欠账（那就是账变浆糊的起点）。
                 done = bool(re.search(r"→\s*已|已修（|已落地|已合入|已被你的产线做掉|已交付", txt))
                 title = "[账本] %s：%s" % (sec, smart_title(txt))
                 plan.add(k, title, PROJECT_OF.get(sec),
@@ -307,14 +307,14 @@ def build_plan(ledger, version):
         elif letter == "C":
             items, rest = parse_c_list(body)
             if items:
-                lines = ["- [ ] **这些是「回一个字 / 点一下」级的动作，却卡着下游 agent 侧一大串活。**",
+                lines = ["- [ ] **这些是“回一个字 / 点一下”级的动作，却卡着下游 agent 侧一大串活。**",
                          "      对应卡在 B 表里（同一件事不重复建卡），去那张卡上回字。", ""]
                 for it in items:
                     lines.append("- [ ] %s" % it)
                 for p in rest:
                     lines += ["", "- %s" % clean_md(p)]
-                # ⚠ 账本标题写「共 11 件」，实际 `·` 分隔出来只有 10 条 —— 差异如实记下，不替它圆。
-                lines += ["", "- [ ] ⚠ 本清单实际列出 **%d 条**，账本小标题写的是「共 11 件」——"
+                # ⚠ 账本标题写“共 11 件”，实际 `·` 分隔出来只有 10 条 —— 差异如实记下，不替它圆。
+                lines += ["", "- [ ] ⚠ 本清单实际列出 **%d 条**，账本小标题写的是“共 11 件”——"
                               "差 1 条，未擅自补齐（账本是真源）。" % len(items)]
                 plan.add("C-index", "[账本] C 表 · 只有暮雨能做的（回字清单）",
                          None, lines, "账本 C 表整段留档", priority="高",
@@ -333,14 +333,14 @@ def build_plan(ledger, version):
 
         elif letter == "E":
             items, _rest = parse_c_list(body)
-            lines = ["- [ ] **这些是提过、暮雨亲口否决/改判的 —— 防复活，也防「当成丢了」。**", ""]
+            lines = ["- [ ] **这些是提过、暮雨亲口否决/改判的 —— 防复活，也防“当成丢了”。**", ""]
             for it in items:
                 lines.append("- `已死` %s" % it)
             plan.add("E-index", "[账本] E 表 · 已死之单 %d 条（防复活）" % len(items),
                      None, lines, "账本 E 表整段留档", tags=["已死之单"])
 
         elif letter == "P":
-            lines = ["- [ ] **「做完了、但从没到过你手里」—— 比「没做」更隐蔽。**", ""]
+            lines = ["- [ ] **“做完了、但从没到过你手里”—— 比“没做”更隐蔽。**", ""]
             for para in [p.strip() for p in body.split("\n\n") if p.strip()]:
                 lines.append("- %s" % clean_md(para))
             plan.add("P-unreached", "[账本] 〔未达〕栏 · 做完了但从没到过你手里", None,
@@ -357,7 +357,7 @@ def build_plan(ledger, version):
     lines = ["- [ ] %s" % head_line, "", "- [ ] **两条机制建议（账本原话）**："]
     for x in mech:
         lines.append("      %s" % x)
-    lines += ["", "- [ ] 本卡的用处：以后任何 agent 问「这个之前定过吗 / 做过吗」，先翻这一组卡。"]
+    lines += ["", "- [ ] 本卡的用处：以后任何 agent 问“这个之前定过吗 / 做过吗”，先翻这一组卡。"]
     plan.add("Z-summary", "[账本] 总纲 · 47 条挂账是怎么来的（读我先）", None,
              lines, "账本总纲；全部条目见同标签其它卡", priority="高", tags=["总纲"])
 

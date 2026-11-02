@@ -3,7 +3,7 @@
  *
  * 口径（暮雨拍板）：
  *   ① A 路线 —— 方寸只出材料：按本机安装路径动态生成配置段 + 复制 + 打开目标文件；
- *      **方寸不写任何外部应用的文件**（候选②「产品自注册」已被否决，别复活）。
+ *      **方寸不写任何外部应用的文件**（候选②“产品自注册”已被否决，别复活）。
  *   ② 不猜、不写：检测不到的目标照样列出（detected=false），配置路径如实标注。
  *   ③ 配置段禁写死 E:/CODE/... —— 全部从 __dirname / homedir 动态解析；
  *      打包版入口尚未随包分发（见卡 002 断点），解析不到就如实报 unavailable，不装可用。
@@ -49,7 +49,7 @@ export interface McpTarget {
   detected: boolean
   /** 检测依据 / 目标配置文件路径（界面上显示，便于核对） */
   evidence: string
-  /** 真实存在的配置文件 → 「📂 打开配置文件」才可用；否则 undefined */
+  /** 真实存在的配置文件 → “📂 打开配置文件”才可用；否则 undefined */
   configPath?: string
   /** 一句话步骤：配置段贴到哪、怎么生效 */
   howTo: string
@@ -77,7 +77,7 @@ function devRepoRoot(): string {
  *
  * 此前这里（以及 `check-agent-mcp.cjs`）一律按 `~/.hermes` 找 config.yaml ——
  * 但那不是 Hermes 真正读的位置：本机 `HERMES_HOME` = `%LOCALAPPDATA%\hermes`，
- * 于是方寸把自己的 fangcun 段念给一个**不生效的文件**听，自检还把「Hermes 已接入」报成绿。
+ * 于是方寸把自己的 fangcun 段念给一个**不生效的文件**听，自检还把“Hermes 已接入”报成绿。
  * 顺序：`HERMES_HOME` → `%LOCALAPPDATA%\hermes`（存在才用）→ `~/.hermes`。
  */
 function hermesHome(): string {
@@ -137,7 +137,7 @@ export function listMcpEntries(): McpEntry[] {
   //   ② `command: node` 依赖 PATH，而 GUI 应用的 PATH 里通常没有 node → spawn ENOENT；
   //   ③ 相对路径漂移。
   // 现在：exe 自带 node 运行时（ELECTRON_RUN_AS_NODE=1）跑包内桥脚本 —— 零外部依赖。
-  // ⚠ 为什么必须用 env 而不是「Electron 主进程里自己收发 stdio」：
+  // ⚠ 为什么必须用 env 而不是“Electron 主进程里自己收发 stdio”：
   //   GUI 模式会拉起 GPU 进程，本机核显上连崩 6 次后 Chromium `FATAL: gpu … Goodbye.`
   //   直接带走主进程（实测 exit 0x80000003），客户端只看到"服务瞬间没了"。
   out.push({
@@ -192,8 +192,8 @@ export function listMcpEntries(): McpEntry[] {
 //   OpenCode → opencode.json 的 mcp.<name>（type:"local" + command 数组）
 //   Hermes   → ~/.hermes/config.yaml 的 mcp_servers.<name>（官方 MCP 集成文档）
 //   WorkBuddy→ **落点不可知**（打包应用，技能目录也不在 %APPDATA%\WorkBuddy）。
-//              2026-10-03 用户：「似乎没有让 WorkBuddy 自装接入 MCP 的选项」——
-//              方寸不猜它的配置文件，但**可以出「自装指令」**：让 WorkBuddy 自己去找
+//              2026-10-03 用户：“似乎没有让 WorkBuddy 自装接入 MCP 的选项”——
+//              方寸不猜它的配置文件，但**可以出“自装指令”**：让 WorkBuddy 自己去找
 //              它自己的配置（它最清楚），用户只需贴一段话给它。
 
 export function detectMcpTargets(): McpTarget[] {
@@ -221,7 +221,7 @@ export function detectMcpTargets(): McpTarget[] {
       detected: !!patch,
       evidence: patch || profilesDir,
       configPath: patch,
-      howTo: '把配置段原样追加到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是「按 id 覆盖」，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
+      howTo: '把配置段原样追加到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是“按 id 覆盖”，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
     })
   }
 
@@ -269,7 +269,7 @@ export function detectMcpTargets(): McpTarget[] {
 
   // ⑤ OpenCode：~/.config/opencode/opencode.json(.c)
   // detected 与装卡区同口径（2026-10-03 卡007）：目录在 ≠ 装了 —— 还要 opencode --version 能跑；
-  // 本机目录是 9月1 实验残留、hermes/node 的 cmd 已损坏，只看目录会把「已检测到」标给跑不起来的软件。
+  // 本机目录是 9月1 实验残留、hermes/node 的 cmd 已损坏，只看目录会把“已检测到”标给跑不起来的软件。
   {
     const dir = home('.config', 'opencode')
     const cfg = [path.join(dir, 'opencode.json'), path.join(dir, 'opencode.jsonc')].find(isFile)
@@ -293,11 +293,11 @@ export function detectMcpTargets(): McpTarget[] {
       detected: isFile(cfg) || isDir(hHome),
       evidence: isFile(cfg) ? cfg : hHome,
       configPath: isFile(cfg) ? cfg : undefined,
-      howTo: `把配置段并进 ${cfg} 的 mcp_servers，会话里 /reload-mcp 即连（技能卡另见上方「装到别的 agent」）。`,
+      howTo: `把配置段并进 ${cfg} 的 mcp_servers，会话里 /reload-mcp 即连（技能卡另见上方“装到别的 agent”）。`,
     })
   }
 
-  // ⑦ WorkBuddy：打包应用，**落点不可知**（2026-10-03 用户要「让它自装」的入口）
+  // ⑦ WorkBuddy：打包应用，**落点不可知**（2026-10-03 用户要“让它自装”的入口）
   {
     const wb = 'C:\\Program Files\\WorkBuddy\\WorkBuddy.exe'
     out.push({
@@ -305,8 +305,8 @@ export function detectMcpTargets(): McpTarget[] {
       name: 'WorkBuddy',
       detected: isFile(wb),
       evidence: wb,
-      // configPath 刻意留 undefined：方寸不猜它的配置位置，界面因此不显示「📂 打开配置文件」
-      howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（不猜、不代写）。点「🤖 让它自装」把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
+      // configPath 刻意留 undefined：方寸不猜它的配置位置，界面因此不显示“📂 打开配置文件”
+      howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（不猜、不代写）。点“🤖 让它自装”把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
     })
   }
 
@@ -342,7 +342,7 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
     case 'dsh':
       // 2026-10-03 卡009（DSH 自装实测反馈）：DSH 的 patch 语义里**裸行 = 按 id 覆盖已有行**，
       // id 不存在则警告后静默跳过（桌面版无控制台 → 用户永远看不到那个错）；
-      // 只有 `insert:` 才是「新增插件行」。原裸行写法接不通，实测改 insert: 后热加载生效。
+      // 只有 `insert:` 才是“新增插件行”。原裸行写法接不通，实测改 insert: 后热加载生效。
       return {
         ok: true, message: '',
         snippet: [
@@ -424,8 +424,8 @@ export function buildMcpSnippet(targetId: string, entryId: McpEntryId):
 }
 
 // ── 自装指令（2026-10-03 卡 task-20261003-006 · A 路线第三渠道）──────────────
-// 用户口径：「直接让对应 Agent 自己安装。代价是用户消耗额外 token，但不耗我们的 token，
-// 现地 Agent 操作比我们盲打盲猜好」。方寸仍然**零写入** —— 只生成一段贴给目标 agent 的
+// 用户口径：“直接让对应 Agent 自己安装。代价是用户消耗额外 token，但不耗我们的 token，
+// 现地 Agent 操作比我们盲打盲猜好”。方寸仍然**零写入** —— 只生成一段贴给目标 agent 的
 // 指令（技能卡源路径 + 按它家格式生成的配置段 + 目标配置文件 + 自检步骤），
 // 复制技能卡、写配置、重启验证全部由对方自己动手。
 
@@ -455,7 +455,7 @@ export function buildSelfInstallPrompt(targetId: string, entryId: McpEntryId):
        '     ⚠ 其中 `env.ELECTRON_RUN_AS_NODE=1` 不能省：少了它方寸会以 GUI 模式启动，',
        '       本机会拉起 GPU 进程并连崩（客户端看到的是"服务瞬间消失"）。']
   const prompt = [
-    `你是 ${t.name}。请自行完成「方寸（fangcun）任务看板」的接入 —— 由你现地操作，比外部盲写更可靠：`,
+    `你是 ${t.name}。请自行完成“方寸（fangcun）任务看板”的接入 —— 由你现地操作，比外部盲写更可靠：`,
     '',
     '1）安装技能卡（SKILL.md 标准格式：技能目录/SKILL.md，frontmatter 含 name/description）：',
     skill

@@ -7,8 +7,8 @@
  *
  * 口径（2026-10-03 卡 task-20261003-007）：**目录存在 ≠ 装好了**。
  *   本机 `~/.config/opencode` 是 9 月 1 的实验残留，PATH 里那份 `opencode.cmd` 已损坏
- *   （跑出「找不到路径」）—— 只看目录就把「已检测到」标在一个根本跑不起来的软件上，
- *   用户原话「本机未安装 OpenCode」。所以：真的能跑出 status 0 才算数。
+ *   （跑出“找不到路径”）—— 只看目录就把“已检测到”标在一个根本跑不起来的软件上，
+ *   用户原话“本机未安装 OpenCode”。所以：真的能跑出 status 0 才算数。
  */
 
 import { spawnSync } from 'child_process'
@@ -28,7 +28,7 @@ export function cliRuns(cmd: string): boolean {
  * DSH（DeepSeek Harness）的配置根 —— 默认 `~/.dsh`。
  *
  * `FC_DSH_HOME` 是**测试专用**的重定向（与 e2e 里改 `LOCALAPPDATA` 同一套做法）：
- * e2e 要真跑「装到 DSH」这条写路径，不重定向就会写进**用户真实的 ~/.dsh/skills**。
+ * e2e 要真跑“装到 DSH”这条写路径，不重定向就会写进**用户真实的 ~/.dsh/skills**。
  * 生产环境不设这个变量，行为就是 `~/.dsh`。
  */
 export function dshHome(): string {

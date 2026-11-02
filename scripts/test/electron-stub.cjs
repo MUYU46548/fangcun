@@ -44,7 +44,7 @@ module.exports = {
     },
   },
   BrowserWindow: {
-    // 默认没有窗口（通知类断言不依赖窗口）；要测「聚焦/点通知」时用 _setTestWindows 注入假窗口
+    // 默认没有窗口（通知类断言不依赖窗口）；要测“聚焦/点通知”时用 _setTestWindows 注入假窗口
     getAllWindows: () => BrowserWindowStub.windows,
     _setTestWindows: (arr) => { BrowserWindowStub.windows = arr || [] },
   },
@@ -70,7 +70,7 @@ module.exports = {
   powerMonitor: {
     getSystemIdleTime: () => Number(globalThis.__FC_IDLE_SEC || 0),
   },
-  // dialog 桩：默认「用户取消」，测试可用 `dialog.next = { canceled:false, filePaths:[...] }`
+  // dialog 桩：默认“用户取消”，测试可用 `dialog.next = { canceled:false, filePaths:[...] }`
   // 脚本化一次返回值（技能导入的"选文件/选文件夹"两条入口要能各自断言）
   dialog: {
     calls: [],

@@ -88,7 +88,7 @@ function snapshot() {
 ;(async () => {
   console.log('---- 1. 记一条：轻，不给优先级不给期限 ----')
   const a1 = ideas.addIdea('  给方寸加个随手记念头的地方  ')
-  check('记一条 → 成功，状态是「新记」', a1.ok && a1.idea.status === '新记', JSON.stringify(a1).slice(0, 90))
+  check('记一条 → 成功，状态是“新记”', a1.ok && a1.idea.status === '新记', JSON.stringify(a1).slice(0, 90))
   check('★ 首尾空白被吃掉（念头不需要前导空格）', a1.ok && a1.idea.text === '给方寸加个随手记念头的地方', a1.ok ? a1.idea.text : '')
   check('★★ 没有 decidedAt（还没做决定，不假填一个时间）', a1.ok && a1.idea.decidedAt === '', a1.ok ? a1.idea.decidedAt : '')
   check('★★ 没有 promoted（还没立项）', a1.ok && a1.idea.promoted === null)
@@ -110,7 +110,7 @@ function snapshot() {
 
   console.log('\n---- 3. 手滑连点两下不会记两条 ----')
   const dup = ideas.addIdea('给方寸加个随手记念头的地方')
-  check('★ 完全相同 + 仍停在「新记」→ 不落第二条', dup.ok && dup.duplicate === true, JSON.stringify(dup).slice(0, 80))
+  check('★ 完全相同 + 仍停在“新记”→ 不落第二条', dup.ok && dup.duplicate === true, JSON.stringify(dup).slice(0, 80))
   check('  并返回已有的那条（id 一致，不是新建后丢掉）', dup.ok && dup.idea.id === a1.idea.id)
   check('  条目数仍然只有 1', ideas.listIdeas().length === 1, String(ideas.listIdeas().length))
 
@@ -125,22 +125,22 @@ function snapshot() {
     rejected.ok && rejected.idea.status === '已否决' && rejected.idea.decidedAt === held.idea.decidedAt,
     rejected.ok ? `${rejected.idea.decidedAt} vs ${held.idea.decidedAt}` : '')
   const back = ideas.setIdeaStatus(a1.idea.id, '新记')
-  check('★★ 撤回成「新记」→ decidedAt 清空（退回去就是真的退回去，不留半截决定时间）',
+  check('★★ 撤回成“新记”→ decidedAt 清空（退回去就是真的退回去，不留半截决定时间）',
     back.ok && back.idea.status === '新记' && back.idea.decidedAt === '', back.ok ? back.idea.decidedAt : '')
   const bogus = ideas.setIdeaStatus(a1.idea.id, '随便写着玩')
   check('不存在的状态 → 显式报错', bogus.ok === false && /没有/.test(bogus.error), bogus.error)
 
-  console.log('\n---- 5. 「已立项」不许从状态路走进来（假账防线） ----')
+  console.log('\n---- 5. “已立项”不许从状态路走进来（假账防线） ----')
   const fake = ideas.setIdeaStatus(a1.idea.id, '已立项')
-  check('★★ 直接改状态成「已立项」→ 拒绝', fake.ok === false, fake.ok ? '居然通过了' : '')
-  check('  并且说清为什么（要走「做」那个动作，它才真建待办）',
+  check('★★ 直接改状态成“已立项”→ 拒绝', fake.ok === false, fake.ok ? '居然通过了' : '')
+  check('  并且说清为什么（要走“做”那个动作，它才真建待办）',
     /待办|假账/.test(fake.error || ''), fake.error)
   check('  状态没被改（还是新记）', ideas.listIdeas()[0].status === '新记', ideas.listIdeas()[0].status)
 
   console.log('\n---- 6. 立项：真在待办里生出一条 + 双向留痕 ----')
   const todosBefore = todosService.listTodos().length
   const pro = ideas.promoteIdea(a1.idea.id)
-  check('立项成功，状态转「已立项」', pro.ok && pro.idea.status === '已立项', pro.ok ? '' : pro.error)
+  check('立项成功，状态转“已立项”', pro.ok && pro.idea.status === '已立项', pro.ok ? '' : pro.error)
   check('★★ 待办里**真的多了一条**（不是只改状态）',
     todosService.listTodos().length === todosBefore + 1,
     `${todosBefore} → ${todosService.listTodos().length}`)
@@ -182,7 +182,7 @@ function snapshot() {
   const p2 = ideas.promoteIdea(one.idea.id)
   const n0 = todosService.listTodos().length
   const un = ideas.unpromoteIdea(one.idea.id)
-  check('撤销立项 → 想法回「新记」', un.ok && un.idea.status === '新记', un.ok ? '' : un.error)
+  check('撤销立项 → 想法回“新记”', un.ok && un.idea.status === '新记', un.ok ? '' : un.error)
   check('★ promoted 清空、decidedAt 清空（真的退回原状）',
     un.ok && un.idea.promoted === null && un.idea.decidedAt === '',
     un.ok ? JSON.stringify({ p: un.idea.promoted, d: un.idea.decidedAt }) : '')
@@ -225,7 +225,7 @@ function snapshot() {
   ], null, 2), 'utf-8')
   const dirty = ideas.listIdeas()
   const d1 = dirty.find((i) => i.id === 'i-dirty')
-  check('★★ 非法状态（写成「进行中」）→ 归「新记」而不是丢掉这条（正文比状态重要）',
+  check('★★ 非法状态（写成“进行中”）→ 归“新记”而不是丢掉这条（正文比状态重要）',
     !!d1 && d1.status === '新记' && d1.text === '状态写错的一条', d1 ? d1.status : '整条没了')
   check('★ 新记却带着 decidedAt → 不认那个时间（不给假时间）',
     dirty.find((i) => i.id === 'i-nodec').decidedAt === '')

@@ -7,12 +7,12 @@
  *   ② **写裁决**：通过 / 打回 / 改一句 —— 全部**行级就地改**，绝不 yaml dump 重写整篇。
  *
  * 为什么坚持行级：计划卡是用户手写的正文（含表格、缩进列表、修订记录）。
- * 用「解析成对象再序列化」会把空行、对齐、表格宽度全洗一遍 —— 那就是"改一个字，diff 三百行"。
+ * 用“解析成对象再序列化”会把空行、对齐、表格宽度全洗一遍 —— 那就是"改一个字，diff 三百行"。
  *
  * 三条与 P1 判据对齐的硬约定：
  *   · 缺一块就 `missing` 里点名，界面据此报红，且**不显示"合格"**；
  *   · 打回必须真的写进文件（`打回理由:` 一行），不写就是假动作；
- *   · 「改一句」要留痕：修订记录多一行，且状态退回「未冻结」（ADR supersede 的最小版）。
+ *   · “改一句”要留痕：修订记录多一行，且状态退回“未冻结”（ADR supersede 的最小版）。
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -173,7 +173,7 @@ function setStageField(lines: string[], range: StageRange, key: string, value: s
   range.end++
 }
 
-/** 在「修订记录」节末尾追加一行（不排序、不改旧条目） */
+/** 在“修订记录”节末尾追加一行（不排序、不改旧条目） */
 function appendRevision(lines: string[], day: string, note: string): void {
   const rIdx = lines.findIndex((l) => /^##\s*修订记录/.test(l))
   if (rIdx < 0) return
@@ -197,7 +197,7 @@ export function writePlanVerdict(input: VerdictInput): { ok: boolean; error?: st
 
   const text = String(input.text || '').trim()
   if (input.action === 'reject' && !text) return { ok: false, error: '打回必须写理由（空着等于没打回）' }
-  if (input.action === 'amend' && !text) return { ok: false, error: '「改一句」要写清楚改什么' }
+  if (input.action === 'amend' && !text) return { ok: false, error: '“改一句”要写清楚改什么' }
 
   const lines = doc.raw.replace(/\r\n/g, '\n').split('\n')
   const range = findStageRange(lines, input.stageId)
@@ -245,7 +245,7 @@ export interface AdvanceStageInput {
 
 export interface AdvanceStageResult {
   ok: boolean
-  /** true = 真的写成了「完成」；false = 被闸门挡下（或本身不合法） */
+  /** true = 真的写成了“完成”；false = 被闸门挡下（或本身不合法） */
   advanced: boolean
   error?: string
   doc?: PlanDoc
@@ -254,10 +254,10 @@ export interface AdvanceStageResult {
 }
 
 /**
- * 推进一格：**判据全过才写得进「完成」**，否则只停在「未完成」并把 diff 写进打回理由。
+ * 推进一格：**判据全过才写得进“完成”**，否则只停在“未完成”并把 diff 写进打回理由。
  *
  * 为什么写回也在这里卡一道，而不是只信界面：裁决/推进是写盘动作，
- * 界面可以绕过（MCP、脚本、手改），但「判据没过却出现 完成」是假账 —— 必须在数据层拒绝。
+ * 界面可以绕过（MCP、脚本、手改），但“判据没过却出现 完成”是假账 —— 必须在数据层拒绝。
  */
 export function advanceStage(input: AdvanceStageInput): AdvanceStageResult {
   const gate = input?.gate
@@ -298,7 +298,7 @@ export function advanceStage(input: AdvanceStageInput): AdvanceStageResult {
     return { ok: true, advanced: true, gate, doc: back, stage: back?.stages.find((s) => s.id === input.stageId) }
   }
 
-  // 被挡：状态只能停在「未完成」，diff（判据原文 + 实际值）写进打回理由
+  // 被挡：状态只能停在“未完成”，diff（判据原文 + 实际值）写进打回理由
   const diffOneLine = String(gate.diff || gate.reason || '判据未过').replace(/\s*\n\s*/g, '；')
   setStageField(lines, range, '状态', '未完成')
   setStageField(lines, range, '打回理由', diffOneLine)

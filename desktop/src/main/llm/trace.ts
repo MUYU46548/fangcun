@@ -24,7 +24,7 @@ export interface TraceRecord {
   ok: boolean
   stream: boolean
   error?: string
-  // 2026-10-17「花销可见」：供应商响应里的真实 token（早期记录没有这三个字段，读侧按"无数据"处理）
+  // 2026-10-17“花销可见”：供应商响应里的真实 token（早期记录没有这三个字段，读侧按"无数据"处理）
   prompt_tokens?: number | null
   completion_tokens?: number | null
   total_tokens?: number | null
@@ -59,7 +59,7 @@ let cachedPath: string | null = null
  *
  * ⚠ 2026-10-17 复核修正：首版写死 `appData/Fangcun`，而 Python 侧按数据根推导——
  *   桌面点按钮（TS 写入）与 `tegula ai-trace`（Python 读取）会各看各的文件，
- *   用户看到「明明是刚调的 AI，命令说暂无留痕」。现两端都取**解析后的数据根**
+ *   用户看到“明明是刚调的 AI，命令说暂无留痕”。现两端都取**解析后的数据根**
  *   （与 task-data 同级），一份留痕两端口径一致。
  */
 export function traceFilePath(): string {
@@ -212,7 +212,7 @@ export interface UsageStats {
   firstTs: string
   lastTs: string
   /**
-   * 最近一次调用的摘要（2026-10-27，设置页「模型通道」状态条用）。
+   * 最近一次调用的摘要（2026-10-27，设置页“模型通道”状态条用）。
    * 一次都没有时为 `null` —— 状态条据此显示"还没跑过"，而不是拿 0 糊一个数字。
    */
   last: {
@@ -226,11 +226,11 @@ export interface UsageStats {
 }
 
 /**
- * 「花销可见」（2026-10-17 暮雨第 10 条）。
+ * “花销可见”（2026-10-17 暮雨第 10 条）。
  *
  * 只做**能算准**的部分：供应商响应里报了 usage 的调用，把 token 加起来。
  * 没报 usage 的（老记录 / 某些兼容端点不回 usage）单独计数，**不折算、不估**——
- * 用户原话是「拉不到计费只算 token 也行」，那就不许再拿字符数假装 token。
+ * 用户原话是“拉不到计费只算 token 也行”，那就不许再拿字符数假装 token。
  */
 export function usageStats(days = 30): UsageStats {
   const r = readTrace({ limit: -1 })
@@ -322,7 +322,7 @@ export interface MonthUsage {
 }
 
 /**
- * 按**自然月**聚合花销（2026-10-22 · 03 任务三「月度 token 报表」）。
+ * 按**自然月**聚合花销（2026-10-22 · 03 任务三“月度 token 报表”）。
  *
  * 为什么不用 `usageStats(30)`：那是"滚动 30 天"，跨月时跟用户嘴里的"本月"对不上
  * （1 号那天会把上个月的账算进"本月"）。月度报表必须按自然月切，否则用户一核对就发现数字不对。

@@ -1,17 +1,17 @@
 /**
- * Fangcun Desktop — 「在途一屏」数据聚合（Q2 · 立项契约 ② 验收线之①）
+ * Fangcun Desktop — “在途一屏”数据聚合（Q2 · 立项契约 ② 验收线之①）
  *
  * 一行一个在途项目，回答三问：**在哪一步 / 下一步 / 卡在谁**。
  * 数据全部读现成的：registry（项目登记）+ 各 repo 的 `立项契约.md` + 任务卡 + 执行日志 + git 提交时间。
  *
  * 红线（2026-10-05 暮雨拍板，三条）：
- *   1. **零硬编码项目清单** —— 项目由「判据」推导（默认：有未完结卡 或 30 天内有提交），
+ *   1. **零硬编码项目清单** —— 项目由“判据”推导（默认：有未完结卡 或 30 天内有提交），
  *      用户可手动指定并记进 prefs（`fc_trip_mode` / `fc_trip_projects` / `fc_trip_criteria`）；
- *   2. **缺值一律空串/null**，由界面显示「未填」—— 绝不回退默认值（假成功比空白危险得多）；
+ *   2. **缺值一律空串/null**，由界面显示“未填”—— 绝不回退默认值（假成功比空白危险得多）；
  *   3. **只读**：不写任何项目仓库；本模块没有任何写盘调用。
  *
  * 健康度：机器只给**默认值**（提交新鲜度 + 是否有进行中的卡），用户可用 `fc_health_overrides`
- * 覆盖（如司天「预算受限、暂时搁置」这种机器永远算不出的状态），覆盖后在界面上带锁标记。
+ * 覆盖（如司天“预算受限、暂时搁置”这种机器永远算不出的状态），覆盖后在界面上带锁标记。
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -37,9 +37,9 @@ const CONTRACT_ALL_FIELDS = ['终态形态', '验收线', '不要什么', '选�
 /**
  * 字段别名（2026-10-11 真机修正）—— 与 Python 侧 `CONTRACT_ALIASES` **逐字一致**。
  *
- * ⚠ 真因：光认标准六节名，会把"写了但没按模板命名"的契约判成「未填」。
- *   实例：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …」，文件写得很完整，
- *   方寸却六个字段全空、界面显示「文件已建 · 内容未填」（用户原话「已经有内容了啊？」）。
+ * ⚠ 真因：光认标准六节名，会把"写了但没按模板命名"的契约判成“未填”。
+ *   实例：绒花墨坊的契约用“① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …”，文件写得很完整，
+ *   方寸却六个字段全空、界面显示“文件已建 · 内容未填”（用户原话“已经有内容了啊？”）。
  *   **这是界面说假话** —— 比空白更危险，因为它会让人以为文件是空的。
  */
 const CONTRACT_ALIASES: Record<string, string[]> = {
@@ -60,8 +60,8 @@ function stripSectionHr(text: string): string {
   return lines.join('\n').trim()
 }
 
-/* 「整段被一对括号包住 = 模板占位」这条规则已归一到共享 helper（`shared/placeholder.ts`）——
-   它同时被「日志 → 待办」用着（日志的「下一步」常是 `（待填写）`，不能当内容取来做标题）。
+/* “整段被一对括号包住 = 模板占位”这条规则已归一到共享 helper（`shared/placeholder.ts`）——
+   它同时被“日志 → 待办”用着（日志的“下一步”常是 `（待填写）`，不能当内容取来做标题）。
    ⚠ 别再在这里就地写一遍：同一规则三处各写一份，正是 2026-10-11 那个丢内容 bug 的同类根因。 */
 
 export interface ContractSection { name: string; field: string | null }
@@ -99,21 +99,21 @@ export interface TripRow {
   next: TripCell
   who: { text: string; kind: 'exec' | 'review' | 'none' }
   /**
-   * 「欠着什么」（2026-10-22 · 03 任务三：四栏台账的第四栏）。
+   * “欠着什么”（2026-10-22 · 03 任务三：四栏台账的第四栏）。
    *
-   * 取 registry 的「说明」字段 —— 它是**手写欠账清单**，不是机器算出来的。
+   * 取 registry 的“说明”字段 —— 它是**手写欠账清单**，不是机器算出来的。
    * 为什么不用"未完成卡"代替：卡是"要做的事"，欠账是"欠着谁的/欠什么"，两者不是一回事
-   * （用户 10-22 定调：13 行说明里「欠着」那一栏就是要摆在这里的东西）。
-   * 空串 = 没写，界面显示「未写」，不糊一句"暂无欠账"。
+   * （用户 10-22 定调：13 行说明里“欠着”那一栏就是要摆在这里的东西）。
+   * 空串 = 没写，界面显示“未写”，不糊一句"暂无欠账"。
    */
   owe: string
   health: { value: TripHealth; locked: boolean }
   counts: { todo: number; doing: number; review: number; logs: number }
   lastCommit: string
   recentCommit: boolean
-  /** 工作区未提交文件数（`git status --porcelain` 行数）；读不到给 null —— 界面显示「—」。
+  /** 工作区未提交文件数（`git status --porcelain` 行数）；读不到给 null —— 界面显示“—”。
    *  2026-10-09 卡 task-20261009-001：渲染层一直在读 `r.dirty`，主进程却从未产出过这个字段
-   *  （夹具替它把值喂给了测试，于是「未提交」列在生产里恒空却一路绿灯 —— 典型的桩-现实漂移）。 */
+   *  （夹具替它把值喂给了测试，于是“未提交”列在生产里恒空却一路绿灯 —— 典型的桩-现实漂移）。 */
   dirty: number | null
   flags: { noCards: boolean; noLogs: boolean }
 }
@@ -126,9 +126,9 @@ export interface TripBoard {
   /**
    * 登记了但**没进这一屏**的项目（判据没命中）。
    *
-   * 为什么要回传：2026-10-05 用户「添加完项目刷新几遍根本看不到」—— 他加的项目没有任务卡、
+   * 为什么要回传：2026-10-05 用户“添加完项目刷新几遍根本看不到”—— 他加的项目没有任务卡、
    * 30 天内也没有提交，判据自然不收。但界面上**一个字都不说**，用户只会以为自己加失败了。
-   * 现在的做法：把这批项目如实交出去，界面在表下写一行「另有 N 个未显示 —— 为什么 + 怎么让它显示」。
+   * 现在的做法：把这批项目如实交出去，界面在表下写一行“另有 N 个未显示 —— 为什么 + 怎么让它显示”。
    */
   hidden: { id: string; name: string; reason: string; kind: 'not-picked' | 'no-activity' }[]
   /**
@@ -152,7 +152,7 @@ function asList(v: unknown): string[] {
   return [String(v)]
 }
 
-/** frontmatter 的「项目」可能是字符串也可能是数组 —— 两侧都能比中 */
+/** frontmatter 的“项目”可能是字符串也可能是数组 —— 两侧都能比中 */
 function matchProject(fmProject: unknown, id: string): boolean {
   return asList(fmProject).includes(id)
 }
@@ -187,9 +187,9 @@ function prioWeight(v: unknown): number {
  * 解析一份立项契约（**纯函数**：只吃 repo 路径）。
  *
  * 与 Python 侧 `read_contract_file()` **同口径**：按 `## ` 小节取，标题含字段名（或别名）即可
- * （「## ① 终态形态」「## ① 终态三段」都认）。缺字段给空串，由界面显示「未填」；
+ * （“## ① 终态形态”“## ① 终态三段”都认）。缺字段给空串，由界面显示“未填”；
  * 但**原因要分类**（sections / filled / placeholderFields / unmatched）——
- * 「小节名对不上」和「真没写」是两回事，笼统报「未填」会让人以为文件是空的。
+ * “小节名对不上”和“真没写”是两回事，笼统报“未填”会让人以为文件是空的。
  */
 export function readContractFile(repo: string): TripContract {
   const p = repo ? path.join(repo, CONTRACT_BASENAME) : ''
@@ -272,8 +272,8 @@ const dirtyCache = new Map<string, { at: number; n: number | null }>()
 
 /**
  * 工作区未提交文件数：`git status --porcelain` 的非空行数。
- * 缺值纪律：非仓库 / 没装 git / 超时 / 目录不存在 —— 一律 null（界面显示「—」），**绝不抛**、绝不编 0
- * （0 是「干净工作区」的断言，读不到就说读不到）。
+ * 缺值纪律：非仓库 / 没装 git / 超时 / 目录不存在 —— 一律 null（界面显示“—”），**绝不抛**、绝不编 0
+ * （0 是“干净工作区”的断言，读不到就说读不到）。
  */
 export function gitDirtyCount(repo: string): number | null {
   if (!repo || !fs.existsSync(repo)) return null
@@ -311,7 +311,7 @@ function runGitAsync(repo: string, args: string[]): Promise<string | null> {
 }
 
 /**
- * 并发预热 git 缓存（2026-10-11 用户：「每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了」）。
+ * 并发预热 git 缓存（2026-10-11 用户：“每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了”）。
  *
  * 原实现是**逐项目同步 spawn**（`execFileSync`）：一次 50–300ms，8 个项目 × 2 条命令串起来
  * 就是 0.5–3 秒的**整段阻塞** —— 主进程卡住，界面除了干等什么都做不了，连"读取中…"都可能
@@ -350,12 +350,12 @@ export function clearGitCache(): void {
 }
 
 /**
- * 在项目文件夹里**创建**「立项契约.md」（2026-10-05 用户：让方寸直接写，弹窗确认即可，不静默做）。
+ * 在项目文件夹里**创建**“立项契约.md”（2026-10-05 用户：让方寸直接写，弹窗确认即可，不静默做）。
  *
- * 与「只读、不写他人仓库」的关系（边界说清楚，别让下一个人以为红线没了）：
+ * 与“只读、不写他人仓库”的关系（边界说清楚，别让下一个人以为红线没了）：
  *   · **只在文件不存在时创建** —— 已存在一律拒绝，绝不覆盖用户或 AI 写过的任何内容；
  *   · 只写这一个固定文件名、固定模板内容，**不接受任意路径、任意内容**；
- *   · 调用方（渲染层）必须先弹确认框，把「写到哪 / 写什么 / 什么情况会拒绝」念清楚再动手。
+ *   · 调用方（渲染层）必须先弹确认框，把“写到哪 / 写什么 / 什么情况会拒绝”念清楚再动手。
  */
 export function initContractFile(projectId: string): { ok: boolean; path?: string; error?: string } {
   const repo = repoOfProject(projectId)
@@ -363,7 +363,7 @@ export function initContractFile(projectId: string): { ok: boolean; path?: strin
   if (!fs.existsSync(repo)) return { ok: false, error: `文件夹不存在：${repo}` }
   const target = path.join(repo, CONTRACT_BASENAME)
   if (fs.existsSync(target)) {
-    return { ok: false, error: `「${CONTRACT_BASENAME}」已经存在，没有覆盖它（要改就直接编辑那个文件）` }
+    return { ok: false, error: `“${CONTRACT_BASENAME}”已经存在，没有覆盖它（要改就直接编辑那个文件）` }
   }
   try {
     fs.writeFileSync(target, contractTemplate(projectId), 'utf-8')
@@ -385,7 +385,7 @@ export function repoOfProject(projectId: string): string {
 }
 
 /**
- * 契约骨架（点「复制模板」时给用户的东西）。
+ * 契约骨架（点“复制模板”时给用户的东西）。
  *
  * 只是**文本**，方寸不写任何仓库 —— 用户自己去 `<repo>/立项契约.md` 落盘。
  * 与仓库里方寸自己那份 `立项契约.md` 同一套六字段。
@@ -400,7 +400,7 @@ export function contractTemplate(projectId: string): string {
     `# 立项契约 · ${name}（${id}）`,
     '',
     '> **真源就是本文件**（放在项目仓库根，与 AGENTS.md 同级）。',
-    '> **第一个读者是 AI**：agent 在本仓库开工前先读本文件；与「最新一句话」冲突时以契约为准，除非走 REV 修订。',
+    '> **第一个读者是 AI**：agent 在本仓库开工前先读本文件；与“最新一句话”冲突时以契约为准，除非走 REV 修订。',
     '> 模板：《立项契约包 v1》甲节（六字段 + 五机制条款）。',
     '',
     '---',
@@ -411,7 +411,7 @@ export function contractTemplate(projectId: string): string {
     '',
     '## ② 验收线',
     '',
-    '（「完整投入真实使用」的判据链 —— 操作链每环无断点。用户定终点，我们拆链。）',
+    '（“完整投入真实使用”的判据链 —— 操作链每环无断点。用户定终点，我们拆链。）',
     '',
     '## ③ 不要什么',
     '',
@@ -433,11 +433,11 @@ export function contractTemplate(projectId: string): string {
     '',
     '## 五条机制条款（全项目通用）',
     '',
-    '1. **契约第一个读者是 AI**：契约进各项目仓库、与 AGENTS.md 同级；每份任务书加开工前置步「先读契约再动工」。',
+    '1. **契约第一个读者是 AI**：契约进各项目仓库、与 AGENTS.md 同级；每份任务书加开工前置步“先读契约再动工”。',
     '2. **变更走契约**：中途换方向 = 显式 REV 留痕，禁口头漂移。',
     '3. **返工归因标签**：每轮返工收尾打一枚（需求没拟死 / 选型没论证 / 执行层改不对）；同一 bug 三轮不过换执行者，禁死磕。',
     '4. **选型关口**：④ 未定不开工。',
-    '5. **念回签收**：契约成稿后「原话 + 翻译」并列念回，用户点头才算拟死。',
+    '5. **念回签收**：契约成稿后“原话 + 翻译”并列念回，用户点头才算拟死。',
     '',
     '## REV 修订记录',
     '',
@@ -464,9 +464,9 @@ export function buildTripBoard(): TripBoard {
       ? (p.fc_trip_criteria as TripCriteria)
       : 'cards_or_commit'
   const manualIds = asList(p.fc_trip_projects)
-  // 「手动指定」但**从没勾过任何项目**（键都不存在）→ 那不是"选了空清单"，是"没做过选择"。
-  // 照字面执行的话一屏会空得像界面坏了（2026-10-05 用户实测：「一屏是空的」+ 15 个全在
-  // 「另有 N 个」里，连方寸自己都被说成"没有未完结任务"）。这里兜底回自动，并让人知道。
+  // “手动指定”但**从没勾过任何项目**（键都不存在）→ 那不是"选了空清单"，是"没做过选择"。
+  // 照字面执行的话一屏会空得像界面坏了（2026-10-05 用户实测：“一屏是空的”+ 15 个全在
+  // “另有 N 个”里，连方寸自己都被说成"没有未完结任务"）。这里兜底回自动，并让人知道。
   const neverPicked = p.fc_trip_projects === undefined
   const fallback = neverPicked && (rawMode === 'manual' || rawCriteria === 'manual')
   const mode: 'auto' | 'manual' = fallback ? 'auto' : rawMode
@@ -521,7 +521,7 @@ export function buildTripBoard(): TripBoard {
         // 手动模式下**不许**再说"没有未完结任务"—— 那是另一回事（2026-10-05：方寸自己有
         // 几十张未完结卡，却因为没被勾选而被说成"没有未完结任务"，界面在说假话）。
         reason: manualMode
-          ? '你选的是「手动指定」，但没勾它'
+          ? '你选的是“手动指定”，但没勾它'
           : (undone > 0 ? '' : (myLogs.length ? '没有未完结任务，30 天内也没有提交' : '没有任务卡、没有执行日志，30 天内也没有提交')),
       })
       continue

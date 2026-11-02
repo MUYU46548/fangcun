@@ -4,8 +4,8 @@
  *
  * 真跑**编译产物** `dist/shared/waste.js` + `dist/main/usage/ledger.js`。
  * 判据一句话：**数字离开口径就是假话** ——
- *   · 三格任一取不到 → **整格不渲染**（不拿 0 / 「—」冒充）；
- *   · 每个数字旁必须有「它证明不了什么」；
+ *   · 三格任一取不到 → **整格不渲染**（不拿 0 / “—”冒充）；
+ *   · 每个数字旁必须有“它证明不了什么”；
  *   · 页面必须声明 ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在内；
  *   · ai-trace 的 external 记录不许混进方寸的花销。
  *
@@ -76,7 +76,7 @@ console.log('== ① 三格都有：数字 + 口径 + 局限 ==')
   const rejected = l.cells.find((c) => c.key === 'rejected')
   check('★ 被否 = 当前状态为驳回的卡（列出名字）',
     !!rejected && rejected.value === '2 张' && /被否甲/.test(rejected.detail), JSON.stringify(rejected))
-  check('★★ 每个数字都带「它证明不了什么」',
+  check('★★ 每个数字都带“它证明不了什么”',
     l.cells.every((c) => typeof c.caveat === 'string' && c.caveat.indexOf('它证明不了什么') >= 0),
     l.cells.map((c) => c.caveat).join(' | '))
   check('★★ 页面口径声明点名 ai-trace + 外部 agent',
@@ -86,14 +86,14 @@ console.log('== ① 三格都有：数字 + 口径 + 局限 ==')
 console.log('\n== ② 取不到：整格不渲染，不拿 0 / — 冒充 ==')
 {
   const onlyTasks = buildWasteLedger({ days: 30, now: NOW, trace: null, commits: null, tasks: TASKS })
-  check('★ trace 读不到 → 没有「花了多少」这一格（不是 ¥0.00）',
+  check('★ trace 读不到 → 没有“花了多少”这一格（不是 ¥0.00）',
     !onlyTasks.cells.some((c) => c.key === 'spend') && onlyTasks.cells.length === 2,
     JSON.stringify(onlyTasks.cells.map((c) => c.key)))
   const noTraceNoCommits = buildWasteLedger({ days: 30, now: NOW, trace: null, commits: null, tasks: null })
   check('★★ 三个来源都读不到 → 0 格 + 明确空态（不许画空格子）',
     noTraceNoCommits.cells.length === 0 && /三格都取不到/.test(noTraceNoCommits.emptyText),
     noTraceNoCommits.emptyText)
-  check('★ 空态里点名不拿 0 / 「—」冒充', /不拿 0/.test(noTraceNoCommits.emptyText) && /—/.test(noTraceNoCommits.emptyText))
+  check('★ 空态里点名不拿 0 / “—”冒充', /不拿 0/.test(noTraceNoCommits.emptyText) && /—/.test(noTraceNoCommits.emptyText))
   const emptyData = buildWasteLedger({ days: 30, now: NOW, trace: [], commits: [], tasks: [] })
   check('★ 数据真的为空（[]）≠ 读不到：0 次提交/0 张完成 是**真值**，照常显示',
     emptyData.cells.some((c) => c.key === 'output' && /0 次提交/.test(c.value))
@@ -112,7 +112,7 @@ console.log('\n== ③ 删掉 caveat → 该格不显示（精确红）==')
   const broken = JSON.parse(JSON.stringify(l))
   broken.cells[0].caveat = ''
   const fixed = sanitizeWasteLedger(broken)
-  check('★★ 缺「它证明不了什么」的格子被丢掉（不是留一个没有前提的数字）',
+  check('★★ 缺“它证明不了什么”的格子被丢掉（不是留一个没有前提的数字）',
     fixed.cells.length === 2 && !fixed.cells.some((c) => c.key === 'spend'),
     JSON.stringify(fixed.cells.map((c) => c.key)))
   check('★ 正常账过 sanitize 不掉格', sanitizeWasteLedger(l).cells.length === 3)

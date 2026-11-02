@@ -59,7 +59,7 @@ check('★ 红线①：脚本里**没有**任何 `RESTIC_PASSWORD=<值>` 的赋�
 check('★ 红线①（posix）：同样只给 export 占位，不给真值',
   nix.indexOf('export RESTIC_PASSWORD="<你自己定的仓库密码>"') >= 0
   && !/RESTIC_PASSWORD="[^<]/.test(nix), 'posix')
-check('★ 脚本会把「没设密码就退出」写成守卫（否则定时任务静默失败，没人知道备份没跑）',
+check('★ 脚本会把“没设密码就退出”写成守卫（否则定时任务静默失败，没人知道备份没跑）',
   win.indexOf('if (-not $env:RESTIC_PASSWORD)') >= 0 && nix.indexOf('[ -n "${RESTIC_PASSWORD:-}" ]') >= 0)
 
 // ── ③ 红线二：密钥文件必须 exclude ────────────────────────────────────
@@ -68,7 +68,7 @@ check('★ 红线②：传进来的每个密钥文件名都出现在 --exclude �
 check('★ 红线②（posix 版同样）',
   SECRETS.every((s) => nix.indexOf(`--exclude "${s}"`) >= 0))
 // ⚠ 判据要盯**命令行参数**的形式（`--exclude "`），不能只查 `--exclude` 这个子串 ——
-//   脚本的说明注释里本来就会写「--exclude 是红线」，只查子串会永远假红（首轮就踩了）。
+//   脚本的说明注释里本来就会写“--exclude 是红线”，只查子串会永远假红（首轮就踩了）。
 check('  没传 exclude 时不编造 exclude 参数（宁可少写，也不假装排除了什么）',
   buildResticScript({ dataDir: '/x' }).indexOf('--exclude "') < 0)
 check('  resticExcludeArgs：空 / null / undefined → 空数组（不抛）',
@@ -94,7 +94,7 @@ check('★ 带 --prune（只 forget 不回收空间 = 磁盘照样撑爆，这�
   win.indexOf('--prune') >= 0)
 
 // ── ⑥ 红线三：不给可直接执行的定时任务 ────────────────────────────────
-check('★ 红线③：说明里给的是「怎么挂」而不是替用户注册任务（装不装由用户定）',
+check('★ 红线③：说明里给的是“怎么挂”而不是替用户注册任务（装不装由用户定）',
   win.indexOf('#   任务计划程序') >= 0 && win.indexOf('schtasks') < 0
   && win.indexOf('Register-ScheduledTask') < 0)
 

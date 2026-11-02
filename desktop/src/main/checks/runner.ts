@@ -244,7 +244,7 @@ async function runCmd(p: ParsedCheck & { kind: 'cmd' }, opts: RunChecksOptions):
 function runStr(p: ParsedCheck & { kind: 'str' }, opts: RunChecksOptions): CheckResult {
   const root = opts.root || process.cwd()
   const read = readText(root, p.path)
-  // ⚠ tsconfig strict=false 下可辨识联合不会因 `!read.ok` 收窄（见 AGENTS「踩过的坑 5」），
+  // ⚠ tsconfig strict=false 下可辨识联合不会因 `!read.ok` 收窄（见 AGENTS“踩过的坑 5”），
   //   所以这里用 `'error' in read` 让类型收窄，别指望 truthy 检查。
   if ('error' in read) return result(p, 'fail', read.error, { path: p.path, text: p.text })
   const evidence: CheckEvidence = { path: p.path, text: p.text }
@@ -305,21 +305,21 @@ function runFile(p: ParsedCheck & { kind: 'file' }, opts: RunChecksOptions): Che
       }
       const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
       const missing = lines.filter((l) => !l.includes(p.everyLineContains as string))
-      if (missing.length) bad.push(`${relToRoot(root, abs)} 有 ${missing.length} 行不含「${p.everyLineContains}」`)
+      if (missing.length) bad.push(`${relToRoot(root, abs)} 有 ${missing.length} 行不含“${p.everyLineContains}”`)
     }
     if (bad.length) return result(p, 'fail', bad.join('；'), evidence)
-    return result(p, 'pass', `${matches.length} 个文件每行都含「${p.everyLineContains}」`, evidence)
+    return result(p, 'pass', `${matches.length} 个文件每行都含“${p.everyLineContains}”`, evidence)
   }
 
   if (p.contains) {
     for (const abs of matches) {
       try {
         if (fs.readFileSync(abs, 'utf-8').includes(p.contains)) {
-          return result(p, 'pass', `${relToRoot(root, abs)} 含「${p.contains}」`, evidence)
+          return result(p, 'pass', `${relToRoot(root, abs)} 含“${p.contains}”`, evidence)
         }
       } catch { /* 下一个 */ }
     }
-    return result(p, 'fail', `命中的文件都不含「${p.contains}」`, evidence)
+    return result(p, 'fail', `命中的文件都不含“${p.contains}”`, evidence)
   }
 
   return result(p, 'pass', `存在（命中 ${matches.length} 个文件）`, evidence)

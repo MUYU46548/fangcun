@@ -43,7 +43,7 @@ export interface UsageReportErr { ok: false; error: string }
 
 /**
  * 类型谓词（`tsconfig` 是 `strict:false`，没有 strictNullChecks —— `if (!r.ok)` 不会收窄
- * 可辨识联合，读 `r.error` 直接编译失败；这是本仓第四次踩，见 AGENTS.md「踩过的坑」5）。
+ * 可辨识联合，读 `r.error` 直接编译失败；这是本仓第四次踩，见 AGENTS.md“踩过的坑”5）。
  */
 export function isUsageReportOk(r: UsageReportOk | UsageReportErr): r is UsageReportOk {
   return (r as UsageReportOk).ok === true
@@ -81,7 +81,7 @@ export function buildExternalUsageRecord(input: unknown, nowIso: string): UsageR
   if (o.cost !== undefined && o.cost !== null && o.cost !== '') {
     const cur = cleanText(o.currency || 'CNY', 8).toLowerCase()
     if (!CNY_ALIASES.includes(cur)) {
-      return { ok: false, error: `只接受人民币（CNY / 元）；收到「${o.currency}」。方寸不做汇率换算。` }
+      return { ok: false, error: `只接受人民币（CNY / 元）；收到“${o.currency}”。方寸不做汇率换算。` }
     }
     const a = parseAmount(o.cost)
     if (a === null) return { ok: false, error: `cost 不是合法金额（收到 ${JSON.stringify(o.cost)}）` }

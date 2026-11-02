@@ -1,5 +1,5 @@
 /**
- * MCP 自举桥（2026-10-18）—— 让「方寸.exe 自己」当 MCP 桥，零外部依赖
+ * MCP 自举桥（2026-10-18）—— 让“方寸.exe 自己”当 MCP 桥，零外部依赖
  *
  * 为什么要有这个文件（真因取证，别再回退）：
  *   此前入口 A 是 `node <安装目录>/resources/app.asar.unpacked/dist/cli/tegula-mcp.js`。三重死结：
@@ -13,7 +13,7 @@
  *   electron 业务模块之前**分流到本文件 —— 不建窗、不拿单实例锁、不读 asar 外部文件、不碰任何
  *   依赖 electron 的模块（见 pipe.ts 里对 ELECTRON_RUN_AS_NODE 的说明）。
  *
- * 本模块只做「stdio ↔ named pipe」纯转发，**不含业务逻辑**。
+ * 本模块只做“stdio ↔ named pipe”纯转发，**不含业务逻辑**。
  * 业务仍在主实例里（handler.ts），乐观锁与审计照旧生效 —— 桥不绕过任何写规则。
  */
 
@@ -34,7 +34,7 @@ function connect(pipe: string, timeoutMs = 10000): Promise<net.Socket> {
       socket.destroy()
       reject(new Error(
         `连接方寸桌面版超时（${timeoutMs}ms）：管道 ${pipe} 无响应。`
-        + '请确认方寸正在运行（托盘图标），必要时右键「退出」后重新打开。',
+        + '请确认方寸正在运行（托盘图标），必要时右键“退出”后重新打开。',
       ))
     }, timeoutMs)
     socket.once('connect', () => {
@@ -112,7 +112,7 @@ export async function runStdioBridge(): Promise<void> {
 export const MCP_BRIDGE_FLAG = '--mcp-bridge'
 
 // 直接运行本文件时自跑（`node dist/main/mcp/bridge-standalone.js`）——
-// 这是排障用的单文件探针：不依赖 electron / 不依赖方寸 exe，直接验「管道通不通」。
+// 这是排障用的单文件探针：不依赖 electron / 不依赖方寸 exe，直接验“管道通不通”。
 // e2e 也用它起真桥进程。
 if (require.main === module) {
   runStdioBridge()

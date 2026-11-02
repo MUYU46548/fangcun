@@ -1,5 +1,5 @@
 /**
- * 日志页状态与纯派生（2026-10-31 · 渲染层拆分第二批「日志页逻辑收口」第一刀）
+ * 日志页状态与纯派生（2026-10-31 · 渲染层拆分第二批“日志页逻辑收口”第一刀）
  *
  * 搬出来的是**状态 + 纯派生 + 取数**，不是动作全家桶：
  *   · 状态：筛选 / 排序 / 批量选择 / 视图模式 / 分区折叠；
@@ -18,7 +18,7 @@ import { localPriority } from '../../shared/priority'
 import { formatDate } from '../../shared/time'
 
 const LOG_GROUP_DEFS = [
-  // 2026-10-30 暮雨第 2 轮：「分区头别写解释」—— 状态名本身已经够清楚。
+  // 2026-10-30 暮雨第 2 轮：“分区头别写解释”—— 状态名本身已经够清楚。
   { key: 'running', label: '进行中', hint: '' },
   { key: 'active', label: '待处理', hint: '' },
   { key: 'completed', label: '已完成', hint: '' },
@@ -37,7 +37,7 @@ export function useLogsView() {
   const logDateTo = ref('')
 
   /**
-   * 日志排序（2026-10-01 用户第 2 条）：此前只有后端给的「文件名倒序」= 创建倒序。
+   * 日志排序（2026-10-01 用户第 2 条）：此前只有后端给的“文件名倒序”= 创建倒序。
    * 在渲染层排 —— 数据一次取回，不往数据层加第二个排序入口。
    */
   const logSort = ref<string>(readUiPref<string>('fc_log_sort', 'created_desc'))
@@ -52,7 +52,7 @@ export function useLogsView() {
       case 'date_desc': return arr.sort((a, b) => String(b.logDate || b.created).localeCompare(String(a.logDate || a.created)))
       case 'title_asc': return arr.sort(byStr(l => l.title || '', 'zh-Hans-CN'))
       // 高→中→低→未标（未标沉底）；同级按创建倒序，保证稳定。
-      // ⚠ 不能直接拿 localPriority 判「未标」：它对空值兜底返回 '中'（任务卡口径）。
+      // ⚠ 不能直接拿 localPriority 判“未标”：它对空值兜底返回 '中'（任务卡口径）。
       case 'prio_desc': {
         const rank = (l: any): number => {
           const raw = String(l?.priority || '').trim()
@@ -123,7 +123,7 @@ export function useLogsView() {
     return String(l.status || 'active')
   }
 
-  /** 分区折叠状态（写回真身）。默认收起「已归档」——归档的语义就是「先别看了」。 */
+  /** 分区折叠状态（写回真身）。默认收起“已归档”——归档的语义就是“先别看了”。 */
   const collapsedLogGroups = ref<string[]>(readUiPref<string[]>('fc_log_group_collapsed', ['archived']))
   function isLogGroupCollapsed(key: string): boolean {
     return collapsedLogGroups.value.includes(key)
@@ -193,7 +193,7 @@ export function useLogsView() {
     return sections.reverse()
   }
 
-  // ── 「更多筛选」抽屉 ──────────────────────────────────────────────
+  // ── “更多筛选”抽屉 ──────────────────────────────────────────────
   const logMoreFilterOpen = ref(false)
   const logMoreFilterCount = computed(() =>
     (logAgentFilter.value ? 1 : 0) + (logDateFrom.value ? 1 : 0) + (logDateTo.value ? 1 : 0))
@@ -240,7 +240,7 @@ export function useLogsView() {
   // ── 卡面派生 ──────────────────────────────────────────────────────
   function logStatusLabel(log: any): string {
     if (!log) return ''
-    // active 的中文是「待处理」；「进行中」是 running 这个手动标记的专属名字。
+    // active 的中文是“待处理”；“进行中”是 running 这个手动标记的专属名字。
     if (log.status === 'active' && log.running) return '进行中'
     return { active: '待处理', completed: '已完成', archived: '已归档' }[log.status] || String(log.status || '')
   }
@@ -251,7 +251,7 @@ export function useLogsView() {
     return log.status === 'active' && log.running ? 'running' : String(log.status || '')
   }
 
-  /** 这条日志是不是「主日志」（挂了附属；即使当前筛选把附属藏起来也算） */
+  /** 这条日志是不是“主日志”（挂了附属；即使当前筛选把附属藏起来也算） */
   function logHasGroup(log: any): boolean {
     return Array.isArray(log?.attached) && log.attached.length > 0
   }
@@ -279,7 +279,7 @@ export function useLogsView() {
     return parts.join(' · ')
   }
 
-  /** 全组是否都已经在「进行中」——混合态 / 有隐藏附属时保守返回 false */
+  /** 全组是否都已经在“进行中”——混合态 / 有隐藏附属时保守返回 false */
   function logGroupAllRunning(main: any): boolean {
     if (logGroupHiddenCount(main) > 0) return false
     const kids = logGroupChildren.value.get(main?.id) || []
@@ -287,18 +287,18 @@ export function useLogsView() {
     return members.length > 0 && members.every((x: any) => !!x.running)
   }
 
-  /** 主日志卡上那个运行开关的文案：有组就是「全组」，没组才是单条 */
+  /** 主日志卡上那个运行开关的文案：有组就是“全组”，没组才是单条 */
   function logRunningLabel(log: any): string {
     if (logHasGroup(log)) return logGroupAllRunning(log) ? '⏸ 全组撤销' : '▶ 全组进行中'
     return log?.running ? '⏸ 撤销进行中' : '▶ 标为进行中'
   }
 
   /**
-   * 撤销「进行中」会退回到哪一格（2026-11-01 暮雨报障）。
+   * 撤销“进行中”会退回到哪一格（2026-11-01 暮雨报障）。
    *
-   * 以前无论从哪一格点开，撤销都写死「回到待处理」—— 已完成的日志被误点后
+   * 以前无论从哪一格点开，撤销都写死“回到待处理”—— 已完成的日志被误点后
    * 就再也回不去了。现在主进程记 `running_from`，这里只负责把要说的话对齐：
-   * 有记忆就说「已完成 / 已归档」，没有才是「待处理」。
+   * 有记忆就说“已完成 / 已归档”，没有才是“待处理”。
    */
   function logRunningRestoreLabel(log: any): string {
     if (log?.runningFrom === 'completed') return '已完成'

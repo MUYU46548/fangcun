@@ -1,8 +1,8 @@
 /**
- * 卡 004「同步可见：阶段 + 耗时」—— 纯逻辑与接线守卫（2026-10-25）。
+ * 卡 004“同步可见：阶段 + 耗时”—— 纯逻辑与接线守卫（2026-10-25）。
  *
- * 暮雨原话：「Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
- *           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。」
+ * 暮雨原话：“Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
+ *           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。”
  *
  * 这个文件只干两件事：
  *  ① 断言 `shared/syncPhase.ts` 的纯函数（喂**假秒数**，不用真等 15 秒去验"网络慢"那一档）
@@ -34,26 +34,26 @@ check('合法阶段全部认得（六步）',
   JSON.stringify(SYNC_PHASES.map(p => syncPhaseLabel(p))))
 check('阶段名里没有英文/下划线（界面上不出现 `push` / `prepare`）',
   SYNC_PHASES.every(p => !/[a-zA-Z_]/.test(syncPhaseLabel(p))))
-check('认不出的阶段 → 退回「同步」，不透传原字符串',
+check('认不出的阶段 → 退回“同步”，不透传原字符串',
   syncPhaseLabel('whatever') === '同步' && syncPhaseLabel(undefined) === '同步'
   && syncPhaseLabel(null) === '同步' && syncPhaseLabel(42) === '同步')
-check('`push` 的中文是「推送」，`prepare` 是「准备仓库」',
+check('`push` 的中文是“推送”，`prepare` 是“准备仓库”',
   syncPhaseLabel('push') === '推送' && syncPhaseLabel('prepare') === '准备仓库')
 
 // ── ② 进行中：秒数真实、不编百分比 ──────────────────────────────────────
 console.log('\n── ② 胶囊文字（进行中）──')
-check('0 秒 → 「推送 0s」', syncCapsuleText('push', 0) === '推送 0s', syncCapsuleText('push', 0))
+check('0 秒 → “推送 0s”', syncCapsuleText('push', 0) === '推送 0s', syncCapsuleText('push', 0))
 check('999ms 仍算 0s（向下取整，不夸大）', syncCapsuleText('push', 999) === '推送 0s', syncCapsuleText('push', 999))
-check('3.4 秒 → 「推送 3s」', syncCapsuleText('push', 3400) === '推送 3s', syncCapsuleText('push', 3400))
-check('14.9 秒还不加「网络慢」', syncCapsuleText('push', 14_900) === '推送 14s', syncCapsuleText('push', 14_900))
-check('15 秒起补「网络慢」（阈值就是 SLOW_AFTER_MS）',
+check('3.4 秒 → “推送 3s”', syncCapsuleText('push', 3400) === '推送 3s', syncCapsuleText('push', 3400))
+check('14.9 秒还不加“网络慢”', syncCapsuleText('push', 14_900) === '推送 14s', syncCapsuleText('push', 14_900))
+check('15 秒起补“网络慢”（阈值就是 SLOW_AFTER_MS）',
   syncCapsuleText('push', SLOW_AFTER_MS) === '推送 · 网络慢 15s', syncCapsuleText('push', SLOW_AFTER_MS))
-check('61 秒 → 「推送 · 网络慢 61s」', syncCapsuleText('push', 61_200) === '推送 · 网络慢 61s', syncCapsuleText('push', 61_200))
+check('61 秒 → “推送 · 网络慢 61s”', syncCapsuleText('push', 61_200) === '推送 · 网络慢 61s', syncCapsuleText('push', 61_200))
 check('★ 任何时刻都不出现百分号（编进度 = 假成功）',
   [0, 500, 3000, 15_000, 99_999].every(ms => syncCapsuleText('push', ms).indexOf('%') < 0))
-check('★ 秒数不带小数（「3.4s」永远不出现）',
+check('★ 秒数不带小数（“3.4s”永远不出现）',
   [3400, 4999, 15_100].every(ms => !/\.\d/.test(syncCapsuleText('push', ms))))
-check('认不出阶段时说的是「同步中 3s」，不硬编一个阶段',
+check('认不出阶段时说的是“同步中 3s”，不硬编一个阶段',
   syncCapsuleText('', 3000) === '同步中 3s', syncCapsuleText('', 3000))
 check('负数/NaN 不炸（当 0 秒处理）',
   syncCapsuleText('push', -5) === '推送 0s' && syncCapsuleText('push', NaN) === '推送 0s',
@@ -61,8 +61,8 @@ check('负数/NaN 不炸（当 0 秒处理）',
 
 // ── ③ 结束态 ───────────────────────────────────────────────────────────
 console.log('\n── ③ 结束态 ──')
-check('成功 → 「已同步」', syncDoneText(true) === '已同步')
-check('失败 → 「未同步」（不是「失败」二字 —— 说的是状态不是判决）', syncDoneText(false) === '未同步')
+check('成功 → “已同步”', syncDoneText(true) === '已同步')
+check('失败 → “未同步”（不是“失败”二字 —— 说的是状态不是判决）', syncDoneText(false) === '未同步')
 
 // ── ④ 主进程：真在每一步报阶段，且顺序与执行顺序一致 ──────────────────
 console.log('\n── ④ 主进程接线 ──')
@@ -120,10 +120,10 @@ check('★ 计时器只算**秒数**，不参与决定阶段（阶段只能由�
 })())
 check('★ 收尾会退订（stopSyncTimers 里调用退订函数）',
   /function stopSyncTimers\(\)[\s\S]{0,300}?syncOffProgress\(\)/.test(appSrc))
-check('★ 结束态 3 秒后回图标（不然按钮永远停在「已同步」）',
+check('★ 结束态 3 秒后回图标（不然按钮永远停在“已同步”）',
   /syncRevertTimer = window\.setTimeout\([\s\S]{0,300}?syncFinal\.value = null/.test(appSrc)
   && /3\d{3}|3000/.test(appSrc.slice(appSrc.indexOf('syncRevertTimer = window.setTimeout'), appSrc.indexOf('syncRevertTimer = window.setTimeout') + 400)))
-check('★ 按钮模板里渲染的是 `syncCapsule`（不是写死的一句「同步中」）',
+check('★ 按钮模板里渲染的是 `syncCapsule`（不是写死的一句“同步中”）',
   /\{\{ syncCapsule \}\}/.test(appSrc))
 check('★ 转的仍然只是**字符**（动画不挂在 button 本体上）',
   /\.ico\.syncing \.ico-glyph \{ animation: nav-spin/.test(appSrc)

@@ -9,7 +9,7 @@
  *
  * **留下来的东西（仍在 App.vue）**：
  *   · `calAssign_` + `openCalAssignTask` / `openCalAssignTodo` / `saveCalAssign` ——
- *     它们开的是 App.vue 里那个「指派时间」弹窗，弹窗没搬，状态就不能搬。
+ *     它们开的是 App.vue 里那个“指派时间”弹窗，弹窗没搬，状态就不能搬。
  *   · `onCalEventClick` / `onCalDrop` —— 会调 `openCard` / `openLog` / `loadTodos` /
  *     `loadLogs` / `showToast`，全是父组件的能力。
  *
@@ -20,7 +20,7 @@ import { computed, ref } from 'vue'
 import { buildMonth, parseCalDate, calISO, type CalEvent as CalEventT } from '../calendar'
 
 export interface UseCalendarDeps {
-  /** 日历只显示「顶栏筛选后 + 非终态」的任务 —— 筛选会连带影响日历，这是既有行为 */
+  /** 日历只显示“顶栏筛选后 + 非终态”的任务 —— 筛选会连带影响日历，这是既有行为 */
   activeTasks: () => any[]
   todos: () => any[]
   logs: () => any[]
@@ -31,7 +31,7 @@ export interface UseCalendarDeps {
 /** 日历格子里的一个事件（任务 / 待办 / 日志共用）。App.vue 的 onCalEventClick 也用它 */
 export type CalEvent = CalEventT<any, any, any>
 
-/** 格子内最多显示几条（2026-09-29 用户选「改法 A」） */
+/** 格子内最多显示几条（2026-09-29 用户选“改法 A”） */
 export const CAL_CELL_LIMIT = 2
 
 export function useCalendar(deps: UseCalendarDeps) {
@@ -43,12 +43,12 @@ export function useCalendar(deps: UseCalendarDeps) {
   let calDragId: string | null = null
   let calDragKind: 'task' | 'todo' | 'log' = 'task'
 
-  // ── 格子内事件折叠（2026-09-29 用户选「改法 A」）──────────────────────────
-  // 035 卡的原话是「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
+  // ── 格子内事件折叠（2026-09-29 用户选“改法 A”）──────────────────────────
+  // 035 卡的原话是“看起来很密集很让人畏惧”。底部那排横条墙上一轮已收成一行摘要，
   // 剩下的密在**格子内部**：某天挂 5 条，格子里就是 5 根横条在抢同一份注意力。
-  // 口径：最多 2 条 + 「+N 条」，点它**就地展开**（不跳页、不弹窗），再点收起。
+  // 口径：最多 2 条 + “+N 条”，点它**就地展开**（不跳页、不弹窗），再点收起。
   // ⚠ 跨天的时间段任务（span !== 'only'）不参与折叠 —— 折了会把连续色带切成断头。
-  // 2026-10-12：把上限值播给 e2e —— 断言原先自己写死「2」，改上限时两边会静默分叉。
+  // 2026-10-12：把上限值播给 e2e —— 断言原先自己写死“2”，改上限时两边会静默分叉。
   try { (globalThis as any).__fcCalCellCap = CAL_CELL_LIMIT } catch { /* 沙箱里没有也无妨 */ }
   const calExpandedDays = ref<string[]>([])
   const calCellKey = (cell: any): string => `${calYear.value}-${calMonth.value}-${cell.day}`
@@ -140,7 +140,7 @@ export function useCalendar(deps: UseCalendarDeps) {
   const calUnscheduled = computed(() => calMonthData.value.unscheduled)
   const calOtherMonths = computed(() => calMonthData.value.otherMonths)
   const calOtherTotal = computed(() => calMonthData.value.otherTotal)
-  // 2026-09-25（用户第 10 条）：「日历下方的横条很密集很让人畏惧」——底部两排 chip 一多
+  // 2026-09-25（用户第 10 条）：“日历下方的横条很密集很让人畏惧”——底部两排 chip 一多
   // 就是一片横条墙。默认收起，只留一行摘要，点开才铺开。
   const calBottomOpen = ref(false)
 
@@ -178,7 +178,7 @@ export function useCalendar(deps: UseCalendarDeps) {
     calMonthData, calCells, calUnscheduled, calOtherMonths, calOtherTotal, calBottomOpen,
     prioColor,
     onCalDragStart, takeDrag,
-    // 这两个给 App.vue 的「指派时间」弹窗用（弹窗没搬，它需要同一套日期解析）
+    // 这两个给 App.vue 的“指派时间”弹窗用（弹窗没搬，它需要同一套日期解析）
     calISO, pad2,
   }
 }

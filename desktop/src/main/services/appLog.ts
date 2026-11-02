@@ -173,7 +173,7 @@ export function installProcessHandlers(): void {
 }
 
 /**
- * 清理旧日志（2026-10-17 暮雨第 5 条：「我只看得懂日志越堆越多，但没有任何清理机制」）。
+ * 清理旧日志（2026-10-17 暮雨第 5 条：“我只看得懂日志越堆越多，但没有任何清理机制”）。
  *
  * 口径：
  *   · `days > 0` → 删掉 mtime 早于 N 天前的 `fangcun-YYYYMMDD.log`；

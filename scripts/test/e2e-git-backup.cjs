@@ -5,14 +5,14 @@
  * 真跑**编译产物** `dist/main/backup/gitBackupPure.js`（纯逻辑，不要 electron / 不要 git → 本机可跑）。
  *
  * ⚠ 2026-10-11 用户第 1 条之后：通道语义从"推备份 zip"改成**把真实文件镜像进仓库**
- *   （用户原话：「全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？」）。
+ *   （用户原话：“全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？”）。
  *   所以除了安全红线，这里还钉住"仓库里是 .md 而不是 .zip""改一行能在历史里看见""删文件会跟着删"。
  *
  * 这里盯的不是"能不能推上去"（那要真仓库真令牌才知道），而是**四条安全红线**：
  *   ① 令牌**不进 argv** —— `ps` 看不到；
  *   ② 回渲染层 / 落日志的文本**必须脱敏** —— git 报错会原样回显带令牌的 URL；
  *   ③ 缺凭证**立刻失败**（GIT_TERMINAL_PROMPT=0）—— GUI 里挂死就是"点了没反应"；
- *   ④ 「令牌被拒」与「没找到凭据」**必须分开报** —— 指引相反（换令牌 vs 填令牌）。
+ *   ④ “令牌被拒”与“没找到凭据”**必须分开报** —— 指引相反（换令牌 vs 填令牌）。
  *
  * 运行：node scripts/test/e2e-git-backup.cjs
  */
@@ -91,8 +91,8 @@ check('  非字符串值被丢掉（process.env 里可能有 undefined）',
 // ── ④ 错误分类：被拒 vs 没凭据（指引相反）────────────────────────────
 const rejected = analyzeGitError('remote: Invalid username or password.\nfatal: Authentication failed for ...')
 const noCred = analyzeGitError('fatal: could not read Username for \'https://github.com\': terminal prompts disabled')
-check('★ 红线④：「认证失败」判为 auth-rejected', rejected.kind === 'auth-rejected', rejected.kind)
-check('★ 红线④：「读不到用户名 / prompts disabled」判为 no-credential', noCred.kind === 'no-credential', noCred.kind)
+check('★ 红线④：“认证失败”判为 auth-rejected', rejected.kind === 'auth-rejected', rejected.kind)
+check('★ 红线④：“读不到用户名 / prompts disabled”判为 no-credential', noCred.kind === 'no-credential', noCred.kind)
 check('★★ 两条的 kind **必须不同**（司天旧实现混为一谈，把"权限不足"也说成"去填令牌"）',
   rejected.kind !== noCred.kind)
 check('★ 两条给人看的话也不一样，且各自指向正确动作',
@@ -115,7 +115,7 @@ check('  错误信息里不留令牌（analyzeGitError 自己也该脱敏？—�
 // ── ⑤-b 2026-10-11 真机实测捕获的原文（老版本认不出、直接落到"未能识别"）──────
 // 这两段是**真跑 git 抓下来的原话**，不是我编的。
 const REAL_EMPTY_LSREMOTE = { text: '', code: 2 }
-check('★★ 空仓库：`ls-remote --exit-code` 实测是「退出码 2 + 一个字都不吐」——'
+check('★★ 空仓库：`ls-remote --exit-code` 实测是“退出码 2 + 一个字都不吐”——'
   + '老版本把这种翻成"推送失败（原因未能自动识别）"，用户当场懵',
   analyzeGitError(REAL_EMPTY_LSREMOTE.text, REAL_EMPTY_LSREMOTE.code).kind === 'no-output',
   analyzeGitError(REAL_EMPTY_LSREMOTE.text, REAL_EMPTY_LSREMOTE.code).kind)
@@ -140,7 +140,7 @@ check('  非快进 / updates were rejected 等其它写法也认',
   isPushRejected('hint: Updates were rejected because the tip of your current branch is behind')
   && isPushRejected('! [rejected]        main -> main (non-fast-forward)'))
 
-check('  真 GitHub 原文「Repository not found」+「Authentication failed」→ auth-rejected'
+check('  真 GitHub 原文“Repository not found”+“Authentication failed”→ auth-rejected'
   + '（注意：无权限时 GitHub 故意谎报"不存在"，所以**先判认证失败**再判不存在，顺序不能反）',
   analyzeGitError('remote: Repository not found.\nfatal: Authentication failed for \'https://github.com/a/b.git/\'').kind === 'auth-rejected')
 check('  找不到 git 可执行文件单独一类（给"装一个"的指引，而不是"未能识别"）',
@@ -170,7 +170,7 @@ check('★★ 渲染层：Git 失败信息要同时认 `message` 与 `error` 两
   + '（静默失败，用户最恨的那类）',
   /r\?\.message \|\| r\?\.error \|\| '测试没有返回结果'/.test(APPSRC)
   && /r\?\.message \|\| r\?\.error \|\| '同步没有返回结果'/.test(APPSRC))
-check('★★ 渲染层：Git 按钮说的是「同步到仓库」而不是「推送最新备份」，并且**不传 zip 路径** ——'
+check('★★ 渲染层：Git 按钮说的是“同步到仓库”而不是“推送最新备份”，并且**不传 zip 路径** ——'
   + '用户第 1 条：推的是真实文件，不是压缩包',
   /同步到仓库/.test(APPSRC) && !/推送最新备份/.test(APPSRC)
   && !/backupGitPush\(\s*[^)\s]/.test(APPSRC))
@@ -293,7 +293,7 @@ async function integrate() {
 }
 
 /**
- * ⑦ 执行器本体（`gitBackup.ts`）—— 这一段才算真把「点一下按钮」走通。
+ * ⑦ 执行器本体（`gitBackup.ts`）—— 这一段才算真把“点一下按钮”走通。
  * 复用项目现成的 electron 桩（`electron-stub.cjs`），userData 指向临时目录，
  * 于是 clone 的工作副本、配置、凭据、数据目录全落在临时目录里，跑完就删。
  *
@@ -332,7 +332,7 @@ async function integrateExecutor() {
 
     // ① 没填地址时的提示必须指向"先保存"，不能是笼统的"还没填"
     const t0 = await gb.gitTestRemote()
-    check('★ 执行器：地址为空时，提示要指路（含「保存」二字）—— 老文案「还没填仓库地址」'
+    check('★ 执行器：地址为空时，提示要指路（含“保存”二字）—— 老文案“还没填仓库地址”'
       + '会让明明填了、只是没保存的人以为软件坏了',
       t0.ok === false && t0.message.indexOf('保存') >= 0, t0.message)
 
@@ -349,9 +349,9 @@ async function integrateExecutor() {
     check('  凭据落盘文件里**不含明文令牌**', fs.readFileSync(path.join(tmpUserData, 'git-credentials.json'), 'utf-8').indexOf('TESTTOKEN-REDACT-ME-0001') < 0)
     gb.saveGitConfig({ remote: bare, branch: 'main' })
 
-    // ② 用户那个现场：**空仓库**上点「测试连接」→ 必须是成功
+    // ② 用户那个现场：**空仓库**上点“测试连接”→ 必须是成功
     const t1 = await gb.gitTestRemote()
-    check('★★ 执行器：空仓库上「测试连接」→ **成功**（这就是用户报的"填了地址说失败"那一处）',
+    check('★★ 执行器：空仓库上“测试连接”→ **成功**（这就是用户报的"填了地址说失败"那一处）',
       t1.ok === true, JSON.stringify(t1))
     check('  而且话里说明白"仓库还是空的，第一次推送会建分支"（不是含糊的"连上了"）',
       t1.message.indexOf('空') >= 0, t1.message)
@@ -432,7 +432,7 @@ async function integrateExecutor() {
 
     // ⑦ 源码守卫：执行器里**不许**再有"把 zip 拷进工作副本"的写法（用户第 1 条就是这条回归）
     const GBSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'backup', 'gitBackup.ts'), 'utf-8')
-    check('★★ 源码守卫：gitBackup.ts 里不许再出现「copyFileSync(zipPath」这种推压缩包的写法',
+    check('★★ 源码守卫：gitBackup.ts 里不许再出现“copyFileSync(zipPath”这种推压缩包的写法',
       !/copyFileSync\(\s*zipPath/.test(GBSRC) && !/gitPushPackage/.test(GBSRC))
     check('★ 源码守卫：执行器必须走镜像（mirrorInto）+ 共用备份范围（scopeSources / planSnapshot）',
       /function mirrorInto/.test(GBSRC) && /scopeSources\(\)/.test(GBSRC) && /planSnapshot\(/.test(GBSRC))

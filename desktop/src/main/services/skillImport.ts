@@ -1,16 +1,16 @@
 /**
- * Fangcun Desktop — 技能「直接导入」（2026-09-26 卡 005）
+ * Fangcun Desktop — 技能“直接导入”（2026-09-26 卡 005）
  *
  * 用户给的参照是 WorkBuddy 的导入面板，原话：
- *   「拖拽文件或点击上传 / 文件要求：文件夹或者 .zip 需要包含 SKILL.md 文件；
- *     .md 文件需包含 YAML 格式的技能名称和描述」
+ *   “拖拽文件或点击上传 / 文件要求：文件夹或者 .zip 需要包含 SKILL.md 文件；
+ *     .md 文件需包含 YAML 格式的技能名称和描述”
  *
  * 三条边界（定这条实现的原因）：
  *  1. 只认 Hermes 技能目录 `~/.hermes/skills/<name>/` —— 与自发布技能同一处，导入完就能用，
  *     不另造一个"方寸自己的技能库"（那会变成第二个真相源）。
  *  2. **绝不写进 `skills/manifest.json`**。那是方寸自发布技能的账本，混进外部技能会让
- *     「有更新 / 已装最新」的判断全乱。外部导入靠目录里的标记文件 `.fangcun-imported.json`
- *     记账，这个标记同时也是「移除」的安全闸门（没有标记的目录一律不删）。
+ *     “有更新 / 已装最新”的判断全乱。外部导入靠目录里的标记文件 `.fangcun-imported.json`
+ *     记账，这个标记同时也是“移除”的安全闸门（没有标记的目录一律不删）。
  *  3. **校验先做，失败零写入**：zip 解压复用备份模块的手写解压器（自带 CRC 校验 + 防目录穿越），
  *     解压进临时目录 → 校验通过才往技能目录里搬，且用 rename 落位（同盘原子）。
  */
@@ -65,7 +65,7 @@ function normalizeSkillName(raw: unknown): string {
     .slice(0, 64)
 }
 
-/** 解析 SKILL.md 的 YAML 头部 —— 用户的判据就是「.md 需包含 YAML 格式的技能名称和描述」 */
+/** 解析 SKILL.md 的 YAML 头部 —— 用户的判据就是“.md 需包含 YAML 格式的技能名称和描述” */
 function parseSkillMeta(text: string): { name: string; description: string; version: string } | null {
   const m = /^\uFEFF?\s*---\r?\n([\s\S]*?)\r?\n---/.exec(text)
   if (!m) return null
@@ -260,9 +260,9 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
       return { ok: false, code: 'too-large', error: `解压后 ${(counts.bytes / 1048576).toFixed(1)} MB，超过 ${MAX_BYTES / 1048576} MB 上限` }
     }
 
-    // 自发布技能不许被外部导入覆盖：那是方寸自己的交付物，得走「⚡ 装到 Hermes」
+    // 自发布技能不许被外部导入覆盖：那是方寸自己的交付物，得走“⚡ 装到 Hermes”
     if (getPublishedSkillIds().has(meta.name)) {
-      return { ok: false, code: 'reserved', name: meta.name, error: `「${meta.name}」是方寸自发布技能，请用「⚡ 装到 Hermes」更新它` }
+      return { ok: false, code: 'reserved', name: meta.name, error: `“${meta.name}”是方寸自发布技能，请用“⚡ 装到 Hermes”更新它` }
     }
 
     const target = path.join(hermesDir, meta.name)
@@ -276,7 +276,7 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
         target,
         files: counts.files,
         bytes: counts.bytes,
-        error: `「${meta.name}」已经存在`,
+        error: `“${meta.name}”已经存在`,
       }
     }
 
@@ -328,12 +328,12 @@ export function removeImportedSkill(name: string): { ok: boolean; error?: string
     return { ok: false, error: '技能名不合法' }
   }
   if (getPublishedSkillIds().has(clean)) {
-    return { ok: false, error: `「${clean}」是方寸自发布技能，不能用移除（请到技能目录手动处理）` }
+    return { ok: false, error: `“${clean}”是方寸自发布技能，不能用移除（请到技能目录手动处理）` }
   }
   const dir = path.join(getHermesSkillsDirPath(), clean)
   if (!fs.existsSync(dir)) return { ok: false, error: `找不到 ${dir}` }
   if (!readImportMarker(dir)) {
-    return { ok: false, error: `「${clean}」不是方寸导入的技能（没有导入标记），拒绝删除` }
+    return { ok: false, error: `“${clean}”不是方寸导入的技能（没有导入标记），拒绝删除` }
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true })

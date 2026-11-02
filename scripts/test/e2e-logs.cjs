@@ -2,9 +2,9 @@
  * 执行日志 端到端测试（2026-09-22）
  *
  * 覆盖用户报障：
- *  - 「日志根本无法改所选项目」：`updateLog` 原来只接受 title/content/nextSteps，
+ *  - “日志根本无法改所选项目”：`updateLog` 原来只接受 title/content/nextSteps，
  *    project 与 taskId 被**静默丢弃** —— 界面提示"已更新"，重开还是老项目。
- *  - 「清理超期」的语义：只把 completed 且过保留期的日志标 archived，**不删文件**。
+ *  - “清理超期”的语义：只把 completed 且过保留期的日志标 archived，**不删文件**。
  *
  * 运行：node scripts/test/e2e-logs.cjs
  */
@@ -86,13 +86,13 @@ function main() {
   check('下一步可改', u2.nextSteps === '下一步', u2.nextSteps)
 
   // ── 5. 已归档 / 已完成的日志也能改正文（2026-10-18 暮雨第 2 条修正口径）──────
-  // 旧口径是「非 active 拒改」。它与界面自相矛盾：日志卡与非 active 日志的编辑弹窗
-  // **一直有「✏️ 编辑」**，用户改完点保存才吃到拒绝，只能复制出来新建一条。
+  // 旧口径是“非 active 拒改”。它与界面自相矛盾：日志卡与非 active 日志的编辑弹窗
+  // **一直有“✏️ 编辑”**，用户改完点保存才吃到拒绝，只能复制出来新建一条。
   // 新口径 = 能改 + 留痕（edited 戳）+ 生命周期字段改不到。
   const b = logs.createLog('日志B', 'demo', '内容B').data
   logs.archiveLog(b.id)
   const bUpd = logs.updateLog(b.id, { project: 'nf', content: '内容B改' })
-  check('★ 已归档日志可以改（不再「点编辑、保存才被拒」）', bUpd.ok === true, JSON.stringify(bUpd))
+  check('★ 已归档日志可以改（不再“点编辑、保存才被拒”）', bUpd.ok === true, JSON.stringify(bUpd))
   check('★ 改动真落盘', logs.getLog(b.id).content === '内容B改', logs.getLog(b.id).content)
   check('★ 改正文会落 edited 戳', !!logs.getLog(b.id).edited, String(logs.getLog(b.id).edited))
   const bFile = fs.readFileSync(path.join(LOGS_DIR, `${b.id}.md`), 'utf-8')
@@ -111,10 +111,10 @@ function main() {
     JSON.stringify({ c: logs.getLog(mdl.id).completed, u: logs.getLog(mdl.id).retainUntil }))
   const metaLog = logs.createLog('日志Z', 'demo', 'z').data
   logs.updateLog(metaLog.id, { project: 'nf' })
-  check('★ 只改项目这类元数据不点亮「改过」（否则戳天天亮着，等于没信息）',
+  check('★ 只改项目这类元数据不点亮“改过”（否则戳天天亮着，等于没信息）',
     !logs.getLog(metaLog.id).edited, String(logs.getLog(metaLog.id).edited))
 
-  // ── 5b. 撤回上一版（2026-10-18 暮雨第 1 条：「根本没有撤回选项」）──────────
+  // ── 5b. 撤回上一版（2026-10-18 暮雨第 1 条：“根本没有撤回选项”）──────────
   // 接的是 atomicWrite 本来就有的写前备份，不是新造一套撤销机制。
   const revLog = logs.createLog('日志R', 'demo', '第一版').data
   logs.updateLog(revLog.id, { content: '第二版' })
@@ -126,7 +126,7 @@ function main() {
   check('★ 撤回本身也留了备份（撤错了能再撤回来）', logs.listLogVersions(revLog.id).length > vsList.length,
     `${vsList.length} → ${logs.listLogVersions(revLog.id).length}`)
   const revAgain = logs.restorePreviousLogVersion(revLog.id)
-  check('★ 再撤一次 → 回到「第二版」（互为反悔）',
+  check('★ 再撤一次 → 回到“第二版”（互为反悔）',
     revAgain.ok === true && logs.getLog(revLog.id).content === '第二版', JSON.stringify({ ok: revAgain.ok, c: logs.getLog(revLog.id).content }))
   check('★ 不存在的日志撤回 → ok:false（不抛异常、不造文件）',
     logs.restorePreviousLogVersion('log_nope').ok === false && !fs.existsSync(path.join(LOGS_DIR, 'log_nope.md')))
@@ -219,10 +219,10 @@ function main() {
   check('logsForTask 空 id 返回空', logs.logsForTask('').length === 0)
   check('按标题搜到', logs.searchLogs('日志D').some(l => l.id === d.id))
 
-  // ── 7b. 搜索 = 筛选的一个维度（2026-10-01 用户第 3 条「日常卡点」）────────
+  // ── 7b. 搜索 = 筛选的一个维度（2026-10-01 用户第 3 条“日常卡点”）────────
   // 真因：界面此前有两条互不相干的取数路 —— 搜索走 searchLogs(query)（无视项目/
   // Agent/日期），筛选走 listLogs(filter)（无视搜索词）；完成/归档/改筛选任何一次
-  // loadLogs 都会把搜索结果整个冲掉，而框里的词还留着 → 用户看到「搜了又没了」。
+  // loadLogs 都会把搜索结果整个冲掉，而框里的词还留着 → 用户看到“搜了又没了”。
   // 现在搜索词就是 filter.query，只有一条取数路径，刷新不丢、筛选可叠加。
   const s1 = logs.createLog('搜索夹具·灰度', 'nf', '普通正文', undefined,
     { nextSteps: '把 Gray-Release 开到 30%' }).data
@@ -230,10 +230,10 @@ function main() {
   check('★ listLogs({query}) 按标题搜到',
     logs.listLogs({ query: '搜索夹具·灰度' }).some(l => l.id === s1.id),
     JSON.stringify(logs.listLogs({ query: '搜索夹具·灰度' }).map(l => l.id)))
-  check('★★ listLogs({query}) 能搜到「下一步」（searchLogs 从不查这一段）',
+  check('★★ listLogs({query}) 能搜到“下一步”（searchLogs 从不查这一段）',
     logs.listLogs({ query: 'gray-release 开到' }).some(l => l.id === s1.id),
     JSON.stringify(logs.listLogs({ query: 'gray-release' }).map(l => l.id)))
-  check('★★ 搜索与项目筛选可叠加（同一条取数路径，nf 下搜「夹具」只剩 nf 那条）', (() => {
+  check('★★ 搜索与项目筛选可叠加（同一条取数路径，nf 下搜“夹具”只剩 nf 那条）', (() => {
     const rows = logs.listLogs({ query: '夹具', project: 'nf' })
     return rows.length >= 1 && rows.every(l => l.project === 'nf') &&
       rows.some(l => l.id === s1.id) && !rows.some(l => l.id === s2.id)
@@ -317,14 +317,14 @@ function main() {
   // ── 8. taskId 兼容多种历史写法 ────────────────────────────────────
   fs.writeFileSync(path.join(LOGS_DIR, 'legacy-1.md'),
     '---\ntype: execution-log\nid: legacy-1\ntitle: 老写法\nproject: demo\nstatus: active\n关联任务: task-009\n---\n\n# 老写法\n\n## 执行内容\n\nx\n\n## 下一步\n\n（待填写）', 'utf-8')
-  check('兼容中文「关联任务」键', logs.getLog('legacy-1').taskId === 'task-009', String(logs.getLog('legacy-1').taskId))
+  check('兼容中文“关联任务”键', logs.getLog('legacy-1').taskId === 'task-009', String(logs.getLog('legacy-1').taskId))
   check('★ 老写法的单值也要被归一成 taskIds 数组',
     JSON.stringify(logs.getLog('legacy-1').taskIds) === JSON.stringify(['task-009']),
     JSON.stringify(logs.getLog('legacy-1').taskIds))
 
   // ── 9. 一条日志关联**多个**任务（2026-09-25 用户第 2 条）────────────
-  // 真因：文件里一直写的是 `tasks: [id]` 数组，代码却只读第一个 —— 于是「一条日志
-  // 影响多个任务」这件事在数据层被静默削成单值。下面把这四件事钉死。
+  // 真因：文件里一直写的是 `tasks: [id]` 数组，代码却只读第一个 —— 于是“一条日志
+  // 影响多个任务”这件事在数据层被静默削成单值。下面把这四件事钉死。
   const mRes = logs.createLog('多关联', 'demo', '内容M', undefined,
     { taskIds: ['task-m1', 'task-m2', 'task-m3'] })
   check('createLog 支持 taskIds 数组', mRes.ok === true, JSON.stringify(mRes.error))
@@ -367,14 +367,14 @@ function main() {
     JSON.stringify(logs.getLog(m.id).taskIds))
 
   // ── 10. 渲染层接线守卫（2026-09-25 第 2/13 条）─────────────────────
-  // 数据层通了不等于界面通了 —— 上一轮「三层早通、UI 无入口」的坑（卡 022）就是这么来的。
+  // 数据层通了不等于界面通了 —— 上一轮“三层早通、UI 无入口”的坑（卡 022）就是这么来的。
   // ⚠ 2026-10-23：日志页已拆进 views/LogsView.vue（第 11 块），待办拆进 views/TodosView.vue。
-  //   这些「界面入口在不在」的断言从此扫**全部渲染层源码**，否则每拆一块就凭空红一批
+  //   这些“界面入口在不在”的断言从此扫**全部渲染层源码**，否则每拆一块就凭空红一批
   //   （见 _sources.cjs 头部）。
   const APP = require('./_sources.cjs').rendererSource()
   const IPC_SRC = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/ipc.ts'), 'utf-8')
 
-  // ── 10b. 搜索与筛选合流（2026-10-01 用户第 3 条「日常卡点」）─────────────
+  // ── 10b. 搜索与筛选合流（2026-10-01 用户第 3 条“日常卡点”）─────────────
   check('★★ 搜索词进 loadLogs 的 filter（只有一条取数路径），渲染层不再另调 logsSearch',
     /if \(q\) filter\.query = q/.test(APP) && !/window\.tegula\.logsSearch/.test(APP),
     'hasQuery=' + /if \(q\) filter\.query = q/.test(APP) + ' stillCalls=' + /window\.tegula\.logsSearch/.test(APP))
@@ -405,13 +405,13 @@ function main() {
   check('★★ 日志有排序下拉（此前只有"创建倒序"，连正序都翻不过来）',
     /v-model="logSort"/.test(APP) && /value="created_asc"/.test(APP) && /value="title_asc"/.test(APP))
   check('★ 排序偏好落盘（换会话/重启不回默认）', /fc_log_sort/.test(APP))
-  check('★ 待办补「优先级从高到低」「最近更新」两种排法',
+  check('★ 待办补“优先级从高到低”“最近更新”两种排法',
     /value="priority"/.test(APP) && /todoSort.value === 'priority'/.test(APP) &&
     /todoSort.value === 'updated'/.test(APP))
-  // ⚠ 2026-10-11：看板顶栏换成「方案 B · 条件标签化」后，排序选项从 `<option value="prio">`
+  // ⚠ 2026-10-11：看板顶栏换成“方案 B · 条件标签化”后，排序选项从 `<option value="prio">`
   // 变成 `SORT_OPTIONS` 里的 `{ v: 'prio', label: '优先级' }` —— 判据跟着改成 `v: 'prio'`，
   // 但**仍然要求它存在**（这条守的是"看板补过优先级排法"这件事本身）。
-  check('★ 看板补「优先级」排法（且走 localPriority 归一，high/高 同刻度）',
+  check('★ 看板补“优先级”排法（且走 localPriority 归一，high/高 同刻度）',
     /v: 'prio'/.test(APP) && /mode === 'prio'/.test(APP) && /localPriority/.test(APP))
   check('★ 日志编辑框是多选（checkbox 绑 taskIds），不再只有单选下拉',
     /v-model="logEdit_\.taskIds"/.test(APP) && !/v-model="logEdit_\.taskId"/.test(APP))
@@ -423,35 +423,35 @@ function main() {
     /logPreview\.value = \{ \.\.\.log \}/.test(APP) && /@click="openLog\(log\)"/.test(APP))
 
   // ── 11. 日志状态模型（2026-09-26 卡 022 → 2026-09-28 用户第 2 条重做）────
-  // 用户原话：「日志还是一创建就是进行中，导致我日志依然混乱，分不清哪些没跑、
+  // 用户原话：“日志还是一创建就是进行中，导致我日志依然混乱，分不清哪些没跑、
   //           哪些 Agent 正在跑、哪些跑完了。我需要"进行中"只能由手动开关打上，
-  //           且可以撤销（防止误操作），且不成为完成或归档的必要条件。」
-  // 真因：`active` 这个状态**创建时就自动打上**，而它的中文显示是「进行中」——
+  //           且可以撤销（防止误操作），且不成为完成或归档的必要条件。”
+  // 真因：`active` 这个状态**创建时就自动打上**，而它的中文显示是“进行中”——
   //       于是"默认态"和"正在跑"共用一个词。现在拆开：
   //         status: active = 待处理（默认）；running: true = 进行中（只能手动开）
   const r1 = logs.createLog('打回1', 'demo', 'x').data
-  check('★ 新建日志不再自动是「进行中」（既不是 running，也不是靠 status 冒充）',
+  check('★ 新建日志不再自动是“进行中”（既不是 running，也不是靠 status 冒充）',
     logs.getLog(r1.id).running !== true && logs.getLog(r1.id).status === 'active',
     JSON.stringify({ s: logs.getLog(r1.id).status, r: logs.getLog(r1.id).running }))
   check('★ 新建日志文件里**不写** running 字段（不凭空多出字段）',
     !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
 
-  // 手动开 / 关「进行中」
+  // 手动开 / 关“进行中”
   const sr1 = logs.setLogRunning(r1.id, true)
   check('★ setLogRunning(true) 写回成功', sr1 && sr1.ok === true, JSON.stringify(sr1))
   check('★ 读回来 running === true（往返保真）', logs.getLog(r1.id).running === true)
   check('★ 文件里真的落了 running: true',
     /^running: true$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
-  check('★ 「进行中」能被筛选捞出（按 running，不再按 status）',
+  check('★ “进行中”能被筛选捞出（按 running，不再按 status）',
     logs.listLogs({ running: true }).some(l => l.id === r1.id))
   const sr0 = logs.setLogRunning(r1.id, false)
-  check('★ 可撤销：setLogRunning(false) 把它放回「待处理」',
+  check('★ 可撤销：setLogRunning(false) 把它放回“待处理”',
     sr0 && sr0.ok === true && logs.getLog(r1.id).running !== true, JSON.stringify(sr0))
   check('★ 撤销后字段从文件里消失（不留 running: false 垃圾）',
     !/running/.test(fs.readFileSync(path.join(LOGS_DIR, `${r1.id}.md`), 'utf-8')))
   check('  不存在的 id 返回 ok:false（不抛）', logs.setLogRunning('不存在', true).ok === false)
 
-  // ── 11b. 日志不再是签字对象（2026-11-01 暮雨：「该进任务看板的待验收」）────
+  // ── 11b. 日志不再是签字对象（2026-11-01 暮雨：“该进任务看板的待验收”）────
   // 收口属于任务卡；日志只记过程。所以 request_close / agent_done 这套彻底删掉，
   // 历史文件里的 agent_done 读取时忽略、下一次写回自然消失（不做迁移、不留双状态）。
   check('★★ 日志服务不再导出 requestLogClose / cancelLogClose（连入口一起删）',
@@ -472,7 +472,7 @@ function main() {
     'retain_days: null', 'retain_until: null', 'tags: []', 'tasks: []', 'agent_done: true',
     '---', '', '# 历史收口标记', '', '## 执行内容', '', 'x', '', '## 下一步', '', 'y',
   ].join('\n'), 'utf-8')
-  check('★★ 历史 agent_done 读取时忽略（界面不该再出现「等你确认」）',
+  check('★★ 历史 agent_done 读取时忽略（界面不该再出现“等你确认”）',
     logs.getLog(legacyId) && logs.getLog(legacyId).agentDone === undefined)
   const legacyUpd = logs.updateLog(legacyId, { content: 'z' })
   check('★ 下一次写回把历史 agent_done 清掉（不做迁移、不留双状态）',
@@ -480,29 +480,29 @@ function main() {
     JSON.stringify({ ok: legacyUpd.ok, err: legacyUpd.error,
       bad: fs.readFileSync(legacyPath, 'utf-8').split('\n').filter((l) => /^agent_done\s*:/.test(l)) }))
 
-  // 源码守卫：防止「日志收口」这套回潮（注释里解释可以，代码里不许再有）
+  // 源码守卫：防止“日志收口”这套回潮（注释里解释可以，代码里不许再有）
   const LOGS_SRC_NC = require('./_sources.cjs').stripComments(
     fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/services/logs.ts'), 'utf-8'))
   check('★★ 日志服务源码里没有 agent_done / requestLogClose（防止回潮）',
     !/agent_done|agentDone|requestLogClose|cancelLogClose/.test(LOGS_SRC_NC))
 
-  // 「进行中」不是完成/归档的前置条件
+  // “进行中”不是完成/归档的前置条件
   const r2 = logs.createLog('直接的完成', 'demo', 'x').data
-  check('★ 「待处理」状态直接完成，不被拒绝（进行中不是前置条件）',
+  check('★ “待处理”状态直接完成，不被拒绝（进行中不是前置条件）',
     logs.completeLog(r2.id, 7, '直接完成').ok === true && logs.getLog(r2.id).status === 'completed')
   const r3 = logs.createLog('直接的归档', 'demo', 'x').data
-  check('★ 「待处理」状态直接归档，不被拒绝',
+  check('★ “待处理”状态直接归档，不被拒绝',
     logs.archiveLog(r3.id).ok === true && logs.getLog(r3.id).status === 'archived')
-  check('  归档幂等：再点一次仍是 ok，不报「日志已归档」',
+  check('  归档幂等：再点一次仍是 ok，不报“日志已归档”',
     logs.archiveLog(r3.id).ok === true)
-  check('★ 完成时顺手关掉「进行中」（不会同时显示已完成 + 进行中）', (() => {
+  check('★ 完成时顺手关掉“进行中”（不会同时显示已完成 + 进行中）', (() => {
     const r = logs.createLog('先跑再完成', 'demo', 'x').data
     logs.setLogRunning(r.id, true)
     logs.completeLog(r.id, 7)
     return logs.getLog(r.id).running !== true && logs.getLog(r.id).status === 'completed'
   })())
 
-  // 撤销：退回「待处理」，**而不是**自动变成「进行中」
+  // 撤销：退回“待处理”，**而不是**自动变成“进行中”
   const r4 = logs.createLog('撤销我', 'demo', 'x').data
   logs.completeLog(r4.id, 30, '做完')
   check('前置：这条已完成且带保留期',
@@ -510,10 +510,10 @@ function main() {
   const rp1 = logs.reopenLog(r4.id)
   check('★ 已完成的日志能撤销', rp1.ok === true, JSON.stringify(rp1.error))
   const r4After = logs.getLog(r4.id)
-  check('★ 撤销后状态回到 active（显示为「待处理」）', r4After.status === 'active', r4After.status)
-  check('★ 撤销**不会**顺手把人标成「进行中」（那是上一版的坑：撤销本身变成新的意外）',
+  check('★ 撤销后状态回到 active（显示为“待处理”）', r4After.status === 'active', r4After.status)
+  check('★ 撤销**不会**顺手把人标成“进行中”（那是上一版的坑：撤销本身变成新的意外）',
     r4After.running !== true, JSON.stringify(r4After.running))
-  check('★ 撤销顺手清掉「已完成 + 保留期」（不留下自相矛盾的字样）',
+  check('★ 撤销顺手清掉“已完成 + 保留期”（不留下自相矛盾的字样）',
     !r4After.completed && !r4After.retainUntil && !r4After.retainDays,
     JSON.stringify({ c: r4After.completed, u: r4After.retainUntil, d: r4After.retainDays }))
   check('★ 撤销后就能编辑了（updateLog 不再拒绝）',
@@ -528,9 +528,9 @@ function main() {
   check('撤销不存在的日志给可读原因',
     logs.reopenLog('nope-999').ok === false && /不存在/.test(logs.reopenLog('nope-999').error || ''),
     JSON.stringify(logs.reopenLog('nope-999')))
-  // ── 11c. 「进行中」撤销 = 退回**点它之前那一格**（2026-11-01 暮雨报障）──────
-  // 用户原话：「已完成的日志如果不小心误点进行中，再撤销就会变成待处理，而不是变成已完成。
-  //           不是应该撤到上一步吗？我甚至测了两遍。」
+  // ── 11c. “进行中”撤销 = 退回**点它之前那一格**（2026-11-01 暮雨报障）──────
+  // 用户原话：“已完成的日志如果不小心误点进行中，再撤销就会变成待处理，而不是变成已完成。
+  //           不是应该撤到上一步吗？我甚至测了两遍。”
   // 真因：开跑时把 completed / 保留期一起清了，关闭时没有"上一步"可回。
   // 现在的口径：开跑记 running_from，关闭原样退回去；普通待处理日志不受影响。
   const rf = logs.createLog('误点进行中', 'demo', 'x').data
@@ -541,7 +541,7 @@ function main() {
     logs.getLog(rf.id).status === 'completed' && !!rfCompletedAt && !!rfRetainUntil)
   logs.setLogRunning(rf.id, true)
   const rfOn = logs.getLog(rf.id)
-  check('★ 已完成日志点「进行中」→ 卡面只显示进行中（status=active + running）',
+  check('★ 已完成日志点“进行中”→ 卡面只显示进行中（status=active + running）',
     rfOn.status === 'active' && rfOn.running === true, JSON.stringify({ s: rfOn.status, r: rfOn.running }))
   check('★ 完成时间 / 保留期**不被抹掉**（它们是退回"已完成"的证据）',
     rfOn.completed === rfCompletedAt && rfOn.retainUntil === rfRetainUntil,
@@ -550,7 +550,7 @@ function main() {
     /^running_from: completed$/m.test(fs.readFileSync(path.join(LOGS_DIR, `${rf.id}.md`), 'utf-8')))
   const rfOff = logs.setLogRunning(rf.id, false)
   const rfBack = logs.getLog(rf.id)
-  check('★★ 撤销「进行中」回到「已完成」（不是待处理）—— 这就是用户报的那条',
+  check('★★ 撤销“进行中”回到“已完成”（不是待处理）—— 这就是用户报的那条',
     rfOff.ok === true && rfBack.status === 'completed' && rfBack.running !== true,
     JSON.stringify({ ok: rfOff.ok, s: rfBack.status, r: rfBack.running }))
   check('★ 回到已完成后，完成时间原样还在', rfBack.completed === rfCompletedAt)
@@ -561,10 +561,10 @@ function main() {
   logs.archiveLog(rg.id)
   logs.setLogRunning(rg.id, true)
   logs.setLogRunning(rg.id, false)
-  check('★ 从「已归档」点开的进行中，撤销后回到「已归档」',
+  check('★ 从“已归档”点开的进行中，撤销后回到“已归档”',
     logs.getLog(rg.id).status === 'archived', logs.getLog(rg.id).status)
 
-  // 反例：普通「待处理」日志开/关仍是待处理 —— 记忆机制不许把别的东西带跑
+  // 反例：普通“待处理”日志开/关仍是待处理 —— 记忆机制不许把别的东西带跑
   const rh = logs.createLog('普通开关', 'demo', 'x').data
   logs.setLogRunning(rh.id, true)
   logs.setLogRunning(rh.id, false)
@@ -573,12 +573,12 @@ function main() {
   check('★ 反例：普通开关不在文件里留 running_from',
     !/running_from/.test(fs.readFileSync(path.join(LOGS_DIR, `${rh.id}.md`), 'utf-8')))
 
-  // 明确的「撤销完成」仍按原语义退回待处理，并且把"进行中记忆"清干净
+  // 明确的“撤销完成”仍按原语义退回待处理，并且把"进行中记忆"清干净
   const ri = logs.createLog('撤销完成仍回待处理', 'demo', 'x').data
   logs.completeLog(ri.id, 7)
   logs.setLogRunning(ri.id, true)
   logs.reopenLog(ri.id)
-  check('★ 「撤销完成」仍是明确动作：退回待处理，不被进行中记忆干扰',
+  check('★ “撤销完成”仍是明确动作：退回待处理，不被进行中记忆干扰',
     logs.getLog(ri.id).status === 'active' && !logs.getLog(ri.id).runningFrom)
 
   // 撤销快照也必须带上 runningFrom —— 否则从"撤销条"退回时会再次丢掉上一格
@@ -590,7 +590,7 @@ function main() {
     rjSnap.runningFrom === 'completed', JSON.stringify(rjSnap))
   logs.setLogRunning(rj.id, false)
   logs.restoreLogState(rj.id, rjSnap)
-  check('★ 快照还原后仍是「进行中 + 来源=已完成」',
+  check('★ 快照还原后仍是“进行中 + 来源=已完成”',
     logs.getLog(rj.id).status === 'active' && logs.getLog(rj.id).runningFrom === 'completed',
     JSON.stringify({ s: logs.getLog(rj.id).status, f: logs.getLog(rj.id).runningFrom }))
 
@@ -599,9 +599,9 @@ function main() {
   // 2026-10-30：全局样式已外置到 styles/app.css（拆分第八刀），
   // 读 App.vue 找不到 `.log-card.running` / `:is(#relay-modal…)` —— 不是产品坏了，是判据路径旧了。
   const CSS = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/styles/app.css'), 'utf-8')
-  check('★ 日志卡有「进行中」手动开关（模板按钮 + 函数都在）',
+  check('★ 日志卡有“进行中”手动开关（模板按钮 + 函数都在）',
     /toggleLogRunning\(log\)/.test(APP) && /async function toggleLogRunning/.test(APP))
-  // 2026-11-01：日志不再是签字对象 —— 界面上不许再出现「等你确认」这套
+  // 2026-11-01：日志不再是签字对象 —— 界面上不许再出现“等你确认”这套
   // ⚠ 模板注释（<!-- -->）也要剥掉：它不渲染，但会把判据撞红（假失败）
   const APP_NC = require('./_sources.cjs').rendererNoComment().replace(/<!--[\s\S]*?-->/g, '')
   check('★★ 界面不再有日志收口标记（等你确认 / agentDone）',
@@ -609,20 +609,20 @@ function main() {
     (APP_NC.match(/等你确认|agentDone/g) || []).join(' | '))
   check('★ 开关走的是新通道 logs:setRunning（preload 也暴露了）',
     /window\.tegula\.logsSetRunning\(log\.id, next\)/.test(APP) && /logsSetRunning: \(id: string, running: boolean\) => ipcRenderer\.invoke\('logs:setRunning'/.test(PRELOAD))
-  // 2026-11-01：撤销「进行中」要说清"退回哪一格"，不许再写死「待处理」
-  check('★ 撤销「进行中」的提示按返回状态说话（已完成 / 已归档 / 待处理），不是写死"待处理"',
+  // 2026-11-01：撤销“进行中”要说清"退回哪一格"，不许再写死“待处理”
+  check('★ 撤销“进行中”的提示按返回状态说话（已完成 / 已归档 / 待处理），不是写死"待处理"',
     /restoredStatusLabel\(r\.data\)/.test(APP) && /restoredStatusLabel\(back\?\.data\)/.test(APP)
     && /function restoredStatusLabel/.test(APP))
-  check('★ 卡面「撤销进行中」按钮的 title 也按 runningFrom 说话',
+  check('★ 卡面“撤销进行中”按钮的 title 也按 runningFrom 说话',
     /logRunningRestoreLabel\(log\)/.test(APP) && /logRunningRestoreLabel\(k\)/.test(APP)
     && /function logRunningRestoreLabel/.test(APP))
   check('★ 只有 running 的卡才有醒目卡面（修前是 active —— 而 active 是"每一条新建日志"的默认值）',
     /\.log-card\.running \{[\s\S]{0,240}linear-gradient/.test(CSS) && !/\.log-card\.active \{[\s\S]{0,240}linear-gradient/.test(CSS))
-  check('★ `active` 的中文显示是「待处理」，不再是「进行中」',
+  check('★ `active` 的中文显示是“待处理”，不再是“进行中”',
     /return \{ active: '待处理'/.test(APP))
-  check('★ 「完成」按钮不再要求先「进行中」（任何未完成/未归档都可用）',
+  check('★ “完成”按钮不再要求先“进行中”（任何未完成/未归档都可用）',
     /log\.status !== 'completed' && log\.status !== 'archived'[\s\S]{0,400}completeLogItem\(log\.id\)/.test(APP))
-  // ⚠ 2026-10-11 收窄：原判据是「整个 App.vue 里不许出现『全部状态』字样」——
+  // ⚠ 2026-10-11 收窄：原判据是“整个 App.vue 里不许出现『全部状态』字样”——
   //   而看板在 2026-10-10 按用户**明确要求**新增了自己的状态筛选（页头 .st-filter），
   //   于是这条被误伤成红（202/1）。用户第 5 条说的是**日志页**：状态由分区表达、不要下拉。
   //   所以把文本判据**限定在日志页工具栏那一块**（.logs-sticky → .logs-list 之间），
@@ -632,11 +632,11 @@ function main() {
     !/v-model="logStatusFilter"/.test(APP) && !/全部状态/.test(LOGS_TOOLBAR)
     && /groupedLogs/.test(APP) && /log-group-toggle/.test(APP),
     `toolbar 长度=${LOGS_TOOLBAR.length}（0 说明切片失效，守卫会假绿）`)
-  // ⚠ 2026-10-12：看板顶栏按暮雨圈选的「看与做分两层」重做后，**独立的状态触发按钮撤掉了**
-  //（功能收进「＋筛选」浮层，当前值由「生效中」标签承担）。所以判据从"页头有 .st-filter"
+  // ⚠ 2026-10-12：看板顶栏按暮雨圈选的“看与做分两层”重做后，**独立的状态触发按钮撤掉了**
+  //（功能收进“＋筛选”浮层，当前值由“生效中”标签承担）。所以判据从"页头有 .st-filter"
   // 改成"看板自己确实还留着状态筛选这件事" —— 锚点换成筛选浮层里的状态选项。
   // 这条守的始终是同一件事：**别把看板自己的筛选跟"日志页不许有状态下拉"混为一谈**。
-  check('  看板自己的状态筛选不受这条管（现位于「＋筛选」浮层内，2026-10-10 用户明确要的）',
+  check('  看板自己的状态筛选不受这条管（现位于“＋筛选”浮层内，2026-10-10 用户明确要的）',
     APP.indexOf('fbar-filter-btn') >= 0 && APP.indexOf("curStatus = s") >= 0)
 
   // ── 置顶（2026-09-26 卡 037）──────────────────────────────────────────
@@ -684,7 +684,7 @@ function main() {
 
   // ── 接力链（2026-09-29 第 3 条方案二）────────────────────────────────
   //   用户口径：不引入新实体 —— 只多一个字段 continues_from，链 = 沿它往回走的连通分量；
-  //   真实动作是「旧的收尾 + 新的开张」，合成一个对话框才不会漏做其中一件。
+  //   真实动作是“旧的收尾 + 新的开张”，合成一个对话框才不会漏做其中一件。
   {
     const lg = require(path.join(DIST, 'services/logs.js'))
     const logsDir = path.join(TEST_ROOT, 'docs', '执行日志')
@@ -818,7 +818,7 @@ function main() {
     // 渲染层接线守卫（静态）：数据层通了不等于界面有入口
     check('★★ 完成态日志卡有接力入口（⏭ 按钮 + openRelay 函数）',
       /从这里继续/.test(APP) && /function openRelay/.test(APP))
-    check('★★ 工具条有「分区｜按链」分段开关（默认分区，pref 落真身）',
+    check('★★ 工具条有“分区｜按链”分段开关（默认分区，pref 落真身）',
       /setLogsViewMode\('chain'\)/.test(APP) && /fc_logs_view_mode/.test(APP))
     check('★ 卡面有链标签 ⛓ 续自（可复制源 ID）', /续自/.test(APP) && /shortLogId/.test(APP))
     check('★ 按链 = 链头 + 竖轨，纯渲染层连通分量（不引入新实体）',
@@ -836,7 +836,7 @@ function main() {
     check('★★ 卡003：executeRelay 给 IPC 的 taskIds 必须展开成普通数组（裸响应式代理过 contextBridge 必抛 could not be cloned）',
       /taskIds: \[\.\.\.\(r\.taskIds \|\| \[\]\)\]/.test(APP) &&
       !/taskIds: r\.taskIds \|\| \[\]/.test(APP))
-    check('★★ 卡004a：接力对话框有「执行内容」可贴字段（此前只有下一步一个文本框）',
+    check('★★ 卡004a：接力对话框有“执行内容”可贴字段（此前只有下一步一个文本框）',
       /v-model="relay_\.content"/.test(APP) && /executeRelay[\s\S]{0,600}r\.content/.test(APP))
     // ⚠ 2026-10-11 用户第 3 条起：遮罩关闭手势由 `@click.self` 改为 `@mousedown.self`
     //   （拖选滑出弹窗会被 click 判定成"点了遮罩"而关掉整个对话框），断言同步跟进。
@@ -857,7 +857,7 @@ function main() {
     check('★★ 卡006c：脏检查覆盖全部字段（文本 + 下拉 + 勾选 + 出清开关），不只看有没有字',
       /function relayChanges/.test(APP) && /源归档开关/.test(APP) && /关联任务/.test(APP) &&
       /_init: null as any/.test(APP))
-    // ── 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：预填取消，改主动带入 ──
+    // ── 2026-10-02 用户“下一步依旧每次都直接挪用上次的输入结果”：预填取消，改主动带入 ──
     const OPENRELAY = APP.slice(APP.indexOf('function openRelay'), APP.indexOf('function bringSourceNextSteps'))
     check('★★ 20261002a：openRelay 不再预填源的下一步（默认留空）',
       OPENRELAY.indexOf('function openRelay') >= 0 && /nextSteps: ''/.test(OPENRELAY) &&
@@ -870,7 +870,7 @@ function main() {
       /本框已有内容，未覆盖/.test(APP) && /本来就是空的/.test(APP))
     check('★ 20261002d：带入或手写的内容仍透传落盘（executeRelay 传 r.nextSteps）',
       /executeRelay[\s\S]{0,900}nextSteps: r\.nextSteps/.test(APP))
-    check('★ 20261002e：界面不再宣称「下一步已带入」（旧预填文案清干净）',
+    check('★ 20261002e：界面不再宣称“下一步已带入”（旧预填文案清干净）',
       !/下一步已带入/.test(APP))
     // ── 2026-10-03 用户反馈1/2（卡 task-20261003-001/002）─────────────────
     check('★★ 反馈1：接力拆两字段（prevAgentName=上次 + agentName=本次），编辑框不再一字段两义',
@@ -928,7 +928,7 @@ function main() {
         readSrc('data/index.ts')))
   }
 
-  // ── 2026-10-13 暮雨第 2 条：按日期批量清理「已归档」日志（软删，不是硬删）────
+  // ── 2026-10-13 暮雨第 2 条：按日期批量清理“已归档”日志（软删，不是硬删）────
   //   与 destroyLog 的分工：那个逐条硬删（unlink）；这个按日期一把筛、移进 .trash 可恢复。
   {
     // 造 4 条：两条老归档（9-01 / 9-20）、一条"新"归档（10-05）、一条 active（9-01）
@@ -950,7 +950,7 @@ function main() {
     const fresh = mk('新归档', '2026-10-05T00:00:00.000Z', 'archived')
     const act = mk('待处理甲', '2026-09-01T00:00:00.000Z', 'active')
 
-    // ① dryRun：只报命中、绝不落盘（界面「预览命中」靠它）
+    // ① dryRun：只报命中、绝不落盘（界面“预览命中”靠它）
     const beforeList = logs.listLogs().map(l => l.id).sort().join(',')
     const dry = logs.purgeArchivedBefore('2026-10-01', { dryRun: true })
     check('★ 清理归档 dryRun：ok 且报出命中 2 条（9-01 / 9-20 两条老归档）',

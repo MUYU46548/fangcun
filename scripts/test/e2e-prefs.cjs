@@ -1,5 +1,5 @@
 /**
- * 回归：UI 偏好持久化（014，2026-09-25「执行 Agent 预设丢失」）
+ * 回归：UI 偏好持久化（014，2026-09-25“执行 Agent 预设丢失”）
  *
  * 症状：攒的执行 Agent 预设莫名清空。
  * 真因：预设只存 localStorage，而 localStorage 绑定**起源** ——
@@ -8,7 +8,7 @@
  *
  * 断言：
  *  A 存储层 —— 合并写入 / 原子替换 / 坏文件回退 / 键隔离
- *  B 生存性 —— 模拟「localStorage 被清空（换 origin）」后，真身仍读得到预设（这是本 bug 的要害）
+ *  B 生存性 —— 模拟“localStorage 被清空（换 origin）”后，真身仍读得到预设（这是本 bug 的要害）
  *  C 接线 —— IPC 通道、preload API、渲染层迁移与读缓存逻辑齐备（源码断言，防漂移）
  */
 const path = require('path')
@@ -67,10 +67,10 @@ function main() {
 
   // ══ B. 生存性：换 origin（localStorage 清空）不该丢预设 ═══════════════
   const before = JSON.stringify(prefs.getPref('fc_agent_presets'))
-  // 模拟渲染层侧「新 origin」：localStorage 是空的（新 origin 天然为空），只有主进程文件在
+  // 模拟渲染层侧“新 origin”：localStorage 是空的（新 origin 天然为空），只有主进程文件在
   check('B1 localStorage 被清空后，真身照样有值', JSON.stringify(prefs.getPref('fc_agent_presets')) === before,
     before)
-  // 换一个「新进程」重新 require（清模块缓存）→ 仍然读得到 = 不是内存里假活着
+  // 换一个“新进程”重新 require（清模块缓存）→ 仍然读得到 = 不是内存里假活着
   Object.keys(require.cache).filter(k => k.includes('services') && k.endsWith('prefs.js')).forEach(k => delete require.cache[k])
   const prefs2 = require(path.join(DIST, 'services', 'prefs.js'))
   check('B2 新进程重新加载后仍在（真的在磁盘上）',
@@ -79,7 +79,7 @@ function main() {
   // ══ C. 接线（源码断言，防漂移） ══════════════════════════════════════
   // ⚠ 换行符归一（2026-10-17）：本机 core.autocrlf=true，工作区文件是 CRLF，
   //   而下面的 `[\s\S]{0,N}` 是**按字符数**量的——CRLF 每行多一个 \r，同一段代码
-  //   在 CRLF 下会比 LF 长「行数」个字符，C6 的 400 阈值因此在本机假红
+  //   在 CRLF 下会比 LF 长“行数”个字符，C6 的 400 阈值因此在本机假红
   //   （云端 LF 全绿、本地常红＝没人看的断言）。归一到 LF 再扫，语义不变。
   const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf-8').replace(/\r\n/g, '\n')
   const ipcSrc = readSrc(path.join('main', 'ipc.ts'))
@@ -93,7 +93,7 @@ function main() {
   check('C3 preload 暴露 prefsGet', /prefsGet:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('prefs:get'\)/.test(preloadSrc))
   check('C4 preload 暴露 prefsSet', /prefsSet:\s*\(key: string, value: any\)\s*=>\s*ipcRenderer\.invoke\('prefs:set'/.test(preloadSrc))
   check('C5 渲染层有与主进程对齐的同步逻辑', /async function syncAgentPresets/.test(vueSrc) && /syncAgentPresets\(\)/.test(vueSrc))
-  // ⚠ 窗口 2026-10-31 由 400 放宽到 1500：onMounted 里先后加了「清空撤销栈」测试钩子
+  // ⚠ 窗口 2026-10-31 由 400 放宽到 1500：onMounted 里先后加了“清空撤销栈”测试钩子
   //   （带 try/catch 与说明注释）与通知焦点订阅，几十行说明把原窗口撑爆了。
   //   判据本身没变：**启动时**（onMounted 内）必须调用 syncAgentPresets。
   check('C6 启动时调用同步（onMounted 内）', /onMounted\(\(\) => \{[\s\S]{0,1500}syncAgentPresets\(\)/.test(vueSrc))
@@ -102,7 +102,7 @@ function main() {
     /cached && cached\.length[\s\S]{0,160}prefsSet\('fc_agent_presets', cached\)/.test(vueSrc))
 
   // ══ D. 硬件加速开关（2026-09-25 用户第 1/3/9 条的人工验证杠杆）════════
-  // 「点输入框光标不进去、要切到别的窗口再切回来才恢复」这条已经去掉了全部常驻实时
+  // “点输入框光标不进去、要切到别的窗口再切回来才恢复”这条已经去掉了全部常驻实时
   // 模糊合成层。若仍复发，剩下的只有合成器/核显驱动层 —— 所以给用户一个能自己翻的
   // 开关。这里钉死三件事：开关落盘、主进程真读、读的时机在 ready 之前且 userData 之后。
   prefs.setPref('fc_disable_gpu', true)
@@ -168,7 +168,7 @@ function main() {
   check('E13 ★ 排序真的被用上了（修前 sortMode 全代码零引用 —— 死控件）',
     /function applySortMode/.test(vueSrc) && /return applySortMode\(result\)/.test(vueSrc))
 
-  // E14/E15/E16 项目页签三摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
+  // E14/E15/E16 项目页签三摆法（2026-09-29 用户：“两种视图都要，做成用户可自选切换选项”）
   prefs.setPref('fc_pv_view', 'master')
   check('E14 项目页签摆法能写入真身并落盘',
     prefs.getPref('fc_pv_view') === 'master'
@@ -180,10 +180,10 @@ function main() {
     && /class="pvgrid" v-if="pvView === 'tiles'"/.test(vueSrc)
     && /class="ovgrid"/.test(vueSrc) && /class="pv-ms"/.test(vueSrc))
 
-  // E17 起：卡片墙「只看未完成」（2026-10-10，卡 20261010-003 追加的开关）
+  // E17 起：卡片墙“只看未完成”（2026-10-10，卡 20261010-003 追加的开关）
   // 与上面同一个 bug 类 —— 只写 localStorage 的偏好换 origin 就没了，必须走真身。
   prefs.setPref('fc_card_wall_open_only', true)
-  check('E17 卡片墙「只看未完成」能写入真身并落盘',
+  check('E17 卡片墙“只看未完成”能写入真身并落盘',
     prefs.getPref('fc_card_wall_open_only') === true
     && JSON.parse(fs.readFileSync(prefs.getPrefsPath(), 'utf-8')).fc_card_wall_open_only === true)
   check('E18 ★ syncBoardPrefs 白名单读它（只认布尔 —— prefs.json 是可以手改的）',
@@ -194,7 +194,7 @@ function main() {
     /const cardWallGroups = computed/.test(vueSrc) && /openOnly\(c\.tasks\)/.test(vueSrc))
 
   // ══ D. 多键一次写 + 回读校验 ════════════════════════════════════════
-  // 2026-10-05 用户实测「提示保存了但实际并未保存，每次重新勾选都被取消」：
+  // 2026-10-05 用户实测“提示保存了但实际并未保存，每次重新勾选都被取消”：
   //   prefs.json 里 `fc_trip_mode` / `fc_trip_criteria`（字符串）落了盘，
   //   而 `fc_trip_projects` / `fc_trip_cols`（数组）**根本没写进去** —— 界面照样弹"已保存"。
   //   修法：一次 IPC 写完多个键（合并读-改-写）+ **回读校验**，把"存住没有"变成可回答的问题。
@@ -226,8 +226,8 @@ function main() {
     (() => { try { const r = prefs.setPrefs(null); return !!r && r.ok === true } catch { return false } })())
   check('D7 ★ 渲染层写盘走 prefsSetMany，且**返回值必须明确成功**才算成功（旧包/通道没通也算失败）',
     /prefsSetMany/.test(vueSrc) && /res\.ok !== true/.test(vueSrc) && /设置没存住/.test(vueSrc))
-  // ⚠⚠ 2026-10-05 真凶（用户「所有项目都无法手动勾选，勾一下闪退一下」）：
-  //   渲染层把 **Vue 响应式代理**直接当 IPC 载荷 → contextBridge 在「页面→隔离世界」这一跳抛
+  // ⚠⚠ 2026-10-05 真凶（用户“所有项目都无法手动勾选，勾一下闪退一下”）：
+  //   渲染层把 **Vue 响应式代理**直接当 IPC 载荷 → contextBridge 在“页面→隔离世界”这一跳抛
   //   `An object could not be cloned` → 报文进不到 preload / 主进程（**主进程日志一个字都没有**）
   //   → 写盘从未成功 → loadTripBoard 判定"从没做过手动选择" → 兜底清空勾选 = 用户看到的"闪退"。
   //   同一根因 2026-09-25 踩过（启动台无法启动应用，修 6 次），当时**只给 launchpadLaunchApp 打了补丁**，
@@ -240,7 +240,7 @@ function main() {
   check('D12 ★ 渲染层写偏好不再绕过 saveUiPref 裸传响应式值',
     !/prefsSet\('fc_[a-z_]+', [a-zA-Z_]+\.value\)/.test(vueSrc),
     '裸传 .value 会被 contextBridge 拦下，表现为"存不住"')
-  // 防线自身的防线：假 preload 的「结构化克隆校验」不能被"简化"掉，
+  // 防线自身的防线：假 preload 的“结构化克隆校验”不能被"简化"掉，
   // 否则这类 bug 又会变成"真机必崩、测试全绿"。
   const preloadTestSrc = fs.readFileSync(path.resolve(__dirname, '../../desktop/test/renderer-preload.cjs'), 'utf-8')
   check('D13 ★ 假 preload 保留结构化克隆校验（真机语义：传 Proxy 即抛）',
@@ -248,7 +248,7 @@ function main() {
     && /cloneGuard\('prefsSetMany'/.test(preloadTestSrc))
   check('D8 preload 暴露 prefsSetMany + ipc.ts 注册 prefs:setMany',
     /prefsSetMany/.test(preloadSrc) && /prefs:setMany/.test(ipcSrc))
-  check('D9 ★ 一屏的空屏出口：手动模式下给「改回自动」（空屏不许是死局）',
+  check('D9 ★ 一屏的空屏出口：手动模式下给“改回自动”（空屏不许是死局）',
     /tripBackToAuto/.test(vueSrc) && /trip-empty-act/.test(vueSrc))
   check('D10 ★ 未进屏的项目按原因分开说（手动未勾 ≠ 没有未完结任务）',
     /tripHiddenNotPicked/.test(vueSrc) && /tripHiddenNoActivity/.test(vueSrc)

@@ -12,7 +12,7 @@
  *   · 所有 git 调用 `GIT_TERMINAL_PROMPT=0` —— 缺凭证**立刻失败**，不许挂死在那儿等人输密码
  *     （GUI 应用没有终端可输，挂死就是"点了没反应"）；
  *   · 回给渲染层 / 落日志的一切文本都过 `sanitizeGitOutput`；
- *   · 报错要**区分「令牌被拒」与「压根没找到凭据」** —— 这两者的指引完全相反
+ *   · 报错要**区分“令牌被拒”与“压根没找到凭据”** —— 这两者的指引完全相反
  *     （前者去换令牌，后者去填令牌）。司天旧实现把两者混为一谈，把"权限不足"也说成"去填令牌"。
  */
 
@@ -47,8 +47,8 @@ export function sanitizeGitOutput(text: unknown, token?: string | null): string 
  * 判据只认**真实出现过**的那几种输出形态（照抄司天踩过的坑 + 2026-10-11 真机实测捕获的原文）。
  *
  * @param code 进程退出码（可选）。**空输出 + 非零退出码**必须单独成一类 ——
- *   实测 `git ls-remote --exit-code <空仓库>` 就是「退出码 2、一个字都不吐」，
- *   老写法会落到「未能自动识别」，把用户吓一跳（其实是仓库还是空的，正常）。
+ *   实测 `git ls-remote --exit-code <空仓库>` 就是“退出码 2、一个字都不吐”，
+ *   老写法会落到“未能自动识别”，把用户吓一跳（其实是仓库还是空的，正常）。
  */
 export function analyzeGitError(text: unknown, code?: number): GitErrorInfo {
   const raw = String(text ?? '')
@@ -62,11 +62,11 @@ export function analyzeGitError(text: unknown, code?: number): GitErrorInfo {
   if (!s.trim()) {
     return {
       kind: 'no-output',
-      message: `git 没有返回任何信息（退出码 ${code ?? '未知'}）。多半是仓库还是空的、或者地址不通 —— 先用「测试连接」确认一次。`,
+      message: `git 没有返回任何信息（退出码 ${code ?? '未知'}）。多半是仓库还是空的、或者地址不通 —— 先用“测试连接”确认一次。`,
     }
   }
 
-  // 「压根没找到凭据」与「令牌被拒」必须分开 —— 指引相反
+  // “压根没找到凭据”与“令牌被拒”必须分开 —— 指引相反
   if (s.includes('authentication failed') || s.includes('invalid username or password')
     || s.includes('403') || s.includes('401') || s.includes('permission denied')
     || s.includes('access denied') || s.includes('bad credentials')
@@ -110,7 +110,7 @@ function excerpt(raw: string): string {
 }
 
 /**
- * 这次失败是不是「推送被拒」（远端有本地没有的提交）？
+ * 这次失败是不是“推送被拒”（远端有本地没有的提交）？
  * 调用方据此决定要不要走 `pushRecoverySteps` 自动救一次。
  */
 export function isPushRejected(text: unknown): boolean {
@@ -125,7 +125,7 @@ export function isPushRejected(text: unknown): boolean {
  * （--force 在"别的机器也往里推过"时会真丢数据，方寸不干这种事）。
  *
  * `reset --soft` 只动 HEAD、**保留索引与工作区** —— 所以跑完这几步，那份 zip 仍处于
- * 「已 add、待提交」状态，调用方接着再 commit + push 即可 fast-forward 成功。
+ * “已 add、待提交”状态，调用方接着再 commit + push 即可 fast-forward 成功。
  *
  * ⚠ 这只是"尽力救一次"。fetch 拿不到远端（网络/权限）就直接放弃，把真因报给用户。
  */

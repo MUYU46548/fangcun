@@ -13,7 +13,7 @@
 | 装在项目里的 Electron | **28.3.3** | `node_modules/electron/package.json` → 28.3.3 |
 | `package.json` 声明 | `"electron": "^28.0.0"` | 同上 |
 | Electron 28 官方 EOL | **2024-06-10**（已过期约 2 年 4 个月） | endoflife.date / keelbench 交叉核对 |
-| 当前仍受支持的三条线（2026-10-21） | **44**（EOL 2027-03-02）、43（2027-01-05）、42（**2026-10-20 刚过期**） | 同上；Electron 策略「最近三个 stable major」 |
+| 当前仍受支持的三条线（2026-10-21） | **44**（EOL 2027-03-02）、43（2027-01-05）、42（**2026-10-20 刚过期**） | 同上；Electron 策略“最近三个 stable major” |
 | Electron 28 内含 | Chromium 120 / Node 18 | 官方 release notes（按 28 线） |
 | Electron 44 内含 | Chromium 152 / Node 24 | endoflife.date 表格 |
 | 打包链 | electron-builder **26.15.3**、electron-updater **6.8.9**、electron-log 5.4.4 | `node_modules/*/package.json` |

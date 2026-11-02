@@ -39,7 +39,7 @@ export function formatDate(v: unknown): string {
   return Number.isFinite(t) ? new Date(t).toLocaleDateString('zh-CN') : '—'
 }
 
-/** 日期 + 时分（备份列表用），无法解析回退原字符串（那可能是「未同步」之类的人类文本） */
+/** 日期 + 时分（备份列表用），无法解析回退原字符串（那可能是“未同步”之类的人类文本） */
 export function formatDateTime(v: unknown): string {
   const t = parseTime(v)
   if (!Number.isFinite(t)) return v ? String(v) : '—'
@@ -48,7 +48,7 @@ export function formatDateTime(v: unknown): string {
   return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-/** 相对时间（今天 / N天前 …），无法解析返回空串（不要显示「NaN月前」） */
+/** 相对时间（今天 / N天前 …），无法解析返回空串（不要显示“NaN月前”） */
 export function relativeTime(v: unknown): string {
   const t = parseTime(v)
   if (!Number.isFinite(t)) return ''
@@ -66,7 +66,7 @@ export function daysSince(v: unknown): number {
 }
 
 /**
- * 把「日期 + 可选时间」拼成一个**分钟级**时间戳（2026-10-12 待办时间字段）。
+ * 把“日期 + 可选时间”拼成一个**分钟级**时间戳（2026-10-12 待办时间字段）。
  *
  * 待办的 `due` 只到天，另有一个可选的 `dueTime`（`HH:MM`）。这里负责合体：
  *   · 只有日期        → 解析到**当天 00:00**（与老行为一致：老代码就是按天算逾期）
@@ -108,14 +108,14 @@ export function formatDueTime(v: unknown): string {
 }
 
 /**
- * 「日期 + 可选时间」距今多少天（可带小数），给逾期天数用。
+ * “日期 + 可选时间”距今多少天（可带小数），给逾期天数用。
  *
  * ⚠ 为什么不能只写 `daysSince(due)`：待办加了 `dueTime` 之后，`due = 今天` 且
  *   `dueTime = 21:39` 的待办在 22:00 就已经过期 21 分钟了，但 `daysSince` 按天算
  *   会给出 0（"今天到期的还没过期"）→ 界面上显示"逾期 0 天"这种自相矛盾的话。
  *
  * ⚠ 更不该在 App.vue 里内联 `/ 86400000`：e2e-calendar 有一条守卫专门盯
- *   「App.vue 不再自己写日期算术」（日期算术必须收在 shared/time.ts 这一处）。
+ *   “App.vue 不再自己写日期算术”（日期算术必须收在 shared/time.ts 这一处）。
  *   2026-10-12 我第一版就是内联写的，当场被这条守卫抓住 —— 挪到这里是对的。
  */
 export function daysSinceDue(due: unknown, dueTime?: unknown): number {
@@ -126,7 +126,7 @@ export function daysSinceDue(due: unknown, dueTime?: unknown): number {
   return daysSince(due)
 }
 
-/** 通知面板用的「刚刚 / N 分钟前」，无法解析返回空串 */
+/** 通知面板用的“刚刚 / N 分钟前”，无法解析返回空串 */
 export function relTimeShort(v: unknown): string {
   const t = parseTime(v)
   if (!Number.isFinite(t)) return ''

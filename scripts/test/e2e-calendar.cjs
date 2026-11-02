@@ -132,8 +132,8 @@ function main() {
   const t11 = { id: 't11', title: '已驳回', status: '驳回', priority: '中', deadline: '2026-09-16' }
   const mix = cal.buildMonth({ year: 2026, month: 8, today: TODAY, tasks: [t1, t8, t9, t10, t11] })
   check('无时间 → 未安排', mix.unscheduled.map(x => x.id).join() === 't8', mix.unscheduled.map(x => x.id).join())
-  check('下月任务不再混进「未安排」', !mix.unscheduled.some(x => x.id === 't9'))
-  check('下月任务归入「其它月份」', mix.otherMonths.length === 1 && mix.otherMonths[0].key === '2026-11' &&
+  check('下月任务不再混进“未安排”', !mix.unscheduled.some(x => x.id === 't9'))
+  check('下月任务归入“其它月份”', mix.otherMonths.length === 1 && mix.otherMonths[0].key === '2026-11' &&
     mix.otherMonths[0].count === 1, JSON.stringify(mix.otherMonths))
   check('其它月份合计 = 1', mix.otherTotal === 1, String(mix.otherTotal))
   check('终态任务（完成/驳回）不进日历，也不进未安排',
@@ -153,12 +153,12 @@ function main() {
   check('待办按 due 上月历（kind=todo）',
     cellOf(withTodos, 25).events.length === 1 && cellOf(withTodos, 25).events[0].kind === 'todo')
   check('已完成待办不上日历', cellOf(withTodos, 25).events.filter(e => e.id === 'd2').length === 0)
-  check('下月待办出现在「其它月份」（而不是凭空消失）',
+  check('下月待办出现在“其它月份”（而不是凭空消失）',
     withTodos.otherMonths.some(g => g.key === '2026-10'), JSON.stringify(withTodos.otherMonths))
   const noTodos = cal.buildMonth({
     year: 2026, month: 8, today: TODAY, tasks: [], todos: [td1], showTodos: false,
   })
-  check('关掉「显示待办」后不留痕', cellOf(noTodos, 25).events.length === 0 && noTodos.otherTotal === 0)
+  check('关掉“显示待办”后不留痕', cellOf(noTodos, 25).events.length === 0 && noTodos.otherTotal === 0)
 
   // ── 8. 排序：时间段长、优先级高者靠前 ────────────────────────────
   const a = { id: 'a', title: '长区间', status: '待办', priority: '低', start: '2026-09-03', deadline: '2026-09-09' }
@@ -194,7 +194,7 @@ function main() {
   check('界面层不再自己写日期算术（无内联 86400000 天差；该常量只许活在 calendar.ts）',
     !/86400000/.test(viewSrc))
 
-  // ── 12. 本周排期（2026-10-31 暮雨第 7 条：日历服务「这周怎么排」）──────
+  // ── 12. 本周排期（2026-10-31 暮雨第 7 条：日历服务“这周怎么排”）──────
   // 判据：数字必须与夹具真身对得上；完成/已勾选的不许占负担；时间段任务占满每一天；
   //      逾期按自然日算；没填时间的不许塞进任何一天。
   const week = cal.buildWeekPlan(
@@ -231,7 +231,7 @@ function main() {
   check('★ 单日 ≥3 件算挤（今天 3 件 → 进 heavyDays）',
     week.heavyDays.length === 1 && week.heavyDays[0].iso === '2026-09-22',
     JSON.stringify(week.heavyDays.map((d) => d.dow)))
-  check('★ 一行结论把「本周/今天/逾期/没排期」都说了',
+  check('★ 一行结论把“本周/今天/逾期/没排期”都说了',
     /本周排了 6 件/.test(week.text) && /今天 3 件/.test(week.text) && /1 张已逾期/.test(week.text) &&
     /1 件还没排期/.test(week.text), week.text)
   check('★ 空数据不抛：0 件也不编"最挤的一天"',

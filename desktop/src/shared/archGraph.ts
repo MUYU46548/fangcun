@@ -108,13 +108,13 @@ const ROLE: Record<string, { label: string; row: number; kind: ArchNodeKind }> =
 /**
  * 目录 → 分层。2026-10-30（质量重做）：节点可能到第三层
  * （`src/main/services`），不能只看最后一段 —— 否则 `services` 会掉进"未知层"。
- * 这里按**路径前缀**认层，子目录在层名后带上自己的名字（「主进程 / services」）。
+ * 这里按**路径前缀**认层，子目录在层名后带上自己的名字（“主进程 / services”）。
  */
 const SHORT: Record<string, string> = {
   renderer: '界面', preload: '桥', main: '主进程', cli: '命令行', shared: '共享',
   common: '共享', lib: '库', scripts: '脚本', test: '测试', tests: '测试',
 }
-/** 子目录短名（2026-10-30 视觉返工：214px 的方块装不下「渲染层（界面） / components」） */
+/** 子目录短名（2026-10-30 视觉返工：214px 的方块装不下“渲染层（界面） / components”） */
 const SUB_LABEL: Record<string, string> = {
   components: '组件', views: '视图', services: '服务', backup: '备份',
   mcp: 'MCP', llm: 'LLM', data: '数据', ui: 'UI', styles: '样式', composables: '组合式',
@@ -136,8 +136,8 @@ export function roleOfDir(dirPath: string): { label: string; row: number; kind: 
   if (ROLE[head]) {
     const base = ROLE[head]
     const sub = rootAt >= 0 ? seg.slice(rootAt + 2) : seg.slice(1)
-    // 子目录用短名（「界面 / 组件」而不是「渲染层（界面） / components」）——
-    // 方块只有 214px，长名字会被截成「渲染层（界面） / v…」，等于没说。
+    // 子目录用短名（“界面 / 组件”而不是“渲染层（界面） / components”）——
+    // 方块只有 214px，长名字会被截成“渲染层（界面） / v…”，等于没说。
     const subText = sub.map((s) => SUB_LABEL[s] || s).join('/')
     return {
       label: sub.length ? `${SHORT[head] || base.label} / ${subText}` : base.label,
@@ -242,7 +242,7 @@ export function buildArchGraph(facts: ArchScanFacts, opts: { strict?: boolean; m
   const edges: ArchEdge[] = []
   for (const im of imports) {
     if (!nodeIds.has(im.from) || !nodeIds.has(im.to) || im.from === im.to) continue
-    // 严格模式（用户点「驳回重画」后）：只留 ≥2 条的 import，细碎连线不画 ——
+    // 严格模式（用户点“驳回重画”后）：只留 ≥2 条的 import，细碎连线不画 ——
     // 宁可少画，也不把图糊成一团。数量仍在证据里，不丢事实。
     if (opts.strict && im.count < 2) continue
     edges.push({
@@ -333,7 +333,7 @@ export function rowLabel(row: number): string {
 }
 
 /**
- * 人工剔除若干节点（2026-10-30「画一笔都要审批」）：
+ * 人工剔除若干节点（2026-10-30“画一笔都要审批”）：
  * 用户在图上看哪一块不对，就把它剔掉再重画 —— 不是假装修好了，而是**如实少画**。
  * 被剔除的节点连同它的连线一起消失；文字里明写剔了几块，不静默。
  */

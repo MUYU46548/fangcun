@@ -1,5 +1,5 @@
 /**
- * 卡 005「花销与归因」· 账户口径（余额差值）2026-10-25
+ * 卡 005“花销与归因”· 账户口径（余额差值）2026-10-25
  *
  * 暮雨给的参考实现（DSH 小鲸鱼挂件）点破了一件事：**金额准不是因为价格表准，
  * 而是因为根本不经过价格表** —— 官方余额接口的下降额就是真扣的钱。
@@ -197,7 +197,7 @@ function usageReportChecks() {
   }
 
   const cny = U.buildExternalUsageRecord({ prompt_tokens: 1, cost: '2', currency: '元' }, NOW)
-  check('  币种写「元」也认（中文口径）', U.isUsageReportOk(cny) && cny.record.cost === '2.00000000')
+  check('  币种写“元”也认（中文口径）', U.isUsageReportOk(cny) && cny.record.cost === '2.00000000')
 
   const badAt = U.buildExternalUsageRecord({ prompt_tokens: 1, at: '不是时间' }, NOW)
   check('  时间戳解析不了 → 退回当前时间（不因为一句坏时间丢掉整笔账）',

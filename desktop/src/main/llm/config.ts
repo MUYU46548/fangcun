@@ -30,7 +30,7 @@ function getConfigPath(): string {
 /**
  * 判断传入的 apiKey 是否"没有真实修改"。
  * 空 / 纯空白 / 掩码 —— 都视为未修改，绝不能写回磁盘。
- * 这是 401「API Key 不存在」的根因防线：早期版本会把界面回显的 '***' 当真实值存盘。
+ * 这是 401“API Key 不存在”的根因防线：早期版本会把界面回显的 '***' 当真实值存盘。
  */
 export function isMaskedKey(v: unknown): boolean {
   if (typeof v !== 'string') return true

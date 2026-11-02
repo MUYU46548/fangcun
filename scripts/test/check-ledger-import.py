@@ -122,7 +122,7 @@ def main():
     #   于是账本里"全局 / 订阅 / 游戏四 / A·C·D·E 表"这 23 条被悄悄挂到了 fangcun-base 名下 ——
     #   后果是方寸的项目页/一屏里凭空多出 23 条不属于它的活，而"未归属"那一栏永远是空的。
     no_proj_keys = [c["key"] for c in cards if not c["项目"]]
-    check("★ 计划里确实存在「无归属」的条目（%d 条，不是 0 —— 否则这条断言测不到东西）"
+    check("★ 计划里确实存在“无归属”的条目（%d 条，不是 0 —— 否则这条断言测不到东西）"
           % len(no_proj_keys), len(no_proj_keys) > 0, len(no_proj_keys))
 
     wrongly_owned = []
@@ -141,18 +141,18 @@ def main():
     doneish = [c for c in cards if re.search(r"→\s*已|已修（|已落地|已合入|已被你的产线做掉|已交付",
                                             c["标题"])]
     wrong = [c["key"] for c in doneish if c["状态"] != "完成"]
-    check("★★ 账本已记「已修/已落地/已合入」的条目必须建成「完成」卡（不许继续冒充欠账）",
+    check("★★ 账本已记“已修/已落地/已合入”的条目必须建成“完成”卡（不许继续冒充欠账）",
           not wrong, wrong)
 
     # ── ⑥ 标题完整性（2026-10-18 修：原来 txt[:56] 按字符硬切，砍在 commit hash 中间）──
     #
     # 病灶原样：`…你自己派了自己，0b0` —— `0b02e48` 被砍掉一半，且**没有省略号**，
-    # 卡面看起来是个完整但读不懂的标题（用户原话「方寸里一堆看不懂的东西」）。
+    # 卡面看起来是个完整但读不懂的标题（用户原话“方寸里一堆看不懂的东西”）。
     # 判据三条：放得下逐字保留 / 切了必须带 `…` / 不许切在连续 ASCII 词内部。
     ascii_word = imp._ASCII_WORD
 
     def title_body(title):
-        """从卡标题里剥出「账本原文」那一段（三种前缀：B 表带节名、D 表欠账/销账）"""
+        """从卡标题里剥出“账本原文”那一段（三种前缀：B 表带节名、D 表欠账/销账）"""
         if title.startswith("[账本] "):
             rest = title[len("[账本] "):]
             return rest.split("：", 1)[1] if "：" in rest else rest
@@ -176,7 +176,7 @@ def main():
             if body not in joined:
                 lossy.append((c["key"], body[-20:]))
 
-    check("★★ 没被截断的卡标题与账本原文逐字一致（不许「顺手改写」措辞）",
+    check("★★ 没被截断的卡标题与账本原文逐字一致（不许“顺手改写”措辞）",
           not lossy, lossy[:3])
     check("★★ 被截断的卡标题必须带 `…`（否则看起来是个完整但读不懂的标题）",
           all(c["标题"].endswith("…") or "…" not in c["标题"] for c in cards),
@@ -206,7 +206,7 @@ def main():
           "tail=%r in=%r" % (tail_word, word_case[-14:]))
     check("  上一条的反例前提：这段确实超长（否则测不到截断）",
           len(word_case_in) > 80, len(word_case_in))
-    # 反向自证：拿用户实报的那条原文，旧写法 txt[:56] 必须复现「砍半个 hash」，新写法必须完整
+    # 反向自证：拿用户实报的那条原文，旧写法 txt[:56] 必须复现“砍半个 hash”，新写法必须完整
     old_case = '欠账盘点 v4 的"等你 3"余项：word 模板 / 样例清洗点头（"大件派谁"已销——你自己派了自己，0b02e48 规划四态）'
     old56 = old_case[:56]
     check("  判据有效（旧写法 txt[:56] 在这条上确实砍出半个 hash）",

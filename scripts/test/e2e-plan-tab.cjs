@@ -123,8 +123,8 @@ const s0 = doc.stages.find((s) => s.id === 'P0')
 const s1 = doc.stages.find((s) => s.id === 'P1')
 const s2 = doc.stages.find((s) => s.id === 'P2')
 check('★★ 三块齐全的那张：missing 为空', s0 && s0.missing.length === 0, JSON.stringify(s0 && s0.missing))
-check('★★ 缺判据 → missing 里点名「判据」', s1 && s1.missing.includes('判据'), JSON.stringify(s1 && s1.missing))
-check('★★ 缺照抄点 → missing 里点名「照抄点」', s2 && s2.missing.includes('照抄点'), JSON.stringify(s2 && s2.missing))
+check('★★ 缺判据 → missing 里点名“判据”', s1 && s1.missing.includes('判据'), JSON.stringify(s1 && s1.missing))
+check('★★ 缺照抄点 → missing 里点名“照抄点”', s2 && s2.missing.includes('照抄点'), JSON.stringify(s2 && s2.missing))
 check('★ 表头/分隔线/数据行都解出来了（3 行）', s0 && s0.copyRows.length === 3, String(s0 && s0.copyRows.length))
 check('★ 标题与修订记录都读到了', /演示项目/.test(doc.title) && doc.revision.length === 1,
   JSON.stringify({ title: doc.title, rev: doc.revision }))
@@ -132,7 +132,7 @@ check('★ 标题与修订记录都读到了', /演示项目/.test(doc.title) &&
 console.log('\n== ② 通过：缺块必须被主进程拦下（不能只靠按钮禁用）==')
 
 const badPass = plans.writePlanVerdict({ file: 'demo.md', stageId: 'P1', action: 'pass' })
-check('★★ 缺判据的卡「通过」被拒，且说明缺什么',
+check('★★ 缺判据的卡“通过”被拒，且说明缺什么',
   !badPass.ok && /缺/.test(String(badPass.error)), String(badPass.error))
 
 const okPass = plans.writePlanVerdict({ file: 'demo.md', stageId: 'P0', action: 'pass' })
@@ -140,7 +140,7 @@ const afterPass = plans.readPlan('demo.md')
 const p0After = afterPass.stages.find((s) => s.id === 'P0')
 check('★ 齐全的卡能通过', okPass.ok === true, String(okPass.error))
 check('★ 通过后状态写进文件（已冻结）', p0After.status === '已冻结', p0After.status)
-check('★ 通过留了裁决行（含日期与「通过」）', /通过/.test(p0After.verdict) && /\d{4}-\d{2}-\d{2}/.test(p0After.verdict), p0After.verdict)
+check('★ 通过留了裁决行（含日期与“通过”）', /通过/.test(p0After.verdict) && /\d{4}-\d{2}-\d{2}/.test(p0After.verdict), p0After.verdict)
 check('★ 修订记录多了一行（ADR supersede 的最小版）', afterPass.revision.length === 2,
   JSON.stringify(afterPass.revision))
 
@@ -158,7 +158,7 @@ check('★★ 重读文件：`打回理由:` 非空（判据 num 那条）',
   p1After.rejectReason === '判据里没有可执行的命令' && /打回理由:\s*\S/.test(rawAfter),
   p1After.rejectReason)
 check('★ 打回理由同时进修订记录', afterReject.revision.some((l) => l.includes('打回')), JSON.stringify(afterReject.revision))
-check('★ 打回把状态退回「待裁决」', p1After.status === '待裁决', p1After.status)
+check('★ 打回把状态退回“待裁决”', p1After.status === '待裁决', p1After.status)
 
 console.log('\n== ④ 改一句：留痕 + 退回未冻结 ==')
 
@@ -166,7 +166,7 @@ const am = plans.writePlanVerdict({ file: 'demo.md', stageId: 'P2', action: 'ame
 const afterAmend = plans.readPlan('demo.md')
 const p2After = afterAmend.stages.find((s) => s.id === 'P2')
 check('★ 改一句成功并留痕', am.ok && afterAmend.revision.some((l) => l.includes('改一句')), JSON.stringify(afterAmend.revision))
-check('★★ 改一句后状态标「未冻结」', /未冻结/.test(p2After.status), p2After.status)
+check('★★ 改一句后状态标“未冻结”', /未冻结/.test(p2After.status), p2After.status)
 
 console.log('\n== ⑤ 行级就地改：表格/缩进/其它阶段不许被洗 ==')
 
@@ -185,7 +185,7 @@ check('★ PlanView 里有三个动作分支（pass / reject / amend）',
   /action === 'pass'/.test(view) && /action === 'reject'/.test(view) && /action === 'amend'/.test(view))
 check('★★ 三个动作都真调 plansVerdict（不是只改本地状态）',
   /plansVerdict\(\{[\s\S]{0,120}file: doc\.file[\s\S]{0,80}action/.test(view))
-check('★ 缺块时「通过」被禁用', /:disabled="busy \|\| s\.missing\.length > 0"/.test(view))
+check('★ 缺块时“通过”被禁用', /:disabled="busy \|\| s\.missing\.length > 0"/.test(view))
 
 const appVue = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
 check('★★ 项目页摆法注册处含 plan', /v-else-if="pvView === 'plan'"/.test(appVue))
@@ -195,7 +195,7 @@ const optionCount = (projBlock.match(/\{ v: '[a-z]+', label:/g) || []).length
 check('★★ 项目页摆法总数 = 8（P1 判据 file 那条）', optionCount === 8, String(optionCount))
 check('★ 持久化白名单也加了 plan（否则重启静默退回项目墙）', /fc_pv_view === 'plan'/.test(appVue))
 // ⚠ 2026-11-01（P5 DOM 实测抓到的真 bug）：P1 只把 plan 加进了 viewOptions 与持久化读取，
-//   **没加进 PV_VIEWS**（setViewMode 的白名单）—— 点「作战计划」会被 `PV_VIEWS.includes(v)?v:'tiles'`
+//   **没加进 PV_VIEWS**（setViewMode 的白名单）—— 点“作战计划”会被 `PV_VIEWS.includes(v)?v:'tiles'`
 //   静默退回项目墙，P1 的页面其实一直点不开。这里改钉白名单本身。
 const pvViewsSrc = (appVue.match(/const PV_VIEWS: string\[\] = \[([^\]]*)\]/) || [])[1] || ''
 check('★★ 摆法切换白名单含 plan（PV_VIEWS；漏了 = 点页签静默退回项目墙）',

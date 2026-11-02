@@ -1,8 +1,8 @@
 /**
- * 同步按钮的「阶段 + 耗时」文案（2026-10-25 卡 004）。
+ * 同步按钮的“阶段 + 耗时”文案（2026-10-25 卡 004）。
  *
- * 暮雨原话：「Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
- *           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。」
+ * 暮雨原话：“Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
+ *           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。”
  *
  * 两条设计红线，写在这里免得以后有人"优化"掉：
  *  ① **不编百分比**。`git push` 不报字节进度，任何 `37%` 都是编的 —— 编进度就是假成功。
@@ -28,7 +28,7 @@ const PHASE_LABEL: Record<SyncPhase, string> = {
   recover: '重试推送',
 }
 
-/** 超过这个时长就补一句「网络慢」—— 这不是进度，是给"卡住了吗"一个解释 */
+/** 超过这个时长就补一句“网络慢”—— 这不是进度，是给"卡住了吗"一个解释 */
 export const SLOW_AFTER_MS = 15_000
 
 /** 是不是合法阶段名（主进程/旧版本可能传来别的字符串，别让界面出现英文枚举） */
@@ -44,7 +44,7 @@ export function syncPhaseLabel(phase: unknown): string {
  * 进行中的胶囊文字：`推送 3s` / `推送 · 网络慢 18s`
  *
  * 秒数取**整秒向下取整**（0.9s 显示 0s 而不是 1s —— 宁可显得慢，不夸大）。
- * `phase` 认不出时退回笼统的「同步」，不显示 `undefined`。
+ * `phase` 认不出时退回笼统的“同步”，不显示 `undefined`。
  */
 export function syncCapsuleText(phase: unknown, elapsedMs: number): string {
   const ms = Number.isFinite(elapsedMs) && elapsedMs > 0 ? elapsedMs : 0

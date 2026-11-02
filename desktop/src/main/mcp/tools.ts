@@ -8,7 +8,7 @@ import { appendTrace } from '../llm/trace'
 import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
 import { recordRead, readStats } from './usage'
 // 收卡机检（ADR-003 一期 · 2026-11-02）：外部 agent 交单时先机检再落卡。
-// 四类判据面向**交付物文本**，不起进程（cmd 在这里一律 unknown，跑测试是「待验收」的事）。
+// 四类判据面向**交付物文本**，不起进程（cmd 在这里一律 unknown，跑测试是“待验收”的事）。
 import { renderIntakeSection } from '../../shared/intake'
 // 存在性检查与报告跑一次都收在 services/intake（tools 里不再写第二份口径）
 import { checkIntake } from '../services/intake'
@@ -23,11 +23,11 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
-// 永远搜不到归档任务，而 UI 的「全部」含归档；view=trash 语义也对不上。现在读路径
+// 永远搜不到归档任务，而 UI 的“全部”含归档；view=trash 语义也对不上。现在读路径
 // 一律走 data.loadTasks / tasks.listTrash，两个对外读口一个口径
 // （契约由 scripts/test/e2e-mcp-views.cjs 真跑编译产物钉死）。
 
-// 2026-10-30 暮雨第 3 条：被驳回后「退回返工」的卡，agent 必须读得到上次为什么被打回。
+// 2026-10-30 暮雨第 3 条：被驳回后“退回返工”的卡，agent 必须读得到上次为什么被打回。
 // 没有这一段，MCP 只回标题/状态，返工卡就退化成一张大号待办。
 function reworkOf(fm: any): { is_rework: boolean; reason: string } {
   const reason = String(fm?.reject_reason ?? fm?.['驳回理由'] ?? '').trim()
@@ -94,7 +94,7 @@ export const MCP_TOOLS: MCPTool[] = [
     description:
       '让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。'
       + '模型只能引用扫描事实里真实存在的目录 / 入口 / 依赖 / import / IPC / 端口；'
-      + '指不回证据的节点与连线一律拒收，并会把「哪条不过、为什么」写进 issues；'
+      + '指不回证据的节点与连线一律拒收，并会把“哪条不过、为什么”写进 issues；'
       + '审计不过的会按意见自动重画（默认 2 次），仍不过或无模型时**降级为扫描图**，'
       + '`source` 会如实写 ai 或 scan。会调用你在方寸设置里配的模型（BYOK），每次调用产生花销。',
     inputSchema: {
@@ -111,8 +111,8 @@ export const MCP_TOOLS: MCPTool[] = [
     description:
       '收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。'
       + '判据四类：str: \'原文\' / count: \'原文\' == N / format: <正则> / file: <相对路径> 存在。'
-      + '全过 → 落「待审批」（REV-009）；有不过 → 落「草稿」+ 正文红标 + 逐条留痕（**不阻挡，东西不丢**）。'
-      + '返回机检报告；agent 据此决定是否返工。cmd: 判据在收卡时不跑（归「待验收」阶段）。',
+      + '全过 → 落“待审批”（REV-009）；有不过 → 落“草稿”+ 正文红标 + 逐条留痕（**不阻挡，东西不丢**）。'
+      + '返回机检报告；agent 据此决定是否返工。cmd: 判据在收卡时不跑（归“待验收”阶段）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -446,7 +446,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
   switch (name) {
     case 'list_tasks': {
       const view = args.view || 'active'
-      // 回收站**不是** data.loadTasks 的视图：它落进 else 分支返回的是「活跃+归档」，
+      // 回收站**不是** data.loadTasks 的视图：它落进 else 分支返回的是“活跃+归档”，
       // schema 写着 trash 返回的却不是回收站（2026-10-01 P0-3 对外契约偏差）。
       // 真回收站条目在 tasks.listTrash()，条目形状是扁平的（status/project 在顶层）。
       let result: any[] = view === 'trash' ? (tasks.listTrash() as any[]) : (loadTasks(view) as any[])
@@ -487,7 +487,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         id: task.id, title: task.fm.title, status: task.fm.status, priority: task.fm.priority,
         project: task.fm.project, created: task.fm.created, updated: task.fm.updated, tags: task.fm.tags,
         // 2026-10-30 暮雨第 3 条：驳回理由 / 结果记录 / 返工标记必须一起回，
-        // 否则 agent 读到的「驳回后待办」和普通待办完全一样。
+        // 否则 agent 读到的“驳回后待办”和普通待办完全一样。
         result_log: task.fm.result_log || '',
         reject_reason: rw.reason,
         reject_at: task.fm.reject_at || '',
@@ -510,7 +510,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     
     case 'arch_generate': {
       // 让 agent 直接要点图（0.6.0）。与界面按钮走同一个服务：AI 画 → 审计 → 不过重画 → 降级。
-      // ⚠ 这里会真调模型（花钱），所以返回体里必须带 usage —— REV-005 边界③「花销每次可见」。
+      // ⚠ 这里会真调模型（花钱），所以返回体里必须带 usage —— REV-005 边界③“花销每次可见”。
       const want = String(args.project || '').trim()
       if (!want) {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id 或名字）' }) }], isError: true }
@@ -583,8 +583,8 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
           redFlags: report.redFlags,
         },
         next: report.ok
-          ? '全过 → 落「待审批」，等用户点头转正'
-          : '有不过 → 落「草稿」并标红：东西没丢，但判据没过，返工后再交',
+          ? '全过 → 落“待审批”，等用户点头转正'
+          : '有不过 → 落“草稿”并标红：东西没丢，但判据没过，返工后再交',
       }, null, 2) }] }
     }
 
@@ -595,13 +595,13 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     }
     
     case 'move_status': {
-      // 2026-10-30（用户拍板「完成是签字，不是干活」）：
-      // agent 最多把卡移到「待验收」；完成 / 驳回是用户的验收签字，硬拒。
+      // 2026-10-30（用户拍板“完成是签字，不是干活”）：
+      // agent 最多把卡移到“待验收”；完成 / 驳回是用户的验收签字，硬拒。
       const want = String(args.status || '')
       if (want === '完成' || want === '驳回') {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false,
-          error: `「${want}」只能由用户验收裁决：agent 最多移到「待验收」。`,
+          error: `“${want}”只能由用户验收裁决：agent 最多移到“待验收”。`,
           suggested: '待验收',
         }) }], isError: true }
       }
@@ -661,7 +661,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
 
     case 'search_tasks': {
       const query = args.query || ''
-      // 'all' = 活跃 + 归档（与 UI 的「全部」同口径）。此前用的是**私有扫描**，
+      // 'all' = 活跃 + 归档（与 UI 的“全部”同口径）。此前用的是**私有扫描**，
       // 它跳过 archive → 搜不到归档任务，同一个问题问 MCP 和问 UI 会得到不同答案。
       const pool = loadTasks('all') as any[]
       const results = pool.filter((t: any) => {
@@ -808,7 +808,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, id: r.data.id, title: r.data.title, project: r.data.project,
         status: logs.logStatusText(r.data), created: r.data.created,
-        hint: '后面用 attach_log_files 挂附件；日志只记过程 —— 本轮做完把关联任务移到「待验收」（move_status），完成/驳回由用户点。',
+        hint: '后面用 attach_log_files 挂附件；日志只记过程 —— 本轮做完把关联任务移到“待验收”（move_status），完成/驳回由用户点。',
       }) }] }
     }
 
@@ -829,22 +829,22 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     case 'set_log_status': {
       const id = String(args.id || '')
       const action = String(args.action || '')
-      // 2026-11-01 暮雨：「日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
-      // 对。**签字对象是任务卡，不是日志**：日志只记过程，AI 干完把任务移到「待验收」。
+      // 2026-11-01 暮雨：“日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？”
+      // 对。**签字对象是任务卡，不是日志**：日志只记过程，AI 干完把任务移到“待验收”。
       // 所以 request_close / cancel_close 这套“日志收口”彻底取消；完成/归档/退回仍是用户点。
       if (action === 'request_close' || action === 'cancel_close') {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false,
-          error: '日志不再有「等你确认」：收口属于任务卡，不属于日志。'
-            + '请用 move_status 把关联任务移到「待验收」，日志只记过程；完成/驳回由用户点。',
+          error: '日志不再有“等你确认”：收口属于任务卡，不属于日志。'
+            + '请用 move_status 把关联任务移到“待验收”，日志只记过程；完成/驳回由用户点。',
           allowed: ['running', 'idle'],
         }) }], isError: true }
       }
       if (action === 'complete' || action === 'archive' || action === 'reopen') {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false,
-          error: `「${action}」只能由用户在界面点：完成/归档/退回是签字，不是干活。`
-            + 'AI 的收口动作只有一个：move_status 把关联任务移到「待验收」。',
+          error: `“${action}”只能由用户在界面点：完成/归档/退回是签字，不是干活。`
+            + 'AI 的收口动作只有一个：move_status 把关联任务移到“待验收”。',
           allowed: ['running', 'idle'],
         }) }], isError: true }
       }
@@ -874,20 +874,20 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, count: atts.length, attachments: atts }) }] }
     }
 
-    // ── 多日志一起灌（2026-10-29 暮雨第 6 条：「主日志带多条副日志一起进开工单」）──
+    // ── 多日志一起灌（2026-10-29 暮雨第 6 条：“主日志带多条副日志一起进开工单”）──
     // 真实用法长出来的需求：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
     // 只灌主日志，agent 就会漏掉并行的另一半。这里按**给定顺序**拼成一份，主日志在前。
     case 'inject_logs': {
       const ids: string[] = (Array.isArray(args.ids) ? args.ids : []).map((x: any) => String(x || '')).filter(Boolean)
       if (!ids.length) return { content: [{ type: 'text', text: 'ids 不能为空（主日志放第一个）' }], isError: true }
-      // 拼接逻辑在 services/logs（与界面「多选 → 开工单」同一份文本，不许两处各拼一次）
+      // 拼接逻辑在 services/logs（与界面“多选 → 开工单”同一份文本，不许两处各拼一次）
       const r = logs.injectLogs(ids)
       if (!r.found.length) return { content: [{ type: 'text', text: `这些日志都不存在：${ids.join(', ')}` }], isError: true }
       return { content: [{ type: 'text', text: r.text }] }
     }
 
     case 'never_read': {
-      // 「哪些待办其实没人碰过」—— 只读，不写任何东西。
+      // “哪些待办其实没人碰过”—— 只读，不写任何东西。
       const days = Number(args.days) > 0 ? Number(args.days) : 30
       const limit = Number(args.limit) > 0 ? Math.min(Number(args.limit), 200) : 50
       const pool = loadTasks('active') as any[]
@@ -915,7 +915,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         total_open: rows.length,
         never_read: never.length,
         read: read.length,
-        // 「多久没更新」是判断"卡死了"的辅助：从没读过 + 很久没更新 = 大概率没人管
+        // “多久没更新”是判断"卡死了"的辅助：从没读过 + 很久没更新 = 大概率没人管
         items: never.slice(0, limit),
       }, null, 2) }] }
     }
@@ -1008,9 +1008,9 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       }, null, 2) }] }
     }
 
-    // 2026-10-30（用户拍板「决策是拍板，AI 只能记，不能替你表决」）：
-    // `decision_record` 已从 MCP 移除。决策落账只走桌面界面的「需求矩阵」页（rice:decide 是用户点击触发的 IPC），
-    // agent 再也不能替用户把某条需求记成「有效 / CUT」。
+    // 2026-10-30（用户拍板“决策是拍板，AI 只能记，不能替你表决”）：
+    // `decision_record` 已从 MCP 移除。决策落账只走桌面界面的“需求矩阵”页（rice:decide 是用户点击触发的 IPC），
+    // agent 再也不能替用户把某条需求记成“有效 / CUT”。
 
     default:
       return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }

@@ -139,7 +139,7 @@ export class WebdavClient {
   private explain(status: number, url: string, body: Buffer): string {
     const snippet = body.toString('utf-8').slice(0, 200)
     switch (status) {
-      case 401: return `鉴权失败（401）。用户名或密码不对，注意坚果云需使用「应用密码」而非登录密码。`
+      case 401: return `鉴权失败（401）。用户名或密码不对，注意坚果云需使用“应用密码”而非登录密码。`
       case 403: return `无权限（403）。账号可能没有该目录的写权限。`
       case 404: return `路径不存在（404）：${url}`
       case 405: return `服务端不接受该操作（405）：${url}`

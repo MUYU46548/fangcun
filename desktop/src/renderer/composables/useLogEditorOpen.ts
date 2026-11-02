@@ -1,7 +1,7 @@
 /**
- * 打开日志编辑器 / 关联任务选择（2026-10-31 · 渲染层拆分第二批「日志动作收口」第七刀）
+ * 打开日志编辑器 / 关联任务选择（2026-10-31 · 渲染层拆分第二批“日志动作收口”第七刀）
  *
- * 搬出来的是「打开表单」这一组：
+ * 搬出来的是“打开表单”这一组：
  *   · openLog（编辑已有）/ openNewLog（新建，项目跟随顶栏筛选）/ openLogForTask（从任务详情预填）；
  *   · 关联任务候选：同项目 + 关键词过滤 + 最近更新排序，首屏 12 条；
  *   · chips 回显、摘除、手填列表外 ID。
@@ -58,7 +58,7 @@ export function useLogEditorOpen(deps: Deps) {
       out.push({ id: t.id, title: t.title || '', status: t.status })
       if (out.length >= 500) break
     }
-    // 最近更新优先：首屏要的是「最可能要挂的那几张」，不是文件序
+    // 最近更新优先：首屏要的是“最可能要挂的那几张”，不是文件序
     out.sort((a, b) =>
       Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
     return out
@@ -79,7 +79,7 @@ export function useLogEditorOpen(deps: Deps) {
     e.taskIds = normalizeLogTaskIds(e).filter(x => x !== id)
   }
 
-  /** 手填的「列表外 ID」：逗号/空格分隔，回车或失焦时并入已选 */
+  /** 手填的“列表外 ID”：逗号/空格分隔，回车或失焦时并入已选 */
   function addLogTaskExtra(): void {
     const raw = logTaskExtra.value || ''
     const ids = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)

@@ -24,7 +24,7 @@ import * as appLog from './main/services/appLog'
 // 且都在判断之后。真因见 main/mcp/bridge-standalone.ts 顶部注释。
 
 // ── 最先安装全局兜底（2026-09-22）────────────────────────────────────────
-// 用户第 8 条：「任何失败或崩溃根本查不到日志」。此前主进程零兜底 ——
+// 用户第 8 条：“任何失败或崩溃根本查不到日志”。此前主进程零兜底 ——
 // 未捕获异常/未处理 rejection 直接消失，终端里只剩 vite 的噪声。
 // 必须在任何业务 import 的副作用之前跑，越早越好。
 appLog.installProcessHandlers()
@@ -38,12 +38,12 @@ appLog.installProcessHandlers()
 // launchpad/config、data/index）均为函数内懒调用 getPath，import 阶段无读取。
 app.setPath('userData', path.join(app.getPath('appData'), 'fangcun-desktop'))
 
-// ── 关掉 Windows 原生遮挡检测（2026-10-10，用户复报「对话框偶发无法输入」）────
+// ── 关掉 Windows 原生遮挡检测（2026-10-10，用户复报“对话框偶发无法输入”）────
 // 复现描述：编辑框点不动/打不进字，**点一下别的窗口再回来就好了**。
-// 09-25 那轮已把模糊合成层全部清掉（见下方注释），当时的结论是「剩下的嫌疑只有
-// 合成器 / 核显驱动」。现在剩两条并列的嫌疑，两条都要有出口：
-//   ① 核显驱动「失焦即停绘」 —— 设置页的 fc_disable_gpu 开关就是给它准备的；
-//   ② Windows 上 Chromium **自己判断**「窗口被别的窗口盖住」就暂停渲染与输入处理
+// 09-25 那轮已把模糊合成层全部清掉（见下方注释），当时的结论是“剩下的嫌疑只有
+// 合成器 / 核显驱动”。现在剩两条并列的嫌疑，两条都要有出口：
+//   ① 核显驱动“失焦即停绘” —— 设置页的 fc_disable_gpu 开关就是给它准备的；
+//   ② Windows 上 Chromium **自己判断**“窗口被别的窗口盖住”就暂停渲染与输入处理
 //      （CalculateNativeWinOcclusion）。方寸关窗=收托盘、常驻后台，这条命中率最高。
 // 必须在 app ready 之前 appendSwitch。
 // ⚠ 这是**唯一**的 disable-features 调用点：将来要再加特性开关，请合并进这个
@@ -51,10 +51,10 @@ app.setPath('userData', path.join(app.getPath('appData'), 'fangcun-desktop'))
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
 // ── 硬件加速开关（2026-09-25，用户第 1/3/9 条的**人工验证杠杆**）─────────────
-// 「点输入框光标不进去、要切到别的窗口再切回来才恢复」这条：本轮已把全部常驻实时模糊
+// “点输入框光标不进去、要切到别的窗口再切回来才恢复”这条：本轮已把全部常驻实时模糊
 // 合成层清掉（#bar 的 backdrop-filter + .blob 的 blur 改缓存纹理）。若仍然复发，
-// 剩下的嫌疑就只有「合成器 / 核显驱动」这一层 —— 本机是 i5-14600K 核显，
-// Chromium 在核显驱动上出现「失焦即停绘」是有先例的。
+// 剩下的嫌疑就只有“合成器 / 核显驱动”这一层 —— 本机是 i5-14600K 核显，
+// Chromium 在核显驱动上出现“失焦即停绘”是有先例的。
 // 所以给一个**用户能自己翻的开关**（设置页）：关掉硬件加速、重启即生效。
 // 必须在 app ready 之前调用 disableHardwareAcceleration()，故在此同步读 prefs。
 // prefs 的所有消费方都是函数内懒调用 getPath，import 阶段不读盘（见上方注释）。
@@ -81,13 +81,13 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   // 没拿到锁 = 已有实例在跑，让它处理 second-instance，本实例退出。
   //
-  // ⚠ 2026-09-25：这里原来是**静默** app.quit() —— 一旦「已安装版还在托盘里跑」而你又启动 dev
+  // ⚠ 2026-09-25：这里原来是**静默** app.quit() —— 一旦“已安装版还在托盘里跑”而你又启动 dev
   //   （两者共用同一个 userData：C:\Users\<u>\AppData\Roaming\fangcun-desktop），
   //   dev 实例会拿到 !gotLock、退码 0、界面与终端都毫无提示，
   //   外加 Chromium 报 "Unable to move the cache: 拒绝访问" —— 看起来像"程序坏了/启动不了了"。
   //   现在必须把原因说出来：终端一行 + 应用日志一行。
   const msg = '已有方寸实例在运行（同一 userData 被占用），本次启动退出。'
-    + '若要在 dev 里调试，请先在托盘右键「退出」正在运行的方寸，再启动 dev。'
+    + '若要在 dev 里调试，请先在托盘右键“退出”正在运行的方寸，再启动 dev。'
   try { console.warn('[boot] ' + msg) } catch { /* ignore */ }
   try { appLog.warn('boot', msg) } catch { /* 日志走不通也不能改变控制流 */ }
   app.quit()
@@ -137,7 +137,7 @@ function createWindow(): void {
   registerWasteIpcHandlers()
 
   // ── 主进程自证：本进程到底是哪份构建、关键通道在不在 ──────────────────
-  // 2026-09-25 用户报「启动台依旧报错」，日志里却有渲染层的点击痕迹、没有主进程的
+  // 2026-09-25 用户报“启动台依旧报错”，日志里却有渲染层的点击痕迹、没有主进程的
   // `[launchpad] 请求启动` —— 无法判断是"没点到"还是"主进程跑的是旧代码"。
   // 这行把两件事一次性说清：dist 的写入时间（=哪次构建）+ 关键通道注册状态。
   try {
@@ -210,8 +210,8 @@ function createWindow(): void {
     }
   })
 
-  // ── 输入框右键菜单（2026-10-11 用户：「写日志时在文本框里无法鼠标右键粘贴，
-  //    workbuddy 都能右键剪切复制粘贴」）────────────────────────────────────
+  // ── 输入框右键菜单（2026-10-11 用户：“写日志时在文本框里无法鼠标右键粘贴，
+  //    workbuddy 都能右键剪切复制粘贴”）────────────────────────────────────
   // **Electron 默认一个右键菜单都不提供** —— 这是它和浏览器手感差最明显的一处。
   // 方寸此前只给"任务卡片"做了自己的菜单（渲染层 @contextmenu.prevent），输入框里右键是死的。
   // 这里按 Chromium 给的 params 分流：可编辑元素给 剪切/复制/粘贴/全选；只选中了文字给 复制；
@@ -286,7 +286,7 @@ app.whenReady().then(() => {
   boot('通知扫描器', () => startScanner())
   boot('挂机提醒', () => startIdleReminder())
   // 方寸自仓启动同步（2026-10-21 · W1-1C）：后台 `git pull --ff-only`，**不弹窗、不加按钮**。
-  // 只在数据根是 git 仓库且有上游时真做事；失败（本地领先/分叉/没网）落日志 + 状态行显示「待同步」。
+  // 只在数据根是 git 仓库且有上游时真做事；失败（本地领先/分叉/没网）落日志 + 状态行显示“待同步”。
   // 不 await：开窗不该等网络；失败也不影响任何功能。
   void syncSelfRepoOnBoot().catch((e) => appLog.error('selfsync', '启动同步异常', e instanceof Error ? e.stack : e))
   boot('自动更新', () => {

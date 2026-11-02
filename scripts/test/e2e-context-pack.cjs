@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * agent 上下文包测试（2026-10-22 · 出单卡「规划上下文包 b 版核对补齐」的落地物）
+ * agent 上下文包测试（2026-10-22 · 出单卡“规划上下文包 b 版核对补齐”的落地物）
  *
  * 这个东西的**唯一职责**是把散在六处的现状拼成一段能直接粘给 agent 的 Markdown，
  * 不评价不建议。所以断言只盯两件事：
  *
  *   ★ 拼进来的东西**必须是真身原文**（契约多行块、三字段、有效决策、未完成卡、日志），
  *     不许摘要、不许改写 —— 拼错了 agent 会照着错的干；
- *   ★ 缺什么**必须说出来**（missing + 正文里那句「还没有立项契约」）——
+ *   ★ 缺什么**必须说出来**（missing + 正文里那句“还没有立项契约”）——
  *     "没写"和"写了但空"对 agent 是两回事，静默省略等于告诉它"这项目没这规矩"。
  */
 const fs = require('fs')
@@ -53,7 +53,7 @@ fs.writeFileSync(path.join(DATA, 'registry.yaml'), [
   '',
 ].join('\n'), 'utf-8')
 
-// 契约：故意用「多行 + Markdown 表格」的写法，验"原文成块"而不是被塞进一行列表
+// 契约：故意用“多行 + Markdown 表格”的写法，验"原文成块"而不是被塞进一行列表
 fs.writeFileSync(path.join(repoFull, '立项契约.md'), [
   '# 立项契约 · 齐全项目',
   '',
@@ -171,7 +171,7 @@ check('★ 方针四字段 + 结构地图都在',
   t.indexOf('让项目状态有地方挂') >= 0 && t.indexOf('不乱改用户数据') >= 0 && t.indexOf('模块清单：core / cli') >= 0)
 check('★ 没缺项时 missing 为空', Array.isArray(full.missing) && full.missing.length === 0, JSON.stringify(full.missing))
 
-console.log('\n---- 2. 决策只列「有效」，且带出处 ----')
+console.log('\n---- 2. 决策只列“有效”，且带出处 ----')
 check('★★ 有效决策在（本条目的）', t.indexOf('走 BYOK 自填端点') >= 0)
 check('★★ 全局有效决策也在（项目为空的那些对谁都算）', t.indexOf('不连默认端点') >= 0)
 check('★★ 已撤销的**不许**出现（否则 agent 会把撤销过的当现行规矩）',
@@ -200,15 +200,15 @@ check('★★ missing 逐项列出缺什么',
   && bare.missing.indexOf('方针') >= 0 && bare.missing.indexOf('未完成任务卡') >= 0
   && bare.missing.indexOf('执行日志') >= 0,
   JSON.stringify(bare.missing))
-// ⚠ 「有效决策卡」不该在 missing 里：那条全局决策（项目为空）对每个项目都算数。
+// ⚠ “有效决策卡”不该在 missing 里：那条全局决策（项目为空）对每个项目都算数。
 //   这条同时钉住了"全局决策不能因为项目不匹配就被丢掉"。
-check('★ 全局决策仍算数 → 光板项目不缺「有效决策卡」',
+check('★ 全局决策仍算数 → 光板项目不缺“有效决策卡”',
   bare.missing.indexOf('有效决策卡') < 0 && bt.indexOf('不连默认端点') >= 0,
   JSON.stringify(bare.missing))
-check('★★ 正文里明说「还没有立项契约」（不是空着不提）',
+check('★★ 正文里明说“还没有立项契约”（不是空着不提）',
   bt.indexOf('还没有立项契约') >= 0, bt.slice(0, 100))
-check('★ 没填的字段写「（未填）」', bt.indexOf('（未填）') >= 0)
-check('★ 结尾有一句「缺不等于没有」的警告', bt.indexOf('缺不等于没有') >= 0)
+check('★ 没填的字段写“（未填）”', bt.indexOf('（未填）') >= 0)
+check('★ 结尾有一句“缺不等于没有”的警告', bt.indexOf('缺不等于没有') >= 0)
 check('★ 缺项时 counts 能看出这是空包',
   bare.counts && bare.counts.tasks === 0 && bare.counts.logs === 0, JSON.stringify(bare.counts))
 

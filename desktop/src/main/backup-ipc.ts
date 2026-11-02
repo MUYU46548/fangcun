@@ -1,7 +1,7 @@
 /**
  * 备份 IPC — 渲染层入口
  *
- * 安全：密码只在「渲染层 → 主进程」方向出现一次，主进程立即加密存储；
+ * 安全：密码只在“渲染层 → 主进程”方向出现一次，主进程立即加密存储；
  *      返回给渲染层的配置永远只有 hasPassword 布尔标记。
  */
 import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
@@ -205,8 +205,8 @@ export function registerBackupIpcHandlers(): void {
         if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
         dir = r.filePaths[0]
       }
-      // 2026-09-25 第 10 条：传了 package 就是「导出这一份已有备份」（默认最新），
-      // 不传则「现在重新打一份全量包」。
+      // 2026-09-25 第 10 条：传了 package 就是“导出这一份已有备份”（默认最新），
+      // 不传则“现在重新打一份全量包”。
       // 2026-09-26 用户第 1 条：两条路都**只落一个 zip**（不再附 README/sidecar/恢复脚本）。
       const result = input.package
         ? exportExistingPackageTo(dir, input.package)
@@ -268,7 +268,7 @@ export function registerBackupIpcHandlers(): void {
   //   入参已无意义（旧版传 zip 路径），保留签名只为兼容旧 preload 调用。
   guardedHandle('backup:gitPush', async (event) => {
     try {
-      // 阶段往回送（2026-10-25 卡 004）：界面上的「准备仓库 / 扫描改动 / 推送」
+      // 阶段往回送（2026-10-25 卡 004）：界面上的“准备仓库 / 扫描改动 / 推送”
       // 必须是**主进程真走到哪一步**，不许渲染层按时间猜。
       // ⚠ 送不出去（窗口已关）不算失败：同步本身照跑，只是没人看。
       const push = (phase: string): void => {
@@ -279,10 +279,10 @@ export function registerBackupIpcHandlers(): void {
   })
 
   /**
-   * restic 增量备份脚本（2026-10-11 用户拍板走「方案 A」）——
+   * restic 增量备份脚本（2026-10-11 用户拍板走“方案 A”）——
    * 方寸只**生成脚本 + 说明**，定时由用户自己挂：零维护、零鉴权、**不经手仓库密码**。
    * ⚠ 密钥文件必须排除，且用的就是备份包那份 `SECRET_BASENAMES` ——
-   *   否则「多一条备份通道」会变成「多一个密钥泄漏面」。
+   *   否则“多一条备份通道”会变成“多一个密钥泄漏面”。
    */
   guardedHandle('backup:resticScript', (_e, os?: 'win' | 'posix') => {
     try {
@@ -298,7 +298,7 @@ export function registerBackupIpcHandlers(): void {
   })
 
   /**
-   * 体积报告 —— 「包为什么这么大」的直接答案（2026-10-11 用户第 2 条）。
+   * 体积报告 —— “包为什么这么大”的直接答案（2026-10-11 用户第 2 条）。
    * 只读扫描，不改任何数据；跳过项与真实备份用**同一套判据**（planSnapshot）。
    */
   guardedHandle('backup:sizeReport', () => {

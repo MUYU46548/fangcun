@@ -5,7 +5,7 @@
  * 为什么单开一套：桥（传输层）通了 ≠ 客户端愿意用。真实 MCP 客户端在 initialize 之后
  * 会立刻发 `notifications/initialized`（无 id 的通知）并周期性 `ping`。
  * 2026-10-18 之前服务端对这两者都回 `-32601 Method not found` ——
- * 严格客户端会判协议违规并丢弃整条会话，用户看到的就是「方寸开着，agent 说调不到」。
+ * 严格客户端会判协议违规并丢弃整条会话，用户看到的就是“方寸开着，agent 说调不到”。
  *
  * 本套直接跑编译产物 main/mcp/handler.js（真代码），只桩掉它下方的数据层依赖。
  * 运行：node scripts/test/e2e-mcp-protocol.cjs

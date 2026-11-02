@@ -5,14 +5,14 @@
   日志转待办、快速记、项目统计都读它），所以第 9 块先把数据与动作抽进
   `composables/useTodos.ts`，这一步才只搬模板 —— 两步分开，红了能分清是哪一步坏的。
 
-  **组件边界**：只「显示 + 收集意图」，一个副作用都不留在这里。
+  **组件边界**：只“显示 + 收集意图”，一个副作用都不留在这里。
   父组件把 `useTodos()` 的返回值、项目列表、以及五个既有能力
   （右键菜单 / 撤销已转出 / 转日志确认 / 指派日期 / 拖入导入 / 拖拽高亮）
   打包成一个 reactive 对象，作为唯一 prop `ctl` 传进来。
 
   ⚠ **为什么是单个 reactive prop、而不是 40 个 props**：
     · 这一块要 14 个状态 + 17 个动作 + 6 个能力，逐个绑会在 App.vue 挤成一大片，
-      漏一个的后果是点了没反应（与 2026-09-22「启动台 + 添加应用」那个 bug 同型）；
+      漏一个的后果是点了没反应（与 2026-09-22“启动台 + 添加应用”那个 bug 同型）；
     · `useTodos()` 返回的是**一堆 ref**，直接当 prop 传进子组件时模板**不会自动解包**
       （解包只对 `<script setup>` 顶层绑定生效）—— 所以父组件用 `reactive()` 包一层，
       属性访问即解包，子组件里写 `ctl.todoFilter` 就是值。
@@ -36,7 +36,7 @@
     <div class="todos-header">
       <h3>待办</h3>
       <div class="todos-ctrls">
-        <!-- 2026-09-29 用户第 1 条：小框（+ 添加）与「大框新建」并排 = 两个入口，
+        <!-- 2026-09-29 用户第 1 条：小框（+ 添加）与“大框新建”并排 = 两个入口，
              小框长得像搜索框，纯误导；新建待办是慎重举动，只留一个入口 → 标准编辑大框。 -->
         <button class="ghost todo-new" title="新建待办（可一次填项目 / 优先级 / 到期日）；也可直接拖入 txt/md" @click="ctl.openTodoCreator()">＋ 新建待办</button>
         <select v-model="ctl.todoProjectFilter" class="todo-filter" title="按项目筛选（只影响显示）">
@@ -82,7 +82,7 @@
       ⚠ 上次读取待办数据失败，坏文件已隔离保留（{{ ctl.todoHealthIssue.quarantined || ctl.todoHealthIssue.file }}）——
       原文件没有被覆盖，可以人工救回。错误：{{ ctl.todoHealthIssue.error }}
     </div>
-    <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走「日志」页签。</div>
+    <div class="todos-note">您可以在此添加临时便签，仅供个人备忘使用。需要暂存或传递提示词的，请走“日志”页签。</div>
     <div v-if="ctl.todoDragOver" class="todo-drop-hint">松手导入：txt/md 每行一条待办</div>
     <div class="todos-list" :class="{ 'as-grid': ctl.todoView === 'grid', batching: ctl.todoBatchMode }">
       <div v-if="!ctl.filteredTodos.length" class="empty-state">
@@ -90,7 +90,7 @@
         <div class="empty-text">{{ ctl.todos.length ? '没有符合当前筛选的待办' : '暂无待办' }}</div>
         <button v-if="ctl.todos.length" class="todos-clear" @click="ctl.clearTodoFilters()">清除筛选</button>
       </div>
-      <!-- 待办行＝**两行卡**（2026-09-29 用户拍板：「待办行改成两行卡」）——
+      <!-- 待办行＝**两行卡**（2026-09-29 用户拍板：“待办行改成两行卡”）——
            上行：置顶徽标 + 标题（标题占满整行，不再和一堆按钮抢宽度）
            下行：优先级 / 项目 / 到期 · 右侧动作按钮
            勾选框跨两行。卡片网格视图**共用这一份 DOM**，只换 grid 模板（不重写第二遍卡片）。 -->
@@ -120,13 +120,13 @@
             <!-- 卡 004：由日志转来的待办标出来源（与日志侧 ⤴ 待办 徽章成对，prev 范式） -->
             <span v-if="todo.fromLog" class="todo-from"
               :title="'由日志 ' + todo.fromLog + ' 转来（源日志保留）'">⤴ 日志</span>
-            <!-- 已转出（转换时勾了「顺手标已转出」）：折叠的源展开后在这里，可一键撤销 -->
+            <!-- 已转出（转换时勾了“顺手标已转出”）：折叠的源展开后在这里，可一键撤销 -->
             <span v-if="todo.converted" class="todo-converted"
               :title="'已转成日志 ' + todo.converted + ' —— 折叠只是藏起来，不是删除'">⤴ 已转出</span>
             <button v-if="todo.converted" class="todo-conv-undo" type="button"
-              title="撤销「已转出」标记，恢复到常规列表" @click.stop="ctl.undoConverted(todo)">↩</button>
+              title="撤销“已转出”标记，恢复到常规列表" @click.stop="ctl.undoConverted(todo)">↩</button>
             <!-- 到期：日期 + 可选时间（2026-10-12）—— 有时分就显示到分钟，
-                 这样「21:39」这种"某刻截止"（如额度重置后抢跑）一眼能读出。 -->
+                 这样“21:39”这种"某刻截止"（如额度重置后抢跑）一眼能读出。 -->
             <span v-if="todo.due || todo.dueTime" class="todo-due" :class="{ overdue: isOverdue(todo) }"
                   :title="ctl.todoDueTitle(todo)">
               📅 {{ todo.due || '今天' }}<template v-if="todo.dueTime"> {{ todo.dueTime }}</template><template v-if="isOverdue(todo)"> · 逾期 {{ ctl.overdueDays(todo) }} 天</template>
@@ -137,10 +137,10 @@
           <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="ctl.openCalAssignTodo(todo.id)">📅</button>
           <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="ctl.openTodoEditor(todo)">✏️</button>
           <!-- 卡 004（拍板=双向）：待办 → 日志。先开确认框（2026-10-09 用户第 1 条：
-               里面可以顺手勾「标已转出」折叠源）；同一条只转一次（日志记 fromTodo 防重）。
-              2026-10-31（暮雨第 6 条）：原来只有一个「⤴」，不知道点下去会发生什么 ——
-               中转之所以"问题一堆"，一半是因为搬运工没挂牌子。按钮写明「→ 日志」。 -->
-          <button class="todo-conv" title="转成执行日志：先确认（可顺手把源标「已转出」折叠）—— 同一条只转一次"
+               里面可以顺手勾“标已转出”折叠源）；同一条只转一次（日志记 fromTodo 防重）。
+              2026-10-31（暮雨第 6 条）：原来只有一个“⤴”，不知道点下去会发生什么 ——
+               中转之所以"问题一堆"，一半是因为搬运工没挂牌子。按钮写明“→ 日志”。 -->
+          <button class="todo-conv" title="转成执行日志：先确认（可顺手把源标“已转出”折叠）—— 同一条只转一次"
             @click.stop="ctl.askConvertTodo(todo)">→ 日志</button>
           <button class="todo-del" title="删除这条待办" @click.stop="ctl.deleteTodo(todo.id)">×</button>
         </div>
@@ -151,7 +151,7 @@
       <button class="ghost" @click="ctl.showConvertedTodos = !ctl.showConvertedTodos">
         {{ ctl.showConvertedTodos ? '收起已转出' : `已转出 ${ctl.convertedTodosCount} 条 · 展开` }}
       </button>
-      <span class="hint" v-if="!ctl.showConvertedTodos">转日志时勾了「顺手标已转出」的源折叠在这里 —— 不是删除</span>
+      <span class="hint" v-if="!ctl.showConvertedTodos">转日志时勾了“顺手标已转出”的源折叠在这里 —— 不是删除</span>
     </div>
   </main>
 </template>

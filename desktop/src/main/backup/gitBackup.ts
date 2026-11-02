@@ -5,8 +5,8 @@
  * 逐文件 diff 与历史 —— 这才叫"用 git 备份"。
  *
  * ⚠ 2026-10-11 用户第 1 条（真机反馈）：
- *   「GIT 可以用了…但是推上去的怎么是一个压缩包？全世界没有任何软件的 git 备份直接扔压缩包上去。
- *     哪怕司天都不扔压缩包。那要 git 有什么用？压缩包只应用于网盘等场景。」
+ *   “GIT 可以用了…但是推上去的怎么是一个压缩包？全世界没有任何软件的 git 备份直接扔压缩包上去。
+ *     哪怕司天都不扔压缩包。那要 git 有什么用？压缩包只应用于网盘等场景。”
  *   老实现把整个备份 zip 当成一个 blob 推进去 —— 仓库里只有一个 zip，历史里看不出任何东西改了。
  *   现在改成**镜像工作树**：把 `task-data/ + registry.yaml + policies/ + docs/` 原样铺进仓库，
  *   每次提交都是"哪个文件加了改动一行的 diff"。
@@ -185,14 +185,14 @@ function runGit(args: string[], cwd: string, token?: { username: string; token: 
  * 测试连接（`git ls-remote`）—— 给确定性反馈，别让用户猜。
  *
  * ⚠ 2026-10-11 真机修：**不能用 `--exit-code`**。实测空仓库（刚建、还没有任何提交）
- *   下 `git ls-remote --exit-code` 会「退出码 2 + 一个字都不吐」，于是被翻成
- *   「未能自动识别」—— 用户看到的是"填了地址却说没填/失败"，其实是**一切正常**。
+ *   下 `git ls-remote --exit-code` 会“退出码 2 + 一个字都不吐”，于是被翻成
+ *   “未能自动识别”—— 用户看到的是"填了地址却说没填/失败"，其实是**一切正常**。
  *   现在：能列出 refs → 连上了；列不出来但也没报错 → 连上了（这是个空仓库）；
  *   有报错 → 才按 analyzeGitError 说人话。
  */
 export async function gitTestRemote(): Promise<{ ok: boolean; message: string }> {
   const cfg = readGitConfig()
-  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点这里测试。' }
+  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点“保存”，再点这里测试。' }
   const r = await runGit(['ls-remote', cfg.remote], app.getPath('userData'), getGitToken())
   if (r.ok) {
     return { ok: true, message: r.out.trim() ? '连上了，而且令牌能读这个仓库。' : '连上了（这个仓库还是空的，第一次推送会自动建分支）。' }
@@ -249,13 +249,13 @@ export async function gitSyncData(
   onPhase?: (phase: SyncPhase) => void,
 ): Promise<GitSyncResult> {
   const cfg = readGitConfig()
-  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点「保存」，再点「同步」。' }
+  if (!cfg.remote) return { ok: false, message: '仓库地址还是空的 —— 填好地址先点“保存”，再点“同步”。' }
   const token = getGitToken()
   const dir = workDir()
   const gitDir = path.join(dir, '.git')
 
   // 1. 准备一个与远端一致的工作副本。
-  //    ⚠ clone 失败不再盲目退化成 init —— 那会把「令牌被拒 / 网络不通」的真因吞掉。
+  //    ⚠ clone 失败不再盲目退化成 init —— 那会把“令牌被拒 / 网络不通”的真因吞掉。
   //    （空仓库不需要 init：实测 `git clone` 空仓库是**成功退出**的。）
   onPhase?.('prepare')
   if (!fs.existsSync(gitDir)) {
@@ -298,7 +298,7 @@ export async function gitSyncData(
       '-c', `user.name=${cfg.authorName}`, '-c', `user.email=${cfg.authorEmail}`,
       'commit', '-m', msg,
     ], dir, token)
-    // 「没有改动」不算失败（数据没变时再点一次）
+    // “没有改动”不算失败（数据没变时再点一次）
     if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.out)) return commit
     // 推送通常是最慢的一步 —— 用户盯着转圈的时间几乎全长在这里
     onPhase?.('push')

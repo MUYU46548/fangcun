@@ -4,7 +4,7 @@
  * 为什么要这一层：本项目已有五类检查 —— vite/tsc 编译、主进程 stub e2e、
  * IPC 三方对账、模板绑定检查、按钮样式守卫。它们**全都不覆盖**
  * "按钮在、通道在、点了没反应" 这一类问题。
- * 用户第 1 条（待办「+ 添加」无效）正好落在这个盲区里，所以必须真点一次。
+ * 用户第 1 条（待办“+ 添加”无效）正好落在这个盲区里，所以必须真点一次。
  *
  * 由 scripts/test/e2e-renderer.cjs 用 electron 拉起（本文件必须在 desktop/ 下，
  * 否则 Electron 主进程 require('electron') 解析不到 desktop/node_modules），本文件负责：加载 dist/renderer → 驱动 UI → 断言。
@@ -52,9 +52,9 @@ async function js(code) {
 }
 
 /**
- * 打开一个页签：先找常驻 .vbtn，找不到就开「更多」再点菜单项。
+ * 打开一个页签：先找常驻 .vbtn，找不到就开“更多”再点菜单项。
  *
- * 2026-10-25 起低频页签（启动台 / 技能 / 服务）被收进「更多」菜单，
+ * 2026-10-25 起低频页签（启动台 / 技能 / 服务）被收进“更多”菜单，
  * 旧断言直接找 `.vbtn` 会一直超时 —— 那是测试路径过期，不是页签没了。
  * 返回 'direct' | 'more' | 'no'（'no' = 真的没有这个页签）。
  */
@@ -81,14 +81,14 @@ async function openViewTab(label) {
 }
 
 /**
- * 预写「免责声明已确认」记录再重载（2026-10-17）。
+ * 预写“免责声明已确认”记录再重载（2026-10-17）。
  *
  * 背景：10-16 落地的**首启强制免责声明**是覆盖全窗的合规闸。测试 profile 里没有确认
- * 记录 → 闸一直盖在页面上 → 三条断言长期红（「Esc 关最上层弹窗」×2、「页签被遮罩盖字」），
- * 而它们红的原因跟产品代码无关（真实用户点「同意」闸就消失）。
+ * 记录 → 闸一直盖在页面上 → 三条断言长期红（“Esc 关最上层弹窗”×2、“页签被遮罩盖字”），
+ * 而它们红的原因跟产品代码无关（真实用户点“同意”闸就消失）。
  *
  * 做法：版本号与 localStorage 键**从 disclaimer.ts 现读**（不写死，改文案抬版本时这里自动跟），
- * 只写一条 ack 记录后重载页面。产品代码零改动 —— 测试不替用户同意，只测「同意之后」的产品。
+ * 只写一条 ack 记录后重载页面。产品代码零改动 —— 测试不替用户同意，只测“同意之后”的产品。
  */
 async function preAckDisclaimer() {
   try {
@@ -134,7 +134,7 @@ const CLICK_BY_TEXT = (text) => `
   })()
 `
 
-/** 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 造待办一律走唯一入口「＋ 新建待办」大框 */
+/** 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 造待办一律走唯一入口“＋ 新建待办”大框 */
 const ADD_TODO_BTN = '＋ 新建待办'
 async function addTodoViaModal(title, opts = {}) {
   await js(CLICK_BY_TEXT(ADD_TODO_BTN))
@@ -209,15 +209,15 @@ async function main() {
     6000, '页签渲染')
   check('页签渲染完成', navOk)
 
-  // ── 1. 切到「待办」页签（用户第 1 条的场景）──────────────────────
-  check('能点到「待办」页签', await js(CLICK_BY_TEXT('待办')))
+  // ── 1. 切到“待办”页签（用户第 1 条的场景）──────────────────────
+  check('能点到“待办”页签', await js(CLICK_BY_TEXT('待办')))
   const viewOk = await waitFor(`document.querySelector('main.todos-view')`, 6000, '待办视图渲染')
   check('待办视图已渲染', viewOk)
-  // 2026-09-29 用户第 1 条：小框（+ 添加）与「大框新建」两个入口合并成一个
+  // 2026-09-29 用户第 1 条：小框（+ 添加）与“大框新建”两个入口合并成一个
   check('快速小框已移除（不再有长得像搜索框的输入框，也没有第二个入口）',
     await js(`!document.querySelector('input.todo-input') &&
               ![...document.querySelectorAll('.todos-ctrls button')].some(b => b.textContent.includes('添加'))`))
-  check('唯一入口「＋ 新建待办」存在',
+  check('唯一入口“＋ 新建待办”存在',
     await js(`!!document.querySelector('.todos-ctrls .todo-new') &&
               document.querySelector('.todos-ctrls .todo-new').textContent.trim() === ${JSON.stringify('＋ 新建待办')}`))
 
@@ -230,7 +230,7 @@ async function main() {
       return { bg: cs.backgroundColor, radius: cs.borderRadius, weight: cs.fontWeight, appearance: cs.appearance }
     })()
   `)
-  check('「＋ 新建待办」不是浏览器默认样式（有圆角/有背景/有字重）',
+  check('“＋ 新建待办”不是浏览器默认样式（有圆角/有背景/有字重）',
     !!btnStyle && btnStyle.radius !== '0px' && btnStyle.weight !== '400',
     JSON.stringify(btnStyle))
 
@@ -249,7 +249,7 @@ async function main() {
   await js(`window.__fcTest.reset()`)
   await addTodoViaModal('渲染层测试待办')
   const created = await waitFor(`window.__fcTest.todos().length === 1`, 5000, '待办落库')
-  check('点「＋ 新建待办」→ 保存真的调到了 todosCreate', await js(`window.__fcTest.callCount('todosCreate') >= 1`))
+  check('点“＋ 新建待办”→ 保存真的调到了 todosCreate', await js(`window.__fcTest.callCount('todosCreate') >= 1`))
   check('待办已创建', created, JSON.stringify(await js(`window.__fcTest.todos()`)))
   const listRendered = await waitFor(`[...document.querySelectorAll('.todo-item .todo-title')].some(e => e.textContent.includes('渲染层测试待办'))`,
     5000, '列表回显')
@@ -258,20 +258,20 @@ async function main() {
     await js(`!document.querySelector('#todo-edit-modal')`))
 
   // ── 4. 回车不再直接创建（小框移除后，弹窗里的回车 = 换行）────────────
-  check('已无「回车即建」入口（回车路径随小框一起移除）',
+  check('已无“回车即建”入口（回车路径随小框一起移除）',
     await js(`!document.querySelector('input.todo-input')`))
 
   // ── 5. 优先级走弹窗字段（替代 p0 尾缀语法）──────────────────────────
   await addTodoViaModal('带优先级的待办', { prio: '高' })
   await waitFor(`window.__fcTest.todos().length === 2`, 5000, '高优先级创建')
   const p0 = await js(`window.__fcTest.todos().find(t => t.title === '带优先级的待办')`)
-  check('弹窗里选「高」写入高优先级', !!p0 && p0.priority === '高', JSON.stringify(p0))
+  check('弹窗里选“高”写入高优先级', !!p0 && p0.priority === '高', JSON.stringify(p0))
 
-  // ── 6. 待办项上的「📅 指派」入口（用户第 6 条）─────────────────
+  // ── 6. 待办项上的“📅 指派”入口（用户第 6 条）─────────────────
   check('待办项有指派时间按钮', await js(`!!document.querySelector('.todo-item .todo-assign')`))
   await js(`document.querySelector('.todo-item .todo-assign').click()`)
   const modalOk = await waitFor(`!!document.querySelector('#cal-assign-modal')`, 4000, '指派模态')
-  check('点「📅」弹出指派时间模态', modalOk)
+  check('点“📅”弹出指派时间模态', modalOk)
   if (modalOk) {
     await js(`(() => {
       const set = (v) => { const el = document.querySelector('#cal-assign-modal input[type=date]');
@@ -285,7 +285,7 @@ async function main() {
     check('模态已关闭', !(await js(`!!document.querySelector('#cal-assign-modal')`)))
   }
 
-  // ── 7. 任务卡右键菜单含「指派时间」（用户第 6 条）───────────────
+  // ── 7. 任务卡右键菜单含“指派时间”（用户第 6 条）───────────────
   await js(CLICK_BY_TEXT('看板'))
   await waitFor(`!!document.querySelector('.card')`, 5000, '看板卡片')
   await js(`(() => {
@@ -296,15 +296,15 @@ async function main() {
   check('任务卡右键菜单可打开', ctxOk)
   if (ctxOk) {
     const hasAssign = await js(`[...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].some(b => b.textContent.includes('指派时间'))`)
-    check('右键菜单含「指派时间」', hasAssign)
+    check('右键菜单含“指派时间”', hasAssign)
   }
 
-  // ── 7.2 弹药库「复制为派工单」（卡 031 六字段 schema）───────────────
+  // ── 7.2 弹药库“复制为派工单”（卡 031 六字段 schema）───────────────
   //   六字段进模板文本、不进 JSON；纯文本拼接零智能；**只复制不派发**。
   //   同一批断言在 e2e-renderer-web（无头浏览器）里跑得更细（六字段逐项/纪律段/三种状态标记）。
   if (ctxOk) {
     await js(`window.__fcTest.reset()`)
-    check('★ 右键菜单含「复制为派工单」（弹药库出口）',
+    check('★ 右键菜单含“复制为派工单”（弹药库出口）',
       await js(`[...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].some(b => b.textContent.includes('复制为派工单'))`))
     await js(`(() => {
       const b = [...document.querySelectorAll('.ctx-menu:not(.ctx-other) button')].find(x => x.textContent.includes('复制为派工单'))
@@ -368,7 +368,7 @@ async function main() {
     JSON.stringify(density))
   // ⚠ 2026-10-15 修（这条长期红着，不是功能坏了）：
   //   旧写法直接要求"完成/驳回一定在折叠集合里"，但折叠集合的真身是 **localStorage / prefs.json**
-  //   —— 真机 e2e 用的是**同一个 profile**，上一轮（甚至暮雨本人用方舟时）点过「⊞ 展开」，
+  //   —— 真机 e2e 用的是**同一个 profile**，上一轮（甚至暮雨本人用方舟时）点过“⊞ 展开”，
   //   盘上就留着 `[]`；按设计**显式值优先**，此时默认值本来就不该生效。
   //   改成状态无关的判据：**DOM 里折叠的列 == 该偏好表达出来的集合**
   //   （没这个键 → 默认 ['完成','驳回']；有键 → 尊重键值）。这条比原来那条更强：
@@ -393,7 +393,7 @@ async function main() {
       && !density.collapsed.includes('待验收'),
     JSON.stringify(density.collapsed))
 
-  // 卡右侧 meta：**日期与所属项目常驻可见**（2026-09-28 用户反馈「希望看见所属项目和日期」）
+  // 卡右侧 meta：**日期与所属项目常驻可见**（2026-09-28 用户反馈“希望看见所属项目和日期”）
   const cardMeta = await js(`
     (() => {
       const cards = [...document.querySelectorAll('#board .card')].filter(c => c.offsetParent !== null)
@@ -406,22 +406,22 @@ async function main() {
       }
       return { total: cards.length, badCount: bad.length, bad: bad.slice(0, 4) }
     })()`)
-  check('★ 板上每张可见卡都常驻显示「日期 + 所属项目」',
+  check('★ 板上每张可见卡都常驻显示“日期 + 所属项目”',
     !cardMeta.err && cardMeta.total > 0 && cardMeta.badCount === 0, JSON.stringify(cardMeta))
   const arrProj = await js(`
     (() => {
       const c = [...document.querySelectorAll('#board .card')]
         .find(x => ((x.querySelector('.ttl') || {}).textContent || '').includes('数组项目的任务'))
-      if (!c) return { err: '没找到「数组项目的任务」那张卡' }
+      if (!c) return { err: '没找到“数组项目的任务”那张卡' }
       return { proj: (c.querySelector('.card-proj') || {}).textContent || '', raw: JSON.stringify((c.querySelector('.card-proj') || {}).title || '') }
     })()`)
-  check('★ 「项目」是数组时也能显示成项目名（不过 normProject 就永远匹配不到 —— 用户报的「看不见项目」）',
+  check('★ “项目”是数组时也能显示成项目名（不过 normProject 就永远匹配不到 —— 用户报的“看不见项目”）',
     !arrProj.err && arrProj.proj.trim() === '第二个项目', JSON.stringify(arrProj))
   const duePref = await js(`
     (() => {
       const c = [...document.querySelectorAll('#board .card')]
         .find(x => ((x.querySelector('.ttl') || {}).textContent || '').includes('演示任务') && !((x.querySelector('.ttl') || {}).textContent || '').includes('归档'))
-      if (!c) return { err: '没找到「演示任务」那张卡' }
+      if (!c) return { err: '没找到“演示任务”那张卡' }
       const d = c.querySelector('.card-date')
       return { text: d ? d.textContent.trim() : '', over: d ? d.classList.contains('over') : null }
     })()`)
@@ -442,7 +442,7 @@ async function main() {
       const d = c.querySelector('.card-date')
       return { text: d ? d.textContent.trim() : '', dim: d ? d.classList.contains('dim') : null }
     })()`)
-  check('★ 没有截止日就退到「更新 MM-DD」（卡上永远看得见一个日期，且样式区分开）',
+  check('★ 没有截止日就退到“更新 MM-DD”（卡上永远看得见一个日期，且样式区分开）',
     !updFallback.err && /更新/.test(updFallback.text) && updFallback.dim === true, JSON.stringify(updFallback))
 
   // ⑤ 悬停轻提示：造两张确定的卡（一张超长会截断、一张很短不会），不靠数据碰运气
@@ -462,10 +462,10 @@ async function main() {
       window.__fcTest.setTasks([mk('tip-long', ${JSON.stringify(TIP_LONG)}), mk('tip-short', '短标题')])
       return { long: ${JSON.stringify(TIP_LONG)}, saved: saved.length }
     })()`)
-  check('（环境）造出「超长标题」与「短标题」两张卡（改夹具真身，不是改 DOM）',
+  check('（环境）造出“超长标题”与“短标题”两张卡（改夹具真身，不是改 DOM）',
     !tipPrep.err, JSON.stringify(tipPrep))
   // 重进看板让数据重新渲染，再按标题认领这两张卡打标记。
-  // ⚠ 必须先切走再切回来：`curView` 本来就在看板，再点一次「看板」**不会**触发重新加载
+  // ⚠ 必须先切走再切回来：`curView` 本来就在看板，再点一次“看板”**不会**触发重新加载
   //   （setTasks 只改了 store，界面不动）—— 第一版就是这么假的：卡片数对了、标题还是旧的。
   await js(CLICK_BY_TEXT('待办'))
   await new Promise(r => setTimeout(r, 250))
@@ -486,7 +486,7 @@ async function main() {
 
   await js(`(() => { const c = document.querySelector('[data-tip-test="long"]'); if (c) c.dispatchEvent(new MouseEvent('mouseenter')) ; return true })()`)
   await new Promise(r => setTimeout(r, 50))
-  check('★ 悬停不是「立刻弹出」：50ms 时还没有（延时 150ms，不是 0 也不是 1-2 秒）',
+  check('★ 悬停不是“立刻弹出”：50ms 时还没有（延时 150ms，不是 0 也不是 1-2 秒）',
     (await js(`!!document.querySelector('.card-tip')`)) === false)
   await new Promise(r => setTimeout(r, 350))
   const tipShown = await js(`
@@ -543,11 +543,11 @@ async function main() {
   const calOk = await waitFor(`!!document.querySelector('.calgrid') && document.querySelectorAll('.calcell').length >= 28`,
     5000, '日历渲染')
   check('日历渲染出完整月格', calOk, String(await js(`document.querySelectorAll('.calcell').length`)))
-  check('日历显示「其它月份」或「未安排」分区', await js(`
+  check('日历显示“其它月份”或“未安排”分区', await js(`
     [...document.querySelectorAll('.calunsched h4')].some(h => /未安排|其它月份/.test(h.textContent))`))
 
   // ── 9. 全局错误条与日志入口 ──────────────────────────────────────
-  check('顶栏有「打开日志」相关入口（设置里）', await js(`
+  check('顶栏有“打开日志”相关入口（设置里）', await js(`
     (() => {
       const nav = [...document.querySelectorAll('.vbtn')]
       return nav.length > 0
@@ -555,9 +555,9 @@ async function main() {
   `))
 
   // ── 10. 看板分组：按项目（显示项目名）+ 折叠 ─────────────────────
-  // 用户 2026-09-25：「看板里多了这么多东西…像没有尽头的单子」。
+  // 用户 2026-09-25：“看板里多了这么多东西…像没有尽头的单子”。
   // 这里真点真读：分组标题必须是**项目名**（不是 fangcun-base 这种内部 id）、
-  // 未知 id 要回退成 id（不能空白）、无项目进「未归属」、点标题能折叠、分组不丢任务。
+  // 未知 id 要回退成 id（不能空白）、无项目进“未归属”、点标题能折叠、分组不丢任务。
   const backToBoard = await js(`
     (() => {
       const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '看板')
@@ -565,10 +565,10 @@ async function main() {
       b.click()
       return true
     })()`)
-  check('能切回「看板」页签', backToBoard === true)
+  check('能切回“看板”页签', backToBoard === true)
   await new Promise(r => setTimeout(r, 400))
 
-  // 分组入口（2026-10-12 顶栏重做）：旧的 `select` 换成了「⌗ <当前分组>」按钮 + reka Popover。
+  // 分组入口（2026-10-12 顶栏重做）：旧的 `select` 换成了“⌗ <当前分组>”按钮 + reka Popover。
   // ⚠ Popover 的 trigger 只认 **pointerdown**（合成 click 打不开）—— 与 App.vue 的浮层口径一致。
   const projSel = await js(`
     (() => {
@@ -578,17 +578,17 @@ async function main() {
       btn.click()
       return { ok: true }
     })()`)
-  check('工具栏有「按项目」分组入口', projSel && projSel.ok === true, JSON.stringify(projSel))
+  check('工具栏有“按项目”分组入口', projSel && projSel.ok === true, JSON.stringify(projSel))
   await new Promise(r => setTimeout(r, 400))
   const pickedProj = await js(`
     (() => {
       const opts = [...document.querySelectorAll('.fpop-opt')]
       const opt = opts.find(b => b.textContent.trim() === '按项目')
-      if (!opt) return { err: '弹层里没有「按项目」（见到：' + opts.map(b => b.textContent.trim()).join('/') + '）' }
+      if (!opt) return { err: '弹层里没有“按项目”（见到：' + opts.map(b => b.textContent.trim()).join('/') + '）' }
       opt.click()
       return { ok: true }
     })()`)
-  check('★ 弹出层里能选「按项目」（reka Popover，不再是旧 select）',
+  check('★ 弹出层里能选“按项目”（reka Popover，不再是旧 select）',
     pickedProj && pickedProj.ok === true, JSON.stringify(pickedProj))
   await new Promise(r => setTimeout(r, 400))
 
@@ -605,8 +605,8 @@ async function main() {
   const allIds = groups.ids.flat().filter(x => x !== '?')
   check('分组标题解析成项目名（不是内部 id demo）', groups.labels.includes('演示项目'), JSON.stringify(groups.labels))
   check('查不到名字的项目回退显示 id（不留空白标题）', groups.labels.includes('ghost-proj'), JSON.stringify(groups.labels))
-  check('没项目的任务进「未归属」', groups.labels.includes('未归属'), JSON.stringify(groups.labels))
-  // 同一个 id 不能在板子上出现两次：勾「含归档」时若归档区有同 id 副本，此前会显示两遍。
+  check('没项目的任务进“未归属”', groups.labels.includes('未归属'), JSON.stringify(groups.labels))
+  // 同一个 id 不能在板子上出现两次：勾“含归档”时若归档区有同 id 副本，此前会显示两遍。
   check('同一任务 id 不重复出现（含归档时也去重）',
     new Set(allIds).size === allIds.length, JSON.stringify({ ids: groups.ids }))
   check('分组标题里的数量与列内唯一任务数一致',
@@ -658,17 +658,17 @@ async function main() {
     JSON.stringify({ before: foldBefore, restored: foldRestored }))
 
   // 2026-09-28 用户第 3 条：全折叠 / 全展开是**同一个按钮**的两种状态。
-  // 修前界面上并排放着「折叠全部」与「展开」两个按钮，永远有一个点了没反应。
+  // 修前界面上并排放着“折叠全部”与“展开”两个按钮，永远有一个点了没反应。
   const foldBtnCount = await js(`
     (() => [...document.querySelectorAll('button')].filter(b => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(b.textContent.trim())).length)()`)
-  check('★ 顶栏只有一个「折叠/展开全部」按钮（不再并排两个，其中一个必定无效）',
+  check('★ 顶栏只有一个“折叠/展开全部”按钮（不再并排两个，其中一个必定无效）',
     foldBtnCount === 1, String(foldBtnCount))
   // ⚠ 2026-10-14：按钮文案在 2026-10-12 改过 —— 上一轮收成纯符号 ⊟ 后暮雨说
-  //   「折叠全部按钮的文本都没了，根本认不出来」，于是文字回来成「⊟ 折叠」/「⊞ 展开」。
+  //   “折叠全部按钮的文本都没了，根本认不出来”，于是文字回来成“⊟ 折叠”/“⊞ 展开”。
   //   断言跟着改：文案匹配兼容新旧两套，**并且优先按 `#btn-fold-all` 找**（别只认文案）。
   const foldBtnBefore = await js(`
     (() => { const b = document.querySelector('#btn-fold-all') || [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); return b ? b.textContent.trim() : null })()`)
-  check('  展开状态下按钮文案是「⊟ 折叠」（2026-10-12 恢复文字版）',
+  check('  展开状态下按钮文案是“⊟ 折叠”（2026-10-12 恢复文字版）',
     String(foldBtnBefore).includes('折叠'), String(foldBtnBefore))
 
   await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
@@ -686,7 +686,7 @@ async function main() {
     })()`)
   check('同一个按钮点一下把所有分组折叠起来', allFold.collapsed === allFold.total && allFold.total > 1, JSON.stringify(allFold))
   check('全折叠后没有卡片还露在外面', allFold.anyVisible === false, JSON.stringify(allFold))
-  check('★ 折叠后按钮自己变成「⊞ 展开」（文案跟着状态走，不是一个死按钮）',
+  check('★ 折叠后按钮自己变成“⊞ 展开”（文案跟着状态走，不是一个死按钮）',
     String(allFold.label).includes('展开'), String(allFold.label))
 
   await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => /⊟ 折叠|⊞ 展开|折叠全部|展开全部/.test(x.textContent.trim())); if (b) b.click(); return true })()`)
@@ -698,7 +698,7 @@ async function main() {
       return { n, label: b ? b.textContent.trim() : null }
     })()`)
   check('再点一次全还原（同一个按钮走完一个来回）', afterExpand.n === 0, JSON.stringify(afterExpand))
-  check('★ 展开后文案回到「⊟ 折叠」', String(afterExpand.label).includes('折叠'), String(afterExpand.label))
+  check('★ 展开后文案回到“⊟ 折叠”', String(afterExpand.label).includes('折叠'), String(afterExpand.label))
 
   // 还原默认视图，别把状态留给下一次（同样走新的 Popover 入口）
   await js(`
@@ -718,7 +718,7 @@ async function main() {
       return true
     })()`)
 
-  // ── 11. 多选：方框不能小到要「小心翼翼点」（用户 2026-09-25 第 2 条）────────
+  // ── 11. 多选：方框不能小到要“小心翼翼点”（用户 2026-09-25 第 2 条）────────
   const batchOn = await js(`
     (() => {
       const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('任务多选'))
@@ -726,7 +726,7 @@ async function main() {
       b.click()
       return true
     })()`)
-  check('有「任务多选」入口', batchOn === true)
+  check('有“任务多选”入口', batchOn === true)
   await new Promise(r => setTimeout(r, 300))
   const chkBox = await js(`
     (() => {
@@ -767,20 +767,20 @@ async function main() {
       cards: document.querySelectorAll('#board .card').length,
       count: (document.querySelector('.batch-bar .batch-count') || {}).textContent || '',
     }))()`)
-  check('「全选」把当前视图内所有任务都勾上',
+  check('“全选”把当前视图内所有任务都勾上',
     selAll.selected === selAll.cards && selAll.cards > 0, JSON.stringify(selAll))
   check('已选数量与计数文案一致',
     selAll.count.includes(String(selAll.selected)), JSON.stringify(selAll.count))
   await js(`(() => { const b = [...document.querySelectorAll('.batch-bar button')].find(x => x.textContent.trim() === '取消全选'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   const selNone = await js(`document.querySelectorAll('#board .card.selected').length`)
-  check('「取消全选」清空选择', selNone === 0, String(selNone))
+  check('“取消全选”清空选择', selNone === 0, String(selNone))
   await js(`(() => { const b = [...document.querySelectorAll('.batch-bar button')].find(x => x.textContent.trim() === '取消'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 250))
   const batchOff = await js(`!document.querySelector('.batch-bar')`)
-  check('「取消」退出多选模式', batchOff === true)
+  check('“取消”退出多选模式', batchOff === true)
 
-  // ── 12. 新建日志「卡一下」：全屏遮罩上的实时模糊会让失焦窗口不重绘（用户第 3 条）──
+  // ── 12. 新建日志“卡一下”：全屏遮罩上的实时模糊会让失焦窗口不重绘（用户第 3 条）──
   await js(`
     (() => {
       const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '日志')
@@ -792,7 +792,7 @@ async function main() {
     (() => {
       const t0 = performance.now()
       const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '+ 新建日志')
-      if (!b) return { err: '没找到「+ 新建日志」按钮' }
+      if (!b) return { err: '没找到“+ 新建日志”按钮' }
       b.click()
       return { ms: Math.round(performance.now() - t0) }
     })()`)
@@ -811,7 +811,7 @@ async function main() {
         title: el ? (el.querySelector('h3') || {}).textContent : null,
       }
     })()`)
-  check('「新建日志」能打开编辑框', logOpen.exists === true && logOpen.visible === true, JSON.stringify(logOpen))
+  check('“新建日志”能打开编辑框', logOpen.exists === true && logOpen.visible === true, JSON.stringify(logOpen))
   check('点开编辑框的同步耗时不是卡顿（<300ms）',
     typeof logOpen.clickMs === 'number' && logOpen.clickMs < 300, String(logOpen.clickMs) + 'ms')
   check('全屏遮罩不再用实时模糊（失焦不重绘的元凶）',
@@ -827,7 +827,7 @@ async function main() {
 
   // ── 13. 待办编辑（第 12 条：模态大框；第 14 条：勾选之后也要能改）──────────
   // 注意：不改夹具默认值（前面几节的断言假设待办为空）。这里走**真实用户路径**现造一条：
-  // 「＋ 新建待办」大框保存 → 勾选 → 它变成「已勾选」，正好是第 14 条的场景。
+  // “＋ 新建待办”大框保存 → 勾选 → 它变成“已勾选”，正好是第 14 条的场景。
   await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '待办'); if (b) b.click(); return true })()`)
   await new Promise(r => setTimeout(r, 400))
   const seeded = await (async () => {
@@ -851,14 +851,14 @@ async function main() {
       const done = [...document.querySelectorAll('.todo-item')].filter(el => el.className.includes('done'))
       return { n: done.length, titles: done.map(el => (el.querySelector('.todo-title') || {}).textContent) }
     })()`)
-  check('能造出「已勾选」的待办（第 14 条场景就位）', doneCount.n >= 1, JSON.stringify(seeded) + ' ' + JSON.stringify(toggled) + ' ' + JSON.stringify(doneCount))
+  check('能造出“已勾选”的待办（第 14 条场景就位）', doneCount.n >= 1, JSON.stringify(seeded) + ' ' + JSON.stringify(toggled) + ' ' + JSON.stringify(doneCount))
   const opened = await js(`
     (() => {
       const item = [...document.querySelectorAll('.todo-item')]
         .find(el => el.className.includes('done') && (el.textContent || '').includes('第14条_签下之后也要能编辑'))
       if (!item) return { err: '没找到已勾选的那条待办' }
       const btn = item.querySelector('.todo-edit')
-      if (!btn) return { err: '已勾选的待办上没有「改」按钮' }
+      if (!btn) return { err: '已勾选的待办上没有“改”按钮' }
       btn.click()
       return { clicked: true }
     })()`)
@@ -877,7 +877,7 @@ async function main() {
         value: ta ? ta.value : '',
       }
     })()`)
-  check('点「改」能打开编辑弹窗（且是**已勾选**那条）—— 第 14 条', todoOpen.exists === true, JSON.stringify(opened) + ' ' + JSON.stringify(todoOpen))
+  check('点“改”能打开编辑弹窗（且是**已勾选**那条）—— 第 14 条', todoOpen.exists === true, JSON.stringify(opened) + ' ' + JSON.stringify(todoOpen))
   check('编辑弹窗是大框：内容区高度 ≥ 160px —— 第 12 条', todoOpen.taH >= 160, String(todoOpen.taH) + 'px')
   check('编辑弹窗宽度 ≥ 600px', todoOpen.width >= 600, String(todoOpen.width) + 'px')
   check('已完成的待办也有提示（证明改的就是已完成那条）', todoOpen.doneHint === true)
@@ -914,7 +914,7 @@ async function main() {
   const createOpen = await js(`
     (() => {
       const b = [...document.querySelectorAll('.todo-new')][0]
-      if (!b) return { err: '没找到「＋ 新建待办」按钮' }
+      if (!b) return { err: '没找到“＋ 新建待办”按钮' }
       b.click()
       return { clicked: true }
     })()`)
@@ -927,7 +927,7 @@ async function main() {
                taH: Math.round(el.querySelector('textarea').getBoundingClientRect().height),
                empty: !el.querySelector('textarea').value }
     })()`)
-  check('「＋ 新建待办」打开的是新建态（标题为「新建待办」、内容为空）',
+  check('“＋ 新建待办”打开的是新建态（标题为“新建待办”、内容为空）',
     createModal.exists === true && createModal.h3 === '新建待办' && createModal.empty === true,
     JSON.stringify(createOpen) + ' ' + JSON.stringify(createModal))
   await js(`
@@ -952,7 +952,7 @@ async function main() {
       const list = window.__fcTest.todos().map(t => t.title)
       return { n: cs.length, last: cs.length ? JSON.stringify(cs[cs.length-1].args) : null, inList: list.includes('弹窗新建的待办') }
     })()`)
-  check('「＋ 新建待办」真的调到了 todosCreate 且落到列表里',
+  check('“＋ 新建待办”真的调到了 todosCreate 且落到列表里',
     createdViaModal.n >= 1 && /弹窗新建的待办/.test(String(createdViaModal.last)) && createdViaModal.inList === true,
     JSON.stringify(createdViaModal))
 
@@ -975,7 +975,7 @@ async function main() {
     })()`)
   check('日志编辑器宽度 ≥ 700px（原 560px）', logSize.exists === true && logSize.width >= 700,
     JSON.stringify(logSize))
-  check('「执行内容」框 ≥ 280px 高（原是小框，.tall 从未生效）',
+  check('“执行内容”框 ≥ 280px 高（原是小框，.tall 从未生效）',
     logSize.exists === true && logSize.contentH >= 280, JSON.stringify(logSize.heightArr || logSize.heights))
   // ⚠ 遮罩关闭绑的是 `@mousedown.self`（见 App.vue 的硬口径：拖选滑出弹窗时 click 的
   //   target 会是遮罩，用 click 关会把草稿一起丢掉）。所以这里**必须派发 mousedown**，
@@ -987,7 +987,7 @@ async function main() {
   //     2026-09-29 对齐 09-28 改版：旧断言点的 .log-archive-toggle 已不存在
   //     （现为 .log-group-sep/.log-group-toggle + v-show 分组，卡片父级隐藏时
   //     自身 computed display 仍非 none）——改用 getClientRects 判可见 + 状态归一化，
-  //     折叠/展开往返不依赖跨轮持久化的 localStorage 初始态（「默认收起」另由
+  //     折叠/展开往返不依赖跨轮持久化的 localStorage 初始态（“默认收起”另由
   //     e2e-renderer-web 的全新 profile 断言）。
   const sec14 = () => js(`(() => {
     const shown = (el) => !!el && el.getClientRects().length > 0
@@ -1047,10 +1047,10 @@ async function main() {
         btnText: btn ? btn.textContent.trim() : null,
       }
     })()`)
-  check('★ 设置里**没有**「导出内容」下拉了（不再要人逐字核对文件名）',
+  check('★ 设置里**没有**“导出内容”下拉了（不再要人逐字核对文件名）',
     bkExportUi.hasSelect === false && gear.clicked === true,
     JSON.stringify(gear) + ' ' + JSON.stringify(bkExportUi))
-  check('★ 换成一次点击的「📤 导出备份（一个 zip）」按钮',
+  check('★ 换成一次点击的“📤 导出备份（一个 zip）”按钮',
     !!bkExportUi.btnText && bkExportUi.btnText.includes('一个 zip'), String(bkExportUi.btnText))
   await js(`
     (() => {
@@ -1069,8 +1069,8 @@ async function main() {
   check('★ 导出只传 package（不再带 includeTool 往外写 README/sidecar/恢复脚本）',
     exportCall.n >= 1 && !/includeTool/.test(String(exportCall.last)), String(exportCall.last))
 
-  // 2026-09-28 卡 026-001（验收驳回原话：「依然不能手动点来选中备份，回收站都能点了，备份不能点，无语」）
-  //   修前 `.bk-item` 是没有 @click 的死 div，行上只有「恢复」按钮 —— 点行毫无反应。
+  // 2026-09-28 卡 026-001（验收驳回原话：“依然不能手动点来选中备份，回收站都能点了，备份不能点，无语”）
+  //   修前 `.bk-item` 是没有 @click 的死 div，行上只有“恢复”按钮 —— 点行毫无反应。
   await js(`window.__fcTest.reset()`)
   const rowClick = await js(`
     (() => {
@@ -1108,18 +1108,18 @@ async function main() {
         tiles: tiles.length,
       }
     })()`)
-  check('项目页有「项目章程」缺口条', !!charter.barText, JSON.stringify(charter))
+  check('项目页有“项目章程”缺口条', !!charter.barText, JSON.stringify(charter))
   check('缺口条统计正确（已填 1 / 共 2，缺失 1）',
     /已填 1 \/ 2/.test(String(charter.barText)) && /缺失 1/.test(String(charter.barText)), String(charter.barText))
-  // 029 验收驳回原话「找不到在哪里」：结构地图此前只是**不可点的计数 span**，且没缺口时干脆不渲染。
+  // 029 验收驳回原话“找不到在哪里”：结构地图此前只是**不可点的计数 span**，且没缺口时干脆不渲染。
   // 现在必须是**常驻的按钮**（没缺口时也在），点开有内容。
-  check('★ 缺口条有「结构地图」入口，而且是可点的 button（029 驳回原因就是找不到它）',
+  check('★ 缺口条有“结构地图”入口，而且是可点的 button（029 驳回原因就是找不到它）',
     charter.mapBtnTag === 'BUTTON' && /结构地图/.test(String(charter.mapBtn)), JSON.stringify(charter))
   check('★ 缺口数显示在这个入口上（还有 1 张方针卡没有结构地图）',
     /待填 1/.test(String(charter.mapBtn)), String(charter.mapBtn))
-  check('有方针的项目卡片显示「查看/编辑」', charter.cardBtns.some(t => t.includes('查看/编辑')), JSON.stringify(charter.cardBtns))
-  check('缺方针的项目卡片显示「立项目方针」', charter.cardBtns.some(t => t.includes('立项目方针')), JSON.stringify(charter.cardBtns))
-  check('缺口条出现「补齐骨架」按钮', charter.hasFillBtn === true, JSON.stringify(charter))
+  check('有方针的项目卡片显示“查看/编辑”', charter.cardBtns.some(t => t.includes('查看/编辑')), JSON.stringify(charter.cardBtns))
+  check('缺方针的项目卡片显示“立项目方针”', charter.cardBtns.some(t => t.includes('立项目方针')), JSON.stringify(charter.cardBtns))
+  check('缺口条出现“补齐骨架”按钮', charter.hasFillBtn === true, JSON.stringify(charter))
   await js(`
     (() => {
       const bar = document.querySelector('.charter-bar')
@@ -1133,16 +1133,16 @@ async function main() {
       const cs = window.__fcTest.calls().filter(c => c.name === 'policySave')
       return { n: cs.length, args: cs.map(c => JSON.stringify(c.args)) }
     })()`)
-  check('「补齐骨架」只为缺失的项目建文件（demo2，不动已有的 demo）',
+  check('“补齐骨架”只为缺失的项目建文件（demo2，不动已有的 demo）',
     fillCall.n === 1 && /demo2/.test(String(fillCall.args[0])) && !/policySave.*"demo"/.test(String(fillCall.args.join(' '))),
     JSON.stringify(fillCall))
 
-  // ── 16.5 结构地图入口（卡 029，验收驳回原话「找不到在哪里」）──────────────
+  // ── 16.5 结构地图入口（卡 029，验收驳回原话“找不到在哪里”）──────────────
   //   修前：结构地图只存在于方针卡文件里，界面上唯一相关的是一个**不可点的计数 span**，
   //   而且没有缺口时它还不渲染 —— 用户当然找不到。现在：常驻按钮 + 可点开的一览 + 能看能改。
   await js(`(() => { window.confirm = () => true; return true })()`)
   await js(`(() => { const b = document.querySelector('.cb-map-btn'); if (b) b.click(); return !!b })()`)
-  check('★ 点「结构地图」打开一览（不再是个点了没反应的计数）',
+  check('★ 点“结构地图”打开一览（不再是个点了没反应的计数）',
     await waitFor(`!!document.querySelector('#smap-modal')`, 5000, '结构地图一览'))
   const smap = await js(`
     (() => {
@@ -1166,13 +1166,13 @@ async function main() {
   await js(`(() => { const b = [...document.querySelectorAll('#smap-modal .smap-open')][0]; if (b) b.click(); return !!b })()`)
   check('★ 一览里点一下就能进方针卡编辑',
     await waitFor(`!!document.querySelector('#policy-modal')`, 5000, '方针卡弹窗'))
-  check('★ 方针卡里有「结构地图」小节（此前只读得到、界面看不见）',
+  check('★ 方针卡里有“结构地图”小节（此前只读得到、界面看不见）',
     await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return !!t })()`))
   await js(`(() => { const b = [...document.querySelectorAll('#policy-modal button')].find(x => x.textContent.includes('标记今天已核实')); if (b) b.click(); return !!b })()`)
   await new Promise(r => setTimeout(r, 200))
   const today = new Date()
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  check('★ 「标记今天已核实」把最后核实日期改成今天（029 的日期戳纪律）',
+  check('★ “标记今天已核实”把最后核实日期改成今天（029 的日期戳纪律）',
     await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return !!t && t.value.includes('${iso}') })()`),
     String(await js(`(() => { const t = document.querySelector('#policy-modal textarea.tall'); return t ? t.value.slice(0, 60) : 'none' })()`)))
   await js(`window.__fcTest.reset()`)
@@ -1181,7 +1181,7 @@ async function main() {
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'policySave' && /最后核实/.test(JSON.stringify(c.args)))`, 5000, 'policySave 带 structureMap'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'policySave').map(c => String(JSON.stringify(c.args)).slice(0, 120)))`)))
 
-  // 已经填好的卡：一览要显示「最后核实」日期（029 的日期戳就是给人看的）
+  // 已经填好的卡：一览要显示“最后核实”日期（029 的日期戳就是给人看的）
   await js(`window.__fcTest.setPolicies({
     demo: { mission: '使命内容', goal: '', scenario: '', boundary: '',
       structureMap: '> 最后核实：2026-09-27（当日实测）\\n- 模块清单：渲染层 / 主进程\\n- 主数据流：task-data → loadAllTasksRaw → 看板' },
@@ -1193,17 +1193,17 @@ async function main() {
       const i = [...document.querySelectorAll('#smap-modal .smap-item')].find(x => (x.querySelector('.smap-name') || {}).textContent.includes('演示项目'))
       return i ? { meta: (i.querySelector('.smap-meta') || {}).textContent || '', btn: (i.querySelector('.smap-open') || {}).textContent || '', cls: i.className } : null
     })()`)
-  check('★ 填好的卡在一览里显示「最后核实 · 2026-09-27」',
+  check('★ 填好的卡在一览里显示“最后核实 · 2026-09-27”',
     !!smap2 && /最后核实 · 2026-09-27/.test(String(smap2.meta)), JSON.stringify(smap2))
-  check('★ 缺口清掉后按钮上的计数变成「n/n」（入口仍在，不会消失）',
+  check('★ 缺口清掉后按钮上的计数变成“n/n”（入口仍在，不会消失）',
     await js(`(() => { const t = (document.querySelector('.cb-map-btn') || {}).textContent || ''; return /1\\/1/.test(t) })()`),
     String(await js(`(document.querySelector('.cb-map-btn') || {}).textContent`)))
   await js(`(() => { const b = [...document.querySelectorAll('#smap-modal button')].find(x => x.textContent.trim() === '关闭'); if (b) b.click(); return !!b })()`)
   await new Promise(r => setTimeout(r, 200))
 
   // ── 16.6 多视图切换（2026-09-28 用户第 ① 条后半句 + 卡 033 验收驳回）────────
-  //   用户原话：「尝试多种视图可选（用户自己切换，旧的视图可以保留）」
-  //   033 驳回原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+  //   用户原话：“尝试多种视图可选（用户自己切换，旧的视图可以保留）”
+  //   033 驳回原话：“我要的方块卡片式视图和其他视图也没出现，多视图根本没做。”
   //   这里钉三件事，缺一条这个功能就是假的：
   //     ① **旧视图永远是默认**（列视图 / 清单）—— 新视图是"换个摆法"，不是替换；
   //     ② 两种摆法**互斥**（同时挂两份 DOM 会让勾选、计数、键盘焦点全部翻倍）；
@@ -1241,7 +1241,7 @@ async function main() {
   check('  默认渲染的是列视图（有 .col 与卡片，没有 .board-list）',
     colState.cols > 0 && colState.cards > 0 && colState.list === 0, JSON.stringify(colState))
 
-  check('★ 能点到「列表视图」', await js(`
+  check('★ 能点到“列表视图”', await js(`
     (() => {
       const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('列表视图'))
       if (!b) return false
@@ -1272,7 +1272,7 @@ async function main() {
 
   // 折叠状态共用：在列表视图里折叠一个分区 → 该分区的行全部隐藏，展开回来还在。
   // ⚠ 目标分区**按数据挑**（第一个"展开着且有条目"的），不写死名字 ——
-  //   前面的用例已经挪过任务、也切过分组方式，写死「待办」是给自己埋雷。
+  //   前面的用例已经挪过任务、也切过分组方式，写死“待办”是给自己埋雷。
   const FOLD_TARGET = `
     (() => {
       const vis = (g) => [...g.querySelectorAll('.brow')].filter(r => r.offsetParent !== null).length
@@ -1355,7 +1355,7 @@ async function main() {
     await js(`localStorage.getItem('fc_board_view') === '"list"'`),
     String(await js(`localStorage.getItem('fc_board_view')`)))
 
-  // ── 待办页签：清单（默认）/ 卡片网格（033 点名的「方块卡片式」）──
+  // ── 待办页签：清单（默认）/ 卡片网格（033 点名的“方块卡片式”）──
   await js(CLICK_BY_TEXT('待办'))
   await sleep(350)
   const tsw = await js(`
@@ -1377,13 +1377,13 @@ async function main() {
   check('  待办页切换器是**另一套**选项（不是把看板那套原样搬过来）',
     await js(`(() => { const h = document.querySelector('.pagehead'); return !!h && !/列视图/.test(h.textContent) })()`))
 
-  check('★ 能点到「卡片网格」', await js(`
+  check('★ 能点到“卡片网格”', await js(`
     (() => {
       const b = [...document.querySelectorAll('.pagehead button.vsb')].find(x => x.textContent.includes('卡片网格'))
       if (!b) return false
       b.click(); return true
     })()`))
-  check('★ 卡片网格真的渲染出来（033 要的「方块卡片式」）',
+  check('★ 卡片网格真的渲染出来（033 要的“方块卡片式”）',
     await waitFor(`!!document.querySelector('main.todos-view .todos-list.as-grid')`, 5000, 'as-grid'))
   const cardLayout = await js(`
     (() => {
@@ -1472,10 +1472,10 @@ async function main() {
     String(await js(`JSON.stringify(window.__fcTest.prefs())`)))
 
   // ── 16. 回收站页签（2026-09-26 卡 034：数据一直在 .trash，缺的只是界面入口）──
-  //     真点：页签 → 列表 → 「还原」→ 「彻底删除」，并核对传出去的参数是**文件名**。
+  //     真点：页签 → 列表 → “还原”→ “彻底删除”，并核对传出去的参数是**文件名**。
   const trashNavOk = await waitFor(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '回收站')`, 4000, '回收站页签出现')
-  check('★ 有「回收站」页签', trashNavOk)
-  check('★ 能点到「回收站」页签', await js(CLICK_BY_TEXT('回收站')))
+  check('★ 有“回收站”页签', trashNavOk)
+  check('★ 能点到“回收站”页签', await js(CLICK_BY_TEXT('回收站')))
   const trashViewOk = await waitFor(`document.querySelector('main.trash-view')`, 6000, '回收站视图渲染')
   check('★ 回收站视图已渲染（不是白屏/占位）', trashViewOk)
   check('列表渲染出回收站条目（数据源 = trashList）',
@@ -1485,24 +1485,24 @@ async function main() {
     await js(`[...document.querySelectorAll('.trash-title')].some(e => e.textContent.includes('被删掉的演示任务'))`))
   check('条目显示文件名（操作句柄的另一半）',
     await js(`[...document.querySelectorAll('.trash-name')].some(e => e.textContent.includes('task-demo-902.2.md'))`))
-  check('每条都有「还原」和「彻底删除」按钮',
+  check('每条都有“还原”和“彻底删除”按钮',
     await js(`document.querySelectorAll('.trash-item').length === 2 &&
               [...document.querySelectorAll('.trash-item')].every(it => it.querySelectorAll('.trash-btn').length === 2)`))
-  check('回收站视图不加载任务列表 → 顶栏计数显示「—」（不是冒充条数）',
+  check('回收站视图不加载任务列表 → 顶栏计数显示“—”（不是冒充条数）',
     await js(`(document.querySelector('#count') || {}).textContent.trim() === '—'`),
     String(await js(`((document.querySelector('#count') || {}).textContent || '').trim()`)))
 
-  // 16a. 点「还原」
+  // 16a. 点“还原”
   await js(`(() => { const b = document.querySelector('.trash-item .trash-btn'); if (b) b.click(); return true })()`)
   const restoreCalled = await waitFor(`window.__fcTest.callCount('trashRestore') >= 1`, 5000, 'trashRestore 被调用')
-  check('★ 点「还原」真的调到了 trashRestore（不是死按钮）', restoreCalled)
+  check('★ 点“还原”真的调到了 trashRestore（不是死按钮）', restoreCalled)
   check('★ 传的是文件名而不是 id',
     await js(`window.__fcTest.calls().filter(c => c.name === 'trashRestore').map(c => JSON.stringify(c.args)).join('|') === '["task-demo-901.md"]'`),
     String(await js(`window.__fcTest.calls().filter(c => c.name === 'trashRestore').map(c => JSON.stringify(c.args)).join('|')`)))
   check('还原成功后该条从列表消失（重新拉了一次列表）',
     await waitFor(`document.querySelectorAll('.trash-item').length === 1`, 5000, '列表刷新'))
 
-  // 16b. 点「彻底删除」（渲染层有 confirm 二次确认 —— 测试里直接放行）
+  // 16b. 点“彻底删除”（渲染层有 confirm 二次确认 —— 测试里直接放行）
   // ⚠ 表达式必须返回可序列化的值：`window.confirm = () => true` 的求值结果是**函数**，
   //    经 URL 协议回传会抛 "An object could not be cloned"（e2e-bridge-clone 记过这一类）。
   await js(`(() => { window.confirm = () => true; return true })()`)
@@ -1512,7 +1512,7 @@ async function main() {
     return !!bs[0]
   })()`)
   const purgeCalled = await waitFor(`window.__fcTest.callCount('trashPurge') >= 1`, 5000, 'trashPurge 被调用')
-  check('★ 点「彻底删除」真的调到了 trashPurge', purgeCalled)
+  check('★ 点“彻底删除”真的调到了 trashPurge', purgeCalled)
   check('★ 彻底删除传的也是文件名',
     await js(`window.__fcTest.calls().filter(c => c.name === 'trashPurge').map(c => JSON.stringify(c.args)).join('|') === '["task-demo-902.2.md"]'`),
     String(await js(`window.__fcTest.calls().filter(c => c.name === 'trashPurge').map(c => JSON.stringify(c.args)).join('|')`)))
@@ -1525,8 +1525,8 @@ async function main() {
   // ── 17. 技能安装专区（2026-09-26 卡 038：功能在、界面不在）──────────────
   //     真点：页签 → 卡片 → 复制提示词 / 复制全文 / 装到 Hermes / 打开目录
   const skillsNav = await openViewTab('技能')
-  check('★ 有「技能」页签（此前完全没有入口，所以"毫无存在感"）', skillsNav !== 'no')
-  check('★ 能点到「技能」页签', skillsNav !== 'no')
+  check('★ 有“技能”页签（此前完全没有入口，所以"毫无存在感"）', skillsNav !== 'no')
+  check('★ 能点到“技能”页签', skillsNav !== 'no')
   const skillsViewOk = await waitFor(`document.querySelector('main.skills-view')`, 6000, '技能视图渲染')
   check('★ 技能安装专区已渲染（不是白屏/占位）', skillsViewOk)
   check('技能卡片按真源条数渲染（只数自发布的那类，外部导入的另算）',
@@ -1537,10 +1537,10 @@ async function main() {
   check('卡片显示绝对路径（手抄不出来的那一半）',
     await js(`[...document.querySelectorAll('.skill-path')].some(e => e.textContent.includes('C:/mock/skills/fangcun-bridge/SKILL.md'))`))
   // ⚠ 2026-10-09 修断言（本条自卡 010/011 改文案后一直红，与改动面无关但属实）：
-  //   ① 旧断言找「未装到 Hermes」—— skillStateText 早就改成 '未装'（App.vue:5268），文案绑死即红；
-  //   ② 旧断言要求出现「已装（最新）」—— 那取决于**本机装的副本是不是最新**（机器状态，
-  //      非代码事实）：本机实测是「有更新」= 装了但副本旧，同样是合法状态。
-  //   判据改成「状态文案落在已知三态集合内 + 未装的那张确实是未装 + 装了的那张确实不是未装」——
+  //   ① 旧断言找“未装到 Hermes”—— skillStateText 早就改成 '未装'（App.vue:5268），文案绑死即红；
+  //   ② 旧断言要求出现“已装（最新）”—— 那取决于**本机装的副本是不是最新**（机器状态，
+  //      非代码事实）：本机实测是“有更新”= 装了但副本旧，同样是合法状态。
+  //   判据改成“状态文案落在已知三态集合内 + 未装的那张确实是未装 + 装了的那张确实不是未装”——
   //   验的是渲染逻辑与文案表，不验本机那一刻的版本比对结果。
   check('★ 已装 / 未装两种状态文案都对',
     await js(`(() => {
@@ -1548,9 +1548,9 @@ async function main() {
       const texts = [...document.querySelectorAll('.skill-state')].map(e => e.textContent.trim())
       if (!texts.length) return false
       if (!texts.every(t => KNOWN.includes(t))) return false
-      // 未装的那张必须报「未装」（本机第二个技能没装 → 恒成立）
+      // 未装的那张必须报“未装”（本机第二个技能没装 → 恒成立）
       if (!texts.includes('未装')) return false
-      // 装了的那张必须是「最新」或「有更新」之一（不能是未装/文件缺失）
+      // 装了的那张必须是“最新”或“有更新”之一（不能是未装/文件缺失）
       return texts.some(t => t === '已装（最新）' || t === '有更新')
     })()`),
     String(await js(`[...document.querySelectorAll('.skill-state')].map(e => e.textContent).join('|')`)))
@@ -1558,52 +1558,52 @@ async function main() {
   // 17a. 复制安装提示词（核心诉求：让 agent 自己装、杜绝手抄）
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('复制安装提示词')); if (b) b.click(); return !!b })()`)
   const promptCopied = await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1`, 5000, '复制走到 clipboardWriteText')
-  check('★ 点「复制安装提示词」真的走到剪贴板通道（不是死按钮）', promptCopied)
+  check('★ 点“复制安装提示词”真的走到剪贴板通道（不是死按钮）', promptCopied)
   check('★ 复制的内容里带绝对路径（杜绝手抄出错）',
     await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').includes('C:/mock/skills/fangcun-bridge/SKILL.md')`),
     String(await js(`window.__fcTest.calls().filter(c => c.name === 'clipboardWriteText').map(c => JSON.stringify(c.args)).join('|').slice(0, 120)`)))
 
   // 17b. 复制 SKILL.md 全文
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('复制 SKILL.md 全文')); if (b) b.click(); return !!b })()`)
-  check('★ 点「复制 SKILL.md 全文」把正文复制出去',
+  check('★ 点“复制 SKILL.md 全文”把正文复制出去',
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText' && JSON.stringify(c.args).includes('正文甲'))`, 5000, '全文复制'),
     String(await js(`window.__fcTest.callCount('clipboardWriteText')`)))
 
   // 17c. 一键装到 Hermes
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('装到 Hermes')); if (b) b.click(); return !!b })()`)
-  check('★ 点「⚡ 装到 Hermes」真的调到了 skillsInstall（这条通道早就存在，此前没人能点）',
+  check('★ 点“⚡ 装到 Hermes”真的调到了 skillsInstall（这条通道早就存在，此前没人能点）',
     await waitFor(`window.__fcTest.callCount('skillsInstall') >= 1`, 5000, 'skillsInstall'))
 
   // 17d. 打开目录（两个都点，参数必须分得开）
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('📂 技能目录')); if (b) b.click(); return !!b })()`)
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('Hermes 目录')); if (b) b.click(); return !!b })()`)
   const dirCalls = await waitFor(`window.__fcTest.callCount('skillsOpenDir') >= 2`, 5000, 'skillsOpenDir 两次')
-  check('★ 「技能目录 / Hermes 目录」两个按钮分别传出 resources / hermes',
+  check('★ “技能目录 / Hermes 目录”两个按钮分别传出 resources / hermes',
     dirCalls && await js(`window.__fcTest.calls().filter(c => c.name === 'skillsOpenDir').map(c => JSON.stringify(c.args)).join('|') === '["resources"]|["hermes"]'`),
     String(await js(`window.__fcTest.calls().filter(c => c.name === 'skillsOpenDir').map(c => JSON.stringify(c.args)).join('|')`)))
-  check('「装到别的 agent」区在界面上',
+  check('“装到别的 agent”区在界面上',
     await js(`!!document.querySelector('main.skills-view .skills-agents') &&
               !!document.querySelector('main.skills-view .skills-agents-title')`))
 
   // ── 17e. 技能直接导入（2026-09-26 卡 005，用户参照 WorkBuddy 的导入面板）──
   //     钉住四件事：入口点得通、拖拽能投放、**重名必须问一句才覆盖**、移除只删导入的
-  check('★ 有「📥 导入技能…」「📁 导入文件夹…」两个入口（Windows 上选文件/选目录不能同一个框）',
+  check('★ 有“📥 导入技能…”“📁 导入文件夹…”两个入口（Windows 上选文件/选目录不能同一个框）',
     await js(`[...document.querySelectorAll('.skills-btn')].some(b => b.textContent.includes('导入技能')) &&
               [...document.querySelectorAll('.skills-btn')].some(b => b.textContent.includes('导入文件夹'))`))
 
   check('★ 已导入的外部技能单独成列（不和自发布技能混着数）',
     await js(`document.querySelectorAll('.skill-card.imported').length === 1`),
     String(await js(`document.querySelectorAll('.skill-card.imported').length`)))
-  check('★ 外部卡片带「外部导入」徽章', await js(`!!document.querySelector('.skill-card.imported .skill-badge')`))
+  check('★ 外部卡片带“外部导入”徽章', await js(`!!document.querySelector('.skill-card.imported .skill-badge')`))
   check('外部卡片显示 name / description / 落位目录',
     await js(`(() => { const c = document.querySelector('.skill-card.imported'); if (!c) return false;
       const t = c.textContent;
       return t.includes('external-demo') && t.includes('外部丢进来的示例技能') && t.includes('C:/mock/hermes/skills/external-demo') })()`))
 
-  // 17e-1. 点「导入技能…」→ 选包 → 导入
+  // 17e-1. 点“导入技能…”→ 选包 → 导入
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const b = [...document.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('导入技能')); if (b) b.click(); return !!b })()`)
-  check('★ 点「导入技能…」真的调起选包（不是死按钮）',
+  check('★ 点“导入技能…”真的调起选包（不是死按钮）',
     await waitFor(`window.__fcTest.callCount('skillsImportPick') >= 1`, 5000, 'skillsImportPick'))
   check('  选的是文件（kind=file）',
     await js(`window.__fcTest.calls().some(c => c.name === 'skillsImportPick' && JSON.stringify(c.args) === '["file"]')`))
@@ -1668,7 +1668,7 @@ async function main() {
   await js(`(() => { const c = document.querySelector('.skill-card.imported');
     const b = c && [...c.querySelectorAll('.skills-btn')].find(x => x.textContent.includes('移除'));
     if (b) b.click(); return !!b })()`)
-  check('★ 点「🗑 移除」走到 skillsRemove',
+  check('★ 点“🗑 移除”走到 skillsRemove',
     await waitFor(`window.__fcTest.callCount('skillsRemove') >= 1`, 5000, 'skillsRemove'))
   check('  传的是技能 name（不是猜的 id/目录）',
     await js(`window.__fcTest.calls().some(c => c.name === 'skillsRemove' && c.args[0] === 'external-demo')`),
@@ -1679,17 +1679,17 @@ async function main() {
 
   // ── 19. 服务 / 端口（2026-09-26 卡 006 → **2026-10-15 改模型**）────────
   //     旧模型把 `port` 当**配置项**（要用户把"这个应用对外提供哪个端口"填上去），于是出了那条旧案：
-  //     vite 的 8090 被登在打包 exe 上 → 点「启动」永远"空闲" → 被读成"启动台坏了"。
-  //     暮雨口径：「端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。」
+  //     vite 的 8090 被登在打包 exe 上 → 点“启动”永远"空闲" → 被读成"启动台坏了"。
+  //     暮雨口径：“端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。”
   //     新模型：**入口是应用，端口是观测结果**；用户一个端口都不用填。
   const servicesNav = await openViewTab('服务')
-  check('★ 有「服务」页签', servicesNav !== 'no')
-  check('★ 能点到「服务」页签', servicesNav !== 'no')
+  check('★ 有“服务”页签', servicesNav !== 'no')
+  check('★ 能点到“服务”页签', servicesNav !== 'no')
   check('★ 服务页已渲染（不是白屏/占位）', await waitFor(`document.querySelector('main.services-view')`, 6000, '服务视图'))
   check('★ 切过去就真去拉了服务状态', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
-  // ⚠ 2026-10-16（用户第 2 条「启动台还是被端口束缚住了」）：那块「启动台应用」分区
-  //   已从服务页整块搬走（启动应用回「启动台」页）。这里翻成**不许再出现**。
-  check('★★ 服务页**不再**有「启动台应用」分区（启动回启动台，这页只管端口）',
+  // ⚠ 2026-10-16（用户第 2 条“启动台还是被端口束缚住了”）：那块“启动台应用”分区
+  //   已从服务页整块搬走（启动应用回“启动台”页）。这里翻成**不许再出现**。
+  check('★★ 服务页**不再**有“启动台应用”分区（启动回启动台，这页只管端口）',
     await js(`document.querySelectorAll('main.services-view .svc-group-apps').length === 0 &&
       ![...document.querySelectorAll('main.services-view .svc-group-title')].some(t => (t.textContent || '').includes('启动台应用'))`))
   check('★★ 服务页**没有**"手敲端口号"的输入框（旧模型的老毛病，读到就说明又回去了）',
@@ -1715,14 +1715,14 @@ async function main() {
     String(await js(`JSON.stringify([...document.querySelectorAll('main.services-view button')].map(b => b.textContent))`)))
 
   // 19a. ⚠ 2026-10-16（用户第 2 条）删掉了这一段旧断言：
-  //   「应用行的 ▶ 启动 真调 servicesStartApp，且传的是应用 id」+ 「启动后带出新观测端口」。
-  //   通道与服务页分区一起下线了 —— 启动应用走「启动台」页的 launchpadLaunchApp
+  //   “应用行的 ▶ 启动 真调 servicesStartApp，且传的是应用 id”+ “启动后带出新观测端口”。
+  //   通道与服务页分区一起下线了 —— 启动应用走“启动台”页的 launchpadLaunchApp
   //   （那条断言在下面 19c 里，是真点击）。
   await js(`window.__fcTest.reset()`)
 
   // 19b. 打开地址：监听的能点，空闲的是禁用（按端口打开仍是合法动作，只是入口在手填行上）
   await js(`window.__fcTest.reset()`)
-  check('★ 空闲服务的「打开地址」是禁用的（点了必然报错，不能让人白点）',
+  check('★ 空闲服务的“打开地址”是禁用的（点了必然报错，不能让人白点）',
     await js(`(() => { const rows = [...document.querySelectorAll('main.services-view .svc-group-manual .svc-item')];
       const idle = rows.find(r => r.textContent.includes('空闲'));
       const b = idle && [...idle.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
@@ -1731,7 +1731,7 @@ async function main() {
     const on = rows.find(r => r.textContent.includes('监听中'));
     const b = on && [...on.querySelectorAll('button')].find(x => x.textContent.includes('打开地址'));
     if (b) b.click(); return !!b })()`)
-  check('★ 点「打开地址」→ servicesOpen 带上那个端口',
+  check('★ 点“打开地址”→ servicesOpen 带上那个端口',
     await waitFor(`window.__fcTest.callCount('servicesOpen') >= 1`, 5000, 'servicesOpen'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesOpen'))`)))
   check('  传的是端口号（不是 id / 名字）',
@@ -1739,7 +1739,7 @@ async function main() {
 
   // 19c. 未登记但正在监听 → 一键登记进来
   await js(`window.__fcTest.reset()`)
-  check('★ 「未登记但正在监听」区块有内容（把"乱七八糟的端口"摆出来，能管就登记）',
+  check('★ “未登记但正在监听”区块有内容（把"乱七八糟的端口"摆出来，能管就登记）',
     await js(`document.querySelector('main.services-view .services-unreg') &&
               document.querySelector('main.services-view .services-unreg').textContent.includes('8090')`),
     String(await js(`(document.querySelector('main.services-view .services-unreg') || {}).textContent || ''`)))
@@ -1749,7 +1749,7 @@ async function main() {
   await js(`(() => { const box = document.querySelector('main.services-view .services-unreg');
     const b = box && [...box.querySelectorAll('button')].find(x => x.textContent.includes('登记'));
     if (b) b.click(); return !!b })()`)
-  check('★ 点「＋ 登记」→ servicesAdopt(port, 进程名)',
+  check('★ 点“＋ 登记”→ servicesAdopt(port, 进程名)',
     await waitFor(`window.__fcTest.callCount('servicesAdopt') >= 1`, 5000, 'servicesAdopt'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesAdopt'))`)))
   check('  带端口号 + 进程名（名字不用用户手打）',
@@ -1764,12 +1764,12 @@ async function main() {
       if (b) { b.click(); return true }
     }
     return false })()`)
-  check('★ 手填的那条能「取消登记」→ servicesRemove',
+  check('★ 手填的那条能“取消登记”→ servicesRemove',
     await waitFor(`window.__fcTest.callCount('servicesRemove') >= 1`, 5000, 'servicesRemove'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'servicesRemove'))`)))
-  // ⚠ 2026-10-16（用户第 2 条）：启动台应用不再出现在服务页，所以「应用行只有 ▶ 启动」
+  // ⚠ 2026-10-16（用户第 2 条）：启动台应用不再出现在服务页，所以“应用行只有 ▶ 启动”
   //   这条判据失去对象 —— 换成"整页没有启动按钮"（已在上面钉住）。
-  check('★ 手填行的「取消登记」只在手填行上（不串门到别处）',
+  check('★ 手填行的“取消登记”只在手填行上（不串门到别处）',
     await js(`(() => { const box = document.querySelector('main.services-view .svc-group-manual'); if (!box) return false;
       return [...box.querySelectorAll('button')].some(x => x.textContent.includes('取消登记')) })()`))
 
@@ -1802,7 +1802,7 @@ async function main() {
 
   // 18c. 逾期标注：造一条 2020 年到期的未完成待办
   await js(CLICK_BY_TEXT('＋ 新建待办'))
-  check('★ 「＋ 新建待办」打开弹窗', await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))
+  check('★ “＋ 新建待办”打开弹窗', await waitFor(`!!document.querySelector('#todo-edit-modal')`, 4000, '新建弹窗'))
   await js(`(() => {
     const m = document.querySelector('#todo-edit-modal')
     const ta = m.querySelector('textarea')
@@ -1817,11 +1817,11 @@ async function main() {
   })()`)
   await js(CLICK_BY_TEXT('保存'))
   const overdueShown = await waitFor(`!!document.querySelector('.todo-due.overdue')`, 5000, '逾期标注出现')
-  check('★ 过期未完成标红为「逾期 N 天」（此前同一行小灰字，看不出过期）', overdueShown)
+  check('★ 过期未完成标红为“逾期 N 天”（此前同一行小灰字，看不出过期）', overdueShown)
   check('逾期天数算出来了',
     await js(`(((document.querySelector('.todo-due.overdue')||{}).textContent)||'').includes('逾期')`),
     String(await js(`(((document.querySelector('.todo-due.overdue')||{}).textContent)||'').trim()`)))
-  check('★ 统计行出现「逾期」计数',
+  check('★ 统计行出现“逾期”计数',
     await js(`(((document.querySelector('.todos-stats')||{}).textContent)||'').includes('逾期')`),
     String(await js(`(((document.querySelector('.todos-stats')||{}).textContent)||'').trim()`)))
 
@@ -1840,7 +1840,7 @@ async function main() {
     await js(`document.querySelectorAll('.todo-item').length > 0 &&
               [...document.querySelectorAll('.todo-item')].every(it => !!it.querySelector('.todo-project'))`),
     String(await js(`[...document.querySelectorAll('.todo-item')].map(it => (it.querySelector('.todo-project')||{textContent:''}).textContent + '|' + (it.querySelector('.todo-title')||{textContent:''}).textContent).join(' ; ')`)))
-  check('切到「不归属任何项目」只剩没有项目徽章的',
+  check('切到“不归属任何项目”只剩没有项目徽章的',
     await js(setTodoFilter('__none__')) &&
     await js(`[...document.querySelectorAll('.todo-item')].every(it => !it.querySelector('.todo-project'))`))
   check('★ 不归属筛选下创建不会把哨兵值写成项目 id（脏数据防线）',
@@ -1850,7 +1850,7 @@ async function main() {
   // 18e. 空态：切到一个没有待办的项目（demo2）
   check('切到没有待办的项目 demo2', await js(setTodoFilter('demo2')))
   await sleep(300)
-  check('★ 空态区分「被筛掉」而不是「暂无待办」',
+  check('★ 空态区分“被筛掉”而不是“暂无待办”',
     await js(`!!document.querySelector('main.todos-view .empty-state') &&
               document.querySelector('main.todos-view .empty-text').textContent.includes('没有符合当前筛选')`),
     String(await js(`((document.querySelector('main.todos-view .empty-text')||{}).textContent||'').trim()`)))
@@ -1859,7 +1859,7 @@ async function main() {
               !!document.querySelector('.todos-clear')`))
   await js(`(() => { const b = document.querySelector('.todos-clear'); if (b) b.click(); return !!b })()`)
   await sleep(300)
-  check('★ 点「清除筛选」恢复完整列表（不再空态）',
+  check('★ 点“清除筛选”恢复完整列表（不再空态）',
     await js(`document.querySelectorAll('.todo-item').length > 0 &&
               !document.querySelector('main.todos-view .empty-state')`),
     String(await js(`document.querySelectorAll('.todo-item').length`)))
@@ -1871,7 +1871,7 @@ async function main() {
   //   那些节点在 DOM 里排在待办弹窗**后面**，于是 Esc 关的是它们（这是**正确行为**），
   //   旧断言却盯着待办弹窗要它消失 → 假红。
   //   现在按真实语义分两步钉：① 归一化初始态（先全关干净）；
-  //   ② 故意同时开着「设置」与「待办编辑」，按一次 Esc —— 必须关掉**更上层**的设置，待办留着；
+  //   ② 故意同时开着“设置”与“待办编辑”，按一次 Esc —— 必须关掉**更上层**的设置，待办留着；
   //   ③ 再按一次 Esc → 待办关掉。
   // 清场只碰两块**已知会残留**的：设置（#soverlay，导出备份那一节开的）与任务详情（#roverlay）。
   // ⚠ 刻意不写"遍历所有可见 .overlay 逐个派发 mousedown / 点按钮"那种通杀版 ——
@@ -1912,7 +1912,7 @@ async function main() {
 
   // 渲染层不应有未捕获错误
   // ── 20. 回收站卡片不再是死卡（2026-09-26 用户回执第 1 条）─────────────
-  //   原话：「回收站依然每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个。」
+  //   原话：“回收站依然每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个。”
   //   实测：卡片本体确实没有任何 click —— 只有两个按钮能点。现在点卡片任意位置读正文预览。
   await js(`(() => { window.confirm = () => true; return true })()`)
   await js(`window.__fcTest.setTrash([
@@ -1938,48 +1938,48 @@ async function main() {
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'trashRead'))`)))
   check('★ 预览里看得到正文文字',
     await js(`document.querySelector('#trash-preview-overlay').textContent.includes('正文')`))
-  check('★ 预览里也有「还原 / 彻底删除」两个动作',
+  check('★ 预览里也有“还原 / 彻底删除”两个动作',
     await js(`[...document.querySelectorAll('#trash-preview-overlay .trash-btn')].some(b => b.textContent.includes('还原')) &&
               [...document.querySelectorAll('#trash-preview-overlay .trash-btn')].some(b => b.textContent.includes('彻底删除'))`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const b = [...document.querySelectorAll('#trash-preview-overlay .trash-btn')].find(x => x.textContent.includes('还原')); if (b) b.click(); return !!b })()`)
-  check('★ 预览里点「还原」真的走 trashRestore（不是摆设）',
+  check('★ 预览里点“还原”真的走 trashRestore（不是摆设）',
     await waitFor(`window.__fcTest.callCount('trashRestore') >= 1`, 5000, 'trashRestore'))
   check('★ 还原成功后预览自动关、列表少一条（不留悬空状态）',
     await waitFor(`!document.querySelector('#trash-preview-overlay') && document.querySelectorAll('main.trash-view .trash-item').length === 1`, 6000, '预览关闭+列表刷新'),
     String(await js(`document.querySelectorAll('main.trash-view .trash-item').length`)))
 
   // ── 21. 装到别的 agent（回执第 2 条：只有 Hermes 可装）─────────────────
-  //   原话：「技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes，我赶时间懒得做，没测。」
+  //   原话：“技能没找到任何可以安装给 WorkBuddy 的地方，依然只有安装到 Hermes，我赶时间懒得做，没测。”
   await openViewTab('技能')
   check('切到技能页会去拉 agent 目标', await waitFor(`window.__fcTest.callCount('agentsList') >= 1`, 5000, 'agentsList'))
   check('agent 目标列表渲染出来', await waitFor(`document.querySelectorAll('.agent-row').length >= 3`, 5000, 'agent 行'),
     String(await js(`document.querySelectorAll('.agent-row').length`)))
   check('★ WorkBuddy 出现在目标列表里（回执缺的就是这块）',
     await js(`[...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('WorkBuddy'))`))
-  check('★ 目标行区分「可直装」与「给文件手动导入」',
+  check('★ 目标行区分“可直装”与“给文件手动导入”',
     await js(`[...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('可直装')) &&
               [...document.querySelectorAll('.agent-row')].some(r => r.textContent.includes('给文件手动导入'))`))
   check('★ 没检测到的 agent 行变灰且不给按钮',
     await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('Claude Code')); return !!r && r.classList.contains('agent-off') && r.querySelectorAll('button').length === 0 })()`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('WorkBuddy')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('打开')); if (b) b.click(); return !!b })()`)
-  check('★ 点「▶ 打开 WorkBuddy」走到 agentsOpen（真去开对方）',
+  check('★ 点“▶ 打开 WorkBuddy”走到 agentsOpen（真去开对方）',
     await waitFor(`window.__fcTest.callCount('agentsOpen') >= 1`, 5000, 'agentsOpen'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'agentsOpen'))`)))
   check('  传的是 target id（workbuddy）',
     await js(`window.__fcTest.calls().some(c => c.name === 'agentsOpen' && c.args[0] === 'workbuddy')`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const r = [...document.querySelectorAll('.agent-row')].find(x => x.textContent.includes('WorkBuddy')); const b = r && [...r.querySelectorAll('button')].find(x => x.textContent.includes('显示')); if (b) b.click(); return !!b })()`)
-  check('★ 点「📂 显示一份 SKILL.md」走到 skillsReveal（把文件亮出来给你拖进去）',
+  check('★ 点“📂 显示一份 SKILL.md”走到 skillsReveal（把文件亮出来给你拖进去）',
     await waitFor(`window.__fcTest.callCount('skillsReveal') >= 1`, 5000, 'skillsReveal'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'skillsReveal'))`)))
-  check('  技能卡片上也有「📂 显示 SKILL.md」按钮',
+  check('  技能卡片上也有“📂 显示 SKILL.md”按钮',
     await js(`[...document.querySelectorAll('.skill-card .skills-btn')].some(b => b.textContent.includes('显示 SKILL.md'))`))
 
   // ── 22. 服务页：导出快照 + 空闲一键启动（回执第 3 条）──────────────────
-  //   原话：「服务页没看到 8090 有动静：绒花墨坊 :8090 空闲 启动台 没有进程在监听
-  //          也没任何导出分析功能，直接复制给你了，懒得搞。」
+  //   原话：“服务页没看到 8090 有动静：绒花墨坊 :8090 空闲 启动台 没有进程在监听
+  //          也没任何导出分析功能，直接复制给你了，懒得搞。”
   await openViewTab('服务')
   check('切到服务页拉到清单', await waitFor(`window.__fcTest.callCount('servicesList') >= 1`, 5000, 'servicesList'))
   // 前面的服务测试改过清单（取消了 8753、把未登记的 8090 登记走了）——
@@ -1989,13 +1989,13 @@ async function main() {
     { id: 'app:nobody', name: '没人跑的服务', port: 9100, note: '', project: '', source: 'launchpad', listening: false, pid: null, processName: '', duplicated: false },
   ])`)
   await js(`(() => { const b = [...document.querySelectorAll('main.services-view .skills-btn')].find(x => x.textContent.includes('刷新')); if (b) b.click(); return !!b })()`)
-  check('  刷新后「已登记」清单回到夹具真身的条数',
+  check('  刷新后“已登记”清单回到夹具真身的条数',
     await waitFor(`document.querySelectorAll('main.services-view .svc-group-manual .svc-item').length === window.__fcTest.services().length`, 5000, '重新灌数据'))
-  check('★ 有「📋 复制快照」按钮（回执要的"导出分析"）',
+  check('★ 有“📋 复制快照”按钮（回执要的"导出分析"）',
     await js(`[...document.querySelectorAll('main.services-view .skills-btn')].some(b => b.textContent.includes('复制快照'))`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const b = [...document.querySelectorAll('main.services-view .skills-btn')].find(x => x.textContent.includes('复制快照')); if (b) b.click(); return !!b })()`)
-  check('★ 点「复制快照」真的写进剪贴板（走主进程通道 clipboardWriteText）',
+  check('★ 点“复制快照”真的写进剪贴板（走主进程通道 clipboardWriteText）',
     await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1`, 5000, 'clipboardWriteText'))
   check('★ 快照内容含端口清单本体（不是空串/一句"ok"）：端口 + 状态 + 统计都在',
     await js(`(() => { const c = window.__fcTest.calls().find(x => x.name === 'clipboardWriteText'); if (!c) return false;
@@ -2004,23 +2004,23 @@ async function main() {
              /登记 \\d+ · 监听中 \\d+ · 空闲 \\d+/.test(t) &&
              t.includes('监听中 pid=1234 python') })()`),
     String(await js(`String((window.__fcTest.calls().find(x => x.name === 'clipboardWriteText') || {}).args || '')`)))
-  // ⚠ 2026-10-16（用户第 2 条）：原来这里断言「启动台应用分区里每个应用都有 ▶ 启动」
-  //   和「手填行不给启动按钮」—— 应用分区已从服务页搬走，两条都失去对象。
-  //   现在钉的是**反面**：服务页里一个「启动」按钮都不许有（启动归启动台）。
-  check('★★ 服务页里没有任何「▶ 启动」按钮（启动归启动台，本页只读只登记）',
+  // ⚠ 2026-10-16（用户第 2 条）：原来这里断言“启动台应用分区里每个应用都有 ▶ 启动”
+  //   和“手填行不给启动按钮”—— 应用分区已从服务页搬走，两条都失去对象。
+  //   现在钉的是**反面**：服务页里一个“启动”按钮都不许有（启动归启动台）。
+  check('★★ 服务页里没有任何“▶ 启动”按钮（启动归启动台，本页只读只登记）',
     await js(`!([...document.querySelectorAll('main.services-view button')].some(b => (b.textContent || '').includes('启动')))`),
     String(await js(`JSON.stringify([...document.querySelectorAll('main.services-view button')].map(b => b.textContent))`)))
   check('★ 服务页依然没有"结束/杀掉进程"这类按钮（A 档只读，用户明确排除）',
     await js(`![...document.querySelectorAll('main.services-view button')].some(b => /结束|杀掉|停止进程|kill/i.test(b.textContent))`))
 
   // ── 23. 卡 037 第一批：日志右键菜单 + 置顶（2026-09-26 用户口径）────────
-  //   规格铁律：菜单是「出口加速器」；一层封顶、单项 ≤7；删除放最末且二次确认；
-  //   任何「发给 AI / 智能总结」永不进菜单。
+  //   规格铁律：菜单是“出口加速器”；一层封顶、单项 ≤7；删除放最末且二次确认；
+  //   任何“发给 AI / 智能总结”永不进菜单。
   await js(`(() => { window.confirm = () => true; return true })()`)
   // ── 状态卫生（2026-10-14 真点击解锁后补）───────────────────────────────
   // 前面几段测试开过的弹窗（任务预览 / 设置 / 编辑）如果没关，会**全屏 fixed 盖住**
-  // 后面的页签几何与对比度断言 —— 那几条「红」纯属污染，不是界面问题。
-  // 这里统一收干净，并把「收得干净」本身变成一条断言：收不掉 = 有东西真关不掉。
+  // 后面的页签几何与对比度断言 —— 那几条“红”纯属污染，不是界面问题。
+  // 这里统一收干净，并把“收得干净”本身变成一条断言：收不掉 = 有东西真关不掉。
   // ⚠ 用 `mousedown` 而不是 `click`：遮罩关闭一律绑 `@mousedown.self`（见 App.vue 硬口径）。
   const leftoverOverlays = await js(`(async () => {
     const vis = () => [...document.querySelectorAll('.overlay')].filter(o => getComputedStyle(o).display !== 'none')
@@ -2045,7 +2045,7 @@ async function main() {
   await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
   // ★ 防退化（2026-10-14 真点击 e2e 解锁当天抓到的**真机 bug**）：
   //   视图区的 v-if/v-else-if 链**不能**被插在中间的弹窗 `v-if` 劫持 ——
-  //   「待办编辑弹窗开着」曾等价于「日志页整页不渲染」（点页签看到空白）。
+  //   “待办编辑弹窗开着”曾等价于“日志页整页不渲染”（点页签看到空白）。
   //   这条断言**带着一个开着的弹窗**去切页签，把这个语义钉死。
   check('★ 弹窗开着也能切到日志页（视图链不被中间插的弹窗 v-if 劫持）',
     await waitFor(`!!document.querySelector('main.logs-view')`, 6000, '日志视图'),
@@ -2061,10 +2061,10 @@ async function main() {
   check('★ 右键菜单真的弹出来了', await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 5000, '右键菜单'))
   const logMenu = await js(`document.querySelector('.ctx-menu.ctx-other').textContent`)
   // 2026-10-14：规格变过两处，断言跟着走 ——
-  //   ① 2026-10-11 加了「编辑」（用户：直接右键日志不能编辑），菜单到 9 项**超了「单项 ≤7」**，
+  //   ① 2026-10-11 加了“编辑”（用户：直接右键日志不能编辑），菜单到 9 项**超了“单项 ≤7”**，
   //      于是**归档从右键里撤掉**（日志卡本身有入口，右键那份是重复的）；
-  //   ② 破坏性动作文案已改成「彻底删除（二次确认）」。
-  check('★ 菜单项与规格一致（编辑 / 复制三类 / 置顶 / 改归属 / 彻底删除；归档已按「≤7 项」撤掉）',
+  //   ② 破坏性动作文案已改成“彻底删除（二次确认）”。
+  check('★ 菜单项与规格一致（编辑 / 复制三类 / 置顶 / 改归属 / 彻底删除；归档已按“≤7 项”撤掉）',
     ['编辑', '复制全文', '复制带元信息', '复制并标记已派', '置顶', '改项目归属', '彻底删除']
       .every(k => String(logMenu).includes(k)) && !String(logMenu).includes('归档'),
     String(logMenu))
@@ -2074,20 +2074,20 @@ async function main() {
     await js(`!/AI|智能|总结|生成/i.test(document.querySelector('.ctx-menu.ctx-other').textContent)`))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('复制带元信息')); if (b) b.click(); return !!b })()`)
-  check('★ 「复制带元信息」走主进程剪贴板，内容自动带 [日期] [项目]（粘进开发日志不用补头）',
+  check('★ “复制带元信息”走主进程剪贴板，内容自动带 [日期] [项目]（粘进开发日志不用补头）',
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'clipboardWriteText' && c.args[0].includes('[2026-09-24]') && c.args[0].includes('[demo]'))`, 5000, '带元信息复制'),
     String(await js(`JSON.stringify((window.__fcTest.calls().find(c => c.name === 'clipboardWriteText') || {}).args || [])`)))
-  // 复制并标记已派：复制 + 把这条手动标成「进行中」
+  // 复制并标记已派：复制 + 把这条手动标成“进行中”
   // 2026-09-28：走的是新通道 logsSetRunning，**不再是 logsReopen** ——
-  // 撤销（reopen）现在只回到「待处理」，拿它当"已派"会把状态标反。
+  // 撤销（reopen）现在只回到“待处理”，拿它当"已派"会把状态标反。
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('已完成的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 160 })); return !!c })()`)
   await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第二条菜单')
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('复制并标记已派')); if (b) b.click(); return !!b })()`)
-  check('★ 「复制并标记已派」= 复制 + 手动标为「进行中」（两步并一步）',
+  check('★ “复制并标记已派”= 复制 + 手动标为“进行中”（两步并一步）',
     await waitFor(`window.__fcTest.callCount('clipboardWriteText') >= 1 && window.__fcTest.callCount('logsSetRunning') >= 1`, 5000, '复制+已派'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => ['clipboardWriteText', 'logsSetRunning', 'logsReopen'].includes(c.name)))`)))
-  check('★ 「已派」走 setRunning(true)，不得误用 logsReopen（那只是撤销到待处理）',
+  check('★ “已派”走 setRunning(true)，不得误用 logsReopen（那只是撤销到待处理）',
     await js(`(() => { const c = window.__fcTest.calls().find(x => x.name === 'logsSetRunning'); return !!c && c.args[1] === true })()`),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetRunning'))`)))
   // 置顶：写数据 + 列表置顶 + 视觉标记
@@ -2095,7 +2095,7 @@ async function main() {
   await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('归档的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 180 })); return !!c })()`)
   await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第三条菜单')
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('置顶')); if (b) b.click(); return !!b })()`)
-  check('★ 「置顶」写回后端（新字段 pinned，不是复用 status）',
+  check('★ “置顶”写回后端（新字段 pinned，不是复用 status）',
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetPinned' && c.args[1] === true)`, 5000, 'logsSetPinned'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetPinned'))`)))
   check('★ 置顶的那条在列表最前面（排序生效，视觉也在）',
@@ -2106,7 +2106,7 @@ async function main() {
   await js(`(() => { const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('已完成的日志')); if (c) c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 })); return !!c })()`)
   await waitFor(`document.querySelector('.ctx-menu.ctx-other')`, 4000, '第四条菜单')
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('改项目归属')); if (b) b.click(); return !!b })()`)
-  check('★ 「改项目归属」打开的是应用内选择器（不是 prompt —— Electron 不实现它）',
+  check('★ “改项目归属”打开的是应用内选择器（不是 prompt —— Electron 不实现它）',
     await waitFor(`document.querySelector('#log-project-modal')`, 5000, '项目选择器'))
   await js(`(() => { const b = [...document.querySelectorAll('#log-project-modal .skills-btn')].find(x => x.textContent.includes('演示项目')); if (b) b.click(); return !!b })()`)
   check('★ 选完项目走到 logsSetProject（已完成的日志也能改 —— 归类属性不是内容编辑）',
@@ -2114,7 +2114,7 @@ async function main() {
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetProject'))`)))
 
   // ── 23.5 日志状态模型 + 分区（2026-09-28 用户第 2/5 条）────────────────
-  //   用户口径：① 「进行中」只能手动打上、可撤销、且**不是完成/归档的前置条件**；
+  //   用户口径：① “进行中”只能手动打上、可撤销、且**不是完成/归档的前置条件**；
   //             ② 那堆筛选"除了把信息搞得支离破碎以外没什么作用" → 状态改用**分区**表达。
   await js(`window.__fcTest.setLogs([
     { id: 'lg-run', title: '正在跑的', content: 'A', status: 'active', running: true, project: 'demo', created: '2026-09-24T00:00:00.000Z' },
@@ -2145,11 +2145,11 @@ async function main() {
     JSON.stringify(lgGroups.labels))
   check('★ 分区头带计数（不必点进去数）', lgGroups.labels.length > 0 && lgGroups.labels.every(l => /\d/.test(l)),
     JSON.stringify(lgGroups.labels))
-  check('★ 「进行中」分区排最前（谁在跑 = 最该先看到）',
+  check('★ “进行中”分区排最前（谁在跑 = 最该先看到）',
     lgGroups.labels.length > 0 && lgGroups.labels[0].includes('进行中'), JSON.stringify(lgGroups.labels))
   check('★ 状态筛选下拉已删除（状态由分区表达，不再用单值下拉把画面切碎）',
     lgGroups.hasStatusSelect === false, JSON.stringify(lgGroups))
-  check('★ 手动标了 running 的显示「进行中」，没标的显示「待处理」（不再一创建就是进行中）',
+  check('★ 手动标了 running 的显示“进行中”，没标的显示“待处理”（不再一创建就是进行中）',
     lgGroups.badges.some(b => b.startsWith('进行中:') && b.includes('正在跑的')) &&
     lgGroups.badges.some(b => b.startsWith('待处理:') && b.includes('还没跑的')),
     JSON.stringify(lgGroups.badges))
@@ -2157,10 +2157,10 @@ async function main() {
   const doneBtn = await js(`
     (() => {
       const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('还没跑的'))
-      if (!c) return { err: '没找到「还没跑的」那张卡' }
+      if (!c) return { err: '没找到“还没跑的”那张卡' }
       return { hasDone: [...c.querySelectorAll('button')].some(b => b.textContent.trim() === '完成') }
     })()`)
-  check('★ 「完成」按钮在「待处理」日志上直接可用（进行中不是完成的前置条件）',
+  check('★ “完成”按钮在“待处理”日志上直接可用（进行中不是完成的前置条件）',
     doneBtn.hasDone === true, JSON.stringify(doneBtn))
 
   await js(`window.__fcTest.reset()`)
@@ -2168,7 +2168,7 @@ async function main() {
     const c = [...document.querySelectorAll('main.logs-view .log-card')].find(x => x.textContent.includes('还没跑的'))
     const b = c && c.querySelector('.log-run-btn'); if (b) b.click(); return !!b
   })()`)
-  check('★ 卡片上有手动「标为进行中」开关，点了走 logs:setRunning(true)',
+  check('★ 卡片上有手动“标为进行中”开关，点了走 logs:setRunning(true)',
     await waitFor(`window.__fcTest.calls().some(c => c.name === 'logsSetRunning' && c.args[1] === true)`, 5000, 'setRunning(true)'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'logsSetRunning'))`)))
 
@@ -2186,11 +2186,11 @@ async function main() {
       hasBtn: !!document.querySelector('main.logs-view .log-more-btn'),
       hasAgent: [...document.querySelectorAll('main.logs-view select')].some(s => [...s.options].some(o => o.textContent.includes('全部 Agent'))),
     }))()`)
-  check('★ 「更多筛选」默认收起：Agent / 日期范围不再和搜索框挤在一条线上',
+  check('★ “更多筛选”默认收起：Agent / 日期范围不再和搜索框挤在一条线上',
     moreClosed.hasBtn === true && moreClosed.hasAgent === false, JSON.stringify(moreClosed))
   await js(`(() => { const b = document.querySelector('main.logs-view .log-more-btn'); if (b) b.click(); return !!b })()`)
   await new Promise(r => setTimeout(r, 250))
-  check('点开「更多筛选」才出现 Agent 下拉',
+  check('点开“更多筛选”才出现 Agent 下拉',
     (await js(`[...document.querySelectorAll('main.logs-view select')].some(s => [...s.options].some(o => o.textContent.includes('全部 Agent')))`)) === true)
   await js(`(() => { const b = document.querySelector('main.logs-view .log-more-btn'); if (b) b.click(); return !!b })()`)
   await new Promise(r => setTimeout(r, 150))
@@ -2217,19 +2217,19 @@ async function main() {
     String(await js(`document.querySelector('.ctx-menu.ctx-other') ? document.querySelector('.ctx-menu.ctx-other').textContent : 'none'`)))
   await js(`window.__fcTest.reset()`)
   await js(`(() => { const b = [...document.querySelectorAll('.ctx-menu.ctx-other button')].find(x => x.textContent.includes('置顶')); if (b) b.click(); return !!b })()`)
-  check('★ 待办「置顶」写回后端', await waitFor(`window.__fcTest.calls().some(c => c.name === 'todosSetPinned' && c.args[1] === true)`, 5000, 'todosSetPinned'),
+  check('★ 待办“置顶”写回后端', await waitFor(`window.__fcTest.calls().some(c => c.name === 'todosSetPinned' && c.args[1] === true)`, 5000, 'todosSetPinned'),
     String(await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'todosSetPinned'))`)))
   check('★ 置顶后待办带上 📌 且置顶样式生效',
     await waitFor(`(() => { const r = document.querySelector('main.todos-view .todo-item'); return !!r && r.classList.contains('pinned') && !!r.querySelector('.todo-pin') })()`, 6000, '待办置顶样式'))
   check('★ 待办菜单里没有托盘项（用户口径：这批不动托盘）',
     await js(`!/托盘|Tray/i.test(document.querySelector('.ctx-menu.ctx-other') ? document.querySelector('.ctx-menu.ctx-other').textContent : '')`))
 
-  // ── 21. 「遮罩挡字」与主题可读性（2026-09-27 用户第 2/3 条）────────────
-  // ① 拖拽提示必须自己消失。模拟「拖进窗口又取消」（Esc / 拖出窗口 / 松手在窗口外）——
+  // ── 21. “遮罩挡字”与主题可读性（2026-09-27 用户第 2/3 条）────────────
+  // ① 拖拽提示必须自己消失。模拟“拖进窗口又取消”（Esc / 拖出窗口 / 松手在窗口外）——
   //    这三种收场都不会有 drop，也不保证有 dragleave；OS 文件拖拽的 dragend 只发给拖动源，
   //    页面收不到 ⇒ 修前实测：待办提示永久留在屏幕上（96% 不透明的色块，正压着正文第一行）。
   // ② 任何位置都不该有东西盖在文字上面。
-  // ③ 文字对比度 ≥ 4.5（WCAG AA）。唯一豁免：日历「过去日期」的日号（刻意压暗，≥3.0）。
+  // ③ 文字对比度 ≥ 4.5（WCAG AA）。唯一豁免：日历“过去日期”的日号（刻意压暗，≥3.0）。
   const AUDIT_JS = `(() => {
     const vis = (el) => {
       if (!el || el.nodeType !== 1) return false
@@ -2274,7 +2274,7 @@ async function main() {
       //   带 .on 的那个报白色底、**不带** .on 的反而报品牌紫底（逐条打印 12 个页签实测过）。
       //   而同一份 CSSOM 里 .vbtn.on 的 background 就是 var(--accent)、截图
       //   （docs/views-web/board-cols.png）里也是正常的紫底白字 —— 即**产品是对的、探针读歪了**。
-      //   页签的对比度改由下面那条「按 CSSOM 声明值复算」的断言来钉：更确定，也不会被环境带偏。
+      //   页签的对比度改由下面那条“按 CSSOM 声明值复算”的断言来钉：更确定，也不会被环境带偏。
       if (el.classList.contains('vbtn')) continue
       const s = getComputedStyle(el)
       // ① 盖字：文字中心点被别的元素命中
@@ -2310,7 +2310,7 @@ async function main() {
       const bg = effBg(el)
       const cr = (() => { const a = blend(fg, bg), l1 = lum(a), l2 = lum(bg); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05) })()
       const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 600
-      // 豁免：日历「过去日期」的日号 —— 刻意压暗表示已过去，按图形对象 3.0 要求
+      // 豁免：日历“过去日期”的日号 —— 刻意压暗表示已过去，按图形对象 3.0 要求
       const past = el.classList.contains('dnum') && !!el.closest('.calcell.past')
       const need = past ? 3 : (size >= 24 || (size >= 18.66 && bold)) ? 3 : 4.5
       if (cr < need) low.push(t.slice(0, 20) + ' ' + s.color + ' ' + Math.round(size) + 'px ' + cr.toFixed(2) + '<' + need)
@@ -2329,18 +2329,18 @@ async function main() {
     z.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: dt }))
     z.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt })); return 1 })()`)
   await sleep(150)
-  check('★ 拖文件进待办时出现「松手导入」提示', await js(`!!document.querySelector('.todo-drop-hint')`))
+  check('★ 拖文件进待办时出现“松手导入”提示', await js(`!!document.querySelector('.todo-drop-hint')`))
   await sleep(1700)
   check('★ 拖拽被取消（无 drop/dragleave）后提示自己消失，不再永久盖住正文',
     !(await js(`!!document.querySelector('.todo-drop-hint') || !!document.querySelector('.drop-hint.global')`)))
 
-  // 技能页自己有投放区 —— 不该再被误判成「本页不支持导入」并盖一层全局灰条
+  // 技能页自己有投放区 —— 不该再被误判成“本页不支持导入”并盖一层全局灰条
   await openViewTab('技能')
   await sleep(500)
   await js(`(() => { const z = document.querySelector('main.skills-view'); const dt = new DataTransfer()
     z.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt })); return 1 })()`)
   await sleep(200)
-  check('★ 技能页拖拽不再被误判成「本页不支持导入」',
+  check('★ 技能页拖拽不再被误判成“本页不支持导入”',
     !(await js(`!!document.querySelector('.drop-hint.global')`)))
   await sleep(1600)
   check('★ 技能页投放遮罩也会自己消失', !(await js(`!!document.querySelector('.skills-dropmask')`)))
@@ -2394,9 +2394,9 @@ async function main() {
   check('★ 12 个页签文字对比度全部达 WCAG AA 4.5（日历过去日期按 3.0 豁免）', lowTotal === 0, badViews.slice(0, 2).join(' | '))
 
   // 顶栏页签对比度：**按 CSSOM 里的声明值复算**（见 AUDIT_JS 里跳过 .vbtn 的那段说明）。
-  // 这条比逐元素读值更硬：它直接盯「.vbtn / .vbtn.on 写的是什么色」，谁来改坏都会当场红。
+  // 这条比逐元素读值更硬：它直接盯“.vbtn / .vbtn.on 写的是什么色”，谁来改坏都会当场红。
   // 顶栏页签对比度：**按 CSSOM 里的声明值复算**（见 AUDIT_JS 里跳过 .vbtn 的那段说明）。
-  // 这条比逐元素读值更硬：它直接盯「.vbtn / .vbtn.on 写的是什么色」，谁来改坏都会当场红。
+  // 这条比逐元素读值更硬：它直接盯“.vbtn / .vbtn.on 写的是什么色”，谁来改坏都会当场红。
   // ⚠ 取值分两步（页面取声明、Node 算比值）：把正则与算术留在 Node 侧，页面里只做最简单的读取 ——
   //   上一版把整段算法塞进页面字符串，结果一个转义不对就整脚本抛错。
   const tabVars = await js(`JSON.stringify({

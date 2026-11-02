@@ -3,11 +3,11 @@
    用 <style src> 而不是在 main.ts import —— 保持它在模块图里的位置，构建产物的样式顺序零变化。 */
 
 :root {
-  /* 2026-09-27（用户：「不同颜色主题外观下文本可读性可能很差」）：全量对比度实测后按实测值调整。
+  /* 2026-09-27（用户：“不同颜色主题外观下文本可读性可能很差”）：全量对比度实测后按实测值调整。
      原来：白字压 --accent(#9b8fc4) = 2.95、强调色文字压浅底 = 2.59~2.95、--danger 白字 3.65、
-     --muted 压浅底 4.28、--warning 白字 2.24 —— 全都在 WCAG AA（4.5）以下，观感就是「发灰、发虚」。
+     --muted 压浅底 4.28、--warning 白字 2.24 —— 全都在 WCAG AA（4.5）以下，观感就是“发灰、发虚”。
      调法：同色相压深一档（不换色相、不动 --accent-soft 这条雾感装饰色），
-     让「做文字」和「当底色配白字」这两种用法同时过 4.5。实测见 e2e-a11y。 */
+     让“做文字”和“当底色配白字”这两种用法同时过 4.5。实测见 e2e-a11y。 */
   color-scheme: light;   /* Windows 暗色外观下，原生控件/滚动条不再翻成深色与浅色界面打架 */
   --bg: #eef0f4;
   --ink: #3c4150;
@@ -19,11 +19,11 @@
   /* 全局外观（2026-10-30，卡 task-20261030-004）：阴影 / 扁平两套**正交于主题**的皮肤。
      为什么做成令牌：以前 box-shadow 是 87 处写死的字面量，想"切回扁平"只能一处处删。
      现在只有三档高度 —— 贴地 / 浮起 / 弹层，所有卡片、按钮、弹层、下拉都读这三个令牌。
-     ⚠ 默认 flat（用户：「我更喜欢扁平化圆角」）：三档全 none，切 shadow 才给真阴影。 */
+     ⚠ 默认 flat（用户：“我更喜欢扁平化圆角”）：三档全 none，切 shadow 才给真阴影。 */
   --el-1: none;
   --el-2: none;
   --el-3: none;
-  /* 2026-10-31（暮雨：「当前阴影模式下许多地方的阴影都过粗，已经影响阅读了」）：
+  /* 2026-10-31（暮雨：“当前阴影模式下许多地方的阴影都过粗，已经影响阅读了”）：
      真因不是"阴影档太深"，而是**页内卡片借用了弹层那一档**——`--shadow` 一直等于 el-3
      （0 12px 40px + 0 24px 64px），于是 .tile / .chain-card / .ms-list 这些平铺在页面上的
      小卡片，每个都拖着一圈 40~64px 的大黑影，字还没读先被灰边糊住。
@@ -37,7 +37,7 @@
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
   --danger:  #b44141;    /* 白字 3.65 → 5.57 */
-  /* 语义色的「当文字」档（2026-10-31）：--success/--warning/--danger 是按**白字压深底**调的，
+  /* 语义色的“当文字”档（2026-10-31）：--success/--warning/--danger 是按**白字压深底**调的，
      反过来当浅底上的小字时，--warning 压 --tint 只有 4.12（低于 AA）。这三个更深一档，
      专用于浅底文字；语义色本身仍保持不变。 */
   --ok-text: #3f6b3a;
@@ -45,7 +45,7 @@
   --danger-text: #b3261e;
   /* 主题令牌（2026-09-29 用户第 4 条）：下面五个此前**散落在各处的写死十六进制**
      （hover 染色、面板底、次级描边、装饰光斑），主题只是把它们换成随主题变的令牌。
-     默认值 = 原值，所以「雾灰紫（默认）」一个像素都不动。 */
+     默认值 = 原值，所以“雾灰紫（默认）”一个像素都不动。 */
   --tint: #f1eefb;      /* 选中 / 激活的浅染 */
   --tint-2: #fbfaff;    /* 悬停的更浅染 */
   --tint-3: #fafafd;    /* 中性面板底 */
@@ -54,7 +54,7 @@
   --blob-b: #cdd9ee;    /* 装饰光斑下 */
   /* 决策三态徽章（2026-10-14，UI 基座第 ④ 步第一单）——
      为什么放这里而不是写在组件里：`check-themes.cjs` 只量 App.vue 的令牌，
-     值散在组件里就**没人量**（2026-10-13「色板名写了却不存在 → SVG 整体变黑、断言全绿」同款死法）。
+     值散在组件里就**没人量**（2026-10-13“色板名写了却不存在 → SVG 整体变黑、断言全绿”同款死法）。
      三态与主题无关（徽章只出现在白卡面上），但每套主题都会把它们量一遍。 */
   --badge-ok-fg: #2f6b24;       --badge-ok-bg: #eaf3e6;
   --badge-revoked-fg: #8f4a45;  --badge-revoked-bg: #f6eceb;
@@ -101,7 +101,7 @@
   --ui-radius: var(--radius);
 }
 
-/* ── shadcn 组件的「高度」类（2026-10-31）──────────────────────────────
+/* ── shadcn 组件的“高度”类（2026-10-31）──────────────────────────────
    ⚠ 不许写成 Tailwind 的 `shadow-[var(--el-1)]`：Tailwind 会把它当**阴影颜色**
    （生成 `--tw-shadow-color: var(--el-1)` / `--tw-shadow: var(--tw-shadow-colored)`），
    计算出来永远是 none —— 决策页的 Card/Button 就这样一直没影子。
@@ -110,13 +110,13 @@
 .ui-elev-1:hover { box-shadow: var(--el-2); }
 
 /* ── 全局外观：阴影 / 扁平（2026-10-30，卡 task-20261030-004）────────────
-   用户原话：「要不就阴影单独做一套外观全局生效，和现有外观风格可以随时切换。整一半干什么？」
+   用户原话：“要不就阴影单独做一套外观全局生效，和现有外观风格可以随时切换。整一半干什么？”
    做法：`data-appearance` 挂在 <html>，与 `data-theme` **正交**
    （换主题不换外观、换外观不换色）。flat = :root 里三档全 none（默认）；
    shadow 只给三档高度 —— 贴地(el-1) / 浮起(el-2) / 弹层(el-3)。
-   ⚠ 三档之外还剩「选中环」（`0 0 0 Npx`）与「页签下划线」（inset）：它们是**状态**不是**高度**，
+   ⚠ 三档之外还剩“选中环”（`0 0 0 Npx`）与“页签下划线”（inset）：它们是**状态**不是**高度**，
      扁平外观下也该看得见（否则选中了看不出来），所以不归这三档管。 */
-/* 2026-10-31 重调（暮雨：「阴影过粗，影响阅读」）：三档全部**收窄扩散半径、降透明度**。
+/* 2026-10-31 重调（暮雨：“阴影过粗，影响阅读”）：三档全部**收窄扩散半径、降透明度**。
    旧值 el-2 = 8px+18px / el-3 = 40px+64px，落在白卡上会形成一圈明显的灰边，
    小字号正文尤其糊。新值只保留"边缘微微分离"的感觉：el-1 几乎不可见、el-3 也只有 14/30。
    ⚠ 判据不是"看起来有没有影子"，是**正文对比度有没有被灰边拖低**；
@@ -128,9 +128,9 @@
   --shadow-card: var(--el-1);
 }
 
-/* ── 主题（2026-09-29 用户第 4 条：「似乎多主题颜色外观并不存在…参考绒花墨坊做一下」）──
+/* ── 主题（2026-09-29 用户第 4 条：“似乎多主题颜色外观并不存在…参考绒花墨坊做一下”）──
    做法照抄绒花墨坊 console/src/style.css：一套浅色主题只换令牌，挂在 <html data-theme="x">。
-   墨坊那条硬规矩一并沿用：**只做浅色主题**（它注释里写着「仅浅色模式」）——
+   墨坊那条硬规矩一并沿用：**只做浅色主题**（它注释里写着“仅浅色模式”）——
    方寸界面里有大量写死的白底（#fff 卡面/弹窗），做半吊子暗色 = 文字直接看不见。
    每套配色全部过 WCAG AA（正文 / 次要文字 / 白字压品牌色 ≥4.5，实测最低 5.0），
    守卫：scripts/test/check-themes.cjs（改配色不跑它 = 白改）。 */
@@ -228,7 +228,7 @@ body {
 /* ── 按钮尺寸规范（2026-09-29 卡 027，用户按小样拍板）──────────────────
    问题不是"某个按钮没样式"（那已被守卫兜住），而是**不成体系**：
    全站 9+ 种写法各写各的高宽圆角，同一条行里能出现三种高度、三种圆角。
-   这里把「高度 / 圆角 / 字号 / 内距」收成一组变量，四类按钮共用：
+   这里把“高度 / 圆角 / 字号 / 内距”收成一组变量，四类按钮共用：
      主(pri) 一屏 1 个 · 次(ghost) 绝大多数 · 危险(danger) 只给破坏性动作 · 图标(icon) 纯符号
    两档尺寸：工具行 28（默认）· 弹窗主按钮 32（.lg）· 密集列表 24（.sm）
    ⚠ **不改任何现有 class 名** —— 模板一行不动，只把这些 class 的长相统一。 */
@@ -282,10 +282,10 @@ button:not([class]) {
   height: var(--btn-h-lg); padding: 0 16px; font-size: 12.5px;
 }
 
-/* ── 控件交互反馈（2026-09-29 用户第 5 条：「控件交互可以强化，提高反馈体验」）────
+/* ── 控件交互反馈（2026-09-29 用户第 5 条：“控件交互可以强化，提高反馈体验”）────
    悬停反馈全站早就有了（.todo-item:hover / .log-card:hover / button:hover …），
    缺的是另外两种：**按下去没有物理反馈**（点了像没点，于是会再点一次 —— 
-   2026-09-25 「点了没反应要多点几次」除了合成器问题，另一半是这个）
+   2026-09-25 “点了没反应要多点几次”除了合成器问题，另一半是这个）
    和**键盘用户看不见焦点在哪**。三条一起补，且不改任何外观配色：
    ① 按压：下沉 1px + 轻微缩放（只在 :active 瞬间，不改变布局）
    ② 焦点：只在 :focus-visible 画圈 —— 鼠标点击不画，Tab 走查才画
@@ -307,7 +307,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 /* ── 表单控件**基线外观**（2026-10-27）────────────────────────────────
    全站此前只有上面那条 `:focus` 有 :where 兜底，**常态外观全靠各自局部选择器补** ——
    于是每新增一块表单就漏一次：模型通道那四个框、模型单价那三个框都裸奔过。
-   暮雨原话：「这个问题在整个项目里应该出现过三次以上了，说明没吸取教训」。
+   暮雨原话：“这个问题在整个项目里应该出现过三次以上了，说明没吸取教训”。
    这里补**只含外观、不含布局**的基线（不写 width / display / margin，交给各局部决定）。
    用 :where() 让特异性恒为 0 → 任何局部规则都能盖住它，不会打乱既有排版。
    checkbox / radio / file / range / color 一律排除（它们有各自的原生语义，撑成圆角框就毁了）。 */
@@ -344,7 +344,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
    提为独立合成层、把模糊结果**缓存成纹理**（只栅格化一次），
    不再随每次合成重新算。视觉像素级不变（改的是合成策略不是外观）。
 
-   ⚠⚠ z-index: 0 → -1（2026-09-28 用户第 1 条）——**这是「怪异遮罩挡字」的真因**。
+   ⚠⚠ z-index: 0 → -1（2026-09-28 用户第 1 条）——**这是“怪异遮罩挡字”的真因**。
    `.blob` 是 position:fixed（已定位）且 z-index:0，而看板的 .col / 卡片全是**非定位的流内元素**。
    按 CSS 绘制顺序，同一个层叠上下文里：负 z-index 子层 → 流内块级背景 → 行内内容 → z-index:0/auto 的已定位元素。
    也就是说 z-index:0 的它**画在所有正文之上**（只被 z-index:2 的 #bar / #views 挡住）。
@@ -352,7 +352,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
    正好糊在第一列卡片的文字上，还因为 pointer-events:none **点不掉、也不报错**。
    它在设计意图上就是"背景雾斑"，只是从来没被放进背景层。改成负 z-index 后它落在
    #app（透明背景）之下、body 画布背景之上 —— 雾感保留，一个字都不挡。
-   守卫：e2e-renderer 里那条「光斑不得压住正文」的绘制顺序断言。 */
+   守卫：e2e-renderer 里那条“光斑不得压住正文”的绘制顺序断言。 */
 .blob { position: fixed; border-radius: 50%; filter: blur(70px); will-change: transform; opacity: 0.38; z-index: -1; pointer-events: none; }
 .blob.b1 { width: 460px; height: 460px; background: var(--blob-a); top: -140px; left: -100px; }
 .blob.b2 { width: 420px; height: 420px; background: var(--blob-b); bottom: -130px; right: -90px; }
@@ -363,9 +363,9 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
      上一轮只清了 .overlay / .nc-wrap，**漏了这条常驻顶栏** —— 它 100% 时间在屏，
      是当时遗留的最后一个实时模糊合成层（backdrop 采样必须每次合成重算）。
      两处一起改：
-       ① 去掉 backdrop-filter（不再有模糊采样 → 不参与「失焦即停绘」）；
+       ① 去掉 backdrop-filter（不再有模糊采样 → 不参与“失焦即停绘”）；
        ② 底色 0.72 → 0.92 —— 左上角 .blob.b1（#cfc6ec 紫，top:-140/left:-100）
-          不再透过 28% 的半透明顶栏把标题与计数洗淡（第 4 条「有时候看不清文字」）。 */
+          不再透过 28% 的半透明顶栏把标题与计数洗淡（第 4 条“有时候看不清文字”）。 */
   background: rgba(255,255,255,0.92);
   border-bottom: 1px solid var(--border); display: flex;
   justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
@@ -396,27 +396,27 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 #bar button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 #bar .chk { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
 
-/* ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）──────────────────────
+/* ── 筛选栏（2026-10-11 用户圈选“方案 B · 条件标签化”）──────────────────────
    ⚠ 所有规则必须带 `#bar` 前缀：顶栏有一条 `#bar button { background: accent; color: #fff }`
      （1,0,1），光写 `.fbar-btn`（0,1,0）压不过它 —— 按钮会变成"实心紫底"，看着像主按钮。
    ⚠ chips 与面板的 `flex-basis: 100%` 是**故意**的：`.ctrls` 是 flex-wrap 行，
      给满基准它们才会各自独占一行，而不是挤在筛选那一行的末尾。 */
-/* ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）──────────────────────
+/* ── 筛选栏（2026-10-11 用户圈选“方案 B · 条件标签化”）──────────────────────
    ⚠ 所有规则必须带 `#bar` 前缀：顶栏有一条 `#bar button { background: accent; color: #fff }`
      （1,0,1），光写 `.fbar-btn`（0,1,0）压不过它 —— 按钮会变成"实心紫底"看着像主按钮。
    ⚠ 按钮一律 `white-space: nowrap` + `flex: none`：第一版漏了这个，窗口一窄按钮就被压成
-     两行（用户截图：「折叠全部」四个字飞了）—— 要让**搜索框**去伸缩，不是让文字折行。 */
+     两行（用户截图：“折叠全部”四个字飞了）—— 要让**搜索框**去伸缩，不是让文字折行。 */
 /* ⚠ `flex-wrap: wrap` 必须有：里面每个按钮都是 `flex: none`（不许压字折行），窗口一窄
    整条就会横向溢出 —— 溢出的后果不只是"看着挤"，触发按钮会跑到视口外，
    于是**浮层跟着锚到视口外**（实测：vw=756 时浮层的右边缘跑到 805）。
    让它换行是唯一正确的出口。 */
 #bar .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
 /* ⚠ 搜索框**固定宽**（2026-10-12 二次修正）：写 `flex: 1` 会让它吸走全部余量 ——
-   暮雨原话「搜索框未免太长太恐怖了，人家浏览器顶上写链接才需要那么长」（实测 877px）。
+   暮雨原话“搜索框未免太长太恐怖了，人家浏览器顶上写链接才需要那么长”（实测 877px）。
    固定 260px（约 20 字）之后，余量交给 `.fbar-grow`，筛选/分组/排序继续贴右端。
    窄窗下由 `max-width: 100%` + `min-width: 0` 兜底，不许溢出。 */
 #bar .fbar .search { flex: 0 0 260px; width: 260px; max-width: 100%; min-width: 0; }
-/* 弹性撑杆：把「筛选/分组/排序」推到右端 —— 上一轮这个活是搜索框干的，现在收回来 */
+/* 弹性撑杆：把“筛选/分组/排序”推到右端 —— 上一轮这个活是搜索框干的，现在收回来 */
 #bar .fbar-grow { flex: 1 1 auto; min-width: 0; }
 #bar .fbar-btn {
   flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px;
@@ -437,7 +437,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 }
 #bar .fbar-caret { color: var(--muted); font-size: 10px; }
 /* 项目名可能很长（"设定资料工具库"这类）—— 触发按钮不要被撑破 */
-/* 「折叠全部」是 `#bar button`（不是 .fbar-btn），同样必须禁止折行 */
+/* “折叠全部”是 `#bar button`（不是 .fbar-btn），同样必须禁止折行 */
 #bar #btn-fold-all { flex: none; white-space: nowrap; }
 /* 生效条件那一行：只在真有筛选时出现，做得尽量轻，别让它抢视觉重心 */
 #bar .fbar-chips { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -485,10 +485,10 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 .fpop-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; padding: 4px 0; }
 .fpop-row-label { flex: 0 0 34px; font-size: 11px; color: var(--muted); }
 /* 口径说明行（卡 20261025-006 第三件）——它不是装饰，是上面那个数字的**意思**：
-   「没人碰过 13」到底是"13 张卡没 agent 读过"还是"13 张卡从来没人看过"，全靠这一行。
+   “没人碰过 13”到底是"13 张卡没 agent 读过"还是"13 张卡从来没人看过"，全靠这一行。
    所以它跟选项同层常驻，不许折叠、不许只放进 title。
    左缩进 39px = 标签宽 34 + 间距 5，跟同排选项左对齐；行高压紧，别把筛选面板撑长
-   （暮雨 2026-10-25：「底下那坨文本把框挤长」）。 */
+   （暮雨 2026-10-25：“底下那坨文本把框挤长”）。 */
 .fpop-note {
   padding: 0 0 2px 39px; font-size: 11px; line-height: 1.45; color: var(--muted);
 }
@@ -509,7 +509,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 
 #views {
   position: relative; z-index: 2; padding: 6px 16px; display: flex; gap: 6px;
-  /* ⚠ 2026-10-12「看与做分两层」：写操作与全局图标搬进这一行右端 →
+  /* ⚠ 2026-10-12“看与做分两层”：写操作与全局图标搬进这一行右端 →
      要 `flex-wrap: wrap`（窄窗换行而不是溢出）＋ 一个 `flex:1` 的撑杆把右侧那组推到头。
      与顶栏同一条纪律：**按钮不折行、不许溢出**（溢出的触发按钮会把浮层锚到视口外）。 */
   flex-wrap: wrap; align-items: center;
@@ -544,7 +544,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 .vbtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* ── 页头视图切换器（2026-09-28 多视图，用户第 ① 条 + 卡 033）───────────
-   刻意**不塞进 #bar**：顶栏已经有 9 个控件，再排一组按钮只会更挤（用户原话「臃肿无比」）。
+   刻意**不塞进 #bar**：顶栏已经有 9 个控件，再排一组按钮只会更挤（用户原话“臃肿无比”）。
    分段控件的观感与看板"白卡浮在灰底上"一致：选中态 = 白底 + 1px 投影。
    右边那行 hint 说明"这个摆法擅长什么" —— 用户不必先点一遍才知道两个视图差在哪。 */
 .pagehead {
@@ -564,7 +564,7 @@ button.vsb {
   transition: background 0.14s, color 0.14s;
 }
 button.vsb:hover { color: var(--ink); }
-/* 2026-10-17 暮雨第 4 条：「有些带阴影，有些是扁平化圆角按钮（我更喜欢这种）」——
+/* 2026-10-17 暮雨第 4 条：“有些带阴影，有些是扁平化圆角按钮（我更喜欢这种）”——
    视图切换这里原来靠一层 1px 投影表示"选中"，与旁边的扁平按钮不是一套语言。
    改成**扁平**：白底 + 一圈描边，选中靠底色与描边说话，不用阴影。 */
 button.vsb.on { background: var(--card); color: var(--ink); box-shadow: none; border: 1px solid var(--border); padding: 3px 11px; }
@@ -572,7 +572,7 @@ button.vsb.on { background: var(--card); color: var(--ink); box-shadow: none; bo
   font-size: 11.5px; color: var(--muted); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* 卡片墙「只看未完成」开关（2026-10-10 用户要求）：与视图切换器同排，只在信息卡墙出现。
+/* 卡片墙“只看未完成”开关（2026-10-10 用户要求）：与视图切换器同排，只在信息卡墙出现。
    做成药丸形状（与 .viewsw / .lpill 同一套语言），不用裸复选框 —— 页头本来就挤。 */
 .pvw-switch {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -642,14 +642,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .brow.dragging { opacity: 0.35; }
 .brow .ttl { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 空分区在列表视图里**不画那个虚线空框**（列视图里它是有用的落点提示，纵向排时却会
-   把一屏吃掉一大半 —— 「7 个状态里 4 个是空的」在这种数据下很常见）。
+   把一屏吃掉一大半 —— “7 个状态里 4 个是空的”在这种数据下很常见）。
    列表视图的落点是**整个分区块**（hover 时 .blgrp 高亮），分区头右侧的 0 已经说明它是空的。 */
 .board-list .emptyhint { display: none; }
 
 /* ── 看板 · 信息卡墙（第三摆法，2026-10-10 卡 20261010-003）────────────────────
-   用户口径：另两种摆法都是「窄化横条」，「少了点掌控感」。这张卡把信息一次给全 ——
+   用户口径：另两种摆法都是“窄化横条”，“少了点掌控感”。这张卡把信息一次给全 ——
    ID（可复制）/ 优先级（左缘色条 + 小徽章）/ 阻塞（被卡 / 挡人）。
-   ⚠ 与列表视图同路子：`#board` 仍是那个 flex 容器，只换成「纵滚 + 自适应网格」，
+   ⚠ 与列表视图同路子：`#board` 仍是那个 flex 容器，只换成“纵滚 + 自适应网格”，
      这样 flex:1 的滚动行为不用另写一套。
    ⚠ 优先级 / 阻塞徽章的配色**直接沿用日志优先级徽章（.log-prio-badge）那套实测过
      对比度的色值**，不另发明颜色。 */
@@ -658,8 +658,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   align-items: stretch; gap: 0;
 }
 /* 分区 → 区内网格（2026-10-10 当晚修正）。首版把一百多张卡平铺成一面墙，用户原话
-   「压迫感十足」，且「按项目」分组完全不生效 —— 因为没有结构可以承载分组。
-   现在外层是「组」的纵排，组内才是自适应网格；组头复用列表视图那套 lpill 折叠药丸
+   “压迫感十足”，且“按项目”分组完全不生效 —— 因为没有结构可以承载分组。
+   现在外层是“组”的纵排，组内才是自适应网格；组头复用列表视图那套 lpill 折叠药丸
    （button.lpill / .chev / .gdot / .glabel / .gn 本来就是全局类，不是列表专用）。 */
 .pvwall { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; }
 .pwg { border-radius: 10px; padding: 2px 6px 6px; border: 1px solid transparent; }
@@ -716,9 +716,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   align-items: flex-start; overflow-x: auto; min-height: 60vh;
 }
 /* ⚠ 2026-10-22 真 bug：`#board` 是 **flex 横排**（看板/项目靠它并排几栏），
-   而「问答」页是一个纵向的单栏阅读面 —— 不显式改回 block，页里的
-   「输入框区 / 答案 / 月报表」会被当成三列横着排，整页挤在左边 1/3、
-   答案的「项目名 | 值」窄到竖着断行。这类"结构对但排版全塌"只有真截图才看得出来。 */
+   而“问答”页是一个纵向的单栏阅读面 —— 不显式改回 block，页里的
+   “输入框区 / 答案 / 月报表”会被当成三列横着排，整页挤在左边 1/3、
+   答案的“项目名 | 值”窄到竖着断行。这类"结构对但排版全塌"只有真截图才看得出来。 */
 /* 用 block 而不是 flex：`#board` 原本是 flex 横排 + `align-items: flex-start`，
    改成 column 后 align-items 仍会把每个子块按**内容宽度**排、左边参差不齐
    （2026-10-22 截图目检抓到的：标题/输入框/答案卡左边缘差 70px）。
@@ -731,7 +731,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* 列 = 淡灰底，卡片 = 纯白（2026-09-28 密度方案 B / 对比稿①②④）。
    原来是反的（列白底 + 卡近白底），层次只能靠"每列一条 4px 左边色条 + 卡片边框 + 重阴影"堆出来，
-   四列就是 4 条竖线起底，卡一多像栅栏 —— 用户原话「竖条好几条，越看越头痛」。
+   四列就是 4 条竖线起底，卡一多像栅栏 —— 用户原话“竖条好几条，越看越头痛”。
    现在层次靠"白卡浮在灰底上"：色条全删，列几乎无阴影，卡片 1px 贴地投影。
    ⚠ 那 7 条 .col[data-status=…] 的 border-left + 4 种底色已整块删除（状态由列头圆点承担）。 */
 .col {
@@ -798,7 +798,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card.dragging { opacity: 0.35; transform: scale(0.97); }
 
 .card-head { display: flex; align-items: center; gap: 6px; }
-/* 「待验收」卡上的两个出口（2026-10-30 暮雨第 3 条）：直接可点，不再"先点开详情再滚到底"。
+/* “待验收”卡上的两个出口（2026-10-30 暮雨第 3 条）：直接可点，不再"先点开详情再滚到底"。
    用极简小按钮：这一行只在待验收列出现，不抢标题的宽度，也不引入第二套按钮语言。 */
 .card-verdict { display: flex; gap: 6px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
 .card-verdict button {
@@ -811,7 +811,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card-verdict .danger { color: #8a4343; border-color: #e2c4c4; }
 .card-verdict .danger:hover { background: #f6e2e2; border-color: #8a4343; }
 /* 驳回理由常驻（2026-10-30 暮雨第 2 条）：一行灰底，不抢标题，但一定看得见。
-   退回返工后仍显示「上次驳回」，否则「驳回」在卡面上等于没发生。 */
+   退回返工后仍显示“上次驳回”，否则“驳回”在卡面上等于没发生。 */
 .card-reject {
   display: flex; align-items: baseline; gap: 6px; margin-top: 4px;
   padding: 2px 7px; border-radius: 6px; background: #fbf1f0;
@@ -835,14 +835,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .card-liv.liv-verify { background: #d9a44a; }
 .card-liv.liv-done { background: #54814b; }
 .card-liv.liv-reject { background: #b44141; }
-/* 卡右侧 meta：只占必要宽度，标题优先。日期与项目常驻（用户 2026-09-28：「希望看见所属项目和日期」） */
+/* 卡右侧 meta：只占必要宽度，标题优先。日期与项目常驻（用户 2026-09-28：“希望看见所属项目和日期”） */
 .card-meta { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
 .card-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .card-date.over { color: var(--danger); font-weight: 700; }
 /* 2026-10-06 卡 007：原来写死 #8b90a0 —— 在卡片底色上只有 3.18（11px 小字远低于 AA 4.5）。
-   它与主题无关，所以 2026-09-29 那轮「六套主题全量调 AA」从它身上直接漏过去了。
-   改用主题的次要文字色：既保留「比截止日淡一档」的层级，又跟着主题走，
-   并且天然落在 check-themes 的「次要文字压卡」那一对里。 */
+   它与主题无关，所以 2026-09-29 那轮“六套主题全量调 AA”从它身上直接漏过去了。
+   改用主题的次要文字色：既保留“比截止日淡一档”的层级，又跟着主题走，
+   并且天然落在 check-themes 的“次要文字压卡”那一对里。 */
 .card-date.dim { color: var(--muted); }
 .card-proj { max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d6f86; }
 
@@ -872,13 +872,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .task-acts { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
 .acts-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .acts-group .acts-label { font-size: 11px; color: var(--muted); width: 28px; flex: none; letter-spacing: 0.5px; }
-/* 终态任务的「三种去向」提示（2026-10-06）：11px 弱化，不抢按钮的视线 */
+/* 终态任务的“三种去向”提示（2026-10-06）：11px 弱化，不抢按钮的视线 */
 .acts-group .acts-hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
 
 /* 任务详情：关联日志反向索引 */
 .logs-section { margin-top: 12px; }
 .logs-section > label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 5px; }
-/* Git 联动（卡 017）：任务详情里的「相关提交」—— 只读展示，无按钮 */
+/* Git 联动（卡 017）：任务详情里的“相关提交”—— 只读展示，无按钮 */
 .gitlink-section .gitlink-repo { margin-left: 8px; font-family: ui-monospace, Consolas, monospace;
   font-size: 10.5px; color: var(--muted); }
 .gitlink-list { margin: 6px 0 2px; }
@@ -941,7 +941,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ptags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .ptag { background: var(--tint); color: #5b5478; border-radius: 6px; font-size: 10px; padding: 1px 6px; }
 
-/* 16px 太小、用户要「小心翼翼点避免点错」（2026-09-25 第 2 条）：
+/* 16px 太小、用户要“小心翼翼点避免点错”（2026-09-25 第 2 条）：
    放大到 20px，并让**整张卡**在批量模式下都能点（模板里 @click 已分流）。 */
 .batch-chk { width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent); margin-right: 8px; flex-shrink: 0; }
 .batch-chk:checked { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -952,12 +952,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Overlay */
 /* 全屏遮罩：**禁止 backdrop-filter**（2026-09-25 第 3 条）。
    1920×1032 的实时模糊（blur(4px)）在窗口失焦/被遮挡时，Chromium 合成器会停止重绘 ——
-   表现就是「点开新建日志先卡一下，必须切到别的窗口再回方寸才莫名恢复」。
-   日志多选「点了没反应、要多点几次才能选中」也是同一原因：状态变了但**没重绘**，
+   表现就是“点开新建日志先卡一下，必须切到别的窗口再回方寸才莫名恢复”。
+   日志多选“点了没反应、要多点几次才能选中”也是同一原因：状态变了但**没重绘**，
    用户看不到勾 → 再点一下其实取消了。去掉模糊 + translateZ(0) 强制独立合成层。 */
 /* ⚠ 遮罩的关闭手势一律用 `@mousedown.self`，**不许用 `@click.self`**（2026-10-11 用户第 3 条）。
-   真因：在文本框里按住拖选、把光标拖出弹窗再松手时，`click` 的目标是「按下点与松开点的
-   最近公共祖先」＝遮罩本身，于是 `@click.self` 判定为"点了遮罩"→ 整个弹窗关掉，草稿全丢
+   真因：在文本框里按住拖选、把光标拖出弹窗再松手时，`click` 的目标是“按下点与松开点的
+   最近公共祖先”＝遮罩本身，于是 `@click.self` 判定为"点了遮罩"→ 整个弹窗关掉，草稿全丢
    （用户累计触发十几次）。`mousedown.self` 只在**按下那一刻**光标就在遮罩上才触发，
    拖选时按下点永远在文本框里 → 不触发。
    ⚠ 静态守卫 `e2e-renderer-web.cjs` 里有断言钉住这条，别改回去。 */
@@ -1022,14 +1022,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #log-preview-modal .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
 /* ── 附件块（2026-10-01 用户第 1 条 → 卡 036）：只读预览 + 编辑对话框共用 ──
-   有意做窄：一张网格 + 一个「＋添加」，不做标签/相册/筛选 —— 卡 036 验收写明
-   「不做同质化资产库」，真实需求只是「截图和报告有地方放、随手能挂上」。 */
+   有意做窄：一张网格 + 一个“＋添加”，不做标签/相册/筛选 —— 卡 036 验收写明
+   “不做同质化资产库”，真实需求只是“截图和报告有地方放、随手能挂上”。 */
 .attach-block { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .attach-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .attach-head .attach-lbl { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
 .attach-add { height: 26px; padding: 0 10px; font-size: 12px; }
 .attach-add:disabled { opacity: .55; cursor: not-allowed; }
-/* 2026-10-25：右侧「Ctrl+V 粘图」提示 + 新建态的待挂清单（虚线胶囊 = 还没落盘） */
+/* 2026-10-25：右侧“Ctrl+V 粘图”提示 + 新建态的待挂清单（虚线胶囊 = 还没落盘） */
 .attach-head-r { display: flex; align-items: center; gap: 8px; }
 .attach-paste-hint { font-size: 11px; color: var(--muted); user-select: none; }
 .attach-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 8px; font-size: 11.5px; }
@@ -1056,7 +1056,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 日志卡上的附件数量角标：一眼看出这条有没有附东西（报修场景最需要的一眼信息） */
 .log-attach-badge { font-size: 10.5px; color: var(--muted); background: var(--tint); border-radius: 6px; padding: 1px 6px; font-weight: 600; white-space: nowrap; }
 
-/* 日志「关联任务」：chips 头 + 按需展开（2026-10-09 用户第 3 条） */
+/* 日志“关联任务”：chips 头 + 按需展开（2026-10-09 用户第 3 条） */
 .log-task-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .log-task-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .lt-chip {
@@ -1071,7 +1071,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lt-chip .lt-x:hover { background: var(--danger); color: #fff; }
 .log-task-toggle { margin-left: auto; flex: none; }
 .log-task-search { margin-bottom: 6px; }
-/* 日志「关联任务」多选列表（2026-09-25 第 2 条） */
+/* 日志“关联任务”多选列表（2026-09-25 第 2 条） */
 .log-task-multi {
   max-height: 168px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
   background: var(--card); padding: 4px 6px; margin-bottom: 6px;
@@ -1104,7 +1104,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* Preview modal */
 .meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-/* 2026-10-31（截图目检抓到）：k/v 两个 span 直接相邻 → 「IDtask-demo-001」糊成一串。
+/* 2026-10-31（截图目检抓到）：k/v 两个 span 直接相邻 → “IDtask-demo-001”糊成一串。
    任务详情与回收站预览共用这一组；固定标签列 + 值可换行，长文件名不会撑破弹窗。 */
 .meta > div { display: flex; align-items: baseline; gap: 8px; }
 .meta .k { flex: none; min-width: 52px; font-size: 11px; color: var(--muted); font-weight: 600; }
@@ -1138,9 +1138,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .tile-add .add-icon { font-size: 32px; color: var(--muted); font-weight: 300; }
 .tile-add .add-text { font-size: 12px; color: var(--muted); font-weight: 600; }
 
-/* ── 项目页签：概览卡 + 主从（2026-09-29 用户：「两种视图都要，做成可自选切换」）──
-   003 卡的原话是「只是个大号看板入口，不是项目管理」。两种摆法的共同点是把
-   「四个孤立数字」换成「状态分布 + 最近动态 + 缺口」，差别只在"一屏看完所有项目"
+/* ── 项目页签：概览卡 + 主从（2026-09-29 用户：“两种视图都要，做成可自选切换”）──
+   003 卡的原话是“只是个大号看板入口，不是项目管理”。两种摆法的共同点是把
+   “四个孤立数字”换成“状态分布 + 最近动态 + 缺口”，差别只在"一屏看完所有项目"
    还是"一屏专注一个项目"。三个摆法（含旧的项目墙）互斥渲染，共用同一份 projectStats。 */
 /* 每种摆法一个**独立**的根容器类（pvgrid / ovgrid / pv-ms）——
    不是为了好看，是让"三种摆法互斥"这条能被机械断言：
@@ -1148,7 +1148,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ── 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）──
    第 4 个摆法，根容器 `.tripboard`（与 pvgrid/ovgrid/pv-ms 一样各自独立，
    好让"四种摆法互斥"能被机械断言）。
-   红色只给"要注意的"：异常行（0 张卡）淡黄底、「未填」用虚框红字，其余一律中性。 */
+   红色只给"要注意的"：异常行（0 张卡）淡黄底、“未填”用虚框红字，其余一律中性。 */
 .tripboard { width: 100%; }
 .trip-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .trip-ttl { font-size: 14px; font-weight: 700; }
@@ -1212,9 +1212,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-cnt { white-space: nowrap; }
 .trip-anomaly td { background: #fffdf6; }
 .trip-empty { padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
-/* 空屏里的出口按钮：「改回自动」——必须与祖先无关的独立规则（守卫要求） */
+/* 空屏里的出口按钮：“改回自动”——必须与祖先无关的独立规则（守卫要求） */
 .trip-empty-act { margin-top: 12px; }
-/* 读取中/刷新中的提示（2026-10-11 用户：「每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了」） */
+/* 读取中/刷新中的提示（2026-10-11 用户：“每次进在途一屏都要卡一下，哪怕有个加载小提示也就算了”） */
 .trip-loading-sub { display: block; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 .trip-refreshing {
   display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 10px;
@@ -1307,7 +1307,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-detail { position: relative; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow-card); }
 .ms-detail.empty { color: var(--muted); font-size: 12.5px; }
 /* ── 监控台（卡 task-20261009-001）──────────────────────────────────
-   契约「健康度=左缘 4px 色条，无异常=干净白卡」：stuck/dormant 才有色条，active/idle 一个像素都不加 */
+   契约“健康度=左缘 4px 色条，无异常=干净白卡”：stuck/dormant 才有色条，active/idle 一个像素都不加 */
 .ms-detail::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
   border-radius: 12px 0 0 12px; background: transparent; transition: background .3s ease; }
 .ms-detail.hs-stuck::before { background: var(--warning); animation: hsPulse 2.4s ease-in-out infinite; }
@@ -1334,9 +1334,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ms-num:nth-child(4) b { animation-delay: .18s }
 @keyframes numIn { from { opacity: 0; transform: translateY(5px) } }
 .ms-nothing { color: var(--muted); }
-/* 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段一句话定位 */
+/* 项目说明条（2026-10-16 批次第 2 项）：registry“说明”字段一句话定位 */
 /* 三字段块：左边一条 accent 竖线当"引用块" —— 比四面细边框更容易看出
-   "这三行是一组手写说明"，也不会和下面「自动 · 只读」那块抢眼。 */
+   "这三行是一组手写说明"，也不会和下面“自动 · 只读”那块抢眼。 */
 .ms-note { margin-top: 9px; padding: 9px 12px; border: 0; border-left: 3px solid var(--accent-soft);
   border-radius: 4px 8px 8px 4px; background: var(--tint-2);
   font-size: 11.5px; color: var(--ink); line-height: 1.7; }
@@ -1403,7 +1403,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ask-sub { display: block; margin-top: 2px; font-style: normal; font-size: 11px; color: var(--muted); }
 .ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
 .ask-src { flex: 1 1 auto; font-size: 11px; color: var(--muted); }
-/* 「让 AI 答」与「出下一批」同形（都是会计费的动作），只靠 class 区分职责 */
+/* “让 AI 答”与“出下一批”同形（都是会计费的动作），只靠 class 区分职责 */
 .ask-llm-btn, .ask-batch-btn { flex: none; height: 30px; padding: 0 12px; font-size: 12px; }
 .ask-llm-ans { margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--tint-2); border: 1px solid var(--border); }
 .ala-h { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
@@ -1475,7 +1475,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 11px; color: var(--muted); }
 .ask-report-empty { font-size: 12px; color: var(--muted); }
-/* 月报表里的金额（2026-10-25 卡 005）：没有金额时写「未折算」而不是 0 元 */
+/* 月报表里的金额（2026-10-25 卡 005）：没有金额时写“未折算”而不是 0 元 */
 .arr-cost { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
 .arr-cost em { margin-left: 5px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--muted); }
 .arr-cost.none { color: var(--muted); font-weight: 400; }
@@ -1496,7 +1496,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #smodal .price-state { font-size: 11.5px; color: var(--muted); margin-left: 4px; }
 
 /* ── 想法（2026-10-22 · 念头没有家）──────────────────────────────────────
-   跟「问答」同一套单栏阅读面：内容行 720px、输入框是主角。
+   跟“问答”同一套单栏阅读面：内容行 720px、输入框是主角。
    关于 `#board`（它是 flex 横排，看板靠它并排几栏）：这一页多包了一层 `.ideas-wrap`，
    所以即使不覆盖 display 也不会被拆成三列 —— 实测过（改成 flex 断言仍全绿）。
    `display: block` 仍然显式写着，理由是让"单栏"这件事**不依赖 wrap 的存在**：
@@ -1547,7 +1547,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* × 是与前三个**不同性质**的动作（删掉这条，不是给它做决定）——
    一条细竖线隔开，免得手滑把"不做"点成"删掉"（2026-10-22 截图目检） */
 .idea-del { margin-left: 2px; padding: 0 8px; border-left: 1px solid var(--border); color: var(--muted); }
-/* 「搁置」中性、「不做」更轻（想过了，不做 —— 它比搁置更消极，所以字色更淡；悬停才提示否决议义） */
+/* “搁置”中性、“不做”更轻（想过了，不做 —— 它比搁置更消极，所以字色更淡；悬停才提示否决议义） */
 .idea-hold { color: var(--ink); }
 .idea-drop { color: var(--muted); }
 .idea-drop:hover { color: var(--danger); }
@@ -1590,8 +1590,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 
 /* Settings */
-/* ── 设置：左侧分类导航 + 右侧内容（2026-10-03 用户：「不要一条长名单，像各大软件那样侧边栏分类」）
-     上一版的「点标题折叠」被取代 —— 折叠解决"太长"，侧边栏解决"找不到"。 */
+/* ── 设置：左侧分类导航 + 右侧内容（2026-10-03 用户：“不要一条长名单，像各大软件那样侧边栏分类”）
+     上一版的“点标题折叠”被取代 —— 折叠解决"太长"，侧边栏解决"找不到"。 */
 #smodal {
   width: min(860px, 94vw); height: min(620px, 86vh);
   display: flex; flex-direction: row; padding: 0; overflow: hidden;
@@ -1668,8 +1668,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ── 模型通道表单（2026-10-27 重排）────────────────────────────────────
    这一块此前**没有任何专属样式**：`#smodal` 里既没有 label 也没有 input 规则，
    label 是 inline、input 是浏览器默认 inline-block，于是十几个控件挤成参差的行流 ——
-   暮雨原话「那输入框丑的要死，整个布局又难看又难用」。
-   现在改成「label 在上、input 满宽」的纵向栅格，短字段两列并排。
+   暮雨原话“那输入框丑的要死，整个布局又难看又难用”。
+   现在改成“label 在上、input 满宽”的纵向栅格，短字段两列并排。
    ⚠ preflight 关着 → 原生控件必须自己给全外观与 font-family，别指望继承。 */
 #smodal .llm-status { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
   border-radius: 8px; font-size: 12px; margin: 8px 0 12px; line-height: 1.5;
@@ -1712,7 +1712,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #toast.info { background: var(--tint); color: #5b5478; border: 1px solid var(--accent-soft); }
 
 /* 撤销条（2026-10-21 暮雨第 1 条）——
-   与 toast 的分工：toast 说「发生了什么」，这条给「还撤不撤得回」。所以它：
+   与 toast 的分工：toast 说“发生了什么”，这条给“还撤不撤得回”。所以它：
    ① 贴屏幕**顶部**居中（与 toast 同一视觉带；同时出现时 toast 下移一格，见 #toast.has-undo）；
    ② 可点（toast 是 pointer-events: none），且只有一条、由下一次状态动作顶掉；
    ③ 颜色全部走主题令牌，六套主题下都不写死色值（check-themes 会量）。 */
@@ -1776,7 +1776,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .launchpad { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .lp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
 .lp-header h3 { font-size: 16px; font-weight: 700; }
-/* 2026-10-16：一句话说清「启动台是干嘛的」（快捷入口 ≠ 服务管理） */
+/* 2026-10-16：一句话说清“启动台是干嘛的”（快捷入口 ≠ 服务管理） */
 .lp-note { font-size: 12px; line-height: 1.7; color: var(--muted); margin: -6px 0 12px; }
 .lp-ctrls { display: flex; gap: 6px; }
 .lp-ctrls button { padding: 5px 12px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
@@ -1789,7 +1789,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .lp-name { font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-desc { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lp-launch { padding: 4px 10px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; flex: none; }
-/* 2026-10-15：卡片右侧改成「编辑 / 打开文件夹」两个独立按钮（点卡片本身 = 启动） */
+/* 2026-10-15：卡片右侧改成“编辑 / 打开文件夹”两个独立按钮（点卡片本身 = 启动） */
 .lp-actions { display: flex; gap: 4px; flex: none; align-items: center; }
 .lp-edit { padding: 4px 8px; font-size: 11px; flex: none; }
 .lp-open { padding: 4px 8px; font-size: 11px; flex: none; }
@@ -1800,7 +1800,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 卡片上的"观测到的端口"（2026-10-15）：结果展示，不是输入项 */
 /* ⚠ 2026-10-16（用户第 2 条）已连同模板里的 `.lp-ports` 一起删掉：
    启动台不再显示端口 —— 这里是快捷入口，不是服务监控。 */
-/* 服务页的「启动台应用」分区（2026-10-15：按应用列，不按端口） */
+/* 服务页的“启动台应用”分区（2026-10-15：按应用列，不按端口） */
 .svc-group { margin-bottom: 14px; }
 .svc-group-title { font-size: 12.5px; font-weight: 700; color: var(--ink); margin: 0 0 7px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .svc-group-hint { font-size: 11px; font-weight: 400; color: var(--muted); }
@@ -1852,13 +1852,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 面板展开时批量栏更高，底部预留同步加大 */
 #app:has(.bp-panel) #board { padding-bottom: 132px; }
 /* 左上角返回按钮：紧贴标题右侧（后续高频按钮也放这一带） */
-/* ⚠ `flex: none` 必须有（2026-10-11 用户：「还损失一个返回按钮，不知道去哪里了」）：
+/* ⚠ `flex: none` 必须有（2026-10-11 用户：“还损失一个返回按钮，不知道去哪里了”）：
    `#bar` 是 flex + `justify-content: space-between` + `flex-wrap: wrap`。
-   筛选栏一宽，`.ctrls` 就整体换到下一行，而 space-between 会把「返回」**甩到第一行最右端** ——
+   筛选栏一宽，`.ctrls` 就整体换到下一行，而 space-between 会把“返回”**甩到第一行最右端** ——
    它没消失，但离开了原位，用户就是"找不到"。
    `flex: none` 让它不许被压缩；`.fbar` 改 `flex: 0 1 auto` + `nowrap` 让整条不再撑出第二行。 */
 .nav-back { margin-left: 0; padding: 2px 10px; font-size: 12px; flex: none; }
-/* ⚠⚠ 左侧按钮组（2026-10-12 暮雨：「放顶栏左侧，参考 Edge」）——
+/* ⚠⚠ 左侧按钮组（2026-10-12 暮雨：“放顶栏左侧，参考 Edge”）——
    里面全是 `flex: none`（不许折行），整组也是 `flex: none`，否则窄窗下会被压缩变形。
    它 + `.title` + `.ctrls` 三者必须能在**同一行**放下（有几何断言钉住）。
    ⚠ `disabled` 时**必须显式给样式**：浏览器默认的 disabled 样式很淡，
@@ -1877,13 +1877,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #bar .navgroup .ico:disabled { color: #c3c6d2; cursor: default; }
 #bar .navgroup .ico.syncing { color: var(--accent); }
 /* 同步进行中：让 ⟳ 真的转起来（用户能看出"在跑"，而不是点了没反应）。
-   ⚠ 2026-10-16 用户第 9 条「整个方块都在旋转」的修法：动画挂在**字符**（.ico-glyph）上，
+   ⚠ 2026-10-16 用户第 9 条“整个方块都在旋转”的修法：动画挂在**字符**（.ico-glyph）上，
      不能挂在 button 上 —— 按钮有边框与底色，挂上去就是整个方块打转。 */
 @keyframes nav-spin { to { transform: rotate(360deg); } }
 #bar .navgroup .ico .ico-glyph { display: inline-block; }
 #bar .navgroup .ico.syncing .ico-glyph { animation: nav-spin .9s linear infinite; }
-/* 同步状态胶囊（2026-10-25 卡 004）：进行中把宽度撑到能放「推送 12s」，
-   结束态是「✓ 已同步」。宽度只由内容决定、秒数用 tabular-nums，所以数字跳动时不会再抖。 */
+/* 同步状态胶囊（2026-10-25 卡 004）：进行中把宽度撑到能放“推送 12s”，
+   结束态是“✓ 已同步”。宽度只由内容决定、秒数用 tabular-nums，所以数字跳动时不会再抖。 */
 #bar .navgroup .ico.sync-btn { display: inline-flex; align-items: center; justify-content: center;
   gap: 5px; flex: none; }
 #bar .navgroup .ico.sync-btn.cap { padding: 2px 9px; }
@@ -1891,16 +1891,16 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   white-space: nowrap; }
 #bar .navgroup .ico.sync-ok { color: var(--success); }
 #bar .navgroup .ico.sync-bad { color: var(--danger); }
-/* 顶栏「刷新」（2026-10-25）：注意它活在**页签行 `#views`** 里（不是 `#bar` ——
+/* 顶栏“刷新”（2026-10-25）：注意它活在**页签行 `#views`** 里（不是 `#bar` ——
    `#bar` 是上面那一行，同步按钮在那边；分开两行反而更难被认成第二个同步按钮）。
    转的是**字符**不是按钮本体 —— `check-button-styles ④` 专门守着这条。 */
 /* 紧凑版：页签行本来就挤（15 个页签 + 六个操作按钮），多 70px 会把
-   「☑ 任务多选」挤到下一行 —— 目检抓到过一次，所以 padding/字号都收一档。 */
+   “☑ 任务多选”挤到下一行 —— 目检抓到过一次，所以 padding/字号都收一档。 */
 .views-ops { display: inline-flex; align-items: center; gap: 6px; flex: none; }
-/* 顶栏「更多」(2026-10-25)：页签行放不下的低频页签收进这里。观感与 .vbtn 一致。 */
+/* 顶栏“更多”(2026-10-25)：页签行放不下的低频页签收进这里。观感与 .vbtn 一致。 */
 #views .more-btn { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 #views .more-btn .more-caret { font-size: 9px; opacity: .7; line-height: 1; }
-/* 顶栏「更多」= 标准下拉菜单（2026-10-25 第二轮：对齐系统菜单的观感）。
+/* 顶栏“更多”= 标准下拉菜单（2026-10-25 第二轮：对齐系统菜单的观感）。
    ⚠ 刻意**不用** `.fpop`：那是筛选面板（336px 宽、带标题栏与内边距），套过来就是一个迷你面板。
    菜单该是：窄、紧、一行 28px、无标题、无说明文字。
    ⚠ 底色/边框/阴影必须自己写一遍 —— 原来靠的是 `.fpop`，去掉那个 class 就变成
@@ -1956,7 +1956,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 /* 2026-09-30 卡 task-20260930-005：选中态必须压过 hover ——
    `.trash-item:hover` 在文件更下方且同特异性，悬停会把选中的边框/底色盖掉，
-   用户「看不清到底是否选中」。selected:hover 显式钉住。 */
+   用户“看不清到底是否选中”。selected:hover 显式钉住。 */
 .trash-item.selected:hover {
   border-color: var(--accent); background: var(--tint);
   box-shadow: 0 0 0 2px rgba(100, 80, 200, 0.28);
@@ -1998,7 +1998,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-reload { margin-left: auto; height: 26px; padding: 0 10px; font-size: 11.5px; }
 .plan-empty { padding: 24px 0; font-size: 12.5px; color: var(--muted); }
 .plan-code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
-/* 投入产出账（0.6.0 P5）：三格各自带「它证明不了什么」；取不到就整格不渲染 */
+/* 投入产出账（0.6.0 P5）：三格各自带“它证明不了什么”；取不到就整格不渲染 */
 .waste-block { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 10px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
 .waste-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
@@ -2081,7 +2081,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blockers-lead b { color: var(--ink); }
 .bl-inert { color: var(--muted); }
 .blocker-chains { display: flex; flex-direction: column; gap: 12px; }
-/* 「先解这个」卡（2026-10-31 重做）：从一条提示条升级成主区 —— 有标题行、为什么、解锁名单、主按钮 */
+/* “先解这个”卡（2026-10-31 重做）：从一条提示条升级成主区 —— 有标题行、为什么、解锁名单、主按钮 */
 .blocker-advice { margin-bottom: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--accent-soft);
   background: var(--tint); font-size: 12.5px; color: var(--ink); line-height: 1.7; }
 .blocker-advice .ba-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
@@ -2223,7 +2223,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .roadmap-project { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow-card); }
 .rp-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .rp-name { font-size: 14px; font-weight: 700; flex: 1; }
-/* 2026-10-31（暮雨第 7 条）：这一页先回答「推哪一批」，所以当前批次顶到标题行 */
+/* 2026-10-31（暮雨第 7 条）：这一页先回答“推哪一批”，所以当前批次顶到标题行 */
 .roadmap-focus-bar { margin-bottom: 12px; padding: 9px 12px; border-radius: 10px; background: var(--tint);
   border: 1px solid var(--accent-soft); font-size: 12.5px; line-height: 1.7; color: var(--ink); }
 .rp-focus { font-size: 12px; color: var(--muted); }
@@ -2260,7 +2260,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 /* Due filter */
 #bar select.due-filter { width: 90px; }
-/* 状态筛选（2026-10-10）：与「全部项目」「全部时间」同排，宽度对齐好扫 */
+/* 状态筛选（2026-10-10）：与“全部项目”“全部时间”同排，宽度对齐好扫 */
 /* 监控台 · 最近执行日志 + 僵尸卡（2026-10-11，P0 两件）*/
 .ms-feed { margin-top: 10px; }
 .ms-feed-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
@@ -2476,7 +2476,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ── 决策视图（2026-10-12 AI 规划包第 3 件；2026-10-14 UI 基座第 ④ 步第一单）──
    **视图本体已搬进 `components/DecisionBoard.vue`**（shadcn-vue 口径，样式全在那边用 utilities）。
    这里只留"挂载容器"这一件事：它是 `#board` 的另一种形态，跟日历/日志/待办同款 ——
-   必须显式把自己加进「非看板视图要 stretch」那张名单，否则 `#board` 的
+   必须显式把自己加进“非看板视图要 stretch”那张名单，否则 `#board` 的
    `align-items: flex-start` 会让子元素按内容宽度收缩（日历当年就是这么变成一排细竖条的）。
    ⚠ 选择器写成 `#board.decisions-view`：`#board`（ID）特异性高于单类，只写 `.decisions-view`
      会被 `#board { padding: 14px }` 直接压掉（老版就是这么被压的，padding 一直没生效）。 */
@@ -2508,12 +2508,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #ai-plan-modal h3,
 #ai-doc-modal h3,
 #plans-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
-/* AI 规划弹窗里的提示条（2026-10-16 暮雨第 1 条：「根本找不到入口、也没找到配置模型的地方」）。
-   普通说明一行浅灰；「还没配模型通道」那条走警示色，并带一个直达设置页那一格的按钮。 */
+/* AI 规划弹窗里的提示条（2026-10-16 暮雨第 1 条：“根本找不到入口、也没找到配置模型的地方”）。
+   普通说明一行浅灰；“还没配模型通道”那条走警示色，并带一个直达设置页那一格的按钮。 */
 #ai-plan-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
 #ai-plan-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #ai-plan-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
-/* 文档拆卡弹窗（2026-10-17 四件②）：「还没配模型通道」那条同样要能当场指路，样式与 AI 规划同族 */
+/* 文档拆卡弹窗（2026-10-17 四件②）：“还没配模型通道”那条同样要能当场指路，样式与 AI 规划同族 */
 #ai-doc-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
 #ai-doc-modal .hint.hint-warn { background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px; padding: 7px 10px; color: #7a5a12; }
 #ai-doc-modal .hint .llm-goto { margin-left: 4px; padding: 2px 8px; font-size: 11.5px; }
@@ -2582,9 +2582,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 项目卡上的方针入口：卡内全宽小按钮，颜色弱化，不抢主统计的视线 */
 .pv-policy { margin-top: 8px; width: 100%; font-size: 11px; padding: 4px 8px; border-radius: 8px; }
 /* 结构图按钮：与方针按钮上下排（同宽、间距 6px）；单独给一条规则不是装饰 ——
-   check-button-styles 要求「模板里出现的 class 必须有样式规则」（僵尸按钮守卫的反面）。 */
+   check-button-styles 要求“模板里出现的 class 必须有样式规则”（僵尸按钮守卫的反面）。 */
 /* 2026-10-30 第 3 条：两个入口收成一个**分段控件**（一个外框、中间一条分隔线），
-   不再像两个抢位置的独立按钮。左「架构图」（打开已有）/ 右「绘制架构图」（扫源码画）。 */
+   不再像两个抢位置的独立按钮。左“架构图”（打开已有）/ 右“绘制架构图”（扫源码画）。 */
 .pv-arch-group {
   display: flex; margin-top: 6px; width: 100%;
   border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff;
@@ -2626,7 +2626,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blk-x { background: none; border: 0; cursor: pointer; color: inherit; font-size: 13px; line-height: 1; padding: 0 3px; border-radius: 50%; }
 .blk-x:hover { background: rgba(0,0,0,.08); }
 .blk-empty { font-size: 11px; color: var(--muted); }
-/* 2026-10-31：阻塞挑选器从 300 项原生 select 改成「搜索 + 结果列表」 */
+/* 2026-10-31：阻塞挑选器从 300 项原生 select 改成“搜索 + 结果列表” */
 .blk-search { width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid var(--border);
   border-radius: 7px; font: inherit; font-size: 12px; background: #fff; color: var(--ink); }
 .blk-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -2645,7 +2645,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 
 
 /* Calendar view（视觉对齐老版 board.html） */
-/* ⚠ #board 是「横排看板」布局：display:flex + align-items:flex-start。
+/* ⚠ #board 是“横排看板”布局：display:flex + align-items:flex-start。
    column 方向的视图会继承 flex-start，子元素于是按**内容宽度**收缩 ——
    日历格子因此变成一排细长竖条、右边大片空白（用户反复反馈"丑得要死"）。
    非看板视图必须显式改回 stretch。 */
@@ -2661,7 +2661,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .calendar-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .calhead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .calhead .m { font-size: 15px; font-weight: 700; min-width: 120px; }
-/* 2026-10-31（暮雨第 7 条）：本周体检条 —— 日历的第一屏先回答「这周怎么排」 */
+/* 2026-10-31（暮雨第 7 条）：本周体检条 —— 日历的第一屏先回答“这周怎么排” */
 .cal-weekbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 10px;
   padding: 8px 12px; background: var(--tint); border: 1px solid var(--accent-soft); border-radius: 10px;
   font-size: 12.5px; color: var(--ink); }
@@ -2691,7 +2691,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .cev:hover { background: var(--tint); border-color: var(--accent-soft); }
 .cev .pd { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .cev .t { overflow: hidden; text-overflow: ellipsis; }
-/* 格子内折叠（2026-09-29 卡 035 用户选的「改法 A」）：最多 2 条 + 「+N 条」，
+/* 格子内折叠（2026-09-29 卡 035 用户选的“改法 A”）：最多 2 条 + “+N 条”，
    点它就地把这一天铺满（不跳页、不弹窗），再点收起。时间段任务不参与折叠。 */
 .cal-cell-more {
   align-self: flex-start; flex: none; margin-top: 1px; padding: 1px 6px;
@@ -2701,7 +2701,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .cal-cell-more:hover { background: var(--tint); }
 .cal-cell-more.less { color: var(--muted); font-weight: 500; }
 .calunsched { margin-top: 12px; }
-/* 底部「横条墙」收成一行摘要（2026-09-25 用户第 10 条） */
+/* 底部“横条墙”收成一行摘要（2026-09-25 用户第 10 条） */
 .cal-more { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--muted); cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s; }
 .cal-more:hover { border-color: var(--accent-soft); color: var(--ink); }
 .cal-more b { color: var(--accent); font-weight: 700; }
@@ -2752,9 +2752,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Todos view */
 .todos-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .todos-view.drop-target { outline: 2px dashed var(--accent); outline-offset: -6px; }
-/* 拖放提示统一为「固定悬浮层」：text-align/padding 那套会参与文档流，
+/* 拖放提示统一为“固定悬浮层”：text-align/padding 那套会参与文档流，
    一出现就把下方内容顶下去 → 光标相对内容位移 → dragleave/dragover 自激闪烁
-   （用户第 5 条「抖动、不能稳定显示」的真因）。固定定位 + pointer-events:none 根治。 */
+   （用户第 5 条“抖动、不能稳定显示”的真因）。固定定位 + pointer-events:none 根治。 */
 .todo-drop-hint, .log-drop-hint, .drop-hint {
   position: fixed; left: 50%; top: 92px; transform: translateX(-50%);
   z-index: 60; pointer-events: none;
@@ -2769,7 +2769,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 卡 004：待办 → 日志 的入口按钮。2026-10-31（暮雨第 6 条）从 24×24 图标钮改成带字按钮 ——
-   只有一个「⤴」时没人知道那是"转日志"，中转链就断在这。宽度自适应，高度仍与邻居对齐。 */
+   只有一个“⤴”时没人知道那是"转日志"，中转链就断在这。宽度自适应，高度仍与邻居对齐。 */
 .todo-conv { display: inline-flex; align-items: center; justify-content: center; flex: none;
   height: var(--btn-h-sm); padding: 0 6px; cursor: pointer; white-space: nowrap;
   background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
@@ -2780,7 +2780,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todos-ctrls { display: flex; gap: 8px; align-items: center; }
 .todo-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 .todos-list { display: flex; flex-direction: column; gap: 6px; }
-/* ── 待办行 = 两行卡（2026-09-29 用户拍板：「待办行改成两行卡」）──────────
+/* ── 待办行 = 两行卡（2026-09-29 用户拍板：“待办行改成两行卡”）──────────
    上行：置顶徽标 + 标题（标题占满整行，不再和一堆按钮抢宽度）
    下行：优先级 / 项目 / 到期 · 右侧动作
    勾选框跨两行居中偏上。用的还是同一份 DOM —— 卡片网格只换 grid 模板。 */
@@ -2803,7 +2803,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* ⚠ 第二行**不能叫 `.meta`**：样式表里另有一条全局 `.meta`（任务详情弹窗的字段组，
    `display:flex; flex-direction:column; margin-bottom:12px`）。同特异性下按出现顺序取胜，
-   于是「优先级」会在 column 布局里被 `align-items:center` 顶到**行的正中** ——
+   于是“优先级”会在 column 布局里被 `align-items:center` 顶到**行的正中** ——
    肉眼看着像"两行卡没做出来"。这类**class 名撞车**只有真跑起来量几何才发现得了，
    所以下面那条断言里专门钉住了 flex-direction 与 y 位置。 */
 .todo-line.metas { gap: 8px; flex-wrap: wrap; }
@@ -2837,8 +2837,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   color: var(--muted); font-size: 14px; line-height: 1; }
 .todo-del:hover { color: var(--danger); background: #fce4e4; border-color: #f0cfcf; }
 
-/* ── 待办 · 卡片网格（多视图第 2 项，卡 033 用户点名的「方块卡片式」）──────
-   用户原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+/* ── 待办 · 卡片网格（多视图第 2 项，卡 033 用户点名的“方块卡片式”）──────
+   用户原话：“我要的方块卡片式视图和其他视图也没出现，多视图根本没做。”
    做法：**同一份 DOM 换摆法**（`order` 重排 + flex-wrap），不是把卡片再写一遍 ——
    再写一遍意味着"改一个字段要改两处"，那正是这类视图最容易烂掉的方式。
    卡片里**放优先级、不放操作按钮**（点标题进编辑、右键出菜单，卡面保持干净）；
@@ -2870,7 +2870,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todos-list.as-grid .todo-acts { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
 
 /* Logs view */
-/* 2026-10-11 修视觉（用户：「日志顶部工具栏与背景略有些不协调，尤其左侧」）。
+/* 2026-10-11 修视觉（用户：“日志顶部工具栏与背景略有些不协调，尤其左侧”）。
    真因是**特异性**：上面那条 `#board { padding: 14px; align-items: flex-start }` 是 ID 选择器，
    把这里 `.logs-view` 的 padding（类选择器）**整条压掉了** ——
    于是（a）吸顶条只覆盖"内容宽"，左右各露出 14px 的底色；（b）flex-start 让它不拉伸。
@@ -2887,7 +2887,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .logs-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .logs-header h3 { font-size: 16px; font-weight: 700; }
 .logs-ctrls { display: flex; gap: 8px; align-items: center; }
-/* 每日推进面（0.6.0 P2「今天推哪一格」）—— 日志页顶部一条带，三行恒定。
+/* 每日推进面（0.6.0 P2“今天推哪一格”）—— 日志页顶部一条带，三行恒定。
    为什么放在 sticky 容器里：它是"今天该干什么"的入口，滚动列表时也得看得见。
    颜色全部走主题令牌（check-themes 六套主题逐套量对比度），不写死色值。 */
 .daily-band { display: flex; gap: 9px; align-items: flex-start; margin: 0 0 10px;
@@ -2909,9 +2909,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 左右/下内边距从 #board.logs-view 挪到这里（2026-10-11）：容器归零后吸顶条才能满宽 */
 .logs-list { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
 /* 日志卡（2026-09-28 用户第 4/5 条）：
-   状态**不再靠"左边一条竖线"区分** —— 用户原话「竖条好几条，越看越头痛」。
+   状态**不再靠"左边一条竖线"区分** —— 用户原话“竖条好几条，越看越头痛”。
    待处理/已完成/已归档三种状态改用徽章颜色 + 极淡的卡底差异表达；
-   只有「进行中」保留一条醒目色条，因为它是唯一需要一眼扫到的状态。
+   只有“进行中”保留一条醒目色条，因为它是唯一需要一眼扫到的状态。
    阴影也从 var(--shadow)（0 8px 32px，几乎是浮起来的）压到 1px 的贴地投影。 */
 /* 2026-10-31（用户：有些元素不随主题换色）：这一整段原来写死了紫/蓝/绿/琥珀，
    切到粉/蓝/绿/橙/灰主题时只有品牌色变了，这些面还停在默认紫。
@@ -2923,7 +2923,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-card.archived { background: var(--tint-3); opacity: .82; }
 .log-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .log-status-badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; border: 1px solid transparent; }
-/* 待处理 = 中性，刻意不抢眼：它是「默认态」，不是一种"进展" */
+/* 待处理 = 中性，刻意不抢眼：它是“默认态”，不是一种"进展" */
 .log-status-badge.active { background: var(--tint); color: var(--ink); border-color: var(--border); }
 /* 进行中 = 唯一的醒目徽章（只能手动打上），用品牌色而不是写死的蓝 */
 .log-status-badge.running { background: var(--accent); color: var(--card); }
@@ -2943,7 +2943,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-project { font-size: 10px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .log-task { color: var(--accent); }
 .log-completed { color: var(--ok-text); }
-/* 「✎ 改过」戳（2026-10-18）：已完成的日志可改，但改过要看得见 —— 与完成戳同排、用中性色，
+/* “✎ 改过”戳（2026-10-18）：已完成的日志可改，但改过要看得见 —— 与完成戳同排、用中性色，
    不抢 ✓ 的绿，也不做成告警（改日志是正当操作，不是事故）。 */
 .log-edited { font-size: 10px; color: var(--warn-text); background: var(--tint-3); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
@@ -2957,7 +2957,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 日志 ID：卡面可见 + 点一下只复制 ID（2026-09-29 用户第 2 条）。
-   --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是「可点复制」的通用暗示。 */
+   --muted 压底色 = 4.95，过 WCAG AA；虚线下划线是“可点复制”的通用暗示。 */
 .log-id { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 10px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: copy; border-bottom: 1px dotted var(--border); user-select: none; }
 .log-id:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .log-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
@@ -3071,9 +3071,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .agent-presets-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 
 /* Log edit modal */
-/* 2026-09-25 第 13 条「编辑框不够大」：原宽 560px，且 `textarea.tall` 的高度规则只写在
+/* 2026-09-25 第 13 条“编辑框不够大”：原宽 560px，且 `textarea.tall` 的高度规则只写在
    `#modal textarea.tall` 下 —— 日志编辑器是 #log-edit-modal，**`.tall` 从未生效**，
-   所以「执行内容」一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
+   所以“执行内容”一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
 #log-edit-modal, #relay-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); position: relative; }
 /* 拖文件进弹窗（2026-10-25）：拖动经过时整块虚线描边 + 一句"松手会怎样"。
    松手之前用户必须知道文件会落到哪，不能靠猜。 */
@@ -3121,13 +3121,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #todo-edit-modal label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 #todo-edit-modal input, #todo-edit-modal select { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--ink); outline: none; font-family: inherit; }
 #todo-edit-modal textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.6; }
-/* 内容框必须够大 —— 这条就是用户「改模态大框」的核心诉求 */
+/* 内容框必须够大 —— 这条就是用户“改模态大框”的核心诉求 */
 #todo-edit-modal textarea.tall { min-height: 180px; }
-/* 四个字段一行（2026-10-12 加了「时间」）—— 时间列窄一点，日期列够放 `YYYY-MM-DD` 就行。
+/* 四个字段一行（2026-10-12 加了“时间”）—— 时间列窄一点，日期列够放 `YYYY-MM-DD` 就行。
    ⚠ 列数写死会让窄窗挤压：给 `.te-row` 一个 `min-width: 0`，子项内部 input 一律 `width: 100%`。 */
 .te-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 132px 104px; gap: 10px; }
 .te-row > div { min-width: 0; }
-/* 「时间（可选）」带一个清空按钮 —— 填错了要能去掉（清空 = 字段消失，不是存空串） */
+/* “时间（可选）”带一个清空按钮 —— 填错了要能去掉（清空 = 字段消失，不是存空串） */
 .te-time-wrap { display: flex; align-items: center; gap: 4px; }
 .te-time-wrap input { flex: 1 1 auto; min-width: 0; }
 .te-time-clear {
@@ -3138,10 +3138,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .te-time-clear:hover { color: #a03a3a; border-color: #e8c9c9; }
 #todo-edit-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 #todo-edit-modal .todo-edit-donehint { color: var(--muted); font-size: 11px; margin-top: 8px; }
-/* 「改」字按钮 —— 2026-09-29 卡 027 的**真凶**：这里此前只有 opacity + font-size，
+/* “改”字按钮 —— 2026-09-29 卡 027 的**真凶**：这里此前只有 opacity + font-size，
    border / background / padding 一条都没写 → 它吃的是**浏览器默认按钮长相**
    （灰底方框 + 黑字），和旁边两个裸文字按钮凑成"三种字号三种圆角"。
-   现在收进规范：24px 安静按钮。处理「平时压暗、悬停才亮」的规矩保留 —— 那是降噪不是风格。 */
+   现在收进规范：24px 安静按钮。处理“平时压暗、悬停才亮”的规矩保留 —— 那是降噪不是风格。 */
 .todo-edit { display: inline-flex; align-items: center; justify-content: center; flex: none;
   height: var(--btn-h-sm); padding: 0 9px; cursor: pointer;
   background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
@@ -3151,8 +3151,8 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-edit:hover { background: var(--tint); color: var(--ink); border-color: var(--accent-soft); opacity: 1; }
 .todo-new { flex-shrink: 0; white-space: nowrap; font-size: 12px; }
 
-/* 日志页「按状态分区」的分区头（2026-09-28 用户第 2/5 条）——
-   取代旧的单个「已归档」分隔条：状态从此由分区表达，而不是由一个下拉去筛。 */
+/* 日志页“按状态分区”的分区头（2026-09-28 用户第 2/5 条）——
+   取代旧的单个“已归档”分隔条：状态从此由分区表达，而不是由一个下拉去筛。 */
 .log-group-sep { margin: 10px 0 2px; display: flex; align-items: center; gap: 10px; }
 .log-group-sep:first-child { margin-top: 0; }
 .log-group-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
@@ -3231,7 +3231,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .chain-tag:hover { border-color: var(--accent); }
 
-/* 「⏭ 从这里继续」：完成态卡上唯一的接力入口，视觉上和普通 ghost 区分开 */
+/* “⏭ 从这里继续”：完成态卡上唯一的接力入口，视觉上和普通 ghost 区分开 */
 .log-card-actions .relay-btn { background: var(--tint); border-color: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .log-card-actions .relay-btn:hover { border-color: var(--accent); }
 
@@ -3246,7 +3246,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .relay-src .rs-id { font-family: ui-monospace, Consolas, monospace; color: var(--muted); }
 .relay-src .rs-grow { flex: 1; }
 #relay-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
-/* 2026-10-02「带入源的下一步」：下一步标签行改 flex —— 左边是标签、右端挂取用按钮。
+/* 2026-10-02“带入源的下一步”：下一步标签行改 flex —— 左边是标签、右端挂取用按钮。
    预填已取消（默认留空），这个按钮是唯一取回源内容的入口，所以必须常显、不藏 hover。 */
 #relay-modal label.ns-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #relay-modal label.ns-label .relay-bring { height: 24px; padding: 0 9px; font-size: 11px; margin: 0; flex: none; }
@@ -3259,7 +3259,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #relay-modal .relay-opt span i { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
 
 /* 关闭防丢确认条（2026-09-30 卡 006）：必须比正文抢眼、按钮大到不会点错。
-   底色用主题 --tint（六套主题都有浅底），边框与「丢弃」按钮用 --danger（白字压它 ≥4.5）。 */
+   底色用主题 --tint（六套主题都有浅底），边框与“丢弃”按钮用 --danger（白字压它 ≥4.5）。 */
 /* 防丢警告条：接力与日志编辑**共用同一套**（卡005 统一实现，:is 一次圈两个宿主） */
 :is(#relay-modal, #log-edit-modal) .relay-discard { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 9px 11px; border-radius: 10px; background: var(--tint); border: 1px solid var(--danger); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
 :is(#relay-modal, #log-edit-modal) .relay-discard .rd-text { flex: 1 1 260px; }
@@ -3269,7 +3269,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 :is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts .ghost { background: #fff; color: var(--ink); border: 1px solid var(--border); }
 :is(#relay-modal, #log-edit-modal) .relay-discard .rd-acts .danger { background: var(--danger); color: #fff; border: 0; }
 
-/* 「更多筛选」抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围不再和搜索框挤一条线 */
+/* “更多筛选”抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围不再和搜索框挤一条线 */
 .log-more-btn { position: relative; }
 .log-more-btn.on { background: var(--tint); border-color: var(--accent-soft); }
 .log-more-btn .more-badge {
@@ -3282,9 +3282,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 导出下拉的样式（2026-09-25 第 10 条）已在 2026-09-26 移除：导出改成一次点击、只落一个 zip，
    不再要用户从下拉里逐字核对文件名。 */
 
-/* 「进行中」的卡面（2026-09-26 用户补充第 3 条 → 2026-09-28 归位到 running）：
+/* “进行中”的卡面（2026-09-26 用户补充第 3 条 → 2026-09-28 归位到 running）：
    原来它挂在 `.log-card.active` 上，而 active 是**每一条新建日志的默认状态** →
-   等于"所有日志都是醒目的进行中"，这正是用户第 2 条说「一创建就是进行中、看着混乱」的观感来源。
+   等于"所有日志都是醒目的进行中"，这正是用户第 2 条说“一创建就是进行中、看着混乱”的观感来源。
    现在只有手动开了进行中的卡片才有这套外观。 */
 .log-card.running {
   border-left: 4px solid var(--accent);
@@ -3297,7 +3297,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .log-run-btn.on { background: var(--tint); border-color: var(--accent-soft); color: var(--accent); }
 /* 列表首行 = 最新一份（按最后更新倒序）—— 面对一堆 .zip 时不用自己找 */
 .bk-newest { flex: none; font-size: 10px; font-weight: 700; color: #3f6b3a; background: #e3f1de; border: 1px solid #bcd4b4; border-radius: 99px; padding: 1px 7px; }
-/* 设置页「禁用硬件加速」（2026-09-25 第 1/3/9 条的人工验证杠杆） */
+/* 设置页“禁用硬件加速”（2026-09-25 第 1/3/9 条的人工验证杠杆） */
 .gpu-chk { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 8px; cursor: pointer; line-height: 1.5; }
 .gpu-chk input { flex: none; margin-top: 2px; }
 
@@ -3316,7 +3316,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .charter-bar .cb-stat { color: var(--muted); }
 .charter-bar .cb-stat b { color: var(--ink); }
 .charter-bar .cb-stat.warn b { color: #c0392b; }
-/* 结构地图入口（029）：常驻可点，缺口>0 时变警示色 —— 用户驳回原话「找不到在哪里」 */
+/* 结构地图入口（029）：常驻可点，缺口>0 时变警示色 —— 用户驳回原话“找不到在哪里” */
 .cb-map-btn { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; }
 .cb-map-btn.warn { border-color: #e6b8ae; background: #fdf6f4; color: #8a4038; }
 .cb-map-n { background: #eceef2; color: #4b5162; border-radius: 99px; padding: 0 7px; font-size: 11px; }
@@ -3339,7 +3339,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .smap-name { font-size: 12.5px; font-weight: 600; }
 .smap-meta { font-size: 11px; color: var(--muted); }
 .smap-open { flex: none; }
-/* 方针弹窗里的结构地图小节（029）：要够高，第一行是「最后核实」日期 */
+/* 方针弹窗里的结构地图小节（029）：要够高，第一行是“最后核实”日期 */
 #policy-modal textarea.tall { min-height: 190px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6; }
 .pf-label-hint { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }
 .pf-map-tools { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
@@ -3367,7 +3367,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 驳回之后去哪（2026-10-31）：两选一，默认退回待办。做成两张可点整行的卡，
    不是两个小圆点 —— 这一项决定"AI 会不会接着干"，值得看得清。 */
 .review-where-label { display: block; margin: 10px 0 5px; font-size: 11.5px; font-weight: 700; color: var(--ink); }
-/* 2026-10-31：这组只在「驳回」时生效 —— 从「通过」入口打开时**明显降级**，
+/* 2026-10-31：这组只在“驳回”时生效 —— 从“通过”入口打开时**明显降级**，
    免得用户以为要通过还得先选一个驳回去向。 */
 .review-where .rw-scope { font-weight: 400; font-size: 10.5px; color: var(--muted); }
 .review-where.is-secondary { opacity: .55; }
@@ -3553,7 +3553,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 .nc-foot .stat { font-size: 12px; color: var(--muted); }
 .nc-foot .stat b { color: var(--ink); font-weight: 600; }
-/* P0-4：扫描器状态 —— 11px 次要色，停摆时靠「上次扫描」的相对时间一眼看出 */
+/* P0-4：扫描器状态 —— 11px 次要色，停摆时靠“上次扫描”的相对时间一眼看出 */
 .nc-foot .nc-scan { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* P0-5：被静音提醒的恢复口（常驻时才显示） */
 .nc-muted {
@@ -3571,7 +3571,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ── 回收站（2026-09-26 卡 034）───────────────────────────────────────── */
 /* ⚠ 必须自己声明 flex-direction: column（2026-09-26 修）：`#board` 是**横向 flex 行** ——
    它是看板列容器。views 里凡是"单一大列表"的页面（todos/logs/blockers/calendar…）都各自
-   覆盖了 flex-direction，我这两页当时只写了 padding-bottom，于是「标题栏」和「列表」
+   覆盖了 flex-direction，我这两页当时只写了 padding-bottom，于是“标题栏”和“列表”
    被当成两个行内项目**并排**：左边只剩标题、右边挤着列表 —— 用户看到的就是"左边很空"。 */
 .trash-view { flex: 1; display: flex; flex-direction: column; padding: 14px; overflow-y: auto; }
 .trash-header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
@@ -3617,7 +3617,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trash-btn.danger { color: #b3261e; border-color: #e6c3c0; }
 .trash-btn.danger:hover { background: #fdf2f1; border-color: #b3261e; color: #b3261e; }
 
-/* 回收站卡片：可点（2026-09-26 用户：「每个卡片都是不能点的死卡」）—— 有了 hover 就说明它真能点。
+/* 回收站卡片：可点（2026-09-26 用户：“每个卡片都是不能点的死卡”）—— 有了 hover 就说明它真能点。
    2026-09-30（卡 005）：热区扩到整行，选择器从 .trash-main.clickable 改为 .trash-item。 */
 .trash-item { cursor: pointer; }
 .trash-item:hover .trash-title { color: var(--accent); }
@@ -3630,7 +3630,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   padding: 18px 20px; box-shadow: var(--el-3);
 }
 
-/* 「装到别的 agent」目标行 */
+/* “装到别的 agent”目标行 */
 .skills-agents-sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 8px; }
 .agent-row { border-top: 1px solid var(--border); padding: 9px 0; }
 .agent-row:first-of-type { border-top: none; }
@@ -3652,7 +3652,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .agent-link-none { color: var(--muted); }
 .agent-link-unknown { color: var(--muted); border-style: dashed; }
 
-/* 技能卡「装到：」逐目标状态（卡 010/011）：一眼看出装到谁了、谁那份旧了 */
+/* 技能卡“装到：”逐目标状态（卡 010/011）：一眼看出装到谁了、谁那份旧了 */
 .skill-targets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
 .skill-targets-label { font-size: 11.5px; color: var(--muted); }
 .skill-tgt { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); }
@@ -3670,7 +3670,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .proj-pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .proj-pick-list .skills-btn { justify-content: flex-start; text-align: left; }
 
-/* ── 按日期清理「已归档」日志（2026-10-13 暮雨第 2 条）────────────────── */
+/* ── 按日期清理“已归档”日志（2026-10-13 暮雨第 2 条）────────────────── */
 #log-purge-modal,
 #trash-purge-modal {
   width: min(480px, 92vw); max-height: 80vh; overflow: auto;

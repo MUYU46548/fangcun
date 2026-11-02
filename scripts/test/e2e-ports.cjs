@@ -1,7 +1,7 @@
 /**
  * 服务 / 端口登记与监控（2026-09-26 卡 006）
  *
- * 用户回执：「之前想让方寸管理端口，事实上端口从未被管理，依旧乱七八糟。」
+ * 用户回执：“之前想让方寸管理端口，事实上端口从未被管理，依旧乱七八糟。”
  * 查证到的字面事实：`launchpad/config.ts` 的 `LaunchApp` 早有 `port?` 字段但**全仓无人读**，
  * `apps.json.sample` 里 4 个应用一个都没填。本测试钉住：
  *   ① 登记源两条都要真读：启动台 apps.json 的 port 字段 + 手填 services.json；
@@ -125,7 +125,7 @@ async function main() {
     JSON.stringify(idleApp))
   check('★ 老数据的 port 字段不再当端口来源，但会给"该字段已停用"的提示',
     !!idleApp && /已停用/.test(idleApp.legacyPortNote), JSON.stringify(idleApp && idleApp.legacyPortNote))
-  check('★ 「已登记」行里**没有**从启动台生成的条目了（那条线只剩手填）',
+  check('★ “已登记”行里**没有**从启动台生成的条目了（那条线只剩手填）',
     p1.rows.every(r => r.source === 'manual'), JSON.stringify(p1.rows.map(r => r.source)))
   check('★ 观测到端口的应用排前面（有服务形态的先看到）',
     p1.apps[0].id === 'test-live', JSON.stringify(p1.apps.map(a => a.id)))
@@ -134,7 +134,7 @@ async function main() {
     `${p1.listeningCount}+${p1.idleCount} vs rows=${p1.rows.length}`)
 
   // ── 3. 未登记但正在监听 ───────────────────────────────────────────
-  check('★ 「未登记但正在监听」抓到了那个没登记的监听',
+  check('★ “未登记但正在监听”抓到了那个没登记的监听',
     p1.unregistered.some(u => u.port === extraPort), JSON.stringify(p1.unregistered.map(u => u.port)))
   check('  未登记项带 PID 与进程名',
     (p1.unregistered.find(u => u.port === extraPort) || {}).pid === process.pid,
@@ -215,7 +215,7 @@ async function main() {
   const p4 = await reg.listServices()
   check('★ services.json 坏了：ok=false 且给出原因（不静默当空）',
     p4.ok === false && /services\.json/.test(String(p4.error)), JSON.stringify({ ok: p4.ok, error: p4.error }))
-  check('  坏文件不影响「启动台应用」那部分照常显示', p4.apps.length === 3, String(p4.apps.length))
+  check('  坏文件不影响“启动台应用”那部分照常显示', p4.apps.length === 3, String(p4.apps.length))
   check('  也不抛异常（页面还能用）', true)
 
   // 坏文件上登记必须**拒绝且原文件不动**（静默重写会把原有登记整段吞掉）
@@ -240,9 +240,9 @@ async function main() {
   for (const s of listeners) { try { s.close() } catch { /* ignore */ } }
 
   // ── 启动应用 + 观测端口（2026-10-15 新模型）──────────────────────────────
-  //   旧模型是「按端口启动」：要求用户先知道端口、还得把它登在应用上 —— 那条路出了旧案
-  //   （vite 的 8090 登在打包 exe 上，点「启动」永远"空闲"）。暮雨的口径是
-  //   「端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。」
+  //   旧模型是“按端口启动”：要求用户先知道端口、还得把它登在应用上 —— 那条路出了旧案
+  //   （vite 的 8090 登在打包 exe 上，点“启动”永远"空闲"）。暮雨的口径是
+  //   “端口永远是记不住的，不要指望根据端口去配置。你永远不知道用户有什么端口。”
   //   所以入口改成**应用**，端口变成**观测结果**。安全线不变：只认启动台登记过的应用。
   {
     const notRegistered = await reg.startAppAndObserve('不存在的应用 id')
@@ -256,7 +256,7 @@ async function main() {
     }
 
     // 注册一个**真的会开端口**的应用：cmd 指向一个起 TCP 监听的脚本，验证"观测"这条路真跑得通
-    // 「会开端口」的那个：node -e 起一个真 TCP 监听（用 node 是因为启动器对 .exe 支持最稳）
+    // “会开端口”的那个：node -e 起一个真 TCP 监听（用 node 是因为启动器对 .exe 支持最稳）
     const { srv: obsSrv, port: obsPort } = await bindPort()
     try { obsSrv.close() } catch { /* 把端口让给子进程 */ }
     const lp = path.join(TEST_ROOT, 'apps.json')
@@ -284,9 +284,9 @@ async function main() {
     check('★ 应用行带出观测端口 + 此刻正在监听的端口',
       !!appRow && appRow.observedPorts.includes(obsPort) && appRow.listeningPorts.includes(obsPort),
       JSON.stringify(appRow))
-    check('★★ 应用观测到的端口**不再**出现在「未登记但在监听」里（已有主，不许重复报成无主）',
+    check('★★ 应用观测到的端口**不再**出现在“未登记但在监听”里（已有主，不许重复报成无主）',
       !listAfter.unregistered.some(u => u.port === obsPort), JSON.stringify(listAfter.unregistered))
-    check('★ 「已登记」行里也**不再**从启动台生成条目（那条线只剩手填）',
+    check('★ “已登记”行里也**不再**从启动台生成条目（那条线只剩手填）',
       listAfter.rows.every(r => r.source === 'manual'), JSON.stringify(listAfter.rows.map(r => r.source)))
     const openUnknown = await reg.openService(65533)
     check('★ openService 对"方寸完全不认识的端口"仍然拒绝（不做万能 URL 打开器）',

@@ -178,7 +178,7 @@ try:
           "D-001" in m and "断言拍板：司天不发版" in m, m[-200:])
     check("已撤销卡被滤（D-002 不进 prompt）", "D-002" not in m, m[-200:])
     check("全库有效卡补齐（proj-y 的 D-003 也进）", "D-003" in m, m[-200:])
-    check("注入段带「作数」约束头", "不得违背或重复提" in m, m[-200:])
+    check("注入段带“作数”约束头", "不得违背或重复提" in m, m[-200:])
 
     def spy_brief_chat(content, **kw):
         captured["brief_msg"] = content

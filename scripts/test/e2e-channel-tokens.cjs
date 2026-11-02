@@ -55,7 +55,7 @@ check('★★ 外部上报的按客户端分渠道（与 local 同名模型也�
   keys.includes('ext:hermes') && keys.includes('ext:dsh') && keys.includes('local:deepseek-chat'), keys.join(' | '))
 check('★ 认不出时间的记录不进表（不替它编日期）', !keys.some((k) => k.includes('ghost')), keys.join(' | '))
 check('★ 超出 30 天窗口的不进表', r.rows.every((x) => x.firstAt >= '2026-10-03'), JSON.stringify(r.rows.map((x) => x.firstAt)))
-check('★ 外部渠道带「（外部上报）」后缀（界面上一眼分清）',
+check('★ 外部渠道带“（外部上报）”后缀（界面上一眼分清）',
   r.rows.filter((x) => x.kind === 'external').every((x) => /外部上报/.test(x.label)),
   r.rows.filter((x) => x.kind === 'external').map((x) => x.label).join(' | '))
 
@@ -70,12 +70,12 @@ check('★ 没有 token 字段的调用单列 noTokenCalls（不混进 0）', mi
 check('★ 总计对得上', r.totals.calls === 6, String(r.totals.calls))
 
 console.log('\n== ③ 金额只有三种标注，不做跨渠道金额对比 ==')
-check('★★ 全是供应商自报 → 标「供应商自报」', /供应商自报/.test(ds.money.text) && ds.money.kind === 'provider', ds.money.text)
-check('★★ 单价折算的 → 标「用户自填」', /用户自填/.test(mio.money.text) && mio.money.kind === 'user-price', mio.money.text)
+check('★★ 全是供应商自报 → 标“供应商自报”', /供应商自报/.test(ds.money.text) && ds.money.kind === 'provider', ds.money.text)
+check('★★ 单价折算的 → 标“用户自填”', /用户自填/.test(mio.money.text) && mio.money.kind === 'user-price', mio.money.text)
 const hermes = r.rows.find((x) => x.key === 'ext:hermes')
-check('★★ 一次金额都没写 → 写「未折算」（不是 0 元）', hermes.money.text === '未折算' && hermes.money.kind === 'none', hermes.money.text)
+check('★★ 一次金额都没写 → 写“未折算”（不是 0 元）', hermes.money.text === '未折算' && hermes.money.kind === 'none', hermes.money.text)
 const dsh = r.rows.find((x) => x.key === 'ext:dsh')
-check('★ 外部上报的供应商自报金额照样标「供应商自报」', /供应商自报/.test(dsh.money.text), dsh.money.text)
+check('★ 外部上报的供应商自报金额照样标“供应商自报”', /供应商自报/.test(dsh.money.text), dsh.money.text)
 const mixed = buildChannelReport([
   { ts: NOW, model: 'm', prompt_tokens: 1, cost: '0.10000000', cost_source: 'provider' },
   { ts: NOW, model: 'm', prompt_tokens: 1, cost: '0.20000000', cost_source: 'user-price' },
@@ -104,12 +104,12 @@ check('★ 按 token 多少排序（谁在吃配额排前面）',
 check('★ channels 列表可供界面做下拉', Array.isArray(r.channels) && r.channels.length === r.rows.length, String(r.channels.length))
 
 console.log('\n== ⑥ 口径与空态 ==')
-check('★★ 口径声明写明「只比 token / 金额三档 / 不合并 local 与 external」',
+check('★★ 口径声明写明“只比 token / 金额三档 / 不合并 local 与 external”',
   /只比 token/.test(r.note) && /供应商自报/.test(r.note) && /用户自填/.test(r.note) && /未折算/.test(r.note) && /不合并/.test(r.note),
   r.note.slice(0, 100))
-check('★★ 口径里带「它证明不了什么」（外部没上报的不在表里）', /证明不了什么/.test(r.note))
+check('★★ 口径里带“它证明不了什么”（外部没上报的不在表里）', /证明不了什么/.test(r.note))
 const empty = buildChannelReport([], { days: 7, now: NOW })
-check('★★ 空态说清「不是没花钱，是没记录」', /不是"没花钱"/.test(empty.emptyText), empty.emptyText)
+check('★★ 空态说清“不是没花钱，是没记录”', /不是"没花钱"/.test(empty.emptyText), empty.emptyText)
 check('★ 空输入不抛、返回空表', Array.isArray(empty.rows) && empty.rows.length === 0)
 check('★ tsOf 认毫秒 / 秒 / ISO', tsOf(1793000000000) === 1793000000000 && tsOf(1793000000) === 1793000000000 && tsOf('2026-11-01T00:00:00.000Z') > 0)
 

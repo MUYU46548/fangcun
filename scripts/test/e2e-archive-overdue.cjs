@@ -1,10 +1,10 @@
 /**
  * 已完成任务自动归档（2026-10-03 卡 task-20261003-012）
  *
- * 用户口径：「看板已完成任务自动归档，**仿日志清理的保留天数设置**，默认关闭」。
+ * 用户口径：“看板已完成任务自动归档，**仿日志清理的保留天数设置**，默认关闭”。
  *
  * 本测试钉住四件事：
- *   ① 判据是「状态=完成 **且** 更新时间早于 N 天前」—— 不动的旧卡收走、刚动过的不收；
+ *   ① 判据是“状态=完成 **且** 更新时间早于 N 天前”—— 不动的旧卡收走、刚动过的不收；
  *   ② 保留天数 0 = 功能关闭 → 永远空清单、永远不归档（默认必须是关的）；
  *   ③ 归档真的把文件移进 archive/（不是只改状态那种假归档），且可逆；
  *   ④ 时间字段三种老写法（ISO / 秒级 Unix / 毫秒）都要认。
@@ -41,7 +41,7 @@ function check(name, cond, detail = '') {
   }
 }
 
-/** 直接手写一张任务卡（这样能精确控制「更新」字段的写法） */
+/** 直接手写一张任务卡（这样能精确控制“更新”字段的写法） */
 function writeCard(dir, id, status, updatedLine) {
   const body = [
     '---',
@@ -91,8 +91,8 @@ function main() {
     JSON.stringify(ids30) === JSON.stringify(['task-old-done-iso', 'task-old-done-sec']),
     JSON.stringify(ids30))
   check('  刚完成的（1 天前）不在清单里', !ids30.includes('task-fresh-done'))
-  check('  状态不是「完成」的不在清单里（旧的待办不会被收走）', !ids30.includes('task-old-todo'))
-  check('  没写「更新」字段的退到文件 mtime —— 刚写的卡不被当成"老得不能再老"',
+  check('  状态不是“完成”的不在清单里（旧的待办不会被收走）', !ids30.includes('task-old-todo'))
+  check('  没写“更新”字段的退到文件 mtime —— 刚写的卡不被当成"老得不能再老"',
     !ids30.includes('task-no-updated'), JSON.stringify(ids30))
   // ⚠ 既有数据层口径（实测，别改）：frontmatter 里的**数字**时间戳一律按**秒级 Unix**解析
   //   （真实数据写的是 `创建: 1791024659`）。所以"毫秒"写法并不是一种真实格式 ——
@@ -122,7 +122,7 @@ function main() {
 
   const archiveDir = path.join(taskDir, 'archive')
   for (const id of ['task-old-done-iso', 'task-old-done-sec']) {
-    check(`  「${id}」文件真的移进 archive/（不是只改状态那种假归档）`,
+    check(`  “${id}”文件真的移进 archive/（不是只改状态那种假归档）`,
       fs.existsSync(path.join(archiveDir, `${id}.md`)) && !fs.existsSync(path.join(taskDir, `${id}.md`)))
   }
   check('  没超期的卡一个都没动', fs.existsSync(path.join(taskDir, 'task-fresh-done.md')))
@@ -134,7 +134,7 @@ function main() {
 
   // ── 可逆：还原回活跃区 ─────────────────────────────────────────────
   const back = tasks.unarchiveTask('task-old-done-iso')
-  check('★ 归档可逆：还原回活跃区且状态置回「待办」',
+  check('★ 归档可逆：还原回活跃区且状态置回“待办”',
     !!back && String((back.fm || {}).status) === '待办' && fs.existsSync(path.join(taskDir, 'task-old-done-iso.md')),
     JSON.stringify(back && back.fm && back.fm.status))
 

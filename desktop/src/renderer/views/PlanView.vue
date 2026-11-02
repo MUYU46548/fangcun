@@ -7,7 +7,7 @@
   三个动作（P1 判据写死，恰好三个、没有第四态）：
     通过   → 写 `状态: 已冻结` + `裁决: 通过 · 日期`
     打回   → 写 `打回理由:`（空理由不许提交 —— 空着等于没打回）
-    改一句 → 修订记录多一行 + 状态退回「未冻结」
+    改一句 → 修订记录多一行 + 状态退回“未冻结”
 
   数据真身在 `main/data/plans.ts`（行级就地改，不重写整篇）；组件只管显示与收集意图。
 -->
@@ -19,14 +19,14 @@
       <button class="ghost plan-reload" @click="load()">⟳ 重读</button>
     </div>
 
-    <!-- 待裁决清单（2026-11-02）—— 此前「待裁决」只藏在每张卡的状态胶囊里，
-         而日志页的每日推进面只认「已冻结」，于是 7 张等裁决的卡在界面上等于不存在
-         （暮雨原话：「待裁决的东西在哪里？没看见」）。这里给一个显式出口：
+    <!-- 待裁决清单（2026-11-02）—— 此前“待裁决”只藏在每张卡的状态胶囊里，
+         而日志页的每日推进面只认“已冻结”，于是 7 张等裁决的卡在界面上等于不存在
+         （暮雨原话：“待裁决的东西在哪里？没看见”）。这里给一个显式出口：
          几张、哪几张、缺什么，点一下滚过去。 -->
     <div v-if="pendingStages.length" class="plan-pending" data-plan-pending>
       <div class="plan-pending-head">
         <b>{{ pendingStages.length }} 张阶段卡等你裁决</b>
-        <span class="plan-pending-hint">没冻结的格子推不动 —— 逐张点「通过（冻结）」或「打回」，或「改一句」退回重写</span>
+        <span class="plan-pending-hint">没冻结的格子推不动 —— 逐张点“通过（冻结）”或“打回”，或“改一句”退回重写</span>
       </div>
       <div class="plan-pending-list">
         <button v-for="p in pendingStages" :key="p.key" class="plan-pending-item" @click="scrollToStage(p.key)">
@@ -37,7 +37,7 @@
       </div>
     </div>
 
-    <!-- 投入产出账（0.6.0 P5）—— 只显示取得到的格子；每个数字旁边都有「它证明不了什么」。
+    <!-- 投入产出账（0.6.0 P5）—— 只显示取得到的格子；每个数字旁边都有“它证明不了什么”。
          口径声明**永远在**：ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在这一格。 -->
     <div v-if="wasteLedger" class="waste-block" data-waste-block>
       <div class="waste-head">
@@ -122,7 +122,7 @@
           <span v-if="s.verdict" class="plan-verdict">{{ s.verdict }}</span>
         </div>
 
-        <!-- 判据结果（P4）：逐条三态 + 闸门结论。缺省不渲染，不写「未跑」占位 -->
+        <!-- 判据结果（P4）：逐条三态 + 闸门结论。缺省不渲染，不写“未跑”占位 -->
         <div v-if="runOf(doc, s)" class="plan-run" :class="{ bad: runOf(doc, s).blocked }">
           <div class="plan-run-head">{{ runHead(doc, s) }}</div>
           <ul v-if="runOf(doc, s).results.length" class="plan-run-list">
@@ -132,7 +132,7 @@
               <span class="plan-run-detail">{{ r.detail }}</span>
             </li>
           </ul>
-          <div v-if="runOf(doc, s).advanced" class="plan-run-advanced">已写成「完成」，证据：{{ s.evidence }}</div>
+          <div v-if="runOf(doc, s).advanced" class="plan-run-advanced">已写成“完成”，证据：{{ s.evidence }}</div>
         </div>
 
         <div class="plan-text" v-if="textTarget && textTarget.file === doc.file && textTarget.stageId === s.id">
@@ -176,7 +176,7 @@ const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 const missCount = (doc: Doc) => doc.stages.filter((s) => s.missing.length).length
 
 /** 等你裁决的阶段卡（2026-11-02）—— 与 `shared/dailyBand` 的 PENDING 同一套词。
- *  为什么要在页面顶部数一遍：计划卡的状态词是它自己的一套，任务 7 态 / 决策 3 态里都没有「待裁决」，
+ *  为什么要在页面顶部数一遍：计划卡的状态词是它自己的一套，任务 7 态 / 决策 3 态里都没有“待裁决”，
  *  除了这张卡上的小胶囊，没有任何地方会告诉你"有 N 张在等你"。 */
 const pendingStages = computed(() => {
   const out: Array<{ key: string; stageId: string; title: string; missing: string }> = []
@@ -202,7 +202,7 @@ function scrollToStage(key: string): void {
 }
 
 // ── P4：跑判据 / 推进一格（2026-11-02 接上界面）────────────────────────
-// 结果按「文件::阶段」各存一份，不互相覆盖；**没点过就整块不渲染**（不写"未跑"占位）。
+// 结果按“文件::阶段”各存一份，不互相覆盖；**没点过就整块不渲染**（不写"未跑"占位）。
 // 这两条路径是唯一会起进程的地方 —— 打开这一页（plansGet）永远不会跑判据。
 interface RunState {
   loading: boolean
@@ -231,7 +231,7 @@ function runHead(doc: Doc, s: Stage): string {
   if (r.loading) return '正在跑 ' + s.id + ' 的判据…'
   if (r.error) return '没跑成：' + r.error
   const reason = String((r.gate && r.gate.reason) || '')
-  if (r.advanced) return '判据全过 → 已推进成「完成」（' + reason + '）'
+  if (r.advanced) return '判据全过 → 已推进成“完成”（' + reason + '）'
   if (r.blocked) return reason || '判据未过'
   return reason || '判据全过'
 }
@@ -257,7 +257,7 @@ async function runChecks(doc: Doc, s: Stage): Promise<void> {
       },
     }
     msg.value = gate && gate.canAdvance
-      ? s.id + ' 判据全过 —— 可以点「推进这一格」'
+      ? s.id + ' 判据全过 —— 可以点“推进这一格”'
       : s.id + ' 判据没过 —— 看下面逐条实际值'
     msgType.value = gate && gate.canAdvance ? 'ok' : 'bad'
   } catch (e: any) {
@@ -289,7 +289,7 @@ async function advance(doc: Doc, s: Stage): Promise<void> {
       },
     }
     if (r.advanced) {
-      msg.value = '已推进 ' + s.id + ' —— 判据全过，写进了「完成」'
+      msg.value = '已推进 ' + s.id + ' —— 判据全过，写进了“完成”'
       msgType.value = 'ok'
     } else if (r.blocked) {
       msg.value = '没推进 ' + s.id + '：判据没过，打回理由已写进卡里'
@@ -298,7 +298,7 @@ async function advance(doc: Doc, s: Stage): Promise<void> {
       msg.value = '没推进 ' + s.id + '：' + (r.error || '闸门拒绝')
       msgType.value = 'bad'
     }
-    // 结果块里的「证据」要靠重读后的对象，所以推进后一律重读（不自己拼状态）
+    // 结果块里的“证据”要靠重读后的对象，所以推进后一律重读（不自己拼状态）
     await load()
   } finally {
     runBusy.value = false

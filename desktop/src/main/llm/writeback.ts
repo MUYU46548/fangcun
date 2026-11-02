@@ -4,14 +4,14 @@
  *
  * 为什么有这个文件：
  *   planning.ts 的五个功能（audit/decompose/decideDP/quarterly/roadmap）只返回字符串——
- *   渲染层从未接线（10-12 实证：App.vue 零调用），即使接上也是「看完就没」。
- *   本文件把 LLM 输出结构化落成任务卡，让「AI 起草 → 用户点头」成为可回溯的链。
+ *   渲染层从未接线（10-12 实证：App.vue 零调用），即使接上也是“看完就没”。
+ *   本文件把 LLM 输出结构化落成任务卡，让“AI 起草 → 用户点头”成为可回溯的链。
  *
  * 设计红线（与 Python 版一致）：
  *   1. 不侵入 planning.ts——仅复用其上下文组装 helper（getProjectSummary 等）。
- *   2. AI 卡一律「待审批」，绝不直接进「待办」——转正唯一路径是用户点头。
+ *   2. AI 卡一律“待审批”，绝不直接进“待办”——转正唯一路径是用户点头。
  *   3. source=ai-planning + 标签 ai-draft，审计一条过滤全捞出。
- *   4. 项目说明草稿落「待审批」卡（方寸侧草稿；契约真源在各 repo，方寸只读 REV-002）。
+ *   4. 项目说明草稿落“待审批”卡（方寸侧草稿；契约真源在各 repo，方寸只读 REV-002）。
  *   5. 解析失败不丢内容：原文兜底落一张草稿卡，错误信息里带卡 id。
  */
 
@@ -52,7 +52,7 @@ function decisionsBlock(projectId: string, limit = 10): string {
 
 // ── System prompts ─────────────────────────────────────────────────────
 
-const PLAN_SYSTEM = `你是方寸项目管理系统 AI 顾问。你正在执行「智能任务拆解」。
+const PLAN_SYSTEM = `你是方寸项目管理系统 AI 顾问。你正在执行“智能任务拆解”。
 
 输出要求（务必严格遵守）：
 - 只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏
@@ -63,7 +63,7 @@ const PLAN_SYSTEM = `你是方寸项目管理系统 AI 顾问。你正在执行�
 - 用户消息里会给现有任务列表——重复的不要生成
 - 数量 3-8 张，宁少勿滥；优先级默认"中"`
 
-const BRIEF_SYSTEM = `你是方寸项目管理系统 AI 档案员。你正在执行「项目说明起草」。
+const BRIEF_SYSTEM = `你是方寸项目管理系统 AI 档案员。你正在执行“项目说明起草”。
 
 输出要求（务必严格遵守）：
 - 只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏
@@ -74,13 +74,13 @@ const BRIEF_SYSTEM = `你是方寸项目管理系统 AI 档案员。你正在执
 - "不做"写明确边界（明确排除的范围）
 - "欠着什么"写已知的未决事项（挂在哪些任务上）`
 
-const DOC_SYSTEM = `你是方寸项目管理系统的任务拆解助手。你正在执行「文档一键转任务」。
+const DOC_SYSTEM = `你是方寸项目管理系统的任务拆解助手。你正在执行“文档一键转任务”。
 
 输入是一份文档（需求说明/会议记录/笔记/文章等）。你的职责：
 1. 从文档中提取**可执行的任务**——忽略纯背景介绍、感想、已完成事项的叙述
 2. 每个任务一句话标题，动词开头，范围小到一个人一两天能做完
 3. 大块工作拆成多个任务；琐碎小事合并成一个任务
-4. 文档里已有的结论或拍板（如「决定不做 X」）不要变成任务
+4. 文档里已有的结论或拍板（如“决定不做 X”）不要变成任务
 
 输出要求（务必严格遵守）：
 - 只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏
@@ -132,7 +132,7 @@ function normalizeCards(raw: unknown): DraftCard[] {
   return cards
 }
 
-/** AI 卡正文：方案勾选框 + 验收判据（对齐 arsenal.ts「验收判据禁形容词」纪律） */
+/** AI 卡正文：方案勾选框 + 验收判据（对齐 arsenal.ts“验收判据禁形容词”纪律） */
 function renderDraftBody(card: DraftCard, goal: string): string {
   const steps = (card.steps && card.steps.length ? card.steps : ['（AI 未给步骤，人工补）'])
     .map(s => `- [ ] ${s}`)
@@ -233,7 +233,7 @@ export async function draftProjectBrief(
   let userMsg = `项目：${projName}（${pid}）\n\n当前项目任务：\n${
     data.tasks.length ? formatTasksForAudit(data.tasks) : '（还没有任务卡）'
   }`
-  // 决策卡注入（批次第 6 项）：四栏起草前先看清已拍板的事——「不做」栏有据可依
+  // 决策卡注入（批次第 6 项）：四栏起草前先看清已拍板的事——“不做”栏有据可依
   const decBlock = decisionsBlock(pid)
   if (decBlock) userMsg += `\n\n${decBlock}`
 
@@ -294,7 +294,7 @@ export async function draftProjectBrief(
 
 // ── 对外入口 3：文档一键转任务 → 待审批卡（2026-10-17 用户拍板四件补立项之二）──
 
-/** 文档卡正文：同 renderDraftBody 结构，附言注明「文档拆卡」来源与说明 */
+/** 文档卡正文：同 renderDraftBody 结构，附言注明“文档拆卡”来源与说明 */
 function renderDocBody(card: DraftCard, docHint: string): string {
   const steps = (card.steps && card.steps.length ? card.steps : ['（AI 未给步骤，人工补）'])
     .map(s => `- [ ] ${s}`)
@@ -381,13 +381,13 @@ export async function docToDrafts(
   return { ok: true, created, usage }
 }
 
-// ── 对外入口 4：从台账出下一批（2026-10-22 · 施工方案 03 任务三「阶段性出单」）──
+// ── 对外入口 4：从台账出下一批（2026-10-22 · 施工方案 03 任务三“阶段性出单”）──
 /**
  * 给一个项目**出下一批施工任务卡**。
  *
- * 03 单的验收线是「第一张由方寸产出的施工单被本地 agent 执行通过」，所以这里不新写一套
- * 提示词与落卡机制 —— 直接复用 `planToDraft`：它已经有「决策卡注入（已拍板的事不许违背）」
- * 「一律落待审批」「解析失败原文兜底落草稿卡」「usage 回传」这些真金白银的机制。
+ * 03 单的验收线是“第一张由方寸产出的施工单被本地 agent 执行通过”，所以这里不新写一套
+ * 提示词与落卡机制 —— 直接复用 `planToDraft`：它已经有“决策卡注入（已拍板的事不许违背）”
+ * “一律落待审批”“解析失败原文兜底落草稿卡”“usage 回传”这些真金白银的机制。
  * 本函数只干一件事：**把台账拼成一个目标**（现状 / 路线图 / 欠着 + 出单要求）。
  *
  * ⚠ 刻意不调 tripBoard：那个要逐项目 spawn git，而出单是低频人工动作，
@@ -410,15 +410,15 @@ export function buildBatchGoal(
   const name = String(reg?.name || pid)
 
   const goal = [
-    `给「${name}」出下一批施工任务（3~6 张），供本地 agent 直接执行。`,
+    `给“${name}”出下一批施工任务（3~6 张），供本地 agent 直接执行。`,
     '',
     `现状（registry 手写）：${String(f.fields?.['状态'] || '未填')}`,
     `路线图（registry 手写）：${String(f.fields?.['路线图'] || '未填')}`,
     `欠着（registry 手写）：${String(f.fields?.['说明'] || '未填')}`,
     '',
     '出单要求：',
-    '- 优先消化「欠着」里的事项，方向与「路线图」一致',
-    '- 每张卡的方案里写清「改哪块（文件/模块/界面位置）」和「怎么算做完（可观察的验收判据）」，让本地 agent 不用再问就能干',
+    '- 优先消化“欠着”里的事项，方向与“路线图”一致',
+    '- 每张卡的方案里写清“改哪块（文件/模块/界面位置）”和“怎么算做完（可观察的验收判据）”，让本地 agent 不用再问就能干',
     '- 不重复已有任务，不违背已拍板的决策',
   ].join('\n')
 

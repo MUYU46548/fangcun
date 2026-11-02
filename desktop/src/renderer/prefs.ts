@@ -23,9 +23,9 @@ export function readUiPref<T>(key: string, fallback: T): T {
  *
  * ⚠ **必须过 `toPlain()`**（2026-10-05 实锤）：`value` 常常是 Vue 响应式代理
  *   （`someRef.value`、v-for 元素），而 contextBridge 搬参数走**结构化克隆**，
- *   Proxy 在「页面世界 → 隔离世界」这一跳直接抛 `An object could not be cloned` ——
+ *   Proxy 在“页面世界 → 隔离世界”这一跳直接抛 `An object could not be cloned` ——
  *   报文进不到 preload、更进不到主进程，**主进程日志里一个字都没有**，界面表现为
- *   "点了没反应 / 存不住"（在途一屏「勾一下闪退一下」就是这么来的：数组类偏好从来没写进去过，
+ *   "点了没反应 / 存不住"（在途一屏“勾一下闪退一下”就是这么来的：数组类偏好从来没写进去过，
  *   于是每次 loadTripBoard 都判定"从没做过手动选择"→ 勾选被清掉）。
  *   同一个坑 2026-09-25 踩过一次（启动台无法启动应用，修了 6 次）。
  *   裸的字符串/数字/布尔是原始值，过 toPlain 无副作用。

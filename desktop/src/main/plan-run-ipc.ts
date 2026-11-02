@@ -2,19 +2,19 @@
  * 作战计划 · 跑判据 / 推进一格（0.6.0 P4 的界面入口）
  *
  * 为什么单开一个文件，而不是塞进 `plan-ipc.ts`：
- * P3 留了一条守卫 ——「打开计划卡不许顺手跑命令」（`plans:get` 那个 handler 里不许出现执行器）。
+ * P3 留了一条守卫 ——“打开计划卡不许顺手跑命令”（`plans:get` 那个 handler 里不许出现执行器）。
  * 把执行器写进同一个文件，那条守卫就只能退化成"整文件正则不许命中"，
  * 于是任何一次正常改动都会误伤。拆成两个文件，**结构本身就是那道守卫**：
  *   · `plan-ipc.ts`     读 / 裁决（不碰执行器）
  *   · `plan-run-ipc.ts` 跑判据 / 推进（执行器只在这里）
  *
  * 三条口径：
- *  ① **跑判据是显式动作**：只有人点「跑判据」或「推进这一格」才起进程；
+ *  ① **跑判据是显式动作**：只有人点“跑判据”或“推进这一格”才起进程；
  *     打开计划卡（`plans:get`）永远不会跑任何东西。
  *  ② **闸门在数据层再拦一道**：可否跨格由 `shared/stageGate` 算（全过才放行），
  *     写回由 `data/plans.advanceStage` 再判一次 —— 界面绕不过去，MCP 也绕不过去。
  *  ③ **被闸门挡下不是错误**：`ok:true + advanced:false + blocked:true`，
- *     和"通道本身失败"（`ok:false`）分开说。否则界面上「判据没过」会被渲染成"出错了"。
+ *     和"通道本身失败"（`ok:false`）分开说。否则界面上“判据没过”会被渲染成"出错了"。
  *
  * 判据里的相对路径以**仓库根**为根：默认取数据目录（方寸的 task-data 与 desktop/ 同根），
  * 也可以在入参显式给 `repo`（数据根挪到别处时用）。
@@ -44,7 +44,7 @@ export interface PlanRunSummary {
 
 export interface AdvanceOutcome {
   ok: boolean
-  /** 真的写成了「完成」 */
+  /** 真的写成了“完成” */
   advanced: boolean
   /** 被闸门挡下（判据未过 / 未判定）—— 这是正常业务结果，不是通道故障 */
   blocked: boolean
@@ -110,7 +110,7 @@ export function registerPlanRunIpcHandlers(): void {
     }
   })
 
-  /** 跑判据 → 闸门 → 推进（判据全过才写得进「完成」；否则只写「未完成」+ 打回理由） */
+  /** 跑判据 → 闸门 → 推进（判据全过才写得进“完成”；否则只写“未完成”+ 打回理由） */
   guardedHandle('plans:advance', async (_e, input?: PlanRunInput): Promise<AdvanceOutcome> => {
     try {
       const r = await runStageChecks(input || {})
@@ -118,7 +118,7 @@ export function registerPlanRunIpcHandlers(): void {
       const s = r.summary
       const adv = advanceStage({ file: s.file, stageId: s.stageId, gate: s.gate })
       // blocked 的判据是**闸门放不放行**，不是 advanceStage 有没有给 error：
-      // 「判据未过，不能跨格」本身就是 blocked（正常业务），而「还没裁决」才是 error。
+      // “判据未过，不能跨格”本身就是 blocked（正常业务），而“还没裁决”才是 error。
       const gatePassed = !!s.gate.canAdvance
       return {
         ok: true,

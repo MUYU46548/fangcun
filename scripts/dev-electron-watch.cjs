@@ -10,7 +10,7 @@
  *   表现极具欺骗性：新按钮出现了、新提示文案出现了（渲染层是新的），
  *   但新 IPC 通道不存在、新执行器不生效（主进程是旧的）——
  *     · 启动台 .bat 仍报 spawn EINVAL（旧执行器）
- *     · `window.tegula.applogOpenDir()` 直接 TypeError → 界面只说「打开日志目录失败」
+ *     · `window.tegula.applogOpenDir()` 直接 TypeError → 界面只说“打开日志目录失败”
  *   用户会以为"改了没用"，而其实只是**没重启**。
  *   叠加"关窗 ≠ 退出"（进程常驻托盘），这个坑已经反复吃过。
  *

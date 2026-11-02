@@ -4,8 +4,8 @@
   施工输入：
     · 《方寸-RICE打分口径-20261024.md》v1.1（四维口径 / 证据映射 / 池宿主 / 拍板回写）
     · 《方寸-RICE格式闸结论-全栈-20261024.md》schema v1（节式格式 / 两个 MCP 写工具 / 验收线）
-    · 设计判断与「为什么不再丢」：docs/ADR-002-需求矩阵.md
-    · 视觉原型：docs/小样-RICE决策矩阵-20261025/（2026-10-30 暮雨：「视觉还没照原型重画」）
+    · 设计判断与“为什么不再丢”：docs/ADR-002-需求矩阵.md
+    · 视觉原型：docs/小样-RICE决策矩阵-20261025/（2026-10-30 暮雨：“视觉还没照原型重画”）
 
   口径全在 shared/rice.ts（e2e-rice 纯 Node 跑），这里只管摆与手改。
   三条必须出现在界面上：
@@ -17,8 +17,8 @@
     · 顶部 KPI 四格（候选 / P0 / P0 成本 / 预算占用）—— 先给结论，再给明细
     · 散点 = 主角：象限底色 + 网格 + P0 阈值线 + 气泡编号（编号与表格 # 列同一套）
     · 打分表带条形长度与等级徽章 —— 排序看的是相对位置，不只看一个数字
-    · 「为什么做，为什么砍」独立成一节，左边是决策记录与容量统计，右边逐条理由
-    · 结尾的「立即启动 / 排队候补 / 有余量再说 / 砍掉」四格与底部口径条
+    · “为什么做，为什么砍”独立成一节，左边是决策记录与容量统计，右边逐条理由
+    · 结尾的“立即启动 / 排队候补 / 有余量再说 / 砍掉”四格与底部口径条
   ⚠ 零网络：只走 window.tegula 上的 rice 系列通道（本地文件 IPC）。
 -->
 <script setup lang="ts">
@@ -54,11 +54,11 @@ const poolPath = ref('')
 const budget = ref(0)
 const items = ref<RiceItem[]>([])
 const filter = ref<'all' | 'P0' | 'P1' | 'P2' | 'CUT' | 'pending'>('all')
-/** 项目切换（2026-10-30 暮雨第 5 条：「完全不能按项目切换吗？」） */
+/** 项目切换（2026-10-30 暮雨第 5 条：“完全不能按项目切换吗？”） */
 const projectFilter = ref<string>('all')
 const highlight = ref('')
 const hover = ref('')
-/** 「补理由」内联编辑（只服务「为什么做，为什么砍」里被点名的缺理由项） */
+/** “补理由”内联编辑（只服务“为什么做，为什么砍”里被点名的缺理由项） */
 const reasonFor = ref('')
 const reasonDraft = ref('')
 const reasonSaving = ref(false)
@@ -92,7 +92,7 @@ async function saveReason(eid: string) {
 watch([filter, projectFilter], () => { highlight.value = ''; hover.value = '' })
 const tip = (m: string) => { if (props.toast) props.toast(m) }
 
-/** 任务 id → 任务（只用于把 origin 映射回项目；读不到就归「未归属」） */
+/** 任务 id → 任务（只用于把 origin 映射回项目；读不到就归“未归属”） */
 const taskMap = computed(() => {
   const m = new Map<string, any>()
   for (const t of props.tasks || []) if (t && t.id) m.set(String(t.id), t)
@@ -157,13 +157,13 @@ function projectOfTask(t: any): string {
   return normProj(t.project ?? t.fm?.project)
 }
 
-/** 这个项目下的任务卡（只用来回答「为什么这里没有需求、我该怎么办」） */
+/** 这个项目下的任务卡（只用来回答“为什么这里没有需求、我该怎么办”） */
 const projectTasks = computed(() => {
   if (projectFilter.value === 'all' || projectFilter.value === '__none__') return []
   return (props.tasks || []).filter((t: any) => projectOfTask(t) === projectFilter.value)
 })
 
-/** 已经在池里的任务 id（用来算「还有几张任务卡没进池」） */
+/** 已经在池里的任务 id（用来算“还有几张任务卡没进池”） */
 const pooledTaskIds = computed(() => {
   const s = new Set<string>()
   for (const it of items.value) {
@@ -175,7 +175,7 @@ const pooledTaskIds = computed(() => {
 
 const projectMissingTasks = computed(() => projectTasks.value.filter((t: any) => !pooledTaskIds.value.has(String(t.id))))
 
-/** 空项目的出口：把「往池里加需求」这件事写成一张能直接粘给 agent 的指令 */
+/** 空项目的出口：把“往池里加需求”这件事写成一张能直接粘给 agent 的指令 */
 async function copyAddPrompt(): Promise<void> {
   const name = projectName(projectFilter.value)
   const list = projectMissingTasks.value.slice(0, 12).map((t: any) =>
@@ -184,14 +184,14 @@ async function copyAddPrompt(): Promise<void> {
     `请把这批候选需求写进方寸的需求评估池（项目：${name}），用 MCP 工具 rice_pool_upsert。`,
     '',
     '每条的字段：eid / title / origin（type:id）/ R（每周大概用几次）/ I（省多少事，只取 0.25、0.5、1、2、3）/ C（把握，只取 0.95、0.85、0.7、0.6）/ E_days（要做几天，正整数）/ E_cost（花多少钱，元）/ evidence（证据等级：亲口要、实测踩过、agent推断、纯直觉）。',
-    '分数只用来排序，不要替我写「采纳 / 砍掉」。拿不准的就按最低证据写，并在 note 里说明缺哪条证据。',
+    '分数只用来排序，不要替我写“采纳 / 砍掉”。拿不准的就按最低证据写，并在 note 里说明缺哪条证据。',
     list.length ? '\n候选项（来自这个项目下还没进池的任务卡）：\n' + list.join('\n') : '',
   ].filter(Boolean).join('\n')
   const r = await copyText(text)
   tip(r.ok ? '已复制，粘给 agent 就能把需求加进池' : `复制失败：${r.error || '未知原因'}`)
 }
 
-/** 当前项目范围（项目切换后才算「这一屏」） */
+/** 当前项目范围（项目切换后才算“这一屏”） */
 const scopedItems = computed(() => items.value.filter((it) => {
   const pid = projectOf(it)
   if (projectFilter.value === 'all') return true
@@ -309,7 +309,7 @@ function today() {
 
 /** 拍板是**用户动作**：页面按钮 = 用户点，agent 不代拍 */
 async function decide(it: RiceItem, cut: boolean) {
-  if (cut && !confirm(`把「${it.title}」记为「砍掉」？\n会在 decisions.md 记一张「已撤销」的决策卡，池里留痕不删。`)) return
+  if (cut && !confirm(`把“${it.title}”记为“砍掉”？\n会在 decisions.md 记一张“已撤销”的决策卡，池里留痕不删。`)) return
   const status = cut ? '已撤销' : '有效'
   const r: any = await (window as any).tegula.riceDecide(
     toPlain([{ eid: it.eid, 状态: status }]),
@@ -332,16 +332,16 @@ const levels = computed(() => levelOfMap(items.value))
 const summary = computed(() => riceSummary(poolOf()))
 /**
  * 全池（切项目不变）：月预算是一份、面向整池的，**不能随项目切换变成 0%** ——
- * 那会让「本项目暂无需求」看起来像「这个月一分钱没花」。（2026-10-31 第 2/4 条顺带修的）
+ * 那会让“本项目暂无需求”看起来像“这个月一分钱没花”。（2026-10-31 第 2/4 条顺带修的）
  */
 const poolSummary = computed(() => riceSummary({ budget: budget.value, items: items.value }))
 const subText = computed(() => {
   if (!items.value.length) return '池里还没有需求'
   if (scopedItems.value.length) return summary.value.text
   const who = projectFilter.value === '__none__' ? '未归属' : projectName(projectFilter.value)
-  return `「${who}」下还没有需求 · 全池 ${items.value.length} 条`
+  return `“${who}”下还没有需求 · 全池 ${items.value.length} 条`
 })
-// 「为什么做，为什么砍」：分数只是入口，理由逐条 —— 定了却没写理由的要被点名（原型第 3 条设计判断）
+// “为什么做，为什么砍”：分数只是入口，理由逐条 —— 定了却没写理由的要被点名（原型第 3 条设计判断）
 const why = computed(() => riceWhyReview(poolOf()))
 
 /** 当前项目范围内的条目按总分降序；总分算不出的排最后（不拿 0 假装有分） */
@@ -397,7 +397,7 @@ const kpis = computed(() => {
   return [
     { key: 'total', label: '候选需求', val: scopedItems.value.length, unit: '项', foot: projectFilter.value === 'all' ? '进入本轮评估池' : '当前项目范围内', accent: false, over: false, tight: false },
     { key: 'p0', label: '入选 P0', val: p0, unit: '项', foot: '等级 = 池内相对位置（前 20%）', accent: true, over: false, tight: false },
-    { key: 'days', label: 'P0 合计工期', val: summary.value.p0Days, unit: '天', foot: '把入选 P0 的「要做几天」直接相加', accent: false, over: false, tight: false },
+    { key: 'days', label: 'P0 合计工期', val: summary.value.p0Days, unit: '天', foot: '把入选 P0 的“要做几天”直接相加', accent: false, over: false, tight: false },
     {
       key: 'budget',
       label: '预算占用',
@@ -481,7 +481,7 @@ const yTicks = computed(() => axisTicks(geo.value.maxY, 4))
 const xPos = (v: number) => (geo.value.maxX > 0 ? PAD + (v / geo.value.maxX) * innerW : PAD)
 const yPos = (v: number) => (geo.value.maxY > 0 ? H - PAD - (v / geo.value.maxY) * innerH : H - PAD)
 
-/** P0 阈值线：等级是池内相对位置，所以阈值就是「最低的那个 P0 分」，不是写死的分数线 */
+/** P0 阈值线：等级是池内相对位置，所以阈值就是“最低的那个 P0 分”，不是写死的分数线 */
 const p0Line = computed(() => {
   const scores = allRows.value.filter((r) => r.level === 'P0' && Number.isFinite(r.s)).map((r) => r.s)
   if (!scores.length || !geo.value.maxY) return null
@@ -523,8 +523,8 @@ const activeEid = computed(() => highlight.value || hover.value)
 const detail = computed(() => allRows.value.find((r) => r.it.eid === activeEid.value) || null)
 
 /**
- * 下拉与明细里别直接印原始倍数（2026-10-31 第 3 条：「人天」这类看不懂的文案）：
- * 0.25 / 0.5 / 1 / 2 / 3 对用户没有意义，说的是「省多少事」；0.95 说的是「把握」。
+ * 下拉与明细里别直接印原始倍数（2026-10-31 第 3 条：“人天”这类看不懂的文案）：
+ * 0.25 / 0.5 / 1 / 2 / 3 对用户没有意义，说的是“省多少事”；0.95 说的是“把握”。
  * 值仍然是原始数字（落盘口径不变），只换显示。
  */
 const IMPACT_TEXT: Record<string, string> = {
@@ -538,13 +538,13 @@ const ORIGIN_LABEL: Record<string, string> = { task: '任务', idea: '想法', t
 const coord = (n: number) => Math.round(n * 10) / 10
 const scoreText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
 const daysText = (n: number) => (Number.isFinite(n) ? String(n) : '—')
-/** 来源显示成「任务 · id」而不是一串 `task:xxx`（用户原话：根本看不懂每一条是做什么的） */
+/** 来源显示成“任务 · id”而不是一串 `task:xxx`（用户原话：根本看不懂每一条是做什么的） */
 function originText(it: RiceItem): string {
   const o = splitOrigin(it.origin || '')
   if (!o) return it.origin || '—'
   return `${ORIGIN_LABEL[o.type] || o.type} · ${o.id}`
 }
-/** 结论是用户点出来的；界面只说「采纳 / 砍掉 / 未决定」，不把内部枚举直接印出来 */
+/** 结论是用户点出来的；界面只说“采纳 / 砍掉 / 未决定”，不把内部枚举直接印出来 */
 function verdictText(v: string): string {
   if (v === '有效') return '采纳'
   if (v === 'CUT') return '砍掉'
@@ -554,9 +554,9 @@ function verdictText(v: string): string {
 /**
  * 开工交接单（2026-10-30 暮雨第 7 条）。
  *
- * 矩阵现在只回答「先做哪个」，不回答「怎么把它做对」。这张单子把
+ * 矩阵现在只回答“先做哪个”，不回答“怎么把它做对”。这张单子把
  * grill-me → to-spec → to-tickets → TDD/双路 review 的顺序写成一段可直接粘给 agent 的要求：
- * 先问清楚，再写规格，再拆成「能验收的一件事」，最后用测试和两路 review 把合格线提前钉死。
+ * 先问清楚，再写规格，再拆成“能验收的一件事”，最后用测试和两路 review 把合格线提前钉死。
  * 不自动跑、不改状态 —— 仍然是用户点一下复制。
  */
 function kickoffText(it: RiceItem): string {
@@ -648,7 +648,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
         <b :class="{ over: poolSummary.guard === 'over' || poolSummary.guard === 'tight' }">{{ Math.round((poolSummary.budgetRatio || 0) * 100) }}%</b>
         · 余量 ¥{{ poolSummary.headroom }}
       </span>
-      <span class="rice-budget-hint" v-else>预算未设置 —— 页面不会把「没设预算」说成「没超支」</span>
+      <span class="rice-budget-hint" v-else>预算未设置 —— 页面不会把“没设预算”说成“没超支”</span>
       <span class="rice-guard" :class="poolSummary.guard">{{ poolSummary.guardText }}</span>
     </div>
 
@@ -661,26 +661,26 @@ async function copyKickoff(it: RiceItem): Promise<void> {
     </div>
     <div v-else-if="!scopedItems.length" class="rice-empty">
       <div class="rice-empty-t">
-        <template v-if="projectFilter === '__none__'">没有「未归属」的需求。</template>
-        <template v-else>「{{ projectName(projectFilter) }}」这个项目下还没有需求。</template>
+        <template v-if="projectFilter === '__none__'">没有“未归属”的需求。</template>
+        <template v-else>“{{ projectName(projectFilter) }}”这个项目下还没有需求。</template>
       </div>
       <div class="rice-empty-sub" v-if="projectFilter === '__none__'">
-        外部清单条目、想法（想法本身不挂项目）、以及没填项目的任务卡，都会落在「未归属」——
+        外部清单条目、想法（想法本身不挂项目）、以及没填项目的任务卡，都会落在“未归属”——
         这些不是丢了，只是没有项目可归。
       </div>
       <div class="rice-empty-sub" v-else>
-        需求挂在哪个项目，看它来自哪张任务卡 / 哪条待办；想法没有项目归属，会落在「未归属」。
+        需求挂在哪个项目，看它来自哪张任务卡 / 哪条待办；想法没有项目归属，会落在“未归属”。
         <template v-if="projectTasks.length">
           这个项目下现有 <b>{{ projectTasks.length }}</b> 张任务卡，其中 <b>{{ projectMissingTasks.length }}</b> 张还没进评估池。
         </template>
         <template v-else>
-          这个项目下还没有任何任务卡 —— 先在任务卡里把「项目」填成「{{ projectName(projectFilter) }}」，需求才挂得上来。
+          这个项目下还没有任何任务卡 —— 先在任务卡里把“项目”填成“{{ projectName(projectFilter) }}”，需求才挂得上来。
         </template>
       </div>
       <div class="rice-empty-act">
         <button class="ghost" @click="projectFilter = 'all'">← 看全部项目（{{ items.length }} 条）</button>
         <button class="ghost" v-if="projectFilter !== '__none__'" @click="copyAddPrompt()">
-          ⧉ 复制「往池里加需求」的指令</button>
+          ⧉ 复制“往池里加需求”的指令</button>
       </div>
       <div class="rice-empty-foot">
         这一页只负责排序和取舍，不负责录入 —— 需求由 agent 写进 rice-pool.md，刷新后就出现在这里。
@@ -764,7 +764,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
             <!-- 筛选后没有气泡时明说，不让整块图看起来"坏掉了" -->
             <div v-if="!bubbles.length" class="rice-plot-empty">
-              当前筛选下没有可画的需求 —— 换「全部」或切回全部项目。
+              当前筛选下没有可画的需求 —— 换“全部”或切回全部项目。
             </div>
 
             <!-- 悬停/点击明细。
@@ -823,7 +823,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
         <div class="rice-sec-h">
           <span class="rice-no">2</span>
           <h3>打分与排序</h3>
-          <span class="rice-hint">按优先级分从高到低 · 改任何一格立即重算并保存 · 「采纳 / 砍掉」由你点</span>
+          <span class="rice-hint">按优先级分从高到低 · 改任何一格立即重算并保存 · “采纳 / 砍掉”由你点</span>
         </div>
         <div class="rice-panel">
           <div class="rice-tablewrap">
@@ -834,7 +834,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                   <th>需求</th><th>项目</th><th>来源</th>
                   <th title="这条需求每周大概会被用几次">每周用几次</th>
                   <th title="做成之后能省多少手工：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小">省多少事</th>
-                  <th title="对「它真的有用」有多大把握">把握多大</th>
+                  <th title="对“它真的有用”有多大把握">把握多大</th>
                   <th title="预计要做几天（正整数，进公式）">要做几天</th>
                   <th title="预计花多少钱（元，只作参考）">花多少钱</th>
                   <th>证据来源</th><th class="rice-th-score">优先级分</th><th>你的决定</th>
@@ -891,7 +891,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                   </td>
                 </tr>
                 <tr v-if="!rows.length">
-                  <td colspan="12" class="rice-none">这个筛选下没有条目（换「全部」看看）</td>
+                  <td colspan="12" class="rice-none">这个筛选下没有条目（换“全部”看看）</td>
                 </tr>
               </tbody>
             </table>
@@ -899,7 +899,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
           <div class="rice-tbl-foot">
             <span>省多少事：3 极大 / 2 高 / 1 中 / 0.5 低 / 0.25 极小</span>
             <span>把握多大：95% 见过实测 · 85% 强信号 · 70% 类比 · 60% 直觉</span>
-            <span>「要做几天」进公式；「花多少钱」只作参考，不影响排序</span>
+            <span>“要做几天”进公式；“花多少钱”只作参考，不影响排序</span>
           </div>
         </div>
       </section>
@@ -923,7 +923,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
               <div class="rice-why-stat"><span>已决定</span><b>{{ summary.decided }} 项</b></div>
               <div class="rice-why-stat"><span>没写理由</span><b :class="{ over: why.missingWhy > 0 }">{{ why.missingWhy }} 项</b></div>
             </div>
-            <div class="rice-why-sig-note">没写理由的决定不算决定 —— 下次它还会以「听起来很酷」的样子回来。</div>
+            <div class="rice-why-sig-note">没写理由的决定不算决定 —— 下次它还会以“听起来很酷”的样子回来。</div>
           </div>
           <div class="rice-why-body">
             <div class="rice-why-h">为什么做，为什么砍<span class="rice-why-sub">{{ why.text }}</span></div>
@@ -936,7 +936,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                     {{ r.hasWhy ? r.why : '⚠ 决定时没写理由 —— 说不清为什么，就不算决定' }}
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
-                  <!-- 缺理由的当场就能补：点名之后必须给出口，否则那句「不算决定」只是骂人 -->
+                  <!-- 缺理由的当场就能补：点名之后必须给出口，否则那句“不算决定”只是骂人 -->
                   <div class="rice-why-act" v-if="!r.hasWhy">
                     <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
                     <div class="rice-why-edit" v-else>
@@ -955,13 +955,13 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                 <div class="rice-why-row" v-for="r in why.cut" :key="'c' + r.eid">
                   <b>{{ r.title }}</b>
                   <span class="rice-why-reason" :class="{ missing: !r.hasWhy }">
-                    {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以「听起来很酷」的样子回来' }}
+                    {{ r.hasWhy ? r.why : '⚠ 砍了却没写理由 —— 下次它还会以“听起来很酷”的样子回来' }}
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
                   <div class="rice-why-act" v-if="!r.hasWhy">
                     <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
                     <div class="rice-why-edit" v-else>
-                      <textarea v-model="reasonDraft" rows="2" placeholder="为什么砍？一句话就够（下次它还会以「听起来很酷」回来）"></textarea>
+                      <textarea v-model="reasonDraft" rows="2" placeholder="为什么砍？一句话就够（下次它还会以“听起来很酷”回来）"></textarea>
                       <div class="rice-why-edit-act">
                         <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</button>
                         <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="closeReason()">取消</button>
@@ -973,7 +973,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
               </div>
             </div>
             <div class="rice-why-empty" v-else>
-              还没有决定记录 —— 在表格里点「采纳 / 砍掉」，把理由写进备注，这里就是这季度取舍的底稿。
+              还没有决定记录 —— 在表格里点“采纳 / 砍掉”，把理由写进备注，这里就是这季度取舍的底稿。
             </div>
             <div class="rice-verdicts">
               <div v-for="v in verdicts" :key="v.lv" class="rice-vd-block" :class="levelCls[v.lv]">

@@ -500,7 +500,7 @@
   .inbox-badge{background:#ef4444;color:#fff;font-size:9px;padding:1px 5px;border-radius:9px;font-weight:700;vertical-align:super}
   /* ── 全局拖放落区（外部文件导入待办）── */
   /* 2026-09-27：全局投放遮罩的 CSS 定义**删掉** —— 全项目 grep 不到任何 JS 去 toggle 它，
-     是历史遗留的死规则；而它恰好是「全屏 inset:0 / z-index:9999 / 带 blur」的「怪异遮罩」形状，
+     是历史遗留的死规则；而它恰好是“全屏 inset:0 / z-index:9999 / 带 blur”的“怪异遮罩”形状，
      留着只会让人以为界面上有这么一层东西（用户第 2 条）。 */
   /* ── 笔记模块 ── */
   #notesOverlay{position:fixed;inset:0;background:rgba(60,65,80,.38);
@@ -1135,7 +1135,7 @@ async function pickStatus(st){
   }
   const r=await post({action:"edit",id:t.id,fields:{状态:st,
     expected_update:String(t.更新||""),expected_mtime:t.mtime||0}});
-  if(r.ok){selectedCardId=t.id;lastHash="";load(true);toast("已移动到「"+st+"」","success");}
+  if(r.ok){selectedCardId=t.id;lastHash="";load(true);toast("已移动到“"+st+"”","success");}
   else{lastHash="";load(true);}
 }
 /* ── 快捷键帮助面板 ── */
@@ -1254,10 +1254,10 @@ async function loadRoadmap(force){
       }
       html+='</table>';
       if(p.blockers&&p.blockers.length){
-        html+=`<div style="margin-top:8px;font-size:12px;color:#b91c1c">⛔ 阻塞：${p.blockers.slice(0,2).map(b=>esc(b.task_id)+"《"+esc(b.title)+"」被 "+esc(b.blocker_id)).join("；")}</div>`;
+        html+=`<div style="margin-top:8px;font-size:12px;color:#b91c1c">⛔ 阻塞：${p.blockers.slice(0,2).map(b=>esc(b.task_id)+"《"+esc(b.title)+"”被 "+esc(b.blocker_id)).join("；")}</div>`;
       }
       if(p.next_actions&&p.next_actions.length){
-        html+=`<div style="margin-top:6px;font-size:12px;color:#6366f1">💡 下一动作：${p.next_actions.slice(0,2).map(a=>esc(a.task_id)+"《"+esc(a.title)+"」").join("；")}</div>`;
+        html+=`<div style="margin-top:6px;font-size:12px;color:#6366f1">💡 下一动作：${p.next_actions.slice(0,2).map(a=>esc(a.task_id)+"《"+esc(a.title)+"”").join("；")}</div>`;
       }
       html+='</div>';
     }
@@ -1346,7 +1346,7 @@ function bindPlanOptionClicks(){
       const tid=this.dataset.tid;
       const dpId=this.dataset.dp;
       const choice=this.dataset.opt;
-      if(!confirm("确认选择「"+choice+"」？"))return;
+      if(!confirm("确认选择“"+choice+"”？"))return;
       const r=await fetch("/api",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({action:"plan_decide",tid,dp_id:dpId,choice})});
       if(r.ok){loadPlan(true);toast("已决策: "+choice,"success");}
@@ -1625,7 +1625,7 @@ function render() {
         const sp=document.createElement("span");sp.className="tag-badge";
         sp.textContent="#"+tg;
         sp.style.background=tv.bg;sp.style.color=tv.fg;
-        sp.title="按标签「"+tg+"」筛选";
+        sp.title="按标签“"+tg+"”筛选";
         sp.onclick=ev=>{ev.stopPropagation();applyTagFilter(tg);};
         tags.appendChild(sp);
       });
@@ -2060,7 +2060,7 @@ async function togglePlan(ev,i){
 async function quickDispatch(id,forceConfirm){
   if(!id){
     const cands=TASKS.filter(t=>t.状态==="待办"&&!(t.阻塞||[]).some(b=>{const x=TASKS.find(y=>y.id===b);return x&&x.状态!=="完成"&&x.状态!=="驳回";}));
-    if(!cands.length){toast("没有「待办」状态的任务可派","info");return;}
+    if(!cands.length){toast("没有“待办”状态的任务可派","info");return;}
     const pv=t=>t.优先级==="高"?2:(t.优先级==="中"?1:0);
     cands.sort((a,b)=>pv(b)-pv(a)||((a.id||"")<(b.id||"")?-1:1));
     id=cands[0].id;
@@ -2272,7 +2272,7 @@ function updateBatchBar(){
 async function batchMove(st){
   if(!batchSelected.size)return;
   const ids=[...batchSelected];
-  if(!confirm('将 '+ids.length+' 个任务移动到「'+st+'」？'))return;
+  if(!confirm('将 '+ids.length+' 个任务移动到“'+st+'”？'))return;
   const r=await post({action:'batch_edit',ids,fields:{状态:st}});
   if(r.ok){toast('已更新 '+r.ok_count+' 个任务','success');exitBatchMode();lastHash='';load(true);}
   else toast('失败：'+(r.msg||''),'error');
@@ -2474,7 +2474,7 @@ function renderQuickPreview(){
     else if(l.startsWith("due:")&&tk.length>4)due=tk.slice(4);
     else if(l.startsWith("to:")&&tk.length>3){
       const s=tk.slice(3);
-      if(STATUSES.includes(s))st=s;else bad="未知状态「"+s+"」";
+      if(STATUSES.includes(s))st=s;else bad="未知状态“"+s+"”";
     }else title.push(tk);
   });
   const t=title.join(" ").trim();
@@ -2541,11 +2541,11 @@ async function moveStatus(id,status){const t=TASKS.find(x=>x.id===id);
   const fields={状态:status};
   if(t){fields.expected_update=String(t.更新||"");fields.expected_mtime=t.mtime||0;}
   const r=await post({action:"edit",id:id,fields});
-  if(r.ok){load(true);toast("状态已更新为「"+status+"」","success");}
+  if(r.ok){load(true);toast("状态已更新为“"+status+"”","success");}
   else{lastHash="";load(true);}}
 async function doAccept(id){
   const t=TASKS.find(x=>x.id===id);if(!t)return;
-  if(!confirm("验收通过《"+(t.标题||id)+"》？\n（任务置为「完成」）"))return;
+  if(!confirm("验收通过《"+(t.标题||id)+"》？\n（任务置为“完成”）"))return;
   const r=await post({action:"review",id:id,verdict:"accept"});
   if(r.ok){lastHash="";if(el("poverlay").style.display==="flex")closeP();load(true);toast("验收通过，任务已完成","success");}}
 let judgeId=null;
@@ -2719,7 +2719,7 @@ function renderNotesList() {
   let items = NOTES_CACHE;
   if (q) items = items.filter(n => (n.title || "").toLowerCase().includes(q) || (n.content || "").toLowerCase().includes(q));
   if (!items.length) {
-    list.innerHTML = '<div class="notes-empty">暂无笔记，点击「+ 新建」或「📁 导入」开始</div>';
+    list.innerHTML = '<div class="notes-empty">暂无笔记，点击“+ 新建”或“📁 导入”开始</div>';
     return;
   }
   list.innerHTML = "";

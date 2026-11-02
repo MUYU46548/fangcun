@@ -103,28 +103,28 @@ def check(name, cond, detail=''):
 
 # ── T1：TS yaml.dump 的块式任务 → Python parse_task ──
 d1 = core.parse_task(os.path.join(tmp, 'task-block.md'))
-check('TS 块式任务 → Python parse_task 还原「阻塞」列表',
+check('TS 块式任务 → Python parse_task 还原“阻塞”列表',
       bool(d1) and d1.get('阻塞') == ['task-dep-a', 'task-dep-b'],
       d1 and repr(d1.get('阻塞')))
-check('TS 块式任务 → Python parse_task 还原「标签」列表',
+check('TS 块式任务 → Python parse_task 还原“标签”列表',
       bool(d1) and d1.get('标签') == ['tag-x'], d1 and repr(d1.get('标签')))
 
 # ── T2：块式日志 → Python _parse_log（读空 = 下次写回清空，就是那起事故）──
 with open(os.path.join(tmp, 'log-block.md'), encoding='utf-8') as f:
     fm2, _ = core._parse_log(f.read())
-check('★★ 块式日志 → Python _parse_log 还原「附件」（否则下次写回静默清空）',
+check('★★ 块式日志 → Python _parse_log 还原“附件”（否则下次写回静默清空）',
       fm2.get('附件') == ['report.md', 'shot.png'], repr(fm2.get('附件')))
-check('★ 块式日志 → Python _parse_log 还原「任务」',
+check('★ 块式日志 → Python _parse_log 还原“任务”',
       fm2.get('任务') == ['task-1'], repr(fm2.get('任务')))
 
 # ── T3：TS renderLog 的内联日志 → Python ──
 with open(os.path.join(tmp, 'log-inline.md'), encoding='utf-8') as f:
     fm3, _ = core._parse_log(f.read())
-check('TS 内联日志 → Python _parse_log 还原「附件」',
+check('TS 内联日志 → Python _parse_log 还原“附件”',
       fm3.get('附件') == ['a.png', 'b.md'], repr(fm3.get('附件')))
-check('TS 内联日志 → Python _parse_log 还原「任务」',
+check('TS 内联日志 → Python _parse_log 还原“任务”',
       fm3.get('任务') == ['task-1', 'task-2'], repr(fm3.get('任务')))
-check('★★ TS 内联日志 → Python _parse_log 还原「priority」（中文标量，卡 001）',
+check('★★ TS 内联日志 → Python _parse_log 还原“priority”（中文标量，卡 001）',
       fm3.get('priority') == '高', repr(fm3.get('priority')))
 
 # ── T4：Python 写日志 → 自己读回，列表不丢 ──
@@ -136,11 +136,11 @@ core._write_log(lid, {
 }, '正文')
 got = core._read_log(lid)
 fm4 = (got or {}).get('fm', {})
-check('Python 写日志 → 读回「附件」不丢',
+check('Python 写日志 → 读回“附件”不丢',
       fm4.get('附件') == ['x.png', 'y.md'], repr(fm4.get('附件')))
-check('Python 写日志 → 读回「任务」不丢',
+check('Python 写日志 → 读回“任务”不丢',
       fm4.get('任务') == ['task-9'], repr(fm4.get('任务')))
-check('★★ Python 写日志 → 读回「priority」不丢（卡 001）',
+check('★★ Python 写日志 → 读回“priority”不丢（卡 001）',
       fm4.get('priority') == '中', repr(fm4.get('priority')))
 log_path = core._log_path(lid)
 
@@ -151,19 +151,19 @@ core.write_task_file(tp, {
     '阻塞': ['dep-1'], '标签': ['t1'],
 })
 d5 = core.parse_task(tp)
-check('Python 写任务 → 读回「阻塞」不丢', bool(d5) and d5.get('阻塞') == ['dep-1'],
+check('Python 写任务 → 读回“阻塞”不丢', bool(d5) and d5.get('阻塞') == ['dep-1'],
       d5 and repr(d5.get('阻塞')))
-check('Python 写任务 → 读回「标签」不丢', bool(d5) and d5.get('标签') == ['t1'],
+check('Python 写任务 → 读回“标签”不丢', bool(d5) and d5.get('标签') == ['t1'],
       d5 and repr(d5.get('标签')))
 
 # ── T6：Python 写出的形态必须是行内列表（TS 侧 js-yaml 两种都懂，但行内是两端公约）──
 with open(tp, encoding='utf-8') as f:
     raw = f.read()
-check('Python 写出的任务，「阻塞」是行内形态', '阻塞: [dep-1]' in raw,
+check('Python 写出的任务，“阻塞”是行内形态', '阻塞: [dep-1]' in raw,
       [ln for ln in raw.splitlines() if '阻塞' in ln])
 with open(log_path, encoding='utf-8') as f:
     rawl = f.read()
-check('Python 写出的日志，「附件」是行内形态', '附件: [x.png, y.md]' in rawl,
+check('Python 写出的日志，“附件”是行内形态', '附件: [x.png, y.md]' in rawl,
       [ln for ln in rawl.splitlines() if '附件' in ln])
 
 print(json.dumps({'checks': checks, 'taskFile': tp, 'logFile': log_path}, ensure_ascii=False))
@@ -213,22 +213,22 @@ function main() {
   try {
     const tRaw = fs.readFileSync(drv.taskFile, 'utf-8')
     const tFm = yaml.load(splitFrontmatter(tRaw)) || {}
-    check('★★ Python 写出的任务 → TS(js-yaml) 读到「阻塞」',
+    check('★★ Python 写出的任务 → TS(js-yaml) 读到“阻塞”',
       JSON.stringify(tFm['阻塞']) === JSON.stringify(['dep-1']), JSON.stringify(tFm['阻塞']))
-    check('Python 写出的任务 → TS(js-yaml) 读到「标签」',
+    check('Python 写出的任务 → TS(js-yaml) 读到“标签”',
       JSON.stringify(tFm['标签']) === JSON.stringify(['t1']), JSON.stringify(tFm['标签']))
   } catch (e) {
-    check('★★ Python 写出的任务 → TS(js-yaml) 读到「阻塞」', false, String(e).slice(0, 200))
+    check('★★ Python 写出的任务 → TS(js-yaml) 读到“阻塞”', false, String(e).slice(0, 200))
   }
 
   try {
     const lRaw = fs.readFileSync(drv.logFile, 'utf-8')
     const lFm = yaml.load(splitFrontmatter(lRaw)) || {}
-    check('★★ Python 写出的日志 → TS(js-yaml) 读到「附件」',
+    check('★★ Python 写出的日志 → TS(js-yaml) 读到“附件”',
       JSON.stringify(lFm['附件']) === JSON.stringify(['x.png', 'y.md']), JSON.stringify(lFm['附件']))
-    check('Python 写出的日志 → TS(js-yaml) 读到「任务」',
+    check('Python 写出的日志 → TS(js-yaml) 读到“任务”',
       JSON.stringify(lFm['任务']) === JSON.stringify(['task-9']), JSON.stringify(lFm['任务']))
-    check('★★ Python 写出的日志 → TS(js-yaml) 读到「priority」= 中（卡 001，中文标量）',
+    check('★★ Python 写出的日志 → TS(js-yaml) 读到“priority”= 中（卡 001，中文标量）',
       lFm['priority'] === '中', JSON.stringify(lFm['priority']))
     // 源码守卫：TS 侧 parse/render 是白名单，priority 必须两处都在 ——
     // 漏任何一处 = 下一次桌面端写回就把用户标的优先级静默删掉（同族事故第三次）。
@@ -238,7 +238,7 @@ function main() {
     check('源码守卫：TS render 写 priority（且只在有值时落盘）',
       /if \(log\.priority\) fm\.priority = log\.priority/.test(logsTs))
   } catch (e) {
-    check('★★ Python 写出的日志 → TS(js-yaml) 读到「附件」', false, String(e).slice(0, 200))
+    check('★★ Python 写出的日志 → TS(js-yaml) 读到“附件”', false, String(e).slice(0, 200))
   }
 
   // ── 源码守卫：为什么 T1/T2 必须长期存在（谁在生产这两种形态）──
@@ -247,7 +247,7 @@ function main() {
     check('源码守卫：TS 日志 yaml.dump 带 flowLevel:-1（列表一律内联，Python 逐行读才读得到）',
       /flowLevel:\s*-1/.test(logsTs))
     const dataIdx = fs.readFileSync(path.join(REPO, 'desktop/src/main/data/index.ts'), 'utf-8')
-    check('源码守卫：TS 任务写盘仍走 yaml.dump（所以「块式 → Python」这条路永远活着）',
+    check('源码守卫：TS 任务写盘仍走 yaml.dump（所以“块式 → Python”这条路永远活着）',
       /yaml\.dump/.test(dataIdx))
   } catch (e) {
     check('源码守卫：读取 TS 源文件', false, String(e).slice(0, 200))

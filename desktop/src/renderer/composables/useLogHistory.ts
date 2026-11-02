@@ -1,5 +1,5 @@
 /**
- * 日志历史版本面板（2026-10-31 · 渲染层拆分第二批「日志动作收口」第九刀）
+ * 日志历史版本面板（2026-10-31 · 渲染层拆分第二批“日志动作收口”第九刀）
  *
  * 把 `atomicWrite` 本来就在写的 `.backup` 接出来：列表 / 逐版预览 / 恢复到任意一版。
  * 恢复前自动备份当前版（写路径在 logs.ts），恢复后重读表单并刷新列表。
@@ -78,7 +78,7 @@ export function useLogHistory(deps: Deps) {
     if (!e?.id || !v?.file) return
     const when = v.at ? formatDateTime(v.at) : '这个版本'
     const dirtyTip = logEditDirty() ? '\n\n⚠ 表单里还没保存的改动会被这一版覆盖。' : ''
-    if (!confirm(`恢复到「${v.title || '(无标题)'}」（${when}）？\n\n标题 / 正文 / 下一步 / 状态都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
+    if (!confirm(`恢复到“${v.title || '(无标题)'}”（${when}）？\n\n标题 / 正文 / 下一步 / 状态都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
     try {
       const r: any = await window.tegula.logsRestoreVersion(e.id, v.file)
       if (!r?.ok) { showToast(`恢复失败：${r?.error || '未知原因'}`, 'error'); return }

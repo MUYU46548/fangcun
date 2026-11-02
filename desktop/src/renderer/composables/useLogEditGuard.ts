@@ -1,13 +1,13 @@
 /**
- * 日志编辑器的防丢守卫（2026-10-31 · 渲染层拆分第二批「日志动作收口」第三刀）
+ * 日志编辑器的防丢守卫（2026-10-31 · 渲染层拆分第二批“日志动作收口”第三刀）
  *
- * 搬出来的是「打开时拍快照 → 关闭时逐字段比对 → 条子点名改了什么」这一整条：
+ * 搬出来的是“打开时拍快照 → 关闭时逐字段比对 → 条子点名改了什么”这一整条：
  *   · 字符串快照判脏（含完成/归档弹窗里的保留天数、备注、批量标记、待挂附件）；
  *   · 结构化快照负责在警告条里点名；
- *   · 第一次点取消/遮罩只出条不关，唯一丢弃入口是条上的「丢弃并关闭」。
+ *   · 第一次点取消/遮罩只出条不关，唯一丢弃入口是条上的“丢弃并关闭”。
  *
  * 仍在 App 的：openLog / saveLogEdit / complete / archive / destroy —— 它们要碰 IPC、
- * 任务数据和列表刷新。本 composable 只管「还没保存的改动不许静默丢」。
+ * 任务数据和列表刷新。本 composable 只管“还没保存的改动不许静默丢”。
  */
 import { nextTick, ref, type Ref } from 'vue'
 import { snapOf } from '../dirtyGuard'
@@ -40,7 +40,7 @@ export function useLogEditGuard(deps: Deps) {
   let logEditSnap: string | null = null
   let logSnapFields: Record<string, string> | null = null
 
-  /** 日志编辑器快照：表单本体 + 完成/归档对话框里的「保留天数/备注/批量」 */
+  /** 日志编辑器快照：表单本体 + 完成/归档对话框里的“保留天数/备注/批量” */
   const logSnapNow = (): string => JSON.stringify({
     form: snapOf(logEdit_.value),
     note: String(logNote.value ?? ''),
@@ -86,7 +86,7 @@ export function useLogEditGuard(deps: Deps) {
     resetPendingAttach()
   }
 
-  /** 条上的「丢弃并关闭」——唯一丢弃入口 */
+  /** 条上的“丢弃并关闭”——唯一丢弃入口 */
   function discardLogEdit(): void {
     console.warn(`[logEdit] 用户确认丢弃未保存的日志改动（${logDirtyNames().join('、') || '无'}）`)
     closeLogNow()

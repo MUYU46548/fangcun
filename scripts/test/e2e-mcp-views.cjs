@@ -5,7 +5,7 @@
  * 背景：MCP（命名管道，供 Hermes/Claude 等外部 agent）与桌面 IPC 是**两个对外读口**，
  * 共享同一批 task-data。审计发现两处对外契约偏差：
  *   ① mcp/tools.ts 曾有**私有 loadAllTasks 扫描**，自己 walk 并跳过 archive/.trash
- *      → `search_tasks` 永远搜不到归档任务，而 UI 的「全部」含归档 —— 问 MCP 和问 UI 会得到
+ *      → `search_tasks` 永远搜不到归档任务，而 UI 的“全部”含归档 —— 问 MCP 和问 UI 会得到
  *      不同答案；
  *   ② `list_tasks view=trash` 落进 data.loadTasks 的 else 分支 → 返回**活跃+归档**，
  *      根本不是回收站（schema 与返回内容不符）。
@@ -13,7 +13,7 @@
  *
  * 这个套件**真跑编译产物**（dist/main），不是源码字符串比对：建一个临时数据目录
  * （活跃 + 归档 + 回收站各一条夹具），逐条断言 view 语义与全文搜索的覆盖面。
- * ⚠ setDataDir 里的「持久化用户选择」依赖 electron 的 app.getPath，纯 Node 下会抛
+ * ⚠ setDataDir 里的“持久化用户选择”依赖 electron 的 app.getPath，纯 Node 下会抛
  *   并被它的 try/catch 吞掉 —— 所以本测试**不会**改掉真实 app 的数据目录配置。
  */
 
@@ -46,7 +46,7 @@ const mkTask = (id, title, extra) => [
 
 fs.writeFileSync(path.join(DATA, 'task-data', 'task-live.md'),
   mkTask('task-live', '契约夹具活跃任务', { status: '待办', where: 'active' }), 'utf-8')
-// 2026-10-30 暮雨第 3 条：驳回后「退回返工」的卡必须让 agent 读得到理由。
+// 2026-10-30 暮雨第 3 条：驳回后“退回返工”的卡必须让 agent 读得到理由。
 fs.writeFileSync(path.join(DATA, 'task-data', 'task-rework.md'), [
   '---',
   'id: task-rework',
@@ -127,7 +127,7 @@ check('★ list_tasks 按项目过滤真的生效（fm.project 是数组，旧�
 const st = call('list_tasks', { view: 'active', status: '待办' })
 check('list_tasks 按状态过滤生效', Array.isArray(st) && st.length === 1, JSON.stringify(st).slice(0, 160))
 
-// 2026-10-30 暮雨第 3 条：返工卡不是普通待办，MCP 读口必须带出「上次为什么被驳回」。
+// 2026-10-30 暮雨第 3 条：返工卡不是普通待办，MCP 读口必须带出“上次为什么被驳回”。
 const rw = call('get_task', { id: 'task-rework' })
 check('★★ get_task 返回驳回理由 / 结果记录 / rework 标记（agent 才能按理由重做）',
   rw && rw.rework === true && String(rw.reject_reason || '').indexOf('按钮点不动') >= 0

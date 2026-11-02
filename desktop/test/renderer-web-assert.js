@@ -8,7 +8,7 @@
  *
  * 这里用系统自带 Edge/Chrome 的无头模式，加载**同一份构建产物** + **同一个假 preload**，
  * 把界面真的渲染出来，做 DOM 几何 / 计算样式断言。
- * 覆盖面刻意只放「换摆法」这一类纯前端呈现问题（多视图切换）；
+ * 覆盖面刻意只放“换摆法”这一类纯前端呈现问题（多视图切换）；
  * 真 IPC、真点击、真拖拽仍以 `e2e-renderer.cjs`（Electron）为准 —— 两者互补，不是替代。
  *
  * 由 `scripts/test/e2e-renderer-web.cjs` 注入到生成的 HTML 里（classic script）。
@@ -22,7 +22,7 @@
     if (cond) { pass++; out.push('PASS  ' + name) }
     else { fail++; out.push('FAIL  ' + name + (detail ? '  → ' + detail : '')) }
     // 2026-10-31：把进度写进 title —— 断言卡在某个 await 上时，CDP 侧只能看到
-    // 「DOM 不再变长、title 停在 FC harness」，根本不知道卡在哪一段。
+    // “DOM 不再变长、title 停在 FC harness”，根本不知道卡在哪一段。
     document.title = 'FC ' + pass + '/' + fail + ' · ' + String(name).replace(/\s+/g, ' ').slice(0, 28)
   }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -35,8 +35,8 @@
     return true
   }
   /**
-   * 切到某个视图页签 —— **低频页签现在收在「更多」里**（2026-10-25 暮雨要求折叠）。
-   * 断言不能再假设"页签行一定有那个按钮"：先找页签行，找不到就开「更多」菜单再点。
+   * 切到某个视图页签 —— **低频页签现在收在“更多”里**（2026-10-25 暮雨要求折叠）。
+   * 断言不能再假设"页签行一定有那个按钮"：先找页签行，找不到就开“更多”菜单再点。
    * ⚠ 必须是 async：浮层要一帧才渲染出来，同步点不到。
    */
   const openViewTab = async (label) => {
@@ -53,10 +53,10 @@
     return true
   }
   /**
-   * 「点遮罩」的正确模拟（2026-10-11 用户第 3 条）。
+   * “点遮罩”的正确模拟（2026-10-11 用户第 3 条）。
    *
    * 遮罩的关闭手势已从 `@click.self` 改成 `@mousedown.self` —— 因为在文本框里按住拖选、
-   * 光标滑出弹窗再松手时，`click` 的目标是「按下点与松开点的最近公共祖先」＝遮罩本身，
+   * 光标滑出弹窗再松手时，`click` 的目标是“按下点与松开点的最近公共祖先”＝遮罩本身，
    * 于是 `@click.self` 判定为"点了遮罩"→ 弹窗整个关掉、草稿全丢。
    *
    * ⚠ 所以断言里模拟"点遮罩"**必须派发 mousedown**：只发 click 已经不再触发关闭，
@@ -100,10 +100,10 @@
         await waitFor(() => !!$(dlgSel), 6000, '免责弹窗出现'))
       const dlg = $(dlgSel)
       if (dlg) {
-        check('★★ 弹的是「使用前请确认」强制态（不是随时查看态）',
+        check('★★ 弹的是“使用前请确认”强制态（不是随时查看态）',
           (dlg.textContent || '').indexOf('使用前请确认') >= 0,
           String(dlg.textContent || '').slice(0, 60))
-        check('★★ 短版把「AI 功能要先看清花钱这件事」摆在显眼位置（暮雨点名的那件事）',
+        check('★★ 短版把“AI 功能要先看清花钱这件事”摆在显眼位置（暮雨点名的那件事）',
           (dlg.textContent || '').indexOf('AI 功能要先看清花钱这件事') >= 0,
           String(dlg.textContent || '').slice(0, 300))
         check('★ 短版写明费用由你与服务方结算、界面上的花销只是估算',
@@ -132,7 +132,7 @@
         //    ⚠ 同样：弹窗若已被上游断言关掉，这一组整组显式跳过（不许连锁出假红，
         //    也不许让"点确认后弹窗退场"变成**假绿**——它必须建立在"点之前弹窗确实在"上）。
         if (!$(dlgSel)) {
-          out.push('    （跳过「滚到底 → 勾选 → 确认」一组：弹窗已被上游断言关掉，无对象可测）')
+          out.push('    （跳过“滚到底 → 勾选 → 确认”一组：弹窗已被上游断言关掉，无对象可测）')
         } else {
           const body = dlg.querySelector('div[class*="overflow-y-auto"]')
           if (body) {
@@ -141,10 +141,10 @@
           }
           await sleep(200)
           const cb = dlg.querySelector('input[type="checkbox"]')
-          check('★ 有「我已阅读并同意」的勾选框', !!cb)
+          check('★ 有“我已阅读并同意”的勾选框', !!cb)
           if (cb) {
             const okBefore = $$(dlgSel + ' button').find((b) => (b.textContent || '').trim() === '我已阅读并同意')
-            check('★★ 没勾选之前「我已阅读并同意」**点不动**（disabled）',
+            check('★★ 没勾选之前“我已阅读并同意”**点不动**（disabled）',
               !!okBefore && okBefore.disabled === true, okBefore ? String(okBefore.disabled) : 'no button')
             cb.checked = true
             cb.dispatchEvent(new Event('change', { bubbles: true }))
@@ -166,7 +166,7 @@
     }
 
     // ══ 看板 · 多视图 ══════════════════════════════════════════════════
-    check('能切到「看板」页签', clickText('看板'))
+    check('能切到“看板”页签', clickText('看板'))
     await sleep(400)
 
     const sw = (() => {
@@ -192,18 +192,18 @@
     check('  切换器旁有一句说明（不必先点一遍才知道各摆法差在哪）',
       sw.ok && String(sw.hint).length > 6, String(sw.hint))
 
-    // ── 状态筛选（2026-10-10 用户要求；2026-10-11 换成「方案 B · 条件标签化」）──────
-    // 用户原话：「看板信息卡墙如果能同时按项目+按状态筛选就好了」「待验收和待办混在一起我眼睛很累」
-    // 「筛选应该随心所欲，随机应变」；改版理由：「点起来很难受，不自然」——
+    // ── 状态筛选（2026-10-10 用户要求；2026-10-11 换成“方案 B · 条件标签化”）──────
+    // 用户原话：“看板信息卡墙如果能同时按项目+按状态筛选就好了”“待验收和待办混在一起我眼睛很累”
+    // “筛选应该随心所欲，随机应变”；改版理由：“点起来很难受，不自然”——
     // 原来是原生 select（点开→再点一项、选完看不到生效的是什么），现在是一点即生效的标签。
     // ⚠ 类名 `.st-filter` **故意保留**（它是"看板有自己的状态筛选"这件事的锚点）。这里验：
     //   ① 触发按钮在；② 点开面板；③ **一次点击**某个状态即生效；④ 出现可点 ✕ 的生效标签；⑤ 点 ✕ 可撤销。
     const stBtn = $('.fbar-filter-btn')
     check('★ 看板顶栏有状态筛选（触发按钮，类名仍是 .st-filter）', !!stBtn,
       stBtn ? String(stBtn.textContent).trim() : '(没找到 .fbar-filter-btn)')
-    // 2026-10-12「看与做分两层」：项目/状态两个独立触发按钮**撤掉了**（功能在筛选浮层里，
-    // 当前值由「生效中」标签承担，点击次数不变）。补这条设计断言 —— 防下一个 AI 以为丢了又加回来。
-    check('「项目」「状态」「到期」三个独立触发按钮已撤（防有人又加回来）',
+    // 2026-10-12“看与做分两层”：项目/状态两个独立触发按钮**撤掉了**（功能在筛选浮层里，
+    // 当前值由“生效中”标签承担，点击次数不变）。补这条设计断言 —— 防下一个 AI 以为丢了又加回来。
+    check('“项目”“状态”“到期”三个独立触发按钮已撤（防有人又加回来）',
       !$('.proj-select') && !$('.st-filter') && !$('.due-filter'),
       'proj=' + !!$('.proj-select') + ' st=' + !!$('.st-filter'))
 
@@ -220,12 +220,12 @@
         opt.click()
         await sleep(600)
         const afterStatuses = filledCols().map((c) => c.getAttribute('data-status'))
-        check('★★ 一次点击「进行中」→ 只剩该状态的分区有卡（其余分区全空）',
+        check('★★ 一次点击“进行中”→ 只剩该状态的分区有卡（其余分区全空）',
           beforeCols > 1 && afterStatuses.length === 1 && afterStatuses[0] === '进行中',
           `before=${beforeCols} after=${JSON.stringify(afterStatuses)}`)
         // 方案 B 的核心价值：**现在筛了什么一眼可见**（老版藏在四个下拉各自的显示值里）
         const chip = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('进行中') >= 0)
-        check('★★ 生效条件出现在「生效中」标签里（这就是"不自然"被治好的地方）', !!chip,
+        check('★★ 生效条件出现在“生效中”标签里（这就是"不自然"被治好的地方）', !!chip,
           $$('.fbar-chip').map((c) => String(c.textContent).trim()).join(' / '))
         const x = chip && chip.querySelector('.fbar-x')
         check('  标签上带 ✕（撤掉不用再打开任何面板）', !!x)
@@ -235,12 +235,12 @@
           check('★ 点 ✕ 就地撤销 → 各分区恢复（筛选可逆，且不要求回头翻下拉）',
             filledCols().length === beforeCols,
             `${filledCols().length} vs ${beforeCols}`)
-          check('  撤销后「生效中」那一行整行消失（不留空壳）',
+          check('  撤销后“生效中”那一行整行消失（不留空壳）',
             $$('.fbar-chip').length === 0, 'chips=' + $$('.fbar-chip').length)
         }
       }
       // 面板要能收起来（不然它会一直占着屏幕）
-      // ⚠ 收起用 Esc，不用找 ✕：**只有「＋筛选」那个浮层有标题栏和 ✕**（内容多的才需要），
+      // ⚠ 收起用 Esc，不用找 ✕：**只有“＋筛选”那个浮层有标题栏和 ✕**（内容多的才需要），
       //   状态/项目/分组/排序这四个是单行 chips，成熟做法就是不给标题栏 —— 靠点外面或 Esc 收。
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await sleep(400)
@@ -248,10 +248,10 @@
     }
 
     // ══ 用户 2026-10-11 第二条驳回 + **2026-10-12 二次驳回** ═══════════════════════
-    // 10-11 原话：「一点筛选顶部直接变肥」「"折叠全部"的文字都飞了」。
-    // 10-12 原话：「现在这个搜索框未免太长太恐怖了，看着很难受。人家浏览器顶上写链接，
+    // 10-11 原话：“一点筛选顶部直接变肥”“"折叠全部"的文字都飞了”。
+    // 10-12 原话：“现在这个搜索框未免太长太恐怖了，看着很难受。人家浏览器顶上写链接，
     //              才需要那么长。**折叠全部按钮的文本都没了，根本认不出来**。
-    //              而且**返回按钮也没了**。另外其实我还想加其他主按钮，比如首页、帮助手册、同步等等。」
+    //              而且**返回按钮也没了**。另外其实我还想加其他主按钮，比如首页、帮助手册、同步等等。”
     // 全部用**几何 / 结构**钉住 —— 这类问题肉眼才看得出来，"元素存在"断言不到。
     {
       const barH0 = $('#bar') ? $('#bar').offsetHeight : -1
@@ -261,37 +261,37 @@
       // 判据三件，缺一不可：
       //   · 计算样式是 nowrap —— 这是"不折行"的**机制**（改了它下次窗口一窄就复发）
       //   · 高度与同排其它按钮一致 —— 折行的直接后果就是比邻居高一截（几何证据）
-      //   · **文案里有「折叠」或「展开」** —— 2026-10-12 暮雨原话「折叠全部按钮的文本都没了，
-      //     根本认不出来」：上一轮收成纯 `⊟` 就是这条钉漏了（只钉了"不折行"，没钉"看得懂"）
+      //   · **文案里有“折叠”或“展开”** —— 2026-10-12 暮雨原话“折叠全部按钮的文本都没了，
+      //     根本认不出来”：上一轮收成纯 `⊟` 就是这条钉漏了（只钉了"不折行"，没钉"看得懂"）
       const foldTxt = foldBtn ? String(foldBtn.textContent).trim() : ''
       const peer = $$('.fbar-btn').find((b) => b.offsetParent !== null)
       const peerH = peer ? Math.round(peer.getBoundingClientRect().height) : -1
-      check('★ 「折叠全部」不折行（用户截图：四个字被压成两行飞了）',
+      check('★ “折叠全部”不折行（用户截图：四个字被压成两行飞了）',
         !!foldBtn && foldWS === 'nowrap' && foldH > 0 && peerH > 0 && Math.abs(foldH - peerH) <= 2,
         `h=${foldH} peer=${peerH} white-space=${foldWS}`)
-      check('★★ 「折叠」按钮**带文字**且一眼可读（2026-10-12：收成纯 ⊟ 被用户驳回"认不出来"）',
+      check('★★ “折叠”按钮**带文字**且一眼可读（2026-10-12：收成纯 ⊟ 被用户驳回"认不出来"）',
         /折叠|展开/.test(foldTxt),
         `text="${foldTxt}"`)
 
-      // ── 2026-10-12 新增：顶栏左侧按钮组（暮雨：「放顶栏左侧，参考 Edge」）─────────
+      // ── 2026-10-12 新增：顶栏左侧按钮组（暮雨：“放顶栏左侧，参考 Edge”）─────────
       // 四个按钮各有断言：返回必须**常驻**（不再 v-if 时有时无）、首页/帮助/同步必须真的可点。
       const backBtn = $('.nav-back')
-      check('★★ 「← 返回」按钮**常驻**（不再 v-if="canGoBack" —— 用户报"返回按钮没了"的真因）',
+      check('★★ “← 返回”按钮**常驻**（不再 v-if="canGoBack" —— 用户报"返回按钮没了"的真因）',
         !!backBtn && backBtn.offsetParent !== null,
         backBtn ? 'text="' + String(backBtn.textContent).trim() + '"' : '(不在 DOM)')
-      check('  没有历史时「← 返回」是 disabled 置灰（还在原位，不是消失）',
+      check('  没有历史时“← 返回”是 disabled 置灰（还在原位，不是消失）',
         !!backBtn && (backBtn.disabled === true || backBtn.classList.contains('disabled')),
         backBtn ? 'disabled=' + backBtn.disabled : '')
       const homeBtn = $('.navgroup .nav-ico-home, #bar .navgroup button[title*="首页"]')
       const helpBtn = $('#bar .navgroup button[title*="帮助"]')
       const syncBtn = $('#bar .navgroup button[title*="同步"]')
-      check('★★ 顶栏有「首页 / 帮助 / 同步」三个入口（2026-10-12 暮雨第 4 条）',
+      check('★★ 顶栏有“首页 / 帮助 / 同步”三个入口（2026-10-12 暮雨第 4 条）',
         !!homeBtn && !!helpBtn && !!syncBtn,
         `home=${!!homeBtn} help=${!!helpBtn} sync=${!!syncBtn}`)
 
       // ── 同步状态胶囊：阶段 + 耗时（2026-10-25 卡 004）────────────────────────
-      // 暮雨原话：「Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
-      //           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。」
+      // 暮雨原话：“Git 同步转圈依然很抽象，能不能搞个进度条或者额外的转圈动画？
+      //           全世界那么多软件没见过这样整个按钮拿去旋转的，太傻了。”
       // ⚠ 这里不写真 git：夹具把 push "按住"，手动喂阶段，再手动结束 ——
       //   否则真 git 几百毫秒就跑完，"进行中"那一帧根本抓不到（这也是以前只能验"点了没"的原因）。
       if (syncBtn) {
@@ -313,16 +313,16 @@
         // ⚠ 必须跨过**一个计时器周期**再断言：只在 150ms 时看，就算阶段是"按时间猜"的
         //   也还没猜到（第一版反例注入到计时器里就是这么漏过去的 —— 断言绿了，行为是错的）。
         await sleep(800)
-        check('★ 还没收到阶段时说「同步中」（不许硬编一个阶段糊弄）',
+        check('★ 还没收到阶段时说“同步中”（不许硬编一个阶段糊弄）',
           /^同步中 \d+s$/.test(capTxt()), capTxt())
-        check('★ 阶段不会被计时器猜出来（跨过一个周期后仍不是「推送」）',
+        check('★ 阶段不会被计时器猜出来（跨过一个周期后仍不是“推送”）',
           capTxt().indexOf('推送') < 0, capTxt())
         const subs = window.__fcTest.emitSyncProgress('push')
         check('★ 阶段流真的订阅上了（主进程报阶段时渲染层有人接）', subs === 1, 'subs=' + subs)
         await sleep(120)
         // 期望值从**真身**算（此刻已过 0.9 秒，秒数可能是 0 或 1）—— 关键是阶段变了，
         // 不写死 0s（写死就是每月一跳的定时炸弹，这里已经踩过一次）
-        check('★★ 主进程报「推送」→ 胶囊立刻显示「推送 Ns」',
+        check('★★ 主进程报“推送”→ 胶囊立刻显示“推送 Ns”',
           /^推送 \d+s$/.test(capTxt()), capTxt())
         check('★ 不编进度：胶囊里没有百分号', capTxt().indexOf('%') < 0)
         check('★ 转的还是**字符**不是按钮本体',
@@ -331,11 +331,11 @@
         await sleep(1200)
         const t2 = capTxt()
         check('★★ 秒数是**真实计时**（1.2 秒后 >= 1s）', /(^|\s)([1-9]\d*)s$/.test(t2), t2)
-        check('★ 阶段不会被时间悄悄改掉（仍是「推送」）', t2.indexOf('推送') >= 0, t2)
+        check('★ 阶段不会被时间悄悄改掉（仍是“推送”）', t2.indexOf('推送') >= 0, t2)
 
         window.__fcTest.releaseSync(true)
         await sleep(450)
-        check('★★ 成功后胶囊变「已同步」', capTxt() === '已同步', capTxt())
+        check('★★ 成功后胶囊变“已同步”', capTxt() === '已同步', capTxt())
         check('★ 图标换成 ✓', glyph() === '✓', 'glyph=' + glyph())
         check('★ 成功态有绿色标记（.sync-ok）', !!$('#bar .navgroup .sync-btn.sync-ok'))
         const toastOk = (($('#toast') || {}).textContent || '')
@@ -348,14 +348,14 @@
         check('★★ 3 秒后回到图标态（胶囊消失，glyph 回 ⟳）',
           capTxt() === '' && glyph() === '⟳', 'cap="' + capTxt() + '" glyph=' + glyph())
 
-        // 失败态：必须说「未同步」，不能糊成成功
+        // 失败态：必须说“未同步”，不能糊成成功
         window.__fcTest.holdSync()
         const syncEl2 = syncEl()
         if (syncEl2) syncEl2.click()
         await sleep(150)
         window.__fcTest.releaseSync(false, '连不上远端（网络或地址不可达）')
         await sleep(450)
-        check('★★ 失败态是「未同步」+ ⚠（绝不显示已同步）',
+        check('★★ 失败态是“未同步”+ ⚠（绝不显示已同步）',
           capTxt() === '未同步' && glyph() === '⚠', 'cap="' + capTxt() + '" glyph=' + glyph())
         check('★ 失败态有红色标记（.sync-bad）', !!$('#bar .navgroup .sync-btn.sync-bad'))
         check('★ 失败也退订了（成功失败都不能漏）', window.__fcTest.syncSubs() === 0)
@@ -367,18 +367,18 @@
           'cap="' + capTxt() + '"')
       }
 
-      // ── 顶栏「刷新」= 真的重读全部数据（2026-10-25 暮雨）─────────────────────
-      // 原话：「顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
-      //        不然用户会以为是第二个同步按钮。」
-      // 三条判据：① 文字里真的有「刷新」两个字（不是纯图标）；② 和左边那个同步是两个按钮；
+      // ── 顶栏“刷新”= 真的重读全部数据（2026-10-25 暮雨）─────────────────────
+      // 原话：“顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
+      //        不然用户会以为是第二个同步按钮。”
+      // 三条判据：① 文字里真的有“刷新”两个字（不是纯图标）；② 和左边那个同步是两个按钮；
       //          ③ 点一下**多份数据**都被重读（不是只刷任务）。
       {
         const refreshBtn = $('#views .refresh-all')
         const txt = refreshBtn ? String(refreshBtn.textContent || '').trim() : ''
-        check('★★ 顶栏有「刷新」按钮', !!refreshBtn, refreshBtn ? '' : '(没找到 #views .refresh-all)')
-        check('★★ 按钮上有**文字**「刷新」（纯图标会被当成第二个同步按钮）',
+        check('★★ 顶栏有“刷新”按钮', !!refreshBtn, refreshBtn ? '' : '(没找到 #views .refresh-all)')
+        check('★★ 按钮上有**文字**“刷新”（纯图标会被当成第二个同步按钮）',
           txt.indexOf('刷新') >= 0, 'text="' + txt + '"')
-        check('★ 它和「同步」是两个不同的按钮（不是同一个换了文案）',
+        check('★ 它和“同步”是两个不同的按钮（不是同一个换了文案）',
           !!refreshBtn && !!syncBtn && refreshBtn !== syncBtn && !refreshBtn.classList.contains('ico'))
         check('  它的 title 说清"这不是同步"',
           !!refreshBtn && (refreshBtn.getAttribute('title') || '').indexOf('不是同步') >= 0,
@@ -399,7 +399,7 @@
             todos: window.__fcTest.callCount('todosList'),
             ideas: window.__fcTest.callCount('ideasList'),
           }
-          check('★★ 点「刷新」= 任务真的被重读', after.tasks > before.tasks,
+          check('★★ 点“刷新”= 任务真的被重读', after.tasks > before.tasks,
             before.tasks + ' → ' + after.tasks)
           check('★★ 日志 / 待办 / 想法也一起重读了（不是只刷任务）',
             after.logs > before.logs && after.todos > before.todos && after.ideas > before.ideas,
@@ -418,7 +418,7 @@
         if (gearBtn) gearBtn.click()
         await sleep(700)
         const navAgent = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('Agent') >= 0)
-        check('★ 设置侧边栏有「Agent」分类', !!navAgent)
+        check('★ 设置侧边栏有“Agent”分类', !!navAgent)
         if (navAgent) {
           navAgent.click()
           await sleep(500)
@@ -426,11 +426,11 @@
             const h = x.querySelector('h4')
             return x.offsetParent !== null && h && (h.textContent || '').indexOf('模型单价') >= 0
           })
-          check('★★ Agent 分类里有「模型单价（可选）」小节', !!sect)
+          check('★★ Agent 分类里有“模型单价（可选）”小节', !!sect)
           if (sect) {
             const st = (sect.textContent || '').replace(/\s+/g, ' ')
-            check('★ 说明写明单位「元 / 百万 tokens」', st.indexOf('元 / 百万 tokens') >= 0, st.slice(0, 90))
-            check('★★ 说明写明「不填就是未折算」与「不内置任何默认价」（口径不许含糊）',
+            check('★ 说明写明单位“元 / 百万 tokens”', st.indexOf('元 / 百万 tokens') >= 0, st.slice(0, 90))
+            check('★★ 说明写明“不填就是未折算”与“不内置任何默认价”（口径不许含糊）',
               st.indexOf('不填就是') >= 0 && st.indexOf('不内置任何默认价') >= 0, st.slice(0, 160))
             const rows0 = $$('#smodal .price-row').length
             check('★ 夹具那一行单价读出来了（deepseek-chat）',
@@ -438,7 +438,7 @@
               || $$('#smodal .price-model').some((i) => (i.value || '').indexOf('deepseek-chat') >= 0), st.slice(0, 120))
 
             const addBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('加一行') >= 0)
-            check('★ 有「＋ 加一行」', !!addBtn)
+            check('★ 有“＋ 加一行”', !!addBtn)
             if (addBtn) {
               addBtn.click()
               await sleep(250)
@@ -459,7 +459,7 @@
                 await sleep(200)
                 const n0 = window.__fcTest.callCount('llmSetPrices')
                 const saveBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('保存单价') >= 0)
-                check('★ 有「保存单价」按钮', !!saveBtn)
+                check('★ 有“保存单价”按钮', !!saveBtn)
                 if (saveBtn) {
                   saveBtn.click()
                   await sleep(600)
@@ -484,15 +484,15 @@
         check('  收尾：设置已关闭', !$('#smodal'))
       }
 
-      // ── 顶栏「更多」：低频页签折叠（2026-10-25 暮雨）────────────────────────
-      // 原话：「帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来……
-      //        最少维持 7 个功能按钮在场。」
-      // 判据：① 那三个默认不在页签行；② 在「更多」里；③ 点它能切过去且按钮显示当前页名。
+      // ── 顶栏“更多”：低频页签折叠（2026-10-25 暮雨）────────────────────────
+      // 原话：“帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来……
+      //        最少维持 7 个功能按钮在场。”
+      // 判据：① 那三个默认不在页签行；② 在“更多”里；③ 点它能切过去且按钮显示当前页名。
       {
         const tabTexts = $$('#views .vbtn').map((b) => (b.textContent || '').trim())
         const moreBtn = $('#views .more-btn')
-        check('★★ 顶栏有「更多」按钮', !!moreBtn, tabTexts.join(' | '))
-        check('★★ 默认收起「技能 / 服务 / 启动台」三个低频页签（不在页签行）',
+        check('★★ 顶栏有“更多”按钮', !!moreBtn, tabTexts.join(' | '))
+        check('★★ 默认收起“技能 / 服务 / 启动台”三个低频页签（不在页签行）',
           tabTexts.every((t) => t.indexOf('技能') < 0 && t.indexOf('服务') < 0 && t.indexOf('启动台') < 0),
           tabTexts.join(' | '))
         check('★ 页签行仍有 >= 7 个页签在场（最少维持 7 个）',
@@ -503,7 +503,7 @@
           moreBtn.click()
           await sleep(500)
           const pop = $('.more-pop')
-          check('★★ 点「更多」弹出被收起的页签', !!pop, pop ? '' : '(没有 .more-pop)')
+          check('★★ 点“更多”弹出被收起的页签', !!pop, pop ? '' : '(没有 .more-pop)')
           const rows = pop ? $$('.more-pop .more-opt') : []
           const labels = rows.map((b) => ((b.querySelector('.more-txt') || b).textContent || '').trim())
           check('★★ 菜单 = 三个页签 + 一条设置入口（四行，不多不少）',
@@ -513,9 +513,9 @@
             JSON.stringify(labels))
 
           // ── 形状（2026-10-25 第二轮，暮雨拿系统菜单截图对比后否掉第一版）─────────
-          // 原话：「收起页签太丑了，底下那坨文本把框挤长而且完全没必要。」
+          // 原话：“收起页签太丑了，底下那坨文本把框挤长而且完全没必要。”
           // 所以这三条钉的是**菜单不是面板**：无标题栏、无说明段落、整体不臃肿。
-          check('★★ 菜单里没有标题栏（旧版「收起的页签」+ ✕ 已删）',
+          check('★★ 菜单里没有标题栏（旧版“收起的页签”+ ✕ 已删）',
             !!pop && !pop.querySelector('.fpop-h') && !pop.querySelector('.fpop-close'))
           check('★★ 菜单里没有底部说明段落（就是它把框撑长的）',
             !!pop && !pop.querySelector('.more-hint')
@@ -553,16 +553,16 @@
             check('★★ 点菜单项真的切过去了（技能页渲染）', !!$('#board.skills-view, .skills-view'),
               '当前 DOM 里没有 .skills-view')
             const moreTxt = ($('#views .more-btn') || {}).textContent || ''
-            check('★★ 停在被收起的页签里时，「更多」按钮显示那一页的名字（不许"不知道自己在哪"）',
+            check('★★ 停在被收起的页签里时，“更多”按钮显示那一页的名字（不许"不知道自己在哪"）',
               moreTxt.indexOf('技能') >= 0, 'more-btn="' + moreTxt.trim() + '"')
             check('  且它是高亮态', !!$('#views .more-btn.on'))
             // 收尾：回看板
             clickText('看板')
             await sleep(600)
-            check('  收尾：回到看板，「更多」按钮恢复成"更多"两个字',
+            check('  收尾：回到看板，“更多”按钮恢复成"更多"两个字',
               (($('#views .more-btn') || {}).textContent || '').indexOf('看板') < 0)
           } else {
-            check('  菜单里有「技能」项', false, '没找到')
+            check('  菜单里有“技能”项', false, '没找到')
           }
 
           // 最后一条：底部那句话改成的菜单项**真能点**（纯文本换成一个入口，不是删了了事）
@@ -571,19 +571,19 @@
             moreBtn2.click()
             await sleep(450)
             const setOpt = $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('顶栏页签设置') >= 0)
-            check('★★ 「顶栏页签设置…」是一条真菜单项（不是干巴巴的说明文字）', !!setOpt,
+            check('★★ “顶栏页签设置…”是一条真菜单项（不是干巴巴的说明文字）', !!setOpt,
               $$('.more-pop .more-opt').map((b) => (b.textContent || '').trim()).join(' | '))
             if (setOpt) {
               setOpt.click()
               await sleep(900)
-              check('★★ 点它 → 设置打开且停在「通用」（能直接勾页签）',
+              check('★★ 点它 → 设置打开且停在“通用”（能直接勾页签）',
                 !!$('#smodal') && $('.sect:not([style*="display: none"]) h4') !== null)
               const generalOn = $$('#smodal .sect').some((x) => {
                 const h = x.querySelector('h4')
                 const vis = x.offsetParent !== null
                 return vis && h && (h.textContent || '').indexOf('顶栏页签') >= 0
               })
-              check('★★ 停的那一页里真能看到「顶栏页签」小节', generalOn)
+              check('★★ 停的那一页里真能看到“顶栏页签”小节', generalOn)
               const closeS = $$('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
               if (closeS) closeS.click()
               await sleep(500)
@@ -593,12 +593,12 @@
         }
       }
 
-      // ── 顶栏「⚠ N 个文件无法解析」（2026-10-23 补：这条此前**零断言**）──────────
+      // ── 顶栏“⚠ N 个文件无法解析”（2026-10-23 补：这条此前**零断言**）──────────
       // 为什么它值得单独立断言：parseTask 失败返 null 被静默跳过 = 任务卡"人间蒸发"，
       // 这是用户几个月后才发现的那类事故。这条红 chip 就是唯一的防线，
       // 而假 preload 的 `parseErrors` 一直恒返回 [] → 防线等于没测。
       const pw = $('#bar .parse-warn')
-      check('★★ 顶栏有「⚠ N 个文件无法解析」红 chip（任务静默消失的唯一防线）',
+      check('★★ 顶栏有“⚠ N 个文件无法解析”红 chip（任务静默消失的唯一防线）',
         !!pw && pw.offsetWidth > 0, pw ? String(pw.textContent).trim() : '(不在 DOM)')
       check('★ 数字来自 parseErrors 的条数（2 个 → 显示 2，不是写死的文案）',
         !!pw && /2\s*个文件无法解析/.test(String(pw.textContent || '')),
@@ -653,15 +653,15 @@
         // 顶栏两条硬要求（2026-10-11 用户两条反馈各自钉一条）：
         //  ① **不许横向溢出** —— 里面的按钮都是 `flex: none`（不许压字折行），溢出的后果不只是
         //     "看着挤"：触发按钮跑到视口外之后，**浮层会跟着锚到视口外**（实测 vw=756 时右边缘 805）。
-        //  ② **筛选控件必须和标题在同一行** —— 用户原话「还损失一个返回按钮，不知道去哪里了」：
+        //  ② **筛选控件必须和标题在同一行** —— 用户原话“还损失一个返回按钮，不知道去哪里了”：
         //     `#bar` 是 flex + `space-between` + wrap，`.ctrls` 一撑宽就整体换行，
-        //     space-between 随即把「← 返回」**甩到上一行最右端**（它没消失，是离开了原位）。
+        //     space-between 随即把“← 返回”**甩到上一行最右端**（它没消失，是离开了原位）。
         // 2026-10-12（重做丙案）新增两条 —— 都是**用户看得见的坏症状**的判据：
         //  ① 搜索框被压到占位文字截断：14 控件时代它只剩一半宽，占位文字在中间被切断；
         //  ② 标题与控件之间一大片空白：`#bar` 是 space-between，`.ctrls` 不撑满就会这样。
         // 2026-10-12 二次驳回**再修一条**：搜索框从"太短被切断"变成"太长太恐怖"——
         //   上一轮写 `flex: 1 1 220px` 让它吸走全部余量（实测 **877px**，暮雨：
-        //   「人家浏览器顶上写链接，才需要那么长」）。**上限**必须钉住：吸满是这版的病。
+        //   “人家浏览器顶上写链接，才需要那么长”）。**上限**必须钉住：吸满是这版的病。
         check('★ 搜索框宽度**上限** 340px（2026-10-12：上一版吸满全宽 877px，用户嫌"太长太恐怖"）',
           (() => {
             const inp = $('.fbar .search')
@@ -694,7 +694,7 @@
           })())
         // ── 自然语言搜索（2026-10-23 补：这条路此前**一条断言都没有**）────────────
         // 桩 `naturalQuery` 一直返回 `[]`，而 App 读的是 `result.tasks` ——
-        // 所以「回车搜 #标签 @项目」从头到尾没被验过：真调没调、参数对不对、
+        // 所以“回车搜 #标签 @项目”从头到尾没被验过：真调没调、参数对不对、
         // 结果有没有真的把板子收窄，三件事全是空白。
         {
           const sin = $('.fbar .search')
@@ -712,7 +712,7 @@
           const nqArgs = (window.__fcTest.calls().filter((c) => c.name === 'naturalQuery').pop() || {}).args || []
           check('★★ 原文整串传下去（解析在主进程，界面不许自己拆 #标签 @项目）',
             nqArgs[0] === '#bug @demo', JSON.stringify(nqArgs))
-          check('★ 「含归档」开关一起传（此前主进程硬跳过 archive，勾了也搜不到）',
+          check('★ “含归档”开关一起传（此前主进程硬跳过 archive，勾了也搜不到）',
             !!nqArgs[1] && typeof nqArgs[1].includeArchive === 'boolean', JSON.stringify(nqArgs[1]))
           check('★★ 结果真的收窄板子（只剩主进程返回的那张卡）',
             await waitFor(() => $$('#board .card, #board .task-card, #board .tcard').length === 1, 4000, '1 张卡'),
@@ -752,7 +752,7 @@
         // 旧版把三件事塞进一条，其中"筛选控件与标题同排"在**窄视口**下必然为假 ——
         // 于是这条长期红着（`长期红 = 没保护`）。而真正的回归项只有：
         //   ① 不许横向溢出
-        //   ② 左侧按钮组与标题必须同排（用户原话「还损失一个返回按钮，不知道去哪里了」
+        //   ② 左侧按钮组与标题必须同排（用户原话“还损失一个返回按钮，不知道去哪里了”
         //      —— 那不是消失，是被 space-between 甩到了别处）
         //   ③ **屏宽真放得下时**，筛选控件也必须同排（放不下时整行换行是既定行为，不是回归）
         // ③ 的"放得下"用**实测宽度**算，不用魔法常数：nav + title + ctrls 内容宽 + 内边距/间距。
@@ -774,7 +774,7 @@
           }
         })()
 
-        check('★★ 顶栏不横向溢出 且 左侧按钮组与标题**同一行**（否则「← 返回」会被甩到别处）',
+        check('★★ 顶栏不横向溢出 且 左侧按钮组与标题**同一行**（否则“← 返回”会被甩到别处）',
           !!barGeom && barGeom.noOverflow && barGeom.navSameRow,
           barGeom ? `scrollWidth/clientWidth 或 navTop 不合：${JSON.stringify(barGeom)}` : 'no bar')
 
@@ -799,7 +799,7 @@
         await sleep(300)
         check('★ Esc 也能关（无障碍原语自带；手搓版没有这个）', !$('.fpop'))
 
-        // ✕ 按钮只装在内容最多的「＋筛选」浮层上（其余四个是单行 chips，不给标题栏）
+        // ✕ 按钮只装在内容最多的“＋筛选”浮层上（其余四个是单行 chips，不给标题栏）
         const filterBtn = $('.fbar-filter-btn')
         if (filterBtn) {
           filterBtn.click(); await sleep(300)
@@ -825,7 +825,7 @@
       if (gOpt) {
         gOpt.click()
         await sleep(500)
-        check('★ 一次点击切到「按项目」分组，按钮文案跟着变',
+        check('★ 一次点击切到“按项目”分组，按钮文案跟着变',
           (groupBtn.textContent || '').indexOf('按项目') >= 0,
           String(groupBtn.textContent).trim())
         // ⚠ 切回原状时必须**先收浮层再点触发按钮**：触发按钮是 toggle，
@@ -835,7 +835,7 @@
         await sleep(320)
         groupBtn.click(); await sleep(320)
         const back = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === '按状态')
-        check('  能从面板切回「按状态」（分组是可逆的）', !!back)
+        check('  能从面板切回“按状态”（分组是可逆的）', !!back)
         if (back) back.click()
         await sleep(450)
         check('★ 结果：分组回到按状态（按钮上看得见），后面的按状态列断言才成立',
@@ -847,14 +847,14 @@
 
     // ── 信息卡墙（2026-10-10，卡 20261010-003）──────────────────────────────
     // 首版直接把 filteredTasks 铺成网格 → **分组整个丢失**，一百多张卡糊成一面没有结构的墙
-    // （用户截图反馈「压迫感十足」，且选了「按项目」不生效）。下面是修复后的**浏览器级**行为：
+    // （用户截图反馈“压迫感十足”，且选了“按项目”不生效）。下面是修复后的**浏览器级**行为：
     // 先分区、区内网格、每张卡带 ID、开关默认关且真的过滤。跑完这一段要切回列视图。
     const clickVsb = (txt) => {
       const b = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf(txt) >= 0)
       if (b) b.click()
       return !!b
     }
-    check('能切到「信息卡墙」', clickVsb('信息卡墙'))
+    check('能切到“信息卡墙”', clickVsb('信息卡墙'))
     await sleep(500)
 
     const wall = (() => {
@@ -868,16 +868,16 @@
         switcher: !!$('.pagehead .pvw-switch'),
       }
     })()
-    check('★ 信息卡墙是「分区 + 区内网格」，不是一个根容器平铺到底',
+    check('★ 信息卡墙是“分区 + 区内网格”，不是一个根容器平铺到底',
       wall.ok && wall.groups >= 1 && wall.heads === wall.groups, JSON.stringify(wall))
     check('★ 每张卡都带任务 ID（卡 20261010-003 的核心承诺）',
       wall.cards > 0 && wall.ids === wall.cards, JSON.stringify(wall))
-    check('★ 卡片墙专属「只看未完成」开关在页头',
+    check('★ 卡片墙专属“只看未完成”开关在页头',
       wall.switcher, JSON.stringify(wall))
 
-    // 开关真的过滤 —— **用「归档」页签验**：活跃区的夹具里没有已完成任务
+    // 开关真的过滤 —— **用“归档”页签验**：活跃区的夹具里没有已完成任务
     // （在那儿测会得到 before=after，那是用例无对象可过滤，不是产品没生效）；
-    // 归档区清一色「完成」态，正好同时验「过滤生效」与「全被过滤时的提示语」。
+    // 归档区清一色“完成”态，正好同时验“过滤生效”与“全被过滤时的提示语”。
     clickText('归档')
     await sleep(700)
     const archBefore = $$('.pvwall .pvcard').length
@@ -885,7 +885,7 @@
     if (chk) chk.click()
     await sleep(700)
     const archAfter = $$('.pvwall .pvcard').length
-    check('★ 「只看未完成」真的会过滤：归档区（全是完成态）勾选后一张不剩',
+    check('★ “只看未完成”真的会过滤：归档区（全是完成态）勾选后一张不剩',
       archBefore > 0 && archAfter === 0, `before=${archBefore} after=${archAfter}`)
     check('★ 全被过滤掉时给的是提示语，不是一片空白',
       !!$('.pvwall .pvw-allhidden'),
@@ -895,9 +895,9 @@
     check('  取消勾选后归档区的卡回来了', $$('.pvwall .pvcard').length === archBefore,
       `${$$('.pvwall .pvcard').length} vs ${archBefore}`)
 
-    // ══ 归档 · 按状态快选（2026-10-17 暮雨第 1 条：「我想一键全选已完成的归档任务，然后删掉它们」）══
+    // ══ 归档 · 按状态快选（2026-10-17 暮雨第 1 条：“我想一键全选已完成的归档任务，然后删掉它们”）══
     // 判据：点一下要**真的全选**（不是只选一张，也不是只开多选模式不选东西）。
-    check('★ 归档页有「按状态快选」工具条', !!$('.aq-bar'))
+    check('★ 归档页有“按状态快选”工具条', !!$('.aq-bar'))
     const aqDone = $$('.aq-bar .aq-btn').find((b) => (b.textContent || '').indexOf('完成') >= 0)
     check('  工具条上带该状态的条数（完成档有数、可点）',
       !!aqDone && !aqDone.disabled, aqDone ? aqDone.textContent : '(没有完成档按钮)')
@@ -913,7 +913,7 @@
       // ── 2026-10-17 暮雨第 2 条：快选必须**叠加**（首版整桶替换 = 点一组冲一组）──
       const aqRej = $$('.aq-bar .aq-btn').find((b) => (b.textContent || '').indexOf('驳回') >= 0)
       const rejN = aqRej && !aqRej.disabled ? parseInt(((aqRej.querySelector('.aq-n') || {}).textContent || '0').trim(), 10) : 0
-      check('  叠加前提：归档区有两种状态（假数据补了「驳回」一条）', rejN > 0, 'rejN=' + rejN)
+      check('  叠加前提：归档区有两种状态（假数据补了“驳回”一条）', rejN > 0, 'rejN=' + rejN)
       if (rejN > 0 && aqRej) {
         aqRej.click()
         await sleep(300)
@@ -935,9 +935,9 @@
           !aqDone.classList.contains('on') && aqRej.classList.contains('on'),
           'done.on=' + aqDone.classList.contains('on') + ' rej.on=' + aqRej.classList.contains('on'))
 
-        // ── 邮箱式「全选」方框：三态（勾 / 部分选中呈横线 / 空）──
+        // ── 邮箱式“全选”方框：三态（勾 / 部分选中呈横线 / 空）──
         const master = $('.aq-bar .aq-master input')
-        check('★ 工具条开头有「全选」方框', !!master)
+        check('★ 工具条开头有“全选”方框', !!master)
         check('  部分选中时方框呈横线（indeterminate）且不勾',
           !!master && master.indeterminate === true && master.checked === false,
           'indeterminate=' + (master || {}).indeterminate + ' checked=' + (master || {}).checked)
@@ -965,7 +965,7 @@
       check('  取消后退出多选（不残留选中）', !$('.batch-bar'))
     }
 
-    // ⚠ 后面的断言都建立在「看板 + 列视图」上，这里必须切回去
+    // ⚠ 后面的断言都建立在“看板 + 列视图”上，这里必须切回去
     //    （页签切换**不会**改摆法 —— 摆法是记住的，所以要显式切回列视图）
     clickText('看板')
     await sleep(700)
@@ -982,10 +982,10 @@
     check('  默认渲染的是列视图（有 .col 与卡片，没有 .board-list）',
       colState.cols > 0 && colState.cards > 0 && colState.list === 0, JSON.stringify(colState))
 
-    // ══ 看板右键新建（2026-10-17 暮雨第 3 条：右键列空白 → 「在此列新建任务」）══
+    // ══ 看板右键新建（2026-10-17 暮雨第 3 条：右键列空白 → “在此列新建任务”）══
     // 判据：① 分区空白处右键真的弹菜单（以前什么都没有，用户测试归档时被卡住）；
-    //       ② 点「在此列新建任务」弹的是新建弹窗，且状态预选 = 右键的那一列（不是永远「待办」）；
-    //       ③ 指针落在卡片上时不抢卡片的右键菜单（列菜单里不该出现「新建」）。
+    //       ② 点“在此列新建任务”弹的是新建弹窗，且状态预选 = 右键的那一列（不是永远“待办”）；
+    //       ③ 指针落在卡片上时不抢卡片的右键菜单（列菜单里不该出现“新建”）。
     {
       const col0 = $$('#board .col').filter((c) => c.querySelector('[data-id]'))[0]
       check('★ 列视图有可右键的分区（有卡的一列）', !!col0,
@@ -996,7 +996,7 @@
         await sleep(300)
         const menu = $('.ctx-menu.ctx-other')
         const newItem = menu ? $$('.ctx-menu.ctx-other button').find((b) => (b.textContent || '').indexOf('在此列新建任务') >= 0) : null
-        check('★★ 列空白处右键 = 弹出分区菜单（带「在此列新建任务」）',
+        check('★★ 列空白处右键 = 弹出分区菜单（带“在此列新建任务”）',
           !!menu && !!newItem,
           menu ? (menu.textContent || '').slice(0, 60) : '(菜单没出现)')
         if (newItem) {
@@ -1006,18 +1006,18 @@
           const h3 = overlay ? overlay.querySelector('h3') : null
           // ⚠ 状态下拉在弹窗里是**动态生成**的（v-for spec，没有 id/class 标注），
           //   原来按"value 为空或属于状态列表"去找会命中项目/优先级那类空值 select（2026-10-17 实测：
-          //   报 select= want=待办，其实找错了元素）。改成按**选项集**认：状态下拉必然含「待验收」。
+          //   报 select= want=待办，其实找错了元素）。改成按**选项集**认：状态下拉必然含“待验收”。
           const sel = overlay
             ? Array.prototype.slice.call(overlay.querySelectorAll('select')).filter((s) =>
                 Array.prototype.slice.call(s.options || []).some((o) => (o.textContent || '').trim() === '待验收'))[0]
             : null
-          check('★★ 点「在此列新建任务」= 弹新建弹窗（不是编辑）',
+          check('★★ 点“在此列新建任务”= 弹新建弹窗（不是编辑）',
             !!overlay && !!h3 && (h3.textContent || '').indexOf('新建任务') >= 0,
             h3 ? h3.textContent : '(弹窗没出现)')
-          check('★★ 状态预选 = 右键的那一列（不是写死的「待办」）',
+          check('★★ 状态预选 = 右键的那一列（不是写死的“待办”）',
             !!sel && sel.value === want,
             'select=' + (sel ? sel.value : '(没有状态下拉)') + ' want=' + want)
-          // 收尾：点弹窗「取消」关掉（弹窗只有 mousedown.self / 取消两个出口，没有 Esc），
+          // 收尾：点弹窗“取消”关掉（弹窗只有 mousedown.self / 取消两个出口，没有 Esc），
           // 别让草稿弹窗盖住后面的断言
           const cancelBtn = overlay ? $$('#modal-overlay button').find((b) => (b.textContent || '').trim() === '取消') : null
           if (cancelBtn) { cancelBtn.click(); await sleep(300) }
@@ -1044,8 +1044,8 @@
       }
     }
 
-    // ══ 看板 · 批量改期（2026-10-18 Bundle A「超期任务批量改期」）══════════
-    // 典型路径：顶栏日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → 一次推走。
+    // ══ 看板 · 批量改期（2026-10-18 Bundle A“超期任务批量改期”）══════════
+    // 典型路径：顶栏日期筛选“超期”→ 批量模式 → 全选 → 📅 改期 → 一次推走。
     // 这里用真点击验 UI 交互链：按钮在 → 面板展开且预填今天+7 → 快捷 +30 天 →
     // 确定改期 → mock 真改 store（batchEdit 已记录调用）→ toast 说清数量 → 退多选。
     // 数据层逐字落盘由 e2e-task-fields 的 batchEdit 用例钉死（无头里 IPC 是 mock）。
@@ -1057,13 +1057,13 @@
       const plus30 = ymd(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 30))
 
       const boardBatchBtn = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
-      check('★ 看板页头有「任务多选」入口', !!boardBatchBtn, boardBatchBtn ? '' : '(没找到 .batch-mode-btn)')
+      check('★ 看板页头有“任务多选”入口', !!boardBatchBtn, boardBatchBtn ? '' : '(没找到 .batch-mode-btn)')
       if (boardBatchBtn) {
         boardBatchBtn.click()
         await sleep(400)
         const bar = $('.batch-bar')
         const postponeBtn = bar ? $$('.batch-bar button').find((b) => (b.textContent || '').indexOf('改期') >= 0) : null
-        check('★★ 多选模式批量栏里有「📅 改期」', !!bar && !!postponeBtn,
+        check('★★ 多选模式批量栏里有“📅 改期”', !!bar && !!postponeBtn,
           bar ? '(批量栏在但没有改期按钮)' : '(批量栏没出现)')
 
         if (postponeBtn) {
@@ -1071,7 +1071,7 @@
           await sleep(300)
           const panel = $('.batch-bar .bp-panel')
           const dateInp = panel ? panel.querySelector('input[type="date"]') : null
-          check('★★ 点「改期」= 面板展开且日期预填「今天+7」',
+          check('★★ 点“改期”= 面板展开且日期预填“今天+7”',
             !!panel && !!dateInp && dateInp.value === plus7,
             'value=' + (dateInp ? dateInp.value : '(没有日期框)') + ' want=' + plus7)
 
@@ -1086,7 +1086,7 @@
               cnt ? cnt.textContent : '(批量栏没了)')
 
             const confirmBtn = $$('.bp-panel button').find((b) => (b.textContent || '').trim() === '确定改期')
-            check('  「确定改期」按钮在', !!confirmBtn)
+            check('  “确定改期”按钮在', !!confirmBtn)
             if (confirmBtn) {
               confirmBtn.click()
               await sleep(700)
@@ -1102,7 +1102,7 @@
           }
         }
 
-        // 第二轮：快捷「+30 天」= 不经日期框直接执行（最高频：整体推一个月）
+        // 第二轮：快捷“+30 天”= 不经日期框直接执行（最高频：整体推一个月）
         // 第一轮改完已自动退多选，这里重开一轮：多选 → 勾卡 → 改期面板 → +30 天
         const boardBatchBtn2 = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
         if (boardBatchBtn2) {
@@ -1117,11 +1117,11 @@
               pBtn2.click()
               await sleep(300)
               const quick = $$('.bp-panel button').find((b) => (b.textContent || '').trim() === '+30 天')
-              check('  快捷「+30 天」在面板上', !!quick)
+              check('  快捷“+30 天”在面板上', !!quick)
               if (quick) {
                 quick.click()
                 await sleep(700)
-                check('★★ 点「+30 天」= 直接改期到今天+30（不经确定，最高频路径）',
+                check('★★ 点“+30 天”= 直接改期到今天+30（不经确定，最高频路径）',
                   window.__fcTest.calls().some((c) => c.name === 'batchEdit' && c.args && c.args[1] && c.args[1].deadline === plus30),
                   JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'batchEdit').map((c) => c.args)))
                 check('  快捷改完同样退多选', !$('.batch-bar'))
@@ -1146,7 +1146,7 @@
     }
 
     // ══ 看板 · 分区头整组勾选（2026-10-25 暮雨第 11 条）══════════════════
-    // 原话：「一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点」。
+    // 原话：“一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点”。
     // 判据：点某分区的组选框 = 只选中该组；其他组不受影响；再点一次 = 只取消该组。
     {
       const batchBtn = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
@@ -1157,7 +1157,7 @@
         const cols = $$('#board .col')
         const nonEmpty = cols.filter((c) => c.querySelectorAll('.card[data-id]').length > 0)
         const withBox = nonEmpty.filter((c) => c.querySelector('h3 .grp-chk input'))
-        check('★★ 多选模式下「每个有卡的分区头」都出现组选框',
+        check('★★ 多选模式下“每个有卡的分区头”都出现组选框',
           nonEmpty.length > 0 && withBox.length === nonEmpty.length,
           '有框 ' + withBox.length + ' / 有卡分区 ' + nonEmpty.length)
 
@@ -1198,7 +1198,7 @@
     }
 
     // 切列表视图
-    check('★ 能点到「列表视图」', (() => {
+    check('★ 能点到“列表视图”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('列表视图') >= 0)
       if (!b) return false
       b.click(); return true
@@ -1294,7 +1294,7 @@
     })(), String((() => { try { return localStorage.getItem('fc_board_view') } catch (e) { return '(localStorage 不可用)' } })()))
 
     // ══ 待办 · 多视图 ══════════════════════════════════════════════════
-    check('能切到「待办」页签', clickText('待办'))
+    check('能切到“待办”页签', clickText('待办'))
     await sleep(400)
 
     const tsw = (() => {
@@ -1316,8 +1316,8 @@
       return !!h && !/列视图/.test(h.textContent)
     })())
 
-    // 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 入口只剩「＋ 新建待办」一个
-    check('★ 快速小框已移除，工具栏只剩唯一入口「＋ 新建待办」',
+    // 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 入口只剩“＋ 新建待办”一个
+    check('★ 快速小框已移除，工具栏只剩唯一入口“＋ 新建待办”',
       !$('main.todos-view .todos-ctrls input') &&
       $$('main.todos-view .todos-ctrls button').filter((b) => b.textContent.indexOf('新建待办') >= 0).length === 1 &&
       !$$('main.todos-view .todos-ctrls button').some((b) => b.textContent.indexOf('添加') >= 0))
@@ -1340,7 +1340,7 @@
     check('  造出一条长标题待办（网格断言就位）',
       await waitFor(() => $$('main.todos-view .todo-item').some((it) => (it.textContent || '').indexOf('最多三行不截断') >= 0), 5000, '长标题待办'))
 
-    // ══ 待办的「📅 指派到期日」→ 真打开指派弹窗（2026-10-23 补）══════════════════
+    // ══ 待办的“📅 指派到期日”→ 真打开指派弹窗（2026-10-23 补）══════════════════
     // 这条断言是被真事逼出来的：抽 calendar composable 时把 `parseCalDate` 的 import
     // 一起删了，而**只有这条路径**（openCalAssignTodo）还在用它。
     // 结果：无头断言 686/0 全绿、真 Electron 真点击红 2 条（ReferenceError）。
@@ -1348,7 +1348,7 @@
     const assignDiag = await (async () => {
       // 列表是异步拉的 → 等按钮出现，别用"此刻没看到"当结论
       // ⚠ waitFor 返回的是**布尔**，不是元素 —— 直接 `btn.click()` 会炸
-      //   「btn.click is not a function」（2026-10-23 踩过）。等到了再取一次。
+      //   “btn.click is not a function”（2026-10-23 踩过）。等到了再取一次。
       const appeared = await waitFor(() => !!$('main.todos-view .todo-assign'), 4000, 'todo-assign')
       if (!appeared) return { err: '没有 .todo-assign' }
       const btn = $('main.todos-view .todo-assign')
@@ -1369,14 +1369,14 @@
       }
       return d
     })()
-    check('★★ 待办上的 📅 能真打开「指派时间」弹窗（parseCalDate 只在这条路径上用）',
+    check('★★ 待办上的 📅 能真打开“指派时间”弹窗（parseCalDate 只在这条路径上用）',
       assignDiag && assignDiag.modal === true, JSON.stringify(assignDiag))
     check('  关掉之后弹窗真的没了（不然下一个断言会在遮罩上面点空）',
       !$('#cal-assign-modal'))
 
 
-    // ══ 待办的**可选到期时间**（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
-    //    如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）══════════════════════════
+    // ══ 待办的**可选到期时间**（2026-10-12 暮雨：“待办只有到期日，建议再加一个可选的时间字段。
+    //    如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39”）══════════════════════════
     // 四件事必须同时成立，缺一条这个功能就是"看着有、用不了"：
     //   ① 编辑弹窗里真有时间输入框；② 保存时 dueTime **真的传下去**（不是只改界面）；
     //   ③ 列表上**看得见**时分；④ 能清空（填错了要能去掉 —— 清空 = 字段消失，不是存空串）。
@@ -1384,7 +1384,7 @@
       const nb2 = $$('main.todos-view .todos-ctrls button').find((b) => b.textContent.indexOf('新建待办') >= 0)
       if (nb2) nb2.click()
       const opened = await waitFor(() => !!$('#todo-edit-modal'), 4000, '时间字段用的新建弹窗')
-      check('★ 待办弹窗里有「时间（可选）」输入框（2026-10-12 新增）',
+      check('★ 待办弹窗里有“时间（可选）”输入框（2026-10-12 新增）',
         opened && !!$('#todo-edit-modal input[type="time"]'),
         'modal=' + opened + ' timeInput=' + !!$('#todo-edit-modal input[type="time"]'))
       if (opened) {
@@ -1451,9 +1451,9 @@
       }
     }
 
-    // ── 待办行＝两行卡（2026-09-29 用户拍板：「待办行改成两行卡」）──────────
+    // ── 待办行＝两行卡（2026-09-29 用户拍板：“待办行改成两行卡”）──────────
     // 判据：上行标题、下行元信息；标题占满整行；行尾三枚按钮收进一个动作区。
-    // 顺带钉住 027 卡点名的「改」字按钮 —— 它此前**只有 opacity + font-size**，
+    // 顺带钉住 027 卡点名的“改”字按钮 —— 它此前**只有 opacity + font-size**，
     // 于是 border/background/padding 全靠浏览器默认值（灰底方框 + 黑字）。
     const row2 = (() => {
       const items = $$('main.todos-view .todos-list .todo-item')
@@ -1484,10 +1484,10 @@
     })()
     check('★ 待办行是两行卡：上行标题、下行元信息（优先级/项目/到期）',
       !row2.err && row2.lines >= 2 && !!row2.pri && row2.pri.y > row2.ttl.y + 2, JSON.stringify(row2))
-    // ⚠ 判据在 2026-10-11 改过一次，原因值得记：原判据是「标题**已用**宽度 > 卡片宽 50%」，
+    // ⚠ 判据在 2026-10-11 改过一次，原因值得记：原判据是“标题**已用**宽度 > 卡片宽 50%”，
     //   但那是个**视口相关的近似** —— `.todo-title` 不换行、宽度随文字走（不是 flex:1），
     //   于是宽窗口下长标题也才占 46% → 同一条断言在窗口宽 756 时绿、宽 1440 时红。
-    //   真正要守的是「标题这一行**不被按钮挤**」= 它的**可用宽度**（动作区左边缘 − 标题左边缘）
+    //   真正要守的是“标题这一行**不被按钮挤**”= 它的**可用宽度**（动作区左边缘 − 标题左边缘）
     //   占卡片的大头，且标题确实没压进动作区。这个判据与视口宽度无关。
     const availW = row2.acts ? row2.acts.x - row2.ttl.x : 0
     check('  标题占满整行（不再和一堆按钮抢宽度 —— 这正是"两行卡"的动因）',
@@ -1504,12 +1504,12 @@
       && Math.abs(row2.pri.x - row2.meta.x) < 2 && row2.metaMb === '0px',
       JSON.stringify({ dir: row2.metaDir, mb: row2.metaMb, meta: row2.meta, pri: row2.pri }))
 
-    check('★ 能点到「卡片网格」', (() => {
+    check('★ 能点到“卡片网格”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('卡片网格') >= 0)
       if (!b) return false
       b.click(); return true
     })())
-    check('★ 卡片网格真的渲染出来（033 要的「方块卡片式」）',
+    check('★ 卡片网格真的渲染出来（033 要的“方块卡片式”）',
       await waitFor(() => !!$('main.todos-view .todos-list.as-grid'), 5000, 'as-grid'))
 
     const cardLayout = (() => {
@@ -1567,7 +1567,7 @@
       if (b) b.click()
     })()
     await sleep(250)
-    check('★★ 族1：待办改过内容点「取消」不静默关（confirm 拦下，弹窗仍在）',
+    check('★★ 族1：待办改过内容点“取消”不静默关（confirm 拦下，弹窗仍在）',
       !!$('#todo-edit-modal') && _confirmLog.length >= 1,
       'modal=' + !!$('#todo-edit-modal') + ' confirms=' + JSON.stringify(_confirmLog))
     window.confirm = () => true
@@ -1585,7 +1585,7 @@
     window.confirm = _origConfirm
 
     // ── 族2（2026-10-11 用户第 3 条）：文本框里按住拖选、光标滑出弹窗再松手 → 不许关 ──
-    // 真因：`click` 的目标是「按下点与松开点的最近公共祖先」＝遮罩，于是 `@click.self`
+    // 真因：`click` 的目标是“按下点与松开点的最近公共祖先”＝遮罩，于是 `@click.self`
     // 判定为"点了遮罩"→ 弹窗整个关掉、草稿全丢（用户累计触发十几次）。
     // 修法：遮罩关闭手势换成 `@mousedown.self`（只在**按下那一刻**光标就在遮罩上才触发）。
     ;(() => { const t = $('main.todos-view .todos-list.as-grid .todo-title'); if (t) t.click() })()
@@ -1638,12 +1638,12 @@
       await waitFor(() => window.__fcTest.prefs().fc_board_view === 'cols', 4000, 'prefs 回 cols'),
       JSON.stringify(window.__fcTest.prefs()))
 
-    // ══ 待办的筛选 / 排序 / 统计（2026-10-23 补：把「只看未完成」整段注释掉都全绿，
+    // ══ 待办的筛选 / 排序 / 统计（2026-10-23 补：把“只看未完成”整段注释掉都全绿，
     //    说明这三条路径此前**零断言**。勾选/撤销/多选/编辑都有，唯独它们没有。）══
     {
       const ago = (n) => new Date(Date.now() - n * 86400000).toISOString()
       const dstr = (n) => ago(n).slice(0, 10)
-      // ⚠ 必须备份并还原：这一段后面还有「网格/编辑弹窗/勾选写回」一整套待办断言，
+      // ⚠ 必须备份并还原：这一段后面还有“网格/编辑弹窗/勾选写回”一整套待办断言，
       //   它们依赖前文建出来的待办。我第一版收尾写 `setTodos([])`，直接把它们全打红（706/16）。
       const todosBackup = JSON.parse(JSON.stringify(window.__fcTest.todos()))
       window.__fcTest.setTodos([
@@ -1671,22 +1671,22 @@
       check('前置：三张卡都在（否则下面几条会在空列表上假绿）',
         titles().length === 3, 'n=' + titles().length)
       await pick('active')
-      check('★★ 筛选「未完成」→ 只剩 2 张（已完成那张被筛掉）',
+      check('★★ 筛选“未完成”→ 只剩 2 张（已完成那张被筛掉）',
         await waitFor(() => titles().length === 2, 3000, '未完成 2'),
         JSON.stringify(titles()))
-      check('★ 遮住的条数明说（当前筛选遮住 1 条）+ 给「清除筛选」',
+      check('★ 遮住的条数明说（当前筛选遮住 1 条）+ 给“清除筛选”',
         /遮住 1 条/.test(stats()) && !!$('main.todos-view .todos-clear'), stats())
       await pick('done')
-      check('★★ 筛选「已完成」→ 只剩 1 张', await waitFor(() => titles().length === 1, 3000, '已完成 1'),
+      check('★★ 筛选“已完成”→ 只剩 1 张', await waitFor(() => titles().length === 1, 3000, '已完成 1'),
         JSON.stringify(titles()))
       await pick('all')
-      check('  切回「全部」→ 3 张都回来', await waitFor(() => titles().length === 3, 3000, '全部 3'),
+      check('  切回“全部”→ 3 张都回来', await waitFor(() => titles().length === 3, 3000, '全部 3'),
         JSON.stringify(titles()))
-      // 排序：优先级从高到低（前两张都是「高」，第三张是「低」）
+      // 排序：优先级从高到低（前两张都是“高”，第三张是“低”）
       await pick('priority')
       await sleep(250)
       const t3 = $$('main.todos-view .todo-item')
-      check('★★ 排序「优先级从高到低」：最后一张一定是「低」那条（排序真生效，不是摆设）',
+      check('★★ 排序“优先级从高到低”：最后一张一定是“低”那条（排序真生效，不是摆设）',
         t3.length === 3 && (t3[2].textContent || '').indexOf('已完成的低') >= 0,
         JSON.stringify(t3.map((x) => (x.textContent || '').slice(0, 14))))
       await pick('default')
@@ -1695,12 +1695,12 @@
       clickText('看板'); await sleep(300)
     }
 
-    // ══ 想法（2026-10-22 · 暮雨：「随手记一个念头，之后决定做/不做/搁置，
-    //    现有待办、日志、任务都放不下」）══════════════════════════════════
+    // ══ 想法（2026-10-22 · 暮雨：“随手记一个念头，之后决定做/不做/搁置，
+    //    现有待办、日志、任务都放不下”）══════════════════════════════════
     // 这条功能的价值不在"能记"，而在**边界**：它不许影响待办/任务/逾期/阻塞。
-    // 所以断言分两半 —— 前半：能记、能决定；后半：点「做」之后**待办里真多了一条**
+    // 所以断言分两半 —— 前半：能记、能决定；后半：点“做”之后**待办里真多了一条**
     // （只改状态不算，那正是主进程刻意拦掉的那条假账路）。
-    check('★ 页签行里有「想法」（念头有地方去）',
+    check('★ 页签行里有“想法”（念头有地方去）',
       $$('#views .vbtn').some((b) => (b.textContent || '').trim() === '想法'),
       JSON.stringify($$('#views .vbtn').map((b) => (b.textContent || '').trim())))
     clickText('想法')
@@ -1730,7 +1730,7 @@
     })())
     check('★ 主角是那个输入框（随手记，不是填表）',
       !!$('#board.ideas-view textarea.ideas-in'))
-    check('★★ 空输入时「记下来」是禁用的（不许存空念头）', (() => {
+    check('★★ 空输入时“记下来”是禁用的（不许存空念头）', (() => {
       const b = $('#board.ideas-view .ideas-save')
       return !!b && b.disabled === true
     })())
@@ -1738,7 +1738,7 @@
       const heads = $$('#board.ideas-view .ideas-sec-h').map((x) => (x.textContent || '').replace(/\s+/g, ' '))
       return heads.length === 2 && /还没决定 1/.test(heads[0]) && /已经有结论 2/.test(heads[1])
     })(), JSON.stringify($$('#board.ideas-view .ideas-sec-h').map((x) => (x.textContent || '').replace(/\s+/g, ' '))))
-    check('★★ 「已经有结论」默认收起（这一页的主角是还没决定的那堆，不是历史账）',
+    check('★★ “已经有结论”默认收起（这一页的主角是还没决定的那堆，不是历史账）',
       $$('#board.ideas-view .idea-decided').length === 0)
     check('★ 念头上没有优先级、没有截止日（加了就又变待办了）', (() => {
       const t = ($('#board.ideas-view .ideas-sec .idea') || {}).textContent || ''
@@ -1759,7 +1759,7 @@
       const hit = await waitFor(() => window.__fcTest.callCount('ideasAdd') > n0, 4000, 'ideasAdd')
       return { hit, wasDisabled, args: (window.__fcTest.calls().filter((c) => c.name === 'ideasAdd').pop() || {}).args }
     })()
-    check('★ 有内容时「记下来」才可点', ideaRes.wasDisabled === false, JSON.stringify(ideaRes))
+    check('★ 有内容时“记下来”才可点', ideaRes.wasDisabled === false, JSON.stringify(ideaRes))
     check('★★ 真调 ideasAdd，且传的是**去掉首尾空白的原文**（界面不替用户改写念头）',
       ideaRes.hit && ideaRes.args && ideaRes.args[0] === '给想法页加个快捷键', JSON.stringify(ideaRes.args))
     check('★★ 存下之后输入框清空（没清空 = 用户会以为没存上，或者连点存两条）',
@@ -1769,7 +1769,7 @@
       await waitFor(() => $$('#board.ideas-view .ideas-sec .idea').length === 2, 4000, '待定 2 条'),
       String($$('#board.ideas-view .ideas-sec .idea').length))
 
-    // ── 「做」= 立项 = 待办里**真多一条**（这一条是整块功能的核心）──
+    // ── “做”= 立项 = 待办里**真多一条**（这一条是整块功能的核心）──
     const doRes = await (async () => {
       const todosBefore = window.__fcTest.todos().length
       // 精确取"刚记的那条"的 id —— 断言要按 id 对，不能只判"传了个字符串"
@@ -1777,9 +1777,9 @@
       const target = window.__fcTest.ideas().find((i) => i.text === '给想法页加个快捷键')
       const row = $$('#board.ideas-view .ideas-sec .idea').find((x) => (x.textContent || '').indexOf('给想法页加个快捷键') >= 0)
       if (!row || !target) return { err: '没找到刚记的那条' }
-      // 2026-10-31（暮雨第 6 条）：按钮文字从「做」改成「变成待办 →」（一个"做"字说不清做了什么）
+      // 2026-10-31（暮雨第 6 条）：按钮文字从“做”改成“变成待办 →”（一个"做"字说不清做了什么）
       const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('变成待办') >= 0)
-      if (!btn) return { err: '这条上没有「变成待办」' }
+      if (!btn) return { err: '这条上没有“变成待办”' }
       const n0 = window.__fcTest.callCount('ideasPromote')
       btn.click()
       const hit = await waitFor(() => window.__fcTest.callCount('ideasPromote') > n0, 4000, 'ideasPromote')
@@ -1794,10 +1794,10 @@
         toast: ($('#toast') || {}).textContent || '',
       }
     })()
-    check('★ 点「做」→ 真调 ideasPromote，且 id 是**这一条**（不是"随便一个字符串"）',
+    check('★ 点“做”→ 真调 ideasPromote，且 id 是**这一条**（不是"随便一个字符串"）',
       !doRes.err && doRes.hit && doRes.args && doRes.args[0] === doRes.targetId,
       doRes.err || JSON.stringify({ got: doRes.args && doRes.args[0], want: doRes.targetId }))
-    check('★★★ 立项之后**待办里真多了一条**（只把状态改成「已立项」＝假账，主进程刻意拦了那条路）',
+    check('★★★ 立项之后**待办里真多了一条**（只把状态改成“已立项”＝假账，主进程刻意拦了那条路）',
       !doRes.err && doRes.todosAfter === doRes.todosBefore + 1,
       doRes.err || `${doRes.todosBefore} → ${doRes.todosAfter}`)
     check('★★ 新那条待办的标题就是念头的第一行（用户一眼能对上）',
@@ -1821,19 +1821,19 @@
       return window.__fcTest.todos().length === doRes.todosBefore
     })(), String(window.__fcTest.todos().length))
 
-    // ── 「搁置」：改状态 + 挂撤销 ──
+    // ── “搁置”：改状态 + 挂撤销 ──
     const holdRes = await (async () => {
       const row = $$('#board.ideas-view .ideas-sec .idea').find((x) => (x.textContent || '').indexOf('给启动台加个搜索框') >= 0)
       if (!row) return { err: '没找到新记的那条夹具' }
       const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '搁置')
-      if (!btn) return { err: '这条上没有「搁置」' }
+      if (!btn) return { err: '这条上没有“搁置”' }
       const n0 = window.__fcTest.callCount('ideasSetStatus')
       btn.click()
       const hit = await waitFor(() => window.__fcTest.callCount('ideasSetStatus') > n0, 4000, 'ideasSetStatus')
       await sleep(250)
       return { hit, args: (window.__fcTest.calls().filter((c) => c.name === 'ideasSetStatus').pop() || {}).args }
     })()
-    check('★★ 点「搁置」→ 真调 ideasSetStatus(项目, 「已搁置」)，不是只改本地状态',
+    check('★★ 点“搁置”→ 真调 ideasSetStatus(项目, “已搁置”)，不是只改本地状态',
       !holdRes.err && holdRes.hit && holdRes.args && holdRes.args[0] === 'idea-a' && holdRes.args[1] === '已搁置',
       JSON.stringify(holdRes))
     check('★ 搁置也挂撤销条（三个决定都能退）', await waitFor(() => {
@@ -1841,8 +1841,8 @@
       return !!ub && (ub.textContent || '').indexOf('搁置') >= 0
     }, 4000, '搁置撤销条'))
 
-    // ── 已决区：展开才有，徽章与「撤销立项」都在 ──
-    check('★ 展开「已经有结论」→ 三种结论都看得见（徽章）', await (async () => {
+    // ── 已决区：展开才有，徽章与“撤销立项”都在 ──
+    check('★ 展开“已经有结论”→ 三种结论都看得见（徽章）', await (async () => {
       const tog = $('#board.ideas-view .ideas-toggle')
       if (!tog) return false
       tog.click()
@@ -1851,13 +1851,13 @@
       const badges = $$('#board.ideas-view .idea-badge').map((b) => (b.textContent || '').trim())
       return badges.indexOf('已搁置') >= 0 && badges.indexOf('已立项') >= 0
     })(), JSON.stringify($$('#board.ideas-view .idea-badge').map((b) => (b.textContent || '').trim())))
-    check('★ 已立项那条给的是「撤销立项」（不是"捡回来"——它已经有待办了）', await (async () => {
+    check('★ 已立项那条给的是“撤销立项”（不是"捡回来"——它已经有待办了）', await (async () => {
       const row = $$('#board.ideas-view .idea-decided').find((x) => (x.textContent || '').indexOf('做个一键导出周报') >= 0)
       if (!row) return false
       const texts = Array.from(row.querySelectorAll('button')).map((b) => (b.textContent || '').trim())
       return texts.indexOf('撤销立项') >= 0 && texts.indexOf('捡回来') < 0
     })())
-    check('★ 已搁置那条给的是「捡回来」', await (async () => {
+    check('★ 已搁置那条给的是“捡回来”', await (async () => {
       const row = $$('#board.ideas-view .idea-decided').find((x) => (x.textContent || '').indexOf('端口面板要不要合并') >= 0)
       if (!row) return false
       return Array.from(row.querySelectorAll('button')).some((b) => (b.textContent || '').trim() === '捡回来')
@@ -1912,7 +1912,7 @@
       const cs = window.__fcTest.calls().filter((c) => c.name === 'clipboardWriteText')
       return cs.length ? String(cs[cs.length - 1].args[0] || '') : ''
     }
-    /** 走完整用户路径：右键 → 点「复制为派工单」→ 读回复制内容 */
+    /** 走完整用户路径：右键 → 点“复制为派工单”→ 读回复制内容 */
     const copyFor = async (needle) => {
       if (!(await openCardMenuFor(needle))) return ''
       const b = $$('.ctx-menu button').filter((x) => (x.textContent || '').indexOf('复制为派工单') >= 0)[0]
@@ -1923,12 +1923,12 @@
       return dispatchText()
     }
 
-    check('★ 任务卡右键菜单里有「复制为派工单」（弹药库的出口动作）',
+    check('★ 任务卡右键菜单里有“复制为派工单”（弹药库的出口动作）',
       await openCardMenuFor('演示任务'), String(($('.ctx-menu') || {}).textContent || '').slice(0, 120))
 
-    // 2026-10-17 暮雨第 8 条：「部分看板任务不能验收裁决……我手动拖到待验收一栏才能点」。
-    // 真因是菜单项的 v-if 绑成了 status==='待验收'。夹具这张卡是「待办」—— 正好验"不必先拖"。
-    check('★★ 非「待验收」的卡也有「验收裁决」（不该逼人先拖一列）',
+    // 2026-10-17 暮雨第 8 条：“部分看板任务不能验收裁决……我手动拖到待验收一栏才能点”。
+    // 真因是菜单项的 v-if 绑成了 status==='待验收'。夹具这张卡是“待办”—— 正好验"不必先拖"。
+    check('★★ 非“待验收”的卡也有“验收裁决”（不该逼人先拖一列）',
       (($('.ctx-menu') || {}).textContent || '').indexOf('验收裁决') >= 0,
       String(($('.ctx-menu') || {}).textContent || '').slice(0, 120))
 
@@ -1975,7 +1975,7 @@
     {
       const vc = $$(CARD_SEL).find((r) => (r.textContent || '').indexOf('数组项目的任务') >= 0)
       const vbtns = vc ? Array.prototype.slice.call(vc.querySelectorAll('.card-verdict button')) : []
-      check('★★ 「待验收」卡上直接有「通过 / 驳回」两个出口',
+      check('★★ “待验收”卡上直接有“通过 / 驳回”两个出口',
         vbtns.length === 2
         && (vbtns[0].textContent || '').indexOf('通过') >= 0
         && (vbtns[1].textContent || '').indexOf('驳回') >= 0,
@@ -1983,7 +1983,7 @@
       if (vbtns.length === 2) {
         vbtns[0].click()
         await sleep(300)
-        check('★ 点卡上的「通过」→ 裁决框打开（不用先点开详情）',
+        check('★ 点卡上的“通过”→ 裁决框打开（不用先点开详情）',
           !!$('#review-modal') && ($('#review-modal').textContent || '').indexOf('验收') >= 0)
         const cx = $$('#review-modal .acts button').find((b) => (b.textContent || '').trim() === '取消')
         if (cx) cx.click()
@@ -1991,7 +1991,7 @@
         const vbtns2 = vc ? Array.prototype.slice.call(vc.querySelectorAll('.card-verdict button')) : []
         if (vbtns2[1]) vbtns2[1].click()
         await sleep(300)
-        check('★ 点卡上的「驳回」→ 同一个裁决框，且焦点落在理由框（驳回必填）',
+        check('★ 点卡上的“驳回”→ 同一个裁决框，且焦点落在理由框（驳回必填）',
           !!$('#review-modal') && document.activeElement === $('#review-modal textarea'),
           'active=' + (document.activeElement && document.activeElement.tagName))
         const cx2 = $$('#review-modal .acts button').find((b) => (b.textContent || '').trim() === '取消')
@@ -2025,7 +2025,7 @@
       JSON.stringify(copiedCalls.slice(0, 8)))
 
     // 已派 / 归档 两种状态的标记
-    const D2 = await copyFor('未归属任务')   // 夹具里它是「进行中」
+    const D2 = await copyFor('未归属任务')   // 夹具里它是“进行中”
     check('  已派状态标注正确（该卡状态=进行中）', /弹药库状态：已派/.test(D2), (D2.split('\n')[3] || '').slice(0, 40))
 
     clickText('归档')
@@ -2046,14 +2046,14 @@
     BOARD_TAB()
     await sleep(400)
 
-    // ══ 顶栏「排序」（2026-09-29 修的死控件；2026-10-11 换成方案 B 的面板入口）════
+    // ══ 顶栏“排序”（2026-09-29 修的死控件；2026-10-11 换成方案 B 的面板入口）════
     // 修前：`sortMode` 只在模板里 v-model 绑了，**全代码零引用** —— 换下拉毫无反应。
-    // 夹具故意把「待办」列两张卡的 created / updated 错开，三种顺序两两不同：
+    // 夹具故意把“待办”列两张卡的 created / updated 错开，三种顺序两两不同：
     //   默认 001→002 · 按 updated 倒序 002→001 · 按 created 倒序 001→002
-    // ⚠ 2026-10-11 起不再是 `<select>`：改点「排序 · <当前值>」按钮 → 同一块内联面板里点选项。
+    // ⚠ 2026-10-11 起不再是 `<select>`：改点“排序 · <当前值>”按钮 → 同一块内联面板里点选项。
     const SORT_TEXT = { active: '活跃优先', updated: '最近更新', created: '创建时间', prio: '优先级' }
-    const SORT_BTN = () => $('.fbar-sort-btn')   // 稳定类名（文案已改成「排序 <当前值>」）
-    // 收起统一走 Esc：单行 chips 的浮层**没有 ✕**（只有内容多的「＋筛选」才有标题栏），
+    const SORT_BTN = () => $('.fbar-sort-btn')   // 稳定类名（文案已改成“排序 <当前值>”）
+    // 收起统一走 Esc：单行 chips 的浮层**没有 ✕**（只有内容多的“＋筛选”才有标题栏），
     // 而 reka 的 Popover 自带 Esc 关闭 —— 这也是"用成熟原语"省下来的代码。
     const closeFbarPanel = async () => {
       if (!$('.fpop')) return
@@ -2093,41 +2093,41 @@
       })(),
       JSON.stringify($$('.fbar-btn').map((b) => String(b.textContent).trim())))
     const ordDefault = statusColOrder()
-    check('  默认「活跃优先」：待办列按后端顺序（夹具 001 → 002）',
+    check('  默认“活跃优先”：待办列按后端顺序（夹具 001 → 002）',
       ordDefault.join(',') === 'task-demo-001,task-demo-002', JSON.stringify(ordDefault))
 
-    check('  能切到「最近更新」', await pickSort('updated'))
+    check('  能切到“最近更新”', await pickSort('updated'))
     const ordUpd = statusColOrder()
-    check('★ 按「最近更新」真的重排了（002 的 updated 更新 → 排到前面）',
+    check('★ 按“最近更新”真的重排了（002 的 updated 更新 → 排到前面）',
       ordUpd.join(',') === 'task-demo-002,task-demo-001', JSON.stringify(ordUpd))
 
-    check('  能切到「最新创建」', await pickSort('created'))
+    check('  能切到“最新创建”', await pickSort('created'))
     const ordCre = statusColOrder()
-    check('★ 按「最新创建」用的是 created 而不是 updated（001 的 created 更新 → 它排前面）',
+    check('★ 按“最新创建”用的是 created 而不是 updated（001 的 created 更新 → 它排前面）',
       ordCre.join(',') === 'task-demo-001,task-demo-002', JSON.stringify(ordCre))
 
-    check('  能切到「优先级」（2026-10-01 用户第 2 条：看板补的排法）', await pickSort('prio'))
+    check('  能切到“优先级”（2026-10-01 用户第 2 条：看板补的排法）', await pickSort('prio'))
     check('★★ 优先级排法落真身 prefs（不是只改了下拉没接线）',
       String(window.__fcTest.prefs().fc_board_sort) === 'prio',
       JSON.stringify(window.__fcTest.prefs().fc_board_sort))
 
-    check('  切回「活跃优先」', await pickSort('active'))
+    check('  切回“活跃优先”', await pickSort('active'))
     check('  恢复后与初始一致（排序可逆）', statusColOrder().join(',') === ordDefault.join(','), JSON.stringify(statusColOrder()))
     check('  排序选择进了真身 prefs（与分组方式同一套机制，换 origin 不丢）',
       ['active', 'updated', 'created', 'prio'].indexOf(String(window.__fcTest.prefs().fc_board_sort)) >= 0,
       JSON.stringify(window.__fcTest.prefs().fc_board_sort))
 
-    // ══ 日历 · 格子内折叠（2026-09-29 用户选「改法 A」）════════════════════
-    // 035 卡原话「看起来很密集很让人畏惧」。底部那排横条墙上一轮已收成一行摘要，
-    // 剩下的密在**格子内部** —— 夹具把若干条事件压在「今天」（001 + 011/012/013…，
+    // ══ 日历 · 格子内折叠（2026-09-29 用户选“改法 A”）════════════════════
+    // 035 卡原话“看起来很密集很让人畏惧”。底部那排横条墙上一轮已收成一行摘要，
+    // 剩下的密在**格子内部** —— 夹具把若干条事件压在“今天”（001 + 011/012/013…，
     // 日期跟随运行日，见 renderer-preload.cjs 的 FIX_DEADLINE：写死 9-30 会在每月 1 号假红）。
     //
-    // ⚠ 2026-10-12：原先这里把「今天」的事件条数**写死成 4**（`evs === 2` + `+2 条`）。
-    //   后来待办改版往「今天」又加了一条（待办也上日历）→ 变成 5 条 → `+3 条` → 假红。
-    //   真规格是「格子里最多铺 CAP 条，其余折成 +N 条」，不是某个具体数字。所以：
+    // ⚠ 2026-10-12：原先这里把“今天”的事件条数**写死成 4**（`evs === 2` + `+2 条`）。
+    //   后来待办改版往“今天”又加了一条（待办也上日历）→ 变成 5 条 → `+3 条` → 假红。
+    //   真规格是“格子里最多铺 CAP 条，其余折成 +N 条”，不是某个具体数字。所以：
     //   ① 期望值从**夹具真身**（window.__fcTest.fixTodayCount()）算 —— 夹具增删它自动跟上；
     //   ② CAP 同步读 window.__fcTest.calCellCap()，与 App.vue 用同一个常量，不各写一份。
-    check('能切到「日历」页签', clickText('日历'))
+    check('能切到“日历”页签', clickText('日历'))
     await sleep(700)
     const CAL_CAP = Number((window.__fcTest && window.__fcTest.calCellCap && window.__fcTest.calCellCap()) || 2)
     const CAL_TODAY_N = Number((window.__fcTest && window.__fcTest.fixTodayCount && window.__fcTest.fixTodayCount()) || 0)
@@ -2139,16 +2139,16 @@
       .filter((c) => (c.textContent || '').indexOf('日历密度样例一') >= 0)[0]
     const cal0 = (() => {
       const c = calCellOf()
-      if (!c) return { err: '没找到「今天」那格（夹具日期对不上？见 FIX_DEADLINE）' }
+      if (!c) return { err: '没找到“今天”那格（夹具日期对不上？见 FIX_DEADLINE）' }
       return {
         evs: c.querySelectorAll('.cev').length,
         more: ((c.querySelector('.cal-cell-more') || {}).textContent || '').trim(),
       }
     })()
-    check(`★ 一天多条时格子里最多铺 ${CAL_CAP} 条，剩下折成「${expMore || '+N 条'}」（改法 A）`,
+    check(`★ 一天多条时格子里最多铺 ${CAL_CAP} 条，剩下折成“${expMore || '+N 条'}”（改法 A）`,
       !cal0.err && cal0.evs === expEvs && (expMore ? cal0.more.indexOf(expMore) >= 0 : cal0.more === ''),
       JSON.stringify(Object.assign({ todayN, cap: CAL_CAP, expEvs, expMore }, cal0)))
-    check('★ 点「+N 条」就地铺满这一天（不跳页、不弹窗）', await (async () => {
+    check('★ 点“+N 条”就地铺满这一天（不跳页、不弹窗）', await (async () => {
       const c = calCellOf()
       const b = c && c.querySelector('.cal-cell-more')
       if (!b) return false
@@ -2158,7 +2158,7 @@
         return !!c2 && c2.querySelectorAll('.cev').length >= todayN && !!c2.querySelector('.cal-cell-more.less')
       }, 4000, '日历展开')
     })())
-    check('  再点「收起」回到折叠态（折叠不是单向开关）', await (async () => {
+    check('  再点“收起”回到折叠态（折叠不是单向开关）', await (async () => {
       const c = calCellOf()
       const b = c && c.querySelector('.cal-cell-more.less')
       if (!b) return false
@@ -2168,29 +2168,29 @@
         return !!c2 && c2.querySelectorAll('.cev').length === expEvs && !c2.querySelector('.cal-cell-more.less')
       }, 4000, '日历收起')
     })())
-    check('  单条/空白的格子不长出「+N 条」（只在真的挤的时候才出现）',
+    check('  单条/空白的格子不长出“+N 条”（只在真的挤的时候才出现）',
       await (async () => {
         const others = $$('main.calendar-view .calcell').filter((c) => (c.textContent || '').indexOf('日历密度样例一') < 0)
         return others.every((c) => c.querySelectorAll('.cev').length > CAL_CAP || !c.querySelector('.cal-cell-more'))
       })())
 
-    // ══ 项目页签 · 两种新摆法（2026-09-29 用户：「两种视图都要，做成可自选切换」）══
-    // 003 卡原话「只是个大号看板入口，不是项目管理」。三个摆法（含旧的项目墙）互斥渲染。
-    check('能切到「项目」页签', clickText('项目'))
+    // ══ 项目页签 · 两种新摆法（2026-09-29 用户：“两种视图都要，做成可自选切换”）══
+    // 003 卡原话“只是个大号看板入口，不是项目管理”。三个摆法（含旧的项目墙）互斥渲染。
+    check('能切到“项目”页签', clickText('项目'))
     await sleep(700)
-    // ══ 项目页「新建项目 / 删除项目」入口（2026-10-17 暮雨第 6 条）══
-    // 原话：「项目里面不能新建项目，点进去是新建任务……我至少提过两次」。
+    // ══ 项目页“新建项目 / 删除项目”入口（2026-10-17 暮雨第 6 条）══
+    // 原话：“项目里面不能新建项目，点进去是新建任务……我至少提过两次”。
     // 真因是新建项目弹窗与 confirmNewProject 早就写好，**但项目页没有任何按钮去打开它**。
-    // 判据：① 按钮常在；② 点开真出「新建项目」弹窗（不是新建任务）。
+    // 判据：① 按钮常在；② 点开真出“新建项目”弹窗（不是新建任务）。
     {
       const newProjBtn = $$('#board.pv button').find((b) => (b.textContent || '').indexOf('新建项目') >= 0)
-      check('★★ 项目页有「＋ 新建项目」按钮（不再是死入口）', !!newProjBtn,
+      check('★★ 项目页有“＋ 新建项目”按钮（不再是死入口）', !!newProjBtn,
         $$('#board.pv button').map((b) => (b.textContent || '').trim()).slice(0, 8).join(' | '))
       if (newProjBtn) {
         newProjBtn.click()
         await sleep(400)
         const modal = $('#proj-new-modal')
-        check('★ 点「新建项目」→ 弹出的是新建项目弹窗（不是新建任务）',
+        check('★ 点“新建项目”→ 弹出的是新建项目弹窗（不是新建任务）',
           !!modal && (modal.textContent || '').indexOf('项目 ID') >= 0,
           modal ? (modal.textContent || '').slice(0, 50) : '(没有弹窗)')
         const cancel = modal ? Array.prototype.slice.call(modal.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '取消') : null
@@ -2208,13 +2208,13 @@
       && $$('#board.pv .pvgrid').length === 1
       && $$('#board.pv .ovgrid').length === 0 && $$('#board.pv .pv-ms').length === 0, JSON.stringify(pvTabs()))
     // 2026-09-29 修：项目页签此前**从不加载方针状态**（`loadPolicyMap()` 只在打开设置页
-    // 与结构地图一览时调用）→ 没开过设置的会话里，卡片永远写着「＋ 立项目方针」。
+    // 与结构地图一览时调用）→ 没开过设置的会话里，卡片永远写着“＋ 立项目方针”。
     // 那不是显示瑕疵，是**界面在说假话**（夹具里 demo 明明白白填了方针）。
     const tileTxt = () => (($('#board.pv .tile:not(.tile-add)') || {}).textContent || '')
     check('★ 方针三态进门就准（demo 在夹具里已填方针 → 项目墙上必须说"方针已立"）',
       await waitFor(() => tileTxt().indexOf('方针已立') >= 0, 4000, '方针三态'), tileTxt().slice(0, 90))
 
-    check('能点到「概览卡」', (() => {
+    check('能点到“概览卡”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('概览卡') >= 0)
       if (!b) return false
       b.click(); return true
@@ -2242,7 +2242,7 @@
     check('★ 概览卡上的方针三态同样准（不能对着已填的方针说"立方针"）',
       !ov.err && ov.txt.indexOf('立方针') < 0 && ov.txt.indexOf('方针') >= 0, ov.txt)
 
-    check('能点到「主从」', (() => {
+    check('能点到“主从”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('主从') >= 0)
       if (!b) return false
       b.click(); return true
@@ -2266,8 +2266,8 @@
       JSON.stringify(window.__fcTest.prefs().fc_pv_view))
 
     // ══ 项目监控台（卡 task-20261009-001 · 879b2f8 落地，2026-10-09 补断言）════
-    // 要点：完成率环形图 / KPI 大数字 / 健康左缘色条「异常才显示」/ 阻塞源入口 /
-    //       git 缺数据给拉取按钮、dirty=null 显「—」不编 0 / 0 卡不画假环。
+    // 要点：完成率环形图 / KPI 大数字 / 健康左缘色条“异常才显示”/ 阻塞源入口 /
+    //       git 缺数据给拉取按钮、dirty=null 显“—”不编 0 / 0 卡不画假环。
     // 反向判据 3 条：空闲不加色条、0 卡无 ring-arc、null 不显 0。
     const pickMs = async (name) => {
       const li = $$('#board.pv .ms-li').find((x) => (x.textContent || '').indexOf(name) >= 0)
@@ -2310,9 +2310,9 @@
     const s1 = msSnap()
     check('★ 完成率环形图在（有卡项目画真环，不是空态占位）',
       !s1.err && !s1.ringEmpty && s1.arcs === 1, JSON.stringify(s1))
-    check('  环的 stroke-dasharray = 「已完成段 剩余段」两段数（入场缓动就靠它；读回时浏览器可能序列化成逗号分隔）',
+    check('  环的 stroke-dasharray = “已完成段 剩余段”两段数（入场缓动就靠它；读回时浏览器可能序列化成逗号分隔）',
       s1.arcDash !== null && /^\d+(\.\d+)?[,\s]+\d+$/.test(s1.arcDash), String(s1.arcDash))
-    check('  环心是「数字 + %」', /^\d+%$/.test(s1.ringnum), s1.ringnum)
+    check('  环心是“数字 + %”', /^\d+%$/.test(s1.ringnum), s1.ringnum)
     check('★ KPI 大数字行三枚齐：进行中 / 已完成 / 总任务（都是数出来的，不是文案）',
       ['进行中', '已完成', '总任务'].every(k =>
         s1.nums.some(n => n.indexOf(k + '=') === 0 && /^\d+$/.test(n.slice(k.length + 1)))),
@@ -2321,29 +2321,29 @@
     check('  图例与分段同源：状态名 + 条数',
       /待办|进行中|待验收|完成|驳回/.test(s1.legend) && /\d/.test(s1.legend), s1.legend)
     // 健康度：demo 夹具最后更新 2026-09-01（>30 天不写）→ 休眠 = 异常 → 色条必须在
-    check('★ 健康度异常（休眠）→ 左缘色条出现 + 徽章说「休眠」（正向）',
+    check('★ 健康度异常（休眠）→ 左缘色条出现 + 徽章说“休眠”（正向）',
       s1.cls.indexOf('hs-dormant') >= 0 && s1.bar !== 'rgba(0, 0, 0, 0)' && s1.bar !== 'transparent' && s1.hl === '休眠',
       JSON.stringify({ cls: s1.cls, bar: s1.bar, hl: s1.hl }))
-    check('★ 阻塞源入口出现，文案说清「几个 + 去哪看」',
+    check('★ 阻塞源入口出现，文案说清“几个 + 去哪看”',
       s1.blockers.length === 1 && /个阻塞源/.test(s1.blockers[0]) && /看卡在谁/.test(s1.blockers[0]),
       JSON.stringify(s1.blockers))
-    check('  KPI 行同步给「阻塞源」计数（同一份数据两个入口）',
+    check('  KPI 行同步给“阻塞源”计数（同一份数据两个入口）',
       s1.nums.some(n => n === '阻塞源=1'), JSON.stringify(s1.nums))
-    check('★ git 数据没拉过 → 只给「拉取提交信息」按钮，不摆空值行（不编数据）',
+    check('★ git 数据没拉过 → 只给“拉取提交信息”按钮，不摆空值行（不编数据）',
       s1.gitBtn && !s1.gitRow, JSON.stringify({ gitBtn: s1.gitBtn, gitRow: s1.gitRow }))
 
     // ── 监控台两块（2026-10-11，P0 两件）─────────────────────────────────────
     // ① 最近执行日志流：只说"最近在干什么"，看全部回日志页（那边才是主场）
     // ② 僵尸卡：判据与通知中心同源（findStalledTasks），这里只是把它放到监控台上
-    check('★ 监控台有「最近执行日志」流，且都是**这个项目**的日志（demo 夹具 3 条）+ 有「看全部」入口',
+    check('★ 监控台有“最近执行日志”流，且都是**这个项目**的日志（demo 夹具 3 条）+ 有“看全部”入口',
       s1.feed === 3 && s1.feedGo, JSON.stringify({ feed: s1.feed, feedGo: s1.feedGo }))
-    check('★ 僵尸卡提醒出现，文案带「几个 + 多久没动静」',
+    check('★ 僵尸卡提醒出现，文案带“几个 + 多久没动静”',
       !!s1.stalled && /1 个任务/.test(s1.stalled) && /24 小时/.test(s1.stalled), String(s1.stalled))
 
-    // ── 自仓启动同步 · 「待同步」一行（2026-10-21 · W1-1C）────────────────────
-    // 施工单验收：本地领先/分叉时重启 → 显示「待同步」，数据无损（不 merge 不强拉）。
+    // ── 自仓启动同步 · “待同步”一行（2026-10-21 · W1-1C）────────────────────
+    // 施工单验收：本地领先/分叉时重启 → 显示“待同步”，数据无损（不 merge 不强拉）。
     // 反向判据同样重要：一切正常/不是 git 仓库时**不许**占位 —— 否则每天开机多一行噪音。
-    check('★ 同步状态「待同步」→ 监控台出现一行人话（带原因，不是只甩一个词）', await (async () => {
+    check('★ 同步状态“待同步”→ 监控台出现一行人话（带原因，不是只甩一个词）', await (async () => {
       window.__fcTest.setSelfSync({
         state: 'behind', at: '2026-10-21T00:00:00.000Z', repo: 'C:/mock/repo',
         message: '本地有未推送的提交或与远端分叉 —— 已按规矩不合并、不强拉，数据未动',
@@ -2374,9 +2374,9 @@
     })())
     window.__fcTest.setSelfSync(null)
 
-    // ── 监控台「建议动作 / 可并行机会」（2026-10-23 补：两条死通道接回后零断言）──
-    // 它们是 10-11「A 组死通道收口」接回来的，桩却一直返回 [] —— 于是「接了但没渲染」
-    // 和「渲染了但字段名写错（o.reason）」两种坏法都不会被发现。
+    // ── 监控台“建议动作 / 可并行机会”（2026-10-23 补：两条死通道接回后零断言）──
+    // 它们是 10-11“A 组死通道收口”接回来的，桩却一直返回 [] —— 于是“接了但没渲染”
+    // 和“渲染了但字段名写错（o.reason）”两种坏法都不会被发现。
     check('★★ 建议动作真渲染（suggestActions 按项目 id 调，不是全局糊一把）', await (async () => {
       clickText('看板'); await sleep(350); clickText('项目'); await sleep(600)
       await pickMs('演示项目')
@@ -2388,13 +2388,13 @@
     check('★ 建议文案来自主进程（界面不自己编）',
       (($('#board.pv .ms-detail') || {}).textContent || '').indexOf('夹具建议') >= 0,
       (($('#board.pv .ms-suggest') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
-    check('★★ 可并行机会只显示「跨项目 + 本项目」的，别的项目那条不许串进来', (() => {
+    check('★★ 可并行机会只显示“跨项目 + 本项目”的，别的项目那条不许串进来', (() => {
       const box = $$('#board.pv .ms-suggest').map((e) => e.textContent || '').join(' | ')
       return box.indexOf('跨项目可并行') >= 0 && box.indexOf('本项目两个批次') >= 0
         && box.indexOf('别的项目的机会') < 0
     })(), (($('#board.pv .ms-suggest') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 90))
 
-    check('★ 点阻塞源入口 → 真跳「阻塞」页签（不是死按钮）', await (async () => {
+    check('★ 点阻塞源入口 → 真跳“阻塞”页签（不是死按钮）', await (async () => {
       const b = $('#board.pv .ms-blockers')
       if (!b) return false
       b.click()
@@ -2422,10 +2422,10 @@
     })())
 
     // ── 路线文档实况（2026-10-21 · W1-批次 2）───────────────────────────────
-    // 施工单：监控台除了 git 活动，还要能看见「文档级实况」，与手写值**并列**、标来源、不覆盖手写。
+    // 施工单：监控台除了 git 活动，还要能看见“文档级实况”，与手写值**并列**、标来源、不覆盖手写。
     // 这一节验四件：①块在且标了来源；②README/ROADMAP 各一行 + 一句话摘要；③docs 变更那行；
     // ④反向：读不到时给原因，**不虚构**文档行（空数据冒充"没有进展"是这类功能最容易犯的错）。
-    check('★★ 监控台多了「路线文档」块，且标了来源（自动 · 只读）', (() => {
+    check('★★ 监控台多了“路线文档”块，且标了来源（自动 · 只读）', (() => {
       const d = $('#board.pv .ms-detail .ms-docs')
       if (!d) return false
       return /自动/.test(((d.querySelector('.ms-docs-src') || {}).textContent) || '')
@@ -2434,7 +2434,7 @@
       const ks = $$('#board.pv .ms-detail .ms-doc-k').map((e) => (e.textContent || '').trim())
       return ks.length === 2 && ks[0] === 'ROADMAP' && ks[1] === 'README'
     })(), JSON.stringify($$('#board.pv .ms-detail .ms-doc-k').map((e) => (e.textContent || '').trim())))
-    // 2026-10-21 暮雨反馈「README 只截一行，通常没什么有用信息」→ 摘要改成**前两段**
+    // 2026-10-21 暮雨反馈“README 只截一行，通常没什么有用信息”→ 摘要改成**前两段**
     check('★★ 摘要收的是**两段**（不是一句标语就算完），且默认只有 2 行高度', (() => {
       const row = $$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || '')))
       const t = row && row.querySelector('.ms-doc-t')
@@ -2461,11 +2461,11 @@
       const closed = await waitFor(() => !row().classList.contains('open'), 2000, '收起')
       return opened && closed && after > before
     })(), 'len=' + ((($$('#board.pv .ms-detail .ms-doc').find((r) => /README/.test((r.textContent || ''))) || { querySelector: () => ({}) }).querySelector('.ms-doc-t') || {}).textContent || '').length)
-    check('★ 「最近 docs 变更」那行在：条数 + 最后一条标题（施工日志的文档级实况，不是又列一遍 git 活动）', (() => {
+    check('★ “最近 docs 变更”那行在：条数 + 最后一条标题（施工日志的文档级实况，不是又列一遍 git 活动）', (() => {
       const t = (($('#board.pv .ms-detail .ms-docs-log') || {}).textContent) || ''
       return /最近 docs 变更/.test(t) && /W1 施工单/.test(t) && /2026-10-20/.test(t)
     })(), (($('#board.pv .ms-detail .ms-docs-log') || {}).textContent || '(没有 docs-log)').replace(/\s+/g, ' '))
-    check('★ 缓存命中（cached=true）→ 写「今天读过」（不冒充刚刷新过）', await (async () => {
+    check('★ 缓存命中（cached=true）→ 写“今天读过”（不冒充刚刷新过）', await (async () => {
       window.__fcTest.setProjectDocs({
         ok: true, repo: 'E:/CODE/mock/demo', cached: true, readAt: '2026-10-21T00:00:00.000Z', note: '',
         readme: { rel: 'README.md', title: '演示项目', excerpt: '今天的缓存。', bytes: 10, mtime: '2026-10-19T00:00:00.000Z' },
@@ -2509,7 +2509,7 @@
     })(), (($('#board.pv .ms-detail .ms-docs') || {}).textContent || '(没有 .ms-docs)').replace(/\s+/g, ' ').slice(0, 100))
     window.__fcTest.setProjectDocs(null)
 
-    // git 行：注入 dirty=null 的夹具 → 拉取后 demo 显真数、demo2 显「—」（反向：绝不显 0）
+    // git 行：注入 dirty=null 的夹具 → 拉取后 demo 显真数、demo2 显“—”（反向：绝不显 0）
     window.__fcTest.setTripBoard({
       generatedAt: '2026-10-09 09:00', mode: 'auto', criteria: 'cards_or_commit',
       rows: [
@@ -2540,7 +2540,7 @@
         { id: 'demo3', name: '还没开工的项目', kind: 'no-activity', reason: '没有任务卡、没有执行日志，30 天内也没有提交' },
       ],
     })
-    check('★ 点「拉取提交信息」→ git 行出现，数字来自数据（最近提交 1 天前 / 未提交 3）', await (async () => {
+    check('★ 点“拉取提交信息”→ git 行出现，数字来自数据（最近提交 1 天前 / 未提交 3）', await (async () => {
       const btn = $('#board.pv .ms-gitbtn')
       if (!btn) return false
       btn.click()
@@ -2552,7 +2552,7 @@
       return got && row.indexOf('最近提交') >= 0 && row.indexOf('1 天前') >= 0 && /未提交\s*3/.test(row)
     })())
     let demo2GitRow = ''
-    check('★ dirty=null → 显示「—」，绝不编 0（反向判据：不许出现「未提交 0」）', await (async () => {
+    check('★ dirty=null → 显示“—”，绝不编 0（反向判据：不许出现“未提交 0”）', await (async () => {
       if (!(await pickMs('第二个项目'))) return false
       demo2GitRow = msSnap().gitRow || ''
       return /未提交\s*—/.test(demo2GitRow) && !/未提交\s*0/.test(demo2GitRow)
@@ -2568,12 +2568,12 @@
     const s2 = msSnap()
     check('★★ 0 卡不画假环：环是虚线空态，SVG 弧线一段都没有（反向判据）',
       !s2.err && s2.ringEmpty && s2.arcs === 0, JSON.stringify(s2))
-    check('  空态环心给「—」，图例说「还没有任务卡」',
+    check('  空态环心给“—”，图例说“还没有任务卡”',
       s2.ringnum === '—' && s2.legend.indexOf('还没有任务卡') >= 0,
       JSON.stringify({ ringnum: s2.ringnum, legend: s2.legend }))
     check('  KPI 总任务 = 0（数出来的 0，不是没渲染）',
       s2.nums.some(n => n === '总任务=0'), JSON.stringify(s2.nums))
-    check('★★ 健康度「异常才显示」：0 卡 = 空闲 → 左缘一个像素都不加（反向判据）',
+    check('★★ 健康度“异常才显示”：0 卡 = 空闲 → 左缘一个像素都不加（反向判据）',
       s2.cls.indexOf('hs-idle') >= 0 && (s2.bar === 'rgba(0, 0, 0, 0)' || s2.bar === 'transparent') && s2.hl === '空闲',
       JSON.stringify({ cls: s2.cls, bar: s2.bar, hl: s2.hl }))
     check('  空闲项目没有阻塞源入口（没有异常就不报警）',
@@ -2588,20 +2588,20 @@
     check('  还原后演示项目的阻塞源入口仍在', (await pickMs('演示项目')) && msSnap().blockers.length === 1,
       JSON.stringify(msSnap().blockers))
 
-    // ══ 项目页第 8 摆法「作战计划」· 投入产出账（0.6.0 P5）══════════════════
-    // 判据：三格都渲染；每个数字同格带「它证明不了什么」；口径声明点名 ai-trace + 外部 agent。
+    // ══ 项目页第 8 摆法“作战计划”· 投入产出账（0.6.0 P5）══════════════════
+    // 判据：三格都渲染；每个数字同格带“它证明不了什么”；口径声明点名 ai-trace + 外部 agent。
     // （三格取不到就不渲染那一格 —— 那条在 e2e-waste 的纯逻辑里钉，这里只验真 DOM。）
     {
       const planTab = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf('作战计划') >= 0)
-      check('能点到「作战计划」', !!planTab && (planTab.click(), true),
+      check('能点到“作战计划”', !!planTab && (planTab.click(), true),
         $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim()).join('|'))
-      check('★ 「作战计划」摆法渲染出来（PlanView 真挂上）',
+      check('★ “作战计划”摆法渲染出来（PlanView 真挂上）',
         await waitFor(() => $$('#board.pv .plan-view').length === 1, 5000, '作战计划'))
       check('★ 投入产出账三格都渲染（花的 / 产出的 / 被否的）',
         await waitFor(() => $$('.plan-view .waste-cell').length === 3, 3000, 'waste cells'),
         $$('.plan-view .waste-cell').length + ' 格')
       const cells = $$('.plan-view .waste-cell')
-      check('★★ 每个数字节点同格带「它证明不了什么」',
+      check('★★ 每个数字节点同格带“它证明不了什么”',
         cells.length === 3 && cells.every((c) => {
           const cav = c.querySelector('.waste-caveat')
           return !!c.querySelector('.waste-value') && !!cav && /它证明不了什么/.test(cav.textContent || '')
@@ -2612,7 +2612,7 @@
         /ai-trace/.test(note) && /外部 agent/.test(note), note.slice(0, 120))
       // ── P4 界面入口（2026-11-02）：跑判据 / 推进这一格 ─────────────────
       // 判据：两个按钮真在；点了真调通道（参数对）；结果块逐条三态；
-      //       被闸门挡下时说人话（「判据没过」而不是"出错了"）。
+      //       被闸门挡下时说人话（“判据没过”而不是"出错了"）。
       const stageBox = (id) => $$('.plan-view .plan-stage').find(
         (x) => (((x.querySelector('.plan-id') || {}).textContent) || '').trim() === id)
       const stageBtn = (id, label) => {
@@ -2621,9 +2621,9 @@
         return Array.prototype.slice.call(box.querySelectorAll('button'))
           .find((b) => (b.textContent || '').indexOf(label) >= 0) || null
       }
-      // 待裁决清单（2026-11-02）：暮雨「待裁决的东西在哪里？没看见」
+      // 待裁决清单（2026-11-02）：暮雨“待裁决的东西在哪里？没看见”
       const pendingBar = $('.plan-view .plan-pending')
-      check('★★ 作战计划页顶部有「待裁决 N 张」清单（不再只藏在状态胶囊里）',
+      check('★★ 作战计划页顶部有“待裁决 N 张”清单（不再只藏在状态胶囊里）',
         !!pendingBar, pendingBar ? (pendingBar.textContent || '').slice(0, 60) : '没有 .plan-pending')
       const pendingItems = $$('.plan-view .plan-pending-item')
       check('★ 清单逐张列出（夹具 1 张待裁决 → 1 个可点条目）',
@@ -2635,14 +2635,14 @@
       check('★ 点条目不炸（滚动到那张卡）', $$('.errbar').length === 0,
         ((($('.errbar-msg') || {}).textContent) || '').slice(0, 80))
 
-      check('★ 每张阶段卡都有「跑判据」「推进这一格」（P4 不再是只有数据层的死功能）',
+      check('★ 每张阶段卡都有“跑判据”“推进这一格”（P4 不再是只有数据层的死功能）',
         !!stageBtn('P0', '跑判据') && !!stageBtn('P0', '推进这一格')
         && !!stageBtn('P1', '跑判据') && !!stageBtn('P1', '推进这一格'),
         $$('.plan-view .plan-stage').length + ' 张卡')
 
       const p0Run = stageBtn('P0', '跑判据')
       if (p0Run) p0Run.click()
-      check('★ 点「跑判据」真调 plansChecks，参数带 file + stageId',
+      check('★ 点“跑判据”真调 plansChecks，参数带 file + stageId',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'plansChecks'
           && c.args && c.args[0] && c.args[0].file === 'demo.md' && c.args[0].stageId === 'P0'), 6000, 'plansChecks'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansChecks').map((c) => c.args)))
@@ -2654,13 +2654,13 @@
         && Array.prototype.slice.call(p0RunBox.querySelectorAll('.plan-run-item'))
           .every((li) => /\S/.test(((li.querySelector('.plan-run-tag') || {}).textContent) || '')),
         p0RunBox ? p0RunBox.querySelectorAll('.plan-run-item').length + ' 条' : '没有结果块')
-      check('★★ 闸门结论是照抄主进程的（界面不自己算）：head 含「全过」',
+      check('★★ 闸门结论是照抄主进程的（界面不自己算）：head 含“全过”',
         !!p0RunBox && /全过/.test(((p0RunBox.querySelector('.plan-run-head') || {}).textContent) || ''),
         p0RunBox ? ((p0RunBox.querySelector('.plan-run-head') || {}).textContent || '').slice(0, 80) : '')
 
       const p1Run = stageBtn('P1', '跑判据')
       if (p1Run) p1Run.click()
-      check('★ 判据没过的格子：结果块标红，head 说「不许跨格」',
+      check('★ 判据没过的格子：结果块标红，head 说“不许跨格”',
         await waitFor(() => {
           const b = stageBox('P1') && stageBox('P1').querySelector('.plan-run')
           return !!b && b.classList.contains('bad')
@@ -2671,11 +2671,11 @@
 
       const p1Go = stageBtn('P1', '推进这一格')
       if (p1Go) p1Go.click()
-      check('★ 点「推进这一格」真调 plansAdvance，参数带 file + stageId',
+      check('★ 点“推进这一格”真调 plansAdvance，参数带 file + stageId',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'plansAdvance'
           && c.args && c.args[0] && c.args[0].stageId === 'P1'), 6000, 'plansAdvance'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansAdvance').map((c) => c.args)))
-      check('★★ 被闸门挡下时说人话：「没推进 / 判据没过 / 打回理由已写进卡里」',
+      check('★★ 被闸门挡下时说人话：“没推进 / 判据没过 / 打回理由已写进卡里”',
         await waitFor(() => {
           const m = ((($('.plan-view .plan-msg') || {}).textContent) || '')
           return /没推进/.test(m) && /判据没过/.test(m) && /打回理由/.test(m)
@@ -2684,7 +2684,7 @@
 
       const p0Go = stageBtn('P0', '推进这一格')
       if (p0Go) p0Go.click()
-      check('★★ 判据全过：推进成功，界面说「已推进」',
+      check('★★ 判据全过：推进成功，界面说“已推进”',
         await waitFor(() => /已推进/.test(((($('.plan-view .plan-msg') || {}).textContent) || '')), 6000, 'msg'),
         ((($('.plan-view .plan-msg') || {}).textContent) || '').slice(0, 120))
 
@@ -2692,10 +2692,10 @@
       if (mTab) { mTab.click(); await sleep(300) }
     }
 
-    // ══ 项目页签 · 第 4 摆法「在途一屏」（2026-10-05 Q2 · 立项契约 ② 验收线之①）══
-    // 要点：四摆法互斥、六列齐、缺契约显式「未填」、无卡项目 current 回落到日志、
+    // ══ 项目页签 · 第 4 摆法“在途一屏”（2026-10-05 Q2 · 立项契约 ② 验收线之①）══
+    // 要点：四摆法互斥、六列齐、缺契约显式“未填”、无卡项目 current 回落到日志、
     //       健康度人工锁定可见、设置入口在（裁断权在人）。
-    check('能点到「在途一屏」', (() => {
+    check('能点到“在途一屏”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('在途一屏') >= 0)
       if (!b) return false
       b.click(); return true
@@ -2722,9 +2722,9 @@
     check('★ 六列都在（终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志）',
       !tp.err && ['终态', '当前步骤', '下一步', '卡在谁', '健康度']
         .every((k) => tp.heads.some((h) => h.indexOf(k) >= 0)), JSON.stringify(tp.heads))
-    check('★ 契约「未填」显式可见 + 两个按钮（复制模板 / 打开 repo）',
+    check('★ 契约“未填”显式可见 + 两个按钮（复制模板 / 打开 repo）',
       !tp.err && tp.unset >= 1 && tp.minis >= 2, JSON.stringify({ unset: tp.unset, minis: tp.minis }))
-    check('★ 无卡项目的「当前步骤」来自执行日志（挂了「日志」来源标签，不冒充任务卡）',
+    check('★ 无卡项目的“当前步骤”来自执行日志（挂了“日志”来源标签，不冒充任务卡）',
       !tp.err && tp.from >= 1, JSON.stringify({ from: tp.from }))
     check('★ 人工锁定的健康度带锁标（机器算不出的状态由人裁断）',
       !tp.err && tp.locks >= 1, JSON.stringify({ locks: tp.locks }))
@@ -2733,20 +2733,20 @@
     check('★ 设置入口在（⚙ 显示设置）—— 裁断权在人，不是写死的清单',
       !tp.err && $$('#board.pv .tripboard button')
         .some((b) => (b.textContent || '').indexOf('显示设置') >= 0))
-    // ── 四栏台账第四栏「欠着什么」（2026-10-22 · 03 任务三）──────────────
-    check('★★ 「欠着什么」列在（到哪了 / 下一步 / 在等谁 / 欠着什么 四栏齐）',
+    // ── 四栏台账第四栏“欠着什么”（2026-10-22 · 03 任务三）──────────────
+    check('★★ “欠着什么”列在（到哪了 / 下一步 / 在等谁 / 欠着什么 四栏齐）',
       !tp.err && tp.heads.some((h) => h === '欠着什么'), JSON.stringify(tp.heads))
     const oweCells = $$('#board.pv .trip-table .trip-owe')
     check('★ 有说明的行显示 registry 里的欠账原文',
       oweCells.length >= 2 && (oweCells[0].textContent || '').indexOf('夹具欠账') >= 0,
       JSON.stringify(oweCells.map((c) => (c.textContent || '').trim())))
-    check('★★ 没写说明的行显示「未写」（不许糊一句"暂无欠账"冒充有结论）',
+    check('★★ 没写说明的行显示“未写”（不许糊一句"暂无欠账"冒充有结论）',
       oweCells.some((c) => (c.textContent || '').trim() === '未写'),
       JSON.stringify(oweCells.map((c) => (c.textContent || '').trim())))
     check('  长文本挂 title（一眼看不全也能悬停看全文）',
       !!oweCells[0] && !!oweCells[0].querySelector('.trip-owe-t')
       && !!oweCells[0].querySelector('.trip-owe-t').getAttribute('title'))
-    check('点开设置面板 → 「收哪些项目 / 哪些项目算在途 / 显示哪些列」三块都在', await (async () => {
+    check('点开设置面板 → “收哪些项目 / 哪些项目算在途 / 显示哪些列”三块都在', await (async () => {
       const b = $$('#board.pv .tripboard button')
         .find((x) => (x.textContent || '').indexOf('显示设置') >= 0)
       if (!b) return false
@@ -2765,12 +2765,12 @@
       c.click()
       return waitFor(() => !$('#board.pv .trip-modal'), 3000, '关闭设置')
     })())
-    // ⚠ 2026-10-05 用户实测 bug：「提示保存了，但每次重新勾选都被取消」。
+    // ⚠ 2026-10-05 用户实测 bug：“提示保存了，但每次重新勾选都被取消”。
     //   根因 A：loadTripBoard 里曾把 rows 的 id 回填给勾选清单 —— 用户勾的正是"没进屏"的项目，
     //          回填等于当场抹掉他的勾选。
     //   根因 B：写盘只落了字符串键（fc_trip_mode），数组键（fc_trip_projects）根本没写，界面照样说"已保存"。
     //          现已改为**一次 IPC 写完四个键 + 回读校验**，校验不过就报错（不假成功）；
-    //          「保存」保留（用户口径：不需要理解运行机制，看到保存成功就行），改动同时即时落盘。
+    //          “保存”保留（用户口径：不需要理解运行机制，看到保存成功就行），改动同时即时落盘。
     //   这条断言：勾一个项目 → 关面板 → **重开面板，勾选还在**。
     check('★ 勾选项目 → 关面板 → 重开勾选仍在（改动即时生效，不存在"存没存"）', await (async () => {
       const openPanel = () => {
@@ -2807,34 +2807,34 @@
         && stillOn.some((t) => t.indexOf('第二个项目') >= 0)
         && window.__fcTest.prefs().fc_trip_mode === 'manual'
     })())
-    // 2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」——
+    // 2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”——
     // 添加：旧三摆法各自有（tile-add/ocard-add/ms-add），**新加的第 4 摆法当时漏了**；
     // 删除：全仓此前根本没有这个能力。两条都钉住。
-    check('★ 第 4 摆法也有「＋ 添加项目」入口（不能只有旧三摆法有）',
+    check('★ 第 4 摆法也有“＋ 添加项目”入口（不能只有旧三摆法有）',
       $$('#board.pv .trip-actions button').some((b) => (b.textContent || '').indexOf('添加项目') >= 0),
       JSON.stringify($$('#board.pv .trip-actions button').map((b) => (b.textContent || '').trim())))
-    check('★ 每行都有「移除登记」入口（🗑）—— 删除项目此前没有任何入口',
+    check('★ 每行都有“移除登记”入口（🗑）—— 删除项目此前没有任何入口',
       $$('#board.pv .trip-table .proj-del').length >= 2,
       'proj-del=' + $$('#board.pv .trip-table .proj-del').length)
-    // 2026-10-05 用户：「添加完项目刷新几遍根本看不到」——它确实不在这一屏（判据没命中），
+    // 2026-10-05 用户：“添加完项目刷新几遍根本看不到”——它确实不在这一屏（判据没命中），
     // 但界面必须**说出来**，不能一个字不提（用户只会以为自己加失败了）。
     check('★ 没进这一屏的项目被显式说出来（含名字 + 为什么 + 怎么让它显示）',
       $$('#board.pv .trip-hidden').length === 1
       && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('还没开工的项目') >= 0
       && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('显示设置') >= 0,
       'trip-hidden=' + $$('#board.pv .trip-hidden').length)
-    check('★ 「建契约文件」按钮在（方寸代写，2026-10-05 用户：打字输错一个字就可能不识别）',
+    check('★ “建契约文件”按钮在（方寸代写，2026-10-05 用户：打字输错一个字就可能不识别）',
       $$('#board.pv .trip-table .trip-mini').some((b) => (b.textContent || '').indexOf('建契约文件') >= 0),
       JSON.stringify($$('#board.pv .trip-table .trip-mini').map((b) => (b.textContent || '').trim())))
 
-    // ══ 卡 002（2026-10-08 用户反馈「创完就改不了」+「行点不开」）══════════
+    // ══ 卡 002（2026-10-08 用户反馈“创完就改不了”+“行点不开”）══════════
     // ① exists 分支此前**只有首行文本**：建契约/复制模板/打开文件夹全在 else ——
     //    文件一旦存在，界面上连"打开它"的入口都没了。
     // ② trip 行 tr 没有任何整行点击处理，只有健康度按钮与 🗑 有交互。
-    check('★ 契约已存在的行有「📄 打开契约」入口（文件建了就得有地方改）',
+    check('★ 契约已存在的行有“📄 打开契约”入口（文件建了就得有地方改）',
       $$('#board.pv .trip-table .trip-mini').some((b) => (b.textContent || '').indexOf('打开契约') >= 0),
       JSON.stringify($$('#board.pv .trip-table .trip-mini').map((b) => (b.textContent || '').trim())))
-    check('★ 点「打开契约」真调 openFile 且路径就是那份契约（不是僵尸按钮）', await (async () => {
+    check('★ 点“打开契约”真调 openFile 且路径就是那份契约（不是僵尸按钮）', await (async () => {
       const before = window.__fcTest.callCount('openFile')
       const b = $$('#board.pv .trip-table .trip-mini').find((x) => (x.textContent || '').indexOf('打开契约') >= 0)
       if (!b) return false
@@ -2845,9 +2845,9 @@
       return got && !!last && last.args[0] === 'E:/CODE/mock/demo/立项契约.md'
         && window.__fcTest.callCount('openFile') === before + 1
     })())
-    // 文件在、但终态读不出来 —— 旧版会并进「未填」分支，于是只剩一个会被主进程拒绝的
-    // 「建契约文件」。**2026-10-11 起还要把"为什么读不出来"分类说清**（真事：绒花墨坊的契约
-    // 用「① 终态三段」这套自定义小节名，界面写「内容未填」，用户当场反问「已经有内容了啊？」）。
+    // 文件在、但终态读不出来 —— 旧版会并进“未填”分支，于是只剩一个会被主进程拒绝的
+    // “建契约文件”。**2026-10-11 起还要把"为什么读不出来"分类说清**（真事：绒花墨坊的契约
+    // 用“① 终态三段”这套自定义小节名，界面写“内容未填”，用户当场反问“已经有内容了啊？”）。
     // 这里注入两种夹具，把两条分支各逼一次。
     const tripWithContract = (contract, name) => {
       window.__fcTest.setTripBoard({
@@ -2873,8 +2873,8 @@
       return $$('#board.pv .trip-table tbody tr')[0] || null
     }
 
-    check('★★ 契约有文件但小节名对不上 → 必须说「小节名不在标准六节里」，'
-      + '**不许**说成「内容未填」（用户 2026-10-11 就是被这句误导的）', await (async () => {
+    check('★★ 契约有文件但小节名对不上 → 必须说“小节名不在标准六节里”，'
+      + '**不许**说成“内容未填”（用户 2026-10-11 就是被这句误导的）', await (async () => {
       tripWithContract({
         exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
         endState: '', acceptLine: '', notWant: '', choice: '',
@@ -2894,7 +2894,7 @@
       return ok
     })())
 
-    check('★ 契约六节都是模板占位（司天那种空表）→ 必须说「还是模板占位（没填）」，'
+    check('★ 契约六节都是模板占位（司天那种空表）→ 必须说“还是模板占位（没填）”，'
       + '**不许**把骨架文案当成已填内容显示', await (async () => {
       tripWithContract({
         exists: true, path: 'E:/CODE/mock/demo/立项契约.md',
@@ -2955,16 +2955,16 @@
       return waitFor(() => $$('#board.pv .tripboard').length === 1, 4000, '回到在途一屏')
     })())
 
-    // ══ 空屏不许是死局（2026-10-05 用户实测「一屏是空的」）═══════════════
+    // ══ 空屏不许是死局（2026-10-05 用户实测“一屏是空的”）═══════════════
     // 用户当时的状态：prefs 里 fc_trip_mode=manual，而 fc_trip_projects 键根本没写进去
     //   （旧写法四次裸写只落了字符串键）→ 手动清单为空 → 15 个项目全出局 → 一屏空白，
     //   而下面那句统一文案还写着"它们没有未完结任务"（方寸自己有几十张卡 = 说假话）。
-    // 修法两头：数据层「键不存在 = 从没做过选择」兜底回自动；界面给一步就能走出去的出口。
-    check('★ 空屏不是死局：手动指定 + 一个都没勾 → 「改回自动」出口在', await (async () => {
+    // 修法两头：数据层“键不存在 = 从没做过选择”兜底回自动；界面给一步就能走出去的出口。
+    check('★ 空屏不是死局：手动指定 + 一个都没勾 → “改回自动”出口在', await (async () => {
       window.__fcTest.setTripBoard({
         ok: true, generatedAt: '2026-10-05 12:30', mode: 'manual', criteria: 'cards_or_commit',
         modeFallback: false, rows: [],
-        hidden: [{ id: 'demo3', name: '还没开工的项目', kind: 'not-picked', reason: '你选的是「手动指定」，但没勾它' }],
+        hidden: [{ id: 'demo3', name: '还没开工的项目', kind: 'not-picked', reason: '你选的是“手动指定”，但没勾它' }],
       })
       // 切走再切回来，逼它重新拉一次
       const wall = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('项目墙') >= 0)
@@ -2976,11 +2976,11 @@
       const act = $('#board.pv .trip-empty-act')
       return !!$('#board.pv .trip-empty') && !!act && (act.textContent || '').indexOf('改回自动') >= 0
     })())
-    check('★ 空屏的原因说实话（写「手动指定」，不许说「没有未完结任务」）',
+    check('★ 空屏的原因说实话（写“手动指定”，不许说“没有未完结任务”）',
       (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('手动指定') >= 0
       && (($('#board.pv .trip-hidden') || {}).textContent || '').indexOf('没有未完结任务') < 0,
       (($('#board.pv .trip-hidden') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 70))
-    check('★ 点「改回自动」→ 真的写进真身（空屏一步可走出去）', await (async () => {
+    check('★ 点“改回自动”→ 真的写进真身（空屏一步可走出去）', await (async () => {
       const act = $('#board.pv .trip-empty-act')
       if (!act) return false
       act.click()
@@ -3013,14 +3013,14 @@
     check('★ 导航不写偏好：fc_pv_view 仍是 tiles（点卡是浏览，摆法偏好不被顺手改掉）',
       window.__fcTest.prefs().fc_pv_view === 'tiles',
       JSON.stringify(window.__fcTest.prefs().fc_pv_view))
-    check('★ 详情里的「📦 看任务」仍跳看板（点卡进详情 / 点按钮进看板，两条路分开）', await (async () => {
+    check('★ 详情里的“📦 看任务”仍跳看板（点卡进详情 / 点按钮进看板，两条路分开）', await (async () => {
       const b = $$('#board.pv .ms-detail .oacts button').find((x) => (x.textContent || '').indexOf('看任务') >= 0)
       if (!b) return false
       b.click()
       const ok = await waitFor(() => !$('#board.pv') && !!$('#board'), 4000, '跳看板')
-      // 看板带项目筛选了 —— 还原成「全部项目」，别污染后面的断言。
-      // 2026-10-11 起项目筛选是「触发按钮 + 面板」：走面板里的「全部项目」选项（仍是一次点击）。
-      // 2026-10-12：项目筛选没有独立按钮了 -> 从筛选浮层里选「全部」归零。
+      // 看板带项目筛选了 —— 还原成“全部项目”，别污染后面的断言。
+      // 2026-10-11 起项目筛选是“触发按钮 + 面板”：走面板里的“全部项目”选项（仍是一次点击）。
+      // 2026-10-12：项目筛选没有独立按钮了 -> 从筛选浮层里选“全部”归零。
       const fbtn = $('.fbar-filter-btn')
       if (fbtn) {
         fbtn.click(); await sleep(280)
@@ -3035,11 +3035,11 @@
 
     // ══ 日志 · 接力链（2026-09-29 第 3 条方案二）═══════════════════════
     await sleep(300)
-    check('能切到「日志」页签', clickText('日志'))
+    check('能切到“日志”页签', clickText('日志'))
     await sleep(500)
 
     // ── 吸顶工具栏满宽（2026-10-11 视觉修复）────────────────────────────────
-    // 用户：「日志顶部工具栏与背景略有些不协调，尤其左侧」。真因是**特异性** ——
+    // 用户：“日志顶部工具栏与背景略有些不协调，尤其左侧”。真因是**特异性** ——
     // `#board { padding: 14px; align-items: flex-start }`（ID 选择器）把 `.logs-view`（类）的
     // padding 整条压掉了，于是吸顶条只覆盖"内容宽"、左右各露 14px 底色。
     // 这类视觉 bug 肉眼才看得出来，所以这里直接量几何把它钉住。
@@ -3049,11 +3049,11 @@
       stickyW > 0 && viewW > 0 && Math.abs(stickyW - viewW) < 2,
       `sticky=${stickyW} view=${viewW}`)
 
-    // ── 每日推进面（0.6.0 P2「今天推哪一格」）──────────────────────────
+    // ── 每日推进面（0.6.0 P2“今天推哪一格”）──────────────────────────
     // 判据不是"有块 UI"，而是：① 挂在日志页（不新开页面）；② **恒 3 行**；
     // ③ 第一行点名今天推的那一格、第二行带**判据原文**（这条是 P2 里程碑的原话）。
     const dbLines = $$('.daily-band .db-line').map((x) => (x.textContent || '').trim())
-    check('★ 日志页顶部有「每日推进面」（.logs-sticky 里的 .daily-band，不是新开的一页）',
+    check('★ 日志页顶部有“每日推进面”（.logs-sticky 里的 .daily-band，不是新开的一页）',
       !!$('.logs-sticky .daily-band'))
     check('★★ 推进面恒 3 行：今天推哪一格 / 判据 / 状态',
       dbLines.length === 3, dbLines.length + ' 行：' + dbLines.join(' || '))
@@ -3062,20 +3062,20 @@
       dbLines.slice(0, 2).join(' || '))
     check('★ 第三行说清状态与判据执行情况',
       /状态：已冻结/.test(dbLines[2] || '') && /尚未执行/.test(dbLines[2] || ''), dbLines[2])
-    // 2026-11-02（暮雨「待裁决的东西在哪里？没看见」）：这条带以前只认「已冻结」，
+    // 2026-11-02（暮雨“待裁决的东西在哪里？没看见”）：这条带以前只认“已冻结”，
     // 等裁决的卡在唯一日频入口里一个字都没有。夹具里 P1 是待裁决 → 必须被数出来。
-    check('★★ 待裁决的卡在日志页也被数出来（第三行「另有 N 张待裁决」）',
+    check('★★ 待裁决的卡在日志页也被数出来（第三行“另有 N 张待裁决”）',
       /另有 1 张待裁决/.test(dbLines[2] || ''), dbLines[2])
 
-    // 2026-10-30 暮雨第 2 轮：「分区头别写解释」——
-    // 旧版写「还没派出去（要派给 AI 就点那张卡的…）」，用户原话「直接什么都不写都更好」。
+    // 2026-10-30 暮雨第 2 轮：“分区头别写解释”——
+    // 旧版写“还没派出去（要派给 AI 就点那张卡的…）”，用户原话“直接什么都不写都更好”。
     check('★★ 分区头不再画蛇添足地解释状态（用户已明确说不要）',
       $$('.log-group-sep .log-group-hint').length === 0,
       $$('.log-group-sep .log-group-hint').map(h => (h.textContent || '').trim()).join(' | ') || '(none)')
 
     // ══ 日志 · 主日志 + 附属（2026-10-30 暮雨第 2/3 条返工）══════════════
-    // 现场：主日志点「进行中」只改了自己 → 附属还散在「待处理」区，视觉极乱；
-    // 绑定弹窗是一张没有查询能力的裸名单；「开工单」三个字没人知道是复制还是干活。
+    // 现场：主日志点“进行中”只改了自己 → 附属还散在“待处理”区，视觉极乱；
+    // 绑定弹窗是一张没有查询能力的裸名单；“开工单”三个字没人知道是复制还是干活。
     window.__fcTest.setLogs([
       { id: 'log-grp-main', title: '主日志·本轮六件事', content: '主日志正文', status: 'active',
         project: 'demo', created: '2026-10-30T03:00:00.000Z', attached: ['log-grp-a', 'log-grp-b'] },
@@ -3127,26 +3127,26 @@
         const cr = card.getBoundingClientRect(), br = box.getBoundingClientRect(), rr = row.getBoundingClientRect()
         return `card=${Math.round(cr.width)} box=${Math.round(br.width)} rowH=${Math.round(rr.height)}`
       })())
-    check('★★ 「开工单」写明只复制、不改状态（不再是三个字的黑盒）',
+    check('★★ “开工单”写明只复制、不改状态（不再是三个字的黑盒）',
       (() => {
         const box = groupCard() && groupCard().querySelector('.log-group-box')
         const t = (box && box.textContent) || ''
         return t.indexOf('复制开工单') >= 0 && t.indexOf('只复制') >= 0 && t.indexOf('不改状态') >= 0
       })(), ((groupCard() && groupCard().querySelector('.lg-box-hint') || {}).textContent || '(no hint)').trim())
 
-    // 点主日志的「进行中」= 全组进行中（用户实测期望）
+    // 点主日志的“进行中”= 全组进行中（用户实测期望）
     const runCalls = () => window.__fcTest.calls().filter(c => c.name === 'logsGroupRunning')
     const beforeGroupRun = runCalls().length
     const runBtn = groupCard() && groupCard().querySelector('.log-run-btn')
-    check('★★ 主日志上的运行开关写的是「全组进行中」（不是单条）',
+    check('★★ 主日志上的运行开关写的是“全组进行中”（不是单条）',
       !!runBtn && (runBtn.textContent || '').indexOf('全组进行中') >= 0,
       runBtn ? String(runBtn.textContent).trim() : 'no run btn')
     if (runBtn) runBtn.click()
-    check('★★ 点主日志「进行中」真走全组通道（logsGroupRunning 主日志 id + true）',
+    check('★★ 点主日志“进行中”真走全组通道（logsGroupRunning 主日志 id + true）',
       await waitFor(() => runCalls().length > beforeGroupRun, 4000, 'group running') &&
       (() => { const c = runCalls().pop(); return c.args[0] === 'log-grp-main' && c.args[1] === true })(),
       JSON.stringify(runCalls().pop() || null))
-    check('★★ 附属跟着变成「进行中」（不再出现主日志在跑、附属还待处理的乱象）',
+    check('★★ 附属跟着变成“进行中”（不再出现主日志在跑、附属还待处理的乱象）',
       await waitFor(() => {
         const c = groupCard()
         if (!c) return false
@@ -3160,7 +3160,7 @@
     const beforeKid = kidRunCalls().length
     const kidA = groupCard() && groupCard().querySelector('.log-kid-row[data-kid-id="log-grp-a"]')
     if (kidA) kidA.querySelector('.lk-run').click()
-    check('★★ 附属行能单独撤销「进行中」（不碰主日志、不碰别的附属）',
+    check('★★ 附属行能单独撤销“进行中”（不碰主日志、不碰别的附属）',
       await waitFor(() => kidRunCalls().length > beforeKid, 4000, 'kid run') &&
       kidRunCalls().pop().args[1] === false,
       JSON.stringify(kidRunCalls().pop() || null))
@@ -3170,7 +3170,7 @@
     const beforeKidDone = doneCalls().length
     const kidA2 = groupCard() && groupCard().querySelector('.log-kid-row[data-kid-id="log-grp-a"]')
     if (kidA2) kidA2.querySelector('.lk-done').click()
-    check('★ 附属行「完成」打开这条日志的完成框',
+    check('★ 附属行“完成”打开这条日志的完成框',
       await waitFor(() => !!$('#log-edit-modal'), 3000, 'kid complete modal') &&
       (() => {
         const t = $('#log-edit-modal input[placeholder="日志标题"]')
@@ -3201,7 +3201,7 @@
     const beforeInject = injectCalls().length
     const promptBtn = groupCard() && groupCard().querySelector('.lg-prompt')
     if (promptBtn) promptBtn.click()
-    check('★★ 「复制开工单」真走 logsInjectMany（主日志在第一位 + 全部附属）',
+    check('★★ “复制开工单”真走 logsInjectMany（主日志在第一位 + 全部附属）',
       await waitFor(() => injectCalls().length > beforeInject, 4000, 'inject group') &&
       JSON.stringify(injectCalls().pop().args[0]) === JSON.stringify(['log-grp-main', 'log-grp-a', 'log-grp-b']),
       JSON.stringify((injectCalls().pop() || {}).args || null))
@@ -3222,14 +3222,14 @@
       attachRows().map(r => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 18)).join(' | '))
     check('  已被别的组占用的日志默认不列',
       !attachRows().some(r => /别人的附属/.test(r.textContent || '')))
-    // 清空已选后再验筛选（否则「已选」会为了不丢选择而越过筛选）
+    // 清空已选后再验筛选（否则“已选”会为了不丢选择而越过筛选）
     const clearPick = $$('#log-attach-modal .la-countline button').find(b => /清空已选/.test(b.textContent || ''))
     if (clearPick) clearPick.click()
     await sleep(150)
 
     const q = $('#log-attach-modal .la-search')
     if (q) { q.value = '可绑'; q.dispatchEvent(new Event('input', { bubbles: true })) }
-    check('★★ 关键词筛选真缩小候选（只剩「可绑的独立日志」）',
+    check('★★ 关键词筛选真缩小候选（只剩“可绑的独立日志”）',
       await waitFor(() => attachRows().length === 1 && /可绑的独立日志/.test(attachRows()[0].textContent || ''), 3000, 'attach query'),
       'rows=' + attachRows().length)
     if (q) { q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })) }
@@ -3247,7 +3247,7 @@
 
     const showBlocked = $('#log-attach-modal .la-toggle input')
     if (showBlocked) { showBlocked.checked = true; showBlocked.dispatchEvent(new Event('change', { bubbles: true })) }
-    check('★★ 打开「显示已占用」能看到被别的组占走的日志，并写明原因',
+    check('★★ 打开“显示已占用”能看到被别的组占走的日志，并写明原因',
       await waitFor(() => attachRows().some(r => /别人的附属/.test(r.textContent || '')
         && /已被/.test(r.textContent || '')), 3000, 'attach blocked'),
       attachRows().map(r => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 28)).join(' | '))
@@ -3266,15 +3266,15 @@
       JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsSetAttached').pop() || {}).args || null))
     await sleep(300)
 
-    // 阴性对照（先造「没有链」的数据）：按链视图不该冒出链头 —— 防「按链=全都框起来」的假实现
+    // 阴性对照（先造“没有链”的数据）：按链视图不该冒出链头 —— 防“按链=全都框起来”的假实现
     window.__fcTest.setLogs([
       { id: 'log-x1', title: '无链甲', content: 'a', status: 'active', project: 'demo', created: '2026-09-28T00:00:00.000Z' },
       { id: 'log-x2', title: '无链乙', content: 'b', status: 'completed', project: 'demo', created: '2026-09-27T00:00:00.000Z' },
     ])
     clickText('看板'); await sleep(400); check('重进日志页（无链数据）', clickText('日志')); await sleep(500)
-    check('「按链」开关可点', clickText('按链'))
+    check('“按链”开关可点', clickText('按链'))
     await sleep(500)
-    check('★ 阴性对照：没有链时不画链头（不是「按链 = 全都框起来」）',
+    check('★ 阴性对照：没有链时不画链头（不是“按链 = 全都框起来”）',
       $$('.chain-header').length === 0, 'chain-header=' + $$('.chain-header').length)
 
     // 灌入真链：A(已完成) → B(进行中, continuesFrom A)，外加一条孤立 C
@@ -3310,12 +3310,12 @@
       JSON.stringify(window.__fcTest.prefs().fc_logs_view_mode))
 
     // 切回分区：旧视图原样恢复（加视图不改旧的）
-    check('切回「分区」', clickText('分区'))
+    check('切回“分区”', clickText('分区'))
     await sleep(500)
     check('★★ 分区视图恢复：分区头回来了、链头消失',
       $$('.log-group-sep').length >= 1 && $$('.chain-header').length === 0,
       'sep=' + $$('.log-group-sep').length + ' chain=' + $$('.chain-header').length)
-    check('★ 分区头仍只有状态名，不再附一句「已经派给 AI」',
+    check('★ 分区头仍只有状态名，不再附一句“已经派给 AI”',
       !/已经派给 AI/.test((($('.log-group-sep.g-running') || {}).textContent) || ''),
       (($('.log-group-sep.g-running') || {}).textContent || '(no running section)').trim())
     check('  链标签在分区视图同样可见（链关系不只按链才有）',
@@ -3325,12 +3325,12 @@
 
 
     // 2026-10-03 反馈1（卡 task-20261003-001）：上次的执行 Agent 卡面必须标清楚
-    check('★ 卡面标出「⤴ 上次」执行 Agent（夹具 log-relay-b.prevAgentName=DSH）',
+    check('★ 卡面标出“⤴ 上次”执行 Agent（夹具 log-relay-b.prevAgentName=DSH）',
       $$('.log-card').some(c => (c.textContent || '').indexOf('上次 DSH') >= 0),
       'prev-chip=' + $$('.log-prev-agent').length)
 
     // 接力对话框（完成态卡入口）
-    check('★ 完成态卡有「⏭ 从这里继续」', $$('.relay-btn').length >= 1, 'relay-btn=' + $$('.relay-btn').length)
+    check('★ 完成态卡有“⏭ 从这里继续”', $$('.relay-btn').length >= 1, 'relay-btn=' + $$('.relay-btn').length)
     const relayBtn = $('.relay-btn')
     if (relayBtn) relayBtn.click()
     check('★★ 点开接力对话框（#relay-modal 出现）',
@@ -3339,20 +3339,20 @@
       !!$('.rs-id') && $('.rs-id').textContent.trim() === 'log-relay-a',
       $('.rs-id') ? $('.rs-id').textContent : 'no .rs-id')
     // ── 2026-10-03 反馈1/2（卡 task-20261003-001/002）──
-    check('★★ 标题不再沿用源（反馈2）：「新日志标题」默认留空，每个日志创建新标题',
+    check('★★ 标题不再沿用源（反馈2）：“新日志标题”默认留空，每个日志创建新标题',
       (() => {
         const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('新日志标题') >= 0)
         const inp = lab && lab.nextElementSibling
         return !!inp && inp.tagName === 'INPUT' && inp.value === ''
       })(), 'title=' + (($('#relay-modal input') || {}).value ?? '?'))
-    check('★★ 拆两字段（反馈1）：「上次的执行 Agent」与「本次执行 Agent」两个标签都在',
+    check('★★ 拆两字段（反馈1）：“上次的执行 Agent”与“本次执行 Agent”两个标签都在',
       (() => {
         const texts = $$('#relay-modal label').map(l => l.textContent || '')
         return texts.some(t => t.indexOf('上次的执行 Agent') >= 0) && texts.some(t => t.indexOf('本次执行 Agent') >= 0)
       })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 10)).join(' | '))
     // 2026-10-30（暮雨第 6 条）：会话 ID 必须能在接力对话框里一次填完 ——
     // 以前要"先创建，再点编辑，再贴 ID"，一个字段强制点两次。
-    check('★★ 接力对话框里能直接填「本次会话 ID」（不用建完再点编辑）',
+    check('★★ 接力对话框里能直接填“本次会话 ID”（不用建完再点编辑）',
       (() => {
         const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('本次会话 ID') >= 0)
         return !!lab && lab.nextElementSibling && lab.nextElementSibling.tagName === 'INPUT'
@@ -3385,10 +3385,10 @@
         const l = t.previousElementSibling
         return l ? l.textContent.slice(0, 6) : '(no label)'
       }).join(' | '))
-    check('★★ 下一步**默认留空**（2026-10-02 用户：「依旧每次都直接挪用上次的输入结果」——不再预填）',
+    check('★★ 下一步**默认留空**（2026-10-02 用户：“依旧每次都直接挪用上次的输入结果”——不再预填）',
       !!relayTaOf('下一步') && relayTaOf('下一步').value === '',
       relayTaOf('下一步') ? JSON.stringify(relayTaOf('下一步').value) : 'no 下一步 textarea')
-    check('★★「带入源的下一步」按钮在位（取回源内容的唯一入口，常显不藏 hover）',
+    check('★★“带入源的下一步”按钮在位（取回源内容的唯一入口，常显不藏 hover）',
       $$('#relay-modal .relay-bring').length === 1 &&
       ($('#relay-modal .relay-bring').textContent || '').indexOf('带入源的下一步') >= 0,
       'bring=' + $$('#relay-modal .relay-bring').length)
@@ -3407,11 +3407,11 @@
         const t = $$('#relay-modal .acts button').map(b => (b.textContent || '').trim())
         return t.indexOf('取消') >= 0 && t.indexOf('创建') >= 0 && t.indexOf('创建并开跑') >= 0
       })(), $$('#relay-modal .acts button').map(b => b.textContent.trim()).join('|'))
-    // 2026-10-02：先测「带入」再关 —— 带入的内容同样受防丢保护，顺带把这一点断言掉
+    // 2026-10-02：先测“带入”再关 —— 带入的内容同样受防丢保护，顺带把这一点断言掉
     const bringBtn = $('#relay-modal .relay-bring')
     if (bringBtn) bringBtn.click()
     await sleep(250)
-    check('★★ 点「带入」才把源的下一步原文放进框（主动取，不是自动挪用）',
+    check('★★ 点“带入”才把源的下一步原文放进框（主动取，不是自动挪用）',
       !!relayTaOf('下一步') && relayTaOf('下一步').value.indexOf('清单勾选状态回写') >= 0,
       relayTaOf('下一步') ? relayTaOf('下一步').value.slice(0, 60) : 'no 下一步 textarea')
     const cancelBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
@@ -3435,7 +3435,7 @@
     const cancel3 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancel3) cancel3.click()
     await sleep(300)
-    check('★★ 有未创建内容时点「取消」不关：出对话框内确认条（不再原生 confirm，也不静默关）',
+    check('★★ 有未创建内容时点“取消”不关：出对话框内确认条（不再原生 confirm，也不静默关）',
       !!$('#relay-modal') && !!$('#relay-modal .relay-discard'),
       'modal=' + !!$('#relay-modal') + ' bar=' + !!$('#relay-modal .relay-discard'))
     check('★ 确认条点名改了什么（脏检查覆盖执行内容等字段）',
@@ -3449,7 +3449,7 @@
     const keepBtn = $$('.relay-discard button').find(b => (b.textContent || '').trim() === '继续填写')
     if (keepBtn) keepBtn.click()
     await sleep(250)
-    check('★ 「继续填写」收起条、内容还在（对话框不关）',
+    check('★ “继续填写”收起条、内容还在（对话框不关）',
       !!$('#relay-modal') && !$('#relay-modal .relay-discard') &&
       ($$('#relay-modal textarea')[0] || { value: '' }).value.indexOf('上次会话完成情况') >= 0)
     maskClick('#relay-overlay')
@@ -3458,15 +3458,15 @@
       !!$('#relay-modal') && !!$('#relay-modal .relay-discard'))
     const dropBtn = $$('.relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
     if (dropBtn) dropBtn.click()
-    check('★★ 只有点「丢弃并关闭」才真关（唯一丢弃入口）',
+    check('★★ 只有点“丢弃并关闭”才真关（唯一丢弃入口）',
       await waitFor(() => !$('#relay-modal'), 2000, '丢弃后关闭'))
 
-    // 链头「从链尾继续」：源 = 链尾（最新的那格）
+    // 链头“从链尾继续”：源 = 链尾（最新的那格）
     check('按链后再从链头接力', clickText('按链'))
     await sleep(500)
     const tailBtn = $$('.chain-header button').find(b => (b.textContent || '').indexOf('从链尾继续') >= 0)
     if (tailBtn) tailBtn.click()
-    check('★★ 链头「＋ 从链尾继续」→ 对话框的源是链尾（log-relay-b）',
+    check('★★ 链头“＋ 从链尾继续”→ 对话框的源是链尾（log-relay-b）',
       await waitFor(() => !!$('#relay-modal') && $('.rs-id') && $('.rs-id').textContent.trim() === 'log-relay-b', 3000, '链尾接力'),
       $('#relay-modal') && $('.rs-id') ? $('.rs-id').textContent : '未打开')
     const cancel2 = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
@@ -3492,7 +3492,7 @@
       const createBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
       const beforeCreate = window.__fcTest.callCount('logsCreate')
       if (createBtn) createBtn.click()
-      check('★★ 接力创建时把「本次会话 ID」一起送进 logsCreate（不再建完再编辑）',
+      check('★★ 接力创建时把“本次会话 ID”一起送进 logsCreate（不再建完再编辑）',
         await waitFor(() => window.__fcTest.callCount('logsCreate') > beforeCreate, 4000, 'relay create'),
         'before=' + beforeCreate + ' after=' + window.__fcTest.callCount('logsCreate'))
       const created = window.__fcTest.calls().filter(c => c.name === 'logsCreate').pop()
@@ -3503,8 +3503,8 @@
     }
 
     // ══ 2026-10-30 暮雨第 5 条：撤销条串对象（重大 bug）════════════════════
-    // 现场：误点「标为进行中」→ 按 Ctrl+Z / 点顶部撤销 → 进行中没撤掉，
-    // 反而把 60 秒前那条「已完成」撤回了「待处理」。
+    // 现场：误点“标为进行中”→ 按 Ctrl+Z / 点顶部撤销 → 进行中没撤掉，
+    // 反而把 60 秒前那条“已完成”撤回了“待处理”。
     // 真因：`toggleLogRunning` 当时**没有登记自己的撤销**，旧条子一直挂着，Ctrl+Z 撤的是旧对象。
     {
       window.__fcTest.clearUndo?.()
@@ -3534,22 +3534,22 @@
         && c.args[0] === 'log-undo-b' && c.args[1] === true), 4000, 'run B')
       await sleep(300)
       const bar2 = $('#undo-bar') ? ($('#undo-bar').textContent || '') : ''
-      check('★★ 点「进行中」后撤销条立刻换成这一笔（不是 60 秒前的「完成」）',
+      check('★★ 点“进行中”后撤销条立刻换成这一笔（不是 60 秒前的“完成”）',
         bar2.indexOf('进行中') >= 0 && bar2.indexOf('撤销串对象B') >= 0, bar2)
       const ub = $('#undo-bar .ub-btn')
       if (ub) ub.click()
-      check('★★ 撤销真的撤掉了 B 的「进行中」',
+      check('★★ 撤销真的撤掉了 B 的“进行中”',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning'
           && c.args[0] === 'log-undo-b' && c.args[1] === false), 4000, 'undo B'))
       check('★★ 已完成的 A 没有被退回待处理（原 bug：撤 B 却把 A 改成待处理）',
         !window.__fcTest.calls().some((c) => c.name === 'logsReopen' && c.args[0] === 'log-undo-a'))
       const caAfter = cardOf('撤销串对象A')
-      check('  A 卡仍然是「已完成」', !!caAfter && (caAfter.textContent || '').indexOf('已完成') >= 0,
+      check('  A 卡仍然是“已完成”', !!caAfter && (caAfter.textContent || '').indexOf('已完成') >= 0,
         caAfter ? (caAfter.textContent || '').slice(0, 60) : 'no card')
     }
 
-    // ══ 2026-11-01 暮雨：日志不再承载收口（收口进任务「待验收」）══════════════
-    // 历史数据里可能还有 agentDone:true；界面必须**忽略**它，不许再长出「⏳ 等你确认」队列。
+    // ══ 2026-11-01 暮雨：日志不再承载收口（收口进任务“待验收”）══════════════
+    // 历史数据里可能还有 agentDone:true；界面必须**忽略**它，不许再长出“⏳ 等你确认”队列。
     {
       window.__fcTest.setLogs([
         { id: 'log-close-req', title: '历史收口标记样例', content: '这一轮做完了', status: 'active',
@@ -3557,13 +3557,13 @@
       ])
       clickText('看板'); await sleep(250); clickText('日志'); await sleep(600)
       const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('历史收口标记样例') >= 0)
-      check('★★ 历史 agentDone 不再渲染成「⏳ 等你确认」（日志只记过程）',
+      check('★★ 历史 agentDone 不再渲染成“⏳ 等你确认”（日志只记过程）',
         !!card && !card.querySelector('.log-agent-done')
         && (card.textContent || '').indexOf('等你确认') < 0,
         card ? (card.textContent || '').slice(0, 100) : 'no card')
       const doneBtn = card && Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button'))
         .find((b) => (b.textContent || '').trim() === '完成')
-      check('★★ 完成入口就是普通「完成」（没有"AI 已申请收口"这套）', !!doneBtn,
+      check('★★ 完成入口就是普通“完成”（没有"AI 已申请收口"这套）', !!doneBtn,
         card ? Array.prototype.slice.call(card.querySelectorAll('.log-card-actions button')).map((b) => b.textContent.trim()).join('|') : 'no card')
       if (doneBtn) {
         doneBtn.click()
@@ -3580,8 +3580,8 @@
     }
 
     // ══ 日志 → 待办：内容**一条不丢**（2026-10-11 用户实测的丢内容 bug）══════════
-    // 原话：「我把 log_20260925113550_0z73dy 转待办，发现内容全丢，变成空待办。本以为文本会留住的。」
-    // 真因两处：① 只取「下一步」首条当标题，而那条日志的下一步是占位 `（待填写）`；
+    // 原话：“我把 log_20260925113550_0z73dy 转待办，发现内容全丢，变成空待办。本以为文本会留住的。”
+    // 真因两处：① 只取“下一步”首条当标题，而那条日志的下一步是占位 `（待填写）`；
     //          ② 日志**正文一个字都不带**（旧实现只搬一行）。夹具照那条日志的形态复刻。
     {
       const savedLogs = window.__fcTest.logs()
@@ -3600,7 +3600,7 @@
       const card = $$('.log-card').find((c) => (c.textContent || '').indexOf('角色设定待审0925') >= 0)
       const btn = card && Array.prototype.slice.call(card.querySelectorAll('button'))
         .find((b) => (b.textContent || '').indexOf('转待办') >= 0)
-      check('  日志卡上有「⤴ 转待办」入口', !!btn)
+      check('  日志卡上有“⤴ 转待办”入口', !!btn)
       if (btn) {
         btn.click()
         await waitFor(() => !!$('#conv-modal'), 4000, '转换确认框')
@@ -3612,12 +3612,12 @@
         check('★★ 待办里带着日志**正文全文**（旧版把正文整个丢了 —— 这才是"内容全丢"的真因）',
           text.indexOf('成功生成：2 项') >= 0 && text.indexOf('Obsidian_AI_Sandbox') >= 0,
           JSON.stringify(text.slice(0, 120)))
-        check('★★ 占位「（待填写）」不许当内容（旧版拿它当标题，整条待办只剩这四个字）',
+        check('★★ 占位“（待填写）”不许当内容（旧版拿它当标题，整条待办只剩这四个字）',
           !text.startsWith('（待填写）') && text.split('\n')[0].indexOf('（待填写）') < 0,
           JSON.stringify(text.split('\n')[0]))
         check('  首行落回日志标题（下一步是占位时的正确退路）',
           text.split('\n')[0].indexOf('角色设定待审0925') >= 0, JSON.stringify(text.split('\n')[0]))
-        check('  来源行标出「由哪条日志转来」（转完还追得回去）',
+        check('  来源行标出“由哪条日志转来”（转完还追得回去）',
           text.indexOf('由日志') >= 0 && text.indexOf('log-lost-1') >= 0)
       }
       // ⚠ 用完**还原现场**：本段插在日志段的中间，后面还有接力/附件的断言要用原夹具。
@@ -3629,7 +3629,7 @@
     }
 
     // ══ 附件（2026-10-01 用户第 1 条 → 卡 036）═══════════════════
-    // 卡 036 的验收原话：真实需求是「报修时截图有地方放」——所以这里断言的是
+    // 卡 036 的验收原话：真实需求是“报修时截图有地方放”——所以这里断言的是
     // **入口真通**：角标 → 预览附件区 → 点添加多一项 → 点 ✕ 少一项，而不是只看数据层。
     check('切回分区视图（附件断言前置）', clickText('分区'))
     await sleep(400)
@@ -3657,7 +3657,7 @@
       'items=' + $$('#log-preview-modal .attach-item').length)
     const attAddBtn = $('#log-preview-modal .attach-add')
     if (attAddBtn) attAddBtn.click()
-    check('★★ 点「＋添加文件…」→ 网格多一项（入口真通，不是死按钮）',
+    check('★★ 点“＋添加文件…”→ 网格多一项（入口真通，不是死按钮）',
       await waitFor(() => $$('#log-preview-modal .attach-item').length === 2, 3000, 'attach add'),
       'items=' + $$('#log-preview-modal .attach-item').length)
     const attX = $$('#log-preview-modal .attach-x')[0]
@@ -3672,7 +3672,7 @@
     // ══ 安装包附件不直接运行（2026-10-30 暮雨白屏事故）════════════════════════
     // 现场：点日志里挂的安装包 → 方寸白屏成空壳，只能退出重进。
     // 根因是旧实现把所有附件都交给 shell.openPath，`.exe` 会直接启动安装程序。
-    // 现在：可执行文件只返回 needsReveal，界面确认后走「在文件夹中显示」。
+    // 现在：可执行文件只返回 needsReveal，界面确认后走“在文件夹中显示”。
     {
       window.__fcTest.setLogs([
         { id: 'log-att-exe', title: '安装包附件样例', content: 'x', status: 'active', project: 'demo',
@@ -3695,7 +3695,7 @@
       check('★★ 点安装包 → 真走 logs:openAttachment（由主进程判策略）',
         await waitFor(() => window.__fcTest.callCount('logsOpenAttachment') > 0, 3000, 'openAttachment'),
         JSON.stringify(window.__fcTest.calls().map((x) => x.name)))
-      check('★★ 主进程回 needsReveal 后，界面弹确认并改走「在文件夹中显示」',
+      check('★★ 主进程回 needsReveal 后，界面弹确认并改走“在文件夹中显示”',
         await waitFor(() => window.__fcTest.callCount('logsRevealAttachment') > 0, 3000, 'revealAttachment'),
         JSON.stringify(window.__fcTest.calls().map((x) => x.name)))
       check('★ 确认框说清风险（可执行 / 安装 / 白屏），不是一句"打开失败"',
@@ -3707,11 +3707,11 @@
       await sleep(250)
     }
 
-    // ══ 新建日志 + 待挂附件（2026-10-29 暮雨第 5 条：「创建日志加附件则不能保存」）══════
+    // ══ 新建日志 + 待挂附件（2026-10-29 暮雨第 5 条：“创建日志加附件则不能保存”）══════
     // 真机现场（应用日志 2026-10-28 21:51）：新建弹窗里挂了 7 张粘贴图 → 点创建 →
     // 弹窗不关、附件永远挂不上、**重试永远同一个结果**；主进程日志里一条 IPC 失败都没有。
     // 根因：`[...logPendingData.value]` 展开出来的元素是 **Vue 响应式代理**，
-    // 过 contextBridge 在「页面 → 隔离世界」那一跳抛 `could not be cloned` —— 报文根本没进主进程。
+    // 过 contextBridge 在“页面 → 隔离世界”那一跳抛 `could not be cloned` —— 报文根本没进主进程。
     // 这条断言就是钉住它：**创建要成功、两条附件通道都要被真的调用到**。
     check('回到日志页（新建 + 附件断言前置）', clickText('日志'))
     await sleep(400)
@@ -3721,10 +3721,10 @@
     check('★ 新建日志弹窗打开', await waitFor(() => !!$('#log-edit-modal'), 3000, 'log edit modal'))
     const lgPickBtn = $('#log-edit-modal .attach-add')
     if (lgPickBtn) lgPickBtn.click()
-    check('★★ 新建态也能选附件，且进「待挂」清单（不必先创建再回来挂）',
+    check('★★ 新建态也能选附件，且进“待挂”清单（不必先创建再回来挂）',
       await waitFor(() => $$('#log-edit-modal .attach-pending-item').length === 1, 3000, 'pending path'),
       'items=' + $$('#log-edit-modal .attach-pending-item').length)
-    // 拖一张真图进去 —— 走的是「内存字节」那条通道（真机出事的正是它）
+    // 拖一张真图进去 —— 走的是“内存字节”那条通道（真机出事的正是它）
     const lgDropInfo = await (async () => {
       const modal = $('#log-edit-modal')
       if (!modal) return { ok: false, why: 'no modal' }
@@ -3736,7 +3736,7 @@
       } catch (e) { return { ok: false, why: String(e && e.message) } }
     })()
     check('  夹具可用：能构造一次真实 drop', lgDropInfo.ok, JSON.stringify(lgDropInfo))
-    check('★★ 拖进来的图也进「待挂」（两条通道共用一份清单）',
+    check('★★ 拖进来的图也进“待挂”（两条通道共用一份清单）',
       await waitFor(() => $$('#log-edit-modal .attach-pending-item').length === 2, 4000, 'pending data'),
       'items=' + $$('#log-edit-modal .attach-pending-item').length)
     const lgTitle = $('#log-edit-modal input[placeholder="日志标题"]')
@@ -3747,7 +3747,7 @@
     const lgCreateBtn = $$('#log-edit-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
     if (lgCreateBtn) lgCreateBtn.click()
     const lgCalls = () => window.__fcTest.calls().slice(lgCallsBefore)
-    check('★★ 点「创建」真的走了 logsCreate', await waitFor(() => lgCalls().some(c => c.name === 'logsCreate'), 4000, 'logsCreate'),
+    check('★★ 点“创建”真的走了 logsCreate', await waitFor(() => lgCalls().some(c => c.name === 'logsCreate'), 4000, 'logsCreate'),
       JSON.stringify(lgCalls().map(c => c.name)))
     check('★★ 附件真的送进了主进程（两条通道都要到：按路径复制 + 按内存字节）',
       await waitFor(() => {
@@ -3785,8 +3785,8 @@
       const ks = $$('.log-card .log-prio-badge').map(b => (b.className || ''))
       return ks.some(k => k.indexOf('lp-high') >= 0) && ks.some(k => k.indexOf('lp-mid') >= 0) && ks.some(k => k.indexOf('lp-low') >= 0)
     })(), $$('.log-card .log-prio-badge').map(b => b.className).join(' | '))
-    // 排序下拉：切到「按优先级」→ 高→中→低→未标（未标沉底）
-    check('★★ 排序下拉有「按优先级（高→低）」选项（卡 001 之前只有 4 项）', (() => {
+    // 排序下拉：切到“按优先级”→ 高→中→低→未标（未标沉底）
+    check('★★ 排序下拉有“按优先级（高→低）”选项（卡 001 之前只有 4 项）', (() => {
       const sel = $$('.logs-view select, #board select').find(s =>
         Array.prototype.slice.call(s.options || []).some(o => (o.textContent || '').indexOf('按优先级') >= 0))
       if (!sel) return false
@@ -3812,7 +3812,7 @@
     const prioEditBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('编辑') >= 0)
     if (prioEditBtn) prioEditBtn.click()
     check('打开日志编辑框（优先级断言前置）', await waitFor(() => !!$('#log-edit-modal'), 3000, 'log edit'))
-    check('★★ 编辑框有「优先级」下拉（四档：不标/高/中/低）', (() => {
+    check('★★ 编辑框有“优先级”下拉（四档：不标/高/中/低）', (() => {
       const sel = $$('#log-edit-modal select.logsel').find(s => {
         const opts = Array.prototype.slice.call(s.options || []).map(o => o.textContent)
         return opts.some(t => t === '不标') && opts.some(t => t === '高') && opts.some(t => t === '低')
@@ -3820,13 +3820,13 @@
       return !!sel
     })(), JSON.stringify($$('#log-edit-modal select.logsel').map(s =>
       Array.prototype.slice.call(s.options).map(o => o.textContent).join('/'))))
-    check('★★ 编辑框打开即回显当前优先级（不是每次打开都从「不标」重来）', (() => {
+    check('★★ 编辑框打开即回显当前优先级（不是每次打开都从“不标”重来）', (() => {
       const sel = $$('#log-edit-modal select.logsel').find(s =>
         Array.prototype.slice.call(s.options || []).some(o => o.textContent === '高'))
       return !!sel && sel.value === '高'
     })(), JSON.stringify(($$('#log-edit-modal select.logsel').find(s =>
       Array.prototype.slice.call(s.options || []).some(o => o.textContent === '高')) || {}).value))
-    check('★ 优先级下拉改动纳入「未保存」防丢快照（整表 JSON 比对）', (() => {
+    check('★ 优先级下拉改动纳入“未保存”防丢快照（整表 JSON 比对）', (() => {
       const sel = $$('#log-edit-modal select.logsel').find(s =>
         Array.prototype.slice.call(s.options || []).some(o => o.textContent === '低'))
       if (!sel) return false
@@ -3845,11 +3845,11 @@
         return upd.priority === '低'
       }, 4000, 'logsUpdate priority'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsUpdate').pop() || {}).args))
-    // 新建：默认「不标」，且创建链路同样带 priority
+    // 新建：默认“不标”，且创建链路同样带 priority
     const newLogBtn = $$('.logs-view button, #board button').find(b => (b.textContent || '').indexOf('新建日志') >= 0)
     if (newLogBtn) newLogBtn.click()
     check('打开新建日志（卡 001 新建分支前置）', await waitFor(() => !!$('#log-edit-modal'), 3000, 'new log'))
-    check('★ 新建默认「不标」（历史日志零迁移：老日志不会因此多出字段）', (() => {
+    check('★ 新建默认“不标”（历史日志零迁移：老日志不会因此多出字段）', (() => {
       const sel = $$('#log-edit-modal select.logsel').find(s =>
         Array.prototype.slice.call(s.options || []).some(o => o.textContent === '不标'))
       return !!sel && sel.value === ''
@@ -3874,7 +3874,7 @@
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
 
     // ══ 关联任务 chips 改造（2026-10-09 用户第 3 条）════════════════════════
-    // 「每次都加载一堆任务让我头疼，于是干脆什么都不选」→ 索引字段不做任务浏览器：
+    // “每次都加载一堆任务让我头疼，于是干脆什么都不选”→ 索引字段不做任务浏览器：
     // 默认折叠（候选 0 渲染 = 反向判据）、按需展开、过滤、勾选成 chip、× 摘除。
     const chipsToggle = () => $$('#log-edit-modal .log-task-head button')[0]
     check('打开新建日志（chips 断言前置）', await (async () => {
@@ -3886,10 +3886,10 @@
     check('★★ 关联任务默认折叠：候选列表根本不在 DOM 里（不再全量铺一屏 —— 反向判据）',
       $$('#log-edit-modal .log-task-opt').length === 0 && $$('#log-edit-modal .log-task-multi').length === 0,
       'opts=' + $$('#log-edit-modal .log-task-opt').length)
-    check('  默认态说清「还没有关联任务」+ 给展开入口（不是空一片）',
+    check('  默认态说清“还没有关联任务”+ 给展开入口（不是空一片）',
       (($('#log-edit-modal .log-task-head') || {}).textContent || '').indexOf('还没有关联任务') >= 0
       && !!chipsToggle() && (chipsToggle().textContent || '').indexOf('＋ 关联任务') >= 0)
-    check('★ 点「＋ 关联任务」→ 候选按需展开（带过滤框），按钮变「收起」', await (async () => {
+    check('★ 点“＋ 关联任务”→ 候选按需展开（带过滤框），按钮变“收起”', await (async () => {
       const b = chipsToggle()
       if (!b) return false
       b.click()
@@ -3898,7 +3898,7 @@
       return got && (chipsToggle().textContent || '').indexOf('收起') >= 0
     })())
     const chipsOptBefore = $$('#log-edit-modal .log-task-opt').length
-    check('★ 过滤「011」→ 只剩匹配的那条（全量列表被过滤吃掉）', await (async () => {
+    check('★ 过滤“011”→ 只剩匹配的那条（全量列表被过滤吃掉）', await (async () => {
       const inp = $('#log-edit-modal .log-task-search')
       if (!inp) return false
       inp.value = '011'
@@ -3926,7 +3926,7 @@
         return $$('#log-edit-modal .lt-chip').length === 0 && !!i2 && i2.checked === false
       }, 3000, '摘除 chip')
     })())
-    check('  摘干净回到「还没有关联任务」，关窗不弹丢弃确认（状态与打开时一致）', await (async () => {
+    check('  摘干净回到“还没有关联任务”，关窗不弹丢弃确认（状态与打开时一致）', await (async () => {
       const head = (($('#log-edit-modal .log-task-head') || {}).textContent || '')
       if (head.indexOf('还没有关联任务') < 0) return false
       const cancel = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '取消')
@@ -3935,10 +3935,10 @@
       return waitFor(() => !$('#log-edit-modal'), 3000, '取消关窗')
     })())
 
-    // ══ 完成/归档弹窗不再丢改动（2026-10-17 用户报障「点完成后保存按钮会被替换，输入一万字也会全丢」）══
+    // ══ 完成/归档弹窗不再丢改动（2026-10-17 用户报障“点完成后保存按钮会被替换，输入一万字也会全丢”）══
     // 病灶：完成/归档弹窗表单照常可编辑，但主按钮只调 logsComplete/logsArchive —— 字段零回写，
-    // 改动静默蒸发。修法三层：①主按钮 dirty 时叫「保存并完成/保存并归档」，点了先 logsUpdate
-    // 全字段再走状态；②「保存修改」次按钮只存内容不碰状态；③回写失败中止不标完成。
+    // 改动静默蒸发。修法三层：①主按钮 dirty 时叫“保存并完成/保存并归档”，点了先 logsUpdate
+    // 全字段再走状态；②“保存修改”次按钮只存内容不碰状态；③回写失败中止不标完成。
     window.__fcTest.setLogs([
       { id: 'log-fin-1', title: '完成弹窗保存样例', content: '原始正文', nextSteps: '原下一步', status: 'active', project: 'demo', created: '2026-10-16T00:00:00.000Z' },
       { id: 'log-fin-2', title: '归档弹窗保存样例', content: '原始正文', status: 'active', project: 'demo', created: '2026-10-16T01:00:00.000Z' },
@@ -3956,11 +3956,11 @@
       b.click()
       return waitFor(() => !!$('#log-edit-modal'), 3000, '完成弹窗')
     })())
-    check('★ 完成弹窗主按钮未改动时叫「确认完成」（不冒充保存）', (() => {
+    check('★ 完成弹窗主按钮未改动时叫“确认完成”（不冒充保存）', (() => {
       const b = $$('#log-edit-modal .acts button.pri')[0]
       return !!b && (b.textContent || '').trim() === '确认完成'
     })(), (($('#log-edit-modal .acts button.pri') || {}).textContent || '(没读到)').trim())
-    check('★★ 改正文 → 主按钮 dirty 感知变「保存并完成」（字面即承诺先落盘）', await (async () => {
+    check('★★ 改正文 → 主按钮 dirty 感知变“保存并完成”（字面即承诺先落盘）', await (async () => {
       const ta = $('#log-edit-modal textarea[placeholder="执行内容..."]')
       if (!ta) return false
       ta.value = '一万字的补充内容'
@@ -3971,7 +3971,7 @@
     const finCmpBefore = window.__fcTest.callCount('logsComplete')
     const finPri = $$('#log-edit-modal .acts button.pri')[0]
     if (finPri) finPri.click()
-    check('★★ 「保存并完成」= 先 logsUpdate 全字段（一万字进 updates）再 logsComplete', await (async () => {
+    check('★★ “保存并完成”= 先 logsUpdate 全字段（一万字进 updates）再 logsComplete', await (async () => {
       const got = await waitFor(() => window.__fcTest.callCount('logsUpdate') > finUpdBefore
         && window.__fcTest.callCount('logsComplete') > finCmpBefore, 4000, 'update→complete')
       const ups = window.__fcTest.calls().filter(c => c.name === 'logsUpdate')
@@ -3989,14 +3989,14 @@
       b.click()
       return waitFor(() => !!$('#log-edit-modal'), 3000, '归档弹窗')
     })())
-    check('★ 归档弹窗主按钮未改动叫「确认归档」；「保存修改」次按钮在场', (() => {
+    check('★ 归档弹窗主按钮未改动叫“确认归档”；“保存修改”次按钮在场', (() => {
       const pri = $$('#log-edit-modal .acts button.pri')[0]
       const keep = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '保存修改')
       return !!pri && (pri.textContent || '').trim() === '确认归档' && !!keep
     })())
     const arcUpdBefore = window.__fcTest.callCount('logsUpdate')
     const arcCmpBefore = window.__fcTest.callCount('logsArchive')
-    check('★★ 归档弹窗点「保存修改」→ 只送 logsUpdate、不碰 logsArchive（状态未变出口）', await (async () => {
+    check('★★ 归档弹窗点“保存修改”→ 只送 logsUpdate、不碰 logsArchive（状态未变出口）', await (async () => {
       const ta = $('#log-edit-modal textarea[placeholder="执行内容..."]')
       if (!ta) return false
       ta.value = '只想存，不想归档'
@@ -4008,13 +4008,13 @@
         && window.__fcTest.callCount('logsArchive') === arcCmpBefore, 4000, '只存不归档')
     })())
     const arcUpd = (window.__fcTest.calls().filter(c => c.name === 'logsUpdate').pop() || {}).args || []
-    check('★★ 「保存修改」的内容真进了 updates（content=只想存，不想归档）',
+    check('★★ “保存修改”的内容真进了 updates（content=只想存，不想归档）',
       arcUpd[1] && arcUpd[1].content === '只想存，不想归档', JSON.stringify(arcUpd))
-    check('★ 「保存修改」后弹窗关闭、日志仍在待处理区（没被顺手完成/归档）', await waitFor(() => !$('#log-edit-modal'), 3000, '关窗'))
+    check('★ “保存修改”后弹窗关闭、日志仍在待处理区（没被顺手完成/归档）', await waitFor(() => !$('#log-edit-modal'), 3000, '关窗'))
 
     // ══ 撤销条 + Ctrl+Z（2026-10-21 暮雨第 1 条）══════════════════════════════
-    // 原话：「我点错了日志，把另一个日志点了完成，虽然撤销按钮在，但快捷键无用。
-    //         左上角只有返回，没有撤销按钮。」
+    // 原话：“我点错了日志，把另一个日志点了完成，虽然撤销按钮在，但快捷键无用。
+    //         左上角只有返回，没有撤销按钮。”
     // 病灶不是"没有撤销能力"（`logs:reopen` 早就在），是**撤销入口跟着卡片走**：
     // 状态一改，那条卡就滑到别的分区去了，人只剩"回头翻"一条路；而 Ctrl+Z 是
     // 刻意不接管的（原生撤销）。修法：状态动作成功后当场挂一条撤销条 + Ctrl+Z 等价。
@@ -4026,7 +4026,7 @@
       { id: 'log-undo-2', title: '撤销条样例·乙', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T01:00:00.000Z' },
     ])
     clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
-    check('撤销条前置：完成「撤销条样例·甲」', await (async () => {
+    check('撤销条前置：完成“撤销条样例·甲”', await (async () => {
       const b = btnOnCard('撤销条样例·甲', '完成')
       if (!b) return false
       b.click()
@@ -4062,7 +4062,7 @@
       out.push('SKIP  撤销条后续 4 条断言（前置未成立：完成后没出现撤销条）')
     } else {
     const undoReopenBefore = window.__fcTest.callCount('logsRestoreState')
-    check('★ 点撤销条「↩ 撤销」→ 真按快照还原（撤的是那一条），条子自己消失', await (async () => {
+    check('★ 点撤销条“↩ 撤销”→ 真按快照还原（撤的是那一条），条子自己消失', await (async () => {
       const btn = $('#undo-bar .ub-btn')
       if (!btn) return false
       btn.click()
@@ -4074,7 +4074,7 @@
 
     // Ctrl+Z：再造一笔（乙），焦点在 body（不在输入框）→ 必须等价于点按钮
     window.__fcTest.clearUndo?.()
-    check('Ctrl+Z 前置：完成「撤销条样例·乙」', await (async () => {
+    check('Ctrl+Z 前置：完成“撤销条样例·乙”', await (async () => {
       const b = btnOnCard('撤销条样例·乙', '完成')
       if (!b) return false
       b.click()
@@ -4151,10 +4151,10 @@
     }
     }
 
-    // ══ 任务详情「关联日志」：完成后原地就有撤销（同一病灶的第二个出口）══════════
-    // 用户说的"没有撤销按钮"就发生在这一块：一键「✓ 完成」是无二次确认的，
+    // ══ 任务详情“关联日志”：完成后原地就有撤销（同一病灶的第二个出口）══════════
+    // 用户说的"没有撤销按钮"就发生在这一块：一键“✓ 完成”是无二次确认的，
     // 点错之后**这一行原本只剩一个状态角标**，撤销得跑去日志页翻分区。
-    check('任务详情：关联日志行里，已完成的那条给「↩ 撤销」、待处理的那条给「✓ 完成」（对称）', await (async () => {
+    check('任务详情：关联日志行里，已完成的那条给“↩ 撤销”、待处理的那条给“✓ 完成”（对称）', await (async () => {
       window.__fcTest.setLogs([
         { id: 'log-td-1', title: '关联日志·待处理', content: 'x', status: 'active', project: 'demo', created: '2026-10-20T03:00:00.000Z', taskIds: ['task-demo-011'] },
         { id: 'log-td-2', title: '关联日志·已完成', content: 'x', status: 'completed', project: 'demo', created: '2026-10-19T03:00:00.000Z', taskIds: ['task-demo-011'] },
@@ -4170,7 +4170,7 @@
       const byTitle = (t) => rows.find(r => (r.textContent || '').indexOf(t) >= 0)
       return act(byTitle('关联日志·待处理')) === '✓ 完成' && act(byTitle('关联日志·已完成')) === '↩ 撤销'
     })(), JSON.stringify($$('.task-logs-list .task-log-item').map(r => ((r.querySelector('.task-log-done') || {}).textContent || '').trim())))
-    check('★ 点行内「↩ 撤销」→ 真调 logsReopen（原地回退，不用去日志页翻卡片）', await (async () => {
+    check('★ 点行内“↩ 撤销”→ 真调 logsReopen（原地回退，不用去日志页翻卡片）', await (async () => {
       const rows = $$('.task-logs-list .task-log-item')
       const row = rows.find(r => (r.textContent || '').indexOf('关联日志·已完成') >= 0)
       const btn = row && row.querySelector('.task-log-done')
@@ -4187,7 +4187,7 @@
       await sleep(300)
     }
 
-    // ══ 撤销覆盖到「数据改动」类动作（2026-10-21 · 1B 修正版）══════════════════
+    // ══ 撤销覆盖到“数据改动”类动作（2026-10-21 · 1B 修正版）══════════════════
     // 只解决"刚点错这一下"，不新建全站撤销栈：待办勾选（一行一个 checkbox，最容易手滑）
     // 与决策三态下拉（"已撤销/已合并"挨着）各接一条。判据两条：
     // ①改完当场出现撤销条且写清"哪条 + 原值"；②点撤销 = 真把数据改回原样（不是只弹个提示）。
@@ -4221,7 +4221,7 @@
     // 决策改状态 → 撤销回原状态
     window.__fcTest.clearUndo?.()
     clickText('看板'); await sleep(350); clickText('决策'); await sleep(700)
-    check('决策改状态 → 撤销条写清「从什么改成什么」', await (async () => {
+    check('决策改状态 → 撤销条写清“从什么改成什么”', await (async () => {
       const sel = $('[data-dec="status"]')
       if (!sel) return false
       const prev = sel.value
@@ -4245,9 +4245,9 @@
     })(), JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'decisionSetStatus').slice(-2).map((c) => c.args)))
 
 
-    // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条「日志多选更智能」）══════
+    // ══ 日志多选 · 批量优先级（2026-10-09 用户第 4 条“日志多选更智能”）══════
     // 已有多选底座（☑ 多选 + 全选/完成/归档/彻底删除），补的是**批量改优先级**：
-    // 改元数据可逆 → 不弹确认、做完不退出多选；非「待处理」后端拒改 → 跳过如实报。
+    // 改元数据可逆 → 不弹确认、做完不退出多选；非“待处理”后端拒改 → 跳过如实报。
     window.__fcTest.setLogs([
       { id: 'log-bp-1', title: '批量优先级：待处理甲', content: 'x', status: 'active', project: 'demo', created: '2026-10-08T00:00:00.000Z' },
       { id: 'log-bp-2', title: '批量优先级：待处理乙', content: 'x', status: 'active', project: 'demo', created: '2026-10-08T01:00:00.000Z' },
@@ -4267,7 +4267,7 @@
       return !!$('.logs-view .batch-bar select.batch-prio')
         && ['全选', '批量完成', '批量归档', '批量彻底删除', '取消'].every(x => t.some(y => y.indexOf(x) >= 0))
     })(), $$('.logs-view .batch-bar button').map(b => (b.textContent || '').trim()).join('|'))
-    check('  优先级下拉四档（高/中/低/清除）+ 占位「批量优先级…」', (() => {
+    check('  优先级下拉四档（高/中/低/清除）+ 占位“批量优先级…”', (() => {
       const s = $('.logs-view .batch-bar select.batch-prio')
       if (!s) return false
       const opts = Array.prototype.slice.call(s.options).map(o => o.textContent)
@@ -4280,7 +4280,7 @@
       (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 4') >= 0,
       (($('.logs-view .batch-bar .batch-count') || {}).textContent || '(没读到)'))
     const bpCallsBefore = window.__fcTest.callCount('logsUpdate')
-    check('★★ 批量优先级「中」→ 每条都送进 logsUpdate（priority=中 × 4）', await (async () => {
+    check('★★ 批量优先级“中”→ 每条都送进 logsUpdate（priority=中 × 4）', await (async () => {
       const s = $('.logs-view .batch-bar select.batch-prio')
       if (!s) return false
       s.value = '中'
@@ -4300,7 +4300,7 @@
       $$('.logs-view .batch-bar').length === 1
       && (($('.logs-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 4') >= 0,
       (($('.logs-view .batch-bar .batch-count') || {}).textContent || '(没读到)'))
-    check('  下拉用完即复位（占位重新可见，不是停在「中」）', (() => {
+    check('  下拉用完即复位（占位重新可见，不是停在“中”）', (() => {
       const s = $('.logs-view .batch-bar select.batch-prio')
       return !!s && s.value === ''
     })())
@@ -4309,8 +4309,8 @@
     check('取消退出多选（批量栏收起）', await waitFor(() => $$('.logs-view .batch-bar').length === 0, 3000, '退出多选'))
 
     // ══ 主日志 + 附属日志（2026-10-30 暮雨第 4 条）════════════════════════
-    // 用户原话：「我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成，
-    // 有那么难吗？而且你搞得还要点多选才出来，那么隐蔽。」
+    // 用户原话：“我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成，
+    // 有那么难吗？而且你搞得还要点多选才出来，那么隐蔽。”
     // 所以这一块钉的不是"有复制按钮"，而是：
     //   ① 绑定在主日志**卡上**（不是藏在多选栏）；② 关系落盘（logsSetAttached）；
     //   ③ 全组进行中 / 全组完成各一次调用；④ 开工单按 [主, 副...] 顺序灌。
@@ -4350,21 +4350,21 @@
       })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsSetAttached').pop() || {}).args))
       await sleep(500)
       const mainCard2 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
-      check('★★ 主日志卡上标出「主日志 · 附属 1」', !!mainCard2 && (mainCard2.textContent || '').indexOf('主日志 · 附属 1') >= 0,
+      check('★★ 主日志卡上标出“主日志 · 附属 1”', !!mainCard2 && (mainCard2.textContent || '').indexOf('主日志 · 附属 1') >= 0,
         mainCard2 ? (mainCard2.textContent || '').slice(0, 120) : 'no card')
       check('★ 主日志卡内列出附属那条（点得到，不用去别的分区翻）',
         !!mainCard2 && (mainCard2.textContent || '').indexOf('副日志：并行通道进度') >= 0)
-      check('★★ 卡上有「全组进行中 / 全组完成 / 开工单」三个出口', !!mainCard2 && (() => {
+      check('★★ 卡上有“全组进行中 / 全组完成 / 开工单”三个出口', !!mainCard2 && (() => {
         const t = btns(mainCard2).map(b => (b.textContent || '').trim()).join('|')
         return t.indexOf('全组进行中') >= 0 && t.indexOf('全组完成') >= 0 && t.indexOf('开工单') >= 0
       })(), mainCard2 ? btns(mainCard2).map(b => (b.textContent || '').trim()).join('|') : 'no card')
-      check('★ 多选栏里不再藏一个「开工单」（语义已经移到卡上）',
+      check('★ 多选栏里不再藏一个“开工单”（语义已经移到卡上）',
         !$$('.logs-view .batch-bar button').some(b => (b.textContent || '').indexOf('开工单') >= 0))
 
       window.__fcTest.reset()
       const groupRun = mainCard2 && btns(mainCard2).find(b => (b.textContent || '').indexOf('全组进行中') >= 0)
       if (groupRun) groupRun.click()
-      check('★★ 一键「全组进行中」真走 logsGroupRunning（不是逐条点）',
+      check('★★ 一键“全组进行中”真走 logsGroupRunning（不是逐条点）',
         await waitFor(() => window.__fcTest.callCount('logsGroupRunning') > 0, 3000, 'logsGroupRunning'),
         JSON.stringify(window.__fcTest.calls().map(c => c.name)))
       check('★ 传的是主日志 id + running=true', (() => {
@@ -4375,14 +4375,14 @@
       const mainCard3 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
       const groupDone = mainCard3 && btns(mainCard3).find(b => (b.textContent || '').indexOf('全组完成') >= 0)
       if (groupDone) groupDone.click()
-      check('★★ 一键「全组完成」真走 logsGroupComplete', await waitFor(() => window.__fcTest.callCount('logsGroupComplete') > 0, 3000, 'logsGroupComplete'),
+      check('★★ 一键“全组完成”真走 logsGroupComplete', await waitFor(() => window.__fcTest.callCount('logsGroupComplete') > 0, 3000, 'logsGroupComplete'),
         JSON.stringify(window.__fcTest.calls().map(c => c.name)))
       await sleep(400)
       const mainCard4 = $('.logs-view .log-card[data-log-id="log-multi-a"]')
       const promptBtn = mainCard4 && btns(mainCard4).find(b => (b.textContent || '').indexOf('开工单') >= 0)
       window.__fcTest.reset()
       if (promptBtn) promptBtn.click()
-      check('★★ 卡上的「开工单」把主 + 附属一次灌进去（顺序：主日志在前）',
+      check('★★ 卡上的“开工单”把主 + 附属一次灌进去（顺序：主日志在前）',
         await waitFor(() => window.__fcTest.calls().some(c => c.name === 'logsInjectMany'), 4000, 'logsInjectMany'),
         JSON.stringify(window.__fcTest.calls().map(c => c.name)))
       check('★ 传入 id 顺序 = [主日志, 副日志]（不再靠勾选顺序）', (() => {
@@ -4392,7 +4392,7 @@
       })(), JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsInjectMany').pop() || {}).args))
     }
 
-    // ══ 多级撤销 + 误点「通过」（2026-10-30 暮雨第 5 条）══════════════════
+    // ══ 多级撤销 + 误点“通过”（2026-10-30 暮雨第 5 条）══════════════════
     // 现场：误点了通过（卡变完成），想改驳回；狂按 Ctrl+Z 一点用都没有 ——
     // 因为 acceptTask 根本没登记撤销，条子上挂的是更早的旧动作。
     {
@@ -4409,7 +4409,7 @@
       if (card) card.click()
       await waitFor(() => !!$('#roverlay'), 3000, '任务详情')
       const reviewBtn = $$('#roverlay button').find((b) => (b.textContent || '').indexOf('验收裁决') >= 0)
-      check('★★ 待验收卡有「验收裁决」入口', !!reviewBtn)
+      check('★★ 待验收卡有“验收裁决”入口', !!reviewBtn)
       if (reviewBtn) reviewBtn.click()
       await waitFor(() => !!$('#review-modal'), 3000, '裁决弹窗')
       check('★★ 驳回理由改为可选（弹窗里不再写"必填"、且有常用理由）',
@@ -4421,12 +4421,12 @@
       if (passBtn) passBtn.click()
       check('  前置：通过真走 reviewAccept', await waitFor(() => window.__fcTest.callCount('reviewAccept') > 0, 4000, 'reviewAccept'))
       const bar = await waitFor(() => !!$('#undo-bar'), 4000, '通过后的撤销条')
-      check('★★ 误点「通过」后当场出现撤销条（写清哪张卡）',
+      check('★★ 误点“通过”后当场出现撤销条（写清哪张卡）',
         !!bar && (($('#undo-bar') || {}).textContent || '').indexOf('误点通过的卡') >= 0,
         (($('#undo-bar') || {}).textContent || '').slice(0, 80))
       const undoBtn = $('#undo-bar .ub-btn')
       if (undoBtn) undoBtn.click()
-      check('★★ 点撤销 → 任务回到「待验收」（不是只弹提示、也不是退回待办）', await waitFor(() => {
+      check('★★ 点撤销 → 任务回到“待验收”（不是只弹提示、也不是退回待办）', await waitFor(() => {
         const e = window.__fcTest.calls().filter((c) => c.name === 'editTask').pop()
         return !!e && e.args[0] === 'task-undo-pass' && e.args[1] && e.args[1].status === '待验收'
       }, 4000, 'editTask restore'), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'editTask').pop() || {}).args))
@@ -4435,7 +4435,7 @@
       window.__fcTest.clearUndo?.()
     }
 
-    // 多级栈：两笔动作 → 条上写「共 2 步」→ Ctrl+Z 一笔一笔往回走
+    // 多级栈：两笔动作 → 条上写“共 2 步”→ Ctrl+Z 一笔一笔往回走
     {
       window.__fcTest.clearUndo?.()
       window.__fcTest.setLogs([
@@ -4454,14 +4454,14 @@
       if (runB) runB.click()
       await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-b' && c.args[1] === true), 3000, 'B running')
       await sleep(300)
-      check('★★ 两笔动作都在栈里（条上写「共 2 步」，不是只记上一笔）',
+      check('★★ 两笔动作都在栈里（条上写“共 2 步”，不是只记上一笔）',
         (($('#undo-bar') || {}).textContent || '').indexOf('共 2 步') >= 0,
         (($('#undo-bar') || {}).textContent || '').slice(0, 80))
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
       check('★ Ctrl+Z 第一次：撤掉最近那笔（乙）',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-b' && c.args[1] === false), 3000, 'undo B'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'logsSetRunning').slice(-3).map((c) => c.args)))
-      check('★ 再按一次 Ctrl+Z：继续撤更早那笔（甲）—— 不是「一次就没了」',
+      check('★ 再按一次 Ctrl+Z：继续撤更早那笔（甲）—— 不是“一次就没了”',
         await (async () => {
           document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
           return waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsSetRunning' && c.args[0] === 'log-multiundo-a' && c.args[1] === false), 3000, 'undo A')
@@ -4486,14 +4486,14 @@
       const firstTitle = () => (($('.logs-view .log-card .log-card-title') || {}).textContent || '')
       check('  三张日志卡就位（搜索/排序断言前置）', cardCount() === 3, 'cards=' + cardCount())
 
-      // ① 排序：改成「最早创建在前」→ 首条必须是 10-01 那张
+      // ① 排序：改成“最早创建在前”→ 首条必须是 10-01 那张
       const sortSel = $$('.logs-view select.log-filter')[1]
       check('  日志页有排序下拉', !!sortSel, 'selects=' + $$('.logs-view select.log-filter').length)
       if (sortSel) {
         sortSel.value = 'created_asc'
         sortSel.dispatchEvent(new Event('change', { bubbles: true }))
       }
-      check('★★ 排序下拉写回父组件（改成「最早创建在前」→ 首条变最早那张）',
+      check('★★ 排序下拉写回父组件（改成“最早创建在前”→ 首条变最早那张）',
         await waitFor(() => firstTitle().indexOf('甲方案') >= 0, 3000, 'sort asc'),
         'first=' + firstTitle())
 
@@ -4538,19 +4538,19 @@
     const convCreateBefore = window.__fcTest.callCount('todosCreate')
     const convConfirmBtn = () => $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
     const convLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('转待办') >= 0)
-    check('★★ 日志卡上有「⤴ 转待办」入口', !!convLogBtn,
+    check('★★ 日志卡上有“⤴ 转待办”入口', !!convLogBtn,
       JSON.stringify($$('.log-card-actions button').map(b => (b.textContent || '').trim())))
     if (convLogBtn) convLogBtn.click()
-    check('★★ 点「转待办」先开转换确认框：源怎么办说得清（2026-10-09 用户第 1 条）', await (async () => {
+    check('★★ 点“转待办”先开转换确认框：源怎么办说得清（2026-10-09 用户第 1 条）', await (async () => {
       if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 框'))) return false
       const txt = (($('#conv-modal') || {}).textContent || '')
       return txt.indexOf('日志 → 待办') >= 0 && txt.indexOf('不勾 = 源原样保留') >= 0
     })())
-    check('★ 归档源勾选项**默认不勾**（卡 004「源保留」铁律 —— 反向判据：默认不动源）', (() => {
+    check('★ 归档源勾选项**默认不勾**（卡 004“源保留”铁律 —— 反向判据：默认不动源）', (() => {
       const c = $('#conv-modal .conv-opt input')
       return !!c && c.checked === false
     })())
-    check('★ 点「取消」零副作用（关框，一条都没建）', await (async () => {
+    check('★ 点“取消”零副作用（关框，一条都没建）', await (async () => {
       const b = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
       if (!b) return false
       b.click()
@@ -4565,9 +4565,9 @@
     if (convGo1) convGo1.click()
     // ⚠ 这条判据在 2026-10-11 改过 —— 而且它**原本把 bug 当成了规格**：
     //   旧版断言 `a[0] === '补一个失败重试'`（**整段内容 === 一行**），恰好锁死了
-    //   "只搬一行、正文全丢"那个丢东西的行为（用户实测「内容全丢，变成空待办」）。
-    //   现在待办的「内容」= 摘要首行 + 来源行 + 正文 + 下一步全文，
-    //   所以判据改成「**首行**是那条下一步」+ 其它字段照旧。
+    //   "只搬一行、正文全丢"那个丢东西的行为（用户实测“内容全丢，变成空待办”）。
+    //   现在待办的“内容”= 摘要首行 + 来源行 + 正文 + 下一步全文，
+    //   所以判据改成“**首行**是那条下一步”+ 其它字段照旧。
     check('★★ 日志→待办：真调 todosCreate（首行=下一步首条 + 正文也带过来 + priority/project/fromLog 跟着走）',
       await waitFor(() => {
         const c = window.__fcTest.calls().filter(x => x.name === 'todosCreate')
@@ -4599,16 +4599,16 @@
       (($('#toast') || {}).textContent || '').indexOf('已经转过') >= 0,
       (($('#toast') || {}).textContent || '').slice(0, 60))
     // 方向二：待办 → 日志
-    check('能切到「待办」页签（反转断言前置）', clickText('待办'))
+    check('能切到“待办”页签（反转断言前置）', clickText('待办'))
     await sleep(600)
     const convTodoBtn = $$('.todo-acts .todo-conv')[0]
-    check('★★ 待办行上有「⤴ 转日志」入口（.todo-conv）', !!convTodoBtn,
+    check('★★ 待办行上有“⤴ 转日志”入口（.todo-conv）', !!convTodoBtn,
       'acts=' + $$('.todo-acts').length + ' conv=' + $$('.todo-acts .todo-conv').length)
     if (convTodoBtn) convTodoBtn.click()
-    check('  待办侧同一套确认框（标题=待办 → 日志，勾选项说「标已转出」）', await (async () => {
+    check('  待办侧同一套确认框（标题=待办 → 日志，勾选项说“标已转出”）', await (async () => {
       if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv todo2log'))) return false
       const txt = (($('#conv-modal') || {}).textContent || '')
-      return txt.indexOf('待办 → 日志') >= 0 && txt.indexOf('标「已转出」') >= 0
+      return txt.indexOf('待办 → 日志') >= 0 && txt.indexOf('标“已转出”') >= 0
     })())
     const convGo2 = $$('#conv-modal .acts button').find(x => (x.textContent || '').trim() === '转换')
     if (convGo2) convGo2.click()
@@ -4632,7 +4632,7 @@
       if (goDup2) goDup2.click()
     }
     await sleep(600)
-    check('★★ 防重：同一条待办再点「转日志」被拦下（logsCreate 调用数不增）',
+    check('★★ 防重：同一条待办再点“转日志”被拦下（logsCreate 调用数不增）',
       window.__fcTest.callCount('logsCreate') === beforeDup2,
       `before=${beforeDup2} after=${window.__fcTest.callCount('logsCreate')}`)
     check('★ 源待办仍在列表里（转换不删源）',
@@ -4640,7 +4640,7 @@
       $$('.todos-view .todo-item').map(x => (x.textContent || '').replace(/\s+/g, ' ').slice(0, 24)).join(' | '))
     // 来源徽章：回到日志页看 ⤴ 待办 徽章
     clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
-    check('★★ 转出来的日志带「⤴ 待办」来源徽章（prev 范式，与接力链同款）',
+    check('★★ 转出来的日志带“⤴ 待办”来源徽章（prev 范式，与接力链同款）',
       $$('.log-card .log-from').length >= 1,
       'log-from=' + $$('.log-card .log-from').length)
 
@@ -4656,7 +4656,7 @@
     clickText('看板'); await sleep(400); clickText('日志'); await sleep(600)
     const convLogBtnA = $$('.log-card-actions button').find(b4 => (b4.textContent || '').indexOf('转待办') >= 0)
     if (convLogBtnA) convLogBtnA.click()
-    check('★★ 勾「顺手归档源」→ 转换后源日志真归档（logsArchive 带对 id）', await (async () => {
+    check('★★ 勾“顺手归档源”→ 转换后源日志真归档（logsArchive 带对 id）', await (async () => {
       if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 勾选路径'))) return false
       const cb = $('#conv-modal .conv-opt input')
       if (!cb) return false
@@ -4669,20 +4669,20 @@
       const last = window.__fcTest.calls().filter(c => c.name === 'logsArchive').pop()
       return got && !!last && last.args[0] === 'log-arch-1'
     })())
-    check('  toast 说清源去哪了（「已归档…可找回」，不是静默动源）', await waitFor(() => {
+    check('  toast 说清源去哪了（“已归档…可找回”，不是静默动源）', await waitFor(() => {
       const t = (($('#toast') || {}).textContent || '')
       return t.indexOf('已归档') >= 0 && t.indexOf('可找回') >= 0
     }, 3000, '归档 toast'), (($('#toast') || {}).textContent || '(没读到)'))
-    check('  源日志卡进「已归档」分区（.archived 类，不是从列表里蒸发）', await (async () => {
+    check('  源日志卡进“已归档”分区（.archived 类，不是从列表里蒸发）', await (async () => {
       await sleep(300)
       return $$('.log-card').some(c =>
         (c.textContent || '').indexOf('转换归档源：日志甲') >= 0 && c.classList.contains('archived'))
     })())
-    // 待办侧：勾「标已转出」→ 折叠 + 徽章 + 可撤销
+    // 待办侧：勾“标已转出”→ 折叠 + 徽章 + 可撤销
     clickText('看板'); await sleep(400); clickText('待办'); await sleep(600)
     const convTodoBtnA = $$('.todo-acts .todo-conv')[0]
     if (convTodoBtnA) convTodoBtnA.click()
-    check('★★ 勾「标已转出」→ 源待办记 converted=目标日志 id（todosUpdate 真调）', await (async () => {
+    check('★★ 勾“标已转出”→ 源待办记 converted=目标日志 id（todosUpdate 真调）', await (async () => {
       if (!(await waitFor(() => !!$('#conv-modal'), 3000, 'conv 折叠路径'))) return false
       const cb = $('#conv-modal .conv-opt input')
       if (!cb) return false
@@ -4698,7 +4698,7 @@
         return a[0] === 'todo-fold-1' && !!a[1] && typeof a[1].converted === 'string' && a[1].converted.length > 0
       }, 4000, 'todosUpdate converted')
     })())
-    check('★★ 转出后源待办默认折叠：列表看不到它 + 尾部出现「已转出 1 条 · 展开」（反向：折叠≠删除）', await (async () => {
+    check('★★ 转出后源待办默认折叠：列表看不到它 + 尾部出现“已转出 1 条 · 展开”（反向：折叠≠删除）', await (async () => {
       const gone = await waitFor(() =>
         !$$('.todos-view .todo-item').some(x => (x.textContent || '').indexOf('折叠源待办') >= 0),
         3000, '折叠隐藏')
@@ -4706,7 +4706,7 @@
         .find(b5 => (b5.textContent || '').indexOf('已转出 1 条') >= 0)
       return gone && !!fold
     })())
-    check('★ 展开后看得到源 + 「⤴ 已转出」徽章（藏起来 ≠ 找不回）', await (async () => {
+    check('★ 展开后看得到源 + “⤴ 已转出”徽章（藏起来 ≠ 找不回）', await (async () => {
       const foldBtn = $$('.todos-view .todos-converted-fold button')
         .find(b5 => (b5.textContent || '').indexOf('已转出 1 条') >= 0)
       if (!foldBtn) return false
@@ -4739,7 +4739,7 @@
         && $$('.todos-view .todo-item').some(x => (x.textContent || '').indexOf('折叠源待办') >= 0)
     })(), undoDiag)
 
-    // ══ 待办 · 多选（2026-09-30 用户补充：「待办和回收站也加入多选」）══════
+    // ══ 待办 · 多选（2026-09-30 用户补充：“待办和回收站也加入多选”）══════
     await sleep(300)
     window.__fcTest.setTodos([
       { id: 'td-1', title: '多选断言：第一件事', priority: '高', done: false, created: 1 },
@@ -4747,17 +4747,17 @@
       { id: 'td-3', title: '多选断言：已完成的旧事', priority: '低', done: true, created: 3 },
     ])
     clickText('看板'); await sleep(400)
-    check('能切到「待办」页签（多选断言）', clickText('待办'))
+    check('能切到“待办”页签（多选断言）', clickText('待办'))
     check('待办 3 条渲染出来', await waitFor(() => $$('.todos-view .todo-item').length === 3, 4000, 'todos seed'),
       'items=' + $$('.todos-view .todo-item').length)
     check('默认非批量：无批量栏', $$('.todos-view .batch-bar').length === 0)
     const todoBatchBtn = () => $$('.todos-ctrls .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
     if (todoBatchBtn()) todoBatchBtn().click()
-    check('★ 点「☑ 多选」出批量栏（与看板/日志同一套）',
+    check('★ 点“☑ 多选”出批量栏（与看板/日志同一套）',
       await waitFor(() => $$('.todos-view .batch-bar').length === 1, 3000, 'todo batch-bar'))
     const tItems = $$('.todos-view .todo-item')
     tItems[0].click(); await sleep(150); tItems[1].click(); await sleep(250)
-    check('★★ 点卡片即勾选（selected 类 2 张 + 栏内计数「已选 2」）',
+    check('★★ 点卡片即勾选（selected 类 2 张 + 栏内计数“已选 2”）',
       $$('.todos-view .todo-item.selected').length === 2 &&
       (($('.todos-view .batch-bar .batch-count') || {}).textContent || '').indexOf('已选 2') >= 0,
       'sel=' + $$('.todos-view .todo-item.selected').length + ' count=' + (($('.todos-view .batch-bar .batch-count') || {}).textContent || ''))
@@ -4809,14 +4809,14 @@
       { name: 'task-trash-b.md', id: 'task-trash-b', title: '回收站多选：乙', status: '待办', project: 'demo', bytes: 1024, mtime: Date.now() },
     ])
     clickText('看板'); await sleep(400)
-    check('能切到「回收站」页签（多选断言）', clickText('回收站'))
+    check('能切到“回收站”页签（多选断言）', clickText('回收站'))
     check('回收站 2 项渲染出来', await waitFor(() => $$('.trash-view .trash-item').length === 2, 4000, 'trash seed'),
       'items=' + $$('.trash-view .trash-item').length)
     check('默认非批量：无批量栏、动作按钮可见', $$('.trash-view .batch-bar').length === 0 &&
       $$('.trash-view .trash-actions').every(e => e.getClientRects().length > 0))
     const trashBatchBtn = () => $$('.trash-header .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
     if (trashBatchBtn()) trashBatchBtn().click()
-    check('★ 回收站点「☑ 多选」出批量栏',
+    check('★ 回收站点“☑ 多选”出批量栏',
       await waitFor(() => $$('.trash-view .batch-bar').length === 1, 3000, 'trash batch-bar'))
     const tRows = $$('.trash-view .trash-main')
     tRows[0].click(); await sleep(150); tRows[1].click(); await sleep(250)
@@ -4844,7 +4844,7 @@
       $$('.trash-view .trash-batch-chk.on').length === 1,
       'on=' + $$('.trash-view .trash-batch-chk.on').length)
     // ③ 选中态压过 hover：悬停时不得退回 .trash-item:hover 的灰边（#d9d2ea），光环保留
-    // 注意时序：上面每条检查都靠「点一下切换」，到这一步 item0 是**未选中**的，先点选中。
+    // 注意时序：上面每条检查都靠“点一下切换”，到这一步 item0 是**未选中**的，先点选中。
     if (tItem) {
       if (!tItem.classList.contains('selected')) { tItem.click(); await sleep(150) }
       tItem.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
@@ -4853,7 +4853,7 @@
         tItem.classList.contains('selected') &&
         cs.borderTopColor !== 'rgb(217, 210, 234)' && (cs.boxShadow || '').indexOf('rgba(100, 80, 200') >= 0,
         `sel=${tItem.classList.contains('selected')} border=${cs.borderTopColor} shadow=${cs.boxShadow}`)
-      // 不在这里「复原取消选中」—— 手动复原会把选中态打成 1 项，下面「批量还原」断言
+      // 不在这里“复原取消选中”—— 手动复原会把选中态打成 1 项，下面“批量还原”断言
       // 期望 2 项全选。此刻恰好回到全选态（2 项），直接交给后续断言。
     }
     check('★ 批量模式下隐藏单条动作（↩ 还原 / 🗑 彻底删除）',
@@ -4896,7 +4896,7 @@
       'purge=' + window.__fcTest.calls().filter(c => c.name === 'trashPurge').length)
     window.confirm = origConfirm2
 
-    // ══ 回收站 · 按日期清理（2026-10-17 暮雨第 2 条：「我想选择特定日期，删除此之前的所有内容」）══
+    // ══ 回收站 · 按日期清理（2026-10-17 暮雨第 2 条：“我想选择特定日期，删除此之前的所有内容”）══
     // 判据：预览必须**按日期算**（不是把全部算命中），确认后**只删命中那批**（不是清空）。
     {
       const ago = (n) => new Date(Date.now() - n * 86400000).toISOString()
@@ -4907,12 +4907,12 @@
       ])
       clickText('看板'); await sleep(300); clickText('回收站'); await sleep(600)
       const openBtn = $$('.trash-view button').find((b) => (b.textContent || '').indexOf('按日期清理') >= 0)
-      check('★ 回收站有「按日期清理」入口', !!openBtn)
+      check('★ 回收站有“按日期清理”入口', !!openBtn)
       if (openBtn) openBtn.click()
       check('  点开 → 弹窗真的出现（有底有框，不是裸块）',
         await waitFor(() => !!$('#trash-purge-modal'), 3000, 'purge modal'))
       const mBtn = (t) => $$('#trash-purge-modal button').find((b) => (b.textContent || '').trim() === t)
-      // 90 天前：只有「100 天前」那条命中；60 天与 2 天那两条不该被算进来
+      // 90 天前：只有“100 天前”那条命中；60 天与 2 天那两条不该被算进来
       const b90 = mBtn('90 天前')
       if (b90) b90.click()
       await sleep(150)
@@ -4933,7 +4933,7 @@
     }
 
     // ══ 回收站 · 点卡片看正文预览（2026-10-23 补：此前这条**零断言**）══════════
-    // 这块是用户原话逼出来的：「每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个」。
+    // 这块是用户原话逼出来的：“每个卡片都是不能点的死卡，确认这是设计意图？我可没想要这个”。
     // 桩 `trashRead` 一直有、`rec` 也一直在记 —— 但**没有任何断言点过卡片**，
     // 于是"点了没反应""读不出正文""markdown 没渲染"三种坏法都不会被发现。
     {
@@ -4966,13 +4966,13 @@
       const pvOpened = !!$('#trash-preview-modal')
       const ovPv = $('#trash-preview-overlay')
       if (ovPv) ovPv.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-      // ⚠ 必须要求「先前真的打开过」：否则弹窗根本没开时 `!$('#trash-preview-modal')` 恒真 → 假绿
+      // ⚠ 必须要求“先前真的打开过”：否则弹窗根本没开时 `!$('#trash-preview-modal')` 恒真 → 假绿
       check('★ 点遮罩关掉预览（遮罩用 @mousedown.self，不是 @click.self）',
         pvOpened && await waitFor(() => !$('#trash-preview-modal'), 3000, 'preview closed'),
         'opened=' + pvOpened)
     }
 
-    // ── P0-1 脏检查快照：判「改没改」而不是「有没有字」（2026-10-01）──
+    // ── P0-1 脏检查快照：判“改没改”而不是“有没有字”（2026-10-01）──
     const origConfirmD = window.confirm
     let confirmHits = 0
     window.confirm = () => { confirmHits += 1; return false }   // 默认"不关"，才能验出"确实拦住了"
@@ -5009,14 +5009,14 @@
       !!$('#log-edit-modal'), 'modal=' + !!$('#log-edit-modal'))
     const dropB = $$('#log-edit-modal .relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
     if (dropB) dropB.click(); await sleep(300)
-    check('★★ 点条上的「丢弃并关闭」才真关', $('#log-edit-overlay') === null)
+    check('★★ 点条上的“丢弃并关闭”才真关', $('#log-edit-overlay') === null)
 
     // C. 编辑已有日志一字未改 → 老逻辑三键非空必弹（确认疲劳），现在应安静关掉
     const editLogBtn = $$('.log-card-actions button').find(b => (b.textContent || '').indexOf('编辑') >= 0)
     if (editLogBtn) editLogBtn.click()
     await sleep(400)
     hitReset(); const cbC = cancelLogBtn(); if (cbC) cbC.click(); await sleep(300)
-    check('★★ 编辑已有日志一字未改 → 不再误报「尚未保存」（老逻辑必弹 = 确认疲劳）',
+    check('★★ 编辑已有日志一字未改 → 不再误报“尚未保存”（老逻辑必弹 = 确认疲劳）',
       !!editLogBtn && confirmHits === 0 && $('#log-edit-overlay') === null,
       'hits=' + confirmHits + ' editBtn=' + !!editLogBtn)
 
@@ -5032,7 +5032,7 @@
     check('★★ 卡005：编辑真改了 → 警告条拦住不关（confirmHits 恒 0 = 原生 confirm 已移除）',
       !!titleIn && confirmHits === 0 && !!$('#log-edit-modal') && !!$('#log-edit-modal .relay-discard'),
       'hits=' + confirmHits + ' titleIn=' + !!titleIn)
-    check('  警告条点名「标题」',
+    check('  警告条点名“标题”',
       (($('#log-edit-modal .relay-discard') || {}).textContent || '').indexOf('标题') >= 0,
       (($('#log-edit-modal .relay-discard') || {}).textContent || '').slice(0, 80))
     const dropD = $$('#log-edit-modal .relay-discard button').find(b => (b.textContent || '').trim() === '丢弃并关闭')
@@ -5040,7 +5040,7 @@
     check('★★ 丢弃并关闭 → 真关（唯一丢弃入口）', $('#log-edit-overlay') === null)
     window.confirm = origConfirmD
 
-    // ── 通知中心点击跳转（2026-10-01 用户第 1 条：「点下去是无效按钮」）──
+    // ── 通知中心点击跳转（2026-10-01 用户第 1 条：“点下去是无效按钮”）──
     window.__fcTest.setTasks([
       { id: 'nt-task-1', title: '通知跳转目标任务', status: '进行中', project: 'demo',
         priority: 'P1', created: new Date().toISOString(), updated: new Date().toISOString() },
@@ -5059,13 +5059,13 @@
     check('★ 通知中心铃铛入口存在', !!bellBtn)
     if (bellBtn) bellBtn.click()
     await sleep(500)
-    // 2026-10-08 默认页签改为「未读」：第一条 read=false 可见，第二条 read=true 被筛掉
-    check('★★ 打开面板默认「未读」页签：只渲染未读那一条', $$('.nc-item').length === 1,
+    // 2026-10-08 默认页签改为“未读”：第一条 read=false 可见，第二条 read=true 被筛掉
+    check('★★ 打开面板默认“未读”页签：只渲染未读那一条', $$('.nc-item').length === 1,
       String($$('.nc-item').length))
-    // ⚠ 上一轮只同步了上面那条条数，下面整段还按「默认全部、两条都在」写 ——
+    // ⚠ 上一轮只同步了上面那条条数，下面整段还按“默认全部、两条都在”写 ——
     //   于是 go 行数恒 1≠2、拿不到第 2 条、面板没被点关、后续铃铛反而把面板关了（5 连红）。
-    //   正确流：先验默认未读 → 切「全部」再验跳转/逐条点击（页签切换本身就是该测的行为）。
-    check('★★ 切到「全部」页签 → 两条都渲染（页签是活的）', await (async () => {
+    //   正确流：先验默认未读 → 切“全部”再验跳转/逐条点击（页签切换本身就是该测的行为）。
+    check('★★ 切到“全部”页签 → 两条都渲染（页签是活的）', await (async () => {
       const allBtn = $$('.nc-filters .nc-seg button').find((b) => (b.textContent || '').indexOf('全部') >= 0)
       if (!allBtn) return false
       allBtn.click()
@@ -5105,7 +5105,7 @@
     if (bell2) bell2.click()
     await sleep(500)
     const scanEl = $('.nc-foot .nc-scan')
-    check('★★ 扫描器状态在面板页脚可见（「停摆」与「扫不到」此前长得一模一样）',
+    check('★★ 扫描器状态在面板页脚可见（“停摆”与“扫不到”此前长得一模一样）',
       !!scanEl && /扫描器运行中/.test(scanEl.textContent || '') && /上次扫描/.test(scanEl.textContent || ''),
       scanEl ? String(scanEl.textContent) : '无 .nc-scan')
     const mutedRow = $('.nc-muted')
@@ -5114,7 +5114,7 @@
       mutedRow ? String(mutedRow.textContent) : '无 .nc-muted')
     const unmuteBtn = mutedRow ? mutedRow.querySelector('button') : null
     if (unmuteBtn) unmuteBtn.click()
-    check('★★ 点「全部恢复」→ 调 IPC + 行消失',
+    check('★★ 点“全部恢复”→ 调 IPC + 行消失',
       await waitFor(() => {
         const n = window.__fcTest.calls().filter(c => c.name === 'notificationsUnmuteAll').length
         return n >= 1 && !$('.nc-muted')
@@ -5127,9 +5127,9 @@
     }
 
     // ══ 技能页 · 多目标装机状态（2026-10-03 卡 010/011）══════════════════
-    //   用户原话：「DSH 在上一轮已经完成安装，但方寸**检测不到** DSH 安装了」——
+    //   用户原话：“DSH 在上一轮已经完成安装，但方寸**检测不到** DSH 安装了”——
     //   装卡区此前连 DSH 这一行都没有。这里把它钉在**真渲染出来的 DOM** 上。
-    check('能切到「技能」页签', await openViewTab('技能'))
+    check('能切到“技能”页签', await openViewTab('技能'))
     await sleep(500)
     check('技能页渲染出来（.skills-view 在）', await waitFor(() => !!$('.skills-view'), 4000, '技能视图'))
 
@@ -5139,7 +5139,7 @@
     check('技能卡片渲染出来', skillCards.length >= 2, 'n=' + skillCards.length)
 
     const targetsEls = $$('.skills-view .skill-targets')
-    check('★ 每张技能卡都有「装到：」逐目标徽章行',
+    check('★ 每张技能卡都有“装到：”逐目标徽章行',
       targetsEls.length === skillCards.length && targetsEls.length > 0,
       'targets=' + targetsEls.length + ' cards=' + skillCards.length)
 
@@ -5165,26 +5165,26 @@
     const rowOf = (name) => agentRows.find((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf(name) >= 0)
     const dshRow = rowOf('DSH')
     check('★ 装卡区列出 DSH 这一行（此前根本没有）', !!dshRow, 'rows=' + agentRows.length)
-    check('★ DSH 行标着「可直装」',
+    check('★ DSH 行标着“可直装”',
       !!dshRow && /可直装/.test(((dshRow.querySelector('.agent-mode') || {}).textContent) || ''),
       dshRow ? ((dshRow.querySelector('.agent-mode') || {}).textContent) : '(无)')
     const dshBtn = dshRow
       ? Array.prototype.slice.call(dshRow.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('装到 DSH') >= 0)
       : null
-    check('★ DSH 行的「⚡ 装到 DSH」是**真按钮**（不是 disabled 死按钮）',
+    check('★ DSH 行的“⚡ 装到 DSH”是**真按钮**（不是 disabled 死按钮）',
       !!dshBtn && !dshBtn.disabled, dshBtn ? ('disabled=' + dshBtn.disabled) : '(没找到按钮)')
     check('  Hermes 行不再摆第二个安装按钮（同一个动作不重复两遍）',
       !agentRows.some((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf('Hermes') >= 0
         && Array.prototype.slice.call(r.querySelectorAll('button')).some((b) => (b.textContent || '').indexOf('装到 Hermes') >= 0)))
 
     const linkBadges = $$('.skills-view .agent-link').map((e) => ({ t: (e.textContent || '').trim(), cls: e.className }))
-    check('★ 「已接入」徽章渲染出来（技能副本 + MCP 配置两个文件事实的合体，不用 LLM）',
+    check('★ “已接入”徽章渲染出来（技能副本 + MCP 配置两个文件事实的合体，不用 LLM）',
       linkBadges.length >= 2 && linkBadges.some((x) => /部分接入|已接入|未接入/.test(x.t)),
       JSON.stringify(linkBadges))
 
     if (dshBtn) {
       dshBtn.click()
-      check('★ 点「⚡ 装到 DSH」真调 IPC skillsInstallTo(target=dsh)',
+      check('★ 点“⚡ 装到 DSH”真调 IPC skillsInstallTo(target=dsh)',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'skillsInstallTo' && c.args && c.args[0] === 'dsh'), 4000, 'installTo(dsh)'),
         'calls=' + JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'skillsInstallTo').map((c) => c.args)))
     }
@@ -5192,7 +5192,7 @@
     // 为什么会漏：假 preload 里连 `mcpInfo` 都没有 → `typeof t.mcpInfo !== 'function'` 恒真 →
     // 这一区在任何测试里都是空的。拆组件时把它搬坏了也不会有人知道。
     const mcpBox = $('.skills-view .mcp-connect')
-    check('★ MCP 接入区渲染出来（不是停在「检测中…」）', !!mcpBox
+    check('★ MCP 接入区渲染出来（不是停在“检测中…”）', !!mcpBox
       && !mcpBox.querySelector('.skills-agent'), mcpBox ? (mcpBox.textContent || '').slice(0, 40) : '(没有 .mcp-connect)')
     const mcpRows = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.agent-row')) : []
     check('★ MCP 区按本机检测结果列目标（检测到的 + 没检测到的都在，没检测到的标灰）',
@@ -5207,10 +5207,10 @@
     const snippetBtn = hermesMcp
       ? Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('复制配置段') >= 0)
       : null
-    check('★ Hermes 行有「📋 复制配置段」', !!snippetBtn)
+    check('★ Hermes 行有“📋 复制配置段”', !!snippetBtn)
     if (snippetBtn) {
       snippetBtn.click()
-      check('★★ 点「复制配置段」真调 mcpSnippet(hermes, A) 并把配置段写进剪贴板',
+      check('★★ 点“复制配置段”真调 mcpSnippet(hermes, A) 并把配置段写进剪贴板',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpSnippet'
           && c.args && c.args[0] === 'hermes' && c.args[1] === 'A'), 4000, 'mcpSnippet')
         && window.__fcTest.calls().some((c) => c.name === 'clipboardWriteText'
@@ -5220,10 +5220,10 @@
     const selfBtn = hermesMcp
       ? Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('让它自装') >= 0)
       : null
-    check('★ Hermes 行有「🤖 让它自装」', !!selfBtn)
+    check('★ Hermes 行有“🤖 让它自装”', !!selfBtn)
     if (selfBtn) {
       selfBtn.click()
-      check('★ 点「让它自装」真调 mcpSelfInstall（方寸只出材料、不写别人的配置）',
+      check('★ 点“让它自装”真调 mcpSelfInstall（方寸只出材料、不写别人的配置）',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpSelfInstall'), 4000, 'mcpSelfInstall'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'mcpSelfInstall').map((c) => c.args)))
     }
@@ -5231,8 +5231,8 @@
     await sleep(300)
 
     // ══ 设置页 · 侧边栏分类（2026-10-03 用户：设置项不要挤在一条长名单里）══════
-    // 2026-10-12「看与做分两层」后，设置图标从 #bar 搬到了页签行右端 ——
-    // 判据改成**全页找**（不绑定容器）：这条守的是「有设置入口」，不是「它在哪个容器里」。
+    // 2026-10-12“看与做分两层”后，设置图标从 #bar 搬到了页签行右端 ——
+    // 判据改成**全页找**（不绑定容器）：这条守的是“有设置入口”，不是“它在哪个容器里”。
     const gear = $$('button').find((b) => (b.textContent || '').trim() === '⚙')
     check('有设置入口（设置图标，现位于页签行右端）', !!gear)
     if (gear) gear.click()
@@ -5255,40 +5255,40 @@
       b.click(); return true
     }
 
-    // ⚠ 这是「通用」类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
-    //   2026-10-25 加了「念头长度上限」，旧断言写死 length===2 当场变红 —— 它挡对了：
+    // ⚠ 这是“通用”类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
+    //   2026-10-25 加了“念头长度上限”，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
     const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签']
-    check('★ 默认停在第 1 类「通用」：右侧只渲染该分类的小节（不再全挤在一起）',
+    check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
       JSON.stringify(sectTitles()))
-    // 「梯度榜」是**项目页的一种摆法**，不是独立顶级页签（2026-10-25 暮雨：
-    // 「放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级」）
-    check('★ 顶栏没有独立「优先级」页签（它在项目页里）',
+    // “梯度榜”是**项目页的一种摆法**，不是独立顶级页签（2026-10-25 暮雨：
+    // “放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级”）
+    check('★ 顶栏没有独立“优先级”页签（它在项目页里）',
       !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '优先级'))
-    check('  「通用」在导航上高亮',
+    check('  “通用”在导航上高亮',
       navBtns().some((b) => (b.textContent || '').indexOf('通用') >= 0 && b.classList.contains('on')))
 
-    check('能切到「备份与恢复」', clickNav('备份与恢复'))
+    check('能切到“备份与恢复”', clickNav('备份与恢复'))
     await sleep(250)
     check('★ 切换分类后右侧只剩该分类（上一类真的消失，不是叠在一起）',
       sectTitles().length === 1 && sectTitles()[0].indexOf('备份与恢复') >= 0, JSON.stringify(sectTitles()))
     check('★ 当前分类写进真身 prefs（fc_settings_tab=backup）—— 下次打开还停在这页',
       window.__fcTest.prefs().fc_settings_tab === 'backup', JSON.stringify(window.__fcTest.prefs().fc_settings_tab))
 
-    check('能切到「项目」', clickNav('项目'))
+    check('能切到“项目”', clickNav('项目'))
     await sleep(250)
-    check('★ 「项目」类下两个小节都在（项目列表 + 项目方针 —— 方针从备份区里挪出来了）',
+    check('★ “项目”类下两个小节都在（项目列表 + 项目方针 —— 方针从备份区里挪出来了）',
       sectTitles().some((t) => t.indexOf('项目列表') >= 0) && sectTitles().some((t) => t.indexOf('项目方针') >= 0),
       JSON.stringify(sectTitles()))
 
-    // ══ 设置页 · 看板归档（2026-10-03 卡 012；入口在「数据与归档」分类下）════════
-    //  先注入「有 2 条超期」，这样等下把天数改成 30 时那次 refresh 就能拿到数。
+    // ══ 设置页 · 看板归档（2026-10-03 卡 012；入口在“数据与归档”分类下）════════
+    //  先注入“有 2 条超期”，这样等下把天数改成 30 时那次 refresh 就能拿到数。
     window.__fcTest.setOverdue(2)
-    check('能切到「数据与归档」', clickNav('数据与归档'))
+    check('能切到“数据与归档”', clickNav('数据与归档'))
     await sleep(300)
-    check('★ 「数据与归档」下三节都在（数据目录 / 日志清理 / 看板归档）',
+    check('★ “数据与归档”下三节都在（数据目录 / 日志清理 / 看板归档）',
       sectTitles().some((t) => t.indexOf('数据目录') >= 0) && sectTitles().some((t) => t.indexOf('日志清理') >= 0)
       && sectTitles().some((t) => t.indexOf('看板归档') >= 0),
       JSON.stringify(sectTitles()))
@@ -5296,7 +5296,7 @@
     check('  看板归档有保留天数输入框（0 = 关闭）', !!archSect && !!archSect.querySelector('input[type=number]'))
     const archInput = archSect ? archSect.querySelector('input[type=number]') : null
     const archAuto = archSect ? archSect.querySelector('input[type=checkbox]') : null
-    check('★ 「启动时自动执行」默认**关**（归档会移动文件，默认不许动）', !!archAuto && archAuto.checked === false)
+    check('★ “启动时自动执行”默认**关**（归档会移动文件，默认不许动）', !!archAuto && archAuto.checked === false)
     if (archInput) {
       archInput.value = '30'
       archInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -5316,7 +5316,7 @@
         if (this && this.type === 'file') { captured = this; return }
         return realClick.call(this)
       }
-      // 只仿真「读到了一段 JSON 文本」这一步 —— 无头里给文件输入塞自造 File 再走真 FileReader
+      // 只仿真“读到了一段 JSON 文本”这一步 —— 无头里给文件输入塞自造 File 再走真 FileReader
       // 不稳（读到空串）。真正被测的是**导入处理器把主进程那句话带不带出来**。
       window.FileReader = function () {
         this.readAsText = () => {
@@ -5325,7 +5325,7 @@
         }
       }
       const impBtn = $$('.settings-foot button').find((b) => (b.textContent || '').indexOf('导入任务 JSON') >= 0)
-      check('★ 设置页底部有「导入任务 JSON」入口', !!impBtn)
+      check('★ 设置页底部有“导入任务 JSON”入口', !!impBtn)
       if (impBtn) {
         impBtn.click()
         await sleep(150)
@@ -5340,7 +5340,7 @@
       window.FileReader = realFR
       HTMLInputElement.prototype.click = realClick
       const toastTxt = (($('#toast') || {}).textContent) || ''
-      check('★★ 导入被拦下时，界面显示的是**主进程那句话**（点名「题目」），不是干巴巴的「导入失败」',
+      check('★★ 导入被拦下时，界面显示的是**主进程那句话**（点名“题目”），不是干巴巴的“导入失败”',
         captured !== null && toastTxt.indexOf('题目') >= 0 && toastTxt.trim() !== '导入失败',
         `toast=${toastTxt.slice(0, 90)} captured=${captured !== null} calls=${window.__fcTest.callCount('importTasks')}`)
     }
@@ -5349,18 +5349,18 @@
     await sleep(300)
     check('设置面板已关闭（点遮罩 = mousedown.self 才关）', !$('#smodal'))
 
-    check('能切回「看板」页签', clickText('看板'))
+    check('能切回“看板”页签', clickText('看板'))
     check('★ 保留天数 > 0 且真有超期任务 → 看板顶部出现提示条（只提示，不静默动手）',
       await waitFor(() => !!$('.archive-overdue-bar'), 4000, '归档提示条'),
       'bar=' + $$('.archive-overdue-bar').length)
     const barBtn = $$('.archive-overdue-bar button').find((b) => (b.textContent || '').indexOf('移进归档区') >= 0)
-    check('  提示条上有「移进归档区」按钮', !!barBtn)
+    check('  提示条上有“移进归档区”按钮', !!barBtn)
     if (barBtn) {
       const origConfirm = window.confirm
       window.confirm = () => false
       barBtn.click()
       await sleep(300)
-      check('★ 点按钮先弹二次确认；点「取消」→ **不动任何文件**（不静默归档）',
+      check('★ 点按钮先弹二次确认；点“取消”→ **不动任何文件**（不静默归档）',
         window.__fcTest.callCount('tasksArchiveOverdue') === 0,
         'calls=' + window.__fcTest.callCount('tasksArchiveOverdue'))
       window.confirm = () => true
@@ -5373,12 +5373,12 @@
 
     // ══ 死通道接回验收（2026-10-11，卡 20261006-002 E/C 组收口）══════════════
     // 这批通道一直躺在主进程里、界面从来没有入口（全是 `check-ipc-parity` 第 ⑤ 类扫出来的）。
-    // 断言盯的是「**能从界面真用上**」，不是「通道存在」—— 后者早就是真的，前者才是有意义的判据。
+    // 断言盯的是“**能从界面真用上**”，不是“通道存在”—— 后者早就是真的，前者才是有意义的判据。
     clickText('看板'); await sleep(400)
 
     // ① 快速记（quickAdd）
     const qaBtn = $$('button').find((b) => (b.textContent || '').trim() === '⚡ 快速记')
-    check('★ 顶栏有「快速记」入口（quickAdd 通道此前**没有任何界面入口**）', !!qaBtn)
+    check('★ 顶栏有“快速记”入口（quickAdd 通道此前**没有任何界面入口**）', !!qaBtn)
     if (qaBtn) {
       qaBtn.click(); await sleep(300)
       check('★ 点开是自建模态（**不是 window.prompt** —— Electron 里调用即抛）', !!$('#quickadd-modal'))
@@ -5386,7 +5386,7 @@
       if (qi) { qi.value = 'p0 修登录 #bug @hermes'; qi.dispatchEvent(new Event('input', { bubbles: true })) }
       await sleep(150)
       const qaCreate = $$('#quickadd-modal button').find((b) => (b.textContent || '').trim() === '创建')
-      check('  有「创建」按钮', !!qaCreate)
+      check('  有“创建”按钮', !!qaCreate)
       if (qaCreate) qaCreate.click()
       check('★★ 创建真调了 quickAdd', await waitFor(() => window.__fcTest.callCount('quickAdd') >= 1, 4000, 'quickAdd'),
         'calls=' + window.__fcTest.callCount('quickAdd'))
@@ -5406,21 +5406,21 @@
       String((($('.cross-suggest .cs-item') || {}).textContent || '')))
 
     // ③ 阶段里程碑（suggestMilestones）
-    check('能切到「路线图」页签', clickText('路线图'))
+    check('能切到“路线图”页签', clickText('路线图'))
     await sleep(800)
     check('★ 路线图页渲染出阶段里程碑（suggestMilestones 通道接回）',
       await waitFor(() => !!$('.rms-strip'), 4000, '里程碑条'),
       'items=' + $$('.rms-strip .rms-item').length)
-    check('  里程碑文案来自主进程（含「阶段」字样）',
+    check('  里程碑文案来自主进程（含“阶段”字样）',
       String((($('.rms-item') || {}).textContent || '')).indexOf('阶段') >= 0,
       String((($('.rms-item') || {}).textContent || '')))
 
     // ── 路线图本体（2026-10-23 补：此前夹具恒为 `{projects:[]}`，这四种渲染一条都没验过）──
-    check('★★ 路线图**不是空的**（项目块渲染出来，不再停在「暂无路线图数据」）',
+    check('★★ 路线图**不是空的**（项目块渲染出来，不再停在“暂无路线图数据”）',
       !!$('.roadmap-view .roadmap-project') && !$('.roadmap-view .empty-state'),
       'projects=' + $$('.roadmap-view .roadmap-project').length)
     const rpEl = $('.roadmap-view .roadmap-project')
-    check('★ 项目名 + 健康度标签（active → 「活跃」，映射不是硬编码在模板里）',
+    check('★ 项目名 + 健康度标签（active → “活跃”，映射不是硬编码在模板里）',
       !!rpEl && ((rpEl.querySelector('.rp-name') || {}).textContent || '').trim() === '演示项目'
       && ((rpEl.querySelector('.rp-health') || {}).textContent || '').trim() === '活跃',
       rpEl ? ((rpEl.querySelector('.rp-name') || {}).textContent || '') + '/' + ((rpEl.querySelector('.rp-health') || {}).textContent || '') : '(无)')
@@ -5436,14 +5436,14 @@
       && $$('.roadmap-view .rb-task .st').map((x) => x.className).join('|').indexOf('st-doing') >= 0,
       JSON.stringify($$('.roadmap-view .rb-task .st').map((x) => x.className)))
     const rpActs = $$('.roadmap-view .rp-action')
-    check('★ 「下一步」列出行动项，高优先级标红（st-review）',
+    check('★ “下一步”列出行动项，高优先级标红（st-review）',
       rpActs.length === 2 && /st-review/.test(rpActs[0].className + ' ' + ((rpActs[0].querySelector('.st') || {}).className || '')),
       JSON.stringify(rpActs.map((a) => (a.textContent || '').trim())))
 
     // ④ 设置 → 诊断页三块（selfCheck / skillsCheck / loadActivity）
     clickText('⚙'); await sleep(900)
     const diagNav = $$('.settings-nav-btn').find((b) => (b.textContent || '').indexOf('诊断') >= 0)
-    check('  设置页有「诊断」分类', !!diagNav)
+    check('  设置页有“诊断”分类', !!diagNav)
     if (diagNav) {
       diagNav.click(); await sleep(700)
       check('★★ 数据自检进门就跑完并显示结果（selfCheck 通道接回）',
@@ -5489,21 +5489,21 @@
       check('★ 动作已按用途分组（每组一个小标题，不再一排七个按钮平铺）',
         $$('.bk-act-group').length >= 3 && $$('.bk-act-group .bk-act-label').length === $$('.bk-act-group').length,
         'groups=' + $$('.bk-act-group').length + ' labels=' + $$('.bk-act-group .bk-act-label').length)
-      check('★★ 瘦身块在「数据安全须知」**上面**（用户第 1 条原话：「瘦身块应该放在数据安全须知上面」）',
+      check('★★ 瘦身块在“数据安全须知”**上面**（用户第 1 条原话：“瘦身块应该放在数据安全须知上面”）',
         !!$('.bk-slim') && !!$('.bk-notice') && ord('.bk-slim') < ord('.bk-notice'),
         'slim=' + ord('.bk-slim') + ' notice=' + ord('.bk-notice'))
-      check('★★ Git 通道在「备份范围：…」说明**下面**（用户第 1 条：防止和手动备份压缩包混在一起）',
+      check('★★ Git 通道在“备份范围：…”说明**下面**（用户第 1 条：防止和手动备份压缩包混在一起）',
         !!$('.bk-git') && ord('.bk-git') > ord('.bk-sect-hint'),
         'git=' + ord('.bk-git') + ' hint=' + ord('.bk-sect-hint'))
 
-      // ── 2026-10-23：三处「空桩」补上夹具之后的真界面断言 ─────────────────
+      // ── 2026-10-23：三处“空桩”补上夹具之后的真界面断言 ─────────────────
       // 背景：假 preload 里 backupLog / backupListRemote 原本返回**裸数组**，
       //   而真主进程回的是 `{ ok, lines }` / `{ ok, items }`。形状不对 → 渲染层
       //   `r.ok ? … : …` 恒走空分支 → 这两个界面**从来没被真渲染过**，
       //   空桩让整块界面等于没测（本项目踩过六次的同一个洞）。
       {
         const t = $('.bk-log-toggle')
-        check('★ 备份区有「查看备份日志」入口', !!t, t ? (t.textContent || '').trim() : 'null')
+        check('★ 备份区有“查看备份日志”入口', !!t, t ? (t.textContent || '').trim() : 'null')
         if (t) {
           t.click()
           check('★★ 备份日志面板真显示主进程给的行（桩形状 { ok, lines }）',
@@ -5517,10 +5517,10 @@
         }
 
         const remoteTab = $$('.bk-tabs span').find((s) => (s.textContent || '').indexOf('远端') === 0)
-        check('  备份区有「远端」页签', !!remoteTab, remoteTab ? remoteTab.textContent : 'null')
+        check('  备份区有“远端”页签', !!remoteTab, remoteTab ? remoteTab.textContent : 'null')
         if (remoteTab) {
           remoteTab.click()
-          check('★★ 切到「远端」真列出远端备份（此前桩返回裸数组，这一页永远是空的）',
+          check('★★ 切到“远端”真列出远端备份（此前桩返回裸数组，这一页永远是空的）',
             await waitFor(() => $$('.bk-item-name').some((n) => (n.textContent || '').indexOf('20261021') >= 0), 4000, '远端备份行'),
             $$('.bk-item-name').map((n) => n.textContent).join('|'))
           check('  远端页签计数跟着列表走（不是写死 0）',
@@ -5533,7 +5533,7 @@
       // 传成 path 的话主进程会去本地找这个"路径"，用户看到的是"远端备份恢复不了"。
       {
         const rb = $$('.bk-item .bk-restore')[0]
-        check('  远端行上有「恢复」按钮', !!rb)
+        check('  远端行上有“恢复”按钮', !!rb)
         if (rb) {
           const realConfirm2 = window.confirm
           window.confirm = () => true
@@ -5551,22 +5551,22 @@
     }
     maskClick('#soverlay'); await sleep(300)
 
-    // ⚠ 合入（2026-10-12）：下面这一整段「决策卡」断言来自外部整包，
-    //   与上面「死通道接回验收」是**两块独立**的断言 —— 冲突只是**位置重叠**
+    // ⚠ 合入（2026-10-12）：下面这一整段“决策卡”断言来自外部整包，
+    //   与上面“死通道接回验收”是**两块独立**的断言 —— 冲突只是**位置重叠**
     //   （两边都往文件末尾追加），**两块都要留**，不许丢任何一边（这就是逐段合的意义）。
     // ══ 决策卡 · 决策记录（2026-10-12 AI 规划包第 3 件）
-    //    2026-10-14：术语白话化（页签「拍板」→「决策」、三态「作数/已作废/已并入」→「有效/已撤销/已合并」）
+    //    2026-10-14：术语白话化（页签“拍板”→“决策”、三态“作数/已作废/已并入”→“有效/已撤销/已合并”）
     //    ＋ UI 基座第 ④ 步第一单 —— 视图本体已切到组件 `components/DecisionBoard.vue`（shadcn-vue 口径）。
     //    选择器随之改走 `data-dec="…"` 钩子：类名只承载样式，测试找属性，两边改起来互不牵连。══
     clickText('看板'); await sleep(300)
-    check('能切到「决策」页签', clickText('决策'))
+    check('能切到“决策”页签', clickText('决策'))
     check('决策卡 3 张渲染（mock 三态各一）', await waitFor(() => $$('[data-dec="card"]').length === 3, 4000, 'dec seed'))
     check('  三态徽章各就位（DOM 序=mock 数据序 有效/已撤销/已合并）',
       $$('[data-dec="badge"]').map((x) => x.textContent.trim()).join('|') === '有效|已撤销|已合并',
       $$('[data-dec="badge"]').map((x) => x.textContent.trim()).join('|'))
     check('  已撤销的卡整体降调（视觉死账）',
       $$('[data-dec="card"]').some((c) => (c.textContent || '').indexOf('已撤销') >= 0 && /line-through/.test(String(c.innerHTML))))
-    // ── 2026-10-29 暮雨第 3 条：「决策的 UI 疑似没和其他页签统一，按钮还是带阴影」──
+    // ── 2026-10-29 暮雨第 3 条：“决策的 UI 疑似没和其他页签统一，按钮还是带阴影”──
     // 不靠印象，直接量计算样式：决策卡必须与**看板老卡 `.card`** 同一档圆角/阴影，
     // 且决策页里的按钮一律不许自带投影（老按钮全是扁平的）。
     {
@@ -5587,7 +5587,7 @@
         `dec=${decRadius} board=${boardRadius}`)
       // ⚠ 不能直接比字符串：Tailwind 的 box-shadow 会带两层**全透明占位**。
       // 2026-10-31：过渡收尾时颜色已是 `rgba(90,90,130,0)`（alpha=0，肉眼不可见），
-      // 偏移量还留着 8e-10px 的尾巴 —— 按「alpha=0 的层一律算没有」归一，
+      // 偏移量还留着 8e-10px 的尾巴 —— 按“alpha=0 的层一律算没有”归一，
       // 而不是只认纯黑透明（旧写法会把这层漏掉，切成"产品还有影子"）。
       const normShadow = (v) => String(v || '')
         .replace(/rgba?\([^)]*,\s*0(?:\.0+)?\)[^,]*?(,\s*|$)/g, '')
@@ -5613,9 +5613,9 @@
       // ⚠ 必须重新查：换过页签后旧 `decCard` 已经脱离 DOM，量它是空值（本断言第一版就栽在这）
       const decCardNow = $('[data-dec="card"]')
       const shadowCard2 = decCardNow ? getComputedStyle(decCardNow).boxShadow : ''
-      check('★★ 切「阴影」外观 → 按钮真的浮起来（不再只有卡片变）', !isEmptyShadow(shadowBtn),
+      check('★★ 切“阴影”外观 → 按钮真的浮起来（不再只有卡片变）', !isEmptyShadow(shadowBtn),
         `btn=${shadowBtn || '(none)'} cls=${decBtn ? String(decBtn.className) : '(null)'}`)
-      check('★★ 切「阴影」外观 → 卡片与按钮同一档高度都在',
+      check('★★ 切“阴影”外观 → 卡片与按钮同一档高度都在',
         !isEmptyShadow(shadowCard2) && !isEmptyShadow(shadowBtn),
         `card=${shadowCard2 || '(none)'} btn=${shadowBtn || '(none)'}`)
       document.documentElement.dataset.appearance = beforeAppearance
@@ -5639,7 +5639,7 @@
       check('★ 决策页按钮不是系统原生外观（appearance:none）', nativeLook.length === 0,
         nativeLook.map(b => (b.textContent || '').trim().slice(0, 10) + ':' + (getComputedStyle(b).appearance || '?')).join(' | '))
     }
-    check('★ 界面只说白话中文（决策页签/视图里不许再出现「拍板」「作数」「已并入」「已作废」）',
+    check('★ 界面只说白话中文（决策页签/视图里不许再出现“拍板”“作数”“已并入”“已作废”）',
       ((($('#bar') || {}).textContent || '') + (($('.decisions-view') || {}).textContent || ''))
         .match(/拍板|作数|已并入|已作废/) === null)
     check('★ 状态筛选是分段控件（四个 tab，且计数跟着数据走）',
@@ -5648,7 +5648,7 @@
     // ── 开发清单第 4 条：按项目筛选（数据早就支持项目列，界面前面一直缺）──
     {
       const pj = $('[data-dec="proj-filter"]')
-      check('★ 决策页有「按项目筛选」', !!pj, 'no proj-filter')
+      check('★ 决策页有“按项目筛选”', !!pj, 'no proj-filter')
       if (pj) {
         const opts = [...pj.options].map((o) => o.value)
         check('  筛选项 = 全部项目 + 数据里出现过的项目 +（未归属）',
@@ -5657,27 +5657,27 @@
         pj.value = '司天'
         pj.dispatchEvent(new Event('change', { bubbles: true }))
         await sleep(250)
-        check('★★ 选「司天」→ 只剩该项目的 1 张，且**计数跟着项目筛走**（不是全局数）',
+        check('★★ 选“司天”→ 只剩该项目的 1 张，且**计数跟着项目筛走**（不是全局数）',
           $$('[data-dec="card"]').length === 1
           && $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部1|有效1|已撤销0|已合并0',
           'cards=' + $$('[data-dec="card"]').length + ' tabs=' + $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|'))
         pj.value = '全部项目'
         pj.dispatchEvent(new Event('change', { bubbles: true }))
         await sleep(250)
-        check('  切回「全部项目」→ 3 张回来', $$('[data-dec="card"]').length === 3, 'cards=' + $$('[data-dec="card"]').length)
+        check('  切回“全部项目”→ 3 张回来', $$('[data-dec="card"]').length === 3, 'cards=' + $$('[data-dec="card"]').length)
       }
     }
 
     // ── 开发清单第 5 条：贴一句话自动拆字段（只**预填**，不直接落库）──────
     {
       const si = $('[data-dec="smart-input"]')
-      check('★ 决策页有「贴一句话自动拆字段」入口', !!si, 'no smart-input')
+      check('★ 决策页有“贴一句话自动拆字段”入口', !!si, 'no smart-input')
       if (si) {
         si.value = '10月12日 定：司天不发版，唯一目标=标注+导出真图（出自 10-12 群 09:42）'
         si.dispatchEvent(new Event('input', { bubbles: true }))
         await sleep(120)
         const sb = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '拆分')
-        check('  「拆分」按钮可点', !!sb)
+        check('  “拆分”按钮可点', !!sb)
         if (sb) sb.click()
         await sleep(300)
         const gv = (sel) => String((($(sel) || {}).value) || '')
@@ -5692,14 +5692,14 @@
       }
     }
 
-    // 记一条：输入 → 点「记下」→ mock IPC decisionAdd → 输入清空（mock 无状态，故断言按钮/输入）
+    // 记一条：输入 → 点“记下”→ mock IPC decisionAdd → 输入清空（mock 无状态，故断言按钮/输入）
     const decInp = $('[data-dec="add-input"]')
     if (decInp) {
       decInp.value = '断言用：这条决策是测试记的'
       decInp.dispatchEvent(new Event('input', { bubbles: true }))
       await sleep(150)
       const decBtn = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
-      check('  「记下」按钮可点（内容非空）', !!decBtn && !decBtn.disabled)
+      check('  “记下”按钮可点（内容非空）', !!decBtn && !decBtn.disabled)
       if (decBtn) decBtn.click()
       check('  记一条真走 IPC（decisionAdd 被调）',
         await waitFor(() => window.__fcTest.callCount('decisionAdd') >= 1, 3000, 'decAdd'),
@@ -5716,7 +5716,7 @@
     } else {
       check('  新增输入框存在', false, 'add-input not found')
     }
-    // 改状态：下拉换「已合并」→ decisionSetStatus mock → toast
+    // 改状态：下拉换“已合并”→ decisionSetStatus mock → toast
     const decSel = $('[data-dec="status"]')
     if (decSel) {
       decSel.value = '已合并'
@@ -5727,17 +5727,17 @@
     } else {
       check('  状态下拉存在', false, 'status not found')
     }
-    // ══ 编辑 / 删除（2026-10-17 暮雨第 5 条：「决策并不能编辑和删除，给人失控感」）══
+    // ══ 编辑 / 删除（2026-10-17 暮雨第 5 条：“决策并不能编辑和删除，给人失控感”）══
     // 判据三条：① 每张卡都有入口；② 编辑是**就地展开**（改一句话不该跨三层）；
     //          ③ 删除是**两段式**——第一次点只出确认，确认前 IPC 一次都不许发。
     const decEdits = $$('[data-dec="edit"]')
     const decDels = $$('[data-dec="delete"]')
-    check('★★ 每张决策卡都有「编辑 / 删除」入口',
+    check('★★ 每张决策卡都有“编辑 / 删除”入口',
       decEdits.length === 3 && decDels.length === 3,
       `edit=${decEdits.length} delete=${decDels.length}`)
     if (decEdits[0]) {
       decEdits[0].click()
-      check('★★ 点「编辑」→ 就地展开表单（不是弹新窗）',
+      check('★★ 点“编辑”→ 就地展开表单（不是弹新窗）',
         await waitFor(() => $$('[data-dec="edit-form"]').length === 1, 3000, 'dec edit form'),
         'forms=' + $$('[data-dec="edit-form"]').length)
       check('  表单带出原内容（不是空白框）',
@@ -5768,7 +5768,7 @@
       await sleep(300)
       check('  保存后表单收起（回到只读卡）', $$('[data-dec="edit-form"]').length === 0,
         'forms=' + $$('[data-dec="edit-form"]').length)
-      // 再开一次只为验「取消」这条路
+      // 再开一次只为验“取消”这条路
       if ($$('[data-dec="edit"]')[0]) $$('[data-dec="edit"]')[0].click()
       await sleep(300)
       const ecBtn = $('[data-dec="edit-cancel"]')
@@ -5781,14 +5781,14 @@
     if ($$('[data-dec="delete"]')[0]) {
       $$('[data-dec="delete"]')[0].click()
       await sleep(250)
-      check('★★ 点「删除」只是两段式第一步（还没真删）',
+      check('★★ 点“删除”只是两段式第一步（还没真删）',
         $$('[data-dec="delete-confirm"]').length === 1
           && window.__fcTest.callCount('decisionDelete') === delBefore,
         'confirm=' + $$('[data-dec="delete-confirm"]').length + ' calls=' + window.__fcTest.callCount('decisionDelete'))
       const dcBtn = $('[data-dec="delete-cancel"]')
       if (dcBtn) dcBtn.click()
       await sleep(250)
-      check('  点「取消」→ 确认按钮收起，仍然没删',
+      check('  点“取消”→ 确认按钮收起，仍然没删',
         $$('[data-dec="delete-confirm"]').length === 0
           && window.__fcTest.callCount('decisionDelete') === delBefore,
         'confirm=' + $$('[data-dec="delete-confirm"]').length + ' calls=' + window.__fcTest.callCount('decisionDelete'))
@@ -5807,7 +5807,7 @@
       check('  删除按钮存在', false, 'delete not found')
     }
 
-    // ══ 决策 · 生命周期管理（2026-10-17 暮雨：「决策卡当然需要有生命周期管理」）══
+    // ══ 决策 · 生命周期管理（2026-10-17 暮雨：“决策卡当然需要有生命周期管理”）══
     // 判据：找得到（搜索）→ 成批动（多选 / 批量改状态 / 批量删除）→ 批量删除同样两段式。
     {
       // ① 搜索
@@ -5817,7 +5817,7 @@
         sq.value = '绒花'
         sq.dispatchEvent(new Event('input', { bubbles: true }))
         await sleep(450)
-        check('★★ 搜索真的收窄列表（搜「绒花」→ 1 张）', $$('[data-dec="card"]').length === 1,
+        check('★★ 搜索真的收窄列表（搜“绒花”→ 1 张）', $$('[data-dec="card"]').length === 1,
           'cards=' + $$('[data-dec="card"]').length)
         check('  页签计数跟着搜索走（全部1，不是还写着全部3）',
           (($$('[data-dec="tab"]')[0] || {}).textContent || '').trim() === '全部1',
@@ -5846,7 +5846,7 @@
         const bBefore = window.__fcTest.callCount('decisionSetStatus')
         const revBtn = $$('[data-dec="batch-bar"] button').find((b) => (b.textContent || '').trim() === '已撤销')
         if (revBtn) revBtn.click()
-        check('★★ 批量设「已撤销」→ 逐条走 IPC（3 次，不绕过留痕通道）',
+        check('★★ 批量设“已撤销”→ 逐条走 IPC（3 次，不绕过留痕通道）',
           await waitFor(() => window.__fcTest.callCount('decisionSetStatus') >= bBefore + 3, 4000, 'dec batch set'),
           'delta=' + (window.__fcTest.callCount('decisionSetStatus') - bBefore))
         await sleep(450)
@@ -5879,7 +5879,7 @@
       }
     }
 
-    // ══ 控件统一（2026-10-17 暮雨第 4 条：「决策页混着两种按钮和文本框」）══
+    // ══ 控件统一（2026-10-17 暮雨第 4 条：“决策页混着两种按钮和文本框”）══
     // 判据必须是**几何**，不是"看起来差不多"：同一页里输入框 / 下拉 / 按钮 高 32、圆角 8。
     // （卡片里的动作按钮走密集档 24，那是另一档，单独放行。）
     {
@@ -5907,29 +5907,29 @@
         editBtn ? String(Math.round(editBtn.getBoundingClientRect().height)) : 'no edit btn')
     }
 
-    // 筛选：只看「已撤销」→ 列表剩 1 张
+    // 筛选：只看“已撤销”→ 列表剩 1 张
     const decTab = $$('[data-dec="tab"]').find((b) => (b.textContent || '').trim().indexOf('已撤销') === 0)
     if (decTab) {
       // ⚠ reka-ui 的 TabsTrigger **只认 mousedown**（源码里只有 `onMousedown`，没有 click 处理）——
       //    合成 `.click()` 不带 mousedown，点了等于没点。真用户点鼠标天然先有 mousedown，所以
-      //    这个坑只在测试里现形（与「遮罩关闭必须派发 mousedown」是同一类）。
+      //    这个坑只在测试里现形（与“遮罩关闭必须派发 mousedown”是同一类）。
       decTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       decTab.click()
-      check('  筛「已撤销」后只剩死账（1 张）',
+      check('  筛“已撤销”后只剩死账（1 张）',
         await waitFor(() => $$('[data-dec="card"]').length === 1, 3000, 'dec filter'),
         'count=' + $$('[data-dec="card"]').length)
     } else {
-      check('  「已撤销」筛选项存在', false, 'tab not found')
+      check('  “已撤销”筛选项存在', false, 'tab not found')
     }
-    // ⚠ 合入（2026-10-12）：这一整段「决策卡」断言来自外部整包，与上面「死通道接回验收」是**两块独立**
+    // ⚠ 合入（2026-10-12）：这一整段“决策卡”断言来自外部整包，与上面“死通道接回验收”是**两块独立**
     //   的断言 —— 冲突只是**位置重叠**（两边都往文件末尾追加），**两块都要留**，不许丢任何一边。
 
-    // ══ 规划管理（2026-10-16 第 1 项）：「🗂 规划」弹窗三态 —— 列表 / 决策点留痕回看 / 新建落 IPC。
-    //    四条通道真 preload 早就暴露、渲染层今天接（「电路铺好了开关没装」第二排开关）。
-    //    假 preload plans 夹具：1 条「0.3.7 发版计划」（project=demo），2 决策点（dp_001 已定 / dp_002 待定）。
+    // ══ 规划管理（2026-10-16 第 1 项）：“🗂 规划”弹窗三态 —— 列表 / 决策点留痕回看 / 新建落 IPC。
+    //    四条通道真 preload 早就暴露、渲染层今天接（“电路铺好了开关没装”第二排开关）。
+    //    假 preload plans 夹具：1 条“0.3.7 发版计划”（project=demo），2 决策点（dp_001 已定 / dp_002 待定）。
     {
       // ⚠ 2026-10-17 修断言前置（外部整包原写法 `clickText('看板')` + 300ms 直接取
-      //   `#board.pv .tile` 恒红 4 条）：①「看板」不是项目页签的入口名（那条 nav 叫「项目」）；
+      //   `#board.pv .tile` 恒红 4 条）：①“看板”不是项目页签的入口名（那条 nav 叫“项目”）；
       //   ②项目页签有三种摆法（项目墙/概览卡/主从）且**用户选择会落盘**，上一段断言切到过
       //   主从/概览卡，这里不能假定自己站在项目墙上；③本块要点的按钮挂在**主从**的
       //   详情面板 `.ms-detail .oacts` 里，所以先确保主从、选中演示项目。
@@ -5939,18 +5939,18 @@
       const msLi = $$('#board.pv .pv-ms .ms-li').find((x) => (x.textContent || '').indexOf('演示项目') >= 0)
       if (msLi) { msLi.click(); await sleep(300) }
       const tileP = msLi || $('#board.pv .tile:not(.tile-add)')
-      check('★ 进项目详情后有「🗂 规划」按钮（规划四通道的界面开关装上了）', await (async () => {
+      check('★ 进项目详情后有“🗂 规划”按钮（规划四通道的界面开关装上了）', await (async () => {
         if (!tileP) return false
         if (!msLi) tileP.click()
         const ok = await waitFor(() => !!$('#board.pv .ms-detail .oacts'), 4000, '进详情')
         return ok && $$('#board.pv .ms-detail .oacts button').some((b) => (b.textContent || '').indexOf('🗂') >= 0)
       })(), 'tile=' + ((tileP || {}).textContent || '').slice(0, 12))
-      // 项目说明条（2026-10-16 批次第 2 项）：registry「说明」字段转正，详情页一句话定位
+      // 项目说明条（2026-10-16 批次第 2 项）：registry“说明”字段转正，详情页一句话定位
       check('★ 项目说明条显示（registry 说明字段透传到详情页）',
         !!$('#board.pv .ms-detail .ms-note')
         && (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').indexOf('说明条转正断言') >= 0,
         (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').slice(0, 24))
-      // ══ 项目三字段就地编辑（2026-10-22 · 施工单包 06「13 行写回」）══════════
+      // ══ 项目三字段就地编辑（2026-10-22 · 施工单包 06“13 行写回”）══════════
       // 判据：① 三行并列摆出来（不是只有说明一条）；② 编辑块就在页面上（不是设置页/弹窗链）；
       //      ③ 保存真调主进程、且**只提交改过的字段**；④ 撤销真写回旧值。
       const noteTxt = () => (($('#board.pv .ms-detail .ms-note') || {}).textContent || '').replace(/\s+/g, ' ')
@@ -5968,7 +5968,7 @@
       })(), JSON.stringify($$('#board.pv .ms-detail .msn-v').map((v) => Math.round(v.getBoundingClientRect().left))))
       check('★ 编辑入口是一个按钮（06 单：不加设置页、不加确认弹窗链）',
         !!$('#board.pv .ms-detail .ms-editbtn') && !$('#board.pv .ms-detail .ms-fields'))
-      check('★ 点「✎ 改状态 / 路线图 / 说明」→ 就地展开编辑块（不跳页、不弹窗）', await (async () => {
+      check('★ 点“✎ 改状态 / 路线图 / 说明”→ 就地展开编辑块（不跳页、不弹窗）', await (async () => {
         const b = $('#board.pv .ms-detail .ms-editbtn')
         if (!b) return false
         b.click()
@@ -6004,7 +6004,7 @@
       check('★ 保存后详情页立刻显示新值（不用手动刷新）',
         await waitFor(() => noteTxt().indexOf('已改：新状态（夹具）') >= 0, 4000, '新值'), noteTxt().slice(0, 40))
       check('★ 保存后编辑块收起（不是原地留着让人以为没保存）', !$('#board.pv .ms-detail .ms-fields'))
-      check('★★ 撤销条出现，且写明「哪个项目的哪些字段」', await waitFor(() => {
+      check('★★ 撤销条出现，且写明“哪个项目的哪些字段”', await waitFor(() => {
         const ub = $('#undo-bar')
         if (!ub) return false
         const t = (ub.textContent || '').replace(/\s+/g, ' ')
@@ -6026,44 +6026,44 @@
       const plansBtn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('🗂') >= 0)
       if (plansBtn) {
         plansBtn.click()
-        check('★★ 点「🗂 规划」→ 弹窗开 + 夹具规划进列表（listPlans 走通 + 按项目过滤）',
+        check('★★ 点“🗂 规划”→ 弹窗开 + 夹具规划进列表（listPlans 走通 + 按项目过滤）',
           await waitFor(() => !!$('#plans-modal') && $$('#plans-modal .plan-row').length === 1, 4000, 'plans list'),
           'rows=' + $$('#plans-modal .plan-row').length)
-        check('  徽标显示「草稿」（plan_status=draft → 人话，不许英文露脸）',
+        check('  徽标显示“草稿”（plan_status=draft → 人话，不许英文露脸）',
           (($('#plans-modal .plan-badge[data-plan-status="draft"]') || {}).textContent || '').trim() === '草稿',
           (($('#plans-modal .plan-badge') || {}).textContent || '').trim())
         // ── 详情态：决策点选择 + 留痕回看 ──
         const seeDp = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('看决策点') >= 0)
-        check('  「看决策点 →」在（列表 → 详情态入口）', !!seeDp)
+        check('  “看决策点 →”在（列表 → 详情态入口）', !!seeDp)
         if (seeDp) {
           seeDp.click()
           check('★★ 详情态：2 个决策点都渲染（getPlan 走通）',
             await waitFor(() => $$('#plans-modal .plan-dp').length === 2, 4000, 'plan detail'),
             'dps=' + $$('#plans-modal .plan-dp').length)
-          check('  已定决策点回看：「✓ 已选」+ 选项文本都在（dp_001 留痕显示）',
+          check('  已定决策点回看：“✓ 已选”+ 选项文本都在（dp_001 留痕显示）',
             (($('#plans-modal .plan-dp[data-dp-id="dp_001"]') || {}).textContent || '').indexOf('已选') >= 0
             && (($('#plans-modal .plan-dp[data-dp-id="dp_001"]') || {}).textContent || '').indexOf('端口=观测结果') >= 0)
           const friBtn = $$('#plans-modal .plan-dp[data-dp-id="dp_002"] button').find((b) => (b.textContent || '').trim() === '周五')
           check('  待定决策点的选项按钮在（周五 / 下周一）', !!friBtn)
           if (friBtn) {
             friBtn.click()
-            check('★★ 点选项 → decidePlanPoint 走 IPC，重读后留痕显示「已选：周五」',
+            check('★★ 点选项 → decidePlanPoint 走 IPC，重读后留痕显示“已选：周五”',
               await waitFor(() => (($('#plans-modal .plan-dp[data-dp-id="dp_002"]') || {}).textContent || '').indexOf('已选') >= 0
                 && (($('#plans-modal .plan-dp[data-dp-id="dp_002"]') || {}).textContent || '').indexOf('周五') >= 0, 4000, 'decide dp'))
-            check('  全定完提示出现（决策点全定完 → 规划自动转「进行中」的人话说明）',
+            check('  全定完提示出现（决策点全定完 → 规划自动转“进行中”的人话说明）',
               ($('#plans-modal').textContent || '').indexOf('决策点全定完') >= 0)
           }
           const backBtn = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('回列表') >= 0)
           if (backBtn) {
             backBtn.click()
-            check('★★ 回列表徽标转「进行中」（全 decided → active，假 preload 同 main 语义）',
+            check('★★ 回列表徽标转“进行中”（全 decided → active，假 preload 同 main 语义）',
               await waitFor(() => !!$('#plans-modal .plan-badge[data-plan-status="active"]'), 4000, 'active badge'),
               'badge=' + (($('#plans-modal .plan-badge') || {}).textContent || '').trim())
           }
         }
         // ── 新建态：填表 → 建规划 → 载荷齐发 ──
         const newBtn = $$('#plans-modal button').find((b) => (b.textContent || '').indexOf('新建规划') >= 0)
-        check('  「＋ 新建规划」在', !!newBtn)
+        check('  “＋ 新建规划”在', !!newBtn)
         if (newBtn) {
           newBtn.click()
           await sleep(200)
@@ -6079,7 +6079,7 @@
             set(tas[1], '端口=配置项\n端口=观测结果')   // tas[0]=里程碑（刻意留空，断言空段过滤）
             await sleep(150)
             const mkBtn = $$('#plans-modal button').find((b) => (b.textContent || '').trim() === '建规划')
-            check('  标题非空后「建规划」可点', !!mkBtn && !mkBtn.disabled)
+            check('  标题非空后“建规划”可点', !!mkBtn && !mkBtn.disabled)
             if (mkBtn) {
               mkBtn.click()
               check('★★ 建规划走 IPC 且列表多一条（createPlan → refresh 当场可见）',
@@ -6098,27 +6098,27 @@
         }
         const closeBtn = $$('#plans-modal button').find((b) => (b.textContent || '').trim() === '关闭')
         if (closeBtn) closeBtn.click()
-        check('  「关闭」收弹窗', await waitFor(() => !$('#plans-modal'), 3000, 'close plans'))
+        check('  “关闭”收弹窗', await waitFor(() => !$('#plans-modal'), 3000, 'close plans'))
       } else {
-        check('「🗂 规划」按钮存在', false, 'no plansBtn')
+        check('“🗂 规划”按钮存在', false, 'no plansBtn')
       }
     }
 
     // ══ 随问（2026-10-22 · 施工单包 03 任务一）══════════════════════════════
-    // 判据：① 页签里有「问」；② 常用问题文案来自主进程（界面不许自己写一份）；
+    // 判据：① 页签里有“问”；② 常用问题文案来自主进程（界面不许自己写一份）；
     //      ③ 点预设 → 把**问题串原样**传下去；④ 结构化答案渲染结论/明细/来源；
-    //      ⑤ needsLlm=false 时**不给**「交给 AI」按钮（结构化能答就别把成本口子敞着）；
+    //      ⑤ needsLlm=false 时**不给**“交给 AI”按钮（结构化能答就别把成本口子敞着）；
     //      ⑥ needsLlm=true 才有，且**点了才**真调模型、花销当场印出来。
     {
       const askTab = $$('#views .vbtn').find((b) => (b.textContent || '').trim() === '问答')
-      check('★ 页签行里有「问答」（两个字的说法才看得懂；一个「问」字会被当成"问号/帮助"）', !!askTab)
+      check('★ 页签行里有“问答”（两个字的说法才看得懂；一个“问”字会被当成"问号/帮助"）', !!askTab)
       if (askTab) {
         askTab.click()
-        check('★ 点进「问答」→ 查询面渲染（输入框 + 常用问题）',
+        check('★ 点进“问答”→ 查询面渲染（输入框 + 常用问题）',
           await waitFor(() => !!$('#board.ask-view .ask-in') && $$('#board.ask-view .ask-chip').length > 0, 4000, 'ask view'))
         check('★★ 问答页是**纵向单栏**（几何门禁：标题/输入框区/月报表左边缘对齐、上下依次排）', (() => {
           // 2026-10-22 目检踩过两次：#board 是 flex 横排，不显式改成 block 会把
-          // 「输入框区 / 答案 / 月报表」排成三列、挤在左边 1/3；改成 column 又会因为
+          // “输入框区 / 答案 / 月报表”排成三列、挤在左边 1/3；改成 column 又会因为
           // 继承 align-items:flex-start 让各块按内容宽各排各的。只有 block 是确定的。
           const h = $('#board.ask-view .ask-head')
           const b = $('#board.ask-view .ask-box')
@@ -6134,10 +6134,10 @@
           window.__fcTest.callCount('askPresets') >= 1, String(window.__fcTest.callCount('askPresets')))
         check('★ 常用问题够用（≥8 个快捷点选，03 单验收线）',
           $$('#board.ask-view .ask-chip').length >= 8, String($$('#board.ask-view .ask-chip').length))
-        check('★ 空输入时「问」按钮是禁用的（不让点一个必然为空的查询）',
+        check('★ 空输入时“问”按钮是禁用的（不让点一个必然为空的查询）',
           !!$('#board.ask-view .ask-go') && $('#board.ask-view .ask-go').disabled === true)
         const oweChip = $$('#board.ask-view .ask-chip').find((b) => (b.textContent || '').trim() === '欠着什么')
-        check('  有「欠着什么」这个常用问题（最常用的一条）', !!oweChip)
+        check('  有“欠着什么”这个常用问题（最常用的一条）', !!oweChip)
         if (oweChip) {
           const n0 = window.__fcTest.callCount('askQuery')
           oweChip.click()
@@ -6154,7 +6154,7 @@
                 && ((a.querySelector('.ask-src') || {}).textContent || '').indexOf('项目登记表') >= 0
             }, 4000, 'answer'),
             (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
-          check('★★ needsLlm=false 的答案**不给**「交给 AI」按钮（能结构化答就别敞着成本口子）',
+          check('★★ needsLlm=false 的答案**不给**“交给 AI”按钮（能结构化答就别敞着成本口子）',
             !$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'))
         }
         const llmBefore = window.__fcTest.callCount('llmAsk')
@@ -6163,7 +6163,7 @@
         askIn.dispatchEvent(new Event('input', { bubbles: true }))
         await sleep(80)
         $('#board.ask-view .ask-go').click()
-        check('★ 含糊句 → 出现「交给 AI 答（会花 token）」按钮',
+        check('★ 含糊句 → 出现“交给 AI 答（会花 token）”按钮',
           await waitFor(() => !!$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'), 4000, 'llm btn'),
           (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 50))
         check('★★ 光问不点 → **一次模型都没调**（结构化答不了也不许偷偷烧钱）',
@@ -6171,7 +6171,7 @@
         const llmBtn = $('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)')
         if (llmBtn) {
           llmBtn.click()
-          check('★★ 点「交给 AI 答」才真调 llmAsk', await waitFor(() => window.__fcTest.callCount('llmAsk') > llmBefore, 4000, 'llmAsk'))
+          check('★★ 点“交给 AI 答”才真调 llmAsk', await waitFor(() => window.__fcTest.callCount('llmAsk') > llmBefore, 4000, 'llmAsk'))
           const lastLlm = window.__fcTest.calls().filter((c) => c.name === 'llmAsk').pop()
           check('  传给 AI 的是**同一个问题串**（不是 chip 的 label）',
             !!lastLlm && lastLlm.args[0] === '你觉得这个方向对不对', JSON.stringify(lastLlm && lastLlm.args))
@@ -6185,8 +6185,8 @@
         // ── 随纠（2026-10-22 · 03 任务二）：从答案直接改这个项目的方向 ──────
         // 判据：有项目才有入口；一句话 → 真调 correctApply（参数齐全且不填表单）；
         //      改完挂撤销条；撤销把**旧值**原样传回去；含糊句（无项目）→ 不给纠偏入口。
-        check('★ 答案命中了项目 → 出现「✎ 一句话改掉…」入口', await (async () => {
-          // 必须用**点名了项目**的问题：问「欠着什么」不指名时 projectId 为空 ——
+        check('★ 答案命中了项目 → 出现“✎ 一句话改掉…”入口', await (async () => {
+          // 必须用**点名了项目**的问题：问“欠着什么”不指名时 projectId 为空 ——
           // 那种情况下不给纠偏入口才对（没有目标就无从纠），所以这里走 progress 那条。
           const ins = $$('#board.ask-view .ask-in')
           if (!ins.length) return false
@@ -6207,7 +6207,7 @@
           b.click()
           return waitFor(() => !!$('#board.ask-view .ask-correct-row .ask-in'), 3000, '纠偏输入框')
         })())
-        check('★ 空输入时「就这么改」是禁用的', await (async () => {
+        check('★ 空输入时“就这么改”是禁用的', await (async () => {
           const btns = $$('#board.ask-view .ask-correct-row button')
           const go = btns.find((b) => (b.textContent || '').indexOf('就这么改') >= 0)
           return !!go && go.disabled === true
@@ -6246,8 +6246,8 @@
           return a.projectId === 'demo' && a.field === '路线图' && a.before === '跑通第一单' && a.decisionId === 'dec-e2e-1'
         })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args))
         // ── 出单（2026-10-22 · 03 任务三）：从台账派生下一批待审批卡 ──────────
-        check('★ 有项目的答案 → 出现「出下一批任务卡」入口（标了会花 token）', await (async () => {
-          // 上一步改完撤销后 askQ 还是「演示项目到哪了」，答案带 projectId
+        check('★ 有项目的答案 → 出现“出下一批任务卡”入口（标了会花 token）', await (async () => {
+          // 上一步改完撤销后 askQ 还是“演示项目到哪了”，答案带 projectId
           return waitFor(() => {
             const btn = $$('#board.ask-view .ask-foot button')
               .find((b) => (b.textContent || '').indexOf('出下一批') >= 0)
@@ -6281,36 +6281,36 @@
             const a = $('#board.ask-view .ask-ans')
             return !!a && (a.textContent || '').indexOf('答不了') >= 0
           }, 4000, 'vague') && !$('#board.ask-view .ask-correct-open'))
-        check('★ 含糊句同样不给「出下一批」入口（出单得先说清给哪个项目出）',
+        check('★ 含糊句同样不给“出下一批”入口（出单得先说清给哪个项目出）',
           !$('#board.ask-view .ask-batch-btn'))
-        // 回到「欠着什么」，后面的报表断言要看这一屏
+        // 回到“欠着什么”，后面的报表断言要看这一屏
         const chipBack = $$('#board.ask-view .ask-chip').find((b) => (b.textContent || '').trim() === '欠着什么')
         if (chipBack) { chipBack.click(); await sleep(400) }
 
         // ── 月度花销报表（2026-10-22 · 03 任务三）：常驻在这一页，不用翻设置页 ──
-        check('★ 月度花销报表常驻在「问」页底部',
+        check('★ 月度花销报表常驻在“问”页底部',
           await waitFor(() => $$('#board.ask-view .ask-report').length === 1, 4000, 'report'),
           String($$('#board.ask-view .ask-report').length))
         const rp = (($('#board.ask-view .ask-report') || {}).textContent || '').replace(/\s+/g, ' ')
         check('★ 按月列（两个月两行，token 带千分位）',
           $$('#board.ask-view .ask-report-row').length === 2
           && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
-        check('★ 没给用量数字的那次明说「只计数」（不拿字符数折算 token）',
+        check('★ 没给用量数字的那次明说“只计数”（不拿字符数折算 token）',
           rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
 
         // ── 逐笔金额（2026-10-25 卡 005 B 档）────────────────────────────────
-        // 有金额就写「≈ ¥X」并带上"还有几笔没折算"；一笔都没有就写「未折算」。
-        // ⚠ 绝不出现「¥0」：那会把"没数据"说成"没花钱"。
+        // 有金额就写“≈ ¥X”并带上"还有几笔没折算"；一笔都没有就写“未折算”。
+        // ⚠ 绝不出现“¥0”：那会把"没数据"说成"没花钱"。
         {
           const rows = $$('#board.ask-view .ask-report-row')
           const t10 = rows[0] ? (rows[0].textContent || '') : ''
           const t09 = rows[1] ? (rows[1].textContent || '') : ''
-          check('★★ 有金额的月显示「≈ ¥0.42」（夹具真身，不是写死的）', t10.indexOf('¥0.42') >= 0, t10)
+          check('★★ 有金额的月显示“≈ ¥0.42”（夹具真身，不是写死的）', t10.indexOf('¥0.42') >= 0, t10)
           check('★★ 同一行点名还有 1 笔未折算（否则金额像全量账）', t10.indexOf('1 次未折算') >= 0, t10)
-          check('★★ 一笔金额都没有的月写「未折算」，**不许写 ¥0**',
+          check('★★ 一笔金额都没有的月写“未折算”，**不许写 ¥0**',
             t09.indexOf('未折算') >= 0 && t09.indexOf('¥') < 0, t09)
           // 外部上报（MCP usage_report）必须**单列**，不许混进"方寸自己的账"
-          check('★★ 有外部上报的月点名「其中 1 笔是外部上报」', t10.indexOf('其中 1 笔是外部上报') >= 0, t10)
+          check('★★ 有外部上报的月点名“其中 1 笔是外部上报”', t10.indexOf('其中 1 笔是外部上报') >= 0, t10)
           check('  没有外部上报的月不出现这句（不留空话）', t09.indexOf('外部上报') < 0, t09)
           const rh = (($('#board.ask-view .ask-report-h') || {}).textContent || '')
           check('★★ 标题里的口径说清"外部上报另计、不混算"',
@@ -6320,7 +6320,7 @@
         // ── 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）──────────────────
         // 判据：① 只比 token；② 金额列只有三种标注；③ local 与 external 分开；④ 切换筛选真重读。
         {
-          check('★ 「跨渠道 token 对比」块在花销页（不是另开一页）',
+          check('★ “跨渠道 token 对比”块在花销页（不是另开一页）',
             await waitFor(() => $$('#board.ask-view .chan-report').length === 1, 4000, 'chan'),
             String($$('#board.ask-view .chan-report').length))
           const chanRows = $$('#board.ask-view .chan-row[data-chan]')
@@ -6330,13 +6330,13 @@
           check('★★ 金额列只有三种标注（供应商自报 / 用户自填 / 未折算）',
             chanTxt.indexOf('供应商自报') >= 0 && chanTxt.indexOf('用户自填') >= 0 && chanTxt.indexOf('未折算') >= 0,
             chanTxt.slice(0, 120))
-          check('★★ 外部上报的渠道带「（外部上报）」后缀（不跟 local 混在一起）',
+          check('★★ 外部上报的渠道带“（外部上报）”后缀（不跟 local 混在一起）',
             chanTxt.indexOf('（外部上报）') >= 0)
-          check('★★ 口径声明写清「只比 token」+「它证明不了什么」',
+          check('★★ 口径声明写清“只比 token”+“它证明不了什么”',
             chanTxt.indexOf('只比 token') >= 0 && chanTxt.indexOf('证明不了什么') >= 0)
-          check('★★ 总计行明说「不跨渠道合计」（不做跨渠道金额对比）',
+          check('★★ 总计行明说“不跨渠道合计”（不做跨渠道金额对比）',
             chanTxt.indexOf('不跨渠道合计') >= 0)
-          check('★ 没给 token 数字的那次单列「没给数字」', chanTxt.indexOf('没给数字') >= 0)
+          check('★ 没给 token 数字的那次单列“没给数字”', chanTxt.indexOf('没给数字') >= 0)
           // 切换渠道筛选 → 真重读且只剩一行
           window.__fcTest.reset()
           const chanSel = $$('#board.ask-view .chan-sel').pop()
@@ -6356,9 +6356,9 @@
         // ① 标题写清来源；② 消费与充值分开；③ 明说"归不到具体某一次调用"；④ 没有接口就说没有。
         {
           const acc = () => $('#board.ask-view .ask-acc')
-          check('★★ 问答页底部有「账户口径 · 余额差值」块（不是只有 token）', !!acc())
+          check('★★ 问答页底部有“账户口径 · 余额差值”块（不是只有 token）', !!acc())
           const at = ((acc() || {}).textContent || '').replace(/\s+/g, ' ')
-          check('★★ 标题写明来源：「来自供应商余额接口，不是按 token 估算」',
+          check('★★ 标题写明来源：“来自供应商余额接口，不是按 token 估算”',
             at.indexOf('余额差值') >= 0 && at.indexOf('不是按 token 估算') >= 0, at.slice(0, 80))
           check('★★ 账户真实扣款显示出来了（夹具 3.60 CNY）',
             at.indexOf('已观测消费') >= 0 && at.indexOf('3.60') >= 0 && at.indexOf('CNY') >= 0, at.slice(0, 90))
@@ -6369,7 +6369,7 @@
 
           const n0 = window.__fcTest.callCount('llmBalanceObserve')
           const btn = $('#board.ask-view .ask-acc-btn')
-          check('★ 有「⟳ 立刻查一次」按钮（不想等下次调用也能核）', !!btn)
+          check('★ 有“⟳ 立刻查一次”按钮（不想等下次调用也能核）', !!btn)
           if (btn) {
             btn.click()
             await sleep(700)
@@ -6390,38 +6390,38 @@
           const at3 = ((($('#board.ask-view .ask-acc') || {}).textContent) || '').replace(/\s+/g, ' ')
           check('★★ 端点没有余额接口时：如实说原因，不编数字',
             at3.indexOf('没有官方余额接口') >= 0, at3.slice(0, 90))
-          check('★★ 而且**不显示**「已观测消费」（半个字都不许让人误会）',
+          check('★★ 而且**不显示**“已观测消费”（半个字都不许让人误会）',
             at3.indexOf('已观测消费') < 0 && at3.indexOf('0.00') < 0, at3.slice(0, 90))
-          check('  也没有「立刻查一次」按钮（查不了就别给按钮）',
+          check('  也没有“立刻查一次”按钮（查不了就别给按钮）',
             !$('#board.ask-view .ask-acc-btn'))
           window.__fcTest.setBalanceUnsupported(false)
         }
       }
     }
 
-    // ══ 帮助手册视图（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）
-    //    它只从**顶栏「?」**进入（页签行不重复放一个）—— 这里就按用户的真实路径点。
+    // ══ 帮助手册视图（2026-10-12 暮雨第 4 条：“想加其他主按钮，比如首页、帮助手册、同步”）
+    //    它只从**顶栏“?”**进入（页签行不重复放一个）—— 这里就按用户的真实路径点。
     {
       const helpBtn = $('#bar .navgroup button[title*="帮助"]')
-      check('★ 顶栏「? 帮助」按钮点得动（先把视图切回看板，确保有可回退来源）',
+      check('★ 顶栏“? 帮助”按钮点得动（先把视图切回看板，确保有可回退来源）',
         !!helpBtn && (clickText('看板'), true), helpBtn ? 'yes' : 'no helpBtn')
       if (helpBtn) {
         helpBtn.click()
-        check('★★ 点「?」真的进了帮助手册视图（.help-view 渲染出来）',
+        check('★★ 点“?”真的进了帮助手册视图（.help-view 渲染出来）',
           await waitFor(() => !!$('.help-view'), 4000, 'help view'))
         check('  手册里确实有内容（不是空壳）：至少 5 节 + 至少 2 张表',
           $$('.help-view .help-sec').length >= 5 && $$('.help-view .help-table').length >= 2,
           'secs=' + $$('.help-view .help-sec').length + ' tables=' + $$('.help-view .help-table').length)
         check('  手册讲清了搜索语法（含 due: 这种真实可用的写法）',
           $$('.help-view').length && ($('.help-view').textContent || '').indexOf('due:') >= 0)
-        check('  ★ 帮助**不在页签行里重复出现**（入口唯一：顶栏「?」）',
+        check('  ★ 帮助**不在页签行里重复出现**（入口唯一：顶栏“?”）',
           !$$('nav#views .vbtn').some((b) => (b.textContent || '').indexOf('帮助') >= 0),
           $$('nav#views .vbtn').map((b) => b.textContent.trim()).join('/'))
-        // 返回：帮助是走 navigateTo 进的，所以「← 返回」应当能把我们送回看板
+        // 返回：帮助是走 navigateTo 进的，所以“← 返回”应当能把我们送回看板
         const back = $('.nav-back')
         if (back) {
           back.click()
-          check('★★ 「← 返回」能从帮助视图退回上一视图（返回栈真的接了帮助）',
+          check('★★ “← 返回”能从帮助视图退回上一视图（返回栈真的接了帮助）',
             await waitFor(() => !$('.help-view'), 4000, 'back from help'))
         }
       }
@@ -6430,18 +6430,18 @@
       const homeBtn = $('#bar .navgroup button[title*="首页"]')
       if (homeBtn) {
         homeBtn.click()
-        check('★★ 点「⌂ 首页」回到看板（不是只切视图 —— 搜索/筛选也一起复位）',
+        check('★★ 点“⌂ 首页”回到看板（不是只切视图 —— 搜索/筛选也一起复位）',
           await waitFor(() => !$('.services-view') && !$('.help-view'), 4000, 'goHome'))
       } else {
         check('  ⌂ 首页按钮存在', false, 'no homeBtn')
       }
-      // 同步：暮雨 2026-10-12「只做按钮，状态由它自己报」——
+      // 同步：暮雨 2026-10-12“只做按钮，状态由它自己报”——
       // 判据两条：① 真调 backupGitPush（不是假按钮）；② 调完按钮**回到可点**（不许卡在"进行中"）。
       const syncBtn = $('#bar .navgroup button[title*="同步"]')
       if (syncBtn) {
         const beforeSync = window.__fcTest.callCount('backupGitPush')
         syncBtn.click()
-        check('★★ 点「⟳ 同步」真调 backupGitPush（不是个看着像按钮的装饰）',
+        check('★★ 点“⟳ 同步”真调 backupGitPush（不是个看着像按钮的装饰）',
           await waitFor(() => window.__fcTest.callCount('backupGitPush') > beforeSync, 4000, 'backupGitPush'),
           'calls=' + window.__fcTest.callCount('backupGitPush'))
         check('  跑完之后按钮**回到可点**（不许永久卡在"进行中"）',
@@ -6449,7 +6449,7 @@
             const b = $('#bar .navgroup button[title*="同步"]')
             return !!b && b.disabled !== true
           }, 4000, 'sync done'))
-        // ★★ 2026-10-16 用户第 9 条：同步时「整个方块都在旋转，把我气笑了」——
+        // ★★ 2026-10-16 用户第 9 条：同步时“整个方块都在旋转，把我气笑了”——
         //    真因是动画挂在 button 本体（.ico.syncing）上，边框与底色跟着一起转。
         //    判据：⟳ 必须单独包在 .ico-glyph 里（动画挂字符，按钮本体不动）。
         {
@@ -6470,7 +6470,7 @@
       }
     }
 
-    // ══ 日志页「清理归档…」接线（2026-10-13 暮雨第 2 条）════════════════════
+    // ══ 日志页“清理归档…”接线（2026-10-13 暮雨第 2 条）════════════════════
     //  后台逻辑在 e2e-logs 里真跑；这里只验**按钮真接线**：假 preload 缺键 / 通道名打错
     //  → 预览永远 0 条，是"看着像按钮的装饰"（check-ipc-parity 抓不到这种）。
     {
@@ -6482,9 +6482,9 @@
       clickText('看板'); await sleep(300)
       clickText('日志'); await sleep(500)
       window.__fcTest.reset()
-      check('  日志页有「清理归档…」入口', clickText('清理归档…'))
+      check('  日志页有“清理归档…”入口', clickText('清理归档…'))
       await sleep(300)
-      check('★★ 点开「清理归档…」弹出清理框（#log-purge-modal）',
+      check('★★ 点开“清理归档…”弹出清理框（#log-purge-modal）',
         await waitFor(() => !!$('#log-purge-modal'), 3000, 'log-purge-modal'))
       // 日期设成 2026-10-01：只该命中 9-01 的老归档（10-05 那条"新"、active 那条都不算）
       const dateInput = $('#log-purge-modal input[type="date"]')
@@ -6496,7 +6496,7 @@
       await sleep(200)
       const pv = $$('#log-purge-modal button').find((b) => (b.textContent || '').indexOf('预览命中') >= 0)
       if (pv) pv.click()
-      check('★★ 点「预览命中」真调 logsPurgeArchived 且 dryRun=true（不是装饰按钮）',
+      check('★★ 点“预览命中”真调 logsPurgeArchived 且 dryRun=true（不是装饰按钮）',
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsPurgeArchived' && c.args[1] && c.args[1].dryRun === true), 4000, 'purge dryRun'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'logsPurgeArchived').map((c) => c.args)))
       check('★ 预览按日期报出命中 1 条（只有 9-01 那条老归档）',
@@ -6509,7 +6509,7 @@
       window.confirm = () => true
       const go = $$('#log-purge-modal button').find((b) => (b.textContent || '').indexOf('确认清理') >= 0)
       if (go) go.click()
-      check('★★ 点「确认清理」真删：发出 dryRun=false 且日志只剩 2 条（老归档被移走）',
+      check('★★ 点“确认清理”真删：发出 dryRun=false 且日志只剩 2 条（老归档被移走）',
         await waitFor(() => window.__fcTest.logs().length === 2
           && window.__fcTest.calls().some((c) => c.name === 'logsPurgeArchived' && c.args[1] && c.args[1].dryRun === false), 4000, 'purge real'),
         'logs=' + window.__fcTest.logs().length + ' | ' + JSON.stringify(window.__fcTest.logs().map((l) => l.id)))
@@ -6517,20 +6517,20 @@
       check('  清理完自动关上清理框', await waitFor(() => !$('#log-purge-modal'), 2000, 'modal closed'))
     }
 
-    // ══ 日志页「清理超期」→ toast 说清条数（2026-10-23 补）
+    // ══ 日志页“清理超期”→ toast 说清条数（2026-10-23 补）
     //  此前这条**没法验**：假 preload 的 logsCleanup 恒返回空数组，界面永远只走
-    //  「没有超期日志」那一支，`已将 N 条…` 里的 N 从来没不是 0。
+    //  “没有超期日志”那一支，`已将 N 条…` 里的 N 从来没不是 0。
     //  桩补上两条 id 之后，这条才真正可断言（空集上的断言等于没写）。
     {
       const n0 = window.__fcTest.callCount('logsCleanup')
       const btn = $$('.logs-view button').find((b) => (b.textContent || '').trim() === '清理超期')
-      check('  日志页有「清理超期」入口', !!btn)
+      check('  日志页有“清理超期”入口', !!btn)
       if (btn) {
         btn.click()
-        check('★★ 点「清理超期」真调 logsCleanup（不是看着像按钮的装饰）',
+        check('★★ 点“清理超期”真调 logsCleanup（不是看着像按钮的装饰）',
           await waitFor(() => window.__fcTest.callCount('logsCleanup') > n0, 4000, 'logsCleanup'),
           'before=' + n0 + ' after=' + window.__fcTest.callCount('logsCleanup'))
-        check('★★ toast 说出**条数**（2 条），而不是糊成「没有超期日志」',
+        check('★★ toast 说出**条数**（2 条），而不是糊成“没有超期日志”',
           await waitFor(() => (($('#toast') || {}).textContent || '').indexOf('已将 2 条') >= 0, 4000, 'cleanup toast'),
           (($('#toast') || {}).textContent || '').slice(0, 60))
       }
@@ -6587,7 +6587,7 @@
 
       // ── archify 技能卡（2026-10-14 中长期清单第 9 条）─────────────────────
       //  它和方寸的分层图**不是一回事**。界面要：① 不硬转（硬转会丢信息）
-      //  ② **不许误报「JSON 读不出来」**（JSON 明明是好的，只是格式不同 —— 那是误导）
+      //  ② **不许误报“JSON 读不出来”**（JSON 明明是好的，只是格式不同 —— 那是误导）
       //  ③ 照实说明它是什么，并把图型/条目数摊开。
       const ARCHIFY = {
         schema_version: 1, diagram_type: 'architecture',
@@ -6608,7 +6608,7 @@
       if (card3) card3.click()
       const gotArchify = await waitFor(() => !!$('#roverlay .arch-archify'), 4000, 'archify 提示')
       const archTxt = gotArchify && $('#roverlay .arch-archify') ? ($('#roverlay .arch-archify').textContent || '') : ''
-      check('★★ archify 卡不误报「JSON 读不出来」—— 照实说明格式不同，也不硬画图',
+      check('★★ archify 卡不误报“JSON 读不出来”—— 照实说明格式不同，也不硬画图',
         gotArchify && !$('#roverlay .arch-error:not(.arch-archify)') && archTxt.indexOf('archify') >= 0,
         archTxt.slice(0, 110))
       check('  提示里带出图型与条目数（不是一句干话），并指向正文摘要 + 架构字段',
@@ -6620,8 +6620,8 @@
       clickText('看板'); await sleep(200)
     }
 
-    // ══ 「架构图」字段的条件显示（2026-10-13 暮雨第 3 条）════════════════════
-    //  规格：只在「填过值」或「项目说明卡」（标签/标题）时才出现在编辑器里。
+    // ══ “架构图”字段的条件显示（2026-10-13 暮雨第 3 条）════════════════════
+    //  规格：只在“填过值”或“项目说明卡”（标签/标题）时才出现在编辑器里。
     //  ⚠ 隐藏 ≠ 丢值：保存仍按全量 spec 收集（这条另有 e2e-task-fields 兜底）。
     {
       const ARCHV = '{"lanes":[{"name":"层","cards":[{"label":"A"}]}],"width":680}'
@@ -6662,13 +6662,13 @@
       }
 
       const l1 = await labelsFor('普通卡')
-      check('★★ 普通卡编辑器里没有「架构图」（不是每张卡都塞一个空文本框）',
+      check('★★ 普通卡编辑器里没有“架构图”（不是每张卡都塞一个空文本框）',
         !!l1 && !l1.includes('架构图'), JSON.stringify(l1 && l1.slice(-4)))
       const l2 = await labelsFor('项目说明：测试卡')
-      check('★★ 项目说明卡里出现「架构图」字段（标签命中）',
+      check('★★ 项目说明卡里出现“架构图”字段（标签命中）',
         !!l2 && l2.includes('架构图'), JSON.stringify(l2 && l2.slice(-4)))
       const l3 = await labelsFor('带值的卡')
-      check('★★ 填过值的卡也显示「架构图」（填过就还在，不因没标签而藏起来）',
+      check('★★ 填过值的卡也显示“架构图”（填过就还在，不因没标签而藏起来）',
         !!l3 && l3.includes('架构图'), JSON.stringify(l3 && l3.slice(-4)))
 
       window.__fcTest.setTasks(saved)
@@ -6676,8 +6676,8 @@
     }
 
     // ══ 启动台 / 服务页（2026-10-16 用户第 2 条：启动台是快捷入口，不是服务管理）══
-    // 用户原话给的类比：「这玩意本质是类似 steam 启动非 steam 游戏的快捷启动入口，
-    //   玩家自愿使用，方寸本身不提供服务，只提供集成快捷入口。」
+    // 用户原话给的类比：“这玩意本质是类似 steam 启动非 steam 游戏的快捷启动入口，
+    //   玩家自愿使用，方寸本身不提供服务，只提供集成快捷入口。”
     // 所以这一节钉两件事：
     //   ① 启动台 = 纯启动器：点卡片就开，卡片上**不出现端口**（端口不属于这里）；
     //   ② 服务页 = 纯端口监控：**不再**列启动台应用（那块已搬走），只留"已登记 + 方寸扫到的"。
@@ -6702,22 +6702,22 @@
         if (editBtn) {
           const beforeE = window.__fcTest.callCount('launchpadLaunchApp')
           editBtn.click()
-          check('★★ 启动台：卡片上有独立「✏️ 编辑」按钮，点它打开编辑框',
+          check('★★ 启动台：卡片上有独立“✏️ 编辑”按钮，点它打开编辑框',
             await waitFor(() => !!$('#app-edit-overlay'), 3000, 'edit open'))
-          check('★★ 点「编辑」**不**触发启动（两个动作彻底分开）',
+          check('★★ 点“编辑”**不**触发启动（两个动作彻底分开）',
             window.__fcTest.callCount('launchpadLaunchApp') === beforeE,
             'calls=' + window.__fcTest.callCount('launchpadLaunchApp'))
-          // ⚠ 判据只看 placeholder 里的中文「端口」：编辑表单里有一栏是**启动参数**，
+          // ⚠ 判据只看 placeholder 里的中文“端口”：编辑表单里有一栏是**启动参数**，
           //   它的示例文案就叫 `--port 8080` —— 那是合法的参数例子，不是"让用户配端口"。
           check('★★ 启动台编辑表单里**没有端口输入框**（端口不该由用户配置）',
             !$$('#app-edit-overlay input').some(i => /端口/.test(i.placeholder || '')),
             $$('#app-edit-overlay input').map(i => i.placeholder || '(无)').join(' | '))
-          // 关闭要用「取消」（.acts .ghost）——第一个 .ghost 是「浏览…」，点了不会关
+          // 关闭要用“取消”（.acts .ghost）——第一个 .ghost 是“浏览…”，点了不会关
           const closeBtn = $('#app-edit-overlay .acts .ghost')
           if (closeBtn) closeBtn.click()
           await waitFor(() => !$('#app-edit-overlay'), 3000, 'edit closed')
         } else {
-          check('★ 卡片上有独立「✏️ 编辑」按钮', false, 'no .lp-edit')
+          check('★ 卡片上有独立“✏️ 编辑”按钮', false, 'no .lp-edit')
         }
 
         // ③ ★★ 2026-10-16 新判据：启动台里**不许**出现端口
@@ -6727,7 +6727,7 @@
           String(($('.launchpad') || {}).textContent || '').indexOf('端口') < 0,
           String((($('.launchpad') || {}).textContent || '').slice(0, 180)))
 
-        // ④ 右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）
+        // ④ 右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）
         //    判据：右键真的出菜单，且菜单里**直达**编辑与删除（不用先进编辑弹窗再找删除）。
         const lpCard0 = $$('.lp-card')[0]
         if (lpCard0) {
@@ -6737,9 +6737,9 @@
           await sleep(700)
           const menuItems = $$('.ctx-menu button').map((b) => (b.textContent || '').trim())
           check('★★ 启动台卡片右键出菜单', menuItems.length > 0, menuItems.join(' | '))
-          check('★ 菜单里有「编辑登记」（右键直达编辑）',
+          check('★ 菜单里有“编辑登记”（右键直达编辑）',
             menuItems.some((t) => t.indexOf('编辑登记') >= 0), menuItems.join(' | '))
-          check('★ 菜单里有「删除这条登记」（右键直达删除）',
+          check('★ 菜单里有“删除这条登记”（右键直达删除）',
             menuItems.some((t) => t.indexOf('删除这条登记') >= 0), menuItems.join(' | '))
           const delMenu = $$('.ctx-menu button').find((b) => (b.textContent || '').indexOf('删除这条登记') >= 0)
           if (delMenu) {
@@ -6747,7 +6747,7 @@
             const origConfirm3 = window.confirm
             window.confirm = () => true
             delMenu.click()
-            check('★★ 菜单「删除」真走 launchpadRemoveApp（不是只关菜单）',
+            check('★★ 菜单“删除”真走 launchpadRemoveApp（不是只关菜单）',
               await waitFor(() => window.__fcTest.callCount('launchpadRemoveApp') > beforeDel, 3000, 'lp remove'),
               'calls=' + window.__fcTest.callCount('launchpadRemoveApp'))
             window.confirm = origConfirm3
@@ -6758,7 +6758,7 @@
       // 服务页（2026-10-16 用户第 2 条：应用分区已搬走，本页回归纯端口监控）
       await openViewTab('服务')
       check('  进得了服务页（.services-view）', !!$('.services-view'))
-      check('★★ 服务页**不再**有「启动台应用」分区（启动回启动台，这页只管端口）',
+      check('★★ 服务页**不再**有“启动台应用”分区（启动回启动台，这页只管端口）',
         !$$('.svc-group-title').some(t => (t.textContent || '').indexOf('启动台应用') >= 0),
         $$('.svc-group-title').map(t => t.textContent).join(' | '))
       check('★★ 服务页**没有**"手敲端口号"的输入框（旧模型的老毛病）',
@@ -6781,8 +6781,8 @@
     }
 
     // ══ 错误日志抽屉（2026-10-23 补）
-    //  此前假 preload 的 applogTail 恒返回空数组 → 抽屉里永远只有「（日志为空）」，
-    //  于是「抽屉里显示的行到底是不是主进程给的」从来没被验过（又是空桩造的真空）。
+    //  此前假 preload 的 applogTail 恒返回空数组 → 抽屉里永远只有“（日志为空）”，
+    //  于是“抽屉里显示的行到底是不是主进程给的”从来没被验过（又是空桩造的真空）。
     {
       // 造一条错误：main.ts 的 window.onerror 就是广播成这个事件，App 监听同一个名字
       window.dispatchEvent(new CustomEvent('fc-app-error', {
@@ -6792,10 +6792,10 @@
       check('★ 渲染层出错时顶部出错误条（失败有可见出口，不静默）', barOk,
         String((($('.errbar-msg') || {}).textContent || '').slice(0, 60)))
       const openBtn = $$('.errbar button').find((b) => (b.textContent || '').trim() === '查看日志')
-      check('  错误条上有「查看日志」入口', !!openBtn)
+      check('  错误条上有“查看日志”入口', !!openBtn)
       if (openBtn) {
         openBtn.click()
-        check('★★ 日志抽屉显示的是主进程 applogTail 给的行（不是「（日志为空）」）',
+        check('★★ 日志抽屉显示的是主进程 applogTail 给的行（不是“（日志为空）”）',
           await waitFor(() => {
             const p = $('.errpanel-body')
             return !!p && (p.textContent || '').indexOf('远端连接超时') >= 0
@@ -6805,7 +6805,7 @@
           (($('.errpanel-head') || {}).textContent || '').indexOf('fangcun-20260922.log') >= 0,
           String((($('.errpanel-head') || {}).textContent || '').slice(0, 80)))
       }
-      // 收尾：按「忽略」清空错误条 + 收起抽屉 —— 最后一条断言要求错误条为空
+      // 收尾：按“忽略”清空错误条 + 收起抽屉 —— 最后一条断言要求错误条为空
       const ignore = $$('.errbar button').find((b) => (b.textContent || '').trim() === '忽略')
       if (ignore) ignore.click()
       const closePanel = $$('.errpanel-head button').find((b) => (b.textContent || '').trim() === '收起')
@@ -6818,25 +6818,25 @@
     }
 
     // ══ 项目梯度榜（2026-10-25 暮雨）════════════════════════════════════
-    // 原话：「放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
-    //        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。」
+    // 原话：“放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
+    //        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。”
     // 判据三条：它是项目页的一种**摆法**（不是顶级页签）· 分档渲染（不是一维名次）· 拖完真落盘。
     {
       clickText('项目')
       await sleep(700)
       const tabLabels = $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim())
       const tierTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('梯度榜') >= 0)
-      check('★★ 项目页多出「梯度榜」摆法（小玩具归位到项目页）', !!tierTab, tabLabels.join(' | '))
-      check('★ 顶栏仍然没有独立「优先级」页签（没被提到顶级）',
+      check('★★ 项目页多出“梯度榜”摆法（小玩具归位到项目页）', !!tierTab, tabLabels.join(' | '))
+      check('★ 顶栏仍然没有独立“优先级”页签（没被提到顶级）',
         !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '优先级'))
       if (tierTab) {
         tierTab.click()
         await sleep(900)
         const rows = $$('.tierboard .tier-row')
         check('★★ 渲染成**分档**而不是一维名次（>=2 个 .tier-row）', rows.length >= 2, 'rows=' + rows.length)
-        check('  有「未分档」池（新登记的项目不会凭空消失）', !!$('.tierboard .tier-pool'))
+        check('  有“未分档”池（新登记的项目不会凭空消失）', !!$('.tierboard .tier-pool'))
         check('  档位标签可点着改名（.tier-label-txt 在）', $$('.tierboard .tier-label-txt').length > 0)
-        check('  有「＋ 加一档」入口',
+        check('  有“＋ 加一档”入口',
           $$('.tierboard button').some((b) => (b.textContent || '').indexOf('加一档') >= 0))
 
         const chips = $$('.tierboard .tier-chip')
@@ -6853,7 +6853,7 @@
           await sleep(150)
           poolRow.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
           await sleep(700)
-          check('★★ 拖进「未分档」→ 立刻落盘（projectTiersSet 真被调用，没有保存按钮）',
+          check('★★ 拖进“未分档”→ 立刻落盘（projectTiersSet 真被调用，没有保存按钮）',
             window.__fcTest.callCount('projectTiersSet') > beforeCalls,
             'calls=' + window.__fcTest.callCount('projectTiersSet'))
           const tiersNow = window.__fcTest.projectTiers()
@@ -6874,19 +6874,19 @@
     // 原型（docs/小样-RICE决策矩阵-20261025）的四个设计判断，判据都在**页面上看得见**，
     // 不是只活在 shared/rice.ts 里（e2e-rice 已验逻辑，这里验露没露出来）：
     //   ① 容量护栏（排满 = 一次线上故障就让整轮延期）② 立场句写在显眼处
-    //   ③ 「为什么做，为什么砍」独立一节，定了没写理由要被点名 ④ 重评触发条件
+    //   ③ “为什么做，为什么砍”独立一节，定了没写理由要被点名 ④ 重评触发条件
     {
       clickText('项目'); await sleep(400)
       const riceTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('需求优先级矩阵') >= 0)
       if (riceTab) riceTab.click()
-      check('★★ 项目页能切到「需求优先级矩阵」', await waitFor(() => !!$('.rice'), 4000, 'rice view'))
-      check('★★ 正式名称就是「需求优先级矩阵」',
+      check('★★ 项目页能切到“需求优先级矩阵”', await waitFor(() => !!$('.rice'), 4000, 'rice view'))
+      check('★★ 正式名称就是“需求优先级矩阵”',
         (($('.rice-ttl') || {}).textContent || '').trim() === '需求优先级矩阵',
         (($('.rice-ttl') || {}).textContent || '').trim())
       check('★★ 界面不再出现 RICE 这个词（用户：放出来太怪）',
         !/RICE/.test(($('.rice') || {}).textContent || ''),
         (($('.rice') || {}).textContent || '').match(/.{0,20}RICE.{0,20}/)?.[0] || '(none)')
-      check('★★ 界面不再出现「拍板」这个词（用户：根本看不懂）',
+      check('★★ 界面不再出现“拍板”这个词（用户：根本看不懂）',
         !/拍板/.test(($('.rice') || {}).textContent || ''),
         (($('.rice') || {}).textContent || '').match(/.{0,20}拍板.{0,20}/)?.[0] || '(none)')
       check('  页面显示池文件绝对路径（防"找不到在哪"）',
@@ -6950,7 +6950,7 @@
       check('  预算行同时给余量（数字与话术在一起，不是只有百分比）',
         (($('.rice-budget') || {}).textContent || '').indexOf('余量') >= 0,
         (($('.rice-budget') || {}).textContent || '').slice(0, 100))
-      check('★★ 「为什么做，为什么砍」独立一节', !!$('.rice-why') &&
+      check('★★ “为什么做，为什么砍”独立一节', !!$('.rice-why') &&
         (($('.rice-why-h') || {}).textContent || '').indexOf('为什么做') >= 0)
       check('★★ 做/砍分两栏（分数只是入口，理由逐条写）',
         $$('.rice-why-col').length === 2 &&
@@ -6960,13 +6960,13 @@
       check('★★ 定了没写理由的那条被点名（说不清为什么就是没决定）',
         $$('.rice-why-reason.missing').length >= 1,
         $$('.rice-why-reason').map((x) => (x.textContent || '').trim().slice(0, 20)).join('|'))
-      // 点名之后必须给出口：否则「不算决定」只是一句骂人的话（2026-10-31 补）
+      // 点名之后必须给出口：否则“不算决定”只是一句骂人的话（2026-10-31 补）
       const whyFix = $$('.rice-why-act button').find((b) => (b.textContent || '').indexOf('补一句理由') >= 0)
       check('★★ 缺理由的决定能当场补（不是只点名）', !!whyFix,
         $$('.rice-why-act button').map((b) => (b.textContent || '').trim()).join('|'))
       if (whyFix) whyFix.click()
       await sleep(150)
-      check('★ 点了「补一句理由」出现输入框', !!$('.rice-why-edit textarea'))
+      check('★ 点了“补一句理由”出现输入框', !!$('.rice-why-edit textarea'))
       const upCount0 = window.__fcTest.callCount('riceUpsert')
       if ($('.rice-why-edit textarea')) {
         const ta = $('.rice-why-edit textarea')
@@ -6991,12 +6991,12 @@
         (($('.rice-why-foot') || {}).textContent || '').slice(0, 80))
       check('  局限仍在（数字旁边必须带"证明不了什么"）', $$('.rice-limit').length >= 4,
         String($$('.rice-limit').length))
-      // ── 视觉按原型重画（2026-10-30 暮雨：「视觉还没照原型重画」）─────────────
+      // ── 视觉按原型重画（2026-10-30 暮雨：“视觉还没照原型重画”）─────────────
       // 原型是 docs/小样-RICE决策矩阵-20261025：先给 KPI，再给散点，再给打分表，
-      // 最后是「为什么做，为什么砍」+ 四格结论。断言只钉**结构与口径**，不钉像素。
+      // 最后是“为什么做，为什么砍”+ 四格结论。断言只钉**结构与口径**，不钉像素。
       check('★★ 顶部四格 KPI（候选 / P0 / P0 成本 / 预算占用）', $$('.rice-kpi').length === 4,
         $$('.rice-kpi').map((k) => (k.textContent || '').trim().slice(0, 18)).join(' | '))
-      check('★ KPI 第一格就是「候选需求」且数字来自夹具（4 项，不写死）', (() => {
+      check('★ KPI 第一格就是“候选需求”且数字来自夹具（4 项，不写死）', (() => {
         const t = (($$('.rice-kpi')[0] || {}).textContent || '').replace(/\s+/g, ' ')
         return t.indexOf('候选需求') >= 0 && t.indexOf('4') >= 0
       })(), (($$('.rice-kpi')[0] || {}).textContent || '').slice(0, 60))
@@ -7029,12 +7029,12 @@
         (($('.rice-formula') || {}).textContent || '').indexOf('每周用几次 × 省多少事 × 把握 ÷ 要做几天') >= 0,
         (($('.rice-formula') || {}).textContent || '').slice(0, 60))
       check('  点气泡/悬停有明细区（不是只能靠 title 猜）', !!$('.rice-detail'))
-      // 2026-10-30 第 7 条：矩阵要能把「先问清楚 → 规格 → 能验收的工单 → TDD/双路 review」
+      // 2026-10-30 第 7 条：矩阵要能把“先问清楚 → 规格 → 能验收的工单 → TDD/双路 review”
       // 交给 agent，而不是只给一个分数。它是复制动作，不改任何状态。
       const firstPt = $('.rice-pt')
       if (firstPt) firstPt.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await sleep(250)
-      check('★★ 点气泡后明细里有「复制开工交接单」', !!$('.rice-kick'),
+      check('★★ 点气泡后明细里有“复制开工交接单”', !!$('.rice-kick'),
         (($('.rice-detail') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 80))
       const beforeKick = window.__fcTest.callCount('clipboardWriteText')
       if ($('.rice-kick')) $('.rice-kick').click()
@@ -7098,7 +7098,7 @@
         const k = $$('.rice-kpi')
         return k.length ? (k[k.length - 1].textContent || '').replace(/\s+/g, ' ') : '(no kpi)'
       })())
-      check('★ 空项目的副标题说清「全池还有几条」（不是"池里还没有条目"）', (() => {
+      check('★ 空项目的副标题说清“全池还有几条”（不是"池里还没有条目"）', (() => {
         const t = (($('.rice-sub') || {}).textContent || '').trim()
         return t.indexOf('第二个项目') >= 0 && t.indexOf('全池 4 条') >= 0
       })(), (($('.rice-sub') || {}).textContent || '').slice(0, 80))
@@ -7109,7 +7109,7 @@
           btns.some((x) => x.indexOf('看全部项目') >= 0) &&
           btns.some((x) => x.indexOf('复制') >= 0)
       })(), ($('.rice-empty') ? ($('.rice-empty').textContent || '').replace(/\s+/g, ' ').slice(0, 180) : '(no empty)'))
-      check('★ 空状态的「看全部项目」真能点回去', (() => {
+      check('★ 空状态的“看全部项目”真能点回去', (() => {
         const b = $$('.rice-empty-act button').find((x) => (x.textContent || '').indexOf('看全部项目') >= 0)
         return !!b
       })(), $$('.rice-empty-act button').map((b) => (b.textContent || '').trim()).join('|'))
@@ -7131,7 +7131,7 @@
     {
       clickText('项目'); await sleep(400)
       const tileBtn = $$('.tile .pv-diagram').find((b) => (b.textContent || '').indexOf('架构图') >= 0)
-      check('★★ 项目卡上有「架构图」入口（不叫「结构图」、不带地图 Emoji）', !!tileBtn,
+      check('★★ 项目卡上有“架构图”入口（不叫“结构图”、不带地图 Emoji）', !!tileBtn,
         $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 8).join('|'))
       window.__fcTest.reset()
       if (tileBtn) tileBtn.click()
@@ -7143,20 +7143,20 @@
           return t.indexOf('archify') >= 0 && t.indexOf('docs/') >= 0
         }, 4000, 'toast 指引'),
         (($('#toast') || {}).textContent || '').slice(0, 120))
-      check('★★ 不再有本地画的「结构图」模态（旧的那套必须删干净，不许新旧并存）', !$('#proj-diagram'))
+      check('★★ 不再有本地画的“结构图”模态（旧的那套必须删干净，不许新旧并存）', !$('#proj-diagram'))
       clickText('看板'); await sleep(300)
     }
 
     // ══ 方寸绘制架构图（2026-10-30，卡 task-20261030-002；同日第 3 条重做）════
-    // 判据不是"能出图"，而是：① 与「架构图」收成一个分段控件；② 七道校验门逐条摆出来；
+    // 判据不是"能出图"，而是：① 与“架构图”收成一个分段控件；② 七道校验门逐条摆出来；
     // ③ 每一块都能被人工剔除/放回；④ 驳回后真按诊断重画；⑤ **通过之后才允许导出**。
     {
       clickText('项目'); await sleep(400)
       const archGroup = $$('.tile .pv-arch-group')[0]
       const selfBtn = $$('.tile .pv-archself').find((b) => (b.textContent || '').indexOf('绘制架构图') >= 0)
-      check('★★ 「架构图 / 绘制架构图」收成一个分段控件（不再是两个抢位置的按钮）',
+      check('★★ “架构图 / 绘制架构图”收成一个分段控件（不再是两个抢位置的按钮）',
         !!archGroup && !!selfBtn, $$('.tile button').map((b) => (b.textContent || '').trim()).slice(0, 10).join('|'))
-      check('★ 不再叫「自绘架构图」（用户点名要改的名字）',
+      check('★ 不再叫“自绘架构图”（用户点名要改的名字）',
         !$$('.tile button').some((b) => (b.textContent || '').indexOf('自绘架构图') >= 0))
       window.__fcTest.reset()
       if (selfBtn) selfBtn.click()
@@ -7195,23 +7195,23 @@
       // ── AI 生成图（0.6.0 · 2026-11-02）：点一下才调模型，回来必须自报来源 ──
       // 判据：① 按钮在；② 点了真走 arch:generate；③ 生成图和扫描图在界面上必须说得出区别。
       const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('AI 生成图') >= 0)
-      check('★ 面板里有「AI 生成图」按钮（打开面板不花钱，点它才调模型）', !!genBtn,
+      check('★ 面板里有“AI 生成图”按钮（打开面板不花钱，点它才调模型）', !!genBtn,
         $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
       window.__fcTest.reset()
       if (genBtn) { genBtn.click() }
       check('★★ 点了真走 arch:generate IPC', await waitFor(() => window.__fcTest.callCount('archGenerate') > 0, 5000, 'archGenerate'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'archGenerate').map((c) => c.args)))
-      check('★★ 生成图自报「AI 生成图」（不冒充扫描结果）',
+      check('★★ 生成图自报“AI 生成图”（不冒充扫描结果）',
         await waitFor(() => /AI 生成图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
         (($('.archd-text') || {}).textContent || '').slice(0, 90))
       // 降级分支：没配模型 / 审计没过 → 必须写"扫描图，不是生成图"
       window.__fcTest.setArchScanOnly(true)
       if (genBtn) { genBtn.click() }
-      check('★★ 降级时自报「扫描图，不是生成图」（不许拿扫描图冒充生成图）',
+      check('★★ 降级时自报“扫描图，不是生成图”（不许拿扫描图冒充生成图）',
         await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'scan text'),
         (($('.archd-text') || {}).textContent || '').slice(0, 90))
       window.__fcTest.setArchScanOnly(false)
-      // AI 生成换了图 → ArchDiagram 会清空选中态（watch props.graph），后面「剔除这一块」要用它，这里补点一次
+      // AI 生成换了图 → ArchDiagram 会清空选中态（watch props.graph），后面“剔除这一块”要用它，这里补点一次
       await sleep(250)
       const mainAgain = $$('#arch-modal [data-node]').find((g) => g.getAttribute('data-node') === 'src/main')
       if (mainAgain) {
@@ -7222,7 +7222,7 @@
       // ── 逐块审批（2026-10-30 第 3 条）：不认可这一笔就剔掉，能放回 ──
       const beforeNodes = $$('#arch-modal [data-node]').length
       const excludeBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('剔除这一块') >= 0)
-      check('★ 选中块有「剔除这一块」（画一笔也要人点头）', !!excludeBtn)
+      check('★ 选中块有“剔除这一块”（画一笔也要人点头）', !!excludeBtn)
       if (excludeBtn) { excludeBtn.click(); await sleep(350) }
       check('★★ 剔除后图里真的少了一块',
         $$('#arch-modal [data-node]').length === beforeNodes - 1,
@@ -7237,7 +7237,7 @@
       // ── 驳回重画：真按 strict 再扫一版，并记版本 ──
       window.__fcTest.reset()
       const rejectBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('驳回重画') >= 0)
-      check('★ 面板上有「驳回重画」', !!rejectBtn)
+      check('★ 面板上有“驳回重画”', !!rejectBtn)
       if (rejectBtn) { rejectBtn.click(); await sleep(250) }
       const whyIn = $('#arch-modal .archd-reject-in')
       check('★ 驳回要写一句哪里不行（不是静默重扫）', !!whyIn)
@@ -7253,24 +7253,24 @@
           return !!last && last.args[1] && last.args[1].strict === true
         }, 4000, 'strict archGet'),
         JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'archGet').pop() || {}).args))
-      check('★ 重画后标出「第 N 版」', (($('.archd-ver') || {}).textContent || '').indexOf('2') >= 0,
+      check('★ 重画后标出“第 N 版”', (($('.archd-ver') || {}).textContent || '').indexOf('2') >= 0,
         (($('.archd-ver') || {}).textContent || '').slice(0, 20))
       // 重画是异步的（archGet → 校验 → 重新渲染）：等按钮真的可用再点，别测出"点了没反应"的假象
       await sleep(600)
 
       // ── 通过之后才允许导出（没签字的图不落盘）──
       const expBtn = () => $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('导出') >= 0)
-      check('★★ 没点「通过」之前导出是禁用的', !!expBtn() && expBtn().disabled === true)
+      check('★★ 没点“通过”之前导出是禁用的', !!expBtn() && expBtn().disabled === true)
       const approveBtn = () => $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('通过这张图') >= 0)
-      check('★ 面板上有「通过这张图」', !!approveBtn())
-      check('  重画完成后「通过」按钮可用（不是卡在 busy）',
+      check('★ 面板上有“通过这张图”', !!approveBtn())
+      check('  重画完成后“通过”按钮可用（不是卡在 busy）',
         await waitFor(() => !!approveBtn() && approveBtn().disabled === false, 3000, 'approve enabled'))
       if (approveBtn()) { approveBtn().click(); await sleep(350) }
-      check('★ 通过后显示「已通过」', (($('.archd-ok') || {}).textContent || '').indexOf('已通过') >= 0,
+      check('★ 通过后显示“已通过”', (($('.archd-ok') || {}).textContent || '').indexOf('已通过') >= 0,
         (($('.archd-ok') || {}).textContent || '').slice(0, 20))
       window.__fcTest.reset()
       if (expBtn()) expBtn().click()
-      check('★★ 「导出」真走 arch:export IPC', await waitFor(() => window.__fcTest.callCount('archExport') > 0, 4000, 'archExport'),
+      check('★★ “导出”真走 arch:export IPC', await waitFor(() => window.__fcTest.callCount('archExport') > 0, 4000, 'archExport'),
         JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
       check('★ 导出成功后明说落到哪（不是静默）',
         await waitFor(() => (($('#toast') || {}).textContent || '').indexOf('已导出') >= 0, 3000, 'toast'),
@@ -7285,11 +7285,11 @@
 
     }
 
-    // ══ 读取情况「哪些待办其实没人碰过」（卡 20261025-006 第三件）════════════
+    // ══ 读取情况“哪些待办其实没人碰过”（卡 20261025-006 第三件）════════════
     // 这一节守的是**口径**，不是布局。三件事：
-    //   ① 数字必须跟口径文案**并排**出现 —— 「2 张没人碰过」孤零零摆着会被读成
+    //   ① 数字必须跟口径文案**并排**出现 —— “2 张没人碰过”孤零零摆着会被读成
     //      "这 2 张从来没人看过"，而它只代表"没有 agent 经 MCP 读过"；
-    //   ② 计量还没开始时（windowEvents=0）**不许**报「N 张没人碰过」——
+    //   ② 计量还没开始时（windowEvents=0）**不许**报“N 张没人碰过”——
     //      那会把全部未完成卡一起冤枉成"没人碰过"，而且看起来像是工具坏了；
     //   ③ 选了它，看板必须**真的只剩那几张** —— 只换标签不改数据的假筛选要被抓住。
     {
@@ -7334,7 +7334,7 @@
           note0)
 
         const neverBtn = $$('.fpop .fpop-opt').find((b) => (b.textContent || '').indexOf('没人碰过') >= 0)
-        check('★ 筛选里出现「没人碰过 N」，N 来自夹具真身（不写死数字）',
+        check('★ 筛选里出现“没人碰过 N”，N 来自夹具真身（不写死数字）',
           !!neverBtn && (neverBtn.textContent || '').indexOf(String(fx.count)) >= 0,
           neverBtn ? (neverBtn.textContent || '').trim() : '(没有这个选项)')
 
@@ -7357,20 +7357,20 @@
             beforeCount > wantIds.length, 'before=' + beforeCount + ' 筛后=' + wantIds.length)
           await waitFor(() => $$('#board .card').length === wantIds.length, 4000, '筛选后卡片数')
           const gotIds = $$('#board .card').map((c) => c.getAttribute('data-id')).sort()
-          check('★★ 选了「没人碰过」→ 看板真的只剩那几张（不是只换了标签）',
+          check('★★ 选了“没人碰过”→ 看板真的只剩那几张（不是只换了标签）',
             gotIds.length === wantIds.length && gotIds.join(',') === wantIds.join(','),
             '期望=' + wantIds.join(',') + ' 实际=' + gotIds.join(',')
             + ' | board=' + !!$('#board') + ' 所有data-id=' + $$('#board [data-id]').map((c) => c.getAttribute('data-id')).join(','))
-          check('★ 「生效中」区出现「没人碰过」标签（一眼看到筛了什么）',
+          check('★ “生效中”区出现“没人碰过”标签（一眼看到筛了什么）',
             $$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0),
             'chips=' + $$('.fbar-chip').map((c) => (c.textContent || '').trim()).join(' | '))
 
-          // 反例①：一条读卡记录都没有 → 文案必须换掉，不许继续报「N 张没人碰过」
+          // 反例①：一条读卡记录都没有 → 文案必须换掉，不许继续报“N 张没人碰过”
           window.__fcTest.setNeverRead({ rows: [], count: 0, openTotal: fx.openTotal, windowEvents: 0 })
           fbtn.click()
           await sleep(700)
           const noteEmpty = (($('.fpop .fpop-note') || {}).textContent || '').trim()
-          check('★★ 反例：一条读卡记录都没有时，不许报「N 张没人碰过」',
+          check('★★ 反例：一条读卡记录都没有时，不许报“N 张没人碰过”',
             noteEmpty.indexOf('还没有任何 agent 读卡记录') >= 0 &&
             noteEmpty.indexOf('张 / 共') < 0 &&
             noteEmpty.indexOf(' 张') < 0,
@@ -7382,7 +7382,7 @@
           const chipNow = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('没人碰过') >= 0)
           const chipX = chipNow ? chipNow.querySelector('.fbar-x') : null
           if (chipX) { chipX.click(); await sleep(500) }
-          check('  收尾：撤掉「没人碰过」后筛选标签消失', !$$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0))
+          check('  收尾：撤掉“没人碰过”后筛选标签消失', !$$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0))
           window.__fcTest.restoreNeverRead()
           await sleep(200)
         }
@@ -7393,7 +7393,7 @@
 
     // ══ 点系统通知 → 回到具体对象（2026-10-29 · dsh-notify-tray 借鉴 #2）══════
     // 判据不是"能不能收事件"，而是**点了之后用户看到的是不是那件东西**：
-    // 通知说「任务逾期：X」，点开必须看到 X 那张卡，而不是一屏卡片让人自己找。
+    // 通知说“任务逾期：X”，点开必须看到 X 那张卡，而不是一屏卡片让人自己找。
     {
       // 夹具不写死：取当前 fixture 里第一张有 id 的卡（前面的用例会换 fixture）
       const anyTask = (window.__fcTest.tasks() || []).find((t) => t && t.id) || {}
@@ -7403,7 +7403,7 @@
       check('★ 渲染层订阅了 notify:focus（preload 通道真接上了）', subs >= 1, 'subs=' + subs)
       const opened = await waitFor(() => !!$('#roverlay') &&
         (($('#rmodal') || {}).textContent || '').indexOf(wantTitle) >= 0, 4000, 'notify focus → 开卡')
-      check('★★ 点「任务逾期」通知 → 切到看板并**打开那张卡**（不是只把窗口拉到前台）', opened,
+      check('★★ 点“任务逾期”通知 → 切到看板并**打开那张卡**（不是只把窗口拉到前台）', opened,
         'want=' + wantTitle + ' | got=' + (($('#rmodal') || {}).textContent || '').slice(0, 60))
       const closeR = $$('#roverlay .acts button, #rmodal .acts button').find((b) => (b.textContent || '').trim() === '关闭')
       if (closeR) closeR.click()
@@ -7440,11 +7440,11 @@
       if (gear) gear.click()
       await sleep(700)
       const apBtns = $$('#smodal .appearance-btn')
-      check('★ 设置页有「外观形态」两档（扁平 / 阴影）', apBtns.length === 2,
+      check('★ 设置页有“外观形态”两档（扁平 / 阴影）', apBtns.length === 2,
         apBtns.map((b) => (b.textContent || '').trim()).join(' | '))
       const nameOf = (b) => ((b.querySelector('.ap-name') || {}).textContent || '').trim()
       const shadowBtn = apBtns.find((b) => nameOf(b) === '阴影')
-      check('  两档里有一档叫「阴影」', !!shadowBtn,
+      check('  两档里有一档叫“阴影”', !!shadowBtn,
         apBtns.map((b) => nameOf(b)).join('|'))
       if (shadowBtn) {
         shadowBtn.click()
@@ -7480,8 +7480,8 @@
       await sleep(300)
     }
 
-    // ══ 整理体检：never_read 接进「整理/体检」（2026-10-30，卡 20261025-006）══
-    // 用户原话是「看板一堆待办，不知道到底做了没有」。判据：
+    // ══ 整理体检：never_read 接进“整理/体检”（2026-10-30，卡 20261025-006）══
+    // 用户原话是“看板一堆待办，不知道到底做了没有”。判据：
     //   ① 两个数字并排出现（没人碰过 / 驳回没人管）；② 口径文案跟数字一起（不是优先级）；
     //   ③ 两个出口真能用 —— 回看板真筛出那批卡、看返工台真展开。
     {
@@ -7490,7 +7490,7 @@
         created: '2026-09-01T00:00:00.000Z', updated: '2026-09-02T00:00:00.000Z',
         fm: { id, title, status: st, project: 'demo' }, path: 'C:/mock/task-data/' + id + '.md',
       })
-      // 驳回卡真喂一张，这样「看返工台」才验得到（不能只验按钮存在）
+      // 驳回卡真喂一张，这样“看返工台”才验得到（不能只验按钮存在）
       window.__fcTest.setTasks([T('ck-1', '体检样例甲', '待办'), T('ck-2', '被驳回的乙', '驳回')])
       await openViewTab('待办'); await sleep(300)
       await openViewTab('看板'); await sleep(700)
@@ -7499,12 +7499,12 @@
       if (gearC) gearC.click()
       await sleep(700)
       const dataNav = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('数据') >= 0)
-      check('  设置里有「数据」分类（体检的落点）', !!dataNav)
+      check('  设置里有“数据”分类（体检的落点）', !!dataNav)
       if (dataNav) dataNav.click()
       await sleep(500)
 
       const ckBtn = $$('#smodal button').find((b) => (b.textContent || '').indexOf('整理体检') >= 0)
-      check('★ 数据页有「跑一次整理体检」入口', !!ckBtn,
+      check('★ 数据页有“跑一次整理体检”入口', !!ckBtn,
         $$('#smodal h4').map((h) => (h.textContent || '').trim()).join('|'))
       window.__fcTest.reset()
       if (ckBtn) ckBtn.click()
@@ -7524,10 +7524,10 @@
         (($('.cleanup-list') || {}).textContent || '').indexOf('没人读过的甲') >= 0)
 
       const toNR = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('回看板筛出来') >= 0)
-      check('  体检结果里有「回看板筛出来」出口', !!toNR)
+      check('  体检结果里有“回看板筛出来”出口', !!toNR)
       if (toNR) toNR.click()
       await sleep(900)
-      check('★★ 点了真回到看板并筛出「没人碰过」（设置关了、筛选生效）', (() => {
+      check('★★ 点了真回到看板并筛出“没人碰过”（设置关了、筛选生效）', (() => {
         const t = (($('#toast') || {}).textContent || '')
         return !$('#smodal') && ($$('.fbar-chip').some((c) => (c.textContent || '').indexOf('没人碰过') >= 0) ||
           (($('.fbar') || {}).textContent || '').indexOf('没人碰过') >= 0)
@@ -7550,7 +7550,7 @@
       if (ckBtn2) ckBtn2.click()
       await waitFor(() => !!$('.cleanup'), 4000, '.cleanup 第二次')
       const toRW = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('看返工台') >= 0)
-      check('  体检结果里有「看返工台」出口', !!toRW)
+      check('  体检结果里有“看返工台”出口', !!toRW)
       if (toRW) toRW.click()
       await sleep(900)
       check('★★ 点了真回看板并展开返工台（逐张处置那一栏出现）',
@@ -7563,8 +7563,8 @@
     }
 
     // ══ 驳回返工台（2026-10-30 暮雨第 3 条）════════════════════════════════
-    // 「驳回的东西好像也永远不看，是方寸的缺陷吗？」——是，两层：
-    //   ① 看板把「完成 / 驳回」默认折叠，驳回卡和做完的一样被收起来；
+    // “驳回的东西好像也永远不看，是方寸的缺陷吗？”——是，两层：
+    //   ① 看板把“完成 / 驳回”默认折叠，驳回卡和做完的一样被收起来；
     //   ② 驳回不是终态：它欠一个返工或一个"算了"。这条要把它重新推回眼前。
     // 判据：条数来自夹具真身、理由取**最后一条**、没写理由要点名、两个出口真走通道。
     {
@@ -7577,7 +7577,7 @@
       }, extra)
       window.__fcTest.setTasks([
         rw('rw-old'),
-        // 最新一条只写「验收驳回」不写理由：必须被点名，而不是继承上一条的旧理由
+        // 最新一条只写“验收驳回”不写理由：必须被点名，而不是继承上一条的旧理由
         rw('rw-new', { updated: '2026-10-28T00:00:00.000Z', result_log: '[2026-10-28 09:30] 验收驳回' }),
         rw('rw-done', { status: '完成', title: '做完的不算' }),
         rw('rw-todo', { status: '待办', title: '在做的也不算' }),
@@ -7594,7 +7594,7 @@
         !!bar && (bar.textContent || '').indexOf('折叠') >= 0, ((bar || {}).textContent || '').slice(0, 120))
 
       const openBtn = $$('.rework-bar button').find((b) => (b.textContent || '').indexOf('逐张过一遍') >= 0)
-      check('  有「逐张过一遍」入口', !!openBtn)
+      check('  有“逐张过一遍”入口', !!openBtn)
       if (openBtn) {
         openBtn.click()
         await sleep(350)
@@ -7619,11 +7619,11 @@
         window.confirm = (m) => { confirms.push(String(m)); return true }
         window.__fcTest.reset()
         const backBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('退回返工') >= 0)
-        check('  每行有「退回返工」出口', !!backBtn)
+        check('  每行有“退回返工”出口', !!backBtn)
         if (backBtn) {
           backBtn.click()
           await sleep(600)
-          check('★★ 点「退回返工」真走 unarchiveTask（不是假动作）',
+          check('★★ 点“退回返工”真走 unarchiveTask（不是假动作）',
             window.__fcTest.callCount('unarchiveTask') > 0, JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
           check('★ 确认框说清后果（回到待办、理由保留）',
             confirms.some((m) => m.indexOf('待办') >= 0), confirms.join(' | ').slice(0, 120))
@@ -7631,11 +7631,11 @@
         // 出口二：归档 —— 真走 archiveTask
         window.__fcTest.reset()
         const archBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('归档') >= 0)
-        check('  每行有「归档」出口', !!archBtn)
+        check('  每行有“归档”出口', !!archBtn)
         if (archBtn) {
           archBtn.click()
           await sleep(600)
-          check('★★ 点「归档」真走 archiveTask', window.__fcTest.callCount('archiveTask') > 0,
+          check('★★ 点“归档”真走 archiveTask', window.__fcTest.callCount('archiveTask') > 0,
             JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
         }
         window.confirm = _oc

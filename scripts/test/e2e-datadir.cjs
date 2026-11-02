@@ -4,7 +4,7 @@
  *
  * 回归场景（2026-09-22 定位）：
  *   dev 态 `desktop/task-data` 是指向项目根真身的 **junction**。initPaths 曾把
- *   「该目录下存在 task-data」当作数据根标志 → 向上探测在 desktop/ 这一层就命中，
+ *   “该目录下存在 task-data”当作数据根标志 → 向上探测在 desktop/ 这一层就命中，
  *   DATA_DIR 锁死在 desktop/。后果：registry.yaml 找不到，notifications / todos /
  *   policies / backups 全落到 desktop/ 下（备份 manifest 的 dataDirLabel 已现 "desktop"），
  *   桌面版与 CLI 的数据根分叉。

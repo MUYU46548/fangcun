@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""把 decisions.md 的老三态迁成白话三态（2026-10-14 暮雨「说中文」）。
+"""把 decisions.md 的老三态迁成白话三态（2026-10-14 暮雨“说中文”）。
 
 老值：作数 / 已作废 / 已并入
 新值：有效 / 已撤销 / 已合并
@@ -9,7 +9,7 @@
   · 写前先备份到 <repo>/backups/decisions.md.bak-YYYYMMDD-HHMMSS。
   · 走 core.load_decisions / core.save_decisions —— 与两端同一套解析/渲染，
     所以顺带把节式头也更新成新版措辞。
-  · 幂等：已经迁过的文件再跑，报告「0 处改动」。
+  · 幂等：已经迁过的文件再跑，报告“0 处改动”。
 
 用法：
   python scripts/migrate-decision-status.py            # 预览

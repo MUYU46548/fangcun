@@ -81,7 +81,7 @@ check('★ 未知前缀的 reason 说清"只认四类"',
 
 const cmd1 = parseCheckLine('cmd: `node scripts/test/e2e-checks.cjs` 退出码 0')
 check('★ cmd: 反引号里的命令被取出（尾部说明丢掉）', cmd1.command === 'node scripts/test/e2e-checks.cjs', cmd1.command)
-check('★ cmd: 不带反引号的「退出码 0」也丢掉', parseCheckLine('cmd: python scripts/x.py 退出码 0').command === 'python scripts/x.py')
+check('★ cmd: 不带反引号的“退出码 0”也丢掉', parseCheckLine('cmd: python scripts/x.py 退出码 0').command === 'python scripts/x.py')
 check('★ cmd: 行尾 # 注释丢掉', parseCheckLine('cmd: node x.js # 退出码 0').command === 'node x.js')
 check('★ cmd: 中途的反引号是 shell 替换，不许被剥',
   parseCheckLine('cmd: echo `date`').command === 'echo `date`', parseCheckLine('cmd: echo `date`').command)
@@ -96,7 +96,7 @@ check('★★ str: 散文（原文没引号且含空格）→ unknown，不许�
   k('str: desktop/src/app.ts 含 三种动作分支 且每支都有路径') === 'unknown')
 check('★ str: 没写目标文件（本文件）→ unknown',
   k('str: 本文件含 范围 / 交付物 五个二级标题') === 'unknown')
-check('★ str: 文案里没写「含」→ unknown', k('str: 无已冻结计划时显示提示语') === 'unknown')
+check('★ str: 文案里没写“含”→ unknown', k('str: 无已冻结计划时显示提示语') === 'unknown')
 
 check('★ num: ≥ / = 归一成 >= / ==',
   parseCheckLine('num: docs/x.md 行数 ≥ 3').op === '>=' && parseCheckLine('num: docs/x.md 行数 = 3').op === '==')
@@ -179,7 +179,7 @@ console.log('\n== ② 执行：str / num / file ==')
   check('★ 超时证据里 timedOut=true', r.evidence.timedOut === true)
 
   console.log('\n== ④ 汇总：passed 计数不许被 unknown 充数 ==')
-  // P3 自己的判据：「四类前缀各至少 1 条用例真跑通过（4/4）」
+  // P3 自己的判据：“四类前缀各至少 1 条用例真跑通过（4/4）”
   const four = await runCriteria([
     'cmd: node -e "process.exit(0)"',
     "str: desktop/src/app.ts 含 'nocriteria'",

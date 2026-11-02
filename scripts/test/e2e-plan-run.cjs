@@ -3,8 +3,8 @@
  *
  * 为什么单独一套：`e2e-stage-gate` 测的是闸门纯逻辑、`e2e-checks` 测的是执行器，
  * 但 P4 真正要命的不是这两块，是**它们接起来之后写不写盘**：
- *   · 判据没过 → 卡上只能停在「未完成」，打回理由必须有原文 + 实际值；
- *   · 判据全过 → 才写得进「完成」+ 证据；
+ *   · 判据没过 → 卡上只能停在“未完成”，打回理由必须有原文 + 实际值；
+ *   · 判据全过 → 才写得进“完成”+ 证据；
  *   · 跑判据本身**只读**（跑完计划卡一个字节都不变）。
  *
  * 而且这里是**唯一允许起进程**的地方（plan-run-ipc.ts）：
@@ -150,25 +150,25 @@ async function main() {
 
   const r2 = await checks({}, { file: 'test-plan.md', stageId: 'P2', repo: ROOT })
   eq('P2 unknown 单独计数（不算 fail）', [r2.gate.failed, r2.gate.unknown], [0, 1])
-  check('P2 unknown 的 detail 说人话（不是「未过」）',
+  check('P2 unknown 的 detail 说人话（不是“未过”）',
     /未知前缀|判不了/.test(String(r2.results[0].detail)), String(r2.results[0].detail))
   check('P2 同样挡路（unknown 也挡）', r2.gate.canAdvance === false)
 
-  console.log('\n== ③ 推进：判据全过才写得进「完成」 ==')
+  console.log('\n== ③ 推进：判据全过才写得进“完成” ==')
   const a0 = await advance({}, { file: 'test-plan.md', stageId: 'P0', repo: ROOT })
   check('P0 推进成功', a0.ok === true && a0.advanced === true, JSON.stringify({ ok: a0.ok, advanced: a0.advanced, error: a0.error }))
   check('P0 没被标成 blocked（成功就不是挡下）', a0.blocked === false)
   const after0 = fs.readFileSync(path.join(ROOT, 'task-data', 'plans', 'test-plan.md'), 'utf-8')
-  check('★★ 盘上真写了「- 状态: 完成」', /^- 状态: 完成$/m.test(after0))
+  check('★★ 盘上真写了“- 状态: 完成”', /^- 状态: 完成$/m.test(after0))
   check('★★ 完成带一条证据引用', /^- 证据: .*4\/4 判据通过/m.test(after0), (after0.match(/^- 证据: .*$/m) || [''])[0])
 
-  console.log('\n== ④ 推进：判据没过只能停「未完成」+ 打回理由 ==')
+  console.log('\n== ④ 推进：判据没过只能停“未完成”+ 打回理由 ==')
   const a1 = await advance({}, { file: 'test-plan.md', stageId: 'P1', repo: ROOT })
   check('P1 没推进', a1.advanced === false)
   check('★★ 被闸门挡下是正常业务结果：ok=true + blocked=true（不是通道失败）',
     a1.ok === true && a1.blocked === true, JSON.stringify({ ok: a1.ok, blocked: a1.blocked, error: a1.error }))
   const after1 = fs.readFileSync(path.join(ROOT, 'task-data', 'plans', 'test-plan.md'), 'utf-8')
-  check('★★ 盘上只能写「- 状态: 未完成」', /^- 状态: 未完成$/m.test(after1))
+  check('★★ 盘上只能写“- 状态: 未完成”', /^- 状态: 未完成$/m.test(after1))
   const reason = (after1.match(/^- 打回理由: (.*)$/m) || ['', ''])[1]
   check('★★ 打回理由含判据原文', reason.includes('process.exit(3)'), reason)
   check('★★ 打回理由含实际值', reason.includes('实际值'), reason)
@@ -176,7 +176,7 @@ async function main() {
   console.log('\n== ⑤ 未裁决的卡：判据全过也不许推 ==')
   const a3 = await advance({}, { file: 'test-plan.md', stageId: 'P3', repo: ROOT })
   check('P3 没推进', a3.advanced === false)
-  check('P3 给的是「先裁决」而不是「判据没过」',
+  check('P3 给的是“先裁决”而不是“判据没过”',
     /裁决|冻结/.test(String(a3.error)) && a3.blocked === false, String(a3.error))
 
   console.log('\n== ⑥ 坏入参：不抛、不写盘 ==')

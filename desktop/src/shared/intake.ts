@@ -2,7 +2,7 @@
  * 收卡机检（ADR-003 一期 · 外部 agent 交单的收卡侧）
  *
  * 一句话：**外部 agent 把交付物交进来那一刻，先按卡上写的判据机检一遍**，
- * 过 = 落「待审批」，不过 = 红标 + 留痕但**照样落卡**（东西不许丢）。
+ * 过 = 落“待审批”，不过 = 红标 + 留痕但**照样落卡**（东西不许丢）。
  *
  * 为什么要有这一层（2026-11-01 执行单段 2）：
  * 方寸此前对"交付物"只有**事后**扫描（`shared/mismatch.ts` 的 pickNoCriteria /
@@ -22,7 +22,7 @@
  *     调用方（MCP intake_task）照样建卡，但要把 summary 写进正文并标红。
  *
  * ⚠ 为什么 `cmd:` 在这里是 unknown：收卡瞬间跑测试套件动辄几十秒、还可能改环境，
- *   那是「待验收」阶段人点自检时的事（P3/P4 的 runner），不是收卡动作该做的。
+ *   那是“待验收”阶段人点自检时的事（P3/P4 的 runner），不是收卡动作该做的。
  */
 
 export type IntakeState = 'pass' | 'fail' | 'unknown'
@@ -106,10 +106,10 @@ export function checkIntakeLine(raw: string, deliverable: string, opts: IntakeOp
 
   if (prefix === 'cmd') {
     return row(line, 'unknown', 'unknown',
-      'cmd: 不在收卡时跑 —— 测试套件放「待验收」阶段由人点自检，收卡瞬间起进程会拖慢且污染环境')
+      'cmd: 不在收卡时跑 —— 测试套件放“待验收”阶段由人点自检，收卡瞬间起进程会拖慢且污染环境')
   }
   if (prefix === 'human') {
-    return row(line, 'unknown', 'unknown', 'human: 合法，但那是「人来验」，不是可机检的收卡判据')
+    return row(line, 'unknown', 'unknown', 'human: 合法，但那是“人来验”，不是可机检的收卡判据')
   }
 
   if (prefix === 'str') {
@@ -125,7 +125,7 @@ export function checkIntakeLine(raw: string, deliverable: string, opts: IntakeOp
   if (prefix === 'count') {
     // ⚠ 不能拿 QUOTED 整段匹配：`count: '|' == 4` 里引号只包住原文，
     //   整段匹配必然落空（首版就是这么错的，测试当场红）。
-    //   所以「开头一个引号串 + 尾部一个比较式」分开抓，原文可含除引号外的任意字符。
+    //   所以“开头一个引号串 + 尾部一个比较式”分开抓，原文可含除引号外的任意字符。
     const c = /^(['"])([\s\S]*?)\1\s*(>=|<=|==|!=|>|<|≥|≤|＝|=)\s*(\d+)\s*$/.exec(body)
     if (!c) return row(line, 'count', 'unknown', "count: 只认 count: '<原文>' <比较> <数字>（例：count: '诉求' == 6）")
     const actual = countOccurrences(text, c[2])
@@ -151,13 +151,13 @@ export function checkIntakeLine(raw: string, deliverable: string, opts: IntakeOp
 
   if (prefix === 'file') {
     const fm = /^(\S+)(?:\s+存在)?$/.exec(body)
-    if (!fm) return row(line, 'file', 'unknown', 'file: 只认「<相对路径> 存在」')
+    if (!fm) return row(line, 'file', 'unknown', 'file: 只认“<相对路径> 存在”')
     const rel = fm[1].replace(/\\/g, '/')
     if (/^[A-Za-z]:\//.test(rel) || rel.startsWith('/')) {
-      return row(line, 'file', 'unknown', `file: 要写相对路径（拿到的是绝对路径「${rel}」）`)
+      return row(line, 'file', 'unknown', `file: 要写相对路径（拿到的是绝对路径“${rel}”）`)
     }
     if (typeof opts.exists !== 'function') {
-      return row(line, 'file', 'unknown', `file: 没有注入存在性检查，判不了「${rel}」`)
+      return row(line, 'file', 'unknown', `file: 没有注入存在性检查，判不了“${rel}”`)
     }
     return opts.exists(rel)
       ? row(line, 'file', 'pass', `文件存在：${rel}`)
@@ -196,7 +196,7 @@ export function checkDeliverable(
   const ok = passed === rows.length && rows.length > 0
   const redFlags = rows
     .filter((r) => r.state !== 'pass')
-    .map((r, i) => `${i + 1}. 「${r.raw}」→ ${r.detail}（${r.state === 'unknown' ? '未判定' : '不过'}）`)
+    .map((r, i) => `${i + 1}. “${r.raw}”→ ${r.detail}（${r.state === 'unknown' ? '未判定' : '不过'}）`)
 
   const summary = ok
     ? `收卡机检：${passed}/${rows.length} 全过`

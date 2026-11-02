@@ -51,7 +51,7 @@ export function isExcluded(relativePath: string): boolean {
   return false
 }
 
-/** 判断是否属于「密钥类」排除（用于在 manifest 里单独记账，与普通临时文件区分） */
+/** 判断是否属于“密钥类”排除（用于在 manifest 里单独记账，与普通临时文件区分） */
 export function isSecretLike(relativePath: string): boolean {
   const base = String(relativePath).replace(/\\/g, '/').toLowerCase().split('/').pop() || ''
   return SECRET_BASENAMES.includes(base) || SECRET_SUFFIXES.some(s => base.endsWith(s))

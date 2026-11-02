@@ -8,7 +8,7 @@
  *   · 契约文件六字段解析（标题带 ①② 序号也认）；缺契约 → exists=false 且字段为空
  *   · 四种判据各自命中谁（cards / cards_or_commit / cards_or_log / manual）
  *   · **current 回落到执行日志**（0 卡项目如司天的唯一数据源）
- *   · **缺值给空串而不是默认值**（界面负责显示「未填」，数据层不许编）
+ *   · **缺值给空串而不是默认值**（界面负责显示“未填”，数据层不许编）
  *   · 健康度：机器默认 + **用户覆盖（locked）**
  *   · repoOfProject 只认 registry 登记路径（非法 id 不产出路径 → 防任意路径打开）
  *   · contractTemplate 含六字段
@@ -51,7 +51,7 @@ fs.writeFileSync(path.join(DATA, 'registry.yaml'), [
   '  - id: has-card',
   '    name: 有卡项目',
   `    repo: ${repoA.replace(/\\/g, '/')}`,
-  // 2026-10-22 · 03 任务三：四栏台账的第四栏「欠着什么」读的就是这个字段
+  // 2026-10-22 · 03 任务三：四栏台账的第四栏“欠着什么”读的就是这个字段
   '    说明: 欠着：①甲项 ②乙项',
   '  - id: no-card',
   '    name: 无卡项目',
@@ -158,9 +158,9 @@ check('契约：文件不存在 → exists=false，四字段全空串（不编�
   c2.exists === false && !c2.endState && !c2.acceptLine && !c2.notWant && !c2.choice)
 check('契约：路径拼接用仓库根 + 立项契约.md', c1.path.endsWith('立项契约.md'))
 
-// ── 1b. 契约读取的三个真机修正（2026-10-11 用户：「绒花墨坊怎么还在说内容未填？已经有内容了啊？」）──
+// ── 1b. 契约读取的三个真机修正（2026-10-11 用户：“绒花墨坊怎么还在说内容未填？已经有内容了啊？”）──
 // 真因：只认标准六节名 → 用自定义小节名写的契约（① 终态三段 / ⑥ 验收锚点 …）六个字段全空，
-// 界面写「文件已建 · 内容未填」。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
+// 界面写“文件已建 · 内容未填”。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
 const repoE = path.join(TMP, 'repo-alias')
 const repoF = path.join(TMP, 'repo-placeholder')
 fs.mkdirSync(repoE, { recursive: true })
@@ -182,11 +182,11 @@ fs.writeFileSync(path.join(repoE, '立项契约.md'), [
   '',
 ].join('\n'), 'utf-8')
 const ca = tb.readContractFile(repoE)
-check('★★ 契约（别名匹配）：自定义小节名也要读出来 —— 「① 终态三段」算终态、「⑥ 验收锚点」算验收线、'
-  + '「② 原料边界」算不要什么（老实现这三节全判成未填）',
+check('★★ 契约（别名匹配）：自定义小节名也要读出来 —— “① 终态三段”算终态、“⑥ 验收锚点”算验收线、'
+  + '“② 原料边界”算不要什么（老实现这三节全判成未填）',
   String(ca.endState).startsWith('前段产坯') && String(ca.acceptLine).startsWith('- D0')
   && String(ca.notWant).startsWith('- 负向'), JSON.stringify(ca).slice(0, 140))
-check('★ 契约（原因分类）：「对不上的小节名」进 unmatched、命中的进 filled、sections 逐条给「小节名 → 字段」',
+check('★ 契约（原因分类）：“对不上的小节名”进 unmatched、命中的进 filled、sections 逐条给“小节名 → 字段”',
   ca.unmatched.includes('③ 产线本质')
   && ca.filled.slice().sort().join(',') === ['不要什么', '终态形态', '验收线'].sort().join(',')
   && ca.sections.some(s => s.name === '① 终态三段（产线）' && s.field === '终态形态')
@@ -200,12 +200,12 @@ fs.writeFileSync(path.join(repoF, '立项契约.md'), [
   '---',
   '',
   '## ② 验收线',
-  '（「完整投入真实使用」的判据链。）',
+  '（“完整投入真实使用”的判据链。）',
   '',
 ].join('\n'), 'utf-8')
 const cp = tb.readContractFile(repoF)
-check('★★ 契约（占位识别）：整段被括号包住的是**模板骨架不是内容** → 两节都算「占位没填」'
-  + '（老实现把骨架当正文，司天那种空表反而显示成「填了」—— 另一种假话）',
+check('★★ 契约（占位识别）：整段被括号包住的是**模板骨架不是内容** → 两节都算“占位没填”'
+  + '（老实现把骨架当正文，司天那种空表反而显示成“填了”—— 另一种假话）',
   cp.filled.length === 0 && cp.placeholderFields.slice().sort().join(',') === ['终态形态', '验收线'].sort().join(','),
   JSON.stringify({ filled: cp.filled, ph: cp.placeholderFields }))
 check('★ 契约（分隔线剥离）：小节之间用 `---` 分隔时正文不带 `---`（占位判定也就不被它破坏）',
@@ -241,7 +241,7 @@ const nc = board.rows.find(r => r.id === 'no-card')
 check('cards_or_log：无卡但有日志的项目入屏', !!nc, board.rows.map(r => r.id).join(','))
 check('★ 无卡项目 current 来自日志且标了 from=log',
   nc && nc.current.from === 'log' && nc.current.text === '进度日志1001', nc && JSON.stringify(nc.current))
-check('★ 无卡项目「下一步」给空串（不编「—」这种界面话术）',
+check('★ 无卡项目“下一步”给空串（不编“—”这种界面话术）',
   nc && nc.next.text === '' && nc.next.from === '')
 
 console.log('\n---- 4. 缺值不填默认 ----')
@@ -276,14 +276,14 @@ board = tb.buildTripBoard()
 check('★ manual 模式：只收用户勾的项目（零硬编码清单）',
   board.mode === 'manual' && board.rows.length === 1 && board.rows[0].id === 'quiet',
   board.rows.map(r => r.id).join(','))
-check('无契约项目 → contract.exists=false（界面负责显示「未填」，数据层不编）',
+check('无契约项目 → contract.exists=false（界面负责显示“未填”，数据层不编）',
   board.rows[0] && board.rows[0].contract.exists === false)
 
-// ── 6b. 2026-10-05 用户实测「一屏是空的」的真因（必须在数据层钉死）──────
+// ── 6b. 2026-10-05 用户实测“一屏是空的”的真因（必须在数据层钉死）──────
 // 真因链：prefs 里写着 `fc_trip_mode=manual`，而 `fc_trip_projects` 键**根本不存在**
 //        （写盘只落了两个字符串键，两个数组键丢了）→ 手动清单为空 → 15 个项目全部出局
 //        → 一屏空白，且下面那句统一文案还写着"它们没有未完结任务"（方寸自己有几十张卡 = 假话）。
-console.log('\n---- 6b. 「手动指定」的两个边界 ----')
+console.log('\n---- 6b. “手动指定”的两个边界 ----')
 setPrefs({ fc_trip_mode: 'manual' })  // ⚠ 故意不写 fc_trip_projects（模拟旧包只落了字符串键）
 board = tb.buildTripBoard()
 check('★ manual 但 fc_trip_projects 键不存在 → 兜底回自动（绝不空屏）',
@@ -292,15 +292,15 @@ check('★ manual 但 fc_trip_projects 键不存在 → 兜底回自动（绝不
 
 setPrefs({ fc_trip_mode: 'manual', fc_trip_projects: [] })  // 键存在 = 用户真做过选择
 board = tb.buildTripBoard()
-check('★ 键存在但为空数组 → 尊重用户选择、不回退（界面负责给「改回自动」出口）',
+check('★ 键存在但为空数组 → 尊重用户选择、不回退（界面负责给“改回自动”出口）',
   board.mode === 'manual' && board.modeFallback === false && board.rows.length === 0,
   `mode=${board.mode} fallback=${board.modeFallback} rows=${board.rows.length}`)
-check('★ manual 下未勾的项目，原因必须说「手动指定」而**不是**「没有未完结任务」',
+check('★ manual 下未勾的项目，原因必须说“手动指定”而**不是**“没有未完结任务”',
   board.hidden.length > 0
   && board.hidden.every(h => h.kind === 'not-picked' && h.reason.indexOf('手动指定') >= 0),
   board.hidden[0] && `${board.hidden[0].kind} / ${board.hidden[0].reason}`)
 
-console.log('\n---- 6b. 加载反馈：git 缓存并发预热（2026-10-11 用户「每次进都要卡一下」）----')
+console.log('\n---- 6b. 加载反馈：git 缓存并发预热（2026-10-11 用户“每次进都要卡一下”）----')
 check('★ warmBoardGit 存在且是 async（把逐项目同步 spawn 换成并发等待）',
   typeof tb.warmBoardGit === 'function' && tb.warmBoardGit.constructor.name === 'AsyncFunction')
 let warmOk = false
@@ -341,7 +341,7 @@ check('契约模板：含六字段小节 + 机制条款',
 console.log('\n---- 8. 未进这一屏的项目要说出来 + 建档只建不覆盖 ----')
 setPrefs({})
 board = tb.buildTripBoard()
-check('★ 判据没命中的项目被回传（2026-10-05 用户「加了项目刷新几遍看不到」——界面必须说出来）',
+check('★ 判据没命中的项目被回传（2026-10-05 用户“加了项目刷新几遍看不到”——界面必须说出来）',
   Array.isArray(board.hidden) && board.hidden.some((h) => h.id === 'quiet')
   && board.hidden.some((h) => h.id === 'empty-one'),
   JSON.stringify(board.hidden.map((h) => h.id)))
@@ -365,9 +365,9 @@ board = tb.buildTripBoard()
 check('前置：这一屏里至少两个项目（否则下一条断言会在空集上假绿）',
   board.rows.length >= 2, JSON.stringify(board.rows.map((r) => r.id)))
 const rowHas = board.rows.find((r) => r.id === 'has-card')
-check('★ registry 的「说明」原样透传到 owe（手写值，不加工不摘要）',
+check('★ registry 的“说明”原样透传到 owe（手写值，不加工不摘要）',
   !!rowHas && rowHas.owe === '欠着：①甲项 ②乙项', rowHas && rowHas.owe)
-check('★ 没写说明的项目 owe 是空串（界面显示「未写」，不许糊一句"暂无欠账"）',
+check('★ 没写说明的项目 owe 是空串（界面显示“未写”，不许糊一句"暂无欠账"）',
   board.rows.filter((r) => r.id !== 'has-card').length >= 1
   && board.rows.filter((r) => r.id !== 'has-card').every((r) => r.owe === ''),
   JSON.stringify(board.rows.map((r) => [r.id, r.owe])))

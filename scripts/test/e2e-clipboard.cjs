@@ -1,11 +1,11 @@
 /**
- * 回归：复制到剪贴板（2026-09-25「日志复制失败，粘出来是旧的 0924 内容」）
+ * 回归：复制到剪贴板（2026-09-25“日志复制失败，粘出来是旧的 0924 内容”）
  *
  * 为什么必须有这一套：
- *   症状极具欺骗性 —— 界面提示「已复制」，但剪贴板里还是上一次的内容。
+ *   症状极具欺骗性 —— 界面提示“已复制”，但剪贴板里还是上一次的内容。
  *   根因是 `navigator.clipboard.writeText()` 静默 reject（打包版 file:// 起源 / 窗口失焦 /
  *   权限被拒），失败后剪贴板保持原样，用户完全看不出来。
- *   只测「有没有调用 writeText」是抓不到的，必须**真开窗口 + 真读回剪贴板**。
+ *   只测“有没有调用 writeText”是抓不到的，必须**真开窗口 + 真读回剪贴板**。
  *
  * 三组断言：
  *   ① 静态守卫 —— 渲染层不得再有裸 navigator.clipboard；IPC 通道三处（main/preload/共享模块）齐备。
@@ -91,7 +91,7 @@ ipcMain.handle('clipboard:writeText', (_e, text) => {
 app.whenReady().then(async () => {
   const w = new BrowserWindow({ show: false, webPreferences: {
     preload: ${JSON.stringify(PRELOAD.replace(/\\/g, '/'))}, contextIsolation: true, sandbox: false } })
-  // 打开真实文件页：钉住「file:// 起源」这个故障现场
+  // 打开真实文件页：钉住“file:// 起源”这个故障现场
   const pageFile = require('path').join(require('os').tmpdir(), 'e2e_clip_probe.html')
   require('fs').writeFileSync(pageFile, '<h1>probe</h1>')
   await w.loadFile(pageFile)

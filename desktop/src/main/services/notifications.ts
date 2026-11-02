@@ -83,7 +83,7 @@ function dedupKey(n: { type: string; sourceId?: string; key?: string }): string 
 }
 
 // ── 忽略名单（muted）────────────────────────────────────────────────────
-// 用户主动删掉某条通知 = 表达「别再提示我这件事」。若只删记录不记条件，
+// 用户主动删掉某条通知 = 表达“别再提示我这件事”。若只删记录不记条件，
 // 下一轮扫描会照原条件把它重建出来（"删了又复活"）。
 // 这里把 dedupKey 记入忽略表，pushNotification 见到直接跳过。
 // 事件本身再变化（如截止日改了导致 key 变）会被视为新事件，不受影响。
@@ -96,7 +96,7 @@ function getMutedPath(): string {
 /** 静音时长：删除后 **7 天**自动恢复提醒（2026-10-01 用户拍板：不再永久拉黑）。
  *  此前是永久拉黑且无任何恢复入口 —— 用户点过一次 🗑，同类事件从此永远静默，自己还察觉不到。 */
 export const MUTE_TTL_MS = 7 * 24 * 60 * 60 * 1000
-/** 测试注入：静音时长。设成负值可立刻验证「到期恢复」，不必等 7 天。 */
+/** 测试注入：静音时长。设成负值可立刻验证“到期恢复”，不必等 7 天。 */
 let muteTtlMs = MUTE_TTL_MS
 export function _setMuteTtlForTest(ms: number): void { muteTtlMs = ms }
 
@@ -222,7 +222,7 @@ export function deleteNotification(id: string): boolean {
   if (idx < 0) return false
   const [removed] = list.splice(idx, 1)
   saveAll(list)
-  // 删除 = 用户明确表示「别再提示我这件事」，记入忽略表，否则下一轮扫描会原样重建。
+  // 删除 = 用户明确表示“别再提示我这件事”，记入忽略表，否则下一轮扫描会原样重建。
   // 静音 **7 天后自动恢复**（2026-10-01 用户拍板，不再是永久拉黑）。
   const muted = loadMuted()
   muted.set(dedupKey(removed), Date.now() + muteTtlMs)
@@ -230,7 +230,7 @@ export function deleteNotification(id: string): boolean {
   return true
 }
 
-/** 清空全部（含未读），用于「清空历史」 */
+/** 清空全部（含未读），用于“清空历史” */
 export function clearAll(): number {
   const list = loadAll()
   const c = list.length
@@ -240,8 +240,8 @@ export function clearAll(): number {
 
 /** 事件消失时清掉对应通知（解析错误被修复、任务进了回收站、待办被删等）。
  *
- *  此前是「把 read 置 true」，于是列表里长期堆着一批已读、却永远不会消失的
- *  「僵尸通知」—— 用户看到的现象就是"删了还在 / 已读了还挂在列表里"。
+ *  此前是“把 read 置 true”，于是列表里长期堆着一批已读、却永远不会消失的
+ *  “僵尸通知”—— 用户看到的现象就是"删了还在 / 已读了还挂在列表里"。
  *  事件本身已经不存在，通知不该继续占位，所以改为直接删除。计数语义不变。 */
 export function resolveNotifications(type: string, sourceId?: string): number {
   const list = loadAll()
@@ -269,7 +269,7 @@ export function prune(): number {
 /** 已读 info/warning 超过 N 天后自动清理。error 永不清理（用户拍板 10-08）。 */
 const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 let expiryMs = EXPIRY_MS
-/** 测试注入：清理阈值。设成负值可立刻验证「到期清理」，不必等 30 天。 */
+/** 测试注入：清理阈值。设成负值可立刻验证“到期清理”，不必等 30 天。 */
 export function _setExpiryForTest(ms: number): void { expiryMs = ms }
 
 /**

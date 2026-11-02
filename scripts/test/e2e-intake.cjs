@@ -5,8 +5,8 @@
  *   · 四类判据全部真跑：str / count / format / file；
  *   · unknown ≠ pass（未知前缀、cmd:、坏正则都算未判定，挡住"全过"）；
  *   · 没写判据 = 收不了（不是"没东西要验"）；
- *   · **不阻挡落卡**：机检不过照样建卡（落「草稿」+ 正文红标 + 逐条留痕），
- *     全过才落「待审批」（REV-009）。
+ *   · **不阻挡落卡**：机检不过照样建卡（落“草稿”+ 正文红标 + 逐条留痕），
+ *     全过才落“待审批”（REV-009）。
  *
  * 运行：node scripts/test/e2e-intake.cjs
  */
@@ -82,7 +82,7 @@ const DELIV = [
 
   console.log('\n== ② 未判定事项一律不算通过 ==')
   const u1 = checkIntakeLine('cmd: node scripts/test/e2e-x.cjs 退出码 0', DELIV)
-  check('★★ cmd: 在收卡时是 unknown（跑套件归「待验收」，收卡不起进程）',
+  check('★★ cmd: 在收卡时是 unknown（跑套件归“待验收”，收卡不起进程）',
     u1.state === 'unknown' && /待验收/.test(u1.detail), u1.detail)
   const u2 = checkIntakeLine('foo: 随便写的', DELIV)
   check('未知前缀 → unknown', u2.state === 'unknown', u2.detail)
@@ -97,7 +97,7 @@ const DELIV = [
   ], { exists })
   check('★★ 四类全过 → ok=true、4/4', allPass.ok === true && allPass.passed === 4 && allPass.total === 4,
     JSON.stringify({ ok: allPass.ok, p: allPass.passed, t: allPass.total }))
-  check('  全过时 summary 说「全过」', /全过/.test(allPass.summary), allPass.summary)
+  check('  全过时 summary 说“全过”', /全过/.test(allPass.summary), allPass.summary)
 
   const mixed = checkDeliverable(DELIV, [
     "str: '林雪'", "str: '查无此人'", 'file: docs/absent.md 存在', 'cmd: echo hi',
@@ -106,7 +106,7 @@ const DELIV = [
     && mixed.passed === 1 && mixed.failed === 2 && mixed.unknown === 1,
     JSON.stringify({ p: mixed.passed, f: mixed.failed, u: mixed.unknown }))
   check('★★ 红标逐条给原文 + 实际值', mixed.redFlags.length === 3
-    && mixed.redFlags.every((r) => /「.+」→/.test(r)), mixed.redFlags.join(' | '))
+    && mixed.redFlags.every((r) => /“.+”→/.test(r)), mixed.redFlags.join(' | '))
 
   const noCriteria = checkDeliverable(DELIV, [])
   check('★★ 没写判据 → ok=false（没判据就验不了，不是"没东西要验"）',
@@ -121,9 +121,9 @@ const DELIV = [
 
   console.log('\n== ④ 留痕：报告能渲染成卡正文的一节 ==')
   const sec = renderIntakeSection(mixed, { at: '2026-11-02T00:00:00.000Z', agent: 'quanzhan', model: 'm' })
-  check('★ 含「收卡机检」节与时间/交单人', /^## 收卡机检/m.test(sec) && /quanzhan/.test(sec) && /2026-11-02/.test(sec))
+  check('★ 含“收卡机检”节与时间/交单人', /^## 收卡机检/m.test(sec) && /quanzhan/.test(sec) && /2026-11-02/.test(sec))
   check('★★ 含红标节且逐条列出不过项', /⚠ 红标/.test(sec) && /查无此人/.test(sec), sec.slice(0, 200))
-  check('★ 明写「不阻挡落卡」的口径（读卡的人知道这是红标不是拒收）', /不阻挡落卡/.test(sec))
+  check('★ 明写“不阻挡落卡”的口径（读卡的人知道这是红标不是拒收）', /不阻挡落卡/.test(sec))
 
   console.log('\n== ⑤ MCP intake_task 端到端（真落卡）==')
   const data = require(path.join(DIST, 'main', 'data', 'index.js'))
@@ -139,7 +139,7 @@ const DELIV = [
     agent: 'quanzhan',
   })
   const okBody = JSON.parse(okRes.content[0].text)
-  check('★★ 全过 → 落「待审批」（REV-009 口径）', okBody.ok === true && okBody.status === '待审批',
+  check('★★ 全过 → 落“待审批”（REV-009 口径）', okBody.ok === true && okBody.status === '待审批',
     JSON.stringify({ ok: okBody.ok, status: okBody.status }))
   const okTask = data.loadTasks().find((t) => t.id === okBody.id)
   check('★ 卡真的落盘了', !!okTask)
@@ -154,7 +154,7 @@ const DELIV = [
     agent: 'quanzhan',
   })
   const badBody = JSON.parse(badRes.content[0].text)
-  check('★★ 有不过 → 落「草稿」（不进待审批，但卡照样建）',
+  check('★★ 有不过 → 落“草稿”（不进待审批，但卡照样建）',
     badBody.ok === true && badBody.status === '草稿', JSON.stringify({ ok: badBody.ok, status: badBody.status }))
   check('★★ 不阻挡：卡真的存在（东西没丢）',
     !!data.loadTasks().find((t) => t.id === badBody.id))

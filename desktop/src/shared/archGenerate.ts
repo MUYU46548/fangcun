@@ -2,16 +2,16 @@
  * 方寸自绘架构图 · 生成内核的审计层（0.6.0 · 2026-11-02）
  *
  * 为什么要有这一层（卡 task-20261030-002，暮雨 10-31 念回第 7 条）：
- *   上一版只是「扫 import 画图」—— 暮雨原话「根本没有调用 AI 去生成。人家可是自带审计的严格生成，
- *   不是 AI 想怎么画就怎么画的」。要的不是"让 AI 自由画"，是**生成完逐条审计，指不回证据就不许进图**。
+ *   上一版只是“扫 import 画图”—— 暮雨原话“根本没有调用 AI 去生成。人家可是自带审计的严格生成，
+ *   不是 AI 想怎么画就怎么画的”。要的不是"让 AI 自由画"，是**生成完逐条审计，指不回证据就不许进图**。
  *
  * 三条硬口径（与审计一一对应）：
  *  ① **每个节点 / 每条连线都必须指回一条真实事实**：目录、import、IPC 计数、端口、包名、入口文件。
  *     指不回的一律拒收 —— 拒收不是"猜它大概是哪个"，是把它列进 `issues` 并说清为什么。
- *  ② **审计不过要能退回重画**：`issues` 逐条给「哪一条 + 为什么 + 期望的写法」，
+ *  ② **审计不过要能退回重画**：`issues` 逐条给“哪一条 + 为什么 + 期望的写法”，
  *     调用方（`main/services/archAi.ts`）把它喂回模型重试；重试用完仍不过 → 降级为扫描图。
  *  ③ **降级必须自报家门**：无 AI / 无网络时仍出扫描图，但 `source` 必须是 `scan`，
- *     界面上要写「这是扫描图，不是生成图」—— 不许拿扫描图冒充生成结果。
+ *     界面上要写“这是扫描图，不是生成图”—— 不许拿扫描图冒充生成结果。
  *
  * 纯逻辑：不读盘、不联网、不碰 electron（Node 可直跑，样板见 `shared/archGraph.ts`）。
  */
@@ -60,7 +60,7 @@ export interface ArchAuditResult {
   issues: ArchAuditIssue[]
   /**
    * 不阻断的修正（例如"标签过长/含异常字符，已丢弃改用 id 显示"）。
-   * 为什么标签不进 issues、也不做语义比对：中文层名（「主进程 / 服务」）与英文目录名本来不重合，
+   * 为什么标签不进 issues、也不做语义比对：中文层名（“主进程 / 服务”）与英文目录名本来不重合，
    * 硬比对会误杀合理写法；而标签编得再花也改不了节点 id 与证据（那才是事实）。
    * 标签只做"能否显示"的清理。
    */
@@ -138,7 +138,7 @@ function nodeKindOf(id: string): ArchNodeKind {
 /**
  * 标签清理：**不做语义审计**（改过一次，见下），只挡"过长 / 含异常字符"。
  *
- * 为什么撤掉"标签必须与目录同名"的检查：中文层名（「主进程 / 服务」「共享逻辑」）本来就与
+ * 为什么撤掉"标签必须与目录同名"的检查：中文层名（“主进程 / 服务”“共享逻辑”）本来就与
  * 英文目录名不重合，硬比对会误杀大量完全合理的写法；而标签编得再花，也改不了
  * 节点 id 与证据（那才是事实）。所以口径是：**标签只是显示用，编不编不影响审计结论。**
  * 唯一保留的是"别把标签当第二份数据"：超长或带 `[]{}<>|` 的，丢掉改用 id。
@@ -184,7 +184,7 @@ export function auditArchDraft(draft: ArchDraft, facts: ArchScanFacts): ArchAudi
     let bad = ''
     for (const e of ev) {
       const p = evidenceProblem(e, facts)
-      if (p) { bad = `证据「${e}」落不了地：${p}`; break }
+      if (p) { bad = `证据“${e}”落不了地：${p}`; break }
     }
     if (bad) {
       issues.push({ target: 'node', id, reason: bad, expect: '只引用事实里真的存在的东西；编的模块/目录一律不许进图' })
@@ -193,7 +193,7 @@ export function auditArchDraft(draft: ArchDraft, facts: ArchScanFacts): ArchAudi
     // 标签只做"能不能显示"的清理，不做事实审计（见 labelIsRenderable 的理由）
     let label = s(n.label)
     if (label && !labelIsRenderable(label)) {
-      notes.push(`节点 ${id} 的标签「${label.slice(0, 12)}…」过长或含异常字符，已丢弃、改用 id 显示`)
+      notes.push(`节点 ${id} 的标签“${label.slice(0, 12)}…”过长或含异常字符，已丢弃、改用 id 显示`)
       label = ''
     }
     nodeIds.add(id)
@@ -226,7 +226,7 @@ export function auditArchDraft(draft: ArchDraft, facts: ArchScanFacts): ArchAudi
     let bad = ''
     for (const x of ev) {
       const p = evidenceProblem(x, facts)
-      if (p) { bad = `证据「${x}」落不了地：${p}`; break }
+      if (p) { bad = `证据“${x}”落不了地：${p}`; break }
     }
     if (bad) {
       issues.push({ target: 'edge', id: key, reason: bad, expect: '连线只能来自真实的 import / IPC 计数，不许凭印象连' })

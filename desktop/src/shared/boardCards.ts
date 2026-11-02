@@ -1,20 +1,20 @@
 /**
- * 看板「信息卡墙」的派生逻辑（纯逻辑）—— 卡 20261010-003，2026-10-10
+ * 看板“信息卡墙”的派生逻辑（纯逻辑）—— 卡 20261010-003，2026-10-10
  *
- * 用户原话：现有两个视图都走了窄化横条路线，「很紧凑但总感觉少了点掌控感」；
- * 要「能显示看板任务 ID」；但也「没必要也不应该显示一堆无关紧要的信息」。
+ * 用户原话：现有两个视图都走了窄化横条路线，“很紧凑但总感觉少了点掌控感”；
+ * 要“能显示看板任务 ID”；但也“没必要也不应该显示一堆无关紧要的信息”。
  *
  * 所以这一版只回答三个问题，全部做成纯函数：
  *   ① 卡片头上的 ID 怎么显示（长 id 缩到可读）；
  *   ② 优先级怎么变成色档（认不出来就**不给色**，不猜）；
- *   ③ 这张卡要不要打「被卡住 / 挡住别人」的标（两个数都为 0 → **不显示**）。
+ *   ③ 这张卡要不要打“被卡住 / 挡住别人”的标（两个数都为 0 → **不显示**）。
  *
  * 为什么放 shared/：它是纯逻辑，`tsc` 编出 `dist/shared/boardCards.js` 后可直接断言
  * （见 `scripts/test/e2e-board-cards.cjs`）—— 埋在 App.vue 里就只能靠真点界面才验得到，
  * 而本项目的渲染层真点击 e2e（e2e-renderer.cjs）常年 SKIP。
  *
- * 纪律：**空值一律不显示** —— 不是显示 0、也不是显示「—」，是这一格根本不渲染。
- * 卡面宁缺勿滥，这正是用户说的「没必要显示一堆无关紧要的信息」。
+ * 纪律：**空值一律不显示** —— 不是显示 0、也不是显示“—”，是这一格根本不渲染。
+ * 卡面宁缺勿滥，这正是用户说的“没必要显示一堆无关紧要的信息”。
  */
 
 export type BoardCardTone = '' | 'high' | 'mid' | 'low'
@@ -28,7 +28,7 @@ export interface BlockerRefLike {
 export interface BlockerChainLike {
   id: string
   title?: string
-  /** 主进程已判定的「这个源自身已终态」 */
+  /** 主进程已判定的“这个源自身已终态” */
   isDone?: boolean
   blockedTasks?: BlockerRefLike[]
 }
@@ -55,14 +55,14 @@ export interface BoardCardMeta {
   blocked: boolean
 }
 
-/** 终态：完成与驳回。与 core.STATUSES 的语义一致，只用于「还算不算被卡着」这一处判断。 */
+/** 终态：完成与驳回。与 core.STATUSES 的语义一致，只用于“还算不算被卡着”这一处判断。 */
 const DONE = new Set(['完成', '驳回'])
 
 /**
- * 「还没做完」= 状态不是终态。**空值算未完成** —— 没填 ≠ 做完了
- * （与 `core.illegal_status()` 的「空值放行」同一种思路：不替用户猜）。
+ * “还没做完”= 状态不是终态。**空值算未完成** —— 没填 ≠ 做完了
+ * （与 `core.illegal_status()` 的“空值放行”同一种思路：不替用户猜）。
  *
- * 卡片墙的「只看未完成」开关走这条判断；它只作用于卡片墙，不动另两种摆法。
+ * 卡片墙的“只看未完成”开关走这条判断；它只作用于卡片墙，不动另两种摆法。
  */
 export function isOpenTask(task: any): boolean {
   return !DONE.has(String(task?.status ?? '').trim())
@@ -96,10 +96,10 @@ export function priorityTone(priority?: unknown): BoardCardTone {
 }
 
 /**
- * 从阻塞链建「查询索引」。输入形状同 `getBlockerChains()`（`blockers` ref 用的就是它）。
+ * 从阻塞链建“查询索引”。输入形状同 `getBlockerChains()`（`blockers` ref 用的就是它）。
  *
  * 两条判据：
- *   · **已终态的被挡任务不算「还被卡着」**（完成/驳回的留在 chains 里是历史痕迹）；
+ *   · **已终态的被挡任务不算“还被卡着”**（完成/驳回的留在 chains 里是历史痕迹）；
  *   · **自身已终态的源不进 blocks 计数**（解一个已经做完的源没有意义）。
  */
 export function buildBlockerIndex(chains?: BlockerChainLike[] | null): BlockerIndex {

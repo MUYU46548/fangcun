@@ -1,7 +1,7 @@
 /**
- * MCP 读卡计量（2026-10-25 卡 006 第二件）——「13 writes, 1 read」的答案
+ * MCP 读卡计量（2026-10-25 卡 006 第二件）——“13 writes, 1 read”的答案
  *
- * 要解决的事（暮雨原话）：「看板任务一堆待办，很多我都不知道到底做了没有。」
+ * 要解决的事（暮雨原话）：“看板任务一堆待办，很多我都不知道到底做了没有。”
  * 根因不是状态字段不准，而是**状态只反映"有人改过它"，不反映"有人读过它"**。
  * 一张卡放了三个月没人打开，和"今天刚看过准备做"在数据上一模一样。
  *
@@ -90,7 +90,7 @@ function scanEvents(days: number): { stats: Map<string, ReadStat>; events: numbe
       cur.reads++
       // `>=` 而不是 `>`：同一条毫秒内的两次读（agent 连续 get 两张卡很常见）用 `>` 时
       // 第二次不会覆盖 → `lastVia` 永远记着**前一次**的工具名。
-      // 2026-10-27 实测：`e2e-mcp-usage` 的「记下最后来源」那条断言就是这个红
+      // 2026-10-27 实测：`e2e-mcp-usage` 的“记下最后来源”那条断言就是这个红
       // （期望 list_tasks、实际 get_task），连续跑三次稳定复现。
       if (!cur.lastRead || ts >= cur.lastRead) { cur.lastRead = ts; cur.lastVia = via }
       out.set(id, cur)
@@ -104,11 +104,11 @@ export function readStats(days = 30): Map<string, ReadStat> {
 }
 
 /**
- * 给界面用：一次扫描同时给「按卡的统计」与「窗口内事件条数」。
+ * 给界面用：一次扫描同时给“按卡的统计”与“窗口内事件条数”。
  *
  * 为什么需要事件条数（卡 20261025-006 第三件的口径）：
  *   `mcp-usage.jsonl` 根本不存在时，`readStats()` 返回空 Map，
- *   于是**所有卡都是 0 引用** —— 界面上报「42 张没人碰过」是冤枉，
+ *   于是**所有卡都是 0 引用** —— 界面上报“42 张没人碰过”是冤枉，
  *   真相是"计量还没开始"。两者必须分开，所以把条数一起带出去。
  */
 export function readSummary(days = 30): { stats: Record<string, ReadStat>; events: number } {
@@ -119,7 +119,7 @@ export function readSummary(days = 30): { stats: Record<string, ReadStat>; event
 }
 
 /**
- * 「最近 N 天一次都没被读过」的卡（卡 006 第三件的数据源）。
+ * “最近 N 天一次都没被读过”的卡（卡 006 第三件的数据源）。
  * 只返回 id 列表，排序交给调用方 —— 这里不做优先级判断。
  */
 export function neverRead(ids: string[], days = 30): string[] {

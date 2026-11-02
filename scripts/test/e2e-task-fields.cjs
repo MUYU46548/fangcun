@@ -84,16 +84,16 @@ function main() {
 
   // ── createTask 默认值与归一 ──────────────────────────────────────────
   const t1 = tasks.createTask({ title: '默认优先级任务' })
-  check('新建任务默认优先级为「中」', t1.fm.priority === '中', String(t1.fm.priority))
+  check('新建任务默认优先级为“中”', t1.fm.priority === '中', String(t1.fm.priority))
 
   const t2 = tasks.createTask({ title: '英文优先级任务', priority: 'normal' })
-  check('createTask 把 normal 归一为「中」', t2.fm.priority === '中', String(t2.fm.priority))
+  check('createTask 把 normal 归一为“中”', t2.fm.priority === '中', String(t2.fm.priority))
 
   const t3 = tasks.createTask({ title: '高优任务', priority: 'high' })
-  check('createTask 把 high 归一为「高」', t3.fm.priority === '高', String(t3.fm.priority))
+  check('createTask 把 high 归一为“高”', t3.fm.priority === '高', String(t3.fm.priority))
 
   const t3raw = fs.readFileSync(t3.path, 'utf-8')
-  check('落盘 frontmatter 使用中文键「优先级: 高」', /优先级:\s*高/.test(t3raw),
+  check('落盘 frontmatter 使用中文键“优先级: 高”', /优先级:\s*高/.test(t3raw),
     t3raw.split('\n').slice(0, 12).join(' | '))
   check('落盘不出现英文优先级值', !/优先级:\s*(normal|high|low)/.test(t3raw))
 
@@ -101,27 +101,27 @@ function main() {
   const legacyPath = path.join(TEST_ROOT, 'task-data', 'task-legacy-001.md')
   writeFile(legacyPath, '---\nid: task-legacy-001\n标题: 历史任务\n状态: 待办\n优先级: normal\n创建: 2026-01-01T00:00:00.000Z\n---\n\n正文\n')
   const legacy = data.parseTask(legacyPath)
-  check('读取历史 normal 任务被归一为「中」', legacy && legacy.fm.priority === '中',
+  check('读取历史 normal 任务被归一为“中”', legacy && legacy.fm.priority === '中',
     legacy ? String(legacy.fm.priority) : 'parse 失败')
 
   // ── updateTask 写入归一 ──────────────────────────────────────────────
   const t4 = tasks.createTask({ title: '待更新任务' })
   tasks.updateTask(t4.id, { priority: 'low' })
   const t4raw = fs.readFileSync(t4.path, 'utf-8')
-  check('updateTask 把 low 归一为「低」并落盘', /优先级:\s*低/.test(t4raw), t4raw.split('\n').slice(0, 10).join(' | '))
+  check('updateTask 把 low 归一为“低”并落盘', /优先级:\s*低/.test(t4raw), t4raw.split('\n').slice(0, 10).join(' | '))
   check('updateTask 不把英文值写回文件', !/优先级:\s*(low|normal|high)/.test(t4raw))
 
   // ── 状态写入归一（2026-10-21）────────────────────────────────────────
-  // 事故：2026-10-19 从外部账本导进来 7 张卡把「已完成」写进 `状态:`，看板分组/统计全靠猜，
+  // 事故：2026-10-19 从外部账本导进来 7 张卡把“已完成”写进 `状态:`，看板分组/统计全靠猜，
   // 直到 verify 变红才被发现 —— 因为白名单此前**只用于体检，写入路径一个校验都没有**。
   // 判据：归一发生在**写盘函数自身**（调用方不需要记得），且认不出的值不被偷偷改写。
   const s1 = tasks.createTask({ title: '状态归一：已完成', status: '已完成' })
-  check('★★ createTask 把「已完成」归一成「完成」', s1.fm.status === '完成', String(s1.fm.status))
-  check('  落盘内容也是「完成」（不是只在内存里对）',
+  check('★★ createTask 把“已完成”归一成“完成”', s1.fm.status === '完成', String(s1.fm.status))
+  check('  落盘内容也是“完成”（不是只在内存里对）',
     /状态:\s*完成/.test(fs.readFileSync(s1.path, 'utf-8')))
 
   const s2 = tasks.createTask({ title: '状态归一：待处理', status: '待处理' })
-  check('★ createTask 把「待处理」（日志页分区叫法）归一成「待办」', s2.fm.status === '待办', String(s2.fm.status))
+  check('★ createTask 把“待处理”（日志页分区叫法）归一成“待办”', s2.fm.status === '待办', String(s2.fm.status))
 
   const s3 = tasks.createTask({ title: '状态归一：更新路径' })
   const s3upd = tasks.updateTask(s3.id, { status: '已完成' })
@@ -129,7 +129,7 @@ function main() {
     !!s3upd && s3upd.fm.status === '完成' && /状态:\s*完成/.test(fs.readFileSync(s3.path, 'utf-8')),
     String(s3upd && s3upd.fm.status))
 
-  // 反例：认不出的非法值**不许被静默改写成「待办」之类**（吞数据比报错更坏）
+  // 反例：认不出的非法值**不许被静默改写成“待办”之类**（吞数据比报错更坏）
   const s4 = tasks.createTask({ title: '状态归一：乱写', status: '乱七八糟' })
   check('  反例：认不出的状态原样保留（交给 doctor/verify 报，不静默改写）',
     s4.fm.status === '乱七八糟', String(s4.fm.status))
@@ -177,7 +177,7 @@ function main() {
   check('formValuesToPatch 优先级保持中文', patch.priority === '高', String(patch.priority))
   check('formValuesToPatch 不含 body', !('body' in patch))
 
-  // ── 「打开编辑 → 不改 → 保存」不丢字段（本轮核心修复） ────────────────
+  // ── “打开编辑 → 不改 → 保存”不丢字段（本轮核心修复） ────────────────
   const before = tasks.readTask(rich.id)
   const beforeSnapshot = JSON.stringify({
     assignee: before.fm.assignee,
@@ -215,7 +215,7 @@ function main() {
     afterUnknown.fm.context === 'some context' && afterUnknown.fm.agent === 'hermes',
     JSON.stringify({ context: afterUnknown.fm.context, agent: afterUnknown.fm.agent }))
 
-  // ── 「按优先级分组」不再丢任务（本轮修复的看板 bug） ──────────────────
+  // ── “按优先级分组”不再丢任务（本轮修复的看板 bug） ──────────────────
   const all = data.loadTasks('active')
   const byPrio = {}
   for (const t of all) {
@@ -257,10 +257,10 @@ function main() {
   const td = todos.createTodo('测试待办', 'high')
   check('待办优先级也归一为中文', td.priority === '高', String(td.priority))
   const tdDefault = todos.createTodo('默认待办')
-  check('待办默认优先级为「中」', tdDefault.priority === '中', String(tdDefault.priority))
+  check('待办默认优先级为“中”', tdDefault.priority === '中', String(tdDefault.priority))
 
   // ── FIELD_MAP 必须覆盖 Python 侧全部中文键（防跨语言字段丢失） ────────
-  // Python CLI 用中文键写文件，TS 若漏映射就静默读不到（曾漏「标签」，Python 写的标签全丢）。
+  // Python CLI 用中文键写文件，TS 若漏映射就静默读不到（曾漏“标签”，Python 写的标签全丢）。
   const corePy = fs.readFileSync(path.join(REPO, 'tegula/core.py'), 'utf-8')
   const mkMatch = corePy.match(/MANAGED_KEYS\s*=\s*\{([^}]+)\}/)
   check('能从 core.py 提取 MANAGED_KEYS', !!mkMatch)
@@ -271,7 +271,7 @@ function main() {
     check('FIELD_MAP 覆盖 Python 侧全部中文键', missing.length === 0,
       `Python 有 ${zhKeys.length} 个中文键，缺失: ${missing.join(', ') || '无'}`)
 
-    // 反向：映射回中文键时，tags 必须回到「标签」（Python 认的写法）
+    // 反向：映射回中文键时，tags 必须回到“标签”（Python 认的写法）
     const reverseOk = data.FIELD_MAP['标签'] === 'tags'
     check('标签正确映射到 tags', reverseOk, String(data.FIELD_MAP['标签']))
   }
@@ -312,7 +312,7 @@ function main() {
     byPrioEn.tasks.length > 0 && byPrioEn.tasks.every(t => t.fm.priority === '高'), String(byPrioEn.tasks.length))
 
   const archQuery = tasks.parseNaturalQuery('归档')
-  check('「归档」关键词自动扩展到归档范围',
+  check('“归档”关键词自动扩展到归档范围',
     archQuery.tasks.length > 0 && archQuery.tasks.every(t => tasks.isArchivedPath(t.path)),
     String(archQuery.tasks.length))
 
@@ -437,8 +437,8 @@ function main() {
     /function openNewProject\(\)[\s\S]{0,300}projForm\.value/.test(appCode))
 
   // ── 读取缓存必须跟随外部改动失效（目录签名机制） ──────────────────────
-  // 缓存是「一次刷新扫 15 遍」的解法，但它一旦失灵就是静默读到旧数据 —— 比慢更危险。
-  // 这里逐条验证「外部改动（Python CLI / 手改文件 / 直接 fs 写）立即可见」。
+  // 缓存是“一次刷新扫 15 遍”的解法，但它一旦失灵就是静默读到旧数据 —— 比慢更危险。
+  // 这里逐条验证“外部改动（Python CLI / 手改文件 / 直接 fs 写）立即可见”。
   {
     const cacheRoot = path.join(os.tmpdir(), 'fc-cache-' + Date.now())
     const ctd = path.join(cacheRoot, 'task-data')
@@ -516,8 +516,8 @@ function main() {
     try { fs.rmSync(cacheRoot, { recursive: true, force: true }) } catch {}
   }
 
-  // ── batchEdit 批量改期（2026-10-18 Bundle A「超期任务批量改期」的数据层契约）──
-  // 界面路径：日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → batchEdit(ids, { deadline })。
+  // ── batchEdit 批量改期（2026-10-18 Bundle A“超期任务批量改期”的数据层契约）──
+  // 界面路径：日期筛选“超期”→ 批量模式 → 全选 → 📅 改期 → batchEdit(ids, { deadline })。
   // 这里钉住数据层四件事：deadline 直写 fm、逐字落盘、字段隔离（只动 deadline）、
   // 不存在的 id 精确进 fails（绝不静默当成功）。
   {

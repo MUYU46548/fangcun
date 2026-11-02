@@ -59,7 +59,7 @@ function buildPayload(
 
 /**
  * 鉴权头。TokenHub 等网关对 `Authorization: <key>`（缺 Bearer 前缀）会返回
- * 401002「API Key 不存在或签名校验失败」——这里做保底，杜绝前缀丢失。
+ * 401002“API Key 不存在或签名校验失败”——这里做保底，杜绝前缀丢失。
  */
 function buildHeaders(cfg: LLMConfig): Record<string, string> {
   const raw = (cfg.apiKey || '').trim()
@@ -111,7 +111,7 @@ function extractText(data: any): { text: string; reasoning: string; finish: stri
   }
 }
 
-/** 从响应里取用量（OpenAI 兼容 usage 字段；缺字段给 null——「花销可见」的数据源，不编数） */
+/** 从响应里取用量（OpenAI 兼容 usage 字段；缺字段给 null——“花销可见”的数据源，不编数） */
 export interface ChatUsage {
   promptTokens: number | null
   completionTokens: number | null
@@ -199,14 +199,14 @@ function traceOnce(opts: {
   ok: boolean
   stream: boolean
   error?: string
-  /** 2026-10-17 暮雨第 10 条「花销可见」：把响应里的真实 token 一起留痕 ——
+  /** 2026-10-17 暮雨第 10 条“花销可见”：把响应里的真实 token 一起留痕 ——
    *  原先只记字符数，界面上永远算不出花了多少。供应商没给 usage 时三个字段就是 null（不编数）。 */
   usage?: ChatUsage
 }): void {
   appendTrace({
     // ⚠ 2026-10-27 修：原先 `.slice(0, 19)` 把 `toISOString()` 末尾的时区标记 `Z` 切掉了，
     //   于是这个"UTC 数值"被读侧 `Date.parse` 当成**本地时间**解析 —— 用户看到的调用时间差 8 小时。
-    //   暮雨看到审批留痕「04:24」而人不在电脑前，一度怀疑是幽灵：实际是中午 12:24。
+    //   暮雨看到审批留痕“04:24”而人不在电脑前，一度怀疑是幽灵：实际是中午 12:24。
     //   现在保留完整 ISO（带 Z）；读侧 parseTs() 对无标记的旧记录按 UTC 兜底。
     ts: new Date().toISOString(),
     trigger: opts.trigger,
@@ -260,7 +260,7 @@ function promptLen(content: string | ChatMessage[]): number {
 }
 
 /**
- * 非流式调用详情版：正文+用量+finish，写回层等「花销可见」场景用。
+ * 非流式调用详情版：正文+用量+finish，写回层等“花销可见”场景用。
  * 推理模型（如 minimax-*、deepseek-*）思考会吃掉 token 预算，若首轮就 length 截断
  * 且正文为空，自动翻倍 max_tokens 重试一次 —— 避免用户拿到"空结果"。
  */
@@ -354,7 +354,7 @@ export async function* streamChat(
 ): AsyncGenerator<string> {
   const cfg = resolveConfig(options)
   if (!cfg.apiKey) {
-    throw new LLMError('未配置 API Key，请在「LLM 配置」中填写后重试')
+    throw new LLMError('未配置 API Key，请在“LLM 配置”中填写后重试')
   }
 
   const { chat: chatUrl } = resolveEndpoints(cfg.baseUrl)
@@ -497,7 +497,7 @@ export function explainError(status: number, body: string): string {
 
   if (status === 401) {
     if (code === '401002' || /signature|签名/.test(msg)) {
-      return '鉴权失败（401002）。两种可能：① 请求头缺少「Bearer 」前缀；② 保存的 Key 被覆盖成了掩码「***」。请重新粘贴 Key 并保存后再测。'
+      return '鉴权失败（401002）。两种可能：① 请求头缺少“Bearer ”前缀；② 保存的 Key 被覆盖成了掩码“***”。请重新粘贴 Key 并保存后再测。'
     }
     return `鉴权失败（401）。请确认 Key 未过期、未带首尾空格，且 Base URL 属于同一个平台。${msg ? ' 网关原文：' + msg : ''}`
   }

@@ -1,5 +1,5 @@
 /**
- * 计划生成器（0.6.0 P6）—— 方寸按证据起草一份**草案**，只落「待裁决」
+ * 计划生成器（0.6.0 P6）—— 方寸按证据起草一份**草案**，只落“待裁决”
  *
  * 边界（REV-005 ②③）：
  *   · 产出**永不自动冻结**：草稿顶部与每张阶段卡都写 `状态: 待裁决`，生成器没有"通过"能力；
@@ -9,7 +9,7 @@
  *   · 走既有 BYOK 通道（`chatDetailed`），不连默认端点、不预置钥匙。
  *
  * 为什么落 `task-data/plans/_drafts/`：真实计划卡是用户手写的，生成器不能覆盖它。
- * 草案放 `_` 开头的目录，`listPlanFiles` 天然不把它当正式计划；你看完点头再用「改一句/通过」
+ * 草案放 `_` 开头的目录，`listPlanFiles` 天然不把它当正式计划；你看完点头再用“改一句/通过”
  * 把它并进去（或手动复制）。
  */
 import * as fs from 'fs'
@@ -141,13 +141,13 @@ function evidenceLines(input: PlanDraftInput): string[] {
 export function buildPlanDraftPrompt(input: PlanDraftInput): { system: string; user: string } {
   const allowed = allowedCitations(input)
   const system = [
-    '你是「方寸」的作战计划起草器。只输出一个 JSON 对象，不要 Markdown 代码围栏、不要解释。',
+    '你是“方寸”的作战计划起草器。只输出一个 JSON 对象，不要 Markdown 代码围栏、不要解释。',
     '形状：{"stages":[{"id":"P0","title":"...","what":"...","approach":["..."],"copy":[["抄哪块","落到哪","不抄什么","怎么算抄到位"]],"criteria":["cmd: ..."],"cites":["task:xxx"]}]}',
     '硬规则：',
-    '1) 每条 stage 的 cites 至少 1 个，且只能从「可用依据」里原样选；引不出依据的条目不要输出。',
+    '1) 每条 stage 的 cites 至少 1 个，且只能从“可用依据”里原样选；引不出依据的条目不要输出。',
     '2) criteria 每条必须以 cmd: / str: / num: / file: 开头，且写成可执行的机器形式（cmd 给命令，str 给相对路径+含\'原文\'，num 给路径+指标+比较+数字，file 给路径）。',
     '3) copy 至少 1 行、恰好 4 列；不要写"多方案对比"这种空话。',
-    '4) 绝对不许写「已冻结」；你只能起草「待裁决」。',
+    '4) 绝对不许写“已冻结”；你只能起草“待裁决”。',
     '5) 不要输出你没有证据支撑的数字。',
   ].join('\n')
   const user = [
@@ -218,7 +218,7 @@ export function validateDraftStages(raw: RawDraftStage[], allowed: string[]): Dr
     }
     const text = [title, s?.what, ...(s?.approach || []), ...(s?.criteria || []), ...(s?.copy || []).flat()].join('\n')
     if (text.includes(FORBIDDEN)) {
-      dropped.push({ title: title || '(无标题)', reason: `出现「${FORBIDDEN}」——生成器只能起草待裁决` })
+      dropped.push({ title: title || '(无标题)', reason: `出现“${FORBIDDEN}”——生成器只能起草待裁决` })
       continue
     }
     const criteria = (Array.isArray(s?.criteria) ? s.criteria : []).map((x) => String(x || '').trim()).filter(Boolean)
@@ -276,7 +276,7 @@ export function renderPlanDraft(input: PlanDraftInput, stages: ValidDraftStage[]
   lines.push(`- 生成: 方寸 BYOK · ${opts.model || '未记录模型'} · ${stages.length} 张阶段卡 · 每条建议带依据`)
   lines.push(`- 裁决: （空）`)
   lines.push('')
-  lines.push('> 草案：方寸按「产品定义 + 投入产出账 + 现有卡与 git 事实」起草，**未冻结**。')
+  lines.push('> 草案：方寸按“产品定义 + 投入产出账 + 现有卡与 git 事实”起草，**未冻结**。')
   lines.push('> 通过 / 打回由人在项目页裁决；生成器没有"通过"能力。', '')
   lines.push('## 范围', '')
   lines.push(`本项目下一版计划草案：${stages.length} 张阶段卡，覆盖 ${stages.map((s) => s.title).join(' / ')}。`)
@@ -285,7 +285,7 @@ export function renderPlanDraft(input: PlanDraftInput, stages: ValidDraftStage[]
   for (const s of stages) lines.push(`| ${s.id} | ${mdCell(s.title)} | 待裁决 |`)
   lines.push('')
   lines.push('## 验收标准', '')
-  lines.push('以每张阶段卡「判据」区为准；判据前缀 cmd / str / num / file，未知前缀由执行器判 unknown，不算通过。')
+  lines.push('以每张阶段卡“判据”区为准；判据前缀 cmd / str / num / file，未知前缀由执行器判 unknown，不算通过。')
   lines.push('')
   lines.push('## 里程碑', '', '| 阶段 | 判据 | 依赖 | 状态 |', '|---|---|---|---|')
   for (const s of stages) lines.push(`| ${s.id} | ${s.criteria.length} 条 | — | 待裁决 |`)

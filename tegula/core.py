@@ -48,7 +48,7 @@ STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成",
 #: 写盘前要**归一**的已知误写（2026-10-21）。
 #: 为什么要有它：状态白名单（STATUSES）此前只在 `illegal_status` 里被 doctor / verify 使用，
 #: **写入路径一个校验都没有** —— 于是 2026-10-19 那批从外部账本导进来的 7 张卡把
-#: 「已完成」直接写进了 `状态:`，任务在看板上的分组/统计全靠猜，直到 verify 变红才被发现。
+#: “已完成”直接写进了 `状态:`，任务在看板上的分组/统计全靠猜，直到 verify 变红才被发现。
 #: 归一表只收**语义无歧义**的误写：`已完成`＝`完成`、`待处理`（日志页分区叫法）＝`待办`。
 #: 未识别的非法值**不吞也不拦**：照原样写 + stderr 警告（doctor/verify 仍能抓到），
 #: 因为 write_task_file 是全站唯一落盘点，硬拦会让批量导入半途中止、留一堆半成品。
@@ -70,7 +70,7 @@ def illegal_status(status):
     为什么要有这个函数（2026-10-06 卡 008）：`task-data/task-mingjian-template-20260925.md`
     曾写着 `状态: 待处理` —— 那是**日志页的分区叫法**，被手写进了任务卡。后果：
     看板分组语义不明、gen-progress 单列一类、当时 doctor 也不拦。
-    「空」不算非法：没填状态是"还没定"，不是"填错了"。
+    “空”不算非法：没填状态是"还没定"，不是"填错了"。
     """
     s = str(status or "").strip()
     return s if (s and s not in STATUSES) else ""
@@ -136,7 +136,7 @@ def parse_registry(path, include_released=True):
             # ⚠ 注释行**不改变当前段**（2026-10-05 修，真 bug）：
             #   此前这里直接拿 `^([A-Za-z_]+):` 匹配，注释匹配不上 → in_section 被重置为 None
             #   → 注释**之后**的项目块被整段忽略。实际后果：registry.yaml 里
-            #   「# 已发布 / 历史项目…」这两条注释下面新加的项目（TEST/TEST2），
+            #   “# 已发布 / 历史项目…”这两条注释下面新加的项目（TEST/TEST2），
             #   桌面版（真 yaml 解析）看得见、Python 侧（本手写解析器）看不见 —— 两侧不一致，
             #   而且 tegula next / report / MCP / 盘点脚本全部漏项目。
             if line.lstrip().startswith("#"):
@@ -472,7 +472,7 @@ def parse_task(path):
     fm_raw, body = m.group(1), m.group(2)
     d = {"_body": body, "_file": os.path.basename(path)}
 
-    # ── 前言先按「顶层键 + 其后的缩进行」分组，再逐个解释 ──────────────────
+    # ── 前言先按“顶层键 + 其后的缩进行”分组，再逐个解释 ──────────────────
     # 为什么不能边扫边判（2026-09-28 改）：旧实现只认**行内** flow 列表 `项目: [a]`，
     # 而老卡片写的是**块式**列表：
     #     项目:
@@ -573,7 +573,7 @@ MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止"
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
 # 桌面版（TS）用严格 js-yaml 解析，解析失败即返回 null 并被 loadTasks 静默跳过 ——
-# 表现为「用 Python CLI 写的任务在桌面版整个消失」。高危取值：
+# 表现为“用 Python CLI 写的任务在桌面版整个消失”。高危取值：
 #   标题含 ": "（`fix: xxx` 高频）、标题以 [ 或 # 开头、标签/阻塞含 #、资源值含 ": "
 # 转义规则必须与 js-yaml 的双引号风格一致，且 parse_task 侧要能对称还原。
 
@@ -585,7 +585,7 @@ _YAML_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"
 def yaml_scalar(v, in_flow=False):
     """把标量渲染成安全的 YAML 片段。仅在会被误解析时才加双引号。
 
-    故意保持「不必要时不加引号」——避免给数字/日期类值加引号改变解析类型。
+    故意保持“不必要时不加引号”——避免给数字/日期类值加引号改变解析类型。
 
     in_flow=True 用于 flow 列表/映射内的元素（`[...]`）：此时逗号和方括号
     都是结构字符，值里出现就必须引号，否则 `标签: [a,b]` 会被拆成两个标签。
@@ -676,7 +676,7 @@ def split_flow_list(inner):
 
 
 def _as_list(v):
-    """把「列表型字段」归一成列表。
+    """把“列表型字段”归一成列表。
 
     2026-09-29 实测（真实事故）：老卡片写的是**裸标量** `项目: fangcun-base`，
     而 render_task 直接 `for x in d.get("项目", [])` —— **遍历字符串 = 逐字符拆开**，
@@ -700,7 +700,7 @@ def _join_block_scalar(indicator, lines):
 
     2026-09-29 实测：老卡片里有 `验收: |-` 与 `附言: |+`。逐行解析器此前把**指示符本身**
     当值（读出来就是字符串 `"|-"`），指示符下面那几行**在解析阶段就丢了** ——
-    任何一次写回都会把整段内容替换成一个 `|-`。和「块式列表读成空串」是同一类病。
+    任何一次写回都会把整段内容替换成一个 `|-`。和“块式列表读成空串”是同一类病。
     """
     body = list(lines)
     indents = [len(ln) - len(ln.lstrip(' ')) for ln in body if ln.strip()]
@@ -843,7 +843,7 @@ def render_task(d):
 def write_task_file(path, d):
     """原子写 + 滚动备份：临时文件 + os.replace。
 
-    写入前把「状态」按 STATUS_ALIASES 归一（2026-10-21）：这是全站**唯一**落盘点，
+    写入前把“状态”按 STATUS_ALIASES 归一（2026-10-21）：这是全站**唯一**落盘点，
     在这里挡比在每个调用方各抄一遍可靠。未识别的非法值不拦，只警告 —— 见 STATUS_ALIASES 注释。
     """
     if isinstance(d, dict) and "状态" in d:
@@ -854,7 +854,7 @@ def write_task_file(path, d):
             d["状态"] = _st_new
         elif illegal_status(_st_new):
             sys.stderr.write(
-                "⚠ 状态值「%s」不在白名单 %s 里（已照写；doctor/verify 会继续报）\n"
+                "⚠ 状态值“%s”不在白名单 %s 里（已照写；doctor/verify 会继续报）\n"
                 % (_st_new, "/".join(STATUSES)))
     # 写入前备份已有文件
     if os.path.exists(path):
@@ -1105,7 +1105,7 @@ def _now_ts():
 def _bump_version(prev):
     """乐观锁版本号：单调递增的秒级时间戳。
 
-    同秒内连续写入时 +1，保证「每次写入都产生新版本」。
+    同秒内连续写入时 +1，保证“每次写入都产生新版本”。
     这是同秒并发下版本不撞车的唯一防线（历史缺陷：两次勾选落在同一秒，
     版本相同 → 第二次写入被误判为"版本匹配"而静默覆盖）。
     """
@@ -1196,7 +1196,7 @@ def api_edit(id, fields):
     if not str(d.get("创建") or "").strip():
         d["创建"] = _now_ts()
     d["更新"] = _bump_version(d.get("更新"))
-    # 自动化规则（P2）：仅在方案被改动时评估「方案全完成 → 待验收」
+    # 自动化规则（P2）：仅在方案被改动时评估“方案全完成 → 待验收”
     fired = []
     if isinstance(fields.get("方案"), list):
         fired = evaluate_rules(d, "field_change", {"id": id})
@@ -1207,7 +1207,7 @@ def api_edit(id, fields):
 
 
 def api_review(id, verdict, reason=""):
-    """验收裁决（看板验收按钮 / CLI 共用）：仅「待验收」任务可操作。
+    """验收裁决（看板验收按钮 / CLI 共用）：仅“待验收”任务可操作。
     accept → 完成；reject → 驳回，理由必填并追加进结果记录留痕（验收可追溯）。
     乐观锁同 api_edit：调用方带 expected_update / expected_mtime 则先校验。"""
     fn = os.path.join(TASK_DIR, id + ".md")
@@ -1217,7 +1217,7 @@ def api_review(id, verdict, reason=""):
     if d is None:
         return False, "parse fail"
     if d.get("状态") != "待验收":
-        return False, f"当前状态为「{d.get('状态') or '未知'}」，仅「待验收」可验收"
+        return False, f"当前状态为“{d.get('状态') or '未知'}”，仅“待验收”可验收"
     verdict = (verdict or "").strip()
     if verdict == "accept":
         # 阶段门控：验收清单检查
@@ -1304,7 +1304,7 @@ def gate_close(gate_id, reason=""):
 # 定下来的事当场记成卡：事情 + 哪天定的 + 还作不作数 + 出处。
 # 单文件节式（task-data/decisions.md），与哨兵防遗忘台账四字段同构——整表直灌零转换。
 # 有意不挂任务状态机：决策不流转（不是待办），只有 有效/已撤销/已合并 三态。
-# 2026-10-14（暮雨「说中文」）：三态由 作数/已作废/已并入 改为 有效/已撤销/已合并；
+# 2026-10-14（暮雨“说中文”）：三态由 作数/已作废/已并入 改为 有效/已撤销/已合并；
 #   老值**读取时归一**（_LEGACY_DECISION_ALIASES），新写入一律新值。
 #   与桌面端 desktop/src/main/data/decisions.ts 的 DECISION_STATUSES 逐字一致（判据 check-decisions.py）。
 
@@ -1707,7 +1707,7 @@ def api_new(fields):
     def val(key, fallback):
         """字段默认值链：调用方显式值 > _template.md 有效值 > 内置兜底。
         模板占位文字（全角括号开头，如『（执行后由执行方填写）』）不算有效值。
-        空「状态」按内置默认走（调用方传 "" 是"没填"，不是"要空状态"）。"""
+        空“状态”按内置默认走（调用方传 "" 是"没填"，不是"要空状态"）。"""
         v = fields.get(key)
         if v not in (None, "", []):
             return v
@@ -1758,10 +1758,10 @@ def api_new(fields):
 # 设计取舍（写死在这里，防再断链）：
 #   · 零依赖：cron 解析手写（方寸纯标准库红线）。支持 5 段式 + @别名 + 中文简写。
 #   · 族 = 同 recurring_id 的全部任务；母卡无 recurring_id 时它自己就是族首（族 id=母卡 id）。
-#   · 触发依据 = 族内最新实例的「创建」时间戳；其下一个触发点 ≤ now 就生成新实例。
+#   · 触发依据 = 族内最新实例的“创建”时间戳；其下一个触发点 ≤ now 就生成新实例。
 #     落后多个周期**只补最近一个**（不追平历史，防雪崩；且天然幂等——新实例的创建
 #     时间会把下一个触发点推到未来，重复调用不重复生成）。
-#   · 新实例：复制 标题/项目/优先级/标签/阻塞/验收清单/指派/验收/cron，状态重置「待办」，
+#   · 新实例：复制 标题/项目/优先级/标签/阻塞/验收清单/指派/验收/cron，状态重置“待办”，
 #     截止 = 触发点当天，recurring_id 继承族 id，附言注明源卡，来源标 "recurring"。
 
 _CRON_ALIASES = {
@@ -1864,7 +1864,7 @@ def cron_next_after(expr, after):
 
 
 def _spawn_recurring_instance(src, when):
-    """按源卡生成下一期实例（状态「待办」，截止=触发点当天）。返回新 id。"""
+    """按源卡生成下一期实例（状态“待办”，截止=触发点当天）。返回新 id。"""
     tid = gen_id()
     d = {
         "id": tid,
@@ -1938,17 +1938,17 @@ def check_recurring_tasks():
 
 
 # ---------- archify 卡导入（中长期清单第 9 条，2026-10-14） ----------
-# 「让方寸能导入 archify 产出的技能卡（**只做导入、不替它分发**，零版权负担）」。
+# “让方寸能导入 archify 产出的技能卡（**只做导入、不替它分发**，零版权负担）”。
 # 三条口径（与 docs/免责声明与用户协议.md 第七章对齐）：
 #   ① 只导入：读您指定的文件 → 存进您自己的数据目录；**不接管、不转售、不对外分发**；
 #   ② 来源如实保留：文件名 / 图型 / schema 版本照写，**不伪造、不抹署名**；
 #   ③ 不改变原许可：导入动作不改变内容原有许可证。
-# 落点：整张原卡（JSON）**原样**存进任务卡的「架构」字段（标量 JSON 字符串，禁 YAML 嵌套映射），
+# 落点：整张原卡（JSON）**原样**存进任务卡的“架构”字段（标量 JSON 字符串，禁 YAML 嵌套映射），
 #       正文只放**人看得懂的摘要** —— 摘要不改也不重排原卡。
 
 ARCHIFY_TYPES = ("architecture", "workflow", "sequence", "dataflow", "lifecycle")
 # 各图型的主内容字段名不同（架构 = components、工作流 = steps、时序 = participants/messages…）。
-# 不做逐图型硬编码：用「至少有一个内容数组」当判据，缺了就把试过的字段名点给用户。
+# 不做逐图型硬编码：用“至少有一个内容数组”当判据，缺了就把试过的字段名点给用户。
 ARCHIFY_CONTENT_KEYS = ("components", "steps", "stages", "states", "participants",
                         "messages", "nodes", "edges", "connections", "boundaries",
                         "cards", "lanes", "phases")
@@ -1957,7 +1957,7 @@ ARCHIFY_CONTENT_KEYS = ("components", "steps", "stages", "states", "participants
 def archify_check(d):
     """校验一张 archify 卡，返回错误清单（空 = 通过）。
 
-    判据刻意「宽松但点名」：只拦**真的没法当图用**的，深一层（几何 / 布局 / 质量档案）
+    判据刻意“宽松但点名”：只拦**真的没法当图用**的，深一层（几何 / 布局 / 质量档案）
     交给 archify 自己的 `validate` —— 方寸零依赖，不复制它的校验器。
     """
     errs = []
@@ -1965,10 +1965,10 @@ def archify_check(d):
         return ["顶层不是 JSON 对象"]
     for k in ("schema_version", "diagram_type", "meta"):
         if d.get(k) in (None, ""):
-            errs.append(f"缺字段「{k}」")
+            errs.append(f"缺字段“{k}”")
     t = d.get("diagram_type")
     if t not in ARCHIFY_TYPES:
-        errs.append(f"diagram_type 不认识：「{t}」（应为 {' / '.join(ARCHIFY_TYPES)} 之一）")
+        errs.append(f"diagram_type 不认识：“{t}”（应为 {' / '.join(ARCHIFY_TYPES)} 之一）")
     m = d.get("meta")
     if not isinstance(m, dict):
         errs.append("meta 不是对象")
@@ -2044,7 +2044,7 @@ def archify_summary(d):
                          + "；".join(str(x) for x in (c.get("items") or [])))
         L.append("")
 
-    L.append("> 原始 JSON **原样**存在本卡的「架构」字段里（标量 JSON 字符串）；这里只是摘要，没有改动原卡。")
+    L.append("> 原始 JSON **原样**存在本卡的“架构”字段里（标量 JSON 字符串）；这里只是摘要，没有改动原卡。")
     L.append("> 导入只把文件读进你自己的数据目录 —— 方寸**不接管、不分发**，也不改变原内容的许可证。")
     return "\n".join(L)
 
@@ -2083,7 +2083,7 @@ def archify_import(path, project=None, title=None, dry_run=False):
         "状态": "待办",
         "来源": "archify",
         "附言": f"由 archify 技能卡导入（{d.get('diagram_type')}，schema v{d.get('schema_version')}）；"
-                f"原卡存于本卡「架构」字段。只导入、不分发。",
+                f"原卡存于本卡“架构”字段。只导入、不分发。",
         "方案": [body],
     })
     if not ok:
@@ -2096,7 +2096,7 @@ def archify_import(path, project=None, title=None, dry_run=False):
         d2["架构"] = json.dumps(d, ensure_ascii=False)
         write_task_file(p, d2)
     else:
-        return False, {"error": f"卡建好了但读不回（{p}）—— 没写「架构」字段，请检查数据目录"}
+        return False, {"error": f"卡建好了但读不回（{p}）—— 没写“架构”字段，请检查数据目录"}
     return True, {"id": tid, "标题": ttl, "图型": d.get("diagram_type"),
                   "条目数": counts, "path": p}
 
@@ -2641,7 +2641,7 @@ def log_agent_run(run_id, tid, agent, status, cost=None, duration=None, detail="
 
 
 def read_policy(project_id):
-    """读项目方针卡（DATA_DIR/policies/<id>.md，由桌面版设置页「项目方针」写入）。
+    """读项目方针卡（DATA_DIR/policies/<id>.md，由桌面版设置页“项目方针”写入）。
 
     返回 {'使命','当前目标','应用场景','方针边界'}；卡不存在或全空时返回 None。
     段落格式与桌面版 services/policies.ts 的 section() 对齐，改任一侧都要同步。
@@ -2681,17 +2681,17 @@ def read_policy(project_id):
 
 # ---------- 立项契约（2026-10-05 REV-002：真源在各项目 repo，方寸**只读**）----------
 # 契约 = 立项书（六字段 + REV 修订表），与 AGENTS.md 同级放在**项目自己的仓库**里；
-# 方寸只做「索引 + 一屏 + 派活下发 + REV 留痕」，**绝不写他人仓库**。
-# 与「项目方针卡」（policies/<id>.md，方寸自己的数据目录）是两层，别混：
+# 方寸只做“索引 + 一屏 + 派活下发 + REV 留痕”，**绝不写他人仓库**。
+# 与“项目方针卡”（policies/<id>.md，方寸自己的数据目录）是两层，别混：
 #   方针 = 长期背景（使命/项目事实/结构地图）；契约 = 开工前提（终态/验收线/不要什么/选型）。
 CONTRACT_BASENAME = "立项契约.md"
 CONTRACT_FIELDS = ["终态形态", "验收线", "不要什么", "选型定死", "现状底数", "下一队列"]
 
 # 字段别名（2026-10-11 真机修正）：**光认标准六节名会让"写了但没按模板命名"的契约判成"未填"**。
-# 实例：绒花墨坊的契约用「① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …」——文件写得很完整，
-# 方寸却六个字段全空、界面显示「内容未填」（用户原话「已经有内容了啊？」）。**这是界面说假话。**
+# 实例：绒花墨坊的契约用“① 终态三段 / ② 原料边界 / ⑥ 验收锚点 …”——文件写得很完整，
+# 方寸却六个字段全空、界面显示“内容未填”（用户原话“已经有内容了啊？”）。**这是界面说假话。**
 # 匹配顺序：① 标准名完整出现 → ② 别名完整出现（先长后短）。仍然对不上就**如实说"对不上"**，
-# 由调用方把「文件里实际的小节名」摆出来 —— 不许笼统说「未填」。
+# 由调用方把“文件里实际的小节名”摆出来 —— 不许笼统说“未填”。
 CONTRACT_ALIASES = {
     "终态形态": ["终态形态", "终态"],
     "验收线": ["验收线", "验收"],
@@ -2722,8 +2722,8 @@ def _strip_section_hr(text):
 def is_placeholder_body(body):
     """整段被一对括号包住 = **模板占位**（说明"这里该写什么"），不是内容。
 
-    真填的正文不会整段用括号包起来 —— 反过来，「（一句话：我想做的就是 ___。原话直录。）」
-    这种一眼就是骨架。判成占位后字段值给空串，调用方显示「模板占位·还没填」，
+    真填的正文不会整段用括号包起来 —— 反过来，“（一句话：我想做的就是 ___。原话直录。）”
+    这种一眼就是骨架。判成占位后字段值给空串，调用方显示“模板占位·还没填”，
     别把占位说明当成内容（那是另一种"界面说假话"）。
     """
     s = (body or "").strip()
@@ -2740,13 +2740,13 @@ def read_contract_file(path):
 
     返回 {'exists', 'path', 六个字段: str, 'sections', 'filled', 'placeholderFields', 'unmatched'}。
 
-    · 小节匹配**宽松**：标题里含字段名（或别名）即可 —— 「## ① 终态形态」「## 终态三段」都认。
+    · 小节匹配**宽松**：标题里含字段名（或别名）即可 —— “## ① 终态形态”“## 终态三段”都认。
     · 字段缺失/占位 → 给空串（缺字段是**真实状态**，交给调用方显式展示），
       但同时把**原因分类**记下来：`sections`（文件里实际有哪些小节、各对上了谁）、
       `filled`（真有内容的字段）、`placeholderFields`（命中但仍是模板占位）、
       `unmatched`（对不上标准六节的小节名）。
-      ⚠ 这三样是给调用方说人话用的：**「小节名对不上」和「真没写」是两回事**，
-        笼统报「未填」会让用户以为文件是空的（2026-10-11 用户就是这么被误导的）。
+      ⚠ 这三样是给调用方说人话用的：**“小节名对不上”和“真没写”是两回事**，
+        笼统报“未填”会让用户以为文件是空的（2026-10-11 用户就是这么被误导的）。
     """
     out = {"exists": False, "path": path or ""}
     for k in CONTRACT_FIELDS:
@@ -2829,7 +2829,7 @@ def _contract_path(repo):
 def build_project_brief(project_id):
     """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文，喂给 agent 即有全局视野。
 
-    此前只有**单任务派活包**（dispatch 任务书带契约节选+项目事实+结构地图），缺「整项目一键包」。
+    此前只有**单任务派活包**（dispatch 任务书带契约节选+项目事实+结构地图），缺“整项目一键包”。
     本函数复用四个现成读口拼装（零新数据源，只读）：
       read_contract（契约全文）+ load_tasks（在途任务）+ load_decisions（决策卡）+ aggregate_roadmap（进度聚合）
     返回 (markdown, None)；项目不存在返回 (None, 报错)。
@@ -2921,7 +2921,7 @@ def build_project_brief(project_id):
     lines.append("## 进度聚合")
     if pj:
         for b in pj.get("batches") or []:
-            lines.append(f"- 批次「{b.get('name')}」：{b.get('done', 0)}/{b.get('total', 0)} 完成（{b.get('status')}）")
+            lines.append(f"- 批次“{b.get('name')}”：{b.get('done', 0)}/{b.get('total', 0)} 完成（{b.get('status')}）")
         nx = pj.get("next_actions") or []
         if nx:
             lines.append("")
@@ -3020,7 +3020,7 @@ def build_arch_profile(project_id):
     name = meta.get("name", pid)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# 项目分层档案 · {name}（{pid}）", "",
-             f"> 一条命令产出的结构理解档案（生成于 {now}）。与 project-brief 互补：这份管「项目长什么样」，那份管「项目干到哪」。"]
+             f"> 一条命令产出的结构理解档案（生成于 {now}）。与 project-brief 互补：这份管“项目长什么样”，那份管“项目干到哪”。"]
 
     # ── registry 档案 ──
     lines += ["", "## 项目档案（registry）", f"- 仓库：{meta.get('repo') or '（未填）'}"]
@@ -3076,7 +3076,7 @@ def build_arch_profile(project_id):
 
 
 def contract_prompt_lines(repo):
-    """任务书 / `tegula next` 里的「立项契约」块。
+    """任务书 / `tegula next` 里的“立项契约”块。
 
     缺契约时**显式提示**（绝不静默跳过 —— 静默跳过正是契约要治的病）。
     有契约时只节选四节（终态/验收线/不要什么/选型）各一行，控长。
@@ -3094,7 +3094,7 @@ def contract_prompt_lines(repo):
     lines = [
         "## 本项目立项契约（**动手前先读契约**）",
         f"- 契约文件：{path}（完整版含 现状底数 / 下一队列 / REV 修订记录，先通读）",
-        "- 与「最新一句话」冲突时**以契约为准**，除非走 REV 修订留痕（禁口头漂移）。",
+        "- 与“最新一句话”冲突时**以契约为准**，除非走 REV 修订留痕（禁口头漂移）。",
     ]
     for k in ("终态形态", "验收线", "不要什么", "选型定死"):
         v = _brief(c.get(k))
@@ -3189,7 +3189,7 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
     输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。
     2026-09-25 六字段派工单：项目事实节从方针卡自动注入（无卡/无节则静默跳过，
     不给任务书添噪音）；先搜后写纪律随任务书固定下发。
-    2026-10-05 契约主线（REV-002）：追加「本项目立项契约」块（四节节选 + 先读契约硬前置）；
+    2026-10-05 契约主线（REV-002）：追加“本项目立项契约”块（四节节选 + 先读契约硬前置）；
     契约缺失时**显式提示**（这一处不许静默跳过——静默跳过正是契约要治的病）。"""
     proj_id = (d.get("项目") or [None])[0]
     p = {q["id"]: q for q in load_all_projects()}.get(proj_id) if proj_id else None
@@ -3204,7 +3204,7 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
         f"项目：{proj_name}（{proj_id}）· 仓库：{repo}",
         f"任务卡：{fn}（先完整阅读再动手）",
     ]
-    # 立项契约（REV-002）：契约第一个读者是 AI —— 随任务书下发四节节选 + 硬前置「先读契约再动工」；
+    # 立项契约（REV-002）：契约第一个读者是 AI —— 随任务书下发四节节选 + 硬前置“先读契约再动工”；
     # 缺契约时显式提示（不是静默跳过）。真源在各项目 repo，方寸只读。
     lines += contract_prompt_lines(repo)
     lines += [
@@ -3219,16 +3219,16 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
     # 结构地图指路（卡 029）：方针卡里已有地图就点名，不整段内联（免得每份任务书灌 20 行）。
     map_line = ""
     if str(((pol or {}).get("结构地图") or "")).strip():
-        map_line = ("\n- 本项目方针卡有「结构地图」节（模块清单 + 每模块职责 + 主数据流）——"
+        map_line = ("\n- 本项目方针卡有“结构地图”节（模块清单 + 每模块职责 + 主数据流）——"
                     "动手前先读它，把全局拉回上下文。")
     lines.append(
         "## 开工纪律\n"
         "- 先搜后写：动手前先列出仓库里已有的相关实现（grep 关键词），报清单再动手；"
         "工具函数一律进公共目录（不落在业务模块）。\n"
         "- 单实现直接写，不抽接口；出现第二个真实调用方再抽。\n"
-        "- 修复新增兜底须报备：每条报「防的是什么 + 失败时用户看到什么」；"
+        "- 修复新增兜底须报备：每条报“防的是什么 + 失败时用户看到什么”；"
         "防错误暴露（静默失败/假默认值）直接打回，防数据损坏留下但记录权衡。\n"
-        "- 大改动交付附「数据流五句话」：数据从哪来 → 经过谁 → 落到哪 → 谁读它 → 本次动的是哪条链；"
+        "- 大改动交付附“数据流五句话”：数据从哪来 → 经过谁 → 落到哪 → 谁读它 → 本次动的是哪条链；"
         "写进回写的结果/证据（归档卡就是人能读的变更日志）。" + map_line)
     if ziliao:
         lines.append(f"资料：{ziliao}")
@@ -3488,8 +3488,8 @@ def evaluate_rules(task, trigger, context=None):
         if cond.get("all_checked"):
             if not _plan_all_checked(task.get("方案")):
                 continue
-            # 状态门：condition.status 显式声明才比对；未声明则默认只允许「进行中」
-            # （自动推进的本质是「执行方干完了」，草稿/待办/已终态都不该被推走）
+            # 状态门：condition.status 显式声明才比对；未声明则默认只允许“进行中”
+            # （自动推进的本质是“执行方干完了”，草稿/待办/已终态都不该被推走）
             want_status = cond.get("status", "进行中")
             if want_status and task.get("状态") != want_status:
                 continue
@@ -3660,7 +3660,7 @@ def parse_quick_add(text):
             if sv_ in STATUSES:
                 fields["状态"] = sv_
             else:
-                return None, f"未知状态「{sv_}」（可选：{'/'.join(STATUSES)}）"
+                return None, f"未知状态“{sv_}”（可选：{'/'.join(STATUSES)}）"
         else:
             title_tokens.append(tk)
     fields["标签"] = tags
@@ -3702,7 +3702,7 @@ def api_rules(req):
 
 
 def timeout_badge_hours(task, rules=None):
-    """该任务是否命中「超时未回写」规则；命中返回阈值小时数，否则 None。"""
+    """该任务是否命中“超时未回写”规则；命中返回阈值小时数，否则 None。"""
     if str(task.get("状态") or "") != "进行中":
         return None
     pd = task.get("派活时间")
@@ -4026,8 +4026,8 @@ def scan_project_status(p):
         "repo": repo,
         "released": is_released,
         "git": {"recent_commits": 0, "last_commit_days": None, "uncommitted": 0, "active_branch": None},
-        # ⚠ 口径（2026-10-27 修）：`done` 以前把「完成 + 驳回」混在一起，而 cli 又把它显示成
-        #   「N 待验收」—— 于是报告里的"待验收"根本不是待验收（实测全库 0 张待验收，报告却报 26）。
+        # ⚠ 口径（2026-10-27 修）：`done` 以前把“完成 + 驳回”混在一起，而 cli 又把它显示成
+        #   “N 待验收”—— 于是报告里的"待验收"根本不是待验收（实测全库 0 张待验收，报告却报 26）。
         #   现在七个状态各归各桶，且各桶之和 == total（见下方累加处的守卫注释）。
         "tasks": {
             "total": 0,
@@ -4169,10 +4169,10 @@ def suggest_actions(s):
 
     if s["health"] == "stuck" and tasks["blocked_names"]:
         bn = tasks["blocked_names"][0]
-        sugs.append(f"解除阻塞：「{bn}」完成后可解锁下游任务")
+        sugs.append(f"解除阻塞：“{bn}”完成后可解锁下游任务")
 
     if git["uncommitted"] > 5 and tasks["active"] == 0 and s["health"] != "released":
-        sugs.append(f"整理 {git['uncommitted']} 个未提交改动：建「整理并提交」任务？")
+        sugs.append(f"整理 {git['uncommitted']} 个未提交改动：建“整理并提交”任务？")
 
     if s["health"] == "dormant" and tasks["total"] == 0:
         sugs.append("停滞 >30 天且无任务：建议标记 released 或建激活任务")
@@ -4482,7 +4482,7 @@ def _parse_log(text):
     if not m:
         return {}, text
     fm_raw, body = m.group(1), m.group(2)
-    # ── 2026-10-01 P0-2（与 parse_task 同一口径）：先按「顶层键 + 其后的缩进行」分组 ──
+    # ── 2026-10-01 P0-2（与 parse_task 同一口径）：先按“顶层键 + 其后的缩进行”分组 ──
     # 为什么不能边扫边判：旧实现只认行内 flow 列表 `附件: [a, b]`，而块式写法是
     #     附件:
     #       - report.md
@@ -4961,10 +4961,10 @@ def api_import_tasks(data):
     """从 JSON 数据导入任务。
 
     ⚠ 2026-10-14（开发清单第 6 条）：**字段名写错当场报错，不再静默落空壳**。
-    老行为：`api_new` 只认白名单键，拼错的键被默默丢掉 → 落一张「(无标题)」的空卡，
+    老行为：`api_new` 只认白名单键，拼错的键被默默丢掉 → 落一张“(无标题)”的空卡，
     还回 `{"ok": True, "imported": n}` —— 手搓导入文件的人会以为成功了。
     现在：先**全量体检**，任何一条有毛病就**整体拒绝**（一个文件都不写），并把
-    「第几条 / 哪个字段名 / 是不是想写某某」说清楚 —— 报错要能直接照着改。
+    “第几条 / 哪个字段名 / 是不是想写某某”说清楚 —— 报错要能直接照着改。
     """
     if not isinstance(data, list):
         return {"ok": False, "msg": "data must be a list"}
@@ -4981,10 +4981,10 @@ def api_import_tasks(data):
         for k in unknown:
             near = difflib.get_close_matches(str(k), ordered, n=1, cutoff=0.5)
             problems.append(
-                f"第 {i} 条的字段名「{k}」不认识" + (f"，是不是想写「{near[0]}」？" if near else "")
+                f"第 {i} 条的字段名“{k}”不认识" + (f"，是不是想写“{near[0]}”？" if near else "")
             )
         if not unknown and not str(item.get("标题") or "").strip():
-            problems.append(f"第 {i} 条没有「标题」（照现在的默认值会落一张 (无标题) 的空壳）")
+            problems.append(f"第 {i} 条没有“标题”（照现在的默认值会落一张 (无标题) 的空壳）")
 
     if problems:
         head = "；".join(problems[:6])
@@ -5413,7 +5413,7 @@ def mcp_project_brief(params):
 
 def mcp_ai_trace(params):
     """AI 调用链留痕查询（2026-10-17 四件补立项之一）：只读元数据，
-    回答「AI 干了什么/花了多少/哪次挂的」。绝不返回 prompt 或响应正文。"""
+    回答“AI 干了什么/花了多少/哪次挂的”。绝不返回 prompt 或响应正文。"""
     from tegula_llm import read_trace
     p = params or {}
     try:

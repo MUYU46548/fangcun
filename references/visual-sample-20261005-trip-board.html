@@ -84,12 +84,12 @@
 </head>
 <body>
 
-<h1>方寸 · 视觉小样 <b>v2</b>：项目页签新增摆法「在途一屏」（Q2）</h1>
+<h1>方寸 · 视觉小样 <b>v2</b>：项目页签新增摆法“在途一屏”（Q2）</h1>
 <p class="lead">
-  对应立项契约 ② 验收线之①：<b>「在哪一步 / 下一步 / 卡在谁」一屏可见</b>。<br>
+  对应立项契约 ② 验收线之①：<b>“在哪一步 / 下一步 / 卡在谁”一屏可见</b>。<br>
   v2 已按暮雨 2026-10-05 拍的三条改：① <b>司天收进来</b>（0 卡但 7 条日志，靠日志记断点）；
   ② 默认判据 = <b>有未完结卡 或 30 天内有提交</b>（→ 10 个项目）；③ 契约按钮做成两个（复制模板 + 打开 repo）。<br>
-  旧三摆法一个字不动，默认仍是「项目墙」。
+  旧三摆法一个字不动，默认仍是“项目墙”。
 </p>
 
 <!-- ① -->
@@ -108,9 +108,9 @@
 
 <!-- ② -->
 <div class="panel">
-  <h2>② 「在途一屏」长什么样<small>10 行全是今天 10:45 的真实数据</small></h2>
+  <h2>② “在途一屏”长什么样<small>10 行全是今天 10:45 的真实数据</small></h2>
   <div class="why">
-    一行一项目。所有内容都<b>从已有数据推</b>：契约读「终态」；任务卡推「当前步骤 / 下一步 / 卡在谁」；
+    一行一项目。所有内容都<b>从已有数据推</b>：契约读“终态”；任务卡推“当前步骤 / 下一步 / 卡在谁”；
     <b>没有卡就看执行日志</b>（司天正是靠这条进来的）；git 推健康度。
   </div>
   <div class="stage">
@@ -148,7 +148,7 @@
             <td class="pj">司天<span class="pid">sitian</span></td>
             <td class="end"><span class="unset act">未填 · 复制模板</span><span class="unset act">📁 打开 repo</span></td>
             <td class="step"><span class="k">司天进度1001 <span class="from">日志</span></span>3 天前 · 暂搁置</td>
-            <td class="step"><span class="k">— 该日志未写「下一步」</span></td>
+            <td class="step"><span class="k">— 该日志未写“下一步”</span></td>
             <td class="who muted">—</td>
             <td class="health"><span class="dot gray"></span>搁置<span class="lock">🔒人工</span></td>
             <td class="cnt"><b>0</b> 卡 · <b>7</b> 日志</td>
@@ -232,46 +232,46 @@
   <div class="ruler">
     <span><b>终态</b> = 契约 ① 首行</span>
     <span><b>当前步骤</b> = 进行中的卡 → 没卡就回落到最近一条日志</span>
-    <span><b>下一步</b> = 待办里优先级最高那张 → 没卡就看日志的「下一步」</span>
+    <span><b>下一步</b> = 待办里优先级最高那张 → 没卡就看日志的“下一步”</span>
     <span><b>健康度</b> = 提交新鲜度，<b>可点着改</b>（🔒 = 你手动锁定过）</span>
   </div>
   <div class="note">
     末两行（Quartz / ROSA RAG）是<b>判据放宽的代价</b>：它们没有卡、没有日志，只靠 30 天内有提交被拉进来，
-    所以有两格只能是「—」。视图照实显示，不为了好看去编内容。
+    所以有两格只能是“—”。视图照实显示，不为了好看去编内容。
   </div>
 </div>
 
 <!-- ③ -->
 <div class="panel">
-  <h2>③ 司天这一行是怎么来的<small>回应「0 张卡、全靠日志记断点」</small></h2>
-  <div class="why">司天在方寸里 0 张任务卡，但有 <b>7 条执行日志</b>（最新「司天进度1001」，3 天前）。所以它不显示空白，而是回落到日志：</div>
+  <h2>③ 司天这一行是怎么来的<small>回应“0 张卡、全靠日志记断点”</small></h2>
+  <div class="why">司天在方寸里 0 张任务卡，但有 <b>7 条执行日志</b>（最新“司天进度1001”，3 天前）。所以它不显示空白，而是回落到日志：</div>
   <div class="stage">
     <table class="trip" style="background:#fff;border-radius:10px;overflow:hidden">
       <thead><tr><th style="width:150px">数据源</th><th>取到什么</th><th style="width:130px">落到哪一列</th></tr></thead>
       <tbody>
         <tr><td>任务卡（<code>task-data/</code>）</td><td class="muted">0 张 —— 方寸里没有落点</td><td class="muted">—</td></tr>
         <tr><td>执行日志（<code>docs/执行日志/</code>）</td><td>最新：<b>司天进度1001</b> · 3 天前 · 状态 active</td><td>当前步骤 <span class="from">日志</span></td></tr>
-        <tr><td>日志的 <code>next_steps</code> 字段</td><td class="muted">该条为空 —— 所以「下一步」只能是「—」</td><td class="muted">——</td></tr>
-        <tr><td>git 提交</td><td>3 天前有提交（机器会判「活跃」）</td><td>健康度 → <b>你手动锁成「搁置」</b></td></tr>
+        <tr><td>日志的 <code>next_steps</code> 字段</td><td class="muted">该条为空 —— 所以“下一步”只能是“—”</td><td class="muted">——</td></tr>
+        <tr><td>git 提交</td><td>3 天前有提交（机器会判“活跃”）</td><td>健康度 → <b>你手动锁成“搁置”</b></td></tr>
       </tbody>
     </table>
   </div>
   <div class="note">
-    两个要点：<b>①</b> 日志成了 0 卡项目的唯一数据源 —— 这就是你说「全靠日志记录断点」在一屏上的落点；
-    <b>②</b> 健康度<b>不能只信机器</b>：司天 3 天前有提交，机器判「活跃」，但真实状态是<b>搁置</b>（预算/时间受限）。
+    两个要点：<b>①</b> 日志成了 0 卡项目的唯一数据源 —— 这就是你说“全靠日志记录断点”在一屏上的落点；
+    <b>②</b> 健康度<b>不能只信机器</b>：司天 3 天前有提交，机器判“活跃”，但真实状态是<b>搁置</b>（预算/时间受限）。
     所以这一列做成<b>可点击覆盖</b>，你标过的会带 🔒 锁住，机器不再改它。
   </div>
 </div>
 
 <!-- ④ -->
 <div class="panel">
-  <h2>④ 裁断入口<small>点右上「⚙ 这一屏显示什么」</small></h2>
+  <h2>④ 裁断入口<small>点右上“⚙ 这一屏显示什么”</small></h2>
   <div class="why">机器口径只是<b>默认值</b>。你手动选过就以你的为准，不会再被自动推导覆盖。</div>
   <div class="stage">
     <div class="cfg">
       <div>
         <h3>收哪些项目</h3>
-        <div class="hint">默认「自动」= 按下面判据取。想固定就选「手动」。</div>
+        <div class="hint">默认“自动”= 按下面判据取。想固定就选“手动”。</div>
         <div class="modes">
           <label class="on"><input type="radio" name="m" checked> 自动（跟判据走）</label>
           <label><input type="radio" name="m"> 手动指定</label>
@@ -292,7 +292,7 @@
           <label class="chk"><input type="checkbox"> 弈局残响</label>
         </div>
         <div class="warnbox">
-          勾选状态 = 当前判据算出来的结果（10 个）。你一旦手动改动，就切到「手动指定」并记进 <code>prefs.json</code> ——
+          勾选状态 = 当前判据算出来的结果（10 个）。你一旦手动改动，就切到“手动指定”并记进 <code>prefs.json</code> ——
           <b>默认不写死任何一个项目名</b>，换台机器、换个用户都成立。
         </div>
       </div>
@@ -332,12 +332,12 @@
 
 <!-- ⑤ -->
 <div class="panel">
-  <h2>⑤ 缺值一律「未填 / —」<small>这是纪律，不是抠门</small></h2>
-  <div class="why">方寸犯过的老毛病是「界面说假话」（默认值伪装成事实）。这一屏读到什么写什么：</div>
+  <h2>⑤ 缺值一律“未填 / —”<small>这是纪律，不是抠门</small></h2>
+  <div class="why">方寸犯过的老毛病是“界面说假话”（默认值伪装成事实）。这一屏读到什么写什么：</div>
   <ul class="plain">
-    <li>契约没有 → 红框「<b>未填</b>」+ 两个按钮：<b>复制模板</b>（A，给你一份骨架，你去仓库里改）/ <b>📁 打开 repo</b>（B，直接开目录）。</li>
-    <li>没有进行中的卡 → 写「<b>— 没有进行中的卡</b>」，不拿"最后一张完成的卡"顶上。</li>
-    <li>0 张卡也 0 条日志 → 写「<b>— 0 张卡 · 无日志</b>」，并注明「只有提交撑着」。</li>
+    <li>契约没有 → 红框“<b>未填</b>”+ 两个按钮：<b>复制模板</b>（A，给你一份骨架，你去仓库里改）/ <b>📁 打开 repo</b>（B，直接开目录）。</li>
+    <li>没有进行中的卡 → 写“<b>— 没有进行中的卡</b>”，不拿"最后一张完成的卡"顶上。</li>
+    <li>0 张卡也 0 条日志 → 写“<b>— 0 张卡 · 无日志</b>”，并注明“只有提交撑着”。</li>
     <li>10 行里 <b>9 行终态未填</b> —— 这不是这一屏的毛病，是<b>九个项目还没立契约</b>。视图只负责把它摊开。</li>
   </ul>
 </div>
@@ -346,9 +346,9 @@
 <div class="panel">
   <h2>⑥ 两个我自己拍的小决定<small>不同意就改，我先说清楚</small></h2>
   <ul class="plain">
-    <li><b>健康度可人工覆盖</b>（司天「搁置」就是例子）。机器只给默认值（提交新鲜度），你点一下就能锁成
+    <li><b>健康度可人工覆盖</b>（司天“搁置”就是例子）。机器只给默认值（提交新鲜度），你点一下就能锁成
       活跃 / 搁置 / 休眠 / 完成，锁过的带 🔒，机器不再动弹它。理由：司天这种"在动但冻结"的状态，机器永远算不出来。</li>
-    <li><b>日志来源写清楚</b>：「当前步骤」回落到日志时，旁边挂一枚小标签「日志」，让你一眼看出这条不是卡里来的。</li>
+    <li><b>日志来源写清楚</b>：“当前步骤”回落到日志时，旁边挂一枚小标签“日志”，让你一眼看出这条不是卡里来的。</li>
   </ul>
   <div class="note">
     附：盘点时还撞见 <b>2 条孤儿日志</b>（<code>project</code> 写成 <code>(空)</code> 和 <code>小说游戏</code>，

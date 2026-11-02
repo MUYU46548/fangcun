@@ -1,7 +1,7 @@
 /**
  * UI 基座（shadcn-vue + Tailwind）接线守卫 —— 卡 task-20261011-004
  *
- * 起因：第 ① 步的验收线是「**产物 CSS 逐字节不变**」（零观感回归）。它靠两条硬约束成立，
+ * 起因：第 ① 步的验收线是“**产物 CSS 逐字节不变**”（零观感回归）。它靠两条硬约束成立，
  * 而这两条**都是能被后人无意改坏的**：
  *   ① `preflight: false` —— 一开就引入全局 line-height 与 `list-style:none`，全仓观感漂移；
  *   ② `content` 不扫 `App.vue` —— App.vue 里有 `.fixed`/`.hidden`/`.block` 这类与 Tailwind
@@ -41,7 +41,7 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   // ⚠ 判据不能写成"glob 里有没有 App.vue" —— 那条太字面，`./src/renderer/**/*.{vue,ts,js}`
   //   能绕过它却照样把 App.vue 全扫一遍（反例当场验过）。正解是**正向白名单**：
   //   每个 glob 都必须落在 `src/renderer/components/` 里面。
-  //   ⚠ 2026-10-14（第 ④ 步）：名单从「只许 components/ui/」放宽到「只许 components/」——
+  //   ⚠ 2026-10-14（第 ④ 步）：名单从“只许 components/ui/”放宽到“只许 components/”——
   //     因为承载视图的组合组件 `components/DecisionBoard.vue` 也在 components/ 下。
   //     **放宽的是目录，不是底线**：App.vue 依然一个 glob 都不许碰到。
   const scopeBad = list.filter(
@@ -188,7 +188,7 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 }
 
 // ── 同卡同貌（2026-10-27）：Card 组件与 App.vue 的 .card 必须逐值一致 ──────────
-// 暮雨原话：「UI 统一依旧迟迟未做，决策仍为另一套带阴影的 UI 风格」。
+// 暮雨原话：“UI 统一依旧迟迟未做，决策仍为另一套带阴影的 UI 风格”。
 // 真因不是"没统一"，而是**统一到两个不同的数值上**：新组件 Card 是 14px 圆角 + 独立阴影，
 // 看板老卡 .card 是 9px + 0 1px 2px rgba(90,90,130,.05) —— 同一屏两种圆角两种阴影，
 // 看上去就是两套 UI。这里钉住"两边必须相等"，改一边不改另一边就红。
@@ -225,12 +225,12 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 }
 
 // ── 按钮原生边框 + 外观高度（2026-10-30，暮雨第 4 条 · 第三次提；2026-10-31 补）────
-// 症状：决策页的「编辑 / 删除 / 记下」看起来带一圈立体阴影，别的按钮都是平的。
+// 症状：决策页的“编辑 / 删除 / 记下”看起来带一圈立体阴影，别的按钮都是平的。
 // 真因不是"忘了去掉 box-shadow"，是 preflight 关着 → `<button>` 的 UA `border-style: outset`
 // **一直都在**；Tailwind 的 `border` 只设宽度不设样式。于是每个按钮都被系统描了一圈"外凸"。
 // 判据：Button.vue 的 cva 基类必须同时有 `border-0` + `border-solid` + `appearance-none`。
 //
-// 2026-10-31 用户：「外观只影响卡片，按钮从不变」—— 按钮也要跟着 --el-1/--el-2 走：
+// 2026-10-31 用户：“外观只影响卡片，按钮从不变”—— 按钮也要跟着 --el-1/--el-2 走：
 // flat 下令牌是 none（仍然扁平），shadow 下才有贴地/浮起。**不许写死阴影字面量**。
 {
   const btnVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'components', 'ui', 'Button.vue'), 'utf-8')
@@ -253,7 +253,7 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
 // ── ⑤ 表单控件基线外观（2026-10-27）──────────────────────────────────
 // 为什么要有这条：全站此前**只有 `:focus` 有 :where 兜底，常态外观全靠各局部选择器补**，
 // 于是每新增一块表单就漏一次 —— 模型通道那四个框、模型单价那三个框都裸奔过（浏览器默认样式）。
-// 暮雨原话：「这个问题在整个项目里应该出现过三次以上了，说明没吸取教训」。
+// 暮雨原话：“这个问题在整个项目里应该出现过三次以上了，说明没吸取教训”。
 // 所以把"基线存在、且只含外观不含布局"钉成断言，而不是再靠人记得补。
 const appSrc = (read('src/renderer/App.vue') + '\n' + read('src/renderer/styles/app.css')).replace(/\r\n/g, '\n')
 const BASE_SEL = ":where(input:not([type='checkbox']):not([type='radio']):not([type='file'])"

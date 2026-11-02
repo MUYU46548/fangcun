@@ -89,7 +89,7 @@ const TAIL = `(async () => {
     newItem.click(); await sleep(650)
     const overlay = $('#modal-overlay')
     const h3 = overlay ? overlay.querySelector('h3') : null
-    ck('★ 点「在此列新建」= 新建弹窗打开', !!overlay && !!h3 && (h3.textContent||'').indexOf('新建任务') >= 0, h3 && h3.textContent)
+    ck('★ 点“在此列新建”= 新建弹窗打开', !!overlay && !!h3 && (h3.textContent||'').indexOf('新建任务') >= 0, h3 && h3.textContent)
     const sel = overlay ? $$('#modal-overlay select').find(s => ['待办','进行中','待验收','完成','驳回'].indexOf(s.value) >= 0) : null
     ck('★ 状态预选 = 右键的那一列', !!sel && sel.value === want, 'sel=' + (sel && sel.value) + ' want=' + want)
     const cBtn = overlay ? $$('#modal-overlay button').find(b => (b.textContent||'').trim() === '取消') : null

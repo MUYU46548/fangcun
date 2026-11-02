@@ -30,7 +30,7 @@ from tegula.core import (
     # ⚠ 2026-10-12：这四个是**导入导出命令的被调方**，此前一直在 cli.py 里裸用却没进这张清单
     #   → `tegula export tasks` / `import tasks` / `export notes` / `import notes` **一跑就 NameError**。
     #   为什么长期没被发现：那四条命令平时没人用，而 verify.py 只测 core 层函数、不跑 cli 命令。
-    #   现在 verify.py 加了两道守卫：①静态扫「cli.py 里用到的 api_* 是否都在导入清单里」
+    #   现在 verify.py 加了两道守卫：①静态扫“cli.py 里用到的 api_* 是否都在导入清单里”
     #   ②真跑一次 `cmd_import_tasks`（临时目录）证明这条路活着。
     api_export_tasks, api_import_tasks, api_export_notes, api_import_notes,
     api_plan_new, api_plan_decide, api_plan_list, api_plan_get,
@@ -218,7 +218,7 @@ def cmd_dispatch(args):
         return 2 if pr == "高" else (1 if pr == "中" else 0)
     cands.sort(key=lambda t: (-pv(t), t.get("id", "")))
     if not cands:
-        print("没有「待办 + 指派 hermes」的任务可派。")
+        print("没有“待办 + 指派 hermes”的任务可派。")
         return
     picks = cands if args.all else cands[:1]
     for t in picks:
@@ -372,8 +372,8 @@ def cmd_restore(args):
 def _done_precheck(d, args):
     """done 的验收闸门：行为层体检，返回 (errors, warnings)。
 
-    刻意**不引入「验收标准」字段** —— "给任务多填一张表"那类补丁已被否定过。
-    这里只校验「回写这件事本身是否成立」：有没有产出交代、能不能复核、
+    刻意**不引入“验收标准”字段** —— "给任务多填一张表"那类补丁已被否定过。
+    这里只校验“回写这件事本身是否成立”：有没有产出交代、能不能复核、
     状态是否走到了该 done 的位置、声明的依赖是否还挂着。
     errors 非空即拒绝回写（--force 放行）；warnings 只提醒不拦。
     """
@@ -381,16 +381,16 @@ def _done_precheck(d, args):
 
     result_txt = str(getattr(args, "结果", "") or "").strip()
     if not (result_txt or str(d.get("结果记录") or "").strip()):
-        errors.append("没有结果记录 —— done 必须说明「做完了什么」（--结果，或任务里已有结果记录）")
+        errors.append("没有结果记录 —— done 必须说明“做完了什么”（--结果，或任务里已有结果记录）")
 
     if not (str(getattr(args, "证据", "") or "").strip() or "证据：" in str(d.get("结果记录") or "")):
         warnings.append("没有证据 —— 建议用 --证据 附可复核的产物路径或测试输出")
 
     st = str(d.get("状态") or "").strip()
     if st in ("草稿", "待审批"):
-        errors.append(f"状态是「{st}」—— 还没派工就回写完工，请先 dispatch")
+        errors.append(f"状态是“{st}”—— 还没派工就回写完工，请先 dispatch")
     elif st in ("完成", "驳回"):
-        warnings.append(f"任务已是终态「{st}」，本次只追加结果记录")
+        warnings.append(f"任务已是终态“{st}”，本次只追加结果记录")
 
     blk = d.get("阻塞") or []
     if isinstance(blk, (list, tuple)) and blk:
@@ -404,12 +404,12 @@ def _done_precheck(d, args):
     if claimer:
         if by and by != claimer:
             errors.append(
-                f"这张卡是「{claimer}」认领的，你（{by}）在交回"
+                f"这张卡是“{claimer}”认领的，你（{by}）在交回"
                 f" —— 认领人不一致，请让认领它的那个 agent 交回；确实是交接的话加 --force"
             )
         elif not by:
             warnings.append(
-                f"这张卡由「{claimer}」认领 —— 交回时建议带 --by {claimer}，"
+                f"这张卡由“{claimer}”认领 —— 交回时建议带 --by {claimer}，"
                 f"否则无法判断是不是本人交回"
             )
 
@@ -498,7 +498,7 @@ def cmd_done(args):
     print(f"OK: {args.id} 已回写结果并置为待验收")
     down = find_blockers(args.id)
     if down:
-        print(f"提示：{len(down)} 个任务引用了本任务（当前仍被阻塞，验收置「完成」后自动解锁）：")
+        print(f"提示：{len(down)} 个任务引用了本任务（当前仍被阻塞，验收置“完成”后自动解锁）：")
         for t in down:
             print(f"  - {t['id']}《{t['标题']}》[{t['状态']}]")
     else:
@@ -506,7 +506,7 @@ def cmd_done(args):
 
 
 def cmd_accept(args):
-    """验收通过：仅「待验收」可裁 → 「完成」。
+    """验收通过：仅“待验收”可裁 → “完成”。
 
     与看板验收按钮共用 api_review（同一裁决路径：验收清单门控 + 版本 bump +
     activity.log 审计）。此前 cli.py 只 import 了 api_review 却从未接线，
@@ -514,7 +514,7 @@ def cmd_accept(args):
     """
     ok, msg = api_review(args.id, "accept")
     if ok:
-        print(f"OK: {args.id} 验收通过，已置为「完成」")
+        print(f"OK: {args.id} 验收通过，已置为“完成”")
         down = find_blockers(args.id)
         if down:
             print(f"提示：{len(down)} 个任务阻塞引用本任务，已随验收解锁：")
@@ -536,7 +536,7 @@ def _task_projects(t):
 
 
 # ── 认领（claim）与租约（2026-10-22 · 学 DSH 信箱模式的 claim/ack）──────────
-# 背景：方寸此前只有「派活」和「交回」两个时刻，中间是黑的 —— 谁取走了没有记录。
+# 背景：方寸此前只有“派活”和“交回”两个时刻，中间是黑的 —— 谁取走了没有记录。
 # 两个 agent（Hermes + DSH）同时跑，各自 `next` 会拿到同一张卡各干一遍，
 # 而界面上看起来一切正常。这里补上"谁取走了"这件事。
 #
@@ -630,9 +630,9 @@ def claim_task(tid, who):
         if d is None:
             return False, "解析失败"
         if str(d.get("状态") or "").strip() in ("完成", "驳回"):
-            return False, f"任务已是终态「{d.get('状态')}」，不用认领"
+            return False, f"任务已是终态“{d.get('状态')}”，不用认领"
         if not _claim_expired(d):
-            return False, (f"这张卡已被「{d.get('认领人')}」认领（还剩 "
+            return False, (f"这张卡已被“{d.get('认领人')}”认领（还剩 "
                            f"{_claim_left(d) // 60} 分钟租约），不重复领")
         ok, msg = api_edit(str(tid), {"认领人": who, "认领时间": str(int(time.time()))})
         if not ok:
@@ -643,9 +643,9 @@ def claim_task(tid, who):
 
 
 def _task_rework_reason(t):
-    """这张卡是不是「返工卡」，以及上次为什么被驳回。
+    """这张卡是不是“返工卡”，以及上次为什么被驳回。
 
-    2026-10-30 暮雨第 3 条：他原意是「AI 会读驳回里的任务自己重做」，
+    2026-10-30 暮雨第 3 条：他原意是“AI 会读驳回里的任务自己重做”，
     实际却只变成一张大号待办 —— 因为 `next` 只打印标题/优先级，**从来没把驳回理由
     交给 agent**。这里把理由取出来，`next` 会优先挑它、并把理由顶在最前面。
     兼容三种写法：独立字段 `驳回理由` / `reject_reason`，或老卡只写在结果记录里。
@@ -671,7 +671,7 @@ def _task_rework_reason(t):
 def _task_is_rework(t):
     """返工卡判定：有驳回理由，或有驳回时间，或结果记录里出现过驳回轨迹。
 
-    理由可以为空（用户当时没写），但「它被驳回过」这件事必须让 agent 看见 ——
+    理由可以为空（用户当时没写），但“它被驳回过”这件事必须让 agent 看见 ——
     空理由也是一条要求：先问清楚哪里不行，不要假装它是普通待办。
     """
     if _task_rework_reason(t):
@@ -682,10 +682,10 @@ def _task_is_rework(t):
 
 
 def _pick_next(active, project=None, include_claimed=False):
-    """挑「下一个该做的」：返工卡最优先，其次待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。
+    """挑“下一个该做的”：返工卡最优先，其次待办先于进行中，再按 优先级 → 有无截止 → 截止 → 派活时间。
 
     `include_claimed=False` 时**跳过别人正领着且租约未到期的卡** —— 这一句就是
-    「两个 agent 不会拿到同一张」的落点。过期的不跳过：那是崩掉的 agent 留下的，
+    “两个 agent 不会拿到同一张”的落点。过期的不跳过：那是崩掉的 agent 留下的，
     得让下一个补上（锁死比重复干更糟）。
     """
     cands = []
@@ -719,7 +719,7 @@ def _pick_next(active, project=None, include_claimed=False):
 def _read_usage_stat(task_id, days=30):
     """这张卡近 N 天被读过几次（数据源 = MCP 计量日志 `mcp-usage.jsonl`，只读）。
 
-    为什么要这个（卡 006，2026-10-25）：「看板任务一堆待办，很多我都不知道到底做了没有。」
+    为什么要这个（卡 006，2026-10-25）：“看板任务一堆待办，很多我都不知道到底做了没有。”
     状态字段只反映"有人改过它"，不反映"有人读过它" —— 一张卡放三个月没人打开，
     和"今天刚看过准备做"在数据上一模一样。这个函数就是补那一维。
     坏行跳过、文件不存在返回 0：计量是附加信息，不能因为它坏了让 next 报错。
@@ -761,17 +761,17 @@ def _read_usage_stat(task_id, days=30):
 
 
 def cmd_next(args):
-    """给出「下一个该做什么」—— agent 面入口（next 取活 / done 回写 / status 看全局）。
+    """给出“下一个该做什么”—— agent 面入口（next 取活 / done 回写 / status 看全局）。
 
     一条命令同时拿到：可执行任务 + 所属**项目方针卡**（使命/目标/场景/边界）。
-    方针随入口下发，是「约束力来自唯一入口」的落点 —— 不指望 agent 自己跑去读文件。
+    方针随入口下发，是“约束力来自唯一入口”的落点 —— 不指望 agent 自己跑去读文件。
     """
     fmt = getattr(args, "format", "text") or "text"
     project = getattr(args, "project", None)
 
     picked = _pick_next(load_tasks(None, "active"), project)
 
-    # ── 认领（--claim <名字>）：把「选中」和「占住」做成一个动作 ──────────
+    # ── 认领（--claim <名字>）：把“选中”和“占住”做成一个动作 ──────────
     # 为什么不是在输出之后再写：两个 agent 同时跑，各自"选完再各写自己名字"，
     # 后写的会覆盖前写的 —— 两个都以为自己领到了，然后干同一张活。必须原子。
     claim_who = str(getattr(args, "claim", "") or "").strip()
@@ -804,7 +804,7 @@ def cmd_next(args):
             "claim_ttl_seconds": CLAIM_TTL_SECONDS,
             "next": head,
             # 返工卡（2026-10-30 暮雨第 3 条）：agent 必须读到上次为什么被驳回，
-            # 否则「退回返工」只是把它变成一张大号待办。
+            # 否则“退回返工”只是把它变成一张大号待办。
             "rework": {
                 "is_rework": bool(head and _task_is_rework(head)),
                 "reason": _task_rework_reason(head) if head else "",
@@ -825,7 +825,7 @@ def cmd_next(args):
         return
 
     if not picked:
-        scope = f"项目「{project}」" if project else "全部项目"
+        scope = f"项目“{project}”" if project else "全部项目"
         if claim_who:
             # ⚠ 这句必须说清：agent 只看到"没活"会以为真没事，实际是活都被别人领着 ——
             #   两者的后续动作完全不同（一个是等，一个是去抢别人的）
@@ -838,7 +838,7 @@ def cmd_next(args):
                     print(f"  {h.get('id')}  {h.get('标题') or ''}"
                           f"  ← {h.get('认领人')}（还剩 {_claim_left(h) // 60} 分钟）")
             return
-        print(f"没有可执行任务（{scope}）：没有处于「待办 / 进行中」的任务。")
+        print(f"没有可执行任务（{scope}）：没有处于“待办 / 进行中”的任务。")
         return
 
     t = picked[0]
@@ -851,7 +851,7 @@ def cmd_next(args):
     print(f"  标题    : {t.get('标题') or ''}")
     print(f"  项目    : {'、'.join(projs) or '（无）'}")
     print(f"  状态    : {t.get('状态') or ''}")
-    # 返工卡（2026-10-30 暮雨第 3 条）：把「上次为什么被打回」顶到标题下面。
+    # 返工卡（2026-10-30 暮雨第 3 条）：把“上次为什么被打回”顶到标题下面。
     # 没有这一行，agent 只会看到一张普通待办，然后原样重做一遍。
     if _task_is_rework(t):
         _rw = _task_rework_reason(t)
@@ -868,7 +868,7 @@ def cmd_next(args):
         print(f"  认领    : {_cb}（你，租约还剩 {_claim_left(t) // 60} 分钟）"
               if _cb == claim_who else f"  认领    : {_cb}（还剩 {_claim_left(t) // 60} 分钟）")
     elif _cb:
-        print(f"  认领    : 原由「{_cb}」认领，**租约已过期**（八成是那个 agent 崩了）—— 你可以接")
+        print(f"  认领    : 原由“{_cb}”认领，**租约已过期**（八成是那个 agent 崩了）—— 你可以接")
     else:
         print("  认领    : 还没人领" + ("（这次没加 --claim，所以也没占住它）" if not claim_who else ""))
     print(f"  优先级  : {t.get('优先级') or '（未设）'}")
@@ -907,7 +907,7 @@ def cmd_next(args):
             print("  摘要    : " + " / ".join(x[:60] for x in lines))
 
     # 立项契约（REV-002）：与任务书同一口径 —— 契约第一个读者是 AI，取活时就该看到；
-    # 缺契约时 contract_prompt_lines 输出「缺失 + 条款 1/4」显式提示（不静默跳过）。
+    # 缺契约时 contract_prompt_lines 输出“缺失 + 条款 1/4”显式提示（不静默跳过）。
     if projs:
         _ct = read_contract(projs[0])
         print("")
@@ -924,7 +924,7 @@ def cmd_next(args):
             if v:
                 print(f"  {k}: {v}")
     elif projs:
-        print(f"（项目「{projs[0]}」尚未立方针卡 —— 可在桌面版设置页「项目方针」补）")
+        print(f"（项目“{projs[0]}”尚未立方针卡 —— 可在桌面版设置页“项目方针”补）")
 
     print("")
     print("回写命令：")
@@ -1022,12 +1022,12 @@ def cmd_doctor(args):
             if base == TASK_DIR:
                 n_active += 1
             # 状态白名单（2026-10-06 卡 008）：非法状态会让看板分组语义不明、
-            # gen-progress 单列一类（当年 `task-mingjian-template-20260925` 写了「待处理」
+            # gen-progress 单列一类（当年 `task-mingjian-template-20260925` 写了“待处理”
             # —— 那是日志页的分区叫法，被手写进了任务卡）。判据在 core.illegal_status，
             # 与 STATUSES 同源；这里是数据契约，报 error。
             _st_bad = illegal_status(d.get("状态"))
             if _st_bad:
-                errs.append(f"{tid}: 状态「{_st_bad}」不在合法取值里（{'/'.join(STATUSES)}）")
+                errs.append(f"{tid}: 状态“{_st_bad}”不在合法取值里（{'/'.join(STATUSES)}）")
             if not str(d.get("创建") or "").strip():
                 warns.append(f"{tid}: 缺 创建 时间戳")
             if not str(d.get("更新") or "").strip():
@@ -1105,13 +1105,13 @@ def cmd_roadmap(args):
         if p["blockers"]:
             print(f"   ⛔ 阻塞：")
             for blk in p["blockers"][:3]:
-                print(f"      {blk['task_id']}《{blk['title']}」被 {blk['blocker_id']} 阻塞")
+                print(f"      {blk['task_id']}《{blk['title']}”被 {blk['blocker_id']} 阻塞")
         
         # 建议
         if p["next_actions"]:
             print(f"   💡 下一动作：")
             for act in p["next_actions"][:2]:
-                print(f"      {act['task_id']}《{act['title']}」[{act['batch']}] P={act['priority']}")
+                print(f"      {act['task_id']}《{act['title']}”[{act['batch']}] P={act['priority']}")
         
         print()
     
@@ -1148,11 +1148,11 @@ def cmd_roadmap_full(args):
         if p["blockers"]:
             print(f"   ⛔ 阻塞：")
             for blk in p["blockers"][:2]:
-                print(f"      {blk['task_id']}《{blk['title']}」被 {blk['blocker_id']} 阻塞")
+                print(f"      {blk['task_id']}《{blk['title']}”被 {blk['blocker_id']} 阻塞")
         if p["next_actions"]:
             print(f"   💡 下一动作：")
             for act in p["next_actions"][:2]:
-                print(f"      {act['task_id']}《{act['title']}」[{act.get('batch', '')}] P={act.get('priority', '')}")
+                print(f"      {act['task_id']}《{act['title']}”[{act.get('batch', '')}] P={act.get('priority', '')}")
         print()
     if data["milestones"]:
         print("─" * 60)
@@ -1282,7 +1282,7 @@ def cmd_report(args):
                 parts.append(f"未提交: {g['uncommitted']}文件")
             if t["total"]:
                 # ⚠ 每个标签必须对应它自己的桶（2026-10-27 修）：
-                #   原先把 `done` 当成「待验收」显示，而 core 里 `done` 统计的是「完成+驳回」
+                #   原先把 `done` 当成“待验收”显示，而 core 里 `done` 统计的是“完成+驳回”
                 #   → 报告长期在报一个不存在的数（全库 0 张待验收，报告却写 26）。
                 tp = []
                 if t.get("active"): tp.append(f"{t['active']}进行中")
@@ -1361,13 +1361,13 @@ def cmd_archify(args):
     print(f"✓ 已导入 archify 卡 → {r['id']}")
     print(f"  标题：{r['标题']}")
     print(f"  图型：{r['图型']}｜条目：{r['条目数']}")
-    print(f"  卡片：{r['path']}（原卡 JSON 存在「架构」字段）")
+    print(f"  卡片：{r['path']}（原卡 JSON 存在“架构”字段）")
     return 0
 
 
 # ---------- AI 规划写回层（2026-10-12，方案卡：AI 规划功能 2.5 天主体） ----------
 # 函数体内延迟 import：cli 冷启动不加载 LLM 层；也规避模块级循环 import 的任何可能。
-# 红线见 tegula_writeback.py 模块头：AI 卡只落「待审批」，项目说明只落笔记（契约只读）。
+# 红线见 tegula_writeback.py 模块头：AI 卡只落“待审批”，项目说明只落笔记（契约只读）。
 def cmd_ai_plan(args):
     from tegula_writeback import plan_to_draft
     r = plan_to_draft(args.goal, args.项目 or "", args.model or None)
@@ -1426,7 +1426,7 @@ def cmd_arch_profile(args):
     if err:
         print(f"失败：{err}", file=sys.stderr)
         return 1
-    # AI 解读：有 key 才调；产出以「追加章节」拼接——骨架 100% 保真在前，
+    # AI 解读：有 key 才调；产出以“追加章节”拼接——骨架 100% 保真在前，
     # AI 增值在后；失败/超短静默退化骨架版（档案可用性不押在 AI 上）。
     try:
         import tegula_llm as _llm
@@ -1434,7 +1434,7 @@ def cmd_arch_profile(args):
             interp = _llm.chat(
                 md, system=(
                     "你是方寸项目管理系统的架构档案员。输入是一份项目分层档案骨架"
-                    "（目录树/契约节名/任务分布）。输出一份「分层解读」markdown："
+                    "（目录树/契约节名/任务分布）。输出一份“分层解读”markdown："
                     "模块划分与各层职责、入口与关键文件、依赖与技术债风险、当前欠账。"
                     "只依据骨架里的事实，不编造不存在的文件；不重复罗列目录树本身。"),
                 trigger="arch.profile", temperature=0.2, max_tokens=3000)
@@ -1455,7 +1455,7 @@ def cmd_arch_profile(args):
 def cmd_project_brief(args):
     """项目上下文一键包（2026-10-16 批次 1b）：一条命令产出完整项目上下文。
 
-    此前派活单只有**单任务包**（契约节选+项目事实+结构地图），agent 缺「整项目全局视野」——
+    此前派活单只有**单任务包**（契约节选+项目事实+结构地图），agent 缺“整项目全局视野”——
     本命令把立项契约全文+方针卡+在途任务+最近决策卡+进度聚合拼成一份 Markdown，
     喂给 agent 即有全局上下文。MCP 侧同步暴露（工具名 project_brief）。"""
     from tegula.core import build_project_brief
@@ -1476,7 +1476,7 @@ def cmd_project_brief(args):
 def cmd_ai_trace(args):
     """AI 调用链留痕查看（2026-10-17 四件补立项之一）。
     每次模型调用一行元数据（时间/触发点/模型/字符数/耗时/成败），不落正文——
-    回答「AI 到底干了多少活、哪次挂的、花在哪」。"""
+    回答“AI 到底干了多少活、哪次挂的、花在哪”。"""
     from tegula_llm import read_trace
     data = read_trace(limit=args.limit, date=args.date, trigger=args.trigger)
     if data.get("error"):
@@ -2420,18 +2420,18 @@ def main():
     dn.add_argument("id", help="任务 id，如 task-20260828-003")
     dn.add_argument("--结果", "--result", dest="结果", default="", help="一句话结果，追加到结果记录")
     dn.add_argument("--证据", "--evidence", dest="证据", default="",
-                    help="改动清单/验证输出的路径，追加为「证据：…」行，供验收时查看实物")
+                    help="改动清单/验证输出的路径，追加为“证据：…”行，供验收时查看实物")
     dn.add_argument("--成本", "--cost", dest="成本", default="",
                     help="实际成本（如 $0.05 或 50k tokens），追加到结果记录")
     dn.add_argument("--expected-mtime", dest="expected_mtime", default=None,
                     help="可选：期望的文件 mtime（防覆盖并发修改）")
     dn.add_argument("--by", dest="by", default="", metavar="名字",
-                    help="谁在交回（如 --by hermes）：与任务的「认领人」比对，不一致会被拦下。"
+                    help="谁在交回（如 --by hermes）：与任务的“认领人”比对，不一致会被拦下。"
                          "不带则不校验（老用法零变化），只提醒一句")
     dn.add_argument("--force", action="store_true",
                     help="跳过 done 前置体检（结果记录/状态核查）强行回写")
     dn.set_defaults(func=cmd_done)
-    ac = sub.add_parser("accept", help="验收通过：「待验收」→「完成」（与看板验收按钮同一裁决路径）")
+    ac = sub.add_parser("accept", help="验收通过：“待验收”→“完成”（与看板验收按钮同一裁决路径）")
     ac.add_argument("id", help="任务 id，如 task-20260929-001")
     ac.set_defaults(func=cmd_accept)
     nx = sub.add_parser("next", help="agent 面：取下一个可执行任务，并带出项目方针卡")
@@ -2614,7 +2614,7 @@ def main():
 
     # 2026-10-12：AI 规划写回层（LLM 输出落方寸：待审批卡 / 笔记，详见 tegula_writeback.py）
     ap = sub.add_parser("ai-plan", help="AI 拆解目标 → 待审批任务卡（需 TEGULA_LLM_* 环境变量）")
-    ap.add_argument("goal", help="目标描述，如「把注册页迁移到新组件库」")
+    ap.add_argument("goal", help="目标描述，如“把注册页迁移到新组件库”")
     ap.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认 fangcun-base）")
     ap.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
     ap.set_defaults(func=cmd_ai_plan)
@@ -2649,7 +2649,7 @@ def main():
     da.add_argument("--日期", "--date", dest="日期", default="", help="哪天定的（默认今天，YYYY-MM-DD）")
     da.add_argument("--状态", dest="状态", default="有效", choices=list(DECISION_STATUSES), help="默认有效")
     da.add_argument("--项目", dest="项目", default="", help="关联项目，如 司天/绒花墨坊/方寸（跨项目决策留空）")
-    da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如「10-11 09:42 四答定调②」")
+    da.add_argument("--出处", dest="出处", default="", help="群聊/文件出处，如“10-11 09:42 四答定调②”")
     da.add_argument("--备注", dest="备注", default="", help="")
     da.set_defaults(func=cmd_decision)
     dl = dsub_sub.add_parser("list", help="列决策（--状态/--项目 筛）")

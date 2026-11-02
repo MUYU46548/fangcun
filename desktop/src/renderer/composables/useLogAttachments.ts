@@ -1,7 +1,7 @@
 /**
- * 日志附件（2026-10-31 · 渲染层拆分第二批「日志动作收口」第一刀）
+ * 日志附件（2026-10-31 · 渲染层拆分第二批“日志动作收口”第一刀）
  *
- * 语义刻意收窄：只做「这条日志引用了哪些文件」，不做素材库/标签/相册。
+ * 语义刻意收窄：只做“这条日志引用了哪些文件”，不做素材库/标签/相册。
  * 文件本体在数据目录 `docs/执行日志/_attachments/<logId>/`，列表里是相对路径。
  *
  * 搬出来的是**附件状态 + 全部附件动作**：
@@ -28,7 +28,7 @@ const IMG_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico)$/i
 export function useLogAttachments(deps: Deps) {
   const { logs, logPreview, logEdit_, toast } = deps
 
-  /** rel → dataURL 缓存。空串 = 取过但取不到（超 8MB / 已不在数据目录），UI 回落成「用系统打开」 */
+  /** rel → dataURL 缓存。空串 = 取过但取不到（超 8MB / 已不在数据目录），UI 回落成“用系统打开” */
   const attachCache_ = reactive<Record<string, string>>({})
   const attachPending_ = reactive<Record<string, boolean>>({})
 
@@ -64,7 +64,7 @@ export function useLogAttachments(deps: Deps) {
     if (logEdit_.value && logEdit_.value.id === logId) logEdit_.value.attachments = list
   }
 
-  // ── 新建态的「待挂附件」──────────────────────────────────────────
+  // ── 新建态的“待挂附件”──────────────────────────────────────────
   // 没有 id 就没地方放附件；先暂存（路径 / data URL 只留内存），保存成功再一次性落盘。
   const logPendingPaths = ref<string[]>([])
   const logPendingData = ref<Array<{ name: string; dataUrl: string }>>([])

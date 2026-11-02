@@ -1,5 +1,5 @@
 /**
- * restic 增量备份脚本生成（纯逻辑）—— 2026-10-11，卡 `task-20261002-003`「备份多通道」之 restic 支线
+ * restic 增量备份脚本生成（纯逻辑）—— 2026-10-11，卡 `task-20261002-003`“备份多通道”之 restic 支线
  *
  * 用户口径（2026-10-11 22:38 拍板）：**restic 走方案 A** ——
  *   方寸只**生成命令脚本 + 说明**，cron / 计划任务由用户自己挂。
@@ -36,7 +36,7 @@ function normPath(p: string): string {
 
 export function buildResticScript(input?: ResticScriptInput | null): string {
   // 容错：调用方漏传（undefined/null）不该炸 —— 一条备份通道的生成器挂掉，
-  // 用户只会看到「点了没反应」。（首轮测试就抓到了这个：`buildResticScript(undefined)` 抛。）
+  // 用户只会看到“点了没反应”。（首轮测试就抓到了这个：`buildResticScript(undefined)` 抛。）
   const cfg: ResticScriptInput = input || { dataDir: '' }
   const dir = normPath(cfg.dataDir) || '<你的方寸数据目录>'
   const os: ResticOs = cfg.os || 'win'
@@ -46,8 +46,8 @@ export function buildResticScript(input?: ResticScriptInput | null): string {
   const L: string[] = []
   L.push('# ═════ 方寸 · restic 增量备份脚本（由方寸生成，可直接改）═════')
   L.push('#')
-  L.push('# 为什么用 restic：它是「仓库型」增量备份 —— 只传变化的部分、自带去重、可校验、可挂载。')
-  L.push('# 它跟「导出备份 zip 到网盘」不是一回事，别混：')
+  L.push('# 为什么用 restic：它是“仓库型”增量备份 —— 只传变化的部分、自带去重、可校验、可挂载。')
+  L.push('# 它跟“导出备份 zip 到网盘”不是一回事，别混：')
   L.push('#     zip    = 整包快照，一份就是全部，适合丢进同步盘 / 手动传')
   L.push('#     restic = 增量仓库，第一份之后每次只传增量，适合每天自动跑')
   L.push('#')
@@ -72,7 +72,7 @@ export function buildResticScript(input?: ResticScriptInput | null): string {
   L.push('#')
   L.push('# ── 挂定时 ───────────────────────────────────────────')
   if (os === 'win') {
-    L.push('#   任务计划程序 → 创建基本任务 → 每天 → 操作选「启动程序」')
+    L.push('#   任务计划程序 → 创建基本任务 → 每天 → 操作选“启动程序”')
     L.push('#   程序：powershell.exe')
     L.push('#   参数：-NoProfile -ExecutionPolicy Bypass -File "<这个脚本的完整路径>"')
   } else {

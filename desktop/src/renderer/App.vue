@@ -14,7 +14,7 @@
          而且卡片本身可拖拽，两者会打架。
          这里的做法是**只在标题真的被截断时**才出现（scrollWidth > clientWidth），
          延迟 **150ms**（不是 1–2 秒：那会让"想确认一下"变成"等一下"，扫视时等于什么都没有），
-         内容是「完整标题 + 正文摘要 + 项目/截止/优先级/标签」= 半张详情卡，
+         内容是“完整标题 + 正文摘要 + 项目/截止/优先级/标签”= 半张详情卡，
          所以悬停不只是补文字，是**免点击预览**。
          铁律：position:fixed + pointer-events:none（不参与布局、不吃命中），拖拽中一律不显示。 -->
     <div v-if="cardTip" class="card-tip" :style="cardTipStyle">
@@ -33,27 +33,27 @@
 
     <!-- 全局拖放兜底提示：拖到不支持导入的页签时不再是"毫无反应"（用户第 4 条）
          固定定位 + pointer-events:none —— 绝不参与布局，否则会与拖拽事件自激闪烁。
-         2026-09-28：文案与 onAppDrop 的 toast 对齐 —— 此前这里只写了「待办」「日志」，
-         漏了明明支持导入的「技能」页（两个提示互相矛盾）。 -->
+         2026-09-28：文案与 onAppDrop 的 toast 对齐 —— 此前这里只写了“待办”“日志”，
+         漏了明明支持导入的“技能”页（两个提示互相矛盾）。 -->
     <div v-if="globalDropHint" class="drop-hint global">
-      当前页签不支持导入文件 —— 请到「待办」「日志」或「技能」页签再拖入
+      当前页签不支持导入文件 —— 请到“待办”“日志”或“技能”页签再拖入
     </div>
 
     <!-- Top bar -->
     <header id="bar">
       <!-- 2026-09-25（用户第 12 条）：
-           ① 左侧方形 LOGO（绒花墨坊有、方寸没有）→ 点开「关于」；
-           ② 那个「神秘数字」加了说明与准确性修复，见 countText / countTitle。 -->
+           ① 左侧方形 LOGO（绒花墨坊有、方寸没有）→ 点开“关于”；
+           ② 那个“神秘数字”加了说明与准确性修复，见 countText / countTitle。 -->
       <span class="title">
         <button class="brand" title="关于方寸" @click="openAbout">寸</button>
         方寸 tegula<small id="count" :title="countTitle">{{ countText }}</small>
       </span>
-      <!-- 左侧按钮组（2026-10-12 暮雨圈选：「放顶栏左侧，参考 Edge」）——
-           Edge 左上角就是「← 前进/后退 · ⟳ 刷新 · ⌂ 首页」这一束。
+      <!-- 左侧按钮组（2026-10-12 暮雨圈选：“放顶栏左侧，参考 Edge”）——
+           Edge 左上角就是“← 前进/后退 · ⟳ 刷新 · ⌂ 首页”这一束。
            ⚠ 三个新按钮**必须是图标**，这不是审美选择而是几何必需：
              带文字版本在 1080 窄窗下横向溢出（小样实测需 1023px / 只有 999px）。
-           ⚠ 「← 返回」**不许再挂 v-if**：它此前是 v-if="canGoBack" ——
-             没有历史时整个不在 DOM 里，用户报「返回按钮没了」就是这个（不是被挤走）。
+           ⚠ “← 返回”**不许再挂 v-if**：它此前是 v-if="canGoBack" ——
+             没有历史时整个不在 DOM 里，用户报“返回按钮没了”就是这个（不是被挤走）。
              现在常驻 + 无历史时 disabled 置灰：位置稳定、还能看出"现在退不了"。 -->
       <span class="navgroup">
         <button class="ghost nav-back" :class="{ disabled: !canGoBack }"
@@ -65,7 +65,7 @@
           @click="goHome">⌂</button>
         <button class="ghost nav ico" :title="'帮助手册：每个页签干什么、筛选语法、快捷键、备份恢复'"
           @click="goHelp">?</button>
-        <!-- 2026-10-16 用户第 9 条：「同步的时候整个方块都在旋转」——
+        <!-- 2026-10-16 用户第 9 条：“同步的时候整个方块都在旋转”——
              真因是动画加在 button 本身（.ico.syncing），边框与底色跟着一起转。
              现在 ⟳ 单独包一层 span，只有**字符**转，按钮本体不动。 -->
         <!-- 2026-10-25 卡 004：不再只是一个转圈的图标 —— 长成**状态胶囊**：
@@ -86,19 +86,19 @@
         <!-- 看板专属控件（2026-09-26 用户第 1 条）：它们只对看板/归档有意义。
              原来无条件渲染 → 在回收站/技能/日志/待办等页签上全是"点了没反应"的按钮。 -->
         <template v-if="isBoardView">
-        <!-- 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）
-             原话：「看板依旧是筛选噩梦，虽然我已经知道在哪里调了，但是点起来很难受，不自然。」
-             两处病根：① 一行八个控件平铺、主次不分；② **全是原生 select** —— 要「点开 → 再点一项」，
-             选完看不到现在生效的是什么，撤销还得重新点开选回「全部」。
-             现在：主行只留「搜索 + ＋筛选」；生效条件变成可点 ✕ 的小标签；
+        <!-- 筛选栏（2026-10-11 用户圈选“方案 B · 条件标签化”）
+             原话：“看板依旧是筛选噩梦，虽然我已经知道在哪里调了，但是点起来很难受，不自然。”
+             两处病根：① 一行八个控件平铺、主次不分；② **全是原生 select** —— 要“点开 → 再点一项”，
+             选完看不到现在生效的是什么，撤销还得重新点开选回“全部”。
+             现在：主行只留“搜索 + ＋筛选”；生效条件变成可点 ✕ 的小标签；
              分组/排序各是一个只显示当前值的小按钮，点开的是**同一个内联面板**（不做嵌套下拉）；
              面板里的选项**本身就是按钮** —— 一次点击就生效，这就是"不难受"的全部来源。
              ⚠ curProj / curStatus / dueFilter / searchIncludeArchive **仍不写 prefs**（筛选是临时的）。 -->
         <div class="fbar">
           <!-- ⚠ 2026-10-12 二次修正：搜索框**固定 260px**，不再 `flex: 1`。
                上一轮为了填满 space-between 留下的空白，把搜索框写成 `flex: 1 1 220px`
-               —— 它把**全部余量吸走**，暮雨原话「搜索框未免太长太恐怖了，人家浏览器顶上写链接
-               才需要那么长」（实测 877px）。
+               —— 它把**全部余量吸走**，暮雨原话“搜索框未免太长太恐怖了，人家浏览器顶上写链接
+               才需要那么长”（实测 877px）。
                现在余量交给下面这个 `.fbar-grow` 撑杆：搜索框保持 260，**筛选/分组/排序继续贴右端**。 -->
           <input v-model="searchQuery" class="search fbar-search"
             placeholder="搜索…（#标签 @项目 due:01-15）"
@@ -139,7 +139,7 @@
                   <button v-for="d in DUE_OPTIONS" :key="'fd-' + d.v" class="fpop-opt"
                     :class="{ on: dueFilter === d.v }" @click="dueFilter = d.v">{{ d.label }}</button>
                 </div>
-                <!-- 「读取情况」（卡 20261025-006 第三件）——「哪些待办其实没人碰过」的出口。
+                <!-- “读取情况”（卡 20261025-006 第三件）——“哪些待办其实没人碰过”的出口。
                      为什么放在筛选里而不是另开一页：筛完的看板**本身就是清单**（能点开、能批量归档），
                      再弹一个只读清单等于同一批数据两套装法。
                      ⚠ 口径必须跟数字在一起（同卡 005 第①条）：这里只统计 **agent 经 MCP 读卡**，
@@ -151,7 +151,7 @@
                     :title="neverReadHint" @click="readFilter = 'never'">{{ neverReadLabel }}</button>
                 </div>
                 <div class="fpop-note">{{ neverReadHint }}</div>
-                <!-- 「含归档」只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
+                <!-- “含归档”只在活跃视图有意义（归档视图里它只会造成"同一批是不是重复出现"的困惑）——
                      2026-09-25 决定：归档视图下直接不给这个选项。 -->
                 <div class="fpop-row" v-if="curView !== 'archive'">
                   <span class="fpop-row-label">范围</span>
@@ -166,17 +166,17 @@
           </PopoverRoot>
 
           <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）——
-               「折叠全部 / 展开」并排放两个按钮，永远有一个无效，用户原话「臃肿无比」。
+               “折叠全部 / 展开”并排放两个按钮，永远有一个无效，用户原话“臃肿无比”。
                ⚠ 2026-10-12 二次修正：上一轮把它收成**纯符号 ⊟**，暮雨原话
-               「折叠全部按钮的文本都没了，根本认不出来」—— 收过头了。
-               现在**文字回来**（「⊟ 折叠」/「⊞ 展开」，图标只当引子），仍是一个开关。 -->
+               “折叠全部按钮的文本都没了，根本认不出来”—— 收过头了。
+               现在**文字回来**（“⊟ 折叠”/“⊞ 展开”，图标只当引子），仍是一个开关。 -->
           <button class="ghost" id="btn-fold-all"
             :title="allGroupsCollapsed ? '展开全部：还原所有分组的卡片' : '折叠全部：只看分组名和数量，长单子立刻变短'"
             @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开' : '⊟ 折叠' }}</button>
 
-          <!-- ⚠ 2026-10-12「看」与「做」分两层（暮雨圈选 丙）：
-               「项目」「状态」两个**独立入口撤掉了** —— 它们的功能本来就在上面的筛选浮层里，
-               当前值由「生效中」标签承担，所以**点击次数不变、信息不丢**，只是少两个按钮。
+          <!-- ⚠ 2026-10-12“看”与“做”分两层（暮雨圈选 丙）：
+               “项目”“状态”两个**独立入口撤掉了** —— 它们的功能本来就在上面的筛选浮层里，
+               当前值由“生效中”标签承担，所以**点击次数不变、信息不丢**，只是少两个按钮。
                它们原先的类名锚点 .proj-select / .st-filter 随之退休（断言改走筛选浮层）。 -->
           <PopoverRoot :open="fbarPanel === 'group'" @update:open="onPanelOpen('group', $event)">
             <PopoverTrigger as-child>
@@ -228,7 +228,7 @@
     </header>
 
     <!-- View tabs -->
-    <!-- ⚠ 2026-10-12「看」与「做」分两层（暮雨圈选 丙）：
+    <!-- ⚠ 2026-10-12“看”与“做”分两层（暮雨圈选 丙）：
          顶栏只留**看与筛**（搜索/筛选/分组/排序/折叠）；**写操作与全局图标搬到这一行右端** ——
          这一行本来就空着大半，搬过来既不增行数、也不改任何功能的点击次数。
          搬过来的按钮 `v-if` 条件原样保留（新建/快速记/任务多选仍只在任务视图出现）。 -->
@@ -242,24 +242,24 @@
       >
         {{ v.label }}
       </button>
-      <!-- 更多（2026-10-25 暮雨：「帮我搞个更多菜单，该折叠的就折叠」）——
-           默认收起「启动台 / 技能 / 服务」三个低频页签；它们在设置里可自己勾（至少留 7 个在外面）。
+      <!-- 更多（2026-10-25 暮雨：“帮我搞个更多菜单，该折叠的就折叠”）——
+           默认收起“启动台 / 技能 / 服务”三个低频页签；它们在设置里可自己勾（至少留 7 个在外面）。
            ⚠ 停在被收起的页签里时，这个按钮显示**那一页的名字**并高亮 ——
              否则会出现"人在技能页、顶栏却没有任何高亮"的鬼状态。 -->
       <PopoverRoot v-if="moreViews.length" v-model:open="moreOpen">
         <PopoverTrigger as-child>
           <button class="vbtn more-btn" :class="{ on: curViewInMore }"
             :title="curViewInMore
-              ? '你现在在「' + curViewLabel + '」—— 它是被收起的页签；点这里换别的'
+              ? '你现在在“' + curViewLabel + '”—— 它是被收起的页签；点这里换别的'
               : '还有 ' + moreViews.length + ' 个页签收在这里：' + moreViews.map(v => v.label).join(' / ')">
             {{ curViewInMore ? curViewLabel : '更多' }}<span class="more-caret">▾</span>
           </button>
         </PopoverTrigger>
         <PopoverPortal>
           <!-- 2026-10-25 第二轮：暮雨拿系统菜单截图对比后否掉了第一版 ——
-               「底下那坨文本把框挤长而且完全没必要」。所以：
-               ① 去掉标题栏（「收起的页签」+ ✕）② 去掉底部说明段落
-               ③ 说明改成一条**真能点**的菜单项「顶栏页签设置…」——
+               “底下那坨文本把框挤长而且完全没必要”。所以：
+               ① 去掉标题栏（“收起的页签”+ ✕）② 去掉底部说明段落
+               ③ 说明改成一条**真能点**的菜单项“顶栏页签设置…”——
                   菜单里每一行都该能点，纯文本不该出现在下拉里。 -->
           <PopoverContent class="more-pop" align="start" :side-offset="6" :collision-padding="8"
             update-position-strategy="always">
@@ -293,7 +293,7 @@
         </button>
         <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
         <!-- 2026-10-25：页签行已经满了（15 个页签），这三个低频操作打包成一组 ——
-             换行时**整组一起下去**，不会出现「刷新」孤零零掉到第三行开头那种样子。 -->
+             换行时**整组一起下去**，不会出现“刷新”孤零零掉到第三行开头那种样子。 -->
         <span class="views-ops">
         <!-- 任务多选同样只在看板/归档有意义（批量改状态/归档作用于看板列） -->
         <button v-if="isBoardView" class="ghost batch-mode-btn" :class="{ active: batchMode }" @click="toggleBatchMode">
@@ -301,13 +301,13 @@
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
         <button class="ghost" @click="showSettings">⚙</button>
-        <!-- 重读全部数据（2026-10-25 暮雨：「顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
-             不然用户会以为是第二个同步按钮」）。
+        <!-- 重读全部数据（2026-10-25 暮雨：“顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
+             不然用户会以为是第二个同步按钮”）。
              ⚠ 三条硬要求：
-               ① **文字必须写「刷新」**，不能只有 ⟳ —— 左上那个 ⟳ 是「自仓 git 同步」，纯图标一定被认成一样的东西；
+               ① **文字必须写“刷新”**，不能只有 ⟳ —— 左上那个 ⟳ 是“自仓 git 同步”，纯图标一定被认成一样的东西；
                ② 转的是**字符**不是按钮本体（check-button-styles ④ 守着）；
                ③ 外部改动（agent 经 MCP 写卡、手改 md）只有点这里才会反映到界面 —— 这是它存在的唯一理由。
-             位置刻意放最右：页签行本来就在临界点，放中间会把「☑ 任务多选」和 ⚙ 拆成孤儿。 -->
+             位置刻意放最右：页签行本来就在临界点，放中间会把“☑ 任务多选”和 ⚙ 拆成孤儿。 -->
         <button class="ghost refresh-all" :class="{ busy: refreshBusy }" :disabled="refreshBusy"
           :title="'重读全部数据：任务 / 项目 / 日志 / 待办 / 想法 / 方针 / 阻塞链 / 通知\n（这不是同步 —— 同步是左上那个 ⟳，它只拉方寸自己的 git 仓库）'"
           @click="refreshAllData">
@@ -335,7 +335,7 @@
         <span>日志文件：<code>{{ appLogFile || '（未取到）' }}</code></span>
         <button class="ghost" @click="copyAppLogPath">复制路径</button>
         <button class="ghost" @click="openAppLogDir">打开目录</button>
-        <!-- 收起按钮必须长在这里：上一条「忽略」会清空 appErrors，而「收起」原先只存在于
+        <!-- 收起按钮必须长在这里：上一条“忽略”会清空 appErrors，而“收起”原先只存在于
              errbar 里（v-if="appErrors.length"）—— 一按忽略，errbar 整条消失，
              日志抽屉就再也关不掉了（用户 2026-09-25 第 4 条）。 -->
         <button class="ghost" title="关闭日志抽屉" @click="appErrOpen = false">收起</button>
@@ -348,20 +348,20 @@
       <span class="batch-count">已选 {{ selectedBatch.length }}</span>
       <button class="ghost" title="全选 / 取消全选当前视图内的任务" @click="toggleSelectAll">{{ selectedBatch.length === filteredTasks.length ? '取消全选' : '全选' }}</button>
       <div class="batch-actions">
-        <button class="ghost" title="批量置为「待办」" @click="batchSetStatus('待办')">待办</button>
-        <button class="ghost" title="批量置为「进行中」" @click="batchSetStatus('进行中')">进行中</button>
-        <button class="ghost" title="批量置为「待验收」" @click="batchSetStatus('待验收')">待验收</button>
-        <button class="ghost" title="批量置为「完成」" @click="batchSetStatus('完成')">完成</button>
-        <button class="ghost" title="批量置为「驳回」" @click="batchSetStatus('驳回')">驳回</button>
+        <button class="ghost" title="批量置为“待办”" @click="batchSetStatus('待办')">待办</button>
+        <button class="ghost" title="批量置为“进行中”" @click="batchSetStatus('进行中')">进行中</button>
+        <button class="ghost" title="批量置为“待验收”" @click="batchSetStatus('待验收')">待验收</button>
+        <button class="ghost" title="批量置为“完成”" @click="batchSetStatus('完成')">完成</button>
+        <button class="ghost" title="批量置为“驳回”" @click="batchSetStatus('驳回')">驳回</button>
         <button class="ghost" title="批量归档（会二次确认）" @click="executeBatchArchive">归档</button>
         <button class="ghost" title="批量改期：把选中任务的截止日推到新日期" @click="openBatchPostpone">📅 改期</button>
         <button class="danger" title="批量删除（会二次确认，进入 trash 可人工找回）" @click="executeBatchDelete">删除</button>
       </div>
 
-      <!-- 批量改期面板（2026-10-18 Bundle A「超期任务批量改期」）。典型路径：
-           顶栏日期筛选选「超期」→ 批量模式 → 全选 → 📅 改期 —— 堆了一堆过期的卡一次推走。
+      <!-- 批量改期面板（2026-10-18 Bundle A“超期任务批量改期”）。典型路径：
+           顶栏日期筛选选“超期”→ 批量模式 → 全选 → 📅 改期 —— 堆了一堆过期的卡一次推走。
            写入沿用既有 batchEdit → updateTask（fm.deadline 直改 + 乐观锁 + logActivity 逐条留痕），
-           不加新 IPC；改完 isOverdue 按 deadline 重算，卡面「逾期 N 天」标识自动消失。
+           不加新 IPC；改完 isOverdue 按 deadline 重算，卡面“逾期 N 天”标识自动消失。
            改期不是破坏性动作（随时可再改回），不做二次确认；超期筛选本身不含终态卡。 -->
       <div v-if="batchPostponing" class="bp-panel">
         <span class="bp-label">把选中的 {{ selectedBatch.length }} 个任务改期到</span>
@@ -376,13 +376,13 @@
     </div>
 
     <!-- 归档区按状态快选（2026-10-17 暮雨第 1 条；第 2 条重做交互）：
-         「我想一键全选已完成的归档任务，然后删掉它们」—— 原来要先开多选、再逐个点，
+         “我想一键全选已完成的归档任务，然后删掉它们”—— 原来要先开多选、再逐个点，
          上百张卡根本点不完。这里把"选"这一步按状态批量做掉；"删"仍然留给批量栏，
          破坏性动作不做成一键（多一步是刻意的）。
          2026-10-17 暮雨第 2 条：首版点一个状态会**冲掉**上一组的选择（selectedBatch = ids 整桶替换），
-         用户原话「每次至多只能批量选一组，其他的都被自动取消勾选」。改成了全世界通用（邮箱 / 网盘 / Wiki）
+         用户原话“每次至多只能批量选一组，其他的都被自动取消勾选”。改成了全世界通用（邮箱 / 网盘 / Wiki）
          的那套语言：① 开头一个方框，点一下全选当前看到的、再点一下全不选，部分选中时框呈横线（indeterminate）；
-         ② 状态按钮改成**叠加勾选**：点「完成」再点「待办」= 两组都在选，再点一下「完成」= 只取消完成组；
+         ② 状态按钮改成**叠加勾选**：点“完成”再点“待办”= 两组都在选，再点一下“完成”= 只取消完成组；
          ③ 该组全在选时按钮点亮，一眼能看出选了哪几组。 -->
     <div v-if="curView === 'archive' && filteredTasks.length" class="aq-bar">
       <label class="aq-master" title="点一下 = 全选当前看到的任务；再点一下全部取消。部分选中时框里呈横线（和邮箱一样）">
@@ -400,11 +400,11 @@
         :class="{ on: archiveStatusAllSelected(s) }"
         :disabled="archiveStatusCount(s) === 0"
         :title="archiveStatusCount(s)
-          ? (archiveStatusAllSelected(s) ? `再点一下 = 取消这 ${archiveStatusCount(s)} 个「${s}」（其他选择保留）` : `把这 ${archiveStatusCount(s)} 个「${s}」加进选择（不影响已选的）`)
-          : `归档区里没有「${s}」任务`"
+          ? (archiveStatusAllSelected(s) ? `再点一下 = 取消这 ${archiveStatusCount(s)} 个“${s}”（其他选择保留）` : `把这 ${archiveStatusCount(s)} 个“${s}”加进选择（不影响已选的）`)
+          : `归档区里没有“${s}”任务`"
         @click="selectArchiveByStatus(s)"
       >{{ s }}<i class="aq-n">{{ archiveStatusCount(s) }}</i></button>
-      <span class="aq-hint">选择可叠加：点完一个状态再点下一个，已选的不丢；选完用上方批量栏的「删除」清掉</span>
+      <span class="aq-hint">选择可叠加：点完一个状态再点下一个，已选的不丢；选完用上方批量栏的“删除”清掉</span>
     </div>
 
     <!-- Archive hint -->
@@ -432,7 +432,7 @@
            默认关（不动旧行为）；只作用于卡片墙，列 / 列表两种摆法不受影响。
            开关状态与分区折叠都记进 prefs，下次打开还是你上次那样。 -->
       <label v-if="isBoardView && boardView === 'cards'" class="pvw-switch"
-        title="只显示状态不是「完成 / 驳回」的任务；被过滤空的整个分区会一起收起。这个开关只影响信息卡墙。">
+        title="只显示状态不是“完成 / 驳回”的任务；被过滤空的整个分区会一起收起。这个开关只影响信息卡墙。">
         <input type="checkbox" class="pvw-switch-chk" :checked="cardWallOpenOnly"
           @change="toggleCardWallOpenOnly($event)" />
         <span>只看未完成</span>
@@ -454,9 +454,9 @@
       @toggle-review="reviewOpen = !reviewOpen" @hide-review="reviewHidden = true"
       @accept-card="reviewVerdict($event, 'accept')" @reject-card="reviewVerdict($event, 'reject')" />
 
-    <!-- 随问（2026-10-22 · 施工单包 03 任务一）——「控制台」的查询面。
+    <!-- 随问（2026-10-22 · 施工单包 03 任务一）——“控制台”的查询面。
          这一页**不调模型**：答案全从 registry / 任务卡 / 执行日志 / ai-trace 直接算出来。
-         结构化确实算不出来的，右下才给一个「交给 AI 答」的口子 —— 点它才花 token，
+         结构化确实算不出来的，右下才给一个“交给 AI 答”的口子 —— 点它才花 token，
          而且花销当场印在回答头上（03 单成本红线：AI 只进模糊问答与批次出单两处）。
          ⚠ 独立 v-if、不接在别人家的 v-else-if 链上：插在链中间会让后面整片视图不渲染。 -->
     <main id="board" class="ask-view" v-if="curView === 'ask'">
@@ -464,7 +464,7 @@
         <div class="ask-lead">问一句，方寸手里的事实直接答</div>
         <div class="ask-lead-sub">
           项目台账、任务卡、执行日志、AI 花销都在这儿，不用一页页翻。
-          答不了会明说「不知道」，不编。
+          答不了会明说“不知道”，不编。
         </div>
       </div>
       <div class="ask-box">
@@ -484,7 +484,7 @@
         <div class="ask-hint">
           这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。
           <br />
-          <b>「让 AI 答」什么时候出现？</b>只有结构化真算不出来的时候（比如「这事该怎么办」这类要判断的问题）——
+          <b>“让 AI 答”什么时候出现？</b>只有结构化真算不出来的时候（比如“这事该怎么办”这类要判断的问题）——
           出现就一定给，不出现就是这题已经答完了，不用猜。
         </div>
       </div>
@@ -504,7 +504,7 @@
             {{ askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
           </button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
-               一次调用 = 一批；产出只落「待审批」（点头才转正）。这是全应用**第二处**会
+               一次调用 = 一批；产出只落“待审批”（点头才转正）。这是全应用**第二处**会
                为规划花 token 的入口（另一处是上面的模糊问答）。 -->
           <button class="ghost ask-llm-btn ask-batch-btn" v-if="askAns.projectId" :disabled="batchBusy" @click="runBatch()">
             {{ batchBusy ? '正在出…' : '📋 出下一批任务卡（会计费）' }}
@@ -527,8 +527,8 @@
               <button class="ghost ask-chip" :disabled="correctBusy" @click="closeCorrect()">算了</button>
             </div>
             <div class="ask-correct-hint">
-              能改的就三个字段：状态 / 路线图 / 说明（说明就是「欠着」那一栏）。
-              改完自动记一张决策卡（出处「方寸随纠」），顶部撤销条能一步退回去。
+              能改的就三个字段：状态 / 路线图 / 说明（说明就是“欠着”那一栏）。
+              改完自动记一张决策卡（出处“方寸随纠”），顶部撤销条能一步退回去。
             </div>
             <div class="ask-correct-err" v-if="correctErr">{{ correctErr }}</div>
           </template>
@@ -555,8 +555,8 @@
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
           <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em><em v-if="m.external_calls" class="arr-ext">· 其中 {{ m.external_calls }} 笔是外部上报</em></span>
-          <!-- 金额（2026-10-25 卡 005）：**没有就是「未折算」**，不写 0 元。
-               「未折算」后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
+          <!-- 金额（2026-10-25 卡 005）：**没有就是“未折算”**，不写 0 元。
+               “未折算”后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
           <span class="arr-cost" :class="{ none: !m.cost_calls }">
             <template v-if="m.cost_calls">≈ ¥{{ fmtCost(m.cost) }}<em v-if="m.unpriced_calls">· {{ m.unpriced_calls }} 次未折算</em></template>
             <template v-else>未折算</template>
@@ -656,7 +656,7 @@
         <span class="ico">⚠</span>
         <b>{{ blockers.length }}</b> 个任务存在阻塞依赖
       </div>
-      <!-- 项目页工具条（2026-10-17 暮雨第 6 条：「项目里面不能新建项目，点进去是新建任务」）。
+      <!-- 项目页工具条（2026-10-17 暮雨第 6 条：“项目里面不能新建项目，点进去是新建任务”）。
            真因：新建项目弹窗与 confirmNewProject 早就写好了（`#proj-new-modal`），
            **但项目页从来没有一个按钮去打开它** —— 功能做完没接线，属于"看着有、其实没有"。
            删除入口原来只在每张项目卡右上角那个小 🗑 上，这里明写出来省得再找。 -->
@@ -670,7 +670,7 @@
         <span class="cb-stat">已填 <b>{{ charterStats.filled }}</b> / {{ charterStats.total }}</span>
         <span class="cb-stat" v-if="charterStats.skeleton">骨架待填 <b>{{ charterStats.skeleton }}</b></span>
         <span class="cb-stat warn" v-if="charterStats.missing">缺失 <b>{{ charterStats.missing }}</b></span>
-        <!-- 029 验收驳回原话：「找不到在哪里」。
+        <!-- 029 验收驳回原话：“找不到在哪里”。
              真因：结构地图**只存在于方针卡文件里**，界面上唯一相关的东西是这个
              `<span>` 计数 —— 它不可点、且没有缺口时干脆不渲染，于是"结构地图到底在哪"无从得知。
              现在换成**常驻可点按钮**：没缺口时也在，点开就是一览（哪几张有、最后核实的日期、直接去改）。 -->
@@ -726,7 +726,7 @@
               <div class="l">{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</div>
             </div>
           </div>
-          <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在「设置」最底部，
+          <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在“设置”最底部，
                找不着；这里放在项目卡上，一眼可见，且不必先关设置。 -->
           <button class="ghost pv-policy" @click.stop="openPolicyEdit(p.id)">
             {{ policyMap[p.id] ? '📋 方针已立 · 查看/编辑'
@@ -734,9 +734,9 @@
                : '＋ 立项目方针' }}
           </button>
           <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 3 条再改）：
-               以前是相邻两个几乎同名的按钮（「架构图」「自绘架构图」）—— 暮雨原话
-               「和架构图按钮放在一起你自己不觉得尴尬吗」。现在收成**一个分段控件**：
-               左半「架构图」= 打开仓库里已有的 archify 产物；右半「绘制架构图」= 方寸只读扫源码画一张。
+               以前是相邻两个几乎同名的按钮（“架构图”“自绘架构图”）—— 暮雨原话
+               “和架构图按钮放在一起你自己不觉得尴尬吗”。现在收成**一个分段控件**：
+               左半“架构图”= 打开仓库里已有的 archify 产物；右半“绘制架构图”= 方寸只读扫源码画一张。
                一个控件、两种来源，不再是两个抢位置的按钮。 -->
           <div class="pv-arch-group" role="group" aria-label="架构图">
             <button class="ghost pv-diagram" @click.stop="openProjectDiagram(p)"
@@ -752,8 +752,8 @@
       </div>
 
       <!-- ══ ② 概览卡（2026-09-29 用户选的改法 A）══════════════════════════
-           003 卡原话「只是个大号看板入口，不是项目管理」。把「四个数字」换成
-           「状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口」——
+           003 卡原话“只是个大号看板入口，不是项目管理”。把“四个数字”换成
+           “状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口”——
            一眼能看出这个项目卡在哪、缺什么、下一步该点哪个按钮。 -->
       <div class="ovgrid" v-else-if="pvView === 'overview'">
         <div v-for="p in projectStats" :key="p.id" class="ocard" @click="openProject(p)">
@@ -812,7 +812,7 @@
           <div class="ms-add" @click="openNewProject">＋ 添加项目</div>
         </div>
         <!-- 项目监控台（卡 task-20261009-001）：环形进度 + KPI 大数字 + 阻塞入口 + git 活动。
-             健康度=左缘 4px 色条（契约「异常才显示」：stuck/dormant 才有，active/idle 干净白卡）。 -->
+             健康度=左缘 4px 色条（契约“异常才显示”：stuck/dormant 才有，active/idle 干净白卡）。 -->
         <div class="ms-detail" v-if="pvCurrent" :class="'hs-' + pvCurrent.health">
           <div class="ocard bare">
             <div class="ohead">
@@ -821,14 +821,14 @@
               <span class="hl" :class="'hl-' + pvCurrent.health">{{ healthLabel(pvCurrent.health) }}</span>
             </div>
             <!-- 自仓同步状态（2026-10-21 · W1-1C）：只在**没跟上**时出现一句话。
-                 正常态不渲染（不写「已是最新」凑数），也不给手动按钮 —— 启动自动拉，
+                 正常态不渲染（不写“已是最新”凑数），也不给手动按钮 —— 启动自动拉，
                  拉不动就照实说"待同步"，本地数据一个字不动。 -->
             <!-- 常驻一行：正常是灰字"已是最新"，异常才变色（2026-10-21：看不见就等于不存在） -->
             <div class="ms-sync" :class="'ms-sync-' + selfSyncLine.tone" v-if="selfSyncLine">
               <template v-if="selfSyncLine.tone === 'warn'">⚠ </template>{{ selfSyncLine.text }}
             </div>
             <div class="ms-metrics">
-              <!-- 0 卡时不画假环：环换成空态占位（0/0 没有「完成度」可言），旁边图例给「还没有任务卡」 -->
+              <!-- 0 卡时不画假环：环换成空态占位（0/0 没有“完成度”可言），旁边图例给“还没有任务卡” -->
               <div class="ms-ring" v-if="pvCurrent.taskCount">
                 <svg viewBox="0 0 36 36" aria-hidden="true">
                   <circle class="ring-track" cx="18" cy="18" r="15.915" pathLength="100" />
@@ -855,26 +855,26 @@
               </span>
               <span v-if="!pvCurrent.taskCount" class="ms-nothing">还没有任务卡</span>
             </div>
-            <!-- 阻塞源入口（异常才显示）：点进阻塞页签看「卡在谁」 -->
+            <!-- 阻塞源入口（异常才显示）：点进阻塞页签看“卡在谁” -->
             <button class="ghost ms-blockers" v-if="pvBlocked[pvCurrent.id]"
                     @click.stop="switchView('blockers')">⚠ {{ pvBlocked[pvCurrent.id] }} 个阻塞源 · 看卡在谁 →</button>
             <div class="ody n">
               最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
               <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
             </div>
-            <!-- 项目三字段（2026-10-16 批次第 2 项起的「说明」；2026-10-22 · 06 单扩成三件）：
+            <!-- 项目三字段（2026-10-16 批次第 2 项起的“说明”；2026-10-22 · 06 单扩成三件）：
                  状态 / 路线图 / 说明（欠着什么）都是 registry 里的**手写值**，
-                 与下面「自动 · 只读」那块并列摆着 —— 谁旧了由人看，代码不裁。
+                 与下面“自动 · 只读”那块并列摆着 —— 谁旧了由人看，代码不裁。
                  可就地改：改完走全站同一个撤销条，Ctrl+Z 一步退回去（1B 撤销栈的同一套语义）。 -->
             <div class="ms-fields" v-if="noteEdit && noteEdit.id === pvCurrent.id">
-              <div class="msf-h">改「{{ pvCurrent.name }}」的三个手写字段</div>
+              <div class="msf-h">改“{{ pvCurrent.name }}”的三个手写字段</div>
               <label class="msf">
                 <span class="msf-k">状态</span>
                 <input class="msf-i" v-model="noteEdit.状态" placeholder="一句话说到哪了，带时点，比如（0.3.9，10-21）" />
               </label>
               <label class="msf">
                 <span class="msf-k">路线图</span>
-                <input class="msf-i" v-model="noteEdit.路线图" placeholder="目标是什么；「不做」的事关键就带半句" />
+                <input class="msf-i" v-model="noteEdit.路线图" placeholder="目标是什么；“不做”的事关键就带半句" />
               </label>
               <label class="msf">
                 <span class="msf-k">说明</span>
@@ -928,14 +928,14 @@
               </div>
             </div>
             <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
-                 与 loadViewData「只在切到那一摆法时才拉」的既有纪律一致） -->
+                 与 loadViewData“只在切到那一摆法时才拉”的既有纪律一致） -->
             <div class="ms-git" v-if="msGitRow">
               <span>📂 最近提交 <b>{{ msGitRow.lastCommit || '读不到' }}</b></span>
               <span>未提交 <b>{{ msGitRow.dirty === null || msGitRow.dirty === undefined ? '—' : msGitRow.dirty }}</b></span>
             </div>
             <button class="ghost ms-gitbtn" v-else @click.stop="loadTripBoard()">⟳ 拉取提交信息</button>
             <!-- 最近执行日志流（2026-10-11 监控台 P0 之一）：只说"最近在干什么"，
-                 不做筛选/分页 —— 要看全的点「看全部 →」，那边才是日志页的主场。 -->
+                 不做筛选/分页 —— 要看全的点“看全部 →”，那边才是日志页的主场。 -->
             <div class="ms-feed">
               <div class="ms-feed-h">
                 <span>最近执行日志</span>
@@ -953,7 +953,7 @@
             <button class="ghost ms-stalled" v-if="msStalled.length"
               @click.stop="openProjectTasks(pvCurrent)"
               :title="msStalled.map(s => s.title + '（' + s.hours + ' 小时没动静）').join('\n')">
-              ⚠ {{ msStalled.length }} 个任务「进行中」但超过 {{ STALLED_HOURS }} 小时没动静 · 看看 →
+              ⚠ {{ msStalled.length }} 个任务“进行中”但超过 {{ STALLED_HOURS }} 小时没动静 · 看看 →
             </button>
             <!-- 建议动作 + 可并行机会（2026-10-11，死通道 A 组收口）：
                  这两条通道早就在主进程算好了，界面此前从不调用（= 死通道）。接上它，
@@ -968,12 +968,12 @@
               <div class="ms-suggest-item" v-for="(o, i) in pvParallelMine" :key="'pp' + i">· {{ o.reason }}</div>
             </div>
             <div class="oacts">
-              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产「待审批」草稿，点头才转正。
-                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——「电路铺好了开关没装」的补开关。 -->
+              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产“待审批”草稿，点头才转正。
+                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——“电路铺好了开关没装”的补开关。 -->
               <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
               <button class="ghost oact" @click.stop="openAiDoc(pvCurrent)">📄 文档拆卡</button>
               <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
-                   「电路铺好了开关没装」的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
+                   “电路铺好了开关没装”的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
               <button class="ghost oact" @click.stop="openPlans(pvCurrent)">🗂 规划</button>
               <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
               <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
@@ -982,7 +982,7 @@
                    拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
               <button class="ghost oact" @click.stop="copyContextPack(pvCurrent)"
                       title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</button>
-              <!-- 不做「打开工作目录」——主进程没有"打开任意路径"的通道，也刻意不暴露。
+              <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <button v-if="pvCurrent.repo" class="ghost oact"
                       @click.stop="copyWithToast(pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</button>
@@ -991,7 +991,7 @@
             </div>
           </div>
         </div>
-        <div class="ms-detail empty" v-else>还没有项目 —— 点左下角「＋ 添加项目」登记第一个。</div>
+        <div class="ms-detail empty" v-else>还没有项目 —— 点左下角“＋ 添加项目”登记第一个。</div>
       </div>
 
       <!-- ══ ⑤ 梯度榜（2026-10-25 暮雨）：项目页的第 5 种摆法 —— 手动拖档的 Tier List。
@@ -1002,7 +1002,7 @@
         :projects="projects"
         :toast="showToast"
       />
-      <!-- ══ ⑥ 对不上（2026-10-27 · REV-008 一期 R4「让对不上可见」）════════
+      <!-- ══ ⑥ 对不上（2026-10-27 · REV-008 一期 R4“让对不上可见”）════════
            状态过期 / 引用断裂 / 完成但没判据 —— 三类全是**只读报告**，不阻挡任何操作。
            判定在 shared/mismatch.ts（e2e-mismatch 32 条纯 Node 断言），这里只管摆。
            ⚠ 必须紧接在上一分支之后：v-if 链中间插元素会让其后视图整页不渲染。 -->
@@ -1023,14 +1023,14 @@
 
       <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）—— 已搬进 views/TripBoardView.vue
            一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志。
-           数据来自主进程只读聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律「未填」。
-           旧三摆法一个字没动，「在途一屏」是新增的第 4 项。 -->
+           数据来自主进程只读聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律“未填”。
+           旧三摆法一个字没动，“在途一屏”是新增的第 4 项。 -->
       <TripBoardView v-else-if="pvView === 'trip'" :ctl="tripBoardCtl" />
       <!-- 2026-10-31（0.6.0 P1）：第 8 种摆法 —— 作战计划裁决。 -->
       <PlanView v-else-if="pvView === 'plan'" />
     </main>
 
-    <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块「看得见 + 能复制」的说明面板 -->
+    <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块“看得见 + 能复制”的说明面板 -->
     <!-- 技能安装专区（2026-10-23 拆成组件 · 拆分计划第 1 批第 6 块）。
          四个注入项都不是数据，而是这一页没有的能力：提示条 / 复制 / 拖拽心跳 / 心跳状态。 -->
     <SkillsView v-else-if="curView === 'skills'"
@@ -1066,7 +1066,7 @@
       @notify="showToast"
     />
 
-    <!-- 帮助手册（2026-10-12 暮雨第 4 条：「想加其他主按钮，比如首页、帮助手册、同步」）——
+    <!-- 帮助手册（2026-10-12 暮雨第 4 条：“想加其他主按钮，比如首页、帮助手册、同步”）——
          做**视图内**的离线手册页，不引外部 HTML 文件：
          ① 与其它视图同一套渲染与主题，暗色/亮色自动跟随，不用再维护第二份样式；
          ② 打包不用管额外静态资源路径（file:// 下引外部 HTML 最容易踩路径坑）；
@@ -1088,15 +1088,15 @@
           <div class="ideas-lead-sub">
             这里的东西不算任务、不进逾期、不进待办。决定做了才转成待办，转出去也留着记录。
           </div>
-          <!-- 2026-10-31（暮雨第 6 条）：这条链一直存在，但只有一个「做」字、没有任何说明 ——
-               用户的原话是「不像待办那样方便，也不像日志那样直接，中转问题一堆」。
+          <!-- 2026-10-31（暮雨第 6 条）：这条链一直存在，但只有一个“做”字、没有任何说明 ——
+               用户的原话是“不像待办那样方便，也不像日志那样直接，中转问题一堆”。
                把三步写出来，并指出每一步在哪儿点，比再造一个入口有用。 -->
           <div class="ideas-chain">
             <span class="ic-step"><b>① 想法</b>这一页：随手记，不用想清</span>
             <span class="ic-arrow">→</span>
-            <span class="ic-step"><b>② 待办</b>点「变成待办」：真的在待办里生出一条，能派活/排期</span>
+            <span class="ic-step"><b>② 待办</b>点“变成待办”：真的在待办里生出一条，能派活/排期</span>
             <span class="ic-arrow">→</span>
-            <span class="ic-step"><b>③ 日志</b>做完在待办那条上点「→ 日志」：留痕，可回看</span>
+            <span class="ic-step"><b>③ 日志</b>做完在待办那条上点“→ 日志”：留痕，可回看</span>
           </div>
         </div>
 
@@ -1173,22 +1173,22 @@
          `#board.todos-view` 这层壳由组件根元素带着（视图互斥与几何断言都按它选）。 -->
     <TodosView v-else-if="curView === 'todos'" :ctl="todoViewCtl" />
 
-    <!-- 转换确认（2026-10-09 用户第 1 条）：把「源怎么办」从隐含约定变成看得见的勾选项。
+    <!-- 转换确认（2026-10-09 用户第 1 条）：把“源怎么办”从隐含约定变成看得见的勾选项。
          默认不勾 = 源原样保留（卡 004 铁律）；勾了才顺手收掉重复源 ——
-         日志侧 = 现成「已归档」分区（可找回），待办侧 = 折叠「已转出」（可撤销）。 -->
+         日志侧 = 现成“已归档”分区（可找回），待办侧 = 折叠“已转出”（可撤销）。 -->
     <div v-if="convAsk_" class="overlay" @mousedown.self="convAsk_ = null">
       <div id="conv-modal">
         <h3>{{ convAsk_.kind === 'log2todo' ? '日志 → 待办' : '待办 → 日志' }}</h3>
-        <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}「{{ convAsk_.src.title || convAsk_.src.id }}」</div>
+        <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}“{{ convAsk_.src.title || convAsk_.src.id }}”</div>
         <div class="hint">会新建一条{{ convAsk_.kind === 'log2todo'
-          ? '待办（首行取「下一步」首条 —— 是（待填写）这类占位就改用日志标题；日志正文与下一步会一起带过去，项目/优先级跟着走）'
+          ? '待办（首行取“下一步”首条 —— 是（待填写）这类占位就改用日志标题；日志正文与下一步会一起带过去，项目/优先级跟着走）'
           : '日志（标题/项目/优先级带过去，到期压进正文首行）' }}；同一条只转一次。</div>
         <label class="conv-opt">
           <input type="checkbox" v-model="convAsk_.archive" />
-          <span>顺手把源{{ convAsk_.kind === 'log2todo' ? '归档' : '标「已转出」' }}
+          <span>顺手把源{{ convAsk_.kind === 'log2todo' ? '归档' : '标“已转出”' }}
             <i>{{ convAsk_.kind === 'log2todo'
-              ? '源日志移入「已归档」分区（列表不再重复，随时可找回）'
-              : '源待办折叠进「已转出」（不是删除，展开可看可撤销）' }}</i></span>
+              ? '源日志移入“已归档”分区（列表不再重复，随时可找回）'
+              : '源待办折叠进“已转出”（不是删除，展开可看可撤销）' }}</i></span>
         </label>
         <div class="hint conv-default">不勾 = 源原样保留，两边都看得见。</div>
         <div class="acts">
@@ -1222,10 +1222,10 @@
             <label>到期日</label>
             <input type="date" v-model="todoEdit_.due" />
           </div>
-          <!-- 到期时间（2026-10-12 暮雨：「待办只有到期日，建议再加一个可选的时间字段。
-               如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39」）。
-               ⚠ 是**可选**：留空 = 老行为（只按天）。所以标签写「时间（可选）」，
-                 并给一个「清空」小按钮 —— 填错了要能去掉（清空 = 字段整个消失，不是存个空串）。
+          <!-- 到期时间（2026-10-12 暮雨：“待办只有到期日，建议再加一个可选的时间字段。
+               如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39”）。
+               ⚠ 是**可选**：留空 = 老行为（只按天）。所以标签写“时间（可选）”，
+                 并给一个“清空”小按钮 —— 填错了要能去掉（清空 = 字段整个消失，不是存个空串）。
                ⚠ `type="time"` 在 Electron/Chromium 里是原生时间选择器，比自己搓输入框稳。 -->
           <div>
             <label>时间（可选）</label>
@@ -1248,7 +1248,7 @@
          ⚠ `v-if` 而**不是** `v-else-if` —— 这是硬约束，别改回去。
          下面 convAsk_ / todoEdit_ 两个 `.overlay` 带 v-if，**插在本行之前**：
          写成 v-else-if 时 Vue 会把它们当成链的上一环，于是
-         「待办编辑弹窗开着」就等价于「日志页不渲染」—— 用户点页签看到的是**空白**。
+         “待办编辑弹窗开着”就等价于“日志页不渲染”—— 用户点页签看到的是**空白**。
          2026-10-14 真点击 e2e 解锁后实测到的（此前这一层恒 SKIP，从没验过）。 -->
     <!-- 执行日志（2026-10-23 拆成组件 · 拆分计划第 1 批第 11 块）。
          模板在 views/LogsView.vue；状态与动作、以及**所有日志弹窗**都还在本文件 ——
@@ -1268,15 +1268,15 @@
         </div>
       </div>
       <!-- 2026-10-16 用户第 2 条：这里是**快捷入口**，不是服务管理。
-           用户原话给的类比就是「steam 启动非 steam 游戏」——你登记一个你常用的东西，
+           用户原话给的类比就是“steam 启动非 steam 游戏”——你登记一个你常用的东西，
            点一下就开；方寸不提供它、不监控它、更不关心它内部开了什么端口。
-           ⚠ 所以卡片上**没有端口那一行**：那是「服务/端口」页的事，见那边。 -->
+           ⚠ 所以卡片上**没有端口那一行**：那是“服务/端口”页的事，见那边。 -->
       <div class="lp-note">
         这就是快捷入口：登记一个你常用的应用或命令，<b>点一下就开</b>。
         方寸只管把它拉起来，不管它内部怎么跑。
       </div>
       <div class="lp-grid" v-if="launchpadApps.length">
-        <!-- 右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）：编辑原先只能从卡片上的
+        <!-- 右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）：编辑原先只能从卡片上的
              ✏️ 进、删除更藏在编辑弹窗里，两条路都要先点开一层。右键是直达。
              ⚠ 菜单组件不产生包裹元素（ContextMenuRoot），`.lp-grid` 的网格布局一个像素不动。 -->
         <AppCardMenu
@@ -1305,7 +1305,7 @@
       </div>
       <div class="empty-state" v-else>
         <div class="empty-icon">🚀</div>
-        <div class="empty-text">还没有登记任何应用 —— 点右上角「+ 添加应用」，
+        <div class="empty-text">还没有登记任何应用 —— 点右上角“+ 添加应用”，
           填上名字和一个程序/脚本的路径就行（想做启动台里的那个"快捷方式"）。</div>
       </div>
     </main>
@@ -1318,32 +1318,32 @@
 
     <!--
       日志 / 待办右键菜单（2026-09-26 卡 037 第一批 · 用户口径）
-      规格铁律（用户原话）：菜单是「出口加速器」，不是「入口加字段」；一层封顶、单项 ≤7；
-      破坏性动作（删除）放最末且二次确认；任何「发给 AI / 智能总结」永不进菜单。
+      规格铁律（用户原话）：菜单是“出口加速器”，不是“入口加字段”；一层封顶、单项 ≤7；
+      破坏性动作（删除）放最末且二次确认；任何“发给 AI / 智能总结”永不进菜单。
     -->
     <div v-if="ctxOther" class="ctx-backdrop" @click="closeOtherMenu" @contextmenu.prevent="closeOtherMenu"></div>
     <div v-if="ctxOther" class="ctx-menu ctx-other" :style="{ left: ctxOther.x + 'px', top: ctxOther.y + 'px' }">
       <template v-if="ctxOther.kind === 'log'">
         <div class="ctx-title">{{ ctxOther.item.title || ctxOther.item.id }}</div>
-        <!-- 编辑（2026-10-11 用户：「直接右键日志居然不能编辑」）——
+        <!-- 编辑（2026-10-11 用户：“直接右键日志居然不能编辑”）——
              任务卡菜单与待办菜单都有编辑，**只有日志漏了**，而它恰恰是最高频的动作。
-             放最前面（原本第一项是「复制全文」）。 -->
+             放最前面（原本第一项是“复制全文”）。 -->
         <button @click="ctxOtherRun(editLogFromMenu)">✏️ 编辑</button>
         <button @click="ctxOtherRun(copyLogFull)">📄 复制全文</button>
         <button @click="ctxOtherRun(copyLogMeta)">🏷 复制带元信息（日期 + 项目）</button>
         <button @click="ctxOtherRun(copyAndDispatchLog)">📤 复制并标记已派</button>
         <div class="ctx-sep"></div>
-        <!-- 「进行中」是手动开关（2026-09-28）：右键里也放一份，不进编辑页就能打/撤 -->
-        <button @click="ctxOtherRun(toggleLogRunning)">{{ ctxOther.item.running ? '⏸ 撤销「进行中」' : '▶ 标为「进行中」' }}</button>
+        <!-- “进行中”是手动开关（2026-09-28）：右键里也放一份，不进编辑页就能打/撤 -->
+        <button @click="ctxOtherRun(toggleLogRunning)">{{ ctxOther.item.running ? '⏸ 撤销“进行中”' : '▶ 标为“进行中”' }}</button>
         <button @click="ctxOtherRun(toggleLogPin)">{{ ctxOther.item.pinned ? '📌 取消置顶' : '📌 置顶' }}</button>
         <button @click="ctxOtherRun(changeLogProject)">🏷 改项目归属…</button>
-        <!-- 归档从右键里撤掉（2026-10-11）：加「编辑」后菜单到了 9 项，**超了当初定的「单项 ≤7」**。
+        <!-- 归档从右键里撤掉（2026-10-11）：加“编辑”后菜单到了 9 项，**超了当初定的“单项 ≤7”**。
              归档只是一个状态变更，日志卡本身就有入口，右键这份是重复的；
              复制类那两项各有各的场景，不该动。 —— 保持 7 项 + 破坏性动作单列。 -->
         <div class="ctx-sep"></div>
         <button class="danger" @click="ctxOtherRun(runDestroyLog)">🗑 彻底删除（二次确认）</button>
       </template>
-      <!-- 看板分区空白右键（2026-10-17 暮雨第 3 条）：只有「新建」一项 ——
+      <!-- 看板分区空白右键（2026-10-17 暮雨第 3 条）：只有“新建”一项 ——
            列级要不出别的动作（改状态/删除都是卡片级的事），一层的菜单不凑数。 -->
       <template v-else-if="ctxOther.kind === 'column'">
         <div class="ctx-title">{{ ctxOther.item.status }}</div>
@@ -1376,10 +1376,10 @@
       </div>
     </div>
 
-    <!-- 按日期清理回收站（2026-10-17 暮雨第 2 条：「我可以选择特定日期，删除此之前的所有内容」）。
-         与「清理已归档日志」同一套交互：先预览命中条数，再确认；差别是这里的删除**不可撤销**
+    <!-- 按日期清理回收站（2026-10-17 暮雨第 2 条：“我可以选择特定日期，删除此之前的所有内容”）。
+         与“清理已归档日志”同一套交互：先预览命中条数，再确认；差别是这里的删除**不可撤销**
          （删的是回收站里的文件本身），所以文案必须把这件事说满，不能含糊。 -->
-    <!-- 回收站「按日期清理」弹窗已搬进 views/TrashView.vue -->
+    <!-- 回收站“按日期清理”弹窗已搬进 views/TrashView.vue -->
 
 
     <LogPurgeModal v-if="logPurgeOpen" :ctl="logPurgeCtl" />
@@ -1394,9 +1394,9 @@
           <div class="review-task-title">{{ reviewModal.title }}</div>
           <div class="review-task-id">{{ reviewModal.id }}</div>
         </div>
-        <!-- 2026-09-25（用户第 7 条）：原来这里只有「驳回理由」一个输入框 ——
-             通过按钮虽然在，但通过时**无处写结论**，等于「通过」这件事不留痕。
-             改成双用的验收结论：驳回必填、通过选填，两者都写进「结果记录」。
+        <!-- 2026-09-25（用户第 7 条）：原来这里只有“驳回理由”一个输入框 ——
+             通过按钮虽然在，但通过时**无处写结论**，等于“通过”这件事不留痕。
+             改成双用的验收结论：驳回必填、通过选填，两者都写进“结果记录”。
              2026-10-25：审批裁决同样走这里（批准 = 转正待办，理由同样留痕）。 -->
         <label>{{ reviewModal.kind === 'direct'
           ? '驳回理由（可选 —— 写不清就点下面一个常用理由，或直接留空）'
@@ -1410,13 +1410,13 @@
           :placeholder="reviewModal.kind === 'approval'
             ? '批准：为什么可以转正；驳回：缺什么、要改成什么样'
             : '驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项'"></textarea>
-        <!-- 2026-10-31（暮雨第 2 条：「驳回到底怎么用？每次都要手动点移动到待办，那有什么用？」）：
-             驳回之后卡停在哪，必须当场选，不能默认停在「驳回」等人来搬。
-             默认「退回待办」= 驳回即返工单，agent 下次取活就接着干（这才是它该有的样子）；
-             「先停着」= 这次只是记一笔，晚点自己决定。
-             2026-10-31 第二轮（暮雨：「我需要通过，但『驳回之后』显示在那里会误导」）：
-             这块只对「驳回」生效，所以标题后面直接写死这句话 —— 点「通过」时它一个字都不影响。 -->
-        <label class="review-where-label">驳回之后 <span class="rw-scope">（只在点「驳回」时生效 —— 点「通过」不受这一项影响）</span></label>
+        <!-- 2026-10-31（暮雨第 2 条：“驳回到底怎么用？每次都要手动点移动到待办，那有什么用？”）：
+             驳回之后卡停在哪，必须当场选，不能默认停在“驳回”等人来搬。
+             默认“退回待办”= 驳回即返工单，agent 下次取活就接着干（这才是它该有的样子）；
+             “先停着”= 这次只是记一笔，晚点自己决定。
+             2026-10-31 第二轮（暮雨：“我需要通过，但『驳回之后』显示在那里会误导”）：
+             这块只对“驳回”生效，所以标题后面直接写死这句话 —— 点“通过”时它一个字都不影响。 -->
+        <label class="review-where-label">驳回之后 <span class="rw-scope">（只在点“驳回”时生效 —— 点“通过”不受这一项影响）</span></label>
         <div class="review-where" :class="{ 'is-secondary': reviewModal.intent === 'accept' }">
           <label class="rw-opt" :class="{ on: reviewRework }">
             <input type="radio" :checked="reviewRework" @change="reviewRework = true" />
@@ -1424,7 +1424,7 @@
           </label>
           <label class="rw-opt" :class="{ on: !reviewRework }">
             <input type="radio" :checked="!reviewRework" @change="reviewRework = false" />
-            <span><b>先停在「驳回」</b> —— 不派活，晚点在看板的返工台里再决定</span>
+            <span><b>先停在“驳回”</b> —— 不派活，晚点在看板的返工台里再决定</span>
           </label>
         </div>
         <div class="acts">
@@ -1437,7 +1437,7 @@
 
     <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有
          2026-10-31（暮雨第 10 条）：原来只有版本号 + 一句"数据是你的"，没有简介、作者、版权、
-         免责声明、使用手册入口 —— 「但凡抄自家产品司天和绒花墨坊都不至于这么惨」。
+         免责声明、使用手册入口 —— “但凡抄自家产品司天和绒花墨坊都不至于这么惨”。
          现在补齐：是什么 / 谁做的 / 什么许可 / 会花钱的地方 / 三个配套入口。 -->
     <div v-if="aboutOpen" class="overlay" @mousedown.self="aboutOpen = false">
       <div id="about-modal">
@@ -1450,14 +1450,14 @@
           </div>
         </div>
         <p class="about-intro">
-          把「任务收口 + 方针载体」做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
+          把“任务收口 + 方针载体”做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
           agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，AI 不能背着你往里塞东西。
           会花钱的只有 AI 问答与出单，且必须走你自己的 API（BYOK），不配就一分不花。
         </p>
         <div class="about-rows">
           <div><span class="k">版本</span><span class="v">{{ appVersion || '读取中…' }}</span></div>
           <div><span class="k">作者</span><span class="v">MUYU46548</span></div>
-          <div><span class="k">许可证</span><span class="v">MIT · 免费开源，按「现状」提供</span></div>
+          <div><span class="k">许可证</span><span class="v">MIT · 免费开源，按“现状”提供</span></div>
           <div><span class="k">数据目录</span><span class="v about-path" :title="dataDir">{{ dataDir || '—' }}</span></div>
           <div><span class="k">当前视图</span><span class="v">{{ curViewLabel }} · {{ countText }}</span></div>
         </div>
@@ -1585,8 +1585,8 @@
             <span v-else-if="row.picked" class="la-picked">已选</span>
           </label>
           <div v-if="!logAttachRows.length" class="la-empty">
-            没有符合条件的日志。换个关键词 / 放宽日期，或点「清空筛选」看全部。
-            <template v-if="logAttachBlockedCount">（另有 {{ logAttachBlockedCount }} 条被占用，勾「显示已占用」可查看原因）</template>
+            没有符合条件的日志。换个关键词 / 放宽日期，或点“清空筛选”看全部。
+            <template v-if="logAttachBlockedCount">（另有 {{ logAttachBlockedCount }} 条被占用，勾“显示已占用”可查看原因）</template>
           </div>
         </div>
         <div class="acts">
@@ -1601,7 +1601,7 @@
 
     <LogPreviewModal v-if="logPreview" :ctl="logPreviewCtl" />
 
-    <!-- 回收站正文预览（2026-09-26 用户：「每个卡片都是不能点的死卡」）-->
+    <!-- 回收站正文预览（2026-09-26 用户：“每个卡片都是不能点的死卡”）-->
     <!-- 回收站正文预览弹窗已搬进 views/TrashView.vue（与它的视图同一处） -->
 
 
@@ -1622,14 +1622,14 @@
       @open-log="openLogById" />
 
     <!-- 路线图（2026-10-23 拆成组件 · 拆分计划第 1 批第 7 块）。
-         它自己 onMounted 拉 roadmap + 里程碑；零交互（唯一按钮是页内「⟳ 刷新」）。 -->
+         它自己 onMounted 拉 roadmap + 里程碑；零交互（唯一按钮是页内“⟳ 刷新”）。 -->
     <RoadmapView v-if="curView === 'roadmap'" @open-task="openTaskById" />
 
     <!-- Edit modal -->
     <div id="modal-overlay" class="overlay" v-if="editTask_" @mousedown.self="closeTaskEditor()">
       <div id="modal" class="task-modal">
         <h3>{{ editTask_.id ? '编辑任务' : '新建任务' }}</h3>
-        <!-- 2026-10-31（暮雨第 2 条「感觉很难填写」）：先把"最少要填什么"说清，
+        <!-- 2026-10-31（暮雨第 2 条“感觉很难填写”）：先把"最少要填什么"说清，
              免得一屏十几个框看着像必须全填。 -->
         <div class="tf-lead">只填<b>标题</b>就能建卡；其余留空不影响任何东西。每个框下面都写清它到底影响什么。</div>
         <div class="tf-grid">
@@ -1651,7 +1651,7 @@
                 </span>
                 <span v-if="!blockerList.length" class="blk-empty">未设置依赖</span>
               </div>
-              <!-- 2026-10-31 第二轮（暮雨：「和附属日志一样的问题，毫无筛选能力，一堆列表拉出来」）：
+              <!-- 2026-10-31 第二轮（暮雨：“和附属日志一样的问题，毫无筛选能力，一堆列表拉出来”）：
                    原来是一个装 300 项的原生 <select>，找一张卡要滚半天。改成**搜索优先**：
                    输入即筛（标题/ID 都认），不输入时只露最近 8 张，并说清"从哪来的"。
                    原生 select 在几百项时没有搜索框，这是系统控件的硬伤，不是样式问题。 -->
@@ -1677,7 +1677,7 @@
               <option v-for="o in specOptions(spec)" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
 
-            <!-- 2026-10-31 第二轮（暮雨：「批次从来没被有效利用，每次都自己瞎编，最后越来越乱」）：
+            <!-- 2026-10-31 第二轮（暮雨：“批次从来没被有效利用，每次都自己瞎编，最后越来越乱”）：
                  批次框改成**带候选**的输入框 —— 已存在的批次名直接可选，想新造仍然可以打。
                  路线图只认名字相同的一批，所以"顺手变成一个新的"才是乱源。 -->
             <template v-else-if="spec.key === 'batch'">
@@ -1746,15 +1746,15 @@
         <label>方针边界（怎么干、不干什么）</label>
         <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
         <!-- 029：结构地图此前**只存在于文件里**，界面上完全看不到 —— 用户验收驳回原话
-             「找不到在哪里」。这里把它变成一个能看能改的普通小节（不再需要手工翻文件）。 -->
+             “找不到在哪里”。这里把它变成一个能看能改的普通小节（不再需要手工翻文件）。 -->
         <label>
           结构地图（模块清单 + 每模块一句话职责 + 主数据流）
-          <span class="pf-label-hint">第一行必须是「&gt; 最后核实：YYYY-MM-DD」——烂地图比没地图危险，因为读者不知道它烂</span>
+          <span class="pf-label-hint">第一行必须是“&gt; 最后核实：YYYY-MM-DD”——烂地图比没地图危险，因为读者不知道它烂</span>
         </label>
         <textarea class="tall" v-model="policyEdit_.structureMap"
           placeholder="&gt; 最后核实：2026-09-28&#10;- 模块清单：…&#10;- 主数据流：数据从哪来 → 经过谁 → 落到哪 → 谁读它"></textarea>
         <div class="pf-map-tools">
-          <button class="ghost" type="button" @click="stampStructureMap()" title="把「最后核实」那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</button>
+          <button class="ghost" type="button" @click="stampStructureMap()" title="把“最后核实”那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</button>
           <span class="pf-map-tip">改动只写方针卡；派活时它会随任务书下发（不内联全文，只指路）</span>
         </div>
         <div class="acts">
@@ -1764,10 +1764,10 @@
       </div>
     </div>
 
-    <!-- 结构地图一览（029）：**这是「结构地图在哪」的答案**。
+    <!-- 结构地图一览（029）：**这是“结构地图在哪”的答案**。
          列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
     <!-- 方寸自绘架构图（2026-10-30，卡 task-20261030-002）：只读扫源码出的图。
-         与「架构图」按钮（打开 archify 产物）并存：一个是看别人画的，一个是自己扫的。 -->
+         与“架构图”按钮（打开 archify 产物）并存：一个是看别人画的，一个是自己扫的。 -->
     <div id="arch-overlay" class="overlay" v-if="archOpen && archGraph" @mousedown.self="archOpen = false">
       <ArchDiagram :graph="archGraph" :review="archReview" :repairs="archRepairs" :rejects="archRejects"
         :busy="archBusy" :version="archVersion" :approved="archApproved"
@@ -1780,7 +1780,7 @@
     <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
       <div id="smap-modal">        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
         <p class="smap-hint">
-          每张方针卡里有一个「结构地图」小节。第一行必须是<b>最后核实日期</b>——
+          每张方针卡里有一个“结构地图”小节。第一行必须是<b>最后核实日期</b>——
           烂地图比没地图危险，因为读者不知道它烂。内容由 agent 起草、你过目。
         </p>
         <div class="smap-list">
@@ -1819,7 +1819,7 @@
       <div id="cal-assign-modal">
         <h3>📅 指派时间</h3>
         <div class="ca-title">{{ calAssign_.title }}</div>
-        <div class="hint" v-if="calAssign_.isTodo">待办只有「到期日」一个时间点。</div>
+        <div class="hint" v-if="calAssign_.isTodo">待办只有“到期日”一个时间点。</div>
         <template v-if="!calAssign_.isTodo">
           <label>开始（可选；与截止组成时间段，日历上会横跨多天）</label>
           <input v-model="calAssign_.start" type="date" />
@@ -1902,19 +1902,19 @@
       </div>
     </div>
 
-    <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情「✨ AI 规划」的入口。
+    <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情“✨ AI 规划”的入口。
          两个动作走 12 条 LLM 通道的后两条（llm:planToDraft / llm:draftProjectBrief）：
-         拆目标 →「待审批」任务卡；起草说明 → 四栏草稿卡。转正必须人工，AI 不直接进待办。
+         拆目标 →“待审批”任务卡；起草说明 → 四栏草稿卡。转正必须人工，AI 不直接进待办。
          ⚠ 合入时改了一处：遮罩关闭手势原为 `@click.self` → 改 `@mousedown.self`。
            这里有个文本输入框（goal），`@click.self` 会在"拖选文字、光标滑出弹窗"时
            被当成点了遮罩，**把还没提交的草稿一起关掉**（2026-10-11 真机踩过，守卫第 ⑨ 类也拦它）。 -->
     <div v-if="aiPlanForm" class="overlay" @mousedown.self="closeAiPlan()">
       <div id="ai-plan-modal">
         <h3>AI 规划 · {{ aiPlanForm.name }}</h3>
-        <label>想干什么（一句话目标，给「拆成任务卡」用）</label>
+        <label>想干什么（一句话目标，给“拆成任务卡”用）</label>
         <input v-model="aiPlanForm.goal" placeholder="例：把 0.2.8 发版前的阻塞清空"
                @keyup.enter="runPlanToDraft()" :disabled="aiPlanBusy" />
-        <!-- 2026-10-16（暮雨第 1 条）：他说「根本找不到入口、也没找到配置模型的地方」——
+        <!-- 2026-10-16（暮雨第 1 条）：他说“根本找不到入口、也没找到配置模型的地方”——
              入口其实一直在项目详情里，配置在设置页，只是**没有一条线把它们串起来**。
              这里补的就是这条线：没配端点时当场指路，一键送到设置页那一格。 -->
         <div class="hint hint-warn" v-if="!llmCfg.baseUrl">
@@ -1922,7 +1922,7 @@
           <button class="ghost llm-goto" :disabled="aiPlanBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
         </div>
         <div class="hint">
-          结果落成<b>「待审批」卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
+          结果落成<b>“待审批”卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
           卡带 <code>ai-planning</code> 来源标记可审计。
         </div>
         <div class="acts">
@@ -1936,7 +1936,7 @@
     </div>
 
     <!-- ══ 文档拆卡弹窗（2026-10-17 四件补立项之二）：粘贴文档全文 → AI 拆成待审批卡。
-         同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同「待审批+ai-doc 审计」红线。 -->
+         同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同“待审批+ai-doc 审计”红线。 -->
     <div v-if="aiDocForm" class="overlay" @mousedown.self="closeAiDoc()">
       <div id="ai-doc-modal">
         <h3>文档拆卡 · {{ aiDocForm.name }}</h3>
@@ -1949,7 +1949,7 @@
           <button class="ghost llm-goto" :disabled="aiDocBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
         </div>
         <div class="hint">
-          每篇最多拆 <b>20 张</b>「待审批」卡（琥珀色状态）——你过目改卡、点头后才进待办；
+          每篇最多拆 <b>20 张</b>“待审批”卡（琥珀色状态）——你过目改卡、点头后才进待办；
           卡带 <code>ai-doc</code> 来源标记，和目标拆解的卡分开可查。拆完原文不留存。
         </div>
         <div class="acts">
@@ -1960,7 +1960,7 @@
       </div>
     </div>
 
-    <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情「🗂 规划」的入口。
+    <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情“🗂 规划”的入口。
          接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
          决策点选定即留痕（选项+时间落任务文件）；再点其他选项=改选，留痕覆盖（decidedAt 刷新）。 -->
     <div v-if="plansModal" class="overlay" @mousedown.self="closePlans()">
@@ -1971,8 +1971,8 @@
         <div v-if="!planDetail && !planCreating">
           <div class="hint" v-if="planListBusy">读取中…</div>
           <div class="hint" v-else-if="!planList.length">
-            这个项目还没有规划——点下面「＋ 新建规划」：目标、里程碑、要决定的决策点一次写清，
-            决策点逐个选定后规划自动转「进行中」。
+            这个项目还没有规划——点下面“＋ 新建规划”：目标、里程碑、要决定的决策点一次写清，
+            决策点逐个选定后规划自动转“进行中”。
           </div>
           <div class="plan-row" v-for="t in planList" :key="t.fm.id" :data-plan-id="t.fm.id">
             <div class="plan-row-main">
@@ -2002,7 +2002,7 @@
           </div>
           <div class="hint hint-warn" v-if="!planDetail.plan.decisions.length">这条规划没有决策点。</div>
           <div class="hint" v-else-if="planDetail.plan.decisions.every(d => d.status !== 'pending')">
-            决策点全定完——规划已自动转「进行中」，选择留痕都记在任务卡里。
+            决策点全定完——规划已自动转“进行中”，选择留痕都记在任务卡里。
           </div>
         </div>
 
@@ -2047,7 +2047,7 @@
         <input v-model="editApp_.argsText" placeholder="例：--port 8080" />
         <label>描述（可选）</label>
         <input v-model="editApp_.description" placeholder="应用描述" />
-        <div class="hint app-path-hint">选中文件夹或 .lnk 时直接用系统「打开」；.bat/.cmd 经 cmd.exe 执行，.ps1 用 powershell 执行。</div>
+        <div class="hint app-path-hint">选中文件夹或 .lnk 时直接用系统“打开”；.bat/.cmd 经 cmd.exe 执行，.ps1 用 powershell 执行。</div>
         <div class="acts">
           <button class="ghost" @click="closeAppEditor()">取消</button>
           <button v-if="!editApp_.isNew" class="danger" @click="removeApp(editApp_.id)">删除</button>
@@ -2070,8 +2070,8 @@
     <!-- Settings modal -->
     <div id="soverlay" class="overlay" v-if="showSettings_" @mousedown.self="showSettings_ = false">
       <div id="smodal">
-        <!-- 侧边栏分类（2026-10-03 用户：「设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类」）。
-             上一版做的「点标题折叠」被这个取代 —— 折叠解决的是"太长"，侧边栏解决的是"找不到"，
+        <!-- 侧边栏分类（2026-10-03 用户：“设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类”）。
+             上一版做的“点标题折叠”被这个取代 —— 折叠解决的是"太长"，侧边栏解决的是"找不到"，
              后者才是真正的诉求。当前分类记进真身（fc_settings_tab），下次打开还在那一页。 -->
         <nav class="settings-nav">
           <div class="settings-nav-title">设置</div>
@@ -2098,7 +2098,7 @@
         <DiagSettings :active="settingsTab === 'diag'" />
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>日志清理</h4>
-          <div class="hint">已完成日志默认保留这么多天，到期后点日志页的「清理超期」标为「已归档」（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
+          <div class="hint">已完成日志默认保留这么多天，到期后点日志页的“清理超期”标为“已归档”（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
           <div class="sect-btns retain-row">
             <input type="number" min="0" step="1" class="retain-input"
               v-model.number="logRetainDefault" @change="onLogRetainDefaultChange" />
@@ -2108,7 +2108,7 @@
         <!-- 2026-10-03 卡 012：看板已完成任务自动归档（仿日志清理；**默认关闭**） -->
         <div class="sect" v-show="settingsTab === 'data'">
           <h4>看板归档</h4>
-          <div class="hint">「已完成」且超过这么多天没更新过的任务，会被移进归档区（「归档」标签里能看到、可随时还原，文件不会被删）。0 = 关闭。</div>
+          <div class="hint">“已完成”且超过这么多天没更新过的任务，会被移进归档区（“归档”标签里能看到、可随时还原，文件不会被删）。0 = 关闭。</div>
           <div class="sect-btns retain-row">
             <input type="number" min="0" step="1" class="retain-input"
               v-model.number="archiveDays" @change="onArchiveDaysChange" />
@@ -2149,13 +2149,13 @@
     <!-- ⚠ `has-undo`：撤销条与 toast 都在顶部居中，同时出现时 toast 下移一格（2026-10-21） -->
     <div id="toast" :class="[toast.type, { show: toast.show, 'has-undo': !!undoBar }]">{{ toast.msg }}</div>
 
-    <!-- 撤销条（2026-10-21 暮雨报障：「点错了日志，把另一个日志点了完成，虽然撤销按钮在，
-         但快捷键无用。左上角只有返回，没有撤销按钮」）。
+    <!-- 撤销条（2026-10-21 暮雨报障：“点错了日志，把另一个日志点了完成，虽然撤销按钮在，
+         但快捷键无用。左上角只有返回，没有撤销按钮”）。
          根因不是"没有撤销能力"，而是**撤销入口跟着卡片走**：一旦状态改成完成/归档，
          那条日志就滑到别的分区、甚至不在当前屏，人只能回头翻。误操作的回路必须
          **留在原地、留在眼前** —— 所以状态类动作成功后在这里挂一条，点一下就回去；
          Ctrl+Z 等价于点它（只在焦点不在输入框里时接管，见 onShortcutKeydown）。
-         ⚠ 2026-11-01 暮雨第 2 条：「一直挂在顶上很烦，放个 5 秒就差不多了」——
+         ⚠ 2026-11-01 暮雨第 2 条：“一直挂在顶上很烦，放个 5 秒就差不多了”——
            横幅只展开 5 秒（见 undo.ts 的 UNDO_BAR_MS），之后收成角上小胶囊；
            **撤销栈不丢**，Ctrl+Z 与历史面板照旧可用（"误点十分钟也该撤得回来"是 10-30 定的口径）。 -->
     <div id="undo-bar" v-if="undoBar && undoBarVisible" role="status" aria-live="polite">
@@ -2269,15 +2269,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provide } from 'vue'
 // parseCalDate 必须留着：openCalAssignTodo（在 App.vue，它开的是本文件的弹窗）用它把待办 due 转成日期。
-// ⚠ 2026-10-23 抽 composable 时把它一起删了 → 只在「点待办上的 📅」这条路径炸 ReferenceError，
+// ⚠ 2026-10-23 抽 composable 时把它一起删了 → 只在“点待办上的 📅”这条路径炸 ReferenceError，
 //   无头断言（当时没点过那个按钮）全绿、真 Electron 真点击当场红 2 条。两层都要跑的原因就是这个。
 // ⚠ import 必须是**单行**：模板绑定守卫的正则是 /import[ \t]+([^'"]+?)[ \t]+from/
-//   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成「调用了但未定义」。
+//   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成“调用了但未定义”。
 import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
 import { toPlain } from '../shared/plain'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo, showUndoBar, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
-// 「整段被一对括号包住 = 模板占位」的单一来源（与契约读取、Python 侧同一规则）
+// “整段被一对括号包住 = 模板占位”的单一来源（与契约读取、Python 侧同一规则）
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
 import { readUiPref, saveUiPref } from './prefs'
@@ -2344,20 +2344,20 @@ import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
 // ⚠ 2026-10-16：`describeLaunchCommand` / `explainStartObserved` 的导入已随
-//   「服务页应用分区 + 启动台端口行」一起删掉（那两处是唯一调用方）。
+//   “服务页应用分区 + 启动台端口行”一起删掉（那两处是唯一调用方）。
 //   纯函数本体仍在 `shared/launchpadDiag.ts`（`e2e-launchpad-diag` 仍在测）。
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue, isOverdue } from '../shared/time'
 // 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
 import { neverReadSummary } from '../shared/neverRead'
 import type { NeverReadResult } from '../shared/neverRead'
 import { pickRework, pickPendingReview, lastRejectReason } from '../shared/rework'
-// 成熟原语（2026-10-11 用户第 2 条：「市面上一堆现成UI…不要每次都从头造轮子」）：
+// 成熟原语（2026-10-11 用户第 2 条：“市面上一堆现成UI…不要每次都从头造轮子”）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
 // 我上一版手搓的 backdrop + getBoundingClientRect 定位全部删掉。
 // ⚠ Popover 这里**只借行为**，样式仍走本仓既有的 class。
 //
-// ⚠ 当初这里写着「不引 Tailwind —— 那是一次全仓 CSS 重构，另立卡」。现在那张卡来了：
+// ⚠ 当初这里写着“不引 Tailwind —— 那是一次全仓 CSS 重构，另立卡”。现在那张卡来了：
 //   UI 基座（卡 task-20261011-004，shadcn-vue + Tailwind，第 ② 步的 `--ui-*` 映射已落地）。
 //   口径没变的是**做法**：App.vue 自己**仍然一行 utilities 都不用**（`.fixed`/`.hidden` 这类
 //   同名老类名会让 Tailwind 凭空生成规则），新界面一律切到 `components/` 下的组件里去用。
@@ -2368,10 +2368,10 @@ import BlockersView from './views/BlockersView.vue'
 // 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：换掉手搓的 `.ctx-backdrop` + `.ctx-menu` + 指针坐标定位，
 // 改用 reka-ui 的 ContextMenu 原语（自带 flip/shift 防越界、Esc、方向键、role=menu、焦点归还）。
 import TaskCardMenu from './components/TaskCardMenu.vue'
-// 启动台卡片右键菜单（2026-10-17 暮雨：「不能右键卡片进行编辑和删除」）
+// 启动台卡片右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）
 import AppCardMenu from './components/AppCardMenu.vue'
-// 免责与知情声明（2026-10-16 暮雨第 1 条：「希望你还记得要学绒花墨坊写那些需要用户
-// 首次强制同意确认的免责声明，主要是涉及到钱是非多」）—— 文案在 ./disclaimer.ts（单一事实源），
+// 免责与知情声明（2026-10-16 暮雨第 1 条：“希望你还记得要学绒花墨坊写那些需要用户
+// 首次强制同意确认的免责声明，主要是涉及到钱是非多”）—— 文案在 ./disclaimer.ts（单一事实源），
 // 弹窗本体在 components/ 下（那儿才准用 utilities）。
 import DisclaimerDialog from './components/DisclaimerDialog.vue'
 import { hasAckedDisclaimer, ackedDisclaimerAt } from './disclaimer'
@@ -2451,26 +2451,26 @@ const curStatus = ref('')
 const groupMode = ref('status')
 
 // ── 顶栏计数 + 关于（2026-09-25 用户第 12 条）────────────────────────────
-// 「左上角神秘数字，有时 38，有时 39，有时 1」的真因：
+// “左上角神秘数字，有时 38，有时 39，有时 1”的真因：
 //   它是 `{{ tasks.length }}`，而 tasks 由 loadAll() 按**当前视图**拉一份；
 //   切到日志 / 待办 / 启动台 / 阻塞 / 路线图这些**不调 loadAll** 的页签时它不会更新
 //   → 数字停在上一个视图的旧值（且从不说明是什么）。这里记下计数属于哪个视图，
-//   不属于当前视图就不再冒充「本页的条数」。
+//   不属于当前视图就不再冒充“本页的条数”。
 const countView = ref('')
 const countText = computed(() =>
   countView.value === curView.value ? `${tasks.value.length} 条` : '—')
 const countTitle = computed(() => {
   const label = views.find(v => v.id === curView.value)?.label || curView.value
   return countView.value === curView.value
-    ? `${label}页签内 ${tasks.value.length} 条任务。归档任务不计入，除非勾选顶栏「含归档」。`
+    ? `${label}页签内 ${tasks.value.length} 条任务。归档任务不计入，除非勾选顶栏“含归档”。`
     : '这个页签不加载任务列表，所以不显示条数（此前会残留上一个页签的旧数字）'
 })
 
 // 顶栏控件的作用域（2026-09-26 用户第 1 条回执）
-// 顶栏原来是**无条件渲染**的：切到回收站/技能/日志/待办后，「全部项目 / 按状态 /
-// 折叠全部 / 展开 / 搜索 / 全部时间 / 活跃优先 / 任务多选」全是看板专属 —— 点了没有任何
-// 作用。用户的原话是「右边一堆看起来能点的 UI，但实际什么都不能点」。
-// 这里按视图收口：看板专属只在看板/归档出现；「+ 新建」只在有"任务"这个对象的视图出现。
+// 顶栏原来是**无条件渲染**的：切到回收站/技能/日志/待办后，“全部项目 / 按状态 /
+// 折叠全部 / 展开 / 搜索 / 全部时间 / 活跃优先 / 任务多选”全是看板专属 —— 点了没有任何
+// 作用。用户的原话是“右边一堆看起来能点的 UI，但实际什么都不能点”。
+// 这里按视图收口：看板专属只在看板/归档出现；“+ 新建”只在有"任务"这个对象的视图出现。
 const isBoardView = computed(() => curView.value === 'active' || curView.value === 'archive')
 const isTaskView = computed(() =>
   ['active', 'archive', 'projects', 'blockers', 'roadmap', 'calendar'].includes(curView.value))
@@ -2502,8 +2502,8 @@ function onDisableGpuChange(): void {
   showToast(disableGpu.value ? '已关闭硬件加速 —— 请重启方寸后生效' : '已恢复硬件加速 —— 请重启方寸后生效', 'info')
 }
 
-// 已完成日志的默认保留天数（2026-09-29 用户第 6 条：「设置里可以提供更多选项，
-// 比如已完成日志的自动清理日期可自定义」）。0 = 永不清理；真身 prefs.json，与其它偏好同一套。
+// 已完成日志的默认保留天数（2026-09-29 用户第 6 条：“设置里可以提供更多选项，
+// 比如已完成日志的自动清理日期可自定义”）。0 = 永不清理；真身 prefs.json，与其它偏好同一套。
 const logRetainDefault = ref(readUiPref<number>('fc_log_retain_days', 7))
 function onLogRetainDefaultChange(): void {
   const n = Math.floor(Number(logRetainDefault.value))
@@ -2512,7 +2512,7 @@ function onLogRetainDefaultChange(): void {
 }
 
 // ── 已完成任务自动归档（2026-10-03 卡 task-20261003-012）────────────────
-// 仿日志清理：一个保留天数 + 一批「已超期」的清单 + 用户点按钮执行。
+// 仿日志清理：一个保留天数 + 一批“已超期”的清单 + 用户点按钮执行。
 // ⚠ 默认天数取 **0**（关闭），不是 7 —— 归档会**移动任务文件**，
 //   绝不能对从没表过态的机器悄悄生效（日志清理改的是状态字段，量级不同）。
 const archiveDays = ref(readUiPref<number>('fc_archive_days', 0))
@@ -2529,7 +2529,7 @@ function onArchiveAutoChange(): void {
   saveUiPref('fc_archive_auto', archiveAuto.value)
 }
 
-/** 查「超期的已完成任务」有几条（功能关闭时恒 0，不打扰） */
+/** 查“超期的已完成任务”有几条（功能关闭时恒 0，不打扰） */
 async function refreshArchiveOverdue(): Promise<void> {
   if (!(Number(archiveDays.value) > 0)) { archiveOverdue.value = { count: 0, items: [] }; return }
   try {
@@ -2544,8 +2544,8 @@ async function runArchiveOverdue(auto = false): Promise<void> {
   if (!(d > 0)) { if (!auto) showToast('保留天数填 0 = 功能关闭，不执行', 'info'); return }
   if (!auto && archiveOverdue.value.count > 0) {
     const yes = confirm(
-      `把 ${archiveOverdue.value.count} 个「已完成超过 ${d} 天没动过」的任务移进归档区？\n\n` +
-      `· 文件移动到 task-data/archive/，可在「归档」视图看到、可随时还原\n` +
+      `把 ${archiveOverdue.value.count} 个“已完成超过 ${d} 天没动过”的任务移进归档区？\n\n` +
+      `· 文件移动到 task-data/archive/，可在“归档”视图看到、可随时还原\n` +
       `· 不删除任何东西`,
     )
     if (!yes) return
@@ -2560,11 +2560,11 @@ async function runArchiveOverdue(auto = false): Promise<void> {
   await refreshArchiveOverdue()
 }
 
-// ── 驳回返工台（2026-10-30 暮雨第 3 条：「驳回的东西好像也永远不看，是方寸的缺陷吗？」）──
+// ── 驳回返工台（2026-10-30 暮雨第 3 条：“驳回的东西好像也永远不看，是方寸的缺陷吗？”）──
 // 是缺陷，而且有两层：
-//   ① **结构性**：看板把「完成 / 驳回」两列默认折叠（DEFAULT_COLLAPSED_GROUPS），
-//      驳回卡在现实中等于「这活没通过，还欠返工或一个"算了"的决定」，却和做完的一样被收起来；
-//   ② **口径性**：`never_read` / 体检都把「驳回」当终态排除，于是连"没人管"都统计不到。
+//   ① **结构性**：看板把“完成 / 驳回”两列默认折叠（DEFAULT_COLLAPSED_GROUPS），
+//      驳回卡在现实中等于“这活没通过，还欠返工或一个"算了"的决定”，却和做完的一样被收起来；
+//   ② **口径性**：`never_read` / 体检都把“驳回”当终态排除，于是连"没人管"都统计不到。
 // 这条提示条只解决最要紧的一半：**让它重新出现在眼前**，并给两个出口（退回返工 / 归档）。
 // ⚠ 不做成自动动作：驳回卡的下一站是用户决定，方寸只负责不让它沉底。
 const reworkOpen = ref(false)
@@ -2572,13 +2572,13 @@ const reworkHidden = ref(false)
 const reworkNow = ref(Date.now())
 const rework = computed(() => pickRework(tasks.value as any[], reworkNow.value))
 
-// ── 待验收欠条（2026-10-31 暮雨第 5 条：「没做完的东西叫我怎么待验收？我不是只能一直挂在那里？」）
+// ── 待验收欠条（2026-10-31 暮雨第 5 条：“没做完的东西叫我怎么待验收？我不是只能一直挂在那里？”）
 // 与返工台同一套思路：**让"欠你一个签字"的东西自己冒出来**，而不是等用户翻到那一列。
 // 判据在 shared/rework.ts 的 pickPendingReview（界面不重算）；这里只管开关与两个出口。
 const reviewOpen = ref(false)
 const reviewHidden = ref(false)
 const reviewPending = computed(() => pickPendingReview(tasks.value as any[], reworkNow.value))
-/** 从欠条里直接裁决：走与卡片上「通过/驳回」同一个入口（reviewModal），不另开一条通道 */
+/** 从欠条里直接裁决：走与卡片上“通过/驳回”同一个入口（reviewModal），不另开一条通道 */
 function reviewVerdict(id: string, intent: 'accept' | 'reject'): void {
   const t = tasks.value.find(x => x.id === id)
   if (!t) { showToast('这张卡已经不在了（可能刚被别处改过）', 'error'); return }
@@ -2600,7 +2600,7 @@ function reworkArchive(id: string): void {
 
 // ── 整理体检的跳转（2026-10-30）：面板本身已切到 components/DataHygienePanel.vue，
 // 这里只留"回到看板"的两个动作 —— 打开哪个视图、筛选谁，是 App 的状态。
-/** 体检 → 回看板把「没人碰过」筛出来（筛完的板子本身就是清单，不另开只读页） */
+/** 体检 → 回看板把“没人碰过”筛出来（筛完的板子本身就是清单，不另开只读页） */
 async function gotoNeverRead(): Promise<void> {
   showSettings_.value = false
   readFilter.value = 'never'
@@ -2615,7 +2615,7 @@ function gotoRework(): void {
   reworkOpen.value = true
 }
 
-// ── 主题（2026-09-29 用户第 4 条：「多主题颜色外观并不存在…参考绒花墨坊做一下」）──
+// ── 主题（2026-09-29 用户第 4 条：“多主题颜色外观并不存在…参考绒花墨坊做一下”）──
 // 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
 // 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
 const THEME_LIST = [
@@ -2641,7 +2641,7 @@ function setTheme(id: string): void {
 applyTheme(theme.value)
 
 // ── 全局外观：扁平 / 阴影（2026-10-30，卡 task-20261030-004）────────────
-// 与主题正交：主题换色，外观换"有没有影子"。默认 flat（用户：「我更喜欢扁平化圆角」）。
+// 与主题正交：主题换色，外观换"有没有影子"。默认 flat（用户：“我更喜欢扁平化圆角”）。
 // 落 prefs.json（fc_appearance），换 origin 也不会丢 —— 与主题同一套真身。
 const APPEARANCE_LIST = [
   { id: 'flat', name: '扁平', hint: '零阴影 · 默认，也是用户明确喜欢的那套' },
@@ -2661,17 +2661,17 @@ function setAppearance(id: string): void {
 applyAppearance(appearance.value)
 
 // ── 板面偏好：分组方式 + 分组折叠状态 ────────────────────────────────────
-// 2026-09-25 用户反馈「像没有尽头的单子」→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
+// 2026-09-25 用户反馈“像没有尽头的单子”→ 分组要有**人名**（不是 fangcun-base 这种 id）+ 可折叠。
 // 真身存主进程 prefs.json（与 014 同一套），localStorage 只当读缓存。
 // readUiPref / saveUiPref 已抽到 renderer/prefs.ts（2026-10-23）—— 组合式函数也要用。
 /**
  * 终态分组默认折叠（2026-09-28 密度方案 B）。
  *
- * 依据：方寸自己的哲学是「颜色只留给要注意的事」「已归档默认收起」——
+ * 依据：方寸自己的哲学是“颜色只留给要注意的事”“已归档默认收起”——
  * **完成/驳回是终态，平时不需要看**，它们却常常是最长的一列（14 张能顶满一屏，
  * 把真正在动的活卡挤到看不见）。所以首次运行就把这两列收起来，需要时点列头展开。
  * 用户手动展开过就记进真身（`fc_collapsed_groups`），不会被默认值盖回去。
- * ⚠ 这只在「按状态」分组下有意义：按项目/优先级分组时列 key 是项目 id，
+ * ⚠ 这只在“按状态”分组下有意义：按项目/优先级分组时列 key 是项目 id，
  *   默认值匹配不上，等于不折叠（那是正确行为 —— 那些列里混着终态和非终态）。
  */
 const DEFAULT_COLLAPSED_GROUPS: string[] = ['完成', '驳回']
@@ -2681,7 +2681,7 @@ const groupModeApplied = ref(false)
 /**
  * 设置页分类导航（2026-10-03 用户：设置项不该挤在一条长名单里，要"像各大软件那样用侧边栏页签分类"）。
  *
- * 上一版做的「点标题折叠」（`fc_settings_collapsed`）被这个取代：折叠解决的是"太长"，
+ * 上一版做的“点标题折叠”（`fc_settings_collapsed`）被这个取代：折叠解决的是"太长"，
  * 侧边栏解决的是"找不到"—— 后者才是真正的诉求，两套并存只会更乱。
  *
  * 当前分类记进真身（`fc_settings_tab`），下次打开还停在那一页。
@@ -2701,8 +2701,8 @@ function selectSettingsTab(id: string): void {
   if (!SETTINGS_TABS.some(t => t.id === id)) return
   settingsTab.value = id
   saveUiPref('fc_settings_tab', id)
-  // 诊断页里的三块（自检 / 技能副本 / 活动日志）进门就拉 —— 同「凡界面要显示的派生状态，
-  // 进门就得加载」那条纪律（否则用户不点按钮就是一片空白，看着像坏了）。
+  // 诊断页里的三块（自检 / 技能副本 / 活动日志）进门就拉 —— 同“凡界面要显示的派生状态，
+  // 进门就得加载”那条纪律（否则用户不点按钮就是一片空白，看着像坏了）。
   if (id === 'diag') void loadDiag()
 }
 
@@ -2790,7 +2790,7 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_log_group_collapsed', collapsedLogGroups.value)
     }
-    // 「含归档」开关同样入真身（2026-09-25 用户第 9 条）
+    // “含归档”开关同样入真身（2026-09-25 用户第 9 条）
     if (typeof p?.fc_include_archive === 'boolean') {
       searchIncludeArchive.value = p.fc_include_archive
     } else {
@@ -2815,9 +2815,9 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref(TODO_VIEW_KEY, todoView.value)
     }
-    // 卡片墙「只看未完成」（2026-10-10）：同上面几条，只认布尔真身，坏值回落并补写。
-    // ⚠ 位置**刻意放在 fc_todo_view 之后** —— e2e-prefs 的 E5 用「`'cols'` 到 `'list'` 之间
-    //   不超过 400 字」这条宽松距离检查，来确认这两个键确实都在 syncBoardPrefs 里被读；
+    // 卡片墙“只看未完成”（2026-10-10）：同上面几条，只认布尔真身，坏值回落并补写。
+    // ⚠ 位置**刻意放在 fc_todo_view 之后** —— e2e-prefs 的 E5 用“`'cols'` 到 `'list'` 之间
+    //   不超过 400 字”这条宽松距离检查，来确认这两个键确实都在 syncBoardPrefs 里被读；
     //   把新键插在它们中间会把那个窗口撑爆（本轮实测就红过一次，不是测试太严，是它挡对了）。
     if (typeof p?.fc_card_wall_open_only === 'boolean') {
       cardWallOpenOnly.value = p.fc_card_wall_open_only
@@ -2843,7 +2843,7 @@ async function syncBoardPrefs(): Promise<void> {
       saveUiPref('fc_appearance', appearance.value)
     }
     // 顶栏折叠的页签（2026-10-25）：只认真实存在的页签 id；真身里若写成"几乎全收起来"，
-    // 同样撞「至少留 7 个」这道护栏 → 回落默认（不然一次手改就能把工具全藏了）。
+    // 同样撞“至少留 7 个”这道护栏 → 回落默认（不然一次手改就能把工具全藏了）。
     if (Array.isArray(p?.fc_views_collapsed)) {
       const known = new Set(views.map(v => v.id))
       const clean = Array.from(new Set(p.fc_views_collapsed.map((x: unknown) => String(x)).filter((id: string) => known.has(id))))
@@ -2897,7 +2897,7 @@ async function syncBoardPrefs(): Promise<void> {
     if (Array.isArray(p?.fc_trip_cols) && p.fc_trip_cols.length > 0
         && p.fc_trip_cols.every((x: unknown) => (TRIP_COL_OPTIONS as readonly { v: string }[]).some(o => o.v === x))) {
       tripCols.value = p.fc_trip_cols
-      // 2026-10-22 · 03 任务三：新增「欠着什么」列（四栏台账的第四栏）。
+      // 2026-10-22 · 03 任务三：新增“欠着什么”列（四栏台账的第四栏）。
       // 老 prefs 里当然没有它 —— 那是"用户从没见过这一列"，不是"用户关掉了它"。
       // 所以补一次，并打版本标记：之后用户再关掉，就不会被重新打开（不覆盖用户的选择）。
       const COLS_MIGRATION = 'owe-v1'
@@ -2912,7 +2912,7 @@ async function syncBoardPrefs(): Promise<void> {
     if (p?.fc_health_overrides && typeof p.fc_health_overrides === 'object' && !Array.isArray(p.fc_health_overrides)) {
       tripHealthOverrides.value = p.fc_health_overrides
     }
-    // 项目页签摆法（2026-09-29 用户：「两种视图都要，做成用户可自选切换选项」）
+    // 项目页签摆法（2026-09-29 用户：“两种视图都要，做成用户可自选切换选项”）
     // ⚠ 白名单是**持久化的闸门**：新增摆法忘了加进来，重启后会静默退回项目墙
     //   （trip 之外，tier / mismatch / rice 都曾踩在这种"加了视图没加白名单"的坑上）。
     if (p?.fc_pv_view === 'tiles' || p?.fc_pv_view === 'overview' || p?.fc_pv_view === 'master' || p?.fc_pv_view === 'trip'
@@ -2936,8 +2936,8 @@ function groupCollapsed(key: string): boolean {
 /**
  * 一键全折叠 / 全展开（2026-09-28 用户第 3 条改成**单按钮开关**）。
  *
- * 原来界面上并排放着「折叠全部」和「展开」两个按钮，**其中必定有一个是无效按钮**
- * （已经全折叠时点「折叠全部」什么都不发生，反之亦然）—— 用户原话「臃肿无比」。
+ * 原来界面上并排放着“折叠全部”和“展开”两个按钮，**其中必定有一个是无效按钮**
+ * （已经全折叠时点“折叠全部”什么都不发生，反之亦然）—— 用户原话“臃肿无比”。
  * 现在按钮的文案与动作都由 `allGroupsCollapsed` 决定，界面上永远只有一个。
  */
 function toggleAllCollapsed(): void {
@@ -2949,8 +2949,8 @@ const allGroupsCollapsed = computed(() =>
   columns.value.length > 0 && columns.value.every(c => groupCollapsed(c.key)))
 
 // ── 多视图切换（2026-09-28 用户第 ① 条后半句 + 卡 033）────────────────────
-// 用户原话：「尝试多种视图可选（用户自己切换，旧的视图可以保留）」；
-// 033 验收驳回原话：「我要的方块卡片式视图和其他视图也没出现，多视图根本没做。」
+// 用户原话：“尝试多种视图可选（用户自己切换，旧的视图可以保留）”；
+// 033 验收驳回原话：“我要的方块卡片式视图和其他视图也没出现，多视图根本没做。”
 //
 // 三条口径（小样 references/multi-view-sample-20260928.html，用户已点头按小样做）：
 //   ① **旧视图永远是默认**（看板=列视图 / 待办=清单）—— 新视图是"换一种摆法看同一批数据"，
@@ -2964,8 +2964,8 @@ const allGroupsCollapsed = computed(() =>
 const BOARD_VIEW_KEY = 'fc_board_view'
 const TODO_VIEW_KEY = 'fc_todo_view'
 const PV_VIEW_KEY = 'fc_pv_view'
-// 2026-10-10 加第三摆法「信息卡墙」（cards，卡 20261010-003）：
-// 用户原话「现有两个视图都走了窄化横条路线，少了点掌控感」+「需要能显示看板任务ID」。
+// 2026-10-10 加第三摆法“信息卡墙”（cards，卡 20261010-003）：
+// 用户原话“现有两个视图都走了窄化横条路线，少了点掌控感”+“需要能显示看板任务ID”。
 // 形态是用户从小样里点的候选 A（信息卡墙），不是我们替他定的。
 type BoardView = 'cols' | 'list' | 'cards'
 const boardView = ref<BoardView>(readUiPref<BoardView>(BOARD_VIEW_KEY, 'cols'))
@@ -2975,8 +2975,8 @@ const boardView = ref<BoardView>(readUiPref<BoardView>(BOARD_VIEW_KEY, 'cols'))
 //   断言，见 scripts/test/e2e-board-cards.cjs）—— 这里只负责接线，不在这里写算法。
 // ⚠ computed 是惰性的：filteredTasks / blockers 定义在本文件更靠后的位置也不会 TDZ 报错
 //   （第一次求值发生在渲染时，届时所有顶层 const 都已就绪）。
-// ── 卡片墙「只看未完成」开关（2026-10-10 用户要求）──────────────────────────
-// 默认**关** —— 项目铁律「加视图 / 加选项一律新增可选、旧行为保留」。
+// ── 卡片墙“只看未完成”开关（2026-10-10 用户要求）──────────────────────────
+// 默认**关** —— 项目铁律“加视图 / 加选项一律新增可选、旧行为保留”。
 // 只作用于卡片墙，不动列 / 列表两种摆法；选择进 prefs 真身（换 origin 不丢）。
 const CARD_WALL_OPEN_ONLY_KEY = 'fc_card_wall_open_only'
 const cardWallOpenOnly = ref<boolean>(readUiPref<boolean>(CARD_WALL_OPEN_ONLY_KEY, false))
@@ -3018,9 +3018,9 @@ function toggleCardWallOpenOnly(e: Event): void {
 }
 
 const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY, 'list'))
-// 项目页签的摆法（2026-09-29 用户口径：「项目页签两种视图都要，做成用户可自选切换选项」；
-//   2026-10-05 Q2 新增第四种「在途一屏」—— 立项契约 ② 验收线之①）。
-// ⚠ 默认仍是**旧的项目墙** —— 方寸铁律「加视图一律新增可选、旧的保留、旧视图永远是默认」。
+// 项目页签的摆法（2026-09-29 用户口径：“项目页签两种视图都要，做成用户可自选切换选项”；
+//   2026-10-05 Q2 新增第四种“在途一屏”—— 立项契约 ② 验收线之①）。
+// ⚠ 默认仍是**旧的项目墙** —— 方寸铁律“加视图一律新增可选、旧的保留、旧视图永远是默认”。
 const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(
   readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(PV_VIEW_KEY, 'tiles'))
 /** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
@@ -3042,14 +3042,14 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'tiles', label: '▦ 项目墙', hint: '现状：一格一个项目，四个数字（进行中/总数/完成率/最近活动）' },
     { v: 'overview', label: '▤ 概览卡', hint: '状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口，一眼看出项目卡在哪' },
     { v: 'master', label: '◧ 主从', hint: '左侧常驻项目列表（带迷你进度），右侧摊开所选项目的详情；项目多了更顺手' },
-    { v: 'trip', label: '◉ 在途一屏', hint: '一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度；缺值写「未填」，不编内容' },
-    // 2026-10-25 暮雨：「放进项目页签里面就好。这玩意纯属小玩具」+「我丢的参考图里的梯度榜」
+    { v: 'trip', label: '◉ 在途一屏', hint: '一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度；缺值写“未填”，不编内容' },
+    // 2026-10-25 暮雨：“放进项目页签里面就好。这玩意纯属小玩具”+“我丢的参考图里的梯度榜”
     { v: 'tier', label: '▥ 梯度榜', hint: '手动把项目拖进不同档位（核心/次优先/排队/搁置…）；只给自己看，不改看板与一屏' },
     // 2026-10-27 REV-008 一期 R4：让状态不一致的地方可见（2026-10-30 暮雨第 1 条改名：
-    // 「对不上」不是人话，统一叫「状态提醒」）
+    // “对不上”不是人话，统一叫“状态提醒”）
     { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
-    { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴「要做几天」、纵轴「优先级分」，气泡越大用得越多；改一格立即重排，「采纳 / 砍掉」你点。' },
+    { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴“要做几天”、纵轴“优先级分”，气泡越大用得越多；改一格立即重排，“采纳 / 砍掉”你点。' },
     // 2026-10-31（0.6.0 P1）：作战计划 —— 第 8 种摆法，裁决第一次有地方发生
     { v: 'plan', label: '◫ 作战计划', hint: '阶段卡三块（技术方案 / 照抄点 / 判据）缺一块就报红且不能通过；通过=冻结、打回=写理由、改一句=留痕' },
   ]
@@ -3078,7 +3078,7 @@ function setViewMode(v: string): void {
 
 // ── 卡片悬停轻提示（2026-09-28 密度方案 B 的配套）─────────────────────
 // 紧凑单行卡的代价是长标题被省略号吃掉。补救方案见模板里的注释：
-// 不做悬停滚动、不做 1–2 秒延迟浮层，只做「真的被截断 + 150ms + 半张详情卡」。
+// 不做悬停滚动、不做 1–2 秒延迟浮层，只做“真的被截断 + 150ms + 半张详情卡”。
 const CARD_TIP_DELAY_MS = 150
 type CardTip = {
   x: number; y: number; up: boolean
@@ -3102,8 +3102,8 @@ function onCardEnter(e: MouseEvent, t: any): void {
   // 拖拽中绝不弹：拖着卡片划过一整列时，浮层会一路跟着闪
   // ⚠ **必须是 `draggingId.value`**：`draggingId` 是 `ref<string|null>`，
   //   裸写 `if (draggingId)` 判断的是那个 ref 对象 —— 恒为真，于是这条守卫
-  //   把**每一次悬停**都挡掉了，浮层永远不出现（2026-09-28 用户实测「②看不见」的真因）。
-  //   这类「ref 裸用当布尔」tsc 抓不到，已加静态守卫 ⑧（check-template-bindings.cjs）。
+  //   把**每一次悬停**都挡掉了，浮层永远不出现（2026-09-28 用户实测“②看不见”的真因）。
+  //   这类“ref 裸用当布尔”tsc 抓不到，已加静态守卫 ⑧（check-template-bindings.cjs）。
   if (draggingId.value) return
   const el = e.currentTarget as HTMLElement | null
   const head = el ? (el.querySelector('.ttl') as HTMLElement | null) : null
@@ -3151,7 +3151,7 @@ function shortDue(v: any): string {
 }
 
 /** 项目名压短（卡右侧只有 ~68px）。
- *  ⚠ 必须过 `normProject`：任务 frontmatter 的「项目」是**数组**（`[fangcun-base]`），
+ *  ⚠ 必须过 `normProject`：任务 frontmatter 的“项目”是**数组**（`[fangcun-base]`），
  *  直接拿 `t.project` 去比项目 id 永远匹配不上 —— 那样卡上就"看不见所属项目"（用户 2026-09-28 反馈）。 */
 function projShort(id: any): string {
   const key = normProject(id)
@@ -3160,7 +3160,7 @@ function projShort(id: any): string {
   return name.length > 7 ? name.slice(0, 7) + '…' : name
 }
 
-/** 卡上的日期：优先截止日（可行动的信息），没有就退到「更新」—— 保证卡上永远看得见一个日期 */
+/** 卡上的日期：优先截止日（可行动的信息），没有就退到“更新”—— 保证卡上永远看得见一个日期 */
 function cardDate(t: any): { text: string; over: boolean; kind: 'due' | 'updated' } {
   const due = String(t?.deadline || t?.due || '').trim()
   if (due) return { text: '📅' + shortDue(due), over: isOverdue(t), kind: 'due' }
@@ -3183,22 +3183,22 @@ const searchQuery = ref('')
 // 解析失败的任务文件（主进程收集）。以前 parseTask 失败是静默跳过 ——
 // 2026-09-18 真实发生过 6 个任务因标题含 ": " 而在看板上隐身数月。
 const parseErrors = ref<string[]>([])
-// 2026-09-25（用户第 9 条）：默认**不勾**「含归档」。
+// 2026-09-25（用户第 9 条）：默认**不勾**“含归档”。
 // 归档任务混进主视图只增加视觉压迫感；要看归档本来就有独立视图与可折叠分区。
 // 用户的选择写进真身 prefs.json（localStorage 只是读缓存）。
 const searchIncludeArchive = ref(readUiPref<boolean>('fc_include_archive', false))
 const dueFilter = ref('')
 const isNaturalQuery = ref(false)
 
-// ── 筛选栏（2026-10-11 用户圈选「方案 B · 条件标签化」）────────────────────
+// ── 筛选栏（2026-10-11 用户圈选“方案 B · 条件标签化”）────────────────────
 // 三件事取代了原先那一排原生 select：
-//   ① 主行只留「搜索 + ＋筛选」；② 生效条件变成可点 ✕ 的标签；③ 分组/排序点开同一个内联面板。
+//   ① 主行只留“搜索 + ＋筛选”；② 生效条件变成可点 ✕ 的标签；③ 分组/排序点开同一个内联面板。
 // ⚠ 这些入口用的仍是**原来那几个 ref**（curProj/curStatus/dueFilter/searchIncludeArchive/
 //   groupMode/sortMode）—— 换的是操作手感，不是数据流；筛选仍然不写 prefs。
 const FBAR_PANEL_TITLE: Record<string, string> = {
   filter: '筛选', proj: '按项目', status: '按状态', group: '分组方式', sort: '排序方式',
 }
-// ⚠ 用「数组 + 查找」而不是 `Record<...>` 映射：模板里 `v-for="(label, v) in MAP"` 需要写
+// ⚠ 用“数组 + 查找”而不是 `Record<...>` 映射：模板里 `v-for="(label, v) in MAP"` 需要写
 //   `groupMode = v as any` 这种 TS 断言，而 `check-template-bindings` 会把 `as` / `any`
 //   当成"模板引用了未声明的标识符"直接判红（实测）。数组写法没有断言，也就没这个问题。
 const GROUP_OPTIONS: { v: string; label: string }[] = [
@@ -3226,7 +3226,7 @@ type FbarPanel = 'filter' | 'proj' | 'status' | 'group' | 'sort'
  * 当前打开的是哪一块（'' = 收着）。同一时间只开一块。
  *
  * ⚠ 这里**只管状态**，打开/关闭/定位/焦点全交给 reka-ui 的 Popover（2026-10-11 改）：
- *   第一版手搓内联面板 → 一点就把顶栏撑成三大行（用户：「太雷霆了，一点美感都没有」）；
+ *   第一版手搓内联面板 → 一点就把顶栏撑成三大行（用户：“太雷霆了，一点美感都没有”）；
  *   第二版手搓 backdrop + getBoundingClientRect 定位 → 能用了，但**还是在造轮子**；
  *   现在这版把这两块都删了，只留一个字符串状态。
  */
@@ -3244,14 +3244,14 @@ function onPanelOpen(p: FbarPanel, v: boolean): void {
   else if (fbarPanel.value === p) fbarPanel.value = ''
 }
 
-// ── 读取情况：「哪些待办其实没人碰过」（卡 20261025-006 第三件）────────────
+// ── 读取情况：“哪些待办其实没人碰过”（卡 20261025-006 第三件）────────────
 // 数据来自 `mcp-usage.jsonl`（**agent 经 MCP 读卡**），不是"你在界面点开过"的记录 —— 口径见 shared/neverRead.ts。
 // 三条不许踩：① 读不到就说读不到，绝不把"没数据"画成"全部没人碰过"；
 //            ② 完成/驳回不进清单（那是主进程的判定，界面不重算）；
 //            ③ 数字旁边必须有口径文案（`neverReadHint`），否则这个数会被当成别的东西。
 const readFilter = ref<'' | 'never'>('')
 const neverRead = ref<NeverReadResult | null>(null)
-/** 是否已尝试过加载 —— 用来区分「还没拉」与「拉到了 0 张」 */
+/** 是否已尝试过加载 —— 用来区分“还没拉”与“拉到了 0 张” */
 const neverReadLoaded = ref(false)
 const neverReadIds = computed(() => new Set((neverRead.value?.rows || []).map(r => r.id)))
 const neverReadLabel = computed(() => {
@@ -3262,7 +3262,7 @@ const neverReadHint = computed(() => {
   const r = neverRead.value
   if (!r) {
     return neverReadLoaded.value
-      ? '读卡记录读不出来 —— 这不等于「都有人读过」'
+      ? '读卡记录读不出来 —— 这不等于“都有人读过”'
       : '正在读读卡记录…'
   }
   return neverReadSummary(r)
@@ -3365,7 +3365,7 @@ const previewArch = computed<{
   }
   // archify 技能卡（2026-10-14 清单第 9 条导入进来的）：**它和方寸的分层图不是一回事**。
   // 刻意**不硬转** —— 硬转会丢信息、语义也会错（archify 有 5 种图型，方寸只有分层图）。
-  // 更不许报「JSON 读不出来」：那是**误导**，JSON 明明是好的，只是格式不同。
+  // 更不许报“JSON 读不出来”：那是**误导**，JSON 明明是好的，只是格式不同。
   if (spec && typeof spec === 'object' && spec.diagram_type && spec.schema_version !== undefined) {
     const ks = ['components', 'nodes', 'steps', 'stages', 'states', 'participants']
       .filter(k => Array.isArray(spec[k]) && spec[k].length)
@@ -3390,7 +3390,7 @@ const previewArch = computed<{
  *
  * 主进程的 spec 可以带 `visibleWhen`（可序列化声明，过得了 IPC）。语义是**任一命中即显示**：
  * ① 该字段当前值非空  ② 任务标签里有 `tag`  ③ 标题以 `titlePrefix` 开头。
- * 给「架构图」这类**只对一类卡有意义**的字段用 —— 别的卡不必看一个空文本框。
+ * 给“架构图”这类**只对一类卡有意义**的字段用 —— 别的卡不必看一个空文本框。
  *
  * ⚠ 隐藏 ≠ 丢值：`saveEdit` 仍按**全量** taskFieldSpecs 收集 patch，这里只管"显示不显示"。
  */
@@ -3416,9 +3416,9 @@ const taskHistoryOpen = ref(false)
 const taskVersions = ref<any[]>([])
 const taskVersionPreview = ref<any>(null)
 const taskVersionBusy = ref(false)
-// 启动台「添加/编辑应用」模态的开关 + 表单载体。
+// 启动台“添加/编辑应用”模态的开关 + 表单载体。
 // ⚠ 此前 template（v-if / v-model / 取消按钮）与 openAddApp / saveEditApp 全都在用它，
-// 唯独这里没声明 → 点「+ 添加应用」立刻 ReferenceError，界面毫无反应；
+// 唯独这里没声明 → 点“+ 添加应用”立刻 ReferenceError，界面毫无反应；
 // v-if 恒为 undefined 也让模态永不出现。同一个按钮因此被反复报修（"第六次了"），
 // 而历次修复都在改 CSS / dialog / 原子写 —— 没碰到真因。
 const editApp_ = ref<any>(null)
@@ -3440,8 +3440,8 @@ const selectedBatch = ref<string[]>([])
 const dataDir = ref('')
 
 // ── 分区头整组选择（2026-10-25 暮雨第 11 条）──────────────────────────────
-// 「一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点」。
-// 归档视图早有「按状态快选」，但看板没有 —— 整理时反而要绕四步。
+// “一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点”。
+// 归档视图早有“按状态快选”，但看板没有 —— 整理时反而要绕四步。
 // 现在列 / 列表 / 卡片三种视图的分区头各有一个框，语义与邮箱一致：
 // 全选态打勾、部分选中打横线（indeterminate）、点一下选中整组、再点只取消这组。
 function groupAllSelected(col: { tasks: Array<{ id: string }> }): boolean {
@@ -3454,7 +3454,7 @@ function groupSomeSelected(col: { tasks: Array<{ id: string }> }): boolean {
 function toggleGroupSelect(col: { tasks: Array<{ id: string }> }): void {
   const ids = col.tasks.map((t) => t.id)
   if (ids.every((id) => selectedBatch.value.includes(id))) {
-    // 整组取消：只摘掉这组，别的组的选择保留（与归档区「可叠加」同口径）
+    // 整组取消：只摘掉这组，别的组的选择保留（与归档区“可叠加”同口径）
     selectedBatch.value = selectedBatch.value.filter((id) => !ids.includes(id))
   } else {
     selectedBatch.value = Array.from(new Set([...selectedBatch.value, ...ids]))
@@ -3484,7 +3484,7 @@ const {
 const launchpadConfigPath = ref('')
 const blockerChains = ref<any[]>([])
 // 阻塞链的派生量（totalBlockedTasks / blockerImpact / blockerAdvice / blockerImpactById）
-// 已于 2026-10-23 随「阻塞源」搬进 views/BlockersView.vue —— 这四个在这里**零引用**，
+// 已于 2026-10-23 随“阻塞源”搬进 views/BlockersView.vue —— 这四个在这里**零引用**，
 // 是第 2 块搬完留下的死代码（守卫只查模板引用，查不到这种脚本内自循环的死簇）。
 const projectProgress = ref<Record<string, any>>({})
 
@@ -3516,7 +3516,7 @@ function onShortcutKeydown(e: KeyboardEvent): void {
     return
   }
   if (e.key !== 's' && e.key !== 'S') return
-  // 无论有没有弹窗都拦掉默认行为：Chromium 的 Ctrl+S 是「保存网页」，在 Electron 里
+  // 无论有没有弹窗都拦掉默认行为：Chromium 的 Ctrl+S 是“保存网页”，在 Electron 里
   // 可能弹出保存对话框，比什么都不做更烦人。
   e.preventDefault()
   const overlays = Array.from(document.querySelectorAll<HTMLElement>('.overlay'))
@@ -3658,7 +3658,7 @@ async function savePrices(): Promise<void> {
   priceMsg.value = ''
   try {
     // ⚠ 过桥必须给裸对象：`priceRows.value` 是 Vue 响应式代理，contextBridge 走结构化克隆会抛
-    //   「An object could not be cloned」。这是本项目第四次踩（前三次：tiers / 偏好 / IPC 载荷）——
+    //   “An object could not be cloned”。这是本项目第四次踩（前三次：tiers / 偏好 / IPC 载荷）——
     //   假 preload 的 cloneGuard 当场把它抓成红，否则界面上只会看到"保存失败"。
     const r: any = await (window as any).tegula.llmSetPrices(toPlain(priceRows.value))
     if (!r?.ok) { priceMsg.value = r?.error || '保存失败'; showToast('单价保存失败：' + (r?.error || '未知原因'), 'error'); return }
@@ -3836,7 +3836,7 @@ async function runBatch(): Promise<void> {
       return
     }
     const n = (r.created || []).length
-    showToast(`已出 ${n} 张「待审批」卡 —— 看板筛待审批过目后转正${aiUsageTail(r.usage)}`, 'success')
+    showToast(`已出 ${n} 张“待审批”卡 —— 看板筛待审批过目后转正${aiUsageTail(r.usage)}`, 'success')
     // 让看板立刻能看到琥珀色草稿卡（否则用户以为没成）
     await loadAll()
   } catch (e: any) {
@@ -3848,11 +3848,11 @@ async function runBatch(): Promise<void> {
 
 const views = [
   { id: 'active', label: '看板' },
-  // 「问」一个字没人看得懂（2026-10-22 暮雨原话）—— 两个字的「问答」才一眼明白这页是干什么的
+  // “问”一个字没人看得懂（2026-10-22 暮雨原话）—— 两个字的“问答”才一眼明白这页是干什么的
   { id: 'ask', label: '问答' },
   { id: 'todos', label: '待办' },
-  // 想法（2026-10-22 · 暮雨：「随手记一个念头，之后决定做/不做/搁置，现有待办/日志/任务都放不下」）
-  // 页面紧挨「待办」：两者是同一件事的两个阶段（念头 → 要做的事）
+  // 想法（2026-10-22 · 暮雨：“随手记一个念头，之后决定做/不做/搁置，现有待办/日志/任务都放不下”）
+  // 页面紧挨“待办”：两者是同一件事的两个阶段（念头 → 要做的事）
   { id: 'ideas', label: '想法' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
@@ -3866,17 +3866,17 @@ const views = [
   { id: 'skills', label: '技能' },
   { id: 'services', label: '服务' },
 ]
-/** 视图表（含**非页签**视图）—— 2026-10-12：`help` 只走顶栏「?」入口，
+/** 视图表（含**非页签**视图）—— 2026-10-12：`help` 只走顶栏“?”入口，
     不在页签行里再放一个重复的（页签行已经 13 个）。
     但 `curViewLabel` 与视图分支都按 id 查表，所以它必须在这里。 */
 const ALL_VIEWS = [...views, { id: 'help', label: '帮助手册' }]
 
-// ── 顶栏「更多」：低频页签折叠（2026-10-25 暮雨）──────────────────────────
-// 原话：「帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来，
-//        至少对我而言是低频功能。或者后续改成用户可以自己设置哪些功能折叠，最少维持 7 个功能按钮在场。」
+// ── 顶栏“更多”：低频页签折叠（2026-10-25 暮雨）──────────────────────────
+// 原话：“帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来，
+//        至少对我而言是低频功能。或者后续改成用户可以自己设置哪些功能折叠，最少维持 7 个功能按钮在场。”
 //
-// 所以两件都做了：① 默认收三个低频页签；② 设置里可自己勾（含「至少 7 个在场」这道护栏）。
-// ⚠ 当前视图若在被折叠里，「更多」按钮显示它的名字并高亮 —— 不能让人"不知道自己现在在哪一页"。
+// 所以两件都做了：① 默认收三个低频页签；② 设置里可自己勾（含“至少 7 个在场”这道护栏）。
+// ⚠ 当前视图若在被折叠里，“更多”按钮显示它的名字并高亮 —— 不能让人"不知道自己现在在哪一页"。
 const VIEWS_COLLAPSED_KEY = 'fc_views_collapsed'
 /** 顶栏至少留几个页签在外面（暮雨定的下限，也是护栏） */
 const VIEWS_MIN_VISIBLE = 7
@@ -3887,9 +3887,9 @@ const collapsedViews = ref<string[]>(readUiPref<string[]>(VIEWS_COLLAPSED_KEY, D
 const moreOpen = ref(false)
 /** 顶栏上直接显示的页签 */
 const visibleViews = computed(() => views.filter(v => !collapsedViews.value.includes(v.id)))
-/** 收在「更多」里的页签 */
+/** 收在“更多”里的页签 */
 const moreViews = computed(() => views.filter(v => collapsedViews.value.includes(v.id)))
-/** 当前停在被折叠的页签里？（决定「更多」按钮显不显示它的名字） */
+/** 当前停在被折叠的页签里？（决定“更多”按钮显不显示它的名字） */
 const curViewInMore = computed(() => moreViews.value.some(v => v.id === curView.value))
 
 function pickMoreView(id: string): void {
@@ -3917,9 +3917,9 @@ function onViewVisibleChange(id: string, ev: Event): void {
 }
 
 /**
- * 从「更多」菜单直达 设置 → 通用 → 顶栏页签。
+ * 从“更多”菜单直达 设置 → 通用 → 顶栏页签。
  * 2026-10-25：原来那段说明是**纯文本**摆在菜单底部（把浮层撑长，暮雨否掉）；
- * 改成菜单项后它至少真能点 —— 顺带把「勾哪些收起」这件事带到用户眼前。
+ * 改成菜单项后它至少真能点 —— 顺带把“勾哪些收起”这件事带到用户眼前。
  */
 function openViewsSetting(): void {
   moreOpen.value = false
@@ -3931,7 +3931,7 @@ function openViewsSetting(): void {
 function resetCollapsedViews(): void {
   collapsedViews.value = [...DEFAULT_COLLAPSED_VIEWS]
   saveUiPref(VIEWS_COLLAPSED_KEY, collapsedViews.value)
-  showToast('已恢复默认：收起「启动台 / 技能 / 服务」', 'success')
+  showToast('已恢复默认：收起“启动台 / 技能 / 服务”', 'success')
 }
 /** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
 const curViewLabel = computed(() => ALL_VIEWS.find(v => v.id === curView.value)?.label || curView.value)
@@ -3973,11 +3973,11 @@ function projectNameOf(id: string): string {
 }
 
 // ── 项目页签两种新摆法的数据（2026-09-29）────────────────────────────────
-// 003 卡的驳回原话是「只是个大号看板入口，不是项目管理」。缺的不是数字，
+// 003 卡的驳回原话是“只是个大号看板入口，不是项目管理”。缺的不是数字，
 // 是**关系**：任务卡在哪个状态、最近谁动过、有没有阻塞、方针与结构地图缺不缺。
 // 这三份派生数据只服务于概览卡/主从，不进 projectStats（那是项目墙在用的，口径不能动）。
 
-/** 每个项目的状态分布（概览卡的状态条 + 图例），与「总任务」同口径：只算活跃任务 */
+/** 每个项目的状态分布（概览卡的状态条 + 图例），与“总任务”同口径：只算活跃任务 */
 const pvBreakdown = computed<Record<string, Array<{ status: string; n: number; cls: string }>>>(() => {
   const out: Record<string, Array<{ status: string; n: number; cls: string }>> = {}
   for (const p of projects.value) {
@@ -3994,7 +3994,7 @@ const pvBreakdown = computed<Record<string, Array<{ status: string; n: number; c
   return out
 })
 
-/** 每个项目最近动过的那条任务（「最近：<相对时间> · <标题>」） */
+/** 每个项目最近动过的那条任务（“最近：<相对时间> · <标题>”） */
 const pvLatest = computed<Record<string, Task | null>>(() => {
   const out: Record<string, Task | null> = {}
   for (const p of projects.value) {
@@ -4013,8 +4013,8 @@ const pvLatest = computed<Record<string, Task | null>>(() => {
  * 每个项目头上压着几条阻塞（阻塞源按它自己所属的项目计）。
  *
  * ⚠ 数据源从 `blockerChains` 换成 `blockers`（findBlockers）：前者只在
- * loadViewData('blockers') 时才加载 —— 用户没进过「阻塞」页签时它恒为空，
- * 项目页的「⚠ N 个阻塞源」于是永远不显示（假 0）。findBlockers 走 loadAll
+ * loadViewData('blockers') 时才加载 —— 用户没进过“阻塞”页签时它恒为空，
+ * 项目页的“⚠ N 个阻塞源”于是永远不显示（假 0）。findBlockers 走 loadAll
  * 每次都拉，且返回形状同源（ipc.ts 把 getBlockerChains().map 成 {id,title,blockers}）。
  */
 const pvBlocked = computed<Record<string, number>>(() => {
@@ -4063,7 +4063,7 @@ const pvCurrent = computed(() =>
 /**
  * 项目三字段（状态 / 路线图 / 说明）的就地编辑态（2026-10-22 · 施工单包 06）。
  *
- * 为什么不做成弹窗 / 设置页：06 单红线「一个入口一个动作，不加设置页不加确认弹窗链」。
+ * 为什么不做成弹窗 / 设置页：06 单红线“一个入口一个动作，不加设置页不加确认弹窗链”。
  * 打开时把**打开那一刻**的值另存一份（`noteEditBase`）—— 保存只提交真改过的字段；
  * 撤销靠主进程回传的 `before` 再写回一次，全程不需要前端猜原值。
  */
@@ -4073,27 +4073,27 @@ const noteSaving = ref(false)
 const NOTE_FIELDS: readonly string[] = ['状态', '路线图', '说明']
 
 /**
- * 移除项目登记（2026-10-05 用户：「项目页签里似乎没有添加和删除项目的入口」）。
+ * 移除项目登记（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”）。
  *
  * 边界说死：**只从 registry.yaml 删掉那一条登记** —— 任务卡、方针卡、项目仓库文件一个都不动；
- * 删完该项目下的卡变成「未归属项目」。破坏性 + 影响面不可猜 → 二次确认里逐条写明。
- * （随时可在「＋ 添加项目」重新登记回来，所以这不是不可逆操作。）
+ * 删完该项目下的卡变成“未归属项目”。破坏性 + 影响面不可猜 → 二次确认里逐条写明。
+ * （随时可在“＋ 添加项目”重新登记回来，所以这不是不可逆操作。）
  */
 async function removeProject(p: any): Promise<void> {
   const nm = p?.name || p?.id || ''
   const n = p?.taskCount != null
     ? p.taskCount
     : (Number(p?.counts?.todo || 0) + Number(p?.counts?.doing || 0) + Number(p?.counts?.review || 0))
-  const msg = `移除项目登记「${nm}」？\n\n`
+  const msg = `移除项目登记“${nm}”？\n\n`
     + `· 只从 registry.yaml 删掉这一条登记\n`
-    + `· 任务卡（${n} 张）全部保留 —— 只是变成「未归属项目」\n`
+    + `· 任务卡（${n} 张）全部保留 —— 只是变成“未归属项目”\n`
     + `· 方针卡与项目文件夹里的文件，一个字节都不动\n\n`
-    + `（随时可以在项目页签「＋ 添加项目」重新登记回来）`
+    + `（随时可以在项目页签“＋ 添加项目”重新登记回来）`
   if (!confirm(msg)) return
   try {
     const res: any = await (window as any).tegula.registryRemoveProject(p.id)
     if (!res?.ok) { showToast('移除失败：' + (res?.error || '未知错误'), 'error'); return }
-    showToast(`已移除项目登记「${nm}」—— 还能在「＋ 添加项目」里重新登记`, 'success')
+    showToast(`已移除项目登记“${nm}”—— 还能在“＋ 添加项目”里重新登记`, 'success')
     await loadAll()
     if (pvView.value === 'trip') await loadTripBoard()
   } catch (e: any) {
@@ -4111,7 +4111,7 @@ async function openNoteEdit(p: any): Promise<void> {
   try {
     const r: any = await (window as any).tegula.registryReadFields(p.id)
     if (!r?.ok) {
-      showToast(`读不到「${p.name || p.id}」这三个字段：${r?.error || '未知原因'}`, 'error')
+      showToast(`读不到“${p.name || p.id}”这三个字段：${r?.error || '未知原因'}`, 'error')
       return
     }
     const f = r.fields || {}
@@ -4164,7 +4164,7 @@ async function saveNoteEdit(): Promise<void> {
     const id = f.id
     cancelNoteEdit()
     projects.value = await (window as any).tegula.loadProjects()
-    offerUndo(`已改「${nm}」的${changed.join(' / ')}`, async () => {
+    offerUndo(`已改“${nm}”的${changed.join(' / ')}`, async () => {
       const back: any = await (window as any).tegula.registryUpdateFields(id, toPlain(before))
       if (!back?.ok) throw new Error(back?.error || '这三个字段已被改动，改不回去了')
       projects.value = await (window as any).tegula.loadProjects()
@@ -4178,7 +4178,7 @@ async function saveNoteEdit(): Promise<void> {
 
 
 // ── 在途一屏（2026-10-31 · 状态/动作已整体搬进 composables/useTripBoard.ts）──────
-// App 只留「项目页还要用的那几个」：偏好同步（syncBoardPrefs）读的五个 ref、
+// App 只留“项目页还要用的那几个”：偏好同步（syncBoardPrefs）读的五个 ref、
 // 主从详情页的 msGitRow / loadTripBoard、以及移除项目后按需刷新。
 const tripBoard = useTripBoard({ pvCurrent, pvSelected, pvView, showToast, copyWithToast })
 const {
@@ -4292,10 +4292,10 @@ async function loadLaunchpad() {
  * 阻塞链数据。
  *
  * 2026-09-22 补：`loadViewData('blockers')` 一直在调用它，但**这个函数从未被定义** ——
- * 点「阻塞」页签直接 `Uncaught ReferenceError: loadBlockerChains is not defined`，
+ * 点“阻塞”页签直接 `Uncaught ReferenceError: loadBlockerChains is not defined`，
  * 页面停在上一个视图，且不弹任何错。tsc / vite / stub e2e / IPC 对账全都抓不到
  * （函数体里的未定义名要等运行到那一行才抛），已由 `check-template-bindings.cjs`
- * 新增的「② 调用了但未定义」检查兜住。
+ * 新增的“② 调用了但未定义”检查兜住。
  */
 async function loadBlockerChains() {
   try {
@@ -4338,11 +4338,11 @@ async function changeDataDir() {
     showToast('目标不能位于当前数据目录内部', 'error')
     return
   }
-  // 目标已有方寸数据：让用户选「仅切换指向」还是「复制式迁移」。
+  // 目标已有方寸数据：让用户选“仅切换指向”还是“复制式迁移”。
   // 2026-09-22 数据分裂事故：仓库根与 %APPDATA% 各有一份数据时，
-  // 覆盖式迁移会拿旧数据盖掉新数据 —— 必须给「仅切换」出路。
+  // 覆盖式迁移会拿旧数据盖掉新数据 —— 必须给“仅切换”出路。
   if (!info.empty) {
-    if (confirm(`目标目录已有方寸数据（${info.taskCount} 个任务文件）。\n\n【确定】= 仅切换指向（推荐，两边数据都已各自保留，不复制不覆盖）\n【取消】= 返回，改用下方「覆盖式迁入」流程`)) {
+    if (confirm(`目标目录已有方寸数据（${info.taskCount} 个任务文件）。\n\n【确定】= 仅切换指向（推荐，两边数据都已各自保留，不复制不覆盖）\n【取消】= 返回，改用下方“覆盖式迁入”流程`)) {
       try {
         const sr = await window.tegula.setDataDir(info.dir)
         if (!sr.ok) { showToast('切换失败：' + sr.error, 'error'); return }
@@ -4382,7 +4382,7 @@ async function openDataDir() {
   await window.tegula.launchpadOpenFolder(dataDir.value)
 }
 
-/** 视图历史栈 + 返回（左上角「← 返回」走这里）。
+/** 视图历史栈 + 返回（左上角“← 返回”走这里）。
  *  此前所有视图切换都是裸赋值 `curView.value = v`，从项目页点进某个项目后
  *  没有任何后退入口 —— 只能再点一次左侧页签绕回去。 */
 const viewHistory = ref<string[]>([])
@@ -4411,7 +4411,7 @@ function loadViewData(v: string) {
     void loadChannels()
     void loadBalanceStatus()
   } else if (v === 'trash') {
-    // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）；
+    // 回收站不加载任务列表（顶栏计数显示“—”是刻意的，见 countText 注释）；
     // 列表本身由组件 onMounted 拉（views/TrashView.vue）
   } else if (v === 'skills') {
     // 数据由组件自己 onMounted 拉（views/SkillsView.vue）—— 这里显式空着，别掉到 else 白跑 loadAll
@@ -4429,13 +4429,13 @@ function loadViewData(v: string) {
   } else if (v === 'projects') {
     // 2026-09-29 补：**项目页签此前从不加载方针状态** —— `loadPolicyMap()` 只在打开设置页
     // 和结构地图一览时调过。于是项目卡上那句三态文案（已立 / 待填 / ＋立方针）在没开过设置的
-    // 会话里**永远显示"＋ 立项目方针"**，概览卡上的「方针：未立」同源。
+    // 会话里**永远显示"＋ 立项目方针"**，概览卡上的“方针：未立”同源。
     // 这不是显示瑕疵，是**界面在说假话**（明明立了方针却报未立），所以进门就刷一次。
     loadAll()
     loadPolicyMap()
-    // 监控台要显示的「最近执行日志 / 僵尸卡」（2026-10-11，P0 两件）—— 同一条纪律：
+    // 监控台要显示的“最近执行日志 / 僵尸卡”（2026-10-11，P0 两件）—— 同一条纪律：
     // **凡界面要显示的派生状态，进门就得加载**。否则用户不先进一次日志页，监控台那两格就是空的
-    // （「状态字段懒加载 = 界面说假话」这条教训 2026-09-29 已经吃过一次）。
+    // （“状态字段懒加载 = 界面说假话”这条教训 2026-09-29 已经吃过一次）。
     void loadLogs()
     void loadStalled()
     // 建议动作 / 可并行机会（死通道 A 组收口）＋ 跨项目建议：进门就拉 —— 同一条纪律，别等用户点
@@ -4444,7 +4444,7 @@ function loadViewData(v: string) {
     // 在途一屏（Q2）：进门就按需拉一次 —— 同 2026-09-29 那条教训（状态字段懒加载 = 界面说假话），
     // 只在用户已经切到这一摆法时才拉，省得每次进项目页都付一次 git 的钱。
     if (pvView.value === 'trip') void loadTripBoard()
-    // 自仓同步状态（2026-10-21 · W1-1C）：同一条纪律 —— 进门就拉，别让「待同步」等到用户点刷新
+    // 自仓同步状态（2026-10-21 · W1-1C）：同一条纪律 —— 进门就拉，别让“待同步”等到用户点刷新
     void loadSelfSync()
     // 路线文档实况（W1-批次 2）：进门重拉一次（主进程按 仓库+日期 缓存，命中不跑 git，很便宜）。
     // ⚠ 光靠 pvCurrent.id 的 watcher 不够：同一个项目重进页面时 id 没变，watcher 不触发 ——
@@ -4453,14 +4453,14 @@ function loadViewData(v: string) {
   } else if (v === 'active' || v === 'archive') {
     loadAll()
     // 读卡记录进门就拉（卡 20261025-006 第三件）—— 同"派生状态懒加载 = 界面说假话"那条纪律：
-    // 筛选浮层里那个「没人碰过 N」不能等到用户点开面板才有数字。
+    // 筛选浮层里那个“没人碰过 N”不能等到用户点开面板才有数字。
     void loadNeverRead()
   } else {
     loadAll()
   }
 }
 
-/** 唯一跳转入口：入栈 + 加载。所有视图跳转都必须走它，否则「返回」会丢来源 */
+/** 唯一跳转入口：入栈 + 加载。所有视图跳转都必须走它，否则“返回”会丢来源 */
 function navigateTo(v: string) {
   if (v !== curView.value) {
     viewHistory.value.push(curView.value)
@@ -4490,7 +4490,7 @@ function goBack() {
 
 // ── 顶栏左侧按钮组（2026-10-12 暮雨第 4 条：首页 / 帮助手册 / 同步）───────────
 /** ⌂ 首页：回看板 + 清掉搜索与筛选 —— 一记干净的复位。
- *  ⚠ 「复位」必须**真的复位**：只切视图而留着筛选，用户会以为"点了没反应"
+ *  ⚠ “复位”必须**真的复位**：只切视图而留着筛选，用户会以为"点了没反应"
  *    （上一个视图筛了什么，回看板还筛着什么）。 */
 function goHome(): void {
   searchQuery.value = ''
@@ -4506,16 +4506,16 @@ function goHelp(): void {
 }
 
 /** ⟳ 同步：一键 Git 推送（复用既有 backup:gitPush 通道）。
- *  暮雨 2026-10-12：「只做按钮，状态由它自己报」—— 所以不做配置向导，
+ *  暮雨 2026-10-12：“只做按钮，状态由它自己报”—— 所以不做配置向导，
  *  但**也不许静默失败**：未配置 / 失败都要在按钮的 title 与提示条上说清。
  *
- *  2026-10-25 卡 004（暮雨第 8 条）：「Git 同步转圈依然很抽象…全世界那么多软件
- *  没见过这样整个按钮拿去旋转的」。这一轮把按钮改成**状态胶囊**：
+ *  2026-10-25 卡 004（暮雨第 8 条）：“Git 同步转圈依然很抽象…全世界那么多软件
+ *  没见过这样整个按钮拿去旋转的”。这一轮把按钮改成**状态胶囊**：
  *    idle `⟳` → busy `⟳ 推送 3s`（阶段来自主进程真实上报）→ `✓ 已同步`（3 秒后回图标）
  *  两条不肯让步的：① 不编百分比；② 阶段不许渲染层按时间猜。 */
 const syncBusy = ref(false)
 const syncResult = ref<{ ok: boolean; msg: string; at: number } | null>(null)
-/** 主进程上报的当前阶段（认不出就留空 → 界面显示「同步中」而不是瞎编一个阶段） */
+/** 主进程上报的当前阶段（认不出就留空 → 界面显示“同步中”而不是瞎编一个阶段） */
 const syncPhase = ref<string>('')
 /** 本地真实计时（毫秒） */
 const syncElapsedMs = ref(0)
@@ -4561,7 +4561,7 @@ function stopSyncTimers(): void {
 
 async function runSync(): Promise<void> {
   if (syncBusy.value) return
-  // 上一轮的结束态可能还挂着（3 秒窗口内又点了一次）—— 先清掉，别顶着「已同步」开始新一轮
+  // 上一轮的结束态可能还挂着（3 秒窗口内又点了一次）—— 先清掉，别顶着“已同步”开始新一轮
   if (syncRevertTimer !== null) { window.clearTimeout(syncRevertTimer); syncRevertTimer = null }
   syncFinal.value = null
   syncPhase.value = ''
@@ -4570,7 +4570,7 @@ async function runSync(): Promise<void> {
   syncBusy.value = true
   // 500ms 一跳：秒数要"看得出在动"，但不必每帧重渲染
   syncSecTimer = window.setInterval(() => { syncElapsedMs.value = Date.now() - syncT0 }, 500)
-  // 订阅阶段流。旧主进程没有这条通道 → 不报错、也不编阶段，界面老老实实是「同步中 + 秒数」
+  // 订阅阶段流。旧主进程没有这条通道 → 不报错、也不编阶段，界面老老实实是“同步中 + 秒数”
   try {
     const api: any = window as any
     if (typeof api?.tegula?.onSyncProgress === 'function') {
@@ -4595,7 +4595,7 @@ async function runSync(): Promise<void> {
   } finally {
     syncBusy.value = false
     stopSyncTimers()
-    // 结束态留 3 秒给人看见，再回图标（不回的话按钮永远停在「已同步」，看不出是新的一次）
+    // 结束态留 3 秒给人看见，再回图标（不回的话按钮永远停在“已同步”，看不出是新的一次）
     syncRevertTimer = window.setTimeout(() => {
       syncFinal.value = null
       syncPhase.value = ''
@@ -4643,7 +4643,7 @@ async function loadProjectProgressMap() {
 //   否则切页会拉两遍（同 help / decisions 那两条教训）。
 
 
-// ── 顶栏「刷新」：重读全部数据（2026-10-25 暮雨）──────────────────────────
+// ── 顶栏“刷新”：重读全部数据（2026-10-25 暮雨）──────────────────────────
 // 为什么要它：方寸的数据是**白盒文件**（task-data/*.md、日志、待办 json）——
 // agent 经 MCP 写卡、你手改 md、git pull 下来别人的提交，这些改动界面根本不会自己知道。
 // 以前只能靠"切个视图"或"做一次操作"碰运气触发重读；碰不到就一直看着旧数据（= 界面说假话）。
@@ -4681,7 +4681,7 @@ async function loadAll() {
     window.tegula.getDataDir(),
   ])
   tasks.value = t
-  countView.value = curView.value   // 顶栏计数只对「本次加载的视图」负责（用户第 12 条）
+  countView.value = curView.value   // 顶栏计数只对“本次加载的视图”负责（用户第 12 条）
   projects.value = p
   blockers.value = b
   dataDir.value = dd
@@ -4729,12 +4729,12 @@ async function executeBatchStatus(status: string) {
   }
   const result = await window.tegula.batchEdit(ids, { status })
   if (result.fails.length === 0) {
-    showToast(`已将 ${result.ok} 个任务设为「${status}」`, 'success')
+    showToast(`已将 ${result.ok} 个任务设为“${status}”`, 'success')
   } else {
     showToast(`${result.ok} 成功，${result.fails.length} 失败`, 'error')
   }
   if (before.size) {
-    offerUndo(`批量设为「${status}」（${before.size} 个）`, async () => {
+    offerUndo(`批量设为“${status}”（${before.size} 个）`, async () => {
       let ok = 0
       for (const [id, prev] of before) {
         try {
@@ -4754,8 +4754,8 @@ async function executeBatchStatus(status: string) {
   loadAll()
 }
 
-/* ── 批量改期（2026-10-18 Bundle A「超期任务批量改期」）────────────────────
- * 典型路径：顶栏日期筛选「超期」→ 批量模式 → 全选 → 📅 改期 → 一次推走。
+/* ── 批量改期（2026-10-18 Bundle A“超期任务批量改期”）────────────────────
+ * 典型路径：顶栏日期筛选“超期”→ 批量模式 → 全选 → 📅 改期 → 一次推走。
  * 通道沿用 batchEdit → updateTask：fm.deadline 直改、乐观锁防并发、logActivity 逐条留痕。
  * 改期可随时再改回，非破坏性，不做二次确认；超期筛选（dueFilter='overdue'）本身
  * 就不含完成/驳回卡，这里不再重复拦终态。日期只认本地日历日 YYYY-MM-DD
@@ -4765,7 +4765,7 @@ const batchPostponeDate = ref('')
 
 function openBatchPostpone() {
   batchPostponing.value = true
-  // 预填「今天 + 7」：最高频动作是把一堆过期卡整体推一周，别让用户每次从空日期选起
+  // 预填“今天 + 7”：最高频动作是把一堆过期卡整体推一周，别让用户每次从空日期选起
   batchPostponeDate.value = calISO(addDays(new Date(), 7))
 }
 
@@ -4811,8 +4811,8 @@ function archiveStatusAllSelected(status: string): boolean {
 
 /**
  * 一键选中归档区里某个状态的全部任务（2026-10-17 暮雨第 1 条；第 2 条改**叠加**语义）。
- * 首版是 `selectedBatch.value = ids` 整桶替换 —— 点「完成」再点「待办」，完成那组就被冲掉了，
- * 用户原话「每次至多只能批量选一组，其他的都被自动取消勾选」。邮箱/网盘的通用语言是：
+ * 首版是 `selectedBatch.value = ids` 整桶替换 —— 点“完成”再点“待办”，完成那组就被冲掉了，
+ * 用户原话“每次至多只能批量选一组，其他的都被自动取消勾选”。邮箱/网盘的通用语言是：
  * 勾选是叠加的，点同一个组两下 = 取消该组，其他组原样保留。照这个改。
  * ⚠ 只动**当前筛选后可见**的那批：搜索框或项目筛选还在生效时，选中范围必须与眼前一致，
  *   否则用户会删掉自己没看见的东西。
@@ -4825,13 +4825,13 @@ function selectArchiveByStatus(status: string): void {
   if (archiveStatusAllSelected(status)) {
     // 再点一下 = 只取消这一组；上一批选的其他状态原样保留
     selectedBatch.value = selectedBatch.value.filter(id => !ids.includes(id))
-    showToast(`已取消选中全部「${status}」任务（其他选择保留）`, 'info')
+    showToast(`已取消选中全部“${status}”任务（其他选择保留）`, 'info')
     return
   }
   batchMode.value = true
   const add = ids.filter(id => !selectedBatch.value.includes(id))
   selectedBatch.value = [...selectedBatch.value, ...add]
-  showToast(`已选中 ${selectedBatch.value.length} 个任务 —— 用上方批量栏删除或改状态（再点「${status}」可取消这组）`, 'success')
+  showToast(`已选中 ${selectedBatch.value.length} 个任务 —— 用上方批量栏删除或改状态（再点“${status}”可取消这组）`, 'success')
 }
 
 /** 邮箱式全选方框（2026-10-17 暮雨第 2 条）：三态 —— 全选（勾）/ 部分选中（横线 indeterminate）/ 空。
@@ -4891,7 +4891,7 @@ async function executeNaturalQuery() {
     naturalResults.value = []
     return
   }
-  // 把「含归档」开关传下去 —— 此前自然查询在主进程硬跳过 archive，勾了也搜不到
+  // 把“含归档”开关传下去 —— 此前自然查询在主进程硬跳过 archive，勾了也搜不到
   const result = await window.tegula.naturalQuery(q, { includeArchive: searchIncludeArchive.value })
   if (result.error) {
     showToast(result.error, 'error')
@@ -4904,7 +4904,7 @@ async function executeNaturalQuery() {
 /**
  * 清空搜索框 = 退出自然查询（2026-10-23 修，被断言抓出来的真 bug）。
  *
- * 原行为：只有「光标在框里再按一次回车」才会走到上面那个 `if (!q)` 分支重置。
+ * 原行为：只有“光标在框里再按一次回车”才会走到上面那个 `if (!q)` 分支重置。
  * 用户按 Esc 或直接删掉关键字后，`isNaturalQuery` 还挂着 true、`naturalResults` 还非空，
  * 于是 `filteredTasks` 第一行直接把板子锁死在"自然查询那几张卡"上 ——
  * 界面上**没有任何提示**，看起来就像"别的卡被删了"。这类静默收窄最难排查。
@@ -4934,7 +4934,7 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
       ...projects.value.map((p: any) => ({ value: p.id, label: p.name || p.id })),
     ]
   }
-  // 空字符串选项给一个可读标签：像「返工归因」这种"留空 = 不是返工"的字段，
+  // 空字符串选项给一个可读标签：像“返工归因”这种"留空 = 不是返工"的字段，
   // 直接渲染会得到一个空白选项，人不知道那是"不填"还是"没加载出来"。
   return (spec.options || []).map((o: string) => ({ value: o, label: o || '（留空）' }))
 }
@@ -4942,7 +4942,7 @@ function specOptions(spec: any): Array<{ value: string; label: string }> {
 function openNew() {
   editTask_.value = emptyTaskForm()
   blockerQuery.value = ''
-  taskEditSnap = snapOf(editTask_.value)   // P0-1：关窗按「改没改」判
+  taskEditSnap = snapOf(editTask_.value)   // P0-1：关窗按“改没改”判
 }
 
 // ── 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）─────────────────────
@@ -5008,7 +5008,7 @@ async function openEdit(t: Task) {
 
 /**
  * 表单里是否有内容需要挽留 —— **只作兜底**（没有快照时的老逻辑）。
- * 2026-10-01 P0-1：它判的是「字段里有没有字」，两头都错，正式口径已改成快照比对。
+ * 2026-10-01 P0-1：它判的是“字段里有没有字”，两头都错，正式口径已改成快照比对。
  */
 function isDirtyFields(o: any, keys: string[]): boolean {
   return !!o && keys.some(k => String(o[k] ?? '').trim())
@@ -5017,8 +5017,8 @@ function isDirtyFields(o: any, keys: string[]): boolean {
 /**
  * 编辑器表单快照（2026-10-01 P0-1）。
  *
- * 旧的 `isDirtyFields` 判「字段里有没有字」，导致两头都错：
- *   ① 编辑已有日志 → title/content 天然非空 → 一动不动也弹「尚未保存」
+ * 旧的 `isDirtyFields` 判“字段里有没有字”，导致两头都错：
+ *   ① 编辑已有日志 → title/content 天然非空 → 一动不动也弹“尚未保存”
  *      （确认疲劳 → 用户学会无脑回车，真丢数据时同样一笔带过）；
  *   ② 新建日志只改项目 / 执行 Agent 下拉 → 三键全空 → **静默关闭**，改动直接丢。
  * 正确口径 = 打开时存快照、关闭时逐字节比对 —— 与接力对话框的 `_init` 快照
@@ -5063,7 +5063,7 @@ function closeAppEditor() {
 
 // ── 阻塞字段的选择器 ────────────────────────────────────────────────────
 // 表单里 blockers 存的是逗号分隔字符串（见 data/index.ts 的 taskToFormValues），
-// 这里给出「id 数组」视图与候选列表 —— 用户不该被要求手打任务 ID。
+// 这里给出“id 数组”视图与候选列表 —— 用户不该被要求手打任务 ID。
 
 /** 已选依赖（id 数组视图） */
 const blockerList = computed<string[]>(() => {
@@ -5095,7 +5095,7 @@ const blockerCandidates = computed<any[]>(() => {
 /** 搜索词（2026-10-31：原生 select 装几百项等于没有筛选） */
 const blockerQuery = ref('')
 
-/** 已有批次名的候选（给「批次」框做 datalist）：只认现存的，别再顺手造新名字 */
+/** 已有批次名的候选（给“批次”框做 datalist）：只认现存的，别再顺手造新名字 */
 const batchOptions = computed<string[]>(() => {
   const set = new Set<string>()
   for (const t of tasks.value as any[]) {
@@ -5176,7 +5176,7 @@ async function saveEdit() {
       }
       await window.tegula.editTask(e.id, payload)
       if (cur) {
-        offerUndo(`已编辑任务「${e.title || e.id}」`, async () => {
+        offerUndo(`已编辑任务“${e.title || e.id}”`, async () => {
           const r: any = await window.tegula.editTask(e.id, prev)
           if (!r?.ok) throw new Error(r?.error || '写回失败')
           await loadAll()
@@ -5240,7 +5240,7 @@ async function restoreTaskVersionItem(v: any): Promise<void> {
   if (!e?.id || !v?.file) return
   const when = v.at ? formatDateTime(v.at) : '这个版本'
   const dirtyTip = taskEditDirty() ? '\n\n⚠ 表单里还没保存的改动会被这一版覆盖。' : ''
-  if (!confirm(`恢复到「${v.title || '(无标题)'}」（${when}）？\n\n卡片字段与正文都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
+  if (!confirm(`恢复到“${v.title || '(无标题)'}”（${when}）？\n\n卡片字段与正文都会回到那一版。\n当前版本会先自动备份，撤错了可以再恢复回来。${dirtyTip}`)) return
   try {
     const r: any = await window.tegula.tasksRestoreVersion(e.id, v.file)
     if (!r?.ok) { showToast(`恢复失败：${r?.error || '未知原因'}`, 'error'); return }
@@ -5269,9 +5269,9 @@ async function deleteTask(id: string) {
       previewTask.value = null
       showToast('已删除', 'success')
       loadAll()
-      // 任务删除是**软删**（进 .trash），所以可撤；真正不可撤的是二次确认过的「彻底删除」。
+      // 任务删除是**软删**（进 .trash），所以可撤；真正不可撤的是二次确认过的“彻底删除”。
       if (snap) {
-        offerUndo(`已删除「${title}」`, async () => {
+        offerUndo(`已删除“${title}”`, async () => {
           const r: any = await window.tegula.trashRestore(`${id}.md`)
           if (!r?.ok) throw new Error(r?.error || '回收站里找不到这个文件')
           await loadAll()
@@ -5285,14 +5285,14 @@ async function deleteTask(id: string) {
       appErrors.value.push({ scope: 'deleteTask', message: msg, at: Date.now() })
     }
   } catch (e: any) {
-    const msg = `删除「${id}」失败：${e?.message || e}`
+    const msg = `删除“${id}”失败：${e?.message || e}`
     showToast(msg, 'error')
     appErrors.value.push({ scope: 'deleteTask', message: msg, at: Date.now() })
   }
 }
 
 async function archiveTask(t: Task) {
-  if (!confirm(`确认归档「${t.title}」？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
+  if (!confirm(`确认归档“${t.title}”？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
   const snap = snapOfTask(t.id)
   const result = await window.tegula.archiveTask(t.id)
   if (result.ok) {
@@ -5300,7 +5300,7 @@ async function archiveTask(t: Task) {
     showToast('已归档', 'success')
     loadAll()
     if (snap && !snap.archived) {
-      offerUndo(`已归档「${t.title}」`, async () => {
+      offerUndo(`已归档“${t.title}”`, async () => {
         await restoreTaskSnap(t.id, snap)
         showToast('已撤回：回到归档之前', 'success')
       })
@@ -5312,14 +5312,14 @@ async function archiveTask(t: Task) {
 
 /** 非终态直达完成/驳回：挂死任务（如超时未回写）没有验收方可走，必须给终结入口 */
 async function forceCloseTask(t: Task, status: '完成' | '驳回') {
-  // 2026-10-30（暮雨第 2 条）：直达「驳回」也必须有地方写理由（可选），否则又回到
+  // 2026-10-30（暮雨第 2 条）：直达“驳回”也必须有地方写理由（可选），否则又回到
   // "点完再也看不见为什么"。所以驳回统一走裁决框；完成仍是一步直达。
   if (status === '驳回') { openDirectReject(t); return }
   const word = '标记完成'
-  // ⚠ 2026-10-25：原文案写「留痕于结果记录」——**这是假话**。本函数只调 moveStatus，
+  // ⚠ 2026-10-25：原文案写“留痕于结果记录”——**这是假话**。本函数只调 moveStatus，
   // 结果记录一个字都不写（只有活动日志会记一条状态变更）。用户看不到结论栏有任何东西。
-  // 现在如实说清：直达 = 不写结论；要留结论请走上面的「审批裁决 / 验收裁决」。
-  if (!confirm(`确认将「${t.title}」直接${word}？\n\n这是跳过裁决的直接改状态：不写结论、不填理由。\n要留下理由与依据，请用「审批裁决 / 验收裁决」。`)) return
+  // 现在如实说清：直达 = 不写结论；要留结论请走上面的“审批裁决 / 验收裁决”。
+  if (!confirm(`确认将“${t.title}”直接${word}？\n\n这是跳过裁决的直接改状态：不写结论、不填理由。\n要留下理由与依据，请用“审批裁决 / 验收裁决”。`)) return
   const snap = snapOfTask(t.id)
   const result = await window.tegula.moveStatus(t.id, status)
   if (result.ok) {
@@ -5327,7 +5327,7 @@ async function forceCloseTask(t: Task, status: '完成' | '驳回') {
     showToast(`已${word}`, 'success')
     loadAll()
     if (snap) {
-      offerUndo(`已${word}「${t.title}」`, async () => {
+      offerUndo(`已${word}“${t.title}”`, async () => {
         await restoreTaskSnap(t.id, snap)
         showToast('已撤回', 'success')
       })
@@ -5339,7 +5339,7 @@ async function forceCloseTask(t: Task, status: '完成' | '驳回') {
 
 async function restoreTask(t: Task) {
   const wasRejected = t.status === '驳回' || !!String((t as any).reject_reason || (t as any).reject_at || '').trim()
-  if (!confirm(`确认还原「${t.title}」？\n任务将回到「待办」状态；若已归档，会一并移回活跃区。`)) return
+  if (!confirm(`确认还原“${t.title}”？\n任务将回到“待办”状态；若已归档，会一并移回活跃区。`)) return
   const snap = snapOfTask(t.id)
   const result = await window.tegula.unarchiveTask(t.id)
   if (result.ok) {
@@ -5349,9 +5349,9 @@ async function restoreTask(t: Task) {
       : '已还原', 'success')
     loadAll()
     if (snap) {
-      offerUndo(`已退回「${t.title}」`, async () => {
+      offerUndo(`已退回“${t.title}”`, async () => {
         await restoreTaskSnap(t.id, snap)
-        showToast('已撤回：回到「' + snap.status + '」', 'success')
+        showToast('已撤回：回到“' + snap.status + '”', 'success')
       })
     }
   } else {
@@ -5406,9 +5406,9 @@ async function loadLogsForTask(taskId: string) {
   }
 }
 
-/** 一键完成日志：不走「填保留天数」模态，按设置里的默认保留天数完成（2026-09-29 用户第 6 条）
+/** 一键完成日志：不走“填保留天数”模态，按设置里的默认保留天数完成（2026-09-29 用户第 6 条）
  *
- *  ⚠ 这是**无二次确认**的路径（任务详情里的「关联日志」列表行尾那个 ✓）：误点一下就完成。
+ *  ⚠ 这是**无二次确认**的路径（任务详情里的“关联日志”列表行尾那个 ✓）：误点一下就完成。
  *  2026-10-21 暮雨第 1 条报的正是这个 —— 所以完成后必须当场给撤销条，
  *  不能只指望人回头去日志页的分区里翻那条卡（那时它已经不在眼前了）。
  */
@@ -5522,12 +5522,12 @@ const filteredTasks = computed(() => {
     return naturalResults.value
   }
   let result = [...tasks.value]
-  // 「含归档」只服务于活跃视图与搜索：归档视图的 tasks.value 本身就是 loadTasks('archive') 的结果，
-  // 再把 archivedTasks 拼进来 = 同一批任务各出现两次（用户 2026-09-25：「归档页签内是否勾选含归档
-  // 会出现不同显示效果，不是应该只显示归档内容吗」）。
+  // “含归档”只服务于活跃视图与搜索：归档视图的 tasks.value 本身就是 loadTasks('archive') 的结果，
+  // 再把 archivedTasks 拼进来 = 同一批任务各出现两次（用户 2026-09-25：“归档页签内是否勾选含归档
+  // 会出现不同显示效果，不是应该只显示归档内容吗”）。
   if (curView.value !== 'archive' && searchIncludeArchive.value && archivedTasks.value.length > 0) {
     // 同 id 的归档副本不能再拼一次 —— archive/ 里出现与活跃区同 id 的副本时（历史遗留、手工拷贝），
-    // 勾「含归档」会让同一张卡在板子上显示两遍。以活跃区为准（活跃那份才是可操作的真身）。
+    // 勾“含归档”会让同一张卡在板子上显示两遍。以活跃区为准（活跃那份才是可操作的真身）。
     const activeIds = new Set(result.map(t => t.id))
     result = [...result, ...archivedTasks.value.filter(a => !activeIds.has(a.id))]
   }
@@ -5598,7 +5598,7 @@ const columns = useBoardColumns({
 })
 
 /**
- * 顶栏「活跃优先 / 最近更新 / 创建时间」排序 —— 2026-09-29 修。
+ * 顶栏“活跃优先 / 最近更新 / 创建时间”排序 —— 2026-09-29 修。
  *
  * 真因：`sortMode` 此前**只在模板里绑了 v-model，全代码零引用** ——
  * 下拉换了没有任何反应，是典型的"看起来能点、实际什么都不会发生"的死控件
@@ -5641,7 +5641,7 @@ function openCard(t: Task) {
 
 /**
  * 按 id 直接标完成（2026-10-31 第二轮）。
- * 阻塞页的「标完成」用它：这张卡通常就是"做完它后面的才解锁"，
+ * 阻塞页的“标完成”用它：这张卡通常就是"做完它后面的才解锁"，
  * 所以让它在原地一步解掉，而不是打开卡片再找按钮（用户原话："点进去实际上什么都处理不了"）。
  * 确认与留痕全走 forceCloseTask 那一条，不另开通道。
  */
@@ -5680,7 +5680,7 @@ async function openTaskById(id: string): Promise<void> {
 }
 
 /**
- * Git 联动（卡 20260925-017，2026-10-06）—— 任务详情里的「相关提交」。
+ * Git 联动（卡 20260925-017，2026-10-06）—— 任务详情里的“相关提交”。
  *
  * 只读：主进程跑 `git log`（时间窗 + 提到本卡 ID 的），**不写任何仓库、不改这张卡**。
  * 读不到时**照实说**（没归属项目 / 没登记工作目录 / 不是 git 仓库），不给一句空话糊过去。
@@ -5705,7 +5705,7 @@ async function loadTaskCommits(taskId: string): Promise<void> {
 
 /** 复制文本并给出**真实**结果提示（三层兜底见 shared/clipboard.ts）。
  *  为什么要有它：以前只挂 try/catch + 成功 toast，navigator.clipboard 静默 reject 时
- *  用户看到「已复制」但粘出来是旧内容（2026-09-25 报修）。 */
+ *  用户看到“已复制”但粘出来是旧内容（2026-09-25 报修）。 */
 async function copyWithToast(text: unknown, okMsg: string): Promise<boolean> {
   const r = await copyText(text)
   // 用 warn 而非 log：主进程只转发 level>=2 的渲染层 console（见 src/index.ts console-message）
@@ -5733,7 +5733,7 @@ async function copyContextPack(p: any): Promise<void> {
       showToast(`生不成上下文包：${(r && r.error) || '未知原因'}`, 'error')
       return
     }
-    const ok = await copyWithToast(String(r.text || ''), `已复制「${p.name || p.id}」的上下文包（${r.chars || 0} 字）`)
+    const ok = await copyWithToast(String(r.text || ''), `已复制“${p.name || p.id}”的上下文包（${r.chars || 0} 字）`)
     if (ok && Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— 别拿空白当结论`, 'error')
     }
@@ -5761,7 +5761,7 @@ async function openTaskFile(t: any): Promise<void> {
 }
 
 // ── 任务卡右键菜单（2026-10-14 第 ④ 步第二单：改成组件）─────────────────
-// 用户反馈「方寸内右键没什么用」→ 卡上放高频操作，省得先点开详情面板再翻按钮。
+// 用户反馈“方寸内右键没什么用”→ 卡上放高频操作，省得先点开详情面板再翻按钮。
 // 菜单本体（含渲染与浮层行为）已搬进 `components/TaskCardMenu.vue`（reka-ui ContextMenu）；
 // 这里只留"点了哪一项 → 调哪个动作"的映射 —— 动作都在本文件里，组件不该知道怎么改数据。
 // ⚠ 组件通过 `@pick` 回一个 `{ task, action }`（**不是** `@pick="(a) => f(t, a)"`：
@@ -5794,7 +5794,7 @@ async function copyTaskTitle(t: Task) {
 }
 
 /**
- * 弹药库（卡 031）：把这张卡拼成一份「派工单」文本并复制。
+ * 弹药库（卡 031）：把这张卡拼成一份“派工单”文本并复制。
  *
  * 三段拼接，**零智能**：卡内容原文照贴 + 六字段骨架（已知的填上、判据留空）+ 纪律段。
  * 只复制，不派发 —— 派发永远留人手。模板在 `shared/arsenal.ts`（卡片模板文本，不进 JSON）。
@@ -5819,7 +5819,7 @@ async function copyTaskAsDispatch(t: Task): Promise<void> {
       projectName: proj?.name || key || '',
       acceptance,
     })
-    // 留痕：日志里能查到「点了哪条、复制了多长」（渲染层 console 会转发进应用日志）
+    // 留痕：日志里能查到“点了哪条、复制了多长”（渲染层 console 会转发进应用日志）
     const st = arsenalStatus({ status: t.status, path: (t as any).path || '' })
     console.warn('[renderer:copy] arsenal dispatch id=' + t.id + ' state=' + st + ' len=' + text.length)
     await copyWithToast(text, `已复制为派工单（弹药库状态：${st}）—— 判据那几栏留给你亲手写`)
@@ -5853,9 +5853,9 @@ const policyMap = ref<Record<string, boolean>>({})
 const policyExistsMap = ref<Record<string, boolean>>({})
 const policyEdit_ = ref<any>(null)
 
-// 029：结构地图缺口（方针卡已填但没「结构地图」节）—— 与章程缺口同一机制。
+// 029：结构地图缺口（方针卡已填但没“结构地图”节）—— 与章程缺口同一机制。
 const policyMapHasStructure = ref<Record<string, boolean>>({})
-/** 每张卡结构地图里的「最后核实」日期（YYYY-MM-DD），没写就是空串 */
+/** 每张卡结构地图里的“最后核实”日期（YYYY-MM-DD），没写就是空串 */
 const policyVerifiedMap = ref<Record<string, string>>({})
 
 const charterStats = computed(() => {
@@ -5865,14 +5865,14 @@ const charterStats = computed(() => {
     if (policyMap.value[p.id]) filled++
     else if (policyExistsMap.value[p.id]) skeleton++
     else missing++
-    // 空骨架必然也没有结构地图（同一个缺口），所以只对「已填」的项目算地图缺口
+    // 空骨架必然也没有结构地图（同一个缺口），所以只对“已填”的项目算地图缺口
     if (policyMap.value[p.id] && !policyMapHasStructure.value[p.id]) mapMissing++
     if (policyMap.value[p.id] && policyMapHasStructure.value[p.id]) mapReady++
   }
   return { total, filled, skeleton, missing, mapMissing, mapReady }
 })
 
-/** 从结构地图正文里抠出「最后核实：YYYY-MM-DD」 */
+/** 从结构地图正文里抠出“最后核实：YYYY-MM-DD” */
 function extractVerified(text: string): string {
   const m = /最后核实[：:]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/.exec(String(text || ''))
   return m ? m[1] : ''
@@ -5890,7 +5890,7 @@ async function loadPolicyMap() {
       exists[p.id] = !!pol
       filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
       const mapText = String((pol && pol.structureMap) || '')
-      // 只有**真填过**才算有：骨架里那行「（待填 —— …）」不算内容
+      // 只有**真填过**才算有：骨架里那行“（待填 —— …）”不算内容
       hasMap[p.id] = !!mapText.trim() && !/最后核实[：:]\s*（待填/.test(mapText)
       verified[p.id] = extractVerified(mapText)
     } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false; verified[p.id] = '' }
@@ -5927,7 +5927,7 @@ async function openPolicyFromSmap(projectId: string) {
 }
 
 /**
- * 把「最后核实」那行改成今天（029 的核心纪律：地图必须有人签日期）。
+ * 把“最后核实”那行改成今天（029 的核心纪律：地图必须有人签日期）。
  * 没有这一行就补在最前面 —— 手改日期最容易忘，给一个按钮。
  */
 function stampStructureMap() {
@@ -5943,7 +5943,7 @@ function stampStructureMap() {
   showToast(`已标记最后核实 ${iso}（记得点保存）`, 'success')
 }
 
-/** 一键为「连文件都没有」的项目建立章程骨架（四个小节留空，等用户填；空骨架对 agent 等同未立） */
+/** 一键为“连文件都没有”的项目建立章程骨架（四个小节留空，等用户填；空骨架对 agent 等同未立） */
 async function fillMissingCharters() {
   const targets = projects.value.filter(p => !policyMap.value[p.id] && !policyExistsMap.value[p.id])
   if (!targets.length) { showToast('所有项目都已有章程文件了', 'info'); return }
@@ -5965,7 +5965,7 @@ async function openPolicyEdit(projectId: string) {
   let mission = '', goal = '', scenario = '', boundary = '', structureMap = ''
   try {
     const r = await window.tegula.policyGet(projectId)
-    // 029：结构地图一并读进来 —— 此前只读四字段，界面上**根本看不到**结构地图（用户「找不到在哪里」）
+    // 029：结构地图一并读进来 —— 此前只读四字段，界面上**根本看不到**结构地图（用户“找不到在哪里”）
     if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap } = r.policy)
   } catch { /* 未立则空表单 */ }
   policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary, structureMap: structureMap || '' }
@@ -6006,15 +6006,15 @@ async function copyPolicyText(projectId: string) {
 
 // ── Calendar view ──────────────────────────────────────────────────────
 // 2026-09-21 从老版 board.html 移植；2026-09-22 重做（用户第 6 条）。原文四条抱怨：
-//   ① 「连一个指派时间或时间段的按钮都没有」 —— 只能拖已排期任务改截止，没有任何指派入口
-//   ② 「未能和看板上的任务或待办真正联动」   —— 旧实现只读 filteredTasks，完全不看待办
-//   ③ 「貌似根本不支持跨月」                —— 非本月的任务全被丢进「未安排（…本月之外）」
-//   ④ 「时间或时间段」                      —— 只有单日 deadline，没有区间概念
+//   ① “连一个指派时间或时间段的按钮都没有” —— 只能拖已排期任务改截止，没有任何指派入口
+//   ② “未能和看板上的任务或待办真正联动”   —— 旧实现只读 filteredTasks，完全不看待办
+//   ③ “貌似根本不支持跨月”                —— 非本月的任务全被丢进“未安排（…本月之外）”
+//   ④ “时间或时间段”                      —— 只有单日 deadline，没有区间概念
 // 现在：start + deadline 组成时间段（跨天画成连续色带）；待办按 due 上日历；
-//       任务卡右键 / 任务详情 / 待办项 / 未安排条目四处都有「指派时间」；
-//       未安排拆成「无日期」与「其它月份（可一键跳转）」，跨月不再是一锅粥。
+//       任务卡右键 / 任务详情 / 待办项 / 未安排条目四处都有“指派时间”；
+//       未安排拆成“无日期”与“其它月份（可一键跳转）”，跨月不再是一锅粥。
 // 日历：状态与算法在 composables/useCalendar.ts（第 3 块），模板在 views/CalendarView.vue（第 4 块）。
-// 这个文件里只剩两件父组件的活儿：**「指派时间」弹窗**（模板在本文件）与**拖拽落盘**
+// 这个文件里只剩两件父组件的活儿：**“指派时间”弹窗**（模板在本文件）与**拖拽落盘**
 // （要 IPC + toast + 重新加载）。CAL_DOW 跟着进组件了（只有日历用）。
 // ⚠ taskStart/taskDue 在这里再定义一份小的：弹窗要按同一套字段回退（t.start ?? t.fm.start）
 //   读时间。各写一套的话，日历画出来的时间和弹窗里显示的时间迟早对不上。
@@ -6126,7 +6126,7 @@ async function doCalReschedule(p: { id: string; kind: 'task' | 'todo' | 'log'; d
     let patch: Record<string, string>
     let msg: string
     if (s && ed) {
-      // 时间段整体平移：保持长度，把「开始」落到目标日（算术在 calendar.ts，可单测）
+      // 时间段整体平移：保持长度，把“开始”落到目标日（算术在 calendar.ts，可单测）
       const shifted = shiftRange(calISO(s), calISO(ed), target)
       patch = { start: shifted.start, deadline: shifted.end }
       msg = `时间段已移到 ${shifted.start} → ${shifted.end}`
@@ -6146,13 +6146,13 @@ async function doCalReschedule(p: { id: string; kind: 'task' | 'todo' | 'log'; d
   }
 }
 
-// ── 想法（2026-10-22 · 「随手记一个念头，之后决定做/不做/搁置」）────────────
-// 界面这一层只做一件事：把「想法」和「待办/任务」的边界守住 —— 它**不参与**任何
+// ── 想法（2026-10-22 · “随手记一个念头，之后决定做/不做/搁置”）────────────
+// 界面这一层只做一件事：把“想法”和“待办/任务”的边界守住 —— 它**不参与**任何
 // 筛选、排序、逾期、阻塞的口径。四态与排序的真相都在主进程 services/ideas.ts。
 const ideas = ref<any[]>([])
 const ideaDraft = ref('')
 const ideaBusy = ref(false)
-/** 「已经有结论」默认收起：这一页的主角是"还没决定的那堆"，不是历史账 */
+/** “已经有结论”默认收起：这一页的主角是"还没决定的那堆"，不是历史账 */
 const ideasShowDecided = ref(false)
 
 const ideasOpen = computed(() => ideas.value.filter((i) => i.status === '新记'))
@@ -6206,7 +6206,7 @@ async function setIdeaState(i: any, status: string, note: string, label: string)
     }
     await loadIdeas()
     const before = r.before || {}
-    offerUndo(`「${firstLineOf(i.text)}」→ ${label}`, async () => {
+    offerUndo(`“${firstLineOf(i.text)}”→ ${label}`, async () => {
       const back: any = await window.tegula.ideasSetStatus(toPlain(i.id), before.status, before.note || '')
       if (!back || back.ok === false) throw new Error(back?.error || '改不回去了')
       await loadIdeas()
@@ -6230,10 +6230,10 @@ function reviveIdea(i: any): void {
 }
 
 /**
- * 「做」= 立项 = **真在待办里生出一条**。
+ * “做”= 立项 = **真在待办里生出一条**。
  *
  * 界面上这里必须把"去了哪"说出来（toast 里点明待办），否则用户点完只看到这条挪到
- * 了「已经有结论」里，会怀疑到底有没有真建出来 —— 而"看起来成功了"正是最该避免的状态。
+ * 了“已经有结论”里，会怀疑到底有没有真建出来 —— 而"看起来成功了"正是最该避免的状态。
  */
 async function doIdea(i: any): Promise<void> {
   if (ideaBusy.value) return
@@ -6247,8 +6247,8 @@ async function doIdea(i: any): Promise<void> {
     await loadIdeas()
     // 待办数变了 → 让待办页与看板旁边的计数跟着刷新（否则切过去看是旧的）
     void loadTodos()
-    showToast(`已立项 → 待办里多了一条「${firstLineOf(i.text)}」`, 'success')
-    offerUndo(`「${firstLineOf(i.text)}」→ 已立项`, async () => {
+    showToast(`已立项 → 待办里多了一条“${firstLineOf(i.text)}”`, 'success')
+    offerUndo(`“${firstLineOf(i.text)}”→ 已立项`, async () => {
       const back: any = await window.tegula.ideasUnpromote(toPlain(i.id))
       if (!back || back.ok === false) throw new Error(back?.error || '撤不回来了')
       await loadIdeas()
@@ -6273,7 +6273,7 @@ async function undoDoIdea(i: any): Promise<void> {
     }
     await loadIdeas()
     void loadTodos()
-    showToast('已撤回，想法回到「还没决定」', 'success')
+    showToast('已撤回，想法回到“还没决定”', 'success')
   } catch (e: any) {
     showToast('撤销异常：' + (e?.message || e), 'error')
   } finally {
@@ -6296,7 +6296,7 @@ async function removeIdea(i: any): Promise<void> {
       return
     }
     await loadIdeas()
-    offerUndo(`删掉「${firstLineOf(i.text)}」`, async () => {
+    offerUndo(`删掉“${firstLineOf(i.text)}”`, async () => {
       const back: any = await window.tegula.ideasRestore(toPlain(r.removed))
       if (!back || back.ok === false) throw new Error(back?.error || '恢复不了')
       await loadIdeas()
@@ -6314,10 +6314,10 @@ function firstLineOf(t: string): string {
   return s.length > 24 ? s.slice(0, 24) + '…' : s
 }
 
-// 「+ 添加」小框已于 2026-09-29 移除（用户第 1 条）：新建只留一个入口 = openTodoCreator() 大框。
+// “+ 添加”小框已于 2026-09-29 移除（用户第 1 条）：新建只留一个入口 = openTodoCreator() 大框。
 
 // ── 拖拽提示的稳定显示（2026-09-22，用户第 4/5 条）──────────────────────
-// 症状：拖动文件时「松手导入…」提示高频闪烁、按不住。
+// 症状：拖动文件时“松手导入…”提示高频闪烁、按不住。
 // 两个真因，都得治：
 //   ① 提示是 v-if 的**流内元素** —— 它一出现就把下方内容顶下去，
 //      光标位置相对内容变了 → 触发 dragleave → 提示消失 → dragover 又出现… 自激振荡；
@@ -6327,7 +6327,7 @@ function firstLineOf(t: string): string {
 //       进出用 dragenter/dragleave **深度计数**，drop/dragend 统一归零。
 const dragDepth = reactive<Record<'todo' | 'log' | 'global', number>>({ todo: 0, log: 0, global: 0 })
 
-// ── 心跳兜底（2026-09-27 用户：「那个怪异遮罩挡字的问题好像一直没修」）────────
+// ── 心跳兜底（2026-09-27 用户：“那个怪异遮罩挡字的问题好像一直没修”）────────
 // 症状：提示偶尔**永久留在屏幕上盖住正文**。.drop-hint.global / .todo-drop-hint 是 97% 不透明
 //       的整条色块（顶部居中，正压着内容第一行），一旦留下，不重新拖一次文件就再也不消失。
 // 真因：可见性只看 dragenter/dragleave 的**深度计数**，而拖拽的三种收场里两种拿不到配平事件：
@@ -6335,7 +6335,7 @@ const dragDepth = reactive<Record<'todo' | 'log' | 'global', number>>({ todo: 0,
 //   而 OS 级文件拖拽的 dragend 只发给拖动**源**（资源管理器），页面永远收不到 ——
 //   所以下面 onMounted 里那两个 window 'dragend'/'drop' 监听对文件拖拽形同虚设。
 //   且计数泄漏后没有任何东西会把它拉回去 ⇒ 遮罩常驻。
-// 处置：计数继续负责「精确进出」，另加一条**心跳**：任何拖拽事件都刷新时间戳，
+// 处置：计数继续负责“精确进出”，另加一条**心跳**：任何拖拽事件都刷新时间戳，
 //   静默超过 DRAG_IDLE_MS 就整体归零（真拖拽时 dragover 每 ~350ms 必来一次，不会误杀）。
 const DRAG_IDLE_MS = 700
 /** 拖拽是不是**真的还在进行**：待办/日志/全局/技能四类提示一律以它为准 */
@@ -6372,7 +6372,7 @@ function dragResetAll(): void {
 }
 
 /** 自己有投放区、能收文件的页签 —— 全局兜底提示要避开它们。
- *  漏了技能页会把「本页不支持导入」的假提示盖在一个**明明支持导入**的页面上（2026-09-27 实测）。 */
+ *  漏了技能页会把“本页不支持导入”的假提示盖在一个**明明支持导入**的页面上（2026-09-27 实测）。 */
 const DROP_IMPORT_VIEWS: string[] = ['todos', 'logs', 'skills']
 
 const todoDragOver = computed(() => dragAlive.value && dragDepth.todo > 0)
@@ -6386,7 +6386,7 @@ function onAppDrop(e: DragEvent): void {
   dragResetAll()
   if (DROP_IMPORT_VIEWS.includes(curView.value)) return
   e.preventDefault()
-  showToast('当前页签不支持导入文件 —— 请到「待办」「日志」或「技能」页签再拖入', 'info')
+  showToast('当前页签不支持导入文件 —— 请到“待办”“日志”或“技能”页签再拖入', 'info')
 }
 
 function onTodoDrop(e: DragEvent) {
@@ -6420,7 +6420,7 @@ const {
 } = useLogsView()
 
 /**
- * 每日推进面（0.6.0 P2）：日志页顶部「今天推哪一格 + 这一格的判据」。
+ * 每日推进面（0.6.0 P2）：日志页顶部“今天推哪一格 + 这一格的判据”。
  * 选格规则在 `shared/dailyBand.ts`（纯逻辑）；日志页挂载时重读一次。
  */
 const { dailyBand, dailyBandLoading, dailyBandError, loadDailyBand } = useDailyBand()
@@ -6432,7 +6432,7 @@ const logEdit_ = ref<any>(null)
 /**
  * 僵尸卡：`状态=进行中` **且**任务文件自上次写入起 ≥N 小时没变。
  * 判据本体在主进程 `findStalledTasks`（与通知中心 `task-stalled` **同源**），这里只接线。
- * ⚠ 别拿 `findTimeoutTasks` 当它用 —— 那个只算「派活 → 现在」，与文件有没有变毫无关系。
+ * ⚠ 别拿 `findTimeoutTasks` 当它用 —— 那个只算“派活 → 现在”，与文件有没有变毫无关系。
  */
 const STALLED_HOURS = 24
 const stalledTasks = ref<{ id: string; title: string; hours: number }[]>([])
@@ -6443,7 +6443,7 @@ async function loadStalled(): Promise<void> {
   } catch { stalledTasks.value = [] }
 }
 
-/** 监控台的「最近执行日志」：当前项目的最近 5 条（日志由 loadLogs 拉，见 loadViewData('projects')） */
+/** 监控台的“最近执行日志”：当前项目的最近 5 条（日志由 loadLogs 拉，见 loadViewData('projects')） */
 const msLogs = computed(() => {
   const p = pvCurrent.value
   if (!p) return []
@@ -6453,7 +6453,7 @@ const msLogs = computed(() => {
     .slice(0, 5)
 })
 
-/** 监控台的「僵尸卡」：停滞清单里属于当前项目的。
+/** 监控台的“僵尸卡”：停滞清单里属于当前项目的。
  *  ⚠ `findStalledTasks` 不返回 project —— 这里用任务表 join，不去改主进程语义。 */
 const msStalled = computed(() => {
   const p = pvCurrent.value
@@ -6466,8 +6466,8 @@ const msStalled = computed(() => {
 /**
  * 主进程启动时对**方寸自仓**跑一次 `git pull --ff-only`，这里只读它报的状态。
  * 为什么不是"加个同步按钮"：用户零动作原则 —— 自动就够，按钮只会多一处要维护的失败面。
- * 为什么只在"没跟上"时显示：正常态显示「已是最新」纯属噪音（用户不关心 git 的事）。
- * ⚠ 非 git 仓库（安装版）/ 从未跑过 → **不显示任何东西**，不拿「未知」冒充状态。
+ * 为什么只在"没跟上"时显示：正常态显示“已是最新”纯属噪音（用户不关心 git 的事）。
+ * ⚠ 非 git 仓库（安装版）/ 从未跑过 → **不显示任何东西**，不拿“未知”冒充状态。
  */
 const selfSync_ = ref<any>(null)
 async function loadSelfSync(): Promise<void> {
@@ -6503,7 +6503,7 @@ const selfSyncLine = computed<null | { tone: 'ok' | 'warn'; text: string }>(() =
 
 // ── 路线文档实况（2026-10-21 · W1-批次 2）────────────────────────────────
 /**
- * 把仓库里的 README / ROADMAP 自动读回来，与**手写**的「说明 / 路线图」并列摆着。
+ * 把仓库里的 README / ROADMAP 自动读回来，与**手写**的“说明 / 路线图”并列摆着。
  *
  * 口径（暮雨 2026-10-21 定的）：README 与 ROADMAP 都算路线文档，但 README 偏"给用户看的
  * 展示公告"，所以这里 README 只取**一句话摘要**；ROADMAP 才是"接下来做什么"的正主。
@@ -6529,7 +6529,7 @@ async function loadProjectDocs(): Promise<void> {
   }
 }
 
-// ── 监控台「建议动作 / 可并行机会」（2026-10-11，死通道 A 组收口）──────────────
+// ── 监控台“建议动作 / 可并行机会”（2026-10-11，死通道 A 组收口）──────────────
 // 这两条 IPC（`suggestActions` / `detectParallelOpportunities`）在主进程 `ipc.ts` 与
 // preload 里存在已久，但**渲染层从来没调用过** —— 典型的"死通道"
 // （`check-ipc-parity` 第 ⑤ 类"死通道"扫出来的；C 组先接体量最小的这两个）。
@@ -6576,13 +6576,13 @@ function openProjectLogs(): void {
 }
 /** 接力对话框（2026-09-29 方案二）：源日志 + 预填字段 + 两个出清开关 */
 const relay_ = ref<any>(null)
-/** 关闭防丢确认条（2026-09-30 卡 006）：有未创建改动时点遮罩/「取消」→ 先出条，点「丢弃」才真关。
- *  不再用原生 window.confirm —— 用户实测两次「防护未生效」，对话框内的条子躲不掉也误点不了。 */
+/** 关闭防丢确认条（2026-09-30 卡 006）：有未创建改动时点遮罩/“取消”→ 先出条，点“丢弃”才真关。
+ *  不再用原生 window.confirm —— 用户实测两次“防护未生效”，对话框内的条子躲不掉也误点不了。 */
 const relayDiscard_ = ref(false)
 /** 确认条上列出到底改了什么，让用户判断值不值得丢 */
 const relayDirtyHint = computed(() => relayChanges(relay_.value).join('、') || '（改动未识别）')
 /** 确认条本身 —— 接力对话框内容长（88vh 内可滚动），条子可能在折叠线下方，
- *  出现时必须把它滚进视野并把焦点放在「继续填写」上（默认动作 = 留下，回车不会误丢）。
+ *  出现时必须把它滚进视野并把焦点放在“继续填写”上（默认动作 = 留下，回车不会误丢）。
  *  ⚠ 模板已搬进 RelayModal：不再用 ref，按弹窗内唯一钩子查。 */
 // Agent 预设列表（设置页可增删）。
 // 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
@@ -6643,14 +6643,14 @@ let logPollingTimer: ReturnType<typeof setInterval> | null = null
 /**
  * 过滤后的日志（2026-09-28 用户第 5 条）。
  *
- * **状态筛选下拉被删掉了** —— 用户原话「那些筛选实际上除了把信息搞得支离破碎以外
- * 没什么作用」。原因很清楚：状态下拉是一个"单值"控件，而人需要同时看到
- * 「谁在跑 / 谁没跑 / 谁跑完了」这三件事，单选必然把画面切碎。
+ * **状态筛选下拉被删掉了** —— 用户原话“那些筛选实际上除了把信息搞得支离破碎以外
+ * 没什么作用”。原因很清楚：状态下拉是一个"单值"控件，而人需要同时看到
+ * “谁在跑 / 谁没跑 / 谁跑完了”这三件事，单选必然把画面切碎。
  * 现在状态由**分区**表达（`groupedLogs`），筛选只负责**缩小数据集**
  * （搜索词 / 项目 / Agent / 日期），两者不再打架。
  */
 /**
- * 日志排序（2026-10-01 用户第 2 条）：此前只有后端给的「文件名倒序」= 创建倒序，
+ * 日志排序（2026-10-01 用户第 2 条）：此前只有后端给的“文件名倒序”= 创建倒序，
  * 连"最早的排前面"都做不到。这里在渲染层排 —— 数据一次取回（≤ 50 条/页），
  * 不再往数据层加第二个排序入口（同一条取数路径的原则，见 loadLogs 注释）。
  * 置顶分组不受影响：pinned 是在分组阶段单独拎出来的（logGroups 里）。
@@ -6688,7 +6688,7 @@ function onLogCardClick(log: any) {
     else selectedLogBatch.value.push(log.id)
   } else {
     // 2026-09-25（用户第 13 条）：单击 = 只读预览（Markdown 渲染），与任务卡一致；
-    // 编辑走卡片操作行的「✏️ 编辑」或预览里的按钮。
+    // 编辑走卡片操作行的“✏️ 编辑”或预览里的按钮。
     openLogPreview(log)
   }
 }
@@ -6774,12 +6774,12 @@ function shortLogId(id: string): string {
 
 /**
  * 接力对话框（2026-09-29 方案二）。
- * 预填规则（2026-10-03 再收窄）：**标题不再预填** —— 用户原话「日志接力自动沿用上次日志
- * 的标题，容易产生歧义，我希望每个日志可以创建新标题」（源标题在顶部「源」条里看得到）；
+ * 预填规则（2026-10-03 再收窄）：**标题不再预填** —— 用户原话“日志接力自动沿用上次日志
+ * 的标题，容易产生歧义，我希望每个日志可以创建新标题”（源标题在顶部“源”条里看得到）；
  * 项目/任务继承源；Agent 拆两字段：上次的执行 Agent 继承源（可改可补）、本次默认沿用源。
- * （2026-10-02 曾定「标题 = 源标题让人一眼看出要改」，被 10-03 口径覆盖。）
- * **下一步不再预填**（用户：「下一步依旧每次都直接挪用上次的输入结果」）——
- * 与执行内容同口径留空，要源里的原文点「带入源的下一步」按钮主动取。
+ * （2026-10-02 曾定“标题 = 源标题让人一眼看出要改”，被 10-03 口径覆盖。）
+ * **下一步不再预填**（用户：“下一步依旧每次都直接挪用上次的输入结果”）——
+ * 与执行内容同口径留空，要源里的原文点“带入源的下一步”按钮主动取。
  * 勾选默认 = 未完成的关联任务进新日志、源日志归档出清、源任务不动。
  */
 function openRelay(src: any): void {
@@ -6797,8 +6797,8 @@ function openRelay(src: any): void {
     // 2026-10-03 反馈2（卡 task-20261003-002）：标题**不再沿用源** —— 留空强制给新日志起新标题
     title: '',
     project: src.project || '',
-    // 2026-10-02 用户「下一步依旧每次都直接挪用上次的输入结果」：**默认留空**，
-    // 源的下一步要点「带入源的下一步」才进来（见 bringSourceNextSteps）。
+    // 2026-10-02 用户“下一步依旧每次都直接挪用上次的输入结果”：**默认留空**，
+    // 源的下一步要点“带入源的下一步”才进来（见 bringSourceNextSteps）。
     nextSteps: '',
     // 2026-09-30 卡 004：执行内容**不继承源**（源的正文属于上一段），留空给用户贴本次汇总
     content: '',
@@ -6816,7 +6816,7 @@ function openRelay(src: any): void {
     archiveSource: true,
     completeSourceTasks: false,
     // 打开瞬间的快照：关闭前逐字段比对（卡 006）。此前只比对三个文本框，
-    // 只改过下拉/勾选就判「没改」→ 点遮罩直接静默关，用户报「数据全丢」。
+    // 只改过下拉/勾选就判“没改”→ 点遮罩直接静默关，用户报“数据全丢”。
     _init: null as any,
   }
   const r = relay_.value
@@ -6837,7 +6837,7 @@ function openRelay(src: any): void {
 }
 
 /**
- * 「带入源的下一步」（2026-10-02）：源日志的「下一步」不再自动挪用，改成**点了才带**。
+ * “带入源的下一步”（2026-10-02）：源日志的“下一步”不再自动挪用，改成**点了才带**。
  * 三条边界：① 源本来就是空的 → 明说，不装作带入了；② 框里已有内容且与源不同 → **绝不覆盖**
  * （会静默吃掉用户刚写的东西，正是本卡要治的病）；③ 带入后与打开快照不同 → 关闭时会走防丢确认条。
  */
@@ -6846,7 +6846,7 @@ function bringSourceNextSteps(): void {
   if (!r) return
   const srcNext = String(r.src?.nextSteps || '').trim()
   if (!srcNext) {
-    showToast('源日志的「下一步」本来就是空的', 'info')
+    showToast('源日志的“下一步”本来就是空的', 'info')
     return
   }
   const cur = String(r.nextSteps || '').trim()
@@ -6881,10 +6881,10 @@ function relayChanges(r: any): string[] {
 
 /**
  * 关闭接力对话框：有未创建的改动先出**对话框内的确认条**（2026-09-30 卡 006）。
- * 遮罩按下（@mousedown.self）、「取消」、全局 Esc（会替我们点「取消」）都走这里。
- * 第一次点 = 出条不关；条子出着时再点 = 仍不关（要关必须点条上的「丢弃并关闭」）。
+ * 遮罩按下（@mousedown.self）、“取消”、全局 Esc（会替我们点“取消”）都走这里。
+ * 第一次点 = 出条不关；条子出着时再点 = 仍不关（要关必须点条上的“丢弃并关闭”）。
  * 诊断痕迹：渲染层只有 console.warn 会进应用日志，这里必须留痕，
- * 否则下次再有人说「防护没生效」时无从判断是没点到还是没拦住。
+ * 否则下次再有人说“防护没生效”时无从判断是没点到还是没拦住。
  */
 function closeRelay(): void {
   const r = relay_.value
@@ -6893,8 +6893,8 @@ function closeRelay(): void {
   if (ch.length) {
     if (!relayDiscard_.value) {
       // 卡 006 补（2026-10-01）：接力框 88vh 内可滚动，确认条可能在折叠线下方 ——
-      // 出现时必须滚进视野 + 焦点落到「继续填写」，否则用户点外面只会看到"没反应"，
-      // 又要报一次「防护未生效」。
+      // 出现时必须滚进视野 + 焦点落到“继续填写”，否则用户点外面只会看到"没反应"，
+      // 又要报一次“防护未生效”。
       relayDiscard_.value = true
       nextTick(() => {
         const bar = document.querySelector('#relay-modal .relay-discard') as HTMLElement | null
@@ -6911,7 +6911,7 @@ function closeRelay(): void {
   relayDiscard_.value = false
 }
 
-/** 用户在确认条上明确点了「丢弃并关闭」——这才是唯一丢弃入口 */
+/** 用户在确认条上明确点了“丢弃并关闭”——这才是唯一丢弃入口 */
 function discardRelay(): void {
   console.warn(`[relay] 用户确认丢弃未创建的接力内容（${relayChanges(relay_.value).join('、') || '无'}）`)
   relay_.value = null
@@ -6921,9 +6921,9 @@ function discardRelay(): void {
 /**
  * 执行接力：**先建新日志，再动源**（顺序是安全约束 —— 先归档源、新建失败 = 源没了后继也没了）。
  * 四件事：① 建新日志（继承下一步/项目/任务/Agent + 写 续自）
- *        ② 源日志归档出清（不带 note：不覆盖源的「完成确认」，链关系已由 续自 记录）
+ *        ② 源日志归档出清（不带 note：不覆盖源的“完成确认”，链关系已由 续自 记录）
  *        ③ 源关联任务置完成（可选，跳过已是终态的）
- *        ④ 立即标「进行中」（可选，走唯一写入路径 logsSetRunning）
+ *        ④ 立即标“进行中”（可选，走唯一写入路径 logsSetRunning）
  */
 async function executeRelay(startRunning: boolean): Promise<void> {
   const r = relay_.value
@@ -6938,7 +6938,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
     const created: any = await window.tegula.logsCreate(title, r.project, r.content || '', (r.taskIds || [])[0] || undefined, {
       // 2026-09-30 用户第 2 条（卡 task-20260930-003）：r = relay_.value 是 Vue 响应式代理，
       // r.taskIds 是**裸代理数组** —— 直接塞进 IPC 载荷在 contextBridge 那跳必抛
-      // 「An object could not be cloned」，两个创建按钮全炸。展开成普通数组再传。
+      // “An object could not be cloned”，两个创建按钮全炸。展开成普通数组再传。
       taskIds: [...(r.taskIds || [])],
       agentName: r.agentName || '',
       prevAgentName: r.prevAgentName || '',
@@ -6974,7 +6974,7 @@ async function executeRelay(startRunning: boolean): Promise<void> {
     }
     if (startRunning && newId) {
       const run: any = await window.tegula.logsSetRunning(newId, true)
-      if (!run?.ok) problems.push(`标「进行中」失败：${run?.error || '未知原因'}`)
+      if (!run?.ok) problems.push(`标“进行中”失败：${run?.error || '未知原因'}`)
     }
     relay_.value = null
     relayDiscard_.value = false
@@ -7024,7 +7024,7 @@ async function copyTodoText(todo: any): Promise<void> {
 function editTodoFromMenu(todo: any): void { openTodoEditor(todo) }
 
 async function deleteTodoFromMenu(todo: any): Promise<void> {
-  if (!confirm(`删除待办「${todo.title}」？\n\n待办是随手记的清单，删掉不进回收站。`)) return
+  if (!confirm(`删除待办“${todo.title}”？\n\n待办是随手记的清单，删掉不进回收站。`)) return
   await deleteTodo(todo.id)
 }
 
@@ -7050,9 +7050,9 @@ async function openProjectDiagram(p: any): Promise<void> {
 }
 
 // ── 方寸绘制架构图（2026-10-30，卡 task-20261030-002；同日按第 3 条重做）────
-// 与上面那个「架构图」的分工写在按钮 title 里：这里扫源码自己画，不碰 archify 产物。
+// 与上面那个“架构图”的分工写在按钮 title 里：这里扫源码自己画，不碰 archify 产物。
 // 图模型来自主进程只读扫描（services/projectArch.ts）；这里负责开面板、校验展示、
-// 逐块剔除、驳回重画与导出。**没点「通过」不许导出**（导出通道也会再核一遍校验）。
+// 逐块剔除、驳回重画与导出。**没点“通过”不许导出**（导出通道也会再核一遍校验）。
 const archOpen = ref(false)
 const archBusy = ref(false)
 const archGraph = ref<ArchGraph | null>(null)
@@ -7140,7 +7140,7 @@ function excludeArchNode(id: string): void {
   if (!n) return
   if (!archExcluded.value.some((x) => x.id === id)) archExcluded.value.push({ id, label: n.label })
   applyArchFilter()
-  showToast(`已剔除「${n.label}」—— 校验已按新图重跑`, 'success')
+  showToast(`已剔除“${n.label}”—— 校验已按新图重跑`, 'success')
 }
 function restoreArchNode(id: string): void {
   archExcluded.value = archExcluded.value.filter((x) => x.id !== id)
@@ -7165,7 +7165,7 @@ async function rejectArch(reason: string): Promise<void> {
 
 async function exportSelfArch(): Promise<void> {
   if (!archProjectId.value) return
-  if (!archApproved.value) { showToast('先点「✅ 通过这张图」再导出', 'info'); return }
+  if (!archApproved.value) { showToast('先点“✅ 通过这张图”再导出', 'info'); return }
   archBusy.value = true
   try {
     const r: any = await (window as any).tegula.archExport(archProjectId.value, {
@@ -7190,16 +7190,16 @@ async function exportSelfArch(): Promise<void> {
  *
  * 真实用法：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；
  * 只灌主日志，agent 就漏掉并行的另一半 —— 这不是"想要的新功能"，是使用中长出来的需求。
- * 顺序即语义：**先勾选的那条是主日志**，其余会被标成「并行日志」（拼接在 services/logs.injectLogs）。
+ * 顺序即语义：**先勾选的那条是主日志**，其余会被标成“并行日志”（拼接在 services/logs.injectLogs）。
  */
 async function executeLogCleanup() {
   try {
     const result = await window.tegula.logsCleanup()
     const n = Array.isArray(result) ? result.length : 0
     if (n) {
-      showToast(`已将 ${n} 条超期日志标为「已归档」（仅改状态，文件未删）`, 'success')
+      showToast(`已将 ${n} 条超期日志标为“已归档”（仅改状态，文件未删）`, 'success')
     } else {
-      showToast('没有超期日志：需先点「完成」并填保留天数，到期后才会被清理', 'info')
+      showToast('没有超期日志：需先点“完成”并填保留天数，到期后才会被清理', 'info')
     }
     await loadLogs()
   } catch (e: any) {
@@ -7223,7 +7223,7 @@ const reviewPresets = [
 
 function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
   // 待审批 = 审批裁决（批准转正待办 / 驳回）；其余（待验收）= 验收裁决（通过 / 驳回）
-  // 2026-10-30（暮雨第 3 条）：卡上直接给「通过 / 驳回」两个入口，靠 intent 决定打开后焦点在哪。
+  // 2026-10-30（暮雨第 3 条）：卡上直接给“通过 / 驳回”两个入口，靠 intent 决定打开后焦点在哪。
   reviewModal.value = {
     id: t.id,
     title: t.title || t.id,
@@ -7247,8 +7247,8 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
 }
 
 /**
- * 直接驳回（2026-10-30 暮雨第 2 条）—— 任何非终态卡都能退，不要求它先到「待验收」。
- * 与 openReview 的区别只在 kind：这里没有「通过」按钮，也不会写审批/验收措辞。
+ * 直接驳回（2026-10-30 暮雨第 2 条）—— 任何非终态卡都能退，不要求它先到“待验收”。
+ * 与 openReview 的区别只在 kind：这里没有“通过”按钮，也不会写审批/验收措辞。
  */
 function openDirectReject(t: Task): void {
   reviewModal.value = { id: t.id, title: t.title || t.id, kind: 'direct', intent: 'reject' }
@@ -7308,14 +7308,14 @@ async function acceptTask() {
   const snap = snapOfTask(id)
   const result = await window.tegula.reviewAccept(id, reviewReason.value)
   if (result.ok) {
-    showToast(isApproval ? '已批准 —— 已转正为「待办」' : '已通过', 'success')
+    showToast(isApproval ? '已批准 —— 已转正为“待办”' : '已通过', 'success')
     reviewModal.value = null
     loadAll()
-    // 2026-10-30 暮雨第 5 条：误点「通过」必须能一键撤回（含结果记录，不只是改状态）
+    // 2026-10-30 暮雨第 5 条：误点“通过”必须能一键撤回（含结果记录，不只是改状态）
     if (snap) {
-      offerUndo(`已通过「${title}」`, async () => {
+      offerUndo(`已通过“${title}”`, async () => {
         await restoreTaskSnap(id, snap)
-        showToast('已撤回：回到点「通过」之前的状态', 'success')
+        showToast('已撤回：回到点“通过”之前的状态', 'success')
       })
     }
   } else {
@@ -7325,12 +7325,12 @@ async function acceptTask() {
 
 async function rejectTask() {
   if (!reviewModal.value) return
-  // 2026-10-30 暮雨第 2 条：理由**可选**。留空也是一次有效驳回，卡上会标「没写理由」。
+  // 2026-10-30 暮雨第 2 条：理由**可选**。留空也是一次有效驳回，卡上会标“没写理由”。
   const kind = reviewModal.value.kind
   const id = reviewModal.value.id
   const title = reviewModal.value.title
   // 2026-10-31：驳回落点先定死（默认退回待办），再发驳回请求 —— 两件事的顺序不能反：
-  // 必须先有「驳回」这个状态与理由，退回待办才不会把理由一起丢了（unarchiveTask 只改状态）。
+  // 必须先有“驳回”这个状态与理由，退回待办才不会把理由一起丢了（unarchiveTask 只改状态）。
   const alsoRework = reviewRework.value
   const snap = snapOfTask(id)
   const result: any = kind === 'direct'
@@ -7339,19 +7339,19 @@ async function rejectTask() {
   if (result.ok) {
     let moved = false
     if (alsoRework) {
-      // unarchiveTask = 回活跃区 + 状态置「待办」；理由字段不动，所以卡面仍看得见驳回理由。
+      // unarchiveTask = 回活跃区 + 状态置“待办”；理由字段不动，所以卡面仍看得见驳回理由。
       const back: any = await window.tegula.unarchiveTask(id)
       moved = !!back && back.ok !== false
     }
     showToast(
       alsoRework && moved
         ? '已驳回并退回待办 —— agent 下次取活会先读到理由'
-        : '已驳回' + (alsoRework ? '（退回待办没成功，去返工台里点一次「退回返工」）' : ''),
+        : '已驳回' + (alsoRework ? '（退回待办没成功，去返工台里点一次“退回返工”）' : ''),
       alsoRework && !moved ? 'error' : 'success')
     reviewModal.value = null
     loadAll()
     if (snap) {
-      offerUndo(`已驳回「${title}」${moved ? '并退回待办' : ''}`, async () => {
+      offerUndo(`已驳回“${title}”${moved ? '并退回待办' : ''}`, async () => {
         await restoreTaskSnap(id, snap)
         showToast('已撤回：这张卡回到驳回之前', 'success')
       })
@@ -7394,12 +7394,12 @@ async function onDrop(e: DragEvent, status: string) {
     try {
       const result = await window.tegula.moveStatus(id, status)
       if (result.ok) {
-        showToast(`已移动到「${status}」`, 'success')
+        showToast(`已移动到“${status}”`, 'success')
         // 拖拽最容易手滑跨列：可撤（2026-10-30 暮雨第 5 条）
         if (snap && snap.status !== status) {
-          offerUndo(`「${title}」拖到「${status}」`, async () => {
+          offerUndo(`“${title}”拖到“${status}”`, async () => {
             await restoreTaskSnap(id, snap)
-            showToast(`已撤回：回到「${snap.status}」`, 'success')
+            showToast(`已撤回：回到“${snap.status}”`, 'success')
           })
         }
       } else {
@@ -7440,7 +7440,7 @@ function toggleSelectAll() {
 /**
  * 点项目卡/项目名 = 进这个项目的详情（卡 006 拍板 A）。
  * 之前是 `curProj + navigateTo('active')` —— Quartz 这类 0 卡项目点进去必然是空看板，
- * 用户原话「点『调整某项目』应到项目详情/配置，不是空看板」。
+ * 用户原话“点『调整某项目』应到项目详情/配置，不是空看板”。
  * ⚠ 只切内存不写 prefs：摆法是用户偏好，点卡是浏览动作（同 tripOpenRow 的裁决）。
  */
 function openProject(p: any) {
@@ -7450,8 +7450,8 @@ function openProject(p: any) {
 }
 
 /**
- * 「📦 任务 / 看任务」按钮的去向 —— 语义就是去看任务列表，
- * 保留原「跳看板」的行为。点卡进详情、点按钮进看板，两条路分开。
+ * “📦 任务 / 看任务”按钮的去向 —— 语义就是去看任务列表，
+ * 保留原“跳看板”的行为。点卡进详情、点按钮进看板，两条路分开。
  */
 function openProjectTasks(p: any) {
   curProj.value = p.id
@@ -7468,19 +7468,19 @@ function openProjectInSettings(p: Project) {
 }
 
 // ── AI 规划写回层 UI（2026-10-12）───────────────────────────────────────
-// 红线全在主进程（llm/writeback.ts）：草稿一律「待审批」、source=ai-planning、
-// 解析失败兜底卡。UI 侧只补两件事：入口按钮（.oacts「✨ AI 规划」）+ 调用中不许关弹窗。
+// 红线全在主进程（llm/writeback.ts）：草稿一律“待审批”、source=ai-planning、
+// 解析失败兜底卡。UI 侧只补两件事：入口按钮（.oacts“✨ AI 规划”）+ 调用中不许关弹窗。
 const aiPlanForm = ref<{ id: string; name: string; goal: string } | null>(null)
 const aiPlanBusy = ref(false)
 
 function openAiPlan(p: any) {
   aiPlanForm.value = { id: p.id, name: p.name || p.id, goal: '' }
-  // 顺手刷新模型通道配置：弹窗里要靠它判断「配了没」（没配就当场指路）——
+  // 顺手刷新模型通道配置：弹窗里要靠它判断“配了没”（没配就当场指路）——
   // 只在设置页 load 的话，用户从没进过设置页时这里会一直说"还没配"（界面说假话）。
   void llmLoad()
 }
 
-/** 「AI 规划」里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
+/** “AI 规划”里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
 function gotoLlmSettings(): void {
   aiPlanForm.value = null          // 先关掉自己，别叠两层遮罩
   selectSettingsTab('agent')
@@ -7502,7 +7502,7 @@ function aiUsageTail(u: any): string {
   return parts.length ? ` · tokens ${parts.join('/')}` : ''
 }
 
-/** 拆目标 → 待审批任务卡。成功即关窗，看板筛「待审批」就能看到琥珀色草稿卡。 */
+/** 拆目标 → 待审批任务卡。成功即关窗，看板筛“待审批”就能看到琥珀色草稿卡。 */
 async function runPlanToDraft() {
   const f = aiPlanForm.value
   if (!f || aiPlanBusy.value || !f.goal.trim()) return
@@ -7510,7 +7510,7 @@ async function runPlanToDraft() {
   try {
     const r: any = await window.tegula.llmPlanToDraft(f.goal.trim(), f.id)
     if (r?.ok) {
-      showToast(`草稿已落「待审批」（看板筛琥珀色可见）——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      showToast(`草稿已落“待审批”（看板筛琥珀色可见）——过目后转正${aiUsageTail(r.usage)}`, 'success')
       aiPlanForm.value = null
     } else {
       showToast(r?.error || 'AI 规划失败——先到设置页确认模型通道', 'error')
@@ -7530,7 +7530,7 @@ async function runDraftBrief() {
   try {
     const r: any = await window.tegula.llmDraftProjectBrief(f.id)
     if (r?.ok) {
-      showToast(`项目说明草稿已落「待审批」——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      showToast(`项目说明草稿已落“待审批”——过目后转正${aiUsageTail(r.usage)}`, 'success')
       aiPlanForm.value = null
     } else {
       showToast(r?.error || '起草失败——先到设置页确认模型通道', 'error')
@@ -7557,7 +7557,7 @@ function closeAiDoc() {
   aiDocForm.value = null
 }
 
-/** 粘贴文档 → AI 拆成待审批卡。成功即关窗，看板筛「待审批」看到琥珀色卡。 */
+/** 粘贴文档 → AI 拆成待审批卡。成功即关窗，看板筛“待审批”看到琥珀色卡。 */
 async function runDocToDrafts() {
   const f = aiDocForm.value
   if (!f || aiDocBusy.value || !f.doc.trim()) return
@@ -7565,7 +7565,7 @@ async function runDocToDrafts() {
   try {
     const r: any = await window.tegula.llmDocToDrafts(f.doc.trim(), f.id)
     if (r?.ok) {
-      showToast(`已拆 ${r.created?.length ?? 0} 张「待审批」卡——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      showToast(`已拆 ${r.created?.length ?? 0} 张“待审批”卡——过目后转正${aiUsageTail(r.usage)}`, 'success')
       aiDocForm.value = null
     } else {
       showToast(r?.error || '拆卡失败——先到设置页确认模型通道', 'error')
@@ -7668,7 +7668,7 @@ function startPlanCreate() {
   planCreating.value = true
   planForm.value = { title: '', objective: '', milestones: '', dps: [{ question: '', options: '' }] }
 }
-/** 里程碑「名称|截止」逐行拆；决策点问题+选项逐行拆；空段过滤（标题必填，其余可空） */
+/** 里程碑“名称|截止”逐行拆；决策点问题+选项逐行拆；空段过滤（标题必填，其余可空） */
 async function submitPlan() {
   if (!plansModal.value) return
   const f = planForm.value
@@ -7681,7 +7681,7 @@ async function submitPlan() {
     .filter((d: any) => d.question && d.options.length)
   try {
     const r: any = await window.tegula.createPlan({ title: f.title.trim(), project: plansModal.value.id, objective: f.objective.trim(), milestones, decisions })
-    showToast(`规划已建（${r.id}）——决策点逐个选定后自动转「进行中」`, 'success')
+    showToast(`规划已建（${r.id}）——决策点逐个选定后自动转“进行中”`, 'success')
     planCreating.value = false
     await refreshPlans()
   } catch (e: any) {
@@ -7700,7 +7700,7 @@ async function openPlanDetail(id: string) {
 function backPlanList() {
   planDetail.value = null
 }
-/** 决策点选定：调完重读详情——留痕（chosen/decidedAt）与「全定完自动转进行中」当场可见 */
+/** 决策点选定：调完重读详情——留痕（chosen/decidedAt）与“全定完自动转进行中”当场可见 */
 async function decideDp(dp: any, choice: string) {
   const d = planDetail.value
   if (!d) return
@@ -7739,10 +7739,10 @@ async function confirmNewProject() {
       description: f.description.trim(),
     })
     if (r && r.ok) {
-      showToast('项目已登记。它现在还没有任务卡、文件夹 30 天内也没有提交，所以默认不会出现在「在途一屏」—— 想在屏上看到它，去「⚙ 显示设置」放宽门槛，或改成「手动指定」勾上它', 'success')
+      showToast('项目已登记。它现在还没有任务卡、文件夹 30 天内也没有提交，所以默认不会出现在“在途一屏”—— 想在屏上看到它，去“⚙ 显示设置”放宽门槛，或改成“手动指定”勾上它', 'success')
       projForm.value = null
       await loadAll()
-      // 2026-10-05 用户「添加完项目刷新几遍根本看不到」：项目列表刷新了，但这一屏的数据
+      // 2026-10-05 用户“添加完项目刷新几遍根本看不到”：项目列表刷新了，但这一屏的数据
       // 是**独立一次聚合**，不跟着 loadAll 走 —— 所以这里必须显式再拉一次。
       if (pvView.value === 'trip') await loadTripBoard()
     } else {
@@ -7779,7 +7779,7 @@ async function openAppFolder(app: any): Promise<void> {
   if (r && r.ok === false) showToast(`打开失败：${r.message || r.error || '未知原因'}`, 'error')
 }
 
-/** 从「文件路径」推出「所在文件夹」（渲染层没有 node:path，自己切；路径本身是目录就原样返回） */
+/** 从“文件路径”推出“所在文件夹”（渲染层没有 node:path，自己切；路径本身是目录就原样返回） */
 function folderOfPath(raw: string): string {
   const s = String(raw || '').trim().replace(/[\\/]+$/, '')
   if (!s) return ''
@@ -7819,13 +7819,13 @@ function onAppMenuPick(payload: { app: any; action: string }): void {
   if (action === 'delete') { void askRemoveApp(app) }
 }
 
-/** 卡片上的 🗑 / 右键「删除」都走这里 —— 只为把"删的是什么"说清楚 */
+/** 卡片上的 🗑 / 右键“删除”都走这里 —— 只为把"删的是什么"说清楚 */
 function askRemoveApp(app: any): void {
   void removeApp(app?.id, app?.name)
 }
 
 async function removeApp(id: string, name?: string) {
-  if (!confirm(`删掉「${name || id}」这条登记？\n\n只删登记，磁盘上的应用文件不受影响。`)) return
+  if (!confirm(`删掉“${name || id}”这条登记？\n\n只删登记，磁盘上的应用文件不受影响。`)) return
   await window.tegula.launchpadRemoveApp(id)
   editApp_.value = null
   showToast(`已删除登记：${name || id}`, 'success')
@@ -7857,7 +7857,7 @@ async function launchAppClick(app: any) {
   // 用 id 记在内存里，超时自动放开（不落盘：这是瞬时状态）。
   const key = String(app?.id || app?.name || '')
   if (key && launchingApps.has(key)) {
-    showToast(`「${app.name || key}」正在启动，稍等`, 'info')
+    showToast(`“${app.name || key}”正在启动，稍等`, 'info')
     return
   }
   if (key) {
@@ -7866,8 +7866,8 @@ async function launchAppClick(app: any) {
   }
   // 先给一句"正在启动"：复查要等 1.5 秒，没有这句话用户会以为没点上
   showToast(`正在启动：${app?.name || app?.id || ''}…`, 'info')
-  // 先落一条「渲染层点了启动」的痕迹再调主进程。
-  // 理由：2026-09-25 用户报「启动台依旧报错」，但日志里**一条 launchpad 记录都没有** ——
+  // 先落一条“渲染层点了启动”的痕迹再调主进程。
+  // 理由：2026-09-25 用户报“启动台依旧报错”，但日志里**一条 launchpad 记录都没有** ——
   // 分不清是"没点"还是"点了但主进程没收到/主进程是旧代码"。这条线一写，两种情况立刻可分。
   try {
     await t.applogWrite?.('INFO', 'launchpad-ui', `点击启动：${app?.name || app?.id || '(未知)'}`,
@@ -7876,7 +7876,7 @@ async function launchAppClick(app: any) {
 
   if (typeof t.launchpadLaunchApp !== 'function') {
     if (key) launchingApps.delete(key)
-    const msg = '当前运行的主进程/预加载是旧版本，没有启动台接口 —— 请托盘右键「退出」后重新启动'
+    const msg = '当前运行的主进程/预加载是旧版本，没有启动台接口 —— 请托盘右键“退出”后重新启动'
     showToast(msg, 'error')
     appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
     return
@@ -7889,16 +7889,16 @@ async function launchAppClick(app: any) {
     if (!result.ok) {
       // 失败就别占着"正在启动"的名额 —— 用户要能立刻再试一次
       if (key) launchingApps.delete(key)
-      // 失败把「启动了什么」也带上，并留一条错误条 + 日志可查
+      // 失败把“启动了什么”也带上，并留一条错误条 + 日志可查
       appErrors.value.push({
         scope: 'launchpad',
-        message: `启动「${app.name}」失败：${result.message}（命令：${app.cmd || app.path}）`,
+        message: `启动“${app.name}”失败：${result.message}（命令：${app.cmd || app.path}）`,
         at: Date.now(),
       })
     }
   } catch (e: any) {
     if (key) launchingApps.delete(key)
-    const msg = `启动「${app.name}」失败：${e?.message || e}（命令：${app.cmd || app.path}）`
+    const msg = `启动“${app.name}”失败：${e?.message || e}（命令：${app.cmd || app.path}）`
     showToast(msg, 'error')
     appErrors.value.push({ scope: 'launchpad', message: msg, at: Date.now() })
   }
@@ -7964,7 +7964,7 @@ function showSettings() {
   bkLoadConfig()
   bkLoadList()
   bkRefreshStatus()
-  // Git 通道的状态也一样：进门就刷（否则「令牌已保存」会被显示成没保存 —— 界面说假话）
+  // Git 通道的状态也一样：进门就刷（否则“令牌已保存”会被显示成没保存 —— 界面说假话）
   void loadGitStatus()
   // 体积报告：进门就拉（"包为什么大"得能当场看到，而不是等打完包才发现）
   void bkLoadSizeReport()
@@ -7990,7 +7990,7 @@ const llmTesting = ref(false)
 const llmSaving = ref(false)
 const llmResetting = ref(false)
 /** 最近一次调用（状态条用）。数据来自 ai-trace 的 llm:usageStats.last —— 不额外读文件。
- *  一次都没跑过时是 null，状态条显示「还没跑过调用」，不拿 0 糊一个数字。 */
+ *  一次都没跑过时是 null，状态条显示“还没跑过调用”，不拿 0 糊一个数字。 */
 const llmLastCall = ref<{
   ts: string; model: string; trigger: string
   total_tokens: number | null; duration_ms: number; ok: boolean
@@ -8007,7 +8007,7 @@ const LLM_PRESETS: Record<LlmPresetKind, { baseUrl: string; model: string; toast
   },
   'mimo-api': {
     baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
-    toast: '已填小米「按量付费」端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', level: 'info',
+    toast: '已填小米“按量付费”端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', level: 'info',
   },
   'mimo-plan': {
     baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
@@ -8059,7 +8059,7 @@ async function llmLoad() {
   } catch (e: any) {
     showToast(`读取模型配置失败：${e?.message || e}`, 'error')
   }
-  // 状态条要的「最近一次调用」与配置解耦：配置读失败也照样显示用量
+  // 状态条要的“最近一次调用”与配置解耦：配置读失败也照样显示用量
   void loadLlmLastCall()
 }
 
@@ -8078,7 +8078,7 @@ function applyLlmPreset(kind: LlmPresetKind) {
   const preset = LLM_PRESETS[kind]
   if (!preset) return
   const cur = llmCfg.value
-  // 2026-10-27（暮雨：「真正缺的是二次确认」）：预设会**直接盖掉已填的端点与模型名**，
+  // 2026-10-27（暮雨：“真正缺的是二次确认”）：预设会**直接盖掉已填的端点与模型名**，
   // 此前一点就没、也没法撤销。现在：已经有配置且与预设不同 → 先弹确认条，不直接写。
   // 配置是空的时候不问 —— 那不叫覆盖，那叫填空。
   const hasCfg = !!(cur.baseUrl.trim() || cur.model.trim())
@@ -8090,7 +8090,7 @@ function applyLlmPreset(kind: LlmPresetKind) {
   commitLlmPreset(kind)
 }
 
-/** 确认条上的「覆盖」：真正写入（预设只动端点与模型名，API Key 一律不碰） */
+/** 确认条上的“覆盖”：真正写入（预设只动端点与模型名，API Key 一律不碰） */
 function confirmLlmPreset() {
   const p = llmPresetPending.value
   if (!p) return
@@ -8196,7 +8196,7 @@ async function triggerBackup() {
 }
 
 /**
- * 打开「最近一次备份」所在目录。
+ * 打开“最近一次备份”所在目录。
  * 2026-09-22：这个函数此前**定义了但没有任何入口**（死代码）—— 已接到备份区按钮上。
  * 顺带把原来只认 `\` 的切分改成跨平台（用正则去掉最后一段路径）。
  */
@@ -8236,7 +8236,7 @@ function importTasksFromFile() {
         if (!Array.isArray(data)) { showToast('格式错误：需要 JSON 数组', 'error'); return }
         window.tegula.importTasks(data).then((res: any) => {
           if (res.ok) { showToast(`已导入 ${res.imported} 个任务`, 'success'); loadAll() }
-          // ⚠ 必须把主进程那句话**原样带出来**：它点名了「第几条 / 哪个字段名 / 可用字段」。
+          // ⚠ 必须把主进程那句话**原样带出来**：它点名了“第几条 / 哪个字段名 / 可用字段”。
           //   此前这里写死 `showToast('导入失败')` —— 等于把刚做好的防呆提示又吞回去，
           //   用户只知道"失败了"，还是不知道该改哪个字（2026-10-14 开发清单第 6 条）。
           else showToast(res.error || '导入失败', 'error')
@@ -8255,7 +8255,7 @@ function showToast(msg: string, type: 'success' | 'error' | 'info' = 'info') {
   toast.msg = msg
   toast.type = type
   toast.show = true
-  // 驻留时长（2026-10-05 用户：「绿色横幅驻留时间太短，根本看不清写了什么就没了」）：
+  // 驻留时长（2026-10-05 用户：“绿色横幅驻留时间太短，根本看不清写了什么就没了”）：
   // 固定 2s 改掉 —— 错误/引导类文案本来就更长，2s 只够看前半句。
   // 按长度给：短句 4s 起，长句最多 9s。
   const ms = Math.min(9000, Math.max(4000, String(msg || '').length * 90))
@@ -8281,8 +8281,8 @@ async function undoTo(index: number): Promise<void> {
 }
 
 // ── 任务状态的撤销快照（2026-10-30 暮雨第 5 条）────────────────────────
-// 误点「通过」是最容易发生、也最气人的一次误操作。以前 acceptTask 成功后就只剩
-// 「再手动改回来」；现在任何改状态的动作都先拍一张快照（状态 + 结果记录 + 驳回理由），
+// 误点“通过”是最容易发生、也最气人的一次误操作。以前 acceptTask 成功后就只剩
+// “再手动改回来”；现在任何改状态的动作都先拍一张快照（状态 + 结果记录 + 驳回理由），
 // 撤销时原样写回去 —— 不是"改成待办"，是真的回到点之前那一格。
 interface TaskSnap {
   status: string
@@ -8321,8 +8321,8 @@ async function restoreTaskSnap(id: string, snap: TaskSnap): Promise<void> {
   }
   await loadAll()
 }
-/** 日志「完成 / 归档」撤销：按**动作前的快照**原样写回（2026-10-30 第 5 条）。
- *  以前这里统一 reopen 到「待处理」—— 那会吃掉用户手动标的「进行中」和保留天数，
+/** 日志“完成 / 归档”撤销：按**动作前的快照**原样写回（2026-10-30 第 5 条）。
+ *  以前这里统一 reopen 到“待处理”—— 那会吃掉用户手动标的“进行中”和保留天数，
  *  不是撤销，是另一种改动。快照由调用点在动作前拍好（那时 logs.value 还是旧值）。 */
 function offerLogReopenUndo(label: string, ids: string[], sources?: any[]): void {
   const from = Array.isArray(sources) && sources.length ? sources : logs.value
@@ -8353,8 +8353,8 @@ function offerLogReopenUndo(label: string, ids: string[], sources?: any[]): void
       } catch { /* 单条失败不中断：下面按 ok 数说实话 */ }
     }
     await loadLogs()
-    // 任务详情的「关联日志」列表是另一份数据（logsForTask），不跟着 loadLogs 刷 ——
-    // 不补这一句，在任务详情里点完「撤销」列表还显示「已完成」，等于没撤。
+    // 任务详情的“关联日志”列表是另一份数据（logsForTask），不跟着 loadLogs 刷 ——
+    // 不补这一句，在任务详情里点完“撤销”列表还显示“已完成”，等于没撤。
     await loadLogsForTask(previewTask.value?.id || '')
     if (ok === snaps.length) showToast(snaps.length > 1 ? `已撤回：${ok} 条回到动作前` : '已撤回，回到动作前', 'success')
     else showToast(`只撤回了 ${ok}/${snaps.length} 条（其余可能已被改动），刷新后见列表`, 'error')
@@ -8395,9 +8395,9 @@ async function toggleAppLogPanel(): Promise<void> {
 async function openAppLogDir(): Promise<void> {
   const t: any = (window as any).tegula || {}
   // 主进程/preload 是启动时读进内存的：开发态改了主进程但没重启 Electron 时，
-  // 这个接口根本不存在 —— 原来只会抛 TypeError 被吞成一句无信息量的「打开日志目录失败」。
+  // 这个接口根本不存在 —— 原来只会抛 TypeError 被吞成一句无信息量的“打开日志目录失败”。
   if (typeof t.applogOpenDir !== 'function') {
-    showToast('当前运行的主进程/预加载还是旧版本，没有日志接口 —— 请托盘右键「退出」后重新启动', 'error')
+    showToast('当前运行的主进程/预加载还是旧版本，没有日志接口 —— 请托盘右键“退出”后重新启动', 'error')
     return
   }
   try {
@@ -8441,7 +8441,7 @@ function pushRuntimeStale(why: string): void {
   if (appErrors.value.some(e => e.scope === 'runtime-stale')) return
   appErrors.value.push({
     scope: 'runtime-stale',
-    message: `方寸的后台代码是旧的（${why}）—— 请用「托盘图标右键 → 退出」彻底关掉再重启 npm run dev。关窗只是隐藏窗口，不会重启进程；界面会热更新，后台不会`,
+    message: `方寸的后台代码是旧的（${why}）—— 请用“托盘图标右键 → 退出”彻底关掉再重启 npm run dev。关窗只是隐藏窗口，不会重启进程；界面会热更新，后台不会`,
     at: Date.now(),
   })
 }
@@ -8457,7 +8457,7 @@ async function showAppLogFromSettings(): Promise<void> {
 }
 
 /**
- * 清理旧日志（2026-10-17 暮雨第 5 条：「日志越堆越多，但没有任何清理机制」）。
+ * 清理旧日志（2026-10-17 暮雨第 5 条：“日志越堆越多，但没有任何清理机制”）。
  * days > 0 = 删更早的；days <= 0 = 全清（当天那份只截断，马上还能接着写）。
  * 只动方寸自己的运行日志，不碰任何任务数据。
  */
@@ -8522,7 +8522,7 @@ async function wizardFinish() {
 
 // ── 免责与知情声明（2026-10-16 暮雨第 1 条）─────────────────────────────
 // 首启强制：没确认过（或声明版本抬格了）就先弹它，**确认之前不跑首次运行向导**
-// （"先同意再用"，与绒花墨坊同口径）。随时可查：设置页「诊断」里有入口。
+// （"先同意再用"，与绒花墨坊同口径）。随时可查：设置页“诊断”里有入口。
 const disclaimerOpen = ref(false)
 const disclaimerMode = ref('view')      // 'first-run' = 强制；'view' = 随时查看
 const disclaimerAckedAt = ref('')
@@ -8566,10 +8566,10 @@ const todoViewCtl = reactive({
   projects,
   todoView,
   todoDragOver,
-  // 「拖入导入」的接收口 + 右键菜单 + 撤销已转出 + 转日志确认 + 指派日期：
+  // “拖入导入”的接收口 + 右键菜单 + 撤销已转出 + 转日志确认 + 指派日期：
   // 都在本文件里（各自的弹窗 / 拖拽态也在这里），所以只把函数本身递过去。
   onTodoDrop, openTodoMenu, undoConverted, askConvertTodo, openCalAssignTodo,
-  // 到期日的悬停说明（「逾期 N 天」/「还剩 N 天」的整句话），读的字段散在 deadline/due/dueTime 上，
+  // 到期日的悬停说明（“逾期 N 天”/“还剩 N 天”的整句话），读的字段散在 deadline/due/dueTime 上，
   // 所以留在本文件而不是搬进 useTodos（搬过去会牵动日历那一套时间口径）。
   todoDueTitle,
   // 拖拽高亮三件套是全站的拖拽态，不是待办私有 —— 组件只调，不改它的归属。
@@ -8590,7 +8590,7 @@ const logPreviewCtl = reactive({
 })
 
 /**
- * 接力对话框的控制器（2026-10-31 · 渲染层拆分「浮层刀」第三块）：
+ * 接力对话框的控制器（2026-10-31 · 渲染层拆分“浮层刀”第三块）：
  * 与日志编辑同一套 —— `reactive()` 包一层，子组件 `toRef` 接状态、解构接动作。
  * ⚠ 必须放在文件末尾（`relayDirtyHint` 是 computed，前面构建会撞 TDZ）。
  */
@@ -8600,7 +8600,7 @@ const relayCtl = reactive({
 })
 
 /**
- * 日志编辑弹窗的控制器（2026-10-31 · 渲染层拆分「浮层刀」第二块）：与任务预览同一套 ——
+ * 日志编辑弹窗的控制器（2026-10-31 · 渲染层拆分“浮层刀”第二块）：与任务预览同一套 ——
  * `reactive()` 包一层再当 prop 传，子组件 `toRef` 接状态、解构接动作。
  *
  * ⚠ 必须放在文件末尾：`logTaskOptions` / `logPendingCount` 等是 `const`，前面构建会撞 TDZ。
@@ -8620,7 +8620,7 @@ const logEditCtl = reactive({
 })
 
 /**
- * 任务预览弹窗的控制器（2026-10-31 · 渲染层拆分「浮层刀」第一块）：与看板 / 日志同一套 ——
+ * 任务预览弹窗的控制器（2026-10-31 · 渲染层拆分“浮层刀”第一块）：与看板 / 日志同一套 ——
  * `reactive()` 包一层再当 prop 传，子组件 `toRef` 接状态、解构接动作。
  *
  * ⚠ 必须放在文件末尾：`previewArch` / `taskLogs` / `taskCommits` 都是 `const`，
@@ -8653,7 +8653,7 @@ const boardViewCtl = reactive({
 })
 
 /**
- * 在途一屏的控制器（2026-10-31 · 渲染层拆分「项目页刀」第一块）：与看板 / 日志同一套做法 ——
+ * 在途一屏的控制器（2026-10-31 · 渲染层拆分“项目页刀”第一块）：与看板 / 日志同一套做法 ——
  * `reactive()` 包一层再当 prop 传，子组件用 `toRef` 接状态、解构接动作，**模板一字不改**。
  *
  * ⚠ 状态与动作的真身在 `composables/useTripBoard.ts`：这里 spread 进来的是它返回的同一批 ref，
@@ -8715,7 +8715,7 @@ const logsViewCtl = reactive({
 /**
  * 点系统通知 → **回到具体对象**（2026-10-29 · dsh-notify-tray 借鉴 #2）。
  *
- * 光把窗口拉到前台不够：通知说的是「任务逾期：X」，用户点了却只看到一屏卡片，还得自己找。
+ * 光把窗口拉到前台不够：通知说的是“任务逾期：X”，用户点了却只看到一屏卡片，还得自己找。
  * 这里按 type 切视图，再把那张卡打开；对象已经不在了就**说出来**（不许静默什么都不做）。
  */
 async function onNotifyFocus(p: any): Promise<void> {
@@ -8750,7 +8750,7 @@ provide('fc-settings', {
 
 onMounted(() => {
   // 测试专用（假 preload 才有 __fcTest）：清空撤销栈。多级栈之后，
-  // 「撤一步 → 条子消失」不再天然成立，e2e 需要一个"从零开始"的按钮。
+  // “撤一步 → 条子消失”不再天然成立，e2e 需要一个"从零开始"的按钮。
   const fcTest = (window as any).__fcTest
   if (fcTest && typeof fcTest === 'object') {
     // 真 Electron 里 __fcTest 可能被冻结/不可扩展；测试钩子失败不该变成产品未捕获错误。
@@ -8781,7 +8781,7 @@ onMounted(() => {
   })
   // 版本号（设置页首区块显示）
   loadAppVersion()
-  // 模型通道配置（2026-10-16）：启动就读一次 —— 「AI 规划」弹窗要靠它判断配没配，
+  // 模型通道配置（2026-10-16）：启动就读一次 —— “AI 规划”弹窗要靠它判断配没配，
   // 只在打开设置页时才读的话，没进过设置页的用户会一直看到"还没配"（界面说假话）。
   void llmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
@@ -8809,7 +8809,7 @@ onMounted(() => {
       updateState.value.downloaded = true
       updateState.value.msg = 'v' + (d?.version || '?') + ' 已就绪，退出时自动安装'
       // 012：窗口可见时也给个即时反馈（隐藏到托盘时由主进程的系统通知兜住）
-      showToast('新版本 v' + (d?.version || '?') + ' 已下载完成，点「立即重启安装」升级', 'success')
+      showToast('新版本 v' + (d?.version || '?') + ' 已下载完成，点“立即重启安装”升级', 'success')
     })
     t.onUpdateError((d: any) => {
       updateState.value.checked = true
@@ -8821,10 +8821,10 @@ onMounted(() => {
   // 备份状态全局订阅：顶栏指示灯随调度结果实时变化（失败会显红）
   bkInitBackup()
   ncInit()
-  // 全局快捷键与通知无关，独立挂载 —— 挂进 ncInit() 会让「通知 IPC 缺失时快捷键也失效」
+  // 全局快捷键与通知无关，独立挂载 —— 挂进 ncInit() 会让“通知 IPC 缺失时快捷键也失效”
   document.addEventListener('keydown', onShortcutKeydown)
   // 渲染层错误出口（2026-09-22）：main.ts 的全局上报会广播到这里，
-  // 界面上给一条可见的错误条 + 「打开日志」，不再让失败无声无息。
+  // 界面上给一条可见的错误条 + “打开日志”，不再让失败无声无息。
   window.addEventListener('fc-app-error', onAppError as EventListener)
   loadAppLogPath()
   checkRuntimeFreshness()

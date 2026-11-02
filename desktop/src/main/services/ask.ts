@@ -1,18 +1,18 @@
 /**
- * 「随问」—— 结构化查询面（2026-10-22 · 施工单包 03 任务一）
+ * “随问”—— 结构化查询面（2026-10-22 · 施工单包 03 任务一）
  *
- * 用户要的是「随时丢进去问」。而 agent 团队的通病是：没有持久台账、每问一次烧一次 token。
+ * 用户要的是“随时丢进去问”。而 agent 团队的通病是：没有持久台账、每问一次烧一次 token。
  * 方寸赢的地方恰恰是**结构化记忆** —— 所以这里的第一原则是：
  *
  *   **能用现成数据算出来的，绝不调模型。**
  *
  * 判据落成代码：`answer()` 返回的 `needsLlm` **只有 unmatched 才为 true**。
- * 界面据此说真话：「这条结构化答不了，得靠 AI」，而不是假装答了、或者偷偷调一次模型。
+ * 界面据此说真话：“这条结构化答不了，得靠 AI”，而不是假装答了、或者偷偷调一次模型。
  *
  * 三条与 03 单对齐的硬约定：
  *   ① **零副作用**：只读（registry / 任务卡 / 执行日志 / ai-trace / tripBoard 的 git 只读缓存），
  *      本模块不写任何文件。纠偏/出单是别的模块的事。
- *   ② **不编**：取不到就写「未记录 / 没有」，不回退默认值、不拿字符数折算 token
+ *   ② **不编**：取不到就写“未记录 / 没有”，不回退默认值、不拿字符数折算 token
  *      （沿用 tripBoard 与 usageStats 的既有口径）。
  *   ③ **来源必须可指认**：每个答案都带 `source`（registry / 任务卡 / 执行日志 / ai-trace），
  *      界面直接印出来 —— 用户最恨"这个数字不知道哪来的"。
@@ -45,7 +45,7 @@ export interface AskAnswer {
   /** 结构化正文行（补充说明，不是结论） */
   lines: string[]
   rows: AskRow[]
-  /** 命中的项目 id（「随纠」拿它直接改；没指定项目就空） */
+  /** 命中的项目 id（“随纠”拿它直接改；没指定项目就空） */
   projectId?: string
   /** 只有结构化答不了的时候才 true —— 这不是"建议调模型"，是"这次真的没算出来" */
   needsLlm: boolean
@@ -69,7 +69,7 @@ const asList = (v: unknown): string[] => {
   return Array.isArray(v) ? v.map(String) : [String(v)]
 }
 
-/** 项目清单（含 released 段 —— 「哪些项目停着」这类问题里它们也该出现，只是标注不同） */
+/** 项目清单（含 released 段 —— “哪些项目停着”这类问题里它们也该出现，只是标注不同） */
 function projectList(): any[] {
   return parseRegistry(true) as any[]
 }
@@ -77,7 +77,7 @@ function projectList(): any[] {
 /**
  * 从一句话里认出项目。
  *
- * 用**名字最长匹配**：`方寸` 与 `方寸看板` 同时登记时，问「方寸看板到哪了」要命中后者。
+ * 用**名字最长匹配**：`方寸` 与 `方寸看板` 同时登记时，问“方寸看板到哪了”要命中后者。
  * 认不出就返回 null —— 上层按"全部项目"处理，绝不默认成第一个（那是最会撒谎的一种默认）。
  */
 function pickProject(q: string, projects: any[]): any | null {
@@ -147,12 +147,12 @@ function answerOwe(q: string, projects: any[]): AskAnswer {
       ? (rows.length ? `${nm}：欠着这些（见下表）` : `${nm}：这栏还空着（没写欠着）`)
       : (rows.length ? `${rows.length} 个项目写了欠账` : '还没有任何项目写过欠账'),
     lines: rows.length
-      ? ['这条读的是你手写的「说明」—— 方寸不替你裁，也不替你补。']
-      : [`这${picked ? '个' : '些'}项目的「说明」还空着。要么真没欠账，要么还没写 —— 界面不猜。`],
+      ? ['这条读的是你手写的“说明”—— 方寸不替你裁，也不替你补。']
+      : [`这${picked ? '个' : '些'}项目的“说明”还空着。要么真没欠账，要么还没写 —— 界面不猜。`],
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '项目登记表里你手写的「说明」',
+    source: '项目登记表里你手写的“说明”',
   }
 }
 
@@ -172,11 +172,11 @@ function answerWho(q: string, projects: any[]): AskAnswer {
     title: picked
       ? (rows.length ? `${String(picked?.name || picked?.id)}：${rows[0].v}` : `${String(picked?.name || picked?.id)} 没有在等谁（没有待验收/进行中的卡）`)
       : (rows.length ? `${rows.length} 个项目在等人` : '没有项目在等人'),
-    lines: ['有「待验收」的卡就在等验收人，否则有「进行中」的卡就在等执行人。没填名字就写「未指定」，不编人名。'],
+    lines: ['有“待验收”的卡就在等验收人，否则有“进行中”的卡就在等执行人。没填名字就写“未指定”，不编人名。'],
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡上的「验收」与「指派」',
+    source: '任务卡上的“验收”与“指派”',
   }
 }
 
@@ -217,7 +217,7 @@ function answerBlocked(q: string, projects: any[]): AskAnswer {
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡上的「阻塞」关系',
+    source: '任务卡上的“阻塞”关系',
   }
 }
 
@@ -248,13 +248,13 @@ function answerDue(q: string, projects: any[]): AskAnswer {
     kind: 'due',
     title: `逾期 ${overdue.length} 张 · 今天到期 ${today.length} 张 · 三天内 ${soon.length} 张`,
     lines: [
-      '和看板、待办上的「逾期 N 天」是同一套算法，不会两处对不上。',
+      '和看板、待办上的“逾期 N 天”是同一套算法，不会两处对不上。',
       '只算填了截止日期的卡 —— 没填不等于没逾期，所以不猜。',
     ],
     rows: [...overdue.sort((a, b) => b.d - a.d), ...today, ...soon.sort((a, b) => a.d - b.d)].map(label),
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
-    source: '任务卡上的「截止」日期',
+    source: '任务卡上的“截止”日期',
   }
 }
 
@@ -272,7 +272,7 @@ function answerDormant(): AskAnswer {
     kind: 'dormant',
     title: rows.length ? `${rows.length} 个项目冷下来了` : '没有项目冷下来',
     lines: [
-      '超过 30 天没动静算「休眠」，7~30 天算「停滞」；你手动标过的以你的为准。',
+      '超过 30 天没动静算“休眠”，7~30 天算“停滞”；你手动标过的以你的为准。',
       hiddenCount ? `另有 ${hiddenCount} 个项目没进这一屏（没有未完结任务、30 天内也没提交）—— 它们其实也算停着，只是不在判据的收口范围里。` : '',
     ].filter(Boolean),
     rows,
@@ -298,7 +298,7 @@ function answerNext(q: string, projects: any[]): AskAnswer {
         ? `${String(picked?.name || picked?.id)}下一步：${scoped[0].next.text}`
         : `${String(picked?.name || picked?.id)}没有待办卡`)
       : `${scoped.length - empty} 个项目有明确下一步`,
-    lines: ['「下一步」取的是待办里优先级最高的那张 —— 不是 AI 的建议，是队列里排第一的那张卡。'],
+    lines: ['“下一步”取的是待办里优先级最高的那张 —— 不是 AI 的建议，是队列里排第一的那张卡。'],
     rows,
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
@@ -324,7 +324,7 @@ function answerProgress(q: string, projects: any[], forced?: any): AskAnswer {
         `任务：待办 ${row.counts.todo} · 进行中 ${row.counts.doing} · 待验收 ${row.counts.review} · 执行日志 ${row.counts.logs}`,
       )
     } else {
-      lines.push('这个项目没进「在途一屏」（没有未完结任务、30 天内也没提交）—— 所以没有任务级实况，只有上面两条手写值。')
+      lines.push('这个项目没进“在途一屏”（没有未完结任务、30 天内也没提交）—— 所以没有任务级实况，只有上面两条手写值。')
     }
     return {
       kind: 'progress',
@@ -369,7 +369,7 @@ function answerCounts(q: string, projects: any[]): AskAnswer {
     title: picked
       ? `${String(picked?.name || picked?.id)}：${open.length} 张未完成 / 共 ${scope.length} 张`
       : `${open.length} 张未完成 / 共 ${tasks.length} 张（活跃区）`,
-    lines: ['「空状态」按未完成算 —— 没填 != 做完。归档区不在这个口径里（去归档页签看）。'],
+    lines: ['“空状态”按未完成算 —— 没填 != 做完。归档区不在这个口径里（去归档页签看）。'],
     rows: [...byStatus.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ k, v: `${v} 张` })),
     projectId: picked ? String(picked.id) : undefined,
     needsLlm: false,
@@ -384,7 +384,7 @@ function answerTasks(q: string, projects: any[]): AskAnswer {
     return {
       kind: 'unmatched',
       title: '要问哪个项目的任务？',
-      lines: ['点名一个项目（比如「方寸有哪些未完结的卡」）——项目一多，把全部卡倒出来等于没回答。'],
+      lines: ['点名一个项目（比如“方寸有哪些未完结的卡”）——项目一多，把全部卡倒出来等于没回答。'],
       rows: [],
       needsLlm: false,
       source: '',
@@ -411,7 +411,7 @@ function answerTasks(q: string, projects: any[]): AskAnswer {
 // ── 意图识别 ──────────────────────────────────────────────────────────────
 /**
  * 顺序即优先级，**具体在前、泛化在后**：
- *   「欠着什么」不能被「什么」这类泛词吃掉；「方寸到哪了」不能被「任务」吃掉。
+ *   “欠着什么”不能被“什么”这类泛词吃掉；“方寸到哪了”不能被“任务”吃掉。
  * 每条都只认少量关键词 —— 宁可落到 unmatched 让人补一句，也别猜错方向给一份像样的错答案。
  */
 const INTENTS: Array<{ kind: AskKind; re: RegExp }> = [
@@ -421,9 +421,9 @@ const INTENTS: Array<{ kind: AskKind; re: RegExp }> = [
   { kind: 'who', re: /(在等谁|等谁|谁在等|卡在谁|谁负责|谁做|谁在干)/ },
   { kind: 'due', re: /(逾期|过期|超期|到期|deadline)/i },
   { kind: 'dormant', re: /(停着|停了|没动|休眠|停滞|冷下来|多久没|荒了)/ },
-  // ⚠ 「接下来」单独一个词太宽：2026-10-22 实测「你觉得我接下来该不该砍掉它」会命中 next，
+  // ⚠ “接下来”单独一个词太宽：2026-10-22 实测“你觉得我接下来该不该砍掉它”会命中 next，
   //   于是把一句**判断题**答成"下一步做哪张卡" —— 方向对了但答非所问，比答不出来更糟。
-  //   所以「接下来」后面必须跟"做什么/干什么"这类动作疑问才认。
+  //   所以“接下来”后面必须跟"做什么/干什么"这类动作疑问才认。
   { kind: 'next', re: /(下一步|下一件|接下来(该|要|需要)?(做|干|搞)(什么|啥)?$|接下来(做|干|搞)(什么|啥)|该(做|干)(什么|啥)|先(做|干)(什么|啥)|做(什么|啥)好)/ },
   { kind: 'progress', re: /(到哪|进展|进度|怎么样了|在干嘛|干到|做到)/ },
   { kind: 'counts', re: /(多少|几张|几个任务|没做完|未完成|剩下|剩余)/ },
@@ -464,7 +464,7 @@ export function answer(raw: string): AskAnswer {
     return {
       kind: 'unmatched',
       title: '问一句就行',
-      lines: ['比如「方寸到哪了」「欠着什么」「哪些项目停着」「本月烧了多少钱」。'],
+      lines: ['比如“方寸到哪了”“欠着什么”“哪些项目停着”“本月烧了多少钱”。'],
       rows: [],
       needsLlm: false,
       source: '',
@@ -486,10 +486,10 @@ export function answer(raw: string): AskAnswer {
       case 'tasks': return answerTasks(q, projects)
     }
   }
-  // 「该怎么办」类问题（2026-10-31）
-  // ⚠ 必须排在"点名了项目就答进展"**前面**：上一版「方寸的阴影问题怎么处理」因为含「方寸」，
+  // “该怎么办”类问题（2026-10-31）
+  // ⚠ 必须排在"点名了项目就答进展"**前面**：上一版“方寸的阴影问题怎么处理”因为含“方寸”，
   //   被当成"问项目进展"，答了一屏在途一屏，还顺手把 needsLlm 置 false →
-  //   用户看到的既不是答案、也**没有**「让 AI 答」的按钮（他的原话：「纯看运气」）。
+  //   用户看到的既不是答案、也**没有**“让 AI 答”的按钮（他的原话：“纯看运气”）。
   //   这里先把"问办法"的问题认出来，再去项目兜底。
   if (looksLikeAdvice(q)) return answerAdvice(q)
   // 兜底：点名了项目 + 问号/含糊 → 至少把该项目的实况给全，比一句"我不懂"有用
@@ -514,16 +514,16 @@ export function askProjectOptions(): Array<{ id: string; name: string }> {
 }
 
 /**
- * 「模糊问答」的**事实包**（2026-10-22 · 03 任务一：模糊问题才走 LLM）。
+ * “模糊问答”的**事实包**（2026-10-22 · 03 任务一：模糊问题才走 LLM）。
  *
- * 为什么要有这个函数：03 单写死了「回答限定引用结构化数据，不自由发挥」。
+ * 为什么要有这个函数：03 单写死了“回答限定引用结构化数据，不自由发挥”。
  * 靠提示词里写"请只引用数据"是不够的 —— 模型没数据就只能编。所以先把方寸手里
  * 能拿到的**全部事实**压成一段紧凑文本一起发过去，让它根本没机会自由发挥。
  *
  * 三条约束（都是钱和可信度）：
  *   · **有上限**：整体截到 `MAX` 字符，卡最多列 30 张 —— 模糊问答不该比一次出单还贵。
  *   · **只读**：本函数不写盘、不调模型（调模型的是 llm-ipc，它拿这段当提示词的一部分）。
- *   · **不美化**：缺值就写「未填」，让模型看到的是缺的，而不是被我们补过的。
+ *   · **不美化**：缺值就写“未填”，让模型看到的是缺的，而不是被我们补过的。
  */
 export function buildContext(): string {  const MAX = 4000
   const projects = projectList()
@@ -561,14 +561,14 @@ export function buildContext(): string {  const MAX = 4000
   return text
 }
 
-// ── 「这事该怎么办」类问题（2026-10-31）───────────────────────────────────
-// 用户原话：「问答功能依然很蠢……我测了一个具体问题『方寸的阴影问题怎么处理』，
+// ── “这事该怎么办”类问题（2026-10-31）───────────────────────────────────
+// 用户原话：“问答功能依然很蠢……我测了一个具体问题『方寸的阴影问题怎么处理』，
 // 根本没给我有用的答案。让 AI 回答的选项还是隐藏功能，我自己都不知道什么机制能刷出来，
-// 纯看运气。你自己想想这玩意能用吗？」
+// 纯看运气。你自己想想这玩意能用吗？”
 //
 // 两个真问题，各修一处：
-//   ① **路由错了**：这句话里有「方寸」→ 被当成"问项目进展"，答一屏在途一屏；
-//      而且 needsLlm 被置成 false → 界面那个「让 AI 答」按钮**根本不出现**（"纯看运气"就是这个）。
+//   ① **路由错了**：这句话里有“方寸”→ 被当成"问项目进展"，答一屏在途一屏；
+//      而且 needsLlm 被置成 false → 界面那个“让 AI 答”按钮**根本不出现**（"纯看运气"就是这个）。
 //      修法：先认"问办法"的句式，再走项目兜底。
 //   ② **答得空**：这类问题结构化算不出来是事实，但"算不出来"不等于"没东西给你"。
 //      台账里真正相关的卡和日志就是线索 —— 先把它们摆出来，再说要不要交给 AI。
@@ -664,8 +664,8 @@ function adviceHits(keywords: string[]): { rows: AskRow[]; taskHits: number; log
 }
 
 /**
- * 「该怎么办」的答案：**先给台账里真有的线索**，再明说这类问题结构化算不出来。
- * needsLlm 恒为 true —— 这是"确实没算出来"，界面据此给出「让 AI 答」的口子（不再取决于运气）。
+ * “该怎么办”的答案：**先给台账里真有的线索**，再明说这类问题结构化算不出来。
+ * needsLlm 恒为 true —— 这是"确实没算出来"，界面据此给出“让 AI 答”的口子（不再取决于运气）。
  */
 export function answerAdvice(raw: string): AskAnswer {
   const q = String(raw || '').trim()
@@ -675,17 +675,17 @@ export function answerAdvice(raw: string): AskAnswer {
   const picked = pickProject(q, projectList())
   const lines: string[] = []
   if (rows.length) {
-    lines.push(`台账里跟「${kwText}」沾得上的有 ${taskHits} 张卡、${logHits} 条日志，先摆在这儿 —— 这是线索，不是结论。`)
+    lines.push(`台账里跟“${kwText}”沾得上的有 ${taskHits} 张卡、${logHits} 条日志，先摆在这儿 —— 这是线索，不是结论。`)
     lines.push('点开对应的卡/日志看细节；要不要让 AI 在这些事实上再答一遍，由你决定（会花钱）。')
   } else {
     lines.push(kws.length
-      ? `台账里没有跟「${kwText}」相关的卡或日志 —— 方寸手里没有这件事的记录。`
+      ? `台账里没有跟“${kwText}”相关的卡或日志 —— 方寸手里没有这件事的记录。`
       : '这句话里没抽出可检索的关键词，方寸不知道去台账里找什么。')
     lines.push('这类"该怎么办"的问题，方寸的结构化查询算不出来；要么写得更具体（点上面常用问题那种），要么交给 AI。')
   }
   return {
     kind: 'advice',
-    title: rows.length ? `关于「${kws[0] || q}」：台账里有这些记录` : '这件事方寸手里没有记录',
+    title: rows.length ? `关于“${kws[0] || q}”：台账里有这些记录` : '这件事方寸手里没有记录',
     lines,
     rows,
     projectId: picked ? String(picked.id) : undefined,

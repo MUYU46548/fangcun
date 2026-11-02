@@ -1,26 +1,26 @@
 # 方寸 (Tegula)
 
 > **开工前先读 [`立项契约.md`](./立项契约.md)** —— 终态形态 / 验收线 / 不要什么 / 选型定死。
-> 契约的**第一个读者是 AI**：与「最新一句话」冲突时以契约为准，除非走 REV 修订留痕。
+> 契约的**第一个读者是 AI**：与“最新一句话”冲突时以契约为准，除非走 REV 修订留痕。
 >
 > **不知道文档在哪 → 先读 `task-data/plans/fangcun-base.md`（唯一施工跑道 P0–P7），
-> 再在 `docs/执行日志/` 里搜标题含「跑道交接」的日志（一张可直接执行的交接单）。**
+> 再在 `docs/执行日志/` 里搜标题含“跑道交接”的日志（一张可直接执行的交接单）。**
 > `docs/` 下 307 份 md 绝大多数是过程附件，**别按目录顺序读**；`开发日志.md` 已停用，只当历史存档。
 
 **零依赖本地多 agent 任务看板**（Python stdlib；`tegula/` 包 = `cli.py` 2363 + `core.py` 4688 + `web.py` 662，`tegula.py` 只是 19 行 wrapper；看板用 http.server，端口 8753）。为您创造全部项目的统一任务入口。
 
 ## 定位（边界写在这里，省得每次重新吵）
 
-**「任务收口 + 方针载体」** —— 不是全周期管理平台。**LLM 智能层：本阶段接，但是 BYOK**（见下三条边界）。
+**“任务收口 + 方针载体”** —— 不是全周期管理平台。**LLM 智能层：本阶段接，但是 BYOK**（见下三条边界）。
 约束力来自 **唯一入口 + 低摩擦 + 有收益**。
 
 **LLM 智能层的三条边界**（REV-005，2026-10-12 暮雨拍板；越界即为不受理）：
 ① **BYOK** —— 端点/模型名/密钥由用户在设置页自填，方寸不连任何默认端点、不预置钥匙；
-② **产出只落「待审批」卡** —— 用户点头才转正，AI 不能背着你往方寸里塞东西；
+② **产出只落“待审批”卡** —— 用户点头才转正，AI 不能背着你往方寸里塞东西；
 ③ **花销每次可见** —— 写回入口与界面 toast 都透传 usage。
 
 - ⚠ 这两条都不是"我猜的"，是契约 ③ 的成文条款 + 文末 **REV-003 / REV-004**（2026-10-10 拍板）留痕。
-  想往「完全的项目管理系统」或「内置智能层」方向做的提案，**先走 REV 改契约**，别在实现里顺手做掉。
+  想往“完全的项目管理系统”或“内置智能层”方向做的提案，**先走 REV 改契约**，别在实现里顺手做掉。
 - ⚠ 反面教材（2026-10-11 实测）：卡 `20261008-005` 一直把 **0.3.2 发布说明里已被收回的那句话**
   当方向证据 —— 于是一个越界提案看起来像"顺理成章该做的功能"。**契约改了就要回头清现场。**
 - 显式不受理：运营期要用户手动喂的规划工具 · 重型表单/流程引擎 · 写别人的仓库（对项目 repo 只读）。
@@ -55,11 +55,11 @@
   2026-10-27 我一度把输出搬到 `E:\CODE\CangKu\_pkg\`，被暮雨否掉（"抄旧的方寸不都好好的"）——
   堆积的病根是"每版新建目录"，不是"放在工作区里"。**别再搬出去。**
   清理历史垃圾：`clean-release.bat` + `scripts/clean-release-dirs.ps1` ——
-  **本机运维脚本，不入仓库**（2026-10-27 暮雨：「退出仓库，不然纯污染」；`.gitignore` 已排除）。
+  **本机运维脚本，不入仓库**（2026-10-27 暮雨：“退出仓库，不然纯污染”；`.gitignore` 已排除）。
   ⚠ 脚本不在仓库，但**规则在这儿**，换机器按这三句重建：
   ① 只清 `release*`，**永不碰 `pkg`**（`pkg` 是发版取件目录）；
   ② **不需要管理员**（锁是文件索引器持有，退出它即可，不是服务/权限问题）；
-  ③ 只盯 `*.asar` 被锁：逐文件删、跳过被锁的、把「仍被占用」**如实列出**，不假装干净。
+  ③ 只盯 `*.asar` 被锁：逐文件删、跳过被锁的、把“仍被占用”**如实列出**，不假装干净。
 - 打包安装包（手工方式，**2026-10-22 起要三个环境变量**）：
   ```
   cd desktop
@@ -87,50 +87,50 @@
 | 层 | 命令 | 作用 |
 |---|---|---|
 | 数据层 | `python verify.py` | 解析/渲染/乐观锁/备份/老 YAML 写法（**270/0**，24 个检查组；2026-10-14 实测） |
-| 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）**。⚠ **2026-10-11 用户第 2 条**：备份范围补漏（`policies/` 此前**根本不在包里**）+ 新增「备份瘦身」两个旋钮（排除执行日志附件目录 / 跳过超过 N MB 的单个文件，默认 10MB）—— 跳过项**逐条记账**进 `manifest.omittedFiles`（不许静默），并新增 `backup:sizeReport` 把体积构成摊开（体积黑洞是 `docs/执行日志/_attachments` 里一份 57MB 的误挂 bundle）。`e2e-backup` 含断言：「报告说会跳过什么」与「备份时真跳过什么」**逐条一致**（同一套判据 `planSnapshot`） |
-| **备份多通道 · restic / Git（卡 20261002-003）** | `node scripts/test/e2e-restic-script.cjs` / `e2e-git-backup.cjs` | **restic**：只生成脚本（方案 A），三条红线 = 密码不进脚本 + 密钥文件必须 exclude（用备份包同一份 `SECRET_BASENAMES`）+ 不替用户注册定时任务，18 条含反例。**Git**：`gitBackupPure.ts` 纯逻辑（令牌不进 argv / 输出脱敏 / `GIT_TERMINAL_PROMPT=0` / 「令牌被拒」与「无凭据」分开报 / 地址内嵌令牌抽出）+ **真 git 端到端**（临时裸仓库跑 clone→commit→push→被拒→fetch+reset --soft 补救，**不用 --force**）+ **执行器本体端到端**（electron 桩 + 临时 userData，把「点一下按钮」真跑通）。70 条，含反例自证。⚠ 2026-10-11 真机修的三处：`ls-remote --exit-code` 在**空仓库**上「退出码 2 + 零输出」被翻成"未能识别"（用户看到"填了地址说失败"）、clone 失败盲目退化 init 吞掉真因、`fail()` 回 `error` 而渲染层只读 `message` → 异常变成"没有返回结果"。**⚠ 2026-10-11 用户第 1 条后语义变了**：这条通道**不再推压缩包**，改成把 `task-data/ + registry.yaml + policies/ + docs/` 的**真实文件镜像进仓库工作树**（每文件可 diff 的历史）—— 用户原话「全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？」。断言随之加了"仓库里是 `.md` 而不是 `.zip`""改一行在历史里看得见""删文件会跟着删""密钥类不进仓库"，以及源码守卫（不许再出现 `copyFileSync(zipPath`）。85 条 |
+| 主进程 e2e（Node + electron 桩） | `node scripts/test/e2e-{backup,task-fields,notifications,datadir,applog,launchpad,logs}.cjs` | 备份链路、字段一致性、通知、数据根、**应用日志与 IPC 守卫**、**启动台执行器**、**执行日志（改项目/清理超期）**。⚠ **2026-10-11 用户第 2 条**：备份范围补漏（`policies/` 此前**根本不在包里**）+ 新增“备份瘦身”两个旋钮（排除执行日志附件目录 / 跳过超过 N MB 的单个文件，默认 10MB）—— 跳过项**逐条记账**进 `manifest.omittedFiles`（不许静默），并新增 `backup:sizeReport` 把体积构成摊开（体积黑洞是 `docs/执行日志/_attachments` 里一份 57MB 的误挂 bundle）。`e2e-backup` 含断言：“报告说会跳过什么”与“备份时真跳过什么”**逐条一致**（同一套判据 `planSnapshot`） |
+| **备份多通道 · restic / Git（卡 20261002-003）** | `node scripts/test/e2e-restic-script.cjs` / `e2e-git-backup.cjs` | **restic**：只生成脚本（方案 A），三条红线 = 密码不进脚本 + 密钥文件必须 exclude（用备份包同一份 `SECRET_BASENAMES`）+ 不替用户注册定时任务，18 条含反例。**Git**：`gitBackupPure.ts` 纯逻辑（令牌不进 argv / 输出脱敏 / `GIT_TERMINAL_PROMPT=0` / “令牌被拒”与“无凭据”分开报 / 地址内嵌令牌抽出）+ **真 git 端到端**（临时裸仓库跑 clone→commit→push→被拒→fetch+reset --soft 补救，**不用 --force**）+ **执行器本体端到端**（electron 桩 + 临时 userData，把“点一下按钮”真跑通）。70 条，含反例自证。⚠ 2026-10-11 真机修的三处：`ls-remote --exit-code` 在**空仓库**上“退出码 2 + 零输出”被翻成"未能识别"（用户看到"填了地址说失败"）、clone 失败盲目退化 init 吞掉真因、`fail()` 回 `error` 而渲染层只读 `message` → 异常变成"没有返回结果"。**⚠ 2026-10-11 用户第 1 条后语义变了**：这条通道**不再推压缩包**，改成把 `task-data/ + registry.yaml + policies/ + docs/` 的**真实文件镜像进仓库工作树**（每文件可 diff 的历史）—— 用户原话“全世界没有任何软件的 git 备份直接扔压缩包上去…那要 git 有什么用？”。断言随之加了"仓库里是 `.md` 而不是 `.zip`""改一行在历史里看得见""删文件会跟着删""密钥类不进仓库"，以及源码守卫（不许再出现 `copyFileSync(zipPath`）。85 条 |
 | 任务删除/归档健壮性 | `node scripts/test/e2e-task-delete.cjs` | **同名重复副本（archive/ 与 .trash/ 同 id）下 delete/archive/unarchive 不抛异常、幂等、去重；readTask 优先活跃区** |
-| **装到别的 agent（目标检测 + 多目标安装）** | `node scripts/test/e2e-agent-targets.cjs` | **装卡区必须有 DSH（此前根本没有这一条 → 用户「检测不到 DSH 装了」的真因）**：DSH 落点 `~/.dsh/skills`、与 Hermes 同级可直装；「已接入」两问 = 技能副本 + MCP 配置含 fangcun，**落点不可知时给 `undefined` 而不是 `false`**；多目标安装各目标分账（不串目录）、未知目标显式报错；**DSH 不在场时不许给它造目录**；含反例（删掉 `~/.dsh` → `detected=false`） |
-| **已完成任务自动归档（卡 012）** | `node scripts/test/e2e-archive-overdue.cjs` | 判据 =「状态=完成 **且** 更新时间早于 N 天」——刚动过的不收、非完成的不收、没写时间的退 mtime（不是"老得不能再老"）；**保留天数 0 = 关闭，默认必须关**；归档**真把文件移进 archive/**（不是只改状态那种假归档）且可逆；数字时间戳按**秒级**解析（毫秒写法跑到未来 → 不收，钉成负面案例） |
+| **装到别的 agent（目标检测 + 多目标安装）** | `node scripts/test/e2e-agent-targets.cjs` | **装卡区必须有 DSH（此前根本没有这一条 → 用户“检测不到 DSH 装了”的真因）**：DSH 落点 `~/.dsh/skills`、与 Hermes 同级可直装；“已接入”两问 = 技能副本 + MCP 配置含 fangcun，**落点不可知时给 `undefined` 而不是 `false`**；多目标安装各目标分账（不串目录）、未知目标显式报错；**DSH 不在场时不许给它造目录**；含反例（删掉 `~/.dsh` → `detected=false`） |
+| **已完成任务自动归档（卡 012）** | `node scripts/test/e2e-archive-overdue.cjs` | 判据 =“状态=完成 **且** 更新时间早于 N 天”——刚动过的不收、非完成的不收、没写时间的退 mtime（不是"老得不能再老"）；**保留天数 0 = 关闭，默认必须关**；归档**真把文件移进 archive/**（不是只改状态那种假归档）且可逆；数字时间戳按**秒级**解析（毫秒写法跑到未来 → 不收，钉成负面案例） |
 | 渲染层纯逻辑 | `node scripts/test/e2e-calendar.cjs` | 日历跨月/时间段算术（tsc 编 calendar.ts 后直接断言） |
 | **渲染层纯逻辑（时间 / 分组）** | `node scripts/test/e2e-timefmt.cjs` / `e2e-grouping.cjs` | **时间解析：数据里同时有 ISO / 秒级 Unix 数字 / MM-DD 三种写法，坏输入必须给 `—` 而不是 Invalid Date/NaN**；**看板分组：标题必须是项目名而不是内部 id、跨项目计数、未归属任务不丢分组** |
-| **阻塞链关键路径（卡 023）** | `node scripts/test/e2e-blockers.cjs` | **本机可跑**：真跑编译产物 `dist/shared/blockers.js`（算法在 `src/shared/blockers.ts`，**不埋在组件里**）。判据 = 「解哪个阻塞最划算要算**传递效应**」：A 挡住 B、B 又挡住 C ⇒ 解 A 值 **4** 而不是 2（只数 `blockedTasks.length` 是错的）；另覆盖「一个任务被多个源挡着时解一个不够」「已终态的源不进推荐」「已完成的被阻塞任务不算收益」「纯函数不改传入数组」。9 条 |
-| **看板信息卡墙（卡 20261010-003）** | `node scripts/test/e2e-board-cards.cjs` | **本机可跑**：真跑编译产物 `dist/shared/boardCards.js`（纯逻辑在 `src/shared/boardCards.ts`，**不埋在组件里**）。判据 =「**卡面上宁缺勿滥**」：取不到的值**整格不渲染**（不写 0、不写「—」、也不糊一个近似色档）。覆盖短 ID 只剥已知前缀、优先级只认三档中文、阻塞索引（多源 / 去重 / 终态不计 / 源已终态不进计数）、`openOnly` 只看未完成（**空状态算未完成** —— 没填 ≠ 做完）；另含 **9 条源码守卫**：卡片墙必须跑 `columns` 分区（首版平铺 filteredTasks → **分组整个丢失**，用户截图才发现）、分区头可折叠、组容器接 drop、开关**默认关**且**只读过滤不回写 columns**。41 条，含两处反例自证 |
-| **读卡计量（卡 006）** | `node scripts/test/e2e-mcp-usage.cjs` | MCP 每次 `get_task` / `list_tasks` / `search_tasks` 都把**卡 id** 记进独立日志 `mcp-usage.jsonl`（**不改任务文件**，逐字节断言）。`never_read` 工具回答「哪些待办没人碰过」。`tegula next` 输出多两行：`触发条件`（用优先级/截止/阻塞推导）与 `被读过`（近 30 天次数 + 最后来源）。反例：删掉一处 `recordRead` → 精确红 |
-| **「没人碰过」清单（卡 006 第三件）** | `node scripts/test/e2e-never-read.cjs` | 桌面端的出口（此前 `never_read` 只是个 MCP 工具，界面侧零接线）。判据 = **口径不许含糊**：① 完成/驳回不进清单，**空状态算未完成**；② 窗口内一条读卡记录都没有时**不许**报「N 张没人碰过」（那是计量没开始）；③ 文案必须写明「只算 agent 经 MCP 读卡，界面里点开不算」。另含**真数据根**一节：临时根写两张真 md → `loadTasks` → `taskToNeverReadInput` → `pickNeverRead` 全链跑通（⚠ 字段是**英文键** `fm.title/fm.status`，中文只是 YAML 键名 —— 第一版按 `fm.标题` 写，一跑全是空串）。反例：删掉 App.vue 里那行过滤 → 渲染层精确红 1 条 |
-| **驳回返工台（卡 20261030 暮雨第 3 条）** | `node scripts/test/e2e-rework.cjs` | 「驳回的东西好像也永远不看」的出口。纯逻辑在 `shared/rework.ts`（界面不重算）。判据 = **驳回不是终态**：① 只收 `status=驳回`，**已归档不算**（归档＝处置过了）；② 理由取 `result_log` 里**最后一条**驳回记录（前几条是历史，拿旧的当"这次为什么"会误导）；③ 时间认 ISO / 秒级 Unix / 毫秒，认不出给 NaN 显示「时间不详」，**绝不当 0**（0 → 1970 年 → 「晾了 20000 天」）；④ 没写理由也要列出来但必须点名。界面侧（renderer-web）再钉：提示条计数来自夹具、说明两列默认折叠、逐张列出最久在前、「退回返工」真走 `unarchiveTask`、「归档」真走 `archiveTask`、没有驳回卡时提示条消失。反例：`archiveTask/unarchiveTask` 桩原先不记账 → 「点了到底有没有走通道」根本断言不出来（已补 `rec`） |
-| **方寸自绘架构图（卡 task-20261030-002）** | `node scripts/test/e2e-project-arch.cjs` | 不依赖 archify 自己出图。**判据不是"能出图"，是不许编**：① 节点只能来自真实存在的目录（`__entry__`/`__deps__` 两个固定 id 除外），连线只能来自真实 `import` / `ipcMain.handle` / `ipcRenderer.invoke` / `window.tegula` 计数；② 空仓库 → **一个节点都不编**，`missing` 逐条给「缺什么 + 为什么」并落 `ARCH_EMPTY_TEXT`；③ **只读**：扫描前后 task-data 每个文件的字节数与 mtime 一个不变、不多出文件；④ 导出的 HTML 自包含（无外链样式/脚本/网络）。界面侧（renderer-web）再钉：6 个 `data-node`、连线按 import/ipc/bridge 分组、缺项与证据都摆出来、点节点出文件样例、导出真走 `arch:export`。反例：源码守卫先**剥注释**再扫（注释里写"没有 fetch/LLM"是解释，不是调用） |
-| **整理体检（卡 task-20261025-006 剩下的两件）** | `node scripts/test/e2e-cleanup.cjs` | 把 `never_read` 接进整理流程 + **真数据端到端**（此前只有渲染层夹具）。真临时数据根：3 张真 md（2 待办 + 1 驳回带理由）+ 真 `mcp-usage.jsonl`（事件真身是 `ids` 数组）；走 `loadTasks → taskToNeverReadInput → readSummary → buildCleanupReport`（与 IPC `cleanup:scan` 同段代码）。口径：没人碰过只算 agent 经 MCP 读卡、**它只是清理候选不是优先级**、计量没开始时话术必须改口（不报「N 张」）。另钉：两批清单各归各（驳回不进没人碰过、但进返工）、体检后任务文件逐字节不变 |
+| **阻塞链关键路径（卡 023）** | `node scripts/test/e2e-blockers.cjs` | **本机可跑**：真跑编译产物 `dist/shared/blockers.js`（算法在 `src/shared/blockers.ts`，**不埋在组件里**）。判据 = “解哪个阻塞最划算要算**传递效应**”：A 挡住 B、B 又挡住 C ⇒ 解 A 值 **4** 而不是 2（只数 `blockedTasks.length` 是错的）；另覆盖“一个任务被多个源挡着时解一个不够”“已终态的源不进推荐”“已完成的被阻塞任务不算收益”“纯函数不改传入数组”。9 条 |
+| **看板信息卡墙（卡 20261010-003）** | `node scripts/test/e2e-board-cards.cjs` | **本机可跑**：真跑编译产物 `dist/shared/boardCards.js`（纯逻辑在 `src/shared/boardCards.ts`，**不埋在组件里**）。判据 =“**卡面上宁缺勿滥**”：取不到的值**整格不渲染**（不写 0、不写“—”、也不糊一个近似色档）。覆盖短 ID 只剥已知前缀、优先级只认三档中文、阻塞索引（多源 / 去重 / 终态不计 / 源已终态不进计数）、`openOnly` 只看未完成（**空状态算未完成** —— 没填 ≠ 做完）；另含 **9 条源码守卫**：卡片墙必须跑 `columns` 分区（首版平铺 filteredTasks → **分组整个丢失**，用户截图才发现）、分区头可折叠、组容器接 drop、开关**默认关**且**只读过滤不回写 columns**。41 条，含两处反例自证 |
+| **读卡计量（卡 006）** | `node scripts/test/e2e-mcp-usage.cjs` | MCP 每次 `get_task` / `list_tasks` / `search_tasks` 都把**卡 id** 记进独立日志 `mcp-usage.jsonl`（**不改任务文件**，逐字节断言）。`never_read` 工具回答“哪些待办没人碰过”。`tegula next` 输出多两行：`触发条件`（用优先级/截止/阻塞推导）与 `被读过`（近 30 天次数 + 最后来源）。反例：删掉一处 `recordRead` → 精确红 |
+| **“没人碰过”清单（卡 006 第三件）** | `node scripts/test/e2e-never-read.cjs` | 桌面端的出口（此前 `never_read` 只是个 MCP 工具，界面侧零接线）。判据 = **口径不许含糊**：① 完成/驳回不进清单，**空状态算未完成**；② 窗口内一条读卡记录都没有时**不许**报“N 张没人碰过”（那是计量没开始）；③ 文案必须写明“只算 agent 经 MCP 读卡，界面里点开不算”。另含**真数据根**一节：临时根写两张真 md → `loadTasks` → `taskToNeverReadInput` → `pickNeverRead` 全链跑通（⚠ 字段是**英文键** `fm.title/fm.status`，中文只是 YAML 键名 —— 第一版按 `fm.标题` 写，一跑全是空串）。反例：删掉 App.vue 里那行过滤 → 渲染层精确红 1 条 |
+| **驳回返工台（卡 20261030 暮雨第 3 条）** | `node scripts/test/e2e-rework.cjs` | “驳回的东西好像也永远不看”的出口。纯逻辑在 `shared/rework.ts`（界面不重算）。判据 = **驳回不是终态**：① 只收 `status=驳回`，**已归档不算**（归档＝处置过了）；② 理由取 `result_log` 里**最后一条**驳回记录（前几条是历史，拿旧的当"这次为什么"会误导）；③ 时间认 ISO / 秒级 Unix / 毫秒，认不出给 NaN 显示“时间不详”，**绝不当 0**（0 → 1970 年 → “晾了 20000 天”）；④ 没写理由也要列出来但必须点名。界面侧（renderer-web）再钉：提示条计数来自夹具、说明两列默认折叠、逐张列出最久在前、“退回返工”真走 `unarchiveTask`、“归档”真走 `archiveTask`、没有驳回卡时提示条消失。反例：`archiveTask/unarchiveTask` 桩原先不记账 → “点了到底有没有走通道”根本断言不出来（已补 `rec`） |
+| **方寸自绘架构图（卡 task-20261030-002）** | `node scripts/test/e2e-project-arch.cjs` | 不依赖 archify 自己出图。**判据不是"能出图"，是不许编**：① 节点只能来自真实存在的目录（`__entry__`/`__deps__` 两个固定 id 除外），连线只能来自真实 `import` / `ipcMain.handle` / `ipcRenderer.invoke` / `window.tegula` 计数；② 空仓库 → **一个节点都不编**，`missing` 逐条给“缺什么 + 为什么”并落 `ARCH_EMPTY_TEXT`；③ **只读**：扫描前后 task-data 每个文件的字节数与 mtime 一个不变、不多出文件；④ 导出的 HTML 自包含（无外链样式/脚本/网络）。界面侧（renderer-web）再钉：6 个 `data-node`、连线按 import/ipc/bridge 分组、缺项与证据都摆出来、点节点出文件样例、导出真走 `arch:export`。反例：源码守卫先**剥注释**再扫（注释里写"没有 fetch/LLM"是解释，不是调用） |
+| **整理体检（卡 task-20261025-006 剩下的两件）** | `node scripts/test/e2e-cleanup.cjs` | 把 `never_read` 接进整理流程 + **真数据端到端**（此前只有渲染层夹具）。真临时数据根：3 张真 md（2 待办 + 1 驳回带理由）+ 真 `mcp-usage.jsonl`（事件真身是 `ids` 数组）；走 `loadTasks → taskToNeverReadInput → readSummary → buildCleanupReport`（与 IPC `cleanup:scan` 同段代码）。口径：没人碰过只算 agent 经 MCP 读卡、**它只是清理候选不是优先级**、计量没开始时话术必须改口（不报“N 张”）。另钉：两批清单各归各（驳回不进没人碰过、但进返工）、体检后任务文件逐字节不变 |
 | **大附件清单与删除（卡 task-20261018-004）** | `node scripts/test/e2e-attachments.cjs` | 备份体积黑洞的清单入口。判据：① 只列附件目录里 ≥ 阈值的**单文件**（10MB 边界含、11MB 列、1MB 不列；不是目录合计）；② 删除硬闸 = `realpath` 校验必须在 `docs/执行日志/_attachments` 内 —— 目录外文件 / `../` 逃逸 / 目录本身 / 不存在的文件全拒，且**拒绝后文件真的还在**；③ 删一个不许连带邻居；④ 列清单不改任何 mtime |
 | **DSH 插件骨架** | `node scripts/test/e2e-dsh-plugin.cjs` | `dsh/` 是**独立仓库的种子**（将来 `git subtree split -P dsh` 拆出去）。钉四件事：包元数据自洽（`dsh.bundle.patch` 指向的文件真存在、`files` 白名单含 lib）、挂载声明 id/name 等于包名（不一致 = 装了但没出现）、**不许 import 方寸 TS / 不许 import electron**（守住这条拆仓才零耦合）、health 只报能自证的事实且认不出数据根时返回空串不猜路径 |
 | **DSH 插件骨架** | `node scripts/test/e2e-dsh-plugin.cjs` | `dsh/` 是**独立仓库的种子**（将来 `git subtree split -P dsh` 拆出去）。钉四件事：包元数据自洽（`dsh.bundle.patch` 指向的文件真存在、`files` 白名单含 lib）、挂载声明 id/name 等于包名（不一致 = 装了但没出现）、**不许 import 方寸 TS / 不许 import electron**（守住这条拆仓才零耦合）、health 只报能自证的事实且认不出数据根时返回空串不猜路径 |
 | **过桥参数（静态）** | `node scripts/test/check-bridge-args.cjs` | 扫渲染层：**对象 ref 的 `.value` 被整个交给 `window.tegula.*`** 就红（Vue 代理过 contextBridge 必抛 `could not be cloned`）。这条是给 `e2e-bridge-clone` 补的静态兜底 —— 那个测试在本机起不来 Electron 时行为部分会 SKIP |
 | 渲染层真点击 | `node scripts/test/e2e-renderer.cjs` | **真 Electron 跑 dist/renderer + 真点按钮**（需桌面会话；受限环境自动 SKIP） |
 | **渲染层 DOM（无头浏览器兜底）** | `node scripts/test/e2e-renderer-web.cjs` | **本机可跑的渲染层断言（358/0）**：多视图互斥与几何、排序/视图选择落盘、弹药库派工单六字段、**遮罩拖选不误关**（拖选滑出弹窗 → 不许关；真点遮罩 → 仍关得掉）、**死通道接回验收**（快速记必须真调 `quickAdd` 且**原样传整段简写串**、跨项目建议/里程碑/诊断三块的文案必须来自主进程、备份列表刷新必须真重读）—— 用系统 Edge/Chrome 无头加载 `dist/renderer` + 同一份假 preload；产物必须单块（有顶层 import/export 会显式报错而不是静默降级）。它验不了真 IPC / 真点击，那些仍以 `e2e-renderer` 为准 |
-| **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛「could not be cloned」、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
-| **剪贴板复制** | `node scripts/test/e2e-clipboard.cjs` | **真 Electron + 真 preload + 真读回剪贴板：file:// 起源下的复制走主进程 IPC 通道成立；含「掐掉 IPC 后浏览器路径确实失败」的危害复现 + 静态守卫（渲染层不得再有裸 `navigator.clipboard`）** |
-| **在途一屏（Q2 · 契约验收线①）** | `node scripts/test/e2e-trip-board.cjs` | **真跑编译产物 `dist/main/services/tripBoard.js` + 临时数据目录**（本机可跑，不用 spawn）：契约六字段解析（标题带 ①② 也认）、四种判据各命中谁、**无卡项目 current 回落到执行日志**（司天那类 0 卡项目唯一的数据源）、**缺值给空串而不是默认值**、健康度人工覆盖 + 非法值回落机器默认、**manual 模式必须优先于判据**（首次实现漏了这条，测试当场抓到）、**「手动指定」但 `fc_trip_projects` 键不存在 → 兜底回自动**（2026-10-05 用户「一屏是空的」的真因：字符串键落了盘、数组键没落，清单为空 → 15 个全出局）＋反例「键存在但为空数组 → 尊重用户选择、不回退」＋**manual 下未勾的项目原因必须说「手动指定」而不是「没有未完结任务」**、`repoOfProject` 不产出未登记路径（防任意路径打开）、契约模板含六字段。32 条 |
-| **registry 增删项目** | `node scripts/test/e2e-registry.cjs` | **真跑编译产物 + 临时注册表**：增/删都是**文本块**级操作（不是 yaml dump 重写）—— 钉住「顶部注释与自定义中文字段**逐字节保留**」「删一个项目**不吃掉隔壁、不吃掉 released 段**」「删不存在的 / 非法 / 空 id → 显式报错且**文件零改动**」「删登记**不动 task-data**（卡还在，只是变未归属）」「全删干净后仍是合法注册表」。22 条 |
-| **registry 三字段写回（06 单）** | `node scripts/test/e2e-registry-fields.cjs` | **真跑编译产物 + 临时注册表**：`状态 / 路线图 / 说明` 三个中文字段的写回 —— 钉住「**文本块级就地替换**，注释/members/released/隔壁项目逐字节保留」「**白名单**：传 name / repo 之类 → 显式报错且**文件零改动**（不静默忽略）」「写前自校验：项目数不变 + 读回值 === 期望值」「**回传 before**，撤销条靠它反推回滚」「缺失字段追加在**本项目块内**（不能掉到下一个项目下面）」「含全角冒号 / # / 引号的值必须转义对 —— 不做转义时自校验会当场拦下（已做反例：注入 → 3 条精确变红 → 还原）」「同值写回 **changed 为空且不写盘**」。40 条 |
-| **agent 上下文包（b 版落地物）** | `node scripts/test/e2e-context-pack.cjs` | **真跑编译产物 + 临时数据目录**：把项目现状拼成一段能直接粘给 agent 的 Markdown —— 钉住「拼进来的必须是**原文**（契约多行块/表格不许被塞进一行列表、不许摘要改写）」「决策**只列有效**（已撤销的不许出现，否则 agent 把撤销过的当现行规矩）」「全局决策（项目为空）对每个项目都算数」「未完成卡按优先级、已完成不进」「**缺什么必须说出来**：`missing` 逐项 + 正文末尾『缺不等于没有』」。29 条，含反例（不筛决策状态 → 精确 1 条红） |
-| **认领 · 两个 agent 不抢同一张（2026-10-22）** | `python scripts/smoke_claim.py` | 真跑 `tegula.cli`/`core`（临时 task-data）。钉住：「**`next` 默认跳过别人正领着且租约未到期的卡**」（纯函数 `_pick_next` 单测，不靠 `claim_task` 二次检查兜）」「**租约 2 小时**：过期的能接手（agent 崩了不能把卡锁死）、认领时间戳乱写当没认领」「**认领是原子的**：`O_CREAT|O_EXCL` 锁文件 + 拿锁后重读再判 —— 两个 agent 同时 `next --claim` 不会都成功」「**`done --by` 与认领人不符就拦下**（A 领的活不能 B 交回），不带 `--by` 老用法零破坏只提醒」「受管键写回不丢」。41 条 |
-| **认领字段 · 跨语言往返（2026-10-22）** | `node scripts/test/e2e-claim-field.cjs` | Python 写的中文键 `认领人/认领时间` → 桌面 `claimed_by/claimed_at`；**桌面改标题/改状态/整卡重写都不许抹掉它们**（抹掉＝卡又变没人领，下一个 agent 再干一遍）；旧卡写回**不许凭空多两行**。11 条。⚠ 实测记录：只从 `FM_ORDER` 删掉**不会丢**（`renderTask` 有"剩余未知字段原样输出"兜底），真正决定丢不丢的是**别名表的中文键映射** —— 断言文案别写错成「FM_ORDER 里必须有它」 |
+| **IPC 载荷过 bridge** | `node scripts/test/e2e-bridge-clone.cjs` | **真 Electron + 真 preload：裸 Vue 代理过 contextBridge 必抛“could not be cloned”、过 `toPlain()` 后必通过；含精确静态守卫 + 红测自证** |
+| **剪贴板复制** | `node scripts/test/e2e-clipboard.cjs` | **真 Electron + 真 preload + 真读回剪贴板：file:// 起源下的复制走主进程 IPC 通道成立；含“掐掉 IPC 后浏览器路径确实失败”的危害复现 + 静态守卫（渲染层不得再有裸 `navigator.clipboard`）** |
+| **在途一屏（Q2 · 契约验收线①）** | `node scripts/test/e2e-trip-board.cjs` | **真跑编译产物 `dist/main/services/tripBoard.js` + 临时数据目录**（本机可跑，不用 spawn）：契约六字段解析（标题带 ①② 也认）、四种判据各命中谁、**无卡项目 current 回落到执行日志**（司天那类 0 卡项目唯一的数据源）、**缺值给空串而不是默认值**、健康度人工覆盖 + 非法值回落机器默认、**manual 模式必须优先于判据**（首次实现漏了这条，测试当场抓到）、**“手动指定”但 `fc_trip_projects` 键不存在 → 兜底回自动**（2026-10-05 用户“一屏是空的”的真因：字符串键落了盘、数组键没落，清单为空 → 15 个全出局）＋反例“键存在但为空数组 → 尊重用户选择、不回退”＋**manual 下未勾的项目原因必须说“手动指定”而不是“没有未完结任务”**、`repoOfProject` 不产出未登记路径（防任意路径打开）、契约模板含六字段。32 条 |
+| **registry 增删项目** | `node scripts/test/e2e-registry.cjs` | **真跑编译产物 + 临时注册表**：增/删都是**文本块**级操作（不是 yaml dump 重写）—— 钉住“顶部注释与自定义中文字段**逐字节保留**”“删一个项目**不吃掉隔壁、不吃掉 released 段**”“删不存在的 / 非法 / 空 id → 显式报错且**文件零改动**”“删登记**不动 task-data**（卡还在，只是变未归属）”“全删干净后仍是合法注册表”。22 条 |
+| **registry 三字段写回（06 单）** | `node scripts/test/e2e-registry-fields.cjs` | **真跑编译产物 + 临时注册表**：`状态 / 路线图 / 说明` 三个中文字段的写回 —— 钉住“**文本块级就地替换**，注释/members/released/隔壁项目逐字节保留”“**白名单**：传 name / repo 之类 → 显式报错且**文件零改动**（不静默忽略）”“写前自校验：项目数不变 + 读回值 === 期望值”“**回传 before**，撤销条靠它反推回滚”“缺失字段追加在**本项目块内**（不能掉到下一个项目下面）”“含全角冒号 / # / 引号的值必须转义对 —— 不做转义时自校验会当场拦下（已做反例：注入 → 3 条精确变红 → 还原）”“同值写回 **changed 为空且不写盘**”。40 条 |
+| **agent 上下文包（b 版落地物）** | `node scripts/test/e2e-context-pack.cjs` | **真跑编译产物 + 临时数据目录**：把项目现状拼成一段能直接粘给 agent 的 Markdown —— 钉住“拼进来的必须是**原文**（契约多行块/表格不许被塞进一行列表、不许摘要改写）”“决策**只列有效**（已撤销的不许出现，否则 agent 把撤销过的当现行规矩）”“全局决策（项目为空）对每个项目都算数”“未完成卡按优先级、已完成不进”“**缺什么必须说出来**：`missing` 逐项 + 正文末尾『缺不等于没有』”。29 条，含反例（不筛决策状态 → 精确 1 条红） |
+| **认领 · 两个 agent 不抢同一张（2026-10-22）** | `python scripts/smoke_claim.py` | 真跑 `tegula.cli`/`core`（临时 task-data）。钉住：“**`next` 默认跳过别人正领着且租约未到期的卡**”（纯函数 `_pick_next` 单测，不靠 `claim_task` 二次检查兜）”“**租约 2 小时**：过期的能接手（agent 崩了不能把卡锁死）、认领时间戳乱写当没认领”“**认领是原子的**：`O_CREAT|O_EXCL` 锁文件 + 拿锁后重读再判 —— 两个 agent 同时 `next --claim` 不会都成功”“**`done --by` 与认领人不符就拦下**（A 领的活不能 B 交回），不带 `--by` 老用法零破坏只提醒”“受管键写回不丢”。41 条 |
+| **认领字段 · 跨语言往返（2026-10-22）** | `node scripts/test/e2e-claim-field.cjs` | Python 写的中文键 `认领人/认领时间` → 桌面 `claimed_by/claimed_at`；**桌面改标题/改状态/整卡重写都不许抹掉它们**（抹掉＝卡又变没人领，下一个 agent 再干一遍）；旧卡写回**不许凭空多两行**。11 条。⚠ 实测记录：只从 `FM_ORDER` 删掉**不会丢**（`renderTask` 有"剩余未知字段原样输出"兜底），真正决定丢不丢的是**别名表的中文键映射** —— 断言文案别写错成“FM_ORDER 里必须有它” |
 | **发版闸口（2026-10-24）** | `python scripts/test/check-release-precheck.py` | **真 git + 真 bare origin + 假 gh**，测 `scripts/release-precheck.py` 与 `publish-release.sh` 的两道闸。①**前置体检**：`HEAD` 必须与 `origin/main` **同一个提交** —— 0.4.1 那次本地领先 50 笔没推，`gh release create` 把 tag 打在**远端旧 HEAD** 上，资产新/tag 指旧代码而脚本退出 0（这就是"假成功"的现场）；落后/分叉各判一码；远端同名 tag 指向旧提交 → 拦下，`--move-tag` 才搬且搬完再核一遍；版本号三处（`desktop/package.json` / `skills/manifest.json` / `latest.yml`）与待发 exe 字节数对得上（防"包里是上一版"）。②**发布后复核**：`gh api` 读回 Release，逐项比 asset 的 `size` / `state`、说明非空、不是草稿 —— `gh` 失败**不许当成通过**。39 条，含四组精确反例（关同步判定→6 红、关 tag 判定→2 红、关资产判定→3 红、关复核判定→5 红）＋ 7 条源码守卫（体检必须在 `gh release create` **之前**，判据先剥注释行） |
-| **想法 · 念头（2026-10-22）** | `node scripts/test/e2e-ideas.cjs` | **真跑编译产物 + 临时数据目录**：这条功能存在的唯一理由是"待办/日志/任务都放不下"，所以最硬的断言不是四态能流转，而是**零污染** —— 「记 8 条想法进来，待办数 / 任务卡数 / `task-data` 里的 .md 数 / 在途一屏的 rows **一个都不许变**」。另外钉住：「**立项必须真在待办里生出一条**（只改状态成「已立项」被主进程当场拒绝 —— 那是假账）」「撤销立项连带删掉那条待办，但**已完成的待办不许撤**（那是用户的东西）」「删 + 撤销删除要还原**原 id 原 createdAt**（删了再记不是撤销）」「非法状态归「新记」而不是丢掉这条（正文比状态重要）」「坏文件改名隔离」。53 条，含两组反例（顺手塞进待办 → 2 红；允许假立项 → 6 红） |
-| **随纠 · 一句话改方向（03 任务二）** | `node scripts/test/e2e-correct.cjs` | **真跑编译产物 + 临时数据目录**：钉住「纠得动」的三个前提 ——「只认**三种固定句式**（改/把…改成/`=`），认不出就明说、**零写入**（不许猜一个方向改掉用户方针）」「改完必留痕：决策卡含项目名 + 从什么到什么 + 出处『方寸随纠』+ 日期」「撤销把字段写回旧值，**并把决策卡一并标『已撤销』**（只改回字段却留一张"已定案"的卡＝台账说假话）」「改成同值 → 拒绝且**不产生**垃圾决策卡」「句子点名了项目就按句子走，不按调用方给的 id 改错项目」「preview 零副作用」。37 条 |
-| **随问 · 结构化查询（03 任务一）** | `node scripts/test/e2e-ask.cjs` | **真跑编译产物 + 临时数据目录**：钉的是**成本红线**不是"能问出话"——「10 类典型问题全部 `needsLlm=false`（03 验收线 ≥8/10）」「**只有**含糊到结构化算不出来的句子才 `needsLlm=true`（反例二连：「接下来该不该…」是判断题，不许被 next 认领；「你觉得这个方向对不对」必须落到答不了）」「数字与夹具**真身**对得上（不写死条数）」「没填截止日的不进逾期口径；源卡已完成的不算挡路」「没报 usage 的调用不折算 token」「**零副作用**：问十遍 registry / task-data / ai-trace 一个字节不变」「常用问题每条都能被结构化接住」。47 条 |
+| **想法 · 念头（2026-10-22）** | `node scripts/test/e2e-ideas.cjs` | **真跑编译产物 + 临时数据目录**：这条功能存在的唯一理由是"待办/日志/任务都放不下"，所以最硬的断言不是四态能流转，而是**零污染** —— “记 8 条想法进来，待办数 / 任务卡数 / `task-data` 里的 .md 数 / 在途一屏的 rows **一个都不许变**”。另外钉住：“**立项必须真在待办里生出一条**（只改状态成“已立项”被主进程当场拒绝 —— 那是假账）”“撤销立项连带删掉那条待办，但**已完成的待办不许撤**（那是用户的东西）”“删 + 撤销删除要还原**原 id 原 createdAt**（删了再记不是撤销）”“非法状态归“新记”而不是丢掉这条（正文比状态重要）”“坏文件改名隔离”。53 条，含两组反例（顺手塞进待办 → 2 红；允许假立项 → 6 红） |
+| **随纠 · 一句话改方向（03 任务二）** | `node scripts/test/e2e-correct.cjs` | **真跑编译产物 + 临时数据目录**：钉住“纠得动”的三个前提 ——“只认**三种固定句式**（改/把…改成/`=`），认不出就明说、**零写入**（不许猜一个方向改掉用户方针）”“改完必留痕：决策卡含项目名 + 从什么到什么 + 出处『方寸随纠』+ 日期”“撤销把字段写回旧值，**并把决策卡一并标『已撤销』**（只改回字段却留一张"已定案"的卡＝台账说假话）”“改成同值 → 拒绝且**不产生**垃圾决策卡”“句子点名了项目就按句子走，不按调用方给的 id 改错项目”“preview 零副作用”。37 条 |
+| **随问 · 结构化查询（03 任务一）** | `node scripts/test/e2e-ask.cjs` | **真跑编译产物 + 临时数据目录**：钉的是**成本红线**不是"能问出话"——“10 类典型问题全部 `needsLlm=false`（03 验收线 ≥8/10）”“**只有**含糊到结构化算不出来的句子才 `needsLlm=true`（反例二连：“接下来该不该…”是判断题，不许被 next 认领；“你觉得这个方向对不对”必须落到答不了）”“数字与夹具**真身**对得上（不写死条数）”“没填截止日的不进逾期口径；源卡已完成的不算挡路”“没报 usage 的调用不折算 token”“**零副作用**：问十遍 registry / task-data / ai-trace 一个字节不变”“常用问题每条都能被结构化接住”。47 条 |
 | **UI 偏好持久化** | `node scripts/test/e2e-prefs.cjs` | **Agent 预设真身在 `userData/prefs.json`：合并写入·原子替换·坏文件回退；要害断言＝模拟换 origin（localStorage 清空）后清模块缓存重载，值仍在磁盘上** |
 | **端口/服务登记** | `node scripts/test/e2e-ports.cjs` | **真起 TCP 监听，断言 netstat+tasklist 对表读出的 PID 就是本进程**；登记源（apps.json port + 手填清单）合并·重复端口预警·坏文件不静默·未登记列表两道路滤网（端口段 + 像服务的进程白名单）·**实现里不许有杀进程能力（源码扫描断言）**；一键启动只认启动台登记过带 port 的应用 |
 | **技能直接导入** | `node scripts/test/e2e-skill-import.cjs` | 文件夹 / .zip（含目录条目 + deflate）/ 外壳目录 / 单 .md 四种输入；缺 SKILL.md、YAML 缺字段、zip slip **一律零写入**；重名默认拒绝、方寸自发布技能永不被覆盖；移除只认带导入标记的目录 |
-| **自仓启动同步（W1-1C）** | `node scripts/test/e2e-self-sync.cjs` | 真临时裸仓库跑 `git pull --ff-only`：远端有新提交 → 落地（state=ok，读回 registry 真有新内容）；**本地领先/分叉 → 必须拒**（HEAD 不动、工作区不被覆盖）；无上游 → 分到「没有上游」；用户理顺后下一次恢复 ok。源码守卫钉三条：只 `--ff-only`、`GIT_TERMINAL_PROMPT=0`（否则没凭据时静默挂成僵尸）、异步 spawn + 硬超时。⚠ 夹具里**故意装回 `pull.ff=true` 的危险默认** —— 本机 git 2.55 没配它时自己也会拒，不装则反例假绿 |
+| **自仓启动同步（W1-1C）** | `node scripts/test/e2e-self-sync.cjs` | 真临时裸仓库跑 `git pull --ff-only`：远端有新提交 → 落地（state=ok，读回 registry 真有新内容）；**本地领先/分叉 → 必须拒**（HEAD 不动、工作区不被覆盖）；无上游 → 分到“没有上游”；用户理顺后下一次恢复 ok。源码守卫钉三条：只 `--ff-only`、`GIT_TERMINAL_PROMPT=0`（否则没凭据时静默挂成僵尸）、异步 spawn + 硬超时。⚠ 夹具里**故意装回 `pull.ff=true` 的危险默认** —— 本机 git 2.55 没配它时自己也会拒，不装则反例假绿 |
 | **实况回流 · 路线文档（W1-批次2）** | `node scripts/test/e2e-repo-docs.cjs` | 真仓库读 **README / ROADMAP**（README 只取一句话摘要）+ 最近动过 `docs/` 的提交；**只读**（跑完 `git status` 仍为空、文档 mtime 不变）；一天一批（`cached`/`readAt` 判据，force 绕过）；缺一份就是 `null`（不造空壳）；四种"读不到"各有各的话。⚠ 必须 `-c core.quotepath=false`，否则中文路径是八进制乱码 |
-| **两份 W1 评估报告的合同守卫** | `node scripts/test/check-w1-reports.cjs` | 施工单对这两份文档有硬字段要求：引擎评估必须有「升/不升/缓升」三选一 + **本次没验的东西**；拆分方案必须含**回滚路径（快照点 + 灰度开关）**。只校验结构不校验行文 —— 防的是"太长了一次精简"把决策依据删掉 |
+| **两份 W1 评估报告的合同守卫** | `node scripts/test/check-w1-reports.cjs` | 施工单对这两份文档有硬字段要求：引擎评估必须有“升/不升/缓升”三选一 + **本次没验的东西**；拆分方案必须含**回滚路径（快照点 + 灰度开关）**。只校验结构不校验行文 —— 防的是"太长了一次精简"把决策依据删掉 |
 | 静态守卫 | `check-ipc-parity` / **`check-template-bindings`（四项）** / `check-button-styles` / `check-themes` / **`check-skills`（改技能必跑）** / **`check-ui-copy`（改界面文案必跑）** | **死通道 44→31→18→0（2026-10-11 归零）**：接回 8 条（`quickAdd`/`loadActivity`/`selfCheck`/`skillsCheck`/`suggestActions`/`detectParallelOpportunities`/`suggestCrossProject`/`suggestMilestones`）、删死暴露 5 条（函数保留，另有调用方走函数不走 IPC）、登记豁免 18 条（每条写明理由，**扫描器每次运行都把这份清单打印出来** —— 登记 ≠ 藏起来）。僵尸按钮·僵尸通道·未接线模块·模板未声明标识符·**脚本内调用未定义函数**·**定义但零引用的死函数（漏接入口）**·**遮罩用 `@click.self` 关闭（拖选滑出弹窗会被当成"点了遮罩"而关掉弹窗 —— 必须 `@mousedown.self`）**·按钮用了 class 却无全局样式·主题对比度·**技能版本漂移与副本分叉**·**Markdown 标记（`**`/反引号）漏进界面文案（Vue 不解析 Markdown，用户看到的是字面星号）** |
 | **frontmatter 跨语言契约（改写盘必跑）** | `node scripts/test/e2e-fm-contract.cjs` | **TS 与 Python 读同一份 `task-data/*.md` / `docs/执行日志/*.md`**：块式列表、行内列表、引号、空值两个方向各走一遍 —— 首跑即抓到 `_parse_log` 把块式 `附件:` 读成空串（＝下次写回静默清空）；源码守卫：TS 日志 `yaml.dump` 必须带 `flowLevel:-1`（列表一律内联）、TS 任务写盘仍走 yaml.dump |
 | **MCP 读口契约** | `node scripts/test/e2e-mcp-views.cjs` | **真跑编译产物 `dist/main/mcp/tools.js` + 临时数据目录**（纯 Node 下 `setDataDir` 的持久化分支被 try/catch 吞掉，不会动真实数据目录）：`view=trash` 必须返回回收站而不是活跃+归档、`search_tasks` 必须能搜到归档、`project` 过滤对数组字段生效；源码守卫：禁止私有读扫描回潮 |
 | **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
 | **技能真源一致性（改技能必跑）** | `node scripts/test/check-skills.cjs` | **改 `skills/**` 或发版时必跑**：`manifest.version` 必须等于 `desktop/package.json` 版本；每个技能 `frontmatter.version` 必须等于 manifest 登记值（**防版本号漂移** —— 首跑就抓到 fangcun-bridge 写着 1.2.0 而 manifest 记 1.3.0）；`frontmatter.name` 必须等于 id；`docs/agents/<id>/` 副本与真源**逐字节一致**（防两处分叉）；有 SKILL.md 却没登记的目录必须报出来。顺带打印每个技能 md5（人工对账用） |
-| **界面文案（改 UI 文案必跑）** | `node scripts/test/check-ui-copy.cjs` | **Vue 不解析 Markdown** —— `**粗体**` 和反引号会原样印给用户（在途一屏空屏提示、设置页看板归档说明、`mcpConnect.ts` 的 howTo、`chat.ts` 的鉴权提示都犯过）。只看「最终会以纯文本渲染」的位置：App.vue 的 `<template>` 段（剥注释、取**最后一个**行首 `</template>` 才不会被内部 `<template v-if>` 截断）+ howTo/showToast/message/label/hint/placeholder 行；`logs.ts injectLog` / `buildSelfInstallPrompt` / 契约模板 / 派工单是**有意给 AI 读的 Markdown**，天然不在范围。守卫自身带一条「切片长度合理」的断言，防切片失效后永远绿 |
+| **界面文案（改 UI 文案必跑）** | `node scripts/test/check-ui-copy.cjs` | **Vue 不解析 Markdown** —— `**粗体**` 和反引号会原样印给用户（在途一屏空屏提示、设置页看板归档说明、`mcpConnect.ts` 的 howTo、`chat.ts` 的鉴权提示都犯过）。只看“最终会以纯文本渲染”的位置：App.vue 的 `<template>` 段（剥注释、取**最后一个**行首 `</template>` 才不会被内部 `<template v-if>` 截断）+ howTo/showToast/message/label/hint/placeholder 行；`logs.ts injectLog` / `buildSelfInstallPrompt` / 契约模板 / 派工单是**有意给 AI 读的 Markdown**，天然不在范围。守卫自身带一条“切片长度合理”的断言，防切片失效后永远绿 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是
@@ -159,7 +159,7 @@
 > - `e2e-logs.cjs`：`logs.createLog()` 早已改为返回 `{ok,data,error}`，而测试仍按旧签名取 `a.id`
 >   → `undefined` → `getLog(undefined)` 返回 null → 第 52 行 TypeError。**产品侧语义是对的**
 >   （非 active 拒改、只改状态不删文件都验证通过）。已把测试对齐新签名。**现 31/0。**
-> 上面「回归断言数」里的两个数此前**拿不到**，现已并入绿灯。
+> 上面“回归断言数”里的两个数此前**拿不到**，现已并入绿灯。
 > **2026-10-03 22:02 实测（本机口径，`spawnSync`/`execFileSync` 一律 EBUSY）**：
 > **本机可跑 15 套全绿合计 900**（agent-targets24 · applog31 · archive-overdue19 · bridge-clone5 · clipboard8 ·
 > launchpad17 · logs189 · **mcp-connect67** · ports57 · prefs41 · **renderer-web217** · skill-import48 · skills55 ·
@@ -169,27 +169,27 @@
 > task-fields / logdedupe / fm-contract / grouping / timefmt / mcp-views；`e2e-backup`、`e2e-renderer` 另需环境。
 > 本轮新增 4 处可跑断言：`e2e-agent-targets`（24）、`e2e-archive-overdue`（19）、`check-skills`（19）、
 > `renderer-web` **167→217**；`mcp-connect` **58→67**（WorkBuddy 目标）。
-> —— 09-30 那次「20 套全绿 1041」是按当时同口径记录的，数字对不上是因为**环境**（spawn 可用性）变了，不是产品退化。
+> —— 09-30 那次“20 套全绿 1041”是按当时同口径记录的，数字对不上是因为**环境**（spawn 可用性）变了，不是产品退化。
 > 本机实测（2026-09-30 11:30 重跑）：**20 套全绿、合计 1041 断言**（09-30 11:30：1032 + 四卡修复断言 9 = 1041；09-29 同口径 955），
 > 其中 `calendar / timefmt / logdedupe / grouping / policies` 本机也能跑了
-> （此前「恒 EBUSY / 需桌面会话」的限制不再复现）。**仍需桌面会话的只剩 `e2e-renderer`（真 Electron）**：
+> （此前“恒 EBUSY / 需桌面会话”的限制不再复现）。**仍需桌面会话的只剩 `e2e-renderer`（真 Electron）**：
 > 2026-09-29 本机首次真跑通 294/12；**2026-09-30 对齐归档分区头过期断言后 298 / 8** —— 余 8 条红**全在改动面之外**
 > （完成驳回折叠/悬停轻提示/待办分区头/网格三连/遮罩+AA×2；`.card-date.dim` 3.18 那条已开卡 007），
-> 逐条对照见开发日志 09-29「e2e-renderer 首跑」与 09-30 第 34/35 轮。`backup` 仍未跑。
+> 逐条对照见开发日志 09-29“e2e-renderer 首跑”与 09-30 第 34/35 轮。`backup` 仍未跑。
 > 新增守卫 `check-themes.cjs`（14 条，逐主题 WCAG 对比度）见下方测试表。
 
 > **2026-10-10 实测（本机口径）**：`verify.py` **262/0** · 六守卫 **53/0**（ipc6 · bindings1 · buttons5 ·
 > themes16 · skills19 · **ui-copy6**）· 本机可跑 e2e 全绿：**`e2e-board-cards` 41/0（新，含两处反例自证）** ·
 > `e2e-logs` 203/0 · `e2e-todos` 35/0 · `e2e-prefs` 54/0 · `e2e-trip-board` 32/0 · build 零 TS 错。
-> ⚠ **`e2e-renderer-web` 的「一次性模式」在某些执行环境里零产出**：Chromium 进程启动后**立即退出**，
+> ⚠ **`e2e-renderer-web` 的“一次性模式”在某些执行环境里零产出**：Chromium 进程启动后**立即退出**，
 > `--dump-dom` / `--screenshot` 无任何输出（exit 0、stderr 也空，**连 `--screenshot=<路径>` 的截图文件都不生成**）。
-> 与「实例冲突」无关 —— 换 Chrome 一样、Chrome 进程数为 0 时一样、放开沙箱也一样。
+> 与“实例冲突”无关 —— 换 Chrome 一样、Chrome 进程数为 0 时一样、放开沙箱也一样。
 > **但浏览器本体是好的**：`--remote-debugging-port` 起的**常驻**实例渲染正常、`/json/version` 正常响应、
 > `Runtime.evaluate` 能取到真实 DOM（实测 DOM 557KB）。
-> 所以脚本已加**兜底**：dump-dom 拿不到结果时自动改走「**常驻 + CDP**」再试一次。
+> 所以脚本已加**兜底**：dump-dom 拿不到结果时自动改走“**常驻 + CDP**”再试一次。
 > 2026-10-10 实测兜底路径跑出 **332/0**。
 > ⚠ 写这类脚本时注意：**常驻模式不要加 `--virtual-time-budget`** —— 它会把页面钉在虚拟时间轴上，
-> 断言里的 sleep/waitFor 永远跑不完，表现为「CDP 兜底超时」（一次性模式那边则必须加）。
+> 断言里的 sleep/waitFor 永远跑不完，表现为“CDP 兜底超时”（一次性模式那边则必须加）。
 > 另有两条**完全不依赖浏览器**的兜底，照旧保留：**① 派生逻辑抽 `shared/` 用 node 直接断言**；
 > **② 源码守卫**（读 `App.vue` 做正则断言，`e2e-board-cards` 里那 9 条）。
 
@@ -220,13 +220,13 @@
 | 子命令数 | 71 | `grep -c "add_parser" tegula/cli.py` |
 | 状态值数 | 7 | 看 `STATUSES` 常量（`tegula/core.py`） |
 | registry 项目数 | 13（projects 12 + released 1） | `grep -c "id:" registry.yaml` |
-| 回归断言数 | **2026-10-14 实测**：`verify.py` **276/0** · e2e `renderer-web` **458/0** · `logs` **218/0**；守卫 `check-ui-base` **18/0** · `check-decisions.py` **31/0** · `check-writeback.py` **32/0** · `check-skills` **19/0** · `check-themes` **16/0** · `check-ui-copy` **6/0** · `check-button-styles` **5/0** · `check-ipc-parity` **6/0** · `check-template-bindings` **1/0**；`check-render-roundtrip.py` = 「两侧往返全部一致 ✓」。脚本规模：e2e **36 套** · `check-*.cjs` **7** · `check-*.py` **3**（逐套数字以 `scripts/test/` 实跑为准） | `python verify.py \| tail -1` |
+| 回归断言数 | **2026-10-14 实测**：`verify.py` **276/0** · e2e `renderer-web` **458/0** · `logs` **218/0**；守卫 `check-ui-base` **18/0** · `check-decisions.py` **31/0** · `check-writeback.py` **32/0** · `check-skills` **19/0** · `check-themes` **16/0** · `check-ui-copy` **6/0** · `check-button-styles` **5/0** · `check-ipc-parity` **6/0** · `check-template-bindings` **1/0**；`check-render-roundtrip.py` = “两侧往返全部一致 ✓”。脚本规模：e2e **36 套** · `check-*.cjs` **7** · `check-*.py` **3**（逐套数字以 `scripts/test/` 实跑为准） | `python verify.py \| tail -1` |
 | （历史快照） | verify.py 242 / e2e 27 套 / 五守卫 43（2026-10-03 22:02 实测，勿当现值） | —— |
 | 看板端口 | 8753 | `grep -n "8753" tegula/web.py tegula-serve.bat` |
 
 ## 派活与闭环（原规则保留）
 
-- ⚡派活：新终端拉 `hermes chat`，任务状态置「进行中」
+- ⚡派活：新终端拉 `hermes chat`，任务状态置“进行中”
 - done 回写闭环：任务完成必须回写看板，不留悬空状态
 - unknown 字段与正文小节原样透传，不擅自增删结构
 
@@ -293,7 +293,7 @@
 ### 4. 折叠/隐藏按钮前，先扫一遍"按文字点它"的断言
 
 页签折叠后，`clickText('技能')` 之类直接点不到 → 连带整页断言全挂（10-25 一次红 20 条）。
-- **改法**：统一用 `openViewTab(label)`（先找页签行，找不到就开「更多」再点）。
+- **改法**：统一用 `openViewTab(label)`（先找页签行，找不到就开“更多”再点）。
 
 ### 5. `tsconfig` 是 `strict: false`：`if (!r.ok)` 不收窄可辨识联合
 
@@ -310,7 +310,7 @@
 ### 6b. 一次性操作别造一堆入口文件
 
 2026-10-27 为用户清理打包残留，我先后造了 3 个 `.bat`（两个中文名 + 一个转发壳）、1 个 `.ps1`、
-还有几个 `%TEMP%` 脚本 —— 用户原话：「留下了更多不必要的临时文件 .bat」。
+还有几个 `%TEMP%` 脚本 —— 用户原话：“留下了更多不必要的临时文件 .bat”。
 - **规则**：逻辑放 `scripts/`；**入口只留一个**；`%TEMP%` 脚本用完即删；
   不做"转发壳"（`a.bat` 调 `b.bat`），要改名就直接 `git mv`。
 - 顺带：给用户的东西要能一句话说清"双击哪个"，三个都叫"清理"= 等于没有入口。
@@ -338,10 +338,10 @@
 
 ### 9. 只修用户提的那个故障，不要顺手改架构（严重）
 
-2026-10-27 用户定性为**严重教训**。他问「release 目录怎么清」，我清理时撞到索引器锁 asar，
+2026-10-27 用户定性为**严重教训**。他问“release 目录怎么清”，我清理时撞到索引器锁 asar，
 就顺手把**打包输出搬到工作区外**（`E:\CODE\CangKu\_pkg`）—— 被当场否掉：
-「自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？以前都是一个专门的文件夹放打包产物，
-`.gitignore` 忽略文件夹就好了」。
+“自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？以前都是一个专门的文件夹放打包产物，
+`.gitignore` 忽略文件夹就好了”。
 
 - **事实对照**：`.gitignore:44-49` 早就忽略了 `desktop/release/`、`release*/`、`pkg/`、`.pkg-tmp/`。
   产物留在工作区是对的 —— **固定单目录 + `.gitignore`** 就够，不需要搬出去。
@@ -384,7 +384,7 @@
 - `docs/tegula-architecture.*` = Archify 架构图生成物（HTML/JSON/视觉验证快照）
 - `docs/pv-check*` = 项目视图手动验证产物；`references/` = 重设计对比稿
 - `verify.py` 1325 行 = 数据层回归（**24 个检查组**；第 23/24 组是 2026-09-28/29 新增的
-  「老 YAML 写法」——块式列表 / 裸标量 / 块标量 / 前言嵌套映射，四类都会让写回静默毁数据）
+  “老 YAML 写法”——块式列表 / 裸标量 / 块标量 / 前言嵌套映射，四类都会让写回静默毁数据）
 - `scripts/smoke_pythonw.py` = 看板冒烟测试（pythonw 场景）
 - `desktop/src/renderer/calendar.ts` = 日历纯逻辑（日期解析/时间段跨度/跨月分组），
   不依赖 Vue/DOM，因此可被 `e2e-calendar.cjs` 直接编译断言 —— 跨月边界错误肉眼抓不住，必须靠脚本
@@ -407,7 +407,7 @@
 ```
 
 **stdio 桥的正确形态（2026-10-18 定稿，别走回头路）**：MCP 客户端 spawn 的是
-「方寸自己的可执行文件 + `ELECTRON_RUN_AS_NODE=1` + 包内桥脚本」：
+“方寸自己的可执行文件 + `ELECTRON_RUN_AS_NODE=1` + 包内桥脚本”：
 
 ```yaml
 command: "…\方寸.exe"            # 开发态 = desktop\node_modules\electron\dist\electron.exe
@@ -419,8 +419,8 @@ env:     { ELECTRON_RUN_AS_NODE: "1" }   # ← 不能省
   `FATAL: gpu_process_host isn't usable. Goodbye.` 直接带走进程），客户端只看到"服务瞬间没了"。
 - **不要退回 `node dist/cli/tegula-mcp.js`**：安装版里那个 js 在 `app.asar` 内，
   外部 node 执行不了；而且裸 `node` 在 GUI 应用的 PATH 里通常不存在。
-- 客户端不支持配置 `env` → 用「入口 C」（本机 node 绝对路径跑同一个桥脚本，能力相同）。
-- 方寸设置页「接入其他 Agent」按本机路径生成配置段，两个入口都在。
+- 客户端不支持配置 `env` → 用“入口 C”（本机 node 绝对路径跑同一个桥脚本，能力相同）。
+- 方寸设置页“接入其他 Agent”按本机路径生成配置段，两个入口都在。
 
 ### 快速自检
 

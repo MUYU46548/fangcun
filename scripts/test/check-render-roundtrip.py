@@ -4,7 +4,7 @@
 
 背景：core.render_task 用裸 f-string 拼 YAML（`f"标题: {d.get('标题','')}"`、
 `f"标签: [{', '.join(...)}]"`），值里含 YAML 元字符时不加引号。
-本检查枚举会导致失真/解析失败的取值，确认哪些是「静默损坏」、哪些是「直接消失」。
+本检查枚举会导致失真/解析失败的取值，确认哪些是“静默损坏”、哪些是“直接消失”。
 
 输出 JSON 供 node 侧读回交叉验证（scripts/test/check-render-roundtrip.cjs）。
 """
@@ -119,7 +119,7 @@ with open(os.path.join(OUT, 'report.json'), 'w', encoding='utf-8') as f:
     json.dump(report, f, ensure_ascii=False, indent=2)
 
 # ── 桌面版（严格 js-yaml）交叉验证 ────────────────────────────────────
-# 单侧绿不算数：真实链路是「Python CLI 写 → 桌面版读」，必须两侧都验。
+# 单侧绿不算数：真实链路是“Python CLI 写 → 桌面版读”，必须两侧都验。
 NODE_SRC = r'''
 const path = require('path'), fs = require('fs'), os = require('os'), Module = require('module')
 const REPO = process.argv[2], OUT = process.argv[3]

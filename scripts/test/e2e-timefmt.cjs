@@ -3,7 +3,7 @@
  *
  * 为什么单独测：数据里同时有 **ISO / 秒级 Unix 数字 / MM-DD** 三种写法
  *   （Python 版 tegula 写的是 `1787930114`，`new Date("1787930114")` = Invalid Date）。
- * 这类错在界面上只表现为「日期空着 / 显示 Invalid Date / N天前变成 NaN」，
+ * 这类错在界面上只表现为“日期空着 / 显示 Invalid Date / N天前变成 NaN”，
  * 肉眼很难判定对错，所以用纯函数断言钉住。time.ts 不依赖 Vue/DOM，可直接 tsc 编出来跑。
  *
  * 运行：node scripts/test/e2e-timefmt.cjs
@@ -68,7 +68,7 @@ function main() {
 
   // ── C. relativeTime / daysSince / relTimeShort 不出现 NaN ──────────
   check('C1 垃圾输入相对时间给空串（不是 NaN月前）', t.relativeTime('abc') === '', t.relativeTime('abc'))
-  check('C2 今天识别为「今天」', t.relativeTime(new Date().toISOString()) === '今天')
+  check('C2 今天识别为“今天”', t.relativeTime(new Date().toISOString()) === '今天')
   check('C3 秒级时间戳能算出相对时间', t.relativeTime(String(SEC)).length > 0, t.relativeTime(String(SEC)))
   const d1 = t.daysSince(String(SEC))
   check('C4 daysSince 秒级能算且不是 NaN', Number.isFinite(d1) && d1 > 0, String(d1))
@@ -98,9 +98,9 @@ function main() {
   check('D7 通知面板遮罩同样没有 backdrop-filter',
     !/\.nc-wrap \{[^}]*backdrop-filter/.test(vue))
 
-  // D8/D9（2026-09-25 新增）：上轮的教训是「清了一个元素，漏了另一个」——
+  // D8/D9（2026-09-25 新增）：上轮的教训是“清了一个元素，漏了另一个”——
   //   .overlay / .nc-wrap 都清了，却把**常驻**的 #bar 留着，用户第 1/3/9 条因此复发。
-  //   所以判据从「逐元素白名单」改成「全文件零容忍」。剥注释后再判，否则撞自己写的说明文字。
+  //   所以判据从“逐元素白名单”改成“全文件零容忍”。剥注释后再判，否则撞自己写的说明文字。
   const vueNoComment = vue.replace(/\/\*[\s\S]*?\*\//g, '')
   const bfCount = (vueNoComment.match(/backdrop-filter/g) || []).length
   check('D8 App.vue 全域零 backdrop-filter（不再一个元素一个元素地漏）',
@@ -110,24 +110,24 @@ function main() {
     '.blob 缺 filter: blur 或 will-change: transform')
 
   // D10–D12（2026-09-25 第二批）：
-  //   D10 快捷键 Ctrl+S —「通道早通、UI 无入口」的教训：新功能必须证明**真挂上了**，
+  //   D10 快捷键 Ctrl+S —“通道早通、UI 无入口”的教训：新功能必须证明**真挂上了**，
   //       而且**卸载时摘干净**（ncInit 那套曾因早退导致监听器根本不注册）。
-  //       更要紧的是**只点主保存按钮 `.pri`**：验收弹窗的「通过」是 `.ok`、驳回是 `.danger`，
+  //       更要紧的是**只点主保存按钮 `.pri`**：验收弹窗的“通过”是 `.ok`、驳回是 `.danger`，
   //       裁决类必须用手点 —— Ctrl+S 误触一下就把任务验收了。
-  //   D12 日历底部「横条墙」默认收起（第 10 条），别退回一铺一大片。
+  //   D12 日历底部“横条墙”默认收起（第 10 条），别退回一铺一大片。
   check('D10 快捷键：挂载 + 卸载 + 只点主保存按钮（.pri），不碰裁决按钮',
     /addEventListener\('keydown', onShortcutKeydown\)/.test(vueNoComment) &&
     /removeEventListener\('keydown', onShortcutKeydown\)/.test(vueNoComment) &&
     /querySelector<HTMLButtonElement>\('\.acts button\.pri'\)/.test(vueNoComment) &&
     !/querySelector[^\n]*\.acts button\.(ok|danger)/.test(vueNoComment),
     '缺挂载/卸载，或动了裁决按钮')
-  // ⚠ 2026-10-23 改写：原判据是「**完全不**接管 Ctrl+Z」，那是 2026-09-25 的规则。
-  //   2026-10-21 暮雨第 1 条（「狂按 Ctrl+Z 也没用」）改成了**有条件的接管**：
+  // ⚠ 2026-10-23 改写：原判据是“**完全不**接管 Ctrl+Z”，那是 2026-09-25 的规则。
+  //   2026-10-21 暮雨第 1 条（“狂按 Ctrl+Z 也没用”）改成了**有条件的接管**：
   //   撤销条上有待撤动作 → 撤这一步数据动作；没有 → 放行输入框的原生撤销。
   //   所以新的判据不是"不许出现 key === 'z'"，而是**顺序**：
   //   必须先 `if (!undoBar.value) return` 再 `preventDefault()`。
   //   顺序反了就会把输入框里的撤销吃掉 —— 这正是当初那条断言要保护的用户体验。
-  // ⚠ 判据必须看**顺序**，不能用「A 之后 B 在 200 字内」那种窗口：
+  // ⚠ 判据必须看**顺序**，不能用“A 之后 B 在 200 字内”那种窗口：
   //   第一版就是这么写的，结果把 Ctrl+S 分支里的 preventDefault 匹配上了 ——
   //   把两行顺序颠倒（先拦后判）照样全绿，等于没写。现在先切出 Ctrl+Z 这一段，再比下标。
   const zBranch = (vueNoComment.match(/if \(e\.key === 'z' \|\| e\.key === 'Z'\) \{([\s\S]{0,900}?)\n  \}/) || [])[1] || ''
@@ -141,7 +141,7 @@ function main() {
   check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
     /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
 
-  // D19–D21（2026-11-01 暮雨第 2 条）：「撤回的横幅……一直挂在顶上很烦，放个 5 秒就差不多了」。
+  // D19–D21（2026-11-01 暮雨第 2 条）：“撤回的横幅……一直挂在顶上很烦，放个 5 秒就差不多了”。
   //   要钉两件事，缺一条就会变成另一种事故：
   //     ① 横幅真的会自己收起（不是靠用户点 ✕）；
   //     ② **收起 ≠ 失去撤销能力** —— 栈不清、Ctrl+Z 照旧、还有一个小胶囊能把条子叫回来
@@ -155,11 +155,11 @@ function main() {
     /undoStack\.value = \[\]/.test(vueNoComment) && !/undoBarVisible\.value = false[\s\S]{0,80}undoStack\.value = \[\]/.test(vueNoComment),
     '定时收起处不应清空 undoStack')
 
-  // D13–D15（2026-09-27 用户第 2/3 条：「怪异遮罩挡字」+「不同颜色外观下可读性差」）
+  // D13–D15（2026-09-27 用户第 2/3 条：“怪异遮罩挡字”+“不同颜色外观下可读性差”）
   //   D13 Python 版看板还有 13 处 backdrop-filter（含常驻顶栏）——同一条铁律只清了桌面版，
-  //       这次扫到就把两个前端一起钉住（判据仍是「全文件零容忍」）。
+  //       这次扫到就把两个前端一起钉住（判据仍是“全文件零容忍”）。
   //   D14 两个前端共用同一套设计令牌：改一处忘另一处 = 同一个界面两副面孔。
-  //   D15 遮罩不许再有「全屏 + 带 blur」的形状（死 CSS 也算：留着会让人以为真有这一层）。
+  //   D15 遮罩不许再有“全屏 + 带 blur”的形状（死 CSS 也算：留着会让人以为真有这一层）。
   const board = fs.readFileSync(path.join(ROOT, 'templates', 'board.html'), 'utf8')
   const boardNoComment = board.replace(/\/\*[\s\S]*?\*\//g, '')
   const boardBf = (boardNoComment.match(/backdrop-filter/g) || []).length
@@ -169,7 +169,7 @@ function main() {
   const drift = tokens.filter((t) => pick(vue, t) && pick(board, t) && pick(vue, t).toLowerCase() !== pick(board, t).toLowerCase())
   check('D14 两个前端的品牌色令牌一致（accent/muted/danger/success/warning）',
     drift.length === 0, `不一致：${drift.map((t) => `${t} 桌面=${pick(vue, t)} 看板=${pick(board, t)}`).join(' , ')}`)
-  check('D15 没有「全屏 + backdrop-filter」的遮罩残留（含死 CSS）',
+  check('D15 没有“全屏 + backdrop-filter”的遮罩残留（含死 CSS）',
     !/inset:0[^}]*backdrop-filter/.test(boardNoComment) && !/inset:\s*0[^}]*backdrop-filter/.test(vueNoComment))
 
   // D16（2026-09-28 用户第 1 条）：**装饰层必须真的在背景层**。
@@ -187,8 +187,8 @@ function main() {
     `规则=${blobRule.replace(/\s+/g, ' ').slice(0, 120)} z-index=${blobZ}`)
 
   // D17（2026-10-03 卡 task-20261003-004·族1）：老看板编辑弹窗必须有关闭防丢。
-  //   保存时的 expected_update 乐观锁防的是并发覆盖，防不了「点遮罩/取消/Esc 把没保存的
-  //   编辑丢掉」。判据：openEdit/openNew 各存一次快照（≥2 处）、closeModal 带 force 参数
+  //   保存时的 expected_update 乐观锁防的是并发覆盖，防不了“点遮罩/取消/Esc 把没保存的
+  //   编辑丢掉”。判据：openEdit/openNew 各存一次快照（≥2 处）、closeModal 带 force 参数
   //   与 confirm、成功落盘路径显式放行（closeModal(true) / 成功后清 editSnap）。
   check('D17 board.html 编辑弹窗关闭防丢（打开存快照 / 改过才问 / 成功落盘不追问）',
     /let editSnap=/.test(boardNoComment) &&
@@ -198,8 +198,8 @@ function main() {
     /if\(r\.ok\)editSnap=""/.test(boardNoComment),
     `snap=${(boardNoComment.match(/editSnap=formSnap\(\)/g) || []).length} force=${/function closeModal\(force\)/.test(boardNoComment)} bypass=${(boardNoComment.match(/closeModal\(true\)/g) || []).length}`)
 
-  // ══ E. 待办「日期 + 可选时间」合成（2026-10-12 暮雨：待办只有到期日，想再加个时间）══
-  //   原话场景：「workbuddy 额度 21:33:59 重置，让用户选个 21:39」——
+  // ══ E. 待办“日期 + 可选时间”合成（2026-10-12 暮雨：待办只有到期日，想再加个时间）══
+  //   原话场景：“workbuddy 额度 21:33:59 重置，让用户选个 21:39”——
   //   所以 due=今天 + dueTime=21:39 必须在 **21:39 之后**就算过期，而不是等第二天。
   //   ⚠ 这里测的是 shared/time 的纯函数；App.vue 里不许内联日期算术（e2e-calendar 有守卫）。
   const today = new Date()

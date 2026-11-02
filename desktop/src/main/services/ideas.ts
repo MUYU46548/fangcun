@@ -39,7 +39,7 @@ import * as todosService from './todos'
 export const IDEA_STATUSES = ['新记', '已立项', '已搁置', '已否决'] as const
 export type IdeaStatus = (typeof IDEA_STATUSES)[number]
 
-/** 「已经有结论」的三态（用来把待定区和已决区分开） */
+/** “已经有结论”的三态（用来把待定区和已决区分开） */
 export const IDEA_DECIDED: readonly IdeaStatus[] = ['已立项', '已搁置', '已否决']
 
 export interface Idea {
@@ -53,15 +53,15 @@ export interface Idea {
   updatedAt: string
   /** 做出决定的时间。新记 = 空串（没做过决定，不假填一个时间） */
   decidedAt: string
-  /** 立项产出到哪了。只有「已立项」有值，用来回查是哪条待办 */
+  /** 立项产出到哪了。只有“已立项”有值，用来回查是哪条待办 */
   promoted: { kind: 'todo'; id: string } | null
 }
 
 /**
  * 单条念头的长度上限。
  *
- * 2026-10-25（暮雨）：「MAX_TEXT = 4000 太小了，或者弄个用户可以自己设置的设置项
- *  ……但是设个硬上限 20000」。所以现在三件东西：
+ * 2026-10-25（暮雨）：“MAX_TEXT = 4000 太小了，或者弄个用户可以自己设置的设置项
+ *  ……但是设个硬上限 20000”。所以现在三件东西：
  *   · 默认 10000（比原来宽一倍多，贴一段长建议够用）
  *   · 设置页滑块可调（1000 ~ 20000，步长 1000），落 `prefs.json` 的 `fc_idea_max_chars`
  *   · **硬上限 20000** —— 用户能从界面上调到这个数，但代码不接受比它更大（prefs.json
@@ -94,8 +94,8 @@ export function ideaTextLimit(): number {
   }
   if (raw === undefined || raw === null || raw === '') return IDEA_TEXT_DEFAULT
   // ⚠ **不许直接 Number(raw)**（2026-10-25 测试当场抓到）：
-  //   `Number([]) === 0` / `Number('') === 0` / `Number(true) === 1` —— 把「读不懂的值」
-  //   静默变成 0 再夹到下限 1000，用户手改出个 `[]` 会得到「上限 1000」这种完全无关的结果。
+  //   `Number([]) === 0` / `Number('') === 0` / `Number(true) === 1` —— 把“读不懂的值”
+  //   静默变成 0 再夹到下限 1000，用户手改出个 `[]` 会得到“上限 1000”这种完全无关的结果。
   //   所以先按类型分类：数字直接用；字符串（手改常带引号）容错；其余一律回落默认。
   if (typeof raw === 'number') return Number.isFinite(raw) ? clampIdeaLimit(raw) : IDEA_TEXT_DEFAULT
   if (typeof raw === 'string') {
@@ -120,7 +120,7 @@ export function isIdeaStatus(v: unknown): v is IdeaStatus {
 /**
  * 归一一条记录。
  *
- * 状态非法时归「新记」而不是丢掉这条：**念头的正文比状态重要**，宁可退化成"还没决定"，
+ * 状态非法时归“新记”而不是丢掉这条：**念头的正文比状态重要**，宁可退化成"还没决定"，
  * 也不能因为一个脏状态把用户写下的半句话吞掉（＝静默内容丢失）。
  */
 function normalizeIdea(raw: any): Idea {
@@ -188,7 +188,7 @@ export function ideasHealth(): { ok: boolean; path: string; lastError: typeof la
 /**
  * 列想法。
  *
- * 排序刻意是「**最新记的排最前**」：想法是一堆并列的念头，没有优先级也没有先后，
+ * 排序刻意是“**最新记的排最前**”：想法是一堆并列的念头，没有优先级也没有先后，
  * 按创建时间倒序就是唯一说得通的顺序。已决区同理 —— 最近决定的在最上面。
  */
 export function listIdeas(filter?: { status?: IdeaStatus }): Idea[] {
@@ -207,7 +207,7 @@ export function ideasSummary(): Record<IdeaStatus, number> {
 /**
  * 记一条。
  *
- * 重复保护：**完全相同的内容、且还停在「新记」** → 不重复落盘，返回 `duplicate: true`。
+ * 重复保护：**完全相同的内容、且还停在“新记”** → 不重复落盘，返回 `duplicate: true`。
  * 为什么只管"还停在待定"这一种：已经立项/否决的再记一遍，可能是真想重开（或确实是另一件事），
  * 那属于用户的决定，不该被"你记过了"拦住。手滑连点两下才是最需要拦的场景。
  */
@@ -218,7 +218,7 @@ export function addIdea(
   if (!t) return { ok: false, error: '念头是空的 —— 写一句再存' }
   const MAX_TEXT = ideaTextLimit()
   if (t.length > MAX_TEXT) {
-    return { ok: false, error: `太长了（${t.length} 字）—— 上限 ${MAX_TEXT} 字，可在「设置 → 通用 → 念头长度上限」调整（最大 ${IDEA_TEXT_HARD_MAX}）` }
+    return { ok: false, error: `太长了（${t.length} 字）—— 上限 ${MAX_TEXT} 字，可在“设置 → 通用 → 念头长度上限”调整（最大 ${IDEA_TEXT_HARD_MAX}）` }
   }
   const all = loadIdeas()
   const dup = all.find((i) => i.status === '新记' && i.text.trim() === t)
@@ -262,7 +262,7 @@ export function updateIdeaText(
 /**
  * 改状态（搁置 / 否决 / 撤回成待定）。
  *
- * ⚠ **「已立项」不能从这条路走进来** —— 立项必须真在待办里生出一条（`promoteIdea`）。
+ * ⚠ **“已立项”不能从这条路走进来** —— 立项必须真在待办里生出一条（`promoteIdea`）。
  *   允许直接把状态改成已立项，就会产出一批"说是立项了、待办里根本没有"的假账。
  */
 export function setIdeaStatus(
@@ -270,15 +270,15 @@ export function setIdeaStatus(
   status: IdeaStatus,
   note?: string,
 ): { ok: true; idea: Idea; before: { status: IdeaStatus; note: string } } | { ok: false; error: string } {
-  if (!isIdeaStatus(status)) return { ok: false, error: `没有「${status}」这个状态` }
-  if (status === '已立项') return { ok: false, error: '「立项」要走「做」那个动作 —— 它会真在待办里生出一条；直接改状态会留下假账' }
+  if (!isIdeaStatus(status)) return { ok: false, error: `没有“${status}”这个状态` }
+  if (status === '已立项') return { ok: false, error: '“立项”要走“做”那个动作 —— 它会真在待办里生出一条；直接改状态会留下假账' }
 
   const all = loadIdeas()
   const idx = all.findIndex((i) => i.id === id)
   if (idx < 0) return { ok: false, error: '没有这条想法（可能已经删了）' }
   const cur = all[idx]
   if (cur.status === '已立项') {
-    return { ok: false, error: '这条已经立项了（待办里有对应的一条）—— 要撤回先点待办那边的「由想法转来」撤销' }
+    return { ok: false, error: '这条已经立项了（待办里有对应的一条）—— 要撤回先点待办那边的“由想法转来”撤销' }
   }
   const before = { status: cur.status, note: cur.note }
   const now = new Date().toISOString()
@@ -296,7 +296,7 @@ export function setIdeaStatus(
 /**
  * 立项 = 决定做 → **真在待办里生出一条**，然后把这念头标成已立项并记住那条待办的 id。
  *
- * 顺序刻意是「先建待办，成功后才改想法状态」：反过来的话，待办创建失败会留下一条
+ * 顺序刻意是“先建待办，成功后才改想法状态”：反过来的话，待办创建失败会留下一条
  * "说立项了但待办里没有"的假账。两边都失败时用户只会看到"没成"，而不是看到成功。
  *
  * 为什么落到**待办**而不是任务卡：待办是"要做的事"里最轻的一档，不需要项目、不需要验收线。
@@ -316,13 +316,13 @@ export function promoteIdea(
 
   let todo: any
   try {
-    // ⚠ 2026-10-25（暮雨第 3 条）：「标题取念头第一行，多行正文塞进去会把列表撑歪」——
-    //   这条注释本身就是错的。待办的「内容」字段一直是**可以写长的 textarea**
-    //   （`App.vue` 的 `todoEdit_.title`，placeholder 原话「待办内容（可以写长一点）」），
+    // ⚠ 2026-10-25（暮雨第 3 条）：“标题取念头第一行，多行正文塞进去会把列表撑歪”——
+    //   这条注释本身就是错的。待办的“内容”字段一直是**可以写长的 textarea**
+    //   （`App.vue` 的 `todoEdit_.title`，placeholder 原话“待办内容（可以写长一点）”），
     //   列表里靠 `.todo-title { white-space: nowrap; text-overflow: ellipsis }` 压成一行显示。
-    //   所以「日志 → 待办」那条路（`logToTodoText`）早就把全文塞进 title 了，只有这里砍成首行
-    //   —— 结果是念头的正文**立项即永久丢失**（用户原话：「转进来只剩日志里的标题，甚至
-    //   不是正文，还被截断了」）。现在与 `logToTodoText` 同范式：**全文进 title，一位不丢**。
+    //   所以“日志 → 待办”那条路（`logToTodoText`）早就把全文塞进 title 了，只有这里砍成首行
+    //   —— 结果是念头的正文**立项即永久丢失**（用户原话：“转进来只剩日志里的标题，甚至
+    //   不是正文，还被截断了”）。现在与 `logToTodoText` 同范式：**全文进 title，一位不丢**。
     const title = cur.text.trim()
     todo = todosService.createTodo(title, opts?.priority || '中')
   } catch (e: any) {
@@ -342,7 +342,7 @@ export function promoteIdea(
 }
 
 /**
- * 撤销立项：删掉那条待办，想法退回到「新记」。
+ * 撤销立项：删掉那条待办，想法退回到“新记”。
  *
  * 为什么允许真删待办：这条待办是本功能刚生成的、且用户点的是"撤销"，删了就是恢复原状。
  * 如果那条待办已经被用户改过 / 已经做完 —— 那是用户的东西了，不动，明说让人自己去处理。

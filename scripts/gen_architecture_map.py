@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""再生成 docs/ARCHITECTURE_MAP.md 的「结构清单」节（GEN 标记之间）。
+"""再生成 docs/ARCHITECTURE_MAP.md 的“结构清单”节（GEN 标记之间）。
 
 分工纪律（同 SiTian 版）：
   - 快变量（文件清单、行数）= 本脚本负责

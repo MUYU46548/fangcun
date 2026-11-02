@@ -101,7 +101,7 @@ check("不带 --claim 就一个字段都不写（只读不占）",
       not str(d1.get("认领人") or "").strip(), d1.get("认领人"))
 with open(os.path.join(TASKS, "t-001.md"), encoding="utf-8") as f:
     raw = f.read()
-check("盘上文件也没多出「认领人」这行", "认领人" not in raw)
+check("盘上文件也没多出“认领人”这行", "认领人" not in raw)
 
 print("")
 print("---- 2. 认领：写入认领人 + 时间 ----")

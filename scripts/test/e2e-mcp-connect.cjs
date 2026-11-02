@@ -109,20 +109,20 @@ function main() {
   check('DSH 本机检测到（~/.dsh/profiles/<p>/cordis.patch.yml 真实存在）',
     dsh.detected === true && !!dsh.configPath && fs.existsSync(dsh.configPath), dsh.evidence)
 
-  // ── WorkBuddy（2026-10-03 用户：「似乎没有让 WorkBuddy 自装接入 MCP 的选项」）──
+  // ── WorkBuddy（2026-10-03 用户：“似乎没有让 WorkBuddy 自装接入 MCP 的选项”）──
   {
     const wb = targets.find(t => t.id === 'workbuddy')
     check('★ WorkBuddy 在目标清单里（此前六家没有它 → 用户找不到自装入口）', !!wb)
     check('★ WorkBuddy 的 configPath 必须是 undefined（落点不可知就不猜、不显示"打开配置文件"）',
       wb && wb.configPath === undefined, JSON.stringify(wb && wb.configPath))
-    check('  它的 howTo 明说"不猜/不代写"并指向「让它自装」',
+    check('  它的 howTo 明说"不猜/不代写"并指向“让它自装”',
       wb && /不猜/.test(wb.howTo) && /让它自装/.test(wb.howTo), wb && wb.howTo.slice(0, 60))
     const snip = mod.buildMcpSnippet('workbuddy', 'A')
     check('★ WorkBuddy 配置段生成成功（通用 mcpServers 形状 + 本机真实入口路径）',
       snip.ok && /mcpServers/.test(snip.snippet) && /ELECTRON_RUN_AS_NODE/.test(snip.snippet),
       snip.snippet.slice(0, 120))
     const p = mod.buildSelfInstallPrompt('workbuddy', 'A')
-    check('★ 能生成 WorkBuddy 的「自装指令」（这就是用户要的那个选项）', p.ok === true, p.message)
+    check('★ 能生成 WorkBuddy 的“自装指令”（这就是用户要的那个选项）', p.ok === true, p.message)
     check('★ 落点不可知时，自装指令点名"按你自己的格式改写，但 command/args 原样保留"',
       p.ok && /按你自己的文档改写/.test(p.prompt) && /command/.test(p.prompt) && /args/.test(p.prompt),
       p.ok ? p.prompt.split('\n').slice(6, 9).join(' | ') : p.message)
@@ -205,7 +205,7 @@ function main() {
   const pBad = mod.buildSelfInstallPrompt('不存在的目标', 'A')
   check('卡006e：未知目标 → ok:false 且有原因', pBad.ok === false && !!pBad.message, JSON.stringify(pBad))
 
-  // ── 卡007（2026-10-03）：OpenCode「已检测到」误报 —— 两处检测都挂「能跑」门（源码守卫，机器无关）──
+  // ── 卡007（2026-10-03）：OpenCode“已检测到”误报 —— 两处检测都挂“能跑”门（源码守卫，机器无关）──
   const ocSrc = fs.readFileSync(path.join(DIST, '..', '..', 'src', 'main', 'services', 'mcpConnect.ts'), 'utf-8')
   const agSrc = fs.readFileSync(path.join(DIST, '..', '..', 'src', 'main', 'services', 'agents.ts'), 'utf-8')
   check('卡007：装卡区与 MCP 区的 OpenCode 检测都要求 opencode --version 能跑（不止看目录）',

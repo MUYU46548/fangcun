@@ -91,7 +91,7 @@ export function encryptBackup(plain: Buffer, password: string, kdf: KdfParams = 
   const cipher = createCipheriv('aes-256-ctr', keys.enc, iv)
   const ct = Buffer.concat([cipher.update(plain), cipher.final()])
 
-  // tag 覆盖「头部前 51 字节 + 密文」：改 salt/iv/参数/密文都会失效
+  // tag 覆盖“头部前 51 字节 + 密文”：改 salt/iv/参数/密文都会失效
   const mac = createHmac('sha256', keys.mac)
   mac.update(header.subarray(0, 51))
   mac.update(ct)
@@ -102,7 +102,7 @@ export function encryptBackup(plain: Buffer, password: string, kdf: KdfParams = 
 
 /**
  * 解密。失败一律抛 `BackupCryptoError`，并且**三种原因分开报** ——
- * 「密码不对」和「文件被改过」如果混成一句，用户永远不知道该重输口令还是该换一份备份。
+ * “密码不对”和“文件被改过”如果混成一句，用户永远不知道该重输口令还是该换一份备份。
  */
 export function decryptBackup(buf: Buffer, password: string): Buffer {
   if (!isEncryptedBackup(buf)) {
@@ -138,6 +138,6 @@ export function decryptBackup(buf: Buffer, password: string): Buffer {
 /** 给人看的一句话：这份备份加没加密、加密了该怎么恢复 */
 export function cryptoHint(encrypted: boolean): string {
   return encrypted
-    ? '这是加密备份（.fcz）。恢复要口令 —— 口令忘了就打不开，方寸也没有后门。用 fangcun-restore.py --password 或方寸的「恢复」入口。'
+    ? '这是加密备份（.fcz）。恢复要口令 —— 口令忘了就打不开，方寸也没有后门。用 fangcun-restore.py --password 或方寸的“恢复”入口。'
     : '这是未加密备份（.zip）。任何人拿到它就能读到全部任务与日志 —— 要传出去请用加密备份。'
 }

@@ -1,5 +1,5 @@
 /**
- * 日志维护动作（2026-10-31 · 渲染层拆分第二批「日志动作收口」第二刀）
+ * 日志维护动作（2026-10-31 · 渲染层拆分第二批“日志动作收口”第二刀）
  *
  * 搬出来的是**批量 + 按日期清理**这一组无 UI 的维护动作：
  *   · 全选当前可见日志；批量完成 / 归档 / 销毁（带撤销条）；批量改优先级；
@@ -90,7 +90,7 @@ export function useLogMaintenance(deps: Deps) {
   /**
    * 批量改优先级（2026-10-09 用户第 4 条）。与完成/归档不同：
    * ① 不弹确认（改元数据可逆）；② 做完**不退出多选**（连着调几档是正常用法）。
-   * updateLog 只放行「待处理」态 → 成功/跳过如实报数，不静默。
+   * updateLog 只放行“待处理”态 → 成功/跳过如实报数，不静默。
    */
   async function executeBatchLogPriority(ev: Event) {
     const sel = ev.target as HTMLSelectElement
@@ -108,20 +108,20 @@ export function useLogMaintenance(deps: Deps) {
     }
     const skip = ids.length - ok
     toast(skip
-      ? `优先级已更新 ${ok}/${ids.length} 条（${skip} 条跳过：非「待处理」不可改）`
-      : `已给 ${ok} 条日志设优先级「${prio || '不标'}」`, ok ? 'success' : 'error')
+      ? `优先级已更新 ${ok}/${ids.length} 条（${skip} 条跳过：非“待处理”不可改）`
+      : `已给 ${ok} 条日志设优先级“${prio || '不标'}”`, ok ? 'success' : 'error')
     void reload()                        // 选择与多选模式都保留（元数据批量不踢人）
   }
 
-  // ── 按日期清理「已归档」日志 ────────────────────────────────────────
-  // 与「批量彻底删除」分工：那个要逐条勾选且硬删；这个按日期一把筛且软删（进 .trash）。
+  // ── 按日期清理“已归档”日志 ────────────────────────────────────────
+  // 与“批量彻底删除”分工：那个要逐条勾选且硬删；这个按日期一把筛且软删（进 .trash）。
   // 流程强制两步：先 dryRun 预览命中条数 → 再确认执行。
   const logPurgeOpen = ref(false)
   const logPurgeDate = ref('')
   const logPurgePreview = ref<{ count: number; ids: string[]; titles: string[] } | null>(null)
   const logPurgeBusy = ref(false)
 
-  /** 默认「早于 30 天」；仍是用户显式点「确认清理」才动手。 */
+  /** 默认“早于 30 天”；仍是用户显式点“确认清理”才动手。 */
   function defaultLogPurgeDate(daysAgo = 30): string {
     const d = new Date()
     d.setDate(d.getDate() - daysAgo)
@@ -135,7 +135,7 @@ export function useLogMaintenance(deps: Deps) {
     logPurgeOpen.value = true
   }
   function closeLogPurge() { logPurgeOpen.value = false }
-  /** 改了日期就作废旧预览 —— 否则「预览 71 条」和「按新日期删」对不上，是假成功。 */
+  /** 改了日期就作废旧预览 —— 否则“预览 71 条”和“按新日期删”对不上，是假成功。 */
   function resetLogPurgePreview() { logPurgePreview.value = null }
 
   async function runLogPurgePreview() {

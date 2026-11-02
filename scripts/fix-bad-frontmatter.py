@@ -7,7 +7,7 @@
 `tegula/core.py` 的 render_task 原先用裸 f-string 拼值，含 `: `、以 `[`/`#`/`>` 开头、
 或本身带换行的值会写出**非法 YAML**。桌面版 parseTask 用严格 js-yaml，
 解析失败即 return null 并被 loadTasks 静默跳过 ——
-表现为「Python CLI 里明明有的任务，桌面版看板里就是没有」。
+表现为“Python CLI 里明明有的任务，桌面版看板里就是没有”。
 
 写入侧的转义已在 core.py 的 `yaml_scalar()` 修好（2026-09-18），
 但**已经写坏的存量文件需要单独修**，否则那些任务继续隐身。

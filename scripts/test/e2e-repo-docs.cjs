@@ -1,5 +1,5 @@
 /**
- * 「实况回流 · 路线文档」端到端（2026-10-21 · W1-批次 2）
+ * “实况回流 · 路线文档”端到端（2026-10-21 · W1-批次 2）
  *
  * 钉的是四条边界，不是"代码里有 readFileSync 这个词"：
  *  ① **读到真东西**：README / ROADMAP + 最近动过 docs/ 的提交（真临时仓库里造出来再读回）；
@@ -94,7 +94,7 @@ async function main() {
       check('★ 抽标题：取一级标题（去掉粗体/代码标记）', got.title === '方寸 (Tegula)', got.title)
       check('★★ 抽摘要：跳过徽章/图片/分隔线，从第一段正文开始（不是把徽章当摘要）',
         got.excerpt.indexOf('零依赖本地') === 0, got.excerpt)
-      // 2026-10-21 暮雨反馈「README 只截一行，通常没什么有用信息」→ 摘要改成**前两段**
+      // 2026-10-21 暮雨反馈“README 只截一行，通常没什么有用信息”→ 摘要改成**前两段**
       check('★★ 摘要收**两段**（第一段常常只是标语，第二段才有信息）',
         got.excerpt.indexOf('第二段才常常') > 0, got.excerpt)
       check('  但只收两段：第三段不进摘要（要看就点开，不默认铺满监控台）',
@@ -166,7 +166,7 @@ async function main() {
     const d4 = await readProjectDocs(onlyReadme)
     check('★★ 没有 ROADMAP → roadmap 为 null（界面显示"没有"，不糊空壳）',
       d4.roadmap === null && !!d4.readme, JSON.stringify({ readme: !!d4.readme, roadmap: d4.roadmap }))
-    check('★ 只有 README 时 note 点名「没找到 ROADMAP」（别让人把对外说明当路线）',
+    check('★ 只有 README 时 note 点名“没找到 ROADMAP”（别让人把对外说明当路线）',
       /没找到 ROADMAP/.test(d4.note), d4.note)
     check('  没有 docs/ 提交 → docsCommits 为空数组（不是 null，调用方不用兜）',
       Array.isArray(d4.docsCommits) && d4.docsCommits.length === 0, JSON.stringify(d4.docsCommits))
@@ -199,7 +199,7 @@ async function main() {
         (raw.match(/\b(fetch|checkout|add|commit|reset|writeFileSync)\s*\(/g) || []).join(','))
       check('★ 只有 git log（读历史），没有别的 git 子命令',
         (raw.match(/runGit\(/g) || []).length === 1 && /'log'/.test(raw))
-      check('★ 缓存按「仓库 + 当天」而不是时间 TTL（一天一批，不做分钟级轮询）',
+      check('★ 缓存按“仓库 + 当天”而不是时间 TTL（一天一批，不做分钟级轮询）',
         /dayCache/.test(raw) && /today\(\)/.test(raw) && !/setInterval/.test(raw))
       // 界面侧：读不到时必须有出口（不能只留一块空白）
       const app = stripComments(fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8'))

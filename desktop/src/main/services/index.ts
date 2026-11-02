@@ -55,7 +55,7 @@ export function scanServices(): Service[] {
 
 // ── 笔记（Note）── 已于 2026-10-06 整块删除 ─────────────────────────────────
 //
-// 暮雨批：「笔记功能可以删（别改坏能跑的功能）」。
+// 暮雨批：“笔记功能可以删（别改坏能跑的功能）”。
 //
 // 删掉的：`Note` 接口 + `getNotesDir` / `getNotesIndexPath` / `loadNotesIndex` /
 // `saveNotesIndex` / `createNote` / `getNote` / `updateNote` / `deleteNote` /

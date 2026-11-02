@@ -1,7 +1,7 @@
 /**
- * 「agent 上下文包」（2026-10-22 · 出单卡「规划上下文包 b 版核对补齐」的落地物）
+ * “agent 上下文包”（2026-10-22 · 出单卡“规划上下文包 b 版核对补齐”的落地物）
  *
- * 缘起（10-16 进度汇报原话）：暮雨说的痛点是「AI 写代码没全局意识、天天乱改、忘记东西」——
+ * 缘起（10-16 进度汇报原话）：暮雨说的痛点是“AI 写代码没全局意识、天天乱改、忘记东西”——
  * 那不是"界面上立规划"（那个 10-16 已经做了：🗂 规划弹窗），而是**给 agent 的项目上下文包**：
  * 一次把该项目的契约 / 规划 / 已有决策 / 进度喂给本地助手。
  *
@@ -58,7 +58,7 @@ function firstLine(s: string, max = 90): string {
 /**
  * 一个字段怎么落进包里。
  *
- * ⚠ 不能一律写成 `- **标签**：<整段>`：契约的「不要什么 / 选型定死」是多行长文本（含 Markdown 表格），
+ * ⚠ 不能一律写成 `- **标签**：<整段>`：契约的“不要什么 / 选型定死”是多行长文本（含 Markdown 表格），
  * 塞进一行列表项后，第二行起没有任何缩进 —— 读起来像是"包自己说的话"，而不是契约原文。
  * 所以：短句一行；带换行的原文**原样成块**（表格能正常渲染），只是前面挂一条标签。
  */
@@ -85,7 +85,7 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   if (!pid) return { ok: false, error: '要说清给哪个项目出上下文包' }
 
   const reg = (parseRegistry(true) as any[]).find((p) => String(p?.id) === pid)
-  if (!reg) return { ok: false, error: `项目登记表里没有「${pid}」` }
+  if (!reg) return { ok: false, error: `项目登记表里没有“${pid}”` }
   const name = String(reg.name || pid)
   const missing: string[] = []
 
@@ -151,7 +151,7 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   out.push('')
 
   // ── ④ 有效决策 ────────────────────────────────────────────────
-  out.push('## 4. 已经拍板的事（决策卡 · 只列「有效」）')
+  out.push('## 4. 已经拍板的事（决策卡 · 只列“有效”）')
   let decs: any[] = []
   try {
     decs = loadDecisions().filter((d) => String(d.状态 || '') === '有效'
@@ -166,7 +166,7 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
       const src = String(d.出处 || '').trim()
       out.push(`- ${fmtDay(d.日期)} · ${String(d.内容 || '').trim()}${src ? `（出处：${src}）` : ''}`)
     }
-    if (decs.length > 12) out.push(`- …… 另有 ${decs.length - 12} 条，去「决策」页看`)
+    if (decs.length > 12) out.push(`- …… 另有 ${decs.length - 12} 条，去“决策”页看`)
   } else {
     out.push('- （没有记过有效决策 —— 这不等于"没有约定"，可能是没人记）')
     missing.push('有效决策卡')
@@ -197,7 +197,7 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
       const step = plan.split(/\r?\n/).map((x) => x.trim()).find((x) => x.startsWith('-'))
       if (step) out.push(`  ${firstLine(step.replace(/^-\s*(\[[ xX]\]\s*)?/, ''))}`)
     }
-    if (open.length > maxTasks) out.push(`- …… 另有 ${open.length - maxTasks} 张，去「看板」筛「${name}」看全`)
+    if (open.length > maxTasks) out.push(`- …… 另有 ${open.length - maxTasks} 张，去“看板”筛“${name}”看全`)
   } else {
     out.push('- （没有未完成的卡）')
     missing.push('未完成任务卡')

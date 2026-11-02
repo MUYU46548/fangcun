@@ -1,10 +1,10 @@
 /**
- * 日志导入（2026-10-31 · 渲染层拆分第二批「日志动作收口」第六刀）
+ * 日志导入（2026-10-31 · 渲染层拆分第二批“日志动作收口”第六刀）
  *
- * 搬出来的是「从外部文本导入日志」这一组：
+ * 搬出来的是“从外部文本导入日志”这一组：
  *   · 选文件 / 拖文件两条入口；
  *   · 只收 .txt / .md / .markdown / .log；
- *   · 按「文件名 + 正文内容指纹」判重，重复集中问一次；
+ *   · 按“文件名 + 正文内容指纹”判重，重复集中问一次；
  *   · 每个文件生成一条日志，标题取文件名。
  *
  * 仍在 App 的：日志编辑/互转。依赖由调用方传入，不复制状态。
@@ -61,7 +61,7 @@ export function useLogImport(deps: Deps) {
       if (cls.dupTitle.length) lines.push(`同名：${sample(cls.dupTitle)}`)
       if (cls.dupContent.length) lines.push(`内容相同（只是改了名）：${sample(cls.dupContent)}`)
       if (cls.dupInBatch.length) lines.push(`同一批里重复：${sample(cls.dupInBatch)}`)
-      if (!confirm(`检测到 ${skipped} 个重复文件（按「文件名 + 正文内容指纹」判定）：\n${lines.join('\n')}\n\n重复的跳过，继续导入其余 ${cls.fresh.length} 个？`)) {
+      if (!confirm(`检测到 ${skipped} 个重复文件（按“文件名 + 正文内容指纹”判定）：\n${lines.join('\n')}\n\n重复的跳过，继续导入其余 ${cls.fresh.length} 个？`)) {
         showToast('已取消导入', 'info')
         return 0
       }

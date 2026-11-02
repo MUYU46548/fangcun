@@ -61,7 +61,7 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> "LLMConfig":
         # 2026-10-12 模型通道去默认化：不预填任何端点/模型（含国外默认），
-        # 未配置时由 validate() 报人话错误。桌面端配置走设置页「模型通道」（llm-config.json）。
+        # 未配置时由 validate() 报人话错误。桌面端配置走设置页“模型通道”（llm-config.json）。
         return cls(
             base_url=os.environ.get("TEGULA_LLM_BASE_URL", "").rstrip("/"),
             api_key=os.environ.get("TEGULA_LLM_API_KEY", ""),

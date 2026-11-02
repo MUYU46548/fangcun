@@ -2,14 +2,14 @@
 /**
  * 路线图的决策视角 —— 纯逻辑断言（2026-10-31）
  *
- * 暮雨第 7 条：「阻塞、路线图、日历……它们从来都是有用且有必要存在的功能，只是没做好。」
+ * 暮雨第 7 条：“阻塞、路线图、日历……它们从来都是有用且有必要存在的功能，只是没做好。”
  * 路线图服务的决策只有一句：**这个项目现在该推哪一批？**
  *
  * 真跑**编译产物** `dist/shared/roadmapFocus.js`（纯逻辑，不碰 electron、不起子进程 → 本机可跑）。
  * 这里钉的是口径，不是布局：
- *   ① 当前批次只能从「没做完的批次」里挑（active > blocked > pending），全收口 = 没有当前批次；
+ *   ① 当前批次只能从“没做完的批次”里挑（active > blocked > pending），全收口 = 没有当前批次；
  *   ② 排序按"该先看谁"（进行中 > 被卡 > 未开始 > 全收口），同档里剩下的少的先；
- *   ③ 没有批次就**如实说**，不造一个「未分类」阶段；空的「未分类」不算一个阶段；
+ *   ③ 没有批次就**如实说**，不造一个“未分类”阶段；空的“未分类”不算一个阶段；
  *   ④ 一行结论必须点名项目与批次（界面直印，不重算）。
  *
  * 运行：node scripts/test/e2e-roadmap-focus.cjs
@@ -67,12 +67,12 @@ const noBatch = focusOfProject(P('d', '丁项目', 'idle', []))
 check('★ 一张批次都没有 → 不装出阶段（current 为空，文案如实说"没有/还没"）',
   noBatch.current === null && /没有|还没/.test(noBatch.text), noBatch.text)
 
-console.log('\n== ② 「未分类」永远不是阶段（2026-10-31 第二轮修）==')
+console.log('\n== ② “未分类”永远不是阶段（2026-10-31 第二轮修）==')
 
 const unclassified = focusOfProject(P('e', '戊项目', 'idle', [B('未分类', 'pending', 0, 3)]))
-check('★ 「未分类」不进批次列表（current 为空）', unclassified.current === null,
+check('★ “未分类”不进批次列表（current 为空）', unclassified.current === null,
   JSON.stringify(unclassified.current && unclassified.current.name))
-check('★★ 「未分类」里完成了一半也不算阶段（19/41 那种把真阶段挤掉了）',
+check('★★ “未分类”里完成了一半也不算阶段（19/41 那种把真阶段挤掉了）',
   (() => {
     const f = focusOfProject(P('f', '己项目', 'idle', [B('未分类', 'active', 19, 41), B('P1', 'active', 1, 2)]))
     return f.totalBatches === 1 && f.current && f.current.name === 'P1' && f.unbatched === 22

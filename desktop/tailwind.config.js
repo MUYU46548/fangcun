@@ -10,7 +10,7 @@
  * ⚠ **`content` 仍不许扫 `App.vue`**（这条是**永久底线**，不是临时限制）。
  *    App.vue 里有 `.fixed` / `.hidden` / `.block` / `.table` 这类**与 Tailwind 工具类同名**的
  *    既有类名，一扫就会凭空生成 `.fixed{position:fixed}` 之类的规则 → 全仓观感漂移
- *    （第 ① 步「产物 CSS 逐字节不变」就是被这个坑破的）。
+ *    （第 ① 步“产物 CSS 逐字节不变”就是被这个坑破的）。
  *
  * 范围沿革：
  *   第 ①②③ 步 = `./src/renderer/components/ui/**`（只让*新*组件用 utilities，产物只有几行）。

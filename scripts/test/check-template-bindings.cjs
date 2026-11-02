@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Vue SFC 引用完整性检查器 —— 抓「在用了、但从没定义」的标识符。
+ * Vue SFC 引用完整性检查器 —— 抓“在用了、但从没定义”的标识符。
  *
  * ① 模板绑定：模板引用了、`<script setup>` 未声明
  * ② 脚本调用：`<script setup>` 体内**调用了**、但文件里没有任何声明的函数名
@@ -9,13 +9,13 @@
  * ⑨ 遮罩用 @click.self 关闭（2026-10-11 加）：拖选/滑出弹窗会被当成"点了遮罩"而关掉弹窗
  *
  * 为什么需要（2026-09-22）：
- *   ① 启动台「+ 添加应用」按钮被反复报修六次，历次修复都在改 CSS / dialog / 原子写。
+ *   ① 启动台“+ 添加应用”按钮被反复报修六次，历次修复都在改 CSS / dialog / 原子写。
  *      真因是 `editApp_` 从未声明 —— 点一下立刻 ReferenceError，界面毫无反应；
  *      模板里的 `v-if="editApp_"` 也恒为 undefined，模态永不出现。
- *   ② `loadBlockerChains()` 在 `loadViewData()` 里被调用、却从未定义 —— 点「阻塞」页签
+ *   ② `loadBlockerChains()` 在 `loadViewData()` 里被调用、却从未定义 —— 点“阻塞”页签
  *      直接 `Uncaught ReferenceError`，页面停在上一个视图。
  *      ①只扫模板，抓不到"函数体内调用未定义函数"，所以补 ②。
- *   ⑧ 2026-09-28 实战抓到：看板悬停提示的「拖拽中不弹」守卫写成 `if (draggingId) return`
+ *   ⑧ 2026-09-28 实战抓到：看板悬停提示的“拖拽中不弹”守卫写成 `if (draggingId) return`
  *      （`draggingId` 是 ref）→ 条件恒真 → **浮层永不出现**；tsc 认为"对象当布尔"完全合法。
  *
  *   现有防线全部抓不到这几类：
@@ -61,7 +61,7 @@ const CALL_KEYWORDS = new Set([
  * ⑨ 遮罩关闭手势必须用 `@mousedown.self`，**不许用 `@click.self`**（2026-10-11 用户第 3 条）。
  *
  * 真因：在文本框里按住拖选、把光标拖出弹窗再松手时，`click` 事件的目标是
- * 「按下点与松开点的**最近公共祖先**」—— 也就是遮罩本身，于是 `@click.self` 判定
+ * “按下点与松开点的**最近公共祖先**”—— 也就是遮罩本身，于是 `@click.self` 判定
  * "点了遮罩"→ 整个弹窗关掉，草稿全丢（用户累计触发十几次）。
  * `mousedown.self` 只在**按下那一刻**光标就在遮罩上才触发，拖选时按下点永远在文本框里。
  *
@@ -83,7 +83,7 @@ function collectBadBackdropHandlers(tpl) {
 /**
  * ③ 死了的函数：`function foo()` 定义了但全文件只出现这一次（零引用）。
  * 这不是"风格问题"—— 2026-09-22 就是靠它抓出两处真缺陷：
- *   · `openReview` 零引用 ⇒ 「验收裁决」弹窗**根本没有入口**（后端通道、弹窗、
+ *   · `openReview` 零引用 ⇒ “验收裁决”弹窗**根本没有入口**（后端通道、弹窗、
  *     accept/reject 逻辑全都写好了，就是没人调用）
  *   · `openBackupFolder` 零引用 ⇒ 一个写好的"打开最近备份所在目录"功能从未接线
  * 纪律同 check-ipc-parity：豁免项必须写明原因，且每次运行都打印出来。
@@ -117,13 +117,13 @@ function collectDeclared(script) {
   }
   // ⚠ 空白一律用 [ \t]，别用 \s —— \s 会吃掉换行，于是
   //   `const PRIORITIES = [...] as const` 换行后接 `const taskFieldSpecs = ...` 时，
-  //   行尾那个 `const` 会被当成下一条声明的「名字」捕获，真正的 taskFieldSpecs 反被跳过
+  //   行尾那个 `const` 会被当成下一条声明的“名字”捕获，真正的 taskFieldSpecs 反被跳过
   //   （实测踩过：本检查器自己误报 taskFieldSpecs 未声明）。
   const declRe = /\b(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)/g
   while ((m = declRe.exec(script))) push(m[1])
   // 解构：const { a, b: c } = … / const [a, b] = …
   // ⚠ 多行解构里可以写行注释（按组分段时很自然），而 `[^\]}]*` 会连注释一起吃进来：
-  //   注释里的 `/`、`、` 会把「注释 + 紧跟其后的那个名字」粘成一坨，那个名字于是被判"未声明"。
+  //   注释里的 `/`、`、` 会把“注释 + 紧跟其后的那个名字”粘成一坨，那个名字于是被判"未声明"。
   //   2026-10-23 实测：views/LogsView.vue 的 5 组分类注释，正好误报 5 个名字
   //   （loadLogs / openNewLog / toggleLogBatchMode / logStatusClass / onLogDrop —— 都是注释后第一个）。
   //   先剥行注释再 split，字符串里的 `//` 极少出现在解构默认值里，可接受。
@@ -136,7 +136,7 @@ function collectDeclared(script) {
   // import { a, b as c } from '…' / import x from '…' / import * as ns
   const impRe = /import[ \t]+([^'"]+?)[ \t]+from/g
   while ((m = impRe.exec(script))) m[1].replace(/[{}]/g, ' ').split(',').forEach(push)
-  // 类型/接口与形参也算「名字已被占用」，否则 `type Foo = ...` 后 `Foo(x)` 会被误报
+  // 类型/接口与形参也算“名字已被占用”，否则 `type Foo = ...` 后 `Foo(x)` 会被误报
   const ifaceRe = /\b(?:interface|type|class|enum)[ \t]+([A-Za-z_$][\w$]*)/g
   while ((m = ifaceRe.exec(script))) push(m[1])
   return declared
@@ -216,7 +216,7 @@ function stripNoise(code) {
   return out
 }
 
-/** 找「被调用」的名字：name( 且前面不是 . （排除对象方法调用） */
+/** 找“被调用”的名字：name( 且前面不是 . （排除对象方法调用） */
 function collectCalled(stripped) {
   const called = new Map() // name -> 行号
   const re = /(^|[^.\w$])([A-Za-z_$][\w$]*)[ \t]*\(/g
@@ -246,8 +246,8 @@ function collectDeadFunctions(src) {
  *
  * 症状：`const draggingId = ref<string|null>(null)` 之后写 `if (draggingId) return` ——
  *   判断的是**那个 ref 对象本身**，恒为真，于是这条守卫把整条路径全挡掉。
- *   实例：看板卡片悬停轻提示的「拖拽中不弹」守卫就写成了 `if (draggingId) return`，
- *   结果浮层**永远不出现**（用户 2026-09-28 实测「②看不见」）。
+ *   实例：看板卡片悬停轻提示的“拖拽中不弹”守卫就写成了 `if (draggingId) return`，
+ *   结果浮层**永远不出现**（用户 2026-09-28 实测“②看不见”）。
  *
  * ⚠ 这一层 tsc / vite / 桩 e2e / IPC 对账**全都抓不到**：
  *   类型上 `Ref<T>` 就是个对象，"对象当布尔"是合法 TS。
@@ -335,7 +335,7 @@ function checkFile(file) {
     }
   }
 
-  // ② 脚本体内「调用了但没定义」—— 模板检查抓不到这一层
+  // ② 脚本体内“调用了但没定义”—— 模板检查抓不到这一层
   const body = scrM[1]
   const known = new Set([...declared, ...collectParams(body), ...GLOBALS, ...CALL_KEYWORDS])
   const missingCalls = []

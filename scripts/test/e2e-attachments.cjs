@@ -2,7 +2,7 @@
 /**
  * 大附件清单与删除 —— 真文件断言（2026-10-30，卡 task-20261018-004）
  *
- * 判据三条（卡上原文的「附件治理」）：
+ * 判据三条（卡上原文的“附件治理”）：
  *  ① 只列**附件目录**里超过阈值的单文件（不是全盘扫描，也不把目录合计当单文件）；
  *  ② 删除必须由用户点，且主进程再校验路径 —— `../` 逃逸、符号链接、目录、目录外文件一律拒绝；
  *  ③ 列出这个动作本身**不改任何文件**（大小与 mtime 一个不动）。
@@ -158,7 +158,7 @@ const src = strip(read('desktop/src/main/services/attachments.ts'))
 check('★★ 删除前必须过 realpath 校验（防 ../ 与符号链接）', /realpathSync/.test(read('desktop/src/main/services/attachments.ts')))
 check('★ 扫描器不联网、不调模型', !/\bfetch\s*\(|\bhttp\.|openai|\bLLM\b/.test(src))
 check('★ 界面入口存在，且删除有二次确认', (() => {
-  // 2026-10-30 拆分第一刀后，「大附件」这块在 components/DataHygienePanel.vue
+  // 2026-10-30 拆分第一刀后，“大附件”这块在 components/DataHygienePanel.vue
   const ui = read('desktop/src/renderer/App.vue') + read('desktop/src/renderer/components/DataHygienePanel.vue')
   return /scanBigAttachments/.test(ui) && /deleteBigAttachment/.test(ui) && /confirm\(/.test(ui)
 })())
@@ -171,7 +171,7 @@ check('★ 界面入口存在，且删除有二次确认', (() => {
   const run = seg.indexOf('shell.openPath')
   check('★★ 打开附件前先过可执行策略（顺序断言：策略在 shell.openPath 之前）',
     at >= 0 && run > at, `policy=${at} openPath=${run}`)
-  check('★★ 可执行附件的替代出口是「在文件夹中显示」', /logs:revealAttachment/.test(ipc) && /showItemInFolder/.test(ipc))
+  check('★★ 可执行附件的替代出口是“在文件夹中显示”', /logs:revealAttachment/.test(ipc) && /showItemInFolder/.test(ipc))
 }
 
 console.log(`\nRESULT ${pass} / ${fail}`)

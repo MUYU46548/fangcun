@@ -4,8 +4,8 @@
   **为什么这时候才搬**：第 3 块先把状态与算法抽进了 `composables/useCalendar.ts`，
   这一步只搬模板 —— 两步分开，红了能一眼分清是"状态搬坏了"还是"模板搬坏了"。
 
-  **组件边界**：组件只负责「显示 + 收集意图」，**所有副作用上抛**给 App.vue：
-    · assign-task  —— 要开「指派时间」弹窗（弹窗状态在父组件）
+  **组件边界**：组件只负责“显示 + 收集意图”，**所有副作用上抛**给 App.vue：
+    · assign-task  —— 要开“指派时间”弹窗（弹窗状态在父组件）
     · assign-todo  —— 同上，但入口是待办（父组件用 id 去找 due）
     · reschedule   —— 拖拽改期：组件算出"改到哪天"，落盘（IPC + toast + 重新加载）留给父组件
     · open-card    —— 点任务条目 → 打开任务详情
@@ -26,7 +26,7 @@
       <label class="chk cal-chk"><input type="checkbox" :checked="calShowLogs" @change="calToggleLogs" /> 显示日志</label>
       <span class="cal-hint">拖动条目可改期；点条目可指派时间；时间段任务会横跨多天</span>
     </div>
-    <!-- 2026-10-31（暮雨第 7 条）：日历服务的是「这周怎么排？」——
+    <!-- 2026-10-31（暮雨第 7 条）：日历服务的是“这周怎么排？”——
          月历回答"哪天有什么"，这一条回答"这周挤不挤、今天几件、还有几件没排"。
          数字全来自 shared 的 buildWeekPlan（纯函数，e2e-calendar 直接断言）。 -->
     <div class="cal-weekbar">
@@ -47,7 +47,7 @@
       >
         <template v-if="cell">
           <div class="dnum">{{ cell.day }}</div>
-          <!-- 2026-09-29 用户选「改法 A」（035 卡）：格子里最多 2 条 + 「+N 条」。
+          <!-- 2026-09-29 用户选“改法 A”（035 卡）：格子里最多 2 条 + “+N 条”。
                时间段任务不折（见 calCellShown），所以连续色带不会断头。 -->
           <div v-for="ev in calCellShown(cell)" :key="ev.kind + ev.id + '-' + cell.day"
             class="cev" :class="['span-' + ev.span, ev.kind === 'todo' ? 'cev-todo' : ev.kind === 'log' ? 'cev-log' : 'cev-task']"
@@ -67,7 +67,7 @@
       </div>
     </div>
     <div class="calunsched">
-      <!-- 2026-09-25（用户第 10 条）：底部这两排 chip 一旦多起来就是一片「横条墙」，
+      <!-- 2026-09-25（用户第 10 条）：底部这两排 chip 一旦多起来就是一片“横条墙”，
            视觉压迫感极强。改成默认收起的一行摘要，点开才铺开。 -->
       <button class="cal-more" :aria-expanded="calBottomOpen" @click="calBottomOpen = !calBottomOpen">
         <span class="caret" :class="{ open: calBottomOpen }">▸</span>
@@ -80,7 +80,7 @@
           未安排 · 无时间（{{ calUnscheduled.length }} 个）
           <span class="cal-hint-inline" v-if="calUnscheduled.length">拖动到日期格即改期，点击可直接指派时间</span>
         </h4>
-        <!-- 2026-10-31 第二轮（暮雨：「日历底下的排期也没筛选，看起来一团乱」）：
+        <!-- 2026-10-31 第二轮（暮雨：“日历底下的排期也没筛选，看起来一团乱”）：
              112 个 chip 铺开等于没有列表。加一个搜索框，标题 / ID 都认，回车不用按。 -->
         <div class="cal-unsched-filter" v-if="calUnscheduled.length > 6">
           <input class="cal-unsched-q" v-model="unschedQuery" spellcheck="false"

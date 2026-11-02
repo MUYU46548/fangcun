@@ -1,7 +1,7 @@
 /**
- * 日志状态动作（2026-10-31 · 渲染层拆分第二批「日志动作收口」第五刀）
+ * 日志状态动作（2026-10-31 · 渲染层拆分第二批“日志动作收口”第五刀）
  *
- * 搬出来的是「改一条日志状态」这一组：
+ * 搬出来的是“改一条日志状态”这一组：
  *   · 进行中开关（主日志卡 = 全组开关；单条走唯一写入路径 logsSetRunning）；
  *   · 完成 / 归档入口（只打开对应弹窗，真正保存仍走 useLogEditorSave）；
  *   · 撤销完成/归档（带状态快照，撤销本身也能再撤）；
@@ -43,8 +43,8 @@ export function useLogStatusActions(deps: Deps) {
   } = deps
 
   /**
-   * 「进行中」开/关之后，这句话该怎么说（2026-11-01 暮雨报障）。
-   * 撤销不再是写死的「回到待处理」—— 主进程会退回点开之前那一格（已完成 / 已归档 / 待处理），
+   * “进行中”开/关之后，这句话该怎么说（2026-11-01 暮雨报障）。
+   * 撤销不再是写死的“回到待处理”—— 主进程会退回点开之前那一格（已完成 / 已归档 / 待处理），
    * 这里只把返回的状态翻成中文，别让 toast 说的和卡面显示的不一致。
    */
   function restoredStatusLabel(data: any): string {
@@ -54,7 +54,7 @@ export function useLogStatusActions(deps: Deps) {
   }
 
   /**
-   * 手动开 / 关「进行中」——「进行中」的唯一入口。
+   * 手动开 / 关“进行中”——“进行中”的唯一入口。
    * ⚠ 必须 offerUndo：任何改状态的动作要么顶掉旧撤销条，要么清掉，不许留着旧条装没事。
    */
   async function toggleLogRunning(log: any): Promise<void> {
@@ -66,16 +66,16 @@ export function useLogStatusActions(deps: Deps) {
     const next = !log.running
     const r: any = await window.tegula.logsSetRunning(log.id, next)
     if (r && r.ok) {
-      showToast(next ? '已标为「进行中」' : `已撤销「进行中」，回到「${restoredStatusLabel(r.data)}」`, 'success')
+      showToast(next ? '已标为“进行中”' : `已撤销“进行中”，回到“${restoredStatusLabel(r.data)}”`, 'success')
       await loadLogs()
       // 撤销 = 再点一次同一个开关（唯一写入路径），并把列表刷回真值。
       offerUndo(
-        `${next ? '已标为「进行中」' : '已撤销「进行中」'}：${log.title || log.id}`,
+        `${next ? '已标为“进行中”' : '已撤销“进行中”'}：${log.title || log.id}`,
         async () => {
           const back: any = await window.tegula.logsSetRunning(log.id, !next)
           if (!back?.ok) throw new Error(back?.error || '未知原因')
           await loadLogs()
-          showToast(next ? `已撤销「进行中」，回到「${restoredStatusLabel(back?.data)}」` : '已标为「进行中」', 'success')
+          showToast(next ? `已撤销“进行中”，回到“${restoredStatusLabel(back?.data)}”` : '已标为“进行中”', 'success')
         },
       )
     } else {
@@ -93,7 +93,7 @@ export function useLogStatusActions(deps: Deps) {
     logRetainDays.value = String(logRetainDefault.value)
     logNote.value = ''
     logBatchMode.value = false
-    markLogSnap()   // 只填「备注」也要算改动，别静默丢
+    markLogSnap()   // 只填“备注”也要算改动，别静默丢
   }
 
   function archiveLogItem(id: string) {
@@ -110,11 +110,11 @@ export function useLogStatusActions(deps: Deps) {
   }
 
   /**
-   * 撤销「完成 / 归档」，退回**待处理**。
-   * 撤销只回到待处理；要不要「进行中」由 toggleLogRunning 单独决定。
+   * 撤销“完成 / 归档”，退回**待处理**。
+   * 撤销只回到待处理；要不要“进行中”由 toggleLogRunning 单独决定。
    */
   async function reopenLogItem(id: string) {
-    // 撤销本身也要能撤 —— 点错「↩ 撤销」不该比误点更惨。
+    // 撤销本身也要能撤 —— 点错“↩ 撤销”不该比误点更惨。
     const before = logs.value.find((l: any) => l.id === id)
     const snap = before ? {
       status: before.status, running: !!before.running,
@@ -126,12 +126,12 @@ export function useLogStatusActions(deps: Deps) {
     const title = String(before?.title || id)
     const r: any = await window.tegula.logsReopen(id)
     if (r && r.ok) {
-      showToast('已撤销，回到「待处理」', 'success')
+      showToast('已撤销，回到“待处理”', 'success')
       await loadLogs()
-      // 任务详情的「关联日志」列表是另一份数据源，两边都要刷
+      // 任务详情的“关联日志”列表是另一份数据源，两边都要刷
       await loadLogsForTask(previewTask.value?.id || '')
       if (snap) {
-        offerUndo(`已撤销「${title}」`, async () => {
+        offerUndo(`已撤销“${title}”`, async () => {
           const back: any = await window.tegula.logsRestoreState(id, snap)
           if (!back?.ok) throw new Error(back?.error || '未知原因')
           await loadLogs()

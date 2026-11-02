@@ -2,18 +2,18 @@
  * 想法 → 待办 正文保真测试（2026-10-25 暮雨第 3 条）
  *
  * 病根：`promoteIdea()` 只把想法的**第一行**当待办标题，其余正文直接丢弃。
- *   注释给的理由是「多行正文塞进去会把列表撑歪」—— 但这句话本身不成立：
+ *   注释给的理由是“多行正文塞进去会把列表撑歪”—— 但这句话本身不成立：
  *   待办的内容字段一直是可写长的 textarea（`todoEdit_.title`，placeholder
- *   「待办内容（可以写长一点）」），列表靠 `.todo-title` 的 nowrap+ellipsis 压成一行；
- *   而且「日志 → 待办」那条路（`logToTodoText`）早就把全文塞进 title 了。
- *   → 只有一个方向在丢内容，用户原话：「转进来只剩日志里的标题，甚至不是正文，还被截断了。」
+ *   “待办内容（可以写长一点）”），列表靠 `.todo-title` 的 nowrap+ellipsis 压成一行；
+ *   而且“日志 → 待办”那条路（`logToTodoText`）早就把全文塞进 title 了。
+ *   → 只有一个方向在丢内容，用户原话：“转进来只剩日志里的标题，甚至不是正文，还被截断了。”
  *
  * 钉住的语义：
  *   ① 多行想法立项 → 待办 title 与原文**逐字符相等**（换行、空行、缩进都不许动）
- *   ② 单行想法立项 → 行为不变（不凭空加「来源」行）
+ *   ② 单行想法立项 → 行为不变（不凭空加“来源”行）
  *   ③ 立项后想法状态 = 已立项，且 promoted.id == 新建待办的 id（双向可查）
  *   ④ 重复立项被拒（防重复建待办）
- *   ⑤ 反例自证：源码里不许再出现「取第一行当标题」的写法
+ *   ⑤ 反例自证：源码里不许再出现“取第一行当标题”的写法
  *   ⑥ 源码守卫：待办 → 日志 必须把全文放进 content 参数，且标题取首行
  *
  * 运行：node scripts/test/e2e-ideas-flow.cjs
@@ -119,7 +119,7 @@ function main() {
   }
 
   // ── ⑦ 长度上限：默认 / 滑块可调 / 硬上限夹紧 / 坏值回落 ────────────────
-  //    2026-10-25 暮雨：「MAX_TEXT = 4000 太小了……设个硬上限 20000」。
+  //    2026-10-25 暮雨：“MAX_TEXT = 4000 太小了……设个硬上限 20000”。
   //    主进程是真守门人（prefs.json 可以手改，它必须再夹一次），这里只测它。
   {
     const prefsPath = path.join(TEST_ROOT, 'prefs.json')
@@ -142,7 +142,7 @@ function main() {
       ideas.ideaTextLimit() === 20000, String(ideas.ideaTextLimit()))
     check('⑦ 夹紧后 20001 字仍被拒', ideas.addIdea(filler(20001)).ok === false)
 
-    // ⚠ 坏值必须分两类（「空值/坏值要有分类」这条纪律）：
+    // ⚠ 坏值必须分两类（“空值/坏值要有分类”这条纪律）：
     //   ① **越界数字**（0 / -5 / 999999）→ 夹到边界。它读得懂，只是超出量程，
     //      夹到 1000/20000 是"你填了但太小/太大"的明确答复；
     //   ② **读不懂**（'abc' / null）→ 回落默认。它不是数字，不该被当成 0 去夹。
@@ -152,7 +152,7 @@ function main() {
         ideas.ideaTextLimit() === 10000, String(ideas.ideaTextLimit()))
     }
     // `[]` 单列一条 + 注释：`Number([]) === 0`、`Number(true) === 1` 是 JS 强转陷阱，
-    // 靠 Number() 兜底会把「读不懂」静默变成 0/1 再夹到下限 —— 本轮测试当场抓到过。
+    // 靠 Number() 兜底会把“读不懂”静默变成 0/1 再夹到下限 —— 本轮测试当场抓到过。
     writePrefs([])
     check('⑦ 陷阱：[] 不许被 Number() 强转成 0（应回落默认而非夹到 1000）',
       ideas.ideaTextLimit() === 10000, String(ideas.ideaTextLimit()))
@@ -170,10 +170,10 @@ function main() {
   {
     const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf-8').replace(/\r\n/g, '\n')
     const ideasSrc = read('desktop/src/main/services/ideas.ts')
-    // 反例判据：promoteIdea 里再出现「split('\n')...[0]」就是又回去砍首行了
+    // 反例判据：promoteIdea 里再出现“split('\n')...[0]”就是又回去砍首行了
     const promoteBody = ideasSrc.slice(ideasSrc.indexOf('export function promoteIdea'))
       .split('export function unpromoteIdea')[0]
-    check('⑤ promoteIdea 不再「取第一行」',
+    check('⑤ promoteIdea 不再“取第一行”',
       !/split\('\\n'\)[\s\S]{0,80}\[0\]/.test(promoteBody),
       '又出现 split 后取 [0] = 正文会再丢一次')
     check('⑤ promoteIdea 把原文整段传给 createTodo',

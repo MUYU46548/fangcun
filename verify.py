@@ -138,9 +138,9 @@ check("活动日志按任务过滤", len(teg.read_activity("task-others")) == 0)
 
 # ---- 3d. 备份（b1）----
 # ⚠ 备份源必须是自建的临时目录。此前直接用真实 TASK_DIR，于是
-# 「备份含归档子目录」这条断言依赖真实 task-data/archive/ 里恰好有文件 ——
+# “备份含归档子目录”这条断言依赖真实 task-data/archive/ 里恰好有文件 ——
 # 归档被清空 / 任务被批量删除后测试就变红（2026-09-22 实测），
-# 属于「测试依赖外部数据状态」的反面教材：全绿不代表功能好，只代表数据恰好合适。
+# 属于“测试依赖外部数据状态”的反面教材：全绿不代表功能好，只代表数据恰好合适。
 _bak_src = os.path.join(tmpdir, "backup-src")
 os.makedirs(os.path.join(_bak_src, "archive"), exist_ok=True)
 os.makedirs(os.path.join(_bak_src, ".trash"), exist_ok=True)
@@ -337,7 +337,7 @@ try:
     d921e = teg.parse_task(os.path.join(dep_dir, "task-20990101-921.md"))
     check("dispatch 记录派活时间", d921e.get("派活时间") is not None and float(d921e["派活时间"]) > 0)
 
-    # ---- done 验收闸门（行为层体检，刻意不引入「验收标准」字段）----
+    # ---- done 验收闸门（行为层体检，刻意不引入“验收标准”字段）----
     class DA3:
         pass
 
@@ -691,7 +691,7 @@ try:
     check("规则1：部分勾选不误触发",
           teg.parse_task(os.path.join(teg.TASK_DIR, tr2 + ".md"))["状态"] == "进行中"
           and "已触发规则" not in msg2, msg2)
-    # 非「进行中」不触发（草稿完成任务不该被推走）
+    # 非“进行中”不触发（草稿完成任务不该被推走）
     ok, tr3 = teg.api_new({"标题": "规则3", "状态": "待办", "项目": ["fangcun-base"],
                            "方案": ["- [ ] 一"]})
     teg.api_edit(tr3, {"方案": ["- [x] 一"]})
@@ -1135,7 +1135,7 @@ with open(mixed_path, "w", encoding="utf-8") as f:
 d_mixed = teg.parse_task(mixed_path)
 check("Python 读混合分隔符", d_mixed and d_mixed.get("标题") == "混合分隔符", str(d_mixed.get("标题") if d_mixed else None))
 
-# ---- 23. 前言块式列表 与 前言「结果记录/方案」（2026-09-28 实测的静默数据丢失）----
+# ---- 23. 前言块式列表 与 前言“结果记录/方案”（2026-09-28 实测的静默数据丢失）----
 # 背景：旧 parse_task 只认**行内** flow 列表 `项目: [a]`；老卡片写的是**块式**列表
 #      （`项目:\n  - fangcun-base`），于是这些字段被读成空串，任何一次 Python 写回
 #      （tegula done / new…）都会把它们**静默清空**。真实事故：task-20260925-033 走一次
@@ -1166,9 +1166,9 @@ block_path = os.path.join(tmpdir, "block-list-test.md")
 with open(block_path, "w", encoding="utf-8") as f:
     f.write(block_sample)
 db = teg.parse_task(block_path)
-check("块式「项目」解析成列表", db and db.get("项目") == ["fangcun-base", "other-proj"], str(db.get("项目") if db else None))
-check("块式「标签」解析成列表", db and db.get("标签") == ["a", "b"], str(db.get("标签") if db else None))
-check("前言「结果记录」不被正文空小节吃掉", db and "前言里的结果记录" in (db.get("结果记录") or ""),
+check("块式“项目”解析成列表", db and db.get("项目") == ["fangcun-base", "other-proj"], str(db.get("项目") if db else None))
+check("块式“标签”解析成列表", db and db.get("标签") == ["a", "b"], str(db.get("标签") if db else None))
+check("前言“结果记录”不被正文空小节吃掉", db and "前言里的结果记录" in (db.get("结果记录") or ""),
       repr(db.get("结果记录") if db else None))
 
 # 写回 → 再解析：值必须原样还在（这才是"不丢"的判据，光能读不够）
@@ -1182,11 +1182,11 @@ check("写回后再读：前言结果记录已迁进正文、内容不丢",
       db2 and "前言里的结果记录" in (db2.get("结果记录") or ""), repr(db2.get("结果记录") if db2 else None))
 
 # 资源子映射不能被"块式列表"新逻辑误伤（缩进行是 `子键: 值`，不是列表项）
-check("「资源」子映射仍按 子键:值 解析",
+check("“资源”子映射仍按 子键:值 解析",
       db2 and isinstance(db2.get("资源"), dict) and "资料" in db2.get("资源"),
       str(db2.get("资源") if db2 else None))
 
-# 对称性：真卡片走一遍「解析 → 渲染 → 解析」，受管键必须不变
+# 对称性：真卡片走一遍“解析 → 渲染 → 解析”，受管键必须不变
 _real = os.path.join(ROOT, "task-data", "task-20260925-033.md")
 if os.path.exists(_real):
     _r1 = teg.parse_task(_real)
@@ -1227,8 +1227,8 @@ scalar_path = os.path.join(tmpdir, "legacy-scalar.md")
 with open(scalar_path, "w", encoding="utf-8") as f:
     f.write(scalar_sample)
 _ds = teg.parse_task(scalar_path)
-check("裸标量「项目」读成单元素列表", _ds and _ds.get("项目") == ["fangcun-base"], str(_ds.get("项目") if _ds else None))
-check("裸标量「标签」读成单元素列表", _ds and _ds.get("标签") == ["单标签"], str(_ds.get("标签") if _ds else None))
+check("裸标量“项目”读成单元素列表", _ds and _ds.get("项目") == ["fangcun-base"], str(_ds.get("项目") if _ds else None))
+check("裸标量“标签”读成单元素列表", _ds and _ds.get("标签") == ["单标签"], str(_ds.get("标签") if _ds else None))
 scalar_round = os.path.join(tmpdir, "legacy-scalar-round.md")
 teg.write_task_file(scalar_round, dict(_ds))
 _ds2 = teg.parse_task(scalar_round)
@@ -1259,10 +1259,10 @@ block_path = os.path.join(tmpdir, "legacy-blockscalar.md")
 with open(block_path, "w", encoding="utf-8") as f:
     f.write(block_sample)
 _db = teg.parse_task(block_path)
-check("★ 块标量「验收」读到的是正文，不是指示符 |-",
+check("★ 块标量“验收”读到的是正文，不是指示符 |-",
       _db and "第一行验收" in (_db.get("验收") or "") and "第二行验收" in (_db.get("验收") or ""),
       repr(_db.get("验收") if _db else None))
-check("★ 块标量「附言」读到的是正文，不是指示符 |+",
+check("★ 块标量“附言”读到的是正文，不是指示符 |+",
       _db and "附带一句说明" in (_db.get("附言") or ""), repr(_db.get("附言") if _db else None))
 block_round = os.path.join(tmpdir, "legacy-blockscalar-round.md")
 teg.write_task_file(block_round, dict(_db))
@@ -1293,7 +1293,7 @@ for _f in sorted(_glob.glob(os.path.join(ROOT, "task-data", "*.md"))):
 check(f"★ 全仓 {_sweep_n} 张真卡片 parse→render→parse，身份字段全部不变",
       not _sweep_bad, str(_sweep_bad[:4]))
 
-# (d) 已知例外：除「资源」外，前言里只允许有 1 处嵌套映射（库内遗留，写回会丢）。
+# (d) 已知例外：除“资源”外，前言里只允许有 1 处嵌套映射（库内遗留，写回会丢）。
 #     它不是"内容丢失"——同一份内容在正文里（M1/M2/M3 与决策点都在），但**不许再多**：
 #     多出来的那一处说明有人在往前言写结构化数据，而两侧解析器都读不了它。
 _nested_keys = []
@@ -1317,14 +1317,14 @@ _nested_nonres = [x for x in _nested_keys if x[1] != "资源"]
 check("★ 前言里的嵌套映射只有已知的 1 处（新增 = 有人往前言写结构化数据，两侧都读不了）",
       len(_nested_nonres) <= 1, str(_nested_nonres))
 if _nested_nonres:
-    print(f"      已知例外：{_nested_nonres[0][0]} 的「{_nested_nonres[0][1]}」—— 库内遗留格式，"
+    print(f"      已知例外：{_nested_nonres[0][0]} 的“{_nested_nonres[0][1]}”—— 库内遗留格式，"
           f"写回会丢该块（同份内容在正文里）；已记入工程债卡")
 
 def _both_side_aliases_equal():
     """TS 侧 `CONTRACT_ALIASES` 必须与 Python 侧**逐字一致**。
 
     两侧各写一份"同口径"的匹配规则，是最容易悄悄分叉的一类：今天改 Python 忘了 TS，
-    界面上就会出现「CLI/agent 读得到、桌面说未填」这种最难查的差异。
+    界面上就会出现“CLI/agent 读得到、桌面说未填”这种最难查的差异。
     直接读 TS 源码比对 —— 源码不在场（打包环境）时不拦。
     """
     ts_path = os.path.join(ROOT, "desktop", "src", "main", "services", "tripBoard.ts")
@@ -1370,9 +1370,9 @@ _c2 = teg.read_contract_file(_c2p)
 check("契约：标题不带序号也认；缺的字段给空串而不是报错",
       _c2["终态形态"] == "纯标题。" and _c2["验收线"] == "" and _c2["现状底数"] == "")
 
-# ── 25b. 契约读取的三个真机修正（2026-10-11 用户：「绒花墨坊怎么还在说内容未填？已经有内容了啊？」）──
+# ── 25b. 契约读取的三个真机修正（2026-10-11 用户：“绒花墨坊怎么还在说内容未填？已经有内容了啊？”）──
 # 真因：只认标准六节名 → 用自定义小节名的契约（① 终态三段 / ⑥ 验收锚点 …）六个字段全空，
-# 界面写「内容未填」。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
+# 界面写“内容未填”。**把"小节名对不上"说成"未填"就是界面说假话**，比空白更糟。
 _alt = os.path.join(_cdir, "alias.md")
 with open(_alt, "w", encoding="utf-8") as _f:
     _f.write(
@@ -1382,14 +1382,14 @@ with open(_alt, "w", encoding="utf-8") as _f:
         "## ③ 产线本质\nAI 管结构，文字归人\n"
     )
 _ca = teg.read_contract_file(_alt)
-check("★★ 契约（别名匹配）：自定义小节名也要读出来 —— 「① 终态三段」算终态、「⑥ 验收锚点」算验收线、"
-      "「② 原料边界」算不要什么（老实现这三节全判成未填，用户当场反问「已经有内容了啊？」）",
+check("★★ 契约（别名匹配）：自定义小节名也要读出来 —— “① 终态三段”算终态、“⑥ 验收锚点”算验收线、"
+      "“② 原料边界”算不要什么（老实现这三节全判成未填，用户当场反问“已经有内容了啊？”）",
       _ca["终态形态"].startswith("前段产坯") and _ca["验收线"].startswith("- D0")
       and _ca["不要什么"].startswith("- 负向"), str(_ca)[:120])
-check("★ 契约（原因分类）：对不上的小节名要**记下来**（不许笼统说未填）—— 「③ 产线本质」进 unmatched",
+check("★ 契约（原因分类）：对不上的小节名要**记下来**（不许笼统说未填）—— “③ 产线本质”进 unmatched",
       "③ 产线本质" in _ca["unmatched"] and sorted(_ca["filled"]) == ["不要什么", "终态形态", "验收线"],
       str(_ca["unmatched"]))
-check("  契约：sections 逐条给出「小节名 → 命中的标准字段」（对不上给 None）",
+check("  契约：sections 逐条给出“小节名 → 命中的标准字段”（对不上给 None）",
       any(s["name"] == "① 终态三段（产线）" and s["field"] == "终态形态" for s in _ca["sections"])
       and any(s["name"] == "③ 产线本质" and s["field"] is None for s in _ca["sections"]),
       str(_ca["sections"]))
@@ -1399,11 +1399,11 @@ with open(_ph, "w", encoding="utf-8") as _f:
     _f.write(
         "## ① 终态形态\n（一句话：我一开始想要的就是 ___。用户原话直录，不改写。）\n\n"
         "---\n\n"
-        "## ② 验收线\n（「完整投入真实使用」的判据链。）\n"
+        "## ② 验收线\n（“完整投入真实使用”的判据链。）\n"
     )
 _cp = teg.read_contract_file(_ph)
-check("★★ 契约（占位识别）：整段被括号包住的**是模板骨架不是内容** —— 两节都算「占位没填」"
-      "（老实现把骨架当正文，司天那种空表反而被显示成「填了」—— 另一种假话）",
+check("★★ 契约（占位识别）：整段被括号包住的**是模板骨架不是内容** —— 两节都算“占位没填”"
+      "（老实现把骨架当正文，司天那种空表反而被显示成“填了”—— 另一种假话）",
       _cp["filled"] == [] and sorted(_cp["placeholderFields"]) == ["终态形态", "验收线"],
       str({k: _cp[k] for k in ("filled", "placeholderFields")}))
 check("★ 契约（分隔线剥离）：小节之间用 `---` 分隔时正文**不带** `---`，占位判定也不被它破坏",
@@ -1429,19 +1429,19 @@ check("契约：非法项目 id 不拼路径（防路径穿越）",
 
 _blank = {"标题": "样例任务", "方案": ["- [ ] 做点什么"], "项目": ["fangcun-base"], "资源": {}}
 _p1 = teg._build_prompt(_blank, "task-00000000-000", _cdir, "python tegula.py done x", "x.md")
-check("★ 任务书：有契约 → 四节节选 + 硬前置「先读契约」",
+check("★ 任务书：有契约 → 四节节选 + 硬前置“先读契约”",
       "本项目立项契约" in _p1 and "动手前先读契约" in _p1
       and "- 终态形态：" in _p1 and "- 验收线：" in _p1
       and "- 不要什么：" in _p1 and "- 选型定死：" in _p1)
-check("★ 任务书：契约块在「## 方案」之前（先读契约，再谈方案）",
+check("★ 任务书：契约块在“## 方案”之前（先读契约，再谈方案）",
       "本项目立项契约" in _p1 and _p1.index("本项目立项契约") < _p1.index("## 方案"))
 
 _empty_repo = os.path.join(tmpdir, "empty-repo")
 os.makedirs(_empty_repo, exist_ok=True)
 _p2 = teg._build_prompt(_blank, "task-00000000-000", _empty_repo, "python tegula.py done x", "x.md")
-check("★ 任务书：缺契约 → 显式提示「缺失」+ 条款 1/4（绝不静默跳过）",
+check("★ 任务书：缺契约 → 显式提示“缺失”+ 条款 1/4（绝不静默跳过）",
       "缺失" in _p2 and "不算已立项" in _p2 and "选型未定不开工" in _p2)
-check("★ 任务书：缺契约时不给「先读契约」的假承诺",
+check("★ 任务书：缺契约时不给“先读契约”的假承诺",
       "动手前先读契约" not in _p2)
 
 _real = teg.read_contract("fangcun-base")
@@ -1450,7 +1450,7 @@ check("★ 真实仓库：方寸自己的 立项契约.md 可读、六字段齐�
       str({k: bool(_real.get(k)) for k in teg.CONTRACT_FIELDS}))
 
 # ── 26. registry 解析：顶格注释不丢段（2026-10-05 真 bug）──
-# 实际发生过：registry.yaml 里「# 已发布 / 历史项目…」两条注释把 Python 解析器的
+# 实际发生过：registry.yaml 里“# 已发布 / 历史项目…”两条注释把 Python 解析器的
 # in_section 重置成 None → 注释之后新增的项目（TEST/TEST2）被整段忽略。
 # 桌面版走真 yaml 解析不受影响 → 两侧不一致：界面看得见、CLI/report/MCP 看不见。
 print("\n---- 26. registry 解析：顶格注释不丢段 ----")
@@ -1484,7 +1484,7 @@ check("注释行本身不会被当成项目（没有空 id）", all(p.get("id") 
 # 那是**日志页的分区叫法**，被手写进了任务卡。后果：看板分组语义不明、
 # gen-progress 单列一类、doctor 当时也不拦。
 # 这里钉四件事：枚举两侧同源 / 判据函数行为正确 / 真实数据零非法 / doctor 真的在用它。
-print("\n---- 27. 状态白名单（doctor 拦「待处理」这类非法值）----")
+print("\n---- 27. 状态白名单（doctor 拦“待处理”这类非法值）----")
 import re as _re27
 _legal27 = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
 check("状态枚举就是那 7 个", list(teg.STATUSES) == _legal27, str(teg.STATUSES))
@@ -1518,11 +1518,11 @@ for _base27 in [_real27, os.path.join(_real27, "archive")]:
         _s27 = teg.illegal_status(_d27.get("状态"))
         if _s27:
             _bad27.append(f"{_fn27}={_s27}")
-check("★ 真实 task-data 里没有非法状态（「待处理」那张已归正为「待办」；再冒一个就红）",
+check("★ 真实 task-data 里没有非法状态（“待处理”那张已归正为“待办”；再冒一个就红）",
       not _bad27, "、".join(_bad27))
 
 # ③b 写入侧归一（2026-10-21）：白名单在此之前**只用于体检**，落盘一个校验都没有 ——
-#     外部账本把「已完成」直接写进了 7 张卡的 `状态:`，看板分组全靠猜，直到 verify 变红。
+#     外部账本把“已完成”直接写进了 7 张卡的 `状态:`，看板分组全靠猜，直到 verify 变红。
 #     判据：写盘函数自己会把已知误写归一（不是靠调用方记得），且两侧别名表逐字一致。
 _ts_alias = open(os.path.join(ROOT, "desktop", "src", "main", "data", "index.ts"), encoding="utf-8").read()
 _m_ts_alias = re.search(r"STATUS_ALIASES[^=]*=\s*\{([^}]*)\}", _ts_alias)
@@ -1536,12 +1536,12 @@ try:
     teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
                                  "状态": "已完成", "项目": "fangcun"})
     _d_w = teg.parse_task(_tmp_w) or {}
-    check("★★ 写盘函数把「已完成」归一成「完成」（不是靠调用方记得改）",
+    check("★★ 写盘函数把“已完成”归一成“完成”（不是靠调用方记得改）",
           _d_w.get("状态") == "完成", str(_d_w.get("状态")))
     teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
                                  "状态": "待处理", "项目": "fangcun"})
     _d_w2 = teg.parse_task(_tmp_w) or {}
-    check("★★ 「待处理」（日志页分区叫法）也归一到「待办」", _d_w2.get("状态") == "待办",
+    check("★★ “待处理”（日志页分区叫法）也归一到“待办”", _d_w2.get("状态") == "待办",
           str(_d_w2.get("状态")))
     # 反例：认不出的非法值**不许被偷偷改掉**（改掉就等于"静默吞数据"）
     teg.write_task_file(_tmp_w, {"id": "task-verify-writealias-20261021", "标题": "写入归一",
@@ -1606,7 +1606,7 @@ finally:
 
 # ── 导入防呆（2026-10-14 开发清单第 6 条）────────────────────────────────────
 # 老行为：字段名写错（手搓文件时最容易犯）→ api_new 白名单默默丢掉 → 落一张
-# 「(无标题)」的空卡，**还回 ok:True**。判据：报错要点名、且**一个文件都不许写**。
+# “(无标题)”的空卡，**还回 ok:True**。判据：报错要点名、且**一个文件都不许写**。
 _gdir = os.path.join(tmpdir, "import-guard", "task-data")
 os.makedirs(_gdir, exist_ok=True)
 _old_taskdir29 = teg.TASK_DIR
@@ -1621,12 +1621,12 @@ try:
     _g1 = teg.api_import_tasks([{"题目": "字段名写错了", "项目": ["fangcun-base"]}])
     check("★★ 导入防呆：不认识的字段名被拦下（老实现静默丢掉它并报成功）", _g1.get("ok") is False, str(_g1)[:140])
     _gmsg = str(_g1.get("msg", ""))
-    check("★★ 导入防呆：报错点名「哪个字段 + 第几条」",
+    check("★★ 导入防呆：报错点名“哪个字段 + 第几条”",
           "题目" in _gmsg and "第 1 条" in _gmsg, _gmsg[:140])
     check("★★ 导入防呆：一个文件都没写（先全量体检、后落盘）", _gfiles() == [], str(_gfiles()))
 
     _g2 = teg.api_import_tasks([{"项目": ["fangcun-base"]}])
-    check("★ 导入防呆：没有「标题」被拦下（不再落 (无标题) 空壳）",
+    check("★ 导入防呆：没有“标题”被拦下（不再落 (无标题) 空壳）",
           _g2.get("ok") is False and "标题" in str(_g2.get("msg", "")), str(_g2.get("msg"))[:140])
 
     _g3 = teg.api_import_tasks([{"标题": "这条是好的"}, {"题目": "这条字段名错了"}])
@@ -1641,9 +1641,9 @@ finally:
 
 
 # ── archify 卡导入（中长期清单第 9 条，2026-10-14）─────────────────────────
-# 判据三条：① 原卡**原样**进「架构」字段（标量 JSON 字符串，能 json.loads 回原对象）
+# 判据三条：① 原卡**原样**进“架构”字段（标量 JSON 字符串，能 json.loads 回原对象）
 #          ② 摘要落在 `## 方案` 段内（**不许**用 `^## ` 小标题 —— 会被 _split_body 挤成 _extra，
-#             实测第一版就是这么写的：摘要跑到「结果记录」后面，方案段只剩一个空 `- [ ]`）
+#             实测第一版就是这么写的：摘要跑到“结果记录”后面，方案段只剩一个空 `- [ ]`）
 #          ③ 不合格**整批拒绝、一个文件都不写**
 _aroot = os.path.join(tmpdir, "archify")
 _adir = os.path.join(_aroot, "task-data")
@@ -1684,7 +1684,7 @@ try:
           isinstance(_jg, str), type(_jg).__name__)
     check("★★ archify：原卡原样可读回（逐键一致，零丢失）",
           isinstance(_jg, str) and json.loads(_jg) == _acard(), "json.loads 后与原卡不同")
-    check("★ archify：来源如实写进「来源」字段（不伪造）",
+    check("★ archify：来源如实写进“来源”字段（不伪造）",
           _card1.get("来源") == "archify", str(_card1.get("来源")))
     _plan1 = _card1.get("方案") or []
     check("★★ archify：摘要落在 `## 方案` 段内，且 _extra 为空（用 `## ` 小标题会被挤出去）",
@@ -1692,7 +1692,7 @@ try:
           f"extra={len(_card1.get('_extra', ''))} 方案行数={len(_plan1)}")
     check("★ archify：摘要里真看得见节点与连线（不是只存了一坨 JSON）",
           any("组件甲" in x for x in _plan1) and any("→" in x for x in _plan1), str(_plan1[:3])[:120])
-    check("★ archify：附言写明来源与「只导入、不分发」",
+    check("★ archify：附言写明来源与“只导入、不分发”",
           "archify" in str(_card1.get("附言", "")) and "不分发" in str(_card1.get("附言", "")),
           str(_card1.get("附言", ""))[:100])
 

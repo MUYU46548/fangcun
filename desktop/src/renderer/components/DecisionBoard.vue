@@ -6,7 +6,7 @@
  * 为什么单独成组件、不再写在 App.vue 里：
  *   ① `tailwind.config.js` 的 `content` **绝不能扫 App.vue** —— 它里面有 `.fixed`/`.hidden`/
  *      `.block` 这类与 Tailwind 工具类**同名**的老类名，一扫就凭空生成规则、全仓观感漂移
- *      （第 ① 步「产物 CSS 逐字节不变」就是被这个坑破的）。视图按组件边界切出去，
+ *      （第 ① 步“产物 CSS 逐字节不变”就是被这个坑破的）。视图按组件边界切出去，
  *      新代码用 utilities、老代码一行不动。
  *   ② App.vue 是 14000 行单文件；视图边界清楚，将来才好逐个换手搓控件。
  *
@@ -41,7 +41,7 @@ const emit = defineEmits<{ (e: 'notify', msg: string, type: 'success' | 'error' 
 
 /** 筛选项就是三态 + 全部；与主进程 `DECISION_STATUSES` 同一套词（改一处要改两处） */
 const FILTERS = ['全部', '有效', '已撤销', '已合并']
-/** 「项目筛选」里代表"没填项目"的那一项；数据支持（decisions.md 的项目列），界面补上 */
+/** “项目筛选”里代表"没填项目"的那一项；数据支持（decisions.md 的项目列），界面补上 */
 const NO_PROJECT = '（未归属）'
 const ALL_PROJECTS = '全部项目'
 
@@ -55,7 +55,7 @@ const newSource = ref('')
 const newProject = ref('')
 const busy = ref(false)
 
-/* ── 生命周期管理（2026-10-17 暮雨：「决策卡当然需要有生命周期管理」）──────────
+/* ── 生命周期管理（2026-10-17 暮雨：“决策卡当然需要有生命周期管理”）──────────
    三态本身是"还作不作数"，生命周期管的是**一条决策从记下到失效的整段**：
    ① 找得到（搜索）② 成批动（多选 + 批量改状态/删除）③ 看得见什么时候被动过（更新时刻）。
    刻意不做：状态流转图 / 审批流 / 关联任务 —— 那是项目管理，方寸不是那个东西。 */
@@ -68,7 +68,7 @@ const batchBusy = ref(false)
 /** 批量删除的两段式：第一次点只把按钮换成"确认删除 N 条" */
 const batchDeleteConfirm = ref(false)
 
-/** 秒级 Unix 时间戳 → 「10-15 14:32」；解析不出来给空串（不糊一个假时间） */
+/** 秒级 Unix 时间戳 → “10-15 14:32”；解析不出来给空串（不糊一个假时间） */
 function relTime(raw: string): string {
   if (!raw) return ''
   const n = Number(raw)
@@ -119,7 +119,7 @@ async function batchSetStatus(status: string): Promise<void> {
   } finally {
     batchBusy.value = false
   }
-  emit('notify', ok === ids.length ? `${ok} 条已设为「${status}」` : `${ok}/${ids.length} 条成功`, ok === ids.length ? 'success' : 'error')
+  emit('notify', ok === ids.length ? `${ok} 条已设为“${status}”` : `${ok}/${ids.length} 条成功`, ok === ids.length ? 'success' : 'error')
   selected.value = []
   await refresh()
 }
@@ -172,9 +172,9 @@ const filtered = computed(() =>
 /** 空态得说清是"哪一层筛空了的" —— 只说"没有决策"会在项目筛空时骗人 */
 const emptyHint = computed(() => {
   if (!items.value.length) return '还没有决策记录——定了大事，记一条，防它消失'
-  if (!byProject.value.length) return `「${projFilter.value}」下还没有决策`
-  if (query.value.trim()) return `没有匹配「${query.value.trim()}」的决策（搜的是内容 / 出处 / 项目 / 备注）`
-  return filter.value === '全部' ? '这里没有决策' : `「${projFilter.value}」下没有「${filter.value}」的决策`
+  if (!byProject.value.length) return `“${projFilter.value}”下还没有决策`
+  if (query.value.trim()) return `没有匹配“${query.value.trim()}”的决策（搜的是内容 / 出处 / 项目 / 备注）`
+  return filter.value === '全部' ? '这里没有决策' : `“${projFilter.value}”下没有“${filter.value}”的决策`
 })
 
 /** 计数跟着**当前项目筛与搜索词**走 —— 否则页签上的数字加起来对不上列表里的张数（界面说假话） */
@@ -186,7 +186,7 @@ function countOf(s: string): number {
 /**
  * 贴一句话自动拆字段（开发清单第 5 条）。
  * 规则在 `shared/decisionInput.ts`（纯函数、有独立断言）；这里只负责**预填**：
- * 拆完不动「记下」——用户还能改。拆不出东西时也得说话，不许静默什么都不发生。
+ * 拆完不动“记下”——用户还能改。拆不出东西时也得说话，不许静默什么都不发生。
  */
 function splitSmart(): void {
   const text = smartText.value.trim()
@@ -198,7 +198,7 @@ function splitSmart(): void {
   if (r.出处) newSource.value = r.出处
   emit(
     'notify',
-    r.命中.length ? `已拆出：${r.命中.join('、')} —— 检查一下再点「记下」` : '没拆出别的字段，整句留在「内容」里',
+    r.命中.length ? `已拆出：${r.命中.join('、')} —— 检查一下再点“记下”` : '没拆出别的字段，整句留在“内容”里',
     'info'
   )
 }
@@ -258,7 +258,7 @@ async function setStatus(d: Decision, status: string) {
   busy.value = true
   try {
     // ⚠ 字段名是中文 `状态`（见 interface Decision）—— 写成 d.status 会拿到 undefined，
-    //   撤销条显示「原：未填」、撤回时把状态置空（2026-10-21 实测踩到并被断言抓到）
+    //   撤销条显示“原：未填”、撤回时把状态置空（2026-10-21 实测踩到并被断言抓到）
     const prev = d.状态
     const r: any = await window.tegula.decisionSetStatus(d.id, status)
     if (r?.ok) {
@@ -282,9 +282,9 @@ async function setStatus(d: Decision, status: string) {
 
 /* ── 编辑 / 删除（2026-10-17 暮雨第 5 条）──────────────────────────────
    原状态：决策只能"新增一条"和"改三态"。写错一个字 → 只能撤销再重记，
-   记错一条 → 永远留在库里。这就是他说的「失控感」。
+   记错一条 → 永远留在库里。这就是他说的“失控感”。
    做法：编辑**就地展开**（不弹新窗：弹窗一多，改一句话要跨三层），
-   删除走**两段式**（第一次点变成「确认 / 取消」，第二次才真删）——
+   删除走**两段式**（第一次点变成“确认 / 取消”，第二次才真删）——
    与全仓其它破坏性动作同一套交互，且删前主进程会先留底。 */
 const editingId = ref('')
 const pendingDeleteId = ref('')
@@ -611,7 +611,7 @@ onMounted(refresh)
           {{ d.备注 }}
         </div>
 
-        <!-- 操作区（2026-10-17）：删除是两段式 —— 先变成「取消 / 确认删除」，
+        <!-- 操作区（2026-10-17）：删除是两段式 —— 先变成“取消 / 确认删除”，
              不会一点就没；确认后主进程还会先留底再删。 -->
         <div class="mt-2 flex flex-wrap items-center justify-end gap-1.5">
           <template v-if="pendingDeleteId === d.id">

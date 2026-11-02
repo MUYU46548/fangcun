@@ -7,9 +7,9 @@
  *   / blocker-broken（阻塞链断裂）/ task-stalled（进行中却没动静）
  *
  * **扫描范围是用户拍板的定稿，不自作主张加新类型**（2026-10-01 原话：
- * 「先不急着改，先明确需求再改，我觉得按你这样改只会增加一堆噪音，很吵」）。
+ * “先不急着改，先明确需求再改，我觉得按你这样改只会增加一堆噪音，很吵”）。
  * 新增的 blocker-broken / task-stalled 一律 `osNotify:false` —— 形态是
- * 「角标红点 + 面板集中看」，不弹系统通知。
+ * “角标红点 + 面板集中看”，不弹系统通知。
  *
  * 到点只弹一次：去重键含事件指纹（due 值），改期后是新事件。
  * 事件消失时自动消解对应未读通知（resolveNotifications）。
@@ -44,7 +44,7 @@ export function parseDueValue(v: unknown): Date | null {
 }
 
 /**
- * 2026-10-29（暮雨第 8 条「全部修完直到稳定」+ dsh-notify-tray 借鉴 #1「免打扰」）：
+ * 2026-10-29（暮雨第 8 条“全部修完直到稳定”+ dsh-notify-tray 借鉴 #1“免打扰”）：
  * **窗口正看着方寸时不该弹系统通知** —— 面板里已经有红点，再弹一个系统气泡只是打断。
  * 判定来源可注入（`_setFocusProbe`），因为 e2e 里没有真 BrowserWindow。
  */
@@ -70,7 +70,7 @@ function osNotify(title: string, body: string, onClick?: () => void): void {
 
 /**
  * 点系统通知 → **回到具体对象**（借鉴 #2）。
- * 光把窗口拉到前台不够：通知说的是「任务逾期：X」，用户点了却只看到一屏卡片，
+ * 光把窗口拉到前台不够：通知说的是“任务逾期：X”，用户点了却只看到一屏卡片，
  * 还得自己找。这里把 type+sourceId 交给渲染层，由它切视图并打开那张卡/那条日志。
  */
 export function focusSource(type: string, sourceId?: string): void {
@@ -99,7 +99,7 @@ function push(input: notifications.PushInput): boolean {
 }
 
 /**
- * 更新包下载完成 → 必须「看得见」（012，2026-09-25）。
+ * 更新包下载完成 → 必须“看得见”（012，2026-09-25）。
  *
  * 为什么必须在主进程弹：方寸关窗只是**缩进托盘**，窗口不可见时渲染层的设置页文案、
  * toast 全都看不到。只改渲染层状态 = 用户永远不知道新版本已经下好了（原 bug 就是这样）。
@@ -109,7 +109,7 @@ export function notifyUpdateReady(version: string): boolean {
     type: 'update-downloaded',
     level: 'info',
     title: `新版本 ${version} 已下载完成`,
-    body: '点「立即重启安装」升级；也可稍后在 设置 → 关于 里安装',
+    body: '点“立即重启安装”升级；也可稍后在 设置 → 关于 里安装',
     sourceId: version,
     key: 'update-downloaded:' + version,
   })
@@ -210,7 +210,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
       type: 'blocker-broken', level: 'warning', osNotify: false,
       title: `阻塞链断裂：${b.taskTitle}`,
       body: `它依赖的 ${b.blockerId} 已不存在（可能被删除或进了回收站）`,
-      sourceId: b.taskId, key: b.blockerId,   // 每对「任务×缺失阻塞源」一条，避免互相挤掉
+      sourceId: b.taskId, key: b.blockerId,   // 每对“任务×缺失阻塞源”一条，避免互相挤掉
     })) created++
   }
   for (const n of notifications.listNotifications()) {
@@ -220,7 +220,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   }
 
   // ── 6. 进行中却没动静（C 类，2026-10-01 用户定稿）────────────────────
-  // 「状态=进行中」= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活；
+  // “状态=进行中”= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活；
   // 此后任务文件 ≥24h 没有任何写入 = 没人回写。只扫进行中（其他状态天然不回写，扫了是噪音）。
   const stalled = tasks.findStalledTasks()
   const stalledIds = new Set(stalled.map(t => t.id))
@@ -228,7 +228,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     if (push({
       type: 'task-stalled', level: 'warning', osNotify: false,
       title: `任务没动静：${t.title}`,
-      body: `状态「进行中」，但任务文件已 ${t.hours} 小时没有任何写入`,
+      body: `状态“进行中”，但任务文件已 ${t.hours} 小时没有任何写入`,
       sourceId: t.id,
       key: 'stalled',   // 固定指纹：小时数每次扫描都变，用它做指纹会每小时长出一条新通知
     })) created++
@@ -267,9 +267,9 @@ export function startScanner(intervalMs = 60000): void {
     try {
       scanOnce()
     } catch (e) {
-      // P0-4（2026-10-01）：这里原本是 `catch {}` **静默吞异常** —— 「扫描器停摆」和
-      // 「扫不到事件」在界面上长得一模一样，用户只能得出通知中心是坏的。落应用日志后
-      // 照常继续（单次失败不致命），配合面板页脚的「上次扫描」相对时间即可判断是否停摆。
+      // P0-4（2026-10-01）：这里原本是 `catch {}` **静默吞异常** —— “扫描器停摆”和
+      // “扫不到事件”在界面上长得一模一样，用户只能得出通知中心是坏的。落应用日志后
+      // 照常继续（单次失败不致命），配合面板页脚的“上次扫描”相对时间即可判断是否停摆。
       appLog.error('notifier', '单次扫描失败（下次到点照常重试）', e)
     }
     running = false

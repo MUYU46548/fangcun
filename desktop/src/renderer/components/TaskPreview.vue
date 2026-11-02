@@ -1,7 +1,7 @@
 <!--
-  任务预览弹窗（2026-10-31 · 渲染层拆分「浮层刀」第一块）
+  任务预览弹窗（2026-10-31 · 渲染层拆分“浮层刀”第一块）
 
-  **边界**：与 `BoardView.vue` / `LogsView.vue` 同一套 —— 组件只「显示 + 收集意图」，
+  **边界**：与 `BoardView.vue` / `LogsView.vue` 同一套 —— 组件只“显示 + 收集意图”，
   状态与动作留在 App。父组件用 `reactive()` 包一个 `taskPreviewCtl` 传进来，
   组件用 `toRef` 接状态、直接解构接函数。
 
@@ -32,7 +32,7 @@
         <div><span class="k">更新</span><span class="v">{{ formatDate(previewTask.updated) }}</span></div>
       </div>
       <!-- 上次驳回（2026-10-30 暮雨第 2 条）：理由可选、可改、退回返工后仍在卡上。
-           没有理由也如实说「当时没写理由」—— 那不是"没问题"。 -->
+           没有理由也如实说“当时没写理由”—— 那不是"没问题"。 -->
       <div class="reject-block" v-if="rejectReasonOf(previewTask) || previewTask.reject_at || previewTask.status === '驳回'">
         <label>
           上次驳回
@@ -68,7 +68,7 @@
             v-if="previewArch.archify?.views"> · {{ previewArch.archify?.views }} 个视图</template><template
             v-if="previewArch.archify?.counts"> · {{ previewArch.archify?.counts }}</template>）。
           它的格式与方寸的分层架构图不是一回事，所以这里不画图（硬转会丢信息）；
-          结构摘要见正文，原始 JSON 完整存在「架构」字段里。
+          结构摘要见正文，原始 JSON 完整存在“架构”字段里。
         </div>
         <div v-else class="arch-error">架构图 JSON 读不出来：{{ previewArch.error }}</div>
       </div>
@@ -88,16 +88,16 @@
             <button
               v-if="log.status !== 'completed' && log.status !== 'archived'"
               class="ghost task-log-done"
-              title="一键标记完成（默认保留 7 天）—— 完成后这里会变成「撤销」"
+              title="一键标记完成（默认保留 7 天）—— 完成后这里会变成“撤销”"
               @click.stop="quickCompleteLog(log)"
             >✓ 完成</button>
-            <!-- 2026-10-21 暮雨第 1 条：这里原来只有「✓ 完成」，一旦点错（无二次确认），
+            <!-- 2026-10-21 暮雨第 1 条：这里原来只有“✓ 完成”，一旦点错（无二次确认），
                  该行就**只剩一个状态角标**，撤销得跑去日志页翻分区找那条卡 ——
                  这就是"撤销按钮在（但不在我眼前）"。误操作的正解是原地回退。 -->
             <button
               v-else
               class="ghost task-log-done"
-              title="撤销完成 / 归档，退回「待处理」（只改状态，不删文件）"
+              title="撤销完成 / 归档，退回“待处理”（只改状态，不删文件）"
               @click.stop="reopenLogItem(log.id)"
             >↩ 撤销</button>
           </div>
@@ -145,33 +145,33 @@
             v-if="previewTask.status === '完成' || previewTask.status === '驳回'"
             class="ok"
             :title="previewTask.status === '驳回'
-              ? '退回「待办」重新开工 —— 只改状态，文件一个不动'
-              : '退回「待办」—— 只改状态，文件一个不动'"
+              ? '退回“待办”重新开工 —— 只改状态，文件一个不动'
+              : '退回“待办”—— 只改状态，文件一个不动'"
             @click="restoreTask(previewTask)"
           >{{ previewTask.status === '驳回' ? '↩ 退回返工' : '↩ 退回待办' }}</button>
-          <!-- 终态的「删除」不放这里：它与「操作」组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
-               底部「操作」组的删除对任何状态都在，单一入口，不重复。
-               2026-10-06 用户报「驳回任务只能还原和归档，为了省事点了归档」——
-               删除其实在下面「操作」组，但流转组只摆两个按钮时，人不会往下找。
+          <!-- 终态的“删除”不放这里：它与“操作”组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
+               底部“操作”组的删除对任何状态都在，单一入口，不重复。
+               2026-10-06 用户报“驳回任务只能还原和归档，为了省事点了归档”——
+               删除其实在下面“操作”组，但流转组只摆两个按钮时，人不会往下找。
                所以这里补一句**出路提示**（不加第三个按钮）：三种去向 + 各自后果一次说清。 -->
           <span v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="acts-hint">
-            接着做 →「退回」｜先收起 →「归档」（文件移进 archive/，随时能还原）｜不要了 → 下面「操作」组最右的「删除」（进回收站，可找回）
+            接着做 →“退回”｜先收起 →“归档”（文件移进 archive/，随时能还原）｜不要了 → 下面“操作”组最右的“删除”（进回收站，可找回）
           </span>
           <template v-else>
             <!-- 验收裁决弹窗（accept / reject + 驳回理由）此前**没有任何入口** ——
                  后端 review:accept / review:reject 通道齐全，openReview 也写好了，
                  但没人调用它。这里补上正式入口：待验收任务可走完整裁决流程，
-                 不想走流程的仍可用下面的「完成/驳回」直达。 -->
+                 不想走流程的仍可用下面的“完成/驳回”直达。 -->
             <!-- 2026-10-25（暮雨第 1 条）：待审批卡此前**没有正向出口** —— 只有下面两个
-                 forceClose 按钮（跳过流程、不写结论），用户原话「要么完成要么驳回，
-                 没有其他去处，理由都填不了」。现在待审批与待验收共用同一个裁决弹窗：
-                 待审批 →「批准」转正为「待办」/「驳回」；待验收 →「通过」/「驳回」。
+                 forceClose 按钮（跳过流程、不写结论），用户原话“要么完成要么驳回，
+                 没有其他去处，理由都填不了”。现在待审批与待验收共用同一个裁决弹窗：
+                 待审批 →“批准”转正为“待办”/“驳回”；待验收 →“通过”/“驳回”。
                  理由一律写入结果记录，卡片上查得到。 -->
             <button
               v-if="previewTask.status === '待验收' || previewTask.status === '待审批'"
               class="pri"
               :title="previewTask.status === '待审批'
-                ? '审批裁决：批准转正为「待办」/ 驳回（驳回必须填理由，会写进结果记录）'
+                ? '审批裁决：批准转正为“待办”/ 驳回（驳回必须填理由，会写进结果记录）'
                 : '正式验收裁决：通过 / 驳回（驳回必须填理由，会写进结果记录）'"
               @click="openReview(previewTask)"
             >{{ previewTask.status === '待审批' ? '⚖ 审批裁决' : '✅ 验收裁决' }}</button>

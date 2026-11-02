@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 「哪些待办其实没人碰过」派生逻辑断言（卡 20261025-006 第三件，2026-10-27）
+ * “哪些待办其实没人碰过”派生逻辑断言（卡 20261025-006 第三件，2026-10-27）
  *
  * 真跑**编译产物** `dist/shared/neverRead.js`（纯逻辑，不要 electron、不起子进程 → 本机可跑）。
  * 判据一句话：**"没人碰过"必须说清是"没有 agent 经 MCP 读过"，而不是"从来没人看过"** ——
@@ -33,7 +33,7 @@ const { isOpenForRead, pickNeverRead, neverReadSummary } = require(ART)
 
 console.log('== 读取情况 · 纯逻辑 ==')
 
-// ── ① 「未完成」的判定：完成/驳回不算，**空状态算未完成** ──────────────
+// ── ① “未完成”的判定：完成/驳回不算，**空状态算未完成** ──────────────
 check('isOpenForRead: 待办 / 进行中 / 待审批 / 待验收 / 草稿 → true',
   ['待办', '进行中', '待审批', '待验收', '草稿'].every(s => isOpenForRead(s)))
 check('★ isOpenForRead: 完成 / 驳回 → false（做完了没人读是正常的，不该进清单）',
@@ -106,20 +106,20 @@ check('★ 更新时间解析不出来的排最后（不用 Infinity 冒充"最�
 
 // ── ⑤ 文案：口径必须跟数字在一起 ──────────────────────────────────────
 const withEvents = neverReadSummary(r1)
-check('★★ 有读卡记录时，文案里写明「只算 agent 经 MCP 读卡，界面里点开不算」',
+check('★★ 有读卡记录时，文案里写明“只算 agent 经 MCP 读卡，界面里点开不算”',
   withEvents.includes('agent') && withEvents.includes('MCP') && withEvents.includes('界面'),
   withEvents)
 check('★ 文案里带分子分母（不是只给一个数）',
   withEvents.includes('张 / 共'), withEvents)
 
 const noEvents = neverReadSummary(Object.assign({}, r1, { windowEvents: 0 }))
-check('★★ 一条读卡记录都没有时，文案**不许**出现「N 张没人碰过」那种分子分母',
+check('★★ 一条读卡记录都没有时，文案**不许**出现“N 张没人碰过”那种分子分母',
   !noEvents.includes('张 / 共') && !noEvents.includes('0 引用'), noEvents)
-check('★★ 而且要说清是「还没有任何 agent 读卡记录」（不是"全都没人碰过"）',
+check('★★ 而且要说清是“还没有任何 agent 读卡记录”（不是"全都没人碰过"）',
   noEvents.includes('还没有任何 agent 读卡记录'), noEvents)
 
 const noneOpen = neverReadSummary({ rows: [], count: 0, openTotal: 0, windowEvents: 5, days: 30 })
-check('★ 一张未完成的卡都没有时，文案说「当前没有未完成的卡」而不是「没人碰过 0」',
+check('★ 一张未完成的卡都没有时，文案说“当前没有未完成的卡”而不是“没人碰过 0”',
   noneOpen.includes('没有未完成的卡') && !noneOpen.includes('没人碰过'), noneOpen)
 
 // ── ⑥ 输入健壮性：别的调用方传空进来自证不炸 ────────────────────────────
@@ -156,7 +156,7 @@ function realDataChecks() {
       card('task-nr-001', '真数据卡甲', '待办', '高', '2026-09-02T00:00:00.000Z'), 'utf-8')
     fs.writeFileSync(path.join(base, 'task-data', 'task-nr-002.md'),
       card('task-nr-002', '真数据卡乙', '完成', '低', '2026-09-03T00:00:00.000Z'), 'utf-8')
-    // 只读「乙」——所以甲才是"没人碰过"的那张
+    // 只读“乙”——所以甲才是"没人碰过"的那张
     fs.writeFileSync(path.join(base, 'mcp-usage.jsonl'),
       JSON.stringify({ ts: new Date().toISOString(), via: 'get_task', ids: ['task-nr-002'] }) + '\n', 'utf-8')
 

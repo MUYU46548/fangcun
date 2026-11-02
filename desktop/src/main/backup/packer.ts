@@ -237,7 +237,7 @@ function collect(rootDir: string, relPath: string, out: Array<{ rel: string; abs
   for (const e of entries) {
     const childRel = `${relPath}/${e.name}`
     if (isExcluded(childRel)) {
-      // 只把「密钥类」排除项记账进 manifest，缓存/临时目录不制造噪音
+      // 只把“密钥类”排除项记账进 manifest，缓存/临时目录不制造噪音
       if (isSecretLike(childRel)) excluded.push(childRel.replace(/\\/g, '/'))
       continue
     }
@@ -260,7 +260,7 @@ export interface SnapshotPlan {
 
 /**
  * 只做"收集 + 排除 + 瘦身判定"，**不读内容、不打 zip**。
- * `createSnapshot` 与「体积报告」(`backup:sizeReport`) 共用它 —— 保证"报告里说会跳过什么"
+ * `createSnapshot` 与“体积报告”(`backup:sizeReport`) 共用它 —— 保证"报告里说会跳过什么"
  * 与"备份时真跳过什么"是**同一套判据**（分成两套必然会漂移）。
  */
 export function planSnapshot(sources: SnapshotSources): SnapshotPlan {

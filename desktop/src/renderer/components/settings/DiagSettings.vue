@@ -29,8 +29,8 @@ const {
               <button class="ghost font-[inherit]" title="删掉 7 天前的日志文件（不动今天的）" @click="purgeLogs(7)">清理 7 天前</button>
               <button class="ghost font-[inherit]" title="清空全部日志（当天那份也会被清空，之后照常记录）" @click="purgeLogs(0)">清空全部</button>
             </div>
-            <!-- 2026-10-17 暮雨第 5 条：原文案写着「报问题时把最后几十行发我即可」——
-                 「发我」是谁？用户看不懂代码、也不该被要求发日志。改成人话：你不用读、也不用发。 -->
+            <!-- 2026-10-17 暮雨第 5 条：原文案写着“报问题时把最后几十行发我即可”——
+                 “发我”是谁？用户看不懂代码、也不该被要求发日志。改成人话：你不用读、也不用发。 -->
             <div class="hint">
               这里记录方寸自己的运行痕迹（崩溃、IPC 失败、渲染层异常、启动失败）。
               <b>你不用读它，也不用发给任何人</b> —— 它只在真的出问题时用来倒查。
@@ -55,7 +55,7 @@ const {
   
           <div class="sect" v-show="active">
             <h4>技能副本检查</h4>
-            <div class="hint">逐个比对「方寸自带的技能」与「已经装到各 agent 目录里的副本」—— 副本被改坏或落后时会在这里报出来。</div>
+            <div class="hint">逐个比对“方寸自带的技能”与“已经装到各 agent 目录里的副本”—— 副本被改坏或落后时会在这里报出来。</div>
             <div class="sect-btns">
               <button class="ghost font-[inherit]" :disabled="diagBusy" @click="checkSkillsCopies">检查技能副本</button>
             </div>
@@ -76,7 +76,7 @@ const {
   
           <div class="sect" v-show="active">
             <h4>最近活动</h4>
-            <div class="hint">谁在什么时候改了什么（<code>task-data/.activity.log</code>）。排查「这张卡怎么突然变了」时先看这里。</div>
+            <div class="hint">谁在什么时候改了什么（<code>task-data/.activity.log</code>）。排查“这张卡怎么突然变了”时先看这里。</div>
             <div class="sect-btns">
               <button class="ghost font-[inherit]" @click="loadDiagActivity">刷新活动日志</button>
             </div>
@@ -90,5 +90,5 @@ const {
               <div v-if="!diagActivity.length" class="hint">（暂时没有活动记录）</div>
             </div>
           </div>
-          <!-- 2026-09-29 用户第 6 条：设置里要能自定义「已完成日志的自动清理」 -->
+          <!-- 2026-09-29 用户第 6 条：设置里要能自定义“已完成日志的自动清理” -->
 </template>

@@ -1,15 +1,15 @@
 /**
- * 「对不上」检测 —— 纯逻辑（2026-10-27，REV-008 一期 R4「让对不上可见」）
+ * “对不上”检测 —— 纯逻辑（2026-10-27，REV-008 一期 R4“让对不上可见”）
  *
  * 为什么抽成纯函数：三类判定全是**口径**，不是布局。口径写进组件，就只有"起得来界面"的机器能验它。
  * 放进 shared/ 就能用 Node 直接跑（样板 `shared/neverRead.ts`）。
  *
  * 三类，全部机械可判、零 LLM：
- *  ① **状态过期** —— registry 的「状态」里写了"最后核对"的日期，但仓库在那之后还在动。
+ *  ① **状态过期** —— registry 的“状态”里写了"最后核对"的日期，但仓库在那之后还在动。
  *     这是"按过期地图开车"的机械形态：判断建立在旧信息上，而没人报。
  *     ⚠ 没写日期的**不算过期**，单独归 `noDate`：不许把它当"很新"也不当"很旧"。
  *  ② **引用断裂** —— 卡正文里写的仓库内路径，磁盘上已经不存在（改名/删除后没回改卡）。
- *     ⚠ 必须**先在该卡「项目」对应的仓库里找**，否则跨项目卡会被全量误报
+ *     ⚠ 必须**先在该卡“项目”对应的仓库里找**，否则跨项目卡会被全量误报
  *       （实测：账本卡引用 NovelForge 的 `scripts/utils/handoff.py`，在方寸里当然没有）。
  *     ⚠ 带行号（`ideas.ts:269`）、通配（`{a,b}.js`）、省略号（`docs/.../x`）的都**不是可判路径**，直接跳过。
  *  ③ **完成但没判据** —— 状态=完成，正文里找不到任何验收判据字样。
@@ -19,11 +19,11 @@
  */
 
 export interface RepoInfo {
-  /** registry 里的 id 或 name，都用来匹配卡的「项目」字段 */
+  /** registry 里的 id 或 name，都用来匹配卡的“项目”字段 */
   keys: string[]
   /** 绝对路径 */
   path: string
-  /** registry「状态」原文 */
+  /** registry“状态”原文 */
   status: string
   /** 该仓库最后一次提交日期 YYYY-MM-DD；取不到为 null */
   lastCommit: string | null
@@ -47,7 +47,7 @@ export interface StaleRow {
 export interface BrokenRow {
   task: string
   ref: string
-  /** 找过的仓库名，第一个恒为「本仓」 */
+  /** 找过的仓库名，第一个恒为“本仓” */
   searched: string[]
 }
 
@@ -63,7 +63,7 @@ export interface NoCriteriaRow {
 }
 
 /**
- * 「完成但找不到产出」（2026-10-29 暮雨第 4 条 A 项）。
+ * “完成但找不到产出”（2026-10-29 暮雨第 4 条 A 项）。
  *
  * 为什么单独一组：上一组只判\"有没有写验收判据\"，而 RICE 那张卡**写了判据**
  * （`结果记录：[…] 验收通过`）却**东西根本不在** —— 判据是自述，产出才是事实。
@@ -167,7 +167,7 @@ export function pickStale(repos: RepoInfo[], todayISO: string, days = 3): { stal
   return { stale, noDate }
 }
 
-/** 取卡的「项目」字段（`[a, b]` / `a` / 块式列表三种写法都要认） */
+/** 取卡的“项目”字段（`[a, b]` / `a` / 块式列表三种写法都要认） */
 export function taskProjectsOf(text: string): string[] {
   const s = String(text ?? '')
   const m = /^项目:[ \t]*(.*)$/m.exec(s)
@@ -270,7 +270,7 @@ export function pickNoCriteria(tasks: TaskRef[]): NoCriteriaRow[] {
 /** ④ 完成但找不到产出（2026-10-29 暮雨第 4 条 A 项）─────────────────────
  *
  * 与 ③ 的分工：③ 问"写没写判据"，④ 问"东西在不在"。
- * RICE 那张卡 ③ 放它过去（写了「验收通过」），可产品里根本没有入口 ——
+ * RICE 那张卡 ③ 放它过去（写了“验收通过”），可产品里根本没有入口 ——
  * 判据是自述，产出才是事实。这一组只认**可核实的东西**：
  *   · 卡里提到的仓库内路径，磁盘上真的存在（本仓，或该卡项目对应的仓库）
  *   · 带上下文的提交号（`提交 abc1234` / `commit abc1234`）
@@ -297,7 +297,7 @@ function titleOfCard(text: string): string {
   return ti ? (ti[1] || '').trim().replace(/^['"]|['"]$/g, '') : ''
 }
 
-/** 卡上的「更新」离今天多少天（认 ISO / MM-DD / 秒级时间戳三种写法） */
+/** 卡上的“更新”离今天多少天（认 ISO / MM-DD / 秒级时间戳三种写法） */
 function ageDaysOf(text: string, todayISO: string): number | null {
   const m = /^更新:[ \t]*(.*)$/m.exec(String(text ?? ''))
   if (!m) return null
@@ -322,7 +322,7 @@ function ageDaysOf(text: string, todayISO: string): number | null {
   return daysBetween(iso, todayISO)
 }
 
-/** 这张完成卡上有没有「可核实的一件东西」 */
+/** 这张完成卡上有没有“可核实的一件东西” */
 function hasVerifiableOutput(
   body: string,
   task: TaskRef,
@@ -414,7 +414,7 @@ export function collectMismatch(input: {
  * 界面上那一行文案 —— 口径必须跟数字在一起（同 `neverReadSummary` 的理由）。
  * 三件事都不能说成"错误"：它们只是**提醒**，不是"做错了"。
  *
- * 2026-10-30（暮雨第 1 条）：「对不上」这三个字在中文里没人看得懂，哪怕叫「状态提醒」。
+ * 2026-10-30（暮雨第 1 条）：“对不上”这三个字在中文里没人看得懂，哪怕叫“状态提醒”。
  * 现在标题与逐项文案全部换成"发生了什么"的直说，不再用内部术语。
  */
 export function mismatchSummary(r: MismatchResult): string {

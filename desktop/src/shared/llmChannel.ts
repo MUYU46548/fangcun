@@ -96,7 +96,7 @@ export function buildChain(channels: ChannelLike[], primaryId?: string): ChainPl
     else if (i < 0) {
       skipped.push({
         id: want, label: want,
-        reason: `主通道「${want}」不在可用通道里 —— 已按顺序改用「${ready[0] ? ready[0].label : '(没有可用通道)'}」`,
+        reason: `主通道“${want}”不在可用通道里 —— 已按顺序改用“${ready[0] ? ready[0].label : '(没有可用通道)'}”`,
       })
     }
   }
@@ -176,13 +176,13 @@ export function describeChain(attempts: AttemptRecord[], winnerId?: string): str
 
   if (win) {
     const why = failed.map((f) => `${f.channelLabel} ${f.reason || '失败'}`).join(' → ')
-    return `已切到「${win.channelLabel}」：${why}`
+    return `已切到“${win.channelLabel}”：${why}`
   }
   const all = list.map((f) => `${f.channelLabel}（${f.reason || '失败'}）`).join(' → ')
   return `所有通道都失败了：${all}`
 }
 
-/** 界面/日志里展示通道时的统一标签：主通道带「主」字 */
+/** 界面/日志里展示通道时的统一标签：主通道带“主”字 */
 export function channelTag(c: { id: string; label?: string }, primaryId?: string): string {
   const label = s(c.label) || s(c.id)
   return s(primaryId) && s(primaryId) === s(c.id) ? `${label}（主）` : label

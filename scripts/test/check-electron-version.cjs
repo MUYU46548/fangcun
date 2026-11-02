@@ -3,7 +3,7 @@
  *
  * 起因：2026-10-18 立卡时引擎还是 `electron ^28.0.0`（Chromium 120，上游已停安全更新），
  * 而桌面端是方寸**唯一**产品形态 —— 用一个 EOL 的运行时跑用户的全部任务数据，是长期风险。
- * 10-22 升到 44，但卡里那条「补一条断言：electron 主版本 ≥ 受支持线，且**失败即红**」没做。
+ * 10-22 升到 44，但卡里那条“补一条断言：electron 主版本 ≥ 受支持线，且**失败即红**”没做。
  * 没有断言的升级会被后人无意退回：把 `^44.0.0` 改回 `^28.0.0` 不会有任何东西响。
  *
  * 判据：Electron 官方只维护**最近 3 个大版本**（44 是当前线，41 已到维护末期）。
@@ -46,12 +46,12 @@ check('electron-builder 仍在依赖里（打包链路没断）', !!all['electro
   `spec=${JSON.stringify(all['electron-builder'])}`)
 
 // ── 反例自证：判定函数真的会红，而不是"看起来在守" ──────────────────────
-check('反例：「28.0.0」判红', !(majorOf('28.0.0') >= MIN_MAJOR), '')
-check('反例：「^28.0.0」判红', !(majorOf('^28.0.0') >= MIN_MAJOR), '')
-check('反例：「~28.3.1」判红', !(majorOf('~28.3.1') >= MIN_MAJOR), '')
+check('反例：“28.0.0”判红', !(majorOf('28.0.0') >= MIN_MAJOR), '')
+check('反例：“^28.0.0”判红', !(majorOf('^28.0.0') >= MIN_MAJOR), '')
+check('反例：“~28.3.1”判红', !(majorOf('~28.3.1') >= MIN_MAJOR), '')
 check('反例：空串 / undefined 不会误判为通过',
   !(majorOf('') >= MIN_MAJOR) && !(majorOf(undefined) >= MIN_MAJOR), '')
-check('反例：「^44.0.0」判绿（证明不是恒红）', majorOf('^44.0.0') >= MIN_MAJOR, '')
+check('反例：“^44.0.0”判绿（证明不是恒红）', majorOf('^44.0.0') >= MIN_MAJOR, '')
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) { console.log('\n失败项：'); for (const f of failures) console.log(' -', f) }

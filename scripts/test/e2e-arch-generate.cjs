@@ -120,7 +120,7 @@ const wrongLabel = auditArchDraft({
 }, FACTS)
 check('★★ 标签不参与事实审计（编个花名字也改不了节点身份与证据）→ 节点照样通过',
   wrongLabel.ok === true && wrongLabel.acceptedNodes === 1, JSON.stringify(wrongLabel.issues))
-check('★ 正常中文层名（「共享逻辑」）不会被误伤',
+check('★ 正常中文层名（“共享逻辑”）不会被误伤',
   auditArchDraft({ nodes: [good.nodes[2]], edges: [] }, FACTS).ok === true)
 const crazyLabel = auditArchDraft({
   nodes: [{ id: 'dir:src/main', label: '<script>alert(1)</script>很长很长很长很长很长', evidence: ['dir:src/main'] }], edges: [],

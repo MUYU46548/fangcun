@@ -1,7 +1,7 @@
 /**
- * 判据行解析（0.6.0 P3）—— 「这一条判据到底怎么机检」的纯逻辑
+ * 判据行解析（0.6.0 P3）—— “这一条判据到底怎么机检”的纯逻辑
  *
- * 真源：`task-data/plans/<项目id>.md` 每张阶段卡「判据」区的 `- cmd:/str:/num:/file:` 行。
+ * 真源：`task-data/plans/<项目id>.md` 每张阶段卡“判据”区的 `- cmd:/str:/num:/file:` 行。
  * 这一层**只解析，不碰文件、不跑命令** —— 执行在 `main/checks/runner.ts`，
  * Python 侧 `tegula/checks.py` 只做同一套解析（只读镜像，不开第二执行器）。
  *
@@ -72,7 +72,7 @@ function unknown(raw: string, reason: string): UnknownCheck {
 }
 
 const QUOTE_PAIRS: Array<[string, string]> = [
-  ["'", "'"], ['"', '"'], ['`', '`'], ['「', '」'], ['『', '』'],
+  ["'", "'"], ['"', '"'], ['`', '`'], ['“', '”'], ['『', '』'],
 ]
 
 /** 整段被一对引号包着 → 返回里面的原文；否则 null */
@@ -87,7 +87,7 @@ export function unquoteFull(s: string): string | null {
 }
 
 /**
- * 判据里的「要匹配的原文」：必须整段带引号，或不含空格的单个词。
+ * 判据里的“要匹配的原文”：必须整段带引号，或不含空格的单个词。
  * 两样都不是 → null（调用方据此给 unknown，而不是拿整句去搜）
  */
 export function parseLiteral(s: string): string | null {
@@ -132,7 +132,7 @@ function looksRelativePath(p: string): boolean {
 /**
  * `cmd:` 后面取命令：
  *   · 反引号开头 → 取反引号里的那段（卡上的写法：`` `node x.cjs` 退出码 0 ``）；
- *   · 否则去掉尾部的「退出码 0」与 `# 注释`（设计稿允许用注释补一句说明）。
+ *   · 否则去掉尾部的“退出码 0”与 `# 注释`（设计稿允许用注释补一句说明）。
  * 命令本身不看引号 —— `cmd: echo \`date\`` 这种反引号是 shell 替换，不该被剥。
  */
 export function extractCommand(body: string): string {
@@ -157,7 +157,7 @@ export function parseCheckLine(raw: string): ParsedCheck {
   const body = m[2].trim()
 
   if (prefix === 'human') {
-    return unknown(line, 'human: 合法，但那是「人来验」，不是可机检判据')
+    return unknown(line, 'human: 合法，但那是“人来验”，不是可机检判据')
   }
   if (!KNOWN.has(prefix)) {
     return unknown(line, `未知前缀 ${m[1]}: —— 只认 cmd / str / num / file；未知一律 unknown，绝不当通过`)
@@ -173,11 +173,11 @@ export function parseCheckLine(raw: string): ParsedCheck {
     // 含 两侧都要有空格：中文里 `本文件含 …` 这种没空格的是散文，不认
     const sm = /^(\S+)\s+(?:含|包含|contains)\s+(\S[\s\S]*)$/i.exec(body)
     if (!sm) {
-      return unknown(line, "str: 只认「<相对路径> 含 '<原文>'」—— 含 两侧要有空格，原文要带引号")
+      return unknown(line, "str: 只认“<相对路径> 含 '<原文>'”—— 含 两侧要有空格，原文要带引号")
     }
     const filePath = unquoteFull(sm[1]) ?? sm[1].trim()
     if (!looksRelativePath(filePath)) {
-      return unknown(line, `str: 目标文件要写相对路径（拿到的是「${filePath}」；「本文件」这类指代不认）`)
+      return unknown(line, `str: 目标文件要写相对路径（拿到的是“${filePath}”；“本文件”这类指代不认）`)
     }
     const text = parseLiteral(sm[2])
     if (text === null) {
@@ -189,18 +189,18 @@ export function parseCheckLine(raw: string): ParsedCheck {
   if (prefix === 'num') {
     const nm = /^(\S+)\s+(\S+)\s*(>=|<=|==|!=|>|<|≥|≤|＝|=)\s*(-?\d+(?:\.\d+)?)\s*$/.exec(body)
     if (!nm) {
-      return unknown(line, 'num: 只认「<相对路径> <指标> <比较> <数字>」，指标 = 行数 / 条目数 / 字节数 / 字符数')
+      return unknown(line, 'num: 只认“<相对路径> <指标> <比较> <数字>”，指标 = 行数 / 条目数 / 字节数 / 字符数')
     }
     const filePath = unquoteFull(nm[1]) ?? nm[1].trim()
     if (!looksRelativePath(filePath)) {
-      return unknown(line, `num: 目标文件要写相对路径（拿到的是「${filePath}」）`)
+      return unknown(line, `num: 目标文件要写相对路径（拿到的是“${filePath}”）`)
     }
     const metric = parseMetric(nm[2])
     if (!metric) {
-      return unknown(line, `num: 认不出指标「${nm[2]}」—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）`)
+      return unknown(line, `num: 认不出指标“${nm[2]}”—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）`)
     }
     const op = normalizeOp(nm[3])
-    if (!op) return unknown(line, `num: 认不出比较符「${nm[3]}」`)
+    if (!op) return unknown(line, `num: 认不出比较符“${nm[3]}”`)
     return {
       kind: 'num', raw: line, path: filePath.replace(/\\/g, '/'),
       metric, metricText: nm[2], op, expected: Number(nm[4]),
@@ -212,7 +212,7 @@ export function parseCheckLine(raw: string): ParsedCheck {
   if (!fm) return unknown(line, 'file: 后面没有路径')
   const pattern = unquoteFull(fm[1]) ?? fm[1].trim()
   if (!looksRelativePath(pattern)) {
-    return unknown(line, `file: 目标要写相对路径（拿到的是「${pattern}」）`)
+    return unknown(line, `file: 目标要写相对路径（拿到的是“${pattern}”）`)
   }
   // 中文逗号 / 句号当空格处理，`存在，且每行含 x` 与 `存在且每行含 x` 等价
   const rest = String(fm[2] || '').trim().replace(/[，,。；;]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -230,7 +230,7 @@ export function parseCheckLine(raw: string): ParsedCheck {
     if (!r) continue
     const literal = f.contains ? parseLiteral(r[1]) : ''
     if (f.contains && literal === null) {
-      return unknown(line, 'file: 「含」后面的原文要带引号（或写成不含空格的单个词）')
+      return unknown(line, 'file: “含”后面的原文要带引号（或写成不含空格的单个词）')
     }
     const out: FileCheck = {
       kind: 'file', raw: line, pattern: pattern.replace(/\\/g, '/'), requireExists: true,
@@ -239,7 +239,7 @@ export function parseCheckLine(raw: string): ParsedCheck {
     if (f.contains === 'every') out.everyLineContains = literal as string
     return out
   }
-  return unknown(line, "file: 只认「<路径> 存在」「<路径> 存在且含 '<原文>'」「<路径> 存在且每行含 '<原文>'」")
+  return unknown(line, "file: 只认“<路径> 存在”“<路径> 存在且含 '<原文>'”“<路径> 存在且每行含 '<原文>'”")
 }
 
 /** 从一批卡上的判据行里解析（空行/纯空白自动跳过，不产生假结果） */

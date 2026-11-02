@@ -1,7 +1,7 @@
 <!--
   执行日志视图（2026-10-23 · 拆分第 1 批第 11 块：模板搬成组件）
 
-  **边界**：与待办（第 10 块）同一套做法 —— 组件只「显示 + 收集意图」，一个副作用都不留。
+  **边界**：与待办（第 10 块）同一套做法 —— 组件只“显示 + 收集意图”，一个副作用都不留。
   父组件把日志那一整坨状态与动作（约 45 个绑定）用 `reactive()` 包成一个对象，
   作为唯一 prop `ctl` 传进来，组件再用 `toRef` 逐个接成顶层绑定 —— **模板因此一字未改**。
 
@@ -11,7 +11,7 @@
   所以弹窗仍留在 App.vue，本组件只搬 `<main class="logs-view">` 这一层。
 
   ⚠ `<main id="board" class="logs-view">` 这层壳必须留着：视图互斥、几何断言、
-    「.logs-view .batch-bar」这类后代选择器都按它选。
+    “.logs-view .batch-bar”这类后代选择器都按它选。
 
   ⚠ 这里**不许**用 Tailwind 工具类：`tailwind.config.js` 的 content 只覆盖
     `src/renderer/components/`（`check-ui-base` 守着），views/ 下写的 utility 不会生成 CSS。
@@ -24,8 +24,8 @@
     @drop="onLogDrop"
     :class="{ 'drop-target': logDragOver }"
   >
-    <!-- 工具栏吸顶容器（2026-10-10 用户第 3 条：「新建日志等工具按钮不能始终冻结在
-         最顶列，稍微往下拉一点就看不到了」）。原实现里 header 与批量栏都是流内元素，
+    <!-- 工具栏吸顶容器（2026-10-10 用户第 3 条：“新建日志等工具按钮不能始终冻结在
+         最顶列，稍微往下拉一点就看不到了”）。原实现里 header 与批量栏都是流内元素，
          跟着 .logs-view 一起滚 —— 列表一长就找不到入口。
          做法：header + 批量栏包进这个 sticky 容器，top padding 由容器自带（.logs-view 的
          padding-top 已让给它），滚动时列表从它下面穿过。
@@ -80,26 +80,26 @@
         </button>
         <button @click="openNewLog">+ 新建日志</button>
         <!-- 分区｜按链 分段开关（2026-09-29 第 3 条方案二）：
-             默认仍是「分区」—— 加视图不改旧的；「按链」把接力链串成一条竖轨。 -->
+             默认仍是“分区”—— 加视图不改旧的；“按链”把接力链串成一条竖轨。 -->
         <div class="log-view-seg" title="分区：按状态分块（默认）；按链：把接力链（续自）串成一条竖轨">
           <button class="lvs" :class="{ on: logsViewMode === 'groups' }" @click="setLogsViewMode('groups')">分区</button>
           <button class="lvs" :class="{ on: logsViewMode === 'chain' }" @click="setLogsViewMode('chain')">按链</button>
         </div>
         <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
-        <!-- 「清理超期」到底做什么：把 status=completed 且 retain_until 已过的日志
+        <!-- “清理超期”到底做什么：把 status=completed 且 retain_until 已过的日志
              批量改成 archived（**只改状态，不删文件**，logs.ts:cleanupLogs）。
              此前只有这四个字，用户不知道它有什么用（第 3 条）。 -->
         <button class="ghost"
-          title="把「已完成」且保留期已过的日志批量标为「已归档」（只改状态，不删除文件）。保留期在点「完成」时填写"
+          title="把“已完成”且保留期已过的日志批量标为“已归档”（只改状态，不删除文件）。保留期在点“完成”时填写"
           @click="executeLogCleanup">清理超期</button>
-        <!-- 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）：
-             与「清理超期」的区别要一眼看清 —— 那个只改状态，这个真删（软删到回收站）。 -->
+        <!-- 按日期批量清理“已归档”日志（2026-10-13 暮雨第 2 条）：
+             与“清理超期”的区别要一眼看清 —— 那个只改状态，这个真删（软删到回收站）。 -->
         <button class="ghost"
-          title="按日期批量清理「已归档」日志：移进回收站（可恢复），可先预览命中条数"
+          title="按日期批量清理“已归档”日志：移进回收站（可恢复），可先预览命中条数"
           @click="openLogPurge">清理归档…</button>
       </div>
     </div>
-    <!-- 每日推进面（0.6.0 P2「今天推哪一格」）——
+    <!-- 每日推进面（0.6.0 P2“今天推哪一格”）——
          挂在日志页（唯一每天都用的视图），不新增页面；**不让人选**，只报当前该推的那一格。
          三行恒定：推哪格 / 判据 / 状态（空态也是三行，见 shared/dailyBand.ts）。
          选格与文案全在纯函数里，这里只渲染 —— 判据没跑过按"未过"算（fail-closed），
@@ -115,11 +115,11 @@
     <div v-if="logBatchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
       <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === visibleLogs.length ? '取消全选' : '全选' }}</button>
-      <!-- 批量优先级（2026-10-09 用户第 4 条「日志多选更智能，比如批量修改日志优先级」）：
+      <!-- 批量优先级（2026-10-09 用户第 4 条“日志多选更智能，比如批量修改日志优先级”）：
            改元数据可逆 → 不弹确认、做完**不退出多选**，连着调几档是正常用法；
-           非「待处理」的日志后端拒改 → 跳过几条如实 toast，不静默。 -->
+           非“待处理”的日志后端拒改 → 跳过几条如实 toast，不静默。 -->
       <select class="batch-prio" value="" @change="executeBatchLogPriority($event)"
-              title="给选中的日志批量设置优先级（非「待处理」的日志会如实跳过）">
+              title="给选中的日志批量设置优先级（非“待处理”的日志会如实跳过）">
         <option value="" disabled>批量优先级…</option>
         <option value="高">高</option>
         <option value="中">中</option>
@@ -128,9 +128,9 @@
       </select>
       <!-- 开工单入口已移到**主日志卡上**（2026-10-30 暮雨第 4 条）：
            以前必须先点多选、再在批量栏里找，既隐蔽又和"多选"语义打架。
-           现在主日志卡上直接「⧉ 开工单」，带的就是落盘的附属关系。 -->
-      <button class="ghost" title="批量标为已完成（不需要先标「进行中」）" @click="executeBatchLogComplete">批量完成</button>
-      <button class="ghost" title="批量收进「已归档」分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
+           现在主日志卡上直接“⧉ 开工单”，带的就是落盘的附属关系。 -->
+      <button class="ghost" title="批量标为已完成（不需要先标“进行中”）" @click="executeBatchLogComplete">批量完成</button>
+      <button class="ghost" title="批量收进“已归档”分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
       <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
       <button class="ghost" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</button>
     </div>
@@ -142,7 +142,7 @@
         <div class="empty-text">暂无执行日志</div>
       </div>
       <!-- 按状态分区（2026-09-28 用户第 2/5 条）：
-           用户原话「分不清哪些没跑、哪些 Agent 正在跑、哪些跑完了」——
+           用户原话“分不清哪些没跑、哪些 Agent 正在跑、哪些跑完了”——
            那就让这三种东西在屏幕上**各占一块**，而不是靠一个状态下拉去筛。
            分区顺序 = 关心的顺序：置顶 → 进行中 → 待处理 → 已完成 → 已归档。
            空分区直接不渲染（不留一个"0 条"的空壳）。 -->
@@ -181,7 +181,7 @@
         <div class="log-card-head">
           <span v-if="log.pinned" class="log-pin" title="已置顶：钉在列表最上面">📌</span>
           <span class="log-status-badge" :class="logStatusClass(log)">{{ logStatusLabel(log) }}</span>
-          <!-- 2026-11-01：日志不再有「⏳ 等你确认」—— 收口属于任务卡（待验收），日志只记过程。 -->
+          <!-- 2026-11-01：日志不再有“⏳ 等你确认”—— 收口属于任务卡（待验收），日志只记过程。 -->
           <!-- 卡 001：标了优先级的日志在卡面上直接看得见（不标就不占位，历史日志零变化） -->
           <span v-if="log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(log.priority)"
             :title="'日志优先级：' + localPriority(log.priority)">{{ localPriority(log.priority) }}</span>
@@ -191,7 +191,7 @@
             :title="'这是主日志，带 ' + log.attached.length + ' 条附属日志 —— 下面框里逐条可见/可改'"
           >🔗 主日志 · 附属 {{ log.attached.length }}</span>
           <span v-else-if="logGroupParent.get(log.id)" class="log-group-badge child"
-            :title="'附属在「' + (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id) + '」下面'"
+            :title="'附属在“' + (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id) + '”下面'"
             @click.stop="openLogPreview(logGroupParent.get(log.id))"
           >↳ 附属：{{ (logGroupParent.get(log.id).title || logGroupParent.get(log.id).id).slice(0, 18) }}</span>
           <span v-if="log.attachments && log.attachments.length" class="log-attach-badge"
@@ -200,8 +200,8 @@
         </div>
         <div class="log-card-body">{{ truncate(logCardText(log), 120) }}</div>
         <!-- 附属日志框（2026-10-30 暮雨第 2 条）：**收在主日志里面**，不再散落到各个分区。
-             用户原话「干脆主日志下面弄个框，把附属日志一条一条套进去。每条单独能打开看，
-             打开改，甚至单独标记完成。但附属关系不丢」。 -->
+             用户原话“干脆主日志下面弄个框，把附属日志一条一条套进去。每条单独能打开看，
+             打开改，甚至单独标记完成。但附属关系不丢”。 -->
         <div v-if="logHasGroup(log)" class="log-group-box" @click.stop>
           <div class="log-group-box-head">
             <span class="lg-box-title">附属日志</span>
@@ -218,7 +218,7 @@
               @click="copyLogGroupAsPrompt(log)">⧉ 复制开工单</button>
           </div>
           <div class="lg-box-hint">
-            开工单 = 复制给 agent 的开场白（主日志一段 + 每条附属标「并行日志」）；<b>只复制，不改状态</b>。
+            开工单 = 复制给 agent 的开场白（主日志一段 + 每条附属标“并行日志”）；<b>只复制，不改状态</b>。
           </div>
           <div class="lg-box-rows">
             <div v-for="k in (logGroupChildren.get(log.id) || [])" :key="'kid-' + k.id"
@@ -236,14 +236,14 @@
               </span>
               <span class="lk-actions" @click.stop>
                 <button v-if="k.status === 'active'" class="ghost lk-btn lk-run" :class="{ on: k.running }"
-                  :title="k.running ? '单独撤销这条的「进行中」，回到「' + logRunningRestoreLabel(k) + '」' : '单独把这条标为「进行中」（不影响同组其它条）'"
+                  :title="k.running ? '单独撤销这条的“进行中”，回到“' + logRunningRestoreLabel(k) + '”' : '单独把这条标为“进行中”（不影响同组其它条）'"
                   @click="toggleLogRunning(k)">{{ k.running ? '⏸' : '▶' }}</button>
                 <button v-if="k.status !== 'completed' && k.status !== 'archived'"
                   class="ghost lk-btn lk-done"
                   title="单独完成这一条（不要求先标进行中）"
                   @click="completeLogItem(k.id)">完成</button>
                 <button v-if="k.status === 'completed' || k.status === 'archived'"
-                  class="ghost lk-btn lk-reopen" title="单独撤销完成 / 归档，退回「待处理」"
+                  class="ghost lk-btn lk-reopen" title="单独撤销完成 / 归档，退回“待处理”"
                   @click="reopenLogItem(k.id)">↩</button>
                 <button class="ghost lk-btn lk-edit" title="单独编辑这一条（只读预览也可以点整行）"
                   @click="openLog(k)">编辑</button>
@@ -262,17 +262,17 @@
           <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
           <span v-if="log.agentName" class="log-agent" title="本次执行 Agent">🤖 {{ log.agentName }}</span>
           <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：上次的执行 Agent 单独标出 ——
-               找上一段的会话就去这个 Agent 里找，不再和「本次」混在一个字段里 -->
+               找上一段的会话就去这个 Agent 里找，不再和“本次”混在一个字段里 -->
           <span v-if="log.prevAgentName" class="log-prev-agent"
             title="上次的执行 Agent（接力来源那段是谁跑的）—— 找上次的会话就去这个 Agent 里找">⤴ 上次 {{ log.prevAgentName }}</span>
           <span v-if="log.sessionId" class="log-session" :title="log.sessionId">🔗 {{ log.sessionId.slice(0, 16) }}{{ log.sessionId.length > 16 ? '…' : '' }}</span>
-          <!-- 完成时间：只在**不再进行中**时显示。误点「进行中」不会抹掉这个时间戳
+          <!-- 完成时间：只在**不再进行中**时显示。误点“进行中”不会抹掉这个时间戳
                （它是"退回到已完成"的证据），但既然现在在跑，卡面就别同时报"已完成"。 -->
           <span v-if="log.completed && !log.running" class="log-completed">✓ {{ formatDate(log.completed) }}</span>
           <!-- 改过留痕（2026-10-18 暮雨第 2 条）：已完成的日志现在能改，但改过就亮这个戳 ——
                不是拦着不让改，而是让"这条被事后动过"看得见。 -->
           <span v-if="log.edited" class="log-edited" :title="'最后一次改正文：' + formatDateTime(log.edited)">✎ 改过</span>
-          <!-- 卡 004 日志⇄待办互转：目标记录「由 X 转来」（与接力链同款 prev 范式） -->
+          <!-- 卡 004 日志⇄待办互转：目标记录“由 X 转来”（与接力链同款 prev 范式） -->
           <span v-if="log.fromTodo" class="log-from"
             :title="'由待办 ' + log.fromTodo + ' 转来（源待办保留）'">⤴ 待办</span>
           <!-- 接力链（2026-09-29 方案二）：继承来的日志挂一个可复制的链标签 -->
@@ -284,41 +284,41 @@
             @click.stop="copyId(log.id)">⧉ {{ log.id }}</span>
         </div>
         <!-- 操作行（2026-09-28 用户第 2 条重排）：
-             「进行中」是一个**手动开关**，可开可关；完成/归档**不要求**先打开它，
-             所以「完成」按钮在任何未完成/未归档的日志上都直接可用。 -->
+             “进行中”是一个**手动开关**，可开可关；完成/归档**不要求**先打开它，
+             所以“完成”按钮在任何未完成/未归档的日志上都直接可用。 -->
         <div class="log-card-actions" @click.stop>
           <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
           <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
           <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
-               不再要求「先点多选 → 再找批量栏」。有组时「全组完成 / 开工单」收进下面的
-               附属框头（那里才是组的地盘），卡上只留一个「绑定 / 改绑定」入口。 -->
+               不再要求“先点多选 → 再找批量栏”。有组时“全组完成 / 开工单”收进下面的
+               附属框头（那里才是组的地盘），卡上只留一个“绑定 / 改绑定”入口。 -->
           <button v-if="!logHasGroup(log) && !logGroupParent.get(log.id) && log.status !== 'archived'" class="ghost log-bind-btn"
             title="把同一轮的其它日志绑到这条主日志下面（绑定关系会落盘，下次还在）"
             @click="openLogAttach(log)">🔗 绑定附属</button>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
-               2026-10-09 用户第 1 条：先开确认框（可顺手勾「归档源」）；同一条只转一次（待办记 fromLog 防重）。 -->
-          <button class="ghost" title="把这条日志的「下一步」变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
+               2026-10-09 用户第 1 条：先开确认框（可顺手勾“归档源”）；同一条只转一次（待办记 fromLog 防重）。 -->
+          <button class="ghost" title="把这条日志的“下一步”变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
             @click="askConvertLog(log)">⤴ 转待办</button>
-          <!-- 接力（2026-09-29 方案二）：完成态才有「下一段」——出清 + 新建 + 可开跑在一个对话框里做完 -->
+          <!-- 接力（2026-09-29 方案二）：完成态才有“下一段”——出清 + 新建 + 可开跑在一个对话框里做完 -->
           <button v-if="log.status === 'completed'" class="ghost relay-btn"
-            title="接力：出清这条 + 建新日志继承「下一步」/项目/任务/Agent —— 一个对话框做完四件事"
+            title="接力：出清这条 + 建新日志继承“下一步”/项目/任务/Agent —— 一个对话框做完四件事"
             @click="openRelay(log)">⏭ 从这里继续</button>
           <button class="ghost log-run-btn" :class="{ on: log.running }"
             :title="logHasGroup(log)
               ? (logGroupAllRunning(log)
-                ? '撤销全组「进行中」（主日志 + 全部附属）'
-                : '把主日志 + 全部附属一起标为「进行中」；要单独改某一条，用下面框里那行的 ▶ / ⏸')
+                ? '撤销全组“进行中”（主日志 + 全部附属）'
+                : '把主日志 + 全部附属一起标为“进行中”；要单独改某一条，用下面框里那行的 ▶ / ⏸')
               : (log.running
-                ? '撤销「进行中」标记，回到「' + logRunningRestoreLabel(log) + '」'
-                : '手动标为「进行中」——只有点了它，这条才算正在跑（不会自动打上）')"
+                ? '撤销“进行中”标记，回到“' + logRunningRestoreLabel(log) + '”'
+                : '手动标为“进行中”——只有点了它，这条才算正在跑（不会自动打上）')"
             @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</button>
           <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
-            title="标记完成（不需要先标「进行中」）"
+            title="标记完成（不需要先标“进行中”）"
             @click="completeLogItem(log.id)">完成</button>
           <button v-if="log.status === 'completed' || log.status === 'archived'" class="ghost"
-            title="撤销完成 / 撤销归档，退回「待处理」（只改状态，不删文件）"
+            title="撤销完成 / 撤销归档，退回“待处理”（只改状态，不删文件）"
             @click="reopenLogItem(log.id)">↩ 撤销</button>
-          <button v-if="log.status !== 'archived'" class="ghost" title="收进「已归档」分区" @click="archiveLogItem(log.id)">归档</button>
+          <button v-if="log.status !== 'archived'" class="ghost" title="收进“已归档”分区" @click="archiveLogItem(log.id)">归档</button>
           <button class="danger" title="彻底删除这条日志（会二次确认，不可撤销）" @click="destroyLogItem(log.id)">彻底删除</button>
         </div>
       </div>
@@ -417,6 +417,6 @@ const {
   onLogDrop, dragEnter, dragPulse, dragLeave,
 } = ctl
 
-// 进入日志页就读一次「今天推哪一格」：裁决发生在项目页，这里不做长时间缓存
+// 进入日志页就读一次“今天推哪一格”：裁决发生在项目页，这里不做长时间缓存
 onMounted(() => { void loadDailyBand() })
 </script>

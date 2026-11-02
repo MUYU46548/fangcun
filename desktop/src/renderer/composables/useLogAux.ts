@@ -1,5 +1,5 @@
 /**
- * 日志复制 / 置顶 / 改归属（2026-10-31 · 渲染层拆分第二批「日志辅助动作收口」第二刀）
+ * 日志复制 / 置顶 / 改归属（2026-10-31 · 渲染层拆分第二批“日志辅助动作收口”第二刀）
  *
  * 搬出来的是右键菜单背后的那组动作：
  *   · 复制全文 / 带元信息 / 复制为提示词 / 多条拼开工单 / 复制并标记已派；
@@ -22,7 +22,7 @@ export function useLogAux(deps: Deps) {
 
   const logProjectPicker = ref<any>(null)
 
-  /** 日志正文（标题 + 执行内容 + 下一步）——「复制全文」用 */
+  /** 日志正文（标题 + 执行内容 + 下一步）——“复制全文”用 */
   function logFullText(log: any): string {
     const parts = [String(log.title || '')]
     if (log.content) parts.push(String(log.content))
@@ -46,21 +46,21 @@ export function useLogAux(deps: Deps) {
   }
 
   /**
-   * 复制并标记已派：「已派」= 这条正在跑，走手动开「进行中」那条路（logsSetRunning）。
-   * 不能走 logsReopen —— 那会把 active 变成「待处理」，等于"复制一下反而标记成没在跑"。
+   * 复制并标记已派：“已派”= 这条正在跑，走手动开“进行中”那条路（logsSetRunning）。
+   * 不能走 logsReopen —— 那会把 active 变成“待处理”，等于"复制一下反而标记成没在跑"。
    */
   async function copyAndDispatchLog(log: any): Promise<void> {
-    const ok = await copyWithToast(logMetaText(log), '已复制并标记已派（这条已置为「进行中」）')
+    const ok = await copyWithToast(logMetaText(log), '已复制并标记已派（这条已置为“进行中”）')
     if (!ok) return
     if (log.running) return
     const r: any = await window.tegula.logsSetRunning(log.id, true)
     if (r && r.ok) await loadLogs()
-    else showToast(`已复制，但标记「进行中」失败：${(r && r.error) || '未知原因'}`, 'error')
+    else showToast(`已复制，但标记“进行中”失败：${(r && r.error) || '未知原因'}`, 'error')
   }
 
   async function toggleLogPin(log: any): Promise<void> {
     const t: any = window.tegula
-    if (typeof t.logsSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道 —— 托盘右键「退出」后重开', 'error'); return }
+    if (typeof t.logsSetPinned !== 'function') { showToast('当前主进程是旧版本，没有置顶通道 —— 托盘右键“退出”后重开', 'error'); return }
     const r: any = await t.logsSetPinned(log.id, !log.pinned)
     if (r && r.ok) {
       showToast(log.pinned ? '已取消置顶' : '已置顶', 'success')
@@ -113,7 +113,7 @@ export function useLogAux(deps: Deps) {
       const miss = Array.isArray(r.missing) ? r.missing.length : 0
       const copied = await copyWithToast(
         String(r.text),
-        n > 1 ? `已复制 ${n} 条日志为一份开工单（第一条主日志，其余标「并行日志」）` : '已复制为提示词，可直接粘给 agent',
+        n > 1 ? `已复制 ${n} 条日志为一份开工单（第一条主日志，其余标“并行日志”）` : '已复制为提示词，可直接粘给 agent',
       )
       if (!copied) return
       if (miss) showToast(`另有 ${miss} 条没找到，已跳过`, 'info')

@@ -2,7 +2,7 @@
 /**
  * 一条命令打包（2026-10-27）—— 顺手治"release 目录堆积"这个病
  *
- * 起因：暮雨问「一堆类似 release-036 的文件夹…怎么清理？如何从根源杜绝？」
+ * 起因：暮雨问“一堆类似 release-036 的文件夹…怎么清理？如何从根源杜绝？”
  * 根源不是清得不够勤，是**流程本身每打一次版就新建一个目录**：
  * `electron-builder -c.directories.output=release-<ver>`。
  * 三个月积了 15 个（3.4GB），其中 6 个是打包中断留下的半成品（只有 app.asar，36MB）。
@@ -27,9 +27,9 @@ const DESKTOP = path.resolve(__dirname, '..', 'desktop')
 //   三处路径必须一致（`pack.cjs` 的 OUT / `publish-release.sh` 的 REL_DIR /
 //   `release-precheck.py` 的 `desktop/pkg`），改一处就要改三处。
 // ⚠ 2026-10-27 的教训，两条都别重走：
-//   ① 堆积的病根是「每打一版新建一个 `release-<ver>` 目录」，**不是**「产物放在工作区里」。
+//   ① 堆积的病根是“每打一版新建一个 `release-<ver>` 目录”，**不是**“产物放在工作区里”。
 //      修法只有一条：永远用同一个目录。搬到工作区外是过度反应 —— 暮雨当场纠正：
-//      「自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？」
+//      “自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？”
 //   ② 打包会撞 `EPERM/EBUSY`：工作区里的 `*.asar` 会被**索引器长期持有句柄**
 //      （实测点名 = WorkBuddy 后台 daemon `daemon-app-server-entry.js --stdio`；
 //      不是 OneDrive、不是 Windows Search —— 这两个停过，`释放 0 MB`）。

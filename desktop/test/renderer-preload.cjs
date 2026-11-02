@@ -1,7 +1,7 @@
 /**
  * 渲染层测试用 preload —— 用内存里的假后端替掉真 IPC。
  *
- * 目的：让「装了没装 / 点了有没有反应」这类问题第一次能被自动断言。
+ * 目的：让“装了没装 / 点了有没有反应”这类问题第一次能被自动断言。
  * 项目已有的五类静态检查（vite / tsc / e2e / IPC 对账 / 模板绑定）**全都抓不到**
  * "按钮存在、通道齐全、但点了没反应"这一类问题 —— 本次用户第 1 条就是这个形状。
  *
@@ -9,7 +9,7 @@
  */
 const { contextBridge } = require('electron')
 
-// 夹具里的「同一天」必须**跟着今天走**（2026-10-01 教训）：原先写死 2026-09-30，
+// 夹具里的“同一天”必须**跟着今天走**（2026-10-01 教训）：原先写死 2026-09-30，
 // 跨月第一天日历断言必红 —— 日历只画当前月，9-30 那格根本不在视口里，
 // 于是每个月 1 号都会冒出 3 条假红（当时被误当成回归）。压在"今天"才是这个夹具的本意。
 const FIX_DEADLINE = (() => {
@@ -23,7 +23,7 @@ const store = {
   todos: [],
   // 同步阶段流（2026-10-25 卡 004）：订阅者列表 + 一个"按住不放的 push"。
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
-  // 否则「阶段文字」「秒数在动」「结束态停留 3 秒」这三件事在测试里根本无从验起。
+  // 否则“阶段文字”“秒数在动”“结束态停留 3 秒”这三件事在测试里根本无从验起。
   syncSubs: [],
   // BYOK 多通道（2026-11-02）：只有主通道（备用要断言"加完真的出现在列表里"）
   llmChannels: [
@@ -37,7 +37,7 @@ const store = {
   balanceUnsupported: false,
   // 模型单价夹具（2026-10-25 卡 005）：一行真数据，够验"读得到 + 改得动"
   prices: [{ model: 'deepseek-chat', in: '2.00000000', out: '8.00000000' }],
-  // 读取情况：「哪些待办其实没人碰过」（卡 20261025-006 第三件）
+  // 读取情况：“哪些待办其实没人碰过”（卡 20261025-006 第三件）
   // ⚠ 桩**不许写成空数组**（`rows: []` 会让"没人碰过 0"永远成立，那一整片断言等于没测）。
   // ⚠ 也**不许把 id 写死**：任务夹具在整个断言流程里会被前面若干节换成别的卡
   //   （2026-10-27 实测：写死 task-demo-001 → 到这一节时任务夹具只剩 2 张别的卡，
@@ -46,17 +46,17 @@ const store = {
   neverRead: null,
   syncHold: false,
   syncResolve: null,
-  // 顶栏「无法解析」红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
+  // 顶栏“无法解析”红灯的夹具：两个坏文件（含一个带 ": " 的真坑）
   parseErrors: ['task-20261001-001.md', 'task-20261002-002.md'],
   // 想法（2026-10-22）：三条覆盖三种状态 ——
-  //   新记（四个动作都能点）/ 已搁置（能「捡回来」）/ 已立项（能「撤销立项」且带 promoted）
+  //   新记（四个动作都能点）/ 已搁置（能“捡回来”）/ 已立项（能“撤销立项”且带 promoted）
   ideas: [
     { id: 'idea-a', text: '给启动台加个搜索框', status: '新记', note: '', createdAt: '2026-10-21T10:00:00.000Z', updatedAt: '2026-10-21T10:00:00.000Z', decidedAt: '', promoted: null },
     { id: 'idea-b', text: '端口面板要不要合并进服务页', status: '已搁置', note: '等启动台稳了再说', createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-20T10:00:00.000Z', decidedAt: '2026-10-20T10:00:00.000Z', promoted: null },
     { id: 'idea-c', text: '做个一键导出周报', status: '已立项', note: '', createdAt: '2026-10-18T10:00:00.000Z', updatedAt: '2026-10-18T12:00:00.000Z', decidedAt: '2026-10-18T12:00:00.000Z', promoted: { kind: 'todo', id: 'todo-from-idea-c' } },
   ],
   // 规划管理（2026-10-16 第 1 项）：预置 1 条带 2 决策点的规划（1 已定 1 待定），
-  // 「🗂 规划」弹窗列表/详情/留痕三态都有东西可断言。
+  // “🗂 规划”弹窗列表/详情/留痕三态都有东西可断言。
   plans: [
     {
       id: 'plan-e2e-001',
@@ -107,7 +107,7 @@ const store = {
   prefs: {},
   // 项目梯度榜（2026-10-25）：分档 + 每档项目 id，落 task-data/project-tiers.json。
   // ⚠ 假 preload 必须与真 preload 同步（少一条 API，视图 onMounted 直接抛，
-  //   断言只会看到一片「读取失败」）—— 这条今天已经踩第二次了。
+  //   断言只会看到一片“读取失败”）—— 这条今天已经踩第二次了。
   projectTiers: [
     { id: 'core', label: '核心', items: ['demo'] },
     { id: 'next', label: '次优先', items: ['demo2'] },
@@ -133,7 +133,7 @@ const store = {
   ],
   // 启动台应用行（端口=观测结果）。两条对照：
   //   lp-observe：观测到过端口（:9100 现在在监听）→ 卡片/服务页要显示出来
-  //   lp-empty  ：还没观测到任何端口 → 不许写「无」/「—」这类噪音，整行不渲染
+  //   lp-empty  ：还没观测到任何端口 → 不许写“无”/“—”这类噪音，整行不渲染
   //   还有一条带**旧字段 port**（已停用）→ 要给出"该字段已停用"的提示，而不是拿它去启动
   servicesApps: [
     { id: 'lp-ronghua', name: '绒花墨坊', cmd: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', path: 'E:/Software/RongHuaMoFang/绒花墨坊.exe', description: '控制台', observedPorts: [9100], listeningPorts: [9100], observedAt: '2026-10-15T10:00:00.000Z', legacyPortNote: '旧配置项 port=8090 已停用（方寸现在自动观测端口）—— 可以删掉，留着也不影响。' },
@@ -155,7 +155,7 @@ const store = {
     { name: 'task-demo-902.2.md', id: 'task-demo-902', title: '同名副本（历史遗留）', status: '完成', project: 'demo', bytes: 640, mtime: '2026-09-25T08:00:00.000Z' },
   ],
   tasks: [
-    // ⚠ 这两张（同为「待办」列）的 created / updated 是**故意错开的**（2026-09-29）：
+    // ⚠ 这两张（同为“待办”列）的 created / updated 是**故意错开的**（2026-09-29）：
     //   默认序 001→002；按 updated 倒序要变成 002→001；按 created 倒序要回到 001→002。
     //   这样"排序下拉"才可被真断言 —— 三者两两不同，任何一支写错都会当场红。
     {
@@ -180,8 +180,8 @@ const store = {
       fm: { id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低' },
       path: 'C:/mock/task-data/task-demo-003.md',
     },
-    // 2026-09-28：真实 frontmatter 里「项目」是**数组**（`项目: [fangcun-base]`）——
-    // 卡上要显示的所属项目必须过 normProject，否则永远匹配不到名字（用户报「看不见所属项目」）。
+    // 2026-09-28：真实 frontmatter 里“项目”是**数组**（`项目: [fangcun-base]`）——
+    // 卡上要显示的所属项目必须过 normProject，否则永远匹配不到名字（用户报“看不见所属项目”）。
     {
       id: 'task-demo-004', title: '数组项目的任务', status: '待验收', priority: '中',
       project: ['demo2'], tags: [], body: '',
@@ -189,11 +189,11 @@ const store = {
       fm: { id: 'task-demo-004', title: '数组项目的任务', status: '待验收', project: ['demo2'] },
       path: 'C:/mock/task-data/task-demo-004.md',
     },
-    // 2026-09-29：日历「改法 A」（格子最多 2 条 + 「+N 条」）要**同一天有多条**才验得了。
+    // 2026-09-29：日历“改法 A”（格子最多 2 条 + “+N 条”）要**同一天有多条**才验得了。
     // 这三条全压在 FIX_DEADLINE（= 今天，与 001 同一天）；created/updated 一律取很早的日期 ——
     // 免得不小心把"排序下拉"那组断言的头名（002 / 001）挤掉。
     // ⚠ 状态**刻意各不相同**（进行中/进行中/待验收）：demo 项目的状态分布条才有 3 段可验；
-    //   而且它们一律不带"待办"状态 —— 否则会挤进「待办」列，把排序断言的期望序打乱。
+    //   而且它们一律不带"待办"状态 —— 否则会挤进“待办”列，把排序断言的期望序打乱。
     {
       id: 'task-demo-011', title: '日历密度样例一', status: '进行中', priority: '中',
       project: 'demo', tags: [], body: '', deadline: FIX_DEADLINE,
@@ -225,7 +225,7 @@ const store = {
     { id: 'demo2', name: '第二个项目' },
   ],
   // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），
-  // 「含归档」勾选后板子必须去重，不能把同一张卡显示两遍。
+  // “含归档”勾选后板子必须去重，不能把同一张卡显示两遍。
   archived: [
     {
       id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成', priority: '高',
@@ -242,8 +242,8 @@ const store = {
       path: 'C:/mock/task-data/archive/task-demo-090.md',
     },
     // 2026-10-17 暮雨第 2 条（快选要**叠加**，不能冲掉上一组）：叠加必须有两种状态才验得动，
-    // 归档区补一条「驳回」—— 刻意不用待办/进行中：那两个是未完成态，会把
-    // 「只看未完成勾选后一张不剩（archAfter===0）」的断言搞红。驳回和完成一样是终态
+    // 归档区补一条“驳回”—— 刻意不用待办/进行中：那两个是未完成态，会把
+    // “只看未完成勾选后一张不剩（archAfter===0）”的断言搞红。驳回和完成一样是终态
     // （boardCards.DONE = 完成+驳回），快选叠加能测，终态过滤语义不破。
     {
       id: 'task-demo-092', title: '被驳回的归档任务', status: '驳回', priority: '中',
@@ -260,7 +260,7 @@ function rec(name, args) {
 }
 
 /**
- * 「哪些待办没人碰过」的假数据（卡 20261025-006 第三件）。
+ * “哪些待办没人碰过”的假数据（卡 20261025-006 第三件）。
  *
  * 两件必须同时做到，否则这一片断言是假绿：
  *  ① **不能是空数组** —— `rows: []` 会让"没人碰过 0"永远成立，看起来全绿其实什么都没验；
@@ -296,9 +296,9 @@ const ok = (extra) => Object.assign({ ok: true }, extra || {})
 /**
  * 结构化克隆校验 —— 复刻真机 contextBridge 的**第一跳**语义。
  *
- * 2026-10-05 踩的坑（用户原话「勾一下闪退一下」= 勾选写不进盘）：
+ * 2026-10-05 踩的坑（用户原话“勾一下闪退一下”= 勾选写不进盘）：
  *   渲染层把 **Vue 响应式代理**（`ref([]).value`、v-for 元素）直接当 IPC 载荷传，
- *   真机在「页面世界 → 隔离世界」这一跳就抛 `An object could not be cloned` ——
+ *   真机在“页面世界 → 隔离世界”这一跳就抛 `An object could not be cloned` ——
  *   **报文根本进不到 preload，更进不到主进程**（所以主进程日志里一个字都没有）。
  *   假 preload 此前不做克隆校验 → 这个 bug 在渲染层 e2e 里测不出来（真机必崩、测试全绿）。
  * 现在按真机语义补上：参数克隆不过，就当它是真机里的那种失败（让测试红，而不是静默通过）。
@@ -320,7 +320,7 @@ const cloneGuard = (name, args) => {
 const TASK_FIELD_SPECS = [
   { key: 'title', label: '标题', type: 'text', span: 'full' },
   { key: 'project', label: '项目', type: 'select', span: 'half', optionsFrom: 'projects' },
-  // ⚠ 2026-10-17：这里原来只有 5 个状态（缺「待审批」和「待验收」），与主进程 `STATUSES`
+  // ⚠ 2026-10-17：这里原来只有 5 个状态（缺“待审批”和“待验收”），与主进程 `STATUSES`
   //   的 7 个**不同步** —— 于是"状态下拉里必须有待验收"这类断言在沙箱里永远找不到元素。
   //   假 preload 与真实现必须逐字一致（MEMORY 第五节），少一个都是自欺。
   { key: 'status', label: '状态', type: 'select', span: 'half', options: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] },
@@ -352,12 +352,12 @@ contextBridge.exposeInMainWorld('tegula', {
   loadTasks: (v) => { rec('loadTasks', [v]); return (v === 'archive' ? (store.archived || []) : store.tasks).slice() },
   loadProjects: () => store.projects.slice(),
   // 阻塞源夹具（2026-10-09 监控台断言）：demo 项目压着 1 条阻塞 → 详情页
-  // 「⚠ 1 个阻塞源 · 看卡在谁」入口必须出现（pvBlocked 按被阻塞任务所属项目计）。
+  // “⚠ 1 个阻塞源 · 看卡在谁”入口必须出现（pvBlocked 按被阻塞任务所属项目计）。
   findBlockers: () => [
     { id: 'task-demo-001', title: '演示任务', blockers: ['task-demo-002'] },
   ],
-  // 解析失败清单（2026-10-23 补）：此前恒返回 `[]` —— 于是顶栏那条「⚠ N 个文件无法解析」
-  // **从来没有在任何断言里出现过**。而这条提示正是「任务静默消失」的防线（parseTask 失败
+  // 解析失败清单（2026-10-23 补）：此前恒返回 `[]` —— 于是顶栏那条“⚠ N 个文件无法解析”
+  // **从来没有在任何断言里出现过**。而这条提示正是“任务静默消失”的防线（parseTask 失败
   // 返 null 被跳过 = 卡人间蒸发，用户几个月才发现）。桩返空数组 = 这道防线等于没测。
   parseErrors: () => {
     rec('parseErrors')
@@ -397,8 +397,8 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: true }
   },
   // 作战计划卡读口（0.6.0 P1）+ 每日推进面（P2）——
-  // 日志页顶部那条「今天推哪一格」靠它渲染。夹具必须带**判据原文**，
-  // 否则「3 秒内看到今天推哪一格及其判据」这条只能在纯逻辑里验，界面侧永远验不到。
+  // 日志页顶部那条“今天推哪一格”靠它渲染。夹具必须带**判据原文**，
+  // 否则“3 秒内看到今天推哪一格及其判据”这条只能在纯逻辑里验，界面侧永远验不到。
   plansGet: (file) => {
     rec('plansGet', [file])
     const docs = [{
@@ -467,7 +467,7 @@ contextBridge.exposeInMainWorld('tegula', {
       return ok({
         advanced: false, blocked: true, error: '判据未过，不能跨格',
         status: '未完成', evidence: '',
-        rejectReason: '判据未过：1 条未过 / 0 条未判定 / 共 2 条；「cmd: node scripts/test/e2e-plan-run.cjs 退出码 0」→ 实际值：退出码 3（未过）',
+        rejectReason: '判据未过：1 条未过 / 0 条未判定 / 共 2 条；“cmd: node scripts/test/e2e-plan-run.cjs 退出码 0”→ 实际值：退出码 3（未过）',
       })
     }
     return ok({
@@ -547,7 +547,7 @@ contextBridge.exposeInMainWorld('tegula', {
     }
   },
   // 投入产出账（0.6.0 P5）：三格齐全的夹具。
-  // 三格的 caveat 必须带「它证明不了什么」—— 界面断言会逐格检查（缺一格就红）。
+  // 三格的 caveat 必须带“它证明不了什么”—— 界面断言会逐格检查（缺一格就红）。
   wasteGet: (opts) => {
     rec('wasteGet', [opts])
     return {
@@ -555,14 +555,14 @@ contextBridge.exposeInMainWorld('tegula', {
       ledger: {
         days: 30,
         note: '口径：ai-trace 只记方寸自己发起的调用；外部 agent 的花销不在这一格；提交只算数据目录所在的仓库，其它仓库不算。',
-        emptyText: '三格都取不到（ai-trace / git / 任务都没读到）—— 不拿 0 或「—」冒充。',
+        emptyText: '三格都取不到（ai-trace / git / 任务都没读到）—— 不拿 0 或“—”冒充。',
         cells: [
           { key: 'spend', label: '花了多少（近 30 天）', value: '¥0.0123 · 1,234 tokens',
             detail: '3 次调用', caveat: '它证明不了什么：ai-trace 只记方寸自己发起的调用，外部 agent 没上报的花销不在这一格；它也没有项目字段，不能分摊到某个项目。' },
           { key: 'output', label: '产出了什么（近 30 天）', value: '12 次提交 · 3 张卡完成',
             detail: '提交按数据目录所在的仓库统计', caveat: '它证明不了什么：提交数只说明仓库被改过，不说明改动有用；完成卡数是自报状态，不等于验收通过。' },
           { key: 'rejected', label: '哪几条被否', value: '2 张',
-            detail: '驳回样例甲、驳回样例乙', caveat: '它证明不了什么：只列当前状态为「驳回」的卡；被否后删掉/归档的不在这里，也不代表它们没被否过。' },
+            detail: '驳回样例甲、驳回样例乙', caveat: '它证明不了什么：只列当前状态为“驳回”的卡；被否后删掉/归档的不在这里，也不代表它们没被否过。' },
         ],
       },
     }
@@ -579,7 +579,7 @@ contextBridge.exposeInMainWorld('tegula', {
   backupGitSaveToken: () => ({ ok: true, persistent: true }),
   backupGitClearToken: () => ({ ok: true }),
   backupGitTest: () => ({ ok: false, message: '（夹具：没有真 git）' }),
-  // ⚠ 2026-10-12：这里**必须** rec —— 顶栏「⟳ 同步」按钮的断言判据就是"真调到没有"
+  // ⚠ 2026-10-12：这里**必须** rec —— 顶栏“⟳ 同步”按钮的断言判据就是"真调到没有"
   //   （`callCount('backupGitPush')` 涨没涨）。此前它是裸箭头函数、从不计数
   //   → 断言恒 `calls=0`，把"按钮真的接线了"误报成"装饰按钮"（假红）。
   //   全局纪律：凡是断言要按"调用次数"判的通道，假 preload 里**一律先 rec**。
@@ -595,7 +595,7 @@ contextBridge.exposeInMainWorld('tegula', {
   /**
    * 同步阶段流（2026-10-25 卡 004）：与真 preload 同名同形状，返回退订函数。
    * ⚠ 假桩必须与真桩同步（少一条 → 视图里 onSyncProgress 是 undefined，
-   *   `syncPhase` 永远空 → 断言会看到「同步中」，把"没接线"误当成"降级正确"）。
+   *   `syncPhase` 永远空 → 断言会看到“同步中”，把"没接线"误当成"降级正确"）。
    */
   onSyncProgress: (cb) => {
     rec('onSyncProgress', [])
@@ -616,7 +616,7 @@ contextBridge.exposeInMainWorld('tegula', {
     }]
   },
   // 路线图夹具（2026-10-23 补）：此前一律 `{ projects: [] }` —— 于是路线图页在测试里
-  // 永远停在「暂无路线图数据」，项目/批次/任务/下一步**四种渲染逻辑一条都没被验过**。
+  // 永远停在“暂无路线图数据”，项目/批次/任务/下一步**四种渲染逻辑一条都没被验过**。
   // 拆组件时把它搬丢了，测试照样全绿。现在按 main/data/tasks.ts 的 RoadmapProject 真实形状给。
   aggregateRoadmap: () => {
     rec('aggregateRoadmap')
@@ -651,7 +651,7 @@ contextBridge.exposeInMainWorld('tegula', {
    * 备份日志（2026-10-23 补夹具）。
    * ⚠ 形状必须是 `{ ok, lines }` —— 主进程 `backup:log` 回的就是这个（main/backup-ipc.ts:161）。
    *   此前桩返回**裸数组** `[]`：渲染层 `if (r.ok) bkLogLines = r.lines` 两个分支都拿不到东西，
-   *   于是「查看备份日志」面板从来没被真渲染过一次 —— 空桩让整块界面等于没测。
+   *   于是“查看备份日志”面板从来没被真渲染过一次 —— 空桩让整块界面等于没测。
    */
   backupLog: (n) => {
     rec('backupLog', [n])
@@ -684,7 +684,7 @@ contextBridge.exposeInMainWorld('tegula', {
     const t = {
       id: nextId('todo'), title: String(title || ''), done: false,
       priority: priority || '中', due: due || undefined, project: project || undefined,
-      // 卡 004：只有「日志转来」这条路带值（与真身 createTodo 同口径：无值不落键）
+      // 卡 004：只有“日志转来”这条路带值（与真身 createTodo 同口径：无值不落键）
       fromLog: fromLog ? String(fromLog) : undefined,
       // 2026-10-12 可选时间：空串 → 不落键（与真身 normalizeDueTime 同口径）
       dueTime: dueTime ? String(dueTime) : undefined,
@@ -731,7 +731,7 @@ contextBridge.exposeInMainWorld('tegula', {
 
   // ── 想法（2026-10-22）────────────────────────────────────────────
   // 桩必须复刻主进程的**四条硬语义**，否则断言等于在测假数据：
-  //   ① 「已立项」不许走 setStatus 进来；② 立项必须真往 store.todos 塞一条；
+  //   ① “已立项”不许走 setStatus 进来；② 立项必须真往 store.todos 塞一条；
   //   ③ 撤销立项要删掉那条待办；④ 删掉的东西能原样插回来。
   ideasList: () => {
     rec('ideasList')
@@ -756,7 +756,7 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   ideasSetStatus: (id, status, note) => {
     rec('ideasSetStatus', [id, status, note])
-    if (status === '已立项') return { ok: false, error: '「立项」要走「做」那个动作' }
+    if (status === '已立项') return { ok: false, error: '“立项”要走“做”那个动作' }
     const i = store.ideas.find((x) => x.id === id)
     if (!i) return { ok: false, error: '没有这条想法（可能已经删了）' }
     if (i.status === '已立项') return { ok: false, error: '这条已经立项了' }
@@ -817,7 +817,7 @@ contextBridge.exposeInMainWorld('tegula', {
   /**
    * 日志列表（2026-10-23 补：记账 + 真按 filter 过滤）。
    * ⚠ 此前是 `() => store.logs.slice()` —— **不看 filter 也不记账**，于是
-   *   「搜索框里打的词到底有没有进 IPC」「项目/Agent/日期筛选有没有生效」全都验不到：
+   *   “搜索框里打的词到底有没有进 IPC”“项目/Agent/日期筛选有没有生效”全都验不到：
    *   界面能打字、能选下拉，但传了什么完全看不见（第 11 块拆分时这里正是最容易坏的地方）。
    *   过滤语义照抄主进程 main/services/logs.ts:listLogs（query 命中标题/正文/下一步/项目）。
    */
@@ -849,7 +849,7 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok({ log: l, data: l })
   },
   // 2026-10-09：把真实语义搬进桩 —— 真后端 logs.ts:495 拒改非 active 日志，
-  // 桩此前无条件 ok() = 桩-现实漂移（批量优先级的「跳过 N 条」会永远测不到）。
+  // 桩此前无条件 ok() = 桩-现实漂移（批量优先级的“跳过 N 条”会永远测不到）。
   logsUpdate: (id, updates) => {
     rec('logsUpdate', [id, updates])
     const l = (store.logs || []).find(x => x.id === id)
@@ -858,9 +858,9 @@ contextBridge.exposeInMainWorld('tegula', {
     Object.assign(l, updates)
     return ok()
   },
-  // 2026-10-17：桩此前是 `() => ok()` —— 既不记账也不动状态，于是「保存并完成 = 先
-  // logsUpdate 再 logsComplete」这类**顺序断言恒红**（调用都发生了，桩看不见）。
-  // 按真后端 logs.ts 语义补：记账 + 状态置「完成」。
+  // 2026-10-17：桩此前是 `() => ok()` —— 既不记账也不动状态，于是“保存并完成 = 先
+  // logsUpdate 再 logsComplete”这类**顺序断言恒红**（调用都发生了，桩看不见）。
+  // 按真后端 logs.ts 语义补：记账 + 状态置“完成”。
   logsComplete: (id, payload) => {
     rec('logsComplete', [id, payload])
     const l = (store.logs || []).find(x => x.id === id)
@@ -871,7 +871,7 @@ contextBridge.exposeInMainWorld('tegula', {
     return ok()
   },
   // 2026-10-09：真后端 archiveLog 会把 status 置 archived，桩此前无条件 ok() 不动状态
-  // （「转换后源日志进了已归档分区」这种断言会恒绿假过）—— 搬真实语义进桩。
+  // （“转换后源日志进了已归档分区”这种断言会恒绿假过）—— 搬真实语义进桩。
   logsArchive: (id) => {
     rec('logsArchive', [id])
     const l = (store.logs || []).find(x => x.id === id)
@@ -886,7 +886,7 @@ contextBridge.exposeInMainWorld('tegula', {
     if (l) { l.status = 'active'; l.completed = null; l.running = false }
     return ok({ log: l })
   },
-  // 2026-09-28 用户第 2 条：「进行中」是手动开关，唯一写入路径
+  // 2026-09-28 用户第 2 条：“进行中”是手动开关，唯一写入路径
   // 2026-11-01：同步真后端的"退回上一格"语义（已完成/已归档点开再撤销要回原格，不是待处理）
   logsSetRunning: (id, running) => {
     rec('logsSetRunning', [id, running])
@@ -977,12 +977,12 @@ contextBridge.exposeInMainWorld('tegula', {
   /**
    * 清理超期日志（2026-10-23 补夹具）：主进程返回**被归档的日志 id 数组**
    * （main/services/logs.ts:878 `cleanupLogs(): string[]`），界面按 `length` 说
-   * 「已将 N 条超期日志标为「已归档」」。
-   * ⚠ 此前桩恒返回空数组 → 那句话里的 N 永远是 0，界面只会说「没有超期日志」，
-   *   于是「真清理到东西之后文案对不对」这一支从没被验过。
+   * “已将 N 条超期日志标为“已归档””。
+   * ⚠ 此前桩恒返回空数组 → 那句话里的 N 永远是 0，界面只会说“没有超期日志”，
+   *   于是“真清理到东西之后文案对不对”这一支从没被验过。
    */
   logsCleanup: () => { rec('logsCleanup'); return ['log-old-a', 'log-old-b'] },
-  // 2026-10-13 暮雨第 2 条：按日期批量清理「已归档」日志（软删）。
+  // 2026-10-13 暮雨第 2 条：按日期批量清理“已归档”日志（软删）。
   // 桩与真后端同形：dryRun 只报命中、**不改 store**；非 dryRun 才把命中项移出。
   logsPurgeArchived: (beforeDate, opts) => {
     rec('logsPurgeArchived', [beforeDate, opts])
@@ -999,8 +999,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 附件（2026-10-01 卡 036）：假 preload 返回与真 IPC 同形的 { ok, data } ──
   // ⚠ 2026-10-29：这三个入口此前**根本没登记**（`logsPickFiles` / `logsAttachData` 缺，
   //   `logsAttachFiles` 也不收 sources）——
-  //   于是「新建日志时先选附件、保存时一起挂上」这条链路在无头断言里**从未被跑过**，
-  //   真机上「创建日志 + 粘贴图 → 保存永远失败」就这么漏过去了。
+  //   于是“新建日志时先选附件、保存时一起挂上”这条链路在无头断言里**从未被跑过**，
+  //   真机上“创建日志 + 粘贴图 → 保存永远失败”就这么漏过去了。
   //   现在按真 preload 的签名登记，并给每条**都加 cloneGuard**（真实机第一跳语义）。
   logsPickFiles: () => {
     rec('logsPickFiles')
@@ -1012,7 +1012,7 @@ contextBridge.exposeInMainWorld('tegula', {
     const row = (store.logs || []).find(x => x.id === id)
     if (!row) return { ok: false, error: '日志不存在' }
     // 真实现是主进程弹系统框（sources 为空时）或直接复制这批路径（有 sources 时）；
-    // 桩两种都走「追加条目」，并**如实记下调用方给了几个 sources**，供断言对账。
+    // 桩两种都走“追加条目”，并**如实记下调用方给了几个 sources**，供断言对账。
     const n = Array.isArray(sources) && sources.length ? sources.length : 1
     const add = Array.from({ length: n }, (_, i) =>
       `docs/执行日志/_attachments/${id}/新添加_${(row.attachments || []).length + i + 1}.png`)
@@ -1030,8 +1030,8 @@ contextBridge.exposeInMainWorld('tegula', {
     row.attachments = [...(row.attachments || []), ...add]
     return { ok: true, data: { ...row }, added: add.length, skipped: [] }
   },
-  // 2026-10-29：这两个此前**完全没登记** —— 单条「📋 复制」与新的「⧉ 开工单」在无头断言里都是死通道。
-  // 桩只负责**记账 + 返回可辨认的文本**；真正的拼接语义（主日志在前、副日志标「并行」）
+  // 2026-10-29：这两个此前**完全没登记** —— 单条“📋 复制”与新的“⧉ 开工单”在无头断言里都是死通道。
+  // 桩只负责**记账 + 返回可辨认的文本**；真正的拼接语义（主日志在前、副日志标“并行”）
   // 由 e2e-mcp-logs 跑真 services/logs.injectLogs 验 —— 桩里再实现一遍就等于自欺。
   // 点系统通知回到对象（2026-10-29）：真通道是主进程 webContents.send('notify:focus')。
   // 桩负责订阅 + 提供 __fcTest.emitNotifyFocus 供断言手动喂一条。
@@ -1069,23 +1069,23 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   logsAttachmentData: () => ({
     ok: true,
-    // 1×1 透明 PNG，够断言「img 的 src 真是 data:image/png」
+    // 1×1 透明 PNG，够断言“img 的 src 真是 data:image/png”
     data: { mime: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', name: 'x.png' },
   }),
   logsOpenAttachment: (rel) => {
     rec('logsOpenAttachment', [rel])
     // 2026-10-30 白屏事故：可执行/安装包不直接运行，只返回"去文件夹里定位"
     if (/\.(exe|msi|bat|cmd|ps1|lnk|scr|jar)$/i.test(String(rel || ''))) {
-      return { ok: false, needsReveal: true, ext: '.exe', error: '「Fangcun-Setup.exe」是可执行 / 安装文件，方寸不会直接运行它', hint: '请先在文件夹中定位，确认来源后再双击。' }
+      return { ok: false, needsReveal: true, ext: '.exe', error: '“Fangcun-Setup.exe”是可执行 / 安装文件，方寸不会直接运行它', hint: '请先在文件夹中定位，确认来源后再双击。' }
     }
     return { ok: true }
   },
   // 可执行附件不直接运行，只定位（2026-10-30 白屏事故）
   logsRevealAttachment: (rel) => { rec('logsRevealAttachment', [rel]); return { ok: true, path: 'C:/mock/' + rel } },
   // 自仓启动同步状态（2026-10-21 · W1-1C）：真主进程启动时跑完 git pull 后给结果，
-  // 桩默认「已是最新」；断言用 __fcTest.setSelfSync() 换成「待同步」再看界面说没说真话。
+  // 桩默认“已是最新”；断言用 __fcTest.setSelfSync() 换成“待同步”再看界面说没说真话。
   // 项目路线文档实况（2026-10-21 · W1-批次 2）：真主进程读仓库 README/ROADMAP + 最近 docs 变更。
-  // 桩给一份「两份文档都在 + 一条 docs 提交」的常态；断言用 __fcTest.setProjectDocs() 换形态。
+  // 桩给一份“两份文档都在 + 一条 docs 提交”的常态；断言用 __fcTest.setProjectDocs() 换形态。
   projectDocs: (projectId) => {
     rec('projectDocs', [projectId])
     return store.projectDocs || {
@@ -1109,7 +1109,7 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   logsForTask: (taskId) => {
     rec('logsForTask', [taskId])
-    // 2026-10-21：此前恒返回 `[]` —— 「任务详情的关联日志」那块在无头断言里是**死的**
+    // 2026-10-21：此前恒返回 `[]` —— “任务详情的关联日志”那块在无头断言里是**死的**
     // （连"完成后这里有没有撤销按钮"都验不了）。按真后端语义补：按 taskIds 过滤。
     // ⚠ 真后端返回的是**数组本身**（不是 {ok:...}），桩必须同形状。
     return (store.logs || []).filter(l => (l.taskIds || []).indexOf(taskId) >= 0)
@@ -1138,7 +1138,7 @@ contextBridge.exposeInMainWorld('tegula', {
       absPath: `${dir}/${id}/SKILL.md`,
       exists: true, bytes: 1234, installed, outdated: !installed,
       hash: 'a'.repeat(32), body,
-      prompt: `请把方寸（tegula）的「${id}」这个技能装到你自己身上：\n- 技能文件（绝对路径）：${dir}/${id}/SKILL.md`,
+      prompt: `请把方寸（tegula）的“${id}”这个技能装到你自己身上：\n- 技能文件（绝对路径）：${dir}/${id}/SKILL.md`,
     })
     return ok({
       version: '0.2.6', lastUpdated: '2026-09-25', skillsDir: dir, hermesDir: hermes, unlisted: [],
@@ -1175,7 +1175,7 @@ contextBridge.exposeInMainWorld('tegula', {
   skillsImport: (srcPath, opts) => {
     rec('skillsImport', [srcPath, !!(opts && opts.overwrite)])
     if (store.importExists && !(opts && opts.overwrite)) {
-      return ok({ ok: false, code: 'exists', name: store.importName, error: `「${store.importName}」已经存在` })
+      return ok({ ok: false, code: 'exists', name: store.importName, error: `“${store.importName}”已经存在` })
     }
     // 成功之后把它挂进"已导入"列表，好让界面刷新出卡片（贴近真主进程的行为）
     if (!store.imported.some(x => x.name === store.importName)) {
@@ -1237,7 +1237,7 @@ contextBridge.exposeInMainWorld('tegula', {
 
 
   // ⚠ 2026-10-16（用户第 2 条）：`servicesStartApp`（启动应用 + 观测端口）已随
-  //   服务页「启动台应用」分区一起删除 —— 真 preload 里也没有了。
+  //   服务页“启动台应用”分区一起删除 —— 真 preload 里也没有了。
   //   假 preload 与真 preload 必须同步：留着它会造出"界面以为有这个通道"的假绿。
 
   // ── 装到别的 agent（2026-09-26 回执：只有 Hermes 可装；2026-10-03 卡 011：加 DSH）──
@@ -1245,12 +1245,12 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('agentsList')
     return ok({ agents: [
       { id: 'hermes', name: 'Hermes', mode: 'installable', detected: true,
-        evidence: 'C:/mock/hermes/skills', skillsDir: 'C:/mock/hermes/skills', howTo: '点上面「⚡ 装到 Hermes」',
+        evidence: 'C:/mock/hermes/skills', skillsDir: 'C:/mock/hermes/skills', howTo: '点上面“⚡ 装到 Hermes”',
         skillLinked: true, mcpLinked: false, linkDetail: '技能副本已装 · MCP 配置未含 fangcun' },
       { id: 'dsh', name: 'DSH (DeepSeek Harness)', mode: 'installable', detected: true,
         evidence: 'C:/mock/home/.dsh/profiles/desktop/cordis.patch.yml', skillsDir: 'C:/mock/home/.dsh/skills',
         skillLinked: false, mcpLinked: true, linkDetail: '技能副本未装 · MCP 配置含 fangcun',
-        howTo: '点「⚡ 装到 DSH」写进 ~/.dsh/skills/<名>/SKILL.md' },
+        howTo: '点“⚡ 装到 DSH”写进 ~/.dsh/skills/<名>/SKILL.md' },
       { id: 'workbuddy', name: 'WorkBuddy', mode: 'manual', detected: true,
         evidence: 'C:/Program Files/WorkBuddy/WorkBuddy.exe', openPath: 'C:/Program Files/WorkBuddy/WorkBuddy.exe',
         linkDetail: '（落点不可知）',
@@ -1266,7 +1266,7 @@ contextBridge.exposeInMainWorld('tegula', {
   agentsOpen: (id) => { rec('agentsOpen', [id]); return ok({ ok: true, message: '已打开 ' + id }) },
   // ── MCP 接入材料（2026-10-23 补）────────────────────────────────────
   // 此前**一组都没有**：`typeof t.mcpInfo !== 'function'` 恒为 true，于是 MCP 那一区
-  // 在任何断言里都是空的（永远「检测中…」），组件拆坏了也没人知道。
+  // 在任何断言里都是空的（永远“检测中…”），组件拆坏了也没人知道。
   // 现在按主进程真实形状给：两个入口（A 可用 / B 不可用）+ 两个目标（一个检测到、一个没有）。
   mcpInfo: () => {
     rec('mcpInfo')
@@ -1350,7 +1350,7 @@ contextBridge.exposeInMainWorld('tegula', {
   // 仍然等于改状态"。此前它只是 `() => ok()`，调没调用在 e2e 里看不出来。
   moveStatus: (id, status) => { rec('moveStatus', [id, status]); return ok() },
   // 裁决（2026-10-30）：此前两个通道**根本没登记**，界面一点就抛。
-  // ⚠ 桩只记账、**不改 store**：改 store 会污染后面「按状态列排序/批量还原」等断言
+  // ⚠ 桩只记账、**不改 store**：改 store 会污染后面“按状态列排序/批量还原”等断言
   //   （2026-10-30 实测：拖拽测试把 task-demo-001 移出待办，排序块只剩一张卡）。
   reviewAccept: (id, reason) => { rec('reviewAccept', [id, reason]); return ok() },
   reviewReject: (id, reason) => { rec('reviewReject', [id, reason]); return ok() },
@@ -1379,13 +1379,13 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   batchArchive: () => ok(),
   batchDelete: () => ok(),
-  // 2026-10-30 驳回返工台：这两个原先只回 ok()、**不记账**，于是「点了到底有没有走通道」
+  // 2026-10-30 驳回返工台：这两个原先只回 ok()、**不记账**，于是“点了到底有没有走通道”
   // 根本断言不出来。补上 rec（与 moveStatus 同口径），断言才能分辨真动作与假动作。
   archiveTask: (id) => { rec('archiveTask', [id]); return ok() },
   unarchiveTask: (id) => { rec('unarchiveTask', [id]); return ok() },
   deleteTask: () => ok(),
   copyTask: () => ok(),
-  // 2026-10-13：此前是 `() => ({})`（永远空表单）。「架构图」的条件显示与表单回填都靠它拿值 ——
+  // 2026-10-13：此前是 `() => ({})`（永远空表单）。“架构图”的条件显示与表单回填都靠它拿值 ——
   // 空对象会让"有值才显示"永远不成立（断言假绿/假红都踩过）。**照真身口径**：
   // 读 `task.fm[key]`（不认扁平键），数组类 join 成逗号串 —— 与 data.taskToFormValues 同形。
   taskFormValues: (id) => {
@@ -1405,7 +1405,7 @@ contextBridge.exposeInMainWorld('tegula', {
     return out
   },
   // 自然语言搜索（2026-10-23 补）：此前恒返回 `[]` —— 而 App 那边读的是 `result.tasks`，
-  // 于是「回车搜 #标签 @项目」这条路**从来没被验过**（返回 [] → 结果永远是空列表）。
+  // 于是“回车搜 #标签 @项目”这条路**从来没被验过**（返回 [] → 结果永远是空列表）。
   naturalQuery: (q, opts) => {
     rec('naturalQuery', [q, opts])
     const hit = store.tasks.filter((t) => String(t.id) === 'task-demo-001')
@@ -1422,7 +1422,7 @@ contextBridge.exposeInMainWorld('tegula', {
     ]
   },
   suggestMilestones: () => { rec('suggestMilestones'); return store.milestones.slice() },
-  // 监控台「建议动作 / 可并行机会」（2026-10-23 补）：此前恒返回 [] ——
+  // 监控台“建议动作 / 可并行机会”（2026-10-23 补）：此前恒返回 [] ——
   // 它们是 10-11 接回的**死通道**，但接回来之后没有任何断言碰过，
   // 于是"接了但没渲染 / 渲染了但字段名错"两种坏法都不会被发现。
   suggestActions: (projectId) => {
@@ -1462,8 +1462,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /**
    * 诊断日志尾部（2026-10-23 补夹具）：主进程返回 `string[]`（main/services/appLog.ts:134），
    * 界面直接把数组 join('\n') 塞进 `.errpanel-body`。
-   * ⚠ 此前桩恒返回空数组 → 抽屉里永远只有「（日志为空）」这一句，
-   *   等于「日志抽屉显示的行到底是不是主进程给的」从来没被断言过。
+   * ⚠ 此前桩恒返回空数组 → 抽屉里永远只有“（日志为空）”这一句，
+   *   等于“日志抽屉显示的行到底是不是主进程给的”从来没被断言过。
    */
   applogTail: (n) => {
     rec('applogTail', [n])
@@ -1482,8 +1482,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // 现在给一个内存真身：多视图选择（fc_board_view / fc_todo_view）与分组方式
   // 都走这条路径，断言可以真读回 `__fcTest.prefs()`。
   //
-  // ⚠ 2026-10-05 又踩了同一个坑（「勾一下闪退一下」= 勾选写不进盘）：渲染层把 **Vue 响应式代理**
-  //   （`ref([]).value`、v-for 元素）直接当 IPC 载荷 → 真机 contextBridge 在「页面→隔离世界」
+  // ⚠ 2026-10-05 又踩了同一个坑（“勾一下闪退一下”= 勾选写不进盘）：渲染层把 **Vue 响应式代理**
+  //   （`ref([]).value`、v-for 元素）直接当 IPC 载荷 → 真机 contextBridge 在“页面→隔离世界”
   //   这一跳就抛 `An object could not be cloned`（preload 与主进程都收不到，日志里一个字都没有）。
   //   假 preload 不做克隆校验 → 这个 bug **在渲染层 e2e 里测不出来**（真机必崩、测试全绿）。
   //   所以这里按真机语义补上：参数过不了结构化克隆，就当它是真机里的那种失败。
@@ -1500,9 +1500,9 @@ contextBridge.exposeInMainWorld('tegula', {
     store.projectTiers = Array.isArray(tiers) ? JSON.parse(JSON.stringify(tiers)) : []
     return ok({ tiers: JSON.parse(JSON.stringify(store.projectTiers)) })
   },
-  // 2026-10-05 补：在途一屏的「保存」改走**一次写多键 + 回读校验**（prefs:setMany）。
+  // 2026-10-05 补：在途一屏的“保存”改走**一次写多键 + 回读校验**（prefs:setMany）。
   // 假 preload 缺这个 API 的话，渲染层的 `?.prefsSetMany?.(...)` 会静默变 undefined，
-  // 「保存到底写没写进去」在渲染层 e2e 里就**永远验证不到**（记忆里的老坑）。
+  // “保存到底写没写进去”在渲染层 e2e 里就**永远验证不到**（记忆里的老坑）。
   prefsSetMany: (patch) => {
     cloneGuard('prefsSetMany', [patch])
     rec('prefsSetMany', [patch])
@@ -1515,7 +1515,7 @@ contextBridge.exposeInMainWorld('tegula', {
   browseDirectory: () => null,
   browseFile: () => null,
   // 项目章程三态（2026-09-25 第 7 条）：demo 已填、demo2 连文件都没有。
-  // 029：方针卡现在也带 structureMap（结构地图），所以走可注入的 store，测试能造「有地图 + 最后核实日期」。
+  // 029：方针卡现在也带 structureMap（结构地图），所以走可注入的 store，测试能造“有地图 + 最后核实日期”。
   policyGet: (id) => {
     const p = store.policies ? store.policies[id] : undefined
     if (!p) return { ok: true, policy: null }
@@ -1542,7 +1542,7 @@ contextBridge.exposeInMainWorld('tegula', {
         current: { text: '正在做的事', from: 'task', sub: '' },
         next: { text: '要做的下一件', from: 'task', sub: '1 张待办（最高：中）' },
         who: { text: 'hermes（执行）', kind: 'exec' },
-        // 2026-10-22 · 03 任务三：四栏台账第四栏（demo2 刻意留空 → 界面必须写「未写」）
+        // 2026-10-22 · 03 任务三：四栏台账第四栏（demo2 刻意留空 → 界面必须写“未写”）
         owe: '欠着：①夹具欠账 ②第二件',
         health: { value: 'active', locked: false },
         counts: { todo: 1, doing: 1, review: 0, logs: 0 },
@@ -1607,9 +1607,9 @@ contextBridge.exposeInMainWorld('tegula', {
     if (s.indexOf('欠着') >= 0) {
       return {
         ok: true, kind: 'owe', title: '1 个项目写了欠账',
-        lines: ['这条读的是你手写的「说明」—— 方寸不替你裁，也不替你补。'],
+        lines: ['这条读的是你手写的“说明”—— 方寸不替你裁，也不替你补。'],
         rows: [{ k: '演示项目', v: '欠着：①夹具欠账 ②第二件', sub: '你手写的' }],
-        needsLlm: false, source: '项目登记表里你手写的「说明」',
+        needsLlm: false, source: '项目登记表里你手写的“说明”',
       }
     }
     if (s.indexOf('到哪') >= 0) {
@@ -1626,13 +1626,13 @@ contextBridge.exposeInMainWorld('tegula', {
       rows: [], needsLlm: true, source: '',
     }
   },
-  // 随纠（2026-10-22 · 03 任务二）：桩复刻主进程语义的最小版 —— 只认「改 <字段> 为 <值>」。
+  // 随纠（2026-10-22 · 03 任务二）：桩复刻主进程语义的最小版 —— 只认“改 <字段> 为 <值>”。
   // ⚠ 必须记账并真返回 before/field：断言要验"撤销真把旧值传回去了"。
   correctPreview: (text, pid) => {
     rec('correctPreview', [text, pid])
     const m = String(text || '').match(/(状态|路线图|说明)\s*(?:改成|改为|为|成)\s*(.+)$/)
     if (!m) return { ok: false, error: '没认出要改哪个字段' }
-    return { ok: true, projectId: pid, field: m[1], to: m[2].trim(), echo: '「演示项目」的' + m[1] + '：旧 → ' + m[2].trim() }
+    return { ok: true, projectId: pid, field: m[1], to: m[2].trim(), echo: '“演示项目”的' + m[1] + '：旧 → ' + m[2].trim() }
   },
   correctApply: (text, pid) => {
     rec('correctApply', [text, pid])
@@ -1643,7 +1643,7 @@ contextBridge.exposeInMainWorld('tegula', {
     if (p) p[m[1]] = m[2].trim()
     return {
       ok: true,
-      echo: '「' + (p ? p.name : pid) + '」的' + m[1] + '：' + (before || '（空）') + ' → ' + m[2].trim(),
+      echo: '“' + (p ? p.name : pid) + '”的' + m[1] + '：' + (before || '（空）') + ' → ' + m[2].trim(),
       projectId: pid, field: m[1], before, decisionId: 'dec-e2e-1',
     }
   },
@@ -1690,7 +1690,7 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: true, before, changed: keys }
   },
   // 备份 v2（现行家族）；裸 backup/restore/listBackups 已随族3（卡004）删除 —— 夹具同步
-  // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证「默认最新」与传参
+  // 导出指定备份（2026-09-25 第 10 条）：给两份假备份，验证“默认最新”与传参
   backupListLocal: () => { rec('backupListLocal'); return ({
     ok: true,
     items: [
@@ -1701,8 +1701,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /**
    * 远端备份列表（2026-10-23 补夹具）：形状与 `backupListLocal` 一样是 `{ ok, items }`
    * （main/backup-ipc.ts:108）。⚠ 此前桩返回裸 `[]` → `rr.ok ? rr.items : []` 恒走 else，
-   * 「远端 (N)」那个计数永远 0、远端备份行从来不渲染 ——
-   * 于是「远端恢复传的是 name 还是 path」这条最容易错的分支从没被点过。
+   * “远端 (N)”那个计数永远 0、远端备份行从来不渲染 ——
+   * 于是“远端恢复传的是 name 还是 path”这条最容易错的分支从没被点过。
    */
   backupListRemote: () => {
     rec('backupListRemote')
@@ -1794,12 +1794,12 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!projectId) return { ok: false, error: '没给项目 id' }
     return {
       ok: false,
-      error: '演示项目 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下（文件名带「架构图」或 architecture），再点这里；方寸自绘是旁边那个按钮。',
+      error: '演示项目 还没有 archify 结构图 —— 先用 archify 生成一份 HTML，落到该仓库 docs/ 下（文件名带“架构图”或 architecture），再点这里；方寸自绘是旁边那个按钮。',
     }
   },
   // ── 方寸自绘架构图桩（2026-10-30，卡 task-20261030-002）──────────────
   // 图模型照真身字段造：节点=目录、边=import/ipc/bridge、证据与缺项都有内容 ——
-  // 断言要验的是「界面有没有把证据和缺项**摆出来**」，不是"能不能跑通"。
+  // 断言要验的是“界面有没有把证据和缺项**摆出来**”，不是"能不能跑通"。
   archGet: (projectId, opts) => {
     cloneGuard('archGet', [projectId, opts])
     rec('archGet', [projectId, opts])
@@ -1881,7 +1881,7 @@ contextBridge.exposeInMainWorld('tegula', {
     }
   },
   // ── 需求矩阵（RICE）桩（2026-10-29）：页签此前在无头断言里完全没被打开过 ──
-  // 夹具刻意做成「两条已拍板 + 一条没写理由 + 一条未拍板」，好让四种界面判断都能被验到。
+  // 夹具刻意做成“两条已拍板 + 一条没写理由 + 一条未拍板”，好让四种界面判断都能被验到。
   riceGet: () => {
     rec('riceGet', [])
     return {
@@ -1919,11 +1919,11 @@ contextBridge.exposeInMainWorld('tegula', {
   llmSetConfig: () => ok(),
   llmResetConfig: () => ok(),
   llmTestConnection: () => ok(),
-  // AI 规划写回层（2026-10-12）：e2e 不真调 LLM，桩返回成功+假 usage（「花销可见」链路可断言）
+  // AI 规划写回层（2026-10-12）：e2e 不真调 LLM，桩返回成功+假 usage（“花销可见”链路可断言）
   llmPlanToDraft: () => ({ ok: true, created: [{ id: 'task-e2e-draft-1', title: 'e2e 假草稿' }], usage: { promptTokens: 120, completionTokens: 80, totalTokens: 200 } }),
   llmDraftProjectBrief: () => ({ ok: true, taskId: 'task-e2e-brief-1', usage: { promptTokens: 100, completionTokens: 60, totalTokens: 160 } }),
   // 决策卡（2026-10-12）：本地 CRUD 桩，假数据供视图用例断言
-  // ⚠ 2026-10-14：三条各自带上「项目」（含一条刻意留空）—— 项目筛选与项目字段的断言靠它
+  // ⚠ 2026-10-14：三条各自带上“项目”（含一条刻意留空）—— 项目筛选与项目字段的断言靠它
   decisionList: () => { rec('decisionList'); return { ok: true, items: [
     { id: 'D-001', 内容: '司天不发版，唯一目标=标注+导出真图', 日期: '2026-10-11', 状态: '有效', 项目: '司天', 出处: '10-11 09:42 四答定调②', 备注: '', 更新: '' },
     { id: 'D-002', 内容: '启动台死因 10-14 前裁决', 日期: '2026-09-14', 状态: '已撤销', 项目: '绒花墨坊', 出处: '台账 #4', 备注: '被 10-12 快照复盘取代', 更新: '' },
@@ -1948,7 +1948,7 @@ contextBridge.exposeInMainWorld('tegula', {
       if (!it || typeof it !== 'object') continue
       const badKey = Object.keys(it).find((k) => !known.includes(k))
       if (badKey) {
-        return Promise.resolve({ ok: false, error: `导入被拦下，一个文件都没写：第 ${i + 1} 条的字段名「${badKey}」不认识（可用：${known.slice(0, 6).join(' / ')}）` })
+        return Promise.resolve({ ok: false, error: `导入被拦下，一个文件都没写：第 ${i + 1} 条的字段名“${badKey}”不认识（可用：${known.slice(0, 6).join(' / ')}）` })
       }
     }
     return Promise.resolve(ok())
@@ -1969,13 +1969,13 @@ contextBridge.exposeInMainWorld('__fcTest', {
   // 禁止再写死 '09-30' 之类的字面量，否则每月 1 号假红。
   fixDeadline: FIX_DEADLINE,
   fixMmdd: FIX_MMDD,
-  // 2026-10-12：「今天」那一格到底压了几条 —— 从**夹具真身**数出来，别在断言里写死。
+  // 2026-10-12：“今天”那一格到底压了几条 —— 从**夹具真身**数出来，别在断言里写死。
   // 起因：待办也上日历之后，"今天"从 4 条变 5 条，写死 `+2 条` 的旧断言当场假红。
-  // ⚠ 口径必须与 App.vue 造日历事件完全一致 —— 第一版漏了「完成的待办不上日历」
+  // ⚠ 口径必须与 App.vue 造日历事件完全一致 —— 第一版漏了“完成的待办不上日历”
   //   （多选夹具里那条 done:true 的 `td-3` 被多算成一条 → 期望 +4、实际 +3，还是假红）。
   fixTodayCount: () => {
     const dl = (store.tasks || []).filter(t => (t.deadline || (t.fm && t.fm.deadline)) === FIX_DEADLINE).length
-    // 待办的日历判据（App.vue）：① 未完成；② 有 due 且等于今天 ——「没 due」不算今天
+    // 待办的日历判据（App.vue）：① 未完成；② 有 due 且等于今天 ——“没 due”不算今天
     // （裸 { created: 1 } 这种夹具不带 due，若按"没 due 就今天"数会凭空多出几条）。
     const td = (store.todos || []).filter(t => !t.done && t.due === FIX_DEADLINE).length
     return dl + td
@@ -1985,7 +1985,7 @@ contextBridge.exposeInMainWorld('__fcTest', {
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   todos: () => JSON.parse(JSON.stringify(store.todos)),
-  // 想法（2026-10-22）：断言要能读到真身 —— 特别是"点「做」之后待办里是不是真多了一条"
+  // 想法（2026-10-22）：断言要能读到真身 —— 特别是"点“做”之后待办里是不是真多了一条"
   ideas: () => JSON.parse(JSON.stringify(store.ideas)),
   setIdeas: (items) => { store.ideas = (items || []).slice() },
   logs: () => JSON.parse(JSON.stringify(store.logs)),
@@ -2023,7 +2023,7 @@ contextBridge.exposeInMainWorld('__fcTest', {
   neverRead: () => JSON.parse(JSON.stringify(computeNeverRead())),
   /**
    * 冻结一份读卡夹具。两种必须能造的形态：
-   *  ① `windowEvents: 0` —— 计量还没开始。此时界面**不许**说「N 张没人碰过」
+   *  ① `windowEvents: 0` —— 计量还没开始。此时界面**不许**说“N 张没人碰过”
    *     （那会冤枉所有卡），必须换成"还没有任何 agent 读卡记录"；
    *  ② `rows: []` —— 有记录但全都有人读过，筛出来是空板。
    */
@@ -2056,9 +2056,9 @@ contextBridge.exposeInMainWorld('__fcTest', {
   /** 重新灌测试数据：前面的回收站测试会把两条都还原/彻底删掉，后面的预览测试要重来一遍 */
   setTrash: (items) => { store.trash = (items || []).slice() },
   setLogs: (items) => { store.logs = (items || []).slice() },
-  /** 自仓同步状态（W1-1C）：传 null 恢复默认「已是最新」 */
+  /** 自仓同步状态（W1-1C）：传 null 恢复默认“已是最新” */
   setSelfSync: (obj) => { store.selfSync = obj || null },
-  /** 项目路线文档（W1-批次 2）：传 null 恢复默认夹具；传 ok:false 造「读不到」形态 */
+  /** 项目路线文档（W1-批次 2）：传 null 恢复默认夹具；传 ok:false 造“读不到”形态 */
   setProjectDocs: (obj) => { store.projectDocs = obj || null },
   setTodos: (items) => { store.todos = (items || []).slice() },
   setServices: (rows) => { store.services = (rows || []).slice() },
@@ -2073,11 +2073,11 @@ contextBridge.exposeInMainWorld('__fcTest', {
   setTasks: (items) => { store.tasks = (items || []).slice() },
   /**
    * 注入在途一屏的返回（含 rows / hidden / modeFallback）。
-   * 2026-10-05 用：造「手动指定 + 一个都没勾 → 一屏全空」这个用户实测场景，
-   * 验证空屏里有出口（「改回自动」）而不是死局。
+   * 2026-10-05 用：造“手动指定 + 一个都没勾 → 一屏全空”这个用户实测场景，
+   * 验证空屏里有出口（“改回自动”）而不是死局。
    */
   setTripBoard: (obj) => { store.tripBoard = obj || null },
-  /** 卡 012：注入「超期的已完成任务」条数（0 = 无 → 提示条不渲染） */
+  /** 卡 012：注入“超期的已完成任务”条数（0 = 无 → 提示条不渲染） */
   setOverdue: (n, items) => {
     store.overdueCount = Number(n) || 0
     if (items) store.overdueItems = items.slice()

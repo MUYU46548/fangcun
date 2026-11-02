@@ -1,5 +1,5 @@
 /**
- * 「对不上」检测 —— 主进程装配（2026-10-27，REV-008 一期 R4）
+ * “对不上”检测 —— 主进程装配（2026-10-27，REV-008 一期 R4）
  *
  * 这里只做三件事，**判断全部在 `shared/mismatch.ts`**（那样才能在纯 Node 里验口径）：
  *   ① 读 registry → 每个项目一条 RepoInfo（含 git 最后提交日期）
@@ -98,7 +98,7 @@ export async function checkMismatch(opts: { days?: number; noOutputDays?: number
   const tasks = readTaskTexts(root)
   const exists = existsUnder(root)
 
-  // 跨仓库：按卡的「项目」字段找它自己项目的 repo，逐条判存在
+  // 跨仓库：按卡的“项目”字段找它自己项目的 repo，逐条判存在
   const repoCache = new Map<string, RepoInfo>()
   for (const r of repos) for (const k of r.keys) repoCache.set(k, r)
   const reposOf = (t: TaskRef) => {

@@ -1,5 +1,5 @@
 /**
- * 技能真源一致性守卫（2026-10-03 用户：「方寸自带 skill 后续应该如何保持更新和维护？」）
+ * 技能真源一致性守卫（2026-10-03 用户：“方寸自带 skill 后续应该如何保持更新和维护？”）
  *
  * 背景：技能真源是 `skills/manifest.json` + `skills/<id>/SKILL.md`，随方寸安装包分发到
  * `resources/skills/`，再由主进程同步到 Hermes / DSH 的技能目录；`docs/agents/<id>/` 是仓库内的
@@ -91,23 +91,23 @@ function main() {
 
     const src = path.join(SKILLS, id, 'SKILL.md')
     console.log(`  · ${id}  v${ver}  ${fs.existsSync(src) ? md5(src) : '(文件缺失)'}`)
-    if (!check(`「${id}」技能文件存在`, fs.existsSync(src), src)) continue
+    if (!check(`“${id}”技能文件存在`, fs.existsSync(src), src)) continue
 
     const fm = readFrontmatter(src)
-    check(`「${id}」frontmatter 可解析`, !!fm, src)
+    check(`“${id}”frontmatter 可解析`, !!fm, src)
     if (!fm) continue
-    check(`「${id}」frontmatter 有 name 与 description`, !!fm.name && !!fm.description,
+    check(`“${id}”frontmatter 有 name 与 description`, !!fm.name && !!fm.description,
       JSON.stringify({ name: fm.name, desc: (fm.description || '').slice(0, 20) }))
-    check(`★ 「${id}」frontmatter.name 与 manifest 的 id 一致（改了目录忘改 name 会在这里现形）`,
+    check(`★ “${id}”frontmatter.name 与 manifest 的 id 一致（改了目录忘改 name 会在这里现形）`,
       fm.name === id, `fm.name=${fm.name} id=${id}`)
-    check(`★ 「${id}」frontmatter.version 与 manifest 登记一致（防版本号漂移 —— 本守卫的核心）`,
+    check(`★ “${id}”frontmatter.version 与 manifest 登记一致（防版本号漂移 —— 本守卫的核心）`,
       String(fm.version) === ver, `SKILL.md=${fm.version} manifest=${ver}`)
-    check(`「${id}」version 是 x.y.z 形状`, /^\d+\.\d+\.\d+$/.test(String(fm.version)), String(fm.version))
+    check(`“${id}”version 是 x.y.z 形状`, /^\d+\.\d+\.\d+$/.test(String(fm.version)), String(fm.version))
 
     // 仓库内第二份副本（docs/agents/<id>/）—— 给人手工导入用的，必须与真源逐字节一致
     const copy = path.join(DOCS_AGENTS, id, 'SKILL.md')
     if (fs.existsSync(copy)) {
-      check(`★ 「${id}」docs/agents 副本与真源逐字节一致（防两处分叉）`,
+      check(`★ “${id}”docs/agents 副本与真源逐字节一致（防两处分叉）`,
         md5(copy) === md5(src), `真实=${md5(src)} 副本=${md5(copy)}`)
     }
   }

@@ -19,49 +19,49 @@ export interface LogEntry {
    *   completed = 已完成
    *   archived  = 已归档
    *
-   * 值没变（不迁移任何历史文件），变的只是「active 的中文显示」：
-   * 以前叫「进行中」，而它是**创建时自动打上的**，于是所有日志一出生就是「进行中」，
-   * 用户分不清「没跑 / 正在跑 / 跑完了」。现在「进行中」是独立的 running 标记，
+   * 值没变（不迁移任何历史文件），变的只是“active 的中文显示”：
+   * 以前叫“进行中”，而它是**创建时自动打上的**，于是所有日志一出生就是“进行中”，
+   * 用户分不清“没跑 / 正在跑 / 跑完了”。现在“进行中”是独立的 running 标记，
    * 只能手动打、可撤销。
    */
   status: 'active' | 'completed' | 'archived'
   /**
-   * 「进行中」标记（2026-09-28 用户第 2 条）。
+   * “进行中”标记（2026-09-28 用户第 2 条）。
    *
-   * 用户原话：「我需要"进行中"只能由手动开关打上，且可以撤销（防止误操作），
-   * 且不成为完成或归档的必要条件。」
+   * 用户原话：“我需要"进行中"只能由手动开关打上，且可以撤销（防止误操作），
+   * 且不成为完成或归档的必要条件。”
    *
    * 所以它是**独立布尔**而不是 status 的一个取值：
    *   - 与 status 正交 —— 只有未完成的日志才谈得上"正在跑"，但完成/归档**不要求**先打开它；
    *   - 只能手动开（创建时恒为假，任何自动路径都不写它）；
-   *   - 可撤销（关掉即回到「待处理」）；
+   *   - 可撤销（关掉即回到“待处理”）；
    *   - 只在 true 时落盘（`running: true`），关掉即从文件里消失，历史文件不会凭空多出字段。
    */
   running?: boolean
   /**
-   * 「进行中」是从哪一格点开的（2026-11-01 暮雨报障）。
+   * “进行中”是从哪一格点开的（2026-11-01 暮雨报障）。
    *
-   * 用户原话：「误点了一个日志，它变成了已完成…… 已完成的日志如果不小心误点进行中，
-   * 再撤销就会变成待处理，而不是变成已完成。不是应该撤到上一步吗？」
+   * 用户原话：“误点了一个日志，它变成了已完成…… 已完成的日志如果不小心误点进行中，
+   * 再撤销就会变成待处理，而不是变成已完成。不是应该撤到上一步吗？”
    *
    * 真因：`setLogRunning(true)` 把 status 改成 active 时**把 completed / 保留期也一起清了**，
-   * 关闭时只能回到「待处理」—— 上一步是什么已经没有记录了。
+   * 关闭时只能回到“待处理”—— 上一步是什么已经没有记录了。
    *
-   * 现在：从 已完成 / 已归档 点开「进行中」时，把原来的 status 记在这里（值域就这两个，
-   * 因为 active 不需要记忆）；关闭「进行中」且 status 还是 active 时**原样退回去**。
+   * 现在：从 已完成 / 已归档 点开“进行中”时，把原来的 status 记在这里（值域就这两个，
+   * 因为 active 不需要记忆）；关闭“进行中”且 status 还是 active 时**原样退回去**。
    * 完成 / 归档 / 主动撤销完成这些明确的状态动作会把它清掉 —— 记忆只服务于"撤销进行中"。
    * 文件键 `running_from`；只在有值时落盘（普通日志零变化）。
    */
   runningFrom?: 'completed' | 'archived'
   /**
-   * ⚠ 2026-11-01 移除 `agentDone`（「等你确认」）。
+   * ⚠ 2026-11-01 移除 `agentDone`（“等你确认”）。
    *
-   * 用户原话：「现状日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
+   * 用户原话：“现状日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？”
    * 对。**签字对象是任务卡，不是日志**：
    *   · 日志 = 执行记录（过程），只记发生了什么；
-   *   · 任务卡 = 交付物，AI 干完只能把它移到「待验收」，完成/驳回由用户在任务卡上点。
-   * 以前把任务那套「完成是签字」照搬到日志上，于是每轮 agent 收口都会在日志页堆一条
-   * 「⏳ 等你确认」—— 该进待验收的东西跑到了过程记录里，这就是滥用。
+   *   · 任务卡 = 交付物，AI 干完只能把它移到“待验收”，完成/驳回由用户在任务卡上点。
+   * 以前把任务那套“完成是签字”照搬到日志上，于是每轮 agent 收口都会在日志页堆一条
+   * “⏳ 等你确认”—— 该进待验收的东西跑到了过程记录里，这就是滥用。
    * 现在日志里**不再有任何收口标记**；历史文件里的 `agent_done` 读取时直接忽略，
    * 下次写回自然消失（不迁移、不做第二套状态）。
    */
@@ -83,25 +83,25 @@ export interface LogEntry {
   /**
    * 上次的执行 Agent（2026-10-03 用户反馈1，卡 task-20261003-001，用户拍板拆两字段）：
    * 接力来源那段是谁跑的 —— 找上一段的会话就认它。
-   * 此前与 agentName 是同一个字段却有两种标签（编辑框标「上次执行 Agent」、
-   * 接力框标「执行 Agent」），用户原话「不标清楚想找会话都找不到」。
+   * 此前与 agentName 是同一个字段却有两种标签（编辑框标“上次执行 Agent”、
+   * 接力框标“执行 Agent”），用户原话“不标清楚想找会话都找不到”。
    * 文件键 `prev_agent_name`；只在有值时落盘（历史文件不凭空多字段）。
    */
   prevAgentName?: string
   /** 日志归属日期（YYYY-MM-DD），默认取 created 日期，可手动配置 */
   logDate?: string
   /**
-   * 最后一次「改正文」的时间（ISO）。2026-10-18 暮雨第 2 条问「已完成的日志改不了，是防篡改吗」。
+   * 最后一次“改正文”的时间（ISO）。2026-10-18 暮雨第 2 条问“已完成的日志改不了，是防篡改吗”。
    *
-   * 结论：旧守卫（`status !== 'active' → 拒改`）是 2026-09-28「状态单行道」时代的遗留，
-   * 而界面从那时起**一直保留着「✏️ 编辑」按钮** —— 用户点进去改完点保存才被拒，等于
+   * 结论：旧守卫（`status !== 'active' → 拒改`）是 2026-09-28“状态单行道”时代的遗留，
+   * 而界面从那时起**一直保留着“✏️ 编辑”按钮** —— 用户点进去改完点保存才被拒，等于
    * "给你门不给路"。它不是防篡改（日志没有哈希/签名，手动改文件一样能改），只是一条
    * 与 UI 不一致的守卫。现在改为：**已完成 / 已归档也能改正文**，但改过就落 `edited`
-   * 戳、卡面显示「✎ 改过」—— 留痕而不是禁止。真正的防手滑靠 `.backup` 里的上一版
-   * （`restorePreviousLogVersion`，界面上叫「↩ 撤回上次保存」）。
+   * 戳、卡面显示“✎ 改过”—— 留痕而不是禁止。真正的防手滑靠 `.backup` 里的上一版
+   * （`restorePreviousLogVersion`，界面上叫“↩ 撤回上次保存”）。
    *
    * 只在 `title`/`content`/`nextSteps` 真被改时写（改项目、批量标优先级这类元数据不动它，
-   * 否则「改过」会变成天天亮着的噪音）。文件键 `edited`；无值不落盘。
+   * 否则“改过”会变成天天亮着的噪音）。文件键 `edited`；无值不落盘。
    */
   edited?: string
   /**
@@ -110,7 +110,7 @@ export interface LogEntry {
    * 为什么是独立字段而不是复用 status：置顶是**视图属性**，跟 active/completed/archived
    * 这条生命周期正交 —— 已归档的东西也可能是"正在查的东西"，钉在最上面看得见。
    * 所以写入时只在 true 时落 `pinned: true`（false 直接不写，文件保持干净），
-   * 且切换置顶**不受「非 active 不可编辑」那条守卫限制**（见 setLogPinned 的注释）。
+   * 且切换置顶**不受“非 active 不可编辑”那条守卫限制**（见 setLogPinned 的注释）。
    */
   pinned?: boolean
   /**
@@ -127,12 +127,12 @@ export interface LogEntry {
    */
   archiveNote?: string
   /**
-   * 附件（2026-10-01 用户第 1 条，落地卡 036 的口径；用户原话「报修时截图/分析报告有地方放，
-   * 不用靠脑子记」，且已提过至少两次）：
+   * 附件（2026-10-01 用户第 1 条，落地卡 036 的口径；用户原话“报修时截图/分析报告有地方放，
+   * 不用靠脑子记”，且已提过至少两次）：
    *
    * - 文件**复制进数据目录** `docs/执行日志/_attachments/<logId>/`，列表里存**相对数据目录**的路径 ——
-   *   绝不存外部绝对路径（换个盘/挪个目录就全部失效，验收里明写「绝不外链失效」）。
-   * - 不做素材库、不做标签/预览管理 —— 只做「日志 ↔ 文件」这一条关联入口。
+   *   绝不存外部绝对路径（换个盘/挪个目录就全部失效，验收里明写“绝不外链失效”）。
+   * - 不做素材库、不做标签/预览管理 —— 只做“日志 ↔ 文件”这一条关联入口。
    * - 附件目录以 `_` 开头且不是 .md，listLogs 的 `isFile` 过滤天然跳过，不会被当成日志。
    */
   attachments?: string[]
@@ -148,10 +148,10 @@ export interface LogEntry {
   priority?: string
   /**
    * 来源待办 ID（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）。
-   * 目标记录「由 X 转来」——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
+   * 目标记录“由 X 转来”——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
    * continues_from 指向日志（logChain 沿它走），这个指向待办，混用会把链走到待办上断掉。
    *
-   * - 用途：① 卡面标「⤴ 待办」来源；② **防重** —— 同一条待办只转一次（手滑点两下不产两条）。
+   * - 用途：① 卡面标“⤴ 待办”来源；② **防重** —— 同一条待办只转一次（手滑点两下不产两条）。
    * - 文件键 `from_todo`（与 prev_agent_name 同款 snake 映射）；只在有值时落盘，
    *   普通日志零变化。parse/render 白名单两处都必须在 —— 漏一处 = 下次写回即丢。
    */
@@ -159,8 +159,8 @@ export interface LogEntry {
   /**
    * 附属日志（2026-10-30 暮雨第 4 条）。
    *
-   * 用户原话：「我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成」。
-   * 以前只有一个「多选 → 开工单」的复制按钮：多选本身还是临时状态，复制完就散，
+   * 用户原话：“我要的就是一篇主日志带若干附属日志，一起绑定，一键全进行中，一键全完成”。
+   * 以前只有一个“多选 → 开工单”的复制按钮：多选本身还是临时状态，复制完就散，
    * 下次还得重新勾。现在把关系**落盘**在主日志上：
    *   · 只有主日志有这个字段（`attached: [副日志 id...]`），副日志不存反向指针 ——
    *     单一事实来源，不会出现两边不一致；
@@ -266,9 +266,9 @@ function parseLogFile(filePath: string): LogEntry | null {
       title: String(raw.title || ''),
       project: String(raw.project || ''),
       status: (raw.status || 'active') as LogEntry['status'],
-      // 「进行中」是手动标记（2026-09-28），只在文件里显式写了 true 才算数
+      // “进行中”是手动标记（2026-09-28），只在文件里显式写了 true 才算数
       running: raw.running === true || raw.running === 'true',
-      // 从哪一格点开的「进行中」（2026-11-01）：只认两个合法值，其余当没记过
+      // 从哪一格点开的“进行中”（2026-11-01）：只认两个合法值，其余当没记过
       runningFrom: raw.running_from === 'completed' || raw.running_from === 'archived'
         ? raw.running_from : undefined,
       created: String(raw.created || ''),
@@ -279,7 +279,7 @@ function parseLogFile(filePath: string): LogEntry | null {
       content: String(raw._content || logContent || ''),
       nextSteps: String(raw._next_steps || nextSteps || ''),
       // renderLog 把关联任务写在 frontmatter 的 tasks 数组里，此前只写不读，
-      // 导致 logsForTask 永远返回空 —— 任务详情的「关联日志」看不到任何东西。
+      // 导致 logsForTask 永远返回空 —— 任务详情的“关联日志”看不到任何东西。
       taskIds,
       // taskId 保留为首个 ID，兼容仍在读单值的旧消费方（卡片、logsForTask 之外的调用）
       taskId: taskIds[0],
@@ -342,12 +342,12 @@ function renderLog(log: LogEntry): string {
   // 只在 true 时落字段（false = 不写，历史文件不会凭空多出 pinned: false）
   if (log.pinned) fm.pinned = true
   if (log.running) fm.running = true
-  // 「进行中」的来源格（2026-11-01）：只在有值时落盘，历史日志零变化
+  // “进行中”的来源格（2026-11-01）：只在有值时落盘，历史日志零变化
   if (log.runningFrom) fm.running_from = log.runningFrom
   // ⚠ 不再写 agent_done（2026-11-01）：日志不承载"等你确认"，历史键不保留
   // 接力链：只在有值时落盘
   if (log.continueFrom) fm.continues_from = log.continueFrom
-  // 上次的执行 Agent：与 continues_from 同款「只在有值时落盘」
+  // 上次的执行 Agent：与 continues_from 同款“只在有值时落盘”
   if (log.prevAgentName) fm.prev_agent_name = log.prevAgentName
   // 优先级：只在有值时落盘（没标的历史日志不会凭空多出 priority: '' 这类垃圾字段）
   if (log.priority) fm.priority = log.priority
@@ -394,15 +394,15 @@ function genId(): string {
 export function listLogs(filter?: {
   project?: string
   status?: string
-  /** true = 只要手动标了「进行中」的（2026-09-28） */
+  /** true = 只要手动标了“进行中”的（2026-09-28） */
   running?: boolean
   dateFrom?: string
   dateTo?: string
   agent?: string
-  /** 关键词（2026-10-01 用户第 3 条「日常卡点」）：搜索与筛选**必须可叠加**。
+  /** 关键词（2026-10-01 用户第 3 条“日常卡点”）：搜索与筛选**必须可叠加**。
    *  此前界面有两条互不相干的路 —— 搜索走 `searchLogs(query)`（无视项目/Agent/日期），
    *  筛选走 `listLogs(filter)`（无视搜索词），任何一次刷新（完成/归档/改筛选）都会
-   *  把搜索结果冲掉、而搜索框里的词还留着，用户看到的是「搜了又没了」。
+   *  把搜索结果冲掉、而搜索框里的词还留着，用户看到的是“搜了又没了”。
    *  现在搜索词就是筛选的一个维度，只有一条取数路径。 */
   query?: string
 }): LogEntry[] {
@@ -423,7 +423,7 @@ export function listLogs(filter?: {
     const entryDate = (entry.logDate || entry.created || '').slice(0, 10)
     if (filter?.dateFrom && entryDate < filter.dateFrom) continue
     if (filter?.dateTo && entryDate > filter.dateTo) continue
-    // 关键词：标题 / 执行内容 / 下一步 / 项目（比 searchLogs 多查一步「下一步」，
+    // 关键词：标题 / 执行内容 / 下一步 / 项目（比 searchLogs 多查一步“下一步”，
     // 日志里最该被搜到的往往正是它）
     if (q && !(hit(entry.title) || hit(entry.content) || hit(entry.nextSteps) || hit(entry.project))) continue
     logs.push(entry)
@@ -441,8 +441,8 @@ export function getLog(id: string): LogEntry | null {
 /**
  * 接力链上下游（2026-09-29 方案二）：沿 continues_from 上溯 / 下溯，不含自身。
  *
- *   upstream   = 从最老的「链头」到直接父级（旧 → 新）
- *   downstream = 从直接子代到最新的「链尾」（近 → 远，BFS）
+ *   upstream   = 从最老的“链头”到直接父级（旧 → 新）
+ *   downstream = 从直接子代到最新的“链尾”（近 → 远，BFS）
  *
  * 只多一个字段的代价就是这里：链 = 连通分量，不建实体、不建索引。
  * 防御三件：环（visited 去重）、指向不存在/已销毁日志（断链即止）、自指。
@@ -502,8 +502,8 @@ export function createLog(
     id,
     title,
     project,
-    // 2026-09-28：新建 = 「待处理」。**不再自动打成「进行中」** ——
-    // 那条自动标记正是「日志一创建就是进行中」混乱的根因（用户第 2 条）。
+    // 2026-09-28：新建 = “待处理”。**不再自动打成“进行中”** ——
+    // 那条自动标记正是“日志一创建就是进行中”混乱的根因（用户第 2 条）。
     status: 'active',
     running: false,
     created: now,
@@ -511,7 +511,7 @@ export function createLog(
     retainDays: null,
     retainUntil: null,
     content,
-    // 接力（方案二）：新日志直接继承源日志的「下一步」——这是对话框预填的落点
+    // 接力（方案二）：新日志直接继承源日志的“下一步”——这是对话框预填的落点
     nextSteps: extra?.nextSteps || '',
     taskIds: ids.length ? ids : undefined,
     taskId: ids[0],
@@ -532,9 +532,9 @@ export function createLog(
 /**
  * 更新日志。
  *
- * 2026-09-22 补（用户报障「日志根本无法改所选项目，都是方寸」）：
+ * 2026-09-22 补（用户报障“日志根本无法改所选项目，都是方寸”）：
  * 原来只接受 title/content/nextSteps，**project 与 taskId 被静默丢弃** ——
- * 界面上改了项目、点保存、提示「已更新」，重新打开还是老项目。
+ * 界面上改了项目、点保存、提示“已更新”，重新打开还是老项目。
  * 典型的"看起来成功了"的假成功，现把两个字段一并落盘。
  */
 export function updateLog(id: string, updates: {
@@ -553,9 +553,9 @@ export function updateLog(id: string, updates: {
   priority?: string
   /**
    * 来源待办 ID（2026-10-08 卡 task-20261008-004 日志⇄待办互转，拍板=双向）。
-   * 目标记录「由 X 转来」——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
+   * 目标记录“由 X 转来”——与接力链 continues_from 同一套 prev 范式，但**不共用字段**：
    * continues_from 指向日志（logChain 沿它走），这个指向待办，混用会把链走到待办上断掉。
-   * 用途：① 卡面标「⤴ 待办」来源；② 防重（同一条待办只转一次）。只在有值时落盘。
+   * 用途：① 卡面标“⤴ 待办”来源；② 防重（同一条待办只转一次）。只在有值时落盘。
    */
   fromTodo?: string
 }): { ok: boolean; data?: LogEntry; error?: string } {
@@ -564,10 +564,10 @@ export function updateLog(id: string, updates: {
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
   // 2026-10-18 暮雨第 2 条：这里原本是 `if (entry.status !== 'active') return 拒改`。
-  // 那条守卫与界面自相矛盾 —— 日志卡与非 active 日志的编辑弹窗**一直都有「✏️ 编辑」**，
-  // 用户改完点保存才吃到「日志状态为 completed，无法编辑」，只能复制出来新建一条。
-  // 它不是防篡改（没有哈希/签名），只是「状态单行道」时代的遗留；现在改为**可改 + 留痕**：
-  //   · 正文类字段（title/content/nextSteps）改动 → 落 `edited` 时间戳，卡面显示「✎ 改过」；
+  // 那条守卫与界面自相矛盾 —— 日志卡与非 active 日志的编辑弹窗**一直都有“✏️ 编辑”**，
+  // 用户改完点保存才吃到“日志状态为 completed，无法编辑”，只能复制出来新建一条。
+  // 它不是防篡改（没有哈希/签名），只是“状态单行道”时代的遗留；现在改为**可改 + 留痕**：
+  //   · 正文类字段（title/content/nextSteps）改动 → 落 `edited` 时间戳，卡面显示“✎ 改过”；
   //   · 生命周期字段（status/completed/retain_until）**不在这张 updates 表里**，改不到；
   //   · 真正的"手滑撤回"由 `.backup` 上一版兜底（见 restorePreviousLogVersion）。
   if (updates.title !== undefined || updates.content !== undefined || updates.nextSteps !== undefined) {
@@ -597,13 +597,13 @@ export function updateLog(id: string, updates: {
   return { ok: true, data: entry }
 }
 
-// ── 撤回上一版（2026-10-18 暮雨第 1 条：「没有撤回选项，Ctrl+Z 也没用」）────────
+// ── 撤回上一版（2026-10-18 暮雨第 1 条：“没有撤回选项，Ctrl+Z 也没用”）────────
 //
 // 事实基础：`atomicWrite` 在**每次落盘前**都会把旧文件复制进同目录 `.backup/`
-// （`rotateBackup`，每条日志最多留 10 版）。也就是说「上一版」一直在磁盘上，
+// （`rotateBackup`，每条日志最多留 10 版）。也就是说“上一版”一直在磁盘上，
 // 只是从来没有入口 —— 用户只能看着改坏的内容干瞪眼。
 // 这里把那份既有备份接出来：**不新增第二套备份机制**，只是给它一个可点的按钮。
-// 语义刻意做成「撤回上一次保存」，不做完整撤销栈（那要动全站写路径，见中期规划）。
+// 语义刻意做成“撤回上一次保存”，不做完整撤销栈（那要动全站写路径，见中期规划）。
 
 export interface LogVersion {
   /** `.backup` 里的文件名 */
@@ -750,7 +750,7 @@ export function restorePreviousLogVersion(id: string): { ok: boolean; data?: { a
  * 置顶 / 取消置顶（2026-09-26 卡 037）。
  *
  * 置顶是视图属性，与 active/completed/archived 生命周期正交 —— 已归档的日志也该能被钉住
- * （用户原话：「正在修的东西钉在上面」）。写入走同一条 atomicallyWrite（先备份再原子改名），
+ * （用户原话：“正在修的东西钉在上面”）。写入走同一条 atomicallyWrite（先备份再原子改名），
  * 不新增第二条写路径。
  */
 export function setLogPinned(id: string, pinned: boolean): { ok: boolean; data?: LogEntry; error?: string } {
@@ -764,8 +764,8 @@ export function setLogPinned(id: string, pinned: boolean): { ok: boolean; data?:
 }
 
 /**
- * 改项目归属（卡 037 右键菜单：「不进编辑页，顺手改」）—— 归类属性，不是内容编辑，
- * 所以不落 `edited` 戳（否则「✎ 改过」天天亮着，等于没信息）。
+ * 改项目归属（卡 037 右键菜单：“不进编辑页，顺手改”）—— 归类属性，不是内容编辑，
+ * 所以不落 `edited` 戳（否则“✎ 改过”天天亮着，等于没信息）。
  */
 export function setLogProject(id: string, project: string): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
@@ -782,11 +782,11 @@ export function completeLog(id: string, retainDays: number | null, note?: string
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  // 2026-09-28（用户第 2 条后半句）：「进行中」**不是完成的前置条件**。
-  // 原来这里写着 `if (entry.status !== 'active') return 无法完成` —— 那是把「进行中」
-  // 当成必经状态了。现在从「待处理」直接完成、或从「已归档」补完成，都放行。
+  // 2026-09-28（用户第 2 条后半句）：“进行中”**不是完成的前置条件**。
+  // 原来这里写着 `if (entry.status !== 'active') return 无法完成` —— 那是把“进行中”
+  // 当成必经状态了。现在从“待处理”直接完成、或从“已归档”补完成，都放行。
   entry.status = 'completed'
-  entry.running = false   // 已完成的东西不该还挂着「进行中」
+  entry.running = false   // 已完成的东西不该还挂着“进行中”
   entry.runningFrom = undefined // 明确的完成动作会覆盖掉"从哪一格点开"的记忆
   entry.completed = new Date().toISOString()
   entry.retainDays = retainDays
@@ -805,29 +805,29 @@ export function archiveLog(id: string, note?: string): { ok: boolean; data?: Log
   const filePath = path.join(dir, `${id}.md`)
   const entry = parseLogFile(filePath)
   if (!entry) return { ok: false, error: '日志不存在' }
-  // 2026-09-28（用户第 2 条）：「进行中」同样**不是归档的前置条件**；
-  // 对已经归档的再点一次给 ok（幂等），不再报「日志已归档」——
+  // 2026-09-28（用户第 2 条）：“进行中”同样**不是归档的前置条件**；
+  // 对已经归档的再点一次给 ok（幂等），不再报“日志已归档”——
   // 用户看到的是一个"点了报错"的按钮，而他要的只是"这条收起来"。
   if (entry.status === 'archived' && !entry.running) return { ok: true, data: entry }
   entry.status = 'archived'
   entry.running = false
   entry.runningFrom = undefined
   // 归档备注落 archiveNote（## 归档备注），不再借道 note —— 两者是不同节，
-  // 借道会让「完成确认」被归档动作覆盖掉。
+  // 借道会让“完成确认”被归档动作覆盖掉。
   if (note) entry.archiveNote = note
   atomicallyWrite(filePath, renderLog(entry))
   return { ok: true, data: entry }
 }
 
 /**
- * 把日志**撤销完成 / 撤销归档**，退回「待处理」（2026-09-26 卡 022；2026-09-28 重新定位）。
+ * 把日志**撤销完成 / 撤销归档**，退回“待处理”（2026-09-26 卡 022；2026-09-28 重新定位）。
  *
- * 语义变化（用户第 2 条）：以前它的按钮叫「▶ 进行中」，也就是**撤销 = 自动变成进行中**。
- * 那正是混乱的来源 —— 用户只是想撤销一次误点的「完成」，却被迫得到「进行中」。
- * 现在撤销只把人放回**待处理**，要不要「进行中」由用户自己另外开。
+ * 语义变化（用户第 2 条）：以前它的按钮叫“▶ 进行中”，也就是**撤销 = 自动变成进行中**。
+ * 那正是混乱的来源 —— 用户只是想撤销一次误点的“完成”，却被迫得到“进行中”。
+ * 现在撤销只把人放回**待处理**，要不要“进行中”由用户自己另外开。
  *
  * 顺手清掉 `completed` / `retainDays` / `retainUntil` —— 留着会让卡片继续显示
- * 「已完成 + 保留到 X」，与「待处理」自相矛盾。只改状态、不动文件。
+ * “已完成 + 保留到 X”，与“待处理”自相矛盾。只改状态、不动文件。
  * 本来就是 active 的给 ok（幂等），不写盘。
  */
 export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: string } {
@@ -838,7 +838,7 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
   if (entry.status === 'active' && !entry.runningFrom) return { ok: true, data: entry }
   const wasActive = entry.status === 'active'
   entry.status = 'active'
-  // 已经从完成/归档点开「进行中」的（active + runningFrom）保持正在跑 ——
+  // 已经从完成/归档点开“进行中”的（active + runningFrom）保持正在跑 ——
   // 用户撤的是"完成"这件事，不是"我在弄它"这件事
   if (!wasActive) entry.running = false
   entry.runningFrom = undefined
@@ -853,18 +853,18 @@ export function reopenLog(id: string): { ok: boolean; data?: LogEntry; error?: s
 }
 
 /**
- * 手动开 / 关「进行中」（2026-09-28 用户第 2 条；2026-11-01 补「撤到上一步」）。
+ * 手动开 / 关“进行中”（2026-09-28 用户第 2 条；2026-11-01 补“撤到上一步”）。
  *
- * 这是「进行中」**唯一的写入路径** —— 创建、完成、归档都只会把它关掉，绝不会打开它，
- * 所以「谁在跑」这件事 100% 来自用户的手动开关。
+ * 这是“进行中”**唯一的写入路径** —— 创建、完成、归档都只会把它关掉，绝不会打开它，
+ * 所以“谁在跑”这件事 100% 来自用户的手动开关。
  *
- * 打开时若日志已「完成 / 已归档」，连带把它退回「未完成」（status=active、卡面显示进行中），
- * 否则卡片会同时显示「已完成」和「进行中」，自相矛盾 —— 用户点「进行中」的意思
- * 本来就是「这条我又在弄了」。
+ * 打开时若日志已“完成 / 已归档”，连带把它退回“未完成”（status=active、卡面显示进行中），
+ * 否则卡片会同时显示“已完成”和“进行中”，自相矛盾 —— 用户点“进行中”的意思
+ * 本来就是“这条我又在弄了”。
  *
  * ⚠ 2026-11-01 暮雨报障：**退回时不能丢"上一步是哪一格"**。
- *   原实现把 status 改 active 的同时清掉 completed / 保留期，关闭时只能回到「待处理」——
- *   用户误点「进行中」再撤销，一条已完成的日志就永久变成了未完成。
+ *   原实现把 status 改 active 的同时清掉 completed / 保留期，关闭时只能回到“待处理”——
+ *   用户误点“进行中”再撤销，一条已完成的日志就永久变成了未完成。
  *   现在开的时候记 `running_from`，关的时候**原样退回去**（已完成回到已完成，归档回到归档）。
  */
 export function setLogRunning(id: string, running: boolean): { ok: boolean; data?: LogEntry; error?: string } {
@@ -880,7 +880,7 @@ export function setLogRunning(id: string, running: boolean): { ok: boolean; data
       entry.status = 'active'
     }
   } else if (entry.status === 'active' && entry.runningFrom) {
-    // 撤销「进行中」= 退回到点它之前那一格（这就是用户说的"撤到上一步"）
+    // 撤销“进行中”= 退回到点它之前那一格（这就是用户说的"撤到上一步"）
     entry.status = entry.runningFrom
     entry.runningFrom = undefined
   } else if (entry.status === 'active') {
@@ -936,13 +936,13 @@ export function setLogAttached(mainId: string, ids: string[]): { ok: boolean; da
   const all = listLogs()
   const byId = new Map(all.map((l) => [l.id, l]))
   const ownerOfMain = all.find((l) => l.id !== id && (l.attached || []).includes(id))
-  if (ownerOfMain) return { ok: false, error: `这条本身是「${ownerOfMain.title || ownerOfMain.id}」的附属，不能反过来当主日志` }
+  if (ownerOfMain) return { ok: false, error: `这条本身是“${ownerOfMain.title || ownerOfMain.id}”的附属，不能反过来当主日志` }
   for (const x of want) {
     const t = byId.get(x)
     if (!t) return { ok: false, error: `附属日志不存在：${x}` }
-    if ((t.attached || []).length) return { ok: false, error: `「${t.title || x}」自己也是主日志，不能再当附属` }
+    if ((t.attached || []).length) return { ok: false, error: `“${t.title || x}”自己也是主日志，不能再当附属` }
     const owner = all.find((l) => l.id !== id && (l.attached || []).includes(x))
-    if (owner) return { ok: false, error: `「${t.title || x}」已经属于「${owner.title || owner.id}」` }
+    if (owner) return { ok: false, error: `“${t.title || x}”已经属于“${owner.title || owner.id}”` }
   }
   main.attached = want
   atomicallyWrite(path.join(getLogsDir(), `${id}.md`), renderLog(main))
@@ -999,7 +999,7 @@ export function completeLogGroup(mainId: string, retainDays: number | null, note
 /**
  * ⚠ 2026-11-01：`requestLogClose` / `cancelLogClose` **已删除**。
  *
- * 用户原话：「日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？」
+ * 用户原话：“日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？”
  * 收口（签字）属于任务卡，不属于日志。AI 干完活应该 `move_status(id, '待验收')`；
  * 日志只记过程，用户要收尾直接点完成。
  * 留着这两个函数 = 留着"日志再长出一条待办队列"的入口，所以连函数一起删。
@@ -1010,7 +1010,7 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
   if (!fs.existsSync(filePath)) return { ok: false, error: '文件不存在' }
   fs.unlinkSync(filePath)
   // 2026-10-30：销毁一条副日志后，主日志的 attached 里不能留断链 ——
-  // 界面上会显示一个点不开的「附属」，用户以为是 bug。顺手清掉引用（只改主日志）。
+  // 界面上会显示一个点不开的“附属”，用户以为是 bug。顺手清掉引用（只改主日志）。
   try {
     for (const main of listLogs()) {
       if (!(main.attached || []).includes(id)) continue
@@ -1024,14 +1024,14 @@ export function destroyLog(id: string): { ok: boolean; error?: string } {
 /**
  * 日志状态快照 / 还原（2026-10-30 暮雨第 5 条：撤销要**真的回到点之前那一格**）。
  *
- * 为什么不用「撤销完成 = reopen」那套：reopen 只会退回「待处理」，把用户手动标的
- * 「进行中」、保留天数、完成时间全抹掉 —— 那不是撤销，是另一种改动。
+ * 为什么不用“撤销完成 = reopen”那套：reopen 只会退回“待处理”，把用户手动标的
+ * “进行中”、保留天数、完成时间全抹掉 —— 那不是撤销，是另一种改动。
  * 这里只做一件事：把一组白名单字段原样写回（历史文件不多字段，空值不落盘）。
  */
 export interface LogStateSnapshot {
   status: 'active' | 'completed' | 'archived'
   running?: boolean
-  /** 「进行中」是从哪一格点开的（2026-11-01）；撤销要连这条记忆一起还原 */
+  /** “进行中”是从哪一格点开的（2026-11-01）；撤销要连这条记忆一起还原 */
   runningFrom?: 'completed' | 'archived' | null
   completed?: string | null
   retainDays?: number | null
@@ -1081,7 +1081,7 @@ export function restoreLogState(id: string, snap: LogStateSnapshot): { ok: boole
   return { ok: true, data: entry }
 }
 
-/** 「清理归档」的返回形状（2026-10-13 暮雨第 2 条）。 */
+/** “清理归档”的返回形状（2026-10-13 暮雨第 2 条）。 */
 export interface PurgeArchivedResult {
   ok: boolean
   dryRun: boolean
@@ -1095,15 +1095,15 @@ export interface PurgeArchivedResult {
 }
 
 /**
- * 按日期批量清理「已归档」日志（2026-10-13 暮雨第 2 条）。
+ * 按日期批量清理“已归档”日志（2026-10-13 暮雨第 2 条）。
  *
  * 为什么不是 `destroyLog` 循环：那是 `fs.unlinkSync` **硬删**，一次几十条不可逆。
  * 这里**移动到 `<logsDir>/.trash/`**（与任务侧 `task-data/.trash` 同款心智）——
- * 符合项目红线「破坏性操作先快照」。用户原话要的是「一键删除 XX 日前归档日志」，
- * 但附了「怎么批量删除」，所以给的是**可恢复**的那种删。
+ * 符合项目红线“破坏性操作先快照”。用户原话要的是“一键删除 XX 日前归档日志”，
+ * 但附了“怎么批量删除”，所以给的是**可恢复**的那种删。
  *
  * 判据（三条缺一不可）：① `status === 'archived'` ② 有日期 ③ 日期 **严格早于** beforeDate。
- * 「早于 XX 日」= XX 日当天的**不删**（边界取开区间，宁可少删不可多删）。
+ * “早于 XX 日”= XX 日当天的**不删**（边界取开区间，宁可少删不可多删）。
  *
  * `dryRun: true` 只报命中、**不落盘**（界面必须先预览再确认）。
  *
@@ -1163,7 +1163,7 @@ export function purgeArchivedBefore(beforeDate: string, opts: { dryRun?: boolean
 
 /**
  * 状态的中文口径（2026-09-28）。**唯一真身在主进程**，渲染层通过 IPC 拿同一份。
- * `active` 的中文从「进行中」改成「待处理」——「进行中」现在是 running 标记的专属名字。
+ * `active` 的中文从“进行中”改成“待处理”——“进行中”现在是 running 标记的专属名字。
  */
 export const LOG_STATUS_LABELS: Record<string, string> = {
   active: '待处理',
@@ -1171,7 +1171,7 @@ export const LOG_STATUS_LABELS: Record<string, string> = {
   archived: '已归档',
 }
 
-/** 组合出「进行中 / 待处理 / 已完成 / 已归档」四态中的一个 */
+/** 组合出“进行中 / 待处理 / 已完成 / 已归档”四态中的一个 */
 export function logStatusText(log: Pick<LogEntry, 'status' | 'running'>): string {
   if (log.status === 'active' && log.running) return '进行中'
   return LOG_STATUS_LABELS[log.status] || String(log.status)
@@ -1203,13 +1203,13 @@ export function injectLog(id: string): string | null {
 }
 
 /**
- * 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：「某条主日志带多条副日志一起灌入开工单」）。
+ * 多条日志 → 一份开工单（2026-10-29 暮雨第 6 条：“某条主日志带多条副日志一起灌入开工单”）。
  *
- * ids 的**顺序就是语义**：第一条是主日志，其余标成「并行日志」。
+ * ids 的**顺序就是语义**：第一条是主日志，其余标成“并行日志”。
  * 为什么要标：真实用法里它们是同一轮的另一条通道（比如并行会话的进度通知），
  * 不标清楚，agent 会当成同一条日志的续写（`continuesFrom` 才表示续写）。
  *
- * 为什么放在这里而不是 MCP：界面侧「多选 → 开工单」和 MCP `inject_logs` 必须是**同一份文本**，
+ * 为什么放在这里而不是 MCP：界面侧“多选 → 开工单”和 MCP `inject_logs` 必须是**同一份文本**，
  * 两处各拼一次就会分叉（一处改了文案，另一处没跟上）。
  */
 export function injectLogs(ids: string[]): { text: string; found: string[]; missing: string[] } {
@@ -1261,9 +1261,9 @@ export function cleanupLogs(): string[] {
 // 附件（2026-10-01 用户第 1 条 → 落地卡 036）
 // 口径（卡 036 验收里定的三问，逐条对上）：
 //   ① 图片存哪      → **数据目录内** `<logsDir>/_attachments/<logId>/`，frontmatter 存**相对路径**
-//   ② UI 入口在哪    → 日志只读预览 + 编辑对话框的「附件」区（添加/打开/移除）
+//   ② UI 入口在哪    → 日志只读预览 + 编辑对话框的“附件”区（添加/打开/移除）
 //   ③ 跟备份包关系  → 与日志同目录，日志进了包它就在包里；绝不存外部绝对路径（外链必失效）
-// 不做素材库：没有标签、没有相册视图，只有一条「日志 ↔ 文件」的关联。
+// 不做素材库：没有标签、没有相册视图，只有一条“日志 ↔ 文件”的关联。
 // ═══════════════════════════════════════════════════════════════════
 
 /** 附件根目录（与 .md 同级，下带 `<logId>/` 子目录；`_` 开头避免与日志文件混淆） */
@@ -1290,7 +1290,7 @@ function toRelPosix(absPath: string): string {
  * 把外部文件**复制**进数据目录并挂到日志上。
  * 是复制不是移动：源文件留在原处（用户可能还放在别的地方），数据目录里这份是自足的。
  * 允许给**非 active** 的日志挂附件 —— 报告/截图常常是跑完之后才补的，
- * 所以和置顶一样绕开「非 active 不可编辑」那条守卫（那条守卫防的是改内容）。
+ * 所以和置顶一样绕开“非 active 不可编辑”那条守卫（那条守卫防的是改内容）。
  */
 export function addAttachments(logId: string, sources: string[]): { ok: boolean; data?: LogEntry; error?: string } {
   const dir = getLogsDir()
@@ -1327,17 +1327,17 @@ export function addAttachments(logId: string, sources: string[]): { ok: boolean;
 }
 
 /**
- * 解除关联（**不删文件**）。「移除」在界面上的语义是"这条日志不再引用它"，
+ * 解除关联（**不删文件**）。“移除”在界面上的语义是"这条日志不再引用它"，
  * 不是销毁数据 —— 真要删文件是另一件事，且属于破坏性操作，不做隐藏在按钮后面的事。
  *//**
- * 「从内存字节挂附件」允许的类型（粘贴图片 / 拖文件进弹窗，2026-10-25 暮雨第 4 / 7 条）。
+ * “从内存字节挂附件”允许的类型（粘贴图片 / 拖文件进弹窗，2026-10-25 暮雨第 4 / 7 条）。
  *
  * ⚠ 这是**反向表**（mime → 扩展名），和上面的 `ATTACH_MIME`（扩展名 → mime）是两回事：
  *   那条路收的是本机文件、扩展名已知；这条路收的是浏览器给的 mime，只能反过来推扩展名。
  *
- * 覆盖范围 = 常见「截图 / 报告 / 日志 / 表格 / 压缩包」。
+ * 覆盖范围 = 常见“截图 / 报告 / 日志 / 表格 / 压缩包”。
  * **不收**可执行文件（exe/msi/bat/dll）—— 不是限制用户，是这类东西挂进日志没意义且迟早出事；
- * 真要挂，走「＋ 添加文件…」（本机路径复制，不经这条内存通道）。
+ * 真要挂，走“＋ 添加文件…”（本机路径复制，不经这条内存通道）。
  */
 const ATTACH_EXT_BY_MIME: Record<string, string> = {
   'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp',
@@ -1353,7 +1353,7 @@ const ATTACH_EXT_BY_MIME: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
 }
 
-/** 单条「从内存挂」的上限（解码后字节）。20MB 够放整屏截图与普通报告；
+/** 单条“从内存挂”的上限（解码后字节）。20MB 够放整屏截图与普通报告；
  *  再大就不该走这条路 —— base64 还要再涨三分之一，白占内存。 */
 const MAX_PASTE_BYTES = 20 * 1024 * 1024
 
@@ -1398,9 +1398,9 @@ export function addAttachmentsFromData(
     const mime = m[1].toLowerCase()
     const ext = ATTACH_EXT_BY_MIME[mime]
     if (!ext) {
-      // 说清"为什么不收"和"那该怎么办"—— 用户拖了个不认识的文件时，不该只看到一句「不支持」。
+      // 说清"为什么不收"和"那该怎么办"—— 用户拖了个不认识的文件时，不该只看到一句“不支持”。
       skipped.push(`${label}：类型 ${mime} 不收（只收图片/PDF/文本/Markdown/CSV/JSON/ZIP/Office 文档）；` +
-        `这类文件请用「＋ 添加文件…」按本机路径挂（那条路不限类型、也不受 20MB 限制）`)
+        `这类文件请用“＋ 添加文件…”按本机路径挂（那条路不限类型、也不受 20MB 限制）`)
       continue
     }
     let buf: Buffer
@@ -1412,13 +1412,13 @@ export function addAttachmentsFromData(
     if (!buf.length) { skipped.push(`${label}：内容是空的`); continue }
     if (buf.length > MAX_PASTE_BYTES) {
       skipped.push(`${label}：${(buf.length / 1024 / 1024).toFixed(1)}MB，超过 ${MAX_PASTE_BYTES / 1024 / 1024}MB —— ` +
-        `大文件请用「＋ 添加文件…」（按本机路径复制，不受这个上限限制）`)
+        `大文件请用“＋ 添加文件…”（按本机路径复制，不受这个上限限制）`)
       continue
     }
     try {
       fs.mkdirSync(destDir, { recursive: true })
       // 名字：清洗后**把扩展名换成 mime 推导的那个** —— 客户端可能叫 `image.png` 而内容是 jpeg，
-      // 按内容落盘才不会出现「后缀骗人、预览打不开」。
+      // 按内容落盘才不会出现“后缀骗人、预览打不开”。
       const stem = safeAttachName(path.basename(label, path.extname(label)))
       let name = `${stem}${ext}`
       let dest = path.join(destDir, name)
@@ -1480,7 +1480,7 @@ const ATTACH_MIME: Record<string, string> = {
  * 为什么不用 `file://`：dev 态页面跑在 http://localhost，跨源直接读不了本地图片；
  * 打包态虽是 file://，但两条路都得绕权限白名单 —— 走 IPC 最省事也最可控。
  * 超过 8MB 不内联（base64 还要再涨三分之一，塞进 <img> 会把渲染层卡住），
- * 这种情况返回 tooLarge，UI 上给「用系统程序打开」的按钮。
+ * 这种情况返回 tooLarge，UI 上给“用系统程序打开”的按钮。
  */
 export function readAttachmentData(relPath: string, maxBytes = 8 * 1024 * 1024):
   { ok: boolean; data?: { mime: string; dataUrl: string; name: string }; error?: string } {

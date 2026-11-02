@@ -73,7 +73,7 @@ function browserPreload() {
  * 进程启动后**立即退出、零产出**（exit 0、stderr 也空、连指定路径的截图文件都不生成），
  * 但**常驻**模式完全正常 —— 2026-10-10 本机实测：`--remote-debugging-port` 起的实例
  * 能正常渲染、`/json/version` 正常响应、`Runtime.evaluate` 能取到真实 DOM。
- * 所以这不是「无头浏览器不可用」，是「一次性模式的启动/退出通道被挡了」。
+ * 所以这不是“无头浏览器不可用”，是“一次性模式的启动/退出通道被挡了”。
  * dump-dom 拿不到结果时改走这条路，而不是直接判失败。
  *
  * ⚠ 必须用独立 `--user-data-dir`：否则新实例的命令会被转发给用户正在用的浏览器，
@@ -101,7 +101,7 @@ function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
     '--allow-file-access-from-files',
     // ⚠ 这里**不要**加 --virtual-time-budget（一次性模式那边是另一回事，那边必须加）：
     //   常驻模式下它会页面钉在虚拟时间轴上，断言里的 sleep/waitFor 永远跑不完 →
-    //   表现为「CDP 兜底超时」。2026-10-10 实测：加了必超时，去掉后一次就过。
+    //   表现为“CDP 兜底超时”。2026-10-10 实测：加了必超时，去掉后一次就过。
     'about:blank',
   ], { stdio: 'ignore', env })
 
@@ -238,16 +238,16 @@ function main() {
     fs.mkdirSync(outDir, { recursive: true })
     const CASES_ALL = [
       ['看板', '列视图', 'board-cols'],
-      // 2026-10-25：顶栏「更多」菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
+      // 2026-10-25：顶栏“更多”菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
       ['看板', '列视图', 'top-more', 'moremenu'],
       // 2026-10-27 暮雨截图抓到的 bug：**日志页**上菜单被 sticky 栏压住只露半截。
       // 这张图放在日志页，就是为了让"层级"这种只在特定页面出现的错有机会被看见。
       ['日志', '', 'log-more', 'logmore'],
       // 2026-10-25 卡 004：同步状态胶囊（进行中那一帧）—— 真的按住 push、真的喂阶段，
-      // 截图里要看得出「⟳ 推送 2s」而不是光秃秃一个转圈图标。
+      // 截图里要看得出“⟳ 推送 2s”而不是光秃秃一个转圈图标。
       // 第 5 项 = 本张图的 virtual-time 预算（毫秒）。默认 20000，但这张不能给那么大：
       // virtual time 会把 `Date.now()` 一起快进，秒数会爬到 "18s" —— 拍出来像卡死了。
-      // 给小一点，正好落在「推送 3s」这种真实可读的状态。
+      // 给小一点，正好落在“推送 3s”这种真实可读的状态。
       ['看板', '列视图', 'sync-capsule', 'synccap', 4500],
       ['看板', '列表视图', 'board-list'],
       // 2026-10-31：看板第三摆法（信息卡墙）此前**没有任何截图证据** —— 拆分时最容易
@@ -262,7 +262,7 @@ function main() {
       ['项目', '概览卡', 'project-overview'],
       ['项目', '主从', 'project-master'],
       // 2026-10-31：在途一屏此前**没有任何截图证据**（拆成 views/TripBoardView.vue 后补目检）——
-      // 要看的是：表头 10 列、契约「未填」三按钮、健康度锁标、没进屏项目的点名原因都在画面里。
+      // 要看的是：表头 10 列、契约“未填”三按钮、健康度锁标、没进屏项目的点名原因都在画面里。
       ['项目', '在途一屏', 'project-trip', 'tripview'],
       // 2026-10-31：通知中心此前没有截图证据（拆成 components/NotificationCenter.vue 后补目检）——
       // 要看的是：未读计数 / 类型标签 / 可跳转箭头 / 静音条 / 页脚扫描状态都在。
@@ -271,13 +271,13 @@ function main() {
       ['想法', '', 'ideas'],
       ['问答', '', 'ask'],
       ['问答', '', 'ask-answer', 'askans'],
-      // 2026-10-25 卡 005：账户口径（余额差值）—— 截图要同时看见「月报表(token)」和
-      // 「账户口径(真钱)」两块，并且能读到「归不到具体某一次调用」那句。
+      // 2026-10-25 卡 005：账户口径（余额差值）—— 截图要同时看见“月报表(token)”和
+      // “账户口径(真钱)”两块，并且能读到“归不到具体某一次调用”那句。
       ['问答', '', 'ask-account', 'askacc'],
       // 2026-10-25 卡 005 B 档：设置 → Agent → 模型单价（可选）。截图要看得出
-      // 「元 / 百万 tokens」「不填就是未折算」与一行真实单价。
+      // “元 / 百万 tokens”“不填就是未折算”与一行真实单价。
       ['看板', '列视图', 'settings-price', 'priceui'],
-      // 2026-10-27：模型通道表单重排（暮雨「那输入框丑的要死，整个布局又难看又难用」）。
+      // 2026-10-27：模型通道表单重排（暮雨“那输入框丑的要死，整个布局又难看又难用”）。
       // 这张**停在顶部**——状态条与预设按钮在区块最上面，priceui 那张滚到单价区就拍不到它们。
       ['看板', '列视图', 'settings-llm', 'llmui'],
       // 2026-09-29：日志（ID 芯片）与设置（主题色板 / 日志清理）各留一张证据
@@ -293,7 +293,7 @@ function main() {
       ['回收站', '', 'trash-batch', 'trashbatch'],
       // 2026-10-12 决策卡（AI 规划包第 3 件）：三态渲染 + 记一条/改状态交互
       ['决策', '', 'decisions'],
-      // 2026-10-31：外观「阴影」档下，决策页的卡片与按钮都要浮起来（此前只有老 .card 会变）
+      // 2026-10-31：外观“阴影”档下，决策页的卡片与按钮都要浮起来（此前只有老 .card 会变）
       ['决策', '', 'decisions-shadow', 'decshadow'],
       ['决策', '', 'decisions-act', 'decact'],
       // 2026-10-14 任务卡右键菜单（第 ④ 步第二单）：换 reka-ui ContextMenu 后的成品长相
@@ -302,20 +302,20 @@ function main() {
       // 拍一张详情弹窗：元信息 / 正文 / 关联日志 / 流转与操作两组按钮都要在画面里。
       ['看板', '列视图', 'task-preview', 'roverlay'],
       ['设置', '', 'settings'],
-      // 2026-10-25：念头长度上限滑块（暮雨第 3 条跟进）—— 拍「拉到 15000」的成品态，
+      // 2026-10-25：念头长度上限滑块（暮雨第 3 条跟进）—— 拍“拉到 15000”的成品态，
       // 目检就两件事：滑块位置对得上数值、数值与轨道在同一行不换行不溢出。
       ['设置', '', 'settings-idea-limit', 'idealimit'],
       // 2026-10-25：新建日志弹窗的附件区（暮雨第 4 / 7 条）—— 要点：按钮不再置灰、
-      // 有「Ctrl+V 粘图」提示、粘一张图后出现「待挂 1 个」的虚线胶囊。
+      // 有“Ctrl+V 粘图”提示、粘一张图后出现“待挂 1 个”的虚线胶囊。
       ['日志', '', 'log-new-attach', 'lognew'],
-      // 2026-10-25：拖两个文件进新建弹窗 → 点「取消」→ 必须弹「改动还没保存」条（待挂也算脏）。
+      // 2026-10-25：拖两个文件进新建弹窗 → 点“取消”→ 必须弹“改动还没保存”条（待挂也算脏）。
       // 这一张同时证明 drop 通了、二次确认在。
       ['日志', '', 'log-new-attach-guard', 'attachguard'],
-      // 2026-10-25：多选模式下的「分区头整组勾选」（暮雨第 11 条）——
-      // 拍「点了一个分区头的框、整组进选择」的成品态，别的组一个没动。
+      // 2026-10-25：多选模式下的“分区头整组勾选”（暮雨第 11 条）——
+      // 拍“点了一个分区头的框、整组进选择”的成品态，别的组一个没动。
       ['看板', '列视图', 'board-group-select', 'grpselect'],
       // 2026-10-25：项目梯度榜（Tier List）—— 它是项目页的第 5 种摆法，不是顶级页签。
-      // 截图要看得出「一个项目被拖进了「搁置」档」（拖完立即落盘，没有保存按钮）。
+      // 截图要看得出“一个项目被拖进了“搁置”档”（拖完立即落盘，没有保存按钮）。
       ['项目', '', 'project-tier', 'tierview'],
       // 2026-10-30：RICE 视觉照原型重画 —— 留三张目检（顶部 KPI / 散点 / 做砍 + 四格结论）。
       ['项目', '需求优先级矩阵', 'rice'],
@@ -337,7 +337,7 @@ function main() {
     const ONLY = String(process.env.FC_SHOT_ONLY || '').split(',').map((s) => s.trim()).filter(Boolean)
     const CASES = (ONLY.length ? CASES_ALL.filter((c) => ONLY.includes(c[2])) : CASES_ALL)
     // 2026-10-31：`FC_SHOT_ONLY` 写错名字 / 没匹配到任何用例时，旧逻辑会**静默零产出并退出 0**
-    // ——「一张没拍」被当成成功，正是"截图脚本坏了却没人知道"的那类假绿。这里显式失败。
+    // ——“一张没拍”被当成成功，正是"截图脚本坏了却没人知道"的那类假绿。这里显式失败。
     if (!CASES.length) {
       console.error('FAIL  没有任何截图用例被选中（FC_SHOT_ONLY=' + ONLY.join(',') + '）')
       process.exit(2)
@@ -347,7 +347,7 @@ function main() {
       '去便利店买咖啡豆',
       '把导出五件套的 README 补一版',
       '核对 029 结构地图的最后核实日期',
-      '给看板列表视图补一条「空分区不画空框」的截图',
+      '给看板列表视图补一条“空分区不画空框”的截图',
       '复盘上周的 EBUSY 环境问题',
     ]
     // FC_SHOT_THEME=<id>：整套截图换个主题拍（2026-09-29 用户第 4 条）——
@@ -363,7 +363,7 @@ function main() {
   ${page === '待办' ? `
   // 假后端的待办是空的 —— 先造几条，"方块卡片"才有东西可看（含一条超长标题）
   const seeds = ${JSON.stringify(SEED_TODOS)}
-  // 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 只能走唯一入口「＋ 新建待办」大框
+  // 2026-09-29 用户第 1 条：小框（+ 添加）已移除 —— 只能走唯一入口“＋ 新建待办”大框
   for (const t of seeds) {
     const nb = all('main.todos-view .todos-ctrls button').find((x) => x.textContent.indexOf('新建待办') >= 0)
     if (!nb) break
@@ -384,7 +384,7 @@ function main() {
   ${extra === 'nc' ? `
   // 通知中心（2026-10-31 拆成 components/NotificationCenter.vue 后补首张截图证据）
   // ⚠ 铃铛是 v-if="ncReady"，而且**不在 #bar 里**（在页签/操作那一行）—— 按全局 .nc-bell 找；
-  //   刚挂载时它可能还没出现，点早了等于没点。所以「面板还没出现就再点一次」重试，
+  //   刚挂载时它可能还没出现，点早了等于没点。所以“面板还没出现就再点一次”重试，
   //   且**只在没打开时**点，避免第二次把面板关掉。
   if (window.__fcTest && window.__fcTest.setNotifications) {
     const t = new Date().toISOString()
@@ -440,14 +440,14 @@ function main() {
     : `const its = all('.trash-view .trash-main'); if (its[0]) its[0].click(); await sleep(200); if (its[1]) its[1].click()`}
   await sleep(500)` : ''}
   ${extra === 'decshadow' ? `
-  // 外观「阴影」档（2026-10-31）：决策页的 Card/Button 此前读 Tailwind shadow-[var(...)]，
+  // 外观“阴影”档（2026-10-31）：决策页的 Card/Button 此前读 Tailwind shadow-[var(...)]，
   // 被当成"阴影颜色"解析 → 计算值永远 none；改成 .ui-elev-1 后这里必须真的浮起来。
   document.documentElement.dataset.appearance = 'shadow'
   await sleep(450)
 ` : ''}
   ${extra === 'decact' ? `
   // 决策卡交互（2026-10-12；2026-10-14 改走 data-dec 钩子 —— 视图已切到 components/DecisionBoard.vue）：
-  // 记一条新决策 → 改 D-001 状态 → 筛「已撤销」——三步全真链路（mock IPC）
+  // 记一条新决策 → 改 D-001 状态 → 筛“已撤销”——三步全真链路（mock IPC）
   const decMain = all('[data-dec="add-input"]')[0]
   if (decMain) {
     decMain.value = 'e2e 交互：这条决策是测试记的'
@@ -474,7 +474,7 @@ function main() {
   if (chip) chip.click()
   await sleep(1200)` : ''}
   ${extra === 'logpurge' ? `
-  // 清理归档框（2026-10-31）：点「清理归档…」→ 点「预览命中」，把命中清单拍下来。
+  // 清理归档框（2026-10-31）：点“清理归档…”→ 点“预览命中”，把命中清单拍下来。
   // 目检点：说明文案、日期行、三个按钮、预览条数与标题列表都在。
   const lpb = all('button').find((b) => (b.textContent || '').indexOf('清理归档') >= 0)
   if (lpb) lpb.click()
@@ -490,7 +490,7 @@ function main() {
   await sleep(600)` : ''}
   ${extra === 'roverlay' ? `
   // 任务预览弹窗（2026-10-31）：点列视图第一张卡，把详情弹窗拍下来。
-  // 目检点：标题状态、元信息行、正文、关联日志、底部「流转 / 操作」两组按钮都在。
+  // 目检点：标题状态、元信息行、正文、关联日志、底部“流转 / 操作”两组按钮都在。
   const pcard = all('#board .col > .card')[0]
   if (pcard) pcard.click()
   await sleep(800)` : ''}
@@ -532,7 +532,7 @@ function main() {
   }
 ` : ''}
   ${extra === 'attachguard' ? `
-  // 拖两个文件进新建弹窗（走真 DragEvent + DataTransfer），再点「取消」——
+  // 拖两个文件进新建弹窗（走真 DragEvent + DataTransfer），再点“取消”——
   // 待挂附件必须算"未保存的改动"，否则用户点 × 就一声不响丢了（暮雨第 4 条追加）。
   const nb2 = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
   if (nb2) nb2.click()
@@ -564,17 +564,17 @@ function main() {
 ` : ''}
   ${extra === 'loggroups' || extra === 'logattach' ? `
   // 主日志 + 附属日志（2026-10-30 返工）：灌一组真关系，重进日志页。
-  // 三种状态各一条，截图里要能同时看到「框 / 逐行 / 每行的单独动作」。
+  // 三种状态各一条，截图里要能同时看到“框 / 逐行 / 每行的单独动作”。
   window.__fcTest.setLogs([
     { id: 'log-grp-main', title: '主日志·0.5.2 六件事收口', content: '这一轮把日志组重做：框内嵌套、主日志级联、绑定弹窗六维筛选。', status: 'active', running: true,
       project: 'demo', created: '2026-10-30T03:00:00.000Z', attached: ['log-grp-a', 'log-grp-b'] },
     { id: 'log-grp-a', title: '附属·白屏修复（安装包附件）', content: 'exe 只定位不运行，渲染进程崩了自动重载一次。', status: 'active', running: true,
       project: 'demo', created: '2026-10-30T02:00:00.000Z', agentName: 'DSH' },
-    { id: 'log-grp-b', title: '附属·日志组语义（已收口）', content: '日志只记过程；收口进任务「待验收」。', status: 'completed', completed: '2026-10-30T02:30:00.000Z',
+    { id: 'log-grp-b', title: '附属·日志组语义（已收口）', content: '日志只记过程；收口进任务“待验收”。', status: 'completed', completed: '2026-10-30T02:30:00.000Z',
       project: 'demo', created: '2026-10-30T01:00:00.000Z' },
     { id: 'log-grp-free', title: '可绑的独立日志', content: '还没绑进任何组。', status: 'active', project: 'demo',
       created: '2026-10-29T00:00:00.000Z' },
-    { id: 'log-grp-other', title: '另一组的主日志', content: '用来展示「已被别的组占用」的不可选态。', status: 'active', project: 'demo',
+    { id: 'log-grp-other', title: '另一组的主日志', content: '用来展示“已被别的组占用”的不可选态。', status: 'active', project: 'demo',
       created: '2026-10-28T00:00:00.000Z', attached: ['log-grp-x'] },
     { id: 'log-grp-x', title: '已被占用的附属', content: 'x', status: 'active', project: 'demo',
       created: '2026-10-27T00:00:00.000Z' },
@@ -589,7 +589,7 @@ function main() {
   await sleep(500)` : ''}
 ` : ''}
   ${extra === 'grpselect' ? `
-  // 分区头整组勾选（2026-10-25 第 11 条）：开多选 → 点第一个「卡数 >1」分区的组选框
+  // 分区头整组勾选（2026-10-25 第 11 条）：开多选 → 点第一个“卡数 >1”分区的组选框
   const bb = all('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
   if (bb) bb.click()
   await sleep(500)
@@ -614,13 +614,13 @@ function main() {
   await sleep(400)
 ` : ''}
   ${extra === 'riceempty' ? `
-  // 空项目态（2026-10-31 第 2/4 条）：切到没有需求的「第二个项目」，拍出口与宽度
+  // 空项目态（2026-10-31 第 2/4 条）：切到没有需求的“第二个项目”，拍出口与宽度
   const sel = document.querySelector('.rice .rice-projsel select')
   if (sel) { sel.value = 'demo2'; sel.dispatchEvent(new Event('change', { bubbles: true })) }
   await sleep(500)
 ` : ''}
   ${extra === 'ricewhy' ? `
-  // 「为什么做，为什么砍」+ 四格结论
+  // “为什么做，为什么砍”+ 四格结论
   const why = document.querySelector('.rice .rice-why')
   if (why) why.scrollIntoView({ block: 'start' })
   await sleep(400)
@@ -651,7 +651,7 @@ function main() {
   await sleep(1200)
 ` : ''}
   ${extra === 'apui' ? `
-  // 外观形态（2026-10-30 卡 004）：设置 → 通用 → 滚到「外观形态」
+  // 外观形态（2026-10-30 卡 004）：设置 → 通用 → 滚到“外观形态”
   const gearA = all('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
   if (gearA) gearA.click()
   await sleep(700)
@@ -660,7 +660,7 @@ function main() {
   await sleep(400)
 ` : ''}
   ${extra === 'tierview' ? `
-  // 项目梯度榜（2026-10-25）：项目页 → 「▥ 梯度榜」→ 把一个胶囊拖进最后一档（搁置）
+  // 项目梯度榜（2026-10-25）：项目页 → “▥ 梯度榜”→ 把一个胶囊拖进最后一档（搁置）
   clickText('项目')
   await sleep(700)
   const tierTab = all('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('梯度榜') >= 0)
@@ -728,7 +728,7 @@ function main() {
   await sleep(600)
 ` : ''}
   ${extra === '2026-09-30' ? `
-  // 日历「改法 A」的展开态：点开 9-30 那格的「+N 条」，截图里要能看到"铺满整格"的样子
+  // 日历“改法 A”的展开态：点开 9-30 那格的“+N 条”，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)
   if (cells[0]) { const mb = cells[0].querySelector('.cal-cell-more'); if (mb) mb.click() }
   await sleep(600)` : ''}
@@ -739,12 +739,12 @@ function main() {
       const [page, view, name, extra, vtBudget] = CASES[n++]
       fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED), 'utf-8')
       const png = path.join(outDir, name + '.png')
-      // ⚠ 先删旧图再拍：判据是「这张图是**这次**拍出来的」，不是「目录里有这么个文件」。
+      // ⚠ 先删旧图再拍：判据是“这张图是**这次**拍出来的”，不是“目录里有这么个文件”。
       //   2026-10-14 真事：上一轮留下的同名旧图让 Edge 没写也报 OK，截图"成功"了 17 张，
       //   实际一张都没更新（打开一看还是几天前的界面）。**存在 ≠ 本轮产出。**
       try { fs.rmSync(png, { force: true }) } catch { /* 忽略 */ }
       const c = spawn(browser, [
-        // 2026-10-09：截图证据必须拍「动画的终态」而不是半透明的中间帧 ——
+        // 2026-10-09：截图证据必须拍“动画的终态”而不是半透明的中间帧 ——
         // numIn 入场动画在 virtual-time 截图里会冻结在起始态（KPI 数字/阻塞按钮变幽灵字，
         // 目检两次误报"元素重叠/按钮不存在"）。关动画 = 每次拍出的都是确定的最终画面。
         '--headless=new', '--force-prefers-reduced-motion', '--disable-gpu', '--no-sandbox', '--allow-file-access-from-files',
@@ -786,7 +786,7 @@ function main() {
     '--allow-file-access-from-files',
     '--disable-extensions',
     // 2026-09-30：回收站多选断言加了 6 次点击 + waitFor，20000 虚拟毫秒会在断言跑完前
-    // 把页面掐掉（表现为「没拿到断言结果」）。抬到 30000，与手动 --dump-dom 复跑一致。
+    // 把页面掐掉（表现为“没拿到断言结果”）。抬到 30000，与手动 --dump-dom 复跑一致。
     // 2026-10-03：又加了技能页多目标（卡 010/011）+ 设置页折叠（013）+ 看板归档提示条（012）
     // 三节、含数次 sleep/waitFor → 30000 再次不够，抬到 45000。
         // 2026-10-11：又加了筛选栏改版（点触发按钮 → 面板 → 点选项 → 点 ✕ 撤销）与设置页顺序断言，
@@ -823,8 +823,8 @@ function main() {
   child.on('close', async () => {
     const r = parseResult(out)
     if (r) return finish(r)
-    // 一次性模式没拿到 → 改走「常驻 + CDP」再试一次（原因见 viaCdp 顶部注释）
-    console.log('INFO  --dump-dom 没拿到结果，改走「常驻 + CDP」重试…')
+    // 一次性模式没拿到 → 改走“常驻 + CDP”再试一次（原因见 viaCdp 顶部注释）
+    console.log('INFO  --dump-dom 没拿到结果，改走“常驻 + CDP”重试…')
     clearTimeout(watchdog)
     watchdog = setTimeout(() => {
       console.log('FAIL  CDP 兜底超时（' + Math.round(cdpBudget() / 1000) + 's）')

@@ -1,8 +1,8 @@
 /**
- * 看板分组纯逻辑测试（2026-09-25 用户反馈「像没有尽头的单子」）
+ * 看板分组纯逻辑测试（2026-09-25 用户反馈“像没有尽头的单子”）
  *
  * 为什么单独测：分组标题显示内部 id（fangcun-base）、跨项目计数错、未归属任务丢分组 ——
- * 这些在界面上都只表现为「看起来乱」，肉眼看不出对错。grouping.ts 不依赖 Vue/DOM，
+ * 这些在界面上都只表现为“看起来乱”，肉眼看不出对错。grouping.ts 不依赖 Vue/DOM，
  * 所以能用 tsc 编出来直接在 Node 里断言（同 calendar.ts 的路子）。
  *
  * 运行：node scripts/test/e2e-grouping.cjs
@@ -134,7 +134,7 @@ function main() {
   check('F5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(boardVue))
   const boardCss = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf8')
   check('F6 折叠列有独立样式类', /'collapsed-col': groupCollapsed\(col\.key\)/.test(boardVue) && /\.col\.collapsed-col \{/.test(boardCss))
-  // 2026-09-28 用户第 3 条把「折叠全部 / 展开」两个并排按钮（必有一个无效）改成**单按钮开关**，
+  // 2026-09-28 用户第 3 条把“折叠全部 / 展开”两个并排按钮（必有一个无效）改成**单按钮开关**，
   // 断言还钉在老的 setAllCollapsed(true/false) 上 → 一直红着（本机跑不到这套，直到今天才被跑出来）。
   check('F7 有一键折叠/展开（已是单按钮开关 toggleAllCollapsed）',
     /function toggleAllCollapsed\(/.test(vue) && /toggleAllCollapsed\(\)/.test(vue) &&

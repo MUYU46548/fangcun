@@ -23,7 +23,7 @@ export interface BackupRemote {
 /**
  * 备份瘦身（2026-10-11 用户第 2 条）。
  *
- * 用户报「包怎么还是这么大？62.6MB，网盘上传噩梦」——真凶是 `docs/执行日志/_attachments/`
+ * 用户报“包怎么还是这么大？62.6MB，网盘上传噩梦”——真凶是 `docs/执行日志/_attachments/`
  * 里一个 **57MB 的 stray 附件**（一份误挂到执行日志上的游戏 bundle），它每次都被原样打进包。
  *
  * 两个旋钮都在这里，**都不静默**：被跳过的文件会逐条记进 manifest（`omittedFiles`），
@@ -76,7 +76,7 @@ export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
   firstDelayMinutes: 5,
   // 2026-10-21 暮雨拍板：本地滚动保留 10 → 5（约 5×9.4MB≈47MB，一周回滚窗口）。
   // ⚠ 只对"没有配置文件 / 配置里没这个键"的新环境生效；已有配置里显式写着 10 的
-  //    按项目铁律「显式值优先」不覆盖 —— 老用户的值要单独迁移（本机已随本轮改成 5）。
+  //    按项目铁律“显式值优先”不覆盖 —— 老用户的值要单独迁移（本机已随本轮改成 5）。
   localKeep: 5,
   maxLocalMb: 0,
   remoteKeep: 10,

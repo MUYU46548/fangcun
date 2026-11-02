@@ -1,7 +1,7 @@
 <!--
-  日志编辑弹窗（2026-10-31 · 渲染层拆分「浮层刀」第二块）
+  日志编辑弹窗（2026-10-31 · 渲染层拆分“浮层刀”第二块）
 
-  **边界**：与 `TaskPreview.vue` / `BoardView.vue` 同一套 —— 组件只「显示 + 收集意图」，
+  **边界**：与 `TaskPreview.vue` / `BoardView.vue` 同一套 —— 组件只“显示 + 收集意图”，
   状态与动作留在 App。父组件用 `reactive()` 包一个 `logEditCtl` 传进来，
   组件用 `toRef` 接状态、直接解构接函数。
 
@@ -25,7 +25,7 @@
            现在直说"能改 + 会留痕"，用户不必再复制出来新建一条。 -->
       <div class="hint log-closed-hint" v-if="logEdit_.id && logEdit_.status && logEdit_.status !== 'active'">
         这条已{{ logEdit_.status === 'completed' ? '完成' : '归档' }}。<b>内容仍然可以改</b>（改完点保存即可）；
-        改动会在卡面留一个「✎ 改过」戳，不是静默篡改。点错保存就按左下「🕘 历史版本」挑一版恢复。
+        改动会在卡面留一个“✎ 改过”戳，不是静默篡改。点错保存就按左下“🕘 历史版本”挑一版恢复。
       </div>
       <label>标题</label>
       <input v-model="logEdit_.title" placeholder="日志标题" />
@@ -39,7 +39,7 @@
         <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
       </select>
       <!-- 优先级（2026-10-08 卡 001，拍板=新增字段）：值域与任务卡同款中文。
-           空 = 不标（默认），历史日志全是这个状态，界面显式写「不标」而不是留白。 -->
+           空 = 不标（默认），历史日志全是这个状态，界面显式写“不标”而不是留白。 -->
       <label>优先级（可选 —— 用来给日志排序）</label>
       <select v-model="logEdit_.priority" class="logsel">
         <option value="">不标</option>
@@ -51,10 +51,10 @@
       <textarea v-model="logEdit_.content" class="tall font-[inherit]" placeholder="执行内容..."></textarea>
       <label>下一步</label>
       <textarea v-model="logEdit_.nextSteps" placeholder="下一步..."></textarea>
-      <!-- 关联任务：2026-09-22 改为「按项目过滤的选择」；2026-09-25（用户第 2 条）
+      <!-- 关联任务：2026-09-22 改为“按项目过滤的选择”；2026-09-25（用户第 2 条）
            此前只能关联**一个** ID，需要多个。数据层本来就写 tasks 数组
            （renderLog: tasks: [id]），只是只读了第一个 —— 现在改成多选。
-           2026-10-09（用户第 3 条「每次都加载一堆任务让我头疼，于是干脆什么都不选」）：
+           2026-10-09（用户第 3 条“每次都加载一堆任务让我头疼，于是干脆什么都不选”）：
            索引字段不是**任务浏览器** —— 默认只显示已关联 chips + 按需展开，
            候选带过滤框、按最近更新排序、首屏 12 条。 -->
       <label>关联任务</label>
@@ -87,10 +87,10 @@
       <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
       <label>会话 ID（可选，便于反向查证）</label>
       <input v-model="logEdit_.sessionId" placeholder="如 20260922_183047_334e4a" />
-      <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：这里原来标「上次执行 Agent」、
-           接力对话框同一个字段却标「执行 Agent」——一字段两义，用户被绕晕。
+      <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：这里原来标“上次执行 Agent”、
+           接力对话框同一个字段却标“执行 Agent”——一字段两义，用户被绕晕。
            拆两字段：agentName = 本次执行 Agent；prevAgentName = 上次的执行 Agent（接力来源）。
-           上次字段只在接力来的日志上出现（没有来源的日志谈不上「上次」）。 -->
+           上次字段只在接力来的日志上出现（没有来源的日志谈不上“上次”）。 -->
       <label>本次执行 Agent（本段由谁执行；可选）</label>
       <select v-model="logEdit_.agentName" class="logsel">
         <option value="">（不指定）</option>
@@ -110,14 +110,14 @@
       <template v-if="logCompleting || logArchiveMode">
         <label v-if="logCompleting">保留天数（0=永不）</label>
         <input v-if="logCompleting" v-model="logRetainDays" :placeholder="String(logRetainDefault)" />
-        <div class="hint" v-if="logCompleting">默认 {{ logRetainDefault }} 天（可在设置 → 日志清理里改；0=永不）。到期后，点日志页的「清理超期」会把它标为「已归档」（只改状态，不删文件）。</div>
+        <div class="hint" v-if="logCompleting">默认 {{ logRetainDefault }} 天（可在设置 → 日志清理里改；0=永不）。到期后，点日志页的“清理超期”会把它标为“已归档”（只改状态，不删文件）。</div>
         <label>备注（可选）</label>
         <textarea v-model="logNote" placeholder="备注..."></textarea>
       </template>
       <!-- 附件（2026-10-01 用户第 1 条 → 卡 036）：与只读预览同一套入口。
            2026-10-25（暮雨第 4 / 7 条）两处改：
              ① 新建态**不再禁用** —— 可以先选文件/粘贴截图，存好日志时一起挂上
-                （之前是「先创建这条日志，再回来挂附件」，为了加张图要建两次）；
+                （之前是“先创建这条日志，再回来挂附件”，为了加张图要建两次）；
              ② 支持直接粘贴截图（Ctrl+V），详见 onLogPaste。 -->
       <div class="attach-block" data-attach-block>
         <div class="attach-head">
@@ -161,8 +161,8 @@
         </div>
       </div>
       <!-- 关闭防丢警告条（2026-10-03 卡 task-20261003-005）：与接力对话框**同一套实现**
-           （同 .relay-discard 样式、同交互：点取消/遮罩先出条不关，必须点「丢弃并关闭」）。
-           此前这里是原生 window.confirm —— 用户点名「创建日志和日志接力用了两种实现」，统一到条子。 -->
+           （同 .relay-discard 样式、同交互：点取消/遮罩先出条不关，必须点“丢弃并关闭”）。
+           此前这里是原生 window.confirm —— 用户点名“创建日志和日志接力用了两种实现”，统一到条子。 -->
       <div v-if="logDiscard_" class="relay-discard" role="alertdialog" aria-live="polite">
         <span class="rd-text">⚠ 这次的改动还没保存，关掉就没了：<b>{{ logDirtyNames().join('、') || '表单改动' }}</b></span>
         <span class="rd-acts">
@@ -206,10 +206,10 @@
         <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
         <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
         <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
-        <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补「保存修改」：
-             只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在「确认完成」和「丢弃」里二选一。 -->
+        <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补“保存修改”：
+             只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在“确认完成”和“丢弃”里二选一。 -->
         <button v-if="logCompleting || logArchiveMode" class="ghost" title="只保存表单里改的内容，不改变完成/归档状态" @click="saveLogFieldsOnly">保存修改</button>
-        <!-- 主按钮 dirty 感知（2026-10-17）：表单改过了就别叫「确认完成」，叫「保存并完成」——
+        <!-- 主按钮 dirty 感知（2026-10-17）：表单改过了就别叫“确认完成”，叫“保存并完成”——
              字面即承诺：点了它内容会先落盘（回写在 saveLogEdit 完成分支）。 -->
         <button class="pri" @click="saveLogEdit">{{ logCompleting ? (logEditDirty() ? '保存并完成' : '确认完成') : logArchiveMode ? (logEditDirty() ? '保存并归档' : '确认归档') : logEdit_.id ? '保存' : '创建' }}</button>
       </div>

@@ -3,7 +3,7 @@
  *
  * 来源：`docs/小样-微服务架构图-20261012/saas-microservices-architecture.html`。
  * 那份小样的 SVG 是**手写死坐标**（266 个标签），喂不进数据；这里把它收敛成
- * 「**给数据 → 出 SVG 字符串**」，与 `blockers.ts` / `boardCards.ts` 同款布局 ——
+ * “**给数据 → 出 SVG 字符串**”，与 `blockers.ts` / `boardCards.ts` 同款布局 ——
  * 算法不埋在组件里，`node` 直跑编译产物就能断言（`scripts/test/e2e-layer-diagram.cjs`）。
  *
  * 硬约束由**构造**保证（正是小样上 `check-arch-geometry.cjs` 量过的那几条）：
@@ -61,7 +61,7 @@ const CAPTION_H = 24
 
 /**
  * 字宽估算：CJK / 全角 ≈ 1em，ASCII ≈ 0.55em。
- * 这是「文字不出卡片」这条硬约束的**唯一依据** —— 估不准宁可把卡片排宽一点。
+ * 这是“文字不出卡片”这条硬约束的**唯一依据** —— 估不准宁可把卡片排宽一点。
  */
 export function estimateTextWidth(s: string, fontSize: number): number {
   let w = 0
@@ -90,7 +90,7 @@ function resolveColor(c: string | undefined, idx: number): string {
 }
 
 /** 一张卡片在给定宽度下所需的**最小**宽度（正文与副标签各算一遍，取大者）。
- *  导出给断言用 —— 「文字不出卡片」这条硬约束得能独立复算，不能只信实现。 */
+ *  导出给断言用 —— “文字不出卡片”这条硬约束得能独立复算，不能只信实现。 */
 export function minCardWidth(c: LayerCard): number {
   const lw = estimateTextWidth(c.label, FS_CARD)
   const sw = c.sub ? estimateTextWidth(c.sub, FS_SUB) : 0

@@ -11,13 +11,13 @@
 # 《Python工作区》立项契约 · 待签收草稿
 
 > 这份是**草稿**，不是契约。契约机制条款 5：AI 起草后不能自己宣布生效，
-> 必须把「原话 + 翻译」并列念给暮雨听，他点头才算拟死。
+> 必须把“原话 + 翻译”并列念给暮雨听，他点头才算拟死。
 
 ## 一、现状事实（我查到的，带出处）
 
-- README 原话：「本仓库仅用于个人学习和工作环境下的脚本备份，并非通用型开源项目」
+- README 原话：“本仓库仅用于个人学习和工作环境下的脚本备份，并非通用型开源项目”
 - 顶层 12+ 个脚本目录：Attachment_Audit / Check_Files / Duplicate_Note_Check / Image_Link_Check / Link_Refactor / Mention_Link_Check / Novel_Indexer / Obsidian_Maintenance / Obsidian_Table …
-- README 自述「相当一部分代码由 AI 生成或辅助编写」，人负责上下文适配、安全审查与实测
+- README 自述“相当一部分代码由 AI 生成或辅助编写”，人负责上下文适配、安全审查与实测
 
 ## 二、六字段草案
 

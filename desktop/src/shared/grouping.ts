@@ -1,10 +1,10 @@
 /**
  * 看板分组的纯逻辑（不依赖 Vue / DOM，所以能被脚本直接编译断言 —— 跨项目计数错一眼看不出来）。
  *
- * 背景（2026-09-25 用户反馈「看板像没有尽头的单子」）：
- *   板子本来就有「按项目」分组，但分组标题直接显示**内部 id**（`fangcun-base`、`project-3`），
+ * 背景（2026-09-25 用户反馈“看板像没有尽头的单子”）：
+ *   板子本来就有“按项目”分组，但分组标题直接显示**内部 id**（`fangcun-base`、`project-3`），
  *   人看了等于没看；而且分组不可折叠，21 张待办全摊在眼前。
- *   这里把「分组 + 计数 + 显示名」的规则抽出来，UI 只负责渲染。
+ *   这里把“分组 + 计数 + 显示名”的规则抽出来，UI 只负责渲染。
  */
 
 export interface GroupingTask {
@@ -34,7 +34,7 @@ export function firstProject(p: unknown): string {
  * 按项目分组。
  * @param nameOf 项目 id → 显示名（如 `fangcun-base` → `方寸`）；缺省或返回空则回退 id
  * @param unknownLabel 未归属任务的分组名
- * 排序：任务多的组在前（把「重灾区」顶上来），同数量按标题排序。
+ * 排序：任务多的组在前（把“重灾区”顶上来），同数量按标题排序。
  */
 export function buildProjectGroups<T extends GroupingTask>(
   tasks: T[],
@@ -78,7 +78,7 @@ export function pruneCollapsed(keys: string[], validKeys: string[]): string[] {
 }
 
 // ── 看板列（2026-10-30 · 渲染层拆分第二批第一刀）──────────────────────────
-// 列视图的「分组 → 列 → 计数」此前全写在 App.vue 的 computed 里，模板搬不走，
+// 列视图的“分组 → 列 → 计数”此前全写在 App.vue 的 computed 里，模板搬不走，
 // 因为一搬就走样。先把这段纯逻辑收进来：输入任务 + 分组方式 + 优先级/状态清单，
 // 输出稳定的列数组。UI 只负责渲染，ruling 由脚本直接断言。
 import { localPriority } from './priority'
@@ -97,7 +97,7 @@ export interface BoardColumnOptions {
 /**
  * 看板列派生。三种分组方式的分支语义**必须与旧实现逐字一致**：
  *  - status：先按状态清单建空列（空列也保留，用户看得见"这列现在是 0"），未知状态追加在后；
- *  - priority：固定三档 + 「其他」一列；早期用 high/normal/low 当 key 导致中文数据集体消失；
+ *  - priority：固定三档 + “其他”一列；早期用 high/normal/low 当 key 导致中文数据集体消失；
  *  - project：直接复用 buildProjectGroups（项目名解析、未归属桶都在那里）。
  */
 export function buildBoardColumns<T extends GroupingTask>(
