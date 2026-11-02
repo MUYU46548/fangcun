@@ -5607,8 +5607,10 @@
       // 2026-11-02 暮雨第三次驳回：他要的“决策页那套”是**按钮带高光和阴影**，
       // 而此前按钮阴影直接读 --el-1，扁平档就是 none —— 于是切外观只看到卡片在变。
       // 口径改为：扁平档下按钮**必须有**固有高光 + 轻投影（--btn-shadow），与卡片的高度档正交。
-      check('★★ 扁平外观下按钮仍有高光+轻投影（不是只有卡片在变）',
-        !isEmptyShadow(flatBtnShadow) && /inset/.test(flatBtnShadow), flatBtnShadow)
+      // 2026-11-02 第 4 次（暮雨：'我已经切换到扁平风格了，为什么按钮阴影还在？'）：
+      // 外观开关必须**统一管所有影子** —— 扁平档按钮不能留影。上一版的正交设计是错的。
+      check('★★ 扁平外观下按钮没有投影（外观开关统一管影子）', isEmptyShadow(flatBtnShadow),
+        flatBtnShadow)
       const beforeAppearance = document.documentElement.dataset.appearance || 'flat'
       document.documentElement.dataset.appearance = 'shadow'
       await sleep(120)
@@ -5616,8 +5618,14 @@
       // ⚠ 必须重新查：换过页签后旧 `decCard` 已经脱离 DOM，量它是空值（本断言第一版就栽在这）
       const decCardNow = $('[data-dec="card"]')
       const shadowCard2 = decCardNow ? getComputedStyle(decCardNow).boxShadow : ''
+      // 2026-11-02：光有投影还不够 —— 暮雨记着的是'带高光'。判据 = inset 高光 + 真渐变，
+      // 而不是 alpha 0.05 那种在 24 寸屏上看不见的淡影（上一版就是这么失败的）。
+      const shadowBtnBg = decBtn ? getComputedStyle(decBtn).backgroundImage : ''
       check('★★ 切“阴影”外观 → 按钮真的浮起来（不再只有卡片变）', !isEmptyShadow(shadowBtn),
         `btn=${shadowBtn || '(none)'} cls=${decBtn ? String(decBtn.className) : '(null)'}`)
+      check('★★ 阴影档按钮带高光（inset 高光线 + 竖向渐变）',
+        /inset/.test(shadowBtn) && /gradient/.test(shadowBtnBg),
+        `shadow=${shadowBtn} bg=${shadowBtnBg}`)
       check('★★ 切“阴影”外观 → 卡片与按钮同一档高度都在',
         !isEmptyShadow(shadowCard2) && !isEmptyShadow(shadowBtn),
         `card=${shadowCard2 || '(none)'} btn=${shadowBtn || '(none)'}`)
@@ -5626,9 +5634,7 @@
       const flatAgain = decBtn ? getComputedStyle(decBtn).boxShadow : 'X'
       // 切回扁平：固有高光留着（这是按钮的质感，不是浮层高度），但必须**比 shadow 档轻** ——
       // 两档一模一样就等于开关没生效。
-      check('★★ 切回扁平 → 按钮留固有高光、但比 shadow 档轻（两档能区分）',
-        !isEmptyShadow(flatAgain) && flatAgain !== shadowBtn,
-        `flat=${flatAgain} shadow=${shadowBtn}`)
+      check('★★ 切回扁平 → 按钮投影归零（不是只加不减）', isEmptyShadow(flatAgain), flatAgain)
       // 2026-10-30 暮雨第 4 条（第三次提）真因：preflight 关着 → `<button>` 的 UA
       // `border-style: outset` 还在，Tailwind 的 border 只设宽度不设样式。屏幕上看起来就是
       // 一圈"外凸阴影"——量 box-shadow 永远是 none，所以前几次断言全绿而问题还在。
