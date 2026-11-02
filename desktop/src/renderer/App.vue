@@ -3116,6 +3116,8 @@ const wizardCtl = reactive({
   get wizardCanNext() { return wizardCanNext.value },
   wizardNext,
   wizardFinish,
+  browseWizardDir,
+  browsePythonDir,
 })
 
 const wizardCanNext = computed(() => {

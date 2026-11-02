@@ -12,7 +12,7 @@
           <label>数据目录</label>
           <div class="wizard-input-row">
             <input v-model="ctl.wizardDataDir" placeholder="选择数据目录路径" />
-            <button class="ghost" @click="browseWizardDir">浏览…</button>
+            <button class="ghost" @click="ctl.browseWizardDir">浏览…</button>
           </div>
           <small class="wizard-hint">方寸将在此目录下创建 task-data/ 和 registry.yaml</small>
         </div>
@@ -39,7 +39,7 @@
           <label>Python tegula 目录</label>
           <div class="wizard-input-row">
             <input v-model="ctl.wizardPythonDir" placeholder="E:\CODE\CangKu\fangcun" />
-            <button class="ghost" @click="browsePythonDir">浏览…</button>
+            <button class="ghost" @click="ctl.browsePythonDir">浏览…</button>
           </div>
         </div>
       </div>
