@@ -1663,35 +1663,7 @@
 
     <!-- Log edit modal -->
     <!-- Policy edit modal -->
-    <div id="policy-overlay" class="overlay" v-if="policyEdit_" @mousedown.self="closePolicyEditor()">
-      <div id="policy-modal">
-        <h3>项目方针：{{ policyEdit_.name }}</h3>
-        <label>使命（一句话：这项目是干嘛的）</label>
-        <textarea v-model="policyEdit_.mission" placeholder="例：本地优先的多 agent 任务调度台"></textarea>
-        <label>当前目标（本阶段要达成什么 + 怎么算完成）</label>
-        <textarea v-model="policyEdit_.goal" placeholder="例：稳定可用、承接真实业务数据"></textarea>
-        <label>应用场景（给谁用、在哪用）</label>
-        <textarea v-model="policyEdit_.scenario" placeholder="例：个人，桌面日常使用"></textarea>
-        <label>方针边界（怎么干、不干什么）</label>
-        <textarea v-model="policyEdit_.boundary" placeholder="例：元层铁律——永不内置模型能力；Agent 层归外部专家团"></textarea>
-        <!-- 029：结构地图此前**只存在于文件里**，界面上完全看不到 —— 用户验收驳回原话
-             “找不到在哪里”。这里把它变成一个能看能改的普通小节（不再需要手工翻文件）。 -->
-        <label>
-          结构地图（模块清单 + 每模块一句话职责 + 主数据流）
-          <span class="pf-label-hint">第一行必须是“&gt; 最后核实：YYYY-MM-DD”——烂地图比没地图危险，因为读者不知道它烂</span>
-        </label>
-        <textarea class="tall" v-model="policyEdit_.structureMap"
-          placeholder="&gt; 最后核实：2026-09-28&#10;- 模块清单：…&#10;- 主数据流：数据从哪来 → 经过谁 → 落到哪 → 谁读它"></textarea>
-        <div class="pf-map-tools">
-          <button class="ghost" type="button" @click="stampStructureMap()" title="把“最后核实”那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</button>
-          <span class="pf-map-tip">改动只写方针卡；派活时它会随任务书下发（不内联全文，只指路）</span>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="closePolicyEditor()">取消</button>
-          <button class="pri" @click="savePolicyEdit">保存方针卡</button>
-        </div>
-      </div>
-    </div>
+    <PolicyEditModal v-if="policyEdit_" :ctl="policyCtl" />
 
     <!-- 结构地图一览（029）：**这是“结构地图在哪”的答案**。
          列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
@@ -2243,6 +2215,7 @@ import TaskPreview from './components/TaskPreview.vue'
 import AboutModal from './components/AboutModal.vue'
 import QuickAddModal from './components/QuickAddModal.vue'
 import LogProjectPicker from './components/LogProjectPicker.vue'
+import PolicyEditModal from './components/PolicyEditModal.vue'
 import LogEditModal from './components/LogEditModal.vue'
 import RelayModal from './components/RelayModal.vue'
 import LogPurgeModal from './components/LogPurgeModal.vue'
@@ -5889,6 +5862,14 @@ async function openPolicyFromSmap(projectId: string) {
  * 把“最后核实”那行改成今天（029 的核心纪律：地图必须有人签日期）。
  * 没有这一行就补在最前面 —— 手改日期最容易忘，给一个按钮。
  */
+/** 项目方针编辑弹窗控制器（后三刀第一刀「浮层」）：getter 返回对象本身，v-model 才能写回它的属性 */
+const policyCtl = reactive({
+  get policyEdit_() { return policyEdit_.value },
+  closePolicyEditor,
+  stampStructureMap,
+  savePolicyEdit,
+})
+
 function stampStructureMap() {
   const e = policyEdit_.value
   if (!e) return
