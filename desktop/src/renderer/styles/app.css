@@ -33,6 +33,10 @@
      新加的卡片请用 `--shadow-card`，别再用 `--shadow`。 */
   --shadow: var(--el-3);
   --shadow-card: var(--el-1);
+  /* 按钮固有质感（2026-11-02 暮雨第三次驳回后查实）：决策页那套是“按钮带高光和阴影”，
+     而切外观只看到卡片在变 —— 真因是按钮阴影此前直接读 --el-1，flat 档就是 none，按钮永远是平的。
+     现在按钮有自己一档：顶部 1px 高光线 + 底部轻投影，与 --el 的高度档**正交**（切外观不会把它归零）。 */
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 1px 2px rgba(20, 24, 40, .14);
   --radius: 18px;
   --success: #54814b;    /* 白字 3.71 → 4.55 */
   --warning: #986b20;    /* 白字 2.24 → 4.71 */
@@ -108,6 +112,10 @@
    显式 class 直接写 `box-shadow`，flat 下 `--el-1 = none` 自然归零。 */
 .ui-elev-1 { box-shadow: var(--el-1); }
 .ui-elev-1:hover { box-shadow: var(--el-2); }
+/* 按钮专用（2026-11-02）：读 --btn-shadow，与卡片的高度档分开走 ——
+   卡片默认扁平是对的（暮雨说的“所有卡片都带阴影很丑”），但按钮需要质感。 */
+.ui-btn-elev { box-shadow: var(--btn-shadow); }
+.ui-btn-elev:hover { box-shadow: var(--btn-shadow); filter: brightness(1.04); }
 
 /* ── 全局外观：阴影 / 扁平（2026-10-30，卡 task-20261030-004）────────────
    用户原话：“要不就阴影单独做一套外观全局生效，和现有外观风格可以随时切换。整一半干什么？”
@@ -125,6 +133,8 @@
   --el-1: 0 1px 1px rgba(90,90,130,.05), 0 1px 3px rgba(90,90,130,.05);
   --el-2: 0 1px 2px rgba(90,90,130,.06), 0 4px 10px rgba(90,90,130,.07);
   --el-3: 0 4px 14px rgba(30,35,50,.10), 0 10px 30px rgba(30,35,50,.08);
+  /* 阴影外观档下按钮再浮一档（高光线不变，投影加深） */
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 2px 5px rgba(20, 24, 40, .18);
   --shadow-card: var(--el-1);
 }
 
@@ -258,29 +268,29 @@ button:not([class]) {
   display: inline-flex; align-items: center; justify-content: center;
   height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
   font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-  background: var(--accent); color: #fff; box-shadow: var(--el-1);
+  background: var(--accent); color: #fff; box-shadow: var(--btn-shadow);
 }
 :where(button.ghost)   { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 1px solid var(--border); border-radius: var(--btn-r);
-                         font-size: var(--btn-fs); font-weight: 600; line-height: 1; background: #fff; color: var(--ink); box-shadow: var(--el-1); }
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1; background: #fff; color: var(--ink); box-shadow: var(--btn-shadow); }
 :where(button.pri)     { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--accent); color: #fff; box-shadow: var(--el-1); }
+                         background: var(--accent); color: #fff; box-shadow: var(--btn-shadow); }
 :where(button.ok)      { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--success); color: #fff; box-shadow: var(--el-1); }
+                         background: var(--success); color: #fff; box-shadow: var(--btn-shadow); }
 :where(button.warning) { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--warning); color: #fff; box-shadow: var(--el-1); }
+                         background: var(--warning); color: #fff; box-shadow: var(--btn-shadow); }
 :where(button.danger)  { display: inline-flex; align-items: center; justify-content: center;
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
-                         background: var(--danger); color: #fff; box-shadow: var(--el-1); }
+                         background: var(--danger); color: #fff; box-shadow: var(--btn-shadow); }
 :where(button.ghost):hover, :where(button.pri):hover, :where(button.ok):hover,
-:where(button.warning):hover, :where(button.danger):hover { box-shadow: var(--el-2); }
+:where(button.warning):hover, :where(button.danger):hover { box-shadow: var(--btn-shadow); }
 :where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }

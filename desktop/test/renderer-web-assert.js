@@ -5604,8 +5604,11 @@
       // 判据不是"永远没有影子"，而是**扁平归零、阴影浮起、切回归零**三态。
       const decBtn = $('[data-dec="select-mode"]')
       const flatBtnShadow = decBtn ? getComputedStyle(decBtn).boxShadow : 'X'
-      check('★★ 扁平外观下决策页按钮没有投影（与老按钮一致）', isEmptyShadow(flatBtnShadow),
-        flatBtnShadow)
+      // 2026-11-02 暮雨第三次驳回：他要的“决策页那套”是**按钮带高光和阴影**，
+      // 而此前按钮阴影直接读 --el-1，扁平档就是 none —— 于是切外观只看到卡片在变。
+      // 口径改为：扁平档下按钮**必须有**固有高光 + 轻投影（--btn-shadow），与卡片的高度档正交。
+      check('★★ 扁平外观下按钮仍有高光+轻投影（不是只有卡片在变）',
+        !isEmptyShadow(flatBtnShadow) && /inset/.test(flatBtnShadow), flatBtnShadow)
       const beforeAppearance = document.documentElement.dataset.appearance || 'flat'
       document.documentElement.dataset.appearance = 'shadow'
       await sleep(120)
@@ -5621,7 +5624,11 @@
       document.documentElement.dataset.appearance = beforeAppearance
       await sleep(120)
       const flatAgain = decBtn ? getComputedStyle(decBtn).boxShadow : 'X'
-      check('★★ 切回扁平 → 按钮投影归零（不是只加不减）', isEmptyShadow(flatAgain), flatAgain)
+      // 切回扁平：固有高光留着（这是按钮的质感，不是浮层高度），但必须**比 shadow 档轻** ——
+      // 两档一模一样就等于开关没生效。
+      check('★★ 切回扁平 → 按钮留固有高光、但比 shadow 档轻（两档能区分）',
+        !isEmptyShadow(flatAgain) && flatAgain !== shadowBtn,
+        `flat=${flatAgain} shadow=${shadowBtn}`)
       // 2026-10-30 暮雨第 4 条（第三次提）真因：preflight 关着 → `<button>` 的 UA
       // `border-style: outset` 还在，Tailwind 的 border 只设宽度不设样式。屏幕上看起来就是
       // 一圈"外凸阴影"——量 box-shadow 永远是 none，所以前几次断言全绿而问题还在。

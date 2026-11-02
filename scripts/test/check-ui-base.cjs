@@ -242,10 +242,18 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
   check('★★ Button 基类写了 `border-0` 兜底（primary/danger 没有 border 类，不兜底会留 2px 系统边）',
     /\bborder-0\b/.test(classStr), '')
   check('★ Button 基类写了 `appearance-none`（去掉系统按钮外观）', /\bappearance-none\b/.test(classStr), '')
-  check('★★ Button 与卡片读同一档高度（.ui-elev-1 → --el-1 / hover --el-2）',
-    /\bui-elev-1\b/.test(classStr) &&
+  // 2026-11-02 改口径：按钮**不再**跟卡片共用高度档。
+  // 暮雨：决策页那套是“按钮带高光和阴影”，而此前按钮读 --el-1，扁平档就是 none ——
+  // 于是他切外观只看到卡片在变。现在按钮走 --btn-shadow（固有高光+轻投影），卡片仍走 --el-*。
+  check('★★ Button 读按钮专用质感档（.ui-btn-elev → --btn-shadow），与卡片高度档分开',
+    /\bui-btn-elev\b/.test(classStr) &&
+    !/\bui-elev-1\b/.test(classStr) &&
+    /\.ui-btn-elev\s*\{[^}]*box-shadow:\s*var\(--btn-shadow\)/.test(appCss) &&
+    /--btn-shadow:\s*inset /.test(appCss), '')
+  check('★★ 卡片仍读高度档、没被按钮改动带走（.ui-elev-1 → --el-1 / hover --el-2）',
     /\.ui-elev-1\s*\{[^}]*box-shadow:\s*var\(--el-1\)/.test(appCss) &&
-    /\.ui-elev-1:hover\s*\{[^}]*box-shadow:\s*var\(--el-2\)/.test(appCss), '')
+    /\.ui-elev-1:hover\s*\{[^}]*box-shadow:\s*var\(--el-2\)/.test(appCss) &&
+    /\bui-elev-1\b/.test(read('src/renderer/components/ui/Card.vue')), '')
   check('★ Button 的阴影只许读令牌，不许写死字面量（也不许再用 Tailwind 的 shadow-[…]）',
     !/\bshadow-\[/.test(classStr), '')
 }
@@ -309,7 +317,9 @@ check('反例：基线里塞了 width 会被咬住',
   while ((m = re.exec(css))) values.push(m[1].trim())
   const bad = values.filter((v) => {
     if (v === 'none') return false
-    if (/^var\(--(el-[123]|shadow|shadow-card)\)$/.test(v)) return false
+    // 2026-11-02：新增 --btn-shadow —— 按钮的高光+投影，与高度档正交（flat 下也要有质感）。
+    // 它不是第二套高度档：卡片仍只读 --el-*，按钮才读它。
+    if (/^var\(--(el-[123]|shadow|shadow-card|btn-shadow)\)$/.test(v)) return false
     if (/^0 0 0 /.test(v)) return false          // 选中/聚焦环：是状态，不是高度
     if (/^inset /.test(v)) return false          // 页签下划线等内阴影
     if (/^0 0 0 [^,]+, var\(--el-[123]\)$/.test(v)) return false // 环 + 高度组合

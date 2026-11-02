@@ -23,7 +23,7 @@ const buttonVariants = cva(
   //   flat 下两档都是 none，shadow 下才有贴地/浮起；与 Card.vue 同一套高度。
   //   ⚠ 必须用 `.ui-elev-1`，不能写 `shadow-[var(--el-1)]` —— Tailwind 会把后者当颜色，
   //     生成 --tw-shadow-color，计算值仍是 none（2026-10-31 实测抓到的真因）。
-  'ui-elev-1 inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity,box-shadow] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
+  'ui-btn-elev inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity,box-shadow] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
