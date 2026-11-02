@@ -6317,6 +6317,39 @@
             rh.indexOf('外部客户端经 MCP 上报的另计') >= 0, rh.slice(0, 100))
         }
 
+        // ── 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）──────────────────
+        // 判据：① 只比 token；② 金额列只有三种标注；③ local 与 external 分开；④ 切换筛选真重读。
+        {
+          check('★ 「跨渠道 token 对比」块在花销页（不是另开一页）',
+            await waitFor(() => $$('#board.ask-view .chan-report').length === 1, 4000, 'chan'),
+            String($$('#board.ask-view .chan-report').length))
+          const chanRows = $$('#board.ask-view .chan-row[data-chan]')
+          check('★★ 三条渠道各占一行（夹具真身：local 两个模型 + ext 一个客户端）',
+            chanRows.length === 3, String(chanRows.length))
+          const chanTxt = (($('#board.ask-view .chan-report') || {}).textContent || '').replace(/\s+/g, ' ')
+          check('★★ 金额列只有三种标注（供应商自报 / 用户自填 / 未折算）',
+            chanTxt.indexOf('供应商自报') >= 0 && chanTxt.indexOf('用户自填') >= 0 && chanTxt.indexOf('未折算') >= 0,
+            chanTxt.slice(0, 120))
+          check('★★ 外部上报的渠道带「（外部上报）」后缀（不跟 local 混在一起）',
+            chanTxt.indexOf('（外部上报）') >= 0)
+          check('★★ 口径声明写清「只比 token」+「它证明不了什么」',
+            chanTxt.indexOf('只比 token') >= 0 && chanTxt.indexOf('证明不了什么') >= 0)
+          check('★★ 总计行明说「不跨渠道合计」（不做跨渠道金额对比）',
+            chanTxt.indexOf('不跨渠道合计') >= 0)
+          check('★ 没给 token 数字的那次单列「没给数字」', chanTxt.indexOf('没给数字') >= 0)
+          // 切换渠道筛选 → 真重读且只剩一行
+          window.__fcTest.reset()
+          const chanSel = $$('#board.ask-view .chan-sel').pop()
+          if (chanSel) { chanSel.value = 'ext:hermes'; chanSel.dispatchEvent(new Event('change')) }
+          check('★★ 按渠道筛 → 真调 channelsGet 且带上 channels 参数',
+            await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'channelsGet'
+              && c.args && c.args[0] && Array.isArray(c.args[0].channels) && c.args[0].channels[0] === 'ext:hermes'), 5000, 'channelsGet'),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'channelsGet').map((c) => c.args)))
+          check('★★ 筛完只剩一行（界面用的是服务端返回，不自己过滤）',
+            await waitFor(() => $$('#board.ask-view .chan-row[data-chan]').length === 1, 4000, 'filtered'),
+            String($$('#board.ask-view .chan-row[data-chan]').length))
+        }
+
         // ── 账户口径 · 余额差值（2026-10-25 卡 005）──────────────────────────
         // 暮雨给的参考实现（DSH 小鲸鱼）点破关键：金额准不是因为价格表准，而是
         // **根本不经过价格表** —— 余额下降额就是真扣的钱。所以这块必须：

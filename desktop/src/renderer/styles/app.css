@@ -1422,6 +1422,25 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ⚠ 账户口径**不叫** .ask-report：月报表那条断言按 `.ask-report` 数"这一页只有一块"，
    给它套同一个 class 会把那条断言变成假红（数到 2 块）。同壳不同名，样式靠分组选择器共享。 */
 .ask-acc { margin-top: 18px; }
+/* ── 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）──
+   独立类名前缀 chan-*：旧断言按 .ask-report 数块，复用会凭空变红。 */
+.chan-report { margin-top: 12px; padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+.chan-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.chan-src { font-size: 11px; color: var(--muted); }
+.chan-grow { flex: 1 1 auto; }
+.chan-sel { height: 26px; padding: 0 8px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.chan-note { margin-top: 6px; font-size: 11px; line-height: 1.7; color: var(--muted); }
+.chan-err { margin-top: 6px; font-size: 11.5px; color: var(--danger-text); }
+.chan-grid { margin-top: 8px; }
+.chan-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; font-size: 12px; border-top: 1px dashed var(--border); }
+.chan-row-head { border-top: 0; font-size: 11px; color: var(--muted); font-weight: 700; }
+.chan-row-total { border-top: 1px solid var(--border); font-weight: 700; }
+.chan-name { flex: 1 1 30%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-num { flex: 0 0 14%; text-align: right; font-variant-numeric: tabular-nums; }
+.chan-money { flex: 0 0 22%; text-align: right; font-size: 11.5px; color: var(--ink); }
+.chan-money.none { color: var(--muted); }
+.chan-noTok { margin-left: 4px; font-style: normal; font-size: 10.5px; color: var(--muted); }
+.chan-empty { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .ask-report-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 12px;
   font-weight: 600; color: var(--muted); }
 .ask-report-src { font-style: normal; font-weight: 400; font-size: 11px; color: var(--muted); }

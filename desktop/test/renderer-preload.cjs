@@ -472,6 +472,44 @@ contextBridge.exposeInMainWorld('tegula', {
       rejectReason: '',
     })
   },
+  // 跨渠道 token 对比（2026-11-02）：夹具覆盖三种金额标注 + 一个"没给 token 数字"的渠道
+  channelsGet: (opts) => {
+    cloneGuard('channelsGet', [opts])
+    rec('channelsGet', [opts])
+    const pick = opts && Array.isArray(opts.channels) && opts.channels.length ? opts.channels[0] : ''
+    const all = [
+      { key: 'local:deepseek-chat', label: 'deepseek-chat', kind: 'local', calls: 3,
+        promptTokens: 3000, completionTokens: 1500, totalTokens: 4500, noTokenCalls: 0,
+        money: { kind: 'provider', text: '¥0.0096 · 供应商自报', providerCost: '0.0096', userPriceCost: '' },
+        firstAt: '2026-11-01T10:00:00.000Z', lastAt: '2026-11-02T10:00:00.000Z' },
+      { key: 'ext:hermes', label: 'hermes（外部上报）', kind: 'external', calls: 1,
+        promptTokens: 5000, completionTokens: 2000, totalTokens: 7000, noTokenCalls: 0,
+        money: { kind: 'none', text: '未折算', providerCost: '', userPriceCost: '' },
+        firstAt: '2026-11-02T08:00:00.000Z', lastAt: '2026-11-02T08:00:00.000Z' },
+      { key: 'local:mimo-v2.6-flash', label: 'mimo-v2.6-flash', kind: 'local', calls: 2,
+        promptTokens: 400, completionTokens: 100, totalTokens: 500, noTokenCalls: 1,
+        money: { kind: 'user-price', text: '¥0.0001 · 用户自填', providerCost: '', userPriceCost: '0.0001' },
+        firstAt: '2026-11-02T09:00:00.000Z', lastAt: '2026-11-02T09:00:00.000Z' },
+    ]
+    const rows = pick ? all.filter((x) => x.key === pick) : all
+    return {
+      ok: true, readError: '',
+      report: {
+        days: (opts && opts.days) || 30, from: '2026-10-03T00:00:00.000Z', to: '2026-11-02T12:00:00.000Z',
+        rows,
+        totals: rows.reduce((a, x) => ({
+          calls: a.calls + x.calls, promptTokens: a.promptTokens + x.promptTokens,
+          completionTokens: a.completionTokens + x.completionTokens, totalTokens: a.totalTokens + x.totalTokens,
+          noTokenCalls: a.noTokenCalls + x.noTokenCalls,
+        }), { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, noTokenCalls: 0 }),
+        channels: all.map((x) => ({ key: x.key, label: x.label, kind: x.kind })),
+        note: '口径：只比 token（跨渠道金额不可比，不做换算）。金额列只转述记录里已有的标注：供应商自报 / 用户自填 / 未折算；'
+          + '方寸不内置单价表、不猜单价。方寸自己调的（local）与外部客户端报上来的（external）分开算，不合并。'
+          + '它证明不了什么：外部客户端没上报的调用根本不在表里，token 少不等于那边用得少。',
+        emptyText: '近 30 天没有 AI 调用记录 —— 不是"没花钱"，是这段时间里方寸没调用过、外部客户端也没上报',
+      },
+    }
+  },
   // 投入产出账（0.6.0 P5）：三格齐全的夹具。
   // 三格的 caveat 必须带「它证明不了什么」—— 界面断言会逐格检查（缺一格就红）。
   wasteGet: (opts) => {

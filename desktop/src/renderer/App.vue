@@ -567,6 +567,56 @@
         AI 花销 · 按自然月：还没有任何调用记录（一次都没走过 AI 通道）。
       </div>
 
+      <!-- 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）
+           口径：只比 token；金额列只转述记录里已有的标注（供应商自报 / 用户自填 / 未折算）；
+           方寸不内置单价表、不猜单价；local 与 external 分开算，不做跨渠道金额合计。 -->
+      <div class="chan-report" v-if="chanReport" data-chan-report>
+        <div class="chan-head">
+          <b>跨渠道 token 对比</b>
+          <span class="chan-src">数据源：AI 调用留痕（方寸自己调的与外部客户端上报的分开算）</span>
+          <span class="chan-grow"></span>
+          <select class="chan-sel" v-model.number="chanDays" @change="loadChannels()">
+            <option :value="7">近 7 天</option>
+            <option :value="30">近 30 天</option>
+            <option :value="90">近 90 天</option>
+            <option :value="0">全部</option>
+          </select>
+          <select class="chan-sel" v-model="chanPick" @change="loadChannels()">
+            <option value="">全部渠道</option>
+            <option v-for="c in chanReport.channels" :key="c.key" :value="c.key">{{ c.label }}</option>
+          </select>
+        </div>
+        <div class="chan-note">{{ chanReport.note }}</div>
+        <div v-if="chanReadError" class="chan-err">读留痕失败：{{ chanReadError }}（这张表此刻不能说"没花钱"）</div>
+        <div v-if="chanReport.rows.length" class="chan-grid">
+          <div class="chan-row chan-row-head">
+            <span class="chan-name">渠道</span>
+            <span class="chan-num">调用</span>
+            <span class="chan-num">输入</span>
+            <span class="chan-num">输出</span>
+            <span class="chan-num">合计 token</span>
+            <span class="chan-money">金额</span>
+          </div>
+          <div class="chan-row" v-for="row in chanReport.rows" :key="row.key" :data-chan="row.key">
+            <span class="chan-name">{{ row.label }}</span>
+            <span class="chan-num">{{ row.calls }}</span>
+            <span class="chan-num">{{ row.promptTokens.toLocaleString() }}</span>
+            <span class="chan-num">{{ row.completionTokens.toLocaleString() }}</span>
+            <span class="chan-num"><b>{{ row.totalTokens.toLocaleString() }}</b><em v-if="row.noTokenCalls" class="chan-noTok">· {{ row.noTokenCalls }} 次没给数字</em></span>
+            <span class="chan-money" :class="{ none: row.money.kind === 'none' }">{{ row.money.text }}</span>
+          </div>
+          <div class="chan-row chan-row-total">
+            <span class="chan-name">总计</span>
+            <span class="chan-num">{{ chanReport.totals.calls }}</span>
+            <span class="chan-num">{{ chanReport.totals.promptTokens.toLocaleString() }}</span>
+            <span class="chan-num">{{ chanReport.totals.completionTokens.toLocaleString() }}</span>
+            <span class="chan-num"><b>{{ chanReport.totals.totalTokens.toLocaleString() }}</b></span>
+            <span class="chan-money">不跨渠道合计</span>
+          </div>
+        </div>
+        <div v-else class="chan-empty">{{ chanReport.emptyText }}</div>
+      </div>
+
       <!-- 账户口径（2026-10-25 卡 005）：这一行**不是估算**，是官方余额接口的差值。
            暮雨给的参考实现点破了关键 —— 准的办法是不经过价格表：价格怎么变，
            余额下降额都是真花掉的钱。代价（粒度粗、要充值不混进消费）也写在这里。 -->
@@ -3536,6 +3586,11 @@ const askGroups = computed(() => {
 
 /** 月度报表（03 任务三）：按自然月，最近 3 个月。读不到就空 —— 界面会直说"一次都没走过 AI"。 */
 const usageMonths = ref<any[]>([])
+/** 跨渠道 token 对比（2026-11-02）：只比 token；金额只转述标注 */
+const chanReport = ref<any>(null)
+const chanDays = ref(30)
+const chanPick = ref('')
+const chanReadError = ref('')
 /** 账户口径（2026-10-25 卡 005）：只读状态，真正的余额请求在 refreshBalance 里按需发 */
 const balanceStatus = ref<any>(null)
 const balanceObserving = ref(false)
@@ -3639,6 +3694,23 @@ async function loadUsageMonths(): Promise<void> {
     usageMonths.value = Array.isArray(r?.months) ? r.months : []
   } catch {
     usageMonths.value = []
+  }
+}
+
+/** 跨渠道 token 对比：只读；筛选项变了重读一次（服务端聚合，界面不自己算） */
+async function loadChannels(): Promise<void> {
+  chanReadError.value = ''
+  try {
+    const r: any = await (window as any).tegula.channelsGet({
+      days: chanDays.value,
+      channels: chanPick.value ? [chanPick.value] : [],
+    })
+    if (!r?.ok) { chanReport.value = null; chanReadError.value = String(r?.error || '读取失败'); return }
+    chanReport.value = r.report || null
+    chanReadError.value = String(r?.readError || '')
+  } catch (e: any) {
+    chanReport.value = null
+    chanReadError.value = String(e?.message || e)
   }
 }
 
@@ -4336,6 +4408,7 @@ function loadViewData(v: string) {
     if (!askPresets.value.length) void loadAskPresets()
     // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
     void loadUsageMonths()
+    void loadChannels()
     void loadBalanceStatus()
   } else if (v === 'trash') {
     // 回收站不加载任务列表（顶栏计数显示「—」是刻意的，见 countText 注释）；

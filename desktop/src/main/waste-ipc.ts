@@ -6,8 +6,22 @@
  */
 import { guardedHandle } from './guarded-ipc'
 import { collectWasteLedger } from './usage/ledger'
+import { collectChannels } from './usage/channels'
 
 export function registerWasteIpcHandlers(): void {
+  /** 跨渠道 token 对比（2026-11-02）：只读；只比 token，金额只转述记录里已有的标注 */
+  guardedHandle('channels:get', (_e, opts?: { days?: number; channels?: string[] }) => {
+    try {
+      const r = collectChannels({
+        days: opts?.days,
+        channels: Array.isArray(opts?.channels) ? opts.channels.map((x: any) => String(x)) : [],
+      })
+      return { ok: true, report: r.report, readError: r.readError }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
   guardedHandle('waste:get', (_e, opts?: { days?: number; repo?: string }) => {
     try {
       const ledger = collectWasteLedger({
