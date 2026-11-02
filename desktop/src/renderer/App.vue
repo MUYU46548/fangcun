@@ -1360,21 +1360,7 @@
     </div>
 
     <!-- 改项目归属（卡 037 右键菜单）—— 应用内轻浮层，不用 Electron 不实现的 prompt -->
-    <div v-if="logProjectPicker" class="overlay" @mousedown.self="logProjectPicker = null">
-      <div id="log-project-modal">
-        <h3>改项目归属</h3>
-        <div class="hint">{{ logProjectPicker.title || logProjectPicker.id }}（当前：{{ logProjectPicker.project || '未归属' }}）</div>
-        <div class="proj-pick-list">
-          <button class="skills-btn" @click="applyLogProject('')">（不归属）</button>
-          <button v-for="p in projects" :key="p.id" class="skills-btn" @click="applyLogProject(p.id)">
-            {{ p.name }} · {{ p.id }}
-          </button>
-        </div>
-        <div class="trash-preview-actions">
-          <button class="trash-btn" @click="logProjectPicker = null">取消</button>
-        </div>
-      </div>
-    </div>
+    <LogProjectPicker v-if="logProjectPicker" :ctl="logProjectCtl" />
 
     <!-- 按日期清理回收站（2026-10-17 暮雨第 2 条：“我可以选择特定日期，删除此之前的所有内容”）。
          与“清理已归档日志”同一套交互：先预览命中条数，再确认；差别是这里的删除**不可撤销**
@@ -1439,67 +1425,10 @@
          2026-10-31（暮雨第 10 条）：原来只有版本号 + 一句"数据是你的"，没有简介、作者、版权、
          免责声明、使用手册入口 —— “但凡抄自家产品司天和绒花墨坊都不至于这么惨”。
          现在补齐：是什么 / 谁做的 / 什么许可 / 会花钱的地方 / 三个配套入口。 -->
-    <div v-if="aboutOpen" class="overlay" @mousedown.self="aboutOpen = false">
-      <div id="about-modal">
-        <h3>关于方寸</h3>
-        <div class="about-brand">
-          <span class="about-logo">方</span>
-          <div>
-            <b>方寸 tegula</b><span class="about-ver">v{{ appVersion || '…' }}</span>
-            <div class="about-sub">本地优先的 agent 任务调度台 · 零依赖 · 数据在你自己手里</div>
-          </div>
-        </div>
-        <p class="about-intro">
-          把“任务收口 + 方针载体”做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
-          agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，AI 不能背着你往里塞东西。
-          会花钱的只有 AI 问答与出单，且必须走你自己的 API（BYOK），不配就一分不花。
-        </p>
-        <div class="about-rows">
-          <div><span class="k">版本</span><span class="v">{{ appVersion || '读取中…' }}</span></div>
-          <div><span class="k">作者</span><span class="v">MUYU46548</span></div>
-          <div><span class="k">许可证</span><span class="v">MIT · 免费开源，按“现状”提供</span></div>
-          <div><span class="k">数据目录</span><span class="v about-path" :title="dataDir">{{ dataDir || '—' }}</span></div>
-          <div><span class="k">当前视图</span><span class="v">{{ curViewLabel }} · {{ countText }}</span></div>
-        </div>
-        <div class="about-links">
-          <button class="ghost" @click="aboutGoHelp">📖 使用手册</button>
-          <button class="ghost" @click="aboutGoDisclaimer">📄 免责声明与用户协议</button>
-          <button class="ghost" @click="aboutGoSettings">⚙ 设置</button>
-          <button class="ghost" @click="bkOpenDir">打开备份目录</button>
-          <button class="ghost" @click="openAppLogDir">打开日志目录</button>
-        </div>
-        <p class="about-note">
-          数据是你的：任务就是 <code>task-data/</code> 里的 Markdown 文件，不进 git；
-          删除只移入 <code>.trash/</code>；本地备份在 <code>backups/</code>。
-          <br />
-          © 2026 MUYU46548 · MIT License。使用前请读一遍免责声明：AI 会产生费用、
-          备份可能失败、最终的数据保管责任在你自己。
-        </p>
-        <div class="acts">
-          <button class="pri" @click="aboutOpen = false">关闭</button>
-        </div>
-      </div>
-    </div>
+    <AboutModal v-if="aboutOpen" :ctl="aboutCtl" />
 
     <!-- 快速记（2026-10-11，E 组死通道接回）：一句话建卡。 -->
-    <div v-if="quickAddOpen" class="overlay" @mousedown.self="closeQuickAdd()">
-      <div id="quickadd-modal">
-        <h3>快速记一条</h3>
-        <input v-model="quickAddText" class="quickadd-in" spellcheck="false"
-          placeholder="一句话，可带简写：p0 修登录 · #bug @hermes to:待办 due:12-31"
-          @keydown.enter="submitQuickAdd()" />
-        <div class="quickadd-hint">
-          简写：<code>p0/p1/p2</code> 优先级 · <code>#标签</code> · <code>@指派给谁</code> ·
-          <code>to:状态</code> · <code>due:MM-DD</code> 截止。其余词就是标题。
-        </div>
-        <div v-if="quickAddErr" class="quickadd-err">{{ quickAddErr }}</div>
-        <div class="acts">
-          <button class="ghost" @click="closeQuickAdd()">取消</button>
-          <button class="pri" :disabled="quickAddBusy || !quickAddText.trim()" @click="submitQuickAdd()">
-            {{ quickAddBusy ? '创建中…' : '创建' }}</button>
-        </div>
-      </div>
-    </div>
+    <QuickAddModal v-if="quickAddOpen" :ctl="quickAddCtl" />
 
     <!-- 绑定附属日志（2026-10-30 暮雨第 4 条；第 2 条二次返工）：
          一篇主日志带若干附属，关系落盘。候选来自**全量日志**，弹窗自己有
@@ -2311,6 +2240,9 @@ import DataHygienePanel from './components/DataHygienePanel.vue'
 import BoardBanners from './components/BoardBanners.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import TaskPreview from './components/TaskPreview.vue'
+import AboutModal from './components/AboutModal.vue'
+import QuickAddModal from './components/QuickAddModal.vue'
+import LogProjectPicker from './components/LogProjectPicker.vue'
 import LogEditModal from './components/LogEditModal.vue'
 import RelayModal from './components/RelayModal.vue'
 import LogPurgeModal from './components/LogPurgeModal.vue'
@@ -2476,6 +2408,24 @@ const isTaskView = computed(() =>
   ['active', 'archive', 'projects', 'blockers', 'roadmap', 'calendar'].includes(curView.value))
 
 const aboutOpen = ref(false)
+/**
+ * 关于弹窗的控制器（2026-11-02 · 后三刀第一刀「浮层」）。
+ * 只做转接：模板搬进 AboutModal.vue，状态与动作仍在这里 —— 不复制任何逻辑。
+ * aboutOpen 用 getter/setter，组件内部 `ctl.aboutOpen = false` 才能真的关掉。
+ */
+const aboutCtl = reactive({
+  get aboutOpen() { return aboutOpen.value },
+  set aboutOpen(v: boolean) { aboutOpen.value = v },
+  get appVersion() { return appVersion.value },
+  get dataDir() { return dataDir.value },
+  get curViewLabel() { return curViewLabel.value },
+  get countText() { return countText.value },
+  aboutGoHelp, aboutGoDisclaimer, aboutGoSettings,
+  // ⚠ 这两个必须用 getter：`bkOpenDir` 来自后面 useBackup() 的解构（本文件 3,400 行附近），
+  //   直接写属性简写会在定义处立即求值 → TDZ 报错（build 不拦，运行时才炸）。
+  get bkOpenDir() { return bkOpenDir },
+  openAppLogDir,
+})
 function openAbout(): void {
   aboutOpen.value = true
   if (!appVersion.value) void loadAppVersion()
@@ -4949,6 +4899,15 @@ function openNew() {
 // `quickAdd(text)` 在主进程里躺了很久，界面从来没有入口。它支持一句话简写，
 // 随手记一条比开弹窗填六个字段顺手得多。
 const quickAddOpen = ref(false)
+/** 快速记弹窗控制器（后三刀第一刀「浮层」）：只转接，不复制逻辑 */
+const quickAddCtl = reactive({
+  get quickAddOpen() { return quickAddOpen.value },
+  get quickAddText() { return quickAddText.value },
+  set quickAddText(v: string) { quickAddText.value = v },
+  get quickAddErr() { return quickAddErr.value },
+  get quickAddBusy() { return quickAddBusy.value },
+  closeQuickAdd, submitQuickAdd,
+})
 const quickAddText = ref('')
 const quickAddErr = ref('')
 const quickAddBusy = ref(false)
@@ -6660,6 +6619,14 @@ const {
   logProjectPicker, logFullText, logMetaText, copyLogFull, copyLogMeta, copyAndDispatchLog,
   toggleLogPin, changeLogProject, applyLogProject, copyLogAsPrompt, copyLogsAsPrompt,
 } = useLogAux({ showToast, loadLogs, copyWithToast })
+
+/** 日志改项目归属弹窗控制器（后三刀第一刀「浮层」）—— 状态全部来自 useLogAux，这里只转接 */
+const logProjectCtl = reactive({
+  get logProjectPicker() { return logProjectPicker.value },
+  set logProjectPicker(v: any) { logProjectPicker.value = v },
+  get projects() { return projects.value },
+  applyLogProject,
+})
 
 const {
   logAttachTarget, logAttachPick, logAttachBusy, logAttachAll, logAttachLoading,
