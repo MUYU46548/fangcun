@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.8.0
+version: 1.9.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -90,7 +90,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **30** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **31** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -99,6 +99,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `search_tasks` | Full-text search across task titles, bodies, and tags |
 | `get_task` | Get a single task by ID |
 | `create_task` | Create a new task |
+| `arch_generate` | 让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。 |
 | `intake_task` | 收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。 |
 | `usage_report` | Report AI usage from an external client (e.g. |
 | `never_read` | List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). |
@@ -208,6 +209,23 @@ intake_task {
 
 ⚠ `cmd:` 判据在收卡时**不跑**（跑测试套件归「待验收」阶段人点自检），传了也是"未判定"，会挡住"全过"。
 ⚠ 判据别写「效果更好」「体验流畅」这类话——那不是判据，收卡机检会判不了，卡的结论就是空话。
+
+**⑥ 要架构图：用 `arch_generate`（2026-11-02 新增）**
+
+需要某个项目的架构图（谁连着谁、入口在哪）→ 调方寸，不要自己在对话里画：
+
+```
+arch_generate { project: "fangcun-base", max_attempts: 2 }
+```
+
+- 方寸走**它自己的**生成链路：AI 按扫描事实画 → 每条节点/连线检查证据 → 不过按意见重画 → 仍不过降级扫描图；
+- 返回 `source`：`ai` = 模型画且过审；`scan` = 降级扫描图（`reason` 写为什么，例如没配模型）；
+- 返回 `issues`（哪条被拒、为什么）与 `notes`（不阻断的修正，例如标签被丢弃）；
+- **会调用用户在方寸设置里配的模型（BYOK），每次调用产生花销**；返回体里带 `usage`，别重复计费；
+- 图上的文件数/连线数一律来自扫描事实 —— 模型编不出数字，你也别替它编。
+
+⚠ 想看**已经画好的**图（不花钱）用 `arch:get` 那条界面通道，或直接读 `arch_generate` 上一次的结果；
+⚠ 不要为了"先看看"就调 `arch_generate` —— 那是一次真实模型调用。
 
 **不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
 

@@ -12,6 +12,9 @@ import { recordRead, readStats } from './usage'
 import { renderIntakeSection } from '../../shared/intake'
 // 存在性检查与报告跑一次都收在 services/intake（tools 里不再写第二份口径）
 import { checkIntake } from '../services/intake'
+// agent 直接要点架构图（2026-11-02）：与界面按钮同一个服务，不另写一套生成
+import { archForProject } from '../services/projectArch'
+import { generateArchGraph } from '../services/archAi'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
 // 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
 // 决策卡与池文件此前根本没有通道（spec §四 引用的"现有写回层入口"对它们不存在）。
@@ -84,6 +87,23 @@ export const MCP_TOOLS: MCPTool[] = [
         body: { type: 'string', description: 'Task body/content' },
       },
       required: ['title'],
+    },
+  },
+  {
+    name: 'arch_generate',
+    description:
+      '让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。'
+      + '模型只能引用扫描事实里真实存在的目录 / 入口 / 依赖 / import / IPC / 端口；'
+      + '指不回证据的节点与连线一律拒收，并会把「哪条不过、为什么」写进 issues；'
+      + '审计不过的会按意见自动重画（默认 2 次），仍不过或无模型时**降级为扫描图**，'
+      + '`source` 会如实写 ai 或 scan。会调用你在方寸设置里配的模型（BYOK），每次调用产生花销。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: '项目 id 或项目名（registry 里登记的）' },
+        max_attempts: { type: 'number', description: '最多重画几次（默认 2，上限 3）' },
+      },
+      required: ['project'],
     },
   },
   {
@@ -422,7 +442,7 @@ export const MCP_TOOLS: MCPTool[] = [
 
 // ── Tool Handler ────────────────────────────────────────────────────────
 
-export function handleMCPToolCall(name: string, args: any): MCPToolResult {
+export function handleMCPToolCall(name: string, args: any): MCPToolResult | Promise<MCPToolResult> {
   switch (name) {
     case 'list_tasks': {
       const view = args.view || 'active'
@@ -488,6 +508,46 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult {
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
     }
     
+    case 'arch_generate': {
+      // 让 agent 直接要点图（0.6.0）。与界面按钮走同一个服务：AI 画 → 审计 → 不过重画 → 降级。
+      // ⚠ 这里会真调模型（花钱），所以返回体里必须带 usage —— REV-005 边界③「花销每次可见」。
+      const want = String(args.project || '').trim()
+      if (!want) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id 或名字）' }) }], isError: true }
+      }
+      const view = archForProject(want)
+      if (!view.ok || !view.facts) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: view.error || '扫不出可用事实' }) }], isError: true }
+      }
+      const maxAttempts = Math.min(3, Math.max(1, Number(args.max_attempts) || 2))
+      return generateArchGraph(view.facts, { maxAttempts }).then((r) => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: true,
+            project: view.project ? view.project.id : want,
+            source: r.source,
+            attempts: r.attempts,
+            reason: r.reason || '',
+            model: r.model || '',
+            usage: r.usage || null,
+            graph: {
+              title: r.graph.title,
+              text: r.graph.text,
+              nodes: r.graph.nodes.map((x) => ({ id: x.id, label: x.label, kind: x.kind, files: x.files })),
+              edges: r.graph.edges.map((x) => ({ from: x.from, to: x.to, kind: x.kind, count: x.count })),
+              missing: r.graph.missing,
+            },
+            issues: r.audit ? r.audit.issues : [],
+            notes: r.audit ? r.audit.notes : [],
+            next: r.source === 'ai'
+              ? '生成图：每个节点/连线都指回了证据，可以直接用'
+              : '降级扫描图：' + (r.reason || '没配模型') + ' —— 想拿生成图，先让用户配好模型再调一次',
+          }, null, 2),
+        }],
+      }))
+    }
+
     case 'intake_task': {
       // 收卡 = 机检 + 落卡。**不阻挡**：机检不过照样建卡，东西不许丢；
       // 区别只在状态（过 → 待审批；不过 → 草稿）与正文里的红标留痕。

@@ -44,7 +44,9 @@ export function startMCPServer(): void {
     let buffer = ''
     socket.setEncoding('utf-8')
 
-    socket.on('data', (data: string) => {
+    // ⚠ 回调必须是 async：个别工具（arch_generate）要调模型，处理是异步的。
+    //    JSON-RPC 靠 id 匹配回包，所以交错顺序不影响客户端；本地管道请求量小，直接 await 够用。
+    socket.on('data', async (data: string) => {
       buffer += data
 
       let idx: number
@@ -66,7 +68,7 @@ export function startMCPServer(): void {
         //    单独兜住，仍然按 JSON-RPC 正常回 result + isError。
         let resp: any
         try {
-          resp = handleMCPRequest(req)
+          resp = await handleMCPRequest(req)
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
           log('error', 'MCP 请求处理异常', { method: req && req.method, message })
