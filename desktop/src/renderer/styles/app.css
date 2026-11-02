@@ -304,6 +304,20 @@ button:not([class]) {
 :where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }
+/* ── 计划 vs 实际（卡 task-20261027-004 阶段一）────────────────────────
+   两栏并排、原样呈现。刻意**不复用** .body 那些类：新块套旧 class 会让既有
+   按 class 数块的断言凭空变红（AGENTS.md 踩坑 2）。 */
+.mirror { margin-top: 14px; }
+.mirror-hint { font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 11.5px; }
+.mirror-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.mirror-col { border: 1px solid var(--border); border-radius: var(--btn-r-lg); padding: 10px 12px;
+              background: var(--tint); min-width: 0; }
+.mirror-head { font-size: 11.5px; font-weight: 700; margin-bottom: 6px; color: var(--ink); }
+.mirror-head span { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.mirror-text { font-size: 12px; line-height: 1.7; max-height: 340px; overflow: auto; }
+.mirror-missing { font-size: 12px; color: var(--muted); font-style: italic; }
+.mirror-caveat { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+
 /* 第二档：弹窗里的主/次按钮大一号（34 / 10）—— 弹窗里动作更重，按钮更好点 */
 .overlay .acts button.ghost, .overlay .acts button.pri, .overlay .acts button.ok,
 .overlay .acts button.danger, .overlay .acts button.warning {

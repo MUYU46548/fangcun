@@ -56,6 +56,31 @@
         <label>正文</label>
         <div class="body-text markdown" v-html="renderBody(previewTask.body)" @change="onBodyChange"></div>
       </div>
+      <!-- 计划与实际的对照镜（卡 20261027-004 阶段一）：
+           把这张卡的“方案”与“结果记录”**原样并排**，不加工不总结。
+           为什么放在详情里而不是新开一页：这张卡的要求是“能从任何一张卡并排取出”，
+           那就该出现在任何一张卡都有的地方。
+           ⚠ 缺一半时明说缺哪一段 —— 空着和“根本没写”在界面上长得一样，是两件事。 -->
+      <div class="mirror" v-if="mirror && (mirror.plan.text || mirror.actual.text)">
+        <label>计划 vs 实际 <span class="mirror-hint">原样并排，不加工</span></label>
+        <div class="mirror-cols">
+          <div class="mirror-col">
+            <div class="mirror-head">
+              方案 <span v-if="mirror.plan.text">{{ mirror.plan.len }} 字</span>
+            </div>
+            <div class="mirror-text markdown" v-if="mirror.plan.text" v-html="renderBody(mirror.plan.text)"></div>
+            <div class="mirror-missing" v-else>这张卡没有“方案”这一段</div>
+          </div>
+          <div class="mirror-col">
+            <div class="mirror-head">
+              结果记录 <span v-if="mirror.actual.text">{{ mirror.actual.len }} 字</span>
+            </div>
+            <div class="mirror-text markdown" v-if="mirror.actual.text" v-html="renderBody(mirror.actual.text)"></div>
+            <div class="mirror-missing" v-else>这张卡没有“结果记录”这一段</div>
+          </div>
+        </div>
+        <div class="mirror-caveat">{{ LEN_CAVEAT }}</div>
+      </div>
       <!-- 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：frontmatter 的 `架构` 是
            LayerDiagramSpec 的 JSON，交给 shared/layerDiagram 的纯函数画成 SVG。
            ⚠ JSON 读不出来要**说人话**，绝不静默留白 —— 否则用户以为"填了没生效"。 -->
@@ -207,8 +232,9 @@
 </template>
 
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
 import { statusClass } from '../../shared/status'
+import { extractMirror, LEN_CAVEAT } from '../../shared/planMirror'
 import { priorityLabel } from '../../shared/priority'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { renderBody } from '../markdown'
@@ -223,6 +249,8 @@ const ctl = props.ctl
 // ── 状态 ──────────────────────────────────────────────────────────────
 const previewTask = toRef(ctl, 'previewTask')
 const previewArch = toRef(ctl, 'previewArch')
+/** 对照镜：body 已经在预览对象里，直接算 —— 不新增 IPC，也不多读一次盘。 */
+const mirror = computed(() => extractMirror(previewTask.value?.body || ''))
 const rejectEdit = toRef(ctl, 'rejectEdit')
 const rejectEditText = toRef(ctl, 'rejectEditText')
 const rejectSaving = toRef(ctl, 'rejectSaving')

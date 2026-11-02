@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('tegula', {
     ipcRenderer.invoke('plans:advance', input),
   // 投入产出账（0.6.0 P5）：只读
   wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
+  // 计划与实际的对照镜（卡 20261027-004）：只读，返回两段原文
+  mirrorGet: (taskId: string) => ipcRenderer.invoke('mirror:get', taskId),
   /** 跨渠道 token 对比（0.6.0 第 2 批）：只读，只比 token */
   channelsGet: (opts?: { days?: number; channels?: string[] }) => ipcRenderer.invoke('channels:get', opts),
   /** BYOK 多通道配置（2026-11-02）：主通道 + 备用通道；密钥只回掩码，永远不回原值 */
