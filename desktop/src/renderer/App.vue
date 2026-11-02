@@ -1199,50 +1199,7 @@
     </div>
 
     <!-- 待办编辑弹窗（2026-09-25 第 12、14 条）：大框，写长内容不憋屈；已完成也能改 -->
-    <div id="todo-edit-overlay" class="overlay" v-if="todoEdit_" @mousedown.self="closeTodoEditor()">
-      <div id="todo-edit-modal">
-        <h3>{{ todoEdit_.id ? '编辑待办' : '新建待办' }}</h3>
-        <label>内容</label>
-        <textarea v-model="todoEdit_.title" class="tall" placeholder="待办内容（可以写长一点）"></textarea>
-        <div class="te-row">
-          <div>
-            <label>项目</label>
-            <select v-model="todoEdit_.project" class="logsel">
-              <option value="">（不归属）</option>
-              <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-            </select>
-          </div>
-          <div>
-            <label>优先级</label>
-            <select v-model="todoEdit_.priority" class="logsel">
-              <option v-for="s in ['高', '中', '低']" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </div>
-          <div>
-            <label>到期日</label>
-            <input type="date" v-model="todoEdit_.due" />
-          </div>
-          <!-- 到期时间（2026-10-12 暮雨：“待办只有到期日，建议再加一个可选的时间字段。
-               如 WorkBuddy 额度 21:33:59 重置，让用户选个 21:39”）。
-               ⚠ 是**可选**：留空 = 老行为（只按天）。所以标签写“时间（可选）”，
-                 并给一个“清空”小按钮 —— 填错了要能去掉（清空 = 字段整个消失，不是存个空串）。
-               ⚠ `type="time"` 在 Electron/Chromium 里是原生时间选择器，比自己搓输入框稳。 -->
-          <div>
-            <label>时间（可选）</label>
-            <span class="te-time-wrap">
-              <input type="time" v-model="todoEdit_.dueTime" step="60" />
-              <button v-if="todoEdit_.dueTime" type="button" class="te-time-clear"
-                title="清空时间（回到只按天判定）" @click="todoEdit_.dueTime = ''">✕</button>
-            </span>
-          </div>
-        </div>
-        <div class="hint todo-edit-donehint" v-if="todoEdit_.done">这条已勾选完成 —— 仍然可以修改内容和到期日。</div>
-        <div class="acts">
-          <button class="ghost" @click="closeTodoEditor()">取消</button>
-          <button class="pri" :disabled="todoEditSaving" @click="saveTodoEdit">{{ todoEditSaving ? '保存中…' : '保存' }}</button>
-        </div>
-      </div>
-    </div>
+    <TodoEditModal v-if="todoEdit_" :ctl="todoCtl" />
 
     <!-- Logs view
          ⚠ `v-if` 而**不是** `v-else-if` —— 这是硬约束，别改回去。
@@ -1716,69 +1673,11 @@
     <RelayModal v-if="relay_" :ctl="relayCtl" />
 
     <!-- 指派时间（2026-09-22，用户第 6 条）：任务可设开始+截止时间段，待办只有到期日 -->
-    <div v-if="calAssign_" class="overlay" @mousedown.self="calAssign_ = null">
-      <div id="cal-assign-modal">
-        <h3>📅 指派时间</h3>
-        <div class="ca-title">{{ calAssign_.title }}</div>
-        <div class="hint" v-if="calAssign_.isTodo">待办只有“到期日”一个时间点。</div>
-        <template v-if="!calAssign_.isTodo">
-          <label>开始（可选；与截止组成时间段，日历上会横跨多天）</label>
-          <input v-model="calAssign_.start" type="date" />
-        </template>
-        <label>{{ calAssign_.isTodo ? '到期日' : '截止' }}</label>
-        <input v-model="calAssign_.end" type="date" />
-        <div class="ca-quick">
-          <button class="ghost" @click="calQuickSet(0)">今天</button>
-          <button class="ghost" @click="calQuickSet(1)">明天</button>
-          <button class="ghost" @click="calQuickSet(7)">一周后</button>
-          <button class="ghost" @click="calClearDates">清除时间</button>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="calAssign_ = null">取消</button>
-          <button class="pri" @click="saveCalAssign">保存</button>
-        </div>
-      </div>
-    </div>
+    <CalAssignModal v-if="calAssign_" :ctl="calCtl" />
 
     <!-- App edit modal (Launchpad) -->
     <!-- Data directory migrate modal -->
-    <div v-if="migrateTarget" class="overlay" @mousedown.self="migrateTarget = null">
-      <div id="migrate-modal">
-        <h3>切换数据目录</h3>
-        <div class="mg-row"><span class="k">当前</span><span class="v">{{ dataDir }}</span></div>
-        <div class="mg-row"><span class="k">目标</span><span class="v">{{ migrateTarget.dir }}</span></div>
-        <div class="mg-row">
-          <span class="k">目标现状</span>
-          <span class="v" :class="{ warn: !migrateTarget.empty }">
-            <template v-if="migrateTarget.empty">空目录，可安全迁入</template>
-            <template v-else>
-              已有 {{ migrateTarget.taskCount }} 个任务文件<template v-if="migrateTarget.archivedCount">（含 {{ migrateTarget.archivedCount }} 个归档）</template>
-            </template>
-          </span>
-        </div>
-
-        <div class="mg-notice">
-          <b>将按顺序执行</b>
-          <ul>
-            <li>先把当前数据<b>完整备份</b>一份；备份失败则中止，不会动手</li>
-            <li>把 <code>task-data/</code> · <code>registry.yaml</code> · <code>docs/</code> <b>复制</b>到目标目录</li>
-            <li>切换方寸的数据指向并重新加载</li>
-            <li>原目录<b>保留不删</b>，确认无误后你可自行清理</li>
-          </ul>
-          <div class="mg-hint">回收站（<code>.trash</code>）与本地备份（<code>backups/</code>）不随迁。</div>
-          <div class="mg-hint" v-if="!migrateTarget.empty">
-            目标目录已有数据，迁入后同名文件将被覆盖（源目录仍完整保留）。
-          </div>
-        </div>
-
-        <div class="acts">
-          <button class="ghost" @click="migrateTarget = null">取消</button>
-          <button class="pri" :disabled="migrateBusy" @click="confirmMigrate">
-            {{ migrateBusy ? '迁移中…' : (migrateTarget.empty ? '开始迁移' : '覆盖式迁入') }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <MigrateModal v-if="migrateTarget" :ctl="migrateCtl" />
 
     <!-- New project modal -->
     <div v-if="projForm" class="overlay" @mousedown.self="closeProjForm()">
@@ -2102,68 +2001,7 @@
     </div>
 
     <!-- First-run wizard -->
-    <div v-if="showWizard" class="overlay wizard-overlay">
-      <div class="wizard">
-        <div class="wizard-header">
-          <h2>{{ wizardSteps[wizardStep].title }}</h2>
-          <p class="wizard-step-indicator">步骤 {{ wizardStep + 1 }} / {{ wizardSteps.length }}</p>
-        </div>
-        <div class="wizard-body">
-          <div v-if="wizardStep === 0">
-            <p class="wizard-desc">欢迎使用方寸！请先选择数据目录。</p>
-            <div class="wizard-field">
-              <label>数据目录</label>
-              <div class="wizard-input-row">
-                <input v-model="wizardDataDir" placeholder="选择数据目录路径" />
-                <button class="ghost" @click="browseWizardDir">浏览…</button>
-              </div>
-              <small class="wizard-hint">方寸将在此目录下创建 task-data/ 和 registry.yaml</small>
-            </div>
-          </div>
-          <div v-if="wizardStep === 1">
-            <p class="wizard-desc">选择初始化方式：</p>
-            <div class="wizard-options">
-              <label class="wizard-option" :class="{ selected: wizardInitMode === 'fresh' }">
-                <input type="radio" v-model="wizardInitMode" value="fresh" />
-                <div>
-                  <strong>新建空白看板</strong>
-                  <small>从零开始，创建全新的任务看板</small>
-                </div>
-              </label>
-              <label class="wizard-option" :class="{ selected: wizardInitMode === 'import' }">
-                <input type="radio" v-model="wizardInitMode" value="import" />
-                <div>
-                  <strong>从 Python tegula 导入</strong>
-                  <small>复制现有任务数据和项目注册表</small>
-                </div>
-              </label>
-            </div>
-            <div v-if="wizardInitMode === 'import'" class="wizard-field">
-              <label>Python tegula 目录</label>
-              <div class="wizard-input-row">
-                <input v-model="wizardPythonDir" placeholder="E:\CODE\CangKu\fangcun" />
-                <button class="ghost" @click="browsePythonDir">浏览…</button>
-              </div>
-            </div>
-          </div>
-          <div v-if="wizardStep === 2">
-            <p class="wizard-desc">确认配置：</p>
-            <div class="wizard-summary">
-              <div class="wizard-summary-row"><span>数据目录</span><code>{{ wizardDataDir }}</code></div>
-              <div class="wizard-summary-row"><span>初始化方式</span><span>{{ wizardInitMode === 'fresh' ? '新建空白看板' : '从 Python tegula 导入' }}</span></div>
-              <div v-if="wizardInitMode === 'import'" class="wizard-summary-row"><span>Python tegula 目录</span><code>{{ wizardPythonDir }}</code></div>
-            </div>
-          </div>
-        </div>
-        <div class="wizard-footer">
-          <button v-if="wizardStep > 0" class="ghost" @click="wizardStep--">上一步</button>
-          <div class="wizard-footer-right">
-            <button v-if="wizardStep < wizardSteps.length - 1" class="pri" @click="wizardNext" :disabled="!wizardCanNext">下一步</button>
-            <button v-else class="pri" @click="wizardFinish" :disabled="wizardFinishing">{{ wizardFinishing ? '初始化中…' : '完成' }}</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SetupWizard :ctl="wizardCtl" />
   </div>
 </template>
 
@@ -2216,6 +2054,10 @@ import AboutModal from './components/AboutModal.vue'
 import QuickAddModal from './components/QuickAddModal.vue'
 import LogProjectPicker from './components/LogProjectPicker.vue'
 import PolicyEditModal from './components/PolicyEditModal.vue'
+import CalAssignModal from './components/CalAssignModal.vue'
+import MigrateModal from './components/MigrateModal.vue'
+import TodoEditModal from './components/TodoEditModal.vue'
+import SetupWizard from './components/SetupWizard.vue'
 import LogEditModal from './components/LogEditModal.vue'
 import RelayModal from './components/RelayModal.vue'
 import LogPurgeModal from './components/LogPurgeModal.vue'
@@ -3260,6 +3102,22 @@ const wizardSteps = [
   { title: '初始化方式' },
   { title: '确认配置' },
 ]
+/** 首次启动向导控制器（后三刀第一刀「浮层」）：wizardStep 要能自减，所以 setter 必须有 */
+const wizardCtl = reactive({
+  get showWizard() { return showWizard.value },
+  get wizardStep() { return wizardStep.value },
+  set wizardStep(v: number) { wizardStep.value = v },
+  get wizardInitMode() { return wizardInitMode.value },
+  set wizardInitMode(v: 'fresh' | 'import') { wizardInitMode.value = v },
+  get wizardDataDir() { return wizardDataDir.value },
+  get wizardPythonDir() { return wizardPythonDir.value },
+  get wizardFinishing() { return wizardFinishing.value },
+  get wizardSteps() { return wizardSteps },
+  get wizardCanNext() { return wizardCanNext.value },
+  wizardNext,
+  wizardFinish,
+})
+
 const wizardCanNext = computed(() => {
   if (wizardStep.value === 0) return wizardDataDir.value.trim().length > 0
   if (wizardStep.value === 1 && wizardInitMode.value === 'import') return wizardPythonDir.value.trim().length > 0
@@ -3404,6 +3262,16 @@ const {
   executeBatchTodoDone, executeBatchTodoDelete,
   todoEdit_, todoEditSaving, openTodoEditor, closeTodoEditor, openTodoCreator, saveTodoEdit,
 } = todosApi
+
+/** 待办编辑弹窗控制器（后三刀第一刀「浮层」）：todoEdit_ 是 ref，getter 返回 .value，v-model 才写得进属性 */
+const todoCtl = reactive({
+  get todoEdit_() { return todoEdit_.value },
+  set todoEdit_(v: any) { todoEdit_.value = v },
+  get todoEditSaving() { return todoEditSaving.value },
+  get projects() { return projects.value },
+  closeTodoEditor,
+  saveTodoEdit,
+})
 const launchpadConfigPath = ref('')
 const blockerChains = ref<any[]>([])
 // 阻塞链的派生量（totalBlockedTasks / blockerImpact / blockerAdvice / blockerImpactById）
@@ -4230,6 +4098,14 @@ async function loadBlockerChains() {
 
 // ── 数据目录迁移 ─────────────────────────────────────────────────────
 const migrateTarget = ref<any>(null)
+/** 切换数据目录弹窗控制器（后三刀第一刀「浮层」） */
+const migrateCtl = reactive({
+  get migrateTarget() { return migrateTarget.value },
+  set migrateTarget(v: any) { migrateTarget.value = v },
+  get dataDir() { return dataDir.value },
+  get migrateBusy() { return migrateBusy.value },
+  confirmMigrate,
+})
 const migrateBusy = ref(false)
 
 // ── 新建规划 / 新建项目（替代 Electron 未实现的 window.prompt） ────────
@@ -5965,6 +5841,13 @@ const taskDue = (t: any): Date | null => parseCalDate(t?.deadline ?? t?.fm?.dead
 const calAssign_ = ref<{
   id: string; title: string; isTodo: boolean; start: string; end: string
 } | null>(null)
+
+/** 指派时间弹窗控制器（后三刀第一刀「浮层」）：calAssign_ 是 ref，getter 返回 .value，v-model 才写得进属性 */
+const calCtl = reactive({
+  get calAssign_() { return calAssign_.value },
+  set calAssign_(v: any) { calAssign_.value = v },
+  calQuickSet, calClearDates, saveCalAssign,
+})
 
 function openCalAssignTask(t: any) {
   const s = taskStart(t), e = taskDue(t)
