@@ -2014,6 +2014,22 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-msg { position: sticky; bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; }
 .plan-msg.ok { background: #e9f5e4; border: 1px solid #cfe4c8; color: var(--ok-text); }
 .plan-msg.bad { background: #fbeceb; border: 1px solid #eecfcc; color: var(--danger-text); }
+/* ── P4 跑判据 / 推进（2026-11-02）──
+   按钮与结果块各自独立类名（不复用 .plan-act-*）：旧断言按 class 数过，复用会凭空变红。 */
+.plan-run-checks { font-weight: 500; }
+.plan-run-advance { font-weight: 600; }
+.plan-run { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--tint-3); font-size: 11.5px; }
+.plan-run.bad { border-color: #e6b9b3; background: #fffbfa; }
+.plan-run-head { font-weight: 700; color: var(--ink); line-height: 1.6; }
+.plan-run-list { margin: 6px 0 0; padding-left: 0; list-style: none; }
+.plan-run-item { padding: 3px 0; line-height: 1.6; border-top: 1px dashed var(--border); }
+.plan-run-tag { display: inline-block; min-width: 42px; margin-right: 6px; font-weight: 700; }
+.plan-run-item.pass .plan-run-tag { color: var(--ok-text); }
+.plan-run-item.fail .plan-run-tag { color: var(--danger-text); }
+.plan-run-item.unknown .plan-run-tag { color: var(--muted); }
+.plan-run-raw { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--ink); word-break: break-all; }
+.plan-run-detail { margin-left: 6px; color: var(--muted); }
+.plan-run-advanced { margin-top: 6px; font-weight: 600; color: var(--ok-text); }
 
 /* 2026-10-31（暮雨第 7 条）：把"这一页干什么、点哪儿"写在最上面 —— 以前是零说明的只读列表 */
 .blockers-lead { margin-bottom: 10px; font-size: 12.5px; line-height: 1.75; color: var(--ink); }

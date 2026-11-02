@@ -2610,6 +2610,70 @@
       const note = ($('.plan-view .waste-note') || {}).textContent || ''
       check('★★ 页面口径声明点名 ai-trace + 外部 agent',
         /ai-trace/.test(note) && /外部 agent/.test(note), note.slice(0, 120))
+      // ── P4 界面入口（2026-11-02）：跑判据 / 推进这一格 ─────────────────
+      // 判据：两个按钮真在；点了真调通道（参数对）；结果块逐条三态；
+      //       被闸门挡下时说人话（「判据没过」而不是"出错了"）。
+      const stageBox = (id) => $$('.plan-view .plan-stage').find(
+        (x) => (((x.querySelector('.plan-id') || {}).textContent) || '').trim() === id)
+      const stageBtn = (id, label) => {
+        const box = stageBox(id)
+        if (!box) return null
+        return Array.prototype.slice.call(box.querySelectorAll('button'))
+          .find((b) => (b.textContent || '').indexOf(label) >= 0) || null
+      }
+      check('★ 每张阶段卡都有「跑判据」「推进这一格」（P4 不再是只有数据层的死功能）',
+        !!stageBtn('P0', '跑判据') && !!stageBtn('P0', '推进这一格')
+        && !!stageBtn('P1', '跑判据') && !!stageBtn('P1', '推进这一格'),
+        $$('.plan-view .plan-stage').length + ' 张卡')
+
+      const p0Run = stageBtn('P0', '跑判据')
+      if (p0Run) p0Run.click()
+      check('★ 点「跑判据」真调 plansChecks，参数带 file + stageId',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'plansChecks'
+          && c.args && c.args[0] && c.args[0].file === 'demo.md' && c.args[0].stageId === 'P0'), 6000, 'plansChecks'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansChecks').map((c) => c.args)))
+      check('★ 结果块渲染出来（不是点了没反应）',
+        await waitFor(() => !!stageBox('P0') && !!stageBox('P0').querySelector('.plan-run'), 5000, 'plan-run'))
+      const p0RunBox = stageBox('P0') ? stageBox('P0').querySelector('.plan-run') : null
+      check('★ 逐条判据都有三态标（2 条 → 2 行，每行都写着状态）',
+        !!p0RunBox && p0RunBox.querySelectorAll('.plan-run-item').length === 2
+        && Array.prototype.slice.call(p0RunBox.querySelectorAll('.plan-run-item'))
+          .every((li) => /\S/.test(((li.querySelector('.plan-run-tag') || {}).textContent) || '')),
+        p0RunBox ? p0RunBox.querySelectorAll('.plan-run-item').length + ' 条' : '没有结果块')
+      check('★★ 闸门结论是照抄主进程的（界面不自己算）：head 含「全过」',
+        !!p0RunBox && /全过/.test(((p0RunBox.querySelector('.plan-run-head') || {}).textContent) || ''),
+        p0RunBox ? ((p0RunBox.querySelector('.plan-run-head') || {}).textContent || '').slice(0, 80) : '')
+
+      const p1Run = stageBtn('P1', '跑判据')
+      if (p1Run) p1Run.click()
+      check('★ 判据没过的格子：结果块标红，head 说「不许跨格」',
+        await waitFor(() => {
+          const b = stageBox('P1') && stageBox('P1').querySelector('.plan-run')
+          return !!b && b.classList.contains('bad')
+            && /不许跨格/.test(((b.querySelector('.plan-run-head') || {}).textContent) || '')
+        }, 6000, 'P1 结果块'),
+        stageBox('P1') && stageBox('P1').querySelector('.plan-run')
+          ? (stageBox('P1').querySelector('.plan-run').textContent || '').slice(0, 80) : '没有')
+
+      const p1Go = stageBtn('P1', '推进这一格')
+      if (p1Go) p1Go.click()
+      check('★ 点「推进这一格」真调 plansAdvance，参数带 file + stageId',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'plansAdvance'
+          && c.args && c.args[0] && c.args[0].stageId === 'P1'), 6000, 'plansAdvance'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansAdvance').map((c) => c.args)))
+      check('★★ 被闸门挡下时说人话：「没推进 / 判据没过 / 打回理由已写进卡里」',
+        await waitFor(() => {
+          const m = ((($('.plan-view .plan-msg') || {}).textContent) || '')
+          return /没推进/.test(m) && /判据没过/.test(m) && /打回理由/.test(m)
+        }, 6000, 'msg'),
+        ((($('.plan-view .plan-msg') || {}).textContent) || '').slice(0, 120))
+
+      const p0Go = stageBtn('P0', '推进这一格')
+      if (p0Go) p0Go.click()
+      check('★★ 判据全过：推进成功，界面说「已推进」',
+        await waitFor(() => /已推进/.test(((($('.plan-view .plan-msg') || {}).textContent) || '')), 6000, 'msg'),
+        ((($('.plan-view .plan-msg') || {}).textContent) || '').slice(0, 120))
+
       const mTab = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf('主从') >= 0)
       if (mTab) { mTab.click(); await sleep(300) }
     }

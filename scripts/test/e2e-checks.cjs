@@ -232,12 +232,14 @@ console.log('\n== ② 执行：str / num / file ==')
       JSON.stringify({ stages: doc && doc.stages.length, criteria: parsed.length, lines: lines.length }))
     check('★ 每一条都有 kind（没有 undefined / 静默丢行）',
       parsed.every((p) => typeof p.kind === 'string' && p.kind.length > 0))
-    check('★ 四类前缀的文字在真卡里都出现过（卡面确实按四类写）',
-      ['cmd', 'str', 'num', 'file'].every((x) =>
+    // 2026-11-02 判据改写：31 条 → 35 条，23 条散文全部改成 cmd / str / file。
+    // num 在真卡上暂无自然用处（"每张卡判据 ≥ 2" 由 check-plan-card.py 承载），四类的覆盖由夹具断言。
+    check('★ cmd / str / file 三类在真卡上都被用到（卡面确实按前缀写）',
+      ['cmd', 'str', 'file'].every((x) =>
         lines.some((l) => new RegExp('^\\s*(?:-\\s*)?' + x + '\\s*[:：]').test(l))))
     const kinds = parsed.reduce((m, p) => (m[p.kind] = (m[p.kind] || 0) + 1, m), {})
-    check('★★ 真卡现状：8 条 cmd 是机器可执行写法；其余是散文 → unknown，绝不冒充 pass',
-      kinds.cmd === 8 && kinds.unknown === parsed.length - 8,
+    check('★★ 真卡判据全部可机检：unknown = 0（改写前是 23 条散文，闸门被它们 forever 挡着）',
+      (kinds.unknown || 0) === 0 && kinds.cmd === 8,
       JSON.stringify(kinds))
     check('★ 8 条 cmd 全部指向仓库里的脚本（不是随手一句）',
       parsed.filter((p) => p.kind === 'cmd').every((p) => /^(?:python|node)\s+scripts\//.test(p.command)),
@@ -270,6 +272,9 @@ console.log('\n== ② 执行：str / num / file ==')
   const planIpcSrc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-ipc.ts'), 'utf-8')
   check('★★ plans:get 没有接执行器（打开计划卡不许顺手跑命令）',
     !/checks\/runner|runCriteria|runCriterion/.test(planIpcSrc))
+  const planRunSrc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-run-ipc.ts'), 'utf-8')
+  check('★★ 执行器只挂在运行口里（跑判据是显式动作，读卡路径看不到 runner）',
+    /runCriteria/.test(planRunSrc) && !/guardedHandle\('plans:get'/.test(planRunSrc))
 
   // ── ⑧ 跨语言对拍：TS 解析 ≡ Python 只读镜像 ─────────────────────────
   console.log('\n== ⑧ Python 只读镜像对拍（tegula/checks.py）==')

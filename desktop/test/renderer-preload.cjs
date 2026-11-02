@@ -413,6 +413,62 @@ contextBridge.exposeInMainWorld('tegula', {
     }]
     return { ok: true, files: ['demo.md'], docs: file ? docs.filter((d) => d.file === file) : docs }
   },
+  // 跑判据 / 推进一格（0.6.0 P4 界面入口，2026-11-02 接上界面）。
+  // 夹具按 stageId 分两种形态，覆盖两条路：
+  //   P0 → 判据全过（闸门放行、推进成功）
+  //   P1 → 判据未过（闸门挡下、打回理由带实际值）
+  // ⚠ 两条都要过 cloneGuard：真机这一跳传 Vue 代理会直接抛，报文进不到主进程。
+  plansChecks: (input) => {
+    cloneGuard('plansChecks', [input])
+    rec('plansChecks', [input])
+    const stageId = (input && input.stageId) || ''
+    if (stageId === 'P1') {
+      return ok({
+        file: 'demo.md', stageId: 'P1', status: '待裁决',
+        results: [
+          { ok: false, state: 'fail', kind: 'cmd', detail: '退出码 3',
+            raw: 'cmd: node scripts/test/e2e-plan-run.cjs 退出码 0', evidence: { exitCode: 3 } },
+          { ok: true, state: 'pass', kind: 'str', detail: '文件含指定原文',
+            raw: "str: desktop/src/App.vue 含 'plan'", evidence: {} },
+        ],
+        gate: {
+          canAdvance: false, total: 2, passed: 1, failed: 1, unknown: 0,
+          blocked: [{ raw: 'cmd: node scripts/test/e2e-plan-run.cjs 退出码 0', state: 'fail', actual: '实际值：退出码 3' }],
+          diff: '判据未过：1 条未过 / 0 条未判定 / 共 2 条',
+          reason: '还有 1 条判据未过 —— 不许跨格',
+        },
+      })
+    }
+    return ok({
+      file: 'demo.md', stageId: stageId || 'P0', status: '已冻结',
+      results: [
+        { ok: true, state: 'pass', kind: 'cmd', detail: '退出码 0', raw: 'cmd: echo ok', evidence: { exitCode: 0 } },
+        { ok: true, state: 'pass', kind: 'str', detail: '文件含指定原文',
+          raw: "str: desktop/src/App.vue 含 'plan'", evidence: {} },
+      ],
+      gate: {
+        canAdvance: true, total: 2, passed: 2, failed: 0, unknown: 0, blocked: [], diff: '',
+        reason: '2 条判据全过 —— 可以完成这一格',
+      },
+    })
+  },
+  plansAdvance: (input) => {
+    cloneGuard('plansAdvance', [input])
+    rec('plansAdvance', [input])
+    const stageId = (input && input.stageId) || ''
+    if (stageId === 'P1') {
+      return ok({
+        advanced: false, blocked: true, error: '判据未过，不能跨格',
+        status: '未完成', evidence: '',
+        rejectReason: '判据未过：1 条未过 / 0 条未判定 / 共 2 条；「cmd: node scripts/test/e2e-plan-run.cjs 退出码 0」→ 实际值：退出码 3（未过）',
+      })
+    }
+    return ok({
+      advanced: true, blocked: false, status: '完成',
+      evidence: '自检 2026-11-02T01:00:00.000Z · 2/2 判据通过',
+      rejectReason: '',
+    })
+  },
   // 投入产出账（0.6.0 P5）：三格齐全的夹具。
   // 三格的 caveat 必须带「它证明不了什么」—— 界面断言会逐格检查（缺一格就红）。
   wasteGet: (opts) => {

@@ -94,8 +94,26 @@
             @click="verdict(doc, s, 'pass')">✓ 通过（冻结）</button>
           <button class="danger plan-act-reject" :disabled="busy" @click="openText(doc, s, 'reject')">↩ 打回</button>
           <button class="ghost plan-act-amend" :disabled="busy" @click="openText(doc, s, 'amend')">✎ 改一句</button>
+          <!-- P4 界面入口（2026-11-02）：只有点这里才起进程；打开这一页永远不会跑判据 -->
+          <button class="ghost plan-run-checks" :disabled="runBusy" title="真跑这一格的判据（不写任何文件）"
+            @click="runChecks(doc, s)">⚙ 跑判据</button>
+          <button class="pri plan-run-advance" :disabled="runBusy" title="跑判据 → 闸门 → 判据全过才写得进完成"
+            @click="advance(doc, s)">▶ 推进这一格</button>
           <span v-if="s.rejectReason" class="plan-reason">上次打回：{{ s.rejectReason }}</span>
           <span v-if="s.verdict" class="plan-verdict">{{ s.verdict }}</span>
+        </div>
+
+        <!-- 判据结果（P4）：逐条三态 + 闸门结论。缺省不渲染，不写「未跑」占位 -->
+        <div v-if="runOf(doc, s)" class="plan-run" :class="{ bad: runOf(doc, s).blocked }">
+          <div class="plan-run-head">{{ runHead(doc, s) }}</div>
+          <ul v-if="runOf(doc, s).results.length" class="plan-run-list">
+            <li v-for="(r, ri) in runOf(doc, s).results" :key="'run' + ri" class="plan-run-item" :class="r.state">
+              <span class="plan-run-tag">{{ stateText(r.state) }}</span>
+              <span class="plan-run-raw">{{ r.raw }}</span>
+              <span class="plan-run-detail">{{ r.detail }}</span>
+            </li>
+          </ul>
+          <div v-if="runOf(doc, s).advanced" class="plan-run-advanced">已写成「完成」，证据：{{ s.evidence }}</div>
         </div>
 
         <div class="plan-text" v-if="textTarget && textTarget.file === doc.file && textTarget.stageId === s.id">
@@ -137,6 +155,110 @@ const textTarget = ref<{ file: string; stageId: string; action: 'reject' | 'amen
 const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 
 const missCount = (doc: Doc) => doc.stages.filter((s) => s.missing.length).length
+
+// ── P4：跑判据 / 推进一格（2026-11-02 接上界面）────────────────────────
+// 结果按「文件::阶段」各存一份，不互相覆盖；**没点过就整块不渲染**（不写"未跑"占位）。
+// 这两条路径是唯一会起进程的地方 —— 打开这一页（plansGet）永远不会跑判据。
+interface RunState {
+  loading: boolean
+  results: any[]
+  gate: any
+  advanced: boolean
+  blocked: boolean
+  error: string
+}
+
+const runBusy = ref(false)
+const runStates = ref<Record<string, RunState>>({})
+const runKey = (doc: Doc, s: Stage): string => doc.file + '::' + s.id
+function runOf(doc: Doc, s: Stage): RunState | null { return runStates.value[runKey(doc, s)] || null }
+
+const STATE_TEXT: Record<string, string> = { pass: '通过', fail: '未过', unknown: '未判定' }
+function stateText(x: string): string { return STATE_TEXT[x] || x }
+
+function emptyRun(error = '', loading = false): RunState {
+  return { loading, results: [], gate: null, advanced: false, blocked: false, error }
+}
+
+function runHead(doc: Doc, s: Stage): string {
+  const r = runOf(doc, s)
+  if (!r) return ''
+  if (r.loading) return '正在跑 ' + s.id + ' 的判据…'
+  if (r.error) return '没跑成：' + r.error
+  const reason = String((r.gate && r.gate.reason) || '')
+  if (r.advanced) return '判据全过 → 已推进成「完成」（' + reason + '）'
+  if (r.blocked) return reason || '判据未过'
+  return reason || '判据全过'
+}
+
+async function runChecks(doc: Doc, s: Stage): Promise<void> {
+  if (runBusy.value) return
+  const key = runKey(doc, s)
+  runBusy.value = true
+  runStates.value = { ...runStates.value, [key]: emptyRun('', true) }
+  msg.value = ''
+  try {
+    const r: any = await (window as any).tegula.plansChecks({ file: doc.file, stageId: s.id })
+    if (!r?.ok) {
+      runStates.value = { ...runStates.value, [key]: emptyRun('读取失败：' + (r?.error || '未知错误')) }
+      return
+    }
+    const gate = r.gate || null
+    runStates.value = {
+      ...runStates.value,
+      [key]: {
+        loading: false, results: r.results || [], gate,
+        advanced: false, blocked: !(gate && gate.canAdvance), error: '',
+      },
+    }
+    msg.value = gate && gate.canAdvance
+      ? s.id + ' 判据全过 —— 可以点「推进这一格」'
+      : s.id + ' 判据没过 —— 看下面逐条实际值'
+    msgType.value = gate && gate.canAdvance ? 'ok' : 'bad'
+  } catch (e: any) {
+    runStates.value = { ...runStates.value, [key]: emptyRun('读取异常：' + (e?.message || e)) }
+  } finally {
+    runBusy.value = false
+  }
+}
+
+async function advance(doc: Doc, s: Stage): Promise<void> {
+  if (runBusy.value) return
+  const key = runKey(doc, s)
+  runBusy.value = true
+  runStates.value = { ...runStates.value, [key]: emptyRun('', true) }
+  msg.value = ''
+  try {
+    const r: any = await (window as any).tegula.plansAdvance({ file: doc.file, stageId: s.id })
+    if (!r?.ok) {
+      runStates.value = { ...runStates.value, [key]: emptyRun('推进失败：' + (r?.error || '未知错误')) }
+      msg.value = '没推进 ' + s.id + '：' + (r?.error || '未知错误')
+      msgType.value = 'bad'
+      return
+    }
+    runStates.value = {
+      ...runStates.value,
+      [key]: {
+        loading: false, results: r.results || [], gate: r.gate || null,
+        advanced: !!r.advanced, blocked: !!r.blocked, error: r.error || '',
+      },
+    }
+    if (r.advanced) {
+      msg.value = '已推进 ' + s.id + ' —— 判据全过，写进了「完成」'
+      msgType.value = 'ok'
+    } else if (r.blocked) {
+      msg.value = '没推进 ' + s.id + '：判据没过，打回理由已写进卡里'
+      msgType.value = 'bad'
+    } else {
+      msg.value = '没推进 ' + s.id + '：' + (r.error || '闸门拒绝')
+      msgType.value = 'bad'
+    }
+    // 结果块里的「证据」要靠重读后的对象，所以推进后一律重读（不自己拼状态）
+    await load()
+  } finally {
+    runBusy.value = false
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true

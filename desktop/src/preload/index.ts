@@ -91,6 +91,11 @@ contextBridge.exposeInMainWorld('tegula', {
   plansGet: (file?: string) => ipcRenderer.invoke('plans:get', file),
   plansVerdict: (input: { file: string; stageId: string; action: 'pass' | 'reject' | 'amend'; text?: string }) =>
     ipcRenderer.invoke('plans:verdict', input),
+  // 作战计划 · 跑判据 / 推进（0.6.0 P4 界面入口）：只有人点才会起进程，打开卡不会
+  plansChecks: (input: { file: string; stageId: string; repo?: string }) =>
+    ipcRenderer.invoke('plans:checks', input),
+  plansAdvance: (input: { file: string; stageId: string; repo?: string }) =>
+    ipcRenderer.invoke('plans:advance', input),
   // 投入产出账（0.6.0 P5）：只读
   wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
   /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */

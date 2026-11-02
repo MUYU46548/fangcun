@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { registerPlanIpcHandlers } from './main/plan-ipc'
+import { registerPlanRunIpcHandlers } from './main/plan-run-ipc'
 import { registerWasteIpcHandlers } from './main/waste-ipc'
 import { registeredChannels } from './main/guarded-ipc'
 import { getPref } from './main/services/prefs'
@@ -127,6 +128,8 @@ function createWindow(): void {
   registerBackupIpcHandlers()
   // 作战计划（0.6.0 P1）：只读 + 裁决两个口
   registerPlanIpcHandlers()
+  // 作战计划 · 跑判据 / 推进（0.6.0 P4）：执行器只在这个文件里，打开卡不会跑命令
+  registerPlanRunIpcHandlers()
   // 投入产出账（0.6.0 P5）：只读
   registerWasteIpcHandlers()
 
