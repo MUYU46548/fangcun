@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.9.0
+version: 1.10.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -133,6 +133,10 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 
 > **2026-10-30 用户拍板（硬规则）：完成是签字，不是干活。**
 > **2026-11-01 追加：签字对象是任务卡，不是日志。**
+> **2026-11-03 追加（用户原话）：执行日志是用户自己记上下文用的私人笔记，agent 不写。**
+> 干完活要记的是**看板任务**（`update_task` / `intake_task`），不是 `create_log`。
+> 本卡下文老口径已按这条改掉；`create_log` / `attach_log_files` / `update_log`
+> 只在用户**明确说“记一条日志”**时才用。
 > - 任务卡：agent 最多移到“待验收”；`move_status` 传“完成 / 驳回”会被**硬拒**。
 > - 执行日志：只记过程，agent 只能 `running / idle`；`complete / archive / reopen` 会被**硬拒**。
 >   **没有 `request_close` 这套“等你确认”** —— 日志页不该堆待验收队列。
@@ -140,26 +144,29 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 > - 决策：`decision_record` 已从 MCP 移除；拍板只在方寸界面“需求矩阵”页由用户点。
 > 越权不是"会被批评"，是接口直接报错 —— 看到 `只能由用户` 就停手，别换条路绕。
 
-## 常做的四件事（照抄参数，别探索）
+## 常做的几件事（照抄参数，别探索）
 
 > 这一段存在的原因：agent 每次干活都要“先看看有什么工具、再摸摸参数怎么写”——
-> 那就是 token 白烧。下面四条覆盖 90% 的日常，参数直接照抄。
+> 那就是 token 白烧。下面几条覆盖 90% 的日常，参数直接照抄。
 
-**① 开工：拿上一轮的执行日志（含并行副日志）**
+**① 开工：先看看板上的活（不是先翻日志）**
 ```
-get_log        { id: "log_20261028140158_yo07jt" }        # 单条；附件会带 abs 绝对路径
-inject_logs    { ids: ["<主日志>", "<副日志>"] }            # 主在前，其余标"并行日志"
-list_logs      { chain: "<任一日志 id>" }                  # 整条接力链（老 → 新）
+list_tasks     { project: "fangcun-base", status: "进行中" }   # 现在谁在做、做到哪
+get_task       { id: "<任务 id>" }                             # 这张卡的正文 + 判据
+get_roadmap    { project: "fangcun-base" }                     # 批次（batch）沿用这里的名字
+list_logs      { project: "fangcun-base" }                     # 只在用户点名某条日志 / 让查历史时才看
+get_log        { id: "log_20261028140158_yo07jt" }             # 单条；附件会带 abs 绝对路径
 ```
 
-**② 收工：写这一轮的日志（可挂截图）+ 把任务移进“待验收”**
+**② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```
-create_log       { title, project: "fangcun-base", content, nextSteps }
-attach_log_files { id: "<返回的 id>", paths: ["C:/…/shot.png"] }   # 本机绝对路径，复制进数据目录
-move_status      { id: "<关联任务 id>", status: "待验收" }          # 收口：任务进待验收，日志只记过程
+update_task   { id: "<任务 id>", fields: { body: "<做了什么 + 判据 + 没做到的>" },
+                expected_update: <读到的 updated> }             # 乐观锁，冲突就重读再写
+move_status   { id: "<任务 id>", status: "待验收" }              # 收口：卡进待验收，等用户签字
+intake_task   { title, project, deliverable, criteria, agent }    # 有交付物时用它落卡（先机检）
 ```
-⚠ 建日志**不要**先问用户“要不要记一条”——收工就记，这是方寸存在的理由。
-⚠ **不要**给日志打“等你确认”（`request_close` 已取消）：那会把待验收队列堆到日志页。
+⚠ **不写执行日志**：日志是用户自己记上下文的私人笔记（`create_log` 只在用户明确要求时用）。
+⚠ 收工别先问用户“要不要记一条”——要记的是**任务卡**，直接写进卡里。
 ⚠ **不要**把 `complete` 当成收工的最后一步：它会被拒，而且那本来就是用户的签字。
 
 **③ 看项目：状态与路线**
@@ -176,7 +183,7 @@ move_status { id, status: "进行中" }                              # 最多到
 ```
 ⚠ **`batch`（批次）必须沿用项目里已有的名字**，不要自己新造一个：
 `get_roadmap { project }` 先看一眼现有批次（如 `P1 功能` / `2026-Q3`），能归就归；
-真的都不合适再起新名字，并在日志里说明为什么。**批次名字一乱，路线图就变成一堆“未分类”**——
+真的都不合适再起新名字，并在**任务卡正文**里说明为什么。**批次名字一乱，路线图就变成一堆“未分类”**——
 方寸不会替你猜"这两张算不算一批"。
 
 **⑤ 交单：有交付物就用 `intake_task`（2026-11-02 新增）**
