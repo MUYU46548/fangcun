@@ -10,7 +10,7 @@ import {
   parseTask, renderTask, atomicWrite, genId, logActivity,
   getTaskDir, getDataDir, parseRegistry, loadTasks, loadAllTasksRaw,
   invalidateTaskCache, normalizePriority, PRIORITIES,
-  normalizeStatusAlias, isStatusLegal
+  normalizeStatusAlias, isStatusLegal, readActivityAll
 } from './index'
 
 // Re-export for convenience
@@ -1504,17 +1504,113 @@ export function copyTask(id: string): { ok: boolean; id?: string; error?: string
 
 // ── Roadmap Trend + Parallel + Milestones ───────────────────────────
 
-export function getRoadmapTrend(days = 7): Record<string, any[]> {
-  const roadmap = aggregateRoadmap()
-  const trend: Record<string, any[]> = {}
-  for (const p of roadmap.projects) {
-    trend[p.id] = [{
-      ts: Date.now(),
-      name: p.name,
-      active: p.batches.filter(b => b.status === 'active').length,
-      completed: p.batches.filter(b => b.status === 'completed').length,
-      blocked: p.blockers.length,
-    }]
+export interface RoadmapTrendPoint {
+  /** 当天结束时刻（本地，毫秒） */
+  ts: number
+  /** `YYYY-MM-DD`（本地） */
+  date: string
+  name: string
+  /** 当天结束时仍未到终态的任务数 */
+  active: number
+  /** 当天结束时状态为“完成”的任务数 */
+  completed: number
+  /** 其中仍带阻塞源的任务数 */
+  blocked: number
+}
+
+/** 时间戳归一：ISO / 秒级 Unix / 毫秒 / 空 → 毫秒（认不出 = NaN，不猜） */
+function trendTs(v: unknown): number {
+  const s = String(v ?? '').trim()
+  if (!s) return NaN
+  if (/^\d+$/.test(s)) {
+    const n = Number(s)
+    if (!Number.isFinite(n)) return NaN
+    return n < 1e11 ? n * 1000 : n
+  }
+  const t = Date.parse(s)
+  return Number.isFinite(t) ? t : NaN
+}
+
+/**
+ * 路线图趋势（2026-11-03，卡 task-20261011-002 的方案 ①）。
+ *
+ * 原实现只返回**一个点**（`ts: Date.now()`），所以“趋势”是假的。
+ * 现在按天回算最近 N 天的三组数：
+ *   · `active`  = 当天结束时仍未到终态（完成/驳回）的任务数；
+ *   · `completed` = 当天结束时状态为“完成”的任务数；
+ *   · `blocked` = 其中仍带阻塞源的任务数。
+ *
+ * 状态历史从 `.activity.log` 的 `move_status` 事件逐条回放；没有事件的旧卡用
+ * `更新` 时间 + 当前状态近似（**这是近似，不是审计**：历史里被改过几次的卡只能还原到
+ * “最后一条事件/更新时间”为止；窗口之前就存在的卡按当前状态计入第一天，形成基线）。
+ * 数据源全是本机文件，零依赖、零网络。
+ */
+export function getRoadmapTrend(days = 14): Record<string, RoadmapTrendPoint[]> {
+  const raw = Number(days)
+  const n = Number.isFinite(raw) ? Math.max(1, Math.min(90, Math.floor(raw))) : 14
+  const now = new Date()
+  const dayEnds: { date: string; end: number }[] = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime()
+    dayEnds.push({
+      date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      end,
+    })
+  }
+
+  // 状态时间线：move_status 的 detail 就是新状态
+  const moves = new Map<string, { ts: number; status: string }[]>()
+  for (const e of readActivityAll()) {
+    if (!e || e.action !== 'move_status' || !e.tid) continue
+    const ts = trendTs(e.ts)
+    if (!Number.isFinite(ts)) continue
+    const list = moves.get(String(e.tid)) || []
+    list.push({ ts, status: String(e.detail || '').trim() })
+    moves.set(String(e.tid), list)
+  }
+  for (const list of moves.values()) list.sort((a, b) => a.ts - b.ts)
+
+  const projects = parseRegistry()
+  const nameOf = new Map(projects.map((p: any) => [String(p.id), String(p.name || p.id)]))
+  const trend: Record<string, RoadmapTrendPoint[]> = {}
+  const all = loadAllTasks(true) // 含归档：历史完成数不能因为“收进归档”就消失
+
+  for (const t of all) {
+    const rawProj = t.fm.project
+    const pid = String(Array.isArray(rawProj) ? rawProj[0] : (rawProj || '')).trim()
+    // 脏数据防线：历史导入里出现过 `project: [undefined]`，不能被 String() 变成 "undefined" 这个假项目
+    if (!pid || pid === 'undefined' || pid === 'null') continue
+
+    const created = trendTs(t.fm.created ?? (t.fm as any).creation)
+    const updated = trendTs(t.fm.updated)
+    const born = Number.isFinite(created) ? created : updated
+    if (!Number.isFinite(born)) continue // 连时间都没有的卡不编进趋势
+
+    const statusNow = String(t.fm.status || '').trim()
+    const blockers = Array.isArray(t.fm.blockers) ? t.fm.blockers.filter(Boolean) : []
+    const evs = moves.get(t.id) || []
+    if (!trend[pid]) trend[pid] = dayEnds.map(d => ({ ts: d.end, date: d.date, name: nameOf.get(pid) || pid, active: 0, completed: 0, blocked: 0 }))
+
+    for (let i = 0; i < dayEnds.length; i++) {
+      const day = dayEnds[i]
+      if (born > day.end) continue
+      let status = ''
+      for (const ev of evs) {
+        if (ev.ts <= day.end) status = ev.status
+        else break
+      }
+      if (!status) {
+        // 没有状态事件：只有“更新时间”已经过去时才敢用当前状态，否则按尚未处理算
+        status = Number.isFinite(updated) && updated <= day.end ? statusNow : '待办'
+      }
+      const done = status === '完成'
+      const terminal = done || status === '驳回'
+      const point = trend[pid][i]
+      if (!terminal) point.active++
+      if (done) point.completed++
+      if (!terminal && blockers.length) point.blocked++
+    }
   }
   return trend
 }

@@ -60,6 +60,20 @@
           <div class="rp-bar" v-if="proj.current" :title="proj.current.done + ' / ' + proj.current.total">
             <span class="rp-bar-in" :style="{ width: proj.percent + '%' }"></span>
           </div>
+          <!-- 近 14 天趋势（2026-11-03 · task-20261011-002 方案 ①）：
+               从 .activity.log + 任务更新时间按天回算。蓝线=未到终态，绿线=已完成；
+               数字取最后一天，旁边给出阻塞（只在有阻塞时出现）。 -->
+          <div class="rp-trend" v-if="trendOf(proj.id).length" :title="trendTitle(proj.id)">
+            <span class="rp-trend-label">近 {{ TREND_DAYS }} 天</span>
+            <svg class="rp-spark" viewBox="0 0 120 20" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="rp-spark-line active" :points="sparkPoints(proj.id, 'active')" />
+              <polyline class="rp-spark-line done" :points="sparkPoints(proj.id, 'completed')" />
+            </svg>
+            <span class="rp-trend-now">
+              活跃 {{ trendLast(proj.id).active }} · 完成 {{ trendLast(proj.id).completed }}<template
+                v-if="trendLast(proj.id).blocked"> · 阻塞 {{ trendLast(proj.id).blocked }}</template>
+            </span>
+          </div>
           <!-- 2026-10-31 第二轮：没排批次的卡不再伪装成一个“未分类”阶段，
                而是摊在这儿说清欠账有多少、怎么归位。 -->
           <div class="rp-unbatched" v-if="proj.unbatched">
@@ -106,6 +120,33 @@ import { focusRoadmap, type RoadmapProjectLike } from '../../shared/roadmapFocus
 const roadmapData = ref<any>({ projects: [] })
 /** 阶段里程碑（P0/P1/P2/P3 各阶段完成度），随路线图一起加载 */
 const roadmapMilestones = ref<any[]>([])
+/** 近 N 天趋势（项目 id → 每天 { active, completed, blocked }）；读不到就空，不糊假线 */
+const roadmapTrend = ref<Record<string, any[]>>({})
+const TREND_DAYS = 14
+function trendOf(id: string): any[] {
+  const list = roadmapTrend.value && (roadmapTrend.value as any)[id]
+  return Array.isArray(list) ? list : []
+}
+function trendLast(id: string): { active: number; completed: number; blocked: number } {
+  const a = trendOf(id)
+  return a.length ? a[a.length - 1] : { active: 0, completed: 0, blocked: 0 }
+}
+/** 折线坐标：x 按天均分，y 按本项目最大值归一（0 值也落在底边，不画到中间骗人） */
+function sparkPoints(id: string, key: 'active' | 'completed'): string {
+  const pts = trendOf(id)
+  if (!pts.length) return ''
+  const max = Math.max(1, ...pts.map((p) => Number(p?.[key]) || 0))
+  return pts.map((p, i) => {
+    const x = pts.length === 1 ? 0 : (i / (pts.length - 1)) * 120
+    const y = 20 - ((Number(p?.[key]) || 0) / max) * 18
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+}
+function trendTitle(id: string): string {
+  const lines = trendOf(id).map((p) => `${p.date}：活跃 ${p.active} / 完成 ${p.completed} / 阻塞 ${p.blocked}`)
+  lines.push('（窗口前已存在的卡按当前状态计入第一天；这是近似，不是审计）')
+  return lines.join('\n')
+}
 /** 2026-10-31：点任务行 → 打开卡（跳转与落盘在 App，组件只发意图） */
 const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
 /** 哪些项目展开"全部批次"。默认收起 —— 这一页先回答"推哪一批" */
@@ -123,10 +164,10 @@ function batchesOf(index: number): any[] {
 }
 
 /**
- * 拉路线图 + 里程碑。
+ * 拉路线图 + 里程碑 + 近 14 天趋势。
  *
- * 两个 IPC 分开 try：里程碑挂了不该把整页路线图也拖空 —— 原来就是这样写的，
- * 搬过来时保持（数据来源不同，失败面也不同）。
+ * 三个 IPC 分开 try：任一挂了不该把整页拖空 —— 数据来源不同，失败面也不同。
+ * 趋势读不到就空着（不画假线），路线图本身照常显示。
  */
 async function loadRoadmap(): Promise<void> {
   try {
@@ -138,6 +179,10 @@ async function loadRoadmap(): Promise<void> {
     const m: any = await (window as any).tegula.suggestMilestones()
     roadmapMilestones.value = Array.isArray(m) ? m : []
   } catch { roadmapMilestones.value = [] }
+  try {
+    const t: any = await (window as any).tegula.getRoadmapTrend(TREND_DAYS)
+    roadmapTrend.value = (t && typeof t === 'object') ? t : {}
+  } catch { roadmapTrend.value = {} }
 }
 
 function roadmapHealthLabel(h: string): string {

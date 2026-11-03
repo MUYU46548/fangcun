@@ -2294,6 +2294,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .rp-toggle { flex: none; height: 24px; padding: 0 9px; font-size: 11px; }
 .rp-bar { height: 5px; background: var(--tint-3); border-radius: 3px; overflow: hidden; margin: -2px 0 10px; }
 .rp-bar-in { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+/* 近 14 天趋势（2026-11-03）：蓝=未到终态 / 绿=已完成；数字取最后一天 */
+.rp-trend { display: flex; align-items: center; gap: 8px; margin: -2px 0 10px; min-height: 20px; }
+.rp-trend-label { font-size: 10.5px; color: var(--muted); flex: none; }
+.rp-spark { width: 120px; height: 20px; flex: none; overflow: visible; }
+.rp-spark-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.rp-spark-line.active { stroke: var(--accent); }
+.rp-spark-line.done { stroke: var(--success); }
+.rp-trend-now { font-size: 10.5px; color: var(--muted); }
 /* 只看当前批次：只隐藏**视觉**，DOM 一条不少（老断言按 .rp-batch 数条数） */
 .roadmap-project.focus .rp-batch:not(.is-current) { display: none; }
 .rp-batch.is-current { box-shadow: inset 0 0 0 1px var(--accent-soft); }

@@ -5481,6 +5481,15 @@
     check('★★ 路线图**不是空的**（项目块渲染出来，不再停在“暂无路线图数据”）',
       !!$('.roadmap-view .roadmap-project') && !$('.roadmap-view .empty-state'),
       'projects=' + $$('.roadmap-view .roadmap-project').length)
+    // 2026-11-03：getRoadmapTrend 从“只产一个点”改成真按天回算，并接到这一页上
+    check('★★ 路线图有近 14 天趋势（折线 + 当天数字，通道不再是死的）',
+      !!$('.roadmap-view .rp-trend') && $$('.roadmap-view .rp-spark-line').length === 2
+      && /近 14 天/.test((($('.roadmap-view .rp-trend') || {}).textContent) || '')
+      && /活跃 \d+ · 完成 \d+/.test((($('.roadmap-view .rp-trend') || {}).textContent) || ''),
+      (($('.roadmap-view .rp-trend') || {}).textContent || '没有 .rp-trend'))
+    check('★ 趋势真调 getRoadmapTrend(14)（不是拿别的数硬画）',
+      window.__fcTest.calls().some((c) => c.name === 'getRoadmapTrend' && c.args && c.args[0] === 14),
+      JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'getRoadmapTrend').map((c) => c.args)))
     const rpEl = $('.roadmap-view .roadmap-project')
     check('★ 项目名 + 健康度标签（active → “活跃”，映射不是硬编码在模板里）',
       !!rpEl && ((rpEl.querySelector('.rp-name') || {}).textContent || '').trim() === '演示项目'

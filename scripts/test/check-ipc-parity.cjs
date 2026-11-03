@@ -89,11 +89,6 @@ const EXEMPTIONS = {
     llmReview: '同上（A 组 · 用户拍板保留）',
     llmRoadmap: '同上（A 组 · 用户拍板保留）',
 
-    // ── C 组：路线图趋势（半成品，已单独立卡）────
-    // 规划管理 4 条（createPlan/listPlans/getPlan/decidePlanPoint）2026-10-16 第 1 项已接
-    // “🗂 规划”弹窗（项目详情入口），从 dead 豁免里摘卡。
-    getRoadmapTrend: 'C 组 · 路线图趋势：当前是**半成品**（只产出一个数据点，没有真"趋势"）。要接得先补历史采样，已并入 task-20261011-002。',
-
     // ── E 组：确认为“不需要界面入口”的 3 条 ──────────────────────────
     logsGet: 'E 组 · 按 id 单取执行日志：渲染层的日志列表**自带完整内容**，打开详情不需要再按 id 取一次；MCP 侧有自己的读口。',
     cronCheck: 'E 组 · 周期检查：职责已由**通知中心**（services/notifier.ts 每小时扫 stalled，含指纹去重与自动消解）与 Python 侧 `tegula cron` 承担，界面上没有它的位置。',

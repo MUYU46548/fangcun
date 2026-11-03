@@ -1356,10 +1356,28 @@ export function logActivity(taskId: string, action: string, detail?: string): vo
   fs.appendFileSync(ACTIVITY_LOG, line, 'utf-8')
 }
 
-export function readActivity(limit = 50): any[] {
+/**
+ * 读**全部**活动日志（2026-11-03：路线图趋势要按天回算，不能只要最后 50 条）。
+ * 老日志里混着非 JSON 行（历史手写/半截写入），**逐行 try/catch 跳过**，不让一行坏数据
+ * 把整份趋势打空 —— 读日志的出口不允许因为一条坏行就什么都不返回。
+ */
+export function readActivityAll(): any[] {
   if (!fs.existsSync(ACTIVITY_LOG)) return []
-  const lines = fs.readFileSync(ACTIVITY_LOG, 'utf-8').trim().split('\n').filter(Boolean)
-  return lines.slice(-limit).map(l => JSON.parse(l))
+  const out: any[] = []
+  for (const line of fs.readFileSync(ACTIVITY_LOG, 'utf-8').split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    try {
+      const o = JSON.parse(t)
+      if (o && typeof o === 'object') out.push(o)
+    } catch { /* 坏行跳过，读到多少算多少 */ }
+  }
+  return out
+}
+
+export function readActivity(limit = 50): any[] {
+  const all = readActivityAll()
+  return limit > 0 ? all.slice(-limit) : all
 }
 
 // ── Checksum Utilities ──────────────────────────────────────────────────

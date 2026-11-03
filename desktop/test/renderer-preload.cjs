@@ -1427,7 +1427,21 @@ contextBridge.exposeInMainWorld('tegula', {
     const hit = store.tasks.filter((t) => String(t.id) === 'task-demo-001')
     return { ok: true, tasks: JSON.parse(JSON.stringify(hit)), parsed: { raw: q } }
   },
-  getRoadmapTrend: () => ({}),
+  // 近 14 天趋势夹具（2026-11-03）：必须有可见数据，路线图上的折线/数字才验得到
+  getRoadmapTrend: (days) => {
+    rec('getRoadmapTrend', [days])
+    const n = Math.max(1, Math.min(90, Number(days) || 14))
+    const pts = []
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(2026, 10, 3 - i)
+      pts.push({
+        ts: d.getTime(), date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        name: '演示项目',
+        active: 2 + (i % 3), completed: n - i, blocked: i % 2,
+      })
+    }
+    return { demo: pts }
+  },
   suggestCrossProject: () => { rec('suggestCrossProject'); return store.crossSuggest.slice() },
   detectParallelOpportunities: () => {
     rec('detectParallelOpportunities')
