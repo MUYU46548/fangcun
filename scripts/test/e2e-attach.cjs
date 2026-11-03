@@ -174,7 +174,10 @@ function main() {
   // ── ⑦ 源码守卫：渲染层接线 ──────────────────────────────────────────
   {
     const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf-8').replace(/\r\n/g, '\n')
-    const app = read('desktop/src/renderer/App.vue')
+    // 2026-11-03：日志编辑框 / 保存 / 附件链已离开 App.vue（LogEditModal + useLogAttachments
+    // + useLogEditorSave）。源码守卫改成扫**整个渲染层**，判据不变（“界面上真有这个接线”），
+    // 只是不再写死 App.vue 这一个路径 —— 与 `_sources.rendererSource()` 的既有口径一致。
+    const app = require('./_sources.cjs').rendererSource()
     const preload = read('desktop/src/preload/index.ts')
     const ipcSrc = read('desktop/src/main/ipc.ts')
 
@@ -210,7 +213,9 @@ function main() {
     //    “用户不一定开最大化”→ 拖拽要做；“待挂清单直接清空有害”→ 必须二次确认。
     check('⑧ 弹窗挂了 drop 监听', /@drop\.prevent="onLogAttachDrop\(\$event\)"/.test(app))
     check('⑧ 拖动经过时整块高亮，且写明“松手 = 挂附件”',
-      /:class="\{ 'drop-on': logAttachDragOver \}"/.test(app) && /松手 = 挂到这条日志的附件/.test(app))
+      /:class="\{ 'drop-on': logAttachDragOver \}"/.test(app) &&
+      // 那句提示是 CSS 伪元素（样式已外置到 styles/app.css），不再在 Vue 模板里
+      /#log-edit-modal\.drop-on::after[\s\S]{0,160}松手 = 挂到这条日志的附件/.test(read('desktop/src/renderer/styles/app.css')))
     check('⑧ dragenter/dragleave 用计数（否则划过子元素高亮会抖）',
       /logAttachDragDepth\+\+/.test(app) && /Math\.max\(0, logAttachDragDepth - 1\)/.test(app))
     check('⑧ octet-stream 按扩展名补 mime（拖进来的 png 不会被白名单误拒）',

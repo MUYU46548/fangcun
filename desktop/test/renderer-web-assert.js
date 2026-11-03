@@ -3281,7 +3281,7 @@
     window.__fcTest.setLogs([
       { id: 'log-relay-a', title: '接力源·问题清单', content: '列出14条问题', status: 'completed', project: 'demo',
         created: '2026-09-27T00:00:00.000Z', nextSteps: '清单勾选状态回写、批注导出格式、跨文件引用跳转',
-        taskIds: ['task-relay'], agentName: 'hermes' },
+        taskIds: ['task-relay'], agentName: 'hermes', sessionId: 'sess-relay-src-001' },
       { id: 'log-relay-b', title: '接力后·功能性调整', content: '改三处', status: 'active', running: true, project: 'demo',
         created: '2026-09-29T00:00:00.000Z', continueFrom: 'log-relay-a', agentName: 'hermes', prevAgentName: 'DSH' },
       { id: 'log-relay-c', title: '孤立日志', content: '与链无关', status: 'active', project: 'demo',
@@ -3350,13 +3350,20 @@
         const texts = $$('#relay-modal label').map(l => l.textContent || '')
         return texts.some(t => t.indexOf('上次的执行 Agent') >= 0) && texts.some(t => t.indexOf('本次执行 Agent') >= 0)
       })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 10)).join(' | '))
-    // 2026-10-30（暮雨第 6 条）：会话 ID 必须能在接力对话框里一次填完 ——
-    // 以前要"先创建，再点编辑，再贴 ID"，一个字段强制点两次。
-    check('★★ 接力对话框里能直接填“本次会话 ID”（不用建完再点编辑）',
+    // 2026-11-03（暮雨第 1 条）：新日志还没创建，不存在“本次会话 ID”；
+    // 这里改成“会话 ID（可留空）”，并把“上一段的 ID 也可填、用于倒查”写进标签/说明。
+    check('★★ 接力对话框里能直接填会话 ID（不用建完再点编辑；文案不再要求“本次”）',
       (() => {
-        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('本次会话 ID') >= 0)
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('会话 ID') >= 0)
         return !!lab && lab.nextElementSibling && lab.nextElementSibling.tagName === 'INPUT'
       })(), $$('#relay-modal label').map(l => (l.textContent || '').slice(0, 8)).join(' | '))
+    check('★ 会话 ID 字段说明写清“上一段的也行，用于倒查”（不逼用户猜还不存在的值）',
+      (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('会话 ID') >= 0)
+        const inp = lab && lab.nextElementSibling
+        const hint = inp && inp.nextElementSibling
+        return !!hint && (hint.textContent || '').indexOf('倒查') >= 0
+      })())
     check('★ 上次字段预填源日志的执行 Agent（hermes，可改可补）',
       (() => {
         const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('上次的执行 Agent') >= 0)
@@ -3388,10 +3395,13 @@
     check('★★ 下一步**默认留空**（2026-10-02 用户：“依旧每次都直接挪用上次的输入结果”——不再预填）',
       !!relayTaOf('下一步') && relayTaOf('下一步').value === '',
       relayTaOf('下一步') ? JSON.stringify(relayTaOf('下一步').value) : 'no 下一步 textarea')
-    check('★★“带入源的下一步”按钮在位（取回源内容的唯一入口，常显不藏 hover）',
-      $$('#relay-modal .relay-bring').length === 1 &&
-      ($('#relay-modal .relay-bring').textContent || '').indexOf('带入源的下一步') >= 0,
-      'bring=' + $$('#relay-modal .relay-bring').length)
+    check('★★ 两个“带入”按钮在位（源的下一步 / 源的会话 ID，常显不藏 hover）',
+      (() => {
+        const btns = $$('#relay-modal .relay-bring').map(b => b.textContent || '')
+        return btns.length === 2 &&
+          btns.some(t => t.indexOf('带入源的下一步') >= 0) &&
+          btns.some(t => t.indexOf('带入源的会话 ID') >= 0)
+      })(), 'bring=' + $$('#relay-modal .relay-bring').map(b => b.textContent.trim()).join(' | '))
     check('★ 执行内容默认留空（不继承源正文）',
       !!relayTaOf('执行内容') && relayTaOf('执行内容').value === '',
       JSON.stringify(relayTaOf('执行内容') ? relayTaOf('执行内容').value : null))
@@ -3414,6 +3424,19 @@
     check('★★ 点“带入”才把源的下一步原文放进框（主动取，不是自动挪用）',
       !!relayTaOf('下一步') && relayTaOf('下一步').value.indexOf('清单勾选状态回写') >= 0,
       relayTaOf('下一步') ? relayTaOf('下一步').value.slice(0, 60) : 'no 下一步 textarea')
+    // 2026-11-03（暮雨第 1 条）：会话 ID 也可以从源“带入”（通常填的是上一段的 ID，用于倒查）
+    const sessBring = $$('#relay-modal .relay-bring').find(b => (b.textContent || '').indexOf('会话 ID') >= 0)
+    if (sessBring) sessBring.click()
+    await sleep(200)
+    check('★★ 点“带入源的会话 ID”把源 ID 追加进框（上一段的 ID 也可填）',
+      (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('会话 ID') >= 0)
+        const inp = lab && lab.nextElementSibling
+        return !!inp && inp.tagName === 'INPUT' && inp.value === 'sess-relay-src-001'
+      })(), 'sessionId=' + (() => {
+        const lab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('会话 ID') >= 0)
+        return lab && lab.nextElementSibling ? lab.nextElementSibling.value : '?'
+      })())
     const cancelBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '取消')
     if (cancelBtn) cancelBtn.click()
     check('★ 带入也算改动：点取消不直接关，先出对话框内防丢条',
@@ -3483,7 +3506,7 @@
         t.value = '会话ID接力验证'
         t.dispatchEvent(new Event('input', { bubbles: true }))
       }
-      const sessLab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('本次会话 ID') >= 0)
+      const sessLab = $$('#relay-modal label').find(l => (l.textContent || '').indexOf('会话 ID') >= 0)
       const sessIn = sessLab && sessLab.nextElementSibling
       if (sessIn) {
         sessIn.value = 'sess-e2e-001'
@@ -3492,7 +3515,7 @@
       const createBtn = $$('#relay-modal .acts button').find(b => (b.textContent || '').trim() === '创建')
       const beforeCreate = window.__fcTest.callCount('logsCreate')
       if (createBtn) createBtn.click()
-      check('★★ 接力创建时把“本次会话 ID”一起送进 logsCreate（不再建完再编辑）',
+      check('★★ 接力创建时把会话 ID 一起送进 logsCreate（不再建完再编辑）',
         await waitFor(() => window.__fcTest.callCount('logsCreate') > beforeCreate, 4000, 'relay create'),
         'before=' + beforeCreate + ' after=' + window.__fcTest.callCount('logsCreate'))
       const created = window.__fcTest.calls().filter(c => c.name === 'logsCreate').pop()

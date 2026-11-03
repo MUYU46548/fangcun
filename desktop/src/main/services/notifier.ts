@@ -115,6 +115,35 @@ export function notifyUpdateReady(version: string): boolean {
   })
 }
 
+/**
+ * 待办的“到点”时间 = 到期日 + 可选到期时间（2026-11-03 修）。
+ *
+ * 真 bug：`due=2026-11-03` + `dueTime=20:52` 的待办，在 17:55 就弹“待办到期”。
+ * 因为旧代码只 `parseDueValue(t.due)`，把“到期日”当成当天 00:00 —— **时间字段被完全忽略**。
+ * 现在：有 dueTime 就拼到那一分钟；没有就保持老行为（当天 00:00，即“今天到期”的提醒）。
+ *
+ * 为什么要复用 `parseDueValue` 而不是 `shared/time.parseDueAt`：后者对 `MM-DD` 没有
+ * “已过去 180 天视为明年”的跨年容错，换掉会改变存量数据的语义。这里只补时间，不动日期解析。
+ */
+export function dueAtOf(due: unknown, dueTime?: unknown): number {
+  const s0 = String(due ?? '').trim()
+  let base: Date | null
+  // ⚠ `new Date('2026-11-03')` 按 **UTC** 解析 —— 在非东八区会把“当天 20:52”拼到前一天。
+  //   纯日期一律按**本地**构造（与待办“到期日”的语义一致）。
+  const ymd = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s0)
+  if (ymd) base = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]))
+  else base = parseDueValue(due)
+  if (!base) return NaN
+  const s = String(dueTime ?? '').trim().replace(/：/g, ':')
+  const m = s.match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$/)
+  if (!m) return base.getTime()
+  const hh = Number(m[1]); const mm = Number(m[2])
+  if (hh > 23 || mm > 59) return base.getTime()
+  const at = new Date(base)
+  at.setHours(hh, mm, 0, 0)
+  return at.getTime()
+}
+
 /** 一次完整扫描。exported 供测试与手动触发。 */
 export function scanOnce(now = new Date()): { scanned: boolean; newNotifications: number; resolved: number } {
   let created = 0
@@ -125,14 +154,17 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   const dueTodoIds = new Set<string>()
   for (const t of todoList) {
     if (t.done) continue
-    const due = parseDueValue(t.due)
-    if (due && due.getTime() <= now.getTime()) {
+    // ⚠ 必须带 dueTime：只看到期日会把“今晚 20:52”的待办在凌晨/白天就报成到期（2026-11-03 修）
+    const dueAt = dueAtOf(t.due, t.dueTime)
+    if (Number.isFinite(dueAt) && dueAt <= now.getTime()) {
       dueTodoIds.add(t.id)
       if (push({
         type: 'todo-due', level: 'warning',
         title: `待办到期：${t.title}`,
-        body: `优先级 ${t.priority}`,
-        sourceId: t.id, key: t.due,
+        body: `优先级 ${t.priority}${t.due ? ` · 到期 ${String(t.due)}${t.dueTime ? ' ' + String(t.dueTime) : ''}` : ''}`,
+        sourceId: t.id,
+        // 指纹含时间：改期/改时间 = 新事件；没时间时保持老键（不制造一次性重复弹窗）
+        key: `${String(t.due ?? '')}${t.dueTime ? ' ' + String(t.dueTime) : ''}`,
       })) created++
     }
   }

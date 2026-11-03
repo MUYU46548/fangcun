@@ -217,6 +217,30 @@ function main() {
     !notif.listNotifications().some(n => n.type === 'todo-due' && n.sourceId === dueTodo.id && !n.read))
   check('消解计数进入返回值', s3.resolved >= 1, JSON.stringify(s3))
 
+  // B2b. 待办带“到期时间”：没到点不许报（2026-11-03 暮雨报的真 bug：
+  //      明明是 20:52 才到期、系统时间还早于 17:55，通知已经说“待办到期”）
+  const today = new Date()
+  const y = today.getFullYear(); const mo = today.getMonth(); const da = today.getDate()
+  const dueStr = `${y}-${String(mo + 1).padStart(2, '0')}-${String(da).padStart(2, '0')}`
+  const timedTodo = todos.createTodo('今晚 20:52 到期', '中', dueStr, '', '', '20:52')
+  // 单元：时间真的拼进“到点”了（不是只看日期）
+  const at = notifier.dueAtOf(dueStr, '20:52')
+  check('★ dueAtOf 把 dueTime 拼到当天那一分钟（本地时间）',
+    at === new Date(y, mo, da, 20, 52, 0, 0).getTime(), String(at))
+  check('★ dueAtOf 没填时间 = 当天 00:00（老行为不变）',
+    notifier.dueAtOf(dueStr, '') === new Date(y, mo, da, 0, 0, 0, 0).getTime())
+
+  notifier.scanOnce(new Date(y, mo, da, 0, 5))   // 今天 00:05，远早于 20:52
+  check('★★ 未到点不报“待办到期”（20:52 到期，00:05 不弹）',
+    !notif.listNotifications().some(n => n.type === 'todo-due' && n.sourceId === timedTodo.id))
+  notifier.scanOnce(new Date(y, mo, da + 1, 8, 0))  // 次日 08:00，已经过了那个点
+  check('★★ 过了那个点才报（次日 08:00 才有）',
+    notif.listNotifications().some(n => n.type === 'todo-due' && n.sourceId === timedTodo.id))
+  todos.updateTodo(timedTodo.id, { done: true })
+  notifier.scanOnce(new Date(y, mo, da + 1, 8, 0))
+  check('带时间的待办完成后同样自动消解',
+    !notif.listNotifications().some(n => n.type === 'todo-due' && n.sourceId === timedTodo.id && !n.read))
+
   // B3. 任务截止：逾期且非终态
   const dlTask = tasks.createTask({ title: '逾期任务', deadline: '2000-01-01' })
   const okTask = tasks.createTask({ title: '正常任务', deadline: '2999-01-01' })

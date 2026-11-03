@@ -1176,27 +1176,7 @@
     <!-- 转换确认（2026-10-09 用户第 1 条）：把“源怎么办”从隐含约定变成看得见的勾选项。
          默认不勾 = 源原样保留（卡 004 铁律）；勾了才顺手收掉重复源 ——
          日志侧 = 现成“已归档”分区（可找回），待办侧 = 折叠“已转出”（可撤销）。 -->
-    <div v-if="convAsk_" class="overlay" @mousedown.self="convAsk_ = null">
-      <div id="conv-modal">
-        <h3>{{ convAsk_.kind === 'log2todo' ? '日志 → 待办' : '待办 → 日志' }}</h3>
-        <div class="conv-src">源：{{ convAsk_.kind === 'log2todo' ? '日志' : '待办' }}“{{ convAsk_.src.title || convAsk_.src.id }}”</div>
-        <div class="hint">会新建一条{{ convAsk_.kind === 'log2todo'
-          ? '待办（首行取“下一步”首条 —— 是（待填写）这类占位就改用日志标题；日志正文与下一步会一起带过去，项目/优先级跟着走）'
-          : '日志（标题/项目/优先级带过去，到期压进正文首行）' }}；同一条只转一次。</div>
-        <label class="conv-opt">
-          <input type="checkbox" v-model="convAsk_.archive" />
-          <span>顺手把源{{ convAsk_.kind === 'log2todo' ? '归档' : '标“已转出”' }}
-            <i>{{ convAsk_.kind === 'log2todo'
-              ? '源日志移入“已归档”分区（列表不再重复，随时可找回）'
-              : '源待办折叠进“已转出”（不是删除，展开可看可撤销）' }}</i></span>
-        </label>
-        <div class="hint conv-default">不勾 = 源原样保留，两边都看得见。</div>
-        <div class="acts">
-          <button class="ghost" @click="convAsk_ = null">取消</button>
-          <button class="pri" @click="runConvert">转换</button>
-        </div>
-      </div>
-    </div>
+    <ConvertModal v-if="convAsk_" :ctl="convertCtl" />
 
     <!-- 待办编辑弹窗（2026-09-25 第 12、14 条）：大框，写长内容不憋屈；已完成也能改 -->
     <TodoEditModal v-if="todoEdit_" :ctl="todoCtl" />
@@ -1328,55 +1308,7 @@
     <LogPurgeModal v-if="logPurgeOpen" :ctl="logPurgeCtl" />
 
     <!-- Review modal（2026-10-25：待审批 / 待验收共用，文案按 kind 切换） -->
-    <div id="review-overlay" class="overlay" v-if="reviewModal" @mousedown.self="reviewModal = null">
-      <div id="review-modal">
-        <h3>{{ reviewModal.kind === 'approval'
-          ? '⚖ 审批裁决（批准 → 待办 / 驳回）'
-          : reviewModal.kind === 'direct' ? '↩ 驳回任务' : '✅ 验收裁决' }}</h3>
-        <div class="review-info">
-          <div class="review-task-title">{{ reviewModal.title }}</div>
-          <div class="review-task-id">{{ reviewModal.id }}</div>
-        </div>
-        <!-- 2026-09-25（用户第 7 条）：原来这里只有“驳回理由”一个输入框 ——
-             通过按钮虽然在，但通过时**无处写结论**，等于“通过”这件事不留痕。
-             改成双用的验收结论：驳回必填、通过选填，两者都写进“结果记录”。
-             2026-10-25：审批裁决同样走这里（批准 = 转正待办，理由同样留痕）。 -->
-        <label>{{ reviewModal.kind === 'direct'
-          ? '驳回理由（可选 —— 写不清就点下面一个常用理由，或直接留空）'
-          : '裁决意见（可选；驳回后仍会常驻在卡上，随时能改）' }}</label>
-        <!-- 2026-10-30（暮雨第 2 条）：常用理由一键填，不必每次写作文。再点一次取消选择。 -->
-        <div class="review-presets">
-          <button v-for="p in reviewPresets" :key="p" type="button" class="ghost rp"
-            :class="{ on: reviewReason === p }" @click="reviewReason = reviewReason === p ? '' : p">{{ p }}</button>
-        </div>
-        <textarea v-model="reviewReason" class="review-reason"
-          :placeholder="reviewModal.kind === 'approval'
-            ? '批准：为什么可以转正；驳回：缺什么、要改成什么样'
-            : '驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项'"></textarea>
-        <!-- 2026-10-31（暮雨第 2 条：“驳回到底怎么用？每次都要手动点移动到待办，那有什么用？”）：
-             驳回之后卡停在哪，必须当场选，不能默认停在“驳回”等人来搬。
-             默认“退回待办”= 驳回即返工单，agent 下次取活就接着干（这才是它该有的样子）；
-             “先停着”= 这次只是记一笔，晚点自己决定。
-             2026-10-31 第二轮（暮雨：“我需要通过，但『驳回之后』显示在那里会误导”）：
-             这块只对“驳回”生效，所以标题后面直接写死这句话 —— 点“通过”时它一个字都不影响。 -->
-        <label class="review-where-label">驳回之后 <span class="rw-scope">（只在点“驳回”时生效 —— 点“通过”不受这一项影响）</span></label>
-        <div class="review-where" :class="{ 'is-secondary': reviewModal.intent === 'accept' }">
-          <label class="rw-opt" :class="{ on: reviewRework }">
-            <input type="radio" :checked="reviewRework" @change="reviewRework = true" />
-            <span><b>退回待办，让 AI 返工</b>（默认）—— 理由留在卡上，agent 取活会先读它</span>
-          </label>
-          <label class="rw-opt" :class="{ on: !reviewRework }">
-            <input type="radio" :checked="!reviewRework" @change="reviewRework = false" />
-            <span><b>先停在“驳回”</b> —— 不派活，晚点在看板的返工台里再决定</span>
-          </label>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="reviewModal = null">取消</button>
-          <button class="danger" @click="rejectTask">{{ reviewRework ? '↩ 驳回并退回待办' : '↩ 驳回' }}</button>
-          <button v-if="reviewModal.kind !== 'direct'" class="ok" @click="acceptTask">{{ reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
-        </div>
-      </div>
-    </div>
+    <ReviewModal v-if="reviewModal" :ctl="reviewCtl" />
 
     <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有
          2026-10-31（暮雨第 10 条）：原来只有版本号 + 一句"数据是你的"，没有简介、作者、版权、
@@ -1391,99 +1323,7 @@
          一篇主日志带若干附属，关系落盘。候选来自**全量日志**，弹窗自己有
          关键词 / 项目 / 状态 / Agent / 优先级 / 日期六个可叠加条件 ——
          不再受主界面筛选影响，也不再是一张没有查询能力的裸名单。 -->
-    <div v-if="logAttachTarget" class="overlay" @mousedown.self="logAttachTarget = null">
-      <div id="log-attach-modal">
-        <h3>🔗 绑定附属日志</h3>
-        <div class="la-main">
-          <span class="la-lbl">主日志</span>
-          <b>{{ logAttachTarget.title || logAttachTarget.id }}</b>
-          <span v-if="logAttachLoading" class="la-loading">正在读取全部日志…</span>
-        </div>
-        <div class="la-hint">
-          勾选同一轮一起跑的那几条（进度通知 / 并行通道）。绑定后它们会收进主日志下面的框，
-          每条仍可单独打开、单独改、单独完成；绑定关系落盘，下次还在。
-          一个附属只能归一个主日志；最多 20 条。勾选顺序 = 开工单里的顺序。
-        </div>
-        <div class="la-filters">
-          <input v-model="logAttachQuery" class="la-search" spellcheck="false"
-            placeholder="搜索标题 / 正文 / ID / 任务 / 会话…" />
-          <select v-model="logAttachProject" class="la-sel" title="按项目筛选">
-            <option value="">全部项目</option>
-            <option v-for="p in logAttachProjects" :key="'lap-' + p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-          <select v-model="logAttachStatus" class="la-sel" title="按状态筛选">
-            <option value="">全部状态</option>
-            <option value="running">进行中</option>
-            <option value="active">待处理</option>
-            <option value="completed">已完成</option>
-            <option value="archived">已归档</option>
-          </select>
-          <select v-model="logAttachAgent" class="la-sel" title="按执行 Agent 筛选">
-            <option value="">全部 Agent</option>
-            <option v-for="a in logAttachAgents" :key="'laa-' + a" :value="a">{{ a }}</option>
-          </select>
-          <select v-model="logAttachPrio" class="la-sel" title="按优先级筛选">
-            <option value="">全部优先级</option>
-            <option value="高">高</option>
-            <option value="中">中</option>
-            <option value="低">低</option>
-            <option value="__none__">未标</option>
-          </select>
-          <input v-model="logAttachDateFrom" type="date" class="la-sel la-date" title="起始日期（含）" />
-          <span class="la-sep">→</span>
-          <input v-model="logAttachDateTo" type="date" class="la-sel la-date" title="截止日期（含）" />
-          <button class="ghost" title="清空全部筛选条件" @click="clearLogAttachFilters">清空筛选</button>
-          <label class="la-toggle" title="已被别的组占用的日志不能重复绑定；打开这里可以看清它们为什么不出现">
-            <input type="checkbox" v-model="logAttachShowBlocked" /> 显示已占用
-          </label>
-        </div>
-        <div class="la-countline">
-          <span>筛出 <b>{{ logAttachRows.length }}</b> 条</span>
-          <span v-if="logAttachBlockedCount && !logAttachShowBlocked" class="la-blocked-note">
-            · 另有 {{ logAttachBlockedCount }} 条已被别的组占用或自己就是主日志
-          </span>
-          <span v-else-if="logAttachBlockedCount" class="la-blocked-note">
-            · 其中 {{ logAttachBlockedCount }} 条已被占用（灰显，不可选）
-          </span>
-          <span class="la-grow"></span>
-          <button class="ghost" title="把当前筛选出来的可绑定日志全部勾上（最多 20 条）"
-            @click="selectAllLogAttachFiltered">全选筛选结果</button>
-          <button class="ghost" @click="clearLogAttachPick">清空已选</button>
-        </div>
-        <div class="la-list">
-          <label v-for="row in logAttachRows" :key="'la-' + row.log.id" class="la-row"
-            :class="{ picked: row.picked, blocked: row.blocked }">
-            <input type="checkbox" :checked="row.picked" :disabled="row.blocked"
-              @change="toggleLogAttachPick(row.log.id)" />
-            <span class="log-status-badge" :class="logStatusClass(row.log)">{{ logStatusLabel(row.log) }}</span>
-            <span v-if="row.log.priority" class="log-prio-badge" :class="'lp-' + logPrioKey(row.log.priority)"
-              :title="'优先级：' + localPriority(row.log.priority)">{{ localPriority(row.log.priority) }}</span>
-            <span class="la-text">
-              <span class="la-title">{{ row.log.title || row.log.id }}</span>
-              <span class="la-sub">
-                <span>{{ row.log.project || '未归属' }}</span>
-                <span v-if="row.log.agentName">🤖 {{ row.log.agentName }}</span>
-                <span>{{ formatDate(row.log.created) }}</span>
-                <span class="la-id">{{ row.log.id }}</span>
-              </span>
-            </span>
-            <span v-if="row.blocked" class="la-blocked">{{ row.reason }}</span>
-            <span v-else-if="row.picked" class="la-picked">已选</span>
-          </label>
-          <div v-if="!logAttachRows.length" class="la-empty">
-            没有符合条件的日志。换个关键词 / 放宽日期，或点“清空筛选”看全部。
-            <template v-if="logAttachBlockedCount">（另有 {{ logAttachBlockedCount }} 条被占用，勾“显示已占用”可查看原因）</template>
-          </div>
-        </div>
-        <div class="acts">
-          <span class="la-count">
-            已选 {{ logAttachPick.length }} / 20 条<template v-if="logAttachPickedOutside">（{{ logAttachPickedOutside }} 条不在当前筛选内）</template>
-          </span>
-          <button class="ghost" @click="logAttachTarget = null">取消</button>
-          <button class="ok" :disabled="logAttachBusy || logAttachPick.length > 20" @click="saveLogAttach">{{ logAttachBusy ? '保存中…' : '保存绑定' }}</button>
-        </div>
-      </div>
-    </div>
+    <LogAttachModal v-if="logAttachTarget" :ctl="logAttachCtl" />
 
     <LogPreviewModal v-if="logPreview" :ctl="logPreviewCtl" />
 
@@ -1512,111 +1352,7 @@
     <RoadmapView v-if="curView === 'roadmap'" @open-task="openTaskById" />
 
     <!-- Edit modal -->
-    <div id="modal-overlay" class="overlay" v-if="editTask_" @mousedown.self="closeTaskEditor()">
-      <div id="modal" class="task-modal">
-        <h3>{{ editTask_.id ? '编辑任务' : '新建任务' }}</h3>
-        <!-- 2026-10-31（暮雨第 2 条“感觉很难填写”）：先把"最少要填什么"说清，
-             免得一屏十几个框看着像必须全填。 -->
-        <div class="tf-lead">只填<b>标题</b>就能建卡；其余留空不影响任何东西。每个框下面都写清它到底影响什么。</div>
-        <div class="tf-grid">
-          <div
-            v-for="spec in visibleFieldSpecs"
-            :key="spec.key"
-            class="tf-field"
-            :class="spec.span === 'full' ? 'tf-full' : 'tf-half'"
-          >
-            <label>{{ spec.label }}</label>
-
-            <!-- 阻塞：不让用户手填任务 ID（现实里没人会去看 ID，更不会记得），
-                 改成跟随所选项目、点选即可的挑选器。 -->
-            <template v-if="spec.key === 'blockers'">
-              <div class="blk-picked">
-                <span v-for="id in blockerList" :key="id" class="blk-chip">
-                  {{ taskTitleById(id) }}
-                  <button class="blk-x" title="移除" @click="removeBlocker(id)">×</button>
-                </span>
-                <span v-if="!blockerList.length" class="blk-empty">未设置依赖</span>
-              </div>
-              <!-- 2026-10-31 第二轮（暮雨：“和附属日志一样的问题，毫无筛选能力，一堆列表拉出来”）：
-                   原来是一个装 300 项的原生 <select>，找一张卡要滚半天。改成**搜索优先**：
-                   输入即筛（标题/ID 都认），不输入时只露最近 8 张，并说清"从哪来的"。
-                   原生 select 在几百项时没有搜索框，这是系统控件的硬伤，不是样式问题。 -->
-              <input class="blk-search" v-model="blockerQuery" spellcheck="false"
-                placeholder="搜标题或 ID（只列当前项目的任务）" />
-              <div class="blk-results">
-                <button v-for="t in blockerPickList" :key="'bp-' + t.id" type="button" class="blk-hit"
-                  @click="pickBlocker(t.id)">
-                  <span class="blk-hit-t">{{ t.title || '(无标题)' }}</span>
-                  <span class="blk-hit-id">{{ t.id }}</span>
-                  <span class="blk-hit-s">{{ t.status || '—' }}</span>
-                </button>
-                <div v-if="!blockerPickList.length" class="blk-none">
-                  {{ blockerQuery.trim() ? '没搜到 —— 换个词，或先把这个任务的项目改对' : '当前项目还没有可挑的任务' }}
-                </div>
-                <div v-else-if="!blockerQuery.trim() && blockerCandidates.length > blockerPickList.length" class="blk-more">
-                  还有 {{ blockerCandidates.length - blockerPickList.length }} 张没列 —— 输入标题或 ID 直接筛
-                </div>
-              </div>
-            </template>
-
-            <select v-else-if="spec.type === 'select'" v-model="editTask_[spec.key]">
-              <option v-for="o in specOptions(spec)" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-
-            <!-- 2026-10-31 第二轮（暮雨：“批次从来没被有效利用，每次都自己瞎编，最后越来越乱”）：
-                 批次框改成**带候选**的输入框 —— 已存在的批次名直接可选，想新造仍然可以打。
-                 路线图只认名字相同的一批，所以"顺手变成一个新的"才是乱源。 -->
-            <template v-else-if="spec.key === 'batch'">
-              <input v-model="editTask_[spec.key]" list="fc-batch-options" :placeholder="spec.placeholder || ''" />
-              <datalist id="fc-batch-options">
-                <option v-for="b in batchOptions" :key="'bt-' + b" :value="b"></option>
-              </datalist>
-            </template>
-
-            <textarea
-              v-else-if="spec.type === 'textarea'"
-              v-model="editTask_[spec.key]"
-              :class="{ tall: spec.key === 'body' }"
-              :placeholder="spec.placeholder || ''"
-            ></textarea>
-
-            <input v-else v-model="editTask_[spec.key]" :placeholder="spec.placeholder || ''" />
-
-            <div v-if="spec.hint" class="tf-hint">{{ spec.hint }}</div>
-          </div>
-        </div>
-        <!-- 历史版本（2026-10-18 卡 001；2026-10-31 收口）：把 atomicWrite 本来就在写的
-             .backup 接出来 —— 看见列表、逐版预览、恢复任意一版。恢复前会自动备份当前版。 -->
-        <div v-if="editTask_.id" class="ver-sect">
-          <button class="ghost ver-toggle" @click="toggleTaskHistory">
-            🕘 历史版本<span v-if="taskVersions.length"> · {{ taskVersions.length }}</span>
-          </button>
-          <div v-if="taskHistoryOpen" class="ver-panel">
-            <div class="ver-head">
-              <b>这张卡的历史版本</b>
-              <span class="ver-sub">本机最近 10 版；恢复前会把当前版再备份一次</span>
-              <button class="ver-x" title="收起" @click="taskHistoryOpen = false">×</button>
-            </div>
-            <div v-if="taskVersionBusy" class="ver-empty">读取中…</div>
-            <div v-else-if="!taskVersions.length" class="ver-empty">没有历史版本（本机只留最近 10 版，更早的要靠整包备份）</div>
-            <div v-else class="ver-list">
-              <div v-for="v in taskVersions" :key="v.file" class="ver-row" :class="{ on: taskVersionPreview?.file === v.file }">
-                <button class="ver-main" @click="previewTaskVersion(v)">
-                  <span class="ver-title">{{ v.title || '(无标题)' }}</span>
-                  <span class="ver-meta">{{ v.at ? formatDateTime(v.at) : '时间不详' }} · {{ versionSizeText(v.size) }} · {{ v.status || '状态未知' }}</span>
-                </button>
-                <button class="ver-restore" @click="restoreTaskVersionItem(v)">恢复</button>
-              </div>
-            </div>
-            <pre v-if="taskVersionPreview" class="ver-preview">{{ taskVersionPreview.content }}</pre>
-          </div>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="closeTaskEditor()">取消</button>
-          <button class="pri" @click="saveEdit">保存</button>
-        </div>
-      </div>
-    </div>
+    <TaskEditModal v-if="editTask_" :ctl="taskEditCtl" />
 
     <!-- Log edit modal -->
     <!-- Policy edit modal -->
@@ -1635,37 +1371,7 @@
         @approve="approveArch" @reject="rejectArch" @generate="generateSelfArch" />
     </div>
 
-    <div id="smap-overlay" class="overlay" v-if="smapOpen" @mousedown.self="smapOpen = false">
-      <div id="smap-modal">        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
-        <p class="smap-hint">
-          每张方针卡里有一个“结构地图”小节。第一行必须是<b>最后核实日期</b>——
-          烂地图比没地图危险，因为读者不知道它烂。内容由 agent 起草、你过目。
-        </p>
-        <div class="smap-list">
-          <div v-for="row in smapRows" :key="row.id" class="smap-item"
-            :class="{ done: row.has, missing: !row.has, nopolicy: !row.hasPolicy }">
-            <span class="smap-dot"></span>
-            <div class="smap-main">
-              <div class="smap-name">{{ row.name }}</div>
-              <div class="smap-meta">
-                <template v-if="!row.hasPolicy">连方针卡都还没立</template>
-                <template v-else-if="!row.has">方针卡在，但没有结构地图</template>
-                <template v-else-if="row.verified">最后核实 · {{ row.verified }}</template>
-                <template v-else>有结构地图，但没写最后核实日期</template>
-              </div>
-            </div>
-            <button class="ghost smap-open" @click="openPolicyFromSmap(row.id)">
-              {{ row.has && row.verified ? '查看 / 编辑' : row.hasPolicy ? '去填' : '先立方针卡' }}
-            </button>
-          </div>
-          <div v-if="!smapRows.length" class="hint">还没有登记项目</div>
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="smapOpen = false">关闭</button>
-        </div>
-      </div>
-    </div>
-
+    <SMapModal :ctl="smapCtl" />
 
     <LogEditModal v-if="logEdit_" :ctl="logEditCtl" />
 
@@ -1680,27 +1386,7 @@
     <MigrateModal v-if="migrateTarget" :ctl="migrateCtl" />
 
     <!-- New project modal -->
-    <div v-if="projForm" class="overlay" @mousedown.self="closeProjForm()">
-      <div id="proj-new-modal">
-        <h3>新建项目</h3>
-        <label>项目 ID <span class="req">*</span></label>
-        <input v-model="projForm.id" placeholder="英文标识，如 novel-forge" />
-        <label>显示名称</label>
-        <input v-model="projForm.name" placeholder="留空则与 ID 相同" />
-        <label>仓库路径</label>
-        <input v-model="projForm.repo" placeholder="E:/CODE/CangKu/xxx（供 Hermes 派活定位）" />
-        <label>说明</label>
-        <input v-model="projForm.description" placeholder="一句话说明（可选）" />
-        <div class="hint">
-          项目登记进 <code>registry.yaml</code>。写入前会自校验（内容可解析 · 项目数 +1 · 新 ID 可见），
-          任一不满足即放弃写入；文件原有注释与字段原样保留。
-        </div>
-        <div class="acts">
-          <button class="ghost" @click="closeProjForm()">取消</button>
-          <button class="pri" :disabled="projCreating" @click="confirmNewProject">{{ projCreating ? '写入中…' : '登记项目' }}</button>
-        </div>
-      </div>
-    </div>
+    <ProjectNewModal v-if="projForm" :ctl="projCtl" />
 
     <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情“✨ AI 规划”的入口。
          两个动作走 12 条 LLM 通道的后两条（llm:planToDraft / llm:draftProjectBrief）：
@@ -1708,153 +1394,18 @@
          ⚠ 合入时改了一处：遮罩关闭手势原为 `@click.self` → 改 `@mousedown.self`。
            这里有个文本输入框（goal），`@click.self` 会在"拖选文字、光标滑出弹窗"时
            被当成点了遮罩，**把还没提交的草稿一起关掉**（2026-10-11 真机踩过，守卫第 ⑨ 类也拦它）。 -->
-    <div v-if="aiPlanForm" class="overlay" @mousedown.self="closeAiPlan()">
-      <div id="ai-plan-modal">
-        <h3>AI 规划 · {{ aiPlanForm.name }}</h3>
-        <label>想干什么（一句话目标，给“拆成任务卡”用）</label>
-        <input v-model="aiPlanForm.goal" placeholder="例：把 0.2.8 发版前的阻塞清空"
-               @keyup.enter="runPlanToDraft()" :disabled="aiPlanBusy" />
-        <!-- 2026-10-16（暮雨第 1 条）：他说“根本找不到入口、也没找到配置模型的地方”——
-             入口其实一直在项目详情里，配置在设置页，只是**没有一条线把它们串起来**。
-             这里补的就是这条线：没配端点时当场指路，一键送到设置页那一格。 -->
-        <div class="hint hint-warn" v-if="!llmCfg.baseUrl">
-          ⚠ 还没配模型通道 —— 这个动作要用你自己的一份模型 API（BYOK，方寸不预置任何端点、不代收费用）。
-          <button class="ghost llm-goto" :disabled="aiPlanBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
-        </div>
-        <div class="hint">
-          结果落成<b>“待审批”卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
-          卡带 <code>ai-planning</code> 来源标记可审计。
-        </div>
-        <div class="acts">
-          <button class="ghost" :disabled="aiPlanBusy" @click="closeAiPlan()">取消</button>
-          <button class="ghost" :disabled="aiPlanBusy || !aiPlanForm.goal.trim()" @click="runPlanToDraft()">
-            {{ aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
-          <button class="pri" :disabled="aiPlanBusy" @click="runDraftBrief()">
-            {{ aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
-        </div>
-      </div>
-    </div>
+    <AiPlanModal v-if="aiPlanForm" :ctl="aiPlanCtl" />
 
     <!-- ══ 文档拆卡弹窗（2026-10-17 四件补立项之二）：粘贴文档全文 → AI 拆成待审批卡。
          同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同“待审批+ai-doc 审计”红线。 -->
-    <div v-if="aiDocForm" class="overlay" @mousedown.self="closeAiDoc()">
-      <div id="ai-doc-modal">
-        <h3>文档拆卡 · {{ aiDocForm.name }}</h3>
-        <label>粘贴文档全文（需求说明/会议记录/笔记，最长 6 万字）</label>
-        <textarea v-model="aiDocForm.doc" rows="9"
-                  placeholder="把文档内容整段粘进来，AI 从里头提取可执行的任务（背景/感想/已完成事项会自动跳过）"
-                  :disabled="aiDocBusy"></textarea>
-        <div class="hint hint-warn" v-if="!llmCfg.baseUrl">
-          ⚠ 还没配模型通道 —— 这个动作要用你自己的一份模型 API（BYOK，方寸不预置任何端点、不代收费用）。
-          <button class="ghost llm-goto" :disabled="aiDocBusy" @click="gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
-        </div>
-        <div class="hint">
-          每篇最多拆 <b>20 张</b>“待审批”卡（琥珀色状态）——你过目改卡、点头后才进待办；
-          卡带 <code>ai-doc</code> 来源标记，和目标拆解的卡分开可查。拆完原文不留存。
-        </div>
-        <div class="acts">
-          <button class="ghost" :disabled="aiDocBusy" @click="closeAiDoc()">取消</button>
-          <button class="pri" :disabled="aiDocBusy || !aiDocForm.doc.trim()" @click="runDocToDrafts()">
-            {{ aiDocBusy ? 'AI 拆卡中…' : '📄 拆成任务卡' }}</button>
-        </div>
-      </div>
-    </div>
+    <AiDocModal v-if="aiDocForm" :ctl="aiDocCtl" />
 
     <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情“🗂 规划”的入口。
          接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
          决策点选定即留痕（选项+时间落任务文件）；再点其他选项=改选，留痕覆盖（decidedAt 刷新）。 -->
-    <div v-if="plansModal" class="overlay" @mousedown.self="closePlans()">
-      <div id="plans-modal">
-        <h3>规划 · {{ plansModal.name }}</h3>
+    <PlansModal v-if="plansModal" :ctl="plansCtl" />
 
-        <!-- 列表态 -->
-        <div v-if="!planDetail && !planCreating">
-          <div class="hint" v-if="planListBusy">读取中…</div>
-          <div class="hint" v-else-if="!planList.length">
-            这个项目还没有规划——点下面“＋ 新建规划”：目标、里程碑、要决定的决策点一次写清，
-            决策点逐个选定后规划自动转“进行中”。
-          </div>
-          <div class="plan-row" v-for="t in planList" :key="t.fm.id" :data-plan-id="t.fm.id">
-            <div class="plan-row-main">
-              <b>{{ t.fm.title }}</b>
-              <span class="plan-badge" :data-plan-status="t.fm.plan_status || 'draft'">{{ planStatusLabel(t.fm.plan_status) }}</span>
-            </div>
-            <button class="ghost" @click="openPlanDetail(t.fm.id)">看决策点 →</button>
-          </div>
-        </div>
-
-        <!-- 详情态：决策点选择+留痕+回看 -->
-        <div v-else-if="planDetail">
-          <div class="hint" v-if="planDetail.plan.objective">目标：{{ planDetail.plan.objective }}</div>
-          <div v-if="planDetail.plan.milestones.length">
-            <div class="ms-suggest-h">里程碑</div>
-            <div v-for="(m, i) in planDetail.plan.milestones" :key="'pm' + i">· {{ m.name }}<template v-if="m.deadline">（{{ m.deadline }}）</template></div>
-          </div>
-          <div class="plan-dp" v-for="dp in planDetail.plan.decisions" :key="dp.id" :data-dp-id="dp.id">
-            <div class="plan-dp-q">{{ dp.question }}</div>
-            <div class="hint" v-if="dp.status !== 'pending'">
-              ✓ 已选：<b>{{ dp.chosen }}</b>（{{ planWhen(dp.decidedAt) }}）——再点其他选项=改选，留痕覆盖
-            </div>
-            <div class="plan-dp-opts">
-              <button v-for="op in dp.options" :key="op" class="ghost"
-                      :class="{ pri: dp.chosen === op }" @click="decideDp(dp, op)">{{ op }}</button>
-            </div>
-          </div>
-          <div class="hint hint-warn" v-if="!planDetail.plan.decisions.length">这条规划没有决策点。</div>
-          <div class="hint" v-else-if="planDetail.plan.decisions.every(d => d.status !== 'pending')">
-            决策点全定完——规划已自动转“进行中”，选择留痕都记在任务卡里。
-          </div>
-        </div>
-
-        <!-- 表单态：新建规划 -->
-        <div v-else>
-          <label>规划标题 *</label>
-          <input v-model="planForm.title" placeholder="例：0.3.7 发版计划" />
-          <label>目标（可空）</label>
-          <input v-model="planForm.objective" placeholder="例：把启动台三件事收口并发 0.3.7" />
-          <label>里程碑（每行一条，可空；格式 名称|截止，截止可省）</label>
-          <textarea v-model="planForm.milestones" rows="2" placeholder="设计稿定稿|2026-10-20&#10;发版"></textarea>
-          <template v-for="(dp, i) in planForm.dps" :key="'dpf' + i">
-            <label>决策点 {{ i + 1 }} · 要决定的问题 *</label>
-            <input v-model="dp.question" placeholder="例：端口模型走哪版？" />
-            <label>选项（每行一个）*</label>
-            <textarea v-model="dp.options" rows="2" placeholder="端口=配置项&#10;端口=观测结果"></textarea>
-            <button class="ghost" v-if="planForm.dps.length > 1" @click="planForm.dps.splice(i, 1)">删这条决策点</button>
-          </template>
-          <button class="ghost" @click="planForm.dps.push({ question: '', options: '' })">＋ 加决策点</button>
-        </div>
-
-        <div class="acts">
-          <button class="ghost" @click="closePlans()">关闭</button>
-          <button class="ghost" v-if="planDetail" @click="backPlanList()">← 回列表</button>
-          <button class="pri" v-if="!planDetail && !planCreating" @click="startPlanCreate()">＋ 新建规划</button>
-          <button class="pri" v-else-if="planCreating" :disabled="!planForm.title.trim()" @click="submitPlan()">建规划</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="app-edit-overlay" class="overlay" v-if="editApp_" @mousedown.self="closeAppEditor()">
-      <div id="app-edit-modal">
-        <h3>{{ editApp_.isNew ? '添加应用' : '编辑应用' }}</h3>
-        <label>名称</label>
-        <input v-model="editApp_.name" placeholder="应用名称" />
-        <label>路径（exe / bat / cmd / ps1 / lnk / 文件夹都行）</label>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input v-model="editApp_.path" placeholder="E:/path/to/app.exe" style="flex:1" />
-          <button type="button" class="ghost" @click="browseAppPath">浏览…</button>
-        </div>
-        <label>启动参数（可选，空格分隔）</label>
-        <input v-model="editApp_.argsText" placeholder="例：--port 8080" />
-        <label>描述（可选）</label>
-        <input v-model="editApp_.description" placeholder="应用描述" />
-        <div class="hint app-path-hint">选中文件夹或 .lnk 时直接用系统“打开”；.bat/.cmd 经 cmd.exe 执行，.ps1 用 powershell 执行。</div>
-        <div class="acts">
-          <button class="ghost" @click="closeAppEditor()">取消</button>
-          <button v-if="!editApp_.isNew" class="danger" @click="removeApp(editApp_.id)">删除</button>
-          <button class="pri" @click="saveEditApp">{{ editApp_.isNew ? '添加' : '保存' }}</button>
-        </div>
-      </div>
-    </div>
+    <AppEditModal v-if="editApp_" :ctl="appEditCtl" />
 
     <!-- 免责与知情声明（2026-10-16 暮雨第 1 条）。
          ⚠ 放在视图 `v-if/v-else-if` 链**之外**（链中间插一个带 v-if 的弹窗，会让它后面的
@@ -1867,84 +1418,7 @@
     <!-- 通知中心（2026-10-31 拆成 components/NotificationCenter.vue；状态仍在 useNotifications） -->
     <NotificationCenter v-if="ncOpen" :ctl="notificationsCtl" />
 
-    <!-- Settings modal -->
-    <div id="soverlay" class="overlay" v-if="showSettings_" @mousedown.self="showSettings_ = false">
-      <div id="smodal">
-        <!-- 侧边栏分类（2026-10-03 用户：“设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类”）。
-             上一版做的“点标题折叠”被这个取代 —— 折叠解决的是"太长"，侧边栏解决的是"找不到"，
-             后者才是真正的诉求。当前分类记进真身（fc_settings_tab），下次打开还在那一页。 -->
-        <nav class="settings-nav">
-          <div class="settings-nav-title">设置</div>
-          <button v-for="t in settingsTabs" :key="t.id" class="settings-nav-btn"
-                  :class="{ on: settingsTab === t.id }" @click="selectSettingsTab(t.id)">
-            <span class="sn-ico">{{ t.icon }}</span><span class="sn-name">{{ t.name }}</span>
-          </button>
-        </nav>
-        <div class="settings-body">
-        <GeneralSettings :active="settingsTab === 'general'" />
-        <div class="sect" v-show="settingsTab === 'data'">
-          <h4>数据目录</h4>
-          <div class="hint">{{ dataDir }}</div>
-          <div class="sect-btns">
-            <button class="ghost" @click="changeDataDir">修改目录…</button>
-            <button class="ghost" @click="openDataDir">打开目录</button>
-          </div>
-        </div>
-        <!-- 整理体检 + 大附件：已切到 components/DataHygienePanel.vue
-             （App.vue 拆分第一刀，2026-10-30）。两块都是只读通道 + 两个跳转事件，
-             边界干净；破坏性动作（删附件）仍只在主进程一条通道里，组件只负责确认与刷新。 -->
-        <DataHygienePanel v-show="settingsTab === 'data'" :toast="showToast"
-          @goto-never-read="gotoNeverRead" @goto-rework="gotoRework" />
-        <DiagSettings :active="settingsTab === 'diag'" />
-        <div class="sect" v-show="settingsTab === 'data'">
-          <h4>日志清理</h4>
-          <div class="hint">已完成日志默认保留这么多天，到期后点日志页的“清理超期”标为“已归档”（只改状态，不删文件）。逐条完成时填的天数仍然优先。</div>
-          <div class="sect-btns retain-row">
-            <input type="number" min="0" step="1" class="retain-input"
-              v-model.number="logRetainDefault" @change="onLogRetainDefaultChange" />
-            <span class="hint">天（0 = 永不清理）</span>
-          </div>
-        </div>
-        <!-- 2026-10-03 卡 012：看板已完成任务自动归档（仿日志清理；**默认关闭**） -->
-        <div class="sect" v-show="settingsTab === 'data'">
-          <h4>看板归档</h4>
-          <div class="hint">“已完成”且超过这么多天没更新过的任务，会被移进归档区（“归档”标签里能看到、可随时还原，文件不会被删）。0 = 关闭。</div>
-          <div class="sect-btns retain-row">
-            <input type="number" min="0" step="1" class="retain-input"
-              v-model.number="archiveDays" @change="onArchiveDaysChange" />
-            <span class="hint">天（0 = 关闭）</span>
-          </div>
-          <label class="chk">
-            <input type="checkbox" v-model="archiveAuto" @change="onArchiveAutoChange" />
-            启动方寸时自动执行（默认关；开了它才会在启动时动文件）
-          </label>
-          <div class="sect-btns" v-if="archiveDays > 0">
-            <button class="ghost" @click="refreshArchiveOverdue()">刷新超期清单</button>
-            <button class="ghost" :disabled="archiveOverdue.count === 0" @click="runArchiveOverdue()">
-              立即归档超期的 {{ archiveOverdue.count }} 个
-            </button>
-          </div>
-        </div>
-        <!-- 模型通道（AI 规划用，2026-10-12）：BYOK——端点/密钥/模型全在用户手里。
-             后端 12 条 LLM 通道 10-06 起就绪，这是配置界面第一次装。
-             密钥只存本机（llm-config.json，0600），回显永远只有掩码；不预填任何默认端点（含国外）。 -->
-        <AgentSettings :active="settingsTab === 'agent'" />
-        <ProjectSettings :active="settingsTab === 'projects'" />
-        <!-- 备份与恢复：已切到 components/settings/BackupSettings.vue（拆分第六刀）
-             状态在 useBackup 单例里，App 与这里共用同一份。 -->
-        <BackupSettings v-show="settingsTab === 'backup'" />
-
-        <!-- 底部动作条：与"当前在哪个分类"无关（导出/导入/关闭随时可用），所以挂在 body 末尾 -->
-        <div class="settings-foot">
-          <button class="ghost" @click="exportTasksToFile">导出任务 JSON</button>
-          <button class="ghost" @click="importTasksFromFile">导入任务 JSON</button>
-          <button class="pri" @click="showSettings_ = false">关闭</button>
-        </div>
-        </div>
-      </div>
-    </div>
-
-
+    <SettingsModal :ctl="settingsCtl" />
 
     <!-- ⚠ `has-undo`：撤销条与 toast 都在顶部居中，同时出现时 toast 下移一格（2026-10-21） -->
     <div id="toast" :class="[toast.type, { show: toast.show, 'has-undo': !!undoBar }]">{{ toast.msg }}</div>
@@ -2039,14 +1513,8 @@ import { useLogConvert } from './composables/useLogConvert'
 import { useContextMenus } from './composables/useContextMenus'
 import { useLogAux } from './composables/useLogAux'
 import { useLogGroups } from './composables/useLogGroups'
-import BackupSettings from './components/settings/BackupSettings.vue'
-import GeneralSettings from './components/settings/GeneralSettings.vue'
-import DiagSettings from './components/settings/DiagSettings.vue'
-import AgentSettings from './components/settings/AgentSettings.vue'
-import ProjectSettings from './components/settings/ProjectSettings.vue'
 import { useBackup } from './composables/useBackup'
 import ArchDiagram from './components/ArchDiagram.vue'
-import DataHygienePanel from './components/DataHygienePanel.vue'
 import BoardBanners from './components/BoardBanners.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import TaskPreview from './components/TaskPreview.vue'
@@ -2062,6 +1530,19 @@ import LogEditModal from './components/LogEditModal.vue'
 import RelayModal from './components/RelayModal.vue'
 import LogPurgeModal from './components/LogPurgeModal.vue'
 import LogPreviewModal from './components/LogPreviewModal.vue'
+// 后三刀第一刀「浮层」收尾（2026-11-02/03）：剩下的弹窗全部只搬模板，
+// 状态与动作仍住本文件；组件用 `xxxCtl` 转接，状态只有一份。
+import ConvertModal from './components/ConvertModal.vue'
+import ReviewModal from './components/ReviewModal.vue'
+import LogAttachModal from './components/LogAttachModal.vue'
+import TaskEditModal from './components/TaskEditModal.vue'
+import SMapModal from './components/SMapModal.vue'
+import ProjectNewModal from './components/ProjectNewModal.vue'
+import AiPlanModal from './components/AiPlanModal.vue'
+import AiDocModal from './components/AiDocModal.vue'
+import PlansModal from './components/PlansModal.vue'
+import AppEditModal from './components/AppEditModal.vue'
+import SettingsModal from './components/SettingsModal.vue'
 import type { ArchGraph } from '../shared/archGraph'
 import { filterArchGraph } from '../shared/archGraph'
 import { evaluateArchGraph, type ArchReview } from '../shared/archValidate'
@@ -6713,6 +6194,29 @@ function relayChanges(r: any): string[] {
 }
 
 /**
+ * “带入源的会话 ID”（2026-11-03 暮雨第 1 条）。
+ * 新日志还没创建时不存在“本次会话 ID”，实际要填的多半是上一段（甚至几段）会话的 ID ——
+ * 这一格只用于倒查，所以给一个**主动取**的按钮，默认仍留空（不替用户假设）。
+ * 与“带入源的下一步”同边界：源没有就明说；框里已有同一个 ID 就不重复加。
+ */
+function bringSourceSessionId(): void {
+  const r = relay_.value
+  if (!r) return
+  const srcId = String(r.src?.sessionId || '').trim()
+  if (!srcId) {
+    showToast('源日志没有记会话 ID', 'info')
+    return
+  }
+  const cur = String(r.sessionId || '').trim()
+  const existing = cur.split(/[\s,，]+/).filter(Boolean)
+  if (existing.includes(srcId)) {
+    showToast('源会话 ID 已经在框里了', 'info')
+    return
+  }
+  r.sessionId = cur ? `${cur} ${srcId}` : srcId
+}
+
+/**
  * 关闭接力对话框：有未创建的改动先出**对话框内的确认条**（2026-09-30 卡 006）。
  * 遮罩按下（@mousedown.self）、“取消”、全局 Esc（会替我们点“取消”）都走这里。
  * 第一次点 = 出条不关；条子出着时再点 = 仍不关（要关必须点条上的“丢弃并关闭”）。
@@ -8429,7 +7933,7 @@ const logPreviewCtl = reactive({
  */
 const relayCtl = reactive({
   relay_, relayDiscard_, relayDirtyHint, projects, agentPresets,
-  closeRelay, bringSourceNextSteps, discardRelay, executeRelay,
+  closeRelay, bringSourceNextSteps, bringSourceSessionId, discardRelay, executeRelay,
 })
 
 /**
@@ -8543,6 +8047,154 @@ const logsViewCtl = reactive({
   logStatusClass, logStatusLabel, logPrioKey, truncate, shortLogId,
   // 拖入导入 + 拖拽高亮
   onLogDrop, dragEnter, dragPulse, dragLeave,
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   后三刀第一刀「浮层」收尾（2026-11-03）：剩余弹窗的控制器。
+
+   全部放在文件末尾 —— 它们引用的 computed / ref 大多声明在上方；只有放这里
+   才不会撞 TDZ（`check-ctl-tdz` 会盯属性简写）。每个控制器只做**转接**：
+   状态仍只有一份，动作仍是原来那个函数，组件里不复制任何逻辑。
+
+   ⚠ ref 用 getter/setter：getter 返回 `.value`（对象本身），v-model 才写得进它的属性；
+     只返回 ref 的话组件里写的是 ref 本身，赋值静默失效。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/** 日志 ⇄ 待办 转换确认（状态在 useLogConvert） */
+const convertCtl = reactive({
+  get convAsk_() { return convAsk_.value },
+  set convAsk_(v: any) { convAsk_.value = v },
+  runConvert,
+})
+
+/** 审批 / 验收 / 直接驳回 */
+const reviewCtl = reactive({
+  get reviewModal() { return reviewModal.value },
+  set reviewModal(v: any) { reviewModal.value = v },
+  get reviewReason() { return reviewReason.value },
+  set reviewReason(v: string) { reviewReason.value = v },
+  get reviewRework() { return reviewRework.value },
+  set reviewRework(v: boolean) { reviewRework.value = v },
+  reviewPresets, acceptTask, rejectTask,
+})
+
+/** 绑定附属日志（状态全在 useLogGroups） */
+const logAttachCtl = reactive({
+  get logAttachTarget() { return logAttachTarget.value },
+  set logAttachTarget(v: any) { logAttachTarget.value = v },
+  get logAttachLoading() { return logAttachLoading.value },
+  get logAttachQuery() { return logAttachQuery.value },
+  set logAttachQuery(v: string) { logAttachQuery.value = v },
+  get logAttachProject() { return logAttachProject.value },
+  set logAttachProject(v: string) { logAttachProject.value = v },
+  get logAttachStatus() { return logAttachStatus.value },
+  set logAttachStatus(v: string) { logAttachStatus.value = v },
+  get logAttachAgent() { return logAttachAgent.value },
+  set logAttachAgent(v: string) { logAttachAgent.value = v },
+  get logAttachPrio() { return logAttachPrio.value },
+  set logAttachPrio(v: string) { logAttachPrio.value = v },
+  get logAttachDateFrom() { return logAttachDateFrom.value },
+  set logAttachDateFrom(v: string) { logAttachDateFrom.value = v },
+  get logAttachDateTo() { return logAttachDateTo.value },
+  set logAttachDateTo(v: string) { logAttachDateTo.value = v },
+  get logAttachShowBlocked() { return logAttachShowBlocked.value },
+  set logAttachShowBlocked(v: boolean) { logAttachShowBlocked.value = v },
+  get logAttachProjects() { return logAttachProjects.value },
+  get logAttachAgents() { return logAttachAgents.value },
+  get logAttachRows() { return logAttachRows.value },
+  get logAttachBlockedCount() { return logAttachBlockedCount.value },
+  get logAttachPickedOutside() { return logAttachPickedOutside.value },
+  get logAttachPick() { return logAttachPick.value },
+  get logAttachBusy() { return logAttachBusy.value },
+  logStatusClass, logStatusLabel, logPrioKey, localPriority, formatDate,
+  toggleLogAttachPick, selectAllLogAttachFiltered, clearLogAttachPick,
+  clearLogAttachFilters, saveLogAttach,
+})
+
+/** 任务编辑 / 新建：字段 spec 与保存逻辑都不搬，只转接 */
+const taskEditCtl = reactive({
+  get editTask_() { return editTask_.value },
+  set editTask_(v: any) { editTask_.value = v },
+  get visibleFieldSpecs() { return visibleFieldSpecs.value },
+  get blockerList() { return blockerList.value },
+  get blockerQuery() { return blockerQuery.value },
+  set blockerQuery(v: string) { blockerQuery.value = v },
+  get blockerCandidates() { return blockerCandidates.value },
+  get blockerPickList() { return blockerPickList.value },
+  get batchOptions() { return batchOptions.value },
+  get taskHistoryOpen() { return taskHistoryOpen.value },
+  set taskHistoryOpen(v: boolean) { taskHistoryOpen.value = v },
+  get taskVersions() { return taskVersions.value },
+  get taskVersionPreview() { return taskVersionPreview.value },
+  get taskVersionBusy() { return taskVersionBusy.value },
+  specOptions, taskTitleById, removeBlocker, pickBlocker, closeTaskEditor, saveEdit,
+  toggleTaskHistory, previewTaskVersion, restoreTaskVersionItem, versionSizeText, formatDateTime,
+})
+
+/** 结构地图一览 */
+const smapCtl = reactive({
+  get smapOpen() { return smapOpen.value },
+  set smapOpen(v: boolean) { smapOpen.value = v },
+  get smapRows() { return smapRows.value },
+  openPolicyFromSmap,
+})
+
+/** 新建项目 */
+const projCtl = reactive({
+  get projForm() { return projForm.value },
+  get projCreating() { return projCreating.value },
+  closeProjForm, confirmNewProject,
+})
+
+/** AI 规划 / 文档拆卡（同一个模型通道配置） */
+const aiPlanCtl = reactive({
+  get aiPlanForm() { return aiPlanForm.value },
+  get aiPlanBusy() { return aiPlanBusy.value },
+  get llmCfg() { return llmCfg.value },
+  closeAiPlan, runPlanToDraft, runDraftBrief, gotoLlmSettings,
+})
+const aiDocCtl = reactive({
+  get aiDocForm() { return aiDocForm.value },
+  get aiDocBusy() { return aiDocBusy.value },
+  get llmCfg() { return llmCfg.value },
+  closeAiDoc, runDocToDrafts, gotoLlmSettings,
+})
+
+/** 规划管理 */
+const plansCtl = reactive({
+  get plansModal() { return plansModal.value },
+  get planList() { return planList.value },
+  get planListBusy() { return planListBusy.value },
+  get planDetail() { return planDetail.value },
+  get planCreating() { return planCreating.value },
+  get planForm() { return planForm.value },
+  planStatusLabel, planWhen, openPlanDetail, decideDp, closePlans,
+  backPlanList, startPlanCreate, submitPlan,
+})
+
+/** 启动台“添加 / 编辑应用” */
+const appEditCtl = reactive({
+  get editApp_() { return editApp_.value },
+  closeAppEditor, browseAppPath, saveEditApp, removeApp,
+})
+
+/** 设置弹窗外壳（各分类内部状态仍在自己的组件 / composable 里） */
+const settingsCtl = reactive({
+  get showSettings_() { return showSettings_.value },
+  set showSettings_(v: boolean) { showSettings_.value = v },
+  get settingsTab() { return settingsTab.value },
+  get dataDir() { return dataDir.value },
+  get logRetainDefault() { return logRetainDefault.value },
+  set logRetainDefault(v: number) { logRetainDefault.value = v },
+  get archiveDays() { return archiveDays.value },
+  set archiveDays(v: number) { archiveDays.value = v },
+  get archiveAuto() { return archiveAuto.value },
+  set archiveAuto(v: boolean) { archiveAuto.value = v },
+  get archiveOverdue() { return archiveOverdue.value },
+  settingsTabs, selectSettingsTab, changeDataDir, openDataDir,
+  onLogRetainDefaultChange, onArchiveDaysChange, onArchiveAutoChange,
+  refreshArchiveOverdue, runArchiveOverdue, exportTasksToFile, importTasksFromFile,
+  showToast, gotoNeverRead, gotoRework,
 })
 
 /**

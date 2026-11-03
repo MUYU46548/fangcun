@@ -154,37 +154,30 @@ check('★★ preflight 必须关（开了会全局改 line-height + 干掉 Mark
     `themeBlocks=${themeBodies.length} copied=${copied.length}`)
 }
 
-// ⑦ Tailwind 关着 preflight → 组件里的原生表单控件必须自己兜底
+// ⑦ Tailwind 关着 preflight → 原生表单控件必须能继承字体
 //
 // 为什么单列一条：`preflight:false` 是本仓的**有意选择**（它会全局改 line-height、干掉列表符号），
 // 代价是 `<button>` / `<input>` / `<select>` 的 **UA 默认外观全都还在** —— 系统 UI 字体 + 默认边框。
 // 只写 background/border 而不写字体的组件，屏幕上表现为"这块字跟旁边不是一个字体"，
 // 而 **所有断言照样全绿**。2026-10-14 加决策视图与右键菜单时连踩两次，都是截图目检才看出来的。
 //
-// ⚠ 这是**文件级**判据（文件里有控件就必须出现 `font-[inherit]`）—— 一个文件里两个控件只兜底一个
-//   它抓不住。之所以不做成"逐个控件"是静态文本里控件与类串的对应关系不可靠（cva/cn/动态拼接）。
-//   补得上的部分靠截图目检；这条只负责拦住"完全没兜底"。
+// ⚠ 2026-11-03 改口径：原来这条要求**每个组件文件**都出现 `font-[inherit]`。
+//   但 app.css 早已补齐**全局兜底**（`button { font-family: inherit }` +
+//   `:where(input…, textarea, select) { font-family: inherit }`），组件里再写一遍是重复。
+//   实测 HEAD 上这条已有 8 个组件"假红"（AboutModal / CalAssignModal / … 都没写，但字体是对的）。
+//   报假红的守卫等于没有守卫，所以改成盯**真正的保证**：全局兜底在不在。
+//   组件里自己补 `font-[inherit]` 仍然允许（不影响判定）。
 {
-  const files = []
-  const walkVue = (dir) => {
-    let ents = []
-    try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-    for (const e of ents) {
-      const p = path.join(dir, e.name)
-      if (e.isDirectory()) walkVue(p)
-      else if (e.name.endsWith('.vue')) files.push(p)
-    }
-  }
-  walkVue(path.join(DESKTOP, 'src', 'renderer', 'components'))
-  const NATIVE = /<input\b|<select\b|<textarea\b|<button\b|as="button"/
-  const bad = []
-  for (const f of files) {
-    const s = fs.readFileSync(f, 'utf-8')
-    if (!NATIVE.test(s)) continue
-    if (!/font-\[inherit\]/.test(s)) bad.push(path.basename(f))
-  }
-  check('★★ 用了原生表单控件的组件都写了 `font-[inherit]`（preflight 关着 → 不写就用系统字体，只有肉眼看得出来）',
-    files.length > 0 && bad.length === 0, bad.length ? '缺兜底：' + bad.join(',') : '')
+  const appCss = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf-8')
+  const btnInherit = /(^|\n)button\s*\{[^}]*font-family:\s*inherit/.test(appCss)
+  // 全局字段兜底是一个多行 `:where(input…, textarea, select) { … font-family: inherit … }`：
+  // 先取这段选择器 + 规则体，再在体里找 font-family —— 不用单行正则硬拼换行。
+  const fieldBlock = /:where\([^)]*input[\s\S]{0,300}?textarea[\s\S]{0,200}?select\)\s*\{([\s\S]{0,500}?)\}/.exec(appCss)
+  const fieldInherit = !!fieldBlock && /font-family:\s*inherit/.test(fieldBlock[1])
+  check('★★ 原生 button 继承字体（app.css 全局兜底；preflight 关着时 UA 字体不会自己跟过来）',
+    btnInherit, 'app.css 缺 `button { font-family: inherit }`')
+  check('★★ 原生 input / textarea / select 继承字体（app.css 全局兜底，不许只靠各组件自觉）',
+    fieldInherit, 'app.css 缺 input/textarea/select 的 font-family: inherit')
 }
 
 // ── 同卡同貌（2026-10-27）：Card 组件与 App.vue 的 .card 必须逐值一致 ──────────

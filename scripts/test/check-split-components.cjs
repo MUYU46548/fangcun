@@ -38,9 +38,21 @@ function ctlKeys(ctlName) {
   }
   const body = appSrc.slice(start + 1, i)
   const keys = new Set()
-  for (const m of body.matchAll(/(?:^|\n)\s*(?:get|set)\s+([A-Za-z_$][\w$]*)\s*\(/g)) keys.add(m[1])
-  for (const m of body.matchAll(/(?:^|\n)\s*([A-Za-z_$][\w$]*)\s*(?:,|$)/gm)) keys.add(m[1])
-  for (const m of body.matchAll(/(?:^|\n)\s*([A-Za-z_$][\w$]*)\s*:/gm)) keys.add(m[1])
+  for (const raw of body.split('\n')) {
+    // 剥掉行尾注释再判（注释里的词不是键）
+    const line = raw.replace(/\/\/.*$/, '').trim()
+    if (!line) continue
+    // getter / setter：`get xxx()` / `set xxx(v)`
+    const gm = line.match(/^(?:get|set)\s+([A-Za-z_$][\w$]*)\s*\(/)
+    if (gm) { keys.add(gm[1]); continue }
+    // `xxx: value`
+    const km = line.match(/^([A-Za-z_$][\w$]*)\s*:/)
+    if (km) { keys.add(km[1]); continue }
+    // 纯简写行：允许一行写多个 `a, b, c,`（2026-11-03 拆分时新增的写法）
+    if (/^[A-Za-z_$][\w$]*(\s*,\s*[A-Za-z_$][\w$]*)*,?$/.test(line)) {
+      for (const id of line.split(',').map(s => s.trim()).filter(Boolean)) keys.add(id)
+    }
+  }
   return keys
 }
 

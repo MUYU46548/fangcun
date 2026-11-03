@@ -74,11 +74,17 @@
           :value="relay_.agentName">{{ relay_.agentName }}（继承自源）</option>
         <option v-for="a in agentPresets" :key="a" :value="a">{{ a }}</option>
       </select>
-      <!-- 2026-10-30（暮雨第 6 条）：以前只能"先创建、再点编辑、再贴会话 ID"——
-           一个字段强制点两次。会话 ID 是创建时就知道的，必须在这张表里一次填完。 -->
-      <label>本次会话 ID（粘贴这次 agent 会话的 ID，可留空）</label>
-      <input v-model="relay_.sessionId" placeholder="例如 019a… / hermes-… —— 建好后卡面上直接可查，不用再编辑一次" />
-      <div class="hint">上次的执行 Agent：<b>{{ relay_.prevAgentName || '（源日志没记）' }}</b>（从源日志继承）· 本次：<b>{{ relay_.agentName || '（不指定）' }}</b>（默认沿用源）；会话 ID 与日期按新日志重新记</div>
+      <!-- 2026-11-03 暮雨第 1 条：文案说“这次 agent 会话的 ID”，但**新日志还没创建，
+           这一刻根本不存在“本次会话 ID”**；实际填的是上一段（或几段）会话的 ID，用来倒查。
+           所以标签改成“会话 ID（可留空）”+ 一行说明，并给“带入源的会话 ID”按钮 ——
+           不逼用户去猜一个还不存在的值，也不再让字段名暗示它必须是“本次”。 -->
+      <label class="ns-label">会话 ID（可留空）
+        <button type="button" class="ghost relay-bring" title="把源日志记的会话 ID 追加到本框（已在框里就不重复加）"
+          @click.stop="bringSourceSessionId">⧉ 带入源的会话 ID</button>
+      </label>
+      <input v-model="relay_.sessionId" placeholder="有上一段的会话 ID 就填这里（可多个，用空格或逗号分隔）" />
+      <div class="hint">这一格用于倒查：填上一段（或几段）会话的 ID 也算数，不会冒充“本次会话”；本次 ID 等 agent 开跑后再到编辑框补。</div>
+      <div class="hint">上次的执行 Agent：<b>{{ ctl.relay_.prevAgentName || '（源日志没记）' }}</b>（从源日志继承）· 本次：<b>{{ ctl.relay_.agentName || '（不指定）' }}</b>（默认沿用源）；会话 ID 默认留空，可按需填上一段的用于倒查；日期按新日志重新记</div>
       <div class="relay-opts">
         <label class="relay-opt"><input type="checkbox" v-model="relay_.archiveSource" />
           <span>接力后把源日志归档（出清）
@@ -121,5 +127,5 @@ const relayDirtyHint = toRef(ctl, 'relayDirtyHint')
 const projects = toRef(ctl, 'projects')
 const agentPresets = toRef(ctl, 'agentPresets')
 
-const { closeRelay, bringSourceNextSteps, discardRelay, executeRelay } = ctl
+const { closeRelay, bringSourceNextSteps, bringSourceSessionId, discardRelay, executeRelay } = ctl
 </script>
