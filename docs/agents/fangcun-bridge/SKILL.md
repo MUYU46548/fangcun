@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.10.0
+version: 1.10.1
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -160,8 +160,8 @@ get_log        { id: "log_20261028140158_yo07jt" }             # 单条；附件
 
 **② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```
-update_task   { id: "<任务 id>", fields: { body: "<做了什么 + 判据 + 没做到的>" },
-                expected_update: <读到的 updated> }             # 乐观锁，冲突就重读再写
+update_task   { id: "<任务 id>", fields: { body: "<做了什么 + 判据 + 没做到的>",
+                                         status: "待验收" } }     # 先 get_task 读正文再整段写回
 move_status   { id: "<任务 id>", status: "待验收" }              # 收口：卡进待验收，等用户签字
 intake_task   { title, project, deliverable, criteria, agent }    # 有交付物时用它落卡（先机检）
 ```
@@ -178,9 +178,13 @@ get_roadmap   { project: "fangcun-base" }     find_blockers { project: "..." }
 **④ 改任务**
 ```
 create_task { title, project, status: "待办", priority: "中", batch, body }
-update_task { id, fields…, expected_update: <读到的 updated> }   # 乐观锁，冲突就重读再写
+update_task { id, fields… }                                       # 直接改；body 写“做了什么 + 判据 + 没做到的”
 move_status { id, status: "进行中" }                              # 最多到“待验收”；完成/驳回被硬拒
 ```
+⚠ **不要传 `expected_update`**（2026-11-03 实测）：实现的判据是
+`task.fm.expected_update === rawFields.expected_update` —— 它比的是**文件里一个 frontmatter 字段**，
+不是 `get_task` 返回的 `updated` 时间戳；MCP 建的卡没有这个字段，传什么都会报 `optimistic lock conflict`。
+要防覆盖就**先 `get_task` 读正文、再整段写回去**，别拿时间戳当锁。
 ⚠ **`batch`（批次）必须沿用项目里已有的名字**，不要自己新造一个：
 `get_roadmap { project }` 先看一眼现有批次（如 `P1 功能` / `2026-Q3`），能归就归；
 真的都不合适再起新名字，并在**任务卡正文**里说明为什么。**批次名字一乱，路线图就变成一堆“未分类”**——
@@ -239,7 +243,8 @@ arch_generate { project: "fangcun-base", max_attempts: 2 }
 
 **写操作规则**：
 - `create_task` / `update_task` 等写操作通过 MCP 调用（桌面版已登录用户身份）
-- 乐观锁：`update_task` 使用 `expected_update` 字段防止冲突
+- **没有可用的乐观锁**：`update_task` 的 `expected_update` 比的是 frontmatter 里的同名字段（MCP 建的卡没有），
+  传了必冲突（2026-11-03 实测）。防覆盖靠“先读再写”，不要拿 `updated` 时间戳当锁。
 - `delete_task` = 移入 `.trash/`（可恢复），不是真删除
 
 ## 边界
