@@ -222,7 +222,9 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
   const rec = results && results[plan.file] ? results[plan.file][stage.id] : undefined
   const execText = rec === false
     ? '判据已跑过：未过'
-    : '判据尚未执行（P3 之后会自动判定；跑过这一格才会往前跳）'
+    // 2026-11-03：P3/P4 早就落地了，旧文案还写着"P3 之后会自动判定"——那是假的，
+    // 判据不会自己跑（跑测试要起进程）。这里直接给它该去的地方与两个按钮。
+    : '判据尚未执行 —— 到“项目页 → 作战计划”点“⚙ 跑判据”；全过后点“▶ 推进这一格”'
   const lines = [
     `今天推：${name} · ${stage.id} · ${String(stage.title ?? '').trim() || '(无标题)'}`,
     criteriaLine(stage),

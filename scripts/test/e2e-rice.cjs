@@ -370,7 +370,9 @@ console.log('\n== ⑩ 源码守卫（接不上就白做）==')
 
 function checks() {
   const app = read('desktop/src/renderer/App.vue')
-  check('项目页第 7 种摆法注册（PV_VIEWS 含 rice）', /\['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice'\]/.test(app))
+  // 2026-11-03：别钉死整个数组 —— 每加一种摆法（这里后来加了 plan）都会让“逐字相等”变红，
+  // 而红的原因与需求矩阵毫无关系。判据是“它在白名单里”，不是“列表恰好只有这七个”。
+  check('项目页第 7 种摆法注册（PV_VIEWS 含 rice）', /const PV_VIEWS: string\[\] = \[[^\]]*'rice'/.test(app))
   check('★ 持久化白名单含 rice（忘了就会重启退回项目墙）', /fc_pv_view === 'rice'/.test(app))
   check('视图选项有入口 + 文案', /v: 'rice', label: '▦ 需求优先级矩阵'/.test(app))
 

@@ -19,7 +19,6 @@ const fs = require('fs')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '../..')
-const DIR = path.join(REPO, 'desktop/src/renderer/components')
 const APP = path.join(REPO, 'desktop/src/renderer/App.vue')
 
 const appSrc = fs.readFileSync(APP, 'utf8')
@@ -60,7 +59,7 @@ function ctlKeys(ctlName) {
 const BUILTIN = new Set([
   'true', 'false', 'null', 'undefined', 'this', 'in', 'of', 'typeof', 'new', 'void',
   'item', 'index', 'key', 'value', 'event', 'e', 'Math', 'JSON', 'String', 'Number',
-  'Array', 'Object', 'Date', 'parseInt', 'parseFloat', '$event',
+  'Array', 'Object', 'Date', 'parseInt', 'parseFloat', '$event', '$',
 ])
 
 let pass = 0
@@ -70,17 +69,29 @@ const check = (n, ok, d) => {
   else { fail++; console.log('FAIL  ' + n + (d ? '\n      ' + d : '')) }
 }
 
-const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.vue'))
-const CTL_COMPONENTS = files.filter((f) => {
-  const s = fs.readFileSync(path.join(DIR, f), 'utf8')
+const DIRS = [
+  path.join(REPO, 'desktop/src/renderer/components'),
+  // 2026-11-03：视图刀之后 views/ 也会用 ctl 模式。只扫 components/ 等于给新拆的
+  // 页面留一块盲区 —— 模板里的裸名字同样只会在运行期炸。
+  path.join(REPO, 'desktop/src/renderer/views'),
+]
+const files = []
+for (const dir of DIRS) {
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.vue'))) {
+    files.push({ name: f, full: path.join(dir, f), label: path.basename(dir) + '/' + f })
+  }
+}
+const CTL_COMPONENTS = files.filter(({ full }) => {
+  const s = fs.readFileSync(full, 'utf8')
   return /defineProps<\{\s*ctl:\s*any\s*\}>\s*\(\)/.test(s)
 })
-check('找到用 ctl 模式的组件（>0）', CTL_COMPONENTS.length > 0, CTL_COMPONENTS.join(', '))
+check('找到用 ctl 模式的组件（>0）', CTL_COMPONENTS.length > 0, CTL_COMPONENTS.map(x => x.label).join(', '))
 
-for (const f of CTL_COMPONENTS) {
-  const full = path.join(DIR, f)
+for (const { name: f, full, label } of CTL_COMPONENTS) {
   const s = fs.readFileSync(full, 'utf8')
-  const tplEnd = s.indexOf('</template>')
+  // ⚠ 用**最后一个** `</template>`：模板里可以有内层 `<template v-if/v-else>`，
+  //   取第一个会把守卫截断在半个模板处（2026-11-03 修，ProjectsView 正好有内层 template）。
+  const tplEnd = s.lastIndexOf('</template>')
   const tpl = s.slice(s.indexOf('<template>') + 10, tplEnd)
   const scr = s.slice(s.indexOf('<script setup'))
 
@@ -133,24 +144,23 @@ for (const f of CTL_COMPONENTS) {
     }
   }
   check(
-    '★★ ' + f + ' 模板里的裸名字都能解析',
+    '★★ ' + label + ' 模板里的裸名字都能解析',
     unknown.size === 0,
     unknown.size ? '未定义：' + [...unknown].join(', ') + '（应改成 ctl.xxx，或在本组件声明）' : ''
   )
 
   // 反向：ctl.xxx 的键必须真的在 App.vue 的控制器里
-  const ctlNames = [...s.matchAll(/defineProps<\{\s*ctl:\s*any\s*\}>\s*\(\)/g)].length
   const ctlVar = (s.match(/const (\w+Ctl)\b/) || [])[1]
   if (!ctlVar) {
     // 组件侧没写控制器变量名，跳过反向检查（由 App.vue 侧保证）
     continue
   }
   const appCtlKeys = ctlKeys(ctlVar)
-  if (!appCtlKeys) { check('★ ' + f + ' 对应的 ' + ctlVar + ' 在 App.vue 里存在', false, '找不到 ' + ctlVar); continue }
+  if (!appCtlKeys) { check('★ ' + label + ' 对应的 ' + ctlVar + ' 在 App.vue 里存在', false, '找不到 ' + ctlVar); continue }
   const used = new Set([...tpl.matchAll(/\bctl\.([A-Za-z_$][\w$]*)/g)].map((m) => m[1]))
   const missing = [...used].filter((k) => !appCtlKeys.has(k))
   check(
-    '★★ ' + f + ' 用到的 ctl 键在 ' + ctlVar + ' 里都存在',
+    '★★ ' + label + ' 用到的 ctl 键在 ' + ctlVar + ' 里都存在',
     missing.length === 0,
     missing.length ? '控制器里没有：' + missing.join(', ') : ''
   )

@@ -180,8 +180,10 @@ function main() {
       /const title = cur\.text\.trim\(\)/.test(promoteBody))
 
     const app = read('desktop/src/renderer/App.vue')
-    const conv = app.slice(app.indexOf('async function convertTodoToLog'))
-      .split('function toggleLogBatchMode')[0]
+    // 2026-11-03：待办→日志的转换整段已搬进 composables/useLogConvert.ts（日志领域刀）。
+    const convSrc = read('desktop/src/renderer/composables/useLogConvert.ts')
+    const conv = convSrc.slice(convSrc.indexOf('async function convertTodoToLog'))
+      .split('export function')[0]
     check('⑥ 待办→日志：标题取首行（titleLines...filter...[0]）',
       /titleLines\.map\(x => x\.trim\(\)\)\.filter\(Boolean\)\[0\]/.test(conv))
     check('⑥ 待办→日志：多行时把全文放进正文',
@@ -205,7 +207,8 @@ function main() {
     check('⑦ 主进程上限走 ideaTextLimit()（不是常量硬编码）',
       /const MAX_TEXT = ideaTextLimit\(\)/.test(mainIdeas))
     check('⑦ 渲染层滑块量程用常量、不写死数字',
-      /:min="IDEA_TEXT_MIN" :max="IDEA_TEXT_HARD_MAX"/.test(app))
+      // 滑块在设置页的通用分类里（settings 拆分后已不在 App.vue）
+      /:min="IDEA_TEXT_MIN" :max="IDEA_TEXT_HARD_MAX"/.test(read('desktop/src/renderer/components/settings/GeneralSettings.vue')))
   }
 
   console.log(`\n== 结果：${pass}/${fail} ==`)

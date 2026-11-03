@@ -188,7 +188,9 @@ check('★★ 三个动作都真调 plansVerdict（不是只改本地状态）',
 check('★ 缺块时“通过”被禁用', /:disabled="busy \|\| s\.missing\.length > 0"/.test(view))
 
 const appVue = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
-check('★★ 项目页摆法注册处含 plan', /v-else-if="pvView === 'plan'"/.test(appVue))
+// 2026-11-03：项目页模板已搬进 views/ProjectsView.vue（视图刀），摆法分支去那儿找。
+const projectsVue = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'views', 'ProjectsView.vue'), 'utf-8')
+check('★★ 项目页摆法注册处含 plan', /v-else-if="(?:ctl\.)?pvView === 'plan'"/.test(projectsVue))
 // 只数**项目页**那一组（别的视图也有一组 `{ v: ... }`，全篇数会把 23 当成 8）
 const projBlock = (appVue.split("curView.value === 'projects'")[1] || '').split("return []")[0]
 const optionCount = (projBlock.match(/\{ v: '[a-z]+', label:/g) || []).length

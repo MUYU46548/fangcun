@@ -63,8 +63,10 @@ export function useDailyBand() {
             missing: (Array.isArray(s?.missing) ? s.missing : []).map((m) => String(m ?? '')),
           })),
         }))
-      // 目前没有执行器（P3）→ 不传 results：所有已冻结格子都算"未跑过"（fail-closed）。
-      // P3/P4 落地后在这里把结果传进去即可，选格规则不用动。
+      // P3 执行器是**按需起进程**的，结果不落盘（跑一次看一眼，不留缓存）；
+      // 所以这里不传 results：已冻结格子都按"未跑过"算（fail-closed）。
+      // P4 的“推进这一格”会把完成/证据写进计划卡，那张卡随后就不在候选里了 ——
+      // 条上第三行会直接告诉用户去哪跑、跑完点哪个按钮。
       dailyBand.value = buildDailyBand(plans)
     } catch (e: any) {
       dailyBand.value = null

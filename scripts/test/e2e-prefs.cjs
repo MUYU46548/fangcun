@@ -177,7 +177,7 @@ function main() {
     /fc_pv_view === 'tiles' \|\| p\?\.fc_pv_view === 'overview' \|\| p\?\.fc_pv_view === 'master'/.test(vueSrc))
   check('E16 ★ 三种摆法互斥渲染 + 各自的根容器类独立（共用类名就没法机械判"挂了几个"）',
     /pvView === 'tiles'/.test(vueSrc) && /pvView === 'overview'/.test(vueSrc)
-    && /class="pvgrid" v-if="pvView === 'tiles'"/.test(vueSrc)
+    && /class="pvgrid" v-if="(?:ctl\.)?pvView === 'tiles'"/.test(vueSrc)
     && /class="ovgrid"/.test(vueSrc) && /class="pv-ms"/.test(vueSrc))
 
   // E17 起：卡片墙“只看未完成”（2026-10-10，卡 20261010-003 追加的开关）

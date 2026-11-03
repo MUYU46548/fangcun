@@ -459,576 +459,12 @@
          结构化确实算不出来的，右下才给一个“交给 AI 答”的口子 —— 点它才花 token，
          而且花销当场印在回答头上（03 单成本红线：AI 只进模糊问答与批次出单两处）。
          ⚠ 独立 v-if、不接在别人家的 v-else-if 链上：插在链中间会让后面整片视图不渲染。 -->
-    <main id="board" class="ask-view" v-if="curView === 'ask'">
-      <div class="ask-head">
-        <div class="ask-lead">问一句，方寸手里的事实直接答</div>
-        <div class="ask-lead-sub">
-          项目台账、任务卡、执行日志、AI 花销都在这儿，不用一页页翻。
-          答不了会明说“不知道”，不编。
-        </div>
-      </div>
-      <div class="ask-box">
-        <div class="ask-row">
-          <input class="ask-in" v-model="askQ" :disabled="askBusy"
-                 placeholder="比如：方寸到哪了 / 欠着什么 / 哪个项目停着"
-                 @keyup.enter="runAsk()" />
-          <button class="pri ask-go" :disabled="askBusy || !askQ.trim()" @click="runAsk()">{{ askBusy ? '查…' : '查一下' }}</button>
-        </div>
-        <div class="ask-groups">
-          <div class="ask-group" v-for="g in askGroups" :key="g.name">
-            <span class="ask-group-k" v-if="askGroups.length > 1">{{ g.name }}</span>
-            <button class="ghost ask-chip" v-for="p in g.items" :key="p.label"
-                    :title="p.hint" :disabled="askBusy" @click="askQuick(p.q)">{{ p.label }}</button>
-          </div>
-        </div>
-        <div class="ask-hint">
-          这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。
-          <br />
-          <b>“让 AI 答”什么时候出现？</b>只有结构化真算不出来的时候（比如“这事该怎么办”这类要判断的问题）——
-          出现就一定给，不出现就是这题已经答完了，不用猜。
-        </div>
-      </div>
-
-      <div class="ask-ans" v-if="askAns">
-        <div class="ask-title">{{ askAns.title }}</div>
-        <div class="ask-line" v-for="(l, i) in askAns.lines" :key="'al' + i">{{ l }}</div>
-        <div class="ask-rows" v-if="askAns.rows && askAns.rows.length">
-          <div class="ask-item" v-for="(r, i) in askAns.rows" :key="'ar' + i">
-            <span class="ask-k">{{ r.k }}</span>
-            <span class="ask-v">{{ r.v }}<em class="ask-sub" v-if="r.sub">{{ r.sub }}</em></span>
-          </div>
-        </div>
-        <div class="ask-foot">
-          <span class="ask-src" v-if="askAns.source">来源：{{ askAns.source }}</span>
-          <button class="ghost ask-llm-btn" v-if="askAns.needsLlm" :disabled="askLlmBusy" @click="askToLlm()">
-            {{ askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
-          </button>
-          <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
-               一次调用 = 一批；产出只落“待审批”（点头才转正）。这是全应用**第二处**会
-               为规划花 token 的入口（另一处是上面的模糊问答）。 -->
-          <button class="ghost ask-llm-btn ask-batch-btn" v-if="askAns.projectId" :disabled="batchBusy" @click="runBatch()">
-            {{ batchBusy ? '正在出…' : '📋 出下一批任务卡（会计费）' }}
-          </button>
-        </div>
-        <!-- 随纠（2026-10-22 · 03 任务二）：从这条答案直接改这个项目的方向 ——
-             一句话 + 一次点击，不填表单。改完挂撤销条（Ctrl+Z 同效），决策卡自动留痕。
-             只认固定句式（改 <字段> 为 <值>）：不猜，参数清。 -->
-        <div class="ask-correct" v-if="askAns.projectId">
-          <button class="ghost ask-correct-open" v-if="!correctOpen" @click="openCorrect()">
-            ✎ 一句话改这个项目（状态 / 路线图 / 说明）
-          </button>
-          <template v-else>
-            <div class="ask-correct-row">
-              <input class="ask-in" v-model="correctText" :disabled="correctBusy"
-                     placeholder="改 路线图 为 跑通第一单（项目名可省）" @keyup.enter="runCorrect()" />
-              <button class="pri ask-go" :disabled="correctBusy || !correctText.trim()" @click="runCorrect()">
-                {{ correctBusy ? '改…' : '就这么改' }}
-              </button>
-              <button class="ghost ask-chip" :disabled="correctBusy" @click="closeCorrect()">算了</button>
-            </div>
-            <div class="ask-correct-hint">
-              能改的就三个字段：状态 / 路线图 / 说明（说明就是“欠着”那一栏）。
-              改完自动记一张决策卡（出处“方寸随纠”），顶部撤销条能一步退回去。
-            </div>
-            <div class="ask-correct-err" v-if="correctErr">{{ correctErr }}</div>
-          </template>
-        </div>
-
-        <div class="ask-llm-ans" v-if="askLlmAns">
-          <div class="ala-h">AI 的回答<em class="ala-meta" v-if="askLlmMeta">{{ askLlmMeta }}</em></div>
-          <div class="ala-t">{{ askLlmAns }}</div>
-        </div>
-        <div class="ask-llm-err" v-if="askLlmErr">{{ askLlmErr }}</div>
-      </div>
-
-
-      <!-- 月度花销报表（2026-10-22 · 03 任务三）：**常驻**在这一页底部，不用翻设置页。
-           为什么要按自然月而不是"近 30 天"：1 号那天滚动窗口会把上个月的账算进"本月"，
-           用户一核对就发现数字对不上 —— 报表错一次就没人再信它。
-           ⚠ 只算供应商真报了 usage 的调用，没报的只计数、不折算（10-17 口径）。 -->
-      <div class="ask-report" v-if="usageMonths.length">
-        <div class="ask-report-h">
-          AI 花销 · 按自然月
-          <em class="ask-report-src">数据源：本机 AI 调用留痕（外部客户端经 MCP 上报的另计，不混算）</em>
-        </div>
-        <div class="ask-report-row" v-for="m in usageMonths" :key="m.month">
-          <span class="arr-m">{{ m.month }}</span>
-          <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
-          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em><em v-if="m.external_calls" class="arr-ext">· 其中 {{ m.external_calls }} 笔是外部上报</em></span>
-          <!-- 金额（2026-10-25 卡 005）：**没有就是“未折算”**，不写 0 元。
-               “未折算”后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
-          <span class="arr-cost" :class="{ none: !m.cost_calls }">
-            <template v-if="m.cost_calls">≈ ¥{{ fmtCost(m.cost) }}<em v-if="m.unpriced_calls">· {{ m.unpriced_calls }} 次未折算</em></template>
-            <template v-else>未折算</template>
-          </span>
-        </div>
-      </div>
-      <div class="ask-report ask-report-empty" v-else>
-        AI 花销 · 按自然月：还没有任何调用记录（一次都没走过 AI 通道）。
-      </div>
-
-      <!-- 跨渠道 token 对比（0.6.0 第 2 批 · 2026-11-02）
-           口径：只比 token；金额列只转述记录里已有的标注（供应商自报 / 用户自填 / 未折算）；
-           方寸不内置单价表、不猜单价；local 与 external 分开算，不做跨渠道金额合计。 -->
-      <div class="chan-report" v-if="chanReport" data-chan-report>
-        <div class="chan-head">
-          <b>跨渠道 token 对比</b>
-          <span class="chan-src">数据源：AI 调用留痕（方寸自己调的与外部客户端上报的分开算）</span>
-          <span class="chan-grow"></span>
-          <select class="chan-sel" v-model.number="chanDays" @change="loadChannels()">
-            <option :value="7">近 7 天</option>
-            <option :value="30">近 30 天</option>
-            <option :value="90">近 90 天</option>
-            <option :value="0">全部</option>
-          </select>
-          <select class="chan-sel" v-model="chanPick" @change="loadChannels()">
-            <option value="">全部渠道</option>
-            <option v-for="c in chanReport.channels" :key="c.key" :value="c.key">{{ c.label }}</option>
-          </select>
-        </div>
-        <div class="chan-note">{{ chanReport.note }}</div>
-        <div v-if="chanReadError" class="chan-err">读留痕失败：{{ chanReadError }}（这张表此刻不能说"没花钱"）</div>
-        <div v-if="chanReport.rows.length" class="chan-grid">
-          <div class="chan-row chan-row-head">
-            <span class="chan-name">渠道</span>
-            <span class="chan-num">调用</span>
-            <span class="chan-num">输入</span>
-            <span class="chan-num">输出</span>
-            <span class="chan-num">合计 token</span>
-            <span class="chan-money">金额</span>
-          </div>
-          <div class="chan-row" v-for="row in chanReport.rows" :key="row.key" :data-chan="row.key">
-            <span class="chan-name">{{ row.label }}</span>
-            <span class="chan-num">{{ row.calls }}</span>
-            <span class="chan-num">{{ row.promptTokens.toLocaleString() }}</span>
-            <span class="chan-num">{{ row.completionTokens.toLocaleString() }}</span>
-            <span class="chan-num"><b>{{ row.totalTokens.toLocaleString() }}</b><em v-if="row.noTokenCalls" class="chan-noTok">· {{ row.noTokenCalls }} 次没给数字</em></span>
-            <span class="chan-money" :class="{ none: row.money.kind === 'none' }">{{ row.money.text }}</span>
-          </div>
-          <div class="chan-row chan-row-total">
-            <span class="chan-name">总计</span>
-            <span class="chan-num">{{ chanReport.totals.calls }}</span>
-            <span class="chan-num">{{ chanReport.totals.promptTokens.toLocaleString() }}</span>
-            <span class="chan-num">{{ chanReport.totals.completionTokens.toLocaleString() }}</span>
-            <span class="chan-num"><b>{{ chanReport.totals.totalTokens.toLocaleString() }}</b></span>
-            <span class="chan-money">不跨渠道合计</span>
-          </div>
-        </div>
-        <div v-else class="chan-empty">{{ chanReport.emptyText }}</div>
-      </div>
-
-      <!-- 账户口径（2026-10-25 卡 005）：这一行**不是估算**，是官方余额接口的差值。
-           暮雨给的参考实现点破了关键 —— 准的办法是不经过价格表：价格怎么变，
-           余额下降额都是真花掉的钱。代价（粒度粗、要充值不混进消费）也写在这里。 -->
-      <div class="ask-acc" v-if="balanceStatus">
-        <div class="ask-report-h">
-          账户口径 · 余额差值
-          <em class="ask-report-src">
-            {{ balanceStatus.supported ? '来自供应商余额接口，不是按 token 估算' : '这一口径不可用' }}
-          </em>
-        </div>
-        <template v-if="balanceStatus.supported">
-          <div class="ask-acc-row">
-            <span class="arr-m">{{ providerLabel(balanceStatus.provider) }}</span>
-            <span class="arr-c">观测 {{ balanceStatus.observations }} 次</span>
-            <span class="arr-t">
-              已观测消费 <b>{{ balanceStatus.spent }} {{ balanceStatus.currency }}</b>
-              <em v-if="Number(balanceStatus.recharged) > 0">· 另有充值 {{ balanceStatus.recharged }}</em>
-            </span>
-          </div>
-          <div class="ask-acc-note">
-            <span v-if="balanceStatus.note">{{ balanceStatus.note }}</span>
-            <span v-else>这是账户真实扣款（两次观测之间的差额），<b>归不到具体某一次调用</b>；逐笔要看上面的 token。</span>
-            <button class="ghost ask-acc-btn" :disabled="balanceObserving" @click="refreshBalance">
-              {{ balanceObserving ? '查…' : '⟳ 立刻查一次' }}
-            </button>
-          </div>
-        </template>
-        <div class="ask-acc-note" v-else>{{ balanceStatus.reason }}</div>
-      </div>
-    </main>
+    <AskView v-if="curView === 'ask'" :ctl="askCtl" />
 
     <BoardView v-if="curView === 'active' || curView === 'archive'" :ctl="boardViewCtl" />
 
     <!-- Project view -->
-    <main id="board" class="pv" v-else-if="curView === 'projects'">
-      <div class="alertbar" v-if="blockers.length">
-        <span class="ico">⚠</span>
-        <b>{{ blockers.length }}</b> 个任务存在阻塞依赖
-      </div>
-      <!-- 项目页工具条（2026-10-17 暮雨第 6 条：“项目里面不能新建项目，点进去是新建任务”）。
-           真因：新建项目弹窗与 confirmNewProject 早就写好了（`#proj-new-modal`），
-           **但项目页从来没有一个按钮去打开它** —— 功能做完没接线，属于"看着有、其实没有"。
-           删除入口原来只在每张项目卡右上角那个小 🗑 上，这里明写出来省得再找。 -->
-      <div class="pv-tools">
-        <button class="pri" title="在 registry.yaml 里登记一个新项目" @click="openNewProject">＋ 新建项目</button>
-        <span class="pv-tools-hint">删除项目登记：每张项目卡右上角的 🗑（只删登记，不动任务卡与文件）</span>
-      </div>
-      <!-- 第 7 条：项目章程缺口一眼可见 + 一键补骨架（原先只能逐个点开卡看） -->
-      <div class="charter-bar">
-        <span class="cb-label">项目章程</span>
-        <span class="cb-stat">已填 <b>{{ charterStats.filled }}</b> / {{ charterStats.total }}</span>
-        <span class="cb-stat" v-if="charterStats.skeleton">骨架待填 <b>{{ charterStats.skeleton }}</b></span>
-        <span class="cb-stat warn" v-if="charterStats.missing">缺失 <b>{{ charterStats.missing }}</b></span>
-        <!-- 029 验收驳回原话：“找不到在哪里”。
-             真因：结构地图**只存在于方针卡文件里**，界面上唯一相关的东西是这个
-             `<span>` 计数 —— 它不可点、且没有缺口时干脆不渲染，于是"结构地图到底在哪"无从得知。
-             现在换成**常驻可点按钮**：没缺口时也在，点开就是一览（哪几张有、最后核实的日期、直接去改）。 -->
-        <button class="ghost cb-map-btn" :class="{ warn: charterStats.mapMissing > 0 }"
-          :title="charterStats.mapMissing
-            ? `还有 ${charterStats.mapMissing} 个项目没有结构地图 —— 点开看是哪些`
-            : '结构地图：模块清单 + 每模块一句话职责 + 主数据流（点开查看/编辑）'"
-          @click="openStructMap()">
-          🗺 结构地图
-          <b v-if="charterStats.mapMissing" class="cb-map-n">待填 {{ charterStats.mapMissing }}</b>
-          <b v-else class="cb-map-n ok">{{ charterStats.mapReady }}/{{ charterStats.filled }}</b>
-        </button>
-        <button class="ghost" v-if="charterStats.missing" @click="fillMissingCharters()">
-          ＋ 补齐 {{ charterStats.missing }} 个章程骨架
-        </button>
-      </div>
-      <!-- 跨项目建议（2026-10-11，C 组死通道接回）：主进程早就算好了（卡住/空闲项目一句话），
-           界面从来没有入口。放在项目页顶部 —— 它是"看全局"的话，不属于某一个项目。 -->
-      <div class="cross-suggest" v-if="crossSuggest.length">
-        <span class="cs-label">建议</span>
-        <span v-for="(s, i) in crossSuggest" :key="i" class="cs-item">{{ s }}</span>
-      </div>
-      <!-- ══ ① 项目墙（默认，旧摆法原样保留 —— 加视图不改旧的）══════════════ -->
-      <div class="pvgrid" v-if="pvView === 'tiles'">
-        <div
-          v-for="p in projectStats"
-          :key="p.id"
-          class="tile"
-          :class="'t-' + p.health"
-          @click="openProject(p)"
-        >
-          <div class="trow">
-            <span class="tname">{{ p.name }}</span>
-            <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
-                    @click.stop="removeProject(p)">🗑</button>
-            <span class="thealth">{{ healthLabel(p.health) }}</span>
-          </div>
-          <div class="tstats">
-            <div class="ts">
-              <div class="n">{{ p.activeTasks }}</div>
-              <div class="l">进行中</div>
-            </div>
-            <div class="ts">
-              <div class="n">{{ p.taskCount }}</div>
-              <div class="l">总任务</div>
-            </div>
-            <div class="ts">
-              <div class="progress-bar"><div class="progress-fill" :style="{width: projectProgress[p.id] ? projectProgress[p.id].percent + '%' : '0%'}"></div></div>
-              <div class="l">{{ projectProgress[p.id] ? projectProgress[p.id].percent + '%' : '—' }} 完成</div>
-            </div>
-            <div class="ts">
-              <div class="n warn" v-if="p.health === 'stuck'">⚠</div>
-              <div class="l">{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</div>
-            </div>
-          </div>
-          <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在“设置”最底部，
-               找不着；这里放在项目卡上，一眼可见，且不必先关设置。 -->
-          <button class="ghost pv-policy" @click.stop="openPolicyEdit(p.id)">
-            {{ policyMap[p.id] ? '📋 方针已立 · 查看/编辑'
-               : policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
-               : '＋ 立项目方针' }}
-          </button>
-          <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 3 条再改）：
-               以前是相邻两个几乎同名的按钮（“架构图”“自绘架构图”）—— 暮雨原话
-               “和架构图按钮放在一起你自己不觉得尴尬吗”。现在收成**一个分段控件**：
-               左半“架构图”= 打开仓库里已有的 archify 产物；右半“绘制架构图”= 方寸只读扫源码画一张。
-               一个控件、两种来源，不再是两个抢位置的按钮。 -->
-          <div class="pv-arch-group" role="group" aria-label="架构图">
-            <button class="ghost pv-diagram" @click.stop="openProjectDiagram(p)"
-              title="打开这个项目的架构图（仓库 docs/ 里 archify 生成的 HTML）；没有就先让 archify 生成一份放进去">架构图</button>
-            <button class="ghost pv-archself" @click.stop="openSelfArch(p)"
-              title="绘制架构图：方寸只读扫源码，节点 = 真实目录、连线 = 真实 import / IPC 计数；先过校验、你点头才允许导出">✎ 绘制架构图</button>
-          </div>
-        </div>
-        <div class="tile tile-add" @click="openNewProject">
-          <div class="add-icon">+</div>
-          <div class="add-text">添加项目</div>
-        </div>
-      </div>
-
-      <!-- ══ ② 概览卡（2026-09-29 用户选的改法 A）══════════════════════════
-           003 卡原话“只是个大号看板入口，不是项目管理”。把“四个数字”换成
-           “状态分布条 + 最近动态 + 阻塞/方针/结构地图缺口”——
-           一眼能看出这个项目卡在哪、缺什么、下一步该点哪个按钮。 -->
-      <div class="ovgrid" v-else-if="pvView === 'overview'">
-        <div v-for="p in projectStats" :key="p.id" class="ocard" @click="openProject(p)">
-          <div class="ohead">
-            <span class="nm">{{ p.name }}</span>
-            <span class="rp">{{ p.repo || '未登记工作目录' }}</span>
-            <span class="hl" :class="'hl-' + p.health">{{ healthLabel(p.health) }}</span>
-          </div>
-          <div class="stack" :title="pvBreakdown[p.id] && pvBreakdown[p.id].length ? '状态分布：' + pvBreakdown[p.id].map(s => s.status + ' ' + s.n).join(' · ') : '这个项目还没有任务'">
-            <i v-for="s in (pvBreakdown[p.id] || [])" :key="s.status"
-               :style="{ width: segWidth(s.n, p.taskCount), background: statusSegColor(s.cls) }"></i>
-          </div>
-          <div class="legend">
-            <span v-for="s in (pvBreakdown[p.id] || [])" :key="s.status">
-              <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
-            </span>
-            <span v-if="!(pvBreakdown[p.id] || []).length">这个项目还没有任务</span>
-          </div>
-          <div class="odyn">
-            最近：<b>{{ p.lastActivity ? relativeTime(p.lastActivity) : '无记录' }}</b>
-            <template v-if="pvLatest[p.id]"> · {{ pvLatest[p.id]!.title || pvLatest[p.id]!.id }}</template>
-            <br>
-            <span v-if="pvBlocked[p.id]" class="odyn-warn">⚠ {{ pvBlocked[p.id] }} 个阻塞源</span>
-            <span :class="{ 'odyn-warn': !policyMap[p.id] }">方针：{{ policyMap[p.id] ? '已立' : policyExistsMap[p.id] ? '待填' : '未立' }}</span>
-            ·
-            <span :class="{ 'odyn-warn': !policyMapHasStructure[p.id] }">结构地图：{{ policyMapHasStructure[p.id] ? '有' : '没有' }}</span>
-            <span v-if="p.health === 'stuck' || p.health === 'dormant'"> · 这个项目已经冷下来了</span>
-          </div>
-          <div class="oacts">
-            <button class="ghost oact" @click.stop="openPolicyEdit(p.id)">📋 {{ policyMap[p.id] ? '方针' : '立方针' }}</button>
-            <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
-            <button class="ghost oact" @click.stop="openProjectTasks(p)">📦 任务 {{ p.taskCount }}</button>
-            <button class="ghost oact" @click.stop="removeProject(p)"
-                    title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
-          </div>
-        </div>
-        <div class="ocard ocard-add" @click="openNewProject">
-          <div class="add-icon">+</div>
-          <div class="add-text">添加项目</div>
-        </div>
-      </div>
-
-      <!-- ══ ③ 主从（2026-09-29 用户选的改法 B）════════════════════════════
-           左列常驻项目 + 迷你进度，右侧摊开所选项目的详情。
-           项目 10+ 时比项目墙好使；现在项目少，用哪个都行 —— 所以做成可切。 -->
-      <div class="pv-ms" v-else-if="pvView === 'master'">
-        <div class="ms-list">
-          <div v-for="p in projectStats" :key="p.id" class="ms-li"
-               :class="{ on: !!pvCurrent && pvCurrent.id === p.id }"
-               @click="pvSelected = p.id">
-            <span class="ms-dot" :class="'t-' + p.health"></span>
-            <span class="ms-name">{{ p.name }}</span>
-            <span class="ms-mini"><i :style="{ width: projectPercent(p.id) + '%' }"></i></span>
-            <span class="ms-n">{{ p.activeTasks }}</span>
-          </div>
-          <div class="ms-add" @click="openNewProject">＋ 添加项目</div>
-        </div>
-        <!-- 项目监控台（卡 task-20261009-001）：环形进度 + KPI 大数字 + 阻塞入口 + git 活动。
-             健康度=左缘 4px 色条（契约“异常才显示”：stuck/dormant 才有，active/idle 干净白卡）。 -->
-        <div class="ms-detail" v-if="pvCurrent" :class="'hs-' + pvCurrent.health">
-          <div class="ocard bare">
-            <div class="ohead">
-              <span class="nm">{{ pvCurrent.name }}</span>
-              <span class="rp">{{ pvCurrent.repo || '未登记工作目录' }}</span>
-              <span class="hl" :class="'hl-' + pvCurrent.health">{{ healthLabel(pvCurrent.health) }}</span>
-            </div>
-            <!-- 自仓同步状态（2026-10-21 · W1-1C）：只在**没跟上**时出现一句话。
-                 正常态不渲染（不写“已是最新”凑数），也不给手动按钮 —— 启动自动拉，
-                 拉不动就照实说"待同步"，本地数据一个字不动。 -->
-            <!-- 常驻一行：正常是灰字"已是最新"，异常才变色（2026-10-21：看不见就等于不存在） -->
-            <div class="ms-sync" :class="'ms-sync-' + selfSyncLine.tone" v-if="selfSyncLine">
-              <template v-if="selfSyncLine.tone === 'warn'">⚠ </template>{{ selfSyncLine.text }}
-            </div>
-            <div class="ms-metrics">
-              <!-- 0 卡时不画假环：环换成空态占位（0/0 没有“完成度”可言），旁边图例给“还没有任务卡” -->
-              <div class="ms-ring" v-if="pvCurrent.taskCount">
-                <svg viewBox="0 0 36 36" aria-hidden="true">
-                  <circle class="ring-track" cx="18" cy="18" r="15.915" pathLength="100" />
-                  <circle class="ring-arc" cx="18" cy="18" r="15.915" pathLength="100"
-                          :style="{ strokeDasharray: pvPct + ' ' + (100 - pvPct) }" />
-                </svg>
-                <span class="ms-ringnum">{{ pvPct }}<i>%</i></span>
-              </div>
-              <div class="ms-ring empty" v-else><span class="ms-ringnum">—</span></div>
-              <div class="ms-nums">
-                <div class="ms-num"><b>{{ pvCurrent.activeTasks }}</b><span>进行中</span></div>
-                <div class="ms-num"><b>{{ pvCurrent.completedTasks }}</b><span>已完成</span></div>
-                <div class="ms-num"><b>{{ pvCurrent.taskCount }}</b><span>总任务</span></div>
-                <div class="ms-num warn" v-if="pvBlocked[pvCurrent.id]"><b>{{ pvBlocked[pvCurrent.id] }}</b><span>阻塞源</span></div>
-              </div>
-            </div>
-            <div class="stack">
-              <i v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status"
-                 :style="{ width: segWidth(s.n, pvCurrent.taskCount), background: statusSegColor(s.cls) }"></i>
-            </div>
-            <div class="legend">
-              <span v-for="s in (pvBreakdown[pvCurrent.id] || [])" :key="s.status">
-                <s :style="{ background: statusSegColor(s.cls) }"></s>{{ s.status }} {{ s.n }}
-              </span>
-              <span v-if="!pvCurrent.taskCount" class="ms-nothing">还没有任务卡</span>
-            </div>
-            <!-- 阻塞源入口（异常才显示）：点进阻塞页签看“卡在谁” -->
-            <button class="ghost ms-blockers" v-if="pvBlocked[pvCurrent.id]"
-                    @click.stop="switchView('blockers')">⚠ {{ pvBlocked[pvCurrent.id] }} 个阻塞源 · 看卡在谁 →</button>
-            <div class="ody n">
-              最近：<b>{{ pvCurrent.lastActivity ? relativeTime(pvCurrent.lastActivity) : '无记录' }}</b>
-              <template v-if="pvLatest[pvCurrent.id]"> · {{ pvLatest[pvCurrent.id]!.title || pvLatest[pvCurrent.id]!.id }}</template>
-            </div>
-            <!-- 项目三字段（2026-10-16 批次第 2 项起的“说明”；2026-10-22 · 06 单扩成三件）：
-                 状态 / 路线图 / 说明（欠着什么）都是 registry 里的**手写值**，
-                 与下面“自动 · 只读”那块并列摆着 —— 谁旧了由人看，代码不裁。
-                 可就地改：改完走全站同一个撤销条，Ctrl+Z 一步退回去（1B 撤销栈的同一套语义）。 -->
-            <div class="ms-fields" v-if="noteEdit && noteEdit.id === pvCurrent.id">
-              <div class="msf-h">改“{{ pvCurrent.name }}”的三个手写字段</div>
-              <label class="msf">
-                <span class="msf-k">状态</span>
-                <input class="msf-i" v-model="noteEdit.状态" placeholder="一句话说到哪了，带时点，比如（0.3.9，10-21）" />
-              </label>
-              <label class="msf">
-                <span class="msf-k">路线图</span>
-                <input class="msf-i" v-model="noteEdit.路线图" placeholder="目标是什么；“不做”的事关键就带半句" />
-              </label>
-              <label class="msf">
-                <span class="msf-k">说明</span>
-                <textarea class="msf-t" v-model="noteEdit.说明" rows="3"
-                          placeholder="欠着什么——逐条列，不压不删"></textarea>
-              </label>
-              <div class="msf-acts">
-                <button class="ok" :disabled="noteSaving" @click.stop="saveNoteEdit()">{{ noteSaving ? '保存中…' : '保存' }}</button>
-                <button class="ghost" :disabled="noteSaving" @click.stop="cancelNoteEdit()">取消</button>
-                <span class="msf-tip">保存后顶部出撤销条（Ctrl+Z 也能退）</span>
-              </div>
-            </div>
-            <template v-else>
-              <div class="ms-note" v-if="pvCurrent.statusNow || pvCurrent.roadmap || pvCurrent.note">
-                <div class="msn-row" v-if="pvCurrent.statusNow"><span class="msn-k">状态</span><span class="msn-v">{{ pvCurrent.statusNow }}</span></div>
-                <div class="msn-row" v-if="pvCurrent.roadmap"><span class="msn-k">路线图</span><span class="msn-v">{{ pvCurrent.roadmap }}</span></div>
-                <div class="msn-row" v-if="pvCurrent.note"><span class="msn-k">说明</span><span class="msn-v">{{ pvCurrent.note }}</span></div>
-              </div>
-              <button class="ghost ms-editbtn" @click.stop="openNoteEdit(pvCurrent)">✎ 改状态 / 路线图 / 说明</button>
-            </template>
-            <!-- 路线文档实况（2026-10-21 · W1-批次 2）：把仓库里的 README/ROADMAP **自动**读回来，
-                 与上面那句**手写**说明并列摆着 —— 两边不一致本身就是信息（谁旧了），
-                 代码不裁也不覆盖。README 只给一句话摘要（用户向的展示公告，不该占版面），
-                 ROADMAP 才是"接下来做什么"的正主。读不到就给原因，不糊一句"没有进展"。 -->
-            <div class="ms-docs" v-if="msDocs">
-              <div class="ms-docs-h">
-                <span class="ms-docs-src" title="自动读自仓库：README / ROADMAP + 最近动过 docs/ 的提交（只读，且只读一天一次）">自动 · 只读</span>
-                <span class="ms-docs-at">{{ msDocs.cached ? '今天读过' : '刚读' }}</span>
-              </div>
-              <template v-if="msDocs.readme || msDocs.roadmap">
-                <!-- ROADMAP 在前（"接下来做什么"才是监控台要回答的问题）；README 在后，
-                     它是项目**对外**说明，常有一句没信息量的标语 —— 所以默认两行、点开看全文。 -->
-                <div class="ms-doc" v-if="msDocs.roadmap" :class="{ open: docOpen.roadmap }"
-                  :title="msDocs.roadmap.rel + '（点一下展开 / 收起）'" @click="toggleDoc('roadmap')">
-                  <span class="ms-doc-k">ROADMAP</span>
-                  <span class="ms-doc-t">{{ docOpen.roadmap ? (msDocs.roadmap.more || msDocs.roadmap.excerpt) : (msDocs.roadmap.excerpt || msDocs.roadmap.title) }}</span>
-                  <span class="ms-doc-m">{{ relativeTime(msDocs.roadmap.mtime) }}</span>
-                </div>
-                <div class="ms-doc" v-if="msDocs.readme" :class="{ open: docOpen.readme }"
-                  :title="msDocs.readme.rel + '（对外说明，点一下展开 / 收起）'" @click="toggleDoc('readme')">
-                  <span class="ms-doc-k">README</span>
-                  <span class="ms-doc-t">{{ docOpen.readme ? (msDocs.readme.more || msDocs.readme.excerpt) : (msDocs.readme.excerpt || msDocs.readme.title) }}</span>
-                  <span class="ms-doc-m">{{ relativeTime(msDocs.readme.mtime) }}</span>
-                </div>
-              </template>
-              <div class="ms-doc-none" v-else>{{ msDocs.note || '仓库里没有 README / ROADMAP' }}</div>
-              <!-- 只有 README 没有 ROADMAP：把这句话说出来，别让人把"对外说明"当成路线 -->
-              <div class="ms-doc-none" v-if="(msDocs.readme || msDocs.roadmap) && msDocs.note">{{ msDocs.note }}</div>
-              <div class="ms-docs-log" v-if="msDocs.docsCommits && msDocs.docsCommits.length">
-                最近 docs 变更 <b>{{ msDocs.docsCommits.length }}</b> 条 · 最后 <b>{{ msDocs.docsCommits[0].subject }}</b>（{{ msDocs.docsCommits[0].date }}）
-              </div>
-            </div>
-            <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
-                 与 loadViewData“只在切到那一摆法时才拉”的既有纪律一致） -->
-            <div class="ms-git" v-if="msGitRow">
-              <span>📂 最近提交 <b>{{ msGitRow.lastCommit || '读不到' }}</b></span>
-              <span>未提交 <b>{{ msGitRow.dirty === null || msGitRow.dirty === undefined ? '—' : msGitRow.dirty }}</b></span>
-            </div>
-            <button class="ghost ms-gitbtn" v-else @click.stop="loadTripBoard()">⟳ 拉取提交信息</button>
-            <!-- 最近执行日志流（2026-10-11 监控台 P0 之一）：只说"最近在干什么"，
-                 不做筛选/分页 —— 要看全的点“看全部 →”，那边才是日志页的主场。 -->
-            <div class="ms-feed">
-              <div class="ms-feed-h">
-                <span>最近执行日志</span>
-                <button class="ghost ms-feed-go" @click.stop="openProjectLogs()">看全部 →</button>
-              </div>
-              <div class="ms-log" v-for="l in msLogs" :key="l.id">
-                <span class="ms-log-dot" :class="{ run: l.running }"></span>
-                <span class="ms-log-t">{{ l.title || l.id }}</span>
-                <span class="ms-log-tm">{{ relativeTime(l.logDate || l.created) }}</span>
-              </div>
-              <div class="ms-log-none" v-if="!msLogs.length">这个项目还没有执行日志</div>
-            </div>
-            <!-- 僵尸卡（P0 之二）：判据与通知中心同源（`findStalledTasks`），这里只是把它**放到监控台上**。
-                 只报数 + 可点进去看，不在这里做处置 —— 处置入口在任务卡上。 -->
-            <button class="ghost ms-stalled" v-if="msStalled.length"
-              @click.stop="openProjectTasks(pvCurrent)"
-              :title="msStalled.map(s => s.title + '（' + s.hours + ' 小时没动静）').join('\n')">
-              ⚠ {{ msStalled.length }} 个任务“进行中”但超过 {{ STALLED_HOURS }} 小时没动静 · 看看 →
-            </button>
-            <!-- 建议动作 + 可并行机会（2026-10-11，死通道 A 组收口）：
-                 这两条通道早就在主进程算好了，界面此前从不调用（= 死通道）。接上它，
-                 用户在这一屏就能看到"这个项目下一步该干嘛、哪几件事可以并着做"。 -->
-            <div class="ms-suggest">
-              <div class="ms-suggest-h">建议动作</div>
-              <div class="ms-suggest-item" v-for="(s, i) in pvSuggest" :key="'sg' + i">· {{ s }}</div>
-              <div class="ms-log-none" v-if="!pvSuggest.length">（还没有可给的建议）</div>
-            </div>
-            <div class="ms-suggest" v-if="pvParallelMine.length">
-              <div class="ms-suggest-h">可并行机会</div>
-              <div class="ms-suggest-item" v-for="(o, i) in pvParallelMine" :key="'pp' + i">· {{ o.reason }}</div>
-            </div>
-            <div class="oacts">
-              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产“待审批”草稿，点头才转正。
-                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——“电路铺好了开关没装”的补开关。 -->
-              <button class="ghost oact" @click.stop="openAiPlan(pvCurrent)">✨ AI 规划</button>
-              <button class="ghost oact" @click.stop="openAiDoc(pvCurrent)">📄 文档拆卡</button>
-              <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
-                   “电路铺好了开关没装”的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
-              <button class="ghost oact" @click.stop="openPlans(pvCurrent)">🗂 规划</button>
-              <button class="ghost oact" @click.stop="openPolicyEdit(pvCurrent.id)">📋 {{ policyMap[pvCurrent.id] ? '方针' : '立方针' }}</button>
-              <button class="ghost oact" @click.stop="openStructMap()">🗺 结构地图</button>
-              <button class="ghost oact" @click.stop="openProjectTasks(pvCurrent)">📦 看任务</button>
-              <!-- agent 上下文包（2026-10-22 · b 版落地物）：把契约/方针/决策/未完成卡/最近日志
-                   拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
-              <button class="ghost oact" @click.stop="copyContextPack(pvCurrent)"
-                      title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</button>
-              <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
-                   能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
-              <button v-if="pvCurrent.repo" class="ghost oact"
-                      @click.stop="copyWithToast(pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</button>
-              <button class="ghost oact" @click.stop="removeProject(pvCurrent)"
-                      title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
-            </div>
-          </div>
-        </div>
-        <div class="ms-detail empty" v-else>还没有项目 —— 点左下角“＋ 添加项目”登记第一个。</div>
-      </div>
-
-      <!-- ══ ⑤ 梯度榜（2026-10-25 暮雨）：项目页的第 5 种摆法 —— 手动拖档的 Tier List。
-           边界写死在 views/ProjectTierBoard.vue 与 services/projectTiers.ts：
-           只服务这一页，不改看板分组、不改一屏行序、不动 registry。 -->
-      <ProjectTierBoard
-        v-else-if="pvView === 'tier'"
-        :projects="projects"
-        :toast="showToast"
-      />
-      <!-- ══ ⑥ 对不上（2026-10-27 · REV-008 一期 R4“让对不上可见”）════════
-           状态过期 / 引用断裂 / 完成但没判据 —— 三类全是**只读报告**，不阻挡任何操作。
-           判定在 shared/mismatch.ts（e2e-mismatch 32 条纯 Node 断言），这里只管摆。
-           ⚠ 必须紧接在上一分支之后：v-if 链中间插元素会让其后视图整页不渲染。 -->
-      <MismatchView
-        v-else-if="pvView === 'mismatch'"
-        :toast="showToast"
-      />
-      <!-- ══ ⑦ 需求矩阵（2026-10-28 · RICE 决策矩阵）══════════════════════
-           散点 + 表格 + 手改即时重算 + 拍板导出。口径全在 shared/rice.ts
-           （e2e-rice 用纯 Node 验），数据在 task-data/rice-pool.md。
-           ⚠ 页签**零网络**；分数只存四个原始分，总分现算、不落盘。 -->
-      <RiceMatrixView
-        v-else-if="pvView === 'rice'"
-        :toast="showToast"
-        :tasks="tasks"
-        :projects="projects"
-      />
-
-      <!-- ══ ④ 在途一屏（2026-10-05 Q2 · 立项契约 ② 验收线之①）—— 已搬进 views/TripBoardView.vue
-           一行一个在途项目：终态 / 当前步骤 / 下一步 / 卡在谁 / 健康度 / 卡·日志。
-           数据来自主进程只读聚合（契约 + 任务卡 + 执行日志 + git）；缺值一律“未填”。
-           旧三摆法一个字没动，“在途一屏”是新增的第 4 项。 -->
-      <TripBoardView v-else-if="pvView === 'trip'" :ctl="tripBoardCtl" />
-      <!-- 2026-10-31（0.6.0 P1）：第 8 种摆法 —— 作战计划裁决。 -->
-      <PlanView v-else-if="pvView === 'plan'" />
-    </main>
+    <ProjectsView v-else-if="curView === 'projects'" :ctl="projectsCtl" />
 
     <!-- 技能安装专区（2026-09-26 卡 038）：不做插件市场，就是一块“看得见 + 能复制”的说明面板 -->
     <!-- 技能安装专区（2026-10-23 拆成组件 · 拆分计划第 1 批第 6 块）。
@@ -1081,92 +517,7 @@
     <!-- 想法（2026-10-22 · 念头没有家）：随手记一句，之后决定 做 / 搁置 / 不做。
          刻意做得很轻 —— 没有优先级、没有截止日、不归属项目、不进逾期、不进待办。
          一旦给它加上这些，它就又变成待办了（那正是"放不下"的原因）。 -->
-    <main id="board" class="ideas-view" v-else-if="curView === 'ideas'">
-      <div class="ideas-wrap">
-        <div class="ideas-head">
-          <div class="ideas-lead">念头先扔这儿，做不做以后再说</div>
-          <div class="ideas-lead-sub">
-            这里的东西不算任务、不进逾期、不进待办。决定做了才转成待办，转出去也留着记录。
-          </div>
-          <!-- 2026-10-31（暮雨第 6 条）：这条链一直存在，但只有一个“做”字、没有任何说明 ——
-               用户的原话是“不像待办那样方便，也不像日志那样直接，中转问题一堆”。
-               把三步写出来，并指出每一步在哪儿点，比再造一个入口有用。 -->
-          <div class="ideas-chain">
-            <span class="ic-step"><b>① 想法</b>这一页：随手记，不用想清</span>
-            <span class="ic-arrow">→</span>
-            <span class="ic-step"><b>② 待办</b>点“变成待办”：真的在待办里生出一条，能派活/排期</span>
-            <span class="ic-arrow">→</span>
-            <span class="ic-step"><b>③ 日志</b>做完在待办那条上点“→ 日志”：留痕，可回看</span>
-          </div>
-        </div>
-
-        <div class="ideas-box">
-          <textarea class="ideas-in" v-model="ideaDraft" :disabled="ideaBusy" rows="2"
-            placeholder="想到什么就写一句 —— Ctrl+Enter 存下"
-            @keydown.ctrl.enter.prevent="saveIdea()"
-            @keydown.meta.enter.prevent="saveIdea()"></textarea>
-          <div class="ideas-sub">
-            <span class="ideas-hint">
-              <template v-if="ideaDraft.trim()">{{ ideaDraft.trim().length }} / 4000 字</template>
-              <template v-else>存下来不改任何待办和任务，也不会让任何东西逾期</template>
-            </span>
-            <button class="pri ideas-save" :disabled="ideaBusy || !ideaDraft.trim()" @click="saveIdea()">
-              {{ ideaBusy ? '记…' : '记下来' }}
-            </button>
-          </div>
-        </div>
-
-        <div class="ideas-sec">
-          <div class="ideas-sec-h">
-            还没决定 <em>{{ ideasOpen.length }}</em>
-          </div>
-          <div class="ideas-empty" v-if="!ideasOpen.length">
-            还没有念头。上面写一句就存下了 —— 不用想它要不要做。
-          </div>
-          <div class="idea" v-for="i in ideasOpen" :key="i.id">
-            <div class="idea-t">{{ i.text }}</div>
-            <div class="idea-sub">
-              <span class="idea-when">记于{{ relativeTime(i.createdAt) || '刚刚' }}</span>
-              <div class="idea-acts">
-                <button class="ok idea-do" :disabled="ideaBusy" @click="doIdea(i)"
-                  title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</button>
-                <button class="ghost idea-hold" :disabled="ideaBusy" @click="holdIdea(i)"
-                  title="先放着，不是否决 —— 将来还能捡回来">搁置</button>
-                <button class="ghost idea-drop" :disabled="ideaBusy" @click="dropIdea(i)"
-                  title="想过了，不做 —— 这条会留着；想过本身也有价值">不做</button>
-                <button class="ghost idea-del" :disabled="ideaBusy" @click="removeIdea(i)"
-                  title="记错了就删掉（能撤销）">×</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="ideas-sec" v-if="ideasDecided.length">
-          <div class="ideas-sec-h ideas-toggle" @click="ideasShowDecided = !ideasShowDecided">
-            <span>已经有结论 <em>{{ ideasDecided.length }}</em></span>
-            <span class="ideas-caret">{{ ideasShowDecided ? '收起' : '展开' }}</span>
-          </div>
-          <template v-if="ideasShowDecided">
-            <div class="idea idea-decided" v-for="i in ideasDecided" :key="i.id">
-              <div class="idea-t">{{ i.text }}</div>
-              <div class="idea-sub">
-                <span class="idea-badge" :class="'is-' + ideaStatusKey(i.status)">{{ i.status }}</span>
-                <span class="idea-note" v-if="i.note">{{ i.note }}</span>
-                <span class="idea-when">{{ relativeTime(i.decidedAt || i.createdAt) }}</span>
-                <div class="idea-acts">
-                  <button class="ghost" v-if="i.status === '已立项'" :disabled="ideaBusy" @click="undoDoIdea(i)">
-                    撤销立项
-                  </button>
-                  <button class="ghost" v-else :disabled="ideaBusy" @click="reviveIdea(i)"
-                    title="捡回来，重新当还没决定的">捡回来</button>
-                  <button class="ghost idea-del" :disabled="ideaBusy" @click="removeIdea(i)" title="删掉（能撤销）">×</button>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </main>
+    <IdeasView v-else-if="curView === 'ideas'" :ctl="ideasCtl" />
 
     <!-- 待办（2026-10-23 拆成组件 · 拆分计划第 1 批第 10 块）。
          数据与动作在 composables/useTodos.ts，模板在 views/TodosView.vue；
@@ -1195,57 +546,7 @@
     <LogsView v-if="curView === 'logs'" :ctl="logsViewCtl" />
 
     <!-- Launchpad view -->
-    <main id="board" class="launchpad" v-if="curView === 'launchpad'">
-      <div class="lp-header">
-        <h3>启动台</h3>
-        <div class="lp-ctrls">
-          <button @click="openAddApp">+ 添加应用</button>
-          <button class="ghost" @click="openConfigPath">打开配置</button>
-          <button class="ghost" @click="refreshApps">⟳ 刷新</button>
-        </div>
-      </div>
-      <!-- 2026-10-16 用户第 2 条：这里是**快捷入口**，不是服务管理。
-           用户原话给的类比就是“steam 启动非 steam 游戏”——你登记一个你常用的东西，
-           点一下就开；方寸不提供它、不监控它、更不关心它内部开了什么端口。
-           ⚠ 所以卡片上**没有端口那一行**：那是“服务/端口”页的事，见那边。 -->
-      <div class="lp-note">
-        这就是快捷入口：登记一个你常用的应用或命令，<b>点一下就开</b>。
-        方寸只管把它拉起来，不管它内部怎么跑。
-      </div>
-      <div class="lp-grid" v-if="launchpadApps.length">
-        <!-- 右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）：编辑原先只能从卡片上的
-             ✏️ 进、删除更藏在编辑弹窗里，两条路都要先点开一层。右键是直达。
-             ⚠ 菜单组件不产生包裹元素（ContextMenuRoot），`.lp-grid` 的网格布局一个像素不动。 -->
-        <AppCardMenu
-          v-for="app in launchpadApps"
-          :key="app.id"
-          :app="app"
-          @pick="onAppMenuPick"
-        >
-          <div
-            class="lp-card"
-            :title="'点卡片启动：' + (app.cmd || app.path)"
-            @click="launchAppClick(app)"
-          >
-            <div class="lp-icon">{{ app.name.charAt(0) }}</div>
-            <div class="lp-info">
-              <div class="lp-name">{{ app.name }}</div>
-              <div class="lp-desc">{{ app.description || app.path }}</div>
-            </div>
-            <div class="lp-actions">
-              <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="openEditApp(app)">✏️ 编辑</button>
-              <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="openAppFolder(app)">📁</button>
-              <button class="ghost lp-del" title="只删掉这条登记，磁盘上的应用文件不受影响" @click.stop="askRemoveApp(app)">🗑</button>
-            </div>
-          </div>
-        </AppCardMenu>
-      </div>
-      <div class="empty-state" v-else>
-        <div class="empty-icon">🚀</div>
-        <div class="empty-text">还没有登记任何应用 —— 点右上角“+ 添加应用”，
-          填上名字和一个程序/脚本的路径就行（想做启动台里的那个"快捷方式"）。</div>
-      </div>
-    </main>
+    <LaunchpadView v-if="curView === 'launchpad'" :ctl="launchpadCtl" />
 
     <!-- 任务卡右键菜单（2026-10-14 第 ④ 步第二单）：
          已经变成**每张卡自己带的 reka-ui ContextMenu** —— 见 `components/TaskCardMenu.vue`。
@@ -1514,6 +815,7 @@ import { useContextMenus } from './composables/useContextMenus'
 import { useLogAux } from './composables/useLogAux'
 import { useLogGroups } from './composables/useLogGroups'
 import { useBackup } from './composables/useBackup'
+import { useAsk } from './composables/useAsk'
 import ArchDiagram from './components/ArchDiagram.vue'
 import BoardBanners from './components/BoardBanners.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
@@ -1550,15 +852,16 @@ import TodosView from './views/TodosView.vue'
 import LogsView from './views/LogsView.vue'
 import CalendarView from './views/CalendarView.vue'
 import BoardView from './views/BoardView.vue'
-import TripBoardView from './views/TripBoardView.vue'
-import PlanView from './views/PlanView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
 import TrashView from './views/TrashView.vue'
-import ProjectTierBoard from './views/ProjectTierBoard.vue'
-import MismatchView from './views/MismatchView.vue'
-import RiceMatrixView from './views/RiceMatrixView.vue'
+// 视图刀（2026-11-03）：项目页 / 问答 / 念头 / 启动台四块模板各自成组件。
+// 内部子视图（在途 / 作战计划 / 梯度榜 / 对不上 / 需求矩阵）由 ProjectsView 自己引。
+import ProjectsView from './views/ProjectsView.vue'
+import AskView from './views/AskView.vue'
+import IdeasView from './views/IdeasView.vue'
+import LaunchpadView from './views/LaunchpadView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
 import type { BoardCardMeta } from '../shared/boardCards'
@@ -2820,88 +2123,25 @@ watch(curView, (val) => {
   // 它自己的 onMounted 就是"每次进门拉一次"，两处都写等于两份真相。
 })
 
-// ── 随问（2026-10-22 · 施工单包 03 任务一）────────────────────────────────
-/**
- * 结构化查询面。三条纪律，都在这一小块里守住：
- *   ① **默认零 token** —— 答案由主进程从现有数据算，`needsLlm` 只有结构化真算不出来才是 true；
- *   ② **不装懂** —— 算不出来就把"交给 AI 答（会花 token）"这个按钮摆出来，让用户自己决定；
- *   ③ **花销可见** —— AI 那条回答的头上印事实字数与 token（03 单红线），不悄悄花钱。
- */
-const askQ = ref('')
-const askBusy = ref(false)
-const askAns = ref<any>(null)
-const askPresets = ref<Array<{ label: string; q: string }>>([])
-const askLlmBusy = ref(false)
-const askLlmAns = ref('')
-const askLlmErr = ref('')
-const askLlmMeta = ref('')
-
-/** 常用问题由**主进程**给（界面不许自己写一份文案 —— 两边一漂移就成了两套问题集） */
-async function loadAskPresets(): Promise<void> {
-  try {
-    const r: any = await window.tegula.askPresets()
-    askPresets.value = Array.isArray(r?.presets) ? r.presets : []
-  } catch {
-    askPresets.value = []
-  }
-}
-
-/** 常用问题按 group 归并 —— 九个按钮排一行会挤成两行、还孤零零剩一个（2026-10-22 截图目检） */
-const askGroups = computed(() => {
-  const out: Array<{ name: string; items: Array<{ label: string; q: string; hint?: string }> }> = []
-  for (const p of askPresets.value) {
-    const name = String((p as any).group || '常用')
-    let g = out.find((x) => x.name === name)
-    if (!g) { g = { name, items: [] }; out.push(g) }
-    g.items.push(p)
-  }
-  return out
-})
-
-/** 月度报表（03 任务三）：按自然月，最近 3 个月。读不到就空 —— 界面会直说"一次都没走过 AI"。 */
-const usageMonths = ref<any[]>([])
-/** 跨渠道 token 对比（2026-11-02）：只比 token；金额只转述标注 */
-const chanReport = ref<any>(null)
-const chanDays = ref(30)
-const chanPick = ref('')
-const chanReadError = ref('')
-/** 账户口径（2026-10-25 卡 005）：只读状态，真正的余额请求在 refreshBalance 里按需发 */
-const balanceStatus = ref<any>(null)
-const balanceObserving = ref(false)
-
-async function loadBalanceStatus(): Promise<void> {
-  try {
-    const r: any = await (window as any).tegula.llmBalanceStatus()
-    balanceStatus.value = r || null
-  } catch {
-    // 旧主进程没有这条通道 → 不显示这块（不报假）
-    balanceStatus.value = null
-  }
-}
-
-/** 端点 id → 人话品牌名（界面上别直接摆 `deepseek` 这种内部 id） */
-function providerLabel(p: string): string {
-  if (p === 'deepseek') return 'DeepSeek'
-  if (p === 'openrouter') return 'OpenRouter'
-  return p || '未知端点'
-}
+// ── 随问（2026-10-22 · 03 任务一/二/三；2026-11-03 整块搬进 useAsk）────────
+// 结构化问答 / 随纠 / 出单 / 月报表 / 跨渠道 token / 余额口径全在 composable，
+// 这里只把依赖传进去；模板在 views/AskView.vue，进门由它自己 onMounted 拉一次。
+const ask = useAsk({ projects, loadAll, showToast, offerUndo, aiUsageTail })
+// 显式解构：`askCtl` 要给 `views/AskView.vue` 当 prop，而拆分守卫是按源码文本数键的
+// （展开 `...ask` 它看不见 —— 会把这些键全判成“控制器里没有”）。
+const {
+  askQ, askBusy, askAns, askGroups, askLlmBusy, askLlmAns, askLlmErr, askLlmMeta,
+  runAsk, askQuick, askToLlm,
+  correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
+  batchBusy, runBatch,
+  usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,
+  balanceStatus, providerLabel, balanceObserving, refreshBalance, fmtCost, initAsk,
+} = ask
 
 /** 模型单价表（2026-10-25 卡 005 B 档）：**空表 = 一律未折算**，方寸不预置任何默认价 */
 const priceRows = ref<Array<{ model: string; in: string; out: string }>>([])
 const priceSaving = ref(false)
 const priceMsg = ref('')
-
-/**
- * 金额显示：定点字符串（"0.00320000"）→ 人话。
- * ⚠ 只做**截断**不做四舍五入：宁可显示少一点，也不把 0.00349 说成 0.0035 让人以为花了更多。
- */
-function fmtCost(v: unknown): string {
-  const raw = String(v ?? '0')
-  const dot = raw.indexOf('.')
-  if (dot < 0) return raw
-  const frac = (raw.slice(dot + 1) + '0000').slice(0, 4).replace(/0+$/, '')
-  return frac ? `${raw.slice(0, dot)}.${frac}` : raw.slice(0, dot)
-}
 
 /** 定点字符串 → 输入框里好看的形式：`2.00000000` → `2`、`0.50000000` → `0.5` */
 function trimFixed(v: unknown): string {
@@ -2945,178 +2185,6 @@ async function savePrices(): Promise<void> {
     showToast('单价保存失败：' + priceMsg.value, 'error')
   } finally {
     priceSaving.value = false
-  }
-}
-
-async function refreshBalance(): Promise<void> {
-  if (balanceObserving.value) return
-  balanceObserving.value = true
-  try {
-    const r: any = await (window as any).tegula.llmBalanceObserve()
-    if (r?.status) balanceStatus.value = r.status
-    showToast(r?.message || (r?.ok ? '已查一次余额' : '查余额失败'), r?.ok ? 'success' : 'error')
-  } catch (e: any) {
-    showToast('查余额失败：' + (e?.message || e), 'error')
-  } finally {
-    balanceObserving.value = false
-  }
-}
-
-async function loadUsageMonths(): Promise<void> {
-  try {
-    const r: any = await window.tegula.llmUsageMonthly(3)
-    usageMonths.value = Array.isArray(r?.months) ? r.months : []
-  } catch {
-    usageMonths.value = []
-  }
-}
-
-/** 跨渠道 token 对比：只读；筛选项变了重读一次（服务端聚合，界面不自己算） */
-async function loadChannels(): Promise<void> {
-  chanReadError.value = ''
-  try {
-    const r: any = await (window as any).tegula.channelsGet({
-      days: chanDays.value,
-      channels: chanPick.value ? [chanPick.value] : [],
-    })
-    if (!r?.ok) { chanReport.value = null; chanReadError.value = String(r?.error || '读取失败'); return }
-    chanReport.value = r.report || null
-    chanReadError.value = String(r?.readError || '')
-  } catch (e: any) {
-    chanReport.value = null
-    chanReadError.value = String(e?.message || e)
-  }
-}
-
-async function runAsk(): Promise<void> {
-  const q = askQ.value.trim()
-  if (!q || askBusy.value) return
-  askBusy.value = true
-  askLlmAns.value = ''
-  askLlmErr.value = ''
-  askLlmMeta.value = ''
-  try {
-    const r: any = await window.tegula.askQuery(q)
-    if (!r || r.ok === false) {
-      // 失败要说出来，不能留上一题的答案在那儿冒充"这题的答案"
-      showToast(`查询失败：${r?.error || '未知原因'}`, 'error')
-      askAns.value = null
-    } else {
-      askAns.value = r
-    }
-  } catch (e: any) {
-    showToast('查询异常：' + (e?.message || e), 'error')
-  } finally {
-    askBusy.value = false
-  }
-}
-
-function askQuick(q: string): void {
-  askQ.value = q
-  void runAsk()
-}
-
-/** 只有用户点了这个按钮才会花 token —— 主进程那边把事实包一起发过去，模型没机会自由发挥 */
-async function askToLlm(): Promise<void> {
-  if (!askAns.value || askLlmBusy.value) return
-  const q = askQ.value.trim()
-  if (!q) return
-  askLlmBusy.value = true
-  askLlmErr.value = ''
-  askLlmAns.value = ''
-  askLlmMeta.value = ''
-  try {
-    const r: any = await window.tegula.llmAsk(q)
-    if (!r || r.ok === false) {
-      askLlmErr.value = 'AI 没答上来：' + (r?.error || '未知原因')
-      return
-    }
-    askLlmAns.value = String(r.text || '')
-    askLlmMeta.value = `事实 ${r.facts_chars || 0} 字${aiUsageTail(r.usage)}`
-  } catch (e: any) {
-    askLlmErr.value = 'AI 调用异常：' + (e?.message || e)
-  } finally {
-    askLlmBusy.value = false
-  }
-}
-
-// 随纠（2026-10-22 · 03 任务二）：一句话改方向。不填表单、不猜参数。
-const correctOpen = ref(false)
-const correctText = ref('')
-const correctBusy = ref(false)
-const correctErr = ref('')
-
-function openCorrect(): void {
-  correctOpen.value = true
-  correctText.value = ''
-  correctErr.value = ''
-}
-function closeCorrect(): void {
-  correctOpen.value = false
-  correctErr.value = ''
-}
-
-/**
- * 执行一句话纠偏。三件事必须一起成立，缺一件都不算"纠得动"：
- *   ① 字段真改了（主进程写前自校验）；② 决策卡留痕（没记上要**说出来**，
- *   否则台账上看着"改过"，实际只有字段变了）；③ 撤销条挂上（一步退回去）。
- */
-async function runCorrect(): Promise<void> {
-  const txt = correctText.value.trim()
-  const pid = askAns.value && askAns.value.projectId
-  if (!txt || !pid || correctBusy.value) return
-  correctBusy.value = true
-  correctErr.value = ''
-  try {
-    const r: any = await window.tegula.correctApply(txt, pid)
-    if (!r || r.ok === false) {
-      correctErr.value = String(r?.error || '没改成：未知原因')
-      return
-    }
-    if (r.decisionError) {
-      // 字段改了、台账没记上 —— 这种事必须让人看见，不能只报"成功"
-      correctErr.value = `字段已经改了，但决策卡没记上：${r.decisionError}`
-    }
-    closeCorrect()
-    // 相关视图即时刷新：项目详情页读的是 loadProjects，答案重查一遍（同一句问题）
-    projects.value = await window.tegula.loadProjects()
-    await runAsk()
-    const before = String(r.before ?? '')
-    const args = { projectId: r.projectId, field: r.field, before, decisionId: r.decisionId || '' }
-    offerUndo('已改' + String(r.echo || ''), async () => {
-      const back: any = await window.tegula.correctUndo(toPlain(args))
-      if (!back || back.ok === false) throw new Error(back?.error || '改不回去了')
-      projects.value = await window.tegula.loadProjects()
-      await runAsk()
-      if (back.decisionError) showToast(`字段改回去了，但决策卡没标撤销：${back.decisionError}`, 'error')
-    })
-  } catch (e: any) {
-    correctErr.value = '纠偏异常：' + (e?.message || e)
-  } finally {
-    correctBusy.value = false
-  }
-}
-
-// 出单（2026-10-22 · 03 任务三）：从台账派生下一批卡。一次调用 = 一批，绝不循环。
-const batchBusy = ref(false)
-async function runBatch(): Promise<void> {
-  const pid = askAns.value && askAns.value.projectId
-  if (!pid || batchBusy.value) return
-  batchBusy.value = true
-  try {
-    const r: any = await window.tegula.llmPlanBatch(pid)
-    if (!r || r.ok === false) {
-      showToast(`没出成：${(r && r.error) || '未知原因'}`, 'error')
-      return
-    }
-    const n = (r.created || []).length
-    showToast(`已出 ${n} 张“待审批”卡 —— 看板筛待审批过目后转正${aiUsageTail(r.usage)}`, 'success')
-    // 让看板立刻能看到琥珀色草稿卡（否则用户以为没成）
-    await loadAll()
-  } catch (e: any) {
-    showToast('出单异常：' + (e?.message || e), 'error')
-  } finally {
-    batchBusy.value = false
   }
 }
 
@@ -3686,12 +2754,7 @@ function loadViewData(v: string) {
   } else if (v === 'logs') {
     loadLogs()
   } else if (v === 'ask') {
-    // 常用问题从主进程拿（懒加载一次就够，presets 是静态表）
-    if (!askPresets.value.length) void loadAskPresets()
-    // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
-    void loadUsageMonths()
-    void loadChannels()
-    void loadBalanceStatus()
+    // 问答页的数据由 AskView 自己 onMounted 拉（常用问题 / 月报表 / 跨渠道 / 余额）
   } else if (v === 'trash') {
     // 回收站不加载任务列表（顶栏计数显示“—”是刻意的，见 countText 注释）；
     // 列表本身由组件 onMounted 拉（views/TrashView.vue）
@@ -8195,6 +7258,80 @@ const settingsCtl = reactive({
   onLogRetainDefaultChange, onArchiveDaysChange, onArchiveAutoChange,
   refreshArchiveOverdue, runArchiveOverdue, exportTasksToFile, importTasksFromFile,
   showToast, gotoNeverRead, gotoRework,
+})
+
+/**
+ * 项目页（视图刀，2026-11-03）：八种摆法的模板搬进 `views/ProjectsView.vue`。
+ * `pv*` 状态、项目统计、监控台数据与全部动作仍住这里 —— 组件只读、只收集意图。
+ * ⚠ 对象类 ref 一律 getter 返回 `.value`：组件里 `v-model` / 逐属性写回才有效。
+ */
+const projectsCtl = reactive({
+  get blockers() { return blockers.value },
+  get charterStats() { return charterStats.value },
+  get crossSuggest() { return crossSuggest.value },
+  get pvView() { return pvView.value },
+  get projectStats() { return projectStats.value },
+  get projectProgress() { return projectProgress.value },
+  get pvBreakdown() { return pvBreakdown.value },
+  get pvLatest() { return pvLatest.value },
+  get pvBlocked() { return pvBlocked.value },
+  get pvCurrent() { return pvCurrent.value },
+  get pvSelected() { return pvSelected.value },
+  set pvSelected(v: string) { pvSelected.value = v },
+  get pvPct() { return pvPct.value },
+  get pvSuggest() { return pvSuggest.value },
+  get pvParallelMine() { return pvParallelMine.value },
+  get selfSyncLine() { return selfSyncLine.value },
+  get msDocs() { return msDocs.value },
+  get msGitRow() { return msGitRow.value },
+  get msLogs() { return msLogs.value },
+  get msStalled() { return msStalled.value },
+  get noteEdit() { return noteEdit.value },
+  get noteSaving() { return noteSaving.value },
+  get docOpen() { return docOpen.value },
+  get policyMap() { return policyMap.value },
+  get policyExistsMap() { return policyExistsMap.value },
+  get policyMapHasStructure() { return policyMapHasStructure.value },
+  get projects() { return projects.value },
+  get tasks() { return tasks.value },
+  STALLED_HOURS,
+  relativeTime, showToast, copyWithToast, healthLabel,
+  segWidth, statusSegColor, projectPercent,
+  openNewProject, openStructMap, fillMissingCharters, openProject, removeProject,
+  openPolicyEdit, openProjectDiagram, openSelfArch, openProjectTasks,
+  saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
+  openAiPlan, openAiDoc, openPlans, copyContextPack, switchView,
+  tripBoardCtl,
+})
+
+/** 念头页（视图刀）：状态与四个动作仍在 App，模板在 views/IdeasView.vue */
+const ideasCtl = reactive({
+  get ideaDraft() { return ideaDraft.value },
+  set ideaDraft(v: string) { ideaDraft.value = v },
+  get ideaBusy() { return ideaBusy.value },
+  get ideasOpen() { return ideasOpen.value },
+  get ideasDecided() { return ideasDecided.value },
+  get ideasShowDecided() { return ideasShowDecided.value },
+  set ideasShowDecided(v: boolean) { ideasShowDecided.value = v },
+  relativeTime, ideaStatusKey,
+  saveIdea, doIdea, holdIdea, dropIdea, removeIdea, undoDoIdea, reviveIdea,
+})
+
+/** 启动台（视图刀）：模板在 views/LaunchpadView.vue，登记/启动/菜单动作仍在 App */
+const launchpadCtl = reactive({
+  get launchpadApps() { return launchpadApps.value },
+  openAddApp, openConfigPath, refreshApps, onAppMenuPick,
+  launchAppClick, openEditApp, openAppFolder, askRemoveApp,
+})
+
+/** 问答页（领域刀）：整块逻辑在 composables/useAsk.ts，这里只把返回的那一坨包一层 */
+const askCtl = reactive({
+  askQ, askBusy, askAns, askGroups, askLlmBusy, askLlmAns, askLlmErr, askLlmMeta,
+  runAsk, askQuick, askToLlm,
+  correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
+  batchBusy, runBatch,
+  usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,
+  balanceStatus, providerLabel, balanceObserving, refreshBalance, fmtCost, initAsk,
 })
 
 /**
