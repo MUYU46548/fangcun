@@ -177,6 +177,29 @@ const emptyHint = computed(() => {
   return filter.value === '全部' ? '这里没有决策' : `“${projFilter.value}”下没有“${filter.value}”的决策`
 })
 
+/**
+ * 决策提醒（2026-11-03 暮雨第 4 条：“现在没人提醒我记”）。
+ * 不做红点/弹窗（那会变成噪音），只在页头说一句“最近一条是几天前”，
+ * 并点明**作战计划裁决后可以一键记**——那是现在最自然的记账时机。
+ */
+const reminder = computed(() => {
+  if (!items.value.length) return ''
+  const d = new Date()
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  let latest: Decision | null = null
+  let todayCount = 0
+  for (const it of items.value) {
+    const day = String(it.日期 || '')
+    if (day === today) todayCount++
+    if (!latest || day > String(latest.日期 || '')) latest = it
+  }
+  if (todayCount > 0) return `今天已记 ${todayCount} 条决策${latest ? ` · 最近 ${latest.id}` : ''}`
+  const t = Date.parse(String(latest?.日期 || ''))
+  if (!Number.isFinite(t)) return `${latest?.id || '最近一条'} 的日期认不出来 —— 计划卡裁决后可直接“记成决策卡”`
+  const days = Math.max(0, Math.floor((Date.now() - t) / 86400000))
+  return `最近一条决策 ${days} 天前（${latest?.id || '?'}）—— 计划卡裁决后可直接“记成决策卡”`
+})
+
 /** 计数跟着**当前项目筛与搜索词**走 —— 否则页签上的数字加起来对不上列表里的张数（界面说假话） */
 function countOf(s: string): number {
   const base = byProject.value.filter(matchesQuery)
@@ -406,6 +429,9 @@ onMounted(refresh)
       >☑ 多选</Button>
       <Button variant="outline" size="icon" title="刷新" @click="refresh">⟳</Button>
     </div>
+
+    <div v-if="reminder" data-dec="reminder"
+      class="-mt-2 text-[11.5px] text-[var(--ui-muted-foreground)]">{{ reminder }}</div>
 
     <!-- 批量栏（生命周期第 ② 条：成批动）。删除同样两段式，不因为"批量的"就少一道确认 -->
     <div

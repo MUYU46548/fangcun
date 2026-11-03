@@ -185,7 +185,7 @@ check('★ PlanView 里有三个动作分支（pass / reject / amend）',
   /action === 'pass'/.test(view) && /action === 'reject'/.test(view) && /action === 'amend'/.test(view))
 check('★★ 三个动作都真调 plansVerdict（不是只改本地状态）',
   /plansVerdict\(\{[\s\S]{0,120}file: doc\.file[\s\S]{0,80}action/.test(view))
-check('★ 缺块时“通过”被禁用', /:disabled="busy \|\| s\.missing\.length > 0"/.test(view))
+check('★ 缺块时“通过”被禁用', /:disabled="busy \|\| s\.missing\.length > 0/.test(view))
 
 const appVue = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
 // 2026-11-03：项目页模板已搬进 views/ProjectsView.vue（视图刀），摆法分支去那儿找。

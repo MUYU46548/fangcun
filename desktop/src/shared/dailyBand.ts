@@ -57,6 +57,12 @@ export interface DailyBandResult {
   criteriaKinds: Record<DailyCriteriaKind, number>
   /** 还有多少张阶段卡等你裁决（待裁决 / 未冻结）—— 0 表示没有积压 */
   pendingCount: number
+  /** 判据没过、被写成“未完成”的卡数（2026-11-03：推失败不是终态，要能看见并返工） */
+  reworkCount: number
+  /** 已完成的卡数（用于区分“没计划”与“全做完了”） */
+  doneCount: number
+  /** 阶段卡总数 */
+  totalCount: number
   /** 恒为 3 行（含空态）—— 界面按行渲染，不做二次加工 */
   lines: string[]
   /** 空态/完成态的一句话（ready 时为空串） */
@@ -179,8 +185,44 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
     if (!p || !Array.isArray(p.stages)) return n
     return n + p.stages.filter((s) => s && PENDING.includes(String(s.status ?? '').trim())).length
   }, 0)
+  const totalCount = list.reduce((n, p) => n + (p && Array.isArray(p.stages) ? p.stages.length : 0), 0)
+  const doneCount = list.reduce((n, p) => {
+    if (!p || !Array.isArray(p.stages)) return n
+    return n + p.stages.filter((s) => s && String(s.status ?? '').trim() === '完成').length
+  }, 0)
+  const reworkCount = list.reduce((n, p) => {
+    if (!p || !Array.isArray(p.stages)) return n
+    return n + p.stages.filter((s) => s && String(s.status ?? '').trim() === '未完成').length
+  }, 0)
 
   if (!picked) {
+    // 2026-11-03：推进失败会把卡写成“未完成”。它不是终态，也不能被“本仓还没有冻结的
+    // 作战计划”糊过去（用户真卡现在就是 7 完成 + 1 未完成，条带却像什么都没发生）。
+    if (reworkCount > 0) {
+      const lines = [
+        `有 ${reworkCount} 张阶段卡“未完成”等你返工`,
+        '到“项目页 → 作战计划”看打回理由，改完重新“通过（冻结）”再推',
+        '本仓当前没有已冻结的格子可推',
+      ]
+      return {
+        kind: 'none', file: '', planTitle: '', stage: null, stageIndex: -1,
+        criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
+        pendingCount, reworkCount, doneCount, totalCount, lines, message: lines[0],
+      }
+    }
+    // 全部完成 ≠ 没有计划：这两件事必须分开说，否则做完计划会看到“本仓还没有冻结的作战计划”。
+    if (totalCount > 0 && doneCount === totalCount) {
+      const lines = [
+        '这份作战计划的所有阶段都已完成',
+        '没有要推的格子 —— 要加新阶段就去“项目页 → 作战计划”',
+        '本仓当前没有未完成的阶段',
+      ]
+      return {
+        kind: 'all-passed', file: '', planTitle: '', stage: null, stageIndex: -1,
+        criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
+        pendingCount, reworkCount, doneCount, totalCount, lines, message: lines[0],
+      }
+    }
     if (!frozenTotal) {
       const lines = pendingCount
         ? [
@@ -196,7 +238,7 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
       return {
         kind: 'none', file: '', planTitle: '', stage: null, stageIndex: -1,
         criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
-        pendingCount, lines, message: lines[0],
+        pendingCount, reworkCount, doneCount, totalCount, lines, message: lines[0],
       }
     }
     const lines = [
@@ -209,7 +251,7 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
     return {
       kind: 'all-passed', file: '', planTitle: '', stage: null, stageIndex: -1,
       criteriaCount: 0, criteriaKinds: { cmd: 0, str: 0, num: 0, file: 0, other: 0 },
-      pendingCount, lines, message: lines[0],
+      pendingCount, reworkCount, doneCount, totalCount, lines, message: lines[0],
     }
   }
 
@@ -240,6 +282,7 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
     criteriaCount: criteria.length,
     criteriaKinds: kinds,
     pendingCount,
+    reworkCount, doneCount, totalCount,
     lines,
     message: '',
   }

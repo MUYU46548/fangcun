@@ -2688,6 +2688,40 @@
         await waitFor(() => /已推进/.test(((($('.plan-view .plan-msg') || {}).textContent) || '')), 6000, 'msg'),
         ((($('.plan-view .plan-msg') || {}).textContent) || '').slice(0, 120))
 
+      // 2026-11-03 暮雨：狂点“通过”没有任何视觉反馈 —— 点完必须看得见回执，
+      // 并顺手给“记成决策卡”（决策没人提醒记的入口之一）。
+      const p1Pass = stageBtn('P1', '通过（冻结）')
+      if (p1Pass) p1Pass.click()
+      check('★★ 点“通过”后顶部出现回执（已冻结 P1），不是只有页面底部一行字',
+        await waitFor(() => {
+          const t = ((($('.plan-view .plan-recent') || {}).textContent) || '')
+          return /已冻结/.test(t) && /P1/.test(t)
+        }, 5000, 'plan-recent'),
+        ((($('.plan-view .plan-recent') || {}).textContent) || '').slice(0, 100))
+      check('★★ 冻结后按钮变成“已冻结”并禁用（不再让人反复点）',
+        await waitFor(() => {
+          const box = stageBox('P1')
+          const b = box && Array.prototype.slice.call(box.querySelectorAll('button'))
+            .find((x) => /已冻结/.test(x.textContent || ''))
+          return !!b && b.disabled === true
+        }, 4000, 'p1 pass btn'),
+        stageBox('P1') ? stageBox('P1').querySelector('.plan-act-pass').outerHTML.slice(0, 120) : 'no P1')
+      const decBtn = $('.plan-view .plan-recent')
+        ? Array.prototype.slice.call($('.plan-view .plan-recent').querySelectorAll('button'))
+          .find((b) => /记成决策卡/.test(b.textContent || ''))
+        : null
+      if (decBtn) decBtn.click()
+      check('★★ “记成决策卡”真调 decisionAdd（内容点名 P1，项目/出处预填）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'decisionAdd'
+          && c.args && c.args[0] && /P1/.test(String(c.args[0].内容 || ''))
+          && c.args[0].项目 && c.args[0].出处), 5000, 'decisionAdd'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'decisionAdd').map((c) => c.args)))
+      check('★ 记完回执改成“已记决策卡 D-004”',
+        await waitFor(() => /已记决策卡/.test(((($('.plan-view .plan-recent') || {}).textContent) || '')), 4000, 'decision done'),
+        ((($('.plan-view .plan-recent') || {}).textContent) || '').slice(0, 100))
+      // 裁决会改夹具状态；恢复原形，后面的每日推进面还要靠“P1 待裁决”
+      window.__fcTest.resetPlanDocs?.()
+
       const mTab = $$('.pagehead button.vsb').find((x) => (x.textContent || '').indexOf('主从') >= 0)
       if (mTab) { mTab.click(); await sleep(300) }
     }
@@ -3060,6 +3094,11 @@
     check('★★ 第一行点名推哪一格、第二行带判据原文（不是只报条数）',
       /^今天推：/.test(dbLines[0] || '') && /判据 3 条/.test(dbLines[1] || '') && /cmd: echo ok/.test(dbLines[1] || ''),
       dbLines.slice(0, 2).join(' || '))
+    check('★ 需要人动时才有“去作战计划”跳转（2026-11-03：找入口找了好久）',
+      (() => {
+        const b = $('.daily-band .db-go')
+        return !!b && /去作战计划|去裁决/.test(b.textContent || '')
+      })(), (($('.daily-band .db-go') || {}).textContent || '没有 .db-go'))
     check('★ 第三行说清状态与判据执行情况',
       /状态：已冻结/.test(dbLines[2] || '') && /尚未执行/.test(dbLines[2] || ''), dbLines[2])
     // 2026-11-02（暮雨“待裁决的东西在哪里？没看见”）：这条带以前只认“已冻结”，

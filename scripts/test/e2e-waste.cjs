@@ -187,7 +187,10 @@ console.log('\n== ⑤ 接线守卫 ==')
   check('★★ 每个数字节点都渲染 caveat（删掉这行 → 本条精确红）',
     /class="waste-caveat">\{\{ c\.caveat \}\}/.test(PLANVIEW))
   const IPC = read('desktop/src/main/waste-ipc.ts')
-  check('★ 只有一个只读口 waste:get', (IPC.match(/guardedHandle\('/g) || []).length === 1 && /waste:get/.test(IPC))
+  // 2026-11-02 把跨渠道 token 对比（channels:get）并进了同一文件 —— 两个都是**只读口**。
+  // 旧断言按“恰好 1 个”数，于是 P5 的 cmd 判据一直红、真卡被误判“未完成”。
+  check('★ 只读口恰好两个（waste:get / channels:get），没有写口',
+    (IPC.match(/guardedHandle\('/g) || []).length === 2 && /waste:get/.test(IPC) && /channels:get/.test(IPC))
   check('★ IPC 真注册了（index.ts）', /registerWasteIpcHandlers\(\)/.test(read('desktop/src/index.ts')))
   check('★ preload 暴露 wasteGet', /wasteGet: \(opts\?/.test(read('desktop/src/preload/index.ts')))
   check('★ 界面不自己算账（只调 wasteGet，不从 ai-trace/git 拼数字）',

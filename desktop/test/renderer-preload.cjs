@@ -339,6 +339,25 @@ const TASK_FIELD_SPECS = [
   { key: 'body', label: '正文', type: 'textarea', span: 'full' },
 ]
 
+/** 作战计划夹具（可变）：裁决后重读要能看到状态变化，界面才验得了“点完回执” */
+const PLAN_DOCS = [{
+  file: 'demo.md',
+  title: '演示 · 作战计划',
+  stages: [
+    {
+      id: 'P0', title: '格式与机检', status: '已冻结', what: '把结构定成文件格式',
+      approach: ['存储 task-data/plans/<项目id>.md'],
+      copyRows: [['抄哪块', '落到哪', '不抄什么', '怎么算抄到位'], ['---', '---', '---', '---'], ['SOW 五段', '五个二级标题', '合同语言', '五个节名都在']],
+      criteria: ['cmd: echo ok', 'str: 五个二级标题都在', 'num: 照抄点行数 ≥ 1'],
+      verdict: '通过 · 2026-10-29', rejectReason: '', missing: [],
+    },
+    {
+      id: 'P1', title: '作战计划页签', status: '待裁决', what: '',
+      approach: [], copyRows: [], criteria: [], verdict: '', rejectReason: '', missing: [],
+    },
+  ],
+}]
+
 contextBridge.exposeInMainWorld('tegula', {
   // ── 启动期必需面 ────────────────────────────────────────────────
   isFirstRun: () => { rec('isFirstRun'); return false },
@@ -401,24 +420,21 @@ contextBridge.exposeInMainWorld('tegula', {
   // 否则“3 秒内看到今天推哪一格及其判据”这条只能在纯逻辑里验，界面侧永远验不到。
   plansGet: (file) => {
     rec('plansGet', [file])
-    const docs = [{
-      file: 'demo.md',
-      title: '演示 · 作战计划',
-      stages: [
-        {
-          id: 'P0', title: '格式与机检', status: '已冻结', what: '把结构定成文件格式',
-          approach: ['存储 task-data/plans/<项目id>.md'],
-          copyRows: [['抄哪块', '落到哪', '不抄什么', '怎么算抄到位'], ['---', '---', '---', '---'], ['SOW 五段', '五个二级标题', '合同语言', '五个节名都在']],
-          criteria: ['cmd: echo ok', 'str: 五个二级标题都在', 'num: 照抄点行数 ≥ 1'],
-          verdict: '通过 · 2026-10-29', rejectReason: '', missing: [],
-        },
-        {
-          id: 'P1', title: '作战计划页签', status: '待裁决', what: '',
-          approach: [], copyRows: [], criteria: [], verdict: '', rejectReason: '', missing: [],
-        },
-      ],
-    }]
+    const docs = PLAN_DOCS
     return { ok: true, files: ['demo.md'], docs: file ? docs.filter((d) => d.file === file) : docs }
+  },
+  // 裁决（2026-11-03）：冻结/打回要真的改夹具状态 —— 否则“点完按钮变已冻结”没法验。
+  plansVerdict: (input) => {
+    cloneGuard('plansVerdict', [input])
+    rec('plansVerdict', [input])
+    const doc = PLAN_DOCS.find((d) => d.file === (input && input.file))
+    const s = doc && doc.stages.find((x) => x.id === (input && input.stageId))
+    if (!doc || !s) return { ok: false, error: '找不到这个阶段' }
+    const action = input.action
+    if (action === 'pass') { s.status = '已冻结'; s.verdict = '通过 · 2026-11-03' }
+    else if (action === 'reject') { s.status = '驳回'; s.rejectReason = String(input.text || '') }
+    else if (action === 'amend') { s.status = '未冻结'; s.verdict = '改一句 · 2026-11-03' }
+    return { ok: true, doc }
   },
   // 跑判据 / 推进一格（0.6.0 P4 界面入口，2026-11-02 接上界面）。
   // 夹具按 stageId 分两种形态，覆盖两条路：
@@ -1984,6 +2000,14 @@ contextBridge.exposeInMainWorld('__fcTest', {
   calCellCap: () => (typeof globalThis.__fcCalCellCap === 'number' ? globalThis.__fcCalCellCap : 2),
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
+  // 作战计划夹具复位（2026-11-03）：裁决会改 PLAN_DOCS，后面的每日推进面断言要靠它
+  // 恢复“P0 已冻结 / P1 待裁决”的原始形态，否则“另有 N 张待裁决”会被前面的点击吃掉。
+  resetPlanDocs: () => {
+    const p0 = PLAN_DOCS[0].stages.find(s => s.id === 'P0')
+    if (p0) { p0.status = '已冻结'; p0.verdict = '通过 · 2026-10-29'; p0.rejectReason = '' }
+    const p1 = PLAN_DOCS[0].stages.find(s => s.id === 'P1')
+    if (p1) { p1.status = '待裁决'; p1.verdict = ''; p1.rejectReason = '' }
+  },
   todos: () => JSON.parse(JSON.stringify(store.todos)),
   // 想法（2026-10-22）：断言要能读到真身 —— 特别是"点“做”之后待办里是不是真多了一条"
   ideas: () => JSON.parse(JSON.stringify(store.ideas)),

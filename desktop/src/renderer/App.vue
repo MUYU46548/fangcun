@@ -543,7 +543,7 @@
          弹窗必须能在任何视图下打开（从日历点一条日志就会调 openLog，那时 curView 不是 logs，
          弹窗若跟着组件走就会被 v-if 挡掉，点了什么也不会发生）。
          `#board.logs-view` 这层壳由组件根元素带着（视图互斥与几何断言都按它选）。 -->
-    <LogsView v-if="curView === 'logs'" :ctl="logsViewCtl" />
+    <LogsView v-if="curView === 'logs'" :ctl="logsViewCtl" @goto-plan="gotoPlanFromBand" />
 
     <!-- Launchpad view -->
     <LaunchpadView v-if="curView === 'launchpad'" :ctl="launchpadCtl" />
@@ -4942,6 +4942,19 @@ function openProjectLogs(): void {
   if (!p) return
   logProjectFilter.value = p.id
   switchView('logs')
+}
+
+/**
+ * 每日推进面 → 项目页「作战计划」（2026-11-03 暮雨第 3 条：“第一次找那个地方找了好久”）。
+ * 计划文件名就是项目 id（`task-data/plans/<项目id>.md`），据此选中项目；
+ * 不直接改 PlanView 的内部状态 —— 切过去它会自己读计划卡。
+ */
+function gotoPlanFromBand(payload: { file?: string; pendingCount?: number } = {}): void {
+  const base = String(payload.file || '').split(/[\\/]/).pop()?.replace(/\.md$/i, '') || ''
+  if (base) pvSelected.value = base
+  pvView.value = 'plan'
+  saveUiPref(PV_VIEW_KEY, 'plan')
+  navigateTo('projects')
 }
 /** 接力对话框（2026-09-29 方案二）：源日志 + 预填字段 + 两个出清开关 */
 const relay_ = ref<any>(null)

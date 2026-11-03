@@ -26,6 +26,19 @@
       → 回到这里点“⚙ 跑判据”，全过后点“▶ 推进这一格”（写完成 + 证据，之后自动跳到下一格）。
     </div>
 
+    <!-- 2026-11-03：裁决后的即时回执。原先只有页面底部一行 msg（滚远了看不见），
+         用户点完“通过”完全不知道成没成。现在顶部常驻一条，并顺手给“记成决策卡”。 -->
+    <div v-if="recent" class="plan-recent" :class="'pr-' + recent.action">
+      <span class="pr-text">已{{ recent.action === 'pass' ? '冻结' : recent.action === 'reject' ? '打回' : '记录修改' }}
+        <b>{{ recent.stageId }}</b> {{ recent.title }}</span>
+      <span v-if="recent.recorded" class="pr-done">✓ 已记决策卡 {{ recent.decisionId }}</span>
+      <template v-else>
+        <button class="ghost" :disabled="decisionBusy" @click="recordDecision">
+          {{ decisionBusy ? '记…' : '＋ 记成决策卡' }}</button>
+        <button class="ghost" @click="recent = null">不用</button>
+      </template>
+    </div>
+
     <!-- 待裁决清单（2026-11-02）—— 此前“待裁决”只藏在每张卡的状态胶囊里，
          而日志页的每日推进面只认“已冻结”，于是 7 张等裁决的卡在界面上等于不存在
          （暮雨原话：“待裁决的东西在哪里？没看见”）。这里给一个显式出口：
@@ -78,12 +91,13 @@
         <span class="plan-stat">{{ doc.stages.length }} 个阶段 · 缺块 {{ missCount(doc) }} 张</span>
       </div>
 
-      <div v-for="s in doc.stages" :key="doc.file + s.id" class="plan-stage" :class="{ bad: s.missing.length }"
+      <div v-for="s in doc.stages" :key="doc.file + s.id" class="plan-stage"
+        :class="{ bad: s.missing.length, 'just-verdict': flashKey === runKey(doc, s) }"
         :data-stage="doc.file + '::' + s.id">
         <div class="plan-stage-head">
           <span class="plan-id">{{ s.id }}</span>
           <span class="plan-title">{{ s.title }}</span>
-          <span class="plan-status">{{ s.status || '未填状态' }}</span>
+          <span class="plan-status" :class="'ps-' + statusKey(s.status)">{{ s.status || '未填状态' }}</span>
           <span v-if="s.evidence" class="plan-evidence" :title="'完成证据：' + s.evidence">✔ {{ s.evidence }}</span>
           <span v-if="s.missing.length" class="plan-miss">缺 {{ s.missing.join(' / ') }} —— 不能通过</span>
           <span v-else class="plan-ok">三块齐全</span>
@@ -115,15 +129,20 @@
         </div>
 
         <div class="plan-acts">
-          <button class="ok plan-act-pass" :disabled="busy || s.missing.length > 0"
-            :title="s.missing.length ? '缺块不能通过' : '冻结这张阶段卡'"
-            @click="verdict(doc, s, 'pass')">✓ 通过（冻结）</button>
-          <button class="danger plan-act-reject" :disabled="busy" @click="openText(doc, s, 'reject')">↩ 打回</button>
-          <button class="ghost plan-act-amend" :disabled="busy" @click="openText(doc, s, 'amend')">✎ 改一句</button>
+          <!-- 2026-11-03：冻结/完成后按钮改成“已冻结 / 已完成”并禁用 ——
+               以前点完仍写着“通过（冻结）”，用户看不出到底成没成，只能狂点。 -->
+          <button class="ok plan-act-pass" :disabled="busy || s.missing.length > 0 || !canFreeze(s)"
+            :title="s.missing.length ? '缺块不能通过' : !canFreeze(s) ? '这张卡已经' + (s.status || '处理过') : '冻结这张阶段卡'"
+            @click="verdict(doc, s, 'pass')">
+            {{ s.status === '已冻结' ? '✓ 已冻结' : s.status === '完成' ? '✓ 已完成' : '✓ 通过（冻结）' }}
+          </button>
+          <button class="danger plan-act-reject" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'reject')">↩ 打回</button>
+          <button class="ghost plan-act-amend" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'amend')">✎ 改一句</button>
           <!-- P4 界面入口（2026-11-02）：只有点这里才起进程；打开这一页永远不会跑判据 -->
           <button class="ghost plan-run-checks" :disabled="runBusy" title="真跑这一格的判据（不写任何文件）"
             @click="runChecks(doc, s)">⚙ 跑判据</button>
-          <button class="pri plan-run-advance" :disabled="runBusy" title="跑判据 → 闸门 → 判据全过才写得进完成"
+          <button class="pri plan-run-advance" :disabled="runBusy" :class="{ 'needs-freeze': s.status !== '已冻结' }"
+            :title="s.status !== '已冻结' ? '这张卡还没冻结 —— 推进会被闸门拒绝（先点“通过（冻结）”）' : '跑判据 → 闸门 → 判据全过才写得进完成'"
             @click="advance(doc, s)">▶ 推进这一格</button>
           <span v-if="s.rejectReason" class="plan-reason">上次打回：{{ s.rejectReason }}</span>
           <span v-if="s.verdict" class="plan-verdict">{{ s.verdict }}</span>
@@ -177,6 +196,47 @@ const msg = ref('')
 const msgType = ref<'ok' | 'bad'>('ok')
 const text = ref('')
 const textTarget = ref<{ file: string; stageId: string; action: 'reject' | 'amend' } | null>(null)
+
+/** 裁决后的即时回执（2026-11-03）：顶部一条，可顺手记成决策卡 */
+const recent = ref<null | {
+  action: 'pass' | 'reject' | 'amend'
+  stageId: string; title: string; file: string; project: string; text: string
+  recorded: boolean; decisionId: string
+}>(null)
+const decisionBusy = ref(false)
+/** 刚操作过的那张卡闪一下（只做视觉，不参与任何判定） */
+const flashKey = ref('')
+let flashTimer: ReturnType<typeof setTimeout> | null = null
+
+function statusKey(s: string): string {
+  const st = String(s || '').trim()
+  if (st === '已冻结') return 'frozen'
+  if (st === '完成') return 'done'
+  if (st === '未完成') return 'rework'
+  if (st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结') return 'pending'
+  return 'unknown'
+}
+/** 只有“还没裁决 / 被打回 / 未完成”的卡可以冻结；已冻结、完成的不再给“通过” */
+function canFreeze(s: Stage): boolean {
+  const st = String(s.status || '').trim()
+  if (!st) return true
+  return st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结' || st === '未完成'
+}
+function projectOf(doc: Doc): string {
+  const fromTitle = String(doc.title || '').split('·')[0].trim()
+  if (fromTitle) return fromTitle
+  return String(doc.file || '').replace(/\.md$/i, '')
+}
+function todayLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function flash(key: string): void {
+  flashKey.value = key
+  if (flashTimer) clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => { flashKey.value = ''; flashTimer = null }, 2500)
+}
+
 // 投入产出账（P5）：只读；三格取不到就不渲染那一格
 const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 
@@ -276,6 +336,12 @@ async function runChecks(doc: Doc, s: Stage): Promise<void> {
 
 async function advance(doc: Doc, s: Stage): Promise<void> {
   if (runBusy.value) return
+  // 2026-11-03：拦“闭眼点推进”。判据不过时推进不是只读 —— 它会写“未完成 + 打回理由”，
+  // 这也是用户“狂点一遍、有些通过有些没过”的现场来源。先跑判据看过结果再推进。
+  if (!runOf(doc, s) && !confirm(
+    '还没跑判据。若判据不过，推进会把这格写成“未完成 + 打回理由”。\n\n' +
+    '确定 = 现在就跑并推进；取消 = 先点“⚙ 跑判据”看一眼'
+  )) return
   const key = runKey(doc, s)
   runBusy.value = true
   runStates.value = { ...runStates.value, [key]: emptyRun('', true) }
@@ -352,11 +418,53 @@ async function verdict(doc: Doc, s: Stage, action: 'pass' | 'reject' | 'amend', 
     else if (action === 'reject') msg.value = `已打回 ${s.id}——理由已写进卡里`
     else if (action === 'amend') msg.value = `已记录修改 ${s.id}——状态退回未冻结`
     msgType.value = 'ok'
+    // 顶部回执 + 卡片闪一下：点完必须“看得见”，不能只靠页面底部那行字
+    recent.value = {
+      action, stageId: s.id, title: s.title || '', file: doc.file,
+      project: projectOf(doc), text: why, recorded: false, decisionId: '',
+    }
+    flash(runKey(doc, s))
     textTarget.value = null
     text.value = ''
     await load()
   } finally {
     busy.value = false
+  }
+}
+
+/**
+ * 把刚发生的一次裁决记成决策卡（2026-11-03，暮雨第 4 条“没人提醒我记”）。
+ * 只走既有 `decisionAdd`，不新开写口；内容/项目/出处全预填，一键落盘。
+ * 计划卡裁决本身就是“定下来的事”，这是最该顺手记决策的地方。
+ */
+async function recordDecision(): Promise<void> {
+  const r0 = recent.value
+  if (!r0 || decisionBusy.value || r0.recorded) return
+  decisionBusy.value = true
+  try {
+    const actionText = r0.action === 'pass' ? '通过（冻结）' : r0.action === 'reject' ? '打回' : '记录修改'
+    const detail = r0.text ? `（${r0.text}）` : ''
+    const r: any = await window.tegula.decisionAdd({
+      内容: `${r0.stageId} ${r0.title}：${actionText}${detail}`,
+      日期: todayLocal(),
+      项目: r0.project,
+      出处: '作战计划裁决 · ' + r0.file,
+      备注: '由作战计划页在裁决后一键记录',
+    })
+    if (r?.ok) {
+      r0.recorded = true
+      r0.decisionId = String(r.id || '')
+      msg.value = `已记决策卡 ${r0.decisionId}（在“决策”页可查）`
+      msgType.value = 'ok'
+    } else {
+      msg.value = '记决策卡失败：' + (r?.error || '未知原因')
+      msgType.value = 'bad'
+    }
+  } catch (e: any) {
+    msg.value = '记决策卡异常：' + (e?.message || e)
+    msgType.value = 'bad'
+  } finally {
+    decisionBusy.value = false
   }
 }
 

@@ -2040,6 +2040,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-how { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--tint); color: var(--ink); font-size: 11.5px; line-height: 1.75; }
 .plan-how b { color: var(--accent); }
+/* 裁决回执（2026-11-03）：点完“通过”没反馈的修复 —— 顶部常驻一条 + 卡片闪一下 */
+.plan-recent { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 7px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--tint); border: 1px solid var(--border); }
+.plan-recent .pr-text { flex: 1 1 260px; }
+.plan-recent .pr-text b { color: var(--accent); }
+.plan-recent .pr-done { color: var(--success); font-size: 11.5px; }
+.plan-stage.just-verdict { outline: 2px solid var(--accent-soft); outline-offset: 2px; transition: outline-color .2s; }
+.plan-status.ps-frozen { color: var(--accent); border-color: var(--accent-soft); }
+.plan-status.ps-done { color: var(--success); }
+.plan-status.ps-pending { color: var(--warning); }
+.plan-status.ps-rework { color: var(--danger); }
+.plan-run-advance.needs-freeze { opacity: .55; }
 .plan-reload { margin-left: auto; height: 26px; padding: 0 10px; font-size: 11.5px; }
 .plan-empty { padding: 24px 0; font-size: 12.5px; color: var(--muted); }
 .plan-code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
@@ -2948,6 +2961,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .daily-band .db-line-2 { color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
 .daily-band .db-line-3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .daily-band.db-error { color: var(--danger); font-size: 12px; }
+.daily-band .db-go { flex: none; height: 26px; padding: 0 10px; font-size: 11.5px; }
 .log-search { width: 240px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }
 .log-search::placeholder { color: var(--muted); font-size: 10.5px; }
 .log-filter { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--card); color: var(--ink); outline: none; font-family: inherit; }

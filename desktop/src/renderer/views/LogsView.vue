@@ -110,6 +110,10 @@
       <div class="db-lines">
         <div v-for="(ln, i) in dailyBand.lines" :key="'db-' + i" class="db-line" :class="'db-line-' + (i + 1)">{{ ln }}</div>
       </div>
+      <!-- 2026-11-03：只在“需要人动一下”时出现 —— ready（有格子可推）或还有待裁决。
+           没有计划 / 全过且无积压时不渲染，保持这条带干净。 -->
+      <button v-if="canGoPlan" class="ghost db-go" :title="'去项目页 → 作战计划'"
+        @click="gotoPlan">{{ goPlanLabel }}</button>
     </div>
     <div v-else-if="dailyBandError" class="daily-band db-error" role="status">{{ dailyBandError }}</div>
     <div v-if="logBatchMode" class="batch-bar">
@@ -329,7 +333,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, toRef } from 'vue'
+import { computed, onMounted, toRef } from 'vue'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { localPriority } from '../../shared/priority'
 
@@ -342,6 +346,8 @@ import { localPriority } from '../../shared/priority'
  *   · **动作**（函数）→ 直接解构：函数不是 ref，不需要响应式，deconstruct 拿到的就是函数本体。
  */
 const props = defineProps<{ ctl: any }>()
+/** 每日推进面的跳转：App 负责切到“项目页 → 作战计划”（这里不直接改全局视图） */
+const emit = defineEmits<{ (e: 'goto-plan', payload: { file: string; pendingCount: number }): void }>()
 
 const ctl = props.ctl
 
@@ -366,6 +372,23 @@ const agentPresets = toRef(ctl, 'agentPresets')
 // 每日推进面（0.6.0 P2）：选格结果与读取错误都由父组件给，模板只显示三行
 const dailyBand = toRef(ctl, 'dailyBand')
 const dailyBandError = toRef(ctl, 'dailyBandError')
+/** 只有“有格子可推 / 还有待裁决 / 有未完成要返工”才露跳转；空仓 / 全做完时保持干净 */
+const canGoPlan = computed(() => {
+  const b = dailyBand.value
+  return !!b && (b.kind === 'ready' || Number(b.pendingCount || 0) > 0 || Number(b.reworkCount || 0) > 0)
+})
+const goPlanLabel = computed(() => {
+  const b = dailyBand.value
+  if (!b) return '去作战计划 →'
+  if (b.kind === 'ready') return '去作战计划 →'
+  if (Number(b.reworkCount || 0) > 0) return `去返工 ${b.reworkCount} 张 →`
+  return `去裁决 ${b.pendingCount} 张 →`
+})
+function gotoPlan(): void {
+  const b = dailyBand.value
+  if (!b) return
+  emit('goto-plan', { file: String(b.file || ''), pendingCount: Number(b.pendingCount || 0) })
+}
 // 主日志 / 附属日志（2026-10-30 第 4 条）：两张映射由父组件算好，模板只查表
 const logGroupChildren = toRef(ctl, 'logGroupChildren')
 const logGroupParent = toRef(ctl, 'logGroupParent')

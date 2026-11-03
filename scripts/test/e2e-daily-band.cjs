@@ -130,6 +130,18 @@ check('★★ 一张卡都没有 → 仍是“本仓还没有冻结的作战计�
 check('★ 空态 message 与首行一致（界面/日志同一个口径）', empty.message === empty.lines[0])
 check('★ 空态 stage 为 null（不是造一张空格子出来）', empty.stage === null)
 
+// 2026-11-03：推进失败会写“未完成”；它必须被单独数出来，不能被“没有冻结的计划”糊过去。
+const reworkOnly = buildDailyBand([plan('x.md', [stage('P0', '未完成'), stage('P1', '完成')])])
+check('★★ 有“未完成”的卡 → 首行报“有 N 张等你返工”，且 kind 不是 ready',
+  reworkOnly.kind === 'none' && reworkOnly.reworkCount === 1 && reworkOnly.pendingCount === 0
+  && /等你返工/.test(reworkOnly.lines[0]), reworkOnly.lines[0])
+
+// “全做完” ≠ “没有计划”：否则做完计划会看到“本仓还没有冻结的作战计划”。
+const allDone = buildDailyBand([plan('x.md', [stage('P0', '完成'), stage('P1', '完成')])])
+check('★★ 全部阶段完成 → 说“所有阶段都已完成”，不退回“没有计划”话术',
+  allDone.kind === 'all-passed' && allDone.doneCount === 2 && allDone.totalCount === 2
+  && /所有阶段都已完成/.test(allDone.lines[0]), allDone.lines[0])
+
 // 三种“等裁决”写法都算积压（打回/改一句之后都会落到这几个值）
 check('★★ 待裁决 / 待裁决（未冻结）/ 未冻结 都计入 pendingCount',
   buildDailyBand([plan('x.md', [
@@ -223,11 +235,24 @@ if (!fs.existsSync(PLAN_MD)) {
   if (doc) {
     const real = buildDailyBand([doc])
     const firstFrozen = doc.stages.filter((s) => String(s.status || '').trim() === '已冻结')[0]
-    check('★ 真卡：选中第一张“已冻结”的阶段卡', !!firstFrozen && real.stage.id === firstFrozen.id,
-      JSON.stringify({ picked: real.stage && real.stage.id, firstFrozen: firstFrozen && firstFrozen.id, kind: real.kind }))
-    check('★ 真卡：三行且第二行带判据原文',
-      real.lines.length === 3 && !!firstFrozen && firstFrozen.criteria.every((c) => real.lines[1].includes(c)),
-      real.lines[1])
+    if (firstFrozen) {
+      check('★ 真卡：选中第一张“已冻结”的阶段卡', real.stage.id === firstFrozen.id,
+        JSON.stringify({ picked: real.stage && real.stage.id, firstFrozen: firstFrozen.id, kind: real.kind }))
+      check('★ 真卡：三行且第二行带判据原文',
+        real.lines.length === 3 && firstFrozen.criteria.every((c) => real.lines[1].includes(c)),
+        real.lines[1])
+    } else {
+      // 2026-11-03：真卡已被推到“完成/未完成”，没有已冻结的格子 —— 这不是 bug，
+      // 条带必须如实说“没有可推的”，并且不许编一张卡出来。
+      const pending = doc.stages.filter((s) => ['待裁决', '待裁决（未冻结）', '未冻结'].includes(String(s.status || '').trim())).length
+      const rework = doc.stages.filter((s) => String(s.status || '').trim() === '未完成').length
+      check('★ 真卡：没有已冻结时不自造一张卡（kind=none / stage=null / 仍 3 行）',
+        real.kind === 'none' && real.stage === null && real.lines.length === 3,
+        JSON.stringify({ kind: real.kind, stage: real.stage && real.stage.id, lines: real.lines.length }))
+      check('★ 真卡：待裁决 / 未完成计数与卡面一致',
+        real.pendingCount === pending && real.reworkCount === rework,
+        `band=${real.pendingCount}/${real.reworkCount} 卡面=${pending}/${rework}`)
+    }
     check('★ 真卡读取是只读的（文件字节数与 mtime 一个不变）', (() => {
       const after = fs.statSync(PLAN_MD)
       return after.size === before.size && after.mtimeMs === before.mtimeMs
