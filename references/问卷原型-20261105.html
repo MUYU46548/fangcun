@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方寸 · 问卷弹窗（原型 v1）</title>
+<style>
+  :root {
+    --bg: #eef0f4; --ink: #3c4150; --muted: #626775;
+    --accent: #705fab; --accent-soft: #c3bce0; --card: #fff; --border: #e4e2ee;
+    --tint: #f3f0fb; --tint-2: #f7f7fb;
+    --ok: #377457; --warn: #975c21; --danger: #8a4343;
+    --danger-bg: #fbf1f0; --danger-bd: #efd9d6;
+    --ask: #97572a; --ask-bg: #fdf6ec; --ask-bd: #f0e0c8;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+
+  .page { max-width: 980px; margin: 0 auto; padding: 22px 22px 60px; }
+  .page-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .page-hd h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .page-hd .sub { font-size: 11.5px; color: var(--muted); }
+  .pcard {
+    margin-top: 14px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .pcard .pname { font-weight: 700; font-size: 14px; }
+  .pcard .pmeta { font-size: 11.5px; color: var(--muted); }
+  .pcard .grow { flex: 1; }
+  .ask-entry {
+    border: 1px solid var(--accent-soft); background: var(--tint); color: var(--accent);
+    border-radius: 999px; padding: 5px 13px; font-size: 12px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .ask-entry:hover { border-color: var(--accent); }
+  .ask-entry .n {
+    background: var(--accent); color: #fff; border-radius: 999px;
+    min-width: 17px; height: 17px; line-height: 17px; text-align: center; font-size: 10.5px; padding: 0 4px;
+  }
+  .hint-line { margin-top: 16px; font-size: 11.5px; color: var(--muted); line-height: 1.95; }
+  .hint-line b { color: var(--ink); }
+
+  .mask {
+    position: fixed; inset: 0; background: rgba(60, 65, 80, .40);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  .mask.on { opacity: 1; pointer-events: auto; }
+  .dlg {
+    width: min(900px, 100%); max-height: min(90vh, 780px); background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column;
+    overflow: hidden; transform: translateY(6px) scale(.995); transition: transform .18s;
+  }
+  .mask.on .dlg { transform: none; }
+
+  .dlg-hd { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .dlg-hd .ttl { font-size: 14.5px; font-weight: 700; }
+  .dlg-hd .layer { font-size: 11px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft); border-radius: 999px; padding: 1px 8px; font-weight: 600; }
+  .dlg-hd .cnt { font-size: 11.5px; color: var(--muted); }
+  .dlg-hd .grow { flex: 1; }
+  .xbtn { border: 0; background: transparent; color: var(--muted); font-size: 16px; padding: 2px 6px; border-radius: 7px; }
+  .xbtn:hover { background: var(--tint-2); color: var(--ink); }
+
+  .vseg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .vseg button { border: 0; background: #fff; color: var(--muted); font-size: 11.5px; padding: 4px 10px; }
+  .vseg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+
+  .bar { height: 3px; background: var(--tint-2); }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+
+  .dlg-bd { display: flex; min-height: 0; flex: 1; }
+  .rail { width: 178px; flex: none; border-right: 1px solid var(--border); background: var(--tint-2); padding: 8px; overflow: auto; }
+  .rail-i {
+    display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 8px;
+    font-size: 11.5px; color: var(--muted); border: 1px solid transparent; background: transparent;
+    width: 100%; text-align: left;
+  }
+  .rail-i:hover { background: #fff; }
+  .rail-i.on { background: #fff; border-color: var(--accent-soft); color: var(--ink); font-weight: 600; }
+  .rail-i .k { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--accent); flex: none; width: 22px; }
+  .rail-i .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rail-i .st { flex: none; font-size: 10px; }
+  .rail-i .st.ans { color: var(--ok); }
+  .rail-i .st.skip { color: var(--muted); }
+  .rail-i .st.rej { color: var(--danger); }
+  .rail-i .st.ask { color: var(--ask); }
+  .rail-grp {
+    display: flex; align-items: center; gap: 5px; width: 100%; border: 0; background: transparent;
+    font-size: 10px; color: var(--muted); padding: 6px 8px 3px; text-align: left; letter-spacing: .04em;
+  }
+  .rail-grp:hover { color: var(--ink); }
+  .rail-grp .arw { font-size: 8px; transition: transform .15s; }
+  .rail-grp.collapsed .arw { transform: rotate(-90deg); }
+  .rail-foot { margin-top: 8px; padding: 8px; font-size: 10.5px; color: var(--muted); line-height: 1.8; border-top: 1px dashed var(--border); }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  /* ⚠ 这一行是“整卷不能滚”的真凶：flex 子元素默认 min-height:auto，
+     内容一长就把容器撑破，overflow:auto 永远不触发。三块 body 都得上约束。 */
+  #body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #body > .q, #body > .all, #body > .done { flex: 1; min-height: 0; }
+  .q { padding: 16px 20px; overflow: auto; flex: 1; }
+  .q-id { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--accent); font-weight: 700; }
+  .q-ask { font-size: 16.5px; font-weight: 700; line-height: 1.45; margin: 3px 0 11px; }
+  .q-pre { font-size: 11.5px; color: var(--warn); background: var(--ask-bg); border: 1px solid var(--ask-bd); border-radius: 8px; padding: 6px 9px; margin-bottom: 11px; line-height: 1.65; }
+  .q-pre.bad { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-bd); }
+  .q-pre.ask { color: var(--ask); }
+  .q-pre .undo {
+    margin-left: 8px; border: 0; background: transparent; color: inherit; font-size: 11px;
+    text-decoration: underline; text-underline-offset: 2px; padding: 0; opacity: .85;
+  }
+  .q-pre .undo:hover { opacity: 1; }
+
+  .look { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+  .look-hd {
+    display: flex; align-items: center; gap: 7px; padding: 7px 10px; background: var(--tint-2);
+    border: 0; width: 100%; text-align: left; font-size: 11.5px; color: var(--ink);
+  }
+  .look-hd:hover { background: var(--tint); }
+  .look-hd .arw { flex: none; color: var(--muted); font-size: 10px; transition: transform .15s; }
+  .look.open .look-hd .arw { transform: rotate(90deg); }
+  .look-hd .tag { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .look-bd { display: none; padding: 4px 10px 9px; border-top: 1px solid var(--border); }
+  .look.open .look-bd { display: block; }
+  .look-row { display: flex; gap: 8px; padding: 4px 0; font-size: 11.5px; line-height: 1.6; border-top: 1px dashed #f0eff6; }
+  .look-row:first-child { border-top: 0; }
+  .look-row .nm { flex: none; width: 112px; font-weight: 600; color: var(--accent); }
+  .look-row .ds { flex: 1; min-width: 0; }
+  .look-row a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+
+  .opts { display: flex; flex-direction: column; gap: 7px; }
+  .opt {
+    display: flex; gap: 10px; align-items: flex-start; text-align: left; width: 100%;
+    border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px 12px;
+    transition: border-color .12s, background .12s;
+  }
+  .opt:hover { border-color: var(--accent-soft); background: #fcfbff; }
+  .opt.on { border-color: var(--accent); background: var(--tint); }
+  .opt .kk {
+    flex: none; width: 21px; height: 21px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 19px; text-align: center;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .opt.on .kk { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .opt .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .opt .t1 { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.5; }
+  .opt .t2 { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+
+  .meta { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 8px; }
+  .meta-t { border: 0; background: transparent; color: var(--muted); font-size: 11px; padding: 2px 0; display: flex; align-items: center; gap: 5px; }
+  .meta-t:hover { color: var(--accent); }
+  .meta-t .arw { font-size: 9px; transition: transform .15s; }
+  .meta.open .meta-t .arw { transform: rotate(90deg); }
+  .meta-b { display: none; font-size: 11px; color: var(--muted); line-height: 1.75; padding: 5px 0 2px; }
+  .meta.open .meta-b { display: block; }
+  .meta-b b { color: var(--ink); font-weight: 600; }
+
+  .dlg-ft { border-top: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dlg-ft .grow { flex: 1; }
+  .btn { border: 1px solid var(--border); background: #fff; color: var(--ink); border-radius: 9px; padding: 5px 12px; font-size: 12px; font-weight: 600; }
+  .btn:hover { border-color: var(--accent-soft); }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.pri:hover { filter: brightness(1.06); }
+  .btn.pri:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  .btn.ghost { color: var(--muted); font-weight: 400; }
+  .btn.ghost:hover { color: var(--ink); }
+  .btn.ask { color: var(--ask); border-color: var(--ask-bd); background: #fffdf8; }
+  .btn.ask:hover { border-color: var(--ask); }
+  .btn.bad { color: var(--danger); border-color: var(--danger-bd); }
+
+  .editbox { margin-top: 10px; border: 1px solid var(--accent-soft); background: var(--tint); border-radius: 10px; padding: 9px 10px; }
+  .editbox.ask { border-color: var(--ask-bd); background: var(--ask-bg); }
+  .editbox label { font-size: 11.5px; color: var(--muted); display: block; margin-bottom: 5px; line-height: 1.7; }
+  .editbox.ask label { color: var(--ask); }
+  .editbox label b { color: inherit; }
+  .editbox textarea {
+    width: 100%; min-height: 58px; resize: vertical; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 9px; font: inherit; font-size: 12.5px; color: var(--ink); background: #fff; outline: none;
+  }
+  .editbox textarea:focus { border-color: var(--accent); }
+  .editbox.ask textarea:focus { border-color: var(--ask); }
+  .editbox .row { display: flex; gap: 7px; justify-content: flex-end; margin-top: 7px; }
+  .editbox .tip { font-size: 10.5px; color: var(--muted); line-height: 1.7; margin-top: 5px; }
+
+  /* 整卷模式 */
+  .all { padding: 14px 16px 18px; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+  .qcard { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: #fff; }
+  .qcard.ans { border-color: var(--accent-soft); background: #fcfbff; }
+  .qcard.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--tint); }
+  .qcard.focus .qc-id::after { content: ' · 键盘 1-4'; color: var(--muted); font-weight: 400; font-size: 9.5px; }
+  .qcard.askc { border-color: var(--ask-bd); background: var(--ask-bg); }
+  .qcard .qc-hd { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .qcard .qc-id { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--accent); font-weight: 700; }
+  .qcard .qc-ask { font-size: 13.5px; font-weight: 700; line-height: 1.5; }
+  .qcard .opts { gap: 5px; margin-top: 8px; }
+  .qcard .opt { padding: 7px 10px; }
+  .qcard .opt .t1 { font-size: 12.5px; }
+  .qcard .opt .t2 { font-size: 11px; }
+  .qcard .qc-acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .qcard .qc-acts .btn { font-size: 11px; padding: 3px 9px; }
+  .qcard .look { margin: 8px 0 0; }
+  .qcard .meta { margin-top: 8px; padding-top: 6px; }
+
+  .done { padding: 18px 20px; overflow: auto; flex: 1; }
+  .done h2 { font-size: 16px; margin: 0 0 4px; }
+  .done .sub { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; }
+  .draft-bar, .approved-bar {
+    border-radius: 10px; padding: 8px 11px; font-size: 11.5px; line-height: 1.75; margin-bottom: 12px;
+  }
+  .draft-bar { background: var(--ask-bg); border: 1px solid var(--ask-bd); color: var(--ask); }
+  .draft-bar b { color: var(--ask); }
+  .approved-bar { background: #eef7f0; border: 1px solid #cfe6d5; color: var(--ok); }
+  .sum { font-size: 11px; color: var(--muted); }
+  .sec-t { font-size: 11.5px; font-weight: 700; margin: 14px 0 6px; color: var(--ink); }
+  .sec-t .n { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .log {
+    background: #2f3242; color: #d8dbeb; border-radius: 10px; padding: 11px 13px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; line-height: 1.95;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log .c { color: #8b90a8; }
+  .log .g { color: #9ed6a8; }
+  .log .a { color: #f0b866; }
+  .askbox { border: 1px solid var(--ask-bd); background: var(--ask-bg); border-radius: 10px; padding: 9px 11px; }
+  .ask-i { font-size: 11.5px; line-height: 1.8; padding: 3px 0; }
+  .ask-i b { color: var(--ask); font-family: ui-monospace, Consolas, monospace; font-size: 11px; margin-right: 4px; }
+  .ask-tail { font-size: 11px; color: var(--muted); border-top: 1px dashed #e4d6c2; margin-top: 6px; padding-top: 6px; line-height: 1.7; }
+  .after { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+  .after-i { display: flex; gap: 9px; font-size: 11.5px; line-height: 1.7; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--tint-2); }
+  .after-i .ic { flex: none; }
+  .after-i b { font-weight: 600; }
+  .after-i .m { color: var(--muted); }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 10px);
+    background: #3c4150; color: #fff; border-radius: 10px; padding: 8px 15px; font-size: 12.5px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-hd">
+    <h1>项目</h1>
+    <span class="sub">背景页 —— 只为交代“问卷从哪进”</span>
+  </div>
+  <div class="pcard">
+    <div>
+      <div class="pname">司天</div>
+      <div class="pmeta">活跃 · 7 张进行中 · 上次动 11-04 21:56</div>
+    </div>
+    <div class="grow"></div>
+    <button class="ask-entry" id="entry">⚠ 待答问卷 <span class="n">7</span></button>
+  </div>
+  <div class="hint-line">
+    <b>v1 按你的四条改的：</b>
+    ① 一次一题 ⇄ 整卷，右上切换　②【看一眼】默认折着（按需加载）
+    ③ 左栏保留　④ <b>新增「❗ 反问」</b> —— 选项之外唯一的出口，也是最值钱的那个。<br>
+    题目仍是司天 11-04 宪法层原文，一字未改。
+  </div>
+</div>
+
+<div class="mask" id="mask">
+  <div class="dlg">
+    <div class="dlg-hd">
+      <span class="ttl">司天 · 问卷</span>
+      <span class="layer">宪法层</span>
+      <span class="cnt" id="hdCnt">已答 0 / 7</span>
+      <span class="grow"></span>
+      <div class="vseg" title="一次一题：专心答；整卷：一眼看全部、就地改">
+        <button data-v="one" class="on">一次一题</button>
+        <button data-v="all">整卷</button>
+      </div>
+      <button class="xbtn" id="closeBtn" title="关闭（答案留着，下次接着答）">✕</button>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+
+    <div class="dlg-bd">
+      <div class="rail" id="rail"></div>
+      <div class="main">
+        <div id="body"></div>
+        <div class="dlg-ft" id="ft"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   数据：司天《问卷·宪法层（2026-11-04）》原文
+   ════════════════════════════════════════════════════════════ */
+const DECK = {
+  project: '司天', layer: '宪法层',
+  questions: [
+    { id: 'S1', ask: '司天做一件还是两件？', nav: '最终形态',
+      options: [
+        { k: 'A', t: '生成器 + 编辑器分两件', d: '抄业界主流（Gaea 生成 → WorldPainter 编辑两工具串联）；四问全有现成答案，司天只补空位' },
+        { k: 'B', t: '一体化单件', d: '抄易制地图形态（涂色 + 模拟一体）；上手快，但每样都得自己写' },
+        { k: 'C', t: '只做编辑器', d: '生成外包给现成件（Azgaar / 贴图导入），司天专注“画”' } ],
+      look: [
+        { nm: 'WorldPainter', ds: '桌面手绘地图，像 PS 从上往下刷：抬山雕河刷森林', url: 'https://worldpainter.net' },
+        { nm: '易制地图', ds: '中文小说圈最大地图工具（网页 / 手机，微信登录）', url: 'https://www.makeamap.cn' },
+        { nm: 'Azgaar 汉化', ds: '一键生成整张幻想世界图的免费网页工具', url: 'https://www.bilibili.com/video/BV1pz4y1H7eD' } ],
+      src: '四问总表 §一（业界主流工作流）＋ §五（三件套零覆盖）',
+      line: '落档后，凡跨形态派单的司天任务卡一律打回' },
+
+    { id: 'S2', ask: 'B 站生态零覆盖的三件，首版先做哪件？', nav: '独有资产位',
+      options: [
+        { k: 'A', t: '演变回放', d: '需求最硬 —— 史图馆 221.6 万粉、疆域演变单条 374.9 万播放，全人肉做的' },
+        { k: 'B', t: '行政区划布尔', d: '涂色是易制基本盘，布尔运算 = 无人做的加分项' },
+        { k: 'C', t: '语义绑定', d: 'vvd 同款能力，但本地化' },
+        { k: 'D', t: '三件同批开工', d: '不推荐：三件任何一个单独都够做一轮' } ],
+      look: [
+        { nm: '史图馆疆域演变', ds: '历代疆域变化视频（374.9 万播放，政区色块风）', url: 'https://www.bilibili.com/video/BV1wP4y1p7Vp' },
+        { nm: 'vvd', ds: '你 10-23 定过的旧验收尺（3D + 语义绑定）', url: 'https://www.bilibili.com/video/BV1hyHh6FE4A' } ],
+      src: '四问总表 §五（工程线 + 广度线双源互证）',
+      line: '首版任务卡只含勾选项，做完一件验收一件，不并联' },
+
+    { id: 'S3', ask: '每轮产出怎么验收？', nav: '验收方式',
+      options: [
+        { k: 'A', t: '你亲眼看', d: '每轮附“看什么”清单，5 分钟出“过 / 不过”（你的因果定调：烂 = 因，没人用 = 果）' },
+        { k: 'B', t: '像素基线自动比对 ＋ 你抽看', d: '机器先过一遍，你只看抽中的那几张' },
+        { k: 'C', t: '只验收最终成品', d: '旧模式，已证会漏烂货' } ],
+      look: [],
+      src: '11-03 19:29–33 施工单事故结论 ④（机器判据拦不住观感）＋ 20:22 原话',
+      line: '选定后每轮司天产出无“看什么”清单即不合格，打回' },
+
+    { id: 'S4', ask: '画图数据怎么存？', nav: '数据持久性红线',
+      options: [
+        { k: 'A', t: '本地文件 ＋ 版本化', d: '画 5 小时的图明天必须还在、可回滚（你原话“今天画 5 小时的地图明天整个地图都不兼容了”= 死罪第一条）' },
+        { k: 'B', t: '本地单副本', d: '简单，误删风险自担' } ],
+      look: [],
+      src: '11-03 20:22 原话 ＋ 四问总表 §四（易制“七天过期”待实测裁决 —— 同种病）',
+      line: '画图 → 重启 → 隔天 → 升级 四关全过，才准进下一轮开发' },
+
+    { id: 'S5', ask: '平台按 Windows 11 桌面本地，对吗？', nav: '平台（已答过）',
+      prefilled: 'A',
+      prefilledNote: '这题 10-16 答过 —— 当时语境是方寸环境假设定案。沿用就打勾；变则改一句，别重答一遍。',
+      options: [
+        { k: 'A', t: '确认：Windows 11 桌面本地', d: '沿用 10-16 的答案，不重问' },
+        { k: 'B', t: '变了 —— 改一句说明', d: '' } ],
+      look: [],
+      src: '10-16 你发群附件原话（哨兵当日收档件 L90）＋ USER.md 10-16 存档',
+      line: '任务卡环境段统一 Win11，Linux 分支不再出现' },
+
+    { id: 'S6', ask: '方寸的“零依赖”严度，司天跟不跟？', nav: '依赖红线',
+      options: [
+        { k: 'A', t: '方寸同款红线', d: '零第三方依赖，全自研' },
+        { k: 'B', t: '放开', d: '允许成熟库（图形 / 渲染 / 工具链都可用），功能与进度优先' },
+        { k: 'C', t: '分层', d: '核心逻辑零依赖，图形渲染层允许成熟库' } ],
+      look: [],
+      src: '方寸红线原档（纯 Python 零依赖）—— 注意这是方寸的规矩，司天从未拍板过',
+      line: '选型单进任务卡前先过此线，违线选型打回；本题答案不构成任何语言 / 框架决策' },
+
+    { id: 'S7', ask: '司天什么条件下重新开工？', nav: '缓行令恢复信号',
+      options: [
+        { k: 'A', t: '本地这批改完 ＋ 你亲眼验收过', d: '' },
+        { k: 'B', t: '现成品实测过关', d: '你 21:56 原话“B 站足够强的地图工具已能做到我想要的样子”，实测坐实即信号' },
+        { k: 'C', t: 'A ＋ B 同时满足', d: '' } ],
+      look: [
+        { nm: 'Terrain Studio', ds: '网页版，浏览器里笔刷直接刷地形，GPU 实时（点开就能试）', url: 'https://terrains.zyfod.dev' } ],
+      src: '11-03 20:17 缓行令（“这批改完后暂时缓一缓”）＋ 21:56 调研例外',
+      line: '信号达成日落 decision-log“司天复工”；缓行期间云端只供粮草不出单' },
+  ],
+}
+
+/* ════════════════════════════════════════════════════════════
+   状态：answers[id] = {kind:'pick'|'skip'|'reject'|'amend'|'askback', k?, text?}
+   ════════════════════════════════════════════════════════════ */
+const answers = {}
+let cur = 0
+let view = 'one'
+let doneMode = false
+let approved = false
+let editing = null          // null | {id, kind:'amend'|'askback'}
+const openLook = {}
+const collapsed = {}          // 左栏分组折叠状态
+let cardFocus = ''            // 整卷模式下“键盘作用于哪张卡”
+const $ = (s) => document.querySelector(s)
+const $$ = (s) => Array.prototype.slice.call(document.querySelectorAll(s))
+const mask = $('#mask')
+
+DECK.questions.forEach((q) => {
+  if (!q.layer) q.layer = DECK.layer      // 真实数据里裁决层题会写自己的 layer
+  if (q.prefilled) answers[q.id] = { kind: 'pick', k: q.prefilled }
+})
+
+const ansOf = (id) => answers[id] || null
+function isAnswered(id) {
+  const a = answers[id]
+  if (!a) return false
+  if (a.kind === 'amend' || a.kind === 'askback') return !!(a.text || '').trim()
+  return true
+}
+const answeredCount = () => DECK.questions.filter((q) => isAnswered(q.id)).length
+
+function toast(msg) {
+  const t = $('#toast')
+  t.textContent = msg; t.classList.add('on')
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1700)
+}
+
+/* ── 片段 ──────────────────────────────────────────────── */
+function railItem(q) {
+  const i = DECK.questions.indexOf(q)
+  const a = ansOf(q.id)
+  let st = '<span class="st">·</span>'
+  if (a) {
+    if (a.kind === 'skip') st = '<span class="st skip" title="跳过">○</span>'
+    else if (a.kind === 'reject') st = '<span class="st rej" title="已否决">✕</span>'
+    else if (a.kind === 'askback') st = '<span class="st ask" title="已反问">❗</span>'
+    else st = '<span class="st ans" title="已答">✓</span>'
+  }
+  return '<button class="rail-i ' + (view === 'one' && i === cur ? 'on' : '') + '" data-i="' + i +
+    '" title="' + q.id + ' ' + q.nav + '"><span class="k">' + q.id + '</span><span class="t">' + q.nav +
+    '</span>' + st + '</button>'
+}
+
+/**
+ * 左栏：按层分组（宪法层 / 裁决层 / 预埋）。
+ * 只有一层时不画组头 —— 单组还加个标题是纯噪音；题一多（>1 层）才需要它。
+ */
+function railHTML() {
+  const groups = []
+  const order = []
+  DECK.questions.forEach((q) => {
+    if (order.indexOf(q.layer) < 0) order.push(q.layer)
+  })
+  order.forEach((name) => {
+    groups.push({ name, items: DECK.questions.filter((q) => q.layer === name) })
+  })
+  const multi = groups.length > 1
+  let html = ''
+  groups.forEach((g) => {
+    const col = !!collapsed[g.name]
+    if (multi) {
+      html += '<button class="rail-grp ' + (col ? 'collapsed' : '') + '" data-grp="' + g.name + '">' +
+        '<span class="arw">▼</span>' + g.name + '<span style="margin-left:auto">' + g.items.length + '</span></button>'
+    }
+    if (multi && col) return
+    html += g.items.map(railItem).join('')
+  })
+  return html + '<div class="rail-foot">· 没答　○ 跳过（下次再问）<br>✕ 否决　❗ 反问（回给 agent）<br>已答 ' +
+    answeredCount() + ' / ' + DECK.questions.length +
+    '<br><button class="rail-grp" data-jump="1" style="padding:6px 0 0"><span class="arw">→</span>跳到下一道未答</button></div>'
+}
+
+function lookHTML(q) {
+  const rows = q.look || []
+  if (!rows.length) return ''
+  const open = !!openLook[q.id]
+  return '<div class="look ' + (open ? 'open' : '') + '">' +
+    '<button class="look-hd" data-lookbtn="' + q.id + '"><span class="arw">▶</span>' +
+    '<span>看一眼 · 不用懂名词，点开照着眼就行</span><span class="tag">' + rows.length + ' 个参照物</span></button>' +
+    '<div class="look-bd">' + rows.map((r) =>
+      '<div class="look-row"><span class="nm">' + r.nm + '</span><span class="ds">' + r.ds +
+      (r.url ? ' — <a href="' + r.url + '" target="_blank" rel="noreferrer">打开 ↗</a>' : '') + '</span></div>').join('') +
+    '</div></div>'
+}
+
+function optsHTML(q, picked) {
+  return '<div class="opts">' + q.options.map((o) =>
+    '<button class="opt ' + (picked === o.k ? 'on' : '') + '" data-pick="' + q.id + '" data-k="' + o.k + '">' +
+    '<span class="kk">' + o.k + '</span><span class="txt"><span class="t1">' + o.t + '</span>' +
+    (o.d ? '<span class="t2">' + o.d + '</span>' : '') + '</span></button>').join('') + '</div>'
+}
+
+function metaHTML(q) {
+  return '<div class="meta"><button class="meta-t" data-metabtn="1"><span class="arw">▶</span>出处（供校验，答题时不用看）</button>' +
+    '<div class="meta-b">' + q.src + '</div></div>' +
+    '<div class="meta"><button class="meta-t" data-metabtn="1"><span class="arw">▶</span>验收线（选完之后，什么算违规）</button>' +
+    '<div class="meta-b"><b>' + q.line + '</b></div></div>'
+}
+
+function editHTML(q, kind) {
+  const a = ansOf(q.id)
+  const val = a && (a.kind === 'amend' || a.kind === 'askback') ? a.text : ''
+  const isAsk = kind === 'askback'
+  return '<div class="editbox ' + (isAsk ? 'ask' : '') + '" data-edit="' + q.id + '">' +
+    '<label>' + (isAsk
+      ? '这题问错了 —— 说一句真正该问的。<b>这句话会回给 agent，让它重写这一题</b>（留空 = 单纯否决这题）'
+      : '选项都不对？补一句就行（这句话会原样落进 decision-log）') + '</label>' +
+    '<textarea data-txt="' + q.id + '" placeholder="' + (isAsk
+      ? '例：先别问做几件。真正该问的是“地图最终给谁看”—— 给读者看和给作者自己画，产品形态完全不同'
+      : '例：A 和 C 都要，但生成只在建项目时跑一次…') + '">' + val + '</textarea>' +
+    (isAsk ? '<div class="tip">反问不进 decision-log —— 它进“问题清单”，是下一轮出题的输入。</div>' : '') +
+    '<div class="row"><button class="btn ghost" data-editcancel="1">取消</button>' +
+    '<button class="btn ' + (isAsk ? 'ask' : 'pri') + '" data-editok="1" data-kind="' + kind + '">确定</button></div></div>'
+}
+
+function stateNote(q) {
+  const a = ansOf(q.id)
+  if (!a) return ''
+  // ⚠ 每种“非选择”的状态都必须带撤销（2026-11-05 暮雨：“否决没有撤回余地”）。
+  //    点选项能覆盖是一回事，但“我不知道还能点选项”是另一回事 —— 给显式出口。
+  const undo = '<button class="undo" data-act="reset" data-q="' + q.id + '">撤销这次操作</button>'
+  if (a.kind === 'reject') return '<div class="q-pre bad">这题已被否决 —— 不进 decision-log，也不再出现。' + undo + '</div>'
+  if (a.kind === 'skip') return '<div class="q-pre">已跳过 —— 不算冲突，下次进项目还会问。' + undo + '</div>'
+  if (a.kind === 'askback') return '<div class="q-pre ask">❗ 已反问：' + a.text + undo + '</div>'
+  if (a.kind === 'amend') return '<div class="q-pre">已记录你的说法：' + a.text + undo + '</div>'
+  return ''
+}
+
+/* ── 一次一题 ──────────────────────────────────────────── */
+function renderOne() {
+  const q = DECK.questions[cur]
+  const a = ansOf(q.id)
+  const picked = a && a.kind === 'pick' ? a.k : ''
+  const last = cur === DECK.questions.length - 1
+  $('#body').innerHTML = '<div class="q">' +
+    '<div class="q-id">' + q.id + '</div><div class="q-ask">' + q.ask + '</div>' +
+    (q.prefilled ? '<div class="q-pre">这题答过 —— ' + q.prefilledNote + '</div>' : '') +
+    lookHTML(q) + optsHTML(q, picked) +
+    stateNote(q) +
+    (editing && editing.id === q.id ? editHTML(q, editing.kind) : '') +
+    metaHTML(q) + '</div>'
+
+  $('#ft').innerHTML =
+    '<button class="btn ghost" data-act="skip" data-q="' + q.id + '" title="这次先不答 —— 不算冲突，下次进项目还会问">跳过</button>' +
+    '<button class="btn bad" data-act="reject" data-q="' + q.id + '" title="这题不该问（前提错了 / 已经不需要）">否决</button>' +
+    '<button class="btn ask" data-act="askback" data-q="' + q.id + '" title="这题问错了 —— 说一句真正该问的（回给 agent 重写）">❗ 反问…</button>' +
+    '<button class="btn" data-act="amend" data-q="' + q.id + '" title="选项措辞不对，补一句">改一句…</button>' +
+    '<span class="grow"></span>' +
+    '<button class="btn" id="btnPrev"' + (cur === 0 ? ' disabled' : '') + '>← 上一题</button>' +
+    '<button class="btn pri" id="btnNext">' + (last ? '答完了 · 看结果' : '下一题 →') + '</button>'
+}
+
+/* ── 整卷 ──────────────────────────────────────────────── */
+function renderAll() {
+  // 键盘得知道“作用在哪张卡上”：默认落在第一张还没答的
+  if (!cardFocus || !DECK.questions.some((x) => x.id === cardFocus)) {
+    const first = DECK.questions.find((x) => !isAnswered(x.id))
+    cardFocus = first ? first.id : DECK.questions[0].id
+  }
+  const cards = DECK.questions.map((q) => {
+    const a = ansOf(q.id)
+    const picked = a && a.kind === 'pick' ? a.k : ''
+    const cls = a && a.kind === 'askback' ? 'askc' : (a ? 'ans' : '')
+    return '<div class="qcard ' + cls + (cardFocus === q.id ? ' focus' : '') + '" data-card="' + q.id + '">' +
+      '<div class="qc-hd"><span class="qc-id">' + q.id + '</span><span class="qc-ask">' + q.ask + '</span></div>' +
+      (q.prefilled ? '<div class="q-pre" style="margin:7px 0 0">这题答过 —— 沿用就打勾，变则改一句</div>' : '') +
+      lookHTML(q) +
+      optsHTML(q, picked) +
+      stateNote(q) +
+      (editing && editing.id === q.id ? editHTML(q, editing.kind) : '') +
+      '<div class="qc-acts">' +
+      '<button class="btn ghost" data-act="skip" data-q="' + q.id + '">跳过</button>' +
+      '<button class="btn bad" data-act="reject" data-q="' + q.id + '">否决</button>' +
+      '<button class="btn ask" data-act="askback" data-q="' + q.id + '">❗ 反问…</button>' +
+      '<button class="btn" data-act="amend" data-q="' + q.id + '">改一句…</button></div>' +
+      metaHTML(q) + '</div>'
+  }).join('')
+  $('#body').innerHTML = '<div class="all">' + cards + '</div>'
+  $('#ft').innerHTML = '<span style="font-size:11.5px;color:#626775">整卷模式：就地改，不用来回翻。</span>' +
+    '<span class="grow"></span><button class="btn pri" id="btnFinish">答完了 · 看结果</button>'
+}
+
+/* ── 汇总 ──────────────────────────────────────────────── */
+function renderDone() {
+  doneMode = true
+  const dec = []
+  const ask = []
+  let nDec = 0
+  let nCard = 0
+  DECK.questions.forEach((q) => {
+    const a = ansOf(q.id)
+    if (!a) { dec.push('<span class="c">[未答] ' + q.id + ' —— 下次还会问</span>'); return }
+    if (a.kind === 'skip') { dec.push('<span class="c">[跳过] ' + q.id + ' —— 下次还会问</span>'); return }
+    if (a.kind === 'reject') { dec.push('<span class="c">[否决] ' + q.id + ' —— 这题不该问，不再出现</span>'); return }
+    if (a.kind === 'askback') {
+      dec.push('<span class="a">[反问] ' + q.id + ' —— 这题问错了，不落 decision-log</span>')
+      ask.push('<div class="ask-i"><b>' + q.id + '</b>' + a.text + '</div>')
+      return
+    }
+    if (a.kind === 'amend') {
+      dec.push('[2026-11-05] ' + q.id + '：<span class="g">' + a.text + '</span> <span class="c">生效范围：司天</span>')
+      nDec++; nCard++
+      return
+    }
+    const o = q.options.find((x) => x.k === a.k)
+    dec.push('[2026-11-05] ' + q.id + '：<span class="g">' + a.k + '. ' + (o ? o.t : '') + '</span> <span class="c">生效范围：司天</span>')
+    nDec++; nCard++
+  })
+
+  const stat = nDec + ' 条决策 · ' + nCard + ' 张决策卡 · ' + ask.length + ' 条问题'
+  const bar = approved
+    ? '<div class="approved-bar">✅ <b>已落库</b> —— 这些答案现在就在 decision-log 里了（' + stat + '）。<br>' +
+      '想改：点右下「重新编辑」，改完再批一次（会覆盖这一次）。</div>'
+    : '<div class="draft-bar">① 以上都是 <b>草稿</b>，随时能回去改　② 点右下「<b>批准并落库</b>」才真正写入　' +
+      '③ 没批准就关掉 = <b>什么都没发生</b><br>批准后将写入：' + stat + '</div>'
+
+  $('#body').innerHTML = '<div class="done">' +
+    '<h2>' + (approved ? '已批准 —— 这些东西已经落到哪儿' : '答完了 —— 这些东西会落到哪儿') + '</h2>' +
+    '<div class="sub">「答完就散」的反面：一句话都不留在问卷里，全部落成别的东西。</div>' +
+    bar +
+    '<div class="sec-t">decision-log.md（追加）<span class="n">只有「打勾」和「改一句」进这里</span></div>' +
+    '<div class="log"><span class="c">// shared/sitian/decision-log.md</span>\n' + dec.join('\n') + '</div>' +
+    (ask.length ? '<div class="sec-t">问题清单 · 回给 agent<span class="n">反问不进决策 —— 它是下一轮出题的输入</span></div>' +
+      '<div class="askbox">' + ask.join('') +
+      '<div class="ask-tail">agent 拿着这几句重写题目 → 出新一卷 → 你再答。<b>这一轮往往比原卷更接近真问题。</b></div></div>' : '') +
+    '<div class="sec-t">跟着一起发生的</div>' +
+    '<div class="after">' +
+    '<div class="after-i"><span class="ic">🗂</span><span><b>决策卡</b>：每题一条 D-0xx，<span class="m">出处 = 问卷题号；三个月后能回看“当时为什么这么定”。</span></span></div>' +
+    '<div class="after-i"><span class="ic">🎯</span><span><b>验收线挂钩</b>：把每题【验收线】写进相关卡的验收条件<span class="m"> —— 否则那句话永远只躺在问卷里。</span></span></div>' +
+    '<div class="after-i"><span class="ic">🚫</span><span><b>答题不触发开发</b>：这是问卷不是施工单。<span class="m">答卷只定“你想要什么”，单还是本地出。</span></span></div>' +
+    '</div></div>'
+
+  const expBtns = '<button class="btn" id="btnCopy" title="把这份答卷复制成 markdown（可直接贴进 decision-log）">⧉ 复制 md</button>' +
+    '<button class="btn" id="btnDl" title="导出一份 .md 文件">⬇ 导出</button>'
+  $('#ft').innerHTML = approved
+    ? '<button class="btn ghost" id="btnReedit">← 重新编辑</button>' + expBtns +
+      '<span class="grow"></span><button class="btn pri" id="btnClose2">关闭</button>'
+    : '<button class="btn ghost" id="btnBack">← 回去改</button>' + expBtns +
+      '<span class="grow"></span><button class="btn pri" id="btnApprove">✓ 批准并落库</button>'
+
+  $('#rail').innerHTML = railHTML()
+  // ⚠ 必须在这里绑：从「下一题」走到汇总时是直接调 renderDone()，不经过 render() 的
+  //   doneMode 分支 —— 不补这一句，汇总页的按钮（批准 / 回去改）全是死的。
+  bindAll()
+}
+
+/* ── 导出：decision-log 段落（能直接贴进项目，不用等方寸真做出来）── */
+function mdOf() {
+  const lines = ['# ' + DECK.project + ' · ' + DECK.layer + ' 答卷（2026-11-05）', '']
+  const asks = []
+  DECK.questions.forEach((q) => {
+    const a = ansOf(q.id)
+    if (!a) { lines.push('- **' + q.id + '** —— 未答'); return }
+    if (a.kind === 'skip') { lines.push('- **' + q.id + '** —— 跳过（下次再问）'); return }
+    if (a.kind === 'reject') { lines.push('- **' + q.id + '** —— 否决：这题不该问，不再出现'); return }
+    if (a.kind === 'askback') { lines.push('- **' + q.id + '** —— 反问（见下）'); asks.push({ id: q.id, text: a.text }); return }
+    if (a.kind === 'amend') { lines.push('- **' + q.id + '** —— ' + a.text + '（自述）'); return }
+    const o = q.options.find((x) => x.k === a.k)
+    lines.push('- **' + q.id + '** —— ' + a.k + '. ' + (o ? o.t : ''))
+  })
+  if (asks.length) {
+    lines.push('', '## 反问（回给 agent 重写题目）', '')
+    asks.forEach((x) => lines.push('- **' + x.id + '**：' + x.text))
+  }
+  return lines.join('\n') + '\n'
+}
+
+async function copyMd() {
+  const txt = mdOf()
+  try {
+    await navigator.clipboard.writeText(txt)
+    toast('已复制 ' + txt.length + ' 字符，可直接贴进 decision-log')
+  } catch (e) {
+    // file:// 下剪贴板 API 常被拒 —— 退到 execCommand，别让按钮看起来是坏的
+    const ta = document.createElement('textarea')
+    ta.value = txt
+    ta.style.position = 'fixed'; ta.style.opacity = '0'
+    document.body.appendChild(ta); ta.select()
+    try { document.execCommand('copy'); toast('已复制') } catch { toast('复制失败：浏览器不允许') }
+    ta.remove()
+  }
+}
+
+function downloadMd() {
+  const blob = new Blob([mdOf()], { type: 'text/markdown;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = '问卷-' + DECK.project + '-' + DECK.layer + '-20261105.md'
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+  toast('已导出 md')
+}
+
+/* ── 绑定 ──────────────────────────────────────────────── */
+function bindAll() {
+  $$('#rail .rail-i').forEach((b) => {
+    b.onclick = () => { doneMode = false; cur = Number(b.dataset.i); view = 'one'; editing = null; render() }
+  })
+  $$('[data-pick]').forEach((b) => {
+    b.onclick = () => { answers[b.dataset.pick] = { kind: 'pick', k: b.dataset.k }; editing = null; render() }
+  })
+  $$('[data-lookbtn]').forEach((b) => {
+    b.onclick = () => { const id = b.dataset.lookbtn; openLook[id] = !openLook[id]; render() }
+  })
+  $$('[data-metabtn]').forEach((b) => {
+    b.onclick = () => { const m = b.parentElement; if (m) m.classList.toggle('open') }
+  })
+  $$('[data-act]').forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.q, act = b.dataset.act
+      if (act === 'skip') {
+        answers[id] = { kind: 'skip' }
+        editing = null
+        toast('已跳过 —— 下次还会问')
+        // 单题模式：跳过 = 这题我不答，继续下一个；整卷模式原地不动（不然会跳走）
+        if (view === 'one' && cur < DECK.questions.length - 1) cur++
+        render()
+        return
+      }
+      if (act === 'reject') { answers[id] = { kind: 'reject' }; editing = null; toast('已否决 —— 还能撤销'); render(); return }
+      if (act === 'reset') { delete answers[id]; editing = null; toast('已撤销 —— 这题回到未答'); render(); return }
+      editing = { id, kind: act === 'askback' ? 'askback' : 'amend' }
+      render()
+    }
+  })
+  const px = $('#btnPrev'), nx = $('#btnNext')
+  if (px) px.onclick = () => { if (cur > 0) { cur--; editing = null; render() } }
+  if (nx) nx.onclick = () => {
+    const q = DECK.questions[cur]
+    if (!isAnswered(q.id)) { toast('这题还没答 —— 选一个，或者点「跳过」'); return }
+    if (cur === DECK.questions.length - 1) { renderDone(); return }
+    cur++; editing = null; render()
+  }
+  const fin = $('#btnFinish')
+  if (fin) fin.onclick = () => {
+    const left = DECK.questions.filter((q) => !isAnswered(q.id))
+    if (left.length) { toast('还有 ' + left.length + ' 题没处理（' + left.map((x) => x.id).join(' ') + '）—— 跳过也算处理'); return }
+    renderDone()
+  }
+  const back = $('#btnBack')
+  if (back) back.onclick = () => { doneMode = false; cur = 0; view = 'one'; render() }
+  const appr = $('#btnApprove')
+  if (appr) appr.onclick = () => {
+    approved = true
+    toast('✅ 已批准并落库 —— 现在关掉也不会丢')
+    render()
+  }
+  const ree = $('#btnReedit')
+  if (ree) ree.onclick = () => {
+    approved = false
+    doneMode = false; cur = 0; view = 'one'
+    toast('已回到草稿态 —— 改完再批一次')
+    render()
+  }
+  const cl2 = $('#btnClose2')
+  if (cl2) cl2.onclick = () => { closeDlg() }
+  const cp = $('#btnCopy')
+  if (cp) cp.onclick = () => { copyMd() }
+  const dl = $('#btnDl')
+  if (dl) dl.onclick = () => { downloadMd() }
+  // 整卷：点卡即给键盘焦点（点按钮/链接/输入框不算，否则会把输入焦点抢走）
+  $$('[data-card]').forEach((c) => {
+    c.onclick = (e) => {
+      if (e.target.closest('button, a, textarea, input')) return
+      if (cardFocus === c.dataset.card) return
+      cardFocus = c.dataset.card
+      render()
+    }
+  })
+  // 左栏分组折叠
+  $$('[data-grp]').forEach((b) => {
+    b.onclick = () => { const n = b.dataset.grp; collapsed[n] = !collapsed[n]; render() }
+  })
+  // 跳到下一道未答
+  const jump = $('[data-jump]')
+  if (jump) jump.onclick = () => {
+    const idx = DECK.questions.findIndex((x) => !isAnswered(x.id))
+    if (idx < 0) { toast('全部处理完了 —— 没有未答的'); return }
+    doneMode = false; view = 'one'; cur = idx; editing = null
+    render()
+  }
+
+  const box = document.querySelector('[data-edit]')
+  if (box) {
+    const id = box.dataset.edit
+    const ta = box.querySelector('[data-txt]')
+    ta.focus()
+    box.querySelector('[data-editcancel]').onclick = () => { editing = null; render() }
+    box.querySelector('[data-editok]').onclick = (e) => {
+      const kind = e.target.dataset.kind
+      const v = (ta.value || '').trim()
+      if (kind === 'askback' && !v) { answers[id] = { kind: 'reject' }; editing = null; toast('留空 = 否决这题'); render(); return }
+      if (!v) { toast('说一句再确定'); return }
+      answers[id] = { kind, text: v }
+      editing = null
+      toast(kind === 'askback' ? '反问已记 —— 会回给 agent 重写这题' : '已记录')
+      render()
+    }
+  }
+}
+
+/* ── 渲染入口 ──────────────────────────────────────────── */
+function render() {
+  $$('.vseg button').forEach((b) => b.classList.toggle('on', b.dataset.v === view))
+  const n = answeredCount(), total = DECK.questions.length
+  $('#hdCnt').textContent = '已答 ' + n + ' / ' + total
+  $('#barFill').style.width = (n / total * 100) + '%'
+  $('#rail').innerHTML = railHTML()
+  if (doneMode) { $('#body').innerHTML = ''; renderDone(); bindAll(); return }
+  if (view === 'all') { renderAll(); } else { renderOne() }
+  bindAll()
+}
+
+/* ── 入口 ──────────────────────────────────────────────── */
+$$('.vseg button').forEach((b) => {
+  b.onclick = () => { view = b.dataset.v; editing = null; doneMode = false; render() }
+})
+$('#entry').onclick = () => { mask.classList.add('on'); cur = 0; editing = null; doneMode = false; render() }
+/* approved 不随重开清空：批准过就是批准过（原型里不模拟持久化，但语义要清楚） */
+const closeDlg = () => {
+  mask.classList.remove('on')
+  // 没批准就关 = 草稿留着但什么都没写进去。这句必须说出来，否则又是“以为存了”。
+  if (doneMode && !approved) toast('草稿已存，但**没批准** —— 什么都没写进去')
+  else if (approved) toast('已落库，可以放心关')
+  else toast('草稿已存 ' + answeredCount() + ' 题，下次接着答')
+}
+$('#closeBtn').onclick = closeDlg
+mask.onclick = (e) => { if (e.target === mask) closeDlg() }
+
+document.addEventListener('keydown', (e) => {
+  if (!mask.classList.contains('on') || doneMode) return
+  if (document.querySelector('[data-edit]')) return
+  if (e.key === 'Escape') { closeDlg(); return }
+
+  // 整卷模式（2026-11-05 修：“键盘在整卷模式不可用”）
+  // ↑↓ / PgUp PgDn 滚动；数字键答**当前聚焦那张卡**（点卡给它焦点，卡的 id 旁边会写“键盘 1-4”）
+  if (view === 'all') {
+    const box = $('.all')
+    if (e.key === 'ArrowDown' || e.key === 'PageDown') { if (box) { box.scrollTop += 180; e.preventDefault() } return }
+    if (e.key === 'ArrowUp' || e.key === 'PageUp') { if (box) { box.scrollTop -= 180; e.preventDefault() } return }
+    if (/^[1-9]$/.test(e.key)) {
+      const q = DECK.questions.find((x) => x.id === cardFocus)
+      const i = Number(e.key)
+      if (q && q.options[i - 1]) {
+        answers[q.id] = { kind: 'pick', k: q.options[i - 1].k }
+        editing = null
+        render()
+      }
+      return
+    }
+    return
+  }
+
+  if (e.key === 'ArrowLeft') { if (cur > 0) { cur--; editing = null; render() } return }
+  if (e.key === 'ArrowRight') { const b = $('#btnNext'); if (b) b.click(); return }
+  const q = DECK.questions[cur]
+  const i = Number(e.key)
+  if (i >= 1 && i <= q.options.length) { answers[q.id] = { kind: 'pick', k: q.options[i - 1].k }; editing = null; render() }
+})
+
+render()
+if (/[?&]auto=1/.test(location.search)) { mask.classList.add('on'); render() }
+</script>
+</body>
+</html>

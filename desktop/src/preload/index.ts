@@ -396,6 +396,14 @@ contextBridge.exposeInMainWorld('tegula', {
   skillsInstall: () => ipcRenderer.invoke('skills:install'),
   /** 装到指定可直装目标（卡 011）：'hermes' | 'dsh' */
   skillsInstallTo: (targetId: string) => ipcRenderer.invoke('skills:installTo', targetId),
+  /* ── 问卷（2026-11-05）：吃 agent 写的 md，弹窗里答，批准后落决策卡 ── */
+  questionnaireList: () => ipcRenderer.invoke('questionnaire:list'),
+  questionnaireGet: (deck: string) => ipcRenderer.invoke('questionnaire:get', deck),
+  questionnaireSaveAnswers: (deck: string, answers: any, approvedAt?: string) =>
+    ipcRenderer.invoke('questionnaire:saveAnswers', deck, answers, approvedAt),
+  questionnaireApprove: (deck: string) => ipcRenderer.invoke('questionnaire:approve', deck),
+  questionnaireOpenDir: () => ipcRenderer.invoke('questionnaire:openDir'),
+
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),
   /** 上次自动同步的留痕 + 它还算不算数（2026-11-05）：升级后旧进程没退 = 同步没跑，界面要能看出来 */

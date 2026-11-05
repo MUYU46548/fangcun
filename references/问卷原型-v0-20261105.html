@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方寸 · 问卷弹窗（原型 v0）</title>
+<style>
+  :root {
+    --bg: #eef0f4;
+    --ink: #3c4150;
+    --muted: #626775;
+    --accent: #705fab;
+    --accent-soft: #c3bce0;
+    --card: #ffffff;
+    --border: #e4e2ee;
+    --tint: #f3f0fb;
+    --tint-2: #f7f7fb;
+    --ok: #377457;
+    --warn: #975c21;
+    --danger: #8a4343;
+    --danger-bg: #fbf1f0;
+    --danger-bd: #efd9d6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+
+  /* ── 背景：模拟项目页（只为交代“从哪进”） ───────────────────── */
+  .page { max-width: 980px; margin: 0 auto; padding: 22px 22px 60px; }
+  .page-hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .page-hd h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .page-hd .sub { font-size: 11.5px; color: var(--muted); }
+  .pcard {
+    margin-top: 14px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .pcard .pname { font-weight: 700; font-size: 14px; }
+  .pcard .pmeta { font-size: 11.5px; color: var(--muted); }
+  .pcard .grow { flex: 1; }
+  .ask-entry {
+    border: 1px solid var(--accent-soft); background: var(--tint); color: var(--accent);
+    border-radius: 999px; padding: 5px 13px; font-size: 12px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .ask-entry:hover { border-color: var(--accent); }
+  .ask-entry .n {
+    background: var(--accent); color: #fff; border-radius: 999px;
+    min-width: 17px; height: 17px; line-height: 17px; text-align: center; font-size: 10.5px; padding: 0 4px;
+  }
+  .hint-line { margin-top: 16px; font-size: 11.5px; color: var(--muted); line-height: 1.9; }
+  .hint-line b { color: var(--ink); }
+
+  /* ── 弹窗 ───────────────────────────────────────────────────── */
+  .mask {
+    position: fixed; inset: 0; background: rgba(60, 65, 80, .40);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  .mask.on { opacity: 1; pointer-events: auto; }
+  .dlg {
+    width: min(860px, 100%); max-height: min(88vh, 760px); background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column;
+    overflow: hidden; transform: translateY(6px) scale(.995); transition: transform .18s;
+  }
+  .mask.on .dlg { transform: none; }
+
+  .dlg-hd { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .dlg-hd .ttl { font-size: 14.5px; font-weight: 700; }
+  .dlg-hd .layer { font-size: 11px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft); border-radius: 999px; padding: 1px 8px; font-weight: 600; }
+  .dlg-hd .cnt { font-size: 11.5px; color: var(--muted); }
+  .dlg-hd .grow { flex: 1; }
+  .xbtn { border: 0; background: transparent; color: var(--muted); font-size: 16px; padding: 2px 6px; border-radius: 7px; }
+  .xbtn:hover { background: var(--tint-2); color: var(--ink); }
+
+  .bar { height: 3px; background: var(--tint-2); }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+
+  .dlg-bd { display: flex; min-height: 0; flex: 1; }
+  .rail { width: 178px; flex: none; border-right: 1px solid var(--border); background: var(--tint-2); padding: 8px; overflow: auto; }
+  .rail-i {
+    display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 8px;
+    font-size: 11.5px; color: var(--muted); border: 1px solid transparent; background: transparent;
+    width: 100%; text-align: left;
+  }
+  .rail-i:hover { background: #fff; }
+  .rail-i.on { background: #fff; border-color: var(--accent-soft); color: var(--ink); font-weight: 600; }
+  .rail-i .k { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--accent); flex: none; width: 22px; }
+  .rail-i .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rail-i .st { flex: none; font-size: 10px; }
+  .rail-i .st.ans { color: var(--ok); }
+  .rail-i .st.skip { color: var(--warn); }
+  .rail-i .st.rej { color: var(--danger); }
+  .rail-foot { margin-top: 8px; padding: 8px; font-size: 10.5px; color: var(--muted); line-height: 1.7; border-top: 1px dashed var(--border); }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .q { padding: 16px 20px; overflow: auto; flex: 1; }
+  .q-id { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--accent); font-weight: 700; }
+  .q-ask { font-size: 16.5px; font-weight: 700; line-height: 1.45; margin: 3px 0 11px; }
+  .q-pre { font-size: 11.5px; color: var(--warn); background: #fdf6ec; border: 1px solid #f0e0c8; border-radius: 8px; padding: 6px 9px; margin-bottom: 11px; line-height: 1.65; }
+
+  /* 看一眼：默认一行，点开是一张表 */
+  .look { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+  .look-hd {
+    display: flex; align-items: center; gap: 7px; padding: 7px 10px; background: var(--tint-2);
+    border: 0; width: 100%; text-align: left; font-size: 11.5px; color: var(--ink);
+  }
+  .look-hd:hover { background: var(--tint); }
+  .look-hd .arw { flex: none; color: var(--muted); font-size: 10px; transition: transform .15s; }
+  .look.open .look-hd .arw { transform: rotate(90deg); }
+  .look-hd b { font-weight: 600; }
+  .look-hd .tag { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .look-bd { display: none; padding: 4px 10px 9px; border-top: 1px solid var(--border); }
+  .look.open .look-bd { display: block; }
+  .look-row { display: flex; gap: 8px; padding: 4px 0; font-size: 11.5px; line-height: 1.6; border-top: 1px dashed #f0eff6; }
+  .look-row:first-child { border-top: 0; }
+  .look-row .nm { flex: none; width: 112px; font-weight: 600; color: var(--accent); }
+  .look-row .ds { flex: 1; min-width: 0; color: var(--ink); }
+  .look-row a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  .look-row a:hover { border-bottom-color: var(--accent); }
+
+  /* 选项 */
+  .opts { display: flex; flex-direction: column; gap: 7px; }
+  .opt {
+    display: flex; gap: 10px; align-items: flex-start; text-align: left; width: 100%;
+    border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px 12px;
+    transition: border-color .12s, background .12s;
+  }
+  .opt:hover { border-color: var(--accent-soft); background: #fcfbff; }
+  .opt.on { border-color: var(--accent); background: var(--tint); }
+  .opt .kk {
+    flex: none; width: 21px; height: 21px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 19px; text-align: center;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .opt.on .kk { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .opt .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .opt .t1 { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.5; }
+  .opt .t2 { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+
+  /* 折叠的出处 / 验收线 */
+  .meta { margin-top: 13px; border-top: 1px dashed var(--border); padding-top: 9px; }
+  .meta-t {
+    border: 0; background: transparent; color: var(--muted); font-size: 11px; padding: 2px 0;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .meta-t:hover { color: var(--accent); }
+  .meta-t .arw { font-size: 9px; transition: transform .15s; }
+  .meta.open .meta-t .arw { transform: rotate(90deg); }
+  .meta-b { display: none; font-size: 11px; color: var(--muted); line-height: 1.75; padding: 5px 0 2px; }
+  .meta.open .meta-b { display: block; }
+  .meta-b b { color: var(--ink); font-weight: 600; }
+
+  /* 底部动作 */
+  .dlg-ft { border-top: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dlg-ft .grow { flex: 1; }
+  .dlg-ft.is-done #btnSkip,
+  .dlg-ft.is-done #btnReject,
+  .dlg-ft.is-done #btnAmend { display: none; }
+  .btn { border: 1px solid var(--border); background: #fff; color: var(--ink); border-radius: 9px; padding: 5px 12px; font-size: 12px; font-weight: 600; }
+  .btn:hover { border-color: var(--accent-soft); }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.pri:hover { filter: brightness(1.06); }
+  .btn.pri:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  .btn.ghost { color: var(--muted); font-weight: 400; }
+  .btn.ghost:hover { color: var(--ink); }
+  .btn.warn { color: var(--warn); border-color: #f0e0c8; }
+  .btn.bad { color: var(--danger); border-color: var(--danger-bd); }
+  .kbd { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 5px; font-family: ui-monospace, Consolas, monospace; }
+
+  /* 改一句 */
+  .amend { margin-top: 10px; border: 1px solid var(--accent-soft); background: var(--tint); border-radius: 10px; padding: 9px 10px; display: none; }
+  .amend.on { display: block; }
+  .amend label { font-size: 11.5px; color: var(--muted); display: block; margin-bottom: 5px; }
+  .amend textarea {
+    width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 9px; font: inherit; font-size: 12.5px; color: var(--ink); background: #fff; outline: none;
+  }
+  .amend textarea:focus { border-color: var(--accent); }
+  .amend .row { display: flex; gap: 7px; justify-content: flex-end; margin-top: 7px; }
+
+  /* 汇总页 */
+  .done { padding: 20px; overflow: auto; }
+  .done h2 { font-size: 16px; margin: 0 0 4px; }
+  .done .sub { font-size: 11.5px; color: var(--muted); margin-bottom: 14px; }
+  .log {
+    background: #2f3242; color: #d8dbeb; border-radius: 10px; padding: 11px 13px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; line-height: 1.95;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log .c { color: #8b90a8; }
+  .log .g { color: #9ed6a8; }
+  .after { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
+  .after-i { display: flex; gap: 9px; font-size: 11.5px; line-height: 1.7; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--tint-2); }
+  .after-i .ic { flex: none; }
+  .after-i b { font-weight: 600; }
+  .after-i .m { color: var(--muted); }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 10px);
+    background: #3c4150; color: #fff; border-radius: 10px; padding: 8px 15px; font-size: 12.5px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-hd">
+    <h1>项目</h1>
+    <span class="sub">这是背景页 —— 只是为了交代“问卷从哪进”</span>
+  </div>
+
+  <div class="pcard">
+    <div>
+      <div class="pname">司天</div>
+      <div class="pmeta">活跃 · 7 张进行中 · 上次动 11-04 21:56</div>
+    </div>
+    <div class="grow"></div>
+    <button class="ask-entry" id="entry">⚠ 待答问卷 <span class="n">7</span></button>
+  </div>
+
+  <div class="hint-line">
+    <b>弹窗只是入口，真正的约束在别处：</b>答卷落 <code>decision-log.md</code> + 决策卡，并把每题【验收线】挂到相关卡的验收条件上。<br>
+    原型里这 7 道题是司天 11-04 那份宪法层的原文 —— 用真数据才看得出排版够不够用。
+  </div>
+</div>
+
+<!-- ═════════ 问卷弹窗 ═════════ -->
+<div class="mask" id="mask">
+  <div class="dlg" id="dlg">
+    <div class="dlg-hd">
+      <span class="ttl">司天 · 问卷</span>
+      <span class="layer">宪法层</span>
+      <span class="cnt" id="hdCnt">已答 0 / 7</span>
+      <span class="grow"></span>
+      <span class="cnt">一次答清 · 永不重问</span>
+      <button class="xbtn" id="closeBtn" title="关闭（答案留着，下次接着答）">✕</button>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+
+    <div class="dlg-bd">
+      <div class="rail" id="rail"></div>
+
+      <div class="main">
+        <div class="q" id="qbox"></div>
+        <div class="dlg-ft">
+          <button class="btn ghost" id="btnSkip" title="这次先不答 —— 不算冲突，下次进项目还会问">跳过这题</button>
+          <button class="btn warn" id="btnReject" title="这题不该问（前提错了 / 已经不需要）">否决这题</button>
+          <button class="btn" id="btnAmend" title="三个选项都不对 —— 自己说一句（唯一的口子）">改一句…</button>
+          <span class="grow"></span>
+          <button class="btn" id="btnPrev">← 上一题</button>
+          <button class="btn pri" id="btnNext">下一题 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   数据：司天《问卷·宪法层（2026-11-04）》原文 —— 一字未改
+   ════════════════════════════════════════════════════════════════ */
+const DECK = {
+  project: '司天',
+  layer: '宪法层',
+  questions: [
+    {
+      id: 'S1',
+      ask: '司天做一件还是两件？',
+      optIntro: '最终形态',
+      options: [
+        { k: 'A', t: '生成器 + 编辑器分两件', d: '抄业界主流（Gaea 生成 → WorldPainter 编辑两工具串联）；四问全有现成答案，司天只补空位' },
+        { k: 'B', t: '一体化单件', d: '抄易制地图形态（涂色 + 模拟一体）；上手快，但每样都得自己写' },
+        { k: 'C', t: '只做编辑器', d: '生成外包给现成件（Azgaar / 贴图导入），司天专注“画”' },
+      ],
+      look: [
+        { nm: 'WorldPainter', ds: '桌面手绘地图，像 PS 从上往下刷：抬山雕河刷森林', url: 'https://worldpainter.net' },
+        { nm: '易制地图', ds: '中文小说圈最大地图工具（网页 / 手机，微信登录）', url: 'https://www.makeamap.cn' },
+        { nm: 'Azgaar 汉化', ds: '一键生成整张幻想世界图的免费网页工具', url: 'https://www.bilibili.com/video/BV1pz4y1H7eD' },
+      ],
+      src: '四问总表 §一（业界主流工作流）＋ §五（三件套零覆盖）',
+      line: '落档后，凡跨形态派单的司天任务卡一律打回',
+    },
+    {
+      id: 'S2',
+      ask: 'B 站生态零覆盖的三件，首版先做哪件？',
+      optIntro: '独有资产位（三件套先做哪个）',
+      options: [
+        { k: 'A', t: '演变回放', d: '需求最硬 —— 史图馆 221.6 万粉、疆域演变单条 374.9 万播放，全人肉做的' },
+        { k: 'B', t: '行政区划布尔', d: '涂色是易制基本盘，布尔运算 = 无人做的加分项' },
+        { k: 'C', t: '语义绑定', d: 'vvd 同款能力，但本地化' },
+        { k: 'D', t: '三件同批开工', d: '不推荐：三件任何一个单独都够做一轮' },
+      ],
+      look: [
+        { nm: '史图馆疆域演变', ds: '历代疆域变化视频（374.9 万播放，政区色块风）', url: 'https://www.bilibili.com/video/BV1wP4y1p7Vp' },
+        { nm: 'vvd', ds: '你 10-23 定过的旧验收尺（3D + 语义绑定）', url: 'https://www.bilibili.com/video/BV1hyHh6FE4A' },
+      ],
+      src: '四问总表 §五（工程线 + 广度线双源互证）',
+      line: '首版任务卡只含勾选项，做完一件验收一件，不并联',
+    },
+    {
+      id: 'S3',
+      ask: '每轮产出怎么验收？',
+      optIntro: '验收方式（治“闭眼改”）',
+      options: [
+        { k: 'A', t: '你亲眼看', d: '每轮附“看什么”清单，5 分钟出“过 / 不过”（你的因果定调：烂 = 因，没人用 = 果）' },
+        { k: 'B', t: '像素基线自动比对 ＋ 你抽看', d: '机器先过一遍，你只看抽中的那几张' },
+        { k: 'C', t: '只验收最终成品', d: '旧模式，已证会漏烂货' },
+      ],
+      look: [],
+      src: '11-03 19:29–33 施工单事故结论 ④（机器判据拦不住观感）＋ 20:22 原话“是因为烂不能用，不是因为没人用烂”',
+      line: '选定后每轮司天产出无“看什么”清单即不合格，打回',
+    },
+    {
+      id: 'S4',
+      ask: '画图数据怎么存？',
+      optIntro: '数据持久性红线',
+      options: [
+        { k: 'A', t: '本地文件 ＋ 版本化', d: '画 5 小时的图明天必须还在、可回滚（你原话“今天画 5 小时的地图明天整个地图都不兼容了”= 死罪第一条）' },
+        { k: 'B', t: '本地单副本', d: '简单，误删风险自担' },
+      ],
+      look: [],
+      src: '11-03 20:22 原话 ＋ 四问总表 §四（易制“七天过期”待实测裁决 —— 同种病）',
+      line: '画图 → 重启 → 隔天 → 升级 四关全过，才准进下一轮开发',
+    },
+    {
+      id: 'S5',
+      ask: '平台按 Windows 11 桌面本地，对吗？',
+      optIntro: '平台（已答过，确认即可）',
+      prefilled: 'A',
+      prefilledNote: '这题 10-16 答过 —— 当时语境是方寸环境假设定案（“Linux 等完全不在考虑范围内且我缺乏设备，根本无法测试”）。沿用就打勾；变则改一句，别重答一遍。',
+      options: [
+        { k: 'A', t: '确认：Windows 11 桌面本地', d: '沿用 10-16 的答案，不重问' },
+        { k: 'B', t: '变了 —— 改一句说明', d: '' },
+      ],
+      look: [],
+      src: '10-16 你发群附件原话（哨兵当日收档件 L90）＋ USER.md 10-16 存档（task-20261012-026 销号）',
+      line: '任务卡环境段统一 Win11，Linux 分支不再出现',
+    },
+    {
+      id: 'S6',
+      ask: '方寸的“零依赖”严度，司天跟不跟？',
+      optIntro: '依赖红线（只定严不严，不绑语言）',
+      options: [
+        { k: 'A', t: '方寸同款红线', d: '零第三方依赖，全自研' },
+        { k: 'B', t: '放开', d: '允许成熟库（图形 / 渲染 / 工具链都可用），功能与进度优先' },
+        { k: 'C', t: '分层', d: '核心逻辑零依赖，图形渲染层允许成熟库' },
+      ],
+      look: [],
+      src: '方寸红线原档（纯 Python 零依赖）—— 注意这是方寸的规矩，司天从未拍板过；司天 v1 技术栈在档（Electron + Vue）',
+      line: '选型单进任务卡前先过此线，违线选型打回；本题答案不构成任何语言 / 框架决策',
+    },
+    {
+      id: 'S7',
+      ask: '司天什么条件下重新开工？',
+      optIntro: '缓行令恢复信号',
+      options: [
+        { k: 'A', t: '本地这批改完 ＋ 你亲眼验收过', d: '' },
+        { k: 'B', t: '现成品实测过关', d: '你 21:56 原话“B 站足够强的地图工具已能做到我想要的样子，并非遥不可及”，实测坐实即信号' },
+        { k: 'C', t: 'A ＋ B 同时满足', d: '' },
+      ],
+      look: [
+        { nm: 'Terrain Studio', ds: '网页版，浏览器里笔刷直接刷地形，GPU 实时（点开就能试）', url: 'https://terrains.zyfod.dev' },
+      ],
+      src: '11-03 20:17 缓行令（“这批改完后暂时缓一缓”）＋ 21:56 调研例外',
+      line: '信号达成日落 decision-log“司天复工”；缓行期间云端只供粮草不出单',
+    },
+  ],
+}
+
+/* ════════════════════════════════════════════════════════════════
+   状态
+   ════════════════════════════════════════════════════════════════ */
+const answers = {}   // id -> {kind:'pick', k} | {kind:'skip'} | {kind:'reject'} | {kind:'amend', text}
+let cur = 0
+let amending = false
+let doneMode = false
+
+const $ = (s) => document.querySelector(s)
+const mask = $('#mask')
+
+function ansOf(id) { return answers[id] || null }
+function isAnswered(id) {
+  const a = answers[id]
+  if (!a) return false
+  if (a.kind === 'amend') return !!(a.text || '').trim()
+  return true
+}
+function answeredCount() { return DECK.questions.filter((q) => isAnswered(q.id)).length }
+
+/* 预填：S5 已答过 → 初始就是勾好的 */
+DECK.questions.forEach((q) => {
+  if (q.prefilled) answers[q.id] = { kind: 'pick', k: q.prefilled }
+})
+
+/* ════════════════════════════════════════════════════════════════
+   渲染
+   ════════════════════════════════════════════════════════════════ */
+function renderRail() {
+  const el = $('#rail')
+  el.innerHTML = DECK.questions.map((q, i) => {
+    const a = ansOf(q.id)
+    let st = '<span class="st">·</span>'
+    if (a) {
+      if (a.kind === 'skip') st = '<span class="st skip" title="跳过">○</span>'
+      else if (a.kind === 'reject') st = '<span class="st rej" title="已否决">✕</span>'
+      else st = '<span class="st ans" title="已答">✓</span>'
+    }
+    return `<button class="rail-i ${i === cur ? 'on' : ''}" data-i="${i}" title="${q.id} ${q.optIntro || q.ask}">
+      <span class="k">${q.id}</span><span class="t">${q.optIntro || q.ask}</span>${st}
+    </button>`
+  }).join('') + `<div class="rail-foot">
+      灰点 = 还没答<br>
+      ○ 跳过（下次再问）<br>
+      ✕ 否决（这题不该问）<br>
+      已答 ${answeredCount()} / ${DECK.questions.length}
+    </div>`
+  el.querySelectorAll('.rail-i').forEach((b) => {
+    b.onclick = () => { cur = Number(b.dataset.i); amending = false; render() }
+  })
+}
+
+function renderQ() {
+  document.querySelector('.dlg-ft').classList.remove('is-done')
+  const q = DECK.questions[cur]
+  const a = ansOf(q.id)
+  const picked = a && a.kind === 'pick' ? a.k : ''
+  const isPref = !!q.prefilled
+
+  const lookRows = (q.look || []).map((r) => `
+    <div class="look-row">
+      <span class="nm">${r.nm}</span>
+      <span class="ds">${r.ds}${r.url ? ` — <a href="${r.url}" target="_blank" rel="noreferrer">打开 ↗</a>` : ''}</span>
+    </div>`).join('')
+
+  $('#qbox').innerHTML = `
+    <div class="q-id">${q.id}</div>
+    <div class="q-ask">${q.ask}</div>
+    ${isPref ? `<div class="q-pre"><b>这题答过</b> —— ${q.prefilledNote}</div>` : ''}
+
+    ${lookRows ? `
+      <div class="look" id="look">
+        <button class="look-hd" id="lookHd">
+          <span class="arw">▶</span>
+          <span>看一眼 · 不用懂名词，点开照着眼就行</span>
+          <span class="tag">${(q.look || []).length} 个参照物</span>
+        </button>
+        <div class="look-bd">${lookRows}</div>
+      </div>` : ''}
+
+    <div class="opts" id="opts">
+      ${q.options.map((o) => `
+        <button class="opt ${picked === o.k ? 'on' : ''}" data-k="${o.k}">
+          <span class="kk">${o.k}</span>
+          <span class="txt">
+            <span class="t1">${o.t}</span>
+            ${o.d ? `<span class="t2">${o.d}</span>` : ''}
+          </span>
+        </button>`).join('')}
+    </div>
+
+    <div class="amend ${amending ? 'on' : ''}" id="amend">
+      <label>三个选项都不对？说一句就行（这句话会原样落进 decision-log）</label>
+      <textarea id="amendTxt" placeholder="例：A 和 C 都要，但生成只在建项目时跑一次…">${a && a.kind === 'amend' ? a.text : ''}</textarea>
+      <div class="row">
+        <button class="btn ghost" id="amendCancel">取消</button>
+        <button class="btn pri" id="amendOk">确定</button>
+      </div>
+    </div>
+
+    <div class="meta" id="metaSrc">
+      <button class="meta-t"><span class="arw">▶</span>出处（供校验，答题时不用看）</button>
+      <div class="meta-b">${q.src}</div>
+    </div>
+    <div class="meta" id="metaLine">
+      <button class="meta-t"><span class="arw">▶</span>验收线（选完之后，什么算违规）</button>
+      <div class="meta-b"><b>${q.line}</b></div>
+    </div>
+
+    ${a && a.kind === 'reject' ? `<div class="q-pre" style="color:#8a4343;background:#fbf1f0;border-color:#efd9d6">这题已被否决 —— 它不会进 decision-log，也不会再出现。</div>` : ''}
+    ${a && a.kind === 'skip' ? `<div class="q-pre">已跳过 —— 不算冲突，下次进项目还会问。</div>` : ''}
+  `
+
+  /* 交互绑定 */
+  $('#opts').querySelectorAll('.opt').forEach((b) => {
+    b.onclick = () => {
+      answers[q.id] = { kind: 'pick', k: b.dataset.k }
+      amending = false
+      render()
+    }
+  })
+  const look = $('#look')
+  if (look) $('#lookHd').onclick = () => look.classList.toggle('open')
+  $('#metaSrc').querySelector('.meta-t').onclick = () => $('#metaSrc').classList.toggle('open')
+  $('#metaLine').querySelector('.meta-t').onclick = () => $('#metaLine').classList.toggle('open')
+
+  if (amending) {
+    const t = $('#amendTxt')
+    t.focus()
+    $('#amendCancel').onclick = () => { amending = false; render() }
+    $('#amendOk').onclick = () => {
+      const v = (t.value || '').trim()
+      if (!v) { toast('说一句再确定'); return }
+      answers[q.id] = { kind: 'amend', text: v }
+      amending = false
+      render()
+    }
+  }
+
+  /* 底部按钮状态 */
+  $('#btnPrev').disabled = cur === 0
+  const last = cur === DECK.questions.length - 1
+  $('#btnNext').textContent = last ? '答完了 · 看结果' : '下一题 →'
+  renderHd()
+}
+
+function renderHd() {
+  const n = answeredCount()
+  const total = DECK.questions.length
+  $('#hdCnt').textContent = `已答 ${n} / ${total}`
+  $('#barFill').style.width = (n / total * 100) + '%'
+}
+
+function render() {
+  renderRail()
+  renderQ()
+  renderHd()
+}
+
+/* ════════════════════════════════════════════════════════════════
+   汇总页：答卷会落到哪
+   ════════════════════════════════════════════════════════════════ */
+function renderDone() {
+  const lines = DECK.questions.map((q) => {
+    const a = ansOf(q.id)
+    if (!a) return `<span class="c">[未答] ${q.id} —— 下次还会问</span>`
+    if (a.kind === 'skip') return `<span class="c">[跳过] ${q.id} —— 下次还会问</span>`
+    if (a.kind === 'reject') return `<span class="c">[否决] ${q.id} —— 这题不该问，不再出现</span>`
+    if (a.kind === 'amend') return `[2026-11-05] ${q.id}：<span class="g">${a.text}</span> <span class="c">生效范围：司天</span>`
+    const o = q.options.find((x) => x.k === a.k)
+    return `[2026-11-05] ${q.id}：<span class="g">${a.k}. ${o ? o.t : ''}</span> <span class="c">生效范围：司天</span>`
+  }).join('\n')
+
+  $('#qbox').innerHTML = `
+    <div class="done">
+      <h2>答完了 —— 这些会落到哪儿</h2>
+      <div class="sub">这就是“答完就散”的反面：一句话都不留在问卷里，全部落成别的东西。</div>
+      <div class="log"><span class="c">// shared/sitian/decision-log.md（追加）</span>
+${lines}</div>
+      <div class="after">
+        <div class="after-i"><span class="ic">🗂</span><span><b>决策卡</b>：每题一条 <code>D-0xx</code>，
+          <span class="m">出处 = 问卷题号；三个月后能回看“当时为什么这么定”。</span></span></div>
+        <div class="after-i"><span class="ic">🎯</span><span><b>验收线挂钩</b>：把每题的【验收线】写进相关卡的验收条件
+          <span class="m">—— 否则那句话永远只躺在问卷里，agent 动工时看不见。</span></span></div>
+        <div class="after-i"><span class="ic">🚫</span><span><b>答题不触发开发</b>：这是问卷不是施工单。
+          <span class="m">答卷只定“你想要什么”，单还是本地出。</span></span></div>
+      </div>
+    </div>`
+  doneMode = true
+  document.querySelector('.dlg-ft').classList.add('is-done')
+  $('#rail').querySelectorAll('.rail-i').forEach((b) => b.classList.remove('on'))
+  $('#btnPrev').disabled = true      // 汇总页没有“上一题”
+  $('#btnNext').textContent = '返回题目'
+}
+
+/* ════════════════════════════════════════════════════════════════
+   动作
+   ════════════════════════════════════════════════════════════════ */
+function toast(msg) {
+  const t = $('#toast')
+  t.textContent = msg
+  t.classList.add('on')
+  clearTimeout(t._h)
+  t._h = setTimeout(() => t.classList.remove('on'), 1600)
+}
+
+function onPrev() {
+  if (cur > 0) { cur--; amending = false; render() }
+}
+function onNext() {
+  if (doneMode) { doneMode = false; cur = 0; render(); return }
+  const q = DECK.questions[cur]
+  if (!isAnswered(q.id)) {
+    toast('这题还没答 —— 选一个，或者点“跳过这题”')
+    return
+  }
+  if (cur === DECK.questions.length - 1) { renderDone(); return }
+  cur++; amending = false; render()
+}
+
+$('#btnPrev').onclick = onPrev
+$('#btnNext').onclick = onNext
+$('#btnSkip').onclick = () => {
+  const q = DECK.questions[cur]
+  answers[q.id] = { kind: 'skip' }
+  toast('已跳过 —— 下次进项目还会问')
+  if (cur < DECK.questions.length - 1) { cur++; amending = false }
+  render()
+}
+$('#btnReject').onclick = () => {
+  const q = DECK.questions[cur]
+  answers[q.id] = { kind: 'reject' }
+  toast('已否决 —— 这题不会再出现')
+  render()
+}
+$('#btnAmend').onclick = () => { amending = true; render(); }
+
+$('#entry').onclick = () => { mask.classList.add('on'); cur = 0; amending = false; render() }
+$('#closeBtn').onclick = () => { mask.classList.remove('on'); toast('已保存 ' + answeredCount() + ' 题，下次接着答') }
+mask.onclick = (e) => { if (e.target === mask) { mask.classList.remove('on'); toast('已保存 ' + answeredCount() + ' 题，下次接着答') } }
+
+/* 键盘：1-4 选项、← → 切题、Esc 关 */
+document.addEventListener('keydown', (e) => {
+  if (!mask.classList.contains('on')) return
+  if (e.key === 'Escape') { mask.classList.remove('on'); return }
+  if ($('#amend') && $('#amend').classList.contains('on')) return
+  if (e.key === 'ArrowLeft') { onPrev(); return }
+  if (e.key === 'ArrowRight') { onNext(); return }
+  const n = Number(e.key)
+  const q = DECK.questions[cur]
+  if (n >= 1 && n <= q.options.length) {
+    answers[q.id] = { kind: 'pick', k: q.options[n - 1].k }
+    amending = false
+    render()
+  }
+})
+
+render()
+/* 截图/演示用：?auto=1 直接开弹窗（背景页是“从哪进”，不是重点也留着了） */
+if (/[?&]auto=1/.test(location.search)) { mask.classList.add('on'); render() }
+</script>
+</body>
+</html>

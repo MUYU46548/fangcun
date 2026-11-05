@@ -17,6 +17,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { registerLlmIpcHandlers } from './llm-ipc'
 import { registerDecisionIpcHandlers } from './decision-ipc'
+import { registerQuestionnaireIpcHandlers } from './questionnaire-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
@@ -59,6 +60,7 @@ export function registerIpcHandlers(): void {
   registerLlmIpcHandlers()
   // 决策卡（拍板记录，2026-10-12）——独立于 LLM 的本地 CRUD，与 Python CLI 同文件
   registerDecisionIpcHandlers()
+  registerQuestionnaireIpcHandlers()
 
   // ── Startup self-check ────────────────────────────────────────────
   guardedHandle('selfCheck', () => {
