@@ -412,13 +412,16 @@ function main() {
     !notif.listNotifications().some(n => n.type === 'blocker-broken' && !n.read))
   notif.clearAll()
 
-  // ══ B10. 进行中却没动静（2026-10-01 用户定稿 C 类）══════════════════════
-  // “状态=进行中”= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活（用户原话）。
+  // ══ B10. 进行中却没动静 → **已从通知中心退出**（2026-11-05）══════════════
+  // 暮雨：“这个任务没动静的消息有什么用吗？我又能做什么？我什么都做不了。”
+  // 判据本身没错（`findStalledTasks` 还在，监控台的“僵尸卡”用它），错的是**在哪儿说**：
+  // 它把“干完了没关单 / 在忙别的 / 真没人做”三种原因压成一句“没人接手”，
+  // 而三种情况下用户要做的事完全不同；方寸也没有观测外部 agent 在不在干活的能力
+  // （`ai-trace.jsonl` 只记方寸自己发起的调用）。
+  // → 判据搬进整理体检（`services/cleanup.ts: pickStalled`，由 e2e-cleanup 验）。
+  //   这里只钉两件事：**不再产生通知**、**历史残留被清掉**。
   const stTask = tasks.createTask({ title: '点进行中后没人回写' })
   tasks.moveStatus(stTask.id, '进行中')
-  notifier.scanOnce()
-  check('★ 刚点进行中、还没超时 → 不报（时钟从点按钮那一刻才开始走）',
-    !notif.listNotifications().some(n => n.type === 'task-stalled' && n.sourceId === stTask.id))
   // 把 更新 拨回 3 天前 = “点了进行中之后 72 小时没有任何写入”
   const stPath = path.join(TEST_ROOT, 'task-data', `${stTask.id}.md`)
   let stTxt = fs.readFileSync(stPath, 'utf-8')
@@ -429,22 +432,21 @@ function main() {
     : stTxt.replace(/^---\r?\n/, `---\n更新: ${staleIso}\n`)
   fs.writeFileSync(stPath, stTxt, 'utf-8')
   notifier.scanOnce()
-  const stalledNotifs = notif.listNotifications().filter(n => n.type === 'task-stalled' && n.sourceId === stTask.id)
-  check('★★ 72 小时没写入 → task-stalled', stalledNotifs.length === 1, String(stalledNotifs.length))
-  check('★ 指纹固定为 stalled（小时数每次都变，拿它当指纹会长出一堆）',
-    stalledNotifs.length === 1 && stalledNotifs[0].key === 'stalled', stalledNotifs[0] && String(stalledNotifs[0].key))
-  check('★ 文案写明卡了多久（72 小时）',
-    stalledNotifs.length === 1 && /72 小时/.test(String(stalledNotifs[0].body)), stalledNotifs[0] && stalledNotifs[0].body)
-  // 只认“进行中”：其它状态天然不回写，扫了就是噪音（用户 2026-10-01 否决按更新比时间的原因）
+  check('★★ 72 小时没写入 → **不再**产生 task-stalled 通知（判据已挪进整理体检）',
+    !notif.listNotifications().some(n => n.type === 'task-stalled' && n.sourceId === stTask.id))
+  // 判据本体没被改坏：监控台还在用它，且仍然只认“进行中”
   const zeroHits = tasks.findStalledTasks(0)
-  check('★★ findStalledTasks 返回的全是“进行中”（待办/待验收/完成一律不扫）',
+  check('★★ findStalledTasks 仍只返“进行中”（待办/待验收/完成一律不扫 —— 换了出口，口径不变）',
     zeroHits.length >= 1 && zeroHits.every(t => tasks.readTask(t.id) && tasks.readTask(t.id).fm.status === '进行中'),
     JSON.stringify(zeroHits.map(t => t.id)))
-  // 回写一次 → 时钟重置 → 消解（这才是"真回写检查"，不是派活后一路倒计时）
-  tasks.updateTask(stTask.id, { title: '回写了，有动静' })
+  check('★ 这张 72 小时没写的卡确实被它算出来了（不是靠通知才算“有动静”）',
+    zeroHits.some(t => t.id === stTask.id), JSON.stringify(zeroHits.map(t => t.id)))
+  // 历史残留：面板里不许留再也刷不新的僵尸
+  const legacyStalled = notif.pushNotification({ type: 'task-stalled', level: 'warning', title: '历史残留', sourceId: 'legacy-st', key: 'stalled' })
+  check('  前置：先造一条历史 task-stalled 通知', !!legacyStalled.notification)
   notifier.scanOnce()
-  check('★★ 回写一次后 task-stalled 自动消解',
-    !notif.listNotifications().some(n => n.type === 'task-stalled' && !n.read))
+  check('★★ 历史 task-stalled 被一次性清掉（面板里不留僵尸条目）',
+    !notif.listNotifications().some(n => n.type === 'task-stalled'))
   notif.clearAll()
 
   // ══ B10b. 待验收等你拍板（2026-11-05 暮雨：“有用的东西不提醒，没用的东西会冒出来”）══
@@ -493,27 +495,6 @@ function main() {
   check('★★ 历史残留的 timeout 通知被一次性清掉（面板里不留再也刷不新的僵尸）',
     !notif.listNotifications().some(n => n.type === 'task-timeout'))
 
-  // ══ B10d. “没人接手”的文案必须能回答“我能做什么”（2026-11-05 暮雨原话）══════
-  notif.clearAll()
-  const dumb = tasks.createTask({ title: '卡住没人管' })
-  tasks.moveStatus(dumb.id, '进行中')
-  const dPath = path.join(TEST_ROOT, 'task-data', `${dumb.id}.md`)
-  let dTxt = fs.readFileSync(dPath, 'utf-8')
-  const dIso = new Date(Date.now() - 30 * 3600_000).toISOString()
-  dTxt = /^([ \t]*)(?:更新|updated):.*$/m.test(dTxt)
-    ? dTxt.replace(/^([ \t]*)(?:更新|updated):.*$/m, `$1更新: ${dIso}`)
-    : dTxt.replace(/^---\r?\n/, `---\n更新: ${dIso}\n`)
-  fs.writeFileSync(dPath, dTxt, 'utf-8')
-  notifier.scanOnce()
-  const dumbN = notif.listNotifications().filter(n => n.type === 'task-stalled' && n.sourceId === dumb.id)
-  check('★ 仍然报（判据没被削弱：30 小时没回写照样提醒）', dumbN.length === 1, String(dumbN.length))
-  check('★★ 标题从“任务没动静”改成“没人接手”（说清是谁的问题，不是一句状态描述）',
-    dumbN.length === 1 && /没人接手/.test(String(dumbN[0].title)), dumbN[0] && dumbN[0].title)
-  check('★★ 正文给出**可执行的两条路**（点开看 / 退回待办自己接手）—— 用户原话“我什么都做不了”',
-    dumbN.length === 1 && /退回/.test(String(dumbN[0].body)) && /点开/.test(String(dumbN[0].body)),
-    dumbN[0] && dumbN[0].body)
-  notif.clearAll()
-
   // ══ B11. 超期清理（2026-10-08 用户拍板：error 永不清，已读 info/warning 30 天）
   notif._setExpiryForTest(-1000)
   const oldWarn = notif.pushNotification({ type: 'task-stalled', level: 'warning', title: '旧 warning', sourceId: 'x', key: 'x' })
@@ -552,10 +533,16 @@ function main() {
   // C2. 2026-10-01 用户定稿：只加这两类 + 形态（不弹系统通知）+ 渲染层有标签
   const notifierSrc = fs.readFileSync(path.join(SRC, 'main', 'services', 'notifier.ts'), 'utf-8')
   check('扫描器接了“阻塞链断裂”检测', notifierSrc.includes('detectBrokenBlockers'))
-  check('扫描器接了“进行中没动静”检测', notifierSrc.includes('findStalledTasks'))
-  check('★ 新增两类都 osNotify:false（角标红点+面板，不弹系统通知 —— 用户拍板的形态）',
+  // 2026-11-05：“进行中没动静”已从扫描器退出（挪进整理体检），这里改成**反向守卫** ——
+  // 它不许被顺手加回来：加回来的后果是同一批卡又会被反复播报，而用户对此无能为力。
+  check('★★ 扫描器**不再**接“进行中没动静”（判据已挪进整理体检，回来就是回归）',
+    !notifierSrc.includes('findStalledTasks'))
+  check('★★ 两个已停用类型都在扫描时被清场（历史残留不许留在面板里当僵尸）',
+    notifierSrc.indexOf("resolveNotifications('task-timeout')") >= 0 &&
+    notifierSrc.indexOf("resolveNotifications('task-stalled')") >= 0)
+  check('★ 新类型 osNotify:false（角标红点+面板，不弹系统通知 —— 用户拍板的形态）',
     /'blocker-broken'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc) &&
-    /'task-stalled'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc))
+    /'task-review'[\s\S]{0,260}?osNotify:\s*false/.test(notifierSrc))
   // P0-4 / P0-5 的三层接线（ipc → preload → 渲染层）：少一层就等于功能不存在
   const ipcSrc2 = fs.readFileSync(path.join(SRC, 'main', 'ipc.ts'), 'utf-8')
   const preSrc = fs.readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf-8')

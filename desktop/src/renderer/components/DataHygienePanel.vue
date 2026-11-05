@@ -17,6 +17,7 @@ const props = defineProps<{ toast?: (m: string) => void }>()
 const emit = defineEmits<{
   (e: 'goto-never-read'): void
   (e: 'goto-rework'): void
+  (e: 'goto-stalled'): void
 }>()
 
 /** toast 由 App 传入（同一套提示条），组件不自己造一套 UI 反馈 */
@@ -81,7 +82,7 @@ async function openAttachmentsDir(): Promise<void> {
   <div class="hygiene">
     <div class="sect">
       <h4>整理体检</h4>
-      <div class="hint">两批卡一起看：近 30 天没有 agent 读过的，和被驳回后没人再管的。只提示该核一下"还要不要"，不自动删、不自动改。</div>
+      <div class="hint">三批卡一起看：近 30 天没有 agent 读过的、被驳回后没人再管的、以及挂着“进行中”却很久没动的。只提示该核一下，不自动删、不自动改。</div>
       <div class="sect-btns">
         <button class="ghost font-[inherit]" :disabled="cleanupBusy" @click="runCleanup">
           {{ cleanupBusy ? '⟳ 正在扫…' : '跑一次整理体检' }}</button>
@@ -108,6 +109,19 @@ async function openAttachmentsDir(): Promise<void> {
             {{ r.title }}<span class="cleanup-reason">{{ r.hasReason ? r.reason : '驳回时没写理由' }}</span>
           </div>
         </div>
+        <template v-if="cleanup.stalled">
+        <div class="cleanup-row">
+          <b>{{ cleanup.stalled.count }}</b> 张挂着“进行中”没动
+          <span class="cleanup-sub">（{{ cleanup.stalled.text }}）</span>
+          <span class="cleanup-grow"></span>
+          <button class="ghost font-[inherit]" :disabled="!cleanup.stalled.count" @click="emit('goto-stalled')">回看板筛出来</button>
+        </div>
+        <div class="cleanup-list" v-if="cleanup.stalled.rows && cleanup.stalled.rows.length">
+          <div class="cleanup-item" v-for="r in cleanup.stalled.rows" :key="'st-' + r.id">
+            {{ r.title }}<span class="cleanup-reason">{{ r.hours }} 小时没动</span>
+          </div>
+        </div>
+        </template>
         <div class="cleanup-rule">{{ cleanup.rule }}</div>
       </div>
     </div>

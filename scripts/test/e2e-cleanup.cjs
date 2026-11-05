@@ -73,9 +73,16 @@ writeTask('task-c', {
   更新: "'2026-10-18T00:00:00.000Z'",
   result_log: "'[2026-10-18 10:00] 验收驳回：按钮点不动'",
 })
-// 一条读卡记录：只有 task-a 被 agent 读过（事件真身是 `ids` 数组，不是单个 id）
+// 第四张（2026-11-05）：挂着“进行中”但 72 小时没动 —— 原来它在通知中心报“没人接手”，
+// 现在归整理体检的第三栏。它同时被 agent 读过，所以**不该**进“没人碰过”。
+const STALLED_ISO = new Date(Date.now() - 72 * 3600_000).toISOString()
+writeTask('task-d', {
+  标题: '挂着进行中没动的那张', 状态: '进行中', 优先级: '中', 项目: '[demo]',
+  更新: `'${STALLED_ISO}'`,
+})
+// 一条读卡记录：task-a 与 task-d 被 agent 读过（事件真身是 `ids` 数组，不是单个 id）
 fs.writeFileSync(path.join(DATA, 'mcp-usage.jsonl'), [
-  JSON.stringify({ ids: ['task-a'], ts: new Date().toISOString(), via: 'get_task' }),
+  JSON.stringify({ ids: ['task-a', 'task-d'], ts: new Date().toISOString(), via: 'get_task' }),
 ].join('\n') + '\n', 'utf8')
 
 const snapshot = () => fs.readdirSync(TASK_DIR).sort().map((f) => {
@@ -97,9 +104,9 @@ function scan(days = 30) {
 
 console.log('== ① 真数据根：两张清单各归各 ==')
 const r = scan(30)
-check('读到 3 张活跃卡（真 md → loadTasks；驳回也在活跃区）',
-  data.loadTasks('active').length === 3, String(data.loadTasks('active').length))
-check('分母 = 未完成卡（3 张里 1 张驳回 → 2）', r.neverRead.openTotal === 2, String(r.neverRead.openTotal))
+check('读到 4 张活跃卡（真 md → loadTasks；驳回也在活跃区）',
+  data.loadTasks('active').length === 4, String(data.loadTasks('active').length))
+check('分母 = 未完成卡（4 张里 1 张驳回 → 3）', r.neverRead.openTotal === 3, String(r.neverRead.openTotal))
 check('★★ 只有 task-b 进“没人碰过”（task-a 读过、task-c 是驳回）',
   r.neverRead.rows.length === 1 && r.neverRead.rows[0].id === 'task-b',
   JSON.stringify(r.neverRead.rows.map((x) => x.id)))
@@ -130,7 +137,42 @@ const after = snapshot()
 check('★★ 两张清单算完，task-data 里每个文件的大小与 mtime 一个不变', before === after,
   before === after ? '' : '前后快照不同')
 
-console.log('\n== ④ 源码守卫 ==')
+console.log('\n== ④ 挂着“进行中”没动（2026-11-05 从通知中心挪进来）==')
+{
+  // 为什么挪：它宣称的判断超出了方寸能看见的范围 —— 只知“文件没被写”，
+  // 而没被写至少三种原因（干完了没关单 / 在忙别的 / 真没人做），三种情况下人要做的事完全不同。
+  // 放在这里就是“你主动点开核一下”，不再是系统替你下结论。
+  const r4 = scan(30)
+  check('★★ 第三栏算出 1 张（task-d：挂着进行中 72 小时没动）',
+    !!r4.stalled && r4.stalled.count === 1 && r4.stalled.rows[0].id === 'task-d',
+    JSON.stringify(r4.stalled && r4.stalled.rows))
+  check('★ 小时数是真算的（72 ± 1），不是写死一个数',
+    r4.stalled.rows[0].hours >= 71 && r4.stalled.rows[0].hours <= 73,
+    String(r4.stalled.rows[0].hours))
+  check('★★ 反例：待办 / 驳回的卡不进这一栏（它们天然不会回写，扫了就是噪音）',
+    !r4.stalled.rows.some((x) => ['task-a', 'task-b', 'task-c'].includes(x.id)),
+    JSON.stringify(r4.stalled.rows.map((x) => x.id)))
+  check('★★ 口径写明“不代表有人在干、也不代表没人干”（否则这个数字会被读成结论）',
+    /不代表有人在干/.test(r4.rule) && /关单|退回待办/.test(r4.rule), r4.rule.slice(0, 90))
+  check('★ 总览一句话里三个数字都在（谁也别想只报一个）',
+    /没人碰过/.test(r4.text) && /驳回/.test(r4.text) && /挂着进行中/.test(r4.text), r4.text)
+
+  // 反例一：更新时间是坏值 → 跳过（不拿 mtime 兜、不猜。“算不出来”不该变成“卡住了”）
+  writeTask('task-e', { 标题: '更新时间是坏值', 状态: '进行中', 优先级: '低', 项目: '[demo]', 更新: "'不是时间'" })
+  const rE = scan(30)
+  check('★★ 更新时间是坏值 → 不算“卡住”（算不出来 ≠ 卡住了）',
+    !rE.stalled.rows.some((x) => x.id === 'task-e'),
+    JSON.stringify(rE.stalled.rows.map((x) => x.id)))
+
+  // 反例二：刚动过的进行中卡不进（24 小时阈值是硬的）
+  writeTask('task-f', { 标题: '刚点进行中', 状态: '进行中', 优先级: '低', 项目: '[demo]', 更新: `'${new Date().toISOString()}'` })
+  const rF = scan(30)
+  check('★ 刚点“进行中”的卡不进（阈值 24 小时不许被放宽）',
+    !rF.stalled.rows.some((x) => x.id === 'task-f'),
+    JSON.stringify(rF.stalled.rows.map((x) => x.id)))
+}
+
+console.log('\n== ⑤ 源码守卫 ==')
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf-8')
 const cleanupSrc = read('desktop/src/main/services/cleanup.ts')
 const strip = (s) => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')

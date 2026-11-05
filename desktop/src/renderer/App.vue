@@ -1187,6 +1187,19 @@ function gotoRework(): void {
   reworkOpen.value = true
 }
 
+/**
+ * 体检 → 回看板筛出“挂着进行中”的卡（2026-11-05）。
+ *
+ * 为什么这条从通知中心挪到这里：它宣称的判断超出了方寸能看见的范围 ——
+ * 方寸只知道"任务文件没被写"，而没被写可能是"干完了没关单"、"在忙别的"、"真没人做"，
+ * 三种情况下要做的事完全不同。放在体检里，是"你主动点开核一下"，不是"系统替你下结论"。
+ */
+function gotoStalled(): void {
+  showSettings_.value = false
+  curStatus.value = '进行中'
+  switchView('active')
+}
+
 // ── 主题（2026-09-29 用户第 4 条：“多主题颜色外观并不存在…参考绒花墨坊做一下”）──
 // 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
 // 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
@@ -7369,7 +7382,7 @@ const settingsCtl = reactive({
   settingsTabs, selectSettingsTab, changeDataDir, openDataDir,
   onLogRetainDefaultChange, onArchiveDaysChange, onArchiveAutoChange,
   refreshArchiveOverdue, runArchiveOverdue, exportTasksToFile, importTasksFromFile,
-  showToast, gotoNeverRead, gotoRework,
+  showToast, gotoNeverRead, gotoRework, gotoStalled,
 })
 
 /**

@@ -7866,6 +7866,50 @@
       // 收尾：折叠返工台，别让下一节（它要验"展开"这一步）拿到已展开的状态
       const collapse = $$('.rework-bar button').find((b) => (b.textContent || '').trim() === '收起')
       if (collapse) { collapse.click(); await sleep(350) }
+
+      // ── 第三栏：挂着“进行中”没动（2026-11-05 从通知中心挪进来的）──────────
+      // ⚠ 放在整段**最后**：它自己会“关设置 + 回看板筛进行中”，跑在中间会把后面几条断言的
+      //   筛选状态污染成“进行中”（第一版就是这么把“回看板筛出没人碰过”弄红的）。
+      // 这一栏的意义在于“它必须在体检里、而不在通知里”：通知会替用户下结论，
+      // 体检只是让他主动核一下。所以断言同时钉“在”和“能跳回看板”。
+      {
+        const gearS = $$('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
+        if (gearS) gearS.click()
+        await sleep(600)
+        const dataNavS = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('数据') >= 0)
+        if (dataNavS) dataNavS.click()
+        await sleep(400)
+        const ckBtnS = $$('#smodal button').find((b) => (b.textContent || '').indexOf('整理体检') >= 0)
+        if (ckBtnS) ckBtnS.click()
+        await waitFor(() => !!$('.cleanup'), 4000, '.cleanup 第三次')
+
+        check('★★ 第三栏渲染出来（挂着进行中没动）', (() => {
+          const t = (($('.cleanup') || {}).textContent || '')
+          // 判据用“张挂着”而不是“挂着进行中”：界面文案是 `挂着“进行中”`（带全角引号），
+          // 拼成无引号那串永远匹配不到；而若用 rule 里带引号的那句又会**假绿**。
+          return t.indexOf('张挂着') >= 0 && t.indexOf('24 小时') >= 0 && t.indexOf('168 小时没动') >= 0
+        })(), (($('.cleanup') || {}).textContent || '').slice(0, 160))
+        check('★ 第三栏的样例能看到卡名与“多久没动”（不是只有一个数字）', (() => {
+          const items = $$('.cleanup-list').map((x) => (x.textContent || ''))
+          const hit = items.find((t) => t.indexOf('挂了一周的进行中') >= 0)
+          return !!hit && /168 小时没动/.test(hit)
+        })(), $$('.cleanup-item').map((x) => (x.textContent || '').trim()).join(' | ').slice(0, 160))
+        const stalledRow = $$('#smodal .cleanup-row').find((r) => (r.textContent || '').indexOf('张挂着') >= 0)
+        const stalledBtn = stalledRow ? stalledRow.querySelector('button') : null
+        check('★ 第三栏也有“回看板筛出来”（不能只报数不给出口）',
+          !!stalledBtn && (stalledBtn.textContent || '').indexOf('回看板筛出来') >= 0,
+          stalledBtn ? (stalledBtn.textContent || '').trim() : '(没找到按钮)')
+
+        if (stalledBtn) stalledBtn.click()
+        await sleep(700)
+        check('★★ 点它 → 设置关了、看板真按“进行中”筛（emit 没接上就是死按钮）', (() => {
+          const chips = $$('.fbar-chip').map((x) => (x.textContent || '').replace(/\s+/g, ''))
+          return !$('#smodal') && chips.some((t) => t.indexOf('进行中') >= 0)
+        })(), 'smodal=' + !!$('#smodal') + ' chips=' + $$('.fbar-chip').map((x) => (x.textContent || '').trim()).join('|'))
+        // 收尾：撤掉筛选，别影响后面几节
+        const clr = $('.fbar-clear')
+        if (clr) { clr.click(); await sleep(350) }
+      }
     }
 
     // ══ 驳回返工台（2026-10-30 暮雨第 3 条）════════════════════════════════

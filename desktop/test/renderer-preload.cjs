@@ -1948,8 +1948,20 @@ contextBridge.exposeInMainWorld('tegula', {
     return {
       ok: true,
       days: 30,
-      text: '没人碰过 2 张 · 驳回后没人管 1 张',
-      rule: '口径：没人碰过只算 agent 经 MCP 读卡（你在界面里点开不算）；它只是清理候选，不是优先级，也不代表"不重要"。',
+      text: '没人碰过 2 张 · 驳回后没人管 1 张 · 挂着进行中没动 2 张',
+      rule: '口径：没人碰过只算 agent 经 MCP 读卡（你在界面里点开不算）；“挂着进行中”只说明这个任务文件没被写过，'
+        + '不代表有人在干、也不代表没人干 —— 它只是提醒你核一下：活干完了就关单，不干了就退回待办。'
+        + '这三栏都是清理候选，不是优先级，也不代表"不重要"。',
+      // 第三栏（2026-11-05 从通知中心挪进来）：夹具给 2 张，卡最久的排前面
+      stalled: {
+        count: 2,
+        thresholdHours: 24,
+        text: '挂着“进行中”超过 24 小时没动',
+        rows: [
+          { id: 'st-1', title: '挂了一周的进行中', hours: 168 },
+          { id: 'st-2', title: '挂了两天的进行中', hours: 50 },
+        ],
+      },
       neverRead: {
         rows: [
           { id: 'nr-1', title: '没人读过的甲', project: 'demo', status: '待办', priority: '高', updated: '2026-09-01T00:00:00.000Z', reads: 0 },

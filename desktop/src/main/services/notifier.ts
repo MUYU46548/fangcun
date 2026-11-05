@@ -4,15 +4,19 @@
  * 主进程轻量定时扫描（默认 60s），把这几类事件写入通知中心：
  *   todo-due（待办到期）/ task-deadline（任务截止）/ **task-review（待验收等你拍板）**
  *   / parse-error（解析失败）/ backup-failed（由 scheduler 事件写入，不在此扫描）
- *   / blocker-broken（阻塞链断裂）/ task-stalled（进行中却没人回写）
+ *   / blocker-broken（阻塞链断裂）
  *
- * ⚠ 2026-11-05 删掉 `task-timeout`（原“超时未回写”）：它只看「派活 → 现在」，
- *   与文件有没有被回写毫无关系 —— 同一张卡会与 task-stalled 各报一条，且 agent 一直在干也照报。
- *   留下的每条都必须能回答“用户下一步能做什么”（暮雨原话：“我什么都做不了”）。
+ * ⚠ 2026-11-05 删掉两条（暮雨：“没用的东西会冒出来”“我什么都做不了”）：
+ *   · `task-timeout`：只看「派活 → 现在」，与文件有没有被回写无关 —— 与 task-stalled 各报一条，
+ *     且 agent 一直在干也照报；
+ *   · `task-stalled`：判据没错，但它把“干完了没关单 / 在忙别的 / 真没人做”三种原因
+ *     压成一句“没人接手”，而三种情况下用户要做的事完全不同 —— 方寸也没有观测外部 agent 的能力。
+ *     已挪进**整理体检**（services/cleanup.ts: pickStalled），你主动点开才看。
+ * 留下的每一条都必须能回答“用户下一步能做什么”。
  *
  * **扫描范围是用户拍板的定稿，不自作主张加新类型**（2026-10-01 原话：
  * “先不急着改，先明确需求再改，我觉得按你这样改只会增加一堆噪音，很吵”）。
- * 新增的 blocker-broken / task-stalled 一律 `osNotify:false` —— 形态是
+ * 新增的 blocker-broken / task-review 一律 `osNotify:false` —— 形态是
  * “角标红点 + 面板集中看”，不弹系统通知。
  *
  * 到点只弹一次：去重键含事件指纹（due 值），改期后是新事件。
@@ -225,7 +229,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   }
 
   // ── 3b. 旧“任务超时未回写”清场（2026-11-05 删）──────────────────────
-  // 它和下面的 task-stalled 是同一件事的两种算法，而且更差：
+  // 它和 task-stalled（现也已停用）是同一件事的两种算法，而且更差：
   //   · 只看「派活时间 → 现在」，**完全不管文件有没有被回写** —— agent 一直在干也照报（误报）；
   //   · 于是同一张卡会同时出现“超时未回写”+“任务没动静”两条，点开是同一张卡。
   // 保留判据更准的那条（stalled 看的是"文件真没动"）。这里把历史残留一次性消解掉，
@@ -268,31 +272,15 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
-  // ── 6. 进行中却没动静（C 类，2026-10-01 用户定稿）────────────────────
-  // “状态=进行中”= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活；
-  // 此后任务文件 ≥24h 没有任何写入 = 没人回写。只扫进行中（其他状态天然不回写，扫了是噪音）。
-  //
-  // ⚠ 2026-11-05：暮雨原话“这个任务没动静的消息有什么用吗？我又能做什么？我什么都做不了。”
-  //   他说得对 —— 这条通知**本身推不出动作**，所以文案必须替他回答“那我现在能干什么”：
-  //   ① 点开看看它卡在哪（sourceId + focusSource 已经能直达那张卡）；
-  //   ② 不想等就退回“待办”自己接手（方寸里没有“催 agent”的通道，别假装有）。
-  //   判据留着（它比已删的 task-timeout 准：看的是文件真没动，不是派活后一路倒计时）。
-  const stalled = tasks.findStalledTasks()
-  const stalledIds = new Set(stalled.map(t => t.id))
-  for (const t of stalled) {
-    if (push({
-      type: 'task-stalled', level: 'warning', osNotify: false,
-      title: `没人接手：${t.title}`,
-      body: `状态“进行中”已 ${t.hours} 小时没有任何回写 —— 点开看看它卡在哪；不想等就退回“待办”自己接手`,
-      sourceId: t.id,
-      key: 'stalled',   // 固定指纹：小时数每次扫描都变，用它做指纹会每小时长出一条新通知
-    })) created++
-  }
-  for (const n of notifications.listNotifications()) {
-    if (n.type === 'task-stalled' && !stalledIds.has(n.sourceId ?? '')) {
-      resolved += notifications.resolveNotifications('task-stalled', n.sourceId)
-    }
-  }
+  // ── 6. 已停用：进行中却没动静（原 C 类）────────────────────────────
+  // 2026-11-05 暮雨：“这个任务没动静的消息有什么用吗？我又能做什么？我什么都做不了。”
+  // 他说得对，而且比"没用"更严重 —— 它**宣称的判断超出了方寸能看见的范围**：
+  // 方寸只知道"这个 .md 文件没被写"，而没被写至少三种原因（干完了没关单 / 在忙别的 / 真没人做），
+  // 三种情况下你要做的事完全不同。压成一句"没人接手"就是替你下结论。
+  // 何况方寸没有能力观测外部 agent 在不在干活（ai-trace 只记方寸自己发起的调用）。
+  // → 判据原样搬进 `services/cleanup.ts: pickStalled`，由**整理体检**承载（你主动点开才看）。
+  //   这里只负责把历史残留清掉：面板里不许留再也刷不新的僵尸通知。
+  resolved += notifications.resolveNotifications('task-stalled')
 
   notifications.prune()
   const expired = notifications.cleanupExpired(now)
