@@ -1,10 +1,14 @@
 /**
  * Fangcun Desktop — 通知检测器
  *
- * 主进程轻量定时扫描（默认 60s），把 7 类事件写入通知中心：
- *   todo-due（待办到期）/ task-deadline（任务截止）/ task-timeout（超时未回写）
+ * 主进程轻量定时扫描（默认 60s），把这几类事件写入通知中心：
+ *   todo-due（待办到期）/ task-deadline（任务截止）/ **task-review（待验收等你拍板）**
  *   / parse-error（解析失败）/ backup-failed（由 scheduler 事件写入，不在此扫描）
- *   / blocker-broken（阻塞链断裂）/ task-stalled（进行中却没动静）
+ *   / blocker-broken（阻塞链断裂）/ task-stalled（进行中却没人回写）
+ *
+ * ⚠ 2026-11-05 删掉 `task-timeout`（原“超时未回写”）：它只看「派活 → 现在」，
+ *   与文件有没有被回写毫无关系 —— 同一张卡会与 task-stalled 各报一条，且 agent 一直在干也照报。
+ *   留下的每条都必须能回答“用户下一步能做什么”（暮雨原话：“我什么都做不了”）。
  *
  * **扫描范围是用户拍板的定稿，不自作主张加新类型**（2026-10-01 原话：
  * “先不急着改，先明确需求再改，我觉得按你这样改只会增加一堆噪音，很吵”）。
@@ -197,23 +201,36 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
-  // ── 3. 任务超时未回写（复用 findTimeoutTasks） ──
-  const timeouts = tasks.findTimeoutTasks()
-  const timeoutIds = new Set(timeouts.map(t => t.id))
-  for (const t of timeouts) {
+  // ── 3. 待验收等你拍板（2026-11-05 暮雨：“有用的东西不提醒，没用的东西会冒出来”）──
+  // 这是全站**唯一**既有动作又有时间性的通知：agent 交了活，你不点头整条链就停在那儿
+  // （不归档、不 reject、下一格也推不动）。此前它一条通知都没有 —— 而“任务没动静”那种
+  // 用户什么也做不了的提醒反倒有两份。
+  // 与其它新增类型同规矩：`osNotify:false`，只进面板；点击直达那张卡（sourceId = 任务 id）。
+  const reviewIds = new Set<string>()
+  for (const t of activeTasks) {
+    if (t.fm.status !== '待验收') continue
+    reviewIds.add(t.id)
     if (push({
-      type: 'task-timeout', level: 'warning',
-      title: `任务超时未回写：${t.title}`,
-      body: `已进行 ${t.hours} 小时`,
-      // key 不含 hours：小时数每次扫描都会变，用它做指纹会每小时生成一条新通知
-      sourceId: t.id, key: 'timeout',
+      type: 'task-review', level: 'warning', osNotify: false,
+      title: `等你拍板：${t.fm.title ?? t.id}`,
+      body: `状态“待验收” —— 觉得行就点“通过”（归档），不行就打回重做；不点它就一直停在这儿`,
+      sourceId: t.id,
+      key: 'review',
     })) created++
   }
   for (const n of notifications.listNotifications()) {
-    if (n.type === 'task-timeout' && !timeoutIds.has(n.sourceId ?? '')) {
-      resolved += notifications.resolveNotifications('task-timeout', n.sourceId)
+    if (n.type === 'task-review' && !reviewIds.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('task-review', n.sourceId)
     }
   }
+
+  // ── 3b. 旧“任务超时未回写”清场（2026-11-05 删）──────────────────────
+  // 它和下面的 task-stalled 是同一件事的两种算法，而且更差：
+  //   · 只看「派活时间 → 现在」，**完全不管文件有没有被回写** —— agent 一直在干也照报（误报）；
+  //   · 于是同一张卡会同时出现“超时未回写”+“任务没动静”两条，点开是同一张卡。
+  // 保留判据更准的那条（stalled 看的是"文件真没动"）。这里把历史残留一次性消解掉，
+  // 否则面板里会永远挂着再也不会被刷新的旧条目（“僵尸通知”比不提醒更糟）。
+  resolved += notifications.resolveNotifications('task-timeout')
 
   // ── 4. 解析失败（持续可见，事件存在即保持未读） ──
   const perrs = data.getParseErrors()
@@ -254,13 +271,19 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   // ── 6. 进行中却没动静（C 类，2026-10-01 用户定稿）────────────────────
   // “状态=进行中”= 用户把提示词扔给 AI 后回方寸点的按钮 = 已派活；
   // 此后任务文件 ≥24h 没有任何写入 = 没人回写。只扫进行中（其他状态天然不回写，扫了是噪音）。
+  //
+  // ⚠ 2026-11-05：暮雨原话“这个任务没动静的消息有什么用吗？我又能做什么？我什么都做不了。”
+  //   他说得对 —— 这条通知**本身推不出动作**，所以文案必须替他回答“那我现在能干什么”：
+  //   ① 点开看看它卡在哪（sourceId + focusSource 已经能直达那张卡）；
+  //   ② 不想等就退回“待办”自己接手（方寸里没有“催 agent”的通道，别假装有）。
+  //   判据留着（它比已删的 task-timeout 准：看的是文件真没动，不是派活后一路倒计时）。
   const stalled = tasks.findStalledTasks()
   const stalledIds = new Set(stalled.map(t => t.id))
   for (const t of stalled) {
     if (push({
       type: 'task-stalled', level: 'warning', osNotify: false,
-      title: `任务没动静：${t.title}`,
-      body: `状态“进行中”，但任务文件已 ${t.hours} 小时没有任何写入`,
+      title: `没人接手：${t.title}`,
+      body: `状态“进行中”已 ${t.hours} 小时没有任何回写 —— 点开看看它卡在哪；不想等就退回“待办”自己接手`,
       sourceId: t.id,
       key: 'stalled',   // 固定指纹：小时数每次扫描都变，用它做指纹会每小时长出一条新通知
     })) created++

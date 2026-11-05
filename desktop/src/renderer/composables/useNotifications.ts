@@ -26,14 +26,18 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const NC_TYPE_META: Record<string, { icon: string; label: string; glyph: string }> = {
     'todo-due':      { icon: 'calendar', label: '待办到期', glyph: '📅' },
     'task-deadline': { icon: 'task',     label: '任务逾期', glyph: '📋' },
-    'task-timeout':  { icon: 'approve',  label: '超时未回写', glyph: '⏱' },
+    // 2026-11-05：`task-timeout` 已停用（与 task-stalled 同一件事且会误报：只看派活时间，
+    // 不看文件有没有被回写）。映射保留 —— 面板里可能还躺着历史条目，删映射会让它变成空白标签。
+    'task-timeout':  { icon: 'approve',  label: '超时未回写（已停用）', glyph: '⏱' },
     'parse-error':   { icon: 'security', label: '解析失败', glyph: '⚠' },
     'backup-failed': { icon: 'storage', label: '备份失败', glyph: '💾' },
     'update-downloaded': { icon: 'storage', label: '更新已就绪', glyph: '⬆' },
     // 2026-10-01 用户定稿新增的两类（只在面板里看，不弹系统通知）。
     // icon 复用现有 security/approve —— 新 icon 得配 nc-t-*/nc-av-* 两套主题色，没必要为两个标签开新面。
     'blocker-broken': { icon: 'security', label: '阻塞链断裂', glyph: '⛓' },
-    'task-stalled':   { icon: 'approve',  label: '任务没动静', glyph: '💤' },
+    'task-stalled':   { icon: 'approve',  label: '没人接手', glyph: '💤' },
+    // 2026-11-05：全站唯一“既有动作又有时间性”的一条 —— agent 交了活等你拍板，不点就停在那儿。
+    'task-review':    { icon: 'approve',  label: '等你拍板', glyph: '✅' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -138,7 +142,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
    */
   function ncTargetOf(n: any): string | null {
     const t = String(n.type || '')
-    if (['task-deadline', 'task-timeout', 'task-stalled', 'blocker-broken'].includes(t)) {
+    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'blocker-broken'].includes(t)) {
       return n.sourceId ? '跳到这个任务' : null
     }
     if (t === 'todo-due') return '跳到待办'
@@ -157,7 +161,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (!ncTargetOf(n)) return
     const t = String(n.type || '')
     closePanel()
-    if (['task-deadline', 'task-timeout', 'task-stalled', 'blocker-broken'].includes(t)) {
+    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'blocker-broken'].includes(t)) {
       let task: any = null
       try { task = await (window as any).tegula.getTask(n.sourceId) } catch { /* 旧版本没有该通道时静默 */ }
       if (task) {

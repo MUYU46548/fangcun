@@ -62,7 +62,7 @@
         <div v-if="ncVisible.length === 0" class="nc-empty">
           <div class="nc-empty-ic">🔔</div>
           <h3>{{ ncFilter === 'unread' ? '没有未读通知' : '暂无通知' }}</h3>
-          <p>这里会显示任务没动静、阻塞链断裂、待办到期、任务逾期、解析失败与备份失败等事件</p>
+          <p>只提醒“你能动手”的事：等你拍板（待验收）、待办到期、任务逾期、没人接手、阻塞链断裂、解析失败、备份失败</p>
         </div>
       </div>
 
