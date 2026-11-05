@@ -16,6 +16,7 @@ import * as path from 'path'
 import { getTaskDir } from './index'
 import { addDecision, loadDecisions } from './decisions'
 import { parseQuestionnaire, type QDeck } from '../../shared/questionnaire'
+import { askbacksOf, buildRewritePrompt, buildWorkOrderPrompt } from '../../shared/qnPrompts'
 
 export interface QAnswer {
   kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend'
@@ -167,24 +168,48 @@ export function answerToLogLine(q: { id: string; ask: string; options: { k: stri
   return `[${date}] ${q.id}：${a.k || ''}. ${o ? o.t : ''} 生效范围：本卷`
 }
 
-/** 生成可粘贴的 decision-log 段落（也是导出文件的内容） */
+/**
+ * 生成可粘贴的 decision-log 段落（也是导出文件的内容）。
+ *
+ * ⚠ 2026-11-05 补了【验收线】：原来导出只有“选了什么”，验收线留在问卷里没跟出来 ——
+ *   而验收线正是事后校验的唯一依据（“跨形态派单的任务卡一律打回”这种话，
+ *   只写在问卷里的结果就是**下次 agent 动工还是不知道这条线在哪儿**）。
+ *   现在每道「打勾 / 改一句」的题下面跟一行 `- 验收线：…`；没有验收线的题显式写“未给”。
+ */
 export function buildDecisionLog(parsed: QDeck, answers: Record<string, QAnswer>, deckName: string, date?: string): string {
   const day = date || new Date().toISOString().slice(0, 10)
   const lines: string[] = [`# ${parsed.title || deckName} · 答卷（${day}）`, '']
   const asks: { id: string; text: string }[] = []
+  /** 每题一条，供末尾“验收线清单”汇总 */
+  const accepted: { id: string; line: string }[] = []
   parsed.questions.forEach((q) => {
     const a = answers[q.id]
     if (!a) { lines.push(`- **${q.id}** —— 未答`); return }
     if (a.kind === 'skip') { lines.push(`- **${q.id}** —— 跳过（下次再问）`); return }
     if (a.kind === 'reject') { lines.push(`- **${q.id}** —— 否决：这题不该问，不再出现`); return }
     if (a.kind === 'askback') { lines.push(`- **${q.id}** —— 反问（见下）`); asks.push({ id: q.id, text: a.text || '' }); return }
-    if (a.kind === 'amend') { lines.push(`- **${q.id}** —— ${a.text}（自述）`); return }
-    const o = q.options.find((x) => x.k === a.k)
-    lines.push(`- **${q.id}** —— ${a.k}. ${o ? o.t : ''}`)
+    let head = ''
+    if (a.kind === 'amend') head = `- **${q.id}** —— ${a.text}（自述）`
+    else {
+      const o = q.options.find((x) => x.k === a.k)
+      head = `- **${q.id}** —— ${a.k || ''}. ${o ? o.t : ''}`
+    }
+    lines.push(head)
+    const nl = String(q.line || '').trim().replace(/\s*\n\s*/g, ' ')
+    if (nl) {
+      lines.push(`  - 验收线：${nl}`)
+      accepted.push({ id: q.id, line: nl })
+    } else {
+      lines.push('  - 验收线：未给（这一条没法事后校验，建议补）')
+    }
   })
   if (asks.length) {
     lines.push('', '## 反问（回给 agent 重写题目）', '')
     asks.forEach((x) => lines.push(`- **${x.id}**：${x.text}`))
+  }
+  if (accepted.length) {
+    lines.push('', '## 验收线（搬进相关卡的验收段，别只留在问卷里）', '')
+    accepted.forEach((x) => lines.push(`- **${x.id}**：${x.line}`))
   }
   return lines.join('\n') + '\n'
 }
@@ -221,12 +246,17 @@ export function approveDeck(deck: string): {
     if (!a) return
     const line = answerToLogLine(q, a, day)
     if (!line) return
+    // 备注 = 题干（为什么问）｜ 验收线（什么算违约）。
+    // 验收线必须跟着决策走：它只留在问卷里的话，三个月后翻决策卡看不出“当时的线在哪儿”。
+    const line0 = String(q.line || '').trim().replace(/\s*\n\s*/g, ' ')
+    const note = [q.ask ? q.ask.slice(0, 160) : '', line0 ? `验收线：${line0}` : '']
+      .filter(Boolean).join(' ｜ ')
     const r = addDecision({
       内容: line.replace(/^\[[^\]]+\]\s*/, ''),   // 内容里不重复日期前缀（日期是独立字段）
       日期: day,
       状态: '有效',
       出处: `问卷 ${name} · ${q.id}`,
-      备注: q.ask ? q.ask.slice(0, 200) : '',
+      备注: note,
     })
     // ⚠ 用 `'error' in r` 而不是 `r.ok === false`：本仓 TS（7.x）在 `!r.ok` 下
     //   没能收窄这个可辨识联合，直接写 r.error 会报 TS2339（已实测）。
@@ -245,6 +275,67 @@ export function approveDeck(deck: string): {
 
   // 答案里出现“反问”的，单独回给调用方 —— 它不是决策，是下一轮出题的输入
   return { ok: errors.length === 0, error: errors.join('；') || undefined, cards, existed, exportPath, text }
+}
+
+/**
+ * 两份出口提示词（2026-11-05）。
+ *
+ * 为什么要有：反问只记一句话的话，「问题清单」就只是另一个记录文件 ——
+ * 谁拿它重写题？这里把它打包成能直接粘给 agent 的提示词，闭环才闭上。
+ *
+ * `kind`：
+ *   · `rewrite` —— 拿反问去重出题（有反问才有意义）；
+ *   · `build`   —— 拿答卷去出施工单。**有反问时一律拒绝**：
+ *     问题还没定就出单，出的必然是错的（这正是“问卷不是施工单”的意思）。
+ */
+export function buildPromptForDeck(deck: string, kind: 'rewrite' | 'build'): {
+  ok: boolean
+  error?: string
+  kind?: string
+  text?: string
+  /** 有几句反问（界面据此决定给哪个按钮） */
+  askbacks?: number
+  /** 还没定的题（出施工单时 agent 不许自己拍） */
+  open?: number
+} {
+  const name = safeName(deck)
+  const g = getDeck(name)
+  if (!g.ok || !g.parsed) return { ok: false, error: g.error || '读不到问卷' }
+  const answers = g.answers || {}
+  // 项目名从卷名前缀取（`司天-宪法层` → `司天`）—— 问卷 md 里没有项目字段，
+  // 硬编一个空的会让提示词变成“你在给这个项目出问卷”，agent 还得反问一次。
+  const project = name.split('-')[0] || ''
+  const opts = {
+    deck: name,
+    title: g.parsed.title || name,
+    path: g.path,
+    project,
+    questions: g.parsed.questions,
+    answers,
+  }
+  const asks = askbacksOf(g.parsed.questions, answers)
+  const openCount = g.parsed.questions.filter((q) => {
+    const a = answers[q.id]
+    return !a || a.kind === 'skip'
+  }).length
+  const base = { askbacks: asks.length, open: openCount }
+
+  if (kind === 'build') {
+    if (asks.length) {
+      return {
+        ...base, ok: false,
+        error: `还有 ${asks.length} 道题被反问 —— 问题还没定，这时候出的施工单必然是错的。先「重出题」。`,
+      }
+    }
+    const text = buildWorkOrderPrompt(opts)
+    if (!text) return { ...base, ok: false, error: '这卷还没有任何“打勾 / 改一句”的答案 —— 没有可出单的东西' }
+    return { ...base, ok: true, kind, text }
+  }
+
+  if (!asks.length) return { ...base, ok: false, error: '这卷没有反问 —— 没什么可重出的' }
+  const text = buildRewritePrompt(opts)
+  if (!text) return { ...base, ok: false, error: '反问内容都是空的，没法打包' }
+  return { ...base, ok: true, kind, text }
 }
 
 /** 已有决策卡条数（界面显示“落库后会有几条”用得上） */

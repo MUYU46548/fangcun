@@ -1196,6 +1196,28 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('questionnaireGet', [deck])
     if (!store.qnApproved) store.qnApproved = {}
     const approvedAt = store.qnApproved[deck] || ''
+    // 第二卷：只有 1 题、没有反问 —— 用来验“反问清零后才给『生成施工单』”那个分支。
+    // 没有它的话，那个按钮在测试里永远点到不到（只验了“有反问”一侧 = 半条断言）。
+    if (deck === '墨坊-宪法层') {
+      return {
+        ok: true, deck, path: 'C:/mock/task-data/questionnaires/墨坊-宪法层.md',
+        approvedAt: '2026-11-05T10:00:00.000Z',
+        answers: {},
+        parsed: {
+          title: '墨坊问卷·宪法层（2026-11-04）', layer: '宪法层',
+          boundary: '给暮雨答', lookTable: [], parked: [], parkedHead: [],
+          questions: [{
+            id: 'M1', nav: '稿子形态', ask: '墨坊先做哪一种稿？',
+            options: [
+              { k: 'A', t: '长文', d: '一次成篇' },
+              { k: 'B', t: '短帖', d: '快速出稿' },
+            ],
+            src: 'M1 原话', line: '不带形态标签的稿子一律打回',
+            look: '', prefilled: false, prefilledNote: '',
+          }],
+        },
+      }
+    }
     return {
       ok: true,
       deck,
@@ -1206,8 +1228,18 @@ contextBridge.exposeInMainWorld('tegula', {
         title: '司天问卷·宪法层（2026-11-04）',
         layer: '宪法层',
         boundary: '给暮雨答（打勾/否决/改一句）；答案落 decision-log',
-        lookTable: [],
-        parked: [],
+        // 「入口总表」：裁决层 A 靠这张表给链接，不逐题重复贴
+        lookTable: [
+          { nm: 'WorldPainter', ds: '桌面手绘地图', url: 'https://www.worldpainter.net' },
+          { nm: '易制地图', ds: '网页涂色', url: 'https://www.yizhihua.com' },
+        ],
+        // 「预埋」：现在答不了的那些题。表头原样给 —— 司天写“挂出条件/参照物”，
+        // 墨坊写“缺什么/什么时候能答”，界面不许硬编一种。
+        parkedHead: ['题', '挂出条件', '参照物'],
+        parked: [
+          { q: '手感对标（WorldPainter / vvd）', need: '两件亲跑实测后', when: '实测截图' },
+          { q: '旧司天什么留什么丢', need: '本地供旧司天实况图后', when: '旧司天截图' },
+        ],
         questions: [
           {
             id: 'S1', nav: '最终形态', ask: '司天做一件还是两件？',
@@ -1248,6 +1280,22 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!store.qnApproved) store.qnApproved = {}
     store.qnApproved[deck] = new Date().toISOString()
     return { ok: true, cards: 1, existed: 0, exportPath: 'C:/mock/task-data/questionnaires/' + deck + '.decision-log.md', text: '# 答卷\n' }
+  },
+  questionnairePrompt: (deck, kind) => {
+    rec('questionnairePrompt', [deck, kind])
+    // 复刻后端语义：有反问就不许出施工单（桩必须和后端同规，否则测的是假规矩）
+    const asks = Object.keys(store.qnAnswers || {}).filter((k) => {
+      const a = store.qnAnswers[k]
+      return a && a.kind === 'askback' && String(a.text || '').trim()
+    })
+    if (kind === 'build' && asks.length) {
+      return { ok: false, askbacks: asks.length, open: 0,
+        error: `还有 ${asks.length} 道题被反问 —— 问题还没定，这时候出的施工单必然是错的。先「重出题」。` }
+    }
+    const text = kind === 'rewrite'
+      ? '# 重出题提示词\n\n只重写被反问的那 1 道题，别把整卷重发。\n暮雨的反问：这题问错了：真正该问的是地图给谁看\n'
+      : '# 施工单提示词\n\n## 已定的（照这个做）\n- **M1** 选择：A. 长文\n  - 验收线：不带形态标签的稿子一律打回\n'
+    return { ok: true, kind, askbacks: asks.length, open: 0, text }
   },
   questionnaireOpenDir: () => { rec('questionnaireOpenDir'); return { ok: true, dir: 'C:/mock/task-data/questionnaires' } },
 

@@ -70,14 +70,76 @@
               <span class="ri-t">{{ q.nav || q.ask || q.id }}</span>
               <span class="ri-s" :class="stateClass(q.id)">{{ stateGlyph(q.id) }}</span>
             </button>
+            <button v-if="parked.length" class="qn-rail-x" :class="{ on: extra === 'parked' }"
+              @click="toggleExtra('parked')">
+              📌 预埋 {{ parked.length }} 项<span class="rx-n">现在答不了</span>
+            </button>
+            <button v-if="lookRows.length" class="qn-rail-x" :class="{ on: extra === 'look' }"
+              @click="toggleExtra('look')">
+              🔗 入口总表 {{ lookRows.length }} 条<span class="rx-n">照着眼就行</span>
+            </button>
             <div class="qn-rail-foot">
               · 没答　○ 跳过　✕ 否决<br>❗ 反问（回给 agent）　✓ 已答
             </div>
           </div>
 
           <div class="qn-main">
+            <!-- 额外页：预埋表 / 入口总表 / 提示词。⚠ 一定是链头，插到中间会让后面整段不渲染 -->
+            <div v-if="extra === 'parked'" class="qn-extra">
+              <div class="xe-hd">
+                <b>预埋 {{ parked.length }} 项</b>
+                <span class="xe-sub">现在答不了 —— 不是遗漏，是等条件。条件到了 agent 会把它变成正式题。</span>
+                <span class="qn-grow"></span>
+                <button class="ghost" @click="extra = ''">收起</button>
+              </div>
+              <table class="xe-tb">
+                <thead>
+                  <tr><th v-for="(h, hi) in parkedHead" :key="hi">{{ h }}</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(p, i) in parked" :key="i">
+                    <td class="xe-q">{{ p.q }}</td>
+                    <td>{{ p.need }}</td>
+                    <td>{{ p.when }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="extra === 'look'" class="qn-extra">
+              <div class="xe-hd">
+                <b>看一眼 · 入口总表</b>
+                <span class="xe-sub">全卷共用 —— 答题时不用懂名词，照着看就行。</span>
+                <span class="qn-grow"></span>
+                <button class="ghost" @click="extra = ''">收起</button>
+              </div>
+              <table class="xe-tb">
+                <thead><tr><th>名字</th><th>一句话</th><th>入口</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, i) in lookRows" :key="i">
+                    <td class="xe-q">{{ r.nm }}</td>
+                    <td>{{ r.ds }}</td>
+                    <td class="xe-url">{{ r.url }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="extra === 'prompt'" class="qn-extra">
+              <div class="xe-hd">
+                <b>{{ promptKind === 'rewrite' ? '重出题提示词' : '出施工单提示词' }}</b>
+                <span class="xe-sub">{{ promptKind === 'rewrite'
+                  ? '粘给 agent：它只重写被反问的那几题，不重发整卷'
+                  : '粘给 agent：把已定的翻成可验收的小步，没定的标成待定' }}</span>
+                <span class="qn-grow"></span>
+                <button class="ghost" @click="copyPrompt">⧉ 复制</button>
+                <button class="ghost" @click="extra = ''">收起</button>
+              </div>
+              <pre class="xe-pre">{{ promptText }}</pre>
+            </div>
+
             <!-- 整卷 -->
-            <div v-if="view === 'all'" class="qn-all">
+            <div v-else-if="view === 'all'" class="qn-all">
               <div v-for="q in deck.parsed.questions" :key="q.id" class="qn-card"
                 :class="{ ans: isAnswered(q.id), askc: answers[q.id] && answers[q.id].kind === 'askback' }">
                 <div class="qc-hd"><span class="qc-id">{{ q.id }}</span><span class="qc-ask">{{ q.ask || q.nav }}</span></div>
@@ -168,7 +230,12 @@
 
         <!-- 底栏 -->
         <div class="qn-ft">
-          <template v-if="!summary">
+          <template v-if="extra">
+            <button class="ghost" @click="extra = ''">← 返回题目</button>
+            <span class="qn-grow"></span>
+            <span class="qn-ft-note">{{ extra === 'prompt' ? '复制后粘给 agent 就行' : '这不是题目 —— 不用答，看看就好' }}</span>
+          </template>
+          <template v-else-if="!summary">
             <button class="ghost" @click="mark(curId, 'skip')">跳过</button>
             <button class="danger" @click="mark(curId, 'reject')">否决</button>
             <button class="ask" @click="startEdit(curId, 'askback')">❗ 反问…</button>
@@ -180,7 +247,15 @@
           <template v-else>
             <button class="ghost" @click="summary = false">← 回去改</button>
             <button class="ghost" @click="copyMd">⧉ 复制 md</button>
-            <button class="ghost" @click="downloadMd">⬇ 导出</button>
+            <button class="ghost" v-if="approved" @click="downloadMd">⬇ 导出</button>
+            <!-- 出口（2026-11-05）：有反问只能「重出题」；反问清零了才给「出施工单」。
+                 为什么不给两个都显示：问题还没定时出的单必然是错的（问卷不是施工单）。 -->
+            <button v-if="askCount" class="ask" :disabled="promptBusy" @click="openPrompt('rewrite')">
+              ❗ 打包成重出题（{{ askCount }}）
+            </button>
+            <button v-else class="ghost" :disabled="promptBusy" @click="openPrompt('build')">
+              📋 生成施工单提示词
+            </button>
             <span class="qn-grow"></span>
             <span v-if="approved" class="qn-ok">已落库 · {{ approved.slice(0, 16).replace('T', ' ') }}</span>
             <button v-if="!approved" class="pri" :disabled="busy" @click="approve">✓ 批准并落库</button>
@@ -205,7 +280,15 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'toast', msg: string, kind?: 
 
 interface QOpt { k: string; t: string; d: string }
 interface QItem { id: string; nav: string; ask: string; options: QOpt[]; src: string; line: string; look: string; prefilled: boolean; prefilledNote: string }
-interface QParsed { title: string; layer: string; questions: QItem[]; lookTable: { nm: string; ds: string; url: string }[] }
+interface QParked { q: string; need: string; when: string }
+interface QParsed {
+  title: string; layer: string; questions: QItem[]
+  lookTable: { nm: string; ds: string; url: string }[]
+  /** 「预埋」——现在答不了的那些题（样本里叫“裁决层预埋”或“摊不开的”） */
+  parked: QParked[]
+  /** 预埋表的表头（原样；两份样本说法不同，硬编一种就会写成错标题） */
+  parkedHead: string[]
+}
 interface QAns { kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend'; k?: string; text?: string }
 interface QDeckBrief { deck: string; title: string; layer: string; total: number; answered: number; approved: boolean; error?: string }
 
@@ -224,12 +307,37 @@ const editText = ref('')
 const lookOpen = ref<Record<string, boolean>>({})
 const metaOpen = ref<Record<string, boolean>>({})
 const busy = ref(false)
+/**
+ * main 区的“额外页”：预埋表 / 入口总表 / 提示词。
+ * 空串 = 正常答题。它必须排在最前面判断 —— 否则会掉进题流里（本项目有过先例）。
+ */
+const extra = ref<'' | 'parked' | 'look' | 'prompt'>('')
+const promptKind = ref<'rewrite' | 'build'>('rewrite')
+const promptText = ref('')
+const promptBusy = ref(false)
 
 const toast = (m: string, k = 'info') => emit('toast', m, k)
 const total = computed(() => deck.value ? deck.value.parsed.questions.length : 0)
 const idx = computed(() => deck.value ? deck.value.parsed.questions.findIndex((q) => q.id === curId.value) : 0)
 const currentQ = computed<QItem | null>(() => deck.value ? (deck.value.parsed.questions[idx.value] || null) : null)
 const answeredCount = computed(() => (deck.value ? deck.value.parsed.questions.filter((q) => isAnswered(q.id)).length : 0))
+/** 预埋项（现在答不了的题）—— 不放题流里，它们不是“待答” */
+const parked = computed<QParked[]>(() => (deck.value ? deck.value.parsed.parked || [] : []))
+/** 表头原样用；解析不出来才退回一套中性的 */
+const parkedHead = computed<string[]>(() => {
+  const h = (deck.value ? deck.value.parsed.parkedHead : []) || []
+  return h.length >= 2 ? h : ['题', '缺什么', '什么时候能答']
+})
+/** 「看一眼·入口总表」—— 全卷共用的一张参照表（裁决层 A 的链接全在这一张里） */
+const lookRows = computed(() => (deck.value ? deck.value.parsed.lookTable || [] : []))
+/** 有几句反问 —— 决定汇总页给哪个出口（重出题 / 出施工单） */
+const askCount = computed(() => {
+  if (!deck.value) return 0
+  return deck.value.parsed.questions.filter((q) => {
+    const a = answers.value[q.id]
+    return !!(a && a.kind === 'askback' && String(a.text || '').trim())
+  }).length
+})
 
 function isAnswered(id: string): boolean {
   const a = answers.value[id]
@@ -374,21 +482,58 @@ function mdText(): string {
   return lines.join('\n') + '\n'
 }
 
-async function copyMd(): Promise<void> {
-  const t = mdText()
+/**
+ * 复制（带兜底）。Electron 里 navigator.clipboard 一般可用，但 `file://` 或没聚焦时会拒 ——
+ * 拒了还要能复制，否则按钮看起来就是坏的（本项目踩过“点了没反应”）。
+ */
+async function copyText(t: string, okMsg: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(t)
-    toast('已复制 ' + t.length + ' 字符，可直接贴进 decision-log', 'success')
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = t
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    try { document.execCommand('copy'); toast('已复制', 'success') } catch { toast('复制失败：浏览器不允许', 'error') }
-    ta.remove()
+    toast(okMsg, 'success')
+    return
+  } catch { /* 走兜底 */ }
+  const ta = document.createElement('textarea')
+  ta.value = t
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try { document.execCommand('copy'); toast(okMsg, 'success') } catch { toast('复制失败：环境不允许，请手动选中复制', 'error') }
+  ta.remove()
+}
+
+async function copyMd(): Promise<void> {
+  await copyText(mdText(), '已复制答卷，可直接贴进 decision-log')
+}
+
+function toggleExtra(k: 'parked' | 'look'): void {
+  extra.value = extra.value === k ? '' : k
+}
+
+/**
+ * 生成出口提示词。两个方向：
+ *   rewrite —— 拿反问去让 agent 重出题（只重写那几题）；
+ *   build   —— 拿答卷去出施工单（有反问时后端会拒，这里如实把话转给用户）。
+ */
+async function openPrompt(kind: 'rewrite' | 'build'): Promise<void> {
+  if (!deck.value || promptBusy.value) return
+  promptBusy.value = true
+  try {
+    const r: any = await api().questionnairePrompt(deck.value.deck, kind)
+    if (!r || r.ok === false) { toast(String(r?.error || '生成失败'), 'error'); return }
+    promptKind.value = kind
+    promptText.value = String(r.text || '')
+    extra.value = 'prompt'
+  } catch (e: any) {
+    toast('生成失败：' + (e?.message || e), 'error')
+  } finally {
+    promptBusy.value = false
   }
+}
+
+async function copyPrompt(): Promise<void> {
+  if (!promptText.value) return
+  await copyText(promptText.value, '已复制提示词 —— 粘给 agent 就行')
 }
 function downloadMd(): void {
   const blob = new Blob([mdText()], { type: 'text/markdown;charset=utf-8' })
@@ -462,6 +607,14 @@ onMounted(() => { void loadList() })
 .ri-s.ans { color: var(--success); }
 .ri-s.rej { color: var(--danger); }
 .ri-s.ask { color: var(--warning); }
+.qn-rail-x {
+  display: flex; align-items: center; gap: 5px; width: 100%; margin-top: 6px;
+  border: 1px dashed var(--border); background: transparent; border-radius: 8px;
+  padding: 6px 8px; font-size: 11px; color: var(--muted); text-align: left;
+}
+.qn-rail-x:hover { background: #fff; color: var(--ink); }
+.qn-rail-x.on { background: #fff; border-style: solid; border-color: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.qn-rail-x .rx-n { margin-left: auto; font-size: 9.5px; font-weight: 400; color: var(--muted); }
 .qn-rail-foot { margin-top: 8px; padding: 8px; font-size: 10.5px; color: var(--muted); line-height: 1.8; border-top: 1px dashed var(--border); }
 
 .qn-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -508,6 +661,26 @@ onMounted(() => { void loadList() })
 .qn-edit textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 12.5px; color: var(--ink); background: #fff; outline: none; resize: vertical; }
 .qe-row { display: flex; gap: 7px; justify-content: flex-end; margin-top: 7px; }
 .qe-row button { font-size: 11.5px; }
+
+/* 额外页（预埋表 / 入口总表 / 提示词）—— 它们不是题，所以不带选项和动作 */
+.qn-extra { padding: 16px 20px; }
+.xe-hd { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.xe-hd b { font-size: 14px; }
+.xe-sub { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+.xe-tb { width: 100%; border-collapse: collapse; font-size: 12px; }
+.xe-tb th {
+  text-align: left; font-weight: 600; font-size: 11px; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding: 5px 8px; background: var(--tint-2);
+}
+.xe-tb td { border-bottom: 1px solid var(--tint-2); padding: 6px 8px; vertical-align: top; line-height: 1.7; }
+.xe-tb .xe-q { font-weight: 600; color: var(--ink); }
+.xe-tb .xe-url { color: var(--accent); word-break: break-all; font-size: 11.5px; }
+.xe-pre {
+  margin: 0; padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--tint-2); font-size: 11.5px; line-height: 1.8; white-space: pre-wrap;
+  word-break: break-word; font-family: ui-monospace, Consolas, monospace; color: var(--ink);
+}
+.qn-ft-note { font-size: 11px; color: var(--muted); }
 
 .qn-meta { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 7px; display: flex; flex-direction: column; gap: 2px; }
 .meta-t { border: 0; background: transparent; text-align: left; color: var(--muted); font-size: 11px; padding: 2px 0; line-height: 1.7; }

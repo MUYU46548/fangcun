@@ -402,6 +402,8 @@ contextBridge.exposeInMainWorld('tegula', {
   questionnaireSaveAnswers: (deck: string, answers: any, approvedAt?: string) =>
     ipcRenderer.invoke('questionnaire:saveAnswers', deck, answers, approvedAt),
   questionnaireApprove: (deck: string) => ipcRenderer.invoke('questionnaire:approve', deck),
+  questionnairePrompt: (deck: string, kind: 'rewrite' | 'build') =>
+    ipcRenderer.invoke('questionnaire:prompt', deck, kind),
   questionnaireOpenDir: () => ipcRenderer.invoke('questionnaire:openDir'),
 
   /** 技能安装专区（2026-09-26 卡 038） */

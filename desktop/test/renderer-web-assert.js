@@ -5398,6 +5398,57 @@
           && $$('#qn-modal .qn-opt').length >= 3,
         'ask=' + (($('#qn-modal .q-ask') || {}).textContent || '').slice(0, 30) + ' opts=' + $$('#qn-modal .qn-opt').length)
 
+      // ── 预埋表 / 入口总表（2026-11-05 补渲染：解析早就有了，界面一直是空的）──────
+      // 这两张表都“不是题”：预埋是等条件的，入口总表是照着眼用的参照物。
+      // 放进题流就会变成两张待答题，那是最难察觉的一种错。
+      check('★★ 左栏有「预埋 N 项」入口（2 项）',
+        $$('#qn-modal .qn-rail-x').some((b) => (b.textContent || '').indexOf('预埋 2') >= 0),
+        $$('#qn-modal .qn-rail-x').map((b) => (b.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '))
+      check('★★ 预埋项**不在题流里**（左栏题数仍是 3，没被塞进第 4 道）',
+        $$('#qn-modal .qn-rail-i').length === 3, String($$('#qn-modal .qn-rail-i').length))
+
+      {
+        const pk = $$('#qn-modal .qn-rail-x').find((b) => (b.textContent || '').indexOf('预埋') >= 0)
+        if (pk) pk.click()
+        await sleep(300)
+        check('★ 点开 → 出预埋表（不是跳到某道题）',
+          !!$('#qn-modal .qn-extra') && !$('#qn-modal .qn-one'))
+        check('★★ 表头用**原卷的写法**（司天写“挂出条件”，墨坊写“缺什么”——不许硬编一种）',
+          $$('#qn-modal .xe-tb th').map((t) => (t.textContent || '').trim()).join('|') === '题|挂出条件|参照物',
+          $$('#qn-modal .xe-tb th').map((t) => (t.textContent || '').trim()).join('|'))
+        check('★ 表里有具体条目与“什么时候能答”',
+          (($('#qn-modal .xe-tb') || {}).textContent || '').indexOf('手感对标') >= 0
+            && (($('#qn-modal .xe-tb') || {}).textContent || '').indexOf('两件亲跑实测后') >= 0)
+        check('★ 表上写明“现在答不了 —— 不是遗漏”（否则会被当成漏做的题）',
+          (($('#qn-modal .xe-hd') || {}).textContent || '').indexOf('不是遗漏') >= 0,
+          (($('#qn-modal .xe-hd') || {}).textContent || '').slice(0, 60))
+        // 底栏此时不许还挂着“跳过/否决/反问” —— 那些是对题的动作，对表没有意义
+        check('★ 看表时底栏换成「返回题目」（没有跳过/否决这些对题动作）', (() => {
+          const ft = $('#qn-modal .qn-ft')
+          return !!ft && (ft.textContent || '').indexOf('返回题目') >= 0
+            && (ft.textContent || '').indexOf('否决') < 0
+        })(), (($('#qn-modal .qn-ft') || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60))
+        const backA = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('返回题目') >= 0)
+        if (backA) backA.click()
+        await sleep(250)
+        check('   收起后回到题目', !$('#qn-modal .qn-extra') && !!$('#qn-modal .q-ask'))
+      }
+
+      {
+        const lk = $$('#qn-modal .qn-rail-x').find((b) => (b.textContent || '').indexOf('入口总表') >= 0)
+        check('★ 左栏有「入口总表」入口（裁决层 A 的链接全在这一张表里）',
+          !!lk, $$('#qn-modal .qn-rail-x').map((b) => (b.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '))
+        if (lk) lk.click()
+        await sleep(300)
+        check('★ 点开能看到参照物与链接（答题时不用懂名词）', (() => {
+          const t = (($('#qn-modal .xe-tb') || {}).textContent || '')
+          return t.indexOf('WorldPainter') >= 0 && t.indexOf('worldpainter.net') >= 0
+        })(), (($('#qn-modal .xe-tb') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 80))
+        const backB = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('返回题目') >= 0)
+        if (backB) backB.click()
+        await sleep(250)
+      }
+
       window.__fcTest.reset()
       $$('#qn-modal .qn-opt')[0].click()
       await sleep(300)
@@ -5460,10 +5511,74 @@
           && /已落库/.test((($('#qn-modal .qn-ok') || {}).textContent || '')), 5000, 'approve'),
         'approve=' + window.__fcTest.callCount('questionnaireApprove') + ' ok=' + (($('#qn-modal .qn-ok') || {}).textContent || ''))
 
+      // ── 出口：反问 → 重出题（2026-11-05：原来反问只记一句话，没人拿它重写题）──
+      {
+        window.__fcTest.reset()
+        const rwBtn = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('打包成重出题') >= 0)
+        check('★★ 有反问时汇总页给的是「打包成重出题」', !!rwBtn,
+          $$('#qn-modal .qn-ft button').map((b) => (b.textContent || '').trim()).join(' | '))
+        check('★★ 同时**不出现**「生成施工单」（问题还没定，这时候出的单必然是错的）',
+          !$$('#qn-modal .qn-ft button').some((b) => (b.textContent || '').indexOf('施工单') >= 0),
+          $$('#qn-modal .qn-ft button').map((b) => (b.textContent || '').trim()).join(' | '))
+        if (rwBtn) rwBtn.click()
+        check('★★ 点它 → 调 questionnairePrompt(deck, rewrite)', await waitFor(
+          () => window.__fcTest.calls().some((c) => c.name === 'questionnairePrompt' && c.args[1] === 'rewrite'),
+          4000, 'prompt rewrite'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnairePrompt').map((c) => c.args)))
+        // ⚠ 调用记录发生在 invoke 那一刻，DOM 是异步回来的 —— 这里必须等面板有内容再判，
+        //   否则量到的是空 <pre>（第一版就是这么假红的）。
+        check('★★ 提示词面板里能看到内容，且写着“只重写…别把整卷重发”', await waitFor(
+          () => /只重写/.test((($('#qn-modal .xe-pre') || {}).textContent || '')), 4000, 'rewrite pre'),
+          (($('#qn-modal .xe-pre') || {}).textContent || '').slice(0, 70).replace(/\n/g, ' / '))
+        check('★ 面板上有「⧉ 复制」（生成完能直接粘走，不用手选）',
+          $$('#qn-modal .qn-ft button, #qn-modal .xe-hd button').some((b) => (b.textContent || '').indexOf('复制') >= 0))
+        const backC = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('返回题目') >= 0)
+        if (backC) backC.click()
+        await sleep(250)
+      }
+
       const closeQn = $$('#qn-modal .qn-ft button, #qn-modal .qn-hd button').find((b) => (b.textContent || '').trim() === '关闭')
       if (closeQn) closeQn.click()
       await sleep(400)
       check('关闭后弹窗消失', !$('#qn-modal'))
+
+      // ── 第二卷：没有反问 → 才轮到「生成施工单」（另一侧的判据，缺了就等于没验）──
+      {
+        const entry2 = $$('#bar button, #views button').find((b) => (b.textContent || '').indexOf('问卷') >= 0)
+        if (entry2) entry2.click()
+        await waitFor(() => !!$('#qn-modal'), 3000, 'qn-modal 第二次')
+        const decks2 = $$('#qn-modal .qn-deck')
+        const mo = decks2.find((d) => (d.textContent || '').indexOf('墨坊') >= 0)
+        check('★ 第二卷在列表里（夹具：1 题、无反问）', !!mo,
+          decks2.map((d) => (d.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 30)).join(' | '))
+        if (mo) mo.click()
+        await waitFor(() => !!$('#qn-modal .qn-one, #qn-modal .qn-all'), 4000, '墨坊 deck')
+        const o2 = $$('#qn-modal .qn-opt')[0]
+        if (o2) o2.click()
+        await sleep(300)
+        const nx2 = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('看结果') >= 0
+          || (b.textContent || '').indexOf('下一题') >= 0)
+        if (nx2) nx2.click()
+        await sleep(400)
+        window.__fcTest.reset()
+        const bdBtn = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('生成施工单') >= 0)
+        check('★★ 没有反问时给的是「生成施工单提示词」（有反问时不许给 —— 两边都钉住）',
+          !!bdBtn, $$('#qn-modal .qn-ft button').map((b) => (b.textContent || '').trim()).join(' | '))
+        if (bdBtn) bdBtn.click()
+        check('★★ 点它 → 调 questionnairePrompt(deck, build) 并出施工单', await waitFor(
+          () => window.__fcTest.calls().some((c) => c.name === 'questionnairePrompt' && c.args[1] === 'build')
+            && /已定的/.test((($('#qn-modal .xe-pre') || {}).textContent || '')), 4000, 'prompt build'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnairePrompt').map((c) => c.args)))
+        check('★★ 施工单里带**验收线**（问卷里那句“不带形态标签的稿子一律打回”必须跟过来）',
+          /验收线/.test((($('#qn-modal .xe-pre') || {}).textContent || '')),
+          (($('#qn-modal .xe-pre') || {}).textContent || '').slice(0, 90).replace(/\n/g, ' / '))
+        const backD = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('返回题目') >= 0)
+        if (backD) backD.click()
+        await sleep(200)
+        const closeQn2 = $$('#qn-modal .qn-ft button, #qn-modal .qn-hd button').find((b) => (b.textContent || '').trim() === '关闭')
+        if (closeQn2) closeQn2.click()
+        await sleep(300)
+      }
     }
 
     // ══ 技能页 · 多目标装机状态（2026-10-03 卡 010/011）══════════════════

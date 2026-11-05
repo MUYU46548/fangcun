@@ -75,6 +75,12 @@ export interface QDeck {
   lookTable: QLookRow[]
   /** 「裁决层预埋」——不现在答的那些题 */
   parked: QParked[]
+  /**
+   * 预埋表的表头（原样保留）。
+   * 为什么留：司天写「题 | 挂出条件 | 参照物」，墨坊写「题 | 缺什么 | 什么时候能答」——
+   * 同一个位置三种说法。界面若硬编一种，另一份就变成错标题（“缺什么：两件亲跑实测后”读不通）。
+   */
+  parkedHead: string[]
   error?: string
 }
 
@@ -105,7 +111,7 @@ export function parseQuestionnaire(md: string): QDeck {
   const text = String(md || '').replace(/\r\n/g, '\n')
   const deck: QDeck = {
     title: '', layer: '', boundary: '',
-    questions: [], lookTable: [], parked: [],
+    questions: [], lookTable: [], parked: [], parkedHead: [],
   }
   if (!text.trim()) return { ...deck, error: '文件是空的' }
 
@@ -179,7 +185,7 @@ export function parseQuestionnaire(md: string): QDeck {
         continue
       }
       if (inParked) {
-        if (/^题/.test(cells[0] || '')) { parkedHeader = cells; continue }
+        if (/^题/.test(cells[0] || '')) { parkedHeader = cells; deck.parkedHead = cells; continue }
         if (cells.length >= 2) deck.parked.push({ q: cells[0] || '', need: cells[1] || '', when: cells[2] || '' })
         continue
       }

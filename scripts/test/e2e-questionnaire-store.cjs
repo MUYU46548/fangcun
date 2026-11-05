@@ -130,6 +130,78 @@ check('★★ 全部产物只在 task-data 内（不往任何项目 repo 写 —
 check('★ 问卷原文件没被改动（方寸只读它）',
   fs.readFileSync(path.join(DATA, 'task-data', 'questionnaires', '司天-宪法层.md'), 'utf-8') === src)
 
+console.log('\n== ⑤ 验收线必须跟出来（2026-11-05 暮雨：别只躺在问卷里）==')
+// 只写在问卷里的后果很具体：下次 agent 动工不知道“这条线在哪儿”，
+// 而【验收线】正是事后校验的唯一依据（“跨形态派单的任务卡一律打回”这种话）。
+{
+  const q1 = g.parsed.questions.find((x) => x.id === 'S1')
+  check('  前置：S1 原文里确实有【验收线】（不是空）', !!(q1 && q1.line), q1 && q1.line)
+  check('★★ 导出里每题下面跟出「验收线：」（原来只有“选了什么”）',
+    /- \*\*S1\*\*[\s\S]{0,200}?验收线：/.test(exp) && exp.indexOf('验收线：') > 0,
+    exp.split('\n').filter((l) => l.indexOf('验收线') >= 0).slice(0, 2).join(' / '))
+  check('★★ 末尾单列一份「验收线」清单（方便整段搬进相关卡的验收段）',
+    /## 验收线/.test(exp) && /- \*\*S1\*\*：/.test(exp),
+    exp.slice(-160).replace(/\n/g, ' / '))
+  const d1 = decisionsNow.find((d) => /问卷 司天-宪法层 · S1/.test(d.出处 || ''))
+  check('★★ 决策卡的备注里也带着验收线（三个月后翻卡片还看得见那条线）',
+    !!d1 && /验收线：/.test(String(d1.备注 || '')), d1 && d1.备注)
+  // 反例：没写验收线的题必须显式写“未给”，不能悄悄留空。
+  // ⚠ 真样本每道题都写了验收线 —— 只拿它测，这条分支**永远走不到**。
+  //   所以自己造一份没写【验收线】的卷，直接喂给导出的纯函数。
+  const { parseQuestionnaire } = require(path.join(DIST, 'shared', 'questionnaire.js'))
+  const fake = parseQuestionnaire([
+    '# 反例卷', '',
+    '## X1 没有验收线的题', '题干一句话',
+    '- **A. 甲**——说明甲', '- **B. 乙**——说明乙', '',
+  ].join('\n'))
+  const fakeTxt = store.buildDecisionLog(fake, { X1: { kind: 'pick', k: 'A' } }, '反例卷', '2026-11-05')
+  check('★★ 反例：没有验收线的题，导出显式写“未给”（不留白让人以为是漏了）',
+    /验收线：未给/.test(fakeTxt), fakeTxt.split('\n').filter((l) => l.indexOf('验收线') >= 0).join(' / '))
+  check('  同一份反例里也不该冒出“## 验收线”汇总段（没有一条验收线就别立空标题）',
+    !/## 验收线/.test(fakeTxt), fakeTxt.slice(-80).replace(/\n/g, ' / '))
+}
+
+console.log('\n== ⑥ 出口提示词（反问 → 重出题；无反问才许出施工单）==')
+{
+  const build1 = store.buildPromptForDeck('司天-宪法层', 'build')
+  check('★★ 还有反问时 **拒绝**出施工单（问题没定就出单，出的必然是错的）',
+    build1.ok === false && /反问/.test(build1.error || ''), build1.error)
+  check('★ 拒绝时把“有几道”说清（不是一句“不行”）', Number(build1.askbacks) === 1, JSON.stringify(build1.askbacks))
+
+  const rw = store.buildPromptForDeck('司天-宪法层', 'rewrite')
+  check('★★ 有反问 → 重出题提示词生成成功', rw.ok === true && !!rw.text, rw.error)
+  check('★★ 提示词里带**反问原话**（否则 agent 不知道哪儿问错了）',
+    !!rw.text && rw.text.indexOf('地图最终给谁看') >= 0, (rw.text || '').slice(0, 80))
+  check('★★ 明说“只重写这几道，别把整卷重发”（否则白重答 6 题）',
+    !!rw.text && /只重写/.test(rw.text) && /别把整卷重发|不要重发整卷/.test(rw.text))
+  check('★ 带上原卷路径（让 agent 去读原卷，而不是靠摘要猜）',
+    !!rw.text && /task-data[\\/]questionnaires/.test(rw.text))
+  check('★ 带上格式模板（方寸要能解析下一卷，否则又白问一轮）',
+    !!rw.text && /\*\*A\. /.test(rw.text) && /## S1 题名/.test(rw.text))
+  check('★ 带上【验收线】要求（没这条的题不许出）',
+    !!rw.text && /验收线/.test(rw.text) && /不许出/.test(rw.text))
+
+  // 把反问改成打勾 → 现在才允许出施工单
+  store.writeAnswers('司天-宪法层', {
+    answers: {
+      S1: { kind: 'pick', k: 'A' },
+      S2: { kind: 'skip' },
+      S3: { kind: 'pick', k: 'B' },
+    },
+  })
+  const rw2 = store.buildPromptForDeck('司天-宪法层', 'rewrite')
+  check('★★ 反例：没有反问时 → 重出题被拒（不许编一段空提示词）',
+    rw2.ok === false && /没有反问/.test(rw2.error || ''), rw2.error)
+
+  const build2 = store.buildPromptForDeck('司天-宪法层', 'build')
+  check('★★ 反问清零 → 施工单提示词生成成功', build2.ok === true && !!build2.text, build2.error)
+  check('★ 施工单里带“已定”的选择与验收线（照这个做，不要再问一遍）',
+    !!build2.text && /已定/.test(build2.text) && /验收线/.test(build2.text))
+  check('★★ 没答的题单列成“不许自己拍”（否则 agent 会替他决定跳过的那几题）',
+    !!build2.text && /不许自己拍/.test(build2.text) && /S2/.test(build2.text),
+    (build2.text || '').split('\n').filter((l) => l.indexOf('S2') >= 0).join(' / ').slice(0, 120))
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); for (const f of failures) console.log('  · ' + f) }
 console.log(`RESULT ${pass} / ${fail}`)
