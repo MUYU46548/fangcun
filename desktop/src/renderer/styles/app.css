@@ -3916,6 +3916,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .skills-header h3 { font-size: 16px; font-weight: 700; }
 .skills-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 260px; }
 /* 维护机制说明（2026-10-03）：单独占一行、比普通 hint 稍亮，因为它是"我该怎么维护"的答案 */
+/* 问卷入口（2026-11-05）：和 ⌂ / ? 同一组，所以字体跟随 .nav；角标只在有待答时出现 */
+.qn-entry { font-size: 12px; font-weight: 600; }
+.qn-entry .qn-badge {
+  display: inline-block; margin-left: 4px; min-width: 15px; height: 15px; line-height: 15px;
+  padding: 0 4px; border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 9.5px; font-weight: 700; text-align: center; vertical-align: 1px;
+}
+
 .skills-hint.skills-maint { flex-basis: 100%; font-size: 12px; line-height: 1.6; }
 .skills-hint.skills-maint b { color: var(--ink); }
 /* 自动同步实况（2026-11-05）：一面"它到底跑没跑"的镜子。

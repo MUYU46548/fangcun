@@ -1180,6 +1180,77 @@ contextBridge.exposeInMainWorld('tegula', {
     })
   },
   skillsInstall: () => { rec('skillsInstall'); return ok({ installed: ['fangcun-bridge'], skipped: [], errors: [] }) },
+  // ── 问卷（2026-11-05）：吃 agent 写的 md，弹窗里答，批准后落决策卡 ──
+  questionnaireList: () => {
+    rec('questionnaireList')
+    return {
+      ok: true,
+      dir: 'C:/mock/task-data/questionnaires',
+      decks: [
+        { deck: '司天-宪法层', title: '司天问卷·宪法层（2026-11-04）', layer: '宪法层', total: 3, answered: 0, approved: false },
+        { deck: '墨坊-宪法层', title: '墨坊问卷·宪法层（2026-11-04）', layer: '宪法层', total: 2, answered: 2, approved: true },
+      ],
+    }
+  },
+  questionnaireGet: (deck) => {
+    rec('questionnaireGet', [deck])
+    if (!store.qnApproved) store.qnApproved = {}
+    const approvedAt = store.qnApproved[deck] || ''
+    return {
+      ok: true,
+      deck,
+      path: 'C:/mock/task-data/questionnaires/' + deck + '.md',
+      approvedAt,
+      answers: JSON.parse(JSON.stringify(store.qnAnswers || {})),
+      parsed: {
+        title: '司天问卷·宪法层（2026-11-04）',
+        layer: '宪法层',
+        boundary: '给暮雨答（打勾/否决/改一句）；答案落 decision-log',
+        lookTable: [],
+        parked: [],
+        questions: [
+          {
+            id: 'S1', nav: '最终形态', ask: '司天做一件还是两件？',
+            options: [
+              { k: 'A', t: '生成器 + 编辑器分两件', d: '抄业界主流（Gaea 生成 → WorldPainter 编辑）' },
+              { k: 'B', t: '一体化单件', d: '抄易制地图形态，每样都得自己写' },
+              { k: 'C', t: '只做编辑器', d: '生成外包给现成件' },
+            ],
+            src: '四问总表§一', line: '凡跨形态派单的司天任务卡一律打回',
+            look: 'WorldPainter — 桌面手绘；易制地图 — 网页涂色', prefilled: false, prefilledNote: '',
+          },
+          {
+            id: 'S3', nav: '验收方式', ask: '每轮产出怎么验收？',
+            options: [
+              { k: 'A', t: '你亲眼看', d: '每轮附“看什么”清单' },
+              { k: 'B', t: '像素基线自动比对', d: '机器先过一遍' },
+            ],
+            src: '11-03 施工单事故结论④', line: '无“看什么”清单即不合格',
+            look: '', prefilled: false, prefilledNote: '',
+          },
+          {
+            id: 'S5', nav: '平台（已答过）', ask: '平台按 Windows 11 桌面本地，对吗？',
+            options: [], src: '10-16 原话', line: '环境段统一 Win11',
+            look: '', prefilled: true, prefilledNote: '这题答过 —— 沿用就打勾，变则改一句',
+          },
+        ],
+      },
+    }
+  },
+  questionnaireSaveAnswers: (deck, answers) => {
+    rec('questionnaireSaveAnswers', [deck, answers])
+    cloneGuard('questionnaireSaveAnswers', [deck, answers])
+    store.qnAnswers = JSON.parse(JSON.stringify(answers || {}))
+    return { ok: true }
+  },
+  questionnaireApprove: (deck) => {
+    rec('questionnaireApprove', [deck])
+    if (!store.qnApproved) store.qnApproved = {}
+    store.qnApproved[deck] = new Date().toISOString()
+    return { ok: true, cards: 1, existed: 0, exportPath: 'C:/mock/task-data/questionnaires/' + deck + '.decision-log.md', text: '# 答卷\n' }
+  },
+  questionnaireOpenDir: () => { rec('questionnaireOpenDir'); return { ok: true, dir: 'C:/mock/task-data/questionnaires' } },
+
   skillsList: () => {
     rec('skillsList')
     const dir = 'C:/mock/skills'

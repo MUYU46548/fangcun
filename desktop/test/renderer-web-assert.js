@@ -5368,6 +5368,104 @@
       await sleep(200)
     }
 
+    // ══ 问卷（2026-11-05 · 暮雨“我设想的就是问卷弹窗”）════════════════════════
+    // 判据四件：① 顶栏有入口且带待答角标；② 点开列卷；③ 点一卷能答题、点选项**存草稿**；
+    //          ④ 答完点「批准并落库」才真调 approve（草稿阶段绝不落库）。
+    {
+      const entry = $$('#bar button, #views button').find((b) => (b.textContent || '').indexOf('问卷') >= 0)
+      check('★★ 顶栏有「问卷」入口（否则这套东西等于不存在）', !!entry,
+        $$('#bar button, #views button').map((b) => (b.textContent || '').trim()).slice(0, 12).join('|'))
+      check('★ 有待答的卷时带角标（没答的才计数）',
+        !!entry && !!entry.querySelector('.qn-badge'),
+        entry ? (entry.textContent || '').trim() : '')
+
+      window.__fcTest.reset()
+      if (entry) entry.click()
+      check('★★ 点开是问卷弹窗（不是跳某个页签）',
+        await waitFor(() => !!$('#qn-modal'), 3000, 'qn-modal'))
+      const deckRows = $$('#qn-modal .qn-deck')
+      check('★ 列出 2 卷（夹具：一卷没批、一卷已批）', deckRows.length === 2, String(deckRows.length))
+      check('★ 已批准的那卷标着「已批准」',
+        $$('#qn-modal .qd-badge').some((b) => (b.textContent || '').indexOf('已批准') >= 0),
+        $$('#qn-modal .qd-badge').map((b) => (b.textContent || '').trim()).join('|'))
+
+      deckRows[0].click()
+      check('★★ 点一卷 → 真调 questionnaireGet 并渲染题目',
+        await waitFor(() => window.__fcTest.callCount('questionnaireGet') > 0 && !!$('#qn-modal .qn-one, #qn-modal .qn-all'), 4000, 'deck'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnaireGet').map((c) => c.args)))
+      check('★ 题干与选项都渲染出来（不是只有题号）',
+        (($('#qn-modal .q-ask') || {}).textContent || '').indexOf('一件还是两件') >= 0
+          && $$('#qn-modal .qn-opt').length >= 3,
+        'ask=' + (($('#qn-modal .q-ask') || {}).textContent || '').slice(0, 30) + ' opts=' + $$('#qn-modal .qn-opt').length)
+
+      window.__fcTest.reset()
+      $$('#qn-modal .qn-opt')[0].click()
+      await sleep(300)
+      check('★★ 点选项 → 存的是**草稿**（调 saveAnswers，不是 approve）',
+        await waitFor(() => window.__fcTest.callCount('questionnaireSaveAnswers') > 0, 3000, 'saveAnswers'),
+        JSON.stringify(window.__fcTest.calls().map((c) => c.name).filter((n) => /questionnaire/.test(n))) + ' approve=' + window.__fcTest.callCount('questionnaireApprove'))
+      check('★★ 草稿阶段绝不落库（approve 一次都没调过）', window.__fcTest.callCount('questionnaireApprove') === 0)
+      check('★ 选项选中态出现', !!$('#qn-modal .qn-opt.on'))
+      check('★ 有「撤销这次操作」出口', (() => {
+        const st = $('#qn-modal .qn-state')
+        return !!st && !!st.querySelector('.undo')
+      })())
+
+      // 反问：这题问错了的出口
+      const askBtn = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('反问') >= 0)
+      check('★★ 有「❗ 反问」动作（用户最看重的那条）', !!askBtn)
+      if (askBtn) askBtn.click()
+      await sleep(250)
+      check('★ 点反问 → 出输入框，并写明会回给 agent 重写',
+        !!$('#qn-modal .qn-edit.ask')
+          && /重写这一题|回给 agent/.test((($('#qn-modal .qe-hint') || {}).textContent || '')),
+        (($('#qn-modal .qe-hint') || {}).textContent || '').slice(0, 50))
+
+      // 答完 → 汇总 → 批准
+      const ta = $('#qn-modal .qn-edit textarea')
+      if (ta) {
+        ta.value = '这题问错了：真正该问的是地图给谁看'
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        $$('#qn-modal .qn-edit button').find((b) => (b.textContent || '').trim() === '确定').click()
+      }
+      await sleep(300)
+      // 一路「下一题」到汇总：S1 已反问、S3 选 A、S5 是预填零选项题 → 跳过
+      for (let i = 0; i < 6; i++) {
+        if ($('#qn-modal .qn-one')) {
+          const nx = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('下一题') >= 0
+            || (b.textContent || '').indexOf('看结果') >= 0)
+          if (!nx) break
+          if (!$$('#qn-modal .qn-opt.on').length && !$('#qn-modal .qn-state')) {
+            const sk = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').trim() === '跳过')
+            if (sk) sk.click()
+            await sleep(250)
+            continue
+          }
+          nx.click()
+          await sleep(250)
+        } else break
+      }
+      check('★ 走到汇总态（底部换成就绪批准）', await waitFor(() => {
+        const ft = $('#qn-modal .qn-ft')
+        return !!ft && (ft.textContent || '').indexOf('批准并落库') >= 0
+      }, 4000, '批准按钮'))
+      const apprBtn = $$('#qn-modal .qn-ft button').find((b) => (b.textContent || '').indexOf('批准并落库') >= 0)
+      check('★★ 汇总态才出现「批准并落库」（草稿阶段没有它）', !!apprBtn)
+      check('★ 汇总态明说“没批准就关掉 = 什么都没发生”',
+        (($('#qn-modal .qn-hint') || {}).textContent || '').indexOf('没批准') >= 0,
+        (($('#qn-modal .qn-hint') || {}).textContent || '').slice(0, 40))
+      if (apprBtn) apprBtn.click()
+      check('★★ 点批准 → 真调 questionnaireApprove 并显示“已落库”',
+        await waitFor(() => window.__fcTest.callCount('questionnaireApprove') > 0
+          && /已落库/.test((($('#qn-modal .qn-ok') || {}).textContent || '')), 5000, 'approve'),
+        'approve=' + window.__fcTest.callCount('questionnaireApprove') + ' ok=' + (($('#qn-modal .qn-ok') || {}).textContent || ''))
+
+      const closeQn = $$('#qn-modal .qn-ft button, #qn-modal .qn-hd button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (closeQn) closeQn.click()
+      await sleep(400)
+      check('关闭后弹窗消失', !$('#qn-modal'))
+    }
+
     // ══ 技能页 · 多目标装机状态（2026-10-03 卡 010/011）══════════════════
     //   用户原话：“DSH 在上一轮已经完成安装，但方寸**检测不到** DSH 安装了”——
     //   装卡区此前连 DSH 这一行都没有。这里把它钉在**真渲染出来的 DOM** 上。

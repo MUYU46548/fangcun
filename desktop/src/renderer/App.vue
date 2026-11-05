@@ -66,6 +66,10 @@
           @click="goHome">⌂</button>
         <button class="ghost nav ico" :title="'帮助手册：每个页签干什么、筛选语法、快捷键、备份恢复'"
           @click="goHelp">?</button>
+        <!-- 问卷（2026-11-05）：暮雨“问卷从哪进” —— 放在导航组里，和 ⌂ / ? 同级。
+             有没批准的卷就带角标，否则和平常按钮一样（不制造存在感焦虑）。 -->
+        <button class="ghost nav qn-entry" :title="'问卷：agent 写好的问卷在这里答（点选 / 否决 / 反问），批准后才落决策卡'"
+          @click="qnOpen = true">问卷<span v-if="qnPending" class="qn-badge">{{ qnPending }}</span></button>
         <!-- 2026-10-16 用户第 9 条：“同步的时候整个方块都在旋转”——
              真因是动画加在 button 本身（.ico.syncing），边框与底色跟着一起转。
              现在 ⟳ 单独包一层 span，只有**字符**转，按钮本体不动。 -->
@@ -680,6 +684,9 @@
         @approve="approveArch" @reject="rejectArch" @generate="generateSelfArch" />
     </div>
 
+    <QuestionnaireModal v-if="qnOpen" @close="qnOpen = false; refreshQnPending()"
+      @toast="(m, k) => showToast(m, k === 'error' ? 'error' : k === 'success' ? 'success' : 'info')" />
+
     <SMapModal :ctl="smapCtl" />
 
     <LogEditModal v-if="logEdit_" :ctl="logEditCtl" />
@@ -851,6 +858,7 @@ import SMapModal from './components/SMapModal.vue'
 import ProjectNewModal from './components/ProjectNewModal.vue'
 import AiPlanModal from './components/AiPlanModal.vue'
 import AiDocModal from './components/AiDocModal.vue'
+import QuestionnaireModal from './components/QuestionnaireModal.vue'
 import PlansModal from './components/PlansModal.vue'
 import AppEditModal from './components/AppEditModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -5577,6 +5585,16 @@ async function openProjectDiagram(p: any): Promise<void> {
 // 图模型来自主进程只读扫描（services/projectArch.ts）；这里负责开面板、校验展示、
 // 逐块剔除、驳回重画与导出。**没点“通过”不许导出**（导出通道也会再核一遍校验）。
 const archOpen = ref(false)
+/** 问卷弹窗（2026-11-05）：组件自包含，App 只管开关与“有没有待答”的角标 */
+const qnOpen = ref(false)
+const qnPending = ref(0)
+async function refreshQnPending(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.questionnaireList()
+    const list = Array.isArray(r?.decks) ? r.decks : []
+    qnPending.value = list.filter((d: any) => !d.approved && d.total > 0).length
+  } catch { qnPending.value = 0 }
+}
 const archBusy = ref(false)
 /**
  * 生成已耗时（秒）—— 只报**真数字**，不编百分比（模型不回传进度，编一个就是假成功）。
@@ -7514,6 +7532,8 @@ provide('fc-settings', {
 })
 
 onMounted(() => {
+  // 问卷角标（2026-11-05）：启动时问一次“有没有没批准的卷”，有就在顶栏按钮上挂个数字
+  void refreshQnPending()
   // 测试专用（假 preload 才有 __fcTest）：清空撤销栈。多级栈之后，
   // “撤一步 → 条子消失”不再天然成立，e2e 需要一个"从零开始"的按钮。
   const fcTest = (window as any).__fcTest
