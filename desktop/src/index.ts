@@ -16,6 +16,7 @@ import { startScheduler } from './main/backup/scheduler'
 import { startScanner, stopScanner } from './main/services/notifier'
 import { startIdleReminder, stopIdleReminder } from './main/services/idleReminder'
 import { syncSelfRepoOnBoot } from './main/services/selfSync'
+import { autoCheckSkills } from './main/services/skillInstaller'
 import * as appLog from './main/services/appLog'
 
 // ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
@@ -75,6 +76,35 @@ let isQuitting = false
 /** 渲染进程崩过一次就自动重载一次（2026-10-30 白屏事故的兜底） */
 let rendererRecovered = false
 
+/**
+ * 技能自动同步的补跑节流（2026-11-05 暮雨：“更新后无法自动更新技能？”）。
+ *
+ * 为什么需要补跑：自动同步原先只在 `registerIpcHandlers()`（= 建窗）里跑**一次**。
+ * 而方寸是常驻托盘、关窗≠退出；升级安装包后旧进程还活着，新实例被单实例锁顶掉
+ * 直接 `app.quit()` —— **新代码从来没机会跑那句 autoCheckSkills**，用户看到的
+ * 就是"升级了但技能还是旧的"。
+ * 两个补跑点：① 再点一次图标（second-instance）② 窗口重新显示（show）。
+ * 节流 5 分钟：读两份 SKILL.md 算 md5 很便宜，但没必要每次切窗口都写一次状态文件。
+ */
+const SKILL_SYNC_MIN_MS = 5 * 60_000
+let skillSyncedAt = Date.now()
+
+function syncSkillsSoon(trigger: string): void {
+  const now = Date.now()
+  if (now - skillSyncedAt < SKILL_SYNC_MIN_MS) return
+  skillSyncedAt = now
+  try {
+    const s = autoCheckSkills(trigger)
+    // autoCheckSkills 自己会逐目标记账；这里只留一行"这次是谁触发的、结果如何"
+    appLog.info('skills', `补跑自动同步（${trigger}）：${s.ok ? '全部成功' : '有失败'}`, {
+      skills: s.skills,
+      targets: s.targets.map((t) => ({ id: t.id, present: t.present, installed: t.installed.length, errors: t.errors.length })),
+    })
+  } catch (e: any) {
+    appLog.warn('skills', `补跑自动同步失败（${trigger}）`, e?.message || String(e))
+  }
+}
+
 // ── 单实例锁（2026-09-25，用户第 11 条）──────────────────────────────────
 // 用户双击桌面快捷方式时，若方寸已在运行，第二个实例会把现有窗口提到前台
 // 而不是打开一个空壳。
@@ -98,6 +128,9 @@ if (!gotLock) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
+    // 2026-11-05：升级安装包后再点一次图标时，**旧进程**会收到这个事件 ——
+    // 那一刻它的 resources 目录已被新安装包覆盖，补跑一次就同步到位（见 syncSkillsSoon）。
+    syncSkillsSoon('second-instance')
   })
 }
 
@@ -316,6 +349,10 @@ function createWindow(): void {
     if (!items.length) return
     try { Menu.buildFromTemplate(items).popup({ window: mainWindow || undefined }) } catch { /* 弹不出菜单不该影响主流程 */ }
   })
+
+  // 窗口重新显示时补跑一次技能同步（2026-11-05）—— 用户从托盘点开、切回方寸，
+  // 都是"我现在要用它了"的时刻；这时候顺手对一次版比任何定时器都自然。
+  mainWindow.on('show', () => syncSkillsSoon('show'))
 
   mainWindow.on('close', (event) => {
     if (!isQuitting) {

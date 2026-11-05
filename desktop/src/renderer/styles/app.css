@@ -3918,6 +3918,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 维护机制说明（2026-10-03）：单独占一行、比普通 hint 稍亮，因为它是"我该怎么维护"的答案 */
 .skills-hint.skills-maint { flex-basis: 100%; font-size: 12px; line-height: 1.6; }
 .skills-hint.skills-maint b { color: var(--ink); }
+/* 自动同步实况（2026-11-05）：一面"它到底跑没跑"的镜子。
+   stale（版本对不上）时整条换成警示底色 —— 这一条存在的意义就是不能和"成功"长得一样。 */
+.skills-sync {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: -4px 0 14px; padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--tint);
+  font-size: 11.5px; line-height: 1.6; color: var(--muted);
+}
+.skills-sync .ss-ico { flex: none; font-weight: 700; color: var(--success); }
+.skills-sync .ss-text { flex: 1 1 320px; min-width: 0; }
+.skills-sync .ss-text b { color: var(--ink); }
+.skills-sync.stale { border-color: var(--warning); background: var(--tint-2); color: var(--ink); }
+.skills-sync.stale .ss-ico { color: var(--warning); }
 .skills-btn {
   font-family: inherit; font-size: 12.5px; cursor: pointer;
   padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);

@@ -224,6 +224,26 @@ const store = {
       说明: '演示用项目——说明条转正断言靠这条（批次第 2 项）' },
     { id: 'demo2', name: '第二个项目' },
   ],
+  // 技能自动同步的留痕（2026-11-05）：默认"刚跑过、与当前版本一致"。
+  // 断言要换形态就 `__fcTest.setSkillSync({ stale: true, ... })`。
+  skillSync: {
+    ok: true,
+    currentVersion: '0.6.3',
+    stale: false,
+    staleReason: '',
+    skills: ['fangcun-bridge', 'skill-management-policy'],
+    status: {
+      at: '2026-11-05T01:20:00.000Z',
+      appVersion: '0.6.3',
+      trigger: 'boot',
+      ok: true,
+      skills: ['fangcun-bridge', 'skill-management-policy'],
+      targets: [
+        { id: 'hermes', name: 'Hermes', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge', 'skill-management-policy'], errors: [] },
+        { id: 'dsh', name: 'DSH', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge', 'skill-management-policy'], errors: [] },
+      ],
+    },
+  },
   // 归档区：故意放一条与活跃任务**同 id** 的副本（历史遗留/手工拷贝真会出现），
   // “含归档”勾选后板子必须去重，不能把同一张卡显示两遍。
   archived: [
@@ -1196,6 +1216,27 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   skillsOpenDir: (which) => { rec('skillsOpenDir', [which]); return ok({ dir: which === 'hermes' ? 'C:/mock/hermes/skills' : 'C:/mock/skills' }) },
 
+  // ── 技能自动同步的留痕（2026-11-05 暮雨：“更新后无法自动更新技能吗？”）──
+  // 默认“已同步且与当前版本一致”。断言用 `__fcTest.setSkillSync({ stale: true, ... })`
+  // 换成“升级后没同步”的形态，再看技能页有没有说真话 —— 这条正是它存在的全部意义：
+  // 以前"没同步"和"同步成功"在界面上长得一模一样。
+  skillsSyncStatus: () => { rec('skillsSyncStatus'); return ok(store.skillSync) },
+  skillsSyncNow: () => {
+    rec('skillsSyncNow')
+    const nowVersion = store.skillSync.currentVersion
+    store.skillSync = {
+      ...store.skillSync,
+      stale: false,
+      staleReason: '',
+      status: {
+        at: new Date().toISOString(), appVersion: nowVersion, trigger: 'manual', ok: true,
+        skills: store.skillSync.skills,
+        targets: store.skillSync.status.targets.map((t) => ({ ...t, needsInstall: false, installed: ['fangcun-bridge'], errors: [] })),
+      },
+    }
+    return ok({ ...store.skillSync, lastRun: store.skillSync.status })
+  },
+
   // ── 技能直接导入（2026-09-26 卡 005）──────────────────────────────
   skillsImported: () => { rec('skillsImported'); return ok({ items: store.imported.slice() }) },
   skillsImportPick: (kind) => {
@@ -2030,6 +2071,13 @@ contextBridge.exposeInMainWorld('__fcTest', {
   callCount: (name) => store.calls.filter(c => c.name === name).length,
   // 作战计划夹具复位（2026-11-03）：裁决会改 PLAN_DOCS，后面的每日推进面断言要靠它
   // 恢复“P0 已冻结 / P1 待裁决”的原始形态，否则“另有 N 张待裁决”会被前面的点击吃掉。
+  // 技能自动同步留痕（2026-11-05）：断言换形态用它 —— 默认"刚跑过、版本一致"，
+  // 要验“升级后没同步”就 setSkillSync({ stale: true, staleReason: '...' })。
+  setSkillSync: (patch) => {
+    store.skillSync = Object.assign({}, store.skillSync, patch || {})
+    rec('setSkillSync')
+    return JSON.parse(JSON.stringify(store.skillSync))
+  },
   resetPlanDocs: () => {
     const p0 = PLAN_DOCS[0].stages.find(s => s.id === 'P0')
     if (p0) { p0.status = '已冻结'; p0.verdict = '通过 · 2026-10-29'; p0.rejectReason = '' }

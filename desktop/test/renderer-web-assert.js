@@ -5472,6 +5472,47 @@
 
     await sleep(300)
 
+    // ══ 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？完全断链吗？”）══════
+    // 这一块存在的理由就是"不能和成功长得一样"：方寸常驻托盘，升级后旧进程不退，
+    // 新实例被单实例锁顶掉 → 自动同步压根没跑，而界面上一句静态承诺看不出任何破绽。
+    {
+      const syncRow = $('.skills-view .skills-sync')
+      check('★★ 技能页有“自动同步实况”（此前只有一句静态承诺，跑没跑看不出来）', !!syncRow,
+        syncRow ? (syncRow.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '没有 .skills-sync')
+      const syncTxt = (syncRow ? syncRow.textContent : '') || ''
+      check('★ 正常态写清时间 + 当前版本 + 技能清单（清单来自 manifest，不是写死的两个）',
+        /自动同步/.test(syncTxt) && /0\.6\.3/.test(syncTxt) && /fangcun-bridge/.test(syncTxt),
+        syncTxt.replace(/\s+/g, ' ').slice(0, 140))
+      check('   正常态**不带** stale 样式（不许平白吓人）',
+        !!syncRow && syncRow.className.indexOf('stale') < 0, syncRow ? syncRow.className : '')
+
+      // 换成"升级后没同步"的形态 —— 这是用户报的那个现场
+      window.__fcTest.setSkillSync({
+        stale: true,
+        staleReason: '上次同步是在 0.6.2 跑的，现在是 0.6.3 —— 升级后的技能还没同步过去',
+      })
+      await openViewTab('待办'); await sleep(250)
+      await openViewTab('技能'); await sleep(500)
+      const staleRow = $('.skills-view .skills-sync')
+      const staleTxt = (staleRow ? staleRow.textContent : '') || ''
+      check('★★ 升级后没同步 → 这一条变警示，且两个版本号都写出来（不许和成功长得一样）',
+        !!staleRow && staleRow.className.indexOf('stale') >= 0
+          && /0\.6\.2/.test(staleTxt) && /0\.6\.3/.test(staleTxt),
+        staleRow ? staleRow.className + ' :: ' + staleTxt.replace(/\s+/g, ' ').slice(0, 140) : '没有 .skills-sync')
+      check('   反例自证：换形态之前它确实没有 stale 样式（所以变警示是读出来的，不是恒真）',
+        !!syncRow && syncRow.className.indexOf('stale') < 0)
+
+      const syncBtn = $$('.skills-view .skills-sync button').find((b) => (b.textContent || '').indexOf('同步') >= 0)
+      check('★ 有“现在同步”出口（升级后不用重启、不用退托盘）', !!syncBtn,
+        $$('.skills-view .skills-sync button').map((b) => (b.textContent || '').trim()).join('|'))
+      if (syncBtn) syncBtn.click()
+      check('★★ 点“现在同步”真调 skillsSyncNow（不是只改本地状态）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'skillsSyncNow'), 5000, 'skillsSyncNow'),
+        'skill* calls=' + JSON.stringify(window.__fcTest.calls().map((c) => c.name).filter((n) => /skill/i.test(n))))
+      // 复位夹具，别影响后面的用例
+      window.__fcTest.setSkillSync({ stale: false, staleReason: '' })
+    }
+
     // ══ 设置页 · 侧边栏分类（2026-10-03 用户：设置项不要挤在一条长名单里）══════
     // 2026-10-12“看与做分两层”后，设置图标从 #bar 搬到了页签行右端 ——
     // 判据改成**全页找**（不绑定容器）：这条守的是“有设置入口”，不是“它在哪个容器里”。

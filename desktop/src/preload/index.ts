@@ -398,6 +398,10 @@ contextBridge.exposeInMainWorld('tegula', {
   skillsInstallTo: (targetId: string) => ipcRenderer.invoke('skills:installTo', targetId),
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),
+  /** 上次自动同步的留痕 + 它还算不算数（2026-11-05）：升级后旧进程没退 = 同步没跑，界面要能看出来 */
+  skillsSyncStatus: () => ipcRenderer.invoke('skills:syncStatus'),
+  /** 现在补同步一次（不重启、不等托盘退出） */
+  skillsSyncNow: () => ipcRenderer.invoke('skills:syncNow'),
   skillsOpenDir: (which: string) => ipcRenderer.invoke('skills:openDir', which),
   /** 在资源管理器里显示某个技能的 SKILL.md（装到 WorkBuddy 这类只能手动导入的 agent） */
   skillsReveal: (dirOrFile: string) => ipcRenderer.invoke('skills:reveal', dirOrFile),

@@ -40,6 +40,30 @@
         <button class="skills-btn" @click="loadSkills()">刷新</button>
       </div>
 
+      <!-- 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？”）——
+           此前这一页只有一句静态承诺“升级后启动会自动同步”，但**没有任何地方能看到它到底跑没跑**。
+           方寸常驻托盘，升级后旧进程不退，新实例被顶掉 → 那句承诺实际上没执行，
+           而界面上与成功时长得一模一样。现在把上次同步的时间/版本/结果摊在这儿，
+           版本对不上就直接标红并给“现在同步”。 -->
+      <div class="skills-sync" :class="{ stale: skillsSyncStale }" data-skills-sync>
+        <span class="ss-ico">{{ skillsSyncStale ? '⚠' : (skillsSync && skillsSync.ok ? '✓' : '·') }}</span>
+        <span class="ss-text">
+          <template v-if="skillsSyncStale">
+            <b>技能可能不是最新</b> —— {{ skillsSyncStaleReason }}
+          </template>
+          <template v-else-if="skillsSync">
+            自动同步 ✓ {{ syncTimeText(skillsSync.at) }} · v{{ skillsSync.appVersion }} ·
+            清单 {{ skillsSync.skills.length }} 个（{{ skillsSync.skills.join(' / ') }}）·
+            {{ skillsSync.targets.map(syncTargetText).join(' · ') }}
+          </template>
+          <template v-else>还没有同步记录 —— 点右边同步一次</template>
+        </span>
+        <button class="skills-btn" :disabled="skillsSyncBusy" @click="syncSkillsNow()"
+          title="不用重启、不用退托盘：现在就比对一遍并装掉差异">
+          {{ skillsSyncBusy ? '同步中…' : '现在同步' }}
+        </button>
+      </div>
+
       <!-- 外部导入的技能（2026-09-26 卡 005）：跟自发布技能分开列，账本互不污染 -->
       <div v-if="skillsImported.length" class="skills-imported">
         <div class="skills-imported-title">
@@ -240,6 +264,85 @@ const skillsImported = ref<{
   files: number; bytes: number; importedAt: string; source: string
 }[]>([])
 const skillsDragging = ref(false)
+
+/**
+ * 自动同步的留痕（2026-11-05 暮雨：“更新后无法自动更新技能吗？是完全断链吗？”）。
+ *
+ * 结论不是断链，但**看不出来**：同步只在建窗时跑一次，升级后旧进程还在托盘，
+ * 新实例被单实例锁顶掉 —— 于是"没同步"和"同步了"在界面上长得一模一样。
+ * 所以这里把它摆出来：上次什么时候、哪个版本、结果如何；版本对不上就直接报陈旧，
+ * 并给一个"现在同步"按钮（不用重启、不用退托盘）。
+ */
+interface SkillSyncRow {
+  at: string
+  appVersion: string
+  trigger: string
+  ok: boolean
+  skills: string[]
+  targets: { id: string; name: string; present: boolean; needsInstall: boolean; installed: string[]; skipped: string[]; errors: { skill: string; error: string }[]; error?: string }[]
+}
+const skillsSync = ref<SkillSyncRow | null>(null)
+const skillsSyncStale = ref(false)
+const skillsSyncStaleReason = ref('')
+const skillsSyncVersion = ref('')
+const skillsSyncBusy = ref(false)
+
+function syncTimeText(at: string): string {
+  if (!at) return '—'
+  const t = new Date(at)
+  if (Number.isNaN(t.getTime())) return at
+  const mm = String(t.getMonth() + 1).padStart(2, '0')
+  const dd = String(t.getDate()).padStart(2, '0')
+  const hh = String(t.getHours()).padStart(2, '0')
+  const mi = String(t.getMinutes()).padStart(2, '0')
+  return `${mm}-${dd} ${hh}:${mi}`
+}
+function syncTargetText(t: SkillSyncRow['targets'][number]): string {
+  if (!t.present) return `${t.name} 不在场`
+  if (t.error) return `${t.name} 失败`
+  if (t.errors.length) return `${t.name} 失败 ${t.errors.length}`
+  if (t.installed.length) return `${t.name} 更新 ${t.installed.length}`
+  return `${t.name} ✓`
+}
+
+async function loadSkillSync(): Promise<void> {
+  try {
+    const r: any = await window.tegula.skillsSyncStatus()
+    if (r && r.ok !== false) {
+      skillsSync.value = r.status || null
+      skillsSyncStale.value = !!r.stale
+      skillsSyncStaleReason.value = r.staleReason || ''
+      skillsSyncVersion.value = r.currentVersion || ''
+    }
+  } catch {
+    // 读不到状态不该让整页报错 —— 技能清单本身还能看
+    skillsSync.value = null
+  }
+}
+
+/** 现在补同步一次（不等重启、不等托盘退出） */
+async function syncSkillsNow(): Promise<void> {
+  if (skillsSyncBusy.value) return
+  skillsSyncBusy.value = true
+  try {
+    const r: any = await window.tegula.skillsSyncNow()
+    if (r && r.ok === false) {
+      props.toast('同步失败：' + (r.error || '未知原因'), 'error')
+    } else {
+      const t = (r.lastRun && r.lastRun.targets) || []
+      const n = t.reduce((a: number, x: any) => a + (x.installed ? x.installed.length : 0), 0)
+      const bad = t.filter((x: any) => x.error || (x.errors && x.errors.length)).length
+      if (bad) props.toast(`同步跑完了，但有 ${bad} 个目标失败（技能页上方有明细）`, 'error')
+      else props.toast(n ? `已同步 ${n} 个技能副本` : '已是最新，没有需要更新的', 'success')
+      await loadSkillSync()
+      await loadSkills()
+    }
+  } catch (e: any) {
+    props.toast('同步失败：' + (e?.message || e), 'error')
+  } finally {
+    skillsSyncBusy.value = false
+  }
+}
 
 async function loadSkills(): Promise<void> {
   skillsLoading.value = true
@@ -603,5 +706,7 @@ onMounted(() => {
   void loadSkills()
   void loadAgents()
   void loadMcpInfo()
+  // 第四份：自动同步的留痕（2026-11-05）。缺了这一块，"技能是不是最新"就没有任何答案。
+  void loadSkillSync()
 })
 </script>

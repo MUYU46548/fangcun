@@ -30,7 +30,7 @@ import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import * as selfSync from './services/selfSync'
 import * as repoDocs from './services/repoDocs'
-import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
+import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, getSkillSyncStatus, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
 import { detectAgentTargets } from './services/agents'
@@ -1313,6 +1313,18 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   // 此前 skills:check / skills:install 已存在，但渲染层从来没有入口 —— 功能在、界面不在。
   guardedHandle('skills:list', () => {
     return listSkillsForUi()
+  })
+
+  // 自动同步的留痕 + 手动补一次（2026-11-05 暮雨：“更新后到底会不会自动更新技能”）。
+  // 为什么需要这两条：自动同步原来只在建窗时跑、结果只写应用日志 ——
+  // 升级安装包后旧进程还在托盘（单实例锁把新实例顶掉），同步就没跑，而界面上**看不出来**。
+  guardedHandle('skills:syncStatus', () => {
+    return getSkillSyncStatus()
+  })
+  guardedHandle('skills:syncNow', () => {
+    const s = autoCheckSkills('manual')
+    appLog.info('skills', `手动同步完成（触发=${s.trigger}）：${s.targets.map((t) => `${t.name} 装${t.installed.length}/跳过${t.skipped.length}/错${t.errors.length}`).join('，')}`)
+    return { ok: true, ...getSkillSyncStatus(), lastRun: s }
   })
 
   guardedHandle('skills:openDir', (_event, which: string) => {

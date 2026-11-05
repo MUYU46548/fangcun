@@ -19,8 +19,16 @@ import * as crypto from 'crypto'
 import { app, shell } from 'electron'
 import * as appLog from './appLog'
 import { dshHome } from './probe'
+import { FALLBACK_SKILL_DIRS, readSkillIdsFromDir, judgeSkillSyncStale } from '../../shared/skillSync'
 
-const SKILL_DIRS = ['fangcun-bridge', 'skill-management-policy']
+/**
+ * 技能清单与「同步是否作数」的判据都在 `shared/skillSync.ts`（纯函数，可单独跑）。
+ * 这里只做一件事：把"随包分发的源目录"喂给它。
+ */
+function skillDirIds(): string[] {
+  return readSkillIdsFromDir(getResourcesSkillsDir())
+}
+
 
 interface SkillInstallResult {
   installed: string[]
@@ -83,7 +91,7 @@ export function getResourcesSkillsDirPath(): string {
  * 用途：外部导入**不许覆盖**这些技能（它们是方寸自己的交付物，该走“⚡ 装到 Hermes”）。
  */
 export function getPublishedSkillIds(): Set<string> {
-  const ids = new Set<string>(SKILL_DIRS)
+  const ids = new Set<string>(FALLBACK_SKILL_DIRS)
   const dir = getResourcesSkillsDir()
   try {
     const mp = path.join(dir, 'manifest.json')
@@ -177,7 +185,7 @@ export function checkSkillsStatus(targetId = 'hermes'): {
   const resourcesDir = getResourcesSkillsDir()
   const destRoot = target.dir()
 
-  for (const skillDir of SKILL_DIRS) {
+  for (const skillDir of skillDirIds()) {
     const srcSkillMd = path.join(resourcesDir, skillDir, 'SKILL.md')
     if (!fs.existsSync(srcSkillMd)) continue
 
@@ -229,7 +237,7 @@ export function installSkillsTo(targetId: string): SkillInstallResult {
 
   appLog.info('skills', `开始安装 skills → ${target.name}，源: ${resourcesDir}`)
 
-  for (const skillDir of SKILL_DIRS) {
+  for (const skillDir of skillDirIds()) {
     try {
       const srcSkillMd = path.join(resourcesDir, skillDir, 'SKILL.md')
       if (!fs.existsSync(srcSkillMd)) {
@@ -269,31 +277,151 @@ export function installSkillsTo(targetId: string): SkillInstallResult {
   return result
 }
 
+/** 一次自动同步里，单个目标的结果 */
+export interface SkillSyncTarget {
+  id: string
+  name: string
+  /** 本机有没有这个 agent */
+  present: boolean
+  /** 同步前是否需要装/更新 */
+  needsInstall: boolean
+  installed: string[]
+  skipped: string[]
+  errors: { skill: string; error: string }[]
+  /** 整个目标级别的异常（目录不可写之类） */
+  error?: string
+}
+
+/** 一次自动同步的完整留痕（落盘，界面可读） */
+export interface SkillSyncStatus {
+  /** 这次同步是什么时候跑的（ISO） */
+  at: string
+  /** 跑这次同步的是哪个方寸版本 */
+  appVersion: string
+  /** 这次同步「看的技能清单」—— 直接证明读的是 manifest，不是写死的两个 */
+  skills: string[]
+  /** 谁触发的：boot / show / second-instance / manual */
+  trigger: string
+  ok: boolean
+  targets: SkillSyncTarget[]
+}
+
+let lastSync: SkillSyncStatus | null = null
+let lastSyncLoaded = false
+
+function syncStatusFile(): string {
+  // 与 LLM 配置同处 userData：它是"应用状态"，不是项目数据（方寸的数据根会在多个仓库间切）
+  return path.join(app.getPath('userData'), 'skills-sync.json')
+}
+
+function readSyncStatus(): SkillSyncStatus | null {
+  if (lastSyncLoaded) return lastSync
+  lastSyncLoaded = true
+  try {
+    const p = syncStatusFile()
+    if (fs.existsSync(p)) lastSync = JSON.parse(fs.readFileSync(p, 'utf-8')) as SkillSyncStatus
+  } catch {
+    lastSync = null
+  }
+  return lastSync
+}
+
+function writeSyncStatus(s: SkillSyncStatus): void {
+  lastSync = s
+  lastSyncLoaded = true
+  try {
+    const p = syncStatusFile()
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, JSON.stringify(s, null, 2), 'utf-8')
+  } catch (e: any) {
+    // 落盘失败不该让同步本身失败 —— 内存里那份还在，界面照样能看
+    appLog.warn('skills', '同步状态落盘失败（同步本身已完成）', e?.message || String(e))
+  }
+}
+
 /**
- * 首次启动自动检测（多目标）
+ * 自动检测 + 安装（多目标）
  *
  * ⚠ 只对**在场**的目标动手：DSH 没装就不该凭空造 `~/.dsh/skills`（=往猜出来的目录写东西）。
  *   Hermes 的 present() 恒 true —— 它是方寸自己的宿主，维持原有行为。
+ *
+ * 2026-11-05 改了三件事（暮雨问"更新后技能到底会不会自动更新"）：
+ *   ① **返回并落盘这次的结果**：原来只往应用日志写一行，界面上完全看不见 ——
+ *     "没同步"和"同步了但失败了"对用户长得一模一样；
+ *   ② 技能清单来自 `skillDirIds()`（读 manifest），不再写死两个；
+ *   ③ 可以带 `trigger`，于是"是不是正版刚升级完那一次跑的"能在记录里看出来。
  */
-export function autoCheckSkills(): void {
+export function autoCheckSkills(trigger = 'boot'): SkillSyncStatus {
+  const ids = skillDirIds()
+  const targets: SkillSyncTarget[] = []
   for (const t of INSTALL_TARGETS) {
+    const row: SkillSyncTarget = {
+      id: t.id, name: t.name, present: false, needsInstall: false,
+      installed: [], skipped: [], errors: [],
+    }
     try {
       if (!t.present()) {
         appLog.info('skills', `${t.name} 不在场（本机没装），跳过技能自动安装`)
+        targets.push(row)
         continue
       }
+      row.present = true
       const status = checkSkillsStatus(t.id)
+      row.needsInstall = status.needsInstall
       if (status.needsInstall) {
         appLog.info('skills', `${t.name}：检测到需要安装/更新 skills，开始自动安装...`)
         const result = installSkillsTo(t.id)
+        row.installed = result.installed
+        row.skipped = result.skipped
+        row.errors = result.errors
         appLog.info('skills', `${t.name}：自动安装完成——已装 ${result.installed.length}，跳过 ${result.skipped.length}，失败 ${result.errors.length}`)
       } else {
+        row.skipped = ids.slice()
         appLog.info('skills', `${t.name}：skills 已是最新，无需安装`)
       }
     } catch (e: any) {
-      appLog.warn('skills', `${t.name} 自动检测 skills 失败: ${e.message}`)
+      row.error = e?.message || String(e)
+      appLog.warn('skills', `${t.name} 自动检测 skills 失败: ${row.error}`)
     }
+    targets.push(row)
   }
+  const s: SkillSyncStatus = {
+    at: new Date().toISOString(),
+    appVersion: app.getVersion(),
+    skills: ids,
+    trigger,
+    ok: targets.every((x) => !x.error && x.errors.length === 0),
+    targets,
+  }
+  writeSyncStatus(s)
+  return s
+}
+
+/**
+ * 界面用：上次同步状态 + **这份记录还算不算数**。
+ *
+ * `stale` 是这条通道存在的真正理由：方寸常驻托盘、关窗≠退出，升级安装包后旧进程
+ * 还在跑，新实例被单实例锁顶掉直接退出 —— 于是"升级了但技能还是旧的"，
+ * 而界面上原来没有任何地方能看出这件事。判据两条：
+ *   · `appVersion` 与当前版本不一致（升级过了，但同步停在旧版本）；
+ *   · 或者压根没记录过（从没跑成过）。
+ */
+export function getSkillSyncStatus(): {
+  ok: true
+  status: SkillSyncStatus | null
+  currentVersion: string
+  /** 这份记录还作数吗（false = 该重新同步一次） */
+  stale: boolean
+  /** 为什么 stale（给人看的一句话；作数时为空串） */
+  staleReason: string
+  /** 这次会同步哪些技能（读的是 manifest，不是写死） */
+  skills: string[]
+} {
+  const s = readSyncStatus()
+  const currentVersion = app.getVersion()
+  // 判据在 shared/skillSync.ts（纯函数）：e2e-skill-sync 直接喂它两组数据验正反。
+  const { stale, reason: staleReason } = judgeSkillSyncStale(s, currentVersion)
+  return { ok: true, status: s, currentVersion, stale, staleReason, skills: skillDirIds() }
 }
 
 
