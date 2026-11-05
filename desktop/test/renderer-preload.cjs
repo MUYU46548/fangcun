@@ -356,6 +356,20 @@ const PLAN_DOCS = [{
       approach: [], copyRows: [], criteria: [], verdict: '', rejectReason: '', missing: [],
     },
   ],
+}, {
+  // 第二个项目（2026-11-05 第 1 条）：项目筛选要能切，夹具里就得**真有两个项目**的计划卡 ——
+  // 只有一个的话，"按项目筛"要么不渲染、要么永远只能筛出全部，等于没验。
+  // ⚠ 这一份的 stage 状态是「完成」：它**不进**“待裁决 N 张”清单，
+  //   于是上游那条 `pendingItems.length === 1` 不会因为新增夹具而红。
+  file: 'demo2.md',
+  title: '第二个项目 · 作战计划',
+  stages: [
+    {
+      id: 'P0', title: '第二个项目的阶段卡', status: '完成', what: '只用来验项目筛选',
+      approach: ['x'], copyRows: [['a', 'b'], ['---', '---'], ['1', '2']],
+      criteria: ['str: x'], verdict: '通过 · 2026-11-01', rejectReason: '', missing: [],
+    },
+  ],
 }]
 
 contextBridge.exposeInMainWorld('tegula', {
@@ -421,7 +435,7 @@ contextBridge.exposeInMainWorld('tegula', {
   plansGet: (file) => {
     rec('plansGet', [file])
     const docs = PLAN_DOCS
-    return { ok: true, files: ['demo.md'], docs: file ? docs.filter((d) => d.file === file) : docs }
+    return { ok: true, files: PLAN_DOCS.map((d) => d.file), docs: file ? docs.filter((d) => d.file === file) : docs }
   },
   // 裁决（2026-11-03）：冻结/打回要真的改夹具状态 —— 否则“点完按钮变已冻结”没法验。
   plansVerdict: (input) => {

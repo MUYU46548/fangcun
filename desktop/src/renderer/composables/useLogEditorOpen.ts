@@ -17,7 +17,8 @@ interface Deps {
   tasks: Ref<any[]>
   archivedTasks: Ref<any[]>
   projects: Ref<any[]>
-  curProj: Ref<string>
+  /** 只读：多选项目筛选后它是派生值（取第一个选中的当默认项目），这里**不写**它 */
+  curProj: Readonly<Ref<string>>
   logEdit_: Ref<any>
   logCompleting: Ref<boolean>
   logArchiveMode: Ref<boolean>
@@ -42,20 +43,50 @@ export function useLogEditorOpen(deps: Deps) {
   const logTaskOpen = ref(false)
   const logTaskQuery = ref('')
   const logTaskExtra = ref('')
+  /**
+   * 关联任务候选的**范围**与**状态**（2026-11-05 暮雨第 11 条）。
+   *
+   * 原话：“日志关联任务的筛选也是狗屎，约等于无。现在只能根据关键词（肉眼）快速筛选，随便乱点。”
+   * 根因很实在：候选此前**硬性只列同项目**的任务 —— 而日志恰恰是跨项目工作时写的，
+   * 想挂的那张卡常在别的项目里，于是"搜不到 = 约等于没有"。
+   *   · scope：proj（本项目，默认）/ all（全部项目）。
+   *     **输入了搜索词时自动当 all 用** —— 有词就说明人心里已经知道要哪张，
+   *     这时还按项目挡着，等于逼他把项目切过去再搜一次；
+   *   · openOnly：默认只看未完成（完成/驳回的卡极少需要挂到新日志上），可一键放开。
+   */
+  const logTaskScope = ref<'proj' | 'all'>('proj')
+  const logTaskOpenOnly = ref(true)
+  /** 首屏上限：超过就显示"共 N 条"，可一次性展开（老版只有一句提示，没有出口） */
+  const logTaskShowAll = ref(false)
+
+  const TERMINAL_STATUSES = ['完成', '驳回']
 
   const logTaskMatched = computed(() => {
     const proj = logEdit_.value?.project
     const q = (logTaskQuery.value || '').trim().toLowerCase()
+    // 有搜索词就不再按项目挡（见 logTaskScope 注释）
+    const scopeAll = logTaskScope.value === 'all' || !!q
     const all = [...tasks.value, ...archivedTasks.value]
     const byId = new Map(all.map(t => [t.id, t]))
+    const projName = (id: string) => {
+      const p = projects.value.find(x => x.id === id)
+      return String(p?.name || id || '').toLowerCase()
+    }
     const seen = new Set<string>()
-    const out: Array<{ id: string; title: string; status: string }> = []
+    const out: Array<{ id: string; title: string; status: string; project: string }> = []
     for (const t of all) {
       if (seen.has(t.id)) continue
-      if (proj && normProject(t.project) !== proj) continue
-      if (q && !(String(t.id).toLowerCase().includes(q) || String(t.title || '').toLowerCase().includes(q))) continue
+      const tp = normProject(t.project)
+      if (!scopeAll && proj && tp !== proj) continue
+      if (logTaskOpenOnly.value && TERMINAL_STATUSES.includes(String(t.status || ''))) continue
+      if (q) {
+        // 匹配面从「id + 标题」扩到「id + 标题 + 项目名 + 项目 id」——
+        // 人记得的往往是"绒花墨坊那张"，不是 id
+        const hay = `${t.id} ${t.title || ''} ${tp} ${projName(tp)}`.toLowerCase()
+        if (!hay.includes(q)) continue
+      }
       seen.add(t.id)
-      out.push({ id: t.id, title: t.title || '', status: t.status })
+      out.push({ id: t.id, title: t.title || '', status: t.status, project: tp })
       if (out.length >= 500) break
     }
     // 最近更新优先：首屏要的是“最可能要挂的那几张”，不是文件序
@@ -63,8 +94,11 @@ export function useLogEditorOpen(deps: Deps) {
       Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
     return out
   })
-  const logTaskOptions = computed(() => logTaskMatched.value.slice(0, LOG_TASK_CAP))
-  const logTaskMoreHidden = computed(() => logTaskMatched.value.length > LOG_TASK_CAP)
+  const logTaskOptions = computed(() =>
+    logTaskShowAll.value ? logTaskMatched.value : logTaskMatched.value.slice(0, LOG_TASK_CAP))
+  const logTaskMoreHidden = computed(() => logTaskMatched.value.length > logTaskOptions.value.length)
+  /** 候选总数（界面上要写“共几条”，不能只有一个"12"让人以为总共就 12 条） */
+  const logTaskTotal = computed(() => logTaskMatched.value.length)
 
   /** chips 回显：id → 标题（列表外给空，界面回退显示 id 本身） */
   function taskTitleOf(id: string): string {
@@ -101,6 +135,10 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskOpen.value = false    // 关联任务候选默认折叠
     logTaskQuery.value = ''
     logTaskExtra.value = ''
+    // 候选的范围/状态是"这一次挑卡"的临时口径，不许从上一个日志粘过来
+    logTaskScope.value = 'proj'
+    logTaskOpenOnly.value = true
+    logTaskShowAll.value = false
     resetPendingAttach()   // 编辑现有日志：不带上一轮新建态的待挂附件
     markLogSnap()          // 打开即存快照（改没改才算数）
     setTimeout(() => {
@@ -121,6 +159,9 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskOpen.value = false
     logTaskQuery.value = ''
     logTaskExtra.value = ''
+    logTaskScope.value = 'proj'
+    logTaskOpenOnly.value = true
+    logTaskShowAll.value = false
     logRetainDays.value = String(logRetainDefault.value)
     logNote.value = ''
     resetPendingAttach()
@@ -139,6 +180,7 @@ export function useLogEditorOpen(deps: Deps) {
   return {
     openLog, openNewLog, openLogForTask,
     logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
+    logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }
 }

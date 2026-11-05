@@ -136,9 +136,11 @@
                 </div>
                 <div class="fpop-row">
                   <span class="fpop-row-label">项目</span>
-                  <button class="fpop-opt" :class="{ on: curProj === '__all__' }" @click="curProj = '__all__'">全部</button>
+                  <button class="fpop-opt" :class="{ on: !curProjs.length }" @click="clearProjFilter()">全部</button>
                   <button v-for="p in projects" :key="'fp-' + p.id" class="fpop-opt"
-                    :class="{ on: curProj === p.id }" @click="curProj = p.id">{{ p.name || p.id }}</button>
+                    :class="{ on: curProjs.includes(p.id) }"
+                    :title="curProjs.includes(p.id) ? '再点一次取消这个项目（可以同时选多个）' : '选中这个项目（可以同时选多个）'"
+                    @click="toggleProjFilter(p.id)">{{ p.name || p.id }}</button>
                 </div>
                 <div class="fpop-row">
                   <span class="fpop-row-label">状态</span>
@@ -982,8 +984,22 @@ const tasks = ref<Task[]>([])
 const projects = ref<Project[]>([])
 const blockers = ref<any[]>([])
 const curView = ref('active')
-const curProj = ref('__all__')
-/** 状态筛选（2026-10-10 用户要求）。与 curProj **正交叠加**、可同时生效；
+/**
+ * 项目筛选（2026-11-05 暮雨第 14 条：从**单选改成多选**）。
+ *
+ * 原话：“突然发现项目不能多选，筛选时只能选一个。是否是有意为之？”
+ * 答：不是有意为之，是历史实现（一个字符串 ref 一直没动）。而“项目”本身就是
+ * 天然的隔离单元 —— 想看两个项目的活儿时必须来回切，切一次还得重新记上一轮筛了什么。
+ *
+ * 语义两条，都要写清楚：
+ *   · **空数组 = 全部**（不是“一个都没选”）。否则第一次进来会一张卡都看不见，
+ *     那种“默认什么都看不到”的坑，比单选更糟；
+ *   · 顺序 = 点选的先后（日志导入 / 新建日志拿第一个当默认项目，见下方 curProj）。
+ */
+const curProjs = ref<string[]>([])
+/** 只读派生：日志导入、新建日志用它当“默认项目”（多选时取第一个选中的） */
+const curProj = computed(() => curProjs.value[0] || '__all__')
+/** 状态筛选（2026-10-10 用户要求）。与项目筛选 **正交叠加**、可同时生效；
  *  与 curProj / dueFilter 一致**不持久化** —— 筛选是临时的。 */
 const curStatus = ref('')
 const groupMode = ref('status')
@@ -1841,19 +1857,42 @@ async function loadNeverRead(days = 30): Promise<void> {
 function closeFbar(): void { fbarPanel.value = '' }
 
 const curProjLabel = computed(() => {
-  if (curProj.value === '__all__') return '全部项目'
-  const p = projects.value.find(x => x.id === curProj.value)
-  return p ? (p.name || p.id) : curProj.value
+  const ids = curProjs.value
+  if (!ids.length) return '全部项目'
+  const names = ids.map((id) => {
+    const p = projects.value.find(x => x.id === id)
+    return p ? (p.name || p.id) : id
+  })
+  // 选得不多就全列出来（"看的是哪两个项目"这件事必须一眼可见）；
+  // 选多了才收成"N 个项目"，否则一条 chip 能把整行挤爆。
+  return names.length <= 2 ? names.join(' + ') : `${names[0]} 等 ${names.length} 个项目`
 })
+
+/** 点一下项目 = 加进筛选；再点一下 = 取消（多选，2026-11-05 第 14 条） */
+function toggleProjFilter(id: string): void {
+  const cur = curProjs.value
+  curProjs.value = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+}
+
+/** “全部”= 清空选择（空数组就是全部，见 curProjs 的注释） */
+function clearProjFilter(): void {
+  curProjs.value = []
+}
 
 /**
  * 生效中的筛选条件（按顺序：项目 → 状态 → 到期 → 含归档）。
  * 这是方案 B 的核心：**"现在筛了什么"必须一眼可见** —— 老版的答案藏在四个下拉各自的
  * 显示值里，用户得挨个看过去，那就是"点起来很难受、不自然"的一半来源。
+ *
+ * ⚠ 项目改成多选之后（2026-11-05 第 14 条），**每个项目各占一条 chip**：
+ *   一条 chips 里塞"甲 + 乙"就没法单独撤掉其中一个，又回到"要重新点开面板"的老路。
  */
 const activeFilterChips = computed(() => {
   const out: { key: string; label: string }[] = []
-  if (curProj.value !== '__all__') out.push({ key: 'proj', label: curProjLabel.value })
+  for (const id of curProjs.value) {
+    const p = projects.value.find(x => x.id === id)
+    out.push({ key: 'proj:' + id, label: p ? (p.name || p.id) : id })
+  }
   if (curStatus.value) out.push({ key: 'status', label: curStatus.value })
   const due = DUE_OPTIONS.find(d => d.v === dueFilter.value)
   if (due) out.push({ key: 'due', label: due.label })
@@ -1864,7 +1903,8 @@ const activeFilterChips = computed(() => {
 
 /** 点标签上的 ✕ = 撤掉这一条（就地生效，不需要再打开任何面板） */
 function clearFilterChip(key: string): void {
-  if (key === 'proj') curProj.value = '__all__'
+  if (key === 'proj') curProjs.value = []
+  else if (key.startsWith('proj:')) curProjs.value = curProjs.value.filter(x => x !== key.slice(5))
   else if (key === 'status') curStatus.value = ''
   else if (key === 'due') dueFilter.value = ''
   else if (key === 'read') readFilter.value = ''
@@ -1873,7 +1913,7 @@ function clearFilterChip(key: string): void {
 
 /** 一次撤掉全部（只清"筛什么"，不动分组/排序 —— 那是"怎么排"，不是筛选） */
 function clearAllFilters(): void {
-  curProj.value = '__all__'
+  curProjs.value = []
   curStatus.value = ''
   dueFilter.value = ''
   readFilter.value = ''
@@ -2846,7 +2886,7 @@ function goBack() {
  *    （上一个视图筛了什么，回看板还筛着什么）。 */
 function goHome(): void {
   searchQuery.value = ''
-  curProj.value = '__all__'
+  curProjs.value = []
   curStatus.value = ''
   dueFilter.value = ''
   navigateTo('active')
@@ -3892,8 +3932,10 @@ const filteredTasks = computed(() => {
     const activeIds = new Set(result.map(t => t.id))
     result = [...result, ...archivedTasks.value.filter(a => !activeIds.has(a.id))]
   }
-  if (curProj.value !== '__all__') {
-    result = result.filter(t => normProject(t.project) === curProj.value)
+  // 项目筛选（2026-11-05 第 14 条：多选）。空数组 = 全部，见 curProjs 注释。
+  if (curProjs.value.length) {
+    const picked = new Set(curProjs.value)
+    result = result.filter(t => picked.has(normProject(t.project)))
   }
   // 状态筛选（2026-10-10）：与项目筛选**叠加**，不是二选一 —— 改在这里一处收口，
   // 列 / 列表 / 信息卡墙三种摆法一起生效（它们都读 filteredTasks）。
@@ -5197,6 +5239,7 @@ const { importTextFilesAsLogs, importLogFile, onLogDrop } = useLogImport({
 const {
   openLog, openNewLog, openLogForTask,
   logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
+  logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
   tasks, archivedTasks, projects, curProj,
@@ -5921,7 +5964,8 @@ function openProject(p: any) {
  * 保留原“跳看板”的行为。点卡进详情、点按钮进看板，两条路分开。
  */
 function openProjectTasks(p: any) {
-  curProj.value = p.id
+  // 从项目页跳过来 = 只看这一个项目（把之前攒的多选覆盖掉，不然会莫名其妙看到别的项目）
+  curProjs.value = [p.id]
   navigateTo('active')
 }
 
@@ -7076,6 +7120,7 @@ const relayCtl = reactive({
 const logEditCtl = reactive({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   logTaskOpen, logTaskQuery, logTaskOptions, logTaskMoreHidden, logTaskExtra,
+  logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,
   closeLogEditor, closeLogNow, discardLogEdit, logDirtyNames, logEditDirty,

@@ -820,6 +820,96 @@
           await sleep(300)
           check('  点 ✕ 也能关', !$('.fpop'))
         }
+
+        // ── 项目筛选：单选 → **多选**（2026-11-05 暮雨第 14 条）─────────────
+        // 原话：“突然发现项目不能多选，筛选时只能选一个。是否是有意为之？”
+        // 判据四件，缺一件就等于没改：
+        //   ① 选一个项目 → 只剩它的卡（且别的项目的卡真的消失）
+        //   ② 再选第二个 → **两个项目的卡同时出现**（这才是"多选"，不是"换了另一个"）
+        //   ③ 两个都在选时 = **两条独立 chip**，✕ 掉一条只撤那一个（不能整组撤）
+        //   ④ 全部取消 → 回到"全部"（空数组 = 全部；不是"一张都看不见"那种坑）
+        {
+          const cardIds = () => $$('#board .card').map((c) => c.dataset.id || '?').sort()
+          const openFilter = async () => {
+            const fb = $('.fbar-filter-btn')
+            if (!fb) return false
+            fb.click(); await sleep(300)
+            return !!$('.fpop')
+          }
+          const pick = (label) => $$('.fpop .fpop-opt').find((b) => (b.textContent || '').trim() === label)
+          const closeFilter = async () => {
+            document.body.dispatchEvent(new (window.PointerEvent || MouseEvent)('pointerdown', { bubbles: true, cancelable: true }))
+            await sleep(260)
+          }
+          const onOpts = () => $$('.fpop .fpop-opt.on').map((b) => (b.textContent || '').trim())
+
+          // 前置：把状态/到期/读取也清干净（前面的用例可能留了筛选，混进来就量不准）。
+          // ⚠ 不能在 `pick()` 上写 while 循环：面板里的“全部”按钮**做完也不会消失**，
+          //   循环条件恒真 → 直接跑到 300s 兜底超时（第一版就是这么挂的）。
+          if (await openFilter()) {
+            const resets = $$('.fpop .fpop-opt').filter((b) => {
+              const t = (b.textContent || '').trim()
+              return t === '全部' || t === '不限'
+            })
+            for (const b of resets) { b.click(); await sleep(90) }
+            // 逐个点完不算清干净（点“全部”是幂等设置），最后统一确认一遍没有 .on 残留
+          }
+          await closeFilter()
+          const allIds = cardIds()
+
+          await openFilter()
+          const d1 = pick('演示项目')
+          if (d1) { d1.click(); await sleep(350) }
+          const afterFirst = onOpts()
+          check('★ 点项目 A 后它是选中态（面板里看得出选了什么）', afterFirst.indexOf('演示项目') >= 0,
+            'on=' + afterFirst.join(','))
+          await closeFilter()
+          const onlyDemo = cardIds()
+          check('★★ 单选项目 A → 板上只剩 A 的卡',
+            onlyDemo.length > 0 && onlyDemo.length < allIds.length
+              && onlyDemo.indexOf('task-demo-004') < 0 && onlyDemo.indexOf('task-demo-002') < 0,
+            'onlyDemo=' + onlyDemo.join(','))
+          check('   反例自证：A 之前确实是"全部"（卡更多，且含别的项目）',
+            allIds.length > onlyDemo.length && allIds.indexOf('task-demo-004') >= 0,
+            'all=' + allIds.length + ' onlyDemo=' + onlyDemo.length)
+
+          await openFilter()
+          const d2 = pick('第二个项目')
+          if (d2) { d2.click(); await sleep(350) }
+          await closeFilter()
+          const both = cardIds()
+          const bothOn = await (async () => { await openFilter(); const r = onOpts(); await closeFilter(); return r })()
+          check('★★ 再点项目 B → 两个项目**同时**选中（.on 两个都在）',
+            bothOn.indexOf('演示项目') >= 0 && bothOn.indexOf('第二个项目') >= 0,
+            'on=' + bothOn.join(','))
+          check('★★ B 的卡也出现在板上，且 A 的卡没被顶掉（真多选，不是切换）',
+            both.indexOf('task-demo-004') >= 0 && both.length > onlyDemo.length
+              && onlyDemo.every((id) => both.indexOf(id) >= 0),
+            'both=' + both.join(','))
+
+          // ③ 两条独立 chip：✕ 掉 A 只撤 A
+          const chipsTxt = $$('.fbar-chip').map((c) => (c.textContent || '').replace(/\s+/g, ' ').trim())
+          check('★★ 两个项目各占一条 chip（不是糊成一条"演示项目 + 第二个项目"）',
+            chipsTxt.some((t) => t.indexOf('演示项目') >= 0) && chipsTxt.some((t) => t.indexOf('第二个项目') >= 0),
+            'chips=' + chipsTxt.join(' | '))
+          {
+            const chipA = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('演示项目') >= 0)
+            const x = chipA ? chipA.querySelector('.fbar-x') : null
+            if (x) { x.click(); await sleep(350) }
+            const left = cardIds()
+            check('★ 撤掉 A 那条 chip → 只剩 B（单独撤一个，不用重开面板）',
+              left.length === 1 && left[0] === 'task-demo-004', 'left=' + left.join(','))
+          }
+
+          // ④ 全部取消 = 全部（空数组语义）
+          await openFilter()
+          const allBtn = pick('全部')
+          if (allBtn) { allBtn.click(); await sleep(350) }
+          await closeFilter()
+          const backAll = cardIds()
+          check('★★ 点“全部”回到完整看板（空数组 = 全部，不是"一张都看不见"）',
+            backAll.length === allIds.length, 'back=' + backAll.length + ' all=' + allIds.length)
+        }
       }
     }
 
@@ -2646,6 +2736,35 @@
       check('★ 点条目不炸（滚动到那张卡）', $$('.errbar').length === 0,
         ((($('.errbar-msg') || {}).textContent) || '').slice(0, 80))
 
+      // ── 按项目筛（2026-11-05 暮雨第 1 条）────────────────────────────
+      // 原话两问：“是否默认显示所有项目的内容？是否支持按项目进行筛选？项目是天然的隔离单元。”
+      // 前半答“是”（数据层一次读全，界面从不筛项目）；后半此前是**没有**。
+      // 判据：① 默认两个项目的卡都在 ② bar 上有两个项目 + 全部
+      //      ③ 点一个项目只留它的卡 ④ 点“全部”回来（反例自证：不点就看不到全部）
+      {
+        const docTitles = () => $$('.plan-view .plan-doc .plan-doc-head b').map((b) => (b.textContent || '').trim())
+        const bar = $('.plan-view .plan-projbar')
+        check('★★ 计划页有“按项目”筛（此前只有一条长页，翻到自己那张全靠滚）', !!bar,
+          bar ? (bar.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '没有 .plan-projbar')
+        check('★ 默认显示**所有项目**的计划卡（加筛选不改旧默认）',
+          docTitles().length === 2, 'docs=' + docTitles().join(' | '))
+        const chips = $$('.plan-view .plan-proj-chip')
+        check('★ 筛选条上有“全部”+ 每个有卡的项目（夹具 2 个项目 → 3 个 chip）',
+          chips.length === 3, chips.map((c) => (c.textContent || '').replace(/\s+/g, '').trim()).join(','))
+        const chipOf = (txt) => chips.find((c) => (c.textContent || '').indexOf(txt) >= 0)
+        const c2 = chipOf('第二个项目')
+        if (c2) { c2.click(); await sleep(300) }
+        const after = docTitles()
+        check('★★ 点某个项目 → 只剩这个项目的计划卡',
+          after.length === 1 && /第二个项目/.test(after[0]), 'after=' + after.join(' | '))
+        check('   反例自证：筛之前确实两张都在（所以“只剩一张”是筛出来的，不是本来就没有）',
+          after.length < 2)
+        const allChip = chipOf('全部')
+        if (allChip) { allChip.click(); await sleep(300) }
+        check('★ 点“全部”回到两张（筛选是可逆的，不是单程）',
+          docTitles().length === 2, 'back=' + docTitles().join(' | '))
+      }
+
       check('★ 每张阶段卡都有“跑判据”“推进这一格”（P4 不再是只有数据层的死功能）',
         !!stageBtn('P0', '跑判据') && !!stageBtn('P0', '推进这一格')
         && !!stageBtn('P1', '跑判据') && !!stageBtn('P1', '推进这一格'),
@@ -4007,6 +4126,49 @@
       cancel.click()
       return waitFor(() => !$('#log-edit-modal'), 3000, '取消关窗')
     })())
+
+    // ══ 关联任务候选的「范围 / 状态 / 计数」（2026-11-05 暮雨第 11 条）════════════
+    // 原话：“日志关联任务的筛选也是狗屎，约等于无。现在只能根据关键词（肉眼）快速筛选，随便乱点。”
+    // 真因很具体：候选**硬性只列同项目**的任务，而日志恰恰是跨项目工作时写的 ——
+    // 想挂的那张卡在别的项目里就永远搜不到，于是"搜不到 = 这个功能等于没有"。
+    {
+      const openBtn = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
+      if (openBtn) openBtn.click()
+      await waitFor(() => !!$('#log-edit-modal'), 3000, '第 11 条前置：新建日志')
+      const toggle11 = $$('#log-edit-modal .log-task-head button')[0]
+      if (toggle11) toggle11.click()
+      await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0, 3000, '第 11 条：候选展开')
+
+      const lts = () => $$('#log-edit-modal .log-task-seg .lts')
+      check('★★ 候选区有“范围”开关（本项目 / 全部项目）—— 界面必须说清它在按项目挡',
+        lts().length === 2 && /本项目/.test((lts()[0] || {}).textContent || '')
+          && /全部项目/.test((lts()[1] || {}).textContent || ''),
+        lts().map((x) => (x.textContent || '').trim()).join(' / '))
+      const onlyBox = $('#log-edit-modal .log-task-open-only input')
+      check('★ 有“只看未完成”且**默认勾上**（完成/驳回的卡不该占首屏）',
+        !!onlyBox && onlyBox.checked === true, onlyBox ? String(onlyBox.checked) : '没有')
+      check('★ 有“共 N 条”（不是只显示 12 条，让人以为总共就 12 条）',
+        /共\s*\d+\s*条/.test((($('#log-edit-modal .log-task-count') || {}).textContent) || ''),
+        (($('#log-edit-modal .log-task-count') || {}).textContent) || '没有')
+
+      const optIds = () => $$('#log-edit-modal .log-task-opt .lto-id').map((x) => (x.textContent || '').trim())
+      const inProj = optIds()
+      check('★★ 默认“本项目”：别的项目的卡不出现（task-demo-004 属于 demo2）',
+        inProj.length > 0 && inProj.indexOf('task-demo-004') < 0, 'ids=' + inProj.join(','))
+
+      const allScope = lts().find((x) => (x.textContent || '').indexOf('全部项目') >= 0)
+      if (allScope) allScope.click()
+      await sleep(320)
+      const inAll = optIds()
+      check('★★ 切“全部项目”→ 别的项目的卡真的出现（“约等于无”被修好的直接证据）',
+        inAll.indexOf('task-demo-004') >= 0, 'ids=' + inAll.join(','))
+      check('   反例自证：不切之前它确实不在（所以“出现”是切出来的，不是本来就有）',
+        inProj.indexOf('task-demo-004') < 0)
+
+      const cancel11 = $$('#log-edit-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
+      if (cancel11) cancel11.click()
+      await sleep(220)
+    }
 
     // ══ 完成/归档弹窗不再丢改动（2026-10-17 用户报障“点完成后保存按钮会被替换，输入一万字也会全丢”）══
     // 病灶：完成/归档弹窗表单照常可编辑，但主按钮只调 logsComplete/logsArchive —— 字段零回写，

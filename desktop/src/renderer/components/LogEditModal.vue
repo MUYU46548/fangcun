@@ -71,17 +71,38 @@
         </button>
       </div>
       <template v-if="logTaskOpen">
-        <input v-model="logTaskQuery" class="log-task-search" placeholder="过滤：任务 id 或标题" />
+        <div class="log-task-tools">
+          <input v-model="logTaskQuery" class="log-task-search" placeholder="搜索：id / 标题 / 项目名" />
+          <!-- 范围与状态（2026-11-05 暮雨第 11 条）：候选此前**硬性只列同项目**，
+               而日志是跨项目工作时写的 —— 想挂的那张卡在别的项目里就永远搜不到，
+               这就是"约等于无"的真因。两个开关都摆在搜索框旁边，一眼能看见现在筛的是什么。 -->
+          <div class="log-task-seg" title="候选范围：本项目 / 全部项目（输入搜索词时自动按全部项目找）">
+            <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' }"
+              @click="logTaskScope = 'proj'">本项目</button>
+            <button type="button" class="lts" :class="{ on: logTaskScope === 'all' }"
+              @click="logTaskScope = 'all'">全部项目</button>
+          </div>
+          <label class="log-task-open-only" title="完成 / 驳回的卡极少需要挂到新日志上">
+            <input type="checkbox" v-model="logTaskOpenOnly" />只看未完成
+          </label>
+          <span class="log-task-count">共 {{ logTaskTotal }} 条</span>
+        </div>
         <div v-if="logTaskOptions.length" class="log-task-multi">
           <label v-for="t in logTaskOptions" :key="t.id" class="log-task-opt">
             <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
             <span class="lto-id">{{ t.id }}</span>
             <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+            <span class="lto-proj" v-if="t.project">{{ t.project }}</span>
             <span class="lto-st">{{ t.status }}</span>
           </label>
-          <div class="hint" v-if="logTaskMoreHidden">只显示最近更新的 {{ logTaskOptions.length }} 条，输入过滤查看其余</div>
+          <button v-if="logTaskMoreHidden" type="button" class="ghost log-task-more"
+            @click="logTaskShowAll = true">还有 {{ logTaskTotal - logTaskOptions.length }} 条，全部显示</button>
         </div>
-        <div v-else class="hint">当前项目下没有匹配的任务 —— 用下面的输入框直接贴 ID</div>
+        <div v-else class="hint">
+          {{ logTaskScope === 'proj' && !logTaskQuery
+            ? '本项目下没有匹配的任务 —— 点上面的“全部项目”，或用下面的输入框直接贴 ID'
+            : '没有匹配的任务 —— 换个词，或用下面的输入框直接贴 ID' }}
+        </div>
       </template>
       <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用英文逗号 , 分隔，回车加入）" @change="addLogTaskExtra" />
       <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
@@ -240,6 +261,11 @@ const logTaskQuery = toRef(ctl, 'logTaskQuery')
 const logTaskOptions = toRef(ctl, 'logTaskOptions')
 const logTaskMoreHidden = toRef(ctl, 'logTaskMoreHidden')
 const logTaskExtra = toRef(ctl, 'logTaskExtra')
+// 候选的范围 / 状态 / 展开 / 总数（2026-11-05 第 11 条）
+const logTaskScope = toRef(ctl, 'logTaskScope')
+const logTaskOpenOnly = toRef(ctl, 'logTaskOpenOnly')
+const logTaskShowAll = toRef(ctl, 'logTaskShowAll')
+const logTaskTotal = toRef(ctl, 'logTaskTotal')
 const projects = toRef(ctl, 'projects')
 const agentPresets = toRef(ctl, 'agentPresets')
 const logAttachDragOver = toRef(ctl, 'logAttachDragOver')

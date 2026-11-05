@@ -79,12 +79,29 @@
       投入产出账读取失败：{{ wasteError }}
     </div>
 
+    <!-- 按项目筛（2026-11-05 第 1 条）：默认"全部"（不改旧默认），项目之间是天然隔离单元。
+         只列**真有计划卡**的项目 —— 空项目摆一个按钮上去等于点一下什么都看不见。 -->
+    <div v-if="planProjects.length > 1" class="plan-projbar" data-plan-projbar>
+      <span class="plan-projbar-label">项目</span>
+      <button class="plan-proj-chip" :class="{ on: !projFilter }" @click="projFilter = ''">
+        全部<span class="plan-proj-n">{{ docs.length }}</span>
+      </button>
+      <button v-for="p in planProjects" :key="'pp-' + p" class="plan-proj-chip"
+        :class="{ on: projFilter === p }" @click="projFilter = p">
+        {{ p }}<span class="plan-proj-n">{{ docs.filter(d => projectOf(d) === p).length }}</span>
+      </button>
+    </div>
+
     <div v-if="loading" class="plan-empty">读取中…</div>
     <div v-else-if="!docs.length" class="plan-empty">
       还没有计划卡 —— 真源是 <code class="plan-code">task-data/plans/&lt;项目id&gt;.md</code>
     </div>
+    <!-- 筛掉了全部（理论上不会：按钮只列真有卡的项目；但筛选与重读并发时会短暂成立） -->
+    <div v-else-if="!visibleDocs.length" class="plan-empty">
+      这个项目下暂时没有计划卡 —— 点上面的“全部”看别的项目
+    </div>
 
-    <div v-for="doc in docs" :key="doc.file" class="plan-doc">
+    <div v-for="doc in visibleDocs" :key="doc.file" class="plan-doc">
       <div class="plan-doc-head">
         <b>{{ doc.title || doc.file }}</b>
         <span class="plan-file">{{ doc.file }}</span>
@@ -227,6 +244,25 @@ function projectOf(doc: Doc): string {
   if (fromTitle) return fromTitle
   return String(doc.file || '').replace(/\.md$/i, '')
 }
+
+/**
+ * 按项目筛选（2026-11-05 暮雨第 1 条）。
+ *
+ * 他的问题有两半：**"是否默认显示所有项目的内容？是否支持按项目筛选？"**
+ *   · 前半：是。数据层 `plans:get` 不带 file 时就把 `task-data/plans/` 下所有计划卡
+ *     一次读全（这里从来不筛项目）—— 所以"默认只看一个项目"从来不是现状。
+ *   · 后半：**原来没有**。8 个项目的阶段卡平铺成一条长页，翻到自己那一张全靠滚，
+ *     而"项目是天然的隔离单元"（他原话）—— 阶段卡尤其如此，不同项目的 P0 压根不该并排看。
+ * 默认仍是"全部"：加筛选不改默认视图，这是老规矩（旧视图永远是默认）。
+ */
+const projFilter = ref('')
+const planProjects = computed(() => {
+  const s = new Set<string>()
+  for (const d of docs.value) { const p = projectOf(d); if (p) s.add(p) }
+  return [...s]
+})
+const visibleDocs = computed(() =>
+  projFilter.value ? docs.value.filter((d) => projectOf(d) === projFilter.value) : docs.value)
 function todayLocal(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

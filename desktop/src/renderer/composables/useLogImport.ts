@@ -15,7 +15,8 @@ import { classifyLogImport, classifySummary, type ImportItem } from '../logdedup
 const LOG_IMPORT_RE = /\.(txt|md|markdown|log)$/i
 
 interface Deps {
-  curProj: Ref<string>
+  /** 只读：多选项目筛选后它是派生值（取第一个选中的当默认项目），这里**不写**它 */
+  curProj: Readonly<Ref<string>>
   projects: Ref<any[]>
   showToast: (msg: string, kind?: 'success' | 'error' | 'info') => void
   reload: () => Promise<void>
