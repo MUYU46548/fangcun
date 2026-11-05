@@ -7517,6 +7517,53 @@
         await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'scan text'),
         (($('.archd-text') || {}).textContent || '').slice(0, 90))
       window.__fcTest.setArchScanOnly(false)
+
+      // ── 生成中：耗时要可见 + 关掉要付什么代价（2026-11-05 暮雨第 2 条）────────────
+      // 原话：“生成过程可能耗时很长（没其他提示，挂着窗口干等），用户等不及会点关闭，是否有影响？”
+      // 答案：有影响 —— 主进程继续跑、token 照花，但面板关了结果就没人看得见。
+      // 判据：① 有真计时的横幅（不是"加载中"三个字）；② 点关闭**不直接关**，先问一句；
+      //      ③ 继续等之后警告收起；④ 生成结束后横幅自己消失。
+      {
+        window.__fcTest.holdArch(true)
+        const genBtn2 = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('AI 生成图') >= 0)
+        if (genBtn2) genBtn2.click()
+        await sleep(400)
+        const busyBar = $('.archd-busybar')
+        check('★★ 生成中有横幅，且写的是**真计时**（“已等 N 秒”，不编百分比）',
+          !!busyBar && /已等\s*\d+\s*秒/.test(busyBar.textContent || ''),
+          busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '没有 .archd-busybar')
+        check('★ 横幅里说清“关掉不会中断调用，但结果看不到”（用户问的就是这个）',
+          !!busyBar && /不会中断/.test(busyBar.textContent || '') && /看不到/.test(busyBar.textContent || ''),
+          busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 140) : '')
+        check('★ 生成按钮上是“生成中… Ns”（不是只写“生成中”，用户看不出等了多久）',
+          $$('#arch-modal button').some((b) => /生成中…\s*\d+s/.test(b.textContent || '')),
+          $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
+
+        const closeBtn = $$('#arch-modal .archd-head button').find((b) => (b.textContent || '').trim() === '关闭')
+        if (closeBtn) closeBtn.click()
+        await sleep(250)
+        const warn = $('.archd-closewarn')
+        check('★★ 生成中点“关闭”→ **不直接关**，先把代价说清楚',
+          !!warn && !!$('#arch-modal'), warn ? (warn.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '没有警告条')
+        check('★ 警告里点名“白花”（不是模糊的“确定要关闭吗”）',
+          !!warn && /白花/.test(warn.textContent || ''), warn ? (warn.textContent || '').slice(0, 60) : '')
+
+        const keepWaiting = $$('.archd-closewarn button').find((b) => (b.textContent || '').indexOf('继续等') >= 0)
+        check('★ 警告里给“继续等”出口（不是只有关或不关两条死路）', !!keepWaiting)
+        if (keepWaiting) keepWaiting.click()
+        await sleep(200)
+        check('   点“继续等”→ 警告收起、面板还在', !$('.archd-closewarn') && !!$('#arch-modal'))
+
+        // 生成结束（假桩挂 1.4s）→ 横幅自己消失
+        const goneBusy = await (async () => {
+          for (let i = 0; i < 30; i++) { await sleep(200); if (!$('.archd-busybar')) return true }
+          return false
+        })()
+        check('★★ 生成结束后横幅自己消失（不许永久挂在那儿）', goneBusy,
+          $('.archd-busybar') ? (($('.archd-busybar') || {}).textContent || '').slice(0, 60) : '已消失')
+        window.__fcTest.holdArch(false)
+      }
+
       // AI 生成换了图 → ArchDiagram 会清空选中态（watch props.graph），后面“剔除这一块”要用它，这里补点一次
       await sleep(250)
       const mainAgain = $$('#arch-modal [data-node]').find((g) => g.getAttribute('data-node') === 'src/main')

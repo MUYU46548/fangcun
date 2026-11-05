@@ -224,6 +224,8 @@ const store = {
       说明: '演示用项目——说明条转正断言靠这条（批次第 2 项）' },
     { id: 'demo2', name: '第二个项目' },
   ],
+  // 架构图生成是否"挂住"（2026-11-05）：验生成中横幅用
+  archHold: false,
   // 技能自动同步的留痕（2026-11-05）：默认"刚跑过、与当前版本一致"。
   // 断言要换形态就 `__fcTest.setSkillSync({ stale: true, ... })`。
   skillSync: {
@@ -1923,19 +1925,25 @@ contextBridge.exposeInMainWorld('tegula', {
   archGenerate: (projectId) => {
     cloneGuard('archGenerate', [projectId])
     rec('archGenerate', [projectId])
-    if (!projectId) return { ok: false, error: '没给项目 id' }
-    const g = store.archGraph || { title: '演示项目 · 架构图', subtitle: '', text: '', nodes: [], edges: [], missing: [], evidence: [], scannedFiles: 0, truncated: false }
-    if (store.archScanOnly) {
+    const build = () => {
+      if (!projectId) return { ok: false, error: '没给项目 id' }
+      const g = store.archGraph || { title: '演示项目 · 架构图', subtitle: '', text: '', nodes: [], edges: [], missing: [], evidence: [], scannedFiles: 0, truncated: false }
+      if (store.archScanOnly) {
+        return {
+          ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
+          reason: '没配模型（缺 端点地址 / 密钥）—— 先出扫描图，配好模型再重画',
+          graph: { ...g, subtitle: '没配模型（缺 端点地址 / 密钥）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
+        }
+      }
       return {
-        ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
-        reason: '没配模型（缺 端点地址 / 密钥）—— 先出扫描图，配好模型再重画',
-        graph: { ...g, subtitle: '没配模型（缺 端点地址 / 密钥）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
+        ok: true, source: 'ai', attempts: 1, issues: [], notes: [], usage: { totalTokens: 456 }, model: 'mock-model',
+        graph: { ...g, subtitle: 'AI 生成 · 逐条证据审计', text: '这是 **AI 生成图**（每个节点/连线都过了证据审计） · ' + g.text },
       }
     }
-    return {
-      ok: true, source: 'ai', attempts: 1, issues: [], notes: [], usage: { totalTokens: 456 }, model: 'mock-model',
-      graph: { ...g, subtitle: 'AI 生成 · 逐条证据审计', text: '这是 **AI 生成图**（每个节点/连线都过了证据审计） · ' + g.text },
-    }
+    // 2026-11-05：`__fcTest.holdArch(true)` 时挂 1.4 秒 —— 真机上一次生成要十几秒，
+    // 假桩同步返回的话"生成中横幅 / 关闭确认"这两块**一帧都量不到**。
+    if (store.archHold) return new Promise((res) => setTimeout(() => res(build()), 1400))
+    return build()
   },
   archExport: (projectId, opts) => {
     cloneGuard('archExport', [projectId, opts])
@@ -2085,6 +2093,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   // 恢复“P0 已冻结 / P1 待裁决”的原始形态，否则“另有 N 张待裁决”会被前面的点击吃掉。
   // 技能自动同步留痕（2026-11-05）：断言换形态用它 —— 默认"刚跑过、版本一致"，
   // 要验“升级后没同步”就 setSkillSync({ stale: true, staleReason: '...' })。
+  /** 让 archGenerate 挂住 1.4 秒（验“生成中横幅 + 关闭确认”用） */
+  holdArch: (v) => { store.archHold = v !== false; return store.archHold },
   setSkillSync: (patch) => {
     store.skillSync = Object.assign({}, store.skillSync, patch || {})
     rec('setSkillSync')

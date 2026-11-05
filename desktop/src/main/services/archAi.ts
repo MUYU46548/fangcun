@@ -31,6 +31,20 @@ import {
 export const ARCH_TRIGGER = 'desktop.archGenerate'
 export const DEFAULT_MAX_ATTEMPTS = 2
 
+/**
+ * 输出上限（2026-11-05，暮雨第 2 条“架构图 AI 生成失败”的真因）
+ *
+ * 原来写死 2048 —— 而架构图的 JSON 要带 evidence 数组，方寸自己这种规模一次就要
+ * 4000+ 字符。`ai-trace.jsonl` 里两次 `desktop.archGenerate` 全是
+ * `JSON 解析失败：Expected ',' or ']' ... at position 4387`：**输出被 max_tokens 截断**，
+ * 断在数组中间，于是每次都以"降级为扫描图"收场。用户看到的是"AI 生成失败"，
+ * 真实原因却是"话没说完就被掐了"。
+ */
+export const ARCH_MAX_TOKENS = 4096
+
+/** 喂给模型的证据条数上限（原来 160：清单太长，模型总想多画，输出必然撑爆） */
+export const ARCH_EVIDENCE_LIMIT = 80
+
 export interface ArchGenerateDeps {
   callLlm?: (prompt: string, system: string) => Promise<{ text: string; usage?: any; model?: string }>
   appendTrace?: (rec: any) => void
@@ -53,6 +67,8 @@ export interface ArchGenerateResult {
   reason?: string
   model?: string
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number }
+  /** 这一版是"输出被截断后补全"救回来的（不是模型一次画完的） */
+  repaired?: boolean
 }
 
 const SYSTEM_PROMPT = [
@@ -63,7 +79,9 @@ const SYSTEM_PROMPT = [
   '2) 每条连线必须给 evidence，形状是 import:<源目录>-><目标目录>，且必须在给的清单里；',
   '3) 不许发明目录、模块、包名、端口；清单里没有的东西一个都不许出现；',
   '4) 不许输出数字（文件数 / 条数）；数字一律由系统从扫描事实填；',
-  '5) 只输出 JSON，不要解释、不要 Markdown 围栏。',
+  '5) 只输出 JSON，不要解释、不要 Markdown 围栏；',
+  '6) **保持精简**：节点最多 12 个、连线最多 20 条 —— 挑最能说明结构的那几块，画全反而看不清；',
+  '7) 输出必须**是完整闭合的 JSON**（最后一个字符是 }）。宁少画几个节点，也不许半途停住。',
   '',
   '输出格式：',
   '{"title":"项目名 · 架构图","subtitle":"一句话","nodes":[{"id":"dir:src/main","label":"主进程","evidence":["dir:src/main"]}],"edges":[{"from":"dir:src/main","to":"dir:src/shared","kind":"import","evidence":["import:src/main->src/shared"]}]}',
@@ -90,7 +108,7 @@ function factBrief(facts: ArchScanFacts): string {
 }
 
 function buildPrompt(facts: ArchScanFacts, feedback = ''): string {
-  const allowed = allowedEvidence(facts, 160)
+  const allowed = allowedEvidence(facts, ARCH_EVIDENCE_LIMIT)
   return [
     '扫描事实：',
     factBrief(facts),
@@ -101,20 +119,56 @@ function buildPrompt(facts: ArchScanFacts, feedback = ''): string {
   ].join('\n')
 }
 
-/** 从模型输出里抠 JSON（容 ```json 围栏、容前后有解释文字）。 */
-export function parseArchDraft(text: string): { draft: ArchDraft | null; error?: string } {
+/**
+ * 把被截断的 JSON 收尾（2026-11-05）。
+ *
+ * 为什么需要它：模型输出被 max_tokens 掐断时，最后一个节点/连线往往只差几个字符就完整 ——
+ * 实测两次都断在 `position 4387/4388`（总长 4401），差 14 个字符，这一整次就白花了。
+ * 这里只做一件事：**退到最后一个完整的对象**，再把缺的 `]` / `}` 补上。
+ * 不是伪造数据：补的是**结构**，节点与连线全是模型真写出来的，之后照样逐条过证据审计。
+ */
+export function repairTruncatedJson(body: string): string | null {
+  const cnt = (x: string, ch: string) => x.split(ch).length - 1
+  let cut = body.lastIndexOf('}')
+  while (cut > 0) {
+    const cand = body.slice(0, cut + 1)
+    const openArr = cnt(cand, '[') - cnt(cand, ']')
+    const openObj = cnt(cand, '{') - cnt(cand, '}')
+    if (openArr >= 0 && openObj >= 0) return cand + ']'.repeat(openArr) + '}'.repeat(openObj)
+    cut = body.lastIndexOf('}', cut - 1)
+  }
+  return null
+}
+
+/**
+ * 从模型输出里抠 JSON（容 ```json 围栏、容前后有解释文字）。
+ *
+ * 2026-11-05 加 `repaired`：解析失败时先试一次"截断补全"，补成功就照常往下走，
+ * 但**如实标出来**（调用方会把它写进结果，界面上能看出这一版是"话没说完"收的尾）。
+ */
+export function parseArchDraft(text: string): { draft: ArchDraft | null; error?: string; repaired?: boolean } {
   const raw = String(text || '').trim()
   if (!raw) return { draft: null, error: '模型没有返回内容' }
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw)
   const body = fence ? fence[1].trim() : raw
   const start = body.indexOf('{')
   const end = body.lastIndexOf('}')
-  if (start < 0 || end <= start) return { draft: null, error: '返回里找不到 JSON 对象' }
+  if (start < 0) return { draft: null, error: '返回里找不到 JSON 对象' }
+  // 末尾不是 `}` = 输出被截断（不是"前后有解释文字"那种）；这时 end 会小于 start
+  const complete = end > start
   try {
+    if (!complete) throw new Error('输出在 JSON 中途结束（很可能被 max_tokens 截断）')
     const obj = JSON.parse(body.slice(start, end + 1))
     if (!obj || typeof obj !== 'object') return { draft: null, error: 'JSON 不是对象' }
     return { draft: obj as ArchDraft }
   } catch (e: any) {
+    const fixed = repairTruncatedJson(body.slice(start))
+    if (fixed) {
+      try {
+        const obj = JSON.parse(fixed)
+        if (obj && typeof obj === 'object') return { draft: obj as ArchDraft, repaired: true }
+      } catch { /* 补完还是不行，走下面的错误 */ }
+    }
     return { draft: null, error: `JSON 解析失败：${e?.message || e}` }
   }
 }
@@ -170,7 +224,7 @@ export async function generateArchGraph(
   // 2026-11-02 BYOK 多通道：主通道挂了自动换备用；降级话术写进 note，失败逐次留痕。
   const call = opts.callLlm || (async (prompt: string, system: string) => {
     const r = await chatWithFallback(prompt, {
-      system, trigger: ARCH_TRIGGER, noTrace: true, maxTokens: 2048, temperature: 0,
+      system, trigger: ARCH_TRIGGER, noTrace: true, maxTokens: ARCH_MAX_TOKENS, temperature: 0,
     })
     if (!r.ok) throw new Error(r.error || r.note || '模型调用失败（所有通道都试过了）')
     return {
@@ -222,7 +276,10 @@ export async function generateArchGraph(
         })
       } catch { /* ignore */ }
       // 解析失败也给一次重试机会（把"格式不对"当反馈喂回去）
-      feedback = '上一版不是合法 JSON（或缺少 nodes）。只输出一个 JSON 对象，键名 nodes / edges，不要解释文字。'
+      // 说清到底是"格式不对"还是"话没说完"：后者要模型**少画几个节点**，不是"注意格式"
+      feedback = /截断|中途结束|Expected/.test(lastError)
+        ? '上一版输出在 JSON 中途被截断了。请**减少节点与连线数量**（节点 ≤ 8、连线 ≤ 12），确保 JSON 完整闭合。'
+        : '上一版不是合法 JSON（或缺少 nodes）。只输出一个 JSON 对象，键名 nodes / edges，不要解释文字。'
       continue
     }
 
@@ -243,11 +300,16 @@ export async function generateArchGraph(
       return {
         ok: true,
         source: 'ai',
-        graph: draftToGraph(audit.clean, facts, { source: 'ai' }),
+        graph: draftToGraph(audit.clean, facts, {
+          source: 'ai',
+          // 断过尾的这一版要在图上留一句：读者有权知道它是"话没说完"收的尾
+          ...(parsed.repaired ? { subtitle: `（本次输出被截断，按完整节点收尾）` } : {}),
+        }),
         audit,
         attempts: i,
         model,
         usage,
+        repaired: parsed.repaired === true,
       }
     }
     feedback = renderAuditFeedback(audit)

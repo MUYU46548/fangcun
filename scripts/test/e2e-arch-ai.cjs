@@ -157,6 +157,39 @@ const FAKE_DRAFT = {
   check('空串 → 报错不抛', parseArchDraft('').draft === null && !!parseArchDraft('').error)
   check('没有 JSON → 报错', parseArchDraft('纯文字').draft === null)
   check('合法 JSON → 出对象', !!parseArchDraft('{"nodes":[]}').draft)
+  check('★ 正常完整的 JSON 不会被标成 repaired（补全逻辑不许乱贴标签）',
+    parseArchDraft('{"nodes":[]}').repaired !== true)
+
+  // ── 输出被 max_tokens 截断（2026-11-05 暮雨第 2 条“架构图 AI 生成失败”的真因）──
+  // ai-trace 里两次都是 `JSON 解析失败 ... at position 4387`（总长 4401，差 14 个字符）——
+  // 模型把话说到一半被掐了，整次白花，用户看到的却是“AI 生成失败”。
+  {
+    // 真实形状：两条节点写完、第二条边写到一半就断
+    const truncated = '{"title":"T","nodes":[{"id":"dir:a","label":"A","evidence":["dir:a"]},' +
+      '{"id":"dir:b","label":"B","evidence":["dir:b"]}],"edges":[{"from":"dir:a","to":"dir:b","kind":"import","evidence":["import:a->b"]},{"from":"dir:b","to":"dir:a","kind":"imp'
+    const r = parseArchDraft(truncated)
+    check('★★ 被截断的 JSON 能补全成可解析的草稿（不再整次白花）',
+      !!r.draft && r.repaired === true, JSON.stringify({ draft: !!r.draft, repaired: r.repaired, error: r.error }))
+    check('★★ 补全**只补结构**：原文写完的节点一个不少、一个不多（不许凭空造节点）',
+      !!r.draft && Array.isArray(r.draft.nodes) && r.draft.nodes.length === 2
+        && r.draft.nodes.map((n) => n.id).join(',') === 'dir:a,dir:b',
+      JSON.stringify(r.draft && r.draft.nodes))
+    check('★ 断在半截的那条边被丢掉（宁可少一条线，也不许编一个目标）',
+      !!r.draft && Array.isArray(r.draft.edges) && r.draft.edges.length === 1
+        && r.draft.edges[0].from === 'dir:a',
+      JSON.stringify(r.draft && r.draft.edges))
+    check('★ 补全后的对象确实能 JSON.parse（补的是括号，不是糊字符串）',
+      (() => { try { JSON.parse(JSON.stringify(r.draft)); return true } catch { return false } })())
+
+    // 反例一：根本没有完整对象 → 不许硬凑
+    const garbage = '{"title":"T","nodes":[{"id":"dir:a","label"'
+    check('★★ 反例：连一个完整对象都没有 → 仍然报错（不许硬凑一张空图）',
+      parseArchDraft(garbage).draft === null && !!parseArchDraft(garbage).error,
+      JSON.stringify(parseArchDraft(garbage)))
+    // 反例二：纯文字里带一个孤零零的 { → 也不许凑
+    check('★★ 反例：纯文字里只有半个花括号 → 报错，不返回草稿',
+      parseArchDraft('这是一段说明 { 后面什么都没有').draft === null)
+  }
 
   console.log(`\nRESULT ${pass} / ${fail}`)
   if (fail) { console.log('\n失败项：'); for (const f of failures) console.log('  · ' + f) }

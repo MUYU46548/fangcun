@@ -27,6 +27,8 @@ const props = defineProps<{
   /** 历次驳回理由（最新在后）；空 = 没被驳回过 */
   rejects?: string[]
   busy?: boolean
+  /** 生成已耗时（秒）。由父组件的计时器给 —— 组件不自己起表，切图重挂也不重置 */
+  elapsed?: number
   version?: number
   approved?: boolean
   /** 已剔除的节点 id（父组件持有，切图后仍在） */
@@ -48,6 +50,19 @@ const emit = defineEmits<{
 const active = ref('')
 const rejecting = ref(false)
 const rejectText = ref('')
+/**
+ * 生成中要关面板时的二次确认（2026-11-05 暮雨第 2 条：“用户等不及会点关闭，是否有影响？”）
+ *
+ * 答案是有影响：生成在主进程里继续跑、token 照花，但面板已经关了，**结果没人看得见**。
+ * 所以这里不直接关，先把代价说清楚；`busy` 结束会自动收起这条提示（人已经走了就不用再问）。
+ */
+const closeWarn = ref(false)
+watch(() => props.busy, (v) => { if (!v) closeWarn.value = false })
+
+function requestClose(): void {
+  if (props.busy && !closeWarn.value) { closeWarn.value = true; return }
+  emit('close')
+}
 watch(() => props.graph, () => { active.value = '' })
 
 /** 被剔除的块已经不在图里，但侧栏还要能把它们列出来（父组件传名字进来） */
@@ -89,14 +104,29 @@ function submitReject(): void {
       <button class="ghost archd-gen font-[inherit]" :disabled="busy"
         title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型）"
         @click="emit('generate')">
-        {{ busy ? '生成中…' : '✦ AI 生成图' }}
+        {{ busy ? `生成中… ${elapsed || 0}s` : '✦ AI 生成图' }}
       </button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
         @click="emit('export')">
         {{ busy ? '导出中…' : '导出 HTML…' }}
       </button>
-      <button class="ghost font-[inherit]" @click="emit('close')">关闭</button>
+      <button class="ghost font-[inherit]" :title="busy ? '还在生成 —— 点了会先问你一句' : '关闭这张图'"
+        @click="requestClose()">{{ busy ? '关闭' : '关闭' }}</button>
+    </div>
+
+    <!-- 生成中横幅（2026-11-05 暮雨第 2 条：“耗时很长，没其他提示，挂着窗口干等”）——
+         只报**真数字**（已等几秒），不编百分比：模型不回传进度，编一个就是假成功。
+         同时把“能不能关”写在这儿，省得他点关闭之后才发现结果没了。 -->
+    <div v-if="busy" class="archd-busybar">
+      <span class="archd-busybar-dot"></span>
+      <span>正在让模型画图… 已等 <b>{{ elapsed || 0 }}</b> 秒（通常 10–60 秒；慢模型可能更久）</span>
+      <span class="archd-busybar-note">现在关掉面板不会中断这次调用 —— token 照花，但结果你看不到</span>
+    </div>
+    <div v-if="closeWarn" class="archd-closewarn">
+      <span>还在生成（已 {{ elapsed || 0 }} 秒）。<b>现在关掉 = 这次模型调用白花</b>，图也看不到。</span>
+      <button class="ghost font-[inherit]" @click="closeWarn = false">继续等</button>
+      <button class="danger font-[inherit]" @click="emit('close')">仍然关闭</button>
     </div>
 
     <div class="archd-body">
@@ -238,6 +268,32 @@ function submitReject(): void {
 .archd-foot-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .archd-foot-acts button { font-size: 12px; }
 .archd-reject-in { width: 280px; height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; font: inherit; font-size: 12px; background: #fff; color: var(--ink); }
+/* 生成中横幅 / 关闭确认（2026-11-05 暮雨第 2 条）——
+   前者的唯一职责是"让你知道它还在跑、等了多久"；后者是"关掉要付什么代价"。
+   两处都不编进度条：模型不回传进度，画一个 60% 就是假成功。 */
+.archd-busybar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 14px 8px; padding: 7px 10px; border-radius: 8px;
+  background: var(--tint); border: 1px solid var(--border);
+  font-size: 11.5px; line-height: 1.6; color: var(--ink);
+}
+.archd-busybar b { color: var(--accent); }
+.archd-busybar-note { font-size: 11px; color: var(--muted); }
+.archd-busybar-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: archd-pulse 1.1s ease-in-out infinite;
+}
+/* ⚠ 动画挂在**小圆点**上，不挂按钮本体（check-button-styles ④ 守着这条） */
+@keyframes archd-pulse { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+.archd-closewarn {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 14px 8px; padding: 7px 10px; border-radius: 8px;
+  background: #fbf1f0; border: 1px solid #efd9d6; color: #8a4343;
+  font-size: 11.5px; line-height: 1.6;
+}
+.archd-closewarn b { color: #b03a2e; }
+.archd-closewarn .ghost, .archd-closewarn .danger { flex: none; font-size: 11.5px; height: 26px; padding: 0 10px; }
+
 @media (max-width: 960px) {
   .archd-body { grid-template-columns: 1fr; }
   .archd-side { max-height: 260px; }

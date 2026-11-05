@@ -673,7 +673,7 @@
          与“架构图”按钮（打开 archify 产物）并存：一个是看别人画的，一个是自己扫的。 -->
     <div id="arch-overlay" class="overlay" v-if="archOpen && archGraph" @mousedown.self="archOpen = false">
       <ArchDiagram :graph="archGraph" :review="archReview" :repairs="archRepairs" :rejects="archRejects"
-        :busy="archBusy" :version="archVersion" :approved="archApproved"
+        :busy="archBusy" :elapsed="archElapsed" :version="archVersion" :approved="archApproved"
         :excluded="archExcluded.map(x => x.id)" :excluded-info="archExcluded"
         @close="archOpen = false" @export="exportSelfArch"
         @exclude="excludeArchNode" @restore="restoreArchNode"
@@ -5578,6 +5578,20 @@ async function openProjectDiagram(p: any): Promise<void> {
 // 逐块剔除、驳回重画与导出。**没点“通过”不许导出**（导出通道也会再核一遍校验）。
 const archOpen = ref(false)
 const archBusy = ref(false)
+/**
+ * 生成已耗时（秒）—— 只报**真数字**，不编百分比（模型不回传进度，编一个就是假成功）。
+ * 2026-11-05 暮雨第 2 条：“生成过程可能耗时很长（没其他提示，挂着窗口干等）”。
+ */
+const archElapsed = ref(0)
+let archClock: ReturnType<typeof setInterval> | null = null
+function startArchClock(): void {
+  archElapsed.value = 0
+  if (archClock) clearInterval(archClock)
+  archClock = setInterval(() => { archElapsed.value += 1 }, 1000)
+}
+function stopArchClock(): void {
+  if (archClock) { clearInterval(archClock); archClock = null }
+}
 const archGraph = ref<ArchGraph | null>(null)
 const archBaseGraph = ref<ArchGraph | null>(null)
 const archReview = ref<ArchReview | null>(null)
@@ -5609,6 +5623,7 @@ async function generateSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id || archBusy.value) return
   archBusy.value = true
+  startArchClock()
   try {
     const r: any = await (window as any).tegula.archGenerate(id)
     if (!r?.ok) { showToast(String(r?.error || '生成失败'), 'error'); return }
@@ -5617,12 +5632,15 @@ async function generateSelfArch(): Promise<void> {
     archSource.value = r.source === 'ai' ? 'ai' : 'scan'
     archReview.value = evaluateArchGraph(r.graph)
     applyArchFilter()
-    if (r.source === 'ai') showToast(`AI 生成图：${r.attempts || 1} 次过审 —— 每个节点与连线都指回证据`, 'success')
-    else showToast(`已降级为扫描图：${r.reason || '没配模型'}`, 'info')
+    // 面板在生成期间被关掉时，结果不能就这么消失 —— 至少留一句话说清"图已经有了、去哪儿看"
+    const gone = !archOpen.value ? '（面板已关：重新点“结构地图”就能看到这张图）' : ''
+    if (r.source === 'ai') showToast(`AI 生成图：${r.attempts || 1} 次过审 —— 每个节点与连线都指回证据` + gone, 'success')
+    else showToast(`已降级为扫描图：${r.reason || '没配模型'}` + gone, 'info')
   } catch (e: any) {
     showToast('生成异常：' + (e?.message || e), 'error')
   } finally {
     archBusy.value = false
+    stopArchClock()
   }
 }
 
