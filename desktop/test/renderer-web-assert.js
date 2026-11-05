@@ -272,6 +272,17 @@
       check('★★ “折叠”按钮**带文字**且一眼可读（2026-10-12：收成纯 ⊟ 被用户驳回"认不出来"）',
         /折叠|展开/.test(foldTxt),
         `text="${foldTxt}"`)
+      // ⚠ 2026-11-05 暮雨第 7 条：原话“「筛选」和「折叠」能否交换位置？实际使用中感觉筛选和
+      //   右边按钮放在一起更顺手，中间被折叠挡着记忆和理解成本无形中增加了。”
+      //   目标顺序 = 折叠 → 筛选 → 分组 → 排序。
+      //   判据走**几何 x 递增**而不是"模板里谁先写"：换行后模板顺序与视觉顺序会脱钩，
+      //   而用户感知的是视觉顺序（这条改动的全部意义就在这儿）。
+      const bx = (sel) => { const e = $(sel); return e ? Math.round(e.getBoundingClientRect().x) : -1 }
+      const xFold = bx('#btn-fold-all'), xFilter = bx('.fbar-filter-btn')
+      const xGroup = bx('.fbar-group-btn'), xSort = bx('.fbar-sort-btn')
+      const okOrder = xFold >= 0 && xFilter > xFold && xGroup > xFilter && xSort > xGroup
+      check('★★ 顶栏视觉顺序是「折叠 → 筛选 → 分组 → 排序」（折叠不再夹在筛选与分组之间）',
+        okOrder, xFold + ' < ' + xFilter + ' < ' + xGroup + ' < ' + xSort)
 
       // ── 2026-10-12 新增：顶栏左侧按钮组（暮雨：“放顶栏左侧，参考 Edge”）─────────
       // 四个按钮各有断言：返回必须**常驻**（不再 v-if 时有时无）、首页/帮助/同步必须真的可点。
@@ -4103,17 +4114,24 @@
         return !!b && (b.textContent || '').indexOf('撤销条样例·甲') >= 0
       }, 4000, '撤销条出现'),
       (($('#undo-bar') || {}).textContent || '(没读到)').slice(0, 80))
-    // ⚠ 2026-10-21 暮雨实测改：原来放**底部**，而他是在**顶部**那条提示上找撤销 —— 找不到就认为"没有"。
-    //   现在撤销条在顶部居中，与 toast 同一视觉带；两者同时出现时 toast 下移一格（不叠在一起）。
-    check('  撤销条贴屏幕**顶部**居中（与 toast 同一视觉带：两条 y 都在上半屏）', (() => {
+    // ⚠ 2026-11-05 暮雨第 5 条换位：原话“撤回提示一直藏在最顶上消不掉，就连我编辑日志的时候
+    //   都是高亮。能不能挪到哪个安静的地方？”→ 从**顶部居中挪到左下角**。
+    //   （2026-10-21 那次是从底部挪到顶部，理由是"他在顶部那条提示上找撤销"——
+    //    现在诉求反过来了：顶部正是写东西的地方，最不能被动。）
+    //   判据三条，缺一条这条改动就等于没守：① 贴左 ② 在下半屏 ③ 与 toast 拉开（不再同一视觉带）。
+    check('  撤销条在**左下角**（不压正文开头，也不跟 toast 抢同一视觉带）', (() => {
       const ub = $('#undo-bar'); const ts = $('#toast')
       if (!ub || !ts) return false
       const rb = rect(ub); const rt = rect(ts)
-      return rb.y < window.innerHeight / 2 && rt.y < window.innerHeight / 2
-        && Math.abs((rb.x + rb.w / 2) - (rt.x + rt.w / 2)) < 8
+      const onLeft = rb.x < window.innerWidth / 2
+      const belowFold = rb.y > window.innerHeight * 0.6
+      const awayFromToast = rb.y - rt.y > 120
+      return onLeft && belowFold && awayFromToast
     })(), (() => {
       const u = $('#undo-bar'); const t2 = $('#toast')
-      return (u ? 'undo.y=' + Math.round(rect(u).y) : '(无撤销条)') + ' ' + (t2 ? 'toast.y=' + Math.round(rect(t2).y) : '(无 toast)')
+      return (u ? 'undo.y=' + Math.round(rect(u).y) + '/x=' + Math.round(rect(u).x) : '(无撤销条)')
+        + ' ' + (t2 ? 'toast.y=' + Math.round(rect(t2).y) : '(无 toast)')
+        + ' 视口 ' + window.innerWidth + 'x' + window.innerHeight
     })())
     check('★ 撤销条上写着快捷键 Ctrl+Z（用户按了没反应时会以为"没这功能"）',
       /Ctrl\+Z/.test((($('#undo-bar .ub-key') || {}).textContent) || ''),

@@ -1,5 +1,6 @@
 <template>
   <div id="app"
+    @click="onAppClick"
     @dragenter.prevent="dragEnter('global')"
     @dragover.prevent="dragPulse()"
     @dragleave="dragLeave('global')"
@@ -105,6 +106,18 @@
             @keydown.enter="executeNaturalQuery" />
           <span class="fbar-grow"></span>
 
+          <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）——
+               “折叠全部 / 展开”并排放两个按钮，永远有一个无效，用户原话“臃肿无比”。
+               ⚠ 2026-10-12 二次修正：上一轮把它收成**纯符号 ⊟**，暮雨原话
+               “折叠全部按钮的文本都没了，根本认不出来”—— 收过头了。
+               现在**文字回来**（“⊟ 折叠”/“⊞ 展开”，图标只当引子），仍是一个开关。
+               ⚠ 2026-11-05 第 7 条：**挪到“＋ 筛选”左边**。原话：“筛选和右边按钮放在一起更顺手，
+                 中间被折叠挡着记忆和理解成本无形中增加了” —— 折叠是“看”的辅助（把长单子压短），
+                 筛选/分组/排序是同一组“看什么的参数”，这三个必须连在一起。 -->
+          <button class="ghost" id="btn-fold-all"
+            :title="allGroupsCollapsed ? '展开全部：还原所有分组的卡片' : '折叠全部：只看分组名和数量，长单子立刻变短'"
+            @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开' : '⊟ 折叠' }}</button>
+
           <!-- ⚠ 下面五个入口各自包一个 `PopoverRoot`：reka-ui 负责**打开/关闭/定位/无障碍**，
                我们只负责"里面长什么样"。上一版手搓的遮罩 + getBoundingClientRect 定位已删。 -->
           <PopoverRoot :open="fbarPanel === 'filter'" @update:open="onPanelOpen('filter', $event)">
@@ -165,14 +178,7 @@
             </PopoverPortal>
           </PopoverRoot>
 
-          <!-- 折叠/展开是**同一个开关的两种状态**（2026-09-28 用户第 3 条）——
-               “折叠全部 / 展开”并排放两个按钮，永远有一个无效，用户原话“臃肿无比”。
-               ⚠ 2026-10-12 二次修正：上一轮把它收成**纯符号 ⊟**，暮雨原话
-               “折叠全部按钮的文本都没了，根本认不出来”—— 收过头了。
-               现在**文字回来**（“⊟ 折叠”/“⊞ 展开”，图标只当引子），仍是一个开关。 -->
-          <button class="ghost" id="btn-fold-all"
-            :title="allGroupsCollapsed ? '展开全部：还原所有分组的卡片' : '折叠全部：只看分组名和数量，长单子立刻变短'"
-            @click="toggleAllCollapsed()">{{ allGroupsCollapsed ? '⊞ 展开' : '⊟ 折叠' }}</button>
+          <!-- 折叠/展开已挪到“＋ 筛选”左边（2026-11-05 第 7 条），见上。 -->
 
           <!-- ⚠ 2026-10-12“看”与“做”分两层（暮雨圈选 丙）：
                “项目”“状态”两个**独立入口撤掉了** —— 它们的功能本来就在上面的筛选浮层里，
@@ -721,8 +727,9 @@
 
     <SettingsModal :ctl="settingsCtl" />
 
-    <!-- ⚠ `has-undo`：撤销条与 toast 都在顶部居中，同时出现时 toast 下移一格（2026-10-21） -->
-    <div id="toast" :class="[toast.type, { show: toast.show, 'has-undo': !!undoBar }]">{{ toast.msg }}</div>
+    <!-- ⚠ 2026-11-05 第 5 条：撤销条已挪到**左下角**，不再与 toast 抢顶部中心，
+         `has-undo` 那个“下移一格”的开关随之退休。 -->
+    <div id="toast" :class="[toast.type, { show: toast.show }]">{{ toast.msg }}</div>
 
     <!-- 撤销条（2026-10-21 暮雨报障：“点错了日志，把另一个日志点了完成，虽然撤销按钮在，
          但快捷键无用。左上角只有返回，没有撤销按钮”）。
@@ -4097,8 +4104,10 @@ async function copyContextPack(p: any): Promise<void> {
 }
 
 /**
- * 打开任务的 markdown 文件（资源管理器定位）。
- * 后端 `openFile` 通道一直都在（主进程还带路径白名单校验），只是没有入口 —— 同 openReview 那一类。
+ * 打开任务的 markdown 文件（系统默认程序）。
+ * 后端 `openFile` 通道一直都在，只是没有入口 —— 同 openReview 那一类。
+ * 2026-11-05：主进程侧改成「绝对路径 / 数据根 / 项目仓库跟」三级解析 + 可执行文件只定位，
+ * 所以这里要把 `needsReveal` 说明白，不能只吐一句“打开失败”。
  */
 async function openTaskFile(t: any): Promise<void> {
   const p = t?.path
@@ -4108,9 +4117,54 @@ async function openTaskFile(t: any): Promise<void> {
   }
   try {
     const r: any = await window.tegula.openFile(p)
-    if (r && r.ok === false) showToast('打开失败：' + (r.error || ''), 'error')
+    if (r && r.ok === false) {
+      showToast(r.needsReveal ? `${r.error}（已在文件夹中定位）` : '打开失败：' + (r.error || ''), 'error')
+    }
   } catch (e: any) {
     showToast('打开失败：' + (e?.message || e), 'error')
+  }
+}
+
+/**
+ * 正文里的链接点击（2026-11-05 暮雨第 10 条）。
+ *
+ * 现场原话：“依然打不开日志里的文件（蓝色链接），点开方寸直接白屏永久卡死，必须大退。”
+ * 根因在渲染层：`.markdown` 是 `v-html` 出来的 `<a href>`，**点它 = 让整个窗口导航到那个地址**。
+ * 相对路径会落到 file:// 的一张白纸、https 会把方寸整个换掉 —— 两种都是白屏，而且
+ * Vue 应用已经不在这个文档里了，连“返回”都没得按。
+ *
+ * 这里统一接管（主进程另有 will-navigate 兜底，防漏网）：
+ *   · http(s) → 交给系统默认浏览器；
+ *   · 其它（相对/绝对路径、file://）→ 交给主进程解析并打开；
+ *   · 打不开**必须明说**，静默等于让用户以为链接是坏的。
+ * ⚠ `preventDefault()` 一定要在 await 之前 —— 晚一步窗口就已经开始导航了。
+ */
+async function onAppClick(e: MouseEvent): Promise<void> {
+  const el = e.target as HTMLElement | null
+  const a = (el?.closest ? el.closest('a') : null) as HTMLAnchorElement | null
+  if (!a) return
+  // 只接管“正文/预览”这类只读容器：卡片、工具栏里的 a 不动
+  if (!a.closest('.markdown, .body-text')) return
+  e.preventDefault()
+  e.stopPropagation()
+  const raw = String(a.getAttribute('href') || '').trim()
+  if (!raw || raw.startsWith('#')) return
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const r: any = await window.tegula.launchpadOpenUrl(raw)
+      if (r && r.ok === false) showToast('打开链接失败：' + (r.message || ''), 'error')
+    } catch (err: any) {
+      showToast('打开链接失败：' + (err?.message || err), 'error')
+    }
+    return
+  }
+  try {
+    const r: any = await window.tegula.openFile(raw)
+    if (r && r.ok === false) {
+      showToast(r.needsReveal ? `${r.error}（已在文件夹中定位）` : String(r.error || '打开失败'), 'error')
+    }
+  } catch (err: any) {
+    showToast('打开失败：' + (err?.message || err), 'error')
   }
 }
 

@@ -12,7 +12,7 @@
       <label>显示名称</label>
       <input v-model="ctl.projForm.name" placeholder="留空则与 ID 相同" />
       <label>仓库路径</label>
-      <input v-model="ctl.projForm.repo" placeholder="E:/CODE/CangKu/xxx（供 Hermes 派活定位）" />
+      <input v-model="ctl.projForm.repo" placeholder="E:/CODE/CangKu/xxx（项目仓库根目录：派活定位、读文档都从这儿找）" />
       <label>说明</label>
       <input v-model="ctl.projForm.description" placeholder="一句话说明（可选）" />
       <div class="hint">

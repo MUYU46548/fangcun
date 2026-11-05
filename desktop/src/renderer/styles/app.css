@@ -1008,6 +1008,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; max-height: 88vh;
   overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
 }
+/* 任务详情预览单独放宽（2026-11-05 暮雨第 4 条）——
+   原话：“任务窗口太窄，目前字数膨胀后不便于阅读。希望做宽（参考日志）。”
+   460 是"填几个字段"的宽度，而详情里是**整段正文 + 计划/实际两栏并排**，
+   长卡在里面每行只有二十几个字，读起来一直在换行。
+   760：比日志只读预览（720）再宽一点，`max-width` 兜住窄窗不溢出。 */
+#rmodal { width: 760px; max-width: calc(100vw - 48px); }
 #modal h3, #rmodal h3, #smodal h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); }
 
 /* 快速记（2026-10-11，E 组死通道接回）：一句话建卡 */
@@ -1747,19 +1753,25 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* Toast */
 #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; box-shadow: var(--el-3); pointer-events: none; opacity: 0; transition: opacity 0.3s, transform 0.3s; max-width: 90vw; text-align: center; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-/* 撤销条也在顶部时，toast 下移一格（否则两条叠在一起，用户只看见一条） */
-#toast.has-undo { top: 70px; }
+/* 2026-11-05 第 5 条之后撤销条在**左下角**，与 toast 不再抢同一个位置 ——
+   `#toast.has-undo { top: 70px }` 那条规则随之退休（留着只会让 toast 无缘无故跳一格）。 */
 #toast.success { background: #e3f1de; color: #3f6b3a; border: 1px solid #bcd4b4; }
 #toast.error { background: #f6e2e2; color: #8a4343; border: 1px solid #e2c4c4; }
 #toast.info { background: var(--tint); color: #5b5478; border: 1px solid var(--accent-soft); }
 
 /* 撤销条（2026-10-21 暮雨第 1 条）——
    与 toast 的分工：toast 说“发生了什么”，这条给“还撤不撤得回”。所以它：
-   ① 贴屏幕**顶部**居中（与 toast 同一视觉带；同时出现时 toast 下移一格，见 #toast.has-undo）；
-   ② 可点（toast 是 pointer-events: none），且只有一条、由下一次状态动作顶掉；
-   ③ 颜色全部走主题令牌，六套主题下都不写死色值（check-themes 会量）。 */
-#undo-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999;
-  display: flex; align-items: center; gap: 10px; max-width: min(680px, 92vw);
+   ① 可点（toast 是 pointer-events: none），且只有一条、由下一次状态动作顶掉；
+   ② 颜色全部走主题令牌，六套主题下都不写死色值（check-themes 会量）。
+   ⚠ 位置（2026-11-05 第 5 条）：**从顶部居中挪到左下角**。
+     原话：“撤回提示一直藏在最顶上消不掉，就连我编辑日志的时候都是高亮。能不能挪到哪个
+     安静的地方？”——顶部居中正好压在正文第一行上，而写东西时最怕的就是这块区域被动。
+     为什么不是顶栏左侧（他也提过“返回按钮那边有空位”）：顶栏里搜索框是**固定 260px**
+     且整行 `flex-wrap`，条子一进一出会让顶栏每次跳一下、还会把固定宽的搜索框挤走。
+     左下角是全屏最安静的一处：出现时会盖住一小块列表底部，5 秒就收成小胶囊。
+   ③ 收起后的小胶囊贴着同一个角，不再“藏在最顶上”。 */
+#undo-bar { position: fixed; left: 16px; bottom: 16px; z-index: 9999;
+  display: flex; align-items: center; gap: 10px; max-width: min(560px, calc(100vw - 32px));
   padding: 9px 10px 9px 16px; border-radius: 12px; font-size: 13px;
   background: var(--card); color: var(--ink); border: 1px solid var(--border);
   box-shadow: var(--el-3); }
@@ -1779,14 +1791,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   padding: 2px 8px; white-space: nowrap; }
 #undo-bar .ub-count:hover { filter: brightness(.97); }
 /* 收起后的小胶囊（2026-11-01 暮雨第 2 条：横幅 5 秒后收起，但"还能撤"不能看不见）。
-   比条子小一个量级，只报步数；点开还原整条（Ctrl+Z 仍可直接撤）。 */
-#undo-chip { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999;
+   比条子小一个量级，只报步数；点开还原整条（Ctrl+Z 仍可直接撤）。
+   ⚠ 与条子同一个角 —— 2026-11-05 第 5 条之后它也不在顶上。 */
+#undo-chip { position: fixed; left: 16px; bottom: 16px; z-index: 9999;
   min-width: 34px; height: 24px; padding: 0 9px; border-radius: 999px; cursor: pointer;
   font: inherit; font-size: 11px; font-weight: 700; line-height: 1;
   color: var(--ink); background: var(--card); border: 1px solid var(--border); box-shadow: var(--el-2); }
 #undo-chip:hover { background: var(--tint); }
-#undo-hist { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 9999;
-  width: min(560px, 92vw); max-height: min(60vh, 440px); overflow: auto;
+#undo-hist { position: fixed; left: 16px; bottom: 56px; z-index: 9999;
+  width: min(520px, calc(100vw - 32px)); max-height: min(60vh, 440px); overflow: auto;
   background: var(--card); color: var(--ink); border: 1px solid var(--border);
   border-radius: 12px; box-shadow: var(--el-3); padding: 8px; }
 #undo-hist .uh-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 700; padding: 2px 6px 8px; }

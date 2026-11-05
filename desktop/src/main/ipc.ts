@@ -39,6 +39,7 @@ import type { McpEntryId } from './services/mcpConnect'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { attachmentOpenPolicy } from '../shared/attachments'
+import { resolveLinkPath } from '../shared/linkPath'
 import { pickNeverRead } from '../shared/neverRead'
 import { buildCleanupReport } from './services/cleanup'
 import { checkMismatch } from './services/mismatch'
@@ -1566,20 +1567,55 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   // 首次启动自动检测 skills
   autoCheckSkills()
 
-function validateAndOpenFile(filePath: string): { ok: boolean; error?: string } {
-  const raw = String(filePath || '').trim().replace(/^["']|["']$/g, '')
-  if (!raw) return { ok: false, error: '路径为空' }
-  // Simple existence check for now
-  if (!fs.existsSync(raw)) return { ok: false, error: `路径不存在: ${raw}` }
+/**
+ * 链接解析的三个可信基准（2026-11-05 暮雨第 10 条）。
+ * 判据与纯逻辑在 `shared/linkPath.ts`（e2e-linkpath 用真临时目录跑，含 `../` 越界反例）。
+ */
+function linkRoots(): string[] {
+  const roots: string[] = []
+  try { roots.push(data.getDataDir()) } catch { /* 数据根取不到就少一条基准 */ }
   try {
-    const { execFileSync } = require('child_process')
-    if (fs.statSync(raw).isDirectory()) {
-      execFileSync('explorer', [raw])
-    } else {
-      execFileSync('cmd', ['/c', 'start', '', raw])
+    for (const p of data.parseRegistry()) {
+      const r = String(p?.repo || '').trim()
+      if (r) roots.push(r)
     }
-    return { ok: true }
-  } catch (e: any) {
-    return { ok: false, error: `打开失败: ${e.message}` }
+  } catch { /* registry 坏了不该连带打不开文件 */ }
+  return roots.filter((r, i, a) => !!r && a.indexOf(r) === i)
+}
+
+/**
+ * 打开一个文件 / 目录 / 链接目标。
+ *
+ * 2026-11-05 改法（第 10 条 + 10-30 白屏事故的合并修法）：
+ * ① 相对路径按数据根 / 项目仓库解析（见 resolveLinkPath）；
+ * ② 改用异步 `shell.openPath` —— 旧的 `execFileSync('cmd', ['/c','start', …])`
+ *    在本机实测会 EBUSY，而且把主进程堵在那里；打不开还会**没有任何可见反馈**；
+ * ③ 可执行 / 安装包**不直接运行**，只定位 —— 与附件同一套判据（shared/attachments），
+ *    这正是 10-30 "点安装包 → 方寸白屏" 的那条教训，不能再从这条通道绕过去。
+ */
+async function validateAndOpenFile(filePath: string): Promise<{ ok: boolean; error?: string; path?: string; needsReveal?: boolean; hint?: string }> {
+  const abs = resolveLinkPath(filePath, linkRoots())
+  if (!abs) {
+    return { ok: false, error: `找不到这个文件：${String(filePath || '').trim() || '(空路径)'}` }
   }
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(abs)
+  } catch (e: any) {
+    return { ok: false, error: `读不到这个路径：${e?.message || e}`, path: abs }
+  }
+  if (!stat.isDirectory()) {
+    const policy = attachmentOpenPolicy(abs)
+    if (!policy.run) {
+      try { shell.showItemInFolder(abs) } catch { /* 定位失败也得把原因回给用户 */ }
+      return { ok: false, needsReveal: true, path: abs, error: policy.reason, hint: policy.hint }
+    }
+  }
+  try {
+    const err = await shell.openPath(abs)
+    return err ? { ok: false, error: `系统打不开：${err}`, path: abs } : { ok: true, path: abs }
+  } catch (e: any) {
+    return { ok: false, error: `打开失败：${e?.message || e}`, path: abs }
+  }
+
 }

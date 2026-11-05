@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu } from 'electron'
+import { app, BrowserWindow, Tray, Menu, shell } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
@@ -104,6 +104,60 @@ if (!gotLock) {
 /** 渲染层 e2e 用：隐藏窗口跑，避免测试时窗口在屏幕上闪 */
 const hidden = process.env.FC_E2E_RENDERER === '1'
 
+/**
+ * 这个 URL 是不是方寸自己那份页面（dev 走 vite，打包走 renderer/index.html）。
+ *
+ * 存在的理由只有一个：给出"可以导航"的**白名单**，而不是给黑名单。
+ * 2026-11-05 暮雨第 10 条的白屏事故里，任何"猜哪些链接是坏的"的做法都会漏 ——
+ * 正文里的链接是用户/agent 随手写的，什么形式都有。
+ */
+function isOwnPage(raw: string): boolean {
+  try {
+    const u = new URL(String(raw || ''))
+    if (isDev) return u.host === '127.0.0.1:5173' || u.host === 'localhost:5173'
+    if (u.protocol !== 'file:') return false
+    const p = decodeURIComponent(u.pathname).replace(/\//g, '\\').toLowerCase()
+    return p.endsWith('\\renderer\\index.html')
+  } catch {
+    // 解析不了的一律不放行（宁可拦下并交系统打开，也不让窗口变成白纸）
+    return false
+  }
+}
+
+/**
+ * 把被拦下的链接交给系统打开（2026-11-05 暮雨第 10 条）。
+ *
+ * 分工：渲染层对 `.markdown a` 有更聪明的处理（相对路径按数据根/项目仓库解析、
+ * 文件不存在时给明确提示）；这里只是**兜底**，保证"拦下来之后不会什么都不发生"。
+ * 打不开就写应用日志 —— 静默失败等于让用户以为点坏了。
+ */
+function openTargetExternally(raw: string): void {
+  const target = String(raw || '').trim()
+  if (!target) return
+  try {
+    if (/^(https?|mailto):/i.test(target)) {
+      void shell.openExternal(target)
+      return
+    }
+    let p = target
+    if (/^file:/i.test(target)) {
+      const u = new URL(target)
+      p = decodeURIComponent(u.pathname)
+      if (process.platform === 'win32') p = p.replace(/^\//, '')
+    }
+    if (!fs.existsSync(p)) {
+      appLog.warn('window', '链接指向的文件不存在，未打开', p)
+      return
+    }
+    void shell.openPath(p).then((err) => {
+      if (err) appLog.warn('window', '系统拒绝打开这个文件', { path: p, err })
+    })
+  } catch (e: any) {
+    appLog.warn('window', '链接打开失败', { target, error: e?.message || String(e) })
+  }
+}
+
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     show: !hidden,
@@ -169,6 +223,30 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'))
   }
+
+  // ── 点链接不许把整个界面换掉（2026-11-05 暮雨第 10 条）───────────────
+  // 现场：日志 / 任务正文里的“蓝色链接”是 markdown 渲染出来的 `<a href>`，
+  // 而 Electron **默认没有任何拦截** —— 点它 = 让整个窗口导航到那个地址。
+  // 相对路径（日志里大量是 `[xx](desktop/src/main/data/tasks.ts)`）会落到
+  // file:// 的一张白纸，https 会把方寸整个换掉：两种都是“白屏永久卡死、必须大退”，
+  // 因为 Vue 应用已经不在这个文档里了，连返回都没得返回。
+  //
+  // 三道闸，缺一道就会复发：
+  //   ① `will-navigate` —— 只放行方寸自己那份页面，其余一律拦下；
+  //   ② `setWindowOpenHandler` —— `target=_blank` / `window.open` 一律 deny（不开新窗）；
+  //   ③ 拦截后**交给系统打开**，不做静默丢弃（静默 = 用户以为点坏了）。
+  // 渲染层另有 `.markdown a` 的点击委托（能给“文件不存在”这类明确提示），这里是兜底。
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (isOwnPage(url)) return
+    e.preventDefault()
+    appLog.warn('window', '拦下了一次整窗导航（会把界面换成目标页 = 白屏）', url)
+    openTargetExternally(url)
+  })
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    appLog.warn('window', '拦下了新窗口请求（方寸不开新窗，交系统打开）', url)
+    openTargetExternally(url)
+    return { action: 'deny' }
+  })
 
   // ── 渲染层可观测（2026-09-22）────────────────────────────────────────
   // 之前渲染层报错在终端里一条都看不到：preload 失败、白屏、脚本异常

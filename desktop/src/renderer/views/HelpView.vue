@@ -47,7 +47,7 @@
           <tr><td>回收站</td><td>删除的东西先来这里，可以还原。彻底删除才真没了。</td></tr>
           <tr><td>启动台</td><td>登记常用应用/命令，一键拉起。</td></tr>
           <tr><td>决策</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
-          <tr><td>技能</td><td>把方寸的技能包装到 Hermes / DSH 等 agent 上。</td></tr>
+          <tr><td>技能</td><td>把方寸的技能包装到任意 agent 上（Hermes / DSH / WorkBuddy…）。</td></tr>
           <tr><td>服务</td><td>只读监控端口占用 —— 只看不杀。</td></tr>
                     </tbody>
         </table>
