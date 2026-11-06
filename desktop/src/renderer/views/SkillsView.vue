@@ -197,6 +197,12 @@
                     :class="'agent-link-' + (m.linked ? 'linked' : 'none')" :title="m.linkedDetail || ''">
                 {{ m.linked ? '方寸已接入' : '方寸未接入' }}
               </span>
+              <!-- 2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接。”
+                   这是方寸**唯一**会写别人配置文件的按钮，且目标写死为 Hermes（见 hermesLink.ts）。
+                   已接入时不渲染 —— 幂等，不给一个“再点一次”的空动作。 -->
+              <button v-if="m.id === 'hermes' && m.detected && m.configPath && m.linked !== true"
+                      class="skills-btn primary" @click="linkHermesInto(m)"
+                      title="把 fangcun 那条写进 Hermes 的 mcp_servers（先备份，只加不删，写后自证）">⚡ 接入到 Hermes</button>
               <button class="skills-btn primary" @click="copyMcpSnippet(m)"
                 title="生成按本机安装路径的配置段并复制">📋 复制配置段</button>
               <button class="skills-btn" @click="copyMcpSelfInstall(m)"
@@ -674,8 +680,7 @@ async function copyMcpSnippet(m: McpTargetUi): Promise<void> {
 }
 
 /** 卡006（2026-10-03）：自装指令 —— A 路线第三渠道。复制一段贴给目标 agent 的完整指令，
- *  技能卡复制与配置写入全部由对方现地完成（耗它自己的 token，方寸仍零写入）。 */
-async function copyMcpSelfInstall(m: McpTargetUi): Promise<void> {
+ *  技能卡复制与配置写入全部由对方现地完成（耗它自己的 token，方寸仍零写入）。 */async function copyMcpSelfInstall(m: McpTargetUi): Promise<void> {
   const t: any = window.tegula
   if (typeof t.mcpSelfInstall !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
   const r: any = await t.mcpSelfInstall(m.id, mcpEntry.value)
@@ -683,6 +688,30 @@ async function copyMcpSelfInstall(m: McpTargetUi): Promise<void> {
   const c: any = await t.clipboardWriteText(r.prompt)
   if (c && c.ok !== false) props.toast(`已复制给 ${m.name} 的自装指令 —— 打开对方粘贴，让它自己装`, 'success')
   else props.toast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
+}
+
+/**
+ * 接入 Hermes（2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接”）。
+ *
+ * 与“复制配置段 / 让它自装”的区别：这一步**真的会改** Hermes 的 config.yaml。
+ * 所以先确认（把路径、只加不删、先备份三件事说清），再调主进程；
+ * 主进程侧另有四条纪律（备份 / 文本插入 / 原子写 / 写后自证），见 hermesLink.ts。
+ */
+async function linkHermesInto(m: McpTargetUi): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.mcpLinkHermes !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const where = m.configPath || '（未检测到配置文件）'
+  const yes = confirm(
+    '这一步会修改 Hermes 的配置文件：\n' + where + '\n\n'
+    + '只往 mcp_servers 下加一条 fangcun（缩进 2），其它内容一个字不动；\n'
+    + '写之前先备份成同目录 config.yaml.bak-fangcun-<时间戳>，写完会把新增块抠掉与原文逐字节比对。\n\n'
+    + '继续吗？'
+  )
+  if (!yes) { props.toast('已取消，Hermes 的配置文件没有改动', 'info'); return }
+  const r: any = await t.mcpLinkHermes(mcpEntry.value)
+  if (r && r.ok) props.toast(r.message || '已接入 Hermes', r.changed ? 'success' : 'info')
+  else props.toast('接入失败：' + ((r && (r.message || r.error)) || '未知原因'), 'error')
+  await loadMcpInfo()
 }
 
 async function openMcpConfig(m: McpTargetUi): Promise<void> {

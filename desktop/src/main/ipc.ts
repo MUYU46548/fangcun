@@ -37,6 +37,8 @@ import { listServices, addManualService, removeManualService, openService, adopt
 import { detectAgentTargets } from './services/agents'
 import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallPrompt } from './services/mcpConnect'
 import type { McpEntryId } from './services/mcpConnect'
+// 唯一一处“方寸写别人配置文件”的能力（只写 Hermes 的 config.yaml），见 hermesLink.ts 顶部四条纪律
+import { linkHermesMcp } from './services/hermesLink'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 import { attachmentOpenPolicy } from '../shared/attachments'
@@ -1391,6 +1393,15 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     if (!t.configPath) return { ok: false, message: `${t.name} 的配置文件本机未检测到，方寸不代建 —— 先按上面的步骤新建` }
     const err = await shell.openPath(t.configPath)
     return err ? { ok: false, message: err } : { ok: true, message: `已打开 ${t.configPath}` }
+  })
+
+  // ── 接入 Hermes（2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接”）──
+  // 这是方寸**唯一**会写别人配置文件的通道，目标写死在 hermesLink 里（只 Hermes）。
+  // 界面点之前必须确认；这里再兜一层“配置在不在”—— 不在就不替它建。
+  // 状态不单开通道：`mcp:info` 已经把 linked / linkedDetail 一起下发了（同一份 probe 判据）。
+  guardedHandle('mcp:linkHermes', (_event, entryId: string) => {
+    const id = String(entryId || 'A') as McpEntryId
+    return linkHermesMcp(id)
   })
 
   // ── “哪些待办其实没人碰过”的界面出口（2026-10-27 卡 20261025-006 第三件）──

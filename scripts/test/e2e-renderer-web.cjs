@@ -255,10 +255,12 @@ function main() {
   }
   const ACK_SEED = "try{localStorage.setItem('fc_disclaimer_ack',JSON.stringify({v:'" + dmVer + "',at:'2026-10-16T00:00:00.000Z'}))}catch(e){}\n"
 
+  // ⚠ seed 必须在 preload 之前执行：preload 那个 IIFE 是**立刻**创建 window.tegula 的，
+  //   桩在创建时就要读 `window.__FC_VER`（放后面读到的就是 undefined → v0.0.0，2026-11-06 实测）。
   const headFor = (seed) => [
     '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>FC harness</title>',
     cssMatch ? `<link rel="stylesheet" href="./${cssMatch[1]}">` : '',
-    '<script>', browserPreload(), (seed || ''), '</script>',
+    '<script>', (seed || ''), browserPreload(), '</script>',
     '</head><body><div id="app"></div>',
     '<script>', bundle, '</script>',
   ]
@@ -819,7 +821,14 @@ function main() {
     return next()
   }
 
-  fs.writeFileSync(harnessPath, harness(fs.readFileSync(ASSERT, 'utf-8')), 'utf-8')
+  // 2026-11-06：把**真实的** package.json 版本注入页面（`window.__FC_VER`）。
+  // 此前桩里写死 '0.6.3'、断言里也写死 '/0\.6\.3/' —— 一升版本，"技能页写清了当前版本"
+  // 这条就变成在验一个不存在的版本（夹具写死 = 定时炸弹，绿得毫无意义）。
+  const pkgVer = (() => {
+    try { return String(JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf-8')).version || '') } catch { return '' }
+  })()
+  const seedVer = 'window.__FC_VER=' + JSON.stringify(pkgVer) + ';\n'
+  fs.writeFileSync(harnessPath, harness(fs.readFileSync(ASSERT, 'utf-8'), seedVer), 'utf-8')
   console.log('== 渲染层 DOM 断言（无头浏览器）==')
   console.log('browser:', browser)
   console.log('harness:', harnessPath)

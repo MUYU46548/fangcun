@@ -5651,7 +5651,7 @@
       && !mcpBox.querySelector('.skills-agent'), mcpBox ? (mcpBox.textContent || '').slice(0, 40) : '(没有 .mcp-connect)')
     const mcpRows = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.agent-row')) : []
     check('★ MCP 区按本机检测结果列目标（检测到的 + 没检测到的都在，没检测到的标灰）',
-      mcpRows.length === 2 && mcpRows.some((r) => r.className.indexOf('agent-off') >= 0),
+      mcpRows.length === 3 && mcpRows.some((r) => r.className.indexOf('agent-off') >= 0),
       'rows=' + mcpRows.length)
 
     // 2026-11-06 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”
@@ -5662,6 +5662,8 @@
     check('★ MCP 区渲染“方寸已接入”徽章（配置文件里真有 fangcun 才说，不是“装了软件就算接入”）',
       mcpLinkBadges.some((x) => x.t === '方寸已接入') && mcpLinkBadges.some((x) => /fangcun 条目/.test(x.title)),
       JSON.stringify(mcpLinkBadges))
+    check('★ 反面也有：没接入的明说“方寸未接入”（不能只有绿没有红）',
+      mcpLinkBadges.some((x) => x.t === '方寸未接入'), JSON.stringify(mcpLinkBadges.map((x) => x.t)))
     check('★ 反例：没检测到的那行不许出现接入徽章（不能对一个没装的软件说“已接入”）',
       mcpRows.filter((r) => r.className.indexOf('agent-off') >= 0)
         .every((r) => !r.querySelector('.agent-link')),
@@ -5699,6 +5701,32 @@
 
     await sleep(300)
 
+    // 2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接。”
+    //   这一步会**真的改** Hermes 的 config.yaml —— 所以要先确认，且按钮只该在“未接入”时出现。
+    {
+      const linkBtn = hermesMcp
+        ? Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('接入到 Hermes') >= 0)
+        : null
+      check('★ 未接入时 Hermes 行有“⚡ 接入到 Hermes”按钮', !!linkBtn,
+        hermesMcp ? JSON.stringify(Array.prototype.slice.call(hermesMcp.querySelectorAll('button')).map((b) => (b.textContent || '').trim())) : '(没有 Hermes 行)')
+      const origConfirm = window.confirm
+      const confirmLog = []
+      window.confirm = (msg) => { confirmLog.push(String(msg)); return true }
+      try {
+        if (linkBtn) linkBtn.click()
+        check('★★ 点它 → confirm 先说清改哪个文件、只加不删、先备份',
+          confirmLog.length >= 1 && /config\.yaml/.test(confirmLog[0]) && /备份/.test(confirmLog[0])
+          && /一个字不动/.test(confirmLog[0]), JSON.stringify(confirmLog))
+        check('★★ 点它 → 真调 mcpLinkHermes（不是只弹个 toast 了事）',
+          await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpLinkHermes'), 4000, 'mcpLinkHermes'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'mcpLinkHermes').map((c) => c.args)))
+      } finally {
+        window.confirm = origConfirm
+      }
+    }
+
+    await sleep(300)
+
     // ══ 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？完全断链吗？”）══════
     // 这一块存在的理由就是"不能和成功长得一样"：方寸常驻托盘，升级后旧进程不退，
     // 新实例被单实例锁顶掉 → 自动同步压根没跑，而界面上一句静态承诺看不出任何破绽。
@@ -5707,16 +5735,19 @@
       check('★★ 技能页有“自动同步实况”（此前只有一句静态承诺，跑没跑看不出来）', !!syncRow,
         syncRow ? (syncRow.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '没有 .skills-sync')
       const syncTxt = (syncRow ? syncRow.textContent : '') || ''
+      // 版本号取自真实 package.json（harness 注入），不写死 —— 否则升版本后这条在验旧版本
+      const VER = window.__FC_VER || ''
       check('★ 正常态写清时间 + 当前版本 + 技能清单（清单来自 manifest，不是写死的两个）',
-        /自动同步/.test(syncTxt) && /0\.6\.3/.test(syncTxt) && /fangcun-bridge/.test(syncTxt),
-        syncTxt.replace(/\s+/g, ' ').slice(0, 140))
+        /自动同步/.test(syncTxt) && !!VER && syncTxt.indexOf(VER) >= 0 && /fangcun-bridge/.test(syncTxt),
+        'VER=' + VER + ' :: ' + syncTxt.replace(/\s+/g, ' ').slice(0, 140))
       check('   正常态**不带** stale 样式（不许平白吓人）',
         !!syncRow && syncRow.className.indexOf('stale') < 0, syncRow ? syncRow.className : '')
 
-      // 换成"升级后没同步"的形态 —— 这是用户报的那个现场
+      // 换成"升级后没同步"的形态 —— 这是用户报的那个现场（版本号跟着真实版本走）
+      const prevVer = VER.replace(/(\d+)$/, (m) => String(Math.max(0, Number(m) - 1))) || '0.0.0'
       window.__fcTest.setSkillSync({
         stale: true,
-        staleReason: '上次同步是在 0.6.2 跑的，现在是 0.6.3 —— 升级后的技能还没同步过去',
+        staleReason: '上次同步是在 ' + prevVer + ' 跑的，现在是 ' + VER + ' —— 升级后的技能还没同步过去',
       })
       await openViewTab('待办'); await sleep(250)
       await openViewTab('技能'); await sleep(500)
@@ -5724,7 +5755,7 @@
       const staleTxt = (staleRow ? staleRow.textContent : '') || ''
       check('★★ 升级后没同步 → 这一条变警示，且两个版本号都写出来（不许和成功长得一样）',
         !!staleRow && staleRow.className.indexOf('stale') >= 0
-          && /0\.6\.2/.test(staleTxt) && /0\.6\.3/.test(staleTxt),
+          && staleTxt.indexOf(prevVer) >= 0 && staleTxt.indexOf(VER) >= 0,
         staleRow ? staleRow.className + ' :: ' + staleTxt.replace(/\s+/g, ' ').slice(0, 140) : '没有 .skills-sync')
       check('   反例自证：换形态之前它确实没有 stale 样式（所以变警示是读出来的，不是恒真）',
         !!syncRow && syncRow.className.indexOf('stale') < 0)

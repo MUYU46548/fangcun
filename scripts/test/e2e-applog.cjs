@@ -132,7 +132,9 @@ async function main() {
       // 卡 002 · MCP 接入材料三通道（同样必须注册在 registerIpcHandlers 顶层）
       'mcp:info', 'mcp:snippet', 'mcp:openConfig',
       // 卡006（2026-10-03）· 自装指令渠道（A 路线第三渠道）
-      'mcp:selfInstall']) {
+      'mcp:selfInstall',
+      // 2026-11-06 · Hermes 接入（方寸唯一会写别人配置文件的通道，见 services/hermesLink.ts）
+      'mcp:linkHermes']) {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }

@@ -90,7 +90,7 @@ function devRepoRoot(): string {
  * 于是方寸把自己的 fangcun 段念给一个**不生效的文件**听，自检还把“Hermes 已接入”报成绿。
  * 顺序：`HERMES_HOME` → `%LOCALAPPDATA%\hermes`（存在才用）→ `~/.hermes`。
  */
-function hermesHome(): string {
+export function hermesHome(): string {
   const env = String(process.env.HERMES_HOME || '').trim()
   if (env) return env
   const la = String(process.env.LOCALAPPDATA || '').trim()

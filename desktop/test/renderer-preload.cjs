@@ -228,15 +228,17 @@ const store = {
   archHold: false,
   // 技能自动同步的留痕（2026-11-05）：默认"刚跑过、与当前版本一致"。
   // 断言要换形态就 `__fcTest.setSkillSync({ stale: true, ... })`。
+  // ⚠ 版本**不写死**：由 e2e-renderer-web 从 desktop/package.json 注入 window.__FC_VER
+  //   （写死 0.6.3 的话，一升版本这条就变成"在验一个不存在的版本"，绿得毫无意义）。
   skillSync: {
     ok: true,
-    currentVersion: '0.6.3',
+    currentVersion: window.__FC_VER || '0.0.0',
     stale: false,
     staleReason: '',
     skills: ['fangcun-bridge', 'skill-management-policy'],
     status: {
       at: '2026-11-05T01:20:00.000Z',
-      appVersion: '0.6.3',
+      appVersion: window.__FC_VER || '0.0.0',
       trigger: 'boot',
       ok: true,
       skills: ['fangcun-bridge', 'skill-management-policy'],
@@ -1470,14 +1472,18 @@ contextBridge.exposeInMainWorld('tegula', {
       targets: [
         // 2026-11-06：多了 `linked`（配置文件里到底有没有 fangcun 条目）——
         // 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”
-        // Hermes 给 true（要验徽章真的渲染出来），DSH 故意 detected=false
-        // 且不给 linked（要验“没检测到就不许说接入”这条反例）。
-        { id: 'hermes', name: 'Hermes', detected: true, evidence: 'C:/mock/hermes/config.json',
-          configPath: 'C:/mock/hermes/config.json', linked: true,
-          linkedDetail: 'C:/mock/hermes/config.json 里已有 fangcun 条目（第 12 行 fangcun:）',
+        // 三行各司其职：Hermes=装了但没接入（验"方寸未接入"+“⚡ 接入到 Hermes”按钮）、
+        // DSH=没装（反例：不许说接入）、Cursor=装且已接入（验"方寸已接入"）。
+        { id: 'hermes', name: 'Hermes', detected: true, evidence: 'C:/mock/hermes/config.yaml',
+          configPath: 'C:/mock/hermes/config.yaml', linked: false,
+          linkedDetail: 'C:/mock/hermes/config.yaml 里还没有 fangcun 条目',
           howTo: '复制配置段 → 打开配置文件粘贴保存' },
         { id: 'dsh', name: 'DSH', detected: false, evidence: 'C:/mock/home/.dsh/cordis.patch.yml',
           configPath: 'C:/mock/home/.dsh/cordis.patch.yml', howTo: '复制配置段 → 粘贴保存' },
+        { id: 'cursor', name: 'Cursor', detected: true, evidence: 'C:/mock/cursor/mcp.json',
+          configPath: 'C:/mock/cursor/mcp.json', linked: true,
+          linkedDetail: 'C:/mock/cursor/mcp.json 里已有 fangcun 条目（第 7 行 "fangcun": {）',
+          howTo: '复制配置段 → 粘贴保存' },
       ],
     })
   },
@@ -1492,6 +1498,16 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpOpenConfig: (targetId) => {
     rec('mcpOpenConfig', [targetId])
     return ok({ ok: true, message: '已打开 ' + targetId + ' 的配置文件' })
+  },
+  // 2026-11-06：方寸唯一会写别人配置文件的通道（只 Hermes）。桩必须记账，
+  // 否则“点了按钮到底走没走主进程”这件事在渲染层永远测不到。
+  mcpLinkHermes: (entryId) => {
+    rec('mcpLinkHermes', [entryId])
+    return ok({
+      ok: true, changed: true,
+      message: '已接入 Hermes：mcp_servers 下新增 fangcun（入口 ' + entryId + '）。备份在 config.yaml.bak-fangcun-x。Hermes 里执行 /reload-mcp 即生效。',
+      backupPath: 'C:/mock/hermes/config.yaml.bak-fangcun-x',
+    })
   },
   // 读取情况（卡 20261025-006 第三件）—— 真通道是 `usage:neverRead`（主进程读 mcp-usage.jsonl）。
   // 记账：`__fcTest.callCount('usageNeverRead')` 能验"打开筛选面板时真拉了一次"。

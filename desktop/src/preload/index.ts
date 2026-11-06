@@ -423,6 +423,8 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpSnippet: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:snippet', targetId, entryId),
   mcpSelfInstall: (targetId: string, entryId: string) => ipcRenderer.invoke('mcp:selfInstall', targetId, entryId),
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
+  /** Hermes 接入（2026-11-06）：这是方寸唯一会写别人配置文件的通道（只写 Hermes config.yaml） */
+  mcpLinkHermes: (entryId: string) => ipcRenderer.invoke('mcp:linkHermes', entryId),
   /** “哪些待办没人碰过”（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
   usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
   checkMismatch: (days?: number) => ipcRenderer.invoke('mismatch:check', days),
