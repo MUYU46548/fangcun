@@ -14,6 +14,7 @@
  * 运行：node scripts/test/e2e-stage-gate.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -39,7 +40,7 @@ for (const art of [GATE_ART, PLANS_ART]) {
 }
 const { evaluateStageGate } = require(GATE_ART)
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-stage-gate-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-stage-gate-')
 process.env.FC_TEST_USERDATA = path.join(TEST_ROOT, '.userdata')
 fs.mkdirSync(path.join(TEST_ROOT, 'task-data', 'plans'), { recursive: true })
 fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })
@@ -181,20 +182,25 @@ console.log('\n== ④ 防御：未裁决的卡、坏闸门、unknown ==')
   check('★ 没跑判据（gate=null）→ 拒绝', noGate.advanced === false && /闸门结果缺失/.test(noGate.error || ''))
 }
 
-console.log('\n== ⑤ 真卡：未裁决的 P4 不许被误推进（只读验证）==')
+console.log('\n== ⑤ 真卡：只读体检（绝不对真实计划卡做写操作）==')
 {
   const real = path.join(REPO, 'task-data', 'plans', 'fangcun-base.md')
   if (!fs.existsSync(real)) {
     console.log('SKIP  真实计划卡不在场')
   } else {
-    // 切回真实数据根（只读验证完再切回临时根，别影响后面的断言）
+    // ⚠ 2026-11-06 事故修复：这段原来拿**真卡**跑 `advanceStage`，想验证"待裁决不许推进"。
+    //   但真卡 P4 早在 11-03 就落成"完成"（卡片表格里那句"待裁决"是过期的），
+    //   于是拦截不生效 → 走进"判据未过"分支 → **真把用户的计划卡写坏了**
+    //   （状态被改、追加 3 条修订、打回理由被覆盖；已从 21:34 的备份还原）。
+    //   拿真实用户数据当写操作用例，本身就是错的 —— "待裁决拦截"已由上面第 ② 段的夹具覆盖。
+    //   这里只做只读体检：能解析、阶段齐、一个字节都不许动。
     data.setDataDir(REPO)
     const beforeText = fs.readFileSync(real, 'utf-8')
     const beforeStat = fs.statSync(real)
-    const gate = evaluateStageGate([PASS_CMD]) // 假装全过
-    const r = plans.advanceStage({ file: 'fangcun-base.md', stageId: 'P4', gate })
-    check('★★ 真卡 P4 还是“待裁决”→ 即使判据全过也拒绝推进',
-      r.advanced === false && /还没裁决/.test(r.error || ''), r.error)
+    const doc = plans.readPlan('fangcun-base.md')
+    check('★ 真计划卡能解析出阶段（只读）',
+      !!doc && Array.isArray(doc.stages) && doc.stages.length >= 5,
+      doc ? String(doc.stages.length) + ' 个阶段' : 'readPlan 返回 null')
     check('★ 真卡零改动（字节 + mtime 都不变）',
       fs.readFileSync(real, 'utf-8') === beforeText && fs.statSync(real).mtimeMs === beforeStat.mtimeMs)
     data.setDataDir(TEST_ROOT)

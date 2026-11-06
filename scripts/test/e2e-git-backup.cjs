@@ -17,6 +17,8 @@
  * 运行：node scripts/test/e2e-git-backup.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
+const { rendererSource } = require('./_sources.cjs')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '../..')
@@ -158,7 +160,12 @@ check('★★ 红线：补救**绝不用 --force / --force-with-lease** —— �
 check('  分支名可配；空值兜底 main', pushRecoverySteps('dev')[0][2].indexOf('heads/dev') >= 0 && pushRecoverySteps('')[1][2] === 'origin/main')
 
 // ── ⑤-d 渲染层接线守卫（源码级 —— 防 2026-10-11 那两条回归）──────────────────
-const APPSRC = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
+// ⚠ 2026-11-06 修：这里原来只读 App.vue，而 10-23 拆分把 gitCommitForm / gitTest /
+//   gitPushNow / gitToken 全搬进 `composables/useBackup.ts` —— 于是这四条**长期假红**
+//   （"长期红 = 没保护"，还让人以为渲染层真丢了表单落盘）。
+//   改成扫**全部渲染层源码**（_sources.cjs）：代码再搬家也不会凭空红，
+//   而且判据更严（"App.vue 不许出现 X" = "渲染层任何文件都不许出现 X"）。
+const APPSRC = rendererSource()
 check('★★ 渲染层：测试/推送**前先落盘表单**（gitCommitForm）—— 否则用户"填完直接点"会收到'
   + '"还没填仓库地址"，看着像软件坏了（2026-10-11 用户原话）',
   /async function gitCommitForm/.test(APPSRC)
@@ -224,7 +231,7 @@ async function integrate() {
     console.log('SKIP  真 git 端到端（本机没有可用的 git）')
     return
   }
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-git-e2e-'))
+  const root = mkTmp('fc-git-e2e-')
   const bare = path.join(root, 'bare.git')
   const idArgs = ['-c', 'user.name=e2e', '-c', 'user.email=e2e@local']
   try {
@@ -306,7 +313,7 @@ async function integrateExecutor() {
 
   const Module = require('module')
   const STUB = path.join(__dirname, 'electron-stub.cjs')
-  const tmpUserData = path.join(os.tmpdir(), 'fc-git-exec-' + Date.now())
+  const tmpUserData = mkTmpPath('fc-git-exec-')
   fs.mkdirSync(tmpUserData, { recursive: true })
   // ⚠ 必须在 require 桩之前设好 —— 桩在模块加载时就把 userData 定死了
   process.env.FC_TEST_USERDATA = tmpUserData
@@ -316,7 +323,7 @@ async function integrateExecutor() {
     return origResolve.call(this, request, ...args)
   }
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-git-exec-repo-'))
+  const root = mkTmp('fc-git-exec-repo-')
   const bare = path.join(root, 'bare.git')
   const idArgs = ['-c', 'user.name=e2e', '-c', 'user.email=e2e@local']
   const dataRoot = path.join(tmpUserData, 'data')
