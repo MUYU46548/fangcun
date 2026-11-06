@@ -23,6 +23,18 @@ const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
 
+// 所有临时 profile 都登记在这张表里（2026-11-05）：watchdog 用 process.exit() 直接终止进程时，
+// 下层函数的 finally 根本不会执行 —— 只有 'exit' 钩子能把它们带走，否则又是一份 482MB 漏在 Temp。
+const PROFILES = new Set()
+function mkProfile(prefix) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  PROFILES.add(d)
+  return d
+}
+process.on('exit', () => {
+  for (const d of PROFILES) rmProfile(d)
+})
+
 const ROOT = path.resolve(__dirname, '..', '..')
 const DESKTOP = path.join(ROOT, 'desktop')
 const DIST = path.join(DESKTOP, 'dist', 'renderer')
@@ -84,6 +96,31 @@ function browserPreload() {
  * 要几十秒到两分钟；环境一抖动 dump-dom 拿不到结果就只能走这条路，150s 开始不够。
  * 默认 300s，可用 FC_CDP_BUDGET_MS 覆盖。
  */
+/**
+ * 删掉本次运行临时建的浏览器 profile（2026-11-05 补）。
+ * 此前这三种前缀的目录从来没人删：单个 CDP profile 约 482MB，一个月攒出 259 个 / 53.8GB，
+ * C 盘可用一路掉到 67GB；另外还有 1200+ 个 fc-shot-/fc-web- 小 profile 又占 9GB。
+ * 删不掉不算错误（下次启动的清扫会带走）：正常跑完应当自己收拾干净。
+ */
+function rmProfile(dir) {
+  if (!dir) return
+  PROFILES.delete(dir)
+  try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 120 }) } catch { scheduleLater(dir) }
+}
+
+/**
+ * 浏览器进程结束后句柄还要几百毫秒才放开，exit 钩子里的 rmSync 常常整目录失败（2026-11-05 实测：
+ * 实跑一次后仍留下 fc-cdp-/fc-web- 各一个，两三分钟后再删就成功）。失败就交一条脱离本进程的小尾巴，
+ * 1.5 秒后重试；它不属于 e2e 判定链路，删不掉也只是多一份给每日清扫。
+ */
+function scheduleLater(dir) {
+  try {
+    const code = 'setTimeout(()=>{try{require("fs").rmSync(' + JSON.stringify(dir) +
+      ',{recursive:true,force:true,maxRetries:20,retryDelay:250})}catch(e){}},1500)'
+    spawn(process.execPath, ['-e', code], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+  } catch { /* 实在删不掉就留给每日清扫任务 */ }
+}
+
 function cdpBudget() {
   const n = Number(process.env.FC_CDP_BUDGET_MS)
   return Number.isFinite(n) && n > 5000 ? Math.floor(n) : 300000
@@ -91,7 +128,7 @@ function cdpBudget() {
 
 function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
   const port = 9411 + (process.pid % 500)
-  const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-cdp-'))
+  const prof = mkProfile('fc-cdp-')
   const child = spawn(browser, [
     '--headless=new',
     '--remote-debugging-port=' + port,
@@ -156,6 +193,12 @@ function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
       return html
     } finally {
       try { child.kill() } catch { /* ignore */ }
+      // 等浏览器**进程**真的退出再删：只等固定毫秒数会撞上文件还没放开（不重试就漏一份 482MB）
+      await new Promise((r) => {
+        const t = setTimeout(r, 1500)
+        child.once('exit', () => { clearTimeout(t); setTimeout(r, 250) })
+      })
+      rmProfile(prof)
     }
   })()
 }
@@ -738,6 +781,7 @@ function main() {
       if (n >= CASES.length) return done()
       const [page, view, name, extra, vtBudget] = CASES[n++]
       fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED), 'utf-8')
+      const shotProf = mkProfile('fc-shot-')
       const png = path.join(outDir, name + '.png')
       // ⚠ 先删旧图再拍：判据是“这张图是**这次**拍出来的”，不是“目录里有这么个文件”。
       //   2026-10-14 真事：上一轮留下的同名旧图让 Edge 没写也报 OK，截图"成功"了 17 张，
@@ -751,7 +795,7 @@ function main() {
         '--disable-extensions', '--window-size=' + (process.env.FC_SHOT_SIZE || '1440,900'), '--hide-scrollbars',
         // 独立 profile（同上）：截图 harness 里预置了"已同意免责声明"，但那只在**空 localStorage**
         // 上才意味着"干净的主界面"——用系统 profile 跑等于赌它没被写过。
-        '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'fc-shot-')),
+        '--user-data-dir=' + shotProf,
         // 显式钉住 1:1。⚠ 本机**实测**：不加这条 Edge 也是 1440×900（headless 默认 1:1），
         //   所以它不是"修了什么 bug"，而是防止换到 DPI 不同的机器上悄悄变成 0.75/1.25 倍 ——
         //   截图是给人目检的，尺寸漂移会让前后两张根本没法对比。
@@ -760,6 +804,7 @@ function main() {
         'file:///' + harnessPath.replace(/\\/g, '/'),
       ], { stdio: ['ignore', 'pipe', 'pipe'], env })
       c.on('close', () => {
+        rmProfile(shotProf)
         const okk = fs.existsSync(png) && fs.statSync(png).size > 5000
         console.log((okk ? 'OK   ' : 'FAIL ') + name + '.png  (' + (okk ? fs.statSync(png).size : 0) + ' bytes)')
         if (!okk) process.exitCode = 1
@@ -779,6 +824,7 @@ function main() {
   console.log('browser:', browser)
   console.log('harness:', harnessPath)
 
+  const onceProf = mkProfile('fc-web-')
   const args = [
     '--headless=new',
     '--disable-gpu',
@@ -801,7 +847,7 @@ function main() {
     //   会落到系统默认 profile —— 而"免责声明确认"就存在 localStorage 里（file:// origin），
     //   于是"首启到底弹不弹"变成**不可知**：本机跑是全新、别的机器上可能继承着旧记录，
     //   断言时红时绿。与 viaCdp 兜底路径口径统一（那边一直是独立 profile）。
-    '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'fc-web-')),
+    '--user-data-dir=' + onceProf,
     '--dump-dom',
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]
