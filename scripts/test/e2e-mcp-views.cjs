@@ -19,13 +19,14 @@
 
 const { spawnSync } = require('child_process')
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '..', '..')
 
 // 夹具文件先落盘，再交给子进程跑（子进程 require 编译产物，避免污染本进程模块缓存）
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-views-'))
+const TMP = mkTmp('mcp-views-')
 const DATA = path.join(TMP, 'data')
 fs.mkdirSync(path.join(DATA, 'task-data', 'archive'), { recursive: true })
 fs.mkdirSync(path.join(DATA, 'task-data', '.trash'), { recursive: true })

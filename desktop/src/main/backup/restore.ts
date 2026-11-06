@@ -65,20 +65,31 @@ export async function restoreFrom(
   }
 
   // ── 2. 校验（不通过绝不继续） ────────────────────────────────────────
+  // ⚠ sidecar 必须**跟 zip 一起**在这里读掉：下面 finally 会把远端下载目录整个删掉，
+  //   留到后面再读就永远读到"文件不存在"，sha256 校验被静默降级（比不删更糟）。
   let zipBuffer: Buffer
+  let expectedSha = ''
   try {
     zipBuffer = fs.readFileSync(zipPath)
+    const sidecar = `${zipPath}.sha256`
+    if (fs.existsSync(sidecar)) expectedSha = fs.readFileSync(sidecar, 'utf-8').trim()
   } catch (e) {
     errors.push(`读取备份失败：${(e as Error).message}`)
     return result
+  } finally {
+    // 2026-11-06 暮雨：“持续往 C 盘塞垃圾文件”。
+    // 远端包是先下到 `%TEMP%\fangcun-restore-dl-<时间戳>\` 再恢复的，**原来用完不删** ——
+    // 从 WebDAV 每恢复一次，C 盘就永久留一整份备份 zip（几十~几百 MB）。
+    // 下面的流程只用内存里的 zipBuffer，所以读完立刻删。
+    if (source.kind === 'remote') {
+      try { fs.rmSync(path.dirname(zipPath), { recursive: true, force: true }) } catch { /* 删不掉留给每日兜底 */ }
+    }
   }
 
-  const sidecar = `${zipPath}.sha256`
-  if (fs.existsSync(sidecar)) {
-    const expected = fs.readFileSync(sidecar, 'utf-8').trim()
+  if (expectedSha) {
     const actual = sha256OfBuffer(zipBuffer)
-    if (expected && expected !== actual) {
-      errors.push(`归档 sha256 校验失败（期望 ${expected.slice(0, 16)}…，实际 ${actual.slice(0, 16)}…），已拒绝恢复`)
+    if (expectedSha !== actual) {
+      errors.push(`归档 sha256 校验失败（期望 ${expectedSha.slice(0, 16)}…，实际 ${actual.slice(0, 16)}…），已拒绝恢复`)
       return result
     }
   } else {

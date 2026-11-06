@@ -14,6 +14,7 @@
  * 运行：node scripts/test/e2e-attach.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -25,7 +26,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-attach-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-attach-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')

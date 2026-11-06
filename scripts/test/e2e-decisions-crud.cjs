@@ -13,6 +13,7 @@
  * 运行：node scripts/test/e2e-decisions-crud.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -24,7 +25,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-dec-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-dec-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 fs.mkdirSync(path.join(TEST_ROOT, 'task-data'), { recursive: true })
 fs.writeFileSync(path.join(TEST_ROOT, 'registry.yaml'), 'projects: []\n', 'utf-8')

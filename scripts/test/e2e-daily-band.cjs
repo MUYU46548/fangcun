@@ -15,6 +15,7 @@
  * 运行：node scripts/test/e2e-daily-band.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const path = require('path')
 const os = require('os')
 const Module = require('module')
@@ -214,7 +215,7 @@ check('★ 同序号按文件名升序（确定性，不随机）',
 
 // ── ⑧ 真实计划卡回归（2026-10-31 的教训：夹具不等于真数据） ────────────────
 console.log('\n== 真实计划卡回归 ==')
-const TEST_UD = path.join(os.tmpdir(), 'fc-daily-band-' + Date.now())
+const TEST_UD = mkTmpPath('fc-daily-band-')
 fs.mkdirSync(TEST_UD, { recursive: true })
 process.env.FC_TEST_USERDATA = TEST_UD
 const origResolve = Module._resolveFilename

@@ -12,6 +12,7 @@
  *   把 `parseAmount` 换成 `Number(v)`（浮点）→ ① 组红。
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -235,7 +236,7 @@ function usageReportChecks() {
 // ── ⑤ 端到端：真跑记账（假 fetch，临时账本）────────────────────────────
 console.log('\n── ⑤ 真跑记账（临时 userData + 假余额接口）──')
 async function realLedger() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-balance-'))
+  const base = mkTmp('fc-balance-')
   const STUB = path.join(REPO, 'scripts/test/electron-stub.cjs')
   const orig = Module._resolveFilename
   process.env.FC_TEST_USERDATA = base

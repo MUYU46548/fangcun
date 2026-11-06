@@ -12,6 +12,7 @@
  *  C 接线 —— IPC 通道、preload API、渲染层迁移与读缓存逻辑齐备（源码断言，防漂移）
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -24,7 +25,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-prefs-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-prefs-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')
 const SRC = path.resolve(__dirname, '../../desktop/src')

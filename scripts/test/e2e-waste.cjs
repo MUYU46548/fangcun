@@ -12,6 +12,7 @@
  * 运行：node scripts/test/e2e-waste.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -120,7 +121,7 @@ console.log('\n== ③ 删掉 caveat → 该格不显示（精确红）==')
 
 console.log('\n== ④ 取数：真读 ai-trace 文件 + 真跑 git ==')
 {
-  const TMP = path.join(os.tmpdir(), 'fc-waste-' + Date.now())
+  const TMP = mkTmpPath('fc-waste-')
   fs.mkdirSync(TMP, { recursive: true })
   process.env.FC_TEST_USERDATA = path.join(TMP, '.userdata')
   fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })

@@ -13,6 +13,7 @@
  * 只验"功能能用"不验"没污染别人"，等于给静默错版留门。
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -20,7 +21,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ideas-'))
+const TMP = mkTmp('ideas-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 process.env.FC_TEST_USERDATA = USERDATA

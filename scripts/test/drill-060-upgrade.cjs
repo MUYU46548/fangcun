@@ -16,6 +16,7 @@
  * 运行：node scripts/test/drill-060-upgrade.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
@@ -28,7 +29,7 @@ Module._resolveFilename = function (r, ...a) {
   return orig.call(this, r, ...a)
 }
 
-const WORK = path.join(process.env.TMPDIR || os.tmpdir(), 'fc-060-drill-' + Date.now())
+const WORK = mkTmpPath('fc-060-drill-')
 const DATA = path.join(WORK, 'task-data')
 const SNAP = path.join(WORK, 'snapshot')
 

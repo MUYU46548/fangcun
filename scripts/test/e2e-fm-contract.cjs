@@ -18,6 +18,7 @@
 
 const { spawnSync } = require('child_process')
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
@@ -175,7 +176,7 @@ function splitFrontmatter(text) {
 }
 
 function main() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fm-contract-'))
+  const tmp = mkTmp('fm-contract-')
   fs.writeFileSync(path.join(tmp, 'task-block.md'), TASK_BLOCK, 'utf-8')
   fs.writeFileSync(path.join(tmp, 'log-block.md'), LOG_BLOCK, 'utf-8')
   fs.writeFileSync(path.join(tmp, 'log-inline.md'), LOG_INLINE, 'utf-8')

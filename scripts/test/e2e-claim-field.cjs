@@ -10,6 +10,7 @@
  * 认领的机制语义（租约/原子/交回校验）在 scripts/smoke_claim.py 里。
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -17,7 +18,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'claim-field-'))
+const TMP = mkTmp('claim-field-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 process.env.FC_TEST_USERDATA = USERDATA

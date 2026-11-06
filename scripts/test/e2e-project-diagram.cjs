@@ -16,6 +16,7 @@
  */
 
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
@@ -62,7 +63,7 @@ console.log('\n== ② 多份时挑最新 ==')
 
 console.log('\n== ③ 只在 repo/docs 里找 ==')
 {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-find-'))
+  const tmp = mkTmp('arch-find-')
   const docs = path.join(tmp, 'docs')
   fs.mkdirSync(docs, { recursive: true })
   fs.writeFileSync(path.join(docs, 'architecture-a.html'), 'a')
@@ -80,7 +81,7 @@ console.log('\n== ③ 只在 repo/docs 里找 ==')
   check('  不扫 node_modules（那里面的同名文件不算产物）', hit && hit.path.indexOf('node_modules') < 0)
   check('  不碰仓库根的散落文件（只看 docs/）', hit && hit.path.indexOf('架构图-root') < 0)
 
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-empty-'))
+  const empty = mkTmp('arch-empty-')
   check('  没有 docs/ 且根目录没有产物 → null', P.findProjectArchitectureArtifact(empty) === null)
   check('  路径不存在 → null（不抛）', P.findProjectArchitectureArtifact(path.join(empty, 'nope')) === null)
 }

@@ -15,6 +15,7 @@
  * 运行：node scripts/test/e2e-selfcheck.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -37,7 +38,7 @@ if (!fs.existsSync(ART)) {
   process.exit(1)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-selfcheck-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-selfcheck-')
 process.env.FC_TEST_USERDATA = path.join(TEST_ROOT, '.userdata')
 fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })
 fs.mkdirSync(path.join(TEST_ROOT, 'task-data', 'plans'), { recursive: true })

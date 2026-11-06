@@ -11,6 +11,7 @@
  * 运行：node scripts/test/e2e-llm-fallback.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const path = require('path')
 const os = require('os')
 const Module = require('module')
@@ -21,7 +22,7 @@ Module._resolveFilename = function (request, ...args) {
   if (request === 'electron') return STUB
   return origResolve.call(this, request, ...args)
 }
-const ROOT = path.join(os.tmpdir(), 'fc-llm-fb-' + Date.now())
+const ROOT = mkTmpPath('fc-llm-fb-')
 process.env.FC_TEST_USERDATA = path.join(ROOT, 'userdata')
 fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })
 

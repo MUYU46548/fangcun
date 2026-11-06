@@ -10,6 +10,7 @@
  * 运行：node scripts/test/e2e-mcp-arch.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const path = require('path')
 const os = require('os')
 const Module = require('module')
@@ -20,7 +21,7 @@ Module._resolveFilename = function (request, ...args) {
   if (request === 'electron') return STUB
   return origResolve.call(this, request, ...args)
 }
-const ROOT = path.join(os.tmpdir(), 'fc-mcp-arch-' + Date.now())
+const ROOT = mkTmpPath('fc-mcp-arch-')
 process.env.FC_TEST_USERDATA = path.join(ROOT, 'userdata')
 fs.mkdirSync(path.join(ROOT, 'task-data'), { recursive: true })
 // 一份**只有空项目**的 registry：archForProject 会因为仓库不存在而失败 → 走错误分支，不调模型

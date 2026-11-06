@@ -11,6 +11,7 @@
  * 运行：node scripts/test/e2e-intake.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const path = require('path')
 const os = require('os')
 const Module = require('module')
@@ -24,7 +25,7 @@ Module._resolveFilename = function (request, ...args) {
 
 const REPO = path.resolve(__dirname, '../..')
 const DIST = path.join(REPO, 'desktop', 'dist')
-const ROOT = path.join(os.tmpdir(), 'fc-intake-' + Date.now())
+const ROOT = mkTmpPath('fc-intake-')
 process.env.FC_TEST_USERDATA = path.join(ROOT, 'userdata')
 fs.mkdirSync(path.join(ROOT, 'task-data'), { recursive: true })
 fs.mkdirSync(path.join(ROOT, 'docs'), { recursive: true })

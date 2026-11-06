@@ -13,6 +13,7 @@
  * 运行：node scripts/test/e2e-plan-run.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -27,7 +28,7 @@ Module._resolveFilename = function (request, ...args) {
 
 const REPO = path.resolve(__dirname, '../..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
-const ROOT = path.join(os.tmpdir(), 'fc-plan-run-' + Date.now())
+const ROOT = mkTmpPath('fc-plan-run-')
 process.env.FC_TEST_USERDATA = path.join(ROOT, 'userdata')
 fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })
 

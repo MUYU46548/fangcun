@@ -15,6 +15,7 @@
  * 退出码：0 = 全绿；1 = 有 FAIL（恢复这条道有问题，立即处理）
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
@@ -125,7 +126,7 @@ async function main() {
   // ── 段3：恢复到临时目录（零破坏） ────────────────────────────────────────
   console.log('\n── 段3 恢复（零破坏，落位临时目录） ──')
   lines.push('\n## 段3 恢复（零破坏）')
-  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-drill-'))
+  const targetDir = mkTmp('fc-drill-')
   // 2026-10-31：加密包（.fcz）要口令 —— --password 传进来就带上，没有就交给"记住的那个"
   const r = await restore.restoreFrom({ kind: 'local', path: zipPath }, { targetDir, password: PASSWORD_ARG })
   check('恢复流程成功（sha256→结构→解压→落位全链）', r.ok, JSON.stringify(r.errors))

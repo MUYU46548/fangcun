@@ -9,6 +9,7 @@
  * 运行：node scripts/test/e2e-timefmt.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const { execFileSync } = require('child_process')
@@ -16,7 +17,7 @@ const { execFileSync } = require('child_process')
 const ROOT = path.resolve(__dirname, '..', '..')
 const DESKTOP = path.join(ROOT, 'desktop')
 const SRC = path.join(DESKTOP, 'src', 'shared', 'time.ts')
-const OUT = path.join(os.tmpdir(), 'fc-time-' + Date.now())
+const OUT = mkTmpPath('fc-time-')
 
 let pass = 0, fail = 0
 const failures = []

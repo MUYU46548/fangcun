@@ -15,11 +15,12 @@
 
 const { spawnSync } = require('child_process')
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '..', '..')
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-logs-'))
+const TMP = mkTmp('mcp-logs-')
 const DATA = path.join(TMP, 'data')
 fs.mkdirSync(path.join(DATA, 'task-data'), { recursive: true })
 fs.writeFileSync(path.join(DATA, 'registry.yaml'),

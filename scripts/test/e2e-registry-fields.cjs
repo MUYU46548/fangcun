@@ -13,6 +13,7 @@
  *   · **含特殊字符的值必须转义** —— 全角冒号 / # / 引号，不加引号会被 yaml 解析错。
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -20,7 +21,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-fields-e2e-'))
+const TMP = mkTmp('registry-fields-e2e-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 fs.mkdirSync(DATA, { recursive: true })

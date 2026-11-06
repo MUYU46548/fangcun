@@ -14,6 +14,7 @@
  * 运行：node scripts/test/e2e-linkpath.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
@@ -38,7 +39,7 @@ if (!fs.existsSync(ART)) {
 const { resolveLinkPath, insideRoot } = require(ART)
 
 // ── 夹具：数据根 + 一个别的项目仓库 + 一个"外面"的目录 ────────────────
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-linkpath-'))
+const TMP = mkTmp('fc-linkpath-')
 const DATA_ROOT = path.join(TMP, 'data-root')
 const PROJ = path.join(TMP, 'proj-a')
 const OUTSIDE = path.join(TMP, 'outside')

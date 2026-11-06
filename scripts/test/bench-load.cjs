@@ -18,6 +18,7 @@
  *   node scripts/test/bench-load.cjs --projects=12
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -39,7 +40,7 @@ const ROUNDS = Number(argOf('rounds', '3'))
 const BODY_MODE = argOf('body', 'real')          // real | heavy
 const PROJ_COUNT = Number(argOf('projects', '12'))
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-bench-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-bench-')
 const TASK_DIR = path.join(TEST_ROOT, 'task-data')
 const ARCHIVE_DIR = path.join(TASK_DIR, 'archive')
 

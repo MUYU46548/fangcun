@@ -12,6 +12,7 @@
  * 运行：node scripts/test/e2e-plans.cjs（electron 桩注入，纯 node 直调 dist/main 数据层）
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -24,7 +25,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-plans-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-plans-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')

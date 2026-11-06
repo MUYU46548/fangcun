@@ -15,6 +15,7 @@
  *   · 改成和现在一样 → 拒绝，且**不产生**一张"改成原值"的垃圾决策卡
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
@@ -23,7 +24,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'correct-e2e-'))
+const TMP = mkTmp('correct-e2e-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 process.env.FC_TEST_USERDATA = USERDATA

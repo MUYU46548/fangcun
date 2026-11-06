@@ -9,6 +9,7 @@
  * 运行：node scripts/test/e2e-task-fields.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -21,7 +22,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-fields-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-fields-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')
@@ -385,7 +386,7 @@ function main() {
 
   // ── 搬迁到空目录 ─────────────────────────────────────────────────────
   // 目标必须在数据目录之外 —— 迁入自己内部会被拒绝（下面有专门的用例验证）
-  const migrateDest = path.join(os.tmpdir(), 'fc-migrate-a-' + Date.now())
+  const migrateDest = mkTmpPath('fc-migrate-a-')
   const mr = data.migrateDataDir(migrateDest)
   check('搬迁到空目录成功', mr.ok, mr.errors.join(';'))
   check('搬迁报告了复制文件数', mr.copiedFiles > 0, String(mr.copiedFiles))
@@ -407,7 +408,7 @@ function main() {
 
   // 回收站不随迁（属本地缓存，旧目录里仍保留）
   writeFile(path.join(TEST_ROOT, 'task-data', '.trash', 'deleted.md'), 'x')
-  const migrateDest2 = path.join(os.tmpdir(), 'fc-migrate-b-' + Date.now())
+  const migrateDest2 = mkTmpPath('fc-migrate-b-')
   data.migrateDataDir(migrateDest2)
   check('.trash 不随迁', !fs.existsSync(path.join(migrateDest2, 'task-data', '.trash')))
   check('旧目录的 .trash 原样保留', fs.existsSync(path.join(TEST_ROOT, 'task-data', '.trash', 'deleted.md')))
@@ -440,7 +441,7 @@ function main() {
   // 缓存是“一次刷新扫 15 遍”的解法，但它一旦失灵就是静默读到旧数据 —— 比慢更危险。
   // 这里逐条验证“外部改动（Python CLI / 手改文件 / 直接 fs 写）立即可见”。
   {
-    const cacheRoot = path.join(os.tmpdir(), 'fc-cache-' + Date.now())
+    const cacheRoot = mkTmpPath('fc-cache-')
     const ctd = path.join(cacheRoot, 'task-data')
     fs.mkdirSync(path.join(ctd, 'archive'), { recursive: true })
     fs.writeFileSync(path.join(cacheRoot, 'registry.yaml'), 'members:\n  - 暮雨\nprojects:\n  - id: demo\n    name: 演示\n', 'utf-8')

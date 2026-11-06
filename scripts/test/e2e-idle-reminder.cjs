@@ -10,6 +10,7 @@
  * 运行：node scripts/test/e2e-idle-reminder.cjs（electron 桩注入，纯 node 直调 dist/main）
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -21,7 +22,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-idle-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-idle-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 // 桩在 require 时把 userData 常量化——必须先设 env 再 require 桩（e2e-plans 同纪律）
 const electron = require(STUB)

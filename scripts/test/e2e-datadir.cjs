@@ -15,6 +15,7 @@
  * 运行：node scripts/test/e2e-datadir.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -30,7 +31,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-datadir-'))
+const TMP = mkTmp('fc-datadir-')
 process.env.FC_TEST_USERDATA = path.join(TMP, 'userdata')
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')

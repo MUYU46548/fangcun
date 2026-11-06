@@ -13,6 +13,7 @@
  * 运行：node scripts/test/e2e-ports.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const net = require('net')
@@ -25,7 +26,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-ports-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-ports-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')

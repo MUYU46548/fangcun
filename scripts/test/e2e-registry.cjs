@@ -14,6 +14,7 @@
  *   · 删登记**不动 task-data**（任务卡还在，只是变“未归属”）
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -21,7 +22,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-e2e-'))
+const TMP = mkTmp('registry-e2e-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 fs.mkdirSync(DATA, { recursive: true })

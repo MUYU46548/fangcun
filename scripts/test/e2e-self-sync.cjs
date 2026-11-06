@@ -11,6 +11,7 @@
  *   真仓库全部落在临时目录，跑完即删。
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
@@ -75,7 +76,7 @@ async function main() {
   }
 
   // ── 桩：electron + 临时 userData（数据根由 setDataDir 指到临时仓库）──
-  const tmpUserData = path.join(os.tmpdir(), 'fc-selfsync-' + Date.now())
+  const tmpUserData = mkTmpPath('fc-selfsync-')
   fs.mkdirSync(tmpUserData, { recursive: true })
   process.env.FC_TEST_USERDATA = tmpUserData
   const STUB = path.join(__dirname, 'electron-stub.cjs')
@@ -87,7 +88,7 @@ async function main() {
 
   const roots = []
   const mkRoot = (name) => {
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-ss-' + name + '-'))
+    const d = mkTmp('fc-ss-' + name + '-')
     roots.push(d)
     return d
   }

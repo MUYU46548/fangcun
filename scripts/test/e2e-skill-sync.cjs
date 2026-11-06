@@ -13,6 +13,7 @@
  * 运行：node scripts/test/e2e-skill-sync.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
@@ -36,7 +37,7 @@ if (!fs.existsSync(ART)) {
 }
 const { readSkillIdsFromDir, judgeSkillSyncStale, FALLBACK_SKILL_DIRS } = require(ART)
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-skill-sync-'))
+const TMP = mkTmp('fc-skill-sync-')
 function mkdir(name) { const p = path.join(TMP, name); fs.mkdirSync(p, { recursive: true }); return p }
 function writeManifest(dir, ids) {
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ version: '1.0.0', skills: ids.map((id) => ({ id })) }, null, 2))

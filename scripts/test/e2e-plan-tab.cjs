@@ -15,6 +15,7 @@
  * 运行：node scripts/test/e2e-plan-tab.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 
@@ -46,7 +47,7 @@ Module._resolveFilename = function (request, ...args) {
   if (request === 'electron') return STUB
   return origResolve.call(this, request, ...args)
 }
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-plan-'))
+const TMP = mkTmp('fc-plan-')
 // setDataDir 要求目录里已经有 registry.yaml 或 task-data（防手滑指错盘）
 fs.mkdirSync(path.join(TMP, 'task-data', 'plans'), { recursive: true })
 const data = require(path.join(DIST, 'main', 'data', 'index.js'))

@@ -12,6 +12,7 @@
  *   把 `gitBackup.ts` 里某一条 `onPhase?.()` 删掉 → ① 组按顺序断言红。
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 
 const REPO = path.resolve(__dirname, '../..')
@@ -146,7 +147,7 @@ async function realGitRun() {
   const Module = require('module')
   const STUB = path.join(REPO, 'scripts/test/electron-stub.cjs')
   const orig = Module._resolveFilename
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-sync-'))
+  const base = mkTmp('fc-sync-')
   try {
     // 最小数据根（**必须先于 setDataDir**：它要校验 registry.yaml / task-data）
     fs.mkdirSync(path.join(base, 'task-data'), { recursive: true })

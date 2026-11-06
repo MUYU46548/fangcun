@@ -18,6 +18,7 @@
  * 运行：node scripts/test/e2e-log-groups.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -31,7 +32,7 @@ Module._resolveFilename = function (request, ...args) {
 
 const ROOT = path.resolve(__dirname, '../..')
 const DIST = path.join(ROOT, 'desktop', 'dist', 'main')
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-loggroup-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-loggroup-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 let pass = 0, fail = 0

@@ -17,6 +17,7 @@
  * 运行：node scripts/test/e2e-review-outlet.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const Module = require('module')
@@ -29,7 +30,7 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-review-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-review-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')

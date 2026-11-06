@@ -7,6 +7,7 @@
  * 运行：node scripts/test/e2e-backup.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const net = require('net')
@@ -23,7 +24,7 @@ Module._resolveFilename = function (request, ...args) {
 }
 
 // ── 2. 测试环境 ──────────────────────────────────────────────────────────
-const TEST_ROOT = path.join(os.tmpdir(), 'fc-e2e-' + Date.now())
+const TEST_ROOT = mkTmpPath('fc-e2e-')
 const DAV_ROOT = path.join(TEST_ROOT, '_davstore')
 const PORT = 8899
 const USER = 'tester'
@@ -337,9 +338,21 @@ async function main() {
 
   // ── 从远端恢复 ────────────────────────────────────────────────────────
   fs.rmSync(path.join(TEST_ROOT, 'task-data'), { recursive: true, force: true })
+  // 2026-11-06 暮雨：“持续往 C 盘塞垃圾文件” —— 远端包是先下到
+  // %TEMP%\fangcun-restore-dl-<时间戳>\ 再恢复的，**原来用完不删**：
+  // 从 WebDAV 恢复一次，C 盘就永久留一整份备份 zip（本机实测历史残留 149 个）。
+  // ⚠ 判据是“这次有没有新增”，不是“TEMP 里有没有”—— 后者会被历史残留永远判红。
+  const dlRoot = os.tmpdir()
+  const dlBefore = new Set(fs.readdirSync(dlRoot).filter((n) => n.startsWith('fangcun-restore-dl-')))
   const rRemote = await rs.restoreFrom({ kind: 'remote', name: remoteName })
   check('从远端恢复成功', rRemote.ok, JSON.stringify(rRemote.errors))
   check('远端恢复后任务文件回来了', fs.existsSync(path.join(TEST_ROOT, 'task-data', 'task-20260918-001.md')))
+  {
+    const dlNew = fs.readdirSync(dlRoot)
+      .filter((n) => n.startsWith('fangcun-restore-dl-') && !dlBefore.has(n))
+    check('★ 远端恢复用完的下载目录必须删掉（否则恢复一次就在 C 盘留一整份 zip）',
+      dlNew.length === 0, dlNew.join(','))
+  }
 
   // ── 轮换 ──────────────────────────────────────────────────────────────
   const rotDir = path.join(TEST_ROOT, '_rotate-test')

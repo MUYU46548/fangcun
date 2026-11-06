@@ -13,6 +13,7 @@
  *   ★ 零副作用：跑完 registry.yaml 逐字节不变、task-data 文件清单不变、ai-trace 不被追加
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
@@ -21,7 +22,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-e2e-'))
+const TMP = mkTmp('ask-e2e-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 const repoA = path.join(TMP, 'repoA')

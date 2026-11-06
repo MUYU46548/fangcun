@@ -8,6 +8,7 @@
  * 运行：node scripts/test/e2e-logdedupe.cjs
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const { execFileSync } = require('child_process')
@@ -15,7 +16,7 @@ const { execFileSync } = require('child_process')
 const ROOT = path.resolve(__dirname, '..', '..')
 const DESKTOP = path.join(ROOT, 'desktop')
 const SRC = path.join(DESKTOP, 'src', 'renderer', 'logdedupe.ts')
-const OUT = path.join(os.tmpdir(), 'fc-dedupe-' + Date.now())
+const OUT = mkTmpPath('fc-dedupe-')
 
 let pass = 0
 let fail = 0

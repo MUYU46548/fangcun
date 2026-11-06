@@ -12,6 +12,7 @@
  * 运行：node scripts/test/e2e-backup-crypto.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
@@ -38,7 +39,7 @@ if (!fs.existsSync(ART)) {
 }
 const { encryptBackup, decryptBackup, isEncryptedBackup, BackupCryptoError, CRYPTO_MAGIC } = require(ART)
 
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-crypto-'))
+const TMP = mkTmp('fc-crypto-')
 function py(args, opts = {}) {
   return execFileSync('python', args, {
     encoding: 'utf8', cwd: TMP,

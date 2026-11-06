@@ -13,6 +13,7 @@
  * 运行：node scripts/test/e2e-questionnaire-store.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -20,7 +21,7 @@ const Module = require('module')
 const REPO = path.resolve(__dirname, '../..')
 const DIST = path.join(REPO, 'desktop', 'dist')
 const STUB = path.join(REPO, 'scripts', 'test', 'electron-stub.cjs')
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-q-store-'))
+const TMP = mkTmp('fc-q-store-')
 const DATA = path.join(TMP, 'data')
 const USERDATA = path.join(TMP, 'userdata')
 process.env.FC_TEST_USERDATA = USERDATA

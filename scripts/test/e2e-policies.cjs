@@ -12,6 +12,7 @@
  *  C 接线 —— TS/Python 两侧节名约定一致（“## 项目事实”）
  */
 const path = require('path')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const fs = require('fs')
 const os = require('os')
 const { execFileSync } = require('child_process')
@@ -41,7 +42,7 @@ function main() {
   const hasDist = fs.existsSync(DIST_SVC)
   check('A0 dist 产物存在（先 npm run build）', hasDist, DIST_SVC)
   if (hasDist) {
-    const TEST_ROOT = path.join(os.tmpdir(), 'fc-policies-' + Date.now())
+    const TEST_ROOT = mkTmpPath('fc-policies-')
     process.env.FC_TEST_USERDATA = TEST_ROOT
     const pol = require(DIST_SVC)
     // getDataDir 走 app.getPath 探测链，测试环境须显式 initPaths（桩的 userData 已指 TEST_ROOT）

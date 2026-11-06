@@ -12,6 +12,7 @@
  *  ③ 坏行/缺文件**不许炸**，也**不许把整份统计作废**。
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -28,7 +29,7 @@ function check(name, cond, extra) {
 // ── ① 计量本身（临时数据根，不碰真数据）────────────────────────────────
 function usageChecks() {
   console.log('\n── ① 计量（临时数据根）──')
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-usage-'))
+  const base = mkTmp('fc-usage-')
   const STUB = path.join(REPO, 'scripts/test/electron-stub.cjs')
   const orig = Module._resolveFilename
   process.env.FC_TEST_USERDATA = base

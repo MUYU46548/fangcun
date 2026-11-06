@@ -9,6 +9,7 @@
  * 运行：node scripts/test/e2e-never-read.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '../..')
@@ -141,7 +142,7 @@ function realDataChecks() {
   const os = require('os')
   const Module = require('module')
   const STUB = path.join(REPO, 'scripts/test/electron-stub.cjs')
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-never-read-'))
+  const base = mkTmp('fc-never-read-')
   const orig = Module._resolveFilename
   process.env.FC_TEST_USERDATA = base
   try {

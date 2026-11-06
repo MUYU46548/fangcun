@@ -10,6 +10,7 @@
  * 跑法：node scripts/test/e2e-repo-docs.cjs（本机没 git → 显式 SKIP，不伪装通过）
  */
 const fs = require('fs')
+const { mkTmp } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
@@ -66,7 +67,7 @@ async function main() {
 
   const roots = []
   const mk = (name) => {
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-docs-' + name + '-'))
+    const d = mkTmp('fc-docs-' + name + '-')
     roots.push(d)
     return d
   }

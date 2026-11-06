@@ -19,6 +19,7 @@
  * 运行：node scripts/test/e2e-checks.cjs
  */
 const fs = require('fs')
+const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
 const os = require('os')
 const path = require('path')
 const Module = require('module')
@@ -52,7 +53,7 @@ const {
   DEFAULT_CMD_TIMEOUT_MS, MAX_OUTPUT_CHARS, clampCmdTimeout,
 } = runner
 
-const ROOT = path.join(os.tmpdir(), 'fc-checks-' + Date.now())
+const ROOT = mkTmpPath('fc-checks-')
 function write(rel, text) {
   const p = path.join(ROOT, rel)
   fs.mkdirSync(path.dirname(p), { recursive: true })
