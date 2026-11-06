@@ -425,6 +425,8 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpOpenConfig: (targetId: string) => ipcRenderer.invoke('mcp:openConfig', targetId),
   /** Hermes 接入（2026-11-06）：这是方寸唯一会写别人配置文件的通道（只写 Hermes config.yaml） */
   mcpLinkHermes: (entryId: string) => ipcRenderer.invoke('mcp:linkHermes', entryId),
+  /** DSH 侧的方寸插件状态（只读：插件装没装、自带通道通不通、旧的手工桥指向哪） */
+  mcpDshPlugin: () => ipcRenderer.invoke('mcp:dshPlugin'),
   /** “哪些待办没人碰过”（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
   usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
   checkMismatch: (days?: number) => ipcRenderer.invoke('mismatch:check', days),

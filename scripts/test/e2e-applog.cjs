@@ -135,7 +135,9 @@ async function main() {
       // 卡006（2026-10-03）· 自装指令渠道（A 路线第三渠道）
       'mcp:selfInstall',
       // 2026-11-06 · Hermes 接入（方寸唯一会写别人配置文件的通道，见 services/hermesLink.ts）
-      'mcp:linkHermes']) {
+      'mcp:linkHermes',
+      // 2026-11-06 · DSH 侧方寸插件状态（只读，见 services/dshPlugin.ts）
+      'mcp:dshPlugin']) {
       check(`registerIpcHandlers 真的注册了 ${ch}`, handlers.has(ch),
         handlers.has(ch) ? '' : '通道缺失 —— 注册代码可能又落进了别的函数体（死代码）')
     }

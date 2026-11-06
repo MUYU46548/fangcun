@@ -214,6 +214,47 @@
             <div class="agent-howto">{{ m.howTo }}</div>
           </div>
         </div>
+
+        <!-- DSH 侧的方寸插件（2026-11-06 暮雨：“依然未体现 DSH 插件相关，
+             且 DSH 插件应该自带把方寸接入的功能”）。
+             事实：`dsh-fangcun` 是个真 npm 包，装进 DSH profile 的 bundles 就会加载，
+             它自己直连方寸的命名管道 —— 根本不需要在 cordis.patch.yml 里抄 command/args/env。
+             而 patch 里那条早期的手工桥（mcp-fangcun + dsh-mcp-client）还留着、
+             还指向开发版 electron.exe：dev 一清就断。这两件事以前方寸一个字都没说。 -->
+        <div class="skills-agents dsh-plugin">
+          <div class="skills-agents-title">
+            DSH 插件（方寸自己的插件，自带接入）
+            <span class="skills-agents-sub">只读：插件装没装 / 自带通道通不通 / patch 里那条旧手工桥指向哪。方寸不改 DSH 任何配置</span>
+          </div>
+          <div v-if="dshErr" class="skills-error">{{ dshErr }}</div>
+          <div v-else-if="dshLoading && !dshStatus" class="skills-agent">读取中…</div>
+          <div v-else-if="!dshStatus" class="skills-agent">读不到 DSH 状态 —— 不是“没装 DSH”</div>
+          <template v-else>
+            <div class="agent-row">
+              <div class="agent-line1">
+                <span class="agent-name">DSH 插件</span>
+                <span class="agent-state">{{ dshStatus.installed ? '已装 DSH' : '没装 DSH' }}</span>
+                <span v-for="p in dshStatus.plugins" :key="p.name" class="agent-link"
+                      :class="'agent-link-' + (p.bundled ? 'linked' : 'none')"
+                      :title="'装法：' + p.spec + (p.linkedDir ? '（' + p.linkedDir + '）' : '') + ' · profile：' + dshStatus.profile">
+                  {{ p.name }} {{ p.version || '(版本未知)' }}{{ p.bundled ? '' : '（未进 bundles）' }}
+                </span>
+              </div>
+              <div class="agent-evidence">{{ dshStatus.summary }}</div>
+              <div class="agent-howto">
+                自带通道：{{ dshStatus.pipe.path }} ——
+                <b>{{ dshStatus.pipe.alive ? '通' : '不通' }}</b>
+                （插件自己直连，不用在 cordis.patch.yml 里写 command / args / env）
+              </div>
+              <div v-if="dshStatus.legacy" class="agent-howto">
+                ⚠ patch 第 {{ dshStatus.legacy.line }} 行还有一条旧的手工桥：{{ dshStatus.legacy.plugin }}，
+                command 指向 {{ dshStatus.legacy.command }} ——
+                {{ dshStatus.legacy.commandExists ? '文件存在' : '文件不存在（这条其实连不上）' }}{{ dshStatus.legacy.isDevPath ? '，且是开发目录' : '' }}。
+                插件已自带接入，这条可以删掉（方寸不代改 DSH 配置）。
+              </div>
+            </div>
+          </template>
+        </div>
       </template>
     </main>
 </template>
@@ -630,6 +671,43 @@ const mcpInfoError = ref('')
 /** 同 agentsLoading：区分“还在读”与“读到了但为空” */
 const mcpLoading = ref(true)
 
+// ── DSH 侧的方寸插件（2026-11-06）─────────────────────────────────────
+// 一个只读块：插件（dsh-fangcun）装没装、自带通道通不通、patch 里那条旧手工桥指向哪。
+interface DshPluginRowUi {
+  name: string; bundled: boolean; version: string; spec: string; linkedDir?: string; selfConnect: string
+}
+interface DshPluginUi {
+  dshHome: string; installed: boolean; profile: string; profileDir: string
+  plugins: DshPluginRowUi[]
+  pipe: { path: string; alive: boolean }
+  legacy?: { line: number; plugin: string; command: string; commandExists: boolean; isDevPath: boolean }
+  summary: string
+}
+const dshStatus = ref<DshPluginUi | null>(null)
+const dshLoading = ref(true)
+const dshErr = ref('')
+
+async function loadDshPlugin(): Promise<void> {
+  dshLoading.value = true
+  dshErr.value = ''
+  try {
+    const t: any = window.tegula
+    if (typeof t.mcpDshPlugin !== 'function') {
+      dshStatus.value = null
+      dshErr.value = '当前主进程没有“DSH 插件状态”这个通道（旧版本）—— 这一块读不到'
+      return
+    }
+    const r: any = await t.mcpDshPlugin()
+    if (r && r.ok) dshStatus.value = r as DshPluginUi
+    else { dshStatus.value = null; dshErr.value = (r && r.message) || '读取 DSH 插件状态失败' }
+  } catch (e: any) {
+    dshStatus.value = null
+    dshErr.value = '读取 DSH 插件状态失败：' + (e?.message || e)
+  } finally {
+    dshLoading.value = false
+  }
+}
+
 const mcpEntryDetail = computed(() => {
   const e = mcpEntries.value.find(x => x.id === mcpEntry.value)
   if (!e) return ''
@@ -749,5 +827,7 @@ onMounted(() => {
   void loadMcpInfo()
   // 第四份：自动同步的留痕（2026-11-05）。缺了这一块，"技能是不是最新"就没有任何答案。
   void loadSkillSync()
+  // 第五份：DSH 侧的方寸插件状态（2026-11-06）。缺了它，"方寸已有专属 DSH 插件"在界面上不存在。
+  void loadDshPlugin()
 })
 </script>

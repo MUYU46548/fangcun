@@ -1501,6 +1501,29 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   // 2026-11-06：方寸唯一会写别人配置文件的通道（只 Hermes）。桩必须记账，
   // 否则“点了按钮到底走没走主进程”这件事在渲染层永远测不到。
+  // 2026-11-06：DSH 侧的方寸插件（只读块）。
+  // 暮雨：“依然未体现 DSH 插件相关，且 DSH 插件应该自带把方寸接入的功能。”
+  mcpDshPlugin: () => {
+    rec('mcpDshPlugin')
+    return ok({
+      dshHome: 'C:/mock/.dsh',
+      installed: true,
+      profile: 'desktop',
+      profileDir: 'C:/mock/.dsh/profiles/desktop',
+      plugins: [{
+        name: 'dsh-fangcun', bundled: true, version: '0.3.0',
+        spec: 'link:E:/CODE/CangKu/dsh-fangcun', linkedDir: 'E:/CODE/CangKu/dsh-fangcun',
+        selfConnect: '命名管道（插件自己直连方寸，不需要在 patch 里写 command）',
+      }],
+      pipe: { path: '\\\\.\\pipe\\tegula-mcp', alive: true },
+      legacy: {
+        line: 38, plugin: '@deepseek-ai/dsh-mcp-client',
+        command: 'E:\\CODE\\CangKu\\fangcun\\desktop\\node_modules\\electron\\dist\\electron.exe',
+        commandExists: true, isDevPath: true,
+      },
+      summary: 'dsh-fangcun 0.3.0 已装进 bundles；自带接入 = 命名管道，现在通（方寸在跑）',
+    })
+  },
   mcpLinkHermes: (entryId) => {
     rec('mcpLinkHermes', [entryId])
     return ok({

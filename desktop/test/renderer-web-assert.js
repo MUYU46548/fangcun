@@ -5727,6 +5727,27 @@
 
     await sleep(300)
 
+    // 2026-11-06 暮雨：“依然未体现 DSH 插件相关，且 DSH 插件应该自带把方寸接入的功能。”
+    //   这块以前在界面上**根本不存在** —— 插件装没装、自带通道通不通、patch 里那条旧手工桥
+    //   指向哪，全要靠人去翻 ~/.dsh。这里钉在真渲染出来的 DOM 上。
+    {
+      const box = $('.skills-view .dsh-plugin')
+      check('★ 技能页有「DSH 插件」这一块（此前界面上完全没有这个对象）', !!box,
+        box ? (box.textContent || '').replace(/\s+/g, ' ').slice(0, 80) : '没有 .dsh-plugin')
+      const txt = (box ? box.textContent : '') || ''
+      check('★ 写清插件名 + 版本（dsh-fangcun 0.3.0）',
+        /dsh-fangcun/.test(txt) && /0\.3\.0/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 120))
+      check('★ 写清“自带接入 = 命名管道”及当前通不通',
+        /自带通道/.test(txt) && /tegula-mcp/.test(txt) && /通/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160))
+      check('★★ 点名 patch 里那条旧手工桥（第 38 行 + dsh-mcp-client + 开发目录）',
+        /第 38 行/.test(txt) && /dsh-mcp-client/.test(txt) && /开发目录/.test(txt),
+        txt.replace(/\s+/g, ' ').slice(0, 200))
+      check('★ 徽章用的是既有的 agent-link 样式（不新造一套）',
+        $$('.skills-view .dsh-plugin .agent-link').length >= 1)
+    }
+
+    await sleep(300)
+
     // ══ 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？完全断链吗？”）══════
     // 这一块存在的理由就是"不能和成功长得一样"：方寸常驻托盘，升级后旧进程不退，
     // 新实例被单实例锁顶掉 → 自动同步压根没跑，而界面上一句静态承诺看不出任何破绽。
