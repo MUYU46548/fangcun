@@ -27,7 +27,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cliRuns, dshHome } from './probe'
+import { cliRuns, configHasFangcun, dshHome, probeClaudeCode } from './probe'
 import { detectMcpTargets } from './mcpConnect'
 
 export interface AgentTarget {
@@ -68,11 +68,7 @@ function skillCopied(skillsDir?: string): boolean {
   return isFile(path.join(skillsDir, PRIMARY_SKILL, 'SKILL.md'))
 }
 
-/** MCP 配置里有没有 fangcun 条目 —— 纯文本包含（YAML / TOML / JSON 三种写法都能覆盖） */
-function configHasFangcun(cfgPath?: string): boolean {
-  if (!cfgPath) return false
-  try { return fs.readFileSync(cfgPath, 'utf-8').includes('fangcun') } catch { return false }
-}
+/** MCP 配置里有没有 fangcun 条目 —— 判据在 probe（逐行、先剥注释），与 MCP 接入区同一口径 */
 
 /**
  * 目录存在 ≠ 装好了（2026-10-03 卡 task-20261003-007）：本机 ~/.config/opencode 是 9月1
@@ -124,13 +120,27 @@ export function detectAgentTargets(hermesSkillsDir: string): AgentTarget[] {
     howTo: '点“📂 显示 SKILL.md”把文件在资源管理器里亮出来 → 打开 WorkBuddy 的“导入技能”面板 → 把 SKILL.md（或整个技能文件夹）拖进去。',
   })
 
-  // ④ OpenCode / Claude Code / Codex / Cursor：有目录才列；OpenCode 额外要求“能跑”（卡007）
+  // ④ Claude Code：判据与 MCP 接入区**同一份**（probeClaudeCode）——
+  //    此处旧写法是 `isDir(~/.claude)`，于是"别的工具往 .claude/skills 里塞了几个技能"
+  //    就被当成"本机装了 Claude Code"（2026-11-06 暮雨实测：本机根本没有它）。
+  //    ⚠ 这里**照样列出来**（detected=false），不像 OpenCode 那样"跑不起来就不列"：
+  //      `.claude/skills` 里真有东西，用户需要知道"这个目录在，但它不是 Claude Code 本体"。
+  //      静默消失等于让人以为方寸把这一家丢了。
+  {
+    const cc = probeClaudeCode()
+    out.push({
+      id: 'claudecode', name: 'Claude Code', mode: 'manual', detected: cc.detected,
+      evidence: cc.detected ? cc.evidence : `${cc.evidence} —— ${cc.detail}`,
+      openPath: path.join(home, '.claude'),
+      howTo: 'Claude Code 读 ~/.claude/skills/<名>/SKILL.md：点“📂 显示 SKILL.md”，把整个技能文件夹拷过去即可。',
+    })
+  }
+
+  // ⑤ OpenCode / Codex / Cursor：有目录才列；OpenCode 额外要求“能跑”（卡007）
   const cliTargets: Array<{ id: string; name: string; probe: string; howTo: string; runProbe?: string }> = [
     { id: 'opencode', name: 'OpenCode', probe: path.join(home, '.config', 'opencode'),
       runProbe: 'opencode --version',
       howTo: 'OpenCode 的技能放法随版本不同，方寸不猜它的目录：点“📂 显示 SKILL.md”后按它的文档放。' },
-    { id: 'claudecode', name: 'Claude Code', probe: path.join(home, '.claude'),
-      howTo: 'Claude Code 读 ~/.claude/skills/<名>/SKILL.md：点“📂 显示 SKILL.md”，把整个技能文件夹拷过去即可。' },
     { id: 'codex', name: 'Codex', probe: path.join(home, '.codex'),
       howTo: '点“📂 显示 SKILL.md”，按 Codex 的技能目录放。' },
     { id: 'cursor', name: 'Cursor', probe: path.join(home, '.cursor'),
@@ -145,8 +155,11 @@ export function detectAgentTargets(hermesSkillsDir: string): AgentTarget[] {
     })
   }
 
-  // ⑤ “已接入”两问（卡 011）：技能副本 + MCP 配置含 fangcun。
+  // ⑥ “已接入”两问（卡 011）：技能副本 + MCP 配置含 fangcun。
   //    两问都要**落点可知**才有意义 —— 不可知就留 undefined（界面显示“不可知”，不是“未接入”）。
+  //    ⚠ 2026-11-06：`mcpLinked` 的判据挪到 probe.fangcunConfigHit（逐行剥注释）——
+  //      本机 cordis.patch.yml 的注释里就写着 "fangcun (tegula) task-board bridge"，
+  //      旧的 includes() 会把注释当条目，插件行删了也照样报"已接入"。
   for (const t of out) {
     if (t.skillsDir) t.skillLinked = skillCopied(t.skillsDir)
     const cfg = mcpById.get(t.id)?.configPath

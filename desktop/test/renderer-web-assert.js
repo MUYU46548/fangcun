@@ -5653,6 +5653,20 @@
     check('★ MCP 区按本机检测结果列目标（检测到的 + 没检测到的都在，没检测到的标灰）',
       mcpRows.length === 2 && mcpRows.some((r) => r.className.indexOf('agent-off') >= 0),
       'rows=' + mcpRows.length)
+
+    // 2026-11-06 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”
+    //   此前这一区只有一个“已检测到”（= 本机装了这个软件），对“方寸到底接没接上”一个字都没说。
+    //   现在多一枚徽章：配置文件里**真有 fangcun 条目**才说“方寸已接入”。
+    const mcpLinkBadges = $$('.skills-view .mcp-connect .agent-link')
+      .map((e) => ({ t: (e.textContent || '').trim(), title: e.getAttribute('title') || '' }))
+    check('★ MCP 区渲染“方寸已接入”徽章（配置文件里真有 fangcun 才说，不是“装了软件就算接入”）',
+      mcpLinkBadges.some((x) => x.t === '方寸已接入') && mcpLinkBadges.some((x) => /fangcun 条目/.test(x.title)),
+      JSON.stringify(mcpLinkBadges))
+    check('★ 反例：没检测到的那行不许出现接入徽章（不能对一个没装的软件说“已接入”）',
+      mcpRows.filter((r) => r.className.indexOf('agent-off') >= 0)
+        .every((r) => !r.querySelector('.agent-link')),
+      JSON.stringify(mcpRows.map((r) => ({ off: r.className.indexOf('agent-off') >= 0, link: !!r.querySelector('.agent-link') }))))
+
     const entryBtns = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.mcp-entry-pick button')) : []
     check('★★ 入口切换按可用性禁用（B 不可用就是 disabled，不做成"点了没反应"的死按钮）',
       entryBtns.length === 2 && !!entryBtns.find((b) => b.disabled === true)

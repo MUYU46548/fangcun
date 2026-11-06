@@ -172,6 +172,41 @@ async function main() {
   const rEvil = skillsMod.resolveRevealTarget(path.join(evil, 'SKILL.md'))
   check('  兄弟目录（skills-evil）即使真存在也不能蒙混过关', rEvil.ok === false, JSON.stringify(rEvil))
 
+  // ── 场景 F：Claude Code 不许被"只有一个技能落点目录"骗出来 ────────────────
+  // 2026-11-06 暮雨：“一处 MCP 误报，Claude Code 已接入，实际上本机无 Claude Code。”
+  // 现场：`~/.claude/skills/` 下躺着别的工具塞的 4 个技能，本体（CLI / 用户配置）一个都没有。
+  {
+    const FAKE_HOME = path.join(TEST_ROOT, 'home')
+    const fakeSkill = path.join(FAKE_HOME, '.claude', 'skills', 'hyperframes')
+    fs.mkdirSync(fakeSkill, { recursive: true })
+    fs.writeFileSync(path.join(fakeSkill, 'SKILL.md'), '---\nname: hyperframes\n---\n', 'utf-8')
+
+    const oldUP = process.env.USERPROFILE
+    const oldHome = process.env.HOME
+    const oldNoCli = process.env.FC_NO_CLI_PROBE
+    process.env.USERPROFILE = FAKE_HOME
+    process.env.HOME = FAKE_HOME
+    // 跑测试的机器若**真装了** claude CLI，最后那道 `claude --version` 会把反例判成假红
+    // —— 那是测试环境的问题，不是代码的问题。关掉它，反例只测文件判据。
+    process.env.FC_NO_CLI_PROBE = '1'
+    try {
+      const cc = agents.detectAgentTargets(hermesSkillsDir).find(t => t.id === 'claudecode')
+      check('★ 反例：只有 ~/.claude/skills 时 Claude Code 不许是“已检测到”',
+        cc && cc.detected === false, JSON.stringify(cc && cc.detected))
+      check('  反例：evidence 要把“只有 skills/”讲出来（不是静默消失）',
+        cc && /只有 skills/.test(String(cc.evidence)), cc && cc.evidence)
+
+      fs.writeFileSync(path.join(FAKE_HOME, '.claude.json'), '{}', 'utf-8')
+      const cc2 = agents.detectAgentTargets(hermesSkillsDir).find(t => t.id === 'claudecode')
+      check('★ 正向：出现 ~/.claude.json 之后才算装上',
+        cc2 && cc2.detected === true, JSON.stringify(cc2 && cc2.evidence))
+    } finally {
+      if (oldUP === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldUP
+      if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome
+      if (oldNoCli === undefined) delete process.env.FC_NO_CLI_PROBE; else process.env.FC_NO_CLI_PROBE = oldNoCli
+    }
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

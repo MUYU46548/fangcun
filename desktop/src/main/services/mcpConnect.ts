@@ -19,7 +19,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
-import { cliRuns, dshHome } from './probe'
+import { cliRuns, fangcunConfigHit, dshHome, probeClaudeCode } from './probe'
 
 export type McpEntryId = 'A' | 'B' | 'C'
 
@@ -51,6 +51,16 @@ export interface McpTarget {
   evidence: string
   /** 真实存在的配置文件 → “📂 打开配置文件”才可用；否则 undefined */
   configPath?: string
+  /**
+   * 配置文件里**已经有 fangcun 条目**（= 方寸这条接入真的落地了）。
+   * `configPath` 可知时才判断；落点不可知（WorkBuddy）一律 undefined —— 不猜。
+   *
+   * 2026-11-06 加：此前这一块只说“已检测到”（=装了这个软件），用户看不出方寸到底接没接上
+   * —— DSH 的专属插件（`- id: mcp-fangcun`）明明写在 cordis.patch.yml 里，界面上却毫无体现。
+   */
+  linked?: boolean
+  /** 为什么这么判（人话 + 实际命中处；界面徽章 title 用） */
+  linkedDetail?: string
   /** 一句话步骤：配置段贴到哪、怎么生效 */
   howTo: string
 }
@@ -225,18 +235,19 @@ export function detectMcpTargets(): McpTarget[] {
     })
   }
 
-  // ② Claude Code：CLI 优先；配置文件两处落点
+  // ② Claude Code：CLI / 用户配置为准（**不是** ~/.claude 目录 —— 见 probeClaudeCode 注释）
   {
-    const dot = home('.claude')
+    const cc = probeClaudeCode()
     const json = home('.claude.json')
-    const detected = isDir(dot) || isFile(json)
     out.push({
       id: 'claudecode',
       name: 'Claude Code',
-      detected,
-      evidence: isFile(json) ? json : (isDir(dot) ? dot : '~/.claude'),
+      detected: cc.detected,
+      evidence: cc.evidence,
       configPath: isFile(json) ? json : undefined,
-      howTo: '推荐 CLI：claude mcp add fangcun -s user -- node <入口A的js路径>；或把配置段并进项目根 .mcp.json / ~/.claude.json 的 mcpServers。',
+      howTo: cc.detected
+        ? '推荐 CLI：claude mcp add fangcun -s user -- node <入口A的js路径>；或把配置段并进项目根 .mcp.json / ~/.claude.json 的 mcpServers。'
+        : `${cc.detail}。装了之后：claude mcp add fangcun -s user -- <入口A的命令>，或把配置段并进 ~/.claude.json 的 mcpServers。`,
     })
   }
 
@@ -308,6 +319,18 @@ export function detectMcpTargets(): McpTarget[] {
       // configPath 刻意留 undefined：方寸不猜它的配置位置，界面因此不显示“📂 打开配置文件”
       howTo: 'WorkBuddy 是打包过的应用，MCP 配置文件位置方寸无法确认（不猜、不代写）。点“🤖 让它自装”把指令贴给 WorkBuddy —— 由它自己找到配置文件并写入，装完自己验证再向你汇报。',
     })
+  }
+
+  // ── 收口：配置文件里到底有没有 fangcun（2026-11-06）────────────────
+  // “已检测到”只说明这台机器装了这个软件；“已接入”才说明方寸那条真的落地了。
+  // 落点不可知（configPath 为 undefined）就留 undefined —— 不猜、也不假装知道。
+  for (const t of out) {
+    if (!t.configPath) continue
+    const hit = fangcunConfigHit(t.configPath)
+    t.linked = hit.linked
+    t.linkedDetail = hit.linked
+      ? `${t.configPath} 里已有 fangcun 条目（${hit.where}）`
+      : `${t.configPath} 里还没有 fangcun 条目 —— 用“📋 复制配置段”贴进去（注释里出现 fangcun 不算）`
   }
 
   return out

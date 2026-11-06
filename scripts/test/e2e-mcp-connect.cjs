@@ -213,6 +213,83 @@ function main() {
     /cliRuns\('opencode --version'\)/.test(ocSrc),
     `agents=${/cliRuns\(t\.runProbe\)/.test(agSrc)} mcp=${/cliRuns\('opencode --version'\)/.test(ocSrc)}`)
 
+  // ── 2026-11-06：Claude Code 误报（暮雨：“报 Claude Code 已接入，可本机根本没装、也没号”）──
+  //
+  // 真因：旧判据 `isDir(~/.claude)` —— 只要有个 skills/ 子目录就算"已安装"，而这台机器的
+  // `.claude/skills/` 是别的工具往里塞的技能。下面用**真目录**造两种现场（反例优先）。
+  {
+    const probe = require(path.join(DIST, 'services', 'probe.js'))
+    const fakeHome = path.join(TEST_ROOT, 'home')
+    const skillsOnly = path.join(fakeHome, '.claude', 'skills', 'hyperframes')
+    fs.mkdirSync(skillsOnly, { recursive: true })
+    fs.writeFileSync(path.join(skillsOnly, 'SKILL.md'), '---\nname: hyperframes\n---\n', 'utf-8')
+
+    const oldUP = process.env.USERPROFILE
+    const oldHome = process.env.HOME
+    process.env.USERPROFILE = fakeHome
+    process.env.HOME = fakeHome
+    try {
+      const r1 = probe.probeClaudeCode({ skipCli: true })
+      check('★ 反例：只有 ~/.claude/skills（技能落点目录）不许判成"装了 Claude Code"',
+        r1.detected === false, JSON.stringify(r1))
+      check('  反例：evidence 要讲清"只有 skills/"，而不是含糊一句"没检测到"',
+        /只有 skills/.test(r1.evidence), r1.evidence)
+
+      // 正向：用户级配置出现 ⇒ 才算装上（Claude Code 跑过一次会话就会写这个文件）
+      const userCfg = path.join(fakeHome, '.claude.json')
+      fs.writeFileSync(userCfg, '{}', 'utf-8')
+      const r2 = probe.probeClaudeCode({ skipCli: true })
+      check('★ 正向：出现 ~/.claude.json 才判"装了"', r2.detected === true && r2.evidence === userCfg,
+        JSON.stringify(r2))
+      fs.rmSync(userCfg)
+
+      // 正向之二：settings.json（手工建目录不会带它）
+      const settings = path.join(fakeHome, '.claude', 'settings.json')
+      fs.writeFileSync(settings, '{}', 'utf-8')
+      const r3 = probe.probeClaudeCode({ skipCli: true })
+      check('  正向：~/.claude/settings.json 也算本体证据', r3.detected === true, JSON.stringify(r3))
+      fs.rmSync(settings)
+    } finally {
+      if (oldUP === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = oldUP
+      if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome
+    }
+
+    // 装卡区 / MCP 区必须共用这一份判据（源码守卫：两处都不许再出现 isDir('.claude') 式判据）
+    check('★ 两处检测共用 probeClaudeCode（禁再各写一份 isDir(~/.claude)）',
+      /probeClaudeCode\(\)/.test(agSrc) && /probeClaudeCode\(\)/.test(ocSrc) &&
+      !/isDir\(dot\)\s*\|\|\s*isFile\(json\)/.test(ocSrc),
+      `agents=${/probeClaudeCode\(\)/.test(agSrc)} mcp=${/probeClaudeCode\(\)/.test(ocSrc)}`)
+  }
+
+  // ── 2026-11-06：“方寸已接入”判据（DSH 专属插件在技能页毫无体现）──
+  //
+  // 两个反例必须先造出来：① 注释里写着 fangcun（本机 cordis.patch.yml 第 29 行就是）
+  // 不算接入；② 落点不可知的目标（WorkBuddy）一律 undefined，不猜。
+  {
+    const probe = require(path.join(DIST, 'services', 'probe.js'))
+    const cfg = path.join(TEST_ROOT, 'cordis.patch.yml')
+
+    fs.writeFileSync(cfg, [
+      '# fangcun (tegula) task-board bridge over the desktop app named pipe.',
+      '- id: ui-chat',
+      '  name: "@deepseek-ai/dsh-client-ui-chat"',
+    ].join('\n'), 'utf-8')
+    check('★ 反例：注释里写着 fangcun 不算"已接入"（插件行删了照样报绿就是假成功）',
+      probe.fangcunConfigHit(cfg).linked === false, JSON.stringify(probe.fangcunConfigHit(cfg)))
+
+    fs.appendFileSync(cfg, '\n- insert:\n    - id: mcp-fangcun\n      name: "@deepseek-ai/dsh-mcp-client"\n', 'utf-8')
+    const hit = probe.fangcunConfigHit(cfg)
+    check('★ 正向：真有 mcp-fangcun 条目才算接入，且要能说出命中哪一行',
+      hit.linked === true && /mcp-fangcun/.test(hit.where), JSON.stringify(hit))
+
+    const wbT = targets.find(t => t.id === 'workbuddy')
+    check('★ 落点不可知的目标 linked 必须是 undefined（不猜、不假装知道）',
+      wbT && wbT.linked === undefined, JSON.stringify(wbT && wbT.linked))
+    const dshT = targets.find(t => t.id === 'dsh')
+    check('★ 有 configPath 的目标必须给出 linked（true/false 而不是 undefined）',
+      dshT && typeof dshT.linked === 'boolean', JSON.stringify(dshT && dshT.linked))
+  }
+
   // ── 清理 ───────────────────────────────────────────────────────
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {

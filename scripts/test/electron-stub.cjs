@@ -2,6 +2,7 @@
  * electron 最小桩 — 让主进程代码可在纯 Node 下跑端到端测试。
  * 仅测试用，不参与打包。
  */
+const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
@@ -32,6 +33,17 @@ module.exports = {
     },
     getAppPath: () => path.resolve(__dirname, '../../desktop'),
     isPackaged: false,
+    // 2026-11-06 补：`skillInstaller.autoCheckSkills()` 要写 appVersion（技能同步留痕），
+    // 桩此前没有这个方法 → e2e-agent-targets 直接 TypeError 崩在测试自身，
+    // 整份测试一条断言都没跑（= 那批"自动同步"的改动一直没有被这层守到）。
+    // 读真实 package.json 而不是写死：版本一升，测试跟着走，不会变成"永远对"的符号。
+    getVersion: () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../desktop/package.json'), 'utf-8')).version || '0.0.0-e2e'
+      } catch {
+        return '0.0.0-e2e'
+      }
+    },
   },
   safeStorage: {
     isEncryptionAvailable: () => true,

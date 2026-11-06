@@ -127,7 +127,7 @@
         <div class="skills-agents">
           <div class="skills-agents-title">
             装到别的 agent（不只有 Hermes）
-            <span class="skills-agents-sub">本机实际检测到的才列出来；方寸只往 Hermes 直装 —— 别人的目录不猜、不写</span>
+            <span class="skills-agents-sub">本机实际检测到的才列出来；方寸只往 Hermes / DSH 直装（这两家的落点实测过），其余只给文件 —— 别人的目录不猜、不写</span>
           </div>
           <!-- 三态而不是两态（2026-10-23）：原来只有“有数据 / 检测中…”两种，于是**通道不存在**时
                会永远停在“检测中…”—— 那不是检测中，是根本读不到（界面说假话）。
@@ -169,7 +169,7 @@
         <div class="skills-agents mcp-connect">
           <div class="skills-agents-title">
             接入 MCP（读写方寸任务数据）
-            <span class="skills-agents-sub">按本机安装路径生成配置段；方寸只给材料 —— 粘贴保存由你完成</span>
+            <span class="skills-agents-sub">按本机安装路径生成配置段；方寸只给材料 —— 粘贴保存由你完成。两枚徽章是两个问题：<b>已检测到</b>=本机装了这个软件，<b>方寸已接入</b>=它的配置文件里真有 fangcun 条目（只读探测，注释里写着的 fangcun 不算）</span>
           </div>
           <div class="mcp-entry-pick">
             <span class="mcp-entry-label">入口：</span>
@@ -189,6 +189,14 @@
             <div class="agent-line1">
               <span class="agent-name">{{ m.name }}</span>
               <span class="agent-state">{{ m.detected ? '已检测到' : '没检测到' }}</span>
+              <!-- “已检测到”= 这台机器装了这个软件；“方寸已接入”= 它的配置文件里真有 fangcun 条目。
+                   2026-11-06 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”——
+                   DSH 的 `- id: mcp-fangcun` 就在 cordis.patch.yml 里，旧界面只写“已检测到”，
+                   这句话对"接没接上"一个字都没回答。落点不可知（WorkBuddy）时整枚徽章不渲染。 -->
+              <span v-if="m.detected && m.linked !== undefined" class="agent-link"
+                    :class="'agent-link-' + (m.linked ? 'linked' : 'none')" :title="m.linkedDetail || ''">
+                {{ m.linked ? '方寸已接入' : '方寸未接入' }}
+              </span>
               <button class="skills-btn primary" @click="copyMcpSnippet(m)"
                 title="生成按本机安装路径的配置段并复制">📋 复制配置段</button>
               <button class="skills-btn" @click="copyMcpSelfInstall(m)"
@@ -604,7 +612,11 @@ async function openAgentTarget(a: AgentTargetUi): Promise<void> {
 // 方寸只出材料：配置段按本机安装路径动态生成 + 复制 + 打开目标文件。
 // 不写任何外部应用的文件 —— 粘贴保存是用户的手。
 interface McpEntryUi { id: string; label: string; available: boolean; detail: string; usage: string }
-interface McpTargetUi { id: string; name: string; detected: boolean; evidence: string; configPath?: string; howTo: string }
+interface McpTargetUi {
+  id: string; name: string; detected: boolean; evidence: string; configPath?: string; howTo: string
+  /** 配置文件里有没有 fangcun 条目（undefined = 落点不可知，不渲染徽章） */
+  linked?: boolean; linkedDetail?: string
+}
 const mcpEntries = ref<McpEntryUi[]>([])
 const mcpTargets = ref<McpTargetUi[]>([])
 const mcpEntry = ref<string>('A')

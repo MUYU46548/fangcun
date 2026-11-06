@@ -1468,8 +1468,14 @@ contextBridge.exposeInMainWorld('tegula', {
         { id: 'B', label: '整文件替换（B）', available: false, usage: '', detail: '需要对方没有既有配置才可用' },
       ],
       targets: [
+        // 2026-11-06：多了 `linked`（配置文件里到底有没有 fangcun 条目）——
+        // 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”
+        // Hermes 给 true（要验徽章真的渲染出来），DSH 故意 detected=false
+        // 且不给 linked（要验“没检测到就不许说接入”这条反例）。
         { id: 'hermes', name: 'Hermes', detected: true, evidence: 'C:/mock/hermes/config.json',
-          configPath: 'C:/mock/hermes/config.json', howTo: '复制配置段 → 打开配置文件粘贴保存' },
+          configPath: 'C:/mock/hermes/config.json', linked: true,
+          linkedDetail: 'C:/mock/hermes/config.json 里已有 fangcun 条目（第 12 行 fangcun:）',
+          howTo: '复制配置段 → 打开配置文件粘贴保存' },
         { id: 'dsh', name: 'DSH', detected: false, evidence: 'C:/mock/home/.dsh/cordis.patch.yml',
           configPath: 'C:/mock/home/.dsh/cordis.patch.yml', howTo: '复制配置段 → 粘贴保存' },
       ],
