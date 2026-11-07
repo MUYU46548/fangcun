@@ -115,9 +115,9 @@ projects:
     repo: E:/CODE/CangKu/SongTaoZhenYun
     tools: [python]
     sources: []
-    状态: 程序化音频早期；记忆圣所 DLC 那 6 首曲出自本项目（停在 10-05）
+    状态: 已封存（2026-11-03）——工具能力被 yovoice（leemysw/yovoice：本地多轨 MIDI 编曲 + GM 音色库渲染 + MCP，已装机）全面取代；按用户决定原地保留全部产物与音色库，不删不迁；记忆圣所 DLC 6 首曲与 7 首 ZUN 风格曲出自本项目
     路线图: 程序化音乐生成工具
-    说明: 欠着：①没立项建档（0 卡 0 日志）②git 基线没落 ③无排期
+    说明: 封存不排期。封存时欠项（未立项建档 / 无 git 基线 / 无排期）不再追；产物清单与复活路径见项目内 ARCHIVED.md
 
   # 以下两项 Hermes 中已存在，列于此仅让方寸筛选下拉包含它们（sync 会跳过）。
   - id: quartz
