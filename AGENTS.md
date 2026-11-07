@@ -41,6 +41,10 @@
 - 进度总览: `python scripts/gen-progress.py` —— 从 `task-data/*.md` 的**状态字段**汇总成一张总览表，
   写进 `开发日志.md` 顶部的 AUTO 区（另可 `--also <path>` 导出独立文件）。**它存在的理由**：开发日志是流水账，
   用户看不出"哪些做了哪些没做"（2026-09-26 原话），状态字段才是唯一权威来源，脚本只汇总不改状态
+- **版本号（2026-11-07 起改一处即可）**：`node scripts/version.cjs check` / `set x.y.z`
+  真源只有 `desktop/package.json`，另有**三处派生**：`desktop/package-lock.json`（曾停在 0.3.10）·
+  `skills/manifest.json`·`desktop/src/main/mcp/handler.ts` 的 `serverInfo.version`（曾停在 0.3.9，
+  于是 Hermes 看到的 MCP 服务自称 0.3.9 而实装 0.6.6）。`pack.cjs` 打包前**强制跑 check**，不靠人记得。
 - **打包（推荐，2026-10-27 起）**：`node scripts/pack.cjs <版本号>`
   一条命令做四件事：① 打包前清空暂存 `.pkg-tmp`，并顺手清历史堆积的 `release-<ver>/`；
   ② 设好三件环境变量；③ 输出**固定单目录** `desktop/pkg`（`.gitignore` 已忽略，不入库）；
@@ -130,6 +134,7 @@
 | **主题对比度（多主题后必跑）** | `node scripts/test/check-themes.cjs` | 六套浅色主题**逐套实测 13 对 WCAG 对比度**（正文压底 / 次要文字 / 白字压品牌色 ≥4.5），并把 `THEME_LIST` 与 CSS `:root[data-theme]` 块对表；漏主题、令牌自指、对比度掉档一律红 |
 | **技能真源一致性（改技能必跑）** | `node scripts/test/check-skills.cjs` | **改 `skills/**` 或发版时必跑**：`manifest.version` 必须等于 `desktop/package.json` 版本；每个技能 `frontmatter.version` 必须等于 manifest 登记值（**防版本号漂移** —— 首跑就抓到 fangcun-bridge 写着 1.2.0 而 manifest 记 1.3.0）；`frontmatter.name` 必须等于 id；`docs/agents/<id>/` 副本与真源**逐字节一致**（防两处分叉）；有 SKILL.md 却没登记的目录必须报出来。顺带打印每个技能 md5（人工对账用） |
 | **界面文案（改 UI 文案必跑）** | `node scripts/test/check-ui-copy.cjs` | **Vue 不解析 Markdown** —— `**粗体**` 和反引号会原样印给用户（在途一屏空屏提示、设置页看板归档说明、`mcpConnect.ts` 的 howTo、`chat.ts` 的鉴权提示都犯过）。只看“最终会以纯文本渲染”的位置：App.vue 的 `<template>` 段（剥注释、取**最后一个**行首 `</template>` 才不会被内部 `<template v-if>` 截断）+ howTo/showToast/message/label/hint/placeholder 行；`logs.ts injectLog` / `buildSelfInstallPrompt` / 契约模板 / 派工单是**有意给 AI 读的 Markdown**，天然不在范围。守卫自身带一条“切片长度合理”的断言，防切片失效后永远绿 |
+| **测试桩对账（改主进程 electron 用法必跑）** | `node scripts/check-electron-stub.cjs` | **桩靠人记着同步 = 迟早崩在"测试自身异常"**（2026-11-06 `app.getVersion` 就一次，整份 e2e 一条断言没跑）。判据：拿真身 `electron.d.ts` 对账"`src/main` 里用到的成员桩里有没有"；真身有桩没有 → 红（第一次跑就抓出 `BrowserWindow.fromWebContents` 被用 6 处等 4 个缺口）；真身也没有 → 只提示；明确不加载的入口写进 `ALLOW` 并**打印原因**。|
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是

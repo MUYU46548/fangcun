@@ -10,6 +10,11 @@ const BrowserWindowStub = { windows: [] }
 
 const userData = process.env.FC_TEST_USERDATA || path.join(os.tmpdir(), 'fc-e2e-userdata')
 
+/** `app.setPath` 的调用流水（测试可断言"日志目录被钉到数据根"）。只记账，不改真实路径。 */
+const appSetPathCalls = []
+/** `shell.showItemInFolder` 的调用流水 */
+const shellRevealed = []
+
 class NotificationStub {
   constructor(opts) { this.opts = opts; this.handlers = {} }
   // 2026-10-29：真机通知支持 click（点通知回到具体对象）。桩必须同形，
@@ -33,6 +38,12 @@ module.exports = {
     },
     getAppPath: () => path.resolve(__dirname, '../../desktop'),
     isPackaged: false,
+    // 2026-11-07 由 check-electron-stub 对账补：`appLog.ts` 启动时会 `app.setPath('userData', …)`
+    // 把日志目录钉到数据根。桩没有 → 应用日志那条链在测试里第一步就断。
+    // 只记账，不改真实路径（测试的 userData 由 FC_TEST_USERDATA 决定）。
+    setPath: (name, p) => { appSetPathCalls.push([name, p]) },
+    /** 调用流水（测试可断言"日志目录被钉到数据根"） */
+    setPathCalls: appSetPathCalls,
     // 2026-11-06 补：`skillInstaller.autoCheckSkills()` 要写 appVersion（技能同步留痕），
     // 桩此前没有这个方法 → e2e-agent-targets 直接 TypeError 崩在测试自身，
     // 整份测试一条断言都没跑（= 那批"自动同步"的改动一直没有被这层守到）。
@@ -58,6 +69,11 @@ module.exports = {
   BrowserWindow: {
     // 默认没有窗口（通知类断言不依赖窗口）；要测“聚焦/点通知”时用 _setTestWindows 注入假窗口
     getAllWindows: () => BrowserWindowStub.windows,
+    // 2026-11-07 由 check-electron-stub 对账补：`backup-ipc.ts` 6 处用它把 webContents 反查成窗口
+    // （备份进度往窗口推消息的后半段）。桩没有 → 一走到就 TypeError，而那条链一直"看起来没事"。
+    fromWebContents: (wc) => BrowserWindowStub.windows.find((w) => w && w.webContents === wc) || null,
+    // 同上：`ipc.ts` 用它决定"弹窗挂在哪个窗口上"
+    getFocusedWindow: () => BrowserWindowStub.windows[0] || null,
     _setTestWindows: (arr) => { BrowserWindowStub.windows = arr || [] },
   },
   Notification: NotificationStub,
@@ -65,7 +81,12 @@ module.exports = {
   shell: {
     opened: [],
     external: [],
+    /** 2026-11-07 补：`ipc.ts` 用它在资源管理器里定位文件（"在文件夹中显示"） */
+    revealed: shellRevealed,
     failNext: '',
+    showItemInFolder(p) {
+      shellRevealed.push(p)
+    },
     async openPath(p) {
       this.opened.push(p)
       if (this.failNext) { const f = this.failNext; this.failNext = ''; return f }
