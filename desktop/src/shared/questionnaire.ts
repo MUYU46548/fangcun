@@ -269,3 +269,35 @@ export function deckStats(d: QDeck): { total: number; withOptions: number; layer
     layers: d.layer ? [d.layer] : [],
   }
 }
+
+/** 一个「没写代价」的选项 */
+export interface QCostGap {
+  /** 题号 */
+  id: string
+  /** 选项键 */
+  k: string
+  /** 选项标题（够界面点名用） */
+  t: string
+}
+
+/**
+ * 代价缺失检查（2026-11-07，暮雨 11-05 认可的四条之一：「没写代价的选项不许进卷」）。
+ *
+ * 判据：选项的说明段（`——说明`）为空 = 没写代价。
+ * 样本里真实存在这类项（S3 的 B、S7 的 A），**等于让人在黑暗里选**：
+ * 他看得见"这是什么"，看不见"选它要付什么"。
+ *
+ * ⚠ 这里**只报告、不删选项**。删掉的后果比留着更坏：卷面少一个选项，
+ *   人想选它时只能「改一句」，而"改一句"是他用来推翻框架的口子，不该被这种噪声占用。
+ *   正确出口是把缺口点名，交给 `buildRewritePrompt` 让 agent 补齐（出卷人补，不是答的人补）。
+ */
+export function costGaps(d: QDeck): QCostGap[] {
+  const out: QCostGap[] = []
+  for (const q of d.questions) {
+    for (const o of q.options) {
+      if (!String(o.d || '').trim()) out.push({ id: q.id, k: o.k, t: o.t })
+    }
+  }
+  return out
+}
+

@@ -405,6 +405,15 @@ contextBridge.exposeInMainWorld('tegula', {
   questionnairePrompt: (deck: string, kind: 'rewrite' | 'build') =>
     ipcRenderer.invoke('questionnaire:prompt', deck, kind),
   questionnaireOpenDir: () => ipcRenderer.invoke('questionnaire:openDir'),
+  // 作废与事后校验（2026-11-07）：不作废 = agent 拿过期答案干活；不校验 = 决策卡永远“有效”。
+  questionnaireVoidDeck: (deck: string, reason: string) =>
+    ipcRenderer.invoke('questionnaire:voidDeck', deck, reason),
+  questionnaireReopenDeck: (deck: string) => ipcRenderer.invoke('questionnaire:reopenDeck', deck),
+  questionnaireVoidAnswer: (deck: string, qid: string, reason: string) =>
+    ipcRenderer.invoke('questionnaire:voidAnswer', deck, qid, reason),
+  questionnaireAudit: (deck: string, qid: string, verdict: 'ok' | 'refuted', evidence: string) =>
+    ipcRenderer.invoke('questionnaire:audit', deck, qid, verdict, evidence),
+  questionnaireAuditQueue: () => ipcRenderer.invoke('questionnaire:auditQueue'),
 
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),

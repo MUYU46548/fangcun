@@ -16,6 +16,7 @@ import { shell } from 'electron'
 import { guardedHandle } from './guarded-ipc'
 import {
   listDecks, getDeck, writeAnswers, approveDeck, questionnaireDir, buildPromptForDeck,
+  voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue,
   type QAnswer,
 } from './data/questionnaires'
 
@@ -37,6 +38,27 @@ export function registerQuestionnaireIpcHandlers(): void {
   guardedHandle('questionnaire:prompt', (_e, deck: string, kind: string) => {
     return buildPromptForDeck(String(deck || ''), kind === 'build' ? 'build' : 'rewrite')
   })
+
+  // ── 作废与事后校验（2026-11-07）────────────────────────────────────
+  // 两件事都是"决策库活不活"的关键：不作废 = agent 拿过期答案干活；
+  // 不校验 = 决策卡永远"有效"，等于一张写着结论的废纸。
+  guardedHandle('questionnaire:voidDeck', (_e, deck: string, reason: string) => {
+    return voidDeck(String(deck || ''), String(reason || ''))
+  })
+
+  guardedHandle('questionnaire:reopenDeck', (_e, deck: string) => {
+    return reopenDeck(String(deck || ''))
+  })
+
+  guardedHandle('questionnaire:voidAnswer', (_e, deck: string, qid: string, reason: string) => {
+    return voidAnswer(String(deck || ''), String(qid || ''), String(reason || ''))
+  })
+
+  guardedHandle('questionnaire:audit', (_e, deck: string, qid: string, verdict: string, evidence: string) => {
+    return auditAnswer(String(deck || ''), String(qid || ''), String(verdict || ''), String(evidence || ''))
+  })
+
+  guardedHandle('questionnaire:auditQueue', () => auditQueue())
 
   guardedHandle('questionnaire:openDir', () => {
     const dir = questionnaireDir()

@@ -26,7 +26,7 @@ export interface QItemLike {
   look?: string
 }
 export interface QAnsLike {
-  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend'
+  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void'
   k?: string
   text?: string
 }
@@ -90,9 +90,24 @@ export function openOf(
     .filter((q) => {
       const a = answers[q.id]
       if (!a) return true
+      // 作废的题不算“还没定”——它明确不作数了。混进 open 会让施工单里多出一堆"待定"。
+      if (a.kind === 'void') return false
       return a.kind === 'skip'
     })
     .map((q) => ({ id: q.id, nav: String(q.nav || q.ask || '') }))
+}
+
+/** 已作废的项（当时答过、现在不作数）—— 出施工单时单列，防 agent 又拿旧答案当依据 */
+export function voidedOf(
+  questions: QItemLike[],
+  answers: Record<string, QAnsLike>
+): { id: string; nav: string; why: string }[] {
+  return questions
+    .filter((q) => {
+      const a = answers[q.id]
+      return !!(a && a.kind === 'void')
+    })
+    .map((q) => ({ id: q.id, nav: String(q.nav || q.ask || ''), why: String(answers[q.id].text || '') }))
 }
 
 function optLine(o: QOptLike): string {
@@ -100,8 +115,25 @@ function optLine(o: QOptLike): string {
   return `   - ${o.k}. ${o.t}${d ? ` —— ${d}` : ''}`
 }
 
+/** 没有写“代价”的选项（说明段为空）。
+ *  暮雨 11-05 认可的第一条：「没写代价的选项不许进卷」——
+ *  他看得见"这是什么"、看不见"选它要付什么"，等于在黑暗里选。 */
+export function costGapsOf(questions: QItemLike[]): { id: string; k: string; t: string }[] {
+  const out: { id: string; k: string; t: string }[] = []
+  for (const q of questions) {
+    for (const o of q.options || []) {
+      if (!String(o.d || '').trim()) out.push({ id: q.id, k: o.k, t: o.t })
+    }
+  }
+  return out
+}
+
 /**
- * 「重出题」提示词（有反问时）。
+ * 「重出题 / 补代价」提示词。
+ *
+ * 两条来由（都是他 11-05 亲口认可的补充）：
+ *   ① 反问 —— “题问错了”；
+ *   ② **没写代价的选项** —— 不许进卷。补代价是出卷人的活，不是答的人的活（他只能"改一句"，那是推翻框架的口子）。
  *
  * 三条硬要求写进提示词里，因为它们正是 4 份样本反复强调、而 agent 最容易偷懒的地方：
  *   ① 反问说的是“题问错了”，不是“选项不够”—— 先想清楚他为什么这么问；
@@ -110,40 +142,66 @@ function optLine(o: QOptLike): string {
  */
 export function buildRewritePrompt(opts: PromptOpts): string {
   const asks = askbacksOf(opts.questions, opts.answers)
+  const gaps = costGapsOf(opts.questions)
   const who = opts.project ? `项目「${opts.project}」` : '这个项目'
-  if (!asks.length) {
-    // 不该被调到（界面只在有反问时给这个入口）；返回空串让调用方显式处理，不编一段假提示词
-    return ''
-  }
+  // 两样都没有就返回空串让调用方显式处理 —— 不编一段假提示词（"没有可重出的东西"必须说出来）
+  if (!asks.length && !gaps.length) return ''
   const L: string[] = []
-  L.push(`你在给${who}出问卷。上一卷《${opts.title || opts.deck}》里有 ${asks.length} 道题被**反问**了 ——`)
-  L.push('反问的意思不是“选项不够”，是**这题问错了**：真问题在别处。')
+  const parts: string[] = []
+  if (asks.length) parts.push(`${asks.length} 道题被**反问**了`)
+  if (gaps.length) parts.push(`${gaps.length} 个选项**没写代价**`)
+  L.push(`你在给${who}出问卷。上一卷《${opts.title || opts.deck}》里有${parts.join('、')}。`)
+  if (asks.length) {
+    L.push('反问的意思不是“选项不够”，是**这题问错了**：真问题在别处。')
+  }
   L.push('')
   L.push(`原卷在 \`${opts.path || `task-data/questionnaires/${opts.deck}.md`}\`，先读一遍再动手。`)
-  L.push('')
-  L.push('## 被反问的题')
-  asks.forEach(({ q, text }) => {
+  if (asks.length) {
     L.push('')
-    L.push(`### ${q.id} ${q.nav || ''}`.trim())
-    if (q.ask) L.push(`原题：${q.ask}`)
-    const opts2 = q.options || []
-    if (opts2.length) {
-      L.push('原选项：')
-      opts2.forEach((o) => L.push(optLine(o)))
+    L.push('## 被反问的题')
+    asks.forEach(({ q, text }) => {
+      L.push('')
+      L.push(`### ${q.id} ${q.nav || ''}`.trim())
+      if (q.ask) L.push(`原题：${q.ask}`)
+      const opts2 = q.options || []
+      if (opts2.length) {
+        L.push('原选项：')
+        opts2.forEach((o) => L.push(optLine(o)))
+      }
+      if (q.src) L.push(`原【出处】：${q.src.split('\n')[0]}`)
+      if (q.line) L.push(`原【验收线】：${q.line.split('\n')[0]}`)
+      L.push(`**暮雨的反问**：${text}`)
+    })
+  }
+  if (gaps.length) {
+    L.push('')
+    L.push('## 没写代价的选项（补上“选它要付什么”）')
+    L.push('这些选项只写了“这是什么”，没写“代价”。他答的时候看不见代价，等于在黑暗里选 ——')
+    L.push('**不许删选项**（删了他想选就选不到），把代价补齐即可：')
+    const byQ = new Map<string, { k: string; t: string }[]>()
+    for (const g of gaps) {
+      if (!byQ.has(g.id)) byQ.set(g.id, [])
+      byQ.get(g.id)!.push({ k: g.k, t: g.t })
     }
-    if (q.src) L.push(`原【出处】：${q.src.split('\n')[0]}`)
-    if (q.line) L.push(`原【验收线】：${q.line.split('\n')[0]}`)
-    L.push(`**暮雨的反问**：${text}`)
-  })
+    for (const [qid, list] of byQ) {
+      L.push(`- **${qid}**：${list.map((x) => `${x.k}. ${x.t}`).join('；')}`)
+    }
+  }
   L.push('')
   L.push('## 要你做什么')
-  L.push(`1. **只重写上面这 ${asks.length} 道题**，别把整卷重发一遍 —— 其余题他没意见。`)
-  L.push('2. 先想清楚他为什么这么问：反问往往指出“整道题的前提错了”。如果确实问错了，')
-  L.push('   就换一个真问题；如果只是问法不清楚，把题意写得更直白。**不要把他的反问降级成一个选项。**')
-  L.push('3. 每题 2–4 个**互斥**选项；每个选项必须写清“这是什么 + 代价是什么”，')
-  L.push('   只写名词的选项等于没给。')
-  L.push('4. 保住【看一眼】【出处】【验收线】三段。没【验收线】的题不许出 —— 那句话是事后校验唯一依据。')
-  L.push('5. 输出格式照旧，方寸要能解析：')
+  const steps: string[] = []
+  if (asks.length) {
+    steps.push(`**只重写上面这 ${asks.length} 道题**，别把整卷重发一遍 —— 其余题他没意见。`)
+    steps.push('先想清楚他为什么这么问：反问往往指出“整道题的前提错了”。如果确实问错了，'
+      + '就换一个真问题；如果只是问法不清楚，把题意写得更直白。**不要把他的反问降级成一个选项。**')
+  } else {
+    steps.push('**只补代价，别动题目结构** —— 他没对题目提意见，只是这些选项缺代价。')
+  }
+  steps.push('每题 2–4 个**互斥**选项；每个选项必须写清“这是什么 + 代价是什么”，只写名词的选项等于没给。')
+  steps.push('保住【看一眼】【出处】【验收线】三段。没【验收线】的题不许出 —— 那句话是事后校验唯一依据。')
+  steps.forEach((s, i) => L.push(`${i + 1}. ${s}`))
+
+  L.push(`${steps.length + 1}. 输出格式照旧，方寸要能解析：`)
   L.push('')
   L.push('```md')
   L.push('## S1 题名')
@@ -155,7 +213,7 @@ export function buildRewritePrompt(opts: PromptOpts): string {
   L.push('【验收线】选了它之后，什么算违约')
   L.push('```')
   L.push('')
-  L.push('6. 写成 md 放到 `task-data/questionnaires/` 下（文件名别覆盖原卷，建议 `' + opts.deck + '-v2.md`），')
+  L.push(`${steps.length + 2}. 写成 md 放到 \`task-data/questionnaires/\` 下（文件名别覆盖原卷，建议 \`${opts.deck}-v2.md\`），`)
   L.push('   放好之后告诉暮雨“可以答了”。')
   return L.join('\n') + '\n'
 }
@@ -188,6 +246,12 @@ export function buildWorkOrderPrompt(opts: PromptOpts): string {
     L.push('这些题暮雨跳过或没答。施工单里遇到它们必须显式标成“待定”，')
     L.push('或者绕开、先做不受影响的部分：')
     open.forEach((o) => L.push(`- ${o.id} ${o.nav}`))
+  }
+  const voided = voidedOf(opts.questions, opts.answers)
+  if (voided.length) {
+    L.push('')
+    L.push('## 已作废的（曾经这么定过，现在不作数 —— 别再拿它当依据）')
+    voided.forEach((o) => L.push(`- ${o.id} ${o.nav}${o.why ? `（作废原因：${o.why}）` : ''}`))
   }
   L.push('')
   L.push('## 施工单要求')

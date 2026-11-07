@@ -190,9 +190,17 @@ console.log('\n== ⑥ 出口提示词（反问 → 重出题；无反问才许�
       S3: { kind: 'pick', k: 'B' },
     },
   })
+  // ⚠ 2026-11-07 语义变了：重出题的入口**不再只由反问触发** ——
+  //   暮雨 11-05 认可的四条之一是「没写代价的选项不许进卷」，而补代价必须由出卷人做，
+  //   所以「有缺代价选项」也开这一轮。样本里真实存在这类项（S3 的 B 等），
+  //   于是这里不能断言"被拒"，要断言"被允许且点名缺代价的那几个"。
   const rw2 = store.buildPromptForDeck('司天-宪法层', 'rewrite')
-  check('★★ 反例：没有反问时 → 重出题被拒（不许编一段空提示词）',
-    rw2.ok === false && /没有反问/.test(rw2.error || ''), rw2.error)
+  check('★★ 反问清零但有缺代价的选项 → 仍可重出题（补代价也是重出题的一轮）',
+    rw2.ok === true && rw2.costGaps > 0 && /没写代价的选项/.test(rw2.text || ''),
+    `ok=${rw2.ok} gaps=${rw2.costGaps} err=${rw2.error}`)
+  check('★ 提示词里点名缺代价的选项（出卷人要知道补哪几个，不是笼统"补代价"）',
+    !!rw2.text && rw2.text.includes('**S3**') && rw2.text.includes('B. '),
+    (rw2.text || '').split('\n').filter((l) => l.indexOf('没写代价') >= 0 || /^- \*\*S\d/.test(l)).join(' | ').slice(0, 160))
 
   const build2 = store.buildPromptForDeck('司天-宪法层', 'build')
   check('★★ 反问清零 → 施工单提示词生成成功', build2.ok === true && !!build2.text, build2.error)
