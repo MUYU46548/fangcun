@@ -202,6 +202,8 @@ export function getDeck(deck: string): {
   costGaps?: { id: string; k: string; t: string }[]
   /** 卷面体检（缺代价 / 缺验收线 / 超批）—— 只报告不改卷 */
   issues?: QDeckIssue[]
+  /** 可选项目（registry 里的 id + 名字）—— 落卡时界面先给候选，别让用户点一次失败才知道要选 */
+  projects?: { id: string; name: string }[]
   path?: string
 } {
   const name = safeName(deck)
@@ -216,7 +218,12 @@ export function getDeck(deck: string): {
   return {
     ok: true, deck: name, parsed, answers: a.answers, approvedAt: a.approvedAt,
     updatedAt: a.updatedAt || '', voidedAt: a.voidedAt || '', voidReason: a.voidReason || '',
-    audits: a.audits || {}, costGaps: costGaps(parsed), issues: deckIssues(parsed), path: p,
+    audits: a.audits || {}, costGaps: costGaps(parsed), issues: deckIssues(parsed),
+    // 项目候选一次性带出去：界面先渲染下拉（默认"自动按卷名认"），
+    // 免得用户点一次「落成任务卡」先吃一个 needProject 错误才知道要选
+    projects: parseRegistry().map((x: any) => ({ id: String(x?.id || ''), name: String(x?.name || x?.id || '') }))
+      .filter((x: { id: string }) => !!x.id),
+    path: p,
   }
 }
 
@@ -726,10 +733,18 @@ export function deckToCards(deck: string, opts?: { project?: string; priority?: 
       return { ok: false, error: `registry 里没有项目「${project}」—— 卡必须有归属，不许落在不存在的项目上` }
     }
   } else {
-    const prefix = name.split('-')[0].trim()
-    const hit = registry.find((p) => p.id === prefix)
-      || registry.find((p) => p.name && (name.includes(p.name) || p.name.includes(prefix)))
-    if (hit) project = hit.id
+    // 认法：卷名里**包含**哪个项目名（或 id）就算哪个，取最长命中。
+    // 不用 `name.split('-')[0]` —— 样本文件名是 `问卷-司天-宪法层-20261104`，前缀是"问卷"，
+    // 按首段认永远认不出（这正是"靠猜"会翻车的地方）。
+    const scored = registry
+      .map((p) => {
+        const byName = p.name && p.name.length >= 2 && name.includes(p.name) ? p.name.length : 0
+        const byId = name.includes(p.id) ? p.id.length : 0
+        return { id: p.id, score: Math.max(byName, byId) }
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+    if (scored.length) project = scored[0].id
   }
   if (!project) {
     return {

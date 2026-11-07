@@ -71,6 +71,11 @@
               <div class="idea-t">{{ i.text }}</div>
               <div class="idea-sub">
                 <span class="idea-badge" :class="'is-' + ctl.ideaStatusKey(i.status)">{{ i.status }}</span>
+                <!-- 产出落到哪：只写"已立项"等于看不见它变成什么了。
+                     这条让"念头 → 卡"整条链在页面上可查（卡 id 能直接贴给 agent）。 -->
+                <span class="idea-promoted" v-if="i.promoted">
+                  {{ i.promoted.kind === 'task' ? '→ 卡 ' + i.promoted.id : '→ 待办' }}
+                </span>
                 <span class="idea-note" v-if="i.note">{{ i.note }}</span>
                 <span class="idea-when">{{ ctl.relativeTime(i.decidedAt || i.createdAt) }}</span>
                 <div class="idea-acts">

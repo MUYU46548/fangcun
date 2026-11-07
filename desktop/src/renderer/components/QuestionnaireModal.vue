@@ -330,8 +330,9 @@
             <button v-else class="ghost" :disabled="promptBusy" @click="openPrompt('build')">
               📋 生成施工单提示词
             </button>
-            <select v-if="cardOptions.length && !cardDone" v-model="cardProject" class="qn-sel">
-              <option value="">（选项目）</option>
+            <select v-if="cardOptions.length && approved && !voidedAt && !cardDone" v-model="cardProject" class="qn-sel"
+              title="落卡落到哪个项目；默认按卷名自动认">
+              <option value="">自动（按卷名）</option>
               <option v-for="p in cardOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <button v-if="approved && !voidedAt" class="ok" :disabled="cardBusy" @click="makeCards"
@@ -521,6 +522,10 @@ async function openDeck(name: string): Promise<void> {
     audits.value = r.audits || {}
     costGaps.value = r.costGaps || []
     issues.value = Array.isArray(r.issues) ? r.issues : []
+    // 项目候选先摆出来（默认空 = 按卷名自动认），不让用户点一次失败才知道要选
+    cardOptions.value = Array.isArray(r.projects) ? r.projects.map((p: any) => ({ id: String(p.id || ''), name: String(p.name || p.id || '') })) : []
+    cardProject.value = ''
+    cardDone.value = null
     summary.value = false
     // 打开落在“第一道还没答的题”上，省得从 S1 一路翻
     const first = (r.parsed.questions as QItem[]).find((q) => !isAnswered(q.id))

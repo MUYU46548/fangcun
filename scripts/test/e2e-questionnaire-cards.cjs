@@ -91,6 +91,11 @@ console.log('\n== ② 答卷 → 任务卡：项目不许瞎猜 ==')
   ].join('\n'), 'utf-8')
   store.writeAnswers('无主卷', { answers: { Z1: { kind: 'pick', k: 'A' } } })
   store.approveDeck('无主卷')
+  const g0 = store.getDeck('无主卷')
+  check('★ 打开卷就带项目候选（界面先给下拉，别让用户点一次失败才知道要选）',
+    Array.isArray(g0.projects) && g0.projects.some((x) => x.id === 'fangcun-base'),
+    JSON.stringify(g0.projects && g0.projects.map((x) => x.id)))
+
   const need = store.deckToCards('无主卷')
   check('★★ 认不出项目 → needProject 并回候选清单（不瞎猜归属）',
     need.ok === false && need.needProject === true && Array.isArray(need.projects) && need.projects.length === 2,
@@ -122,6 +127,20 @@ console.log('\n== ③ 答卷 → 任务卡：内容搬运与幂等 ==')
   check('★ 只给"打勾 / 改一句"的题落卡（跳过与未答不落，且逐条说明原因）',
     r.created === 2 && Array.isArray(r.omitted) && r.omitted.some((x) => x.qid === 'S2' && /跳过/.test(x.why)),
     JSON.stringify({ created: r.created, omitted: r.omitted }))
+
+  // 样本文件名带「问卷-」前缀（`问卷-司天-宪法层-20261104`）—— 按首段认项目会认成"问卷"，
+  // 所以这里专门验一次"卷名里包含项目名就算"的认法。
+  fs.writeFileSync(path.join(QDIR, '问卷-司天-裁决层A.md'),
+    fs.readFileSync(path.join(REPO, 'references', '问卷样本', '问卷-司天-裁决层A-20261104.md'), 'utf-8'), 'utf-8')
+  {
+    const d2 = store.getDeck('问卷-司天-裁决层A')
+    const firstQ = d2.parsed.questions[0]
+    store.writeAnswers('问卷-司天-裁决层A', { answers: { [firstQ.id]: { kind: 'pick', k: (firstQ.options[0] || { k: 'A' }).k } } })
+    store.approveDeck('问卷-司天-裁决层A')
+    const r2 = store.deckToCards('问卷-司天-裁决层A')
+    check('★★ 带「问卷-」前缀的卷名也能认出项目（不靠首段猜）',
+      r2.ok === true && r2.project === 'sitian', JSON.stringify({ project: r2.project, err: r2.error }))
+  }
 
   const cards = data.loadTasks('all').filter((t) => String(t.body || '').includes('[问卷:司天-宪法层:'))
   check('★ 卡真落进 task-data，且能按项目筛出来', cards.length === 2 && cards.every((t) => t.fm.project === 'sitian'),
