@@ -301,3 +301,39 @@ export function costGaps(d: QDeck): QCostGap[] {
   return out
 }
 
+/** 卷面问题（出题质量闸，2026-11-07）—— 三类，都来自两份同类调研的可抄清单 */
+export interface QDeckIssue {
+  kind: 'noCost' | 'noLine' | 'tooMany'
+  /** 题号（tooMany 没有具体题） */
+  id?: string
+  text: string
+}
+
+/** Typeform 官方调研：≤6 题/批完成率最高，比长表单高 15% */
+export const Q_BATCH_MAX = 6
+
+/**
+ * 卷面体检。**只报告、不改卷**：
+ *   · `noCost`  —— 选项没写"要付什么"（让人在黑暗里选）；
+ *   · `noLine`  —— 题没写【验收线】（事后校验没有判据，`auditAnswer` 会直接拒）；
+ *   · `tooMany` —— 一屏超过 `Q_BATCH_MAX` 题（调研数据：完成率明显下降，建议拆批）。
+ *
+ * 为什么不替它改：题目是 agent 写的（暮雨原话），方寸只做呈现与收答案。
+ * 出口是「打包成补代价 / 重出题」，不是替出卷人动刀。
+ */
+export function deckIssues(d: QDeck): QDeckIssue[] {
+  const out: QDeckIssue[] = []
+  for (const q of d.questions) {
+    for (const o of q.options) {
+      if (!String(o.d || '').trim()) out.push({ kind: 'noCost', id: q.id, text: `${q.id}.${o.k} 没写代价` })
+    }
+    // 只有"要选一个"的题才需要验收线；「预填确认」这类一选项都没有的题不算
+    if (q.options.length >= 2 && !String(q.line || '').trim()) {
+      out.push({ kind: 'noLine', id: q.id, text: `${q.id} 没写验收线（事后没法校验）` })
+    }
+  }
+  if (d.questions.length > Q_BATCH_MAX) {
+    out.push({ kind: 'tooMany', text: `这卷 ${d.questions.length} 题，超过 ${Q_BATCH_MAX} 题/批 —— 建议拆层或拆批` })
+  }
+  return out
+}

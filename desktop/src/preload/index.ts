@@ -414,6 +414,9 @@ contextBridge.exposeInMainWorld('tegula', {
   questionnaireAudit: (deck: string, qid: string, verdict: 'ok' | 'refuted', evidence: string) =>
     ipcRenderer.invoke('questionnaire:audit', deck, qid, verdict, evidence),
   questionnaireAuditQueue: () => ipcRenderer.invoke('questionnaire:auditQueue'),
+  /** 答卷 → 真任务卡（幂等；没批准 / 有反问 / 已作废一律拒） */
+  questionnaireMakeCards: (deck: string, opts?: { project?: string; priority?: string }) =>
+    ipcRenderer.invoke('questionnaire:makeCards', deck, opts),
 
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),

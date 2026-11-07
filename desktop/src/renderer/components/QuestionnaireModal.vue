@@ -76,10 +76,10 @@
 
         <!-- 卷面质量闸（2026-11-07）：没写代价的选项 = 让人在黑暗里选。
              只点名、不删选项（删了他想选就选不到），出口是「打包成重出题」让出卷人补。 -->
-        <div v-if="costGaps.length && !voidedAt" class="qn-warn">
-          <b>⚠ {{ costGaps.length }} 个选项没写代价</b>
-          <span class="qw-names">{{ costGaps.map(function (g) { return g.id + '.' + g.k }).join('、') }}</span>
-          <span class="qw-hint">选它要付什么，卷里没写 —— 补代价是出卷人的活，不是你的事</span>
+        <div v-if="issues.length && !voidedAt" class="qn-warn">
+          <b>⚠ 卷面 {{ issues.length }} 处要补</b>
+          <span class="qw-names">{{ issueSummary }}</span>
+          <span class="qw-hint">补代价 / 补验收线 / 拆批都是出卷人的活 —— 你只答，不替 agent 改题</span>
           <button class="ghost" @click="openPrompt('rewrite')">打包成补代价</button>
         </div>
         <div v-if="voidedAt" class="qn-void">
@@ -330,6 +330,14 @@
             <button v-else class="ghost" :disabled="promptBusy" @click="openPrompt('build')">
               📋 生成施工单提示词
             </button>
+            <select v-if="cardOptions.length && !cardDone" v-model="cardProject" class="qn-sel">
+              <option value="">（选项目）</option>
+              <option v-for="p in cardOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <button v-if="approved && !voidedAt" class="ok" :disabled="cardBusy" @click="makeCards"
+              title="把这些答案落成 task-data 里的任务卡 —— 没卡就没人施工">
+              {{ cardDone ? `✓ 已落 ${cardDone.created} 张` : '🗂 落成任务卡' }}
+            </button>
             <button v-if="voidedAt" class="ghost" @click="doReopen">恢复这卷</button>
             <button v-else class="danger" @click="voidOpen = !voidOpen">⌫ 作废这卷</button>
             <span class="qn-grow"></span>
@@ -341,8 +349,8 @@
 
         <div class="qn-hint">
           <template v-if="!summary">草稿每改一下就存 · 点「批准并落库」才真正写入决策卡</template>
-          <template v-else-if="!approved">上面是草稿 —— 没批准就关掉 = 什么都没发生</template>
-          <template v-else>已批准：决策卡已建、decision-log 段落已导出到 questionnaires 目录</template>
+          <template v-else-if="!approved">上面是草稿 —— 没批准就关掉 = 什么都没发生（也不能落成任务卡）</template>
+          <template v-else>已批准：决策卡已建、decision-log 段落已导出；要点「落成任务卡」才会进 task-data 被派活</template>
         </div>
       </template>
     </div>
@@ -382,6 +390,17 @@ const voidReason = ref('')
 const audits = ref<Record<string, { verdict: 'ok' | 'refuted'; evidence: string; at: string }>>({})
 /** 卷面里没写代价的选项（黄条点名用） */
 const costGaps = ref<{ id: string; k: string; t: string }[]>([])
+/** 卷面体检：缺代价 / 缺验收线 / 超一批（只报告，不改卷） */
+const issues = ref<{ kind: string; id?: string; text: string }[]>([])
+/** 三类问题各几处，黄条上一行说清 */
+const issueSummary = computed(() => {
+  const n = (k: string) => issues.value.filter((x) => x.kind === k).length
+  const parts: string[] = []
+  if (n('noCost')) parts.push(`${n('noCost')} 个选项没写代价`)
+  if (n('noLine')) parts.push(`${n('noLine')} 题没写验收线`)
+  if (n('tooMany')) parts.push(`${n('tooMany')} 批超量（> 6 题/批）`)
+  return parts.join(' · ')
+})
 /** 跨卷「该看一眼了」清单（选卷页顶部） */
 const auditDue = ref<{ deck: string; id: string; ask: string; days: number; refuted: boolean }[]>([])
 /** 作废原因输入 */
@@ -389,6 +408,11 @@ const voidDraft = ref('')
 const voidBusy = ref(false)
 /** 整卷作废的输入行是否展开 */
 const voidOpen = ref(false)
+/** 落卡：项目选择与本轮进度（答案 → 真任务卡 是"反馈给施工方"的最后一步） */
+const cardProject = ref('')
+const cardOptions = ref<{ id: string; name: string }[]>([])
+const cardBusy = ref(false)
+const cardDone = ref<{ created: number; skipped: number; project: string } | null>(null)
 /** 校验里的证据输入（按 qid 存，避免一个错字串到别题） */
 const auditDraft = ref<Record<string, string>>({})
 const view = ref<'one' | 'all'>('one')
@@ -496,6 +520,7 @@ async function openDeck(name: string): Promise<void> {
     voidReason.value = r.voidReason || ''
     audits.value = r.audits || {}
     costGaps.value = r.costGaps || []
+    issues.value = Array.isArray(r.issues) ? r.issues : []
     summary.value = false
     // 打开落在“第一道还没答的题”上，省得从 S1 一路翻
     const first = (r.parsed.questions as QItem[]).find((q) => !isAnswered(q.id))
@@ -657,6 +682,37 @@ function downloadMd(): void {
   a.download = '问卷-' + (deck.value?.deck || 'answer') + '.md'
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+}
+
+/**
+ * 答卷 → 真任务卡（2026-11-07）。
+ *
+ * 这一步之前缺失，是"问卷是半成品"的实处：答案只落 decision-log 与一段提示词，
+ * 而**没有卡就没人施工** —— 链断在最后一步。
+ * 项目认不出来时后端会回 needProject + 候选清单，这里渲染成下拉再点一次（不瞎猜归属）。
+ */
+async function makeCards(): Promise<void> {
+  if (!deck.value || cardBusy.value) return
+  cardBusy.value = true
+  try {
+    const r: any = await api().questionnaireMakeCards(deck.value.deck, cardProject.value ? { project: cardProject.value } : undefined)
+    if (r && r.needProject) {
+      cardOptions.value = (r.projects || []).map((p: any) => ({ id: String(p.id || ''), name: String(p.name || p.id || '') }))
+      toast(String(r.error || '选一个项目再落卡'), 'error')
+      return
+    }
+    if (!r || r.ok === false) { toast(String(r?.error || '落卡失败'), 'error'); return }
+    cardDone.value = { created: Number(r.created || 0), skipped: Number(r.skipped || 0), project: String(r.project || '') }
+    const om = Array.isArray(r.omitted) ? r.omitted.length : 0
+    toast(
+      `已落 ${r.created} 张卡${r.skipped ? `，${r.skipped} 张已存在（跳过）` : ''}${om ? `，${om} 题没落（跳过/否决/反问/作废）` : ''}`,
+      'success',
+    )
+  } catch (e: any) {
+    toast('落卡失败：' + (e?.message || e), 'error')
+  } finally {
+    cardBusy.value = false
+  }
 }
 
 /** 单题作废：答案曾经成立，现在失效 */
@@ -923,5 +979,9 @@ onMounted(() => { void loadList() })
 .au-acts { margin-top: 7px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .au-in { flex: 1 1 220px; min-width: 160px; font: inherit; font-size: 11.5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--ink); }
 .au-in:focus { outline: none; border-color: var(--accent); }
+.qn-sel {
+  font: inherit; font-size: 11.5px; padding: 3px 6px; border: 1px solid var(--border);
+  border-radius: 7px; background: var(--card); color: var(--ink); max-width: 160px;
+}
 </style>
 

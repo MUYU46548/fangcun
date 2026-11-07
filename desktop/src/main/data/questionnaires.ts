@@ -13,9 +13,10 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getTaskDir } from './index'
+import { getTaskDir, loadTasks, parseRegistry } from './index'
 import { addDecision, loadDecisions, setDecisionStatus } from './decisions'
-import { parseQuestionnaire, costGaps, type QDeck } from '../../shared/questionnaire'
+import { createTask } from './tasks'
+import { parseQuestionnaire, costGaps, deckIssues, type QDeck, type QDeckIssue } from '../../shared/questionnaire'
 import { askbacksOf, buildRewritePrompt, buildWorkOrderPrompt, costGapsOf } from '../../shared/qnPrompts'
 
 export interface QAnswer {
@@ -199,6 +200,8 @@ export function getDeck(deck: string): {
   audits?: Record<string, QAudit>
   /** 卷面里没写代价的选项（界面黄条点名用） */
   costGaps?: { id: string; k: string; t: string }[]
+  /** 卷面体检（缺代价 / 缺验收线 / 超批）—— 只报告不改卷 */
+  issues?: QDeckIssue[]
   path?: string
 } {
   const name = safeName(deck)
@@ -213,7 +216,7 @@ export function getDeck(deck: string): {
   return {
     ok: true, deck: name, parsed, answers: a.answers, approvedAt: a.approvedAt,
     updatedAt: a.updatedAt || '', voidedAt: a.voidedAt || '', voidReason: a.voidReason || '',
-    audits: a.audits || {}, costGaps: costGaps(parsed), path: p,
+    audits: a.audits || {}, costGaps: costGaps(parsed), issues: deckIssues(parsed), path: p,
   }
 }
 
@@ -659,3 +662,154 @@ export function buildPromptForDeck(deck: string, kind: 'rewrite' | 'build'): {
 export function decisionCount(): number {
   try { return loadDecisions().length } catch { return 0 }
 }
+
+/** 落卡时写在正文里的幂等标记 —— 同一卷同一题只会建一张（改一次卷不会长出十张重复卡） */
+export function cardMarker(deck: string, qid: string): string {
+  return `[问卷:${deck}:${qid}]`
+}
+
+/**
+ * 答卷 → **真任务卡**（2026-11-07）。
+ *
+ * 为什么必须做这一步（两份同类调研的共同结论，也是暮雨说"问卷还是半成品"的实处）：
+ *   在此之前，"出单"只产出**一段提示词**（`buildWorkOrderPrompt`）—— 谁去把它变成卡？
+ *   没人。于是一条链断在最后一步：答案躺在 decision-log 里，施工方要看还得有人手工搬。
+ *   Spec Kit 的做法是 spec.md → plan.md → tasks.md **纯文件链**；方寸本来就是 md 卡，
+ *   所以这里直接落 `task-data/*.md`，零新格式、零新依赖。
+ *
+ * 三条护栏（顺序不能反 —— 先判能不能建，再建）：
+ *   ① **没批准不许落卡**（草稿进施工 = 把没定的事当定了做）；
+ *   ② 卷已作废 / 还有反问 → 拒（问题还没定，落下去的卡必然是错的）；
+ *   ③ 项目归不了 → 不瞎猜，把项目清单回给界面让它选。
+ *
+ * 幂等：正文末尾带 `[问卷:<卷>:<题号>]`，已有同样标记的卡跳过（返回 skipped）。
+ * 搬运纪律：题干 / 选择 / 验收线 / 出处 **原文全带**，不做"摘要式搬运"。
+ */
+export function deckToCards(deck: string, opts?: { project?: string; priority?: string }): {
+  ok: boolean
+  error?: string
+  /** 需要用户先选项目（界面据此渲染下拉，而不是让卡落到"未归属"） */
+  needProject?: boolean
+  projects?: { id: string; name: string }[]
+  project?: string
+  created?: number
+  skipped?: number
+  cards?: { qid: string; id: string }[]
+  /** 没落卡的题及原因（跳过 / 否决 / 反问 / 作废 / 未答 —— 不许静默漏） */
+  omitted?: { qid: string; why: string }[]
+} {
+  const name = safeName(deck)
+  const g = getDeck(name)
+  if (!g.ok || !g.parsed || !g.answers) return { ok: false, error: g.error || '读不到问卷' }
+  const parsed = g.parsed
+  const answers = g.answers
+
+  if (!g.approvedAt) {
+    return { ok: false, error: '这卷还没批准 —— 草稿不能进施工。先点「批准并落库」' }
+  }
+  if (g.voidedAt) {
+    return { ok: false, error: `这卷已作废（${String(g.voidedAt).slice(0, 10)}）—— 作废的答案不落卡` }
+  }
+  const asks = askbacksOf(parsed.questions, answers)
+  if (asks.length) {
+    return { ok: false, error: `还有 ${asks.length} 道题被反问 —— 问题没定，这时候落的卡必然是错的。先「重出题」` }
+  }
+
+  // 项目：显式传入优先（必须真在 registry 里）；否则按卷名前缀匹配 id 或名字
+  const registry = parseRegistry().map((p: any) => ({
+    id: String(p?.id || ''),
+    name: String(p?.name || p?.id || ''),
+  })).filter((p: { id: string }) => !!p.id)
+  let project = String((opts && opts.project) || '').trim()
+  if (project) {
+    if (!registry.some((p) => p.id === project)) {
+      return { ok: false, error: `registry 里没有项目「${project}」—— 卡必须有归属，不许落在不存在的项目上` }
+    }
+  } else {
+    const prefix = name.split('-')[0].trim()
+    const hit = registry.find((p) => p.id === prefix)
+      || registry.find((p) => p.name && (name.includes(p.name) || p.name.includes(prefix)))
+    if (hit) project = hit.id
+  }
+  if (!project) {
+    return {
+      ok: false, needProject: true, projects: registry,
+      error: '认不出这卷属于哪个项目（卷名和 registry 里的项目名对不上）—— 选一个再落卡',
+    }
+  }
+
+  const existing = loadTasks('all')
+  const seen = new Set<string>()
+  for (const t of existing) {
+    const m = /\[问卷:([^\]]+?):([^\]]+?)\]/.exec(String(t.body || ''))
+    if (!m) continue
+    seen.add(cardMarker(m[1], m[2]))
+  }
+
+  const day = String(g.approvedAt).slice(0, 10)
+  const cards: { qid: string; id: string }[] = []
+  const omitted: { qid: string; why: string }[] = []
+  let skipped = 0
+
+  for (const q of parsed.questions) {
+    const a = answers[q.id]
+    if (!a) { omitted.push({ qid: q.id, why: '未答' }); continue }
+    if (a.kind === 'skip') { omitted.push({ qid: q.id, why: '跳过（下次再问）' }); continue }
+    if (a.kind === 'reject') { omitted.push({ qid: q.id, why: '否决（这题不该问）' }); continue }
+    if (a.kind === 'askback') { omitted.push({ qid: q.id, why: '反问（回给 agent 重出题）' }); continue }
+    if (a.kind === 'void') { omitted.push({ qid: q.id, why: '作废（不作数）' }); continue }
+
+    const marker = cardMarker(name, q.id)
+    if (seen.has(marker)) { skipped++; continue }
+
+    const picked = a.kind === 'amend'
+      ? `自述：${String(a.text || '').trim()}`
+      : `${a.k || ''}. ${(q.options.find((x) => x.k === a.k) || { t: '' }).t}`
+    const line = String(q.line || '').trim().replace(/\s*\n\s*/g, ' ')
+    const ask = String(q.ask || '').trim()
+    const body = [
+      '## 来源',
+      `问卷《${parsed.title || name}》第 ${q.id} 题（${day} 批准）`,
+      `问卷文件：\`task-data/questionnaires/${name}.md\``,
+      '',
+      '## 定下来的',
+      picked,
+      '',
+      '## 为什么问',
+      ask || `（题干只写了导航名：${q.nav || q.id}）`,
+      '',
+      '## 验收线（问卷原文）',
+      line || '未给 —— **开工前先补一句“做完什么样”**（问卷里没写，等于这张卡没有终点）',
+      '',
+      '## 期望产物',
+      '（问卷没写 —— 补一句“交付什么算做完”。同族抄点：CrewAI 的 `expected_output`、Kiro 的 EARS 句式',
+      '“当 X 时，系统应 Y”，两者都是为了让“做完”可判定）',
+      '',
+      marker,
+    ].join('\n')
+
+    // 标题：卡的 id 由标题生成，所以只取一句、限长；全文在正文里一位不丢
+    const head = (q.nav || ask || q.id).replace(/\s+/g, ' ').trim().slice(0, 48)
+    const title = `[问卷] ${q.id} ${head}`
+    try {
+      const t = createTask({
+        title,
+        project,
+        priority: String((opts && opts.priority) || '中'),
+        status: '待办' as any,
+        tags: ['问卷', name],
+        body,
+      })
+      cards.push({ qid: q.id, id: t.id })
+      seen.add(marker)
+    } catch (e: any) {
+      return { ok: false, error: `${q.id} 建卡失败：${e?.message || e}（已建 ${cards.length} 张，别重复点）` }
+    }
+  }
+
+  if (!cards.length && !skipped) {
+    return { ok: false, error: '这卷没有可落卡的答案（打勾 / 改一句才算）' }
+  }
+  return { ok: true, project, created: cards.length, skipped, cards, omitted }
+}
+

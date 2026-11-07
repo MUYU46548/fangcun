@@ -1616,6 +1616,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .idea-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
 .idea-acts button { flex: none; height: 26px; padding: 0 11px; font-size: 11.5px; white-space: nowrap; }
 .idea-do { font-weight: 600; }
+/* 做成任务卡（2026-11-07）：比“变成待办”更重的一步 —— 真写进 task-data，能派活。
+   视觉上给一点分量（左边竖线隔开），但不抢“变成待办”的主位。 */
+.idea-task { border-left: 1px solid var(--border); color: var(--accent); }
 /* × 是与前三个**不同性质**的动作（删掉这条，不是给它做决定）——
    一条细竖线隔开，免得手滑把"不做"点成"删掉"（2026-10-22 截图目检） */
 .idea-del { margin-left: 2px; padding: 0 8px; border-left: 1px solid var(--border); color: var(--muted); }

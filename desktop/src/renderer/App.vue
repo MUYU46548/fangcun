@@ -4748,6 +4748,39 @@ async function doIdea(i: any): Promise<void> {
 }
 
 /** 撤销立项：待办那条一起撤（主进程负责判断"已被做完就不许撤"） */
+/**
+ * 做成任务卡（2026-11-07）。
+ *
+ * 为什么单独一个动作：待办（todos）是方寸里没人走的支线 —— next / 阻塞链 / 看板 / 派活
+ * 全读 task-data 的任务卡。想法只进待办 = 立项即终点。
+ * 这条走 `target: 'task'`：真写一张卡（标题取首行，**全文进正文**），归属先留空
+ * （不逼用户当场编项目），他在卡上改。
+ */
+async function ideaToTask(i: any): Promise<void> {
+  if (ideaBusy.value) return
+  ideaBusy.value = true
+  try {
+    const r: any = await window.tegula.ideasPromote(toPlain(i.id), { target: 'task' })
+    if (!r || r.ok === false) {
+      showToast(`没法做成任务卡：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    await loadIdeas()
+    await loadAll()
+    showToast(`已做成任务卡 ${r.taskId || ''}（归属未定，去卡上选项目）`, 'success')
+    offerUndo(`“${firstLineOf(i.text)}” → 已建卡`, async () => {
+      const back: any = await window.tegula.ideasUnpromote(toPlain(i.id))
+      if (!back || back.ok === false) throw new Error(back?.error || '撤不回来了')
+      await loadIdeas()
+      await loadAll()
+    })
+  } catch (e: any) {
+    showToast('做卡异常：' + (e?.message || e), 'error')
+  } finally {
+    ideaBusy.value = false
+  }
+}
+
 async function undoDoIdea(i: any): Promise<void> {
   if (ideaBusy.value) return
   ideaBusy.value = true
@@ -7475,7 +7508,7 @@ const ideasCtl = reactive({
   get ideasShowDecided() { return ideasShowDecided.value },
   set ideasShowDecided(v: boolean) { ideasShowDecided.value = v },
   relativeTime, ideaStatusKey,
-  saveIdea, doIdea, holdIdea, dropIdea, removeIdea, undoDoIdea, reviveIdea,
+  saveIdea, doIdea, ideaToTask, holdIdea, dropIdea, removeIdea, undoDoIdea, reviveIdea,
 })
 
 /** 启动台（视图刀）：模板在 views/LaunchpadView.vue，登记/启动/菜单动作仍在 App */

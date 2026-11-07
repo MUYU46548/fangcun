@@ -98,6 +98,20 @@ console.log('== ① 没写代价的选项（只点名、不删项）==')
     briefA && briefA.costGaps === gaps.length && briefZ && briefZ.costGaps === 0,
     JSON.stringify({ a: briefA && briefA.costGaps, z: briefZ && briefZ.costGaps }))
 
+  // ── 卷面体检三件（2026-11-07，来自两份同类调研的可抄清单）──────────
+  const issues = parser.deckIssues(d)
+  const cnt = (k) => issues.filter((x) => x.kind === k).length
+  check('★ 体检：缺代价数与 costGaps 同一口径（不许出现两套计数）',
+    cnt('noCost') === gaps.length, JSON.stringify({ deck: cnt('noCost'), gaps: gaps.length }))
+  check('★★ 体检：7 题 > 6 题/批 → 报超量（Typeform 数据：≤6 完成率最高）',
+    cnt('tooMany') === 1, JSON.stringify(issues.filter((x) => x.kind === 'tooMany')))
+  check('★★ 反例：样本每题都写了验收线 → noLine 恒 0（不许把有验收线的题误报成缺）',
+    cnt('noLine') === 0, JSON.stringify(issues.filter((x) => x.kind === 'noLine')))
+  const noLineDeck = parser.parseQuestionnaire(fs.readFileSync(path.join(QDIR, '无验收线.md'), 'utf-8'))
+  check('★ 真缺验收线的卷 → 恰好点名那一题',
+    parser.deckIssues(noLineDeck).filter((x) => x.kind === 'noLine').length === 1,
+    JSON.stringify(parser.deckIssues(noLineDeck)))
+
   check('★ 重出题提示词里点名缺代价（纯函数，与数据层同一口径）',
     (() => {
       const t = prompts.buildRewritePrompt({

@@ -12,7 +12,7 @@
           <div class="ideas-chain">
             <span class="ic-step"><b>① 想法</b>这一页：随手记，不用想清</span>
             <span class="ic-arrow">→</span>
-            <span class="ic-step"><b>② 待办</b>点“变成待办”：真的在待办里生出一条，能派活/排期</span>
+            <span class="ic-step"><b>② 待办 / 任务卡</b>“变成待办”= 轻条目；“做成任务卡”= 真进 task-data，能派活/进阻塞链</span>
             <span class="ic-arrow">→</span>
             <span class="ic-step"><b>③ 日志</b>做完在待办那条上点“→ 日志”：留痕，可回看</span>
           </div>
@@ -48,6 +48,8 @@
               <div class="idea-acts">
                 <button class="ok idea-do" :disabled="ctl.ideaBusy" @click="ctl.doIdea(i)"
                   title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</button>
+                <button class="ghost idea-task" :disabled="ctl.ideaBusy" @click="ctl.ideaToTask(i)"
+                  title="做成任务卡 —— 真写进 task-data：能进看板/阻塞链/next，能派给 agent；归属先留空，去卡上选">做成任务卡</button>
                 <button class="ghost idea-hold" :disabled="ctl.ideaBusy" @click="ctl.holdIdea(i)"
                   title="先放着，不是否决 —— 将来还能捡回来">搁置</button>
                 <button class="ghost idea-drop" :disabled="ctl.ideaBusy" @click="ctl.dropIdea(i)"

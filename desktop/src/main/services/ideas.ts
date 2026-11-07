@@ -31,7 +31,8 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { getDataDir, atomicWrite } from '../data'
+import { getDataDir, atomicWrite, parseRegistry } from '../data'
+import { createTask, readTask, deleteTask } from '../data/tasks'
 import * as appLog from './appLog'
 import * as todosService from './todos'
 
@@ -53,8 +54,13 @@ export interface Idea {
   updatedAt: string
   /** 做出决定的时间。新记 = 空串（没做过决定，不假填一个时间） */
   decidedAt: string
-  /** 立项产出到哪了。只有“已立项”有值，用来回查是哪条待办 */
-  promoted: { kind: 'todo'; id: string } | null
+  /**
+   * 立项产出到哪了。只有“已立项”有值。
+   *   · `todo` = 轻待办（原设计：念头刚拍板，还不知道归哪个项目、怎么算做完）
+   *   · `task` = **真任务卡**（2026-11-07 补：想法只落到待办 = 进不了 next / 阻塞链 / 看板，
+   *     等于"立项即终点"。暮雨原话：“想法也还是半成品，无法发挥任何实际作用”）
+   */
+  promoted: { kind: 'todo' | 'task'; id: string } | null
 }
 
 /**
@@ -125,9 +131,10 @@ export function isIdeaStatus(v: unknown): v is IdeaStatus {
  */
 function normalizeIdea(raw: any): Idea {
   const status = isIdeaStatus(raw?.status) ? (raw.status as IdeaStatus) : '新记'
-  const promoted = raw?.promoted && raw.promoted.kind === 'todo' && raw.promoted.id
-    ? { kind: 'todo' as const, id: String(raw.promoted.id) }
-    : null
+  const pk = raw?.promoted && (raw.promoted.kind === 'todo' || raw.promoted.kind === 'task')
+    ? String(raw.promoted.kind) as 'todo' | 'task'
+    : ''
+  const promoted = pk && raw.promoted.id ? { kind: pk, id: String(raw.promoted.id) } : null
   return {
     id: String(raw?.id ?? ''),
     text: String(raw?.text ?? ''),
@@ -305,14 +312,67 @@ export function setIdeaStatus(
  */
 export function promoteIdea(
   id: string,
-  opts?: { priority?: string },
-): { ok: true; idea: Idea; todoId: string } | { ok: false; error: string } {
+  opts?: { priority?: string; target?: 'todo' | 'task'; project?: string },
+): { ok: true; idea: Idea; todoId?: string; taskId?: string } | { ok: false; error: string } {
   const all = loadIdeas()
   const idx = all.findIndex((i) => i.id === id)
   if (idx < 0) return { ok: false, error: '没有这条想法（可能已经删了）' }
   const cur = all[idx]
-  if (cur.status === '已立项') return { ok: false, error: '已经立项过了（待办里有对应的一条）' }
+  if (cur.status === '已立项') return { ok: false, error: '已经立项过了（' + (cur.promoted && cur.promoted.kind === 'task' ? '任务卡' : '待办') + '里有对应的一条）' }
   if (!cur.text.trim()) return { ok: false, error: '内容是空的，没法立项' }
+
+  // ── 落成真任务卡（2026-11-07）──────────────────────────────────────
+  // 为什么要有这条路：待办（todos）是方寸里**没人走的支线** —— next / 阻塞链 / 看板 / 派活
+  // 全读 task-data 的任务卡。想法只进待办 = 立项即终点，这就是"发挥不了实际作用"的根。
+  if (opts?.target === 'task') {
+    const project = String(opts.project || '').trim()
+    if (project) {
+      const ok = parseRegistry().some((p: any) => String(p?.id || '') === project)
+      if (!ok) return { ok: false, error: `registry 里没有项目「${project}」—— 卡不能落在不存在的项目上` }
+    }
+    const full = cur.text.trim()
+    const firstLine = full.split('\n').map((s) => s.trim()).find(Boolean) || full
+    // 卡 id 由标题生成，所以标题取一句并限长；**全文进正文，一位不丢**（搬运纪律）
+    const title = firstLine.replace(/\s+/g, ' ').slice(0, 60)
+    const body = [
+      '## 来源',
+      `想法（${cur.createdAt.slice(0, 10)} 记下，${new Date().toISOString().slice(0, 10)} 立项）`,
+      '',
+      '## 原文（全文，未删节）',
+      full,
+      '',
+      '## 验收线',
+      '未给 —— 立项时还没想过"怎么算做完"。**开工前先补一句**（没验收线的卡等于没有终点）',
+      '',
+      '## 期望产物',
+      '未给 —— 补一句"交付什么算做完"（同族抄点：CrewAI `expected_output` / Kiro 的 EARS 句式"当 X 时，系统应 Y"）',
+      '',
+      `[想法:${cur.id}]`,
+    ].join('\n')
+    let task: any
+    try {
+      task = createTask({
+        title,
+        project,
+        priority: opts?.priority || '中',
+        status: '待办' as any,
+        tags: ['想法'],
+        body,
+      })
+    } catch (e: any) {
+      return { ok: false, error: `任务卡没建成：${e?.message || e}` }
+    }
+    const now = new Date().toISOString()
+    all[idx] = {
+      ...cur,
+      status: '已立项',
+      decidedAt: cur.decidedAt || now,
+      updatedAt: now,
+      promoted: { kind: 'task', id: String(task?.id || '') },
+    }
+    saveIdeas(all)
+    return { ok: true, idea: all[idx], taskId: String(task?.id || '') }
+  }
 
   let todo: any
   try {
@@ -355,6 +415,22 @@ export function unpromoteIdea(
   if (idx < 0) return { ok: false, error: '没有这条想法（可能已经删了）' }
   const cur = all[idx]
   if (cur.status !== '已立项' || !cur.promoted) return { ok: false, error: '这条还没立项，没得撤' }
+
+  // 落成真任务卡的那条：只允许撤"还没动过的"卡（updated === created），
+  // 动过就是用户的东西了 —— 与待办那边"做完了不许撤"同一条判据。
+  if (cur.promoted.kind === 'task') {
+    const card = cur.promoted.id ? readTask(cur.promoted.id) : null
+    if (!card) return { ok: false, error: '对应的任务卡找不到了（可能已被删除/归档）—— 想法先留着，别让记录和现实对不上' }
+    if (String(card.fm.updated || '') !== String(card.fm.created || '')) {
+      return { ok: false, error: '那张卡已经改过了 —— 撤不了立项。要清掉它请去卡上驳回/删除' }
+    }
+    const gone = deleteTask(cur.promoted.id)
+    if (!gone) return { ok: false, error: '任务卡删除失败（可能被占用）—— 撤销没完成，想法状态保持不变' }
+    const nowTs = new Date().toISOString()
+    all[idx] = { ...cur, status: '新记', decidedAt: '', updatedAt: nowTs, promoted: null }
+    saveIdeas(all)
+    return { ok: true, idea: all[idx] }
+  }
 
   const todoId = cur.promoted.id
   const todo = todoId ? todosService.listTodos().find((t) => t.id === todoId) : undefined

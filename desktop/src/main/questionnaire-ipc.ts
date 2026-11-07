@@ -16,7 +16,7 @@ import { shell } from 'electron'
 import { guardedHandle } from './guarded-ipc'
 import {
   listDecks, getDeck, writeAnswers, approveDeck, questionnaireDir, buildPromptForDeck,
-  voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue,
+  voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue, deckToCards,
   type QAnswer,
 } from './data/questionnaires'
 
@@ -59,6 +59,12 @@ export function registerQuestionnaireIpcHandlers(): void {
   })
 
   guardedHandle('questionnaire:auditQueue', () => auditQueue())
+
+  // 答卷 → 真任务卡（2026-11-07）。这一步才是"反馈给施工方"的实处：
+  // 在此之前"出单"只产出一段提示词，谁去把它变成卡没人管 —— 链断在最后一步。
+  guardedHandle('questionnaire:makeCards', (_e, deck: string, opts?: { project?: string; priority?: string }) => {
+    return deckToCards(String(deck || ''), opts && typeof opts === 'object' ? opts : undefined)
+  })
 
   guardedHandle('questionnaire:openDir', () => {
     const dir = questionnaireDir()
