@@ -35,7 +35,7 @@ export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<
         result: {
           protocolVersion: supported.includes(asked) ? asked : '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'fangcun', version: '0.6.7' },
+          serverInfo: { name: 'fangcun', version: '0.6.8' },
           instructions:
             '方寸（fangcun）任务看板。任务卡落 task-data/*.md；写操作走 create_task / update_task / move_status，'
             + '受乐观锁保护（update_task 传 updated 可防覆盖）。列出任务用 list_tasks，搜索用 search_tasks。',
