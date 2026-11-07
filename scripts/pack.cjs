@@ -41,9 +41,33 @@ const DESKTOP = path.resolve(__dirname, '..', 'desktop')
 //   退出索引器后再把产物挪回 `pkg/`。默认值不变 —— 正经发版永远打 `pkg/`。
 const OUT = path.join(DESKTOP, process.env.FC_PKG_OUT || 'pkg')
 // 暂存目录（已在 .gitignore）：先打到这里，成功后整体改名成 release，避免半成品污染 release
-const STAGE = path.join(DESKTOP, process.env.FC_PKG_STAGE || '.pkg-tmp')
+// ⚠ 撞锁时会**自动降级到 %TEMP%**（见 main 里的 probeWritable），默认值不变
+let STAGE = path.join(DESKTOP, process.env.FC_PKG_STAGE || '.pkg-tmp')
 
 function log(m) { console.log(m) }
+
+/** 暂存目录能不能写？—— 直接在它里面建/删一个探针文件
+ *  （比“看目录在不在”可靠：目录在、但被别的进程攥着 asar 时，连新建都会 EPERM/EBUSY）
+ *  返回 '' = 可写；否则返回错误码/消息。 */
+function probeWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const p = path.join(dir, '.fc-write-probe')
+    fs.writeFileSync(p, 'x')
+    fs.unlinkSync(p)
+    return ''
+  } catch (e) {
+    return `${e.code || ''} ${e.message}`.trim()
+  }
+}
+
+/** 降级暂存目录到 %TEMP%（只为绕过文件锁，不是换流程） */
+function tempStage(ver) {
+  const os = require('os')
+  const p = path.join(os.tmpdir(), `fc-pkg-stage-${ver}-${Date.now()}`)
+  fs.mkdirSync(p, { recursive: true })
+  return p
+}
 
 /** 逐文件清空目录：跳过被锁的，能删多少删多少
  *  （锁的真实来源见文件头：索引器持有 `*.asar`，不是 OneDrive / Windows Search —— 那两个
@@ -80,13 +104,48 @@ function main() {
   }
   if (pkg.version !== ver) {
     log(`⚠ package.json 的 version 是 ${pkg.version}，你要求打 ${ver} —— 先把 package.json 改成 ${ver}（版本号只有这一处真源）`)
+    log(`  一条命令改全四处：node scripts/version.cjs set ${ver}`)
     process.exit(1)
+  }
+
+  // ⓪ 版本体检：真源之外还有三处派生（lock 文件 / skills manifest / MCP 桥自报版本）。
+  //    之前靠“人记得改”，结果 MCP 桥自报 0.3.9、lock 停在 0.3.10 —— 打包前先拦。
+  {
+    const vp = spawnSync(process.execPath, [path.join(__dirname, 'version.cjs'), 'check'], {
+      cwd: path.resolve(__dirname, '..'), stdio: 'inherit',
+    })
+    if (vp.status !== 0) {
+      log('✗ 版本号有落点没跟上。修：node scripts/version.cjs set ' + ver + '，再打')
+      process.exit(1)
+    }
   }
 
   // ① 清掉上一轮的暂存目录（lock 住的就跳过，下面 ELBUSY 也不会发生，因为每次都换新目录名）
   if (!noClean) {
     const r = emptyDir(STAGE)
     if (r.freed || r.locked) log(`清暂存目录：释放 ${(r.freed / 1048576).toFixed(1)}MB` + (r.locked ? `，${r.locked} 个被占` : ''))
+  }
+
+  // ①a 暂存目录能不能真写？不能就自动降级到 %TEMP%（2026-11-07 补，治“本机必撞 EBUSY”）
+  //    病根：工作区里的 `*.asar` 被索引器长期持有句柄 —— `pkg/` 与 `.pkg-tmp/` 连改名都被拒（WinError 5）。
+  //    以前的做法是人工用 FC_PKG_OUT/FC_PKG_STAGE 换个新名字再挪回来；现在改成自动试一次。
+  let degraded = false
+  {
+    const err = probeWritable(STAGE)
+    if (err) {
+      const t = tempStage(ver)
+      log(`⚠ 暂存目录不可写（${err}）`)
+      log(`  多半是索引器还攥着旧 asar；本轮自动降到 ${t}`)
+      STAGE = t
+      degraded = true
+    }
+  }
+
+  // `--dry`：只跑到这里（体检 + 清暂存 + 试写探针），不真打。
+  // 存在的理由：降级分支平时**没有锁就永远跑不到**，光靠"读代码觉得对"不算验证过。
+  if (process.argv.includes('--dry')) {
+    log(`--dry：到此为止（未打包）。STAGE=${STAGE}${degraded ? ' [已降级]' : ''}`)
+    process.exit(0)
   }
 
   // ①b 顺手清掉工作区里**历史堆积**的产物目录：`release-<ver>/`、`release/`。
@@ -141,7 +200,7 @@ function main() {
     log(`✓ 已切换为新的产物目录 ${OUT}`)
   } catch (e) {
     // 退回方案：目录里有被锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
-    log(`  直接换名失败（${e.code || e.message}），改用"清空 + 复制"`)
+    log(`  直接换名失败（${e.code || e.message}），改用"清空 + 复制"` + (degraded ? '（跨盘/降级模式属预期）' : ''))
     try {
       const c = emptyDir(OUT)
       if (c.locked) throw new Error(`产物目录里还有 ${c.locked} 个文件被占用（有进程在读这份包），关掉它再跑`)
@@ -150,7 +209,8 @@ function main() {
       log('✓ 已用复制方式切到新产物目录')
     } catch (e2) {
       log(`✗ 切换失败：${e2.message}`)
-      log(`  新包仍在 ${STAGE}，处理掉占用后再跑一次即可`)
+      if (degraded) log(`  **完整产物在 ${STAGE}** —— 占用的进程关掉后，把里面的文件拷进 ${OUT} 即可（不用重打）`)
+      else log(`  新包仍在 ${STAGE}，处理掉占用后再跑一次即可`)
       process.exit(1)
     }
   }
