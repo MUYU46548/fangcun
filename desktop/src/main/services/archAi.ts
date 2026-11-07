@@ -19,6 +19,7 @@ import { getConfig, isMaskedKey } from '../llm/config'
 import { chatWithFallback } from '../llm/fallback'
 import { appendTrace } from '../llm/trace'
 import { buildArchGraph, type ArchGraph, type ArchScanFacts } from '../../shared/archGraph'
+import { inspectJson, jsonRetryNudge, type JsonFailKind } from '../../shared/jsonRepair'
 import {
   auditArchDraft,
   allowedEvidence,
@@ -51,9 +52,25 @@ export interface ArchGenerateDeps {
   now?: string
 }
 
+/** 失败分型（2026-11-07）：界面要能说"坏在哪一步"，不是笼统一句"生成失败" */
+export type ArchFailKind = JsonFailKind | 'audit_rejected' | 'call_failed' | 'no_model' | 'cancelled'
+
+/** 进度事件 —— 长耗时不许让用户干等（11-03 驳回理由之一） */
+export interface ArchProgress {
+  phase: 'call' | 'parse' | 'audit' | 'retry' | 'done' | 'cancelled'
+  attempt: number
+  maxAttempts: number
+  /** 给人看的一句话 */
+  text: string
+}
+
 export interface ArchGenerateOptions extends ArchGenerateDeps {
   /** 最多尝试几次（默认 2：首次 + 一次按审计意见重画） */
   maxAttempts?: number
+  /** 进度回调（每次状态变化都调；界面据此显示"第几次 / 在干嘛"） */
+  onProgress?: (p: ArchProgress) => void
+  /** 取消检查：返回 true 就中止，绝不写半成品图 */
+  shouldAbort?: () => boolean
 }
 
 export interface ArchGenerateResult {
@@ -69,6 +86,10 @@ export interface ArchGenerateResult {
   usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number }
   /** 这一版是"输出被截断后补全"救回来的（不是模型一次画完的） */
   repaired?: boolean
+  /** 失败分型（source=scan 时必填 —— 说清为什么降级） */
+  failKind?: ArchFailKind
+  /** 用户主动取消（不算失败，但也不许当成功） */
+  cancelled?: boolean
 }
 
 const SYSTEM_PROMPT = [
@@ -146,31 +167,34 @@ export function repairTruncatedJson(body: string): string | null {
  * 2026-11-05 加 `repaired`：解析失败时先试一次"截断补全"，补成功就照常往下走，
  * 但**如实标出来**（调用方会把它写进结果，界面上能看出这一版是"话没说完"收的尾）。
  */
-export function parseArchDraft(text: string): { draft: ArchDraft | null; error?: string; repaired?: boolean } {
-  const raw = String(text || '').trim()
-  if (!raw) return { draft: null, error: '模型没有返回内容' }
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw)
-  const body = fence ? fence[1].trim() : raw
-  const start = body.indexOf('{')
-  const end = body.lastIndexOf('}')
-  if (start < 0) return { draft: null, error: '返回里找不到 JSON 对象' }
-  // 末尾不是 `}` = 输出被截断（不是"前后有解释文字"那种）；这时 end 会小于 start
-  const complete = end > start
-  try {
-    if (!complete) throw new Error('输出在 JSON 中途结束（很可能被 max_tokens 截断）')
-    const obj = JSON.parse(body.slice(start, end + 1))
-    if (!obj || typeof obj !== 'object') return { draft: null, error: 'JSON 不是对象' }
-    return { draft: obj as ArchDraft }
-  } catch (e: any) {
-    const fixed = repairTruncatedJson(body.slice(start))
+export function parseArchDraft(text: string): {
+  draft: ArchDraft | null
+  error?: string
+  repaired?: boolean
+  /** 失败分型（2026-11-07）：截断要"少画点"，不是"注意格式" */
+  kind?: ArchFailKind
+} {
+  const shape = inspectJson(text)
+  if (!shape.kind) {
+    try {
+      const obj = JSON.parse(shape.body)
+      if (!obj || typeof obj !== 'object') return { draft: null, error: 'JSON 不是对象', kind: 'invalid' }
+      return { draft: obj as ArchDraft }
+    } catch (e: any) {
+      return { draft: null, error: `JSON 解析失败：${e?.message || e}`, kind: 'invalid' }
+    }
+  }
+  // 截断的还能救：退到最后一个完整对象再补齐括号（11-05 加，救回过一次 4401 字符的输出）
+  if (shape.kind === 'truncated') {
+    const fixed = repairTruncatedJson(shape.body)
     if (fixed) {
       try {
         const obj = JSON.parse(fixed)
         if (obj && typeof obj === 'object') return { draft: obj as ArchDraft, repaired: true }
-      } catch { /* 补完还是不行，走下面的错误 */ }
+      } catch { /* 补完还是不行，按截断报 */ }
     }
-    return { draft: null, error: `JSON 解析失败：${e?.message || e}` }
   }
+  return { draft: null, error: shape.message, kind: shape.kind }
 }
 
 function configProblem(): string {
@@ -217,7 +241,7 @@ export async function generateArchGraph(
   // ⚠ 注入了 callLlm 就跳过配置检查：那是测试/自检路径，配置由调用方负责。
   const injected = typeof opts.callLlm === 'function'
   const lack = injected ? '' : configProblem()
-  if (lack) return fallback(`${lack} —— 先出扫描图，配好模型再重画`)
+  if (lack) return fallback(`${lack} —— 先出扫描图，配好模型再重画`, { failKind: 'no_model' })
 
   const maxAttempts = Math.max(1, Number(opts.maxAttempts) || DEFAULT_MAX_ATTEMPTS)
   const nowIso = String(opts.now || new Date().toISOString())
@@ -241,10 +265,23 @@ export async function generateArchGraph(
   let feedback = ''
   let lastAudit: ArchAuditResult | undefined
   let lastError = ''
+  let lastKind: ArchFailKind | undefined
   let model = ''
   let usage: ArchGenerateResult['usage']
 
+  const emit = (p: ArchProgress) => { try { opts.onProgress && opts.onProgress(p) } catch { /* 进度回调失败不影响生成 */ } }
+  const aborted = () => !!(opts.shouldAbort && opts.shouldAbort())
+
   for (let i = 1; i <= maxAttempts; i++) {
+    // 取消检查放在**每次调用前**：已经发出去的请求收不回来，但不许再发下一次，
+    // 更不许把半成品图当结果交出去（11-03 驳回："挂着窗口干等，点关闭有没有影响"）。
+    if (aborted()) {
+      emit({ phase: 'cancelled', attempt: i, maxAttempts, text: '已取消' })
+      return fallback('已取消 —— 没有生成任何图，也没写任何文件', {
+        attempts: i - 1, cancelled: true, failKind: 'cancelled', audit: lastAudit, model, usage,
+      })
+    }
+    emit({ phase: 'call', attempt: i, maxAttempts, text: `第 ${i}/${maxAttempts} 次：正在让模型画图…` })
     const t0 = Date.now()
     let text = ''
     try {
@@ -254,6 +291,7 @@ export async function generateArchGraph(
       if (r?.usage) usage = r.usage
     } catch (e: any) {
       lastError = `调用模型失败：${e?.message || e}`
+      lastKind = 'call_failed'
       // 失败也留痕（花销可见优先于"好看"）
       try {
         (opts.appendTrace || appendTrace)({
@@ -268,6 +306,8 @@ export async function generateArchGraph(
     const parsed = parseArchDraft(text)
     if (!parsed.draft) {
       lastError = parsed.error || '模型返回不是可用草稿'
+      lastKind = parsed.kind || 'invalid'
+      emit({ phase: 'parse', attempt: i, maxAttempts, text: `第 ${i} 次：${lastError}` })
       try {
         (opts.appendTrace || appendTrace)({
           ts: nowIso, trigger: ARCH_TRIGGER, model, prompt_chars: 0, completion_chars: text.length,
@@ -275,11 +315,12 @@ export async function generateArchGraph(
           error: lastError.slice(0, 300), origin: 'local' as const,
         })
       } catch { /* ignore */ }
-      // 解析失败也给一次重试机会（把"格式不对"当反馈喂回去）
-      // 说清到底是"格式不对"还是"话没说完"：后者要模型**少画几个节点**，不是"注意格式"
-      feedback = /截断|中途结束|Expected/.test(lastError)
+      // 解析失败也给一次重试机会 —— 但**指令按类型给**（2026-11-07 统一到 shared/jsonRepair）：
+      // 截断要"少画几个节点"，不是"注意格式"；这两句说反了，模型会照旧被截断。
+      emit({ phase: 'retry', attempt: i, maxAttempts, text: `第 ${i} 次没成（${lastKind}），按类型给一次重试…` })
+      feedback = parsed.kind === 'truncated'
         ? '上一版输出在 JSON 中途被截断了。请**减少节点与连线数量**（节点 ≤ 8、连线 ≤ 12），确保 JSON 完整闭合。'
-        : '上一版不是合法 JSON（或缺少 nodes）。只输出一个 JSON 对象，键名 nodes / edges，不要解释文字。'
+        : jsonRetryNudge(parsed.kind || 'not_json')
       continue
     }
 
@@ -297,6 +338,7 @@ export async function generateArchGraph(
     } catch { /* 留痕失败不影响出图 */ }
 
     if (audit.ok) {
+      emit({ phase: 'done', attempt: i, maxAttempts, text: `第 ${i} 次：审计通过` })
       return {
         ok: true,
         source: 'ai',
@@ -312,6 +354,8 @@ export async function generateArchGraph(
         repaired: parsed.repaired === true,
       }
     }
+    lastKind = 'audit_rejected'
+    emit({ phase: 'audit', attempt: i, maxAttempts, text: `第 ${i} 次：审计拒收 ${audit.issues.length} 条，按意见重画…` })
     feedback = renderAuditFeedback(audit)
   }
 
@@ -319,5 +363,6 @@ export async function generateArchGraph(
     || (lastAudit
       ? `模型 ${maxAttempts} 次都没通过证据审计（最后一次 ${lastAudit.issues.length} 条不过）—— 先出扫描图`
       : '模型没有给出可用草稿 —— 先出扫描图')
-  return fallback(why, { attempts: maxAttempts, audit: lastAudit, model, usage })
+  emit({ phase: 'done', attempt: maxAttempts, maxAttempts, text: `降级为扫描图：${why}` })
+  return fallback(why, { attempts: maxAttempts, audit: lastAudit, model, usage, failKind: lastKind || 'audit_rejected' })
 }

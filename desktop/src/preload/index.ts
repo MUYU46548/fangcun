@@ -220,6 +220,15 @@ contextBridge.exposeInMainWorld('tegula', {
   archExport: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:export', projectId, opts),
   /** AI 生成图（0.6.0）：点一下才会调模型；返回 source=ai|scan，界面按它写"生成图 / 扫描图" */
   archGenerate: (projectId: string) => ipcRenderer.invoke('arch:generate', projectId),
+  // 2026-11-07（修 11-03 驳回）：进度推送 / 取消 / 上次结果
+  archCancel: (projectId: string) => ipcRenderer.invoke('arch:cancel', projectId),
+  archLastRun: (projectId: string) => ipcRenderer.invoke('arch:lastRun', projectId),
+  /** 进度订阅；返回取消订阅函数（组件卸载要解掉，否则每次重开都多一个监听） */
+  onArchProgress: (cb: (p: any) => void) => {
+    const h = (_e: any, p: any) => cb(p)
+    ipcRenderer.on('arch:progress', h)
+    return () => { try { ipcRenderer.removeListener('arch:progress', h) } catch { /* ignore */ } }
+  },
   /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
   cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),

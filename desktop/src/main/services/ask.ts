@@ -107,11 +107,21 @@ function answerCost(): AskAnswer {
       lines.push(`其中 ${st.token_calls} 次供应商给了用量，${st.calls - st.token_calls} 次没给 —— 没给的那部分只计数、不折算成 token。`)
     }
     if (st.firstTs) lines.push(`窗口内最早一条：${st.firstTs}；最近一条：${st.lastTs}`)
+    // 2026-11-07 · W1/W2：把"主指标是什么、它证明不了什么、多少归不到需求"直接写进随问答案，
+    // 别让用户还得翻报表才知道自己看的数是哪一口径。
+    lines.push(`主指标：新输入 ${st.new_input_tokens.toLocaleString()} · 输出 ${st.output_tokens.toLocaleString()} tokens；`
+      + `total ${st.total_tokens.toLocaleString()} 只是副列（含缓存重读 ${st.cache_read_tokens.toLocaleString()}）。`)
+    lines.push(`它证明不了什么：${st.metrics.total_tokens.cannot}`)
+    if (st.unattributed_calls) {
+      lines.push(`外部上报里有 ${st.unattributed_calls} 条归不到任何卡（按条数 ${st.unattributed_pct}% / 按 token ${st.unattributed_token_pct}%）`
+        + ` —— ${st.metrics.unattributed_pct.cannot}`)
+    }
   }
   return {
     kind: 'cost',
     title: st.calls
-      ? `近 30 天 ${st.calls} 次调用，共 ${st.total_tokens.toLocaleString()} tokens（成功 ${st.ok} / 失败 ${st.fail}）`
+      ? `近 30 天 ${st.calls} 次调用，新输入 ${st.new_input_tokens.toLocaleString()} · 输出 ${st.output_tokens.toLocaleString()} tokens`
+        + `（副列 total ${st.total_tokens.toLocaleString()} 含缓存重读 ${st.cache_read_tokens.toLocaleString()}；成功 ${st.ok} / 失败 ${st.fail}）`
       : '近 30 天没有 AI 调用',
     lines,
     rows: [
@@ -554,7 +564,10 @@ export function buildContext(): string {  const MAX = 4000
   }
 
   const st = usageStats(30)
-  out.push('', `## 近 30 天 AI 花销：${st.calls} 次调用，${st.total_tokens} tokens（成功 ${st.ok} / 失败 ${st.fail}；${st.token_calls} 次带 token 数据）`)
+  out.push('', `## 近 30 天 AI 花销：${st.calls} 次调用，新输入 ${st.new_input_tokens} · 输出 ${st.output_tokens} tokens`
+    + `（total ${st.total_tokens} 为副列、含缓存重读 ${st.cache_read_tokens}；成功 ${st.ok} / 失败 ${st.fail}；${st.token_calls} 次带 token 数据）`)
+  if (st.unattributed_calls) out.push(`外部上报未归因：${st.unattributed_calls} 条（按条数 ${st.unattributed_pct}% / 按 token ${st.unattributed_token_pct}%）—— 说不出它们花在哪件活上。`)
+  if (st.byCard.length) out.push(`按卡 top：${st.byCard.slice(0, 3).map((c) => `${c.card} ${c.total_tokens} tokens`).join('；')}（未归因不进排行）`)
 
   let text = out.join('\n')
   if (text.length > MAX) text = text.slice(0, MAX) + '\n…（后面的事实被截断了，回答时请说明"数据不完整"）'

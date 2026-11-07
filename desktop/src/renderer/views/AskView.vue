@@ -94,7 +94,7 @@
         <div class="ask-report-row" v-for="m in ctl.usageMonths" :key="m.month">
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
-          <span class="arr-t">{{ Number(m.total_tokens || 0).toLocaleString() }} tokens<em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em><em v-if="m.external_calls" class="arr-ext">· 其中 {{ m.external_calls }} 笔是外部上报</em></span>
+          <span class="arr-t">新输入 <b>{{ Number(m.new_input_tokens || 0).toLocaleString() }}</b> · 输出 {{ Number(m.completion_tokens || 0).toLocaleString() }}<em>· total {{ Number(m.total_tokens || 0).toLocaleString() }} 为副列（含缓存重读 {{ Number(m.cache_read_tokens || 0).toLocaleString() }}）</em><em v-if="m.token_calls < m.calls">· {{ m.calls - m.token_calls }} 次没给数字，只计数</em><em v-if="m.external_calls" class="arr-ext">· 其中 {{ m.external_calls }} 笔是外部上报<em v-if="(m.unattributed_pct || 0) > 0">，未归因 {{ m.unattributed_pct }}%</em></em></span>
           <!-- 金额（2026-10-25 卡 005）：**没有就是“未折算”**，不写 0 元。
                “未折算”后面带上笔数 —— 否则那一行看起来像"全月只花这么点"。 -->
           <span class="arr-cost" :class="{ none: !m.cost_calls }">

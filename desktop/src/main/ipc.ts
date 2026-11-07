@@ -1505,11 +1505,62 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   // ── 方寸自绘架构图 · AI 生成（2026-11-02 重做，卡 task-20261030-002）──────────
   // 与 arch:get 的分工：`arch:get` 是"打开就看"的只读口，**绝不调模型**；
   // 这里才是"点一下才花钱"的口 —— 模型画图 → 逐条证据审计 → 不过按意见重画 → 仍不过降级扫描图。
-  guardedHandle('arch:generate', async (_event, projectId: string) => {
+  // ── 架构图生成：进度 / 取消 / 上次结果（2026-11-07，修 11-03 驳回的三条）──
+  // 驳回原话：「生成失败，降级为扫描图。且生成过程可能耗时很长（没其他提示，挂着窗口干等），
+  //            用户等不及会点关闭，是否有影响？」
+  // 现在的答案：
+  //   · 进度 → 事件推给界面（第几次 / 在干嘛），不是只转个圈；
+  //   · 取消 → 每次调用前检查，取消后**不写任何图**；
+  //   · 关窗 → 上次结果落 `arch-last.json`，重开面板能查到"上次怎么了"。
+  const archCancelled = new Set<string>()
+  const archLastPath = () => path.join(data.getDataDir(), 'arch-last.json')
+  const readArchLast = (): Record<string, any> => {
+    try { return JSON.parse(fs.readFileSync(archLastPath(), 'utf-8')) || {} } catch { return {} }
+  }
+  const writeArchLast = (pid: string, rec: any): void => {
     try {
-      const v = archForProject(String(projectId || ''))
+      const all = readArchLast()
+      all[pid] = rec
+      fs.mkdirSync(path.dirname(archLastPath()), { recursive: true })
+      fs.writeFileSync(archLastPath(), JSON.stringify(all, null, 2), 'utf-8')
+    } catch { /* 落盘失败不该挡住本次结果 */ }
+  }
+
+  guardedHandle('arch:lastRun', (_e, projectId: string) => {
+    const rec = readArchLast()[String(projectId || '')]
+    return rec ? { ok: true, ...rec } : { ok: true, none: true }
+  })
+
+  guardedHandle('arch:cancel', (_e, projectId: string) => {
+    archCancelled.add(String(projectId || ''))
+    return { ok: true }
+  })
+
+  guardedHandle('arch:generate', async (event, projectId: string) => {
+    const pid = String(projectId || '')
+    archCancelled.delete(pid)
+    const started = Date.now()
+    try {
+      const v = archForProject(pid)
       if (!v.ok || !v.facts) return { ok: false, error: v.error || '扫不出可用的扫描事实' }
-      const r = await generateArchGraph(v.facts)
+      const push = (p: any) => {
+        try { event.sender.send('arch:progress', { projectId: pid, ...p }) } catch { /* 窗口关了就算了 */ }
+      }
+      const r = await generateArchGraph(v.facts, {
+        onProgress: push,
+        shouldAbort: () => archCancelled.has(pid),
+      })
+      const rec = {
+        at: new Date().toISOString(),
+        source: r.source,
+        cancelled: r.cancelled === true,
+        failKind: r.failKind || '',
+        reason: r.reason || '',
+        attempts: r.attempts,
+        model: r.model || '',
+        ms: Date.now() - started,
+      }
+      writeArchLast(pid, rec)
       return {
         ok: true,
         source: r.source,
@@ -1520,9 +1571,15 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
         notes: r.audit ? r.audit.notes : [],
         usage: r.usage,
         model: r.model,
+        failKind: r.failKind || '',
+        cancelled: r.cancelled === true,
+        repaired: r.repaired === true,
       }
     } catch (e: any) {
+      writeArchLast(pid, { at: new Date().toISOString(), source: 'scan', failKind: 'call_failed', reason: String(e?.message || e), ms: Date.now() - started })
       return { ok: false, error: e?.message || String(e) }
+    } finally {
+      archCancelled.delete(pid)
     }
   })
 

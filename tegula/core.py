@@ -200,6 +200,33 @@ def parse_registry(path, include_released=True):
                         i += 1
                     cur["services"] = services
                     continue
+                # 2026-11-07：竞品档案（REV-007 的 P1）。与 services 同款处理，
+                # 否则 `competitors:` 下的 `- name: Linear` 会被主循环当成**另一个项目** ——
+                # 实测加一条竞品后 `parse_registry` 从 1 个项目变 2 个，
+                # next / report / MCP / 盘点全会被污染。
+                if key == "competitors" and val == "":
+                    comp_indent = len(raw) - len(raw.lstrip())
+                    comps = []
+                    i += 1
+                    while i < n:
+                        ln = lines[i].rstrip()
+                        if not ln.strip():
+                            i += 1
+                            continue
+                        ln_indent = len(lines[i]) - len(lines[i].lstrip())
+                        if ln_indent <= comp_indent:
+                            break
+                        s = ln.strip()
+                        if s.startswith("- "):
+                            comps.append({})
+                            s = s[2:].strip()
+                        if comps:
+                            kv2 = re.match(r"^([^:]+):\s*(.*)$", s)
+                            if kv2:
+                                comps[-1][kv2.group(1).strip()] = _coerce(kv2.group(2))
+                        i += 1
+                    cur["competitors"] = comps
+                    continue
                 cur[key] = _coerce(val)
         i += 1
     return projects
@@ -3863,6 +3890,303 @@ def find_edge():
         if os.path.exists(p):
             return p
     return None
+
+
+# ── 竞品档案（2026-11-07，REV-007 的 P1 第一刀）──────────────────────────
+#
+# 口径（10-17 暮雨拍板，四条里用到的三条）：
+#   · 采集动作**分发给已配置的 agent** 执行，方寸不自建爬虫、不联网抓页面；
+#   · 竞品范围**按项目登记**，跟方针卡走（registry.yaml 每个项目可选 competitors 段）；
+#   · 默认**手动触发**，不做定时。
+#
+# 写 registry 的纪律与 addProject 同源：**文本块插入**（禁 load+dump，那会洗掉注释与键顺序），
+# 写前备份、写后自校验（项目数不变、竞品数恰 +1、YAML 仍可解析）。
+
+def _registry_lines():
+    with open(REGISTRY_PATH, encoding="utf-8") as f:
+        return f.read().splitlines()
+
+
+def _find_project_block(lines, pid):
+    """返回 (start, end)：start = `- id: <pid>` 那一行下标；end = 该块结束（不含）下标。
+
+    ⚠ 2026-11-07 修：不能拿 `^\\s*-\\s` 当"下一个项目" —— `competitors` 段里的
+    `      - name: Linear` 也是这个形状，会把块**提前截断**，于是第二条竞品写到
+    上一个项目的块里。只认与项目项同缩进（2 空格）的 `- id:` 行。
+    """
+    start = -1
+    for i, raw in enumerate(lines):
+        if re.match(r"^\s*-\s*id:\s*" + re.escape(pid) + r"\s*$", raw):
+            start = i
+            break
+    if start < 0:
+        return (-1, -1)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        raw = lines[j]
+        # 下一个项目项：与项目条目同缩进的 `- id:`，不是任意缩进的 `- `
+        if re.match(r"^  -\s+id:\s*\S", raw):
+            end = j
+            break
+        # 顶层键（released: / 注释以外的 section）
+        if raw and not raw.startswith((" ", "\t")):
+            end = j
+            break
+    return (start, end)
+
+
+def _registry_project_ids(lines):
+    """从**文本行**里抓项目 id（只认同缩进的 `- id:` 行）。
+
+    单独抽成纯函数，是为了让"写前项目数不变"这条护栏**可测**：
+    直接喂一段被意外插入 `- id: ghost` 的文本，就能验它抓得出来。
+    """
+    out = []
+    for ln in lines:
+        m = re.match(r"^  -\s+id:\s*(\S+)", ln)
+        if m:
+            out.append(m.group(1))
+    return out
+
+
+def _parse_competitor_rows(lines, start, end):
+    """从**文本行**里解析某个项目块的 competitors 段。
+
+    为什么不用 `parse_registry`：它是零依赖手写解析器，只认 services 的嵌套列表，
+    `competitors:` 下的 `- name:` 会被当成**另一个项目**（实测：加一条竞品，
+    `parse_registry` 就从 1 个项目变成 2 个）—— 那会污染 next / report / MCP / 盘点。
+    这里按固定缩进读文本，与 `add_competitor` 的写入格式严格对齐，写前自校验也复用它。
+    """
+    comp_at = -1
+    for i in range(start, end):
+        if re.match(r"^\s{2,}competitors:\s*$", lines[i]):
+            comp_at = i
+            break
+    if comp_at < 0:
+        return []
+    rows = []
+    cur = None
+    for i in range(comp_at + 1, end):
+        raw = lines[i]
+        if not raw.strip():
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        s = raw.strip()
+        if indent <= 4:            # 缩进退回项目属性级 → 竞品段结束
+            break
+        if s.startswith("- "):
+            cur = {}
+            rows.append(cur)
+            s = s[2:].strip()
+        if cur is None:
+            continue
+        kv = re.match(r"^([^:]+):\s*(.*)$", s)
+        if kv:
+            cur[kv.group(1).strip()] = str(kv.group(2)).strip().strip("'\"")
+    return [
+        {"name": str(r.get("name") or ""), "url": str(r.get("url") or ""), "focus": str(r.get("focus") or "")}
+        for r in rows if r.get("name")
+    ]
+
+
+def load_competitors(pid=None):
+    """读竞品档案。pid 为空 → 全部项目。返回 {项目id: [ {name,url,focus} ]}。
+
+    ⚠ 走纯文本解析（见 `_parse_competitor_rows`），不依赖 `parse_registry` 的通用结构。
+    """
+    if not os.path.exists(REGISTRY_PATH):
+        return {}
+    lines = _registry_lines()
+    out = {}
+    for p in (parse_registry(REGISTRY_PATH) or []):
+        if not isinstance(p, dict):
+            continue
+        the_id = str(p.get("id") or "")
+        if not the_id or (pid and the_id != str(pid)):
+            continue
+        start, end = _find_project_block(lines, the_id)
+        if start < 0:
+            continue
+        rows = _parse_competitor_rows(lines, start, end)
+        if rows:
+            out[the_id] = rows
+    return out
+
+
+def add_competitor(pid, name, url, focus=""):
+    """给某个项目登记一条竞品。文本块插入 + 写前备份 + 写后自校验。返回 (ok, msg)。"""
+    pid = str(pid or "").strip()
+    name = str(name or "").strip()
+    url = str(url or "").strip()
+    focus = str(focus or "").strip()
+    if not pid or not name:
+        return (False, "项目 id 和竞品名都不能为空")
+    if not url:
+        return (False, "竞品要有一个能打开的地址（URL）—— 没有地址的“竞品”没法采集")
+    lines0 = _registry_lines()
+    # 项目 id 直接从**文本**抓（不经过 parse_registry 的通用解析）：
+    # 若 registry 里已有 competitors 段而解析器还不认它，用解析结果会把竞品误当项目，
+    # 于是"项目数不变"这条自校验自己就是假的。
+    ids = _registry_project_ids(lines0)
+    if pid not in ids:
+        return (False, f"registry 里没有项目「{pid}」")
+    before = load_competitors(pid).get(pid, [])
+    if any(c["name"] == name for c in before):
+        return (False, f"「{pid}」里已经有同名竞品「{name}」了（改它请先删）")
+
+    lines = _registry_lines()
+    start, end = _find_project_block(lines, pid)
+    if start < 0:
+        return (False, f"定位不到项目块「{pid}」（registry 结构与预期不同）")
+    new_item = [f"      - name: {yaml_scalar(name)}", f"        url: {yaml_scalar(url)}"]
+    if focus:
+        new_item.append(f"        focus: {yaml_scalar(focus)}")
+
+    # 已有 competitors 段 → 插在它列表末尾；没有 → 插在项目块最后一行非空行之后
+    comp_at = -1
+    for i in range(start, end):
+        if re.match(r"^\s{2,}competitors:\s*$", lines[i]):
+            comp_at = i
+            break
+    out = list(lines)
+    if comp_at >= 0:
+        # 跳过**整个** competitors 段（缩进 > 4 的都是它的列表项/属性行）。
+        # 只跳 `- name:` 那一行会停在第一条的属性行上，第二条竞品就会插进别人中间 → YAML 坏。
+        ins = comp_at + 1
+        while ins < end:
+            ln = lines[ins]
+            if not ln.strip():
+                ins += 1
+                continue
+            if (len(ln) - len(ln.lstrip())) > 4:
+                ins += 1
+                continue
+            break
+        block = new_item
+    else:
+        ins = end
+        while ins > start + 1 and not out[ins - 1].strip():
+            ins -= 1
+        block = ["    competitors:"] + new_item
+    out[ins:ins] = block
+    insert_at, insert_count = ins, len(block)
+
+    text = "\n".join(out) + "\n"
+    # ── 写前自校验（零依赖，不用 PyYAML —— core.py 只用标准库）────────────
+    # 三条都过才准写：项目 id 序列不变 · 目标块之外逐行不变 · 新竞品能读回且数量恰 +1
+    newlines = text.splitlines()
+    new_ids = _registry_project_ids(newlines)
+    if new_ids != ids:
+        return (False, f"项目 id 序列变了（{len(ids)} → {len(new_ids)}），已放弃写入")
+    if (len(newlines) - len(lines) != insert_count
+            or newlines[:insert_at] != lines[:insert_at]
+            or newlines[insert_at + insert_count:] != lines[insert_at:]):
+        return (False, "插入位置之外出现了改动，已放弃写入（本操作只该动这一处）")
+    ns, ne = _find_project_block(newlines, pid)
+    got = _parse_competitor_rows(newlines, ns, ne)
+    if len(got) != len(before) + 1 or not any(r["name"] == name and r["url"] == url for r in got):
+        return (False, "写入后读不到刚加的那条竞品（或数量不对），已放弃写入")
+
+    backup_ok = False
+    try:
+        if os.path.exists(REGISTRY_PATH):
+            shutil.copy(REGISTRY_PATH, REGISTRY_BAK)
+            backup_ok = True
+        tmp = REGISTRY_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, REGISTRY_PATH)
+    except Exception as e:
+        return (False, f"写入失败：{e}")
+    # 写后读回自证：读不到就还原备份（不许"写了就算"）
+    after = load_competitors(pid).get(pid, [])
+    if not any(r["name"] == name and r["url"] == url for r in after):
+        if backup_ok:
+            try: shutil.copy(REGISTRY_BAK, REGISTRY_PATH)
+            except Exception: pass
+        return (False, "写后读回不到这条竞品，已还原备份")
+    return (True, f"已登记竞品「{name}」到「{pid}」")
+
+
+def competitors_dir(pid=""):
+    """采集数据与任务单的落点（方寸自己的数据根，**不写项目仓库**）。"""
+    d = os.path.join(TASK_DIR, "competitors")
+    return os.path.join(d, str(pid)) if pid else d
+
+
+def render_competitor_task(pid):
+    """生成采集任务单（给 agent 执行的 md）。**不含任何密钥**：只有地址、关注点、要回填的字段。"""
+    rows = load_competitors(pid).get(str(pid), [])
+    if not rows:
+        return ""
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    L = [f"# 竞品采集任务单 · {pid}（{today}）", ""]
+    L.append("> 这份单子是给 **agent** 执行的：方寸不联网、不自建爬虫（REV-007 拍板 C 方案）。")
+    L.append("> 采集完把结果写成 md 回填到 `task-data/competitors/%s/` 下，再用 `tegula competitor report --project %s` 看。" % (pid, pid))
+    L.append("")
+    L.append("## 要采的")
+    L.append("")
+    L.append("| 竞品 | 地址 | 关注什么 | 上次采集 |")
+    L.append("|---|---|---|---|")
+    for r in rows:
+        L.append(f"| {r['name']} | {r['url']} | {r['focus'] or '（没写）'} | （未记录） |")
+    L.append("")
+    L.append("## 回填要求")
+    L.append("")
+    L.append("- 每个竞品一段：`## <竞品名>` + 三行 `变更：` / `影响：` / `证据：`（证据必须指到具体页面或截图名）")
+    L.append("- 只写观察到的变化，不写评价；没变化就写“无变化”，别编")
+    L.append("")
+    return "\n".join(L) + "\n"
+
+
+def write_competitor_task(pid):
+    """把采集任务单落盘，返回路径（空串 = 没有竞品可采）。"""
+    text = render_competitor_task(pid)
+    if not text:
+        return ""
+    d = competitors_dir(pid)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "采集任务单.md")
+    # core.py 是零依赖标准库模块，没有 atomic_write（那是桌面侧 TS 的）；
+    # 与 write_task_file 同款：tmp + os.replace
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, p)
+    return p
+
+
+def competitor_reports(pid=""):
+    """读 agent 回填的采集结果（除任务单外的 md）。返回 [(文件名, 文本)]。
+
+    pid 为空时要**递归各项目子目录** —— 数据都落在 `competitors/<pid>/` 下，
+    只读根目录会永远返回空，于是 `tegula competitor report`（不带 --project）假报"没采过"。
+    """
+    base = competitors_dir()
+    dirs = []
+    if pid:
+        dirs.append((competitors_dir(pid), ""))
+    else:
+        dirs.append((base, ""))
+        if os.path.isdir(base):
+            for sub in sorted(os.listdir(base)):
+                p = os.path.join(base, sub)
+                if os.path.isdir(p):
+                    dirs.append((p, sub + "/"))
+    out = []
+    for d, prefix in dirs:
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".md") or name == "采集任务单.md":
+                continue
+            p = os.path.join(d, name)
+            try:
+                with open(p, encoding="utf-8") as f:
+                    out.append((prefix + name, f.read()))
+            except Exception:
+                continue
+    return out
 
 
 def check_registry_consistency():

@@ -51,6 +51,71 @@ export interface TraceRecord {
   reported_by?: string
   /** 上报方自己写的备注（已截断、已去换行） */
   note?: string
+  /**
+   * 失败分型（2026-11-07）：`no_content` / `not_json` / `truncated` / `invalid` / `audit_rejected`。
+   * 为什么单列一个字段：过去只有一句 `error`，于是"重试该说什么"全靠人读文案猜。
+   * 分型之后，"三类失败各占多少"能直接统计 —— 否则永远不知道是模型不行还是提示词不行。
+   */
+  fail_kind?: string
+  /** 这一次是**严格重试后**拿到的（救回来的也要记，否则算不出重试的收益率） */
+  retried?: boolean
+  /** 归因到哪张卡（外部上报才有；本地调用靠 trigger 里的项目名） */
+  card?: string
+  /** 缓存重读 token（外部上报显式给；老记录写在 note 的 `cache_read=` 里，见 cacheReadOf） */
+  cache_read_tokens?: number
+}
+
+/**
+ * 缓存重读 token（2026-11-07 · W1 口径）。
+ *
+ * 实测账上 `total_tokens` 有 99.3% 是 cache_read —— 拿它当"花销"排，
+ * 量的是上下文长度，不是新读入。所以任何"花在哪"的主指标都必须先减掉这一块。
+ * 认法：显式字段优先；其次 note 里的 `cache_read=N`（老上报方的写法）。
+ */
+export function cacheReadOf(rec: TraceRecord): number {
+  const v = rec.cache_read_tokens
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v
+  const m = /(?:^|\s)cache_read=(\d+)/.exec(String(rec.note || ''))
+  return m ? Number(m[1]) : 0
+}
+
+/**
+ * 归因到哪张卡。缺省一律 `(未归因)` —— **不是空串**：
+ * 空串在报表里会被当成"没这个字段"而静默消失，`(未归因)` 才能被统计、才能被看见。
+ */
+export function cardOf(rec: TraceRecord): string {
+  const c = String(rec.card || '').trim()
+  if (c && c !== '(未归因)') return c
+  const m = /(?:^|\s)card=([^\s]+)/.exec(String(rec.note || ''))
+  const fromNote = m ? m[1] : ''
+  return fromNote && fromNote !== '(未归因)' ? fromNote : '(未归因)'
+}
+
+/**
+ * 每个指标"证明什么 / 证明不了什么"（W1 的 P5 口径要求）。
+ * 不许复读同一句 —— 界面/报告直接取用，避免每个作者自己编一句好听的。
+ */
+export const METRIC_NOTES: Record<string, { proves: string; cannot: string }> = {
+  new_input_tokens: {
+    proves: '这段时间真正新读进模型的 token（prompt − cache_read），它才随"新活"增长',
+    cannot: '它证明不了产出质量，也证明不了外部上报方有没有少报',
+  },
+  completion_tokens: {
+    proves: '模型实际写出来的 token 量',
+    cannot: '它证明不了写出来的东西有没有被用上（可能是废稿或重试）',
+  },
+  total_tokens: {
+    proves: '一次调用把多少上下文带进了模型（含缓存重读），用于估上下文压力',
+    cannot: '它证明不了"干了多少活" —— 账上 99.3% 是 cache_read，长上下文会把这个数顶到天上',
+  },
+  cache_read_tokens: {
+    proves: '上下文被反复重读的规模；它高说明会话很长或归因很粗',
+    cannot: '它不是新增劳动量，不能当花销主指标',
+  },
+  unattributed_pct: {
+    proves: '外部上报里归不到任何需求卡的比例 —— "需求管理是锚点"这句话的可测值',
+    cannot: '它证明不了那些 token 白花了，只证明我们说不出它们花在哪',
+  },
 }
 
 let cachedPath: string | null = null
@@ -206,7 +271,23 @@ export interface UsageStats {
   token_calls: number
   prompt_tokens: number
   completion_tokens: number
+  /** 副列（2026-11-07 降格）：含缓存重读，不能当"花销"主指标 */
   total_tokens: number
+  /** 缓存重读 token（从 note 的 cache_read= 或显式字段来） */
+  cache_read_tokens: number
+  /** 主指标①：新输入 = prompt − cache_read。只统计**报了 prompt_tokens** 的记录 */
+  new_input_tokens: number
+  /** 主指标②：模型写出来的（已有 completion_tokens，这里显式列成主指标） */
+  output_tokens: number
+  /** 外部上报里归不到卡的比例（按条数）与按 token 的比例 */
+  unattributed_calls: number
+  unattributed_pct: number
+  unattributed_tokens: number
+  unattributed_token_pct: number
+  /** 按卡汇总（top N）。⚠ `(未归因)` **不进**这张表 —— 它不是一张卡 */
+  byCard: Array<{ card: string; calls: number; total_tokens: number }>
+  /** 每个指标证明什么 / 证明不了什么（界面与报告直接取，不许自己编） */
+  metrics: Record<string, { proves: string; cannot: string }>
   byModel: Array<{ model: string; calls: number; token_calls: number; total_tokens: number }>
   byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
   firstTs: string
@@ -257,6 +338,34 @@ export function usageStats(days = 30): UsageStats {
     gm.total_tokens += num(x.total_tokens)
     triggerMap.set(g, gm)
   }
+  // ── W1 口径 + W2 归因（2026-11-07）─────────────────────────────────
+  // 新输入只统计**报了 prompt_tokens** 的记录：只报 total 的拿 total 顶替等于
+  // 把"上下文长度"当"新读入"，正是这份账原来最错的地方。宁缺勿假。
+  const withPrompt = tok.filter((x) => typeof x.prompt_tokens === 'number' && Number.isFinite(x.prompt_tokens))
+  let cacheRead = 0
+  let newInput = 0
+  for (const x of withPrompt) {
+    const p = num(x.prompt_tokens)
+    const c = Math.min(p, cacheReadOf(x))   // 脏数据 cache > prompt 时封顶，不许出现负的新输入
+    cacheRead += c
+    newInput += p - c
+  }
+  const outputTokens = tok.reduce((s, x) => s + num(x.completion_tokens), 0)
+  // 归因只统计**外部上报**：本地调用靠 trigger 里的项目名归因，不混进这一格，
+  // 否则"未归因占比"会被一堆压根没有 card 概念的本地调用虚高顶满。
+  const extTok = tok.filter((x) => x.origin === 'external')
+  const cardMap = new Map<string, { card: string; calls: number; total_tokens: number }>()
+  let unattr = 0
+  let unattrTok = 0
+  for (const x of extTok) {
+    const c = cardOf(x)
+    if (c === '(未归因)') { unattr++; unattrTok += num(x.total_tokens); continue }
+    const e = cardMap.get(c) || { card: c, calls: 0, total_tokens: 0 }
+    e.calls++
+    e.total_tokens += num(x.total_tokens)
+    cardMap.set(c, e)
+  }
+  const extTokTotal = extTok.reduce((s, x) => s + num(x.total_tokens), 0)
   const tsList = recs.map((x) => String(x.ts || '')).filter(Boolean).sort()
   // 最近一次：**不要**直接用 recs[0]。ts 字符串存在两种格式（带 Z / 不带 Z，见 parseTs 注释），
   // 按字典序排会把无标记的排错位置 → 用 parseTs 比真实时间取最大。
@@ -274,8 +383,17 @@ export function usageStats(days = 30): UsageStats {
     fail: recs.filter((x) => !x.ok).length,
     token_calls: tok.length,
     prompt_tokens: tok.reduce((s, x) => s + num(x.prompt_tokens), 0),
-    completion_tokens: tok.reduce((s, x) => s + num(x.completion_tokens), 0),
+    completion_tokens: outputTokens,
     total_tokens: tok.reduce((s, x) => s + num(x.total_tokens), 0),
+    cache_read_tokens: cacheRead,
+    new_input_tokens: newInput,
+    output_tokens: outputTokens,
+    unattributed_calls: unattr,
+    unattributed_pct: extTok.length ? Math.round((unattr / extTok.length) * 1000) / 10 : 0,
+    unattributed_tokens: unattrTok,
+    unattributed_token_pct: extTokTotal ? Math.round((unattrTok / extTokTotal) * 1000) / 10 : 0,
+    byCard: [...cardMap.values()].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 10),
+    metrics: METRIC_NOTES,
     byModel: [...modelMap.entries()]
       .map(([model, v]) => ({ model, ...v }))
       .sort((a, b) => b.calls - a.calls),
@@ -307,7 +425,13 @@ export interface MonthUsage {
   token_calls: number
   prompt_tokens: number
   completion_tokens: number
+  /** 副列（含缓存重读，不当花销主指标） */
   total_tokens: number
+  /** 主指标：新输入 = prompt − cache_read（只统计报了 prompt 的记录） */
+  cache_read_tokens: number
+  new_input_tokens: number
+  /** 外部上报里归不到卡的比例（按条数） */
+  unattributed_pct: number
   /** 该月**已折算**的金额（1e-8 定点字符串；一次都没折算就是 "0.00000000"） */
   cost: string
   /** 有金额的调用笔数 */
@@ -347,7 +471,7 @@ export function usageByMonth(months = 3): MonthUsage[] {
   const zero = parseAmount('0') ?? 0n
 
   // 累加期用一个内部类型带 BigInt 和；出参时摘掉（MonthUsage 里不该有 bigint，过不了 IPC 克隆）
-  type MonthAcc = MonthUsage & { _costSum: bigint }
+  type MonthAcc = MonthUsage & { _costSum: bigint; _extCalls: number; _unattrCalls: number }
   const map = new Map<string, MonthAcc>()
   for (const x of r.records) {
     const m = monthKey(String(x.ts || ''))
@@ -355,8 +479,9 @@ export function usageByMonth(months = 3): MonthUsage[] {
     const cur: MonthAcc = map.get(m) || {
       month: m, calls: 0, ok: 0, fail: 0, token_calls: 0,
       prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
+      cache_read_tokens: 0, new_input_tokens: 0, unattributed_pct: 0,
       cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 0, external_calls: 0,
-      byTrigger: [], _costSum: zero,
+      byTrigger: [], _costSum: zero, _extCalls: 0, _unattrCalls: 0,
     }
     cur.calls++
     if (x.origin === 'external') cur.external_calls++
@@ -367,6 +492,18 @@ export function usageByMonth(months = 3): MonthUsage[] {
       cur.prompt_tokens += num(x.prompt_tokens)
       cur.completion_tokens += num(x.completion_tokens)
       cur.total_tokens += num(x.total_tokens)
+      // W1：新输入只对报了 prompt 的记录算（只报 total 的不许顶替）
+      if (typeof x.prompt_tokens === 'number' && Number.isFinite(x.prompt_tokens)) {
+        const p = num(x.prompt_tokens)
+        const c = Math.min(p, cacheReadOf(x))
+        cur.cache_read_tokens += c
+        cur.new_input_tokens += p - c
+      }
+      // W2：只统计外部上报（本地靠 trigger 归因，不算"未归因"）
+      if (x.origin === 'external') {
+        cur._extCalls++
+        if (cardOf(x) === '(未归因)') cur._unattrCalls++
+      }
       // 金额三态：有金额 / 有金额且供应商自报 / 有 token 但没金额（未折算）
       const c = parseAmount(x.cost)
       if (c !== null) {
@@ -388,7 +525,12 @@ export function usageByMonth(months = 3): MonthUsage[] {
     .sort((a, b) => b.month.localeCompare(a.month))
     .slice(0, limit)
     .map((m) => {
-      const { _costSum, ...rest } = m as MonthUsage & { _costSum: bigint }
-      return { ...rest, cost: formatAmount(_costSum, 8), byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls) }
+      const { _costSum, _extCalls, _unattrCalls, ...rest } = m as MonthAcc
+      return {
+        ...rest,
+        unattributed_pct: _extCalls ? Math.round((_unattrCalls / _extCalls) * 1000) / 10 : 0,
+        cost: formatAmount(_costSum, 8),
+        byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls),
+      }
     })
 }

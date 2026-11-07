@@ -7818,6 +7818,22 @@
           $$('#arch-modal button').some((b) => /生成中…\s*\d+s/.test(b.textContent || '')),
           $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
 
+        // ── 2026-11-07（修 11-03 驳回）：进度要说清"第几次 / 在干嘛"，且能取消 ──
+        window.__fcTest.emitArchProgress({ phase: 'audit', attempt: 2, maxAttempts: 2, text: '第 2 次：审计证据…' })
+        await sleep(160)
+        check('★★ 进度事件推到按钮上（不是只转个圈）',
+          $$('#arch-modal button').some((b) => /第 2 次：审计证据/.test(b.textContent || '')),
+          $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
+        const cancelBefore = window.__fcTest.callCount('archCancel')
+        const cancelBtn = $$('#arch-modal button').find((b) => (b.textContent || '').trim() === '取消')
+        check('★ 生成中有「取消」按钮（不用挂着窗口干等）', !!cancelBtn,
+          $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
+        if (cancelBtn) cancelBtn.click()
+        await sleep(200)
+        check('★★ 点「取消」真走 arch:cancel IPC（不是只改个文案）',
+          window.__fcTest.callCount('archCancel') > cancelBefore,
+          JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
+
         const closeBtn = $$('#arch-modal .archd-head button').find((b) => (b.textContent || '').trim() === '关闭')
         if (closeBtn) closeBtn.click()
         await sleep(250)

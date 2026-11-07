@@ -678,8 +678,9 @@
     <div id="arch-overlay" class="overlay" v-if="archOpen && archGraph" @mousedown.self="archOpen = false">
       <ArchDiagram :graph="archGraph" :review="archReview" :repairs="archRepairs" :rejects="archRejects"
         :busy="archBusy" :elapsed="archElapsed" :version="archVersion" :approved="archApproved"
+        :phase="archPhase" :last-run="archLast"
         :excluded="archExcluded.map(x => x.id)" :excluded-info="archExcluded"
-        @close="archOpen = false" @export="exportSelfArch"
+        @close="archOpen = false" @export="exportSelfArch" @cancel="cancelSelfArch"
         @exclude="excludeArchNode" @restore="restoreArchNode"
         @approve="approveArch" @reject="rejectArch" @generate="generateSelfArch" />
     </div>
@@ -5648,6 +5649,11 @@ const archBaseGraph = ref<ArchGraph | null>(null)
 const archReview = ref<ArchReview | null>(null)
 const archRepairs = ref<string[]>([])
 const archProjectId = ref('')
+/** 生成进度（第几次 / 在干嘛）—— 11-03 驳回"挂着窗口干等"，这条是正面回答 */
+const archPhase = ref('')
+/** 上次生成结果（落盘，重开面板能查到"上次怎么了"） */
+const archLast = ref<any>(null)
+let archProgressOff: null | (() => void) = null
 /** 这张图是哪来的：ai = 模型画且过审；scan = 降级扫描图（2026-11-02） */
 const archSource = ref<'' | 'ai' | 'scan'>('')
 const archVersion = ref(1)
@@ -5674,6 +5680,15 @@ async function generateSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id || archBusy.value) return
   archBusy.value = true
+  // ⚠ 保留「生成中…」这个词：e2e-renderer-web 从 0.6.0 起就认它，
+  //   进度事件来了会替换成更具体的一句话，但第一帧不能把老判据弄丢
+  archPhase.value = '生成中…'
+  // 进度订阅只挂一次（重开面板不再叠加监听）；按当前项目过滤，避免 A 的进度串到 B
+  if (!archProgressOff) {
+    archProgressOff = (window as any).tegula.onArchProgress((p: any) => {
+      if (p && p.projectId === archProjectId.value) archPhase.value = String(p.text || '')
+    })
+  }
   startArchClock()
   try {
     const r: any = await (window as any).tegula.archGenerate(id)
@@ -5685,14 +5700,45 @@ async function generateSelfArch(): Promise<void> {
     applyArchFilter()
     // 面板在生成期间被关掉时，结果不能就这么消失 —— 至少留一句话说清"图已经有了、去哪儿看"
     const gone = !archOpen.value ? '（面板已关：重新点“结构地图”就能看到这张图）' : ''
-    if (r.source === 'ai') showToast(`AI 生成图：${r.attempts || 1} 次过审 —— 每个节点与连线都指回证据` + gone, 'success')
-    else showToast(`已降级为扫描图：${r.reason || '没配模型'}` + gone, 'info')
+    if (r.cancelled) {
+      showToast('已取消 —— 没有生成任何图，也没写文件' + gone, 'info')
+    } else if (r.source === 'ai') {
+      showToast(`AI 生成图：${r.attempts || 1} 次过审${r.repaired ? '（输出被截断，按完整节点收尾）' : ''}` + gone, 'success')
+    } else {
+      // 失败要说清"坏在哪一步"，不是笼统一句"生成失败"（11-03 驳回）
+      const k = String(r.failKind || '')
+      const why = k === 'not_json' ? '模型没按要求给 JSON'
+        : k === 'truncated' ? '模型输出被截断（话没说完）'
+          : k === 'no_content' ? '模型一个字都没返回'
+            : k === 'audit_rejected' ? '证据审计没过（节点/连线指不回事实）'
+              : k === 'no_model' ? '还没配模型'
+                : k === 'call_failed' ? '调用模型失败' : '这次没画成'
+      showToast(`已降级为扫描图：${why}${r.reason ? ' —— ' + r.reason : ''}` + gone, 'info')
+    }
   } catch (e: any) {
     showToast('生成异常：' + (e?.message || e), 'error')
   } finally {
     archBusy.value = false
+    archPhase.value = ''
     stopArchClock()
+    void loadArchLast(id)
   }
+}
+
+/** 取消生成：主进程在**每次调用前**检查，取消后不写任何图 */
+async function cancelSelfArch(): Promise<void> {
+  const id = archProjectId.value
+  if (!id) return
+  archPhase.value = '正在取消…'
+  try { await (window as any).tegula.archCancel(id) } catch { /* 取消失败 → 让它自己跑完 */ }
+}
+
+/** 上次生成结果（关窗/切页后回来能查到"上次怎么了"） */
+async function loadArchLast(id: string): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.archLastRun(id)
+    archLast.value = r && r.ok && !r.none ? r : null
+  } catch { archLast.value = null }
 }
 
 async function openSelfArch(p: any, opts: { keepExcluded?: boolean } = {}): Promise<void> {
@@ -5706,6 +5752,7 @@ async function openSelfArch(p: any, opts: { keepExcluded?: boolean } = {}): Prom
   }
   archProjectId.value = id
   archBusy.value = true
+  void loadArchLast(id)
   try {
     const r: any = await (window as any).tegula.archGet(id, { strict: archStrict.value })
     if (r?.graph) {

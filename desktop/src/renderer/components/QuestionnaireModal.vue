@@ -191,8 +191,8 @@
                 <div v-if="audits[q.id] && audits[q.id].evidence" class="au-ev">证据：{{ audits[q.id].evidence }}</div>
                 <div class="au-acts">
                   <input v-model="auditDraft[q.id]" class="au-in" placeholder="一句证据（判“被推翻”必须写）" />
-                  <button class="ghost" @click="doAudit(q.id, 'ok')">✓ 仍成立</button>
-                  <button class="danger" @click="doAudit(q.id, 'refuted')">✗ 已被推翻</button>
+                  <Button variant="outline" size="sm" @click="doAudit(q.id, 'ok')">✓ 仍成立</Button>
+                  <Button variant="danger" size="sm" @click="doAudit(q.id, 'refuted')">✗ 已被推翻</Button>
                 </div>
               </div>
             </div>
@@ -335,10 +335,10 @@
               <option value="">自动（按卷名）</option>
               <option v-for="p in cardOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
-            <button v-if="approved && !voidedAt" class="ok" :disabled="cardBusy" @click="makeCards"
+            <Button v-if="approved && !voidedAt" variant="primary" size="sm" :disabled="cardBusy" @click="makeCards"
               title="把这些答案落成 task-data 里的任务卡 —— 没卡就没人施工">
               {{ cardDone ? `✓ 已落 ${cardDone.created} 张` : '🗂 落成任务卡' }}
-            </button>
+            </Button>
             <button v-if="voidedAt" class="ghost" @click="doReopen">恢复这卷</button>
             <button v-else class="danger" @click="voidOpen = !voidOpen">⌫ 作废这卷</button>
             <span class="qn-grow"></span>
@@ -359,6 +359,8 @@
 </template>
 
 <script setup lang="ts">
+// UI 基座 · 第一刀迁移（2026-11-07）：本轮新增的三个按钮走 components/ui/Button.vue
+import Button from './ui/Button.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'toast', msg: string, kind?: string): void }>()

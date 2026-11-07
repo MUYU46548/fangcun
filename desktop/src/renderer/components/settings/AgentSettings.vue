@@ -225,11 +225,23 @@ onMounted(loadChannels)
           <b>{{ usageStats_.calls }}</b> 次调用（成功 {{ usageStats_.ok }} · 失败 {{ usageStats_.fail }}）·
           其中 {{ usageStats_.token_calls }} 次带 token 数据
         </div>
+        <!-- 主指标口径（2026-11-07 · W1）：账上 99.3% 的 total 是 cache_read，
+             拿 total 当"花销"量的是上下文长度。主指标换成"新输入 + 输出"，total 降副列。 -->
         <div class="usage-line" v-if="usageStats_.token_calls">
-          tokens：入 <b>{{ usageStats_.prompt_tokens }}</b> · 出 <b>{{ usageStats_.completion_tokens }}</b> ·
-          共 <b>{{ usageStats_.total_tokens }}</b>
+          新输入 <b>{{ usageStats_.new_input_tokens }}</b> · 输出 <b>{{ usageStats_.output_tokens }}</b> tokens
+          <span class="usage-line dim">（主指标）</span>
         </div>
-        <div class="usage-line" v-else>这个区间里还没有带 token 的调用记录（老记录只有字符数，不折算）</div>
+        <div class="usage-line dim" v-if="usageStats_.token_calls">
+          缓存重读 {{ usageStats_.cache_read_tokens }} · total {{ usageStats_.total_tokens }}（副列，含重读）
+          · 外部上报未归因 <b>{{ usageStats_.unattributed_pct }}%</b>（{{ usageStats_.unattributed_calls }} 条）
+        </div>
+        <!-- 显式条件，不接 v-else：中间隔着副列那一行，v-else 链容易被后人插断 -->
+        <div class="usage-line" v-if="!usageStats_.token_calls">这个区间里还没有带 token 的调用记录（老记录只有字符数，不折算）</div>
+        <div class="usage-chips" v-if="usageStats_.byCard && usageStats_.byCard.length">
+          <span v-for="c in usageStats_.byCard.slice(0, 5)" :key="c.card" class="usage-chip">
+            {{ c.card }} · {{ c.calls }} 次 · {{ c.total_tokens }} tokens
+          </span>
+        </div>
         <div class="usage-chips" v-if="usageStats_.byModel.length">
           <span v-for="m in usageStats_.byModel.slice(0, 6)" :key="m.model" class="usage-chip">
             {{ m.model }} · {{ m.calls }} 次<template v-if="m.token_calls"> · {{ m.total_tokens }} tokens</template>

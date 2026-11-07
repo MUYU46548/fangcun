@@ -129,7 +129,11 @@ def main():
     for k in no_proj_keys:
         for f2, txt2 in landed_texts.items():
             if ("[账本:%s:%s]" % (VERSION, k)) in txt2 or ("[账本:%s:%s-" % (VERSION, k)) in txt2:
-                m2 = re.search(r"^项目:\s*(.+)$", txt2, re.M)
+                # ⚠ 2026-11-07 修：这里原来是 `^项目:\s*(.+)$`，`\s` 含换行 ——
+                #   `项目:` 为空时正则会**跳过换行抓到下一行**（`状态: 待办`），
+                #   于是 5 条本来就无归属的卡被误判成"被兜底挂了项目"，守卫长期假红。
+                #   只吃行内空白；确实写了别的项目时仍能抓到（见反例）。
+                m2 = re.search(r"^项目:[ \t]*(.*)$", txt2, re.M)
                 raw = (m2.group(1).strip() if m2 else "")
                 if raw not in ("[]", "", "null"):
                     wrongly_owned.append((k, raw))

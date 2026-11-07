@@ -2054,6 +2054,7 @@ contextBridge.exposeInMainWorld('tegula', {
   archGet: (projectId, opts) => {
     cloneGuard('archGet', [projectId, opts])
     rec('archGet', [projectId, opts])
+    store.archProjectId = projectId   // 进度事件要带同一个 id，否则 App 的回调会把它过滤掉
     if (!projectId) return { ok: false, error: '没给项目 id' }
     const RESULT = {
       ok: true,
@@ -2108,6 +2109,25 @@ contextBridge.exposeInMainWorld('tegula', {
     // 假桩同步返回的话"生成中横幅 / 关闭确认"这两块**一帧都量不到**。
     if (store.archHold) return new Promise((res) => setTimeout(() => res(build()), 1400))
     return build()
+  },
+  // ── 2026-11-07（修 11-03 驳回）：进度 / 取消 / 上次结果 ──────────────
+  // ⚠ 假 preload 必须与真 preload 同步。这三个是 preload/index.ts 新增的，
+  //   漏一个 → App.vue 的 generateSelfArch 在**调 archGenerate 之前**就 TypeError，
+  //   整块架构图断言连锁红（11-07 实测：16 条，全崩在"测试自身"而不是被测代码）。
+  archCancel: (projectId) => {
+    cloneGuard('archCancel', [projectId])
+    rec('archCancel', [projectId])
+    return { ok: true }
+  },
+  archLastRun: (projectId) => {
+    rec('archLastRun', [projectId])
+    return store.archLast ? { ok: true, ...store.archLast } : { ok: true, none: true }
+  },
+  /** 返回取消订阅函数；挂住的 cb 由 __fcTest.emitArchProgress 触发 */
+  onArchProgress: (cb) => {
+    rec('onArchProgress', [])
+    store.archProgressCb = cb
+    return () => { if (store.archProgressCb === cb) store.archProgressCb = null }
   },
   archExport: (projectId, opts) => {
     cloneGuard('archExport', [projectId, opts])
@@ -2259,6 +2279,15 @@ contextBridge.exposeInMainWorld('__fcTest', {
   // 要验“升级后没同步”就 setSkillSync({ stale: true, staleReason: '...' })。
   /** 让 archGenerate 挂住 1.4 秒（验“生成中横幅 + 关闭确认”用） */
   holdArch: (v) => { store.archHold = v !== false; return store.archHold },
+  /** 注入"上次生成结果"，验关窗后回来还能查到上次怎么了 */
+  setArchLast: (r) => { store.archLast = r || null; return store.archLast },
+  /** 推一条进度事件（真机由主进程 event.sender.send 推） */
+  emitArchProgress: (p) => {
+    rec('emitArchProgress', [p])
+    const payload = Object.assign({ projectId: store.archProjectId || 'demo' }, p || {})
+    if (typeof store.archProgressCb === 'function') store.archProgressCb(payload)
+    return !!store.archProgressCb
+  },
   setSkillSync: (patch) => {
     store.skillSync = Object.assign({}, store.skillSync, patch || {})
     rec('setSkillSync')

@@ -19,6 +19,10 @@ import { parseTime } from './time'
 
 export interface WasteTraceRecord {
   ts?: string
+  /** 外部上报的备注里带 `cache_read=` 与 `card=`（方寸自己的调用没有） */
+  note?: string
+  /** 归因到哪张卡（2026-11-07 起由上报方显式给；缺省 = 未归因） */
+  card?: string
   /** 缺省 = local（方寸自己发起的调用） */
   origin?: 'local' | 'external'
   cost?: string
@@ -48,7 +52,7 @@ export interface WasteInput {
   tasks?: WasteTaskRecord[] | null
 }
 
-export type WasteCellKey = 'spend' | 'output' | 'rejected'
+export type WasteCellKey = 'spend' | 'external' | 'output' | 'rejected'
 
 export interface WasteCell {
   key: WasteCellKey
@@ -159,6 +163,56 @@ export function buildWasteLedger(input: WasteInput = {}): WasteLedger {
     }
   }
 
+  // ①b 外部 agent 的花销（2026-11-07 新增）—— **单列一格，绝不混进上面那格**
+  //
+  // 为什么必须单列：实测 227 条 trace 里 217 条是外部上报，token 占 99.99%；
+  // 而"花了多少"那格按口径只算 local → 整本账其实在描述 0.0024% 的流量。
+  // 但直接混算更糟（外部上报没法复验、不含方寸上下文）。所以：**分成两格，各自说清口径**。
+  if (Array.isArray(input.trace)) {
+    const ext = input.trace.filter((x) => x && (x.origin === 'external') && inWindow(x.ts, since))
+    // ⚠ 只有"报了 prompt_tokens"的记录才能算新输入（新输入 = prompt − cache_read）。
+    //   只报 total 的记录一律不进分子 —— 拿 total 顶替就等于把"上下文长度"当"新读入"，
+    //   正是这份账原来最错的地方。一条 prompt 都没有 → **整格不产出**（宁缺勿假）。
+    const tok = ext.filter((x) => typeof x.prompt_tokens === 'number' && Number.isFinite(x.prompt_tokens))
+    if (ext.length && tok.length) {
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+      let prompt = 0
+      let cache = 0
+      let completion = 0
+      let withCard = 0
+      let attributedTokens = 0
+      for (const x of tok) {
+        const p = num(x.prompt_tokens)
+        const cRaw = num(x.completion_tokens)
+        prompt += p
+        completion += cRaw
+        const note = String(x.note || '')
+        const m = /cache_read=(\d+)/.exec(note)
+        const cacheN = m ? Number(m[1]) : 0
+        cache += cacheN
+        const card = String(x.card || '').trim() || (/card=([^\s]+)/.exec(note) || [])[1] || ''
+        if (card && card !== '(未归因)') { withCard++; attributedTokens += tokenCount(x) }
+      }
+      const totalTok = tok.reduce((a, x) => a + tokenCount(x), 0)
+      const newInput = Math.max(0, prompt - cache)
+      const cachePct = prompt > 0 ? Math.round((cache / prompt) * 1000) / 10 : 0
+      const attrPct = ext.length ? Math.round((withCard / ext.length) * 1000) / 10 : 0
+      const fmt = (n: number) => n.toLocaleString('en-US')
+      const cell = makeCell(
+        'external',
+        `外部 agent 花了多少（近 ${days || '全部'} 天）`,
+        `${fmt(newInput)} 新输入 · 缓存重读占 ${cachePct}%`,
+        `${CAVEAT_PREFIX}：外部上报是自己报的，方寸没法复验；没有 card 的那部分归因不到任何需求，`
+        + `所以它能说明"花了多少"，说明不了"花在哪件活上"。`,
+        `${ext.length} 次外部调用 · 归因 ${withCard}/${ext.length}（${attrPct}%）`
+        + ` · 已归因 token 占 ${totalTok ? Math.round((attributedTokens / totalTok) * 1000) / 10 : 0}%`
+        + ` · 输出 ${fmt(completion)} tokens`,
+        { tokens: tokenCount(tok[0]) ? tok.reduce((a, x) => a + tokenCount(x), 0) : undefined, calls: ext.length },
+      )
+      if (cell) cells.push(cell)
+    }
+  }
+
   // ② 产出了什么 —— git 提交 + 完成的卡（两边各算各的，都不猜）
   const tasksKnown = Array.isArray(input.tasks)
   const commitsKnown = Array.isArray(input.commits)
@@ -250,7 +304,10 @@ export function deriveWasteInsight(ledger: WasteLedger): WasteInsight {
   if (typeof tokens === 'number' && tokens > 0) {
     return {
       ok: true,
-      text: `按投入产出账：近 ${ledger.days || '全部'} 天用了 ${tokens.toLocaleString('en-US')} tokens，完成 ${done} 张卡 —— 平均每张完成卡约 ${Math.round(tokens / done).toLocaleString('en-US')} tokens（金额未折算，不能说成花了多少钱）。`,
+      // 2026-11-07 · W1 口径：这个 tokens 是「方寸自己发起的调用」的 total（含缓存重读），
+      // 外部 agent 的花销在单独一格。原句直接说"用了 X tokens，平均每张卡 Y"会被读成因果，
+      // 所以把口径与"只是比值"写进句子里 —— 数字没变，说法不再骗人。
+      text: `按投入产出账：近 ${ledger.days || '全部'} 天方寸自己用了 ${tokens.toLocaleString('en-US')} tokens（total 含缓存重读，外部 agent 另计），完成 ${done} 张卡 —— 平均每张完成卡约 ${Math.round(tokens / done).toLocaleString('en-US')} tokens（只是比值、不是因果；金额未折算，不能说成花了多少钱）。`,
       cites: ['ledger:spend', 'ledger:output'],
     }
   }

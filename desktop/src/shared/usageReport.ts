@@ -36,6 +36,11 @@ export interface ExternalUsageRecord {
   origin: 'external'
   reported_by: string
   note?: string
+  /**
+   * 归因到哪张卡/哪个需求（2026-11-07）。缺省一律 `(未归因)` ——
+   * 不是空串：空串在报表里会被当成"没有这个字段"而静默消失，`(未归因)` 才能被统计到。
+   */
+  card: string
 }
 
 export interface UsageReportOk { ok: true; record: ExternalUsageRecord }
@@ -109,6 +114,20 @@ export function buildExternalUsageRecord(input: unknown, nowIso: string): UsageR
   const client = cleanText(o.client, 32).replace(/[^\w\u4e00-\u9fa5.-]/g, '') || 'external'
   const note = cleanText(o.note, 120)
 
+  /**
+   * 归因闸（2026-11-07）。
+   *
+   * 实测：217 条外部调用里只有 4 条带 `card=`（1.8%）—— 也就是说 93% 的 token
+   * 归不到任何需求，"token 花在哪"永远只能回答"花了多少"。
+   *
+   * 做法**不是拒收**（丢账比丢归因更糟），而是把它显式标成 `(未归因)`：
+   * 报表里单独算比例，让"没归因的那部分"**可见**，而不是被平均数吞掉。
+   * 认法：显式字段 `card` 优先；其次认 note 里的 `card=xxx`（老上报方的写法）。
+   */
+  const explicitCard = cleanText(o.card, 120)
+  const noteCardMatch = /(?:^|\s)card=([^\s]+)/.exec(note)
+  const card = explicitCard || (noteCardMatch ? noteCardMatch[1] : '') || '(未归因)'
+
   const rec: ExternalUsageRecord = {
     ts,
     // trigger 前缀写死 external: —— 月度报表按它切分来源，别让外部数据伪装成本地调用
@@ -125,6 +144,7 @@ export function buildExternalUsageRecord(input: unknown, nowIso: string): UsageR
     ...(cost !== undefined ? { cost, cost_source: 'provider' as const } : {}),
     origin: 'external',
     reported_by: client,
+    card,
     ...(note ? { note } : {}),
   }
   return { ok: true, record: rec }

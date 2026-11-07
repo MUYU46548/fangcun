@@ -135,6 +135,8 @@
 | **技能真源一致性（改技能必跑）** | `node scripts/test/check-skills.cjs` | **改 `skills/**` 或发版时必跑**：`manifest.version` 必须等于 `desktop/package.json` 版本；每个技能 `frontmatter.version` 必须等于 manifest 登记值（**防版本号漂移** —— 首跑就抓到 fangcun-bridge 写着 1.2.0 而 manifest 记 1.3.0）；`frontmatter.name` 必须等于 id；`docs/agents/<id>/` 副本与真源**逐字节一致**（防两处分叉）；有 SKILL.md 却没登记的目录必须报出来。顺带打印每个技能 md5（人工对账用） |
 | **界面文案（改 UI 文案必跑）** | `node scripts/test/check-ui-copy.cjs` | **Vue 不解析 Markdown** —— `**粗体**` 和反引号会原样印给用户（在途一屏空屏提示、设置页看板归档说明、`mcpConnect.ts` 的 howTo、`chat.ts` 的鉴权提示都犯过）。只看“最终会以纯文本渲染”的位置：App.vue 的 `<template>` 段（剥注释、取**最后一个**行首 `</template>` 才不会被内部 `<template v-if>` 截断）+ howTo/showToast/message/label/hint/placeholder 行；`logs.ts injectLog` / `buildSelfInstallPrompt` / 契约模板 / 派工单是**有意给 AI 读的 Markdown**，天然不在范围。守卫自身带一条“切片长度合理”的断言，防切片失效后永远绿 |
 | **测试桩对账（改主进程 electron 用法必跑）** | `node scripts/check-electron-stub.cjs` | **桩靠人记着同步 = 迟早崩在"测试自身异常"**（2026-11-06 `app.getVersion` 就一次，整份 e2e 一条断言没跑）。判据：拿真身 `electron.d.ts` 对账"`src/main` 里用到的成员桩里有没有"；真身有桩没有 → 红（第一次跑就抓出 `BrowserWindow.fromWebContents` 被用 6 处等 4 个缺口）；真身也没有 → 只提示；明确不加载的入口写进 `ALLOW` 并**打印原因**。|
+| **UI 基座冻结（加新界面按钮/浮层必跑）** | `node scripts/test/check-ui-freeze.cjs` | 基线 `ui-freeze-baseline.json`（手搓类清单）钉死"不许再新增"；新增自定义按钮/浮层类即红，确需手搓要登记 `ALLOW` 并写原因（守卫会打印 SKIP）。基线**只许变短**，重刷要在提交信息里说清迁走了哪些。另断言三块新界面真的 `import components/ui/Button.vue`（不许只立门禁不迁移）。`--snapshot` 才能重刷基线。 |
+| **竞品档案（改 registry 文本块/CLI 必跑）** | `python scripts/test/check-competitors.py` | 文本块插入不许洗注释、项目 id 序列不变、别的项目逐字节不变；`parse_registry` 不许把 `- name: 竞品` 当成新项目（会污染 next/report/MCP/盘点）；采集任务单不含密钥；没数据明说要 agent 采。含 CLI 端到端真跑 argparse。 |
 | 构建 | `cd desktop && npm run build` | sync-public-tools + vite + tsc(main/cli) 零错误 |
 
 > ⚠ **开发态改主进程/preload 必须重启 Electron**。`npm run dev` 的 `dev:electron` 已是

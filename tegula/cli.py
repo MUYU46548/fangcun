@@ -2,6 +2,7 @@
 import argparse, os, sys, json, shutil, datetime, subprocess, time, threading, zipfile, re
 from urllib.parse import parse_qs
 
+from tegula import core as core
 from tegula.core import (
     ROOT, TASK_DIR, DATA_DIR, REGISTRY_PATH, REGISTRY_BAK, BACKUP_DIR, BACKUP_KEEP,
     ACTIVITY_LOG, STATUSES, illegal_status, _NOWIN, MANAGED_KEYS, TASKFN, _GATES,
@@ -1183,6 +1184,55 @@ def cmd_roadmap_full(args):
         for s in data["cross_project"]:
             print(f"   {s}")
     print()
+
+
+def cmd_competitor(args):
+    """竞品档案（2026-11-07）。add / list / report 三个动作。
+
+    口径：方寸**不联网、不自建爬虫** —— add 只登记地址与关注点，并生成一份"给 agent 的采集任务单"；
+    report 只读 agent 回填的结果。没有数据就明说"要 agent 去采"，**不许输出一张空报表冒充成功**。
+    """
+    act = str(getattr(args, "action", "") or "")
+
+    if act == "add":
+        ok, msg = core.add_competitor(args.project, args.name, args.url, getattr(args, "focus", "") or "")
+        print(("✓ " if ok else "✗ ") + msg)
+        if not ok:
+            return 1
+        task = core.write_competitor_task(args.project)
+        if task:
+            print(f"采集任务单：{task}")
+            print("  下一步：把这份单子交给 agent 去采（方寸自己不联网）")
+        return 0
+
+    if act == "list":
+        data = core.load_competitors(getattr(args, "project", "") or None)
+        if not data:
+            print("还没有登记任何竞品。登记一条：tegula competitor add --project <项目id> --name <名字> --url <地址>")
+            return 0
+        for pid, rows in sorted(data.items()):
+            print(f"\n{pid}（{len(rows)} 个）")
+            for r in rows:
+                focus = f"  关注：{r['focus']}" if r["focus"] else ""
+                print(f"  · {r['name']}  {r['url']}{focus}")
+        return 0
+
+    if act == "report":
+        pid = getattr(args, "project", "") or ""
+        rows = core.competitor_reports(pid)
+        if not rows:
+            # ⚠ 这是"没数据"，不是"没有变化" —— 两者差着一整轮采集
+            where = core.competitors_dir(pid) if pid else core.competitors_dir()
+            print("没有采集数据 —— 需要 agent 按采集任务单去采（方寸不联网、不自建爬虫）。")
+            print(f"  任务单/回填目录：{where}")
+            return 0
+        for name, text in rows:
+            print(f"\n===== {name} =====")
+            print(text.rstrip())
+        return 0
+
+    print("用法：tegula competitor {add|list|report} …")
+    return 1
 
 
 def cmd_status(args):
@@ -2453,6 +2503,22 @@ def main():
     st.add_argument("id", nargs="?", default=None, help="项目 id（可选，不指定则显示全部）")
     st.add_argument("--format", choices=["text", "json"], default="text", help="输出格式")
     st.set_defaults(func=cmd_status)
+    # 竞品档案（2026-11-07 · REV-007 的 P1 第一刀）
+    cp = sub.add_parser("competitor", help="竞品档案：登记 / 列表 / 看采集结果（方寸不联网，采集交给 agent）")
+    cpsub = cp.add_subparsers(dest="action")
+    cp_add = cpsub.add_parser("add", help="给某个项目登记一条竞品，并生成采集任务单")
+    cp_add.add_argument("--project", required=True, help="registry 里的项目 id")
+    cp_add.add_argument("--name", required=True, help="竞品名")
+    cp_add.add_argument("--url", required=True, help="能打开的地址")
+    cp_add.add_argument("--focus", default="", help="关注什么（一句话，会给采集的人看）")
+    cp_add.set_defaults(func=cmd_competitor)
+    cp_list = cpsub.add_parser("list", help="列出已登记的竞品")
+    cp_list.add_argument("--project", default="", help="只看某个项目")
+    cp_list.set_defaults(func=cmd_competitor)
+    cp_rep = cpsub.add_parser("report", help="看 agent 回填的采集结果（没有就明说没有）")
+    cp_rep.add_argument("--project", default="", help="只看某个项目")
+    cp_rep.set_defaults(func=cmd_competitor)
+    cp.set_defaults(func=cmd_competitor)
     rp = sub.add_parser("report", help="生成项目状态报告（project-status.md）")
     rp.add_argument("--brief", action="store_true", help="简报模式（单文件列表，适合 cron 推送）")
     rp.add_argument("--output", default=None, help="输出文件路径（默认 project-status.md）")

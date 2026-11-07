@@ -199,6 +199,50 @@ console.log('\n== ⑤ 接线守卫 ==')
     && !/readTrace|execFileSync/.test(read('desktop/src/renderer/composables/useWasteLedger.ts')))
 }
 
+console.log('\n== ④ 外部 agent 那一格 + 归因（2026-11-07 新增）==')
+{
+  const EXT = [
+    // 两条归了因、带 cache_read
+    { ts: '2026-11-01T02:00:00.000Z', origin: 'external', prompt_tokens: 1000, completion_tokens: 20, total_tokens: 1020, note: 'cache_read=900 card=task-A' },
+    { ts: '2026-11-01T02:10:00.000Z', origin: 'external', prompt_tokens: 500, completion_tokens: 10, total_tokens: 510, note: 'cache_read=0 card=task-A' },
+    // 两条没归因
+    { ts: '2026-11-01T02:20:00.000Z', origin: 'external', prompt_tokens: 300, completion_tokens: 5, total_tokens: 305, note: 'cache_read=300' },
+    { ts: '2026-11-01T02:30:00.000Z', origin: 'external', prompt_tokens: 200, completion_tokens: 5, total_tokens: 205 },
+    // 只有 total 记录：不进新输入（拿 total 顶替 = 把上下文长度当新读入）
+    { ts: '2026-11-01T02:40:00.000Z', origin: 'external', total_tokens: 777777 },
+  ]
+  const l = buildWasteLedger({ days: 30, now: NOW, trace: EXT, commits: null, tasks: null })
+  const ext = l.cells.find((c) => c.key === 'external')
+  check('★ 外部记录有 prompt 数据时，独立出一格（不与 local 混算）', !!ext, JSON.stringify(l.cells.map((c) => c.key)))
+  // 新输入 = (1000-900)+(500-0)+(300-300)+(200-0) = 100+500+0+200 = 800
+  check('★★ 新输入 = prompt − cache_read（800），不是 total（2,040）更不是 777777',
+    !!ext && ext.value.indexOf('800') >= 0 && ext.value.indexOf('777') < 0, ext && ext.value)
+  // 分母是**全部外部调用**（5 条，含只报 total 的那条 —— 它也是一次调用，只是算不出新输入）。
+  // 分子只认带 card 的：2/5 = 40%。分子分母各按各的口径，不许为了让数字好看而挑分母。
+  check('★★ 归因覆盖率按**条数**说清：5 条里 2 条带 card → 40%',
+    !!ext && /归因 2\/5（40%）/.test(String(ext.detail)), ext && ext.detail)
+  check('★ (未归因) 不算"归了因"（分子不许把 5 条都算上）',
+    !!ext && !/归因 5\/5/.test(String(ext.detail)), ext && ext.detail)
+  check('★ 外部那格必须自带"它证明不了什么"', !!ext && String(ext.caveat).indexOf('它证明不了什么') === 0, ext && ext.caveat)
+  check('★ 外部那格的细节里点出缓存占比（否则读者以为全是新读入）',
+    !!ext && /缓存重读占/.test(ext.value), ext && ext.value)
+
+  // 反例：一条 prompt 都没有 → 整格不产出（宁缺勿假）
+  const onlyTotal = buildWasteLedger({ days: 30, now: NOW, trace: [{ ts: '2026-11-01T02:00:00.000Z', origin: 'external', total_tokens: 12345 }], commits: null, tasks: null })
+  check('★★ 反例：外部记录只报 total → 不产出外部格（不许把 total 当新输入）',
+    !onlyTotal.cells.some((c) => c.key === 'external'), JSON.stringify(onlyTotal.cells.map((c) => c.key)))
+
+  // 归因闸：上报构造
+  const UR = require(path.join(REPO, 'desktop/dist/shared/usageReport.js'))
+  const r1 = UR.buildExternalUsageRecord({ client: 'dsh', total_tokens: 10 }, '2026-11-01T00:00:00.000Z')
+  check('★★ 没归因的上报照常入账，但 card 标成 (未归因)（丢账比丢归因更糟）',
+    r1.ok === true && r1.record.card === '(未归因)', JSON.stringify(r1.ok && r1.record.card))
+  const r2 = UR.buildExternalUsageRecord({ client: 'dsh', total_tokens: 10, note: 'session=x card=task-B' }, '2026-11-01T00:00:00.000Z')
+  check('★ 老写法（note 里 card=）也能认出来', r2.ok === true && r2.record.card === 'task-B', JSON.stringify(r2.ok && r2.record.card))
+  const r3 = UR.buildExternalUsageRecord({ client: 'dsh', total_tokens: 10, card: 'task-C', note: 'card=task-B' }, '2026-11-01T00:00:00.000Z')
+  check('★ 显式 card 优先于 note 里的旧写法', r3.ok === true && r3.record.card === 'task-C', JSON.stringify(r3.ok && r3.record.card))
+}
+
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) { console.log('\n失败项：'); failures.forEach((f) => console.log(' - ' + f)) }
 process.exit(fail ? 1 : 0)

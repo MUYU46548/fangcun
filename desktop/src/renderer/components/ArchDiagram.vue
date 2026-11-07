@@ -27,6 +27,10 @@ const props = defineProps<{
   /** 历次驳回理由（最新在后）；空 = 没被驳回过 */
   rejects?: string[]
   busy?: boolean
+  /** 生成进度一句话（第几次 / 在审计哪一条）—— 11-03 驳回"挂着窗口干等" */
+  phase?: string
+  /** 上次生成结果（关窗后回来也查得到） */
+  lastRun?: any
   /** 生成已耗时（秒）。由父组件的计时器给 —— 组件不自己起表，切图重挂也不重置 */
   elapsed?: number
   version?: number
@@ -37,6 +41,7 @@ const props = defineProps<{
   excludedInfo?: Array<{ id: string; label: string }>
 }>()
 const emit = defineEmits<{
+  (e: 'cancel'): void
   (e: 'close'): void
   (e: 'export'): void
   (e: 'exclude', id: string): void
@@ -101,10 +106,20 @@ function submitReject(): void {
       <span v-if="version && version > 1" class="archd-ver" :title="'被驳回后重画到第 ' + version + ' 版'">第 {{ version }} 版</span>
       <span v-if="approved" class="archd-ok">✅ 已通过</span>
       <span class="archd-grow"></span>
+      <!-- 上次生成结果（关窗/切页回来也查得到"上次怎么了"）——
+           11-03 驳回原话："点关闭是否有影响？" 现在答案是：结果落盘，重开就看得到。 -->
+      <span v-if="lastRun && !busy" class="archd-last" :class="{ bad: lastRun.source !== 'ai' && !lastRun.cancelled }">
+        {{ lastRun.cancelled ? '上次：已取消' : lastRun.source === 'ai' ? '上次：生成成功' : '上次：降级为扫描图' }}
+        <template v-if="lastRun.reason">· {{ lastRun.reason }}</template>
+        <template v-if="lastRun.ms">· {{ Math.round((lastRun.ms || 0) / 1000) }}s</template>
+      </span>
+      <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次生成：不会再发下一次调用，也不会写任何图" @click="emit('cancel')">
+        取消
+      </button>
       <button class="ghost archd-gen font-[inherit]" :disabled="busy"
         title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型）"
         @click="emit('generate')">
-        {{ busy ? `生成中… ${elapsed || 0}s` : '✦ AI 生成图' }}
+        {{ busy ? `${phase || '生成中…'} ${elapsed || 0}s` : '✦ AI 生成图' }}
       </button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
@@ -299,4 +314,7 @@ function submitReject(): void {
   .archd-side { max-height: 260px; }
   .archd-reject-in { width: 100%; }
 }
+.archd-last { font-size: 10.5px; color: var(--muted); margin-right: 6px; }
+.archd-last.bad { color: var(--warning); }
+.archd-cancel { font-weight: 600; }
 </style>

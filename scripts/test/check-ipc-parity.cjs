@@ -49,6 +49,9 @@ const EXEMPTIONS = {
     // 2026-10-29：点系统通知 → 回到具体对象。同样是**主→渲染单向推送**
     // （notifier.focusSource 里 webContents.send），渲染层 onNotifyFocus 订阅，不存在 invoke handler。
     'notify:focus': '主→渲染推送通道（webContents.send，点系统通知后把 type/sourceId 交给渲染层开卡）',
+    // 2026-11-07：架构图生成进度。11-03 驳回"挂着窗口干等"，所以现在把"第几次/在审计哪一条"
+    // 推给界面（arch:generate 里 event.sender.send）。它是单向推送，没有 invoke handler。
+    'arch:progress': '主→渲染推送通道（event.sender.send，架构图生成的阶段与尝试次数）',
   },
   // 未接线模块：文件路径（相对仓库根，正斜杠）
   // ⚠ 2026-09-22：入口探测修正为 src/index.ts 后，updater.ts **已达可达集**

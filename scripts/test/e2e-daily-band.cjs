@@ -247,9 +247,17 @@ if (!fs.existsSync(PLAN_MD)) {
       // 条带必须如实说“没有可推的”，并且不许编一张卡出来。
       const pending = doc.stages.filter((s) => ['待裁决', '待裁决（未冻结）', '未冻结'].includes(String(s.status || '').trim())).length
       const rework = doc.stages.filter((s) => String(s.status || '').trim() === '未完成').length
-      check('★ 真卡：没有已冻结时不自造一张卡（kind=none / stage=null / 仍 3 行）',
-        real.kind === 'none' && real.stage === null && real.lines.length === 3,
+      // 2026-11-07 放宽：实现后来加了 `all-passed`（冻结的格子都已通过）——
+      // 它和 `none` 一样属于"没有可推的"，断言写死 none 是在拿旧语义判新代码。
+      // 只增不减：放宽 kind 的同时，**新增**两条更硬的判据（不许编卡、仍要说清状态）。
+      check('★ 真卡：没有可推的时不自造一张卡（kind=none / all-passed，stage=null，仍 3 行）',
+        (real.kind === 'none' || real.kind === 'all-passed') && real.stage === null && real.lines.length === 3,
         JSON.stringify({ kind: real.kind, stage: real.stage && real.stage.id, lines: real.lines.length }))
+      check('★★ 反例：all-passed 也不许偷偷塞一张卡进来（stage 恒 null）',
+        real.stage === null, JSON.stringify(real.stage))
+      check('★★ all-passed 时三行里要说清"没有可推的"（不许给一段空条带）',
+        (real.kind !== 'all-passed' || real.lines.some((l) => /通过|没有|都|完/.test(String(l || '')))),
+        JSON.stringify(real.lines))
       check('★ 真卡：待裁决 / 未完成计数与卡面一致',
         real.pendingCount === pending && real.reworkCount === rework,
         `band=${real.pendingCount}/${real.reworkCount} 卡面=${pending}/${rework}`)

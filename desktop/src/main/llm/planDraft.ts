@@ -17,6 +17,7 @@ import * as path from 'path'
 import { atomicWrite, getTaskDir } from '../data'
 import { appendTrace } from './trace'
 import { chatWithFallback } from './fallback'
+import { inspectJson, jsonRetryNudge, type JsonFailKind } from '../../shared/jsonRepair'
 import { getConfig } from './config'
 import type { WasteLedger } from '../../shared/waste'
 import { parseCheckLine } from '../../shared/checkSpec'
@@ -108,6 +109,10 @@ export interface PlanDraftResult {
   model?: string
   /** 允许引用的依据 id（提示词与校验共用） */
   allowed?: string[]
+  /** 失败类型（2026-11-07）：三类重试策略不同，界面/日志据此给话 */
+  failKind?: JsonFailKind | ''
+  /** 这一版是"严格重试后拿到的" */
+  retried?: boolean
 }
 
 const ID_RE = /^P\d+$/
@@ -183,20 +188,16 @@ export function buildPlanDraftPrompt(input: PlanDraftInput): { system: string; u
 }
 
 /** 从模型输出里抠出 JSON（容忍 ```json 围栏 / 前后废话） */
-export function parsePlanDraftPayload(text: string): { stages: RawDraftStage[]; error?: string } {
-  const raw = String(text || '').trim()
-  if (!raw) return { stages: [], error: '模型没有返回内容' }
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const body = fenced ? fenced[1].trim() : raw
-  const start = body.indexOf('{')
-  const end = body.lastIndexOf('}')
-  if (start < 0) return { stages: [], error: '模型输出里没有 JSON 对象' }
-  if (end <= start) return { stages: [], error: '模型输出的 JSON 不完整（缺少右花括号）' }
+export function parsePlanDraftPayload(text: string): { stages: RawDraftStage[]; error?: string; kind?: JsonFailKind | '' } {
+  // 2026-11-07：形状判定统一走 `shared/jsonRepair`，失败要能分出
+  // no_content / not_json / truncated / invalid —— 三类重试指令不同（见 jsonRetryNudge）。
+  const shape = inspectJson(text)
+  if (shape.kind) return { stages: [], error: shape.message, kind: shape.kind }
   let obj: any
   try {
-    obj = JSON.parse(body.slice(start, end + 1))
+    obj = JSON.parse(shape.body)
   } catch (e: any) {
-    return { stages: [], error: `模型输出的 JSON 解析失败：${e?.message || e}` }
+    return { stages: [], error: `模型输出的 JSON 解析失败：${e?.message || e}`, kind: 'invalid' }
   }
   const arr = Array.isArray(obj?.stages) ? obj.stages : null
   if (!arr) return { stages: [], error: '模型输出缺少 stages 数组' }
@@ -396,16 +397,51 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
     return { ok: false, error: `调用模型失败：${e?.message || e}`, allowed }
   }
 
-  const parsed = parsePlanDraftPayload(text)
+  let parsed = parsePlanDraftPayload(text)
+  let retried = false
+  // ── 一次严格重试（2026-11-07）──────────────────────────────────────
+  // 逐字复刻过的事故：11-02 那次 18,031 字符的往返，换回来一句"模型输出里没有 JSON 对象"，
+  // 然后整轮就结束了 —— 一次都没再要。重试的指令必须**按类型**给（见 jsonRetryNudge）：
+  // 截断要"少画点"，没 JSON 要"只输出 JSON"，不是同一句"注意格式"。
+  if (parsed.error) {
+    const kind = parsed.kind || 'not_json'
+    const nudge = jsonRetryNudge(kind)
+    try {
+      const r2 = await (deps.callLlm
+        ? deps.callLlm(user + '\n\n' + nudge, system)
+        : chatWithFallback(user + '\n\n' + nudge, {
+          system, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${input.project}`, noTrace: true, maxTokens: 4096,
+        }).then((x: any) => {
+          if (!x.ok) throw new Error(x.error || x.note || '模型调用失败')
+          return { text: x.text, usage: x.usage, model: x.model }
+        }))
+      retried = true
+      const t2 = String(r2?.text || '')
+      if (r2?.model) model = String(r2.model)
+      if (r2?.usage) {
+        usage = {
+          promptTokens: (usage?.promptTokens || 0) + (r2.usage.promptTokens || 0),
+          completionTokens: (usage?.completionTokens || 0) + (r2.usage.completionTokens || 0),
+          totalTokens: (usage?.totalTokens || 0) + (r2.usage.totalTokens || 0),
+        }
+      }
+      const again = parsePlanDraftPayload(t2)
+      if (!again.error) { parsed = again; text = t2 }
+      else parsed = { ...again, error: `${parsed.error}（重试一次仍是 ${again.kind || '坏结构'}）` }
+    } catch (e: any) {
+      parsed = { ...parsed, error: `${parsed.error}（重试调用失败：${e?.message || e}）` }
+    }
+  }
   if (parsed.error) {
     try {
       (deps.appendTrace || appendTrace)({
         ts: nowIso, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${input.project}`, model,
         prompt_chars: user.length, completion_chars: text.length, duration_ms: Date.now() - t0,
-        ok: false, stream: false, error: parsed.error.slice(0, 300), origin: 'local',
+        ok: false, stream: false, origin: 'local',
+        error: parsed.error.slice(0, 300), fail_kind: parsed.kind || '', retried,
       })
     } catch { /* ignore */ }
-    return { ok: false, error: parsed.error, allowed }
+    return { ok: false, error: parsed.error, allowed, failKind: parsed.kind || '', retried }
   }
 
   const v = validateDraftStages(parsed.stages, allowed)
@@ -433,6 +469,8 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
     ts: nowIso, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${input.project}`, model,
     prompt_chars: user.length, completion_chars: text.length, duration_ms: Date.now() - t0,
     ok: true, stream: false, origin: 'local',
+    // 重试救回来的要说出来 —— 否则"救回来多少"以后永远算不出来
+    ...(retried ? { retried: true } : {}),
   }
   if (usage) {
     if (typeof usage.promptTokens === 'number') rec.prompt_tokens = usage.promptTokens
@@ -443,6 +481,6 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
 
   return {
     ok: true, file, markdown, stages: v.stages, dropped: v.dropped,
-    missingCitations: v.missingCitations, usage, model, allowed,
+    missingCitations: v.missingCitations, usage, model, allowed, retried,
   }
 }
