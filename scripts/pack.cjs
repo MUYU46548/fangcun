@@ -61,6 +61,28 @@ function probeWritable(dir) {
   }
 }
 
+/**
+ * 逐文件把 src 拷到 dst，**被占的单个文件跳过并记账**（不假装干净）。
+ *
+ * 为什么需要它：`pkg/win-unpacked/resources/app.asar` 是 0.6.3 的旧解包，被索引器长期持有句柄，
+ * 整个目录换名/清空都会失败。但 `Fangcun-Setup.<ver>.exe` 本身没人占 —— 它必须能换掉，
+ * 否则"打了一版却拿不到安装包"。所以能换的全换，换不掉的如实列出来。
+ */
+function copySkippingLocked(src, dst) {
+  const skipped = []
+  const walk = (s, d) => {
+    fs.mkdirSync(d, { recursive: true })
+    for (const ent of fs.readdirSync(s, { withFileTypes: true })) {
+      const sp = path.join(s, ent.name)
+      const dp = path.join(d, ent.name)
+      if (ent.isDirectory()) { walk(sp, dp); continue }
+      try { fs.copyFileSync(sp, dp) } catch (e) { skipped.push(`${path.relative(dst, dp)}（${e.code || 'ERR'}）`) }
+    }
+  }
+  walk(src, dst)
+  return skipped
+}
+
 /** 降级暂存目录到 %TEMP%（只为绕过文件锁，不是换流程） */
 function tempStage(ver) {
   const os = require('os')
@@ -72,7 +94,7 @@ function tempStage(ver) {
 /** 逐文件清空目录：跳过被锁的，能删多少删多少
  *  （锁的真实来源见文件头：索引器持有 `*.asar`，不是 OneDrive / Windows Search —— 那两个
  *    2026-10-27 停过，`释放 0 MB`，纯属误判） */
-function emptyDir(dir) {
+function emptyDir(dir, keep) {
   if (!fs.existsSync(dir)) return { freed: 0, locked: 0 }
   let freed = 0, locked = 0
   const walk = (d) => {
@@ -80,6 +102,8 @@ function emptyDir(dir) {
       const p = path.join(d, ent.name)
       if (ent.isDirectory()) { walk(p); try { fs.rmdirSync(p) } catch { /* 非空/被占 */ } }
       else {
+        // keep 谓词只作用于**顶层**文件名（旧版安装包）；不传就是老行为：能删就删
+        if (keep && d === dir && keep(ent.name)) continue
         try { const sz = fs.statSync(p).size; fs.unlinkSync(p); freed += sz }
         catch { locked++ }
       }
@@ -89,6 +113,13 @@ function emptyDir(dir) {
   try { fs.rmdirSync(dir) } catch { /* 还有被锁文件，留着 */ }
   return { freed, locked }
 }
+
+/**
+ * `pkg` 是**发版取件目录，永不清理**（AGENTS 铁律）：旧版 `Fangcun-Setup.<ver>.exe`
+ * 要留着手动挑删。所以凡是要"清空产物目录"的地方，都必须放过这些历史安装包 ——
+ * 2026-11-07 就栽过一次：一次打包把 0.6.3–0.6.6 四个安装包全删了。
+ */
+const KEEP_OLD_INSTALLERS = (name) => /^Fangcun-Setup\.\d+\.\d+\.\d+\.exe(\.blockmap)?$/.test(name)
 
 function main() {
   const ver = String(process.argv[2] || '').trim()
@@ -120,9 +151,15 @@ function main() {
     }
   }
 
-  // ① 清掉上一轮的暂存目录（lock 住的就跳过，下面 ELBUSY 也不会发生，因为每次都换新目录名）
+  // ① 清掉上一轮的暂存目录
+  //    ⚠ 2026-11-07 实测补：**"被占 1 个文件"就足够让这一轮必挂** ——
+  //    electron-builder 自己在 `win-unpacked.tmp\resources\default_app.asar` 上会 unlink，
+  //    撞到索引器持有的句柄直接 `EBUSY`。所以"目录可写"不等于"能开工"，
+  //    这里把 locked 计数带下去，作为要不要降级的判据之一。
+  let staleLocked = 0
   if (!noClean) {
     const r = emptyDir(STAGE)
+    staleLocked = r.locked
     if (r.freed || r.locked) log(`清暂存目录：释放 ${(r.freed / 1048576).toFixed(1)}MB` + (r.locked ? `，${r.locked} 个被占` : ''))
   }
 
@@ -132,9 +169,13 @@ function main() {
   let degraded = false
   {
     const err = probeWritable(STAGE)
-    if (err) {
+    // 两种都得降级：① 根本写不进去；② 写能写、但里面还有上一轮删不掉的 asar
+    // （builder 会在同目录自己 unlink，撞上就是 EBUSY —— 2026-11-07 真撞到了）
+    if (err || staleLocked > 0) {
       const t = tempStage(ver)
-      log(`⚠ 暂存目录不可写（${err}）`)
+      log(err
+        ? `⚠ 暂存目录不可写（${err}）`
+        : `⚠ 暂存目录里有 ${staleLocked} 个上一轮的残留文件删不掉（builder 会在同目录 unlink，必撞 EBUSY）`)
       log(`  多半是索引器还攥着旧 asar；本轮自动降到 ${t}`)
       STAGE = t
       degraded = true
@@ -188,41 +229,59 @@ function main() {
   }
 
   // ③b 原子换名：旧产物先挪走，再把 tmp 改名成正式目录，最后尽力删旧的
+  //    `verifyDir` = 自检该看哪个目录：正常就是 OUT；若 pkg 有文件换不掉而产物还在 TEMP，就查 TEMP
+  //    （否则自检会去读 pkg 里那份**旧的** app.asar，报"版本对不上"，把人引向错误的结论）
+  let verifyDir = OUT
   //    （旧目录里万一还有被锁的文件，名字已让位，不影响本次产物）
   let oldDir = ''
+  /** 换目录前先记下旧的版本化安装包 —— 换完原样搬回来（pkg 永不清理） */
+  const carried = []
   try {
     if (fs.existsSync(OUT)) {
+      for (const f of fs.readdirSync(OUT)) {
+        if (KEEP_OLD_INSTALLERS(f) && !f.includes(ver)) carried.push(f)
+      }
       oldDir = OUT + '.old-' + Date.now()
       fs.renameSync(OUT, oldDir)
       log(`旧产物已挪到 ${path.basename(oldDir)}`)
     }
     fs.renameSync(STAGE, OUT)
+    for (const f of carried) {
+      try { fs.copyFileSync(path.join(oldDir, f), path.join(OUT, f)) } catch { /* 旧包拷不回来不该挡住本轮 */ }
+    }
+    if (carried.length) log(`已保留 ${carried.length} 个旧版安装包（pkg 永不清理）`)
     log(`✓ 已切换为新的产物目录 ${OUT}`)
   } catch (e) {
     // 退回方案：目录里有被锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
     log(`  直接换名失败（${e.code || e.message}），改用"清空 + 复制"` + (degraded ? '（跨盘/降级模式属预期）' : ''))
     try {
-      const c = emptyDir(OUT)
-      if (c.locked) throw new Error(`产物目录里还有 ${c.locked} 个文件被占用（有进程在读这份包），关掉它再跑`)
-      fs.cpSync(STAGE, OUT, { recursive: true })
-      fs.rmSync(STAGE, { recursive: true, force: true })
-      log('✓ 已用复制方式切到新产物目录')
+      const c = emptyDir(OUT, KEEP_OLD_INSTALLERS)
+      if (c.locked) log(`  产物目录里 ${c.locked} 个文件清不掉（有进程在读旧包）—— 逐文件换新，锁住的跳过`)
+      const skipped = copySkippingLocked(STAGE, OUT)
+      if (!skipped.length) {
+        fs.rmSync(STAGE, { recursive: true, force: true })
+        log('✓ 已用复制方式切到新产物目录')
+      } else {
+        // 不静默：锁住的逐个点名，并指明"完整产物在哪"，而不是让人以为 pkg 已经是新的
+        log(`⚠ pkg 里 ${skipped.length} 个文件被占没换掉：${skipped.slice(0, 3).join('、')}${skipped.length > 3 ? ' 等' : ''}`)
+        log(`  安装包与其余文件已是新的；**完整产物在 ${STAGE}**（退出索引器后可整目录替换，不用重打）`)
+        verifyDir = STAGE
+      }
     } catch (e2) {
       log(`✗ 切换失败：${e2.message}`)
-      if (degraded) log(`  **完整产物在 ${STAGE}** —— 占用的进程关掉后，把里面的文件拷进 ${OUT} 即可（不用重打）`)
-      else log(`  新包仍在 ${STAGE}，处理掉占用后再跑一次即可`)
+      log(`  **完整产物在 ${STAGE}**（这一轮不用重打，处理掉占用后把它拷进 ${OUT}）`)
       process.exit(1)
     }
   }
   if (oldDir) {
-    const r2 = emptyDir(oldDir)
+    const r2 = emptyDir(oldDir, KEEP_OLD_INSTALLERS)
     if (r2.locked) log(`  旧目录释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个被占用（多半是索引器还开着；退出它后再跑 clean-release.bat）`)
     else { try { fs.rmdirSync(oldDir) } catch { /* ignore */ } ; log(`  旧目录已清空（释放 ${(r2.freed / 1048576).toFixed(1)}MB）`) }
   }
 
   // ④ 自检：退出码 0 ≠ 包里有新代码
-  const asar = path.join(OUT, 'win-unpacked', 'resources', 'app.asar')
-  const exe = path.join(OUT, `Fangcun-Setup.${ver}.exe`)
+  const asar = path.join(verifyDir, 'win-unpacked', 'resources', 'app.asar')
+  const exe = path.join(verifyDir, `Fangcun-Setup.${ver}.exe`)
   let ok = true
   if (!fs.existsSync(asar)) { log('✗ 找不到 app.asar'); ok = false }
   else {
@@ -234,7 +293,7 @@ function main() {
   else log(`✓ 安装包 ${path.basename(exe)}  ${(fs.statSync(exe).size / 1048576).toFixed(1)}MB`)
 
   // 引擎版本（Electron 44 → v24）；这是"包真换了"最快的判据
-  const exeBin = path.join(OUT, 'win-unpacked', '方寸.exe')
+  const exeBin = path.join(verifyDir, 'win-unpacked', '方寸.exe')
   if (fs.existsSync(exeBin)) {
     // ⚠ 2026-10-29 实测修正：**必须带 ELECTRON_RUN_AS_NODE=1**。
     //   不带它时 exe 按 GUI 模式启动真实应用（开窗口、抢单实例锁），30s 后被 timeout 杀掉、
@@ -249,6 +308,7 @@ function main() {
     else { log(`⚠ 读不到包内 Node 版本（输出：${(line || v.stderr || '').slice(0, 120)}）`); ok = false }
   }
 
+  if (verifyDir !== OUT) log(`\n注意：自检查的是 ${verifyDir}（pkg 里有文件被占没换掉，见上）`)
   log(ok ? `\n完成：${exe}` : '\n有自检项没过，别发版')
   process.exit(ok ? 0 : 1)
 }
