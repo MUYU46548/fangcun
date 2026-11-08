@@ -52,14 +52,22 @@ export function useLogEditorOpen(deps: Deps) {
    *   · scope：proj（本项目，默认）/ all（全部项目）。
    *     **输入了搜索词时自动当 all 用** —— 有词就说明人心里已经知道要哪张，
    *     这时还按项目挡着，等于逼他把项目切过去再搜一次；
-   *   · openOnly：默认只看未完成（完成/驳回的卡极少需要挂到新日志上），可一键放开。
+   *   · 状态：2026-11-08 第 6 条从"一个只看未完成的 checkbox"改成三档。
+   *     他要的是"盯着待验收的那几张写日志"这种具体视角，一个布尔表达不了。
    */
   const logTaskScope = ref<'proj' | 'all'>('proj')
-  const logTaskOpenOnly = ref(true)
-  /** 首屏上限：超过就显示"共 N 条"，可一次性展开（老版只有一句提示，没有出口） */
+  const logTaskStatus = ref<'open' | 'all' | 'done'>('open')
+  /** 兼容旧调用点（openLog/openNewLog 复位、App 模板解构）：true = 只看未完成 */
+  const logTaskOpenOnly = computed({
+    get: () => logTaskStatus.value === 'open',
+    set: (v: boolean) => { logTaskStatus.value = v ? 'open' : 'all' },
+  })
+  /** 首屏上限：组内先给 6 条（分组后按组给，不再全局一刀切 12 条） */
   const logTaskShowAll = ref(false)
+  const logTaskExpanded = ref<Record<string, boolean>>({})
 
   const TERMINAL_STATUSES = ['完成', '驳回']
+  const LOG_GROUP_CAP = 6
 
   const logTaskMatched = computed(() => {
     const proj = logEdit_.value?.project
@@ -78,7 +86,9 @@ export function useLogEditorOpen(deps: Deps) {
       if (seen.has(t.id)) continue
       const tp = normProject(t.project)
       if (!scopeAll && proj && tp !== proj) continue
-      if (logTaskOpenOnly.value && TERMINAL_STATUSES.includes(String(t.status || ''))) continue
+      const terminal = TERMINAL_STATUSES.includes(String(t.status || ''))
+      if (logTaskStatus.value === 'open' && terminal) continue
+      if (logTaskStatus.value === 'done' && !terminal) continue
       if (q) {
         // 匹配面从「id + 标题」扩到「id + 标题 + 项目名 + 项目 id」——
         // 人记得的往往是"绒花墨坊那张"，不是 id
@@ -99,6 +109,57 @@ export function useLogEditorOpen(deps: Deps) {
   const logTaskMoreHidden = computed(() => logTaskMatched.value.length > logTaskOptions.value.length)
   /** 候选总数（界面上要写“共几条”，不能只有一个"12"让人以为总共就 12 条） */
   const logTaskTotal = computed(() => logTaskMatched.value.length)
+
+  /**
+   * 候选按**项目分组**（2026-11-08 第 6 条）。
+   *
+   * 原话：“日志关联任务依旧编辑体验稀烂，筛选能力稀烂……一点审美都没有”。
+   * 上一版把 12 条候选摊成一根长条 checkbox 列表：id 占掉半行、标题被挤、项目只在
+   * 右侧挂个小字，扫一眼分不出哪些是同一个项目的。分组之后：组头就是项目名 + 条数，
+   * 组内只留「标题 + 状态」，id 退到右侧小字。**有已选中的组置顶** —— 继续挑同一批卡
+   * 是最常见的下一步。
+   */
+  const logTaskGroups = computed(() => {
+    const sel = new Set(normalizeLogTaskIds(logEdit_.value))
+    const order: string[] = []
+    const m = new Map<string, { key: string; project: string; label: string; items: any[] }>()
+    for (const t of logTaskMatched.value) {
+      const key = t.project || ''
+      let g = m.get(key)
+      if (!g) {
+        const p = projects.value.find(x => x.id === key)
+        g = { key, project: key, label: String(p?.name || key || '未归属项目'), items: [] }
+        m.set(key, g)
+        order.push(key)
+      }
+      g.items.push(t)
+    }
+    const groups = order.map(k => m.get(k)!).map(g => ({
+      ...g,
+      picked: g.items.some(i => sel.has(i.id)),
+    }))
+    groups.sort((a, b) =>
+      Number(b.picked) - Number(a.picked) || b.items.length - a.items.length)
+    return groups.map(g => {
+      const expanded = logTaskShowAll.value || logTaskExpanded.value[g.key]
+      const shown = expanded ? g.items : g.items.slice(0, LOG_GROUP_CAP)
+      return { ...g, shown, hiddenCount: g.items.length - shown.length }
+    })
+  })
+  function toggleLogTaskGroup(key: string): void {
+    logTaskExpanded.value = { ...logTaskExpanded.value, [key]: !logTaskExpanded.value[key] }
+  }
+
+  /** 搜索框回车 = 选中第一条（心里已经有目标时，不该还逼他用鼠标去点） */
+  function pickFirstLogTask(): void {
+    const first = logTaskMatched.value[0]
+    if (!first) return
+    const e = logEdit_.value
+    if (!e) return
+    const cur = normalizeLogTaskIds(e)
+    if (!cur.includes(first.id)) e.taskIds = [...cur, first.id]
+    logTaskQuery.value = ''
+  }
 
   /** chips 回显：id → 标题（列表外给空，界面回退显示 id 本身） */
   function taskTitleOf(id: string): string {
@@ -139,6 +200,7 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskScope.value = 'proj'
     logTaskOpenOnly.value = true
     logTaskShowAll.value = false
+    logTaskExpanded.value = {}
     resetPendingAttach()   // 编辑现有日志：不带上一轮新建态的待挂附件
     markLogSnap()          // 打开即存快照（改没改才算数）
     setTimeout(() => {
@@ -162,6 +224,7 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskScope.value = 'proj'
     logTaskOpenOnly.value = true
     logTaskShowAll.value = false
+    logTaskExpanded.value = {}
     logRetainDays.value = String(logRetainDefault.value)
     logNote.value = ''
     resetPendingAttach()
@@ -180,7 +243,8 @@ export function useLogEditorOpen(deps: Deps) {
   return {
     openLog, openNewLog, openLogForTask,
     logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
-    logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
+    logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+    logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }
 }

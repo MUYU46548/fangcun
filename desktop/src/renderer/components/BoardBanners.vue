@@ -37,6 +37,7 @@ const emit = defineEmits<{
   (e: 'toggle-rework'): void
   (e: 'hide-rework'): void
   (e: 'rework-back', id: string): void
+  (e: 'rework-back-all'): void
   (e: 'rework-archive', id: string): void
   (e: 'toggle-review'): void
   (e: 'hide-review'): void
@@ -69,7 +70,7 @@ const age = (d: unknown) => formatAge(Number(d))
       <span class="review-txt">
         <b>{{ reviewPending.count }}</b> 张卡干完了，在等你验收（等得最久的{{ age(reviewPending.oldestDays) }}）
       </span>
-      <button class="ghost font-[inherit]" @click="emit('toggle-review')">{{ reviewOpen ? '收起' : '逐张过一遍' }}</button>
+      <button class="ghost font-[inherit]" @click="emit('toggle-review')">{{ reviewOpen ? '收起' : '展开这 ' + reviewPending.count + ' 张' }}</button>
       <button class="ghost font-[inherit]" title="本次不提醒；下次启动或刷新还会出现" @click="emit('hide-review')">先不管</button>
       <span class="review-why">“通过”=收口；“驳回”=写清哪里不行、退回让 AI 返工。停着不动它就一直挂在这儿。</span>
     </div>
@@ -96,9 +97,13 @@ const age = (d: unknown) => formatAge(Number(d))
       <span class="rework-txt">
         <b>{{ rework.count }}</b> 张卡停在“驳回”，还欠一个决定：返工还是不要了<template v-if="finite(rework.oldestDays)">，最早的是{{ age(rework.oldestDays) }}</template>
       </span>
-      <button class="ghost font-[inherit]" @click="emit('toggle-rework')">{{ reworkOpen ? '收起' : '逐张过一遍' }}</button>
+      <!-- 2026-11-08 暮雨第 9 条：“驳回就驳回了，还说什么逐张过一遍，我本来就什么都做不了。”
+           所以主按钮是一次点击就把这一批处理掉（他能做的动作），逐张入口降级为“展开”。 -->
+      <button class="ok font-[inherit]" title="一次把这批驳回卡全部退回待办；agent 取活会先读到各自的驳回理由"
+        @click="emit('rework-back-all')">全部退回返工（{{ rework.count }} 张）</button>
+      <button class="ghost font-[inherit]" @click="emit('toggle-rework')">{{ reworkOpen ? '收起' : '展开逐张看' }}</button>
       <button class="ghost font-[inherit]" title="本次不提醒；下次启动或刷新还会出现" @click="emit('hide-rework')">先不管</button>
-      <span class="rework-why">“完成 / 驳回”两列默认是折叠的 —— 不推这一条，被驳回的卡就是石沉大海</span>
+      <span class="rework-why">驳回以后你不做任何事也成立 —— 这条只是别让它沉底；想返工就点左边那个按钮，一次搞定</span>
     </div>
     <div v-if="reworkOpen && showRework()" class="rework-panel">
       <div class="rework-row" v-for="r in rework.rows" :key="'rw-' + r.id">
@@ -166,6 +171,7 @@ const age = (d: unknown) => formatAge(Number(d))
 .rework-txt { flex: 0 1 auto; }
 .rework-bar b { color: var(--danger); }
 .rework-bar .ghost { font-size: 11.5px; padding: 4px 10px; }
+.rework-bar .ok { font-size: 11.5px; padding: 4px 10px; flex: 0 0 auto; }
 .rework-why { flex: 1 1 260px; text-align: right; font-size: 10.5px; color: var(--muted); }
 .rework-panel {
   margin: 6px 16px 0; padding: 6px 10px; background: var(--card); border: 1px solid var(--border);

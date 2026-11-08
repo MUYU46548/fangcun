@@ -685,7 +685,8 @@ function main() {
     RW('rw-3', { status: '完成', title: '做完的不进返工台' }),
   ])
   clickText('待办'); await sleep(400); clickText('看板'); await sleep(800)
-  const ob = all('.rework-bar button').find((b) => (b.textContent || '').indexOf('逐张过一遍') >= 0)
+  // 展开入口（2026-11-08 文案改成“展开逐张看”，原“逐张过一遍”不再用作按钮文案）
+  const ob = all('.rework-bar button').find((b) => /展开逐张看|逐张过一遍/.test(b.textContent || ''))
   if (ob) ob.click()
   await sleep(600)
 ` : ''}

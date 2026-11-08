@@ -33,6 +33,9 @@
             把 agent 写的问卷 md 放进 <code>{{ dir || 'task-data/questionnaires/' }}</code>，
             格式照 <code>## S1 题名</code> + <code>- **A. 选项**——说明</code>，刷新即可。
           </div>
+          <!-- 2026-11-08：这里原来是 `v-if="auditDue.length"` / `v-else` —— 只要有一条
+               “该看一眼了”，**卷列表就整块消失**，想开某一卷只能先点那行 due 进别的卷。
+               真机截图（.shots-tmp/02）一眼看得到：弹窗里只剩一条 due，两卷都不见了。 -->
           <div v-if="auditDue.length" class="qn-due">
             <div class="qd-hd">
               <b>🔍 {{ auditDue.length }} 条答案该看一眼了</b>
@@ -45,7 +48,7 @@
             </button>
             <div v-if="auditDue.length > 6" class="qd-more">还有 {{ auditDue.length - 6 }} 条，进各卷看</div>
           </div>
-          <div v-else class="qn-decks">
+          <div v-if="decks.length" class="qn-decks">
             <button v-for="d in decks" :key="d.deck" class="qn-deck" @click="openDeck(d.deck)">
               <span class="qd-main">
                 <b>{{ d.title || d.deck }}</b>

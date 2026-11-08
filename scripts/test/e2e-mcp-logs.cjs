@@ -73,8 +73,25 @@ check('★★ decision_record 已从 MCP 移除（决策只能用户在界面拍
     JSON.stringify(mvReview).slice(0, 160))
 }
 
+// ── AI 不再擅自写日志（2026-11-08 暮雨第 3 条）────────────────────────
+// “为什么 AI 还在未经我同意的情况下擅自写日志（那些内容本来应该写任务）？”
+// 口径早就写在技能卡里，但工具在、模型就会用 —— 所以改成接口硬拦。
+{
+  const denied = call('create_log', { title: '没经用户同意写的日志', project: 'fm-demo', content: '不该存在' })
+  check('★★★ 不带 userAsked 的 create_log 被硬拒（不是靠卡上一句话）',
+    denied.ok === false && /私人笔记/.test(String(denied.error || '')), JSON.stringify(denied).slice(0, 260))
+  check('★★ 拒绝信息指向正确出口（update_task / 待验收），不是只说"不行"',
+    /update_task/.test(String(denied.howTo || '')) && /待验收/.test(String(denied.howTo || '')),
+    JSON.stringify(denied.howTo || '').slice(0, 200))
+  const after = call('list_logs', { project: 'fm-demo' })
+  const titles = JSON.stringify(after)
+  check('  被拒之后真的没落盘（不许报了错还偷偷写一条）',
+    titles.indexOf('没经用户同意写的日志') < 0, titles.slice(0, 160))
+}
+
 // ── 建主日志 ────────────────────────────────────────────────────────
 const created = call('create_log', {
+  userAsked: true,
   title: '契约夹具主日志', project: 'fm-demo',
   content: '主日志正文 MAIN', nextSteps: '下一步 FIRST', priority: '高', agentName: '契约测试',
 })
@@ -109,7 +126,7 @@ check('★ update_log 改得动（此前 agent 完全改不了日志）', upd.ok
 check('  改完 get_log 读回新值', /SECOND/.test(String(call('get_log', { id: mainId }).nextSteps || '')))
 
 // ── 并行副日志 + 合并注入 ───────────────────────────────────────────
-const side = call('create_log', { title: '并行副日志', project: 'fm-demo', content: '副日志正文 SIDE' })
+const side = call('create_log', { userAsked: true, title: '并行副日志', project: 'fm-demo', content: '副日志正文 SIDE' })
 const sideId = String(side.id || '')
 check('  副日志建好', side.ok === true && !!sideId, JSON.stringify(side).slice(0, 160))
 const raw = callRaw('inject_logs', { ids: [mainId, sideId] })
@@ -124,6 +141,37 @@ check('  主日志不带那个标记（只有第二条起才有）',
   bundle.indexOf('并行日志') > bundle.indexOf('MAIN'))
 const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
 check('  一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
+
+// ── 关联任务必须全带（2026-11-08 暮雨第 1 条）─────────────────────────
+// 原话：“已经超过二十次发现复制出去的日志单最多只带一条关联任务，AI 会不会看不见其他任务？”
+// 真因：injectLog 写的是 entry.taskId，它只是 taskIds[0] 的兼容别名。
+{
+  const lk1 = call('create_task', { title: '关联甲卡', project: 'fm-demo', status: '待办' })
+  const lk2 = call('create_task', { title: '关联乙卡', project: 'fm-demo', status: '进行中' })
+  const lgMulti = call('create_log', {
+    userAsked: true,
+    title: '挂三张卡的日志', project: 'fm-demo', content: 'MULTI',
+    taskIds: [lk1.id, lk2.id, 'task-nope-9999'],
+  })
+  check('  前置：多关联日志建好了', lgMulti.ok === true && !!lgMulti.id, JSON.stringify(lgMulti).slice(0, 160))
+  const r2 = callRaw('inject_logs', { ids: [lgMulti.id] })
+  const b2 = String((r2.content && r2.content[0] && r2.content[0].text) || '')
+  check('★★★ 一条日志挂 3 张卡 → 开工单三张全带（此前只有第一张）',
+    [String(lk1.id), String(lk2.id), 'task-nope-9999'].every((x) => b2.indexOf(x) >= 0),
+    b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 320))
+  const lkSeg = b2.slice(b2.indexOf('### 关联任务'))
+  // DRIVER 是模板字符串：这里写 \\n 会被展开成真换行、把字符串字面量截断 —— 用 charCode 拼
+  const NL = String.fromCharCode(10)
+  const lkA = lkSeg.split(NL).find((l) => l.indexOf('关联甲卡') >= 0) || ''
+  const lkB = lkSeg.split(NL).find((l) => l.indexOf('关联乙卡') >= 0) || ''
+  check('★★ 标题与状态一起给（agent 不用再为每张卡 get_task 一轮）',
+    lkA.indexOf('待办') >= 0 && lkB.indexOf('进行中') >= 0,
+    JSON.stringify({ lkA, lkB }).slice(0, 260))
+  check('★ 条数与"共 N 张"对得上（不许嘴上说全带、实际少给）',
+    /共 3 张/.test(b2), b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 60))
+  check('★ 找不到的关联 ID 照实写出来（不静默咽掉）',
+    b2.indexOf('找不到对应的卡') >= 0, b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 320))
+}
 
 // ── 状态流转（2026-11-01 暮雨：收口进任务“待验收”，日志只记过程）──────────
 // complete / archive / reopen 是用户签字；request_close / cancel_close 这套“日志收口”已取消，
@@ -172,7 +220,9 @@ check('  非法 action 明确报错（不静默什么都不做）', bad.__raw !=
 // ── 源码守卫 ────────────────────────────────────────────────────────
 const src = fs.readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')
 check('源码守卫：写口走 services/logs（不新开第二套写路径）',
-  /case 'create_log'[\\s\\S]{0,200}?logs\\.createLog\\(/.test(src))
+  // 窗口从 200 放宽到 1800：2026-11-08 在 case 开头加了 userAsked 硬拦（约 1.1k 字符），
+  // 判据本身没变 —— 仍然是“create_log 的分支里必须落到 logs.createLog(”。
+  /case 'create_log'[\\s\\S]{0,1800}?logs\\.createLog\\(/.test(src))
 check('源码守卫：MCP inject_logs 走 services（不在 tools 里另拼一份）', (() => {
   const i = src.indexOf("case 'inject_logs'")
   return i >= 0 && src.slice(i, i + 400).indexOf('logs.injectLogs(') >= 0

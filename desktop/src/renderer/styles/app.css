@@ -1138,6 +1138,43 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 #modal .log-task-open-only input[type='checkbox'] { width: auto; margin: 0; }
 .log-task-count { flex: none; font-size: 11px; color: var(--muted); }
+/* 状态三档（2026-11-08 第 6 条）：与“范围”同款胶囊，但独立一行 —— 范围管哪个项目，
+   状态管哪一档，两个是正交的，挤在一行会看不清现在筛的到底是哪一个。 */
+.log-task-statusbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.log-task-statusbar .lts {
+  padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--card); color: var(--muted); font-size: 11.5px; font-family: inherit; cursor: pointer;
+}
+.log-task-statusbar .lts.on { border-color: var(--accent); color: var(--accent); background: var(--tint); font-weight: 600; }
+.log-task-statusbar .log-task-more { width: auto; margin: 0 0 0 auto; font-size: 11.5px; padding: 3px 9px; }
+/* 分组列表（2026-11-08 第 6 条）：组头就是项目名 + 条数；
+   行内“标题为主、id 退到右侧小字”—— 此前 id 排在标题前面，一眼全是哈希。 */
+.log-task-groups {
+  max-height: 190px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); padding: 4px 6px; margin-bottom: 6px;
+}
+.lt-group + .lt-group { margin-top: 2px; }
+.lt-group-head {
+  display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
+  font-size: 11px; color: var(--muted); cursor: pointer; position: sticky; top: 0;
+  background: var(--card); z-index: 1;
+}
+.lt-group-head:hover { background: var(--tint-2); }
+.lt-group-name { font-weight: 700; color: var(--ink); }
+.lt-group-n {
+  font-size: 10.5px; background: var(--tint-3); border-radius: 999px; padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.lt-group-picked { color: var(--accent); font-size: 10.5px; }
+.lt-group-caret { margin-left: auto; font-size: 10.5px; }
+.lt-picked-n {
+  font-size: 10.5px; color: var(--accent); font-weight: 700; background: var(--tint);
+  border-radius: 999px; padding: 1px 7px;
+}
+.log-task-opt.picked { background: var(--tint); }
+.log-task-opt.picked .lto-title { font-weight: 600; }
+.log-task-opt .lto-id { color: var(--muted); font-weight: 400; font-size: 10.5px; opacity: .75;
+  max-width: 36%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-task-opt .lto-proj {
   flex: none; font-size: 10.5px; color: var(--muted); background: var(--tint);
   border-radius: 5px; padding: 0 5px;
@@ -2131,6 +2168,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-stat { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 .plan-stage { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow-card); }
 .plan-stage.bad { border-color: #e6b9b3; background: #fffbfa; }
+/* 已完成折叠（2026-11-08 第 8 条）：做完的卡只留一行，压暗 + 去掉阴影 —— 它是背景，不是待办 */
+.plan-stage.done { background: var(--tint); box-shadow: none; padding: 8px 12px; }
+.plan-stage.done .plan-stage-head { margin-bottom: 0; }
+.plan-fold-hint { margin-top: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.plan-fold-hint:hover { color: var(--accent); }
+.plan-count { font-size: 11.5px; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+
 .plan-stage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .plan-id { font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 8px; }
 .plan-title { font-size: 13px; font-weight: 700; }

@@ -227,7 +227,7 @@ export function buildDailyBand(plans: DailyPlanInput[], results?: DailyCheckResu
       const lines = pendingCount
         ? [
             `有 ${pendingCount} 张阶段卡等你裁决`,
-            '到“项目页 → 作战计划”逐张点“通过”冻结 —— 没冻结的格子推不动',
+            '到“项目页 → 作战计划”点“通过”冻结 —— 没冻结的格子推不动',
             '冻结之后，这里每天告诉你推哪一格、这一格要过哪些判据',
           ]
         : [

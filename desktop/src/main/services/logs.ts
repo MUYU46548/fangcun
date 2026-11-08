@@ -6,7 +6,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import { getDataDir, atomicWrite } from '../data'
+import { getDataDir, atomicWrite, loadTasks } from '../data'
 
 export interface LogEntry {
   id: string
@@ -1186,6 +1186,33 @@ export function searchLogs(query: string, limit = 50): LogEntry[] {
   ).slice(0, limit)
 }
 
+/**
+ * 关联任务清单（2026-11-08 暮雨第 1 条）。
+ *
+ * 原话：“已经超过二十次发现复制出去的日志单最多只带一条关联任务，AI 会不会看不见其他任务？”
+ * 真因就是下面 `injectLog` 里只写了 `entry.taskId` —— 它是 `taskIds[0]` 的兼容别名，
+ * 一条日志挂 5 张卡，开工单上只出现 1 张，agent 自然以为这轮只跟那张有关。
+ *
+ * 只给 ID 同样不够：agent 得为每张卡再 `get_task` 一轮才知道是什么、做没做完。
+ * 所以这里**ID + 标题 + 状态一起给**（读的是桌面同一份数据，不走网络、不多花一次模型调用）。
+ * 找不到的 ID **照实写出来**，不静默咽掉 —— 那多半是卡被归档到别处或被删了。
+ */
+function renderLinkedTasks(ids: string[]): string {
+  let byId = new Map<string, any>()
+  try {
+    for (const t of loadTasks('all')) byId.set(String(t.id), t)
+  } catch {
+    byId = new Map()
+  }
+  return ids.map((id) => {
+    const t = byId.get(id)
+    if (!t) return `- \`${id}\` · （这个 ID 找不到对应的卡）`
+    const title = String(t?.fm?.title || '').trim()
+    const status = String(t?.fm?.status || '').trim()
+    return `- \`${id}\`${title ? ' · ' + title : ''}${status ? ' · ' + status : ''}`
+  }).join('\n')
+}
+
 export function injectLog(id: string): string | null {
   const entry = getLog(id)
   if (!entry) return null
@@ -1198,7 +1225,9 @@ export function injectLog(id: string): string | null {
   parts.push(`**状态**：${logStatusText(entry)}`)
   if (entry.content) parts.push(`\n### 做了什么\n${entry.content}`)
   if (entry.nextSteps) parts.push(`\n### 下一步\n${entry.nextSteps}`)
-  if (entry.taskId) parts.push(`\n### 关联任务\n${entry.taskId}`)
+  // 2026-11-08：全部关联任务（此前只有 taskIds[0]），并带标题与状态
+  const linked = logTaskIds(entry)
+  if (linked.length) parts.push(`\n### 关联任务（共 ${linked.length} 张）\n${renderLinkedTasks(linked)}`)
   return parts.join('\n')
 }
 

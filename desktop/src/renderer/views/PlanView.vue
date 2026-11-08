@@ -16,14 +16,23 @@
     <div class="plan-head">
       <h3>作战计划 · 裁决</h3>
       <span class="plan-sub">三块齐全才给"通过"；打回必须写理由；改一句会留痕并把状态退回未冻结</span>
+      <span v-if="totalStages" class="plan-count" data-plan-count>
+        未完成 {{ totalStages - doneStages.length }} · 已完成 {{ doneStages.length }}
+      </span>
+      <!-- 2026-11-08 暮雨第 8 条：“已完成的一直挂在里面，几百条占满页面”。
+           默认折叠 —— 这一页要回答的是“还有哪张卡在等我”，做完的不该占屏。
+           ⚠ 走基座 Button（W6 冻结守卫：新增按钮不许手搓），所以这里没有自定义类。 -->
+      <Button v-if="doneStages.length" variant="ghost" size="sm" @click="showDone = !showDone">
+        {{ showDone ? '收起已完成' : '展开已完成 ' + doneStages.length }}
+      </Button>
       <button class="ghost plan-reload" @click="load()">⟳ 重读</button>
     </div>
     <!-- 2026-11-03：这一页只回答“这张卡能不能冻结”，但用户还得知道**冻了之后去哪推**。
          把整条回路写在这里（不新增页面、不改动作）：裁决 → 冻结 → 日志页看今天推哪格 →
          回来跑判据 → 推进这一格。 -->
     <div class="plan-how">
-      <b>怎么用：</b>逐张裁决（通过 = 冻结 / 打回 / 改一句）→ 冻结后到日志页顶部看“今天推哪一格”
-      → 回到这里点“⚙ 跑判据”，全过后点“▶ 推进这一格”（写完成 + 证据，之后自动跳到下一格）。
+      <b>怎么用：</b>没冻结的格子推不动 —— 通过 = 冻结，打回必须写理由（三块不齐不给通过）。
+      冻结后到日志页顶部看“今天推哪一格”，回这里点“⚙ 跑判据”，全过后点“▶ 推进这一格”（写完成 + 证据，之后自动跳到下一格）。
     </div>
 
     <!-- 2026-11-03：裁决后的即时回执。原先只有页面底部一行 msg（滚远了看不见），
@@ -46,7 +55,7 @@
     <div v-if="pendingStages.length" class="plan-pending" data-plan-pending>
       <div class="plan-pending-head">
         <b>{{ pendingStages.length }} 张阶段卡等你裁决</b>
-        <span class="plan-pending-hint">没冻结的格子推不动 —— 逐张点“通过（冻结）”或“打回”，或“改一句”退回重写</span>
+        <span class="plan-pending-hint">没冻结的格子推不动 —— 点“通过（冻结）”或“打回”；“改一句”会退回重写</span>
       </div>
       <div class="plan-pending-list">
         <button v-for="p in pendingStages" :key="p.key" class="plan-pending-item" @click="scrollToStage(p.key)">
@@ -109,7 +118,7 @@
       </div>
 
       <div v-for="s in doc.stages" :key="doc.file + s.id" class="plan-stage"
-        :class="{ bad: s.missing.length, 'just-verdict': flashKey === runKey(doc, s) }"
+        :class="{ bad: s.missing.length, 'just-verdict': flashKey === runKey(doc, s), done: isDone(s) }"
         :data-stage="doc.file + '::' + s.id">
         <div class="plan-stage-head">
           <span class="plan-id">{{ s.id }}</span>
@@ -119,7 +128,15 @@
           <span v-if="s.missing.length" class="plan-miss">缺 {{ s.missing.join(' / ') }} —— 不能通过</span>
           <span v-else class="plan-ok">三块齐全</span>
         </div>
-        <div class="plan-what" v-if="s.what">{{ s.what }}</div>
+
+        <!-- 已完成 = 默认只留这一行（2026-11-08 第 8 条）。
+             点“展开已完成”才渲染下面整块 —— 几百个做完的阶段不该占满屏。 -->
+        <div v-if="isDone(s) && !showDone" class="plan-fold-hint" @click="showDone = true">
+          已完成 · 证据在卡里 · 点开看三块与裁决记录
+        </div>
+
+        <template v-else>
+          <div class="plan-what" v-if="s.what">{{ s.what }}</div>
 
         <div class="plan-block">
           <div class="plan-block-h">技术方案<span v-if="!s.approach.length" class="plan-block-miss">缺</span></div>
@@ -188,6 +205,7 @@
             </button>
           </div>
         </div>
+        </template>
       </div>
     </div>
 
@@ -197,6 +215,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import Button from '../components/ui/Button.vue'
 import { useWasteLedger } from '../composables/useWasteLedger'
 
 interface Stage {
@@ -263,6 +282,25 @@ const planProjects = computed(() => {
 })
 const visibleDocs = computed(() =>
   projFilter.value ? docs.value.filter((d) => projectOf(d) === projFilter.value) : docs.value)
+
+/**
+ * 已完成阶段默认折叠（2026-11-08 暮雨第 8 条）。
+ *
+ * 原话：“作战计划已完成的一直挂在里面，没有任何折叠和归档机制，可想而知东西多了以后
+ * 几百条信息占满页面有多恐怖。”
+ *
+ * 这一页要回答的只有一个问题：**还有哪张卡在等我裁决**。做完的卡留着是为了能回看证据，
+ * 但默认摊开就把“待办”淹了。所以：done 的阶段只留头部一行，`showDone` 才展开整块；
+ * 页头给“未完成 / 已完成”两个数，不用滚到底才知道还剩多少。
+ */
+const showDone = ref(false)
+const isDone = (s: Stage): boolean => String(s.status || '').trim() === '完成'
+const totalStages = computed(() => visibleDocs.value.reduce((n, d) => n + d.stages.length, 0))
+const doneStages = computed(() => {
+  const out: Array<{ file: string; stageId: string }> = []
+  for (const d of visibleDocs.value) for (const s of d.stages) if (isDone(s)) out.push({ file: d.file, stageId: s.id })
+  return out
+})
 function todayLocal(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

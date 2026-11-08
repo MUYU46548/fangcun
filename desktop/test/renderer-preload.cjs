@@ -821,13 +821,31 @@ contextBridge.exposeInMainWorld('tegula', {
     i.updatedAt = new Date().toISOString()
     return { ok: true, idea: JSON.parse(JSON.stringify(i)), before }
   },
-  ideasPromote: (id) => {
-    rec('ideasPromote', [id])
+  ideasPromote: (id, opts) => {
+    // 2026-11-08：第二参 target 必须记下来 —— 真主进程支持 {target:'task'} 建任务卡，
+    // 假桩此前只认“变成待办”，于是“做成任务卡”这条路径**在渲染层等于没测**（踩过 6 次的同款坑）。
+    rec('ideasPromote', [id, opts || null])
     const i = store.ideas.find((x) => x.id === id)
     if (!i) return { ok: false, error: '没有这条想法（可能已经删了）' }
     if (i.status === '已立项') return { ok: false, error: '已经立项过了' }
-    // 真往待办塞一条 —— 与主进程 promoteIdea 同语义
     const now = new Date().toISOString()
+    if (opts && opts.target === 'task') {
+      // 做成任务卡：真往任务夹具里塞一张（能进看板/阻塞链），与主进程 promoteIdea 同语义
+      const tid = nextId('task')
+      const title = i.text.split('\n')[0].trim()
+      store.tasks.push({
+        id: tid, title, status: '待办', priority: '中', project: '', tags: [], body: i.text,
+        created: now, updated: now,
+        fm: { id: tid, title, status: '待办', priority: '中', project: '' },
+        path: 'C:/mock/task-data/' + tid + '.md',
+      })
+      i.status = '已立项'
+      i.decidedAt = i.decidedAt || now
+      i.updatedAt = now
+      i.promoted = { kind: 'task', id: tid }
+      return { ok: true, idea: JSON.parse(JSON.stringify(i)), taskId: tid }
+    }
+    // 真往待办塞一条 —— 与主进程 promoteIdea 同语义
     const todo = { id: nextId('todo'), title: i.text.split('\n')[0].trim(), done: false, priority: '中', createdAt: now, updatedAt: now }
     store.todos.push(todo)
     i.status = '已立项'
@@ -1226,6 +1244,18 @@ contextBridge.exposeInMainWorld('tegula', {
       path: 'C:/mock/task-data/questionnaires/' + deck + '.md',
       approvedAt,
       answers: JSON.parse(JSON.stringify(store.qnAnswers || {})),
+      // 2026-11-08：审计结论 / 作废态也必须回给组件（此前只回 answers，界面永远是“没校验”）
+      audits: (() => {
+        const out = {}
+        for (const k of Object.keys(store.qnAudits || {})) {
+          const [d, id] = k.split('::')
+          if (d === deck) out[id] = store.qnAudits[k]
+        }
+        return out
+      })(),
+      voidedAt: (store.qnVoided && store.qnVoided[deck] && store.qnVoided[deck].at) || '',
+      voidReason: (store.qnVoided && store.qnVoided[deck] && store.qnVoided[deck].reason) || '',
+      costGaps: [],
       parsed: {
         title: '司天问卷·宪法层（2026-11-04）',
         layer: '宪法层',
@@ -1300,6 +1330,39 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: true, kind, askbacks: asks.length, open: 0, text }
   },
   questionnaireOpenDir: () => { rec('questionnaireOpenDir'); return { ok: true, dir: 'C:/mock/task-data/questionnaires' } },
+  // ── 2026-11-08（暮雨第 5 条“帮我验所谓的三块界面”）───────────────
+  // 实测发现：组件调了 5 个问卷 API，假桩**一个都没有** —— 点下去是 TypeError，
+  // 被组件自己的 try/catch 吞成一句 toast。于是“三块界面验收”在渲染层从来是空的。
+  // 这与记忆里“假 preload 必须同步”同款（第 7 次），补上并全部记账。
+  questionnaireAuditQueue: () => {
+    rec('questionnaireAuditQueue')
+    // 给一条“该看一眼了”，让 selectDeck 那屏的 due 列表也有东西可验
+    return { ok: true, rows: [{ deck: '司天-宪法层', id: 'S1', ask: '最终形态是什么', days: 12, due: true, refuted: false }] }
+  },
+  questionnaireAudit: (deck, id, verdict, evidence) => {
+    rec('questionnaireAudit', [deck, id, verdict, evidence || ''])
+    if (!store.qnAudits) store.qnAudits = {}
+    store.qnAudits[deck + '::' + id] = { verdict, evidence: String(evidence || ''), at: new Date().toISOString() }
+    return { ok: true, id, verdict, revoked: false }
+  },
+  questionnaireMakeCards: (deck, opts) => {
+    rec('questionnaireMakeCards', [deck, opts || null])
+    if (!store.qnCards) store.qnCards = {}
+    store.qnCards[deck] = { created: 1, at: new Date().toISOString() }
+    return { ok: true, created: 1, existed: 0, taskIds: ['task-from-qn-001'], project: (opts && opts.project) || '' }
+  },
+  questionnaireVoidDeck: (deck, reason) => {
+    rec('questionnaireVoidDeck', [deck, reason || ''])
+    if (!store.qnVoided) store.qnVoided = {}
+    if (!String(reason || '').trim()) return { ok: false, error: '作废必须写原因' }
+    store.qnVoided[deck] = { at: new Date().toISOString(), reason }
+    return { ok: true, deck }
+  },
+  questionnaireReopenDeck: (deck) => {
+    rec('questionnaireReopenDeck', [deck])
+    if (store.qnVoided) delete store.qnVoided[deck]
+    return { ok: true, deck }
+  },
 
   skillsList: () => {
     rec('skillsList')

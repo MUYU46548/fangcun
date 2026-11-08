@@ -330,10 +330,14 @@ export const MCP_TOOLS: MCPTool[] = [
   // 四条写工具与桌面版同一套 services/logs，不存在第二套写路径。
   {
     name: 'create_log',
-    description: 'Create an execution log (方寸执行日志) for this round of work. Returns its id — keep it, the next steps (attach_log_files / update_log / set_log_status) need it.',
+    description: 'Create an execution log (方寸执行日志). ⚠ ONLY when the user explicitly asks for a log — '
+      + 'it is the user\'s private context notebook, NOT the place to report work. '
+      + 'Requires userAsked: true, otherwise the call is rejected. '
+      + 'To close out work use update_task (+ move_status → 待验收) instead.',
     inputSchema: {
       type: 'object',
       properties: {
+        userAsked: { type: 'boolean', description: 'Must be true — set it only when the user explicitly asked you to write a log' },
         title: { type: 'string', description: 'Log title (required)' },
         project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
         content: { type: 'string', description: 'What was done (Markdown; the body of the log)' },
@@ -844,6 +848,19 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     // 补齐四条：建 / 改 / 状态流转 / 挂附件。语义与主进程 IPC 完全同源（都调 services/logs），
     // 不新开第二套写路径。
     case 'create_log': {
+      // 2026-11-08 暮雨第 3 条：“为什么 AI 还在未经我同意的情况下擅自写日志（那些内容本来应该写任务）？”
+      // 2026-11-03 的口径早就写在技能卡里（“执行日志是用户自己记上下文的私人笔记，agent 不写”），
+      // 但**只在文档里拦不住** —— 工具在，模型就会用。这里改成工具层硬拦：
+      // 不带 userAsked: true 一律拒绝，并把 AI 该走的出口直接写在错误里。
+      if (args.userAsked !== true) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: '执行日志是用户自己记上下文的私人笔记，AI 不主动写（2026-11-03 用户拍板）。',
+          howTo: '干完活的收口动作是 update_task（把做了什么/判据写进卡正文）+ move_status → 待验收。'
+            + '只有用户明确说“记一条日志”时，才带 userAsked: true 再调本工具。',
+          suggested: ['update_task', 'intake_task', 'move_status'],
+        }) }], isError: true }
+      }
       const r = logs.createLog(
         String(args.title || '').trim(),
         String(args.project || '').trim(),

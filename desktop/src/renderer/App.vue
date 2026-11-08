@@ -462,7 +462,7 @@
       @archive-skip="archiveOverdue = { count: 0, items: [] }"
       @toggle-rework="reworkOpen = !reworkOpen"
       @hide-rework="reworkHidden = true"
-      @rework-back="reworkRestore" @rework-archive="reworkArchive"
+      @rework-back="reworkRestore" @rework-back-all="reworkRestoreAll" @rework-archive="reworkArchive"
       @toggle-review="reviewOpen = !reviewOpen" @hide-review="reviewHidden = true"
       @accept-card="reviewVerdict($event, 'accept')" @reject-card="reviewVerdict($event, 'reject')" />
 
@@ -1179,6 +1179,39 @@ function reworkArchive(id: string): void {
   if (t) void archiveTask(t)
 }
 
+/**
+ * 一键把“驳回”那一批全部退回待办（2026-11-08 暮雨第 9 条）。
+ *
+ * 原话：“方寸依然在逼我做根本做不了的事情，比如任务驳回就驳回了，还说什么‘逐张过一遍’，
+ * 我还能怎么办？我本来就什么都做不了，看着都烦。”
+ *
+ * 病根不是文案，是**动作粒度**：驳回之后的下一步被设计成“对每一张再做一个决定”。
+ * 而他能做、也愿意做的只有一次点击 —— 所以这里给批量出口：一次确认 = 全部回待办，
+ * agent 下次取活会先读到各自的驳回理由。逐张入口还在（展开逐张看），但不再是唯一路径。
+ * 不做「批量归档」：那是不可逆方向的批量，不给一个按钮顺手清空。
+ */
+async function reworkRestoreAll(): Promise<void> {
+  const rows = rework.value.rows.slice()
+  if (!rows.length) return
+  if (!confirm(`把这 ${rows.length} 张“驳回”卡一起退回待办？\n\n退回后 agent 取活会先读到各自的驳回理由。`)) return
+  let ok = 0
+  const failed: string[] = []
+  for (const r of rows) {
+    try {
+      const res: any = await window.tegula.unarchiveTask(r.id)
+      if (res?.ok) ok++
+      else failed.push(r.id)
+    } catch {
+      failed.push(r.id)
+    }
+  }
+  showToast(failed.length
+    ? `退回 ${ok} 张，${failed.length} 张没成：${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等' : ''}`
+    : `已把 ${ok} 张退回待办 —— agent 取活会先读驳回理由`,
+    failed.length ? 'error' : 'success')
+  await loadAll()
+}
+
 // ── 整理体检的跳转（2026-10-30）：面板本身已切到 components/DataHygienePanel.vue，
 // 这里只留"回到看板"的两个动作 —— 打开哪个视图、筛选谁，是 App 的状态。
 /** 体检 → 回看板把“没人碰过”筛出来（筛完的板子本身就是清单，不另开只读页） */
@@ -1189,7 +1222,7 @@ async function gotoNeverRead(): Promise<void> {
   await loadNeverRead()
 }
 
-/** 体检 → 回看板展开返工台，逐张处置 */
+/** 体检 → 回看板展开返工台（既能逐张看，也能一键全退回） */
 function gotoRework(): void {
   showSettings_.value = false
   switchView('active')
@@ -5294,7 +5327,8 @@ const { importTextFilesAsLogs, importLogFile, onLogDrop } = useLogImport({
 const {
   openLog, openNewLog, openLogForTask,
   logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
-  logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
+  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+  logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
   tasks, archivedTasks, projects, curProj,
@@ -7249,7 +7283,8 @@ const relayCtl = reactive({
 const logEditCtl = reactive({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   logTaskOpen, logTaskQuery, logTaskOptions, logTaskMoreHidden, logTaskExtra,
-  logTaskScope, logTaskOpenOnly, logTaskShowAll, logTaskTotal,
+  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+  logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,
   closeLogEditor, closeLogNow, discardLogEdit, logDirtyNames, logEditDirty,

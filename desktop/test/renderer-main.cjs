@@ -99,6 +99,10 @@ async function preAckDisclaimer() {
     const key = km ? km[1] : 'fc_disclaimer_ack'
     const payload = JSON.stringify({ v: vm[1], at: Date.now() })
     await js('localStorage.setItem(' + JSON.stringify(key) + ',' + JSON.stringify(payload) + '); true')
+    // 2026-11-08：项目页“摆法”是持久化偏好（fc_pv_view）—— 上一次跑到作战计划就留在那儿，
+    // 下一次开局项目页就不是“项目墙”了，于是“项目卡片显示查看/编辑”那批断言凭空红。
+    // 测试从干净默认起跑，别继承上一次的痕迹。
+    await js('localStorage.removeItem("fc_pv_view"); true')
     await win.loadFile(INDEX)
     await sleep(800)
     // 闸的根节点带 Tailwind 的 z-[90]；用 className 字符串判，避免 CSS 选择器转义
@@ -2437,6 +2441,231 @@ async function main() {
     !tabContrast.err && typeof tabContrast.idle === 'number' && tabContrast.idle >= 4.5, tcJson)
   check('★★ 顶栏页签 · 选中态对比度 ≥ 4.5（白字压品牌色，按 CSSOM 声明值复算）',
     !tabContrast.err && typeof tabContrast.active === 'number' && tabContrast.active >= 4.5, tcJson)
+
+  // ── 三块界面验收：真点一遍（2026-11-08 暮雨第 5 条）──────────────────
+  // “帮我验所谓的三块界面”。
+  // 上一轮把这三个按钮迁到 UI 基座，但门禁只有**源码断言**（import 了 Button、用了 N 次）——
+  // 那证明不了按钮还能按。这里补真点击：按钮在不在、点下去走没走对 IPC。
+  const SHOT_DIR = String(process.env.FC_SHOT_DIR || '')
+  const shot = async (name) => {
+    if (!SHOT_DIR) return ''
+    try {
+      // ⚠ 先等一帧：无 GPU 的隐藏窗里 capturePage 会拍到**上一帧**
+      //    （首版截图拍到的是归档页，而断言明明已经切到想法页了）
+      await sleep(350)
+      fs.mkdirSync(SHOT_DIR, { recursive: true })
+      const p = path.join(SHOT_DIR, name + '.png')
+      fs.writeFileSync(p, (await win.webContents.capturePage()).toPNG())
+      return p
+    } catch { return '' }
+  }
+  const findByText = (sel, text) => `
+    (() => {
+      const all = [...document.querySelectorAll(${JSON.stringify(sel)})]
+      const b = all.find(x => (x.textContent || '').trim().indexOf(${JSON.stringify(text)}) >= 0)
+      if (!b) return { ok: false, seen: all.slice(0, 20).map(x => (x.textContent || '').trim().slice(0, 16)) }
+      return { ok: true, disabled: !!b.disabled, tag: b.tagName, cls: String(b.className || '') }
+    })()`
+
+  // ① 想法页「做成任务卡」
+  await openViewTab('想法')
+  await sleep(800)
+  const ideaBtn = await js(findByText('button', '做成任务卡'))
+  check('★★ 三块① · 想法页「做成任务卡」按钮真渲染出来（迁基座后没丢）',
+    ideaBtn && ideaBtn.ok, JSON.stringify(ideaBtn))
+  await shot('01-想法页-做成任务卡')
+  const promoBefore = await js(`window.__fcTest.callCount('ideasPromote')`)
+  const clickedIdea = await js(`(() => {
+    const b = [...document.querySelectorAll('button')].find(x => (x.textContent || '').trim() === '做成任务卡')
+    if (!b || b.disabled) return false
+    b.click(); return true
+  })()`)
+  await sleep(700)
+  const promoAfter = await js(`window.__fcTest.callCount('ideasPromote')`)
+  check('★★ 三块① · 点它有反应（走 ideasPromote，不是死按钮）',
+    clickedIdea && promoAfter > promoBefore, `before=${promoBefore} after=${promoAfter}`)
+  const promoArgs = await js(`JSON.stringify((window.__fcTest.calls() || []).filter(c => c.name === 'ideasPromote').slice(-1))`)
+  check('★ 三块① · 走的是 target=task（做成任务卡，不是“变成待办”）',
+    String(promoArgs).indexOf('"task"') >= 0, promoArgs.slice(0, 220))
+
+  // ② 问卷 · 待校验「仍成立 / 已被推翻」+ ③ 汇总「落成任务卡」
+  {
+    // 选一卷**非**“墨坊-宪法层”的（那卷的 answers 是硬编码空，灌不进答案）
+    // ⚠ 假桩是同步返回、真 preload 是 Promise —— 一律 Promise.resolve 包一层再取
+    const deckName = await js(`Promise.resolve(window.tegula.questionnaireList()).then(r => {
+      const ds = (r && r.decks) || []
+      const d = ds.find(x => x.deck !== '墨坊-宪法层') || ds[0]
+      return d ? d.deck : ''
+    })`)
+    const qid = await js(`Promise.resolve(window.tegula.questionnaireGet(${JSON.stringify(deckName)})).then(r => {
+      const qs = (r && r.parsed && r.parsed.questions) || []
+      const q = qs.find(x => String(x.line || '').trim())
+      return q ? q.id : ''
+    })`)
+    check('（环境）能取到一卷带验收线的问卷',
+      !!deckName && !!qid, `deck=${deckName} qid=${qid}`)
+    // 灌一条答案 —— 走公开 API questionnaireSaveAnswers，不碰内部 store
+    if (deckName && qid) {
+      await js(`window.tegula.questionnaireSaveAnswers(${JSON.stringify(deckName)},
+        Object.assign({}, { ${JSON.stringify(qid)}: { kind: 'pick', k: 'A', text: '选 A', at: '2026-11-05T00:00:00.000Z' } }))`)
+    }
+    // 打开弹窗 → 进卷 → 展开“事后校验”
+    await js(`(() => {
+      const b = [...document.querySelectorAll('button')].find(x => (x.textContent || '').trim().indexOf('问卷') >= 0)
+      if (b) b.click(); return true
+    })()`)
+    await sleep(800)
+    await js(`(() => {
+      const b = document.querySelector('#qn-modal .qn-deck') || document.querySelector('#qn-modal .qd-row')
+      if (b) b.click(); return true
+    })()`)
+    await sleep(800)
+    const auditToggle = await js(`(() => {
+      const b = [...document.querySelectorAll('#qn-modal .qn-rail-x')]
+        .find(x => (x.textContent || '').indexOf('待校验') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+    await sleep(500)
+    const okBtn = await js(findByText('#qn-modal button', '仍成立'))
+    const refBtn = await js(findByText('#qn-modal button', '已被推翻'))
+    check('★★ 三块② · 待校验「仍成立 / 已被推翻」两个按钮真渲染出来（展开事后校验后）',
+      auditToggle && okBtn && okBtn.ok && refBtn && refBtn.ok,
+      JSON.stringify({ auditToggle, okBtn, refBtn }))
+    // 这两个必须是基座 Button（tagName 会是 button，但基座带 data-slot 或 variant 类）
+    const btnShape = await js(`(() => {
+      const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent || '').includes('仍成立'))
+      return b ? { cls: String(b.className || ''), attrs: [...b.attributes].map(a => a.name) } : null
+    })()`)
+    check('★ 三块② · 用的是基座 Button（属性里带基座标记，不是手搓 <button class="ok">）',
+      !!btnShape && String(JSON.stringify(btnShape)).indexOf('data-') >= 0, JSON.stringify(btnShape))
+    await shot('02-问卷-待校验')
+    const auBefore = await js(`window.__fcTest.callCount('questionnaireAudit')`)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent || '').includes('仍成立'))
+      if (b && !b.disabled) b.click(); return true
+    })()`)
+    await sleep(700)
+    const auAfter = await js(`window.__fcTest.callCount('questionnaireAudit')`)
+    check('★★ 三块② · 点「仍成立」走 questionnaireAudit（有结论写回，不是空按钮）',
+      auAfter > auBefore, `before=${auBefore} after=${auAfter}`)
+
+    // ③ 汇总「落成任务卡」
+    // ⚠ next() 有「这题还没答」的硬闸，而“已答过（prefilled）”那题点选项不一定落到 answers 里
+    //    → 逐题点着走会在那一题卡死。改成**先把整卷答案灌满**（走公开 API），再点“答完了”。
+    await js(`(() => { const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent||'').trim() === '关闭'); if (b) b.click(); return true })()`)
+    await sleep(500)
+    const allQids = await js(`Promise.resolve(window.tegula.questionnaireGet(${JSON.stringify(deckName)})).then(r =>
+      ((r && r.parsed && r.parsed.questions) || []).map(q => q.id))`)
+    if (Array.isArray(allQids) && allQids.length) {
+      const filled = {}
+      for (const qid2 of allQids) filled[qid2] = { kind: 'pick', k: 'A', text: '选 A', at: '2026-11-05T00:00:00.000Z' }
+      await js(`window.tegula.questionnaireSaveAnswers(${JSON.stringify(deckName)}, ${JSON.stringify(filled)})`)
+    }
+    await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => (x.textContent||'').trim().indexOf('问卷') >= 0); if (b) b.click(); return true })()`)
+    await sleep(800)
+    const openedDeck2 = await js(`(() => {
+      const due = document.querySelector('#qn-modal .qd-row')
+      if (due) { due.click(); return 'due' }
+      const b = document.querySelector('#qn-modal .qn-deck')
+      if (b) { b.click(); return 'deck' }
+      return false
+    })()`)
+    await sleep(800)
+    // 整卷已答满 → 点“答完了 · 看结果”（底栏那个 .pri）
+    // ⚠ 结果页的判据必须是 **“← 回去改”这个只属于 summary 的按钮**：
+    //   一开始用“有没有『批准并落库』”判，而它文案带 ✓ 前缀，于是永远判不出来，
+    //   循环一路点下去把批准和落卡都点完了 —— 断言全绿/全红都不可信。
+    let inSummary = false
+    const ftTrace = []
+    for (let i = 0; i < 8 && !inSummary; i++) {
+      const r = await js(`(() => {
+        const ft = document.querySelector('#qn-modal .qn-ft')
+        if (!ft) return 'noft'
+        const bs = [...ft.querySelectorAll('button')]
+        if (bs.some(x => (x.textContent || '').trim() === '← 回去改')) return 'summary'
+        const pri = bs.find(x => String(x.className || '').indexOf('pri') >= 0)
+        if (pri) { const t = (pri.textContent || '').trim(); pri.click(); return 'click:' + t }
+        return 'nopri:' + bs.map(x => (x.textContent || '').trim()).join('|').slice(0, 140)
+      })()`)
+      ftTrace.push(String(r))
+      if (r === 'summary') inSummary = true
+      else if (String(r).indexOf('click:') !== 0) break
+      await sleep(420)
+    }
+    // 未批准的卷：先批准才给“落成任务卡”（这也是它本来的规矩）
+    const hadApprove = await js(`(() => {
+      const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent||'').indexOf('批准并落库') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+    if (hadApprove) await sleep(900)
+    const cardBtn = await js(findByText('#qn-modal button', '落成任务卡'))
+    check('★★ 三块③ · 批准后结果页真给「落成任务卡」（不是在源码里存在而已）',
+      !!openedDeck2 && inSummary && cardBtn && cardBtn.ok,
+      JSON.stringify({ openedDeck2, inSummary, hadApprove, ftTrace, cardBtn }))
+    await shot('03-问卷-落成任务卡')
+    const cardBefore = await js(`window.__fcTest.callCount('questionnaireMakeCards')`)
+    await js(`(() => {
+      const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent || '').includes('落成任务卡'))
+      if (b && !b.disabled) b.click(); return true
+    })()`)
+    await sleep(800)
+    const cardAfter = await js(`window.__fcTest.callCount('questionnaireMakeCards')`)
+    check('★★ 三块③ · 点「落成任务卡」走 questionnaireMakeCards（真落卡，不是提示成功）',
+      cardAfter > cardBefore, `before=${cardBefore} after=${cardAfter}`)
+    await js(`(() => { const b = [...document.querySelectorAll('#qn-modal button')].find(x => (x.textContent||'').trim() === '关闭'); if (b) b.click(); return true })()`)
+    await sleep(300)
+  }
+
+  // ④ 作战计划：已完成的阶段默认折叠（2026-11-08 暮雨第 8 条）
+  // “已完成的一直挂在里面，几百条信息占满页面有多恐怖。”
+  {
+    await openViewTab('项目')
+    await sleep(800)
+    const switched = await js(`(() => {
+      const b = [...document.querySelectorAll('.vsb, button')].find(x => (x.textContent || '').indexOf('作战计划') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+    await sleep(1000)
+    const folded = await js(`(() => {
+      const done = document.querySelector('.plan-stage.done')
+      if (!done) return { done: false }
+      return {
+        done: true,
+        hasHint: !!done.querySelector('.plan-fold-hint'),
+        blocks: done.querySelectorAll('.plan-block').length,
+        count: (document.querySelector('[data-plan-count]') || {}).textContent || '',
+      }
+    })()`)
+    check('★★ 作战计划 · 已完成的阶段卡默认折叠（三块详情不渲染）',
+      switched && folded.done && folded.hasHint && folded.blocks === 0, JSON.stringify(folded))
+    check('★ 作战计划 · 页头给「未完成 / 已完成」两个数（不用滚到底才知道还剩多少）',
+      /已完成/.test(String(folded.count || '')), JSON.stringify(folded.count))
+    const expandBtn = await js(`(() => {
+      // 这个按钮走基座 Button（W6 冻结守卫不许新增手搓类），所以按文案找，别按自定义类
+      const b = [...document.querySelectorAll('.plan-head button')]
+        .find(x => (x.textContent || '').indexOf('展开已完成') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+    await sleep(800)
+    const expanded = await js(`(() => {
+      const done = document.querySelector('.plan-stage.done')
+      return done ? { blocks: done.querySelectorAll('.plan-block').length } : null
+    })()`)
+    check('★★ 作战计划 · 点「展开已完成」真能展开（折叠不是把内容藏死）',
+      expandBtn && expanded && expanded.blocks >= 3, JSON.stringify(expanded))
+    await shot('04-作战计划-已完成折叠')
+    // ⚠ 摆法是持久化偏好：不切回项目墙，后面「项目卡片 / 12 页签遮罩」那批断言
+    //    会跑在作战计划页上，凭空红一片（2026-11-08 实测：连红 4 条）
+    await js(`(() => {
+      const b = [...document.querySelectorAll('.vsb')].find(x => (x.textContent || '').indexOf('项目墙') >= 0)
+      if (b) b.click(); return true
+    })()`)
+    await sleep(700)
+  }
 
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 
