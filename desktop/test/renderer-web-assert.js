@@ -4076,7 +4076,11 @@
       return waitFor(() => !!$('#log-edit-modal'), 3000, 'chips: new log')
     })())
     check('★★ 关联任务默认折叠：候选列表根本不在 DOM 里（不再全量铺一屏 —— 反向判据）',
-      $$('#log-edit-modal .log-task-opt').length === 0 && $$('#log-edit-modal .log-task-multi').length === 0,
+      // ⚠ 2026-11-08：容器从 .log-task-multi 换成 .log-task-groups（分组渲染），
+      //   只盯旧容器名会让这条**真空成立** —— 两个都盯。
+      $$('#log-edit-modal .log-task-opt').length === 0
+        && $$('#log-edit-modal .log-task-multi').length === 0
+        && $$('#log-edit-modal .log-task-groups').length === 0,
       'opts=' + $$('#log-edit-modal .log-task-opt').length)
     check('  默认态说清“还没有关联任务”+ 给展开入口（不是空一片）',
       (($('#log-edit-modal .log-task-head') || {}).textContent || '').indexOf('还没有关联任务') >= 0
@@ -4144,12 +4148,24 @@
         lts().length === 2 && /本项目/.test((lts()[0] || {}).textContent || '')
           && /全部项目/.test((lts()[1] || {}).textContent || ''),
         lts().map((x) => (x.textContent || '').trim()).join(' / '))
-      const onlyBox = $('#log-edit-modal .log-task-open-only input')
-      check('★ 有“只看未完成”且**默认勾上**（完成/驳回的卡不该占首屏）',
-        !!onlyBox && onlyBox.checked === true, onlyBox ? String(onlyBox.checked) : '没有')
+      // 2026-11-08 第 6 条：一个“只看未完成”的 checkbox 表达不了“只看待验收”这种具体视角，
+      // 改成三档（未完成 / 全部状态 / 已完成·驳回）。判据从“checkbox 默认勾上”改成
+      // “三档里默认选中未完成”——强度不变，对象变了。
+      const stChips = $$('#log-edit-modal .log-task-statusbar .lts')
+      const onChip = stChips.find((x) => String(x.className || '').indexOf('on') >= 0)
+      check('★ 候选状态三档（未完成 / 全部状态 / 已完成·驳回），且**默认选未完成**',
+        stChips.length === 3 && !!onChip && /未完成/.test(onChip.textContent || ''),
+        stChips.map((x) => (x.textContent || '').trim()).join(' / ') + ' | on=' + ((onChip || {}).textContent || ''))
       check('★ 有“共 N 条”（不是只显示 12 条，让人以为总共就 12 条）',
         /共\s*\d+\s*条/.test((($('#log-edit-modal .log-task-count') || {}).textContent) || ''),
         (($('#log-edit-modal .log-task-count') || {}).textContent) || '没有')
+
+      // 2026-11-08 第 6 条：候选按项目分组 —— 组头是项目名 + 条数，组内只剩「标题 + 状态」
+      const ltGroups = $$('#log-edit-modal .lt-group')
+      const ltHeads = $$('#log-edit-modal .lt-group-head')
+      check('★★ 候选按项目分组（组头带项目名与条数，不是一根平铺长条）',
+        ltGroups.length >= 1 && ltHeads.length >= 1 && /[0-9]/.test((ltHeads[0] || {}).textContent || ''),
+        '组=' + ltGroups.length + ' 头=' + ltHeads.map((x) => (x.textContent || '').trim().slice(0, 18)).join(' | '))
 
       const optIds = () => $$('#log-edit-modal .log-task-opt .lto-id').map((x) => (x.textContent || '').trim())
       const inProj = optIds()
@@ -8282,11 +8298,19 @@
         $$('#board .card').length + ' 张卡 / bar=' + !!bar)
       check('★ 条数来自夹具真身（2 张，完成与待办不算）',
         !!bar && (bar.textContent || '').indexOf('2') >= 0, ((bar || {}).textContent || '').slice(0, 80))
-      check('★ 文案说清为什么要这条（两列默认折叠，不推就石沉大海）',
-        !!bar && (bar.textContent || '').indexOf('折叠') >= 0, ((bar || {}).textContent || '').slice(0, 120))
+      // 2026-11-08 第 9 条：文案不再解释“两列默认折叠”（暮雨：“看着都烦”），
+      // 改成说清“你不做任何事也成立，这条只是别让它沉底”—— 判据跟着改成这句话的意图。
+      check('★ 文案说清为什么要这条（不推就沉底，而不是催人逐张处理）',
+        !!bar && /沉底|沉大海/.test(bar.textContent || ''), ((bar || {}).textContent || '').slice(0, 120))
+      // 2026-11-08：主入口从“逐张过一遍”换成“全部退回返工（N 张）”——
+      // 暮雨原话“我本来就什么都做不了”。一次点击处理一批，才是他能做的动作。
+      const allBtn = $$('.rework-bar button').find((b) => /全部退回返工/.test(b.textContent || ''))
+      check('★★ 有“全部退回返工（N 张）”一次处理完的入口（不再逼他逐张做决定）',
+        !!allBtn && /[0-9]/.test((allBtn || {}).textContent || ''),
+        ((allBtn || {}).textContent || '').slice(0, 60))
 
-      const openBtn = $$('.rework-bar button').find((b) => (b.textContent || '').indexOf('逐张过一遍') >= 0)
-      check('  有“逐张过一遍”入口', !!openBtn)
+      const openBtn = $$('.rework-bar button').find((b) => /展开逐张看|逐张过一遍/.test(b.textContent || ''))
+      check('  有逐张入口（降级为“展开逐张看”，但没删）', !!openBtn)
       if (openBtn) {
         openBtn.click()
         await sleep(350)

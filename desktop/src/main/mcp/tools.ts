@@ -170,7 +170,12 @@ export const MCP_TOOLS: MCPTool[] = [
     description:
       'Report AI usage from an external client (e.g. DSH / Hermes) into the Fangcun ledger. '
       + 'Records are marked origin=external and counted separately from Fangcun\'s own calls. '
-      + 'Currency must be CNY (no FX conversion). At least one token field or cost is required.',
+      + 'Currency must be CNY (no FX conversion). At least one token field or cost is required. '
+      // 2026-11-08：card 之前**只认不宣**（buildExternalUsageRecord 支持 card 字段与 note 里的
+      // card=xxx，但 schema 里没声明）→ 模型看不到这个参数，就不会传。
+      // 实测 217 条外部调用只有 4 条带 card（1.8%），于是 99% 的 token 归不到任何一张卡。
+      + 'ALWAYS pass `card` (the task id you are working on) — without it the tokens are booked as (未归因) '
+      + 'and nobody can tell what they paid for.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -182,6 +187,7 @@ export const MCP_TOOLS: MCPTool[] = [
         cost: { type: 'string', description: 'Provider-reported cost in CNY, optional' },
         currency: { type: 'string', description: 'Only CNY / 元 accepted; default CNY' },
         at: { type: 'string', description: 'ISO time of the call; defaults to now' },
+        card: { type: 'string', description: 'Task id this call was made for (e.g. task-20261107-004). Pass it — otherwise booked as (未归因).' },
         note: { type: 'string', description: 'Free-form note (max 120 chars)' },
       },
     },

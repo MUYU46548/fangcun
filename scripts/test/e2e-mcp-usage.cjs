@@ -92,6 +92,18 @@ function usageChecks() {
     const listed = tools.MCP_TOOLS.map((t) => t.name)
     check('★ MCP 工具表里有 never_read 与 usage_report（对外可见）',
       listed.includes('never_read') && listed.includes('usage_report'), listed.join(','))
+    // 2026-11-08 暮雨第 3 条（“让 DSH/Hermes 上报时主动带 card”）：
+    // 后端一直认 card（字段或 note 里的 card=xxx），但 **schema 里没声明** —— 模型看不见这个参数就不会传。
+    // 实测 217 条外部调用只有 4 条带 card（1.8%），99% 的 token 归不到任何一张卡。
+    const usageTool = (tools.MCP_TOOLS || []).find((t) => t.name === 'usage_report')
+    check('★★ usage_report 的 schema 真的声明了 card（只认不宣 = 模型不会传）',
+      !!(usageTool && usageTool.inputSchema && usageTool.inputSchema.properties
+         && usageTool.inputSchema.properties.card),
+      JSON.stringify(Object.keys((usageTool && usageTool.inputSchema && usageTool.inputSchema.properties) || {})))
+    check('★ 工具描述里点名“不传 card 就归不到因”（别只写在实现注释里）',
+      !!(usageTool && /card/.test(String(usageTool.description || ''))
+         && /未归因|归不到/.test(String(usageTool.description || ''))),
+      String((usageTool || {}).description || '').slice(0, 160))
     const r = tools.handleMCPToolCall('never_read', { days: 30 })
     let payload = null
     try { payload = JSON.parse(r.content[0].text) } catch { /* 下面会红 */ }
