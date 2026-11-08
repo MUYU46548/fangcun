@@ -31,7 +31,7 @@
            （App.vue 拆分第一刀，2026-10-30）。两块都是只读通道 + 两个跳转事件，
            边界干净；破坏性动作（删附件）仍只在主进程一条通道里，组件只负责确认与刷新。 -->
       <DataHygienePanel v-show="ctl.settingsTab === 'data'" :toast="ctl.showToast"
-        @goto-never-read="ctl.gotoNeverRead" @goto-rework="ctl.gotoRework"
+        @goto-never-read="ctl.gotoNeverRead" @goto-rejected="ctl.gotoRejected"
         @goto-stalled="ctl.gotoStalled" />
       <DiagSettings :active="ctl.settingsTab === 'diag'" />
       <div class="sect" v-show="ctl.settingsTab === 'data'">

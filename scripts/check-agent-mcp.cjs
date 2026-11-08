@@ -40,25 +40,61 @@ function parseEnvFrom(lines) {
   return out
 }
 
-/** 从 DSH 的 cordis.patch.yml 里抠出 mcp-fangcun 的 command/args/env（格式固定，不引 yaml 依赖） */
+/**
+ * 读 DSH 的 cordis.patch.yml 里 mcp-fangcun 的 command/args/env。
+ *
+ * 2026-11-08 修（联测 P0-2）：此前用正则 `command:\s*(.+)$` 抠，遇到**折行**的 YAML
+ * （编辑器按 88 列折断是正常产物）就只截到 `…dist\ele` → 报“文件不存在 + 握手必失败”，
+ * 而那两个路径其实都在（用 PyYAML 正式解析可证）。假红出现在**排查主入口**上，最坏。
+ * 现在改用 js-yaml（桌面端已有该依赖），找不到依赖就明说 SKIP，不猜。
+ */
+function loadYaml() {
+  const cands = [path.join(DESKTOP, 'node_modules', 'js-yaml'), 'js-yaml']
+  for (const c of cands) {
+    try { return require(c) } catch { /* 下一个 */ }
+  }
+  return null
+}
+
+/** 在任意嵌套结构里找 `id: mcp-fangcun` 的那一项 */
+function findById(node, id, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 8) return null
+  if (Array.isArray(node)) {
+    for (const it of node) { const r = findById(it, id, depth + 1); if (r) return r }
+    return null
+  }
+  if (node.id === id) return node
+  for (const k of Object.keys(node)) {
+    const r = findById(node[k], id, depth + 1)
+    if (r) return r
+  }
+  return null
+}
+
 function readDsh() {
   const p = path.join(os.homedir(), '.dsh', 'profiles', 'desktop', 'cordis.patch.yml')
   if (!fs.existsSync(p)) return { found: false, path: p }
-  const txt = fs.readFileSync(p, 'utf-8').replace(/\r\n/g, '\n')
-  const i = txt.indexOf('id: mcp-fangcun')
-  if (i < 0) return { found: false, path: p, reason: '没有 mcp-fangcun 行' }
-  const segLines = txt.slice(i, i + 1200).split('\n')
-  const seg = segLines.join('\n')
-  const cmd = /command:\s*(.+)$/m.exec(seg)
-  const argsLine = /args:\s*\[(.+?)\]/m.exec(seg)
-  const args = argsLine
-    ? argsLine[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, '').replace(/\\\\/g, '\\')).filter(Boolean)
-    : []
+  const yaml = loadYaml()
+  if (!yaml) {
+    return { found: false, path: p, reason: '没装 js-yaml（desktop/node_modules 里也没有），无法可靠解析折行 YAML —— 这是 SKIP，不是配置错' }
+  }
+  let doc
+  try {
+    doc = yaml.load(fs.readFileSync(p, 'utf-8'))
+  } catch (e) {
+    return { found: false, path: p, reason: `YAML 解析失败：${e.message}` }
+  }
+  const entry = findById(doc, 'mcp-fangcun')
+  if (!entry) return { found: false, path: p, reason: '解析后没有 id: mcp-fangcun 的条目' }
+  const cfg = entry.config || {}
+  const env = cfg.env && typeof cfg.env === 'object' ? Object.fromEntries(
+    Object.entries(cfg.env).map(([k, v]) => [k, String(v)])
+  ) : {}
   return {
     found: true, path: p,
-    command: cmd ? cmd[1].trim().replace(/^["']|["']$/g, '').replace(/\\\\/g, '\\') : '',
-    args,
-    env: parseEnvFrom(segLines),
+    command: String(cfg.command || ''),
+    args: Array.isArray(cfg.args) ? cfg.args.map((a) => String(a)) : [],
+    env,
   }
 }
 

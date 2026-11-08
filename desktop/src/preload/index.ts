@@ -319,6 +319,8 @@ contextBridge.exposeInMainWorld('tegula', {
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),
   policySave: (p: any) => ipcRenderer.invoke('policy:save', p),
   policyText: (projectId: string) => ipcRenderer.invoke('policy:text', projectId),
+  /** 结构地图“结构大改”批量判定：只读，主进程算，带缓存 */
+  policyDriftAll: (items: Array<{ project: string; repo: string; since: string }>) => ipcRenderer.invoke('policy:driftAll', items),
   // 在途一屏（Q2）：只读聚合 —— 各 repo 契约 + 任务卡 + 执行日志 + git 提交时间。
   // 方寸**绝不写**任何项目仓库；写操作只走 prefs（既有 prefs:set 通道）。
   tripBoard: () => ipcRenderer.invoke('trip:board'),

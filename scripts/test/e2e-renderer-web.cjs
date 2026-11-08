@@ -376,6 +376,15 @@ function main() {
       // 2026-10-30 二次返工：主日志 + 附属日志收进框里；绑定弹窗的六维筛选。
       ['日志', '', 'log-groups', 'loggroups'],
       ['日志', '', 'log-attach', 'logattach'],
+      // 2026-11-08：使用手册整页重排（暮雨第 1 条：“? 打开的是手册，样式和其他页格格不入”）
+      // 走顶栏那个 ? 按钮进（页签名可能被收进「更多」，按文字点不到）。
+      ['看板', '列视图', 'help-manual', 'helptab'],
+      // 2026-11-08：日志「关联任务」候选按项目分组（暮雨：“实战中就是不可用”那一条的成品）。
+      ['日志', '', 'log-task-groups', 'logtask'],
+      // 2026-11-08：返工台横幅整个删掉之后，看板顶部不再出现任何条子（有驳回卡也不冒）。
+      ['看板', '列表视图', 'board-no-rework-banner', 'norw'],
+      // 2026-11-08：结构地图一览（行内会出「⏳ N 张提议等你签字」）
+      ['项目', '', 'smap-list', 'smapview'],
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -767,6 +776,76 @@ function main() {
   const accEl = document.querySelector('#board.ask-view .ask-acc')
   if (accEl) accEl.scrollIntoView({ block: 'end' })
   await sleep(500)
+` : ''}
+  ${extra === 'smapview' ? `
+  // 造两条真数据：一条“结构大改已过期”（要看到橙字理由），一条“待签字的提议”
+  if (window.__fcTest && window.__fcTest.setPolicies) {
+    window.__fcTest.setPolicies({
+      demo: { mission: '有方针', goal: '', scenario: '', boundary: '',
+        structureMap: '> 最后核实：2026-01-02' + String.fromCharCode(10) + '- 模块：旧地图' },
+      demo2: { mission: '', goal: '', scenario: '', boundary: '', structureMap: '' },
+    })
+    window.__fcTest.setStructureDrift({ demo: { stale: true, reason: '自最后核实日起模块结构有变动：新增目录 desktop/src/main/checks、main/usage 等 5 个（其间增 255 / 删 0 个文件）' } })
+  }
+  await sleep(500)
+  const smapBtn = all('button').find((b) => (b.textContent || '').indexOf('结构地图') >= 0)
+  if (smapBtn) smapBtn.click()
+  await sleep(900)
+` : ''}
+  ${extra === 'logtask' ? `
+  // 候选按项目分组：种两批卡（含一张“完成”，用来验“另有 N 张已完成”那条提示）
+  const LT = (id, title, st, proj, upd) => ({
+    id, title, status: st, priority: '中', project: proj, tags: [], body: '',
+    created: '2026-09-01T00:00:00.000Z', updated: upd,
+    fm: { id, title, status: st, project: proj }, path: 'C:/mock/task-data/' + id + '.md',
+  })
+  window.__fcTest.setTasks([
+    LT('lt-1', '日志关联任务：候选按项目分组', '待办', 'demo', '2026-11-07T00:00:00.000Z'),
+    LT('lt-2', '候选行以标题为主、id 退成灰色小字', '进行中', 'demo', '2026-11-06T00:00:00.000Z'),
+    LT('lt-3', '刚做完的那张（默认档会被藏，必须有提示）', '完成', 'demo', '2026-11-05T00:00:00.000Z'),
+    LT('lt-4', '第二个项目：一条刻意见写得很长的候选标题', '待办', 'demo2', '2026-11-04T00:00:00.000Z'),
+    LT('lt-5', '第二个项目：另一个候选', '待验收', 'demo2', '2026-11-03T00:00:00.000Z'),
+  ])
+  await sleep(400)
+  // ⚠ 种完必须重新进一次视图：渲染层的 tasks 是 loadAll 拉的，光改后端夹具不会自动刷新
+  clickText('看板'); await sleep(500)
+  clickText('日志'); await sleep(800)
+  const nbLog = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nbLog) nbLog.click()
+  await sleep(800)
+  const addTask = all('#log-edit-modal button').find((b) => (b.textContent || '').indexOf('关联任务') >= 0)
+  if (addTask) addTask.click()
+  await sleep(500)
+  const allProj = all('#log-edit-modal .log-task-seg button').find((b) => (b.textContent || '').indexOf('全部项目') >= 0)
+  if (allProj) allProj.click()
+  await sleep(500)
+  // 候选列表在弹窗下半部：不滚下去，截图里只剩筛选栏（第一版就是这么拍到“列表没渲染”的）
+  const grp = document.querySelector('.log-task-groups')
+  if (grp) grp.scrollIntoView({ block: 'start' })
+  await sleep(600)
+` : ''}
+  ${extra === 'norw' ? `
+  // 有驳回卡时顶部也不许出现返工台横幅（2026-11-08 已整个删除）
+  const NT = (id, title, st, extra) => Object.assign({
+    id, title, status: st, priority: '中', project: 'demo', tags: [], body: '',
+    created: '2026-09-01T00:00:00.000Z', updated: '2026-10-28T00:00:00.000Z',
+    fm: { id, title, status: st, project: 'demo' }, path: 'C:/mock/task-data/' + id + '.md',
+  }, extra || {})
+  window.__fcTest.setTasks([
+    NT('nr-1', '被驳回的卡：横幅删了但它还在看板里', '驳回', { result_log: '[2026-10-28 09:30] 验收驳回：第二次：按钮点不动' }),
+    NT('nr-2', '待办样例', '待办'),
+    NT('nr-3', '进行中样例', '进行中'),
+  ])
+  await sleep(400)
+  // 重新进一次看板：不重载的话画面上还是旧夹具（没有任何驳回卡，证明不了“横幅没了”）
+  clickText('待办'); await sleep(500)
+  clickText('看板'); await sleep(900)
+` : ''}
+  ${extra === 'helptab' ? `
+  // 顶栏 ? 按钮 → 使用手册（它不在页签里，按文字点 '?'）
+  const qb = all('button').find((b) => (b.textContent || '').trim() === '?')
+  if (qb) qb.click()
+  await sleep(900)
 ` : ''}
   ${extra === 'moremenu' ? `
   const mBtn = document.querySelector('#views .more-btn')

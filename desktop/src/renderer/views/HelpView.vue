@@ -13,9 +13,11 @@
 <template>
   <main id="board" class="help-view">
     <div class="help-head">
-      <h3>帮助手册</h3>
+      <h3>使用手册</h3>
+      <span v-if="version" class="help-ver">v{{ version }}</span>
       <span class="help-sub">方寸怎么用 —— 每个页签干什么、怎么筛、怎么备份恢复</span>
       <span class="views-grow"></span>
+      <button class="ghost" @click="$emit('about')">关于方寸</button>
       <button class="ghost" @click="$emit('home')">⌂ 回看板</button>
     </div>
 
@@ -38,6 +40,7 @@
           <tr><td>问答</td><td>问一句就能看实况：到哪了 / 欠着什么 / 谁在等谁。答不了会明说，不编。</td></tr>
           <tr><td>待办</td><td>轻量清单。可以先记一句，之后再转成任务卡或执行日志。</td></tr>
           <tr><td>想法</td><td>随手记的念头，还没决定做不做。点“变成待办 →”才转成待办（全文带过去）。它不算任务、不进逾期、也不进待办。</td></tr>
+          <tr><td>问卷</td><td>agent 出的卷子在这里答：点选 / 否决 / 反问。“让 agent 出问卷”会把出卷提示词复制出来。答完你批准，才落决策卡。</td></tr>
           <tr><td>日志</td><td>执行记录。一次会话/一段工作结束了写一条，可关联任务、带附件、写下“下一步”。待办那边点“→ 日志”也能直接转过来。</td></tr>
           <tr><td>项目</td><td>按项目聚合：该项目有多少任务、卡在哪儿、契约填了没。</td></tr>
           <tr><td>阻塞</td><td>谁挡着谁 —— 从任务卡的依赖关系里算出来的阻塞链。点任意一行直接进卡处置。</td></tr>
@@ -161,7 +164,9 @@
 </template>
 
 <script setup lang="ts">
-// 纯静态视图：无状态、无请求。唯一交互是“回看板”，交给父组件处理
+// 纯静态视图：无状态、无请求。交互只有两件：“回看板”与“关于方寸”，都交给父组件
 // （goHome 要清搜索与筛选，那是 App.vue 的事，不该搬到这里）。
-defineEmits<{ (e: 'home'): void }>()
+// version 由父组件传进来 —— 手册页与“关于”显示同一个号，避免两处各写一份。
+defineProps<{ version?: string }>()
+defineEmits<{ (e: 'home'): void; (e: 'about'): void }>()
 </script>

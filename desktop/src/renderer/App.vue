@@ -456,13 +456,9 @@
          （App.vue 拆分第二刀，2026-10-30）。状态仍在 App，组件只接 props / 发事件。 -->
     <BoardBanners v-if="curView === 'active'"
       :archive-days="archiveDays" :archive-overdue="archiveOverdue"
-      :rework="rework" :rework-open="reworkOpen" :rework-hidden="reworkHidden"
       :review-pending="reviewPending" :review-open="reviewOpen" :review-hidden="reviewHidden"
       @archive-now="runArchiveOverdue()"
       @archive-skip="archiveOverdue = { count: 0, items: [] }"
-      @toggle-rework="reworkOpen = !reworkOpen"
-      @hide-rework="reworkHidden = true"
-      @rework-back="reworkRestore" @rework-back-all="reworkRestoreAll" @rework-archive="reworkArchive"
       @toggle-review="reviewOpen = !reviewOpen" @hide-review="reviewHidden = true"
       @accept-card="reviewVerdict($event, 'accept')" @reject-card="reviewVerdict($event, 'reject')" />
 
@@ -523,7 +519,7 @@
            要展示键名/路径就用 `<code>`。 -->
     <!-- 帮助手册（2026-10-22 拆成组件 · 拆分计划第 1 批第 1 块：纯静态、零状态、真好验）。
          样式仍在下面全局 <style> 里，组件不带样式 —— 所以拆完像素不变。 -->
-    <HelpView v-else-if="curView === 'help'" @home="goHome" />
+    <HelpView v-else-if="curView === 'help'" :version="appVersion" @home="goHome" @about="openAbout" />
 
     <!-- Todos view -->
     <!-- 想法（2026-10-22 · 念头没有家）：随手记一句，之后决定 做 / 搁置 / 不做。
@@ -897,9 +893,10 @@ import { buildLayerDiagram } from '../shared/layerDiagram'
 //   纯函数本体仍在 `shared/launchpadDiag.ts`（`e2e-launchpad-diag` 仍在测）。
 import { formatDate, formatDateTime, relativeTime, relTimeShort, parseTime, daysSince, parseDueAt, formatDueTime, daysSinceDue, isOverdue } from '../shared/time'
 // 读卡口径的文案与结构（卡 20261025-006 第三件）—— 文案跟判定同源，避免界面自己写一套口径。
+import { pickPendingReview, lastRejectReason } from '../shared/rework'
 import { neverReadSummary } from '../shared/neverRead'
 import type { NeverReadResult } from '../shared/neverRead'
-import { pickRework, pickPendingReview, lastRejectReason } from '../shared/rework'
+
 // 成熟原语（2026-10-11 用户第 2 条：“市面上一堆现成UI…不要每次都从头造轮子”）：
 // 筛选浮层改用 reka-ui（Radix Vue 的继任者）的 Popover —— 它自带 **floating-ui 定位**
 // （flip/shift 防越界）、**点外面关闭**、**Esc 关闭**、**焦点归还**、aria 关联。
@@ -1141,75 +1138,23 @@ async function runArchiveOverdue(auto = false): Promise<void> {
   await refreshArchiveOverdue()
 }
 
-// ── 驳回返工台（2026-10-30 暮雨第 3 条：“驳回的东西好像也永远不看，是方寸的缺陷吗？”）──
-// 是缺陷，而且有两层：
-//   ① **结构性**：看板把“完成 / 驳回”两列默认折叠（DEFAULT_COLLAPSED_GROUPS），
-//      驳回卡在现实中等于“这活没通过，还欠返工或一个"算了"的决定”，却和做完的一样被收起来；
-//   ② **口径性**：`never_read` / 体检都把“驳回”当终态排除，于是连"没人管"都统计不到。
-// 这条提示条只解决最要紧的一半：**让它重新出现在眼前**，并给两个出口（退回返工 / 归档）。
-// ⚠ 不做成自动动作：驳回卡的下一站是用户决定，方寸只负责不让它沉底。
-const reworkOpen = ref(false)
-const reworkHidden = ref(false)
-const reworkNow = ref(Date.now())
-const rework = computed(() => pickRework(tasks.value as any[], reworkNow.value))
-
+// 看板横幅上的时钟：待验收欠条按“等了多少天”排序，每轮刷新时前进。
+// ⚠ 2026-11-08 暮雨：“返工台横幅没有一丁点作用，纯烦人，整个删掉。”
+//   驳回卡本身仍在看板里（状态=驳回），体检里也仍统计“被驳回后没人管”，
+//   只是不再有一条常驻横幅天天提醒他“你欠一个决定”。
 // ── 待验收欠条（2026-10-31 暮雨第 5 条：“没做完的东西叫我怎么待验收？我不是只能一直挂在那里？”）
 // 与返工台同一套思路：**让"欠你一个签字"的东西自己冒出来**，而不是等用户翻到那一列。
 // 判据在 shared/rework.ts 的 pickPendingReview（界面不重算）；这里只管开关与两个出口。
+/** 横幅共用一个时钟：每轮刷新前进，避免“等了多少天”自己算 */
+const bannerNow = ref(Date.now())
 const reviewOpen = ref(false)
 const reviewHidden = ref(false)
-const reviewPending = computed(() => pickPendingReview(tasks.value as any[], reworkNow.value))
+const reviewPending = computed(() => pickPendingReview(tasks.value as any[], bannerNow.value))
 /** 从欠条里直接裁决：走与卡片上“通过/驳回”同一个入口（reviewModal），不另开一条通道 */
 function reviewVerdict(id: string, intent: 'accept' | 'reject'): void {
   const t = tasks.value.find(x => x.id === id)
   if (!t) { showToast('这张卡已经不在了（可能刚被别处改过）', 'error'); return }
   openReview(t, intent)
-}
-
-/** 从 id 找回任务对象；找不到（刚被别处改了）就静默不给按钮乱动 */
-function reworkTask(id: string): Task | null {
-  return tasks.value.find(t => t.id === id) || null
-}
-function reworkRestore(id: string): void {
-  const t = reworkTask(id)
-  if (t) void restoreTask(t)
-}
-function reworkArchive(id: string): void {
-  const t = reworkTask(id)
-  if (t) void archiveTask(t)
-}
-
-/**
- * 一键把“驳回”那一批全部退回待办（2026-11-08 暮雨第 9 条）。
- *
- * 原话：“方寸依然在逼我做根本做不了的事情，比如任务驳回就驳回了，还说什么‘逐张过一遍’，
- * 我还能怎么办？我本来就什么都做不了，看着都烦。”
- *
- * 病根不是文案，是**动作粒度**：驳回之后的下一步被设计成“对每一张再做一个决定”。
- * 而他能做、也愿意做的只有一次点击 —— 所以这里给批量出口：一次确认 = 全部回待办，
- * agent 下次取活会先读到各自的驳回理由。逐张入口还在（展开逐张看），但不再是唯一路径。
- * 不做「批量归档」：那是不可逆方向的批量，不给一个按钮顺手清空。
- */
-async function reworkRestoreAll(): Promise<void> {
-  const rows = rework.value.rows.slice()
-  if (!rows.length) return
-  if (!confirm(`把这 ${rows.length} 张“驳回”卡一起退回待办？\n\n退回后 agent 取活会先读到各自的驳回理由。`)) return
-  let ok = 0
-  const failed: string[] = []
-  for (const r of rows) {
-    try {
-      const res: any = await window.tegula.unarchiveTask(r.id)
-      if (res?.ok) ok++
-      else failed.push(r.id)
-    } catch {
-      failed.push(r.id)
-    }
-  }
-  showToast(failed.length
-    ? `退回 ${ok} 张，${failed.length} 张没成：${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等' : ''}`
-    : `已把 ${ok} 张退回待办 —— agent 取活会先读驳回理由`,
-    failed.length ? 'error' : 'success')
-  await loadAll()
 }
 
 // ── 整理体检的跳转（2026-10-30）：面板本身已切到 components/DataHygienePanel.vue，
@@ -1222,11 +1167,11 @@ async function gotoNeverRead(): Promise<void> {
   await loadNeverRead()
 }
 
-/** 体检 → 回看板展开返工台（既能逐张看，也能一键全退回） */
-function gotoRework(): void {
+/** 体检 → 回看板只看驳回的卡（2026-11-08：返工台横幅整个删了，出口改成筛选） */
+function gotoRejected(): void {
   showSettings_.value = false
+  curStatus.value = '驳回'
   switchView('active')
-  reworkOpen.value = true
 }
 
 /**
@@ -1301,7 +1246,10 @@ applyAppearance(appearance.value)
  * ⚠ 这只在“按状态”分组下有意义：按项目/优先级分组时列 key 是项目 id，
  *   默认值匹配不上，等于不折叠（那是正确行为 —— 那些列里混着终态和非终态）。
  */
-const DEFAULT_COLLAPSED_GROUPS: string[] = ['完成', '驳回']
+/** 默认折叠的分区（2026-11-08 改）：原先 完成 + 驳回 一起折叠。
+ *  返工台横幅删掉之后，再把「驳回」折叠着 = 驳回卡永远看不见 —— 那正是当初加横幅的原因。
+ *  所以只折叠「完成」（做完的不占屏），驳回保持可见。 */
+const DEFAULT_COLLAPSED_GROUPS: string[] = ['完成']
 const collapsedGroups = ref<string[]>(readUiPref<string[]>('fc_collapsed_groups', DEFAULT_COLLAPSED_GROUPS))
 const groupModeApplied = ref(false)
 
@@ -3149,7 +3097,7 @@ async function loadAll() {
     parseErrors.value = []
   }
   // 返工台的天数按"现在"算（不要用挂载那一刻的 now，否则开一天窗口会显示旧天数）
-  reworkNow.value = Date.now()
+  bannerNow.value = Date.now()
 }
 
 function showParseErrors() {
@@ -4362,6 +4310,8 @@ const policyEdit_ = ref<any>(null)
 const policyMapHasStructure = ref<Record<string, boolean>>({})
 /** 每张卡结构地图里的“最后核实”日期（YYYY-MM-DD），没写就是空串 */
 const policyVerifiedMap = ref<Record<string, string>>({})
+/** 结构漂移判定（主进程算）：project → { stale, reason } */
+const policyDriftMap = ref<Record<string, { stale: boolean; reason: string }>>({})
 
 const charterStats = computed(() => {
   const total = projects.value.length
@@ -4411,6 +4361,7 @@ async function loadPolicyMap() {
   const exists: Record<string, boolean> = {}
   const hasMap: Record<string, boolean> = {}
   const verified: Record<string, string> = {}
+  const driftRows: Array<{ project: string; repo: string; since: string }> = []
   for (const p of projects.value) {
     try {
       const r: any = await window.tegula.policyGet(p.id)
@@ -4421,12 +4372,27 @@ async function loadPolicyMap() {
       // 只有**真填过**才算有：骨架里那行“（待填 —— …）”不算内容
       hasMap[p.id] = !!mapText.trim() && !/最后核实[：:]\s*（待填/.test(mapText)
       verified[p.id] = extractVerified(mapText)
+      // 有日期的项目才值得算“结构大改”（没日期的已经是 stale，不必再问 git）
+      if (verified[p.id]) driftRows.push({ project: p.id, repo: String((p as any).repo || ''), since: verified[p.id] })
     } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false; verified[p.id] = '' }
   }
   policyMap.value = filled
   policyExistsMap.value = exists
   policyMapHasStructure.value = hasMap
   policyVerifiedMap.value = verified
+  // 「结构大改就过期」的判定在主进程（要 spawn git，渲染层不能干这个）。
+  // 异步回填 + 主进程 10 分钟缓存：面板先出，理由到了再补一行。
+  if (driftRows.length) {
+    void Promise.resolve((window as any).tegula.policyDriftAll(driftRows)).then((r: any) => {
+      const m: Record<string, { stale: boolean; reason: string }> = {}
+      for (const row of (r && r.rows) || []) {
+        if (row && row.project) m[row.project] = { stale: !!row.stale, reason: String(row.reason || '') }
+      }
+      policyDriftMap.value = m
+    }).catch(() => { /* 算不出来就当没有；面板不因此报错 */ })
+  } else {
+    policyDriftMap.value = {}
+  }
 }
 
 // ── 结构地图一览（029 的入口）──────────────────────────────────────────
@@ -4442,6 +4408,8 @@ const smapRows = computed(() => {
     verified: policyVerifiedMap.value[p.id] || '',
     // 有几张提议卡在等他签字（2026-11-08）—— 面板必须自己说出来，不能只躺在看板里
     pending: pendingMapProposals(p.id).length,
+    // 结构大改（新增/删掉模块目录）也会让地图失效 —— 理由要在行里说出来
+    staleReason: policyDriftMap.value[p.id] && policyDriftMap.value[p.id].stale ? policyDriftMap.value[p.id].reason : '',
   }))
   // 有待签字的排最前（那才是要动的），其次缺地图的，最后齐全的
   return [
@@ -5357,7 +5325,7 @@ const { importTextFilesAsLogs, importLogFile, onLogDrop } = useLogImport({
 const {
   openLog, openNewLog, openLogForTask,
   logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
-  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
@@ -7313,7 +7281,7 @@ const relayCtl = reactive({
 const logEditCtl = reactive({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   logTaskOpen, logTaskQuery, logTaskOptions, logTaskMoreHidden, logTaskExtra,
-  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+  logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,
@@ -7564,7 +7532,7 @@ const settingsCtl = reactive({
   settingsTabs, selectSettingsTab, changeDataDir, openDataDir,
   onLogRetainDefaultChange, onArchiveDaysChange, onArchiveAutoChange,
   refreshArchiveOverdue, runArchiveOverdue, exportTasksToFile, importTasksFromFile,
-  showToast, gotoNeverRead, gotoRework, gotoStalled,
+  showToast, gotoNeverRead, gotoRejected, gotoStalled,
 })
 
 /**

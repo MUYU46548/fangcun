@@ -632,6 +632,30 @@ export function registerIpcHandlers(): void {
     catch (e: any) { return { ok: false, error: e.message } }
   })
 
+  /**
+   * 结构地图「结构大改」批量判定（2026-11-08）：渲染层把 [{project, repo, since}] 传进来，
+   * 主进程逐个问 git（带 10 分钟缓存），返回每个项目的 stale + 理由。
+   * 为什么批量：一次 IPC 走完，不在渲染层串 12 个往返。
+   */
+  guardedHandle('policy:driftAll', (_event, items: any[]) => {
+    try {
+      const { structureDrift } = require('./services/structureDrift')
+      const list = Array.isArray(items) ? items.slice(0, 60) : []
+      const out = list.map((it: any) => {
+        const project = String(it?.project || '')
+        const repo = String(it?.repo || '')
+        const since = String(it?.since || '')
+        try {
+          const r = structureDrift(repo, since)
+          return { project, status: r.status, stale: r.stale, reason: r.reason }
+        } catch (e: any) {
+          return { project, status: 'error', stale: false, reason: String(e && e.message || e) }
+        }
+      })
+      return { ok: true, rows: out }
+    } catch (e: any) { return { ok: false, error: e.message, rows: [] } }
+  })
+
   guardedHandle('policy:text', (_event, projectId: string) => {
     try {
       const p = policies.getPolicy(projectId)

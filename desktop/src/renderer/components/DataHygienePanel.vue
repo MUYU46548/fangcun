@@ -16,7 +16,7 @@ import { ref } from 'vue'
 const props = defineProps<{ toast?: (m: string) => void }>()
 const emit = defineEmits<{
   (e: 'goto-never-read'): void
-  (e: 'goto-rework'): void
+  (e: 'goto-rejected'): void
   (e: 'goto-stalled'): void
 }>()
 
@@ -102,7 +102,7 @@ async function openAttachmentsDir(): Promise<void> {
           <b>{{ cleanup.rework.count }}</b> 张被驳回后没人管
           <span class="cleanup-sub">（{{ cleanup.rework.text }}）</span>
           <span class="cleanup-grow"></span>
-          <button class="ghost font-[inherit]" :disabled="!cleanup.rework.count" @click="emit('goto-rework')">看返工台</button>
+          <button class="ghost font-[inherit]" :disabled="!cleanup.rework.count" @click="emit('goto-rejected')">看驳回卡</button>
         </div>
         <div class="cleanup-list" v-if="cleanup.rework.rows && cleanup.rework.rows.length">
           <div class="cleanup-item" v-for="r in cleanup.rework.rows" :key="'rw-' + r.id">

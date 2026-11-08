@@ -45,6 +45,7 @@ const ALLOW = {
   'archd-cancel': '2026-11-07 · 架构图生成取消按钮（W5 第一刀新增），基座 Button 不支持 danger+busy 组合；随 W5 一起迁',
   'qd-row': '2026-11-07 · 待校验清单整行可点（伪按钮），是列表项不是 Button；随问卷迁移一起换',
   'smap-pending': '2026-11-08 · 结构地图行内的“N 张提议等你签字”胶囊（badge 形态 + 可点），不是操作按钮；换成 Button 会变成实心块、压垮行内层级',
+  'log-task-switch': '2026-11-08 · 日志“关联任务”空态里嵌在句子中间的一键切档（“改看全部项目 / 改看已完成”）；Button 是块级带内边距，塞进 <div class="hint"> 会把一句话拆成两行',
 }
 
 function isTailwind(c) {

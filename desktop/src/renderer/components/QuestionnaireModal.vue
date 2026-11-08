@@ -24,6 +24,8 @@
           <span class="qn-ttl">问卷</span>
           <span class="qn-sub">{{ decks.length }} 卷 · 说清“你想要什么”，不触发任何开发</span>
           <span class="qn-grow"></span>
+          <button class="ghost" title="把出卷提示词复制给 agent —— 它按 qn_propose 出卷，出完就出现在这个列表里"
+            @click="copyAuthorPrompt">🧾 让 agent 出问卷</button>
           <button class="ghost" @click="openDir">📂 问卷目录</button>
           <button class="ghost" @click="$emit('close')">关闭</button>
         </div>
@@ -365,6 +367,8 @@
 // UI 基座 · 第一刀迁移（2026-11-07）：本轮新增的三个按钮走 components/ui/Button.vue
 import Button from './ui/Button.vue'
 import { computed, onMounted, ref, watch } from 'vue'
+import { copyText as copyToClipboard } from '../../shared/clipboard'
+import { buildDeckAuthoringPrompt } from '../../shared/qnPrompts'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'toast', msg: string, kind?: string): void }>()
 
@@ -633,23 +637,21 @@ function mdText(): string {
 }
 
 /**
- * 复制（带兜底）。Electron 里 navigator.clipboard 一般可用，但 `file://` 或没聚焦时会拒 ——
- * 拒了还要能复制，否则按钮看起来就是坏的（本项目踩过“点了没反应”）。
+ * 复制（带三层兜底，2026-11-08 改）。
+ *
+ * 原来这里直接用 `navigator.clipboard` —— 打包版是 `file://` 起源，它会静默 reject，
+ * 剪贴板里仍留着上一次的内容（用户以为复制了，粘出来是旧东西）。现在统一走
+ * `shared/clipboard.ts`：IPC → navigator → execCommand，失败必须报出来。
  */
 async function copyText(t: string, okMsg: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(t)
-    toast(okMsg, 'success')
-    return
-  } catch { /* 走兜底 */ }
-  const ta = document.createElement('textarea')
-  ta.value = t
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  try { document.execCommand('copy'); toast(okMsg, 'success') } catch { toast('复制失败：环境不允许，请手动选中复制', 'error') }
-  ta.remove()
+  const r = await copyToClipboard(t)
+  if (r.ok) toast(okMsg, 'success')
+  else toast('复制失败：' + (r.error || '三条通道都没过，请手动选中复制'), 'error')
+}
+
+/** 「让 agent 出问卷」：把出卷提示词复制出去（agent 侧走 qn_propose 落盘） */
+async function copyAuthorPrompt(): Promise<void> {
+  await copyText(buildDeckAuthoringPrompt(), '已复制出卷提示词 —— 粘给 agent，它出完这卷会出现在这里')
 }
 
 async function copyMd(): Promise<void> {

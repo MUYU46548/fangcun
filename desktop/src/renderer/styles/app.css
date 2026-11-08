@@ -1150,14 +1150,20 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 分组列表（2026-11-08 第 6 条）：组头就是项目名 + 条数；
    行内“标题为主、id 退到右侧小字”—— 此前 id 排在标题前面，一眼全是哈希。 */
 .log-task-groups {
-  max-height: 190px; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
+  /* 2026-11-08 第 4 条（“实战中就是不可用”）：原来只有 190px —— 五个组头就把框塞满，
+     想挑第三组要在一个巴掌大的框里滚。现在按视口给高度，组数多的时候能一口气看三四组。 */
+  max-height: min(52vh, 420px); min-height: 132px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--card); padding: 4px 6px; margin-bottom: 6px;
 }
-.lt-group + .lt-group { margin-top: 2px; }
+/* 2026-11-08 截图目检后补：组头与任务行原先同一左对齐、同一粗细，看不出“这是分组”。
+   现在组块有左侧竖线、组头有底色与 ▾/▸、行内缩进 —— 一眼能看出层级。 */
+.lt-group { border-left: 2px solid var(--border); padding-left: 5px; margin-left: 2px; }
+.lt-group + .lt-group { margin-top: 4px; }
 .lt-group-head {
   display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
   font-size: 11px; color: var(--muted); cursor: pointer; position: sticky; top: 0;
-  background: var(--card); z-index: 1;
+  background: var(--tint-2); z-index: 1;
 }
 .lt-group-head:hover { background: var(--tint-2); }
 .lt-group-name { font-weight: 700; color: var(--ink); }
@@ -1179,6 +1185,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   flex: none; font-size: 10.5px; color: var(--muted); background: var(--tint);
   border-radius: 5px; padding: 0 5px;
 }
+/* 空态里的“改看全部项目”：一句话比让人回去找上面的分段按钮实在 */
+.log-task-switch { width: auto; margin: 0 0 0 4px; font-size: 11px; padding: 2px 8px; vertical-align: baseline; }
+.log-task-donehint {
+  font-size: 11px; color: var(--muted); background: var(--tint);
+  border-radius: 6px; padding: 3px 8px; margin-bottom: 6px;
+}
 .log-task-more { width: 100%; margin-top: 4px; font-size: 11.5px; }
 /* 日志“关联任务”多选列表（2026-09-25 第 2 条） */
 .log-task-multi {
@@ -1186,14 +1198,22 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   background: var(--card); padding: 4px 6px; margin-bottom: 6px;
 }
 .log-task-opt {
-  display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
+  display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border-radius: 6px;
   font-size: 12px; cursor: pointer; margin: 0;
 }
 .log-task-opt:hover { background: var(--tint-2); }
 .log-task-opt input[type='checkbox'] { flex: none; margin: 0; }
-.log-task-opt .lto-id { flex: none; color: var(--accent); font-weight: 600; font-size: 11.5px; }
+/* ⚠ 这条与上面那条同名：**后者压前者**。2026-11-08 的目标是“id 退成灰色小字”，
+   老规则里的紫色 + 600 权重会让 id 又跳出来抢眼睛（截图目检才发现）—— 这里必须跟新规则一致。 */
+.log-task-opt .lto-id {
+  flex: none; margin-left: 8px; color: var(--muted); font-weight: 400; font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .log-task-opt .lto-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
-.log-task-opt .lto-st { flex: none; font-size: 11px; color: var(--muted); }
+.log-task-opt .lto-st {
+  flex: none; margin-left: 8px; font-size: 10.5px; color: var(--muted);
+  background: var(--tint-2); border-radius: 5px; padding: 0 5px;
+}
 #modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
 #modal input, #modal select, #modal textarea {
   width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border);
@@ -2612,12 +2632,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .help-view { overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
 .help-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .help-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+/* 版本号：和“关于方寸”同一个来源（2026-11-08 暮雨第 1 条：? 打开的不是关于页，
+   版本信息在这里也得能看见，不然验收时只能翻关于弹窗）。 */
+.help-ver {
+  font-size: 12px; font-weight: 700; color: var(--ink);
+  background: var(--tint-3); border-radius: 999px; padding: 1px 9px;
+  font-variant-numeric: tabular-nums;
+}
 .help-sub { font-size: 12px; color: var(--muted); }
-.help-body { display: flex; flex-direction: column; gap: 18px; max-width: 880px; }
-.help-sec { display: flex; flex-direction: column; gap: 7px; }
+.help-body { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }
+/* 每一节做成卡片：此前是裸标题 + 满宽表格，跟看板/日志页（都是圆角卡片）不是一套皮。 */
+.help-sec {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 13px 15px;
+}
 .help-sec h4 {
-  margin: 0; font-size: 13.5px; font-weight: 700; color: var(--accent);
-  padding-bottom: 5px; border-bottom: 1px solid var(--border);
+  margin: 0; font-size: 13px; font-weight: 700; color: var(--accent);
+  padding-bottom: 0; border-bottom: none;
 }
 .help-sec p { margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--ink); }
 .help-tip {
@@ -2626,10 +2658,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   padding: 7px 10px; border-radius: 0 6px 6px 0;
 }
 .help-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+/* 表格放进卡片里之后，外圈再套一层边框就成“表格套表格”。只留横向分隔线。 */
 .help-table th, .help-table td {
-  border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top;
+  border: none; border-bottom: 1px solid var(--border); padding: 6px 9px;
+  text-align: left; vertical-align: top;
 }
-.help-table th { background: var(--tint); font-weight: 600; width: 110px; }
+.help-table tr:last-child th, .help-table tr:last-child td { border-bottom: none; }
+.help-table th { background: transparent; font-weight: 600; color: var(--muted); width: 110px; }
 .help-table td { color: var(--ink); line-height: 1.6; }
 .help-table code, .help-sec code {
   background: var(--tint); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
@@ -3496,6 +3531,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .smap-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
 .smap-item.missing { background: #fdfaf9; border-color: #ecd8d3; }
 .smap-item.nopolicy { background: #fbfbfc; border-style: dashed; }
+/** 结构漂移理由（2026-11-08）：一行橙字，说明这张地图为什么已经不能信 */
+.smap-drift {
+  margin-top: 2px; color: var(--warning);
+  /* 理由可以很长：最多两行 + 省略号，完整文本在 title 里（否则一行会被压成一团） */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  line-height: 1.5;
+}
+
 .smap-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--success); }
 .smap-item.missing .smap-dot { background: var(--warning); }
 .smap-item.nopolicy .smap-dot { background: #b6b2c4; }

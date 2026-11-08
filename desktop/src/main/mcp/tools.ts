@@ -31,7 +31,11 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 // 也就是说：**读口在这一层开，写口将来从同一层接** —— 下面三个 case 是唯一入口。
 import { loadDecisions, normalizeDecisionStatus } from '../data/decisions'
 import { getPolicy, savePolicy, policyPath } from '../services/policies'
-import { listPlanFiles, readPlan } from '../data/plans'
+import { listPlanFiles, readPlan, proposeStage, parkedPlanSummary } from '../data/plans'
+// 结构地图“结构大改就过期”（2026-11-08）：判断在 shared，取数在 services
+import { structureDrift } from '../services/structureDrift'
+// 问卷：agent 侧此前只有「界面里点」，MCP 一个字都读不到也写不进（2026-11-08 补）
+import { listDecks, createDeck } from '../data/questionnaires'
 // 结构地图“提议 → 签字 → 落地”（2026-11-08 暮雨拍板：AI 写进去落一张待审批卡）
 import { rotateBackup } from '../data'
 import {
@@ -356,6 +360,90 @@ export const MCP_TOOLS: MCPTool[] = [
         file: { type: 'string', description: 'Plan file name, e.g. fangcun-base.md (omit for overview)' },
         stageId: { type: 'string', description: 'Only this stage, e.g. P3 (optional)' },
       },
+    },
+  },
+  {
+    name: 'stage_plan_propose',
+    description: 'Propose a NEW stage card into task-data/plans/<file>.md. It lands as 状态: 待裁决 — '
+      + 'the user freezes it with one click in 作战计划 (通过/冻结), so you cannot self-approve. '
+      + 'ALL THREE blocks are mandatory (技术方案 / 照抄点 / 判据) — a card missing one can never be frozen. '
+      + 'Every 判据 line MUST start with cmd: / str: / num: / file:, otherwise the gate treats it as unknown forever. '
+      + 'Refuses to overwrite an existing stage id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Plan file name, e.g. fangcun-base.md' },
+        project: { type: 'string', description: 'Alternative to file: project id (= <project>.md)' },
+        stageId: { type: 'string', description: 'P8 — omit for the next free number' },
+        title: { type: 'string', description: 'What this stage delivers (one line)' },
+        what: { type: 'string', description: 'One-sentence scope (optional)' },
+        approach: { type: 'array', items: { type: 'string' }, description: '技术方案 bullets: how you plan to do it' },
+        copyRows: {
+          type: 'array',
+          description: '照抄点 table rows: [["项","来源","原文"], [...]]. First row may be the header.',
+          items: { type: 'array', items: { type: 'string' } },
+        },
+        criteria: {
+          type: 'array', items: { type: 'string' },
+          description: '判据 bullets, each prefixed cmd: / str: / num: / file:',
+        },
+        agent: { type: 'string', description: 'Who proposes (agent name)' },
+      },
+      required: ['title', 'approach', 'copyRows', 'criteria'],
+    },
+  },
+  // ── 问卷：agent 出卷 → 用户在问卷页答 → 批准才落决策卡（2026-11-08）────────
+  {
+    name: 'qn_list',
+    description: 'List questionnaires (问卷) with how many questions, how many already answered, '
+      + 'and whether each was approved. Call this before asking the user anything in chat: '
+      + 'an open questionnaire is where his decisions belong.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'qn_propose',
+    description: 'Write a NEW questionnaire deck (task-data/questionnaires/<deck>.md) for the user to answer. '
+      + 'Hard checks, nothing is written unless all pass: every question needs an id like S1, at least 2 options, '
+      + 'every option needs a COST description (d), and every question needs a 验收线 (line). '
+      + 'It never overwrites an existing deck — pick another deck name for a revision. '
+      + 'This only asks questions; it writes no decision and no task card.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deck: { type: 'string', description: 'File stem, e.g. 方寸-0.7-取舍 (omit to derive from title)' },
+        title: { type: 'string', description: 'Deck title; include 宪法层 / 裁决层 to tag the layer' },
+        project: { type: 'string', description: 'Project id this deck is about (optional)' },
+        boundary: { type: 'string', description: '使用边界 sentence for the deck (optional)' },
+        questions: {
+          type: 'array',
+          description: 'Questions in order',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'S1 / M2 — letter(s) + digits, unique' },
+              nav: { type: 'string', description: 'Short nav name shown in the left column' },
+              ask: { type: 'string', description: 'The question itself' },
+              options: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    k: { type: 'string', description: 'A / B / C' },
+                    t: { type: 'string', description: 'Option title' },
+                    d: { type: 'string', description: 'What it is + what it costs (required)' },
+                  },
+                  required: ['k', 't', 'd'],
+                },
+              },
+              look: { type: 'string', description: '【看一眼】reference / entry point (optional)' },
+              src: { type: 'string', description: '【出处】where the evidence comes from (optional)' },
+              line: { type: 'string', description: '【验收线】what counts as a violation after choosing (required)' },
+            },
+            required: ['id', 'options', 'line'],
+          },
+        },
+      },
+      required: ['title', 'questions'],
     },
   },
   // ── 结构地图：提议 → 用户签字 → 落地（2026-11-08 暮雨拍板）─────────────────
@@ -924,7 +1012,19 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         const t = Date.parse(`${mDate[1]}-${mDate[2]}-${mDate[3]}T00:00:00`)
         if (!Number.isNaN(t)) mapAgeDays = Math.floor((Date.now() - t) / 86400000)
       }
-      const mapStale = mapAgeDays === null || mapAgeDays > 90
+      const mapStaleByAge = mapAgeDays === null || mapAgeDays > 90
+      // 2026-11-08 暮雨拍板：阈值不收窄，但**结构大改就要标过期**。
+      // 判据 = 自「最后核实」日起，仓库里出现了新目录 / 删掉了目录，或源文件增删 ≥ 25
+      //（噪声路径如 node_modules / dist / docs 不计 —— 否则天天过期，判据等于没有）。
+      let drift: { status: string; reason: string; files: number; newDirs: string[]; removedDirs: string[]; stale: boolean } | null = null
+      if (!mapStaleByAge && mDate) {
+        try {
+          const reg = parseRegistry()
+          const repo = String((reg.find((x: any) => x && x.id === id) || {}).repo || '').trim()
+          drift = structureDrift(repo, `${mDate[1]}-${mDate[2]}-${mDate[3]}`)
+        } catch { drift = null }
+      }
+      const mapStale = mapStaleByAge || !!(drift && drift.stale)
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, project: id, updatedAt: p.updatedAt || '',
         mission: p.mission || '', goal: p.goal || '', scenario: p.scenario || '',
@@ -932,11 +1032,17 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         structureMapVerifiedAt: mDate ? `${mDate[1]}-${mDate[2]}-${mDate[3]}` : '',
         structureMapAgeDays: mapAgeDays,
         structureMapStale: mapStale,
+        structureMapStaleReason: mapStaleByAge
+          ? (mapAgeDays === null ? '结构地图没写“最后核实”日期' : `结构地图已 ${mapAgeDays} 天没核过（>90 天）`)
+          : (drift && drift.stale ? drift.reason : ''),
+        structureDrift: drift
+          ? { status: drift.status, reason: drift.reason, files: drift.files, newDirs: drift.newDirs, removedDirs: drift.removedDirs }
+          : null,
         missingSections: missing,
         hint: missing.length
           ? '缺的这几节是真没写，不是本工具读不到；别根据项目名替它补内容。'
           : (mapStale
-            ? '结构地图没有“最后核实”日期，或已超过 90 天 —— 动手前先跟用户核一遍，或照实际代码改它。'
+            ? `这张地图不能信了（${(drift && drift.stale ? drift.reason : '没写日期或超过 90 天')}）—— 动手前先跟用户核一遍，或照实际代码改它（改走 smap_propose）。`
             : '五节齐全，结构地图是近 90 天内核过的。'),
       }, null, 2) }] }
     }
@@ -957,8 +1063,20 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
           const done = d.stages.filter((s) => String(s.status || '').trim() === '完成').length
           return { file: f, title: d.title || '', stages: d.stages.length, pending, done }
         })
+        // 停放区（`_parked/`）此前完全不在这份概览里 —— agent 照实报“0 张待裁决”，
+        // 而用户看着那 22 格以为它偷懒（2026-11-08 联测 P1-2）。
+        const parked = parkedPlanSummary()
         return { content: [{ type: 'text', text: JSON.stringify({
           files: docs.length, plans: docs,
+          parked: {
+            files: parked.files, stages: parked.stages, pending: parked.pending,
+            note: parked.files
+              ? `另有 ${parked.files} 份「停放中」的计划（task-data/plans/_parked/），共 ${parked.stages} 格、其中 ${parked.pending} 格写着待裁决。`
+                + '停放 = 用户主动搁下的方案，算不算“等你裁决”由他定；**不要把它算进活跃计划的 pending，也不要当它不存在**。'
+                + '要读某一格 → 带 file="_parked/<文件名>"。'
+              : '停放区为空。',
+            names: parked.names,
+          },
           hint: '要看某一格的 技术方案 / 照抄点 / 判据 → 带 file（+ 可选 stageId）再调一次。',
         }, null, 2) }] }
       }
@@ -977,7 +1095,81 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         ok: true, file: wantFile, title: doc.title || '',
         revision: doc.revision || [],
         stages,
-        readOnly: '冻结 / 打回 / 改一句都是用户在界面上点；agent 只读。',
+        note: '文件里的「## 里程碑」/ 阶段总览表是**规划期快照**（2026-11-08 联测 P1-3）；'
+          + '实时状态一律看 stages[].status，别拿表里的状态当现状。',
+        readOnly: '冻结 / 打回 / 改一句都是用户在界面上点；agent 只读。新增一格请用 stage_plan_propose。',
+      }, null, 2) }] }
+    }
+
+    // ── 新增阶段卡：agent 提议 → 落「待裁决」，冻结仍由用户在界面点（2026-11-08）──
+    case 'stage_plan_propose': {
+      const file = String(args.file || (args.project ? `${args.project}.md` : '')).trim()
+      if (!file) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'file 或 project 必填' }) }], isError: true }
+      const r = proposeStage({
+        file,
+        stageId: args.stageId ? String(args.stageId) : undefined,
+        title: String(args.title || ''),
+        what: args.what ? String(args.what) : '',
+        approach: Array.isArray(args.approach) ? args.approach.map(String) : [],
+        copyRows: Array.isArray(args.copyRows)
+          ? args.copyRows.map((row: any) => (Array.isArray(row) ? row.map(String) : []))
+          : [],
+        criteria: Array.isArray(args.criteria) ? args.criteria.map(String) : [],
+        agent: args.agent ? String(args.agent) : '',
+      })
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: r.error,
+          hint: '没有写盘。按 error 补齐后重试；三块（技术方案 / 照抄点 / 判据）缺一块都写不进去。',
+        }, null, 2) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, file, stageId: r.stage?.id, status: r.stage?.status,
+        next: '告诉用户「P? 已落成待裁决，等他点通过（冻结）」；不要自己宣称已通过。',
+      }, null, 2) }] }
+    }
+
+    // ── 问卷：列卷 / 出卷（2026-11-08）────────────────────────────────────
+    case 'qn_list': {
+      const r = listDecks()
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, dir: r.dir, decks: r.decks,
+        hint: r.decks.length
+          ? '有正在等答的卷就先让他答，别在聊天里重新问一遍同样的取舍。'
+          : '还没有问卷。真需要他拍板、而聊天里问不清的取舍 → 用 qn_propose 出一份卷。',
+      }, null, 2) }] }
+    }
+
+    case 'qn_propose': {
+      const spec = {
+        deck: args.deck ? String(args.deck) : '',
+        title: String(args.title || ''),
+        project: args.project ? String(args.project) : '',
+        boundary: args.boundary ? String(args.boundary) : '',
+        questions: Array.isArray(args.questions)
+          ? args.questions.map((q: any) => ({
+            id: String(q?.id || ''),
+            nav: q?.nav ? String(q.nav) : '',
+            ask: q?.ask ? String(q.ask) : '',
+            options: Array.isArray(q?.options)
+              ? q.options.map((o: any) => ({ k: String(o?.k || ''), t: String(o?.t || ''), d: String(o?.d || '') }))
+              : [],
+            look: q?.look ? String(q.look) : '',
+            src: q?.src ? String(q.src) : '',
+            line: q?.line ? String(q.line) : '',
+          }))
+          : [],
+      }
+      const r = createDeck({ spec, agent: args.agent ? String(args.agent) : '' })
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: r.error, issues: r.issues,
+          hint: '一个字节都没写。每题必须有 ≥2 个选项、每个选项写清代价（d）、每题有验收线（line）。',
+        }, null, 2) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, deck: r.deck, path: r.path, questions: r.questions,
+        next: '告诉用户「问卷已放到问卷页，共 N 题等你答」；答完批准后才会落决策卡。',
       }, null, 2) }] }
     }
 

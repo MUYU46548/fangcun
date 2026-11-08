@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.13.0
+version: 1.14.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -122,6 +122,9 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `decision_list` | READ-ONLY. |
 | `project_charter` | READ-ONLY. |
 | `stage_plan_get` | READ-ONLY. |
+| `stage_plan_propose` | Propose a NEW stage card into task-data/plans/<file>.md (lands as 待裁决). |
+| `qn_list` | List questionnaires (问卷): questions / answered / approved. |
+| `qn_propose` | Write a NEW questionnaire deck for the user to answer (选项缺代价 / 题目缺验收线一律拒收). |
 | `smap_propose` | Propose a NEW version of the project 结构地图 as a 「待审批」 task card. |
 | `smap_apply` | Apply an APPROVED 结构地图 proposal card into policies/<project>.md. |
 | `list_logs` | List execution logs (方寸执行日志). |
@@ -171,12 +174,19 @@ get_log        { id: "log_20261028140158_yo07jt" }             # 单条；附件
 这三样不是装饰，是**决定你该不该动手**的依据。每次开工花 30 秒跑一遍：
 
 ```
-plan_pending   {}                              # 有没有阶段卡在等用户冻结
+plan_pending   {}                              # 规划卡（type: plan）里 draft/active 的
+stage_plan_get {}                              # 作战计划的阶段卡：几格 / 几格待裁决（另一套数据）
 find_blockers  { project: "<项目>" }            # 我这张卡被谁挡着
 ```
 
-- `plan_pending` 有东西 → **先说一句**“还有 N 张阶段卡等你裁决，冻结前这格推不动”，
+> ⚠ **`plan_pending` 与 `stage_plan_get` 是两套数据**（2026-11-08 联测 P2-2）：
+> 前者查的是**规划卡**里的决策点，后者查的是 `task-data/plans/*.md` 里的**阶段卡**。
+> 只调 `plan_pending` 就报“没有待裁决”，很可能还有一堆阶段卡在等你 —— 两个都要看。
+
+- `stage_plan_get {}` 里 `pending > 0` → **先说一句**“还有 N 张阶段卡等你裁决，冻结前这格推不动”，
   不要自己挑一格就开始干。用户不知道有卡在等他，才是这些功能“形同虚设”的真因。
+- 概览里的 `parked` 是 `_parked/` 停放区（用户主动搁下的方案）。**它不算活跃计划的 pending，
+  但也不许当它不存在** —— 如实说“另有 N 份停放计划、M 格待裁决，算不算数由你定”。
 - `find_blockers` 有链 → 先报**最上游那一个**（解它收益最大），别从下游那张开始。
 - 两者都空 → 直接干，不用念一遍“我检查了没有阻塞”。
 
@@ -200,6 +210,10 @@ stage_plan_get   { file: "<项目>.md", stageId: "P3" }       # 那一格的三�
   不是这一次偷懒。看到 `readOnly` 字段就当提醒。
 - **冻结 / 打回 / 改方针**同样是用户的点击。`stage_plan_get` 给你的是判据原文，
   **你可以照着判据干活、可以报“这格还缺判据”，但不能替他把状态改了**。
+  要**新增**一格走 `stage_plan_propose`（见 ①.8）—— 写进去是「待裁决」，仍然不是签字。
+- ⚠ **工具表是会话启动时的快照**：方寸升级后新加的工具（比如这批 `smap_*` / `stage_plan_propose` /
+  `qn_*`），老会话里可能还看不见（报 `not_found`）。判断办法：`node scripts/check-agent-mcp.cjs --readonly`
+  握手能列出新工具 → 说明是会话快照旧了，**让用户重开一个会话**，别以为是方寸没做。
 - 三样都空 ≠ 项目很干净。方针文件不存在时 `project_charter` 会**明确报错**；
   那时说“这个项目还没有方针卡”，不要编一段。
 
@@ -223,6 +237,49 @@ smap_propose {
 - `mapText` 必须带 `最后核实：YYYY-MM-DD`，否则机检不过 → 落「草稿」带红标。
 - `reason` 必须写**你实际扫了什么**（目录/文件）。空理由等于让他自己在两版之间找差异，
   那张卡就该被打回。
+
+**①.8 要新增一格作战计划？（2026-11-08：写口开了，但只写“待裁决”）**
+
+以前没法写 —— `stage_plan_get` 只读，界面上的通过/打回全是用户点的。现在有 `stage_plan_propose`：
+
+```
+stage_plan_propose {
+  file: "fangcun-base.md",
+  title: "结构地图写口：agent 提议、用户签字",
+  what: "让 AI 能把新阶段写进计划，但冻结仍然是人点",
+  approach: ["先落 待裁决 阶段卡", "冻结仍由用户在作战计划页点"],
+  copyRows: [["结构地图", "policies/<项目>.md", "提议 → 签字 → 落地"]],
+  criteria: ["cmd: node scripts/test/<用例>.cjs", "str: 缺块不许通过"]
+}
+```
+
+- 落进来一定是 `- 状态: 待裁决` —— **这不是签字**，用户点「通过（冻结）」才算。
+- **三块必填**：技术方案 / 照抄点 / 判据。缺一块会被**直接拒收**（不写盘），
+  因为落进去也永远冻结不了 —— 那是给用户添堵，不是“先放那儿”。
+- 每条判据必须以 `cmd:` / `str:` / `num:` / `file:` 开头，否则闸门恒判 unknown。
+- 已存在的阶段号不许覆盖；要改已有那格，让用户在界面上用「改一句」。
+
+**①.9 问卷：有多道题要人拍板时，出一份卷（别在聊天里连问十条）**
+
+```
+qn_list   {}      # 先看有没有已经等答的卷 —— 有就先让他答，别重复问
+qn_propose {
+  title: "<项目>-裁决层A",
+  project: "<项目 id>",
+  questions: [{
+    id: "S1", nav: "最终形态", ask: "做一件还是两件？",
+    options: [{ k: "A", t: "分两件", d: "抄业界主流；代价是联调成本翻倍" },
+              { k: "B", t: "合一件", d: "上手快；代价是后期拆不动" }],
+    src: "出处", line: "选了它之后，什么算违约"
+  }]
+}
+```
+
+- **硬闸**：每题 ≥2 个互斥选项、每个选项必须写**代价**（`d`）、每题必须有**验收线**（`line`）。
+  缺一样就整批拒收，一个字节都不写。
+- **同名卷不覆盖**：要改版就换个 deck 名（`…-v2`），别把用户已经答过的卷抹掉。
+- 它只**问**，不写决策、不建任务卡；用户答完并批准后，才在方寸里落决策卡。
+- 出完只说一句“问卷已放到问卷页，共 N 题等你答”，**不要**在聊天里把题目再问一遍。
 
 **② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```

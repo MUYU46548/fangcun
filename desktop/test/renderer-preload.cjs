@@ -408,6 +408,9 @@ contextBridge.exposeInMainWorld('tegula', {
   taskEnums: () => ({ statuses: ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'], priorities: ['高', '中', '低'] }),
   loadTasks: (v) => { rec('loadTasks', [v]); return (v === 'archive' ? (store.archived || []) : store.tasks).slice() },
   loadProjects: () => store.projects.slice(),
+  // 2026-11-08：使用手册页头要显示版本号（暮雨第 1 条）。以前这条通道没桩 → 页面拍到 'v…'，
+  // 看起来像坏了。版本同样**不写死**，取 e2e 从 package.json 注入的 __FC_VER。
+  getAppVersion: async () => (window.__FC_VER || '0.0.0'),
   // 阻塞源夹具（2026-10-09 监控台断言）：demo 项目压着 1 条阻塞 → 详情页
   // “⚠ 1 个阻塞源 · 看卡在谁”入口必须出现（pvBlocked 按被阻塞任务所属项目计）。
   findBlockers: () => [
@@ -1837,6 +1840,15 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',
+  // 结构漂移批量判定（2026-11-08）：默认“没有漂移”；用例用 __fcTest.setStructureDrift 注入
+  policyDriftAll: async (items) => ok({
+    rows: (items || []).map((it) => {
+      const hit = (store.structureDrift || {})[it.project]
+      return hit
+        ? { project: it.project, status: 'ok', stale: !!hit.stale, reason: String(hit.reason || '') }
+        : { project: it.project, status: 'ok', stale: false, reason: '' }
+    }),
+  }),
   // 在途一屏（Q2）：夹具可注入。默认两行 ——
   //   demo  = 有契约 + 有卡（current 来自任务卡）
   //   demo2 = 无契约 + 0 卡 + 有日志（current 回落日志）、健康度**人工锁定**
@@ -2449,6 +2461,10 @@ contextBridge.exposeInMainWorld('__fcTest', {
     if (mutedCount !== undefined) store.ncMutedCount = mutedCount
   },
   setTasks: (items) => { store.tasks = (items || []).slice() },
+  /** 造“结构大改”判定结果：{ demo: { stale: true, reason: '…' } } */
+  setStructureDrift: (m) => { store.structureDrift = m || {} },
+  /** 造方针卡（含结构地图）：{ demo: { structureMap: '> 最后核实：2026-01-01…' } } */
+  setPolicies: (m) => { store.policies = m || {} },
   /**
    * 注入在途一屏的返回（含 rows / hidden / modeFallback）。
    * 2026-10-05 用：造“手动指定 + 一个都没勾 → 一屏全空”这个用户实测场景，

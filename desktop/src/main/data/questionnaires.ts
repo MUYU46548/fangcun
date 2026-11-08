@@ -13,11 +13,17 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getTaskDir, loadTasks, parseRegistry } from './index'
+import { getTaskDir, loadTasks, parseRegistry, atomicWrite } from './index'
 import { addDecision, loadDecisions, setDecisionStatus } from './decisions'
 import { createTask } from './tasks'
 import { parseQuestionnaire, costGaps, deckIssues, type QDeck, type QDeckIssue } from '../../shared/questionnaire'
 import { askbacksOf, buildRewritePrompt, buildWorkOrderPrompt, costGapsOf } from '../../shared/qnPrompts'
+// 出卷通道（2026-11-08）：agent 侧此前**没有任何出卷入口**，只能靠人抄格式给它。
+// 这一层把“规格 → md”的转换收在一处，格式机检与生成共用同一份实现。
+import {
+  validateDeckSpec, buildDeckMarkdown, deckNameOf,
+  type QnDeckSpec, type QnSpecIssue,
+} from '../../shared/qnDeckSpec'
 
 export interface QAnswer {
   /**
@@ -183,6 +189,60 @@ export function listDecks(): { ok: true; decks: QDeckBrief[]; dir: string } {
     }
   })
   return { ok: true, decks, dir: questionnaireDir() }
+}
+
+export interface CreateDeckResult {
+  ok: boolean
+  error?: string
+  issues?: QnSpecIssue[]
+  deck?: string
+  path?: string
+  questions?: number
+}
+
+/**
+ * 出卷（agent 经 MCP 调用；2026-11-08）。
+ *
+ * 硬边界（照契约 ② 的精神落）：
+ *   · **机检不过就一个字节都不写** —— 这不是“产出”，是一份要人答的文件，
+ *     半成品落盘只会让人对着缺代价的选项瞎选；
+ *   · **不覆盖同名卷** —— 已经答过/正在答的家伙不能被一次 agent 调用抹掉；
+ *     真要换版，让 agent 换个 deck 名（`xxx-v2`）。
+ * 写盘后**读回解析**，题数对不上即报错（防止格式变换把题丢掉）。
+ */
+export function createDeck(input: {
+  spec: QnDeckSpec
+  agent?: string
+  overwrite?: boolean
+}): CreateDeckResult {
+  const spec = input?.spec
+  if (!spec) return { ok: false, error: '没有出卷规格（spec）' }
+  const issues = validateDeckSpec(spec)
+  if (issues.length) {
+    return {
+      ok: false,
+      issues,
+      error: '出卷规格不合格（一条都没落盘）：'
+        + issues.map((i) => `${i.id ? i.id + ' ' : ''}${i.msg}`).join('；'),
+    }
+  }
+  const name = deckNameOf(spec)
+  const dir = questionnaireDir()
+  const p = path.join(dir, name + '.md')
+  if (fs.existsSync(p) && !input.overwrite) {
+    return { ok: false, error: `同名问卷已存在：${name}.md —— 换一个 deck 名（如 ${name}-v2），别覆盖已经答过的卷` }
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  atomicWrite(p, buildDeckMarkdown(spec))
+  const back = parseQuestionnaire(fs.readFileSync(p, 'utf-8'))
+  const want = (spec.questions || []).length
+  if (back.error || back.questions.length !== want) {
+    return {
+      ok: false, deck: name, path: p,
+      error: `写回了但读不回来（${back.error || `题数 ${back.questions.length} ≠ ${want}`}）—— 文件在 ${p}，别当它已经可用`,
+    }
+  }
+  return { ok: true, deck: name, path: p, questions: back.questions.length }
 }
 
 /** 读一卷：题 + 已有答案 */

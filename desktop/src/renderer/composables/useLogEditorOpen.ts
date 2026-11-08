@@ -62,12 +62,12 @@ export function useLogEditorOpen(deps: Deps) {
     get: () => logTaskStatus.value === 'open',
     set: (v: boolean) => { logTaskStatus.value = v ? 'open' : 'all' },
   })
-  /** 首屏上限：组内先给 6 条（分组后按组给，不再全局一刀切 12 条） */
+  /** 首屏上限：组内先给 8 条（分组后按组给，不再全局一刀切 12 条） */
   const logTaskShowAll = ref(false)
   const logTaskExpanded = ref<Record<string, boolean>>({})
 
   const TERMINAL_STATUSES = ['完成', '驳回']
-  const LOG_GROUP_CAP = 6
+  const LOG_GROUP_CAP = 8
 
   const logTaskMatched = computed(() => {
     const proj = logEdit_.value?.project
@@ -111,6 +111,35 @@ export function useLogEditorOpen(deps: Deps) {
   const logTaskTotal = computed(() => logTaskMatched.value.length)
 
   /**
+   * 默认档是「未完成」时，被挡在门外的**已终态卡**有多少张（2026-11-08 第 4 条）。
+   *
+   * 实战里最常见的场景是「活干完了，回头补一条日志」—— 那时候要挂的卡恰好是
+   * 完成/驳回，而默认档把它们全藏了，界面看起来就是"什么都搜不到"。
+   * 不擅自改默认档（会一开面板就涌进几百张老卡），只把数字说出来并给一键切档。
+   */
+  const logTaskDoneHidden = computed(() => {
+    if (logTaskStatus.value !== 'open') return 0
+    const proj = logEdit_.value?.project
+    const q = (logTaskQuery.value || '').trim().toLowerCase()
+    const scopeAll = logTaskScope.value === 'all' || !!q
+    const seen = new Set<string>()
+    let n = 0
+    for (const t of [...tasks.value, ...archivedTasks.value]) {
+      if (seen.has(t.id)) continue
+      seen.add(t.id)
+      const tp = normProject(t.project)
+      if (!scopeAll && proj && tp !== proj) continue
+      if (!TERMINAL_STATUSES.includes(String(t.status || ''))) continue
+      if (q) {
+        const hay = `${t.id} ${t.title || ''}`.toLowerCase()
+        if (!hay.includes(q)) continue
+      }
+      n++
+    }
+    return n
+  })
+
+  /**
    * 候选按**项目分组**（2026-11-08 第 6 条）。
    *
    * 原话：“日志关联任务依旧编辑体验稀烂，筛选能力稀烂……一点审美都没有”。
@@ -150,9 +179,22 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskExpanded.value = { ...logTaskExpanded.value, [key]: !logTaskExpanded.value[key] }
   }
 
-  /** 搜索框回车 = 选中第一条（心里已经有目标时，不该还逼他用鼠标去点） */
+  /**
+   * 界面上**第一行**是哪张卡（2026-11-08 第 4 条修）。
+   *
+   * 原来的回车取的是 `logTaskMatched.value[0]` —— 那是**按更新时间**排的第一条，
+   * 不是画面上第一条（画面按“含已选的组置顶”重排过）。于是“回车选第一条”
+   * 选中的可能根本不在眼前第一行，用户以为它坏了。
+   * 现在按**渲染顺序**取：第一个组的 visible 行。
+   */
+  const logTaskFirstVisible = computed(() => {
+    const g = logTaskGroups.value[0]
+    return (g && g.shown && g.shown[0]) || logTaskMatched.value[0] || null
+  })
+
+  /** 搜索框回车 = 选中**屏幕上第一条**（心里已经有目标时，不该还逼他用鼠标去点） */
   function pickFirstLogTask(): void {
-    const first = logTaskMatched.value[0]
+    const first = logTaskFirstVisible.value
     if (!first) return
     const e = logEdit_.value
     if (!e) return
@@ -243,7 +285,7 @@ export function useLogEditorOpen(deps: Deps) {
   return {
     openLog, openNewLog, openLogForTask,
     logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
-    logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal,
+    logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
     logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }

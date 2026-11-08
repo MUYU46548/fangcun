@@ -95,17 +95,23 @@
           <button v-if="logTaskMoreHidden" type="button" class="ghost log-task-more"
             @click="logTaskShowAll = true">全部展开</button>
         </div>
+        <!-- 默认“未完成”档把完成/驳回全藏了 —— 补一条日志时想挂的往往正是那几张。
+             不擅自改默认档（几百张老卡会一下子涌进来），只报数 + 一键切档。 -->
+        <div v-if="logTaskDoneHidden" class="log-task-donehint">
+          另有 {{ logTaskDoneHidden }} 张已完成 / 驳回的卡没显示（默认只看未完成）
+          <button type="button" class="ghost log-task-switch" @click="logTaskStatus = 'done'">改看已完成</button>
+        </div>
         <!-- 分组渲染（2026-11-08 第 6 条）：组头 = 项目名 + 条数；已选中的组置顶。
              行内只留「标题 + 状态」，id 退到右侧小字 —— 扫的时候先认出是哪张卡，
              需要核对 id 的时候再看右边。 -->
         <div v-if="logTaskGroups.length" class="log-task-groups">
           <div v-for="g in logTaskGroups" :key="'ltg-' + g.key" class="lt-group">
             <div class="lt-group-head" @click="toggleLogTaskGroup(g.key)">
-              <span class="lt-group-name">{{ g.label }}</span>
-              <span class="lt-group-n">{{ g.items.length }}</span>
+              <span class="lt-group-name">{{ (logTaskExpanded[g.key] || logTaskShowAll) ? '▾' : '▸' }} {{ g.label }}</span>
+              <span class="lt-group-n">共 {{ g.items.length }} 条</span>
               <span v-if="g.picked" class="lt-group-picked">含已选</span>
               <span class="lt-group-caret">
-                {{ g.hiddenCount ? (logTaskExpanded[g.key] ? '收起' : '还有 ' + g.hiddenCount + ' 条') : '' }}
+                {{ g.hiddenCount ? (logTaskExpanded[g.key] ? '收起' : '展开全部 ' + (g.items.length - g.shown.length)) : '' }}
               </span>
             </div>
             <label v-for="t in g.shown" :key="t.id" class="log-task-opt"
@@ -113,14 +119,16 @@
               <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
               <span class="lto-title">{{ t.title || '(无标题)' }}</span>
               <span class="lto-st">{{ t.status }}</span>
-              <span class="lto-id">{{ t.id }}</span>
+              <span class="lto-id">#{{ t.id }}</span>
             </label>
           </div>
         </div>
-        <div v-else class="hint">
-          {{ logTaskScope === 'proj' && !logTaskQuery
-            ? '本项目下没有匹配的任务 —— 点上面的“全部项目”，或用下面的输入框直接贴 ID'
-            : '没有匹配的任务 —— 换个词、把状态切到“全部状态”，或用下面的输入框直接贴 ID' }}
+        <div v-else class="hint log-task-none">
+          <template v-if="logTaskScope === 'proj' && !logTaskQuery">
+            本项目下没有匹配的任务 ——
+            <button type="button" class="ghost log-task-switch" @click="logTaskScope = 'all'">改看全部项目</button>
+          </template>
+          <template v-else>没有匹配的任务 —— 换个词、把状态切到“全部状态”，或用下面的输入框直接贴 ID</template>
         </div>
       </template>
       <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用英文逗号 , 分隔，回车加入）" @change="addLogTaskExtra" />
@@ -285,6 +293,7 @@ const logTaskScope = toRef(ctl, 'logTaskScope')
 const logTaskOpenOnly = toRef(ctl, 'logTaskOpenOnly')
 const logTaskShowAll = toRef(ctl, 'logTaskShowAll')
 const logTaskTotal = toRef(ctl, 'logTaskTotal')
+const logTaskDoneHidden = toRef(ctl, 'logTaskDoneHidden')
 // 分组与状态三档（2026-11-08 第 6 条）
 const logTaskStatus = toRef(ctl, 'logTaskStatus')
 const logTaskGroups = toRef(ctl, 'logTaskGroups')

@@ -1,11 +1,11 @@
 {
-  "version": "0.6.9",
+  "version": "0.6.10",
   "lastUpdated": "2026-11-08",
   "skills": [
     {
       "id": "fangcun-bridge",
       "file": "skills/fangcun-bridge/SKILL.md",
-      "version": "1.13.0",
+      "version": "1.14.0",
       "target": "All"
     },
     {

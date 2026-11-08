@@ -4167,7 +4167,8 @@
         ltGroups.length >= 1 && ltHeads.length >= 1 && /[0-9]/.test((ltHeads[0] || {}).textContent || ''),
         '组=' + ltGroups.length + ' 头=' + ltHeads.map((x) => (x.textContent || '').trim().slice(0, 18)).join(' | '))
 
-      const optIds = () => $$('#log-edit-modal .log-task-opt .lto-id').map((x) => (x.textContent || '').trim())
+      // 2026-11-08：id 前面加了 #（与标题区分，截图目检后定的）—— 断言按去掉 # 的值比
+      const optIds = () => $$('#log-edit-modal .log-task-opt .lto-id').map((x) => (x.textContent || '').trim().replace(/^#/, ''))
       const inProj = optIds()
       check('★★ 默认“本项目”：别的项目的卡不出现（task-demo-004 属于 demo2）',
         inProj.length > 0 && inProj.indexOf('task-demo-004') < 0, 'ids=' + inProj.join(','))
@@ -8202,28 +8203,35 @@
       const chipXC = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('没人碰过') >= 0)
       if (chipXC) { const x = chipXC.querySelector('.fbar-x'); if (x) { x.click(); await sleep(400) } }
 
-      // 出口二：看返工台 → 板子上的返工台要真的展开
+      // 出口二：看驳回卡 → 回看板按状态筛出“驳回”
+      // 设置弹窗关掉再开，面板是重新挂载的（结果不跨会话留存）—— 再体检一次，模拟真实第二次使用
       const gearD = $$('#views button, #bar button').filter((b) => (b.textContent || '').trim() === '⚙')[0]
       if (gearD) gearD.click()
       await sleep(600)
       const dataNav2 = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('数据') >= 0)
       if (dataNav2) dataNav2.click()
       await sleep(400)
-      // 设置弹窗关掉再开，面板是重新挂载的（结果不跨会话留存）—— 再体检一次，模拟真实第二次使用
       const ckBtn2 = $$('#smodal button').find((b) => (b.textContent || '').indexOf('整理体检') >= 0)
       if (ckBtn2) ckBtn2.click()
       await waitFor(() => !!$('.cleanup'), 4000, '.cleanup 第二次')
-      const toRW = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('看返工台') >= 0)
-      check('  体检结果里有“看返工台”出口', !!toRW)
+      // 2026-11-08 暮雨：“返工台横幅没有一丁点作用，纯烦人，直接整个删掉。”
+      // 所以这里验的不再是“展开返工台”，而是“体检那个出口还能把他的驳回卡捞出来”。
+      const toRW = $$('#smodal .cleanup-row button').find((b) => (b.textContent || '').indexOf('看驳回卡') >= 0)
+      check('  体检结果里有“看驳回卡”出口', !!toRW)
       if (toRW) toRW.click()
       await sleep(900)
-      check('★★ 点了真回看板并展开返工台（逐张处置那一栏出现）',
-        !$('#smodal') && !!$('.rework-panel') &&
-        (($('.rework-panel') || {}).textContent || '').indexOf('被驳回的乙') >= 0,
-        'panel=' + !!$('.rework-panel'))
-      // 收尾：折叠返工台，别让下一节（它要验"展开"这一步）拿到已展开的状态
-      const collapse = $$('.rework-bar button').find((b) => (b.textContent || '').trim() === '收起')
-      if (collapse) { collapse.click(); await sleep(350) }
+      check('★★ 点了真回看板并筛出“驳回”（设置关了、筛选生效）', (() => {
+        const chips = $$('.fbar-chip').map((c) => (c.textContent || '').trim())
+        return !$('#smodal') && (chips.some((t) => t.indexOf('驳回') >= 0) ||
+          (($('.fbar') || {}).textContent || '').indexOf('驳回') >= 0)
+      })(), 'smodal=' + !!$('#smodal') + ' chips=' + $$('.fbar-chip').map((c) => (c.textContent || '').trim()).join('|'))
+      // 收尾：撤掉筛选，别影响后面几节
+      {
+        const clr2 = $('.fbar-clear')
+        if (clr2) { clr2.click(); await sleep(350) }
+        const chip2 = $$('.fbar-chip').find((c) => (c.textContent || '').indexOf('驳回') >= 0)
+        if (chip2) { const x = chip2.querySelector('.fbar-x'); if (x) { x.click(); await sleep(350) } }
+      }
 
       // ── 第三栏：挂着“进行中”没动（2026-11-05 从通知中心挪进来的）──────────
       // ⚠ 放在整段**最后**：它自己会“关设置 + 回看板筛进行中”，跑在中间会把后面几条断言的
@@ -8270,98 +8278,31 @@
       }
     }
 
-    // ══ 驳回返工台（2026-10-30 暮雨第 3 条）════════════════════════════════
-    // “驳回的东西好像也永远不看，是方寸的缺陷吗？”——是，两层：
-    //   ① 看板把“完成 / 驳回”默认折叠，驳回卡和做完的一样被收起来；
-    //   ② 驳回不是终态：它欠一个返工或一个"算了"。这条要把它重新推回眼前。
-    // 判据：条数来自夹具真身、理由取**最后一条**、没写理由要点名、两个出口真走通道。
+    // ══ 结构地图：结构大改的理由必须写在行上（2026-11-08）════════════════
+    // 背景：`project_charter` 已经会因为“新增/删掉模块目录”标 stale，但界面原来只写
+    // “最后核实 · X 月 X 日”，用户看不出它为什么不能信了 —— 这里钉住那行理由。
     {
-      const rw = (id, extra = {}) => Object.assign({
-        id, title: '返工样例 ' + id, status: '驳回', priority: '中', project: 'demo', tags: [], body: '',
-        created: '2026-09-01T00:00:00.000Z', updated: '2026-10-01T00:00:00.000Z',
-        result_log: '[2026-10-01 10:00] 验收驳回：第一次：按钮点不动\n[2026-10-20 09:30] 验收驳回：第二次：驳回后没人管了',
-        fm: { id, title: '返工样例 ' + id, status: '驳回', project: 'demo' },
-        path: 'C:/mock/task-data/' + id + '.md',
-      }, extra)
-      window.__fcTest.setTasks([
-        rw('rw-old'),
-        // 最新一条只写“验收驳回”不写理由：必须被点名，而不是继承上一条的旧理由
-        rw('rw-new', { updated: '2026-10-28T00:00:00.000Z', result_log: '[2026-10-28 09:30] 验收驳回' }),
-        rw('rw-done', { status: '完成', title: '做完的不算' }),
-        rw('rw-todo', { status: '待办', title: '在做的也不算' }),
-      ])
-      await openViewTab('待办'); await sleep(300)
-      await openViewTab('看板'); await sleep(800)
-
-      const bar = $('.rework-bar')
-      check('★★ 被驳回后没人管的卡会重新推到眼前（提示条出现）', !!bar,
-        $$('#board .card').length + ' 张卡 / bar=' + !!bar)
-      check('★ 条数来自夹具真身（2 张，完成与待办不算）',
-        !!bar && (bar.textContent || '').indexOf('2') >= 0, ((bar || {}).textContent || '').slice(0, 80))
-      // 2026-11-08 第 9 条：文案不再解释“两列默认折叠”（暮雨：“看着都烦”），
-      // 改成说清“你不做任何事也成立，这条只是别让它沉底”—— 判据跟着改成这句话的意图。
-      check('★ 文案说清为什么要这条（不推就沉底，而不是催人逐张处理）',
-        !!bar && /沉底|沉大海/.test(bar.textContent || ''), ((bar || {}).textContent || '').slice(0, 120))
-      // 2026-11-08：主入口从“逐张过一遍”换成“全部退回返工（N 张）”——
-      // 暮雨原话“我本来就什么都做不了”。一次点击处理一批，才是他能做的动作。
-      const allBtn = $$('.rework-bar button').find((b) => /全部退回返工/.test(b.textContent || ''))
-      check('★★ 有“全部退回返工（N 张）”一次处理完的入口（不再逼他逐张做决定）',
-        !!allBtn && /[0-9]/.test((allBtn || {}).textContent || ''),
-        ((allBtn || {}).textContent || '').slice(0, 60))
-
-      const openBtn = $$('.rework-bar button').find((b) => /展开逐张看|逐张过一遍/.test(b.textContent || ''))
-      check('  有逐张入口（降级为“展开逐张看”，但没删）', !!openBtn)
-      if (openBtn) {
-        openBtn.click()
-        await sleep(350)
-        const rows = $$('.rework-row')
-        check('★★ 展开后逐张列出（2 行，不含完成/待办）', rows.length === 2,
-          rows.map((r) => (r.textContent || '').trim().slice(0, 16)).join(' | '))
-        check('★ 晾得最久的排最前（rw-old 第一行）',
-          !!rows[0] && (rows[0].textContent || '').indexOf('rw-old') >= 0,
-          (rows[0] ? (rows[0].textContent || '') : '').slice(0, 40))
-        check('★★ 理由取**最后一条**驳回记录（第二次，不是第一次）', (() => {
-          const t = (rows[0] || {}).textContent || ''
-          return t.indexOf('第二次：驳回后没人管了') >= 0 && t.indexOf('第一次') < 0
-        })(), (rows[0] ? (rows[0].textContent || '') : '').slice(0, 120))
-        check('★★ 最新驳回没写理由的那条被点名（不继承旧理由、不装没问题）', (() => {
-          const r = rows.find((x) => (x.textContent || '').indexOf('rw-new') >= 0)
-          return !!r && (r.textContent || '').indexOf('没写理由') >= 0 && (r.textContent || '').indexOf('第二次') < 0
-        })(), (rows.find((x) => (x.textContent || '').indexOf('rw-new') >= 0) || {}).textContent || '')
-
-        // 出口一：退回返工 —— 真走通道（unarchiveTask），不是只把行藏起来
-        const _oc = window.confirm
-        const confirms = []
-        window.confirm = (m) => { confirms.push(String(m)); return true }
-        window.__fcTest.reset()
-        const backBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('退回返工') >= 0)
-        check('  每行有“退回返工”出口', !!backBtn)
-        if (backBtn) {
-          backBtn.click()
-          await sleep(600)
-          check('★★ 点“退回返工”真走 unarchiveTask（不是假动作）',
-            window.__fcTest.callCount('unarchiveTask') > 0, JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
-          check('★ 确认框说清后果（回到待办、理由保留）',
-            confirms.some((m) => m.indexOf('待办') >= 0), confirms.join(' | ').slice(0, 120))
-        }
-        // 出口二：归档 —— 真走 archiveTask
-        window.__fcTest.reset()
-        const archBtn = $$('.rework-row button').find((b) => (b.textContent || '').indexOf('归档') >= 0)
-        check('  每行有“归档”出口', !!archBtn)
-        if (archBtn) {
-          archBtn.click()
-          await sleep(600)
-          check('★★ 点“归档”真走 archiveTask', window.__fcTest.callCount('archiveTask') > 0,
-            JSON.stringify(window.__fcTest.calls().map((c) => c.name)))
-        }
-        window.confirm = _oc
-      }
-
-      // 反例：全部处置完（没有驳回卡）→ 这条不许出现（否则它会变成常驻噪音）
-      window.__fcTest.setTasks([rw('rw-x', { status: '完成' })])
-      await openViewTab('待办'); await sleep(300)
-      await openViewTab('看板'); await sleep(700)
-      check('★★ 反例：没有驳回卡时提示条消失（不常驻、不吓人）', !$('.rework-bar'))
+      window.__fcTest.setPolicies({
+        demo: { mission: '有方针', goal: '', scenario: '', boundary: '', structureMap: '> 最后核实：2026-01-02' + String.fromCharCode(10) + '- 模块：旧地图' },
+      })
+      window.__fcTest.setStructureDrift({ demo: { stale: true, reason: '自最后核实日起模块结构有变动：新增目录 src/newmod' } })
+      await openViewTab('项目'); await sleep(500)
+      const smapBtn = $$('button').find((b) => (b.textContent || '').indexOf('结构地图') >= 0)
+      check('  项目页有「结构地图」入口', !!smapBtn)
+      if (smapBtn) smapBtn.click()
+      await sleep(900)   // 漂移判定异步回填：等一拍再看行上的理由
+      await sleep(900)
+      const rows = $$('#smap-modal .smap-item')
+      check('★★ 结构地图弹窗列出项目行', rows.length >= 1, String(rows.length))
+      const driftRow = rows.find((r) => (r.textContent || '').indexOf('结构大改') >= 0 || (r.textContent || '').indexOf('模块结构有变动') >= 0)
+      check('★★ 漂移理由真的渲染在行上（不是只存在数据层）', !!driftRow,
+        rows.map((r) => (r.textContent || '').trim().slice(0, 60)).join(' | '))
+      check('  理由里点名了变动的目录', !!driftRow && (driftRow.textContent || '').indexOf('src/newmod') >= 0,
+        (driftRow ? (driftRow.textContent || '') : '').slice(0, 120))
+      const closeS = $$('#smap-modal button').find((b) => (b.textContent || '').trim() === '关闭')
+      if (closeS) closeS.click()
+      await sleep(300)
+      window.__fcTest.setStructureDrift({})
     }
 
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,

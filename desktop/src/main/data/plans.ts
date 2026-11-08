@@ -16,7 +16,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getTaskDir } from './index'
+import { getTaskDir, atomicWrite } from './index'
 import type { StageGateResult } from '../../shared/stageGate'
 
 export interface PlanStage {
@@ -64,6 +64,49 @@ export function listPlanFiles(): string[] {
     .sort()
 }
 
+/**
+ * 停放中的计划卡（`task-data/plans/_parked/`）。
+ *
+ * 为什么要单独列：`listPlanFiles` 按设计跳过 `_` 前缀，于是 `_parked` 里 11 份、
+ * 每份 2 格「待裁决」在 `stage_plan_get {}` 的概览里**完全不存在** ——
+ * agent 照实报“0 张等你裁决”，而用户看着那 22 格以为它在偷懒。
+ * 停放算不算待裁决是产品判定，但**不许看不见**。
+ */
+export function listParkedPlanFiles(): string[] {
+  const dir = path.join(plansDir(), '_parked')
+  if (!fs.existsSync(dir)) return []
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith('.md') && !f.startsWith('.'))
+    .sort()
+}
+
+/** 停放区汇总（只报数，不展开正文 —— 几十格会把 token 烧光） */
+export function parkedPlanSummary(): { files: number; stages: number; pending: number; names: string[] } {
+  const names = listParkedPlanFiles()
+  let stages = 0
+  let pending = 0
+  for (const f of names) {
+    const d = readPlanFile(path.join('_parked', f))
+    if (!d) continue
+    stages += d.stages.length
+    pending += d.stages.filter((s) => {
+      const st = String(s.status || '').trim()
+      return st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结' || !st
+    }).length
+  }
+  return { files: names.length, stages, pending, names }
+}
+
+/** 读任意相对 plans 目录的文件（停放区用；`readPlan` 只认顶层） */
+export function readPlanFile(rel: string): PlanDoc | null {
+  const safe = String(rel || '').replace(/\\/g, '/').split('/').filter(Boolean)
+  if (!safe.length || !safe[safe.length - 1].endsWith('.md')) return null
+  if (safe.some((s) => s === '..' || s === '.')) return null
+  const p = path.join(plansDir(), ...safe)
+  if (!fs.existsSync(p)) return null
+  return readPlanFromRaw(p, safe[safe.length - 1])
+}
+
 /** 表格行 → 单元格（去掉首尾竖线与空白） */
 function splitRow(line: string): string[] {
   const t = line.trim().replace(/^\|/, '').replace(/\|$/, '')
@@ -109,6 +152,11 @@ export function readPlan(file: string): PlanDoc | null {
   if (!safe || !safe.endsWith('.md')) return null
   const p = path.join(plansDir(), safe)
   if (!fs.existsSync(p)) return null
+  return readPlanFromRaw(p, safe)
+}
+
+/** 解析主体（`readPlan` 与停放区共用；`name` 是回报给界面的文件名） */
+function readPlanFromRaw(p: string, name: string): PlanDoc | null {
   const raw = fs.readFileSync(p, 'utf-8')
   const lines = raw.replace(/\r\n/g, '\n').split('\n')
 
@@ -134,7 +182,7 @@ export function readPlan(file: string): PlanDoc | null {
       if (/^-\s+/.test(t.trim())) revision.push(t.trim())
     }
   }
-  return { file: safe, title, stages, revision, raw }
+  return { file: name, title, stages, revision, raw }
 }
 
 export type PlanAction = 'pass' | 'reject' | 'amend'
@@ -309,4 +357,135 @@ export function advanceStage(input: AdvanceStageInput): AdvanceStageResult {
     ok: false, advanced: false, error: '判据未过，不能跨格', gate,
     doc: back, stage: back?.stages.find((s) => s.id === input.stageId),
   }
+}
+
+// ── 新增阶段：agent 提议 → 落「待裁决」（2026-11-08）──────────────────────────
+//
+// 为什么必须有这一条：`stage_plan_get` 是只读的，界面上的三个动作（通过/打回/改一句）
+// 全是**用户**点的。于是“作战计划能折叠了，然后呢？怎么让 AI 写进去新的？”
+// 的答案此前是“没法写”—— agent 手里根本没有写入口，它只能口头建议。
+//
+// 口径（与「结构地图提议」同构，但落点不同）：
+//   · 结构地图走**待审批任务卡**，因为正文在 policies/（别的目录）；
+//   · 阶段卡**本来就在这份计划文件里**，落成 `- 状态: 待裁决` 就是它的“待你裁决”形态，
+//     用户在同一页点「通过（冻结）」即算签字 —— 不另造一张卡，免得两处状态打架。
+//   · **机检不过就一个字都不写**：缺技术方案 / 缺照抄点 / 缺判据的阶段写进去也永远冻结不了，
+//     那是给人添堵，不是“先落下来再说”。
+
+export interface ProposeStageInput {
+  file: string
+  /** 缺省自动取下一个 P 号 */
+  stageId?: string
+  title: string
+  what?: string
+  approach: string[]
+  /** 照抄点：第一行是表头也行，没有表头就补一行「项 / 来源 / 原文」 */
+  copyRows?: string[][]
+  criteria: string[]
+  agent?: string
+  now?: string
+}
+
+export interface ProposeStageResult {
+  ok: boolean
+  error?: string
+  doc?: PlanDoc
+  stage?: PlanStage
+}
+
+/** 判据前缀白名单 —— 没有前缀的判据在闸门里恒为 unknown（等于永远不给过） */
+const CRITERIA_PREFIX = /^(cmd|str|num|file)\s*[:：]/
+
+function nextStageId(stages: PlanStage[]): string {
+  let max = -1
+  for (const s of stages) {
+    const m = /^P(\d+)$/.exec(String(s.id || '').toUpperCase())
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `P${max + 1}`
+}
+
+export function proposeStage(input: ProposeStageInput): ProposeStageResult {
+  const file = path.basename(String(input?.file || ''))
+  const p = path.join(plansDir(), file)
+  if (!file.endsWith('.md') || !fs.existsSync(p)) return { ok: false, error: `计划卡不存在：${file}` }
+  const doc = readPlan(file)
+  if (!doc) return { ok: false, error: `读不出来：${file}` }
+
+  const title = String(input.title || '').trim()
+  const approach = (input.approach || []).map((s) => String(s || '').trim()).filter(Boolean)
+  const criteria = (input.criteria || []).map((s) => String(s || '').trim()).filter(Boolean)
+  const copyRows = (input.copyRows || [])
+    .filter((r) => Array.isArray(r) && r.some((c) => String(c || '').trim()))
+    .map((r) => r.map((c) => String(c ?? '').trim()))
+
+  if (!title) return { ok: false, error: 'title 必填（这张阶段卡要做什么，一句话）' }
+  if (!approach.length) return { ok: false, error: '缺 技术方案 —— 写上打算怎么做（至少一条）' }
+  if (!criteria.length) return { ok: false, error: '缺 判据 —— 没有判据的阶段永远冻结不了' }
+  const bad = criteria.find((c) => !CRITERIA_PREFIX.test(c))
+  if (bad) {
+    return {
+      ok: false,
+      error: `判据「${bad}」没有前缀 —— 每条判据必须以 cmd: / str: / num: / file: 开头（否则闸门一律 unknown，等于永远不给过）`,
+    }
+  }
+  if (!copyRows.length) {
+    // 至少一行数据；表头与分隔线由这里补
+    return {
+      ok: false,
+      error: '缺 照抄点 —— 至少给一行「从哪抄的 / 原文是什么」（表格：项 | 来源 | 原文）。'
+        + '三块齐全才给通过，缺一块写进去也冻结不了。',
+    }
+  }
+
+  const id = String(input.stageId || '').trim().toUpperCase() || nextStageId(doc.stages)
+  if (!/^P\d+$/.test(id)) return { ok: false, error: `stageId 形如 P8，收到「${id}」` }
+  if (doc.stages.some((s) => String(s.id || '').toUpperCase() === id)) {
+    return { ok: false, error: `阶段 ${id} 已存在 —— 改已有的请在界面上用「改一句」，别新增重复阶段` }
+  }
+
+  const iso = String(input.now || new Date().toISOString())
+  const day = iso.slice(0, 10)
+  const agent = String(input.agent || '').trim()
+
+  const block: string[] = []
+  block.push(`### ${id} ${title}`)
+  block.push('- 状态: 待裁决')
+  const what = String(input.what || '').trim()
+  if (what) block.push(`- 做什么: ${what}`)
+  block.push('- 技术方案:')
+  for (const a of approach) block.push(`  - ${a}`)
+  block.push('- 照抄点:')
+  // 第一行若不是表头（含「项/来源/原文」），补一行标准表头
+  const looksHeader = copyRows[0].some((c) => /^(项|来源|原文|位置|参照)/.test(c))
+  const rows = looksHeader ? copyRows : [['项', '来源', '原文'], ...copyRows]
+  if (rows.length >= 2 && !rows[1].every((c) => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')))) {
+    // 没有分隔线就补一条：解析器要“表头 + 分隔线 + 数据”三行才算有照抄点
+    rows.splice(1, 0, rows[0].map(() => '---'))
+  }
+  for (const r of rows) block.push(`| ${r.join(' | ')} |`)
+  block.push('- 判据:')
+  for (const c of criteria) block.push(`  - ${c}`)
+  if (agent) block.push(`- 提议人: ${agent}`)
+  block.push('')
+
+  const lines = doc.raw.replace(/\r\n/g, '\n').split('\n')
+  // 插到「## 阶段卡」这一节的末尾（下一个二级标题之前）；没有这一节就接到文末
+  const secIdx = lines.findIndex((l) => /^##\s*阶段卡/.test(l))
+  let at = lines.length
+  if (secIdx >= 0) {
+    for (let k = secIdx + 1; k < lines.length; k++) {
+      if (/^##\s/.test(lines[k])) { at = k; break }
+    }
+  }
+  while (at > 0 && !String(lines[at - 1] || '').trim()) at--   // 不要连出两个空行
+  const insert = ['', ...block]
+  lines.splice(at, 0, ...insert)
+  appendRevision(lines, day, `${id} 新增待裁决（${agent ? agent + ' 提议' : 'agent 提议'}）`)
+  atomicWrite(p, lines.join('\n'))
+
+  const back = readPlan(file) || undefined
+  const stage = back?.stages.find((s) => String(s.id || '').toUpperCase() === id)
+  if (!stage) return { ok: false, error: '写进去了但读不回来这个阶段 —— 去看一眼文件', doc: back }
+  return { ok: true, doc: back, stage }
 }
