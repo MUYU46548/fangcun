@@ -1,0 +1,56 @@
+{
+  "_comment": "MCP 只读口的字段契约 —— 桌面（desktop/src/main/mcp/tools.ts）与入口 B（tegula/core.py）必须同键。改一侧就要改这里，两侧测试会一起红。",
+  "decision_keys": [
+    "id",
+    "内容",
+    "日期",
+    "状态",
+    "项目",
+    "出处",
+    "备注",
+    "更新"
+  ],
+  "decision_envelope": [
+    "ok",
+    "total",
+    "returned",
+    "readOnly",
+    "decisions"
+  ],
+  "charter_envelope": [
+    "ok",
+    "project",
+    "updatedAt",
+    "mission",
+    "goal",
+    "scenario",
+    "boundary",
+    "structureMap",
+    "structureMapVerifiedAt",
+    "structureMapAgeDays",
+    "structureMapStale",
+    "missingSections",
+    "hint"
+  ],
+  "stage_keys": [
+    "id",
+    "title",
+    "status",
+    "what",
+    "approach",
+    "copyRows",
+    "criteria",
+    "verdict",
+    "rejectReason",
+    "evidence",
+    "missing"
+  ],
+  "stage_envelope": [
+    "ok",
+    "file",
+    "title",
+    "revision",
+    "stages",
+    "readOnly"
+  ]
+}

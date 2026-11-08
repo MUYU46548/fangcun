@@ -5735,6 +5735,247 @@ def mcp_project_brief(params):
     return {"ok": True, "id": pid, "markdown": md}
 
 
+# ── 只读口补齐（2026-11-08 暮雨拍板：“开只读口，后续 AI 可写”）─────────────
+# 桌面 MCP 已有 decision_list / project_charter / stage_plan_get；
+# 入口 B（`python tegula.py mcp`，方寸没开 / 换机时它是唯一入口）此前一件都没有。
+# 三件全只读：决策只由用户在界面拍板，冻结/打回/改方针同样是用户的点击。
+
+_PLAN_STAGE_HEAD = re.compile(r"^###\s+(P\d+)\s*[·・:：]?\s*(.*)$")
+_PLAN_SECTION_HEAD = re.compile(r"^##\s+")
+
+
+def _plans_dir():
+    return os.path.join(TASK_DIR, "plans")
+
+
+def _split_table_row(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _parse_stage_block(sid, title, lines):
+    """与桌面 `data/plans.ts` 的 parseStage **逐条同口径**（改一侧必须同步另一侧）。
+
+    ⚠ 空行**不**打断收集：真实计划卡里 `- 判据:` 与第一条之间常隔一个空行
+      （按“空行即结束”解析，8 张卡会全被判成“缺判据”）。
+    """
+    st = {"id": sid, "title": title, "status": "", "what": "", "approach": [],
+          "copyRows": [], "criteria": [], "verdict": "", "rejectReason": "",
+          "evidence": "", "missing": []}
+    mode = ""
+    for line in lines:
+        t = line.strip()
+        kv = re.match(r"^-\s*(状态|做什么|裁决|打回理由|证据)\s*[:：]\s*(.*)$", t)
+        if kv:
+            key = {"状态": "status", "做什么": "what", "裁决": "verdict",
+                   "打回理由": "rejectReason", "证据": "evidence"}[kv.group(1)]
+            st[key] = kv.group(2).strip()
+            mode = ""
+            continue
+        if re.match(r"^-\s*技术方案\s*[:：]\s*$", t):
+            mode = "approach"
+            continue
+        if re.match(r"^-\s*照抄点\s*[:：]?\s*$", t):
+            mode = "copy"
+            continue
+        if re.match(r"^-\s*判据\s*[:：]?\s*$", t):
+            mode = "criteria"
+            continue
+        if mode == "approach" and re.match(r"^\s+-\s+", line):
+            st["approach"].append(re.sub(r"^-\s+", "", t))
+            continue
+        if mode == "criteria" and re.match(r"^\s+-\s+", line):
+            st["criteria"].append(re.sub(r"^-\s+", "", t))
+            continue
+        if mode == "copy" and t.startswith("|"):
+            st["copyRows"].append(_split_table_row(line))
+            continue
+        if t == "":
+            continue
+        if _PLAN_SECTION_HEAD.match(t) or _PLAN_STAGE_HEAD.match(t):
+            mode = ""
+            continue
+        if not re.match(r"^\s", line):
+            mode = ""
+    if not st["approach"]:
+        st["missing"].append("技术方案")
+    if len(st["copyRows"]) < 3:      # 表头 + 分隔线 + 一行数据，少一行等于没写
+        st["missing"].append("照抄点")
+    if not st["criteria"]:
+        st["missing"].append("判据")
+    return st
+
+
+def list_stage_plan_files():
+    d = _plans_dir()
+    if not os.path.isdir(d):
+        return []
+    return sorted(f for f in os.listdir(d)
+                  if f.endswith(".md") and not f.startswith("_") and not f.startswith("."))
+
+
+def read_stage_plan(fname):
+    safe = os.path.basename(str(fname or ""))
+    if not safe or not safe.endswith(".md"):
+        return None
+    p = os.path.join(_plans_dir(), safe)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    lines = raw.replace("\r\n", "\n").split("\n")
+    title = ""
+    for l in lines:
+        if re.match(r"^#\s+", l):
+            title = re.sub(r"^#\s+", "", l).strip()
+            break
+    stages, i = [], 0
+    while i < len(lines):
+        m = _PLAN_STAGE_HEAD.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        j = i + 1
+        while (j < len(lines) and not _PLAN_STAGE_HEAD.match(lines[j])
+               and not _PLAN_SECTION_HEAD.match(lines[j])):
+            j += 1
+        stages.append(_parse_stage_block(m.group(1), (m.group(2) or "").strip(), lines[i + 1:j]))
+        i = j
+    revision, r0 = [], -1
+    for k, l in enumerate(lines):
+        if re.match(r"^##\s*修订记录", l):
+            r0 = k
+            break
+    if r0 >= 0:
+        for l in lines[r0 + 1:]:
+            if re.match(r"^##\s", l) or re.match(r"^---\s*$", l):
+                break
+            if re.match(r"^-\s+", l.strip()):
+                revision.append(l.strip())
+    return {"file": safe, "title": title, "stages": stages, "revision": revision}
+
+
+def mcp_decision_list(params):
+    """只读：已经定过什么。与桌面 decision_list 同语义。"""
+    p = params or {}
+    rows = load_decisions() or []
+    want = str(p.get("status") or "").strip()
+    if want:
+        want = _normalize_decision_status(want)
+    proj = str(p.get("project") or "").strip()
+    q = str(p.get("query") or "").strip().lower()
+    try:
+        limit = max(1, min(200, int(p.get("limit") or 30)))
+    except (TypeError, ValueError):
+        limit = 30
+    hits = []
+    for d in rows:
+        if want and d.get("状态") != want:
+            continue
+        if proj and str(d.get("项目") or "") != proj:
+            continue
+        if q:
+            hay = (str(d.get("内容", "")) + " " + str(d.get("备注", "")) + " "
+                   + str(d.get("出处", ""))).lower()
+            if q not in hay:
+                continue
+        hits.append(d)
+    hits.reverse()      # 文件按时间追加，倒过来 = 最新的在前
+    return {"ok": True, "total": len(rows), "returned": len(hits[:limit]),
+            "readOnly": "决策只由用户在界面拍板；本工具只读。",
+            "decisions": hits[:limit]}
+
+
+def _has_real(text):
+    """占位符不算内容（与桌面 project_charter 的 hasReal 同口径）。"""
+    t = str(text or "").strip()
+    if not t or t in ("（未填写）", "(未填写)"):
+        return False
+    if "模块清单：待填" in t:
+        return False
+    return True
+
+
+def mcp_project_charter(params):
+    """只读：方针五节 + 结构地图 + 时效。"""
+    pid = str((params or {}).get("project") or "").strip()
+    if not pid:
+        return {"ok": False, "error": "project 必填"}
+    pol = read_policy(pid)
+    if not pol:
+        return {"ok": False, "project": pid,
+                "error": "这个项目还没有方针卡（policies/<id>.md 不存在）—— 没有就是没有，不要替它编。"}
+    missing = []
+    for label, key in (("使命", "使命"), ("目标", "当前目标"), ("场景", "应用场景"),
+                       ("边界", "方针边界"), ("结构地图", "结构地图")):
+        if not _has_real(pol.get(key)):
+            missing.append(label)
+    smap = str(pol.get("结构地图") or "")
+    m = re.search(r"最后核实[：:]\s*(\d{4})-(\d{2})-(\d{2})", smap)
+    age = None
+    verified = ""
+    if m:
+        verified = "%s-%s-%s" % (m.group(1), m.group(2), m.group(3))
+        try:
+            age = (datetime.date.today()
+                   - datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))).days
+        except ValueError:
+            age = None
+    stale = age is None or age > 90
+    # 更新时间：桌面侧读方针里的“更新”行，这里退一步用文件 mtime —— 两侧都只是给人看的参考，
+    # 但**键名必须一致**（契约 fixtures/mcp-context-contract.json 在钉这件事）。
+    updated = ""
+    try:
+        updated = datetime.datetime.fromtimestamp(
+            os.path.getmtime(os.path.join(DATA_DIR, "policies", pid + ".md"))).isoformat()
+    except OSError:
+        updated = ""
+    return {"ok": True, "project": pid, "updatedAt": updated,
+            "mission": pol.get("使命", ""), "goal": pol.get("当前目标", ""),
+            "scenario": pol.get("应用场景", ""), "boundary": pol.get("方针边界", ""),
+            "structureMap": smap,
+            "structureMapVerifiedAt": verified,
+            "structureMapAgeDays": age, "structureMapStale": stale,
+            "missingSections": missing,
+            "hint": ("缺的这几节是真没写，不是本工具读不到；别根据项目名替它补内容。"
+                     if missing else
+                     ("结构地图没有“最后核实”日期，或已超过 90 天 —— 动手前先跟用户核一遍，或照实际代码改它。"
+                      if stale else "五节齐全，结构地图是近 90 天内核过的。"))}
+
+
+def mcp_stage_plan_get(params):
+    """只读：作战计划阶段卡（技术方案 / 照抄点 / 判据）。"""
+    p = params or {}
+    want_file = str(p.get("file") or "").strip()
+    want_stage = str(p.get("stageId") or "").strip().upper()
+    if not want_file:
+        docs = []
+        for f in list_stage_plan_files():
+            d = read_stage_plan(f)
+            if not d:
+                docs.append({"file": f, "error": "读不出来（格式可能坏了）"})
+                continue
+            pending = len([s for s in d["stages"]
+                           if (s.get("status") or "").strip() in ("", "待裁决", "待裁决（未冻结）", "未冻结")])
+            done = len([s for s in d["stages"] if (s.get("status") or "").strip() == "完成"])
+            docs.append({"file": f, "title": d["title"], "stages": len(d["stages"]),
+                         "pending": pending, "done": done})
+        return {"files": len(docs), "plans": docs,
+                "hint": "要看某一格的 技术方案 / 照抄点 / 判据 → 带 file（+ 可选 stageId）再调一次。"}
+    doc = read_stage_plan(want_file)
+    if not doc:
+        return {"ok": False, "error": "读不出来：%s" % want_file}
+    stages = [s for s in doc["stages"] if (s["id"] or "").upper() == want_stage] if want_stage else doc["stages"]
+    if want_stage and not stages:
+        return {"ok": False, "error": "这张计划卡里没有阶段 %s" % want_stage,
+                "stages": [s["id"] for s in doc["stages"]]}
+    return {"ok": True, "file": want_file, "title": doc["title"],
+            "revision": doc["revision"], "stages": stages,
+            "readOnly": "冻结 / 打回 / 改一句都是用户在界面上点；agent 只读。"}
+
+
 def mcp_ai_trace(params):
     """AI 调用链留痕查询（2026-10-17 四件补立项之一）：只读元数据，
     回答“AI 干了什么/花了多少/哪次挂的”。绝不返回 prompt 或响应正文。"""
@@ -5796,6 +6037,24 @@ MCP_TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "gate_close", "description": "关闭验收门槛",
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string", "description": "任务 id"}}}},
+    # ── 只读口补齐（2026-11-08）：与桌面 MCP 三件同名同语义，入口 B 也能读到 ──
+    {"name": "decision_list",
+     "description": "只读：已经定过什么（决策卡）。可按项目/状态/关键词过滤；决策只由用户在界面拍板，本工具写不了。",
+     "inputSchema": {"type": "object", "properties": {
+         "project": {"type": "string", "description": "项目 id（可选）"},
+         "status": {"type": "string", "description": "有效 / 已撤销 / 已合并（可选，老词会归一）"},
+         "query": {"type": "string", "description": "匹配 内容/备注/出处（可选）"},
+         "limit": {"type": "integer", "description": "最多几条，最新的在前，默认 30"}}}},
+    {"name": "project_charter",
+     "description": "只读：项目方针五节 + 结构地图（模块清单 + 主数据流）+ 结构地图时效。缺的节会点名，不编内容。",
+     "inputSchema": {"type": "object",
+                     "properties": {"project": {"type": "string", "description": "项目 id，如 fangcun-base"}},
+                     "required": ["project"]}},
+    {"name": "stage_plan_get",
+     "description": "只读：作战计划阶段卡（技术方案 / 照抄点 / 判据 + 状态/裁决）。不带 file 只给概览。",
+     "inputSchema": {"type": "object", "properties": {
+         "file": {"type": "string", "description": "计划文件名，如 fangcun-base.md（省略则给概览）"},
+         "stageId": {"type": "string", "description": "只看这一格，如 P3（可选）"}}}},
 ]
 
 def mcp_handle(req):
@@ -5891,6 +6150,9 @@ MCP_METHODS = {"list_tasks": mcp_list_tasks, "get_task": mcp_get_task,
                "plan_list": mcp_plan_list, "plan_get": mcp_plan_get,
                "plan_pending_decisions": mcp_plan_pending_decisions,
                "project_brief": mcp_project_brief,
+               "decision_list": mcp_decision_list,
+               "project_charter": mcp_project_charter,
+               "stage_plan_get": mcp_stage_plan_get,
                "ai_trace": mcp_ai_trace}
 
 

@@ -733,12 +733,12 @@ try:
           and "tools" in resp["result"]["capabilities"], str(resp))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = sorted(t["name"] for t in resp["result"]["tools"])
-    check("MCP 暴露 16 个只读工具",
-          names == ["ai_trace", "gate_check", "gate_close", "gate_list", "gate_open",
-                    "get_project_status", "get_roadmap", "get_roadmap_full",
+    check("MCP 暴露 19 个只读工具（清单精确匹配：多了少了都要有人负责）",
+          names == ["ai_trace", "decision_list", "gate_check", "gate_close", "gate_list",
+                    "gate_open", "get_project_status", "get_roadmap", "get_roadmap_full",
                     "get_task", "list_projects", "list_tasks",
                     "plan_get", "plan_list", "plan_pending_decisions",
-                    "project_brief", "search_tasks"],
+                    "project_brief", "project_charter", "search_tasks", "stage_plan_get"],
           str(names))
     resp = teg.mcp_handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                            "params": {"name": "list_tasks", "arguments": {}}})

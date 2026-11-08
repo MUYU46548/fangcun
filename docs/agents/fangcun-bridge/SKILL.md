@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.12.1
+version: 1.12.2
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -60,8 +60,10 @@ ELECTRON_RUN_AS_NODE=1 <fangcun>/desktop/node_modules/electron/dist/electron.exe
 cd <fangcun 仓库/安装目录> && python tegula.py mcp
 ```
 
-JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
+JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 **不依赖桌面版是否运行、不占用任何 TCP 端口**。适合只要读、或方寸未启动的场景。
+`decision_list` / `project_charter` / `stage_plan_get` 入口 B 也有，**与桌面同名、同字段**
+（契约在 `scripts/test/fixtures/mcp-context-contract.json`，两侧测试一起盯）—— 所以方寸没开时也不用瞎猜。
 
 > 选型：要写操作 / 桌面版 MCP 全量工具 → A；只要读、要离线可用 → B。
 

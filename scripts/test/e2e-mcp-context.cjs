@@ -164,9 +164,14 @@ fs.writeFileSync(path.join(DATA, 'task-data', 'plans', 'demo.md'), [
 ].join('\n'), 'utf-8')
 
 const NL = '\n'
+// 字段契约：与 Python 入口 B 共用同一张表（check-mcp-context-parity.py 也读它）。
+// 任一侧改名 / 丢字段，两侧测试一起红 —— 双胞胎不许分叉。
+const CONTRACT = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'mcp-context-contract.json'), 'utf-8'))
 
 const DRIVER = `
 const D = ${JSON.stringify(path.join(REPO, 'desktop'))}
+const CONTRACT = ${JSON.stringify(CONTRACT)}
 const out = []
 const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: String(detail || '').slice(0, 300) })
 const fs = require('fs')
@@ -182,6 +187,7 @@ const call = (name, args) => {
   try { return JSON.parse(txt) } catch (e) { return { __raw: txt } }
 }
 const names = (tools.MCP_TOOLS || []).map(t => t.name)
+const hasKeys = (o, ks) => !!o && ks.every(k => k in o)
 
 // ── 工具表（对外契约）────────────────────────────────────────────────
 check('★★ 只读口三件都在工具表里（decision_list / project_charter / stage_plan_get）',
@@ -227,6 +233,10 @@ check('  条数上限生效（不把几百条一次倒给 agent）',
 
 check('★★ 返回体里写明“只读、要新增让用户点”（别让 agent 以为它能写）',
   /只读/.test(String(decAll.readOnly || '')), String(decAll.readOnly || ''))
+check('★★★ 契约：决策信封与条目键齐全（与 Python 入口 B 同键，防分叉）',
+  hasKeys(decAll, CONTRACT.decision_envelope)
+  && (decAll.decisions || []).every(d => hasKeys(d, CONTRACT.decision_keys)),
+  '缺：' + JSON.stringify(CONTRACT.decision_envelope.filter(k => !(k in decAll))))
 
 // ── 项目方针 / 结构地图 ────────────────────────────────────────────────
 const ch = call('project_charter', { project: 'demo' })
@@ -239,6 +249,9 @@ check('★★★ 结构地图读得到，且带“最后核实”日期（没有
 check('★ 五节齐全时 missingSections 为空（不是一律报缺）',
   Array.isArray(ch.missingSections) && ch.missingSections.length === 0,
   JSON.stringify(ch.missingSections))
+check('★★★ 契约：方针信封键齐全（与 Python 入口 B 同键）',
+  hasKeys(ch, CONTRACT.charter_envelope),
+  '缺：' + JSON.stringify(CONTRACT.charter_envelope.filter(k => !(k in ch))))
 
 const noCharter = callRaw('project_charter', { project: 'demo-nocharter' })
 check('★★★ 没方针的项目**明确报错**，不返回空对象冒充“这个项目很干净”',
@@ -313,6 +326,9 @@ check('  计划卡不存在时报错（不是返回空 stages 冒充“这项目
 
 check('★★ 三个返回体都声明只读（冻结/打回是用户的点击）',
   /只读/.test(String(one.readOnly || '')), String(one.readOnly || ''))
+check('★★★ 契约：阶段信封与阶段键齐全（与 Python 入口 B 同键）',
+  hasKeys(one, CONTRACT.stage_envelope) && hasKeys(one.stages[0], CONTRACT.stage_keys),
+  '缺：' + JSON.stringify(CONTRACT.stage_keys.filter(k => !(k in one.stages[0]))))
 
 // ── 源码守卫：读口不许长出写能力 ─────────────────────────────────────
 const src = fs.readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')

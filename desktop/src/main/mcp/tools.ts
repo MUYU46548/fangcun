@@ -835,6 +835,7 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         .reverse()   // 文件是按时间追加的，倒过来 = 最新的在前
         .slice(0, limit)
       return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
         total: all.length,
         returned: rows.length,
         readOnly: '决策只由用户在界面拍板；本工具只读。要新增，让用户在“需求矩阵”页点。',
