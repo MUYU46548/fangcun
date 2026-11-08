@@ -8,8 +8,11 @@
   <div id="smap-overlay" class="overlay" v-if="ctl.smapOpen" @mousedown.self="ctl.smapOpen = false">
     <div id="smap-modal">        <h3>🗺 结构地图 <span class="smap-sub">模块清单 + 每模块一句话职责 + 主数据流</span></h3>
       <p class="smap-hint">
-        每张方针卡里有一个“结构地图”小节。第一行必须是<b>最后核实日期</b>——
-        烂地图比没地图危险，因为读者不知道它烂。内容由 agent 起草、你过目。
+        <b>这块不是给你读的说明书 —— 是 agent 开工前读的地图。</b>
+        它进 MCP 的 <code>project_charter</code>：agent 先知道“谁连谁、数据从哪到哪”，才不用满仓库瞎摸。
+        你要保证的只有一件事：<b>别过期</b>。第一行必须是<b>最后核实日期</b>——
+        烂地图比没地图危险，因为 agent 不知道它烂（超过 90 天或没写日期，它会看到 stale 标记）。
+        内容由 agent 起草、你过目。
       </p>
       <div class="smap-list">
         <div v-for="row in ctl.smapRows" :key="row.id" class="smap-item"
