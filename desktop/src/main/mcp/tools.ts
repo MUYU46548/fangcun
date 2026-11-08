@@ -868,14 +868,30 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       if (!hasReal(p.scenario)) missing.push('场景')
       if (!hasReal(p.boundary)) missing.push('边界')
       if (!hasReal(p.structureMap)) missing.push('结构地图')
+      // 结构地图的“最后核实”日期要算成天数（2026-11-08 暮雨：“结构地图留，虽然我看不懂有啥用”）。
+      // 他不看这块，看的是 agent —— 所以 agent 必须能判断这图**还准不准**：
+      // 没写日期，或超过 90 天，一律标 stale，并在 hint 里点名“该核了”。
+      const mapText = String(p.structureMap || '')
+      const mDate = /最后核实[：:]\s*(\d{4})-(\d{2})-(\d{2})/.exec(mapText)
+      let mapAgeDays: number | null = null
+      if (mDate) {
+        const t = Date.parse(`${mDate[1]}-${mDate[2]}-${mDate[3]}T00:00:00`)
+        if (!Number.isNaN(t)) mapAgeDays = Math.floor((Date.now() - t) / 86400000)
+      }
+      const mapStale = mapAgeDays === null || mapAgeDays > 90
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, project: id, updatedAt: p.updatedAt || '',
         mission: p.mission || '', goal: p.goal || '', scenario: p.scenario || '',
-        boundary: p.boundary || '', structureMap: p.structureMap || '',
+        boundary: p.boundary || '', structureMap: mapText,
+        structureMapVerifiedAt: mDate ? `${mDate[1]}-${mDate[2]}-${mDate[3]}` : '',
+        structureMapAgeDays: mapAgeDays,
+        structureMapStale: mapStale,
         missingSections: missing,
         hint: missing.length
           ? '缺的这几节是真没写，不是本工具读不到；别根据项目名替它补内容。'
-          : '五节齐全。结构地图首行是“最后核实”日期 —— 日期越旧越不可信。',
+          : (mapStale
+            ? '结构地图没有“最后核实”日期，或已超过 90 天 —— 动手前先跟用户核一遍，或照实际代码改它。'
+            : '五节齐全，结构地图是近 90 天内核过的。'),
       }, null, 2) }] }
     }
 

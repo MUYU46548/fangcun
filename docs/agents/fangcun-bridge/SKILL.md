@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.12.0
+version: 1.12.1
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -189,7 +189,9 @@ stage_plan_get   { file: "<项目>.md", stageId: "P3" }       # 那一格的三�
 ```
 
 - **`missingSections` 点名的那几节是真没写**（`（未填写）` 与“待填”骨架也算没写）——
-  别按项目名替它补内容。结构地图首行是“最后核实”日期，越旧越不可信。
+  别按项目名替它补内容。
+- **`structureMapStale` 为 true 就要当心**：结构地图没有“最后核实”日期，或已超过 90 天。
+  那时它是**旧图**，不是事实 —— 要么跟用户核一遍，要么照实际代码改它，别拿旧图当依据。
 - **决策只读**：读得到，写不了。要新增决策，让用户在「需求矩阵」页点 —— 这是 11-03 定的边界，
   不是这一次偷懒。看到 `readOnly` 字段就当提醒。
 - **冻结 / 打回 / 改方针**同样是用户的点击。`stage_plan_get` 给你的是判据原文，

@@ -255,6 +255,15 @@ check('★ 缺的另外几节也点名（空正文算没写）',
 const badId = callRaw('project_charter', { project: '' })
 check('  不给项目 id 直接报错（不猜一个默认项目）', badId.isError === true)
 
+// 结构地图的时效（2026-11-08）：暮雨不看这块，看的是 agent —— 所以 agent 要知道它准不准
+check('★★ 结构地图的“最后核实”算成天数（不是让 agent 自己去比日期）',
+  typeof ch.structureMapAgeDays === 'number' && ch.structureMapAgeDays >= 0,
+  JSON.stringify({ at: ch.structureMapVerifiedAt, days: ch.structureMapAgeDays }))
+check('★ 刚核过的不算 stale（日期是真的新，不是一律报警）',
+  ch.structureMapStale === false, JSON.stringify({ stale: ch.structureMapStale, days: ch.structureMapAgeDays }))
+check('★★★ 没有“最后核实”日期 → 一律 stale（“烂地图比没地图危险”）',
+  noMap.structureMapStale === true, JSON.stringify({ stale: noMap.structureMapStale }))
+
 // 只装了骨架（“待填”）也要算缺 —— 否则 agent 会把占位符当事实
 const skel = call('project_charter', { project: 'demo-skeleton' })
 check('★★★ 结构地图只有“待填”骨架 → 仍算缺（占位符不许当内容喂给 agent）',
@@ -263,6 +272,8 @@ check('★★★ 结构地图只有“待填”骨架 → 仍算缺（占位符�
 check('★ 骨架反例的另一面：其余四节真有内容 → 不许跟着报缺',
   (skel.missingSections || []).length === 1,
   JSON.stringify(skel.missingSections))
+check('★★ 骨架里的“（待填”不算核实日期 → 同样 stale',
+  skel.structureMapStale === true, JSON.stringify({ stale: skel.structureMapStale, days: skel.structureMapAgeDays }))
 
 // ── 作战计划三块 ────────────────────────────────────────────────────
 const ov = call('stage_plan_get', {})
