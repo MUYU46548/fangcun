@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.11.0
+version: 1.12.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -90,7 +90,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **31** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **35** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -100,6 +100,7 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `get_task` | Get a single task by ID |
 | `create_task` | Create a new task |
 | `arch_generate` | 让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。 |
+| `plan_draft` | 让方寸**给自己起草一份作战计划草案**（BYOK，会真调模型并产生花销）。 |
 | `intake_task` | 收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。 |
 | `usage_report` | Report AI usage from an external client (e.g. |
 | `never_read` | List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). |
@@ -116,10 +117,13 @@ JSON-RPC 2.0 over stdio，**14 个只读工具**，直接读 `task-data/`：
 | `plan_get` | Get a single plan by task ID |
 | `plan_pending` | List plans with pending decisions |
 | `gate_list` | List all acceptance gates |
+| `decision_list` | READ-ONLY. |
+| `project_charter` | READ-ONLY. |
+| `stage_plan_get` | READ-ONLY. |
 | `list_logs` | List execution logs (方寸执行日志). |
 | `search_logs` | Full-text search across log titles, contents and project names |
 | `get_log` | Get one execution log by ID (e.g. |
-| `create_log` | Create an execution log (方寸执行日志) for this round of work. |
+| `create_log` | Create an execution log (方寸执行日志). |
 | `update_log` | Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). |
 | `set_log_status` | Mark a log as running (进行中) or idle (取消进行中). |
 | `attach_log_files` | Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. |
@@ -172,15 +176,26 @@ find_blockers  { project: "<项目>" }            # 我这张卡被谁挡着
 - `find_blockers` 有链 → 先报**最上游那一个**（解它收益最大），别从下游那张开始。
 - 两者都空 → 直接干，不用念一遍“我检查了没有阻塞”。
 
-⚠ **有三样东西 MCP 读不到，别假装读过、也别凭印象编**：
-- **决策**（`task-data/decisions.md`）：`decision_record` 已从 MCP 移除，决策只由用户在界面拍板。
-  你不知道已经定过什么 —— 要引用决策，**先问用户**，或让他贴那条；自己写“按之前定的…”＝编。
-- **项目方针 / 结构地图**：`get_project_status` 不返回这两块。要按方针对齐，先 `get_task`
-  里看有没有引用，或问用户。
-- **作战计划的三块正文**（技术方案/照抄点/判据）：`plan_get` 只给阶段与状态；要正文请用户贴，
-  或读 `task-data/plans/<项目>.md`（**只读**，不写）。
+**①.6 开工必读三样（2026-11-08 只读口已开，暮雨拍板）**
 
-📌 这条是给“方寸”的待办：上面三样要真接上，得给 MCP 开只读口。在那之前，**承认读不到**比编造安全。
+这三样是**决定你该不该动手**的依据：已经定过什么、这个项目的边界在哪、这一格要满足什么判据。
+此前 MCP 一个字都读不到 —— 所以“决策 / 方针 / 结构地图形同虚设”不是 AI 懒，是没入口。现在有了：
+
+```
+decision_list    { project: "<项目>", status: "有效" }      # 已经定过什么 —— 别翻案
+project_charter  { project: "<项目>" }                      # 使命/目标/边界 + 结构地图
+stage_plan_get   { file: "<项目>.md" }                      # 概览：几格 / 几格待裁决
+stage_plan_get   { file: "<项目>.md", stageId: "P3" }       # 那一格的三块正文
+```
+
+- **`missingSections` 点名的那几节是真没写**（`（未填写）` 与“待填”骨架也算没写）——
+  别按项目名替它补内容。结构地图首行是“最后核实”日期，越旧越不可信。
+- **决策只读**：读得到，写不了。要新增决策，让用户在「需求矩阵」页点 —— 这是 11-03 定的边界，
+  不是这一次偷懒。看到 `readOnly` 字段就当提醒。
+- **冻结 / 打回 / 改方针**同样是用户的点击。`stage_plan_get` 给你的是判据原文，
+  **你可以照着判据干活、可以报“这格还缺判据”，但不能替他把状态改了**。
+- 三样都空 ≠ 项目很干净。方针文件不存在时 `project_charter` 会**明确报错**；
+  那时说“这个项目还没有方针卡”，不要编一段。
 
 **② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```

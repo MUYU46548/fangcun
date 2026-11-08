@@ -22,6 +22,16 @@ import { generateArchGraph } from '../services/archAi'
 // 决策卡与池文件此前根本没有通道（spec §四 引用的"现有写回层入口"对它们不存在）。
 import { getRicePool, upsertRiceItems } from '../data/rice'
 import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
+// ── 只读口补齐（2026-11-08 暮雨拍板：“开只读口，后续 AI 可写”）─────────────
+// 决策 / 项目方针（含结构地图）/ 作战计划三块正文 —— 这三样此前 MCP **一个字都读不到**，
+// 于是“决策、方针、结构地图形同虚设”不是 AI 懒，是它没有入口。本轮只开读，不碰写：
+//   · 决策的写口（decision_record）是 2026-11-03 明确移除的，只在需求矩阵页由用户点；
+//     要开口必须先有“AI 只能落待审批”的设计，不在这一刀里顺手破。
+//   · 方针的写口是 savePolicy（界面在用）；结构地图也在同一份文件里。
+// 也就是说：**读口在这一层开，写口将来从同一层接** —— 下面三个 case 是唯一入口。
+import { loadDecisions, normalizeDecisionStatus } from '../data/decisions'
+import { getPolicy } from '../services/policies'
+import { listPlanFiles, readPlan } from '../data/plans'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
@@ -291,6 +301,51 @@ export const MCP_TOOLS: MCPTool[] = [
     name: 'gate_list',
     description: 'List all acceptance gates',
     inputSchema: { type: 'object', properties: {} },
+  },
+  // ── 只读口补齐（2026-11-08 暮雨拍板：“开只读口，后续 AI 可写”）─────────────
+  // 这三样此前 MCP 一个字都读不到 —— 所以“决策/方针/结构地图形同虚设”不是 AI 懒，是没入口。
+  // ⚠ 全部只读。写口将来从同一层接，但**不是这一刀**：
+  //   决策的写（decision_record）2026-11-03 明确移除、只在需求矩阵页由用户点；
+  //   要开 AI 写，必须先有“只落待审批”的设计，不能顺手破。
+  {
+    name: 'decision_list',
+    description: 'READ-ONLY. Read 决策卡 (task-data/decisions.md): what has already been decided, '
+      + 'when, by which project, and whether it still holds (有效/已撤销/已合并). '
+      + 'Check this BEFORE proposing something that may contradict an earlier decision. '
+      + 'Decisions are made by the user in the UI — this tool cannot write one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Filter by project id (optional)' },
+        status: { type: 'string', description: '有效 | 已撤销 | 已合并（可选，旧词会归一）' },
+        query: { type: 'string', description: 'Match 内容 / 备注 / 出处 (optional)' },
+        limit: { type: 'number', description: 'Max rows, newest first (default 30)' },
+      },
+    },
+  },
+  {
+    name: 'project_charter',
+    description: 'READ-ONLY. Read a project charter (policies/<id>.md): mission / goal / scenario / boundary '
+      + 'plus the 结构地图 section (module list + one-line duties + main data flow). '
+      + 'Sections that are missing are reported as missing — this tool never invents content.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string', description: 'Project id, e.g. fangcun-base' } },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'stage_plan_get',
+    description: 'READ-ONLY. Read 作战计划 stage cards from task-data/plans/*.md: the three blocks '
+      + '(技术方案 / 照抄点 / 判据) plus status / verdict / reject reason. '
+      + 'Omit `file` for an overview of every plan file. Freezing or rejecting a stage is the user\'s click.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Plan file name, e.g. fangcun-base.md (omit for overview)' },
+        stageId: { type: 'string', description: 'Only this stage, e.g. P3 (optional)' },
+      },
+    },
   },
   // ── 日志（2026-09-29 用户第 2 条）：日志没有可复制给 AI 的 ID，agent 只能整篇被注入。
   //    这三个工具让 agent 拿着 ID 自己去取，读操作、零写入。
@@ -759,6 +814,109 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     case 'gate_list': {
       // Gates are in-memory only in Python version; return empty for now
       return { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] }
+    }
+
+    // ── 只读口（2026-11-08 暮雨拍板）────────────────────────────────────
+    case 'decision_list': {
+      const all = loadDecisions()
+      const wantStatus = String(args.status || '').trim()
+        ? normalizeDecisionStatus(String(args.status))
+        : ''
+      const proj = String(args.project || '').trim()
+      const q = String(args.query || '').trim().toLowerCase()
+      const limit = Math.max(1, Math.min(200, Number(args.limit) || 30))
+      const rows = all
+        .filter((d) => !wantStatus || d.状态 === wantStatus)
+        .filter((d) => !proj || String(d.项目 || '') === proj)
+        .filter((d) => {
+          if (!q) return true
+          return `${d.内容} ${d.备注} ${d.出处}`.toLowerCase().indexOf(q) >= 0
+        })
+        .reverse()   // 文件是按时间追加的，倒过来 = 最新的在前
+        .slice(0, limit)
+      return { content: [{ type: 'text', text: JSON.stringify({
+        total: all.length,
+        returned: rows.length,
+        readOnly: '决策只由用户在界面拍板；本工具只读。要新增，让用户在“需求矩阵”页点。',
+        decisions: rows,
+      }, null, 2) }] }
+    }
+
+    case 'project_charter': {
+      const id = String(args.project || '').trim()
+      if (!id) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'project 必填' }) }], isError: true }
+      const p = getPolicy(id)
+      if (!p) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, project: id,
+          error: '这个项目还没有方针卡（policies/<id>.md 不存在）—— 没有就是没有，不要替它编。',
+        }) }], isError: true }
+      }
+      // 缺哪块**明说**：缺 ≠ 空字符串。
+      // ⚠ 两种“看起来有、其实没有”必须算缺，否则 reader 会拿到一段占位符当事实：
+      //   ① 空字段在文件里被写成 `（未填写）` 占位；
+      //   ② 一键补骨架时结构地图装的是“待填”模板（> 最后核实：（待填…）+ 模块清单：待填）。
+      const hasReal = (v: string): boolean => {
+        const t = String(v || '').trim()
+        if (!t || t === '（未填写）' || t === '(未填写)') return false
+        if (t.indexOf('模块清单：待填') >= 0) return false
+        return true
+      }
+      const missing: string[] = []
+      if (!hasReal(p.mission)) missing.push('使命')
+      if (!hasReal(p.goal)) missing.push('目标')
+      if (!hasReal(p.scenario)) missing.push('场景')
+      if (!hasReal(p.boundary)) missing.push('边界')
+      if (!hasReal(p.structureMap)) missing.push('结构地图')
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, project: id, updatedAt: p.updatedAt || '',
+        mission: p.mission || '', goal: p.goal || '', scenario: p.scenario || '',
+        boundary: p.boundary || '', structureMap: p.structureMap || '',
+        missingSections: missing,
+        hint: missing.length
+          ? '缺的这几节是真没写，不是本工具读不到；别根据项目名替它补内容。'
+          : '五节齐全。结构地图首行是“最后核实”日期 —— 日期越旧越不可信。',
+      }, null, 2) }] }
+    }
+
+    case 'stage_plan_get': {
+      const wantFile = String(args.file || '').trim()
+      const wantStage = String(args.stageId || '').trim().toUpperCase()
+      if (!wantFile) {
+        // 概览：只给“有哪些计划卡、几格、几格还没裁决”，不塞正文（几十格会把 token 烧光）
+        const files = listPlanFiles()
+        const docs = files.map((f) => {
+          const d = readPlan(f)
+          if (!d) return { file: f, error: '读不出来（格式可能坏了）' }
+          const pending = d.stages.filter((s) => {
+            const st = String(s.status || '').trim()
+            return st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结' || !st
+          }).length
+          const done = d.stages.filter((s) => String(s.status || '').trim() === '完成').length
+          return { file: f, title: d.title || '', stages: d.stages.length, pending, done }
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({
+          files: docs.length, plans: docs,
+          hint: '要看某一格的 技术方案 / 照抄点 / 判据 → 带 file（+ 可选 stageId）再调一次。',
+        }, null, 2) }] }
+      }
+      const doc = readPlan(wantFile)
+      if (!doc) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: `读不出来：${wantFile}` }) }], isError: true }
+      const stages = wantStage
+        ? doc.stages.filter((s) => String(s.id || '').toUpperCase() === wantStage)
+        : doc.stages
+      if (wantStage && !stages.length) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: `这张计划卡里没有阶段 ${wantStage}`,
+          stages: doc.stages.map((s) => s.id),
+        }) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true, file: wantFile, title: doc.title || '',
+        revision: doc.revision || [],
+        stages,
+        readOnly: '冻结 / 打回 / 改一句都是用户在界面上点；agent 只读。',
+      }, null, 2) }] }
     }
 
     case 'list_logs': {
