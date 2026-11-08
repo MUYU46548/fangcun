@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.12.2
+version: 1.13.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -92,7 +92,7 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **35** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **37** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -122,6 +122,8 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `decision_list` | READ-ONLY. |
 | `project_charter` | READ-ONLY. |
 | `stage_plan_get` | READ-ONLY. |
+| `smap_propose` | Propose a NEW version of the project 结构地图 as a 「待审批」 task card. |
+| `smap_apply` | Apply an APPROVED 结构地图 proposal card into policies/<project>.md. |
 | `list_logs` | List execution logs (方寸执行日志). |
 | `search_logs` | Full-text search across log titles, contents and project names |
 | `get_log` | Get one execution log by ID (e.g. |
@@ -200,6 +202,27 @@ stage_plan_get   { file: "<项目>.md", stageId: "P3" }       # 那一格的三�
   **你可以照着判据干活、可以报“这格还缺判据”，但不能替他把状态改了**。
 - 三样都空 ≠ 项目很干净。方针文件不存在时 `project_charter` 会**明确报错**；
   那时说“这个项目还没有方针卡”，不要编一段。
+
+**①.7 结构地图过期了怎么办（2026-11-08 暮雨拍板：落一张待审批卡）**
+
+`structureMapStale` 为 true（没写日期 / 超 90 天 / 只剩“待填”骨架）说明那张图不能用。
+**不要直接去改 `policies/<id>.md`** —— 那是用户的方针卡，你改了没人知道是你改的。正确动作是**提议**：
+
+```
+smap_propose {
+  project: "fangcun-base",
+  mapText: "> 最后核实：2026-11-08\n\n- 模块清单：…\n- 主数据流：…",
+  reason:  "扫了 desktop/src/main 与 tegula/，结构地图一节的模块清单缺 services/"
+}
+```
+
+- 它**只落一张「待审批」卡，一个字节都不会写进方针**（已用字节比对钉死）。
+- 用户在卡上把状态移到「完成」= 签字；**之后**才 `smap_apply { taskId: "<那张卡>" }` 落地
+  （写前自动备份、只换「结构地图」一节、写后读回校验）。
+- 状态不是「完成」时 `smap_apply` 会硬拒 —— 别去绕，那是他还没签字。
+- `mapText` 必须带 `最后核实：YYYY-MM-DD`，否则机检不过 → 落「草稿」带红标。
+- `reason` 必须写**你实际扫了什么**（目录/文件）。空理由等于让他自己在两版之间找差异，
+  那张卡就该被打回。
 
 **② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```

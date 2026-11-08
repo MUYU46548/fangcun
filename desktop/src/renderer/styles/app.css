@@ -3503,6 +3503,13 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .smap-name { font-size: 12.5px; font-weight: 600; }
 .smap-meta { font-size: 11px; color: var(--muted); }
 .smap-open { flex: none; }
+/* 待签字的提议（2026-11-08）：它不是通知，是一条要你动手的欠条 —— 所以做成可点的胶囊 */
+.smap-pending {
+  margin-left: 8px; padding: 1px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--accent-soft); background: var(--tint); color: var(--accent);
+  font-size: 10.5px; font-family: inherit;
+}
+.smap-pending:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 /* 方针弹窗里的结构地图小节（029）：要够高，第一行是“最后核实”日期 */
 #policy-modal textarea.tall { min-height: 190px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6; }
 .pf-label-hint { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }

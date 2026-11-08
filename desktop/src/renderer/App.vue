@@ -4383,6 +4383,29 @@ function extractVerified(text: string): string {
   return m ? m[1] : ''
 }
 
+/**
+ * 这个项目有几张「结构地图更新」提议卡在等签字（2026-11-08）。
+ *
+ * 暮雨原话“结构地图……没有任何按钮”。现在 AI 只能**提议**（`smap_propose` 落待审批卡），
+ * 但提议如果只躺在看板里，他翻到才发现 —— 所以结构地图面板必须自己说出来“有几张在等你”。
+ * 判据：状态=待审批 + tags 含「结构地图」+ 项目归一到这个项目（项目字段可能是数组）。
+ */
+function pendingMapProposals(pid: string): Task[] {
+  return tasks.value.filter(t => {
+    if (String(t.status || '') !== '待审批') return false
+    if (!Array.isArray(t.tags) || t.tags.indexOf('结构地图') < 0) return false
+    return normProject(t.project) === pid
+  })
+}
+
+/** 从结构地图面板直接跳到那张提议卡（不新开页、不复制视图） */
+function openMapProposal(pid: string): void {
+  const t = pendingMapProposals(pid)[0]
+  if (!t) { showToast('这张提议卡可能刚被别处改过', 'error'); return }
+  smapOpen.value = false
+  void openTaskById(t.id)
+}
+
 async function loadPolicyMap() {
   const filled: Record<string, boolean> = {}
   const exists: Record<string, boolean> = {}
@@ -4417,8 +4440,15 @@ const smapRows = computed(() => {
     hasPolicy: !!policyExistsMap.value[p.id],
     has: !!policyMapHasStructure.value[p.id],
     verified: policyVerifiedMap.value[p.id] || '',
+    // 有几张提议卡在等他签字（2026-11-08）—— 面板必须自己说出来，不能只躺在看板里
+    pending: pendingMapProposals(p.id).length,
   }))
-  return [...rows.filter(r => !r.has), ...rows.filter(r => r.has)]
+  // 有待签字的排最前（那才是要动的），其次缺地图的，最后齐全的
+  return [
+    ...rows.filter(r => r.pending > 0),
+    ...rows.filter(r => r.pending === 0 && !r.has),
+    ...rows.filter(r => r.pending === 0 && r.has),
+  ]
 })
 
 async function openStructMap() {
@@ -7476,6 +7506,7 @@ const smapCtl = reactive({
   set smapOpen(v: boolean) { smapOpen.value = v },
   get smapRows() { return smapRows.value },
   openPolicyFromSmap,
+  openMapProposal,
 })
 
 /** 新建项目 */

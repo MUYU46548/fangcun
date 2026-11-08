@@ -2667,6 +2667,52 @@ async function main() {
     await sleep(700)
   }
 
+  // ⑤ 结构地图：待签字的提议必须看得见（2026-11-08 暮雨：“结构地图……没有任何按钮”）
+  // AI 现在只能提议（smap_propose 落待审批卡），签字是他的 —— 所以面板要自己说“有几张在等”。
+  {
+    await js(`window.__fcTest.setTasks([
+      {
+        id: 'task-smap-1', title: '结构地图更新 · demo', status: '待审批', priority: '中',
+        project: 'demo', tags: ['结构地图'], body: '## 新版结构地图\\n> 最后核实：2026-11-08\\n- 模块清单：x',
+        created: '2026-11-08T00:00:00.000Z', updated: '2026-11-08T00:00:00.000Z',
+        fm: { id: 'task-smap-1', title: '结构地图更新 · demo', status: '待审批', project: 'demo' },
+        path: 'C:/mock/task-data/task-smap-1.md',
+      },
+      {
+        id: 'task-smap-2', title: '一张普通待审批卡', status: '待审批', priority: '中',
+        project: 'demo', tags: [], body: '',
+        created: '2026-11-08T00:00:00.000Z', updated: '2026-11-08T00:00:00.000Z',
+        fm: { id: 'task-smap-2', title: '一张普通待审批卡', status: '待审批', project: 'demo' },
+        path: 'C:/mock/task-data/task-smap-2.md',
+      },
+    ])`)
+    await openViewTab('项目')
+    await sleep(800)
+    const openedSmap = await js(`(() => {
+      const b = [...document.querySelectorAll('button')].find(x => (x.textContent || '').indexOf('🗺 结构地图') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+    await sleep(900)
+    const chip = await js(`(() => {
+      const c = document.querySelector('#smap-modal .smap-pending')
+      return c ? { text: (c.textContent || '').trim(), tag: c.tagName } : null
+    })()`)
+    check('★★ 结构地图面板里能看见「N 张提议等你签字」（不是只躺在看板里）',
+      openedSmap && !!chip && /1 张/.test(chip.text) && /签字/.test(chip.text), JSON.stringify(chip))
+    check('★★★ 只有带「结构地图」标签的待审批卡才算数（普通待办不许冒充提议）',
+      !!chip && !/2 张/.test(chip.text), JSON.stringify(chip))
+    const clickedChip = await js(`(() => {
+      const c = document.querySelector('#smap-modal .smap-pending')
+      if (!c) return false
+      c.click(); return true
+    })()`)
+    await sleep(800)
+    const smapClosed = await js(`!document.querySelector('#smap-overlay')`)
+    check('★★ 点它直奔那张提议卡（面板自己关掉，不用再翻看板）', clickedChip && smapClosed,
+      JSON.stringify({ clickedChip, smapClosed }))
+  }
+
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

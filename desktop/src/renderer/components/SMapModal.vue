@@ -25,6 +25,10 @@
               <template v-else-if="!row.has">方针卡在，但没有结构地图</template>
               <template v-else-if="row.verified">最后核实 · {{ row.verified }}</template>
               <template v-else>有结构地图，但没写最后核实日期</template>
+              <!-- 2026-11-08：AI 只能提议，签字是你的 —— 所以“有几张在等你”必须在这里说出来 -->
+              <button v-if="row.pending" class="smap-pending" @click.stop="ctl.openMapProposal(row.id)">
+                ⏳ {{ row.pending }} 张提议等你签字
+              </button>
             </div>
           </div>
           <button class="ghost smap-open" @click="ctl.openPolicyFromSmap(row.id)">

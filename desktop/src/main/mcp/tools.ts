@@ -30,8 +30,13 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 //   · 方针的写口是 savePolicy（界面在用）；结构地图也在同一份文件里。
 // 也就是说：**读口在这一层开，写口将来从同一层接** —— 下面三个 case 是唯一入口。
 import { loadDecisions, normalizeDecisionStatus } from '../data/decisions'
-import { getPolicy } from '../services/policies'
+import { getPolicy, savePolicy, policyPath } from '../services/policies'
 import { listPlanFiles, readPlan } from '../data/plans'
+// 结构地图“提议 → 签字 → 落地”（2026-11-08 暮雨拍板：AI 写进去落一张待审批卡）
+import { rotateBackup } from '../data'
+import {
+  buildSmapProposalBody, smapProposalCriteria, extractSmapProposal,
+} from '../../shared/smapProposal'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
 // 跳过 archive/.trash）。它让 MCP 与 UI 对同一批数据给出不同答案 —— search_tasks
@@ -351,6 +356,40 @@ export const MCP_TOOLS: MCPTool[] = [
         file: { type: 'string', description: 'Plan file name, e.g. fangcun-base.md (omit for overview)' },
         stageId: { type: 'string', description: 'Only this stage, e.g. P3 (optional)' },
       },
+    },
+  },
+  // ── 结构地图：提议 → 用户签字 → 落地（2026-11-08 暮雨拍板）─────────────────
+  // “AI 写进去落一张待审批卡”。两条硬边界：
+  //   ① `smap_propose` **不写** policies —— 只落一张待审批卡；
+  //   ② `smap_apply` 只认**状态=完成**的卡（那是用户的签字），没签字一个字节都不动。
+  {
+    name: 'smap_propose',
+    description: 'Propose a NEW version of the project 结构地图 as a 「待审批」 task card. '
+      + 'This does NOT touch policies/<project>.md — it only creates a card for the user to approve. '
+      + 'mapText MUST contain a 最后核实：YYYY-MM-DD line (otherwise it is a map nobody can trust). '
+      + 'Put what you actually scanned in `reason`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
+        mapText: { type: 'string', description: 'New 结构地图 body: 最后核实：YYYY-MM-DD + 模块清单 + 主数据流' },
+        reason: { type: 'string', description: 'Why it differs — what you scanned (files/dirs). Empty = the user has to guess, and it will be rejected.' },
+        agent: { type: 'string', description: 'Who proposes (agent name)' },
+      },
+      required: ['project', 'mapText'],
+    },
+  },
+  {
+    name: 'smap_apply',
+    description: 'Apply an APPROVED 结构地图 proposal card into policies/<project>.md. '
+      + 'Hard gate: the card status MUST be 完成 (= the user signed it). Anything else is refused. '
+      + 'Backs up the current policy first and reads it back to prove the write landed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'The proposal task id (must be in 完成)' },
+      },
+      required: ['taskId'],
     },
   },
   // ── 日志（2026-09-29 用户第 2 条）：日志没有可复制给 AI 的 ID，agent 只能整篇被注入。
@@ -939,6 +978,101 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
         revision: doc.revision || [],
         stages,
         readOnly: '冻结 / 打回 / 改一句都是用户在界面上点；agent 只读。',
+      }, null, 2) }] }
+    }
+
+    // ── 结构地图：提议 → 用户签字 → 落地（2026-11-08 暮雨拍板）──────────────
+    case 'smap_propose': {
+      const project = String(args.project || '').trim()
+      const mapText = String(args.mapText || '').trim()
+      if (!project) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'project 必填' }) }], isError: true }
+      if (!mapText) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'mapText 必填（新版结构地图正文）' }) }], isError: true }
+      const at = new Date().toISOString()
+      const body = buildSmapProposalBody({
+        project, mapText,
+        reason: args.reason ? String(args.reason) : '',
+        agent: args.agent ? String(args.agent) : '',
+        at,
+      })
+      const criteria = smapProposalCriteria()
+      const report = checkIntake(body, criteria)
+      // 机检不过照样落卡（东西不许丢），但落「草稿」并带红标 —— 与 intake_task 同一口径
+      const status = report.ok ? '待审批' : '草稿'
+      const task = tasks.createTask({
+        title: `结构地图更新 · ${project}`,
+        status: status as any,
+        project,
+        priority: '中',
+        tags: ['结构地图'],
+        body: [body, renderIntakeSection(report, { at, agent: args.agent ? String(args.agent) : '' })].join('\n'),
+      })
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        id: task.id,
+        status: task.fm?.status || status,
+        wrotePolicy: false,
+        note: '没有动 policies/ —— 这一版只是提议。用户把卡移到「完成」之后才谈落地。',
+        intake: { ok: report.ok, passed: report.passed, failed: report.failed, redFlags: report.redFlags },
+        next: report.ok
+          ? `等用户签字（把 ${task.id} 移到「完成」），然后调 smap_apply { taskId: "${task.id}" }`
+          : '判据没过 → 落了「草稿」带红标：补上「最后核实：YYYY-MM-DD」再交一次',
+      }, null, 2) }] }
+    }
+
+    case 'smap_apply': {
+      const id = String(args.taskId || '').trim()
+      if (!id) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'taskId 必填' }) }], isError: true }
+      const all = loadTasks('all')
+      const t = all.find((x: any) => String(x.id) === id)
+      if (!t) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: `找不到这张卡：${id}` }) }], isError: true }
+      const st = String(t.fm?.status || '').trim()
+      // ★ 这条闸是整件事的全部意义：**完成 = 用户签字**，没签字一个字节都不动。
+      if (st !== '完成') {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: `这张卡的状态是“${st}”，不是“完成” —— 结构地图的写入以你的签字为准。`,
+          required: '完成',
+          howTo: '先在卡上验收（移到「完成」），再让 agent 调本工具。或者直接打回/归档，那就什么都不改。',
+        }) }], isError: true }
+      }
+      const ex = extractSmapProposal(String(t.body || ''))
+      if (!ex.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(ex.error || '抽不出结构地图') }) }], isError: true }
+      const projRaw: any = t.fm?.project
+      const project = (Array.isArray(projRaw) ? String(projRaw[0] || '') : String(projRaw || '')).trim()
+      if (!project) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '这张卡没有项目 —— 不知道该写进哪份方针卡' }) }], isError: true }
+      const before = getPolicy(project)
+      if (!before) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: `项目 ${project} 还没有方针卡 —— 没有落地目标，先让用户建一张方针卡`,
+        }) }], isError: true }
+      }
+      // 破坏性操作先快照：备份失败就**不写**（宁可没改，也不能没备份地改）
+      try {
+        rotateBackup(policyPath(project))
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: `写前备份失败，已中止：${e?.message || e}`,
+        }) }], isError: true }
+      }
+      savePolicy({ ...before, projectId: project, structureMap: String(ex.mapText || '') })
+      // 写后读回自证（“写成功”不算，读回来一样才算）
+      const after = getPolicy(project)
+      const wrote = String(after?.structureMap || '').trim()
+      if (wrote !== ex.mapText.trim()) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: '写后读回不一致 —— 没写对（旧备份在 policies/.backup/，可以回滚）',
+          expectedLen: String(ex.mapText || '').trim().length, actualLen: wrote.length,
+        }) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        project,
+        taskId: id,
+        verifiedAt: String(ex.verifiedAt || ''),
+        bytes: wrote.length,
+        kept: ['使命', '当前目标', '应用场景', '方针边界'],
+        backup: 'policies/.backup/（写前自动备份）',
+        note: '只写了「## 结构地图」这一节，其余四节逐字未动；已读回校验。',
       }, null, 2) }] }
     }
 
