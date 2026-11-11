@@ -18,6 +18,8 @@
  *   node scripts/pack.cjs --no-clean     # 不清旧目录（排查时用）
  */
 const fs = require('fs')
+// 搬运纯逻辑（挑 + 核对）已抽出并单独上测试 —— 见 scripts/lib/packCarry.cjs
+const { pickCarried, verifyCarried } = require('./lib/packCarry.cjs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
@@ -244,11 +246,11 @@ function main() {
   let oldDir = ''
   /** 换目录前先记下旧的版本化安装包 —— 换完原样搬回来（pkg 永不清理） */
   const carried = []
+  /** 搬运核对结果：只要有一份没搬到位，旧目录就**不许删**（宁可多占一份，也不能静默丢） */
+  let carryOk = true
   try {
     if (fs.existsSync(OUT)) {
-      for (const f of fs.readdirSync(OUT)) {
-        if (KEEP_OLD_INSTALLERS(f) && !f.includes(ver)) carried.push(f)
-      }
+      carried.push(...pickCarried(fs.readdirSync(OUT), ver))
       // 固定名 `pkg.old`：一次只留一个副本。上一轮若因锁没删掉，先尽力清；
       // 还清不掉才退回带时间戳的名字（这一轮不能因为残留而打不下去）。
       oldDir = OUT + '.old'
@@ -264,9 +266,21 @@ function main() {
     }
     fs.renameSync(STAGE, OUT)
     for (const f of carried) {
-      try { fs.copyFileSync(path.join(oldDir, f), path.join(OUT, f)) } catch { /* 旧包拷不回来不该挡住本轮 */ }
+      try { fs.copyFileSync(path.join(oldDir, f), path.join(OUT, f)) } catch { /* 单个失败在下面统一核对时点名 */ }
     }
-    if (carried.length) log(`已保留 ${carried.length} 个旧版安装包（pkg 永不清理）`)
+    // ⚠ 2026-11-11 血账：0.6.19 那次日志写着「已保留 16 个」，下一次打包只剩 6 个 ——
+    //   复制失败被 catch 吞了，而旧目录又被整份删掉，0.6.11–0.6.16 六个安装包永久丢失。
+    //   现在：搬完必须**逐个核对**（同名同字节数）；核对不过就保留旧目录并大声报出来。
+    const v = verifyCarried(fs, path, oldDir, OUT, carried)
+    carryOk = !oldDir || v.ok
+    if (carried.length) {
+      if (v.ok) log(`已保留 ${carried.length} 个旧版安装包（已逐个核对：${carried.length}/${carried.length}）`)
+      else {
+        log(`⚠ 旧版安装包只搬过去 ${carried.length - v.missing.length}/${carried.length}：`
+          + v.missing.slice(0, 3).map((m) => `${m.name}（${m.why}）`).join('、')
+          + `${v.missing.length > 3 ? ' 等' : ''} —— **旧目录已保留，不删**`)
+      }
+    }
     log(`✓ 已切换为新的产物目录 ${OUT}`)
   } catch (e) {
     // 退回方案：目录里有被锁住的文件时会 EPERM。逐文件清（跳锁）再复制进去。
@@ -290,8 +304,11 @@ function main() {
       process.exit(1)
     }
   }
-  if (oldDir) {
-    // ⚠ **不传 keep**：历史安装包已经 `copyFileSync` 回新 pkg 了，旧目录里那份是副本。
+  if (oldDir && !carryOk) {
+    // 只有“搬运核对全过”才允许删旧目录 —— 否则上面那份旧目录就是原版安装包唯一的副本
+    log(`  旧目录保留：${path.basename(oldDir)}（搬运核对没过，里面还有原版安装包）`)
+  } else if (oldDir) {
+    // ⚠ **不传 keep**：历史安装包已经 `copyFileSync` 回新 pkg 并核对过，旧目录里那份是副本。
     //   传 keep 会让目录永远非空、rmdir 静默失败 —— 然后日志说“已清空”（2026-11-11 的假成功）。
     const r2 = emptyDir(oldDir)
     if (r2.left > 0) {
