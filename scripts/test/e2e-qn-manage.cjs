@@ -182,6 +182,23 @@ console.log('== ⑤ 列表字段（项目 / 答了几题 / 作废）与引用计
   check('★★ 作废标在列表里可见', store.listDecks().decks.find((x) => x.deck === '备份策略-甲').voided === true)
 }
 
+console.log('== ⑤b 已落档验收线：作废卷的线不再出现（三构件卡的验收线之一）==')
+{
+  deck('验收线卷', ['# 验收线卷', '**项目**：fangcun-base',
+    '## A1 验收口径', '怎么算做完？', '- **A. 三条全绿**——代价甲', '- **B. 抽查**——代价乙',
+    '【验收线】三条回归全绿才算完', ''])
+  approve('验收线卷', 1)
+  const before = store.effectiveAcceptances('fangcun-base').filter((r) => r.deck === '验收线卷')
+  check('★★ 已批准的验收线在派生清单里（且带原文）',
+    before.length === 1 && /三条回归全绿/.test(before[0].line), JSON.stringify(before))
+  check('★ 验收线按照目项目过滤（别家项目拿不到它）',
+    !store.effectiveAcceptances('sitian').some((r) => r.deck === '验收线卷'))
+  store.voidDeck('验收线卷', '需求变了')
+  check('★★ 卷作废后那条线不再出现（不是只把列表藏起来）',
+    !store.effectiveAcceptances('fangcun-base').some((r) => r.deck === '验收线卷'),
+    JSON.stringify(store.effectiveAcceptances('fangcun-base').map((r) => r.deck)))
+}
+
 console.log('== ⑥ 接线守卫（界面真的用这些口径，不是只写在数据层）==')
 {
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\/\/.*$/gm, '')
