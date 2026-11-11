@@ -15,12 +15,12 @@
       <span class="trip-ttl">在途一屏</span>
       <span class="trip-sub">{{ tripSubtitle }}</span>
       <span class="trip-grow"></span>
-      <button class="ghost trip-headbtn" @click="tripSettingsOpen = true">⚙ 显示设置</button>
+      <Button class="trip-headbtn" variant="ghost" size="tool" @click="tripSettingsOpen = true">⚙ 显示设置</Button>
       <!-- 读取中要在**按钮上**也看得出来（2026-10-11 用户：“每次进都要卡一下，哪怕有个加载小提示”）：
            第二次进这一屏时旧数据还在屏上，光靠"空表才显示读取中"是不够的 —— 用户看到的是
            一张不会动的旧表，除了"卡了"什么也读不出来。 -->
-      <button class="ghost trip-headbtn" :disabled="tripLoading" @click="loadTripBoard()">
-        {{ tripLoading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
+      <Button class="trip-headbtn" variant="ghost" size="tool" :disabled="tripLoading" @click="loadTripBoard()">
+        {{ tripLoading ? '⟳ 读取中…' : '↻ 刷新' }}</Button>
     </div>
 
     <!-- 还没数据 → 整屏“读取中”；已经有旧数据 → 保留旧表 + 顶上一条细刷新提示
@@ -38,8 +38,8 @@
       <template v-else>
         <div>{{ tripEmptyHint }}</div>
         <!-- 空屏 + 手动模式 = 死局（用户只会以为界面坏了）。给条一步就能走出去的路。 -->
-        <button v-if="tripMode === 'manual'" class="ghost trip-headbtn trip-empty-act"
-                @click="tripBackToAuto()">改回自动</button>
+        <Button v-if="tripMode === 'manual'" class="trip-headbtn trip-empty-act" variant="ghost" size="tool"
+                @click="tripBackToAuto()">改回自动</Button>
       </template>
     </div>
 
@@ -85,23 +85,23 @@
                 <span v-else class="trip-unset" :title="tripContractMissing(r).title || r.contract.path">
                   文件已建 · {{ tripContractMissing(r).text }}
                 </span>
-                <button class="ghost trip-mini" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
-                        title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</button>
+                <Button class="trip-mini" variant="ghost" size="sm" :disabled="!r.contract.path" @click.stop="tripOpenContract(r)"
+                        title="用系统默认程序打开这个契约文件，直接改内容">📄 打开契约</Button>
                 <!-- “让 AI 填”的可复制提示词（2026-10-10 用户要求：原话“之前说让 AI 填，
                      但是不知道怎么弄”）。上一版只在旁边写了句“也可以让 AI 填”——
                      没给**能粘贴的东西**，等于没说。这里给的是一段可直接贴进
                      “该项目仓库里开的 AI 会话”的话（含逐节念回签收的规矩）。 -->
-                <button class="ghost trip-mini" @click.stop="tripCopyContractPrompt(r)"
-                        title="复制一段话 —— 贴到这个项目仓库里开的 AI 会话，它就会按契约骨架逐节填，并逐节念回给你确认">⧉ 复制 AI 提示词</button>
+                <Button class="trip-mini" variant="ghost" size="sm" @click.stop="tripCopyContractPrompt(r)"
+                        title="复制一段话 —— 贴到这个项目仓库里开的 AI 会话，它就会按契约骨架逐节填，并逐节念回给你确认">⧉ 复制 AI 提示词</Button>
               </template>
               <template v-else>
                 <span class="trip-unset">未填</span>
-                <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripInitContract(r)"
-                        title="方寸直接在这个项目文件夹里建好“立项契约.md”（文件已存在就不动它）">📝 建契约文件</button>
-                <button class="ghost trip-mini" @click.stop="tripCopyContract(r)"
-                        title="只复制文字，你自己挑地方落盘">复制模板</button>
-                <button class="ghost trip-mini" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
-                        title="打开该项目的文件夹">📁 打开项目文件夹</button>
+                <Button class="trip-mini" variant="ghost" size="sm" :disabled="!r.repo" @click.stop="tripInitContract(r)"
+                        title="方寸直接在这个项目文件夹里建好“立项契约.md”（文件已存在就不动它）">📝 建契约文件</Button>
+                <Button class="trip-mini" variant="ghost" size="sm" @click.stop="tripCopyContract(r)"
+                        title="只复制文字，你自己挑地方落盘">复制模板</Button>
+                <Button class="trip-mini" variant="ghost" size="sm" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
+                        title="打开该项目的文件夹">📁 打开项目文件夹</Button>
                 <span class="trip-dim-sm">建好后打开它填内容（也可以让 AI 填）</span>
               </template>
             </td>
@@ -170,7 +170,7 @@
 
     <!-- 管理入口：添加入口在四种摆法里必须都在（2026-10-05 用户：“项目页签里似乎没有添加和删除项目的入口”） -->
     <div class="trip-actions">
-      <button class="ghost trip-headbtn" @click="openNewProject">＋ 添加项目</button>
+      <Button class="trip-headbtn" variant="ghost" size="tool" @click="openNewProject">＋ 添加项目</Button>
       <span class="trip-dim-sm">新登记的项目按规则自动进这一屏；想固定，用右上“⚙ 显示设置”改成手动指定</span>
     </div>
 
@@ -200,7 +200,7 @@
       <div class="trip-modal">
         <div class="trip-modal-h">
           <b>显示设置</b>
-          <button class="ghost trip-headbtn" @click="tripSettingsOpen = false">关闭</button>
+          <Button class="trip-headbtn" variant="ghost" size="tool" @click="tripSettingsOpen = false">关闭</Button>
         </div>
         <div class="trip-modal-b">
           <div class="trip-col">
@@ -251,6 +251,8 @@
 
 <script setup lang="ts">
 import { toRef } from 'vue'
+// U1=A（2026-11-11 拍板）：手搓按钮收进 ui 基座（本刀迁 10 个：头按钮 / 契约小按钮）。
+import Button from '../components/ui/Button.vue'
 
 /**
  * 唯一 prop：在途一屏控制器（父组件用 `reactive()` 包过的那一坨）。

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <main id="board" class="pv">
       <div class="alertbar" v-if="ctl.blockers.length">
         <span class="ico">⚠</span>
@@ -22,7 +22,7 @@
              真因：结构地图**只存在于方针卡文件里**，界面上唯一相关的东西是这个
              `<span>` 计数 —— 它不可点、且没有缺口时干脆不渲染，于是"结构地图到底在哪"无从得知。
              现在换成**常驻可点按钮**：没缺口时也在，点开就是一览（哪几张有、最后核实的日期、直接去改）。 -->
-        <button class="ghost cb-map-btn" :class="{ warn: ctl.charterStats.mapMissing > 0 }"
+        <Button class="cb-map-btn" variant="ghost" size="tool" :class="{ warn: ctl.charterStats.mapMissing > 0 }"
           :title="ctl.charterStats.mapMissing
             ? `还有 ${ctl.charterStats.mapMissing} 个项目没有结构地图 —— 点开看是哪些`
             : '结构地图：模块清单 + 每模块一句话职责 + 主数据流（点开查看/编辑）'"
@@ -30,7 +30,7 @@
           🗺 结构地图
           <b v-if="ctl.charterStats.mapMissing" class="cb-map-n">待填 {{ ctl.charterStats.mapMissing }}</b>
           <b v-else class="cb-map-n ok">{{ ctl.charterStats.mapReady }}/{{ ctl.charterStats.filled }}</b>
-        </button>
+        </Button>
         <button class="ghost" v-if="ctl.charterStats.missing" @click="ctl.fillMissingCharters()">
           ＋ 补齐 {{ ctl.charterStats.missing }} 个章程骨架
         </button>
@@ -76,11 +76,11 @@
           </div>
           <!-- 方针入口挪到项目页签（用户 2026-09-25 第 3 条）：原先只藏在“设置”最底部，
                找不着；这里放在项目卡上，一眼可见，且不必先关设置。 -->
-          <button class="ghost pv-policy" @click.stop="ctl.openPolicyEdit(p.id)">
+          <Button class="pv-policy" variant="ghost" size="sm" @click.stop="ctl.openPolicyEdit(p.id)">
             {{ ctl.policyMap[p.id] ? '📋 方针已立 · 查看/编辑'
                : ctl.policyExistsMap[p.id] ? '📝 方针待填 · 打开填写'
                : '＋ 立项目方针' }}
-          </button>
+          </Button>
           <!-- 架构图（2026-10-29 暮雨第 2 条；2026-10-30 第 3 条再改）：
                以前是相邻两个几乎同名的按钮（“架构图”“自绘架构图”）—— 暮雨原话
                “和架构图按钮放在一起你自己不觉得尴尬吗”。现在收成**一个分段控件**：
@@ -131,11 +131,11 @@
             <span v-if="p.health === 'stuck' || p.health === 'dormant'"> · 这个项目已经冷下来了</span>
           </div>
           <div class="oacts">
-            <button class="ghost oact" @click.stop="ctl.openPolicyEdit(p.id)">📋 {{ ctl.policyMap[p.id] ? '方针' : '立方针' }}</button>
-            <button class="ghost oact" @click.stop="ctl.openStructMap()">🗺 结构地图</button>
-            <button class="ghost oact" @click.stop="ctl.openProjectTasks(p)">📦 任务 {{ p.taskCount }}</button>
-            <button class="ghost oact" @click.stop="ctl.removeProject(p)"
-                    title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
+            <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openPolicyEdit(p.id)">📋 {{ ctl.policyMap[p.id] ? '方针' : '立方针' }}</Button>
+            <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openStructMap()">🗺 结构地图</Button>
+            <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openProjectTasks(p)">📦 任务 {{ p.taskCount }}</Button>
+            <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.removeProject(p)"
+                    title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</Button>
           </div>
         </div>
         <div class="ocard ocard-add" @click="ctl.openNewProject">
@@ -204,8 +204,8 @@
               <span v-if="!ctl.pvCurrent.taskCount" class="ms-nothing">还没有任务卡</span>
             </div>
             <!-- 阻塞源入口（异常才显示）：点进阻塞页签看“卡在谁” -->
-            <button class="ghost ms-blockers" v-if="ctl.pvBlocked[ctl.pvCurrent.id]"
-                    @click.stop="ctl.switchView('blockers')">⚠ {{ ctl.pvBlocked[ctl.pvCurrent.id] }} 个阻塞源 · 看卡在谁 →</button>
+            <Button class="ms-blockers" variant="ghost" size="tool" v-if="ctl.pvBlocked[ctl.pvCurrent.id]"
+                    @click.stop="ctl.switchView('blockers')">⚠ {{ ctl.pvBlocked[ctl.pvCurrent.id] }} 个阻塞源 · 看卡在谁 →</Button>
             <div class="ody n">
               最近：<b>{{ ctl.pvCurrent.lastActivity ? ctl.relativeTime(ctl.pvCurrent.lastActivity) : '无记录' }}</b>
               <template v-if="ctl.pvLatest[ctl.pvCurrent.id]"> · {{ ctl.pvLatest[ctl.pvCurrent.id]!.title || ctl.pvLatest[ctl.pvCurrent.id]!.id }}</template>
@@ -241,7 +241,7 @@
                 <div class="msn-row" v-if="ctl.pvCurrent.roadmap"><span class="msn-k">路线图</span><span class="msn-v">{{ ctl.pvCurrent.roadmap }}</span></div>
                 <div class="msn-row" v-if="ctl.pvCurrent.note"><span class="msn-k">说明</span><span class="msn-v">{{ ctl.pvCurrent.note }}</span></div>
               </div>
-              <button class="ghost ms-editbtn" @click.stop="ctl.openNoteEdit(ctl.pvCurrent)">✎ 改状态 / 路线图 / 说明</button>
+              <Button class="ms-editbtn" variant="ghost" size="tool" @click.stop="ctl.openNoteEdit(ctl.pvCurrent)">✎ 改状态 / 路线图 / 说明</Button>
             </template>
             <!-- 路线文档实况（2026-10-21 · W1-批次 2）：把仓库里的 README/ROADMAP **自动**读回来，
                  与上面那句**手写**说明并列摆着 —— 两边不一致本身就是信息（谁旧了），
@@ -281,13 +281,13 @@
               <span>📂 最近提交 <b>{{ ctl.msGitRow.lastCommit || '读不到' }}</b></span>
               <span>未提交 <b>{{ ctl.msGitRow.dirty === null || ctl.msGitRow.dirty === undefined ? '—' : ctl.msGitRow.dirty }}</b></span>
             </div>
-            <button class="ghost ms-gitbtn" v-else @click.stop="ctl.loadTripBoard()">⟳ 拉取提交信息</button>
+            <Button class="ms-gitbtn" variant="ghost" size="tool" v-else @click.stop="ctl.loadTripBoard()">⟳ 拉取提交信息</Button>
             <!-- 最近执行日志流（2026-10-11 监控台 P0 之一）：只说"最近在干什么"，
                  不做筛选/分页 —— 要看全的点“看全部 →”，那边才是日志页的主场。 -->
             <div class="ms-feed">
               <div class="ms-feed-h">
                 <span>最近执行日志</span>
-                <button class="ghost ms-feed-go" @click.stop="ctl.openProjectLogs()">看全部 →</button>
+                <Button class="ms-feed-go" variant="ghost" size="sm" @click.stop="ctl.openProjectLogs()">看全部 →</Button>
               </div>
               <div class="ms-log" v-for="l in ctl.msLogs" :key="l.id">
                 <span class="ms-log-dot" :class="{ run: l.running }"></span>
@@ -318,24 +318,24 @@
             <div class="oacts">
               <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产“待审批”草稿，点头才转正。
                    12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——“电路铺好了开关没装”的补开关。 -->
-              <button class="ghost oact" @click.stop="ctl.openAiPlan(ctl.pvCurrent)">✨ AI 规划</button>
-              <button class="ghost oact" @click.stop="ctl.openAiDoc(ctl.pvCurrent)">📄 文档拆卡</button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openAiPlan(ctl.pvCurrent)">✨ AI 规划</Button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openAiDoc(ctl.pvCurrent)">📄 文档拆卡</Button>
               <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
                    “电路铺好了开关没装”的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->
-              <button class="ghost oact" @click.stop="ctl.openPlans(ctl.pvCurrent)">🗂 规划</button>
-              <button class="ghost oact" @click.stop="ctl.openPolicyEdit(ctl.pvCurrent.id)">📋 {{ ctl.policyMap[ctl.pvCurrent.id] ? '方针' : '立方针' }}</button>
-              <button class="ghost oact" @click.stop="ctl.openStructMap()">🗺 结构地图</button>
-              <button class="ghost oact" @click.stop="ctl.openProjectTasks(ctl.pvCurrent)">📦 看任务</button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openPlans(ctl.pvCurrent)">🗂 规划</Button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openPolicyEdit(ctl.pvCurrent.id)">📋 {{ ctl.policyMap[ctl.pvCurrent.id] ? '方针' : '立方针' }}</Button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openStructMap()">🗺 结构地图</Button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openProjectTasks(ctl.pvCurrent)">📦 看任务</Button>
               <!-- agent 上下文包（2026-10-22 · b 版落地物）：把契约/方针/决策/未完成卡/最近日志
                    拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
-              <button class="ghost oact" @click.stop="ctl.copyContextPack(ctl.pvCurrent)"
-                      title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.copyContextPack(ctl.pvCurrent)"
+                      title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</Button>
               <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
-              <button v-if="ctl.pvCurrent.repo" class="ghost oact"
-                      @click.stop="ctl.copyWithToast(ctl.pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</button>
-              <button class="ghost oact" @click.stop="ctl.removeProject(ctl.pvCurrent)"
-                      title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</button>
+              <Button v-if="ctl.pvCurrent.repo" class="oact" variant="ghost" size="tool"
+                      @click.stop="ctl.copyWithToast(ctl.pvCurrent.repo, '已复制工作目录')">⧉ 复制路径</Button>
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.removeProject(ctl.pvCurrent)"
+                      title="只从 registry.yaml 移除登记；任务卡与项目文件都不动">🗑 移除登记</Button>
             </div>
           </div>
         </div>
@@ -382,6 +382,9 @@
 <script setup lang="ts">
 import ProjectTierBoard from './ProjectTierBoard.vue'
 import MismatchView from './MismatchView.vue'
+// U1=A（2026-11-11 拍板）：手搓按钮收进 ui 基座。项目页这一批是「UI 批 4 第二刀」的主力（19 个）。
+// 类名一律保留 —— e2e 按 `.oact` / `.ms-blockers` / `.cb-map-btn` 选元素并数个数，换组件不改选择器。
+import Button from '../components/ui/Button.vue'
 import RiceMatrixView from './RiceMatrixView.vue'
 import TripBoardView from './TripBoardView.vue'
 import PlanView from './PlanView.vue'

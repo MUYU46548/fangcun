@@ -59,10 +59,10 @@
         </select>
         <!-- 低频筛选收进抽屉（2026-09-28 用户第 5 条）：Agent / 日期范围此前与搜索框
              并排摊开，6 个控件挤一条线。抽屉里有值时按钮上带角标，避免"筛了却忘了"。 -->
-        <button class="ghost log-more-btn" :class="{ on: logMoreFilterOpen }"
+        <Button class="log-more-btn" variant="ghost" size="tool" :class="{ on: logMoreFilterOpen }"
           title="更多筛选：按 Agent、按日期范围" @click="toggleLogMoreFilter">
           ⚙ 更多筛选<span v-if="logMoreFilterCount" class="more-badge">{{ logMoreFilterCount }}</span>
-        </button>
+        </Button>
         <template v-if="logMoreFilterOpen">
           <select v-model="logAgentFilter" class="log-filter" @change="loadLogs">
             <option value="">全部 Agent</option>
@@ -74,10 +74,10 @@
           <button class="ghost" title="清空 Agent 与日期筛选" @click="clearLogMoreFilters">清空</button>
         </template>
         <!-- 2026-09-23：日志批量操作入口（用户第1条） -->
-        <button class="ghost batch-mode-btn" :class="{ active: logBatchMode }" @click="toggleLogBatchMode" title="开启批量选择，点击卡片即勾选/取消">
+        <Button class="batch-mode-btn" variant="ghost" size="tool" :class="{ active: logBatchMode }" @click="toggleLogBatchMode" title="开启批量选择，点击卡片即勾选/取消">
           <span v-if="!logBatchMode">☑ 多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedLogBatch.length || 0 }}</i></span>
-        </button>
+        </Button>
         <button @click="openNewLog">+ 新建日志</button>
         <!-- 分区｜按链 分段开关（2026-09-29 第 3 条方案二）：
              默认仍是“分区”—— 加视图不改旧的；“按链”把接力链串成一条竖轨。 -->
@@ -112,8 +112,8 @@
       </div>
       <!-- 2026-11-03：只在“需要人动一下”时出现 —— ready（有格子可推）或还有待裁决。
            没有计划 / 全过且无积压时不渲染，保持这条带干净。 -->
-      <button v-if="canGoPlan" class="ghost db-go" :title="'去项目页 → 作战计划'"
-        @click="gotoPlan">{{ goPlanLabel }}</button>
+      <Button v-if="canGoPlan" class="db-go" variant="ghost" size="tool" :title="'去项目页 → 作战计划'"
+        @click="gotoPlan">{{ goPlanLabel }}</Button>
     </div>
     <div v-else-if="dailyBandError" class="daily-band db-error" role="status">{{ dailyBandError }}</div>
     <div v-if="logBatchMode" class="batch-bar">
@@ -212,14 +212,14 @@
             <span class="lg-box-count">{{ log.attached.length }} 条</span>
             <span v-if="logGroupStat(log)" class="lg-box-stat">{{ logGroupStat(log) }}</span>
             <span class="lg-box-grow"></span>
-            <button v-if="log.status !== 'archived'" class="ghost lg-bind" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
-              @click="openLogAttach(log)">改绑定</button>
-            <button v-if="log.status !== 'archived'" class="ghost lg-done"
+            <Button v-if="log.status !== 'archived'" class="lg-bind" variant="ghost" size="tool" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
+              @click="openLogAttach(log)">改绑定</Button>
+            <Button v-if="log.status !== 'archived'" class="lg-done" variant="ghost" size="tool"
               title="主日志 + 全部附属一起完成（已完成/已归档的跳过；保留天数用默认值）"
-              @click="completeLogGroupItem(log)">✅ 全组完成</button>
-            <button class="ghost lg-prompt"
+              @click="completeLogGroupItem(log)">✅ 全组完成</Button>
+            <Button class="lg-prompt" variant="ghost" size="tool"
               title="把主日志 + 全部附属按顺序拼成一段提示词复制到剪贴板。只复制，不改任何日志、不启动 agent"
-              @click="copyLogGroupAsPrompt(log)">⧉ 复制开工单</button>
+              @click="copyLogGroupAsPrompt(log)">⧉ 复制开工单</Button>
           </div>
           <div class="lg-box-hint">
             开工单 = 复制给 agent 的开场白（主日志一段 + 每条附属标“并行日志”）；<b>只复制，不改状态</b>。
@@ -239,18 +239,18 @@
                 <span>{{ formatDate(k.created) }}</span>
               </span>
               <span class="lk-actions" @click.stop>
-                <button v-if="k.status === 'active'" class="ghost lk-btn lk-run" :class="{ on: k.running }"
+                <Button v-if="k.status === 'active'" class="lk-btn lk-run" variant="ghost" size="tool" :class="{ on: k.running }"
                   :title="k.running ? '单独撤销这条的“进行中”，回到“' + logRunningRestoreLabel(k) + '”' : '单独把这条标为“进行中”（不影响同组其它条）'"
-                  @click="toggleLogRunning(k)">{{ k.running ? '⏸' : '▶' }}</button>
-                <button v-if="k.status !== 'completed' && k.status !== 'archived'"
-                  class="ghost lk-btn lk-done"
+                  @click="toggleLogRunning(k)">{{ k.running ? '⏸' : '▶' }}</Button>
+                <Button v-if="k.status !== 'completed' && k.status !== 'archived'"
+                  class="lk-btn lk-done" variant="ghost" size="tool"
                   title="单独完成这一条（不要求先标进行中）"
-                  @click="completeLogItem(k.id)">完成</button>
-                <button v-if="k.status === 'completed' || k.status === 'archived'"
-                  class="ghost lk-btn lk-reopen" title="单独撤销完成 / 归档，退回“待处理”"
-                  @click="reopenLogItem(k.id)">↩</button>
-                <button class="ghost lk-btn lk-edit" title="单独编辑这一条（只读预览也可以点整行）"
-                  @click="openLog(k)">编辑</button>
+                  @click="completeLogItem(k.id)">完成</Button>
+                <Button v-if="k.status === 'completed' || k.status === 'archived'"
+                  class="lk-btn lk-reopen" variant="ghost" size="tool" title="单独撤销完成 / 归档，退回“待处理”"
+                  @click="reopenLogItem(k.id)">↩</Button>
+                <Button class="lk-btn lk-edit" variant="ghost" size="tool" title="单独编辑这一条（只读预览也可以点整行）"
+                  @click="openLog(k)">编辑</Button>
               </span>
             </div>
             <div v-if="!(logGroupChildren.get(log.id) || []).length" class="lg-box-empty">
@@ -296,18 +296,18 @@
           <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
                不再要求“先点多选 → 再找批量栏”。有组时“全组完成 / 开工单”收进下面的
                附属框头（那里才是组的地盘），卡上只留一个“绑定 / 改绑定”入口。 -->
-          <button v-if="!logHasGroup(log) && !logGroupParent.get(log.id) && log.status !== 'archived'" class="ghost log-bind-btn"
+          <Button v-if="!logHasGroup(log) && !logGroupParent.get(log.id) && log.status !== 'archived'" class="log-bind-btn" variant="ghost" size="tool"
             title="把同一轮的其它日志绑到这条主日志下面（绑定关系会落盘，下次还在）"
-            @click="openLogAttach(log)">🔗 绑定附属</button>
+            @click="openLogAttach(log)">🔗 绑定附属</Button>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
                2026-10-09 用户第 1 条：先开确认框（可顺手勾“归档源”）；同一条只转一次（待办记 fromLog 防重）。 -->
           <button class="ghost" title="把这条日志的“下一步”变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
             @click="askConvertLog(log)">⤴ 转待办</button>
           <!-- 接力（2026-09-29 方案二）：完成态才有“下一段”——出清 + 新建 + 可开跑在一个对话框里做完 -->
-          <button v-if="log.status === 'completed'" class="ghost relay-btn"
+          <Button v-if="log.status === 'completed'" class="relay-btn" variant="ghost" size="tool"
             title="接力：出清这条 + 建新日志继承“下一步”/项目/任务/Agent —— 一个对话框做完四件事"
-            @click="openRelay(log)">⏭ 从这里继续</button>
-          <button class="ghost log-run-btn" :class="{ on: log.running }"
+            @click="openRelay(log)">⏭ 从这里继续</Button>
+          <Button class="log-run-btn" variant="ghost" size="tool" :class="{ on: log.running }"
             :title="logHasGroup(log)
               ? (logGroupAllRunning(log)
                 ? '撤销全组“进行中”（主日志 + 全部附属）'
@@ -315,7 +315,7 @@
               : (log.running
                 ? '撤销“进行中”标记，回到“' + logRunningRestoreLabel(log) + '”'
                 : '手动标为“进行中”——只有点了它，这条才算正在跑（不会自动打上）')"
-            @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</button>
+            @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</Button>
           <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
             title="标记完成（不需要先标“进行中”）"
             @click="completeLogItem(log.id)">完成</button>
@@ -334,6 +334,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, toRef } from 'vue'
+import Button from '../components/ui/Button.vue'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { localPriority } from '../../shared/priority'
 

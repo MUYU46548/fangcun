@@ -2377,6 +2377,14 @@
     check('★ 状态分布条真的按状态分段（段数＝图例条数，不是画着好看的假条）',
       !ov.err && ov.segs >= 2 && ov.segs === ov.leg, JSON.stringify(ov))
     check('★ 缺口入口在卡上（方针 / 结构地图 / 任务）', !ov.err && ov.acts >= 3, JSON.stringify(ov))
+    // 批 4 第二刀（2026-11-11）：`.oact` 原来是 26px，换到基座后统一到工具行档 28 ——
+    // 判据是**整排一致**（要么全 28，要么全错），不许一只 24 一只 34 那样混排。
+    {
+      const c = $$('#board.pv .ocard:not(.ocard-add)').filter((x) => (x.textContent || '').indexOf('演示项目') >= 0)[0]
+      const hs = c ? [...c.querySelectorAll('.oacts button')].map((b) => Math.round(b.getBoundingClientRect().height)) : []
+      check('★ 概览卡动作钮（.oact）已统一到 28 这一档（不是 24/34 混排）',
+        hs.length >= 3 && hs.every((v) => Math.abs(v - 28) <= 1), JSON.stringify(hs))
+    }
     check('  工作目录顺带显示（演示项目在 registry 里登记了 repo）',
       !ov.err && ov.txt.indexOf('E:/CODE/mock/demo') >= 0, ov.txt)
     check('★ 概览卡上的方针三态同样准（不能对着已填的方针说"立方针"）',
@@ -2939,6 +2947,16 @@
         .every((k) => tp.heads.some((h) => h.indexOf(k) >= 0)), JSON.stringify(tp.heads))
     check('★ 契约“未填”显式可见 + 两个按钮（复制模板 / 打开 repo）',
       !tp.err && tp.unset >= 1 && tp.minis >= 2, JSON.stringify({ unset: tp.unset, minis: tp.minis }))
+    // 批 4 第二刀（2026-11-11）：`.trip-mini` 原来是 22px，统一到密集档 24；
+    // 而健康度开关（`.trip-hbtn`）是行内 20px 无框控件，**故意没迁** —— 两者各归各，不许互相污染。
+    {
+      const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
+      const minis = $$('#board.pv .trip-table .trip-mini')
+      const hbtn = $$('#board.pv .trip-table .trip-hbtn')[0]
+      check('★ 契约小按钮换基座后 = 24，健康度开关仍是行内小控件（<24，没被顺手迁走）',
+        minis.length >= 2 && minis.every((b) => Math.abs(h(b) - 24) <= 1) && !!hbtn && h(hbtn) < 24,
+        JSON.stringify({ mini: minis.map(h), hbtn: h(hbtn) }))
+    }
     check('★ 无卡项目的“当前步骤”来自执行日志（挂了“日志”来源标签，不冒充任务卡）',
       !tp.err && tp.from >= 1, JSON.stringify({ from: tp.from }))
     check('★ 人工锁定的健康度带锁标（机器算不出的状态由人裁断）',
@@ -3330,6 +3348,19 @@
         return rows.length === 2 && Array.prototype.every.call(rows, r =>
           !!r.querySelector('.lk-run') && !!r.querySelector('.lk-done') && !!r.querySelector('.lk-edit'))
       })())
+    // 批 4 第二刀（2026-11-11）：附属行那三枚（`.lk-btn`）**迁了**，但密度靠字号与内距保住 ——
+    // 它们本来就带着 `.ghost`（`:where(button.ghost)` 给了 28 高），所以"看着小"不等于"矮"。
+    // 这条同时钉住：高度 = 28（与主日志动作钮同档）、字号仍 10.5（密度没被基座的 12 号字吃掉）。
+    {
+      const row = groupCard() && groupCard().querySelector('.log-kid-row')
+      const kid = row ? row.querySelector('.lk-btn') : null
+      const run = groupCard() && groupCard().querySelector('.log-run-btn')
+      const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
+      const kfs = kid ? getComputedStyle(kid).fontSize : ''
+      check('★★ 附属行小钮与主日志动作钮同高 28，且小钮字号仍 10.5（迁移没把密度吃掉）',
+        h(kid) === 28 && Math.abs(h(run) - 28) <= 1 && kfs === '10.5px',
+        JSON.stringify({ 附属行: h(kid), 主日志动作: h(run), 字号: kfs }))
+    }
     check('  几何：附属框不溢出主卡、每行高度在可点范围内（不是挤成一条线）',
       (() => {
         const card = groupCard()
