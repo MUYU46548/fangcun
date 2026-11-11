@@ -12,7 +12,7 @@ import {
   invalidateTaskCache, normalizePriority, PRIORITIES,
   normalizeStatusAlias, isStatusLegal, readActivityAll
 } from './index'
-import { clarifyOf } from '../../shared/clarify'
+import { clarifyOf, splitClarify } from '../../shared/clarify'
 import { queueGateForTask } from './qnQueueGate'
 
 // Re-export for convenience
@@ -259,6 +259,39 @@ export interface NewTaskFields {
 }
 
 /**
+ * 问卷→卡的回程（2026-11-11 · 卡 task-20261107-004）。
+ *
+ * 卡上带 `[问卷:<卷>:<题号>]` 标记（或 `<卷>#<题号>` 澄清）时，把这次状态变化记进那题的交付历史：
+ * 完成 → `delivered`，驳回 → `rejected`（带理由）。**只加交付状态，答案一个字不动。**
+ * 没有标记的卡什么都不产生（不许“看起来相关就关联”）。
+ *
+ * ⚠ 失败静默：交付记录是回程，不该让“改任务状态”这条主链路失败（问卷文件坏了也得能改状态）。
+ */
+function recordQnDelivery(task: Task, status: '完成' | '驳回', opts?: { merge?: boolean }): void {
+  try {
+    let deck = ''
+    let qid = ''
+    const m = /\[问卷:([^\]\n]+?):([^\]\n]+?)\]/.exec(String(task.body || ''))
+    if (m) { deck = String(m[1] || '').trim(); qid = String(m[2] || '').trim() }
+    if (!deck || !qid) {
+      const c = splitClarify(clarifyOf({ fm: task.fm, body: task.body }))
+      deck = c.deck
+      qid = c.qid
+    }
+    if (!deck || !qid) return
+    // 调用时 require：tasks.ts ↔ questionnaires.ts 有环（那边 createTask 反过来 import 这里）
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const qn = require('./questionnaires') as typeof import('./questionnaires')
+    qn.recordCardDelivery({
+      deck, qid, cardId: task.id,
+      status: status === '完成' ? 'delivered' : 'rejected',
+      reason: String((task.fm as any).reject_reason || ''),
+      merge: !!opts?.merge,
+    })
+  } catch { /* 静默：交付记录不该挡住状态变更 */ }
+}
+
+/**
  * 进队列闸（2026-11-11）—— **数据层唯一的判定点**。
  *
  * 桌面 GUI（ipc.moveStatus / editTask）、MCP（tools.ts 的 move_status / update_task / create_task）
@@ -382,11 +415,20 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
   }
 
   const now = new Date().toISOString()
+  const prevStatus = String(task.fm.status || '')
   task.fm = { ...task.fm, ...fields, updated: now }
   task.fm.expected_update = genId('lock')
 
   atomicWrite(task.path, renderTask(task))
   logActivity(id, 'updated', JSON.stringify(Object.keys(fields)))
+  // 问卷→卡的回程（卡 20261107-004）：状态真变了才记；
+  // 驳回理由常常在状态改完之后才写进来，所以“已驳回 + 这次带了理由”用 merge 更新同一条。
+  const nextStatus = String(task.fm.status || '')
+  if ((nextStatus === '完成' || nextStatus === '驳回') && nextStatus !== prevStatus) {
+    recordQnDelivery(task, nextStatus as '完成' | '驳回')
+  } else if (nextStatus === '驳回' && fields.reject_reason !== undefined) {
+    recordQnDelivery(task, '驳回', { merge: true })
+  }
   return task
 }
 
@@ -565,6 +607,7 @@ export function moveStatus(id: string, newStatus: Status): Task | null {
   
   atomicWrite(task.path, renderTask(task))
   logActivity(id, 'move_status', newStatus)
+  if (newStatus === '完成' || newStatus === '驳回') recordQnDelivery(task, newStatus)
   return task
 }
 

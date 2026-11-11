@@ -217,6 +217,72 @@ console.log('\n== ④ 想法 → 任务卡（不再是"立项即终点"）==')
     !data.loadTasks('active').some((t) => t.id === p2.taskId))
 }
 
+console.log('\n== ⑤ 卡完成/驳回 → 问卷侧回程（卡 task-20261107-004）==')
+{
+  // 两题都答、已批准；两张带标记的卡 + 一张控制组（无标记）
+  fs.writeFileSync(path.join(QDIR, '交付卷.md'), [
+    '# 交付卷', '**项目**：fangcun-base', '',
+    '## D1 甲', '甲问？', '- **A. 甲1**——代价甲', '- **B. 甲2**——代价乙', '【验收线】甲的线', '',
+    '## D2 乙', '乙问？', '- **A. 乙1**——代价甲', '- **B. 乙2**——代价乙', '【验收线】乙的线', '',
+  ].join('\n'), 'utf-8')
+  store.writeAnswers('交付卷', { answers: { D1: { kind: 'pick', k: 'A' }, D2: { kind: 'pick', k: 'B' } } })
+  store.approveDeck('交付卷')
+  const ANS = path.join(QDIR, '交付卷.answers.json')
+  const readAns = () => JSON.parse(fs.readFileSync(ANS, 'utf-8'))
+  const before = readAns()
+
+  const mk = (qid) => tasks.createTask({
+    title: '[问卷] ' + qid, status: '草稿', project: 'fangcun-base',
+    body: '## 来源\n问卷\n\n[问卷:交付卷:' + qid + ']\n',
+  })
+  const c1 = mk('D1')
+  const c2 = mk('D2')
+  const plain = tasks.createTask({ title: '没标记的卡', status: '草稿', project: 'fangcun-base', body: '普通正文，没有问卷标记' })
+
+  tasks.moveStatus(c1.id, '完成')
+  const after1 = readAns()
+  check('★★ 反例①：卡完成后答案本身一个字都不变（只加交付状态）',
+    JSON.stringify(after1.answers) === JSON.stringify(before.answers),
+    JSON.stringify({ before: before.answers, after: after1.answers }).slice(0, 200))
+  const d1 = (after1.deliveries || {}).D1 || []
+  check('★★ 卡完成 → 那题标 delivered 并留卡 id + 时间',
+    d1.length === 1 && d1[0].cardId === c1.id && d1[0].status === 'delivered' && !!d1[0].at,
+    JSON.stringify(d1))
+  check('★★ 反例②：没有标记的卡变完成 → 问卷侧不产生任何记录',
+    !('D2' in (after1.deliveries || {}))
+    && !JSON.stringify(after1.deliveries || {}).includes(plain.id),
+    JSON.stringify(after1.deliveries))
+
+  // 驳回：状态先改、理由后写（reviewTask 就是两拍），回程要对得上
+  tasks.moveStatus(c2.id, '驳回')
+  tasks.updateTask(c2.id, { reject_reason: '做歪了' })
+  const after2 = readAns()
+  const d2 = (after2.deliveries || {}).D2 || []
+  check('★★ 卡驳回 → rejected，并且后来补的驳回理由也回写了',
+    d2.length === 1 && d2[0].status === 'rejected' && d2[0].reason === '做歪了', JSON.stringify(d2))
+  check('★★ 一卷多题各认自己那张卡（不许串）',
+    ((after2.deliveries || {}).D1 || [])[0].cardId === c1.id && d2[0].cardId === c2.id,
+    JSON.stringify(after2.deliveries))
+
+  // 再变一次 → 历史追加（能回溯“先驳回、后来又完成”）
+  tasks.moveStatus(c2.id, '完成')
+  const after3 = readAns()
+  const d2b = (after3.deliveries || {}).D2 || []
+  check('★★ 每次状态变化都留痕（历史逐条追加，可回溯）',
+    d2b.length === 2 && d2b[0].status === 'rejected' && d2b[1].status === 'delivered',
+    JSON.stringify(d2b))
+  check('★ 反例①再确认：到这一步答案仍是一个字都没变',
+    JSON.stringify(after3.answers) === JSON.stringify(before.answers))
+
+  const brief = store.listDecks().decks.find((d) => d.deck === '交付卷')
+  check('★ 卷列表能看见「N 题已交付」（答过但没落地的卷一眼看出来）',
+    !!brief && brief.delivered === 2, String(brief && brief.delivered))
+  const rows = store.auditQueue().rows.filter((r) => r.deck === '交付卷')
+  check('★ 审计清单能看见这条答案对应哪张卡、现在什么状态',
+    rows.length === 2 && rows.every((r) => r.card && r.card.id) && rows.some((r) => r.card.status === 'delivered'),
+    JSON.stringify(rows.map((r) => [r.id, r.card])))
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); for (const f of failures) console.log('  · ' + f) }
 console.log(`RESULT ${pass} / ${fail}`)

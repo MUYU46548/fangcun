@@ -60,6 +60,24 @@ export interface QAudit {
   at: string
 }
 
+/**
+ * 一条答案的**交付状态**（2026-11-11 卡 task-20261107-004：问卷→卡 的回程）。
+ *
+ * 由来：`deckToCards` 只通了去程（答案 → 卡）。卡做完 / 被驳回，问卷侧看不见结果，
+ * 于是“这条拍板到底落实了没有”要靠人去翻卡。这里补回程：
+ *   · `delivered` = 那张卡已完成（验收签字过了）；
+ *   · `rejected`  = 那张卡被驳回（带理由）。
+ * ⚠ **只加交付状态，绝不改答案本身**（答案是你当时的选择；改它 = 事后篡改拍板）。
+ *   同一个 qid 留**数组**：每次状态变化追加，能回溯“先完成、后来又被打回”。
+ */
+export interface QDelivery {
+  cardId: string
+  status: 'delivered' | 'rejected'
+  at: string
+  /** 驳回理由（可为空 —— 用户可以不写理由就驳回） */
+  reason?: string
+}
+
 export interface QAnswersFile {
   /** 卷名（= 文件名去后缀） */
   deck: string
@@ -81,6 +99,8 @@ export interface QAnswersFile {
   archiveReason?: string
   /** 逐题的事后校验结论 */
   audits?: Record<string, QAudit>
+  /** 逐题的交付状态（卡完成/驳回的回程；见 QDelivery 注释） */
+  deliveries?: Record<string, QDelivery[]>
 }
 
 export interface QDeckBrief {
@@ -113,6 +133,8 @@ export interface QDeckBrief {
   approvedAt?: string
   /** 有多少张任务卡引用它（`[问卷:<卷>:<题>]` 标记或 `澄清: <卷>`）—— 有引用就不许归档 */
   refCount?: number
+  /** 有多少题已经交付（对应卡已完成）—— 让“答过但没有一张卡落地”的卷能一眼看出来 */
+  delivered?: number
   error?: string
 }
 
@@ -180,6 +202,7 @@ export function readAnswers(deck: string): QAnswersFile {
       archivedAt: String(o?.archivedAt || ''),
       archiveReason: String(o?.archiveReason || ''),
       audits: o && typeof o.audits === 'object' && o.audits ? o.audits : {},
+      deliveries: o && typeof o.deliveries === 'object' && o.deliveries ? o.deliveries : {},
     }
   } catch {
     // 答案文件坏了不该让整页打不开 —— 当成“还没答”，并把坏文件另存一份
@@ -203,6 +226,8 @@ export function writeAnswers(deck: string, input: {
   archivedAt?: string
   archiveReason?: string
   audits?: Record<string, QAudit>
+  /** 交付状态：undefined = 不动（与 audits 同一条“没传 ≠ 清空”的纪律） */
+  deliveries?: Record<string, QDelivery[]>
 }): { ok: true } | { ok: false; error: string } {
   const name = safeName(deck)
   if (!name) return { ok: false, error: '卷名为空' }
@@ -219,6 +244,7 @@ export function writeAnswers(deck: string, input: {
     archivedAt: input.archivedAt !== undefined ? String(input.archivedAt) : (cur.archivedAt || ''),
     archiveReason: input.archiveReason !== undefined ? String(input.archiveReason) : (cur.archiveReason || ''),
     audits: input.audits !== undefined ? input.audits : (cur.audits || {}),
+    deliveries: input.deliveries !== undefined ? input.deliveries : (cur.deliveries || {}),
   }
   const p = path.join(dir, name + '.answers.json')
   const tmp = p + '.tmp'
@@ -289,6 +315,11 @@ export function listDecks(): { ok: true; decks: QDeckBrief[]; dir: string; bank:
         voided: !!a.voidedAt,
         project: projectForDeck(name, d),
         costGaps: costGaps(d).length,
+        // 已交付题数（卡完成的回程）：让“答过但一张卡都没落地”的卷一眼看出来
+        delivered: Object.keys(a.deliveries || {}).filter((qid) => {
+          const list = (a.deliveries || {})[qid]
+          return Array.isArray(list) && list.length > 0 && list[list.length - 1].status === 'delivered'
+        }).length,
         error: d.error,
       } as QDeckBrief,
     }
@@ -505,6 +536,57 @@ export function createDeck(input: {
   return { ok: true, deck: name, path: p, questions: back.questions.length }
 }
 
+/** 每题的交付历史最多留几条（够回溯“完成→打回→再完成”就够了，不无限涨） */
+export const DELIVERY_HISTORY_MAX = 20
+
+/**
+ * 记一次交付（2026-11-11 · 卡 task-20261107-004 的回程）。
+ *
+ * 调用方只有**任务卡状态真的变了**的地方（`tasks.moveStatus` / `updateTask`），
+ * 且卡上必须带 `[问卷:<卷>:<题号>]` 标记或 `<卷>#<题号>` 澄清 —— 没有标记的卡
+ * 不产生任何记录（不许“看起来相关就关联”）。
+ * 只写 `deliveries`，**答案一个字都不动**。
+ */
+export function recordCardDelivery(input: {
+  deck: string
+  qid: string
+  cardId: string
+  status: 'delivered' | 'rejected'
+  reason?: string
+  at?: string
+  /** true = 同一张卡同状态时**更新最后一条**（驳回理由常常在状态改完之后才写进去） */
+  merge?: boolean
+}): { ok: boolean; added?: boolean; error?: string } {
+  const name = safeName(input && input.deck)
+  const qid = String((input && input.qid) || '').trim()
+  const cardId = String((input && input.cardId) || '').trim()
+  if (!name || !qid || !cardId) return { ok: false, error: '记录交付需要 卷 / 题号 / 卡 id 三样' }
+  const g = getDeck(name)
+  if (!g.ok || !g.parsed) return { ok: false, error: g.error || `读不到问卷：${name}` }
+  if (!(g.answers || {})[qid]) {
+    // 反例②：没有答案的题不许凭空产生交付记录（那等于伪造“这题定过”）
+    return { ok: false, error: `卷《${name}》没有 ${qid} 的答案 —— 不建凭空的交付记录` }
+  }
+  const all: Record<string, QDelivery[]> = { ...(g.deliveries || {}) }
+  const list = Array.isArray(all[qid]) ? [...all[qid]] : []
+  const at = String((input && input.at) || new Date().toISOString())
+  const reason = String((input && input.reason) || '').trim()
+  const last = list[list.length - 1]
+  if (input && input.merge && last && last.cardId === cardId && last.status === input.status) {
+    if ((last.reason || '') === reason) return { ok: true, added: false }
+    list[list.length - 1] = { ...last, reason, at }
+  } else {
+    // 幂等：同一卡 + 同状态 + 同理由重复写，不再追加（验收按钮连点不该把历史撑爆）
+    if (last && last.cardId === cardId && last.status === input.status && (last.reason || '') === reason) {
+      return { ok: true, added: false }
+    }
+    list.push({ cardId, status: input.status, at, ...(reason ? { reason } : {}) })
+  }
+  all[qid] = list.slice(-DELIVERY_HISTORY_MAX)
+  const w = writeAnswers(name, { answers: g.answers || {}, deliveries: all })
+  return w.ok ? { ok: true, added: true } : { ok: false, error: (w as any).error as string }
+}
+
 /** 读一卷：题 + 已有答案 */
 export function getDeck(deck: string): {
   ok: boolean
@@ -520,6 +602,8 @@ export function getDeck(deck: string): {
   /** 归档时间（空 = 在列表里；有值 = 历史卷，答案仍参与裁决） */
   archivedAt?: string
   audits?: Record<string, QAudit>
+  /** 逐题交付状态（卡完成/驳回的回程） */
+  deliveries?: Record<string, QDelivery[]>
   /** 卷面里没写代价的选项（界面黄条点名用） */
   costGaps?: { id: string; k: string; t: string }[]
   /** 卷面体检（缺代价 / 缺验收线 / 超批）—— 只报告不改卷 */
@@ -544,6 +628,7 @@ export function getDeck(deck: string): {
     updatedAt: a.updatedAt || '', voidedAt: a.voidedAt || '', voidReason: a.voidReason || '',
     archivedAt: a.archivedAt || '',
     audits: a.audits || {}, costGaps: costGaps(parsed), issues: deckIssues(parsed),
+    deliveries: a.deliveries || {},
     // 项目候选一次性带出去：界面先渲染下拉（默认"自动按卷名认"），
     // 免得用户点一次「落成任务卡」先吃一个 needProject 错误才知道要选
     projects: parseRegistry().map((x: any) => ({ id: String(x?.id || ''), name: String(x?.name || x?.id || '') }))
@@ -931,6 +1016,8 @@ export interface QAuditRow {
   due: boolean
   /** 已判「被推翻」 */
   refuted: boolean
+  /** 这条答案对应的卡（回程）：卡片完成/驳回后才有；没有卡就是 null（不是空串） */
+  card?: { id: string; status: 'delivered' | 'rejected'; at: string } | null
 }
 
 /**
@@ -967,9 +1054,12 @@ export function auditQueue(nowMs?: number): { ok: true; rows: QAuditRow[]; dir: 
       const picked = a.kind === 'amend'
         ? `（自述）${a.text || ''}`
         : `${a.k || ''}. ${(q.options.find((x) => x.k === a.k) || { t: '' }).t}`
+      const dl = (g.deliveries || {})[q.id]
+      const lastDl = Array.isArray(dl) && dl.length ? dl[dl.length - 1] : null
       rows.push({
         deck: name, title: g.parsed.title || name, id: q.id, ask: q.ask || q.nav,
         picked, line, audit: au, days, due, refuted,
+        card: lastDl ? { id: lastDl.cardId, status: lastDl.status, at: lastDl.at } : null,
       })
     })
   }

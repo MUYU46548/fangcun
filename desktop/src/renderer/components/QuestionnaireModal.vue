@@ -107,7 +107,7 @@
                   <span class="qd-badge bad" v-if="d.error">解析有问题</span>
                 </span>
                 <span class="qd-meta">
-                  {{ d.answered }} / {{ d.total }} 题<template v-if="d.refCount"> · {{ d.refCount }} 张卡引用</template>{{ d.error ? ' · ' + d.error : '' }}
+                  {{ d.answered }} / {{ d.total }} 题<template v-if="d.delivered"> · {{ d.delivered }} 题已交付</template><template v-if="d.refCount"> · {{ d.refCount }} 张卡引用</template>{{ d.error ? ' · ' + d.error : '' }}
                 </span>
               </button>
             </div>
@@ -276,6 +276,10 @@
                 </div>
                 <div v-if="answers[q.id]" class="qn-state">
                   {{ stateText(q.id) }}
+                  <!-- 回程（卡 20261107-004）：这条答案有没有对应的卡、卡现在什么状态 -->
+                  <span v-if="deliveryText(q.id)" class="qn-deliver" :class="{ bad: deliveryOf(q.id).status === 'rejected' }">
+                    · {{ deliveryText(q.id) }}
+                  </span>
                   <button class="undo" @click="reset(q.id)">撤销这次操作</button>
                 </div>
                 <div class="qn-acts">
@@ -328,6 +332,9 @@
               </div>
               <div v-if="answers[currentQ.id]" class="qn-state">
                 {{ stateText(currentQ.id) }}
+                <span v-if="deliveryText(currentQ.id)" class="qn-deliver" :class="{ bad: deliveryOf(currentQ.id).status === 'rejected' }">
+                  · {{ deliveryText(currentQ.id) }}
+                </span>
                 <button class="undo" @click="reset(currentQ.id)">撤销这次操作</button>
               </div>
               <div v-if="editing && editing.id === currentQ.id" class="qn-edit" :class="{ ask: editing.kind === 'askback' }">
@@ -454,6 +461,8 @@ interface QDeckBrief {
   /** 2026-11-11 问卷管理：取代关系 / 归档 / 引用数 / 批准天数（主进程算好，界面不算） */
   supersedes?: string; replacedBy?: string; archived?: boolean
   ageDays?: number; refCount?: number; approvedAt?: string
+  /** 已交付题数（卡完成的回程） */
+  delivered?: number
 }
 
 const api = () => (window as any).tegula
@@ -537,6 +546,26 @@ const voidReason = ref('')
 const archivedAt = ref('')
 /** 逐题事后校验结论 */
 const audits = ref<Record<string, { verdict: 'ok' | 'refuted'; evidence: string; at: string }>>({})
+/**
+ * 逐题交付状态（2026-11-11 卡 20261107-004）：答案对应的卡完成/驳回后回写到这里。
+ * 只影响**展示**；答案本身与这一层无关（答案不许被卡的状态改写）。
+ */
+const deliveries = ref<Record<string, { cardId: string; status: 'delivered' | 'rejected'; at: string; reason?: string }[]>>({})
+function deliveryOf(qid: string): { cardId: string; status: 'delivered' | 'rejected'; at: string; reason?: string } | null {
+  const list = deliveries.value[qid]
+  if (!Array.isArray(list) || !list.length) return null
+  return list[list.length - 1]
+}
+/** 交付状态一句话（没人交付就空串 —— 界面上的 v-if 靠它决定显不显） */
+function deliveryText(qid: string): string {
+  const d = deliveryOf(qid)
+  if (!d) return ''
+  const when = String(d.at || '').slice(0, 10)
+  return (d.status === 'delivered' ? '已交付' : '未通过')
+    + ' ' + d.cardId
+    + (d.reason ? '（' + d.reason + '）' : '')
+    + (when ? ' · ' + when : '')
+}
 /** 卷面里没写代价的选项（黄条点名用） */
 const costGaps = ref<{ id: string; k: string; t: string }[]>([])
 /** 卷面体检：缺代价 / 缺验收线 / 超一批（只报告，不改卷） */
@@ -783,6 +812,7 @@ async function openDeck(name: string): Promise<void> {
     voidedAt.value = r.voidedAt || ''
     voidReason.value = r.voidReason || ''
     archivedAt.value = r.archivedAt || ''
+    deliveries.value = (r && r.deliveries) || {}
     audits.value = r.audits || {}
     costGaps.value = r.costGaps || []
     issues.value = Array.isArray(r.issues) ? r.issues : []
@@ -804,6 +834,7 @@ function backToList(): void {
   deck.value = null
   summary.value = false
   archivedAt.value = ''
+  deliveries.value = {}
   void loadList()
 }
 
@@ -1195,6 +1226,10 @@ onBeforeUnmount(() => {
 
 .qn-state { margin-top: 9px; font-size: 11.5px; color: var(--muted); background: var(--tint-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; line-height: 1.7; }
 .qn-state .undo { border: 0; background: transparent; color: var(--accent); font-size: 11px; text-decoration: underline; text-underline-offset: 2px; margin-left: 8px; padding: 0; }
+/* 交付状态（2026-11-11 回程）：绿=已交付，红=被驳回；只展示，不改答案 */
+.qn-deliver { margin-left: 6px; color: var(--success); }
+.qn-deliver.bad { color: var(--danger); }
+.qn-deliver code { font-size: 10.5px; }
 .qn-acts { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 .qn-acts button { font-size: 11.5px; padding: 3px 10px; }
 .qn-acts .ask { color: var(--warning); border-color: #f0e0c8; }
