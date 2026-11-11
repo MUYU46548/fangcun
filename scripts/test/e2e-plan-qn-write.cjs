@@ -44,6 +44,20 @@ const qn = require(path.join(DIST, 'data', 'questionnaires.js'))
 const qnSpec = require(path.join(REPO, 'desktop', 'dist', 'shared', 'qnDeckSpec.js'))
 const { parseQuestionnaire } = require(path.join(REPO, 'desktop', 'dist', 'shared', 'questionnaire.js'))
 
+// 2026-11-09 硬闸夹具：一张答完并批准的澄清卷。没有它，proposeStage 一律拒写。
+// 不写 `**项目**`，让闸的项目检查对 fixture / minimal 两个计划文件都放行；
+// 项目不匹配的反例在 e2e-qn-gate.cjs 里单独测。
+const QDIR = path.join(DATA, 'task-data', 'questionnaires')
+fs.mkdirSync(QDIR, { recursive: true })
+fs.writeFileSync(path.join(QDIR, '闸卷.md'), [
+  '# 闸卷（夹具）', '',
+  '## G1 形状', '夹具闸卷：形状选哪种？',
+  '- **A. 甲**——代价甲', '- **B. 乙**——代价乙',
+  '【验收线】出现反例即违约', '',
+].join('\n'), 'utf-8')
+qn.writeAnswers('闸卷', { answers: { G1: { kind: 'pick', k: 'A' } } })
+qn.approveDeck('闸卷')
+
 let PASS = 0
 const FAILS = []
 function check(name, cond, detail) {
@@ -125,8 +139,16 @@ function slice(fileText, from, to) {
   check('四次拒收后文件逐字节未变', fs.readFileSync(PLAN_PATH, 'utf-8') === before)
 
   console.log('---- 2. 正常提议：落待裁决，已有内容一字不动 ----')
+  const beforeGate = fs.readFileSync(PLAN_PATH, 'utf-8')
+  const noDeck = plans.proposeStage({
+    file: PLAN, title: '没附卷', approach: ['x'], copyRows: [['a', 'b', 'c']], criteria: ['cmd: y'],
+  })
+  check('★★ 没附澄清问卷 → 拒（2026-11-09 硬锁）', !noDeck.ok && /澄清问卷/.test(noDeck.error || ''), noDeck.error)
+  check('★★ 拒后文件逐字节未变', fs.readFileSync(PLAN_PATH, 'utf-8') === beforeGate)
+
   const r = plans.proposeStage({
     file: PLAN,
+    deck: '闸卷',
     title: '第三格：结构地图写口',
     what: '让 agent 提议、用户签字',
     approach: ['先落 待裁决 卡', '冻结仍由用户点'],
@@ -155,7 +177,7 @@ function slice(fileText, from, to) {
   const bare = 'minimal.md'
   fs.writeFileSync(path.join(DATA, 'task-data', 'plans', bare), '# 裸计划\n\n随便一段。\n', 'utf-8')
   const rb = plans.proposeStage({
-    file: bare, title: '裸文件新增', approach: ['x'], copyRows: [['a', 'b', 'c']], criteria: ['file: a.md'],
+    file: bare, deck: '闸卷', title: '裸文件新增', approach: ['x'], copyRows: [['a', 'b', 'c']], criteria: ['file: a.md'],
   })
   check('无 阶段卡 小节也能提议', !!rb.ok, rb.error)
   check('落在文末且能读回', rb.ok && (plans.readPlan(bare) || { stages: [] }).stages.length === 1)
@@ -196,7 +218,8 @@ function slice(fileText, from, to) {
   const qdir = path.join(DATA, 'task-data', 'questionnaires')
   const bad = qn.createDeck({ spec: noCost })
   check('不合格规格 → 拒', !bad.ok && Array.isArray(bad.issues) && bad.issues.length > 0, bad.error)
-  check('不合格规格一个文件都没写', !fs.existsSync(qdir) || fs.readdirSync(qdir).length === 0)
+  check('不合格规格一个文件都没写（没长出“夹具问卷”的任何文件）',
+    !fs.existsSync(qdir) || fs.readdirSync(qdir).every((f) => !f.startsWith('夹具问卷')))
   const c1 = qn.createDeck({ spec: good })
   check('合格规格写盘成功', !!c1.ok, c1.error)
   check('写盘后读回题数一致', c1.ok && c1.questions === 1)

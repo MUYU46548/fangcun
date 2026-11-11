@@ -24,7 +24,7 @@ const path = require('path')
 const FILE = process.argv[2] || path.resolve(__dirname, '../../desktop/src/renderer/App.vue')
 
 /** 共享按钮 class 约定：任何位置都必须有样式，不能依赖祖先 */
-const SHARED = ['ghost', 'pri', 'ok', 'danger', 'warning']
+const SHARED = ['ghost', 'pri', 'ok', 'danger', 'warning', 'ask']
 
 let pass = 0
 let fail = 0
@@ -286,16 +286,23 @@ function main() {
   //   样式只有一份（App.vue 的全局 <style>），所以判据仍用上面那套 selectors，
   //   只是把“模板来源”从 App.vue 扩到 views/。组件自带 <style> 的话，它的规则也算数。
   {
-    const viewsDir = path.resolve(__dirname, '../../desktop/src/renderer/views')
-    const viewFiles = fs.existsSync(viewsDir)
-      ? fs.readdirSync(viewsDir).filter((f) => f.endsWith('.vue')).sort()
-      : []
+    // 2026-11-09：views/ 之外还有 components/ —— 问卷弹窗就在那里。
+    // 旧守卫只扫 views/，于是 `class="ask"`（只有 color/border-color，没有几何）
+    // 一路漏到用户眼前，退化成原生按钮。现在两处都扫，且**不只看“有没有规则”，
+    // 还看那条规则有没有几何**：只有颜色没有高度/内边距/圆角，等于没有基座。
+    const roots = ['views', 'components'].map((d) => path.resolve(__dirname, `../../desktop/src/renderer/${d}`))
+    const files = []
+    for (const dir of roots) {
+      if (!fs.existsSync(dir)) continue
+      for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.vue')).sort()) files.push({ dir, f })
+    }
     const esc = (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const hitSel = (c) => selectors.some(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel))
     const missing = []
+    const noGeom = []
     let btnCount = 0
-    for (const fn of viewFiles) {
-      const clean = fs.readFileSync(path.join(viewsDir, fn), 'utf-8')
+    for (const { dir, f: fn } of files) {
+      const clean = fs.readFileSync(path.join(dir, fn), 'utf-8')
         .replace(/<!--[\s\S]*?-->/g, (m) => ' '.repeat(m.length))
       const t0 = clean.indexOf('<template>')
       const t1 = t0 < 0 ? -1 : matchTagClose(clean, t0, 'template')
@@ -303,26 +310,58 @@ function main() {
       const tplV = clean.slice(t0, t1)
       // 组件自带 <style> 时，本地规则也认（scoped 亦然：class 名照样要对得上）
       const localSel = []
+      const localBody = new Map()
       const s0 = clean.indexOf('<style')
       if (s0 >= 0) {
         const sb = clean.slice(s0, clean.lastIndexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '')
-        const rr = /([^{}]+)\{/g
+        const rr = /([^{}]+)\{([^{}]*)\}/g
         let mm
-        while ((mm = rr.exec(sb))) for (const sel of mm[1].split(',')) if (sel.trim()) localSel.push(sel.trim())
+        while ((mm = rr.exec(sb))) {
+          const body = mm[2]
+          for (const sel of mm[1].split(',')) {
+            if (!sel.trim()) continue
+            localSel.push(sel.trim())
+            localBody.set(sel.trim(), (localBody.get(sel.trim()) || '') + body)
+          }
+        }
       }
-      const seen = new Set()
-      for (const b of scanTags(tplV, 'button')) {
-        btnCount++
-        for (const c of staticClass(b.attrs) || []) seen.add(c)
+      const isUtility = (c) => /\[[^\]]*\]/.test(c)
+        || /^(?:flex|grid|block|inline|hidden|items-|justify-|gap-|p[trblxy]?-|m[trblxy]?-|w-|h-|min-|max-|text-|font-|leading-|tracking-|bg-|border|rounded|shadow|opacity-|cursor-|select-|whitespace-|overflow-|truncate|uppercase|underline|line-through|transition|duration-|space-|aspect-|z-|absolute|relative|fixed|sticky|static|col-|row-|order-|self-|place-|table)/.test(c)
+      const localGeom = (c) => {
+        const local = localSel.filter(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel))
+        if (!local.length) return false
+        const body = local.map((s) => localBody.get(s) || '').join(';')
+        return /(?:^|[;\s])(height|padding|display|border-radius|background)\s*:/.test(body)
       }
-      for (const c of seen) {
-        if (hitSel(c)) continue
-        if (localSel.some(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel))) continue
-        missing.push(`${fn} → .${c}`)
+      const globalGeom = (c) => {
+        const re = new RegExp(`([^{}]*\\.${esc(c)}(?![\\w-])[^{}]*)\\{([^{}]*)\\}`, 'g')
+        let m2
+        while ((m2 = re.exec(body))) {
+          if (/(?:^|[;\s])(height|padding|display|border-radius|background)\s*:/.test(m2[2])) return true
+        }
+        return false
+      }
+      const buttons = scanTags(tplV, 'button')
+      btnCount += buttons.length
+      for (const b of buttons) {
+        // `<Button variant="ghost">`（UI 基座组件）的几何在组件里，不在 class 上 —— 跳过。
+        if (tplV.slice(b.index, b.index + 7) === '<Button') continue
+        const cls = (staticClass(b.attrs) || []).filter((c) => !isUtility(c))
+        if (!cls.length) continue
+        // 基座只有两种：共享变体（全局有几何），或自定义 class 自己带几何（全局/局部都算）。
+        // 只有颜色/边框色的“变体”不算 —— 那就是用户看到的原生按钮。
+        if (cls.some((c) => SHARED.includes(c))) continue
+        if (cls.some((c) => hitSel(c) && globalGeom(c))) continue
+        if (cls.some((c) => localGeom(c))) continue
+        const anyRule = cls.some((c) => hitSel(c) || localSel.some(sel => new RegExp(`\\.${esc(c)}(?![\\w-])`).test(sel)))
+        if (anyRule) noGeom.push(`${fn} → ${cls.join(' ')}`)
+        else missing.push(`${fn} → ${cls.join(' ')}`)
       }
     }
-    check(`⑤ views/ 下 ${viewFiles.length} 个组件的按钮 class 都有样式规则`, missing.length === 0,
+    check(`⑤ views/ + components/ 的按钮 class 都有样式规则`, missing.length === 0,
       missing.length ? `无任何规则：${missing.join(', ')}` : `组件里的按钮 ${btnCount} 个`)
+    check('⑥ 非共享 class 的按钮规则必须带几何（只有颜色 = 原生按钮）', noGeom.length === 0,
+      noGeom.length ? `只有颜色/边框色：${noGeom.join(', ')}` : '')
   }
 
 

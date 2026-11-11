@@ -337,6 +337,9 @@ console.log('\n== ⑧ 月预算（容量护栏）==')
 console.log('\n== ⑨ MCP 三件（agent 的真入口）==')
 {
   const tools = require(path.join(DIST, 'main', 'mcp', 'tools.js'))
+  // 2026-11-11 写口闸：`rice_pool_upsert`（改分）属于破坏性操作，默认档位「读写」会拒。
+  // 这一节要测的是“MCP 写回真的通”，所以显式把自检档位开到「读写+破坏性」。
+  require(path.join(DIST, 'main', 'mcp', 'writeGate.js')).setWriteMode('destructive', 'e2e-rice')
   const call = (name, args) => {
     const r = tools.handleMCPToolCall(name, args || {})
     const txt = r && r.content && r.content[0] && r.content[0].text

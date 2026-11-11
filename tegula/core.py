@@ -595,7 +595,7 @@ def parse_task(path):
     return d
 
 
-MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "认领人", "认领时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因", "架构"}
+MANAGED_KEYS = {"id", "标题", "项目", "状态", "批次", "开始", "截止", "优先级", "创建", "更新", "来源", "指派", "验收", "阻塞", "附言", "资源", "方案", "结果记录", "派活时间", "认领人", "认领时间", "标签", "验收清单", "预算", "实际成本", "agent", "type", "plan", "cron", "context", "inbox", "recurring_id", "归因", "架构", "澄清"}
 
 # YAML 标量转义 ----------------------------------------------------------
 # 背景（2026-09-18 实测）：render_task 原先用裸 f-string 拼值，含 YAML 元字符时不加引号。
@@ -801,6 +801,18 @@ def render_task(d):
     gy = str(d.get("归因") or "").strip()
     if gy:
         lines.append(f"归因: {yaml_scalar(gy)}")
+    # 验收清单（2026-11-11 卡 task-20261108-011）：**受管键必须显式输出**。
+    #   此前它在 MANAGED_KEYS 里、parse_task 也归一成列表，但 render_task 从不输出 ——
+    #   于是界面/CLI 写进去的清单在 Python 一写回时就**静默消失**（实测 4 张卡全丢），
+    #   连带 api_review 的验收门控恒读空 = 形同虚设。空则不输出（旧卡零影响）。
+    ysqd = [str(x).strip() for x in _as_list(d.get("验收清单")) if str(x).strip()]
+    if ysqd:
+        lines.append(f"验收清单: [{', '.join(yaml_scalar(x, in_flow=True) for x in ysqd)}]")
+    # 澄清卷（2026-11-11 进队列锁）：同一个坑 —— 漏输出 = 下次写回丢卷名，
+    # 卡就再也说不出自己该过哪个闸。空则不输出。
+    qn = str(d.get("澄清") or "").strip()
+    if qn:
+        lines.append(f"澄清: {yaml_scalar(qn)}")
     # 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：值必须落成**标量** JSON 字符串。
     # ⚠ 手工写成 YAML 嵌套映射也能被 yaml 解析成 dict/list —— 这里统一 json.dumps 回标量，
     #   否则 Python 一写回就吐出一段嵌套映射（全仓只许 1 处的红线）。空则不输出（旧卡零影响）。
@@ -899,6 +911,289 @@ def write_task_file(path, d):
             pass
         raise RuntimeError(f"Atomic write verification failed for {path}")
     os.replace(tmp, path)
+
+
+# ---------- 任务书辅助（2026-11-11 · task-20261108-007~015 九张一批） ----------
+
+# 凭证形状（卡 008：任务书脱敏）。**只认“形状”**，不做模糊的“包含 token 就遮” ——
+# 那会把 `tokens.json` 这种文件名也打成 ***，把任务书毁掉。
+_SECRET_PATTERNS = [
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{8,}"), None),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{12,}"), None),
+    (re.compile(r"\bghp_[A-Za-z0-9]{20,}"), None),
+    (re.compile(r"\bgho_[A-Za-z0-9]{20,}"), None),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), None),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), None),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9\-._~+/]{12,}=*"), None),
+    # 键名保留、只遮值：`api_key=xxxx` → `api_key=***`（这样 agent 还知道这里该放什么）
+    (re.compile(r"(?i)\b(api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*[\"']?([A-Za-z0-9\-._~+/]{8,})"), 2),
+]
+
+
+def _redact_secrets(text):
+    """把任务书里的凭证形状替换成 ***，返回 (新文本, 命中处数)。
+
+    为什么必须做在 `_build_prompt` 的**返回值**上：任务书是要交给外部 agent 的上下文，
+    卡正文 / 方针卡 / 附言里都可能粘过一条 `api_key=…`。一处漏掉，凭证就出了这台机器。
+    只对**给外部的内容**做，不碰任务文件本身（卡里原文要留给人看）。
+    """
+    if not text:
+        return text, 0
+    hits = 0
+    out = text
+    for pat, keep_group in _SECRET_PATTERNS:
+        def _sub(m, _keep=keep_group):
+            nonlocal hits
+            hits += 1
+            if _keep and m.lastindex and m.lastindex >= _keep:
+                return m.group(0)[:m.start(_keep) - m.start(0)] + "***"
+            return "***"
+        out = pat.sub(_sub, out)
+    return out, hits
+
+
+def _section_of(body, name):
+    """取正文里 `## <name>` 小节的原文（到下一个标题为止）。取不到返回空串。
+
+    为什么按小节而不是正则全篇扫：卡正文的小节是用户手写结构（`## 范围外`），
+    全篇匹配会把“方案里提到范围外”也算成“写了范围外节”。
+    """
+    lines = str(body or "").replace("\r\n", "\n").split("\n")
+    out = []
+    inside = False
+    head = re.compile(r"^#{1,6}\s*" + re.escape(str(name)))
+    for line in lines:
+        if not inside:
+            if head.match(line):
+                inside = True
+            continue
+        if re.match(r"^#{1,6}\s", line):
+            break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def _task_kind(d):
+    """任务类别：bug / review / design（认不出返回空串）。
+
+    认法只有两个来源：`type` 字段与 `标签`。**不猜标题** —— 标题里带“修复”不等于 bug 卡，
+    把普通卡当 bug 卡派出去会逼执行方去写一段无意义的复现命令。
+    """
+    tp = str(d.get("type") or "").strip().lower()
+    tags = " ".join(str(x) for x in _as_list(d.get("标签"))).lower()
+    if tp == "bug" or "bug" in tags or "缺陷" in tags:
+        return "bug"
+    if tp in ("review", "评审") or "评审" in tags or "review" in tags:
+        return "review"
+    if tp in ("design", "设计") or "设计" in tags or "design" in tags or "ui" in tags:
+        return "design"
+    return ""
+
+
+def project_contract_exists(project_id):
+    """本项目 repo 里有没有立项契约（done 体检用它决定要不要提醒“契约自报”）。
+
+    ⚠ 必须进 cli.py 的显式导入清单 —— 那边是 `from tegula.core import (...)` 白名单，
+      漏一个就是 NameError（历史事故：export/import 四条命令一直是死的）。
+    """
+    pid = str(project_id or "").strip()
+    if not pid:
+        return False
+    for p in load_all_projects():
+        if str(p.get("id") or "") == pid:
+            repo = str(p.get("repo") or "").strip()
+            if not repo:
+                return False
+            try:
+                return os.path.exists(_contract_path(repo))
+            except Exception:
+                return False
+    return False
+
+
+def _clarify_of(d):
+    """卡上声明的澄清卷名（与桌面 `shared/clarify.ts` 同一套认法，三种写法）。
+
+    ① frontmatter `澄清:`（本文件写回的中文键）
+    ② 正文 `## 澄清问卷` 下一行（问卷落卡写的形态，`<卷>（已批准）`）
+    ③ 正文行内 `澄清问卷：<卷>`
+    没有就返回空串 = 普通任务卡（不是“声明的卷是空的”）。
+    """
+    direct = str(d.get("澄清") or "").strip()
+    if direct:
+        return _clean_deck_name(direct)
+    body = str(d.get("_body") or "").replace("\r\n", "\n")
+    inside = False
+    for line in body.split("\n"):
+        if not inside:
+            if re.match(r"^#{1,6}\s*澄清问卷", line):
+                inside = True
+            continue
+        if re.match(r"^#{1,6}\s", line):
+            break
+        t = _clean_deck_name(line)
+        if t:
+            return t
+    m = re.search(r"澄清问卷\s*[：:]\s*([^\s\n]+)", body)
+    return _clean_deck_name(m.group(1)) if m else ""
+
+
+def _clean_deck_name(raw):
+    s = str(raw or "").strip()
+    s = re.sub(r"^[-*+]\s*", "", s)
+    s = re.sub(r"[（(]\s*已批准\s*[）)]", "", s)
+    s = s.strip("「『\"'《》」』，。；;,")
+    return s.strip()
+
+
+def _project_for_deck(deck_name, md):
+    """卷归属项目（与桌面 `questionnaires.ts#projectForDeck` 同一套认法）。
+
+    先认卷面 `**项目**：xxx`；没有再拿 registry 里的项目名/id 去**卷名**里最长命中。
+    为什么两种语言都要有：进队列闸要判“拿 A 项目的卷当 B 项目的依据”，
+    只认前一种就会在“卷名里带项目名”的老卷上放过一串串项目。
+    """
+    m = re.search(r"^\*\*项目\*\*\s*[:：]?\s*(.+?)\s*$", str(md or ""), re.M)
+    explicit = (m.group(1).strip() if m else "")
+    if explicit:
+        return explicit
+    name = str(deck_name or "")
+    best, best_score = "", 0
+    try:
+        projects = load_all_projects()
+    except Exception:
+        projects = []
+    for p in projects:
+        pid = str(p.get("id") or "").strip()
+        pname = str(p.get("name") or pid).strip()
+        for cand in (pname, pid):
+            if len(cand) >= 2 and cand in name and len(cand) > best_score:
+                best, best_score = pid, len(cand)
+    return best
+
+
+def _bank_open_questions(project):
+    """题库里还没答（状态=待答）且与本项目相关（项目为空=全局）的题号。
+
+    与桌面 `questionBank.ts#bankOf` 同口径：**项目为空的是全局题，对所有项目都算数**。
+    解析失败**不当作“没有待答”**：直接抛给调用方（由它按“闸判不了”处理）——
+    静默放行正是闸最容易变成装饰的方式。
+    """
+    bank = os.path.join(TASK_DIR, "question-bank.md")
+    if not os.path.exists(bank):
+        return []
+    with open(bank, encoding="utf-8") as f:
+        bank_md = f.read()
+    want = str(project or "").strip()
+    out = []
+    for block in re.split(r"^##\s+", bank_md, flags=re.M)[1:]:
+        head = block.split()
+        bqid = head[0] if head else ""
+        st = re.search(r"^-\s*状态\s*[:：]\s*(.+?)\s*$", block, re.M)
+        if not st or st.group(1).strip() != "待答":
+            continue
+        pj = re.search(r"^-\s*项目\s*[:：]\s*(.*?)\s*$", block, re.M)
+        entry_project = (pj.group(1).strip() if pj else "")
+        relevant = (not entry_project) or (bool(want) and entry_project == want)
+        if relevant:
+            out.append(bqid)
+    return out
+
+
+def _queue_gate_reason(d):
+    """进队列闸（2026-11-11 · 规格单 §3.1 第二个时点）的 Python 侧实现。
+
+    与桌面 `data/qnGate.ts#gateForDeck` 同一套判据：
+      ① 卷必须存在、能解析、有题；
+      ② 不能有未答 / 跳过 / 反问（跳过 = 下次还问，反问 = 这题问错了）；
+      ③ 不能整卷被否决/作废（等于没问）；
+      ④ 必须已批准；
+      ⑤ 题库里不能还有该项目的待答题（D-060）。
+    返回空串 = 放行；非空 = 拒绝原因（原样打印给用户/agent）。
+
+    ⚠ 为什么两种语言各写一遍：CLI 是 Python，三条写入口（GUI / MCP / CLI）没法共用同一份
+      运行时实现。**判据必须逐条对齐**，所以 e2e-qn-queue-python 用同一批夹具跑两侧对比。
+      没声明 `澄清` 的卡不拦（过渡口径，理由见桌面 `qnQueueGate.ts` 顶部）。
+    """
+    deck = _clarify_of(d)
+    if not deck:
+        return ""
+    # 题目级澄清 `<卷>#<题号>`（问卷落卡写的形态，2026-11-11）：只判那一题。
+    # 整卷判会把它锁死（其余题还挂着），不判又等于没闸 —— 两种澄清的差别见桌面 clarify.ts。
+    _raw_deck = deck
+    deck = deck.split("#")[0].strip()
+    _qid = _raw_deck.split("#", 1)[1].strip() if "#" in _raw_deck else ""
+    if not deck:
+        return ""
+    qdir = os.path.join(TASK_DIR, "questionnaires")
+    md_path = os.path.join(qdir, deck + ".md")
+    ans_path = os.path.join(qdir, deck + ".answers.json")
+    if not os.path.exists(md_path):
+        return f"进队列被拦：卡上声明的澄清卷《{deck}》不存在（{md_path}）—— 先出卷、答完、批准"
+    try:
+        with open(md_path, encoding="utf-8") as f:
+            md = f.read()
+    except Exception as e:
+        return f"进队列被拦：读不到澄清卷《{deck}》（{e}）"
+    qids = re.findall(r"^##\s+([A-Za-z]+\d+)\b", md, re.M)
+    if not qids:
+        return f"进队列被拦：卷《{deck}》一道题都没有 —— 空的不是澄清"
+    answers, approved_at = {}, ""
+    if os.path.exists(ans_path):
+        try:
+            with open(ans_path, encoding="utf-8") as f:
+                obj = json.load(f)
+            answers = obj.get("answers") if isinstance(obj.get("answers"), dict) else {}
+            approved_at = str(obj.get("approvedAt") or "")
+        except Exception:
+            answers, approved_at = {}, ""
+    # 项目归属（与桌面 gateForDeck 同一条，2026-11-11 评审抓到的缺口）：
+    # 拿 A 项目的卷当 B 项目的依据，是这条闸最该拦的一种“看起来有卷”。
+    _proj = (d.get("项目") or [""])
+    _proj = str(_proj[0] if isinstance(_proj, list) and _proj else "").strip()
+    _deck_proj = _project_for_deck(deck, md)
+    if _proj and _deck_proj and _deck_proj != _proj:
+        return f"进队列被拦：这卷属于「{_deck_proj}」，不是「{_proj}」—— 别拿别的项目的答案当依据"
+    if not approved_at:
+        return f"进队列被拦：卷《{deck}》还没批准 —— 草稿答案不算数，先点「批准并落库」"
+    if _qid:
+        if _qid not in qids:
+            return f"进队列被拦：卷《{deck}》里没有题 {_qid} —— 卡上写的澄清题号对不上"
+        _a = answers.get(_qid) or {}
+        _kind = str(_a.get("kind") or "")
+        _settled = _kind == "pick" or (_kind == "amend" and str(_a.get("text") or "").strip())
+        if not _settled:
+            _why = "还没答" if not _a else (
+                "改一句但没写内容" if _kind == "amend" else f"答案是“{_kind}”")
+            return f"进队列被拦：卷《{deck}》的 {_qid} 没有定下来的答案（{_why}）—— 先答这题并批准，再落卡"
+        return ""
+    open_ids, closed = [], 0
+    for qid in qids:
+        a = answers.get(qid)
+        kind = str((a or {}).get("kind") or "")
+        if kind in ("pick", "amend"):
+            continue
+        if kind in ("reject", "void"):
+            closed += 1
+            continue
+        open_ids.append(qid)
+    if closed == len(qids):
+        return f"进队列被拦：卷《{deck}》全部被否决/作废 —— 等于没问，闸不开（真草稿不存在零含糊）"
+    if open_ids:
+        return (f"进队列被拦：卷《{deck}》还有 {len(open_ids)} 道没定（未答 / 跳过 / 反问）："
+                + "、".join(open_ids) + " —— 答完并批准，再进队列")
+    # 题库（D-060）：本项目还有待答旧题 → 闸不开。与桌面 openBank(want || deckProject) 同口径：
+    # 项目为空的是**全局题**，对所有项目都算数。解析失败 fail-closed（不放行也不假装没题）。
+    _target = _proj or _deck_proj
+    try:
+        pending = _bank_open_questions(_target)
+    except Exception as e:
+        return f"进队列被拦：题库（task-data/question-bank.md）读不出来（{e}）—— 判不了“有没有待答旧题”，先修题库"
+    if pending:
+        return (f"进队列被拦：题库里还有 {len(pending)} 道相关旧题没答："
+                + "、".join(pending[:8]) + " —— 先答完（D-060：所有相关旧题都已答且无未决冲突才算过）")
+    return ""
+
 
 
 # ---------- 自然语言查询（搜索框语义解析） ----------
@@ -1194,11 +1489,16 @@ def api_edit(id, fields):
     d = parse_task(fn)
     if d is None:
         return False, "parse fail"
+    # ⚠ 进队列闸要比的是“**改之前**的状态”。这里先存一份 —— 2026-11-11 第一版把它写成
+    #   `if 新状态==待办 and d['状态']!=待办`，但下面那个白名单循环**已经把 d['状态'] 改掉了**，
+    #   条件恒为假 → CLI/看板这条闸从来没生效过（评审当场抓到；当时 e2e 只测纯函数所以是绿的）。
+    #   现在另有一组“真走 api_edit”的断言，防止再写成死闸。
+    _old_status = str(d.get("状态") or "")
     # ⚠ 这是一张**硬编码白名单**，漏一个键就是静默丢弃（api_edit 返回 ok 但字段没写）。
     #   2026-10-22 加认领时踩过一次：claim_task 写"成功"，重读却读不到 —— 因为
     #   认领人/认领时间不在这张表里。**加受管键必须同步这里**，否则 CLI 报成功、盘上没变。
     for k in ["标题", "状态", "批次", "截止", "优先级", "阻塞", "附言", "来源", "指派", "验收",
-              "派活时间", "认领人", "认领时间", "归因"]:
+              "派活时间", "认领人", "认领时间", "归因", "澄清"]:
         if k in fields and fields[k] is not None:
             d[k] = fields[k]
     if isinstance(fields.get("项目"), list):
@@ -1209,6 +1509,15 @@ def api_edit(id, fields):
         d["方案"] = fields["方案"]
     if "结果记录" in fields:
         d["结果记录"] = fields["结果记录"]
+    if isinstance(fields.get("验收清单"), list):
+        d["验收清单"] = [str(x).strip() for x in fields["验收清单"] if str(x).strip()]
+    # 进队列闸（2026-11-11 · 规格单 §3.1 第二个时点）：CLI 也是一条写入口，
+    # 不在这里拦就等于“CLI 能绕过 GUI/MCP 的闸”。判据与桌面同一套（_queue_gate_reason）。
+    # 判的是**写完之后**的卡（同一次调用里可能同时补了 `澄清`），所以放在白名单赋值之后。
+    if str(d.get("状态") or "") == "待办" and _old_status != "待办":
+        _why = _queue_gate_reason(d)
+        if _why:
+            return False, _why
     if "cron" in fields:
         d["cron"] = fields["cron"]
     if isinstance(fields.get("context"), list):
@@ -1274,13 +1583,55 @@ def api_review(id, verdict, reason=""):
 
 
 # ---------- 阶段门控（gate）：验收清单管理 ----------
-_GATES = {}  # 内存中的门控状态 {gate_id: {title, items, status, conclusion}}
+#
+# 2026-11-11（卡 task-20261108-010）：**门控状态落盘**。
+#   此前 `_GATES` 是纯内存字典 → 进程一退（看板 90s 自退、CLI 跑完就结束）全丢，
+#   而 `gate_list` 还照样返回空列表，看起来像“没有闸”，实际是“闸丢了”。
+#   两个选项里选了落盘（另一个是“在文档里写明 gate 不承重”）：
+#   因为 MCP 已经把 gate_open / gate_check / gate_list 暴露给 agent，一旦它被当成真闸用，
+#   “重启即失效”就是假绿灯 —— 比多一个 json 文件危险得多。
+#   落点 `task-data/.gates.json`（使用数据，不入 git），原子写；**坏文件静默回退空表**：
+#   门控是临时态，不该因为一个坏文件让整个 CLI 起不来。
+#   ⚠ 另：派活体检**不要**复用 gate —— 那条路现在是纯函数 `_dispatch_precheck`，不依赖任何进程内状态。
+_GATES = {}  # 门控状态 {gate_id: {title, items, status, conclusion}}
+_GATES_SRC = None  # 已从哪个数据根载入（切数据目录时重载）
+
+
+def _gates_path():
+    return os.path.join(TASK_DIR, ".gates.json")
+
+
+def _gates_ready():
+    global _GATES, _GATES_SRC
+    if _GATES_SRC == TASK_DIR:
+        return
+    _GATES_SRC = TASK_DIR
+    try:
+        with open(_gates_path(), encoding="utf-8") as f:
+            obj = json.load(f)
+        _GATES = obj if isinstance(obj, dict) else {}
+    except Exception:
+        _GATES = {}
+
+
+def _save_gates():
+    """原子写门控状态；写不进去不抛（闸的价值在判定，不在持久化本身）。"""
+    try:
+        p = _gates_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_GATES, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+    except Exception:
+        pass
 
 
 def gate_open(gate_id, title, items=None, stage=None):
     """创建验收门。items 为验收项列表，每项为字符串。"""
     if not gate_id or not isinstance(gate_id, str):
         return False, "gate_id 必须是非空字符串"
+    _gates_ready()
     _GATES[gate_id] = {
         "title": title or gate_id,
         "items": items or [],
@@ -1289,11 +1640,13 @@ def gate_open(gate_id, title, items=None, stage=None):
         "conclusion": None,
         "created_at": _now_ts(),
     }
+    _save_gates()
     return True, f"gate {gate_id} opened"
 
 
 def gate_check(gate_id, items):
     """检查验收门。items 为完整验收项列表，每项为 met/unmet/n/a + evidence。"""
+    _gates_ready()
     g = _GATES.get(gate_id)
     if not g:
         return False, f"gate {gate_id} not found", None
@@ -1305,25 +1658,30 @@ def gate_check(gate_id, items):
     if unmet:
         g["status"] = "blocked"
         g["conclusion"] = "blocked"
+        _save_gates()
         unmet_names = "、".join(i.get("name", "?") for i in unmet[:5])
         return True, f"BLOCKED: {len(unmet)} 项未通过（{unmet_names}）", g
     g["status"] = "passed"
     g["conclusion"] = "passed"
+    _save_gates()
     return True, "PASSED", g
 
 
 def gate_list():
     """列出所有验收门。"""
+    _gates_ready()
     return list(_GATES.values())
 
 
 def gate_close(gate_id, reason=""):
     """关闭验收门。"""
+    _gates_ready()
     g = _GATES.get(gate_id)
     if not g:
         return False, f"gate {gate_id} not found"
     g["status"] = "closed"
     g["conclusion"] = "closed"
+    _save_gates()
     return True, f"gate {gate_id} closed"
 
 
@@ -1773,6 +2131,19 @@ def api_new(fields):
         "创建": _now_ts(),
         "更新": _now_ts(),
     }
+    # 验收清单 / 澄清卷（2026-11-11）：两个字段此前**没有写入口** —— 界面/CLI 填了也存不下，
+    # 于是 `api_review` 的验收门控永远读空、进队列闸永远看不到卷名。
+    ysqd = [str(x).strip() for x in (fields.get("验收清单") or []) if str(x).strip()]
+    if ysqd:
+        d["验收清单"] = ysqd
+    qn = str(fields.get("澄清") or tpl.get("澄清") or "").strip()
+    if qn:
+        d["澄清"] = qn
+    # 进队列闸：新建即「待办」的卡同样要过（否则“新建”就是绕过闸的后门）
+    if str(d.get("状态") or "") == "待办":
+        _why = _queue_gate_reason(d)
+        if _why:
+            return False, _why
     write_task_file(os.path.join(TASK_DIR, tid + ".md"), d)
     return True, tid
 
@@ -3211,6 +3582,51 @@ def _agent_cmd(agent, extra_args):
     return fn(extra_args)
 
 
+# 任务书里的固定段落（2026-11-11 · 九张任务书/验收质量卡一批）
+# 为什么写成常量而不是就地拼：这些段落的**存在本身**就是判据（e2e 直接断言原文在不在），
+# 散在 f-string 里改一个标点就没人能对账了。
+BUG_LOOP_BLOCK = [
+    "## 0 先建复现回路（bug 卡硬前置 · 没回路不许进入假设阶段）",
+    "没复现就改代码 = 猜。先把故障**稳定复现**出来，再谈原因。十种办法（挑一个能跑通的）：",
+    "1. 失败测试：先写一个会红的用例，红了再修（不是为了覆盖率）",
+    "2. curl / HTTP 回放：把请求原样打一遍，看返回码与响应体",
+    "3. CLI + 快照 diff：同一条命令跑两遍，对比输出差异",
+    "4. headless 断言：DOM / console / network 三处都要看（浏览器 e2e）",
+    "5. 回放抓到的 trace（HAR / 应用日志 / 录屏）",
+    "6. 最小 harness：只跑出问题的那一段，别把整个应用拖进来",
+    "7. fuzz / 循环 1000 次：偶发问题靠次数换确定性",
+    "8. bisect harness：在新旧提交之间二分，把范围砍到一个提交",
+    "9. 新旧差分：同一输入跑两个版本，逐字段对比",
+    "10. 人点脚本驱动人：写清“点哪里 → 看到什么”的步骤，交给用户按步骤跑（他有人肉环境）",
+    "- **允许停下要东西**：实在建不出回路就停下并要三样之一 —— 能复现的环境 / 脱敏后的产物 / 临时埋点授权。"
+    "**不许硬猜**（“我猜是缓存问题”这类不是回路）。",
+    "- **假设 3–5 条且可证伪**：每条写成「若 X，则改 Y 后故障消失」，排序后**先给人看再测**。",
+    "- 模板：`assets/hitl-loop.template.ps1`（Windows 原生，复制成 `scripts/repro-<卡id>.ps1`"
+    " 改三行即可；装了 Git Bash 的机器可用同目录 `.sh` 版）—— 本机按契约 REV-006 只用 Windows 11。",
+]
+
+REVIEW_AXES_BLOCK = [
+    "## 评审两轴（独立跑 · 各 400 字 · 不合并 · 不重排）",
+    "- **Standards 轴**：只查仓库文档里写过的规则 + 固定异味基线；每条发现必须引到具体 hunk 或标准文件；"
+    "lint/format 已强制的项跳过（别再报一遍）。",
+    "- **Spec 轴**：只查“做的是不是要求的那件事”，不评价代码风格。",
+    "- **两轴各起独立上下文**（互不污染是这条纪律的全部意义）—— 每轴报告限 400 字。",
+    "- 聚合时分成 `## Standards` / `## Spec` 两栏原样呈现，**禁合并、禁重排**；"
+    "每轴结尾报「发现数 + 本轴最差项」。",
+    "- **禁止跨轴选唯一最严重**（that's the reranking the separation exists to prevent）。",
+    "- 先钉基线：`git diff <point>...HEAD` 三点 diff；坏 ref 或空 diff 在入口就失败，不进子代理。",
+]
+
+DESIGN_VARIANTS_BLOCK = [
+    "## 设计变体要求（挂在真实页面上，不真空里评）",
+    "- 默认 3 个**结构不同**方案（上限 5）；只改颜色 / 文案不算变体。",
+    "- 变体必须寄生在**已有真实页面**（真实 header / 侧栏 / 真实数据密度），用 `?variant=` 切换；"
+    "禁止真空独立路由（真空里每个变体都好看）。",
+    "- 底部浮条切换并写入 URL；生产构建隐藏浮条。",
+    "- 交付附**真构建产物截图**（渲染后目检，不是设计稿）—— 沿用「设计类交付必须先渲染截图目检」。",
+]
+
+
 def _build_prompt(d, tid, repo, done_cmd, fn):
     """完整任务书：agent 收到的是可独立执行的指令，不是一个标题。
     输入精确化的核心——方案原文、资源指路、附言、回写命令全部内联。
@@ -3226,11 +3642,17 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
     ziliao = str(res.get("资料") or "").strip()
     tools = res.get("工具") or []
     fy = str(d.get("附言") or "").strip()
+    kind = _task_kind(d)
+    body = str(d.get("_body") or "")
     lines = [
         f"执行方寸任务 {tid}：{d.get('标题','')}",
         f"项目：{proj_name}（{proj_id}）· 仓库：{repo}",
         f"任务卡：{fn}（先完整阅读再动手）",
     ]
+    # bug 卡（卡 013）：复现回路必须是**首节** —— “先建回路再谈原因”这条纪律靠位置说话，
+    # 放在末尾就等于没有。
+    if kind == "bug":
+        lines += BUG_LOOP_BLOCK
     # 立项契约（REV-002）：契约第一个读者是 AI —— 随任务书下发四节节选 + 硬前置“先读契约再动工”；
     # 缺契约时显式提示（不是静默跳过）。真源在各项目 repo，方寸只读。
     lines += contract_prompt_lines(repo)
@@ -3238,6 +3660,15 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
         "## 方案（验收对照表，完成后逐项核销）",
         plan,
     ]
+    # 范围外（卡 012）：正文写了 `## 范围外` 就原样注入；没写给兜底句。
+    # 为什么必须有这一节：没有边界，执行方会把“顺手看到的相邻缺陷”一起改了 ——
+    # 那不是勤快，是把 diff 撑大、把验收搅浑。
+    scope_out = _section_of(body, "范围外")
+    lines.append(
+        "## 范围外（禁碰）\n"
+        + (scope_out if scope_out else
+           "（卡上没有写 `## 范围外` 一节 —— 默认口径：本次只做方案里的事，"
+           "相邻功能与其缺陷**只报不改**；要动请先开新卡。）"))
     # 项目事实（六字段）：从方针卡注入，agent 不必自己去翻
     pol = read_policy(proj_id) if proj_id else None
     facts = str((pol or {}).get("项目事实") or "").strip()
@@ -3256,18 +3687,40 @@ def _build_prompt(d, tid, repo, done_cmd, fn):
         "- 修复新增兜底须报备：每条报“防的是什么 + 失败时用户看到什么”；"
         "防错误暴露（静默失败/假默认值）直接打回，防数据损坏留下但记录权衡。\n"
         "- 大改动交付附“数据流五句话”：数据从哪来 → 经过谁 → 落到哪 → 谁读它 → 本次动的是哪条链；"
-        "写进回写的结果/证据（归档卡就是人能读的变更日志）。" + map_line)
+        "写进回写的结果/证据（归档卡就是人能读的变更日志）。\n"
+        "- 引用代码用 `路径:符号名`，**禁写行号**（行号一天就过期；要引用片段就给符号名或原文三五行）。"
+        + map_line)
     if ziliao:
         lines.append(f"资料：{ziliao}")
     if tools:
         lines.append(f"工具提示：{', '.join(tools)}")
     if fy:
         lines.append(f"## 本次附言（优先级最高；与本任务既往记录冲突时以本条为准）\n{fy}")
+    # 评审 / 设计类（卡 014 / 015）：纪律随任务书下发，否则执行方只会按自己习惯交一份
+    # “看起来挺全”的评审 / 设计稿。
+    if kind == "review":
+        lines += REVIEW_AXES_BLOCK
+    if kind == "design":
+        lines += DESIGN_VARIANTS_BLOCK
+    # 验收双轴（卡 009）：两行自报落进 `结果记录`，**不新增 frontmatter 字段**
+    # （“给任务多填一张表”那类补丁已被否定过）。项目没有契约时改为写“为何不需要”。
+    has_contract = project_contract_exists(proj_id)
+    lines.append(
+        "## 验收双轴（回写时各写一行，写进结果记录）\n"
+        "- 方案核销：<做完哪几条 / 共几条>\n"
+        + ("- 契约自报：<触碰了契约哪一节 / 是否越界>\n" if has_contract else
+           "- 契约自报：本项目无立项契约（或未登记 repo）—— 写明本次为何不需要契约四件\n"))
     lines.append(
         "## 回写（必须，自包含闭环）\n"
         f'完成后执行：{done_cmd} --结果 "<一句话结果>" [--证据 "<改动清单/验证输出路径>"]\n'
         "证据路径让验收人能顺着看到实物；回写后任务置为待验收，由人验收。")
-    return "\n".join(lines)
+    # 脱敏（卡 008）：任务书是要交给**外部** agent 的上下文，凭证形状一律遮掉。
+    text = "\n".join(lines)
+    text, redacted = _redact_secrets(text)
+    if redacted:
+        text += (f"\n\n> 已脱敏 {redacted} 处：任务书里命中了凭证形状（sk- / ghp_ / AKIA / bearer / "
+                 "api_key=…）。原文仍在任务卡里，只是不随任务书出门。")
+    return text
 
 
 def prepare_dispatch(tid):
@@ -3290,6 +3743,62 @@ def prepare_dispatch(tid):
             "snapshot": os.path.join(TASK_DIR, f".dispatch-{tid}-{_now_ts()}.txt")}, ""
 
 
+# 派活体检（卡 task-20261108-007）：单卡粒度上限。超过就是“这一张卡装着两件事”，
+# 派出去必然返工 —— 阈值写成常量，别散在判断里。
+DISPATCH_PLAN_MAX = 8
+# 行号引用（卡 012 的反面）：`src/a.ts:123` 这种一天就过期。命中只提醒不拦。
+_LINE_REF_RE = re.compile(r"[\w./\\\-]+\.(?:py|ts|tsx|js|cjs|mjs|vue|css|html|json|md):\d+")
+
+
+def _dispatch_precheck(d, tid, force=False):
+    """派活前置体检（一次列全缺项，分三档）。
+
+    为什么不再“第一处失败就 return”：实测修一个派一次、派一次又被下一个缺项拦住，
+    一轮下来点了七八次。现在把**所有**问题一次说清。
+    三档（卡上定死）：
+      · block     —— 不可跳过（终态 / 被阻塞 / 方案为空）
+      · forceable —— `--force` 可放行（方案 > 8 条、已在进行中重复派活）
+      · warn      —— 只提醒（验收清单为空、正文缺「范围外」节、含行号引用）
+    验收清单**只提醒不拦**：实测 109 张非终态卡里 0 张填过该字段，硬拦会把派活全部锁死。
+    """
+    block, forceable, warn = [], [], []
+    st = str(d.get("状态") or "")
+    if st in ("完成", "驳回"):
+        block.append(f"任务已终态（{st}），不派活")
+    try:
+        blk = blockers_of(tid)
+    except Exception:
+        blk = []
+    if blk:
+        who = "、".join(f"{b['id']}《{b['标题']}》{b['状态']}" for b in blk)
+        block.append(f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）")
+    plan_ok = [s for s in (d.get("方案") or []) if str(s).strip() and str(s).strip() != "- [ ]"]
+    if not plan_ok:
+        block.append("方案为空（只剩占位符）：空白任务书会让执行方自行猜测目标，先补方案再派")
+    elif len(plan_ok) > DISPATCH_PLAN_MAX:
+        forceable.append(
+            f"方案 {len(plan_ok)} 条 > 单卡上限 {DISPATCH_PLAN_MAX}：一张卡装了两件事，建议拆卡"
+            f"（确认仍要整卡派 → --force 放行）")
+    if st == "进行中" and not force:
+        forceable.append(
+            "任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
+            "存在同时写同一仓库的风险（确认上次已中断需重派 → --force）")
+    if not [x for x in _as_list(d.get("验收清单")) if str(x).strip()]:
+        warn.append("验收清单为空（只提醒：存量卡基本都没填，硬拦会把派活全锁死）")
+    # 澄清口径不一致要**说出来**（2026-11-11 评审抓到的第 3 条）：桌面「复制为派工单」
+    # 按 2026-11-09 S3=B 硬拦“没卷不许派”，CLI 任务书按过渡口径仍放行（存量卡 300+
+    # 全都不会带卷，硬拦等于停掉 CLI 派活）。差异不是忘了，是刻意，但必须可见。
+    if not _clarify_of(d):
+        warn.append("这张卡没有声明澄清卷（`澄清: <卷>`）—— 桌面「复制为派工单」会拒，"
+                    "CLI 任务书仍会生成（过渡口径）；要派就先出卷、答完、批准（只提醒）")
+    body = str(d.get("_body") or "")
+    if not _section_of(body, "范围外"):
+        warn.append("正文缺「## 范围外（禁碰）」一节（只提醒：没有边界，执行方容易顺手改隔壁）")
+    if _LINE_REF_RE.search("\n".join(plan_ok) + "\n" + body):
+        warn.append("方案/正文里有「文件:行号」引用（只提醒）：行号一天就过期，改用 `路径:符号名`")
+    return {"block": block, "forceable": forceable, "warn": warn}
+
+
 def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
     """派活：生成完整任务书及 agent 启动命令。
 
@@ -3301,18 +3810,14 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
     if err:
         return False, err, None
     d, fn = info["d"], info["fn"]
-    if d.get("状态") in ("完成", "驳回"):
-        return False, "任务已终态，不派活", None
-    blk = blockers_of(tid)
-    if blk:
-        who = "、".join(f"{b['id']}《{b['标题']}》{b['状态']}" for b in blk)
-        return False, f"被阻塞：前置 {who} 未完成（前置完成并验收后自动解锁）", None
-    plan_ok = [s for s in (d.get("方案") or []) if str(s).strip() and str(s).strip() != "- [ ]"]
-    if not plan_ok:
-        return False, "方案为空（只剩占位符）：空白任务书会让执行方自行猜测目标，先补方案再派", None
-    if d.get("状态") == "进行中" and not force and (launch or dry_run):
-        return False, ("任务已在进行中（上次派活可能未闭环）：重复派活会开出第二个并发会话，"
-                       "存在同时写同一仓库的风险。确认上次已中断需重派：CLI 加 --force，看板在弹窗确认"), None
+    # 体检一次列全（卡 007）：block 恒拦；forceable 只有 --force 才放行；warn 永远只提醒
+    pre = _dispatch_precheck(d, tid, force)
+    hard = list(pre["block"]) + ([] if force else list(pre["forceable"]))
+    if hard:
+        msg = "派活体检没过（一次列全，逐条修完再派）：\n- " + "\n- ".join(hard)
+        if pre["warn"]:
+            msg += "\n（另有只提醒项，不影响本次拦截）\n- " + "\n- ".join(pre["warn"])
+        return False, msg, None
     # 确定执行后端
     if agent is None:
         agent = (d.get("agent") or "hermes").strip()
@@ -3352,7 +3857,10 @@ def dispatch_task(tid, launch=True, force=False, dry_run=False, agent=None):
     write_task_file(fn, d)
     log_activity("dispatch" if launch else "dry-dispatch", tid,
                  f"{os.path.basename(info['snapshot'])} · {(d.get('标题') or '')[:40]}")
-    return True, ("已静默派活（桌面端会话列表可追踪）" if launch else "已生成派活命令"), cmd
+    msg = ("已静默派活（桌面端会话列表可追踪）" if launch else "已生成派活命令")
+    if pre["warn"]:
+        msg += "\n注意（只提醒，未拦截）：\n- " + "\n- ".join(pre["warn"])
+    return True, msg, cmd
 
 
 def api_dispatch(id, force=False, dry_run=False):

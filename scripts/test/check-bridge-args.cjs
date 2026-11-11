@@ -43,7 +43,10 @@ function isObjectRefDecl(line) {
  */
 function callsIn(src) {
   const out = []
-  const re = /tegula\.[A-Za-z_$][\w$]*\s*\(/g
+  // 2026-11-09：组件里普遍写成 `const api = () => window.tegula`，调用是 `api().foo(...)`。
+  // 旧写法只认 `tegula.foo(`，于是 QuestionnaireModal 的 `api().questionnaireSaveAnswers(deck, answers.value)`
+  // 整条漏过 —— 五道题全答完，落盘是空卷。两种写法都要抓。
+  const re = /(?:tegula|api\(\))\.[A-Za-z_$][\w$]*\s*\(/g
   let m
   while ((m = re.exec(src)) !== null) {
     // 从 '(' 开始配平

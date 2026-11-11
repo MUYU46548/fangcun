@@ -78,6 +78,29 @@ check('★★ prompt 文本里带上了"实际结果"', user.includes('实际结
 check('★ prompt 里有可用依据 id', allowedCitations(input).length > 0, allowedCitations(input).length)
 check('★★ prompt 要求回答"为什么是现在做这件"（不是只列事）', /为什么是现在/.test(user))
 
+// ⑤ 有效决策必须进输入（2026-11-09：此前 plan_draft 一条决策都不读）
+const decs = input.decisions || []
+check('★★ 有效决策进了规划输入（不是 0 条）', decs.length > 0, decs.length)
+check('★★ 每条决策都带 id 与内容', decs.every((d) => /^D-\d+$/.test(d.id) && String(d.内容 || '').trim().length > 0),
+  decs.filter((d) => !/^D-\d+$/.test(d.id) || !String(d.内容 || '').trim()).slice(0, 2))
+check('★★ prompt 文本里带上旧拍板 id（decision:D-）', /decision:D-\d+/.test(user), user.slice(0, 80))
+check('★ prompt 要求回应旧拍板（不是只当背景）', /回应/.test(user))
+
+// 反例：已撤销 / 已合并的决策不许进上下文（模型会把撤销过的当现行规矩）
+const decisionsSrc = require(path.join(REPO, 'desktop/dist/main/data/decisions.js'))
+const bad = new Set(decisionsSrc.loadDecisions().filter((d) => String(d.状态 || '') !== '有效').map((d) => d.id))
+check('★★ 反例：已撤销/已合并的决策不许进规划输入',
+  !decs.some((d) => bad.has(d.id)), decs.filter((d) => bad.has(d.id)).map((d) => d.id))
+
+// ⑥ 已落档验收线必须进输入（S3 直连：答过的线要真的出现在后面的施工里）
+const rulings = input.rulings || []
+check('★★ 已落档验收线进了规划输入（不是 0 条）', rulings.length > 0, rulings.length)
+check('★★ 每条 ruling 都带卷 / 题号 / 验收线原文',
+  rulings.every((r) => r.deck && r.qid && String(r.line || '').trim().length > 3),
+  rulings.filter((r) => !r.deck || !r.qid || !String(r.line || '').trim()).slice(0, 2))
+check('★★ prompt 文本里带上 ruling:<卷>:<题号>', /ruling:/.test(user), user.slice(0, 80))
+check('★ prompt 要求把验收线原样搬进 criteria', /原样搬/.test(user))
+
 // 中文键回归闸：源码里不许出现 fm.项目 / fm.标题 / fm.状态
 const src = fs.readFileSync(path.join(REPO, 'desktop/src/main/llm/planDraftInput.ts'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')

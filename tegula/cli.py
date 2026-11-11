@@ -44,6 +44,10 @@ from tegula.core import (
     _hermes_cmd, _claude_cmd, _codex_cmd,
     _kun_cmd, _agent_cmd, _build_prompt, prepare_dispatch, dispatch_task,
     api_dispatch, allowed_roots, validate_open_path, api_open_file,
+    # 2026-11-11（九张一批）：done 体检要判断“项目有没有契约”“这是不是 bug 卡”。
+    # ⚠ 这两个必须进这张显式导入清单 —— 漏一个就是 NameError（export/import 四条命令的历史事故）。
+    project_contract_exists, _task_kind, _queue_gate_reason, _redact_secrets,
+    DISPATCH_PLAN_MAX, _dispatch_precheck,
     _rules_path, load_rules, save_rules, _plan_all_checked, evaluate_rules,
     esc, _status_snapshot_path, _load_status_snapshot, _read_port_file,
     _write_port_file, _clear_port_file, _diagnose_port_conflict, tegula_alive, find_edge,
@@ -413,6 +417,24 @@ def _done_precheck(d, args):
                 f"这张卡由“{claimer}”认领 —— 交回时建议带 --by {claimer}，"
                 f"否则无法判断是不是本人交回"
             )
+
+    # 验收双轴（2026-11-11 卡 009）：两行自报只**提醒**，不拒 ——
+    # 老卡的结果记录里不可能有它，硬拒会把所有在途卡锁死。
+    # 只对“该有的”要：方案非空才要方案核销；项目真有契约才要契约自报。
+    result_all = (str(getattr(args, "结果", "") or "") + "\n" + str(d.get("结果记录") or "")).strip()
+    plan_lines = [s for s in (d.get("方案") or []) if str(s).strip() and str(s).strip() != "- [ ]"]
+    if plan_lines and "方案核销" not in result_all:
+        warnings.append("结果记录没写「方案核销：<做完哪几条/共几条>」—— 验收双轴的第一轴（只提醒）")
+    _proj = d.get("项目") or []
+    _proj = str(_proj[0] if isinstance(_proj, list) and _proj else "").strip()
+    if _proj and project_contract_exists(_proj) and "契约自报" not in result_all:
+        warnings.append("本项目有立项契约，但结果记录没写「契约自报：<触碰哪节/是否越界>」（只提醒）")
+
+    # bug 卡（2026-11-11 卡 013）：结果记录里必须有「复现命令：」一行 —— 这一条是 **error**。
+    # 为什么与上面两轴不同：bug 卡没有复现命令 = “我猜好了”，那不是完工，是还没开始。
+    if _task_kind(d) == "bug" and "复现命令" not in result_all:
+        errors.append("bug 卡的结果记录里没有「复现命令：<命令/步骤>」—— 没复现就报完工 = 猜好了；"
+                      "确认已在别处复现可加 --force")
 
     return errors, warnings
 

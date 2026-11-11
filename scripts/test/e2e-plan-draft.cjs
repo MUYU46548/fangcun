@@ -140,6 +140,12 @@ async function main() {
   setTraceFilePathForTest(traceFile)
 
   const payload = {
+    // 2026-11-10：宪法页 + 本轮要先问的问题 是硬要求（H2 三件套 / V1 机器版）
+    constitution: [
+      { kind: '已定', text: '判据必须能机检', cites: ['task:t1'] },
+      { kind: '待定', text: '未知前缀算不算通过', cites: ['ledger:rejected'] },
+    ],
+    asks: [{ ask: '未知前缀要不要算 unknown？', why: '它决定执行器判红还是判不了' }],
     stages: [
       {
         id: 'P0', title: '判据执行器收口', what: '把四类前缀真跑起来',
@@ -171,6 +177,10 @@ async function main() {
     (text.match(/^- 依据:.*$/m) || [''])[0])
   check('★ 五段齐全（范围 / 交付物 / 验收标准 / 里程碑 / 除外责任）',
     ['## 范围', '## 交付物', '## 验收标准', '## 里程碑', '## 除外责任'].every((h) => text.indexOf(h) >= 0))
+  check('★★ 宪法页在草案里（一页结论，带类型与依据）',
+    /## 宪法（一页结论）/.test(text) && /已定 \| 判据必须能机检/.test(text), text.slice(0, 500))
+  check('★★ 本轮要先问的问题写进草案（V1 的机器版）',
+    /## 本轮要先问的问题/.test(text) && /未知前缀要不要算/.test(text))
   check('★ 判据写成机器前缀（cmd/str）', /- cmd: node scripts\/test\/e2e-checks\.cjs/.test(text) && /- str:/.test(text))
 
   const tmpName = '_e2e-draft.md'
@@ -199,11 +209,76 @@ async function main() {
     JSON.stringify({ ok: r1.ok, called }))
 
   const r2 = await generatePlanDraft(INPUT, {
-    callLlm: async () => ({ text: '{"stages":[{"title":"A","approach":["x"],"copy":[["a","b","c","d"]],"criteria":["cmd: node x.js"],"cites":[]}]}', usage: { totalTokens: 5 } }),
+    callLlm: async () => ({
+      text: JSON.stringify({
+        constitution: [{ kind: '已定', text: '有依据才进草案', cites: ['task:t1'] }],
+        asks: [], asksNote: '现有决策已覆盖',
+        stages: [{ title: 'A', approach: ['x'], copy: [['a', 'b', 'c', 'd']], criteria: ['cmd: node x.js'], cites: [] }],
+      }),
+      usage: { totalTokens: 5 },
+    }),
     appendTrace: () => { /* 留痕失败不该影响判定 */ },
   })
   check('★★ 所有建议都引不出依据 → 整体拒绝（不是落一份空草案）',
     r2.ok === false && r2.missingCitations === 1, JSON.stringify({ ok: r2.ok, missing: r2.missingCitations }))
+
+  console.log('\n== ⑦ 三条新硬闸：宪法页 / 必须先问 / 判据现状已满足 ==')
+  {
+    const stageOk = {
+      id: 'P0', title: '有依据的阶段', what: '为什么现在做', approach: ['x'],
+      copy: [['a', 'b', 'c', 'd']], criteria: ['cmd: node scripts/test/e2e-checks.cjs'], cites: ['task:t1'],
+    }
+    const cons = [{ kind: '已定', text: '先有依据再动手', cites: ['task:t1'] }]
+
+    const noCons = await generatePlanDraft(INPUT, {
+      callLlm: async () => ({ text: JSON.stringify({ asks: [], asksNote: '没有', stages: [stageOk] }) }),
+      appendTrace: () => {},
+    })
+    check('★★ 没有宪法页 → 整份不合格（H2 三件套）',
+      noCons.ok === false && /宪法/.test(noCons.error || ''), noCons.error)
+
+    const noSettled = await generatePlanDraft(INPUT, {
+      callLlm: async () => ({
+        text: JSON.stringify({
+          constitution: [{ kind: '待定', text: '还没定的事', cites: ['task:t1'] }],
+          asks: [], asksNote: '没有', stages: [stageOk],
+        }),
+      }),
+      appendTrace: () => {},
+    })
+    check('★★ 宪法里没有一条「已定」→ 不合格（那是待办清单，不是旗帜）',
+      noSettled.ok === false && /已定/.test(noSettled.error || ''), noSettled.error)
+
+    const noAsks = await generatePlanDraft(INPUT, {
+      callLlm: async () => ({ text: JSON.stringify({ constitution: cons, stages: [stageOk] }) }),
+      appendTrace: () => {},
+    })
+    check('★★ 没有「本轮要先问的问题」这一段 → 不合格',
+      noAsks.ok === false && /先问/.test(noAsks.error || ''), noAsks.error)
+
+    const emptyNoReason = await generatePlanDraft(INPUT, {
+      callLlm: async () => ({ text: JSON.stringify({ constitution: cons, asks: [], stages: [stageOk] }) }),
+      appendTrace: () => {},
+    })
+    check('★★ 没有新问题又不说理由 → 不合格',
+      emptyNoReason.ok === false && /理由/.test(emptyNoReason.error || ''), emptyNoReason.error)
+
+    // 判据现状体检：文件现在就存在 = 这条判据不构成验收
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-green-'))
+    fs.mkdirSync(path.join(repo, 'docs'), { recursive: true })
+    fs.writeFileSync(path.join(repo, 'docs', 'done.md'), '# 早就存在\n', 'utf-8')
+    const g1 = validateDraftStages(
+      [{ ...stageOk, criteria: ['file: docs/done.md'] }], ALLOWED, { repoRoot: repo })
+    check('★★ 判据现状就已全部满足 → 该阶段被丢（不是留一张会假绿的卡）',
+      g1.stages.length === 0 && g1.alreadyGreen === 1, JSON.stringify(g1.dropped))
+    const g2 = validateDraftStages(
+      [{ ...stageOk, criteria: ['file: docs/还没做.md'] }], ALLOWED, { repoRoot: repo })
+    check('★ 文件还不存在 → 判据不算已满足（阶段留下）', g2.stages.length === 1, JSON.stringify(g2.dropped))
+    const g3 = validateDraftStages(
+      [{ ...stageOk, criteria: ['cmd: node scripts/test/e2e-checks.cjs'] }], ALLOWED, { repoRoot: repo })
+    check('★ cmd 判据不跑（起草器不许执行任意命令）→ 不判“已满足”', g3.stages.length === 1)
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
 
   console.log('\n== ⑥ 接线/边界守卫 ==')
   {
@@ -218,6 +293,17 @@ async function main() {
     check('★ 状态只写“待裁决”（源码里不写 `状态: 已冻结`）', !/状态:\s*已冻结/.test(SRC))
     check('★ 引用校验只认真实存在的依据（allowed 集合，不许自由编）',
       /allowedCitations/.test(SRC) && /!allow\.has\(c\)/.test(SRC))
+    check('★★ 三条新硬闸在源码里（宪法 / 先问 / 判据现状体检）',
+      /validateConstitution/.test(SRC) && /asksNote/.test(SRC) && /evaluateCriteriaNow/.test(SRC))
+    check('★★ 生成口超时放宽到 240s（实测 58.7s / 配置 60s，卡边界）',
+      /timeout: 240/.test(SRC))
+    check('★ 草案自我介绍不再硬编码“按产品定义 + 投入产出账…”（写真正进过上下文的来源）',
+      /srcs\.join/.test(SRC) && !/方寸按“产品定义 \+ 投入产出账 \+ 现有卡与 git 事实”起草/.test(SRC))
+    // 2026-11-10：agent 当大脑、方寸当闸 —— plan_submit 必须复用同一条管道与同一个闸
+    const TOOLS = read('desktop/src/main/mcp/tools.ts')
+    check('★★ plan_submit 存在，且复用 gateForDeck + generatePlanDraft（同一条管道，不另写一套校验）',
+      /case 'plan_submit'/.test(TOOLS) && /gateForDeck\(deck, proj\)/.test(TOOLS) && /model: 'agent'/.test(TOOLS))
+    check('★★ 生成口不再有“关思考”开关（reasoning 参数已删）', !/reasoning:\s*'off'/.test(SRC) && !/reasoning\?:/.test(read('desktop/src/main/llm/chat.ts')))
   }
 
   finish()

@@ -223,7 +223,32 @@ function summarize(r) {
     why: problems.join('；') || (err ? err.split('\n')[0] : ''),
     tools: replies[3] && replies[3].result ? replies[3].result.tools.length : 0,
     dataDir: dirText,
+    createdId: r.createdId,
     r5: replies[5], r6: replies[6],
+  }
+}
+
+/**
+ * 自检卡本地收拾（2026-11-11 写口闸之后需要）。
+ *
+ * 为什么不能只靠 `delete_task`：2026-11-11 起 MCP 写口分三档，「删卡」属于破坏性，
+ * 默认「读写」档会**拒绝**——那是闸在正常工作，不是接入坏了。但自检脚本不该在用户看板上
+ * 留一张垃圾卡，所以这里由**本地脚本**（不是 agent）把它移进回收站，与 delete_task 同一落点。
+ */
+function localTrash(dataDir, id) {
+  if (!dataDir || !id) return false
+  try {
+    const td = path.join(String(dataDir).trim(), 'task-data')
+    const src = path.join(td, id + '.md')
+    if (!fs.existsSync(src)) return false
+    const trash = path.join(td, '.trash')
+    fs.mkdirSync(trash, { recursive: true })
+    const dest = path.join(trash, path.basename(src))
+    if (fs.existsSync(dest)) fs.unlinkSync(src)
+    else fs.renameSync(src, dest)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -255,6 +280,20 @@ async function main() {
           ? s.r5.result.content[0].text : ''
         if (created && /"ok":\s*true/.test(created)) ok(`${name} 写侧：create_task 成功`)
         else no(`${name} 写侧：create_task 失败`, (created || '').slice(0, 120))
+        // 写侧留痕（2026-11-11）：MCP 写入档位决定“删卡”能不能走。
+        // 被闸拦下 = 闸生效（默认「读写」档不含破坏性），不是接入坏了 —— 但要如实说出来，
+        // 并且由本地脚本把自检卡收进回收站（不留在用户看板上）。
+        const del = s.r6 && s.r6.result && s.r6.result.content && s.r6.result.content[0]
+          ? s.r6.result.content[0].text : ''
+        if (s.createdId) {
+          if (/"ok":\s*true/.test(del || '')) {
+            ok(`${name} 写侧：自检卡已删除（进回收站）`)
+          } else {
+            const why = (/只读|破坏性/.test(del || '')) ? 'MCP 写入档位不含破坏性（闸生效）' : '删除失败'
+            const trashed = localTrash(s.dataDir, s.createdId)
+            ok(`${name} 写侧：delete_task 被拦（${why}）${trashed ? '，自检卡已由本地脚本移入回收站' : '，自检卡 ' + s.createdId + ' 需手动清理'}`)
+          }
+        }
       }
     } else {
       no(`${name} 握手失败`, s.why)

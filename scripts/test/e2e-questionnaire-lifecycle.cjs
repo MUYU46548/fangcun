@@ -25,6 +25,15 @@ const DATA = path.join(TMP, 'data')
 const QDIR = path.join(DATA, 'task-data', 'questionnaires')
 process.env.FC_TEST_USERDATA = path.join(TMP, 'userdata')
 for (const d of [DATA, path.join(DATA, 'task-data'), QDIR, process.env.FC_TEST_USERDATA]) fs.mkdirSync(d, { recursive: true })
+// 2026-11-09：卷归属要按 registry 认；临时数据根也必须有 it，
+// 否则 projectForDeck 读不到项目 → 决策卡又变成“全局”（测试自己制造的假象）。
+fs.writeFileSync(path.join(DATA, 'registry.yaml'), [
+  'members:', '  - 暮雨', 'projects:',
+  '  - id: sitian', '    name: 司天',
+  '  - id: fangcun-base', '    name: 方寸',
+  '  - id: novel', '    name: 墨坊',
+  '',
+].join('\n'), 'utf-8')
 
 const origResolve = Module._resolveFilename
 Module._resolveFilename = function (request, ...rest) {
@@ -74,6 +83,24 @@ fs.writeFileSync(path.join(QDIR, '无验收线.md'), [
   '【出处】测试夹具',
   '',
 ].join('\n'), 'utf-8')
+
+console.log('== ⓪ 空卷不许批准 + 卷面项目归属（2026-11-09）==')
+{
+  const withProject = parser.parseQuestionnaire([
+    '# 归属卷（合成）', '**项目**：fangcun-base', '',
+    '## P1 形状', '做一件还是两件？',
+    '- **A. 甲**——代价甲', '- **B. 乙**——代价乙',
+    '【验收线】出现反例即违约', '',
+  ].join('\n'))
+  check('★★ 卷面「项目」被解析（旧解析器整行丢掉）', withProject.project === 'fangcun-base', withProject.project)
+
+  const r = store.approveDeck('工整卷')
+  check('★★ 反例：一道都没答 → 拒绝批准（不许写“已落库”）', r.ok === false, `ok=${r.ok} err=${r.error}`)
+  const g = store.getDeck('工整卷')
+  check('★★ 反例：拒绝后 approvedAt 仍为空、题仍是未答',
+    !!g.ok && g.approvedAt === '' && Object.keys(g.answers || {}).length === 0,
+    `approvedAt=${g.approvedAt}`)
+}
 
 console.log('== ① 没写代价的选项（只点名、不删项）==')
 {
@@ -131,6 +158,11 @@ console.log('\n== ② 作废（整卷 / 单题）==')
   check('★ 前情：批准建出 2 张决策卡', ap.ok === true && ap.cards === 2, `cards=${ap.cards} err=${ap.error}`)
   const before = decisions.loadDecisions().filter((d) => d.出处.indexOf('问卷 司天-宪法层') === 0)
   check('★ 前情：决策卡按「问卷 <卷> · <题号>」可回查', before.length === 2, JSON.stringify(before.map((d) => d.出处)))
+  // 2026-11-09：此前 approveDeck 不传 项目 → 问卷答案全落成“全局决策”，
+  // contextPack 会把 A 项目的规矩发给 B 项目。
+  check('★★ 决策卡带项目归属（sitian，不是全局）',
+    before.length === 2 && before.every((d) => d.项目 === 'sitian'),
+    JSON.stringify(before.map((d) => d.项目)))
 
   const noReason = store.voidDeck('司天-宪法层', '  ')
   check('★★ 反例：作废不写原因 → 拒（三个月后没人知道为什么推翻）',
@@ -236,6 +268,26 @@ console.log('\n== ③ 事后校验（答案要能被反驳）==')
   const qAfter = store.auditQueue(Date.now()).rows.some((r) => r.deck === '墨坊-裁决层')
   check('★★ 作废的卷不进校验队列（否则天天提醒你去验一堆不作数的答案）',
     qBefore === true && qAfter === false, JSON.stringify({ qBefore, qAfter }))
+}
+
+console.log('\n== ④ 输入保护（2026-11-10 用户报障：“我打的字全没了”）==')
+{
+  // 这条只能扫源码：真按钮要桌面会话才点得到。但判据是硬的 ——
+  // 长文本（自述/作废原因）必须在**输入时**就落盘，不能只活在内存里等「确定」。
+  const src = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'components', 'QuestionnaireModal.vue'), 'utf-8')
+  check('★★ 文本框接了 @input（输入即触发落盘路径）', /<textarea[^>]*@input="onEditInput"/.test(src))
+  check('★★ 输入是防抖落盘，不是每个字符一次 IPC', /function onEditInput/.test(src) && /setTimeout\(/.test(src) && /350/.test(src))
+  check('★★ 落盘走 answers + save（草稿进磁盘，关窗不丢）',
+    /function flushEditDraft/.test(src) && /answers\.value\[e\.id\]\s*=\s*\{\s*kind/.test(src) && /void save\(\)/.test(src))
+  check('★★ 取消要回滚到打开前那一格（不能把临时草稿留下）',
+    /function cancelEdit/.test(src) && /editBefore\.value/.test(src) && /@click="cancelEdit"/.test(src))
+  check('★★ 关窗/切题前补一次 flush（防抖计时器还没到就关了）',
+    /onBeforeUnmount/.test(src) && /flushEditDraft/.test(src))
+  check('★ 重新打开编辑框会接上上次写的内容（不用重打）',
+    /editText\.value = cur && cur\.kind === kind/.test(src))
+  // 2026-11-10 用户第二条：“问卷越堆越多，后续管理问卷本身将成为一大难题”
+  check('★★ 卷列表按「待答 / 已处理」分组，已批准默认收起', /pendingDecks/.test(src) && /doneDecks/.test(src) && /showDone/.test(src))
+  check('★★ 卷列表带项目标记（否则几十卷分不清是哪条线的）', /d\.project/.test(src) && /project: projectForDeck/.test(fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'data', 'questionnaires.ts'), 'utf-8')))
 }
 
 console.log('')

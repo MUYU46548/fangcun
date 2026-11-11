@@ -1720,6 +1720,184 @@ finally:
     teg.TASK_DIR = _old_taskdir30
 
 
+# ---- 17. 任务书 / 验收质量九件（2026-11-11 · task-20261108-007~015）----
+# 这一批全是“任务书该长什么样”的口径，最容易变成“写得挺好但没人执行”——
+# 所以每条都断言**原文在不在**、**闸真的拦不拦**，而不是只断言函数返回 True。
+_q_dir = os.path.join(tmpdir, "nine")
+os.makedirs(_q_dir, exist_ok=True)
+_q_repo = os.path.join(tmpdir, "nine-repo")
+os.makedirs(_q_repo, exist_ok=True)
+_old_reg17, _old_td17 = teg.REGISTRY_PATH, teg.TASK_DIR
+try:
+    teg.REGISTRY_PATH = os.path.join(tmpdir, "reg-nine.yaml")
+    with open(teg.REGISTRY_PATH, "w", encoding="utf-8") as f:
+        f.write(f"projects:\n  - id: fangcun-base\n    name: 方寸\n    repo: {_q_repo}\n")
+    teg.TASK_DIR = _q_dir
+    os.makedirs(os.path.join(_q_dir, "questionnaires"), exist_ok=True)
+
+    def _d(**kw):
+        base = {"id": "task-20990101-950", "标题": "九件测试", "项目": ["fangcun-base"],
+                "状态": "待办", "方案": ["- [ ] 做一件事"], "_body": "", "标签": []}
+        base.update(kw)
+        return base
+
+    _prompt = teg._build_prompt(_d(), "task-20990101-950", _q_repo,
+                                "python tegula.py done task-20990101-950", "task-20990101-950.md")
+
+    # 008 脱敏
+    _p8 = teg._build_prompt(_d(附言="调接口用 api_key=abcdefgh12345678，别外传"),
+                            "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 008 任务书脱敏：api_key 的值不进任务书，键名保留",
+          "api_key=***" in _p8 and "abcdefgh12345678" not in _p8, _p8[-200:])
+    check("★ 008 脱敏计数写出来（不是静默抹掉）", "已脱敏" in _p8)
+    _p8b = teg._build_prompt(_d(附言="凭证文件在 tokens.json 里，路径 docs/tokens.json"),
+                             "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 008 不误伤文件名：tokens.json 原样保留",
+          "tokens.json" in _p8b and "已脱敏" not in _p8b, _p8b[-160:])
+    _p8c = teg._build_prompt(_d(附言="用 sk-ant-api03-abcdefghijklmn 这条"), "t", _q_repo, "done_cmd", "f.md")
+    check("★ 008 sk-ant 形状也被遮", "sk-ant-api03" not in _p8c and "***" in _p8c)
+
+    # 009 验收双轴
+    check("★★ 009 任务书含「验收双轴」两行",
+          "## 验收双轴" in _prompt and "方案核销" in _prompt and "契约自报" in _prompt)
+    with open(os.path.join(_q_repo, "立项契约.md"), "w", encoding="utf-8") as f:
+        f.write("# 立项契约\n")
+    _p9 = teg._build_prompt(_d(), "t", _q_repo, "done_cmd", "f.md")
+    check("★ 009 有契约的项目要「触碰哪节」自报",
+          "触碰了契约哪一节" in _p9 and teg.project_contract_exists("fangcun-base"))
+    os.remove(os.path.join(_q_repo, "立项契约.md"))
+
+    # 012 范围外 + 禁行号
+    _p12 = teg._build_prompt(_d(_body="## 范围外\n别动 web.py，只改 core.py"),
+                             "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 012 正文写了范围外 → 原样注入", "## 范围外（禁碰）" in _p12 and "别动 web.py" in _p12)
+    _p12b = teg._build_prompt(_d(), "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 012 没写 → 兜底句（只报不改）", "只报不改" in _p12b)
+    check("★★ 012 开工纪律禁行号", "禁写行号" in _p12b and "路径:符号名" in _p12b)
+    _pre12 = teg._dispatch_precheck(_d(_body="修复 core.py:1234 那行"), "task-20990101-950")
+    check("★ 012 含行号引用的卡派活时被提醒（只提醒不拦）",
+          any("行号" in w for w in _pre12["warn"]) and not _pre12["block"], str(_pre12["warn"]))
+
+    # 013 bug 卡
+    _p13 = teg._build_prompt(_d(type="bug"), "t", _q_repo, "done_cmd", "f.md")
+    _loop_at = _p13.find("## 0 先建复现回路")
+    check("★★ 013 bug 卡任务书首节是复现回路（不是先猜原因）",
+          _loop_at >= 0 and _p13.find("## 方案") > _loop_at, f"loop_at={_loop_at}")
+    check("★★ 013 十种办法都在", all(x in _p13 for x in ["失败测试", "curl", "bisect harness", "人点脚本驱动人"]))
+    check("★ 013 允许停下要东西", "允许停下要东西" in _p13 and "不许硬猜" in _p13)
+    check("★ 013 假设可证伪 + 3–5 条", "3–5 条且可证伪" in _p13)
+    _p13n = teg._build_prompt(_d(), "t", _q_repo, "done_cmd", "f.md")
+    check("★ 013 普通卡不塞复现回路（不误伤）", "先建复现回路" not in _p13n)
+
+    # 014 / 015
+    _p14 = teg._build_prompt(_d(标签=["评审"]), "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 014 评审卡带两轴纪律", "## 评审两轴" in _p14 and "禁合并、禁重排" in _p14 and "400 字" in _p14)
+    _p15 = teg._build_prompt(_d(标签=["设计"]), "t", _q_repo, "done_cmd", "f.md")
+    check("★★ 015 设计卡带变体要求", "## 设计变体要求" in _p15 and "?variant=" in _p15 and "结构不同" in _p15)
+
+    # 007 派活体检：一次列全 + 三档
+    _d7 = _d(方案=[f"- [ ] 第{i}件" for i in range(1, 11)], 状态="进行中")
+    _pre7 = teg._dispatch_precheck(_d7, "task-20990101-950")
+    check("★★ 007 方案超 8 条进「--force 可放行」档",
+          any("上限" in x for x in _pre7["forceable"]), str(_pre7))
+    check("★★ 007 一次列全：进行中 + 超长 + 验收清单空 同时出现",
+          len(_pre7["forceable"]) >= 2 and any("验收清单" in x for x in _pre7["warn"]), str(_pre7))
+    check("★ 007 验收清单为空只提醒不拦", not any("验收清单" in x for x in _pre7["block"]))
+    _pre7b = teg._dispatch_precheck(_d(方案=[]), "task-20990101-950")
+    check("★ 007 空方案仍进不可跳过档", any("方案为空" in x for x in _pre7b["block"]))
+
+    # 011 验收清单往返 + 门控
+    _f11 = os.path.join(_q_dir, "task-20990101-951.md")
+    _d11 = _d(id="task-20990101-951", 状态="待验收")
+    _d11["验收清单"] = ["[x] 已完成项", "未做项"]
+    teg.write_task_file(_f11, _d11)
+    _r11 = teg.parse_task(_f11)
+    check("★★ 011 验收清单写进 → 读回非空（此前一写就静默丢）",
+          (_r11.get("验收清单") or []) == ["[x] 已完成项", "未做项"], str(_r11.get("验收清单")))
+    teg.write_task_file(_f11, _r11)
+    _r11b = teg.parse_task(_f11)
+    check("★★ 011 再写回一轮仍一致（不是只活一次）", _r11b.get("验收清单") == _r11.get("验收清单"))
+    _ok11, _why11 = teg.api_review("task-20990101-951", "accept")
+    check("★★ 011 门控真的拦：清单里还有没打勾的项 → 拒绝验收",
+          _ok11 is False and "验收清单" in _why11, _why11)
+    _r11c = teg.parse_task(_f11)
+    _r11c["验收清单"] = ["[x] 已完成项", "[x] 未做项"]
+    teg.write_task_file(_f11, _r11c)
+    _ok11b, _why11b = teg.api_review("task-20990101-951", "accept")
+    check("★ 011 全都打勾 → 放行", _ok11b is True, _why11b)
+
+    # 澄清字段往返（进队列锁的 Python 侧）
+    _f11d = os.path.join(_q_dir, "task-20990101-952.md")
+    _d11e = _d(id="task-20990101-952", 状态="草稿")
+    _d11e["澄清"] = "某卷"
+    teg.write_task_file(_f11d, _d11e)
+    check("★★ 澄清卷往返保真（Python 写回不丢卷名）",
+          teg.parse_task(_f11d).get("澄清") == "某卷", str(teg.parse_task(_f11d).get("澄清")))
+
+    # 进队列闸必须**真走写入口 api_edit**（2026-11-11 评审抓到：第一版把它写成死闸 ——
+    # 白名单循环先把 d['状态'] 改了，闸里的“原来是待办吗”恒为假。只测纯函数永远绿）。
+    _fq = os.path.join(_q_dir, "task-20990101-953.md")
+    _qd = os.path.join(_q_dir, "questionnaires")
+    os.makedirs(_qd, exist_ok=True)
+    with open(os.path.join(_qd, "没批卷.md"), "w", encoding="utf-8") as f:
+        f.write("## A1 形状\n做一件还是两件？\n- **A. 甲**——代价甲\n- **B. 乙**——代价乙\n")
+    with open(os.path.join(_qd, "没批卷.answers.json"), "w", encoding="utf-8") as f:
+        json.dump({"deck": "没批卷", "answers": {"A1": {"kind": "pick", "k": "A"}}, "approvedAt": ""}, f)
+    _dq = _d(id="task-20990101-953", 状态="草稿")
+    _dq["澄清"] = "没批卷"
+    teg.write_task_file(_fq, _dq)
+    _okq, _whyq = teg.api_edit("task-20990101-953", {"状态": "待办"})
+    check("★★ 闸真走 api_edit：卷没批准 → 改待办被拒（死闸会在这里放行）",
+          _okq is False and "进队列被拦" in _whyq, str(_whyq)[:120])
+    check("★★ 被拒时状态没被改掉", teg.parse_task(_fq).get("状态") == "草稿",
+          str(teg.parse_task(_fq).get("状态")))
+    with open(os.path.join(_qd, "没批卷.answers.json"), "w", encoding="utf-8") as f:
+        json.dump({"deck": "没批卷", "answers": {"A1": {"kind": "pick", "k": "A"}},
+                   "approvedAt": "2026-11-11T00:00:00.000Z"}, f)
+    _okq2, _whyq2 = teg.api_edit("task-20990101-953", {"状态": "待办"})
+    check("★ 批准后放行（不是一律拦）", _okq2 is True, str(_whyq2)[:120])
+    check("★ 放行后状态写进文件", teg.parse_task(_fq).get("状态") == "待办")
+
+    # 项目对不上（评审第 2 条：Python 侧此前漏了这条判据）
+    with open(os.path.join(_qd, "别家卷.md"), "w", encoding="utf-8") as f:
+        f.write("## A1 形状\n**项目**：sitian\n做一件还是两件？\n- **A. 甲**——代价甲\n- **B. 乙**——代价乙\n")
+    with open(os.path.join(_qd, "别家卷.answers.json"), "w", encoding="utf-8") as f:
+        json.dump({"deck": "别家卷", "answers": {"A1": {"kind": "pick", "k": "A"}},
+                   "approvedAt": "2026-11-11T00:00:00.000Z"}, f)
+    _dmm = _d(id="task-20990101-954", 状态="草稿")
+    _dmm["澄清"] = "别家卷"
+    _why_mm = teg._queue_gate_reason(_dmm)
+    check("★★ 拿别的项目的卷当依据 → 拒（与桌面 gateForDeck 同一判据）",
+          "属于" in _why_mm and "sitian" in _why_mm, _why_mm)
+
+    # 题库：全局待答题对所有项目都算数（与桌面 openBank 同口径）
+    with open(os.path.join(_q_dir, "question-bank.md"), "w", encoding="utf-8") as f:
+        f.write("## Q-0001 全局题\n- 问题: 全局待答吗？\n- 状态: 待答\n\n")
+    _dbk = _d(id="task-20990101-955", 状态="草稿")
+    _dbk["澄清"] = "没批卷"
+    _why_bk = teg._queue_gate_reason(_dbk)
+    check("★★ 题库里有全局待答题 → 闸不开（D-060）", "题库里还有 1 道" in _why_bk, _why_bk)
+    os.remove(os.path.join(_q_dir, "question-bank.md"))
+
+    # 010 门控状态落盘
+    teg.gate_open("g-nine-1", "九件门", ["a"])
+    _disk = os.path.join(_q_dir, ".gates.json")
+    check("★★ 010 门控真的写了盘", os.path.exists(_disk), _disk)
+    teg._GATES = {}
+    teg._GATES_SRC = None
+    _gl = [g for g in teg.gate_list() if g.get("title") == "九件门"]
+    check("★★ 010 模拟重启（清空内存 + 重载）后门还在",
+          len(_gl) == 1 and _gl[0].get("status") == "open", str(teg.gate_list())[:160])
+    teg.gate_close("g-nine-1")
+    teg._GATES = {}
+    teg._GATES_SRC = None
+    _gl2 = [g for g in teg.gate_list() if g.get("title") == "九件门"]
+    check("★ 010 关闭状态也落盘（重启后不会又变成 open）",
+          len(_gl2) == 1 and _gl2[0].get("status") == "closed", str(_gl2)[:160])
+finally:
+    teg.REGISTRY_PATH, teg.TASK_DIR = _old_reg17, _old_td17
+
+
 print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
 if FAIL:
     print("失败项：", "、".join(FAIL))
