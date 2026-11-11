@@ -50,6 +50,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'plan-draft':  { icon: 'approve', label: '草案待提成', glyph: '🧭' },
     // 2026-11-11：地图久未核实 —— 提醒的是“该看一眼”，不是“结构已经变了”（后者要 git 比对，扫描器不做）
     'structmap-stale': { icon: 'security', label: '结构地图该核实', glyph: '🗺' },
+    // 2026-11-11：已完成日志过了保留期 —— 「清理超期」这个按钮一直要人主动去点，没人提醒就一直躺着
+    'log-retention': { icon: 'task', label: '日志可清理', glyph: '🗃' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -164,6 +166,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     // 草案：点了直接去作战计划（那里才有「提成阶段卡」）；结构地图：打开地图弹窗自己核一遍
     if (t === 'plan-draft') return '去作战计划提成'
     if (t === 'structmap-stale') return '去核实结构地图'
+    if (t === 'log-retention') return '去日志页清理超期'
     return null
   }
 
@@ -209,6 +212,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
       else ctx.toast('去设置页 → 项目方针 → 结构地图核对一遍', 'info')
       return
     }
+    // 2026-11-11：日志过保留期 → 切到日志页，那里才有「清理超期」
+    if (t === 'log-retention') { ctx.navigateTo('logs'); return }
   }
 
   async function ncClickItem(n: any): Promise<void> {

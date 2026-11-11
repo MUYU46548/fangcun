@@ -34,6 +34,8 @@ import * as questionnaires from '../data/questionnaires'
 import * as planDrafts from '../data/planDrafts'
 // 结构地图「最后核实」日期（只读日期，不做 git 比对 —— 见 scanStructMap 的注释）
 import * as policyStore from './policies'
+// 日志保留期（只读：已完成 + retain_until 已过 → 提醒去点「清理超期」）
+import * as logs from './logs'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -317,10 +319,11 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
-  // ── 8/9. 计划草案待提成 · 结构地图久未核实（2026-11-11 补；实现见本文件末尾）──
+  // ── 8/9/10. 计划草案待提成 · 结构地图久未核实 · 日志过保留期（实现见文件末尾）──
   {
     const a = scanPlanDrafts(); created += a.created; resolved += a.resolved
     const b = scanStructMap(); created += b.created; resolved += b.resolved
+    const c = scanLogRetention(); created += c.created; resolved += c.resolved
   }
 
   notifications.prune()
@@ -358,6 +361,39 @@ function scanPlanDrafts(): { created: number; resolved: number } {
     if (n.type === 'plan-draft' && !readyFiles.has(n.sourceId ?? '')) {
       resolved += notifications.resolveNotifications('plan-draft', n.sourceId)
     }
+  }
+  return { created, resolved }
+}
+
+// ── 10. 日志过了保留期还没清（2026-11-11）─────────────────────────────────
+// 「清理超期」这个按钮一直**要人主动去点**；过了 retain_until 还挂在“已完成”里的日志，
+// 没人提醒就会一直占着面板。口径：只提「已完成 **且** retain_until 已过」。
+// 聚合一条（逐条刷会淹掉通知中心），key 里带“命中条数 + 最早那条 id”：
+// 又冒出新的一批 → key 变 → 再提醒一次；清干净了 → 自动消解。
+function scanLogRetention(): { created: number; resolved: number } {
+  let created = 0
+  let pending = 0
+  try {
+    const now = new Date().toISOString()
+    const due = logs.listLogs().filter((l: any) => l.status === 'completed' && l.retainUntil && now > l.retainUntil)
+    pending = due.length
+    if (due.length) {
+      const first = due[0]
+      if (push({
+        type: 'log-retention', level: 'info', osNotify: false,
+        title: `${due.length} 条已完成日志已过保留期`,
+        body: `最早一条：《${String(first.title || first.id)}》（保留到 ${String(first.retainUntil).slice(0, 10)}）。`
+          + '到日志页点「清理超期」把它们收进已归档（只改状态，不删文件）',
+        sourceId: 'logs',
+        key: `v1:${due.length}:${String(first.id)}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '日志保留期扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'log-retention' && !pending) resolved += notifications.resolveNotifications('log-retention', n.sourceId)
   }
   return { created, resolved }
 }

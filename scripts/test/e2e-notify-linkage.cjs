@@ -102,6 +102,22 @@ function writePolicy(id, mapLine) {
 writePolicy('demo', '2026-01-01')          // 太久远 → 该提示
 writePolicy('fresh', new Date().toISOString().slice(0, 10))  // 今天 → 不该提示
 
+// ── 夹具：一条「已完成且过了保留期」的日志（「清理超期」按钮一直要人主动去点）──
+const LOGDIR = path.join(DATA, 'docs', '执行日志')
+fs.mkdirSync(LOGDIR, { recursive: true })
+fs.writeFileSync(path.join(LOGDIR, 'log-demo-retain.md'), [
+  '---',
+  'id: log-demo-retain',
+  'title: 过保留期的演示日志',
+  'status: completed',
+  'completed: 2026-01-01T00:00:00.000Z',
+  'retain_until: 2026-01-31T00:00:00.000Z',
+  '---',
+  '',
+  '正文：用来验「日志过保留期」这条通知。',
+  '',
+].join('\n'), 'utf-8')
+
 console.log('== ① 计划草案待提成 ==')
 const r1 = notifier.scanOnce(new Date())
 const drafts1 = ofType('plan-draft')
@@ -142,7 +158,23 @@ check('★★ 草案被删 / 地图更新 → **自动消解**（不留僵尸条
   'plan-draft=' + ofType('plan-draft').length + ' structmap=' + ofType('structmap-stale').length)
 check('★ 消解计入返回值的 resolved（不是静默消失）', r3.resolved >= 2, JSON.stringify(r3))
 
-console.log('\n== ④ 不误伤老类型 ==')
+console.log('\n== ④ 日志过保留期 ==')
+{
+  const logs1 = ofType('log-retention')
+  check('★★ 已完成且过了 retain_until → 一条 log-retention（“清理超期”一直要人主动点）',
+    logs1.length === 1 && logs1[0].sourceId === 'logs', JSON.stringify(logs1.map((n) => n.sourceId)))
+  check('★ 文案说清几条 + 最早那条 + 去点哪个按钮',
+    /1 条/.test(logs1[0].title || '') && /清理超期/.test(logs1[0].body || ''),
+    (logs1[0] && logs1[0].title) + ' | ' + (logs1[0] && logs1[0].body))
+  // 清干净（把它标成 archived）→ 下一次扫描自动消解
+  fs.writeFileSync(path.join(LOGDIR, 'log-demo-retain.md'),
+    fs.readFileSync(path.join(LOGDIR, 'log-demo-retain.md'), 'utf-8').replace('status: completed', 'status: archived'), 'utf-8')
+  notifier.scanOnce(new Date())
+  check('★ 清完（archived）→ 自动消解，不挂僵尸条目', ofType('log-retention').length === 0,
+    String(ofType('log-retention').length))
+}
+
+console.log('\n== ⑤ 不误伤老类型 ==')
 fs.writeFileSync(path.join(QDIR, 'demo-宪法层.md'), [
   '**项目**：demo', '', '## A1 甲', '关于甲要怎么定？',
   '- **A. 要**——代价甲', '- **B. 不要**——代价乙', '【验收线】出现反例即违约', '',
@@ -151,17 +183,18 @@ notifier.scanOnce(new Date())
 check('★★ 问卷待答照常提示（新类型没把老扫描挤掉）',
   ofType('questionnaire-pending').length === 1, String(ofType('questionnaire-pending').length))
 
-console.log('\n== ⑤ 源码守卫 ==')
+console.log('\n== ⑥ 源码守卫 ==')
 {
   const src = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/services/notifier.ts'), 'utf-8')
   check('★★ 结构地图扫描**不调 git**（60 秒一次，不许把主进程拖住）',
     !/scanStructMap[\s\S]{0,3000}?structureDrift\(/.test(src), '')
-  check('★ 两个新扫描都接进 scanOnce（不是写了没调用）',
-    /scanPlanDrafts\(\)/.test(src) && /scanStructMap\(\)/.test(src) && /created \+= a\.created/.test(src))
+  check('★ 三个新扫描都接进 scanOnce（不是写了没调用）',
+    /scanPlanDrafts\(\)/.test(src) && /scanStructMap\(\)/.test(src) && /scanLogRetention\(\)/.test(src)
+    && /created \+= c\.created/.test(src))
   check('★ 草案扫描失败不静默（appLog.warn）', /计划草案扫描失败/.test(src))
 }
 
-console.log('\n== ⑥ 界面侧：新类型必须有标签、有落点（否则面板显示裸 type 名 / 点了没反应）==')
+console.log('\n== ⑦ 界面侧：新类型必须有标签、有落点（否则面板显示裸 type 名 / 点了没反应）==')
 {
   const ui = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/composables/useNotifications.ts'), 'utf-8')
   const app = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/App.vue'), 'utf-8')
@@ -174,6 +207,9 @@ console.log('\n== ⑥ 界面侧：新类型必须有标签、有落点（否则�
     /ctx\.openPlanDrafts\(/.test(ui) && /ctx\.openStructMap\(/.test(ui))
   check('★ App.vue 把这两个入口接上了（不是只声明在类型里）',
     /openPlanDrafts:\s*async/.test(app) && /openStructMap:\s*\(\)\s*=>/.test(app))
+  check('★★ 日志可清理也有标签 + 落点（切到日志页，那里才有「清理超期」）',
+    /'log-retention':\s*\{[^}]*label: '日志可清理'/.test(ui)
+    && /t === 'log-retention'\) return/.test(ui) && /navigateTo\('logs'\)/.test(ui))
 }
 
 console.log('')
