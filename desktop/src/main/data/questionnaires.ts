@@ -477,6 +477,58 @@ export function unarchiveDeck(deck: string): { ok: boolean; error?: string; deck
   return r.ok ? { ok: true, deck: name } : { ok: false, error: (r as any).error as string }
 }
 
+/**
+ * 多卷批量处置（0.7.0 P11）。
+ *
+ * 为什么走这里而不是界面上 for 循环：
+ *   ① 批量动作最容易变成“看起来处理了”——某卷卷面坏掉（解析不出题）时，界面上
+ *      一个 for 循环会静默跳过它，用户以为全处理了；
+ *   ② 判据必须是「成功几卷说几卷、失败的逐条点名」，这条口径只能在一处定义。
+ *
+ * 所以：逐卷**仍走同一条通道**（archiveDeck / voidDeck），单卷失败不影响其余，
+ * 失败的卷**不改任何东西**并原样带回错误；返回值里 done / failed 两栏都要能对账。
+ */
+export function batchDeckAction(input: {
+  decks?: string[]
+  action?: string
+  reason?: string
+  days?: number
+}): { ok: boolean; action: 'archive' | 'void'; done: string[]; failed: { deck: string; error: string }[]; note: string } {
+  const action: 'archive' | 'void' = input.action === 'void' ? 'void' : 'archive'
+  const raw = Array.isArray(input.decks) ? input.decks : []
+  const names: string[] = []
+  for (const d of raw) {
+    const n = safeName(d)
+    if (n && !names.includes(n)) names.push(n)
+  }
+  const done: string[] = []
+  const failed: { deck: string; error: string }[] = []
+  if (!names.length) {
+    return { ok: false, action, done, failed: raw.length ? [{ deck: String(raw[0] || ''), error: '卷名为空' }] : [], note: '没有选中任何一卷' }
+  }
+  for (const n of names) {
+    try {
+      const r = action === 'void'
+        ? voidDeck(n, String(input.reason || ''))
+        : archiveDeck(n, String(input.reason || ''), Number(input.days) > 0 ? Number(input.days) : DECK_ARCHIVE_DAYS)
+      if (r && (r as any).ok) { done.push(n); continue }
+      failed.push({ deck: n, error: String((r as any).error || '未知原因') })
+    } catch (e: any) {
+      failed.push({ deck: n, error: e?.message || String(e) })
+    }
+  }
+  return {
+    ok: failed.length === 0,
+    action,
+    done,
+    failed,
+    note: failed.length
+      ? `逐卷走同一条通道：成功 ${done.length} 卷、失败 ${failed.length} 卷（失败的那几卷**什么都没改**，原因逐条列在下面）`
+      : `逐卷走同一条通道：${done.length} 卷全部处理完成`,
+  }
+}
+
+
 export interface CreateDeckResult {
   ok: boolean
   error?: string

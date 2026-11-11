@@ -1257,6 +1257,48 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('questionnaireUnarchive', [deck || ''])
     return { ok: true, deck }
   },
+  // 题库 ↔ 卷 ↔ 卡 关系视图（0.7.0 P11）：夹具给三条能对上账的关系行
+  questionnaireBankRelations: (project) => {
+    rec('questionnaireBankRelations', [project || ''])
+    return {
+      ok: true,
+      rows: [
+        {
+          id: 'Q001', ask: '验收线要不要写进卡里？', status: '已答', project: project || 'sitian',
+          line: '每张卡的验收清单非空', fingerprint: 'aaaa1111',
+          sources: [{ deck: '司天-宪法层', qid: 'S1', status: '已批准', answered: true,
+            delivered: [{ cardId: 'task-demo-1', date: '2026-11-01', passed: true }] }],
+          cards: ['task-demo-1'], notes: [],
+        },
+        {
+          id: 'Q002', ask: '备份要不要做恢复演练？', status: '已答', project: project || 'sitian',
+          line: '每季度一次恢复演练并留证据', fingerprint: 'bbbb2222',
+          sources: [{ deck: '司天-宪法层', qid: 'S2', status: '已批准', answered: true, delivered: [] }],
+          cards: [], notes: ['答案都在，但还没有卡带着这条验收线'],
+        },
+        {
+          id: 'Q003', ask: '多项目优先级谁说了算？', status: '待答', project: project || 'sitian',
+          line: '', fingerprint: 'cccc3333', sources: [], cards: [],
+          notes: ['没有卷问过它（题在库里，卷已删或从未出卷）'],
+        },
+      ],
+      stats: { questions: 3, withDeck: 2, withCard: 1, orphan: 1, answeredNoCard: 1 },
+    }
+  },
+  questionnaireBatchAction: (input) => {
+    rec('questionnaireBatchAction', [input && input.action ? input.action : '', (input && input.decks) || []])
+    cloneGuard('questionnaireBatchAction', [input])
+    const decks = (input && input.decks) || []
+    // 夹具故意留一卷“卷面坏掉”：批量里它必须失败并被点名，其余照做
+    const bad = decks.filter((d) => String(d).indexOf('坏') >= 0)
+    return {
+      ok: bad.length === 0,
+      action: input && input.action === 'void' ? 'void' : 'archive',
+      done: decks.filter((d) => bad.indexOf(d) < 0),
+      failed: bad.map((d) => ({ deck: d, error: '卷面解析不出题（坏卷）' })),
+      note: bad.length ? `逐卷走同一条通道：成功 1 卷、失败 ${bad.length} 卷` : '逐卷走同一条通道：全部处理完成',
+    }
+  },
   // 结论集收敛进度（P8 · D-064）：夹具给一句“未收敛”，让界面那行有东西可验
   questionnaireConvergence: (deck) => {
     rec('questionnaireConvergence', [deck || ''])

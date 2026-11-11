@@ -340,3 +340,121 @@ export function nextOpen(project: string, n = 6): BankEntry[] {
   const lim = Math.max(1, Math.min(20, Math.floor(Number(n) || 6)))
   return openBank(project).slice(0, lim)
 }
+
+// ── 题库 ↔ 卷 ↔ 卡的关系视图（0.7.0 P11）───────────────────────────────────
+// **纯函数**：不读盘。调用方（IPC）把「题库 + 各卷探针 + 卡」三份数据交进来，
+// 这里只算关系。为什么这么切：题库在 questionBank、卷在 questionnaires、卡在 tasks ——
+// 三个模块互相 import 会成环，而**关系本身是纯计算**，抽出来还能被 node 直跑断言。
+//
+// 判据口径（哪一条来自哪一卷、哪一条还没落地）：
+//   · 题 ↔ 卷：题干指纹相同即同一题（与查重同一套 normalizeAsk，不做语义相似度）；
+//   · 题 ↔ 卡：卡上的澄清标记写成 `<卷>#<题号>`（问卷落卡就是这个形状）；
+//   · 「交付」= 卡完成后由 `recordCardDelivery` 回写的记录（passed=false 表示被驳回过）。
+
+export interface DeckQuestionProbe {
+  qid: string
+  ask: string
+  answered: boolean
+  deliveries: { cardId: string; date: string; passed: boolean }[]
+}
+
+export interface DeckProbe {
+  deck: string
+  project: string
+  status: '草稿' | '已批准' | '已作废' | '已归档'
+  questions: DeckQuestionProbe[]
+}
+
+export interface BankRelationSource {
+  deck: string
+  qid: string
+  status: DeckProbe['status']
+  answered: boolean
+  delivered: { cardId: string; date: string; passed: boolean }[]
+}
+
+export interface BankRelationRow {
+  id: string
+  ask: string
+  status: BankStatus
+  project: string
+  line: string
+  fingerprint: string
+  sources: BankRelationSource[]
+  /** 引用这条结论的卡 id（来自卷落卡 / 派工单） */
+  cards: string[]
+  /** 这一行为什么不完整（空 = 齐全）—— 缺什么说什么，不填“—”糊过去 */
+  notes: string[]
+}
+
+export interface BankRelations {
+  ok: true
+  rows: BankRelationRow[]
+  stats: { questions: number; withDeck: number; withCard: number; orphan: number; answeredNoCard: number }
+}
+
+export function bankRelations(input: {
+  project?: string
+  bank?: BankEntry[]
+  decks?: DeckProbe[]
+  cards?: { id: string; clarify: string }[]
+}): BankRelations {
+  const project = String(input.project || '').trim()
+  const bank = (input.bank || []).filter((e) => !project || e.project === project)
+  const decks = input.decks || []
+  const cards = input.cards || []
+  const rows: BankRelationRow[] = []
+  let withDeck = 0
+  let withCard = 0
+  let orphan = 0
+  let answeredNoCard = 0
+
+  for (const e of bank) {
+    const fp = e.fingerprint || fingerprintOf(e.ask)
+    const norm = normalizeAsk(e.ask)
+    const sources: BankRelationSource[] = []
+    for (const d of decks) {
+      for (const q of d.questions) {
+        const same = (q.ask && fingerprintOf(q.ask) === fp) || (q.ask && normalizeAsk(q.ask) === norm)
+        if (!same) continue
+        sources.push({
+          deck: d.deck, qid: q.qid, status: d.status,
+          answered: !!q.answered, delivered: q.deliveries || [],
+        })
+      }
+    }
+    const refs: string[] = []
+    for (const c of cards) {
+      const line = String(c.clarify || '')
+      if (!line) continue
+      if (sources.some((s) => line.includes(s.deck + '#' + s.qid))) refs.push(c.id)
+    }
+    const notes: string[] = []
+    if (!sources.length) notes.push('没有卷问过它（题在库里，卷已删或从未出卷）')
+    if (sources.length && sources.every((s) => s.answered) && !refs.length) {
+      notes.push('答案都在，但还没有卡带着这条验收线')
+    }
+    if (sources.some((s) => s.answered) && e.status === '待答') {
+      notes.push('卷上已答、题库仍写“待答”（题库没回写成功）')
+    }
+    if (refs.length && !sources.some((s) => s.answered)) notes.push('有卡引用它，但卷里的题还没答')
+
+    if (sources.length) withDeck++
+    else orphan++
+    if (refs.length) withCard++
+    else if (sources.length && sources.every((s) => s.answered)) answeredNoCard++
+
+    rows.push({
+      id: e.id, ask: e.ask, status: e.status, project: e.project,
+      line: e.line || '', fingerprint: fp, sources, cards: refs, notes,
+    })
+  }
+
+  rows.sort((a, b) => (a.status === '待答' ? -1 : 1) - (b.status === '待答' ? -1 : 1) || a.id.localeCompare(b.id))
+  return {
+    ok: true,
+    rows,
+    stats: { questions: rows.length, withDeck, withCard, orphan, answeredNoCard },
+  }
+}
+

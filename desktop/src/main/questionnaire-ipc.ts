@@ -18,11 +18,47 @@ import {
   listDecks, getDeck, writeAnswers, approveDeck, questionnaireDir, buildPromptForDeck,
   voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue, deckToCards,
   effectiveAcceptances, searchDecks, archivableDecks, archiveDeck, unarchiveDeck,
-  projectForDeck, convergenceStatus,
+  projectForDeck, convergenceStatus, listDeckNames, batchDeckAction,
   type QAnswer,
 } from './data/questionnaires'
 import { gateForDeck, gateForQuestion } from './data/qnGate'
 import { splitClarify } from '../shared/clarify'
+import { clarifyOf } from '../shared/clarify'
+import { loadBank, bankOf, bankRelations, type DeckProbe } from './data/questionBank'
+import { loadTasks } from './data'
+
+/**
+ * 把「每一卷里的每一题」压成探针（P11 题库↔卷关系视图的数据源）。
+ *
+ * 为什么不把这段放进 questionBank.ts：那会让 题库 ⇄ 卷 两个模块互相 import 成环。
+ * 关系计算是纯函数（`bankRelations`），读盘拼装留在这个 IPC 层 —— 界面上只拿结果。
+ */
+function collectDeckProbes(): DeckProbe[] {
+  const out: DeckProbe[] = []
+  for (const name of listDeckNames()) {
+    const g = getDeck(name)
+    if (!g.ok || !g.parsed) continue
+    const answers = g.answers || {}
+    const deliv = g.deliveries || {}
+    out.push({
+      deck: name,
+      project: projectForDeck(name, g.parsed),
+      status: g.voidedAt ? '已作废' : g.archivedAt ? '已归档' : g.approvedAt ? '已批准' : '草稿',
+      questions: (g.parsed.questions || []).map((q: any) => ({
+        qid: String(q.id || ''),
+        ask: String(q.ask || ''),
+        answered: !!answers[String(q.id || '')],
+        deliveries: (deliv[String(q.id || '')] || []).map((d: any) => ({
+          cardId: String(d.cardId || ''),
+          date: String(d.at || ''),
+          passed: d.status === 'delivered',
+        })),
+      })),
+    })
+  }
+  return out
+}
+
 
 export function registerQuestionnaireIpcHandlers(): void {
   guardedHandle('questionnaire:list', () => listDecks())
@@ -82,6 +118,26 @@ export function registerQuestionnaireIpcHandlers(): void {
 
   guardedHandle('questionnaire:unarchive', (_e, deck: string) => {
     return unarchiveDeck(String(deck || ''))
+  })
+
+  // ── 题库 ↔ 卷 ↔ 卡 的关系视图（0.7.0 P11）────────────────────────────────
+  // 回答的是“哪条结论来自哪一卷、哪卷还在等、哪条已经落成卡”：
+  //   题库 = 题的真身；卷 = 它被问过几次（同一题可能出现在多卷）；卡 = 引用它的施工方。
+  // 纯计算在 `questionBank.bankRelations`（node 可直跑断言），这里只负责把三份数据凑齐。
+  guardedHandle('questionnaire:bankRelations', (_e, project?: string) => {
+    const p = String(project || '').trim()
+    const bank = p ? bankOf(p) : loadBank()
+    const cards = loadTasks('all').map((t: any) => ({
+      id: String(t?.fm?.id || t.id || ''),
+      clarify: clarifyOf(t as any),
+    }))
+    return bankRelations({ project: p, bank, decks: collectDeckProbes(), cards })
+  })
+
+  // 多卷批量处置：逐卷走同一条通道（archiveDeck / voidDeck），
+  // 单卷失败不影响其余，失败的那几卷**什么都没改**并逐条报出来。
+  guardedHandle('questionnaire:batchAction', (_e, input?: { decks?: string[]; action?: string; reason?: string; days?: number }) => {
+    return batchDeckAction(input && typeof input === 'object' ? input : {})
   })
 
   // 答卷 → 真任务卡（2026-11-07）。这一步才是"反馈给施工方"的实处：

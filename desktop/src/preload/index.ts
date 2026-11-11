@@ -446,6 +446,11 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 派工单出厂上下文（2026-11-09 · S3=B）：闸结果 + 已落档验收线 */
   questionnaireDispatchContext: (deck: string, project: string) =>
     ipcRenderer.invoke('questionnaire:dispatchContext', deck, project),
+  /** 题库 ↔ 卷 ↔ 卡 的关系视图（0.7.0 P11）：哪条结论来自哪卷、哪条已落成卡 */
+  questionnaireBankRelations: (project?: string) => ipcRenderer.invoke('questionnaire:bankRelations', project),
+  /** 多卷批量处置（P11）：逐卷走同一条通道，失败逐条点名 */
+  questionnaireBatchAction: (input: { decks?: string[]; action?: string; reason?: string; days?: number }) =>
+    ipcRenderer.invoke('questionnaire:batchAction', input),
 
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),

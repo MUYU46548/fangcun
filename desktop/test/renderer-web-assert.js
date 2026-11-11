@@ -5516,6 +5516,57 @@
       // 2026-11-11 问卷管理：默认只摆**待答**卷（已批准/已作废/被取代/历史卷全收起）。
       // 这条判据不是“列表少了一行”，是“40 卷时首屏只出现要你处理的那些”。
       check('★★ 默认只出现待答卷（已批准的不占首屏）', deckRows.length === 1, String(deckRows.length))
+
+      // ── P11（2026-11-11）：题库 ↔ 卷 关系视图 + 多卷批量 ──────────────────
+      // 判据不是“有个按钮”，是：① 点开真走主进程、② 每行说清“来自哪卷/引用卡/缺什么”、
+      // ③ 多选态点卷行是**勾选**而不是打开那卷、④ 批量真走 `questionnaireBatchAction`。
+      {
+        const bankBtn = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('题库') >= 0)
+        check('★★ 列表页有「题库（哪条结论来自哪卷）」入口', !!bankBtn,
+          $$('#qn-modal .qn-hint button').map((b) => (b.textContent || '').trim()).join(' | '))
+        if (bankBtn) bankBtn.click()
+        const bankOk = await waitFor(() => window.__fcTest.callCount('questionnaireBankRelations') > 0
+          && $$('#qn-modal .qb-tb tbody tr').length === 3, 4000, '题库关系表')
+        check('★★ 点开 → 真调 questionnaireBankRelations 并渲染出三行关系',
+          bankOk, 'rows=' + $$('#qn-modal .qb-tb tbody tr').length)
+        const browTxt = $$('#qn-modal .qb-tb tbody tr').map((r) => (r.textContent || '').replace(/\s+/g, ' ').trim())
+        check('★★ 每行说清「来自哪卷 / 引用卡 / 缺什么」（不是只有一个题号）',
+          browTxt.length === 3
+          && /司天-宪法层 #S1/.test(browTxt[0] || '')
+          && /task-demo-1/.test(browTxt[0] || '')
+          && /还没有卡带着这条验收线/.test(browTxt[1] || '')
+          && /没有卷问过它/.test(browTxt[2] || ''),
+          JSON.stringify(browTxt))
+
+        const multiBtn = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('多选卷') >= 0)
+        check('★ 列表页有「多选卷」入口', !!multiBtn)
+        if (multiBtn) multiBtn.click()
+        await sleep(250)
+        const diag = {
+          卷行数: $$('#qn-modal .qn-deck').length,
+          已切多选: $$('#qn-modal .qn-hint button').some((b) => (b.textContent || '').indexOf('退出多选') >= 0),
+          已选文案: (($('#qn-modal .qn-hint') || {}).textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        }
+        const deckRow = $$('#qn-modal .qn-deck')[0]
+        if (deckRow) deckRow.click()
+        await sleep(200)
+        diag.picked = $$('#qn-modal .qn-deck.picked').length
+        diag.one = !!$('#qn-modal .qn-one')
+        diag.all = !!$('#qn-modal .qn-all')
+        check('★★ 多选态点卷行是勾选（不是把那卷打开）',
+          diag.picked >= 1 && !diag.one && !diag.all, JSON.stringify(diag))
+        const archBtn = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('归档所选卷') >= 0)
+        if (archBtn) archBtn.click()
+        check('★★ 批量归档**真走** questionnaireBatchAction（不是界面上自己 for 循环）',
+          await waitFor(() => window.__fcTest.callCount('questionnaireBatchAction') > 0, 4000, 'batchAction'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnaireBatchAction').map((c) => c.args)))
+        check('★ 批量只提交**选中的那些卷**（逐卷带上卷名，不是“全部”）',
+          window.__fcTest.calls().some((c) => c.name === 'questionnaireBatchAction'
+            && Array.isArray(c.args && c.args[1]) && c.args[1].length === 1
+            && String(c.args[1][0]).length > 0),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnaireBatchAction').map((c) => c.args)))
+      }
+
       check('★★ 已批准的卷没有凭空消失：有「已处理」折叠入口并写明几卷',
         $$('#qn-modal .qn-hint button').some((b) => (b.textContent || '').indexOf('已处理') >= 0
           && /1 卷/.test(b.textContent || '')),

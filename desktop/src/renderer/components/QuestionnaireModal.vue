@@ -73,6 +73,50 @@
             <div v-if="!searchRows.length && !searchBusy" class="qn-empty">没有命中「{{ q }}」的问卷。</div>
           </div>
           <template v-else>
+            <!-- 题库 ↔ 卷（0.7.0 P11）：卷多了以后，用户真正要问的两句话 ——
+                 “这条结论是从哪卷来的”“哪条答了却还没落地”—— 得有个地方能一眼查。 -->
+            <div class="qn-hint">
+              <button class="ghost" :disabled="bankBusy" @click="toggleBank">
+                📚 {{ showBank ? '收起题库' : '题库（哪条结论来自哪卷）' }}
+              </button>
+              <button class="ghost" @click="toggleBatch">{{ batchMode ? '退出多选' : '☑ 多选卷' }}</button>
+              <span class="qn-search-tip" v-if="bankMsg">{{ bankMsg }}</span>
+            </div>
+            <div v-if="batchMode" class="qn-hint">
+              <span class="qn-search-tip">已选 {{ batchSel.length }} 卷</span>
+              <button class="ghost" :disabled="batchBusy || !batchSel.length" @click="runBatch('archive')">📦 归档所选卷</button>
+              <button class="ghost" :disabled="batchBusy || !batchSel.length" @click="runBatch('void')">⌫ 作废所选卷…</button>
+              <span class="qn-search-tip" v-if="batchMsg">{{ batchMsg }}</span>
+            </div>
+            <div v-if="showBank" class="qn-bank">
+              <div v-if="!bankRows.length" class="qn-empty">{{ bankBusy ? '读取题库关系中…' : '题库是空的（还没有任何题被记进 question-bank.md）' }}</div>
+              <table v-else class="qb-tb">
+                <thead>
+                  <tr><th>题</th><th>状态</th><th>来自哪卷</th><th>引用它的卡</th><th>缺什么</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in bankRows" :key="r.id">
+                    <td class="qb-q"><b>{{ r.id }}</b> {{ r.ask }}</td>
+                    <td>{{ r.status }}</td>
+                    <td>
+                      <template v-if="r.sources && r.sources.length">
+                        <span v-for="s in r.sources" :key="s.deck + '#' + s.qid" class="qb-src">
+                          {{ s.deck }} #{{ s.qid }} · {{ s.answered ? '已答' : '未答' }}<template v-if="s.delivered && s.delivered.length"> · 交付 {{ s.delivered.length }} 张</template>
+                        </span>
+                      </template>
+                      <span v-else class="qb-none">没有卷问过它</span>
+                    </td>
+                    <td>
+                      <template v-if="r.cards && r.cards.length">
+                        <span v-for="c in r.cards" :key="c" class="qb-src">{{ c }}</span>
+                      </template>
+                      <span v-else class="qb-none">—</span>
+                    </td>
+                    <td class="qb-note">{{ (r.notes || []).join('；') || '齐全' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <!-- 归档候选（2026-11-11）：已批准 ≥30 天 + 没有任何卡引用，才够格收起。
                  两个条件都在数据层判；这里只说清“为什么不能” —— 藏起来不等于删掉。 -->
             <div v-if="archivable.length" class="qn-hint">
@@ -95,7 +139,10 @@
               </button>
             </div>
             <div v-if="visibleDecks.length || (showArchived && archivedDecks.length)" class="qn-decks">
-              <button v-for="d in (showArchived ? [...visibleDecks, ...archivedDecks] : visibleDecks)" :key="d.deck" class="qn-deck" @click="openDeck(d.deck)">
+              <button v-for="d in (showArchived ? [...visibleDecks, ...archivedDecks] : visibleDecks)" :key="d.deck" class="qn-deck"
+                :class="{ picked: batchMode && batchSel.includes(d.deck) }"
+                @click="batchMode ? toggleBatchSel(d.deck) : openDeck(d.deck)">
+                <span v-if="batchMode" class="qd-check">{{ batchSel.includes(d.deck) ? '☑' : '☐' }}</span>
                 <span class="qd-main">
                   <b>{{ d.title || d.deck }}</b>
                   <span class="qd-badge" v-if="d.project">{{ d.project }}</span>
@@ -540,6 +587,95 @@ const archivedNow = ref(false)
  * 否则每开一卷都像从头开始。数据来自主进程（listDecks / getDeck 带回来的 bank）。
  */
 const bank = ref<{ total: number; answered: number; open: number; blacklist: number } | null>(null)
+
+// ── 题库 ↔ 卷 关系视图（0.7.0 P11）────────────────────────────────────────
+// 卷多到几十份以后，用户真正问的是两句：“这条结论是从哪卷来的？”“哪条还没落地？”
+// 关系全在主进程算（`questionBank.bankRelations` 是纯函数，能 node 直跑断言），界面只摆。
+const showBank = ref(false)
+const bankBusy = ref(false)
+const bankRows = ref<any[]>([])
+const bankStat = ref<{ questions: number; withDeck: number; withCard: number; orphan: number; answeredNoCard: number } | null>(null)
+const bankMsg = ref('')
+
+async function toggleBank(): Promise<void> {
+  showBank.value = !showBank.value
+  if (!showBank.value) return
+  if (bankBusy.value) return
+  bankBusy.value = true
+  bankMsg.value = ''
+  try {
+    const r: any = await api().questionnaireBankRelations('')
+    bankRows.value = Array.isArray(r?.rows) ? r.rows : []
+    bankStat.value = r?.stats || null
+    const s = bankStat.value
+    bankMsg.value = s
+      ? `${s.questions} 题 · 有卷问过 ${s.withDeck} · 已落成卡 ${s.withCard} · 没卷问过 ${s.orphan} · 答了还没落卡 ${s.answeredNoCard}`
+      : ''
+  } catch (e: any) {
+    bankRows.value = []
+    bankMsg.value = '读题库关系失败：' + (e?.message || e)
+  } finally {
+    bankBusy.value = false
+  }
+}
+
+// ── 多卷批量处置（P11）───────────────────────────────────────────────────
+// 判据不是“批量按钮能点”，是**失败逐条点名**：某一卷卷面坏掉时它什么都不改、并被报出来，
+// 其余照做。这条口径在数据层（`batchDeckAction`），界面只显示 done / failed 两栏。
+const batchMode = ref(false)
+const batchSel = ref<string[]>([])
+const batchBusy = ref(false)
+const batchMsg = ref('')
+
+function toggleBatch(): void {
+  batchMode.value = !batchMode.value
+  batchSel.value = []
+  batchMsg.value = ''
+}
+
+function toggleBatchSel(name: string): void {
+  batchSel.value = batchSel.value.includes(name)
+    ? batchSel.value.filter((x) => x !== name)
+    : [...batchSel.value, name]
+}
+
+async function runBatch(action: 'archive' | 'void'): Promise<void> {
+  if (batchBusy.value || !batchSel.value.length) return
+  const decks = [...batchSel.value]
+  let reason = ''
+  if (action === 'void') {
+    reason = window.prompt('作废理由（会写进卷的答案文件）', '批量处置：不再需要') || ''
+    if (!reason.trim()) return
+  }
+  batchBusy.value = true
+  batchMsg.value = ''
+  try {
+    const r: any = await api().questionnaireBatchAction({ decks, action, reason })
+    const done = Array.isArray(r?.done) ? r.done : []
+    const failed = Array.isArray(r?.failed) ? r.failed : []
+    batchMsg.value = String(r?.note || '')
+    if (failed.length) {
+      toast(`批量${action === 'void' ? '作废' : '归档'}：成功 ${done.length} 卷、失败 ${failed.length} 卷 —— `
+        + failed.map((f: any) => `${f.deck}（${f.error}）`).join('；'), 'error')
+    } else {
+      toast(batchMsg.value, 'success')
+    }
+    batchMode.value = false
+    batchSel.value = []
+    await loadList()
+    if (showBank.value) await toggleBankProxy()
+  } catch (e: any) {
+    batchMsg.value = '批量处置失败：' + (e?.message || e)
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+/** 批量之后重算关系视图（不切换开关，只刷新数据） */
+async function toggleBankProxy(): Promise<void> {
+  showBank.value = false
+  await toggleBank()
+}
 /**
  * 结论集收敛进度（P8 · D-064）：`连续不变 x/3`。
  * 判据原话“问够没问够必须是代码判定的”——这句就是那个判定的人话出口。
@@ -1187,6 +1323,20 @@ onBeforeUnmount(() => {
 .qn-search-tip { font-size: 10.5px; color: var(--muted); }
 .qn-empty code { background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
 .qn-decks { display: flex; flex-direction: column; gap: 8px; }
+/* 多选态的卷行（0.7.0 P11）：勾选靠左侧方块 + 行体加一道强调环，不改按钮本身的几何 */
+.qn-deck.picked { border-color: var(--accent); background: var(--tint); }
+.qd-check { flex: none; font-size: 14px; color: var(--accent); }
+/* 题库 ↔ 卷 关系表（P11）：一行一题，右三栏回答“哪卷问过 / 哪张卡引用 / 缺什么” */
+.qn-bank { margin: 8px 0 4px; border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 46vh; }
+.qb-tb { width: 100%; border-collapse: collapse; font-size: 12px; }
+.qb-tb th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px;
+  padding: 7px 9px; background: var(--tint-2); position: sticky; top: 0; }
+.qb-tb td { padding: 7px 9px; border-top: 1px solid var(--border); vertical-align: top; line-height: 1.6; }
+.qb-q { min-width: 220px; max-width: 420px; }
+.qb-src { display: inline-block; margin: 0 6px 2px 0; padding: 0 6px; border-radius: 6px;
+  background: var(--tint-2); color: var(--ink); font-size: 11px; white-space: nowrap; }
+.qb-none { color: var(--muted); font-size: 11.5px; }
+.qb-note { color: var(--muted); font-size: 11.5px; min-width: 160px; }
 .qn-deck { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px 13px; }
 .qn-deck:hover { border-color: var(--accent-soft); background: #fcfbff; }
 .qd-main { flex: 1; min-width: 0; font-size: 13px; display: flex; align-items: center; gap: 7px; }
