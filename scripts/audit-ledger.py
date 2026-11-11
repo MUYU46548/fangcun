@@ -21,6 +21,16 @@ import os
 import re
 import sys
 
+# 2026-11-11（P10 机检踩到）：Windows 默认控制台是 cp936，脚本里那句 '✓' 直接抛
+# UnicodeEncodeError —— 判据 `python scripts/audit-ledger.py --check` 在**默认终端里**
+# 从来跑不过（在有 PYTHONIOENCODING 的环境里才绿）。判据必须是“换个人在默认终端也能跑”，
+# 所以这里主动把 stdout 切到 UTF-8；切不动就退化成 replace，绝不因为打印符号而崩。
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__)) + os.sep + '..'
 ROOT = os.path.abspath(ROOT)
 TASK_DIR = os.path.join(ROOT, 'task-data')
