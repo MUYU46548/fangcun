@@ -274,9 +274,14 @@ function main() {
     const v = verifyCarried(fs, path, oldDir, OUT, carried)
     carryOk = !oldDir || v.ok
     if (carried.length) {
-      if (v.ok) log(`已保留 ${carried.length} 个旧版安装包（已逐个核对：${carried.length}/${carried.length}）`)
+      // ⚠ 2026-11-11 补一笔记账口径：`carried` 里既装安装包也装 `.blockmap`（KEEP_OLD_INSTALLERS 两个都收），
+      //   所以第一版日志写「已保留 12 个旧版**安装包**」而实际只有 6 个 exe —— 数得对、名词错。
+      //   这类"数字对得上但话术含糊"正是 0.6.19 那次血账里没人复核的原因，故分开数、分开说。
+      const exes = carried.filter((f) => f.endsWith('.exe')).length
+      const maps = carried.length - exes
+      if (v.ok) log(`已保留 ${carried.length} 个旧版产物（安装包 ${exes} · blockmap ${maps}，已逐个核对：${carried.length}/${carried.length}）`)
       else {
-        log(`⚠ 旧版安装包只搬过去 ${carried.length - v.missing.length}/${carried.length}：`
+        log(`⚠ 旧版产物只搬过去 ${carried.length - v.missing.length}/${carried.length}：`
           + v.missing.slice(0, 3).map((m) => `${m.name}（${m.why}）`).join('、')
           + `${v.missing.length > 3 ? ' 等' : ''} —— **旧目录已保留，不删**`)
       }
