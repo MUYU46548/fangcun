@@ -111,7 +111,11 @@ function emptyDir(dir, keep) {
   }
   walk(dir)
   try { fs.rmdirSync(dir) } catch { /* 还有被锁文件，留着 */ }
-  return { freed, locked }
+  // 2026-11-11 补：**删不掉时要能回答“还剩几项”**。此前调用方只看 locked，
+  // 而 rmdir 失败根本不进 locked —— 于是日志写着“已清空”，目录还在（假成功）。
+  let left = 0
+  try { left = fs.readdirSync(dir).length } catch { left = 0 }
+  return { freed, locked, left }
 }
 
 /**
@@ -189,18 +193,22 @@ function main() {
     process.exit(0)
   }
 
-  // ①b 顺手清掉工作区里**历史堆积**的产物目录：`release-<ver>/`、`release/`。
+  // ①b 顺手清掉工作区里**历史堆积**的产物目录：`release-<ver>/`、`release/`、`pkg.old*`。
   //    ⚠ `pkg/` 是正式输出（发版取件目录），**永远不进这个列表** —— 清了就没得发了。
   //    这些位置删不掉是常态（索引器锁着 asar）→ 尽力删，删不掉的如实列出，不假装干净。
+  //    ⚠ 2026-11-11 实况（暮雨截图）：`pkg.old-*` 一次打包留一个，攒了 **9 个 / 4.4GB**，
+  //    而且日志写着“旧目录已清空”—— 因为 emptyDir 当时把历史安装包当“要保留的”放过了，
+  //    rmdir 失败又被吞掉。现在：旧目录不再传 keep，删不掉就点名。
   if (!noClean) {
     const legacy = fs.readdirSync(DESKTOP, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name.startsWith('release'))
+      .filter((e) => e.isDirectory() && (e.name.startsWith('release') || /^pkg\.old/.test(e.name)))
       .map((e) => e.name)
     for (const name of legacy) {
       const p = path.join(DESKTOP, name)
       const r2 = emptyDir(p)
-      if (r2.locked) log(`⚠ 工作区里还剩旧产物 ${name}/：已释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个文件被占用`)
-      else log(`✓ 已清掉工作区里的旧产物 ${name}/（${(r2.freed / 1048576).toFixed(1)}MB）`)
+      if (r2.left > 0) {
+        log(`⚠ 工作区里还剩旧产物 ${name}/：已释放 ${(r2.freed / 1048576).toFixed(1)}MB，还剩 ${r2.left} 项被占用（退出索引器后再删）`)
+      } else log(`✓ 已清掉工作区里的旧产物 ${name}/（${(r2.freed / 1048576).toFixed(1)}MB）`)
     }
   }
 
@@ -241,7 +249,16 @@ function main() {
       for (const f of fs.readdirSync(OUT)) {
         if (KEEP_OLD_INSTALLERS(f) && !f.includes(ver)) carried.push(f)
       }
-      oldDir = OUT + '.old-' + Date.now()
+      // 固定名 `pkg.old`：一次只留一个副本。上一轮若因锁没删掉，先尽力清；
+      // 还清不掉才退回带时间戳的名字（这一轮不能因为残留而打不下去）。
+      oldDir = OUT + '.old'
+      if (fs.existsSync(oldDir)) {
+        const pre = emptyDir(oldDir)
+        if (pre.left > 0) {
+          oldDir = OUT + '.old-' + Date.now()
+          log(`  上一次的 ${path.basename(OUT)}.old 还有 ${pre.left} 项被占用 —— 这轮改用 ${path.basename(oldDir)}（退出索引器后清掉旧的）`)
+        }
+      }
       fs.renameSync(OUT, oldDir)
       log(`旧产物已挪到 ${path.basename(oldDir)}`)
     }
@@ -274,9 +291,15 @@ function main() {
     }
   }
   if (oldDir) {
-    const r2 = emptyDir(oldDir, KEEP_OLD_INSTALLERS)
-    if (r2.locked) log(`  旧目录释放 ${(r2.freed / 1048576).toFixed(1)}MB，${r2.locked} 个被占用（多半是索引器还开着；退出它后再跑 clean-release.bat）`)
-    else { try { fs.rmdirSync(oldDir) } catch { /* ignore */ } ; log(`  旧目录已清空（释放 ${(r2.freed / 1048576).toFixed(1)}MB）`) }
+    // ⚠ **不传 keep**：历史安装包已经 `copyFileSync` 回新 pkg 了，旧目录里那份是副本。
+    //   传 keep 会让目录永远非空、rmdir 静默失败 —— 然后日志说“已清空”（2026-11-11 的假成功）。
+    const r2 = emptyDir(oldDir)
+    if (r2.left > 0) {
+      log(`⚠ 旧目录没删干净：${path.basename(oldDir)}（已释放 ${(r2.freed / 1048576).toFixed(1)}MB，还剩 ${r2.left} 项被占）`
+        + ' —— 退出索引器后再删，或跑 clean-release.bat')
+    } else {
+      log(`  旧目录已删除（释放 ${(r2.freed / 1048576).toFixed(1)}MB）`)
+    }
   }
 
   // ④ 自检：退出码 0 ≠ 包里有新代码
