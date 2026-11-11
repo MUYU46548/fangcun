@@ -15,6 +15,12 @@
       <div class="lp-note">
         这就是快捷入口：登记一个你常用的应用或命令，<b>点一下就开</b>。
         方寸只管把它拉起来，不管它内部怎么跑。
+        <br />
+        <!-- 2026-11-11 卡 564d7ba9：启动方式按类型分，用户有权知道脚本会挂在方寸进程树里 -->
+        <span class="lp-exectip">
+          启动方式：<b>.exe / .lnk / 文件夹</b> 交给系统（explorer）启动，不挂在方寸的进程树里；
+          <b>.bat / .cmd / .ps1</b> 由方寸派生的 cmd / powershell 执行 —— <b>会出现在方寸的进程树里</b>。
+        </span>
       </div>
       <div class="lp-grid" v-if="ctl.launchpadApps.length">
         <!-- 右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）：编辑原先只能从卡片上的
@@ -66,3 +72,8 @@ const ctl = props.ctl
 /** 拆分守卫反查锚点 */
 const launchpadCtl = ctl
 </script>
+
+<style scoped>
+/* 启动方式提示（2026-11-11 卡 564d7ba9）：一行小字，说清哪类会挂在方寸进程树里 */
+.lp-exectip { display: block; margin-top: 4px; font-size: 11px; opacity: .75; line-height: 1.7; }
+</style>

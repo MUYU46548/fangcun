@@ -11,7 +11,7 @@
  * 主进程里变成未捕获异常），而函数已经乐观地返回了 ok:true + PID undefined。
  *
  * 现在的口径：
- *   - 目录 / .lnk / 无扩展名  → shell.openPath（ShellExecute，快捷方式与文件夹都能开）
+ *   - 目录 / .lnk / 无扩展名  → explorer.exe 代启动（与 .exe 同一条路，卡 564d7ba9）
  *   - .bat / .cmd             → cmd.exe /d /s /c "<cmdline>"
  *   - .ps1                   → powershell -NoProfile -ExecutionPolicy Bypass -File
  *   - 其它（.exe 等）         → 直接 spawn
@@ -53,7 +53,7 @@ function quoteIfNeeded(s: string): string {
 function spawnAndWait(
   file: string,
   args: string[],
-  opts: { cwd?: string; verbatim?: boolean; label: string },
+  opts: { cwd?: string; verbatim?: boolean; label: string; detach?: boolean },
 ): Promise<LaunchResult> {
   return new Promise<LaunchResult>((resolve) => {
     let settled = false
@@ -67,7 +67,11 @@ function spawnAndWait(
     try {
       child = spawn(file, args, {
         cwd: opts.cwd,
-        detached: true,
+        // ⚠ powershell 不能 detached（2026-11-11 实测）：detached:true + stdio:'ignore' 下
+        //   `powershell -File x.ps1` 会 spawn 成功但**脚本一行都不执行**（marker 文件不出现）；
+        //   同一套参数换成 detached:false 立刻正常。cmd.exe 不受影响。
+        //   所以脚本档按类型分开：cmd 保持 detached（弹自己的窗口），powershell 不 detach。
+        detached: opts.detach !== false,
         stdio: 'ignore',
         windowsHide: false,
         ...(opts.verbatim ? { windowsVerbatimArguments: true } : {}),
@@ -216,19 +220,19 @@ async function launchAndVerify(target: string, label: string, image: string): Pr
   }
 }
 
-/** shell.openPath 返回的是“错误字符串”，空串才算成功 —— 旧实现直接忽略它 */async function openViaShell(target: string, label: string): Promise<LaunchResult> {
-  try {
-    const err = await shell.openPath(target)
-    if (err) {
-      appLog.error('launchpad', `打开失败：${label}`, err)
-      return { ok: false, message: `打开失败: ${err}` }
-    }
-    return { ok: true, message: `已打开：${label}` }
-  } catch (e) {
-    const msg = (e as Error).message
-    appLog.error('launchpad', `打开异常：${label}`, msg)
-    return { ok: false, message: `打开失败: ${msg}` }
-  }
+/**
+ * 打开目录 / 快捷方式 / 无扩展名目标 —— 一律交给 explorer 代启动（2026-11-11 卡 564d7ba9）。
+ *
+ * 此前这三类走 Electron 的 shell openPath（ShellExecute）—— 卡上要求把这种写法清零：
+ * ShellExecute 在多数情况下也会交给 explorer，但它**不回报任何东西**，而且和 `.exe` 那条
+ * 已经验证过的路径是两套实现（一套能复查进程、一套不能）。统一到 `launchViaExplorer` 之后：
+ *   · 只有一条启动方式（explorer.exe <目标>），行为可对照；
+ *   · 目录 / .lnk 也能拿到“已交给系统启动”的同一句话，不再有两套失败话术。
+ * 为什么不复查进程：`.lnk` 的真实目标名要解壳才知道，`''` 传进去表示“不复查”，
+ * 不猜一个映像名去 tasklist 里乱匹配。
+ */
+async function launchViaSystem(target: string, label: string): Promise<LaunchResult> {
+  return launchViaExplorer(target, label)
 }
 
 export async function launchApp(appConfig: LaunchApp): Promise<LaunchResult> {
@@ -257,15 +261,15 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
   try {
     isDir = fs.statSync(raw).isDirectory()
   } catch { /* 取不到就按文件处理 */ }
-  if (isDir) return openViaShell(raw, `${name}（目录）`)
+  if (isDir) return launchViaSystem(raw, `${name}（目录）`)
 
   const ext = path.extname(raw).toLowerCase()
   const args = Array.isArray(appConfig.args) ? appConfig.args.map(String) : []
   const cwd = path.dirname(raw)
 
-  // 快捷方式 / 无扩展名：交给 ShellExecute
+  // 快捷方式 / 无扩展名：交给 explorer（与 .exe 同一条路 —— 卡 564d7ba9）
   if (ext === '.lnk' || ext === '') {
-    return openViaShell(raw, name)
+    return launchViaSystem(raw, name)
   }
 
   // .exe：无参数 → **交给 explorer**（2026-10-17：直接从本方进程树派生会让子 Electron 应用
@@ -280,8 +284,11 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
 
   const shellKind = SHELL_EXT[ext]
   // 脚本（.bat/.cmd/.ps1）维持经 cmd/powershell 执行：这条链一直是通的（e2e 用 marker 验证过），
-  // 而且它需要 cmd 窗口做反馈。⚠ 已知限制：脚本里再拉起的 GUI 应用仍在方寸的 job 里，
-  // 若将来碰到同款 GPU 崩，再考虑让 explorer 代跑脚本（代价是失去参数与窗口反馈）。
+  // 而且它需要 cmd 窗口做反馈。
+  // ⚠ 已知限制（2026-11-11 卡 564d7ba9 的第二条选择）：**脚本会挂在方寸的进程树里** ——
+  //   脚本里再拉起的 GUI 应用也在这个 job 里，同款 GPU 崩可能复现。
+  //   因为 explorer 代跑脚本会丢参数与窗口反馈，这一档保留 spawn，并且：
+  //   ① 界面上明说（启动台顶部提示）；② 这条限制写在这里，不藏在实现里。
   if (shellKind === 'cmd') {
     const cmdline = [`"${raw}"`, ...args.map(quoteIfNeeded)].join(' ')
     const comspec = process.env.ComSpec || 'cmd.exe'
@@ -291,7 +298,7 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
   if (shellKind === 'powershell') {
     return spawnAndWait('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', raw, ...args],
-      { cwd, label: `${name}（powershell）` })
+      { cwd, label: `${name}（powershell）`, detach: false })
   }
 
   return spawnAndWait(raw, args, { cwd, label: name })
@@ -300,7 +307,7 @@ async function launchAppInner(appConfig: LaunchApp, raw: string, name: string): 
 export async function openFolder(folderPath: string): Promise<LaunchResult> {
   if (!folderPath) return { ok: false, message: '路径为空' }
   if (!fs.existsSync(folderPath)) return { ok: false, message: `路径不存在: ${folderPath}` }
-  return openViaShell(folderPath, folderPath)
+  return launchViaSystem(folderPath, folderPath)
 }
 
 export async function openUrl(url: string): Promise<LaunchResult> {

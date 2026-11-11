@@ -67,24 +67,56 @@ async function main() {
   r = await launchpad.launchApp({ id: 'b', name: '空', path: '', cmd: '' })
   check('空 cmd → ok:false', r.ok === false, JSON.stringify(r))
 
-  // ── 3. 目录 → shell.openPath ──────────────────────────────────────
+  // ── 3. 目录 / .lnk / 无扩展名 → explorer 代启动（卡 564d7ba9）─────
+  // 判据不是“换个 API”，是**谁当父进程**：这三类必须交给 explorer.exe，
+  // 不许由方寸自己 CreateProcess（旧写法走 shell 的 openPath，现已清零）。
+  const cp = require('child_process')
+  const origSpawn = cp.spawn
+  const spawnCalls = []
+  const stubSpawn = () => {
+    cp.spawn = function (file, args, opts) {
+      spawnCalls.push({ file, args })
+      return { on() { return this }, unref() { }, pid: 4242 }
+    }
+  }
+  const restoreSpawn = () => { cp.spawn = origSpawn }
+
   const dir = path.join(TEST_ROOT, 'somedir')
   fs.mkdirSync(dir, { recursive: true })
-  stub.shell.opened.length = 0
-  r = await launchpad.launchApp({ id: 'c', name: '某目录', path: dir, cmd: dir })
-  check('目录 → 走 shell.openPath 且 ok', r.ok === true && stub.shell.opened.includes(dir), JSON.stringify({ r, opened: stub.shell.opened }))
+  spawnCalls.length = 0
+  stubSpawn()
+  try {
+    r = await launchpad.launchApp({ id: 'c', name: '某目录', path: dir, cmd: dir })
+  } finally { restoreSpawn() }
+  check('目录 → 交给 explorer 启动（不挂在方寸进程树里）',
+    r.ok === true && spawnCalls.some((c) => /explorer(\.exe)?$/i.test(String(c.file)) && (c.args || []).includes(dir)),
+    JSON.stringify({ r, spawnCalls }))
 
-  // ── 4. .lnk → shell.openPath（ShellExecute 解快捷方式）──────────────
   const lnk = path.join(TEST_ROOT, 'demo.lnk')
   fs.writeFileSync(lnk, 'dummy')
-  stub.shell.opened.length = 0
-  r = await launchpad.launchApp({ id: 'd', name: '快捷方式', path: lnk, cmd: lnk })
-  check('.lnk → 走 shell.openPath 且 ok', r.ok === true && stub.shell.opened.includes(lnk), JSON.stringify({ r, opened: stub.shell.opened }))
+  spawnCalls.length = 0
+  stubSpawn()
+  try {
+    r = await launchpad.launchApp({ id: 'd', name: '快捷方式', path: lnk, cmd: lnk })
+  } finally { restoreSpawn() }
+  check('.lnk → 交给 explorer 启动',
+    r.ok === true && spawnCalls.some((c) => /explorer(\.exe)?$/i.test(String(c.file)) && (c.args || []).includes(lnk)),
+    JSON.stringify({ r, spawnCalls }))
+  check('★ 反例：这两类不许回退成“自己 CreateProcess 目标本身”',
+    !spawnCalls.some((c) => String(c.file) === lnk || String(c.file) === dir))
 
-  // ── 5. shell.openPath 返回错误串时必须失败（旧实现无条件报成功）────
-  stub.shell.failNext = '拒绝访问'
-  r = await launchpad.openFolder(dir)
-  check('openPath 报错 → ok:false 且带原因', r.ok === false && /拒绝访问/.test(r.message), JSON.stringify(r))
+  // ── 5. explorer 启动失败（spawn error）→ ok:false 且带原因 ────────
+  {
+    cp.spawn = function () {
+      const handlers = {}
+      return {
+        on(ev, cb) { handlers[ev] = cb; if (ev === 'error') setTimeout(() => cb(new Error('拒绝访问')), 0); return this },
+        unref() { }, pid: -1,
+      }
+    }
+    try { r = await launchpad.openFolder(dir) } finally { restoreSpawn() }
+    check('explorer 启动失败 → ok:false 且带原因', r.ok === false && /拒绝访问/.test(r.message), JSON.stringify(r))
+  }
 
   // ── 6. .bat 真的被执行（用户报障的原型）───────────────────────────
   const batMarker = path.join(TEST_ROOT, 'bat-ran.txt')
@@ -101,6 +133,16 @@ async function main() {
   fs.writeFileSync(cmdFile, `@echo off\r\necho cmd-ok> "${cmdMarker}"\r\n`, 'utf-8')
   r = await launchpad.launchApp({ id: 'f', name: '命令脚本', path: cmdFile, cmd: cmdFile })
   check('.cmd 真被执行（marker 文件已生成）', await waitForFile(cmdMarker), JSON.stringify(r))
+
+  // ── 7b. .ps1（卡 564d7ba9 点名的第五种类型）────────────────────────
+  {
+    const ps1Marker = path.join(TEST_ROOT, 'ps1-ran.txt')
+    const ps1 = path.join(TEST_ROOT, 'run.ps1')
+    fs.writeFileSync(ps1, "Set-Content -LiteralPath '" + ps1Marker.replace(/'/g, "''") + "' -Value 'ps1-ok'\r\n", 'utf-8')
+    r = await launchpad.launchApp({ id: 'i', name: 'PowerShell 脚本', path: ps1, cmd: ps1 })
+    check('.ps1 启动返回 ok:true', r.ok === true, JSON.stringify(r))
+    check('.ps1 真被执行（marker 文件已生成）', await waitForFile(ps1Marker, 15000))
+  }
 
   // ── 8. 带空格的路径（示例配置里就有 "E:/图书馆/ROSA" 这类）─────────
   const spaced = path.join(TEST_ROOT, 'with space')
@@ -193,6 +235,17 @@ async function main() {
   check('URL → shell.openExternal', r.ok === true && stub.shell.external.includes('https://example.com'), JSON.stringify(r))
   r = await launchpad.openUrl('not a url')
   check('非法 URL → ok:false', r.ok === false, JSON.stringify(r))
+
+  // ── 13. 源码守卫（卡 564d7ba9 的判据：病根写法清零 + 界面明说）──────
+  {
+    const src = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/launchpad/executor.ts'), 'utf-8')
+    const legacy = (src.match(/shell\.openPath/g) || []).length
+    check('★★ executor.ts 里那种旧写法计数为 0（目录/快捷方式已统一走 explorer）', legacy === 0, String(legacy))
+    check('★ executor.ts 仍在（且 launchViaExplorer 在）', /function launchViaExplorer/.test(src))
+    const ui = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/views/LaunchpadView.vue'), 'utf-8')
+    check('★★ 界面明说 .bat/.cmd/.ps1 会挂在方寸进程树里（卡上给的第二条选择）',
+      /会出现在方寸的进程树里/.test(ui))
+  }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
