@@ -40,23 +40,23 @@
         </div>
         <div class="ask-foot">
           <span class="ask-src" v-if="ctl.askAns.source">来源：{{ ctl.askAns.source }}</span>
-          <button class="ghost ask-llm-btn" v-if="ctl.askAns.needsLlm" :disabled="ctl.askLlmBusy" @click="ctl.askToLlm()">
+          <Button class="ask-llm-btn" variant="ghost" size="tool" v-if="ctl.askAns.needsLlm" :disabled="ctl.askLlmBusy" @click="ctl.askToLlm()">
             {{ ctl.askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
-          </button>
+          </Button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
                一次调用 = 一批；产出只落“待审批”（点头才转正）。这是全应用**第二处**会
                为规划花 token 的入口（另一处是上面的模糊问答）。 -->
-          <button class="ghost ask-llm-btn ask-batch-btn" v-if="ctl.askAns.projectId" :disabled="ctl.batchBusy" @click="ctl.runBatch()">
+          <Button class="ask-llm-btn ask-batch-btn" variant="ghost" size="tool" v-if="ctl.askAns.projectId" :disabled="ctl.batchBusy" @click="ctl.runBatch()">
             {{ ctl.batchBusy ? '正在出…' : '📋 出下一批任务卡（会计费）' }}
-          </button>
+          </Button>
         </div>
         <!-- 随纠（2026-10-22 · 03 任务二）：从这条答案直接改这个项目的方向 ——
              一句话 + 一次点击，不填表单。改完挂撤销条（Ctrl+Z 同效），决策卡自动留痕。
              只认固定句式（改 <字段> 为 <值>）：不猜，参数清。 -->
         <div class="ask-correct" v-if="ctl.askAns.projectId">
-          <button class="ghost ask-correct-open" v-if="!ctl.correctOpen" @click="ctl.openCorrect()">
+          <Button class="ask-correct-open" variant="ghost" size="tool" v-if="!ctl.correctOpen" @click="ctl.openCorrect()">
             ✎ 一句话改这个项目（状态 / 路线图 / 说明）
-          </button>
+          </Button>
           <template v-else>
             <div class="ask-correct-row">
               <input class="ask-in" v-model="ctl.correctText" :disabled="ctl.correctBusy"
@@ -190,6 +190,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { onMounted } from 'vue'
 
 /**

@@ -15,6 +15,7 @@
   `e2e-project-arch.cjs` 真跑断言）。组件只做三件事：贴图、点节点、把证据/校验/缺项摆出来。
 -->
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 import { computed, ref, watch } from 'vue'
 import { renderArchSvg } from '../../shared/archSvg'
 import type { ArchGraph } from '../../shared/archGraph'
@@ -116,11 +117,11 @@ function submitReject(): void {
       <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次生成：不会再发下一次调用，也不会写任何图" @click="emit('cancel')">
         取消
       </button>
-      <button class="ghost archd-gen font-[inherit]" :disabled="busy"
+      <Button class="archd-gen font-[inherit]" variant="ghost" size="tool" :disabled="busy"
         title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型）"
         @click="emit('generate')">
         {{ busy ? `${phase || '生成中…'} ${elapsed || 0}s` : '✦ AI 生成图' }}
-      </button>
+      </Button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
         @click="emit('export')">
@@ -155,8 +156,8 @@ function submitReject(): void {
             <div v-for="(s, i) in node.samples" :key="'s' + i" class="archd-side-item">{{ s }}</div>
             <div v-if="!node.samples.length" class="archd-side-none">这个节点没有可列的文件样例</div>
           </div>
-          <button class="ghost archd-exclude" title="这一块画得不对：把它从图里剔掉（不是改数据，只是这张图不画它）"
-            @click="emit('exclude', node.id)">✂ 剔除这一块</button>
+          <Button class="archd-exclude" variant="ghost" size="tool" title="这一块画得不对：把它从图里剔掉（不是改数据，只是这张图不画它）"
+            @click="emit('exclude', node.id)">✂ 剔除这一块</Button>
         </div>
         <div class="archd-side-block" v-else>
           <div class="archd-side-h">怎么读</div>

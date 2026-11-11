@@ -34,9 +34,9 @@
                  否则行上只写“最后核实 · X 月 X 日”，看不出它为什么已经不能信了。 -->
             <div v-if="row.staleReason" class="smap-meta smap-drift" :title="row.staleReason">⚠ {{ row.staleReason }}</div>
           </div>
-          <button class="ghost smap-open" @click="ctl.openPolicyFromSmap(row.id)">
+          <Button class="smap-open" variant="ghost" size="tool" @click="ctl.openPolicyFromSmap(row.id)">
             {{ row.has && row.verified ? '查看 / 编辑' : row.hasPolicy ? '去填' : '先立方针卡' }}
-          </button>
+          </Button>
         </div>
         <div v-if="!ctl.smapRows.length" class="hint">还没有登记项目</div>
       </div>
@@ -48,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl
 /** 拆分守卫反查锚点 */

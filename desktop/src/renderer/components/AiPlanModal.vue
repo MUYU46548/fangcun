@@ -14,7 +14,7 @@
              @keyup.enter="ctl.runPlanToDraft()" :disabled="ctl.aiPlanBusy" />
       <div class="hint hint-warn" v-if="!ctl.llmCfg.baseUrl">
         ⚠ 还没配模型通道 —— 这个动作要用你自己的一份模型 API（BYOK，方寸不预置任何端点、不代收费用）。
-        <button class="ghost llm-goto" :disabled="ctl.aiPlanBusy" @click="ctl.gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</button>
+        <Button class="llm-goto" variant="ghost" size="tool" :disabled="ctl.aiPlanBusy" @click="ctl.gotoLlmSettings()">去设置 → Agent → ✨ 模型通道</Button>
       </div>
       <div class="hint">
         结果落成<b>“待审批”卡</b>（琥珀色状态）——你过目改卡、点头后才进待办，AI 不能背着你塞东西。
@@ -32,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl
 /** 拆分守卫反查锚点 */

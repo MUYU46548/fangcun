@@ -110,21 +110,21 @@
               <div class="task-log-title">{{ log.title || '(无标题)' }}</div>
               <div class="task-log-meta" :title="log.created">{{ formatDateTime(log.created) }}</div>
             </div>
-            <button
+            <Button
               v-if="log.status !== 'completed' && log.status !== 'archived'"
-              class="ghost task-log-done"
+              class="task-log-done" variant="ghost" size="tool"
               title="一键标记完成（默认保留 7 天）—— 完成后这里会变成“撤销”"
               @click.stop="quickCompleteLog(log)"
-            >✓ 完成</button>
+            >✓ 完成</Button>
             <!-- 2026-10-21 暮雨第 1 条：这里原来只有“✓ 完成”，一旦点错（无二次确认），
                  该行就**只剩一个状态角标**，撤销得跑去日志页翻分区找那条卡 ——
                  这就是"撤销按钮在（但不在我眼前）"。误操作的正解是原地回退。 -->
-            <button
+            <Button
               v-else
-              class="ghost task-log-done"
+              class="task-log-done" variant="ghost" size="tool"
               title="撤销完成 / 归档，退回“待处理”（只改状态，不删文件）"
               @click.stop="reopenLogItem(log.id)"
-            >↩ 撤销</button>
+            >↩ 撤销</Button>
           </div>
           <div v-if="!taskLogs.length" class="hint">该任务暂无关联日志</div>
         </div>

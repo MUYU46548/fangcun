@@ -33,9 +33,9 @@
       <span class="cw-ico">🗓</span>
       <span class="cw-txt">{{ week.text }}</span>
       <span v-if="week.busiest" class="cw-busy">最挤：{{ week.busiest.dow }}（{{ week.busiest.count }} 件）</span>
-      <button v-if="week.unscheduled" class="ghost cw-go" @click="calBottomOpen = true">
+      <Button v-if="week.unscheduled" class="cw-go" variant="ghost" size="tool" @click="calBottomOpen = true">
         去排没排期的 {{ week.unscheduled }} 件 →
-      </button>
+      </Button>
     </div>
     <div class="calgrid">
       <div v-for="d in CAL_DOW" :key="d" class="caldow">{{ d }}</div>
@@ -88,7 +88,7 @@
           <span class="cal-unsched-n" v-if="unschedQuery.trim()">
             命中 {{ unschedList.length }} / {{ calUnscheduled.length }}
           </span>
-          <button class="ghost cal-unsched-reset" v-if="unschedQuery.trim()" @click="unschedQuery = ''">清空</button>
+          <Button class="cal-unsched-reset" variant="ghost" size="tool" v-if="unschedQuery.trim()" @click="unschedQuery = ''">清空</Button>
         </div>
         <div class="items">
         <span v-for="t in unschedList" :key="t.id" class="cev chip" draggable="true"
@@ -116,6 +116,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { useCalendar } from '../composables/useCalendar'
 import { localPriority } from '../../shared/priority'
 import { buildWeekPlan } from '../calendar'

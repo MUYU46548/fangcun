@@ -22,6 +22,7 @@
   ⚠ 零网络：只走 window.tegula 上的 rice 系列通道（本地文件 IPC）。
 -->
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   RICE_EVIDENCE_LEVELS,
@@ -617,8 +618,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
             <option v-for="p in projectOptions" :key="'rp-' + p.id" :value="p.id">{{ p.name }}（{{ p.count }} 条）</option>
           </select>
         </label>
-        <button class="ghost rice-refresh" :disabled="loading || saving" @click="load">
-          {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
+        <Button class="rice-refresh" variant="ghost" size="tool" :disabled="loading || saving" @click="load">
+          {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</Button>
       </div>
     </div>
 
@@ -793,8 +794,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                 <div class="rice-detail-note" v-if="detail.it.note">{{ detail.it.note }}</div>
                 <div class="rice-detail-hint">
                   数字只说明相对位置，不替你做决定
-                  <button class="ghost rice-kick" title="复制一段开工交接单：先问清楚 → 写规格 → 拆成能验收的工单 → 先写测试再实现 + 两路复查"
-                    @click="copyKickoff(detail.it)">⧉ 复制开工交接单</button>
+                  <Button class="rice-kick" variant="ghost" size="tool" title="复制一段开工交接单：先问清楚 → 写规格 → 拆成能验收的工单 → 先写测试再实现 + 两路复查"
+                    @click="copyKickoff(detail.it)">⧉ 复制开工交接单</Button>
                 </div>
               </template>
               <div class="rice-detail-idle" v-else>
@@ -885,8 +886,8 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                       <span class="rice-did">{{ r.it.decisionId }}</span>
                     </template>
                     <template v-else>
-                      <button class="ghost rice-vbtn" :disabled="saving" @click.stop="decide(r.it, false)">采纳</button>
-                      <button class="ghost rice-vbtn cut" :disabled="saving" @click.stop="decide(r.it, true)">砍掉</button>
+                      <Button class="rice-vbtn" variant="ghost" size="tool" :disabled="saving" @click.stop="decide(r.it, false)">采纳</Button>
+                      <Button class="rice-vbtn cut" variant="ghost" size="tool" :disabled="saving" @click.stop="decide(r.it, true)">砍掉</Button>
                     </template>
                   </td>
                 </tr>
@@ -938,12 +939,12 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
                   <!-- 缺理由的当场就能补：点名之后必须给出口，否则那句“不算决定”只是骂人 -->
                   <div class="rice-why-act" v-if="!r.hasWhy">
-                    <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
+                    <Button v-if="reasonFor !== r.eid" class="rice-why-btn" variant="ghost" size="tool" @click="openReason(r.eid)">✎ 补一句理由</Button>
                     <div class="rice-why-edit" v-else>
                       <textarea v-model="reasonDraft" rows="2" placeholder="为什么做？一句话就够"></textarea>
                       <div class="rice-why-edit-act">
-                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</button>
-                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="closeReason()">取消</button>
+                        <Button class="rice-why-btn" variant="ghost" size="tool" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</Button>
+                        <Button class="rice-why-btn" variant="ghost" size="tool" :disabled="reasonSaving" @click="closeReason()">取消</Button>
                       </div>
                     </div>
                   </div>
@@ -959,12 +960,12 @@ async function copyKickoff(it: RiceItem): Promise<void> {
                   </span>
                   <span class="rice-why-ev" v-if="r.evidence">证据：{{ r.evidence }}</span>
                   <div class="rice-why-act" v-if="!r.hasWhy">
-                    <button v-if="reasonFor !== r.eid" class="ghost rice-why-btn" @click="openReason(r.eid)">✎ 补一句理由</button>
+                    <Button v-if="reasonFor !== r.eid" class="rice-why-btn" variant="ghost" size="tool" @click="openReason(r.eid)">✎ 补一句理由</Button>
                     <div class="rice-why-edit" v-else>
                       <textarea v-model="reasonDraft" rows="2" placeholder="为什么砍？一句话就够（下次它还会以“听起来很酷”回来）"></textarea>
                       <div class="rice-why-edit-act">
-                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</button>
-                        <button class="ghost rice-why-btn" :disabled="reasonSaving" @click="closeReason()">取消</button>
+                        <Button class="rice-why-btn" variant="ghost" size="tool" :disabled="reasonSaving" @click="saveReason(r.eid)">保存</Button>
+                        <Button class="rice-why-btn" variant="ghost" size="tool" :disabled="reasonSaving" @click="closeReason()">取消</Button>
                       </div>
                     </div>
                   </div>

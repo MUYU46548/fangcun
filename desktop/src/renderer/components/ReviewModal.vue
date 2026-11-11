@@ -18,8 +18,8 @@
         ? '驳回理由（可选 —— 写不清就点下面一个常用理由，或直接留空）'
         : '裁决意见（可选；驳回后仍会常驻在卡上，随时能改）' }}</label>
       <div class="review-presets">
-        <button v-for="p in ctl.reviewPresets" :key="p" type="button" class="ghost rp"
-          :class="{ on: ctl.reviewReason === p }" @click="ctl.reviewReason = ctl.reviewReason === p ? '' : p">{{ p }}</button>
+        <Button v-for="p in ctl.reviewPresets" :key="p" type="button" class="rp" variant="ghost" size="tool"
+          :class="{ on: ctl.reviewReason === p }" @click="ctl.reviewReason = ctl.reviewReason === p ? '' : p">{{ p }}</Button>
       </div>
       <textarea v-model="ctl.reviewReason" class="review-reason"
         :placeholder="ctl.reviewModal.kind === 'approval'
@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl
 /** 拆分守卫反查锚点 */

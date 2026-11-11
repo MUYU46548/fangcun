@@ -5431,6 +5431,21 @@
       $$('.nc-item.go').length === 2 && $$('.nc-go').length === 2 &&
       (($$('.nc-item')[0] || {}).getAttribute?.('title') === '跳到这个任务'),
       (($$('.nc-item')[0] || {}).getAttribute?.('title') || 'null'))
+    // 批次 6 / 拍板 A（2026-11-11）：通知中心整体改用 ui 基座 ——
+    // 头部三枚（刷新 / 全部标为已读 / 关闭）与行尾 ✓/🗑 都该落在基座的 sm(24) 档；
+    // 同时 `.nc-act.keep`（成功色）是 (0,2,0)，必须仍赢过基座 utility —— 语义不能因为换组件就丢。
+    {
+      const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
+      const head = [...document.querySelectorAll('.nc-head-act button')]
+      const acts = [...document.querySelectorAll('.nc-acts .nc-act')]
+      const keepBtn = acts.find((b) => b.classList.contains('keep'))
+      const keepCol = keepBtn ? getComputedStyle(keepBtn).color : ''
+      check('★★ 通知中心改用基座：头部三枚与行尾 ✓/🗑 都是 24，且 ✓ 仍是成功色（语义没丢）',
+        head.length === 3 && head.every((b) => Math.abs(h(b) - 24) <= 1)
+          && acts.length >= 2 && acts.every((b) => Math.abs(h(b) - 24) <= 1)
+          && keepCol === 'rgb(84, 129, 75)',
+        JSON.stringify({ 头部: head.map(h), 行尾: acts.map(h), keep色: keepCol }))
+    }
     // 点第 1 条（任务类）→ 关面板 + getTask + 切看板 + 打开任务预览
     const ncItem1 = $$('.nc-item')[0]
     if (ncItem1) ncItem1.click()

@@ -52,9 +52,9 @@
               现在推 <b>{{ proj.current.name }}</b> · 还剩 {{ proj.remaining }} 张
             </span>
             <span class="rp-focus done" v-else>{{ proj.totalBatches ? '全部批次已收口' : '还没排批' }}</span>
-            <button class="ghost rp-toggle" @click="toggleAll(proj.id)">
+            <Button class="rp-toggle" variant="ghost" size="sm" @click="toggleAll(proj.id)">
               {{ showAll[proj.id] ? '只看当前批次' : '看全部批次（' + proj.totalBatches + '）' }}
-            </button>
+            </Button>
           </div>
           <!-- 进度条：只在真有当前批次时出现（0/0 不画） -->
           <div class="rp-bar" v-if="proj.current" :title="proj.current.done + ' / ' + proj.current.total">
@@ -113,6 +113,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { statusClass } from '../../shared/status'
 import { focusRoadmap, type RoadmapProjectLike } from '../../shared/roadmapFocus'

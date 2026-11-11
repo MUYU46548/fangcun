@@ -17,11 +17,15 @@
           <p>{{ ncHeadSub }}</p>
         </div>
         <div class="nc-head-act">
-          <button class="nc-icon-btn font-[inherit]" :class="{ spin: ncLoading }" title="刷新" @click="ncRefresh">
-            <span class="nc-ico">⟳</span>
-          </button>
-          <button class="nc-btn-primary font-[inherit]" :disabled="ncUnread === 0" @click="ncMarkAllRead">✓ 全部标为已读</button>
-          <button class="nc-icon-btn font-[inherit]" title="关闭" @click="closePanel">✕</button>
+          <!-- 2026-11-11（U1=A / 拍板 A：“通知中心改成主界面那套”）：
+               原来这里是 30×30 的 nc-icon-btn + 深墨实心 nc-btn-primary —— 那是一套“临时原型”的视觉，
+               与方寸的 ghost/primary 不是同一个模子。现在全部换成 ui/Button：
+               图标钮 = ghost + sm(24)、主按钮 = primary + sm；原来 `.nc-icon-btn` 的转动动画改挂 `.nc-ico-spin`。 -->
+          <Button variant="ghost" size="sm" title="刷新" @click="ncRefresh">
+            <span class="nc-ico" :class="{ 'nc-ico-spin': ncLoading }">⟳</span>
+          </Button>
+          <Button variant="primary" size="sm" :disabled="ncUnread === 0" @click="ncMarkAllRead">✓ 全部标为已读</Button>
+          <Button variant="ghost" size="sm" title="关闭" @click="closePanel">✕</Button>
         </div>
       </header>
 
@@ -55,8 +59,12 @@
           <!-- 2026-10-01 用户第 1 条：能跳的行给个明确信号，别让人点了以为是死按钮 -->
           <span v-if="ncTargetOf(n)" class="nc-go" aria-hidden="true">→</span>
           <div class="nc-acts">
-            <button class="nc-act keep font-[inherit]" :title="n.read ? '标为已读' : '标为已读'" @click.stop="ncToggleRead(n)">✓</button>
-            <button class="nc-act danger font-[inherit]" title="删除通知" @click.stop="ncDelete(n)">🗑</button>
+            <!-- 同上（拍板 A）：行尾两枚也换成基座 ghost + sm。
+                 `keep` / `danger` 两个**语义修饰类**保留 —— `.nc-act.keep` / `.nc-act.danger:hover`
+                 是 (0,2,0)，比基座的 utility 高，所以“✓ 成功色 / 🗑 悬停才红”这两条语义不会丢。
+                 `.nc-act` 自己那条规则已裁成只剩颜色（尺寸/底/框交给基座）。 -->
+            <Button class="nc-act keep" variant="ghost" size="sm" :title="'标为已读'" @click.stop="ncToggleRead(n)">✓</Button>
+            <Button class="nc-act danger" variant="ghost" size="sm" title="删除通知" @click.stop="ncDelete(n)">🗑</Button>
           </div>
         </div>
         <div v-if="ncVisible.length === 0" class="nc-empty">
@@ -69,13 +77,13 @@
       <!-- P0-5：删过通知 = 静音 7 天，必须看得见、能恢复（此前 listMuted 全无入口） -->
       <div v-if="ncMuted.length" class="nc-muted">
         <span>被忽略 {{ ncMuted.length }} 条（7 天后自动恢复）</span>
-        <button class="nc-link font-[inherit]" @click="ncUnmuteAll">全部恢复 →</button>
+        <Button variant="ghost" size="sm" @click="ncUnmuteAll">全部恢复 →</Button>
       </div>
       <footer class="nc-foot">
         <div class="stat">共 <b>{{ ncCounts.all }}</b> 条 · 未读 <b>{{ ncCounts.unread }}</b> 条</div>
         <!-- P0-4：扫描器状态 —— "停摆"与"扫不到"此前在界面上长得一模一样 -->
         <div class="nc-scan" :title="String(ncStatus?.lastScanAt || '')">{{ ncStatusText }}</div>
-        <button class="nc-link font-[inherit]" @click="ncClearAll">清空历史 →</button>
+        <Button variant="ghost" size="sm" @click="ncClearAll">清空历史 →</Button>
       </footer>
     </div>
   </div>
@@ -83,6 +91,9 @@
 
 <script setup lang="ts">
 import { toRef } from 'vue'
+// 2026-11-11（拍板 A）：通知中心整体改用 ui 基座 —— 它原来是从一个临时原型移植进来的，
+// 30×30 图标 / 深墨主按钮 / accent 文字链接都是那套原型的尺寸，与方寸的 ghost/primary 不是同一个模子。
+import Button from './ui/Button.vue'
 
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl

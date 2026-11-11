@@ -18,8 +18,8 @@
       <span class="tier-sub">把项目胶囊拖进不同档位即改档 —— 松手就保存，没有保存按钮</span>
       <span class="tier-grow"></span>
       <span class="tier-count">{{ assignedCount }} / {{ projects.length }} 已分档</span>
-      <button class="ghost tier-btn" :disabled="busy" @click="load">{{ busy ? '读取中…' : '⟳ 刷新' }}</button>
-      <button class="ghost tier-btn" @click="addTier">＋ 加一档</button>
+      <Button class="tier-btn" variant="ghost" size="tool" :disabled="busy" @click="load">{{ busy ? '读取中…' : '⟳ 刷新' }}</Button>
+      <Button class="tier-btn" variant="ghost" size="tool" @click="addTier">＋ 加一档</Button>
     </div>
 
     <div v-if="error" class="skills-error">{{ error }}</div>
@@ -93,6 +93,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { computed, onMounted, ref } from 'vue'
 // ⚠ 过桥必须给裸对象：`tiers.value` 是 Vue 响应式代理，contextBridge 走结构化克隆会抛
 //   “An object could not be cloned”——本项目 09-25 / 10-05 各踩过一次，这里第三次。

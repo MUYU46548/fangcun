@@ -40,8 +40,8 @@
            需要旧内容时点行尾“带入”按钮**主动取** —— 挪用变申请，主动权在用户手里。
            保留 label 紧邻 textarea 的兄弟结构：renderer-web 的 relayTaOf() 与顺序断言都靠它定位。 -->
       <label class="ns-label">下一步
-        <button type="button" class="ghost relay-bring" title="把源日志的“下一步”原文放进本框（框里已有内容时不会覆盖）"
-          @click.stop="bringSourceNextSteps">⧉ 带入源的下一步</button>
+        <Button type="button" class="relay-bring" variant="ghost" size="tool" title="把源日志的“下一步”原文放进本框（框里已有内容时不会覆盖）"
+          @click.stop="bringSourceNextSteps">⧉ 带入源的下一步</Button>
       </label>
       <textarea v-model="relay_.nextSteps" placeholder="下一步...（默认留空，本次自己写；要用源里的内容点上方“带入源的下一步”）"></textarea>
       <label>关联任务</label>
@@ -79,8 +79,8 @@
            所以标签改成“会话 ID（可留空）”+ 一行说明，并给“带入源的会话 ID”按钮 ——
            不逼用户去猜一个还不存在的值，也不再让字段名暗示它必须是“本次”。 -->
       <label class="ns-label">会话 ID（可留空）
-        <button type="button" class="ghost relay-bring" title="把源日志记的会话 ID 追加到本框（已在框里就不重复加）"
-          @click.stop="bringSourceSessionId">⧉ 带入源的会话 ID</button>
+        <Button type="button" class="relay-bring" variant="ghost" size="tool" title="把源日志记的会话 ID 追加到本框（已在框里就不重复加）"
+          @click.stop="bringSourceSessionId">⧉ 带入源的会话 ID</Button>
       </label>
       <input v-model="relay_.sessionId" placeholder="有上一段的会话 ID 就填这里（可多个，用空格或逗号分隔）" />
       <div class="hint">这一格用于倒查：填上一段（或几段）会话的 ID 也算数，不会冒充“本次会话”；本次 ID 等 agent 开跑后再到编辑框补。</div>
@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 import { toRef } from 'vue'
 
 /** 唯一 prop：接力控制器（父组件 reactive 包过的那一坨）。状态 toRef、动作解构。 */

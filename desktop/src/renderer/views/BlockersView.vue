@@ -32,7 +32,7 @@
           <span v-if="queue.top.status" class="st small" :class="'st-' + statusClass(queue.top.status)">{{ queue.top.status }}</span>
           <button class="ok ba-done" title="直接标记完成（跳过裁决，会二次确认）—— 解掉它，后面那几张就解锁了"
             @click="emit('finish-task', queue.top.id)">✓ 标完成</button>
-          <button class="ghost ba-go" @click="emit('open-task', queue.top.id)">打开卡片 →</button>
+          <Button class="ba-go" variant="ghost" size="tool" @click="emit('open-task', queue.top.id)">打开卡片 →</Button>
         </div>
         <div class="ba-note">
           它一解，<b>{{ queue.top.unlock }}</b> 个任务就不再被卡（其中
@@ -52,7 +52,7 @@
             <div class="bq-title">{{ r.title }}<span class="bq-id">{{ r.id }}</span></div>
             <div class="bq-why">{{ r.why }}</div>
           </div>
-          <button class="ghost bq-go" @click="emit('open-task', r.id)">打开卡片 →</button>
+          <Button class="bq-go" variant="ghost" size="tool" @click="emit('open-task', r.id)">打开卡片 →</Button>
           <button v-if="!r.status || (r.status !== '完成' && r.status !== '驳回')" class="ok bq-done"
             title="直接标记完成（跳过裁决，会二次确认）" @click="emit('finish-task', r.id)">✓</button>
         </div>
@@ -67,7 +67,7 @@
               <span class="chain-id">{{ src.id }}</span>
               <span class="chain-title">{{ src.title }}</span>
               <span class="st" :class="'st-' + statusClass(src.status)">{{ src.status }}</span>
-              <button class="ghost chain-go" @click="emit('open-task', src.id)">打开卡片 →</button>
+              <Button class="chain-go" variant="ghost" size="tool" @click="emit('open-task', src.id)">打开卡片 →</Button>
             </div>
             <div class="chain-arrow">
               ↓ 阻塞了 {{ src.blockedTasks.length }} 个任务
@@ -98,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from '../components/ui/Button.vue'
 import { computed } from 'vue'
 import { buildBlockerQueue, computeBlockerImpact, type BlockerImpact } from '../../shared/blockers'
 import { statusClass } from '../../shared/status'
