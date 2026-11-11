@@ -1,5 +1,6 @@
 import { MCPRequest, MCPResponse, MCPToolResult } from './types'
 import { MCP_TOOLS, handleMCPToolCall, type ToolCallContext } from './tools'
+import { detectAppMode } from '../services/appMode'
 
 /**
  * JSON-RPC 2.0 / MCP 分发。
@@ -29,6 +30,14 @@ export function handleMCPRequest(req: MCPRequest, ctx?: ToolCallContext): MCPRes
       const asked = req.params && typeof req.params.protocolVersion === 'string'
         ? req.params.protocolVersion : ''
       const supported = ['2024-11-05', '2025-03-26', '2025-06-18']
+      // 运行态随握手一起交底（卡 20261017-002 第 1 条）：agent 一进门就该知道
+      // 自己在成品态还是开发态、能不能动源码 —— 不让它猜，也不等它问。
+      const mode = detectAppMode()
+      const modeLine = mode.mode === 'client'
+        ? `当前运行态：客户端态（成品）；数据目录：${mode.dataDir}。`
+          + '这里**没有**改源码的入口：不要尝试修改 desktop/src、scripts/、tegula/；要改源码必须由用户切到开发态。'
+        : `当前运行态：开发态（源码仓库）；数据目录：${mode.dataDir}。`
+          + '改源码前先说明改哪个文件 / 改什么 / 为什么，用户点头再写。'
       return {
         jsonrpc: '2.0',
         id,
@@ -37,8 +46,10 @@ export function handleMCPRequest(req: MCPRequest, ctx?: ToolCallContext): MCPRes
           capabilities: { tools: {} },
           serverInfo: { name: 'fangcun', version: '0.6.17' },
           instructions:
-            '方寸（fangcun）任务看板。任务卡落 task-data/*.md；写操作走 create_task / update_task / move_status，'
-            + '受乐观锁保护（update_task 传 updated 可防覆盖）。列出任务用 list_tasks，搜索用 search_tasks。',
+            `方寸（fangcun）任务看板。${modeLine}`
+            + '写数据走 create_task / update_task / move_status（受「MCP 写入」档位约束：只读 / 读写 / 读写+破坏性，默认读写）；'
+            + '读用 list_tasks，搜索用 search_tasks，当前态用 app_mode 查。任务卡落 task-data/*.md；'
+            + '读侧计量落 mcp-usage.jsonl，写侧留痕落 .mcp-writes.jsonl。',
         },
       }
     }

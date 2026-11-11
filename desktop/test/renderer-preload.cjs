@@ -1404,6 +1404,23 @@ contextBridge.exposeInMainWorld('tegula', {
       rulings: [{ deck: deck || '司天-宪法层', qid: 'S1', line: '出现反例即违约' }],
     }
   },
+  appMode: () => {
+    rec('appMode')
+    // 夹具固定为开发态：渲染层要能显示“依据逐条摊开”，而不是只显示一句结论
+    return {
+      mode: 'dev', packaged: false,
+      exePath: 'C:/mock/node_modules/electron/dist/electron.exe',
+      appPath: 'C:/mock/fangcun/desktop',
+      dataDir: 'C:/mock/data',
+      summary: '开发态：这是源码仓库。AI 改源码前必须先说明改哪个文件 / 改什么 / 为什么，人点头再动手。',
+      signals: [
+        { key: 'app.isPackaged', value: 'false', note: '不是打包版（npm run dev / electron .）' },
+        { key: '应用路径', value: 'C:/mock/fangcun/desktop', note: '在源码目录里 = 开发态' },
+        { key: '可执行文件', value: 'electron.exe', note: 'electron.exe = 开发态' },
+        { key: '数据目录', value: 'C:/mock/data', note: '开发态的数据在仓库里' },
+      ],
+    }
+  },
   questionnaireVoidDeck: (deck, reason) => {
     rec('questionnaireVoidDeck', [deck, reason || ''])
     if (!store.qnVoided) store.qnVoided = {}

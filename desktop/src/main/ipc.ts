@@ -44,6 +44,8 @@ import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 // MCP 写口闸 + 写侧留痕（2026-11-11 卡《MCP 写口无闸》）—— 设置页与清单都读这一层
 import * as writeGate from './mcp/writeGate'
+// 运行态识别（2026-11-11 卡 task-20261017-002）：客户端态 / 开发态必须一眼看得见
+import { detectAppMode } from './services/appMode'
 import { attachmentOpenPolicy } from '../shared/attachments'
 import { resolveLinkPath } from '../shared/linkPath'
 import { pickNeverRead } from '../shared/neverRead'
@@ -1150,6 +1152,11 @@ export function registerIpcHandlers(): void {
     const n = Number(limit)
     return writeGate.listWrites(Number.isFinite(n) && n > 0 ? Math.min(500, Math.floor(n)) : 50)
   })
+
+  // ── 运行态（2026-11-11 卡 task-20261017-002）──────────────────────────
+  // 客户端态 / 开发态靠可读信号判（isPackaged / 应用路径 / 可执行文件 / 数据目录），
+  // 设置页一眼看得见；MCP 的 initialize instructions 也会带同一句话给 agent。
+  guardedHandle('app:mode', () => detectAppMode())
 
   // ── 项目梯度榜（2026-10-25）：只服务项目页的“梯度榜”摆法 ──────────────
   // 边界见 services/projectTiers.ts 顶部注释：不参与看板分组、不影响一屏、不动 registry。

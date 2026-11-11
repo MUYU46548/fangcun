@@ -668,6 +668,13 @@ export const MCP_TOOLS: MCPTool[] = [
   // 口径真源 docs/ADR-002-需求矩阵.md；池宿主 task-data/rice-pool.md。
   // ⚠ 总分不落盘：池里只有 R/I/C/E 四个原始分，RICE 由读取方现算。
   {
+    name: 'app_mode',
+    description:
+      '当前运行态：客户端态（成品，数据在 userData）还是开发态（源码仓库），以及判断依据。'
+      + '客户端态下**没有**改源码的入口（MCP 层零文件写工具）—— 改源码必须由人切到开发态。',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'rice_pool_list',
     description:
       'Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, '
@@ -723,6 +730,8 @@ export const MCP_TOOLS: MCPTool[] = [
 // ── Tool Handler ────────────────────────────────────────────────────────
 
 import { checkMcpWrite, recordWrite, summarizeArgs } from './writeGate'
+// 运行态（2026-11-11 卡 20261017-002）：让 agent 一进门就知道自己在成品态还是开发态
+import { detectAppMode, MCP_CODE_WRITE_TOOLS } from '../services/appMode'
 
 export interface ToolCallContext {
   /** MCP 客户端名（socket-server 从 initialize 的 clientInfo 取） */
@@ -1156,6 +1165,22 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     
     case 'get_data_dir': {
       return { content: [{ type: 'text', text: getDataDir() }] }
+    }
+
+    case 'app_mode': {
+      // 卡 task-20261017-002 第 1 条：态可观测。判据全部是可读信号（isPackaged / 路径 / exe 名），
+      // 不靠 AI 猜；`codeWriteTools` 恒空 —— MCP 层没有任何写源码的工具（守卫见 e2e-app-mode）。
+      const info = detectAppMode()
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ...info,
+            codeWriteTools: MCP_CODE_WRITE_TOOLS,
+            note: 'MCP 层没有任何写源码的工具；写数据受「MCP 写入」档位约束（只读 / 读写 / 读写+破坏性）。',
+          }, null, 2),
+        }],
+      }
     }
 
     case 'search_tasks': {

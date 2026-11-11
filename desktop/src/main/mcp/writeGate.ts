@@ -53,6 +53,8 @@ const READ_TOOLS = new Set([
   'plan_list', 'plan_get', 'plan_pending', 'gate_list', 'decision_list', 'project_charter',
   'stage_plan_get', 'qn_list', 'rice_pool_list',
   'list_logs', 'search_logs', 'get_log', 'inject_logs', 'never_read',
+  // 运行态查询（2026-11-11 卡 20261017-002）：纯读，只读档下也必须能用
+  'app_mode',
 ])
 
 /** 破坏性：删数据 / 改别人的分数 / 驳回类流转 */

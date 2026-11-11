@@ -216,6 +216,8 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpWriteMode: () => ipcRenderer.invoke('mcp:writeMode'),
   mcpSetWriteMode: (mode: string) => ipcRenderer.invoke('mcp:writeModeSet', mode),
   mcpWrites: (limit?: number) => ipcRenderer.invoke('mcp:writes', limit),
+  /** 运行态（2026-11-11 卡 20261017-002）：客户端态 / 开发态 + 判断依据 */
+  appMode: () => ipcRenderer.invoke('app:mode'),
   /** 项目梯度榜（2026-10-25）：只给项目页的“梯度榜”摆法用，见 services/projectTiers.ts */
   /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
   projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
