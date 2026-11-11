@@ -290,8 +290,15 @@ export async function chatDetailed(
     let { data } = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
     let { text, reasoning, finish } = extractText(data)
 
-    if (!text && finish === 'length' && maxTokens < 8192) {
-      maxTokens = Math.min(maxTokens * 4, 8192)
+    // 推理模型会把预算花在 reasoning_content 上：正文空 + length 截断 → 加预算重试。
+    // ⚠ 2026-11-10 教训：这里原来的上限钉在 **8192**，而一次真实规划的思考就超过 8192
+    //   → 正文永远是空串，然后被误判成“模型不行”。**加预算，不是把思考关掉**：
+    //   这一代模型的智力就在思考里，关掉思考换来的是能跑但要扔进回收站的输出。
+    //   上限 65536（端点实测接受；32k 起，不够自动翻倍）。注意这是**单次输出**上限，
+    //   不是上下文窗口 —— “几百万 token”那一维由模型窗口决定，不归这个旋钮管。
+    const TOKEN_CAP = 65536
+    while (!text && finish === 'length' && maxTokens < TOKEN_CAP) {
+      maxTokens = Math.min(maxTokens * 4, TOKEN_CAP)
       const retry = await postChat(chatUrl, buildPayload(messages, cfg, options, false, maxTokens), cfg, timeoutSec)
       data = retry.data
       ;({ text, reasoning, finish } = extractText(data))

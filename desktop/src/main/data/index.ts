@@ -407,6 +407,8 @@ export interface TaskFrontmatter {
   updated?: string
   expected_update?: string  // optimistic lock
   blockers?: string[]
+  /** 澄清卷名（2026-11-11 · 进队列锁）：声明了就必须过闸才能变「待办」 */
+  clarify?: string
   [key: string]: unknown
 }
 
@@ -619,6 +621,10 @@ export const FIELD_MAP: Record<string, string> = {
   // 架构图（2026-10-13 暮雨第 2 条 · 方案 A）：项目说明卡内嵌分层架构图。
   // ⚠ 两侧同改：Python MANAGED_KEYS + render_task 显式输出行。
   '架构': 'architecture',
+  // 澄清卷（2026-11-11 · 进队列锁）：卡上写 `澄清: <卷名>` 表示“这张卡出自一次澄清”。
+  // ⚠ 两侧同改：Python 侧 MANAGED_KEYS + render_task 显式输出 —— 否则 `tegula done` 一写回
+  //   就把桌面/问卷写的卷名静默抹掉，卡于是“再也说不出自己该过哪个闸”。
+  '澄清': 'clarify',
 }
 
 // English → Chinese field name mapping (for renderTask compat with Python CLI)
@@ -640,7 +646,7 @@ const FM_ORDER = [
   //   dispatch_time 挨着更易读）。真正决定"会不会丢"的是别名表里的中文键映射：
   //   少了 `'认领人': 'claimed_by'`，写回去会变成英文键，Python 侧就读不到。
   'dispatch_time', 'claimed_by', 'claimed_at', 'agent', 'review_checklist', 'budget', 'cron', 'context',
-  'type', 'plan_status', 'attribution',
+  'type', 'plan_status', 'attribution', 'clarify',
 ]
 
 export function parseRegistry(includeReleased = true): any[] {

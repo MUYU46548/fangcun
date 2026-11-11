@@ -18,6 +18,13 @@ import { addDecision, loadDecisions, setDecisionStatus } from './decisions'
 import { createTask } from './tasks'
 import { parseQuestionnaire, costGaps, deckIssues, type QDeck, type QDeckIssue } from '../../shared/questionnaire'
 import { askbacksOf, buildRewritePrompt, buildWorkOrderPrompt, costGapsOf } from '../../shared/qnPrompts'
+import { collisionsFor, upsertEntries, bankStats, type BankStatus } from './questionBank'
+// 本地日历日：见 shared/time.ts#localDay —— `toISOString().slice(0,10)` 是 UTC 日，
+// 东八区凌晨落库会写成“昨天”。
+import { localDay } from '../../shared/time'
+// 「卡引用了哪一卷」的认法必须与进队列闸 / 派工单**同一个函数**（shared/clarify）——
+// 三处各认一遍必然对不上（2026-11-11 问卷归档闸要用它判“有没有卡还在引用”）。
+import { clarifyOf, splitClarify } from '../../shared/clarify'
 // 出卷通道（2026-11-08）：agent 侧此前**没有任何出卷入口**，只能靠人抄格式给它。
 // 这一层把“规格 → md”的转换收在一处，格式机检与生成共用同一份实现。
 import {
@@ -31,7 +38,7 @@ export interface QAnswer {
    * 与「否决」不是一回事：否决 = 这题不该问（答案压根不存在）；
    * 作废 = 当时答得对、后来需求变了（答案曾经成立）。两者都不进导出，但语义差在"曾经成立过"。
    */
-  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void'
+  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void' | 'self'
   /** pick 时的选项键 */
   k?: string
   /** amend / askback / void 时的原话（void 时是作废原因） */
@@ -64,6 +71,14 @@ export interface QAnswersFile {
   voidedAt?: string
   /** 整卷作废原因（必须写 —— 三个月后要能看懂当时为什么推翻） */
   voidReason?: string
+  /**
+   * 归档时间（2026-11-11 问卷管理）：已批准很久、又没有任何卡引用的卷移出列表。
+   *
+   * 与「作废」的区别：**归档只是不占列表，答案照旧参与裁决**（`gateForDeck` /
+   * `effectiveAcceptances` 都不看这个字段）；作废是“答案不再作数”。两者不许混用。
+   */
+  archivedAt?: string
+  archiveReason?: string
   /** 逐题的事后校验结论 */
   audits?: Record<string, QAudit>
 }
@@ -77,14 +92,56 @@ export interface QDeckBrief {
   approved: boolean
   /** 这卷已作废（答案不再作数） */
   voided?: boolean
+  /**
+   * 归属项目（2026-11-10 补）。
+   *
+   * 为什么必须带出去：卷一多就分不清是哪条线的（用户原话“问卷越堆越多，后续管理问卷本身
+   * 将成为一大难题”）。列表现在按「待答 / 已批准」分组，再加一层项目标记才好认。
+   */
+  project?: string
   /** 卷面里「没写代价」的选项数（>0 时界面要黄条点名） */
   costGaps?: number
+  /** 本卷取代了哪一卷（卷面 `**取代**：<旧卷>`） */
+  supersedes?: string
+  /** 本卷被哪一卷取代（由别的卷的 supersedes 反推）—— 有值时列表里折叠并标「已被取代」 */
+  replacedBy?: string
+  /** 已归档（不占列表，仍参与裁决） */
+  archived?: boolean
+  /** 批准至今多少天（没批准为 0）—— 归档闸的判据 */
+  ageDays?: number
+  /** 批准时间（空 = 没批准）—— 搜索的日期区间按它筛 */
+  approvedAt?: string
+  /** 有多少张任务卡引用它（`[问卷:<卷>:<题>]` 标记或 `澄清: <卷>`）—— 有引用就不许归档 */
+  refCount?: number
   error?: string
 }
 
 
 export function questionnaireDir(): string {
   return path.join(getTaskDir(), 'questionnaires')
+}
+
+/**
+ * 卷归属项目：先认卷面 `**项目**：`，再按卷名匹配 registry。
+ *
+ * 为什么必须有（2026-11-09 真事）：`approveDeck` 建决策卡时没传 `项目`，
+ * 问卷答案落成的决策卡全是“全局”——`contextPack` 会把司天的规矩发给方寸。
+ * 同一套认法原先埋在 `deckToCards` 里，现在抽出来两处共用。
+ */
+export function projectForDeck(deckName: string, parsed?: QDeck): string {
+  const explicit = String(parsed?.project || '').trim()
+  if (explicit) return explicit
+  const name = String(deckName || '')
+  const registry = parseRegistry().map((p: any) => ({
+    id: String(p?.id || ''),
+    name: String(p?.name || p?.id || ''),
+  })).filter((p: { id: string }) => !!p.id)
+  const scored = registry.map((p: { id: string; name: string }) => {
+    const byName = p.name && p.name.length >= 2 && name.includes(p.name) ? p.name.length : 0
+    const byId = name.includes(p.id) ? p.id.length : 0
+    return { id: p.id, score: Math.max(byName, byId) }
+  }).filter((x: { score: number }) => x.score > 0).sort((a: { score: number }, b: { score: number }) => b.score - a.score)
+  return scored.length ? scored[0].id : ''
 }
 
 function safeName(name: string): string {
@@ -120,6 +177,8 @@ export function readAnswers(deck: string): QAnswersFile {
       updatedAt: String(o?.updatedAt || ''),
       voidedAt: String(o?.voidedAt || ''),
       voidReason: String(o?.voidReason || ''),
+      archivedAt: String(o?.archivedAt || ''),
+      archiveReason: String(o?.archiveReason || ''),
       audits: o && typeof o.audits === 'object' && o.audits ? o.audits : {},
     }
   } catch {
@@ -141,6 +200,8 @@ export function writeAnswers(deck: string, input: {
   approvedAt?: string
   voidedAt?: string
   voidReason?: string
+  archivedAt?: string
+  archiveReason?: string
   audits?: Record<string, QAudit>
 }): { ok: true } | { ok: false; error: string } {
   const name = safeName(deck)
@@ -155,6 +216,8 @@ export function writeAnswers(deck: string, input: {
     updatedAt: new Date().toISOString(),
     voidedAt: input.voidedAt !== undefined ? String(input.voidedAt) : (cur.voidedAt || ''),
     voidReason: input.voidReason !== undefined ? String(input.voidReason) : (cur.voidReason || ''),
+    archivedAt: input.archivedAt !== undefined ? String(input.archivedAt) : (cur.archivedAt || ''),
+    archiveReason: input.archiveReason !== undefined ? String(input.archiveReason) : (cur.archiveReason || ''),
     audits: input.audits !== undefined ? input.audits : (cur.audits || {}),
   }
   const p = path.join(dir, name + '.answers.json')
@@ -164,9 +227,44 @@ export function writeAnswers(deck: string, input: {
   return { ok: true }
 }
 
-/** 汇总：有哪些卷、各几题、答了几道、批准没 */
-export function listDecks(): { ok: true; decks: QDeckBrief[]; dir: string } {
-  const decks = listDeckNames().map((name) => {
+/**
+ * 有多少张任务卡引用某卷（2026-11-11 问卷管理）。
+ *
+ * 两个结构化标记都算引用：`澄清: <卷>`（进队列锁的字段）与问卷落卡正文里的
+ * `[问卷:<卷>:<题>]`（`clarifyOf` 两种都认）。**不用“正文里出现卷名”**那种模糊匹配 ——
+ * 卷名常常是项目名 + 层，模糊匹配会把隔壁项目的一堆卡都算成引用，归档闸就永远不动。
+ */
+function deckRefCounts(): Map<string, number> {
+  const out = new Map<string, number>()
+  let list: any[] = []
+  try { list = loadTasks('all') } catch { return out }
+  for (const t of list) {
+    const decks = new Set<string>()
+    const raw = clarifyOf({ fm: t?.fm, body: t?.body })
+    if (raw) {
+      // `卷#题号` 也只是“这一卷被引用了” —— 引用计数按卷归账，不按题
+      const deck = splitClarify(raw).deck
+      if (deck) decks.add(deck)
+    }
+    // ⚠ 还有第三种引用：问卷落卡正文里的 `[问卷:<卷>:<题号>]` 标记。
+    //   `clarifyOf` 只认「澄清」的三种写法（那是**闸**的语义），老卡/手写卡可能只有标记 ——
+    //   2026-11-11 评审实测：只认 clarifyOf 时这种卡的 refCount=0，卷会被误判成“没引用”而收起来。
+    const body = String(t?.body || '')
+    const re = /\[问卷:([^\]\n]+?):[^\]\n]+\]/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(body)) !== null) {
+      const deck = String(m[1] || '').trim()
+      if (deck) decks.add(deck)
+    }
+    for (const deck of decks) out.set(deck, (out.get(deck) || 0) + 1)
+  }
+  return out
+}
+
+/** 汇总：有哪些卷、各几题、答了几道、批准没（外加题库总进度，见 2026-11-10 规模支撑） */
+export function listDecks(): { ok: true; decks: QDeckBrief[]; dir: string; bank: ReturnType<typeof bankStats> } {
+  const names = listDeckNames()
+  const raw = names.map((name) => {
     const text = readDeckText(name)
     const d = parseQuestionnaire(text)
     const a = readAnswers(name)
@@ -177,18 +275,170 @@ export function listDecks(): { ok: true; decks: QDeckBrief[]; dir: string } {
       return true
     }).length
     return {
-      deck: name,
-      title: d.title || name,
-      layer: d.layer,
-      total: d.questions.length,
-      answered,
-      approved: !!a.approvedAt,
-      voided: !!a.voidedAt,
-      costGaps: costGaps(d).length,
-      error: d.error,
+      name,
+      approvedAt: a.approvedAt || '',
+      archivedAt: a.archivedAt || '',
+      supersedes: String(d.supersedes || '').trim(),
+      brief: {
+        deck: name,
+        title: d.title || name,
+        layer: d.layer,
+        total: d.questions.length,
+        answered,
+        approved: !!a.approvedAt,
+        voided: !!a.voidedAt,
+        project: projectForDeck(name, d),
+        costGaps: costGaps(d).length,
+        error: d.error,
+      } as QDeckBrief,
     }
   })
-  return { ok: true, decks, dir: questionnaireDir() }
+  // 「被取代」是反推出来的：别的卷写了 `**取代**：<本卷>` → 本卷标已被取代
+  const replacedBy = new Map<string, string>()
+  for (const x of raw) {
+    if (!x.supersedes) continue
+    if (x.supersedes === x.name) continue          // 自己取代自己：坏数据，不当真
+    if (!names.includes(x.supersedes)) continue    // 指向不存在的卷：不凭空造一条关系
+    replacedBy.set(x.supersedes, x.name)
+  }
+  const refs = deckRefCounts()
+  const now = Date.now()
+  const decks = raw.map((x) => {
+    const ap = Date.parse(x.approvedAt)
+    return {
+      ...x.brief,
+      supersedes: x.supersedes,
+      replacedBy: replacedBy.get(x.name) || '',
+      archived: !!x.archivedAt,
+      approvedAt: x.approvedAt,
+      ageDays: Number.isFinite(ap) ? Math.max(0, Math.floor((now - ap) / 86400_000)) : 0,
+      refCount: refs.get(x.name) || 0,
+    }
+  })
+  return { ok: true, decks, dir: questionnaireDir(), bank: bankStats('') }
+}
+
+/**
+ * 问卷搜索（2026-11-11）：按卷名 / 标题 / 项目 / 题面 / 选项文字搜，可带项目与日期区间。
+ *
+ * 为什么必须走结构化字段而不是“正文 includes”：题面与卷名常常含同一个词
+ * （“备份”既是卷名也是题面），只按卷名搜会漏掉真正相关的卷。
+ * 返回 `hits` 让界面说清“这卷哪一段命中了”，而不是丢一个不可解释的结果列表。
+ */
+export function searchDecks(query: string, opts?: { project?: string; from?: string; to?: string }): {
+  ok: true
+  decks: QDeckBrief[]
+  hits: Record<string, string[]>
+  scanned: number
+} {
+  const q = String(query || '').trim().toLowerCase()
+  const wantProject = String((opts && opts.project) || '').trim()
+  const from = Date.parse(String((opts && opts.from) || ''))
+  const to = Date.parse(String((opts && opts.to) || ''))
+  const all = listDecks().decks
+  const hits: Record<string, string[]> = {}
+  const out: QDeckBrief[] = []
+  for (const d of all) {
+    if (wantProject && String(d.project || '') !== wantProject) continue
+    const ap = Date.parse(String(d.approvedAt || ''))
+    if (Number.isFinite(from) && (!Number.isFinite(ap) || ap < from)) continue
+    // 日期区间包含“那一天”：to 按当天 23:59:59.999 算，否则用户选 11-10 当天会被排除
+    if (Number.isFinite(to) && (!Number.isFinite(ap) || ap > to + 86400_000 - 1)) continue
+    const where: string[] = []
+    const parsed = parseQuestionnaire(readDeckText(d.deck))
+    if (!q) { out.push(d); continue }
+    if (String(d.deck).toLowerCase().includes(q)) where.push('卷名')
+    if (String(d.title || '').toLowerCase().includes(q)) where.push('标题')
+    if (String(d.project || '').toLowerCase().includes(q)) where.push('项目')
+    const qhits: string[] = []
+    for (const item of parsed.questions) {
+      const hay = [
+        item.id, item.nav, item.ask, item.line,
+        ...(item.options || []).map((o) => `${o.k} ${o.t}`),
+      ].join(' ').toLowerCase()
+      if (hay.includes(q)) qhits.push(item.id)
+    }
+    if (qhits.length) where.push('题面 ' + qhits.slice(0, 6).join('、'))
+    if (!where.length) continue
+    hits[d.deck] = where
+    out.push(d)
+  }
+  return { ok: true, decks: out, hits, scanned: all.length }
+}
+
+/**
+ * 归档闸（2026-11-11）：已批准 ≥ N 天 **且没有任何卡引用** 的卷才算“历史卷”。
+ *
+ * 为什么两个条件都要：只按时间，一个还在被施工卡引用的卷会从列表里消失，
+ * 而它正是“这活当初为什么这么定”的唯一依据；只按引用，几十卷里没引用的永远堆着。
+ * 归档 = **只是不占列表**，答案照旧参与裁决（见 QAnswersFile.archivedAt 注释）。
+ */
+export function archivableDecks(days = 30): {
+  ok: true
+  days: number
+  decks: QDeckBrief[]
+  blocked: { deck: string; why: string }[]
+} {
+  const n = Number(days) > 0 ? Math.floor(Number(days)) : 30
+  const all = listDecks().decks
+  const decks: QDeckBrief[] = []
+  const blocked: { deck: string; why: string }[] = []
+  for (const d of all) {
+    if (!d.approved || d.voided || d.archived) continue
+    if ((d.ageDays || 0) < n) continue
+    if ((d.refCount || 0) > 0) { blocked.push({ deck: d.deck, why: `还有 ${d.refCount} 张卡引用它，不许藏起来` }); continue }
+    if (d.replacedBy) { blocked.push({ deck: d.deck, why: `已被《${d.replacedBy}》取代（应折叠，不是归档）` }); continue }
+    decks.push(d)
+  }
+  return { ok: true, days: n, decks, blocked }
+}
+
+/** 归档闸的默认天数（已批准满这么多天且无引用才够格收起） */
+export const DECK_ARCHIVE_DAYS = 30
+
+/**
+ * 归档一卷（只是不占列表；答案仍参与裁决）。
+ *
+ * 硬闸（2026-11-11 评审补的两条，缺一条这个闸就是装饰）：
+ *   ① 必须已批准、没作废；
+ *   ② **必须已批准满 `days` 天**（判定在数据层，不只靠列表把按钮藏起来 ——
+ *      详情页那个按钮直连本函数，不查天数时“刚批准就能归档”实测成立过）；
+ *   ③ 没有任何卡引用它。
+ */
+export function archiveDeck(deck: string, reason = '', days = DECK_ARCHIVE_DAYS): { ok: boolean; error?: string; deck?: string } {
+  const name = safeName(deck)
+  if (!name) return { ok: false, error: '卷名为空' }
+  const g = getDeck(name)
+  if (!g.ok) return { ok: false, error: g.error || `找不到问卷：${name}` }
+  if (!g.approvedAt) return { ok: false, error: '这卷还没批准 —— 没发生的事不能归档（先答完并批准，或直接作废）' }
+  if (g.voidedAt) return { ok: false, error: '这卷已作废 —— 作废本身就是处置，不需要再归档' }
+  const need = Number(days) > 0 ? Math.floor(Number(days)) : DECK_ARCHIVE_DAYS
+  const ageMs = Date.now() - Date.parse(String(g.approvedAt))
+  const ageDays = Number.isFinite(ageMs) ? Math.floor(ageMs / 86400_000) : 0
+  if (ageDays < need) {
+    return {
+      ok: false,
+      error: `这卷才批准 ${ageDays} 天 —— 归档闸要求满 ${need} 天且没有卡引用（时间没到就藏起来 = 正在用的依据被藏了）`,
+    }
+  }
+  const refs = deckRefCounts().get(name) || 0
+  if (refs > 0) return { ok: false, error: `还有 ${refs} 张任务卡引用《${name}》—— 归档会让“当初为什么这么定”从列表里消失，先处理那些卡` }
+  const r = writeAnswers(name, {
+    answers: g.answers || {},
+    archivedAt: new Date().toISOString(),
+    archiveReason: String(reason || '').trim() || `已批准 ${ageDays} 天且无卡引用，移入历史卷`,
+  })
+  return r.ok ? { ok: true, deck: name } : { ok: false, error: (r as any).error as string }
+}
+
+/** 取消归档（把卷放回列表）。 */
+export function unarchiveDeck(deck: string): { ok: boolean; error?: string; deck?: string } {
+  const name = safeName(deck)
+  if (!name) return { ok: false, error: '卷名为空' }
+  const g = getDeck(name)
+  if (!g.ok) return { ok: false, error: g.error || `找不到问卷：${name}` }
+  const r = writeAnswers(name, { answers: g.answers || {}, archivedAt: '', archiveReason: '' })
+  return r.ok ? { ok: true, deck: name } : { ok: false, error: (r as any).error as string }
 }
 
 export interface CreateDeckResult {
@@ -226,6 +476,16 @@ export function createDeck(input: {
         + issues.map((i) => `${i.id ? i.id + ' ' : ''}${i.msg}`).join('；'),
     }
   }
+  // 题库查重（D-060）：已答 / 否决 / 你自判 的题不许再问 —— 同一道题被问第二次 = bug。
+  // 待答 / 作废 允许：待答是队列（这卷就是去问它的），作废是需求变过、可以重问。
+  const collisions = collisionsFor(spec.questions)
+  if (collisions.length) {
+    return {
+      ok: false,
+      error: '题库里已经有这些题的答案，不许再问：'
+        + collisions.map((c) => `${c.id} ${c.ask}（${c.entry.status}：${c.entry.answer || c.entry.source || '见题库'}）`).join('；'),
+    }
+  }
   const name = deckNameOf(spec)
   const dir = questionnaireDir()
   const p = path.join(dir, name + '.md')
@@ -257,6 +517,8 @@ export function getDeck(deck: string): {
   updatedAt?: string
   voidedAt?: string
   voidReason?: string
+  /** 归档时间（空 = 在列表里；有值 = 历史卷，答案仍参与裁决） */
+  archivedAt?: string
   audits?: Record<string, QAudit>
   /** 卷面里没写代价的选项（界面黄条点名用） */
   costGaps?: { id: string; k: string; t: string }[]
@@ -264,6 +526,8 @@ export function getDeck(deck: string): {
   issues?: QDeckIssue[]
   /** 可选项目（registry 里的 id + 名字）—— 落卡时界面先给候选，别让用户点一次失败才知道要选 */
   projects?: { id: string; name: string }[]
+  /** 本题库进度（2026-11-10）：卷所属项目的已答 / 待答 / 黑名单计数 */
+  bank?: ReturnType<typeof bankStats>
   path?: string
 } {
   const name = safeName(deck)
@@ -278,11 +542,15 @@ export function getDeck(deck: string): {
   return {
     ok: true, deck: name, parsed, answers: a.answers, approvedAt: a.approvedAt,
     updatedAt: a.updatedAt || '', voidedAt: a.voidedAt || '', voidReason: a.voidReason || '',
+    archivedAt: a.archivedAt || '',
     audits: a.audits || {}, costGaps: costGaps(parsed), issues: deckIssues(parsed),
     // 项目候选一次性带出去：界面先渲染下拉（默认"自动按卷名认"），
     // 免得用户点一次「落成任务卡」先吃一个 needProject 错误才知道要选
     projects: parseRegistry().map((x: any) => ({ id: String(x?.id || ''), name: String(x?.name || x?.id || '') }))
       .filter((x: { id: string }) => !!x.id),
+    // 本项目题库进度（2026-11-10）：几百条题时，界面必须看得见“答了多少、还剩多少”，
+    // 不然每打开一卷都像从头开始。
+    bank: bankStats(projectForDeck(name, parsed)),
     path: p,
   }
 }
@@ -293,6 +561,7 @@ export function answerToLogLine(q: { id: string; ask: string; options: { k: stri
   if (a.kind === 'skip' || a.kind === 'reject') return ''
   if (a.kind === 'askback') return ''
   if (a.kind === 'void') return ''
+  if (a.kind === 'self') return ''   // 你自判：不是决定，进题库黑名单、永不再问
   if (a.kind === 'amend') return `[${date}] ${q.id}：${a.text} 生效范围：本卷`
   const o = q.options.find((x) => x.k === a.k)
   return `[${date}] ${q.id}：${a.k || ''}. ${o ? o.t : ''} 生效范围：本卷`
@@ -313,7 +582,7 @@ export function buildDecisionLog(
   date?: string,
   opts?: { audits?: Record<string, QAudit>; voidedAt?: string; voidReason?: string },
 ): string {
-  const day = date || new Date().toISOString().slice(0, 10)
+  const day = date || localDay()
   const audits = (opts && opts.audits) || {}
   const head = `# ${parsed.title || deckName} · 答卷（${day}）`
   // 作废的卷照样导出，但**标题里就写明作废** —— 不导出会让"当时答过什么"永久消失，
@@ -337,6 +606,11 @@ export function buildDecisionLog(
     if (a.kind === 'askback') { lines.push(`- **${q.id}** —— 反问（见下）`); asks.push({ id: q.id, text: a.text || '' }); return }
     if (a.kind === 'void') {
       lines.push(`- **${q.id}** —— ~~作废~~：${a.text || '未写原因'}（当时答过，现已失效）`)
+      return
+    }
+    if (a.kind === 'self') {
+      // 你自判 = 这题以后不用再问方寸；它不是决定，也不带验收线。
+      lines.push(`- **${q.id}** —— 你自判：${a.text ? a.text : '（以后不再问这题）'}`)
       return
     }
     let head2 = ''
@@ -407,17 +681,32 @@ export function approveDeck(deck: string): {
   const parsed = g.parsed
   const answers = g.answers || {}
   const audits = g.audits || {}
-  const day = new Date().toISOString().slice(0, 10)
+  const day = localDay()
+
+  // 2026-11-09 真事：五道题“全答完了”，落盘却是空卷 —— 批准照样写 approvedAt，
+  // 界面显示“已落库”，决策卡一张没有。**一道都没答**的空卷不许批准；
+  // 全是否决/你自判是可以批的（那本身就是一种处置，题库会记下来）。
+  const answeredAny = parsed.questions.some((q) => !!answers[q.id])
+  if (!answeredAny) {
+    return {
+      ok: false,
+      error: '一道都没答 —— 空卷不许批准，否则只会写出一条“已落库”的假记录',
+    }
+  }
 
   let cards = 0
   let existed = 0
   let revived = 0
   let revoked = 0
   const errors: string[] = []
+  // 2026-11-09：决策卡必须带归属。此前漏传 → 问卷答案全落成“全局决策”，
+  // contextPack 会把 A 项目的规矩发给 B 项目（已实测：D-059..D-063 就是全局）。
+  const project = projectForDeck(name, parsed)
   parsed.questions.forEach((q) => {
     const a = answers[q.id]
     if (!a) return
     if (a.kind === 'void') return      // 单题作废：不进决策
+    if (a.kind === 'self') return      // 你自判：不是决定，进题库黑名单
     const line = answerToLogLine(q, a, day)
     if (!line) return
     // 备注 = 题干（为什么问）｜ 验收线（什么算违约）。
@@ -430,6 +719,7 @@ export function approveDeck(deck: string): {
       内容: line.replace(/^\[[^\]]+\]\s*/, ''),   // 内容里不重复日期前缀（日期是独立字段）
       日期: day,
       状态: '有效',
+      项目: project,
       出处,
       备注: note,
     })
@@ -456,6 +746,42 @@ export function approveDeck(deck: string): {
       else revoked++
     }
   })
+
+  // 题库回写（D-060）：批准这一刻把每题状态记进 question-bank.md。
+  // 为什么在这里而不是 writeAnswers：草稿每动一下都写，会把“已答”提前写死；
+  // 只有批准（用户点头）才算定案。
+  const bankRows = parsed.questions.map((q) => {
+    const a = answers[q.id]
+    const status: BankStatus = !a ? '待答'
+      : (a.kind === 'pick' || a.kind === 'amend') ? '已答'
+        : a.kind === 'reject' ? '否决'
+          : a.kind === 'void' ? '作废'
+            : a.kind === 'self' ? '你自判'
+              : a.kind === 'askback' ? '否决'   // 反问 = 这题问错了，旧题干不再出现
+                : '待答'
+    let ans = ''
+    if (a?.kind === 'pick') {
+      const o = q.options.find((x) => x.k === a.k)
+      ans = `${a.k} ${o ? o.t : ''}`.trim()
+    } else if (a?.kind === 'amend') ans = String(a.text || '')
+    else if (a?.kind === 'askback') ans = `反问：${String(a.text || '')}`
+    else if (a?.kind === 'void') ans = `作废：${String(a.text || '')}`
+    else if (a?.kind === 'self') ans = `你自判：${String(a.text || '（不再问）')}`
+    return {
+      ask: String(q.ask || q.nav || q.id),
+      project,
+      status,
+      answer: ans,
+      source: `问卷 ${name} · ${q.id}`,
+      firstAsked: day,
+      // 验收线跟着进题库：卷删了/归档了，这条线也不会跟着消失。
+      line: String(q.line || '').trim().replace(/\s*\n\s*/g, ' '),
+      // 从题库提请的题会写 `【出处】题库 Q-0010`；问法变了、指纹对不上，
+      // 但这条 id 指回同一条 —— 批准时归并，否则题库永远清零不了（闸会一直挡）。
+      ref: ((/题库\s*[:：]?\s*(Q-\d+)/.exec(String(q.src || '')) || [])[1]) || '',
+    }
+  })
+  upsertEntries(bankRows)
 
   const text = buildDecisionLog(parsed, answers, name, day, {
     audits, voidedAt: g.voidedAt, voidReason: g.voidReason,
@@ -736,6 +1062,45 @@ export function cardMarker(deck: string, qid: string): string {
 }
 
 /**
+ * 已落档的验收线（2026-11-09 · S3 直连）。
+ *
+ * 口径：**已批准 + 未作废 + 无反问**的卷里，凡打过勾/改一句、且写了【验收线】的题。
+ * 这是派生视图，不落表 —— 卷作废/答案被推翻后自动消失，不会留下过期规矩。
+ * 拿去喂规划 / 阶段卡 / 派工单，保证“你答过的线”真的出现在后面的施工里。
+ */
+export interface RulingRef {
+  deck: string
+  qid: string
+  ask: string
+  picked: string
+  line: string
+  project: string
+}
+
+export function effectiveAcceptances(project?: string): RulingRef[] {
+  const want = String(project || '').trim()
+  const out: RulingRef[] = []
+  for (const name of listDeckNames()) {
+    const g = getDeck(name)
+    if (!g.ok || !g.parsed || !g.approvedAt || g.voidedAt) continue
+    const p = projectForDeck(name, g.parsed)
+    if (want && p && p !== want) continue
+    if (askbacksOf(g.parsed.questions, g.answers || {}).length) continue
+    for (const q of g.parsed.questions) {
+      const a = (g.answers || {})[q.id]
+      if (!a || (a.kind !== 'pick' && a.kind !== 'amend')) continue
+      const line = String(q.line || '').trim().replace(/\s*\n\s*/g, ' ')
+      if (!line) continue
+      const picked = a.kind === 'amend'
+        ? String(a.text || '').trim()
+        : `${a.k || ''}. ${(q.options.find((x) => x.k === a.k) || { t: '' }).t}`.trim()
+      out.push({ deck: name, qid: q.id, ask: String(q.ask || q.nav || ''), picked, line, project: p })
+    }
+  }
+  return out
+}
+
+/**
  * 答卷 → **真任务卡**（2026-11-07）。
  *
  * 为什么必须做这一步（两份同类调研的共同结论，也是暮雨说"问卷还是半成品"的实处）：
@@ -793,18 +1158,9 @@ export function deckToCards(deck: string, opts?: { project?: string; priority?: 
       return { ok: false, error: `registry 里没有项目「${project}」—— 卡必须有归属，不许落在不存在的项目上` }
     }
   } else {
-    // 认法：卷名里**包含**哪个项目名（或 id）就算哪个，取最长命中。
-    // 不用 `name.split('-')[0]` —— 样本文件名是 `问卷-司天-宪法层-20261104`，前缀是"问卷"，
-    // 按首段认永远认不出（这正是"靠猜"会翻车的地方）。
-    const scored = registry
-      .map((p) => {
-        const byName = p.name && p.name.length >= 2 && name.includes(p.name) ? p.name.length : 0
-        const byId = name.includes(p.id) ? p.id.length : 0
-        return { id: p.id, score: Math.max(byName, byId) }
-      })
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-    if (scored.length) project = scored[0].id
+    // 认法与 approveDeck 共用（先认卷面 `**项目**：`，再按卷名最长命中）。
+    // 不用 `name.split('-')[0]` —— 样本文件名是 `问卷-司天-宪法层-20261104`，前缀是"问卷"。
+    project = projectForDeck(name, parsed)
   }
   if (!project) {
     return {
@@ -833,6 +1189,7 @@ export function deckToCards(deck: string, opts?: { project?: string; priority?: 
     if (a.kind === 'reject') { omitted.push({ qid: q.id, why: '否决（这题不该问）' }); continue }
     if (a.kind === 'askback') { omitted.push({ qid: q.id, why: '反问（回给 agent 重出题）' }); continue }
     if (a.kind === 'void') { omitted.push({ qid: q.id, why: '作废（不作数）' }); continue }
+    if (a.kind === 'self') { omitted.push({ qid: q.id, why: '你自判（不再问）' }); continue }
 
     const marker = cardMarker(name, q.id)
     if (seen.has(marker)) { skipped++; continue }
@@ -855,6 +1212,11 @@ export function deckToCards(deck: string, opts?: { project?: string; priority?: 
       '',
       '## 验收线（问卷原文）',
       line || '未给 —— **开工前先补一句“做完什么样”**（问卷里没写，等于这张卡没有终点）',
+      '',
+      '## 澄清问卷',
+      // 题目级澄清（2026-11-11）：`<卷>#<题号>`。这张卡押的是**这一题的答案**，不是整卷 ——
+      // 按整卷判会把“已答的这题”锁死（其余题还挂着），按不判又是没闸。
+      `${name}#${q.id}（已批准）`,
       '',
       '## 期望产物',
       '（问卷没写 —— 补一句“交付什么算做完”。同族抄点：CrewAI 的 `expected_output`、Kiro 的 EARS 句式',

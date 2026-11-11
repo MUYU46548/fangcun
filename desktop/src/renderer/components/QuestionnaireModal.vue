@@ -22,7 +22,7 @@
       <template v-if="!deck">
         <div class="qn-hd">
           <span class="qn-ttl">问卷</span>
-          <span class="qn-sub">{{ decks.length }} 卷 · 说清“你想要什么”，不触发任何开发</span>
+          <span class="qn-sub">{{ pendingDecks.length }} 卷待答 · {{ doneDecks.length }} 卷已处理 · 说清“你想要什么”，不触发任何开发<template v-if="bank && bank.total"> · 题库 {{ bank.total }} 题（已答 {{ bank.answered }}<template v-if="bank.open">，待答 {{ bank.open }}</template>）</template></span>
           <span class="qn-grow"></span>
           <button class="ghost" title="把出卷提示词复制给 agent —— 它按 qn_propose 出卷，出完就出现在这个列表里"
             @click="copyAuthorPrompt">🧾 让 agent 出问卷</button>
@@ -50,17 +50,68 @@
             </button>
             <div v-if="auditDue.length > 6" class="qd-more">还有 {{ auditDue.length - 6 }} 条，进各卷看</div>
           </div>
-          <div v-if="decks.length" class="qn-decks">
-            <button v-for="d in decks" :key="d.deck" class="qn-deck" @click="openDeck(d.deck)">
+          <!-- 搜索（2026-11-11）：卷多了只能扫。题面命中由主进程给（卷名/标题/项目/题面一起搜）。 -->
+          <div class="qn-search-row" v-if="decks.length">
+            <input class="qn-search" v-model="q" placeholder="搜卷名 / 标题 / 项目 / 题面…（输入即搜）" />
+            <span class="qn-search-tip" v-if="searchBusy">搜索中…</span>
+            <span class="qn-search-tip" v-else-if="q">命中 {{ searchRows.length }} 卷</span>
+            <button class="ghost" v-if="q" @click="q = ''">清空</button>
+          </div>
+          <!-- 搜索态：平铺结果 + 说清「哪一段命中了」，不用再猜为什么这卷在列表里 -->
+          <div v-if="q" class="qn-decks">
+            <button v-for="d in searchRows" :key="'s-' + d.deck" class="qn-deck" @click="openDeck(d.deck)">
               <span class="qd-main">
                 <b>{{ d.title || d.deck }}</b>
-                <span class="qd-badge" v-if="d.layer">{{ d.layer }}</span>
+                <span class="qd-badge" v-if="d.project">{{ d.project }}</span>
+                <span class="qd-badge" v-for="(w, wi) in (searchHits[d.deck] || [])" :key="wi" :class="{ bad: w === '卷名' }">{{ w }}</span>
                 <span class="qd-badge ok" v-if="d.approved">已批准</span>
-                <span class="qd-badge bad" v-if="d.error">解析有问题</span>
+                <span class="qd-badge bad" v-if="d.voided">已作废</span>
+                <span class="qd-badge" v-if="d.archived">历史卷</span>
               </span>
-              <span class="qd-meta">{{ d.answered }} / {{ d.total }} 题{{ d.error ? ' · ' + d.error : '' }}</span>
+              <span class="qd-meta">{{ d.answered }} / {{ d.total }} 题</span>
             </button>
+            <div v-if="!searchRows.length && !searchBusy" class="qn-empty">没有命中「{{ q }}」的问卷。</div>
           </div>
+          <template v-else>
+            <!-- 归档候选（2026-11-11）：已批准 ≥30 天 + 没有任何卡引用，才够格收起。
+                 两个条件都在数据层判；这里只说清“为什么不能” —— 藏起来不等于删掉。 -->
+            <div v-if="archivable.length" class="qn-hint">
+              <button class="ghost" :disabled="archiveBusy" @click="archiveAllCandidates">
+                📦 把 {{ archivable.length }} 卷已批准 ≥30 天、无卡引用的卷移入历史卷
+              </button>
+              <span class="qn-search-tip" v-if="archiveMsg">{{ archiveMsg }}</span>
+            </div>
+            <div v-if="archivableBlocked.length" class="qn-search-tip">
+              {{ archivableBlocked.length }} 卷够天数但先不动：{{ archivableBlocked.slice(0, 3).map((b) => b.deck + '（' + b.why + '）').join('；') }}
+            </div>
+            <div v-if="doneDecks.length" class="qn-hint">
+              <button class="ghost" @click="showDone = !showDone">
+                {{ showDone ? '▴ 收起已处理' : '▾ 展开已处理' }}（{{ doneDecks.length }} 卷 · 已批准 / 已作废 / 已被取代）
+              </button>
+            </div>
+            <div v-if="archivedDecks.length" class="qn-hint">
+              <button class="ghost" @click="showArchived = !showArchived">
+                {{ showArchived ? '▴ 收起历史卷' : '▾ 历史卷' }}（{{ archivedDecks.length }} 卷 · 不进列表，但仍参与裁决）
+              </button>
+            </div>
+            <div v-if="visibleDecks.length || (showArchived && archivedDecks.length)" class="qn-decks">
+              <button v-for="d in (showArchived ? [...visibleDecks, ...archivedDecks] : visibleDecks)" :key="d.deck" class="qn-deck" @click="openDeck(d.deck)">
+                <span class="qd-main">
+                  <b>{{ d.title || d.deck }}</b>
+                  <span class="qd-badge" v-if="d.project">{{ d.project }}</span>
+                  <span class="qd-badge" v-if="d.layer">{{ d.layer }}</span>
+                  <span class="qd-badge ok" v-if="d.approved">已批准</span>
+                  <span class="qd-badge bad" v-if="d.voided">已作废</span>
+                  <span class="qd-badge" v-if="d.replacedBy" :title="'已被《' + d.replacedBy + '》取代'">已被取代</span>
+                  <span class="qd-badge" v-if="d.archived">历史卷</span>
+                  <span class="qd-badge bad" v-if="d.error">解析有问题</span>
+                </span>
+                <span class="qd-meta">
+                  {{ d.answered }} / {{ d.total }} 题<template v-if="d.refCount"> · {{ d.refCount }} 张卡引用</template>{{ d.error ? ' · ' + d.error : '' }}
+                </span>
+              </button>
+            </div>
+          </template>
         </div>
       </template>
 
@@ -69,7 +120,7 @@
         <div class="qn-hd">
           <button class="ghost qn-back" @click="backToList">← 全部问卷</button>
           <span class="qn-ttl">{{ deck.parsed.title || deck.deck }}</span>
-          <span class="qn-sub">已答 {{ answeredCount }} / {{ total }}</span>
+          <span class="qn-sub">已答 {{ answeredCount }} / {{ total }}<template v-if="bank && bank.total"> · 本项目题库 已答 {{ bank.answered }} / 待答 {{ bank.open }}</template></span>
           <span class="qn-grow"></span>
           <div class="qn-seg">
             <button :class="{ on: view === 'one' }" @click="view = 'one'">一次一题</button>
@@ -232,6 +283,8 @@
                   <button class="danger" @click="mark(q.id, 'reject')">否决</button>
                   <button class="ask" @click="startEdit(q.id, 'askback')">❗ 反问…</button>
                   <button class="ghost" @click="startEdit(q.id, 'amend')">改一句…</button>
+                  <button class="ghost" @click="mark(q.id, 'self')"
+                    title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</button>
                   <button class="ghost" v-if="answers[q.id] && answers[q.id].kind !== 'void'" @click="startVoid(q.id)">⌫ 作废…</button>
                 </div>
                 <div v-if="editing && editing.id === q.id" class="qn-edit" :class="{ ask: editing.kind === 'askback' }">
@@ -240,9 +293,9 @@
                     : editing.kind === 'void'
                       ? '作废这一项：当时答得对、现在不作数了。必须写原因（三个月后只有这句话能解释）'
                       : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
-                  <textarea v-model="editText" rows="2"></textarea>
+                  <textarea v-model="editText" rows="2" @input="onEditInput"></textarea>
                   <div class="qe-row">
-                    <button class="ghost" @click="editing = null">取消</button>
+                    <button class="ghost" @click="cancelEdit">取消</button>
                     <button class="pri" @click="commitEdit">确定</button>
                   </div>
                 </div>
@@ -283,9 +336,9 @@
                   : editing.kind === 'void'
                     ? '作废这一项：当时答得对、现在不作数了。必须写原因（三个月后只有这句话能解释）'
                     : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
-                <textarea v-model="editText" rows="3"></textarea>
+                <textarea v-model="editText" rows="3" @input="onEditInput"></textarea>
                 <div class="qe-row">
-                  <button class="ghost" @click="editing = null">取消</button>
+                  <button class="ghost" @click="cancelEdit">取消</button>
                   <button class="pri" @click="commitEdit">确定</button>
                 </div>
               </div>
@@ -318,6 +371,8 @@
             <button class="danger" @click="mark(curId, 'reject')">否决</button>
             <button class="ask" @click="startEdit(curId, 'askback')">❗ 反问…</button>
             <button class="ghost" @click="startEdit(curId, 'amend')">改一句…</button>
+            <button class="ghost" @click="mark(curId, 'self')"
+              title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</button>
             <button class="ghost" v-if="answers[curId] && answers[curId].kind !== 'void'" @click="startVoid(curId)">⌫ 作废…</button>
             <span class="qn-grow"></span>
             <button class="ghost" @click="prev" :disabled="idx === 0">← 上一题</button>
@@ -346,8 +401,13 @@
             </Button>
             <button v-if="voidedAt" class="ghost" @click="doReopen">恢复这卷</button>
             <button v-else class="danger" @click="voidOpen = !voidOpen">⌫ 作废这卷</button>
+            <!-- 历史卷（2026-11-11）：已批准、没人再引用了才能收起。收起不影响裁决 ——
+                 决策卡、验收线照旧生效，只是列表里不再占位。 -->
+            <button v-if="approved && !voidedAt && !archivedAt" class="ghost" @click="archiveOne(deck.deck)"
+              title="已批准 ≥30 天且没有任何卡引用时才可以收起">📦 移入历史卷</button>
+            <button v-if="archivedAt" class="ghost" @click="unarchiveOne(deck.deck)">↩ 放回列表</button>
             <span class="qn-grow"></span>
-            <span v-if="approved" class="qn-ok">已落库 · {{ approved.slice(0, 16).replace('T', ' ') }}</span>
+            <span v-if="approved" class="qn-ok" :title="'落盘存的是 UTC（' + approved + '），这里按你所在时区显示'">已落库 · {{ localStamp(approved) }}</span>
             <button v-if="!approved" class="pri" :disabled="busy" @click="approve">✓ 批准并落库</button>
             <button v-else class="pri" @click="$emit('close')">关闭</button>
           </template>
@@ -366,9 +426,13 @@
 <script setup lang="ts">
 // UI 基座 · 第一刀迁移（2026-11-07）：本轮新增的三个按钮走 components/ui/Button.vue
 import Button from './ui/Button.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// 列表分组口径（2026-11-11）：待答 / 已处理 / 历史卷三条的判定在纯函数里，e2e 能直接断言
+import { groupDecks } from '../../shared/deckGroups'
 import { copyText as copyToClipboard } from '../../shared/clipboard'
+import { toPlain } from '../../shared/plain'
 import { buildDeckAuthoringPrompt } from '../../shared/qnPrompts'
+import { formatLocalStamp, localDay } from '../../shared/time'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'toast', msg: string, kind?: string): void }>()
 
@@ -383,12 +447,85 @@ interface QParsed {
   /** 预埋表的表头（原样；两份样本说法不同，硬编一种就会写成错标题） */
   parkedHead: string[]
 }
-interface QAns { kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void'; k?: string; text?: string }
-interface QDeckBrief { deck: string; title: string; layer: string; total: number; answered: number; approved: boolean; voided?: boolean; costGaps?: number; error?: string }
+interface QAns { kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void' | 'self'; k?: string; text?: string }
+interface QDeckBrief {
+  deck: string; title: string; layer: string; total: number; answered: number
+  approved: boolean; voided?: boolean; project?: string; costGaps?: number; error?: string
+  /** 2026-11-11 问卷管理：取代关系 / 归档 / 引用数 / 批准天数（主进程算好，界面不算） */
+  supersedes?: string; replacedBy?: string; archived?: boolean
+  ageDays?: number; refCount?: number; approvedAt?: string
+}
 
 const api = () => (window as any).tegula
 
 const decks = ref<QDeckBrief[]>([])
+/**
+ * 列表分组（2026-11-10 用户报障：「问卷越堆越多，后续管理问卷本身将成为一大难题」）。
+ * 已知的账：一次首战就留下 4 卷（含 1 卷被反问后重写）。照这个速度，一个月就是几十卷 ——
+ * 所以列表必须先回答「哪几卷还要我处理」：待答在前，已批准/已作废/被取代/历史卷都收起。
+ *
+ * ⚠ 2026-11-11 补的**第一条硬判据**：被取代的卷**不许再出现在待答里** ——
+ *   哪怕它还有未答题。它的问题已经被 v2 重问过了，把它摆在“待答”就是让人去答一份废卷。
+ */
+const showDone = ref(false)
+/**
+ * 列表分组（2026-11-10 用户报障：「问卷越堆越多，后续管理问卷本身将成为一大难题」）。
+ * 口径在 `shared/deckGroups.ts`（纯函数，可被 e2e 拿 40 个假卷直接断言）——
+ * 组件只负责渲染，不在模板里再写一遍过滤条件。
+ */
+const groups = computed(() => groupDecks(decks.value as any))
+const pendingDecks = computed(() => groups.value.pending as QDeckBrief[])
+const doneDecks = computed(() => groups.value.done as QDeckBrief[])
+const visibleDecks = computed(() => (showDone.value ? [...pendingDecks.value, ...doneDecks.value] : pendingDecks.value))
+/** 历史卷（已归档）：不占列表，但**仍然参与裁决** —— 只是“翻旧账时再来找” */
+const showArchived = ref(false)
+const archivedDecks = computed(() => groups.value.archived as QDeckBrief[])
+
+// ── 搜索（2026-11-11）────────────────────────────────────────────────────
+// 卷名 / 标题 / 项目 / **题面** 都搜（判据原文：输「备份」要能同时命中卷名与题面）。
+// 题面只有主进程读得到卷文件，所以走 IPC；输入防抖 250ms，避免每敲一个字都扫一遍。
+const q = ref('')
+const searchRows = ref<QDeckBrief[]>([])
+const searchHits = ref<Record<string, string[]>>({})
+const searchBusy = ref(false)
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(q, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (!String(q.value || '').trim()) {
+    searchRows.value = []
+    searchHits.value = {}
+    return
+  }
+  searchTimer = setTimeout(runSearch, 250)
+})
+async function runSearch(): Promise<void> {
+  const term = String(q.value || '').trim()
+  if (!term) return
+  searchBusy.value = true
+  try {
+    const r: any = await api().questionnaireSearch(term)
+    searchRows.value = Array.isArray(r?.decks) ? r.decks : []
+    searchHits.value = (r && r.hits) || {}
+  } catch (e: any) {
+    toast('搜索失败：' + (e?.message || e), 'error')
+  } finally {
+    searchBusy.value = false
+  }
+}
+
+// ── 归档（2026-11-11）────────────────────────────────────────────────────
+// 判据：已批准 ≥30 天**且没有任何卡引用**。两个条件都在主进程判（数据层），
+// 界面只负责把“能归档的”摆出来、把“为什么不能”说清。
+const archivable = ref<QDeckBrief[]>([])
+const archivableBlocked = ref<{ deck: string; why: string }[]>([])
+const archiveBusy = ref(false)
+const archiveMsg = ref('')
+const archivedNow = ref(false)
+/**
+ * 题库进度（2026-11-10）：一个项目几十上百道题时，“还剩多少没问”必须一眼看得见，
+ * 否则每开一卷都像从头开始。数据来自主进程（listDecks / getDeck 带回来的 bank）。
+ */
+const bank = ref<{ total: number; answered: number; open: number; blacklist: number } | null>(null)
 const dir = ref('')
 const deck = ref<{ deck: string; parsed: QParsed } | null>(null)
 const answers = ref<Record<string, QAns>>({})
@@ -396,6 +533,8 @@ const approved = ref('')
 /** 整卷作废（空 = 没作废）与原因 —— 作废是"当时答得对、现在不作数"，与「否决」不是一回事 */
 const voidedAt = ref('')
 const voidReason = ref('')
+/** 历史卷（已归档）：空 = 在列表里；有值 = 收起（答案仍参与裁决，不是作废） */
+const archivedAt = ref('')
 /** 逐题事后校验结论 */
 const audits = ref<Record<string, { verdict: 'ok' | 'refuted'; evidence: string; at: string }>>({})
 /** 卷面里没写代价的选项（黄条点名用） */
@@ -430,6 +569,44 @@ const curId = ref('')
 const summary = ref(false)
 const editing = ref<null | { id: string; kind: 'askback' | 'amend' }>(null)
 const editText = ref('')
+/**
+ * 输入保护（2026-11-10 用户报障）：
+ * 「顺便问卷功能没做输入保护，刚才我打的字全没了」—— 她说得对。
+ * 此前 `editText` 只活在内存里，**只有点「确定」才写进 answers**；
+ * 写长段自述（L1 那条）时窗口一关/一切题，全丢。
+ * 现在：输入就防抖落盘（写进 answers 当草稿），取消则回滚到打开前的状态。
+ */
+const editBefore = ref<QAns | null>(null)
+let editTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 把正在编辑的文本立刻落成草稿（空文本 = 撤掉草稿，别留一个空答案占位） */
+function flushEditDraft(): void {
+  const e = editing.value
+  if (!e) return
+  const v = editText.value
+  if (v.trim()) answers.value[e.id] = { kind: e.kind as any, text: v }
+  else if (answers.value[e.id] && answers.value[e.id].kind === e.kind) delete answers.value[e.id]
+  void save()
+}
+
+/** 输入防抖落盘（350ms）—— 打字不丢，也不至于每个字符一次 IPC */
+function onEditInput(): void {
+  if (editTimer) clearTimeout(editTimer)
+  editTimer = setTimeout(() => { editTimer = null; flushEditDraft() }, 350)
+}
+
+/** 取消：回滚到打开编辑框之前的那一格（临时草稿不留下） */
+function cancelEdit(): void {
+  const e = editing.value
+  if (editTimer) { clearTimeout(editTimer); editTimer = null }
+  if (e) {
+    if (editBefore.value) answers.value[e.id] = editBefore.value
+    else delete answers.value[e.id]
+  }
+  editBefore.value = null
+  editing.value = null
+  void save()
+}
 const lookOpen = ref<Record<string, boolean>>({})
 const metaOpen = ref<Record<string, boolean>>({})
 const busy = ref(false)
@@ -478,6 +655,7 @@ function stateGlyph(id: string): string {
   if (a.kind === 'reject') return '✕'
   if (a.kind === 'askback') return '❗'
   if (a.kind === 'void') return '⌫'
+  if (a.kind === 'self') return '自'
   return '✓'
 }
 function stateClass(id: string): string {
@@ -487,6 +665,7 @@ function stateClass(id: string): string {
   if (a.kind === 'reject') return 'rej'
   if (a.kind === 'askback') return 'ask'
   if (a.kind === 'void') return 'void'
+  if (a.kind === 'self') return 'self'
   return 'ans'
 }
 function stateText(id: string): string {
@@ -496,6 +675,7 @@ function stateText(id: string): string {
   if (a.kind === 'reject') return '已否决 —— 这题不该问，不再出现'
   if (a.kind === 'askback') return '❗ 已反问：' + (a.text || '')
   if (a.kind === 'void') return '⌫ 已作废：' + (a.text || '') + '（当时答过，现在不作数）'
+  if (a.kind === 'self') return '你自判 —— 这题以后不再问方寸'
   if (a.kind === 'amend') return '已记录你的说法：' + (a.text || '')
   return '已选：' + a.k
 }
@@ -505,6 +685,7 @@ async function loadList(): Promise<void> {
     const r: any = await api().questionnaireList()
     decks.value = (r && r.decks) || []
     dir.value = (r && r.dir) || ''
+    bank.value = (r && r.bank) || null
   } catch (e: any) {
     toast('读问卷列表失败：' + (e?.message || e), 'error')
   }
@@ -517,6 +698,78 @@ async function loadList(): Promise<void> {
       .slice(0, 30)
       .map((x) => ({ deck: x.deck, id: x.id, ask: x.ask || x.id, days: x.days, refuted: !!x.refuted }))
   } catch { /* 校验清单拉不到不该挡住问卷列表 */ }
+  await loadArchivable()
+}
+
+/** 归档候选（2026-11-11）：已批准 ≥30 天且无卡引用 —— 判定在主进程，界面不重算 */
+async function loadArchivable(): Promise<void> {
+  try {
+    const r: any = await api().questionnaireArchivable(30)
+    archivable.value = Array.isArray(r?.decks) ? r.decks : []
+    archivableBlocked.value = Array.isArray(r?.blocked) ? r.blocked : []
+  } catch { /* 归档候选拉不到不该挡住列表 */ }
+}
+
+/** 收起一卷：先问数据层（它才判得了“有没有卡引用”）—— 拒了就照实说原因 */
+async function archiveOne(deckName: string): Promise<void> {
+  if (archiveBusy.value) return
+  archiveBusy.value = true
+  archiveMsg.value = ''
+  try {
+    const r: any = await api().questionnaireArchive(deckName)
+    if (r && r.ok) {
+      toast(`《${deckName}》已移入历史卷（答案仍参与裁决，不是作废）`, 'success')
+      archivedAt.value = new Date().toISOString()
+      await loadList()
+    } else {
+      toast('没归档：' + (r?.error || '未知原因'), 'error')
+    }
+  } catch (e: any) {
+    toast('归档失败：' + (e?.message || e), 'error')
+  } finally {
+    archiveBusy.value = false
+  }
+}
+
+async function unarchiveOne(deckName: string): Promise<void> {
+  if (archiveBusy.value) return
+  archiveBusy.value = true
+  try {
+    const r: any = await api().questionnaireUnarchive(deckName)
+    if (r && r.ok) {
+      toast(`《${deckName}》已放回列表`, 'success')
+      archivedAt.value = ''
+      await loadList()
+    } else {
+      toast('没放回去：' + (r?.error || '未知原因'), 'error')
+    }
+  } catch (e: any) {
+    toast('取消归档失败：' + (e?.message || e), 'error')
+  } finally {
+    archiveBusy.value = false
+  }
+}
+
+/** 批量收起候选：逐卷走同一条通道，**成功几卷说几卷**，失败的原样点名（不打包成“已完成”） */
+async function archiveAllCandidates(): Promise<void> {
+  if (archiveBusy.value || !archivable.value.length) return
+  archiveBusy.value = true
+  let ok = 0
+  const bad: string[] = []
+  for (const d of [...archivable.value]) {
+    try {
+      const r: any = await api().questionnaireArchive(d.deck)
+      if (r && r.ok) ok++
+      else bad.push(d.deck + '（' + (r?.error || '未知原因') + '）')
+    } catch (e: any) {
+      bad.push(d.deck + '（' + (e?.message || e) + '）')
+    }
+  }
+  archiveBusy.value = false
+  archivable.value = []
+  archiveMsg.value = `已收起 ${ok} 卷` + (bad.length ? `；${bad.length} 卷没动：${bad.join('；')}` : '')
+  archivedNow.value = true
+  await loadList()
 }
 
 async function openDeck(name: string): Promise<void> {
@@ -524,10 +777,12 @@ async function openDeck(name: string): Promise<void> {
     const r: any = await api().questionnaireGet(name)
     if (!r || r.ok === false) { toast(String(r?.error || '打不开这一卷'), 'error'); return }
     deck.value = { deck: r.deck, parsed: r.parsed }
+    bank.value = (r && r.bank) || null
     answers.value = r.answers || {}
     approved.value = r.approvedAt || ''
     voidedAt.value = r.voidedAt || ''
     voidReason.value = r.voidReason || ''
+    archivedAt.value = r.archivedAt || ''
     audits.value = r.audits || {}
     costGaps.value = r.costGaps || []
     issues.value = Array.isArray(r.issues) ? r.issues : []
@@ -548,6 +803,7 @@ async function openDeck(name: string): Promise<void> {
 function backToList(): void {
   deck.value = null
   summary.value = false
+  archivedAt.value = ''
   void loadList()
 }
 
@@ -555,8 +811,15 @@ function backToList(): void {
 async function save(): Promise<void> {
   if (!deck.value) return
   try {
-    await api().questionnaireSaveAnswers(deck.value.deck, answers.value)
-  } catch { /* 草稿存失败不该挡住答题，下一次动作会再试 */ }
+    // 2026-11-09 真事：`answers.value` 是 Vue 响应式代理，直接过 contextBridge 会抛
+    // "An object could not be cloned."；这里原来 catch 后一个字都不说，于是
+    // “五道题全答完了”在磁盘上是空卷，批准还写成了「已落库」。
+    // 草稿存失败不许静默：宁可当场红，也不要让人以为答完了。
+    const r: any = await api().questionnaireSaveAnswers(deck.value.deck, toPlain(answers.value))
+    if (r && r.ok === false) throw new Error(r.error || '主进程拒绝了这次保存')
+  } catch (e: any) {
+    toast('草稿没存上：' + (e?.message || e), 'error')
+  }
 }
 
 function pick(id: string, k: string): void {
@@ -564,7 +827,7 @@ function pick(id: string, k: string): void {
   editing.value = null
   void save()
 }
-function mark(id: string, kind: 'skip' | 'reject'): void {
+function mark(id: string, kind: 'skip' | 'reject' | 'self'): void {
   answers.value[id] = { kind }
   editing.value = null
   void save()
@@ -576,24 +839,31 @@ function reset(id: string): void {
 }
 function startEdit(id: string, kind: 'askback' | 'amend'): void {
   editing.value = { id, kind }
-  editText.value = ''
+  const cur = answers.value[id]
+  // 打开就把上次写的内容接上 —— 否则“关掉再开”等于逼人重打一遍
+  editText.value = cur && cur.kind === kind ? String(cur.text || '') : ''
+  editBefore.value = cur ? { ...cur } : null
 }
 function commitEdit(): void {
   const e = editing.value
   if (!e) return
+  if (editTimer) { clearTimeout(editTimer); editTimer = null }
   const v = editText.value.trim()
-  if (e.kind === 'askback' && !v) { answers.value[e.id] = { kind: 'reject' }; editing.value = null; void save(); return }
+  if (e.kind === 'askback' && !v) { answers.value[e.id] = { kind: 'reject' }; editing.value = null; editBefore.value = null; void save(); return }
   // 作废必须写原因：三个月后唯一能救命的线索就是这句（与后端同一条判据，不靠后端兜）
   if (e.kind === 'void' && !v) { toast('作废要写原因 —— 为什么它不作数了'); return }
   if (!v) { toast('说一句再确定'); return }
   answers.value[e.id] = { kind: e.kind, text: v }
   editing.value = null
+  editBefore.value = null
   void save()
 }
 function goto(id: string): void {
+  if (editing.value) flushEditDraft()   // 切题前先把正在写的落盘，别让草稿跟着一起走
   curId.value = id
   view.value = 'one'
   editing.value = null
+  editBefore.value = null
 }
 function prev(): void {
   const qs = deck.value?.parsed.questions || []
@@ -608,11 +878,18 @@ function next(): void {
 function toggleLook(id: string): void { lookOpen.value[id] = !lookOpen.value[id] }
 function toggleMeta(k: string): void { metaOpen.value[k] = !metaOpen.value[k] }
 
+/**
+ * 批准时间显示：磁盘里是 UTC ISO，必须按本地时区印。
+ * 2026-11-09 的现场：他 22:07 答完，界面写「已落库 · 14:07」——
+ * 直接 `approved.slice(0,16)` 就是 UTC，等于把时间说错了 8 小时。
+ */
+function localStamp(v: string): string { return formatLocalStamp(v) }
+
 /** 生成 md（与数据层导出同一形状：逐题 + 反问段） */
 function mdText(): string {
   const d = deck.value
   if (!d) return ''
-  const lines: string[] = [`# ${d.parsed.title || d.deck} 答卷（${new Date().toISOString().slice(0, 10)}）`, '']
+  const lines: string[] = [`# ${d.parsed.title || d.deck} 答卷（${localDay()}）`, '']
   const asks: { id: string; text: string }[] = []
   d.parsed.questions.forEach((q) => {
     const a = answers.value[q.id]
@@ -621,6 +898,7 @@ function mdText(): string {
     if (a.kind === 'reject') { lines.push(`- **${q.id}** —— 否决：这题不该问`); return }
     if (a.kind === 'askback') { lines.push(`- **${q.id}** —— 反问（见下）`); asks.push({ id: q.id, text: a.text || '' }); return }
     if (a.kind === 'void') { lines.push(`- **${q.id}** —— ~~作废~~：${a.text || '未写原因'}（当时答过，现已失效）`); return }
+    if (a.kind === 'self') { lines.push(`- **${q.id}** —— 你自判：${a.text || '（以后不再问这题）'}`); return }
     if (a.kind === 'amend') { lines.push(`- **${q.id}** —— ${a.text}（自述）`); return }
     const o = q.options.find((x) => x.k === a.k)
     lines.push(`- **${q.id}** —— ${a.k}. ${o ? o.t : ''}`)
@@ -729,8 +1007,11 @@ async function makeCards(): Promise<void> {
 
 /** 单题作废：答案曾经成立，现在失效 */
 function startVoid(id: string): void {
+  const cur = answers.value[id]
   editing.value = { id, kind: 'void' as any }
-  editText.value = ''
+  // 作废原因也是长文本 —— 同样要接上上次写的、同样要防抖落盘
+  editText.value = cur && cur.kind === 'void' ? String(cur.text || '') : ''
+  editBefore.value = cur ? { ...cur } : null
 }
 
 /** 整卷作废（要求写原因 —— 三个月后唯一能救命的线索就是那句原因） */
@@ -792,7 +1073,7 @@ const auditable = computed(() => {
   return d.parsed.questions.filter((q) => {
     const a = answers.value[q.id]
     if (!a) return false
-    if (a.kind === 'skip' || a.kind === 'reject' || a.kind === 'askback' || a.kind === 'void') return false
+    if (a.kind === 'skip' || a.kind === 'reject' || a.kind === 'askback' || a.kind === 'void' || a.kind === 'self') return false
     return !!String(q.line || '').trim()
   })
 })
@@ -823,6 +1104,11 @@ async function openDir(): Promise<void> {
 watch(summary, (v) => { if (v && !approved.value) toast('以上都是草稿 —— 点「批准并落库」才写到决策卡') })
 
 onMounted(() => { void loadList() })
+// 关窗/被父组件卸载时补一次落盘：防抖计时器 350ms 还没到就关掉的情况，字不能丢。
+onBeforeUnmount(() => {
+  if (editTimer) { clearTimeout(editTimer); editTimer = null }
+  if (editing.value) flushEditDraft()
+})
 </script>
 
 <style scoped>
@@ -840,6 +1126,10 @@ onMounted(() => { void loadList() })
 .qn-bar i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
 .qn-body { padding: 16px; overflow: auto; flex: 1; }
 .qn-empty { font-size: 12px; color: var(--muted); line-height: 2; }
+/* 搜索行（2026-11-11 问卷管理）：卷多到只能搜时，输入框要一直在、不要藏进弹层 */
+.qn-search-row { display: flex; align-items: center; gap: 8px; padding: 0 16px 10px; }
+.qn-search { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12px; }
+.qn-search-tip { font-size: 10.5px; color: var(--muted); }
 .qn-empty code { background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
 .qn-decks { display: flex; flex-direction: column; gap: 8px; }
 .qn-deck { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px 13px; }
@@ -861,6 +1151,7 @@ onMounted(() => { void loadList() })
 .ri-s.ans { color: var(--success); }
 .ri-s.rej { color: var(--danger); }
 .ri-s.ask { color: var(--warning); }
+.ri-s.self { color: var(--muted); }
 .qn-rail-x {
   display: flex; align-items: center; gap: 5px; width: 100%; margin-top: 6px;
   border: 1px dashed var(--border); background: transparent; border-radius: 8px;

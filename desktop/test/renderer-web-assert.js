@@ -2119,7 +2119,10 @@
     check('  驳回上限取默认 2', /## 6 驳回上限\n2 轮/.test(DISPATCH), DISPATCH.split('## 6 驳回上限')[1]?.slice(0, 24) || '')
 
     // 零智能：只读剪贴板，没有触发任何派发/执行通道
-    const copiedCalls = window.__fcTest.calls().map((c) => c.name)
+    // ⚠ `questionnaireDispatchContext` 虽然名字里有 dispatch，但它**只读**：
+    //   返回 {gate, rulings} 两个纯数据（2026-11-09 的澄清闸查询），不派发、不拉起任何东西。
+    //   2026-11-11 加闸之后它必然出现在调用表里 —— 按名字一刀切会把“闸查询”误判成“派活”。
+    const copiedCalls = window.__fcTest.calls().map((c) => c.name).filter((n) => n !== 'questionnaireDispatchContext')
     check('★ 零智能不派发：这一步只写了剪贴板，没碰任何执行/派发通道',
       copiedCalls.indexOf('clipboardWriteText') >= 0
       && !copiedCalls.some((n) => /dispatch|execute|spawn|run|launch/i.test(n)),
@@ -5401,12 +5404,53 @@
       check('★★ 点开是问卷弹窗（不是跳某个页签）',
         await waitFor(() => !!$('#qn-modal'), 3000, 'qn-modal'))
       const deckRows = $$('#qn-modal .qn-deck')
-      check('★ 列出 2 卷（夹具：一卷没批、一卷已批）', deckRows.length === 2, String(deckRows.length))
-      check('★ 已批准的那卷标着「已批准」',
-        $$('#qn-modal .qd-badge').some((b) => (b.textContent || '').indexOf('已批准') >= 0),
-        $$('#qn-modal .qd-badge').map((b) => (b.textContent || '').trim()).join('|'))
+      // 2026-11-11 问卷管理：默认只摆**待答**卷（已批准/已作废/被取代/历史卷全收起）。
+      // 这条判据不是“列表少了一行”，是“40 卷时首屏只出现要你处理的那些”。
+      check('★★ 默认只出现待答卷（已批准的不占首屏）', deckRows.length === 1, String(deckRows.length))
+      check('★★ 已批准的卷没有凭空消失：有「已处理」折叠入口并写明几卷',
+        $$('#qn-modal .qn-hint button').some((b) => (b.textContent || '').indexOf('已处理') >= 0
+          && /1 卷/.test(b.textContent || '')),
+        $$('#qn-modal .qn-hint button').map((b) => (b.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '))
 
-      deckRows[0].click()
+      // 搜索（2026-11-11）：卷名 / 标题 / 项目 / **题面** 一起搜；输入即搜（防抖 250ms）
+      const sIn = $('#qn-modal .qn-search')
+      check('★★ 列表有搜索框（卷一多只能靠搜）', !!sIn)
+      if (sIn) {
+        window.__fcTest.reset()
+        sIn.value = '稿'
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+        check('★★ 输入即搜 → 真调 questionnaireSearch',
+          await waitFor(() => window.__fcTest.callCount('questionnaireSearch') > 0, 3000, 'questionnaireSearch'))
+        await sleep(250)
+        check('★★ 题面命中也能搜到（卷名里没有“稿”字），并标出命中在哪一段',
+          $$('#qn-modal .qn-deck').some((d) => (d.textContent || '').indexOf('墨坊') >= 0)
+            && $$('#qn-modal .qn-deck .qd-badge').some((b) => (b.textContent || '').indexOf('题面') >= 0),
+          $$('#qn-modal .qn-deck').map((d) => (d.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)).join(' | '))
+        sIn.value = ''
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(350)
+      }
+
+      // 归档闸（2026-11-11）：已批准 ≥30 天 + 无卡引用 → 才给「移入历史卷」出口
+      const archBtn = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('移入历史卷') >= 0)
+      check('★★ 够天数且无卡引用的卷有「移入历史卷」出口', !!archBtn,
+        $$('#qn-modal .qn-hint button').map((b) => (b.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '))
+      if (archBtn) {
+        window.__fcTest.reset()
+        archBtn.click()
+        check('★ 点它 → 真调 questionnaireArchive（不是只把行藏起来）',
+          await waitFor(() => window.__fcTest.callCount('questionnaireArchive') > 0, 3000, 'questionnaireArchive'))
+        await sleep(300)
+      }
+
+      const doneHint = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('已处理') >= 0)
+      if (doneHint) { doneHint.click(); await sleep(350) }
+      const deckRows2 = $$('#qn-modal .qn-deck')
+      check('★ 展开后两卷都在，且已批准那卷标着「已批准」',
+        deckRows2.length === 2 && $$('#qn-modal .qd-badge').some((b) => (b.textContent || '').indexOf('已批准') >= 0),
+        deckRows2.length + ' | ' + $$('#qn-modal .qd-badge').map((b) => (b.textContent || '').trim()).join('|'))
+
+      ;(deckRows2[0] || deckRows[0]).click()
       check('★★ 点一卷 → 真调 questionnaireGet 并渲染题目',
         await waitFor(() => window.__fcTest.callCount('questionnaireGet') > 0 && !!$('#qn-modal .qn-one, #qn-modal .qn-all'), 4000, 'deck'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'questionnaireGet').map((c) => c.args)))
@@ -5564,6 +5608,9 @@
         const entry2 = $$('#bar button, #views button').find((b) => (b.textContent || '').indexOf('问卷') >= 0)
         if (entry2) entry2.click()
         await waitFor(() => !!$('#qn-modal'), 3000, 'qn-modal 第二次')
+        // 第二卷是**已批准**的 → 默认收在「已处理」里（2026-11-11 起），先展开再点
+        const dh2 = $$('#qn-modal .qn-hint button').find((b) => (b.textContent || '').indexOf('已处理') >= 0)
+        if (dh2) { dh2.click(); await sleep(350) }
         const decks2 = $$('#qn-modal .qn-deck')
         const mo = decks2.find((d) => (d.textContent || '').indexOf('墨坊') >= 0)
         check('★ 第二卷在列表里（夹具：1 题、无反问）', !!mo,

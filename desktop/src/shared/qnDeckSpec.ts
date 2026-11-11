@@ -60,7 +60,8 @@ export interface QnSpecIssue {
 
 const RE_ID = /^[A-Za-z]+\d+$/
 const RE_OPT_KEY = /^[A-Za-z0-9]{1,3}$/
-const DEFAULT_BOUNDARY = '给暮雨答（点选 / 否决 / 反问）；答案要你批准后才落决策卡。'
+// ⚠ 这里不许写任何具体人名：方寸要发布（和司天一样），写死名字 = 别人拿到就看见“给暮雨答”。
+const DEFAULT_BOUNDARY = '给你答（点选 / 否决 / 反问）；答案要你批准后才落决策卡。'
 
 /**
  * 机检一份出卷规格。
@@ -119,7 +120,11 @@ export function buildDeckMarkdown(spec: QnDeckSpec): string {
   const L: string[] = []
   const today = new Date()
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  L.push(`# ${String(spec.title || '问卷').trim()}（${day}）`)
+  // 2026-11-10：旧卷标题里已经带过日期（`…（2026-11-09）`），再拼一次就是
+  // 「（2026-11-09）（2026-11-09）」—— 列表里一排卷全是双日期，认不出新旧。
+  const rawTitle = String(spec.title || '问卷').trim()
+  const title = /[（(]\d{4}-\d{2}-\d{2}[）)]\s*$/.test(rawTitle) ? rawTitle : `${rawTitle}（${day}）`
+  L.push(`# ${title}`)
   L.push('')
   if (spec.project) L.push(`**项目**：${spec.project}`)
   L.push(`**使用边界**：${String(spec.boundary || '').trim() || DEFAULT_BOUNDARY}`)

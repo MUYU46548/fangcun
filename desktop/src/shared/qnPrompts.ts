@@ -26,7 +26,7 @@ export interface QItemLike {
   look?: string
 }
 export interface QAnsLike {
-  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void'
+  kind: 'pick' | 'skip' | 'reject' | 'askback' | 'amend' | 'void' | 'self'
   k?: string
   text?: string
 }
@@ -170,7 +170,7 @@ export function buildRewritePrompt(opts: PromptOpts): string {
       }
       if (q.src) L.push(`原【出处】：${q.src.split('\n')[0]}`)
       if (q.line) L.push(`原【验收线】：${q.line.split('\n')[0]}`)
-      L.push(`**暮雨的反问**：${text}`)
+      L.push(`**你的反问**：${text}`)
     })
   }
   if (gaps.length) {
@@ -214,7 +214,7 @@ export function buildRewritePrompt(opts: PromptOpts): string {
   L.push('```')
   L.push('')
   L.push(`${steps.length + 2}. 写成 md 放到 \`task-data/questionnaires/\` 下（文件名别覆盖原卷，建议 \`${opts.deck}-v2.md\`），`)
-  L.push('   放好之后告诉暮雨“可以答了”。')
+  L.push('   放好之后告诉用户“可以答了”。')
   return L.join('\n') + '\n'
 }
 
@@ -234,7 +234,7 @@ export function buildRewritePrompt(opts: PromptOpts): string {
 export function buildDeckAuthoringPrompt(opts?: { project?: string; focus?: string }): string {
   const who = opts?.project ? `项目「${opts.project}」` : '当前项目'
   const L: string[] = []
-  L.push(`请你给${who}出一份问卷，交给暮雨在方寸的「问卷」页答。`)
+  L.push(`请你给${who}出一份问卷，交给用户在方寸的「问卷」页答。`)
   if (opts?.focus) L.push(`这一轮要弄清楚的事：${opts.focus}`)
   L.push('')
   L.push('## 什么时候该出卷（不是让你随便出）')
@@ -277,7 +277,7 @@ export function buildWorkOrderPrompt(opts: PromptOpts): string {
   const who = opts.project ? `项目「${opts.project}」` : '这个项目'
   if (!settled.length) return ''
   const L: string[] = []
-  L.push(`你在给${who}出施工单。决策已经由暮雨在问卷《${opts.title || opts.deck}》里定下来了，`)
+  L.push(`你在给${who}出施工单。决策已经由用户在问卷《${opts.title || opts.deck}》里定下来了，`)
   L.push('**不要再问一遍，也不要替他重新权衡** —— 直接把“要什么”翻成“怎么做”。')
   L.push('')
   L.push('## 已定的（照这个做）')
@@ -289,7 +289,7 @@ export function buildWorkOrderPrompt(opts: PromptOpts): string {
   if (open.length) {
     L.push('')
     L.push('## 还没定的（**不许自己拍**）')
-    L.push('这些题暮雨跳过或没答。施工单里遇到它们必须显式标成“待定”，')
+    L.push('这些题用户跳过或没答。施工单里遇到它们必须显式标成“待定”，')
     L.push('或者绕开、先做不受影响的部分：')
     open.forEach((o) => L.push(`- ${o.id} ${o.nav}`))
   }

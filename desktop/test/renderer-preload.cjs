@@ -160,9 +160,11 @@ const store = {
     //   这样"排序下拉"才可被真断言 —— 三者两两不同，任何一支写错都会当场红。
     {
       id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高',
-      project: 'demo', tags: [], body: '正文', deadline: FIX_DEADLINE,
+      // 2026-11-11 补 `澄清`：派工单出厂闸（2026-11-09 S3=B）要求卡上带澄清卷，
+      // 夹具没有它 → 「复制为派工单」被闸拒，那一串断言从 11-09 起一直是红的（只是没人跑）。
+      clarify: '司天-宪法层', project: 'demo', tags: [], body: '正文', deadline: FIX_DEADLINE,
       created: '2026-09-20T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
-      fm: { id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高', project: 'demo' },
+      fm: { id: 'task-demo-001', title: '演示任务', status: '待办', priority: '高', project: 'demo', clarify: '司天-宪法层' },
       path: 'C:/mock/task-data/task-demo-001.md',
     },
     // 分组视图用：一个查不到名字的项目 id（标签必须回退成 id，不能空白）+ 一个完全没项目的
@@ -175,9 +177,9 @@ const store = {
     },
     {
       id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低',
-      tags: [], body: '',
+      clarify: '司天-宪法层', tags: [], body: '',
       created: '2026-09-01T00:00:00.000Z', updated: '2026-09-01T00:00:00.000Z',
-      fm: { id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低' },
+      fm: { id: 'task-demo-003', title: '未归属任务', status: '进行中', priority: '低', clarify: '司天-宪法层' },
       path: 'C:/mock/task-data/task-demo-003.md',
     },
     // 2026-09-28：真实 frontmatter 里“项目”是**数组**（`项目: [fangcun-base]`）——
@@ -253,9 +255,9 @@ const store = {
   archived: [
     {
       id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成', priority: '高',
-      project: 'demo', tags: [], body: '',
+      clarify: '司天-宪法层', project: 'demo', tags: [], body: '',
       created: '2026-08-01T00:00:00.000Z', updated: '2026-08-01T00:00:00.000Z',
-      fm: { id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成' },
+      fm: { id: 'task-demo-001', title: '演示任务（归档副本）', status: '完成', clarify: '司天-宪法层' },
       path: 'C:/mock/task-data/archive/task-demo-001.md',
     },
     {
@@ -1210,10 +1212,50 @@ contextBridge.exposeInMainWorld('tegula', {
       ok: true,
       dir: 'C:/mock/task-data/questionnaires',
       decks: [
-        { deck: '司天-宪法层', title: '司天问卷·宪法层（2026-11-04）', layer: '宪法层', total: 3, answered: 0, approved: false },
-        { deck: '墨坊-宪法层', title: '墨坊问卷·宪法层（2026-11-04）', layer: '宪法层', total: 2, answered: 2, approved: true },
+        { deck: '司天-宪法层', title: '司天问卷·宪法层（2026-11-04）', layer: '宪法层', total: 3, answered: 0, approved: false, project: 'sitian', ageDays: 2, refCount: 0 },
+        { deck: '墨坊-宪法层', title: '墨坊问卷·宪法层（2026-11-04）', layer: '宪法层', total: 2, answered: 2, approved: true, project: 'ronghua', ageDays: 40, refCount: 0 },
       ],
     }
+  },
+  // ── 问卷管理（2026-11-11）：搜索 / 归档候选 / 归档 / 取消归档 ────────────
+  // 假 preload 必须同步登记（记忆第 7 次）：漏一个，界面上那条路就只会吐一句 toast，
+  // 断言测到的其实是“被 try/catch 吞掉”。
+  questionnaireSearch: (query, opts) => {
+    rec('questionnaireSearch', [query || '', opts || null])
+    const q = String(query || '').trim()
+    const all = [
+      { deck: '司天-宪法层', title: '司天问卷·宪法层（2026-11-04）', layer: '宪法层', total: 3, answered: 0, approved: false, project: 'sitian' },
+      { deck: '墨坊-宪法层', title: '墨坊问卷·宪法层（2026-11-04）', layer: '宪法层', total: 2, answered: 2, approved: true, project: 'ronghua' },
+    ]
+    const hits = {}
+    const decks = all.filter((d) => {
+      const where = []
+      if (d.deck.indexOf(q) >= 0 || d.title.indexOf(q) >= 0) where.push('卷名')
+      if (d.project.indexOf(q) >= 0) where.push('项目')
+      // 题面命中：墨坊那卷的 M1 问的是“稿子形态”，搜“稿”要能命中题面
+      if (q === '稿' && d.deck === '墨坊-宪法层') where.push('题面 M1')
+      if (!where.length) return false
+      hits[d.deck] = where
+      return true
+    })
+    return { ok: true, decks: q ? decks : all, hits, scanned: all.length }
+  },
+  questionnaireArchivable: (days) => {
+    rec('questionnaireArchivable', [days])
+    // 夹具：墨坊那卷已批准 40 天、无卡引用 → 够格归入历史卷
+    return {
+      ok: true, days: Number(days) || 30,
+      decks: [{ deck: '墨坊-宪法层', title: '墨坊问卷·宪法层（2026-11-04）', approved: true, ageDays: 40, refCount: 0 }],
+      blocked: [],
+    }
+  },
+  questionnaireArchive: (deck, reason) => {
+    rec('questionnaireArchive', [deck || '', reason || ''])
+    return { ok: true, deck }
+  },
+  questionnaireUnarchive: (deck) => {
+    rec('questionnaireUnarchive', [deck || ''])
+    return { ok: true, deck }
   },
   questionnaireGet: (deck) => {
     rec('questionnaireGet', [deck])
@@ -1353,6 +1395,14 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!store.qnCards) store.qnCards = {}
     store.qnCards[deck] = { created: 1, at: new Date().toISOString() }
     return { ok: true, created: 1, existed: 0, taskIds: ['task-from-qn-001'], project: (opts && opts.project) || '' }
+  },
+  questionnaireDispatchContext: (deck, project) => {
+    rec('questionnaireDispatchContext', [deck || '', project || ''])
+    cloneGuard('questionnaireDispatchContext', [deck, project])
+    return {
+      gate: { ok: true, deck: deck || '司天-宪法层', project: project || 'sitian' },
+      rulings: [{ deck: deck || '司天-宪法层', qid: 'S1', line: '出现反例即违约' }],
+    }
   },
   questionnaireVoidDeck: (deck, reason) => {
     rec('questionnaireVoidDeck', [deck, reason || ''])

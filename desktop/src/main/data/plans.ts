@@ -17,6 +17,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getTaskDir, atomicWrite } from './index'
+import { gateForDeck } from './qnGate'
+import { queueGateForStage } from './qnQueueGate'
 import type { StageGateResult } from '../../shared/stageGate'
 
 export interface PlanStage {
@@ -35,6 +37,15 @@ export interface PlanStage {
   rejectReason: string
   /** 完成证据引用（P4 判据全过后写：自检时间 / 报告路径 / 命令） */
   evidence: string
+  /**
+   * 澄清卷名（2026-11-11 · 进队列锁的第二个时点）。
+   *
+   * `proposeStage` 出厂时必写这一行（它在 `deck` 缺失/未批准时零写入），
+   * `writePlanVerdict(pass)` 通过（= 冻结 = 可派）时再查一次 —— 防的是
+   * “提案时卷是好的，之后被作废 / 又出现反问”这种时间差。
+   * 老阶段块没有这一行 → 不拦（与任务卡同一条过渡口径）。
+   */
+  clarify: string
   /** 缺了哪几块（技术方案 / 照抄点 / 判据）—— 界面据此报红 */
   missing: string[]
 }
@@ -116,7 +127,7 @@ function splitRow(line: string): string[] {
 function parseStage(id: string, title: string, lines: string[]): PlanStage {
   const stage: PlanStage = {
     id, title, status: '', what: '', approach: [], copyRows: [], criteria: [],
-    verdict: '', rejectReason: '', evidence: '', missing: [],
+    verdict: '', rejectReason: '', evidence: '', clarify: '', missing: [],
   }
   let mode: '' | 'approach' | 'copy' | 'criteria' = ''
   for (const raw of lines) {
@@ -127,6 +138,7 @@ function parseStage(id: string, title: string, lines: string[]): PlanStage {
     if (/^-\s*裁决\s*[:：]/.test(t)) { stage.verdict = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*打回理由\s*[:：]/.test(t)) { stage.rejectReason = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*证据\s*[:：]/.test(t)) { stage.evidence = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
+    if (/^-\s*澄清\s*[:：]/.test(t)) { stage.clarify = t.split(/[:：]/).slice(1).join(':').trim(); mode = ''; continue }
     if (/^-\s*技术方案\s*[:：]\s*$/.test(t)) { mode = 'approach'; continue }
     if (/^-\s*照抄点\s*[:：]?\s*$/.test(t)) { mode = 'copy'; continue }
     if (/^-\s*判据\s*[:：]?\s*$/.test(t)) { mode = 'criteria'; continue }
@@ -258,6 +270,10 @@ export function writePlanVerdict(input: VerdictInput): { ok: boolean; error?: st
   if (input.action === 'pass') {
     // 缺块不许通过 —— 判据说的"缺一即报红"，这里再兜一层，防止绕过界面
     if (stage.missing.length) return { ok: false, error: `缺 ${stage.missing.join(' / ')}，不能通过` }
+    // 进队列锁（2026-11-11 · 规格单 §3.1 的第二个时点）：**通过 = 冻结 = 可派**。
+    // 出厂时 proposeStage 已强制带卷，这里查的是“提案之后卷被作废 / 又冒出反问”的时间差。
+    const qg = queueGateForStage(path.basename(file, '.md'), stage.clarify)
+    if (!qg.ok) return { ok: false, error: qg.error }
     setStageField(lines, range, '状态', '已冻结')
     setStageField(lines, range, '裁决', `通过 · ${day}`)
   } else if (input.action === 'reject') {
@@ -384,6 +400,13 @@ export interface ProposeStageInput {
   criteria: string[]
   agent?: string
   now?: string
+  /**
+   * 澄清问卷卷名（2026-11-09 硬锁）。
+   *
+   * 没有它 = 没问过就出单，把猜测当结论。闸在写路径里判：内容校验之后、
+   * 落盘之前 —— 这样“缺技术方案”这类错误仍然先报，不被闸吞掉。
+   */
+  deck?: string
 }
 
 export interface ProposeStageResult {
@@ -444,6 +467,11 @@ export function proposeStage(input: ProposeStageInput): ProposeStageResult {
     return { ok: false, error: `阶段 ${id} 已存在 —— 改已有的请在界面上用「改一句」，别新增重复阶段` }
   }
 
+  // 硬闸（2026-11-09）：没有澄清问卷 / 卷没答完 / 全是否决作废 → 一个字节都不写。
+  // 放在格式与重号校验之后：内容错误先报，别让闸把真正的错因吞掉。
+  const gate = gateForDeck(String(input.deck || ''), path.basename(file, '.md'))
+  if (!gate.ok) return { ok: false, error: gate.error }
+
   const iso = String(input.now || new Date().toISOString())
   const day = iso.slice(0, 10)
   const agent = String(input.agent || '').trim()
@@ -451,6 +479,8 @@ export function proposeStage(input: ProposeStageInput): ProposeStageResult {
   const block: string[] = []
   block.push(`### ${id} ${title}`)
   block.push('- 状态: 待裁决')
+  // 澄清卷：出厂闸放的卷名必须**落进块里** —— 否则“进队列”那一刻没有人能复算它是不是还成立
+  block.push(`- 澄清: ${String(input.deck || '').trim()}`)
   const what = String(input.what || '').trim()
   if (what) block.push(`- 做什么: ${what}`)
   block.push('- 技术方案:')

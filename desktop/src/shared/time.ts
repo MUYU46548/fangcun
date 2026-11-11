@@ -33,6 +33,32 @@ export function parseTime(v: unknown): number {
   return NaN
 }
 
+/**
+ * 本地日历日 `YYYY-MM-DD` —— **不要**用 `toISOString().slice(0, 10)`。
+ *
+ * 那是 UTC 日历日：东八区本地 00:00–08:00 时 UTC 还停在前一天。
+ * 2026-11-09 用户当场指出「问卷 22:07 答的，界面说 14:07」——同一条病根的另一半
+ * （那一半是显示直接截 ISO 前 16 位）。落库日期 / 题库「首问」都走这里。
+ */
+export function localDay(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * 时间 → 本地 `YYYY-MM-DD HH:mm`（界面显示用）。
+ *
+ * 磁盘里存的是 UTC ISO（`2026-11-09T14:07:16.249Z`），**直接截前 16 位印出来就是错的时间**。
+ * 认不出来返回空串 —— 不把乱码或 "Invalid Date" 印给用户。
+ */
+export function formatLocalStamp(v: unknown): string {
+  const t = parseTime(v)
+  if (!Number.isFinite(t)) return ''
+  const d = new Date(t)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${localDay(d)} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 /** 日期（本地化），无法解析给 '—' */
 export function formatDate(v: unknown): string {
   const t = parseTime(v)

@@ -884,7 +884,8 @@ import { toggleCollapsed, isCollapsed } from '../shared/grouping'
 // 同步按钮的阶段/秒数文案是纯函数（shared/syncPhase.ts）—— 放在 shared 里才能喂假秒数断言，
 // 不用在测试里真等 15 秒去验"网络慢"那一档。
 import { syncCapsuleText, syncDoneText, syncPhaseLabel, isSyncPhase } from '../shared/syncPhase'
-import { buildDispatchText, arsenalStatus } from '../shared/arsenal'
+import { buildDispatchResult, arsenalStatus } from '../shared/arsenal'
+import { clarifyOf } from '../shared/clarify'
 // 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
@@ -4256,11 +4257,26 @@ async function copyTaskAsDispatch(t: Task): Promise<void> {
   try {
     const key = normProject((t as any).project)
     const proj: any = (projects.value as any[]).find((p) => p && p.id === key)
+    // 2026-11-09（S3=B）：派工单也在澄清闸里。卡上没写 `澄清: <卷>` = 不许派；
+    // 写了也要真过闸（卷存在 / 已批准 / 没未答活题 / 题库没有待答旧题）。
+    // 2026-11-11：认卷的三种写法收进 `shared/clarify.ts` —— 此前界面只认带冒号的
+    // `澄清问卷：X`，而问卷落卡（deckToCards）写的是 `## 澄清问卷` + 下一行，于是
+    // “问卷自己落的卡反而过不了派工闸”。现在主进程与界面同一个函数。
+    const clarify = clarifyOf({ fm: (t as any).fm, body: (t as any).body })
+    if (!clarify) {
+      showToast('不许派：这张卡没有附澄清问卷（卡上要写 澄清: <卷名>）—— 没问过就派 = 把猜测当执行', 'error')
+      return
+    }
+    const ctx: any = await (window as any).tegula.questionnaireDispatchContext(clarify, key)
+    if (!ctx || !ctx.gate || ctx.gate.ok === false) {
+      showToast('不许派：' + (ctx?.gate?.error || `澄清问卷「${clarify}」没通过检查`), 'error')
+      return
+    }
     const acceptance = String((t as any).fm?.验收判据 || '')
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
-    const text = buildDispatchText({
+    const built = buildDispatchResult({
       id: t.id,
       title: t.title,
       body: (t as any).body || '',
@@ -4271,11 +4287,19 @@ async function copyTaskAsDispatch(t: Task): Promise<void> {
       projectRoot: proj?.repo || '',
       projectName: proj?.name || key || '',
       acceptance,
+      clarify,
+      rulings: Array.isArray(ctx.rulings) ? ctx.rulings : [],
+      strict: true,
     })
+    if (!built.ok || !built.text) {
+      showToast('不许派：' + (built.error || '派工单没成型'), 'error')
+      return
+    }
+    const text = built.text
     // 留痕：日志里能查到“点了哪条、复制了多长”（渲染层 console 会转发进应用日志）
     const st = arsenalStatus({ status: t.status, path: (t as any).path || '' })
     console.warn('[renderer:copy] arsenal dispatch id=' + t.id + ' state=' + st + ' len=' + text.length)
-    await copyWithToast(text, `已复制为派工单（弹药库状态：${st}）—— 判据那几栏留给你亲手写`)
+    await copyWithToast(text, `已复制为派工单（弹药库状态：${st}）—— 澄清卷：${clarify}`)
   } catch (e: any) {
     showToast('拼派工单失败：' + (e?.message || e), 'error')
   }

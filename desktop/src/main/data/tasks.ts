@@ -12,6 +12,8 @@ import {
   invalidateTaskCache, normalizePriority, PRIORITIES,
   normalizeStatusAlias, isStatusLegal, readActivityAll
 } from './index'
+import { clarifyOf } from '../../shared/clarify'
+import { queueGateForTask } from './qnQueueGate'
 
 // Re-export for convenience
 export { STATUSES, PRIORITIES, normalizePriority }
@@ -249,19 +251,39 @@ export interface NewTaskFields {
   body?: string
   blockers?: string[]
   deadline?: string
+  /**
+   * 澄清卷名（2026-11-11 · 进队列锁）。不传时从正文的 `## 澄清问卷` 标记里认 ——
+   * 问卷落卡（`deckToCards`）走的就是正文那条路，不能因为调用方没带参数就绕开闸。
+   */
+  clarify?: string
+}
+
+/**
+ * 进队列闸（2026-11-11）—— **数据层唯一的判定点**。
+ *
+ * 桌面 GUI（ipc.moveStatus / editTask）、MCP（tools.ts 的 move_status / update_task / create_task）
+ * 与问卷落卡（deckToCards）全部经过这里；界面与通道不许各写一遍（那就是“CLI 锁不住 GUI”的老病）。
+ * 判定本身在 `qnQueueGate.ts`：声明了澄清卷就必须过闸，没声明的是普通卡（过渡口径写在那里）。
+ */
+function assertQueueGate(fm: any, body: string): void {
+  const g = queueGateForTask({ fm, body })
+  if (!g.ok) throw new Error(g.error || '进队列被拦：澄清卷没过闸')
 }
 
 export function createTask(fields: NewTaskFields): Task {
   const id = genId(fields.title)
   const now = new Date().toISOString()
-  
+  const status = normalizeStatusAlias(fields.status || '待办') as Status
+  // 澄清卷：显式传的优先，否则认正文标记（问卷落卡写的是正文）
+  const clarify = String(fields.clarify || '').trim() || clarifyOf({ body: fields.body })
+
   const fm: TaskFrontmatter = {
     id,
     title: fields.title,
     project: fields.project || '',
     // 2026-10-21：新建/更新前把“已完成 / 待处理”这类误写归一（白名单见 STATUS_ALIASES）。
     // 写入路径此前一个校验都没有 —— 外部账本导进来的脏状态能一路落盘，只能靠 verify 事后抓。
-    status: normalizeStatusAlias(fields.status || '待办'),
+    status,
     priority: normalizePriority(fields.priority) || '中',
     assignee: fields.assignee || '',
     tags: fields.tags || [],
@@ -270,6 +292,9 @@ export function createTask(fields: NewTaskFields): Task {
     blockers: fields.blockers || [],
     deadline: fields.deadline || undefined,
   }
+  if (clarify) (fm as any).clarify = clarify
+  // 进队列闸：新建即「待办」的卡，同样要在落盘前过（否则“新建”就是绕过闸的后门）
+  if (status === '待办') assertQueueGate(fm, String(fields.body || ''))
 
   const task: Task = {
     id,
@@ -340,6 +365,13 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
     if (!isStatusLegal(fields.status)) {
       console.warn(`[tasks] 状态“${String(fields.status)}”不在白名单里，已照写（体检会继续报）`)
     }
+  }
+
+  // 进队列闸（2026-11-11）：判的是**写完之后**的卡（本次可能同时带 clarify / body / status）。
+  // 只在“状态真的要变成待办”时判：改标题、改优先级、待办↔待办都不受影响。
+  if (fields.status === '待办' && String(task.fm.status || '') !== '待办') {
+    const nextBody = fields.body !== undefined ? String(fields.body) : task.body
+    assertQueueGate({ ...task.fm, ...fields }, nextBody)
   }
 
   // body 不属于 frontmatter，单独落到 task.body —— 此前它被合并进 fm 后
@@ -486,10 +518,47 @@ export function restoreTaskVersion(id: string, file: string): { ok: boolean; dat
   return { ok: true, data: { at: entry.version.at, title: back.fm.title || '' } }
 }
 
+/**
+ * 验收清单（2026-11-11 卡 task-20261108-011）。
+ *
+ * 字段在桌面侧本来就有（`验收清单` → `review_checklist`），但**没有任何读方**：
+ * 界面裁决时不看它、MCP 也不看它 —— 于是“填了清单”跟“没填”在行为上一模一样。
+ * Python 侧更糟（render_task 不输出 → 一写回就静默丢），两边一起修。
+ */
+export function reviewChecklistOf(fm: any): string[] {
+  const raw = fm?.review_checklist ?? fm?.['验收清单']
+  if (Array.isArray(raw)) return raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+  if (typeof raw === 'string') return raw.split('\n').map((x) => x.trim()).filter(Boolean)
+  return []
+}
+
+/** 清单里**没打勾**的项（打勾 = `[x]` / `[X]` / `✓` / `✅` 开头，与 Python 侧同一口径） */
+export function unmetChecklist(fm: any): string[] {
+  return reviewChecklistOf(fm).filter((x) => !/^(\[x\]|\[X\]|✓|✅)/.test(x))
+}
+
+/**
+ * 验收前的清单闸：**清单非空且有没打勾的项 → 拒**（抛错，调用方原样回给用户）。
+ * 清空清单 = 没有清单（不拦）—— 与 Python `api_review` 同一条口径。
+ */
+export function assertReviewChecklist(fm: any): void {
+  const unmet = unmetChecklist(fm)
+  if (!unmet.length) return
+  throw new Error(`验收清单还有 ${unmet.length} 项没打勾：${unmet.slice(0, 5).join('、')}`
+    + ' —— 先完成并打勾，或把清单删掉（删掉 = 这次不按清单验）')
+}
+
 export function moveStatus(id: string, newStatus: Status): Task | null {
   const task = readTask(id)
   if (!task) return null
-  
+
+  // 进队列闸（2026-11-11）：状态变成「待办」= 这张卡可派了，必须先过澄清卷。
+  // 抛错而不是静默放行：调用方（ipc.moveStatus / MCP）把 message 原样回给用户/agent，
+  // 否则界面只会看到“点了没反应”。
+  if (String(newStatus) === '待办' && String(task.fm.status || '') !== '待办') {
+    assertQueueGate(task.fm, task.body)
+  }
+
   task.fm.status = newStatus
   task.fm.updated = new Date().toISOString()
   task.fm.expected_update = genId('lock')

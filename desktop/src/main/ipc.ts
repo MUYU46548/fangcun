@@ -42,6 +42,8 @@ import { linkHermesMcp } from './services/hermesLink'
 import { detectDshPlugin } from './services/dshPlugin'
 import { guardedHandle } from './guarded-ipc'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
+// MCP 写口闸 + 写侧留痕（2026-11-11 卡《MCP 写口无闸》）—— 设置页与清单都读这一层
+import * as writeGate from './mcp/writeGate'
 import { attachmentOpenPolicy } from '../shared/attachments'
 import { resolveLinkPath } from '../shared/linkPath'
 import { pickNeverRead } from '../shared/neverRead'
@@ -1132,6 +1134,23 @@ export function registerIpcHandlers(): void {
   guardedHandle('prefs:get', () => prefs.getPrefs())
   guardedHandle('prefs:set', (_event, key: string, value: unknown) => prefs.setPref(key, value))
 
+  // ── MCP 写口（2026-11-11 · 卡《MCP 写口无闸》）──────────────────────────
+  // 三档：只读 / 读写 / 读写+破坏性。改档本身也留痕（谁、何时、从哪档到哪档）——
+  // 闸只有“能看见 + 能收紧 + 有记录”三件齐全才算过关（卡上判据）。
+  guardedHandle('mcp:writeMode', () => ({
+    mode: writeGate.getWriteMode(),
+    modes: writeGate.WRITE_MODES,
+  }))
+  guardedHandle('mcp:writeModeSet', (_event, mode: string) => {
+    const r = writeGate.setWriteMode(mode as any, 'user')
+    if (r.ok) appLog.info('mcp', `MCP 写入档位：${r.previous} → ${r.mode}`)
+    return r
+  })
+  guardedHandle('mcp:writes', (_event, limit?: number) => {
+    const n = Number(limit)
+    return writeGate.listWrites(Number.isFinite(n) && n > 0 ? Math.min(500, Math.floor(n)) : 50)
+  })
+
   // ── 项目梯度榜（2026-10-25）：只服务项目页的“梯度榜”摆法 ──────────────
   // 边界见 services/projectTiers.ts 顶部注释：不参与看板分组、不影响一屏、不动 registry。
   guardedHandle('projectTiers:get', () => projectTiers.readTiers())
@@ -1267,6 +1286,16 @@ export function reviewTask(id: string, verdict: 'accept' | 'reject', reason?: st
   const passWord = isApproval ? '审批通过（转正“待办”）' : '验收通过'
   const failWord = isApproval ? '审批驳回' : '验收驳回'
   if (verdict === 'accept') {
+    // 验收清单闸（2026-11-11 卡 011）：清单非空且有没打勾的项 → 拒绝完成。
+    // 此前这个字段**没有任何读方**：填了跟没填一样，门控形同虚设。
+    // 只对“待验收 → 完成”这一条判；待审批转正不看清单（审批不是验收）。
+    if (!isApproval) {
+      try {
+        tasks.assertReviewChecklist(task.fm)
+      } catch (e: any) {
+        return { ok: false, error: String(e?.message || e) }
+      }
+    }
     tasks.moveStatus(id, isApproval ? '待办' : '完成')
     // 2026-09-25（用户第 7 条）：通过同样写结果记录 —— 此前只有驳回留痕，
     // “通过”这件事在卡上完全无迹可查（用户原话：验收裁决只能填驳回理由，那通过呢？）

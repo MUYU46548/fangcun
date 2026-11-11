@@ -212,6 +212,10 @@ contextBridge.exposeInMainWorld('tegula', {
   /** UI 偏好（真身在主进程 prefs.json，见 main/services/prefs.ts） */
   prefsGet: () => ipcRenderer.invoke('prefs:get'),
   prefsSet: (key: string, value: any) => ipcRenderer.invoke('prefs:set', key, value),
+  /** MCP 写口（2026-11-11 卡《MCP 写口无闸》）：档位读 / 改档 / 最近写侧清单 */
+  mcpWriteMode: () => ipcRenderer.invoke('mcp:writeMode'),
+  mcpSetWriteMode: (mode: string) => ipcRenderer.invoke('mcp:writeModeSet', mode),
+  mcpWrites: (limit?: number) => ipcRenderer.invoke('mcp:writes', limit),
   /** 项目梯度榜（2026-10-25）：只给项目页的“梯度榜”摆法用，见 services/projectTiers.ts */
   /** 项目结构图（方寸内核：项目 → 在途 → 已完成 → 日志；不是代码架构图） */
   projectDiagram: (projectId: string) => ipcRenderer.invoke('project:diagram', projectId),
@@ -425,9 +429,19 @@ contextBridge.exposeInMainWorld('tegula', {
   questionnaireAudit: (deck: string, qid: string, verdict: 'ok' | 'refuted', evidence: string) =>
     ipcRenderer.invoke('questionnaire:audit', deck, qid, verdict, evidence),
   questionnaireAuditQueue: () => ipcRenderer.invoke('questionnaire:auditQueue'),
+
+  // 问卷管理（2026-11-11）：搜索 / 归档候选 / 归档与取消归档
+  questionnaireSearch: (query: string, opts?: { project?: string; from?: string; to?: string }) =>
+    ipcRenderer.invoke('questionnaire:search', query, opts),
+  questionnaireArchivable: (days?: number) => ipcRenderer.invoke('questionnaire:archivable', days),
+  questionnaireArchive: (deck: string, reason?: string) => ipcRenderer.invoke('questionnaire:archive', deck, reason),
+  questionnaireUnarchive: (deck: string) => ipcRenderer.invoke('questionnaire:unarchive', deck),
   /** 答卷 → 真任务卡（幂等；没批准 / 有反问 / 已作废一律拒） */
   questionnaireMakeCards: (deck: string, opts?: { project?: string; priority?: string }) =>
     ipcRenderer.invoke('questionnaire:makeCards', deck, opts),
+  /** 派工单出厂上下文（2026-11-09 · S3=B）：闸结果 + 已落档验收线 */
+  questionnaireDispatchContext: (deck: string, project: string) =>
+    ipcRenderer.invoke('questionnaire:dispatchContext', deck, project),
 
   /** 技能安装专区（2026-09-26 卡 038） */
   skillsList: () => ipcRenderer.invoke('skills:list'),

@@ -1,4 +1,6 @@
 import { MCPTool, MCPRequest, MCPResponse, MCPToolResult } from './types'
+import * as fs from 'fs'
+import * as path from 'path'
 import { loadTasks, parseRegistry, getDataDir } from '../data'
 import * as tasks from '../data/tasks'
 import * as services from '../services'
@@ -16,6 +18,7 @@ import { checkIntake } from '../services/intake'
 import { archForProject } from '../services/projectArch'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk } from '../llm/planDraftInput'
+import { gateForDeck } from '../data/qnGate'
 import { generateArchGraph } from '../services/archAi'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
 // 为什么必须补写口：格式闸实勘确认 agent 经 MCP 的写工具**只有任务卡四件**，
@@ -36,6 +39,7 @@ import { listPlanFiles, readPlan, proposeStage, parkedPlanSummary } from '../dat
 import { structureDrift } from '../services/structureDrift'
 // 问卷：agent 侧此前只有「界面里点」，MCP 一个字都读不到也写不进（2026-11-08 补）
 import { listDecks, createDeck } from '../data/questionnaires'
+import { bankStats, nextOpen, importQuestions } from '../data/questionBank'
 // 结构地图“提议 → 签字 → 落地”（2026-11-08 暮雨拍板：AI 写进去落一张待审批卡）
 import { rotateBackup } from '../data'
 import {
@@ -106,6 +110,7 @@ export const MCP_TOOLS: MCPTool[] = [
         priority: { type: 'string', description: '优先级：高 / 中 / 低（也接受 high/medium/low，写入前会自动归一）', default: '中' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
         body: { type: 'string', description: 'Task body/content' },
+        clarify: { type: 'string', description: '澄清问卷卷名：声明了就必须答完并批准，卡才能进「待办」（2026-11-09 硬锁）' },
       },
       required: ['title'],
     },
@@ -139,10 +144,34 @@ export const MCP_TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         project: { type: 'string', description: '项目 id（如 fangcun-base）' },
+        deck: { type: 'string', description: '澄清问卷卷名（必须先答完并批准；没带 = 拒，零写入）' },
         max_open: { type: 'number', description: '未结卡最多带几张正文（默认 24，上限 60）' },
         max_done: { type: 'number', description: '已完成卡最多列几张标题（默认 8，上限 40）' },
       },
       required: ['project'],
+    },
+  },
+  {
+    name: 'plan_submit',
+    description:
+      'agent 当大脑、方寸当闸（2026-11-10，暮雨拍板方向）：agent 自己把草案想好，'
+      + '把 JSON 交给方寸，方寸跑**同一套闸**（宪法页 / 本轮先问 / 判据现状体检 / 依据必须真实）再落 plans/_drafts。'
+      + '**不调模型、不花 token、秒回**。JSON 形状与 plan_draft 要求完全一致：'
+      + '{"constitution":[{kind,text,cites}],"asks":[{ask,why}],"asksNote":"","stages":[{id,title,what,approach,copy,criteria,cites}]}。'
+      + '没带卷 / 卷没答完 / 宪法缺失 / 判据现状已满足 → 拒（零写入）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: '项目 id（如 fangcun-base）' },
+        deck: { type: 'string', description: '澄清问卷卷名（必须先答完并批准；没带 = 拒）' },
+        draft: {
+          type: 'object',
+          description: '草案 JSON（constitution / asks / asksNote / stages），形状同 plan_draft 的输出要求',
+        },
+        max_open: { type: 'number', description: '组装证据时未结卡最多带几张正文（默认 24）' },
+        max_done: { type: 'number', description: '已完成卡最多列几张标题（默认 8）' },
+      },
+      required: ['project', 'deck', 'draft'],
     },
   },
   {
@@ -169,6 +198,10 @@ export const MCP_TOOLS: MCPTool[] = [
         force_status: {
           type: 'string',
           description: '强制落卡状态（默认按机检自动：全过→待审批，有不过→草稿）',
+        },
+        taskId: {
+          type: 'string',
+          description: '关联的任务卡 id：卡上 `拍板: D-xxx` 的旧拍板会自动变成“交付物必须回应”的判据',
         },
       },
       required: ['title', 'deliverable', 'criteria'],
@@ -374,6 +407,7 @@ export const MCP_TOOLS: MCPTool[] = [
       properties: {
         file: { type: 'string', description: 'Plan file name, e.g. fangcun-base.md' },
         project: { type: 'string', description: 'Alternative to file: project id (= <project>.md)' },
+        deck: { type: 'string', description: '澄清问卷卷名（必须先答完并批准；没带 = 拒，零写入）' },
         stageId: { type: 'string', description: 'P8 — omit for the next free number' },
         title: { type: 'string', description: 'What this stage delivers (one line)' },
         what: { type: 'string', description: 'One-sentence scope (optional)' },
@@ -396,9 +430,43 @@ export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'qn_list',
     description: 'List questionnaires (问卷) with how many questions, how many already answered, '
-      + 'and whether each was approved. Call this before asking the user anything in chat: '
-      + 'an open questionnaire is where his decisions belong.',
-    inputSchema: { type: 'object', properties: {} },
+      + 'and whether each was approved — plus the project 题库 progress (answered / open / blacklist) '
+      + 'and the NEXT batch of open questions (≤6) to put into a deck. '
+      + 'Call this before asking the user anything in chat: an open questionnaire is where his decisions belong.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project id — limits the 题库 progress + next batch to it (optional)' },
+        batch: { type: 'number', description: 'How many open questions to return in `next` (default 6, max 20)' },
+      },
+    },
+  },
+  {
+    name: 'qn_bank_import',
+    description: 'Bulk-load questions into the project 题库 as 待答 (the queue). '
+      + 'This is how a few hundred questions get in at once (e.g. distilled from the user 骂过 whats, legacy decks). '
+      + 'Idempotent by question fingerprint: an already-answered / 否决 / 你自判 question is REFUSED and reported in `conflicts` — '
+      + 'it never overwrites an answer. 作废 questions are re-queued. Nothing else is written.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project id these questions belong to (omit for global)' },
+        source: { type: 'string', description: 'Where they came from, e.g. 2026-11-08 会话第 3 轮 / 四卷档案恢复' },
+        questions: {
+          type: 'array',
+          description: 'Questions to queue',
+          items: {
+            type: 'object',
+            properties: {
+              ask: { type: 'string', description: 'The question itself (one sentence)' },
+              line: { type: 'string', description: '验收线 — what would prove this answer was violated (recommended)' },
+            },
+            required: ['ask'],
+          },
+        },
+      },
+      required: ['questions'],
+    },
   },
   {
     name: 'qn_propose',
@@ -654,7 +722,81 @@ export const MCP_TOOLS: MCPTool[] = [
 
 // ── Tool Handler ────────────────────────────────────────────────────────
 
-export function handleMCPToolCall(name: string, args: any): MCPToolResult | Promise<MCPToolResult> {
+import { checkMcpWrite, recordWrite, summarizeArgs } from './writeGate'
+
+export interface ToolCallContext {
+  /** MCP 客户端名（socket-server 从 initialize 的 clientInfo 取） */
+  client?: string
+}
+
+/** 审计用的一句话摘要：从结果 JSON 里抠“落下了什么”，抠不到就空 */
+function resultDigest(out: MCPToolResult): string {
+  try {
+    const text = String((out && out.content && out.content[0] && (out.content[0] as any).text) || '')
+    if (!text || text[0] !== '{') return ''
+    const o = JSON.parse(text)
+    if (o && typeof o === 'object') {
+      if (typeof o.id === 'string' && o.id) return `id=${o.id}`
+      if (typeof o.status === 'string' && o.status) return `status=${o.status}`
+      if (typeof o.ok === 'boolean') return `ok=${o.ok}`
+    }
+  } catch { /* 非 JSON 结果：不记摘要 */ }
+  return ''
+}
+
+/**
+ * MCP 工具入口 —— **写口闸与写侧留痕的唯一落点**（2026-11-11 卡《MCP 写口无闸》）。
+ *
+ * 顺序：① 判档位（read 一律放行；写/破坏性看 prefs 里的档位）→ ② 被拒也要留痕
+ *      → ③ 真正的业务分支 `handleToolCallInner` → ④ 写成功/失败各记一行。
+ * 为什么包在入口：12 个写工具散着各判一遍，迟早漏一个；新增工具只要在 writeGate 里登记档位。
+ */
+export function handleMCPToolCall(name: string, args: any, ctx?: ToolCallContext): MCPToolResult | Promise<MCPToolResult> {
+  const client = String(ctx?.client || 'unknown')
+  const decision = checkMcpWrite(name, args)
+  if (!decision.ok) {
+    recordWrite({
+      via: name, tier: decision.tier, client, ok: false,
+      error: decision.error, args: summarizeArgs(name, args),
+    })
+    return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: decision.error }) }], isError: true }
+  }
+  const audited = decision.tier !== 'read'
+  const audit = (ok: boolean, detail?: { error?: string; result?: string }) => {
+    if (!audited) return
+    recordWrite({
+      via: name, tier: decision.tier, client, ok,
+      error: detail?.error, result: detail?.result,
+      args: summarizeArgs(name, args),
+    })
+  }
+
+  let out: MCPToolResult | Promise<MCPToolResult>
+  try {
+    out = handleToolCallInner(name, args)
+  } catch (e: any) {
+    const msg = String(e?.message || e)
+    audit(false, { error: msg })
+    return { content: [{ type: 'text', text: `方寸内部错误：${msg}` }], isError: true }
+  }
+  if (out && typeof (out as any).then === 'function') {
+    return Promise.resolve(out).then(
+      (r) => { audit(!(r && (r as any).isError), { error: (r && (r as any).isError) ? String(((r as any).content?.[0] as any)?.text || '').slice(0, 200) : undefined, result: resultDigest(r) }); return r },
+      (e) => {
+        const msg = String(e?.message || e)
+        audit(false, { error: msg })
+        return { content: [{ type: 'text', text: `方寸内部错误：${msg}` }], isError: true } as MCPToolResult
+      },
+    )
+  }
+  audit(!(out && (out as any).isError), {
+    error: (out && (out as any).isError) ? String(((out as any).content?.[0] as any)?.text || '').slice(0, 200) : undefined,
+    result: resultDigest(out as MCPToolResult),
+  })
+  return out
+}
+
+function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<MCPToolResult> {
   switch (name) {
     case 'list_tasks': {
       const view = args.view || 'active'
@@ -709,15 +851,21 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     }
     
     case 'create_task': {
-      const task = tasks.createTask({
-        title: args.title,
-        status: args.status,
-        project: args.project,
-        priority: args.priority,
-        tags: args.tags,
-        body: args.body,
-      })
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
+      try {
+        const task = tasks.createTask({
+          title: args.title,
+          status: args.status,
+          project: args.project,
+          priority: args.priority,
+          tags: args.tags,
+          body: args.body,
+          clarify: args.clarify,
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
+      } catch (e: any) {
+        // 进队列闸会在这里抛（声明了澄清卷但没过）—— 原样回，别让 agent 以为是内部错误
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(e?.message || e) }) }], isError: true }
+      }
     }
     
     case 'plan_draft': {
@@ -727,6 +875,14 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
       const proj = String(args.project || '').trim()
       if (!proj) {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id）' }) }], isError: true }
+      }
+      // 硬闸（2026-11-09）：没附澄清问卷 / 卷没答完 / 全是否决作废 → 连模型都不调，零写入。
+      const gate = gateForDeck(String(args.deck || ''), proj)
+      if (!gate.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: gate.error, gate,
+          hint: '先用 qn_propose 出卷 → 等用户答完并批准 → 再带 deck 调 plan_draft。没问过就出计划 = 把猜测当结论。',
+        }, null, 2) }], isError: true }
       }
       const input = buildPlanDraftInputFromDisk({
         project: proj,
@@ -741,11 +897,74 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
             error: r.error,
             file: r.file,
             stages: (r.stages || []).length,
+            // 2026-11-10：宪法页 + 本轮要先问的问题 —— 没有这两样整份不合格（H2 / V1 的机器版）
+            constitution: (r.constitution || []).length,
+            asks: (r.asks || []).map((a) => a.ask),
+            asks_note: r.asksNote || '',
+            already_green: r.alreadyGreen || 0,
             dropped: (r.dropped || []).length,
             missing_citations: r.missingCitations,
             model: r.model,
             // REV-005 边界③：每次花销可见
             usage: r.usage,
+            preview: (r.markdown || '').slice(0, 1200),
+          }),
+        }],
+        isError: !r.ok,
+      }))
+    }
+
+    case 'plan_submit': {
+      // 2026-11-10 暮雨拍板方向：**agent 当大脑、方寸当闸**。
+      // 方寸自己调 BYOK 一次要 115s（思考 2.5 万字符）、比 agent 侧 RPC 超时还长，
+      // 而且同一件事要付两遍钱。这条通道让 agent 把想好的草案交进来，
+      // 方寸只跑闸（宪法页 / 本轮先问 / 判据现状体检 / 依据真实）—— 不调模型、秒回。
+      const proj = String(args.project || '').trim()
+      if (!proj) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id）' }) }], isError: true }
+      }
+      const deck = String(args.deck || '').trim()
+      const gate = gateForDeck(deck, proj)
+      if (!gate.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: gate.error, gate,
+          hint: '先出卷 → 等用户答完并批准 → 再带 deck 提交草案。没问过就出计划 = 把猜测当结论。',
+        }, null, 2) }], isError: true }
+      }
+      let payload: any = args.draft
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload) } catch (e: any) {
+          return { content: [{ type: 'text', text: JSON.stringify({
+            ok: false, error: `draft 不是合法 JSON：${e?.message || e}`,
+          }) }], isError: true }
+        }
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'draft 必须是一个对象' }) }], isError: true }
+      }
+      const input = buildPlanDraftInputFromDisk({
+        project: proj,
+        maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
+        maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
+      })
+      // 把 agent 想好的 JSON 灌进**同一条管道** —— 之后所有闸与 plan_draft 一模一样。
+      return generatePlanDraft(input, {
+        callLlm: async () => ({ text: JSON.stringify(payload), model: 'agent', usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } }),
+      }).then((r) => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            ok: r.ok,
+            error: r.error,
+            file: r.file,
+            stages: (r.stages || []).length,
+            constitution: (r.constitution || []).length,
+            asks: (r.asks || []).map((a) => a.ask),
+            asks_note: r.asksNote || '',
+            already_green: r.alreadyGreen || 0,
+            dropped: (r.dropped || []).length,
+            missing_citations: r.missingCitations,
+            model: 'agent',
             preview: (r.markdown || '').slice(0, 1200),
           }),
         }],
@@ -796,7 +1015,29 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     case 'intake_task': {
       // 收卡 = 机检 + 落卡。**不阻挡**：机检不过照样建卡，东西不许丢；
       // 区别只在状态（过 → 待审批；不过 → 草稿）与正文里的红标留痕。
-      const criteria = Array.isArray(args.criteria) ? args.criteria.map((c: any) => String(c)) : []
+      const criteria: string[] = Array.isArray(args.criteria) ? args.criteria.map((c: any) => String(c)) : []
+      // 必读闸（2026-11-09）：卡上写了 `拍板: D-xxx`（或 `相关旧拍板:`），交付物就必须出现这个 id。
+      // 这是“用输出引用旧拍板当读没读”的机器版 —— 没提或唱反调 = 没读，机检直接红。
+      const taskId = String(args.taskId || '').trim()
+      // 必读闸「没加成」也要说出来（2026-11-11 评审抓到）：此前 taskId 找不到卡 / 卡上没有
+      // `拍板:` 都是静默跳过 —— agent 以为过了必读闸，其实一条判据都没加。
+      const intakeNotes: string[] = []
+      if (taskId) {
+        const card: any = (loadTasks('all') as any[]).find((t) => String(t?.id) === taskId)
+        if (!card) {
+          intakeNotes.push(`taskId「${taskId}」找不到 —— 没加任何“必读旧拍板”判据（本次交单必有读闸不生效）`)
+        } else {
+          const text = String(card.body || '')
+          const ids: string[] = []
+          const re = /(?:拍板|相关旧拍板)[：:]\s*([^\n]+)/g
+          let m: RegExpExecArray | null
+          while ((m = re.exec(text)) !== null) {
+            for (const id of (m[1].match(/D-\d+/g) || [])) if (!ids.includes(id)) ids.push(id)
+          }
+          for (const id of ids) if (!criteria.some((c) => c.includes(id))) criteria.push(`str: ${id}`)
+          if (!ids.length) intakeNotes.push('这张卡上没有 `拍板:` / `相关旧拍板:` —— 没加必读判据（没有旧拍板可读，属正常）')
+        }
+      }
       const deliverable = String(args.deliverable ?? '')
       const report = checkIntake(deliverable, criteria)
       const at = new Date().toISOString()
@@ -827,6 +1068,8 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
           summary: report.summary,
           redFlags: report.redFlags,
         },
+        // 必读闸“没加成”的原因（空数组 = 正常）。不阻挡交单，但必须可见。
+        notes: intakeNotes,
         next: report.ok
           ? '全过 → 落“待审批”，等用户点头转正'
           : '有不过 → 落“草稿”并标红：东西没丢，但判据没过，返工后再交',
@@ -834,9 +1077,15 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     }
 
     case 'update_task': {
-      const task = tasks.updateTask(args.id, args.fields)
-      if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
+      // 进队列闸（2026-11-11）：状态要变「待办」时数据层会抛 —— 必须原样回给 agent，
+      // 不能让它只看到一句 "内部错误"（那样它只会换个工具再试一次）。
+      try {
+        const task = tasks.updateTask(args.id, args.fields)
+        if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
+      } catch (e: any) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(e?.message || e) }) }], isError: true }
+      }
     }
     
     case 'move_status': {
@@ -850,9 +1099,14 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
           suggested: '待验收',
         }) }], isError: true }
       }
-      const task = tasks.moveStatus(args.id, args.status)
-      if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id, status: args.status }) }] }
+      try {
+        const task = tasks.moveStatus(args.id, args.status)
+        if (!task) return { content: [{ type: 'text', text: `Task not found: ${args.id}` }], isError: true }
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id, status: args.status }) }] }
+      } catch (e: any) {
+        // 进队列闸 / 乐观锁冲突都从这里出去，带原文（agent 要能照着补）
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(e?.message || e) }) }], isError: true }
+      }
     }
     
     case 'delete_task': {
@@ -945,8 +1199,22 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     }
 
     case 'gate_list': {
-      // Gates are in-memory only in Python version; return empty for now
-      return { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] }
+      // 2026-11-11（评审抓到）：Python 侧门控已落盘（`task-data/.gates.json`），
+      // 而桌面 MCP 这里恒回 `[]`（注释写着 "in-memory only"）—— 同一件事两个答案，
+      // agent 经桌面 MCP 根本看不到闸。现在读**同一个文件**，两个入口看到同一批。
+      // 文件不存在 = 还没有闸（不是“读不到”）。
+      try {
+        const p = path.join(getDataDir(), 'task-data', '.gates.json')
+        if (!fs.existsSync(p)) return { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] }
+        const obj = JSON.parse(fs.readFileSync(p, 'utf-8'))
+        const rows = obj && typeof obj === 'object' && !Array.isArray(obj) ? Object.values(obj) : []
+        return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] }
+      } catch (e: any) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: `门控文件读不出来（task-data/.gates.json）：${e?.message || e}` }) }],
+          isError: true,
+        }
+      }
     }
 
     // ── 只读口（2026-11-08 暮雨拍板）────────────────────────────────────
@@ -1116,11 +1384,13 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
           : [],
         criteria: Array.isArray(args.criteria) ? args.criteria.map(String) : [],
         agent: args.agent ? String(args.agent) : '',
+        deck: args.deck ? String(args.deck) : '',
       })
       if (!r.ok) {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false, error: r.error,
-          hint: '没有写盘。按 error 补齐后重试；三块（技术方案 / 照抄点 / 判据）缺一块都写不进去。',
+          hint: '没有写盘。按 error 补齐后重试；三块（技术方案 / 照抄点 / 判据）缺一块都写不进去。'
+            + ' 另：2026-11-09 起必须带 deck（澄清问卷，已答完并批准），没有 = 硬锁不写。',
         }, null, 2) }], isError: true }
       }
       return { content: [{ type: 'text', text: JSON.stringify({
@@ -1132,11 +1402,46 @@ export function handleMCPToolCall(name: string, args: any): MCPToolResult | Prom
     // ── 问卷：列卷 / 出卷（2026-11-08）────────────────────────────────────
     case 'qn_list': {
       const r = listDecks()
+      const project = args.project ? String(args.project) : ''
+      const batch = args.batch ? Number(args.batch) : 6
+      const bank = bankStats(project)
+      const next = nextOpen(project, batch).map((e) => ({ id: e.id, ask: e.ask, source: e.source }))
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, dir: r.dir, decks: r.decks,
+        bank,
+        next,
+        // 2026-11-10 规模支撑：几百条题不是一口气答完，是“每次 ≤6 题 + 看得见进度”的队列。
+        // 出卷时把「题库 Q-00xx」写进 src，批准时按 id 归并回同一条（问法改了也对得上）。
         hint: r.decks.length
           ? '有正在等答的卷就先让他答，别在聊天里重新问一遍同样的取舍。'
-          : '还没有问卷。真需要他拍板、而聊天里问不清的取舍 → 用 qn_propose 出一份卷。',
+          : (bank.open
+            ? `题库还有 ${bank.open} 道待答 —— 用 next（≤6 题）出一卷，src 写「题库 <id>」；别一口气问几十题。`
+            : '题库没有待答了。真需要他拍板、而聊天里问不清的取舍 → 用 qn_propose 出一份卷。'),
+      }, null, 2) }] }
+    }
+
+    case 'qn_bank_import': {
+      const project = args.project ? String(args.project) : ''
+      const source = args.source ? String(args.source) : ''
+      const list = Array.isArray(args.questions) ? args.questions : []
+      const rows = list.map((q: any) => ({
+        ask: String(q?.ask || ''),
+        project,
+        source,
+        line: q?.line ? String(q.line) : '',
+      }))
+      const r = importQuestions(rows)
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: r.ok,
+        added: r.added,
+        merged: r.merged,
+        // 冲突 = 这些题已经定过案：**没有覆盖**，原答案原样保留
+        conflicts: r.conflicts,
+        bank: bankStats(project),
+        next: nextOpen(project, 6).map((e) => ({ id: e.id, ask: e.ask })),
+        hint: r.conflicts.length
+          ? `有 ${r.conflicts.length} 道题已经定过案，被拒绝（原答案没动）：${r.conflicts.map((c) => c.id).join('、')}。这些不用再问。`
+          : `已入队 ${r.added} 道待答${r.merged ? `（另有 ${r.merged} 道补了出处/验收线）` : ''}。用 qn_list 看下一批，一次出 ≤6 题。`,
       }, null, 2) }] }
     }
 

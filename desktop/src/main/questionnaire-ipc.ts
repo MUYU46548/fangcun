@@ -17,8 +17,11 @@ import { guardedHandle } from './guarded-ipc'
 import {
   listDecks, getDeck, writeAnswers, approveDeck, questionnaireDir, buildPromptForDeck,
   voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue, deckToCards,
+  effectiveAcceptances, searchDecks, archivableDecks, archiveDeck, unarchiveDeck,
   type QAnswer,
 } from './data/questionnaires'
+import { gateForDeck, gateForQuestion } from './data/qnGate'
+import { splitClarify } from '../shared/clarify'
 
 export function registerQuestionnaireIpcHandlers(): void {
   guardedHandle('questionnaire:list', () => listDecks())
@@ -60,10 +63,43 @@ export function registerQuestionnaireIpcHandlers(): void {
 
   guardedHandle('questionnaire:auditQueue', () => auditQueue())
 
+  // ── 问卷管理（2026-11-11 卡《问卷管理跟不上出卷速度》）──────────────────
+  // 三条口：搜索（卷名/标题/项目/题面 + 日期）/ 归档候选 / 归档与取消归档。
+  // 卷越多越不能靠“一屏平铺 + 眼睛找”；界面只负责展示，判定全在数据层（纯函数好测）。
+  guardedHandle('questionnaire:search', (_e, query: string, opts?: { project?: string; from?: string; to?: string }) => {
+    return searchDecks(String(query || ''), opts && typeof opts === 'object' ? opts : undefined)
+  })
+
+  guardedHandle('questionnaire:archivable', (_e, days?: number) => {
+    const n = Number(days)
+    return archivableDecks(Number.isFinite(n) && n > 0 ? n : 30)
+  })
+
+  guardedHandle('questionnaire:archive', (_e, deck: string, reason?: string) => {
+    return archiveDeck(String(deck || ''), String(reason || ''))
+  })
+
+  guardedHandle('questionnaire:unarchive', (_e, deck: string) => {
+    return unarchiveDeck(String(deck || ''))
+  })
+
   // 答卷 → 真任务卡（2026-11-07）。这一步才是"反馈给施工方"的实处：
   // 在此之前"出单"只产出一段提示词，谁去把它变成卡没人管 —— 链断在最后一步。
   guardedHandle('questionnaire:makeCards', (_e, deck: string, opts?: { project?: string; priority?: string }) => {
     return deckToCards(String(deck || ''), opts && typeof opts === 'object' ? opts : undefined)
+  })
+
+  // 派工单出厂上下文（2026-11-09 · S3=B）：一次把“闸的结果 + 已落档验收线”给渲染层，
+  // 免得界面自己拼数据、拼错口径。没带卷 = gate.ok false，界面不许复制派工单。
+  // 2026-11-11：`<卷>#<题号>` 是题目级澄清（问卷落卡）—— 整卷判会把它锁死，这里按题判。
+  guardedHandle('questionnaire:dispatchContext', (_e, deck: string, project: string) => {
+    const raw = String(deck || '')
+    const { deck: name, qid } = splitClarify(raw)
+    const gate = qid ? gateForQuestion(name, qid, String(project || '')) : gateForDeck(name, String(project || ''))
+    return {
+      gate,
+      rulings: effectiveAcceptances(String(project || '')).map((r) => ({ deck: r.deck, qid: r.qid, line: r.line })),
+    }
   })
 
   guardedHandle('questionnaire:openDir', () => {

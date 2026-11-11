@@ -52,6 +52,12 @@ export interface DispatchInput {
   projectName?: string
   /** 覆盖用：卡上已有的验收条目（有就带上，没有就留空给人写） */
   acceptance?: string[]
+  /** 澄清问卷卷名（2026-11-09 硬锁）：没有它，派工单不许出厂 */
+  clarify?: string
+  /** 已落档的验收线（来自问卷，追加在第 7 节；不覆盖第 5 节人工验收） */
+  rulings?: { deck: string; qid: string; line: string }[]
+  /** 是否执行“没卷不许派”（默认 true；老调用方要原文就传 false） */
+  strict?: boolean
 }
 
 const line = (s: string) => s
@@ -110,6 +116,22 @@ export function buildDispatchText(input: DispatchInput): string {
   L.push('## 6 驳回上限')
   L.push(String(DISMISS_LIMIT_DEFAULT) + ' 轮（到限升级给人，不让它第三次说服自己）')
   L.push('')
+  // 2026-11-09（S3 直连）：把“你答过的验收线”追加进来，**不覆盖**第 5 节人工验收 ——
+  // 那一节留空是防锚定，这一节是防“答过的线躺在问卷里没人用”。
+  L.push('## 7 已落档的验收（来自问卷 · 追加，不替代第 5 节）')
+  const rulings = (input?.rulings || [])
+    .filter((r) => r && String(r.line || '').trim())
+    .map((r) => `${r.qid}（${r.deck}）：${String(r.line).trim()}`)
+  if (rulings.length) {
+    for (const r of rulings) L.push(`- ${r}`)
+  } else {
+    L.push('- （本项目还没有已落档的验收线）')
+  }
+  L.push('')
+  L.push('## 8 澄清问卷（没附 = 不许派）')
+  const clarify = String(input?.clarify || '').trim()
+  L.push(clarify ? `- ${clarify}` : '- （缺 —— 这张卡没有附澄清问卷，按 2026-11-09 硬锁不许派）')
+  L.push('')
   if (body) {
     L.push('---')
     L.push('')
@@ -143,4 +165,19 @@ export function buildDispatchText(input: DispatchInput): string {
   L.push('**该派**：结果需要被检查（有客观判据）／要跑很久守不住／需要多个视角／步骤清晰能拆开。')
   L.push('**不该派**：两分钟能干完／边做边改方向／强依赖 TA 实时判断／自己都没想清楚要什么。')
   return L.join('\n')
+}
+
+/**
+ * 派工单出厂的硬闸（2026-11-09 · S3=B）。
+ *
+ * 暮雨拍板把“派工单 / 任务书生成口”也纳入澄清闸：**没附卷 = 不许派**。
+ * 这是纯函数，数据层（卡上的 `澄清:` 字段 + 问卷答案）由调用方先查好再传进来。
+ */
+export function buildDispatchResult(input: DispatchInput): { ok: boolean; text?: string; error?: string } {
+  const strict = input?.strict !== false
+  const clarify = String(input?.clarify || '').trim()
+  if (strict && !clarify) {
+    return { ok: false, error: '这张卡没有附澄清问卷（澄清: <卷>）—— 没问过就派 = 把猜测当执行。先出卷、答完、批准，再把卷名写进卡。' }
+  }
+  return { ok: true, text: buildDispatchText(input) }
 }

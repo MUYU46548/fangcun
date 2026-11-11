@@ -13,9 +13,12 @@
  *     所以未结卡给正文，已完成卡只给标题（已完成的细节对"下一步做什么"帮助小）。
  *  ③ **无正文就说没有**：取不到就留空，绝不编一段。
  */
-import { loadTasks } from '../data'
+import { loadTasks, parseRegistry } from '../data'
+import { loadDecisions } from '../data/decisions'
+import { effectiveAcceptances } from '../data/questionnaires'
+import { getPolicy } from '../services/policies'
 import { extractMirror } from '../../shared/planMirror'
-import type { PlanDraftInput, DraftTaskRef } from './planDraft'
+import type { PlanDraftInput, DraftTaskRef, DraftDecisionRef } from './planDraft'
 
 export interface BuildInputOptions {
   project: string
@@ -67,6 +70,60 @@ export function buildPlanDraftInput(rawTasks: any[], opts: BuildInputOptions): P
     project: want,
     projectName: want,
     tasks: refs,
+    decisions: effectiveDecisions(want),
+    rulings: effectiveAcceptances(want),
+    // 2026-11-10：这三样此前**从磁盘组装时一个都没带** —— 草案却在自我介绍里写
+    // “按产品定义 + 投入产出账 + 现有卡与 git 事实起草”（假话）。
+    // 现在把能拿到的真带上：立项契约（policies/<id>.md）与仓库根（判据现状体检要用）。
+    definition: charterText(want),
+    repoRoot: repoOf(want),
+  }
+}
+
+/** 立项契约原文（任务 / 目标 / 场景 / 边界）—— 取不到就空串，绝不编一段 */
+function charterText(project: string): string {
+  try {
+    const p = getPolicy(project)
+    if (!p) return ''
+    const rows: string[] = []
+    if (String(p.mission || '').trim()) rows.push(`任务：${p.mission}`)
+    if (String(p.goal || '').trim()) rows.push(`目标：${p.goal}`)
+    if (String(p.scenario || '').trim()) rows.push(`场景：${p.scenario}`)
+    if (String(p.boundary || '').trim()) rows.push(`边界：${p.boundary}`)
+    return rows.join('\n')
+  } catch {
+    return ''
+  }
+}
+
+/** 项目仓库根（判据现状体检用）；没登记 repo 就空串，不猜路径 */
+function repoOf(project: string): string {
+  try {
+    const hit = (parseRegistry() || []).find((r: any) => String(r?.id || '') === project)
+    return String(hit?.repo || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 有效决策（本项目 + 全局）—— 2026-11-09 补。
+ *
+ * 只列「有效」：已撤销 / 已合并不许进上下文（否则模型会把撤销过的当现行规矩）。
+ * 最多 12 条：决策卡会越来越长，全塞会挤掉卡正文这个更重要的证据。
+ */
+function effectiveDecisions(project: string): DraftDecisionRef[] {
+  try {
+    return loadDecisions()
+      .filter((d) => String(d.状态 || '') === '有效'
+        && (!String(d.项目 || '').trim() || String(d.项目) === project))
+      .sort((a, b) => String(b.日期 || '').localeCompare(String(a.日期 || '')))
+      .slice(0, 12)
+      .map((d) => ({
+        id: d.id, 内容: d.内容, 日期: d.日期, 出处: d.出处, 备注: d.备注,
+      }))
+  } catch {
+    return []
   }
 }
 

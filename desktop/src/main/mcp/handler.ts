@@ -1,5 +1,5 @@
 import { MCPRequest, MCPResponse, MCPToolResult } from './types'
-import { MCP_TOOLS, handleMCPToolCall } from './tools'
+import { MCP_TOOLS, handleMCPToolCall, type ToolCallContext } from './tools'
 
 /**
  * JSON-RPC 2.0 / MCP 分发。
@@ -12,7 +12,7 @@ import { MCP_TOOLS, handleMCPToolCall } from './tools'
  *   用户看到的就是“方寸明明开着，agent 却说调用不到”。同时 `ping` 也返回 -32601，
  *   不少客户端在心跳失败时直接重连/放弃。
  */
-export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<MCPResponse | null> {
+export function handleMCPRequest(req: MCPRequest, ctx?: ToolCallContext): MCPResponse | null | Promise<MCPResponse | null> {
   const id = req.id
   const hasId = id !== undefined && id !== null
   const method = String(req.method || '')
@@ -35,7 +35,7 @@ export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<
         result: {
           protocolVersion: supported.includes(asked) ? asked : '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'fangcun', version: '0.6.10' },
+          serverInfo: { name: 'fangcun', version: '0.6.17' },
           instructions:
             '方寸（fangcun）任务看板。任务卡落 task-data/*.md；写操作走 create_task / update_task / move_status，'
             + '受乐观锁保护（update_task 传 updated 可防覆盖）。列出任务用 list_tasks，搜索用 search_tasks。',
@@ -55,7 +55,7 @@ export function handleMCPRequest(req: MCPRequest): MCPResponse | null | Promise<
       if (!name) {
         return { jsonrpc: '2.0', id, error: { code: -32602, message: 'tools/call 缺少工具名' } }
       }
-      const out = handleMCPToolCall(name, args || {})
+      const out = handleMCPToolCall(name, args || {}, ctx)
       // 2026-11-02：允许**个别**工具异步（arch_generate 要调模型）。
       // 其余工具仍是同步返回，不为了一个工具把整条协议链改成 Promise。
       if (out && typeof (out as any).then === 'function') {

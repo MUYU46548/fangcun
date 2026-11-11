@@ -299,8 +299,18 @@ button:not([class]) {
                          height: var(--btn-h); padding: 0 var(--btn-px); border: 0; border-radius: var(--btn-r);
                          font-size: var(--btn-fs); font-weight: 600; line-height: 1;
                          background: var(--danger); color: #fff; background-image: var(--btn-surface); box-shadow: var(--btn-shadow); }
+/* 反问（2026-11-09）：它不是“危险动作”，是“这题问错了”，所以用警告色描边而不是红底。
+   此前 `.ask` 只有问卷弹窗里一条 scoped 的 color / border-color，**几何一个都没有**
+   → 退化成 Chromium 原生按钮（用户截图当场抓到）。现在升为共享变体：
+   几何与 ghost 完全一致，只换颜色 —— 不允许再靠“离得近的按钮”借样式。 */
+:where(button.ask)     { display: inline-flex; align-items: center; justify-content: center;
+                         height: var(--btn-h); padding: 0 var(--btn-px); border: 1px solid #f0e0c8; border-radius: var(--btn-r);
+                         font-size: var(--btn-fs); font-weight: 600; line-height: 1;
+                         background: #fdf9f2; color: var(--warning); background-image: var(--btn-surface); box-shadow: var(--btn-shadow); }
 :where(button.ghost):hover, :where(button.pri):hover, :where(button.ok):hover,
-:where(button.warning):hover, :where(button.danger):hover { background-image: var(--btn-surface); box-shadow: var(--btn-shadow); }
+:where(button.warning):hover, :where(button.danger):hover,
+:where(button.ask):hover { background-image: var(--btn-surface); box-shadow: var(--btn-shadow); }
+:where(button.ask):hover { background: #fdf3e3; border-color: var(--warning); }
 :where(button.ghost):hover { background: var(--tint); border-color: var(--accent-soft); }
 :where(button.pri):hover, :where(button.ok):hover,
 :where(button.warning):hover, :where(button.danger):hover { filter: brightness(1.06); }

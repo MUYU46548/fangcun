@@ -42,6 +42,9 @@ export function startMCPServer(): void {
     // 多个 MCP 客户端（DSH + Hermes + Claude Code）可能同时连，每个客户端一条连接；
     // 服务端按连接各自维护缓冲，不共享状态。
     let buffer = ''
+    // 客户端名：从这条连接自己的 initialize 里取（写侧留痕要能回答“这件事是谁写的”）。
+    // 之所以按连接存而不是全局：DSH 与 Hermes 同时开会互相盖掉对方的名字。
+    let clientName = 'unknown'
     socket.setEncoding('utf-8')
 
     // ⚠ 回调必须是 async：个别工具（arch_generate）要调模型，处理是异步的。
@@ -68,7 +71,13 @@ export function startMCPServer(): void {
         //    单独兜住，仍然按 JSON-RPC 正常回 result + isError。
         let resp: any
         try {
-          resp = await handleMCPRequest(req)
+          // initialize 自报家门：MCP 规范里的 clientInfo.name（用于写侧留痕）
+          if (req && req.method === 'initialize') {
+            const info = (req.params && (req.params as any).clientInfo) || {}
+            const n = String(info.name || info.title || '').trim()
+            if (n) clientName = n
+          }
+          resp = await handleMCPRequest(req, { client: clientName })
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
           log('error', 'MCP 请求处理异常', { method: req && req.method, message })

@@ -67,9 +67,18 @@ export interface QParked {
 
 export interface QDeck {
   title: string
+  /** 卷面 `**项目**：xxx` 的原文（可能空）。落决策卡必须带归属，不能一律当全局。 */
+  project: string
   /** 宪法层 / 裁决层（从标题里认；认不出就空串） */
   layer: string
   boundary: string
+  /**
+   * 取代关系：本卷取代了哪一卷（卷面 `**取代**：<旧卷>`，2026-11-11 问卷管理）。
+   *
+   * 为什么做在卷面而不是答案文件：卷是不可变产物，取代是**卷与卷之间**的考古事实；
+   * 塞进 answers.json 会跟“谁作废了谁”混成一团。旧卷据此在列表里折叠并标「已被取代」。
+   */
+  supersedes?: string
   questions: QItem[]
   /** 「看一眼·入口总表」——全卷共用的一张参照表 */
   lookTable: QLookRow[]
@@ -110,7 +119,7 @@ function splitRow(line: string): string[] {
 export function parseQuestionnaire(md: string): QDeck {
   const text = String(md || '').replace(/\r\n/g, '\n')
   const deck: QDeck = {
-    title: '', layer: '', boundary: '',
+    title: '', project: '', layer: '', boundary: '',
     questions: [], lookTable: [], parked: [], parkedHead: [],
   }
   if (!text.trim()) return { ...deck, error: '文件是空的' }
@@ -189,6 +198,23 @@ export function parseQuestionnaire(md: string): QDeck {
         if (cells.length >= 2) deck.parked.push({ q: cells[0] || '', need: cells[1] || '', when: cells[2] || '' })
         continue
       }
+      continue
+    }
+
+    // 项目（`**项目**：fangcun-base`）—— 落决策卡要带归属，不能一律当全局
+    if (/^\*\*项目\*\*/.test(line)) {
+      deck.project = line.replace(/^\*\*项目\*\*\s*[:：]?\s*/, '').trim()
+      inBoundary = false
+      continue
+    }
+
+    // 取代关系（`**取代**：<旧卷>` / `**取代：** <旧卷>`）—— 两种写法都吃
+    if (/^\*\*取代\*\*/.test(line)) {
+      deck.supersedes = line
+        .replace(/^\*\*取代\*\*\s*[:：]?\s*/, '')
+        .replace(/^\*\*取代\s*[:：]\s*\*\*\s*/, '')
+        .trim()
+      inBoundary = false
       continue
     }
 

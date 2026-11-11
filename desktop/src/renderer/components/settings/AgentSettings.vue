@@ -2,9 +2,9 @@
   设置 · Agent（2026-10-30 App.vue 拆分第八刀）：模型通道（BYOK）/ 模型单价 / 挂机提醒 / Agent 预设。状态经 provide("fc-settings") 共享。
 -->
 <script setup lang="ts">
-import { inject, onMounted, reactive, ref } from 'vue'
+import { inject, onMounted, reactive, ref, watch } from 'vue'
 
-defineProps<{ active: boolean }>()
+const props = defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
   addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
@@ -17,6 +17,88 @@ const chanBusy = ref(false)
 const chanMsg = ref('')
 const chanMsgBad = ref(false)
 const chanForm = reactive({ label: '', baseUrl: '', model: '', apiKey: '' })
+
+// ── MCP 写口（2026-11-11 · 卡《MCP 写口无闸》）────────────────────────────
+// 暮雨原话：“哪怕是绒花墨坊也必须开 agent 模式放开解锁才能 agent 直接调用”。
+// 这一块只做三件：看得见当前档位 / 能收紧 / 看得见谁写了什么（含被拒的尝试）。
+const writeMode = ref('write')
+const writeModes = ref<{ mode: string; label: string; hint: string }[]>([])
+const writeRows = ref<any[]>([])
+const writeBusy = ref(false)
+const writeMsg = ref('')
+const writeMsgBad = ref(false)
+
+async function loadWriteGate(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.mcpWriteMode()
+    if (r && r.mode) writeMode.value = String(r.mode)
+    if (r && Array.isArray(r.modes)) writeModes.value = r.modes
+  } catch (e: any) {
+    writeMsg.value = '读不到档位：' + (e?.message || e)
+    writeMsgBad.value = true
+  }
+  await loadWrites()
+}
+
+async function loadWrites(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.mcpWrites(30)
+    writeRows.value = Array.isArray(r?.rows) ? r.rows : []
+  } catch (e: any) {
+    writeMsg.value = '读不到写侧清单：' + (e?.message || e)
+    writeMsgBad.value = true
+  }
+}
+
+async function saveWriteMode(): Promise<void> {
+  if (writeBusy.value) return
+  writeBusy.value = true
+  writeMsg.value = ''
+  writeMsgBad.value = false
+  try {
+    const r: any = await (window as any).tegula.mcpSetWriteMode(writeMode.value)
+    if (r && r.ok) {
+      writeMode.value = String(r.mode || writeMode.value)
+      writeMsg.value = '已改为「' + modeLabel(r.mode) + '」（已留痕）'
+    } else {
+      writeMsg.value = '改档失败：' + (r?.error || '没落盘')
+      writeMsgBad.value = true
+    }
+    await loadWrites()
+  } catch (e: any) {
+    writeMsg.value = '改档失败：' + (e?.message || e)
+    writeMsgBad.value = true
+  } finally {
+    writeBusy.value = false
+  }
+}
+
+function modeLabel(m: string): string {
+  const f = writeModes.value.find((x) => x.mode === m)
+  return f ? f.label : String(m || '')
+}
+
+function fmtWriteTime(ts: string): string {
+  const t = Date.parse(String(ts || ''))
+  if (!Number.isFinite(t)) return '—'
+  return new Date(t).toLocaleString('zh-CN', { hour12: false })
+}
+
+function writeTarget(w: any): string {
+  const a = (w && w.args) || {}
+  if (a.id) return String(a.id)
+  if (Array.isArray(a.ids) && a.ids.length) return a.ids.slice(0, 3).join('、')
+  if (a.project) return String(a.project)
+  if (a.deck) return '卷：' + String(a.deck)
+  // 2026-11-11 评审抓到：`create_task` 的新卡 id 只出现在留痕的 `result` 里（args 里没有 id），
+  // 此前这里恒显示「—」——“落了什么”这条判据其实是空的。现在两个来源都认。
+  if (w && w.result) return String(w.result)
+  return '—'
+}
+
+watch(() => props.active, (v) => { if (v) loadWriteGate() }, { immediate: true })
+
+// ────────────────────────────────────────────────────────────────────────
 
 async function loadChannels(): Promise<void> {
   try {
@@ -270,6 +352,44 @@ onMounted(loadChannels)
         <button class="pri font-[inherit]" :disabled="idleSaving" @click="idleSave">{{ idleSaving ? '保存中…' : '保存挂机设置' }}</button>
       </div>
     </div>
+    <!-- MCP 写口（2026-11-11 卡《MCP 写口无闸》）：暮雨亲口点的越界 ——
+         “接上就能写数据”此前没有任何闸。三档 + 写侧清单（含被拒的尝试）。 -->
+    <div class="sect" v-show="active">
+      <h4>🔐 MCP 写入（agent 能写什么）</h4>
+      <div class="hint">
+        默认「读写」：agent 可以建卡 / 改卡 / 写规划；删卡、改分、驳回类流转仍被拒。
+        「只读」档下 agent 连一次写都做不了。改档本身也留痕（谁、何时、从哪档到哪档）。
+      </div>
+      <label v-for="m in writeModes" :key="m.mode" style="display:flex;align-items:flex-start;gap:8px;">
+        <input class="font-[inherit]" type="radio" :value="m.mode" v-model="writeMode" :disabled="writeBusy" @change="saveWriteMode" />
+        <span>
+          <b>{{ m.label }}</b>
+          <span class="hint" style="display:block">{{ m.hint }}</span>
+        </span>
+      </label>
+      <div class="hint" v-if="writeMsg" :style="writeMsgBad ? 'color:#b91c1c' : ''">{{ writeMsg }}</div>
+      <div class="sect-btns">
+        <button class="ghost font-[inherit]" :disabled="writeBusy" @click="loadWrites">刷新最近写入</button>
+      </div>
+      <div class="hint">
+        最近 {{ writeRows.length }} 次由 agent 发起的写入（含被拒的尝试）。留痕只记关键字段，正文折成长度。
+      </div>
+      <table class="mcp-writes" v-if="writeRows.length">
+        <thead>
+          <tr><th>时间</th><th>客户端</th><th>工具</th><th>结果</th><th>落点</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(w, i) in writeRows" :key="i" :class="{ bad: !w.ok }">
+            <td>{{ fmtWriteTime(w.ts) }}</td>
+            <td>{{ w.client || '—' }}</td>
+            <td>{{ w.via }}</td>
+            <td :title="w.error || ''">{{ w.ok ? '成功' : (w.error || '被拒') }}</td>
+            <td>{{ writeTarget(w) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="hint" v-else>还没有 agent 写过任何东西。</div>
+    </div>
     <!-- 2026-09-23：Agent 预设列表可编辑（用户要求：自定义功能多一点） -->
     <div class="sect" v-show="active">
       <h4>🤖 Agent 预设列表</h4>
@@ -287,3 +407,10 @@ onMounted(loadChannels)
       </div>
     </div>
 </template>
+
+<style scoped>
+.mcp-writes { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.mcp-writes th { text-align: left; font-weight: 600; opacity: .7; padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.3); }
+.mcp-writes td { padding: 3px 6px; border-bottom: 1px solid rgba(127,127,127,.14); vertical-align: top; }
+.mcp-writes tr.bad td { color: #b91c1c; }
+</style>
