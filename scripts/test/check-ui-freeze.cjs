@@ -46,6 +46,8 @@ const ALLOW = {
   'qd-row': '2026-11-07 · 待校验清单整行可点（伪按钮），是列表项不是 Button；随问卷迁移一起换',
   'smap-pending': '2026-11-08 · 结构地图行内的“N 张提议等你签字”胶囊（badge 形态 + 可点），不是操作按钮；换成 Button 会变成实心块、压垮行内层级',
   'log-task-switch': '2026-11-08 · 日志“关联任务”空态里嵌在句子中间的一键切档（“改看全部项目 / 改看已完成”）；Button 是块级带内边距，塞进 <div class="hint"> 会把一句话拆成两行',
+  'idea-do': '2026-11-11 · “变成待办 →”用的是 .ok（绿色=成功态），基座 Button 只有 primary/outline/ghost/danger；'
+    + '换 primary 会把“决定做”变成品牌色、语义变了。等 Button 加 success 变体再迁（U2=A：只做一致性纠偏，不另造色）',
 }
 
 function isTailwind(c) {

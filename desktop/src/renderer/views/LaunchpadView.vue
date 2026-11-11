@@ -43,9 +43,11 @@
               <div class="lp-desc">{{ app.description || app.path }}</div>
             </div>
             <div class="lp-actions">
-              <button class="ghost lp-edit" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="ctl.openEditApp(app)">✏️ 编辑</button>
-              <button class="ghost lp-open" title="在资源管理器里打开它所在的文件夹" @click.stop="ctl.openAppFolder(app)">📁</button>
-              <button class="ghost lp-del" title="只删掉这条登记，磁盘上的应用文件不受影响" @click.stop="ctl.askRemoveApp(app)">🗑</button>
+              <!-- 2026-11-11（U1=A：手搓件换到基座）：三个卡片动作改用 ui/Button。
+                   类名保留 —— e2e 与右键菜单按 `.lp-edit/.lp-open/.lp-del` 选元素，换组件不该改选择器。 -->
+              <Button class="lp-edit" variant="ghost" size="sm" title="编辑这条登记（名称 / 路径 / 参数 / 备注）" @click.stop="ctl.openEditApp(app)">✏️ 编辑</Button>
+              <Button class="lp-open" variant="ghost" size="sm" title="在资源管理器里打开它所在的文件夹" @click.stop="ctl.openAppFolder(app)">📁</Button>
+              <Button class="lp-del" variant="ghost" size="sm" title="只删掉这条登记，磁盘上的应用文件不受影响" @click.stop="ctl.askRemoveApp(app)">🗑</Button>
             </div>
           </div>
         </AppCardMenu>
@@ -60,6 +62,8 @@
 
 <script setup lang="ts">
 import AppCardMenu from '../components/AppCardMenu.vue'
+// U1=A（2026-11-11 拍板）：手搓按钮逐步换到 ui 基座；本页三个卡片动作是第一批
+import Button from '../components/ui/Button.vue'
 
 /**
  * 启动台（2026-11-03 · App.vue 拆分「视图刀」）

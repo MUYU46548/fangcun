@@ -28,9 +28,9 @@
               <template v-if="ctl.ideaDraft.trim()">{{ ctl.ideaDraft.trim().length }} / 4000 字</template>
               <template v-else>存下来不改任何待办和任务，也不会让任何东西逾期</template>
             </span>
-            <button class="pri ideas-save" :disabled="ctl.ideaBusy || !ctl.ideaDraft.trim()" @click="ctl.saveIdea()">
+            <Button class="ideas-save" variant="primary" size="md" :disabled="ctl.ideaBusy || !ctl.ideaDraft.trim()" @click="ctl.saveIdea()">
               {{ ctl.ideaBusy ? '记…' : '记下来' }}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -50,12 +50,12 @@
                   title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</button>
                 <Button variant="ghost" size="sm" class="idea-task" :disabled="ctl.ideaBusy" @click="ctl.ideaToTask(i)"
                   title="做成任务卡 —— 真写进 task-data：能进看板/阻塞链/next，能派给 agent；归属先留空，去卡上选">做成任务卡</Button>
-                <button class="ghost idea-hold" :disabled="ctl.ideaBusy" @click="ctl.holdIdea(i)"
-                  title="先放着，不是否决 —— 将来还能捡回来">搁置</button>
-                <button class="ghost idea-drop" :disabled="ctl.ideaBusy" @click="ctl.dropIdea(i)"
-                  title="想过了，不做 —— 这条会留着；想过本身也有价值">不做</button>
-                <button class="ghost idea-del" :disabled="ctl.ideaBusy" @click="ctl.removeIdea(i)"
-                  title="记错了就删掉（能撤销）">×</button>
+                <Button class="idea-hold" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.holdIdea(i)"
+                  title="先放着，不是否决 —— 将来还能捡回来">搁置</Button>
+                <Button class="idea-drop" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.dropIdea(i)"
+                  title="想过了，不做 —— 这条会留着；想过本身也有价值">不做</Button>
+                <Button class="idea-del" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.removeIdea(i)"
+                  title="记错了就删掉（能撤销）">×</Button>
               </div>
             </div>
           </div>
@@ -84,7 +84,7 @@
                   </button>
                   <button class="ghost" v-else :disabled="ctl.ideaBusy" @click="ctl.reviveIdea(i)"
                     title="捡回来，重新当还没决定的">捡回来</button>
-                  <button class="ghost idea-del" :disabled="ctl.ideaBusy" @click="ctl.removeIdea(i)" title="删掉（能撤销）">×</button>
+                  <Button class="idea-del" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.removeIdea(i)" title="删掉（能撤销）">×</Button>
                 </div>
               </div>
             </div>
