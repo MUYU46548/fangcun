@@ -18,6 +18,8 @@ export interface UseNotificationsOptions {
   openCard: (task: any) => void
   showParseErrors: () => void
   openSettings: () => void
+  /** 打开问卷并定位到某一卷（2026-11-11 问卷待答通知用；可缺省 = 老调用方不受影响） */
+  openQuestionnaire?: (deck?: string) => void
 }
 
 export function useNotifications(ctx: UseNotificationsOptions) {
@@ -38,6 +40,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'task-stalled':   { icon: 'approve',  label: '没人接手', glyph: '💤' },
     // 2026-11-05：全站唯一“既有动作又有时间性”的一条 —— agent 交了活等你拍板，不点就停在那儿。
     'task-review':    { icon: 'approve',  label: '等你拍板', glyph: '✅' },
+    // 2026-11-11（暮雨：「新问卷完全无提示」）：卷是 agent 那边落盘的，不提示就等于没有
+    'questionnaire-pending': { icon: 'task', label: '问卷待答', glyph: '📝' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -148,6 +152,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (t === 'todo-due') return '跳到待办'
     if (t === 'parse-error') return '查看解析错误'
     if (t === 'backup-failed' || t === 'update-downloaded') return '打开设置'
+    if (t === 'questionnaire-pending') return n.sourceId ? '去答这一卷' : '打开问卷'
     return null
   }
 
@@ -173,6 +178,12 @@ export function useNotifications(ctx: UseNotificationsOptions) {
       return
     }
     if (t === 'todo-due') { ctx.navigateTo('todos'); return }
+    // 问卷待答：直接打开问卷页并定位到那一卷（只把窗口拉起来等于没做）
+    if (t === 'questionnaire-pending') {
+      if (ctx.openQuestionnaire) ctx.openQuestionnaire(String(n.sourceId || ''))
+      else ctx.toast('这个版本还没有问卷入口，请升级方寸', 'error')
+      return
+    }
     if (t === 'parse-error') { ctx.showParseErrors(); return }
     if (t === 'backup-failed' || t === 'update-downloaded') { ctx.openSettings(); return }
   }

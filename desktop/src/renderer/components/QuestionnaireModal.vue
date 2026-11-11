@@ -442,6 +442,11 @@ import { buildDeckAuthoringPrompt } from '../../shared/qnPrompts'
 import { formatLocalStamp, localDay } from '../../shared/time'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'toast', msg: string, kind?: string): void }>()
+/**
+ * 从通知点进来时直接开那一卷（2026-11-11 暮雨：「新问卷完全无提示」）。
+ * 只在初 mount 生效：之后再传值不抢用户当前正在看的题。
+ */
+const props = defineProps<{ initialDeck?: string }>()
 
 interface QOpt { k: string; t: string; d: string }
 interface QItem { id: string; nav: string; ask: string; options: QOpt[]; src: string; line: string; look: string; prefilled: boolean; prefilledNote: string }
@@ -1134,7 +1139,12 @@ async function openDir(): Promise<void> {
 
 watch(summary, (v) => { if (v && !approved.value) toast('以上都是草稿 —— 点「批准并落库」才写到决策卡') })
 
-onMounted(() => { void loadList() })
+onMounted(async () => {
+  await loadList()
+  // 从通知点进来：列表加载完再开那一卷（否则 openDeck 读不到数据）
+  const want = String(props.initialDeck || '').trim()
+  if (want) { try { await openDeck(want) } catch { /* 卷没了就停在列表，不闹 */ } }
+})
 // 关窗/被父组件卸载时补一次落盘：防抖计时器 350ms 还没到就关掉的情况，字不能丢。
 onBeforeUnmount(() => {
   if (editTimer) { clearTimeout(editTimer); editTimer = null }

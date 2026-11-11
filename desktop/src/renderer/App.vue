@@ -681,7 +681,8 @@
         @approve="approveArch" @reject="rejectArch" @generate="generateSelfArch" />
     </div>
 
-    <QuestionnaireModal v-if="qnOpen" @close="qnOpen = false; refreshQnPending()"
+    <QuestionnaireModal v-if="qnOpen" :initial-deck="qnFocusDeck"
+      @close="qnOpen = false; qnFocusDeck = ''; refreshQnPending()"
       @toast="(m, k) => showToast(m, k === 'error' ? 'error' : k === 'success' ? 'success' : 'info')" />
 
     <SMapModal :ctl="smapCtl" />
@@ -2123,6 +2124,8 @@ const notifications = useNotifications({
   openCard,
   showParseErrors,
   openSettings: () => { showSettings_.value = true },
+  // 问卷待答通知 → 打开问卷页并定位到那一卷（2026-11-11）
+  openQuestionnaire: (deck?: string) => { qnFocusDeck.value = String(deck || ''); qnOpen.value = true },
 })
 const {
   NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncFilter, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncTargetOf, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
@@ -5677,6 +5680,8 @@ async function openProjectDiagram(p: any): Promise<void> {
 const archOpen = ref(false)
 /** 问卷弹窗（2026-11-05）：组件自包含，App 只管开关与“有没有待答”的角标 */
 const qnOpen = ref(false)
+/** 点「问卷待答」通知时定位到哪一卷（空 = 打开列表；2026-11-11） */
+const qnFocusDeck = ref('')
 const qnPending = ref(0)
 async function refreshQnPending(): Promise<void> {
   try {
@@ -7643,6 +7648,8 @@ async function onNotifyFocus(p: any): Promise<void> {
   const type = String(p?.type || '')
   const id = String(p?.sourceId || '')
   if (type === 'todo-due') { switchView('todos'); return }
+  // 问卷待答（2026-11-11）：点通知直接打开问卷页并定位到那一卷 —— 只把窗口拉起来等于没做
+  if (type === 'questionnaire-pending') { qnFocusDeck.value = id; qnOpen.value = true; return }
   if (type === 'parse-error') { showToast('任务文件解析失败：' + id, 'error'); return }
   if (type === 'backup-failed') { switchView('settings'); return }
   if (!id) return

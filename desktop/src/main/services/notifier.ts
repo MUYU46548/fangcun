@@ -28,6 +28,8 @@ import * as todos from './todos'
 import * as notifications from './notifications'
 import * as data from '../data'
 import * as tasks from '../data/tasks'
+// 问卷待答（2026-11-11）：卷是 agent 那边落盘的，用户不会自己知道
+import * as questionnaires from '../data/questionnaires'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -281,6 +283,35 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   // → 判据原样搬进 `services/cleanup.ts: pickStalled`，由**整理体检**承载（你主动点开才看）。
   //   这里只负责把历史残留清掉：面板里不许留再也刷不新的僵尸通知。
   resolved += notifications.resolveNotifications('task-stalled')
+
+  // ── 7. 问卷待你答（2026-11-11 暮雨：「新问卷完全无提示」，整站零联动）──────
+  // 为什么必须在这里：卷是 **agent 在那边落盘的**（qn_propose），用户在看板时根本不会知道
+  // 多了一卷；而卷没答完、没批准，依赖它的规划/派工单一步都走不了 —— 整条链卡在“没人知道”。
+  // 口径：只提示「待答」（未批准 / 未作废 / 未被取代 / 未归档）；批准或作废后自动消解。
+  // 去重靠 notifications 的 type+sourceId+key；key 里带题数，卷被扩题会再提示一次（那确实是新活）。
+  const pendingDecks = new Set<string>()
+  try {
+    const decks = questionnaires.listDecks().decks
+    for (const d of decks) {
+      if (d.approved || d.voided || d.replacedBy || d.archived) continue
+      pendingDecks.add(d.deck)
+      if (push({
+        type: 'questionnaire-pending', level: 'warning',
+        title: `问卷待你答：${d.title || d.deck}`,
+        body: `${d.total} 题${d.project ? ' · ' + d.project : ''} —— 答完并批准之前，依赖它的规划/派工单出不来`,
+        sourceId: d.deck,
+        key: `v1:${d.total}`,
+      })) created++
+    }
+  } catch (e: any) {
+    // 读不到不该让整次扫描挂掉，但也不能静默：留一行日志
+    appLog.warn('notifier', '问卷待答扫描失败：' + (e?.message || e))
+  }
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'questionnaire-pending' && !pendingDecks.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('questionnaire-pending', n.sourceId)
+    }
+  }
 
   notifications.prune()
   const expired = notifications.cleanupExpired(now)
