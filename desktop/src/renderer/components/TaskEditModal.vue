@@ -83,14 +83,14 @@
       <!-- 历史版本（2026-10-18 卡 001；2026-10-31 收口）：把 atomicWrite 本来就在写的
            .backup 接出来 —— 看见列表、逐版预览、恢复任意一版。恢复前会自动备份当前版。 -->
       <div v-if="ctl.editTask_.id" class="ver-sect">
-        <button class="ghost ver-toggle" @click="ctl.toggleTaskHistory">
+        <Button class="ver-toggle" variant="ghost" size="sm" @click="ctl.toggleTaskHistory">
           🕘 历史版本<span v-if="ctl.taskVersions.length"> · {{ ctl.taskVersions.length }}</span>
-        </button>
+        </Button>
         <div v-if="ctl.taskHistoryOpen" class="ver-panel">
           <div class="ver-head">
             <b>这张卡的历史版本</b>
             <span class="ver-sub">本机最近 10 版；恢复前会把当前版再备份一次</span>
-            <button class="ver-x" title="收起" @click="ctl.taskHistoryOpen = false">×</button>
+            <Button class="ver-x" variant="ghost" size="sm" title="收起" @click="ctl.taskHistoryOpen = false">×</Button>
           </div>
           <div v-if="ctl.taskVersionBusy" class="ver-empty">读取中…</div>
           <div v-else-if="!ctl.taskVersions.length" class="ver-empty">没有历史版本（本机只留最近 10 版，更早的要靠整包备份）</div>
@@ -100,7 +100,7 @@
                 <span class="ver-title">{{ v.title || '(无标题)' }}</span>
                 <span class="ver-meta">{{ v.at ? ctl.formatDateTime(v.at) : '时间不详' }} · {{ ctl.versionSizeText(v.size) }} · {{ v.status || '状态未知' }}</span>
               </button>
-              <button class="ver-restore" @click="ctl.restoreTaskVersionItem(v)">恢复</button>
+              <Button class="ver-restore" variant="ghost" size="sm" @click="ctl.restoreTaskVersionItem(v)">恢复</Button>
             </div>
           </div>
           <pre v-if="ctl.taskVersionPreview" class="ver-preview">{{ ctl.taskVersionPreview.content }}</pre>
@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import Button from './ui/Button.vue'
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl
 /** 拆分守卫反查锚点 */

@@ -48,8 +48,8 @@
         </template>
         <template v-else>
           <div class="reject-text">{{ rejectReasonOf(previewTask) || '（当时没写理由）' }}</div>
-          <button class="ghost reject-edit-btn" title="改这条驳回理由（不影响状态）"
-            @click="startRejectEdit">✏️ 改理由</button>
+          <Button class="reject-edit-btn" variant="ghost" size="sm" title="改这条驳回理由（不影响状态）"
+            @click="startRejectEdit">✏️ 改理由</Button>
         </template>
       </div>
       <div class="body" v-if="previewTask.body">
@@ -238,6 +238,8 @@ import { extractMirror, LEN_CAVEAT } from '../../shared/planMirror'
 import { priorityLabel } from '../../shared/priority'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { renderBody } from '../markdown'
+// U1=A（2026-11-11）：手搓按钮换基座
+import Button from './ui/Button.vue'
 
 /**
  * 唯一 prop：任务预览控制器（父组件用 `reactive()` 包过的那一坨）。

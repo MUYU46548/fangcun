@@ -33,7 +33,7 @@
       <div class="attach-block" data-attach-block>
         <div class="attach-head">
           <label class="attach-lbl">附件</label>
-          <button class="ghost attach-add" @click="attachAdd(logPreview.id)">＋ 添加文件…</button>
+          <Button class="attach-add" variant="ghost" size="sm" @click="attachAdd(logPreview.id)">＋ 添加文件…</Button>
         </div>
         <div v-if="!logPreview.attachments || !logPreview.attachments.length" class="attach-empty">
           还没有附件 —— 截图、分析报告、日志文件都可以挂上来（文件会复制进数据目录，随日志一起备份）
@@ -65,6 +65,8 @@
 import { toRef } from 'vue'
 import { formatDateTime } from '../../shared/time'
 import { renderBody } from '../markdown'
+// U1=A（2026-11-11）：手搓按钮换基座
+import Button from './ui/Button.vue'
 
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl

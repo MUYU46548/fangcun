@@ -1,7 +1,6 @@
 {
     "note":  "手搓类名基线；只许变短。重刷要在提交信息里说清迁走了哪些。",
     "classes":  [
-                    "add-note-btn",
                     "archd-cancel",
                     "archd-exclude",
                     "archd-gen",
@@ -12,13 +11,9 @@
                     "ask-correct-open",
                     "ask-go",
                     "ask-llm-btn",
-                    "attach-add",
-                    "attach-x",
                     "ba-done",
                     "ba-go",
                     "batch-mode-btn",
-                    "blk-hit",
-                    "blk-x",
                     "bq-done",
                     "bq-go",
                     "cal-cell-more",
@@ -45,12 +40,8 @@
                     "log-group-toggle",
                     "log-more-btn",
                     "log-run-btn",
-                    "log-task-more",
-                    "log-task-toggle",
                     "look-hd",
                     "lpill",
-                    "lt-x",
-                    "lts",
                     "lvs",
                     "meta-t",
                     "ms-blockers",
@@ -82,7 +73,6 @@
                     "qn-opt",
                     "qn-rail-i",
                     "qn-rail-x",
-                    "reject-edit-btn",
                     "relay-bring",
                     "relay-btn",
                     "rice-chip",
@@ -119,10 +109,6 @@
                     "trip-modal-h",
                     "trip-modal-mask",
                     "undo",
-                    "ver-main",
-                    "ver-restore",
-                    "ver-toggle",
-                    "ver-x",
                     "wizard-overlay"
                 ]
 }

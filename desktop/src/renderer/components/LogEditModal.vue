@@ -67,9 +67,9 @@
           </span>
         </span>
         <span class="hint" v-else>还没有关联任务（可选，便于日志↔任务互跳）</span>
-        <button type="button" class="ghost log-task-toggle" @click.stop="logTaskOpen = !logTaskOpen">
+        <Button type="button" class="log-task-toggle" variant="ghost" size="sm" @click.stop="logTaskOpen = !logTaskOpen">
           {{ logTaskOpen ? '收起' : '＋ 关联任务' }}
-        </button>
+        </Button>
       </div>
       <template v-if="logTaskOpen">
         <div class="log-task-tools">
@@ -92,8 +92,8 @@
             @click="logTaskStatus = 'all'">全部状态</button>
           <button type="button" class="lts" :class="{ on: logTaskStatus === 'done' }"
             @click="logTaskStatus = 'done'">已完成 / 驳回</button>
-          <button v-if="logTaskMoreHidden" type="button" class="ghost log-task-more"
-            @click="logTaskShowAll = true">全部展开</button>
+          <Button v-if="logTaskMoreHidden" type="button" class="log-task-more" variant="ghost" size="sm"
+            @click="logTaskShowAll = true">全部展开</Button>
         </div>
         <!-- 默认“未完成”档把完成/驳回全藏了 —— 补一条日志时想挂的往往正是那几张。
              不擅自改默认档（几百张老卡会一下子涌进来），只报数 + 一键切档。 -->
@@ -172,11 +172,11 @@
           <label class="attach-lbl">附件</label>
           <span class="attach-head-r">
             <span class="attach-paste-hint" title="在弹窗任意位置按 Ctrl+V 粘贴截图，直接变成这条日志的附件">Ctrl+V 粘图</span>
-            <button class="ghost attach-add"
+            <Button class="attach-add" variant="ghost" size="sm"
               :title="logEdit_.id
                 ? '从本机选文件；文件会复制进数据目录（随日志一起备份），源文件不动'
                 : '还没保存也能先选：文件会在保存这条日志时一起挂上（源文件不动）'"
-              @click="attachPickOrAdd()">＋ 添加文件…</button>
+              @click="attachPickOrAdd()">＋ 添加文件…</Button>
           </span>
         </div>
         <!-- 新建态的待挂清单（还没落盘，所以真的"待"） -->
@@ -222,14 +222,14 @@
            "看见列表 + 逐版预览 + 恢复任意一版"。接的仍是 atomicWrite 既有的 .backup，
            不是新造一套撤销机制；恢复前会把当前版再备份一次，撤错了还能再恢复回来。 -->
       <div v-if="logEdit_.id" class="ver-sect">
-        <button class="ghost ver-toggle" @click="toggleLogHistory">
+        <Button class="ver-toggle" variant="ghost" size="sm" @click="toggleLogHistory">
           🕘 历史版本<span v-if="logVersions.length"> · {{ logVersions.length }}</span>
-        </button>
+        </Button>
         <div v-if="logHistoryOpen" class="ver-panel">
           <div class="ver-head">
             <b>这条日志的历史版本</b>
             <span class="ver-sub">本机最近 10 版；恢复前会把当前版再备份一次</span>
-            <button class="ver-x" title="收起" @click="logHistoryOpen = false">×</button>
+            <Button class="ver-x" variant="ghost" size="sm" title="收起" @click="logHistoryOpen = false">×</Button>
           </div>
           <div v-if="logVersionBusy" class="ver-empty">读取中…</div>
           <div v-else-if="!logVersions.length" class="ver-empty">没有历史版本（本机只留最近 10 版，更早的要靠整包备份）</div>
@@ -239,7 +239,7 @@
                 <span class="ver-title">{{ v.title || '(无标题)' }}</span>
                 <span class="ver-meta">{{ v.at ? formatDateTime(v.at) : '时间不详' }} · {{ versionSizeText(v.size) }} · {{ v.status === 'completed' ? '已完成' : v.status === 'archived' ? '已归档' : '待处理' }}</span>
               </button>
-              <button class="ver-restore" @click="restoreLogVersionItem(v)">恢复</button>
+              <Button class="ver-restore" variant="ghost" size="sm" @click="restoreLogVersionItem(v)">恢复</Button>
             </div>
           </div>
           <pre v-if="logVersionPreview" class="ver-preview">{{ logVersionPreview.content }}</pre>
@@ -268,6 +268,8 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
 import { formatDateTime } from '../../shared/time'
+// U1=A（2026-11-11）：手搓按钮逐步换到 ui 基座；本文件迁历史版本三件 + 关联任务两件
+import Button from './ui/Button.vue'
 
 /**
  * 唯一 prop：日志编辑控制器（父组件用 `reactive()` 包过的那一坨）。
