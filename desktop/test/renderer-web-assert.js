@@ -1423,6 +1423,30 @@
       $$('main.todos-view .todos-ctrls button').filter((b) => b.textContent.indexOf('新建待办') >= 0).length === 1 &&
       !$$('main.todos-view .todos-ctrls button').some((b) => b.textContent.indexOf('添加') >= 0))
 
+    // ══ UI 基座 · 批 4 第一刀（2026-11-11）：待办页 7 个动作换到 ui/Button ══════════
+    // 迁完不是“类名还在、还能点”就算过 —— U2=A 的判据是**同一行高度对得上**。
+    // 老 `.ghost`（工具行 28）与行尾图标钮（24）分属两档，而基座原来只有 24(sm)/34(md)，
+    // 直接拿 sm 迁工具行 = 每个矮 4px、与同行下拉错位。所以本刀给 Button 补了 `tool`=28，
+    // 下面四条就是那次补丁的判据（几何是算出来的，不是目测）：
+    {
+      const json = (o) => JSON.stringify(o)
+      const h = (el) => (el ? Math.round(el.getBoundingClientRect().height * 10) / 10 : -1)
+      const ctlBtn = (label) => $$('main.todos-view .todos-ctrls button').find((b) => (b.textContent || '').indexOf(label) >= 0)
+      const nb = ctlBtn('新建待办')
+      const mb = $('main.todos-view .todos-ctrls .batch-mode-btn')
+      check('★★ 待办工具行两枚动作钮都是 28（基座 tool 档 = 老 .ghost 默认档）',
+        Math.abs(h(nb) - 28) < 0.6 && Math.abs(h(mb) - 28) < 0.6, json({ 新建待办: h(nb), 多选: h(mb) }))
+      const sel = $('main.todos-view .todos-ctrls select')
+      // 同一行下拉是 32（padding 6+6 + 字号 12 + 边框）—— 那是**迁移前就有的**排版，本刀不动它；
+      // 这条只钉住"按钮没被顺手换成 24 档"，把下拉高度写进 detail 备查。
+      check('★★ 工具行按钮没被换成 24 档（换 sm 就会比同行下拉再低 4px）',
+        Math.abs(h(nb) - h(mb)) < 0.6 && Math.abs(h(nb) - 24) > 2,
+        json({ 新建待办: h(nb), 多选: h(mb), 同行下拉: h(sel) }))
+      check('★★ 迁移后仍是真 <button>（class 选择器与键盘可达都没变）',
+        !!nb && !!mb && nb.tagName === 'BUTTON' && mb.tagName === 'BUTTON',
+        json({ 新建待办: nb && nb.tagName, 多选: mb && mb.tagName }))
+    }
+
     // 先造一条长标题待办：3 行不截断这条断言需要真长标题才作数
     ;(() => {
       const nb = $$('main.todos-view .todos-ctrls button').find((b) => b.textContent.indexOf('新建待办') >= 0)
@@ -1440,6 +1464,18 @@
     await waitFor(() => !$('#todo-edit-modal'), 4000, '弹窗关闭')
     check('  造出一条长标题待办（网格断言就位）',
       await waitFor(() => $$('main.todos-view .todo-item').some((it) => (it.textContent || '').indexOf('最多三行不截断') >= 0), 5000, '长标题待办'))
+
+    // 行尾那四枚「静音按钮」本刀**故意不迁**（基座没有透明/图标态，见 check-ui-freeze 的 ALLOW）——
+    // 不迁就得证明"一行都没变样"：24 高 + 8 圆角 + 透明底，四枚都在同一个动作区里。
+    {
+      const h = (el) => (el ? Math.round(el.getBoundingClientRect().height * 10) / 10 : -1)
+      const it = $$('main.todos-view .todo-item')[0]
+      const acts = it ? [...it.querySelectorAll('.todo-acts button')] : []
+      check('★ 行尾静音钮（指派/编辑/转日志/删除）仍是 24 高 + 透明底（本刀登记豁免，一枚都不许变样）',
+        acts.length >= 3 && acts.every((e) => Math.abs(h(e) - 24) < 0.6
+          && getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0)'),
+        JSON.stringify({ 个数: acts.length, 高度: acts.map(h), 底: acts.map((e) => getComputedStyle(e).backgroundColor) }))
+    }
 
     // ══ 待办的“📅 指派到期日”→ 真打开指派弹窗（2026-10-23 补）══════════════════
     // 这条断言是被真事逼出来的：抽 calendar composable 时把 `parseCalDate` 的 import
@@ -2738,6 +2774,18 @@
       await sleep(250)
       check('★ 点条目不炸（滚动到那张卡）', $$('.errbar').length === 0,
         ((($('.errbar-msg') || {}).textContent) || '').slice(0, 80))
+
+      // ── UI 基座 · 批 4 第一刀（2026-11-11）：作战计划的裁决动作换到 ui/Button ──
+      // 迁完的判据与待办那边同一条：**几何不许动**。`.plan-acts button { height: 28px }` 是
+      // 元素选择器（0,1,1），比 Button 的工具类（0,1,0）高，所以 28 这一档必须原样保留；
+      // 换组件后若某一枚掉到 24（= sm）或 34（= md），这一行就会高低不齐。
+      {
+        const box = $$('.plan-view .plan-stage')[0]
+        const acts = box ? [...box.querySelectorAll('.plan-acts button')] : []
+        const hs = acts.map((b) => Math.round(b.getBoundingClientRect().height * 10) / 10)
+        check('★ 作战计划的裁决动作仍是 28 高（.plan-acts button 那档没被基座的 24/34 带走）',
+          acts.length >= 4 && hs.every((v) => Math.abs(v - 28) < 0.6), JSON.stringify({ n: acts.length, hs }))
+      }
 
       // ── 按项目筛（2026-11-05 暮雨第 1 条）────────────────────────────
       // 原话两问：“是否默认显示所有项目的内容？是否支持按项目进行筛选？项目是天然的隔离单元。”

@@ -25,7 +25,7 @@
       <Button v-if="doneStages.length" variant="ghost" size="sm" @click="showDone = !showDone">
         {{ showDone ? '收起已完成' : '展开已完成 ' + doneStages.length }}
       </Button>
-      <button class="ghost plan-reload" @click="load()">⟳ 重读</button>
+      <Button class="plan-reload" variant="ghost" size="sm" @click="load()">⟳ 重读</Button>
     </div>
     <!-- 2026-11-03：这一页只回答“这张卡能不能冻结”，但用户还得知道**冻了之后去哪推**。
          把整条回路写在这里（不新增页面、不改动作）：裁决 → 冻结 → 日志页看今天推哪格 →
@@ -173,14 +173,14 @@
             @click="verdict(doc, s, 'pass')">
             {{ s.status === '已冻结' ? '✓ 已冻结' : s.status === '完成' ? '✓ 已完成' : '✓ 通过（冻结）' }}
           </button>
-          <button class="danger plan-act-reject" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'reject')">↩ 打回</button>
-          <button class="ghost plan-act-amend" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'amend')">✎ 改一句</button>
+          <Button class="plan-act-reject" variant="danger" size="sm" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'reject')">↩ 打回</Button>
+          <Button class="plan-act-amend" variant="ghost" size="sm" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'amend')">✎ 改一句</Button>
           <!-- P4 界面入口（2026-11-02）：只有点这里才起进程；打开这一页永远不会跑判据 -->
-          <button class="ghost plan-run-checks" :disabled="runBusy" title="真跑这一格的判据（不写任何文件）"
-            @click="runChecks(doc, s)">⚙ 跑判据</button>
-          <button class="pri plan-run-advance" :disabled="runBusy" :class="{ 'needs-freeze': s.status !== '已冻结' }"
+          <Button class="plan-run-checks" variant="ghost" size="sm" :disabled="runBusy" title="真跑这一格的判据（不写任何文件）"
+            @click="runChecks(doc, s)">⚙ 跑判据</Button>
+          <Button class="plan-run-advance" variant="primary" size="sm" :disabled="runBusy" :class="{ 'needs-freeze': s.status !== '已冻结' }"
             :title="s.status !== '已冻结' ? '这张卡还没冻结 —— 推进会被闸门拒绝（先点“通过（冻结）”）' : '跑判据 → 闸门 → 判据全过才写得进完成'"
-            @click="advance(doc, s)">▶ 推进这一格</button>
+            @click="advance(doc, s)">▶ 推进这一格</Button>
           <span v-if="s.rejectReason" class="plan-reason">上次打回：{{ s.rejectReason }}</span>
           <span v-if="s.verdict" class="plan-verdict">{{ s.verdict }}</span>
         </div>

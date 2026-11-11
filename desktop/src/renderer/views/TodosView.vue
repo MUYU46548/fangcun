@@ -38,7 +38,7 @@
       <div class="todos-ctrls">
         <!-- 2026-09-29 用户第 1 条：小框（+ 添加）与“大框新建”并排 = 两个入口，
              小框长得像搜索框，纯误导；新建待办是慎重举动，只留一个入口 → 标准编辑大框。 -->
-        <button class="ghost todo-new" title="新建待办（可一次填项目 / 优先级 / 到期日）；也可直接拖入 txt/md" @click="ctl.openTodoCreator()">＋ 新建待办</button>
+        <Button class="todo-new" variant="ghost" size="tool" title="新建待办（可一次填项目 / 优先级 / 到期日）；也可直接拖入 txt/md" @click="ctl.openTodoCreator()">＋ 新建待办</Button>
         <select v-model="ctl.todoProjectFilter" class="todo-filter" title="按项目筛选（只影响显示）">
           <option value="__all__">全部项目</option>
           <option value="__none__">（不归属任何项目）</option>
@@ -57,11 +57,11 @@
           <option value="active">未完成</option>
           <option value="done">已完成</option>
         </select>
-        <button class="ghost batch-mode-btn" :class="{ active: ctl.todoBatchMode }" @click="ctl.toggleTodoBatchMode"
+        <Button class="batch-mode-btn" variant="ghost" size="tool" :class="{ active: ctl.todoBatchMode }" @click="ctl.toggleTodoBatchMode"
           title="开启批量选择，点击卡片即勾选/取消">
           <span v-if="!ctl.todoBatchMode">☑ 多选</span>
           <span v-else>☑ <i style="color:#fff">{{ ctl.selectedTodoBatch.length || 0 }}</i></span>
-        </button>
+        </Button>
       </div>
     </div>
     <div v-if="ctl.todoBatchMode" class="batch-bar">
@@ -76,7 +76,7 @@
       共 {{ ctl.todos.length }} 条 · 未完成 {{ ctl.todoStats.active }} · 已完成 {{ ctl.todos.length - ctl.todoStats.active }}
       <span v-if="ctl.todoStats.overdue" class="todos-overdue-count">· 逾期 {{ ctl.todoStats.overdue }}</span>
       <span v-if="ctl.todoStats.hidden" class="todos-hidden">· 当前筛选遮住 {{ ctl.todoStats.hidden }} 条</span>
-      <button v-if="ctl.todoStats.hidden" class="todos-clear" @click="ctl.clearTodoFilters()">清除筛选</button>
+      <Button v-if="ctl.todoStats.hidden" class="todos-clear" variant="ghost" size="sm" @click="ctl.clearTodoFilters()">清除筛选</Button>
     </div>
     <div v-if="ctl.todoHealthIssue" class="todos-health">
       ⚠ 上次读取待办数据失败，坏文件已隔离保留（{{ ctl.todoHealthIssue.quarantined || ctl.todoHealthIssue.file }}）——
@@ -88,7 +88,7 @@
       <div v-if="!ctl.filteredTodos.length" class="empty-state">
         <div class="empty-icon">{{ ctl.todos.length ? '🔍' : '✓' }}</div>
         <div class="empty-text">{{ ctl.todos.length ? '没有符合当前筛选的待办' : '暂无待办' }}</div>
-        <button v-if="ctl.todos.length" class="todos-clear" @click="ctl.clearTodoFilters()">清除筛选</button>
+        <Button v-if="ctl.todos.length" class="todos-clear" variant="ghost" size="sm" @click="ctl.clearTodoFilters()">清除筛选</Button>
       </div>
       <!-- 待办行＝**两行卡**（2026-09-29 用户拍板：“待办行改成两行卡”）——
            上行：置顶徽标 + 标题（标题占满整行，不再和一堆按钮抢宽度）
@@ -134,6 +134,10 @@
           </div>
         </div>
         <div class="todo-acts" v-show="!ctl.todoBatchMode">
+          <!-- ⚠ 行尾这四枚是「静音按钮」（24 见方 / 透明底 / 无框，hover 才亮 —— 卡 027 定下的规范，
+               e2e 量的是 24 高 + 8 圆角 + 透明底）。基座 Button 目前只有 ghost（白底带框），
+               套上去这一行会从"安静的一组小动作"变成四个白框，因此本刀**不迁**、登记豁免；
+               等基座补 bare（透明/图标）那一态，再连 lk-* / trip-* 一起扫一遍。 -->
           <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="ctl.openCalAssignTodo(todo.id)">📅</button>
           <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="ctl.openTodoEditor(todo)">✏️</button>
           <!-- 卡 004（拍板=双向）：待办 → 日志。先开确认框（2026-10-09 用户第 1 条：
@@ -159,6 +163,9 @@
 <script setup lang="ts">
 import { localPriority } from '../../shared/priority'
 import { isOverdue } from '../../shared/time'
+// U1=A（2026-11-11 拍板）：手搓按钮收进 ui 基座。本页 7 个动作是「UI 批 4」的第一半。
+// 类名一律保留 —— e2e 与右键菜单按 `.todo-new/.todo-assign/…` 选元素，换组件不该改选择器。
+import Button from '../components/ui/Button.vue'
 
 /**
  * 唯一 prop：待办控制器（`useTodos()` 的返回值 + 几个父组件能力，父侧 `reactive()` 包过）。

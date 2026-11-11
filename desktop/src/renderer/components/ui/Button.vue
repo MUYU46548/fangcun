@@ -41,6 +41,13 @@ const buttonVariants = cva(
         // 2026-10-17 暮雨第 4 条：“按钮视觉风格不统一……我更喜欢扁平化圆角”——
         // 尺寸与圆角**改读 App.vue 里那组老令牌**（--btn-h / --btn-h-lg / --btn-h-sm / --btn-r），
         // 不再各写各的 34px/10px。判据：新按钮和老按钮放在同一行，高度与圆角必须对得上。
+        //
+        // 2026-11-11（UI 批 4）：补 `tool` 一档 = 老 `.ghost` 的默认档（28 / 8 / 12px / 内距 14）。
+        //   为什么必须补：老界面里**绝大多数**按钮（工具行、卡片动作、页头动作）都吃
+        //   `:where(button.ghost)` 那套 28px；而基座原来只有 24（sm）与 34（md）两档。
+        //   直接拿 sm 去迁 28px 的老按钮 = 每迁一个就矮 4px，与同行的下拉框/输入框（27~28）错位，
+        //   而“目检高度对得上”正是 U2=A 的判据。补这一档后工具行迁移是**零像素差**的。
+        tool: 'h-[var(--btn-h)] rounded-[var(--btn-r)] px-[var(--btn-px)] text-[var(--btn-fs)]',
         sm: 'h-[var(--btn-h-sm)] rounded-[var(--btn-r)] px-2.5 text-[11.5px]',
         // 大档用单独一档圆角（--btn-r-lg=10）：24 高的 sm 配 10 会圆成胶囊
         md: 'h-[var(--btn-h-lg)] rounded-[var(--btn-r-lg)] px-3.5 text-[12.5px]',
@@ -53,7 +60,7 @@ const buttonVariants = cva(
 
 const props = defineProps<{
   variant?: 'primary' | 'outline' | 'ghost' | 'danger'
-  size?: 'sm' | 'md' | 'icon'
+  size?: 'tool' | 'sm' | 'md' | 'icon'
   class?: any
 }>()
 </script>
