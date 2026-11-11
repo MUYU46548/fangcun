@@ -30,6 +30,10 @@ import * as data from '../data'
 import * as tasks from '../data/tasks'
 // 问卷待答（2026-11-11）：卷是 agent 那边落盘的，用户不会自己知道
 import * as questionnaires from '../data/questionnaires'
+// 计划草案（0.7.0 规划根基）：草案落盘后没人知道 = 决策链卡在“没人看见”
+import * as planDrafts from '../data/planDrafts'
+// 结构地图「最后核实」日期（只读日期，不做 git 比对 —— 见 scanStructMap 的注释）
+import * as policyStore from './policies'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -313,11 +317,93 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
+  // ── 8/9. 计划草案待提成 · 结构地图久未核实（2026-11-11 补；实现见本文件末尾）──
+  {
+    const a = scanPlanDrafts(); created += a.created; resolved += a.resolved
+    const b = scanStructMap(); created += b.created; resolved += b.resolved
+  }
+
   notifications.prune()
   const expired = notifications.cleanupExpired(now)
   lastScanAt = new Date().toISOString()
   return { scanned: true, newNotifications: created, resolved: resolved + expired }
 }
+
+// ── 8. 计划草案等你提成（2026-11-11 · 0.7.0 规划根基）────────────────────
+// 与问卷待答同一类：草案是 **agent 在那边落盘的**，用户不会知道多了一份；
+// 而草案不提成阶段卡，它就永远只是一份文件 —— 决策链卡在“没人知道”这一步。
+// 口径：只提示「有格三块齐全」的草案（缺块的那种提不了，提示了只会让人白点）。
+// 去重：type+sourceId+key，key 带可提的格号 —— 草案又长出新格会再提示一次（那确实是新活）。
+function scanPlanDrafts(): { created: number; resolved: number } {
+  let created = 0
+  const readyFiles = new Set<string>()
+  try {
+    for (const d of planDrafts.listDrafts().drafts) {
+      const ready = d.stages.filter((s) => !s.missing.length)
+      if (!ready.length) continue
+      readyFiles.add(d.file)
+      if (push({
+        type: 'plan-draft', level: 'info', osNotify: false,
+        title: `草案等你提成：${d.file}`,
+        body: `${ready.length} 格三块齐全（共 ${d.stages.length} 格）—— 到「项目页 → 作战计划」点“提成阶段卡”；提完它才是待裁决的卡`,
+        sourceId: d.file,
+        key: `v1:${ready.map((s) => s.id).join(',')}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '计划草案扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'plan-draft' && !readyFiles.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('plan-draft', n.sourceId)
+    }
+  }
+  return { created, resolved }
+}
+
+// ── 9. 结构地图久未核实（2026-11-11）──────────────────────────────────────
+// ⚠ 判据只用**文件里写着的「最后核实」日期**，**不做 git 比对**：那要逐个仓库起 git，
+//   60 秒一次的扫描里太贵（而且会让主进程卡顿）。
+//   所以文案必须诚实地说“很久没核实”，绝不能说“结构已经变了” —— 那是另一件事（drift），
+//   它由结构地图页按需算，不给到这里替你下结论。
+const STRUCTMAP_STALE_DAYS = 90
+function scanStructMap(): { created: number; resolved: number } {
+  let created = 0
+  const staleIds = new Set<string>()
+  try {
+    const projects = (data.parseRegistry() as any[]) || []
+    for (const p of projects) {
+      const id = String(p?.id || '')
+      if (!id) continue
+      const map = String(policyStore.getPolicy(id)?.structureMap || '')
+      const m = /最后核实[：:]\s*(\d{4})-(\d{2})-(\d{2})/.exec(map)
+      if (!m) continue                       // 没写日期 = 还没填，由结构地图页自己说，不在这里刷
+      const day = `${m[1]}-${m[2]}-${m[3]}`
+      const at = new Date(`${day}T00:00:00`).getTime()
+      if (!Number.isFinite(at)) continue
+      const age = Math.floor((Date.now() - at) / 86400000)
+      if (age < STRUCTMAP_STALE_DAYS) continue
+      staleIds.add(id)
+      if (push({
+        type: 'structmap-stale', level: 'info', osNotify: false,
+        title: `结构地图 ${age} 天没核实：${String(p?.name || id)}`,
+        body: `最后核实 ${day}。地图过期的风险是“读者以为它是对的”—— 动手前先读一眼，改了就更新日期`,
+        sourceId: id, key: `v1:${day}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '结构地图核实日期扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'structmap-stale' && !staleIds.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('structmap-stale', n.sourceId)
+    }
+  }
+  return { created, resolved }
+}
+
 
 /** 备份失败事件入口（scheduler 调用） */
 export function reportBackupFailure(failStreak: number, firstError: string): void {

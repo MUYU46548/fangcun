@@ -20,6 +20,10 @@ export interface UseNotificationsOptions {
   openSettings: () => void
   /** 打开问卷并定位到某一卷（2026-11-11 问卷待答通知用；可缺省 = 老调用方不受影响） */
   openQuestionnaire?: (deck?: string) => void
+  /** 打开作战计划（并定位到某项目的计划，2026-11-11 草案待提成通知用） */
+  openPlanDrafts?: (projectId?: string) => void
+  /** 打开「结构地图」弹窗（2026-11-11 结构地图久未核实通知用） */
+  openStructMap?: () => void
 }
 
 export function useNotifications(ctx: UseNotificationsOptions) {
@@ -42,6 +46,10 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'task-review':    { icon: 'approve',  label: '等你拍板', glyph: '✅' },
     // 2026-11-11（暮雨：「新问卷完全无提示」）：卷是 agent 那边落盘的，不提示就等于没有
     'questionnaire-pending': { icon: 'task', label: '问卷待答', glyph: '📝' },
+    // 2026-11-11（0.7.0 规划根基）：草案落盘 = 一件“你不点就永远停在那儿”的活
+    'plan-draft':  { icon: 'approve', label: '草案待提成', glyph: '🧭' },
+    // 2026-11-11：地图久未核实 —— 提醒的是“该看一眼”，不是“结构已经变了”（后者要 git 比对，扫描器不做）
+    'structmap-stale': { icon: 'security', label: '结构地图该核实', glyph: '🗺' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -153,6 +161,9 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (t === 'parse-error') return '查看解析错误'
     if (t === 'backup-failed' || t === 'update-downloaded') return '打开设置'
     if (t === 'questionnaire-pending') return n.sourceId ? '去答这一卷' : '打开问卷'
+    // 草案：点了直接去作战计划（那里才有「提成阶段卡」）；结构地图：打开地图弹窗自己核一遍
+    if (t === 'plan-draft') return '去作战计划提成'
+    if (t === 'structmap-stale') return '去核实结构地图'
     return null
   }
 
@@ -186,6 +197,18 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     }
     if (t === 'parse-error') { ctx.showParseErrors(); return }
     if (t === 'backup-failed' || t === 'update-downloaded') { ctx.openSettings(); return }
+    // 2026-11-11：草案 → 作战计划（sourceId 是草案文件名，项目名就是它的前缀）
+    if (t === 'plan-draft') {
+      if (ctx.openPlanDrafts) ctx.openPlanDrafts(String(n.sourceId || '').split('-')[0])
+      else { ctx.navigateTo('projects'); ctx.toast('去「项目页 → 作战计划」提成这份草案', 'info') }
+      return
+    }
+    // 2026-11-11：结构地图 → 打开地图弹窗（那里面才有「最后核实」与逐项目行）
+    if (t === 'structmap-stale') {
+      if (ctx.openStructMap) ctx.openStructMap()
+      else ctx.toast('去设置页 → 项目方针 → 结构地图核对一遍', 'info')
+      return
+    }
   }
 
   async function ncClickItem(n: any): Promise<void> {

@@ -2126,6 +2126,16 @@ const notifications = useNotifications({
   openSettings: () => { showSettings_.value = true },
   // 问卷待答通知 → 打开问卷页并定位到那一卷（2026-11-11）
   openQuestionnaire: (deck?: string) => { qnFocusDeck.value = String(deck || ''); qnOpen.value = true },
+  // 草案待提成 → 切到项目页并打开那一项目的作战计划（2026-11-11 · 0.7.0 规划根基）
+  // ⚠ 目标对象 `{id, name}` 就够了：openPlans 只用来拉那一份计划卡。
+  openPlanDrafts: async (projectId?: string) => {
+    navigateTo('projects')
+    const id = String(projectId || '').trim()
+    if (!id) return
+    await openPlans({ id, name: id })
+  },
+  // 结构地图该核实 → 打开地图弹窗（那里逐项目一行，「最后核实」日期就在行上）
+  openStructMap: () => { void openStructMap() },
 })
 const {
   NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncFilter, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncTargetOf, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
