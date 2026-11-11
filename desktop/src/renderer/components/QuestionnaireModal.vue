@@ -118,7 +118,7 @@
       <!-- ── 答题 ─────────────────────────────────────────── -->
       <template v-else>
         <div class="qn-hd">
-          <button class="ghost qn-back" @click="backToList">← 全部问卷</button>
+          <Button class="qn-back" variant="ghost" size="tool" @click="backToList">← 全部问卷</Button>
           <span class="qn-ttl">{{ deck.parsed.title || deck.deck }}</span>
           <span class="qn-sub">已答 {{ answeredCount }} / {{ total }}<template v-if="bank && bank.total"> · 本项目题库 已答 {{ bank.answered }} / 待答 {{ bank.open }}</template><template v-if="conv"> · {{ conv.summary }}</template></span>
           <span class="qn-grow"></span>
@@ -304,8 +304,8 @@
                   </div>
                 </div>
                 <div class="qn-meta">
-                  <button class="meta-t" @click="toggleMeta(q.id + '-src')">▸ 出处{{ metaOpen[q.id + '-src'] ? '：' + q.src : '' }}</button>
-                  <button class="meta-t" @click="toggleMeta(q.id + '-line')">▸ 验收线{{ metaOpen[q.id + '-line'] ? '：' + q.line : '' }}</button>
+                  <Button class="meta-t" variant="ghost" size="sm" @click="toggleMeta(q.id + '-src')">▸ 出处{{ metaOpen[q.id + '-src'] ? '：' + q.src : '' }}</Button>
+                  <Button class="meta-t" variant="ghost" size="sm" @click="toggleMeta(q.id + '-line')">▸ 验收线{{ metaOpen[q.id + '-line'] ? '：' + q.line : '' }}</Button>
                 </div>
               </div>
             </div>
@@ -350,8 +350,8 @@
                 </div>
               </div>
               <div class="qn-meta">
-                <button class="meta-t" @click="toggleMeta(currentQ.id + '-src')">▸ 出处{{ metaOpen[currentQ.id + '-src'] ? '：' + currentQ.src : '' }}</button>
-                <button class="meta-t" @click="toggleMeta(currentQ.id + '-line')">▸ 验收线{{ metaOpen[currentQ.id + '-line'] ? '：' + currentQ.line : '' }}</button>
+                <Button class="meta-t" variant="ghost" size="sm" @click="toggleMeta(currentQ.id + '-src')">▸ 出处{{ metaOpen[currentQ.id + '-src'] ? '：' + currentQ.src : '' }}</Button>
+                <Button class="meta-t" variant="ghost" size="sm" @click="toggleMeta(currentQ.id + '-line')">▸ 验收线{{ metaOpen[currentQ.id + '-line'] ? '：' + currentQ.line : '' }}</Button>
               </div>
             </div>
           </div>

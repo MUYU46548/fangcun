@@ -10,7 +10,7 @@
         </button>
       </div>
       <div class="trash-preview-actions">
-        <button class="trash-btn" @click="ctl.logProjectPicker = null">取消</button>
+        <Button class="trash-btn" variant="ghost" size="tool" @click="ctl.logProjectPicker = null">取消</Button>
       </div>
     </div>
   </div>
@@ -18,5 +18,6 @@
 
 <script setup lang="ts">
 /** 日志改项目归属（2026-11-02 · 后三刀第一刀「浮层」）：只搬模板，状态与动作仍住 App.vue */
+import Button from './ui/Button.vue'
 defineProps<{ ctl: any }>()
 </script>

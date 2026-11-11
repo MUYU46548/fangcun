@@ -26,7 +26,10 @@ const BASELINE = path.join(__dirname, 'ui-freeze-baseline.json')
 const SNAPSHOT = process.argv.includes('--snapshot')
 
 /** 共享按钮类：全局规则自带，不算手搓 */
-const SHARED = new Set(['ghost', 'pri', 'ok', 'danger', 'warning'])
+// `ask` 是 2026-11-09 升进 app.css 的**共享变体**（`:where(button.ask)`，几何与 ghost 一致、只换描边色），
+// 和 ghost/pri/ok/danger/warning 同一身份 —— 它不是手搓件，扫进基线等于把"共享基座"记成债。
+// 判据：app.css 里必须有 `:where(button.ask)`（`check-button-styles` 也按这条规则认它）。
+const SHARED = new Set(['ghost', 'pri', 'ok', 'danger', 'warning', 'ask'])
 
 /** Tailwind 原子类前缀（含任意值 / 变体的另有判据） */
 const TW_PREFIX = new Set((
@@ -93,6 +96,27 @@ const ALLOW = {
   'pv-diagram': '项目卡上的「架构图 | 自绘架构图」是一对**连体按钮**（`.pv-arch-group` 靠 border-right 分隔、'
     + '共用圆角）：拆成两个独立 Button 会各带一圈边框，接缝处出现双线',
   'pv-archself': '同上（连体按钮的右半边，`.pv-arch-group .pv-archself` 负责颜色与分隔）',
+  // ── 2026-11-11 批 5（问卷弹窗 / 通知中心）：剩下的两类 —— “整行可点的列表项”与“另一套视觉体系” ──
+  'qn-deck': '问卷列表里的**整张卷行**（圆角 10 的卡片行：卷名 + 题数 + 项目 + 状态四栏）：'
+    + '换成 Button 会变成居中单行的实心块、把四栏压塌（与 qd-row 同一类，是列表项不是动作）',
+  'qn-opt': '选项行（`.qn-opt`：左侧 A/B/C 小方块 + 右侧“选它意味着什么 / 代价”两段文字，整行可点）：'
+    + '同理是列表项；它还有 `.on` 选中态靠整块底/边变色，Button 的 hover 会打架',
+  'qn-rail-i': '左侧题号导航（1..N，竖排一列，选中态 `.on`）：这是**导航/分段**，不是动作按钮；'
+    + 'Button 的高度与 hover 会让这一列失去“列表”的节奏',
+  'qn-rail-x': '题号导航底部的“已搁置 / 待校验 / 待审计”入口（虚线描边 + 计数，选中态 `.on`）：'
+    + '与 qn-rail-i 同一列，同上',
+  'look-hd': '“看一眼原文”的折叠头（整宽、左对齐、`.arw` 箭头翻转）：是**折叠面板标题**，'
+    + '不是按钮；Button 的居中与描边会把它变成一颗方块',
+  'undo': '“撤销这次操作”是**下划线文字链接**（accent 色 + underline + 行内 11px）：'
+    + '它在 `.qn-state` 的句子中间，Button 是 24 高的带框块 —— 会把一句话拆断',
+  'nc-icon-btn': '通知中心头部的刷新 / 关闭：**30×30** 圆角 8 图标钮。基座的图标档是 34、sm 是 24，'
+    + '中间没有 30 这一档；换过去要么比同行按钮高、要么矮一截',
+  'nc-btn-primary': '“✓ 全部标为已读”是**深墨色实心**主按钮（`--ink` 底 + 白字，30 高）：'
+    + '基座 primary 是品牌紫（`--accent`）—— 换过去颜色语义就变了（与 idea-do / plan-act-pass 同一类问题）',
+  'nc-act': '通知行尾的 ✓ / 🗑（**27×27** 透明底图标钮，悬停才出底色，`.keep` 是成功色、`.danger` 悬停才变红）：'
+    + '与待办行尾静音钮同一族，基座缺透明/图标态',
+  'nc-link': '“全部恢复 →” / “清空历史 →”是**文字链接**（accent 色、hover 下划线、border 0）：'
+    + 'Button 是带框块级按钮，换过去就不再像“一句话的出口”',
 }
 
 function isTailwind(c) {

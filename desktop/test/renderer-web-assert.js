@@ -5155,6 +5155,21 @@
       'items=' + $$('.trash-view .trash-item').length)
     check('默认非批量：无批量栏、动作按钮可见', $$('.trash-view .batch-bar').length === 0 &&
       $$('.trash-view .trash-actions').every(e => e.getClientRects().length > 0))
+    // 批 5（2026-11-11）：回收站三件换到基座 —— 判据是几何 + 一处**语义色**：
+    // `.trash-btn` / `.trash-refresh` 原来是 12.5px 字 + 5px 12 内距（约 29 高），统一到工具行 28；
+    // 「🗑 彻底删除」保留 `danger` 类但用 ghost 变体 —— 必须是**红字白底**，不是实心红块。
+    {
+      const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
+      const act = $$('.trash-view .trash-actions .trash-btn')
+      const danger = act.find((b) => b.classList.contains('danger'))
+      const refresh = $('.trash-view .trash-refresh')
+      const bg = danger ? getComputedStyle(danger).backgroundColor : ''
+      const col = danger ? getComputedStyle(danger).color : ''
+      check('★ 回收站按钮换基座后 = 28，且「彻底删除」仍是红字白底（不是实心红块）',
+        act.length >= 2 && act.every((b) => Math.abs(h(b) - 28) <= 1) && Math.abs(h(refresh) - 28) <= 1
+        && bg === 'rgb(255, 255, 255)' && col === 'rgb(179, 38, 30)',
+        JSON.stringify({ 动作: act.map(h), 刷新: h(refresh), danger底: bg, danger字: col }))
+    }
     const trashBatchBtn = () => $$('.trash-header .batch-mode-btn').find(b => (b.textContent || '').indexOf('多选') >= 0)
     if (trashBatchBtn()) trashBatchBtn().click()
     check('★ 回收站点“☑ 多选”出批量栏',
@@ -5537,6 +5552,21 @@
         (($('#qn-modal .q-ask') || {}).textContent || '').indexOf('一件还是两件') >= 0
           && $$('#qn-modal .qn-opt').length >= 3,
         'ask=' + (($('#qn-modal .q-ask') || {}).textContent || '').slice(0, 30) + ' opts=' + $$('#qn-modal .qn-opt').length)
+
+      // 批 5（2026-11-11）：问卷弹窗这一刀只迁了两件 —— `qn-back`（工具行 28）与 `meta-t`（密集档 24）。
+      // 判据仍是几何：迁过去要落在它该在的那一档，而不是"能点就行"。
+      {
+        const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
+        const json = (o) => JSON.stringify(o)
+        const back = $('#qn-modal .qn-back')
+        check('★ 「← 全部问卷」换基座后 = 28（工具行档，不是 24/34）',
+          Math.abs(h(back) - 28) <= 1, json({ back: h(back) }))
+        const mts = $$('#qn-modal .meta-t')
+        check('★ 「▸ 出处 / ▸ 验收线」这两枚折叠钮 = 24（密集档，字号仍 11）',
+          mts.length >= 1 && mts.every((b) => Math.abs(h(b) - 24) <= 1
+            && getComputedStyle(b).fontSize === '11px'),
+          json({ 个数: mts.length, 高度: mts.map(h), 字号: mts.map((b) => getComputedStyle(b).fontSize) }))
+      }
 
       // ── 预埋表 / 入口总表（2026-11-05 补渲染：解析早就有了，界面一直是空的）──────
       // 这两张表都“不是题”：预埋是等条件的，入口总表是照着眼用的参照物。

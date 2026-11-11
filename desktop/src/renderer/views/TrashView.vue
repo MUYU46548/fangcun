@@ -21,14 +21,14 @@
         <h3>回收站</h3>
         <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
         <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
-        <button class="trash-refresh" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</button>
+        <Button class="trash-refresh" variant="ghost" size="tool" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</Button>
         <button class="ghost" title="按日期批量清理：彻底删除某个日期之前进回收站的所有条目（先预览再确认）"
           @click="openTrashPurge">🗓 按日期清理</button>
-        <button class="ghost batch-mode-btn" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
+        <Button class="batch-mode-btn" variant="ghost" size="tool" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
           title="开启批量选择，点击条目即勾选/取消">
           <span v-if="!trashBatchMode">☑ 多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedTrashBatch.length || 0 }}</i></span>
-        </button>
+        </Button>
       </div>
       <div v-if="trashBatchMode" class="batch-bar">
         <span class="batch-count">已选 {{ selectedTrashBatch.length }}</span>
@@ -50,7 +50,7 @@
       <div v-else-if="!filteredTrash.length" class="empty-state">
         <div class="empty-icon">🔍</div>
         <div class="empty-text">没有匹配“{{ trashQuery }}”的条目</div>
-        <button class="trash-btn" @click="trashQuery = ''">清空搜索</button>
+        <Button class="trash-btn" variant="ghost" size="tool" @click="trashQuery = ''">清空搜索</Button>
       </div>
       <div v-else class="trash-list" :class="{ batching: trashBatchMode }">
         <div v-for="it in filteredTrash" :key="it.name" class="trash-item"
@@ -74,8 +74,10 @@
             </div>
           </div>
           <div class="trash-actions" v-show="!trashBatchMode">
-            <button class="trash-btn" @click="restoreTrashItem(it)" title="还原：终态回“归档”，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</button>
-            <button class="trash-btn danger" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</button>
+            <Button class="trash-btn" variant="ghost" size="tool" @click="restoreTrashItem(it)" title="还原：终态回“归档”，其余回活跃区；同名冲突不覆盖，旧版改名保留">↩ 还原</Button>
+            <!-- ⚠ 这里保留 `danger` 类、但用 ghost 变体：`.trash-btn.danger`（0,2,0）给的是**红字红框白底**，
+                 换成 Button 的 danger 变体就是红底实心 —— 语义没变、观感差一大截。 -->
+            <Button class="trash-btn danger" variant="ghost" size="tool" @click="purgeTrashItem(it)" title="从磁盘彻底删除这一份，不可撤销">🗑 彻底删除</Button>
           </div>
         </div>
       </div>
@@ -132,9 +134,9 @@
           <div class="trash-preview-text markdown" v-html="renderBody(trashPreview.text)"></div>
         </div>
         <div class="trash-preview-actions">
-          <button class="trash-btn" @click="restoreFromPreview()">↩ 还原这一份</button>
-          <button class="trash-btn danger" @click="purgeFromPreview()">🗑 彻底删除（不可撤销）</button>
-          <button class="trash-btn" @click="trashPreview = null">关闭</button>
+          <Button class="trash-btn" variant="ghost" size="tool" @click="restoreFromPreview()">↩ 还原这一份</Button>
+          <Button class="trash-btn danger" variant="ghost" size="tool" @click="purgeFromPreview()">🗑 彻底删除（不可撤销）</Button>
+          <Button class="trash-btn" variant="ghost" size="tool" @click="trashPreview = null">关闭</Button>
         </div>
       </div>
     </div>
@@ -142,6 +144,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+// U1=A（2026-11-11 拍板）：手搓按钮收进 ui 基座（本刀迁 3 个类名：trash-refresh / trash-btn / batch-mode-btn）。
+import Button from '../components/ui/Button.vue'
 import { relativeTime } from '../../shared/time'
 import { statusClass } from '../../shared/status'
 import { renderBody } from '../markdown'
