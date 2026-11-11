@@ -52,6 +52,10 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'structmap-stale': { icon: 'security', label: '结构地图该核实', glyph: '🗺' },
     // 2026-11-11：已完成日志过了保留期 —— 「清理超期」这个按钮一直要人主动去点，没人提醒就一直躺着
     'log-retention': { icon: 'task', label: '日志可清理', glyph: '🗃' },
+    // 2026-11-11（联动第三批）：反问 / 已批准未落卡 / 技能副本落后
+    'deck-askback': { icon: 'approve', label: '问卷有反问', glyph: '❗' },
+    'deck-undelivered': { icon: 'task', label: '已批准未落卡', glyph: '🗂' },
+    'skill-drift': { icon: 'storage', label: '技能副本落后', glyph: '🧩' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -167,6 +171,10 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (t === 'plan-draft') return '去作战计划提成'
     if (t === 'structmap-stale') return '去核实结构地图'
     if (t === 'log-retention') return '去日志页清理超期'
+    // 联动第三批：反问回卷里处理；已批准未落卡回问卷页；技能落后回设置页
+    if (t === 'deck-askback') return '去处理反问'
+    if (t === 'deck-undelivered') return '去问卷页落卡'
+    if (t === 'skill-drift') return '去重新安装技能'
     return null
   }
 
@@ -214,6 +222,21 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     }
     // 2026-11-11：日志过保留期 → 切到日志页，那里才有「清理超期」
     if (t === 'log-retention') { ctx.navigateTo('logs'); return }
+    // 2026-11-11（联动第三批）——
+    // 反问：直接打开那一卷（反问在原地处理才有意义）
+    if (t === 'deck-askback') {
+      if (ctx.openQuestionnaire) ctx.openQuestionnaire(String(n.sourceId || ''))
+      else { ctx.navigateTo('projects'); ctx.toast('去问卷页处理反问', 'info') }
+      return
+    }
+    // 已批准未落卡：打开问卷页（落卡入口在卷里）
+    if (t === 'deck-undelivered') {
+      if (ctx.openQuestionnaire) ctx.openQuestionnaire(String(n.sourceId || ''))
+      else ctx.toast('去问卷页把这一卷落成卡', 'info')
+      return
+    }
+    // 技能副本落后：去设置页（技能区有「重新安装」）
+    if (t === 'skill-drift') { ctx.openSettings(); return }
   }
 
   async function ncClickItem(n: any): Promise<void> {

@@ -174,7 +174,51 @@ console.log('\n== ④ 日志过保留期 ==')
     String(ofType('log-retention').length))
 }
 
-console.log('\n== ⑤ 不误伤老类型 ==')
+console.log('\n== ⑤ 反问 / 已批准未落卡 ==')
+{
+  // 反问：这题问错了，要重出题 —— 不处理它就永远搁在那儿
+  fs.writeFileSync(path.join(QDIR, 'demo-反问.answers.json'), JSON.stringify({
+    deck: 'demo-反问',
+    answers: { A1: { kind: 'askback', text: '这题问错了，真问题在别处' } },
+    approvedAt: '', updatedAt: new Date().toISOString(), voidedAt: '', audits: {},
+  }), 'utf-8')
+  // 已批准 4 天、但一条交付都没有
+  const old = new Date(Date.now() - 4 * 86400000).toISOString()
+  fs.writeFileSync(path.join(QDIR, 'demo-批准未落卡.answers.json'), JSON.stringify({
+    deck: 'demo-批准未落卡',
+    answers: { A1: { kind: 'pick', k: 'A' } },
+    approvedAt: old, updatedAt: old, voidedAt: '', audits: {}, deliveries: {},
+  }), 'utf-8')
+  notifier.scanOnce(new Date())
+  const back = ofType('deck-askback')
+  check('★★ 卷里有反问 → 一条 deck-askback（不处理它，依赖它的规划/派工单一动不动）',
+    back.length === 1 && back[0].sourceId === 'demo-反问', JSON.stringify(back.map((n) => n.sourceId)))
+  check('★ 反问通知说清几题 + 去哪处理（复制「打包成补代价」给 agent 重出题）',
+    /1 题/.test(back[0].body || '') && /重出/.test(back[0].body || ''), back[0] && back[0].body)
+  const und = ofType('deck-undelivered')
+  check('★★ 批准 3 天以上、一条交付都没有 → 一条 deck-undelivered（决策躺着没人用）',
+    und.length === 1 && und[0].sourceId === 'demo-批准未落卡', JSON.stringify(und.map((n) => n.sourceId)))
+  check('★ 刚批准的不催（3 天内不提示）', (() => {
+    fs.writeFileSync(path.join(QDIR, 'demo-刚批准.answers.json'), JSON.stringify({
+      deck: 'demo-刚批准', answers: { A1: { kind: 'pick', k: 'B' } },
+      approvedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), voidedAt: '', audits: {}, deliveries: {},
+    }), 'utf-8')
+    notifier.scanOnce(new Date())
+    return !ofType('deck-undelivered').some((n) => n.sourceId === 'demo-刚批准')
+  })())
+  // 清干净（作废）→ 自动消解
+  for (const d of ['demo-反问', 'demo-批准未落卡']) {
+    const p = path.join(QDIR, d + '.answers.json')
+    const j = JSON.parse(fs.readFileSync(p, 'utf-8'))
+    j.voidedAt = new Date().toISOString()
+    fs.writeFileSync(p, JSON.stringify(j), 'utf-8')
+  }
+  notifier.scanOnce(new Date())
+  check('★ 作废后两条都自动消解', ofType('deck-askback').length === 0 && ofType('deck-undelivered').length === 0,
+    `askback=${ofType('deck-askback').length} undelivered=${ofType('deck-undelivered').length}`)
+}
+
+console.log('\n== ⑥ 不误伤老类型 ==')
 fs.writeFileSync(path.join(QDIR, 'demo-宪法层.md'), [
   '**项目**：demo', '', '## A1 甲', '关于甲要怎么定？',
   '- **A. 要**——代价甲', '- **B. 不要**——代价乙', '【验收线】出现反例即违约', '',
@@ -192,6 +236,11 @@ console.log('\n== ⑥ 源码守卫 ==')
     /scanPlanDrafts\(\)/.test(src) && /scanStructMap\(\)/.test(src) && /scanLogRetention\(\)/.test(src)
     && /created \+= c\.created/.test(src))
   check('★ 草案扫描失败不静默（appLog.warn）', /计划草案扫描失败/.test(src))
+  // 技能漂移：**不许自己写一套 md5 比对** —— 与设置页共用 checkSkillsStatus
+  check('★★ 技能漂移扫描复用 `checkSkillsStatus`（不另写一套 md5 比对，免得两处口径分叉）',
+    /skillInstaller\.checkSkillsStatus\(/.test(src) && !/createHash\('md5'\)/.test(src))
+  check('★ 反问 / 已批准未落卡 / 技能漂移都接进了 scanOnce',
+    /scanDeckAskback\(\)/.test(src) && /scanDeckUndelivered\(\)/.test(src) && /scanSkillDrift\(\)/.test(src))
 }
 
 console.log('\n== ⑦ 界面侧：新类型必须有标签、有落点（否则面板显示裸 type 名 / 点了没反应）==')
@@ -210,6 +259,12 @@ console.log('\n== ⑦ 界面侧：新类型必须有标签、有落点（否则�
   check('★★ 日志可清理也有标签 + 落点（切到日志页，那里才有「清理超期」）',
     /'log-retention':\s*\{[^}]*label: '日志可清理'/.test(ui)
     && /t === 'log-retention'\) return/.test(ui) && /navigateTo\('logs'\)/.test(ui))
+  check('★★ 反问 / 已批准未落卡 / 技能漂移三类也都有标签 + 落点',
+    /'deck-askback':\s*\{[^}]*label: '问卷有反问'/.test(ui)
+    && /'deck-undelivered':\s*\{[^}]*label: '已批准未落卡'/.test(ui)
+    && /'skill-drift':\s*\{[^}]*label: '技能副本落后'/.test(ui)
+    && /ctx\.openQuestionnaire\(String\(n\.sourceId/.test(ui)
+    && /t === 'skill-drift'\) \{ ctx\.openSettings\(\)/.test(ui))
 }
 
 console.log('')

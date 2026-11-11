@@ -23,6 +23,8 @@
  * 事件消失时自动消解对应未读通知（resolveNotifications）。
  */
 import { BrowserWindow, Notification as OsNotification } from 'electron'
+import * as fs from 'fs'
+import * as path from 'path'
 import * as appLog from './appLog'
 import * as todos from './todos'
 import * as notifications from './notifications'
@@ -36,6 +38,9 @@ import * as planDrafts from '../data/planDrafts'
 import * as policyStore from './policies'
 // 日志保留期（只读：已完成 + retain_until 已过 → 提醒去点「清理超期」）
 import * as logs from './logs'
+// 技能副本漂移（与设置页同一个函数 `checkSkillsStatus`，不另写一套 md5 比对）
+import * as skillInstaller from './skillInstaller'
+import { detectAgentTargets } from './agents'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
@@ -319,11 +324,14 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     }
   }
 
-  // ── 8/9/10. 计划草案待提成 · 结构地图久未核实 · 日志过保留期（实现见文件末尾）──
+  // ── 8–13. 计划草案 · 结构地图 · 日志保留期 · 反问 · 已批准未落卡 · 技能漂移（实现见文件末尾）──
   {
     const a = scanPlanDrafts(); created += a.created; resolved += a.resolved
     const b = scanStructMap(); created += b.created; resolved += b.resolved
     const c = scanLogRetention(); created += c.created; resolved += c.resolved
+    const d = scanDeckAskback(); created += d.created; resolved += d.resolved
+    const e2 = scanDeckUndelivered(); created += e2.created; resolved += e2.resolved
+    const f = scanSkillDrift(); created += f.created; resolved += f.resolved
   }
 
   notifications.prune()
@@ -394,6 +402,120 @@ function scanLogRetention(): { created: number; resolved: number } {
   let resolved = 0
   for (const n of notifications.listNotifications()) {
     if (n.type === 'log-retention' && !pending) resolved += notifications.resolveNotifications('log-retention', n.sourceId)
+  }
+  return { created, resolved }
+}
+
+// ── 11. 问卷里有“反问”（这题问错了，要重出题）（2026-11-11）────────────────
+// 反问（`kind='askback'`）不是答案，是“这题问错了，真问题在别处”。没人处理它就永远搁在那儿，
+// 而依赖这条答案的规划/派工单一动不动 —— 所以它必须冒出来。
+function scanDeckAskback(): { created: number; resolved: number } {
+  let created = 0
+  const decks = new Set<string>()
+  try {
+    for (const fn of fs.readdirSync(questionnaires.questionnaireDir()).filter((f) => f.endsWith('.answers.json'))) {
+      const deck = fn.replace(/\.answers\.json$/, '')
+      let a: any = {}
+      try { a = JSON.parse(fs.readFileSync(path.join(questionnaires.questionnaireDir(), fn), 'utf-8')) } catch { continue }
+      if (!a || a.voidedAt || a.archivedAt) continue
+      const back = Object.keys(a.answers || {}).filter((q) => a.answers[q] && a.answers[q].kind === 'askback')
+      if (!back.length) continue
+      decks.add(deck)
+      if (push({
+        type: 'deck-askback', level: 'warning', osNotify: false,
+        title: `问卷有反问待处理：${deck}`,
+        body: `${back.length} 题被反问（${back.slice(0, 3).join(' / ')}）—— 到问卷页把「打包成补代价」复制给 agent 重出这几题`,
+        sourceId: deck, key: `v1:${back.join(',')}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '反问扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'deck-askback' && !decks.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('deck-askback', n.sourceId)
+    }
+  }
+  return { created, resolved }
+}
+
+// ── 12. 已批准的卷还没落成卡（2026-11-11）───────────────────────────────
+// 批准 = 决策卡进了台账；但**决策要变成活**得靠卡。批准完 3 天还一条卡都没引用它，
+// 说明这卷答案躺在库里没人用 —— 这正是“问卷答了很多但项目没动”的那种形态。
+// 3 天是为了别在刚批准时催人。
+const DECK_IDLE_DAYS = 3
+function scanDeckUndelivered(): { created: number; resolved: number } {
+  let created = 0
+  const idle = new Set<string>()
+  try {
+    const cutoff = Date.now() - DECK_IDLE_DAYS * 86400000
+    for (const fn of fs.readdirSync(questionnaires.questionnaireDir()).filter((f) => f.endsWith('.answers.json'))) {
+      const deck = fn.replace(/\.answers\.json$/, '')
+      let a: any = {}
+      try { a = JSON.parse(fs.readFileSync(path.join(questionnaires.questionnaireDir(), fn), 'utf-8')) } catch { continue }
+      if (!a || !a.approvedAt || a.voidedAt || a.archivedAt) continue
+      const at = new Date(String(a.approvedAt)).getTime()
+      if (!Number.isFinite(at) || at > cutoff) continue
+      const hasDelivery = Object.keys(a.deliveries || {}).length > 0
+      if (hasDelivery) continue
+      idle.add(deck)
+      if (push({
+        type: 'deck-undelivered', level: 'info', osNotify: false,
+        title: `卷已批准 ${Math.floor((Date.now() - at) / 86400000)} 天，还没有卡引用它`,
+        body: `《${deck}》的答案已进决策台账，但没有一张卡带着它的验收线 —— 决策要变成活，得落成卡`,
+        sourceId: deck, key: `v1:${String(a.approvedAt).slice(0, 10)}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '已批准未落卡扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'deck-undelivered' && !idle.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('deck-undelivered', n.sourceId)
+    }
+  }
+  return { created, resolved }
+}
+
+// ── 13. 技能副本跟真源不一致（2026-11-11）───────────────────────────────
+// `check-skills` 早就能判，但它只在“人跑脚本 / 打开设置页”时跑。技能是**给别的 agent 读的规矩**，
+// 副本落后 = 别的 agent 按旧规矩干活，比没有技能更糟。
+// 口径与设置页同一个函数（`checkSkillsStatus`），不另写一套 md5 比对。
+function scanSkillDrift(): { created: number; resolved: number } {
+  let created = 0
+  let drifted = 0
+  try {
+    const targets = detectAgentTargets(skillInstaller.getHermesSkillsDirPath())
+      .filter((t) => t.detected && t.mode === 'installable')
+    const rows: { id: string; name: string; which: string[] }[] = []
+    for (const t of targets) {
+      try {
+        const st = skillInstaller.checkSkillsStatus(t.id)
+        const bad = (st.skills || []).filter((s) => s.installed && s.outdated)
+        if (bad.length) rows.push({ id: t.id, name: t.name, which: bad.map((s) => s.name) })
+      } catch { /* 单个目标读不出来不影响别的目标 */ }
+    }
+    drifted = rows.reduce((n, r) => n + r.which.length, 0)
+    if (rows.length) {
+      if (push({
+        type: 'skill-drift', level: 'info', osNotify: false,
+        title: `${drifted} 个技能副本跟真源不一致`,
+        body: rows.map((r) => `${r.name}：${r.which.slice(0, 4).join('、')}`).join('；')
+          + ' —— 到设置页 → 技能，点“重新安装”让别的 agent 读到的是新规矩',
+        sourceId: 'skills',
+        key: `v1:${rows.map((r) => r.id + ':' + r.which.join(',')).join('|')}`,
+      })) created++
+    }
+  } catch (e: any) {
+    appLog.warn('notifier', '技能副本漂移扫描失败：' + (e?.message || e))
+  }
+  let resolved = 0
+  if (!drifted) {
+    for (const n of notifications.listNotifications()) {
+      if (n.type === 'skill-drift') resolved += notifications.resolveNotifications('skill-drift', n.sourceId)
+    }
   }
   return { created, resolved }
 }
