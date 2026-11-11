@@ -1257,6 +1257,15 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('questionnaireUnarchive', [deck || ''])
     return { ok: true, deck }
   },
+  // 结论集收敛进度（P8 · D-064）：夹具给一句“未收敛”，让界面那行有东西可验
+  questionnaireConvergence: (deck) => {
+    rec('questionnaireConvergence', [deck || ''])
+    return {
+      summary: '未收敛：连续不变 1/3（本轮新增 0 / 减少 0 / 共 12 条）',
+      need: 3, project: 'sitian',
+      snapshot: { algo: 1, project: 'sitian', streak: 1, lastAdded: 0, lastRemoved: 0, total: 12, fps: [] },
+    }
+  },
   questionnaireGet: (deck) => {
     rec('questionnaireGet', [deck])
     if (!store.qnApproved) store.qnApproved = {}

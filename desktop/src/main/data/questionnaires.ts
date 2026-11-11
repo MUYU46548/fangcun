@@ -25,6 +25,11 @@ import { localDay } from '../../shared/time'
 // 「卡引用了哪一卷」的认法必须与进队列闸 / 派工单**同一个函数**（shared/clarify）——
 // 三处各认一遍必然对不上（2026-11-11 问卷归档闸要用它判“有没有卡还在引用”）。
 import { clarifyOf, splitClarify } from '../../shared/clarify'
+// 结论集 / 收敛判据（P8 · D-064）：纯函数在 shared，落盘与调用在本层
+import {
+  conclusionSetOf, stepConvergence, describeConvergence, CONVERGENCE_STREAK,
+  type ConvergenceSnapshot,
+} from '../../shared/convergence'
 // 出卷通道（2026-11-08）：agent 侧此前**没有任何出卷入口**，只能靠人抄格式给它。
 // 这一层把“规格 → md”的转换收在一处，格式机检与生成共用同一份实现。
 import {
@@ -587,6 +592,75 @@ export function recordCardDelivery(input: {
   return w.ok ? { ok: true, added: true } : { ok: false, error: (w as any).error as string }
 }
 
+/**
+ * 结论集快照落点（P8）：`task-data/decisions.convergence.json`。
+ * 为什么单独一个文件而不是塞进 decisions.md：决策卡是**用户的台账**（一笔不改格式），
+ * 收敛是**派生统计**（每答一卷重算）。塞进去会变成每次批准都改写用户台账。
+ */
+export function convergencePath(): string {
+  return path.join(getTaskDir(), 'decisions.convergence.json')
+}
+
+export function readConvergence(project: string): ConvergenceSnapshot | null {
+  try {
+    const p = convergencePath()
+    if (!fs.existsSync(p)) return null
+    const obj = JSON.parse(fs.readFileSync(p, 'utf-8'))
+    if (!obj || typeof obj !== 'object') return null
+    if (String((obj as any).project || '') !== String(project || '').trim()) return null
+    return obj as ConvergenceSnapshot
+  } catch {
+    // 坏文件当“没算过”：收敛只是统计，不该让问卷页打不开
+    return null
+  }
+}
+
+function writeConvergence(s: ConvergenceSnapshot): boolean {
+  try {
+    fs.mkdirSync(getTaskDir(), { recursive: true })
+    const p = convergencePath()
+    const tmp = p + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify(s, null, 2), 'utf-8')
+    fs.renameSync(tmp, p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 重算一次结论集并落快照（approveDeck / voidDeck 都调它）。
+ * 返回的 `summary` 是给人看的那句话（与界面/CLI 同一口径，不各写一遍）。
+ */
+export function recomputeConvergence(project: string): {
+  snapshot: ConvergenceSnapshot
+  added: number
+  removed: number
+  converged: boolean
+  summary: string
+  written: boolean
+} {
+  const proj = String(project || '').trim()
+  const cur = conclusionSetOf(loadDecisions(), proj)
+  const prev = readConvergence(proj)
+  const step = stepConvergence({ prev, current: cur, project: proj })
+  const written = writeConvergence(step.snapshot)
+  return {
+    snapshot: step.snapshot,
+    added: step.added,
+    removed: step.removed,
+    converged: step.converged,
+    summary: describeConvergence(step.snapshot),
+    written,
+  }
+}
+
+/** 给只读口用：当前进度一句话 + 需要几轮（没算过就如实说） */
+export function convergenceStatus(project: string): { snapshot: ConvergenceSnapshot | null; summary: string; need: number } {
+  const s = readConvergence(project)
+  return { snapshot: s, summary: describeConvergence(s), need: CONVERGENCE_STREAK }
+}
+
 /** 读一卷：题 + 已有答案 */
 export function getDeck(deck: string): {
   ok: boolean
@@ -754,6 +828,15 @@ export function approveDeck(deck: string): {
   revoked?: number
   exportPath?: string
   text?: string
+  /** 本轮结论集进度（P8 · D-064）：连续零新增 x/3 与新增条数 */
+  convergence?: {
+    snapshot: ConvergenceSnapshot | null
+    added: number
+    removed: number
+    converged: boolean
+    written: boolean
+    summary: string
+  }
 } {
   const name = safeName(deck)
   const g = getDeck(name)
@@ -878,8 +961,20 @@ export function approveDeck(deck: string): {
 
   writeAnswers(name, { answers, approvedAt: new Date().toISOString() })
 
+  // P8（D-064）：答完一卷就重算一次结论集 —— 连续 3 卷零新增 = 问够了。
+  // 失败不挡批准（收敛是统计），但要把 written=false 带回去，别假装存住了。
+  let convergence: any = null
+  try {
+    convergence = recomputeConvergence(project)
+  } catch (e: any) {
+    convergence = { snapshot: null, added: 0, removed: 0, converged: false, written: false, summary: `结论集重算失败：${e?.message || e}` }
+  }
+
   // 答案里出现“反问”的，单独回给调用方 —— 它不是决策，是下一轮出题的输入
-  return { ok: errors.length === 0, error: errors.join('；') || undefined, cards, existed, revived, revoked, exportPath, text }
+  return {
+    ok: errors.length === 0, error: errors.join('；') || undefined,
+    cards, existed, revived, revoked, exportPath, text, convergence,
+  }
 }
 
 /**
@@ -918,6 +1013,8 @@ export function voidDeck(deck: string, reason: string): {
   }
   const w = writeAnswers(name, { answers, voidedAt: at, voidReason: why })
   if ('error' in w) errors.push(w.error)
+  // P8：作废会把决策压成「已撤销」—— 结论集要从里面减掉，否则收敛统计永远假乐观
+  try { recomputeConvergence(projectForDeck(name, g.parsed)) } catch { /* 统计失败不挡作废 */ }
   return { ok: errors.length === 0, error: errors.join('；') || undefined, revoked, voidedAt: at }
 }
 

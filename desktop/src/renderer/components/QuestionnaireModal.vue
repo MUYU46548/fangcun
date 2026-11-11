@@ -120,7 +120,7 @@
         <div class="qn-hd">
           <button class="ghost qn-back" @click="backToList">← 全部问卷</button>
           <span class="qn-ttl">{{ deck.parsed.title || deck.deck }}</span>
-          <span class="qn-sub">已答 {{ answeredCount }} / {{ total }}<template v-if="bank && bank.total"> · 本项目题库 已答 {{ bank.answered }} / 待答 {{ bank.open }}</template></span>
+          <span class="qn-sub">已答 {{ answeredCount }} / {{ total }}<template v-if="bank && bank.total"> · 本项目题库 已答 {{ bank.answered }} / 待答 {{ bank.open }}</template><template v-if="conv"> · {{ conv.summary }}</template></span>
           <span class="qn-grow"></span>
           <div class="qn-seg">
             <button :class="{ on: view === 'one' }" @click="view = 'one'">一次一题</button>
@@ -540,6 +540,11 @@ const archivedNow = ref(false)
  * 否则每开一卷都像从头开始。数据来自主进程（listDecks / getDeck 带回来的 bank）。
  */
 const bank = ref<{ total: number; answered: number; open: number; blacklist: number } | null>(null)
+/**
+ * 结论集收敛进度（P8 · D-064）：`连续不变 x/3`。
+ * 判据原话“问够没问够必须是代码判定的”——这句就是那个判定的人话出口。
+ */
+const conv = ref<{ summary: string; need: number } | null>(null)
 const dir = ref('')
 const deck = ref<{ deck: string; parsed: QParsed } | null>(null)
 const answers = ref<Record<string, QAns>>({})
@@ -829,6 +834,11 @@ async function openDeck(name: string): Promise<void> {
     // 打开落在“第一道还没答的题”上，省得从 S1 一路翻
     const first = (r.parsed.questions as QItem[]).find((q) => !isAnswered(q.id))
     curId.value = (first || r.parsed.questions[0]).id
+    // 结论集收敛进度（P8 · D-064）：开卷就带上，让人一眼看到“问够没问够”
+    try {
+      const c: any = await api().questionnaireConvergence(name)
+      conv.value = c && c.summary ? { summary: String(c.summary), need: Number(c.need) || 3 } : null
+    } catch { conv.value = null }
     if (r.parsed.error) toast(String(r.parsed.error), 'error')
   } catch (e: any) {
     toast('打不开这一卷：' + (e?.message || e), 'error')
@@ -1125,6 +1135,10 @@ async function approve(): Promise<void> {
     const n = Number(r.cards || 0)
     const ex = Number(r.existed || 0)
     toast(n ? `已批准：新建 ${n} 张决策卡${ex ? `，${ex} 张已存在` : ''}` : `已批准：${ex} 张决策卡都已存在`, 'success')
+    // 批准后主进程已经重算过结论集 —— 把它那句话原样贴上来（不在这里另算一份）
+    if (r.convergence && r.convergence.summary) {
+      conv.value = { summary: String(r.convergence.summary), need: 3 }
+    }
   } catch (e: any) {
     toast('批准失败：' + (e?.message || e), 'error')
   } finally {

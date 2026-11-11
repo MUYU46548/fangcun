@@ -18,6 +18,7 @@ import {
   listDecks, getDeck, writeAnswers, approveDeck, questionnaireDir, buildPromptForDeck,
   voidDeck, reopenDeck, voidAnswer, auditAnswer, auditQueue, deckToCards,
   effectiveAcceptances, searchDecks, archivableDecks, archiveDeck, unarchiveDeck,
+  projectForDeck, convergenceStatus,
   type QAnswer,
 } from './data/questionnaires'
 import { gateForDeck, gateForQuestion } from './data/qnGate'
@@ -100,6 +101,15 @@ export function registerQuestionnaireIpcHandlers(): void {
       gate,
       rulings: effectiveAcceptances(String(project || '')).map((r) => ({ deck: r.deck, qid: r.qid, line: r.line })),
     }
+  })
+
+  // 结论集 / 收敛进度（P8 · D-064）：按卷反查它所属项目，给界面一句话进度。
+  // 为什么不直接要 project 参数：界面上开着一卷时它只知道卷名；项目归属的认法必须与主进程同一套。
+  guardedHandle('questionnaire:convergence', (_e, deck: string) => {
+    const name = String(deck || '')
+    const g = getDeck(name)
+    const project = g.ok && g.parsed ? projectForDeck(name, g.parsed) : ''
+    return { ...convergenceStatus(project), project }
   })
 
   guardedHandle('questionnaire:openDir', () => {

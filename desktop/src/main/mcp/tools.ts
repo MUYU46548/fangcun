@@ -38,7 +38,7 @@ import { listPlanFiles, readPlan, proposeStage, parkedPlanSummary } from '../dat
 // 结构地图“结构大改就过期”（2026-11-08）：判断在 shared，取数在 services
 import { structureDrift } from '../services/structureDrift'
 // 问卷：agent 侧此前只有「界面里点」，MCP 一个字都读不到也写不进（2026-11-08 补）
-import { listDecks, createDeck } from '../data/questionnaires'
+import { listDecks, createDeck, convergenceStatus } from '../data/questionnaires'
 import { bankStats, nextOpen, importQuestions } from '../data/questionBank'
 // 结构地图“提议 → 签字 → 落地”（2026-11-08 暮雨拍板：AI 写进去落一张待审批卡）
 import { rotateBackup } from '../data'
@@ -1431,10 +1431,13 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
       const batch = args.batch ? Number(args.batch) : 6
       const bank = bankStats(project)
       const next = nextOpen(project, batch).map((e) => ({ id: e.id, ask: e.ask, source: e.source }))
+      // P8（D-064）：结论集收敛进度 —— “问够没问够”由机器判，别靠感觉
+      const convergence = project ? convergenceStatus(project) : null
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true, dir: r.dir, decks: r.decks,
         bank,
         next,
+        convergence,
         // 2026-11-10 规模支撑：几百条题不是一口气答完，是“每次 ≤6 题 + 看得见进度”的队列。
         // 出卷时把「题库 Q-00xx」写进 src，批准时按 id 归并回同一条（问法改了也对得上）。
         hint: r.decks.length

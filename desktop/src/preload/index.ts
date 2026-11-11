@@ -438,6 +438,8 @@ contextBridge.exposeInMainWorld('tegula', {
   questionnaireArchivable: (days?: number) => ipcRenderer.invoke('questionnaire:archivable', days),
   questionnaireArchive: (deck: string, reason?: string) => ipcRenderer.invoke('questionnaire:archive', deck, reason),
   questionnaireUnarchive: (deck: string) => ipcRenderer.invoke('questionnaire:unarchive', deck),
+  /** 结论集收敛进度（P8 · D-064）：一句人话 + 还要几轮 */
+  questionnaireConvergence: (deck: string) => ipcRenderer.invoke('questionnaire:convergence', deck),
   /** 答卷 → 真任务卡（幂等；没批准 / 有反问 / 已作废一律拒） */
   questionnaireMakeCards: (deck: string, opts?: { project?: string; priority?: string }) =>
     ipcRenderer.invoke('questionnaire:makeCards', deck, opts),
