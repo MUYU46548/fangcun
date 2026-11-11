@@ -52,7 +52,13 @@
   ⚠ 版本号真源只有 `desktop/package.json` 一处，脚本会先核对，不一致直接拒绝。
   ⚠⚠ `desktop/pkg` 是**发版取件目录**，**三处路径必须一致**，改一处就要改三处：
   `scripts/pack.cjs` 的 `OUT`｜`scripts/publish-release.sh` 的 `REL_DIR`｜
-  `scripts/release-precheck.py` 里的 `desktop/pkg`（2 处）。**pkg 永不清理**（旧版手动挑删）。
+  `scripts/release-precheck.py` 里的 `desktop/pkg`（2 处）。
+  🧹 **保留策略（2026-11-11 暮雨拍板：“禁止永不清理。我自己也会经常删旧版安装包”）**：
+  打包收尾时**只留最近 `FC_PKG_KEEP` 个安装包**（默认 **3**），更早的 exe + 它们的 `.blockmap`
+  + 孤儿块图一起清掉，并逐条报出来。想多留几版：`FC_PKG_KEEP=10 node scripts/pack.cjs <ver>`；
+  想打完只留本次：`FC_PKG_KEEP=0`。
+  ⚠ 但**“清”只能由保留策略有意地清**：搬家/换目录时若有文件不明原因消失，
+  集合级核对（`carryAudit`）仍会红并保留旧目录 —— “允许清理” ≠ “允许静默丢”。
   ⚠ **为什么改成单目录**：旧习惯是 `-c.directories.output=release-<ver>`，每打一版新建一个目录，
   三个月积了 15 个（3.4GB），其中 6 个是中断留下的半成品（只有 `app.asar`）。
   ✅ **产物留在工作区里是对的**（旧方寸就这么做）：**固定一个目录 + `.gitignore` 忽略**即可。

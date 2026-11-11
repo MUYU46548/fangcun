@@ -19,7 +19,7 @@
  */
 const fs = require('fs')
 // 搬运纯逻辑（挑 + 核对）已抽出并单独上测试 —— 见 scripts/lib/packCarry.cjs
-const { pickCarried, verifyCarried, carryAudit } = require('./lib/packCarry.cjs')
+const { pickCarried, verifyCarried, carryAudit, pickRetention } = require('./lib/packCarry.cjs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
@@ -121,11 +121,20 @@ function emptyDir(dir, keep) {
 }
 
 /**
- * `pkg` 是**发版取件目录，永不清理**（AGENTS 铁律）：旧版 `Fangcun-Setup.<ver>.exe`
- * 要留着手动挑删。所以凡是要"清空产物目录"的地方，都必须放过这些历史安装包 ——
- * 2026-11-07 就栽过一次：一次打包把 0.6.3–0.6.6 四个安装包全删了。
+ * `pkg` 是**发版取件目录**。历史安装包**按保留策略自动清**（2026-11-11 暮雨：
+ * 「禁止永不清理。我自己也会经常删旧版安装包」）。
+ *
+ * 口径：只留**最近 `FC_PKG_KEEP` 个安装包**（默认 3），连同它们的 `.blockmap`；更早的 exe 与块图、
+ * 以及没有对应 exe 的孤儿块图，在打包收尾时清掉并**逐条报出来**（不静默）。
+ * 清空产物目录时那条 keep 谓词仍然保留：清的是「暂存目录重建」路径，不该顺手删安装包 ——
+ * 删除只发生在**收尾的保留策略**那一步，一个地方管一件事。
  */
 const KEEP_OLD_INSTALLERS = (name) => /^Fangcun-Setup\.\d+\.\d+\.\d+\.exe(\.blockmap)?$/.test(name)
+/** 保留几个历史安装包（0 = 打完只留本次；负数按 0 算） */
+const KEEP_INSTALLERS = (() => {
+  const n = Number(process.env.FC_PKG_KEEP)
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 3
+})()
 
 function main() {
   const ver = String(process.argv[2] || '').trim()
@@ -244,7 +253,7 @@ function main() {
   let verifyDir = OUT
   //    （旧目录里万一还有被锁的文件，名字已让位，不影响本次产物）
   let oldDir = ''
-  /** 换目录前先记下旧的版本化安装包 —— 换完原样搬回来（pkg 永不清理） */
+  /** 换目录前先记下旧的版本化安装包 —— 换完原样搬回来，再按保留策略清多余的那几个 */
   const carried = []
   /** 搬运核对结果：只要有一份没搬到位，旧目录就**不许删**（宁可多占一份，也不能静默丢） */
   let carryOk = true
@@ -275,18 +284,6 @@ function main() {
     //   复制失败被 catch 吞了，而旧目录又被整份删掉，0.6.11–0.6.16 六个安装包永久丢失。
     //   现在：搬完必须**逐个核对**（同名同字节数）；核对不过就保留旧目录并大声报出来。
     const v = verifyCarried(fs, path, oldDir, OUT, carried)
-    // ⚠⚠ 2026-11-11 **第二次血账**：0.6.17–0.6.22 六个安装包没了（pkg 里只剩一个 0.6.22 的 blockmap）。
-    //   根因这次不是"复制失败被吞"——`verifyCarried` 只核对「我打算搬的那几个」，
-    //   要是**挑的时候就少挑了几份**（readdir 那一刻少、或某些文件根本没进 OUT），
-    //   逐份核对会全绿。所以补一道**集合级**闸：打包前 OUT 里有的安装包/块图，
-    //   打完必须一个不少；少一个就**保留旧目录**、巨响报警，且不许再删。
-    const audit = carryAudit(beforeNames, fs.existsSync(OUT) ? fs.readdirSync(OUT) : [])
-    carryOk = (!oldDir || v.ok) && audit.ok
-    if (!audit.ok) {
-      log(`⚠⚠ 旧产物**集合级**核对不过：打包前有 ${audit.before} 份安装包/块图，打完少 ${audit.lost.length} 份 —— `
-        + audit.lost.slice(0, 4).join('、') + `${audit.lost.length > 4 ? ' 等' : ''}`)
-      log('    **旧目录已保留，不删**；请先查明这几份为什么没进新目录（被锁 / 被杀软吃掉 / 挑漏），再重打。')
-    }
     if (carried.length) {
       // ⚠ 2026-11-11 补一笔记账口径：`carried` 里既装安装包也装 `.blockmap`（KEEP_OLD_INSTALLERS 两个都收），
       //   所以第一版日志写「已保留 12 个旧版**安装包**」而实际只有 6 个 exe —— 数得对、名词错。
@@ -299,6 +296,34 @@ function main() {
           + v.missing.slice(0, 3).map((m) => `${m.name}（${m.why}）`).join('、')
           + `${v.missing.length > 3 ? ' 等' : ''} —— **旧目录已保留，不删**`)
       }
+    }
+    // ⚠⚠ 2026-11-11 **第二次血账**：0.6.17–0.6.22 六个安装包没了（pkg 里只剩一个 0.6.22 的 blockmap）。
+    //   根因这次不是"复制失败被吞"——`verifyCarried` 只核对「我打算搬的那几个」，
+    //   要是**挑的时候就少挑了几份**，逐份核对会全绿。所以补一道**集合级**闸。
+    //   ⚠ 同日暮雨定调：「禁止永不清理」—— 老包本来就该清，但**只能由保留策略有意地清**，
+    //   不能“搬家时顺手丢了”。所以核对口径是：before 里的每个文件，要么还在，要么在 prune 名单里。
+    const pruned = []
+    try {
+      const ret = pickRetention(fs.readdirSync(OUT), KEEP_INSTALLERS)
+      for (const name of ret.prune) {
+        try { fs.rmSync(path.join(OUT, name), { force: true }); pruned.push(name) } catch { /* 锁住的留着，下面如实报 */ }
+      }
+      if (pruned.length) {
+        log(`  保留策略：留最近 ${KEEP_INSTALLERS} 个安装包（FC_PKG_KEEP 可调）→ 清掉 ${pruned.length} 个更早的产物：`
+          + pruned.slice(0, 4).join('、') + `${pruned.length > 4 ? ' 等' : ''}`)
+      } else {
+        log(`  保留策略：留最近 ${KEEP_INSTALLERS} 个安装包（FC_PKG_KEEP 可调）→ 没有需要清理的更早产物`)
+      }
+    } catch (e) {
+      log(`  ⚠ 保留策略没跑成（${e && e.message}）—— 旧包原样留着，不影响本次产物`)
+    }
+    const audit = carryAudit(beforeNames, fs.readdirSync(OUT), pruned)
+    carryOk = (!oldDir || v.ok) && audit.ok
+    if (!audit.ok) {
+      log(`⚠⚠ 旧产物**集合级**核对不过：打包前有 ${audit.before} 份安装包/块图，打完不明原因少了 ${audit.lost.length} 份 —— `
+        + audit.lost.slice(0, 4).join('、') + `${audit.lost.length > 4 ? ' 等' : ''}`)
+      log('    （保留策略有意清掉的不算“丢”；这几份是**没有任何理由就消失的**）')
+      log('    **旧目录已保留，不删**；请先查明原因（被锁 / 被杀软吃掉 / 挑漏），再重打。')
     }
     log(`✓ 已切换为新的产物目录 ${OUT}`)
   } catch (e) {
@@ -367,27 +392,9 @@ function main() {
     else { log(`⚠ 读不到包内 Node 版本（输出：${(line || v.stderr || '').slice(0, 120)}）`); ok = false }
   }
 
-  // ⑤ 台账镜像（2026-11-11 第二次血账后补）：pkg 会被下一轮打包改名/删除，
-  //    把它当**唯一副本**就是这两次丢失的共同前提。所以在仓库**外面**留一份只增不减的台账：
-  //      <仓库父目录>/_fc-pkg-ledger/
-  //    pack 永远不清理它（连 clean-release 也只扫仓库内的 release*），出错也不抛。
-  try {
-    const ledger = process.env.FC_PKG_LEDGER || path.resolve(DESKTOP, '..', '..', '_fc-pkg-ledger')
-    fs.mkdirSync(ledger, { recursive: true })
-    let n = 0
-    for (const f of [`Fangcun-Setup.${ver}.exe`, `Fangcun-Setup.${ver}.exe.blockmap`, 'latest.yml']) {
-      const src = path.join(verifyDir, f)
-      if (!fs.existsSync(src)) continue
-      const dst = path.join(ledger, f)
-      if (fs.existsSync(dst) && fs.statSync(dst).size === fs.statSync(src).size) continue
-      fs.copyFileSync(src, dst)
-      n++
-    }
-    const all = fs.readdirSync(ledger).filter((f) => /\.exe$/.test(f)).length
-    log(`✓ 台账镜像：${ledger}（本轮新增 ${n} 个文件，共 ${all} 个安装包）`)
-  } catch (e) {
-    log(`⚠ 台账镜像没写成（${e && e.message}）—— 不影响本次产物，但 pkg 又变回"唯一副本"`)
-  }
+  // ⑤ 台账镜像 —— 2026-11-11 晚**已撤**（暮雨：「禁止永不清理。我自己也会经常删旧版安装包」）。
+  //    留一份“只增不减”的仓库外副本，等于把“不许清理”换个地方实现；而老包本来就该清。
+  //    现在只保留一件事：`pkg` 里按 KEEP_INSTALLERS 自动清，想留几版用 FC_PKG_KEEP 调。
 
   if (verifyDir !== OUT) log(`\n注意：自检查的是 ${verifyDir}（pkg 里有文件被占没换掉，见上）`)
   log(ok ? `\n完成：${exe}` : '\n有自检项没过，别发版')

@@ -53,15 +53,59 @@ function verifyCarried(fs, path, oldDir, outDir, carried) {
  * 逐份核对会**全绿**，旧目录照样被删 → 兄弟文件连尸体都找不到。
  * 0.6.17–0.6.22 六个安装包就是这么没的（`pkg` 里只剩一个 0.6.22 的 `.blockmap`）。
  *
- * 判据改成集合关系：**打包前 OUT 里有的安装包/块图，打包后必须一个不少**。
+ * 判据改成集合关系：**打包前 OUT 里有的安装包/块图，打包后要么还在、要么是“本轮有意清掉的”**。
  * @param {string[]} before 打包前 OUT 的顶层文件名
  * @param {string[]} after  搬运+落新产物之后 OUT 的顶层文件名
+ * @param {string[]} [pruned] 本轮**有意清理**的文件名（保留策略挑出来的，见 pickRetention）
  */
-function carryAudit(before, after) {
+function carryAudit(before, after, pruned) {
+  const intentional = new Set((Array.isArray(pruned) ? pruned : []).map((n) => String(n)))
   const b = (Array.isArray(before) ? before : []).filter((n) => INSTALLER_RE.test(String(n)))
   const a = new Set((Array.isArray(after) ? after : []).map((n) => String(n)))
-  const lost = b.filter((n) => !a.has(String(n)))
-  return { ok: lost.length === 0, lost, before: b.length, after: a.size }
+  const lost = b.filter((n) => !a.has(String(n)) && !intentional.has(String(n)))
+  return { ok: lost.length === 0, lost, before: b.length, after: a.size, pruned: intentional.size }
 }
 
-module.exports = { INSTALLER_RE, pickCarried, verifyCarried, carryAudit }
+/**
+ * 保留策略（2026-11-11 暮雨：「禁止永不清理。我自己也会经常删旧版安装包」）。
+ *
+ * 口径：按版本号排序，**只留最近 keep 个安装包**（连同它们的 `.blockmap` + `latest.yml`），
+ * 更早的 exe 与它们的块图进 `prune`；没有对应 exe 的孤儿块图也一并清掉。
+ * 为什么按版本而不是按 mtime：mtime 会被复制/解压打乱，版本号才是真顺序。
+ *
+ * @param {string[]} names OUT 里的文件名
+ * @param {number} keep 保留几个安装包（默认 3；0 = 全清旧版）
+ */
+function pickRetention(names, keep = 3) {
+  const n = Number.isFinite(Number(keep)) ? Math.max(0, Math.floor(Number(keep))) : 3
+  const list = (Array.isArray(names) ? names : []).map((x) => String(x))
+  const exes = list
+    .filter((x) => /^Fangcun-Setup\.\d+\.\d+\.\d+\.exe$/.test(x))
+    .map((x) => ({ name: x, ver: x.replace(/^Fangcun-Setup\./, '').replace(/\.exe$/, '') }))
+    .sort((a, b) => {
+      const pa = a.ver.split('.').map((v) => parseInt(v, 10) || 0)
+      const pb = b.ver.split('.').map((v) => parseInt(v, 10) || 0)
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0)
+        if (d) return d
+      }
+      return 0
+    })
+  const keptExes = exes.slice(Math.max(0, exes.length - n)).map((x) => x.name)
+  const keptVers = new Set(keptExes.map((x) => x.replace(/^Fangcun-Setup\./, '').replace(/\.exe$/, '')))
+  const keepNames = new Set(keptExes)
+  const prune = []
+  for (const name of list) {
+    if (/^Fangcun-Setup\.\d+\.\d+\.\d+\.exe\.blockmap$/.test(name)) {
+      const ver = name.replace(/^Fangcun-Setup\./, '').replace(/\.exe\.blockmap$/, '')
+      if (keptVers.has(ver)) keepNames.add(name)
+      else prune.push(name)          // 老版本的块图，或孤儿块图
+      continue
+    }
+    if (/^Fangcun-Setup\.\d+\.\d+\.\d+\.exe$/.test(name) && !keepNames.has(name)) prune.push(name)
+  }
+  return { keep: [...keepNames], prune, keptVersions: [...keptVers] }
+}
+
+module.exports = { INSTALLER_RE, pickCarried, verifyCarried, carryAudit, pickRetention }
+

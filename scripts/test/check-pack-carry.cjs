@@ -110,8 +110,52 @@ console.log('== ④ 集合级核对（2026-11-11 第二次血账后补：0.6.17�
   check('★★ pack.cjs 真接了这道闸（不是只写了个函数）',
     /const audit = carryAudit\(/.test(src) && /carryOk = \(!oldDir \|\| v\.ok\) && audit\.ok/.test(src))
   check('★★ 集合级核对不过时写明“旧目录已保留，不删”', /旧目录已保留，不删/.test(src))
-  check('★ 台账镜像在仓库**外面**（pkg 被删也还能找回）',
-    /_fc-pkg-ledger/.test(src) && /path\.resolve\(DESKTOP, '\.\.', '\.\.'/.test(src))
+  check('★★ 台账镜像已撤（暮雨：“禁止永不清理”）',
+    !/_fc-pkg-ledger/.test(src) && !/FC_PKG_LEDGER/.test(src))
+}
+
+console.log('== ⑤ 保留策略（2026-11-11 暮雨：“禁止永不清理。我自己也会经常删旧版安装包”）==')
+{
+  const { pickRetention, carryAudit } = require(path.join(REPO, 'scripts', 'lib', 'packCarry.cjs'))
+  const names = [
+    'Fangcun-Setup.0.6.9.exe', 'Fangcun-Setup.0.6.9.exe.blockmap',
+    'Fangcun-Setup.0.6.10.exe', 'Fangcun-Setup.0.6.10.exe.blockmap',
+    'Fangcun-Setup.0.6.24.exe', 'Fangcun-Setup.0.6.24.exe.blockmap',
+    'Fangcun-Setup.0.6.25.exe', 'Fangcun-Setup.0.6.25.exe.blockmap',
+    'Fangcun-Setup.0.6.26.exe', 'Fangcun-Setup.0.6.26.exe.blockmap',
+    'Fangcun-Setup.0.6.3.exe.blockmap',            // 孤儿块图（exe 早没了）
+    'latest.yml', 'win-unpacked',
+  ]
+  const r3 = pickRetention(names, 3)
+  check('★★ 只留最近 3 个安装包（按版本号数值排序：0.6.10 > 0.6.9，不是字符串序）',
+    r3.keep.filter((n) => n.endsWith('.exe')).sort().join(',') ===
+      ['Fangcun-Setup.0.6.24.exe', 'Fangcun-Setup.0.6.25.exe', 'Fangcun-Setup.0.6.26.exe'].join(','),
+    JSON.stringify(r3.keep))
+  check('★★ 老 exe 与它们的块图一起清（不许留半套）',
+    r3.prune.includes('Fangcun-Setup.0.6.9.exe') && r3.prune.includes('Fangcun-Setup.0.6.9.exe.blockmap')
+    && r3.prune.includes('Fangcun-Setup.0.6.24.exe.blockmap') === false,
+    JSON.stringify(r3.prune))
+  check('★ 孤儿块图（没有对应 exe）也清', r3.prune.includes('Fangcun-Setup.0.6.3.exe.blockmap'))
+  check('★ 非安装包文件不进 prune（latest.yml / win-unpacked 不归它管）',
+    !r3.prune.includes('latest.yml') && !r3.prune.includes('win-unpacked'))
+  const r0 = pickRetention(names, 0)
+  check('★ FC_PKG_KEEP=0 → 旧版全清（只留本次产物）',
+    r0.keep.filter((n) => n.endsWith('.exe')).length === 0
+    && r0.prune.filter((n) => n.endsWith('.exe')).length === 5, JSON.stringify(r0.keep))
+  check('★ 只增不减也能进 prune 名单（intentional），所以集合级核对不误报',
+    (() => {
+      const a = carryAudit(['Fangcun-Setup.0.6.9.exe'],
+        ['Fangcun-Setup.0.6.26.exe'], ['Fangcun-Setup.0.6.9.exe'])
+      return a.ok === true && a.lost.length === 0 && a.pruned === 1
+    })())
+
+  const src = fs.readFileSync(path.join(REPO, 'scripts', 'pack.cjs'), 'utf-8')
+  check('★★ pack.cjs 收尾真的跑了保留策略（不是只写了个函数）',
+    /pickRetention\(fs\.readdirSync\(OUT\), KEEP_INSTALLERS\)/.test(src)
+    && /fs\.rmSync\(path\.join\(OUT, name\)/.test(src))
+  check('★ 清掉的逐个报出来（不静默删）', /保留策略：留最近 \$\{KEEP_INSTALLERS\} 个安装包/.test(src))
+  check('★ 保留几个可配（FC_PKG_KEEP，默认 3）',
+    /FC_PKG_KEEP/.test(src) && /return Number\.isFinite\(n\) \? Math\.max\(0, Math\.floor\(n\)\) : 3/.test(src))
 }
 
 console.log(`\nRESULT ${pass} / ${fail}`)
