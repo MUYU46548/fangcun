@@ -19,7 +19,7 @@
  */
 const fs = require('fs')
 // 搬运纯逻辑（挑 + 核对）已抽出并单独上测试 —— 见 scripts/lib/packCarry.cjs
-const { pickCarried, verifyCarried } = require('./lib/packCarry.cjs')
+const { pickCarried, verifyCarried, carryAudit } = require('./lib/packCarry.cjs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
@@ -248,9 +248,12 @@ function main() {
   const carried = []
   /** 搬运核对结果：只要有一份没搬到位，旧目录就**不许删**（宁可多占一份，也不能静默丢） */
   let carryOk = true
+  /** 打包前 OUT 的顶层文件名 —— 用于**集合级**核对（下面 carryAudit） */
+  let beforeNames = []
   try {
     if (fs.existsSync(OUT)) {
-      carried.push(...pickCarried(fs.readdirSync(OUT), ver))
+      beforeNames = fs.readdirSync(OUT)
+      carried.push(...pickCarried(beforeNames, ver))
       // 固定名 `pkg.old`：一次只留一个副本。上一轮若因锁没删掉，先尽力清；
       // 还清不掉才退回带时间戳的名字（这一轮不能因为残留而打不下去）。
       oldDir = OUT + '.old'
@@ -272,7 +275,18 @@ function main() {
     //   复制失败被 catch 吞了，而旧目录又被整份删掉，0.6.11–0.6.16 六个安装包永久丢失。
     //   现在：搬完必须**逐个核对**（同名同字节数）；核对不过就保留旧目录并大声报出来。
     const v = verifyCarried(fs, path, oldDir, OUT, carried)
-    carryOk = !oldDir || v.ok
+    // ⚠⚠ 2026-11-11 **第二次血账**：0.6.17–0.6.22 六个安装包没了（pkg 里只剩一个 0.6.22 的 blockmap）。
+    //   根因这次不是"复制失败被吞"——`verifyCarried` 只核对「我打算搬的那几个」，
+    //   要是**挑的时候就少挑了几份**（readdir 那一刻少、或某些文件根本没进 OUT），
+    //   逐份核对会全绿。所以补一道**集合级**闸：打包前 OUT 里有的安装包/块图，
+    //   打完必须一个不少；少一个就**保留旧目录**、巨响报警，且不许再删。
+    const audit = carryAudit(beforeNames, fs.existsSync(OUT) ? fs.readdirSync(OUT) : [])
+    carryOk = (!oldDir || v.ok) && audit.ok
+    if (!audit.ok) {
+      log(`⚠⚠ 旧产物**集合级**核对不过：打包前有 ${audit.before} 份安装包/块图，打完少 ${audit.lost.length} 份 —— `
+        + audit.lost.slice(0, 4).join('、') + `${audit.lost.length > 4 ? ' 等' : ''}`)
+      log('    **旧目录已保留，不删**；请先查明这几份为什么没进新目录（被锁 / 被杀软吃掉 / 挑漏），再重打。')
+    }
     if (carried.length) {
       // ⚠ 2026-11-11 补一笔记账口径：`carried` 里既装安装包也装 `.blockmap`（KEEP_OLD_INSTALLERS 两个都收），
       //   所以第一版日志写「已保留 12 个旧版**安装包**」而实际只有 6 个 exe —— 数得对、名词错。
@@ -351,6 +365,28 @@ function main() {
     const line = String(v.stdout || '').trim()
     if (/^v[0-9]+\./.test(line)) log(`✓ 包内 Node 版本（= Electron 引擎）：${line}`)
     else { log(`⚠ 读不到包内 Node 版本（输出：${(line || v.stderr || '').slice(0, 120)}）`); ok = false }
+  }
+
+  // ⑤ 台账镜像（2026-11-11 第二次血账后补）：pkg 会被下一轮打包改名/删除，
+  //    把它当**唯一副本**就是这两次丢失的共同前提。所以在仓库**外面**留一份只增不减的台账：
+  //      <仓库父目录>/_fc-pkg-ledger/
+  //    pack 永远不清理它（连 clean-release 也只扫仓库内的 release*），出错也不抛。
+  try {
+    const ledger = process.env.FC_PKG_LEDGER || path.resolve(DESKTOP, '..', '..', '_fc-pkg-ledger')
+    fs.mkdirSync(ledger, { recursive: true })
+    let n = 0
+    for (const f of [`Fangcun-Setup.${ver}.exe`, `Fangcun-Setup.${ver}.exe.blockmap`, 'latest.yml']) {
+      const src = path.join(verifyDir, f)
+      if (!fs.existsSync(src)) continue
+      const dst = path.join(ledger, f)
+      if (fs.existsSync(dst) && fs.statSync(dst).size === fs.statSync(src).size) continue
+      fs.copyFileSync(src, dst)
+      n++
+    }
+    const all = fs.readdirSync(ledger).filter((f) => /\.exe$/.test(f)).length
+    log(`✓ 台账镜像：${ledger}（本轮新增 ${n} 个文件，共 ${all} 个安装包）`)
+  } catch (e) {
+    log(`⚠ 台账镜像没写成（${e && e.message}）—— 不影响本次产物，但 pkg 又变回"唯一副本"`)
   }
 
   if (verifyDir !== OUT) log(`\n注意：自检查的是 ${verifyDir}（pkg 里有文件被占没换掉，见上）`)

@@ -83,6 +83,37 @@ console.log('== ③ 源码守卫：pack.cjs 真的在用核对结果决定删不
     !/catch \{ \/\* 旧包拷不回来不该挡住本轮 \*\/ \}/.test(src))
 }
 
+console.log('== ④ 集合级核对（2026-11-11 第二次血账后补：0.6.17–0.6.22 丢失）==')
+{
+  const { carryAudit } = require(path.join(REPO, 'scripts', 'lib', 'packCarry.cjs'))
+  const before = [
+    'Fangcun-Setup.0.6.17.exe', 'Fangcun-Setup.0.6.17.exe.blockmap',
+    'Fangcun-Setup.0.6.22.exe', 'Fangcun-Setup.0.6.22.exe.blockmap',
+    'latest.yml', 'win-unpacked',
+  ]
+  // 反例：打包后少了 0.6.17（真实现场：pkg 里只剩一个 0.6.22 的 blockmap）
+  const lost = carryAudit(before, ['Fangcun-Setup.0.6.22.exe.blockmap', 'Fangcun-Setup.0.6.23.exe', 'latest.yml'])
+  check('★★ 少了一份安装包 → 必须判不过，并点名是哪一份',
+    lost.ok === false && lost.lost.length >= 3 && lost.lost.includes('Fangcun-Setup.0.6.17.exe'),
+    JSON.stringify(lost))
+  // 正例：只增不减
+  const kept = carryAudit(before, [...before, 'Fangcun-Setup.0.6.23.exe', 'Fangcun-Setup.0.6.23.exe.blockmap'])
+  check('★ 只增不减 → ok（新版本自己不算“多出来的债”）',
+    kept.ok === true && kept.lost.length === 0, JSON.stringify(kept))
+  // 边界：非安装包文件（latest.yml / win-unpacked）不参与核对
+  check('★ 只核对安装包与块图（latest.yml / win-unpacked 不参与）',
+    carryAudit(['latest.yml', 'win-unpacked'], []).ok === true)
+  check('★ 空输入不炸（第一次打包时 pkg 还不存在）',
+    carryAudit([], []).ok === true && carryAudit(undefined, undefined).ok === true)
+
+  const src = fs.readFileSync(path.join(REPO, 'scripts', 'pack.cjs'), 'utf-8')
+  check('★★ pack.cjs 真接了这道闸（不是只写了个函数）',
+    /const audit = carryAudit\(/.test(src) && /carryOk = \(!oldDir \|\| v\.ok\) && audit\.ok/.test(src))
+  check('★★ 集合级核对不过时写明“旧目录已保留，不删”', /旧目录已保留，不删/.test(src))
+  check('★ 台账镜像在仓库**外面**（pkg 被删也还能找回）',
+    /_fc-pkg-ledger/.test(src) && /path\.resolve\(DESKTOP, '\.\.', '\.\.'/.test(src))
+}
+
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) { console.log('失败明细：'); failures.forEach((f) => console.log('  · ' + f)) }
 process.exit(fail === 0 ? 0 : 1)

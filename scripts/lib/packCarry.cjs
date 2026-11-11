@@ -45,4 +45,23 @@ function verifyCarried(fs, path, oldDir, outDir, carried) {
   return { ok: missing.length === 0, missing }
 }
 
-module.exports = { INSTALLER_RE, pickCarried, verifyCarried }
+/**
+ * **集合级**核对（2026-11-11 第二次血账后补）。
+ *
+ * 为什么 `verifyCarried` 不够：它只核对「我打算搬的那几个」—— 如果我挑的时候就没挑全
+ * （`readdirSync` 那一刻少了几份，或者被锁/被杀软吃掉），`carried` 本身是短的，
+ * 逐份核对会**全绿**，旧目录照样被删 → 兄弟文件连尸体都找不到。
+ * 0.6.17–0.6.22 六个安装包就是这么没的（`pkg` 里只剩一个 0.6.22 的 `.blockmap`）。
+ *
+ * 判据改成集合关系：**打包前 OUT 里有的安装包/块图，打包后必须一个不少**。
+ * @param {string[]} before 打包前 OUT 的顶层文件名
+ * @param {string[]} after  搬运+落新产物之后 OUT 的顶层文件名
+ */
+function carryAudit(before, after) {
+  const b = (Array.isArray(before) ? before : []).filter((n) => INSTALLER_RE.test(String(n)))
+  const a = new Set((Array.isArray(after) ? after : []).map((n) => String(n)))
+  const lost = b.filter((n) => !a.has(String(n)))
+  return { ok: lost.length === 0, lost, before: b.length, after: a.size }
+}
+
+module.exports = { INSTALLER_RE, pickCarried, verifyCarried, carryAudit }
