@@ -51,6 +51,44 @@
       </template>
     </div>
 
+    <!-- 规划草案入口（2026-11-11 · 0.7.0 规划根基）：
+         在此之前 agent 起草的草案只在 `task-data/plans/_drafts/*.md`，界面上看不见 ——
+         “agent 起草 → 人裁决”这条链只通了半截。这里列出来、说清每格缺什么、
+         点一下就**走同一条闸**提成「待裁决」阶段卡（缺块的那格不给按钮）。 -->
+    <div v-if="drafts.length || draftBroken.length" class="plan-drafts" data-plan-drafts>
+      <div class="plan-pending-head">
+        <b>{{ drafts.length }} 份草案等你提成阶段卡</b>
+        <span class="plan-pending-hint">草案由 agent 起草（本页只读）；提成后才是「待裁决」卡，三块齐全才给提</span>
+      </div>
+      <div v-if="draftDecks.length" class="pd-row">
+        <span class="pd-label">澄清卷</span>
+        <select v-model="draftDeck" class="pd-sel">
+          <option value="">（选一卷 —— 没卷不给提，D-060 硬锁）</option>
+          <option v-for="d in draftDecks" :key="d.deck" :value="d.deck">{{ d.deck }}</option>
+        </select>
+        <span class="pd-hint">{{ draftDeck ? '这一卷是提成时必须附的依据' : '没选卷 → 提成会被闸直接拒（这是设计，不是 bug）' }}</span>
+      </div>
+      <div v-else class="pd-hint">本机没有已批准的卷 —— 先去问卷页答完并批准一卷，才能提成阶段卡</div>
+      <div v-for="d in drafts" :key="d.file" class="pd-card">
+        <div class="pd-head">
+          <b>{{ d.file }}</b>
+          <span class="pd-meta">{{ d.project }} · {{ d.stages.length }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
+        </div>
+        <div v-for="s in d.stages" :key="s.id" class="pd-stage">
+          <span class="pd-sid">{{ s.id }}</span>
+          <span class="pd-title">{{ s.title }}</span>
+          <span v-if="s.missing.length" class="pd-miss">缺 {{ s.missing.join(' / ') }} —— 不能提</span>
+          <span v-else class="pd-ok">三块齐全</span>
+          <Button v-if="!s.missing.length" variant="ghost" size="sm" :disabled="draftBusy"
+            :title="'把这一格提成「待裁决」阶段卡（走 proposeStage 同一条闸）'" @click="proposeDraft(d, s)">提成阶段卡 →</Button>
+        </div>
+      </div>
+      <div v-if="draftMsg" class="pd-msg">{{ draftMsg }}</div>
+      <div v-if="draftBroken.length" class="pd-broken">
+        读不出来的草案：{{ draftBroken.map((b) => b.file + '（' + b.why + '）').join('；') }}
+      </div>
+    </div>
+
     <!-- 待裁决清单（2026-11-02）—— 此前“待裁决”只藏在每张卡的状态胶囊里，
          而日志页的每日推进面只认“已冻结”，于是 7 张等裁决的卡在界面上等于不存在
          （暮雨原话：“待裁决的东西在哪里？没看见”）。这里给一个显式出口：
@@ -317,6 +355,53 @@ function flash(key: string): void {
 // 投入产出账（P5）：只读；三格取不到就不渲染那一格
 const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
 
+// ── 规划草案入口（2026-11-11）────────────────────────────────────────────
+// 只读草案 + 一键提成。提成必须带澄清卷（D-060 硬锁），所以先给一个「已批准的卷」下拉。
+const drafts = ref<any[]>([])
+const draftBroken = ref<{ file: string; why: string }[]>([])
+const draftDecks = ref<{ deck: string; project: string }[]>([])
+const draftDeck = ref('')
+const draftBusy = ref(false)
+const draftMsg = ref('')
+
+async function loadDrafts(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.plansDrafts()
+    drafts.value = Array.isArray(r?.drafts) ? r.drafts : []
+    draftBroken.value = Array.isArray(r?.broken) ? r.broken : []
+    draftDecks.value = Array.isArray(r?.decks) ? r.decks : []
+    if (!draftDeck.value && draftDecks.value.length) draftDeck.value = draftDecks.value[0].deck
+  } catch {
+    drafts.value = []
+  }
+}
+
+async function proposeDraft(d: any, s: any): Promise<void> {
+  if (draftBusy.value) return
+  draftBusy.value = true
+  draftMsg.value = ''
+  try {
+    const r: any = await (window as any).tegula.plansProposeFromDraft({
+      draft: String(d?.file || ''), stageId: String(s?.id || ''), deck: draftDeck.value,
+    })
+    if (r?.ok) {
+      draftMsg.value = `已提成 ${s.id} → ${r.planFile}（状态：待裁决，等你在这里点「通过（冻结）」）`
+      msg.value = draftMsg.value
+      msgType.value = 'ok'
+      await load()
+      await loadDrafts()
+    } else {
+      draftMsg.value = '没提成：' + (r?.error || '未知原因')
+      msg.value = draftMsg.value
+      msgType.value = 'bad'
+    }
+  } catch (e: any) {
+    draftMsg.value = '提成失败：' + (e?.message || e)
+  } finally {
+    draftBusy.value = false
+  }
+}
+
 const missCount = (doc: Doc) => doc.stages.filter((s) => s.missing.length).length
 
 /** 等你裁决的阶段卡（2026-11-02）—— 与 `shared/dailyBand` 的 PENDING 同一套词。
@@ -553,5 +638,5 @@ function submitText(): void {
   if (doc && s) void verdict(doc, s, t.action, text.value.trim())
 }
 
-onMounted(() => { void load(); void loadWasteLedger() })
+onMounted(() => { void load(); void loadWasteLedger(); void loadDrafts() })
 </script>

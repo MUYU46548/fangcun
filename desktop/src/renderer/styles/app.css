@@ -4145,3 +4145,23 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ver-restore:hover { border-color: var(--brand); color: var(--brand); }
 .ver-preview { margin: 6px 0 0; padding: 8px 10px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .ver-next { margin-top: 6px; font-size: 12px; }
+
+/* ── 规划草案入口（2026-11-11 · 0.7.0 规划根基）─────────────────────────
+   作战计划页顶部那块：草案是 agent 起草的只读件，这里只做“看得见 + 一键提成”。
+   一行一格的排版与「待裁决清单」同节奏（先看还欠什么，再看能不能提）。 */
+.plan-drafts { margin: 10px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--tint-2); }
+.pd-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.pd-label { font-size: 11.5px; color: var(--muted); }
+.pd-sel { font-family: inherit; font-size: 11.5px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--ink); }
+.pd-hint { font-size: 11px; color: var(--muted); }
+.pd-card { border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 8px; }
+.pd-card:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.pd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.pd-meta { font-size: 11px; color: var(--muted); }
+.pd-stage { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
+.pd-sid { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
+.pd-title { font-size: 12.5px; }
+.pd-miss { font-size: 11px; color: #a03a3a; }
+.pd-ok { font-size: 11px; color: var(--ok-text); }
+.pd-msg { margin-top: 8px; font-size: 11.5px; color: var(--ink); }
+.pd-broken { margin-top: 8px; font-size: 11px; color: #a03a3a; }

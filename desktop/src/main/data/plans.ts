@@ -397,6 +397,15 @@ export interface ProposeStageInput {
   approach: string[]
   /** 照抄点：第一行是表头也行，没有表头就补一行「项 / 来源 / 原文」 */
   copyRows?: string[][]
+  /**
+   * 照抄点第一行**就是表头**（2026-11-11 · 草案入口）。
+   *
+   * 为什么需要这个开关：草案里的照抄点表是 agent 写的中文四栏表头
+   * （“抄哪块 / 落到哪 / 不抄什么 / 怎么算抄到位”），`looksHeader` 那套正则认不出来，
+   * 于是会被当成数据行、再补一个英文表头 —— 落地后表头和数据列数对不上。
+   * 草案入口显式声明“这就是表头”，原样落地（表格仍由 `proposeStage` 检查有没有分隔线）。
+   */
+  copyHasHeader?: boolean
   criteria: string[]
   agent?: string
   now?: string
@@ -487,7 +496,7 @@ export function proposeStage(input: ProposeStageInput): ProposeStageResult {
   for (const a of approach) block.push(`  - ${a}`)
   block.push('- 照抄点:')
   // 第一行若不是表头（含「项/来源/原文」），补一行标准表头
-  const looksHeader = copyRows[0].some((c) => /^(项|来源|原文|位置|参照)/.test(c))
+  const looksHeader = input.copyHasHeader === true || copyRows[0].some((c) => /^(项|来源|原文|位置|参照)/.test(c))
   const rows = looksHeader ? copyRows : [['项', '来源', '原文'], ...copyRows]
   if (rows.length >= 2 && !rows[1].every((c) => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')))) {
     // 没有分隔线就补一条：解析器要“表头 + 分隔线 + 数据”三行才算有照抄点

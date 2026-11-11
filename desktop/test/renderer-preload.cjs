@@ -535,6 +535,51 @@ contextBridge.exposeInMainWorld('tegula', {
       rejectReason: '',
     })
   },
+  // 规划草案入口（2026-11-11）：夹具给两份草案 —— 一份三块齐全、一份缺判据（界面必须不给提议按钮）
+  plansDrafts: () => {
+    rec('plansDrafts')
+    return {
+      ok: true,
+      dir: 'C:/mock/task-data/plans/_drafts',
+      drafts: [
+        {
+          file: 'fangcun-base-2026-11-11.md', project: 'fangcun-base', version: 'draft-2026-11-11', date: '2026-11-11',
+          constitution: [
+            { type: '已定', text: '判断半是硬锁：没卷不许出单', cite: 'decision:D-061' },
+            { type: '待定', text: '0.7.0 是否包含 UI 美化', cite: 'task:ui美化' },
+          ],
+          asks: ['0.7.0 里要不要接 UI 美化？'],
+          stages: [
+            {
+              id: 'P12', title: '规划草案的界面入口', what: '草案能被看见并提成阶段卡',
+              approach: ['读 _drafts/*.md', '走 proposeStage 同一条闸'],
+              copyRows: [['抄哪块', '落到哪', '不抄什么', '怎么算抄到位'], ['---', '---', '---', '---'], ['CI 报告', '逐格结论', '趋势图', 'num: 每格三态']],
+              criteria: ['cmd: node scripts/test/e2e-plan-drafts.cjs', 'file: desktop/src/main/data/planDrafts.ts'],
+              missing: [],
+            },
+            {
+              id: 'P13', title: '缺块的那一格', what: '用来验“缺块不给提”',
+              approach: ['只有技术方案'],
+              copyRows: [],
+              criteria: [],
+              missing: ['照抄点', '判据'],
+            },
+          ],
+          path: 'C:/mock/task-data/plans/_drafts/fangcun-base-2026-11-11.md',
+        },
+      ],
+      broken: [{ file: '_drafts/坏草案.md', why: '草案里一个阶段卡都没有' }],
+      decks: [{ deck: '方寸-规划判断半-裁决层B', project: 'fangcun-base' }],
+    }
+  },
+  plansProposeFromDraft: (input) => {
+    cloneGuard('plansProposeFromDraft', [input])
+    rec('plansProposeFromDraft', [input])
+    const stageId = (input && input.stageId) || ''
+    if (!input || !input.deck) return { ok: false, error: '必须附澄清问卷（deck）' }
+    if (stageId === 'P13') return { ok: false, error: '这一格还缺 照抄点 / 判据 —— 三块齐全才给提成阶段卡' }
+    return ok({ ok: true, planFile: 'fangcun-base.md', draft: 'fangcun-base-2026-11-11.md' })
+  },
   // BYOK 多通道（2026-11-02）：主通道 + 一条备用；upsert / remove 都回"落盘后的真相"
   llmChannelsList: () => {
     rec('llmChannelsList')

@@ -2748,6 +2748,37 @@
       check('★ 投入产出账三格都渲染（花的 / 产出的 / 被否的）',
         await waitFor(() => $$('.plan-view .waste-cell').length === 3, 3000, 'waste cells'),
         $$('.plan-view .waste-cell').length + ' 格')
+
+      // ── 规划草案入口（2026-11-11 · 0.7.0 规划根基）────────────────────
+      // 判据四件：① 草案真读出来（不是写死一段话）；② 齐全的格有提议按钮、缺块的格**没有**；
+      //          ③ 坏草案被点名（不静默）；④ 点提议真走 plansProposeFromDraft 且带澄清卷。
+      {
+        check('★★ 作战计划页有「草案」块（此前草案只在文件里，界面看不见）',
+          !!(await waitFor(() => !!$('#board.pv .plan-drafts'), 4000, 'plan-drafts')))
+        const btns = $$('#board.pv .plan-drafts .pd-stage button')
+        check('★★ 齐全那格给「提成阶段卡」按钮，缺块那格**不给**（缺块提进去也冻结不了）',
+          $$('#board.pv .pd-stage').length === 2 && btns.length === 1,
+          'stages=' + $$('#board.pv .pd-stage').length + ' btns=' + btns.length)
+        check('★ 缺哪几块直接写在行上（照抄点 / 判据）',
+          /缺 .*照抄点.*判据/.test(($$('#board.pv .pd-miss')[0] || {}).textContent || ''),
+          (($$('#board.pv .pd-miss')[0] || {}).textContent || '').trim())
+        check('★ 坏草案在划线下列出来（不静默丢）',
+          /坏草案/.test(($('#board.pv .pd-broken') || {}).textContent || ''),
+          (($('#board.pv .pd-broken') || {}).textContent || '').trim())
+        check('★ 澄清卷下拉带上了「没卷不给提」的缘故',
+          !!$('#board.pv .pd-sel') && (($('#board.pv .pd-hint') || {}).textContent || '').length > 0,
+          (($('#board.pv .pd-hint') || {}).textContent || '').trim())
+        window.__fcTest.reset()
+        if (btns[0]) btns[0].click()
+        check('★★ 点「提成阶段卡」真走 plansProposeFromDraft，且带上已选澄清卷',
+          await waitFor(() => window.__fcTest.callCount('plansProposeFromDraft') > 0, 4000, 'proposeFromDraft'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
+        check('★ 提交的是 (草案文件, 阶段号, 卷名) 三件，不是整个 DOM 文本',
+          window.__fcTest.calls().some((c) => c.name === 'plansProposeFromDraft'
+            && c.args && c.args[0] && /\.md$/.test(String(c.args[0].draft))
+            && /^P\d+$/.test(String(c.args[0].stageId)) && String(c.args[0].deck).length > 0),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
+      }
       const cells = $$('.plan-view .waste-cell')
       check('★★ 每个数字节点同格带“它证明不了什么”',
         cells.length === 3 && cells.every((c) => {
