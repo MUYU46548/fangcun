@@ -217,8 +217,17 @@ console.log('\n== ⑥ 接线/边界守卫 ==')
   check('★ 计划页会显示 `- 证据:`（完成依据看得见）',
     /s\.evidence/.test(PLANVIEW) && /plan-evidence/.test(PLANVIEW))
   const IPC = read('desktop/src/main/plan-ipc.ts')
-  check('★ 没有为了推进偷偷加第三个 IPC 口（仍是 plans:get / plans:verdict）',
-    (IPC.match(/guardedHandle\('/g) || []).length === 2)
+  // 2026-11-11（0.7.0 规划根基）：原来钉的是“恒为 2 个口”。草案入口是**有意的**新增两条：
+  //   `plans:drafts`（只读草案）与 `plans:proposeFromDraft`（提成阶段卡）——
+  //   后者**不是第二套写路径**：它只是按 (草案, 格) 取出正文，然后调 `proposeStage`（下面那条断言钉着）。
+  // 所以判据从“恒 2 个”改成“只许这四个名字，多一个就红” —— 既保留“不许偷偷加口”，又不误伤有意的入口。
+  const ipcNames = (IPC.match(/guardedHandle\('([^']+)'/g) || []).map((s) => s.replace(/^guardedHandle\('/, '').replace(/'$/, ''))
+  const ALLOWED_IPC = ['plans:get', 'plans:verdict', 'plans:drafts', 'plans:proposeFromDraft']
+  check('★ 计划 IPC 只许这四个名字（草案入口是明加的；再多一个就是“偷偷加口”）',
+    ipcNames.length === ALLOWED_IPC.length && ALLOWED_IPC.every((n) => ipcNames.includes(n)),
+    JSON.stringify(ipcNames))
+  check('★★ 草案提成**不开第二套写路径**：它只调 proposeStage（同一条闸）',
+    /proposeStage\(\{/.test(read('desktop/src/main/data/planDrafts.ts')))
   const PLANS_SRC = read('desktop/src/main/data/plans.ts')
   check('★ 推进写回仍走 plans.ts（不开第二套计划卡写路径）',
     /export function advanceStage/.test(PLANS_SRC) && /writePlanVerdict/.test(PLANS_SRC))
