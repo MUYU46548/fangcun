@@ -238,11 +238,13 @@
         <div class="plan-acts">
           <!-- 2026-11-03：冻结/完成后按钮改成“已冻结 / 已完成”并禁用 ——
                以前点完仍写着“通过（冻结）”，用户看不出到底成没成，只能狂点。 -->
-          <button class="ok plan-act-pass" :disabled="busy || s.missing.length > 0 || !canFreeze(s)"
+          <!-- 2026-11-12：`.ok` 手搓 → 基座 `success` 变体。它原来只有 `font-weight:600` 一条局部规则，
+               几何全部来自 `.ok`（height: --btn-h = 28），正好等于 `tool` 档 —— 只换颜色，尺寸不动。 -->
+          <Button variant="success" size="tool" class="plan-act-pass" :disabled="busy || s.missing.length > 0 || !canFreeze(s)"
             :title="s.missing.length ? '缺块不能通过' : !canFreeze(s) ? '这张卡已经' + (s.status || '处理过') : '冻结这张阶段卡'"
             @click="verdict(doc, s, 'pass')">
             {{ s.status === '已冻结' ? '✓ 已冻结' : s.status === '完成' ? '✓ 已完成' : '✓ 通过（冻结）' }}
-          </button>
+          </Button>
           <Button class="plan-act-reject" variant="danger" size="sm" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'reject')">↩ 打回</Button>
           <Button class="plan-act-amend" variant="ghost" size="sm" :disabled="busy || s.status === '完成'" @click="openText(doc, s, 'amend')">✎ 改一句</Button>
           <!-- P4 界面入口（2026-11-02）：只有点这里才起进程；打开这一页永远不会跑判据 -->

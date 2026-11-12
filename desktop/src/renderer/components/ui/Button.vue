@@ -36,6 +36,18 @@ const buttonVariants = cva(
         ghost:
           'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-muted-foreground)] hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
         danger: 'bg-[var(--ui-destructive)] text-[var(--ui-destructive-foreground)] hover:brightness-105',
+        /**
+         * `success`（2026-11-12 · 卡《基座 Button 缺 bare/success/xl》的变体二）。
+         *
+         * 为什么必须有：老界面的 `.ok` 是**绿色＝成功态**（“✓ 处理完了 / ✓ 通过（冻结）/ 变成待办 →”）。
+         * 基座原来只有 primary/outline/ghost/danger —— 换 primary 会把“通过”变成品牌色，**语义就变了**。
+         * 所以那四处一直是手搓 `<button class="ok …">` + 豁免，等这个变体。
+         *
+         * 几何零像素差：老 `.ok` 实测是 `height: var(--btn-h)`（28）+ `--btn-r` + `--btn-px` + `--btn-fs`，
+         * 正好等于基座的 `tool` 档 —— 迁移时只换颜色，尺寸一个像素不动。
+         * 令牌用 `--ui-success`（shadcn 没这个语义色，本仓扩展；`check-ui-base` 已钉住它存在）。
+         */
+        success: 'bg-[var(--ui-success)] text-[var(--ui-success-foreground)] hover:brightness-105',
       },
       size: {
         // 2026-10-17 暮雨第 4 条：“按钮视觉风格不统一……我更喜欢扁平化圆角”——
@@ -47,7 +59,13 @@ const buttonVariants = cva(
         //   `:where(button.ghost)` 那套 28px；而基座原来只有 24（sm）与 34（md）两档。
         //   直接拿 sm 去迁 28px 的老按钮 = 每迁一个就矮 4px，与同行的下拉框/输入框（27~28）错位，
         //   而“目检高度对得上”正是 U2=A 的判据。补这一档后工具行迁移是**零像素差**的。
-        tool: 'h-[var(--btn-h)] rounded-[var(--btn-r)] px-[var(--btn-px)] text-[var(--btn-fs)]',
+        // 2026-11-12 实测修：原来写的是**不带类型前缀**的 `text-[<变量>]` —— Tailwind **猜不出**
+        //   这个变量是长度还是颜色，于是把它生成成 `color: var(--btn-fs)`（`color: 12px` 是无效值，字号压根没生效）。
+        //   更糟的是 tailwind-merge 也认成“文字色”，把变体那一条 `text-[var(--ui-success-foreground)]`
+        //   当成同组冲突**合并掉** → 绿底上出现深灰字（`plan-act-pass` 实测 rgb(60,65,80)）。
+        //   显式加类型前缀 `length:`，两件事一起解决。判据：渲染层那条“success 的字是白的”。
+        //   ⚠ 注释里也别再出现那个旧字面量：Tailwind 扫的是**整份文本**（含注释），写一遍就照样生成一条废规则。
+        tool: 'h-[var(--btn-h)] rounded-[var(--btn-r)] px-[var(--btn-px)] text-[length:var(--btn-fs)]',
         sm: 'h-[var(--btn-h-sm)] rounded-[var(--btn-r)] px-2.5 text-[11.5px]',
         // 大档用单独一档圆角（--btn-r-lg=10）：24 高的 sm 配 10 会圆成胶囊
         md: 'h-[var(--btn-h-lg)] rounded-[var(--btn-r-lg)] px-3.5 text-[12.5px]',
@@ -59,7 +77,7 @@ const buttonVariants = cva(
 )
 
 const props = defineProps<{
-  variant?: 'primary' | 'outline' | 'ghost' | 'danger'
+  variant?: 'primary' | 'outline' | 'ghost' | 'danger' | 'success'
   size?: 'tool' | 'sm' | 'md' | 'icon'
   class?: any
 }>()

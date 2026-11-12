@@ -46,8 +46,9 @@
             <div class="idea-sub">
               <span class="idea-when">记于{{ ctl.relativeTime(i.createdAt) || '刚刚' }}</span>
               <div class="idea-acts">
-                <button class="ok idea-do" :disabled="ctl.ideaBusy" @click="ctl.doIdea(i)"
-                  title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</button>
+                <!-- 2026-11-12：`.ok` 手搓 → 基座 `success` 变体（同一个绿色成功态，几何零像素差） -->
+                <Button variant="success" size="tool" class="idea-do" :disabled="ctl.ideaBusy" @click="ctl.doIdea(i)"
+                  title="决定做 —— 真的在待办里生出一条（全文带过去），之后能退回来">变成待办 →</Button>
                 <Button variant="ghost" size="sm" class="idea-task" :disabled="ctl.ideaBusy" @click="ctl.ideaToTask(i)"
                   title="做成任务卡 —— 真写进 task-data：能进看板/阻塞链/next，能派给 agent；归属先留空，去卡上选">做成任务卡</Button>
                 <Button class="idea-hold" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.holdIdea(i)"

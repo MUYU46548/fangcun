@@ -1917,6 +1917,17 @@
       // 2026-10-31（暮雨第 6 条）：按钮文字从“做”改成“变成待办 →”（一个"做"字说不清做了什么）
       const btn = Array.from(row.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('变成待办') >= 0)
       if (!btn) return { err: '这条上没有“变成待办”' }
+      // 2026-11-12：这一枚从手搓 `<button class="ok">` 迁到基座 `success` 变体 ——
+      // 顺手把“它真的是绿色成功态”量下来（迁移的唯一理由就是颜色，不量等于没验）。
+      const csIdea = getComputedStyle(btn)
+      const probeI = document.createElement('div')
+      probeI.style.background = getComputedStyle(document.documentElement).getPropertyValue('--ui-success').trim() || 'transparent'
+      document.body.appendChild(probeI)
+      const wantI = getComputedStyle(probeI).backgroundColor
+      probeI.remove()
+      check('★★ 「变成待办 →」用 success 变体（底色 = --ui-success），且高度没被基座带走（.idea-acts button = 26）',
+        csIdea.backgroundColor === wantI && Math.abs(btn.getBoundingClientRect().height - 26) < 0.6,
+        JSON.stringify({ 底: csIdea.backgroundColor, 期望: wantI, 高: Math.round(btn.getBoundingClientRect().height * 10) / 10 }))
       const n0 = window.__fcTest.callCount('ideasPromote')
       btn.click()
       const hit = await waitFor(() => window.__fcTest.callCount('ideasPromote') > n0, 4000, 'ideasPromote')
@@ -2564,6 +2575,38 @@
       const note = ($('main.blockers-view .ba-note') || {}).textContent || ''
       return /\d+\s*个任务就不再被卡/.test(note)
     })(), (($('main.blockers-view .ba-note') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+    // 2026-11-12（卡《缺 bare/success/xl》变体二）：阻塞页两枚“✓ 标完成”从 `.ok` 手搓迁到
+    // 基座 success 变体。这两枚的**几何是各自量过的**（30 / 26 高），不是统一档位 ——
+    // 所以判据分开写：颜色必须来自 --ui-success，高度必须还是原来那个数。
+    check('★★ 阻塞页“✓ 标完成”是 success 变体，且高度还是原来那个 30', (() => {
+      const probe = document.createElement('div')
+      probe.style.background = getComputedStyle(document.documentElement).getPropertyValue('--ui-success').trim() || 'transparent'
+      document.body.appendChild(probe)
+      const want = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const ba = $('main.blockers-view .ba-done')
+      return !!ba && getComputedStyle(ba).backgroundColor === want
+        && Math.abs(ba.getBoundingClientRect().height - 30) < 0.6
+    })(), (() => {
+      const e = $('main.blockers-view .ba-done')
+      return e ? JSON.stringify({ 高: Math.round(e.getBoundingClientRect().height * 10) / 10, 底: getComputedStyle(e).backgroundColor }) : '(没有 .ba-done)'
+    })())
+    // 排队建议（`.bq-done`）**只在有排队项时才渲染**，夹具里通常没有。
+    // 它不在浏览器里判（读不到源码，也不该拿夹具的偶然性当回归）——
+    // 写法由 Node 侧 check-ui-base ⑦ 的第 ③ 条兜住。
+    {
+      const bq = $('main.blockers-view .bq-done')
+      if (bq) {
+        const probe = document.createElement('div')
+        probe.style.background = getComputedStyle(document.documentElement).getPropertyValue('--ui-success').trim() || 'transparent'
+        document.body.appendChild(probe)
+        const want = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        check('★ 排队建议里的“✓”同样是 success 变体且 26 高（本夹具渲染了它就量一次）',
+          getComputedStyle(bq).backgroundColor === want && Math.abs(bq.getBoundingClientRect().height - 26) < 0.6,
+          JSON.stringify({ 高: Math.round(bq.getBoundingClientRect().height * 10) / 10, 底: getComputedStyle(bq).backgroundColor }))
+      }
+    }
     check('  回到项目页签（主从摆法还在）', await (async () => {
       if (!clickText('项目')) return false
       return waitFor(() => $$('#board.pv .pv-ms .ms-li').length >= 2, 4000, '回到主从')
@@ -2900,6 +2943,30 @@
         const hs = acts.map((b) => Math.round(b.getBoundingClientRect().height * 10) / 10)
         check('★ 作战计划的裁决动作仍是 28 高（.plan-acts button 那档没被基座的 24/34 带走）',
           acts.length >= 4 && hs.every((v) => Math.abs(v - 28) < 0.6), JSON.stringify({ n: acts.length, hs }))
+      }
+
+      // ── UI 基座 · success 变体（2026-11-12，卡《缺 bare/success/xl》变体二）──
+      // 为什么单列一条：这四处原来是手搓 `<button class="ok …">`，迁移的**唯一理由**是
+      // “基座没有表示成功态的变体，换 primary 会把‘通过’变成品牌色”。所以判据必须是
+      // **它真的绿**（不是被判成 primary 的紫/被 ghost 的白底），且**几何没变**。
+      // 反例自证：若有人把 variant 写成 primary，下面第一条当场红（底色变成品牌色）。
+      {
+        const pass = $('.plan-view .plan-acts .plan-act-pass')
+        const cs = pass ? getComputedStyle(pass) : null
+        const successVar = getComputedStyle(document.documentElement).getPropertyValue('--ui-success').trim()
+        const probe = document.createElement('div')
+        probe.style.background = successVar || 'transparent'
+        document.body.appendChild(probe)
+        const want = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        check('★★ 「✓ 通过（冻结）」用的是 success 变体（底色 = --ui-success，不是品牌色/白底）',
+          !!cs && !!want && cs.backgroundColor === want,
+          cs ? JSON.stringify({ 实际: cs.backgroundColor, 期望: want, token: successVar }) : '(没找到 .plan-act-pass)')
+        check('★ success 变体的字是白的（白字压绿底，与老 .ok 同一个口径）',
+          !!cs && cs.color === 'rgb(255, 255, 255)', cs ? cs.color : '(none)')
+        check('★ 换个变体不等于换尺寸：仍是 28 高（迁移前 .ok 也是 28）',
+          !!pass && Math.abs(pass.getBoundingClientRect().height - 28) < 0.6,
+          pass ? String(Math.round(pass.getBoundingClientRect().height * 10) / 10) : '(none)')
       }
 
       // ── 按项目筛（2026-11-05 暮雨第 1 条）────────────────────────────

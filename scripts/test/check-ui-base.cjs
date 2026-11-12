@@ -331,6 +331,97 @@ check('反例：基线里塞了 width 会被咬住',
     /dataset\.appearance\s*=/.test(appSrc))
 }
 
+// ── ⑦ 两条“静默失效”的 utility 陷阱（2026-11-12 实测各踩了一次）──────────────
+//
+// 为什么单列：这两类错**不报错、不红、界面只是“看起来有点不对”**，靠目检根本抓不住。
+const srcDirs = [path.join(DESKTOP, 'src', 'renderer')]
+//   ① `views/` 里写 utility —— content 只扫 `components/`（上面那条永久底线），
+//      于是 `views/*.vue` 里的 `h-[30px]` **一个都不会生成**，写了等于没写。
+//      实测现场：把 `.ba-done{height:30px}` 改写成元素上的 `h-[30px]`，按钮从 30 掉到 17（陷进去了）。
+//   ② `text-[var(--x)]` 不带类型前缀 —— Tailwind 猜不出是长度还是颜色，生成 `color: 12px`（无效）；
+//      更糟的是 tailwind-merge 把它认成“文字色”，把同组里变体的白字**合并掉** → 绿底深灰字。
+//      实测现场：`plan-act-pass` 的 success 变体字色是 rgb(60,65,80) 而不是白。
+{
+  const walk = (dir, out = []) => {
+    let ents = []
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return out }
+    for (const e of ents) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) walk(p, out)
+      else if (e.name.endsWith('.vue')) out.push(p)
+    }
+    return out
+  }
+  const VIEWS = path.join(DESKTOP, 'src', 'renderer', 'views')
+  // 只认“明显的任意值 utility”：`h-[…]` / `px-[…]` / `text-[…px]` / `rounded-[…]` 等。
+  // 保守起见排除 Tailwind 里合法的动态变体（`font-[inherit]` 是本仓到处在用的，content 也不扫它，
+  // 它靠 app.css 的 font-family:inherit 兜底 —— 这里点出来，避免下一个人以为它生效了）。
+  const ARB = /\b(?:h|w|min-h|min-w|max-h|max-w|p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|text|rounded|leading|tracking|z|top|left|right|bottom)-\[[^\]]+\]/g
+  const bad = []
+  for (const f of walk(VIEWS)) {
+    const src = fs.readFileSync(f, 'utf-8')
+    // 剥 HTML 注释与 // 行注释，免得把“说明里的例子”当成真用法
+    const text = src.replace(/<!--[\s\S]*?-->/g, (m) => ' '.repeat(m.length))
+      .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n')
+    for (const m of text.match(ARB) || []) {
+      if (m.startsWith('font-')) continue
+      bad.push(path.basename(f) + ' → ' + m)
+    }
+  }
+  check('★★ views/ 里不写任意值 utility（content 只扫 components/，写了不会生成 = 静默失效）',
+    bad.length === 0, bad.slice(0, 6).join(' | '))
+
+  // ② 不带类型的 `text-[var(--…)]`：**只有当变量是尺寸时才错**（会被当成颜色生成，
+  //    还是 tailwind-merge 的同一组，会把变体的文字色合并掉）。
+  //    `text-[var(--ui-muted-foreground)]` 这类本来就是颜色，是合法写法 —— 别误伤。
+  const hazards = []
+  const SIZEISH = /^--(?:btn-fs|btn-h|btn-r|btn-px|fs|font-size|line-height)/i
+  const scan = (dir) => {
+    let ents = []
+    try { ents = fs.readdirSync(dir) } catch { return }
+    for (const name of ents) {
+      const p = path.join(dir, name)
+      let st = null
+      try { st = fs.statSync(p) } catch { continue }
+      if (st.isDirectory()) { scan(p); continue }
+      if (!/\.(vue|ts|js)$/.test(name)) continue
+      const text = fs.readFileSync(p, 'utf-8')
+      // 剥注释（注释里写一遍也会被 Tailwind 扫到、生成废规则）
+      const body = text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n')
+      let m
+      const re = /text-\[var\((--[a-z0-9-]+)\)\]/gi
+      while ((m = re.exec(body))) {
+        if (SIZEISH.test(m[1])) hazards.push(path.relative(DESKTOP, p) + ' → ' + m[0])
+      }
+    }
+  }
+  for (const d of srcDirs) scan(d)
+  check('★★ 尺寸类的 text utility 必须带类型前缀（`text-[length:var(--btn-fs)]`）；裸写会被当成颜色',
+    hazards.length === 0, [...new Set(hazards)].slice(0, 5).join(' | '))
+
+  // ③ `success` 变体的两处真实使用者：.ok 手搓迁过去就得真写成 success，不许写一半
+  //    （渲染层只在夹具真渲染出那一枚时才能量；`.bq-done` 通常不渲染 → 这条是它的兜底）
+  {
+    const B = path.join(DESKTOP, 'src', 'renderer', 'views', 'BlockersView.vue')
+    const src = fs.existsSync(B) ? fs.readFileSync(B, 'utf-8') : ''
+    check('★★ 阻塞页两枚“标完成”都真用了 success 变体（不是只迁了看得见的那一枚）',
+      /class="ba-done"[^>]*variable|variant="success"[\s\S]{0,200}class="ba-done"/.test(src)
+      && /variant="success"[\s\S]{0,200}class="bq-done"/.test(src),
+      'ba=' + /variant="success"[\s\S]{0,200}class="ba-done"/.test(src)
+      + ' bq=' + /variant="success"[\s\S]{0,200}class="bq-done"/.test(src))
+    const V = path.join(DESKTOP, 'src', 'renderer', 'views', 'PlanView.vue')
+    const psrc = fs.existsSync(V) ? fs.readFileSync(V, 'utf-8') : ''
+    const I = path.join(DESKTOP, 'src', 'renderer', 'views', 'IdeasView.vue')
+    const isrc = fs.existsSync(I) ? fs.readFileSync(I, 'utf-8') : ''
+    check('★★ `.ok` 四处全部迁到 success（作战计划 / 想法页各一）',
+      /variant="success"[\s\S]{0,200}class="plan-act-pass"/.test(psrc)
+      && /variant="success"[\s\S]{0,200}class="idea-do"/.test(isrc))
+    check('★ 迁完之后视图里不再有 `<button class="ok`（共享变体只剩基座在用）',
+      !/<button[^>]*class="[^"]*\bok\b/.test(psrc + isrc + src))
+  }
+}
+
 console.log(`\n通过 ${pass} / 失败 ${fail}`)
 if (fail) { console.log('\n失败项：'); for (const f of failures) console.log(' -', f) }
 console.log(`RESULT ${pass} / ${fail}`)
