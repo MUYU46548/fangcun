@@ -125,20 +125,29 @@ function main() {
   // ⚠ 2026-10-23 改写：原判据是“**完全不**接管 Ctrl+Z”，那是 2026-09-25 的规则。
   //   2026-10-21 暮雨第 1 条（“狂按 Ctrl+Z 也没用”）改成了**有条件的接管**：
   //   撤销条上有待撤动作 → 撤这一步数据动作；没有 → 放行输入框的原生撤销。
-  //   所以新的判据不是"不许出现 key === 'z'"，而是**顺序**：
-  //   必须先 `if (!undoBar.value) return` 再 `preventDefault()`。
-  //   顺序反了就会把输入框里的撤销吃掉 —— 这正是当初那条断言要保护的用户体验。
-  // ⚠ 判据必须看**顺序**，不能用“A 之后 B 在 200 字内”那种窗口：
-  //   第一版就是这么写的，结果把 Ctrl+S 分支里的 preventDefault 匹配上了 ——
-  //   把两行顺序颠倒（先拦后判）照样全绿，等于没写。现在先切出 Ctrl+Z 这一段，再比下标。
+  //   所以新的判据不是"不许出现 key === 'z'"，而是**顺序**。
+  //
+  // ⚠⚠ 2026-11-12 再次改写（暮雨第 3 条）：
+  //   “编辑日志文本时，有时想撤销错误的粘贴，结果好像自动撤销了一条日志操作。”
+  //   上一版规则是“只要撤销条在就接管，**不管焦点在哪**”—— 正是它把日志 textarea 里的
+  //   原生撤销吃掉了。现在归属判定抽到 `shared/undoKey.ts`（纯函数，`e2e-undo-shortcut`
+  //   真跑并反例自证），这里只钉 App.vue 的接线形状：
+  //   ① 必须先**问判定**（`decideUndoKey` + `isEditableTarget`）再 `preventDefault`；
+  //   ② 判定函数不许内联回 App.vue（内联就又会退化成"没人能单测它"）。
+  //   顺序反了 = 又回到"在输入框里也劫持"的老 bug。
   const zBranch = (vueNoComment.match(/if \(e\.key === 'z' \|\| e\.key === 'Z'\) \{([\s\S]{0,900}?)\n  \}/) || [])[1] || ''
-  const zGuard = zBranch.indexOf('if (!undoBar.value) return')
+  const zDecide = zBranch.indexOf('decideUndoKey(')
+  const zEdit = zBranch.indexOf('isEditableTarget(')
   const zPrevent = zBranch.indexOf('e.preventDefault()')
-  check('D11 Ctrl+Z：撤销条在才接管，没有待撤动作就放行原生撤销（先判后拦）',
-    !!zBranch && zGuard >= 0 && zPrevent > zGuard,
+  check('D11 Ctrl+Z：先问「该归谁」再拦默认行为，且判定必须走共享纯函数（不许内联）',
+    !!zBranch && zDecide >= 0 && zEdit >= 0 && zPrevent > zDecide && zPrevent > zEdit,
     zBranch
-      ? `guard@${zGuard} preventDefault@${zPrevent}（必须是 guard 在前）`
+      ? `decide@${zDecide} editable@${zEdit} preventDefault@${zPrevent}（判定必须都在拦之前）`
       : '没找到 Ctrl+Z 分支（快捷键被删了？）')
+  check('D11b 归属判定不在 App.vue 里内联（否则永远没人能单测它）',
+    /export function decideUndoKey/.test(fs.readFileSync(path.join(DESKTOP, 'src', 'shared', 'undoKey.ts'), 'utf8')) &&
+    !/function decideUndoKey/.test(vueNoComment),
+    '判定函数应只在 shared/undoKey.ts 里定义')
   check('D12 日历底部横条默认收起（第 10 条：不再一铺一大片）',
     /calBottomOpen = ref\(false\)/.test(vueNoComment) && /class="cal-more"/.test(vueNoComment))
 

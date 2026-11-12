@@ -4647,33 +4647,56 @@
       if (nb) nb.click()
       return bar && await waitFor(() => !!$('#log-edit-modal'), 3000, '新建弹窗')
     })())
-    // ⚠ 规则在 2026-10-21 晚被用户实测推翻了：原来"焦点在输入框就放行原生撤销"，
-    //   结果他点完完成、焦点落在某处，按 Ctrl+Z 毫无反应 → 判定"快捷键无用"。
-    //   新规则 = **只要撤销条还在，Ctrl+Z 就撤这一步数据动作（不管焦点在哪）**。
-    check('★★ 焦点在输入框里按 Ctrl+Z **也接管**（用户实测：否则他按了没反应）', await (async () => {
+    // ⚠ 规则第三次改写（2026-11-12 暮雨第 3 条）：
+    //   “编辑日志文本时，有时想撤销错误的粘贴，结果好像自动撤销了一条日志操作，
+    //    我还找不到是哪一条被动了。”
+    //   2026-10-21 那条规则（**不管焦点在哪都接管**）正是这次的 bug 本体 ——
+    //   它在日志 textarea 里夺走了原生撤销。所以下面这条断言**曾经把 bug 写成了规格**，
+    //   现在按用户真实心智改成：焦点在可编辑文本里 → 撤字（不碰数据）。
+    check('★★ 焦点在输入框里按 Ctrl+Z **不接管**（撤字，不许撤数据动作 —— 11-12 第 3 条）', await (async () => {
       const ta = $('#log-edit-modal textarea')
       if (!ta) return false
       ta.focus()
       // ⚠ 必须先确认焦点**真的**落进了输入框，否则这条测的是"没焦点时能撤"，不是它想说的那件事
       if (document.activeElement !== ta) return false
+      if (!$('#undo-bar')) return false           // 前提：撤销条还在（否则"没接管"是因为没得撤）
       const before = window.__fcTest.callCount('logsRestoreState')
-      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
-      const got = await waitFor(() => window.__fcTest.callCount('logsRestoreState') > before && !$('#undo-bar'), 4000, '输入框里也撤')
-      const last = window.__fcTest.calls().filter(c => c.name === 'logsRestoreState').pop() || {}
-      return got && ((last.args || [])[0] === 'log-undo-3')
+      const ev = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })
+      ta.dispatchEvent(ev)
+      await sleep(500)
+      // ① 没有调任何数据写回；② 撤销条**仍在**（数据动作一笔没动）；③ 默认行为没被吃掉
+      return window.__fcTest.callCount('logsRestoreState') === before && !!$('#undo-bar') && ev.defaultPrevented === false
     })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar'))
 
-    // 反向判据（新规则的另一半）：**没有待撤动作**时，输入框里的 Ctrl+Z 必须还给原生撤销
+    // 另一半（2026-10-21 那次的现场不许复发）：焦点**不在**可编辑区时仍然接管。
+    // 缺这条就会把老 bug 从"抢输入框"换成"整条快捷键失灵"。
+    check('★★ 反例：焦点在非输入区（按钮/body）时 Ctrl+Z 照旧接管数据动作', await (async () => {
+      const ta = $('#log-edit-modal textarea')
+      if (ta) ta.blur()
+      const body = document.body
+      body.focus()
+      if (!$('#undo-bar')) return false           // 前提：还有待撤的（上一条不许把它撤掉）
+      if (document.activeElement === ta) return false
+      const before = window.__fcTest.callCount('logsRestoreState')
+      body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+      const got = await waitFor(() => window.__fcTest.callCount('logsRestoreState') > before, 4000, '非输入区接管')
+      return got
+    })(), 'focus=' + ((document.activeElement || {}).tagName || '(none)') + ' bar=' + !!$('#undo-bar'))
+
+    // 反向判据：**没有待撤动作**时，任何地方的 Ctrl+Z 都必须还给原生撤销
     check('★★ 反例：没有待撤动作时，输入框里的 Ctrl+Z 不接管（还给原生撤销）', await (async () => {
-      if ($('#undo-bar')) return false          // 前提：条子已经没了（上一条刚撤完）
+      window.__fcTest.clearUndo?.()
+      await sleep(120)
+      if ($('#undo-bar')) return false          // 前提：条子已经没了
       const ta = $('#log-edit-modal textarea')
       if (!ta) return false
       ta.focus()
       if (document.activeElement !== ta) return false
       const before = window.__fcTest.callCount('logsRestoreState')
-      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
+      const ev = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })
+      ta.dispatchEvent(ev)
       await sleep(500)
-      return window.__fcTest.callCount('logsRestoreState') === before && !$('#undo-bar')
+      return window.__fcTest.callCount('logsRestoreState') === before && !$('#undo-bar') && ev.defaultPrevented === false
     })(), 'bar=' + !!$('#undo-bar') + ' focus=' + ((document.activeElement || {}).tagName || '(none)'))
     // 收尾：关掉弹窗（丢弃草稿），别把弹窗留给后面的断言
     {

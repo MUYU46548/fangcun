@@ -803,6 +803,8 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provi
 //   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成“调用了但未定义”。
 import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
 import { toPlain } from '../shared/plain'
+// Ctrl+Z 的归属判定（2026-11-12 第 3 条）：可编辑文本里撤字、其它地方撤数据动作。
+import { decideUndoKey, isEditableTarget } from '../shared/undoKey'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo, showUndoBar, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
 // “整段被一对括号包住 = 模板占位”的单一来源（与契约读取、Python 侧同一规则）
@@ -2147,11 +2149,15 @@ function onShortcutKeydown(e: KeyboardEvent): void {
   if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
   // ── Ctrl+Z：撤回上一笔状态动作（撤销条同源）─────────────────────────
   if (e.key === 'z' || e.key === 'Z') {
-    // ⚠ 2026-10-21 暮雨实测：原来"焦点在输入框就一律放行"—— 他点完完成、焦点落在某处，
-    //   按 Ctrl+Z 完全没反应，于是判定"快捷键无用"。现在的规则简单可预期：
-    //   **只要撤销条在，Ctrl+Z 就撤这一步数据动作**（不管焦点在哪）；
-    //   没有待撤动作时才放行输入框的原生撤销。
-    if (!undoBar.value) return
+    // 2026-10-21 暮雨实测：原来"焦点在输入框就一律放行"—— 他点完完成、焦点落在某处，
+    //   按 Ctrl+Z 完全没反应，于是判定"快捷键无用"。当时的修法是**只要撤销条在就接管，
+    //   不管焦点在哪**。代价没算清，2026-11-12 第 3 条报了出来：
+    //   “编辑日志文本时，有时想撤销错误的粘贴，结果好像自动撤销了一条日志操作”。
+    // 所以现在是两条并存的规则（判据在 `shared/undoKey.ts`，纯函数、可单测）：
+    //   ① 焦点在**可编辑文本**里（textarea / 文本型 input / contenteditable）→ 撤字，放行原生；
+    //   ② 其它任何地方（按钮 / 卡片 / 空白）→ 撤数据动作（10-21 那次报障的场景不再复发）。
+    const owner = decideUndoKey(!!undoBar.value, isEditableTarget(document.activeElement as any))
+    if (owner !== 'data') return
     e.preventDefault()
     void runUndo()
     return
@@ -6980,8 +6986,16 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 // 这里只留"日志类撤销"的连接逻辑 —— 它依赖本文件的 loadLogs / loadLogsForTask。
 
 /** 撤销条按钮 / Ctrl+Z 的共用入口：异常统一转 toast（`undo.ts` 只管状态，不依赖 UI 提示） */
-function runUndo(): Promise<boolean> {
-  return runUndoCore((msg) => showToast(msg, 'error'))
+async function runUndo(): Promise<boolean> {
+  // 2026-11-12 第 3 条：`runUndoCore` 只返回 true/false，撤完**什么都没说**，
+  // 横幅 5 秒后还收成小胶囊 —— 于是用户“找不到是哪一条被动了”。
+  // 所以先记住这一笔叫什么，撤成功就把名字说出来（失败由 runUndoCore 自己报原因）。
+  const label = undoBar.value?.label || ''
+  const ok = await runUndoCore((msg) => showToast(msg, 'error'))
+  // 措辞用「刚才那一步是『…』」而不是「已撤回：已通过…」——
+  // label 本身已经是一句完成时（`已通过“某卡”`），直接前缀会连成病句。
+  if (ok && label) showToast(`撤回完成：刚才那一步是「${label}」`, 'success')
+  return ok
 }
 /** 历史面板里点某一条：把它及之后一起撤掉（2026-10-30 多级栈） */
 const undoHistOpen = ref(false)
