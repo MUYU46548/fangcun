@@ -2752,28 +2752,104 @@
       // ── 规划草案入口（2026-11-11 · 0.7.0 规划根基）────────────────────
       // 判据四件：① 草案真读出来（不是写死一段话）；② 齐全的格有提议按钮、缺块的格**没有**；
       //          ③ 坏草案被点名（不静默）；④ 点提议真走 plansProposeFromDraft 且带澄清卷。
+      // 2026-11-12 第二轮再加一组：**提成时就地改三块** —— 改完缺块跟着变、能提得了、
+      //          提交只带改过的块（`patch`），且草案文件不被改（那条在 e2e-plan-drafts 里逐字节钉）。
       {
         check('★★ 作战计划页有「草案」块（此前草案只在文件里，界面看不见）',
           !!(await waitFor(() => !!$('#board.pv .plan-drafts'), 4000, 'plan-drafts')))
-        const btns = $$('#board.pv .plan-drafts .pd-stage button')
+        const stageRow = (id) => $$('#board.pv .pd-stage').find(
+          (x) => ((x.querySelector('.pd-sid') || {}).textContent || '').trim() === id)
+        const rowBtns = (id) => Array.prototype.slice.call((stageRow(id) || { querySelectorAll: () => [] }).querySelectorAll('button'))
+        const rowBtn = (id, re) => rowBtns(id).find((b) => re.test((b.textContent || '').trim()))
+        // 按钮数按“格子”数，不按总数：每格恒有「✎ 改一下」，另加「提成」与否才是判据
         check('★★ 齐全那格给「提成阶段卡」按钮，缺块那格**不给**（缺块提进去也冻结不了）',
-          $$('#board.pv .pd-stage').length === 2 && btns.length === 1,
-          'stages=' + $$('#board.pv .pd-stage').length + ' btns=' + btns.length)
+          $$('#board.pv .pd-stage').length === 2
+          && !!rowBtn('P12', /提成阶段卡/) && !rowBtn('P13', /提成阶段卡/),
+          'stages=' + $$('#board.pv .pd-stage').length
+          + ' P12=' + rowBtns('P12').map((b) => (b.textContent || '').trim()).join(',')
+          + ' P13=' + rowBtns('P13').map((b) => (b.textContent || '').trim()).join(','))
+        check('★ 每格都有「✎ 改一下」（提成前就地改三块的入口）',
+          !!rowBtn('P12', /改一下/) && !!rowBtn('P13', /改一下/),
+          rowBtns('P13').map((b) => (b.textContent || '').trim()).join(','))
         check('★ 缺哪几块直接写在行上（照抄点 / 判据）',
-          /缺 .*照抄点.*判据/.test(($$('#board.pv .pd-miss')[0] || {}).textContent || ''),
-          (($$('#board.pv .pd-miss')[0] || {}).textContent || '').trim())
+          /缺 .*照抄点.*判据/.test((stageRow('P13') || {}).textContent || ''),
+          ((stageRow('P13') || {}).textContent || '').trim())
         check('★ 坏草案在划线下列出来（不静默丢）',
           /坏草案/.test(($('#board.pv .pd-broken') || {}).textContent || ''),
           (($('#board.pv .pd-broken') || {}).textContent || '').trim())
         check('★ 澄清卷下拉带上了「没卷不给提」的缘故',
           !!$('#board.pv .pd-sel') && (($('#board.pv .pd-hint') || {}).textContent || '').length > 0,
           (($('#board.pv .pd-hint') || {}).textContent || '').trim())
+
+        // ── 就地改三块（2026-11-12）────────────────────────────────────
+        // 编辑框默认收起（草案块要“一眼看完还能不能提”，不该一进来就摊三个大框）
+        check('★ 编辑框默认收起（默认摊开会把待裁决清单压到屏幕外）',
+          $$('#board.pv .pd-edit').length === 2
+          && $$('#board.pv .pd-edit').every((e) => e.style.display === 'none'),
+          $$('#board.pv .pd-edit').map((e) => e.style.display).join('|'))
+
+        // 展开缺块那格 → 框里铺的必须是草案原文（不是空白框）
+        const editBtn = rowBtn('P13', /改一下/)
+        if (editBtn) editBtn.click()
+        await sleep(400)
+        const ed13 = $(`#board.pv .pd-edit[data-pd-edit="P13"]`)
+        const ta13 = ed13 ? Array.prototype.slice.call(ed13.querySelectorAll('textarea')) : []
+        check('★★ 点「改一下」展开该格的编辑框，且带草案原文（三个框：技术方案 / 照抄点 / 判据）',
+          !!ed13 && ta13.length === 3 && ta13[0].value.indexOf('只有技术方案') >= 0,
+          ta13.length ? JSON.stringify(ta13.map((t) => t.value.slice(0, 18))) : '(没有编辑框)')
+
+        // 在「判据」框里补一条 → 缺块提示必须跟着变（缺的少一项）
+        const typeIn = (el, v) => {
+          el.value = v
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+        const missOf = (id) => {
+          const r = stageRow(id)
+          return r ? ((r.querySelector('.pd-miss') || {}).textContent || '').trim() : ''
+        }
+        if (ta13[2]) typeIn(ta13[2], 'cmd: node scripts/test/e2e-plan-drafts.cjs')
+        await sleep(400)
+        check('★★ 在框里补了判据 → 行上的「缺什么」跟着变（还缺照抄点，判据不再报缺）',
+          /照抄点/.test(missOf('P13')) && !/判据/.test(missOf('P13')),
+          missOf('P13'))
+
+        // 再把照抄点表补上 → 三块齐全，提成按钮当场出现
+        if (ta13[1]) typeIn(ta13[1], '| 项 | 来源 | 原文 |\n|---|---|---|\n| 闭环机检 | docs/x.md | num: 9/0 |')
+        await sleep(500)
+        check('★★ 三块补齐后「提成阶段卡」按钮当场出现（判缺块用的是改后的内容，不是草案原文）',
+          !!rowBtn('P13', /提成阶段卡/) && !!$('#board.pv .pd-ok'),
+          ((stageRow('P13') || {}).textContent || '').trim())
+        check('★ 行上标出「已改：照抄点 / 判据」（改了哪几块看得见）',
+          /已改：.*照抄点.*判据/.test((stageRow('P13') || {}).textContent || ''),
+          ((stageRow('P13') || {}).textContent || '').trim())
+
+        // 点提成 → 提交的 patch 只带改过的两块（技术方案没动就不该出现在载荷里）
         window.__fcTest.reset()
-        if (btns[0]) btns[0].click()
-        check('★★ 点「提成阶段卡」真走 plansProposeFromDraft，且带上已选澄清卷',
-          await waitFor(() => window.__fcTest.callCount('plansProposeFromDraft') > 0, 4000, 'proposeFromDraft'),
+        const propBtn = rowBtn('P13', /提成阶段卡/)
+        if (propBtn) propBtn.click()
+        check('★★ 提成时把改动随载荷交上去（走同一条 plansProposeFromDraft，不新开通道）',
+          await waitFor(() => window.__fcTest.callCount('plansProposeFromDraft') > 0, 4000, 'proposeFromDraft(patch)'),
           JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
-        check('★ 提交的是 (草案文件, 阶段号, 卷名) 三件，不是整个 DOM 文本',
+        check('★★ 载荷里只带**改过**的块：有照抄点与判据、没有技术方案（没改的不传）',
+          window.__fcTest.calls().some((c) => {
+            const p = c.name === 'plansProposeFromDraft' && c.args && c.args[0] && c.args[0].patch
+            return p && Array.isArray(p.copyRows) && Array.isArray(p.criteria) && p.approach === undefined
+          }),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
+        check('★ 提成成功后的回执说清「提成时改过哪几块」',
+          await waitFor(() => /改过/.test(($('#board.pv .pd-msg') || {}).textContent || ''), 4000, 'pd-msg'),
+          (($('#board.pv .pd-msg') || {}).textContent || '').trim())
+
+        // 齐全那格：不改任何东西 → 载荷里不该有 patch（否则等于每次提成都说“我改过”）
+        window.__fcTest.reset()
+        const propP12 = rowBtn('P12', /提成阶段卡/)
+        if (propP12) propP12.click()
+        await sleep(900)
+        check('★★ 一个字都没改就提成 → 载荷里没有 patch（不许凭空说“改过”）',
+          window.__fcTest.calls().some((c) => c.name === 'plansProposeFromDraft'
+            && c.args && c.args[0] && c.args[0].patch === undefined),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
+        check('★ 提交的仍是 (草案文件, 阶段号, 卷名)，不是整个 DOM 文本',
           window.__fcTest.calls().some((c) => c.name === 'plansProposeFromDraft'
             && c.args && c.args[0] && /\.md$/.test(String(c.args[0].draft))
             && /^P\d+$/.test(String(c.args[0].stageId)) && String(c.args[0].deck).length > 0),

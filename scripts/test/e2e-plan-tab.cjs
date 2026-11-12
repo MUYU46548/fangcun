@@ -208,8 +208,14 @@ check('★ 白名单条数 = 摆法数（两处注册不许漂移）',
   `PV_VIEWS=${(pvViewsSrc.match(/'[a-z]+'/g) || []).length} options=${optionCount}`)
 
 const ipc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-ipc.ts'), 'utf-8')
-check('★ IPC 只有两个口（plans:get / plans:verdict），没有第三个',
-  (ipc.match(/guardedHandle\('/g) || []).length === 2, String((ipc.match(/guardedHandle\('/g) || []).length))
+// 2026-11-11：草案入口**明加**了两条（`plans:drafts` 只读 / `plans:proposeFromDraft` 提成），
+// 原来“恒为 2”的断言随之变成误伤。判据改成**正向白名单**：只许这四个名字，多一个就红
+// （与 e2e-stage-gate 里那条同口径 —— 两处都钉，防一边松了口另一边没跟上）。
+const IPC_ALLOWED = ['plans:get', 'plans:verdict', 'plans:drafts', 'plans:proposeFromDraft']
+const ipcNames = (ipc.match(/guardedHandle\('([^']+)'/g) || []).map((s) => s.replace(/^guardedHandle\('/, '').replace(/'$/, ''))
+check('★ 计划 IPC 只许这四个名字（草案入口是明加的；再多一个就是“偷偷加口”）',
+  ipcNames.length === IPC_ALLOWED.length && IPC_ALLOWED.every((n) => ipcNames.includes(n)),
+  JSON.stringify(ipcNames))
 
 console.log('\n== ⑦ 真卡回归：真实 fangcun-base.md 必须每张三块齐全 ==')
 // 2026-10-31 实测踩过：真实卡里 `- 判据:` 与首条之间隔一个空行，

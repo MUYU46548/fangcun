@@ -232,7 +232,9 @@ if (!fs.existsSync(PLAN_MD)) {
   data.setDataDir(REPO)
   const { readPlan } = require(path.join(REPO, 'desktop', 'dist', 'main', 'data', 'plans.js'))
   const doc = readPlan('fangcun-base.md')
-  check('★ 真卡读得到（8 张阶段卡）', !!doc && doc.stages.length === 8, doc ? String(doc.stages.length) : 'null')
+  // 2026-11-12：原来钉死“恰好 8 张”。真卡长到 12 张（P0–P11）后这条变成假红 ——
+  // 它要证明的是“真卡读得到”，不是“卡永远只有 8 张”。
+  check('★ 真卡读得到（阶段卡 ≥ 8 张）', !!doc && doc.stages.length >= 8, doc ? String(doc.stages.length) : 'null')
   if (doc) {
     const real = buildDailyBand([doc])
     const firstFrozen = doc.stages.filter((s) => String(s.status || '').trim() === '已冻结')[0]
@@ -280,8 +282,17 @@ check('★ 日志页模板里真有这条带（class="daily-band"）', /class="d
 check('★ 日志页进入时重读（onMounted → loadDailyBand）', /onMounted\(\(\) => \{ void loadDailyBand\(\) \}\)/.test(LOGS))
 check('★ 选格走 shared/dailyBand（界面不自己写规则）',
   /from '\.\.\/\.\.\/shared\/dailyBand'/.test(COMPOSER) && /buildDailyBand\(/.test(COMPOSER))
+// 2026-11-11：草案入口明加了两条（plans:drafts / plans:proposeFromDraft），
+// 于是“恒为 2 个口”变成误伤。判据改成正向白名单（与 e2e-stage-gate / e2e-plan-tab 同口径）：
+// **这条带自己没有新开写口** —— 它仍然只借 plansGet 读，白名单里的四条都不是它加的。
+const DAILY_IPC_ALLOWED = ['plans:get', 'plans:verdict', 'plans:drafts', 'plans:proposeFromDraft']
+const dailyIpcNames = (read('desktop/src/main/plan-ipc.ts').match(/guardedHandle\('([^']+)'/g) || [])
+  .map((s) => s.replace(/^guardedHandle\('/, '').replace(/'$/, ''))
 check('★ 取数复用 P1 已有的 plansGet，没有新增 IPC 口',
-  /api\.plansGet\(\)/.test(COMPOSER) && (read('desktop/src/main/plan-ipc.ts').match(/guardedHandle\('/g) || []).length === 2)
+  /api\.plansGet\(\)/.test(COMPOSER)
+  && dailyIpcNames.length === DAILY_IPC_ALLOWED.length
+  && DAILY_IPC_ALLOWED.every((n) => dailyIpcNames.includes(n)),
+  JSON.stringify(dailyIpcNames))
 check('★ 不新开页面：daily-band 只在日志页 + 样式里出现',
   (APP.match(/daily-band/g) || []).length === 0 && /\.daily-band \{/.test(CSS))
 check('★ 空态文案真源在 shared（界面没有第二份"还没有冻结"）',

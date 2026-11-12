@@ -228,8 +228,11 @@ console.log('\n== ② 执行：str / num / file ==')
     const doc = readPlan('fangcun-base.md')
     const lines = (doc ? doc.stages : []).reduce((a, s) => a.concat(s.criteria || []), [])
     const parsed = parseCheckLines(lines)
-    check('★ 真卡 8 张 / 全部判据逐条读得到（一条不丢）',
-      !!doc && doc.stages.length === 8 && parsed.length === lines.length && lines.length >= 24,
+    check('★ 真卡全部阶段 / 判据逐条读得到（一条不丢）',
+      // 2026-11-12：原来钉的是“恰好 8 张卡 / 恰好 8 条 cmd”。真卡长到 12 张（P0–P11）后
+      // 这两条就变成**假红** —— 它量的是“卡有几张”，而不是“判据读全没读全”。
+      // 判据改成结构性的：阶段数 ≥ 8（不写死）、逐条可解析且一条不少、条数够用。
+      !!doc && doc.stages.length >= 8 && parsed.length === lines.length && lines.length >= 24,
       JSON.stringify({ stages: doc && doc.stages.length, criteria: parsed.length, lines: lines.length }))
     check('★ 每一条都有 kind（没有 undefined / 静默丢行）',
       parsed.every((p) => typeof p.kind === 'string' && p.kind.length > 0))
@@ -240,9 +243,11 @@ console.log('\n== ② 执行：str / num / file ==')
         lines.some((l) => new RegExp('^\\s*(?:-\\s*)?' + x + '\\s*[:：]').test(l))))
     const kinds = parsed.reduce((m, p) => (m[p.kind] = (m[p.kind] || 0) + 1, m), {})
     check('★★ 真卡判据全部可机检：unknown = 0（改写前是 23 条散文，闸门被它们 forever 挡着）',
-      (kinds.unknown || 0) === 0 && kinds.cmd === 8,
+      // ⚠ 不写死 cmd 的条数：真卡会加卡，写死就等于“加一张卡就红”（2026-11-12 实测）。
+      //   这里量的是**没有散文判据**（unknown=0）与“三类真在用”，不是某一类的精确条数。
+      (kinds.unknown || 0) === 0 && (kinds.cmd || 0) >= 8 && (kinds.str || 0) >= 1 && (kinds.file || 0) >= 1,
       JSON.stringify(kinds))
-    check('★ 8 条 cmd 全部指向仓库里的脚本（不是随手一句）',
+    check('★ 真卡上的 cmd 判据全部指向仓库里的脚本（不是随手一句）',
       parsed.filter((p) => p.kind === 'cmd').every((p) => /^(?:python|node)\s+scripts\//.test(p.command)),
       parsed.filter((p) => p.kind === 'cmd').map((p) => p.command).join(' | '))
     check('★ unknown 的每一条都有可读 reason',

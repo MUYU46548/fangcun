@@ -11,11 +11,22 @@
  *   ① 草案是**只读**的：这里不写 `_drafts/` 一个字节（断言逐字节比对）；
  *   ② 提成时不信任界面传来的正文 —— 一律**服务器侧重读草案**，按 (draft, stageId) 取块；
  *   ③ 缺块就在界面上说缺什么、并**不给**提议按钮（`missing` 非空即拒）。
+ *
+ * 2026-11-12 补第二半（0.7.0 规划根基第二轮）：**提成时就地改三块**。
+ *   在此之前只能整格原样提成 —— 判据写歪一个字，唯一的路是回去让 agent 重写整份草案，
+ *   而“我看一眼、改一下再收”恰恰是裁决这个动作本身该包含的。现在：
+ *     · 界面把改过的三块（`patch`）随提成一起交上来；
+ *     · 主进程**先用草案原文当底**、只把这三块覆盖上去（`applyPatch`，id/标题/做什么不可改）；
+ *     · 仍然只调 `proposeStage` —— 不新开写路径，草案文件依旧一个字节不写。
  */
 import * as fs from 'fs'
 import * as path from 'path'
 import { getTaskDir } from './index'
 import { proposeStage, type PlanDoc, type PlanStage, type ProposeStageResult } from './plans'
+import {
+  applyPatch, diffStage, editNote, isSepRow, missingOf, validateStage,
+  type EditSummary, type StagePatch,
+} from '../../shared/draftEdit'
 
 export interface DraftStage {
   id: string
@@ -43,7 +54,6 @@ export interface DraftDoc {
 
 const DRAFTS_SUBDIR = '_drafts'
 const STAGE_HEAD = /^###\s+(P\d+)\s*[·:：]?\s*(.*)$/
-const CRITERIA_PREFIX = /^(cmd|str|num|file)\s*[:：]/
 
 function draftsDir(): string {
   return path.join(getTaskDir(), 'plans', DRAFTS_SUBDIR)
@@ -63,8 +73,6 @@ function splitRow(line: string): string[] {
   const t = line.trim().replace(/^\|/, '').replace(/\|$/, '')
   return t.split('|').map((c) => c.trim())
 }
-
-const isSepRow = (cells: string[]) => cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c.replace(/\s/g, '')))
 
 /** 解析一份草案。坏输入返回 null（界面据此显示“读不出来”，不糊一个空壳）。 */
 export function readDraft(rel: string): DraftDoc | null {
@@ -91,11 +99,8 @@ export function readDraft(rel: string): DraftDoc | null {
 
   const flush = () => {
     if (!cur) return
-    if (!cur.approach.length) cur.missing.push('技术方案')
-    if (cur.copyRows.filter((r) => !isSepRow(r)).length < 2) cur.missing.push('照抄点')
-    if (!cur.criteria.length) cur.missing.push('判据')
-    const bad = cur.criteria.find((c) => !CRITERIA_PREFIX.test(c))
-    if (bad) cur.missing.push(`判据没前缀：${bad.slice(0, 24)}`)
+    // 「缺什么」只由 shared/draftEdit 算（界面与主进程同一口径；见该文件顶部硬纪律②）
+    cur.missing = missingOf(cur)
     stages.push(cur)
     cur = null
     mode = ''
@@ -186,41 +191,69 @@ export interface ProposeFromDraftInput {
   deck?: string
   agent?: string
   now?: string
+  /**
+   * 提成时**就地改过**的三块（2026-11-12）。没给的块 = 原样用草案里的。
+   * ⚠ 只能改这三块：阶段号 / 标题 / 做什么一律以草案为准（改了“提的是哪一格”就说不清了）。
+   */
+  patch?: StagePatch
 }
 
 /**
  * 草案的某一格 → 真阶段卡。**走同一条闸**：`proposeStage` 负责三块校验、判据前缀、
  * 重号检查与澄清卷硬闸；这里只做「按 (草案, 格) 取出正文 + 目标计划文件」。
+ *
+ * 2026-11-12：提成时可以带 `patch`（界面上改过的三块）。处理顺序是刻意的 ——
+ *   **先把改动合上去再判缺块**：否则“草案里缺判据、我在编辑框里补了”这条最常见的用法
+ *   会被草案原文的 `missing` 挡住（旧逻辑就是这个顺序，于是“改了也提不了”）。
  */
-export function proposeFromDraft(input: ProposeFromDraftInput): ProposeStageResult & { planFile?: string; draft?: string } {
+export function proposeFromDraft(input: ProposeFromDraftInput): ProposeStageResult & {
+  planFile?: string; draft?: string; edit?: EditSummary
+} {
   const name = path.basename(String(input?.draft || ''))
   const draft = name ? readDraft(name) : null
   if (!draft) return { ok: false, error: `读不出草案：${name || '（没给文件名）'}` }
   const stageId = String(input?.stageId || '').trim().toUpperCase()
-  const stage = draft.stages.find((s) => s.id === stageId)
-  if (!stage) return { ok: false, error: `草案《${draft.file}》里没有阶段 ${stageId || '（没给 id）'}` }
-  if (stage.missing.length) {
+  const found = draft.stages.find((s) => s.id === stageId)
+  if (!found) return { ok: false, error: `草案《${draft.file}》里没有阶段 ${stageId || '（没给 id）'}` }
+
+  // ① 合改动（只三块），再按**合并后的内容**判缺块与体检
+  const stage = applyPatch(found, input?.patch)
+  const edit = diffStage(found, stage)
+  const problems = validateStage(stage)
+  if (problems.length) {
+    return { ok: false, error: `这一格的内容过不了体检：${problems.join('；')}（草案文件没动，改完再提一次）` }
+  }
+  const missing = missingOf(stage)
+  if (missing.length) {
     return {
       ok: false,
-      error: `这一格还缺 ${stage.missing.join(' / ')} —— 三块齐全才给提成阶段卡（缺块提进去也冻结不了）`,
+      error: `这一格还缺 ${missing.join(' / ')} —— 三块齐全才给提成阶段卡（缺块提进去也冻结不了）`,
+      draft: draft.file,
+      edit,
     }
   }
+
   const planFile = `${draft.project}.md`
+  // 提议人里带上“改过哪几块”：计划卡落地后仍看得见这格是提成时改的（留痕不是发版说明的事）
+  const baseAgent = String(input?.agent || '方寸·草案入口')
+  const agent = edit.count ? `${baseAgent}（${editNote(edit)}）` : baseAgent
   return {
     ...proposeStage({
       file: planFile,
       title: stage.title,
+      what: stage.what,
       approach: stage.approach,
       criteria: stage.criteria,
       copyRows: stage.copyRows,
       copyHasHeader: true,
       stageId: stage.id,
       deck: String(input?.deck || ''),
-      agent: String(input?.agent || '方寸·草案入口'),
+      agent,
       now: input?.now,
     }),
     planFile,
     draft: draft.file,
+    edit,
   }
 }
 

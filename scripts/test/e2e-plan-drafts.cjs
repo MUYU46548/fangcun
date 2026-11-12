@@ -193,7 +193,6 @@ console.log('\n== B. 提成阶段卡（走同一条闸）==')
 const rMissing = draftsMod.proposeFromDraft({ draft: 'demo-2026-11-11.md', stageId: 'P13', deck: 'demo-宪法层' })
 check('★★ 缺块那格：拒，且说清缺什么（不写半个字节）',
   rMissing.ok === false && /缺/.test(rMissing.error || ''), JSON.stringify(rMissing))
-
 const rNoDeck = draftsMod.proposeFromDraft({ draft: 'demo-2026-11-11.md', stageId: 'P12', deck: '' })
 check('★★ 没带澄清卷：拒（D-060 硬锁，与 agent 走 stage_plan_propose 同一口径）',
   rNoDeck.ok === false && /澄清|卷/.test(rNoDeck.error || ''), JSON.stringify(rNoDeck))
@@ -230,6 +229,116 @@ check('★ 读回来说得通（三块不缺、状态是待裁决）',
 const rAgain = draftsMod.proposeFromDraft({ draft: 'demo-2026-11-11.md', stageId: 'P12', deck: 'demo-宪法层' })
 check('★ 重复提成同一格：拒（重号检查），文件不再多一张',
   rAgain.ok === false && (planAfter.match(/### P12/g) || []).length === 1, JSON.stringify(rAgain))
+
+// ══ C. 提成时就地改三块（2026-11-12 第二轮）══════════════════════════════
+// 判据：① 草案里**缺块**的那格，在提成时把缺的块补上 → 必须能提（旧的“先判缺再改”顺序必红）；
+//       ② 改过的内容**真的落进计划卡**（不是只改了个界面）；③ 没改的块**一个字都不许变**；
+//       ④ 改了哪几块要留痕（提议人里看得见）；⑤ 越权字段（id / 标题）一律以草案为准；
+//       ⑥ 体检不过（判据没前缀 / 表格列数不对）→ 拒，且**草案与计划卡都不动**。
+const ED = require(path.join(DIST, 'shared', 'draftEdit.js'))
+
+console.log('\n== C. 提成时就地改三块（改完仍走同一条闸）==')
+const planBeforePatch = fs.readFileSync(path.join(PLANS, 'demo.md'), 'utf-8')
+
+// ⑥-a 体检先拦：判据没前缀 → 拒（这一步在“缺块”之前，报的是内容问题而不是“缺判据”）
+const rBadPrefix = draftsMod.proposeFromDraft({
+  draft: 'demo-2026-11-11.md', stageId: 'P14', deck: 'demo-宪法层',
+  patch: { criteria: ['这条忘了写前缀'] },
+})
+check('★★ 改过的判据没前缀：拒，且点名是前缀问题（不是笼统的“缺判据”）',
+  rBadPrefix.ok === false && /前缀/.test(rBadPrefix.error || ''), JSON.stringify(rBadPrefix))
+
+// ① P13 草案里缺照抄点与判据 → 提成时补上 → 必须能提
+const rFill = draftsMod.proposeFromDraft({
+  draft: 'demo-2026-11-11.md', stageId: 'P13', deck: 'demo-宪法层',
+  patch: {
+    copyRows: [['项', '来源', '原文'], ['---', '---', '---'], ['闭环机检', 'docs/x.md', 'num: 9/0']],
+    criteria: ['cmd: node scripts/test/e2e-plan-drafts.cjs', 'str: desktop/src/shared/draftEdit.ts 含 applyPatch'],
+  },
+})
+const planAfterFill = fs.readFileSync(path.join(PLANS, 'demo.md'), 'utf-8')
+check('★★ 草案里缺块的那格：提成时把缺的块补上 → 能提成（“先判缺再改”的旧顺序会在这里必红）',
+  rFill.ok === true && /### P13/.test(planAfterFill),
+  JSON.stringify({ ok: rFill.ok, error: rFill.error }))
+check('★★ 改过的内容真的落进了计划卡（不是只改了界面）',
+  /闭环机检/.test(planAfterFill) && /num: 9\/0/.test(planAfterFill)
+  && /applyPatch/.test(planAfterFill), planAfterFill.split('\n').filter((l) => /闭环机检|applyPatch/.test(l)).join(' | '))
+check('★ 没改的块一个字都不许变（P13 的技术方案还是草案里那条）',
+  /只有技术方案，照抄点与判据都没写/.test(planAfterFill))
+check('★★ 改了哪几块要留痕（提议人里写明，计划卡里看得见）',
+  /- 提议人: .*提成时改过：照抄点 \/ 判据/.test(planAfterFill),
+  planAfterFill.split('\n').filter((l) => /提议人/.test(l)).join(' | '))
+check('★ 回执带回改动摘要（界面据此说“改过哪几块”，不自己猜）',
+  !!rFill.edit && rFill.edit.count === 2 && rFill.edit.note === '照抄点 / 判据',
+  JSON.stringify(rFill.edit))
+
+// 材料：纯函数口径（界面与主进程共用，这里直接钉住，不走 IPC）
+check('★★ 「缺什么」只由 shared/draftEdit 算（主进程与界面同一口径）',
+  ED.missingOf({ approach: ['a'], copyRows: [['项', '来源'], ['---', '---'], ['x', 'y']], criteria: ['cmd: echo'] }).length === 0
+  && ED.missingOf({ approach: [], copyRows: [], criteria: [] }).join(',') === '技术方案,照抄点,判据',
+  JSON.stringify([
+    ED.missingOf({ approach: ['a'], copyRows: [['项', '来源'], ['---', '---'], ['x', 'y']], criteria: ['cmd: echo'] }),
+    ED.missingOf({ approach: [], copyRows: [], criteria: [] }),
+  ]))
+check('★★ 只有表头没有数据行 = 缺照抄点（表头不算内容）',
+  ED.missingOf({ approach: ['a'], copyRows: [['项', '来源', '原文']], criteria: ['cmd: x'] }).includes('照抄点'))
+check('★ 表格缺分隔线 → 自动补（用户手写很少记得写 |---|）',
+  (() => { const r = ED.normalizeCopyRows([['表头甲', '表头乙'], ['数据甲', '数据乙']]); return r.length === 3 && r[1].join('') === '------' })(),
+  JSON.stringify(ED.normalizeCopyRows([['表头甲', '表头乙'], ['数据甲', '数据乙']])))
+check('★ 连表头都没写 → 补一个标准表头（不是把数据行当表头）',
+  (() => { const r = ED.normalizeCopyRows([['a', 'b', 'c']]); return r[0][0] === '项' && r.length === 3 })(),
+  JSON.stringify(ED.normalizeCopyRows([['a', 'b', 'c']])))
+check('★★ 多行文本粘进判据：行首的 `- ` / `1. ` 要剥掉（否则落进卡里变成 `- - cmd: …`）',
+  ED.linesToList('- cmd: a\n1. str: b\n\n  num: c  ').join('|') === 'cmd: a|str: b|num: c',
+  JSON.stringify(ED.linesToList('- cmd: a\n1. str: b\n\n  num: c  ')))
+check('★★ 预检拦得住表格列数对不上（写进计划卡就是错位的表）',
+  ED.validateStage({ approach: ['a'], criteria: ['cmd: x'], copyRows: [['项', '来源', '原文'], ['---', '---', '---'], ['只有两列', '少了']] })
+    .some((e) => /列/.test(e)))
+check('★ 超限也拦（不是静默截断）',
+  ED.validateStage({ approach: ['a'], criteria: ['cmd: x'], copyRows: Array.from({ length: 61 }, () => ['a', 'b', 'c']) })
+    .some((e) => /超过上限/.test(e)))
+check('★★ 只有三块可改：id / 标题 / 做什么一律以草案为准（过桥塞进来也不认）',
+  (() => {
+    const base = { id: 'P99', title: '草案标题', what: '草案说的', approach: [], copyRows: [], criteria: [] }
+    const out = ED.applyPatch(base, { id: 'P1', title: '偷换的标题', approach: ['改这里'] })
+    return out.id === 'P99' && out.title === '草案标题' && out.what === '草案说的' && out.approach[0] === '改这里'
+  })(), JSON.stringify(ED.applyPatch({ id: 'P99', title: '草案标题', what: '草案说的', approach: [], copyRows: [], criteria: [] }, { id: 'P1', title: '偷换的标题', approach: ['改这里'] })))
+check('★ 没改任何一块 → 摘要为空、提议人里不加“改过”那句（不许凭空写一句改过）',
+  (() => {
+    const s = { approach: ['a'], copyRows: [], criteria: ['cmd: x'] }
+    const d = ED.diffStage(s, ED.applyPatch(s, undefined))
+    return d.count === 0 && ED.editNote(d) === ''
+  })())
+check('★★ 一条改动都不许丢进草案文件：跑完草案仍逐字节不变（含 patch 的几次）',
+  Buffer.compare(fs.readFileSync(draftPath), draftBytesBefore) === 0, `${fs.statSync(draftPath).size}B`)
+check('★ 体检不过时计划卡也不动（拒 = 零写入，不是“写一半”）',
+  fs.readFileSync(path.join(PLANS, 'demo.md'), 'utf-8').startsWith(planBeforePatch.split('\n')[0])
+  && (planBeforePatch.match(/### P14/g) || []).length === 0
+  && (fs.readFileSync(path.join(PLANS, 'demo.md'), 'utf-8').match(/### P14/g) || []).length === 0)
+
+// ══ D. 源码守卫：草案入口**结构上**就没有写 `_drafts` 的能力（2026-11-12）════
+// 逐字节比对只能证明“这次跑没写”。真正的铁律是**没有写路径** —— 所以静态钉住：
+// `planDrafts.ts` 里不许出现任何写盘调用（草案只读），写只许发生在 plans.ts 的 proposeStage。
+console.log('\n== D. 源码守卫（草案入口只读，写口只有一处）==')
+{
+  const read = (p) => fs.readFileSync(path.join(REPO, p), 'utf-8')
+  const SRC = read('desktop/src/main/data/planDrafts.ts')
+  const writes = SRC.match(/\b(writeFileSync|appendFileSync|unlinkSync|renameSync|atomicWrite|createWriteStream)\s*\(/g) || []
+  check('★★ 草案入口一个写盘调用都没有（草案只读是结构保证，不是靠自觉）',
+    writes.length === 0, writes.join(','))
+  check('★★ 提成仍只调 proposeStage 一条写路径（不开第二套）',
+    (SRC.match(/proposeStage\(/g) || []).length === 1)
+  // 「缺什么」的口径只许有一份：主进程与界面都 import 同一个纯函数，不许各自再写一遍
+  const VIEW = read('desktop/src/renderer/views/PlanView.vue')
+  check('★★ 界面与主进程共用同一套「缺什么」口径（都 import shared/draftEdit）',
+    /from '\.\.\/\.\.\/shared\/draftEdit'/.test(VIEW) && /from '\.\.\/\.\.\/shared\/draftEdit'/.test(SRC)
+    && !/missing\.push\('技术方案'\)/.test(VIEW) && !/missing\.push\('技术方案'\)/.test(SRC))
+  check('★ 界面提成时过桥的是普通对象（toPlain），不是裸 Vue 代理',
+    /toPlain\(pdPatch\(/.test(VIEW))
+  check('★ 过桥载荷的 patch 类型在 preload 里声明了（三块，不多不少）',
+    /patch\?:\s*\{\s*approach\?: string\[\]; copyRows\?: string\[\]\[\]; criteria\?: string\[\]/.test(
+      read('desktop/src/preload/index.ts')))
+}
 
 check('★★ 草案本身只读：跑完逐字节不变', Buffer.compare(fs.readFileSync(draftPath), draftBytesBefore) === 0,
   `${fs.statSync(draftPath).size}B`)

@@ -47,12 +47,17 @@ export function registerPlanIpcHandlers(): void {
     }
   })
 
-  guardedHandle('plans:proposeFromDraft', (_e, input?: { draft?: string; stageId?: string; deck?: string }) => {
+  // 2026-11-12（0.7.0 第二轮）：提成时可以带 `patch` —— 界面上就地改过的三块。
+  // 仍然只走 `proposeFromDraft` → `proposeStage` 这一条写路径，草案文件一个字节不写。
+  guardedHandle('plans:proposeFromDraft', (_e, input?: {
+    draft?: string; stageId?: string; deck?: string; patch?: { approach?: string[]; copyRows?: string[][]; criteria?: string[] }
+  }) => {
     try {
       return proposeFromDraft({
         draft: String(input?.draft || ''),
         stageId: String(input?.stageId || ''),
         deck: String(input?.deck || ''),
+        patch: input?.patch,
       })
     } catch (e) {
       return { ok: false, error: (e as Error).message }

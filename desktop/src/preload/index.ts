@@ -98,9 +98,13 @@ contextBridge.exposeInMainWorld('tegula', {
     ipcRenderer.invoke('plans:advance', input),
   // 规划草案入口（2026-11-11 · 0.7.0 规划根基）：读草案（含「缺什么」与可选澄清卷）
   plansDrafts: () => ipcRenderer.invoke('plans:drafts'),
-  // 草案某一格 → 真阶段卡：**走同一条闸**（proposeStage），不另开写口
-  plansProposeFromDraft: (input: { draft: string; stageId: string; deck: string }) =>
-    ipcRenderer.invoke('plans:proposeFromDraft', input),
+  // 草案某一格 → 真阶段卡：**走同一条闸**（proposeStage），不另开写口。
+  // 2026-11-12：`patch` 是提成时在界面上就地改过的三块（技术方案 / 照抄点 / 判据）；
+  // 不带 = 整格原样提。草案文件本身永远只读。
+  plansProposeFromDraft: (input: {
+    draft: string; stageId: string; deck: string
+    patch?: { approach?: string[]; copyRows?: string[][]; criteria?: string[] }
+  }) => ipcRenderer.invoke('plans:proposeFromDraft', input),
   // 投入产出账（0.6.0 P5）：只读
   wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
   // 计划与实际的对照镜（卡 20261027-004）：只读，返回两段原文

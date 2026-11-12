@@ -54,11 +54,14 @@
     <!-- 规划草案入口（2026-11-11 · 0.7.0 规划根基）：
          在此之前 agent 起草的草案只在 `task-data/plans/_drafts/*.md`，界面上看不见 ——
          “agent 起草 → 人裁决”这条链只通了半截。这里列出来、说清每格缺什么、
-         点一下就**走同一条闸**提成「待裁决」阶段卡（缺块的那格不给按钮）。 -->
+         点一下就**走同一条闸**提成「待裁决」阶段卡（缺块的那格不给按钮）。
+
+         2026-11-12 第二轮：**提成时就地改三块**。判据写歪一个字不必再回去让 agent 重写整份草案 ——
+         展开编辑框改，改完仍然过同一条闸。草案文件本身**依旧只读**（改的是这次要落地的内容）。 -->
     <div v-if="drafts.length || draftBroken.length" class="plan-drafts" data-plan-drafts>
       <div class="plan-pending-head">
         <b>{{ drafts.length }} 份草案等你提成阶段卡</b>
-        <span class="plan-pending-hint">草案由 agent 起草（本页只读）；提成后才是「待裁决」卡，三块齐全才给提</span>
+        <span class="plan-pending-hint">草案由 agent 起草（本页只读）；提成时可以就地改三块，改完仍走同一条闸</span>
       </div>
       <div v-if="draftDecks.length" class="pd-row">
         <span class="pd-label">澄清卷</span>
@@ -74,13 +77,42 @@
           <b>{{ d.file }}</b>
           <span class="pd-meta">{{ d.project }} · {{ d.stages.length }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
         </div>
-        <div v-for="s in d.stages" :key="s.id" class="pd-stage">
+        <div v-for="s in d.stages" :key="s.id" class="pd-stage" :data-pd-stage="s.id">
           <span class="pd-sid">{{ s.id }}</span>
           <span class="pd-title">{{ s.title }}</span>
-          <span v-if="s.missing.length" class="pd-miss">缺 {{ s.missing.join(' / ') }} —— 不能提</span>
+          <span v-if="editingKey === pdKey(d, s)" class="pd-editing">正在改</span>
+          <!-- ⚠ 缺什么**编辑时也要看得见**（第一版被“正在改”顶掉了，改到一半就不知道还差哪块） -->
+          <span v-if="pdMissing(d, s).length" class="pd-miss">缺 {{ pdMissing(d, s).join(' / ') }} —— 不能提</span>
           <span v-else class="pd-ok">三块齐全</span>
-          <Button v-if="!s.missing.length" variant="ghost" size="sm" :disabled="draftBusy"
+          <Button variant="ghost" size="tool" :disabled="draftBusy"
+            :title="editingKey === pdKey(d, s) ? '收起编辑框（改过的内容留着，提成时才生效）' : '展开编辑框：提成前就地改技术方案 / 照抄点 / 判据'"
+            @click="toggleDraftEdit(d, s)">{{ editingKey === pdKey(d, s) ? '收起' : '✎ 改一下' }}</Button>
+          <Button v-if="!pdMissing(d, s).length" variant="ghost" size="tool" :disabled="draftBusy"
             :title="'把这一格提成「待裁决」阶段卡（走 proposeStage 同一条闸）'" @click="proposeDraft(d, s)">提成阶段卡 →</Button>
+          <span v-if="pdChangedNote(d, s)" class="pd-changed">{{ pdChangedNote(d, s) }}</span>
+        </div>
+        <!-- 编辑框（2026-11-12）：三块各一个文本框；照抄点用文件里同样的 `| a | b |` 写法 -->
+        <div v-for="s in d.stages" :key="'ed-' + s.id" v-show="editingKey === pdKey(d, s)"
+          class="pd-edit" :data-pd-edit="s.id">
+          <label class="pd-edit-l">技术方案<span class="pd-edit-hint">一行一条</span>
+            <textarea class="pd-ta font-[inherit]" rows="4" :value="pdBuffer(d, s, 'approach')"
+              @input="onDraftInput(d, s, 'approach', $event)"></textarea>
+          </label>
+          <label class="pd-edit-l">照抄点<span class="pd-edit-hint">表格：| 项 | 来源 | 原文 |，第一行是表头</span>
+            <textarea class="pd-ta font-[inherit]" rows="5" :value="pdBuffer(d, s, 'copyRows')"
+              @input="onDraftInput(d, s, 'copyRows', $event)"></textarea>
+          </label>
+          <label class="pd-edit-l">判据<span class="pd-edit-hint">一行一条，每条必须以 cmd: / str: / num: / file: 开头</span>
+            <textarea class="pd-ta font-[inherit]" rows="4" :value="pdBuffer(d, s, 'criteria')"
+              @input="onDraftInput(d, s, 'criteria', $event)"></textarea>
+          </label>
+          <div class="pd-edit-foot">
+            <span v-if="pdMissing(d, s).length" class="pd-miss">还缺 {{ pdMissing(d, s).join(' / ') }}</span>
+            <span v-else class="pd-ok">三块齐全，可以提</span>
+            <span class="pd-hint">草案文件不会被改 —— 这里改的只是这次提成要落地的内容</span>
+            <Button variant="ghost" size="sm" @click="resetDraftEdit(d, s)">恢复原文</Button>
+            <Button variant="ghost" size="sm" @click="toggleDraftEdit(d, s)">收起</Button>
+          </div>
         </div>
       </div>
       <div v-if="draftMsg" class="pd-msg">{{ draftMsg }}</div>
@@ -258,6 +290,8 @@
 import { computed, onMounted, ref } from 'vue'
 import Button from '../components/ui/Button.vue'
 import { useWasteLedger } from '../composables/useWasteLedger'
+import { linesToList, listToLines, missingOf, normalizeCopyRows, parseCopyTable, tableToText } from '../../shared/draftEdit'
+import { toPlain } from '../../shared/plain'
 
 interface Stage {
   id: string; title: string; status: string; what: string
@@ -364,6 +398,95 @@ const draftDeck = ref('')
 const draftBusy = ref(false)
 const draftMsg = ref('')
 
+/**
+ * 提成时就地改三块（2026-11-12）。
+ *
+ * 三件必须成立，否则这条入口就是“改了个寂寞”：
+ *   ① 缺什么要**跟着改**实时变 —— 草案里缺判据、我在框里补了，按钮必须当场出现；
+ *   ② 提交出去的只能是**改过的块**（`patch`），没回到草案整份重写；
+ *   ③ 草案文件一个字节不动 —— 改的是“这次要落地的内容”。
+ * 「缺什么」的口径与主进程共用 `shared/draftEdit.ts`，这里不自己发明一套。
+ */
+type DraftBlock = 'approach' | 'copyRows' | 'criteria'
+interface EditBuf { approach: string; copyRows: string; criteria: string }
+const editingKey = ref('')
+/** key = `文件::格号`；值是三个文本框的**原文**（提交时才转成三块） */
+const editBuffers = ref<Record<string, EditBuf>>({})
+
+const pdKey = (d: any, s: any): string => String(d?.file || '') + '::' + String(s?.id || '')
+
+/** 逐项比对（与主进程 `diffStage` 同一判据：条数 + 每一条都要一致才算没改） */
+const sameList = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((x, i) => String(x) === String(b[i]))
+const sameRows = (a: string[][], b: string[][]): boolean =>
+  a.length === b.length && a.every((r, i) => sameList(r.map(String), (b[i] || []).map(String)))
+
+function bufOf(d: any, s: any): EditBuf {
+  const k = pdKey(d, s)
+  const cur = editBuffers.value[k]
+  if (cur) return cur
+  return { approach: listToLines(s?.approach), copyRows: tableToText(s?.copyRows), criteria: listToLines(s?.criteria) }
+}
+function pdBuffer(d: any, s: any, block: DraftBlock): string { return bufOf(d, s)[block] }
+
+/** 文本框原文 → 这一格**合并后**的三块（判缺块用这个，不用草案原文） */
+function pdMerged(s: any, buf: EditBuf): { approach: string[]; copyRows: string[][]; criteria: string[] } {
+  const approach = buf.approach === '' ? [] : linesToList(buf.approach)
+  const criteria = buf.criteria === '' ? [] : linesToList(buf.criteria)
+  const copyRows = normalizeCopyRows(parseCopyTable(buf.copyRows))
+  return { approach, criteria, copyRows }
+}
+function pdMissing(d: any, s: any): string[] {
+  return missingOf(pdMerged(s, bufOf(d, s)))
+}
+
+/** 改了哪几块（与主进程 `diffStage` 同一口径：逐项比对，改了才叫改） */
+function pdChangedBlocks(d: any, s: any): string[] {
+  const buf = bufOf(d, s)
+  const now = pdMerged(s, buf)
+  const out: string[] = []
+  if (!sameList(now.approach, (s?.approach || []).map((x: string) => String(x)))) out.push('技术方案')
+  if (!sameRows(now.copyRows, s?.copyRows || [])) out.push('照抄点')
+  if (!sameList(now.criteria, (s?.criteria || []).map((x: string) => String(x)))) out.push('判据')
+  return out
+}
+function pdChangedNote(d: any, s: any): string {
+  const n = pdChangedBlocks(d, s)
+  return n.length ? '已改：' + n.join(' / ') : ''
+}
+
+function toggleDraftEdit(d: any, s: any): void {
+  const k = pdKey(d, s)
+  if (editingKey.value === k) { editingKey.value = ''; return }
+  // 展开时用**草案原文**铺一遍（不保留上一次的临时改动 —— 收起不等于提交，这是可预期的）
+  editBuffers.value = { ...editBuffers.value, [k]: bufOf(d, s) }
+  editingKey.value = k
+}
+function onDraftInput(d: any, s: any, block: DraftBlock, ev: Event): void {
+  const el = ev.target as HTMLTextAreaElement | null
+  const k = pdKey(d, s)
+  const base = bufOf(d, s)
+  editBuffers.value = { ...editBuffers.value, [k]: { ...base, [block]: el ? el.value : '' } }
+}
+function resetDraftEdit(d: any, s: any): void {
+  const k = pdKey(d, s)
+  editBuffers.value = {
+    ...editBuffers.value,
+    [k]: { approach: listToLines(s?.approach), copyRows: tableToText(s?.copyRows), criteria: listToLines(s?.criteria) },
+  }
+}
+/** 提交给主进程的 `patch`：只放**真改过**的块（没改就不传，主进程按草案原文落） */
+function pdPatch(d: any, s: any): { approach?: string[]; copyRows?: string[][]; criteria?: string[] } | undefined {
+  const changed = pdChangedBlocks(d, s)
+  if (!changed.length) return undefined
+  const now = pdMerged(s, bufOf(d, s))
+  const out: { approach?: string[]; copyRows?: string[][]; criteria?: string[] } = {}
+  if (changed.includes('技术方案')) out.approach = now.approach
+  if (changed.includes('照抄点')) out.copyRows = now.copyRows
+  if (changed.includes('判据')) out.criteria = now.criteria
+  return out
+}
+
 async function loadDrafts(): Promise<void> {
   try {
     const r: any = await (window as any).tegula.plansDrafts()
@@ -381,13 +504,17 @@ async function proposeDraft(d: any, s: any): Promise<void> {
   draftBusy.value = true
   draftMsg.value = ''
   try {
+    // ⚠ 过桥只传普通对象（裸 Vue 代理必抛 could not be cloned —— 见 AGENTS 踩坑 1）
+    const patch = toPlain(pdPatch(d, s))
     const r: any = await (window as any).tegula.plansProposeFromDraft({
-      draft: String(d?.file || ''), stageId: String(s?.id || ''), deck: draftDeck.value,
+      draft: String(d?.file || ''), stageId: String(s?.id || ''), deck: draftDeck.value, patch,
     })
     if (r?.ok) {
-      draftMsg.value = `已提成 ${s.id} → ${r.planFile}（状态：待裁决，等你在这里点「通过（冻结）」）`
+      const note = r?.edit && r.edit.count ? `（提成时改过 ${r.edit.note}）` : ''
+      draftMsg.value = `已提成 ${s.id} → ${r.planFile}${note}（状态：待裁决，等你在这里点「通过（冻结）」）`
       msg.value = draftMsg.value
       msgType.value = 'ok'
+      editingKey.value = ''
       await load()
       await loadDrafts()
     } else {

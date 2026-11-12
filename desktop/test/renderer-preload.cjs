@@ -577,8 +577,24 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('plansProposeFromDraft', [input])
     const stageId = (input && input.stageId) || ''
     if (!input || !input.deck) return { ok: false, error: '必须附澄清问卷（deck）' }
-    if (stageId === 'P13') return { ok: false, error: '这一格还缺 照抄点 / 判据 —— 三块齐全才给提成阶段卡' }
-    return ok({ ok: true, planFile: 'fangcun-base.md', draft: 'fangcun-base-2026-11-11.md' })
+    const patch = (input && input.patch) || null
+    // 与主进程同顺序：先看合并后的三块齐不齐，再谈落不落盘。
+    // P13 在草案里缺照抄点与判据 —— 只有 patch 把这两块补上才放行（这正是“改完仍走同一条闸”）。
+    if (stageId === 'P13') {
+      const hasCopy = !!(patch && Array.isArray(patch.copyRows) && patch.copyRows.length >= 3)
+      const hasCriteria = !!(patch && Array.isArray(patch.criteria) && patch.criteria.length > 0)
+      if (!hasCopy || !hasCriteria) return { ok: false, error: '这一格还缺 照抄点 / 判据 —— 三块齐全才给提成阶段卡' }
+    }
+    const names = []
+    if (patch && Array.isArray(patch.approach)) names.push('技术方案')
+    if (patch && Array.isArray(patch.copyRows)) names.push('照抄点')
+    if (patch && Array.isArray(patch.criteria)) names.push('判据')
+    return ok({
+      ok: true, planFile: 'fangcun-base.md', draft: 'fangcun-base-2026-11-11.md',
+      edit: names.length
+        ? { changed: { approach: names.includes('技术方案'), copyRows: names.includes('照抄点'), criteria: names.includes('判据') }, count: names.length, note: names.join(' / ') }
+        : { changed: { approach: false, copyRows: false, criteria: false }, count: 0, note: '' },
+    })
   },
   // BYOK 多通道（2026-11-02）：主通道 + 一条备用；upsert / remove 都回"落盘后的真相"
   llmChannelsList: () => {
