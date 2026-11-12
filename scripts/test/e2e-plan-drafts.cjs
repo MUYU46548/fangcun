@@ -120,6 +120,11 @@ const DRAFT_MD = [
   '  - cmd: node scripts/test/e2e-plan-drafts.cjs',
   '  - file: desktop/src/main/data/planDrafts.ts',
   '',
+  // 2026-11-12：真实草案（`fangcun-base-2026-11-11.md`）每格都有这一行「- 依据:」。
+  // 它顶格写、以 `- ` 开头，被解析器当成了一条判据 → 判据没前缀 → 整格判「缺块」，
+  // **草案永远提不成**。这是只有拿真实草案跑一遍才会发现的坑（夹具里原来没有这一行）。
+  '- 依据: decision:D-061 · task:规划能力判断半澄清问卷三构件硬闸--题库-1ae16f3a',
+  '',
   '### P13 · 缺块的那一格',
   '',
   '- 状态: 待裁决',
@@ -188,6 +193,11 @@ check('★★ 缺块那格：缺什么要点名（照抄点 / 判据）',
   JSON.stringify(st('P13').missing))
 check('★★ 判据没前缀要被点名（否则提进去永远闸不过 = 死卡）',
   st('P14').missing.some((m) => m.indexOf('判据没前缀') >= 0), JSON.stringify(st('P14').missing))
+check('★★ `- 依据:` 不算判据（真实草案每格都有这行；当成判据会让整格永远「缺块」）',
+  st('P12').criteria.length === 2
+  && !st('P12').criteria.some((c) => /^依据\s*[:：]/.test(c))
+  && st('P12').missing.length === 0,
+  JSON.stringify({ 判据: st('P12').criteria, 缺: st('P12').missing }))
 
 console.log('\n== B. 提成阶段卡（走同一条闸）==')
 const rMissing = draftsMod.proposeFromDraft({ draft: 'demo-2026-11-11.md', stageId: 'P13', deck: 'demo-宪法层' })

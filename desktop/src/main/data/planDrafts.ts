@@ -135,12 +135,19 @@ export function readDraft(rel: string): DraftDoc | null {
       }
       if (mode === 'approach' || mode === 'criteria') {
         const item = /^\s*-\s+(.*)$/.exec(line)
-        if (item && item[1].trim()) {
+        // ⚠ 2026-11-12 实测（起草司天草案时踩到）：`- 依据:` 是阶段卡的**普通字段**，
+        //   但上面那条 item 正则也认它（顶格 `- xxx`）—— 于是「依据」被当成一条判据，
+        //   而它没有 cmd/str/num/file 前缀 → 整格被判「判据没前缀」，草案永远提不成。
+        //   真实草案（`fangcun-base-2026-11-11.md`）每格都有这一行，所以这不是个例。
+        //   判据段里只收**缩进的** `  - xxx`；顶格的 `- 状态/依据/做什么/裁决/证据` 是字段，不是判据。
+        const isField = /^\s{0,1}-\s*(依据|状态|裁决|打回理由|证据|澄清|做什么|提议人)\s*[:：]/.test(line)
+        if (item && item[1].trim() && !isField) {
           if (mode === 'approach') cur.approach.push(item[1].trim())
           else cur.criteria.push(item[1].trim())
           continue
         }
         if (line.trim() === '') continue
+        if (isField) { mode = ''; continue }   // 撞到下一个字段 = 本块结束
       }
       continue
     }
