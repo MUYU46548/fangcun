@@ -16,14 +16,25 @@
 
 ## 6 份草稿
 
-| # | 项目 | id | 草稿 | 待选 |
-|---|---|---|---|---|
-| 1 | Python工作区 | python-workspace | `待签收/python-workspace.md` | 3 |
-| 2 | 滞针迟鸣 | zhizhen-chiming | `待签收/zhizhen-chiming.md` | 3 |
-| 3 | 设定资料工具库 | bianjishi | `待签收/bianjishi.md` | 3 |
-| 4 | 松涛真韵 | songtao-zhenyun | `待签收/songtao-zhenyun.md` | 3 |
-| 5 | ROSA RAG | rosa-rag | `待签收/rosa-rag.md` | 3 |
-| 6 | 弈局残响 | yijucanxiang | `待签收/yijucanxiang.md` | 3 |
+**2026-11-12 全部处置完毕**（签收 5 · 废止 1）：
+
+| # | 项目 | id | 草稿 | 状态 | 暮雨的答案 |
+|---|---|---|---|---|---|
+| 1 | Python工作区 | python-workspace | `待签收/python-workspace.md` | ✅ 已签收 | **ACA** |
+| 2 | 滞针迟鸣 | zhizhen-chiming | `待签收/zhizhen-chiming.md` | ✅ 已签收 | **AAA** |
+| 3 | 设定资料工具库 | bianjishi | `待签收/bianjishi.md` | ✅ 已签收 | **AAB** |
+| 4 | 松涛真韵 | songtao-zhenyun | `待签收/songtao-zhenyun.md` | ⛔ **已废止** | 被 yovoice 全面取代（不立契约） |
+| 5 | ROSA RAG | rosa-rag | `待签收/rosa-rag.md` | ✅ 已签收 | **AAB** |
+| 6 | 弈局残响 | yijucanxiang | `待签收/yijucanxiang.md` | ✅ 已签收 | **AA（多结局已存在）A** |
+
+### 两条要靠用户纠正才发现的草稿错误（记下来，下次起草别重犯）
+
+1. **弈局残响 ②**：草稿按“只有单线”写验收线，实际**多结局已存在**
+   （`AGENTS.md` 状态机 `FINALE_CHOICE -> (多分支)`、README 写“走向属于你的结局”）。
+   → 起草时**没去读仓库的状态机**，只看了 registry 的“已稳定”备注。
+2. **松涛真韵**：草稿还在给一个**已经 `ARCHIVED.md` 封存**的项目写“内部音乐生产线”。
+   → 起草前该扫一眼仓库根目录有没有 `ARCHIVED.md` / `DEPRECATED.md` 这类封存标记。
+
 
 ## 怎么念（一遍 10 分钟）
 
