@@ -360,6 +360,115 @@ check('★ 坏的草案在 broken 里点名（不静默丢）', (() => {
   return ok
 })(), JSON.stringify(draftsMod.listDrafts().broken))
 
+// ══ E. 项目 id 必须能对上真实计划文件（2026-11-12 实测）════════════════════
+// 真事：司天草案的标题写 `# 司天 · 作战计划`（中文名），旧解析器取标题第一段当 project
+//   → 去找 `plans/司天.md` → 文件不存在 → **面板上根本提不成**（暮雨实测「我找不到」）。
+//   方寸自己的草案碰巧没事，因为标题写的是 `# fangcun-base · …`（英文 id）。
+//   这是“能力在方寸自己身上能用、换个项目就失效”的典型 —— 必须钉住。
+{
+  const mk = (file, head) => {
+    fs.writeFileSync(path.join(DRAFTS, file), [
+      '# ' + head,
+      '',
+      '- 版本: v1',
+      '',
+      '## 阶段卡',
+      '',
+      '### P20 · 探针格',
+      '',
+      '- 状态: 待裁决',
+      '- 技术方案:',
+      '  - x',
+      '',
+      '- 照抄点:',
+      '',
+      '| 项 | 来源 | 原文 |',
+      '|---|---|---|',
+      '| a | b | c |',
+      '',
+      '- 判据:',
+      '  - cmd: echo ok',
+      '',
+    ].join('\n'), 'utf-8')
+  }
+
+  // ⓿ 先做**真实草案全量对账**（必须在造临时探针之前，否则会把自己造的文件也算进来）
+  //   2026-11-12 实测：6 份真实草案里有 2 份 project 对不上计划卡，却一直没人发现 ——
+  //   因为它们从没被提成过。用户第一次想提司天草案时才发现「找不到」。
+  {
+    const real = draftsMod.listDrafts().drafts
+    const broke = real.filter((d) => !fs.existsSync(path.join(PLANS, String(d.project) + '.md')))
+    check('★★ 每份真实草案的 project 都能对上真实计划卡（对不上 = 提成必然失败，用户会看到「提不成」）',
+      broke.length === 0,
+      broke.map((d) => d.file + ' → ' + d.project + '.md').join(' | '))
+    // ⚠ 上一条有假绿风险：如果误把 `司天.md` 这种“中文名文件”也建出来，它就碰巧对上了。
+    //   真正该钉的是：**project 必须是 registry 里的项目 id**（英文、精确），
+    //   不是标题里的中文显示名。所以这里再对一次 registry。
+    const regIds = new Set()
+    try {
+      const reg = fs.readFileSync(path.join(REPO, 'registry.yaml'), 'utf-8')
+      for (const m of reg.matchAll(/^\s*-\s*id:\s*([A-Za-z0-9_-]+)\s*$/gm)) regIds.add(m[1])
+    } catch { /* 读不到就跳过这条 */ }
+    if (regIds.size) {
+      // ⚠ 排除本测试自己造的夹具（`demo-2026-11-11.md` 的 project 是 `demo`，不在 registry 里）——
+      //   这条要钉的是**真实草案**，不是测试夹具。
+      const FIXTURES = new Set(['demo-2026-11-11.md'])
+      const notId = real.filter((d) => !FIXTURES.has(String(d.file)) && !regIds.has(String(d.project)))
+      check('★★ 真实草案的 project 必须是 registry 里的项目 id（英文），不是标题里的中文显示名',
+        notId.length === 0,
+        notId.map((d) => d.file + ' → ' + d.project).join(' | '))
+    }
+  }
+
+  // ① 标题是中文名 + 文件名前缀是 id → 必须取文件名前缀（而不是中文名）
+  mk('demo-cn-2026-11-12.md', '演示 · 作战计划（方寸起草草案）')
+  const dCn = draftsMod.readDraft('demo-cn-2026-11-12.md')
+  check('★★ 草案标题写中文名时，project 取**文件名前缀**（否则会去找「演示.md」而提不成）',
+    !!dCn && dCn.project === 'demo-cn',
+    dCn ? JSON.stringify({ project: dCn.project }) : 'null')
+
+  // ② frontmatter 显式写了 `项目:` → 以它为准（比猜更可信）
+  fs.writeFileSync(path.join(DRAFTS, 'aaa-2026-11-12.md'), [
+    '# 随便什么标题 · 作战计划',
+    '',
+    '- 项目: demo-cn',
+    '- 版本: v1',
+    '',
+    '## 阶段卡',
+    '',
+    '### P21 · 探针格',
+    '',
+    '- 状态: 待裁决',
+    '- 技术方案:',
+    '  - x',
+    '',
+    '- 照抄点:',
+    '',
+    '| 项 | 来源 | 原文 |',
+    '|---|---|---|',
+    '| a | b | c |',
+    '',
+    '- 判据:',
+    '  - cmd: echo ok',
+    '',
+  ].join('\n'), 'utf-8')
+  const dExp = draftsMod.readDraft('aaa-2026-11-12.md')
+  check('★★ frontmatter 的 `项目:` 优先（比标题/文件名都可信）',
+    !!dExp && dExp.project === 'demo-cn',
+    dExp ? JSON.stringify({ project: dExp.project }) : 'null')
+
+  // ③ 带版本后缀的文件名（`<id>-YYYY-MM-DD-v2-xxx.md`）也要剥干净
+  mk('fangcun-base-2026-11-10-v2-关思考.md', '方寸 · 作战计划（方寸起草草案）')
+  const dVer = draftsMod.readDraft('fangcun-base-2026-11-10-v2-关思考.md')
+  check('★★ 带版本后缀的文件名也剥干净（`fangcun-base-2026-11-10-v2-关思考` 不是项目 id）',
+    !!dVer && dVer.project === 'fangcun-base',
+    dVer ? JSON.stringify({ project: dVer.project }) : 'null')
+
+  fs.unlinkSync(path.join(DRAFTS, 'demo-cn-2026-11-12.md'))
+  fs.unlinkSync(path.join(DRAFTS, 'aaa-2026-11-12.md'))
+  fs.unlinkSync(path.join(DRAFTS, 'fangcun-base-2026-11-10-v2-关思考.md'))
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); failures.forEach((x) => console.log('  · ' + x)) }
 console.log(`通过 ${pass} / 失败 ${fail}`)

@@ -84,7 +84,29 @@ export function readDraft(rel: string): DraftDoc | null {
   const lines = text.split('\n')
 
   const titleLine = (lines.find((l) => /^#\s+/.test(l)) || '').replace(/^#\s+/, '')
-  const project = titleLine.split(/[·:：]/)[0].trim() || name.replace(/\.md$/, '').split('-')[0]
+  // 项目 id 决定「提成后落到哪个计划卡」——**必须对得上 plans/<项目id>.md 的文件名**。
+  //
+  // ⚠ 2026-11-12 实测（起草司天草案时踩到）：原来只从标题里取 `# xxx · 作战计划` 的第一段。
+  //   方寸自己的草案标题写 `# fangcun-base · …`（英文 id）→ 恰好对；
+  //   司天草案标题写 `# 司天 · …`（中文名）→ 解析出 project="司天" → 去找 `司天.md`
+  //   → 那个文件不存在 → **面板上根本提不成**（用户实测「我找不到」）。
+  //   这不是显示问题，是“换个项目就失效”。
+  //
+  // 新的取法（按可靠性排序，全都要能对上真实文件名）：
+  //   ① 草案 frontmatter 显式 `项目: sitian` / `- 项目: sitian`（起草时就该写）；
+  //   ② 文件名前缀（`sitian-2026-11-12.md` → `sitian`）—— 草案由生成器命名，前缀就是 id；
+  //   ③ 标题第一段（老草案只有这个）。
+  const kvProject = (/^\s*-?\s*项目\s*[:：]\s*(.+)$/m.exec(text) || [])[1]
+  // ⚠ 文件名前缀要用**日期段**切，不能用 `split('-')[0]` ——
+  //   ① 项目 id 自己就带连字符（`fangcun-base` / `dsh-fangcun` / `python-workspace`）；
+  //   ② 生成器还会加后缀（`fangcun-base-2026-11-10-v2-关思考.md`）。
+  //   按 `-` 切第一段会把两者都切错（实测：`fangcun-base-2026-11-10-v1` 被当成项目 id）。
+  //   所以从**第一个 `-YYYY-MM-DD` 处**截断，后面全是版本/后缀。
+  const namePrefix = name
+    .replace(/\.md$/i, '')
+    .replace(/-\d{4}-\d{2}-\d{2}(?:[-\s].*)?$/, '')
+  const fromTitle = titleLine.split(/[·:：]/)[0].trim()
+  const project = String(kvProject || '').trim() || namePrefix || fromTitle
   const kv = (k: string) => {
     const m = new RegExp(`^\\s*-\\s*${k}\\s*[:：]\\s*(.*)$`, 'm').exec(text)
     return m ? m[1].trim() : ''
