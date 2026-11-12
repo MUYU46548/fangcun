@@ -390,6 +390,9 @@ function main() {
       // 没被拍过的界面 = 从没被看过的界面。补一张常规态 + 一张有草案待提成态。
       ['项目', '', 'plan-view', 'planview'],
       ['项目', '', 'plan-drafts', 'plandraft'],
+      // 2026-11-12：核心判词输入框 —— 此前**界面里根本不存在**（数据层有、UI 没有），
+      // 所以让人去"填判词"时无处可填。这张图用来目检它真在、四个档位可读。
+      ['项目', '', 'policy-verdict', 'pvverdict'],
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -782,6 +785,17 @@ function main() {
   if (accEl) accEl.scrollIntoView({ block: 'end' })
   await sleep(500)
 ` : ''}
+  ${extra === 'pvverdict' ? `
+  // 2026-11-12：核心判词输入框（数据层有了、UI 之前没有）
+  clickText('项目'); await sleep(700)
+  const pvTile = all('#board.pv .tile:not(.tile-add)')[0]
+  const pvBtn = pvTile ? Array.from(pvTile.querySelectorAll('button')).find((b) => /方针/.test(b.textContent || '')) : null
+  if (pvBtn) pvBtn.click()
+  await sleep(900)
+  // 点一下「垃圾」档，让截图里能看到"点了会填进去"的效果
+  const junk = all('#policy-modal .pf-vpick').find((b) => (b.textContent || '').indexOf('垃圾') >= 0)
+  if (junk) { junk.click(); await sleep(300) }
+  ` : ''}
   ${extra === 'planview' || extra === 'plandraft' ? `
   // 2026-11-12：作战计划页 —— 此前**没有任何截图证据**，所以没人发现它可读性差。
   // 这里只做"进得去、拍得下"，不判断好不好看（那要靠人看这张图）。

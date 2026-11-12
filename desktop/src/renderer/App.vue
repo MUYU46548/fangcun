@@ -4516,13 +4516,20 @@ async function fillMissingCharters() {
 
 async function openPolicyEdit(projectId: string) {
   const proj = projects.value.find(p => p.id === projectId)
-  let mission = '', goal = '', scenario = '', boundary = '', structureMap = ''
+  let mission = '', goal = '', scenario = '', boundary = '', structureMap = '', coreVerdict = ''
   try {
     const r = await window.tegula.policyGet(projectId)
     // 029：结构地图一并读进来 —— 此前只读四字段，界面上**根本看不到**结构地图（用户“找不到在哪里”）
-    if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap } = r.policy)
+    // 2026-11-12：核心判词同理 —— 不读进来，弹窗每次打开都是空框，
+    //   人以为自己没写过（或者以为写了没保存）。读不全就是静默丢。
+    if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap, coreVerdict } = r.policy)
   } catch { /* 未立则空表单 */ }
-  policyEdit_.value = { id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary, structureMap: structureMap || '' }
+  policyEdit_.value = {
+    id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary,
+    structureMap: structureMap || '',
+    // 骨架提示（「> 未判 —— …」）不算判词：留空让人从"还没判"开始，而不是误以为已经判过
+    coreVerdict: /^>\s*未判/.test(String(coreVerdict || '').trim()) ? '' : (coreVerdict || ''),
+  }
   policyGuard.open(policyEdit_.value)
 }
 
@@ -4532,7 +4539,14 @@ async function savePolicyEdit() {
   try {
     // 029：结构地图必须一起发 —— 不传 = 主进程沿用文件里已有的（安全），
     // 但用户在这张表单里改的内容也就丢了。所以要显式带上。
-    const r = await window.tegula.policySave({ projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario, boundary: e.boundary, structureMap: e.structureMap })
+    // 2026-11-12：核心判词同理。**而且这里传 '' 是故意的** ——
+    //   人点「未判（清空）」时要把判词真的清掉；传 undefined 会被主进程当成"没传"而沿用旧值，
+    //   于是判词永远撤不掉（这个 bug 实测踩到过，见 e2e-core-verdict）。
+    const r = await window.tegula.policySave({
+      projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario,
+      boundary: e.boundary, structureMap: e.structureMap,
+      coreVerdict: String(e.coreVerdict ?? ''),
+    })
     if (r.ok) {
       showToast('方针卡已保存', 'success')
       policyEdit_.value = null

@@ -3570,6 +3570,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .pf-label-hint { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }
 .pf-map-tools { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .pf-map-tip { font-size: 10.5px; color: var(--muted); }
+/* 核心判词四档按钮（2026-11-12）：按钮本体走基座 Button（check-ui-freeze 不许新增手搓类），
+   这里只留一行排列。 */
+.pf-verdict-picks { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
 .todo-title { cursor: pointer; }
 .todo-title:hover { text-decoration: underline dotted; }
 

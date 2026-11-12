@@ -2040,7 +2040,10 @@ contextBridge.exposeInMainWorld('tegula', {
   policyGet: (id) => {
     const p = store.policies ? store.policies[id] : undefined
     if (!p) return { ok: true, policy: null }
-    return { ok: true, policy: Object.assign({ projectId: id, mission: '', goal: '', scenario: '', boundary: '', structureMap: '', updatedAt: '' }, p) }
+    // 2026-11-12：核心判词也要在这里给默认值 —— 不给的话弹窗拿到 undefined，
+    // 点「未判（清空）」时 String(undefined ?? '') 恰好还是 ''，看起来"没坏"，
+    // 但断言就分不清"是因为没传字段"还是"因为人清了"。默认值必须显式。
+    return { ok: true, policy: Object.assign({ projectId: id, mission: '', goal: '', scenario: '', boundary: '', structureMap: '', coreVerdict: '', updatedAt: '' }, p) }
   },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',

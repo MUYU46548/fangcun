@@ -2380,6 +2380,57 @@
     check('★ 方针三态进门就准（demo 在夹具里已填方针 → 项目墙上必须说"方针已立"）',
       await waitFor(() => tileTxt().indexOf('方针已立') >= 0, 4000, '方针三态'), tileTxt().slice(0, 90))
 
+    // ══ 核心判词输入框（2026-11-12）══════════════════════════════════════
+    // 这一节存在的理由：我给数据层加了 coreVerdict，**却没加界面输入框**，
+    // 于是让用户去"填判词"时，那个框根本不存在。弹窗此前一条 UI 断言都没有。
+    // 判据不是"有个 textarea"，而是：能打开、四个档位可点、点了真填进框、
+    // 保存时**真的把这个字段发出去**（不传=判词静默丢）。
+    {
+      const openPolicy = () => {
+        const t = $$('#board.pv .tile:not(.tile-add)')[0]
+        if (!t) return false
+        const btn = Array.from(t.querySelectorAll('button')).find(
+          (b) => /方针/.test(b.textContent || ''))
+        if (!btn) return false
+        btn.click()
+        return true
+      }
+      const opened = openPolicy()
+      const modalIn = await waitFor(() => !!$('#policy-modal'), 3000, '方针弹窗')
+      check('★★ 项目方针弹窗能打开（判词的入口在这一层）', opened && modalIn)
+      if (modalIn) {
+        const picks = $$('#policy-modal .pf-vpick')
+        check('★★ 弹窗里有核心判词输入框（此前**根本不存在**，让人去哪填）',
+          !!Array.from(document.querySelectorAll('#policy-modal textarea'))
+            .find((ta) => ta.placeholder.indexOf('垃圾') >= 0 || ta.placeholder.indexOf('能玩') >= 0),
+          'placeholders=' + $$('#policy-modal textarea').map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
+        check('★★ 四个档位按钮都在（立得住 / 能玩 / 垃圾 / 未判）',
+          picks.length === 4 && ['立得住', '能玩', '垃圾', '未判'].every(
+            (k) => picks.some((b) => (b.textContent || '').indexOf(k) >= 0)),
+          picks.map((b) => (b.textContent || '').trim()).join('|'))
+        const verdictTa = Array.from(document.querySelectorAll('#policy-modal textarea'))
+          .find((ta) => ta.placeholder.indexOf('垃圾') >= 0 || ta.placeholder.indexOf('能玩') >= 0)
+        if (verdictTa) {
+          const junkBtn = picks.find((b) => (b.textContent || '').indexOf('垃圾') >= 0)
+          if (junkBtn) junkBtn.click()
+          await sleep(200)
+          check('★★ 点「垃圾」档 → 真的填进了输入框（不是只把按钮点亮）',
+            /垃圾/.test(verdictTa.value), 'value=' + verdictTa.value.slice(0, 40))
+
+          // 保存时必须把这个字段发出去 —— 不传的话主进程按"没传"沿用旧值，写的白写
+          const before = window.__fcTest.callCount('policySave')
+          const saveBtn = $$('#policy-modal .acts button').find((b) => /保存/.test(b.textContent || ''))
+          if (saveBtn) saveBtn.click()
+          const sent = await waitFor(() => window.__fcTest.callCount('policySave') > before, 3000, 'policySave')
+          const args = (window.__fcTest.calls().filter((c) => c.name === 'policySave').pop() || {}).args || []
+          check('★★ 保存时**真的把 coreVerdict 发出去了**（不传 = 判词静默丢）',
+            sent && args[0] && /垃圾/.test(String(args[0].coreVerdict || '')),
+            JSON.stringify(args[0] && { coreVerdict: args[0].coreVerdict }))
+        }
+        await waitFor(() => !$('#policy-modal'), 2000, '弹窗关闭')
+      }
+    }
+
     check('能点到“概览卡”', (() => {
       const b = $$('.pagehead button.vsb').find((x) => x.textContent.indexOf('概览卡') >= 0)
       if (!b) return false
