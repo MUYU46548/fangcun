@@ -469,6 +469,40 @@ check('★ 坏的草案在 broken 里点名（不静默丢）', (() => {
   fs.unlinkSync(path.join(DRAFTS, 'fangcun-base-2026-11-10-v2-关思考.md'))
 }
 
+// ══ F. 草案模板不许复述**已被推翻的方针**（2026-11-12 暮雨定性）═════════════
+// 真事：暮雨 11-12 说「方寸本来就是要给其他项目定计划做规划的，方寸是基建，
+//   由于方寸进度太慢其他项目一直在吃亏浪费 token」。
+//   而 planDraft.ts 的模板里**硬编码**着一句「不做其他项目的计划」——
+//   那是被作废的 10-29 旧拍板，于是每份给项目用的草案都在替用户把"不做"又说一遍。
+// 这条断言护的是：**模板不许写死一条方针**。判据不是"那句话不在了"（那只是症状），
+//   而是模板的除外责任段必须来自**当前有效**的口径，且不许出现任何被作废的原句。
+{
+  // ⚠ 必须先剥注释再扫：这句本身就是"被删掉的东西"，注释里提它是在解释为什么删，
+  //   不剥的话守卫会咬自己的说明文字（`check-ui-copy` / `check-themes` 都踩过这个坑）。
+  const PLAN_SRC = fs.readFileSync(path.join(REPO, 'desktop/src/main/llm/planDraft.ts'), 'utf-8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  check('★★ 草案模板不许再写「不做其他项目的计划」（2026-11-12 已作废的 10-29 旧拍板）',
+    !PLAN_SRC.includes('不做其他项目的计划'),
+    '计划器模板里又出现这句 —— 每份草案都会替用户复述一遍"不做"')
+  check('★ 模板仍保留真正的除外责任（协作/审批流 + 不自动冻结）',
+    /不做多人协作 \/ 审批流/.test(PLAN_SRC) && /草案不自动冻结/.test(PLAN_SRC))
+  // 反例自证：真跑一次渲染，确认产出里也不带那句话
+  const pdMod = require(path.join(DIST, 'main', 'llm', 'planDraft.js'))
+  const cons = [{ kind: '已定', text: '探针', cites: ['task:probe'] }]
+  const md = pdMod.renderPlanDraft(
+    { project: 'probe', projectName: '探针', tasks: [], decisions: [] },
+    [{
+      id: 'P0', title: '探针格', what: 'x',
+      approach: ['a'], copy: [['项', '来源', '原文', '到位']],
+      criteria: ['cmd: echo ok'], cites: ['task:probe'],
+    }],
+    { date: '2026-11-12', model: 'agent', constitution: cons, asks: [], asksNote: '无新问题' },
+  )
+  check('★★ 反例自证：真渲染一份草案，正文里不含「不做其他项目的计划」',
+    typeof md === 'string' && md.length > 0 && !md.includes('不做其他项目的计划'),
+    String(md).slice(0, 80))
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); failures.forEach((x) => console.log('  · ' + x)) }
 console.log(`通过 ${pass} / 失败 ${fail}`)

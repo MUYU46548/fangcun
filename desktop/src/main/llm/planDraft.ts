@@ -580,7 +580,12 @@ export function renderPlanDraft(
   for (const s of stages) lines.push(`| ${s.id} | ${s.criteria.length} 条 | — | 待裁决 |`)
   lines.push('')
   lines.push('## 除外责任', '')
-  lines.push('- 不做其他项目的计划；不做多人协作 / 审批流；草案不自动冻结。')
+  // ⚠ 2026-11-12 暮雨定性：「方寸本来就是要给其他项目定计划做规划的，方寸是基建」。
+  //   这里原来写的是「不做其他项目的计划」—— 每份草案都会被塞进这句，
+  //   而它正是被作废的那条 10-29 旧拍板（`plans/fangcun-base.md` 里那句）。
+  //   规划器的模板**不许再复述一条已经被推翻的方针**：草案是给项目用的，
+  //   不是给方寸自己用的，这句放在这里等于替用户把"不做"又说了一遍。
+  lines.push('- 不做多人协作 / 审批流；草案不自动冻结（裁决权在人）。')
   lines.push('')
   lines.push('## 阶段卡', '')
   for (const s of stages) {
