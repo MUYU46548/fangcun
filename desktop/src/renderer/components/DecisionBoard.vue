@@ -407,7 +407,7 @@ onMounted(refresh)
       <Input
         v-model="query"
         data-dec="search"
-        class="w-[190px] flex-none"
+        class="w-[190px] flex-none h-[var(--btn-h)] rounded-[var(--btn-r)]"
         placeholder="搜内容 / 出处 / 项目…"
         title="在内容、出处、项目、备注里搜"
       />
@@ -417,17 +417,23 @@ onMounted(refresh)
         v-model="projFilter"
         data-dec="proj-filter"
         title="按项目筛选"
-        class="h-[var(--btn-h-lg)] max-w-[170px] cursor-pointer appearance-none rounded-[var(--btn-r-lg)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)]"
+        class="h-[var(--btn-h)] max-w-[170px] cursor-pointer appearance-none rounded-[var(--btn-r)] border border-[var(--ui-input)] bg-[var(--ui-card)] pl-2.5 pr-[26px] font-[inherit] text-[12px] text-[var(--ui-foreground)] outline-none hover:bg-[var(--ui-accent)]"
       >
         <option v-for="o in projOptions" :key="o" :value="o">{{ o }}</option>
       </select>
+      <!-- 2026-11-12（暮雨：“有些按钮偷偷变大”）：这一排原来**三种高度**混在一起 ——
+           Tabs 28 / Input 与 select 34 / 两个按钮 34（本行没写 size，吃了 Button 默认 md）。
+           全站工具行是 28，34 是“弹窗主按钮”档，所以统一到 28。
+           ⚠ 这三个 `tool` / `h-[var(--btn-h)]` 是**显式**写死的：基座默认是 md(34)，
+              漏写就会在工具栏里凭空高出一截 —— 这类“漏写默认值”肉眼很难发现，只有量才知道。 -->
       <Button
         data-dec="select-mode"
+        size="tool"
         :variant="selectMode ? 'primary' : 'outline'"
         :title="selectMode ? '退出多选' : '多选：批量改状态 / 批量删除'"
         @click="toggleSelectMode"
       >☑ 多选</Button>
-      <Button variant="outline" size="icon" title="刷新" @click="refresh">⟳</Button>
+      <Button variant="outline" size="sm" class="w-[28px] px-0" title="刷新" @click="refresh">⟳</Button>
     </div>
 
     <div v-if="reminder" data-dec="reminder"
@@ -469,7 +475,7 @@ onMounted(refresh)
         placeholder="贴一句话，自动拆出日期 / 项目 / 出处（回车即拆）"
         @keydown.enter="splitSmart"
       />
-      <Button variant="outline" :disabled="!smartText.trim()" @click="splitSmart">拆分</Button>
+      <Button variant="outline" size="md" :disabled="!smartText.trim()" @click="splitSmart">拆分</Button>
     </Card>
 
     <!-- 记一条：内容 / 日期 / 项目 / 出处 / 记下 -->
@@ -505,7 +511,7 @@ onMounted(refresh)
         class="w-[200px] min-w-0 shrink"
         placeholder="出处（如 10-14 群 18:40）"
       />
-      <Button variant="primary" :disabled="busy || !newContent.trim()" @click="add">记下</Button>
+      <Button variant="primary" size="md" :disabled="busy || !newContent.trim()" @click="add">记下</Button>
     </Card>
 
     <div class="flex max-w-[900px] flex-col gap-2.5">

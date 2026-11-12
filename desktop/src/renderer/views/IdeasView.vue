@@ -28,7 +28,10 @@
               <template v-if="ctl.ideaDraft.trim()">{{ ctl.ideaDraft.trim().length }} / 4000 字</template>
               <template v-else>存下来不改任何待办和任务，也不会让任何东西逾期</template>
             </span>
-            <Button class="ideas-save" variant="primary" size="md" :disabled="ctl.ideaBusy || !ctl.ideaDraft.trim()" @click="ctl.saveIdea()">
+            <!-- 2026-11-12：`size="md"`（34=弹窗主按钮档）→ `tool`（28=工具行档）。
+                 它站在**工具行**里（旁边“N/4000 字”是 11.5 号小字、下面是 26 高的想法动作行），
+                 34 会让输入框那一行比整页的节奏高出一截。34 档留给弹窗主按钮。 -->
+            <Button class="ideas-save" variant="primary" size="tool" :disabled="ctl.ideaBusy || !ctl.ideaDraft.trim()" @click="ctl.saveIdea()">
               {{ ctl.ideaBusy ? '记…' : '记下来' }}
             </Button>
           </div>

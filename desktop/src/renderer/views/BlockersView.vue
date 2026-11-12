@@ -35,7 +35,7 @@
                既不是 sm(24) 也不是 tool(28)。⚠⚠ 但**别把尺寸写成 utility**：`tailwind.config.js` 的 content
                只扫 `components/`（永久底线，App.vue 一个 glob 都不许碰），`views/` 里的 `h-[30px]` **不会生成**，
                写了等于没写（2026-11-12 实测：按钮掉到 17 高）。所以尺寸留在 app.css 那条局部规则里，颜色交给变体。 -->
-          <Button variant="success" class="ba-done"
+          <Button variant="success" size="tool" class="ba-done"
             title="直接标记完成（跳过裁决，会二次确认）—— 解掉它，后面那几张就解锁了"
             @click="emit('finish-task', queue.top.id)">✓ 标完成</Button>
           <Button class="ba-go" variant="ghost" size="tool" @click="emit('open-task', queue.top.id)">打开卡片 →</Button>
@@ -60,7 +60,7 @@
           </div>
           <Button class="bq-go" variant="ghost" size="tool" @click="emit('open-task', r.id)">打开卡片 →</Button>
           <!-- 同上（这一枚原来量的是 26 高 / 内距 0 9 / 字号 11.5；照原样留在 app.css，只换颜色） -->
-          <Button v-if="!r.status || (r.status !== '完成' && r.status !== '驳回')" variant="success" class="bq-done"
+          <Button v-if="!r.status || (r.status !== '完成' && r.status !== '驳回')" variant="success" size="tool" class="bq-done"
             title="直接标记完成（跳过裁决，会二次确认）" @click="emit('finish-task', r.id)">✓</Button>
         </div>
       </div>

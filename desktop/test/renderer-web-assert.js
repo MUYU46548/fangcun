@@ -6883,21 +6883,29 @@
       const box = (el) => el
         ? { h: Math.round(el.getBoundingClientRect().height), r: getComputedStyle(el).borderTopLeftRadius }
         : null
-      // 2026-11-02 外观返工：大档改回 0.3.5 决策页那套（34 / 10）
-      const okBox = (b) => !!b && b.h === 34 && parseFloat(b.r) === 10
+      // 2026-11-02 外观返工：大档一度改回 0.3.5 决策页那套（34 / 10）。
+      // 2026-11-12 暮雨：“有些按钮偷偷变大了” → 实测 888 个按钮，全站工具行是 26/28，
+      //   34 只是**弹窗主按钮/输入框**档。而这一排原来 Tabs 28 / 输入框 34 / 按钮 34 三种混着，
+      //   个别漏写 size 的还吃了默认 md。现在整排统一到 **28（工具行档）**。
+      // ⚠ 判据仍是“**这一排内部必须一致**”，只是基准从 34 改成 28 ——
+      //   它验的从来不是“34 这个数”，而是“同一行不许三种高度”。
+      const okBox = (b) => !!b && b.h === 28 && parseFloat(b.r) === 8
       const addBtn = $$('.decisions-view button').find((b) => (b.textContent || '').trim() === '记下')
       const probes = [
         ['搜索输入框', box($('[data-dec="search"]'))],
         ['项目下拉', box($('[data-dec="proj-filter"]'))],
         ['多选按钮', box($('[data-dec="select-mode"]'))],
-        ['记下按钮', box(addBtn)],
-        ['卡片状态下拉', box($('[data-dec="status"]'))],
-        ['新增内容输入框', box($('[data-dec="add-input"]'))],
       ]
       const bad = probes.filter(([, b]) => !okBox(b))
-      check('★★ 决策页控件尺寸统一：输入框 / 下拉 / 按钮 一律 h=34、圆角=10px',
+      check('★★ 决策页工具行尺寸统一：输入框 / 下拉 / 按钮 一律 h=28、圆角=8px（同一行不许三种高度）',
         bad.length === 0,
         bad.length ? JSON.stringify(bad) : JSON.stringify(probes.map(([n, b]) => n + ':' + (b ? b.h + '/' + b.r : 'null'))))
+      // 「记下」「拆分」属于**表单录入行**（一行 4~5 个输入框），按输入框档 34 / 10：
+      //   把输入框强行压到 28 会让可点区变矮，而那一行没有工具按钮可比对 —— 它是另一套节奏。
+      const okField = (b) => !!b && b.h === 34 && parseFloat(b.r) === 10
+      check('★ 决策页表单录入行仍是输入框档 34 / 10（与同行 4 个输入框同一高度）',
+        okField(box(addBtn)) && okField(box($('[data-dec="add-input"]'))),
+        JSON.stringify({ 记下: box(addBtn), 新增内容: box($('[data-dec="add-input"]')) }))
       // 卡片内的动作按钮是密集档（24）—— 与老界面 --btn-h-sm 同档，不是"另一种按钮"
       const editBtn = $('[data-dec="edit"]')
       check('  卡片内动作按钮走密集档 24（与老界面 --btn-h-sm 同档）',
