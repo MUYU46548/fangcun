@@ -77,6 +77,9 @@ export function buildPlanDraftInput(rawTasks: any[], opts: BuildInputOptions): P
     // 现在把能拿到的真带上：立项契约（policies/<id>.md）与仓库根（判据现状体检要用）。
     definition: charterText(want),
     repoRoot: repoOf(want),
+    // 2026-11-12：核心判词一起带上。空串 = 未判，内容量闸会按"未判"处理
+    // （只许最小原型）—— 这是"核心没验过就别铺量"那张闸的唯一输入。
+    coreVerdict: coreVerdictOf(want),
   }
 }
 
@@ -101,6 +104,26 @@ function repoOf(project: string): string {
   try {
     const hit = (parseRegistry() || []).find((r: any) => String(r?.id || '') === project)
     return String(hit?.repo || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 核心判词（2026-11-12）：暮雨认为这个项目的核心玩法/核心用途现在是什么水平。
+ *
+ * 为什么单独取：内容量闸要靠它决定"能不能铺几小时内容"。
+ * 取不到就返回空串 = 未判 —— 闸会按"未判"处理（只许最小原型），
+ * **绝不默认成"没问题"**。
+ */
+function coreVerdictOf(project: string): string {
+  try {
+    const p = getPolicy(project)
+    const raw = String((p as any)?.coreVerdict || '').trim()
+    if (!raw) return ''
+    // 骨架提示不算判词：它的第一行是「> 未判 —— …」
+    if (/^>\s*未判/.test(raw)) return ''
+    return raw
   } catch {
     return ''
   }

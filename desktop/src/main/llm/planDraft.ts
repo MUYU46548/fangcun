@@ -30,6 +30,7 @@ import { inspectJson, jsonRetryNudge, type JsonFailKind } from '../../shared/jso
 import { getConfig } from './config'
 import type { WasteLedger } from '../../shared/waste'
 import { parseCheckLine } from '../../shared/checkSpec'
+import { contentScaleGate, type CoreVerdict } from '../../shared/contentScale'
 
 export interface DraftTaskRef {
   id: string
@@ -76,6 +77,11 @@ export interface PlanDraftInput {
    * 缺省 = 不做体检（别的项目没登记 repo 时不硬猜路径）。
    */
   repoRoot?: string
+  /**
+   * 核心判词（2026-11-12）：暮雨对这个项目核心玩法/核心用途的判断。
+   * 空 = 未判 → 内容量闸只许最小原型。**绝不默认成"没问题"**。
+   */
+  coreVerdict?: string
 }
 
 export interface DraftRulingRef {
@@ -158,6 +164,11 @@ export interface DraftValidation {
   missingCitations: number
   /** 因"判据现状就已经全部满足"被丢掉的条数（2026-11-10） */
   alreadyGreen?: number
+  /**
+   * 因"核心没被判过就铺内容量"被丢掉的条数（2026-11-12 暮雨：记忆圣所那两间房纯属垃圾，
+   * 「连整个游戏的玩法本身可能都有问题，撑不起那么大的内容量」）。
+   */
+  scaleBlocked?: number
 }
 
 export interface DraftUsage {
@@ -439,12 +450,13 @@ export function evaluateCriteriaNow(criteria: string[], repoRoot?: string): Crit
  * 另外：没有可执行判据 / 照抄点为空 / **判据现状就已全部满足** 的也丢 ——
  * 那样的卡不是验收，是装饰（2026-11-10 首战现场）。
  */
-export function validateDraftStages(raw: RawDraftStage[], allowed: string[], opts: { repoRoot?: string } = {}): DraftValidation {
+export function validateDraftStages(raw: RawDraftStage[], allowed: string[], opts: { repoRoot?: string; coreVerdict?: CoreVerdict } = {}): DraftValidation {
   const allow = new Set(allowed)
   const stages: ValidDraftStage[] = []
   const dropped: DraftDrop[] = []
   let missingCitations = 0
   let alreadyGreen = 0
+  let scaleBlocked = 0
   let n = 0
   for (const s of Array.isArray(raw) ? raw : []) {
     const title = String(s?.title || '').trim()
@@ -480,6 +492,17 @@ export function validateDraftStages(raw: RawDraftStage[], allowed: string[], opt
       })
       continue
     }
+    // 内容量闸（2026-11-12）：核心没被判过"立得住"，就不许在这一格里铺几小时内容。
+    // 判完这条再判三块齐不齐 —— 因为「4–5 小时三幕」这种格子三块完全可以写得齐全。
+    const scale = contentScaleGate(text, opts.coreVerdict || '')
+    if (!scale.ok) {
+      scaleBlocked++
+      dropped.push({
+        title: title || '(无标题)',
+        reason: `${scale.error || '内容量超过未验证核心的上限'} ${scale.hint || ''}`.trim(),
+      })
+      continue
+    }
     const copy = (Array.isArray(s?.copy) ? s.copy : [])
       .map((row) => (Array.isArray(row) ? row.map((c) => String(c).trim()) : []))
       .filter((row) => row.filter(Boolean).length >= 2)
@@ -511,7 +534,7 @@ export function validateDraftStages(raw: RawDraftStage[], allowed: string[], opt
     if (seen.has(stages[i].id)) stages[i].id = `P${i}`
     seen.add(stages[i].id)
   }
-  return { stages, dropped, missingCitations, alreadyGreen }
+  return { stages, dropped, missingCitations, alreadyGreen, scaleBlocked }
 }
 
 function mdCell(s: string): string {
@@ -762,7 +785,11 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
     return { ok: false, allowed, retried, error: 'asks 是空的，而且没写理由 —— “没有新问题”也要说清为什么（asksNote）' }
   }
 
-  const v = validateDraftStages(parsed.stages, allowed, { repoRoot: input.repoRoot })
+  const v = validateDraftStages(parsed.stages, allowed, {
+    repoRoot: input.repoRoot,
+    // 2026-11-12：把项目的核心判词喂进内容量闸。空串 = 未判（闸按最严格处理）。
+    coreVerdict: (input.coreVerdict || '') as CoreVerdict,
+  })
   if (!v.stages.length) {
     writeTrace({
       ts: nowIso, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${input.project}`, model,

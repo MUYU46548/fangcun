@@ -19,6 +19,18 @@ export interface Policy {
    *  读取时一定给字符串；**写入时可选** —— 老调用方（如一键补骨架）不传这个字段，
    *  那时 savePolicy 会沿用文件里已有的内容，而不是当成清空。 */
   structureMap?: string
+  /**
+   * 核心判词（2026-11-12 暮雨：记忆圣所那两间房纯属垃圾，
+   * 「连整个游戏的玩法本身可能都有问题，撑不起那么大的内容量」）。
+   *
+   * 为什么必须落在方针卡上：方寸到 11-12 为止，**没有任何一个字段记录过
+   * "暮雨认为这个项目现在是什么水平"**。于是「离期望多远」无从计算，
+   * 「核心立不立得住」也无从判断 —— 内容量闸只能把一切都当成"没判过"。
+   *
+   * 形状刻意极简：一个档位 + 一句话 + 日期。人要写的东西越少，越可能真去写。
+   * 空 = 未判（内容量闸按"未判"处理，只许做最小原型）。
+   */
+  coreVerdict?: string
   updatedAt: string
 }
 
@@ -34,6 +46,17 @@ const SKELETON_STRUCTURE_MAP_BODY = [
   '',
   '- 模块清单：待填（每模块一句话职责）',
   '- 主数据流：待填（数据从哪来 → 经过谁 → 落到哪 → 谁读它）',
+].join('\n')
+
+/**
+ * 核心判词的骨架提示。空着就写这句 ——
+ * **"还没被判过"必须一眼可见**，否则内容量闸会把"没判"当成"没问题"。
+ */
+const CORE_VERDICT_SKELETON = [
+  '> 未判 —— 核心玩法还没被人确认过"立得住"。',
+  '> 四选一写在这里：**立得住 / 能玩 / 垃圾 / 未判**，后面跟一句话理由与日期。',
+  '> 例：`能玩 —— 装配台那 5 分钟确实是游戏，2026-11-12`',
+  '> 未判时，方寸只允许做**最小原型**（0.5 小时 / 1 幕 / 1 间房），不许铺内容量。',
 ].join('\n')
 
 function getPolicyDir(): string {
@@ -74,6 +97,7 @@ export function getPolicy(projectId: string): Policy | null {
       scenario: section('应用场景'),
       boundary: section('方针边界'),
       structureMap: section('结构地图'),
+      coreVerdict: section('核心判词'),
       updatedAt: grab('更新') || '',
     }
   } catch {
@@ -91,7 +115,7 @@ function preserveSections(projectId: string, nextFour: string[]): string {
   if (!fs.existsSync(p)) return ''
   try {
     const raw = fs.readFileSync(p, 'utf-8')
-    const known = ['使命', '当前目标', '应用场景', '方针边界', '结构地图']
+    const known = ['使命', '当前目标', '应用场景', '方针边界', '结构地图', '核心判词']
     const kept: string[] = []
     const re = /^## (.+?)\s*$/gm
     let m: RegExpExecArray | null
@@ -141,6 +165,21 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     ``,
     `## 结构地图`,
     mapBody,
+    ``,
+    // 核心判词：与 structureMap 同一套防静默清空纪律，但**多一条**：
+    //   `undefined`（没传这个字段）= 沿用文件里已有的；
+    //   `''`（显式传空）= **人就是要清掉它** → 写回骨架。
+    // ⚠ 这两者不区分会造成"判词撤不掉"：一旦写了个「垃圾」，就再也改不回"未判"，
+    //   那条方向被永久锁死。实测踩到过（清空后仍读出旧判词）。
+    `## 核心判词`,
+    (() => {
+      if (p.coreVerdict === undefined || p.coreVerdict === null) {
+        const existing = (getPolicy(p.projectId)?.coreVerdict || '').trim()
+        return existing || CORE_VERDICT_SKELETON
+      }
+      const passed = String(p.coreVerdict).trim()
+      return passed || CORE_VERDICT_SKELETON
+    })(),
     ``,
     tail,
     ``,
