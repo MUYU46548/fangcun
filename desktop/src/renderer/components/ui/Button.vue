@@ -48,6 +48,19 @@ const buttonVariants = cva(
          * 令牌用 `--ui-success`（shadcn 没这个语义色，本仓扩展；`check-ui-base` 已钉住它存在）。
          */
         success: 'bg-[var(--ui-success)] text-[var(--ui-success-foreground)] hover:brightness-105',
+        /**
+         * `bare`（2026-11-12 · 卡《基座 Button 缺 bare/success/xl》的变体一）。
+         *
+         * 为什么必须有：待办行尾那三枚（`✏️ 编辑` / `📅 指派` / `× 删除`）是**静音钮** ——
+         * 透明底、无框、平时压暗、hover 才亮。基座最接近的 ghost 是**白底 + 1px 描边**，
+         * 套上去整行从“安静的一组小动作”变成一排白框阵（豁免表里写的就是这句）。
+         *
+         * ⚠ 内距要归零：cva 里 size 的 `px-*` 后写会赢，所以下面用 `compoundVariants` 给 bare 补 `px-0`，
+         *   而不是在这里写 `!px-0`（那是跟自己的合并顺序打架）。
+         * ⚠ 它是**透明**的，不是“白底去边框”：`bg-transparent` 必须显式写，否则会继承 Card 的底色
+         *   而看起来像一块色块。hover 的底色/描边由使用处按语义给（危险色 vs 强调色不同）。
+         */
+        bare: 'border-0 bg-transparent text-[var(--ui-muted-foreground)] shadow-none hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
       },
       size: {
         // 2026-10-17 暮雨第 4 条：“按钮视觉风格不统一……我更喜欢扁平化圆角”——
@@ -67,6 +80,19 @@ const buttonVariants = cva(
         //   ⚠ 注释里也别再出现那个旧字面量：Tailwind 扫的是**整份文本**（含注释），写一遍就照样生成一条废规则。
         tool: 'h-[var(--btn-h)] rounded-[var(--btn-r)] px-[var(--btn-px)] text-[length:var(--btn-fs)]',
         sm: 'h-[var(--btn-h-sm)] rounded-[var(--btn-r)] px-2.5 text-[11.5px]',
+        /**
+         * `inline`（2026-11-12 · 卡《缺 bare/success/xl》变体一的第二半）。
+         *
+         * 为什么还要多一档：`bare + sm` 仍有 **24 的固定高度**，而 `proj-del`(18.5) /
+         * `trip-hbtn`(22) / `te-time-clear`(24×30) 是**行内小控件** —— 它们的高度由
+         * 行高与内距自然撑出来，不是某个档位。给它们 24 就等于给整行加了一条下限，
+         * 表格行、代码行、输入框边上的小钮都会被撑高（卡里 2026-11-11 量过）。
+         *
+         * 所以这一档**不写高度**：高度交给使用处的 font-size / line-height / padding。
+         * 它只保证“小件该有的样子”（圆角 8、字号 11.5、内距可由 class 覆盖）。
+         * ⚠ 别把 h-* 加回来 —— 那正是这一档存在的理由。
+         */
+        inline: 'rounded-[var(--btn-r)] px-[5px] text-[11.5px] leading-[1.5]',
         // 大档用单独一档圆角（--btn-r-lg=10）：24 高的 sm 配 10 会圆成胶囊
         md: 'h-[var(--btn-h-lg)] rounded-[var(--btn-r-lg)] px-3.5 text-[12.5px]',
         icon: 'h-[var(--btn-h-lg)] w-[var(--btn-h-lg)] rounded-[var(--btn-r-lg)] p-0',
@@ -86,12 +112,24 @@ const buttonVariants = cva(
      * 弹窗主按钮仍然显式写 `size="md"`（34 那一档没取消，只是不再当默认）。
      */
     defaultVariants: { variant: 'outline', size: 'tool' },
+    compoundVariants: [
+      /**
+       * `bare` 的内距必须归零（2026-11-12）。
+       *
+       * 为什么放在 compoundVariants 而不是写进 variant 字符串：cva 拼类是
+       * `base → variant → size → compound`，size 里的 `px-*` **后写会赢** ——
+       * 在 variant 里写 `px-0` 会被 size 的 `px-[var(--btn-px)]` 盖掉。
+       * 这里匹配 (bare, *) 再补一次 `px-0`，顺序上排在 size 之后，才真的归零。
+       * 判据见 e2e-renderer-web 的“静音钮是 24×24、内距 0”那几条。
+       */
+      { variant: 'bare', class: 'px-0' },
+    ],
   }
 )
 
 const props = defineProps<{
-  variant?: 'primary' | 'outline' | 'ghost' | 'danger' | 'success'
-  size?: 'tool' | 'sm' | 'md' | 'icon'
+  variant?: 'primary' | 'outline' | 'ghost' | 'danger' | 'success' | 'bare'
+  size?: 'tool' | 'sm' | 'inline' | 'md' | 'icon'
   class?: any
 }>()
 </script>

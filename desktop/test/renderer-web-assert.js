@@ -1465,16 +1465,31 @@
     check('  造出一条长标题待办（网格断言就位）',
       await waitFor(() => $$('main.todos-view .todo-item').some((it) => (it.textContent || '').indexOf('最多三行不截断') >= 0), 5000, '长标题待办'))
 
-    // 行尾那四枚「静音按钮」本刀**故意不迁**（基座没有透明/图标态，见 check-ui-freeze 的 ALLOW）——
-    // 不迁就得证明"一行都没变样"：24 高 + 8 圆角 + 透明底，四枚都在同一个动作区里。
+    // 行尾那四枚「静音按钮」2026-11-12 **已迁到基座 `bare + sm`**（卡《缺 bare/success/xl》变体一）。
+    // 迁移的判据不是“迁了就行”，而是**一枚都不许变样**：24 高 + 8 圆角 + 透明底 + 无框。
+    // ⚠ 这条同时钉住 `bare` 变体本身：cva 里 size 的 px 后写会赢，所以 bare 的 `px-0`
+    //   必须写在 compoundVariants 里才真归零 —— 写错位置的话，前三枚会变成 24+28 的胖块。
     {
       const h = (el) => (el ? Math.round(el.getBoundingClientRect().height * 10) / 10 : -1)
       const it = $$('main.todos-view .todo-item')[0]
       const acts = it ? [...it.querySelectorAll('.todo-acts button')] : []
-      check('★ 行尾静音钮（指派/编辑/转日志/删除）仍是 24 高 + 透明底（本刀登记豁免，一枚都不许变样）',
-        acts.length >= 3 && acts.every((e) => Math.abs(h(e) - 24) < 0.6
-          && getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0)'),
-        JSON.stringify({ 个数: acts.length, 高度: acts.map(h), 底: acts.map((e) => getComputedStyle(e).backgroundColor) }))
+      check('★★ 行尾静音钮（指派/编辑/转日志/删除）迁到 bare 后仍是 24 高 + 透明底 + 无框（一枚都不许变样）',
+        acts.length >= 3 && acts.every((e) => {
+          const cs = getComputedStyle(e)
+          return Math.abs(h(e) - 24) < 0.6
+            && cs.backgroundColor === 'rgba(0, 0, 0, 0)'
+            && parseFloat(cs.borderTopWidth) === 0
+        }),
+        JSON.stringify({
+          个数: acts.length, 高度: acts.map(h),
+          底: acts.map((e) => getComputedStyle(e).backgroundColor),
+          框宽: acts.map((e) => getComputedStyle(e).borderTopWidth),
+        }))
+      // `bare` 的内距必须真归零（只有 todo-conv / todo-edit 这两枚带字，按各自规则给 0 6 / 0 9）
+      const padOf = (sel) => { const e = $('main.todos-view ' + sel); return e ? getComputedStyle(e).paddingLeft : '' }
+      check('★ bare 变体的内距归零生效（图标钮 padding-left=0）',
+        padOf('.todo-assign') === '0px' && padOf('.todo-del') === '0px',
+        JSON.stringify({ assign: padOf('.todo-assign'), del: padOf('.todo-del') }))
     }
 
     // ══ 待办的“📅 指派到期日”→ 真打开指派弹窗（2026-10-23 补）══════════════════
@@ -3121,15 +3136,21 @@
         .every((k) => tp.heads.some((h) => h.indexOf(k) >= 0)), JSON.stringify(tp.heads))
     check('★ 契约“未填”显式可见 + 两个按钮（复制模板 / 打开 repo）',
       !tp.err && tp.unset >= 1 && tp.minis >= 2, JSON.stringify({ unset: tp.unset, minis: tp.minis }))
-    // 批 4 第二刀（2026-11-11）：`.trip-mini` 原来是 22px，统一到密集档 24；
-    // 而健康度开关（`.trip-hbtn`）是行内 20px 无框控件，**故意没迁** —— 两者各归各，不许互相污染。
+    // 批 4 第二刀（2026-11-11）：`.trip-mini` 原来是 22px，统一到密集档 24。
+    // 2026-11-12：健康度开关（`.trip-hbtn`）也迁了 —— 但迁到的是 `size="inline"`，
+    //   那一档**不写高度**，所以它仍然是“行内小控件”（< 24），不会把表格行撑高。
+    //   判据从“没被迁走”改成“迁了但仍然不锁高度”—— 这才是那个档存在的意义。
     {
       const h = (e) => (e ? Math.round(e.getBoundingClientRect().height) : -1)
       const minis = $$('#board.pv .trip-table .trip-mini')
       const hbtn = $$('#board.pv .trip-table .trip-hbtn')[0]
-      check('★ 契约小按钮换基座后 = 24，健康度开关仍是行内小控件（<24，没被顺手迁走）',
+      check('★★ 契约小按钮 = 24，健康度开关迁到 inline 档后仍 <24（不锁高度，不撑表格行）',
         minis.length >= 2 && minis.every((b) => Math.abs(h(b) - 24) <= 1) && !!hbtn && h(hbtn) < 24,
         JSON.stringify({ mini: minis.map(h), hbtn: h(hbtn) }))
+      const pdel = $$('#board.pv .trip-table .proj-del')[0]
+      check('★ 移除登记的小钮（proj-del）也走 inline 档：< 24 高且透明底',
+        !!pdel && h(pdel) < 24 && getComputedStyle(pdel).backgroundColor === 'rgba(0, 0, 0, 0)',
+        JSON.stringify({ h: h(pdel), bg: pdel ? getComputedStyle(pdel).backgroundColor : '' }))
     }
     check('★ 无卡项目的“当前步骤”来自执行日志（挂了“日志”来源标签，不冒充任务卡）',
       !tp.err && tp.from >= 1, JSON.stringify({ from: tp.from }))

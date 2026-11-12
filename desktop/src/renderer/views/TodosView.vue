@@ -134,19 +134,21 @@
           </div>
         </div>
         <div class="todo-acts" v-show="!ctl.todoBatchMode">
-          <!-- ⚠ 行尾这四枚是「静音按钮」（24 见方 / 透明底 / 无框，hover 才亮 —— 卡 027 定下的规范，
-               e2e 量的是 24 高 + 8 圆角 + 透明底）。基座 Button 目前只有 ghost（白底带框），
-               套上去这一行会从"安静的一组小动作"变成四个白框，因此本刀**不迁**、登记豁免；
-               等基座补 bare（透明/图标）那一态，再连 lk-* / trip-* 一起扫一遍。 -->
-          <button class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="ctl.openCalAssignTodo(todo.id)">📅</button>
-          <button class="todo-edit" title="编辑（已完成也能改）" @click.stop="ctl.openTodoEditor(todo)">✏️</button>
+          <!-- 行尾这几枚是「静音按钮」（24 见方 / 透明底 / 无框，hover 才亮 —— 卡 027 定下的规范，
+               e2e 量的是 24 高 + 8 圆角 + 透明底）。
+               2026-11-12：基座补了 `bare`（透明/图标）变体，这四枚**迁过去了**（卡里的“等 bare 再迁”兑现）。
+               ⚠ 类名一律保留：e2e 与右键菜单按 `.todo-assign/.todo-edit/…` 选元素，换组件不该改选择器。
+               ⚠ 几何（24×24 / 内距 0）由 `bare + sm` 给；只有 `todo-conv` 带字，需要内距 6，
+                 它由 `.todo-conv` 那条局部规则补（utility 排在 app.css 之后，所以是局部规则输 —— 已在验证里量过）。 -->
+          <Button variant="bare" size="sm" class="todo-assign" title="指派到期日（会显示在日历上）" @click.stop="ctl.openCalAssignTodo(todo.id)">📅</Button>
+          <Button variant="bare" size="sm" class="todo-edit" title="编辑（已完成也能改）" @click.stop="ctl.openTodoEditor(todo)">✏️</Button>
           <!-- 卡 004（拍板=双向）：待办 → 日志。先开确认框（2026-10-09 用户第 1 条：
                里面可以顺手勾“标已转出”折叠源）；同一条只转一次（日志记 fromTodo 防重）。
               2026-10-31（暮雨第 6 条）：原来只有一个“⤴”，不知道点下去会发生什么 ——
                中转之所以"问题一堆"，一半是因为搬运工没挂牌子。按钮写明“→ 日志”。 -->
-          <button class="todo-conv" title="转成执行日志：先确认（可顺手把源标“已转出”折叠）—— 同一条只转一次"
-            @click.stop="ctl.askConvertTodo(todo)">→ 日志</button>
-          <button class="todo-del" title="删除这条待办" @click.stop="ctl.deleteTodo(todo.id)">×</button>
+          <Button variant="bare" size="sm" class="todo-conv" title="转成执行日志：先确认（可顺手把源标“已转出”折叠）—— 同一条只转一次"
+            @click.stop="ctl.askConvertTodo(todo)">→ 日志</Button>
+          <Button variant="bare" size="sm" class="todo-del" title="删除这条待办" @click.stop="ctl.deleteTodo(todo.id)">×</Button>
         </div>
       </div>
     </div>

@@ -52,8 +52,10 @@
         >
           <div class="trow">
             <span class="tname">{{ p.name }}</span>
-            <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
-                    @click.stop="ctl.removeProject(p)">🗑</button>
+            <!-- 2026-11-12：迁到基座 `bare + inline`。`inline` 档**不写高度** ——
+                 这一枚实测 18.5 高，硬套 24 档会把这一行撑高（卡里量过）。 -->
+            <Button variant="bare" size="inline" class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
+                    @click.stop="ctl.removeProject(p)">🗑</Button>
             <span class="thealth">{{ ctl.healthLabel(p.health) }}</span>
           </div>
           <div class="tstats">

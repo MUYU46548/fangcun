@@ -1340,11 +1340,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-hdot.h-y { background: #c99a3a; }
 .trip-hdot.h-p { background: #8a7fb8; }
 .trip-hdot.h-gray { background: #b9b9c6; }
-/* 健康度按钮：独立全局规则（与祖先无关）；锁定态带底色，让"这是你标过的"一眼可见 */
-.trip-hbtn {
-  border: 1px solid transparent; background: transparent; font: inherit; font-size: 12px;
-  color: var(--ink); cursor: pointer; border-radius: 6px; padding: 1px 6px; line-height: 1.5;
-}
+/* 健康度按钮：2026-11-12 几何交给基座 `bare + inline`（不锁高度，实测 22 —— 锁 24 会把表格行撑高）。
+   这里只剩“锁定态”这一件事：用户人工标过的，要一眼看出是**你标的**而不是机器算的。 */
+.trip-hbtn { font-size: 12px; padding: 1px 6px; color: var(--ink); }
 .trip-hbtn:hover { background: var(--tint, #f1eefb); }
 .trip-hbtn.locked { background: var(--tint, #f1eefb); border-color: var(--accent-soft, #c3bce0); font-weight: 600; }
 .trip-lock { margin-left: 3px; font-size: 10px; }
@@ -1365,10 +1363,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .trip-err-hint { color: var(--muted); font-size: 11.5px; line-height: 1.8; }
 .trip-foot { margin-top: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
 .trip-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-/* 移除项目登记的小按钮（四种摆法共用）—— 与祖先无关的全局规则，守卫要求"用了 class 就得有规则"。
-   破坏性动作一律"红色只在 hover 时出现"，不常驻抢视线。 */
-.proj-del { border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit;
-  font-size: 11px; border-radius: 6px; padding: 0 5px; cursor: pointer; line-height: 1.5; flex: none; }
+/* 移除项目登记的小按钮（四种摆法共用）。
+   2026-11-12：几何交给基座 `bare + inline`（inline 档**不写高度**，这一枚实测 18.5，硬套 24 会撑行）。
+   这里只剩两件基座不该替它决定的：字号 11（比 bare 默认的 11.5 再小一点，要贴行）与破坏性 hover。 */
+.proj-del { font-size: 11px; }
 .proj-del:hover { color: #b44141; background: #fbeeee; }
 .trip-foot code { background: var(--tint, #f0f1f5); border-radius: 4px; padding: 0 4px; }
 /* 设置面板（裁断入口） */
@@ -2962,11 +2960,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #cal-assign-modal .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .todo-due { font-size: 10px; color: #3f6fa8; background: #eef4fd; border: 1px solid #d5e3f7; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 待办行尾的两枚图标按钮（2026-09-29 卡 027）：按规范收成 24×24，
-   不再是一个 padding:0 4px、一个是裸文字。 */
-.todo-assign { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
-  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
-  color: var(--muted); font-size: 12px; line-height: 1; }
+   不再是一个 padding:0 4px、一个是裸文字。
+   2026-11-12：几何已交给基座 `bare + sm`（透明/无框/24/8）—— 这里只剩**语义色**。
+   ⚠ 别把 width/height/border 挪回来：utility 排在 app.css 之后，写了也打不过，只会造成两份真相。 */
 .todo-assign:hover { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
 
 /* Todos view */
@@ -2989,11 +2985,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-from { font-size: 10px; color: var(--accent); background: var(--tint); border: 1px solid var(--accent-soft);
   padding: 1px 6px; border-radius: 8px; white-space: nowrap; font-weight: 600; }
 /* 卡 004：待办 → 日志 的入口按钮。2026-10-31（暮雨第 6 条）从 24×24 图标钮改成带字按钮 ——
-   只有一个“⤴”时没人知道那是"转日志"，中转链就断在这。宽度自适应，高度仍与邻居对齐。 */
-.todo-conv { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  height: var(--btn-h-sm); padding: 0 6px; cursor: pointer; white-space: nowrap;
-  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
-  color: var(--muted); font-size: 11.5px; line-height: 1; }
+   只有一个“⤴”时没人知道那是"转日志"，中转链就断在这。宽度自适应，高度仍与邻居对齐。
+   2026-11-12：高度/透明底/无框由基座 `bare + sm` 给；这条只补**带文字才需要的内距**。 */
+.todo-conv { padding: 0 6px; white-space: nowrap; font-size: 11.5px; }
 .todo-conv:hover { color: var(--accent); background: var(--tint); border-color: var(--accent-soft); }
 .todos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .todos-header h3 { font-size: 16px; font-weight: 700; }
@@ -3051,10 +3045,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .todo-prio.prio-high { background: #fee2e2; color: #991b1b; border: 1px solid #f5c2c2; }
 .todo-prio.prio-mid { background: #fef3c7; color: #92400e; border: 1px solid #f5e0a3; }
 .todo-prio.prio-low { background: #eceff3; color: #5b6470; border: 1px solid #d8dde4; }
-.todo-del { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: var(--btn-h-sm); height: var(--btn-h-sm); padding: 0; cursor: pointer;
-  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
-  color: var(--muted); font-size: 14px; line-height: 1; }
+/* 2026-11-12：几何交给基座 `bare + sm`；这条只留**危险色 hover**（基座没有 bare-danger）。 */
 .todo-del:hover { color: var(--danger); background: #fce4e4; border-color: #f0cfcf; }
 
 /* ── 待办 · 卡片网格（多视图第 2 项，卡 033 用户点名的“方块卡片式”）──────
@@ -3363,11 +3354,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    border / background / padding 一条都没写 → 它吃的是**浏览器默认按钮长相**
    （灰底方框 + 黑字），和旁边两个裸文字按钮凑成"三种字号三种圆角"。
    现在收进规范：24px 安静按钮。处理“平时压暗、悬停才亮”的规矩保留 —— 那是降噪不是风格。 */
-.todo-edit { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  height: var(--btn-h-sm); padding: 0 9px; cursor: pointer;
-  background: transparent; border: 1px solid transparent; border-radius: var(--btn-r);
-  color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1;
-  opacity: .55; transition: opacity .15s, background .15s, color .15s, border-color .15s; }
+/* 2026-11-12：几何交给基座 `bare + sm`；这条留两件基座不该替它决定的东西：
+   ① **内距 0 9** —— 它是带字的（“✏️”在部分系统上会渲染成文字宽度），padding 归零会把它压扁；
+   ② **平时压暗、悬停才亮** —— 压暗是降噪不是风格（卡 027 原话），必须留在元素上。 */
+.todo-edit { padding: 0 9px; opacity: .55; transition: opacity .15s, background .15s, color .15s, border-color .15s; }
 .todo-item:hover .todo-edit { opacity: 1; }
 .todo-edit:hover { background: var(--tint); color: var(--ink); border-color: var(--accent-soft); opacity: 1; }
 .todo-new { flex-shrink: 0; white-space: nowrap; font-size: 12px; }

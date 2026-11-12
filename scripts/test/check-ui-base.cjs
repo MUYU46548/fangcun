@@ -420,6 +420,27 @@ const srcDirs = [path.join(DESKTOP, 'src', 'renderer')]
     check('★ 迁完之后视图里不再有 `<button class="ok`（共享变体只剩基座在用）',
       !/<button[^>]*class="[^"]*\bok\b/.test(psrc + isrc + src))
   }
+
+  // ④ `bare` 变体的内距必须在 compoundVariants 里归零（2026-11-12 实测）
+  //    为什么单列：cva 的拼接顺序是 `base → variant → size → compound`，**size 的 px 后写会赢**。
+  //    把 `px-0` 写进 variant 字符串里看着“写了”，实际会被 `tool`/`sm` 的 px 盖掉 ——
+  //    静音钮会从 24×24 变成一根胖条，而 css 里一切正常、看不出谁错了。
+  {
+    const src = read('src/renderer/components/ui/Button.vue')
+    const hasBare = /bare:\s*'/.test(src)
+    const bareInCompound = /variant:\s*'bare'[\s\S]{0,80}px-0/.test(src)
+      || /compoundVariants[\s\S]{0,400}variant:\s*'bare'[\s\S]{0,120}px-0/.test(src)
+    check('★★ `bare` 的内距归零写在 compoundVariants 里（写在 variant 里会被 size 的 px 盖掉）',
+      hasBare && bareInCompound, `bare=${hasBare} 在compound=${bareInCompound}`)
+    check('★ `bare` 是**透明**底，不是“白底去边框”（bg-transparent 显式写）',
+      /bare:\s*'[^']*bg-transparent/.test(src))
+    // ⑤ `inline` 档**不许写高度**（2026-11-12）：那一档存在的理由就是让高度由页面接管。
+    //    判定按“该档的字符串里没有 h-/height 类”来，别写死像素 —— 写死像素的话每次都来改测试。
+    const inlineM = /inline:\s*'([^']*)'/.exec(src)
+    const inlineCls = inlineM ? inlineM[1] : ''
+    check('★★ `inline` 档不写高度（高度交给页面：行内小控件 18~22 高，锁死会撑行）',
+      !!inlineM && !/(^|\s)h-|height/.test(inlineCls), inlineCls || '(没解析到 inline 档)')
+  }
 }
 
 console.log(`\n通过 ${pass} / 失败 ${fail}`)

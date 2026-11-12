@@ -68,8 +68,8 @@
             <td class="trip-pj">
               <b>{{ r.name }}</b>
               <span class="trip-pid">{{ r.id }}</span>
-              <button class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
-                      @click.stop="removeProject(r)">🗑</button>
+              <Button variant="bare" size="inline" class="proj-del" title="移除项目登记（只删登记，不动任务卡与文件）"
+                      @click.stop="removeProject(r)">🗑</Button>
             </td>
 
             <!-- 终态：读各 repo 的 立项契约.md；没有就显式“未填”+ 两个按钮（不给假默认值）
@@ -142,13 +142,13 @@
             <!-- 健康度：机器只给默认值，点一下人工覆盖并锁定（右键恢复自动） -->
             <td v-if="tripColVisible('health')" class="trip-health">
               <span class="trip-hdot" :class="'h-' + tripHealthClass(r.health.value)"></span>
-              <button class="trip-hbtn" :class="{ locked: r.health.locked }"
+              <Button variant="bare" size="inline" class="trip-hbtn" :class="{ locked: r.health.locked }"
                       :title="r.health.locked
                         ? '你标过（已锁定）—— 点一下换下一档；右键恢复自动'
                         : '方寸按这个项目最近有没有提交算出来的默认值 —— 点一下可人工改成你的判断'"
                       @click.stop="tripCycleHealth(r)" @contextmenu.prevent="tripUnlockHealth(r)">
                 {{ tripHealthLabel(r.health.value) }}<span v-if="r.health.locked" class="trip-lock">🔒</span>
-              </button>
+              </Button>
             </td>
 
             <td v-if="tripColVisible('counts')" class="trip-cnt">
