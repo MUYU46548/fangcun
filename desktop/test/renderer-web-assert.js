@@ -6553,6 +6553,53 @@
         }
       }
       void bkSect
+
+      // ── 2026-11-12：「点备份 → 报失败，但其实备份成功了」的真因 ────────────
+      // 现场：`C:\Users\muyu\AppData\Roaming\fangcun-desktop\logs\fangcun-20261112.log` 16:40:04 / 16:40:17
+      //   `Cannot set properties of undefined (setting 'value')`
+      //   而 backups/ 里**同时**多了两个 21.7MB 的 zip —— 说明打包成功了，崩在“回执”那一步。
+      // 真因：`useBackup` 里 `backupInfo` 定义了、自己也用了，**却没放进 return {}**；
+      //   渲染层解构拿到 undefined → `backupInfo.value = …` 抛错。
+      // 为什么以前没抓到：假 preload 的 `backupRun` 返回 `ok()`（空对象），
+      //   成功分支从没被走完过（和上面“裸数组桩”是同一类洞）。
+      // 判据：点「立即备份」→ 真调通道 → **不抛异常** → 成功提示真出现 → 顶栏拿到路径。
+      {
+        // ⚠ 按钮文案是 `bkBusy ? '备份中…' : '立即备份'` —— 按文字找会漏。
+        //   而且**上一条断言刚点过“恢复”**（bkRestore 会置 bkBusy=true，finally 才复位），
+        //   这里要等它复位再点，否则点到的是 disabled 的按钮 → backupRun 调用数恒为 0。
+        //   （2026-11-12 实测：不加这一步时点下去毫无反应，看起来像"备份按钮坏了"。）
+        await waitFor(() => {
+          const b = $$('.backup-sect button').find((x) => /立即备份/.test(x.textContent || ''))
+          return !!b && !b.disabled
+        }, 5000, 'bkBusy 复位')
+        const runBtn = $$('.backup-sect button').find((b) => /立即备份|马上备份|备份一次/.test(b.textContent || ''))
+        if (runBtn) {
+          const errBefore = $$('.errbar').length
+          window.__fcTest.reset()
+          runBtn.click()
+          const hit = await waitFor(() => window.__fcTest.callCount('backupRun') > 0, 3000, 'backupRun')
+          check('★★ 点「立即备份」真走 backupRun（不是死按钮）', hit,
+            JSON.stringify({
+              disabled: runBtn.disabled,
+              calls: window.__fcTest.calls().map((c) => c.name).slice(-8),
+              msg: (($('.bk-msg') || {}).textContent || '').slice(0, 80),
+            }))
+          await sleep(900)
+          check('★★ 备份成功后**不抛异常**（真因：useBackup 忘了导出 backupInfo → 回执那步崩）',
+            $$('.errbar').length <= errBefore,
+            JSON.stringify($$('.errbar').map((e) => (e.textContent || '').slice(0, 80))))
+          // ⚠ 设置页里的备份结果写在**本区自己的反馈条**（`bkReportResult` 写 bkMsg），
+          //   而不是顶栏 toast —— 顶栏 toast 在设置弹窗打开时拍不到（实测拿到上一页的旧文案）。
+          //   那个 div 的类名是 `llm-config-msg`（复用老样式，2026-11-12 实测确认）。
+          const bkMsgTxt = (($('.backup-sect .llm-config-msg') || {}).textContent || '')
+          check('★★ 成功提示真出现，且带文件数/包体积（不是空壳回执）',
+            /备份成功/.test(bkMsgTxt) && /\d+\s*个文件/.test(bkMsgTxt) && /包\s*[\d.]+\s*MB/.test(bkMsgTxt),
+            JSON.stringify({ 回执: bkMsgTxt.slice(0, 100) }))
+        } else {
+          check('  备份区有「立即备份」入口（没有就跳过这一段）', false,
+            '按钮文案变了？' + $$('.backup-sect button').map((b) => (b.textContent || '').trim() + (b.disabled ? '(disabled)' : '')).slice(0, 12).join('|'))
+        }
+      }
     }
     maskClick('#soverlay'); await sleep(300)
 

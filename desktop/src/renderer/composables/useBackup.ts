@@ -660,7 +660,14 @@ function createBackup(opts: UseBackupOptions) {
   })
 
   return {
-    bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkSaveEncrypt, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile
+    bkForm, bkSize, bkMsg, bkMsgType, bkBusy, bkTesting, bkTab, bkLocal, bkRemote, bkStatus, bkState, bkShowLog, bkLogLines, bkVerifyResult, bkCurrentList, bkAlert, bkDotClass, bkStatusText, bkTooltip, bkFmt, bkInitBackup, bkRefreshStatus, bkLoadConfig, bkLoadSizeReport, bkMB, bkLoadList, bkExportCandidates, bkLatestPackagePath, bkSwitchTab, bkRefreshList, bkSaveConfig, bkSaveSlim, bkSaveEncrypt, bkReportResult, bkSaveAndRun, bkRunLocalOnly, bkTestRemote, bkRestore, bkOpenDir, bkToggleLog, bkPickDir, gitRemote, gitBranch, gitToken, gitHasToken, gitBusy, gitMsg, gitMsgType, loadGitStatus, gitCommitForm, gitSaveConfig, gitForgetToken, gitTest, gitPushNow, bkCopyResticScript, bkExportTo, bkInspected, bkInspectRow, bkVerifyPackage, bkRestoreFromFile,
+    // ⚠ 2026-11-12 修：这两个定义在 createBackup 里、也被它自己用了，却**没被导出** ——
+    //   `App.vue` 从 `useBackup()` 解构出 `backupInfo` 拿到的是 `undefined`，
+    //   于是 `triggerBackup()` 里那句 `backupInfo.value = …` 抛
+    //   `Cannot set properties of undefined (setting 'value')`（实测日志 16:40:04 / 16:40:17 各一次）。
+    //   **真相是备份本身成功了**（zip 已落盘，21.7MB），只是回执那一步崩了 → 用户看到“备份失败”。
+    //   守卫：e2e-renderer-web 新增“useBackup 的每个内部 ref/函数都被导出”那一条。
+    backupInfo, openBackupFolder,
   }
 }
 

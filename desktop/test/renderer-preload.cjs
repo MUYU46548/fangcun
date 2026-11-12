@@ -765,7 +765,32 @@ contextBridge.exposeInMainWorld('tegula', {
     }
   },
   backupStatus: () => ({ ok: true, status: { enabled: false, running: false, nextRunAt: null, state: {} } }),
-  backupGetConfig: () => ({}),
+  /**
+   * 备份配置：**返回真实形状** `{ok, config}`（2026-11-12 修）。
+   *
+   * ⚠ 原来这里是 `() => ({})` —— `r.ok` 是 undefined、`r.config` 是 undefined。
+   *   渲染层 `bkLoadConfig()` 里读 `c.remote.url`（**没有可选链**），当场抛
+   *   `Cannot read properties of undefined (reading 'remote')`；
+   *   而 `bkSaveAndRun()` 第一步就是 `await bkSaveConfig(true)`，它又调 `backup:setConfig`
+   *   → 那里 `r.config.remote.hasPassword` 再抛一次。
+   *   结果：点「立即备份」**一个通道都没调**（实测 calls=[]），界面毫无反应 ——
+   *   看起来就是“备份按钮坏了”。**根因是桩形状不对，整条路径从没被真跑过。**
+   *   （与本文件 2026-10-23 记的“backupLog / backupListRemote 返回裸数组”是同一类洞。）
+   */
+  backupGetConfig: () => {
+    rec('backupGetConfig')
+    return {
+      ok: true,
+      config: {
+        enabled: true, intervalHours: 6, firstDelayMinutes: 5,
+        localKeep: 5, remoteKeep: 10, localDir: '',
+        remote: { url: '', username: '', password: '', hasPassword: false, allowSelfSigned: false },
+        slim: { excludeLogAttachments: false, maxFileMB: 10 },
+        encrypt: { enabled: false, remember: false, password: '', hasPassword: false },
+        secretStorageAvailable: true,
+      },
+    }
+  },
   onBackupStatus: () => () => {},
   /**
    * 备份日志（2026-10-23 补夹具）。
@@ -2218,10 +2243,57 @@ contextBridge.exposeInMainWorld('tegula', {
       ],
     })
   },
-  backupRun: () => ok(),
-  backupRunLocalOnly: () => ok(),
+  /**
+   * 备份：**返回真实形状** `{ok, result}`（2026-11-12 修）。
+   *
+   * ⚠ 原来这里是 `() => ok()` —— 返回 `{}`，于是 `r.result` 是 undefined，
+   *   而 `App.vue#triggerBackup` 恰好要读 `r.result.localPath`。
+   *   更糟的是真实 bug 在**另一个地方**：`useBackup` 忘了导出 `backupInfo`，
+   *   渲染层解构出 undefined，`backupInfo.value = …` 抛「Cannot set properties of undefined」。
+   *   桩返回空对象 + 那个 ref 是 undefined —— 两条叠在一起，界面「点了备份没反应 / 报失败」，
+   *   而**备份本身是成功的**（zip 21.7MB 已落盘）。
+   *   现在给足真实字段，`triggerBackup` 的成功分支在无头里也能真跑通。
+   */
+  backupRun: () => {
+    rec('backupRun')
+    return ok({
+      ok: true,
+      result: {
+        ok: true, trigger: 'manual', files: 128, localPath: 'C:/mock/backups/fangcun-data-demo.zip',
+        localBytes: 21 * 1024 * 1024, remotePath: null, warnings: [], errors: [],
+      },
+    })
+  },
+  backupRunLocalOnly: () => {
+    rec('backupRunLocalOnly')
+    return ok({
+      ok: true,
+      result: {
+        ok: true, trigger: 'manual', files: 128, localPath: 'C:/mock/backups/fangcun-data-demo.zip',
+        localBytes: 21 * 1024 * 1024, remotePath: null, warnings: [], errors: [],
+      },
+    })
+  },
   backupSaveConfig: () => ok(),
-  backupSetConfig: () => ok(),
+  /**
+   * ⚠ 同样要给真实形状 `{ok, config}`：`bkSaveConfig()` 里读 `r.config.remote.hasPassword`
+   *   （没有可选链），空对象会抛 → `bkSaveAndRun` 在调 `backupRun` **之前**就死了。
+   *   这就是“点立即备份一点反应都没有”的直接原因（详见上面 backupGetConfig 那段）。
+   */
+  backupSetConfig: () => {
+    rec('backupSetConfig')
+    return {
+      ok: true,
+      config: {
+        enabled: true, intervalHours: 6, firstDelayMinutes: 5,
+        localKeep: 5, remoteKeep: 10, localDir: '',
+        remote: { url: '', username: '', password: '', hasPassword: false, allowSelfSigned: false },
+        slim: { excludeLogAttachments: false, maxFileMB: 10 },
+        encrypt: { enabled: false, remember: false, password: '', hasPassword: false },
+        secretStorageAvailable: true,
+      },
+    }
+  },
   backupTestRemote: () => ok(),
   /**
    * 恢复备份（2026-10-23 补记账 + 真形状）。
