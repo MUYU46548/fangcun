@@ -385,6 +385,11 @@ function main() {
       ['看板', '列表视图', 'board-no-rework-banner', 'norw'],
       // 2026-11-08：结构地图一览（行内会出「⏳ N 张提议等你签字」）
       ['项目', '', 'smap-list', 'smapview'],
+      // 2026-11-12 暮雨：「作战计划那个页签的界面已经惨不忍睹了，可读性极差，信息杂乱。
+      // 貌似你一直不知道」—— 查证：截图用例里 **一条作战计划的都没有**，所以从没人看过这个页面。
+      // 没被拍过的界面 = 从没被看过的界面。补一张常规态 + 一张有草案待提成态。
+      ['项目', '', 'plan-view', 'planview'],
+      ['项目', '', 'plan-drafts', 'plandraft'],
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -777,6 +782,19 @@ function main() {
   if (accEl) accEl.scrollIntoView({ block: 'end' })
   await sleep(500)
 ` : ''}
+  ${extra === 'planview' || extra === 'plandraft' ? `
+  // 2026-11-12：作战计划页 —— 此前**没有任何截图证据**，所以没人发现它可读性差。
+  // 这里只做"进得去、拍得下"，不判断好不好看（那要靠人看这张图）。
+  clickText('项目'); await sleep(700)
+  const planTab = all('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('作战计划') >= 0)
+  if (planTab) planTab.click()
+  await sleep(1200)
+  ${extra === 'plandraft' ? `
+  // 有草案待提成的那一态：展开草案块（用户实际的入口就在这上面）
+  const dtoggle = all('button').find((b) => (b.textContent || '').indexOf('份草案') >= 0)
+  if (dtoggle) { dtoggle.click(); await sleep(900) }
+  ` : ''}
+  ` : ''}
   ${extra === 'smapview' ? `
   // 造两条真数据：一条“结构大改已过期”（要看到橙字理由），一条“待签字的提议”
   if (window.__fcTest && window.__fcTest.setPolicies) {
