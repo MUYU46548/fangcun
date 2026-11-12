@@ -2151,6 +2151,27 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-how { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--tint); color: var(--ink); font-size: 11.5px; line-height: 1.75; }
 .plan-how b { color: var(--accent); }
+/* 折叠态（2026-11-12）：说明只在需要时展开 —— 首屏留给"还有哪几格等我"。 */
+.plan-how.folded { padding: 0; border-style: dashed; background: transparent; }
+.plan-how-toggle {
+  width: 100%; text-align: left; cursor: pointer; font: inherit; font-size: 11.5px;
+  color: var(--muted); background: transparent; border: 0; padding: 7px 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.plan-how-toggle:hover { color: var(--ink); }
+.plan-how-more { margin-left: auto; font-size: 10.5px; color: var(--accent); }
+.plan-how-body { padding: 0 10px 8px; }
+/* 草案按项目分组（2026-11-12）：每组一行摘要，点开才摊开。 */
+.pd-group { margin: 6px 0 2px; }
+.pd-group-head {
+  width: 100%; display: flex; align-items: baseline; gap: 8px; cursor: pointer;
+  font: inherit; font-size: 12.5px; text-align: left; padding: 6px 8px;
+  background: var(--tint); border: 1px solid var(--border); border-radius: 8px; color: var(--ink);
+}
+.pd-group-head:hover { filter: brightness(.98); }
+.pd-group-head b { font-weight: 700; }
+.pd-g-arrow { color: var(--muted); font-size: 10px; width: 10px; }
+.pd-g-meta { margin-left: auto; font-size: 10.5px; color: var(--muted); }
 /* 裁决回执（2026-11-03）：点完“通过”没反馈的修复 —— 顶部常驻一条 + 卡片闪一下 */
 .plan-recent { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin: 0 0 12px; padding: 7px 10px; border-radius: 8px; font-size: 12px;
@@ -3570,9 +3591,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .pf-label-hint { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; line-height: 1.5; }
 .pf-map-tools { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .pf-map-tip { font-size: 10.5px; color: var(--muted); }
-/* 核心判词四档按钮（2026-11-12）：按钮本体走基座 Button（check-ui-freeze 不许新增手搓类），
-   这里只留一行排列。 */
+/* 核心判词（2026-11-12）：按钮走基座 Button，输入框默认是**单行** ——
+   它不是给人写小作文的地方（暮雨：「这种东西填了真的有用吗」）。 */
 .pf-verdict-picks { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+.pf-verdict-input { width: 100%; box-sizing: border-box; height: var(--btn-h-lg); padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 12px; margin-bottom: 6px; }
 .todo-title { cursor: pointer; }
 .todo-title:hover { text-decoration: underline dotted; }
 

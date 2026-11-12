@@ -805,6 +805,8 @@ import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from 
 import { toPlain } from '../shared/plain'
 // Ctrl+Z 的归属判定（2026-11-12 第 3 条）：可编辑文本里撤字、其它地方撤数据动作。
 import { decideUndoKey, isEditableTarget } from '../shared/undoKey'
+// 核心判词词表与判定（唯一真源；界面与闸都从这里取，不许各自写死）
+import { isUnjudged } from '../shared/coreVerdict'
 // 撤销条中枢（全站一个）：日志/待办/决策都在改数据，谁改谁 offer，条子只此一条
 import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo, showUndoBar, runUndo as runUndoCore, runUndoTo as runUndoToCore } from './undo'
 // “整段被一对括号包住 = 模板占位”的单一来源（与契约读取、Python 侧同一规则）
@@ -4527,8 +4529,9 @@ async function openPolicyEdit(projectId: string) {
   policyEdit_.value = {
     id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary,
     structureMap: structureMap || '',
-    // 骨架提示（「> 未判 —— …」）不算判词：留空让人从"还没判"开始，而不是误以为已经判过
-    coreVerdict: /^>\s*未判/.test(String(coreVerdict || '').trim()) ? '' : (coreVerdict || ''),
+    // 骨架提示不算判词：判定收在 shared/coreVerdict#isUnjudged（此前这里自己写了一正则，
+    // 与 planDraftInput.ts 那份重复）
+    coreVerdict: isUnjudged(coreVerdict) ? '' : (coreVerdict || ''),
   }
   policyGuard.open(policyEdit_.value)
 }

@@ -2400,16 +2400,19 @@
       check('★★ 项目方针弹窗能打开（判词的入口在这一层）', opened && modalIn)
       if (modalIn) {
         const picks = $$('#policy-modal .pf-vpick')
-        check('★★ 弹窗里有核心判词输入框（此前**根本不存在**，让人去哪填）',
-          !!Array.from(document.querySelectorAll('#policy-modal textarea'))
-            .find((ta) => ta.placeholder.indexOf('垃圾') >= 0 || ta.placeholder.indexOf('能玩') >= 0),
-          'placeholders=' + $$('#policy-modal textarea').map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
+        // ⚠ 2026-11-12：判词框从 textarea 改成**单行 input** ——
+        //   它是"点一下 + 一句话"，不是写小作文的地方（暮雨：「填了真的有用吗」）。
+        //   断言随之改成"找那个 placeholder 带示例的输入框"，不绑死控件类型。
+        const verdictInput = $$('#policy-modal input, #policy-modal textarea')
+          .find((el) => /不填也行|——/.test(el.placeholder || ''))
+        check('★★ 弹窗里有核心判词输入框（此前**根本不存在**，让人去哪填）', !!verdictInput,
+          'placeholders=' + $$('#policy-modal input, #policy-modal textarea')
+            .map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
         check('★★ 四个档位按钮都在（立得住 / 能玩 / 垃圾 / 未判）',
-          picks.length === 4 && ['立得住', '能玩', '垃圾', '未判'].every(
+          picks.length >= 4 && ['立得住', '能玩', '垃圾', '未判'].every(
             (k) => picks.some((b) => (b.textContent || '').indexOf(k) >= 0)),
           picks.map((b) => (b.textContent || '').trim()).join('|'))
-        const verdictTa = Array.from(document.querySelectorAll('#policy-modal textarea'))
-          .find((ta) => ta.placeholder.indexOf('垃圾') >= 0 || ta.placeholder.indexOf('能玩') >= 0)
+        const verdictTa = verdictInput
         if (verdictTa) {
           const junkBtn = picks.find((b) => (b.textContent || '').indexOf('垃圾') >= 0)
           if (junkBtn) junkBtn.click()
@@ -2866,6 +2869,17 @@
       {
         check('★★ 作战计划页有「草案」块（此前草案只在文件里，界面看不见）',
           !!(await waitFor(() => !!$('#board.pv .plan-drafts'), 4000, 'plan-drafts')))
+        // ⚠ 2026-11-12 暮雨：「项目页一坨文字还是没修」——草案改成**按项目分组、默认收起**。
+        //   所以下面的断言必须先点开那一组，否则"没有格子"会被误判成"功能坏了"。
+        //   这条断言同时钉住新行为：默认必须是收起的（否则"一坨"又回来了）。
+        check('★★ 草案按项目分组，且**默认收起**（8 份平铺就是"一坨"的来源）',
+          $$('#board.pv .pd-group').length >= 1 && $$('#board.pv .pd-group .pd-card').length === 0,
+          'groups=' + $$('#board.pv .pd-group').length + ' cards=' + $$('#board.pv .pd-group .pd-card').length)
+        const grpHead = $('#board.pv .pd-group-head')
+        if (grpHead) grpHead.click()
+        check('★ 点组头展开后草案卡才出现',
+          !!(await waitFor(() => $$('#board.pv .pd-group .pd-card').length >= 1, 3000, '草案展开')),
+          'cards=' + $$('#board.pv .pd-group .pd-card').length)
         const stageRow = (id) => $$('#board.pv .pd-stage').find(
           (x) => ((x.querySelector('.pd-sid') || {}).textContent || '').trim() === id)
         const rowBtns = (id) => Array.prototype.slice.call((stageRow(id) || { querySelectorAll: () => [] }).querySelectorAll('button'))

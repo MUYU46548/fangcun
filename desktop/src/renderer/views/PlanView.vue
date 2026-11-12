@@ -29,13 +29,23 @@
     </div>
     <!-- 2026-11-03：这一页只回答“这张卡能不能冻结”，但用户还得知道**冻了之后去哪推**。
          把整条回路写在这里（不新增页面、不改动作）：裁决 → 冻结 → 日志页看今天推哪格 →
-         回来跑判据 → 推进这一格。 -->
-    <div class="plan-how">
-      <b>怎么用：</b>没冻结的格子推不动 —— 通过 = 冻结，打回必须写理由（三块不齐不给通过）。
-      冻结后到日志页顶部看“今天推哪一格”，回这里点“⚙ 跑判据”，全过后点“▶ 推进这一格”（写完成 + 证据，之后自动跳到下一格）。
-      <br>
-      <b>让 agent 起草新阶段：</b>它调 <code>stage_plan_propose</code> 写进来的卡一定是「待裁决」——
-      仍然要你在这里点「通过（冻结）」才算数。缺技术方案 / 照抄点 / 判据的提议会被直接拒收（不会留下永远冻结不了的死卡）。
+         回来跑判据 → 推进这一格。
+         ⚠ 2026-11-12 暮雨：「项目页一坨文字还是没修」——这段大字说明每次进门都占三行，
+            而它是**读一次就够**的东西。默认收成一行，点开才看全文。 -->
+    <div class="plan-how" :class="{ folded: !howOpen }">
+      <button v-if="!howOpen" class="plan-how-toggle" @click="howOpen = true">
+        怎么用 · 网页怎么推一格 + agent 怎么起草<span class="plan-how-more">展开</span>
+      </button>
+      <template v-else>
+        <div class="plan-how-body">
+          <b>推定一格：</b>没冻结的格子推不动 —— 通过 = 冻结，打回必须写理由（三块不齐不给通过）。
+          冻结后到日志页顶部看“今天推哪一格”，回这里点“⚙ 跑判据”，全过后点“▶ 推进这一格”。
+          <br>
+          <b>让 agent 起草：</b>它调 <code>stage_plan_propose</code> 写进来的卡一定是「待裁决」，
+          仍要你点「通过（冻结）」才算数；缺块会被直接拒收。
+        </div>
+        <button class="plan-how-toggle" @click="howOpen = false">收起</button>
+      </template>
     </div>
 
     <!-- 2026-11-03：裁决后的即时回执。原先只有页面底部一行 msg（滚远了看不见），
@@ -72,28 +82,38 @@
         <span class="pd-hint">{{ draftDeck ? '这一卷是提成时必须附的依据' : '没选卷 → 提成会被闸直接拒（这是设计，不是 bug）' }}</span>
       </div>
       <div v-else class="pd-hint">本机没有已批准的卷 —— 先去问卷页答完并批准一卷，才能提成阶段卡</div>
-      <div v-for="d in drafts" :key="d.file" class="pd-card">
-        <div class="pd-head">
-          <b>{{ d.file }}</b>
-          <span class="pd-meta">{{ d.project }} · {{ d.stages.length }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
-        </div>
-        <div v-for="s in d.stages" :key="s.id" class="pd-stage" :data-pd-stage="s.id">
-          <span class="pd-sid">{{ s.id }}</span>
-          <span class="pd-title">{{ s.title }}</span>
-          <span v-if="editingKey === pdKey(d, s)" class="pd-editing">正在改</span>
-          <!-- ⚠ 缺什么**编辑时也要看得见**（第一版被“正在改”顶掉了，改到一半就不知道还差哪块） -->
-          <span v-if="pdMissing(d, s).length" class="pd-miss">缺 {{ pdMissing(d, s).join(' / ') }} —— 不能提</span>
-          <span v-else class="pd-ok">三块齐全</span>
-          <Button variant="ghost" size="tool" :disabled="draftBusy"
-            :title="editingKey === pdKey(d, s) ? '收起编辑框（改过的内容留着，提成时才生效）' : '展开编辑框：提成前就地改技术方案 / 照抄点 / 判据'"
-            @click="toggleDraftEdit(d, s)">{{ editingKey === pdKey(d, s) ? '收起' : '✎ 改一下' }}</Button>
-          <Button v-if="!pdMissing(d, s).length" variant="ghost" size="tool" :disabled="draftBusy"
-            :title="'把这一格提成「待裁决」阶段卡（走 proposeStage 同一条闸）'" @click="proposeDraft(d, s)">提成阶段卡 →</Button>
-          <span v-if="pdChangedNote(d, s)" class="pd-changed">{{ pdChangedNote(d, s) }}</span>
-        </div>
-        <!-- 编辑框（2026-11-12）：三块各一个文本框；照抄点用文件里同样的 `| a | b |` 写法 -->
-        <div v-for="s in d.stages" :key="'ed-' + s.id" v-show="editingKey === pdKey(d, s)"
-          class="pd-edit" :data-pd-edit="s.id">
+      <!-- ⚠ 2026-11-12 暮雨：「一坨文字」——此前 8 份草案**全部平铺**，每份再摊开 5 格，
+           进门就是几十行。现在按项目分组、**每组默认收起**，只留一行摘要；
+           展开哪组看哪组。判据不是"少显示"，而是"一眼能数清有几组、每组几格等着"。 -->
+      <div v-for="g in draftGroups" :key="g.project" class="pd-group" :data-pd-group="g.project">
+        <button class="pd-group-head" @click="toggleDraftGroup(g.project)">
+          <span class="pd-g-arrow">{{ draftOpen[g.project] ? '▾' : '▸' }}</span>
+          <b>{{ g.project }}</b>
+          <span class="pd-g-meta">{{ g.items.length }} 份草案 · {{ g.stageCount }} 格待提成</span>
+        </button>
+        <template v-if="draftOpen[g.project]">
+          <div v-for="d in g.items" :key="d.file" class="pd-card">
+            <div class="pd-head">
+              <b>{{ d.file }}</b>
+              <span class="pd-meta">{{ d.stages.length }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
+            </div>
+            <div v-for="s in d.stages" :key="s.id" class="pd-stage" :data-pd-stage="s.id">
+              <span class="pd-sid">{{ s.id }}</span>
+              <span class="pd-title">{{ s.title }}</span>
+              <span v-if="editingKey === pdKey(d, s)" class="pd-editing">正在改</span>
+              <!-- ⚠ 缺什么**编辑时也要看得见**（第一版被“正在改”顶掉了，改到一半就不知道还差哪块） -->
+              <span v-if="pdMissing(d, s).length" class="pd-miss">缺 {{ pdMissing(d, s).join(' / ') }} —— 不能提</span>
+              <span v-else class="pd-ok">三块齐全</span>
+              <Button variant="ghost" size="tool" :disabled="draftBusy"
+                :title="editingKey === pdKey(d, s) ? '收起编辑框（改过的内容留着，提成时才生效）' : '展开编辑框：提成前就地改技术方案 / 照抄点 / 判据'"
+                @click="toggleDraftEdit(d, s)">{{ editingKey === pdKey(d, s) ? '收起' : '✎ 改一下' }}</Button>
+              <Button v-if="!pdMissing(d, s).length" variant="ghost" size="tool" :disabled="draftBusy"
+                :title="'把这一格提成「待裁决」阶段卡（走 proposeStage 同一条闸）'" @click="proposeDraft(d, s)">提成阶段卡 →</Button>
+              <span v-if="pdChangedNote(d, s)" class="pd-changed">{{ pdChangedNote(d, s) }}</span>
+            </div>
+            <!-- 编辑框（2026-11-12）：三块各一个文本框；照抄点用文件里同样的 `| a | b |` 写法 -->
+            <div v-for="s in d.stages" :key="'ed-' + s.id" v-show="editingKey === pdKey(d, s)"
+              class="pd-edit" :data-pd-edit="s.id">
           <label class="pd-edit-l">技术方案<span class="pd-edit-hint">一行一条</span>
             <textarea class="pd-ta font-[inherit]" rows="4" :value="pdBuffer(d, s, 'approach')"
               @input="onDraftInput(d, s, 'approach', $event)"></textarea>
@@ -113,7 +133,9 @@
             <Button variant="ghost" size="sm" @click="resetDraftEdit(d, s)">恢复原文</Button>
             <Button variant="ghost" size="sm" @click="toggleDraftEdit(d, s)">收起</Button>
           </div>
-        </div>
+          </div>
+          </div>
+        </template>
       </div>
       <div v-if="draftMsg" class="pd-msg">{{ draftMsg }}</div>
       <div v-if="draftBroken.length" class="pd-broken">
@@ -399,6 +421,29 @@ const draftDecks = ref<{ deck: string; project: string }[]>([])
 const draftDeck = ref('')
 const draftBusy = ref(false)
 const draftMsg = ref('')
+/** 「怎么用」那段说明默认收起（读一次就够的东西不该每次占三行） */
+const howOpen = ref(false)
+
+/**
+ * 草案按项目分组（2026-11-12 暮雨：「项目页一坨文字还是没修」）。
+ *
+ * 此前 8 份草案全部平铺、每份再摊 5 格 —— 单是首屏就滚不完。
+ * 分组只是**换个摆法**，不改任何数据：每组的 items/stageCount 都是现算的。
+ */
+const draftOpen = ref<Record<string, boolean>>({})
+const draftGroups = computed(() => {
+  const map: Record<string, { project: string; items: any[]; stageCount: number }> = {}
+  for (const d of drafts.value) {
+    const p = String(d.project || '(未知项目)')
+    if (!map[p]) map[p] = { project: p, items: [], stageCount: 0 }
+    map[p].items.push(d)
+    map[p].stageCount += Array.isArray(d.stages) ? d.stages.length : 0
+  }
+  return Object.values(map).sort((a, b) => b.stageCount - a.stageCount)
+})
+function toggleDraftGroup(p: string): void {
+  draftOpen.value = { ...draftOpen.value, [p]: !draftOpen.value[p] }
+}
 
 /**
  * 提成时就地改三块（2026-11-12）。

@@ -1,6 +1,6 @@
-/**
- * 内容量闸（2026-11-12 暮雨：记忆圣所那两间房纯属垃圾，而且「连整个游戏的玩法本身
- * 可能都有问题，撑不起那么大的内容量」）
+﻿/**
+ * 内容量闸（2026-11-12 暮雨：记忆圣所那两间房不该留着，
+ * 而且「连整个游戏的玩法本身可能都有问题，撑不起那么大的内容量」）
  *
  * 这条闸不判断好坏（那要审美，机器判不了）。它判断的是**顺序**：
  *   核心玩法还没被人确认"立得住"，就不许往上铺几小时的内容。
@@ -9,7 +9,7 @@
  *   记忆圣所 2026-11-12 一天出了 6 份设计稿，最后那份写「总时长 4–5 小时，三幕」，
  *   而核心循环从没被任何人确认过值得玩。方寸所有闸照样放行 —— 因为它的判据全是
  *   「文件存在 / 三元组齐不齐」，这种判据对"铺错了量级"完全无感。
- *   于是 AI 可以一路通过所有检查，把垃圾堆到五小时。
+ *   于是 AI 可以一路通过所有检查，把内容堆到五小时，而没人问过核心能不能撑住。
  *
  * 判据形状刻意做成**确定性**的，不调模型、不猜：
  *   ① 从计划/阶段卡文本里抽出**声称的内容量**（小时数 / 幕数 / 房间数 / 章节数）；
@@ -18,6 +18,7 @@
  *
  * ⚠ 本文件零 Vue / 零 DOM / 零 IO，纯函数 —— 所以能被测试直接断言。
  */
+import { UNJUDGED, VERDICT_KEYS, VERDICT_LEVELS, verdictAllowsScale } from './coreVerdict'
 
 /** 核心未验证时允许的最大内容量（超过就要判词） */
 export const UNCORE_LIMITS = {
@@ -29,9 +30,8 @@ export const UNCORE_LIMITS = {
   rooms: 1,
 }
 
-/** 人给过的判词档位：只有前两档算"核心立得住" */
-export const CORE_VERDICTS = ['立得住', '能玩'] as const
-export type CoreVerdict = (typeof CORE_VERDICTS)[number] | '垃圾' | '未判' | ''
+/** 人给过的判词档位：只有 allowsScale 的档位算"核心立得住"（词表唯一真源见 shared/coreVerdict） */
+export type CoreVerdict = string
 
 export interface ScaleClaim {
   /** 抽出来的量，键为 hours / acts / rooms；没提到就是不存在 */
@@ -126,19 +126,19 @@ export function extractScale(text: string): ScaleClaim {
   return claim
 }
 
-/** 判词是否等于"核心立得住" */
+/** 判词是否等于"核心立得住"（判定依据来自 shared/coreVerdict，本文件不重复词表） */
 export function coreVerified(verdict: CoreVerdict): boolean {
-  return verdict === '立得住' || verdict === '能玩'
+  return verdictAllowsScale(verdict)
 }
 
 /**
  * 内容量闸。
  * @param text 计划卡 / 阶段卡 / 草案正文
- * @param verdict 人给这个项目核心玩法的判词（'' / 未判 = 没判过）
+ * @param verdict 人给这个项目核心玩法的判词（空 = 没判过）
  */
 export function contentScaleGate(text: string, verdict: CoreVerdict): ScaleGateResult {
   const claim = extractScale(text)
-  const v = (verdict || '未判') as CoreVerdict
+  const v = String(verdict || '').trim()
 
   const over: string[] = []
   if (claim.hours !== undefined && claim.hours > UNCORE_LIMITS.hours) over.push(`${claim.hours} 小时`)
@@ -152,17 +152,21 @@ export function contentScaleGate(text: string, verdict: CoreVerdict): ScaleGateR
     return { ok: true, claim, verdict: v }
   }
 
-  const why = v === '垃圾'
-    ? '这个方向已经被判为「垃圾」'
+  // 「被判为否定档」这个语义从词表派生，不写死具体词
+  const denied = VERDICT_LEVELS.find((x) => !x.allowsScale && x.key !== UNJUDGED)
+  const why = (denied && v.startsWith(denied.key))
+    ? `这个方向已经被判为「${denied.key}」`
     : '核心玩法从来没被人判过一句'
   return {
     ok: false,
     claim,
     verdict: v,
     error: `这一格声称要做 ${over.join(' / ')}，但${why} —— 没有判词就铺这么大，`
-      + '做出来的东西极可能是垃圾（记忆圣所 2026-11-12 的现场）。',
-    hint: `先做**只验证核心循环**的最小原型（上限：${UNCORE_LIMITS.hours} 小时 / `
+      + '做出来的东西极可能是白费（记忆圣所 2026-11-12 的现场）。',
+    hint: `先做只验证核心循环的最小原型（上限：${UNCORE_LIMITS.hours} 小时 / `
       + `${UNCORE_LIMITS.acts} 幕 / ${UNCORE_LIMITS.rooms} 间房），等暮雨给一句判词`
-      + `（${CORE_VERDICTS.join(' / ')} / 垃圾），再决定要不要铺量。`,
+      + `（${VERDICT_KEYS.join(' / ')}），再决定要不要铺量。`,
   }
 }
+
+

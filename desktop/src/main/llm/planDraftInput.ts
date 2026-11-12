@@ -18,6 +18,7 @@ import { loadDecisions } from '../data/decisions'
 import { effectiveAcceptances } from '../data/questionnaires'
 import { getPolicy } from '../services/policies'
 import { extractMirror } from '../../shared/planMirror'
+import { isUnjudged } from '../../shared/coreVerdict'
 import type { PlanDraftInput, DraftTaskRef, DraftDecisionRef } from './planDraft'
 
 export interface BuildInputOptions {
@@ -120,9 +121,10 @@ function coreVerdictOf(project: string): string {
   try {
     const p = getPolicy(project)
     const raw = String((p as any)?.coreVerdict || '').trim()
-    if (!raw) return ''
-    // 骨架提示不算判词：它的第一行是「> 未判 —— …」
-    if (/^>\s*未判/.test(raw)) return ''
+    // 骨架 / 空 / 明说未判 => 一律当"没判过"。
+    // 判定收在 shared/coreVerdict#isUnjudged 一处（此前这里自己写了一遍 `/^>\s*未判/`，
+    // 与 App.vue 里那份重复 —— 改一处忘一处正是本项目的常见病）。
+    if (isUnjudged(raw)) return ''
     return raw
   } catch {
     return ''

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fangcun Desktop — 方针区（项目方针卡）
  *
  * 每个活跃项目一张方针卡：使命 / 当前目标 / 应用场景 / 方针边界。
@@ -8,6 +8,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getDataDir, atomicWrite } from '../data'
+import { verdictSkeleton } from '../../shared/coreVerdict'
 
 export interface Policy {
   projectId: string
@@ -49,15 +50,12 @@ const SKELETON_STRUCTURE_MAP_BODY = [
 ].join('\n')
 
 /**
- * 核心判词的骨架提示。空着就写这句 ——
- * **"还没被判过"必须一眼可见**，否则内容量闸会把"没判"当成"没问题"。
+ * 核心判词的骨架提示。词表唯一真源在 `shared/coreVerdict` ——
+ * 这里只调用，不再手写四个词（暮雨 2026-11-12：「垃圾能玩之类的文本怎么又给我写死在代码里了」）。
  */
-const CORE_VERDICT_SKELETON = [
-  '> 未判 —— 核心玩法还没被人确认过"立得住"。',
-  '> 四选一写在这里：**立得住 / 能玩 / 垃圾 / 未判**，后面跟一句话理由与日期。',
-  '> 例：`能玩 —— 装配台那 5 分钟确实是游戏，2026-11-12`',
-  '> 未判时，方寸只允许做**最小原型**（0.5 小时 / 1 幕 / 1 间房），不许铺内容量。',
-].join('\n')
+function coreVerdictSkeleton(): string {
+  return verdictSkeleton()
+}
 
 function getPolicyDir(): string {
   const dir = path.join(getDataDir(), 'policies')
@@ -175,10 +173,10 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
     (() => {
       if (p.coreVerdict === undefined || p.coreVerdict === null) {
         const existing = (getPolicy(p.projectId)?.coreVerdict || '').trim()
-        return existing || CORE_VERDICT_SKELETON
+        return existing || coreVerdictSkeleton()
       }
       const passed = String(p.coreVerdict).trim()
-      return passed || CORE_VERDICT_SKELETON
+      return passed || coreVerdictSkeleton()
     })(),
     ``,
     tail,
@@ -206,3 +204,4 @@ export function policyToText(p: Policy): string {
   if (p.structureMap) parts.push(`### 结构地图（动手前先读）`, p.structureMap)
   return parts.join('\n')
 }
+
