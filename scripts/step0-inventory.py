@@ -27,6 +27,17 @@ import os
 import subprocess
 import sys
 
+# 2026-11-12（与 audit-ledger.py 同一条教训）：Windows 默认控制台是 cp936，
+# 脚本里的 `✅` / 中文表头在**默认终端**直接抛 UnicodeEncodeError —— 判据
+# `python scripts/step0-inventory.py` 在默认终端从来跑不过，只有带了
+# PYTHONIOENCODING 的环境才绿。判据必须是“换个人在默认终端也能跑”，所以主动切 UTF-8；
+# 切不动就退化成 replace，绝不因为打印符号而崩。
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
