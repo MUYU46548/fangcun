@@ -174,6 +174,24 @@ def main():
         print('')
 
     # ── 机检：每一环都要非空 ──────────────────────────────────────
+    #
+    # ⚠ 2026-11-12 暮雨：「方寸的规划能力不做好，其他项目会一直出问题」。
+    #   查下来发现：上面这些**全部只问「链路上有没有东西」**，没有一条问「用在了几个项目上」——
+    #   于是一条**只服务于 fangcun-base 自己**的闭环也能拿满分 9/0。
+    #   实测：14 个项目里只有 1 个有作战计划卡（其余 13 个一张都没有）。
+    #   所以补第 10 条：**被规划过的项目数**。这才是「规划能力」是否真在用的判据。
+    really_planned = []
+    if os.path.isdir(PLANS):
+        for p in sorted(os.listdir(PLANS)):
+            if not p.endswith('.md') or p.startswith('_'):
+                continue
+            try:
+                txt = open(os.path.join(PLANS, p), encoding='utf-8').read()
+            except Exception:
+                continue
+            if txt.count('\n### ') >= 1:          # 真有阶段卡才算被规划过（空文件不算）
+                really_planned.append(p[:-3])
+
     gates = [
         ('问卷：至少一卷已批准', approved > 0),
         ('题库：有已答题', bank_answered > 0),
@@ -184,11 +202,18 @@ def main():
         ('派工单：能拿出验收线', len(rulings) > 0),
         ('回写：有交付记录（不是“做完了但账上没有”）', len(deliveries) > 0),
         ('结论集：有快照', bool(summary['回写与结论集'].get('结论集条数'))),
+        # ── 第 10 条（2026-11-12 新增）：不是“链路通”，而是“**真的用起来了**” ──
+        #   判据写 ≥2 而不是“全部项目”：一个项目做完再下一个，批量起草 13 份没人看等于零。
+        #   所以“≥2” = 「除方寸自己之外，至少还有一个项目被真正规划过」。
+        ('覆盖率：被规划过的项目 ≥ 2（不能只规划方寸自己）', len(really_planned) >= 2),
     ]
     bad = [n for n, ok in gates if not ok]
     print('== 闭环机检 ==')
     for n, ok in gates:
         print(('PASS  ' if ok else 'FAIL  ') + n)
+    print('\n  被规划过的项目（plans/*.md 里真有阶段卡的）：%d 个 → %s'
+          % (len(really_planned), ', '.join(really_planned) if really_planned else '（一个都没有）'))
+    print('  覆盖率判据要求 ≥2（方寸自己 + 至少一个真实项目）。缺的是「第一次真的用起来」，不是代码。')
     print(f'RESULT {len(gates) - len(bad)} / {len(bad)}')
     return 0 if not bad else 1
 
