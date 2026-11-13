@@ -5392,6 +5392,8 @@ const {
   logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   logTaskSearching, logTaskFlat,
+  logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
+  logTaskFacets, logTaskFilterCount, clearLogTaskFilters, toggleIn,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
   tasks, archivedTasks, projects, curProj,
@@ -7370,6 +7372,8 @@ const logEditCtl = reactive({
   logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   logTaskSearching, logTaskFlat,
+  logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
+  logTaskFacets, logTaskFilterCount, clearLogTaskFilters, toggleIn,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,
   closeLogEditor, closeLogNow, discardLogEdit, logDirtyNames, logEditDirty,

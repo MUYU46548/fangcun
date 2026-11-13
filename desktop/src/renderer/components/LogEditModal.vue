@@ -58,6 +58,10 @@
            索引字段不是**任务浏览器** —— 默认只显示已关联 chips + 按需展开，
            候选带过滤框、按最近更新排序、首屏 12 条。 -->
       <label>关联任务</label>
+      <!-- 2026-11-13 暮雨拍板："应该把日志窗口做宽，或者旁边单独挂一个展开的面板，
+           里面可以按项目按状态等筛选（都不用抄别人，抄方寸自己就有）"。
+           于是这里**只留摘要**（选了哪几张 + 摘除），挑选动作搬到右侧独立面板：
+           关联任务需要"一次看几十行 + 多维度收窄"，塞在表单流里只能拿到 420px 高（实测只看得见 7 行）。 -->
       <div class="log-task-head">
         <span class="log-task-chips" v-if="logEdit_.taskIds && logEdit_.taskIds.length">
           <span class="lt-picked-n">{{ logEdit_.taskIds.length }} 张</span>
@@ -67,102 +71,12 @@
           </span>
         </span>
         <span class="hint" v-else>还没有关联任务（可选，便于日志↔任务互跳）</span>
-        <Button type="button" class="log-task-toggle" variant="ghost" size="sm" @click.stop="logTaskOpen = !logTaskOpen">
-          {{ logTaskOpen ? '收起' : '＋ 关联任务' }}
+        <Button type="button" class="log-task-toggle" variant="ghost" size="sm"
+          :title="logTaskPanelOpen ? '收起右侧面板' : '在右侧展开挑选面板（可按项目 / 状态 / 优先级 / 标签筛）'"
+          @click.stop="logTaskPanelOpen = !logTaskPanelOpen">
+          {{ logTaskPanelOpen ? '收起面板' : '＋ 关联任务' }}
         </Button>
       </div>
-      <template v-if="logTaskOpen">
-        <div class="log-task-tools">
-          <input v-model="logTaskQuery" class="log-task-search" placeholder="搜 id / 标题 / 项目名 —— 回车选第一条"
-            @keydown.enter.prevent="pickFirstLogTask" />
-          <!-- 范围与状态（2026-11-05 第 11 条 → 2026-11-08 第 6 条重做）：
-               范围管“哪个项目”，状态管“哪一档”，两个是正交的，所以分成两行而不是挤一行。
-               ⚠ 2026-11-13（卡 2b1e3d59）：有搜索词时**自动按全部项目找**（人心里已经有目标时，
-                 不该还逼他把项目切过去再搜一次）。但此前按钮仍高亮「本项目」——界面在说谎：
-                 画面上明明列着别的项目的卡，开关却指着"本项目"。现在高亮跟着**实际生效的口径**走，
-                 并在有词时标明"按词全项目找"。
-                 ⚠ 高亮 ≠ 改状态：`logTaskScope` 不动（词删掉就回到他原来选的那一档），
-                   只有"看上去哪一档在生效"跟着变。 -->
-          <div class="log-task-seg"
-            :title="logTaskSearching
-              ? '搜索时自动在全部项目里找（删掉搜索词就回到你原来选的范围）'
-              : '候选范围：本项目 / 全部项目（输入搜索词时自动按全部项目找）'">
-            <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' && !logTaskSearching }"
-              @click="logTaskScope = 'proj'">本项目</button>
-            <button type="button" class="lts" :class="{ on: logTaskScope === 'all' || logTaskSearching }"
-              @click="logTaskScope = 'all'">全部项目</button>
-            <span v-if="logTaskSearching && logTaskScope === 'proj'" class="log-task-scope-note">按词全项目找</span>
-          </div>
-          <span class="log-task-count">共 {{ logTaskTotal }} 条</span>
-        </div>
-        <div class="log-task-statusbar">
-          <button type="button" class="lts" :class="{ on: logTaskStatus === 'open' }"
-            @click="logTaskStatus = 'open'">未完成</button>
-          <button type="button" class="lts" :class="{ on: logTaskStatus === 'all' }"
-            @click="logTaskStatus = 'all'">全部状态</button>
-          <button type="button" class="lts" :class="{ on: logTaskStatus === 'done' }"
-            @click="logTaskStatus = 'done'">已完成 / 驳回</button>
-          <Button v-if="logTaskMoreHidden" type="button" class="log-task-more" variant="ghost" size="sm"
-            @click="logTaskShowAll = true">全部展开</Button>
-        </div>
-        <!-- 默认“未完成”档把完成/驳回全藏了 —— 补一条日志时想挂的往往正是那几张。
-             不擅自改默认档（几百张老卡会一下子涌进来），只报数 + 一键切档。 -->
-        <div v-if="logTaskDoneHidden" class="log-task-donehint">
-          另有 {{ logTaskDoneHidden }} 张已完成 / 驳回的卡没显示（默认只看未完成）
-          <button type="button" class="ghost log-task-switch" @click="logTaskStatus = 'done'">改看已完成</button>
-        </div>
-        <!-- 搜索态：**不分组**，按相关度平铺（2026-11-13 卡 2b1e3d59）。
-             原话：「依旧在信息轰炸，依旧找不到需要的东西」。分组是"浏览"的形状，
-             搜索是"定位"的形状 —— 两者混在一起，就是"搜了半天还在按项目翻"。
-             平铺时行内就写明命中了哪个字段，人不必猜"为什么它在第一行"。 -->
-        <div v-if="logTaskSearching" class="log-task-flat">
-          <template v-if="logTaskFlat.length">
-            <div class="lt-flat-head">
-              按相关度排 · 前 {{ logTaskFlat.length }} 条
-              <span class="lt-flat-tip">回车 = 选第一条</span>
-            </div>
-            <label v-for="(t, i) in logTaskFlat" :key="'ltf-' + t.id" class="log-task-opt"
-              :class="{ picked: (logEdit_.taskIds || []).includes(t.id), first: i === 0 }">
-              <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
-              <span class="lto-hit" :title="'命中字段：' + hitFieldName(t)">{{ hitFieldName(t) }}</span>
-              <span class="lto-title">{{ t.title || '(无标题)' }}</span>
-              <span class="lto-st">{{ t.status }}</span>
-              <span class="lto-id">#{{ t.id }}</span>
-            </label>
-          </template>
-          <div v-else class="hint log-task-none">
-            没有匹配的任务 —— 换个词（多个词用空格，会按"都要命中"找），
-            或把状态切到“全部状态”，或用下面的输入框直接贴 ID
-          </div>
-        </div>
-        <!-- 浏览态：按项目分组（11-08 定过的，不推翻） -->
-        <div v-else-if="logTaskGroups.length" class="log-task-groups">
-          <div v-for="g in logTaskGroups" :key="'ltg-' + g.key" class="lt-group">
-            <div class="lt-group-head" @click="toggleLogTaskGroup(g.key)">
-              <span class="lt-group-name">{{ (logTaskExpanded[g.key] || logTaskShowAll) ? '▾' : '▸' }} {{ g.label }}</span>
-              <span class="lt-group-n">共 {{ g.items.length }} 条</span>
-              <span v-if="g.picked" class="lt-group-picked">含已选</span>
-              <span class="lt-group-caret">
-                {{ g.hiddenCount ? (logTaskExpanded[g.key] ? '收起' : '展开全部 ' + (g.items.length - g.shown.length)) : '' }}
-              </span>
-            </div>
-            <label v-for="t in g.shown" :key="t.id" class="log-task-opt"
-              :class="{ picked: (logEdit_.taskIds || []).includes(t.id) }">
-              <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
-              <span class="lto-title">{{ t.title || '(无标题)' }}</span>
-              <span class="lto-st">{{ t.status }}</span>
-              <span class="lto-id">#{{ t.id }}</span>
-            </label>
-          </div>
-        </div>
-        <div v-else class="hint log-task-none">
-          <template v-if="logTaskScope === 'proj' && !logTaskQuery">
-            本项目下没有匹配的任务 ——
-            <button type="button" class="ghost log-task-switch" @click="logTaskScope = 'all'">改看全部项目</button>
-          </template>
-          <template v-else>没有匹配的任务 —— 换个词、把状态切到“全部状态”，或用下面的输入框直接贴 ID</template>
-        </div>
-      </template>
       <input v-model="logTaskExtra" placeholder="额外关联 ID（多个用英文逗号 , 分隔，回车加入）" @change="addLogTaskExtra" />
       <!-- 2026-09-23（用户第 1 条）：会话 ID + Agent + 日期 -->
       <label>会话 ID（可选，便于反向查证）</label>
@@ -294,6 +208,104 @@
         <button class="pri" @click="saveLogEdit">{{ logCompleting ? (logEditDirty() ? '保存并完成' : '确认完成') : logArchiveMode ? (logEditDirty() ? '保存并归档' : '确认归档') : logEdit_.id ? '保存' : '创建' }}</button>
       </div>
     </div>
+    <!-- ══ 右侧独立挑选面板（2026-11-13 暮雨拍板）═══════════════════════════
+         与左侧表单**并排**，不塞在表单流里。筛选维度抄的是方寸自己的 LogAttachModal
+         （搜索 / 项目 / 状态 / 优先级 / 日期那一套），暮雨原话："都不用抄别人，抄方寸自己就有"。
+         面板是 flex 兄弟节点 → 弹窗整体变宽，左侧表单宽度不变。
+         ⚠ 遮罩关闭只用 @mousedown.self（拖选滑出面板不许当"点了遮罩"，见 check-ui-freeze）。 -->
+    <div id="log-task-panel" v-if="logTaskPanelOpen">
+      <div class="ltp-head">
+        <b>挑选关联任务</b>
+        <span class="ltp-count">{{ logTaskTotal }} 张候选</span>
+        <span v-if="logTaskFilterCount" class="ltp-fcount">{{ logTaskFilterCount }} 层筛选</span>
+        <span class="ltp-grow"></span>
+        <Button variant="ghost" size="sm" @click="clearLogTaskFilters">清空筛选</Button>
+        <Button variant="ghost" size="sm" @click="logTaskPanelOpen = false">收起</Button>
+      </div>
+      <div class="ltp-searchrow">
+        <input v-model="logTaskQuery" class="log-task-search ltp-search"
+          placeholder="搜 id / 标题 / 项目名 / 标签 / 状态 —— 空格分词，都要命中"
+          @keydown.enter.prevent="pickFirstLogTask" />
+      </div>
+      <!-- 第一层：范围（本项目 / 全部项目）-->
+      <div class="ltp-frow">
+        <span class="ltp-flbl">范围</span>
+        <div class="log-task-seg" :title="logTaskQuery.trim()
+          ? '搜索时自动在全部项目里找（删掉搜索词就回到你原来选的范围）'
+          : '候选范围：本项目 / 全部项目'">
+          <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' && !logTaskQuery.trim() }"
+            @click="logTaskScope = 'proj'">本项目</button>
+          <button type="button" class="lts" :class="{ on: logTaskScope === 'all' || !!logTaskQuery.trim() }"
+            @click="logTaskScope = 'all'">全部项目</button>
+          <span v-if="logTaskQuery.trim() && logTaskScope === 'proj'" class="log-task-scope-note">按词全项目找</span>
+        </div>
+      </div>
+      <!-- 第二层：三档（扫一眼的口径）-->
+      <div class="ltp-frow">
+        <span class="ltp-flbl">档位</span>
+        <div class="log-task-statusbar">
+          <button type="button" class="lts" :class="{ on: logTaskStatus === 'open' }" @click="logTaskStatus = 'open'">未完成</button>
+          <button type="button" class="lts" :class="{ on: logTaskStatus === 'all' }" @click="logTaskStatus = 'all'">全部</button>
+          <button type="button" class="lts" :class="{ on: logTaskStatus === 'done' }" @click="logTaskStatus = 'done'">已完成 / 驳回</button>
+        </div>
+      </div>
+      <!-- 第三层：精确状态多选（"盯着待验收那几张"的口径）-->
+      <div class="ltp-frow ltp-frow-wrap" v-if="logTaskFacets.statuses.length">
+        <span class="ltp-flbl">状态</span>
+        <div class="ltp-chips">
+          <button v-for="s in logTaskFacets.statuses" :key="'lts-' + s" type="button" class="ltp-chip"
+            :class="{ on: logTaskStatuses.includes(s) }" @click="toggleStatus(s)">{{ s }}</button>
+        </div>
+      </div>
+      <!-- 第四层：优先级 -->
+      <div class="ltp-frow ltp-frow-wrap" v-if="logTaskFacets.priorities.length || logTaskFacets.anyNoPrio">
+        <span class="ltp-flbl">优先级</span>
+        <div class="ltp-chips">
+          <button v-for="p in logTaskFacets.priorities" :key="'ltp-' + p" type="button" class="ltp-chip"
+            :class="{ on: logTaskPrios.includes(p) }" @click="togglePrio(p)">{{ p }}</button>
+          <button v-if="logTaskFacets.anyNoPrio" type="button" class="ltp-chip"
+            :class="{ on: logTaskPrios.includes('__none__') }" @click="togglePrio('__none__')">未标</button>
+        </div>
+      </div>
+      <!-- 第五层：标签（多选 = AND）-->
+      <div class="ltp-frow ltp-frow-wrap" v-if="logTaskFacets.tags.length">
+        <span class="ltp-flbl">标签</span>
+        <div class="ltp-chips ltp-tags">
+          <button v-for="g in logTaskFacets.tags.slice(0, 40)" :key="'ltg2-' + g" type="button" class="ltp-chip"
+            :class="{ on: logTaskTags.includes(g) }" @click="toggleTag(g)">{{ g }}</button>
+          <span v-if="logTaskFacets.tags.length > 40" class="ltp-more">还有 {{ logTaskFacets.tags.length - 40 }} 个标签（用搜索词）</span>
+        </div>
+      </div>
+      <!-- 候选：面板里一律平铺（不分组）—— 面板够高，分组反而多一层要点的东西 -->
+      <div class="ltp-list">
+        <template v-if="logTaskFlat.length">
+          <label v-for="(t, i) in logTaskFlat" :key="'ltpf-' + t.id" class="log-task-opt"
+            :class="{ picked: (logEdit_.taskIds || []).includes(t.id), first: i === 0 && logTaskQuery.trim() }">
+            <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
+            <span v-if="logTaskQuery.trim()" class="lto-hit" :title="'命中字段：' + hitFieldName(t)">{{ hitFieldName(t) }}</span>
+            <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+            <span v-if="t.priority" class="lto-prio" :class="'lp-' + prioKey(t.priority)">{{ t.priority }}</span>
+            <span class="lto-st">{{ t.status }}</span>
+            <span class="lto-proj">{{ projectNameOf(t.project) }}</span>
+            <span class="lto-id">#{{ t.id }}</span>
+          </label>
+        </template>
+        <div v-else class="ltp-empty">
+          <b>没有匹配的卡。</b>
+          <div v-if="logTaskFilterCount">现在是 {{ logTaskFilterCount }} 层筛选叠加的结果 ——
+            点右上「清空筛选」看全部，或逐层放开刚才点的那一个。</div>
+          <div v-else>池子里本来就没有卡？先确认「本项目 / 全部项目」这一档。</div>
+        </div>
+      </div>
+      <div class="ltp-foot">
+        <span class="ltp-picked">已选 {{ (logEdit_.taskIds || []).length }} 张</span>
+        <span v-if="logTaskMoreHidden" class="ltp-more">
+          还有 {{ logTaskTotal - logTaskFlat.length }} 张没显示（用上面的筛选收窄）
+        </span>
+        <span class="ltp-grow"></span>
+        <Button variant="ghost" size="sm" @click="logTaskPanelOpen = false">选好，收起</Button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -332,11 +344,45 @@ const logTaskDoneHidden = toRef(ctl, 'logTaskDoneHidden')
 const logTaskStatus = toRef(ctl, 'logTaskStatus')
 const logTaskGroups = toRef(ctl, 'logTaskGroups')
 const logTaskExpanded = toRef(ctl, 'logTaskExpanded')
-// 搜索态：不分组、按相关度平铺（2026-11-13 卡 2b1e3d59）
+// 平铺态（面板开着 或 有搜索词）：不分组、按相关度平铺（2026-11-13 卡 2b1e3d59）
 const logTaskSearching = toRef(ctl, 'logTaskSearching')
 const logTaskFlat = toRef(ctl, 'logTaskFlat')
+// 右侧独立面板（2026-11-13 暮雨拍板）：开关 + 三层筛选 + 选项来源 + 计数
+const logTaskPanelOpen = toRef(ctl, 'logTaskPanelOpen')
+const logTaskStatuses = toRef(ctl, 'logTaskStatuses')
+const logTaskPrios = toRef(ctl, 'logTaskPrios')
+const logTaskTags = toRef(ctl, 'logTaskTags')
+const logTaskFacets = toRef(ctl, 'logTaskFacets')
+const logTaskFilterCount = toRef(ctl, 'logTaskFilterCount')
+const clearLogTaskFilters = ctl.clearLogTaskFilters
+const toggleInRaw = ctl.toggleIn
+/**
+ * 筛选片的开关 —— **必须在脚本里调，不能直接在模板里 `toggleIn(logTaskStatuses, s)`**。
+ *
+ * 原因（2026-11-14 首跑就被断言抓到，筛选片点了完全没反应）：
+ * Vue 模板会把 setup 里返回的 ref **自动解包**，于是传进去的是数组本身而不是 ref，
+ * `toggleIn` 里 `arr.value = …` 变成给数组加一个 `.value` 属性 —— 静默无效，
+ * 界面看着"点了、高亮了"，实际筛选条件一个字没变。
+ */
+function toggleStatus(s: string): void { toggleInRaw(logTaskStatuses, s) }
+function togglePrio(p: string): void { toggleInRaw(logTaskPrios, p) }
+function toggleTag(g: string): void { toggleInRaw(logTaskTags, g) }
 const toggleLogTaskGroup = ctl.toggleLogTaskGroup
 const pickFirstLogTask = ctl.pickFirstLogTask
+
+/** 项目 id → 名字；未登记的原样显示（不把卡藏起来） */
+function projectNameOf(id: string): string {
+  if (!id) return '未归属'
+  const p = (projects.value || []).find((x: any) => x.id === id)
+  return String(p?.name || id)
+}
+/** 优先级 → 色档 class（复用既有 lp-* 样式，不新造一套） */
+function prioKey(p: string): string {
+  const x = String(p || '').trim()
+  if (x === '高' || /^(high|critical|p0)$/i.test(x)) return 'high'
+  if (x === '低' || /^(low|p3)$/i.test(x)) return 'low'
+  return 'mid'
+}
 
 /**
  * 命中字段的中文名 —— 行内那个小标签。

@@ -385,6 +385,12 @@ function main() {
       // 为什么必须单独拍：这一版改的核心是"有词就切成定位态、按相关度排、行内标出命中字段"，
       // 而分组态那张图里**一条搜索词都没有**，肉眼根本看不出检索被改过。
       ['日志', '', 'log-task-search', 'logtasksearch'],
+      // 2026-11-14（暮雨："旁边单独挂一个展开的面板，里面可以按项目按状态等筛选"）：
+      // 独立面板的**成品态** —— 两栏并排 + 五层筛选 + 行内带项目/优先级。
+      // ⚠ 这一刀上轮一张没拍过，所以当时只能靠断言自证；这次必须目检。
+      ['日志', '', 'log-task-panel', 'logtaskpanel'],
+      // 面板**筛出态**：按状态 + 标签收窄后只剩一张 —— 用来目检"筛选真的在收窄"与「N 层筛选」。
+      ['日志', '', 'log-task-panel-filtered', 'logtaskpanelf'],
       // 2026-11-08：返工台横幅整个删掉之后，看板顶部不再出现任何条子（有驳回卡也不冒）。
       ['看板', '列表视图', 'board-no-rework-banner', 'norw'],
       // 2026-11-08：结构地图一览（行内会出「⏳ N 张提议等你签字」）
@@ -897,6 +903,84 @@ function main() {
   await sleep(600)
   const flat = document.querySelector('.log-task-flat')
   if (flat) flat.scrollIntoView({ block: 'start' })
+  await sleep(600)
+` : ''}
+  ${extra === 'logtaskpanel' ? `
+  // 2026-11-14：关联任务**右侧独立面板**（暮雨："旁边单独挂一个展开的面板，里面可以按项目按状态等筛选"）。
+  // 夹具要多项目 + 多状态 + 多优先级 + 多标签 —— 只有一样东西的面板看不出"筛选"。
+  window.__fcTest.setTasks([
+    { id: 'lp-1', title: '日志关联任务：面板要能按状态筛', status: '待办', priority: '高', project: 'demo', tags: ['日志', '筛选'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-13T00:00:00.000Z',
+      fm: { id: 'lp-1', title: '日志关联任务：面板要能按状态筛', status: '待办', project: 'demo', priority: '高', tags: ['日志', '筛选'] }, path: 'C:/mock/task-data/lp-1.md' },
+    { id: 'lp-2', title: '按项目收窄：这条属于第二个项目', status: '进行中', priority: '中', project: 'demo2', tags: ['日志'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-12T00:00:00.000Z',
+      fm: { id: 'lp-2', title: '按项目收窄：这条属于第二个项目', status: '进行中', project: 'demo2', priority: '中', tags: ['日志'] }, path: 'C:/mock/task-data/lp-2.md' },
+    { id: 'lp-3', title: '待验收的那张（要盯的就是它）', status: '待验收', priority: '高', project: 'demo', tags: ['日志', '验收'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-11T00:00:00.000Z',
+      fm: { id: 'lp-3', title: '待验收的那张（要盯的就是它）', status: '待验收', project: 'demo', priority: '高', tags: ['日志', '验收'] }, path: 'C:/mock/task-data/lp-3.md' },
+    { id: 'lp-4', title: '没标优先级的一张', status: '待办', priority: '', project: 'demo', tags: ['其它'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-10T00:00:00.000Z',
+      fm: { id: 'lp-4', title: '没标优先级的一张', status: '待办', project: 'demo', tags: ['其它'] }, path: 'C:/mock/task-data/lp-4.md' },
+    { id: 'lp-5', title: '低优先级、另一个项目的卡', status: '待验收', priority: '低', project: 'demo2', tags: ['管线'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-09T00:00:00.000Z',
+      fm: { id: 'lp-5', title: '低优先级、另一个项目的卡', status: '待验收', project: 'demo2', priority: '低', tags: ['管线'] }, path: 'C:/mock/task-data/lp-5.md' },
+    { id: 'lp-6', title: '已经做完的那张（默认档会藏）', status: '完成', priority: '中', project: 'demo', tags: ['日志'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-08T00:00:00.000Z',
+      fm: { id: 'lp-6', title: '已经做完的那张（默认档会藏）', status: '完成', project: 'demo', priority: '中', tags: ['日志'] }, path: 'C:/mock/task-data/lp-6.md' },
+  ])
+  await sleep(400)
+  clickText('看板'); await sleep(500)
+  clickText('日志'); await sleep(800)
+  const nbLog3 = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nbLog3) nbLog3.click()
+  await sleep(800)
+  const addTask3 = all('#log-edit-modal button').find((b) => (b.textContent || '').indexOf('关联任务') >= 0)
+  if (addTask3) addTask3.click()
+  await sleep(600)
+  // 切「全部项目」，让面板里能看到两个项目的卡（否则"按项目"这一层看不出效果）
+  const allSc3 = all('#log-task-panel .log-task-seg .lts').find((b) => (b.textContent || '').indexOf('全部项目') >= 0)
+  if (allSc3) allSc3.click()
+  await sleep(600)
+` : ''}
+  ${extra === 'logtaskpanelf' ? `
+  // 筛出态：与上一张同一批夹具，然后点一枚状态片 + 一枚标签片 → 叠两层筛选。
+  // 目检要点：① 候选真的变少 ② 面板头出现「2 层筛选」 ③ 被选中的片是亮的 ④ 行里项目/优先级都在
+  window.__fcTest.setTasks([
+    { id: 'lp-1', title: '日志关联任务：面板要能按状态筛', status: '待办', priority: '高', project: 'demo', tags: ['日志', '筛选'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-13T00:00:00.000Z',
+      fm: { id: 'lp-1', title: '日志关联任务：面板要能按状态筛', status: '待办', project: 'demo', priority: '高', tags: ['日志', '筛选'] }, path: 'C:/mock/task-data/lp-1.md' },
+    { id: 'lp-2', title: '按项目收窄：这条属于第二个项目', status: '进行中', priority: '中', project: 'demo2', tags: ['日志'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-12T00:00:00.000Z',
+      fm: { id: 'lp-2', title: '按项目收窄：这条属于第二个项目', status: '进行中', project: 'demo2', priority: '中', tags: ['日志'] }, path: 'C:/mock/task-data/lp-2.md' },
+    { id: 'lp-3', title: '待验收的那张（要盯的就是它）', status: '待验收', priority: '高', project: 'demo', tags: ['日志', '验收'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-11T00:00:00.000Z',
+      fm: { id: 'lp-3', title: '待验收的那张（要盯的就是它）', status: '待验收', project: 'demo', priority: '高', tags: ['日志', '验收'] }, path: 'C:/mock/task-data/lp-3.md' },
+    { id: 'lp-4', title: '没标优先级的一张', status: '待办', priority: '', project: 'demo', tags: ['其它'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-10T00:00:00.000Z',
+      fm: { id: 'lp-4', title: '没标优先级的一张', status: '待办', project: 'demo', tags: ['其它'] }, path: 'C:/mock/task-data/lp-4.md' },
+    { id: 'lp-5', title: '低优先级、另一个项目的卡', status: '待验收', priority: '低', project: 'demo2', tags: ['管线'], body: '',
+      created: '2026-09-01T00:00:00.000Z', updated: '2026-11-09T00:00:00.000Z',
+      fm: { id: 'lp-5', title: '低优先级、另一个项目的卡', status: '待验收', project: 'demo2', priority: '低', tags: ['管线'] }, path: 'C:/mock/task-data/lp-5.md' },
+  ])
+  await sleep(400)
+  clickText('看板'); await sleep(500)
+  clickText('日志'); await sleep(800)
+  const nbLog4 = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nbLog4) nbLog4.click()
+  await sleep(800)
+  const addTask4 = all('#log-edit-modal button').find((b) => (b.textContent || '').indexOf('关联任务') >= 0)
+  if (addTask4) addTask4.click()
+  await sleep(600)
+  const allSc4 = all('#log-task-panel .log-task-seg .lts').find((b) => (b.textContent || '').indexOf('全部项目') >= 0)
+  if (allSc4) allSc4.click()
+  await sleep(500)
+  // ⚠ 只点**状态片那一行**里文字完全等于「待验收」的按钮，别按全局面板找
+  //   （上一版按 all('.ltp-chip') 找，把标签区的同名片也点了 —— 目检当场发现）。
+  const statusRow = document.querySelector('#log-task-panel .ltp-frow:nth-of-type(4)')
+  const vChip = Array.prototype.slice.call(
+    document.querySelectorAll('#log-task-panel .ltp-chip')
+  ).find((b) => (b.textContent || '').trim() === '待验收')
+  if (vChip) vChip.click()
   await sleep(600)
 ` : ''}
   ${extra === 'norw' ? `

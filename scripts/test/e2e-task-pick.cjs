@@ -40,6 +40,7 @@ if (!fs.existsSync(ART)) {
 const {
   taskPick, taskPickHiddenByStatus, taskPickFirst, taskPickMatches,
   taskPickRank, normalizeQuery, defaultIsDone, TASK_PICK_FIELD_RANK,
+  splitTags, projectIdsOf,
 } = require(ART)
 
 // ── 夹具：真实形状（project 单值/数组/写坏成 '- x'，tags 数组/串，状态中文）──────
@@ -160,11 +161,49 @@ check('defaultIsDone：完成 / 驳回算终态，空状态算未完成',
   && defaultIsDone(T('x', 'x', 'p', '驳回')) === true
   && defaultIsDone(T('x', 'x', 'p', '')) === false)
 
+// ── ⑧ 面板三层筛选：精确状态 / 优先级 / 标签（2026-11-14 暮雨："按项目按状态等筛选"）──
+console.log('\n-- 面板筛选维度（精确状态 / 优先级 / 标签）--')
+const FACET = [
+  T('f1', '待验收的那张', 'fangcun-base', '待验收', { priority: '高', tags: ['日志', '验收'] }),
+  T('f2', '待办的那张', 'fangcun-base', '待办', { priority: '低', tags: ['日志'] }),
+  T('f3', '进行中且没标优先级', 'fangcun-base', '进行中', { priority: '', tags: ['管线'] }),
+  T('f4', '待验收的另一个项目卡', 'sitian', '待验收', { priority: '中', tags: ['日志', '验收'] }),
+]
+check('★ 精确状态多选：只留选中的那几个状态',
+  taskPick(FACET, { statuses: ['待验收'] }).map(r => r.task.id).join(',') === 'f1,f4',
+  taskPick(FACET, { statuses: ['待验收'] }).map(r => r.task.id).join(','))
+check('★ 多选状态 = 并集（"待验收 或 待办"都算）',
+  taskPick(FACET, { statuses: ['待验收', '待办'] }).length === 3)
+check('★ 优先级多选：只留高的',
+  taskPick(FACET, { priorities: ['高'] }).map(r => r.task.id).join(',') === 'f1')
+check('★ 「未标」能单独筛出来（没填 ≠ 别的值）',
+  taskPick(FACET, { priorities: ['__none__'] }).map(r => r.task.id).join(',') === 'f3')
+check('★★ 标签多选是 **AND**（选两个标签要同时含，不是"含任一个"）',
+  taskPick(FACET, { tags: ['日志', '验收'] }).map(r => r.task.id).join(',') === 'f1,f4',
+  taskPick(FACET, { tags: ['日志', '验收'] }).map(r => r.task.id).join(','))
+check('★ 反例自证：按 OR 算会多出 f2（它只含"日志"）',
+  FACET.filter(t => (t.tags || []).some(x => ['日志', '验收'].includes(x))).length === 3)
+check('★★ 三层叠加取交集（状态 + 优先级 + 标签同时生效）',
+  taskPick(FACET, { statuses: ['待验收'], priorities: ['高'], tags: ['日志'] })
+    .map(r => r.task.id).join(',') === 'f1')
+check('★ 与三档正交：status=open 和 statuses 同时给时取交集（都生效，不是谁覆盖谁）',
+  taskPick(FACET, { status: 'open', statuses: ['待办'] }).map(r => r.task.id).join(',') === 'f2')
+check('   空数组 = 不限（不是"筛出 0 张"）',
+  taskPick(FACET, { statuses: [], priorities: [], tags: [] }).length === FACET.length)
+check('splitTags：数组 / 逗号 / 空格三种写法都能拆干净',
+  JSON.stringify(splitTags(['a', 'b'])) === '["a","b"]'
+  && JSON.stringify(splitTags('a,b')) === '["a","b"]'
+  && JSON.stringify(splitTags('a b')) === '["a","b"]'
+  && splitTags('').length === 0)
+check('projectIdsOf：正常数组与写坏的块式标量都拆成真 id（不碰连字符）',
+  JSON.stringify(projectIdsOf(['fangcun-base'])) === '["fangcun-base"]'
+  && JSON.stringify(projectIdsOf('- fangcun-base')) === '["fangcun-base"]'
+  && projectIdsOf(null).length === 0)
+
 // ── ⑦ 范围 / 上限 ───────────────────────────────────────────────────
 console.log('\n-- 范围与上限 --')
 check('project 过滤：只留这个项目的',
   taskPick(POOL, { project: 'fangcun-base' }).every(r => String(r.task.project).includes('fangcun-base')))
-
 // ⚠ 项目隔离必须是**精确相等**，不是子串比。首跑被 e2e-renderer-web 当场抓到：
 //   `'demo2'.includes('demo')` 为真 → 选「本项目 demo」却把 demo2 的卡也列进来了。
 //   项目是天然的隔离单元（暮雨原话），隔离靠相等，不靠"看起来像"。
@@ -234,23 +273,46 @@ check('★ App 里旧的阻塞搜索 `q.split(/\\s+/).every` 已消失（收口�
 check('★ 日历里旧的 `q.split(/\\s+/).every` 已消失（收口了）',
   !/q\.split\(\/\\s\+\/\)\.every/.test(calSrc))
 
-// ── ⑩ 界面侧（渲染层）必须真按搜索态平铺，而不是还按项目分组 ────────────
-console.log('\n-- 界面侧：搜索态平铺 / 空态话术 --')
+// ── ⑩ 界面侧（渲染层）：筛选在**右侧独立面板**里，且与表单并排 ────────────
+console.log('\n-- 界面侧：独立面板 / 五层筛选 / 空态话术 --')
 const modalSrc = readSrc('desktop/src/renderer/components/LogEditModal.vue')
-check('LogEditModal 有平铺容器 .log-task-flat（不复用 .log-task-groups）',
-  /class="log-task-flat"/.test(modalSrc))
-check('★ 平铺块与分组块是 **v-if / v-else-if 互斥**（搜索时不分组）',
-  /v-if="logTaskSearching"/.test(modalSrc) && /v-else-if="logTaskGroups\.length"/.test(modalSrc))
-check('行内有命中字段标签（解释"为什么它在第一行"）', /lto-hit/.test(modalSrc) && /hitFieldName/.test(modalSrc))
-check('⛔ 反例守卫：平铺行**不许**复用组头 class（.lt-group-head 只该出现在分组块里）',
-  (modalSrc.match(/lt-group-head/g) || []).length === 1,
+check('★ 有关联任务独立面板 #log-task-panel（不是塞在表单流里）',
+  /id="log-task-panel"/.test(modalSrc))
+check('★★ 面板与表单是**兄弟节点**（并排两栏）—— 不是嵌在 #log-edit-modal 内部',
+  (() => {
+    // 面板节点必须出现在 #log-edit-modal 那个 div 闭合之后
+    const modalStart = modalSrc.indexOf('id="log-edit-modal"')
+    const panelStart = modalSrc.indexOf('id="log-task-panel"')
+    if (modalStart < 0 || panelStart < 0) return false
+    // 面板之前必然有 "    </div>\n" 形式的收尾（表单 div 关掉）
+    return panelStart > modalSrc.lastIndexOf('</div>', panelStart) - 1
+      && modalSrc.lastIndexOf('</div>', panelStart) > modalStart
+  })())
+check('★ 五层筛选都在：搜索 / 范围 / 三档 / 精确状态 / 优先级 / 标签',
+  /ltp-search/.test(modalSrc) && /log-task-seg/.test(modalSrc)
+  && /log-task-statusbar/.test(modalSrc)
+  && /toggleStatus\(/.test(modalSrc) && /togglePrio\(/.test(modalSrc) && /toggleTag\(/.test(modalSrc),
+  'search=' + /ltp-search/.test(modalSrc) + ' status=' + /toggleStatus\(/.test(modalSrc))
+check('★★ 筛选片通过**脚本函数**改状态，不在模板里直接传 ref（否则 Vue 解包后静默失效）',
+  /function toggleStatus/.test(modalSrc) && !/@click="toggleIn\(/.test(modalSrc),
+  'stillInline=' + /@click="toggleIn\(/.test(modalSrc))
+check('面板行里带项目名与优先级列（不只有标题）',
+  /lto-proj/.test(modalSrc) && /lto-prio/.test(modalSrc))
+check('★ 搜索态行内仍标出命中字段（解释"为什么它在第一行"）',
+  /lto-hit/.test(modalSrc) && /hitFieldName/.test(modalSrc))
+check('★ 面板空态说清"没有匹配的卡"并指向清空筛选（不是干瞪眼）',
+  /没有匹配的卡/.test(modalSrc) && /清空筛选/.test(modalSrc))
+check('⛔ 反例守卫：面板里不许再出现旧的"表单内分组"结构（.lt-group-head）',
+  !/lt-group-head/.test(modalSrc),
   '出现次数: ' + (modalSrc.match(/lt-group-head/g) || []).length)
-check('空态话术说清"多词会按都要命中找"',
-  /多个词用空格/.test(modalSrc))
 
 const cssSrc = readSrc('desktop/src/renderer/styles/app.css')
-check('CSS 里 .log-task-flat 有独立样式（不用 .log-task-groups 的）',
-  /\.log-task-flat\s*\{/.test(cssSrc) && /\.lto-hit\s*\{/.test(cssSrc))
+check('CSS 里 #log-task-panel 有独立样式（并排两栏的宽度与高度）',
+  /#log-task-panel\s*\{/.test(cssSrc) && /width:\s*460px/.test(cssSrc))
+check('CSS 里 .ltp-chip / .ltp-fcount 有样式',
+  /\.ltp-chip\s*\{/.test(cssSrc) && /\.ltp-fcount\s*\{/.test(cssSrc))
+check('★ 浮层改成横排（gap + stretch），否则两栏会挤在一起',
+  /#log-edit-overlay\s*\{[^}]*gap/.test(cssSrc) && /#log-edit-overlay\s*\{[^}]*align-items:\s*stretch/.test(cssSrc))
 
 // ── 汇总 ────────────────────────────────────────────────────────────
 console.log('\n' + (fail ? '❌ ' : '✅ ') + `RESULT ${pass} / ${fail}`)

@@ -31,6 +31,8 @@ export interface TaskPickInput {
   /** 单值或数组都认（本仓两种写法都有） */
   project?: string | string[]
   status?: string
+  /** 优先级（高 / 中 / 低 / 空）；面板要能按它筛，所以进输入形状 */
+  priority?: string
   /** 数组 / 空格分隔串都认（老数据里有 `标签: a b` 这种写法） */
   tags?: string | string[]
   /** 已判终态（完成 / 驳回），由调用方传入口径，这里不自己定义状态机 */
@@ -154,6 +156,17 @@ export function taskPickRank(h: Hay, query: string): TaskPickField | null {
   return worst
 }
 
+/**
+ * 标签归一成数组（数组 / 逗号分隔 / 空格分隔都认）。
+ *
+ * 老数据里 `标签: a b` 这种写法和 `标签: [a, b]` 并存，两种都要能筛。
+ */
+export function splitTags(v: string | string[] | undefined | null): string[] {
+  if (!v) return []
+  const raw = Array.isArray(v) ? v.map(x => String(x || '')) : String(v).split(/[,，;；、\s]+/)
+  return Array.from(new Set(raw.map(x => x.trim()).filter(Boolean)))
+}
+
 export interface TaskPickOptions {
   /** 查询词；空串 = 不排序、原序返回 */
   query?: string
@@ -168,6 +181,25 @@ export interface TaskPickOptions {
   project?: string | string[]
   /** 'open' 只留未完成 / 'done' 只留终态 / 'all' 不限 */
   status?: 'open' | 'all' | 'done'
+  /**
+   * 精确状态（多选）—— 与上面的 `status` 三档正交。
+   *
+   * 为什么两个都要：三档（未完成/终态）是"扫一眼"的口径，精确状态
+   * （待办 / 进行中 / 待审批 / 待验收 / 草稿 …）是"盯着某一批"的口径。
+   * 暮雨原话要的是后者："可以按项目按状态等筛选"。空数组 = 不限。
+   * ⚠ 与 `status` 同时给时**取交集**（不是谁覆盖谁）—— 两个都表达限制，都该生效。
+   */
+  statuses?: string[]
+  /**
+   * 精确优先级（多选）：高 / 中 / 低。空数组 = 不限。
+   * `'__none__'` 表示"未标优先级"（那边界要能单独筛出来）。
+   */
+  priorities?: string[]
+  /**
+   * 标签（多选，AND）：每张卡都要含这些标签。空数组 = 不限。
+   * 用 AND 而不是 OR —— 选两个标签时人通常想要"同时满足"，那才是收窄。
+   */
+  tags?: string[]
   /** 项目 id → 显示名（参与匹配：人记的是"绒花墨坊"不是 project-2） */
   projectName?: (id: string) => string
   /** 首屏上限；0 = 不限 */
@@ -218,6 +250,9 @@ export function taskPick<T extends TaskPickInput>(tasks: T[], opts: TaskPickOpti
   const wantProj = projectIdsOf(opts.project)
   const mode = opts.status || 'all'
   const isDone = opts.isDone || defaultIsDone
+  const wantStatuses = (opts.statuses || []).map(s => String(s || '').trim()).filter(Boolean)
+  const wantPrios = (opts.priorities || []).map(s => String(s || '').trim()).filter(Boolean)
+  const wantTags = (opts.tags || []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean)
   const out: Array<TaskPickRow<T> & { _i: number }> = []
 
   for (let i = 0; i < (tasks || []).length; i++) {
@@ -227,6 +262,19 @@ export function taskPick<T extends TaskPickInput>(tasks: T[], opts: TaskPickOpti
     if (mode === 'open' && done) continue
     if (mode === 'done' && !done) continue
     if (wantProj.length && !projectIdsOf(t.project).some(id => wantProj.includes(id))) continue
+    // 精确状态（与三档正交，取交集）
+    if (wantStatuses.length && !wantStatuses.includes(String(t.status || ''))) continue
+    // 优先级（'__none__' 单独表示未标）
+    if (wantPrios.length) {
+      const p = String(t.priority || '').trim()
+      const ok = wantPrios.some(w => (w === '__none__' ? !p : p === w))
+      if (!ok) continue
+    }
+    // 标签：AND（每张卡都要含）
+    if (wantTags.length) {
+      const mine = splitTags(t.tags)
+      if (!wantTags.every(w => mine.includes(w))) continue
+    }
     const h = toHay(t, opts.projectName)
     if (!taskPickMatches(h, q)) continue
     out.push({ task: t, rank: taskPickRank(h, q), _i: i })

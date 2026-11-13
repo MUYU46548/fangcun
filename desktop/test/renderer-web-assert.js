@@ -4429,47 +4429,52 @@
       }, 4000, 'logsCreate priority'),
       JSON.stringify((window.__fcTest.calls().filter(x => x.name === 'logsCreate').pop() || {}).args))
 
-    // ══ 关联任务 chips 改造（2026-10-09 用户第 3 条）════════════════════════
-    // “每次都加载一堆任务让我头疼，于是干脆什么都不选”→ 索引字段不做任务浏览器：
-    // 默认折叠（候选 0 渲染 = 反向判据）、按需展开、过滤、勾选成 chip、× 摘除。
+    // ══ 关联任务 chips（2026-10-09 用户第 3 条）══════════════════════════════
+    // “每次都加载一堆任务让我头疼，于是干脆什么都不选”→ 索引字段不做任务浏览器。
+    // ⚠ 2026-11-14：挑选搬进**右侧独立面板**（暮雨："旁边单独挂一个展开的面板"）。
+    //   候选不再渲染在 #log-edit-modal 里，一律从 #log-task-panel 取数 —— 下面所有
+    //   取数路径都跟着改，判据本身（默认折叠 / 能筛 / 能勾 / 能摘）一条没放松。
     const chipsToggle = () => $$('#log-edit-modal .log-task-head button')[0]
+    const panel = () => $('#log-task-panel')
+    const panelRows = () => $$('#log-task-panel .ltp-list .log-task-opt')
     check('打开新建日志（chips 断言前置）', await (async () => {
       const b = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
       if (!b) return false
       b.click()
       return waitFor(() => !!$('#log-edit-modal'), 3000, 'chips: new log')
     })())
-    check('★★ 关联任务默认折叠：候选列表根本不在 DOM 里（不再全量铺一屏 —— 反向判据）',
-      // ⚠ 2026-11-08：容器从 .log-task-multi 换成 .log-task-groups（分组渲染），
-      //   只盯旧容器名会让这条**真空成立** —— 两个都盯。
-      $$('#log-edit-modal .log-task-opt').length === 0
-        && $$('#log-edit-modal .log-task-multi').length === 0
-        && $$('#log-edit-modal .log-task-groups').length === 0,
-      'opts=' + $$('#log-edit-modal .log-task-opt').length)
+    check('★★ 关联任务默认折叠：独立面板与候选列表都不在 DOM 里（不再全量铺一屏 —— 反向判据）',
+      !panel() && $$('#log-edit-modal .log-task-opt').length === 0
+        && $$('#log-task-panel .log-task-opt').length === 0,
+      'panel=' + !!panel() + ' opts=' + $$('#log-edit-modal .log-task-opt').length)
     check('  默认态说清“还没有关联任务”+ 给展开入口（不是空一片）',
       (($('#log-edit-modal .log-task-head') || {}).textContent || '').indexOf('还没有关联任务') >= 0
       && !!chipsToggle() && (chipsToggle().textContent || '').indexOf('＋ 关联任务') >= 0)
-    check('★ 点“＋ 关联任务”→ 候选按需展开（带过滤框），按钮变“收起”', await (async () => {
+    check('★ 点“＋ 关联任务”→ **右侧独立面板**出现（带搜索框），按钮变“收起面板”', await (async () => {
       const b = chipsToggle()
       if (!b) return false
       b.click()
-      const got = await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0
-        && !!$('#log-edit-modal .log-task-search'), 3000, '展开候选')
-      return got && (chipsToggle().textContent || '').indexOf('收起') >= 0
-    })())
-    const chipsOptBefore = $$('#log-edit-modal .log-task-opt').length
+      const got = await waitFor(() => !!panel() && panelRows().length > 0
+        && !!$('#log-task-panel .ltp-search'), 3000, '面板展开')
+      return got && (chipsToggle().textContent || '').indexOf('收起面板') >= 0
+    })(), 'panel=' + !!panel())
+    check('★★ 面板与表单是**并排两栏**（面板不是塞在表单流里 —— 这是这次改形态的核心）',
+      !!panel() && !$('#log-edit-modal #log-task-panel')
+        && !!$('#log-edit-overlay > #log-edit-modal') && !!$('#log-edit-overlay > #log-task-panel'),
+      'panelInModal=' + !!$('#log-edit-modal #log-task-panel'))
+    const chipsOptBefore = panelRows().length
     check('★ 过滤“011”→ 只剩匹配的那条（全量列表被过滤吃掉）', await (async () => {
-      const inp = $('#log-edit-modal .log-task-search')
+      const inp = $('#log-task-panel .ltp-search')
       if (!inp) return false
       inp.value = '011'
       inp.dispatchEvent(new Event('input', { bubbles: true }))
       return waitFor(() => {
-        const opts = $$('#log-edit-modal .log-task-opt')
+        const opts = panelRows()
         return opts.length === 1 && (opts[0].textContent || '').indexOf('task-demo-011') >= 0
       }, 3000, '过滤 011')
     })(), 'before=' + chipsOptBefore)
     check('★ 勾选 → chip 立刻出现（标题回显，不是裸 id）', await (async () => {
-      const cb = $('#log-edit-modal .log-task-opt input')
+      const cb = $('#log-task-panel .ltp-list .log-task-opt input')
       if (!cb) return false
       cb.click()
       return waitFor(() => {
@@ -4482,7 +4487,7 @@
       if (!x) return false
       x.click()
       return waitFor(() => {
-        const i2 = $('#log-edit-modal .log-task-opt input')
+        const i2 = $('#log-task-panel .ltp-list .log-task-opt input')
         return $$('#log-edit-modal .lt-chip').length === 0 && !!i2 && i2.checked === false
       }, 3000, '摘除 chip')
     })())
@@ -4492,47 +4497,41 @@
       const cancel = $$('#log-edit-modal .acts button').find(b2 => (b2.textContent || '').trim() === '取消')
       if (!cancel) return false
       cancel.click()
-      return waitFor(() => !$('#log-edit-modal'), 3000, '取消关窗')
+      return waitFor(() => !$('#log-edit-modal') && !panel(), 3000, '取消关窗')
     })())
 
-    // ══ 关联任务候选的「范围 / 状态 / 计数」（2026-11-05 暮雨第 11 条）════════════
-    // 原话：“日志关联任务的筛选也是狗屎，约等于无。现在只能根据关键词（肉眼）快速筛选，随便乱点。”
-    // 真因很具体：候选**硬性只列同项目**的任务，而日志恰恰是跨项目工作时写的 ——
-    // 想挂的那张卡在别的项目里就永远搜不到，于是"搜不到 = 这个功能等于没有"。
+    // ══ 面板筛选：范围 / 三档 / 精确状态 / 优先级 / 标签（2026-11-14 暮雨："按项目按状态等筛选"）══
     {
       const openBtn = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
       if (openBtn) openBtn.click()
-      await waitFor(() => !!$('#log-edit-modal'), 3000, '第 11 条前置：新建日志')
+      await waitFor(() => !!$('#log-edit-modal'), 3000, '面板筛选前置：新建日志')
       const toggle11 = $$('#log-edit-modal .log-task-head button')[0]
       if (toggle11) toggle11.click()
-      await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0, 3000, '第 11 条：候选展开')
+      await waitFor(() => panelRows().length > 0, 3000, '面板筛选：候选展开')
 
-      const lts = () => $$('#log-edit-modal .log-task-seg .lts')
-      check('★★ 候选区有“范围”开关（本项目 / 全部项目）—— 界面必须说清它在按项目挡',
+      const lts = () => $$('#log-task-panel .log-task-seg .lts')
+      check('★★ 面板里有“范围”开关（本项目 / 全部项目）—— 界面必须说清它在按项目挡',
         lts().length === 2 && /本项目/.test((lts()[0] || {}).textContent || '')
           && /全部项目/.test((lts()[1] || {}).textContent || ''),
         lts().map((x) => (x.textContent || '').trim()).join(' / '))
-      // 2026-11-08 第 6 条：一个“只看未完成”的 checkbox 表达不了“只看待验收”这种具体视角，
-      // 改成三档（未完成 / 全部状态 / 已完成·驳回）。判据从“checkbox 默认勾上”改成
-      // “三档里默认选中未完成”——强度不变，对象变了。
-      const stChips = $$('#log-edit-modal .log-task-statusbar .lts')
+      const stChips = $$('#log-task-panel .log-task-statusbar .lts')
       const onChip = stChips.find((x) => String(x.className || '').indexOf('on') >= 0)
-      check('★ 候选状态三档（未完成 / 全部状态 / 已完成·驳回），且**默认选未完成**',
+      check('★ 状态三档（未完成 / 全部 / 已完成·驳回），且**默认选未完成**',
         stChips.length === 3 && !!onChip && /未完成/.test(onChip.textContent || ''),
         stChips.map((x) => (x.textContent || '').trim()).join(' / ') + ' | on=' + ((onChip || {}).textContent || ''))
-      check('★ 有“共 N 条”（不是只显示 12 条，让人以为总共就 12 条）',
-        /共\s*\d+\s*条/.test((($('#log-edit-modal .log-task-count') || {}).textContent) || ''),
-        (($('#log-edit-modal .log-task-count') || {}).textContent) || '没有')
+      check('★ 面板头写清候选总数（不是只显示第一屏，让人以为总共就这么多）',
+        /\d+\s*张候选/.test((($('#log-task-panel .ltp-count') || {}).textContent) || ''),
+        (($('#log-task-panel .ltp-count') || {}).textContent) || '没有')
 
-      // 2026-11-08 第 6 条：候选按项目分组 —— 组头是项目名 + 条数，组内只剩「标题 + 状态」
-      const ltGroups = $$('#log-edit-modal .lt-group')
-      const ltHeads = $$('#log-edit-modal .lt-group-head')
-      check('★★ 候选按项目分组（组头带项目名与条数，不是一根平铺长条）',
-        ltGroups.length >= 1 && ltHeads.length >= 1 && /[0-9]/.test((ltHeads[0] || {}).textContent || ''),
-        '组=' + ltGroups.length + ' 头=' + ltHeads.map((x) => (x.textContent || '').trim().slice(0, 18)).join(' | '))
+      // 面板里**一律平铺**（分组是浏览形状；面板够高后不再多一层要点）
+      check('★★ 面板里候选平铺、每行带项目名与状态（不像表单里那样只有标题）',
+        panelRows().length > 0
+          && $$('#log-task-panel .ltp-list .lto-proj').length === panelRows().length
+          && $$('#log-task-panel .ltp-list .lto-st').length === panelRows().length,
+        '行=' + panelRows().length + ' 项目列=' + $$('#log-task-panel .ltp-list .lto-proj').length)
 
-      // 2026-11-08：id 前面加了 #（与标题区分，截图目检后定的）—— 断言按去掉 # 的值比
-      const optIds = () => $$('#log-edit-modal .log-task-opt .lto-id').map((x) => (x.textContent || '').trim().replace(/^#/, ''))
+      const optIds = () => $$('#log-task-panel .ltp-list .log-task-opt .lto-id')
+        .map((x) => (x.textContent || '').trim().replace(/^#/, ''))
       const inProj = optIds()
       check('★★ 默认“本项目”：别的项目的卡不出现（task-demo-004 属于 demo2）',
         inProj.length > 0 && inProj.indexOf('task-demo-004') < 0, 'ids=' + inProj.join(','))
@@ -4546,68 +4545,85 @@
       check('   反例自证：不切之前它确实不在（所以“出现”是切出来的，不是本来就有）',
         inProj.indexOf('task-demo-004') < 0)
 
+      // ── 精确状态多选（三档表达不了"只盯待验收那几张"）──
+      const chipByText = (sel, t) => $$(sel).find(x => (x.textContent || '').trim() === t)
+      const statusChips = $$('#log-task-panel .ltp-frow .ltp-chips')[0]
+      const nStatusChips = statusChips ? statusChips.querySelectorAll('.ltp-chip').length : 0
+      check('★ 面板里有**精确状态多选**（待办/进行中/待验收…各自一枚，不是一个三档布尔）',
+        nStatusChips >= 3, '状态片=' + nStatusChips + ' 文本=' +
+        (statusChips ? Array.prototype.slice.call(statusChips.querySelectorAll('.ltp-chip'))
+          .map(x => (x.textContent || '').trim()).join('/') : '无'))
+      // 全选状态 + 选「待验收」→ 只剩待验收（这是"能按状态筛"的直接证据）
+      const allTier = stChips.find(x => (x.textContent || '').trim() === '全部')
+      if (allTier) allTier.click()
+      await sleep(260)
+      const verifyChip = $$('#log-task-panel .ltp-chip').find(x => (x.textContent || '').trim() === '待验收')
+      check('   面板里能点到「待验收」这枚状态片', !!verifyChip)
+      if (verifyChip) verifyChip.click()
+      await sleep(320)
+      const onlyVerify = $$('#log-task-panel .ltp-list .log-task-opt .lto-st')
+        .map(x => (x.textContent || '').trim())
+      check('★★ 按状态「待验收」筛 → 只剩待验收（精确状态真的在收窄，不是装饰）',
+        onlyVerify.length > 0 && onlyVerify.every(s => s === '待验收'), JSON.stringify(onlyVerify))
+
+      // ── 筛选层数计数 + 清空筛选（要在还留着筛选的时候验，别先取消掉）──
+      const fcount = () => (($('#log-task-panel .ltp-fcount') || {}).textContent || '').trim()
+      check('★ 面板头写清“N 层筛选”（筛空了能判断是自己叠太多，不是坏了）',
+        /层筛选/.test(fcount()), fcount() || '没有')
+      const beforeClear = panelRows().length
+      const clearBtn = $$('#log-task-panel .ltp-head button').find(x => (x.textContent || '').indexOf('清空筛选') >= 0)
+      check('   面板头有「清空筛选」', !!clearBtn)
+      if (clearBtn) clearBtn.click()
+      await sleep(320)
+      check('★★ 点「清空筛选」→ 筛选层数归零、候选真的变多（不是只清显示不清条件）',
+        !$('#log-task-panel .ltp-fcount') && panelRows().length > beforeClear,
+        'cleared fcount=' + fcount() + ' before=' + beforeClear + ' after=' + panelRows().length)
+
       const cancel11 = $$('#log-edit-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
       if (cancel11) cancel11.click()
       await sleep(220)
     }
 
-    // ══ 关联任务候选的**检索本身**（2026-11-13 卡 2b1e3d59，暮雨第 5 次提）══════════
+    // ══ 检索本身（2026-11-13 卡 2b1e3d59）：多词 AND / 相关度 / 回车=第一行 ══════
     // 原话：「依旧在信息轰炸，依旧找不到需要的东西，依旧抄都抄不好（甚至抄本项目内的东西）」。
-    // 前四次修的都是包装（按项目过滤 / 多选 / 按需展开 / 分组），一次都没碰匹配：
-    // 搜索是**整串子串比**（多词必死）、首屏按项目铺开 76 行、命中后不复按相关度排、
-    // 「另有 N 张」与切档实际条数两套口径。这一段就盯着这四件。
     {
       const openBtn12 = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
       if (openBtn12) openBtn12.click()
       await waitFor(() => !!$('#log-edit-modal'), 3000, '检索段前置：新建日志')
       const tg12 = $$('#log-edit-modal .log-task-head button')[0]
       if (tg12) tg12.click()
-      await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0, 3000, '检索段：候选展开')
-      const allSc12 = $$('#log-edit-modal .log-task-seg .lts').find(x => (x.textContent || '').indexOf('全部项目') >= 0)
+      await waitFor(() => panelRows().length > 0, 3000, '检索段：候选展开')
+      const allSc12 = $$('#log-task-panel .log-task-seg .lts').find(x => (x.textContent || '').indexOf('全部项目') >= 0)
       if (allSc12) allSc12.click()
       await sleep(300)
 
-      // ① 浏览态（无搜索词）仍然按项目分组 —— 11-08 定的形状不推翻
-      check('★ 无搜索词时仍是分组形态（不把浏览改成平铺）',
-        $$('#log-edit-modal .lt-group-head').length >= 1 && !$('#log-edit-modal .log-task-flat'),
-        '组头=' + $$('#log-edit-modal .lt-group-head').length)
-
-      // ② 输入搜索词 → 切成平铺、按相关度排，**不再按项目分组**
-      const sIn = $('#log-edit-modal .log-task-search')
+      // ② 输入搜索词 → 平铺 + 命中字段标签（面板本来就是平铺，这里验相关度与解释）
+      const sIn = $('#log-task-panel .ltp-search')
       if (sIn) {
         sIn.value = '任务'
         sIn.dispatchEvent(new Event('input', { bubbles: true }))
       }
       await sleep(320)
-      check('★★ 一输入搜索词就切成**平铺**（分组整个消失）—— 搜索是定位，不是再按项目翻一遍',
-        !!$('#log-edit-modal .log-task-flat') && $$('#log-edit-modal .lt-group-head').length === 0,
-        'flat=' + !!$('#log-edit-modal .log-task-flat') + ' 组头=' + $$('#log-edit-modal .lt-group-head').length)
-      const flatRows = $$('#log-edit-modal .log-task-flat .log-task-opt')
-      check('★ 平铺行有「命中字段」标签（解释为什么它在第一行，不用人猜）',
-        flatRows.length > 0 && $$('#log-edit-modal .log-task-flat .lto-hit').length === flatRows.length,
-        '行=' + flatRows.length + ' 标签=' + $$('#log-edit-modal .log-task-flat .lto-hit').length)
-      // ★ 范围开关不许说谎：有词时是"在全部项目里找"，高亮就必须指着「全部项目」，
-      //   而不是画面上列着别的项目的卡、开关还硬说「本项目」（2026-11-13 截图目检抓到的）。
-      const segOn = $$('#log-edit-modal .log-task-seg .lts')
+      const flatRows = panelRows()
+      check('★★ 有搜索词时每行标出「命中字段」（解释为什么它在第一行，不用人猜）',
+        flatRows.length > 0 && $$('#log-task-panel .ltp-list .lto-hit').length === flatRows.length,
+        '行=' + flatRows.length + ' 标签=' + $$('#log-task-panel .ltp-list .lto-hit').length)
+      const segOn = $$('#log-task-panel .log-task-seg .lts')
         .filter(x => String(x.className || '').split(/\s+/).indexOf('on') >= 0)
         .map(x => (x.textContent || '').trim())
       check('★★ 有搜索词时范围高亮跟着**实际口径**走（指「全部项目」，不是死撑「本项目」）',
         segOn.length === 1 && segOn[0] === '全部项目', '高亮=' + segOn.join(','))
-      // 那个"按词全项目找"只在**用户自己选的是本项目**、却被词带着跨项目找时才出现
-      // （选了「全部项目」时不必解释）。所以这里切回「本项目」再验一次：
-      const backProj = $$('#log-edit-modal .log-task-seg .lts').find(x => (x.textContent || '').trim() === '本项目')
+      const backProj = $$('#log-task-panel .log-task-seg .lts').find(x => (x.textContent || '').trim() === '本项目')
       if (backProj) backProj.click()
       await sleep(320)
       check('★ 选「本项目」但有搜索词时：高亮仍指全部项目 + 明写"按词全项目找"（不许界面说谎）',
-        /按词全项目找/.test((($('#log-edit-modal .log-task-scope-note') || {}).textContent) || '')
-          && $$('#log-edit-modal .log-task-seg .lts')
+        /按词全项目找/.test((($('#log-task-panel .log-task-scope-note') || {}).textContent) || '')
+          && $$('#log-task-panel .log-task-seg .lts')
             .filter(x => String(x.className || '').split(/\s+/).indexOf('on') >= 0)
             .map(x => (x.textContent || '').trim())[0] === '全部项目',
-        'note=' + (($('#log-edit-modal .log-task-scope-note') || {}).textContent || '无'))
+        'note=' + (($('#log-task-panel .log-task-scope-note') || {}).textContent || '无'))
       check('★ 第一行有 first 标记（= 回车会选中的那张）',
         flatRows.length > 0 && String((flatRows[0] || {}).className || '').indexOf('first') >= 0)
-      check('   首屏行数 ≤ 20（不是把 17 个项目组全铺开成 76 行）',
-        flatRows.length <= 20, 'rows=' + flatRows.length)
 
       // ③ 多词 AND：两个词分别命中不同字段也要能命中（旧实现整串比 → 0 条）
       if (sIn) {
@@ -4615,7 +4631,7 @@
         sIn.dispatchEvent(new Event('input', { bubbles: true }))
       }
       await sleep(320)
-      const multiRows = $$('#log-edit-modal .log-task-flat .log-task-opt')
+      const multiRows = panelRows()
       check('★★ 多词搜索（空格分开）真能命中 —— 旧实现是整串子串比，这条会变 0',
         multiRows.length > 0, 'rows=' + multiRows.length)
 
@@ -4625,9 +4641,9 @@
         sIn.dispatchEvent(new Event('input', { bubbles: true }))
       }
       await sleep(320)
-      const noneTxt12 = (($('#log-edit-modal .log-task-flat .log-task-none') || {}).textContent || '')
-      check('★ 搜不到时说清怎么改（多词按都要命中 / 切状态 / 直接贴 ID），不是干瞪眼',
-        /多个词用空格/.test(noneTxt12) && /全部状态/.test(noneTxt12), noneTxt12.trim().slice(0, 60))
+      const noneTxt12 = (($('#log-task-panel .ltp-empty') || {}).textContent || '')
+      check('★ 搜不到时说清怎么改（点清空筛选 / 逐层放开 / 看范围档），不是干瞪眼',
+        /没有匹配的卡/.test(noneTxt12) && /清空筛选/.test(noneTxt12), noneTxt12.trim().slice(0, 70))
 
       // ⑤ 回车 = 选中**画面上第一行**（旧实现取的是数据里第一条）
       if (sIn) {
@@ -4635,12 +4651,21 @@
         sIn.dispatchEvent(new Event('input', { bubbles: true }))
       }
       await sleep(320)
-      const firstId12 = ((($('#log-edit-modal .log-task-flat .log-task-opt .lto-id') || {}).textContent) || '').trim().replace(/^#/, '')
+      const firstId12 = ((($('#log-task-panel .ltp-list .log-task-opt .lto-id') || {}).textContent) || '').trim().replace(/^#/, '')
       if (sIn) sIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await sleep(320)
       const chips12 = $$('#log-edit-modal .lt-chip').map(x => (x.getAttribute('title') || '').trim())
       check('★★ 回车选中的正是平铺第一行那张（不是数据里最新那张）',
         !!firstId12 && chips12.indexOf(firstId12) >= 0, 'first=' + firstId12 + ' chips=' + chips12.join(','))
+
+      // ⑥ 收起面板 = 真收起（面板消失、已选保留）
+      const collapse = $$('#log-task-panel .ltp-foot button').find(x => (x.textContent || '').indexOf('收起') >= 0)
+      check('   面板底部有「选好，收起」', !!collapse)
+      if (collapse) collapse.click()
+      await waitFor(() => !panel(), 3000, '面板收起')
+      check('★★ 「选好，收起」→ 面板真的消失、已选 chip 还在（收起不是丢弃）',
+        !panel() && $$('#log-edit-modal .lt-chip').length > 0,
+        'panel=' + !!panel() + ' chips=' + $$('#log-edit-modal .lt-chip').length)
 
       const cancel12 = $$('#log-edit-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
       if (cancel12) cancel12.click()

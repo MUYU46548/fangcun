@@ -11,7 +11,7 @@
 import { computed, ref, type Ref } from 'vue'
 import { parseTime } from '../../shared/time'
 import {
-  taskPick, taskPickHiddenByStatus, taskPickFirst, TASK_PICK_FIELD_RANK,
+  taskPick, taskPickHiddenByStatus, taskPickFirst, splitTags, TASK_PICK_FIELD_RANK,
 } from '../../shared/taskPick'
 
 const LOG_TASK_CAP = 12
@@ -22,6 +22,8 @@ const LOG_TASK_CAP = 12
  * （实测 17 个组 × 每组 8 条 = 首屏 76 行）。20 是"一屏多一点"，能扫完且不用滚。
  */
 const LOG_TASK_QUERY_CAP = 20
+/** 独立面板展开时的候选上限：面板有整屏高度，60 条足够一次扫完 */
+const LOG_TASK_PANEL_CAP = 60
 
 interface Deps {
   tasks: Ref<any[]>
@@ -76,8 +78,87 @@ export function useLogEditorOpen(deps: Deps) {
   const logTaskShowAll = ref(false)
   const logTaskExpanded = ref<Record<string, boolean>>({})
 
+  /**
+   * 右侧**独立面板**（2026-11-13 暮雨拍板："应该把日志窗口做宽，或者旁边单独挂一个展开的面板，
+   * 里面可以按项目按状态等筛选（都不用抄别人，抄方寸自己就有）"）。
+   *
+   * 为什么是独立面板而不是继续塞在表单流里：关联任务是**挑选**，日志正文是**记录**，
+   * 两件事的注意力模式不同。塞在一起时面板只能给 420px 高（实测只看得见 7 行），
+   * 而挑选需要的是一次看几十行 + 多维度收窄。分开之后两栏各自拿满高度。
+   *
+   * `logTaskPanelOpen` 是**独立开关**：面板开着时弹窗整体加宽，收起时恢复 720px。
+   */
+  const logTaskPanelOpen = ref(false)
+  /** 精确状态（多选，空 = 不限）—— 与三档正交，暮雨要的"按状态筛"就是这一层 */
+  const logTaskStatuses = ref<string[]>([])
+  /** 优先级（多选，'__none__' = 未标） */
+  const logTaskPrios = ref<string[]>([])
+  /** 标签（多选，AND） */
+  const logTaskTags = ref<string[]>([])
+  /** 面板里"显示哪些筛选维度"的折叠态（默认全开，收起来是为了小屏） */
+  const logTaskAdvOpen = ref(true)
+
   const TERMINAL_STATUSES = ['完成', '驳回']
   const LOG_GROUP_CAP = 8
+
+  /** 池子里出现过的全部状态 / 优先级 / 标签（面板下拉的选项来源，不写死） */
+  const logTaskFacets = computed(() => {
+    const st = new Set<string>()
+    const pr = new Set<string>()
+    const tg = new Set<string>()
+    let anyNoPrio = false
+    for (const t of [...tasks.value, ...archivedTasks.value]) {
+      if (!t) continue
+      if (t.status) st.add(String(t.status))
+      const p = String(t.priority || '').trim()
+      if (p) pr.add(p)
+      else anyNoPrio = true
+      for (const x of splitTags(t.tags)) tg.add(x)
+    }
+    // 状态按状态机顺序排（待办 → … → 完成 → 驳回），不是字典序
+    const ST_ORDER = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回']
+    const statuses = Array.from(st).sort((a, b) => {
+      const ia = ST_ORDER.indexOf(a); const ib = ST_ORDER.indexOf(b)
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b)
+    })
+    return {
+      statuses,
+      priorities: ['高', '中', '低'].filter(x => pr.has(x)).concat(Array.from(pr).filter(x => !['高', '中', '低'].includes(x))),
+      anyNoPrio,
+      tags: Array.from(tg).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')),
+    }
+  })
+
+  /**
+   * 当前生效的筛选**层层数**（面板标题上要能看见"我到底叠了几层"，否则"筛完空的"会让人以为坏了）。
+   *
+   * ⚠ 范围（本项目/全部项目）**不算一层**（2026-11-14 被断言抓到）：
+   * 它决定"在哪个池子里找"，不是"在池子里挑什么"。而且「清空筛选」本来就不动它
+   * （清完仍是本项目）。若把它算进去，清空后计数还是 1，界面就是在说假话。
+   */
+  const logTaskFilterCount = computed(() =>
+    ((logTaskQuery.value || '').trim() ? 1 : 0)
+    + (logTaskStatuses.value.length ? 1 : 0)
+    + (logTaskPrios.value.length ? 1 : 0)
+    + (logTaskTags.value.length ? 1 : 0))
+  function clearLogTaskFilters(): void {
+    logTaskQuery.value = ''
+    logTaskStatuses.value = []
+    logTaskPrios.value = []
+    logTaskTags.value = []
+    logTaskStatus.value = 'open'
+  }
+  /** 打开另一条日志时，面板的临时筛选不许粘过来（同 scope 的道理） */
+  function resetLogTaskPanelFilters(): void {
+    logTaskStatuses.value = []
+    logTaskPrios.value = []
+    logTaskTags.value = []
+    logTaskPanelOpen.value = false
+  }
+  function toggleIn(arr: any, v: string): void {
+    const cur = arr.value as string[]
+    arr.value = cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]
+  }
 
   const logTaskMatched = computed(() => {
     const proj = logEdit_.value?.project
@@ -105,11 +186,18 @@ export function useLogEditorOpen(deps: Deps) {
       status: logTaskStatus.value,
       project: scopeAll ? '' : proj,
       projectName: projName,
+      // 面板的三层收窄（暮雨："里面可以按项目按状态等筛选"）—— 都交给同一个函数，
+      // 不在界面里再写第二套过滤，否则又会变成"两个口径两个答案"。
+      statuses: logTaskStatuses.value,
+      priorities: logTaskPrios.value,
+      tags: logTaskTags.value,
     })
     const out = rows.map(r => ({
       id: r.task.id,
       title: r.task.title || '',
       status: r.task.status,
+      priority: r.task.priority || '',
+      tags: splitTags(r.task.tags),
       project: normProject(r.task.project),
       // 命中最靠前的字段（无词为 null）—— 界面用它解释"为什么它在第一行"
       hitRank: r.rank === null ? -1 : TASK_PICK_FIELD_RANK[r.rank],
@@ -122,21 +210,22 @@ export function useLogEditorOpen(deps: Deps) {
     return out
   })
   /**
-   * 首屏给几条：
-   *   · 有搜索词 → **20**，且**不再按项目分组**（见下方 logTaskGroups）。
-   *     人已经知道要哪张，此时还按项目铺开就是"信息轰炸"（实测 17 组 × 8 条 = 76 行）。
-   *   · 无搜索词 → 仍按项目分组、每组 ≤ 8（11-08 定过的，不推翻）。
+   * 首屏给几条（2026-11-13 面板版重排）：
+   *   · **独立面板开着** → 一律平铺、给到 60 条（面板有整屏高度，不再受 420px 限制）；
+   *   · 面板收起 + 有搜索词 → 平铺 20 条（人已经知道要哪张）；
+   *   · 面板收起 + 无搜索词 → 仍按项目分组、每组 ≤ 8（11-08 定过的，不推翻）。
    */
   const logTaskOptions = computed(() => {
     const q = (logTaskQuery.value || '').trim()
+    if (logTaskPanelOpen.value) return logTaskMatched.value.slice(0, LOG_TASK_PANEL_CAP)
     if (q) return logTaskMatched.value.slice(0, LOG_TASK_QUERY_CAP)
     return logTaskShowAll.value ? logTaskMatched.value : logTaskMatched.value.slice(0, LOG_TASK_CAP)
   })
   const logTaskMoreHidden = computed(() => logTaskMatched.value.length > logTaskOptions.value.length)
   /** 候选总数（界面上要写“共几条”，不能只有一个"12"让人以为总共就 12 条） */
   const logTaskTotal = computed(() => logTaskMatched.value.length)
-  /** 当前是否处于"搜索态"（搜索态不分组，按相关度平铺） */
-  const logTaskSearching = computed(() => !!(logTaskQuery.value || '').trim())
+  /** 当前是否处于"平铺态"（面板开着 或 有搜索词）—— 平铺态不分组 */
+  const logTaskSearching = computed(() => logTaskPanelOpen.value || !!(logTaskQuery.value || '').trim())
 
   /**
    * 默认档是「未完成」时，被挡在门外的**已终态卡**有多少张（2026-11-08 第 4 条）。
@@ -285,6 +374,7 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskOpenOnly.value = true
     logTaskShowAll.value = false
     logTaskExpanded.value = {}
+    resetLogTaskPanelFilters()
     resetPendingAttach()   // 编辑现有日志：不带上一轮新建态的待挂附件
     markLogSnap()          // 打开即存快照（改没改才算数）
     setTimeout(() => {
@@ -309,6 +399,7 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskOpenOnly.value = true
     logTaskShowAll.value = false
     logTaskExpanded.value = {}
+    resetLogTaskPanelFilters()
     logRetainDays.value = String(logRetainDefault.value)
     logNote.value = ''
     resetPendingAttach()
@@ -330,6 +421,10 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
     logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
     logTaskSearching, logTaskFlat,
+    // 右侧独立面板（2026-11-13 暮雨拍板）：开关 + 三层筛选 + 选项来源 + 计数
+    logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
+    logTaskAdvOpen, logTaskFacets, logTaskFilterCount,
+    clearLogTaskFilters, toggleIn,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }
 }

@@ -1014,6 +1014,9 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    拖选时按下点永远在文本框里 → 不触发。
    ⚠ 静态守卫 `e2e-renderer-web.cjs` 里有断言钉住这条，别改回去。 */
 .overlay { position: fixed; inset: 0; background: rgba(60,65,80,0.38); display: flex; align-items: center; justify-content: center; z-index: 60; transform: translateZ(0); }
+/* 日志编辑浮层：面板展开时变成**两栏横排**（2026-11-13 暮雨拍板"旁边单独挂一个展开的面板"）。
+   ⚠ 只给这一个 overlay 加类，别的浮层仍走默认居中单列 —— 不牵动全局。 */
+#log-edit-overlay { gap: 12px; align-items: stretch; padding: 24px 0; }
 #modal, #rmodal, #smodal {
   background: #fff; border-radius: 16px; padding: 18px 20px; width: 460px; max-height: 88vh;
   overflow: auto; box-shadow: var(--shadow); border: 1px solid var(--border);
@@ -3335,6 +3338,78 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    `#modal textarea.tall` 下 —— 日志编辑器是 #log-edit-modal，**`.tall` 从未生效**，
    所以“执行内容”一直是个 2 行的小框。这里把宽度与两个框的高度都补上。 */
 #log-edit-modal, #relay-modal { background: #fff; border-radius: 16px; padding: 18px 20px; width: 720px; max-width: calc(100vw - 48px); max-height: 88vh; overflow-y: auto; box-shadow: var(--shadow); border: 1px solid var(--border); position: relative; }
+
+/* ══ 关联任务右侧独立面板（2026-11-13 暮雨拍板）══════════════════════════════
+   原话：“哪怕真觉得塞不下，应该把日志窗口做宽，或者旁边单独挂一个展开的面板，
+   里面可以按项目按状态等筛选（都不用抄别人，抄方寸自己就有）”。
+   尺寸取舍：左侧表单固定 720（它不需要变宽，变宽只会让正文行更长）；
+   面板拿 460 且**自己撑满高度** —— 候选一次能看 20+ 行，不再挤在 420px 的框里。
+   窄窗兜底：整体 max-width 用 calc(100vw - 48px)，面板可压缩、表单不许被压到读不了。 */
+#log-task-panel {
+  display: flex; flex-direction: column;
+  width: 460px; flex: 0 0 auto;
+  max-width: calc(100vw - 48px);
+  /* 高度跟内容走，**不无条件撑满**（2026-11-14 截图目检）：
+     候选只有 5 行时撑到 88vh，下面是一大片白 —— 看着像"还在加载"。
+     max-height 兜住"卡很多"的情况，超出就列表内滚。 */
+  height: fit-content;
+  max-height: 88vh;
+  /* ⚠ 必须给最小高度：否则筛到 1 张时面板会瞬间缩成一条，
+        筛选片被挤走、手指还在刚才那个位置 —— 点第二次就打空了。 */
+  min-height: 320px;
+  background: #fff; border-radius: 16px; border: 1px solid var(--border);
+  box-shadow: var(--shadow); overflow: hidden;
+}
+#log-task-panel .ltp-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px 8px; border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--ink);
+}
+.ltp-head b { font-size: 14px; }
+.ltp-count { font-size: 11px; color: var(--muted); background: var(--tint-2); border-radius: 999px; padding: 1px 7px; }
+.ltp-fcount { font-size: 11px; color: var(--accent); background: var(--tint); border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.ltp-grow { flex: 1; }
+.ltp-searchrow { padding: 8px 14px 0; }
+.ltp-search { width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 12.5px; font-family: inherit; background: #fff; color: var(--ink); outline: none; }
+.ltp-frow { display: flex; align-items: center; gap: 8px; padding: 6px 14px 0; }
+.ltp-frow-wrap { align-items: flex-start; }
+.ltp-flbl { flex: none; width: 44px; font-size: 11px; color: var(--muted); font-weight: 600; padding-top: 3px; }
+.ltp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 筛选 chip：与 .lts 同一视觉语言，但更小 —— 面板里一屏要塞五层筛选 */
+.ltp-chip {
+  font-size: 11px; line-height: 1.5; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--card); color: var(--muted);
+  font-family: inherit; cursor: pointer;
+}
+.ltp-chip:hover { background: var(--tint-2); }
+.ltp-chip.on { border-color: var(--accent); color: var(--accent); background: var(--tint); font-weight: 600; }
+.ltp-tags { max-height: 76px; overflow: auto; }
+.ltp-more { font-size: 10.5px; color: var(--muted); }
+/* 候选列表：面板里**一律平铺**（分组是浏览形状，面板已经够高，不再多一层要点） */
+/* 列表自己滚，但**不抢高度**：面板 height:fit-content 时 flex:1 会把它拉到
+   父级给的可用空间（结果就是"5 行 + 一大片白"）。改成 0 1 auto —— 内容多才滚。 */
+.ltp-list { flex: 0 1 auto; overflow: auto; padding: 8px 14px; margin-top: 6px; border-top: 1px solid var(--border); }
+.ltp-list .log-task-opt { padding: 4px 4px; }
+.ltp-empty { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 10px 4px; }
+.ltp-empty b { color: var(--ink); }
+.ltp-foot {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted);
+}
+.ltp-picked { font-weight: 600; color: var(--ink); }
+.ltp-list .log-task-opt .lto-prio { flex: none; font-size: 10px; border-radius: 5px; padding: 0 5px; }
+.lto-prio.lp-high { background: color-mix(in srgb, var(--ui-destructive, #b4453f) 14%, transparent); color: var(--ui-destructive, #b4453f); }
+.lto-prio.lp-mid { background: var(--tint-2); color: var(--muted); }
+.lto-prio.lp-low { background: var(--tint-2); color: var(--muted); opacity: .8; }
+.ltp-list .log-task-opt .lto-proj { flex: none; font-size: 10.5px; color: var(--muted); max-width: 96px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 窄窗兜底：面板与表单并排放不下时，面板收窄而不是把表单挤扁 */
+@media (max-width: 1240px) {
+  #log-task-panel { width: 380px; }
+}
+/* 面板展开时弹窗自己不再滚（两栏各自滚）—— 否则滚左栏会把右栏一起带走 */
+#log-edit-overlay:has(#log-task-panel) #log-edit-modal { max-height: 88vh; }
 /* 拖文件进弹窗（2026-10-25）：拖动经过时整块虚线描边 + 一句"松手会怎样"。
    松手之前用户必须知道文件会落到哪，不能靠猜。 */
 #log-edit-modal.drop-on { outline: 2px dashed var(--accent); outline-offset: 3px; }
