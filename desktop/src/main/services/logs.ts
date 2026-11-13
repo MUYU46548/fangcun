@@ -391,6 +391,65 @@ function genId(): string {
   return `log_${ts}_${rand}`
 }
 
+/**
+ * 日志目录的**内存快照**（2026-11-13 · 卡 `日志关联任务候选搜索是单串-includ-2b1e3d59` 性能半条）
+ *
+ * 为什么需要它：`listLogs` 有 **13 个调用点**（`logsForTask` / `tripBoard` / `contextPack` /
+ * `notifier` / MCP 三件 …），每一个都**整体重读磁盘 + 重解析全部 md**。实测本机 286 条日志
+ * 单次 26–30ms → 13 处各调一次 ≈ 380ms；而这是同步 IO，会直接卡住主进程。
+ *
+ * 为什么不上全文索引 / 数据库：实测同一批数据"内存里做关键词过滤"只要 **3.7ms** ——
+ * 瓶颈从来不在检索算法，在**重复解析**。暮雨报的是"找不到"，不是"慢"；
+ * 引入索引只会多一层需要维护的真相，换不来任何他感受得到的东西。
+ *
+ * 失效判据：目录里**文件名集合 + 每个文件的 mtime/size** 与快照不一致就重扫。
+ * 不用"写入时主动清缓存"那种做法 —— 日志会被外部进程（Python tegui / 编辑器 / 备份还原）改，
+ * 只在写口清缓存会漏，而漏一次就是"界面显示旧内容"，比慢更难查。
+ * `statSync` 286 个文件约 1–2ms，比 readFileSync + 解析（26ms）便宜一个量级。
+ */
+interface LogsSnapshot {
+  /** 目录签名：文件名 + mtimeMs + size，任一不符即失效 */
+  sig: string
+  entries: LogEntry[]
+}
+let _logsSnap: LogsSnapshot | null = null
+
+/** 算目录签名（只 stat，不读内容） */
+function logsDirSignature(dir: string, files: string[]): string {
+  const parts: string[] = []
+  for (const fn of files) {
+    try {
+      const st = fs.statSync(path.join(dir, fn))
+      parts.push(`${fn}:${st.mtimeMs}:${st.size}`)
+    } catch {
+      // 文件在被 stat 的同时被删 → 直接让签名对不上，下一轮重扫
+      parts.push(`${fn}:gone`)
+    }
+  }
+  return parts.join('|')
+}
+
+/** 清空快照（测试 / 数据目录切换 / 备份还原后需要时调） */
+export function invalidateLogsCache(): void {
+  _logsSnap = null
+}
+
+/** 读出全部日志（走快照；没有变化就不重解析） */
+function loadAllLogs(): LogEntry[] {
+  const dir = getLogsDir()
+  if (!fs.existsSync(dir)) return []
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().reverse()
+  const sig = logsDirSignature(dir, files)
+  if (_logsSnap && _logsSnap.sig === sig) return _logsSnap.entries
+  const entries: LogEntry[] = []
+  for (const fn of files) {
+    const entry = parseLogFile(path.join(dir, fn))
+    if (entry) entries.push(entry)
+  }
+  _logsSnap = { sig, entries }
+  return entries
+}
+
 export function listLogs(filter?: {
   project?: string
   status?: string
@@ -411,10 +470,7 @@ export function listLogs(filter?: {
   const q = String(filter?.query || '').trim().toLowerCase()
   const hit = (s: string) => String(s || '').toLowerCase().includes(q)
   const logs: LogEntry[] = []
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort().reverse()
-  for (const fn of files) {
-    const entry = parseLogFile(path.join(dir, fn))
-    if (!entry) continue
+  for (const entry of loadAllLogs()) {
     if (filter?.project && entry.project !== filter.project) continue
     if (filter?.status && entry.status !== filter.status) continue
     if (filter?.running !== undefined && !!entry.running !== filter.running) continue
