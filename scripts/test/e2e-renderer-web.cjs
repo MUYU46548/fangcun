@@ -381,6 +381,10 @@ function main() {
       ['看板', '列视图', 'help-manual', 'helptab'],
       // 2026-11-08：日志「关联任务」候选按项目分组（暮雨：“实战中就是不可用”那一条的成品）。
       ['日志', '', 'log-task-groups', 'logtask'],
+      // 2026-11-13（卡 2b1e3d59）：**搜索态**的平铺列表 —— 与上面那张分组态是一对。
+      // 为什么必须单独拍：这一版改的核心是"有词就切成定位态、按相关度排、行内标出命中字段"，
+      // 而分组态那张图里**一条搜索词都没有**，肉眼根本看不出检索被改过。
+      ['日志', '', 'log-task-search', 'logtasksearch'],
       // 2026-11-08：返工台横幅整个删掉之后，看板顶部不再出现任何条子（有驳回卡也不冒）。
       ['看板', '列表视图', 'board-no-rework-banner', 'norw'],
       // 2026-11-08：结构地图一览（行内会出「⏳ N 张提议等你签字」）
@@ -854,6 +858,45 @@ function main() {
   // 候选列表在弹窗下半部：不滚下去，截图里只剩筛选栏（第一版就是这么拍到“列表没渲染”的）
   const grp = document.querySelector('.log-task-groups')
   if (grp) grp.scrollIntoView({ block: 'start' })
+  await sleep(600)
+` : ''}
+  ${extra === 'logtasksearch' ? `
+  // 2026-11-13（卡 2b1e3d59）：**搜索态**平铺列表的成品图。
+  // 夹具刻意做成"关键词横跨标题与标签"：旧实现整串子串比 → 一条都搜不到（就是暮雨说的"约等于无"）。
+  const LT2 = (id, title, st, proj, upd, tags) => ({
+    id, title, status: st, priority: '中', project: proj, tags: tags || [], body: '',
+    created: '2026-09-01T00:00:00.000Z', updated: upd,
+    fm: { id, title, status: st, project: proj, tags: tags || [] }, path: 'C:/mock/task-data/' + id + '.md',
+  })
+  window.__fcTest.setTasks([
+    // 标题命中：排第一（rank=title）
+    LT2('lt-11', '日志关联任务：搜索要能多词命中', '待办', 'demo', '2026-11-07T00:00:00.000Z', ['日志', '检索']),
+    // 标签命中：排在标题命中之后（rank=tags）—— 用来目检"相关度真的在排"
+    LT2('lt-12', '这条标题里没有那两个字', '进行中', 'demo', '2026-11-06T00:00:00.000Z', ['日志']),
+    // 项目名命中：更靠后（rank=project）
+    LT2('lt-13', '绒花墨坊那边的一张卡', '待办', 'project-2', '2026-11-05T00:00:00.000Z', []),
+    // 完全无关：不该出现在平铺里
+    LT2('lt-14', '跟搜索词一点关系都没有的卡', '待办', 'demo', '2026-11-04T00:00:00.000Z', ['其它']),
+    LT2('lt-15', '日志要能按标签找到', '待验收', 'demo', '2026-11-03T00:00:00.000Z', ['日志', '标签']),
+  ])
+  await sleep(400)
+  clickText('看板'); await sleep(500)
+  clickText('日志'); await sleep(800)
+  const nbLog2 = all('button').find((b) => (b.textContent || '').indexOf('新建日志') >= 0)
+  if (nbLog2) nbLog2.click()
+  await sleep(800)
+  const addTask2 = all('#log-edit-modal button').find((b) => (b.textContent || '').indexOf('关联任务') >= 0)
+  if (addTask2) addTask2.click()
+  await sleep(500)
+  // 输入搜索词 → 切成平铺定位态
+  const sbox = document.querySelector('#log-edit-modal .log-task-search')
+  if (sbox) {
+    sbox.value = '日志'
+    sbox.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  await sleep(600)
+  const flat = document.querySelector('.log-task-flat')
+  if (flat) flat.scrollIntoView({ block: 'start' })
   await sleep(600)
 ` : ''}
   ${extra === 'norw' ? `

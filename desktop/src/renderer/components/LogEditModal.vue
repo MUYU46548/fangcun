@@ -76,12 +76,22 @@
           <input v-model="logTaskQuery" class="log-task-search" placeholder="搜 id / 标题 / 项目名 —— 回车选第一条"
             @keydown.enter.prevent="pickFirstLogTask" />
           <!-- 范围与状态（2026-11-05 第 11 条 → 2026-11-08 第 6 条重做）：
-               范围管“哪个项目”，状态管“哪一档”，两个是正交的，所以分成两行而不是挤一行。 -->
-          <div class="log-task-seg" title="候选范围：本项目 / 全部项目（输入搜索词时自动按全部项目找）">
-            <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' }"
+               范围管“哪个项目”，状态管“哪一档”，两个是正交的，所以分成两行而不是挤一行。
+               ⚠ 2026-11-13（卡 2b1e3d59）：有搜索词时**自动按全部项目找**（人心里已经有目标时，
+                 不该还逼他把项目切过去再搜一次）。但此前按钮仍高亮「本项目」——界面在说谎：
+                 画面上明明列着别的项目的卡，开关却指着"本项目"。现在高亮跟着**实际生效的口径**走，
+                 并在有词时标明"按词全项目找"。
+                 ⚠ 高亮 ≠ 改状态：`logTaskScope` 不动（词删掉就回到他原来选的那一档），
+                   只有"看上去哪一档在生效"跟着变。 -->
+          <div class="log-task-seg"
+            :title="logTaskSearching
+              ? '搜索时自动在全部项目里找（删掉搜索词就回到你原来选的范围）'
+              : '候选范围：本项目 / 全部项目（输入搜索词时自动按全部项目找）'">
+            <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' && !logTaskSearching }"
               @click="logTaskScope = 'proj'">本项目</button>
-            <button type="button" class="lts" :class="{ on: logTaskScope === 'all' }"
+            <button type="button" class="lts" :class="{ on: logTaskScope === 'all' || logTaskSearching }"
               @click="logTaskScope = 'all'">全部项目</button>
+            <span v-if="logTaskSearching && logTaskScope === 'proj'" class="log-task-scope-note">按词全项目找</span>
           </div>
           <span class="log-task-count">共 {{ logTaskTotal }} 条</span>
         </div>
@@ -101,10 +111,32 @@
           另有 {{ logTaskDoneHidden }} 张已完成 / 驳回的卡没显示（默认只看未完成）
           <button type="button" class="ghost log-task-switch" @click="logTaskStatus = 'done'">改看已完成</button>
         </div>
-        <!-- 分组渲染（2026-11-08 第 6 条）：组头 = 项目名 + 条数；已选中的组置顶。
-             行内只留「标题 + 状态」，id 退到右侧小字 —— 扫的时候先认出是哪张卡，
-             需要核对 id 的时候再看右边。 -->
-        <div v-if="logTaskGroups.length" class="log-task-groups">
+        <!-- 搜索态：**不分组**，按相关度平铺（2026-11-13 卡 2b1e3d59）。
+             原话：「依旧在信息轰炸，依旧找不到需要的东西」。分组是"浏览"的形状，
+             搜索是"定位"的形状 —— 两者混在一起，就是"搜了半天还在按项目翻"。
+             平铺时行内就写明命中了哪个字段，人不必猜"为什么它在第一行"。 -->
+        <div v-if="logTaskSearching" class="log-task-flat">
+          <template v-if="logTaskFlat.length">
+            <div class="lt-flat-head">
+              按相关度排 · 前 {{ logTaskFlat.length }} 条
+              <span class="lt-flat-tip">回车 = 选第一条</span>
+            </div>
+            <label v-for="(t, i) in logTaskFlat" :key="'ltf-' + t.id" class="log-task-opt"
+              :class="{ picked: (logEdit_.taskIds || []).includes(t.id), first: i === 0 }">
+              <input type="checkbox" :value="t.id" v-model="logEdit_.taskIds" />
+              <span class="lto-hit" :title="'命中字段：' + hitFieldName(t)">{{ hitFieldName(t) }}</span>
+              <span class="lto-title">{{ t.title || '(无标题)' }}</span>
+              <span class="lto-st">{{ t.status }}</span>
+              <span class="lto-id">#{{ t.id }}</span>
+            </label>
+          </template>
+          <div v-else class="hint log-task-none">
+            没有匹配的任务 —— 换个词（多个词用空格，会按"都要命中"找），
+            或把状态切到“全部状态”，或用下面的输入框直接贴 ID
+          </div>
+        </div>
+        <!-- 浏览态：按项目分组（11-08 定过的，不推翻） -->
+        <div v-else-if="logTaskGroups.length" class="log-task-groups">
           <div v-for="g in logTaskGroups" :key="'ltg-' + g.key" class="lt-group">
             <div class="lt-group-head" @click="toggleLogTaskGroup(g.key)">
               <span class="lt-group-name">{{ (logTaskExpanded[g.key] || logTaskShowAll) ? '▾' : '▸' }} {{ g.label }}</span>
@@ -300,8 +332,24 @@ const logTaskDoneHidden = toRef(ctl, 'logTaskDoneHidden')
 const logTaskStatus = toRef(ctl, 'logTaskStatus')
 const logTaskGroups = toRef(ctl, 'logTaskGroups')
 const logTaskExpanded = toRef(ctl, 'logTaskExpanded')
+// 搜索态：不分组、按相关度平铺（2026-11-13 卡 2b1e3d59）
+const logTaskSearching = toRef(ctl, 'logTaskSearching')
+const logTaskFlat = toRef(ctl, 'logTaskFlat')
 const toggleLogTaskGroup = ctl.toggleLogTaskGroup
 const pickFirstLogTask = ctl.pickFirstLogTask
+
+/**
+ * 命中字段的中文名 —— 行内那个小标签。
+ *
+ * 为什么要它：搜索态按相关度排，但"为什么它在第一行"如果只能靠人去猜，
+ * 就还是"随便乱点"。把命中点摊开，人一眼能判断"这不是我要的那张"。
+ * rank 由 shared/taskPick 给（-1 = 无搜索词），这里只翻成人话。
+ */
+const HIT_FIELD_LABEL: Record<number, string> = { 0: '标题', 1: '标签', 2: '项目', 3: 'ID', 4: '状态' }
+function hitFieldName(t: any): string {
+  const r = Number(t && t.hitRank)
+  return HIT_FIELD_LABEL[r] || '命中'
+}
 const projects = toRef(ctl, 'projects')
 const agentPresets = toRef(ctl, 'agentPresets')
 const logAttachDragOver = toRef(ctl, 'logAttachDragOver')

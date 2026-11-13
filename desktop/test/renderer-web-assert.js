@@ -3777,6 +3777,28 @@
       JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsSetAttached').pop() || {}).args || null))
     await sleep(300)
 
+    // ══ 日志卡面上的关联任务：长的一条日志要能看见**全部**（2026-11-13 卡 2b1e3d59）══
+    // 病根：卡面只渲染 `log.taskId`，而它恒等于 `taskIds[0]`（logs.ts:285）→
+    // 一条挂了 7 张卡的日志，日志页上只显示 1 个 📍，另外 6 张在日志页根本不存在。
+    // 「便于日志↔任务互跳」这半句话，从日志页往回走的那一头一直是断的。
+    window.__fcTest.setLogs([
+      { id: 'log-mt-1', title: '挂了四张卡的日志', content: '正文',
+        status: 'active', project: 'demo', created: '2026-11-13T00:00:00.000Z',
+        taskId: 'task-demo-001',
+        taskIds: ['task-demo-001', 'task-demo-002', 'task-demo-003', 'task-demo-004'] },
+    ])
+    clickText('看板'); await sleep(400); check('重进日志页（多关联任务）', clickText('日志')); await sleep(600)
+    {
+      const meta = $('.log-card[data-log-id="log-mt-1"] .log-card-meta')
+      const txt = (meta || {}).textContent || ''
+      check('★★ 挂 4 张卡的日志，卡面上标出总数（"等 4 张"），不是只显示第一个 id',
+        /等\s*4\s*张/.test(txt), txt.trim().slice(0, 80))
+      check('★ 卡面显示的是**标题**而不是裸 id（翻日志的人在找的是"那件事"）',
+        txt.indexOf('演示任务') >= 0 || txt.indexOf('幽灵项目任务') >= 0, txt.trim().slice(0, 80))
+      check('   反例自证：旧实现只渲染 taskIds[0]，不会出现"等 N 张"这种复数口径',
+        /等\s*\d+\s*张/.test(txt) && txt.indexOf('等 1 张') < 0)
+    }
+
     // 阴性对照（先造“没有链”的数据）：按链视图不该冒出链头 —— 防“按链=全都框起来”的假实现
     window.__fcTest.setLogs([
       { id: 'log-x1', title: '无链甲', content: 'a', status: 'active', project: 'demo', created: '2026-09-28T00:00:00.000Z' },
@@ -4526,6 +4548,102 @@
 
       const cancel11 = $$('#log-edit-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
       if (cancel11) cancel11.click()
+      await sleep(220)
+    }
+
+    // ══ 关联任务候选的**检索本身**（2026-11-13 卡 2b1e3d59，暮雨第 5 次提）══════════
+    // 原话：「依旧在信息轰炸，依旧找不到需要的东西，依旧抄都抄不好（甚至抄本项目内的东西）」。
+    // 前四次修的都是包装（按项目过滤 / 多选 / 按需展开 / 分组），一次都没碰匹配：
+    // 搜索是**整串子串比**（多词必死）、首屏按项目铺开 76 行、命中后不复按相关度排、
+    // 「另有 N 张」与切档实际条数两套口径。这一段就盯着这四件。
+    {
+      const openBtn12 = $$('.logs-view button, #board button').find(x => (x.textContent || '').indexOf('新建日志') >= 0)
+      if (openBtn12) openBtn12.click()
+      await waitFor(() => !!$('#log-edit-modal'), 3000, '检索段前置：新建日志')
+      const tg12 = $$('#log-edit-modal .log-task-head button')[0]
+      if (tg12) tg12.click()
+      await waitFor(() => $$('#log-edit-modal .log-task-opt').length > 0, 3000, '检索段：候选展开')
+      const allSc12 = $$('#log-edit-modal .log-task-seg .lts').find(x => (x.textContent || '').indexOf('全部项目') >= 0)
+      if (allSc12) allSc12.click()
+      await sleep(300)
+
+      // ① 浏览态（无搜索词）仍然按项目分组 —— 11-08 定的形状不推翻
+      check('★ 无搜索词时仍是分组形态（不把浏览改成平铺）',
+        $$('#log-edit-modal .lt-group-head').length >= 1 && !$('#log-edit-modal .log-task-flat'),
+        '组头=' + $$('#log-edit-modal .lt-group-head').length)
+
+      // ② 输入搜索词 → 切成平铺、按相关度排，**不再按项目分组**
+      const sIn = $('#log-edit-modal .log-task-search')
+      if (sIn) {
+        sIn.value = '任务'
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      await sleep(320)
+      check('★★ 一输入搜索词就切成**平铺**（分组整个消失）—— 搜索是定位，不是再按项目翻一遍',
+        !!$('#log-edit-modal .log-task-flat') && $$('#log-edit-modal .lt-group-head').length === 0,
+        'flat=' + !!$('#log-edit-modal .log-task-flat') + ' 组头=' + $$('#log-edit-modal .lt-group-head').length)
+      const flatRows = $$('#log-edit-modal .log-task-flat .log-task-opt')
+      check('★ 平铺行有「命中字段」标签（解释为什么它在第一行，不用人猜）',
+        flatRows.length > 0 && $$('#log-edit-modal .log-task-flat .lto-hit').length === flatRows.length,
+        '行=' + flatRows.length + ' 标签=' + $$('#log-edit-modal .log-task-flat .lto-hit').length)
+      // ★ 范围开关不许说谎：有词时是"在全部项目里找"，高亮就必须指着「全部项目」，
+      //   而不是画面上列着别的项目的卡、开关还硬说「本项目」（2026-11-13 截图目检抓到的）。
+      const segOn = $$('#log-edit-modal .log-task-seg .lts')
+        .filter(x => String(x.className || '').split(/\s+/).indexOf('on') >= 0)
+        .map(x => (x.textContent || '').trim())
+      check('★★ 有搜索词时范围高亮跟着**实际口径**走（指「全部项目」，不是死撑「本项目」）',
+        segOn.length === 1 && segOn[0] === '全部项目', '高亮=' + segOn.join(','))
+      // 那个"按词全项目找"只在**用户自己选的是本项目**、却被词带着跨项目找时才出现
+      // （选了「全部项目」时不必解释）。所以这里切回「本项目」再验一次：
+      const backProj = $$('#log-edit-modal .log-task-seg .lts').find(x => (x.textContent || '').trim() === '本项目')
+      if (backProj) backProj.click()
+      await sleep(320)
+      check('★ 选「本项目」但有搜索词时：高亮仍指全部项目 + 明写"按词全项目找"（不许界面说谎）',
+        /按词全项目找/.test((($('#log-edit-modal .log-task-scope-note') || {}).textContent) || '')
+          && $$('#log-edit-modal .log-task-seg .lts')
+            .filter(x => String(x.className || '').split(/\s+/).indexOf('on') >= 0)
+            .map(x => (x.textContent || '').trim())[0] === '全部项目',
+        'note=' + (($('#log-edit-modal .log-task-scope-note') || {}).textContent || '无'))
+      check('★ 第一行有 first 标记（= 回车会选中的那张）',
+        flatRows.length > 0 && String((flatRows[0] || {}).className || '').indexOf('first') >= 0)
+      check('   首屏行数 ≤ 20（不是把 17 个项目组全铺开成 76 行）',
+        flatRows.length <= 20, 'rows=' + flatRows.length)
+
+      // ③ 多词 AND：两个词分别命中不同字段也要能命中（旧实现整串比 → 0 条）
+      if (sIn) {
+        sIn.value = '任务 项目'
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      await sleep(320)
+      const multiRows = $$('#log-edit-modal .log-task-flat .log-task-opt')
+      check('★★ 多词搜索（空格分开）真能命中 —— 旧实现是整串子串比，这条会变 0',
+        multiRows.length > 0, 'rows=' + multiRows.length)
+
+      // ④ 搜不到时给的是**能走的话术**，不是一片空白
+      if (sIn) {
+        sIn.value = '绝对不存在的词zzz'
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      await sleep(320)
+      const noneTxt12 = (($('#log-edit-modal .log-task-flat .log-task-none') || {}).textContent || '')
+      check('★ 搜不到时说清怎么改（多词按都要命中 / 切状态 / 直接贴 ID），不是干瞪眼',
+        /多个词用空格/.test(noneTxt12) && /全部状态/.test(noneTxt12), noneTxt12.trim().slice(0, 60))
+
+      // ⑤ 回车 = 选中**画面上第一行**（旧实现取的是数据里第一条）
+      if (sIn) {
+        sIn.value = '任务'
+        sIn.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      await sleep(320)
+      const firstId12 = ((($('#log-edit-modal .log-task-flat .log-task-opt .lto-id') || {}).textContent) || '').trim().replace(/^#/, '')
+      if (sIn) sIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await sleep(320)
+      const chips12 = $$('#log-edit-modal .lt-chip').map(x => (x.getAttribute('title') || '').trim())
+      check('★★ 回车选中的正是平铺第一行那张（不是数据里最新那张）',
+        !!firstId12 && chips12.indexOf(firstId12) >= 0, 'first=' + firstId12 + ' chips=' + chips12.join(','))
+
+      const cancel12 = $$('#log-edit-modal .acts button').find(x => (x.textContent || '').trim() === '取消')
+      if (cancel12) cancel12.click()
       await sleep(220)
     }
 

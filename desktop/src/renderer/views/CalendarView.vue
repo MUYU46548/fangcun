@@ -119,6 +119,8 @@
 import Button from '../components/ui/Button.vue'
 import { useCalendar } from '../composables/useCalendar'
 import { localPriority } from '../../shared/priority'
+// 挑卡的检索只有一个真源（2026-11-13 卡 2b1e3d59）
+import { taskPick } from '../../shared/taskPick'
 import { buildWeekPlan } from '../calendar'
 import { computed, ref } from 'vue'
 
@@ -158,14 +160,16 @@ const week = computed(() => buildWeekPlan(props.tasks || [], props.todos || []))
 
 /** 未排期列表的搜索词（2026-10-31：一百多项铺开一团乱，先能搜再谈排期） */
 const unschedQuery = ref('')
+/**
+ * 2026-11-13（卡 2b1e3d59）：匹配换成 `shared/taskPick`。
+ * 这里原来自己写了一份多词 AND（行为是对的），但日志关联任务那边没抄它、另写了一套更弱的
+ * （整串子串比）。三处各写一份 = "抄都抄不好"。现在挑卡只有一个真源。
+ */
 const unschedList = computed(() => {
-  const q = unschedQuery.value.trim().toLowerCase()
+  const q = unschedQuery.value.trim()
   const list = calUnscheduled.value as any[]
   if (!q) return list
-  return list.filter((t: any) => {
-    const hay = `${t.title || ''}\n${t.id}\n${t.project || ''}`.toLowerCase()
-    return q.split(/\s+/).every((w) => hay.includes(w))
-  })
+  return taskPick(list, { query: q, status: 'all' }).map(r => r.task)
 })
 
 /**

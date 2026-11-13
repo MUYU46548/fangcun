@@ -10,8 +10,18 @@
  */
 import { computed, ref, type Ref } from 'vue'
 import { parseTime } from '../../shared/time'
+import {
+  taskPick, taskPickHiddenByStatus, taskPickFirst, TASK_PICK_FIELD_RANK,
+} from '../../shared/taskPick'
 
 const LOG_TASK_CAP = 12
+/**
+ * 有搜索词时的首屏上限（2026-11-13 卡 2b1e3d59）。
+ *
+ * 为什么不是 12：有词的时候人**已经知道要哪张**，此时还按项目分组铺开就是信息轰炸
+ * （实测 17 个组 × 每组 8 条 = 首屏 76 行）。20 是"一屏多一点"，能扫完且不用滚。
+ */
+const LOG_TASK_QUERY_CAP = 20
 
 interface Deps {
   tasks: Ref<any[]>
@@ -71,44 +81,62 @@ export function useLogEditorOpen(deps: Deps) {
 
   const logTaskMatched = computed(() => {
     const proj = logEdit_.value?.project
-    const q = (logTaskQuery.value || '').trim().toLowerCase()
+    const q = (logTaskQuery.value || '').trim()
     // 有搜索词就不再按项目挡（见 logTaskScope 注释）
     const scopeAll = logTaskScope.value === 'all' || !!q
     const all = [...tasks.value, ...archivedTasks.value]
     const byId = new Map(all.map(t => [t.id, t]))
     const projName = (id: string) => {
       const p = projects.value.find(x => x.id === id)
-      return String(p?.name || id || '').toLowerCase()
+      return String(p?.name || '')
     }
+    // 去重：archive/ 里可能有与活跃区同 id 的副本（历史遗留 / 手工拷贝）
     const seen = new Set<string>()
-    const out: Array<{ id: string; title: string; status: string; project: string }> = []
-    for (const t of all) {
-      if (seen.has(t.id)) continue
-      const tp = normProject(t.project)
-      if (!scopeAll && proj && tp !== proj) continue
-      const terminal = TERMINAL_STATUSES.includes(String(t.status || ''))
-      if (logTaskStatus.value === 'open' && terminal) continue
-      if (logTaskStatus.value === 'done' && !terminal) continue
-      if (q) {
-        // 匹配面从「id + 标题」扩到「id + 标题 + 项目名 + 项目 id」——
-        // 人记得的往往是"绒花墨坊那张"，不是 id
-        const hay = `${t.id} ${t.title || ''} ${tp} ${projName(tp)}`.toLowerCase()
-        if (!hay.includes(q)) continue
-      }
+    const pool = all.filter(t => {
+      if (!t || seen.has(t.id)) return false
       seen.add(t.id)
-      out.push({ id: t.id, title: t.title || '', status: t.status, project: tp })
-      if (out.length >= 500) break
+      return true
+    })
+    // ⚠ 匹配/排序/状态档全部走 shared/taskPick —— 这里**不许**再自己写一套 includes。
+    // 2026-11-13 之前这里是一条裸 `hay.includes(q)`：多词必死、匹配面缺标签与状态、
+    // 命中后不复按相关度排。暮雨跨 5 天提了 5 次「约等于无 / 抄都抄不好」，前四次改的都是包装。
+    const rows = taskPick(pool, {
+      query: q,
+      status: logTaskStatus.value,
+      project: scopeAll ? '' : proj,
+      projectName: projName,
+    })
+    const out = rows.map(r => ({
+      id: r.task.id,
+      title: r.task.title || '',
+      status: r.task.status,
+      project: normProject(r.task.project),
+      // 命中最靠前的字段（无词为 null）—— 界面用它解释"为什么它在第一行"
+      hitRank: r.rank === null ? -1 : TASK_PICK_FIELD_RANK[r.rank],
+    }))
+    // 无词时才按"最近更新"排（有词时 taskPick 已按相关度排好，别覆盖它）
+    if (!q) {
+      out.sort((a, b) =>
+        Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
     }
-    // 最近更新优先：首屏要的是“最可能要挂的那几张”，不是文件序
-    out.sort((a, b) =>
-      Number(parseTime(byId.get(b.id)?.updated || 0)) - Number(parseTime(byId.get(a.id)?.updated || 0)))
     return out
   })
-  const logTaskOptions = computed(() =>
-    logTaskShowAll.value ? logTaskMatched.value : logTaskMatched.value.slice(0, LOG_TASK_CAP))
+  /**
+   * 首屏给几条：
+   *   · 有搜索词 → **20**，且**不再按项目分组**（见下方 logTaskGroups）。
+   *     人已经知道要哪张，此时还按项目铺开就是"信息轰炸"（实测 17 组 × 8 条 = 76 行）。
+   *   · 无搜索词 → 仍按项目分组、每组 ≤ 8（11-08 定过的，不推翻）。
+   */
+  const logTaskOptions = computed(() => {
+    const q = (logTaskQuery.value || '').trim()
+    if (q) return logTaskMatched.value.slice(0, LOG_TASK_QUERY_CAP)
+    return logTaskShowAll.value ? logTaskMatched.value : logTaskMatched.value.slice(0, LOG_TASK_CAP)
+  })
   const logTaskMoreHidden = computed(() => logTaskMatched.value.length > logTaskOptions.value.length)
   /** 候选总数（界面上要写“共几条”，不能只有一个"12"让人以为总共就 12 条） */
   const logTaskTotal = computed(() => logTaskMatched.value.length)
+  /** 当前是否处于"搜索态"（搜索态不分组，按相关度平铺） */
+  const logTaskSearching = computed(() => !!(logTaskQuery.value || '').trim())
 
   /**
    * 默认档是「未完成」时，被挡在门外的**已终态卡**有多少张（2026-11-08 第 4 条）。
@@ -116,27 +144,32 @@ export function useLogEditorOpen(deps: Deps) {
    * 实战里最常见的场景是「活干完了，回头补一条日志」—— 那时候要挂的卡恰好是
    * 完成/驳回，而默认档把它们全藏了，界面看起来就是"什么都搜不到"。
    * 不擅自改默认档（会一开面板就涌进几百张老卡），只把数字说出来并给一键切档。
+   *
+   * ⚠ 2026-11-13（卡 2b1e3d59）修：此前这里**自己又写了一遍匹配**（只比 id + 标题），
+   * 而主匹配还比项目名 → 同一屏两个答案。实测搜 `fangcun` 时提示"另有 0 张"，
+   * 切到完成档实际 43 张。现在走 `taskPickHiddenByStatus`，与主匹配**同一个函数**。
    */
   const logTaskDoneHidden = computed(() => {
     if (logTaskStatus.value !== 'open') return 0
     const proj = logEdit_.value?.project
-    const q = (logTaskQuery.value || '').trim().toLowerCase()
+    const q = (logTaskQuery.value || '').trim()
     const scopeAll = logTaskScope.value === 'all' || !!q
+    const all = [...tasks.value, ...archivedTasks.value]
     const seen = new Set<string>()
-    let n = 0
-    for (const t of [...tasks.value, ...archivedTasks.value]) {
-      if (seen.has(t.id)) continue
+    const pool = all.filter(t => {
+      if (!t || seen.has(t.id)) return false
       seen.add(t.id)
-      const tp = normProject(t.project)
-      if (!scopeAll && proj && tp !== proj) continue
-      if (!TERMINAL_STATUSES.includes(String(t.status || ''))) continue
-      if (q) {
-        const hay = `${t.id} ${t.title || ''}`.toLowerCase()
-        if (!hay.includes(q)) continue
-      }
-      n++
-    }
-    return n
+      return true
+    })
+    return taskPickHiddenByStatus(pool, {
+      query: q,
+      status: 'open',
+      project: scopeAll ? '' : proj,
+      projectName: (id: string) => {
+        const p = projects.value.find(x => x.id === id)
+        return String(p?.name || '')
+      },
+    })
   })
 
   /**
@@ -150,6 +183,9 @@ export function useLogEditorOpen(deps: Deps) {
    */
   const logTaskGroups = computed(() => {
     const sel = new Set(normalizeLogTaskIds(logEdit_.value))
+    // 搜索态**不分组**：按相关度平铺（见 logTaskFlat）。分组是"浏览"的形状，
+    // 搜索是"定位"的形状，两者混在一起就是"搜了半天还在按项目翻"。
+    if (logTaskSearching.value) return []
     const order: string[] = []
     const m = new Map<string, { key: string; project: string; label: string; items: any[] }>()
     for (const t of logTaskMatched.value) {
@@ -175,19 +211,25 @@ export function useLogEditorOpen(deps: Deps) {
       return { ...g, shown, hiddenCount: g.items.length - shown.length }
     })
   })
+  /** 搜索态的平铺行（按相关度，最多 20 条） */
+  const logTaskFlat = computed(() => logTaskOptions.value)
   function toggleLogTaskGroup(key: string): void {
     logTaskExpanded.value = { ...logTaskExpanded.value, [key]: !logTaskExpanded.value[key] }
   }
 
   /**
-   * 界面上**第一行**是哪张卡（2026-11-08 第 4 条修）。
+   * 界面上**第一行**是哪张卡（2026-11-08 第 4 条修；2026-11-13 扩到搜索态）。
    *
    * 原来的回车取的是 `logTaskMatched.value[0]` —— 那是**按更新时间**排的第一条，
    * 不是画面上第一条（画面按“含已选的组置顶”重排过）。于是“回车选第一条”
    * 选中的可能根本不在眼前第一行，用户以为它坏了。
-   * 现在按**渲染顺序**取：第一个组的 visible 行。
+   *
+   * 现在取**渲染顺序**的第一行：
+   *   · 搜索态 → 相关度第 1（`taskPick` 已经排好，这里不能再按更新时间挑）；
+   *   · 浏览态 → 第一个组的第一个可见行。
    */
   const logTaskFirstVisible = computed(() => {
+    if (logTaskSearching.value) return logTaskFlat.value[0] || null
     const g = logTaskGroups.value[0]
     return (g && g.shown && g.shown[0]) || logTaskMatched.value[0] || null
   })
@@ -287,6 +329,7 @@ export function useLogEditorOpen(deps: Deps) {
     logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
     logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
     logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
+    logTaskSearching, logTaskFlat,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }
 }

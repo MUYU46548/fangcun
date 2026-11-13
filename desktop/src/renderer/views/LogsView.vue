@@ -263,7 +263,15 @@
         </div>
         <div class="log-card-meta">
           <span v-if="log.project" class="log-project">{{ (projects.find(p => p.id === log.project)?.name) || log.project }}</span>
-          <span v-if="log.taskId" class="log-task">📍 {{ log.taskId }}</span>
+          <!-- 关联任务（2026-11-13 卡 2b1e3d59）：此前只渲染 `log.taskId`，而它恒等于 taskIds[0]
+               （见 logs.ts:285）→ 一条挂了 7 张卡的日志，卡面上只看得见 1 个 📍，
+               另外 6 张在日志页**根本不存在**。现在全列，多于 1 张时标出总数。
+               ⚠ 显示标题而不是 id：id 只对人有用（贴给 AI）；翻日志的人在找的是"那件事"。 -->
+          <span v-if="logTaskIdsOf(log).length" class="log-task"
+            :title="'关联任务：' + logTaskIdsOf(log).join(' · ')">
+            📍 {{ logTaskIdsOf(log).slice(0, 2).map((id: string) => taskTitleOf(id) || id).join(' · ') }}<template
+              v-if="logTaskIdsOf(log).length > 2"> 等 {{ logTaskIdsOf(log).length }} 张</template>
+          </span>
           <span v-if="log.agentName" class="log-agent" title="本次执行 Agent">🤖 {{ log.agentName }}</span>
           <!-- 2026-10-03 用户反馈1（卡 task-20261003-001）：上次的执行 Agent 单独标出 ——
                找上一段的会话就去这个 Agent 里找，不再和“本次”混在一个字段里 -->
@@ -437,6 +445,8 @@ const {
   executeBatchLogPriority, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy,
   // 卡面派生（读 log 对象，纯显示）
   logStatusClass, logStatusLabel, logPrioKey, truncate, shortLogId,
+  // 关联任务回显（2026-11-13 卡 2b1e3d59）：此前卡面只显示 taskIds[0]，其余几张在日志页不存在
+  logTaskIdsOf, taskTitleOf,
   // 拖入导入 + 拖拽高亮（全站拖拽态）
   onLogDrop, dragEnter, dragPulse, dragLeave,
 } = ctl

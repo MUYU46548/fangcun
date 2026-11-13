@@ -886,6 +886,9 @@ import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards
 import type { BoardCardMeta } from '../shared/boardCards'
 import { copyText } from '../shared/clipboard'
 import { toggleCollapsed, isCollapsed } from '../shared/grouping'
+// 挑卡的检索只有一个真源（2026-11-13 卡 2b1e3d59）：多词 AND / 匹配面 / 相关度三件一起统一，
+// 三处入口（日志关联任务 / 阻塞选择器 / 日历未排期）都调它。
+import { taskPick } from '../shared/taskPick'
 // 同步按钮的阶段/秒数文案是纯函数（shared/syncPhase.ts）—— 放在 shared 里才能喂假秒数断言，
 // 不用在测试里真等 15 秒去验"网络慢"那一档。
 import { syncCapsuleText, syncDoneText, syncPhaseLabel, isSyncPhase } from '../shared/syncPhase'
@@ -3531,17 +3534,18 @@ const batchOptions = computed<string[]>(() => {
   return Array.from(set).sort()
 })
 
-/** 搜索结果：标题 / ID / 状态都能搜；不输入时只露 8 张 */
+/**
+ * 搜索结果：标题 / ID / 状态都能搜；不输入时只露 8 张。
+ *
+ * 2026-11-13（卡 2b1e3d59）：匹配逻辑换成 `shared/taskPick` —— 这里原来自己写了一份
+ * 多词 AND，行为是对的，但**日志关联任务那边没抄它**，还各写了一套更弱的（整串子串比）。
+ * 三处各写一份的代价就是"抄都抄不好"。现在挑卡只有一个真源，多词/相关度/匹配面三件一起统一。
+ */
 const blockerPickList = computed<any[]>(() => {
-  const q = blockerQuery.value.trim().toLowerCase()
+  const q = blockerQuery.value.trim()
   const list = blockerCandidates.value
   if (!q) return list.slice(0, 8)
-  return list
-    .filter((t: any) => {
-      const hay = `${t.title || ''}\n${t.id}\n${t.status || ''}`.toLowerCase()
-      return q.split(/\s+/).every((w) => hay.includes(w))
-    })
-    .slice(0, 20)
+  return taskPick(list, { query: q, limit: 20, status: 'all' }).map(r => r.task)
 })
 
 function taskTitleById(id: string): string {
@@ -5387,6 +5391,7 @@ const {
   logTaskOpen, logTaskQuery, logTaskExtra, logTaskOptions, logTaskMoreHidden,
   logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
+  logTaskSearching, logTaskFlat,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
   tasks, archivedTasks, projects, curProj,
@@ -5651,6 +5656,17 @@ function normalizeLogTaskIds(log: any): string[] {
   if (Array.isArray(log?.taskIds) && log.taskIds.length) return log.taskIds.filter(Boolean)
   if (Array.isArray(log?.tasks) && log.tasks.length) return log.tasks.map((x: any) => String(x)).filter(Boolean)
   return log?.taskId ? [String(log.taskId)] : []
+}
+
+/**
+ * 日志卡面上要显示的关联任务 id 列表（2026-11-13 卡 2b1e3d59）。
+ *
+ * 存在的理由：日志页此前只渲染 `log.taskId` —— 而它恒等于 `taskIds[0]`（logs.ts:285），
+ * 于是一条挂了 7 张卡的日志，卡面上只看得见 1 个 📍，另外 6 张在日志页**根本不存在**。
+ * 「便于日志↔任务互跳」这半句话，从日志页往回走的那一头一直是断的。
+ */
+function logTaskIdsOf(log: any): string[] {
+  return normalizeLogTaskIds(log)
 }
 
 /**
@@ -7353,6 +7369,7 @@ const logEditCtl = reactive({
   logTaskOpen, logTaskQuery, logTaskOptions, logTaskMoreHidden, logTaskExtra,
   logTaskScope, logTaskOpenOnly, logTaskStatus, logTaskShowAll, logTaskTotal, logTaskDoneHidden,
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
+  logTaskSearching, logTaskFlat,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,
   closeLogEditor, closeLogNow, discardLogEdit, logDirtyNames, logEditDirty,
@@ -7452,6 +7469,8 @@ const logsViewCtl = reactive({
   executeBatchLogPriority, executeBatchLogComplete, executeBatchLogArchive, executeBatchLogDestroy,
   // 卡面派生（读 log 对象，纯显示）
   logStatusClass, logStatusLabel, logPrioKey, truncate, shortLogId,
+  // 关联任务回显（2026-11-13 卡 2b1e3d59）：此前卡面只显示 taskIds[0]
+  logTaskIdsOf, taskTitleOf,
   // 拖入导入 + 拖拽高亮
   onLogDrop, dragEnter, dragPulse, dragLeave,
 })

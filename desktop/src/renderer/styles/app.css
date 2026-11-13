@@ -1224,6 +1224,33 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   flex: none; margin-left: 8px; font-size: 10.5px; color: var(--muted);
   background: var(--tint-2); border-radius: 5px; padding: 0 5px;
 }
+/* 搜索态平铺列表（2026-11-13 卡 2b1e3d59）：不分组、按相关度排。
+   分组是"浏览"的形状（组头 + 项目名 + 条数），搜索是"定位"的形状（一条接一条、命中字段摊开）。
+   ⚠ 用**独立类名**，不复用 .log-task-groups —— 那套会被 e2e-renderer-web 按数量数。 */
+.log-task-flat {
+  max-height: min(52vh, 420px); min-height: 132px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); padding: 4px 6px; margin-bottom: 6px;
+}
+.lt-flat-head {
+  display: flex; align-items: center; gap: 8px; padding: 3px 4px;
+  font-size: 11px; color: var(--muted); position: sticky; top: 0;
+  background: var(--tint-2); border-radius: 6px; z-index: 1;
+}
+.lt-flat-tip { margin-left: auto; font-size: 10.5px; opacity: .8; }
+/* 「按词全项目找」：搜索会自动跨项目找，但开关状态不能因此撒谎（2026-11-13 卡 2b1e3d59） */
+.log-task-scope-note {
+  font-size: 10.5px; color: var(--muted); background: var(--tint-2);
+  border-radius: 999px; padding: 1px 7px; align-self: center;
+}
+/* 命中的是哪个字段：一行里唯一允许"抢眼"的小块，用来解释"为什么它在第一行" */
+.log-task-opt .lto-hit {
+  flex: none; font-size: 10px; color: var(--accent); background: var(--tint);
+  border-radius: 5px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+/* 第一行 = 回车会选中的那张，给一条左边线（不是整行涂色，免得和已选混淆） */
+.log-task-flat .log-task-opt.first { box-shadow: inset 2px 0 0 var(--accent); padding-left: 8px; }
+.log-task-flat .log-task-opt.first.picked { box-shadow: inset 2px 0 0 var(--accent); }
 #modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; font-weight: 600; }
 #modal input, #modal select, #modal textarea {
   width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border);
