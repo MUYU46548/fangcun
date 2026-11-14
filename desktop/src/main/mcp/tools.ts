@@ -9,6 +9,9 @@ import type { Task } from '../data'
 import { appendTrace } from '../llm/trace'
 import { buildExternalUsageRecord, isUsageReportOk } from '../../shared/usageReport'
 import { recordRead, readStats } from './usage'
+// 行为审计（2026-11-14 · 卡「拷问 AI」）：纯逻辑在 shared，持久层在 services
+import { auditRound, auditReportText, observedFromReadStats } from '../../shared/behaviorAudit'
+import { declareWork, claimWork, loadSession, normalizeRefs } from '../services/behaviorAuditStore'
 // 收卡机检（ADR-003 一期 · 2026-11-02）：外部 agent 交单时先机检再落卡。
 // 四类判据面向**交付物文本**，不起进程（cmd 在这里一律 unknown，跑测试是“待验收”的事）。
 import { renderIntakeSection } from '../../shared/intake'
@@ -674,6 +677,62 @@ export const MCP_TOOLS: MCPTool[] = [
       + '客户端态下**没有**改源码的入口（MCP 层零文件写工具）—— 改源码必须由人切到开发态。',
     inputSchema: { type: 'object', properties: {} },
   },
+  // ── 行为审计（2026-11-14 · 卡「拷问 AI」）：只审"说的和做的是否一致" ────────────
+  {
+    name: 'audit_declare',
+    description:
+      '开工前声明：这轮打算读哪些卡 / 文件、改哪些东西。写进一份**旁路**日志（不动任务卡）。'
+      + '交付时用 audit_check 核对"声明 vs 实际"，能抓出"嘴上说读了、其实没读"。'
+      + '⚠ 这不是绩效考核，是让你自己少挨骂：把"我本来该看什么"先列出来，比事后被指出"没读设定"便宜得多。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: '本轮会话 id（DSH/Hermes 的 session id）；不填则按 default 记' },
+        project: { type: 'string', description: '项目 id（可选）' },
+        plan: {
+          type: 'array',
+          description: '这轮要读/要做的东西。每项 {kind,id} 或直接写 id（默认 kind=task）',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', description: 'task / file / cmd / ipc …（开放，不锁死）' },
+              id: { type: 'string', description: '卡 id / 文件相对路径 / 命令名' },
+            },
+            required: ['id'],
+          },
+        },
+      },
+      required: ['plan'],
+    },
+  },
+  {
+    name: 'audit_check',
+    description:
+      '交付时核对：把这轮**实际做了什么**报上来，方寸拿它跟开工声明、以及 MCP 侧客观读记录对账。'
+      + '三类问题会被点出来：①声称读了但无痕迹 ②声明了没做也没解释 ③动了声明范围外的东西。'
+      + '⚠ 只审行为（读没读/做没做），**不评判质量** —— 质量裁决会死循环，这里不做。'
+      + '⚠ 文件级读取 MCP 看不见（发生在 client 侧）：所以 file:* 只跟你的声明/自报对账，'
+      + '不会被判成"没读"。真正有客观记录的是 task:*。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'string', description: '本轮会话 id（要跟 audit_declare 用同一个）' },
+        did: {
+          type: 'array',
+          description: '这轮实际读了/做了什么。每项 {kind,id} 或直接写 id（默认 kind=task）',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string' },
+              id: { type: 'string' },
+            },
+            required: ['id'],
+          },
+        },
+      },
+      required: ['did'],
+    },
+  },
   {
     name: 'rice_pool_list',
     description:
@@ -1191,6 +1250,62 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     
     case 'get_data_dir': {
       return { content: [{ type: 'text', text: getDataDir() }] }
+    }
+
+    case 'audit_declare': {
+      // 2026-11-14 · 卡「拷问 AI」：开工前把"我要读/要做这些"写下来。
+      // 存在的理由（暮雨原话）：「没读设定自己瞎搞，找东西都不知道去哪里找，浪费 token
+      // 搜永远不可能找到的地方」—— 把"该看什么"前置，事后就不用骂。
+      const r = declareWork(
+        String(args.session_id || '').trim(),
+        args.plan,
+        args.project ? String(args.project) : '',
+      )
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: r.error || '写不进审计日志',
+        }) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        declared: r.count,
+        // 交付时用同一条 session_id 调 audit_check
+        next: '交付时调 audit_check，把实际做的报上来；方寸会跟这份声明对账。',
+      }, null, 2) }] }
+    }
+
+    case 'audit_check': {
+      const sid = String(args.session_id || '').trim()
+      const claimed = normalizeRefs(args.did)
+      if (!claimed.length) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: 'did 是空的 —— 这轮什么都没做？至少报一条。',
+        }) }], isError: true }
+      }
+      // 先落自报（即便后面判定失败，自报本身也是要留痕的事实）
+      const wrote = claimWork(sid, claimed)
+      const loaded = loadSession(sid)
+      // MCP 侧**客观**读记录：只认 task（文件读取发生在 client 侧，MCP 看不见）
+      const stats = readStats(30)
+      const taskIds = Array.from(new Set(
+        claimed.filter((x) => x.kind === 'task').map((x) => x.id)
+          .concat((loaded.decl?.plan || []).filter((x) => x.kind === 'task').map((x) => x.id)),
+      ))
+      const observed = observedFromReadStats(stats, taskIds)
+      const rep = auditRound(loaded.decl, { did: claimed }, observed)
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        // 审计本身不判"合格/不合格"：它只把"说的和做的不一致"摆出来，裁决归人
+        declared: rep.declared,
+        counts: rep.counts,
+        summary: rep.summary || '（没有发现不一致）',
+        rows: rep.rows.map((r) => ({ verdict: r.verdict, kind: r.ref.kind, id: r.ref.id, why: r.why })),
+        report: auditReportText(rep),
+        claim_written: wrote.ok,
+        claim_error: wrote.error || '',
+        // 口径必须写在返回里：agent 要知道哪些是客观记录、哪些只是自报
+        note: 'task:* 有 MCP 侧客观读记录可对账；file:* / cmd:* 发生在 client 侧，MCP 看不见，只跟声明与自报对账。',
+      }, null, 2) }] }
     }
 
     case 'app_mode': {
