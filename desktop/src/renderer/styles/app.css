@@ -2256,6 +2256,10 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-stage.done .plan-stage-head { margin-bottom: 0; }
 .plan-fold-hint { margin-top: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
 .plan-fold-hint:hover { color: var(--accent); }
+/* 展开态那个「收起」：与折叠提示同一行为，但**视觉上要能区分**
+   （2026-11-14 P2-2）——展开之后按钮还在原位置，不做区分会让人以为"点了没用"。 */
+.plan-fold-hint.on { align-self: flex-start; margin: 6px 0 2px; padding: 1px 8px; border-radius: 999px;
+  background: var(--tint-2); color: var(--accent); font-size: 10.5px; display: inline-block; }
 .plan-count { font-size: 11.5px; color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
 
 .plan-stage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }

@@ -170,6 +170,16 @@ function main() {
       console.log('\n★ 不合格:')
       for (const b of bad) console.log('  ' + b.id.padEnd(20) + b.why)
     }
+    // 2026-11-14（长 Loop P2-1）：把"该谁改"说清楚。
+    // ⚠ 这条**不是**方寸能自己修的事：契约明写「方寸对项目 repo 只读」
+    //   （立项契约.md ③ 显式不受理）。图标在**各项目自己的仓库**里
+    //   （`<repo>/desktop/build/icon-512.png`），所以合格与否只能**报告**，不能替人改。
+    //   以前只说"不合格"，看起来像方寸的 bug；现在说明它是**外部待办**。
+    if (bad.length || missing.length) {
+      console.log('\n⚠ 这些都不是方寸能改的：契约写明「方寸对项目 repo 只读」。')
+      console.log('   图标在各项目自己的仓库里（<repo>/desktop/build/icon-512.png），')
+      console.log('   要么由该项目自己按品牌色出一张，要么来方寸这边登记为什么不用品牌色。')
+    }
   }
   if (bad.length) process.exit(1)
 }

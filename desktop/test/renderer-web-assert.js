@@ -3002,6 +3002,33 @@
       const pendingItems = $$('.plan-view .plan-pending-item')
       check('★ 清单逐张列出（夹具 1 张待裁决 → 1 个可点条目）',
         pendingItems.length === 1, pendingItems.length + ' 项')
+
+      // ── 阶段卡默认折叠（2026-11-14 · 长 Loop P2-2）─────────────────────
+      // 为什么必须钉：真数据 fangcun-base 有 12 个阶段、每阶段 15–22 行正文，
+      // 全部铺开 466 行 —— 滚一屏看不完一张卡，这就是"一坨文字"的量化来源。
+      // 规则：**待裁决 / 已冻结 → 默认展开**（前者要人做决定、后者是施工依据），
+      //      其余（完成 / 未填状态）→ 默认收起成一行摘要。
+      // ⚠ 已完成的折叠是 2026-11-08 就有的（showDone），这里验的是**新增那一半**。
+      {
+        const boxOf = (id) => $$('.plan-view .plan-stage').find(
+          (x) => (((x.querySelector('.plan-id') || {}).textContent) || '').trim() === id)
+        const p0 = boxOf('P0')   // 夹具里 P0 是「已冻结」
+        const p1 = boxOf('P1')   // 夹具里 P1 是「待裁决」
+        check('★★ 已冻结的阶段卡**默认展开**（三块施工依据不该被折叠藏起来）',
+          !!p0 && !!p0.querySelector('.plan-block'), p0 ? 'blocks=' + p0.querySelectorAll('.plan-block').length : '没有 P0')
+        check('★★ 待裁决的阶段卡**默认展开**（那是要人做决定的地方，不该再点一次）',
+          !!p1 && !!p1.querySelector('.plan-block'), p1 ? 'blocks=' + p1.querySelectorAll('.plan-block').length : '没有 P1')
+        check('★ 展开态的卡上有「收起」入口（展开之后得能收回去）',
+          !!p0 && !!Array.prototype.slice.call(p0.querySelectorAll('.plan-fold-hint'))
+            .find((x) => (x.textContent || '').indexOf('收起') >= 0),
+          p0 ? Array.prototype.slice.call(p0.querySelectorAll('.plan-fold-hint')).map((x) => (x.textContent || '').trim()).join('|') : '')
+        // 第二个项目的 P0 是「完成」→ 应默认收起成一行（那条折叠 11-08 就有，别被这轮改坏）
+        const doneBoxes = $$('.plan-view .plan-stage.done')
+        check('★ 已完成的卡仍默认收起（2026-11-08 的规则没被这轮改坏）',
+          doneBoxes.length >= 1 && doneBoxes.every((b) => !b.querySelector('.plan-block')),
+          'done=' + doneBoxes.length)
+      }
+
       check('★ 条目点名阶段号（点了能跳过去，不是一句光话）',
         /P1/.test(((pendingItems[0] || {}).textContent) || ''), ((pendingItems[0] || {}).textContent) || '')
       if (pendingItems[0]) pendingItems[0].click()

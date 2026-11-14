@@ -230,7 +230,20 @@
           已完成 · 证据在卡里 · 点开看三块与裁决记录
         </div>
 
+        <!-- 2026-11-14（长 Loop P2-2）：**未完成的也默认收起**。
+             实测真数据：fangcun-base 12 个阶段、每阶段 15–22 行正文，全部铺开 = 466 行，
+             滚一屏都看不完一张卡 —— 这就是"一坨文字"的量化来源。
+             折叠规则与「已完成」一致：默认只留标题行（id + 标题 + 状态 + 缺块提示），
+             点一下看三块；**待裁决的卡默认展开**（那正是要人做決定的地方，不该再点一次）。
+             ⚠ 用 `foldKey` 记展开状态（`file::id`），与 `showDone` 那套分开 ——
+               它们是两个维度（"完成了没" vs "这一张我展开看没看"）。 -->
+        <div v-else-if="!isExpanded(doc, s)" class="plan-fold-hint" @click="toggleStage(doc, s)">
+          {{ s.what ? String(s.what).slice(0, 60) + (String(s.what).length > 60 ? '…' : '') : '点开看技术方案 / 照抄点 / 判据' }}
+        </div>
+
         <template v-else>
+          <!-- 展开态给一个收起按钮 —— 展开之后得能收回去，否则"点了就永远长" -->
+          <div class="plan-fold-hint on" @click="toggleStage(doc, s)">收起</div>
           <div class="plan-what" v-if="s.what">{{ s.what }}</div>
 
         <div class="plan-block">
@@ -394,6 +407,38 @@ const visibleDocs = computed(() =>
  */
 const showDone = ref(false)
 const isDone = (s: Stage): boolean => String(s.status || '').trim() === '完成'
+
+/**
+ * 单张阶段卡的展开状态（2026-11-14 · 长 Loop P2-2）。
+ *
+ * 为什么需要它：真数据 fangcun-base 有 12 个阶段、每阶段 15–22 行，全部铺开 466 行。
+ * 「已完成」早就有折叠（showDone），但**未完成的那些是全展开的** —— 那才是"一坨"的主体。
+ *
+ * 默认规则：
+ *   · 待裁决 → **默认展开**（那正是要人做决定的地方，不该再点一次）
+ *   · 其余（待办 / 进行中 / 未填状态）→ 默认收起，只露一行摘要
+ * 用户点过之后以用户的为准（`foldKey` 里记的是"用户显式改成了什么"）。
+ */
+const foldKey = ref<Record<string, boolean>>({})
+function stageKey(doc: Doc, s: any): string { return doc.file + '::' + s.id }
+function isExpanded(doc: Doc, s: any): boolean {
+  const k = stageKey(doc, s)
+  if (k in foldKey.value) return foldKey.value[k]
+  // 没点过：**待裁决**与**已冻结**都默认展开。
+  //  · 待裁决 —— 那正是要人做决定的地方，不该再点一次；
+  //  · 已冻结 —— 它是"已经定下来的施工依据"，折叠起来等于把依据藏了；
+  //    而且冻结卡通常只有一两行（三块已在冻结时被审过），不占地方。
+  // 只折叠那些既没裁决、也不是待裁决的（草稿 / 未冻结 / 未填状态）——
+  // 那些才是"一坨"的主体。
+  const st = String(s?.status || '').trim()
+  if (st === '待裁决' || st === '待裁决（未冻结）' || st === '未冻结') return true
+  if (st === '已冻结') return true
+  return false
+}
+function toggleStage(doc: Doc, s: any): void {
+  const k = stageKey(doc, s)
+  foldKey.value = { ...foldKey.value, [k]: !isExpanded(doc, s) }
+}
 const totalStages = computed(() => visibleDocs.value.reduce((n, d) => n + d.stages.length, 0))
 const doneStages = computed(() => {
   const out: Array<{ file: string; stageId: string }> = []

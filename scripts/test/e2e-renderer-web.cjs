@@ -817,6 +817,11 @@ function main() {
   const planTab = all('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('作战计划') >= 0)
   if (planTab) planTab.click()
   await sleep(1200)
+  // 2026-11-14（P2-2）：阶段卡在"待裁决清单 / 投入产出账"**下面**，不滚下去拍不到。
+  // 折叠改造是这一轮的重点，拍不到就等于没验（第一版就是这么拍到"只有清单"的）。
+  const firstStage = document.querySelector('.plan-stage')
+  if (firstStage) firstStage.scrollIntoView({ block: 'start' })
+  await sleep(400)
   ${extra === 'plandraft' ? `
   // 有草案待提成的那一态：展开草案块（用户实际的入口就在这上面）
   const dtoggle = all('button').find((b) => (b.textContent || '').indexOf('份草案') >= 0)
