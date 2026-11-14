@@ -99,8 +99,8 @@ const G2 = mkFixture({
   const r = run(G2, ['--stats'])
   check('★★ 写了「处置：已做」→ 该条从欠账里消失（这是判据"降到 0"的唯一实现路径）',
     /仍未接（欠账）:\s*0/.test(r.out), r.out.trim().split('\n').join(' | '))
-  check('★ 但"已写处置标记"里要能数到它（处置过的不等于没发生）',
-    /已写处置标记:\s*1/.test(r.out), r.out.trim().split('\n').join(' | '))
+  check('★ 但"整份标记盖住"里要能数到它（处置过的不等于没发生）',
+    /被\*\*整份\*\*标记盖住（未逐条核实）:\s*1/.test(r.out), r.out.trim().split('\n').join(' | '))
   check('★ 处置类别被认出来（已做=1）',
     /已做:\s*1/.test(r.out), r.out.trim().split('\n').join(' | '))
 }
@@ -164,17 +164,19 @@ const G6 = mkFixture({
 }, { 'task-20260101-001': CARD })
 {
   const r = run(G6, ['--stats'])
-  check('★★ 三个数分开报：在接 1 / 已处置 1 / 欠账 0（合并成一个数就查不出是谁漏的）',
-    /有未完成卡在接:\s*1/.test(r.out) && /已写处置标记:\s*1/.test(r.out) && /仍未接（欠账）:\s*0/.test(r.out),
+  check('★★ 三个数分开报：在接 1 / 整份盖住 1 / 欠账 0（合并成一个数就查不出是谁漏的）',
+    /有未完成卡在接:\s*1/.test(r.out) && /被\*\*整份\*\*标记盖住（未逐条核实）:\s*1/.test(r.out) && /仍未接（欠账）:\s*0/.test(r.out),
     r.out.trim().split('\n').join(' | '))
 }
 
 // ── ⑦ --check 的退出码（守卫靠它）────────────────────────────────────
+// ⚠ 「逐条处置完 → 退出 0」那条要等 G11 定义完才能测，见 ⑪ 之后。
 {
   const bad = run(G1, ['--check'])
   check('★★ 还有欠账时 --check 非零退出（守卫能拦住）', bad.code !== 0, 'code=' + bad.code)
-  const good = run(G2, ['--check'])
-  check('★ 全部处置后 --check 退出 0', good.code === 0, 'code=' + good.code)
+  const wholeOnly = run(G2, ['--check'])
+  check('★★ 只有**整份**标记时 --check 仍非零（2026-11-14 收紧：整份 ≠ 逐条看过）',
+    wholeOnly.code !== 0, 'code=' + wholeOnly.code)
 }
 
 // ── ⑧ 只读纪律：跑十遍，日志与卡一个字节都不变 ─────────────────────────
@@ -198,7 +200,126 @@ const G6 = mkFixture({
     same && Object.keys(before).length > 0, '文件数=' + Object.keys(before).length)
 }
 
-// ── ⑨ 源码守卫：处置标记必须真写进日志（不是只存脚本内存）──────────────
+// ── ⑪ 逐条处置（2026-11-14 第二刀）：一份日志的 15 条要能分别交代 ──────────
+// 为什么必须有这一层：上一刀只能"整份盖一个标记"，于是 120 份多条目日志的各 1 个标记
+// 就盖住了 711 条诉求 —— 数字归零，实际没人看过。这一层是把它拆开。
+console.log('\n-- 逐条处置（@序号）--')
+
+const MULTI3 = ['1. 第一条：把日志检索修好', '2. 第二条：待审批卡要能驳回', '3. 第三条：转待办别丢正文'].join('\n')
+
+// 只标第 2 条 → 另外两条仍是欠账
+const G10 = mkFixture({
+  log_m: logFile('逐条甲', MULTI3 + '\n\n处置：@2 已转卡 task-20260101-009'),
+})
+{
+  const r = run(G10, ['--stats'])
+  check('★★ 只标 @2 → 欠账还有 **2** 条（没被整份盖住）',
+    /仍未接（欠账）:\s*2/.test(r.out), r.out.trim().split('\n').join(' | '))
+  check('★★ 且"逐条处置过"数到 1 条（这个数才是真看过）',
+    /逐条处置过（@序号标记）:\s*1/.test(r.out), r.out.trim().split('\n').join(' | '))
+  check('★ 整份标记为 0（没有整份盖）',
+    /被\*\*整份\*\*标记盖住（未逐条核实）:\s*0/.test(r.out), r.out.trim().split('\n').join(' | '))
+}
+
+// 三条全逐条标 → 欠账 0
+const G11 = mkFixture({
+  log_m: logFile('逐条乙', MULTI3
+    + '\n\n处置：@1 已做 —— 提交 abc1234'
+    + '\n\n处置：@2 已转卡 task-x'
+    + '\n\n处置：@3 已放弃 —— 后来发现没必要'),
+})
+{
+  const r = run(G11, ['--stats'])
+  check('★★ 三条都逐条标 → 欠账 0，逐条计数 3',
+    /仍未接（欠账）:\s*0/.test(r.out) && /逐条处置过（@序号标记）:\s*3/.test(r.out),
+    r.out.trim().split('\n').join(' | '))
+}
+
+// ── ⑫ 锚点：序号漂了也要能认出来 ─────────────────────────────────────
+// 人会往日志里插一条。`@2#待审批` 里的 # 后面那截，就是让标记跟着"同一件事"走。
+const G12 = mkFixture({
+  log_a: logFile('锚点甲', [
+    '1. 一件无关的事要先处理',
+    '2. 待审批卡要能驳回（这条带锚点）',
+  ].join('\n') + '\n\n处置：@2#待审批 已转卡 task-y'),
+})
+{
+  const r = run(G12, ['--stats'])
+  check('★★ 带 #锚点 的逐条标记生效（欠账只剩那条无关的）',
+    /仍未接（欠账）:\s*1/.test(r.out) && /逐条处置过（@序号标记）:\s*1/.test(r.out),
+    r.out.trim().split('\n').join(' | '))
+}
+// 反例：序号变了但锚点还在 → 仍然认（这就是锚点存在的理由）
+const G12b = mkFixture({
+  log_a: logFile('锚点乙', [
+    '1. 新插进来的一条（序号漂了）',
+    '2. 一件无关的事要先处理',
+    '3. 待审批卡要能驳回（这条带锚点）',
+  ].join('\n') + '\n\n处置：@2#待审批 已转卡 task-y'),
+})
+{
+  const r = run(G12b, ['--stats'])
+  check('★★ 时序自证：插了一条把序号挤到 @3，但 #待审批 锚点仍认得出（不再按死序号）',
+    /逐条处置过（@序号标记）:\s*1/.test(r.out),
+    r.out.trim().split('\n').join(' | '))
+}
+// 反例：锚点太短（1 个字）不许生效 —— 否则会误配到别的条
+const G12c = mkFixture({
+  log_a: logFile('锚点丙', '1. 一件事要处理\n2. 另一件事也要处理\n\n处置：@1#一 已做 —— 太短的锚点'),
+})
+{
+  const r = run(G12c, ['--stats'])
+  check('★★ 反例自证：锚点只有 1 个字时**不认**（否则 "一" 会误配到十几条）',
+    /逐条处置过（@序号标记）:\s*0/.test(r.out),
+    r.out.trim().split('\n').join(' | '))
+}
+
+// ── ⑬ --check 收紧：整份标记不许让它变绿 ─────────────────────────────
+{
+  const whole = mkFixture({
+    log_w: logFile('整份', MULTI3 + '\n\n处置：已转卡 task-z'),
+  })
+  const rw = run(whole, ['--check'])
+  check('★★ --check 收紧：只有**整份**标记时仍然非零退出（不再被整份标记骗过）',
+    rw.code !== 0, 'code=' + rw.code)
+  const what = run(whole, ['--stats'])
+  check('★ 但 stats 里要能看见它：整份盖住 3 条、逐条 0 条',
+    /被\*\*整份\*\*标记盖住（未逐条核实）:\s*3/.test(what.out)
+    && /逐条处置过（@序号标记）:\s*0/.test(what.out),
+    what.out.trim().split('\n').join(' | '))
+}
+
+// ── ⑭ --items 子命令：逐条列清单（人要靠它才知道第几条是哪件） ───────────
+{
+  const r = run(G10, ['--items', 'log_m'])
+  check('★★ --items <日志id> 逐条列出（带序号 1/2/3，人能对着写 @序号）',
+    /\[1\]/.test(r.out) && /\[2\]/.test(r.out) && /\[3\]/.test(r.out),
+    r.out.trim().split('\n').slice(0, 4).join(' | '))
+  check('★ --items 里能看出哪条已处置、哪条没有（✅ / ❌ 分开）',
+    /已处置|被整份/.test(r.out) && /未处置/.test(r.out), '')
+  check('★ --items 不带日志 id → 显式报错退出（不是静默什么都不做）',
+    run(G10, ['--items']).code !== 0)
+  check('★ --items 给不存在的日志 → 显式报错', run(G10, ['--items', 'log_nope']).code !== 0)
+}
+
+// ── ⑮ 脚本不许自己写日志（处置是人/agent 的事）──────────────────────────
+{
+  const r = run(G10, ['--dispose'])
+  check('★★ `--dispose` 明确拒绝：脚本不替人宣布"处理过了"（那是假账）',
+    r.code !== 0 && /不写日志|假账/.test(r.out), r.out.trim().slice(0, 100))
+}
+
+// ── ⑯ 兼容：老的"整份"标记仍然生效（已有 700+ 条用它，不许一刀切废掉）──────
+{
+  const r = run(G2, ['--stats'])
+  check('★ 老写法（不带 @序号）仍然被认作整份处置（向后兼容）',
+    /被\*\*整份\*\*标记盖住（未逐条核实）:\s*1/.test(r.out),
+    r.out.trim().split('\n').join(' | '))
+  // ⑦ 里欠的那一条：**逐条**处置完 --check 才绿（G11 现在已定义）
+  const good = run(G11, ['--check'])
+  check('★★ **逐条**处置完 → --check 退出 0（这条绿才配叫"清完了"）',
+    good.code === 0, 'code=' + good.code)
+}
 {
   const src = fs.readFileSync(SCRIPT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
   check('★ 脚本里没有写日志的调用（不 writeFileSync 到日志目录）',
@@ -248,7 +369,7 @@ const G8 = mkFixture({ log_one: logFile('壬', '只有一条诉求，没有列�
   })
   const r = run(G9, ['--stats'])
   check('★★ 处置标记盖住多条目时，stats 必须**主动说出**这个口径风险（不许让人误以为逐条都看了）',
-    /口径提醒/.test(r.out) && /不等于"每一条都有人看过"/.test(r.out),
+    /口径/.test(r.out) && /不算真处置/.test(r.out) && /不等于那一条被人看过/.test(r.out),
     r.out.trim().split('\n').slice(-4).join(' | '))
 }
 

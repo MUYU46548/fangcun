@@ -47,21 +47,50 @@ const DONE = new Set(['完成', '驳回', '已归档', '归档'])
  * 处置标记（写在日志「下一步」段落里，任意一行）。
  * 只要出现 `处置：<类别>` 就认；类别不在表里也算（人写的自然会话别），
  * 但会归到 `其他处置` 便于统计。**不要求格式完美** —— 要求完美就等于没人会写。
+ *
+ * 两种写法，都认：
+ *   ① **整份**：`处置：已转卡 <卡id>` —— 盖住这份日志的**全部**条目。
+ *      适合"这份日志通篇同一件事"。⚠ 多条目日志用它 = 声明"整份归入某卡"，
+ *      引擎仍会在 `--stats` 里提醒"这不等于逐条看过"。
+ *   ② **逐条**：`处置：@2 已做 —— <说明>` —— 只盖住这份日志的**第 2 条**。
+ *      `@` 后面的数字是 `--items` 打印出来的条目序号（1 起）。
+ *      可选再带锚点：`处置：@2#待审批 已转卡 <卡id>` —— `#` 后面写该条开头几个字，
+ *      用来在**条目顺序变了之后仍能认出来**（人改日志时常常插一条、删一条）。
  */
-const DISPOSE_RE = /^[ \t]*(?:[-*·][ \t]*)?处置[：:][ \t]*(已做|已放弃|已转卡|非本项目|已合并|已废弃|已修|已核实|其他)[ \t]*(.*)$/
+const DISPOSE_RE = /^[ \t]*(?:[-*·][ \t]*)?处置[：:][ \t]*(?:@(\d+)(?:#([^ \t]+))?[ \t]+)?(已做|已放弃|已转卡|非本项目|已合并|已废弃|已修|已核实|其他)[ \t]*(.*)$/
 const DISPOSE_KINDS = ['已做', '已转卡', '已合并', '已放弃', '已废弃', '已修', '已核实', '非本项目', '其他']
 
-/** 从日志里找处置标记；返回 null 表示没处置 */
+/**
+ * 从日志里找**全部**处置标记。
+ *
+ * 返回：
+ *   `whole`  —— 整份级标记（没有 @序号 的那些）；有多个时以最后一个为准（后来者覆盖）
+ *   `items`  —— 逐条标记数组 `{ n, anchor, kind, note }`（n = 1 起的条目序号）
+ *
+ * ⚠ 必须用 `m` 标志逐行找：处置标记**几乎总是写在「下一步」段落末尾**，
+ *   第一版用整份 raw + 非 m 正则 → 一行只匹配第一个候选，标记在第二行就漏了。
+ */
 function disposeOf(raw) {
-  // ⚠ 必须用 `m` 标志逐行找：处置标记**几乎总是写在「下一步」段落的末尾**
-  //   （先写原话，再补一行"处置：…"），而 `nextStepOf` 只取第一句当"这一条"。
-  //   第一版用整份 raw + 非 m 正则 → 一行只匹配第一个候选，标记在第二行就漏了。
   const re = new RegExp(DISPOSE_RE.source, 'gm')
   let m
-  let last = null
-  while ((m = re.exec(raw)) !== null) last = m   // 有多个时以最后一个为准（后来者覆盖）
-  if (!last) return null
-  return { kind: last[1], note: (last[2] || '').trim() }
+  let whole = null
+  const items = []
+  while ((m = re.exec(raw)) !== null) {
+    const [, num, anchor, kind, note] = m
+    if (num) {
+      items.push({ n: Number(num), anchor: (anchor || '').trim(), kind, note: (note || '').trim() })
+    } else {
+      whole = { kind, note: (note || '').trim() }   // 后者覆盖前者
+    }
+  }
+  if (!whole && !items.length) return null
+  return { whole, items }
+}
+
+/** 兼容旧调用点：拿"整份"那个标记（没有就 null） */
+function wholeDisposeOf(raw) {
+  const d = disposeOf(raw)
+  return d ? d.whole : null
 }
 
 /** 归一化：去掉标点空白，只留可比对的字 */
@@ -101,6 +130,11 @@ function nextStepOf(raw) {
   return body
 }
 
+/** 判定一行是不是处置标记（整份或逐条都算） */
+function isDisposeLine(s) {
+  return new RegExp(DISPOSE_RE.source).test(s)
+}
+
 /**
  * 把「下一步」正文拆成**条目**（2026-11-14 · 处置口径修正）。
  *
@@ -119,16 +153,14 @@ function nextStepItems(raw) {
   let buf = []
   const isBullet = (s) => /^\s*(?:\d+[.、)]|[-*·])\s+/.test(s)
   // ⚠ 处置标记那一行**不是一条诉求**，它是"这件事已经处理过"的批注。
-  //   第一版没排除它 → 一条诉求 + 一行标记被算成 2 条欠账，
-  //   于是"已写处置标记: 2 / 已做: 2"全是双份，断言当场抓到。
-  const isDispose = (s) => DISPOSE_RE.test(s)
+  //   第一版没排除它 → 一条诉求 + 一行标记被算成 2 条欠账，断言当场抓到。
   const flush = () => {
     const t = buf.join(' ').replace(/\s+/g, ' ').trim()
     buf = []
     if (t.length >= 6) items.push(t)
   }
   for (const ln of lines) {
-    if (isDispose(ln)) { flush(); continue }     // 批注不进条目
+    if (isDisposeLine(ln)) { flush(); continue }     // 批注不进条目
     if (isBullet(ln)) {
       flush()
       buf.push(ln.replace(/^\s*(?:\d+[.、)]|[-*·])\s+/, '').trim())
@@ -142,103 +174,218 @@ function nextStepItems(raw) {
   return items
 }
 
-function main() {
-  const wantCheck = process.argv.includes('--check')
-  const wantJson = process.argv.includes('--json')
-  const wantStats = process.argv.includes('--stats')
-
-  if (!fs.existsSync(LOGDIR)) {
-    console.error('找不到日志目录：' + LOGDIR)
-    process.exit(2)
+/**
+ * 某个条目是否已被**逐条标记**处置。
+ *
+ * 匹配规则（宁松不严，但不错配）：
+ *   ① 标记带锚点 `@3#待审批` → 该条文本里含这段锚点字，就认（不管序号对不对）；
+ *   ② 否则按序号 `@3` → 第 3 条（1 起）。
+ *
+ * 为什么要锚点：人会往日志里插一条、删一条，**序号会漂**。
+ * 锚点让人在改过日志之后，那条"已处置"仍然跟着同一件事走。
+ * ⚠ 锚点太短会误配（如 `#1`），所以要求至少 2 个字符。
+ *
+ * @param perItem 该日志里所有逐条标记（来自 disposeOf().items）
+ * @param text    这一条的正文
+ * @param idx     这一条的下标（0 起）
+ */
+function itemDisposedBy(perItem, text, idx) {
+  const body = String(text || '')
+  for (const it of perItem || []) {
+    if (it.anchor) {
+      const a = norm(it.anchor)
+      if (a.length >= 2 && norm(body).includes(a)) return it
+    } else if (it.n === idx + 1) {
+      return it
+    }
   }
+  return null
+}
 
+/**
+ * 组装一遍全部条目（含每条是否已被处置）。`--items` / `--stats` / `--json` 共用。
+ *
+ * 每条 row 带：
+ *   `n`            这份日志里的第几条（1 起）—— 就是 `--items` 打印出来的序号
+ *   `disposed`     处置类别（空串 = 没处置）
+ *   `disposeScope` `'item'`（逐条标记）/ `'whole'`（整份标记盖住它）/ `''`
+ *   `disposeNote`  标记里那句说明
+ *
+ * ⚠ `disposeScope` 是这套机制最关键的一个字段：
+ *   `whole` 表示"这份日志被整体归入某卡了"，**不等于这一条被人看过**。
+ *   把它和 `item` 混成一个数，就是上次 728 报成 205 的同一种病。
+ */
+function collect() {
   const cards = openCards()
   const rows = []
-  const files = fs.readdirSync(LOGDIR).filter((x) => x.endsWith('.md')).sort()
+  const files = fs.existsSync(LOGDIR)
+    ? fs.readdirSync(LOGDIR).filter((x) => x.endsWith('.md')).sort()
+    : []
   let multiLogs = 0
-  let totalItems = 0
 
   for (const f of files) {
     const raw = fs.readFileSync(path.join(LOGDIR, f), 'utf8')
     const items = nextStepItems(raw)
     if (!items.length) continue
     if (items.length >= 2) multiLogs++
-    totalItems += items.length
-    // ⚠ 2026-11-14：**按条**出账，不再只取第一句。
-    //   41% 的「下一步」是多条目列表 —— 只按第一条判定等于把其余诉求静默丢掉。
     const titleM = raw.match(/^title:\s*(.+)$/m)
     const disp = disposeOf(raw)
-    for (const it of items) {
+    const whole = disp ? disp.whole : null
+    const perItem = disp ? disp.items : []
+    items.forEach((it, idx) => {
       const key = norm(it).slice(0, 14)
       const covered = key.length >= 6 && cards.some((c) => c.text.includes(key))
+      const one = itemDisposedBy(perItem, it, idx)
+      let disposed = ''
+      let scope = ''
+      let note = ''
+      if (one) { disposed = one.kind; scope = 'item'; note = one.note }
+      else if (whole) { disposed = whole.kind; scope = 'whole'; note = whole.note }
       rows.push({
         log: f.replace(/\.md$/, ''),
         title: titleM ? titleM[1].trim() : f,
-        next: it.slice(0, 100),
+        n: idx + 1,
+        total: items.length,
+        next: it.slice(0, 120),
         covered,
-        disposed: disp ? disp.kind : '',
-        disposeNote: disp ? disp.note : '',
+        disposed,
+        disposeScope: scope,
+        disposeNote: note,
       })
-    }
+    })
+  }
+  return { rows, files, multiLogs }
+}
+
+/** `--items <日志id>`：把某份日志的「下一步」逐条列出来（带序号与处置状态） */
+function showItems(logId) {
+  const want = String(logId || '').replace(/\.md$/, '').trim()
+  if (!want) {
+    console.error('用法：node scripts/audit-log-nextsteps.cjs --items <日志id>')
+    process.exit(2)
+  }
+  const { rows } = collect()
+  const mine = rows.filter((r) => r.log === want)
+  if (!mine.length) {
+    console.error('这份日志没有可分条的「下一步」，或日志不存在：' + want)
+    process.exit(2)
+  }
+  console.log('日志：' + want + '（' + mine[0].title + '）')
+  console.log('共 ' + mine.length + ' 条诉求\n')
+  for (const r of mine) {
+    const mark = r.disposed
+      ? (r.disposeScope === 'item' ? '✅ 已处置（逐条）' : '◐ 被整份标记盖住')
+      : (r.covered ? '◻ 有卡在接' : '❌ 未处置')
+    console.log(`  [${r.n}] ${mark} ${r.disposed ? '· ' + r.disposed : ''}`)
+    console.log(`      ${r.next}`)
+    if (r.disposeNote) console.log(`      ↳ ${r.disposeNote}`)
+  }
+  console.log('\n逐条处置写法（在日志「下一步」段落末尾加一行，序号见上）：')
+  console.log('  处置：@2 已做 —— 说清做了什么 + 提交号')
+  console.log('  处置：@3 已转卡 <卡 id>')
+  console.log('  处置：@5#关键字 非本项目 —— 属于哪个项目   （#关键字 = 该条开头几个字，防序号漂移）')
+  console.log('\n⚠ 不带 @序号 的标记会盖住**整份**日志的全部条目。')
+}
+
+function main() {
+  const wantCheck = process.argv.includes('--check')
+  const wantJson = process.argv.includes('--json')
+  const wantStats = process.argv.includes('--stats')
+  const itemsIdx = process.argv.indexOf('--items')
+  const wantItems = itemsIdx >= 0 ? process.argv[itemsIdx + 1] : ''
+  const wantDispose = process.argv.includes('--dispose')
+
+  if (!fs.existsSync(LOGDIR)) {
+    console.error('找不到日志目录：' + LOGDIR)
+    process.exit(2)
   }
 
+  if (wantItems !== '' || (itemsIdx >= 0 && !process.argv[itemsIdx + 1])) {
+    return showItems(wantItems)
+  }
+
+  if (wantDispose) {
+    // ⚠ 故意**不提供**写日志的开关：处置是人/agent 在日志正文里写一句话，
+    //   脚本自己改日志就等于"机器替人宣布这件事处理过了"，那正是要防的假账。
+    console.error('本脚本**不写日志**（只读）。处置标记要写进日志「下一步」段落，')
+    console.error('由人或在场的 agent 写 —— 脚本替人宣布"处理过了"就是假账。')
+    process.exit(2)
+  }
+
+  const { rows, files, multiLogs } = collect()
+
   // 「未接」= 没有卡在接 **且** 没写处置标记。
-  // 写了处置标记的不再算欠账 —— 但也不算"有卡在接"，两者分开统计，别混成一个数。
   const uncovered = rows.filter((r) => !r.covered && !r.disposed)
   const coveredRows = rows.filter((r) => r.covered)
-  const disposedRows = rows.filter((r) => !r.covered && r.disposed)
+  const disposedItem = rows.filter((r) => !r.covered && r.disposed && r.disposeScope === 'item')
+  const disposedWhole = rows.filter((r) => !r.covered && r.disposed && r.disposeScope === 'whole')
 
   if (wantJson) {
+    // `items`       = 真正没人管的（连整份标记都没有）—— 最该先看
+    // `wholeOnly`   = 只被整份标记盖住、**没逐条核实**的 —— 这是"待逐条过"的工作量
+    // `disposedItems` = 已处置的（两类合计，向后兼容）
     console.log(JSON.stringify({
       total: rows.length,
       logs: files.length,
       multiItemLogs: multiLogs,
       uncovered: uncovered.length,
       covered: coveredRows.length,
-      disposed: disposedRows.length,
+      disposedByItem: disposedItem.length,
+      disposedByWhole: disposedWhole.length,
+      disposed: disposedItem.length + disposedWhole.length,
       items: uncovered,
-      disposedItems: disposedRows,
+      /** 只被整份标记盖住的条目（要逐条过的就是这批） */
+      wholeOnly: disposedWhole,
+      disposedItems: disposedItem.concat(disposedWhole),
     }, null, 2))
   } else if (wantStats) {
     console.log('日志总数:', files.length)
     console.log('「下一步」条目总数:', rows.length, '（其中 ' + multiLogs + ' 份日志是多条目列表）')
     console.log('  有未完成卡在接:', coveredRows.length)
-    console.log('  已写处置标记:', disposedRows.length, '（按日志算 —— 一份日志一个标记盖住它的全部条目）')
+    console.log('  ✅ 逐条处置过（@序号标记）:', disposedItem.length, '← 这个数才是"真看过"')
+    console.log('  ◐ 被**整份**标记盖住（未逐条核实）:', disposedWhole.length)
     console.log('  仍未接（欠账）:', uncovered.length)
-    if (disposedRows.length) {
-      const byKind = {}
-      for (const r of disposedRows) byKind[r.disposed] = (byKind[r.disposed] || 0) + 1
-      console.log('\n处置分布:')
-      for (const k of DISPOSE_KINDS) if (byKind[k]) console.log('  ' + k + ': ' + byKind[k])
+    const allKinds = {}
+    for (const r of disposedItem.concat(disposedWhole)) allKinds[r.disposed] = (allKinds[r.disposed] || 0) + 1
+    if (Object.keys(allKinds).length) {
+      console.log('\n处置分布（两类合计）:')
+      for (const k of DISPOSE_KINDS) if (allKinds[k]) console.log('  ' + k + ': ' + allKinds[k])
     }
-    if (disposedRows.length && multiLogs) {
-      console.log('\n⚠ 口径提醒：处置标记是**按日志**写的，而欠账是**按条目**算的。')
-      console.log('   一份日志写了 15 条、只处置了第 1 条，标记也会盖住整份 ——')
-      console.log('   所以"已写处置标记"不等于"每一条都有人看过"。要逐条核实请用 --items。')
+    if (disposedWhole.length) {
+      console.log('\n⚠ 口径：上面「◐ 被整份标记盖住」的 ' + disposedWhole.length + ' 条**不算真处置**。')
+      console.log('   它们是"这份日志被整体归入某张卡"，不等于那一条被人看过。')
+      console.log('   要逐条核实：`--items <日志id>` 看清单 → 在日志里写 `处置：@序号 …`。')
     }
   } else {
     console.log('日志总数:', files.length)
-    console.log('写了「下一步」的:', rows.length)
-    console.log('其中没有任何未完成卡在接:', uncovered.length)
-    if (disposedRows.length) console.log('（另有 ' + disposedRows.length + ' 条已写处置标记，不再列出）')
+    console.log('「下一步」条目总数:', rows.length)
+    console.log('其中没有卡在接、也没逐条处置:', uncovered.length)
+    console.log('（另有 ' + disposedItem.length + ' 条逐条处置过、' + disposedWhole.length + ' 条被整份标记盖住）')
     if (uncovered.length) {
-      console.log('\n=== 提了但没人接（最该先处理的在最后）===')
-      for (const r of uncovered) console.log('  [' + r.log + '] ' + r.next)
+      console.log('\n=== 提了但没人接（前 40 条；全量用 --json）===')
+      for (const r of uncovered.slice(0, 40)) {
+        console.log(`  [${r.log}] (#${r.n}/${r.total}) ${r.next}`)
+      }
+      if (uncovered.length > 40) console.log(`  …… 还有 ${uncovered.length - 40} 条`)
       console.log('\n处置方式（三选一，不许留着）：')
       console.log('  ① 变成卡（create_task，正文引用这条日志 id）')
-      console.log('  ② 显式作废（在日志正文补一句「已放弃，理由…」）')
-      console.log('  ③ 合并进已有卡（在那张卡正文里写上这条日志 id）')
-      console.log('\n⚠ 做完在日志「下一步」末尾补一行，脚本才会把它从欠账里划掉：')
-      console.log('  处置：已做 —— 说清做了什么 + 提交号')
-      console.log('  处置：已放弃 —— 理由')
-      console.log('  处置：已转卡 <卡 id>')
-      console.log('  处置：非本项目 —— 属于哪个项目')
+      console.log('  ② 显式作废（写 `处置：@序号 已放弃 —— 理由`）')
+      console.log('  ③ 合并进已有卡（写 `处置：@序号 已转卡 <卡 id>`）')
+      console.log('\n看完某份日志的全部条目：`--items <日志id>`')
     }
   }
 
-  if (wantCheck && uncovered.length) {
-    console.error('\n未接的「下一步」有 ' + uncovered.length + ' 条 —— 说过的活又沉回日志里了')
-    process.exit(1)
+  // ⚠ --check 的口径（2026-11-14 收紧）：**只有逐条处置才算清**。
+  //   整份标记（"这份日志归入某卡"）不再让它变绿 —— 否则 643 条靠 120 个整份标记
+  //   就能让守卫全绿，那是把丢失伪装成完成。
+  if (wantCheck) {
+    const notDisposed = rows.filter((r) => !r.covered && r.disposeScope !== 'item')
+    if (notDisposed.length) {
+      console.error('\n还没逐条处置的「下一步」有 ' + notDisposed.length + ' 条')
+      console.error('（其中 ' + disposedWhole.length + ' 条只被整份标记盖住 —— 那不等于看过）')
+      console.error('看某份日志的全部条目：--items <日志id>')
+      process.exit(1)
+    }
   }
 }
 
