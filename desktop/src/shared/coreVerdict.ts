@@ -79,12 +79,21 @@ export const SCALE_OK_KEYS: string[] = VERDICT_LEVELS.filter((v) => v.allowsScal
 /** 所有档位词（解析/守卫用） */
 export const VERDICT_KEYS: string[] = VERDICT_LEVELS.map((v) => v.key)
 
-/** 判词文本的形态：`<档位词> —— <理由> <日期>`，也接受只有档位词或只有自由文本 */
+/**
+ * 判词文本的形态：`<档位词> —— <理由> <日期>`，也接受只有档位词或只有自由文本。
+ *
+ * ⚠ 2026-11-14 修（P1-1 的断言当场抓到的真 bug）：
+ *   第一版在循环里 `if (v.key === UNJUDGED) continue` —— **跳过了「未判」这一档**。
+ *   于是人手工把判词写成「未判」两个字（不是骨架引用块）时，一路落到末尾的
+ *   "认不出 → 当成自由文本 → 已判"，`isUnjudged` 返回 false。
+ *   后果很严重：**内容量闸会把一个从没判过的项目当成判过了而放行**。
+ *   现在「未判」是正常的一档：认得出、且解析结果就是未判。
+ */
 export function parseVerdict(raw: unknown): { level: string; reason: string } {
   const t = String(raw ?? '').trim()
   if (!t) return { level: UNJUDGED, reason: '' }
+  // `未判` 也要参与匹配 —— 它和别的档位一样是"人写的结论"，只是结论是"还没判"
   for (const v of VERDICT_LEVELS) {
-    if (v.key === UNJUDGED) continue
     if (t === v.key || t.startsWith(v.key)) {
       const rest = t.slice(v.key.length).replace(/^[\s—\-–:：]+/, '').trim()
       return { level: v.key, reason: rest }

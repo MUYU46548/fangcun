@@ -34,6 +34,20 @@
         <button class="ghost" v-if="ctl.charterStats.missing" @click="ctl.fillMissingCharters()">
           ＋ 补齐 {{ ctl.charterStats.missing }} 个章程骨架
         </button>
+        <!-- 核心判词缺口（2026-11-14 · P1-1）——
+             暮雨原话（长 Loop）：「这是唯一需要你花 10 秒的动作」。
+             但之前界面上**根本数不出来还剩几份没判**，只在一份份打开方针弹窗时才看得到。
+             这里给一个常驻计数：有缺口时是警示色、点开第一个未判的项目；没缺口时干脆不渲染
+             （判完就不该再占位置）。 -->
+        <Button class="cb-judge-btn" variant="ghost" size="tool" v-if="ctl.judgeGap.count > 0"
+          :title="`还有 ${ctl.judgeGap.count} 个项目的核心判词未判 —— 内容量闸对它们只放行最小原型。点一下从第一个开始判（四选一，10 秒）`"
+          @click="ctl.openFirstUnjudged()">
+          ⚖ 判词待判 <b>{{ ctl.judgeGap.count }}/{{ ctl.judgeGap.total }}</b>
+        </Button>
+        <span class="cb-stat ok" v-else-if="ctl.judgeGap.total > 0"
+          title="14 份核心判词都已判过 —— 内容量闸可以按判词放行">
+          ⚖ 判词 {{ ctl.judgeGap.total }}/{{ ctl.judgeGap.total }}
+        </span>
       </div>
       <!-- 跨项目建议（2026-10-11，C 组死通道接回）：主进程早就算好了（卡住/空闲项目一句话），
            界面从来没有入口。放在项目页顶部 —— 它是"看全局"的话，不属于某一个项目。 -->
@@ -130,10 +144,26 @@
             <span :class="{ 'odyn-warn': !ctl.policyMap[p.id] }">方针：{{ ctl.policyMap[p.id] ? '已立' : ctl.policyExistsMap[p.id] ? '待填' : '未立' }}</span>
             ·
             <span :class="{ 'odyn-warn': !ctl.policyMapHasStructure[p.id] }">结构地图：{{ ctl.policyMapHasStructure[p.id] ? '有' : '没有' }}</span>
+            <!-- 核心判词（2026-11-14 · P1-1）：与「方针已立」是两件事 ——
+                 方针卡可以使命/目标都写了，核心判词仍是骨架「未判」，而内容量闸只认后者。
+                 实测 14 份里 13 份未判，界面上看不见它就永远没人做。 -->
+            ·
+            <span class="odyn-judge" :class="{ 'odyn-warn': !ctl.policyJudgedMap[p.id] }"
+                  :title="ctl.policyJudgedMap[p.id] ? '核心判词已判：内容量闸可以放行' : '核心判词未判 → 内容量闸只许最小原型。点右边「判词」10 秒就能填'">
+              判词：{{ ctl.policyJudgedMap[p.id] ? '已判' : '未判' }}
+            </span>
             <span v-if="p.health === 'stuck' || p.health === 'dormant'"> · 这个项目已经冷下来了</span>
           </div>
           <div class="oacts">
             <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openPolicyEdit(p.id)">📋 {{ ctl.policyMap[p.id] ? '方针' : '立方针' }}</Button>
+            <!-- 「判词」直达：未判时给主按钮观感（它控制闸），已判时降级为普通 ——
+                 不做"永远很显眼的广告"，判完了就不该再抢注意力。 -->
+            <Button class="oact" :class="{ 'oact-todo': !ctl.policyJudgedMap[p.id] }"
+                    :variant="ctl.policyJudgedMap[p.id] ? 'ghost' : 'default'" size="tool"
+                    @click.stop="ctl.openPolicyEdit(p.id)"
+                    :title="ctl.policyJudgedMap[p.id] ? '核心判词已判（点开可改）' : '还没判 → 点这里，四选一点一下就完事'">
+              ⚖ 判词{{ ctl.policyJudgedMap[p.id] ? '' : ' · 待判' }}
+            </Button>
             <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openStructMap()">🗺 结构地图</Button>
             <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openProjectTasks(p)">📦 任务 {{ p.taskCount }}</Button>
             <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.removeProject(p)"
