@@ -333,6 +333,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // Launchpad
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),
   policySave: (p: any) => ipcRenderer.invoke('policy:save', p),
+  // 使命草稿（2026-11-14 · P1-2）：从项目 README 取一句当建议；只读、不写盘
+  policyMissionDraft: (projectId: string) => ipcRenderer.invoke('policy:missionDraft', projectId),
   policyText: (projectId: string) => ipcRenderer.invoke('policy:text', projectId),
   /** 结构地图“结构大改”批量判定：只读，主进程算，带缓存 */
   policyDriftAll: (items: Array<{ project: string; repo: string; since: string }>) => ipcRenderer.invoke('policy:driftAll', items),

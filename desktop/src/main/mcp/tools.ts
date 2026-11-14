@@ -677,7 +677,21 @@ export const MCP_TOOLS: MCPTool[] = [
       + '客户端态下**没有**改源码的入口（MCP 层零文件写工具）—— 改源码必须由人切到开发态。',
     inputSchema: { type: 'object', properties: {} },
   },
-  // ── 行为审计（2026-11-14 · 卡「拷问 AI」）：只审"说的和做的是否一致" ────────────
+  // ── 使命草稿（2026-11-14 · 长 Loop P1-2）：从项目 README 起草，人点头才写 ───────
+  {
+    name: 'mission_draft',
+    description:
+      '从项目仓库的 README 起草「使命」建议 —— 那些使命空着的项目，README 里往往已经写清了它是干嘛的。'
+      + '⚠ 只是**草稿**，不自动写：使命是"你对这个项目的定义"，不是仓库的。'
+      + '⚠ 草稿**逐字来自 README**（不改写、不润色），并带上原文供核对；抽不出就明说原因，不糊一条凑数。'
+      + '已经写了使命的项目不会被建议覆盖。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: '只给某一个项目起草；不填则所有使命为空的' },
+      },
+    },
+  },
   {
     name: 'audit_declare',
     description:
@@ -1250,6 +1264,59 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     
     case 'get_data_dir': {
       return { content: [{ type: 'text', text: getDataDir() }] }
+    }
+
+    case 'mission_draft': {
+      // 2026-11-14 · 长 Loop P1-2：7 个项目的使命是空的，但其中 6 个的 README
+      // 已经写清了它是干嘛的 —— 病根不是"没人知道"，是"方寸从没去读项目现实"。
+      // 这个工具把 README 里那句话捞出来当**草稿**，人来点头才写进方针卡。
+      const { draftMissions } = require('../../shared/missionDraft')
+      const { getPolicy } = require('../services/policies')
+      const projects = parseRegistry() || []
+      const only = String(args.project || '').trim()
+      const targets = (only ? projects.filter((p: any) => p.id === only) : projects)
+        .map((p: any) => ({ id: String(p.id), repo: String(p.repo || ''), mission: String((getPolicy(p.id) || {}).mission || '') }))
+      // ⚠ readmeOf 是**同步**读：repoDocs 那套是异步且带 git 调用的（要 spawn），
+      //   MCP 工具保持同步签名（见 handler 那条铁律）。这里只需要 README 一个文件，
+      //   直接读盘即可 —— 不 spawn、不碰网络。
+      const readmeOf = (id: string, repo?: string) => {
+        const dir = String(repo || '')
+        if (!dir) return null
+        for (const name of ['README.md', 'Readme.md', 'readme.md', 'README.MD']) {
+          const f = `${dir}/${name}`.replace(/\\/g, '/')
+          try {
+            if (fs.existsSync(f)) return { md: fs.readFileSync(f, 'utf-8'), sourceFile: name }
+          } catch { /* 读不到就当没有 */ }
+        }
+        return null
+      }
+      const out = draftMissions(
+        targets.map((t: any) => ({ id: t.id, mission: t.mission })),
+        (id: string) => {
+          const t = targets.find((x: any) => x.id === id)
+          return readmeOf(id, t && t.repo)
+        },
+        (id: string) => {
+          const t = targets.find((x: any) => x.id === id)
+          return t ? t.repo : ''
+        },
+      )
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        total: out.total,
+        // 抽到可用草稿的
+        drafts: out.drafts.filter((d: any) => d.draft).map((d: any) => ({
+          project: d.project, draft: d.draft, from: d.from,
+          // 原文给足，让人一眼能核"它是不是改写过的"
+          source: d.sourceText, sourceFile: d.sourceFile, note: d.reason || '',
+        })),
+        // 抽不出来的（不许糊，逐条说为什么）
+        needYou: out.drafts.filter((d: any) => !d.draft).map((d: any) => ({
+          project: d.project, why: d.reason,
+        })),
+        alreadyHave: out.skippedHasMission,
+        rule: '草稿逐字来自 README，未经改写。确认后才写进方针卡（这一步必须人来点）。',
+      }, null, 2) }] }
     }
 
     case 'audit_declare': {

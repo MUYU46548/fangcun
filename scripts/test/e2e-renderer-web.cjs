@@ -565,6 +565,17 @@ function main() {
   const pvBtnC = pvTileC ? Array.from(pvTileC.querySelectorAll('button')).find((b) => /方针/.test(b.textContent || '')) : null
   if (pvBtnC) pvBtnC.click()
   await sleep(900)
+  // 把使命腾空，好看到「从 README 取一句」（有内容时那个按钮正确地不显示）
+  if (window.__fcTest.setPolicies) {
+    window.__fcTest.setPolicies({ demo: { mission: '（未填写）', goal: '', scenario: '', boundary: '', structureMap: '' } })
+  }
+  const cancelB = Array.from(document.querySelectorAll('#policy-modal .acts button')).find((b) => /取消/.test(b.textContent || ''))
+  if (cancelB) cancelB.click()
+  await sleep(300)
+  const t2 = all('#board.pv .tile:not(.tile-add)')[0]
+  const b2 = t2 ? Array.from(t2.querySelectorAll('button')).find((b) => /方针/.test(b.textContent || '')) : null
+  if (b2) b2.click()
+  await sleep(700)
   const pm = document.querySelector('#policy-modal')
   if (pm) pm.scrollTo(0, 0)
   await sleep(300)

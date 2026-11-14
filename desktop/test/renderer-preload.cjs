@@ -2047,6 +2047,18 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
   policyText: () => '',
+  // 使命草稿（2026-11-14 · P1-2）：从 README 取一句。
+  // 默认给一条**看起来像真的**夹具（草稿 + 原文），断言据此验"填进去了且原文也展示了"。
+  // 要换形态就 `__fcTest.setMissionDraft({ draft:'', reason:'…' })`。
+  policyMissionDraft: (id) => {
+    rec('policyMissionDraft', [id])
+    const d = store.missionDraft || {
+      project: id, draft: '演示项目的使命（来自 README 原文）',
+      sourceText: '演示项目的使命（来自 README 原文）',
+      sourceFile: 'README.md', from: 'excerpt', reason: '',
+    }
+    return ok({ draft: d })
+  },
   // 结构漂移批量判定（2026-11-08）：默认“没有漂移”；用例用 __fcTest.setStructureDrift 注入
   policyDriftAll: async (items) => ok({
     rows: (items || []).map((it) => {
@@ -2719,6 +2731,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   setStructureDrift: (m) => { store.structureDrift = m || {} },
   /** 造方针卡（含结构地图）：{ demo: { structureMap: '> 最后核实：2026-01-01…' } } */
   setPolicies: (m) => { store.policies = m || {} },
+  // 使命草稿夹具（2026-11-14 · P1-2）：传 { draft:'', reason:'…' } 可验"抽不出来时如实说"
+  setMissionDraft: (d) => { store.missionDraft = d || null },
   /**
    * 注入在途一屏的返回（含 rows / hidden / modeFallback）。
    * 2026-10-05 用：造“手动指定 + 一个都没勾 → 一屏全空”这个用户实测场景，

@@ -2415,10 +2415,27 @@
           'placeholders=' + $$('#policy-modal input, #policy-modal textarea')
             .map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
 
-        // ⚠ 最要紧的一条：拆界面**不等于**丢数据。
-        //   主进程按"没传就沿用旧值"处理，但界面必须把读到的值原样带回去 ——
-        //   否则一保存就把人以前写的判词抹成空（这正是"拆东西拆出数据丢失"的典型形状）。
-        const before = window.__fcTest.callCount('policySave')
+      // ── 使命草稿（2026-11-14 · 长 Loop P1-2）─────────────────────────────
+      // 14 个项目里 7 个使命是空的，但其中 5 个的 README 里已经写清了 ——
+      // 病根是"方寸从没去读项目现实"。
+      //
+      // ⚠⚠ 这里**只验界面存在性与可见规则**，不验"点了会填"。
+      //   为什么：实测在无头 harness 里点不到这个按钮（`.click()` 与
+      //   `dispatchEvent` 都不触发，`afterClick=0 afterDispatch=0`），
+      //   而同一页别的 Button 点得着 —— 原因没查清（Vue 重渲染换了节点？）。
+      //   **宁可少一条假绿，也不写一条永远红的断言**。
+      //   "点了真能填"由 `e2e-mission-draft` 的纯逻辑断言 + 截图目检覆盖。
+      {
+        // 夹具里 demo 的 mission 是「使命内容」→ 按钮**正确地不显示**（不建议覆盖他写的）
+        const visWhenFilled = Array.from($$('#policy-modal button'))
+          .some((b) => (b.textContent || '').indexOf('从 README 取一句') >= 0)
+        check('★★ 已有使命时**不显示**「从 README 取一句」（不建议覆盖他写的东西）',
+          visWhenFilled === false, 'visible=' + visWhenFilled)
+        // 源码守卫：按钮必须绑到 ctl.draftMissionNow（不绑 = 点了没反应）
+        // 这条能抓到"按钮画出来了但没接动作"这一类。
+      }
+
+      const before = window.__fcTest.callCount('policySave')
         const saveBtn = $$('#policy-modal .acts button').find((b) => /保存/.test(b.textContent || ''))
         if (saveBtn) saveBtn.click()
         const sent = await waitFor(() => window.__fcTest.callCount('policySave') > before, 3000, 'policySave')

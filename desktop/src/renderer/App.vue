@@ -4540,6 +4540,36 @@ async function openPolicyEdit(projectId: string) {
   policyGuard.open(policyEdit_.value)
 }
 
+/**
+ * 「从 README 取一句」填进使命框（2026-11-14 · 长 Loop P1-2）。
+ *
+ * 只**填输入框**，不保存 —— 使命是用户对项目的定义，不是仓库的。
+ * 取到的原文一并显示在下面（`__missionSource`），让人能核"它有没有被改写"。
+ *
+ * ⚠ 字段名带 `__`：它只是**这张表单的临时态**，不进方针卡。
+ *   `savePolicyEdit` 按字段名逐个发，不会把 `__` 开头的带出去。
+ */
+async function draftMissionNow() {
+  const e = policyEdit_.value
+  if (!e) return
+  try {
+    const r: any = await (window.tegula as any).policyMissionDraft(e.id)
+    if (!r || !r.ok) { showToast('读不到 README：' + ((r && r.error) || '未知原因')); return }
+    const d = r.draft || {}
+    if (!d.draft) {
+      // 抽不出来就**如实说为什么**，不许静默什么都不干（那会让人以为按钮坏了）
+      showToast(d.reason || '这个仓库里没有能当使命的句子')
+      return
+    }
+    e.mission = d.draft
+    e.__missionSource = d.sourceText || ''
+    e.__missionSourceFile = d.sourceFile || ''
+    if (d.reason) showToast(d.reason)
+  } catch (err: any) {
+    showToast('起草失败：' + String((err && err.message) || err))
+  }
+}
+
 async function savePolicyEdit() {
   const e = policyEdit_.value
   if (!e) return
@@ -7667,6 +7697,8 @@ const projectsCtl = reactive({
   segWidth, statusSegColor, projectPercent,
   openNewProject, openStructMap, fillMissingCharters, openProject, removeProject,
   openPolicyEdit, openProjectDiagram, openSelfArch, openProjectTasks,
+  // 使命草稿（2026-11-14 · P1-2）：方针弹窗里「从 README 取一句」
+  draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
   openAiPlan, openAiDoc, openPlans, copyContextPack, switchView,
   tripBoardCtl,

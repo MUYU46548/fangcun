@@ -2255,6 +2255,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-stage.done { background: var(--tint); box-shadow: none; padding: 8px 12px; }
 .plan-stage.done .plan-stage-head { margin-bottom: 0; }
 .plan-fold-hint { margin-top: 4px; font-size: 11px; color: var(--muted); cursor: pointer; }
+/* 使命行：label 与「从 README 取一句」并排（2026-11-14 · P1-2）。
+   ⚠ 按钮**不能**放进 <label>：浏览器会把点击当成"点了这个 label"转发给表单控件，
+     按钮自己的 click 就收不到（实测 .click() 与 dispatchEvent 都失效）。 */
+.pf-mission-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pf-mission-row label { margin-bottom: 0; }
+/* 草稿取回来之后把原文摆出来，让人能核"有没有被改写过" */
+.pf-mission-src { display: flex; gap: 6px; margin: -4px 0 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.pf-mission-src-tag { color: var(--accent); font-weight: 600; }
+.pf-mission-src-text { opacity: .85; }
 .plan-fold-hint:hover { color: var(--accent); }
 /* 展开态那个「收起」：与折叠提示同一行为，但**视觉上要能区分**
    （2026-11-14 P2-2）——展开之后按钮还在原位置，不做区分会让人以为"点了没用"。 */

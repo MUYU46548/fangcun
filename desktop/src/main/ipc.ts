@@ -16,6 +16,8 @@ import * as notifierService from './services/notifier'
 import * as path from 'path'
 import * as fs from 'fs'
 import { registerLlmIpcHandlers } from './llm-ipc'
+// 使命草稿（2026-11-14 · 长 Loop P1-2）：从项目 README 抽一句话当建议，人点头才写
+import { draftMissionFromReadme } from '../shared/missionDraft'
 import { registerDecisionIpcHandlers } from './decision-ipc'
 import { registerQuestionnaireIpcHandlers } from './questionnaire-ipc'
 import { runBackup } from './backup'
@@ -58,6 +60,27 @@ import { generateArchGraph } from './services/archAi'
 import { buildArchGraph } from '../shared/archGraph'
 import { renderArchHtml } from '../shared/archSvg'
 import * as rice from './data/rice'
+
+/**
+ * 读一个仓库的 README（2026-11-14 · 长 Loop P1-2）。
+ *
+ * 只读**一个文件**，不 spawn git、不碰网络 —— 这是它和 `repoDocs.ts` 那套（要跑
+ * `git log` 取最近动过 docs 的提交）的分界。起草使命只需要"这项目是什么"那句话。
+ *
+ * ⚠ 大小写四种都试：Windows 上 `README.MD` 很常见，而 Linux 上大小写敏感
+ *   （`readme.md` 也存在）。不试全就报"没有 README"，那是冤枉。
+ */
+function readReadmeOf(repo: string): { md: string; sourceFile: string } | null {
+  const dir = String(repo || '').trim()
+  if (!dir) return null
+  for (const name of ['README.md', 'Readme.md', 'readme.md', 'README.MD', 'README.markdown']) {
+    try {
+      const f = path.join(dir, name)
+      if (fs.existsSync(f)) return { md: fs.readFileSync(f, 'utf-8'), sourceFile: name }
+    } catch { /* 读不到就当没有，别因为一个坏文件炸掉整个 IPC */ }
+  }
+  return null
+}
 
 export function registerIpcHandlers(): void {
   // Initialize paths
@@ -629,6 +652,30 @@ export function registerIpcHandlers(): void {
   guardedHandle('policy:get', (_event, projectId: string) => {
     try { return { ok: true, policy: policies.getPolicy(projectId) } }
     catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  /**
+   * 从项目仓库的 README 起草「使命」（2026-11-14 · 长 Loop P1-2）。
+   *
+   * 存在的理由：14 个项目里 7 个的使命是空的，而它们**大多在 README 里写清了**
+   * —— 病根是"方寸从没去读项目现实"。这里把 README 里那句话捞出来当草稿，
+   * 人点一下才填进弹窗（**不自动保存**）。
+   *
+   * ⚠ 只读 README 一个文件：不 spawn git、不碰网络（与 `policy:drift` 那类要 spawn 的分开）。
+   * ⚠ 审批：这是**读**操作，不违反契约③「方寸对项目 repo 只读」（读正是允许的）。
+   */
+  guardedHandle('policy:missionDraft', (_event, projectId: string) => {
+    try {
+      const proj = (data.parseRegistry() || []).find((p: any) => p.id === projectId)
+      if (!proj) return { ok: false, error: '没有这个项目：' + projectId }
+      const repo = String((proj as any).repo || '')
+      const got = readReadmeOf(repo)
+      const d = draftMissionFromReadme(projectId, got ? got.md : '', {
+        sourceFile: got ? got.sourceFile : '',
+        fallbackTitle: String((proj as any).name || ''),
+      })
+      return { ok: true, draft: d }
+    } catch (e: any) { return { ok: false, error: e.message } }
   })
 
   guardedHandle('policy:save', (_event, p: any) => {
