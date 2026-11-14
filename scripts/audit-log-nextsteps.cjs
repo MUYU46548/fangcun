@@ -123,6 +123,10 @@ function openCards() {
 
 /** 取一份日志的「下一步」正文 */
 function nextStepOf(raw) {
+  // ⚠ 2026-11-14 发现：日志文件里「下一步」**存两遍** ——
+  //   frontmatter 的 `_next_steps: |-`（机器读的）与正文的 `## 下一步`（人读的）内容相同。
+  //   这里只取**正文那一份**，否则任何统计都会把同一句话数成两次
+  //   （第一次跑 --repeats 时同一份日志就出现了两条一模一样的诉求）。
   const m = raw.match(/(?:^|\n)#{1,4}\s*下一步\s*\r?\n+([\s\S]*?)(?=\r?\n#{1,3}\s|\r?\n---|$)/)
   if (!m) return ''
   const body = m[1].trim()
