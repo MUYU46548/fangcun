@@ -17,7 +17,7 @@ import { checkIntake } from '../services/intake'
 // agent 直接要点架构图（2026-11-02）：与界面按钮同一个服务，不另写一套生成
 import { archForProject } from '../services/projectArch'
 import { generatePlanDraft } from '../llm/planDraft'
-import { buildPlanDraftInputFromDisk } from '../llm/planDraftInput'
+import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
 import { gateForDeck } from '../data/qnGate'
 import { generateArchGraph } from '../services/archAi'
 // 需求矩阵（2026-10-28）：写口只有这两个 + 一个只读列表。
@@ -780,6 +780,8 @@ export function handleMCPToolCall(name: string, args: any, ctx?: ToolCallContext
     })
   }
 
+  // handleToolCallInner **是同步函数**（只有 plan_draft / plan_submit 两个分支内部返回 Promise）。
+  // 所以这里两条路径都要在：同步工具走下面那段，异步分支走 thenable 那段。
   let out: MCPToolResult | Promise<MCPToolResult>
   try {
     out = handleToolCallInner(name, args)
@@ -805,6 +807,17 @@ export function handleMCPToolCall(name: string, args: any, ctx?: ToolCallContext
   return out
 }
 
+/**
+ * 工具分发主体。
+ *
+ * ⚠ **必须保持同步签名**（2026-11-14 踩过一次，别重犯）：
+ *   有两个分支（`plan_draft` / `plan_submit`）要**真去读项目仓库**（P2-3），读仓库是异步的。
+ *   第一版我把整个函数改成 `async` —— 结果**所有**工具都开始返回 Promise，
+ *   而 `e2e-mcp-context` 这类同步消费方（`call('decision_list')` 直接读 `.decisions`）
+ *   当场全红：这是**对外契约被顺手改掉**，不是测试写死。
+ *   正解：函数保持同步，**只有需要异步的那两个分支**返回 Promise（内部用 async IIFE）。
+ *   `handleMCPToolCall` 本来就同时接受两种返回值，所以调用方零改动。
+ */
 function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<MCPToolResult> {
   switch (name) {
     case 'list_tasks': {
@@ -893,12 +906,18 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           hint: '先用 qn_propose 出卷 → 等用户答完并批准 → 再带 deck 调 plan_draft。没问过就出计划 = 把猜测当结论。',
         }, null, 2) }], isError: true }
       }
-      const input = buildPlanDraftInputFromDisk({
-        project: proj,
-        maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
-        maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
-      })
-      return generatePlanDraft(input).then((r) => ({
+      // 2026-11-14 · P2-3：plan_draft（BYOK 那条）同样**真读项目仓库**。
+      // 两条出计划的通道必须读同一份现实 —— 否则 agent 交的草案和方寸自己出的草案
+      // 依据不同，用户看到两份互相对不上的计划。
+      // ⚠ 用 async IIFE 返回 Promise，**不要让整个分发函数变 async**（见函数头注释）。
+      return (async () => {
+        const input = await buildPlanDraftInputFromDiskWithRepo({
+          project: proj,
+          maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
+          maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
+        })
+        const r = await generatePlanDraft(input)
+        return {
         content: [{
           type: 'text',
           text: JSON.stringify({
@@ -920,7 +939,8 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           }),
         }],
         isError: !r.ok,
-      }))
+      }
+      })()
     }
 
     case 'plan_submit': {
@@ -951,34 +971,40 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'draft 必须是一个对象' }) }], isError: true }
       }
-      const input = buildPlanDraftInputFromDisk({
-        project: proj,
-        maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
-        maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
-      })
-      // 把 agent 想好的 JSON 灌进**同一条管道** —— 之后所有闸与 plan_draft 一模一样。
-      return generatePlanDraft(input, {
-        callLlm: async () => ({ text: JSON.stringify(payload), model: 'agent', usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } }),
-      }).then((r) => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            ok: r.ok,
-            error: r.error,
-            file: r.file,
-            stages: (r.stages || []).length,
-            constitution: (r.constitution || []).length,
-            asks: (r.asks || []).map((a) => a.ask),
-            asks_note: r.asksNote || '',
-            already_green: r.alreadyGreen || 0,
-            dropped: (r.dropped || []).length,
-            missing_citations: r.missingCitations,
-            model: 'agent',
-            preview: (r.markdown || '').slice(0, 1200),
-          }),
-        }],
-        isError: !r.ok,
-      }))
+      // 2026-11-14 · P2-3：**真去读项目仓库**（README / ROADMAP / 最近动过 docs 的提交）。
+      // 此前计划器只读方寸自己的账本 —— 「规划」退化成从卡标题猜方向。
+      // ⚠ 同样用 async IIFE，别让整个分发函数变 async（见函数头注释）。
+      return (async () => {
+        const input = await buildPlanDraftInputFromDiskWithRepo({
+          project: proj,
+          maxOpen: Math.min(60, Math.max(1, Number(args.max_open) || 24)),
+          maxDone: Math.min(40, Math.max(0, Number(args.max_done) || 8)),
+        })
+        // 把 agent 想好的 JSON 灌进**同一条管道** —— 之后所有闸与 plan_draft 一模一样。
+        const r = await generatePlanDraft(input, {
+          callLlm: async () => ({ text: JSON.stringify(payload), model: 'agent', usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } }),
+        })
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              ok: r.ok,
+              error: r.error,
+              file: r.file,
+              stages: (r.stages || []).length,
+              constitution: (r.constitution || []).length,
+              asks: (r.asks || []).map((a) => a.ask),
+              asks_note: r.asksNote || '',
+              already_green: r.alreadyGreen || 0,
+              dropped: (r.dropped || []).length,
+              missing_citations: r.missingCitations,
+              model: 'agent',
+              preview: (r.markdown || '').slice(0, 1200),
+            }),
+          }],
+          isError: !r.ok,
+        }
+      })()
     }
 
     case 'arch_generate': {

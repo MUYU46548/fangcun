@@ -82,6 +82,30 @@ export interface PlanDraftInput {
    * 空 = 未判 → 内容量闸只许最小原型。**绝不默认成"没问题"**。
    */
   coreVerdict?: string
+  /**
+   * 项目仓库里的真实文档（2026-11-14 · 长 Loop P2-3「只读自己的账本，不读项目现实」）。
+   *
+   * 此前规划器**只读方寸自己的卡/决策/验收线**，对"这个项目仓库里 README 怎么说、
+   * ROADMAP 排到哪、最近动过哪些文档"一无所知 —— 于是"规划"变成从卡标题猜。
+   *
+   * 取的是 `services/repoDocs.ts` 的结果（只读、一天一批、缺就是 null 不造空壳）。
+   * 空数组 = 这个项目没登记 repo，或仓库里没有这些文档 —— **不编**。
+   */
+  repoDocs?: PlanDraftRepoDocs | null
+}
+
+/** 仓库文档摘要（只给标题/一句话摘要/最近提交，不给全文 —— 全文会挤掉卡正文） */
+export interface PlanDraftRepoDocs {
+  /** 仓库根（只用于展示，说明这些信息从哪来） */
+  repo?: string
+  /** README 的标题 + 一句话摘要；没有就是 null（不造空壳） */
+  readme?: { title?: string; excerpt?: string } | null
+  /** ROADMAP 的标题 + 一句话摘要 */
+  roadmap?: { title?: string; excerpt?: string } | null
+  /** 最近动过 docs/ 的提交（最多几条） */
+  recentDocsCommits?: Array<{ sha?: string; date?: string; subject?: string }>
+  /** 读不到的说明（"为什么没有"要说出来，不能静默空着） */
+  missing?: string[]
 }
 
 export interface DraftRulingRef {
@@ -233,12 +257,48 @@ export function allowedCitations(input: PlanDraftInput): string[] {
     if (r && r.deck && r.qid) out.push(`ruling:${r.deck}:${r.qid}`)
   }
   if (input.git && typeof input.git.commits === 'number' && input.git.commits > 0) out.push('git:commits')
+  // 2026-11-14 · P2-3：仓库文档也进证据链 —— 模型可以 cite `repo:readme` / `repo:roadmap`，
+  // 让"这个项目现实里怎么写的"变成可核对的依据，而不是背景闲聊。
+  const rd = input.repoDocs
+  if (rd) {
+    if (rd.readme) out.push('repo:readme')
+    if (rd.roadmap) out.push('repo:roadmap')
+    if ((rd.recentDocsCommits || []).length) out.push('repo:docs-commits')
+  }
   return Array.from(new Set(out))
 }
 
 /** 证据清单（提示词里逐条列出来，模型只能从这里挑） */
 function evidenceLines(input: PlanDraftInput): string[] {
   const lines: string[] = []
+  // ── 项目仓库现实（2026-11-14 · P2-3）──────────────────────────────────
+  // 放在**最前面**：这是"项目现在实际是什么样"，比方寸自己的卡更接近地面。
+  // ⚠ 缺什么要说出来（missing 逐条），别让模型以为"没列 = 不存在"。
+  const rd = input.repoDocs
+  if (rd) {
+    if (rd.readme) {
+      lines.push(`- [repo:readme] README：${String(rd.readme.title || '').trim()}`
+        + `${rd.readme.excerpt ? ` —— ${String(rd.readme.excerpt).slice(0, 200)}` : ''}`)
+    }
+    if (rd.roadmap) {
+      lines.push(`- [repo:roadmap] ROADMAP：${String(rd.roadmap.title || '').trim()}`
+        + `${rd.roadmap.excerpt ? ` —— ${String(rd.roadmap.excerpt).slice(0, 200)}` : ''}`)
+    }
+    const commits = rd.recentDocsCommits || []
+    if (commits.length) {
+      lines.push(`- [repo:docs-commits] 最近动过 docs/ 的提交：`
+        + commits.map((c) => `${c.sha || '?'} ${c.date || ''} ${String(c.subject || '').slice(0, 40)}`).join('；'))
+    }
+    // ⚠ 缺什么必须**逐条说出来**（2026-11-14 被断言抓到过一次）：
+    //   第一版把 missing 直接铺进证据行，但只在"有 repoDocs 且 missing 非空"时才对；
+    //   这里的顺序必须是"有什么列什么、没有什么说什么"，否则模型会把
+    //   "没列 = 不存在" 当成事实，而真实情况是"我们读不到"。
+    for (const m of rd.missing || []) lines.push(`- （读不到：${m}）`)
+    // 有 repo 但一样文档都没有 → 至少留一句，别让这一段整个消失
+    if (!rd.readme && !rd.roadmap && !commits.length && !(rd.missing || []).length) {
+      lines.push('- （仓库里没有 README / ROADMAP / docs 提交 —— 读不到项目现实）')
+    }
+  }
   for (const t of Array.isArray(input.tasks) ? input.tasks : []) {
     if (!t || !t.id) continue
     lines.push(`- [task:${t.id}] ${String(t.title || t.id).trim()}${t.status ? `（状态：${t.status}）` : ''}`)
@@ -567,6 +627,12 @@ export function renderPlanDraft(
   if ((input.decisions || []).length) srcs.push('旧拍板')
   if ((input.rulings || []).length) srcs.push('已落档验收线')
   if (input.git && input.git.commits) srcs.push('git 事实')
+  // 2026-11-14 · P2-3：仓库文档真的进过上下文才算"读过项目现实"。
+  // 只在**真读到东西**时才写 —— 只带了个 missing 就说"读了仓库"同样是假话。
+  if (input.repoDocs && (input.repoDocs.readme || input.repoDocs.roadmap
+    || (input.repoDocs.recentDocsCommits || []).length)) {
+    srcs.push('项目仓库文档')
+  }
   lines.push(`> 草案：方寸按 ${srcs.join(' + ') || '（没有输入）'} 起草，**未冻结**。`)
   lines.push('> 通过 / 打回由人在项目页裁决；生成器没有"通过"能力。', '')
 

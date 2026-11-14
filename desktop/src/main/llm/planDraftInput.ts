@@ -17,9 +17,10 @@ import { loadTasks, parseRegistry } from '../data'
 import { loadDecisions } from '../data/decisions'
 import { effectiveAcceptances } from '../data/questionnaires'
 import { getPolicy } from '../services/policies'
+import { readProjectDocs } from '../services/repoDocs'
 import { extractMirror } from '../../shared/planMirror'
 import { isUnjudged } from '../../shared/coreVerdict'
-import type { PlanDraftInput, DraftTaskRef, DraftDecisionRef } from './planDraft'
+import type { PlanDraftInput, DraftTaskRef, DraftDecisionRef, PlanDraftRepoDocs } from './planDraft'
 
 export interface BuildInputOptions {
   project: string
@@ -152,7 +153,71 @@ function effectiveDecisions(project: string): DraftDecisionRef[] {
   }
 }
 
+/**
+ * 项目仓库的**真实文档**（2026-11-14 · 长 Loop P2-3）。
+ *
+ * 为什么要有这一步：长 Loop 的 §3 第一条病灶就是「只读自己的账本，不读项目现实」——
+ * 计划器的输入只有方寸的卡 / 决策 / 验收线，对"这个项目仓库里 README 怎么说、
+ * ROADMAP 排到哪、最近动过哪些文档"一无所知。于是"规划"退化成从卡标题猜方向。
+ *
+ * 三条纪律（与 repoDocs 服务一致，这里是它的规划器适配层）：
+ *  ① **只读**：只调 readProjectDocs（它自己保证只 read + git log），不写任何东西；
+ *  ② **缺就说缺**：没登记 repo / 仓库里没 README → 记进 `missing`，**不造空壳**；
+ *  ③ **只给摘要**：README/ROADMAP 只要标题 + 一句话，最近提交只留 5 条 ——
+ *     全文塞进去会挤掉卡正文这个更重要的证据。
+ *
+ * 失败一律返回 null（不抛）：读仓库失败不能把整个规划流程带崩，
+ * 但也不能装作读到了 —— 所以 null 时计划器会写一条 `repo:docs` 缺失提示。
+ */
+async function repoDocsOf(project: string): Promise<PlanDraftRepoDocs | null> {
+  const repo = repoOf(project)
+  if (!repo) {
+    // 没登记仓库根 = 这项目不在本机（或根本没登记 repo）。
+    // ⚠ 仍然返回一个**带 missing 的对象**，而不是 null：
+    //   null 表示"读失败了"，missing 表示"本来就没有"——这两件事在计划器里话术不同。
+    return { repo: '', readme: null, roadmap: null, recentDocsCommits: [], missing: ['项目没登记仓库根，读不到项目现实（只能靠方寸自己的账本）'] }
+  }
+  try {
+    const r = await readProjectDocs(repo)
+    const missing: string[] = []
+    if (!r.readme) missing.push('仓库里没有 README（或读不出来）')
+    if (!r.roadmap) missing.push('仓库里没有 ROADMAP（或读不出来）')
+    if (!r.docsCommits.length) missing.push('最近没有动过 docs/ 的提交')
+    if (r.note) missing.push(r.note)
+    return {
+      repo,
+      readme: r.readme ? { title: r.readme.title, excerpt: r.readme.excerpt } : null,
+      roadmap: r.roadmap ? { title: r.roadmap.title, excerpt: r.roadmap.excerpt } : null,
+      recentDocsCommits: r.docsCommits.slice(0, 5).map((c) => ({
+        sha: String(c.hash || '').slice(0, 7), date: c.date, subject: c.subject,
+      })),
+      missing,
+    }
+  } catch (err: any) {
+    // 读失败也要说出来（不许静默当"没有文档"）——但带 null 区别于"本来就缺"
+    return {
+      repo,
+      readme: null, roadmap: null, recentDocsCommits: [],
+      missing: ['读仓库文档失败：' + String(err?.message || err)],
+    }
+  }
+}
+
 /** 直接按数据根读一遍再组装（给 IPC / MCP 用） */
 export function buildPlanDraftInputFromDisk(opts: BuildInputOptions): PlanDraftInput {
   return buildPlanDraftInput(loadTasks() as any[], opts)
+}
+
+/**
+ * 同上，但**真去读项目仓库**（2026-11-14 · P2-3）。
+ *
+ * ⚠ 为什么另开一个 async 版本而不是把原函数改成 async：
+ *   原函数被 `e2e-plan-draft` / `e2e-context-pack` 等纯同步断言直接调，
+ *   改签名会把那些用例一起打回重写；而"读仓库"本来就该是可选增强。
+ *   所以：同步版保持原样（老行为零变化），异步版多带一份 repoDocs。
+ */
+export async function buildPlanDraftInputFromDiskWithRepo(opts: BuildInputOptions): Promise<PlanDraftInput> {
+  const input = buildPlanDraftInputFromDisk(opts)
+  input.repoDocs = await repoDocsOf(opts.project)
+  return input
 }
