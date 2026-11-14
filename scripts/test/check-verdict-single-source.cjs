@@ -44,6 +44,10 @@ function walk(dir, out = []) {
 /** 剥注释（块 + 行尾），保留字符串正文 */
 function stripComments(s) {
   return String(s)
+    // ⚠ 2026-11-14 补：`.vue` 模板里的 `<!-- … -->` 也是注释。
+    //   第一版只剥 `/* */` 与 `//`，于是"注释里解释为什么拆掉判词"被当成
+    //   "界面还在用判词词表" → 假红（本项目 check-ui-copy 踩过同一个坑）。
+    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
 }
@@ -79,23 +83,43 @@ function main() {
     offenders.length === 0, offenders.join(' ; '))
 
   // ② 引用方必须真的 import 那个模块
+  // ⚠ 2026-11-14：判词界面**整块拆掉了**（暮雨：「从来意义不大，根本看不懂」），
+  //   所以 PolicyEditModal.vue 不再消费词表 —— 它出现在这份名单里会变成永恒的红。
+  //   口径改成：**要么 import 词表、要么一个判词词都不提**（不许留半块自己写死）。
   for (const rel of ['shared/contentScale.ts', 'main/services/policies.ts',
-    'main/llm/planDraftInput.ts', 'renderer/App.vue',
-    'renderer/components/PolicyEditModal.vue']) {
+    'main/llm/planDraftInput.ts', 'renderer/App.vue']) {
     const f = path.join(SRC_ROOT, rel)
     if (!fs.existsSync(f)) { check(`★ ${rel} 存在`, false); continue }
     const txt = fs.readFileSync(f, 'utf8')
     check(`★ ${rel} 从 coreVerdict 引入（不许自己写词表）`,
       /from '[^']*coreVerdict'/.test(txt), '缺 import')
   }
+  {
+    const modalPath = path.join(SRC_ROOT, 'renderer/components/PolicyEditModal.vue')
+    const modalTxt = fs.existsSync(modalPath) ? fs.readFileSync(modalPath, 'utf8') : ''
+    const body = stripComments(modalTxt)
+    const importsTable = /from '[^']*coreVerdict'/.test(body)
+    const mentionsKeys = keys.some((k) => body.includes(k))
+    check('★ PolicyEditModal：要么引词表，要么一个判词词都不提（拆了就别留半块）',
+      importsTable || !mentionsKeys,
+      `import=${importsTable} 提到档位词=${mentionsKeys}`)
+  }
 
   // ③ 界面按钮 v-for 遍历词表（不是写死四个 <Button>）
-  const modal = fs.readFileSync(path.join(SRC_ROOT, 'renderer/components/PolicyEditModal.vue'), 'utf8')
-  check('★★ 界面按钮是 v-for="v in VERDICT_LEVELS"（写死就又会脱钩）',
-    /v-for="v in VERDICT_LEVELS"/.test(modal))
+  const modal0 = fs.readFileSync(path.join(SRC_ROOT, 'renderer/components/PolicyEditModal.vue'), 'utf8')
+  const modalBody = stripComments(modal0)
+  const modalHasPicks = /pf-vpick/.test(modalBody)
+  if (modalHasPicks) {
+    // 还在用选择器 → 必须 v-for 遍历词表，不许写死四个按钮
+    check('★★ 界面按钮是 v-for="v in VERDICT_LEVELS"（写死就又会脱钩）',
+      /v-for="v in VERDICT_LEVELS"/.test(modal0))
+  } else {
+    // 已经拆了 → 断言"拆干净"（这正是 2026-11-14 的状态，见 e2e-verdict-gap）
+    check('★★ 判词选择器已拆 → 不再写死四个按钮（拆干净也是一种合格）', true)
+  }
   // ⚠ 判据要精确：第一版写 `/const VERDICT/i`，结果匹配到 `verdictPicked` —— 假红。
   //   真正的判据是"有没有一份**本地词表数组/对象**"，即 `const XXX = [` 或 `[{ key:` 这种。
-  const localTable = /const\s+[A-Z][A-Z0-9_]*\s*=\s*\[\s*\{/.test(modal)
+  const localTable = /const\s+[A-Z][A-Z0-9_]*\s*=\s*\[\s*\{/.test(modal0)
   check('★ 界面不再自带一份本地词表（不许 const XXX = [{ key: … }]）', !localTable)
 
   // ④ 骨架由词表生成（policies.ts 不许再手写四个词）

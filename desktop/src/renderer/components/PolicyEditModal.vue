@@ -2,25 +2,13 @@
 <div id="policy-overlay" class="overlay" v-if="ctl.policyEdit_" @mousedown.self="ctl.closePolicyEditor()">
   <div id="policy-modal">
     <h3>项目方针：{{ ctl.policyEdit_.name }}</h3>
-    <!-- 核心判词（2026-11-12）。暮雨：「这种东西填了真的有用吗？我觉得全不填都行」
-         —— 这句是对的，所以**默认不填**：空着照样能用，方寸按最保守（只许最小原型）处理。
-         只有当你真想让它往上铺内容量时，才需要在这里说一句。
-         ⚠ 词表在 shared/coreVerdict（唯一真源），这里一个词都不许写死。 -->
-    <label>
-      核心判词（可选 —— 不填也不影响别的，只是方寸会保守地只做最小原型）
-      <span class="pf-label-hint">点一个档位就行，一句话可写可不写</span>
-    </label>
-    <div class="pf-verdict-picks">
-      <Button v-for="v in VERDICT_LEVELS" :key="v.key" type="button" class="pf-vpick"
-        :variant="verdictPicked === v.key ? 'primary' : 'ghost'" size="sm"
-        @click="pickVerdict(v.key)" :title="v.hint">{{ v.label }}</Button>
-    </div>
-    <input v-model="ctl.policyEdit_.coreVerdict" class="pf-verdict-input"
-      :placeholder="verdictPlaceholder" />
-    <div class="pf-map-tip">
-      填「{{ SCALE_OK_KEYS[0] }}」或「{{ SCALE_OK_KEYS[1] }}」= 允许往上铺内容量；
-      空着或用「{{ UNJUDGED }}」= 只许最小原型。
-    </div>
+    <!-- 2026-11-14 整块拆掉「核心判词」——
+         暮雨原话：「判词未通过，而且这堆东西貌似从来意义不大，反正根本看不懂」。
+         他说得对，而且病根很具体：这套东西把"这个项目值不值得往上堆内容"
+         包装成「立得住 / 能玩 / 垃圾 / 未判」四个档位按钮，还要人先理解它控制的是
+         **AI 出计划时能不能铺 4-5 小时的内容量** —— 那是一层没人要求过的抽象管理概念。
+         拆掉之后：数据字段保留（`coreVerdict` 仍在方针卡里，不填就是未判），
+         contentScale 闸对自己保守——**他不必理解它，也不必看见它**。 -->
     <label>使命（一句话：这项目是干嘛的）</label>
     <textarea v-model="ctl.policyEdit_.mission" placeholder="例：本地优先的多 agent 任务调度台"></textarea>
     <label>当前目标（本阶段要达成什么 + 怎么算完成）</label>
@@ -53,34 +41,12 @@
 /**
  * 项目方针编辑（2026-11-02 · App.vue 后三刀第一刀「浮层」）
  * 只搬模板：状态与动作仍住 App.vue，经 ctl 转接；ctl.policyEdit_ 的 v-model 直接写回 reactive 代理。
+ *
+ * 2026-11-14：删掉「核心判词」四档选择器后，本组件不再需要任何判词逻辑
+ *（`verdictPicked` / `pickVerdict` / 提示文案全部移除）。
+ * ⚠ `coreVerdict` 字段**仍在数据里**（方针卡照旧带着它），保存时由 App.vue 原样透传 —— 
+ *   界面不显示不等于数据要丢（已写的判词不许因为拆界面而消失）。
  */
-import { computed } from 'vue'
-import Button from './ui/Button.vue'
-import {
-  VERDICT_LEVELS, UNJUDGED, SCALE_OK_KEYS,
-  parseVerdict, composeVerdict,
-} from '../../shared/coreVerdict'
-
 const props = defineProps<{ ctl: any }>()
-
-/** 当前输入框里是哪个档位（点亮按钮用；不强制格式） */
-const verdictPicked = computed<string>(() => {
-  const t = String(props.ctl?.policyEdit_?.coreVerdict || '').trim()
-  if (!t) return UNJUDGED
-  const { level } = parseVerdict(t)
-  return level || ''
-})
-
-const verdictPlaceholder = computed(() => {
-  const ex = VERDICT_LEVELS.find((v) => v.allowsScale)
-  return `不填也行。要填就点上面，或直接写一句，例：${ex ? ex.key : ''} —— 哪几分钟确实是游戏`
-})
-
-/** 点档位 = 换掉档位词，**保留已写的理由**（不整段覆盖掉人写的话） */
-function pickVerdict(key: string): void {
-  const cur = String(props.ctl?.policyEdit_?.coreVerdict || '').trim()
-  const { reason } = parseVerdict(cur)
-  const today = new Date().toISOString().slice(0, 10)
-  props.ctl.policyEdit_.coreVerdict = composeVerdict(key, reason, today)
-}
+void props
 </script>

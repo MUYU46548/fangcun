@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 /**
- * 核心判词缺口可见性（2026-11-14 · 长 Loop P1-1）
+ * 核心判词：**界面已拆、数据保留**（2026-11-14 · 暮雨「判词未通过，从来意义不大，根本看不懂」）
  *
- * 这一片要解决的问题**不是"让用户填"**（那是他的决定，10 秒的动作，不许代填），
- * 而是**他根本看不见还剩几份没判**：
- *   · 14 份方针卡里 13 份的「核心判词」还是骨架 `> 未判 …`
- *   · 而内容量闸只认核心判词 —— 未判 = 对所有项目只放行"最小原型"
- *   · 此前界面上唯一能看到判词的地方，是**一份份打开方针弹窗**
+ * ## 这段历史要留着，别让下一个 agent 又把它加回来
  *
- * 所以断言钉三件：
- *   ① 判词状态**必须与「方针已立」分开**（方针卡使命写满了 ≠ 核心判过）
- *   ② 缺口数必须按「真正没判的」算（骨架 / 空 / "未判"都不算判过）
- *   ③ 判词表格子必须接进界面（否则又是个"数据层有、界面没有"）
+ * 这套东西的来历不是没道理：记忆圣所一天出 6 份设计稿，最后那份写「总时长 4–5 小时，三幕」，
+ * 而核心循环从没被任何人确认过值得玩，方寸所有闸照样全放行。于是做了「内容量闸」——
+ * 核心没判过，就不许铺几小时内容。
  *
- * 反例自证：把 isUnjudged 换成"非空就算判过" → ②立刻红（13 份未判会变成 0）
+ * **但它被包装错了**：把"这个项目值不值得往上堆内容"做成「立得住 / 能玩 / 垃圾 / 未判」
+ * 四个档位按钮，塞进项目方针弹窗，还要人先理解它控制的是"AI 出计划时能铺多少内容"。
+ * 暮雨的判决是：看不懂，而且从来看不出意义。**他是用户，这个判决就是终判。**
+ *
+ * ## 现在的形状
+ *   · **界面上一个判词都不出现**（弹窗四档选择器 / 输入框 / 项目页计数 / 概览卡格子，全拆）
+ *   · **数据字段保留**：`coreVerdict` 仍在方针卡里，已写的不许因为拆界面而消失
+ *   · **闸照旧保守**：不填 = 未判 = 只许最小原型。他不必理解它，也不会被它打扰
+ *
+ * ## 这套断言钉什么
+ *   ① 界面里**没有**判词入口（防止下一个 agent 觉得"这是个好功能"又加回来）
+ *   ② 拆界面**不丢数据**：保存方针时 `coreVerdict` 字段仍在
+ *   ③ 数据层**仍然正确**：骨架 / 空 / 裸「未判」都算未判，真判过的不算（闸靠它）
+ *   ④ `parseVerdict` 不许再犯"跳过未判档 → 当成自由文本 = 已判"那个 bug
  *
  * 运行：node scripts/test/e2e-verdict-gap.cjs   （需先 cd desktop && npm run build）
  */
@@ -40,95 +48,107 @@ if (!fs.existsSync(ART)) {
 }
 const { isUnjudged, verdictSkeleton } = require(ART)
 
-console.log('== 核心判词缺口可见性 ==')
+const readSrc = (rel) => {
+  const p = path.join(REPO, rel)
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : ''
+}
+const stripComments = (s) => s
+  .replace(/<!--[\s\S]*?-->/g, ' ')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
-// ── ① 骨架 / 空 / 未判 都必须算"没判过" ────────────────────────────────
+console.log('== 核心判词：界面已拆、数据保留 ==')
+
+// ── ① 界面里一个判词入口都不许有 ──────────────────────────────────────
+console.log('\n-- 界面已拆干净 --')
+{
+  const modal = stripComments(readSrc('desktop/src/renderer/components/PolicyEditModal.vue'))
+  check('★★ 方针弹窗里没有四档选择器（.pf-vpick）', !/pf-vpick/.test(modal))
+  check('★★ 方针弹窗里没有判词输入框（.pf-verdict-input）', !/pf-verdict-input/.test(modal))
+  check('★ 方针弹窗里不再出现那四个档位词（立得住/能玩/垃圾）',
+    !/立得住|垃圾/.test(modal), '')
+  check('★ 方针弹窗不再 import 判词词表（拆干净，不留半块）',
+    !/coreVerdict/.test(modal))
+
+  const view = stripComments(readSrc('desktop/src/renderer/views/ProjectsView.vue'))
+  check('★★ 项目页没有「判词待判 N/M」计数', !/judgeGap|判词待判/.test(view))
+  check('★★ 概览卡没有「判词：已判/未判」那一格', !/policyJudgedMap|判词：/.test(view))
+  check('★ 项目卡没有「⚖ 判词」按钮', !/⚖\s*判词/.test(view))
+
+  const app = stripComments(readSrc('desktop/src/renderer/App.vue'))
+  check('★ App.vue 不再算判词缺口（policyJudgedMap / judgeGap / openFirstUnjudged 全没了）',
+    !/policyJudgedMap/.test(app) && !/judgeGap/.test(app) && !/openFirstUnjudged/.test(app))
+}
+{
+  // 反例自证：拆之前这些词是在的 —— 断言不是"永远真"的空话
+  const viewRaw = readSrc('desktop/src/renderer/views/ProjectsView.vue')
+  check('★★ 反例自证：注释里**保留**了拆除理由（下个 agent 看得见为什么拆，不会又加回来）',
+    /判词未通过|从来意义不大|根本看不懂/.test(viewRaw)
+    || /判词未通过|从来意义不大|根本看不懂/.test(readSrc('desktop/src/renderer/components/PolicyEditModal.vue')),
+    '')
+}
+
+// ── ② 拆界面不丢数据 ──────────────────────────────────────────────────
+console.log('\n-- 拆界面 ≠ 丢数据 --')
+{
+  const app = readSrc('desktop/src/renderer/App.vue')
+  // openPolicyEdit 仍要把读到的 coreVerdict 带给弹窗（弹窗不显示，但保存要原样带回）
+  check('★★ 打开方针弹窗时仍读取 coreVerdict（不读 → 保存时会把旧值抹成空）',
+    /coreVerdict\s*=\s*''/.test(app) && /coreVerdict\s*\}/.test(app) || /coreVerdict/.test(app))
+  check('★ 保存链仍带上 coreVerdict 字段（主进程按"没传就沿用旧值"，界面必须显式带）',
+    /coreVerdict:/.test(app))
+  // 数据层仍认这个字段
+  const pol = readSrc('desktop/src/main/services/policies.ts')
+  check('★★ 方针卡数据层仍支持 coreVerdict（已写的判词不许因为拆界面而消失）',
+    /coreVerdict/.test(pol))
+}
+
+// ── ③ 数据层判定仍然正确（闸靠它）────────────────────────────────────
+console.log('\n-- 数据层：闸仍然保守 --')
 {
   const skeleton = verdictSkeleton()
-  check('★★ 骨架提示算**未判**（这是 13 份项目的实际状态）', isUnjudged(skeleton) === true,
-    JSON.stringify(String(skeleton).slice(0, 60)))
+  check('★★ 骨架提示算未判（13 份项目的实际状态）', isUnjudged(skeleton) === true)
   check('★ 空串算未判', isUnjudged('') === true)
-  check('★ 只有 `> 未判` 一行也算未判', isUnjudged('> 未判 —— 核心玩法还没被人确认过"立得住"。') === true)
-  check('★ 写「未判」两字也算未判（不许因为带了别的字就当成判过）', isUnjudged('未判') === true)
+  check('★★ 只写「未判」两个字也算未判', isUnjudged('未判') === true,
+    '这是 2026-11-14 修掉的 bug：第一版跳过 UNJUDGED 档 → 被当成自由文本 = 已判')
+  check('★ `> 未判 …` 引用块算未判', isUnjudged('> 未判 —— 还没看') === true)
+  check('★★ 真判过的（能玩 / 垃圾）不算未判 —— 闸会按它放行/拦住',
+    isUnjudged('能玩 —— 装配台那 5 分钟确实是游戏 2026-11-12') === false
+    && isUnjudged('垃圾 —— 两间房纯属填充物') === false)
 }
 {
-  check('★★ 真判过的不算未判（"能玩"是四档之一）',
-    isUnjudged('能玩 —— 核心流程通了，细节没打磨。2026-11-11') === false)
-  check('★ "垃圾"也算判过（判过 = 有结论，不等于结论好）',
-    isUnjudged('垃圾 —— 两间房纯属填充物。2026-11-11') === false)
-}
-{
-  // 反例自证：如果按"非空就算判过"，骨架会被当成已判 —— 13 份未判会变成 0 份
-  const skeleton = verdictSkeleton()
-  const naive = String(skeleton || '').trim().length > 0
-  check('★★ 反例自证：按"非空即判过"的粗糙口径，骨架会被算成已判（那正是要防的假绿）',
-    naive === true && isUnjudged(skeleton) === true,
-    'naive=' + naive)
+  // 反例自证：如果按"非空就算判过"，骨架会被当成已判 —— 13 份全变成已判
+  const naive = String(verdictSkeleton() || '').trim().length > 0
+  check('★★ 反例自证：按"非空即判过"会得到相反结论（那正是闸会误放行的假绿）',
+    naive === true && isUnjudged(verdictSkeleton()) === true)
 }
 
-// ── ② 真实数据：13 份未判必须数得出来 ─────────────────────────────────
+// ── ④ 现场：13 份未判仍然数得出来（虽然界面不显示，闸要知道）───────────
+console.log('\n-- 现场 --')
 {
-  // 直接读真 policies/ —— 这不是"测夹具"，是测**现场**。
-  // ⚠ 这个数会随用户填写而变，所以断言不写死"13"，写"数得出来且与逐份核对一致"。
   const dir = path.join(REPO, 'policies')
   const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.md')) : []
-  check('★ policies/ 下有方针卡（真数据在）', files.length > 0, 'files=' + files.length)
-
   let judged = 0, unjudged = 0
   for (const f of files) {
     const t = fs.readFileSync(path.join(dir, f), 'utf-8')
     const m = /(?:^|\n)##\s*核心判词\s*\r?\n([\s\S]*?)(?=\r?\n##\s|$)/.exec(t)
-    const body = m ? m[1].trim() : ''
-    if (isUnjudged(body)) unjudged++
+    if (isUnjudged(m ? m[1].trim() : '')) unjudged++
     else judged++
   }
-  check('★★ 逐份核对：已判 + 未判 = 总数（不漏不多）',
-    judged + unjudged === files.length, `${judged}+${unjudged} vs ${files.length}`)
+  check('★ 逐份核对：已判 + 未判 = 总数', judged + unjudged === files.length,
+    `${judged}+${unjudged} vs ${files.length}`)
   console.log(`      现场：${files.length} 份方针卡 → 已判 ${judged} / 未判 ${unjudged}`)
-  check('★ 现场至少有一份是判过的（fangcun-base 写了自己的定位）', judged >= 1, 'judged=' + judged)
+  check('★★ 未判的项目仍然存在 —— 闸对它们保守（界面上不显示不等于闸失效）',
+    unjudged > 0, 'unjudged=' + unjudged)
 }
 
-// ── ③ 界面接线：判词状态必须与「方针已立」分开，并出现在项目页 ──────────────
+// ── ⑤ 内容量闸的代码还在（拆的是界面，不是闸）────────────────────────
 {
-  const app = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8')
-  const view = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'views', 'ProjectsView.vue'), 'utf-8')
-
-  check('★★ loadPolicyMap 真的读了 coreVerdict（不读就永远是空表）',
-    /judged\[p\.id\]\s*=\s*!isUnjudged\(/.test(app))
-  check('★★ 判词判定走 isUnjudged（不自己写正则 —— 两套口径是本仓老病）',
-    /import \{ isUnjudged \}/.test(app) && !/核心判词[^\n]*\^>\\s\*未判/.test(app.replace(/\/\*[\s\S]*?\*\//g, ' ')))
-  check('★ 判词表与方针表是**两张表**（policyJudgedMap ≠ policyMap）',
-    /policyJudgedMap/.test(app) && /const policyJudgedMap = ref/.test(app))
-  check('★★ judgeGap 是**独立**的 computed（判词缺口没混进 charterStats 的四个数里）',
-    /const judgeGap = computed\(\(\) => \{/.test(app)
-    // charterStats 的返回体里不许出现判词相关字段
-    && !/return \{ total, filled, skeleton, missing, mapMissing, mapReady[^}]*judge/i.test(app)
-    // 且它真的被交到项目页（只用 computed 不接线＝白算）
-    && /get judgeGap\(\) \{ return judgeGap\.value \}/.test(app))
-  check('★★ 项目页出现了判词计数（用户一眼看得到还剩几份）',
-    /judgeGap\.count/.test(view) && /判词待判/.test(view))
-  check('★ 项目卡上有判词状态格（不是只藏在顶部计数里）',
-    /policyJudgedMap\[p\.id\]/.test(view) && /判词：/.test(view))
-  check('★ 有"从第一个未判的开始"的直达动作（省得自己去列表里找）',
-    /openFirstUnjudged/.test(app) && /openFirstUnjudged/.test(view))
-  check('★ 判词按钮用的是 ui 基座（不是新造的手搓按钮）',
-    /<Button[^>]*cb-judge-btn/.test(view))
-}
-
-// ── ④ 源码守卫：不许有"代用户填判词"的代码 ──────────────────────────────
-{
-  const files = ['desktop/src/renderer/App.vue', 'desktop/src/renderer/views/ProjectsView.vue',
-    'desktop/src/main/services/policies.ts']
-  let autoFill = false
-  for (const rel of files) {
-    const p = path.join(REPO, rel)
-    if (!fs.existsSync(p)) continue
-    const src = fs.readFileSync(p, 'utf-8')
-      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-    // 找"把 coreVerdict 直接赋成某个档位"的写法（自动填 = 替用户做决定）
-    if (/coreVerdict\s*[:=]\s*['"](能玩|立得住|垃圾)['"]/.test(src)) autoFill = true
-  }
-  check('★★ 没有任何"自动把判词填成某档"的代码（那是替用户做决定，不许）', autoFill === false)
+  const scale = readSrc('desktop/src/shared/contentScale.ts')
+  check('★★ contentScale 闸仍在（拆的是"要人填的界面"，不是"防铺错量的闸"）',
+    /contentScaleGate/.test(scale))
+  const plan = readSrc('desktop/src/main/llm/planDraft.ts')
+  check('★ 计划器仍调这条闸（AI 出计划时照样会被拦）', /contentScaleGate/.test(plan))
 }
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + `RESULT ${pass} / ${fail}`)

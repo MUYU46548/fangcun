@@ -305,6 +305,10 @@ function main() {
       ['日历', '改法A展开', 'calendar-expanded', '2026-09-30'],
       ['项目', '项目墙', 'project-tiles'],
       ['项目', '概览卡', 'project-overview'],
+      // 2026-11-14：方针弹窗**拆掉判词之后**要目检一遍 —— 拆东西最容易留下半块
+      //（空 label、孤立的 input、错位的间距）。断言能验"没有 .pf-vpick"，
+      // 但"看着别扭"只能靠这张图。
+      ['项目', '项目墙', 'policy-modal-clean', 'pmclean'],
       ['项目', '主从', 'project-master'],
       // 2026-10-31：在途一屏此前**没有任何截图证据**（拆成 views/TripBoardView.vue 后补目检）——
       // 要看的是：表头 10 列、契约“未填”三按钮、健康度锁标、没进屏项目的点名原因都在画面里。
@@ -400,14 +404,9 @@ function main() {
       // 没被拍过的界面 = 从没被看过的界面。补一张常规态 + 一张有草案待提成态。
       ['项目', '', 'plan-view', 'planview'],
       ['项目', '', 'plan-drafts', 'plandraft'],
-      // 2026-11-12：核心判词输入框 —— 此前**界面里根本不存在**（数据层有、UI 没有），
-      // 所以让人去"填判词"时无处可填。这张图用来目检它真在、四个档位可读。
-      ['项目', '', 'policy-verdict', 'pvverdict'],
-      // 2026-11-14（长 Loop P1-1）：**判词缺口**在项目页上要一眼看得见。
-      // 为什么必须单独拍：14 份方针卡里 13 份核心判词是"未判"，而此前界面上
-      // 只有一份份打开方针弹窗才看得到 —— 这等于"永远没人会去做"。
-      // ⚠ 视图参数写「概览卡」：`判词：未判` 那一格只存在于概览摆法里（项目墙的 tile 没有）。
-      ['项目', '概览卡', 'verdict-gap', 'vgap'],
+      // 2026-11-12：核心判词输入框 —— 已于 2026-11-14 **整块拆除**
+      //（暮雨：「判词未通过，从来意义不大，根本看不懂」）。这条用例随之删掉，
+      // 不要再加回来；拆除理由与守卫见 scripts/test/e2e-verdict-gap.cjs。
     ]
     // 2026-10-30：只重拍某几张（改完一处视觉，不必把 40 张全跑一遍）：
     //   FC_SHOT_ONLY="rice,rice-plot" node scripts/test/e2e-renderer-web.cjs --shots
@@ -559,6 +558,17 @@ function main() {
   const lpv = all('#log-purge-modal button').find((b) => (b.textContent || '').trim() === '预览命中')
   if (lpv) lpv.click()
   await sleep(500)` : ''}
+  ${extra === 'pmclean' ? `
+  // 2026-11-14：方针弹窗拆掉「核心判词」后目检 —— 拆东西最容易留半块。
+  clickText('项目'); await sleep(700)
+  const pvTileC = all('#board.pv .tile:not(.tile-add)')[0]
+  const pvBtnC = pvTileC ? Array.from(pvTileC.querySelectorAll('button')).find((b) => /方针/.test(b.textContent || '')) : null
+  if (pvBtnC) pvBtnC.click()
+  await sleep(900)
+  const pm = document.querySelector('#policy-modal')
+  if (pm) pm.scrollTo(0, 0)
+  await sleep(300)
+` : ''}
   ${extra === 'logpreview' ? `
   // 日志只读预览（2026-10-31）：点第一张日志卡，拍预览弹窗。
   // 目检点：状态徽章 / 标题 / ID / 正文 / 下一步 / 附件区 / 底部按钮。
@@ -799,40 +809,6 @@ function main() {
   const accEl = document.querySelector('#board.ask-view .ask-acc')
   if (accEl) accEl.scrollIntoView({ block: 'end' })
   await sleep(500)
-` : ''}
-  ${extra === 'pvverdict' ? `
-  // 2026-11-12：核心判词输入框（数据层有了、UI 之前没有）
-  clickText('项目'); await sleep(700)
-  const pvTile = all('#board.pv .tile:not(.tile-add)')[0]
-  const pvBtn = pvTile ? Array.from(pvTile.querySelectorAll('button')).find((b) => /方针/.test(b.textContent || '')) : null
-  if (pvBtn) pvBtn.click()
-  await sleep(900)
-  // 点一下「垃圾」档，让截图里能看到"点了会填进去"的效果
-  const junk = all('#policy-modal .pf-vpick').find((b) => (b.textContent || '').indexOf('垃圾') >= 0)
-  if (junk) { junk.click(); await sleep(300) }
-  ` : ''}
-  ${extra === 'vgap' ? `
-  // 2026-11-14（长 Loop P1-1）：项目页上的**判词缺口**要一眼看得见。
-  // 夹具要点：默认夹具里只有 demo / demo2 两个项目 —— **只能给这两个写方针**，
-  // 编一个 demo3 进去不会出现在项目墙（项目列表来自 store.projects，不是 policies）。
-  // 造一个"已判"、一个"未判" → 顶部应显示「判词待判 1/2」。
-  // ⚠ setPolicies 收的是**按 id 索引的 map**，不是数组（假 preload 的 policyGet 按 key 取）。
-  const VG = (mission, coreVerdict) => ({
-    mission, goal: '', scenario: '', boundary: '',
-    structureMap: '', coreVerdict,
-  })
-  if (window.__fcTest.setPolicies) {
-    window.__fcTest.setPolicies({
-      demo: VG('演示项目：已经判过了', '能玩 —— 核心流程通了，细节没打磨'),
-      demo2: VG('第二个项目：还没判', '> 未判 —— 核心玩法还没被人确认过。'),
-    })
-  }
-  await sleep(500)
-  // 重进项目页，让 loadPolicyMap 重新读一遍（视图由 view 参数切的「概览卡」负责，
-  // **不要在这里再手点一次** —— 第一版手点「概览」三次都没切过去，白拍三张一模一样的图）。
-  clickText('看板'); await sleep(400)
-  clickText('项目'); await sleep(1100)
-  await sleep(400)
 ` : ''}
   ${extra === 'planview' || extra === 'plandraft' ? `
   // 2026-11-12：作战计划页 —— 此前**没有任何截图证据**，所以没人发现它可读性差。

@@ -4351,14 +4351,6 @@ async function copyTaskClick(id: string) {
 // 2026-09-25 第 7 条：登记 13 个项目里只有 1 个有方针卡 —— 用户看不到"谁缺"，也没法批量补。
 // 这里区分三态：**已填**（有内容）/ **骨架**（文件在但内容空）/ **缺失**（连文件都没有）。
 const policyMap = ref<Record<string, boolean>>({})
-/**
- * 每个项目的**核心判词是否已被判过**（2026-11-14 · P1-1）。
- *
- * 与 `policyMap`（方针卡填没填）是两件事：方针卡可以「使命/目标」都写了，
- * 核心判词仍是骨架「> 未判」。而内容量闸只认后者。
- * 实测 14 份里 13 份未判 —— 界面上看不见这件事，它就永远不做。
- */
-const policyJudgedMap = ref<Record<string, boolean>>({})
 /** 文件是否存在（可能只是空骨架） */
 const policyExistsMap = ref<Record<string, boolean>>({})
 const policyEdit_ = ref<any>(null)
@@ -4383,30 +4375,6 @@ const charterStats = computed(() => {
   }
   return { total, filled, skeleton, missing, mapMissing, mapReady }
 })
-
-/**
- * 核心判词缺口（2026-11-14 · 长 Loop P1-1）。
- *
- * 为什么单独一个 computed 而不塞进 charterStats：那两个是**不同的问题**——
- * 「方针已立」说明使命/目标写了；「判词已判」说明**核心玩法被确认过什么水平**。
- * 实测 14 份方针卡里 13 份的使命都有内容，但核心判词全是骨架「> 未判」。
- * 混成一个数会让人以为"方针都立了，没事了"，而内容量闸其实对所有项目只放行最小原型。
- *
- * ⚠ 判定走 `policyJudgedMap`（loadPolicyMap 里用 isUnjudged 算的），这里只计数，
- *   **不再自己认一遍骨架** —— 两处各写一遍正是本仓"改一处忘一处"的老病。
- */
-const judgeGap = computed(() => {
-  const total = projects.value.length
-  let judged = 0
-  for (const p of projects.value) if (policyJudgedMap.value[p.id]) judged++
-  return { total, judged, count: Math.max(0, total - judged) }
-})
-
-/** 从第一个未判的项目开始判（点顶部那个计数就调它，省得自己去列表里找） */
-function openFirstUnjudged() {
-  const hit = projects.value.find((p: any) => !policyJudgedMap.value[p.id])
-  if (hit) void openPolicyEdit(hit.id)
-}
 
 /** 从结构地图正文里抠出“最后核实：YYYY-MM-DD” */
 function extractVerified(text: string): string {
@@ -4442,11 +4410,6 @@ async function loadPolicyMap() {
   const exists: Record<string, boolean> = {}
   const hasMap: Record<string, boolean> = {}
   const verified: Record<string, string> = {}
-  // 核心判词：是否已被**人**判过（2026-11-14 · 长 Loop P1-1）
-  // 为什么单独一张表：政策卡已填 ≠ 核心判过。实测 14 份方针卡里 13 份的「核心判词」
-  // 仍是骨架「> 未判 …」，而内容量闸就是靠它决定"能不能铺几小时内容"。
-  // 界面上看不见"还剩几份没判"，这件事就永远没人做。
-  const judged: Record<string, boolean> = {}
   const driftRows: Array<{ project: string; repo: string; since: string }> = []
   for (const p of projects.value) {
     try {
@@ -4454,23 +4417,18 @@ async function loadPolicyMap() {
       const pol = r && r.policy ? r.policy : null
       exists[p.id] = !!pol
       filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
-      // ⚠ 判「判过没有」必须走 shared/coreVerdict#isUnjudged —— 它认识骨架提示、
-      //   `>` 引用块、以及"未判/待填"等写法。这里自己写正则就会与数据层两套口径
-      //   （本仓栽过：App.vue 与 planDraftInput 各写一遍，改一处忘一处）。
-      judged[p.id] = !isUnjudged(String((pol && pol.coreVerdict) || ''))
       const mapText = String((pol && pol.structureMap) || '')
       // 只有**真填过**才算有：骨架里那行“（待填 —— …）”不算内容
       hasMap[p.id] = !!mapText.trim() && !/最后核实[：:]\s*（待填/.test(mapText)
       verified[p.id] = extractVerified(mapText)
       // 有日期的项目才值得算“结构大改”（没日期的已经是 stale，不必再问 git）
       if (verified[p.id]) driftRows.push({ project: p.id, repo: String((p as any).repo || ''), since: verified[p.id] })
-    } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false; verified[p.id] = ''; judged[p.id] = false }
+    } catch { exists[p.id] = false; filled[p.id] = false; hasMap[p.id] = false; verified[p.id] = '' }
   }
   policyMap.value = filled
   policyExistsMap.value = exists
   policyMapHasStructure.value = hasMap
   policyVerifiedMap.value = verified
-  policyJudgedMap.value = judged
   // 「结构大改就过期」的判定在主进程（要 spawn git，渲染层不能干这个）。
   // 异步回填 + 主进程 10 分钟缓存：面板先出，理由到了再补一行。
   if (driftRows.length) {
@@ -7678,9 +7636,6 @@ const settingsCtl = reactive({
 const projectsCtl = reactive({
   get blockers() { return blockers.value },
   get charterStats() { return charterStats.value },
-  // 核心判词缺口（2026-11-14 · P1-1）：与 charterStats 是两个不同的问题，见 judgeGap 注释
-  get judgeGap() { return judgeGap.value },
-  openFirstUnjudged,
   get crossSuggest() { return crossSuggest.value },
   get pvView() { return pvView.value },
   get projectStats() { return projectStats.value },
@@ -7705,8 +7660,6 @@ const projectsCtl = reactive({
   get policyMap() { return policyMap.value },
   get policyExistsMap() { return policyExistsMap.value },
   get policyMapHasStructure() { return policyMapHasStructure.value },
-  // 核心判词是否已判（2026-11-14 · P1-1）：方针已立 ≠ 判词已判
-  get policyJudgedMap() { return policyJudgedMap.value },
   get projects() { return projects.value },
   get tasks() { return tasks.value },
   STALLED_HOURS,

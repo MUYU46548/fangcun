@@ -2397,39 +2397,35 @@
       }
       const opened = openPolicy()
       const modalIn = await waitFor(() => !!$('#policy-modal'), 3000, '方针弹窗')
-      check('★★ 项目方针弹窗能打开（判词的入口在这一层）', opened && modalIn)
+      check('★★ 项目方针弹窗能打开', opened && modalIn)
       if (modalIn) {
+        // ── 2026-11-14：判词的四档选择器**整块拆掉了** ──────────────────────
+        // 暮雨：「判词未通过，而且这堆东西貌似从来意义不大，反正根本看不懂」。
+        // 病根：它把"这个项目值不值得往上堆内容"包装成「立得住/能玩/垃圾/未判」
+        // 四个按钮，还要人先理解它控制的是"AI 出计划时能不能铺 4-5 小时内容"。
+        // 拆掉后**数据字段仍然在**（已写的判词不许因为拆界面而消失），
+        // 所以断言从"界面有四个按钮"改成"界面没有它 + 保存时字段不会被抹掉"。
         const picks = $$('#policy-modal .pf-vpick')
-        // ⚠ 2026-11-12：判词框从 textarea 改成**单行 input** ——
-        //   它是"点一下 + 一句话"，不是写小作文的地方（暮雨：「填了真的有用吗」）。
-        //   断言随之改成"找那个 placeholder 带示例的输入框"，不绑死控件类型。
+        check('★★ 判词四档选择器已拆掉（界面不再要求人懂这套抽象）', picks.length === 0,
+          'picks=' + picks.map((b) => (b.textContent || '').trim()).join('|'))
         const verdictInput = $$('#policy-modal input, #policy-modal textarea')
-          .find((el) => /不填也行|——/.test(el.placeholder || ''))
-        check('★★ 弹窗里有核心判词输入框（此前**根本不存在**，让人去哪填）', !!verdictInput,
+          .find((el) => /不填也行|立得住|能玩|垃圾/.test(el.placeholder || '')
+            || /立得住|能玩|垃圾/.test(el.value || ''))
+        check('★ 判词输入框也拆了（不留半块）', !verdictInput,
           'placeholders=' + $$('#policy-modal input, #policy-modal textarea')
             .map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
-        check('★★ 四个档位按钮都在（立得住 / 能玩 / 垃圾 / 未判）',
-          picks.length >= 4 && ['立得住', '能玩', '垃圾', '未判'].every(
-            (k) => picks.some((b) => (b.textContent || '').indexOf(k) >= 0)),
-          picks.map((b) => (b.textContent || '').trim()).join('|'))
-        const verdictTa = verdictInput
-        if (verdictTa) {
-          const junkBtn = picks.find((b) => (b.textContent || '').indexOf('垃圾') >= 0)
-          if (junkBtn) junkBtn.click()
-          await sleep(200)
-          check('★★ 点「垃圾」档 → 真的填进了输入框（不是只把按钮点亮）',
-            /垃圾/.test(verdictTa.value), 'value=' + verdictTa.value.slice(0, 40))
 
-          // 保存时必须把这个字段发出去 —— 不传的话主进程按"没传"沿用旧值，写的白写
-          const before = window.__fcTest.callCount('policySave')
-          const saveBtn = $$('#policy-modal .acts button').find((b) => /保存/.test(b.textContent || ''))
-          if (saveBtn) saveBtn.click()
-          const sent = await waitFor(() => window.__fcTest.callCount('policySave') > before, 3000, 'policySave')
-          const args = (window.__fcTest.calls().filter((c) => c.name === 'policySave').pop() || {}).args || []
-          check('★★ 保存时**真的把 coreVerdict 发出去了**（不传 = 判词静默丢）',
-            sent && args[0] && /垃圾/.test(String(args[0].coreVerdict || '')),
-            JSON.stringify(args[0] && { coreVerdict: args[0].coreVerdict }))
-        }
+        // ⚠ 最要紧的一条：拆界面**不等于**丢数据。
+        //   主进程按"没传就沿用旧值"处理，但界面必须把读到的值原样带回去 ——
+        //   否则一保存就把人以前写的判词抹成空（这正是"拆东西拆出数据丢失"的典型形状）。
+        const before = window.__fcTest.callCount('policySave')
+        const saveBtn = $$('#policy-modal .acts button').find((b) => /保存/.test(b.textContent || ''))
+        if (saveBtn) saveBtn.click()
+        const sent = await waitFor(() => window.__fcTest.callCount('policySave') > before, 3000, 'policySave')
+        const args = (window.__fcTest.calls().filter((c) => c.name === 'policySave').pop() || {}).args || []
+        check('★★ 保存时 coreVerdict **字段仍在**（拆界面 ≠ 抹掉已写的判词）',
+          sent && args[0] && 'coreVerdict' in args[0],
+          JSON.stringify(args[0] && { has: 'coreVerdict' in args[0], v: String(args[0].coreVerdict || '').slice(0, 30) }))
         await waitFor(() => !$('#policy-modal'), 2000, '弹窗关闭')
       }
     }
