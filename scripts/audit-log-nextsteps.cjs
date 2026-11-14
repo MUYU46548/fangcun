@@ -287,17 +287,59 @@ function showItems(logId) {
   console.log('\n⚠ 不带 @序号 的标记会盖住**整份**日志的全部条目。')
 }
 
+/**
+ * `--todo [N]`：输出**待逐条处置**的工作队列（默认按"条目多的日志"排前面）。
+ *
+ * 为什么需要它：`--stats` 只说"还剩 570 条"，但没人知道**下一步该看哪一份**。
+ * 这个子命令直接给出"N 份日志 + 每份几条 + 前 3 条摘要"，接手的人照着做就行。
+ * 它**只读**，不写任何东西。
+ */
+function showTodo(limit) {
+  const { rows } = collect()
+  const pending = rows.filter((r) => !r.covered && r.disposeScope !== 'item')
+  const by = new Map()
+  for (const r of pending) {
+    if (!by.has(r.log)) by.set(r.log, [])
+    by.get(r.log).push(r)
+  }
+  const list = Array.from(by.entries()).sort((a, b) => b[1].length - a[1].length)
+  console.log('待逐条处置：' + pending.length + ' 条，分布在 ' + list.length + ' 份日志里')
+  console.log('（整份标记盖住的不算处置过 —— 那只是"这份日志归入某卡"）\n')
+  const n = Number(limit) > 0 ? Number(limit) : 10
+  for (const [log, items] of list.slice(0, n)) {
+    console.log(`=== ${log}（${items.length} 条）===`)
+    for (const it of items.slice(0, 3)) {
+      console.log(`  [${it.n}] ${String(it.next).slice(0, 68)}`)
+    }
+    if (items.length > 3) console.log(`  …… 还有 ${items.length - 3} 条（--items ${log} 看全部）`)
+    console.log('')
+  }
+  if (list.length > n) {
+    console.log(`…… 还有 ${list.length - n} 份日志没列（--todo ${list.length} 看全部）`)
+  }
+  console.log('\n看完某份后，在该日志「下一步」段落末尾写：')
+  console.log('  处置：@2 已做 —— <核过什么 / 提交号>')
+  console.log('  处置：@3 已转卡 <卡 id>')
+  console.log('  处置：@5 非本项目 —— <属于哪个项目>')
+}
+
 function main() {
   const wantCheck = process.argv.includes('--check')
   const wantJson = process.argv.includes('--json')
   const wantStats = process.argv.includes('--stats')
   const itemsIdx = process.argv.indexOf('--items')
   const wantItems = itemsIdx >= 0 ? process.argv[itemsIdx + 1] : ''
+  const todoIdx = process.argv.indexOf('--todo')
+  const wantTodo = todoIdx >= 0
   const wantDispose = process.argv.includes('--dispose')
 
   if (!fs.existsSync(LOGDIR)) {
     console.error('找不到日志目录：' + LOGDIR)
     process.exit(2)
+  }
+
+  if (wantTodo) {
+    return showTodo(todoIdx >= 0 ? process.argv[todoIdx + 1] : '')
   }
 
   if (wantItems !== '' || (itemsIdx >= 0 && !process.argv[itemsIdx + 1])) {
