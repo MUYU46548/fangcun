@@ -73,6 +73,8 @@ export function buildPlanDraftInput(rawTasks: any[], opts: BuildInputOptions): P
     projectName: want,
     tasks: refs,
     decisions: effectiveDecisions(want),
+    // 白名单用**全量** id（校验要宽、喂料要窄）—— 见 planDraft.ts `decisionIds` 的注释。
+    decisionIds: effectiveDecisionIds(want),
     rulings: effectiveAcceptances(want),
     // 2026-11-10：这三样此前**从磁盘组装时一个都没带** —— 草案却在自我介绍里写
     // “按产品定义 + 投入产出账 + 现有卡与 git 事实起草”（假话）。
@@ -136,21 +138,55 @@ function coreVerdictOf(project: string): string {
  * 有效决策（本项目 + 全局）—— 2026-11-09 补。
  *
  * 只列「有效」：已撤销 / 已合并不许进上下文（否则模型会把撤销过的当现行规矩）。
- * 最多 12 条：决策卡会越来越长，全塞会挤掉卡正文这个更重要的证据。
+ *
+ * ⚠ **2026-11-15 修的真 bug：同日签发的决策会被静默截掉一大半。**
+ *   原来这里是 `sort(按日期降序).slice(0, 12)`，而**同一批决策的日期常常完全相同**
+ *   （OB37 的 A–E 五卷 33 条全是 `2026-11-15`）→ `localeCompare` 返回 0 →
+ *   排序等于没排（保持文件顺序）→ `.slice(0,12)` 砍掉的是**文件末尾**，
+ *   于是定全书结构的 D-131（10 章）/ D-132（单视角）/ D-137（命名）**全部不可引**。
+ *   实测后果：按它们起草的 5 格全部被 `plan_submit` 判为
+ *   「引用了不存在的依据」而丢弃（`missing_citations: 5`）。
+ *
+ *   而 `allowedCitations()` 正是遍历这个数组生成 cites 白名单 ——
+ *   **校验口径（能引用什么）和喂料口径（塞给模型看什么）被同一个 slice 绑死了**。
+ *   这两件事本来就不该用同一个集合：
+ *     · 校验要宽：凡是「有效」的决策都该允许被引用，否则最新拍板反而"不存在"；
+ *     · 喂料要窄：正文证据仍只塞 12 条，否则会挤掉卡正文这个更重要的证据。
+ *
+ *   所以拆成两个函数：
+ *     `effectiveDecisionIds()`  → 全量 id，供白名单
+ *     `effectiveDecisions()`     → 前 12 条，供证据行
+ *   排序也补了 tie-break：同日按 id 里的数字降序（D-137 排在 D-136 前面），
+ *   让「取的是最新那批」这个承诺在**同日**时也成立。
  */
-function effectiveDecisions(project: string): DraftDecisionRef[] {
+function decisionRecencyKey(d: { id?: string; 日期?: string }): string {
+  const idNum = Number(String(d.id || '').replace(/^D-/, '')) || 0
+  // 先按日期（字符串 ISO 可直接比），同日再按 id 数字 —— 两者都要能参与排序
+  return `${String(d.日期 || '')}#${String(idNum).padStart(8, '0')}`
+}
+
+function allEffectiveDecisions(project: string): { id: string; 内容: string; 日期: string; 出处: string; 备注: string }[] {
   try {
     return loadDecisions()
       .filter((d) => String(d.状态 || '') === '有效'
         && (!String(d.项目 || '').trim() || String(d.项目) === project))
-      .sort((a, b) => String(b.日期 || '').localeCompare(String(a.日期 || '')))
-      .slice(0, 12)
+      .sort((a, b) => decisionRecencyKey(b).localeCompare(decisionRecencyKey(a)))
       .map((d) => ({
         id: d.id, 内容: d.内容, 日期: d.日期, 出处: d.出处, 备注: d.备注,
       }))
   } catch {
     return []
   }
+}
+
+/** 供 `allowedCitations()` 用：**全量**有效决策 id（不截断） */
+export function effectiveDecisionIds(project: string): string[] {
+  return allEffectiveDecisions(project).map((d) => d.id).filter(Boolean)
+}
+
+/** 供证据行用：**前 12 条**（喂料要窄，别挤掉卡正文） */
+function effectiveDecisions(project: string): DraftDecisionRef[] {
+  return allEffectiveDecisions(project).slice(0, 12)
 }
 
 /**

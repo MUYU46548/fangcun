@@ -254,51 +254,154 @@ def count_approved_undelivered():
 
 
 # ── ④ 计划卡 ────────────────────────────────────────────────────────────
-def collect_plans():
+# 阶段标题在真身里有**两种写法**，只认一种就会整块漏掉：
+#   · `### P0 · 清既有红…`（sitian 的 P0–P3、fangcun-base 的 P0–P7）
+#   · `### P8 结论集落代码…`（无 `·`：fangcun-base P8–P11、memory-sanctuary P0、project-3 P0）
+# ⚠ 2026-11-15 实测：旧正则写成 `^###\s+(P\d+)\s*·\s*(.+)$`（强制 `·`），于是
+#   **memory-sanctuary / project-3 两整个项目 0 条、fangcun-base 少 4 条** ——
+#   而清单照样生成、数字照样自洽，只是"计划卡待办"悄悄少了一半。
+#   这与本轮前面踩的六次是同一个病：**抓错形态，输出看起来完全正常**。
+HEAD_STAGE = re.compile(r"(?m)^###\s+(P\d+)\s*[·:：]?\s*(.*)$")
+
+
+def _split_stage_segments(txt):
+    """按 `### Pn` 的**真实位置**切段。
+
+    ⚠ 不能用 `txt.split("### Pn ·")[-1]`：那是找第一次出现、取最后一块 ——
+    标题不带 `·` 时它根本不命中，`[-1]` 返回**全文**，
+    于是每格的"状态"都取到文件里第一条 `- 状态:`（整卡状态），
+    把全部格子判成同一个值。必须按 match 的位置切。
+    """
+    ms = list(HEAD_STAGE.finditer(txt))
     out = []
+    for i, m in enumerate(ms):
+        end = ms[i + 1].start() if i + 1 < len(ms) else len(txt)
+        out.append((m.group(1), (m.group(2) or "").strip(), txt[m.end():end]))
+    return out
+
+
+def _stage_criteria(seg):
+    """一格自己的判据原文（去掉空白差异后比较用）"""
+    return [re.sub(r"\s+", " ", l.strip()) for l in seg.split("\n")
+            if re.match(r"^\s*-\s*(cmd|str|num|file):", l)]
+
+
+def _draft_target(path):
+    """草案该提到哪个计划卡：文件名到第一个 `-YYYY-MM-DD` 为止就是项目 id。
+
+    与 `desktop/src/main/data/planDrafts.ts` 的取法一致（那边也是按日期段截断，
+    因为项目 id 自己就带连字符：`fangcun-base` / `dsh-fangcun`）。
+    """
+    name = os.path.basename(path)[:-3]
+    return re.sub(r"-\d{4}-\d{2}-\d{2}.*$", "", name)
+
+
+def collect_plans():
+    """计划卡待办 + 草案的真实状态。
+
+    ⚠ 草案这一栏我第一版是**无脑全收**（`_drafts/*.md` 有一个算一个，全报"待提成"），
+      于是清单上写「8 份草案躺了 3–13 天没人提成，离能用只差一次点击」。**这是假的**：
+      实测逐格比对判据后，8 份里 4 份的每一格**早就提成进计划卡了**（判据逐条相同），
+      另 4 份（fangcun-base 11-02 / 11-10 三份）的 P0–P4 与计划卡里已有的 P0–P4 **重号**，
+      `proposeStage` 会以「阶段 P0 已存在」直接拒绝 —— 它们不是"点一下就能用"，是**点不动**。
+      "文件在目录里"不等于"事情没做"。
+    """
+    out = []
+    extra = {"promoted": 0, "blocked": [], "fully": []}
     drafts_dir = os.path.join(ROOT, "task-data", "plans", "_drafts")
-    for f in sorted(glob.glob(os.path.join(drafts_dir, "*.md"))):
-        out.append({"kind": "草案待提成", "file": rel(f), "id": os.path.basename(f)})
-    for f in sorted(glob.glob(os.path.join(ROOT, "task-data", "plans", "*.md"))):
+
+    # 先把每张计划卡已有的格子读出来（id -> 判据），供草案对账
+    plans_dir = os.path.join(ROOT, "task-data", "plans")
+    existing = {}
+    for f in sorted(glob.glob(os.path.join(plans_dir, "*.md"))):
         try:
             txt = open(f, encoding="utf-8").read()
         except Exception:
             continue
-        for cid, title in re.findall(r"(?m)^###\s+(P\d+)\s*·\s*(.+)$", txt):
-            seg = txt.split("### %s ·" % cid, 1)[-1]
+        pid = os.path.basename(f)[:-3]
+        segs = _split_stage_segments(txt)
+        existing[pid] = {sid: _stage_criteria(seg) for sid, _t, seg in segs}
+        for sid, title, seg in segs:
             m = re.search(r"(?m)^-\s*状态:\s*(.+)$", seg)
             st = (m.group(1).strip() if m else "")
             if st in ("待裁决", "未冻结", "待裁决（未冻结）"):
-                out.append({"kind": "阶段待裁决", "file": rel(f), "id": "%s %s" % (cid, title)})
+                out.append({"kind": "阶段待裁决", "file": rel(f), "id": "%s %s" % (sid, title)})
             elif st == "已冻结":
-                out.append({"kind": "已冻结未推进", "file": rel(f), "id": "%s %s" % (cid, title)})
-    return out
+                out.append({"kind": "已冻结未推进", "file": rel(f), "id": "%s %s" % (sid, title)})
+
+    # 草案：逐格对账，只有"计划卡里没有这一格"才算待提成
+    for f in sorted(glob.glob(os.path.join(drafts_dir, "*.md"))):
+        try:
+            txt = open(f, encoding="utf-8").read()
+        except Exception:
+            continue
+        target = _draft_target(f)
+        have = existing.get(target, {})
+        pending, blocked, promoted = [], [], 0
+        for sid, title, seg in _split_stage_segments(txt):
+            if sid not in have:
+                pending.append((sid, title))
+            elif have[sid] and have[sid] == _stage_criteria(seg):
+                promoted += 1
+            else:
+                blocked.append("%s %s" % (sid, title))
+        extra["promoted"] += promoted
+        if pending:
+            out.append({"kind": "草案待提成", "file": rel(f),
+                        "id": "%s（%s 格：%s）" % (os.path.basename(f), len(pending),
+                                                  "、".join(p[0] for p in pending))})
+        if blocked:
+            extra["blocked"].append({"file": os.path.basename(f), "target": target,
+                                     "stages": blocked})
+            out.append({"kind": "草案提不进（与计划卡重号）", "file": rel(f),
+                        "id": "%s → %s.md 已有 %s，提成会被拒；需作废本草案或改号"
+                              % (os.path.basename(f), target,
+                                 "、".join(b.split(" ")[0] for b in blocked))})
+        # 每一格都已提成 → 单独列出来，**不许只在汇总数字里消失**。
+        # （2026-11-15 补：第一版只把它加进一个计数，"文件还在"的草案在表里根本找不到，
+        #   读清单的人无从判断它到底做没做 —— 那和第 5 次"日志静默 0 条"是同一个病。）
+        if not pending and not blocked and promoted:
+            extra["fully"].append({"file": os.path.basename(f), "target": target,
+                                   "stages": promoted})
+    return out, extra
 
 
 # ── 手写段落（模块级三引号：避免内层引号把代码绊住）────────────────────
+# ⚠ 这一节是**手写**的，所以它最容易写错 —— 而它一错，整份清单就在"没有人能机检的地方"说假话。
+# 2026-11-15 复核实测改掉三条（都改成了可数的说法，不再凭印象）：
+#   ① 「8 张结构地图卡」→ 真身 **14 张**（`task-data/结构地图更新--*.md` 实数，每项目一张但
+#      fangcun-base 有两张：11-08 那张和 11-12 那张并存着，都没签字）；
+#   ② 「8 份草案躺 3–13 天，离能用只差一次点击」→ **假**。逐格比对判据后：4 份早提成了
+#      （判据逐条相同），4 份与计划卡 P0–P4 重号、**提成会被 `proposeStage` 拒绝**（点不动）；
+#   ③ 「剩 10 个项目没有计划卡」→ 注册表 13 个活跃项目，有计划卡的 4 个，**剩 9 个**。
 SECTION6 = """\
-- **规划能力仍是雏形**：`方寸` 的作战计划 P0–P11 全绿，但**只有 4 个项目有计划卡**
-  （fangcun / sitian / project-3 / memory-sanctuary），剩 10 个项目没有 —— 而它们不是
-  「方寸不会写」，是**没有已批准的裁决卷**（闸在卷上，不在能力上）。
+- **规划能力仍是雏形**：`方寸` 的作战计划 P0–P11 **全部「完成」**，但注册表 13 个活跃项目里
+  **只有 4 个有计划卡**（fangcun-base / sitian / project-3 / memory-sanctuary），**剩 9 个没有** ——
+  而它们不是「方寸不会写」，是**没有已批准的裁决卷**（闸在卷上，不在能力上）。
 - **判据这个概念仍然要人解释**：已做「每条一句人话」，但它仍是技术概念；
   要彻底不需要解释，得动「作战计划」这个产品形态本身 —— 那是决策，不是改样式。
 - **每个项目的前端都很差**（暮雨原话，第三次提）：本轮只消了具体那两处，没有整体重做视觉。
 - **AI 规划零单**：REV-009 已把方向改成「生成式智能（agent 级）」，
-  但**一次真单都没跑通到落卡**（`task-20261025-009` 一直挂在待办，状态不明）。
+  但**一次真单都没跑通到落卡**（`task-20261025-009` 至今仍是「待办」）。
 - **13 个项目没有图标**（`p2-1-品牌资产…`）：这是各项目自己的活 —— 契约写明方寸对 repo 只读。
 - **处置过不等于核实过**：711 条已逐条处置里，`非本项目` 占 308（41%）、`已转卡` 224。
   这个比例本身值得怀疑 —— 一条内容被反复归成「不是这个项目的」，可能是归类口径太松。
   判据：随机抽 20 条 `非本项目` 复核，若超过 5 条其实相关，就是口径松了。
-- **8 张「结构地图更新」卡**（每个项目一张）：它们只是「该核实了」的提醒，
-  `smap_apply` 需要人签字 —— 也就是说这 8 张全部**卡在等人点头**，不是卡在施工。
-- **`_drafts/` 里 8 份草案躺了 3–13 天没人提成**：草案是 agent 写的，提成权在用户；
-  它们不算欠账，但它们是「离能用只差一次点击」的东西 —— 最该优先清。""".split("\n")
+- **14 张「结构地图更新」卡全部在等人点头**（`task-data/结构地图更新--*.md` 实数；
+  fangcun-base 有两张并存：11-08 与 11-12 各一张，都还停在「待办」）。
+  `smap_apply` 要求卡是「完成」才肯写 —— 所以它们**卡在签字，不是卡在施工**。
+  实测印证：`policies/fangcun-base.md` 的结构地图**至今仍是「最后核实：2026-10-17」**。
+- **`_drafts/` 里 8 份草案不是「都只差一次点击」**（见 §4 的对账）：
+  4 份的每一格**早已提成进计划卡**（判据逐条相同，草案只是没删）；
+  4 份（fangcun-base 11-02 / 11-10 三个版本）的 P0–P4 与计划卡重号，**提成会被拒**。
+  真正「点一下就能往前走」的，是 §4 里标「草案待提成」的那几行，不是这个文件数。""".split("\n")
 
 SECTION7 = """\
 **不要从「最老的那张卡」开始。** 顺序建议按「卡住别人的程度」：
 
 1. **先看 §3 问卷** —— 卡住的每一份卷都在**挡住一个项目的规划**。答完 + 批准，下游才有东西可派。
-2. **再看 §4 计划卡** —— 草案待提成 / 阶段待裁决，都是「点一下就能往前走」的东西。
+2. **再看 §4 计划卡** —— 只有标「草案待提成」的才真能提；标「提不进（重号）」的**先去作废或改号**，
+   否则按十次都是同一个报错。
 3. **然后才是 §1 未完成卡** —— 按项目分，**先挑那个项目自己最痛的三张**，别平铺。
 4. **§2 日志欠账最后做** —— 它多是零散诉求；而且「非本项目」占比异常，先怀疑归类口径。""".split("\n")
 
@@ -342,7 +445,7 @@ def build():
     cards = collect_cards()
     log_items, log_err = collect_log_items()
     decks = collect_decks()
-    plans = collect_plans()
+    plans, plan_extra = collect_plans()
     guards = run_guards()
     undelivered = count_approved_undelivered()
 
@@ -471,6 +574,28 @@ def build():
         A("|---|---|---|")
         for p in plans:
             A("| %s | `%s` | %s |" % (p["kind"], p["file"], p["id"]))
+        A("")
+        # 草案的真实状态：文件在目录里 ≠ 事情没做
+        if plan_extra["fully"]:
+            A("> **%d 份草案每一格都已提成进计划卡**（逐格比对判据，逐条相同）—— "
+              "**它们不是欠账，也不是「差一次点击」**，只是 `_drafts/` 里的副本没删："
+              % len(plan_extra["fully"]))
+            A("")
+            for x in plan_extra["fully"]:
+                A("> - `%s` → `%s`：%d 格全部已提成" % (x["file"], x["target"], x["stages"]))
+            A("")
+        if plan_extra["promoted"] and not plan_extra["fully"]:
+            A("> 另有 **%d 格草案内容早已提成进计划卡**（逐格比对判据，逐条相同）。"
+              % plan_extra["promoted"])
+            A("")
+        if plan_extra["blocked"]:
+            A("> ⚠ **%d 份草案提不动**：它要落的格子号在计划卡里已被占用，"
+              "`proposeStage` 会以「阶段 Pn 已存在」拒绝。**不是「差一次点击」，是点不动。**"
+              % len(plan_extra["blocked"]))
+            A("")
+            for b in plan_extra["blocked"]:
+                A("> - `%s` → `%s`：%s" % (b["file"], b["target"], "、".join(b["stages"])))
+            A("")
     else:
         A("（没有待办的计划卡）")
     A("")

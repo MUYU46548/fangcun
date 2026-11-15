@@ -57,6 +57,22 @@ function fingerprint() {
 
 console.log('== 未完成总清单 · 自洽性守卫 ==')
 
+// ⚠ 只读断言必须能区分「脚本写了盘」和「别人正在写盘」。
+// 2026-11-15 现场：用户在界面上答题，`decisions.md` / `question-bank.md` / `OB37-*.answers.json`
+// 在**脚本运行的那一瞬间**被改了 → 守卫红，而脚本其实一个字节没写（另用 530 个文件的
+// sha256 前后比对证明过：新增 0 / 删除 0 / 改动 0）。
+// 一条"会因为别人正常操作而红"的断言，最后一定会被人改宽 —— 那是假绿的前奏。
+// 所以先量一个**空窗漂移**：脚本不跑的时候数据根自己在不在变？
+//   · 在变 → 这轮只读性判不了，如实报 SKIP（环境不可用，不是通过也不是失败）
+//   · 没变 → 再跑脚本，此时的差异就能算到脚本头上
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+const idleA = fingerprint()
+sleepMs(700)
+const idleB = fingerprint()
+const drift = [...idleB.keys()].filter((k) => !idleA.has(k) || idleA.get(k) !== idleB.get(k))
+const concurrent = drift.length > 0
+
 const before = fingerprint()
 const md = runPy()
 const after = fingerprint()
@@ -66,10 +82,17 @@ const after = fingerprint()
   const added = [...after.keys()].filter((k) => !before.has(k))
   const removed = [...before.keys()].filter((k) => !after.has(k))
   const changed = [...before.keys()].filter((k) => after.has(k) && before.get(k) !== after.get(k))
-  check('★★ 清单生成器是**只读**的（task-data 一个文件都不许动）',
-    added.length === 0 && removed.length === 0 && changed.length === 0,
-    `新增=${added.length} 删除=${removed.length} 改动=${changed.length}` +
-    (changed.length ? ' 首个改动：' + changed[0] : ''))
+  const total = added.length + removed.length + changed.length
+  if (concurrent && total > 0) {
+    console.log('SKIP  ★★ 清单生成器是**只读**的 —— 本轮数据根有别的进程在写（' +
+      drift.length + ' 个文件在空窗期内就变了），只读性判不了；不是通过也不是失败')
+    console.log('      空窗期内就在变的文件：' + drift.slice(0, 3).join(', '))
+  } else {
+    check('★★ 清单生成器是**只读**的（task-data 一个文件都不许动）',
+      total === 0,
+      `新增=${added.length} 删除=${removed.length} 改动=${changed.length}` +
+      (changed.length ? ' 首个改动：' + changed[0] : ''))
+  }
 }
 
 // ── ② 结构：该有的段落都在 ─────────────────────────────────────────────
@@ -164,7 +187,95 @@ const after = fingerprint()
     `守卫=${guardRows.length} 未跑到=${noResult.length}`)
 }
 
-// ── ⑥ --check 的退出码语义 ─────────────────────────────────────────────
+// ── ⑥ 阶段卡解析：两种标题写法都要认（2026-11-15 补）──────────────────
+//
+// 为什么补这条：上面整套 12 条**全绿**，而清单里同时错了两件事 —— 它们都是"解析上层"的错，
+// 不是"输出层"的错，所以自洽性断言看不见：
+//   ① 阶段标题只认 `### P0 · 标题`，而真身里 `### P8 结论集落代码…`（无 `·`）有 6 格
+//      → memory-sanctuary / project-3 两整个项目 0 条、fangcun-base 少 4 条，
+//        而「四段之和 == 合计」照样成立（少算的那部分从来没进过任何一段）；
+//   ② 草案一栏**无脑全收**（目录里有几个文件就报几条"待提成"）→ 声称"8 份差一次点击"，
+//      真身：4 份早提成完了、4 份重号提不动。
+// 所以这里要用**独立实现的解析**（不调脚本里的函数）去对账，脚本自己算错了才拦得住。
+{
+  const plansDir = path.join(ROOT, 'task-data', 'plans')
+  const draftsDir = path.join(plansDir, '_drafts')
+
+  // ① 独立数一遍：真身里到底有多少格是「已冻结 / 待裁决」（两种标题写法都收）
+  const wantStages = []
+  for (const f of fs.readdirSync(plansDir).filter((x) => x.endsWith('.md') && !x.includes('.bak-'))) {
+    const txt = fs.readFileSync(path.join(plansDir, f), 'utf-8')
+    const heads = [...txt.matchAll(/^###\s+(P\d+)\s*[·:：]?\s*(.*)$/gm)]
+    for (let i = 0; i < heads.length; i++) {
+      const seg = txt.slice(heads[i].index + heads[i][0].length,
+        i + 1 < heads.length ? heads[i + 1].index : txt.length)
+      const st = (/^-\s*状态:\s*(.+)$/m.exec(seg) || [])[1]
+      const s = st ? st.trim() : ''
+      if (['待裁决', '未冻结', '待裁决（未冻结）', '已冻结'].includes(s)) {
+        wantStages.push(`${f}:${heads[i][1]}`)
+      }
+    }
+  }
+  const sec4 = md.slice(md.indexOf('## 4. 计划卡'), md.indexOf('## 5. 代码层'))
+  const gotStages = [...sec4.matchAll(/^\| 已冻结未推进 \| `task-data\/plans\/([^`]+)` \| (P\d+) /gm)]
+    .map((m) => `${m[1]}:${m[2]}`)
+  const missingStages = wantStages.filter((x) => !gotStages.includes(x))
+  check('★★ 计划卡的格子**一格不漏**（含无 `·` 的标题写法：`### P8 结论集…`）',
+    wantStages.length > 0 && missingStages.length === 0,
+    `真身=${wantStages.length} 清单=${gotStages.length} 漏=${missingStages.join(',') || '无'}`)
+  // ⚠ 反向：清单也不许多报出不存在的格子
+  const ghost = gotStages.filter((x) => !wantStages.includes(x))
+  check('★ 清单里没有**编出来的**计划格（多报同样要红）', ghost.length === 0, ghost.join(',') || '无')
+
+  // ② 草案：每一份都必须有明确归类，且"待提成"不许把已提成的算进来
+  const draftFiles = fs.readdirSync(draftsDir).filter((x) => x.endsWith('.md'))
+  const classified = draftFiles.filter((f) => sec4.includes(f))
+  check('★★ 每份草案都在 §4 里有**明确归类**（待提成 / 提不进 / 已提成），不许有文件凭空消失',
+    draftFiles.length === 0 || classified.length === draftFiles.length,
+    `草案=${draftFiles.length} 出现=${classified.length} 缺=${draftFiles.filter((f) => !sec4.includes(f)).join(',') || '无'}`)
+  // 逐格比对：能对上的（判据逐条相同）**不许**被列成"待提成"
+  let promoted = 0
+  const wrongly = []
+  for (const f of draftFiles) {
+    const pid = f.replace(/\.md$/, '').replace(/-\d{4}-\d{2}-\d{2}.*$/, '')
+    const planPath = path.join(plansDir, `${pid}.md`)
+    if (!fs.existsSync(planPath)) continue
+    const planTxt = fs.readFileSync(planPath, 'utf-8')
+    const planCrit = {}
+    for (const m of planTxt.matchAll(/^###\s+(P\d+)\s*[·:：]?\s*(.*)$/gm)) {
+      const seg = planTxt.slice(m.index + m[0].length)
+      const nxt = /^###\s/m.exec(seg)
+      const body = nxt ? seg.slice(0, nxt.index) : seg
+      planCrit[m[1]] = (body.match(/^\s*-\s*(?:cmd|str|num|file):.*$/gm) || [])
+        .map((l) => l.replace(/\s+/g, ' ').trim())
+    }
+    const dTxt = fs.readFileSync(path.join(draftsDir, f), 'utf-8')
+    for (const m of dTxt.matchAll(/^###\s+(P\d+)\s*[·:：]?\s*(.*)$/gm)) {
+      const seg = dTxt.slice(m.index + m[0].length)
+      const nxt = /^###\s/m.exec(seg)
+      const body = nxt ? seg.slice(0, nxt.index) : seg
+      const crit = (body.match(/^\s*-\s*(?:cmd|str|num|file):.*$/gm) || [])
+        .map((l) => l.replace(/\s+/g, ' ').trim())
+      if (crit.length && planCrit[m[1]] && planCrit[m[1]].join('|') === crit.join('|')) promoted++
+      // 这一格若已提成，草案行不许把这格记成待提成
+      //
+      // ⚠ 这条第一版写成 `row.includes(`${m[1]} ·`)` —— **假绿**：脚本实际把格子列成
+      //   `（4 格：P8、P9、P10、P11）`，用的是顿号不是 ` · `，所以永远不命中。
+      //   是反例自证（把"草案无脑全收"装回去）当场抓到的：注入后 exit=0、零红。
+      //   现在按**格子号的词边界**判，不看分隔符长什么样。
+      if (crit.length && planCrit[m[1]] && planCrit[m[1]].join('|') === crit.join('|')) {
+        const idRe = new RegExp(`(^|[^0-9A-Za-z])${m[1]}(?![0-9])`)
+        const row = sec4.split('\n').find((l) => l.includes(f) && l.includes('待提成'))
+        if (row && idRe.test(row)) wrongly.push(`${f}:${m[1]}`)
+      }
+    }
+  }
+  check('★ 草案里**已提成**的格子不算待提成（"文件还在" ≠ "事情没做"）',
+    wrongly.length === 0, wrongly.slice(0, 3).join(',') || '无')
+  check('★ 真身里确实存在"已提成"的草案格（防这条断言永远绿）', promoted > 0, `promoted=${promoted}`)
+}
+
+// ── ⑦ --check 的退出码语义 ─────────────────────────────────────────────
 {
   let code = 0
   let out = ''

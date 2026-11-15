@@ -120,13 +120,76 @@ export function normalizeOp(s: string): NumOp | null {
   return null
 }
 
-/** 判据里写的文件都必须是**相对路径** —— 绝对路径换台机器就失效（也不该让判据乱翻盘） */
+/**
+ * 判据里的文件都必须是**相对路径** —— 绝对路径换台机器就失效（也不该让判据乱翻盘）
+ *
+ * ⚠ 2026-11-15：原来还要求「至少含一个 `/` 或 `\`」，那条把 `a.md` 也拒了。
+ *   单文件 repo / 根目录下的一张卡没有任何理由写不成判据 —— 已去掉。
+ *   仍拒的只有：绝对路径（盘符 / 前导分隔符）、空串、以及 `本文件` 这类**明显不是路径**的指代。
+ *   `本文件` 的判法：不含扩展名、不含分隔符、也不是 `.` `..` `./x` 这种形态。
+ */
 function looksRelativePath(p: string): boolean {
   const t = String(p ?? '').trim()
   if (!t) return false
-  if (/^[A-Za-z]:[\\/]/.test(t)) return false
+  if (/^[A-Za-z]:[\\/]/.test(t)) return false // C:\ / C:/
+  if (t.startsWith('//')) return false        // UNC
   if (t.startsWith('/') || t.startsWith('\\')) return false
-  return /[\\/]/.test(t) // 至少要像条路径（`本文件` 这种指代不认）
+  // 「本文件」「这个文件」这类指代：没有任何路径特征
+  if (!/[\\/]/.test(t) && !/\.\w{1,6}$/.test(t) && t !== '.' && t !== '..') return false
+  return true
+}
+
+/**
+ * 从判据正文里取出**目标路径**，并返回路径之后剩下的部分。
+ *
+ * 存在的理由（2026-11-15 实测的真 bug）：
+ *   Obsidian vault 的目录是 `09 绒花计划/`、`03 设定/` 这种**编号 + 空格**命名，
+ *   而原来的三个解析器一律用 `^(\S+)\s+` 取路径 —— 空格把它们切成了 `09`，
+ *   于是 `file: 09 绒花计划/x.md` 永远返回 unknown（"拿到的是「09」"）。
+ *   试过 `09\ `、`"09 …"`、`./09 …` **全部无效**：没有一种转义能表达这类路径。
+ *   而 unknown 在闸里不等于通过 —— 结果是这类项目的判据**永远拿不到绿**，
+ *   或者被逼着写一个不存在的路径去骗过格式检查（那就变装饰了）。
+ *
+ * 认法（按可靠性排序，**老写法必须零破坏**）：
+ *   ① 整段被一对引号包起来 → 引号里就是路径（显式意图，最稳）；
+ *   ② **从长到短试**「前 N 个空白分段」当路径 —— 第一次试通的赢
+ *      （`09 绒花计划/x.md` 会先试 `09`，不通过；再试 `09 绒花计划/x.md`，通过）；
+ *   ③ 全都不通过 → 退回第一个 token（让调用方给 unknown，理由和以前一样）。
+ *
+ * ⚠ 为什么 ② 必须**从长到短**而不是"贪心匹配到看着像扩展名"：
+ *   `str: a.md 含 'x'` 若按扩展名贪心，会把 `含` 也吃进路径；
+ *   而 ③ 的兜底保证老写法（`a.md`）仍然走原来那条路，行为不变。
+ */
+export function takePathTokens(body: string, accept: (p: string) => boolean): { path: string; rest: string } | null {
+  const s = String(body ?? '').trim()
+  if (!s) return null
+  // ① 引号整段包着路径
+  for (const [a, b] of QUOTE_PAIRS) {
+    if (!s.startsWith(a)) continue
+    const close = s.indexOf(b, a.length)
+    if (close < 0) continue
+    const inner = s.slice(a.length, close).trim()
+    if (!inner) continue
+    return { path: inner, rest: s.slice(close + b.length).trim() }
+  }
+  // ② 先试**最短**能成立的「前 N 段」当路径。
+  //
+  //   ⚠ 方向很关键，这里栽过一次：第一版写"从长到短"，而 `file: 00 主面板/x.md 存在`
+  //     的 accept 谓词允许路径后面跟 `存在`，于是它先试通了
+  //     「`00 主面板/x.md 存在` 当路径」→ 把 `存在` 吃进文件名里（守卫当场抓到）。
+  //     要的是**最短**合法前缀：`09 绒花计划/x.md` 会先试 `09`（不合法，无扩展名无分隔符），
+  //     再试 `09 绒花计划/x.md`（合法）→ 停。`含` / `行数` / `存在` 都留在 rest 里。
+  const parts = s.split(/\s+/)
+  for (let n = 1; n <= parts.length; n++) {
+    const cand = parts.slice(0, n).join(' ')
+    if (accept(cand)) {
+      return { path: cand, rest: parts.slice(n).join(' ') }
+    }
+  }
+  // ③ 兜底：第一个 token（调用方会给 unknown，理由保持原样）
+  const m = /^(\S+)(?:\s+([\s\S]*))?$/.exec(s)
+  if (!m) return null
+  return { path: m[1].trim(), rest: String(m[2] || '').trim() }
 }
 
 /**
@@ -171,15 +234,22 @@ export function parseCheckLine(raw: string): ParsedCheck {
 
   if (prefix === 'str') {
     // 含 两侧都要有空格：中文里 `本文件含 …` 这种没空格的是散文，不认
-    const sm = /^(\S+)\s+(?:含|包含|contains)\s+(\S[\s\S]*)$/i.exec(body)
+    // accept：路径合法 **且** 后面紧跟着 `含 …`
+    const tk = takePathTokens(body, (p) => {
+      if (!looksRelativePath(p)) return false
+      const at = body.indexOf(p) + p.length
+      return /^\s+(?:含|包含|contains)\s+/.test(body.slice(at))
+    })
+    if (!tk) return unknown(line, "str: 只认“<相对路径> 含 '<原文>'”—— 含 两侧要有空格，原文要带引号")
+    const sm = /^(?:含|包含|contains)\s+(\S[\s\S]*)$/i.exec(tk.rest)
     if (!sm) {
       return unknown(line, "str: 只认“<相对路径> 含 '<原文>'”—— 含 两侧要有空格，原文要带引号")
     }
-    const filePath = unquoteFull(sm[1]) ?? sm[1].trim()
+    const filePath = unquoteFull(tk.path) ?? tk.path.trim()
     if (!looksRelativePath(filePath)) {
       return unknown(line, `str: 目标文件要写相对路径（拿到的是“${filePath}”；“本文件”这类指代不认）`)
     }
-    const text = parseLiteral(sm[2])
+    const text = parseLiteral(sm[1])
     if (text === null) {
       return unknown(line, "str: 要匹配的原文请用引号括起来（或写成不含空格的单个词）—— 否则分不清原文与说明")
     }
@@ -187,35 +257,56 @@ export function parseCheckLine(raw: string): ParsedCheck {
   }
 
   if (prefix === 'num') {
-    const nm = /^(\S+)\s+(\S+)\s*(>=|<=|==|!=|>|<|≥|≤|＝|=)\s*(-?\d+(?:\.\d+)?)\s*$/.exec(body)
+    // accept：路径合法 **且** 后面紧跟 `<指标> <比较> <数字>`，**且指标要认得出来**
+    // ⚠ 第一版只写了 `^\s+\S+\s*<op>` —— `09 绒花计划/x.md 行数 >= 10` 会被
+    //   从长到短试成「`09 绒花计划/x.md 行数` 当路径」，剩下的 `>= 10` 里指标就读成了 `>`。
+    //   所以这里必须把**指标词本身**也验一遍：它只能是 行数/条目数/字节数/字符数。
+    const NUM_TAIL = /^\s+(\S+)\s*(>=|<=|==|!=|>|<|≥|≤|＝|=)\s*-?\d+(?:\.\d+)?\s*$/
+    const numAccept = (p: string): boolean => {
+      if (!looksRelativePath(p)) return false
+      const at = body.indexOf(p) + p.length
+      const m = NUM_TAIL.exec(body.slice(at))
+      return !!m && parseMetric(m[1]) !== null
+    }
+    const tk = takePathTokens(body, numAccept)
+    if (!tk) {
+      return unknown(line, 'num: 只认“<相对路径> <指标> <比较> <数字>”，指标 = 行数 / 条目数 / 字节数 / 字符数')
+    }
+    const nm = /^(\S+)\s*(>=|<=|==|!=|>|<|≥|≤|＝|=)\s*(-?\d+(?:\.\d+)?)\s*$/.exec(tk.rest)
     if (!nm) {
       return unknown(line, 'num: 只认“<相对路径> <指标> <比较> <数字>”，指标 = 行数 / 条目数 / 字节数 / 字符数')
     }
-    const filePath = unquoteFull(nm[1]) ?? nm[1].trim()
+    const filePath = unquoteFull(tk.path) ?? tk.path.trim()
     if (!looksRelativePath(filePath)) {
       return unknown(line, `num: 目标文件要写相对路径（拿到的是“${filePath}”）`)
     }
-    const metric = parseMetric(nm[2])
+    const metric = parseMetric(nm[1])
     if (!metric) {
-      return unknown(line, `num: 认不出指标“${nm[2]}”—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）`)
+      return unknown(line, `num: 认不出指标“${nm[1]}”—— 只认 行数 / 条目数 / 字节数 / 字符数（不糊默认值）`)
     }
-    const op = normalizeOp(nm[3])
-    if (!op) return unknown(line, `num: 认不出比较符“${nm[3]}”`)
+    const op = normalizeOp(nm[2])
+    if (!op) return unknown(line, `num: 认不出比较符“${nm[2]}”`)
     return {
       kind: 'num', raw: line, path: filePath.replace(/\\/g, '/'),
-      metric, metricText: nm[2], op, expected: Number(nm[4]),
+      metric, metricText: nm[1], op, expected: Number(nm[3]),
     }
   }
 
   // file
-  const fm = /^(\S+)(?:\s+([\s\S]*))?$/.exec(body)
-  if (!fm) return unknown(line, 'file: 后面没有路径')
-  const pattern = unquoteFull(fm[1]) ?? fm[1].trim()
+  // accept：路径合法 **且** 后面要么没了、要么是 `存在…` / `含…` 那几种谓词
+  const FILE_TAIL = /^\s*(?:$|存在|每行含|含|且)/
+  const tk = takePathTokens(body, (p) => {
+    if (!looksRelativePath(p)) return false
+    const at = body.indexOf(p) + p.length
+    return FILE_TAIL.test(body.slice(at))
+  })
+  if (!tk) return unknown(line, 'file: 后面没有路径')
+  const pattern = unquoteFull(tk.path) ?? tk.path.trim()
   if (!looksRelativePath(pattern)) {
     return unknown(line, `file: 目标要写相对路径（拿到的是“${pattern}”）`)
   }
   // 中文逗号 / 句号当空格处理，`存在，且每行含 x` 与 `存在且每行含 x` 等价
-  const rest = String(fm[2] || '').trim().replace(/[，,。；;]/g, ' ').replace(/\s+/g, ' ').trim()
+  const rest = String(tk.rest || '').trim().replace(/[，,。；;]/g, ' ').replace(/\s+/g, ' ').trim()
   if (!rest) return { kind: 'file', raw: line, pattern: pattern.replace(/\\/g, '/'), requireExists: true }
 
   const forms: Array<{ re: RegExp; contains?: 'any' | 'every' }> = [

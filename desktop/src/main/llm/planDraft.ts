@@ -66,6 +66,18 @@ export interface PlanDraftInput {
    * 并要求阶段卡在 what/approach 里回应（照做或说明为什么不照做）。
    */
   decisions?: DraftDecisionRef[]
+  /**
+   * **全量**有效决策 id（2026-11-15 补）—— 只给 `allowedCitations()` 用。
+   *
+   * 为什么要与 `decisions` 分开：决策卡会越来越长，正文证据只塞 12 条是对的；
+   * 但**白名单不能跟着窄** —— 否则用户刚拍板的最新决策会被判成
+   * 「引用了不存在的依据」，整格草案被丢掉。
+   * 实测：OB37 五卷 33 条决策日期全是同一天，按日期排序等于没排，
+   * `.slice(0,12)` 砍掉的是文件末尾那 21 条（含定全书结构的 D-131/D-132/D-137）。
+   *
+   * 缺省（老调用方 / 测试夹具）→ 退回 `decisions` 里那几个 id，行为不变。
+   */
+  decisionIds?: string[]
   /** 已落档的验收线（2026-11-09 · S3 直连）：答过勾的题的【验收线】原文 */
   rulings?: DraftRulingRef[]
   /** git 事实（只给数，不给原文） */
@@ -252,6 +264,11 @@ export function allowedCitations(input: PlanDraftInput): string[] {
   }
   for (const d of Array.isArray(input.decisions) ? input.decisions : []) {
     if (d && d.id) out.push(`decision:${d.id}`)
+  }
+  // 全量 id（2026-11-15）：`decisions` 只喂 12 条做证据，白名单要的是**所有有效决策**。
+  // 两件事用两个集合 —— 校验要宽、喂料要窄。缺省时退回上面那几个 id，老调用方零破坏。
+  for (const id of Array.isArray(input.decisionIds) ? input.decisionIds : []) {
+    if (id) out.push(`decision:${id}`)
   }
   for (const r of Array.isArray(input.rulings) ? input.rulings : []) {
     if (r && r.deck && r.qid) out.push(`ruling:${r.deck}:${r.qid}`)
