@@ -19,6 +19,19 @@ import { runCriterion, type CheckResult } from './runner'
 import { collectWasteLedger } from '../usage/ledger'
 import { deriveWasteInsight, type WasteInsight, type WasteLedger } from '../../shared/waste'
 import { evaluateStageGate } from '../../shared/stageGate'
+import { repoOfProject } from '../services/tripBoard'
+
+/**
+ * `plans/<项目id>.md` → 项目 id。
+ *
+ * 为什么按文件名反查而不是把项目 id 读进 `PlanDoc`：计划卡是**用户手写的 Markdown**，
+ * 里面本来就没有"我是哪个项目"这个字段；而文件名是 `plans:get` / `stage_plan_*` /
+ * MCP 全都依赖的既有约定（`listPlanFiles` 也是按 `.md` 文件名列）。
+ * 在数据层加一个字段是结构改动，这里只需要一个纯函数。
+ */
+function projectIdOfPlanFile(file: string): string {
+  return String(file || '').replace(/\\/g, '/').split('/').pop()!.replace(/\.md$/i, '')
+}
 
 export type StageConclusion = '通过' | '未过' | '未开工'
 
@@ -33,6 +46,16 @@ export interface StageSelfCheck {
   passed: number
   failed: number
   unknown: number
+  /**
+   * 这一格的判据**实际在哪个仓库里量的**（2026-11-15）。
+   *
+   * 为什么必须进报告：修 bug 之前所有卡都在方寸仓库里跑，司天那 4 格报"未过"，
+   * 而看报告的人**没有任何线索**能发现"量错了地方" —— 它和"那些项目真红"长得一模一样。
+   * 口径不写出来，读者只能把假红当真红。
+   */
+  repo?: string
+  /** 反查不到 registry 里的 repo → 退回了调用方给的根（要让它显眼） */
+  repoFallback?: boolean
 }
 
 export interface SelfCheckOptions {
@@ -151,10 +174,15 @@ export function buildSelfCheckMarkdown(report: Omit<SelfCheckReport, 'markdown'>
   if (!report.stages.length) {
     L.push('本仓还没有计划卡 —— 没有可自检的格子。')
   } else {
-    L.push('| 计划 | 阶段 | 状态 | 结论 | 判据 | 通过 | 未过 | 未判定 |')
-    L.push('|---|---|---|---|---|---|---|---|')
+    L.push('| 计划 | 阶段 | 状态 | 结论 | 判据 | 通过 | 未过 | 未判定 | 量的仓库 |')
+    L.push('|---|---|---|---|---|---|---|---|---|')
+    L.push('|---|---|---|---|---|---|---|---|---|')
     for (const s of report.stages) {
-      L.push(`| ${s.file} | ${s.id} · ${s.title} | ${s.status || '未填'} | ${s.conclusion} | ${s.total} | ${s.passed} | ${s.failed} | ${s.unknown} |`)
+      // "量的仓库"这一列存在的理由见 `StageSelfCheck.repo`：没有它，把假红当真红没人能发现。
+      // 退回调用方根时显式写 `（未登记，退回）` —— 不静默。
+      const repoCell = !s.repo ? '—'
+        : '`' + path.basename(s.repo) + '`' + (s.repoFallback ? '（未登记，退回）' : '')
+      L.push(`| ${s.file} | ${s.id} · ${s.title} | ${s.status || '未填'} | ${s.conclusion} | ${s.total} | ${s.passed} | ${s.failed} | ${s.unknown} | ${repoCell} |`)
     }
   }
   L.push('')
@@ -212,8 +240,29 @@ export async function runSelfCheck(opts: SelfCheckOptions = {}, deps: SelfCheckD
   for (const f of files) {
     const doc = readPlan(f)
     if (!doc) continue
+    /**
+     * **每个项目的判据跑在它自己的仓库里**（2026-11-15 修的真 bug）。
+     *
+     * 旧实现：所有计划卡都拿同一个 `repo`（= 方寸自己的数据目录）当 root。
+     * 后果在真报告里一眼可见 —— 司天那 4 张卡的判据是
+     * `cd E:/CODE/CangKu/SiTian && pytest …` 与 `file: utils/heightMath.js`，
+     * 却在**方寸仓库根**下执行：`utils/heightMath.js` 当然不存在、pytest 当然找不到文件。
+     * 于是 7 条"未过 / 未判定"里大部分是**量错了地方**，不是那些项目真红。
+     *
+     * 判据路径始终相对**它所属项目的仓库**（这是 `checkSpec` 与 `plans/` 的共同前提），
+     * 所以 root 必须按 `plans/<项目id>.md` 的文件名反查 registry 的 repo。
+     * 反查不到就退回调用方给的 repo —— **但要留痕**（`repoFallback`），
+     * 否则"没登记的项目按方寸仓库量"又会变成一个静默的口径。
+     */
+    const pid = projectIdOfPlanFile(f)
+    const repoOfDoc = pid ? repoOfProject(pid) : ''
+    const root = repoOfDoc || repo
     for (const s of doc.stages) {
-      stages.push(await checkStage(doc, s, repo, deps, opts.timeoutMs))
+      const r = await checkStage(doc, s, root, deps, opts.timeoutMs)
+      // 记下这一格实际用的仓库（报告里要看得出"这条是在哪个仓库量的"）
+      ;(r as any).repo = root
+      ;(r as any).repoFallback = !repoOfDoc
+      stages.push(r)
     }
   }
   const totals = {

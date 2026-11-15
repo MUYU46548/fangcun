@@ -214,6 +214,60 @@ async function main() {
     check('★ 报告落点固定 docs/自检报告-', /自检报告-/.test(PY) && /docs/.test(PY))
   }
 
+  // ══ ⑧ 每一格的判据必须跑在**它自己项目的仓库**里（2026-11-15 真 bug）═══════════
+  // 真报告现场：司天那 4 格判据是 `cd E:/CODE/CangKu/SiTian && pytest …` 与
+  // `file: utils/heightMath.js`，却全在**方寸仓库根**下执行 —— `utils/heightMath.js`
+  // 当然不存在。7 条"未过"里大部分是**量错了地方**，而报告上它们和"那些项目真红"
+  // 长得一模一样。判据：两个项目两份计划卡 → 报告里"量的仓库"列必须各写各的。
+  {
+    const A = path.join(TEST_ROOT, 'repo-a')
+    const B = path.join(TEST_ROOT, 'repo-b')
+    fs.mkdirSync(path.join(A, 'markers'), { recursive: true })
+    fs.mkdirSync(path.join(B, 'markers'), { recursive: true })
+    fs.writeFileSync(path.join(A, 'markers', 'only-a.txt'), 'A', 'utf-8')
+    // registry：两个项目各指一个仓库
+    fs.writeFileSync(path.join(TEST_ROOT, 'registry.yaml'),
+      'members: []\nprojects:\n  - id: demo-a\n    name: 甲\n    repo: "' + A.replace(/\\/g, '\\\\') + '"\n'
+      + '  - id: demo-b\n    name: 乙\n    repo: "' + B.replace(/\\/g, '\\\\') + '"\n', 'utf-8')
+    // 两份计划卡，各带一条**只在自己仓库里成立**的 file 判据
+    const card = (pid, marker) => [
+      '# ' + pid, '', '- 状态: 已冻结', '', '## 范围', '', '## 交付物', '', '## 验收标准', '', '## 里程碑', '', '## 除外责任', '',
+      '### P0 · 各自仓库里的标记', '',
+      '- 状态: 已冻结', '', '- 技术方案:', '  - x', '', '- 照抄点:', '  | 抄哪块 | 落到哪 | 不抄什么 | 怎么算抄到位 |', '  |---|---|---|---|', '  | a | b | c | d |', '',
+      '- 判据:', '  - file: markers/' + marker + ' 存在', '',
+    ].join('\n')
+    fs.writeFileSync(path.join(TEST_ROOT, 'task-data', 'plans', 'demo-a.md'), card('demo-a', 'only-a.txt'), 'utf-8')
+    fs.writeFileSync(path.join(TEST_ROOT, 'task-data', 'plans', 'demo-b.md'), card('demo-b', 'only-b.txt'), 'utf-8')
+
+    const r = await runSelfCheck({ repo: A, days: 0, now: '2026-11-01T00:00:00.000Z' })
+    const a = r.stages.find((s) => s.file === 'demo-a.md')
+    const b = r.stages.find((s) => s.file === 'demo-b.md')
+    check('★★ demo-a 的判据跑在 **A 仓库**（markers/only-a.txt 存在 → 通过）',
+      !!a && a.passed === 1, a ? JSON.stringify({ repo: a.repo, passed: a.passed, failed: a.failed }) : '没有 demo-a')
+    check('★★ demo-b 的判据跑在 **B 仓库**（only-b.txt 不在 A 里 —— 若仍用 A 根，这条会是 fail）',
+      !!b && b.repo === B, b ? 'repo=' + b.repo : '没有 demo-b')
+    check('★★ 报告里"量的仓库"列各写各的（不是所有卡都写同一个）',
+      (() => {
+        const md = buildSelfCheckMarkdown(r)
+        const rows = md.split('\n').filter((l) => /^\| demo-[ab]\.md \|/.test(l))
+        return rows.length === 2 && rows.some((x) => /repo-a/.test(x)) && rows.some((x) => /repo-b/.test(x))
+      })(), resolveLater())
+    function resolveLater() {
+      try { return buildSelfCheckMarkdown(r).split('\n').filter((l) => /^\| demo-[ab]\.md \|/.test(l)).join(' ~~ ').slice(0, 200) } catch { return '' }
+    }
+
+    // 反例自证：把项目从 registry 摘掉 → 退回调用方根，且报告必须**显式标出来**
+    fs.writeFileSync(path.join(TEST_ROOT, 'registry.yaml'), 'members: []\nprojects: []\n', 'utf-8')
+    const r2 = await runSelfCheck({ repo: A, days: 0, now: '2026-11-01T00:00:00.000Z' })
+    const orphan = r2.stages.find((s) => s.file === 'demo-b.md')
+    check('★★ 未登记的项目 → 退回调用方根，且**标出** repoFallback（不静默）',
+      !!orphan && orphan.repoFallback === true, orphan ? String(orphan.repoFallback) : '没有 demo-b')
+    check('★ 报告里写「未登记，退回」（读者能看出这条量错了地方）',
+      /未登记，退回/.test(buildSelfCheckMarkdown(r2)))
+    try { fs.rmSync(path.join(TEST_ROOT, 'task-data', 'plans', 'demo-a.md'), { force: true })
+      fs.rmSync(path.join(TEST_ROOT, 'task-data', 'plans', 'demo-b.md'), { force: true }) } catch { /* ignore */ }
+  }
+
   console.log(`\nRESULT ${pass} / ${fail}`)
   if (fail) { console.log('\n失败项：'); failures.forEach((f) => console.log(' - ' + f)) }
   try { fs.rmSync(TEST_ROOT, { recursive: true, force: true }) } catch { /* ignore */ }
