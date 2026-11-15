@@ -51,6 +51,17 @@ export interface QItem {
   /** 已答过（样本里写「已答过」「预填确认」这类）——界面要标成“这题答过” */
   prefilled: boolean
   prefilledNote: string
+  /**
+   * **我的意见**（2026-11-15 暮雨：「不要只是给我看不懂的问题，这是方寸本身也存在的问题」）。
+   *
+   * 病根不在"问题问得不好"，在于**卷子只给选项、不给判断** —— 于是"出一份问卷"这个动作
+   * 把决策成本原样转嫁回用户，看起来像在帮忙，其实只是把题目排整齐了。
+   * 所以卷面新增一行 `【意见】`：**推荐哪个 + 一句为什么**。空着是允许的（有些题我确实不知道），
+   * 但空着与"没想过"是一回事，界面必须让这个区别可见（见 `QItem.opinion` 的空态处理）。
+   */
+  opinion: string
+  /** 意见里点名推荐的那一档（`【意见】B：…` 里的 B）；认不出就空串 */
+  recommend: string
 }
 
 export interface QLookRow {
@@ -111,6 +122,27 @@ function splitRow(line: string): string[] {
 }
 
 /**
+ * 从一段意见里认出"推荐哪一档"。
+ *
+ * 认的形态（都来自真实写法）：`B：…` / `B. …` / `选 B` / `推荐 B` / `建议 B`。
+ * 为什么只认**开头或"选/推荐/建议"紧跟的那个字母**：意见里常出现 "不比 A 差" 这种反向提及，
+ * 全文搜字母会把"提到过"当成"推荐了"—— 那会把意见指错方向，比没有意见更糟。
+ * 认不出返回空串（界面据此显示"这一题我没有把握"，而不是随便点亮一个）。
+ */
+export function recommendOf(opinion: string): string {
+  const t = String(opinion || '').trim()
+  if (!t) return ''
+  const head = /^([A-Za-z])[\s.、:：—-]/.exec(t)
+  if (head) return head[1].toUpperCase()
+  const tail = /(?:选|推荐|建议|倾向)\s*([A-Za-z])(?![A-Za-z])/.exec(t)
+  if (tail) return tail[1].toUpperCase()
+  // 整段只有"B"三个字符以内的情况（极简写法）
+  const bare = /^([A-Za-z])$/.exec(t)
+  if (bare) return bare[1].toUpperCase()
+  return ''
+}
+
+/**
  * 解析一份问卷 md。
  *
  * ⚠ 一律**不抛异常**：解析失败返回 `{ questions: [], error }` —— 调用方要把错误摆到界面上。
@@ -126,8 +158,8 @@ export function parseQuestionnaire(md: string): QDeck {
 
   const lines = text.split('\n')
   let cur: QItem | null = null
-  /** 当前正在收「出处 / 验收线 / 看一眼」这种跨行的字段 */
-  let field: '' | 'src' | 'line' | 'look' = ''
+  /** 当前正在收「出处 / 验收线 / 看一眼 / 意见」这种跨行的字段 */
+  let field: '' | 'src' | 'line' | 'look' | 'opinion' = ''
   let inLookTable = false
   let inParked = false
   let parkedHeader: string[] = []
@@ -175,7 +207,7 @@ export function parseQuestionnaire(md: string): QDeck {
       cur = {
         id: h2[1], nav: (h2[2] || '').trim(),
         ask: '', options: [], src: '', line: '', look: '',
-        prefilled: false, prefilledNote: '',
+        prefilled: false, prefilledNote: '', opinion: '', recommend: '',
       }
       askTaken = false
       continue
@@ -229,7 +261,7 @@ export function parseQuestionnaire(md: string): QDeck {
       else { deck.boundary += '\n' + line.trim(); continue }
     }
 
-    // 字段行【出处】【验收线】【看一眼】【看点】
+    // 字段行【出处】【验收线】【看一眼】【看点】【意见】
     const f = RE_FIELD.exec(line)
     if (f) {
       const name = f[1]
@@ -238,6 +270,14 @@ export function parseQuestionnaire(md: string): QDeck {
       if (/出处/.test(name)) { cur.src = val; field = 'src' }
       else if (/验收线/.test(name)) { cur.line = val; field = 'line' }
       else if (/看一眼/.test(name)) { cur.look = val; field = 'look' }
+      else if (/意见|建议|推荐/.test(name)) {
+        // 【意见】B：理由…… —— 三个写法都认（意见 / 建议 / 推荐），因为写卷的是 agent，
+        // 它会挑一个顺手的词；只认一个就等于让另一种写法静默失效。
+        cur.opinion = val
+        const r = recommendOf(val)
+        if (r) cur.recommend = r
+        field = 'opinion'
+      }
       else field = ''
       continue
     }
@@ -247,6 +287,14 @@ export function parseQuestionnaire(md: string): QDeck {
       if (field === 'src') cur.src += '\n' + line.trim()
       else if (field === 'line') cur.line += '\n' + line.trim()
       else if (field === 'look') cur.look += '\n' + line.trim()
+      else if (field === 'opinion') {
+        cur.opinion += '\n' + line.trim()
+        // 续行里也可能才出现选项字母（`【意见】` 单独一行、下一行写 `B —— 因为…`）
+        if (!cur.recommend) {
+          const r = recommendOf(cur.opinion)
+          if (r) cur.recommend = r
+        }
+      }
       continue
     }
 

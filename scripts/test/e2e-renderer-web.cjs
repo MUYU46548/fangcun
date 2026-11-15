@@ -383,6 +383,9 @@ function main() {
       // 2026-11-08：使用手册整页重排（暮雨第 1 条：“? 打开的是手册，样式和其他页格格不入”）
       // 走顶栏那个 ? 按钮进（页签名可能被收进「更多」，按文字点不到）。
       ['看板', '列视图', 'help-manual', 'helptab'],
+      // 2026-11-15：问卷弹窗**从来没有过任何截图** —— 而这一轮刚给它加了「我的意见」三态。
+      // 没被拍过的界面 = 从没被看过的界面（作战计划页就是这么攒出"一坨"的）。
+      ['看板', '列视图', 'questionnaire-opinion', 'qnopinion'],
       // 2026-11-08：日志「关联任务」候选按项目分组（暮雨：“实战中就是不可用”那一条的成品）。
       ['日志', '', 'log-task-groups', 'logtask'],
       // 2026-11-13（卡 2b1e3d59）：**搜索态**的平铺列表 —— 与上面那张分组态是一对。
@@ -1032,6 +1035,15 @@ function main() {
   // 重新进一次看板：不重载的话画面上还是旧夹具（没有任何驳回卡，证明不了“横幅没了”）
   clickText('待办'); await sleep(500)
   clickText('看板'); await sleep(900)
+` : ''}
+  ${extra === 'qnopinion' ? `
+  // 2026-11-15：开问卷 → 点第一卷 → 题目页（要拍到「我的意见」块与选项上的角标）
+  const qbtn = all('#bar button, #views button').find((b) => (b.textContent || '').indexOf('问卷') >= 0)
+  if (qbtn) qbtn.click()
+  await sleep(900)
+  const d1 = document.querySelector('#qn-modal .qn-deck')
+  if (d1) d1.click()
+  await sleep(1200)
 ` : ''}
   ${extra === 'helptab' ? `
   // 顶栏 ? 按钮 → 使用手册（它不在页签里，按文字点 '?'）

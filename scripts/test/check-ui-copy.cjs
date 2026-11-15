@@ -195,6 +195,47 @@ function main() {
       !!tsVer && histRow.test(mdSrc), 'ver=' + (tsVer || '?'))
   }
 
+  // ── E. 对外文本不许被自己的契约推翻（REV-011，2026-11-15）──────────────
+  // 为什么单列：这不是"措辞好坏"，是**两份对外文本互相打脸**。
+  // 现场：`免责声明` 第二章写「不是项目全周期管理平台」，而 `立项契约` REV-008（更晚、写了理由的
+  // 裁决）把定位改成了「项目全周期管理」。对外文本里留一句被自己契约推翻的话，
+  // 是可以被引用来说事的矛盾 —— 而它**骗过了所有人**，因为两份文件谁都不会去读另一份。
+  //
+  // 判据只钉两条硬事实（契约里有 REV-008 这句 + 声明里不许还写着旧口径），不评修辞。
+  {
+    const charter = path.join(REPO, '立项契约.md')
+    const chSrc = fs.existsSync(charter) ? fs.readFileSync(charter, 'utf-8') : ''
+    const dmSrc2 = (() => {
+      const p2 = path.join(SRC, 'renderer', 'disclaimer.ts')
+      return fs.existsSync(p2) ? fs.readFileSync(p2, 'utf-8') : ''
+    })()
+    const mdSrc2 = (() => {
+      const p2 = path.join(REPO, 'docs', '免责声明与用户协议.md')
+      return fs.existsSync(p2) ? fs.readFileSync(p2, 'utf-8') : ''
+    })()
+    // 前置：契约里确实有那条裁决（没有它就说明契约被改了，这条守卫要跟着改）
+    check('★ 契约里有 REV-008（全周期改为受理）—— 这条守卫的前提',
+      /REV-008/.test(chSrc) && /全周期/.test(chSrc))
+    // 反例自证口径：旧句子必须**确实不存在**了
+    check('★★ 声明里不再写「不是项目全周期管理平台」（旧口径已被 REV-008 推翻）',
+      !/不是项目全周期管理平台/.test(mdSrc2) && !/不是项目全周期管理平台/.test(dmSrc2),
+      'docs=' + /不是项目全周期管理平台/.test(mdSrc2) + ' ts=' + /不是项目全周期管理平台/.test(dmSrc2))
+    check('★★ 声明第二章已改口为「是项目全周期管理」（两处载体都要有）',
+      /是\*\*项目全周期管理/.test(mdSrc2) && /基础功能/.test(dmSrc2),
+      'docs=' + /是\*\*项目全周期管理/.test(mdSrc2))
+    // 未成年人：一句话档，**不许**滑向实名/年龄验证（那与"不收集任何个人信息"矛盾）。
+    // ⚠ 判据不能是"全文不许出现'年龄验证'这四个字" —— 条款本身**必须**说清"我不做年龄验证"，
+    //   否则读者以为没规定。真正的判据是：**规定性语句**里不许出现"要求/须/应做年龄验证"，
+    //   且必须有一句显式的否定（"不做/不设"）。第一版写成全文禁词，被自己的说明句打红。
+    check('★★ 有未成年人条款（未满 14 周岁须监护人同意）',
+      /14\s*周岁/.test(mdSrc2) && /监护人/.test(mdSrc2))
+    const nudityPositive = /(?:须|需|应当?|要求)\s*(?:上传证件|实名认证|完成年龄验证)/.test(mdSrc2)
+    const nudityNegative = /(?:不做|不设|不要求)\s*(?:年龄验证|实名|监护人同意流程)/.test(mdSrc2)
+    check('★★ 未成年人条款**明说不做**实名/年龄验证（与"不收集个人信息"一致）',
+      nudityNegative && !nudityPositive,
+      '明说不做=' + nudityNegative + ' 规定要做=' + nudityPositive)
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

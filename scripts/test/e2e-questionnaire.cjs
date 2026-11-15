@@ -145,6 +145,46 @@ console.log('\n== 容错与边界 ==')
   check('★ 结果能 JSON 往返（要过 IPC 桥、要落盘草稿）', ok)
 }
 
+console.log('== 【意见】字段：卷子必须带判断，不能只给选项 ==')
+// 2026-11-15 暮雨：「不要只是给我看不懂的问题，这是方寸本身也存在的问题」。
+// 病根不是"题目问得不好"，是**只给选项、不给判断** —— 出一份问卷就等于把决策成本
+// 原样转嫁回用户，看起来在帮忙，其实只是把题目排整齐了。
+{
+  const deck = parseQuestionnaire([
+    '# 测试卷（裁决层）', '',
+    '## S1 该怎么选', '',
+    '这题该怎么选？', '',
+    '- **A. 甲**——代价甲', '- **B. 乙**——代价乙', '- **C. 丙**——代价丙', '',
+    '【意见】B：乙最省事，且不堵后面的路。', '',
+    '## S2 另一题', '',
+    '这题呢？', '',
+    '- **A. 甲**——代价甲', '- **B. 乙**——代价乙', '',
+    '【意见】不好说，两边各有各的代价。', '',
+  ].join('\n'))
+  const s1 = deck.questions.find((q) => q.id === 'S1')
+  const s2 = deck.questions.find((q) => q.id === 'S2')
+  check('★★ 【意见】能解析出来（卷子可以带我的判断）',
+    !!s1 && /乙最省事/.test(s1.opinion), s1 ? JSON.stringify(s1.opinion) : '没有 S1')
+  check('★★ 意见里点名的档位认出来了（recommend=B）',
+    !!s1 && s1.recommend === 'B', s1 ? s1.recommend : '没有 S1')
+  check('★★ 认不出推荐时**留空**，不许瞎指一个',
+    !!s2 && s2.recommend === '', s2 ? '"' + s2.recommend + '"' : '没有 S2')
+  check('★ 没写【意见】的题 opinion 是空串（不是 undefined，界面才好判断）',
+    !!s1 && typeof s1.opinion === 'string')
+}
+
+console.log('== recommendOf 的边界（认错比没有更糟）==')
+{
+  const R = require(ART).recommendOf
+  check('★ 开头字母 + 冒号', R('B：理由') === 'B')
+  check('★ 开头字母 + 句点', R('C. 理由') === 'C')
+  check('★ 「选 B」形态', R('我倾向这个，选 B 吧') === 'B')
+  check('★★ 只是**提到**的字母不算推荐（"不比 A 差"不许被判成推荐 A）',
+    R('这个方案不比 A 差，但…') === '', '"' + R('这个方案不比 A 差，但…') + '"')
+  check('★ 空意见给空串', R('') === '')
+  check('★ 非字符串不炸', R(null) === '')
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); for (const f of failures) console.log('  · ' + f) }
 console.log(`RESULT ${pass} / ${fail}`)

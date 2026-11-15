@@ -1416,6 +1416,7 @@ contextBridge.exposeInMainWorld('tegula', {
             ],
             src: 'M1 原话', line: '不带形态标签的稿子一律打回',
             look: '', prefilled: false, prefilledNote: '',
+            opinion: 'B：先出短篇能把管线跑通，长篇容易卡在素材。', recommend: 'B',
           }],
         },
       }
@@ -1464,6 +1465,9 @@ contextBridge.exposeInMainWorld('tegula', {
             ],
             src: '四问总表§一', line: '凡跨形态派单的司天任务卡一律打回',
             look: 'WorldPainter — 桌面手绘；易制地图 — 网页涂色', prefilled: false, prefilledNote: '',
+            // 2026-11-15：给这条夹具一条**真意见**，界面才能验「我倾向 B」与角标。
+            // 只给选项 = 把决策成本转嫁回用户 —— 这一条同时是那个病根的回归证据。
+            opinion: 'B：先出短篇能把管线跑通，长篇容易卡在素材。', recommend: 'B',
           },
           {
             id: 'S3', nav: '验收方式', ask: '每轮产出怎么验收？',

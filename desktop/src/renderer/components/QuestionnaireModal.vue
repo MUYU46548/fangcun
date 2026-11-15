@@ -369,12 +369,31 @@
                 </button>
                 <div v-if="lookOpen[currentQ.id]" class="look-bd">{{ currentQ.look }}</div>
               </div>
+              <!-- 我的意见（2026-11-15 暮雨：「不要只是给我看不懂的问题，这是方寸本身也存在的问题」）。
+                   卷子只给选项 = 把决策成本原样转嫁回用户。这一块把"我怎么想"摆出来：
+                   推荐哪一档、为什么、以及**我有没有把握**。
+                   ⚠ 三态必须分开，否则这道题等于没答：
+                     · 有推荐 → 「我倾向 B」+ 理由
+                     · 写了意见但没点名 → 「我有想法但没定档」+ 理由
+                     · 一个字没写 → 「这一题我没有把握」**明说**，不许静默留白
+                       （静默留白会被读成"方寸觉得随便都行"，那是替人下了结论）。 -->
+              <div class="qn-opinion" :class="{ weak: !currentQ.recommend, none: !currentQ.opinion }">
+                <span class="qo-hd">
+                  {{ currentQ.recommend ? '我倾向 ' + currentQ.recommend
+                    : currentQ.opinion ? '我有想法，但没定档'
+                    : '这一题我没有把握' }}
+                </span>
+                <span v-if="currentQ.opinion" class="qo-bd">{{ currentQ.opinion }}</span>
+                <span v-else class="qo-bd">（写卷的 agent 没给意见 —— 这一题只能你自己判）</span>
+              </div>
               <div class="qn-opts">
                 <button v-for="o in currentQ.options" :key="o.k" class="qn-opt"
-                  :class="{ on: answers[currentQ.id] && answers[currentQ.id].kind === 'pick' && answers[currentQ.id].k === o.k }"
+                  :class="{ on: answers[currentQ.id] && answers[currentQ.id].kind === 'pick' && answers[currentQ.id].k === o.k,
+                            rec: currentQ.recommend === o.k }"
                   @click="pick(currentQ.id, o.k)">
                   <span class="kk">{{ o.k }}</span>
                   <span class="txt"><b>{{ o.t }}</b><small v-if="o.d">{{ o.d }}</small></span>
+                  <span v-if="currentQ.recommend === o.k" class="qo-rec">我的意见</span>
                 </button>
               </div>
               <div v-if="answers[currentQ.id]" class="qn-state">
@@ -1388,6 +1407,21 @@ onBeforeUnmount(() => {
 .look-hd .arw.open { transform: rotate(90deg); }
 .look-bd { padding: 7px 10px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); line-height: 1.8; white-space: pre-wrap; }
 
+/* 我的意见（2026-11-15）：把"我怎么想"摆在选项**上方** ——
+   先看判断再看选项，而不是让人先被四个选项淹没再想起问"那你怎么想"。
+   三态各有各的长相：有推荐 = 品牌色左边条；有想法没定档 = 中性；没把握 = 虚线弱化。
+   ⚠ 第三态**必须**出现（不是不渲染）—— 静默留白会被读成"随便都行"，那是替人下结论。 */
+.qn-opinion { display: flex; flex-direction: column; gap: 3px; margin-top: 8px;
+  padding: 7px 11px; border-radius: 10px; border: 1px solid var(--accent-soft);
+  border-left: 3px solid var(--accent); background: var(--tint-2); }
+.qn-opinion.weak { border-left-color: var(--muted); border-color: var(--border); }
+.qn-opinion.none { border-style: dashed; border-left-style: dashed; background: transparent; }
+.qn-opinion .qo-hd { font-size: 12px; font-weight: 700; color: var(--accent); }
+.qn-opinion.weak .qo-hd, .qn-opinion.none .qo-hd { color: var(--muted); }
+.qn-opinion .qo-bd { font-size: 12px; color: var(--ink); line-height: 1.65; white-space: pre-wrap; }
+.qn-opt .qo-rec { flex: none; align-self: center; font-size: 10.5px; padding: 1px 7px;
+  border-radius: 999px; background: var(--tint); color: var(--accent); font-weight: 600; }
+.qn-opt.rec { border-color: var(--accent-soft); }
 .qn-opts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .qn-opt { display: flex; gap: 9px; align-items: flex-start; width: 100%; text-align: left; border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 9px 11px; }
 .qn-opt:hover { border-color: var(--accent-soft); background: #fcfbff; }

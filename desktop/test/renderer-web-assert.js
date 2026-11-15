@@ -6192,6 +6192,25 @@
           && $$('#qn-modal .qn-opt').length >= 3,
         'ask=' + (($('#qn-modal .q-ask') || {}).textContent || '').slice(0, 30) + ' opts=' + $$('#qn-modal .qn-opt').length)
 
+      // ── 【意见】：卷子必须带判断，不能只给选项（2026-11-15）───────────────
+      // 暮雨：「不要只是给我看不懂的问题，这是方寸本身也存在的问题」。
+      // 这一节钉的不是"有个意见块"，而是**三态各说各的话** ——
+      // 静默留白会被读成"方寸觉得随便都行"，那是替人下了结论。
+      {
+        const op = $('#qn-modal .qn-opinion')
+        check('★★ 题目页有「我的意见」块（卷子不只给选项）', !!op,
+          op ? (op.textContent || '').slice(0, 60) : '没有 .qn-opinion')
+        check('★★ 有推荐时明说「我倾向 B」（不是只把理由堆在那）',
+          !!op && /我倾向\s*B/.test(op.textContent || ''), op ? (op.textContent || '').slice(0, 60) : '')
+        check('★★ 推荐的那一档在选项行里被标出来（「我的意见」角标）',
+          $$('#qn-modal .qn-opt .qo-rec').length === 1
+            && !!$$('#qn-modal .qn-opt')[1]
+            && !!$$('#qn-modal .qn-opt')[1].querySelector('.qo-rec'),
+          '角标数=' + $$('#qn-modal .qn-opt .qo-rec').length)
+        check('★ 意见正文原样渲染（含"为什么"）',
+          !!op && /短篇能把管线跑通/.test(op.textContent || ''))
+      }
+
       // 批 5（2026-11-11）：问卷弹窗这一刀只迁了两件 —— `qn-back`（工具行 28）与 `meta-t`（密集档 24）。
       // 判据仍是几何：迁过去要落在它该在的那一档，而不是"能点就行"。
       {
