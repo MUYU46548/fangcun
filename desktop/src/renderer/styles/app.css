@@ -3450,10 +3450,14 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* ⚠ 2026-11-15（窄屏截图目检抓到）：上面那条只收面板，**表单还是死宽 720** ——
    900×700（Electron 最小窗口）下 720 + 12 + 380 = 1112 > 900-48，
    于是整块浮层**从右边被切掉**，挑选面板右侧的按钮点不到。
-   正解不是再调一个魔法宽度，而是让两栏**按比例分**：表单 flex:1 可缩、面板 flex:0 1 460 有下限。
-   这样从 900 到 4K 都不会溢出，也不需要第三档断点。 */
+   正解不是再调一个魔法宽度，而是让两栏**按比例分**：表单可缩但有上限、面板可缩有下限。
+   这样从 900 到 4K 都不会溢出，也不需要第三档断点。
+   ⚠ `max-width: 720px` 是**必须的**：只写 `flex: 1 1 520px` 时表单会随着窗口变宽一路撑开
+     （1440 下实测铺到 920，比它设计宽度宽 200px，输入框一行长到读不下去）。
+     给上限之后「窗口宽 → 表单保持 720、面板吃余量」，这才是原设计意图。 */
+#log-edit-overlay:has(#log-task-panel) { padding: 24px; }
 #log-edit-overlay:has(#log-task-panel) #log-edit-modal {
-  width: auto; flex: 1 1 520px; min-width: 0;
+  width: auto; flex: 1 1 520px; max-width: 720px; min-width: 0;
 }
 #log-edit-overlay:has(#log-task-panel) #log-task-panel {
   flex: 0 1 460px; min-width: 300px;
