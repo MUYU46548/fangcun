@@ -2232,9 +2232,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 投入产出账（0.6.0 P5）：三格各自带“它证明不了什么”；取不到就整格不渲染 */
 .waste-block { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 10px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+/* 收起态（2026-11-15，暮雨第三次"界面依然很不美观"）：一行说完三条读数。
+   做成浅底无阴影 —— 收起的块不该还带着"我是个重要卡片"的重量。 */
+.waste-block.folded { padding: 8px 14px; background: var(--tint-2); box-shadow: none; }
 .waste-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .waste-head b { font-size: 13px; }
 .waste-span { font-size: 11px; color: var(--muted); }
+.waste-brief-i { display: inline-flex; align-items: baseline; gap: 4px; margin-right: 14px;
+  font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.waste-brief-i + .waste-brief-i::before { content: ''; }
+.waste-brief-bound { flex: 1 1 100%; margin-top: 2px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+/* 2026-11-15：这枚改成基座 Button(ghost, sm) 之后，**宽高内距全由基座给**，
+   这里只留"靠右" —— 再写字号/边框就跟基座打架（而且那正是手搓的定义）。 */
+.waste-toggle { margin-left: auto; }
 .waste-note { flex: 1 1 100%; font-size: 11px; color: var(--muted); line-height: 1.6; }
 .waste-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 .waste-cell { background: var(--tint); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; min-width: 0; }
@@ -2319,7 +2329,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-text { margin-top: 8px; }
 .plan-ta { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; resize: vertical; }
 .plan-text-acts { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
-.plan-msg { position: sticky; bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; }
+/* 结果提示（2026-11-15）：原来是 `position: sticky; bottom: 8px` 的**整行通栏条**，
+   它落在列表里会被当成"又一张卡片"，把 P0/P1/P3 的节奏截断（暮雨截图里那条粉红色的
+   「P3 判据没过 —— 看下面逐条实际值」就是这么挤在两张卡中间的）。
+   改成**靠右的小提示**：它是对刚才那个动作的回执，不是内容。
+   ⚠ 用 sticky + fit-content 而不是 fixed：页面里若有 transform 祖先，fixed 会改基准，
+   而这行提示会跑到一个没人预期的位置（比"整行条"更糟）。 */
+.plan-msg { position: sticky; bottom: 10px; margin-left: auto; width: fit-content;
+  max-width: min(480px, 100%); font-size: 12.5px; padding: 9px 14px; border-radius: 10px;
+  box-shadow: var(--el-2); }
 .plan-msg.ok { background: #e9f5e4; border: 1px solid #cfe4c8; color: var(--ok-text); }
 .plan-msg.bad { background: #fbeceb; border: 1px solid #eecfcc; color: var(--danger-text); }
 /* ── 待裁决清单（2026-11-02）：此前这些卡在界面上等于不存在 ── */
@@ -3407,11 +3425,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   border-radius: 8px; font-size: 12.5px; font-family: inherit; background: #fff; color: var(--ink); outline: none; }
 .ltp-frow { display: flex; align-items: center; gap: 8px; padding: 6px 14px 0; }
 .ltp-frow-wrap { align-items: flex-start; }
-.ltp-flbl { flex: none; width: 44px; font-size: 11px; color: var(--muted); font-weight: 600; padding-top: 3px; }
+.ltp-flbl { flex: none; width: 48px; font-size: 12.5px; color: var(--muted); font-weight: 600; padding-top: 3px; }
 .ltp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-/* 筛选 chip：与 .lts 同一视觉语言，但更小 —— 面板里一屏要塞五层筛选 */
+/* 筛选 chip：与 .lts 同一视觉语言，但更小 —— 面板里一屏要塞五层筛选。
+   2026-11-15 暮雨：「字有点小，小问题」→ 11 → 12.5，内距与行高同步抬一点（不然挤在一起）。 */
 .ltp-chip {
-  font-size: 11px; line-height: 1.5; padding: 1px 8px; border-radius: 999px;
+  font-size: 12.5px; line-height: 1.6; padding: 2px 9px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--card); color: var(--muted);
   font-family: inherit; cursor: pointer;
 }
@@ -3423,25 +3442,27 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    一个点开就是空的选项，比没有这个选项更浪费人。
    ⚠ 计数用 `i` 元素而不是再包一层 span：它没有语义角色，样式也只挂在这一个类上。 */
 .ltp-projchips { max-height: 60px; overflow: auto; }
-.ltp-chip-n { font-style: normal; margin-left: 4px; font-size: 9.5px; opacity: .65; }
-.ltp-more { font-size: 10.5px; color: var(--muted); }
+.ltp-chip-n { font-style: normal; margin-left: 4px; font-size: 11px; opacity: .7; }
+.ltp-more { font-size: 12px; color: var(--muted); }
 /* 候选列表：面板里**一律平铺**（分组是浏览形状，面板已经够高，不再多一层要点） */
 /* 列表自己滚，但**不抢高度**：面板 height:fit-content 时 flex:1 会把它拉到
    父级给的可用空间（结果就是"5 行 + 一大片白"）。改成 0 1 auto —— 内容多才滚。 */
 .ltp-list { flex: 0 1 auto; overflow: auto; padding: 8px 14px; margin-top: 6px; border-top: 1px solid var(--border); }
-.ltp-list .log-task-opt { padding: 4px 4px; }
-.ltp-empty { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 10px 4px; }
+/* 2026-11-15（暮雨：「字有点小」）：面板行 12 → 13，内距跟着松一点 ——
+   面板已经是独立大面板（不再挤在 420px 表单里），行高不必再压。 */
+.ltp-list .log-task-opt { padding: 6px 6px; font-size: 13px; }
+.ltp-empty { font-size: 13px; color: var(--muted); line-height: 1.65; padding: 10px 4px; }
 .ltp-empty b { color: var(--ink); }
 .ltp-foot {
   display: flex; align-items: center; gap: 8px; padding: 8px 14px;
   border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted);
 }
 .ltp-picked { font-weight: 600; color: var(--ink); }
-.ltp-list .log-task-opt .lto-prio { flex: none; font-size: 10px; border-radius: 5px; padding: 0 5px; }
+.ltp-list .log-task-opt .lto-prio { flex: none; font-size: 11.5px; border-radius: 5px; padding: 0 5px; }
 .lto-prio.lp-high { background: color-mix(in srgb, var(--ui-destructive, #b4453f) 14%, transparent); color: var(--ui-destructive, #b4453f); }
 .lto-prio.lp-mid { background: var(--tint-2); color: var(--muted); }
 .lto-prio.lp-low { background: var(--tint-2); color: var(--muted); opacity: .8; }
-.ltp-list .log-task-opt .lto-proj { flex: none; font-size: 10.5px; color: var(--muted); max-width: 96px;
+.ltp-list .log-task-opt .lto-proj { flex: none; font-size: 12px; color: var(--muted); max-width: 110px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 窄窗兜底：面板与表单并排放不下时，面板收窄而不是把表单挤扁 */
 @media (max-width: 1240px) {

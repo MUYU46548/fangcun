@@ -7434,6 +7434,9 @@ const taskPreviewCtl = reactive({
   logStatusClass, logStatusLabel,
   restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask,
   openEdit, openCalAssignTask, copyId, openTaskFile, copyTaskClick, deleteTask,
+  // 2026-11-15：详情弹窗「操作」行也放一枚「📐 派工单」——
+  // 它原来只在右键菜单里，而右键没有任何视觉提示，等于藏起来了。
+  copyTaskAsDispatch,
 })
 
 /**

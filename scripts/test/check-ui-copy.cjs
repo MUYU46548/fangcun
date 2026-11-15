@@ -187,9 +187,12 @@ function main() {
         tsSrc.includes(n) && mdSrc.includes(n),
         `ts=${tsSrc.includes(n)} docs=${mdSrc.includes(n)}`)
     }
-    // 版本历史表要记这一笔（改条款不记账 = 后人不知道哪一版加的）
-    check('★ docs 版本历史表里有 v1.2 这一笔',
-      /v1\.2\s*\|\s*2026-11-15/.test(mdSrc))
+    // 版本历史表要记这一笔（改条款不记账 = 后人不知道哪一版加的）。
+    // ⚠ 不写死版本号：写死就得每次改声明时来改测试，那是最容易"顺手改成永远绿"的一处。
+    //   判据是**当前版本号必须在版本历史表里有对应的一行**。
+    const histRow = new RegExp('\\|\\s*v' + tsVer.replace(/\./g, '\\.') + '\\s*\\|')
+    check(`★ docs 版本历史表里有 v${tsVer || '?'} 这一笔（当前版本必须能追到变更记录）`,
+      !!tsVer && histRow.test(mdSrc), 'ver=' + (tsVer || '?'))
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)

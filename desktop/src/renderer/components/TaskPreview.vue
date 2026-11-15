@@ -224,6 +224,12 @@
           <button class="ghost" title="复制任务 ID" @click="copyId(previewTask.id)">📋 ID</button>
           <button class="ghost" title="在文件管理器中定位这个任务的 markdown 文件" @click="openTaskFile(previewTask)">📄 文件</button>
           <button class="ghost" title="复制一份任务" @click="copyTaskClick(previewTask.id)">📑 副本</button>
+          <!-- 2026-11-15 暮雨：「设计类卡的复制为派工单在哪里？」——
+               它原来**只在右键菜单里**，而右键菜单没有任何视觉提示，等于藏起来了。
+               放到详情弹窗「操作」行：打开一张卡就能看见（这是人找动作时最先看的地方）。
+               卡上没有 `澄清: <卷>` 时点了会 toast 说明为什么不行 —— 那是设计，不是坏。 -->
+          <button class="ghost" title="拼一份可直接粘给 agent 的派工单（六字段 + 约束卡 + 验收四条；设计类卡另带前端施工纪律 R1–R5）"
+            @click="copyTaskAsDispatch(previewTask)">📐 派工单</button>
           <button class="danger" title="删除任务（会进入 trash，可人工找回）" @click="deleteTask(previewTask.id)">🗑 删除</button>
         </div>
       </div>
@@ -267,5 +273,6 @@ const {
   logStatusClass, logStatusLabel,
   restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask,
   openEdit, openCalAssignTask, copyId, openTaskFile, copyTaskClick, deleteTask,
+  copyTaskAsDispatch,
 } = ctl
 </script>

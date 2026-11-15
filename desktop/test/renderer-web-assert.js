@@ -2880,9 +2880,27 @@
         $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim()).join('|'))
       check('★ “作战计划”摆法渲染出来（PlanView 真挂上）',
         await waitFor(() => $$('#board.pv .plan-view').length === 1, 5000, '作战计划'))
-      check('★ 投入产出账三格都渲染（花的 / 产出的 / 被否的）',
-        await waitFor(() => $$('.plan-view .waste-cell').length === 3, 3000, 'waste cells'),
-        $$('.plan-view .waste-cell').length + ' 格')
+      // ── 投入产出账（2026-11-15 改：默认收起成一行）────────────────────
+      // 为什么改成"先验收起、再展开验三格"：这一块在首屏占掉近一屏，而它不是这一页的动作
+      // （进来是裁决/推格）。但**收起不等于隐藏**：收起态必须仍给关键读数 + 口径边界。
+      {
+        check('★★ 投入产出账默认收起成一行（首屏要留给阶段卡，账是回头看的参考）',
+          !!$('.plan-view .waste-block') && !!$('.plan-view .waste-block.folded')
+          && $$('.plan-view .waste-cell').length === 0,
+          'folded=' + !!$('.plan-view .waste-block.folded') + ' cells=' + $$('.plan-view .waste-cell').length)
+        const brief = $$('.plan-view .waste-brief-i').map((x) => (x.textContent || '').trim()).join(' · ')
+        check('★★ 收起态仍给关键读数（不是把账藏了）', /花/.test(brief) && /\d/.test(brief), brief.slice(0, 80))
+        const bound = (($('.plan-view .waste-brief-bound') || {}).textContent || '')
+        check('★★ 收起态仍写明口径边界（少占地方 ≠ 少说实话）',
+          /ai-trace/.test(bound) && /外部 agent/.test(bound), bound.slice(0, 120))
+        const toggle = $('.plan-view .waste-toggle')
+        check('★ 有「展开看四格与口径」入口', !!toggle && /展开/.test((toggle.textContent || '')), (toggle || {}).textContent || '')
+        if (toggle) toggle.click()
+        check('★ 点开后三格都渲染（花的 / 产出的 / 被否的）',
+          await waitFor(() => $$('.plan-view .waste-cell').length === 3, 3000, 'waste cells'),
+          $$('.plan-view .waste-cell').length + ' 格')
+        check('★ 展开后口径声明（note）也在', /ai-trace/.test((($('.plan-view .waste-note') || {}).textContent) || ''))
+      }
 
       // ── 规划草案入口（2026-11-11 · 0.7.0 规划根基）────────────────────
       // 判据四件：① 草案真读出来（不是写死一段话）；② 齐全的格有提议按钮、缺块的格**没有**；

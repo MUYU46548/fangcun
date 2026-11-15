@@ -162,22 +162,43 @@
     </div>
 
     <!-- 投入产出账（0.6.0 P5）—— 只显示取得到的格子；每个数字旁边都有“它证明不了什么”。
-         口径声明**永远在**：ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在这一格。 -->
-    <div v-if="wasteLedger" class="waste-block" data-waste-block>
+         口径声明**永远在**：ai-trace 只记方寸自己发起的调用，外部 agent 的花销不在这一格。
+
+         2026-11-15（暮雨第三次说"界面依然很不美观"）：这一块**默认收起成一行**。
+         理由不是"它不重要"，是**它不是这一页的动作**：进来是来裁决/推格的，
+         而这块是"回头看一眼账"的参考数据 —— 它占着接近一屏，把真正的阶段卡顶到折线以下。
+         收起后仍显示三个关键读数（数字不吃亏），点一下看全部四格与口径。
+         ⚠ 口径声明不藏：收起态那一行就写着"ai-trace 只记方寸自己发起的调用"。 -->
+    <div v-if="wasteLedger" class="waste-block" :class="{ folded: !wasteOpen }" data-waste-block>
       <div class="waste-head">
         <b>投入产出账</b>
         <span class="waste-span">近 {{ wasteLedger.days || '全部' }} 天</span>
-        <span class="waste-note">{{ wasteLedger.note }}</span>
+        <template v-if="!wasteOpen">
+          <template v-if="wasteBrief.length">
+            <span v-for="(b, i) in wasteBrief" :key="'wb' + i" class="waste-brief-i">{{ b }}</span>
+            <span class="waste-brief-bound">只算 ai-trace 里方寸自己发起的调用；外部 agent 的花销不在这里</span>
+          </template>
+          <span v-else class="waste-brief-i">{{ wasteLedger.emptyText }}</span>
+          <!-- 用基座 ghost/sm 而不是手搓文字链接：它是一枚**动作**（展开），
+               与同一页的「⟳ 重读」「展开已完成」是同一类，长相也该一样。 -->
+          <Button class="waste-toggle" variant="ghost" size="sm" @click="wasteOpen = true">展开看四格与口径</Button>
+        </template>
+        <template v-else>
+          <Button class="waste-toggle" variant="ghost" size="sm" @click="wasteOpen = false">收起</Button>
+        </template>
       </div>
-      <div v-if="wasteLedger.cells.length" class="waste-grid">
-        <div v-for="c in wasteLedger.cells" :key="c.key" class="waste-cell" :data-waste="c.key">
-          <div class="waste-label">{{ c.label }}</div>
-          <div class="waste-value">{{ c.value }}</div>
-          <div v-if="c.detail" class="waste-detail">{{ c.detail }}</div>
-          <div class="waste-caveat">{{ c.caveat }}</div>
+      <template v-if="wasteOpen">
+        <div class="waste-note">{{ wasteLedger.note }}</div>
+        <div v-if="wasteLedger.cells.length" class="waste-grid">
+          <div v-for="c in wasteLedger.cells" :key="c.key" class="waste-cell" :data-waste="c.key">
+            <div class="waste-label">{{ c.label }}</div>
+            <div class="waste-value">{{ c.value }}</div>
+            <div v-if="c.detail" class="waste-detail">{{ c.detail }}</div>
+            <div class="waste-caveat">{{ c.caveat }}</div>
+          </div>
         </div>
-      </div>
-      <div v-else class="waste-empty">{{ wasteLedger.emptyText }}</div>
+        <div v-else class="waste-empty">{{ wasteLedger.emptyText }}</div>
+      </template>
     </div>
     <div v-else-if="wasteError" class="waste-block waste-error">
       投入产出账读取失败：{{ wasteError }}
@@ -195,7 +216,6 @@
         {{ p }}<span class="plan-proj-n">{{ docs.filter(d => projectOf(d) === p).length }}</span>
       </button>
     </div>
-
     <div v-if="loading" class="plan-empty">读取中…</div>
     <div v-else-if="!docs.length" class="plan-empty">
       还没有计划卡 —— 真源是 <code class="plan-code">task-data/plans/&lt;项目id&gt;.md</code>
@@ -219,9 +239,11 @@
           <span class="plan-id">{{ s.id }}</span>
           <span class="plan-title">{{ s.title }}</span>
           <span class="plan-status" :class="'ps-' + statusKey(s.status)">{{ s.status || '未填状态' }}</span>
-          <span v-if="s.evidence" class="plan-evidence" :title="'完成证据：' + s.evidence">✔ {{ s.evidence }}</span>
+          <span v-if="s.evidence" class="plan-evidence" :title="'完成证据：' + s.evidence">✔ {{ evidenceText(s.evidence) }}</span>
+          <!-- 2026-11-15（暮雨第三次说"界面依然很不美观"）：
+               真数据 12 张卡里 10 张是「完成 + 三块齐全」，于是**同一个词在屏幕上重复十遍**。
+               重复的"正常"会把"不正常"淹掉 —— 现在只在**缺块时**说话，齐全的沉默。 -->
           <span v-if="s.missing.length" class="plan-miss">缺 {{ s.missing.join(' / ') }} —— 不能通过</span>
-          <span v-else class="plan-ok">三块齐全</span>
         </div>
 
         <!-- 已完成 = 默认只留这一行（2026-11-08 第 8 条）。
@@ -351,6 +373,7 @@ import Button from '../components/ui/Button.vue'
 import { useWasteLedger } from '../composables/useWasteLedger'
 import { linesToList, listToLines, missingOf, normalizeCopyRows, parseCopyTable, tableToText } from '../../shared/draftEdit'
 import { explainCriteria, foldPlan } from '../../shared/criteriaExplain'
+import { formatEvidence, planSummary } from '../../shared/evidenceText'
 import { toPlain } from '../../shared/plain'
 
 interface Stage {
@@ -495,6 +518,10 @@ function explained(raw: string): { plain: string; kindLabel: string; basis: stri
   const e = explainCriteria(String(raw))
   return { plain: e.plain, kindLabel: e.kindLabel, basis: e.basis }
 }
+/** 证据行 → 去掉毫秒与 Z 的本地时间（`自检 2026-11-03T04:00:54.502Z …` → `自检 11-03 12:00 …`） */
+function evidenceText(raw: string): string {
+  return formatEvidence(String(raw || ''))
+}
 const totalStages = computed(() => visibleDocs.value.reduce((n, d) => n + d.stages.length, 0))
 const doneStages = computed(() => {
   const out: Array<{ file: string; stageId: string }> = []
@@ -513,6 +540,26 @@ function flash(key: string): void {
 
 // 投入产出账（P5）：只读；三格取不到就不渲染那一格
 const { wasteLedger, wasteError, loadWasteLedger } = useWasteLedger()
+
+/**
+ * 投入产出账默认收起（2026-11-15 暮雨第三次：「界面依然很不美观」）。
+ *
+ * 为什么不是"再调调样式"：这一块在首屏占掉近一屏，而**它不是这一页的动作** ——
+ * 进来是来裁决/推格的，账是"回头看"的参考。它把真正的阶段卡顶到了折线以下。
+ * 收起态仍显示三条关键读数（数字不吃亏），点一下看全部四格与"它证明不了什么"。
+ *
+ * ⚠ 口径不能藏：收起态那行也写着 ai-trace 的边界（`wasteBrief`）——
+ *   "少占地方"不等于"少说实话"。
+ */
+const wasteOpen = ref(false)
+/**
+ * 收起态的读数组：**每条一个元素**，界面自己排（拼成一句话那种会把三条挤成一串）。
+ * 只取「标签 值」，并把标签里重复的「（近 30 天）」剥掉 —— 页头已经写了时间窗。
+ */
+const wasteBrief = computed<string[]>(() => {
+  const cells = wasteLedger.value?.cells || []
+  return cells.map((c: any) => `${String(c.label).replace(/（[^）]*天）$/, '')} ${c.value}`)
+})
 
 // ── 规划草案入口（2026-11-11）────────────────────────────────────────────
 // 只读草案 + 一键提成。提成必须带澄清卷（D-060 硬锁），所以先给一个「已批准的卷」下拉。

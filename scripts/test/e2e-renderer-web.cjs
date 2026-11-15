@@ -403,6 +403,10 @@ function main() {
       // 貌似你一直不知道」—— 查证：截图用例里 **一条作战计划的都没有**，所以从没人看过这个页面。
       // 没被拍过的界面 = 从没被看过的界面。补一张常规态 + 一张有草案待提成态。
       ['项目', '', 'plan-view', 'planview'],
+      // 2026-11-15（暮雨第三次说"界面依然很不美观"）：上一张 planview **故意滚到第一张阶段卡**，
+      // 于是页头 / 草案块 / 投入产出账**从来没进过任何一张截图** ——
+      // 而那正是他截图里最挤的那一屏。补一张不滚的：拍的必须是"刚进这一页看到的东西"。
+      ['项目', '', 'plan-top', 'planviewtop'],
       ['项目', '', 'plan-drafts', 'plandraft'],
       // 2026-11-12：核心判词输入框 —— 已于 2026-11-14 **整块拆除**
       //（暮雨：「判词未通过，从来意义不大，根本看不懂」）。这条用例随之删掉，
@@ -821,18 +825,27 @@ function main() {
   if (accEl) accEl.scrollIntoView({ block: 'end' })
   await sleep(500)
 ` : ''}
-  ${extra === 'planview' || extra === 'plandraft' ? `
+  ${extra === 'planview' || extra === 'plandraft' || extra === 'planviewtop' ? `
   // 2026-11-12：作战计划页 —— 此前**没有任何截图证据**，所以没人发现它可读性差。
   // 这里只做"进得去、拍得下"，不判断好不好看（那要靠人看这张图）。
   clickText('项目'); await sleep(700)
   const planTab = all('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('作战计划') >= 0)
   if (planTab) planTab.click()
   await sleep(1200)
+  ${extra === 'planviewtop' ? `
+  // 2026-11-15：**不滚**，拍"刚进来那一屏"（页头 + 怎么用 + 草案 + 投入产出账 + 项目筛选）。
+  // 这条用例存在的理由：上面那条会 scrollIntoView 到第一张阶段卡，
+  // 于是首屏那几个块**从来没被任何人看过一眼** —— 而它们正是"一坨"的主要体积。
+  const scroller = document.querySelector('#board.pv')
+  if (scroller) scroller.scrollTo(0, 0)
+  await sleep(400)
+  ` : `
   // 2026-11-14（P2-2）：阶段卡在"待裁决清单 / 投入产出账"**下面**，不滚下去拍不到。
   // 折叠改造是这一轮的重点，拍不到就等于没验（第一版就是这么拍到"只有清单"的）。
   const firstStage = document.querySelector('.plan-stage')
   if (firstStage) firstStage.scrollIntoView({ block: 'start' })
   await sleep(400)
+  `}
   ${extra === 'plandraft' ? `
   // 有草案待提成的那一态：展开草案块（用户实际的入口就在这上面）
   const dtoggle = all('button').find((b) => (b.textContent || '').indexOf('份草案') >= 0)
