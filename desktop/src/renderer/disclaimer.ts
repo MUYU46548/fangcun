@@ -22,7 +22,7 @@
  *   绝不因为存储不可用就把用户挡在软件外面。
  */
 
-export const DISCLAIMER_VERSION = '1.4'
+export const DISCLAIMER_VERSION = '1.5'
 export const DISCLAIMER_ACK_KEY = 'fc_disclaimer_ack'
 
 export interface DisclaimerTable {
