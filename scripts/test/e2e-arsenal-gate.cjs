@@ -88,6 +88,41 @@ console.log('== ⑤ intake 必读闸 ==')
   check('★★ 自动加 str: D-xxx 判据', /criteria\.push\(`str: \$\{id\}`\)/.test(tools))
 }
 
+console.log('== ⑥ 前端施工纪律 R1–R5 随派工单下发（2026-11-15）==')
+// 为什么钉这里：纪律有两个出口 —— CLI 任务书（Python）与桌面「复制为派工单」（TS）。
+// 只落一边 = "用哪个入口派，决定了执行方看不看得到纪律"，那等于没有纪律。
+// 真源只有 `docs/施工纪律-前端.md`；这两处都是它的投影，所以两处必须都说。
+{
+  const dm = { ...base, strict: true, clarify: '某卷' }
+  const design = buildDispatchResult({ ...dm, tags: ['设计'] })
+  const designText = design.text || ''
+  check('★★ 设计卡派工单带 R1–R5 节', /## 前端施工纪律（R1–R5/.test(designText))
+  check('★★ 带 R1 的可执行命令（不是抽象要求）',
+    /--shots/.test(designText) && /FC_SHOT_ONLY/.test(designText) && /900,700/.test(designText))
+  check('★★ 带 R2「禁止用测试绿替代」与 R3 `check-ui-freeze`',
+    /禁止用“测试绿”替代这条/.test(designText) && /check-ui-freeze/.test(designText))
+  check('★ type=design 也算（不只看标签；与 Python 侧 `_task_kind` 同一套认法）',
+    /## 前端施工纪律/.test(buildDispatchResult({ ...dm, type: 'design' }).text || ''))
+  check('★ 标签 ui / design 也算',
+    /## 前端施工纪律/.test(buildDispatchResult({ ...dm, tags: ['ui'] }).text || '')
+    && /## 前端施工纪律/.test(buildDispatchResult({ ...dm, tags: ['design'] }).text || ''))
+  // 反例：普通卡不许塞 —— 后端/账本卡带上这段就是噪音，最终会让人整体无视这一节
+  check('★★ 反例：普通卡（无设计标签）**不带**这段',
+    !/前端施工纪律/.test(buildDispatchResult({ ...dm, tags: ['账本'] }).text || ''))
+  check('★★ 反例：评审卡也不带（评审不是施工）',
+    !/前端施工纪律/.test(buildDispatchResult({ ...dm, tags: ['评审'] }).text || ''))
+  // 源码守卫：界面确实把 type 传进去了（漏传 = 这条功能对桌面入口永久失效）
+  const appSrc = fs.readFileSync(path.join(REPO, 'desktop/src/renderer/App.vue'), 'utf-8')
+  check('★★ 界面确实把 type 传给 buildDispatchResult（漏传 = 桌面入口永久不下发）',
+    /buildDispatchResult\(\{[\s\S]{0,600}?type:\s*String\(/.test(appSrc))
+  // 与真源对账：文档里 R1–R5 都在（指路了但文件缺一节 = 空指针）
+  const docP = path.join(REPO, 'docs', '施工纪律-前端.md')
+  const doc = fs.existsSync(docP) ? fs.readFileSync(docP, 'utf-8') : ''
+  check('★★ docs/施工纪律-前端.md 真存在且 R1–R5 五节齐全',
+    [1, 2, 3, 4, 5].every((i) => doc.indexOf('## R' + i) >= 0),
+    'len=' + doc.length)
+}
+
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) { console.log('失败明细：'); failures.forEach((f) => console.log('  · ' + f)) }
 process.exit(fail === 0 ? 0 : 1)

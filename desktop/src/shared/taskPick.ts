@@ -200,6 +200,19 @@ export interface TaskPickOptions {
    * 用 AND 而不是 OR —— 选两个标签时人通常想要"同时满足"，那才是收窄。
    */
   tags?: string[]
+  /**
+   * **项目子集（多选）**：只留属于其中任一项目的卡。空数组 = 不限。
+   *
+   * 2026-11-15 暮雨：「弄个下拉列表或者别的什么东西，按项目搜索是什么难事吗」。
+   * 与上面的 `project` 是**两件事**：
+   *   · `project` = **范围档**（本项目 / 全部项目），回答"在哪个池子里找"；
+   *   · `projects` = **子集**（"司天 + 方寸"这种三四个项目的组合），回答"池子里我要哪几个"。
+   * 两者同时给时**取交集** —— 范围内再按子集收窄，不是谁覆盖谁。
+   *
+   * ⚠ 这里用 **OR**（属于任一）而不是 AND：没有一张卡能同时属于两个不同项目，
+   *   AND 的语义永远是空集。标签用 AND、项目用 OR —— 别把两者统一成"都是 AND"。
+   */
+  projects?: string[]
   /** 项目 id → 显示名（参与匹配：人记的是"绒花墨坊"不是 project-2） */
   projectName?: (id: string) => string
   /** 首屏上限；0 = 不限 */
@@ -253,6 +266,8 @@ export function taskPick<T extends TaskPickInput>(tasks: T[], opts: TaskPickOpti
   const wantStatuses = (opts.statuses || []).map(s => String(s || '').trim()).filter(Boolean)
   const wantPrios = (opts.priorities || []).map(s => String(s || '').trim()).filter(Boolean)
   const wantTags = (opts.tags || []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean)
+  // 项目子集：OR（属于任一）。⚠ 走 `projectIdsOf` 同一套解析（坏 YAML 块标量也认）
+  const wantProjects = (opts.projects || []).map(s => String(s || '').trim()).filter(Boolean)
   const out: Array<TaskPickRow<T> & { _i: number }> = []
 
   for (let i = 0; i < (tasks || []).length; i++) {
@@ -262,6 +277,8 @@ export function taskPick<T extends TaskPickInput>(tasks: T[], opts: TaskPickOpti
     if (mode === 'open' && done) continue
     if (mode === 'done' && !done) continue
     if (wantProj.length && !projectIdsOf(t.project).some(id => wantProj.includes(id))) continue
+    // 项目子集（多选，OR）—— 与上面的范围档取交集，不是二选一
+    if (wantProjects.length && !projectIdsOf(t.project).some(id => wantProjects.includes(id))) continue
     // 精确状态（与三档正交，取交集）
     if (wantStatuses.length && !wantStatuses.includes(String(t.status || ''))) continue
     // 优先级（'__none__' 单独表示未标）

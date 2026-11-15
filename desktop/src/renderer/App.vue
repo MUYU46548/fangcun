@@ -4309,6 +4309,9 @@ async function copyTaskAsDispatch(t: Task): Promise<void> {
       path: (t as any).path || '',
       priority: (t as any).priority || '',
       tags: Array.isArray((t as any).tags) ? (t as any).tags : [],
+      // 2026-11-15：设计类卡要带前端施工纪律 R1–R5（与 CLI 任务书同一套认法：
+      // 只看 type 与标签，不猜标题）。少传这一个字段 = 派工单永远不给纪律。
+      type: String((t as any).fm?.type || (t as any).type || ''),
       projectRoot: proj?.repo || '',
       projectName: proj?.name || key || '',
       acceptance,
@@ -5423,6 +5426,7 @@ const {
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   logTaskSearching, logTaskFlat,
   logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
+  logTaskProjects, logTaskProjectFacets, setLogTaskScope,
   logTaskFacets, logTaskFilterCount, clearLogTaskFilters, toggleIn,
   taskTitleOf, unlinkLogTask, addLogTaskExtra,
 } = useLogEditorOpen({
@@ -7403,6 +7407,7 @@ const logEditCtl = reactive({
   logTaskGroups, logTaskExpanded, toggleLogTaskGroup, pickFirstLogTask,
   logTaskSearching, logTaskFlat,
   logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
+  logTaskProjects, logTaskProjectFacets, setLogTaskScope,
   logTaskFacets, logTaskFilterCount, clearLogTaskFilters, toggleIn,
   projects, agentPresets, logAttachDragOver, logPendingCount, logPendingPaths, logPendingData,
   logDiscard_, logVersions, logHistoryOpen, logVersionBusy, logVersionPreview,

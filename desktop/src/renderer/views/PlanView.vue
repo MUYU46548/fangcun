@@ -267,7 +267,25 @@
 
         <div class="plan-block">
           <div class="plan-block-h">判据<span v-if="!s.criteria.length" class="plan-block-miss">缺</span></div>
-          <ul v-if="s.criteria.length" class="plan-ul"><li v-for="(c, i) in s.criteria" :key="'c' + i">{{ c }}</li></ul>
+          <!-- 2026-11-15（暮雨第 1 条：看不懂的“判据”依然存在，界面一坨）：
+               此前这里直接把卡上的机器语法 `str: docs/x 含 'y'` 原样铺出来。
+               对写卡的人那是判据，对用户那是一串看不懂的符号 —— 于是他不看，
+               而"这条到底过了没"就变成了没人判的事。
+               现在每一条给两层：**上面一句人话（这次要验什么）**，
+               下面灰色小字才是原文（要核对时看得到，不核对时不占注意力）。
+               ⚠ 原文不许删：判据是验收凭据，只留译文等于把凭据藏了。 -->
+          <ul v-if="s.criteria.length" class="plan-ul plan-crit">
+            <li v-for="(c, i) in critHead(doc, s)" :key="'c' + i" class="plan-crit-li">
+              <div class="plan-crit-line">
+                <span class="plan-crit-kind">{{ explained(c).kindLabel }}</span>
+                <span class="plan-crit-plain">{{ explained(c).plain }}</span>
+              </div>
+              <span class="plan-crit-raw" :title="explained(c).basis">{{ c }}</span>
+            </li>
+          </ul>
+          <div v-if="critMore(doc, s)" class="plan-crit-more" @click="toggleCrit(doc, s)">
+            {{ critMore(doc, s) }}
+          </div>
         </div>
 
         <div class="plan-acts">
@@ -295,11 +313,15 @@
         <!-- 判据结果（P4）：逐条三态 + 闸门结论。缺省不渲染，不写“未跑”占位 -->
         <div v-if="runOf(doc, s)" class="plan-run" :class="{ bad: runOf(doc, s).blocked }">
           <div class="plan-run-head">{{ runHead(doc, s) }}</div>
+          <!-- 2026-11-15：三列改成「人话 / 结论 / 实际值」。
+               原来第一列是机器语法（`str: …`），用户扫一眼第一列全是符号就放弃了；
+               现在第一列是"这条在验什么"，原文退到第三列小字（要核对时看得到）。 -->
           <ul v-if="runOf(doc, s).results.length" class="plan-run-list">
             <li v-for="(r, ri) in runOf(doc, s).results" :key="'run' + ri" class="plan-run-item" :class="r.state">
               <span class="plan-run-tag">{{ stateText(r.state) }}</span>
-              <span class="plan-run-raw">{{ r.raw }}</span>
+              <span class="plan-run-plain">{{ runPlain(r) }}</span>
               <span class="plan-run-detail">{{ r.detail }}</span>
+              <span class="plan-run-raw">{{ r.raw }}</span>
             </li>
           </ul>
           <div v-if="runOf(doc, s).advanced" class="plan-run-advanced">已写成“完成”，证据：{{ s.evidence }}</div>
@@ -328,6 +350,7 @@ import { computed, onMounted, ref } from 'vue'
 import Button from '../components/ui/Button.vue'
 import { useWasteLedger } from '../composables/useWasteLedger'
 import { linesToList, listToLines, missingOf, normalizeCopyRows, parseCopyTable, tableToText } from '../../shared/draftEdit'
+import { explainCriteria, foldPlan } from '../../shared/criteriaExplain'
 import { toPlain } from '../../shared/plain'
 
 interface Stage {
@@ -438,6 +461,39 @@ function isExpanded(doc: Doc, s: any): boolean {
 function toggleStage(doc: Doc, s: any): void {
   const k = stageKey(doc, s)
   foldKey.value = { ...foldKey.value, [k]: !isExpanded(doc, s) }
+}
+
+/**
+ * 判据区的“减负”（2026-11-15 暮雨第 1 条）。
+ *
+ * 真数据里一张阶段卡的判据常常 8–20 条（`fangcun-base.md` 有单卡 19 条的），
+ * 全部铺开就是他自己说的“信息堆一堆，用户直接不看”。所以：
+ *   · 默认只铺前 3 条；其余折起来，但**写明还有几条**（折叠 ≠ 隐藏）；
+ *   · 每条给一句人话 + 原文小字（译文在纯逻辑 `shared/criteriaExplain.ts` 里，界面不重算）。
+ *
+ * ⚠ 折叠状态**不落盘**：这是"这一次看这一张要不要展开"，跟 `foldKey`（整张卡展不展开）
+ *   是两个维度，也跟 `showDone`（完成了没）无关。三重状态混用会让"点了没反应"。
+ */
+const critOpen = ref<Record<string, boolean>>({})
+function critKey(doc: Doc, s: any): string { return doc.file + '::' + s.id + '::crit' }
+function critHead(doc: Doc, s: Stage): string[] {
+  const all = (s.criteria || []).map(String)
+  if (critOpen.value[critKey(doc, s)]) return all
+  return foldPlan(all).head
+}
+function critMore(doc: Doc, s: Stage): string {
+  const all = (s.criteria || []).map(String)
+  if (critOpen.value[critKey(doc, s)]) return all.length > 3 ? '收起判据（只看前 3 条）' : ''
+  return foldPlan(all).moreLine
+}
+function toggleCrit(doc: Doc, s: Stage): void {
+  const k = critKey(doc, s)
+  critOpen.value = { ...critOpen.value, [k]: !critOpen.value[k] }
+}
+/** 一条判据 → 人话（同一条重复渲染时不必重算，Vue 会缓存模板里的结果；这里只做纯函数调用） */
+function explained(raw: string): { plain: string; kindLabel: string; basis: string } {
+  const e = explainCriteria(String(raw))
+  return { plain: e.plain, kindLabel: e.kindLabel, basis: e.basis }
 }
 const totalStages = computed(() => visibleDocs.value.reduce((n, d) => n + d.stages.length, 0))
 const doneStages = computed(() => {
@@ -682,6 +738,11 @@ function runHead(doc: Doc, s: Stage): string {
   if (r.advanced) return '判据全过 → 已推进成“完成”（' + reason + '）'
   if (r.blocked) return reason || '判据未过'
   return reason || '判据全过'
+}
+
+/** 判据结果的“人话”一列（2026-11-15）：同一套翻译逻辑，界面不重算口径 */
+function runPlain(r: any): string {
+  return explainCriteria(String(r?.raw || '')).plain
 }
 
 async function runChecks(doc: Doc, s: Stage): Promise<void> {

@@ -2285,6 +2285,26 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-block-h { font-size: 11.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; }
 .plan-block-miss { margin-left: 6px; color: var(--danger-text); font-weight: 400; }
 .plan-ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.75; color: var(--ink); }
+/* ── 判据的“人说”（2026-11-15 暮雨第 1 条：看不懂的判据 + 界面一坨）───────────
+   三条设计取舍，别顺手改回去：
+   ① 人话在上、原文在下：原文不删（验收凭据），但降到 11px/弱色 ——
+      “要核对时看得到”与“不核对时不占注意力”是两件事，靠字号和颜色分，不靠隐藏。
+   ② 不用表格：判据是散文不是数据，表格会把每行强行拉成等宽栏，
+      长句子在窄栏里折成三行反而更难读。
+   ③ “还有 N 条”是**可点的折叠条**，与 `.plan-fold-hint` 同视觉语言（它就是同一类动作）。 */
+.plan-crit { list-style: none; padding-left: 0; }
+.plan-crit-li { margin-bottom: 5px; line-height: 1.6; }
+/* 徽标与人话**同一行**（2026-11-15 首版截图目检发现：拆成三行像三段互不相干的文字）。
+   一行里只放"这是什么 + 这次验什么"，原文另起一行小字 —— 一眼扫下来是两个层次，不是三个。 */
+.plan-crit-line { display: flex; align-items: baseline; gap: 6px; }
+.plan-crit-kind { flex: none; padding: 0 5px; border-radius: 4px;
+  background: var(--tint); color: var(--accent); font-size: 10.5px; line-height: 15px; }
+.plan-crit-plain { font-size: 12px; color: var(--ink); }
+.plan-crit-raw { display: block; margin-top: 1px; padding-left: 2px; font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px; color: var(--muted); word-break: break-all; }
+.plan-crit-more { margin-top: 3px; font-size: 11px; color: var(--accent); cursor: pointer; }
+.plan-crit-more:hover { text-decoration: underline; }
+.plan-run-plain { color: var(--ink); }
 .plan-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .plan-table th, .plan-table td { border: 1px solid var(--border); padding: 4px 7px; text-align: left; vertical-align: top; }
 .plan-table th { background: var(--tint-3); font-weight: 700; }
@@ -3398,6 +3418,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .ltp-chip:hover { background: var(--tint-2); }
 .ltp-chip.on { border-color: var(--accent); color: var(--accent); background: var(--tint); font-weight: 600; }
 .ltp-tags { max-height: 76px; overflow: auto; }
+/* 项目筛选片（2026-11-15 暮雨第 2 条）：比状态/优先级那排多一个计数角标。
+   为什么计数要写在片上：用户点之前就该知道"这个项目下面有几张" ——
+   一个点开就是空的选项，比没有这个选项更浪费人。
+   ⚠ 计数用 `i` 元素而不是再包一层 span：它没有语义角色，样式也只挂在这一个类上。 */
+.ltp-projchips { max-height: 60px; overflow: auto; }
+.ltp-chip-n { font-style: normal; margin-left: 4px; font-size: 9.5px; opacity: .65; }
 .ltp-more { font-size: 10.5px; color: var(--muted); }
 /* 候选列表：面板里**一律平铺**（分组是浏览形状，面板已经够高，不再多一层要点） */
 /* 列表自己滚，但**不抢高度**：面板 height:fit-content 时 flex:1 会把它拉到
@@ -3420,6 +3446,17 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 窄窗兜底：面板与表单并排放不下时，面板收窄而不是把表单挤扁 */
 @media (max-width: 1240px) {
   #log-task-panel { width: 380px; }
+}
+/* ⚠ 2026-11-15（窄屏截图目检抓到）：上面那条只收面板，**表单还是死宽 720** ——
+   900×700（Electron 最小窗口）下 720 + 12 + 380 = 1112 > 900-48，
+   于是整块浮层**从右边被切掉**，挑选面板右侧的按钮点不到。
+   正解不是再调一个魔法宽度，而是让两栏**按比例分**：表单 flex:1 可缩、面板 flex:0 1 460 有下限。
+   这样从 900 到 4K 都不会溢出，也不需要第三档断点。 */
+#log-edit-overlay:has(#log-task-panel) #log-edit-modal {
+  width: auto; flex: 1 1 520px; min-width: 0;
+}
+#log-edit-overlay:has(#log-task-panel) #log-task-panel {
+  flex: 0 1 460px; min-width: 300px;
 }
 /* 面板展开时弹窗自己不再滚（两栏各自滚）—— 否则滚左栏会把右栏一起带走 */
 #log-edit-overlay:has(#log-task-panel) #log-edit-modal { max-height: 88vh; }

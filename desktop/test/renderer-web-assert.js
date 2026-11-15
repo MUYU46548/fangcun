@@ -108,6 +108,16 @@
           String(dlg.textContent || '').slice(0, 300))
         check('★ 短版写明费用由你与服务方结算、界面上的花销只是估算',
           (dlg.textContent || '').indexOf('只是估算') >= 0)
+        // 2026-11-15 暮雨第 3 条：「免责声明或用户条款记得更新方寸与决策相关内容」。
+        // 判据不是"改过版本号"，而是**那几句话真的出现在用户眼前** —— 钱与决策是同一类：
+        // 涉及是非的事必须摆在首启短版里，不能只躺在完整版第十章。
+        check('★★ 短版明写「方寸不为你的任何开发决策负责」（暮雨 11-15 点名要的那条）',
+          (dlg.textContent || '').indexOf('不为你的任何开发决策负责') >= 0,
+          String(dlg.textContent || '').slice(0, 200))
+        check('★★ 短版明写「能力有限，不可能 100% 准确」',
+          (dlg.textContent || '').indexOf('不可能 100% 准确') >= 0)
+        check('★★ 短版明写「风险完全由你自负」',
+          (dlg.textContent || '').indexOf('风险完全由你自负') >= 0)
 
         // ① 点遮罩关不掉（强制模式刻意不给 @mousedown.self 的关闭分支）
         const maskEl = dlg.parentElement
@@ -3048,6 +3058,44 @@
 
       check('★ 条目点名阶段号（点了能跳过去，不是一句光话）',
         /P1/.test(((pendingItems[0] || {}).textContent) || ''), ((pendingItems[0] || {}).textContent) || '')
+
+      // ── 判据可读化（2026-11-15 暮雨第 1 条）─────────────────────────────
+      // 原话：「项目里面我看不懂的“判据”依然存在，依然界面一坨，信息堆一堆，
+      //        结果就是什么都看不懂，用户直接不看。」
+      // 判据不是"要不要显示"，而是**显示成什么样**：
+      //   · 每条必须有一句人话（`cmd: echo ok` → 「跑通这条命令：echo ok」）；
+      //   · 机器语法**不许删**（验收凭据），但降到小字；
+      //   · 一次超过 3 条要折，并写明还有几条 —— 折叠不许变成隐藏。
+      {
+        const boxP0 = $$('.plan-view .plan-stage').find(
+          (x) => (((x.querySelector('.plan-id') || {}).textContent) || '').trim() === 'P0')
+        const crit = boxP0 ? [...boxP0.querySelectorAll('.plan-crit-li')] : []
+        check('★★ 判据逐条给出**人话**（不是只有机器语法）',
+          crit.length > 0 && crit.every((li) => ((li.querySelector('.plan-crit-plain') || {}).textContent || '').trim().length > 4),
+          '条=' + crit.length + ' 首条=' + (crit[0] ? ((crit[0].querySelector('.plan-crit-plain') || {}).textContent || '') : '无'))
+        check('★★ 机器语法**仍然保留**（验收凭据不许被译文替代）',
+          crit.length > 0 && crit.every((li) => /^[a-zA-Z]+\s*[:：]/.test(((li.querySelector('.plan-crit-raw') || {}).textContent || '').trim())),
+          '首条原文=' + (crit[0] ? ((crit[0].querySelector('.plan-crit-raw') || {}).textContent || '') : '无'))
+        // 翻译是否**真的翻了**（不是把人话写成原文的副本）
+        const plainTxt = crit.map((li) => ((li.querySelector('.plan-crit-plain') || {}).textContent || '').trim())
+        check('★★ 译文不是原文副本（`cmd:` 那条应译成“跑通这条命令…”）',
+          plainTxt.some((s) => s.indexOf('跑通这条命令') >= 0 || s.indexOf('必须出现') >= 0 || s.indexOf('得存在') >= 0),
+          JSON.stringify(plainTxt))
+        // 判据多时要折叠：夹具 P0 有 3 条 → 不折；这里验**折叠条机制存在**（有 .plan-crit-more 时不报错）
+        const more = boxP0 ? boxP0.querySelector('.plan-crit-more') : null
+        check('   折叠条的文案里带条数（出现时必须说清还有几条，不许只说“更多”）',
+          !more || /还有 \d+ 条|收起判据/.test((more.textContent || '')), more ? (more.textContent || '') : '（本夹具 3 条，不折）')
+
+        // 跑判据之后：结果行也必须先给人话（第一列不再是机器语法）
+        const runBox = boxP0 ? boxP0.querySelector('.plan-run') : null
+        if (runBox) {
+          const items = [...runBox.querySelectorAll('.plan-run-item')]
+          check('★★ 判据结果行也给**人话**一列（不只 tag + 原文）',
+            items.length > 0 && items.every((li) => ((li.querySelector('.plan-run-plain') || {}).textContent || '').trim().length > 4),
+            '行=' + items.length)
+        }
+      }
+
       if (pendingItems[0]) pendingItems[0].click()
       await sleep(250)
       check('★ 点条目不炸（滚动到那张卡）', $$('.errbar').length === 0,
@@ -4563,7 +4611,6 @@
         /\d+\s*张候选/.test((($('#log-task-panel .ltp-count') || {}).textContent) || ''),
         (($('#log-task-panel .ltp-count') || {}).textContent) || '没有')
 
-      // 面板里**一律平铺**（分组是浏览形状；面板够高后不再多一层要点）
       check('★★ 面板里候选平铺、每行带项目名与状态（不像表单里那样只有标题）',
         panelRows().length > 0
           && $$('#log-task-panel .ltp-list .lto-proj').length === panelRows().length
@@ -4585,7 +4632,49 @@
       check('   反例自证：不切之前它确实不在（所以“出现”是切出来的，不是本来就有）',
         inProj.indexOf('task-demo-004') < 0)
 
-      // ── 精确状态多选（三档表达不了"只盯待验收那几张"）──
+      // ── 按项目挑（2026-11-15 暮雨第 2 条："按项目搜索是什么难事吗"）──────────
+      // 为什么不能只验"有一排项目片"：真正的失败形态是**点了不生效**（片在、过滤没接），
+      // 以及**选项不可命中**（列了 registry 全部项目，一半点开是空的）。
+      // 所以三条一起钉：① 选项来自池子且带张数；② 点了真收窄；③ 再点取消能回来。
+      {
+        // 必须在「全部项目」档下验 —— 本项目档下池子里只有一个项目，多选无意义
+        const allScope2 = lts().find((x) => (x.textContent || '').indexOf('全部项目') >= 0)
+        if (allScope2) allScope2.click()
+        await sleep(320)
+        const projChips = () => $$('#log-task-panel .ltp-projchips .ltp-chip')
+          .filter((x) => (x.textContent || '').indexOf('不限项目') < 0)
+        const nProj = projChips().length
+        check('★★ 面板里有「项目」筛选层（多选片，不是一个两档范围开关）',
+          nProj >= 2, '项目片=' + nProj + ' 文本=' + projChips().map((x) => (x.textContent || '').trim()).join('/'))
+        const withCount = projChips().filter((x) => /\d/.test(((x.querySelector('.ltp-chip-n') || {}).textContent) || ''))
+        check('★★ 每片带**池子里的真实张数**（点之前就知道这个项目下面有几张）',
+          withCount.length === nProj, '带计数=' + withCount.length + '/' + nProj)
+
+        // 点第一个项目 → 列表只剩它的卡
+        const first = projChips()[0]
+        // 片上的文本是「项目名 ·N」（N = 池子里张数），取名字要把后缀剥掉
+        const firstProjName = first ? (first.textContent || '').replace(/[·\d\s]+$/, '').trim() : ''
+        const beforeIds = optIds().length
+        if (first) first.click()
+        await sleep(320)
+        const afterProj = $$('#log-task-panel .ltp-list .lto-proj').map((x) => (x.textContent || '').trim())
+        check('★★ 点一个项目片 → 候选真的按项目收窄（片不是装饰）',
+          afterProj.length > 0 && afterProj.every((p) => p.indexOf(firstProjName) >= 0),
+          '点名=' + firstProjName + ' 收窄后=' + JSON.stringify(afterProj) + '（点前 ' + beforeIds + ' 行）')
+        check('★ 同时「N 层筛选」把项目这一层算进去（清空前计数要涨）',
+          /层筛选/.test((($('#log-task-panel .ltp-fcount') || {}).textContent) || ''),
+          (($('#log-task-panel .ltp-fcount') || {}).textContent) || '没有')
+        check('★ 选中后出现「不限项目」撤销片（能一键回到不限）',
+          $$('#log-task-panel .ltp-projchips .ltp-chip').some((x) => (x.textContent || '').trim() === '不限项目'))
+        const clearProj = $$('#log-task-panel .ltp-projchips .ltp-chip')
+          .find((x) => (x.textContent || '').trim() === '不限项目')
+        if (clearProj) clearProj.click()
+        await sleep(320)
+        check('★★ 点「不限项目」→ 候选回到不限（不是只清显示不清条件）',
+          optIds().length >= beforeIds, '回到=' + optIds().length + ' 点前=' + beforeIds)
+      }
+
+
       const chipByText = (sel, t) => $$(sel).find(x => (x.textContent || '').trim() === t)
       const statusChips = $$('#log-task-panel .ltp-frow .ltp-chips')[0]
       const nStatusChips = statusChips ? statusChips.querySelectorAll('.ltp-chip').length : 0

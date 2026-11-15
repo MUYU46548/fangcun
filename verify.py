@@ -1795,6 +1795,35 @@ try:
     _p15 = teg._build_prompt(_d(标签=["设计"]), "t", _q_repo, "done_cmd", "f.md")
     check("★★ 015 设计卡带变体要求", "## 设计变体要求" in _p15 and "?variant=" in _p15 and "结构不同" in _p15)
 
+    # 前端施工纪律 R1–R5（2026-11-15 暮雨交来的候选条款，已合入）
+    # 为什么断言的是**原文在不在**而不是"函数返回 True"：这套纪律的全部价值在于
+    # 执行方开工前真的看见了它；改一个标点导致某条掉出去，只有字面断言能抓到。
+    check("★★ R1 设计卡任务书带「视觉反馈回路」且点明‘无截图的提交打回’",
+          "## 前端施工纪律" in _p15 and "R1 视觉反馈回路" in _p15 and "无截图的“应该没问题”式提交一律打回" in _p15)
+    check("★★ R1 给出本仓可跑的真命令（截图两档 + 断言），不是抽象要求",
+          "--shots" in _p15 and "FC_SHOT_ONLY" in _p15 and "FC_SHOT_SIZE" in _p15
+          and "900,700" in _p15 and "e2e-renderer-web.cjs" in _p15)
+    check("★★ R1 点明「新界面必须补截图用例」（没进清单 = 从没人看过）",
+          "CASES_ALL" in _p15 and "从没人看过" in _p15)
+    check("★★ R2 明写“禁止用测试绿替代用户实点”",
+          "R2 用户实点验收" in _p15 and "禁止用“测试绿”替代这条" in _p15)
+    check("★★ R3 令牌单源 + 手搓件会被 check-ui-freeze 拦下",
+          "R3 令牌单源" in _p15 and "check-ui-freeze" in _p15 and "禁止写死十六进制" in _p15)
+    check("★ R4 一次一个组件、禁止整页一次性生成",
+          "R4 组件小步" in _p15 and "禁止整页/整应用一次性生成" in _p15)
+    check("★ R5 完成定义＝用户零担心（不是“功能存在”）",
+          "R5 完成定义" in _p15 and "用户零担心" in _p15 and "“功能存在”≠ 完成" in _p15)
+    check("★★ 全本指路 docs/施工纪律-前端.md（真源不在任务书里）",
+          "docs/施工纪律-前端.md" in _p15)
+    check("★ 反例：普通卡不塞前端纪律（不误伤后端/账本卡）",
+          "前端施工纪律" not in _prompt and "前端施工纪律" not in _p14)
+    # 真源文件必须真在（指路了但文件不存在 = 空指针）
+    _uid_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "施工纪律-前端.md")
+    _uid_txt = open(_uid_path, encoding="utf-8").read() if os.path.exists(_uid_path) else ""
+    check("★★ docs/施工纪律-前端.md 真存在且 R1–R5 全在（任务书指路不是空指针）",
+          all(("R%d" % i) in _uid_txt for i in range(1, 6)) and "视觉反馈回路" in _uid_txt,
+          f"exists={bool(_uid_txt)} len={len(_uid_txt)}")
+
     # 007 派活体检：一次列全 + 三档
     _d7 = _d(方案=[f"- [ ] 第{i}件" for i in range(1, 11)], 状态="进行中")
     _pre7 = teg._dispatch_precheck(_d7, "task-20990101-950")

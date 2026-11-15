@@ -11,7 +11,7 @@
 import { computed, ref, type Ref } from 'vue'
 import { parseTime } from '../../shared/time'
 import {
-  taskPick, taskPickHiddenByStatus, taskPickFirst, splitTags, TASK_PICK_FIELD_RANK,
+  taskPick, taskPickHiddenByStatus, taskPickFirst, splitTags, TASK_PICK_FIELD_RANK, projectIdsOf,
 } from '../../shared/taskPick'
 
 const LOG_TASK_CAP = 12
@@ -91,6 +91,22 @@ export function useLogEditorOpen(deps: Deps) {
   const logTaskPanelOpen = ref(false)
   /** 精确状态（多选，空 = 不限）—— 与三档正交，暮雨要的"按状态筛"就是这一层 */
   const logTaskStatuses = ref<string[]>([])
+  /**
+   * **项目（多选，空 = 不限）** —— 2026-11-15 暮雨第 2 条：
+   * 「关联任务的筛选终于好一点了，但还差点意思。弄个下拉列表或者别的什么东西，
+   *   按项目搜索是什么难事吗」。
+   *
+   * 为什么这一层之前缺着：面板里本来只有「本项目 / 全部项目」**两档**（`logTaskScope`），
+   * 它回答的是"在哪个池子里找"，回答不了"我要挑的那三四张分散在三个项目里"。
+   * 跨项目写日志时，人心里往往已经有一个**项目子集**（比如"司天 + 方寸"），
+   * 而两档只能二选一：选本项目就丢别的，选全部项目就被 15 个项目的卡淹掉。
+   *
+   * 口径（与 `taskPick.project` 同一套，别在这里另写过滤）：
+   *   · 空数组 = 不限（保持老行为，默认视图不因此改变）；
+   *   · 选中若干 = **属于其中任一**（与本仓"一张卡可挂多个项目"的事实一致）；
+   *   · 切换范围档（本项目/全部项目）时清空 —— 选项集变了，留着旧选择就是"选了看不见的项"。
+   */
+  const logTaskProjects = ref<string[]>([])
   /** 优先级（多选，'__none__' = 未标） */
   const logTaskPrios = ref<string[]>([])
   /** 标签（多选，AND） */
@@ -100,6 +116,53 @@ export function useLogEditorOpen(deps: Deps) {
 
   const TERMINAL_STATUSES = ['完成', '驳回']
   const LOG_GROUP_CAP = 8
+
+  /** 当前范围档决定"候选池"，项目筛选片只能从这个池子里选（不给人点一个必然 0 条的项） */
+  function scopePool(): any[] {
+    const all = [...tasks.value, ...archivedTasks.value]
+    const seen = new Set<string>()
+    const pool = all.filter(t => {
+      if (!t || seen.has(t.id)) return false
+      seen.add(t.id)
+      return true
+    })
+    // 有搜索词时范围自动当 all 用（与主匹配同一口径，见 logTaskScope 注释）
+    const scopeAll = logTaskScope.value === 'all' || !!(logTaskQuery.value || '').trim()
+    if (scopeAll) return pool
+    const cur = logEdit_.value?.project
+    if (!cur) return pool
+    return pool.filter(t => projectIdsOf(t.project).includes(String(cur)))
+  }
+
+  /**
+   * 项目筛选片的选项来源：**池子里真实出现过的项目**，带上张数，按张数降序。
+   *
+   * 为什么不列 registry 里全部项目：那会给出十几个"点了变空"的选项。
+   * 「按项目搜索」的可用性一半在**选项本身是可命中的**，不在有个下拉壳子。
+   */
+  const logTaskProjectFacets = computed(() => {
+    const counts = new Map<string, number>()
+    for (const t of scopePool()) {
+      for (const id of projectIdsOf(t.project)) {
+        if (!id) continue
+        counts.set(id, (counts.get(id) || 0) + 1)
+      }
+    }
+    const nameOf = (id: string) => {
+      const p = projects.value.find(x => x.id === id)
+      return String(p?.name || id)
+    }
+    return Array.from(counts.entries())
+      .map(([id, n]) => ({ id, name: nameOf(id), count: n }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+  })
+
+  /** 切范围档时把项目选择清掉（选项集变了，旧选择会变成"选了看不见的项"） */
+  function setLogTaskScope(v: 'proj' | 'all'): void {
+    if (logTaskScope.value === v) return
+    logTaskScope.value = v
+    logTaskProjects.value = []
+  }
 
   /** 池子里出现过的全部状态 / 优先级 / 标签（面板下拉的选项来源，不写死） */
   const logTaskFacets = computed(() => {
@@ -138,11 +201,13 @@ export function useLogEditorOpen(deps: Deps) {
    */
   const logTaskFilterCount = computed(() =>
     ((logTaskQuery.value || '').trim() ? 1 : 0)
+    + (logTaskProjects.value.length ? 1 : 0)
     + (logTaskStatuses.value.length ? 1 : 0)
     + (logTaskPrios.value.length ? 1 : 0)
     + (logTaskTags.value.length ? 1 : 0))
   function clearLogTaskFilters(): void {
     logTaskQuery.value = ''
+    logTaskProjects.value = []
     logTaskStatuses.value = []
     logTaskPrios.value = []
     logTaskTags.value = []
@@ -150,6 +215,7 @@ export function useLogEditorOpen(deps: Deps) {
   }
   /** 打开另一条日志时，面板的临时筛选不许粘过来（同 scope 的道理） */
   function resetLogTaskPanelFilters(): void {
+    logTaskProjects.value = []
     logTaskStatuses.value = []
     logTaskPrios.value = []
     logTaskTags.value = []
@@ -186,11 +252,15 @@ export function useLogEditorOpen(deps: Deps) {
       status: logTaskStatus.value,
       project: scopeAll ? '' : proj,
       projectName: projName,
-      // 面板的三层收窄（暮雨："里面可以按项目按状态等筛选"）—— 都交给同一个函数，
+      // 面板的四层收窄（暮雨："里面可以按项目按状态等筛选"）—— 都交给同一个函数，
       // 不在界面里再写第二套过滤，否则又会变成"两个口径两个答案"。
+      // 2026-11-15：加了 `projects`（多选项目子集）。⚠ 它与上面的 `project`
+      // 是**两件事**：`project` 是"范围档"（本项目/全部），`projects` 是"我要挑的那几个项目"。
+      // taskPick 里两者取交集 —— 这正是想要的（范围内再按子集收窄）。
       statuses: logTaskStatuses.value,
       priorities: logTaskPrios.value,
       tags: logTaskTags.value,
+      projects: logTaskProjects.value,
     })
     const out = rows.map(r => ({
       id: r.task.id,
@@ -424,6 +494,8 @@ export function useLogEditorOpen(deps: Deps) {
     // 右侧独立面板（2026-11-13 暮雨拍板）：开关 + 三层筛选 + 选项来源 + 计数
     logTaskPanelOpen, logTaskStatuses, logTaskPrios, logTaskTags,
     logTaskAdvOpen, logTaskFacets, logTaskFilterCount,
+    // 2026-11-15（暮雨第 2 条：按项目搜索）：多选项目子集 + 选项来源 + 切档时清选择
+    logTaskProjects, logTaskProjectFacets, setLogTaskScope,
     clearLogTaskFilters, toggleIn,
     taskTitleOf, unlinkLogTask, addLogTaskExtra,
   }

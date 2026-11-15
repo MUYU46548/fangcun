@@ -161,6 +161,37 @@ function main() {
   check('剥注释逻辑有效（注释里的 ** 不算，正文里的算）',
     probe.split('\n')[0].includes('**') === false && probe.split('\n')[1].includes('**') === true)
 
+  // ── D. 免责声明两个载体不许分叉（2026-11-15）────────────────────────
+  // 为什么要有这一条：`disclaimer.ts` 的文件头写着「两者是同一件事的两种呈现，
+  //   **改了要一起改**」—— 而这句话此前**没有任何东西在守**。11-15 加第 5 条
+  //   「不作为决策担保」时如果有一次只改了 docs、忘了应用内那份，用户首启看到的
+  //   就是旧条款，而版本号还是新的 —— 那正是"界面说假话"里最难被发现的一种：
+  //   界面确实有免责声明，只是它不包含你刚承诺的那条。
+  // 判据只钉**版本号一致 + 决策担保那几句两边都在**，不比对全文
+  //   （应用内是摘要、docs 是十章正式文本，逐字对齐本来就不该强求）。
+  {
+    const dmTs = path.join(SRC, 'renderer', 'disclaimer.ts')
+    const docMd = path.join(REPO, 'docs', '免责声明与用户协议.md')
+    const tsSrc = fs.existsSync(dmTs) ? fs.readFileSync(dmTs, 'utf-8') : ''
+    const mdSrc = fs.existsSync(docMd) ? fs.readFileSync(docMd, 'utf-8') : ''
+    check('免责声明两个载体都在（disclaimer.ts + docs/免责声明与用户协议.md）',
+      !!tsSrc && !!mdSrc, `ts=${!!tsSrc} md=${!!mdSrc}`)
+    const tsVer = (tsSrc.match(/DISCLAIMER_VERSION\s*=\s*'([^']+)'/) || [])[1] || ''
+    const mdVer = (mdSrc.match(/版本\s*\*\*v([\d.]+)/) || [])[1] || ''
+    check('★★ 声明版本号两处一致（只改一处 = 用户看到旧条款却显示新版本）',
+      !!tsVer && tsVer === mdVer, `ts=${tsVer || '?'} docs=${mdVer || '?'}`)
+    // 决策担保那条：暮雨 2026-11-15 点名要的三句，两处都必须在
+    const NEED = ['不作为决策担保依据', '不为', '决策负责', '100% 准确']
+    for (const n of NEED) {
+      check(`★★ 决策担保条款两处都在：含「${n}」`,
+        tsSrc.includes(n) && mdSrc.includes(n),
+        `ts=${tsSrc.includes(n)} docs=${mdSrc.includes(n)}`)
+    }
+    // 版本历史表要记这一笔（改条款不记账 = 后人不知道哪一版加的）
+    check('★ docs 版本历史表里有 v1.2 这一笔',
+      /v1\.2\s*\|\s*2026-11-15/.test(mdSrc))
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('失败项：')

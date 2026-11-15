@@ -234,10 +234,31 @@
           ? '搜索时自动在全部项目里找（删掉搜索词就回到你原来选的范围）'
           : '候选范围：本项目 / 全部项目'">
           <button type="button" class="lts" :class="{ on: logTaskScope === 'proj' && !logTaskQuery.trim() }"
-            @click="logTaskScope = 'proj'">本项目</button>
+            @click="setLogTaskScope('proj')">本项目</button>
           <button type="button" class="lts" :class="{ on: logTaskScope === 'all' || !!logTaskQuery.trim() }"
-            @click="logTaskScope = 'all'">全部项目</button>
+            @click="setLogTaskScope('all')">全部项目</button>
           <span v-if="logTaskQuery.trim() && logTaskScope === 'proj'" class="log-task-scope-note">按词全项目找</span>
+        </div>
+      </div>
+      <!-- 第一层半：**按项目挑**（2026-11-15 暮雨第 2 条）─────────────────────
+           「关联任务的筛选终于好一点了，但还差点意思。弄个下拉列表或者别的什么东西，
+            按项目搜索是什么难事吗」。
+           为什么不做成下拉框：下拉一次只能选一个，而"我要挑的那几张分散在司天 + 方寸"
+           是常态（他自己写日志就是跨项目的）。所以做成一排可多选的筛选片，
+           每片带**池子里的真实张数** —— 选项本身可命中，才谈得上"按项目搜索"。
+           ⚠ 选项来自当前范围档的池子（不是 registry 全项目），否则会给出十几个点了必空的项。 -->
+      <div class="ltp-frow ltp-frow-wrap" v-if="logTaskProjectFacets.length > 1">
+        <span class="ltp-flbl">项目</span>
+        <div class="ltp-chips ltp-projchips">
+          <button v-for="p in logTaskProjectFacets" :key="'ltproj-' + p.id" type="button" class="ltp-chip"
+            :class="{ on: logTaskProjects.includes(p.id) }" :title="p.id + ' · ' + p.count + ' 张'"
+            @click="toggleProj(p.id)">{{ p.name }}<i class="ltp-chip-n">·{{ p.count }}</i></button>
+          <!-- 「不限项目」复用同一个 `.ltp-chip` 类、不新造一个：
+               它与旁边那些片是**同一种控件**（点了改筛选），只是语义相反。
+               新造 `.ltp-chip-x` 会被 `check-ui-freeze` 拦（新增手搓类），
+               而"为了一个反选动作单独登记一条豁免"是拿豁免表当垃圾桶。 -->
+          <button v-if="logTaskProjects.length" type="button" class="ltp-chip"
+            title="清掉项目这一层筛选（其余筛选不动）" @click="clearProjFilter">不限项目</button>
         </div>
       </div>
       <!-- 第二层：三档（扫一眼的口径）-->
@@ -352,6 +373,10 @@ const logTaskPanelOpen = toRef(ctl, 'logTaskPanelOpen')
 const logTaskStatuses = toRef(ctl, 'logTaskStatuses')
 const logTaskPrios = toRef(ctl, 'logTaskPrios')
 const logTaskTags = toRef(ctl, 'logTaskTags')
+// 项目多选筛选片（2026-11-15 暮雨第 2 条：按项目搜索）
+const logTaskProjects = toRef(ctl, 'logTaskProjects')
+const logTaskProjectFacets = toRef(ctl, 'logTaskProjectFacets')
+const setLogTaskScope = ctl.setLogTaskScope
 const logTaskFacets = toRef(ctl, 'logTaskFacets')
 const logTaskFilterCount = toRef(ctl, 'logTaskFilterCount')
 const clearLogTaskFilters = ctl.clearLogTaskFilters
@@ -367,6 +392,9 @@ const toggleInRaw = ctl.toggleIn
 function toggleStatus(s: string): void { toggleInRaw(logTaskStatuses, s) }
 function togglePrio(p: string): void { toggleInRaw(logTaskPrios, p) }
 function toggleTag(g: string): void { toggleInRaw(logTaskTags, g) }
+/** 项目片同理（2026-11-15 首跑同一坑又被抓到一次：片点了高亮、筛选没变） */
+function toggleProj(id: string): void { toggleInRaw(logTaskProjects, id) }
+function clearProjFilter(): void { logTaskProjects.value = [] }
 const toggleLogTaskGroup = ctl.toggleLogTaskGroup
 const pickFirstLogTask = ctl.pickFirstLogTask
 

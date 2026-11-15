@@ -47,6 +47,8 @@ export interface DispatchInput {
   path?: string
   priority?: string
   tags?: string[]
+  /** 卡的 `type` 字段（bug / review / design）—— 与标签一起决定要不要下发前端施工纪律 */
+  type?: string
   /** 项目根绝对路径（来自 registry 的 repo 字段） */
   projectRoot?: string
   projectName?: string
@@ -61,6 +63,42 @@ export interface DispatchInput {
 }
 
 const line = (s: string) => s
+
+/** `type`/标签能认出的类别（与 Python 侧 `_task_kind` 同一套认法，**别在这里另立口径**） */
+function kindOf(input: DispatchInput): '' | 'bug' | 'review' | 'design' {
+  const tp = String(input?.type || '').trim().toLowerCase()
+  const tags = (input?.tags || []).map((x) => String(x).toLowerCase()).join(' ')
+  if (tp === 'bug' || tags.indexOf('bug') >= 0 || tags.indexOf('缺陷') >= 0) return 'bug'
+  if (tp === 'review' || tp === '评审' || tags.indexOf('评审') >= 0 || tags.indexOf('review') >= 0) return 'review'
+  if (tp === 'design' || tp === '设计' || tags.indexOf('设计') >= 0
+      || tags.indexOf('design') >= 0 || tags.indexOf('ui') >= 0) return 'design'
+  return ''
+}
+
+/**
+ * 前端施工纪律 R1–R5（2026-11-15 暮雨交来，全本 `docs/施工纪律-前端.md`）。
+ *
+ * ⚠ 这段与 `tegula/core.py` 的 `UI_DISCIPLINE_BLOCK` **是同一套口径的两处投影**：
+ *   · CLI 任务书（`tegula dispatch`）走 Python 那份；
+ *   · 桌面「📐 复制为派工单」走这一份。
+ * 两条入口都得说，否则"派工单带了纪律、任务书没带"（或反过来）就变成看运气。
+ * 但**真源只有一处**：`docs/施工纪律-前端.md`。这里和那边都只放立刻要看见的硬约束。
+ */
+const UI_DISCIPLINE_LINES = [
+  '## 前端施工纪律（R1–R5 · 全本 docs/施工纪律-前端.md）',
+  '- **R1 视觉反馈（硬前置）**：改完 UI 必须**真截图自己看**（桌面 1440×900 + 窄屏 900×700 = Electron 最小窗口），',
+  '  确认无明显丑/断/错位才许提交。**无截图的“应该没问题”式提交一律打回**。',
+  '  本仓命令：`FC_SHOT_ONLY="<用例>" node scripts/test/e2e-renderer-web.cjs --shots`；',
+  '  窄屏：`FC_SHOT_SIZE="900,700" FC_SHOT_ONLY="<用例>" node scripts/test/e2e-renderer-web.cjs --shots=<目录>`；',
+  '  改完再跑 `node scripts/test/e2e-renderer-web.cjs`（截图证“看着对”，断言证“行为对”）。',
+  '- R1 附加：**新界面必须在 CASES_ALL 里补一条截图用例** —— 没进清单的页签 = 从没人看过的页签。',
+  '- **R2 用户实点验收**：交付物是装得上、点得动的实物，不是 diff、不是截图合集；',
+  '  验收线写“用户实点通过”。**禁止用“测试绿”替代这条**。',
+  '- **R3 令牌单源**：颜色/字号/间距/阴影一律引用令牌（`styles/app.css` 的 `:root` + `--ui-*`）；',
+  '  **禁止写死十六进制与像素阴影**。新增手搓按钮/浮层类会被 `check-ui-freeze` 当场拦下。',
+  '- **R4 组件小步**：一次一个组件，验收过再下一个；**禁止整页/整应用一次性生成**。',
+  '- **R5 完成定义**：前端件的“完整”＝用户零担心 + 预期不需再改（对标备份按钮）。',
+]
 
 /**
  * 拼一份可以直接粘给 agent 的派工单。**纯文本拼接，零智能。**
@@ -142,6 +180,10 @@ export function buildDispatchText(input: DispatchInput): string {
   }
   L.push('---')
   L.push('')
+  // 前端施工纪律只对**会动界面**的卡下发（2026-11-15）。
+  // 判定与 Python 侧 `_task_kind` 同一套认法：`type` 或标签里的 设计/ui/design。
+  // 不按标题猜（"改一下按钮"不等于设计卡）—— 与那边写下的理由一致。
+  if (kindOf(input) === 'design') L.push(...UI_DISCIPLINE_LINES, '')
   L.push('## 约束卡（七条，每张派工卡都带）')
   L.push('1. **只做指定那一步** —— 防范围膨胀。')
   L.push('2. **范围写死** —— 改哪些文件、动哪个模块，写进卡里，防"顺手重构"。')
