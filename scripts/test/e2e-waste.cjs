@@ -72,8 +72,13 @@ console.log('== ① 三格都有：数字 + 口径 + 局限 ==')
     !!spend && /3 次调用/.test(spend.detail) && /2 笔未折算/.test(spend.detail) && /1 条外部/.test(spend.detail),
     spend && spend.detail)
   const output = l.cells.find((c) => c.key === 'output')
-  check('★ 产出 = 提交数 + 窗口内完成卡数（窗口外的完成卡不算）',
-    !!output && output.value === '3 次提交 · 1 张卡完成', output && output.value)
+  // 2026-11-15（D-141 / O1 选 A）：产出**不再数「卡完成」**，只数「可核实产出」。
+  // 这份夹具的完成卡正文里没有可核实的东西 → 一张都不算 → 只剩提交数。
+  // 旧断言写的是 `3 次提交 · 1 张卡完成`，那是被推翻的口径。
+  check('★★ 产出不再数「卡完成」：夹具里没有可核实的东西 → 只剩提交数',
+    !!output && output.value === '3 次提交', output && output.value)
+  check('★ 未接上路径判据 → 明说判不了，不冒充 0 件',
+    !!output && /判不了/.test(output.detail), output && output.detail)
   const rejected = l.cells.find((c) => c.key === 'rejected')
   check('★ 被否 = 当前状态为驳回的卡（列出名字）',
     !!rejected && rejected.value === '2 张' && /被否甲/.test(rejected.detail), JSON.stringify(rejected))
@@ -87,8 +92,11 @@ console.log('== ① 三格都有：数字 + 口径 + 局限 ==')
 console.log('\n== ② 取不到：整格不渲染，不拿 0 / — 冒充 ==')
 {
   const onlyTasks = buildWasteLedger({ days: 30, now: NOW, trace: null, commits: null, tasks: TASKS })
+  // 2026-11-15（D-141）：产出格的口径变了，但"取不到就不渲染"这条不变。
+  // trace 读不到 → 没有 spend 格；剩下的格数从 2 变 1 是因为 output 现在需要
+  // exists 判据才数得出来（夹具没给 → 判不了）。这不是退化，是"判不了 ≠ 0 件"。
   check('★ trace 读不到 → 没有“花了多少”这一格（不是 ¥0.00）',
-    !onlyTasks.cells.some((c) => c.key === 'spend') && onlyTasks.cells.length === 2,
+    !onlyTasks.cells.some((c) => c.key === 'spend') && onlyTasks.cells.length === 1,
     JSON.stringify(onlyTasks.cells.map((c) => c.key)))
   const noTraceNoCommits = buildWasteLedger({ days: 30, now: NOW, trace: null, commits: null, tasks: null })
   check('★★ 三个来源都读不到 → 0 格 + 明确空态（不许画空格子）',

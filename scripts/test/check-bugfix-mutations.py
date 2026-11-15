@@ -50,6 +50,33 @@ CASES = [
         "guard": "e2e-decision-whitelist.cjs",
         "expect": "同日决策按 id 降序",
     },
+    {
+        # 2026-11-15 · 决策 D-141（O1 选 A）：产出格退回「数自报完成卡」
+        "name": "反例⑤：产出格退回「数自报完成卡」→ 守卫必须在「不再出现 N 张卡完成」上红",
+        "file": os.path.join(DESKTOP, "src", "shared", "waste.ts"),
+        "old": "    if (verified !== null) parts.push(`${verified.length} 件可核实产出`)",
+        "new": "    if (doneList !== null) parts.push(`${doneList.length} 张卡完成`)",
+        "guard": "e2e-verifiable-output.cjs",
+        "expect": "不再出现",
+    },
+    {
+        # 判不了时偷偷退回完成卡当分母 —— 这是最阴的一种回潮（看起来还是算出了数）
+        "name": "反例⑥：insight 判不了时退回「完成卡」当分母 → 守卫必须在「不许拿完成卡当分母」上红",
+        "file": os.path.join(DESKTOP, "src", "shared", "waste.ts"),
+        "old": "  const verified = output?.raw?.verified",
+        "new": "  const verified = output?.raw?.verified ?? output?.raw?.done",
+        "guard": "e2e-verifiable-output.cjs",
+        "expect": "不许拿完成卡当分母",
+    },
+    {
+        # 同一天两份判据各写各的（本仓反复犯的病：判词四档散 5 处 / 日志挑卡写三份）
+        "name": "反例⑦：mismatch 退回自写一套 URL 判据 → 守卫必须在「不许再自己写一套」上红",
+        "file": os.path.join(DESKTOP, "src", "shared", "mismatch.ts"),
+        "old": "export { hasVerifiableOutput } from './verifiableOutput'",
+        "new": "const RE_URL = /https?:\\/\\/[^\\s)）]+/\nexport { hasVerifiableOutput } from './verifiableOutput'",
+        "guard": "e2e-verifiable-output.cjs",
+        "expect": "不许再自己写一套",
+    },
 ]
 
 

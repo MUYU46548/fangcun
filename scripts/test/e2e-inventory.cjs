@@ -217,10 +217,15 @@ const after = fingerprint()
     }
   }
   const sec4 = md.slice(md.indexOf('## 4. 计划卡'), md.indexOf('## 5. 代码层'))
-  const gotStages = [...sec4.matchAll(/^\| 已冻结未推进 \| `task-data\/plans\/([^`]+)` \| (P\d+) /gm)]
+  // ⚠ 2026-11-15 修：这里原来只抓 `| 已冻结未推进 |` 一种行。
+  //   于是「阶段待裁决」那些格（P12–P15 刚建成待裁决）被判成"漏" ——
+  //   而**它们明明在清单里**，只是类型列不是 `已冻结未推进`。
+  //   这正是本文件自己反复在防的那个病：抓错形态，输出看着不对但真身是好的。
+  //   口径应该是"这一格在 §4 里出现过"，与它被归成哪一类无关。
+  const gotStages = [...sec4.matchAll(/^\| (?:已冻结未推进|阶段待裁决) \| `task-data\/plans\/([^`]+)` \| (P\d+) /gm)]
     .map((m) => `${m[1]}:${m[2]}`)
   const missingStages = wantStages.filter((x) => !gotStages.includes(x))
-  check('★★ 计划卡的格子**一格不漏**（含无 `·` 的标题写法：`### P8 结论集…`）',
+  check('★★ 计划卡的格子**一格不漏**（含无 `·` 的标题写法；待裁决与已冻结都算）',
     wantStages.length > 0 && missingStages.length === 0,
     `真身=${wantStages.length} 清单=${gotStages.length} 漏=${missingStages.join(',') || '无'}`)
   // ⚠ 反向：清单也不许多报出不存在的格子

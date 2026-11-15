@@ -61,9 +61,13 @@ const LEDGER = buildWasteLedger({
   trace: [{ ts: '2026-11-01T03:00:00.000Z', cost: '0.01000000', total_tokens: 1000 }],
   commits: ['a', 'b', 'c'],
   tasks: [
-    { id: 't1', title: '完成甲', status: '完成', updated: '2026-11-01T01:00:00.000Z' },
-    { id: 't2', title: '完成乙', status: '完成', updated: '2026-11-01T02:00:00.000Z' },
+    // 2026-11-15（D-141 / O1 选 A）：产出只认可核实产出 → 夹具必须带正文 + exists 判据。
+    // 旧夹具的两张完成卡没有任何可核实的东西，按新口径会被判成"自报完成，不算产出"，
+    // 那这条测试就验不到「额外一格引用 P5 数字」了 —— 这是夹具要跟着口径改，不是断言放宽。
+    { id: 't1', title: '完成甲', status: '完成', updated: '2026-11-01T01:00:00.000Z', body: '落盘 `docs/a.md`' },
+    { id: 't2', title: '完成乙', status: '完成', updated: '2026-11-01T02:00:00.000Z', body: '落盘 `docs/b.md`' },
   ],
+  exists: (rel) => rel === 'docs/a.md' || rel === 'docs/b.md',
 })
 
 function stage(id, conclusion, results = []) {
@@ -112,10 +116,13 @@ console.log('== ① 报告结构：三态 + 实际值 + 引用 P5 ==')
   })(), md.split('\n').filter((l) => /^\| demo\.md \|/.test(l)).join('\n'))
   check('★★ 未过项带实际值（不是只说"未过"）',
     /“num: docs\/x\.txt 行数 >= 5”→ 实际值 3（未过）/.test(md), md.split('\n').filter((l) => l.includes('num:')).join(' | '))
-  check('★★ 额外一格引用 P5 数字（¥ 与完成卡数）',
-    /额外一格[\s\S]*按投入产出账[\s\S]*¥/.test(md) && /完成 2 张卡/.test(md), md.split('### 额外一格')[1]?.slice(0, 160))
-  check('★ 结论里也有一条 P5 产出数字（门槛第 ④ 条）',
-    /## 结论[\s\S]*- 近 30 天产出：3 次提交 · 2 张卡完成/.test(md))
+  // 2026-11-15（D-141 / O1 选 A）：口径从「完成 2 张卡」改成「可核实产出 2 件」。
+  // 旧断言把"卡变完成"当成产出印在结论里 —— 那正是产品定义说"不算"的东西。
+  check('★★ 额外一格引用 P5 数字（¥ 与可核实产出件数）',
+    /额外一格[\s\S]*按投入产出账[\s\S]*¥/.test(md) && /可核实产出 2 件/.test(md), md.split('### 额外一格')[1]?.slice(0, 160))
+  check('★ 结论里也有一条 P5 产出数字（门槛第 ④ 条），且是「可核实产出」不是「张卡完成」',
+    /## 结论[\s\S]*- 近 30 天产出：3 次提交 · 2 件可核实产出/.test(md) && !/张卡完成/.test(md),
+    md.split('## 结论')[1]?.slice(0, 200))
 }
 
 console.log('\n== ② 算不出：只允许一条，且必须写原因 ==')

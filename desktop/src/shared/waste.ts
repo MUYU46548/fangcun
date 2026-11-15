@@ -16,6 +16,7 @@
  */
 import { parseAmount, formatAmount } from './balance'
 import { parseTime } from './time'
+import { hasVerifiableOutput, VERIFIABLE_CAVEAT } from './verifiableOutput'
 
 export interface WasteTraceRecord {
   ts?: string
@@ -37,6 +38,14 @@ export interface WasteTaskRecord {
   status?: string
   /** ISO / 秒级或毫秒时间戳（本仓三种写法都有） */
   updated?: string | number
+  /**
+   * 卡正文（已去 frontmatter）。
+   *
+   * 2026-11-15（D-141 / O1 选 A）：**产出不再数「卡完成」，只数「可核实产出」**。
+   * 判「可核实」要读正文（路径 / 提交号 / 链接），所以正文得传进来。
+   * 缺省 = 判不了 → 那张卡**不算**可核实产出（宁可少算，不拿自报充数）。
+   */
+  body?: string
 }
 
 export interface WasteInput {
@@ -50,6 +59,13 @@ export interface WasteInput {
   commits?: string[] | null
   /** null = 读不到 */
   tasks?: WasteTaskRecord[] | null
+  /**
+   * 「可核实产出」的路径存在性判据（2026-11-15 · D-141）。
+   *
+   * 缺省 = 判不了 → **一张卡都不算可核实产出**，并在 detail 里明说判不了。
+   * 这样"没接上"不会伪装成"产出了 0 件"（0 是真值，"判不了"不是 0）。
+   */
+  exists?: (rel: string) => boolean
 }
 
 export type WasteCellKey = 'spend' | 'external' | 'output' | 'rejected'
@@ -69,7 +85,10 @@ export interface WasteCell {
     tokens?: number
     calls?: number
     commits?: number
+    /** 窗口内「完成」卡数（自报，**不算产出**；2026-11-15 D-141 起只作对照） */
     done?: number
+    /** 窗口内**可核实产出**件数（D-141 起的真分子） */
+    verified?: number
     rejected?: number
   }
 }
@@ -213,26 +232,45 @@ export function buildWasteLedger(input: WasteInput = {}): WasteLedger {
     }
   }
 
-  // ② 产出了什么 —— git 提交 + 完成的卡（两边各算各的，都不猜）
+  // ② 产出了什么 —— **只认可核实产出**（2026-11-15 · D-141 / O1 选 A）
+  //
+  // 改动前实现的是「N 张卡完成」，而 `docs/产品定义-方寸-20261027.md` 明写：
+  //   「真的被用起来 = 验收通过 / 被合并 / 已发布 / 被别处引用。**不算卡变完成 —— 那是自报**」
+  // 也就是说这个格子每天印在自检报告上的数字，与产品定义**方向相反**。
+  // 现在：完成卡里只有**卡正文能找到可核实的东西**（存在的路径 / 提交号 / 链接）的才算产出；
+  // 自报的那些进 detail 说明被排除了多少，不再进 value。
   const tasksKnown = Array.isArray(input.tasks)
   const commitsKnown = Array.isArray(input.commits)
   if (tasksKnown || commitsKnown) {
-    const done = tasksKnown
-      ? (input.tasks as WasteTaskRecord[]).filter((t) => t && String(t.status || '') === '完成' && inWindow(t.updated, since)).length
+    const doneList = tasksKnown
+      ? (input.tasks as WasteTaskRecord[]).filter((t) => t && String(t.status || '') === '完成' && inWindow(t.updated, since))
       : null
+    // 「判不了」与「0 件」必须分开：没给 exists 说明没接上判据，不是"一件都没有"
+    const canJudge = typeof input.exists === 'function'
+    const verified = doneList === null
+      ? null
+      : (canJudge
+        ? doneList.filter((t) => hasVerifiableOutput({ body: String(t.body ?? '') }, { exists: input.exists as (rel: string) => boolean }))
+        : null)
     const commits = commitsKnown ? (input.commits as string[]).filter((x) => String(x || '').trim()).length : null
     const parts: string[] = []
     if (commits !== null) parts.push(`${commits} 次提交`)
-    if (done !== null) parts.push(`${done} 张卡完成`)
-    const detail = [
+    if (verified !== null) parts.push(`${verified.length} 件可核实产出`)
+    const detailParts = [
       commitsKnown ? '提交按数据目录所在的仓库统计' : 'git 读不到（可能不是仓库）',
-      tasksKnown ? '完成数只认更新时间在窗口内的卡' : '任务读不到',
-    ].join(' · ')
+      doneList === null ? '任务读不到' : (canJudge
+        ? `窗口内完成 ${doneList.length} 张，其中卡正文能找到可核实产出的 ${verified && verified.length} 张（其余是自报完成，不算产出）`
+        : `判不了可核实产出（没接上路径判据）—— 窗口内完成 ${doneList.length} 张，但它们算不算产出**没有判断**`),
+    ]
     const cell = makeCell(
       'output', `产出了什么（近 ${days || '全部'} 天）`, parts.join(' · '),
-      `${CAVEAT_PREFIX}：提交数只说明仓库被改过，不说明改动有用；完成卡数是自报状态，不等于验收通过。`,
-      detail,
-      { commits: commits === null ? undefined : commits, done: done === null ? undefined : done },
+      `${VERIFIABLE_CAVEAT}；提交数只说明仓库被改过，也不说明改动有用。`,
+      detailParts.join(' · '),
+      {
+        commits: commits === null ? undefined : commits,
+        done: doneList === null ? undefined : doneList.length,
+        verified: verified === null ? undefined : verified.length,
+      },
     )
     if (cell) cells.push(cell)
   }
@@ -277,26 +315,45 @@ export interface WasteInsight {
 /**
  * P7 的“额外一格”：从投入产出账算一条**原来不知道的事**。
  *
- * 只做可复算的除法（每张完成卡摊到多少花销/token）—— 不做"效率评分"这种拍脑袋指标。
+ * 只做可复算的除法 —— 不做"效率评分"这种拍脑袋指标。
  * 缺数据就明写“算不出，因为 X”，不编。
+ *
+ * ⚠ **2026-11-15（D-141 / O1 选 A）分母换了**：原来是「完成卡数」，
+ *   而完成是**自报**。拿自报当分母算"每张完成卡花多少钱"，
+ *   等于把"我宣布做完了多少"当成成绩 —— 这正是产品定义里说的那个错。
+ *   现在分母是 `verified`（可核实产出件数）。
+ *   判不了（没接上路径判据）时**不许退回去用 done** —— 那会悄悄恢复旧口径。
  */
 export function deriveWasteInsight(ledger: WasteLedger): WasteInsight {
   const spend = ledger.cells.find((c) => c.key === 'spend')
   const output = ledger.cells.find((c) => c.key === 'output')
+  const verified = output?.raw?.verified
   const done = output?.raw?.done
   if (!spend) {
     return { ok: false, text: '算不出，因为 投入产出账缺少“花了多少”这一格。', reason: '缺少“花了多少”', cites: [] }
   }
-  if (!done) {
-    return { ok: false, text: '算不出，因为 投入产出账里完成卡为 0（或任务读不到）。', reason: '完成卡为 0', cites: ['ledger:output'] }
+  if (verified === undefined) {
+    return {
+      ok: false,
+      text: '算不出，因为 产出那一格判不了「可核实产出」（没接上路径判据）—— 不拿自报的完成卡数当分母。',
+      reason: '判不了可核实产出', cites: ['ledger:output'],
+    }
+  }
+  if (!verified) {
+    const extra = (done ?? 0) > 0 ? `（窗口内有 ${done} 张自报完成，但一张都没有可核实产出）` : ''
+    return {
+      ok: false,
+      text: `算不出，因为 可核实产出为 0${extra} —— 分母为 0 时算出来的「每件产出花多少」没有意义。`,
+      reason: '可核实产出为 0', cites: ['ledger:output'],
+    }
   }
   const cost = spend.raw?.cost
   const total = cost ? parseAmount(cost) : null
   if (total !== null) {
-    const per = total / BigInt(done)
+    const per = total / BigInt(verified)
     return {
       ok: true,
-      text: `按投入产出账：近 ${ledger.days || '全部'} 天花了 ${spend.value}，完成 ${done} 张卡 —— 平均每张完成卡约 ¥${formatAmount(per, 6)}。`,
+      text: `按投入产出账：近 ${ledger.days || '全部'} 天花了 ${spend.value}，**可核实产出 ${verified} 件** —— 平均每件约 ¥${formatAmount(per, 6)}。`,
       cites: ['ledger:spend', 'ledger:output'],
     }
   }
@@ -307,7 +364,7 @@ export function deriveWasteInsight(ledger: WasteLedger): WasteInsight {
       // 2026-11-07 · W1 口径：这个 tokens 是「方寸自己发起的调用」的 total（含缓存重读），
       // 外部 agent 的花销在单独一格。原句直接说"用了 X tokens，平均每张卡 Y"会被读成因果，
       // 所以把口径与"只是比值"写进句子里 —— 数字没变，说法不再骗人。
-      text: `按投入产出账：近 ${ledger.days || '全部'} 天方寸自己用了 ${tokens.toLocaleString('en-US')} tokens（total 含缓存重读，外部 agent 另计），完成 ${done} 张卡 —— 平均每张完成卡约 ${Math.round(tokens / done).toLocaleString('en-US')} tokens（只是比值、不是因果；金额未折算，不能说成花了多少钱）。`,
+      text: `按投入产出账：近 ${ledger.days || '全部'} 天方寸自己用了 ${tokens.toLocaleString('en-US')} tokens（total 含缓存重读，外部 agent 另计），**可核实产出 ${verified} 件** —— 平均每件约 ${Math.round(tokens / verified).toLocaleString('en-US')} tokens（只是比值、不是因果；金额未折算，不能说成花了多少钱）。`,
       cites: ['ledger:spend', 'ledger:output'],
     }
   }

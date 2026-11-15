@@ -36,7 +36,11 @@ def with_mutation(desc, old, new, expect_red_contains):
         return False
     backup = src
     try:
-        open(SCRIPT, "w", encoding="utf-8").write(src.replace(old, new, 1))
+        # ⚠ 必须显式 encoding="utf-8"：Windows 上 open(...,"w") 默认是 GBK，
+        #   写回去会把整份脚本里的中文变成乱码 → 守卫读到的是坏文件 → 报的错与注入无关。
+        #   2026-11-15 就在这里栽过一次：反例"没变红"，真因是编码而不是断言不严。
+        with open(SCRIPT, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(src.replace(old, new, 1))
         code, out = run_guard(SCRIPT)
         reds = [l for l in out.split("\n") if l.startswith("FAIL")]
         hit = expect_red_contains in out
@@ -47,16 +51,23 @@ def with_mutation(desc, old, new, expect_red_contains):
             for l in reds[:4]:
                 print("        " + l)
         else:
-            print("        红在：" + [l for l in reds if expect_red_contains in l][0][:150])
+            matched = [l for l in reds if expect_red_contains in l]
+            print("        红在：" + (matched[0][:150] if matched else "(命中在非 FAIL 行)"))
         return ok
     finally:
-        open(SCRIPT, "w", encoding="utf-8").write(backup)
+        with open(SCRIPT, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(backup)
 
 
 def main():
     results = []
 
     # ── 反例 1：阶段标题只认 `·`（回到 2026-11-15 之前那版正则）────────────
+    # ⚠ 期望文案必须跟着断言一起改：2026-11-15 我把断言名从
+    #   「（含无 `·` 的标题写法：`### P8 结论集…`）」改成
+    #   「（含无 `·` 的标题写法；待裁决与已冻结都算）」，
+    #   而这里仍找旧串 → 命中不到 → 反例脚本自己 IndexError 崩掉。
+    #   反例"崩了"不等于"断言抓到错"（本仓已犯过：注入让脚本崩溃，被当成变红）。
     results.append(with_mutation(
         "反例①：阶段标题退回「只认 `·`」→ 守卫必须在「一格不漏」上红",
         'HEAD_STAGE = re.compile(r"(?m)^###\\s+(P\\d+)\\s*[·:：]?\\s*(.*)$")',

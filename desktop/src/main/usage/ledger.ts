@@ -33,6 +33,8 @@ export interface WasteLedgerDeps {
   trace?: () => WasteTraceRecord[] | null
   commits?: (repo: string, days: number) => string[] | null
   tasks?: () => WasteTaskRecord[] | null
+  /** 路径是否真实存在（D-141：判「可核实产出」用；测试可注入假实现） */
+  exists?: () => (rel: string) => boolean
 }
 
 const GIT_TIMEOUT_MS = 15_000
@@ -73,9 +75,32 @@ function defaultTasks(): WasteTaskRecord[] | null {
       title: String(t?.fm?.title || t?.fm?.['标题'] || t?.id || ''),
       status: String(t?.fm?.status || t?.fm?.['状态'] || ''),
       updated: t?.fm?.updated ?? t?.fm?.['更新时间'],
+      // 2026-11-15（D-141）：判「可核实产出」要读正文；不传正文 = 那张卡一律不算产出
+      body: String(t?.body ?? ''),
     }))
   } catch {
     return null
+  }
+}
+
+/**
+ * 「可核实产出」的路径判据（2026-11-15 · D-141）。
+ *
+ * 口径复用 `shared/verifiableOutput.ts`（与 mismatch 同一份），这里只提供"路径是否真存在"。
+ * 只在**数据目录所在仓库**里查 —— 跨仓库那套需要 registry + 每仓 root，
+ * 由 mismatch 那条链路负责；投入产出账先只算本仓，并在 detail 里说清这个边界。
+ */
+function defaultExists(): (rel: string) => boolean {
+  let root = ''
+  try { root = getDataDir() } catch { root = process.cwd() }
+  return (rel: string) => {
+    const r = String(rel || '').trim()
+    if (!r) return false
+    try {
+      return fs.existsSync(path.resolve(root, r))
+    } catch {
+      return false
+    }
   }
 }
 
@@ -91,5 +116,9 @@ export function collectWasteLedger(opts: WasteLedgerOptions = {}, deps: WasteLed
   const trace = (deps.trace || defaultTrace)()
   const commits = (deps.commits || defaultCommits)(repo, days)
   const tasks = (deps.tasks || defaultTasks)()
-  return buildWasteLedger({ days, now: opts.now, trace, commits, tasks })
+  // 2026-11-15（D-141）：产出格只认「可核实产出」。exists 取不到时不传 ——
+  // 那格会明说「判不了可核实产出」，而不是退回去数自报的完成卡。
+  let exists: ((rel: string) => boolean) | undefined
+  try { exists = (deps.exists || defaultExists)() } catch { exists = undefined }
+  return buildWasteLedger({ days, now: opts.now, trace, commits, tasks, exists })
 }

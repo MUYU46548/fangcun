@@ -18,6 +18,13 @@
  * 文件系统不在这里碰：由调用方注入 `exists(path)`。这样测试给假实现即可，不需要真实磁盘。
  */
 
+// 2026-11-15（D-141）：`hasVerifiableOutput` 原本写在本文件里，现提到
+// `shared/verifiableOutput.ts` 当**唯一真源** —— 因为投入产出账的产出格要做同一件事，
+// 而"同一件事三处各写各的"正是本仓反复犯的病（判词四档散 5 处 / 日志挑卡写三份）。
+// 这里保留 re-export，老调用方与老测试零破坏。
+export { hasVerifiableOutput } from './verifiableOutput'
+import { hasVerifiableOutput } from './verifiableOutput'
+
 export interface RepoInfo {
   /** registry 里的 id 或 name，都用来匹配卡的“项目”字段 */
   keys: string[]
@@ -280,11 +287,6 @@ export function pickNoCriteria(tasks: TaskRef[]): NoCriteriaRow[] {
  * ⚠ 这不是"判决"：很多卡本来就没有文件产出（口头拍板、调研结论）。所以界面文案
  *   必须带"只是提示"的口径，且**默认门槛是 7 天**——昨天刚关的卡不质疑。
  */
-const RE_URL = /https?:\/\/[^\s)）]+/
-const RE_COMMIT_CTX = /(提交|commit|sha)[^\n]{0,24}?\b[0-9a-f]{7,40}\b/i
-/** 正文里裸露的疑似路径（不是反引号包着的那种，②③ 已有自己的口径） */
-const PATH_BARE = /(?:^|[\s（("'`、,，:：])((?:[\w.-]+\/)+[\w.-]+\.[A-Za-z0-9]{1,6})(?=$|[\s）)"'`,，。;；])/g
-
 function stripFrontmatter(text: string): string {
   const s = String(text ?? '')
   if (!s.startsWith('---')) return s
@@ -322,31 +324,14 @@ function ageDaysOf(text: string, todayISO: string): number | null {
   return daysBetween(iso, todayISO)
 }
 
-/** 这张完成卡上有没有“可核实的一件东西” */
-function hasVerifiableOutput(
+/** 这张完成卡上有没有“可核实的一件东西”
+ *  （实现已提到 `shared/verifiableOutput.ts`，见文件头注释；这里只做适配） */
+function cardHasOutput(
   body: string,
   task: TaskRef,
   opts: { exists: (rel: string) => boolean; reposOf?: (t: TaskRef) => { name: string; exists: (rel: string) => boolean }[] },
 ): boolean {
-  if (RE_URL.test(body)) return true
-  if (RE_COMMIT_CTX.test(body)) return true
-  const cands: string[] = []
-  const back = new RegExp(PATH_IN_TEXT.source, 'g')
-  let bm: RegExpExecArray | null
-  while ((bm = back.exec(body))) cands.push(bm[1])
-  const bare = new RegExp(PATH_BARE.source, 'g')
-  let pm: RegExpExecArray | null
-  while ((pm = bare.exec(body))) cands.push(pm[1])
-  const alts = opts.reposOf ? opts.reposOf(task) : []
-  for (const raw of cands) {
-    let rel = String(raw || '').split(String.fromCharCode(92)).join('/')
-    while (rel.startsWith('./') || rel.startsWith('/')) rel = rel.slice(rel.startsWith('./') ? 2 : 1)
-    rel = rel.trim()
-    if (!rel || /\.\.|[*{}]/.test(rel)) continue   // 通配 / 省略号不是可判路径
-    if (opts.exists(rel)) return true
-    for (const a of alts) if (a.exists(rel)) return true
-  }
-  return false
+  return hasVerifiableOutput({ body }, { exists: opts.exists, repos: opts.reposOf ? opts.reposOf(task) : [] })
 }
 
 export function pickNoOutput(
@@ -367,7 +352,7 @@ export function pickNoOutput(
     const st = /^状态:[ 	]*(.*)$/m.exec(text)
     if (!st || (st[1] || '').trim() !== '完成') continue
     const body = stripFrontmatter(text)
-    if (hasVerifiableOutput(body, t, opts)) continue
+    if (cardHasOutput(body, t, opts)) continue
     const age = ageDaysOf(text, opts.todayISO)
     if (age !== null && age < minAge) continue
     out.push({
