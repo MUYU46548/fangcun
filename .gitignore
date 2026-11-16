@@ -12,6 +12,14 @@ Thumbs.db
 
 # ── CLI / Python ──
 registry.yaml.bak
+# ⚠ 2026-11-16：`registry.yaml` 与被 ignore 的 `task-data/` / `policies/` / `backups/`
+#   **是同一类东西**（使用数据），此前只有它漏在库里。后果：这个**公开**仓库里
+#   一直挂着 16 个真实项目名、本机绝对路径、以及「状态/路线图/说明」里的人话进度备注。
+#   判定不是"看着敏感"，而是本文件第 15-28 行早就写下的规则：
+#   「与 task-data/ 同类，属**使用数据不入库**」—— 项目登记表正是这一类。
+#   → `git rm --cached registry.yaml`；文件留在磁盘，方寸照常读写。
+#   新用户 clone 后是**空注册表**（`tegula doctor` 会提示去登记项目），不是坏掉。
+registry.yaml
 task-data/
 backups/
 # 改前快照目录（registry 滚动备份 + 单卡快照）：与 backups/ 同类，属本机数据不入库。
