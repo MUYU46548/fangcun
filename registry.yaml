@@ -148,6 +148,22 @@ projects:
     状态: 0.2.0 未发版（已装进 desktop profile，未真机加载）
     路线图: v0.3.0 规则段 + 一行现状 + 自证 → 真机验收 → 发 Release；npm 待账号
     说明: 让 DSH 的 agent 真的用上方寸（开工先查 / 收工回写 / 新问题建卡）+ 自动记 token 账；契约见仓内 立项契约.md；欠：删挂件、真机验收、发版
+  - id: vedio-maker
+    name: 视频制作
+    tasks: ""
+    repo: "E:/视频制作"
+    tools: []
+    sources: []
+    说明: 视频制作工作空间。
+  - id: review-workbench
+    name: 文案审阅器
+    tasks: ""
+    repo: "E:\\CODE\\CangKu\\review-workbench"
+    tools: []
+    sources: []
+    说明: 适用于各类软件和应用的文案审阅器，处理复杂界面文案，批量修改审查。
+
+
 
 
 # 已发布 / 历史项目：已稳定运行、无后续开发计划的项目移此段。

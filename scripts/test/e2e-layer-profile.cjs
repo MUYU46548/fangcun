@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 层厚度检查器 · 守卫（2026-11-16）
  *
  * 为什么需要它：`scripts/layer-profile.py` 输出的表**错了也照样出**，
@@ -161,7 +161,49 @@ function main() {
   check('★ missing 写明"扫不到 ≠ 厚度为 0"',
     /不是厚度为 0/.test(ghost.missing || ''), ghost.missing)
 
-  console.log('\n=== 四、口径自证：拿假仓库，把错装回去必须精确变红 ===')
+  console.log('\n=== 五、分母口径：占比不许超 100% ===')
+  // ⚠ 2026-11-16 被真 spec 当场揭出的 bug：明鉴是纯 Python CLI 项目，代码全在 `scripts/`，
+  // 按目录名判定的"产品代码"只剩 gui/ + desktop/ = 1,346 行，而 spec 圈出 13,256 行
+  // → **占比算出 444.6%**。444% 不可能是真的，所以它必须不可能出现。
+  {
+    // spec 的真源在 task-data/layer-specs/，用 --spec 直接指过去（不用 auto-spec，
+    // 因为本守卫的 runPy 跑在仓库根，而 FC_REGISTRY 可能被别的用例改过）
+    const p3spec = path.join(ROOT, 'task-data', 'layer-specs', 'project-3.json')
+    if (fs.existsSync(p3spec)) {
+      const p3 = runPyJson(['project-3', '--spec', 'task-data/layer-specs/project-3.json'])[0]
+      // ⚠ 判「读到了」不看 `ok` 字段 —— `--json` 里根本没有 `ok`（只有 missing / total_lines）。
+      // 2026-11-16 实测踩到：写成 `if (p3 && p3.ok)` 时恒为假，整段断言**一条都没跑**，
+      // 结果却显示 26/0 全绿 —— 这是「断言自己空转」的典型形状。
+      const gotData = !!p3 && !p3.missing && typeof p3.total_lines === 'number' && p3.total_lines > 0
+      check('★ 明鉴 spec 真被读到（否则下面几条是空转）', gotData,
+        JSON.stringify({ missing: p3 && p3.missing, total: p3 && p3.total_lines }).slice(0, 120))
+      if (gotData) {
+        const groups = p3.groups || []
+        const total = p3.total_lines
+        const prod = (p3.rows || []).filter((r) => r.role === '产品').reduce((a, r) => a + r.lines, 0)
+        const base = Math.max(total, prod)
+        check('★ 明鉴 spec 里真有 groups（4 组，含 L 线 / G 线两套读法）',
+          groups.length >= 2, `groups=${groups.length}`)
+        const over = groups.filter((g) => g.lines > base)
+        check('★★ 没有一个「大块」的行数超过分母（超了就是分母选错了，会算出 444%）',
+          over.length === 0,
+          over.map((g) => `${g.name}=${g.lines} > ${base}`).join(','))
+        const pcts = (p3.verdict.match(/([\d.]+)%/g) || []).map((s) => parseFloat(s))
+        check('★★ 结论里每个百分比都 <= 100%（444.6% 那种数不许出现）',
+          pcts.length > 0 && pcts.every((v) => v <= 100),
+          `pcts=${pcts.join(',')}`)
+
+        const t3 = runPy(['project-3', '--spec', 'task-data/layer-specs/project-3.json'])
+        check('★★ 换了分母要**大声说**（写清为什么换、换成什么）',
+          /分母换过了/.test(t3) && /改用全仓/.test(t3),
+          (t3.match(/分母换过了[^\n]*/) || [''])[0].slice(0, 100))
+      }
+    } else {
+      console.log('SKIP  本机没有明鉴 spec（task-data/layer-specs/project-3.json），这条不跑')
+    }
+  }
+
+  console.log('\n=== 六、口径自证：拿假仓库，把错装回去必须精确变红 ===')
   // ③ 的反例：spec 少了 `*` → 生成器 0 文件。用假仓库复现这个错。
   const fx = fixture({
     'src/gen/a.js': 10,

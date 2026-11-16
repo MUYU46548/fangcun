@@ -222,11 +222,11 @@ export function verdictOf(
   }
   const parts: string[] = []
   const prod = productLines(rows)
-  const base = prod || totalLines
+  const { base, label } = denominatorOf(rows, named, groups)
 
   if (groups.length) {
     const top = groups[0]
-    parts.push(`【${top.name}】${fmt(top.lines)} 行，占产品代码 ${pct(top.lines, base)}。`)
+    parts.push(`【${top.name}】${fmt(top.lines)} 行，占${label} ${pct(top.lines, base)}。`)
     for (const g of groups.slice(1)) {
       parts.push(`【${g.name}】${fmt(g.lines)} 行（${pct(g.lines, base)}）。`)
     }
@@ -236,7 +236,7 @@ export function verdictOf(
     }
   } else if (named.length) {
     const top = named[0]
-    parts.push(`声称的分层里最厚的是「${top.name}」：${fmt(top.lines)} 行，占产品代码 ${pct(top.lines, base)}。`)
+    parts.push(`声称的分层里最厚的是「${top.name}」：${fmt(top.lines)} 行，占${label} ${pct(top.lines, base)}。`)
   }
 
   const byRole: Record<string, number> = { 产品: 0, 测试: 0, 工具: 0 }
@@ -255,6 +255,44 @@ export function innerShares(groups: LayerGroup[]): { name: string; share: number
   const total = groups.reduce((s, g) => s + g.lines, 0)
   if (total <= 0) return []
   return groups.map((g) => ({ name: g.name, share: (g.lines / total) * 100 }))
+}
+
+/**
+ * 选占比的**分母**，并把选择理由说出来。
+ *
+ * ⚠ 2026-11-16 被真 spec 当场揭出的 bug：明鉴（project-3）是纯 Python CLI 项目，
+ * 代码全在 `scripts/` 底下 —— 而 `roleOf()` 按**目录名**把 `scripts/` 一律判成"工具"。
+ * 于是"产品代码"只剩 1,346 行（`gui/` + `desktop/`），而 spec 圈出的层合计 13,256 行
+ * → **占比算出 444.6%**。
+ *
+ * 444% 这种数**不可能是真的**，所以它必须不可能出现：
+ *   ① 默认分母 = 产品代码（"层与层之间谁厚谁薄"的诚实口径）；
+ *   ② spec 点名的层合计**超过**产品代码 → 说明"产品"这个标签在该项目上失真
+ *      （它的主干不在 `src/` 那类目录里），改用**全仓合计**当分母；
+ *   ③ 换分母必须**大声说** —— 静默换分母和静默改排除规则是同一种病。
+ */
+export function denominatorOf(
+  rows: LayerRow[], named: LayerNamed[], groups: LayerGroup[],
+): { base: number; label: string; note: string } {
+  const prod = productLines(rows)
+  const total = rows.reduce((s, r) => s + r.lines, 0)
+  const namedTotal = groups.length
+    ? groups.reduce((s, g) => s + g.lines, 0)
+    : named.reduce((s, n) => s + n.lines, 0)
+  if (prod > 0 && namedTotal <= prod) {
+    return { base: prod, label: '产品代码', note: '' }
+  }
+  if (namedTotal > prod) {
+    return {
+      base: total,
+      label: '全仓',
+      note: `spec 点名的层合计 ${fmt(namedTotal)} 行**超过**「产品代码」${fmt(prod)} 行 —— `
+        + `说明按目录名判定的「产品 / 工具」标签在这个项目上失真（它的主干不在 \`src/\` 那类目录里）。`
+        + `所以**改用全仓 ${fmt(total)} 行当分母**；换分母后百分比才可能 ≤100%，`
+        + `但它同时也把测试算了进来 —— 看数时请一并看角色分栏。`,
+    }
+  }
+  return { base: prod || total, label: prod ? '产品代码' : '全仓', note: '' }
 }
 
 /** 声称 vs 实测逐条对账。`got === null` = spec 里没这个名字（不是 0）。 */

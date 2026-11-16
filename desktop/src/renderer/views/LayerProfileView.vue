@@ -91,18 +91,22 @@
           <div class="lp-sec" v-if="profile.groups && profile.groups.length">
             <div class="lp-sec-h">大账<span class="lp-sec-s">按项目自己声明的分法</span></div>
             <table class="lp-table">
-              <thead><tr><th>大块</th><th class="num">行数</th><th class="num">占产品代码</th><th>由哪几层合成</th></tr></thead>
+              <thead><tr><th>大块</th><th class="num">行数</th><th class="num">{{ denom.label === '全仓' ? '占全仓' : '占产品代码' }}</th><th>由哪几层合成</th></tr></thead>
               <tbody>
                 <tr v-for="g in profile.groups" :key="g.name">
                   <td class="nm">{{ g.name }}</td>
                   <td class="num">{{ fmt(g.lines) }}</td>
-                  <td class="num">{{ pctOf(g.lines, productTotal) }}</td>
+                  <td class="num">{{ pctOf(g.lines, denom.base) }}</td>
                   <td class="layer">{{ g.members.join('、') }}</td>
                 </tr>
               </tbody>
             </table>
-            <div class="lp-hint">
-              分母是<b>产品代码 {{ fmt(productTotal) }} 行</b>，不是全仓 {{ fmt(profile.totalLines) }} 行 ——
+            <!-- 换了分母必须大声说。静默换分母和静默改排除规则是同一种病：
+                 2026-11-16 明鉴那份 spec 让"占比"算出 444.6%，根因就是
+                 它的代码全在 scripts/ 而被判成"工具"，"产品代码"这个母只剩 1,346 行。 -->
+            <div class="lp-hint warn" v-if="denom.note">{{ denom.note }}</div>
+            <div class="lp-hint" v-else>
+              分母是<b>产品代码 {{ fmt(denom.base) }} 行</b>，不是全仓 {{ fmt(profile.totalLines) }} 行 ——
               拿全仓当分母会把测试的行数算成「这层很厚」。<br>
               <template v-if="innerList.length">
                 只算这几块内部的占比：<span v-for="(x, i) in innerList" :key="i">{{ i ? ' · ' : '' }}{{ x.name }} <b>{{ x.share.toFixed(1) }}%</b></span>
@@ -185,7 +189,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from '../components/ui/Button.vue'
 import {
-  boardAnomalies, fmt, innerShares, pct, productLines, toBoardRow,
+  boardAnomalies, denominatorOf, fmt, innerShares, pct, toBoardRow,
   type BoardRow, type LayerProfile,
 } from '../../shared/layerProfile'
 
@@ -204,7 +208,11 @@ const specError = ref('')
 const projects = computed<any[]>(() => (ctl.projects || []).filter((p: any) => p && p.id))
 const boardRows = computed<BoardRow[]>(() => profiles.value.map(toBoardRow))
 const anomalies = computed(() => boardAnomalies(boardRows.value))
-const productTotal = computed(() => (profile.value ? productLines(profile.value.rows || []) : 0))
+// 分母由 shared/layerProfile.ts 统一选（占比不许超 100%）。这里只摆不重算。
+const denom = computed(() =>
+  profile.value
+    ? denominatorOf(profile.value.rows || [], profile.value.named || [], profile.value.groups || [])
+    : { base: 0, label: '产品代码', note: '' })
 const innerList = computed(() => innerShares(profile.value?.groups || []))
 
 function pctOf(part: number, whole: number): string {

@@ -343,12 +343,43 @@ def apply_groups(named, spec):
     return out
 
 
+def denominator(rows, named, groups):
+    """选占比的**分母**，并把选择理由说出来。
+
+    ⚠ 2026-11-16 被 spec 当场揭出的真 bug：明鉴（project-3）是纯 Python CLI 项目，
+    代码全在 `scripts/` 底下 —— 而 `role_of()` 按**目录名**把 `scripts/` 一律判成"工具"。
+    于是"产品代码"只剩 1,346 行（`gui/` + `desktop/`），
+    而 spec 圈出的层合计 13,256 行 → **占比算出 444.6%**。
+
+    444% 这种数**不可能是真的**，所以它必须不可能出现。规则：
+      ① 默认分母 = 产品代码（这是"层与层之间谁厚谁薄"的诚实口径）；
+      ② 但 spec 点名的层合计**超过**产品代码时，说明"产品"这个标签在**这个项目**上失真
+         （它的主干不在 `src/` 那类目录里），此时改用**全仓合计**当分母，并写明为什么换；
+      ③ 换了分母要**大声说**，不许静默 —— 静默换分母和静默改排除规则是同一种病。
+    """
+    prod = sum(r["lines"] for r in rows if r["role"] == "产品")
+    total = sum(r["lines"] for r in rows)
+    named_total = sum(g["lines"] for g in groups) if groups else sum(n["lines"] for n in named)
+    if prod > 0 and named_total <= prod:
+        return prod, ""
+    if named_total > prod:
+        why = ("spec 点名的层合计 {:,} 行**超过**「产品代码」{:,} 行 —— 说明按目录名判定的"
+               "「产品 / 工具」标签在这个项目上失真（它的主干不在 `src/` 那类目录里）。"
+               "所以**改用全仓 {:,} 行当分母**；换分母后百分比才可能 ≤100%，"
+               "但它同时也把测试算了进来 —— 看数时请一并看上表的角色分栏。".format(
+                   named_total, prod, total))
+        return total, why
+    return (prod or total), ""
+
+
 def verdict(rows, named, total_lines, groups=None):
     """必须回答一句话，而不是罗列。这就是这个脚本存在的理由。
 
-    ⚠ 分母口径（2026-11-16 首跑踩到）：第一版拿**全部代码行**当分母，
-    于是「编辑器占 8.9%」—— 剩下的 91% 是测试和脚本。那不是"薄"，是**分错了母**。
-    分层占比只在**产品代码**内部比较才有意义；所以这里同时给两个分母，说清哪个是哪个。
+    ⚠ 分母口径（2026-11-16 两次踩到）：
+    ① 第一版拿**全部代码行**当分母 →「编辑器占 8.9%」，剩下 91% 是测试。不是"薄"，是**分错了母**。
+    ② 第二版改成产品代码，但明鉴那种「代码全在 scripts/」的项目，
+       按目录名判定的"产品"只剩 gui/ + desktop/ → **占比算出 444.6%**。
+    现在分母由 `denominator()` 统一选，超 100% 不可能出现；换了分母要明说。
     """
     groups = groups or []
     if total_lines <= 0:
@@ -358,13 +389,15 @@ def verdict(rows, named, total_lines, groups=None):
     for r in rows:
         by_role[r["role"]] = by_role.get(r["role"], 0) + r["lines"]
     prod = by_role.get("产品", 0)
+    base, base_note = denominator(rows, named, groups)
+    # 分母是产品代码时叫「产品代码」，换了分母就叫「全仓（见说明）」—— 名字跟着换，不许含糊
+    base_label = "产品代码" if base == prod else "全仓"
     out = []
 
     if groups:
-        base = prod or total_lines
         top = groups[0]
         share = top["lines"] / base * 100 if base else 0
-        out.append("**【{}】{:,} 行，占产品代码 {:.1f}%。**".format(top["name"], top["lines"], share))
+        out.append("**【{}】{:,} 行，占{} {:.1f}%。**".format(top["name"], top["lines"], base_label, share))
         for g in groups[1:]:
             s = g["lines"] / base * 100 if base else 0
             out.append("【{}】{:,} 行（{:.1f}%）。".format(g["name"], g["lines"], s))
@@ -373,10 +406,9 @@ def verdict(rows, named, total_lines, groups=None):
             out.append("「{}」是「{}」的 **{:.1f} 倍**。".format(
                 groups[0]["name"], groups[-1]["name"], ratio))
     elif named:
-        base = prod or total_lines
         top = named[0]
-        out.append("声称的分层里最厚的是「{}」：{:,} 行，占产品代码 {:.1f}%。".format(
-            top["name"], top["lines"], (top["lines"] / base * 100) if base else 0))
+        out.append("声称的分层里最厚的是「{}」：{:,} 行，占{} {:.1f}%。".format(
+            top["name"], top["lines"], base_label, (top["lines"] / base * 100) if base else 0))
 
     out.append("产品 {:,} 行 · 测试 {:,} 行 · 工具 {:,} 行（全仓合计 {:,}）。".format(
         prod, by_role.get("测试", 0), by_role.get("工具", 0), total_lines))
@@ -412,8 +444,9 @@ def render_text(project, repo, rows, named, total, unreadable, spec, depth,
         out.append("## 大账（按 spec 给的分法）")
         out.append("")
         prod = sum(r["lines"] for r in rows if r["role"] == "产品")
-        base = prod or total
-        out.append("| 大块 | 行数 | 占产品代码 | 由哪几层合成 |")
+        base, base_note = denominator(rows, named, groups)
+        base_label = "占产品代码" if base == prod else "占全仓"
+        out.append("| 大块 | 行数 | {} | 由哪几层合成 |".format(base_label))
         out.append("|---|---:|---:|---|")
         for g in groups:
             out.append("| {} | {:,} | {:.1f}% | {} |".format(
@@ -425,8 +458,13 @@ def render_text(project, repo, rows, named, total, unreadable, spec, depth,
             out.append("> ⚠ spec 里点了名但没扫到的层：{} —— **不是这层是 0，是名字对不上**。".format(
                 "、".join(miss)))
             out.append("")
-        out.append("> 分母是**产品代码** {} 行，不是全仓 {} 行。拿全仓当分母会把测试的行数算成「编辑器很厚」。".format(
-            "{:,}".format(base), "{:,}".format(total)))
+        if base_note:
+            # 换了分母必须大声说 —— 静默换分母和静默改排除规则是同一种病
+            out.append("> ⚠ **分母换过了**：{}".format(base_note))
+        else:
+            out.append("> 分母是**产品代码** {} 行，不是全仓 {} 行。"
+                       "拿全仓当分母会把测试的行数算成「编辑器很厚」。".format(
+                           "{:,}".format(base), "{:,}".format(total)))
         out.append("")
         # 只在 spec 点名的这几块内部比 —— 这是"两块之间谁厚谁薄"的唯一诚实口径。
         # 2026-11-15 手工说的「编辑器 92% / 生成器 8%」正是这个口径；复算得 93.2% / 6.8%，成立。
