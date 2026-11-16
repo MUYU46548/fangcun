@@ -37,6 +37,15 @@ mcp-usage.jsonl
 data-dir.json
 docs/执行日志/
 docs/阶段总结/*.md~
+# ⚠ 2026-11-16 暮雨：「**docs/ 本来就不该随仓库公开**」
+#   这个仓是**公开**的（github.com:MUYU46548/fangcun，已推送 117 个 docs 文件）。
+#   docs/ 里全是执行日志、派工单、交接与现场记录 —— 含真实项目名、本机路径、
+#   当时的工作细节。**这些是工作证据，不是产品资产。**
+#   所以整目录移出版本控制（`git rm -r --cached docs/`），文件仍留在磁盘上，
+#   方寸照常读写；只是不再随仓库发布。
+#   ⚠ 依赖 `docs/` 的守卫（check-skills 的 docs/agents 副本、repoDocs 的 ROADMAP…
+#      ）读的是**磁盘**而不是 git，所以本地一律照常；只有"新克隆的仓库"缺这些文件。
+docs/
 方寸-app/
 build/
 dist/

@@ -153,7 +153,23 @@ function main() {
     }
   }
 
-  // ── 二、随包/随仓发布的文档 ────────────────────────────────────
+  // ── 二、docs/ 不许被 git 跟踪（2026-11-16 暮雨：「docs/ 本来就不该随仓库公开」）──
+  // ⚠ 这个仓是**公开**的。docs/ 里全是执行日志、派工单、交接与现场记录 ——
+  //   含真实项目名、本机路径、当时的工作细节，是**工作证据不是产品资产**。
+  //   判据盯的是"有没有被跟踪"，不是"文件在不在"：方寸照常读写磁盘上的 docs/。
+  let trackedDocs = []
+  try {
+    const r = require('child_process').execFileSync(
+      'git', ['-C', ROOT, 'ls-files', 'docs/'], { encoding: 'utf-8', timeout: 60000 })
+    trackedDocs = String(r || '').split('\n').filter(Boolean)
+  } catch (e) {
+    console.log('INFO  git 不可用，跳过"docs 未被跟踪"这一条（不当作通过）')
+  }
+  check('★★ docs/ 一个文件都不该被 git 跟踪（公开仓库里它含真实专名与工作现场）',
+    trackedDocs.length === 0,
+    trackedDocs.slice(0, 5).join(', ') + (trackedDocs.length > 5 ? ' …共 ' + trackedDocs.length : ''))
+
+  // ── 三、随包/随仓发布的文档 ────────────────────────────────────
   const docFiles = []
   for (const d of ['docs']) docFiles.push(...walk(path.join(ROOT, d), ['.md']))
   for (const f of ['AGENTS.md', '立项契约.md', 'README.md']) {
