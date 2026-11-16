@@ -125,8 +125,20 @@ watch(filtered, (list) => {
 
 <style scoped>
 /* 三栏：左目录 240 / 中正文自适应 / 右留空 220。
-   ⚠ 窄屏（<1080）收起右栏 —— 留空不该在小屏上挤掉正文。 */
-.help-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+   ⚠ 窄屏（<1080）收起右栏 —— 留空不该在小屏上挤掉正文。
+
+   ⚠⚠ 2026-11-16 窄屏目检抓到的真缺陷：900×700 下左目录最后两节被底部统计行压住，
+   **滚到底也看不到**。根因不在目录自己，而在外层：
+   `#board { align-items: flex-start; min-height: 60vh }` —— 父容器是 flex-start，
+   子项高度按内容算，`height: 100%` **不生效**，于是 `.help-toc` 的 `overflow-y: auto`
+   永远没有可滚的余量（内容撑多高就多高，只是被后面的 footer 盖住）。
+   真正要的是：**整页固定成视口高**（`height: calc(100vh - 顶栏)`），让 shell 拿得到
+   确定高度，两栏才各自滚。用 `overflow: hidden` 兜住，避免整页被撑长。 */
+.help-view {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 96px);          /* 顶栏 + 页头两行，实测 96 够 */
+  min-height: 0; overflow: hidden;
+}
 
 .help-head {
   display: flex; align-items: baseline; gap: 10px;
@@ -144,6 +156,10 @@ watch(filtered, (list) => {
 /* ── 左目录 ── */
 .help-toc {
   width: 240px; flex-shrink: 0; overflow-y: auto;
+  /* ⚠ 2026-11-16 窄屏目检抓到的真缺陷：900×700 下底部「共 11 节」那行把目录最后两节压住，
+     目录滚到底也看不到。`min-height: 0` 是 flex 子项能真正滚动的前提
+     （默认 `min-height: auto` 会让内容撑破而不滚）。 */
+  min-height: 0;
   padding: 10px; border-right: 1px solid var(--border);
   background: var(--tint);
 }

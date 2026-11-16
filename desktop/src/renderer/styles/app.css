@@ -2748,10 +2748,18 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .mg-notice code { background: #efe9d8; padding: 0 4px; border-radius: 3px; }
 .mg-hint { margin-top: 5px; color: #8a8270; }
 
-/* ── 帮助手册视图（2026-10-12 暮雨第 4 条）─────────────────────────────
+/* ── 帮助手册视图（2026-10-12 暮雨第 4 条；2026-11-16 三栏重写后收敛）─────────
    视图内渲染的离线手册：跟其它页同一套主题变量，亮/暗自动跟随。
-   ⚠ 类名统一 `help-` 前缀（memory：class 撞车 = 静默错版，别用 .head/.row/.item）。 */
-.help-view { overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+   ⚠ 类名统一 `help-` 前缀（memory：class 撞车 = 静默错版，别用 .head/.row/.item）。
+
+   ⚠⚠ 2026-11-16 真缺陷（窄屏截图目检抓到）：这里原本写
+        `.help-view { overflow-y: auto; padding: 16px 20px; ... }`
+      而组件自己的 `<style scoped>` 里写着 `overflow: hidden; height: calc(100vh - 96px)`。
+      **两处同时定义同一个类，打包顺序让全局这条赢** → 整页变成"内容有多长就多长"，
+      左目录被底部统计行压住、滚不到最后一节。我改了两次 scoped 都没用，因为改的不是生效的那条。
+      **教训**：`scoped` 不保证赢全局（同一 class、同 chrome 下看注入顺序），
+      一个 class 的布局只能有一处权威 —— 现在归组件，全局只留视觉令牌。 */
+.help-view { display: flex; flex-direction: column; gap: 14px; }
 .help-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .help-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
 /* 版本号：和“关于方寸”同一个来源（2026-11-08 暮雨第 1 条：? 打开的不是关于页，
