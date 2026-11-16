@@ -203,19 +203,20 @@ def build_df(docs):
 
 
 def parse_harvest(path):
-    """把捞取产物拆回 [(会话id, 时间, 项目, 原文)]。
+    """把捞取产物拆回 [(会话id, 时间, 项目, 原文)]。**两种产物都认**：
 
-    ⚠ 真身格式（2026-11-16 实测，第一版解析器在这里全错）：
+    DSH（`harvest-sessions.cjs`）：
         ## session-xxx
-        - 时间：2026-10-24 08:36 · 项目：`E:\\CODE\\CangKu\\SiTian`   ← 时间与项目**同一行**
-        - 文件：… · 8.9 MB 解压 · 1984 帧
-        - 用户发言：**6** 条
-        > 第一条
-        （空行）
-        > 第二条
-    所以：① 项目要按 ` · 项目：` 切，不能按行首 `- 项目：` 找；
-          ② **一条消息在空行处结束** —— 第一版只在 `## ` 处切断，把整个会话的 6 条
-             拼成了一条 3000 字的巨块，于是"锚点词"全被稀释成常见词，判定必然失真。
+        - 时间：2026-10-24 08:36 · 项目：`E:\\CODE\\CangKu\\SiTian`
+    Hermes（`harvest-hermes.py`）：
+        ## 按会话（203 个）            ← 这是分组标题，不是会话
+        ### `20260726_210825_16f584` · 2026-07-26 21:08
+        - source `desktop` · `E:\\AI\\Hermes_Workspace` · 标题
+
+    ⚠ 2026-11-16 实测踩到：第一版只认 `## `，于是 Hermes 那 667 条**全部挂在一个
+    叫「按会话（203 个）」的假会话下**，cwd 全空 —— 项目分栏、projects 过滤全部失效，
+    而输出看起来完全正常。所以：`### ` 才是会话标题，`## ` 只是分组，要跳过。
+    同时一条消息在**空行处结束**（第一版忽略这点，把整个会话拼成一条）。
     """
     if not os.path.exists(path):
         return []
@@ -227,13 +228,26 @@ def parse_harvest(path):
     def flush():
         s = "\n".join(buf).strip()
         buf.clear()
-        if s:
+        if s and cur["id"]:
             out.append((cur["id"], cur["ts"], cur["proj"], s))
 
     for line in t.splitlines():
-        if line.startswith("## "):
+        if line.startswith("### "):        # 会话标题（Hermes 用这层）
             flush()
-            cur = {"id": line[3:].strip(), "ts": "", "proj": ""}
+            body = line[4:].strip()
+            if " · " in body:
+                sid, ts = body.split(" · ", 1)
+                cur = {"id": sid.strip("` "), "ts": ts.strip()[:16], "proj": ""}
+            else:
+                cur = {"id": body.strip("` "), "ts": "", "proj": ""}
+            continue
+        if line.startswith("## "):         # 分组标题（DSH 的会话就是这层）
+            flush()
+            body = line[3:].strip()
+            if body.startswith("按会话") or body.startswith("按项目"):
+                cur = {"id": "", "ts": "", "proj": ""}   # 分组，不是会话
+            else:
+                cur = {"id": body, "ts": "", "proj": ""}
             continue
         if line.startswith("- 时间："):
             body = line.split("时间：", 1)[1]
@@ -245,6 +259,14 @@ def parse_harvest(path):
             else:
                 cur["ts"] = body.strip()[:16]
             continue
+        if line.startswith("- source "):
+            # Hermes 形：- source `desktop` · `E:\\AI\\Hermes_Workspace` · 标题
+            m = re.findall(r"`([^`]+)`", line)
+            if len(m) >= 2:
+                cur["proj"] = m[1]
+            elif m:
+                cur["proj"] = ""
+            continue
         if line.startswith("> "):
             buf.append(line[2:])
         elif line.strip() == ">":
@@ -252,10 +274,8 @@ def parse_harvest(path):
         elif line.startswith(">"):
             buf.append(line[1:])
         elif not line.strip():
-            # 空行 = 一条消息结束（正是这里被第一版忽略了）
             flush()
     flush()
-    # 丢掉头部说明块（以 ** 开头的那种）
     return [x for x in out if x[3] and not x[3].startswith("**")]
 
 
@@ -303,11 +323,13 @@ def judge_one(text, docs, df, doc_terms, n_docs):
 def main():
     ap = argparse.ArgumentParser(description="逐条判定会话捞取结果有没有被记录接住（只读）")
     ap.add_argument("--project", help="只判某个项目侧（子串匹配 cwd）")
+    ap.add_argument("--src", help="指定捞取产物（默认 docs/捞-会话/all.md；"
+                                  "判 Hermes 时传 docs/捞-Hermes-20261116.md）")
     ap.add_argument("--out")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
-    src = HARVEST if os.path.exists(HARVEST) else HARVEST_ONE
+    src = args.src or (HARVEST if os.path.exists(HARVEST) else HARVEST_ONE)
     if not os.path.exists(src):
         print("✗ 找不到捞取产物，先跑：node scripts/harvest-sessions.cjs --all --outdir docs/捞-会话")
         return 1
