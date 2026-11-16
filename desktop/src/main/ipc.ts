@@ -33,6 +33,7 @@ import * as appLog from './services/appLog'
 import * as gitLink from './services/gitLink'
 import * as selfSync from './services/selfSync'
 import * as repoDocs from './services/repoDocs'
+import * as layerScan from './services/layerScan'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, getSkillSyncStatus, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
@@ -513,7 +514,11 @@ export function registerIpcHandlers(): void {
     if (!pid) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: '没指定项目' }
     const proj: any = data.parseRegistry().find((p: any) => p.id === pid)
     if (!proj) return { ok: false, repo: '', readme: null, roadmap: null, docsCommits: [], readAt: new Date().toISOString(), cached: false, note: `registry 里没有项目“${pid}”` }
-    return repoDocs.readProjectDocs(String(proj.repo || ''))
+    // projectHints：让 repoDocs 能在 Hermes 里匹配同名 skill（如 `sitian-development`）。
+    // 2026-11-16：那些 skill 里有 60+ 条铁律，不在仓库里 —— 不读就等于没看见项目的宪法。
+    return repoDocs.readProjectDocs(String(proj.repo || ''), {
+      projectHints: [String(proj.id || ''), String(proj.name || '')],
+    })
   })
 
   // ── 方寸自仓启动同步状态（2026-10-21 · W1-1C）── 只读状态
@@ -1567,6 +1572,52 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
       return { ok: true, path: r.hit.path, rel: r.hit.rel, project: r.project }
     } catch (e: any) {
       return { ok: false, error: '打开失败：' + (e?.message || e) }
+    }
+  })
+
+  // ── 层厚度（2026-11-16 · 骨架继承试点第一批）────────────────────────
+  // 由来：暮雨 2026-11-15「骨架补齐以后，规划会自己长出来」+ 2026-11-16
+  // 「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
+  //
+  // 这两条只回答一件事：**层 → 文件数 → 行数 → 占比**，以及一句「号称是 A，
+  // 但 88% 在 B」。不猜架构、不给建议、不写任何项目仓库（只读扫盘）。
+  // 口径与踩过的五个假数坑写在 services/layerScan.ts 顶部。
+  guardedHandle('layer:profile', (_event, projectId: string, opts?: any) => {
+    const pid = String(projectId || '').trim()
+    if (!pid) return { ok: false, missing: '没指定项目' }
+    const proj: any = data.parseRegistry().find((p: any) => p.id === pid)
+    if (!proj) return { ok: false, id: pid, missing: `registry 里没有项目「${pid}」` }
+    return layerScan.profileProject(
+      { id: String(proj.id || pid), name: String(proj.name || pid), repo: String(proj.repo || '') },
+      { depth: Number(opts?.depth) || 3, force: opts?.force === true },
+    )
+  })
+
+  // 横比：一次扫 registry 里全部项目。**慢是应该的**（十几个仓库的盘），
+  // 所以按天缓存，界面上要显示"今天读过 / 刚读"（同 repoDocs 的既有口径）。
+  guardedHandle('layer:board', (_event, opts?: any) => {
+    const list = data.parseRegistry().map((p: any) => ({
+      id: String(p.id || ''), name: String(p.name || ''), repo: String(p.repo || ''),
+    })).filter((p: any) => p.id)
+    return layerScan.profileAll(list, {
+      depth: Number(opts?.depth) || 3,
+      force: opts?.force === true,
+    })
+  })
+
+  // spec 的**唯一真源**在 task-data/layer-specs/<id>.json。
+  // 这条只读回来给界面显示"这个项目的分层是谁给的、有没有写坏"，
+  // 写 spec 仍是用户的动作（跟问卷/决策同一条边界：agent 不替人定口径）。
+  guardedHandle('layer:spec', (_event, projectId: string) => {
+    const pid = String(projectId || '').trim()
+    if (!pid) return { ok: false, error: '没指定项目' }
+    const { spec, error } = layerScan.readSpec(pid)
+    return {
+      ok: !error,
+      error,
+      spec,
+      path: layerScan.specPathFor(pid),
+      exists: !!spec,
     }
   })
 

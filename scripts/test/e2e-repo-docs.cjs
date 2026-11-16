@@ -203,9 +203,20 @@ async function main() {
       check('★ 缓存按“仓库 + 当天”而不是时间 TTL（一天一批，不做分钟级轮询）',
         /dayCache/.test(raw) && /today\(\)/.test(raw) && !/setInterval/.test(raw))
       // 界面侧：读不到时必须有出口（不能只留一块空白）
-      const app = stripComments(fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'App.vue'), 'utf-8'))
+      //
+      // ⚠ 2026-11-16：这段模板在 App.vue 拆分「视图刀」时搬到了 views/ProjectsView.vue。
+      // 守卫原来只读 App.vue，于是**功能没坏、断言红了**（模板里一个字都找不到了）。
+      // 两处都读：既容得下拆分，又不许它两边都消失。
+      const uiOf = (rel) => {
+        const p = path.join(REPO, rel.split('/').join(path.sep))
+        return fs.existsSync(p) ? stripComments(fs.readFileSync(p, 'utf-8')) : ''
+      }
+      const app = uiOf('desktop/src/renderer/App.vue') + '\n' + uiOf('desktop/src/renderer/views/ProjectsView.vue')
       check('★ 界面读不到时给原因（ms-doc-none 兜底），不是一片空白',
         /ms-doc-none/.test(app) && /msDocs\.note/.test(app))
+      // 骨架块也必须有"找不到"的出口（否则用户会以为"这项目压根没有骨架"）
+      check('★ 骨架读不到时逐条给缺失原因（ms-skel-miss），不糊一句"没有骨架"',
+        /ms-skel-miss/.test(app) && /skeleton\.missing/.test(app))
     }
 
     console.log('')

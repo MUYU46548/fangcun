@@ -21,6 +21,23 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 层厚度（2026-11-16 · 骨架继承试点第一批）：横比 + 单项目报告。
+  // 默认给**一个真形状**的最小夹具 —— 空数组会让"表渲染出来了吗"永远无法区分。
+  layerBoard: [
+    {
+      ok: true, id: 'demo', name: '演示项目', repo: 'E:/demo',
+      totalLines: 300, totalFiles: 4,
+      rows: [
+        { layer: 'src', role: '产品', files: 2, lines: 100 },
+        { layer: 'tests', role: '测试', files: 2, lines: 200 },
+      ],
+      named: [], groups: [], verdict: '测试比产品厚。',
+      unreadable: [], nonText: [], skipped: [{ dir: 'node_modules', why: '依赖' }],
+      specSource: '', claims: {}, claimsNote: '', claimRows: [], missing: '', note: '',
+    },
+  ],
+  layerProfile: null,
+  layerSpec: { ok: true, spec: null, exists: false, path: 'task-data/layer-specs/demo.json' },
   // 同步阶段流（2026-10-25 卡 004）：订阅者列表 + 一个"按住不放的 push"。
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
   // 否则“阶段文字”“秒数在动”“结束态停留 3 秒”这三件事在测试里根本无从验起。
@@ -2024,6 +2041,25 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('projectTiersSet', [tiers])
     store.projectTiers = Array.isArray(tiers) ? JSON.parse(JSON.stringify(tiers)) : []
     return ok({ tiers: JSON.parse(JSON.stringify(store.projectTiers)) })
+  },
+  // 层厚度（2026-11-16 · 骨架继承试点第一批）：项目页第 9 种摆法。
+  // 假 preload 必须在场 —— 否则新通道在渲染层断言里永远验不到（AGENTS.md「会再犯的硬规则 1」）。
+  // ⚠ 形状必须**照真身**：`layer:board` 真返回一个**数组**（profileAll 的 Promise），
+  //   `layer:profile` 返回**裸对象**。这里若图省事套 `ok()`（Object.assign 进对象），
+  //   数组就变成 {0:…,1:…} —— 界面上一个项目都不显示，而表头照样渲染，看着像"没数据"。
+  layerProfile: (projectId, opts) => {
+    rec('layerProfile', [projectId, opts])
+    const hit = (store.layerBoard || []).find((p) => p && p.id === projectId)
+    return hit ? JSON.parse(JSON.stringify(hit))
+      : { ok: false, id: projectId, missing: '夹具里没有这个项目', rows: [] }
+  },
+  layerBoard: (opts) => {
+    rec('layerBoard', [opts])
+    return JSON.parse(JSON.stringify(store.layerBoard || []))
+  },
+  layerSpec: (projectId) => {
+    rec('layerSpec', [projectId])
+    return JSON.parse(JSON.stringify(store.layerSpec))
   },
   // 2026-10-05 补：在途一屏的“保存”改走**一次写多键 + 回读校验**（prefs:setMany）。
   // 假 preload 缺这个 API 的话，渲染层的 `?.prefsSetMany?.(...)` 会静默变 undefined，

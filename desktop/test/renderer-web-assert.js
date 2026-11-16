@@ -8288,6 +8288,85 @@
         $$('.errbar').length === 0 && !$('.errpanel'))
     }
 
+    // ══ 层厚度（2026-11-16 · 骨架继承试点第一批）════════════════════════
+    // 暮雨：「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
+    //
+    // 判据不是"表画出来了"，而是**三件原来做不到的事**：
+    //  ① 横比：一眼看出哪个项目在写业务、哪个在堆测试（含"测试/产品"那一列）
+    //  ② 单项目：「层 → 文件数 → 行数 → 占比」+ 一句话结论 + 逐条对账
+    //  ③ 分母被谁改过**摊开写**（排除项逐条点名、非文本单列）
+    // ⚠ 口径在 shared/layerProfile.ts（纯函数），这一页只摆不重算 —— 所以断言也验"显示的是主进程给的数"。
+    {
+      clickText('项目')
+      await sleep(700)
+      const tabLabels2 = $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim())
+      const layerTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('层厚度') >= 0)
+      check('★★ 项目页多出「层厚度」摆法（它就是项目页的第 9 种摆法，不是顶级页签）',
+        !!layerTab, tabLabels2.join(' | '))
+      check('★ 顶栏没有独立「层厚度」页签（没被提到顶级）',
+        !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '层厚度'))
+      if (layerTab) {
+        layerTab.click()
+        await sleep(1200)
+
+        check('★ 页内两个子页签都在：跨项目横比 / 单项目报告',
+          $$('.lp-tab').length === 2,
+          $$('.lp-tab').map((b) => (b.textContent || '').trim()).join('|'))
+        check('★★ 横比表渲染出来了（.lp-board .lp-table）', !!$('.lp-board .lp-table'))
+        check('★ 横比表有「测试/产品」那一列（这是"谁在堆测试"的唯一入口）',
+          $$('.lp-board .lp-table thead th').some((th) => (th.textContent || '').indexOf('测试/产品') >= 0),
+          $$('.lp-board .lp-table thead th').map((th) => (th.textContent || '').trim()).join('|'))
+
+        const bodyRows = $$('.lp-board .lp-table tbody tr')
+        check('★ 横比表里真有项目行（夹具 demo，不是空表）', bodyRows.length >= 1, 'rows=' + bodyRows.length)
+        check('★ 项目行显示的是主进程给的数（产品 100 / 测试 200，不是组件自己算的）',
+          bodyRows.length > 0 && (bodyRows[0].textContent || '').replace(/\s/g, '').indexOf('100') >= 0,
+          bodyRows.length ? (bodyRows[0].textContent || '').trim() : '')
+        check('★★ 测试/产品 = 2.00 被标出来（测试 200 / 产品 100）',
+          (bodyRows[0] && (bodyRows[0].textContent || '').indexOf('2.00') >= 0),
+          bodyRows.length ? (bodyRows[0].textContent || '').trim() : '')
+        check('★ 最厚的层列显示目录名（src）',
+          bodyRows.length > 0 && (bodyRows[0].textContent || '').indexOf('src') >= 0)
+        check('★ "行数是体量不是质量"这句声明必须在（不许让人把这张表当质量评分）',
+          (document.body.textContent || '').indexOf('不是质量') >= 0)
+
+        // 点一行 → 切到单项目报告
+        if (bodyRows.length) {
+          bodyRows[0].click()
+          await sleep(900)
+          // ⚠ 这条曾经抓到一个真 bug：`<LayerProfileView>` 漏了 `:ctl="ctl"`，
+          // 而 `ctl` 是 `props.ctl` —— 缺了它 `ctl.projects` 直接抛，
+          // 整个组件从 DOM 里消失（tab 数从 2 变 0）。
+          // 只看"表头还在不在"会漏掉这种错，所以下面几条必须验**点完之后的单项目块**。
+          check('★ 点横比表的一行会切到「单项目报告」（不是只能看一张汇总表）',
+            !!$('.lp-one'),
+            'lpTabCount=' + $$('.lp-tab').length + '（0 = 组件被异常卸载了）')
+          check('★ 单项目页有一句话结论（.lp-verdict）', !!$('.lp-one .lp-verdict'))
+          check('★ 结论写的是"测试比产品厚"那种真话，不是罗列目录',
+            (($('.lp-one .lp-verdict') || {}).textContent || '').indexOf('测试') >= 0,
+            (($('.lp-one .lp-verdict') || {}).textContent || '').slice(0, 120))
+          check('★ 单项目页有「全部目录层」表（层 → 文件数 → 行数 → 占比）',
+            $$('.lp-one .lp-sec').some((s) => (s.textContent || '').indexOf('全部目录层') >= 0))
+
+          // 分母被谁改过 —— 这是这一页最容易被漏掉、也最要紧的一节
+          check('★★ 「被规则挡在外面的东西」那一节必须在（排除项会改变分母，必须点名）',
+            $$('.lp-one .lp-sec').some((s) => (s.textContent || '').indexOf('被规则挡在外面') >= 0),
+            $$('.lp-one .lp-sec-h').map((h) => (h.textContent || '').trim()).join(' | '))
+          check('★ 被排除的目录逐条列出来（夹具里是 node_modules）',
+            $$('.lp-one .lp-skip').some((r) => (r.textContent || '').indexOf('node_modules') >= 0),
+            $$('.lp-one .lp-skip').map((r) => (r.textContent || '').trim()).join('|'))
+          check('★ 说明里写了那两个坑（`.ts` 也是视频分片 / GBK 是文本）',
+            (($('.lp-one') || {}).textContent || '').indexOf('GBK') >= 0)
+          check('★ 真调了 layerSpec（spec 口径要能看出"是谁给的"）',
+            window.__fcTest.callCount('layerSpec') >= 1,
+            'calls=' + window.__fcTest.callCount('layerSpec'))
+        }
+        check('★ 真调了 layerBoard（不是拿写死的夹具渲染）',
+          window.__fcTest.callCount('layerBoard') >= 1,
+          'calls=' + window.__fcTest.callCount('layerBoard'))
+      }
+    }
+
     // ══ 项目梯度榜（2026-10-25 暮雨）════════════════════════════════════
     // 原话：“放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
     //        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。”

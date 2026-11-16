@@ -1605,10 +1605,10 @@ const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY,
 // 项目页签的摆法（2026-09-29 用户口径：“项目页签两种视图都要，做成用户可自选切换选项”；
 //   2026-10-05 Q2 新增第四种“在途一屏”—— 立项契约 ② 验收线之①）。
 // ⚠ 默认仍是**旧的项目墙** —— 方寸铁律“加视图一律新增可选、旧的保留、旧视图永远是默认”。
-const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(
-  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice'>(PV_VIEW_KEY, 'tiles'))
+const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice' | 'plan' | 'layer'>(
+  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice' | 'plan' | 'layer'>(PV_VIEW_KEY, 'tiles'))
 /** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
-const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice', 'plan']
+const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice', 'plan', 'layer']
 
 
 /** 当前页签可选的视图（空数组 = 这个页签没有多视图，页头整条不渲染） */
@@ -1636,6 +1636,9 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴“要做几天”、纵轴“优先级分”，气泡越大用得越多；改一格立即重排，“采纳 / 砍掉”你点。' },
     // 2026-10-31（0.6.0 P1）：作战计划 —— 第 8 种摆法，裁决第一次有地方发生
     { v: 'plan', label: '◫ 作战计划', hint: '阶段卡三块（技术方案 / 照抄点 / 判据）缺一块就报红且不能通过；通过=冻结、打回=写理由、改一句=留痕' },
+    // 2026-11-16（骨架继承试点第一批）：层厚度 —— 第 9 种摆法。
+    // 暮雨：「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
+    { v: 'layer', label: '▤ 层厚度', hint: '只读扫盘：十几个项目横着比（谁在写业务、谁在堆测试），单项目看「层 → 文件数 → 行数 → 占比」，并回答「号称是 A 但 88% 在 B」；排除了什么全部摊开写' },
   ]
   return []
 })

@@ -244,6 +244,10 @@ contextBridge.exposeInMainWorld('tegula', {
     ipcRenderer.on('arch:progress', h)
     return () => { try { ipcRenderer.removeListener('arch:progress', h) } catch { /* ignore */ } }
   },
+  /** 层厚度（2026-11-16）：只读扫盘，回答「层 → 文件数 → 行数 → 占比」 */
+  layerProfile: (projectId: string, opts?: { depth?: number; force?: boolean }) => ipcRenderer.invoke('layer:profile', projectId, opts),
+  layerBoard: (opts?: { depth?: number; force?: boolean }) => ipcRenderer.invoke('layer:board', opts),
+  layerSpec: (projectId: string) => ipcRenderer.invoke('layer:spec', projectId),
   /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
   cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),

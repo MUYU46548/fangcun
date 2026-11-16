@@ -276,6 +276,32 @@
               <div class="ms-docs-log" v-if="ctl.msDocs.docsCommits && ctl.msDocs.docsCommits.length">
                 最近 docs 变更 <b>{{ ctl.msDocs.docsCommits.length }}</b> 条 · 最后 <b>{{ ctl.msDocs.docsCommits[0].subject }}</b>（{{ ctl.msDocs.docsCommits[0].date }}）
               </div>
+              <!-- 骨架文件（2026-11-16 · 骨架继承试点）：
+                   2026-11-15 那个 bug 的形状 —— 方寸当时只认 README/ROADMAP，
+                   而司天的宪法是 AGENTS.md（87,773 字）、总纲在 docs/guides（21,071 字）、
+                   还有 6 份 Hermes skill 铁律全在仓库外。**一份都读不到**。
+                   暮雨原话：「README 本来就是不读都无所谓的东西」「只读提交标题更是残废」。
+                   所以这一块专门列骨架，README/ROADMAP 只是它的邻居，不是它的替代。 -->
+              <div class="ms-skel" v-if="ctl.msDocs.skeleton">
+                <div class="ms-skel-h">
+                  <span>骨架</span>
+                  <span class="ms-skel-n">{{ ctl.msDocs.skeleton.note }}</span>
+                </div>
+                <div class="ms-skel-row" v-for="f in (ctl.msDocs.skeleton.files || []).slice(0, 12)" :key="f.rel"
+                  :title="f.foundAs + '（' + Math.round(f.bytes / 1024) + ' KB，' + ctl.relativeTime(f.mtime) + '）'">
+                  <span class="ms-skel-k">{{ f.kind }}</span>
+                  <code class="ms-skel-p">{{ f.rel }}</code>
+                  <span class="ms-skel-t">{{ f.title }}</span>
+                  <span class="ms-skel-b">{{ Math.round(f.bytes / 1024) }} KB</span>
+                </div>
+                <div class="ms-skel-row more" v-if="(ctl.msDocs.skeleton.files || []).length > 12">
+                  …另有 {{ ctl.msDocs.skeleton.files.length - 12 }} 份
+                </div>
+                <!-- 找过但没有的位置也要说 —— 否则用户会以为"这项目没有骨架" -->
+                <div class="ms-skel-miss" v-for="m in (ctl.msDocs.skeleton.missing || [])" :key="m.pattern">
+                  <code>{{ m.pattern }}</code> —— {{ m.why }}
+                </div>
+              </div>
             </div>
             <!-- git 活动：在途一屏的数据已在内存才显示；没拉过给手动入口（不默认付 git 扫描的钱，
                  与 loadViewData“只在切到那一摆法时才拉”的既有纪律一致） -->
@@ -378,6 +404,12 @@
       <TripBoardView v-else-if="ctl.pvView === 'trip'" :ctl="ctl.tripBoardCtl" />
       <!-- 2026-10-31（0.6.0 P1）：第 8 种摆法 —— 作战计划裁决。 -->
       <PlanView v-else-if="ctl.pvView === 'plan'" />
+      <!-- ══ ⑨ 层厚度（2026-11-16 · 骨架继承试点第一批）══════════════════════
+           暮雨：「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
+           回答两句话：① 十几个项目横向比，谁在写业务、谁在堆测试、谁在堆素材；
+                     ② 单项目「层 → 文件数 → 行数 → 占比」，以及**号称是 A 但 88% 在 B**。
+           只读扫盘；分母被谁改过（排除了什么、哪些不是文本）全部摊开写。 -->
+      <LayerProfileView v-else-if="ctl.pvView === 'layer'" :ctl="ctl" />
     </main>
 </template>
 
@@ -390,6 +422,7 @@ import Button from '../components/ui/Button.vue'
 import RiceMatrixView from './RiceMatrixView.vue'
 import TripBoardView from './TripBoardView.vue'
 import PlanView from './PlanView.vue'
+import LayerProfileView from './LayerProfileView.vue'
 
 /**
  * 项目页（2026-11-03 · App.vue 拆分「视图刀」）
