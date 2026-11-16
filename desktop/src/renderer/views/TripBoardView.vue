@@ -80,7 +80,7 @@
               <template v-if="r.contract && r.contract.exists">
                 <span v-if="tripFirstLine(r.contract.endState)" class="trip-end-txt" :title="r.contract.path">{{ tripFirstLine(r.contract.endState) }}</span>
                 <!-- 空的原因要**分类**（2026-10-11 真机修正）。旧版一律写“内容未填”——
-                     绒花墨坊的契约明明写得很完整，只因小节名是“① 终态三段”而不是“终态形态”，
+                     另一款产品款自有产品款产品的契约明明写得很完整，只因小节名是“① 终态三段”而不是“终态形态”，
                      就被报成"内容未填"（用户原话“已经有内容了啊？”）。**这是界面说假话。** -->
                 <span v-else class="trip-unset" :title="tripContractMissing(r).title || r.contract.path">
                   文件已建 · {{ tripContractMissing(r).text }}
@@ -106,7 +106,7 @@
               </template>
             </td>
 
-            <!-- 当前步骤：进行中的卡 → 没有就回落到最近一条执行日志（司天这类 0 卡项目靠它） -->
+            <!-- 当前步骤：进行中的卡 → 没有就回落到最近一条执行日志（隔壁同类产品这类 0 卡项目靠它） -->
             <td v-if="tripColVisible('current')" class="trip-step">
               <template v-if="r.current && r.current.text">
                 <span class="trip-step-k">{{ r.current.text }}<span v-if="r.current.from === 'log'" class="trip-from">日志</span></span>

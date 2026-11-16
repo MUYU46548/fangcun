@@ -106,8 +106,8 @@ function spawnAndWait(
 /**
  * 交给资源管理器（explorer.exe）代启动 —— 2026-10-17 修“点启动只出空壳窗口”。
  *
- * 真因（实测对照，不是猜的）：本机把 `E:\Software\SiTian\SiTian.exe`
- *   ① 用 explorer 打开 → 窗口正常出现（标题 `SiTian — 世界观动态构建系统`）；
+ * 真因（实测对照，不是猜的）：本机把 `E:\Software\另一个仓库\另一个仓库.exe`
+ *   ① 用 explorer 打开 → 窗口正常出现（标题 `另一个仓库 — 世界观动态构建系统`）；
  *   ② 从**本进程树**里 CreateProcess/ShellExecute 直接拉起 → 子 Electron 应用的 GPU 进程
  *      连崩 `exit_code=-1073741819`，最后 `FATAL:gpu_data_manager_impl_private.cc(448)]
  *      GPU process isn't usable. Goodbye.`，主窗口只剩一个空壳。
@@ -174,7 +174,7 @@ export function listImagePids(image: string): Promise<Set<number>> {
           if (err) return resolve(set)
           const lines = String(stdout || '').split(/\r?\n/).filter((l) => l.trim())
           // ⚠ 2026-10-17 实测踩到的坑：Node 拿到的是**系统代码页（GBK）字节**，按 UTF-8 解出来是
-          //   `"�޻�ī��.exe"` —— 于是"按名字比对"对中文映像名（绒花墨坊.exe）**永远不相等**，
+          //   `"�޻�ī��.exe"` —— 于是"按名字比对"对中文映像名（另一款自有产品.exe）**永远不相等**，
           //   表现为"每次启动都说没能复查到进程"（一句看着诚实、其实是坏了的提示）。
           //   因此这里**只信 /FI 的过滤结果**，不做名字比对；只用行数做一道“过滤器是否失效”的保险。
           //   （tasklist 过滤不到时输出的是"信息: 没有运行的任务…"这类非 CSV 行，正则自然不命中。）

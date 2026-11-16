@@ -14,11 +14,11 @@
  *
  * ⚠ 口径来自 2026-11-16 命令行版首跑踩到的五个坑（每个都让数变成假数，
  * 而报告看起来完全正常）：
- *   ① 浏览器 profile（司天 `.test-edge-profile-3d` = 287 万行）撑爆分母
+ *   ① 浏览器 profile（隔壁同类产品 `.test-edge-profile-3d` = 287 万行）撑爆分母
  *   ② 拿全仓当分母 → 剩下 90% 是测试，不是"这层薄"
- *   ③ 打包产物 / 内嵌 Python 运行时被当产品代码（方寸 36 万、墨坊 31.9 万）
+ *   ③ 打包产物 / 内嵌 Python 运行时被当产品代码（方寸 36 万、另一款产品 31.9 万）
  *   ④ `.ts` 既是 TypeScript 也是 MPEG 视频分片
- *   ⑤ 只认 UTF-8 会把 GBK 脚本当二进制丢掉（ROSA 31 行 → 0 行）
+ *   ⑤ 只认 UTF-8 会把 GBK 脚本当二进制丢掉（某项目 31 行 → 0 行）
  * 这些口径**每条都在这里有对应实现**，且 `e2e-layer-profile` 逐条钉住。
  */
 
@@ -260,7 +260,7 @@ export function innerShares(groups: LayerGroup[]): { name: string; share: number
 /**
  * 选占比的**分母**，并把选择理由说出来。
  *
- * ⚠ 2026-11-16 被真 spec 当场揭出的 bug：明鉴（project-3）是纯 Python CLI 项目，
+ * ⚠ 2026-11-16 被真 spec 当场揭出的 bug：某个项目（project-3）是纯 Python CLI 项目，
  * 代码全在 `scripts/` 底下 —— 而 `roleOf()` 按**目录名**把 `scripts/` 一律判成"工具"。
  * 于是"产品代码"只剩 1,346 行（`gui/` + `desktop/`），而 spec 圈出的层合计 13,256 行
  * → **占比算出 444.6%**。

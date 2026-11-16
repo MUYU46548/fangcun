@@ -19,7 +19,7 @@ const chanMsgBad = ref(false)
 const chanForm = reactive({ label: '', baseUrl: '', model: '', apiKey: '' })
 
 // ── MCP 写口（2026-11-11 · 卡《MCP 写口无闸》）────────────────────────────
-// 暮雨原话：“哪怕是绒花墨坊也必须开 agent 模式放开解锁才能 agent 直接调用”。
+// 暮雨原话：“哪怕是另一款自有产品也必须开 agent 模式放开解锁才能 agent 直接调用”。
 // 这一块只做三件：看得见当前档位 / 能收紧 / 看得见谁写了什么（含被拒的尝试）。
 const writeMode = ref('write')
 const writeModes = ref<{ mode: string; label: string; hint: string }[]>([])

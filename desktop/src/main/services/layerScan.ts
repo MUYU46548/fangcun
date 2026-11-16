@@ -17,11 +17,11 @@
  *    **绝不给 0** —— 0 会被读成"这项目真的没代码"。
  * ③ **分母必须点名**：每条排除规则、每个非文本文件都要列出来。
  *    2026-11-16 首跑踩了五个坑，每个都让数变成假数而报告看起来完全正常：
- *      ① 浏览器 profile（司天 `.test-edge-profile-3d` = **287 万行**）撑爆分母
+ *      ① 浏览器 profile（隔壁同类产品 `.test-edge-profile-3d` = **287 万行**）撑爆分母
  *      ② 拿全仓当分母 → 剩下 90% 是测试，不是"这层薄"
- *      ③ 打包产物 / 内嵌 Python 运行时被当产品（方寸 36 万行、墨坊 31.9 万行）
+ *      ③ 打包产物 / 内嵌 Python 运行时被当产品（方寸 36 万行、另一款产品 31.9 万行）
  *      ④ `.ts` 既是 TypeScript 也是 **MPEG 视频分片**
- *      ⑤ 只认 UTF-8 会把 **GBK 脚本**当二进制丢掉（ROSA 31 行 → 0 行）
+ *      ⑤ 只认 UTF-8 会把 **GBK 脚本**当二进制丢掉（某项目 31 行 → 0 行）
  * ④ **不许猜口径**：`分层` 由项目自己在 `task-data/layer-specs/<id>.json` 里声明，
  *    没有就只给目录占比 —— 我替项目猜"你是几层"等于又造一份"我说它是什么"。
  */
@@ -90,7 +90,7 @@ export interface ScanResult {
  *
  * ⚠ **不用扩展名判**：`.ts` 既是 TypeScript 也是 MPEG 视频分片
  * （视频制作里 `frames/seg_04.ts` 一片 7,634 行，不挡就是全仓最厚"产品代码"）。
- * ⚠ **也不只认 UTF-8**：ROSA 的 `96 事务管理/索引预览.bat` 是 **GBK** 的合法脚本
+ * ⚠ **也不只认 UTF-8**：某项目 的 `96 事务管理/索引预览.bat` 是 **GBK** 的合法脚本
  * （头一行 `chcp 936`），只认 UTF-8 会把它丢掉 —— 那是拿"看不见"当成"没有"。
  *
  * 所以判据只有两条**与编码无关**的：NUL 字节、以及控制字符比例。
@@ -176,7 +176,7 @@ export function scanRepo(repo: string, extraExcludes: string[] = []): ScanResult
       if (e.isDirectory()) {
         if (isSkipName(e.name)) {
           // 顶层已经在外面记过了，这里只补嵌套的 —— 嵌套才是大头
-          // （墨坊 26.7 万行在 console/runtime/python，顶层看不出任何异常）
+          // （另一款产品 26.7 万行在 console/runtime/python，顶层看不出任何异常）
           if (relBase && skipped.length < 80) {
             skipped.push({ dir: rel, why: whySkip(e.name), nested: true })
           }

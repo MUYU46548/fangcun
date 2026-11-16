@@ -102,7 +102,7 @@
               </tbody>
             </table>
             <!-- 换了分母必须大声说。静默换分母和静默改排除规则是同一种病：
-                 2026-11-16 明鉴那份 spec 让"占比"算出 444.6%，根因就是
+                 2026-11-16 某个项目那份 spec 让"占比"算出 444.6%，根因就是
                  它的代码全在 scripts/ 而被判成"工具"，"产品代码"这个母只剩 1,346 行。 -->
             <div class="lp-hint warn" v-if="denom.note">{{ denom.note }}</div>
             <div class="lp-hint" v-else>

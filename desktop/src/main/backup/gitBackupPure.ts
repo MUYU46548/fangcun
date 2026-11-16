@@ -6,14 +6,14 @@
  * `scripts/test/e2e-git-backup.cjs` 直接断言。
  * （另一半 `gitBackup.ts` 要 spawn git、要 safeStorage，只能在真机上跑。）
  *
- * 抄的是司天那套已经踩过坑的做法（`E:/CODE/CangKu/SiTian/src/main/gitSyncHandler.js`）：
+ * 抄的是隔壁同类产品那套已经踩过坑的做法（`E:/CODE/CangKu/另一个仓库/src/main/gitSyncHandler.js`）：
  *
  *   · 令牌**不进 argv、不进 `.git/config`** —— 只经 `-c credential.helper=` 注入的环境变量传；
  *   · 所有 git 调用 `GIT_TERMINAL_PROMPT=0` —— 缺凭证**立刻失败**，不许挂死在那儿等人输密码
  *     （GUI 应用没有终端可输，挂死就是"点了没反应"）；
  *   · 回给渲染层 / 落日志的一切文本都过 `sanitizeGitOutput`；
  *   · 报错要**区分“令牌被拒”与“压根没找到凭据”** —— 这两者的指引完全相反
- *     （前者去换令牌，后者去填令牌）。司天旧实现把两者混为一谈，把"权限不足"也说成"去填令牌"。
+ *     （前者去换令牌，后者去填令牌）。隔壁同类产品旧实现把两者混为一谈，把"权限不足"也说成"去填令牌"。
  */
 
 export type GitErrorKind =
@@ -44,7 +44,7 @@ export function sanitizeGitOutput(text: unknown, token?: string | null): string 
 
 /**
  * 把 git 的 stdout+stderr 翻成人话，并给出 `kind` —— 调用方据此决定按钮怎么摆、提示怎么写。
- * 判据只认**真实出现过**的那几种输出形态（照抄司天踩过的坑 + 2026-10-11 真机实测捕获的原文）。
+ * 判据只认**真实出现过**的那几种输出形态（照抄隔壁同类产品踩过的坑 + 2026-10-11 真机实测捕获的原文）。
  *
  * @param code 进程退出码（可选）。**空输出 + 非零退出码**必须单独成一类 ——
  *   实测 `git ls-remote --exit-code <空仓库>` 就是“退出码 2、一个字都不吐”，
@@ -152,11 +152,11 @@ export function buildGitEnv(base: NodeJS.ProcessEnv | Record<string, string | un
 /**
  * 构造凭据注入参数 —— **令牌只出现在环境变量里，不出现在 argv**。
  *
- * 做法（抄司天）：用 `-c credential.helper=` 先**清空**所有既有 helper，再挂一个内联 shell 函数，
+ * 做法（抄隔壁同类产品）：用 `-c credential.helper=` 先**清空**所有既有 helper，再挂一个内联 shell 函数，
  * 该函数从环境变量读令牌吐给 git。这样：
  *   · 令牌不进 argv（`ps` 看不到）；
  *   · 令牌不进 `.git/config`（不是持久 helper）；
- *   · 不依赖系统凭据管理器（司天踩过的坑：存进去了 ≠ 推的时候取得回来）。
+ *   · 不依赖系统凭据管理器（隔壁同类产品踩过的坑：存进去了 ≠ 推的时候取得回来）。
  *
  * ⚠ 返回的数组**绝不含令牌本身** —— 这是本函数的契约，测试专门钉这一条。
  */
@@ -187,7 +187,7 @@ export function hostOfRemote(remote: unknown): string {
 
 /**
  * 地址里**内嵌的令牌必须被抽出来**（`https://token@github.com/x.git`）——
- * 否则它会原样写进 `.git/config` 留明文（司天踩过这条）。
+ * 否则它会原样写进 `.git/config` 留明文（隔壁同类产品踩过这条）。
  * 返回脱敏后的地址 + 抽出来的部分（调用方决定要不要拿来当令牌用）。
  */
 export function splitInlineCredential(remote: unknown): { remote: string; username: string; token: string } {

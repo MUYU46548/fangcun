@@ -49,7 +49,7 @@ export interface StageSelfCheck {
   /**
    * 这一格的判据**实际在哪个仓库里量的**（2026-11-15）。
    *
-   * 为什么必须进报告：修 bug 之前所有卡都在方寸仓库里跑，司天那 4 格报"未过"，
+   * 为什么必须进报告：修 bug 之前所有卡都在方寸仓库里跑，隔壁同类产品那 4 格报"未过"，
    * 而看报告的人**没有任何线索**能发现"量错了地方" —— 它和"那些项目真红"长得一模一样。
    * 口径不写出来，读者只能把假红当真红。
    */
@@ -244,8 +244,8 @@ export async function runSelfCheck(opts: SelfCheckOptions = {}, deps: SelfCheckD
      * **每个项目的判据跑在它自己的仓库里**（2026-11-15 修的真 bug）。
      *
      * 旧实现：所有计划卡都拿同一个 `repo`（= 方寸自己的数据目录）当 root。
-     * 后果在真报告里一眼可见 —— 司天那 4 张卡的判据是
-     * `cd E:/CODE/CangKu/SiTian && pytest …` 与 `file: utils/heightMath.js`，
+     * 后果在真报告里一眼可见 —— 隔壁同类产品那 4 张卡的判据是
+     * `cd E:/CODE/CangKu/另一个仓库 && pytest …` 与 `file: utils/heightMath.js`，
      * 却在**方寸仓库根**下执行：`utils/heightMath.js` 当然不存在、pytest 当然找不到文件。
      * 于是 7 条"未过 / 未判定"里大部分是**量错了地方**，不是那些项目真红。
      *

@@ -47,13 +47,13 @@ export interface DocsCommit {
  * 骨架文件（2026-11-16 新增 · 骨架继承试点）。
  *
  * 由来：暮雨 2026-11-15 深夜。方寸当时只认 `README.md` / `ROADMAP.md`，
- * 而司天的骨架根本不在那两份里：
+ * 而隔壁同类产品的骨架根本不在那两份里：
  *
  * | 文件 | 字数 | 旧清单读得到吗 |
  * |---|---:|---|
  * | `README.md` | 22,461 | ✅ **唯一读得到的** |
  * | `AGENTS.md` | **87,773** | ❌ 项目的宪法 |
- * | `docs/guides/…/06-司天-中长期施工计划-v1.2.md` | 21,071 | ❌ 写着"此后以本文为唯一现行总纲" |
+ * | `docs/guides/…/06-隔壁同类产品-中长期施工计划-v1.2.md` | 21,071 | ❌ 写着"此后以本文为唯一现行总纲" |
  * | `docs/plan/PLAN_20261109_3MONTH.md` | 35,528 | ❌ |
  * | `ROADMAP.md` | — | **不存在** |
  *
@@ -119,7 +119,7 @@ const DOC_DIRS = ['', 'docs']
 /** ① 宪法：项目的硬规矩，**最高优先**。缺了它，其它文档都只是说明。 */
 const CONSTITUTION_NAMES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '.cursorrules']
 
-/** ② 规划：现行总纲 / 长期方案。司天那两份（21,071 + 35,528 字）就在这里。 */
+/** ② 规划：现行总纲 / 长期方案。隔壁同类产品那两份（21,071 + 35,528 字）就在这里。 */
 const PLAN_DIRS = ['docs/plan', 'docs/plans', 'docs/guides', 'docs/设计', 'plan', 'plans']
 /** docs/guides 下常按日期分子目录 —— 只再进一层（深扫会把所有历史散件都捞上来） */
 const PLAN_DEPTH = 2
@@ -276,7 +276,7 @@ function listMd(dir: string, depth: number, out: string[], relBase = ''): void {
 /**
  * Hermes skill 里项目同名的 skill（`sitian-development` 那种）。
  *
- * 为什么这条**必须**有：司天 `AGENTS.md` 明写「其余 60+ 条铁律与踩坑复盘…
+ * 为什么这条**必须**有：隔壁同类产品 `AGENTS.md` 明写「其余 60+ 条铁律与踩坑复盘…
  * 在 Hermes skill `obsidian/sitian-development`，动代码前先加载；本文件不复制规则，防双源漂移」。
  * 它的"防漂移"代价是：**换机器 / 换 agent 就丢，而方寸当时根本没读到它**。
  *
@@ -497,7 +497,7 @@ export async function readProjectDocs(
   const data: ProjectDocsResult = {
     // ok 的含义扩了：**有骨架也算读到了东西**。旧语义（只有 README/ROADMAP 才算 ok）
     // 会让"没有 README 但有 AGENTS.md 和 docs/plan"的项目被判成"没文档"——
-    // 而那正是司天的情况，也正是 2026-11-15 那个 bug 的形状。
+    // 而那正是隔壁同类产品的情况，也正是 2026-11-15 那个 bug 的形状。
     ok: !!(readme || roadmap || skeleton.files.length),
     repo,
     readme,

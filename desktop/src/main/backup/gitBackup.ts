@@ -6,7 +6,7 @@
  *
  * ⚠ 2026-10-11 用户第 1 条（真机反馈）：
  *   “GIT 可以用了…但是推上去的怎么是一个压缩包？全世界没有任何软件的 git 备份直接扔压缩包上去。
- *     哪怕司天都不扔压缩包。那要 git 有什么用？压缩包只应用于网盘等场景。”
+ *     哪怕隔壁同类产品都不扔压缩包。那要 git 有什么用？压缩包只应用于网盘等场景。”
  *   老实现把整个备份 zip 当成一个 blob 推进去 —— 仓库里只有一个 zip，历史里看不出任何东西改了。
  *   现在改成**镜像工作树**：把 `task-data/ + registry.yaml + policies/ + docs/` 原样铺进仓库，
  *   每次提交都是"哪个文件加了改动一行的 diff"。
@@ -17,7 +17,7 @@
  * 安全设计全部落在 `gitBackupPure.ts` 里（纯函数，可被 node 直接断言）：
  * 令牌不进 argv、输出脱敏、缺凭证立刻失败、错误分类。**本文件只负责把那些约定拼起来跑**。
  *
- * 抄司天（`E:/CODE/CangKu/SiTian/src/main/gitSyncHandler.js`，794 行）的凭据做法。
+ * 抄隔壁同类产品（`E:/CODE/CangKu/另一个仓库/src/main/gitSyncHandler.js`，794 行）的凭据做法。
  */
 import { app, safeStorage } from 'electron'
 import { spawn } from 'child_process'
@@ -65,7 +65,7 @@ export function saveGitConfig(patch: Partial<GitBackupConfig>): { ok: boolean; e
     const cur = readGitConfig()
     const next: GitBackupConfig = { ...cur, ...patch }
     // 地址里内嵌的令牌（https://token@host/x.git）**必须抽出来** ——
-    // 否则它会原样写进 .git/config 留明文（司天踩过这条）。
+    // 否则它会原样写进 .git/config 留明文（隔壁同类产品踩过这条）。
     let extracted = ''
     if (patch.remote !== undefined) {
       const s = splitInlineCredential(next.remote)
@@ -79,7 +79,7 @@ export function saveGitConfig(patch: Partial<GitBackupConfig>): { ok: boolean; e
   }
 }
 
-// ── 令牌保管（照抄司天的语义：能加密就落盘，不能就只留内存，绝不写明文）──────
+// ── 令牌保管（照抄隔壁同类产品的语义：能加密就落盘，不能就只留内存，绝不写明文）──────
 
 interface CredFile { [host: string]: { username: string; secret: string } }
 /** 拿不到加密能力时的会话内保管 */

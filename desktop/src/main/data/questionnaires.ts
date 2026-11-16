@@ -152,7 +152,7 @@ export function questionnaireDir(): string {
  * 卷归属项目：先认卷面 `**项目**：`，再按卷名匹配 registry。
  *
  * 为什么必须有（2026-11-09 真事）：`approveDeck` 建决策卡时没传 `项目`，
- * 问卷答案落成的决策卡全是“全局”——`contextPack` 会把司天的规矩发给方寸。
+ * 问卷答案落成的决策卡全是“全局”——`contextPack` 会把隔壁同类产品的规矩发给方寸。
  * 同一套认法原先埋在 `deckToCards` 里，现在抽出来两处共用。
  */
 export function projectForDeck(deckName: string, parsed?: QDeck): string {
@@ -1249,7 +1249,7 @@ export function buildPromptForDeck(deck: string, kind: 'rewrite' | 'build'): {
   const g = getDeck(name)
   if (!g.ok || !g.parsed) return { ok: false, error: g.error || '读不到问卷' }
   const answers = g.answers || {}
-  // 项目名从卷名前缀取（`司天-宪法层` → `司天`）—— 问卷 md 里没有项目字段，
+  // 项目名从卷名前缀取（`隔壁同类产品-宪法层` → `隔壁同类产品`）—— 问卷 md 里没有项目字段，
   // 硬编一个空的会让提示词变成“你在给这个项目出问卷”，agent 还得反问一次。
   const project = name.split('-')[0] || ''
   const opts = {
@@ -1398,7 +1398,7 @@ export function deckToCards(deck: string, opts?: { project?: string; priority?: 
     }
   } else {
     // 认法与 approveDeck 共用（先认卷面 `**项目**：`，再按卷名最长命中）。
-    // 不用 `name.split('-')[0]` —— 样本文件名是 `问卷-司天-宪法层-20261104`，前缀是"问卷"。
+    // 不用 `name.split('-')[0]` —— 样本文件名是 `问卷-隔壁同类产品-宪法层-20261104`，前缀是"问卷"。
     project = projectForDeck(name, parsed)
   }
   if (!project) {

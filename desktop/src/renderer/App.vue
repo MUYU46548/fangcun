@@ -43,7 +43,7 @@
     <!-- Top bar -->
     <header id="bar">
       <!-- 2026-09-25（用户第 12 条）：
-           ① 左侧方形 LOGO（绒花墨坊有、方寸没有）→ 点开“关于”；
+           ① 左侧方形 LOGO（另一款产品款自有产品款产品有、方寸没有）→ 点开“关于”；
            ② 那个“神秘数字”加了说明与准确性修复，见 countText / countTitle。 -->
       <span class="title">
         <button class="brand" title="关于方寸" @click="openAbout">寸</button>
@@ -619,9 +619,9 @@
     <!-- Review modal（2026-10-25：待审批 / 待验收共用，文案按 kind 切换） -->
     <ReviewModal v-if="reviewModal" :ctl="reviewCtl" />
 
-    <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：绒花墨坊有、方寸没有
+    <!-- 关于（左上角方形 LOGO 入口）2026-09-25 用户第 12 条：另一款自有产品有、方寸没有
          2026-10-31（暮雨第 10 条）：原来只有版本号 + 一句"数据是你的"，没有简介、作者、版权、
-         免责声明、使用手册入口 —— “但凡抄自家产品司天和绒花墨坊都不至于这么惨”。
+         免责声明、使用手册入口 —— “但凡抄自家产品隔壁同类产品和另一款产品款自有产品款产品都不至于这么惨”。
          现在补齐：是什么 / 谁做的 / 什么许可 / 会花钱的地方 / 三个配套入口。 -->
     <AboutModal v-if="aboutOpen" :ctl="aboutCtl" />
 
@@ -925,7 +925,7 @@ import BlockersView from './views/BlockersView.vue'
 import TaskCardMenu from './components/TaskCardMenu.vue'
 // 启动台卡片右键菜单（2026-10-17 暮雨：“不能右键卡片进行编辑和删除”）
 import AppCardMenu from './components/AppCardMenu.vue'
-// 免责与知情声明（2026-10-16 暮雨第 1 条：“希望你还记得要学绒花墨坊写那些需要用户
+// 免责与知情声明（2026-10-16 暮雨第 1 条：“希望你还记得要学另一款自有产品写那些需要用户
 // 首次强制同意确认的免责声明，主要是涉及到钱是非多”）—— 文案在 ./disclaimer.ts（单一事实源），
 // 弹窗本体在 components/ 下（那儿才准用 utilities）。
 import DisclaimerDialog from './components/DisclaimerDialog.vue'
@@ -1196,8 +1196,8 @@ function gotoStalled(): void {
   switchView('active')
 }
 
-// ── 主题（2026-09-29 用户第 4 条：“多主题颜色外观并不存在…参考绒花墨坊做一下”）──
-// 做法照抄绒花墨坊：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（墨坊同款硬规矩）。
+// ── 主题（2026-09-29 用户第 4 条：“多主题颜色外观并不存在…参考另一款自有产品做一下”）──
+// 做法照抄另一款自有产品：一套浅色主题只换令牌，挂 <html data-theme>；只做浅色（另一款产品同款硬规矩）。
 // 真身 prefs.json（fc_theme）；这里在挂载前先贴一次，避免开屏闪一下默认色。
 const THEME_LIST = [
   { id: 'default', name: '雾灰紫', dot: '#705fab' },
@@ -7355,7 +7355,7 @@ async function wizardFinish() {
 
 // ── 免责与知情声明（2026-10-16 暮雨第 1 条）─────────────────────────────
 // 首启强制：没确认过（或声明版本抬格了）就先弹它，**确认之前不跑首次运行向导**
-// （"先同意再用"，与绒花墨坊同口径）。随时可查：设置页“诊断”里有入口。
+// （"先同意再用"，与另一款自有产品同口径）。随时可查：设置页“诊断”里有入口。
 const disclaimerOpen = ref(false)
 const disclaimerMode = ref('view')      // 'first-run' = 强制；'view' = 随时查看
 const disclaimerAckedAt = ref('')
