@@ -1,40 +1,53 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""会话捞取 · 逐条判定「有没有记录接住」（2026-11-16 · A 任务）
+"""会话捞取 · 逐条判定「有没有记录逐字接住」（2026-11-16 · A 任务 · 第二版）
 
 暮雨 2026-11-16：
 > 「先 A，A 成功了可以活用到 B」
 
-A = 把 550 条真人发言变成**可追踪清单**，并且**逐条判定有没有被记录接住**。
+A = 把捞到的真人发言变成**可追踪清单**，逐条判有没有被记录接住。
 
-── 这条判据的边界（必须先说清，否则又是假绿）──────────────────────────
-它验的是 **「有没有记录」**，不是 **「有没有做」**。
-  · 「有没有记录」= 某张卡 / 某条提交 / 某份日志里，出现过这条需求里的**特定专有词**。
-    这是**能机械证伪**的：找不到，就是真的没有任何地方提过它。
-  · 「有没有做」= 人的判断，本脚本**不做**，也不给任何"看起来做了"的暗示。
+── 这一版换了判据，理由必须先说清（否则又是自己在骗自己）─────────────
+第一版用「罕见词覆盖率」：把消息切成 2–4 字 n-gram，算有多少落在同一份记录里。
+2026-11-16 实测它**两头顶穿**，同一批样本上：
 
-三类 verdict：
-  · `接住`      有记录，且命中的记录**有进展**（卡完成/待验收，或提交出现）
-  · `只有记录`  有记录，但记录本身**停在待办**（= 提过就搁下，正是"提了没做"）
-  · `无记录`    **任何地方都找不到** ← 这批才是"彻底悬空"，最值钱的数字
-  · `无法判定`  消息太短/太泛（「继续」「好的」），没有专有词可比 —— 不硬判
+  「请给我详细的验证测试清单」  → 接住（命中 `试清单` `试清` `清单`）
+  「给 AI 用，因为启动方寸的时候客户端必然是开着的」→ 接住（命中 `客户` `户端`）
+  「等等，那为什么不直接做一整个 agent？」→ 接住（命中 `直接做` `半成品`）
 
-── 匹配算法（为什么用"罕见词"而不是"关键词命中率"）─────────────────────
-用**文档频率 ≤ RARE_DF 的专有词**做锚点。理由：
-  · 常见词（"方寸""项目""问题"）每张卡都有，命中等于没命中；
-  · 罕见词（"作战计划""截图""载荷"）一旦出现在某张卡里，几乎必然是同一条需求。
-这比"整段相似度"可靠得多，也**能被人一条条复核**（每条都给命中的词与出处）。
+这些词**满语料都是**，覆盖率天然接近 1 → 全语料 **76.5%** 判「有记录」。
+而它给出的"证据"（`户端`、`试清`）**人一条都复核不了** —— 那正是一份黑箱清单。
+
+第二版判据：**逐字重合**。把消息与每份记录都做最长公共连续子串（≥6 字才算），
+只认**原文出现过的那一段**。好处是硬的：
+  · 命中 = 记录里**真的引用了他的原话** → 人可以一眼核对（本脚本把原文片段打印出来）；
+  · 不命中 = **不能**推出"没有记录"（卡可能用别的话写了同一件事）→ 所以这一档叫
+    **`无逐字引用`**，不叫「无记录」。它只是**下界**，措辞不许夸大。
+
+── 为什么不干脆上"语义相似" ─────────────────────────────────────────
+因为那会把「记得多」当成竞争力（REV-015 已否），而且**又不能机检、又不能复核**。
+逐字子串是这一批数据里唯一天然可证伪的锚。
+
+── 六类 verdict ────────────────────────────────────────────────────
+  · `接住`        有逐字引用，且被引用的记录**有进展**（进行中/待验收/完成/归档/提交）
+  · `只有记录`    有逐字引用，但记录停在待办 —— 提过就搁下，正是「提了没做」
+  · `疑似`       只有**弱重合**（<8 字，或非中文为主，或路径碎片）—— 人看一眼再定
+  · `粘贴原文`    这条消息**本身就是旧记录的拷贝**（重合 ≥50% 且 ≥100 字）。
+                 典型：他把自己上轮的交接日志整段粘回来让我接着做。
+                 **这不是需求**，不许算成"被接住"，否则语料自我污染。
+  · `无逐字引用`  **一个 ≥6 字的原文片段都找不到**。注意：这是下界，不是"没做过"。
+  · `无法判定`    消息太短（「继续」「0+1」），没有可比的内容。
 
 三条纪律：
   ① **只读**：只读 task-data / docs/执行日志 / todos / git log，一个字节都不写；
-  ② **不猜**：判不了就说判不了（`无法判定`），不硬塞一个 verdict；
-  ③ **给证据**：每条"接住"都必须说清**命中了哪个词、落在哪张卡/哪个提交**，
-     否则人无法复核，这清单就又是一个黑箱。
+  ② **不猜**：判不了就说判不了，不硬塞一个 verdict；
+  ③ **给证据**：每条命中都打印**命中的原文片段**与落点，人一眼能复核。
 
 用法：
-  python scripts/judge-harvested.py                     # 全部
-  python scripts/judge-harvested.py --project fangcun   # 只判方寸侧
-  python scripts/judge-harvested.py --out docs/清零-20261116.md
+  python scripts/judge-harvested.py                     # 全部（DSH + Hermes 合并去重）
+  python scripts/judge-harvested.py --src docs/捞-Hermes-20261116.md
+  python scripts/judge-harvested.py --out docs/清零-全部-20261116.md
+  python scripts/judge-harvested.py --json --brief      # 机器判据（不吐命中正文）
 """
 from __future__ import annotations
 
@@ -45,7 +58,7 @@ import os
 import re
 import subprocess
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -53,27 +66,24 @@ except Exception:
     pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HARVEST = os.path.join(ROOT, "docs", "捞-会话", "all.md")
-HARVEST_ONE = os.path.join(ROOT, "docs", "捞-会话-方寸-20261116.md")
+HARVEST_DSH = os.path.join(ROOT, "docs", "捞-会话", "all.md")
+HARVEST_HERMES = os.path.join(ROOT, "docs", "捞-Hermes-20261116.md")
 
-# 文档频率高于这个比例 = 太常见，没有判别力（"方寸""项目"）
-COMMON_RATIO = 0.35
-# 命中判定：消息里有 >=MIN_COVER 比例的词落在**同一份**记录里
-MIN_COVER = 0.14
-MIN_OVERLAP = 3
+# 逐字重合的索引窗口。6 = 判据下限；索引用 10 更快（命中后双向扩展还原全长）。
+W_MIN = 6
+W_IDX = 10
+# 「强」重合：至少这么多字，且中文占比达标 —— 否则只是路径/英文专名/格式碎片
+STRONG_MIN = 8
+STRONG_CJK = 0.5
+# 「粘贴原文」：最长重合 ≥ 消息长度的这个比例，且绝对值 ≥ PASTE_MIN_CHARS
+PASTE_RATIO = 0.5
+PASTE_MIN_CHARS = 100
 # 消息短于这个字数 → 无法判定
 MIN_MSG_LEN = 12
 
-# ── 停用词：既没有领域含义、又几乎每张卡都出现的 ─────────────────────
-STOP = set("""
-方寸 项目 问题 东西 现在 应该 可以 这个 那个 什么 怎么 为什么 是不是 有没有
-一下 一点 一些 我们 你们 他们 自己 已经 还是 就是 但是 因为 所以 如果 需要
-任务 工作 时间 事情 情况 地方 内容 部分 时候 之后 之前 这里 那里 这样 那样
-一个 两个 三个 没有 不是 知道 觉得 认为 可能 大概 确实 其实 真的 非常
-""".split())
-
-CJK = re.compile(r"[\u4e00-\u9fff]+")
-ASCII_W = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{3,30}")
+CJK = re.compile(r"[\u4e00-\u9fff]")
+# 路径/URL/主机名一类：即使很长也不代表"需求被接住"
+PATHISH = re.compile(r"[A-Za-z]:\\|https?://|\\\\|\busers\b|AppData|Roaming|node_modules|\.py\b|\.ts\b")
 
 
 def read(p):
@@ -81,57 +91,23 @@ def read(p):
         return f.read()
 
 
-# 虚词：以这些字开头/结尾的 n-gram 不是"专有词"
-FUNC_CHARS = set("的了着过是在和与就不都也很还而但所以把被让给从对向于这那我们他们"
-                 "个些么什怎样吗呢吧啊要会能可没很太更最一二三四五六七八九十几")
-# 这些太泛，永远不当锚点
-GENERIC = set("""
-继续 推进 做完 完成 可以 需要 一个 什么 怎么 现在 已经 还是 就是 但是 因为
-时候 东西 事情 内容 部分 问题 方法 方式 情况 样子 意思 结果 目标 要求 建议
-""".split())
+# ══════════════════════════════════════════════════════════════════════
+# 语料：所有可能"接住"需求的地方
+# ══════════════════════════════════════════════════════════════════════
 
-
-def terms_of(text):
-    """抽锚点词：中文 **2–4 字真词** + 英文/代号 token。
-
-    ⚠ 第一版把整段中文连续串（最长 8 字）也当词，还加上滑动窗口切出的子串 ——
-    于是「从第 1 批的渲染层拆分开始」抽出 `批的渲染层拆分开` 这种串，
-    **它不可能出现在任何卡里**，151 条被判"无记录"，而实际是匹配器坏了。
-    现在只留 ≤4 字的 n-gram，并剔除虚词开头的 —— 这样「渲染层」「截图」「作战计划」
-    才能真的对上，而 `批的`、`的渲染` 这类会被 FUNCTION 规则挡掉。
-    """
-    s = str(text or "")
-    out = set()
-    for m in CJK.finditer(s):
-        run = m.group(0)
-        if run in GENERIC or run in STOP:
-            continue
-        for n in (2, 3, 4):
-            for i in range(0, len(run) - n + 1):
-                w = run[i:i + n]
-                if w in STOP or w in GENERIC:
-                    continue
-                # 虚词不能在词首/词尾（"批的" "层拆" 这种不是词）
-                if w[0] in FUNC_CHARS or w[-1] in FUNC_CHARS:
-                    continue
-                out.add(w)
-    for m in ASCII_W.finditer(s):
-        out.add(m.group(0).lower())
-    return out
+def repeat_ok():
+    return {"进行中", "待验收", "完成"}
 
 
 def load_corpus():
-    """所有可能"接住"需求的地方：卡 / 归档卡 / 日志 / 计划 / 待办 / 提交。
+    """卡 / 归档卡 / 日志 / 计划 / 待办 / 提交。
 
-    ⚠ 2026-11-16 修的 bug：第一版把 `task-data/*.md` **一律**当"卡"，
-    于是 `decisions.md`（决策台账）、`rice-pool.md`（需求池）、`question-bank.md`（题库）
-    都被标成"卡" —— 它们在输出里长成「卡 `decisions.md`（— · 没进展）」，
-    **看起来像一张从没动过的卡，实际是数据文件**。
-    那会把"命中台账"误报成"命中一张待办卡"，进而在人复核时造成误判。
-    现在：只收**有 `id:` 且能对上卡 id 形状**的文件；台账类单独归"台账"。
+    ⚠ 2026-11-16 修的 bug：第一版把 `task-data/*.md` **一律**当"卡"，于是
+    `decisions.md`（决策台账）、`rice-pool.md`（需求池）、`question-bank.md`（题库）
+    在输出里长成「卡 `decisions.md`（— · 没进展）」—— **看起来像一张从没动过的卡，
+    实际是数据文件**，进而在人复核时造成误判。现在台账单独归类。
     """
-    docs = []  # {kind, id, text, progressed}
-    # 这些文件名不是卡，是台账/索引。命中它们算"有记录"，但**不算"已有卡接住"**。
+    docs = []  # {kind, id, text, progressed, status}
     LEDGER_NAMES = {"decisions", "rice-pool", "question-bank", "project-status",
                     "registry", "project-tiers", "activity"}
 
@@ -152,17 +128,12 @@ def load_corpus():
             docs.append({"kind": "台账", "id": base, "text": t,
                          "progressed": False, "status": ""})
             continue
-        docs.append({
-            "kind": "卡", "id": tid or base,
-            "text": t,
-            "progressed": st in repeat_ok(),  # 进行中/待验收/完成 都算"动过"
-            "status": st,
-        })
+        docs.append({"kind": "卡", "id": tid or base, "text": t,
+                     "progressed": st in repeat_ok(), "status": st})
 
     for p in glob.glob(os.path.join(ROOT, "task-data", "archive", "*.md")):
-        t = read(p)
         docs.append({"kind": "归档卡", "id": os.path.basename(p)[:-3],
-                     "text": t, "progressed": True, "status": "完成(归档)"})
+                     "text": read(p), "progressed": True, "status": "完成(归档)"})
 
     for p in glob.glob(os.path.join(ROOT, "docs", "执行日志", "*.md")):
         try:
@@ -190,7 +161,7 @@ def load_corpus():
                          "progressed": bool(x.get("done")),
                          "status": "完成" if x.get("done") else "未完成"})
 
-    # 提交标题（"只读提交标题是残废"——但作为**有没有记录**的旁证仍然有用）
+    # 提交标题（只当**旁证**：能证明"提过"，不能证明"做过"）
     try:
         r = subprocess.run(["git", "-C", ROOT, "log", "--pretty=%s", "-n", "3000"],
                            capture_output=True, text=True, timeout=120,
@@ -205,37 +176,119 @@ def load_corpus():
     return docs
 
 
-def repeat_ok():
-    return {"进行中", "待验收", "完成"}
+def build_index(candidates, docs):
+    """W_IDX 字窗口倒排：gram → {doc_idx}。只为提速，不改判据。"""
+    cand = set()
+    for t in candidates:
+        for i in range(0, max(0, len(t) - W_IDX + 1)):
+            g = t[i:i + W_IDX]
+            if "\n" not in g:
+                cand.add(g)
+    idx = {}
+    for di, d in enumerate(docs):
+        t = d["text"]
+        for i in range(0, max(0, len(t) - W_IDX + 1)):
+            g = t[i:i + W_IDX]
+            if g in cand:
+                idx.setdefault(g, set()).add(di)
+    return idx
 
 
-def build_df(docs):
-    df = Counter()
-    for d in docs:
-        for w in terms_of(d["text"]):
-            df[w] += 1
-    return df
+def shared_runs(text, idx, docs):
+    """返回 [(len, 片段, doc)]，每份记录只留最长的那一段，按长度降序。"""
+    best = {}   # doc_idx -> run
+    n = len(text)
+    for i in range(0, max(0, n - W_IDX + 1)):
+        g = text[i:i + W_IDX]
+        for di in idx.get(g, ()):
+            dt = docs[di]["text"]
+            j = dt.find(g)
+            if j < 0:
+                continue
+            lo, hi = j, j + W_IDX
+            mi = i
+            # 向右长
+            while hi < len(dt) and mi + (hi - j) < n and dt[hi] == text[mi + (hi - j)]:
+                hi += 1
+            # 向左长
+            while lo > 0 and mi - (j - lo) - 1 >= 0 and dt[lo - 1] == text[mi - (j - lo) - 1]:
+                lo -= 1
+            run = dt[lo:hi]
+            if di not in best or len(run) > len(best[di]):
+                best[di] = run
+    out = [(len(r), r, docs[di]) for di, r in best.items() if len(r) >= W_MIN]
+    out.sort(key=lambda x: -x[0])
+    return out
 
+
+def classify_run(run):
+    """强 / 弱。弱的不许单独定案，只进「疑似」。"""
+    n = len(run)
+    if n < W_MIN:
+        return "无效"
+    cjk = len(CJK.findall(run))
+    if n < STRONG_MIN:
+        return "弱"
+    if cjk < n * STRONG_CJK:
+        return "弱"
+    if PATHISH.search(run) and cjk < n * 0.7:
+        return "弱"
+    return "强"
+
+
+def judge_one(text, idx, docs):
+    """返回 (verdict, why, shared)。
+
+    shared = [{'len','run','kind','id','status','progressed','cls'}]
+    """
+    if len(text) < MIN_MSG_LEN:
+        return "无法判定", "消息太短（%d 字）" % len(text), []
+
+    runs = shared_runs(text, idx, docs)
+    if not runs:
+        return "无逐字引用", "整份语料里没有 ≥%d 字的原文片段" % W_MIN, []
+
+    shared = [{"len": l, "run": r, "kind": d["kind"], "id": d["id"],
+               "status": d["status"], "progressed": d["progressed"],
+               "cls": classify_run(r)} for (l, r, d) in runs[:3]]
+
+    top_len = runs[0][0]
+    # 自我污染：这条消息本身就是旧记录的拷贝（他把交接日志粘回来）
+    if top_len >= PASTE_MIN_CHARS and top_len >= len(text) * PASTE_RATIO:
+        d = runs[0][2]
+        return "粘贴原文", "与 %s `%s` 重合 %d/%d 字（这条是旧记录的拷贝，不是需求）" % (
+            d["kind"], d["id"], top_len, len(text)), shared
+
+    strong = [(l, r, d) for (l, r, d) in runs if classify_run(r) == "强"]
+    if strong:
+        if any(d["progressed"] for (_, _, d) in strong):
+            return "接住", "", shared
+        return "只有记录", "", shared
+    return "疑似", "只有弱重合（<8 字 / 非中文为主 / 路径碎片），要人看一眼", shared
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 捞取产物解析（两种格式）
+# ══════════════════════════════════════════════════════════════════════
 
 def parse_harvest(path):
-    """把捞取产物拆回 [(会话id, 时间, 项目, 原文)]。**两种产物都认**：
+    """拆回 [(会话id, 时间, 项目, 原文)]。**两种产物都认**：
 
     DSH（`harvest-sessions.cjs`）：
         ## session-xxx
         - 时间：2026-10-24 08:36 · 项目：`E:\\CODE\\CangKu\\SiTian`
     Hermes（`harvest-hermes.py`）：
-        ## 按会话（203 个）            ← 这是分组标题，不是会话
+        ## 按会话（203 个）            ← 分组标题，不是会话
         ### `20260726_210825_16f584` · 2026-07-26 21:08
         - source `desktop` · `E:\\AI\\Hermes_Workspace` · 标题
 
     ⚠ 2026-11-16 实测踩到：第一版只认 `## `，于是 Hermes 那 667 条**全部挂在一个
-    叫「按会话（203 个）」的假会话下**，cwd 全空 —— 项目分栏、projects 过滤全部失效，
+    叫「按会话（203 个）」的假会话下**，cwd 全空 —— 项目分栏与 projects 过滤全部失效，
     而输出看起来完全正常。所以：`### ` 才是会话标题，`## ` 只是分组，要跳过。
     同时一条消息在**空行处结束**（第一版忽略这点，把整个会话拼成一条）。
     """
     if not os.path.exists(path):
         return []
-    t = read(path)
     out = []
     cur = {"id": "", "ts": "", "proj": ""}
     buf = []
@@ -246,8 +299,8 @@ def parse_harvest(path):
         if s and cur["id"]:
             out.append((cur["id"], cur["ts"], cur["proj"], s))
 
-    for line in t.splitlines():
-        if line.startswith("### "):        # 会话标题（Hermes 用这层）
+    for line in read(path).splitlines():
+        if line.startswith("### "):
             flush()
             body = line[4:].strip()
             if " · " in body:
@@ -256,13 +309,13 @@ def parse_harvest(path):
             else:
                 cur = {"id": body.strip("` "), "ts": "", "proj": ""}
             continue
-        if line.startswith("## "):         # 分组标题（DSH 的会话就是这层）
+        if line.startswith("## "):
             flush()
             body = line[3:].strip()
             if body.startswith("按会话") or body.startswith("按项目"):
-                cur = {"id": "", "ts": "", "proj": ""}   # 分组，不是会话
+                cur = {"id": "", "ts": "", "proj": ""}      # 分组，不是会话
             else:
-                cur = {"id": body, "ts": "", "proj": ""}
+                cur = {"id": body, "ts": "", "proj": ""}    # DSH 的会话就是这层
             continue
         if line.startswith("- 时间："):
             body = line.split("时间：", 1)[1]
@@ -275,12 +328,8 @@ def parse_harvest(path):
                 cur["ts"] = body.strip()[:16]
             continue
         if line.startswith("- source "):
-            # Hermes 形：- source `desktop` · `E:\\AI\\Hermes_Workspace` · 标题
             m = re.findall(r"`([^`]+)`", line)
-            if len(m) >= 2:
-                cur["proj"] = m[1]
-            elif m:
-                cur["proj"] = ""
+            cur["proj"] = m[1] if len(m) >= 2 else ""
             continue
         if line.startswith("> "):
             buf.append(line[2:])
@@ -294,141 +343,95 @@ def parse_harvest(path):
     return [x for x in out if x[3] and not x[3].startswith("**")]
 
 
-def judge_one(text, docs, df, doc_terms, n_docs):
-    """返回 (verdict, anchors, hits)。
+def dedupe(msgs):
+    """两个来源合并去重：同一句话（忽略空白，前 200 字）只留一份。
 
-    ⚠ 这个函数前两版都是错的，两次都是**自查当场发现的**，记下来防再犯：
-    ① 第一版：只留 df ≤ 6 的"罕见词"当锚点 → 「截图」「渲染层」这类真词到处出现（df 高）
-       被过滤掉，`批的渲染`、`层拆分开` 这种碎片（df=0）反而被选中 → 稳定判出 151 条假"无记录"。
-    ② 第二版：改成覆盖率，但把**超常见词整体剔除** → 长消息里「截图」「视觉」被剔掉，
-       剩下全是碎片 → 仍然假"无记录"（84 条，其中一部分是假的）。
+    ⚠ 为什么要去重：DSH 的 550 条与 Hermes 的 667 条里，他会在两个客户端说
+    **同一件事**（甚至同一句话）。不去重会把"同一条需求"数成两条，
+    总数因此虚高 —— 而"合计 1217 条"这个数本身就是上一版报告的论据。
 
-    现在这一版：
-      · 候选词 = 语料里**真实存在过**的词（df > 0）。df = 0 的必然是碎片，直接丢 ——
-        这是"不拿不可能匹配的东西去匹配"的唯一做法。
-      · **不剔除常见词**，而是用 IDF 加权：越常见权重越低。这样「截图」这种满地图都有的词
-        仍然算分，但权重接近 0；而「作战计划」「载荷」这种立刻拉高覆盖率。
-      · 匹配要求**同一份记录**同时覆盖足够权重，而不是散落在不同文档里凑数。
+    ⚠ 2026-11-16 自查抓到的 bug：第一版写成 `x[3]`，那是**项目名**不是原文
+    （元组是 `(来源, 会话id, 时间, 项目, 原文)`）→ 同一个项目的 1217 条被压成 21 条，
+    而输出看起来只是"条数变少了"，完全不报错。现在按**原文**去重，并断言不许压掉太多。
     """
-    import math
-    ws = terms_of(text)
-    cand = {w: math.log(1.0 + n_docs / max(1, df.get(w, 0))) for w in ws if df.get(w, 0) > 0}
-    if len(cand) < 2:
-        return "无法判定", [], []
-    total_w = sum(cand.values()) or 1.0
-
-    # ⚠ 2026-11-16 修的第二个 bug：泛泛表态会命中任意卡。
-    # 实测反例：「虽然不能解决整个问题，但有一定作用，可以做」→ 命中「组合视图」卡，
-    # 用到的词是 `有一定`、`作用`、`整个问题` —— **一个具体词都没有**。
-    # 这种"命中"不是接住，是巧合。
-    #
-    # 第一版修法（"长度 >= 3"）**不够**：`有一定作`、`定作用` 也满足长度，仍是碎片。
-    # 现在要求"强词"= 长度 >= 3 **且首尾都不是虚词**、且不含纯功能字串 ——
-    # 这样 `有一定作`（尾 `作` 不是虚词，但里含 `有一`）要再过一道：不许以虚词开头。
-    # 实测能过的是 `分层`、`派工包`、`骨架`、`截图纪律`、`作战计划` 这类真词。
-    def _is_strong(w: str) -> bool:
-        """强词 = 有判别力的实义词。
-
-        ⚠ 这里换过四次做法，全记下来防再犯（2026-11-16 一天之内）：
-          ① `len(w) >= 3`            → `定作用`、`有一定作` 都过，仍是碎片
-          ② 加"首尾不是虚词"          → `定作用` 首 `定` 尾 `用` 都不在 FUNC_CHARS，仍过
-          ③ 加"df >= 2"              → 守卫夹具只有 2 份文档，全 df=1，一刀切空
-          ④ 加"必须是连续子串"        → 本质上和 ③ 等价，仍解决不了极小语料
-
-        **根因不在判据措辞，在"拿 n-gram 当词"这个做法本身** —— 补丁永远堵不完。
-        真正的修法在下面：**不再靠"词够不够强"来挡泛词，而是要求覆盖率够高**。
-        泛词表态的特点是"可命中的词很少"（`有一定`、`作用` 两个就到底了），
-        所以覆盖率上不去；真需求里能命中的词多，覆盖率天然高。
-        这条判据在极小语料和大语料上行为一致 —— 这才是能用的判据。
-        """
-        if len(w) < 3:
-            return False
-        if w[0] in FUNC_CHARS or w[-1] in FUNC_CHARS:
-            return False
-        if all(c in FUNC_CHARS for c in w):
-            return False
-        return True
-
-    strong = {w: v for w, v in cand.items() if _is_strong(w)}
-    if not strong:
-        return "无法判定", [], []
-
-    hits = []
-    for i, d in enumerate(docs):
-        got = [w for w in cand if w in doc_terms[i]]
-        if len(got) < MIN_OVERLAP:
+    seen, out = set(), []
+    for x in msgs:
+        k = re.sub(r"\s+", "", x[4])[:200]
+        if k in seen:
             continue
-        # 必须命中至少一个强词，否则只是泛词巧合
-        if not any(w in strong for w in got):
-            continue
-        cover = sum(cand[w] for w in got) / total_w
-        if cover < MIN_COVER:
-            continue
-        hits.append({"doc": d, "anchors": got, "score": cover})
-    if not hits:
-        return "无记录", sorted(cand, key=lambda w: -cand[w])[:6], []
-
-    hits.sort(key=lambda h: -h["score"])
-    if any(h["doc"]["progressed"] for h in hits):
-        return "接住", hits[0]["anchors"][:6], hits[:3]
-    return "只有记录", hits[0]["anchors"][:6], hits[:3]
+        seen.add(k)
+        out.append(x)
+    if msgs and len(out) < len(msgs) * 0.5:
+        raise SystemExit("✗ 去重把 %d 条压成了 %d 条 —— 去重键写错了（应该按原文，不是项目）"
+                         % (len(msgs), len(out)))
+    return out
 
 
 def main():
-    ap = argparse.ArgumentParser(description="逐条判定会话捞取结果有没有被记录接住（只读）")
+    ap = argparse.ArgumentParser(description="逐条判定会话捞取结果有没有被记录逐字接住（只读）")
     ap.add_argument("--project", help="只判某个项目侧（子串匹配 cwd）")
-    ap.add_argument("--src", help="指定捞取产物（默认 docs/捞-会话/all.md；"
-                                  "判 Hermes 时传 docs/捞-Hermes-20261116.md）")
+    ap.add_argument("--src", help="只判一个捞取产物（默认两者合并去重）")
     ap.add_argument("--out")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--brief", action="store_true",
                     help="配合 --json：不吐命中文档正文（机器判据用，避免输出几百 MB）")
+    ap.add_argument("--no-dedupe", action="store_true", help="不去重（对账用）")
     args = ap.parse_args()
 
-    src = args.src or (HARVEST if os.path.exists(HARVEST) else HARVEST_ONE)
-    if not os.path.exists(src):
+    srcs = []
+    if args.src:
+        srcs = [(args.src, "custom")]
+    else:
+        if os.path.exists(HARVEST_DSH):
+            srcs.append((HARVEST_DSH, "dsh"))
+        if os.path.exists(HARVEST_HERMES):
+            srcs.append((HARVEST_HERMES, "hermes"))
+    if not srcs:
         print("✗ 找不到捞取产物，先跑：node scripts/harvest-sessions.cjs --all --outdir docs/捞-会话")
+        print("  以及：python scripts/harvest-hermes.py")
         return 1
 
-    msgs = parse_harvest(src)
+    msgs = []
+    for p, tag in srcs:
+        part = parse_harvest(p)
+        if not part:
+            print("✗ %s 解析出 0 条（格式变了？）" % p)
+            return 1
+        msgs.extend([(tag, a, b, c, d) for (a, b, c, d) in part])
+    raw_total = len(msgs)
+    if not args.no_dedupe:
+        msgs = dedupe(msgs)
+
     if args.project:
-        msgs = [m for m in msgs if args.project.lower() in (m[2] or "").lower()]
+        msgs = [m for m in msgs if args.project.lower() in (m[3] or "").lower()]
     if not msgs:
         print("✗ 没有可判的消息")
         return 1
 
     docs = load_corpus()
-    df = build_df(docs)
-    doc_terms = [terms_of(d["text"]) for d in docs]
+    idx = build_index([m[4] for m in msgs], docs)
 
     rows = []
-    for cid, ts, proj, text in msgs:
-        if len(text) < MIN_MSG_LEN:
-            rows.append({"id": cid, "ts": ts, "proj": proj, "text": text,
-                         "verdict": "无法判定", "anchors": [], "hits": [], "why": "消息太短"})
-            continue
-        v, anchors, hits = judge_one(text, docs, df, doc_terms, len(docs))
-        rows.append({"id": cid, "ts": ts, "proj": proj, "text": text,
-                     "verdict": v, "anchors": anchors, "hits": hits, "why": ""})
+    for tag, cid, ts, proj, text in msgs:
+        v, why, shared = judge_one(text, idx, docs)
+        rows.append({"src": tag, "id": cid, "ts": ts, "proj": proj, "text": text,
+                     "verdict": v, "why": why, "hits": shared})
 
     cnt = Counter(r["verdict"] for r in rows)
+    VERDICTS = ["接住", "只有记录", "疑似", "粘贴原文", "无逐字引用", "无法判定"]
 
     if args.json:
-        # ⚠ `--brief`：不吐命中文档的正文。
-        # 一份日志正文几十万字符，全塞进 JSON 会让输出到几百 MB ——
+        # `--brief`：不吐命中正文。一份日志正文几十万字符，全塞进 JSON 会让输出到几百 MB ——
         # 守卫里 execFileSync 默认 1MB 缓冲直接 ENOBUFS，而报错看起来像"守卫坏了"。
-        # 需要看证据时用非 brief（或看 md 报告）；机器判据一律用 brief。
-        payload = {"counts": dict(cnt), "rows": []}
+        payload = {"counts": dict(cnt), "rawTotal": raw_total, "total": len(rows), "rows": []}
         for r in rows:
             if args.brief:
                 payload["rows"].append({
-                    "id": r["id"], "ts": r["ts"], "proj": r["proj"],
+                    "src": r["src"], "id": r["id"], "ts": r["ts"], "proj": r["proj"],
                     "verdict": r["verdict"], "why": r["why"],
-                    "anchors": r["anchors"],
-                    "hits": [{"kind": h["doc"]["kind"], "id": h["doc"]["id"],
-                              "status": h["doc"]["status"],
-                              "progressed": h["doc"]["progressed"],
-                              "anchors": h["anchors"][:8]} for h in r["hits"]],
+                    "hits": [{"kind": h["kind"], "id": h["id"], "status": h["status"],
+                              "progressed": h["progressed"], "len": h["len"], "cls": h["cls"],
+                              "run": h["run"][:80]} for h in r["hits"]],
                 })
             else:
                 payload["rows"].append(r)
@@ -436,35 +439,43 @@ def main():
         return 0
 
     L = []
-    L.append("# 会话捞取 · 逐条判定「有没有记录接住」（A 任务 · 2026-11-16）")
+    L.append("# 会话捞取 · 逐条判定「有没有记录逐字接住」（A 任务 · 2026-11-16）")
     L.append("")
-    L.append("> 暮雨「先 A」。A = 把捞到的真人发言变成可追踪清单，逐条判有没有被记录接住。")
+    L.append("## ⚠ 这条判据验的是什么（先读这段，否则会误读整张表）")
     L.append("")
-    L.append("## ⚠ 这条判据验的是什么（必须先读）")
+    L.append("判据 = **逐字重合**：他的原话有没有在某份记录里**被原文引用**（≥6 字连续片段）。")
     L.append("")
-    L.append("它验 **「有没有记录」**，**不验「有没有做」**。")
+    L.append("| verdict | 含义 | 能不能当结论用 |")
+    L.append("|---|---|---|")
+    L.append("| **接住** | 有逐字引用，且被引用的记录**有进展**（进行中/待验收/完成/归档/提交） | 能：这是铁证 |")
+    L.append("| **只有记录** | 有逐字引用，但记录停在待办 —— 「提了没做」的形状 | 能 |")
+    L.append("| **疑似** | 只有弱重合（<8 字 / 非中文为主 / 路径碎片） | **不能**，要人看一眼 |")
+    L.append("| **粘贴原文** | 这条消息**本身**就是旧记录的拷贝（重合 ≥50% 且 ≥100 字） | 不能 —— 这不是需求 |")
+    L.append("| **无逐字引用** | 一个 ≥6 字的原文片段都找不到 | **只是下界**：卡可能用别的话写了同一件事 |")
+    L.append("| **无法判定** | 消息太短（「继续」「0+1」） | 不能 |")
     L.append("")
-    L.append("- 「有没有记录」= 某张卡 / 某个提交 / 某份日志里出现过这条需求的**特定专有词**。"
-             "这是**能机械证伪**的：找不到，就是真的没有任何地方提过它。")
-    L.append("- 「有没有做」= 人的判断，本表**不做**，也不给任何「看起来做了」的暗示。")
-    L.append("")
-    L.append("| verdict | 含义 |")
-    L.append("|---|---|")
-    L.append("| **接住** | 有记录，且命中的记录**有进展**（进行中/待验收/完成，或提交/日志出现） |")
-    L.append("| **只有记录** | 有记录，但记录停在待办 —— 提过就搁下，正是「提了没做」 |")
-    L.append("| **无记录** | **任何地方都找不到** ← 这批才是彻底悬空，最值钱的数字 |")
-    L.append("| **无法判定** | 消息太短/太泛（「继续」），没有专有词可比 —— 不硬判 |")
+    L.append("> **为什么换掉了第一版的「罕见词覆盖率」**：它在同一批样本上把")
+    L.append("> 「请给我详细的验证测试清单」判成「接住」，命中的词是 `试清单` `试清` `清单` ——")
+    L.append("> 这些词满语料都是，覆盖率天然接近 1，于是全语料 76.5% 判「有记录」。")
+    L.append("> 那种「证据」**人一条都复核不了**。现在每条命中都打印原文片段。")
     L.append("")
     L.append("## 结果")
     L.append("")
     L.append("| 判定 | 条数 |")
     L.append("|---|---:|")
-    for k in ("接住", "只有记录", "无记录", "无法判定"):
-        L.append("| %s | %d |" % (k, cnt.get(k, 0)))
+    for k in VERDICTS:
+        if cnt.get(k):
+            L.append("| %s | %d |" % (k, cnt[k]))
     L.append("| **合计** | **%d** |" % len(rows))
     L.append("")
-    L.append("语料规模：卡 %d · 日志 %d · 计划 %d · 待办 %d · 提交 %d（合计 %d 份文档）" % (
+    if raw_total != len(rows):
+        L.append("去重：两个来源合计 **%d** 条 → 去重后 **%d** 条（同一个人在两个客户端说过同一句话，"
+                 "不该数两遍）。" % (raw_total, len(rows)))
+        L.append("")
+    L.append("语料规模：卡 %d · 归档卡 %d · 台账 %d · 日志 %d · 计划 %d · 待办 %d · 提交 %d（合计 %d 份）" % (
         sum(1 for d in docs if d["kind"] == "卡"),
+        sum(1 for d in docs if d["kind"] == "归档卡"),
+        sum(1 for d in docs if d["kind"] == "台账"),
         sum(1 for d in docs if d["kind"] == "日志"),
         sum(1 for d in docs if d["kind"] == "计划"),
         sum(1 for d in docs if d["kind"] == "待办"),
@@ -472,7 +483,7 @@ def main():
         len(docs)))
     L.append("")
 
-    ORDER = ["无记录", "只有记录", "接住", "无法判定"]
+    ORDER = ["无逐字引用", "疑似", "粘贴原文", "只有记录", "接住", "无法判定"]
     for v in ORDER:
         sub = [r for r in rows if r["verdict"] == v]
         if not sub:
@@ -481,34 +492,34 @@ def main():
         L.append("")
         for r in sub:
             one = r["text"].replace("\n", " ")
-            if len(one) > 110:
-                one = one[:110] + "…"
-            L.append("### `%s` · %s" % (r["id"][:28], r["ts"]))
+            if len(one) > 200:
+                one = one[:200] + "…"
+            L.append("### `%s` · %s · %s" % (r["id"][:28], r["ts"] or "时间不详", r["src"]))
             L.append("")
             L.append("> " + one)
             L.append("")
-            if r["anchors"]:
-                L.append("- 锚点词：" + "、".join("`%s`" % a for a in r["anchors"][:6]))
-            if r["hits"]:
-                for h in r["hits"]:
-                    d = h["doc"]
-                    L.append("- %s 命中：`%s`（%s%s） ← %s" % (
-                        d["kind"], d["id"][:50], d["status"],
-                        "" if d["progressed"] else " · 没进展",
-                        "、".join(h["anchors"])))
-            elif v == "无记录":
-                L.append("- **任何卡 / 提交 / 日志里都没有这些词**")
+            if r["why"] and v in ("粘贴原文", "疑似"):
+                L.append("- %s" % r["why"])
+            for h in r["hits"]:
+                run = h["run"].replace("\n", " ").strip()
+                if len(run) > 80:
+                    run = run[:80] + "…"
+                L.append("- [%s]%d 字 `%s` ← %s `%s`（%s%s）" % (
+                    h["cls"], h["len"], run, h["kind"], h["id"][:50], h["status"] or "—",
+                    "" if h["progressed"] else " · **没进展**"))
+            if v == "无逐字引用":
+                L.append("- **任何卡 / 日志 / 提交里都没有 ≥6 字的原文片段**"
+                         "（≠ 没做过，只是逐字判据看不见）")
             L.append("")
 
     text = "\n".join(L)
     if args.out:
+        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         with open(args.out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
         back = read(args.out)
         print("已写 %d 字节 → %s" % (len(back.encode("utf-8")), args.out))
-        print("判定：接住 %d · 只有记录 %d · 无记录 %d · 无法判定 %d" % (
-            cnt.get("接住", 0), cnt.get("只有记录", 0),
-            cnt.get("无记录", 0), cnt.get("无法判定", 0)))
+        print("判定：" + " · ".join("%s %d" % (k, cnt[k]) for k in VERDICTS if cnt.get(k)))
         return 0
     print(text)
     return 0
