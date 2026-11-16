@@ -1,234 +1,227 @@
 <!--
-  帮助手册视图（从 App.vue 抽出，2026-10-22 · 拆分计划第 1 批第 1 块）
+  帮助手册视图（2026-11-16 · 第二版：抄司天 `components/GuidePanel.vue`）
 
-  **为什么先拆它**：这一块纯静态 —— 零请求、零状态、只有一个“回看板”按钮。
-  拆错了看一眼就知道（计划里就是这么排的：从耦合最低的开始）。
-  抽离时**一个字都没改文案**：拆分的红线是"不许顺带改功能/改内容"，
-  要改文案另开一笔。
+  ## 为什么整份重写
 
-  依赖只有一个事件：点“⌂ 回看板”→ emit('home') → App.vue 的 goHome()。
-  样式仍在 App.vue 的全局 `<style>` 里（非 scoped）—— 本组件不带自己的样式，
-  所以拆分不会改变任何像素。
+  暮雨 2026-11-16：「**使用手册本身也难用得要死**」「**方寸、绒花墨坊、司天三个项目的
+  内置用户手册全都不一样，神了，全是看都没看从头瞎造，而且每个都不好用，很丑。
+  分类和检索也是必做，方寸手册没有。**」
+
+  上一版是整页平铺 10 节：没有目录、没有检索，正文 max-width 880 且左对齐，
+  此外**查不到任何一条签字路径**（页签表 16 行连「作战计划」都没有）。
+
+  ## 抄了司天什么（结构，不是配色）
+
+  · 左目录 + 中内容两栏，点目录项切章（`guide-toc` / `guide-content`）
+  · 顶部搜索框，命中标题 / keywords / 正文三处
+  · 每节带 `cite`（维护者注：这节的事实出自哪个文件）
+  · **文案零副本**：全部在 `utils/userGuide.ts`，这个文件只管渲染
+
+  ## 与上一版/司天的不同（刻意的）
+
+  · **三栏**：左目录 / 中内容 / **右留空** —— 暮雨原话「左侧目录，中间放内容，
+    右侧留空（预留给后续使用）」。右侧不给 `flex:1` 的内容，就是留给之后放
+    比如「本页相关操作」之类的位置，现在**保持空**（不塞占位文案，空就是空）。
+  · 保留整页形态（不是司天那种弹窗遮罩）：`?` 一直是切视图，改弹窗会改他的使用习惯。
+  · 沿用本仓主题令牌（`--card` / `--ink` / `--border`…）；司天那套硬编码色值搬不过来，
+    `check-themes` 会逐套实测对比度。
 -->
 <template>
   <main id="board" class="help-view">
     <div class="help-head">
       <h3>使用手册</h3>
       <span v-if="version" class="help-ver">v{{ version }}</span>
-      <span class="help-sub">方寸怎么用 —— 每个页签干什么、怎么筛、怎么备份恢复</span>
+      <span class="help-sub">方寸怎么用 —— 每个页签干什么、怎么筛、怎么备份恢复、在哪签字</span>
       <span class="views-grow"></span>
       <button class="ghost" @click="$emit('about')">关于方寸</button>
       <button class="ghost" @click="$emit('home')">⌂ 回看板</button>
     </div>
 
-    <div class="help-body">
-      <section class="help-sec">
-        <h4>一、方寸是什么</h4>
-        <p>
-          本地优先的 agent 任务调度台。任务就是 <code>task-data/</code> 目录里的 Markdown 文件，
-          用 YAML 头记录字段、正文记录内容 —— <b>不锁在你自己的数据库里</b>，随时能用记事本打开。
-          定位是“任务收口 + 方针载体”：让"哪些事定了、哪些还悬着"有地方挂。
+    <div class="help-shell">
+      <!-- 左：目录 + 搜索 -->
+      <nav class="help-toc" data-testid="help-toc">
+        <input
+          v-model="q"
+          class="help-search"
+          data-testid="help-search"
+          type="search"
+          placeholder="搜一搜：签字 / 结构地图 / 备份 / 快捷键…"
+          aria-label="搜索手册"
+        />
+        <button
+          v-for="s in filtered"
+          :key="s.id"
+          class="help-toc-item"
+          :class="{ active: s.id === curId }"
+          :data-testid="'help-toc-' + s.id"
+          @click="curId = s.id"
+        >{{ s.title }}</button>
+        <p v-if="!filtered.length" class="help-none" data-testid="help-none">
+          没有匹配「{{ q }}」的章节 —— 换个词试试（例如「签字」「结构地图」「备份」「快捷键」）
         </p>
-      </section>
+      </nav>
 
-      <section class="help-sec">
-        <h4>二、每个页签干什么</h4>
-        <table class="help-table">
-          <tbody>
-          <tr><th>页签</th><th>用途</th></tr>
-          <tr><td>看板</td><td>主视图。按状态分列，拖卡片即可改状态。搜索、筛选、分组、排序都在顶上。</td></tr>
-          <tr><td>问答</td><td>问一句就能看实况：到哪了 / 欠着什么 / 谁在等谁。答不了会明说，不编。</td></tr>
-          <tr><td>待办</td><td>轻量清单。可以先记一句，之后再转成任务卡或执行日志。</td></tr>
-          <tr><td>想法</td><td>随手记的念头，还没决定做不做。点“变成待办 →”才转成待办（全文带过去）。它不算任务、不进逾期、也不进待办。</td></tr>
-          <tr><td>问卷</td><td>agent 出的卷子在这里答：点选 / 否决 / 反问。“让 agent 出问卷”会把出卷提示词复制出来。答完你批准，才落决策卡。</td></tr>
-          <tr><td>日志</td><td>执行记录。一次会话/一段工作结束了写一条，可关联任务、带附件、写下“下一步”。待办那边点“→ 日志”也能直接转过来。</td></tr>
-          <tr><td>项目</td><td>按项目聚合：该项目有多少任务、卡在哪儿、契约填了没。</td></tr>
-          <tr><td>作战计划<br><span class="help-inline-note">（在「项目」页里面）</span></td>
-              <td><b>签字的地方</b>：每个阶段卡三块（技术方案 / 照抄点 / 判据）缺一就报红。
-                <code>通过（冻结）</code> = 签字，<code>打回</code> = 写理由退回。见第九节。</td></tr>
-          <tr><td>阻塞</td><td>谁挡着谁 —— 从任务卡的依赖关系里算出来的阻塞链。点任意一行直接进卡处置。</td></tr>
-          <tr><td>路线图</td><td>按批次看每个项目走到哪；点任务行进卡，“下一步”是各项目优先级最高的待办。</td></tr>
-          <tr><td>日历</td><td>按日期铺开任务，看哪天最挤。拖动条目改期，点条目指派时间。</td></tr>
-          <tr><td>归档</td><td>已完成/已归档的任务。归档只是"先别看了"，不是删除。</td></tr>
-          <tr><td>回收站</td><td>删除的东西先来这里，可以还原。彻底删除才真没了。</td></tr>
-          <tr><td>启动台</td><td>登记常用应用/命令，一键拉起。</td></tr>
-          <tr><td>决策</td><td>决策卡：定了什么、哪天定的、出处、现在还算不算数。</td></tr>
-          <tr><td>技能</td><td>把方寸的技能包装到任意 agent 上（Hermes / DSH / WorkBuddy…）。</td></tr>
-          <tr><td>服务</td><td>只读监控端口占用 —— 只看不杀。</td></tr>
-                    </tbody>
-        </table>
-      </section>
+      <!-- 中：正文 -->
+      <article class="help-content" data-testid="help-content" v-if="cur">
+        <h4 data-testid="help-title">{{ cur.title }}</h4>
+        <template v-for="(b, i) in cur.blocks" :key="i">
+          <p v-if="b.t === 'p'" class="h-p">{{ b.v }}</p>
+          <ol v-else-if="b.t === 'steps'" class="h-steps">
+            <li v-for="(x, j) in b.v" :key="j">{{ x }}</li>
+          </ol>
+          <ul v-else-if="b.t === 'list'" class="h-list">
+            <li v-for="(x, j) in b.v" :key="j">{{ x }}</li>
+          </ul>
+          <div v-else-if="b.t === 'key'" class="h-keys">
+            <div v-for="(pair, j) in b.v" :key="j" class="h-key-row">
+              <kbd>{{ pair[0] }}</kbd><span>{{ pair[1] }}</span>
+            </div>
+          </div>
+          <p v-else-if="b.t === 'warn'" class="h-warn">⚠ {{ b.v }}</p>
+          <p v-else-if="b.t === 'tip'" class="h-tip">💡 {{ b.v }}</p>
+        </template>
+        <p v-if="cur.cite" class="h-cite">维护者注：{{ cur.cite }}</p>
+      </article>
 
-      <section class="help-sec">
-        <h4>三、搜索框怎么用</h4>
-        <p>直接在搜索框里敲，回车生效。支持的写法（可组合）：</p>
-        <table class="help-table">
-          <tbody>
-          <tr><th>写法</th><th>意思</th><th>例子</th></tr>
-          <tr><td><code>#标签</code></td><td>按标签筛</td><td><code>#紧急</code></td></tr>
-          <tr><td><code>@项目</code></td><td>按项目筛</td><td><code>@司天</code></td></tr>
-          <tr><td><code>due:MM-DD</code></td><td>按到期日筛</td><td><code>due:10-15</code></td></tr>
-          <tr><td>一整句话</td><td>当作自然语言查询解析</td><td><code>本周到期的紧急任务</code></td></tr>
-                    </tbody>
-        </table>
-        <p class="help-tip">
-          顶上“＋ 筛选”里的条件会变成可点 ✕ 的小标签 —— 筛了什么一眼可见，撤销不用回头翻下拉。
-        </p>
-      </section>
-
-      <section class="help-sec">
-        <h4>四、顶栏那几个按钮</h4>
-        <table class="help-table">
-          <tbody>
-          <tr><th>按钮</th><th>作用</th></tr>
-          <tr><td>← 返回</td><td>回上一个看过的视图。没有可回退的视图时会置灰。</td></tr>
-          <tr><td>⌂ 首页</td><td>回看板，并清掉当前的搜索与筛选 —— 一记干净的复位。</td></tr>
-          <tr><td>? 帮助</td><td>就是这一页。</td></tr>
-          <tr><td>⟳ 同步</td><td>把数据一键推送到你配好的 Git 仓库。跑的时候图标会转，结果在按钮上直接报。</td></tr>
-          <tr><td>⊟ 折叠 / ⊞ 展开</td><td>长单子时只留分组名和数量，一屏看完。</td></tr>
-          <tr><td>⌗ / ⇅</td><td>怎么分组、怎么排序。点开的是同一个面板，选项本身即按钮，一次点击生效。</td></tr>
-          <tr><td>💾</td><td>备份：本地打包 + 云端（WebDAV 或 Git），可校验、可恢复。</td></tr>
-          <tr><td>🔔</td><td>通知中心：逾期、卡住、待审批这些提醒。</td></tr>
-          <tr><td>📋</td><td>诊断日志：出错时打开看尾部、打开日志目录。</td></tr>
-          <tr><td>⚙</td><td>设置：数据目录、备份、外观、LLM 配置等。</td></tr>
-                    </tbody>
-        </table>
-      </section>
-
-      <section class="help-sec">
-        <h4>五、备份与恢复</h4>
-        <p>
-          数据是你的，所以方寸把"怎么带走、怎么找回"放在明面上。备份包是五件套：
-          ZIP + 校验文件 + 清单 + 说明 + 一键恢复脚本 —— <b>没有方寸也能用它恢复</b>。
-        </p>
-        <p class="help-tip">
-          密钥永不进备份包（含密钥的文件名在打包时被排除）。恢复前会先校验，
-          校验不过绝不动你现有的数据。
-        </p>
-      </section>
-
-      <section class="help-sec">
-        <h4>六、状态怎么走，驳回到底怎么用</h4>
-        <p>
-          一条卡的正路是：<b>待办 → 进行中 → 待验收 → 完成</b>。“待审批”只留给 AI 出的卡 ——
-          你点头才转正（它不能背着你往板子里塞东西）。
-        </p>
-        <p>
-          <b>驳回</b> = 这活没通过，但它不是终态。驳回时默认勾着“退回待办，让 AI 返工”：
-          理由留在卡上，agent 下次取活会先读到它、优先返工 —— 你不用再手动把卡搬回待办。
-          如果这次只是想记一笔、晚点再决定，就选“先停在驳回”；那些卡会出现在看板顶部的
-          <b>返工台</b>里，随时可以一键退回或归档。
-        </p>
-        <p class="help-tip">
-          待验收的卡会自己冒到看板顶部（“在等你验收”），不用你翻到那一列去找。
-          没做完就驳回 —— 别点“通过”，通过是签字，签了就算收口。
-          <b>但“签字”还有另外两处，不在看板上</b>：作战计划的阶段卡冻结、结构地图卡的移动完成。
-          这两处见第九、第十节 —— 上一版手册一个字都没写，2026-11-16 实测找不到。
-        </p>
-      </section>
-
-      <section class="help-sec">
-        <h4>七、按错了怎么办</h4>
-        <p>
-          删除只移入 <code>task-data/.trash/</code>，回收站里能还原；
-          归档只是从主视图挪走；批量操作前都有确认。
-          <b>没有"一键清空"这类按钮</b>，破坏性操作一律先快照。
-        </p>
-      </section>
-
-      <!-- 2026-10-16（暮雨第 1 条）：“你说在方寸里真跑一遍 AI 起草，我根本找不到入口在哪里，
-           也没找到配置模型的地方”。入口与配置一直都在，缺的是**一条把它们说出来的路径** ——
-           这一节就是那条路径，写清两步怎么走、结果落哪、钱怎么算。 -->
-      <section class="help-sec">
-        <h4>八、AI 规划（可选；要花钱，先看清）</h4>
-        <p>
-          让方寸替你起草任务卡或项目说明 —— 它用的是<b>你自己那份模型 API</b>（BYOK）：
-          方寸不预置任何端点、不代理任何模型服务、也不代收费用。
-        </p>
-        <table class="help-table">
-          <tbody>
-          <tr><th>第 1 步 · 配通道</th>
-            <td>设置（⚙）→ 左侧“Agent”→“✨ 模型通道”：填 Base URL、模型名、API Key，
-              点“测试连接”确认通了。密钥只存本机、回显只有掩码。</td></tr>
-          <tr><th>第 2 步 · 用它</th>
-            <td>“项目”页点开一个项目 → 右侧“✨ AI 规划”→ 写一句话目标 →
-              点“✨ 拆成任务卡草稿”（或“📄 起草项目说明”）。没配通道时弹窗里会当场指路。</td></tr>
-          <tr><th>结果落哪</th>
-            <td>每次都落成<b>“待审批”卡</b> —— 你过目、改完、点头之后才进待办。
-              AI 不能背着你往方寸里塞东西。</td></tr>
-                    </tbody>
-        </table>
-        <p class="help-tip">
-          涉及花钱：界面上的 token 用量与花销<b>只是估算、不是计费依据</b>；
-          调用费用由你与模型服务方按其实时价格结算，<b>下单前请以服务方官网实时价为准</b>。
-          完整条款在 设置 → 诊断 →“⚖ 免责与知情声明”里。
-        </p>
-      </section>
-
-      <!-- 2026-11-16（暮雨：「实际上我根本不知道签字环节在哪里，使用手册本身也难用得要死」）——
-           上一版手册**查不到任何一条签字路径**：页签表里 16 行没有「作战计划」，
-           结构地图卡的审批一个字没提，第六节只说"通过是签字"却不说按钮在哪。
-           入口一直都在，缺的是一条把它们说出来的路径 —— 同一句话 10-16 已经踩过一次。
-           这一节就是那条路径：两个签字场景，各自写清**从哪进、点哪个、签完落到哪**。 -->
-      <section class="help-sec">
-        <h4>九、签字（一）：作战计划 —— 阶段卡冻结</h4>
-        <p>
-          要去的地方：左边切到 <b>「项目」</b> → 点开一个项目 → <b>页内的视图切换条</b>
-          （不是左边那个大导航）选 <b>「◫ 作战计划」</b>。
-        </p>
-        <table class="help-table">
-          <tbody>
-          <tr><th>按钮</th><th>作用</th><th>写进哪</th></tr>
-          <tr><td><code>✓ 通过（冻结）</code></td>
-              <td>签字。<b>只有三块齐全（技术方案 / 照抄点 / 判据）才给点</b>，缺一块按钮就点不动，卡上会写「缺 X —— 不能通过」。</td>
-              <td>卡状态 → <code>已冻结</code>；同时写一行 <code>裁决: 通过 · 日期</code></td></tr>
-          <tr><td><code>↩ 打回</code></td>
-              <td>这格不成立。<b>理由必填</b>——空着等于没打回，提交不了。写清"哪里不成立、要改成什么样"。</td>
-              <td>写 <code>打回理由:</code>，状态退回未冻结</td></tr>
-          <tr><td><code>✎ 改一句</code></td>
-              <td>不改结论、只改一处措辞。会留痕并把状态退回未冻结（改过就得重签）。</td>
-              <td>卡上多一行审计记录</td></tr>
-          <tr><td><code>跑判据 / 推进</code></td>
-              <td><b>没冻结的格子推不动</b>（闸门会拒）。冻结后点它：判据全过才把这格写成「完成」，没过就写「未完成 + 打回理由」。</td>
-              <td>该格 <code>状态</code> 与 <code>证据</code></td></tr>
-                    </tbody>
-        </table>
-        <p class="help-tip">
-          <b>这就是全部签字动作，一共三下。</b>签完按钮会变成「✓ 已冻结 / ✓ 已完成」并置灰 ——
-          所以「点完没反应」不会发生（以前会，只能狂点）。
-          想撤回：顶栏撤销条或 <code>Ctrl+Z</code>，回到点之前的状态。
-        </p>
-      </section>
-
-      <section class="help-sec">
-        <h4>十、签字（二）：结构地图卡 —— 移到「完成」就是签字</h4>
-        <p>
-          结构地图不在这里签，它走<b>任务卡</b>：<b>看板</b> → 找到该项目那张
-          <b>「结构地图更新 · 项目名」</b>卡（标签是 <code>结构地图</code>）→ 点开 →
-          把状态改成 <b>「完成」</b>。
-        </p>
-        <p>
-          改状态两种都行：<b>在列视图里把卡拖进「完成」那一列</b>，或点开卡在弹窗的
-          <b>「状态」下拉</b>里选「完成」。
-        </p>
-        <p class="help-tip">
-          ⚠ <b>为什么必须是「完成」而不是「待审批通过」</b>：写入口 <code>smap_apply</code>
-          只认 <code>状态=完成</code> 的卡 —— 那是你的签字。没签字，<b>一个字节都不会动</b>。<br>
-          ⚠ <b>签完还没结束</b>：签字只表示"我同意这版"。真正写进
-          <code>policies/&lt;项目&gt;.md</code> 的「## 结构地图」，要对 agent 说一句
-          「调 smap_apply，卡 id 是这张」。它会先备份、再写、再读回自证。<br>
-          ⚠ 不同意就直接 <b>打回</b>（写清哪条不对）或 <b>归档</b>，别放着 ——
-          放着的话方寸里的结构地图会一直停在旧日期，agent 每次读到的都是过期快照。
-        </p>
-      </section>
+      <!-- 右：留空（暮雨 2026-11-16：「右侧留空，预留给后续使用」）。
+           这里**不塞占位文案** —— 空就是空，塞一句"此处暂无内容"是最典型的凑数。 -->
+      <aside class="help-rail" aria-hidden="true"></aside>
     </div>
+
+    <footer class="help-foot">
+      <span>共 {{ GUIDE_SECTIONS.length }} 节 · 点顶栏「?」随时打开</span>
+      <span v-if="q">筛出 {{ filtered.length }} 节</span>
+    </footer>
   </main>
 </template>
 
 <script setup lang="ts">
-// 纯静态视图：无状态、无请求。交互只有两件：“回看板”与“关于方寸”，都交给父组件
-// （goHome 要清搜索与筛选，那是 App.vue 的事，不该搬到这里）。
-// version 由父组件传进来 —— 手册页与“关于”显示同一个号，避免两处各写一份。
+/**
+ * 纯渲染组件：**零文案**。改手册请改 `utils/userGuide.ts`，不要改这里。
+ * 交互只有两件：「回看板」与「关于方寸」，都交给父组件（goHome 要清搜索与筛选，
+ * 那是 App.vue 的事，不该搬到这里）。
+ */
+import { ref, computed, watch } from 'vue'
+import { GUIDE_SECTIONS, searchGuide } from '../utils/userGuide'
+
 defineProps<{ version?: string }>()
 defineEmits<{ (e: 'home'): void; (e: 'about'): void }>()
+
+const q = ref('')
+const curId = ref(GUIDE_SECTIONS[0]?.id || '')
+
+const filtered = computed(() => searchGuide(q.value))
+const cur = computed(() => {
+  const list = filtered.value
+  if (!list.length) return null
+  return list.find((s) => s.id === curId.value) || list[0]
+})
+
+// 搜索把当前章节筛掉了 → 自动落到第一条，避免"左边有内容、右边空着"
+watch(filtered, (list) => {
+  if (list.length && !list.some((s) => s.id === curId.value)) curId.value = list[0].id
+})
 </script>
+
+<style scoped>
+/* 三栏：左目录 240 / 中正文自适应 / 右留空 220。
+   ⚠ 窄屏（<1080）收起右栏 —— 留空不该在小屏上挤掉正文。 */
+.help-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+.help-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 12px 18px 10px; border-bottom: 1px solid var(--border);
+}
+.help-head h3 { margin: 0; font-size: 15px; color: var(--ink); }
+.help-ver { font-size: 11px; color: var(--muted); }
+.help-sub { font-size: 12px; color: var(--muted); }
+.views-grow { flex: 1; }
+
+.help-shell {
+  flex: 1; display: flex; min-height: 0;
+}
+
+/* ── 左目录 ── */
+.help-toc {
+  width: 240px; flex-shrink: 0; overflow-y: auto;
+  padding: 10px; border-right: 1px solid var(--border);
+  background: var(--tint);
+}
+.help-search {
+  width: 100%; box-sizing: border-box;
+  padding: 6px 9px; margin-bottom: 8px;
+  font-size: 12.5px; color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--border); border-radius: 7px;
+}
+.help-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.help-search::placeholder { color: var(--muted); }
+
+.help-toc-item {
+  display: block; width: 100%; text-align: left;
+  padding: 7px 9px; margin-bottom: 3px;
+  font-size: 12.5px; color: var(--ink);
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; cursor: pointer;
+}
+.help-toc-item:hover { background: var(--card); border-color: var(--border); }
+.help-toc-item.active {
+  background: var(--card); border-color: var(--accent);
+  color: var(--accent); font-weight: 600;
+}
+.help-none { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 6px; }
+
+/* ── 中正文 ── */
+.help-content {
+  flex: 1; min-width: 0; overflow-y: auto;
+  padding: 18px 26px 26px;
+  /* 正文自己再收一道宽度：三栏下 880 会撞到右栏，实测 760 更舒服 */
+  max-width: 760px;
+}
+.help-content h4 {
+  margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent);
+  padding-bottom: 0; border-bottom: none;
+}
+.h-p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.8; color: var(--ink); }
+.h-steps, .h-list {
+  margin: 0 0 12px; padding-left: 22px;
+  font-size: 12.5px; line-height: 1.8; color: var(--ink);
+}
+.h-steps { list-style: decimal; }
+.h-list { list-style: disc; }
+.h-steps li, .h-list li { margin-bottom: 5px; }
+.h-keys { margin: 4px 0 12px; display: flex; flex-direction: column; gap: 5px; }
+.h-key-row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--ink); }
+.h-key-row kbd {
+  min-width: 96px; text-align: center; padding: 2px 7px;
+  font-family: inherit; font-size: 11.5px; color: var(--ink);
+  background: var(--tint); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 5px;
+}
+.h-warn, .h-tip {
+  margin: 0 0 12px; padding: 8px 11px;
+  font-size: 12px; line-height: 1.75; border-radius: 7px;
+}
+.h-warn {
+  color: var(--danger, #c96a6a); background: var(--tint);
+  border-left: 3px solid var(--danger, #c96a6a);
+}
+.h-tip {
+  color: var(--ink); background: var(--tint);
+  border-left: 3px solid var(--accent);
+}
+.h-cite { margin: 20px 0 0; font-size: 11px; color: var(--muted); }
+
+/* ── 右留空 ──
+   ⚠ 2026-11-16 第二版：第一版给了 `border-left`，截图一看是**一大块带边框的空白**，
+   像界面画崩了。暮雨说的是「右侧留空」= 留白，**不是加一条分割线**。
+   所以这里不画边框、不画底色：内容区自己 max-width 收住，右边自然就是空。
+   保留这个元素是给以后真往里放东西时有个锚点（现在它是 0 宽度的占位容器）。 */
+.help-rail { flex: 0 0 0; width: 0; }
+
+.help-foot {
+  display: flex; justify-content: space-between;
+  padding: 8px 18px; font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--border); background: var(--tint);
+}
+</style>

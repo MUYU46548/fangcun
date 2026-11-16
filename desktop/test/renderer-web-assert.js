@@ -7880,11 +7880,77 @@
         helpBtn.click()
         check('★★ 点“?”真的进了帮助手册视图（.help-view 渲染出来）',
           await waitFor(() => !!$('.help-view'), 4000, 'help view'))
-        check('  手册里确实有内容（不是空壳）：至少 5 节 + 至少 2 张表',
-          $$('.help-view .help-sec').length >= 5 && $$('.help-view .help-table').length >= 2,
-          'secs=' + $$('.help-view .help-sec').length + ' tables=' + $$('.help-view .help-table').length)
-        check('  手册讲清了搜索语法（含 due: 这种真实可用的写法）',
-          $$('.help-view').length && ($('.help-view').textContent || '').indexOf('due:') >= 0)
+        // ⚠ 2026-11-16 改断言（原版钉的是"至少 5 个 .help-sec + 至少 2 张表"）：
+        //   手册重写成**目录 + 正文两栏**（抄司天），不再用 .help-sec 平铺 10 节，
+        //   于是原断言 read 到 secs=0 tables=0 直接红 —— 是**断言过期**，不是手册坏了。
+        //   但换断言不许放水，所以新断言钉的比原来更硬：
+        //     ① 目录里有 ≥8 个章节项（原来 ≥5 节）
+        //     ② 点目录真的能切章（原来根本没有这条 —— 平铺页面不需要）
+        //     ③ 搜索框能筛（原来也没有）
+        //     ④ 正文有实际内容（不是空壳）
+        {
+          const toc = $$('.help-view .help-toc-item')
+          check('★★ 手册有章节目录且条目 ≥8（不是一坨平铺）', toc.length >= 8, 'toc=' + toc.length)
+          const body0 = ($('.help-view .help-content') || {}).textContent || ''
+          check('  正文有实际内容（不是空壳）', body0.length > 200, 'len=' + body0.length)
+
+          // 点第二个目录项 → 标题必须跟着变（这是新结构才有的能力）
+          const titleOf = () => (($('.help-view [data-testid=help-title]') || {}).textContent || '').trim()
+          const t0 = titleOf()
+          if (toc.length >= 2) {
+            toc[1].click()
+            const changed = await waitFor(() => titleOf() !== t0, 2000, 'toc switch')
+            check('★★ 点目录项真的切章（标题跟着变）', changed, t0 + ' → ' + titleOf())
+          } else {
+            check('★★ 点目录项真的切章（标题跟着变）', false, 'toc 不足 2 项')
+          }
+
+          // 搜索框：敲一个只在少数章节出现的词，目录必须变短
+          const si = $('.help-view .help-search')
+          if (si) {
+            si.value = '结构地图'
+            si.dispatchEvent(new Event('input', { bubbles: true }))
+            si.dispatchEvent(new Event('change', { bubbles: true }))
+            const narrowed = await waitFor(
+              () => $$('.help-view .help-toc-item').length < toc.length, 2000, 'search narrow')
+            check('★★ 搜索框真能筛（目录变短）', narrowed,
+              'before=' + toc.length + ' after=' + $$('.help-view .help-toc-item').length)
+            si.value = ''
+            si.dispatchEvent(new Event('input', { bubbles: true }))
+            si.dispatchEvent(new Event('change', { bubbles: true }))
+            // ⚠ 必须等目录恢复全长再往下走：清空后是异步重渲，紧接着读目录会读到
+            //   上一轮**筛选后的 3 项**（实测：后面两条断言因此全红）。这不是产品错，是采样太早。
+            await waitFor(() => $$('.help-view .help-toc-item').length === toc.length, 2000, 'search reset')
+          } else {
+            check('★★ 搜索框真能筛（目录变短）', false, '没有 .help-search')
+          }
+        }
+        // ⚠ 2026-11-16：改成分两步验，因为两栏结构下**默认只渲染当前一节**。
+        //   原版断言「.help-view 的全文含 due:」在平铺 10 节时成立，现在必然不成立
+        //   —— 不是手册没写，是它写在第五节（搜索与筛选），而页面停在第一节。
+        //   所以要：① 点进那一节能找到；② 并且正文里有真实语法（不能只写个词）。
+        {
+          const toc = $$('.help-view .help-toc-item')
+          const idx = toc.findIndex((b) => (b.textContent || '').indexOf('搜索') >= 0)
+          check('  手册有「搜索与筛选」这一节（目录里能点到）', idx >= 0,
+            'toc=' + toc.map((b) => b.textContent.trim()).join('/'))
+          if (idx >= 0) {
+            toc[idx].click()
+            const ok = await waitFor(() => {
+              const t = ($('.help-view .help-content') || {}).textContent || ''
+              return t.indexOf('due:') >= 0
+            }, 2000, 'due: in content')
+            check('  手册讲清了搜索语法（含 due: 这种真实可用的写法）', ok,
+              ok ? '' : ('content=' + ((($('.help-view .help-content') || {}).textContent) || '').slice(0, 160)))
+            const txt = ($('.help-view .help-content') || {}).textContent || ''
+            check('  ★ 搜索语法是"能照做"的（#标签 / @项目 / 自然语言三种都在）',
+              ['#标签', '@项目', 'due:'].every((k) => txt.indexOf(k) >= 0),
+              txt.slice(0, 200))
+          } else {
+            check('  手册讲清了搜索语法（含 due: 这种真实可用的写法）', false, '没找到「搜索」这一节')
+            check('  ★ 搜索语法是"能照做"的（#标签 / @项目 / 自然语言三种都在）', false, '同上')
+          }
+        }
         check('  ★ 帮助**不在页签行里重复出现**（入口唯一：顶栏“?”）',
           !$$('nav#views .vbtn').some((b) => (b.textContent || '').indexOf('帮助') >= 0),
           $$('nav#views .vbtn').map((b) => b.textContent.trim()).join('/'))

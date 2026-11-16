@@ -73,7 +73,45 @@ const PURE_MASK_RE = /^\*+$/
 
 function rel(p) { return path.relative(REPO, p).replace(/\\/g, '/') }
 
-/** B/C 两类：逐行找界面文案行里的字符串 */
+/**
+ * B/C 两类：逐行找界面文案行里的字符串
+ *
+ * ⚠ 2026-11-16 补一个**真空档**（暮雨「使用手册本身也难用得要死」那轮）：
+ *   手册文案从 `views/HelpView.vue` 搬进了 `renderer/utils/userGuide.ts`（抄司天的单一事实源），
+ *   而**数据文件不是 UI_LINE_RE 那种行**（它是 `v: '……'` 对象字面量）→ 整份新文案
+ *   **一个字都不在守卫视野里**。实测后果：`**所有拍板权都在你这**` 原样印在界面上，
+ *   守卫却 22/0 全绿 —— 这是"守卫存在"与"守卫有效"的差别。
+ *
+ * 判据：**数据型文案文件**里的字符串字面量一律当界面文案查（它最终就是印在屏幕上的）。
+ */
+const DATA_COPY_FILES = [
+  path.join(SRC, 'renderer', 'utils', 'userGuide.ts'),
+]
+
+function scanDataCopyStrings(file) {
+  const bold = []
+  const tick = []
+  const personal = []
+  const lines = fs.readFileSync(file, 'utf-8').split('\n')
+  lines.forEach((line, i) => {
+    const t = line.trim()
+    // 跳过纯注释行：注释里的 `**`/反引号是解释，用户看不到
+    if (t.startsWith('/*') || t.startsWith('*') || t.startsWith('//')) return
+    STR_RE.lastIndex = 0
+    let m
+    while ((m = STR_RE.exec(line))) {
+      const quote = m[1]
+      const body = m[2]
+      if (PURE_MASK_RE.test(body)) continue
+      if (body.includes('${')) continue
+      if (body.includes('**')) bold.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
+      if (quote !== '`' && body.includes('`')) tick.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
+      if (body.includes('暮雨')) personal.push(`${rel(file)}:${i + 1}  “${body.slice(0, 80)}”`)
+    }
+  })
+  return { bold, tick, personal }
+}
+
 function scanUiStrings(file) {
   const bold = []   // 含 ** 的
   const tick = []   // 单/双引号串里含反引号的
@@ -149,6 +187,19 @@ function main() {
     tickHits.push(...r.tick)
     personalHits.push(...r.personal)
   }
+  // ── D. 数据型文案文件（手册等）：整份字面量都算界面文案 ──────────────
+  //    不扫这类 = 把文案挪进数据文件就能绕过守卫（2026-11-16 实测发生过）。
+  let dataFiles = 0
+  for (const f of DATA_COPY_FILES) {
+    if (!fs.existsSync(f)) continue
+    dataFiles++
+    const r = scanDataCopyStrings(f)
+    boldHits.push(...r.bold)
+    tickHits.push(...r.tick)
+    personalHits.push(...r.personal)
+  }
+  check('★ 数据型文案文件扫到了（搬家不许绕过守卫）', dataFiles === DATA_COPY_FILES.length,
+    'hit=' + dataFiles + '/' + DATA_COPY_FILES.length)
   check('★ 界面文案（howTo / toast / 提示语）里没有 Markdown 粗体标记 `**`',
     boldHits.length === 0, boldHits.slice(0, 6).join(' | '))
   check('★ 界面文案的单引号字符串里没有反引号（Markdown 行内代码）',
