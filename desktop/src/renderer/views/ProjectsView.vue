@@ -354,6 +354,12 @@
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openPolicyEdit(ctl.pvCurrent.id)">📋 {{ ctl.policyMap[ctl.pvCurrent.id] ? '方针' : '立方针' }}</Button>
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openStructMap()">🗺 结构地图</Button>
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openProjectTasks(ctl.pvCurrent)">📦 看任务</Button>
+              <!-- 开工简报（2026-11-16 · 治病①「没有记忆」的入口）。
+                   卡 `最高优先级ai-施工的五种病…` 的验收线：跑一轮新入口，agent 必须能答对
+                   「上次做到哪 / 这次先做什么 / 有哪些规矩别犯」，且 <= 8KB。
+                   放在这里是因为「开工」发生在项目页；它不是又一个报表，是给 agent 的第一步。 -->
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.copyBrief(ctl.pvCurrent)"
+                      title="四格简报：上次做到哪 / 计划推哪一格 / 谁在等你 / 规矩别犯 —— 直接粘给 agent，它不用再从 git log 拼上下文">🚀 开工简报</Button>
               <!-- agent 上下文包（2026-10-22 · b 版落地物）：把契约/方针/决策/未完成卡/最近日志
                    拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.copyContextPack(ctl.pvCurrent)"

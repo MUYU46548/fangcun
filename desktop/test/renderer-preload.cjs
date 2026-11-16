@@ -1298,6 +1298,22 @@ contextBridge.exposeInMainWorld('tegula', {
   // ── 剪贴板（渲染层复制一律走主进程通道，见 shared/clipboard.ts ①）─────
   clipboardWriteText: (text) => { rec('clipboardWriteText', [text]); return ok() },
 
+  // ── 开工简报（2026-11-16 · 治病① 的入口）─────────────────────────────
+  // ⚠ 桩必须与真后端**同形状**：真身返回 { ok, project, markdown, bytes, budget, overBudget }。
+  //   这里故意给一份**带「算不出」的**简报 —— 因为渲染层那条"别拿空白当结论"的
+  //   toast 只有在算不出时才出现，给一份全好的简报等于那条断言永远测不到。
+  brief: (projectId) => {
+    rec('brief', [projectId])
+    return ok({
+      ok: true,
+      project: projectId,
+      markdown: '# 开工简报 · ' + projectId + '\n\n## ① 上次做到哪\n\n- **算不出**：没有日志\n',
+      bytes: 1200,
+      budget: 8192,
+      overBudget: false,
+    })
+  },
+
   // ── 技能安装专区（2026-09-26 卡 038）────────────────────────────
   // 一条已装（最新）+ 一条未装，正好把两种状态文案都覆盖
   skillsCheck: () => {

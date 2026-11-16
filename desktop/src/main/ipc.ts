@@ -27,6 +27,7 @@ import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
 import * as contextPack from './services/contextPack'
+import * as brief from './services/brief'
 import * as prefs from './services/prefs'
 import * as projectTiers from './services/projectTiers'
 import * as appLog from './services/appLog'
@@ -761,6 +762,26 @@ export function registerIpcHandlers(): void {
   guardedHandle('context:packFile', (_event, projectId: string) => {
     try {
       return contextPack.writeContextPackFile(String(projectId || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // ── 开工简报（2026-11-16 · 治病①「没有记忆」的入口）─────────────────────
+  // 卡 `最高优先级ai-施工的五种病…` 的验收线：跑一轮新入口，agent 必须能答对
+  // 「上次做到哪 / 这次先做什么 / 有哪些规矩别犯」，且输出 <= 8KB。
+  // 口径真源是 `scripts/brief.py`（这里只跑它，不重算 —— 两份口径迟早分叉）。
+  guardedHandle('brief:get', async (_event, projectId: string) => {
+    try {
+      return await brief.buildBrief(String(projectId || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('brief:write', async (_event, projectId: string) => {
+    try {
+      return await brief.writeBriefFile(String(projectId || ''))
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }

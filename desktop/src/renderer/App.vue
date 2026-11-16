@@ -4178,6 +4178,42 @@ async function copyContextPack(p: any): Promise<void> {
 }
 
 /**
+ * 复制开工简报（2026-11-16 · 治病①「没有记忆」的入口）。
+ *
+ * 它回答三个问题：**上次做到哪 / 这次先做什么 / 有哪些规矩别犯**。
+ * 判据（卡 `最高优先级ai-施工的五种病…`）：**≤ 8KB** —— 塞得多不算本事。
+ *
+ * ⚠ 两件必须当场说出来，不许混在"已复制"里：
+ *   ① **超预算**：>8KB 就等于又回到"塞几千 M 上下文"那条死路；
+ *   ② **某格算不出**：「算不出」≠「没有」，agent 拿它当"这项目没活"就糟了。
+ */
+async function copyBrief(p: any): Promise<void> {
+  if (!p?.id) return
+  try {
+    const r: any = await (window as any).tegula.brief(p.id)
+    if (!r || r.ok === false) {
+      showToast(`生不成开工简报：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    const md = String(r.markdown || '')
+    const ok = await copyWithToast(md, `已复制“${p.name || p.id}”的开工简报（${r.bytes || md.length} 字节）`)
+    if (!ok) return
+    if (r.overBudget) {
+      showToast(`这份简报 ${r.bytes} 字节，超了 ${r.budget} 上限 —— 塞得多不算本事`, 'error')
+    }
+    // 「算不出」的格单独报：那不是"没有活"，是缺数据
+    const missing = md.split('\n')
+      .filter((l: string) => l.includes('算不出'))
+      .map((l: string) => l.trim().replace(/^-\s*/, '').slice(0, 60))
+    if (missing.length) {
+      showToast(`简报里有 ${missing.length} 格算不出：${missing[0]} —— 别拿空白当结论`, 'error')
+    }
+  } catch (e: any) {
+    showToast('生成异常：' + (e?.message || e), 'error')
+  }
+}
+
+/**
  * 打开任务的 markdown 文件（系统默认程序）。
  * 后端 `openFile` 通道一直都在，只是没有入口 —— 同 openReview 那一类。
  * 2026-11-05：主进程侧改成「绝对路径 / 数据根 / 项目仓库跟」三级解析 + 可执行文件只定位，
@@ -7711,7 +7747,7 @@ const projectsCtl = reactive({
   // 使命草稿（2026-11-14 · P1-2）：方针弹窗里「从 README 取一句」
   draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
-  openAiPlan, openAiDoc, openPlans, copyContextPack, switchView,
+  openAiPlan, openAiDoc, openPlans, copyContextPack, copyBrief, switchView,
   tripBoardCtl,
 })
 

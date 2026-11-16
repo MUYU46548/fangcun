@@ -2374,6 +2374,55 @@
         check('  取消后弹窗收起（没留下遮罩挡住后面）', !$('#proj-new-modal'))
       }
     }
+    // ══ 开工简报（2026-11-16 · 治病①「没有记忆」的入口）══════════════════
+    // 判据来自卡 `最高优先级ai-施工的五种病…`：
+    //   跑一轮新入口，agent 必须能答对「上次做到哪 / 这次先做什么 / 有哪些规矩别犯」，
+    //   且 <= 8KB；**反面 = agent 仍需人贴一遍上下文**（本条判失败）。
+    // 这里钉的是"入口真能点到、真走了通道、真把简报交出去了"，不是"有没有这个函数"。
+    // ⚠ 按钮只在**项目详情**渲染（`pvCurrent` 有值才出），所以必须先点开一个项目 ——
+    //   第一版直接扫项目页列表，报"找不到按钮"，那是测错了地方，不是没做。
+    {
+      // ⚠⚠ 这一段**必须先记现场再复原**：
+      //   为点到按钮要进入项目详情，而点卡片会把摆法切成「主从」——
+      //   第一版没复原，直接让紧随其后的 3 条无关断言变红
+      //   （旧项目墙是默认 / 方针三态 / 方针弹窗）。**测试之间串味比不测更糟**。
+      const pvViewBefore = ($$('.pagehead button.vsb').find((b) => b.classList.contains('on')) || {}).textContent
+      let btn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('开工简报') >= 0)
+      if (!btn) {
+        const card = $('#board.pv .pvgrid .tile') || $('#board.pv .ocard')
+        if (card) { card.click(); await sleep(700) }
+        btn = $$('#board.pv .ms-detail .oacts button').find((b) => (b.textContent || '').indexOf('开工简报') >= 0)
+      }
+      check('★★ 项目详情有「🚀 开工简报」按钮（治「有零件没入口」）', !!btn,
+        $$('#board.pv .oacts button').map((b) => (b.textContent || '').trim()).slice(0, 12).join(' | '))
+      if (btn) {
+        // ⚠ 记录真身是 `window.__fcTest.calls()`（本文件全篇都用它）。
+        //   第一版写成 `window.__fcTest.rec` —— 那是**不存在**的属性，
+        //   于是 `names` 恒为空，三条断言全红而真因是断言自己写错了。已记。
+        const before = window.__fcTest.calls().length
+        btn.click()
+        await sleep(900)
+        const calls = window.__fcTest.calls().slice(before)
+        const names = calls.map((x) => x.name)
+        check('★★ 点它真的走了 brief 通道（不是个死按钮）', names.indexOf('brief') >= 0, names.join(','))
+        const clip = calls.filter((x) => x.name === 'clipboardWriteText')
+        check('★★ 简报正文真的交出去了（走剪贴板通道）',
+          clip.length > 0 && String((clip[0].args || [])[0] || '').indexOf('开工简报') >= 0,
+          clip.length ? String((clip[0].args || [])[0] || '').slice(0, 60) : '(没走剪贴板)')
+        await sleep(500)
+        // ⚠ toast 容器是 `#toast`（本文件其它断言也用它）。
+        //   注意：本产品的 toast 是**后者覆盖前者**，所以这里只能读到**最后一条**。
+        //   桩里的简报只带「算不出」（没有超预算），因此最后一条必须是"算不出"那条。
+        const toast = (($('#toast') || {}).textContent || '')
+        check('★ 「算不出」的格会被当场说出来（不许混进"已复制"里）',
+          toast.indexOf('算不出') >= 0, toast.slice(0, 120))
+      }
+      // ── 复原现场：切回原来的摆法 ──
+      if (pvViewBefore && pvViewBefore.indexOf('项目墙') >= 0) {
+        const back = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('项目墙') >= 0)
+        if (back) { back.click(); await sleep(500) }
+      }
+    }
     const pvTabs = () => $$('.pagehead button.vsb')
       .map((b) => ({ t: (b.textContent || '').trim(), on: b.classList.contains('on') }))
     check('★ 项目页签多出两个可选摆法（概览卡 / 主从）',
