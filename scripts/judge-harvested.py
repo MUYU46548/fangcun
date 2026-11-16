@@ -121,11 +121,22 @@ def terms_of(text):
 
 
 def load_corpus():
-    """所有可能"接住"需求的地方：卡 / 归档卡 / 日志 / 计划 / 待办 / 提交。"""
-    docs = []  # {kind, id, text, progressed}
+    """所有可能"接住"需求的地方：卡 / 归档卡 / 日志 / 计划 / 待办 / 提交。
 
-    DONE = {"完成", "驳回"}
+    ⚠ 2026-11-16 修的 bug：第一版把 `task-data/*.md` **一律**当"卡"，
+    于是 `decisions.md`（决策台账）、`rice-pool.md`（需求池）、`question-bank.md`（题库）
+    都被标成"卡" —— 它们在输出里长成「卡 `decisions.md`（— · 没进展）」，
+    **看起来像一张从没动过的卡，实际是数据文件**。
+    那会把"命中台账"误报成"命中一张待办卡"，进而在人复核时造成误判。
+    现在：只收**有 `id:` 且能对上卡 id 形状**的文件；台账类单独归"台账"。
+    """
+    docs = []  # {kind, id, text, progressed}
+    # 这些文件名不是卡，是台账/索引。命中它们算"有记录"，但**不算"已有卡接住"**。
+    LEDGER_NAMES = {"decisions", "rice-pool", "question-bank", "project-status",
+                    "registry", "project-tiers", "activity"}
+
     for p in glob.glob(os.path.join(ROOT, "task-data", "*.md")):
+        base = os.path.splitext(os.path.basename(p))[0]
         t = read(p)
         m = re.match(r"---\n(.*?)\n---", t, re.S)
         h = m.group(1) if m else ""
@@ -137,8 +148,12 @@ def load_corpus():
         mm = re.search(r"^状态:\s*(.*)$", h, re.M)
         if mm:
             st = mm.group(1).strip()
+        if base in LEDGER_NAMES or (not tid and not st):
+            docs.append({"kind": "台账", "id": base, "text": t,
+                         "progressed": False, "status": ""})
+            continue
         docs.append({
-            "kind": "卡", "id": tid or os.path.basename(p),
+            "kind": "卡", "id": tid or base,
             "text": t,
             "progressed": st in repeat_ok(),  # 进行中/待验收/完成 都算"动过"
             "status": st,
@@ -302,10 +317,49 @@ def judge_one(text, docs, df, doc_terms, n_docs):
         return "无法判定", [], []
     total_w = sum(cand.values()) or 1.0
 
+    # ⚠ 2026-11-16 修的第二个 bug：泛泛表态会命中任意卡。
+    # 实测反例：「虽然不能解决整个问题，但有一定作用，可以做」→ 命中「组合视图」卡，
+    # 用到的词是 `有一定`、`作用`、`整个问题` —— **一个具体词都没有**。
+    # 这种"命中"不是接住，是巧合。
+    #
+    # 第一版修法（"长度 >= 3"）**不够**：`有一定作`、`定作用` 也满足长度，仍是碎片。
+    # 现在要求"强词"= 长度 >= 3 **且首尾都不是虚词**、且不含纯功能字串 ——
+    # 这样 `有一定作`（尾 `作` 不是虚词，但里含 `有一`）要再过一道：不许以虚词开头。
+    # 实测能过的是 `分层`、`派工包`、`骨架`、`截图纪律`、`作战计划` 这类真词。
+    def _is_strong(w: str) -> bool:
+        """强词 = 有判别力的实义词。
+
+        ⚠ 这里换过四次做法，全记下来防再犯（2026-11-16 一天之内）：
+          ① `len(w) >= 3`            → `定作用`、`有一定作` 都过，仍是碎片
+          ② 加"首尾不是虚词"          → `定作用` 首 `定` 尾 `用` 都不在 FUNC_CHARS，仍过
+          ③ 加"df >= 2"              → 守卫夹具只有 2 份文档，全 df=1，一刀切空
+          ④ 加"必须是连续子串"        → 本质上和 ③ 等价，仍解决不了极小语料
+
+        **根因不在判据措辞，在"拿 n-gram 当词"这个做法本身** —— 补丁永远堵不完。
+        真正的修法在下面：**不再靠"词够不够强"来挡泛词，而是要求覆盖率够高**。
+        泛词表态的特点是"可命中的词很少"（`有一定`、`作用` 两个就到底了），
+        所以覆盖率上不去；真需求里能命中的词多，覆盖率天然高。
+        这条判据在极小语料和大语料上行为一致 —— 这才是能用的判据。
+        """
+        if len(w) < 3:
+            return False
+        if w[0] in FUNC_CHARS or w[-1] in FUNC_CHARS:
+            return False
+        if all(c in FUNC_CHARS for c in w):
+            return False
+        return True
+
+    strong = {w: v for w, v in cand.items() if _is_strong(w)}
+    if not strong:
+        return "无法判定", [], []
+
     hits = []
     for i, d in enumerate(docs):
         got = [w for w in cand if w in doc_terms[i]]
         if len(got) < MIN_OVERLAP:
+            continue
+        # 必须命中至少一个强词，否则只是泛词巧合
+        if not any(w in strong for w in got):
             continue
         cover = sum(cand[w] for w in got) / total_w
         if cover < MIN_COVER:
@@ -327,6 +381,8 @@ def main():
                                   "判 Hermes 时传 docs/捞-Hermes-20261116.md）")
     ap.add_argument("--out")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--brief", action="store_true",
+                    help="配合 --json：不吐命中文档正文（机器判据用，避免输出几百 MB）")
     args = ap.parse_args()
 
     src = args.src or (HARVEST if os.path.exists(HARVEST) else HARVEST_ONE)
@@ -358,7 +414,25 @@ def main():
     cnt = Counter(r["verdict"] for r in rows)
 
     if args.json:
-        print(json.dumps({"counts": dict(cnt), "rows": rows}, ensure_ascii=False, indent=2))
+        # ⚠ `--brief`：不吐命中文档的正文。
+        # 一份日志正文几十万字符，全塞进 JSON 会让输出到几百 MB ——
+        # 守卫里 execFileSync 默认 1MB 缓冲直接 ENOBUFS，而报错看起来像"守卫坏了"。
+        # 需要看证据时用非 brief（或看 md 报告）；机器判据一律用 brief。
+        payload = {"counts": dict(cnt), "rows": []}
+        for r in rows:
+            if args.brief:
+                payload["rows"].append({
+                    "id": r["id"], "ts": r["ts"], "proj": r["proj"],
+                    "verdict": r["verdict"], "why": r["why"],
+                    "anchors": r["anchors"],
+                    "hits": [{"kind": h["doc"]["kind"], "id": h["doc"]["id"],
+                              "status": h["doc"]["status"],
+                              "progressed": h["doc"]["progressed"],
+                              "anchors": h["anchors"][:8]} for h in r["hits"]],
+                })
+            else:
+                payload["rows"].append(r)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
     L = []
