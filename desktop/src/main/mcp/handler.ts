@@ -44,7 +44,7 @@ export function handleMCPRequest(req: MCPRequest, ctx?: ToolCallContext): MCPRes
         result: {
           protocolVersion: supported.includes(asked) ? asked : '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'fangcun', version: '0.6.43' },
+          serverInfo: { name: 'fangcun', version: '0.6.44' },
           instructions:
             `方寸（fangcun）任务看板。${modeLine}`
             + '写数据走 create_task / update_task / move_status（受「MCP 写入」档位约束：只读 / 读写 / 读写+破坏性，默认读写）；'
