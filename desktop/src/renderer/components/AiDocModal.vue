@@ -21,7 +21,7 @@
         卡带 <code>ai-doc</code> 来源标记，和目标拆解的卡分开可查。拆完原文不留存。
       </div>
       <div class="acts">
-        <button class="ghost" :disabled="ctl.aiDocBusy" @click="ctl.closeAiDoc()">取消</button>
+        <Button variant="ghost" size="tool" :disabled="ctl.aiDocBusy" @click="ctl.closeAiDoc()">取消</Button>
         <button class="pri" :disabled="ctl.aiDocBusy || !ctl.aiDocForm.doc.trim()" @click="ctl.runDocToDrafts()">
           {{ ctl.aiDocBusy ? 'AI 拆卡中…' : '📄 拆成任务卡' }}</button>
       </div>

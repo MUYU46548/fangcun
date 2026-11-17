@@ -44,11 +44,11 @@
     <textarea class="tall" v-model="ctl.policyEdit_.structureMap"
       placeholder="&gt; 最后核实：2026-09-28&#10;- 模块清单：…&#10;- 主数据流：数据从哪来 → 经过谁 → 落到哪 → 谁读它"></textarea>
     <div class="pf-map-tools">
-      <button class="ghost" type="button" @click="ctl.stampStructureMap()" title="把“最后核实”那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</button>
+      <Button variant="ghost" size="tool" type="button" @click="ctl.stampStructureMap()" title="把“最后核实”那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</Button>
       <span class="pf-map-tip">改动只写方针卡；派活时它会随任务书下发（不内联全文，只指路）</span>
     </div>
     <div class="acts">
-      <button class="ghost" @click="ctl.closePolicyEditor()">取消</button>
+      <Button variant="ghost" size="tool" @click="ctl.closePolicyEditor()">取消</Button>
       <button class="pri" @click="ctl.savePolicyEdit">保存方针卡</button>
     </div>
   </div>

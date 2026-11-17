@@ -7,6 +7,8 @@
 -->
 <script setup lang="ts">
 import { useBackup } from '../../composables/useBackup'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from '../ui/Button.vue'
 
 // 单例：拿到的就是 App 里那份状态（toast 已在 App 首次调用时注入）
 const {
@@ -90,20 +92,20 @@ const {
               <div class="bk-act-group">
                 <span class="bk-act-label">现在备份</span>
                 <button class="pri" :disabled="bkBusy" @click="bkSaveAndRun">{{ bkBusy ? '备份中…' : '立即备份' }}</button>
-                <button class="ghost" :disabled="bkBusy" @click="bkRunLocalOnly"
-                  title="只在本机打包，不传云端（没配 WebDAV / 只想留个本地快照时用）">仅本地</button>
+                <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkRunLocalOnly"
+                  title="只在本机打包，不传云端（没配 WebDAV / 只想留个本地快照时用）">仅本地</Button>
               </div>
               <div class="bk-act-group">
                 <span class="bk-act-label">连接设置</span>
-                <button class="ghost" :disabled="bkTesting" @click="bkTestRemote">{{ bkTesting ? '测试中…' : '测试远端' }}</button>
-                <button class="ghost" @click="bkSaveConfig" title="把上面那张表写进配置（密码只有保存后才加密留存）">保存配置</button>
+                <Button variant="ghost" size="tool" :disabled="bkTesting" @click="bkTestRemote">{{ bkTesting ? '测试中…' : '测试远端' }}</Button>
+                <Button variant="ghost" size="tool" @click="bkSaveConfig" title="把上面那张表写进配置（密码只有保存后才加密留存）">保存配置</Button>
               </div>
               <div class="bk-act-group">
                 <span class="bk-act-label">文件夹</span>
-                <button class="ghost" @click="bkOpenDir">打开备份文件夹</button>
+                <Button variant="ghost" size="tool" @click="bkOpenDir">打开备份文件夹</Button>
                 <!-- 刚做完一次备份后，直接定位到那个文件所在目录（原 openBackupFolder 一直没入口） -->
-                <button v-if="backupInfo" class="ghost" :title="'最近一次备份：' + backupInfo.path + '（' + backupInfo.sizeKB + ' KB）'"
-                  @click="openBackupFolder">最近备份所在目录</button>
+                <Button variant="ghost" size="tool" v-if="backupInfo" :title="'最近一次备份：' + backupInfo.path + '（' + backupInfo.sizeKB + ' KB）'"
+                  @click="openBackupFolder">最近备份所在目录</Button>
               </div>
             </div>
   
@@ -114,19 +116,19 @@ const {
                 <span class="bk-act-label">不用网盘也能备份</span>
                 <!-- 2026-09-26 用户第 1、2 条：不再要人选下拉（“必须逐字核对，很难受”），
                      点一下就导出**最新一份备份**；落盘**只有一个 zip**。 -->
-                <button class="ghost" :disabled="bkBusy" @click="bkExportTo"
-                  title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</button>
+                <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkExportTo"
+                  title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</Button>
                 <!-- restic 脚本（2026-10-11 用户拍板走“方案 A”）：方寸只生成脚本 + 说明，
                      定时你自己挂 —— 零维护、零鉴权、**不经手你的仓库密码**。 -->
-                <button class="ghost" :disabled="bkBusy" @click="bkCopyResticScript"
-                  title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</button>
+                <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkCopyResticScript"
+                  title="生成一份 restic 增量备份脚本（复制到剪贴板）—— 自己挂计划任务即可；方寸不接管你的仓库密码">📜 restic 脚本</Button>
               </div>
               <div class="bk-act-group">
                 <span class="bk-act-label">检查与恢复</span>
-                <button class="ghost" :disabled="bkBusy" @click="bkVerifyPackage"
-                  title="挑一个备份包做 sha256 + 结构双重校验（从网盘下载回来的副本建议定期抽查）">🔍 校验备份包…</button>
-                <button class="ghost" :disabled="bkBusy" @click="bkRestoreFromFile"
-                  title="从磁盘上任一备份包恢复；恢复前会自动给当前数据打快照，校验不过不动现有数据">📥 从文件恢复…</button>
+                <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkVerifyPackage"
+                  title="挑一个备份包做 sha256 + 结构双重校验（从网盘下载回来的副本建议定期抽查）">🔍 校验备份包…</Button>
+                <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkRestoreFromFile"
+                  title="从磁盘上任一备份包恢复；恢复前会自动给当前数据打快照，校验不过不动现有数据">📥 从文件恢复…</Button>
               </div>
             </div>
             <div v-if="bkMsg" :class="'llm-config-msg ' + bkMsgType">{{ bkMsg }}</div>
@@ -203,11 +205,11 @@ const {
                 <option value="main">main</option>
                 <option value="master">master</option>
               </select>
-              <button class="ghost" :disabled="gitBusy" @click="gitSaveConfig">保存</button>
-              <button class="ghost" :disabled="gitBusy" @click="gitTest">🔌 测试连接</button>
-              <button class="ghost" :disabled="gitBusy" @click="gitPushNow"
-                title="把数据目录里 task-data / registry.yaml / policies / docs 的真实文件铺进仓库并提交 —— 推的是文件，不是压缩包">⬆ 同步到仓库</button>
-              <button class="ghost" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</button>
+              <Button variant="ghost" size="tool" :disabled="gitBusy" @click="gitSaveConfig">保存</Button>
+              <Button variant="ghost" size="tool" :disabled="gitBusy" @click="gitTest">🔌 测试连接</Button>
+              <Button variant="ghost" size="tool" :disabled="gitBusy" @click="gitPushNow"
+                title="把数据目录里 task-data / registry.yaml / policies / docs 的真实文件铺进仓库并提交 —— 推的是文件，不是压缩包">⬆ 同步到仓库</Button>
+              <Button variant="ghost" size="tool" v-if="gitHasToken" @click="gitForgetToken" title="清掉本机保存的令牌（不含仓库地址）">清除令牌</Button>
             </div>
             <div class="bk-dim">
               同步的是真实文件（不是压缩包）：范围与上面的备份一致（task-data / registry.yaml / policies / docs），

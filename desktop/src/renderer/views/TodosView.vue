@@ -66,11 +66,11 @@
     </div>
     <div v-if="ctl.todoBatchMode" class="batch-bar">
       <span class="batch-count">已选 {{ ctl.selectedTodoBatch.length }}</span>
-      <button class="ghost" @click="ctl.toggleSelectAllTodos">{{ ctl.selectedTodoBatch.length === ctl.filteredTodos.length ? '取消全选' : '全选' }}</button>
-      <button class="ghost" title="批量标为已完成" @click="ctl.executeBatchTodoDone(true)">批量完成</button>
-      <button class="ghost" title="批量标为未完成（勾错了批量改回来）" @click="ctl.executeBatchTodoDone(false)">取消完成</button>
+      <Button variant="ghost" size="tool" @click="ctl.toggleSelectAllTodos">{{ ctl.selectedTodoBatch.length === ctl.filteredTodos.length ? '取消全选' : '全选' }}</Button>
+      <Button variant="ghost" size="tool" title="批量标为已完成" @click="ctl.executeBatchTodoDone(true)">批量完成</Button>
+      <Button variant="ghost" size="tool" title="批量标为未完成（勾错了批量改回来）" @click="ctl.executeBatchTodoDone(false)">取消完成</Button>
       <button class="danger" title="批量删除（会二次确认，不可恢复）" @click="ctl.executeBatchTodoDelete">批量删除</button>
-      <button class="ghost" title="退出多选模式并清空选择" @click="ctl.exitTodoBatch">取消</button>
+      <Button variant="ghost" size="tool" title="退出多选模式并清空选择" @click="ctl.exitTodoBatch">取消</Button>
     </div>
     <div class="todos-stats">
       共 {{ ctl.todos.length }} 条 · 未完成 {{ ctl.todoStats.active }} · 已完成 {{ ctl.todos.length - ctl.todoStats.active }}
@@ -154,9 +154,9 @@
     </div>
     <!-- 已转出折叠入口：默认把重复源藏起来（不是删除），一键展开/收起 -->
     <div v-if="ctl.convertedTodosCount" class="todos-converted-fold">
-      <button class="ghost" @click="ctl.showConvertedTodos = !ctl.showConvertedTodos">
+      <Button variant="ghost" size="tool" @click="ctl.showConvertedTodos = !ctl.showConvertedTodos">
         {{ ctl.showConvertedTodos ? '收起已转出' : `已转出 ${ctl.convertedTodosCount} 条 · 展开` }}
-      </button>
+      </Button>
       <span class="hint" v-if="!ctl.showConvertedTodos">转日志时勾了“顺手标已转出”的源折叠在这里 —— 不是删除</span>
     </div>
   </main>

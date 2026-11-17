@@ -37,7 +37,7 @@
         </label>
       </div>
       <div class="acts">
-        <button class="ghost" @click="ctl.reviewModal = null">取消</button>
+        <Button variant="ghost" size="tool" @click="ctl.reviewModal = null">取消</Button>
         <button class="danger" @click="ctl.rejectTask">{{ ctl.reviewRework ? '↩ 驳回并退回待办' : '↩ 驳回' }}</button>
         <button v-if="ctl.reviewModal.kind !== 'direct'" class="ok" @click="ctl.acceptTask">{{ ctl.reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
       </div>

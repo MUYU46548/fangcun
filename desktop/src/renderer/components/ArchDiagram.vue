@@ -220,15 +220,15 @@ function submitReject(): void {
       </div>
       <div class="archd-foot-acts">
         <template v-if="!rejecting">
-          <button class="ghost" :disabled="busy" title="这张图不认：写下哪里不行，方寸按诊断重画一版（不会改你的仓库）"
-            @click="rejecting = true">↩ 驳回重画</button>
+          <Button variant="ghost" size="tool" :disabled="busy" title="这张图不认：写下哪里不行，方寸按诊断重画一版（不会改你的仓库）"
+            @click="rejecting = true">↩ 驳回重画</Button>
           <button class="ok" :disabled="!canApprove || approved" :title="review?.ok ? '确认这张图，允许导出' : '校验没过，先把硬门修过'"
             @click="emit('approve')">{{ approved ? '✅ 已通过' : '✅ 通过这张图' }}</button>
         </template>
         <template v-else>
           <input v-model="rejectText" class="archd-reject-in" placeholder="哪里不行（例如：主进程太碎 / 有一条线对不上）"
             @keydown.enter="submitReject" />
-          <button class="ghost" @click="rejecting = false">取消</button>
+          <Button variant="ghost" size="tool" @click="rejecting = false">取消</Button>
           <button class="danger" :disabled="busy" @click="submitReject">驳回并按诊断重画</button>
         </template>
       </div>

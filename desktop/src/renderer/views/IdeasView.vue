@@ -83,11 +83,11 @@
                 <span class="idea-note" v-if="i.note">{{ i.note }}</span>
                 <span class="idea-when">{{ ctl.relativeTime(i.decidedAt || i.createdAt) }}</span>
                 <div class="idea-acts">
-                  <button class="ghost" v-if="i.status === '已立项'" :disabled="ctl.ideaBusy" @click="ctl.undoDoIdea(i)">
+                  <Button variant="ghost" size="tool" v-if="i.status === '已立项'" :disabled="ctl.ideaBusy" @click="ctl.undoDoIdea(i)">
                     撤销立项
-                  </button>
-                  <button class="ghost" v-else :disabled="ctl.ideaBusy" @click="ctl.reviveIdea(i)"
-                    title="捡回来，重新当还没决定的">捡回来</button>
+                  </Button>
+                  <Button variant="ghost" size="tool" v-else :disabled="ctl.ideaBusy" @click="ctl.reviveIdea(i)"
+                    title="捡回来，重新当还没决定的">捡回来</Button>
                   <Button class="idea-del" variant="ghost" size="sm" :disabled="ctl.ideaBusy" @click="ctl.removeIdea(i)" title="删掉（能撤销）">×</Button>
                 </div>
               </div>

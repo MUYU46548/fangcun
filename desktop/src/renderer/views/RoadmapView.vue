@@ -16,7 +16,7 @@
       <div class="roadmap-header">
         <h3>路线图 · 该推哪一批</h3>
         <div class="roadmap-ctrls">
-          <button class="ghost" @click="loadRoadmap">⟳ 刷新</button>
+          <Button variant="ghost" size="tool" @click="loadRoadmap">⟳ 刷新</Button>
         </div>
       </div>
       <div class="roadmap-lead">

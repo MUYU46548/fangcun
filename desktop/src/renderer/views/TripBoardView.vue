@@ -240,7 +240,7 @@
           </div>
         </div>
         <div class="trip-modal-f">
-          <button class="ghost" @click="tripResetSettings()">恢复默认</button>
+          <Button variant="ghost" size="tool" @click="tripResetSettings()">恢复默认</Button>
           <span class="trip-grow"></span>
           <button class="pri" @click="tripCloseAfterSave()">保存</button>
         </div>

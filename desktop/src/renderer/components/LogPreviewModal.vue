@@ -54,8 +54,8 @@
 
       <div class="acts">
         <button class="ghost font-[inherit]" @click="openLogFromPreview">✏️ 编辑</button>
-        <button class="ghost" @click="copyLogAsPrompt(logPreview.id)">📋 复制</button>
-        <button class="ghost" @click="logPreview = null">关闭</button>
+        <Button variant="ghost" size="tool" @click="copyLogAsPrompt(logPreview.id)">📋 复制</Button>
+        <Button variant="ghost" size="tool" @click="logPreview = null">关闭</Button>
       </div>
     </div>
   </div>

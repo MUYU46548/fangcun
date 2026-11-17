@@ -17,10 +17,10 @@
 <template>
   <main id="board" class="calendar-view">
     <div class="calhead">
-      <button class="ghost" @click="calMove(-1)">&#9664; 上月</button>
+      <Button variant="ghost" size="tool" @click="calMove(-1)">&#9664; 上月</Button>
       <span class="m">{{ calYear }} 年 {{ calMonth + 1 }} 月</span>
-      <button class="ghost" @click="calMove(1)">下月 &#9654;</button>
-      <button class="ghost" @click="calToday">回到本月</button>
+      <Button variant="ghost" size="tool" @click="calMove(1)">下月 &#9654;</Button>
+      <Button variant="ghost" size="tool" @click="calToday">回到本月</Button>
       <label class="chk cal-chk"><input type="checkbox" :checked="calShowTodos" @change="calToggleTodos" /> 显示待办</label>
       <!-- 2026-09-23（用户第 3 条）：日志上日历 -->
       <label class="chk cal-chk"><input type="checkbox" :checked="calShowLogs" @change="calToggleLogs" /> 显示日志</label>

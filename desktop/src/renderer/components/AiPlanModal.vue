@@ -21,9 +21,9 @@
         卡带 <code>ai-planning</code> 来源标记可审计。
       </div>
       <div class="acts">
-        <button class="ghost" :disabled="ctl.aiPlanBusy" @click="ctl.closeAiPlan()">取消</button>
-        <button class="ghost" :disabled="ctl.aiPlanBusy || !ctl.aiPlanForm.goal.trim()" @click="ctl.runPlanToDraft()">
-          {{ ctl.aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</button>
+        <Button variant="ghost" size="tool" :disabled="ctl.aiPlanBusy" @click="ctl.closeAiPlan()">取消</Button>
+        <Button variant="ghost" size="tool" :disabled="ctl.aiPlanBusy || !ctl.aiPlanForm.goal.trim()" @click="ctl.runPlanToDraft()">
+          {{ ctl.aiPlanBusy ? 'AI 拆解中…' : '✨ 拆成任务卡草稿' }}</Button>
         <button class="pri" :disabled="ctl.aiPlanBusy" @click="ctl.runDraftBrief()">
           {{ ctl.aiPlanBusy ? 'AI 起草中…' : '📄 起草项目说明' }}</button>
       </div>

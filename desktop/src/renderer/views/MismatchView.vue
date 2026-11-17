@@ -10,6 +10,8 @@
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from '../components/ui/Button.vue'
 
 defineProps<{ toast?: (m: string) => void }>()
 
@@ -82,8 +84,8 @@ function rowText(kind: string, r: any): { left: string; right: string } {
       <span class="mm-ttl">状态提醒</span>
       <span class="mm-sub">{{ sub }}</span>
       <span class="mm-grow"></span>
-      <button class="ghost" :disabled="loading" @click="load">
-        {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</button>
+      <Button variant="ghost" size="tool" :disabled="loading" @click="load">
+        {{ loading ? '⟳ 读取中…' : '↻ 刷新' }}</Button>
     </div>
 
     <div class="mm-note">

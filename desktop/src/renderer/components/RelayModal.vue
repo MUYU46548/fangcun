@@ -101,13 +101,13 @@
       <div v-if="relayDiscard_" class="relay-discard" role="alertdialog" aria-live="polite">
         <span class="rd-text">⚠ 这次的改动还没创建，关掉就没了：<b>{{ relayDirtyHint }}</b></span>
         <span class="rd-acts">
-          <button class="ghost" @click="relayDiscard_ = false">继续填写</button>
+          <Button variant="ghost" size="tool" @click="relayDiscard_ = false">继续填写</Button>
           <button class="danger" @click="discardRelay">丢弃并关闭</button>
         </span>
       </div>
       <div class="acts">
-        <button class="ghost" @click="closeRelay">取消</button>
-        <button class="ghost" title="只建新日志（待处理），不改源日志" @click="executeRelay(false)">创建</button>
+        <Button variant="ghost" size="tool" @click="closeRelay">取消</Button>
+        <Button variant="ghost" size="tool" title="只建新日志（待处理），不改源日志" @click="executeRelay(false)">创建</Button>
         <button class="pri" title="建新日志并标“进行中”，随时可跑" @click="executeRelay(true)">创建并开跑</button>
       </div>
     </div>

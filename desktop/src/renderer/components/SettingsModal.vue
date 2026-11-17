@@ -23,8 +23,8 @@
         <h4>数据目录</h4>
         <div class="hint">{{ ctl.dataDir }}</div>
         <div class="sect-btns">
-          <button class="ghost" @click="ctl.changeDataDir">修改目录…</button>
-          <button class="ghost" @click="ctl.openDataDir">打开目录</button>
+          <Button variant="ghost" size="tool" @click="ctl.changeDataDir">修改目录…</Button>
+          <Button variant="ghost" size="tool" @click="ctl.openDataDir">打开目录</Button>
         </div>
       </div>
       <!-- 整理体检 + 大附件：已切到 components/DataHygienePanel.vue
@@ -57,10 +57,10 @@
           启动方寸时自动执行（默认关；开了它才会在启动时动文件）
         </label>
         <div class="sect-btns" v-if="ctl.archiveDays > 0">
-          <button class="ghost" @click="ctl.refreshArchiveOverdue()">刷新超期清单</button>
-          <button class="ghost" :disabled="ctl.archiveOverdue.count === 0" @click="ctl.runArchiveOverdue()">
+          <Button variant="ghost" size="tool" @click="ctl.refreshArchiveOverdue()">刷新超期清单</Button>
+          <Button variant="ghost" size="tool" :disabled="ctl.archiveOverdue.count === 0" @click="ctl.runArchiveOverdue()">
             立即归档超期的 {{ ctl.archiveOverdue.count }} 个
-          </button>
+          </Button>
         </div>
       </div>
       <!-- 模型通道（AI 规划用，2026-10-12）：BYOK——端点/密钥/模型全在用户手里。
@@ -74,8 +74,8 @@
 
       <!-- 底部动作条：与"当前在哪个分类"无关（导出/导入/关闭随时可用），所以挂在 body 末尾 -->
       <div class="settings-foot">
-        <button class="ghost" @click="ctl.exportTasksToFile">导出任务 JSON</button>
-        <button class="ghost" @click="ctl.importTasksFromFile">导入任务 JSON</button>
+        <Button variant="ghost" size="tool" @click="ctl.exportTasksToFile">导出任务 JSON</Button>
+        <Button variant="ghost" size="tool" @click="ctl.importTasksFromFile">导入任务 JSON</Button>
         <button class="pri" @click="ctl.showSettings_ = false">关闭</button>
       </div>
       </div>
@@ -85,6 +85,8 @@
 
 <script setup lang="ts">
 import GeneralSettings from './settings/GeneralSettings.vue'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from './ui/Button.vue'
 import DiagSettings from './settings/DiagSettings.vue'
 import AgentSettings from './settings/AgentSettings.vue'
 import ProjectSettings from './settings/ProjectSettings.vue'

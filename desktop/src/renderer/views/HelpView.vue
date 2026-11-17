@@ -33,8 +33,8 @@
       <span v-if="version" class="help-ver">v{{ version }}</span>
       <span class="help-sub">方寸怎么用 —— 每个页签干什么、怎么筛、怎么备份恢复、在哪签字</span>
       <span class="views-grow"></span>
-      <button class="ghost" @click="$emit('about')">关于方寸</button>
-      <button class="ghost" @click="$emit('home')">⌂ 回看板</button>
+      <Button variant="ghost" size="tool" @click="$emit('about')">关于方寸</Button>
+      <Button variant="ghost" size="tool" @click="$emit('home')">⌂ 回看板</Button>
     </div>
 
     <div class="help-shell">
@@ -102,6 +102,8 @@
  * 那是 App.vue 的事，不该搬到这里）。
  */
 import { ref, computed, watch } from 'vue'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from '../components/ui/Button.vue'
 import { GUIDE_SECTIONS, searchGuide } from '../utils/userGuide'
 
 defineProps<{ version?: string }>()

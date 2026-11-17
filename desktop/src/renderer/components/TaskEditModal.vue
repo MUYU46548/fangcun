@@ -107,7 +107,7 @@
         </div>
       </div>
       <div class="acts">
-        <button class="ghost" @click="ctl.closeTaskEditor()">取消</button>
+        <Button variant="ghost" size="tool" @click="ctl.closeTaskEditor()">取消</Button>
         <button class="pri" @click="ctl.saveEdit">保存</button>
       </div>
     </div>

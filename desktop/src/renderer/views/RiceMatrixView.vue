@@ -679,9 +679,9 @@ async function copyKickoff(it: RiceItem): Promise<void> {
         </template>
       </div>
       <div class="rice-empty-act">
-        <button class="ghost" @click="projectFilter = 'all'">← 看全部项目（{{ items.length }} 条）</button>
-        <button class="ghost" v-if="projectFilter !== '__none__'" @click="copyAddPrompt()">
-          ⧉ 复制“往池里加需求”的指令</button>
+        <Button variant="ghost" size="tool" @click="projectFilter = 'all'">← 看全部项目（{{ items.length }} 条）</Button>
+        <Button variant="ghost" size="tool" v-if="projectFilter !== '__none__'" @click="copyAddPrompt()">
+          ⧉ 复制“往池里加需求”的指令</Button>
       </div>
       <div class="rice-empty-foot">
         这一页只负责排序和取舍，不负责录入 —— 需求由 agent 写进 rice-pool.md，刷新后就出现在这里。

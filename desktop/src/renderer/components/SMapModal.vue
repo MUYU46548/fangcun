@@ -41,7 +41,7 @@
         <div v-if="!ctl.smapRows.length" class="hint">还没有登记项目</div>
       </div>
       <div class="acts">
-        <button class="ghost" @click="ctl.smapOpen = false">关闭</button>
+        <Button variant="ghost" size="tool" @click="ctl.smapOpen = false">关闭</Button>
       </div>
     </div>
   </div>

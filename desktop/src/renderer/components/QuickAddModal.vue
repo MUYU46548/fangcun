@@ -11,7 +11,7 @@
       </div>
       <div v-if="ctl.quickAddErr" class="quickadd-err">{{ ctl.quickAddErr }}</div>
       <div class="acts">
-        <button class="ghost" @click="ctl.closeQuickAdd()">取消</button>
+        <Button variant="ghost" size="tool" @click="ctl.closeQuickAdd()">取消</Button>
         <button class="pri" :disabled="ctl.quickAddBusy || !text.trim()" @click="ctl.submitQuickAdd()">
           {{ ctl.quickAddBusy ? '创建中…' : '创建' }}</button>
       </div>
@@ -29,6 +29,8 @@
  * 用本地 computed 更直白，也让"这里只做转发"一眼看得见。
  */
 import { computed } from 'vue'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from './ui/Button.vue'
 
 const props = defineProps<{ ctl: any }>()
 

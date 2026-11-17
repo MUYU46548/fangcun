@@ -55,9 +55,9 @@
         <b>{{ recent.stageId }}</b> {{ recent.title }}</span>
       <span v-if="recent.recorded" class="pr-done">✓ 已记决策卡 {{ recent.decisionId }}</span>
       <template v-else>
-        <button class="ghost" :disabled="decisionBusy" @click="recordDecision">
-          {{ decisionBusy ? '记…' : '＋ 记成决策卡' }}</button>
-        <button class="ghost" @click="recent = null">不用</button>
+        <Button variant="ghost" size="tool" :disabled="decisionBusy" @click="recordDecision">
+          {{ decisionBusy ? '记…' : '＋ 记成决策卡' }}</Button>
+        <Button variant="ghost" size="tool" @click="recent = null">不用</Button>
       </template>
     </div>
 
@@ -353,7 +353,7 @@
           <textarea class="plan-ta font-[inherit]" v-model="text" rows="2"
             :placeholder="textTarget.action === 'reject' ? '打回理由（必填）：哪里不成立、要改成什么样' : '改哪一句、改成什么'"></textarea>
           <div class="plan-text-acts">
-            <button class="ghost" @click="closeText()">取消</button>
+            <Button variant="ghost" size="tool" @click="closeText()">取消</Button>
             <button class="pri" :disabled="busy || !text.trim()" @click="submitText()">
               {{ textTarget.action === 'reject' ? '确认打回' : '确认修改' }}
             </button>

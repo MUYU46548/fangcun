@@ -18,9 +18,9 @@
         <input v-model="logPurgeDate" type="date" class="log-filter font-[inherit]" @change="resetLogPurgePreview" />
       </div>
       <div class="lpurge-actions">
-        <button class="ghost" :disabled="logPurgeBusy" @click="runLogPurgePreview">预览命中</button>
+        <Button variant="ghost" size="tool" :disabled="logPurgeBusy" @click="runLogPurgePreview">预览命中</Button>
         <button class="danger" :disabled="logPurgeBusy || !logPurgePreview" @click="executeLogPurge">确认清理</button>
-        <button class="ghost" @click="closeLogPurge">取消</button>
+        <Button variant="ghost" size="tool" @click="closeLogPurge">取消</Button>
       </div>
       <div v-if="logPurgePreview" class="lpurge-preview">
         <div><b>将清理 {{ logPurgePreview.count }} 条</b></div>
@@ -36,6 +36,8 @@
 
 <script setup lang="ts">
 import { toRef } from 'vue'
+// UI 基座 Button（2026-11-17 A1 批量迁移）
+import Button from './ui/Button.vue'
 
 const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl

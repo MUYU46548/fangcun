@@ -31,9 +31,9 @@
           <b v-if="ctl.charterStats.mapMissing" class="cb-map-n">待填 {{ ctl.charterStats.mapMissing }}</b>
           <b v-else class="cb-map-n ok">{{ ctl.charterStats.mapReady }}/{{ ctl.charterStats.filled }}</b>
         </Button>
-        <button class="ghost" v-if="ctl.charterStats.missing" @click="ctl.fillMissingCharters()">
+        <Button variant="ghost" size="tool" v-if="ctl.charterStats.missing" @click="ctl.fillMissingCharters()">
           ＋ 补齐 {{ ctl.charterStats.missing }} 个章程骨架
-        </button>
+        </Button>
       </div>
       <!-- 跨项目建议（2026-10-11，C 组死通道接回）：主进程早就算好了（卡住/空闲项目一句话），
            界面从来没有入口。放在项目页顶部 —— 它是"看全局"的话，不属于某一个项目。 -->
@@ -233,7 +233,7 @@
               </label>
               <div class="msf-acts">
                 <button class="ok" :disabled="ctl.noteSaving" @click.stop="ctl.saveNoteEdit()">{{ ctl.noteSaving ? '保存中…' : '保存' }}</button>
-                <button class="ghost" :disabled="ctl.noteSaving" @click.stop="ctl.cancelNoteEdit()">取消</button>
+                <Button variant="ghost" size="tool" :disabled="ctl.noteSaving" @click.stop="ctl.cancelNoteEdit()">取消</Button>
                 <span class="msf-tip">保存后顶部出撤销条（Ctrl+Z 也能退）</span>
               </div>
             </div>

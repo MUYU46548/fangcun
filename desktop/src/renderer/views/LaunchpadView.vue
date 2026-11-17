@@ -4,8 +4,8 @@
         <h3>启动台</h3>
         <div class="lp-ctrls">
           <button @click="ctl.openAddApp">+ 添加应用</button>
-          <button class="ghost" @click="ctl.openConfigPath">打开配置</button>
-          <button class="ghost" @click="ctl.refreshApps">⟳ 刷新</button>
+          <Button variant="ghost" size="tool" @click="ctl.openConfigPath">打开配置</Button>
+          <Button variant="ghost" size="tool" @click="ctl.refreshApps">⟳ 刷新</Button>
         </div>
       </div>
       <!-- 2026-10-16 用户第 2 条：这里是**快捷入口**，不是服务管理。

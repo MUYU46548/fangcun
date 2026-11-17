@@ -22,8 +22,8 @@
         <span class="trash-stats">{{ trashItems.length }} 项 · {{ trashTotalKb }} KB · 新的在最前</span>
         <input v-model="trashQuery" class="trash-search" placeholder="搜 id / 标题 / 文件名…" />
         <Button class="trash-refresh" variant="ghost" size="tool" @click="loadTrash()" title="重新读取 task-data/.trash">刷新</Button>
-        <button class="ghost" title="按日期批量清理：彻底删除某个日期之前进回收站的所有条目（先预览再确认）"
-          @click="openTrashPurge">🗓 按日期清理</button>
+        <Button variant="ghost" size="tool" title="按日期批量清理：彻底删除某个日期之前进回收站的所有条目（先预览再确认）"
+          @click="openTrashPurge">🗓 按日期清理</Button>
         <Button class="batch-mode-btn" variant="ghost" size="tool" :class="{ active: trashBatchMode }" @click="toggleTrashBatchMode"
           title="开启批量选择，点击条目即勾选/取消">
           <span v-if="!trashBatchMode">☑ 多选</span>
@@ -32,10 +32,10 @@
       </div>
       <div v-if="trashBatchMode" class="batch-bar">
         <span class="batch-count">已选 {{ selectedTrashBatch.length }}</span>
-        <button class="ghost" @click="toggleSelectAllTrash">{{ selectedTrashBatch.length === filteredTrash.length ? '取消全选' : '全选' }}</button>
-        <button class="ghost" title="批量还原：终态回归档区，其余回活跃区；同名冲突不覆盖" @click="executeBatchTrashRestore">批量还原</button>
+        <Button variant="ghost" size="tool" @click="toggleSelectAllTrash">{{ selectedTrashBatch.length === filteredTrash.length ? '取消全选' : '全选' }}</Button>
+        <Button variant="ghost" size="tool" title="批量还原：终态回归档区，其余回活跃区；同名冲突不覆盖" @click="executeBatchTrashRestore">批量还原</Button>
         <button class="danger" title="批量从磁盘彻底删除（会二次确认，不可撤销）" @click="executeBatchTrashPurge">彻底删除</button>
-        <button class="ghost" title="退出多选模式并清空选择" @click="exitTrashBatch">取消</button>
+        <Button variant="ghost" size="tool" title="退出多选模式并清空选择" @click="exitTrashBatch">取消</Button>
       </div>
       <div class="trash-notebar">
         删掉的任务先来这儿 —— 数据没丢，可以还原；“彻底删除”才真的从磁盘删掉，不可撤销。
@@ -93,15 +93,15 @@
         <div class="lpurge-row">
           <label>早于</label>
           <input v-model="trashPurgeDate" type="date" class="log-filter" @change="resetTrashPurgePreview" />
-          <button class="ghost" @click="setTrashCutoff(7)">7 天前</button>
-          <button class="ghost" @click="setTrashCutoff(30)">30 天前</button>
-          <button class="ghost" @click="setTrashCutoff(90)">90 天前</button>
+          <Button variant="ghost" size="tool" @click="setTrashCutoff(7)">7 天前</Button>
+          <Button variant="ghost" size="tool" @click="setTrashCutoff(30)">30 天前</Button>
+          <Button variant="ghost" size="tool" @click="setTrashCutoff(90)">90 天前</Button>
         </div>
         <div class="lpurge-actions">
-          <button class="ghost" :disabled="trashPurgeBusy" @click="runTrashPurgePreview">预览命中</button>
+          <Button variant="ghost" size="tool" :disabled="trashPurgeBusy" @click="runTrashPurgePreview">预览命中</Button>
           <button class="danger" :disabled="trashPurgeBusy || !trashPurgePreview || !trashPurgePreview.count"
             @click="executeTrashPurge">确认彻底删除</button>
-          <button class="ghost" @click="closeTrashPurge">取消</button>
+          <Button variant="ghost" size="tool" @click="closeTrashPurge">取消</Button>
         </div>
         <div v-if="trashPurgePreview" class="lpurge-preview">
           <div><b>将彻底删除 {{ trashPurgePreview.count }} 项</b></div>

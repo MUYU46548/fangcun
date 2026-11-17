@@ -71,7 +71,7 @@
           <input v-model="logDateFrom" type="date" class="log-filter" title="起始日期（含）" @change="loadLogs" />
           <span class="log-filter-sep">→</span>
           <input v-model="logDateTo" type="date" class="log-filter" title="截止日期（含）" @change="loadLogs" />
-          <button class="ghost" title="清空 Agent 与日期筛选" @click="clearLogMoreFilters">清空</button>
+          <Button variant="ghost" size="tool" title="清空 Agent 与日期筛选" @click="clearLogMoreFilters">清空</Button>
         </template>
         <!-- 2026-09-23：日志批量操作入口（用户第1条） -->
         <Button class="batch-mode-btn" variant="ghost" size="tool" :class="{ active: logBatchMode }" @click="toggleLogBatchMode" title="开启批量选择，点击卡片即勾选/取消">
@@ -85,18 +85,18 @@
           <button class="lvs" :class="{ on: logsViewMode === 'groups' }" @click="setLogsViewMode('groups')">分区</button>
           <button class="lvs" :class="{ on: logsViewMode === 'chain' }" @click="setLogsViewMode('chain')">按链</button>
         </div>
-        <button class="ghost" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</button>
+        <Button variant="ghost" size="tool" title="把外部 txt / md / log 导入成日志（也可直接把文件拖进来）" @click="importLogFile">↑ 导入文件</Button>
         <!-- “清理超期”到底做什么：把 status=completed 且 retain_until 已过的日志
              批量改成 archived（**只改状态，不删文件**，logs.ts:cleanupLogs）。
              此前只有这四个字，用户不知道它有什么用（第 3 条）。 -->
-        <button class="ghost"
+        <Button variant="ghost" size="tool"
           title="把“已完成”且保留期已过的日志批量标为“已归档”（只改状态，不删除文件）。保留期在点“完成”时填写"
-          @click="executeLogCleanup">清理超期</button>
+          @click="executeLogCleanup">清理超期</Button>
         <!-- 按日期批量清理“已归档”日志（2026-10-13 暮雨第 2 条）：
              与“清理超期”的区别要一眼看清 —— 那个只改状态，这个真删（软删到回收站）。 -->
-        <button class="ghost"
+        <Button variant="ghost" size="tool"
           title="按日期批量清理“已归档”日志：移进回收站（可恢复），可先预览命中条数"
-          @click="openLogPurge">清理归档…</button>
+          @click="openLogPurge">清理归档…</Button>
       </div>
     </div>
     <!-- 每日推进面（0.6.0 P2“今天推哪一格”）——
@@ -118,7 +118,7 @@
     <div v-else-if="dailyBandError" class="daily-band db-error" role="status">{{ dailyBandError }}</div>
     <div v-if="logBatchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedLogBatch.length }}</span>
-      <button class="ghost" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === visibleLogs.length ? '取消全选' : '全选' }}</button>
+      <Button variant="ghost" size="tool" @click="toggleSelectAllLogs">{{ selectedLogBatch.length === visibleLogs.length ? '取消全选' : '全选' }}</Button>
       <!-- 批量优先级（2026-10-09 用户第 4 条“日志多选更智能，比如批量修改日志优先级”）：
            改元数据可逆 → 不弹确认、做完**不退出多选**，连着调几档是正常用法；
            非“待处理”的日志后端拒改 → 跳过几条如实 toast，不静默。 -->
@@ -133,10 +133,10 @@
       <!-- 开工单入口已移到**主日志卡上**（2026-10-30 暮雨第 4 条）：
            以前必须先点多选、再在批量栏里找，既隐蔽又和"多选"语义打架。
            现在主日志卡上直接“⧉ 开工单”，带的就是落盘的附属关系。 -->
-      <button class="ghost" title="批量标为已完成（不需要先标“进行中”）" @click="executeBatchLogComplete">批量完成</button>
-      <button class="ghost" title="批量收进“已归档”分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</button>
+      <Button variant="ghost" size="tool" title="批量标为已完成（不需要先标“进行中”）" @click="executeBatchLogComplete">批量完成</Button>
+      <Button variant="ghost" size="tool" title="批量收进“已归档”分区（只改状态，不删文件）" @click="executeBatchLogArchive">批量归档</Button>
       <button class="danger" title="批量彻底删除（会二次确认，不可撤销）" @click="executeBatchLogDestroy">批量彻底删除</button>
-      <button class="ghost" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</button>
+      <Button variant="ghost" size="tool" title="退出多选模式并清空选择" @click="selectedLogBatch = []; logBatchMode = false">取消</Button>
     </div>
     </div>
     <div v-if="logDragOver" class="log-drop-hint">松手导入：每个文件生成一条日志（支持 txt / md / log）</div>
@@ -157,8 +157,8 @@
           <span class="chain-name">{{ g.chain.name }}</span>
           <span class="chain-meta">{{ g.chain.count }} 段 · 起于 {{ g.chain.since }} · 最近活跃 {{ g.chain.recent }}</span>
           <span class="chain-grow"></span>
-          <button class="ghost" title="从这条链的最新一格接力：出清旧的 + 建新日志（一个对话框做完四件事）" @click="openRelay(g.chain.tail)">＋ 从链尾继续</button>
-          <button class="ghost" title="复制链尾日志 ID —— 贴给 AI，get_log 会带回整条链的上下游" @click="copyId(g.chain.tail.id)">⧉ 复制链 ID</button>
+          <Button variant="ghost" size="tool" title="从这条链的最新一格接力：出清旧的 + 建新日志（一个对话框做完四件事）" @click="openRelay(g.chain.tail)">＋ 从链尾继续</Button>
+          <Button variant="ghost" size="tool" title="复制链尾日志 ID —— 贴给 AI，get_log 会带回整条链的上下游" @click="copyId(g.chain.tail.id)">⧉ 复制链 ID</Button>
         </div>
         <!-- 分区头（分区视图，原样） -->
         <div v-else-if="g.label" class="log-group-sep" :class="'g-' + g.key">
@@ -299,8 +299,8 @@
              “进行中”是一个**手动开关**，可开可关；完成/归档**不要求**先打开它，
              所以“完成”按钮在任何未完成/未归档的日志上都直接可用。 -->
         <div class="log-card-actions" @click.stop>
-          <button class="ghost" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</button>
-          <button class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</button>
+          <Button variant="ghost" size="tool" title="编辑这条日志（点击卡片是只读预览）" @click="openLog(log)">✏️ 编辑</Button>
+          <Button variant="ghost" size="tool" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</Button>
           <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
                不再要求“先点多选 → 再找批量栏”。有组时“全组完成 / 开工单”收进下面的
                附属框头（那里才是组的地盘），卡上只留一个“绑定 / 改绑定”入口。 -->
@@ -309,8 +309,8 @@
             @click="openLogAttach(log)">🔗 绑定附属</Button>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
                2026-10-09 用户第 1 条：先开确认框（可顺手勾“归档源”）；同一条只转一次（待办记 fromLog 防重）。 -->
-          <button class="ghost" title="把这条日志的“下一步”变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
-            @click="askConvertLog(log)">⤴ 转待办</button>
+          <Button variant="ghost" size="tool" title="把这条日志的“下一步”变成一条待办（先确认，可顺手把源日志归档）—— 同一条只转一次"
+            @click="askConvertLog(log)">⤴ 转待办</Button>
           <!-- 接力（2026-09-29 方案二）：完成态才有“下一段”——出清 + 新建 + 可开跑在一个对话框里做完 -->
           <Button v-if="log.status === 'completed'" class="relay-btn" variant="ghost" size="tool"
             title="接力：出清这条 + 建新日志继承“下一步”/项目/任务/Agent —— 一个对话框做完四件事"
@@ -324,13 +324,13 @@
                 ? '撤销“进行中”标记，回到“' + logRunningRestoreLabel(log) + '”'
                 : '手动标为“进行中”——只有点了它，这条才算正在跑（不会自动打上）')"
             @click="toggleLogRunning(log)">{{ logRunningLabel(log) }}</Button>
-          <button v-if="log.status !== 'completed' && log.status !== 'archived'" class="ghost"
+          <Button variant="ghost" size="tool" v-if="log.status !== 'completed' && log.status !== 'archived'"
             title="标记完成（不需要先标“进行中”）"
-            @click="completeLogItem(log.id)">完成</button>
-          <button v-if="log.status === 'completed' || log.status === 'archived'" class="ghost"
+            @click="completeLogItem(log.id)">完成</Button>
+          <Button variant="ghost" size="tool" v-if="log.status === 'completed' || log.status === 'archived'"
             title="撤销完成 / 撤销归档，退回“待处理”（只改状态，不删文件）"
-            @click="reopenLogItem(log.id)">↩ 撤销</button>
-          <button v-if="log.status !== 'archived'" class="ghost" title="收进“已归档”分区" @click="archiveLogItem(log.id)">归档</button>
+            @click="reopenLogItem(log.id)">↩ 撤销</Button>
+          <Button variant="ghost" size="tool" v-if="log.status !== 'archived'" title="收进“已归档”分区" @click="archiveLogItem(log.id)">归档</Button>
           <button class="danger" title="彻底删除这条日志（会二次确认，不可撤销）" @click="destroyLogItem(log.id)">彻底删除</button>
         </div>
       </div>
