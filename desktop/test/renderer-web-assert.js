@@ -8564,6 +8564,95 @@
       }
     }
 
+    // ══ 竞品（2026-11-17）══════════════════════════════════════════════
+    // 暮雨：「这玩意在客户端里有自己的界面吗？如果根本没有前端界面用户根本不知道有这个功能」
+    //
+    // 事实：竞品能力 10-17 拍板、11-07 做完**数据层 + CLI**，
+    // 但桌面端 `desktop/src` 下 **0 个文件**提到 competitor —— 链路做了一半、入口没做。
+    // 于是没人知道 → 没人登记 → 永远没数据（`competitor list` 一个月都是空的）。
+    //
+    // 所以这里钉的不是"页面能打开"，而是**三件原来做不到的事**：
+    //  ① 它是项目页的第 10 种摆法（不是又开一个顶级页签 —— 顶栏已经 15 个了）
+    //  ② 登记过的竞品**列出来**（名 / 地址 / 关注什么，缺的写"没填"不编）
+    //  ③ **方寸不联网这件事必须写在界面上**，且真有"生成采集任务单"这个动作
+    //     —— 否则用户会以为方寸自己会去采
+    {
+      clickText('项目')
+      await sleep(700)
+      const cpTabLabels = $$('.pagehead button.vsb').map((b) => (b.textContent || '').trim())
+      const cpTab = $$('.pagehead button.vsb').find((b) => (b.textContent || '').indexOf('竞品') >= 0)
+      check('★★ 项目页多出「竞品」摆法（数据层与 CLI 早就有了，界面此前完全没有）',
+        !!cpTab, cpTabLabels.join(' | '))
+      check('★ 顶栏没有独立「竞品」页签（不许再把低频功能提到顶级）',
+        !$$('#views .vbtn').some((b) => (b.textContent || '').trim() === '竞品'))
+
+      if (cpTab) {
+        cpTab.click()
+        await sleep(1200)
+
+        check('★★ 竞品页渲染出来了（.cp）', !!$('.cp'))
+        // 方寸不联网这句必须在界面上 —— 这是这一页最容易被误解的一点
+        check('★★ 界面明说「方寸不联网、不自建爬虫」（否则用户以为它会自己去采）',
+          (($('.cp') || {}).textContent || '').indexOf('不联网') >= 0,
+          (($('.cp') || {}).textContent || '').slice(0, 120))
+        check('★ 有「生成采集任务单」这个动作（交给 agent 去采的唯一入口）',
+          $$('.cp button').some((b) => (b.textContent || '').indexOf('生成采集任务单') >= 0),
+          $$('.cp button').map((b) => (b.textContent || '').trim()).join(' | '))
+
+        // 列表：夹具给了两条（一条有 focus、一条没有）
+        const cpRows = $$('.cp-table tbody tr')
+        check('★ 登记过的竞品被列出来（夹具两条）', cpRows.length === 2, 'rows=' + cpRows.length)
+        check('★★ 每条都有竞品名与地址（不是空行）',
+          cpRows.length === 2 &&
+          (cpRows[0].textContent || '').indexOf('样例竞品甲') >= 0 &&
+          (cpRows[0].textContent || '').indexOf('example.com/a') >= 0,
+          cpRows.length ? (cpRows[0].textContent || '').trim() : '')
+        // 没写关注点的必须显式给个占位，不许留空让人以为"没这一栏"
+        check('★ 没填「关注什么」的那条给占位符（不许留空白）',
+          cpRows.length === 2 && (cpRows[1].textContent || '').indexOf('—') >= 0,
+          cpRows.length > 1 ? (cpRows[1].textContent || '').trim() : '')
+
+        // 采集结果：有就列出来并可点开
+        const repBtns = $$('.cp-rep')
+        check('★ 已有的采集结果被列出来（夹具一份）', repBtns.length === 1, 'reps=' + repBtns.length)
+        if (repBtns.length) {
+          repBtns[0].click()
+          const opened = await waitFor(() => !!$('.cp-modal'), 2000, 'report modal')
+          check('★ 点采集结果能打开预览（原文，不解读）', opened,
+            opened ? '' : '没有 .cp-modal')
+          if (opened) {
+            check('★ 预览里是采集结果原文（夹具那段文字）',
+              (($('.cp-modal-body') || {}).textContent || '').indexOf('夹具采集结果') >= 0,
+              (($('.cp-modal-body') || {}).textContent || '').slice(0, 80))
+            const closeBtn = $$('.cp-modal button').find((b) => (b.textContent || '').trim() === '关闭')
+            if (closeBtn) closeBtn.click()
+            await sleep(400)
+            check('  关掉预览后浮层消失', !$('.cp-modal'))
+          }
+        }
+
+        // 数据真从主进程来，不是组件里写死的
+        check('★ 真调了 competitorOverview（不是拿写死的夹具渲染）',
+          window.__fcTest.callCount('competitorOverview') >= 1,
+          'calls=' + window.__fcTest.callCount('competitorOverview'))
+
+        // 点「生成采集任务单」→ 必须真走通道（否则是个装饰按钮）
+        const mk = $$('.cp button').find((b) => (b.textContent || '').indexOf('生成采集任务单') >= 0)
+        if (mk) {
+          const before2 = window.__fcTest.callCount('competitorWriteTask')
+          mk.click()
+          const called = await waitFor(
+            () => window.__fcTest.callCount('competitorWriteTask') > before2, 2500, 'writeTask')
+          check('★★ 点「生成采集任务单」真的走了 competitorWriteTask（不是装饰按钮）',
+            called, 'calls=' + window.__fcTest.callCount('competitorWriteTask'))
+          // 生成后要重读一遍确认（不许乐观更新）
+          check('★ 生成后会重读一次（成败以重新读到 taskFile 为准，不做乐观更新）',
+            window.__fcTest.callCount('competitorOverview') >= 2,
+            'overview calls=' + window.__fcTest.callCount('competitorOverview'))
+        }
+      }
+    }
+
     // ══ 项目梯度榜（2026-10-25 暮雨）════════════════════════════════════
     // 原话：“放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级。
     //        而且当前形态为列表，和我丢的参考图里的**梯度榜**完全不同。”

@@ -1608,9 +1608,9 @@ const todoView = ref<'list' | 'grid'>(readUiPref<'list' | 'grid'>(TODO_VIEW_KEY,
 //   2026-10-05 Q2 新增第四种“在途一屏”—— 立项契约 ② 验收线之①）。
 // ⚠ 默认仍是**旧的项目墙** —— 方寸铁律“加视图一律新增可选、旧的保留、旧视图永远是默认”。
 const pvView = ref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice' | 'plan' | 'layer'>(
-  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice' | 'plan' | 'layer'>(PV_VIEW_KEY, 'tiles'))
+  readUiPref<'tiles' | 'overview' | 'master' | 'trip' | 'tier' | 'mismatch' | 'rice' | 'plan' | 'layer' | 'competitor'>(PV_VIEW_KEY, 'tiles'))
 /** 项目页签全部摆法的合法取值（切视图时校验用；顺带让 setViewMode 保持紧凑） */
-const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice', 'plan', 'layer']
+const PV_VIEWS: string[] = ['tiles', 'overview', 'master', 'trip', 'tier', 'mismatch', 'rice', 'plan', 'layer', 'competitor']
 
 
 /** 当前页签可选的视图（空数组 = 这个页签没有多视图，页头整条不渲染） */
@@ -1641,6 +1641,8 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     // 2026-11-16（骨架继承试点第一批）：层厚度 —— 第 9 种摆法。
     // 暮雨：「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
     { v: 'layer', label: '▤ 层厚度', hint: '只读扫盘：十几个项目横着比（谁在写业务、谁在堆测试），单项目看「层 → 文件数 → 行数 → 占比」，并回答「号称是 A 但 88% 在 B」；排除了什么全部摊开写' },
+    // 2026-11-17：第 10 种摆法 —— 竞品。此前只有 CLI、没有界面（用户根本不知道有这功能）。
+    { v: 'competitor', label: '⚔ 竞品', hint: '按项目登记「看谁、看它的什么」；方寸不联网，点「生成采集任务单」交给 agent 去采，采完放回目录就会出现在这里' },
   ]
   return []
 })

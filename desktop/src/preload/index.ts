@@ -67,7 +67,8 @@ contextBridge.exposeInMainWorld('tegula', {
   contextPack: (projectId: string, opts?: any) => ipcRenderer.invoke('context:pack', projectId, opts),
   contextPackFile: (projectId: string) => ipcRenderer.invoke('context:packFile', projectId),
   /** 派给 DSH（2026-11-17）：只落一份派单文件，插件看见就会在 DSH 里开新会话 */
-  dispatchDsh: (projectId: string) => ipcRenderer.invoke('context:dispatchDsh', projectId),
+  /** 派给 DSH：`kind` = 'work'（默认，马上干活）| 'plan'（做规划，产出机检判据） */
+  dispatchDsh: (projectId: string, kind?: 'work' | 'plan') => ipcRenderer.invoke('context:dispatchDsh', projectId, kind),
   /** 开工简报（2026-11-16 · 治病①）：上次做到哪 / 这次先做什么 / 有哪些规矩别犯。只读 */
   brief: (projectId: string) => ipcRenderer.invoke('brief:get', projectId),
   briefFile: (projectId: string) => ipcRenderer.invoke('brief:write', projectId),
@@ -253,6 +254,12 @@ contextBridge.exposeInMainWorld('tegula', {
   layerProfile: (projectId: string, opts?: { depth?: number; force?: boolean }) => ipcRenderer.invoke('layer:profile', projectId, opts),
   layerBoard: (opts?: { depth?: number; force?: boolean }) => ipcRenderer.invoke('layer:board', opts),
   layerSpec: (projectId: string) => ipcRenderer.invoke('layer:spec', projectId),
+  /** 竞品档案（2026-11-17）：读 registry 的 competitors 段 + 读采集回填目录 */
+  competitorOverview: () => ipcRenderer.invoke('competitor:overview'),
+  competitorReadReport: (projectId: string, fileName: string) =>
+    ipcRenderer.invoke('competitor:readReport', projectId, fileName),
+  /** 生成采集任务单给 agent（唯一写盘动作，写数据根不写项目仓库） */
+  competitorWriteTask: (projectId: string) => ipcRenderer.invoke('competitor:writeTask', projectId),
   /** 整理体检（2026-10-30）：没人碰过 + 驳回没人管，两批清理候选一起给 */
   cleanupScan: (days?: number) => ipcRenderer.invoke('cleanup:scan', days),
   projectTiersGet: () => ipcRenderer.invoke('projectTiers:get'),

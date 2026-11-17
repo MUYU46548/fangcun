@@ -38,6 +38,23 @@ const store = {
   ],
   layerProfile: null,
   layerSpec: { ok: true, spec: null, exists: false, path: 'task-data/layer-specs/demo.json' },
+  // 竞品（2026-11-17）：一个真形状的最小夹具 —— 空数组会让「列表渲染出来了吗」永远无法区分。
+  // ⚠ 故意给两条：一条有 focus、一条没有，好让「关注什么是空的」那格能被断言到。
+  competitorOverview: {
+    ok: true,
+    dir: 'task-data/competitors',
+    summary: { total: 16, withCompetitors: 1, withReports: 1 },
+    rows: [{
+      projectId: 'demo',
+      projectName: '演示项目',
+      competitors: [
+        { name: '样例竞品甲', url: 'https://example.com/a', focus: '列表密度：一屏能扫多少条' },
+        { name: '样例竞品乙', url: 'https://example.com/b', focus: '' },
+      ],
+      reports: ['2026-11-17-样例甲.md'],
+      taskFile: true,
+    }],
+  },
   // 同步阶段流（2026-10-25 卡 004）：订阅者列表 + 一个"按住不放的 push"。
   // 真通道是主进程跑 git 时一条条推阶段过来；夹具里必须能**手动喂阶段、手动结束**，
   // 否则“阶段文字”“秒数在动”“结束态停留 3 秒”这三件事在测试里根本无从验起。
@@ -2076,6 +2093,21 @@ contextBridge.exposeInMainWorld('tegula', {
   layerSpec: (projectId) => {
     rec('layerSpec', [projectId])
     return JSON.parse(JSON.stringify(store.layerSpec))
+  },
+  // ── 竞品（2026-11-17）────────────────────────────────────────────────
+  // ⚠ 新通道**必须在这里同步登记**，否则「守卫存在」只是纸面事实
+  //   （AGENTS.md 踩坑第 1 条：新通道不登记 → 渲染层断言测不到它）。
+  competitorOverview: () => {
+    rec('competitorOverview', [])
+    return JSON.parse(JSON.stringify(store.competitorOverview || { ok: true, rows: [] }))
+  },
+  competitorReadReport: (projectId, fileName) => {
+    rec('competitorReadReport', [projectId, fileName])
+    return { ok: true, text: '# 夹具采集结果\n\n这是假 preload 里的样例，不是真采集。' }
+  },
+  competitorWriteTask: (projectId) => {
+    rec('competitorWriteTask', [projectId])
+    return { ok: true, path: 'task-data/competitors/' + projectId + '/采集任务单.md' }
   },
   // 2026-10-05 补：在途一屏的“保存”改走**一次写多键 + 回读校验**（prefs:setMany）。
   // 假 preload 缺这个 API 的话，渲染层的 `?.prefsSetMany?.(...)` 会静默变 undefined，

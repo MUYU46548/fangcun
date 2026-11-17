@@ -425,6 +425,12 @@
                      ② 单项目「层 → 文件数 → 行数 → 占比」，以及**号称是 A 但 88% 在 B**。
            只读扫盘；分母被谁改过（排除了什么、哪些不是文本）全部摊开写。 -->
       <LayerProfileView v-else-if="ctl.pvView === 'layer'" :ctl="ctl" />
+      <!-- ══ ⑩ 竞品（2026-11-17）══════════════════════════════════════════
+           暮雨：「这玩意在客户端里有自己的界面吗？如果根本没有前端界面用户根本不知道有这个功能」。
+           确实没有：竞品能力 10-17 拍板、11-07 做完数据层 + CLI，
+           但桌面端 0 个文件提到 competitor —— 没人知道 → 没人登记 → 永远没数据。
+           这一刀把入口接上：登记过的竞品列表 + 生成采集任务单 + 显示 agent 回填结果。 -->
+      <CompetitorView v-else-if="ctl.pvView === 'competitor'" />
     </main>
 </template>
 
@@ -438,6 +444,7 @@ import RiceMatrixView from './RiceMatrixView.vue'
 import TripBoardView from './TripBoardView.vue'
 import PlanView from './PlanView.vue'
 import LayerProfileView from './LayerProfileView.vue'
+import CompetitorView from './CompetitorView.vue'
 
 /**
  * 项目页（2026-11-03 · App.vue 拆分「视图刀」）

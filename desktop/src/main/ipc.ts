@@ -35,6 +35,7 @@ import * as gitLink from './services/gitLink'
 import * as selfSync from './services/selfSync'
 import * as repoDocs from './services/repoDocs'
 import * as layerScan from './services/layerScan'
+import * as competitors from './services/competitors'
 import { checkSkillsStatus, installSkills, installSkillsTo, autoCheckSkills, getSkillSyncStatus, listSkillsForUi, openSkillsDir, getHermesSkillsDirPath, resolveRevealTarget } from './services/skillInstaller'
 import { importSkillFromPath, listImportedSkills, pickSkillFile, pickSkillFolder, removeImportedSkill } from './services/skillImport'
 import { listServices, addManualService, removeManualService, openService, adoptUnregistered } from './services/portRegistry'
@@ -1652,6 +1653,17 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
       exists: !!spec,
     }
   })
+
+  // ── 竞品档案（2026-11-17）────────────────────────────────────────────
+  // 由来：竞品能力 10-17 拍板、11-07 做完数据层 + CLI，但**桌面端一个界面都没有**。
+  // 实测 `desktop/src` 下 0 个文件提到 competitor —— 没人知道有这功能，于是永远没数据。
+  // 这三条把后半段接上（口径全在 services/competitors.ts 顶部，不在这里重写）。
+  guardedHandle('competitor:overview', () => competitors.competitorOverview())
+  guardedHandle('competitor:readReport', (_event, projectId: string, fileName: string) =>
+    competitors.readReport(String(projectId || ''), String(fileName || '')))
+  // 唯一会写盘的：生成采集任务单给 agent。写到数据根，**不写项目仓库**。
+  guardedHandle('competitor:writeTask', (_event, projectId: string) =>
+    competitors.writeTaskFile(String(projectId || '')))
 
   // ── 方寸自绘架构图（2026-10-30，卡 task-20261030-002）────────────────
   // 与上面那条的分工：archify 产物 = 打开别人画的；这两条 = 方寸**自己只读扫源码**出图。
