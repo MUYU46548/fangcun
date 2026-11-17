@@ -32,9 +32,17 @@ const buttonVariants = cva(
           'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)]',
         // 2026-10-17 暮雨第 4 条补：“决策”页混着两种按钮 —— 这里原来的 ghost 是**无边框**的
         // （hover 才浮出来），而老界面的 `.ghost` 一律白底 + 1px 描边。同一行里一眼看出是两套。
-        // 统一到老那套：有边框、次要文字色，弱在文字不在框。
+        // 统一到老那套：有边框 + 白底。
+        //
+        // ⚠⚠ 2026-11-17 改前景色（暮雨原话）：
+        //   「让基座 ghost 用主墨色，不然看起来很怪，**次要色给我的感觉是取消和退出**」
+        // 这条注释原先写的是“次要文字色”，但**事实是老 `.ghost` 用主墨色 `var(--ink)`**：
+        //   实测（1440×900，同一行并排）老 `.ghost` 是 `rgb(60,65,80)` = --ink，
+        //   基座 ghost 是 `rgb(98,103,117)` = --muted。两个放一起，基座那几枚明显发灰。
+        // 所以这里改成 `--ui-foreground`（= --ink）。**只改 ghost，不动 bare**：
+        //   bare 是待办行尾那种“静音钮”，压暗是它的本意（那几枚本来就该退到背景里）。
         ghost:
-          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-muted-foreground)] hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
+          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)]',
         danger: 'bg-[var(--ui-destructive)] text-[var(--ui-destructive-foreground)] hover:brightness-105',
         /**
          * `success`（2026-11-12 · 卡《基座 Button 缺 bare/success/xl》的变体二）。

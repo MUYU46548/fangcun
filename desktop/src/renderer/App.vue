@@ -293,7 +293,7 @@
         <!-- 快速记（2026-10-11，卡 20261006-002 E 组死通道接回）：
              `quickAdd` 通道在主进程里一直存在，界面却从没有入口。它支持一句话简写
              （p0/p1/p2 优先级 · #标签 · @指派 · to:状态 · due:MM-DD），随手记比开弹窗填六个字段顺手。 -->
-        <button v-if="isTaskView" class="ghost" title="一句话快速建卡：可写 p0 / #标签 / @指派 / to:状态 / due:12-31" @click="openQuickAdd()">⚡ 快速记</button>
+        <Button variant="ghost" size="tool" v-if="isTaskView" title="一句话快速建卡：可写 p0 / #标签 / @指派 / to:状态 / due:12-31" @click="openQuickAdd()">⚡ 快速记</Button>
         <button class="ghost backup-btn" :class="bkDotClass" :title="bkTooltip" @click="showBackup">
           <span v-if="bkBusy" class="bk-spin">⟳</span>
           <span v-else>💾</span>
@@ -303,7 +303,7 @@
           <span>🔔</span>
           <span v-if="ncUnread > 0" class="nc-badge">{{ ncUnread > 99 ? '99+' : ncUnread }}</span>
         </button>
-        <button class="ghost" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</button>
+        <Button variant="ghost" size="tool" title="诊断日志（应用日志文件尾部 + 打开目录）" @click="toggleAppLogPanel">📋</Button>
         <!-- 2026-10-25：页签行已经满了（15 个页签），这三个低频操作打包成一组 ——
              换行时**整组一起下去**，不会出现“刷新”孤零零掉到第三行开头那种样子。 -->
         <span class="views-ops">
@@ -312,7 +312,7 @@
           <span v-if="!batchMode">☑ 任务多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
-        <button class="ghost" @click="showSettings">⚙</button>
+        <Button variant="ghost" size="tool" @click="showSettings">⚙</Button>
         <!-- 重读全部数据（2026-10-25 暮雨：“顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
              不然用户会以为是第二个同步按钮”）。
              ⚠ 三条硬要求：
@@ -338,19 +338,19 @@
         {{ appErrors[appErrors.length - 1].message }}
         <b v-if="appErrors.length > 1">（共 {{ appErrors.length }} 条）</b>
       </span>
-      <button class="ghost" @click="toggleAppLogPanel">{{ appErrOpen ? '收起' : '查看日志' }}</button>
-      <button class="ghost" @click="openAppLogDir">打开日志目录</button>
-      <button class="ghost" title="清空错误条（日志文件不受影响）" @click="appErrors = []">忽略</button>
+      <Button variant="ghost" size="tool" @click="toggleAppLogPanel">{{ appErrOpen ? '收起' : '查看日志' }}</Button>
+      <Button variant="ghost" size="tool" @click="openAppLogDir">打开日志目录</Button>
+      <Button variant="ghost" size="tool" title="清空错误条（日志文件不受影响）" @click="appErrors = []">忽略</Button>
     </div>
     <div v-if="appErrOpen" class="errpanel">
       <div class="errpanel-head">
         <span>日志文件：<code>{{ appLogFile || '（未取到）' }}</code></span>
-        <button class="ghost" @click="copyAppLogPath">复制路径</button>
-        <button class="ghost" @click="openAppLogDir">打开目录</button>
+        <Button variant="ghost" size="tool" @click="copyAppLogPath">复制路径</Button>
+        <Button variant="ghost" size="tool" @click="openAppLogDir">打开目录</Button>
         <!-- 收起按钮必须长在这里：上一条“忽略”会清空 appErrors，而“收起”原先只存在于
              errbar 里（v-if="appErrors.length"）—— 一按忽略，errbar 整条消失，
              日志抽屉就再也关不掉了（用户 2026-09-25 第 4 条）。 -->
-        <button class="ghost" title="关闭日志抽屉" @click="appErrOpen = false">收起</button>
+        <Button variant="ghost" size="tool" title="关闭日志抽屉" @click="appErrOpen = false">收起</Button>
       </div>
       <pre class="errpanel-body">{{ appLogTail.join('\n') || '（日志为空）' }}</pre>
     </div>
@@ -358,15 +358,15 @@
     <!-- Batch action bar：固定悬浮在内容区顶部居中，紧邻右上角批量按钮的视线范围 -->
     <div v-if="batchMode" class="batch-bar">
       <span class="batch-count">已选 {{ selectedBatch.length }}</span>
-      <button class="ghost" title="全选 / 取消全选当前视图内的任务" @click="toggleSelectAll">{{ selectedBatch.length === filteredTasks.length ? '取消全选' : '全选' }}</button>
+      <button class="ghost" @click="toggleSelectAll">{{ selectedBatch.length === filteredTasks.length ? '取消全选' : '全选' }}</button>
       <div class="batch-actions">
-        <button class="ghost" title="批量置为“待办”" @click="batchSetStatus('待办')">待办</button>
-        <button class="ghost" title="批量置为“进行中”" @click="batchSetStatus('进行中')">进行中</button>
-        <button class="ghost" title="批量置为“待验收”" @click="batchSetStatus('待验收')">待验收</button>
-        <button class="ghost" title="批量置为“完成”" @click="batchSetStatus('完成')">完成</button>
-        <button class="ghost" title="批量置为“驳回”" @click="batchSetStatus('驳回')">驳回</button>
-        <button class="ghost" title="批量归档（会二次确认）" @click="executeBatchArchive">归档</button>
-        <button class="ghost" title="批量改期：把选中任务的截止日推到新日期" @click="openBatchPostpone">📅 改期</button>
+        <button class="ghost" @click="batchSetStatus('待办')">待办</button>
+        <button class="ghost" @click="batchSetStatus('进行中')">进行中</button>
+        <button class="ghost" @click="batchSetStatus('待验收')">待验收</button>
+        <button class="ghost" @click="batchSetStatus('完成')">完成</button>
+        <button class="ghost" @click="batchSetStatus('驳回')">驳回</button>
+        <button class="ghost" @click="executeBatchArchive">归档</button>
+        <button class="ghost" @click="openBatchPostpone">📅 改期</button>
         <button class="danger" title="批量删除（会二次确认，进入 trash 可人工找回）" @click="executeBatchDelete">删除</button>
       </div>
 
@@ -378,13 +378,13 @@
       <div v-if="batchPostponing" class="bp-panel">
         <span class="bp-label">把选中的 {{ selectedBatch.length }} 个任务改期到</span>
         <input type="date" v-model="batchPostponeDate" class="log-filter bp-date" title="目标截止日" />
-        <button class="ghost" title="截止日推迟一周" @click="batchPostpone(batchPostponeShift(7))">+7 天</button>
-        <button class="ghost" title="截止日推迟一个月" @click="batchPostpone(batchPostponeShift(30))">+30 天</button>
+        <button class="ghost" @click="batchPostpone(batchPostponeShift(7))">+7 天</button>
+        <button class="ghost" @click="batchPostpone(batchPostponeShift(30))">+30 天</button>
         <button class="ok" title="把选中任务的截止日改成上面选的日期" @click="batchPostpone(batchPostponeDate)">确定改期</button>
-        <button class="ghost" title="收起改期面板（不清空已选）" @click="batchPostponing = false">收起</button>
+        <button class="ghost" @click="batchPostponing = false">收起</button>
       </div>
 
-      <button class="ghost" title="退出多选模式并清空选择" @click="selectedBatch = []; batchMode = false">取消</button>
+      <button class="ghost" @click="selectedBatch = []; batchMode = false">取消</button>
     </div>
 
     <!-- 归档区按状态快选（2026-10-17 暮雨第 1 条；第 2 条重做交互）：
@@ -768,7 +768,7 @@
         <span class="uh-t">{{ h.at ? new Date(h.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '' }}</span>
       </button>
       <div class="uh-foot">
-        <button class="ghost" @click="undoHistOpen = false">收起</button>
+        <Button variant="ghost" size="tool" @click="undoHistOpen = false">收起</Button>
         <button class="danger" @click="dismissUndo(); undoHistOpen = false">全部忘掉（不撤回）</button>
       </div>
     </div>
@@ -803,6 +803,8 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick, provi
 //   （`[ \t]` 不跨行），多行花括号写法它抓不到名字 → 把 parseCalDate 判成“调用了但未定义”。
 import { parseCalDate, calISO, dayStart, addDays, rangeLabel, shiftRange } from './calendar'
 import { toPlain } from '../shared/plain'
+// UI 基座 Button（2026-11-17 A1）：老 .ghost 的默认档 = size "tool"（28/8/12px/内距 14）
+import Button from './components/ui/Button.vue'
 // Ctrl+Z 的归属判定（2026-11-12 第 3 条）：可编辑文本里撤字、其它地方撤数据动作。
 import { decideUndoKey, isEditableTarget } from '../shared/undoKey'
 // 核心判词词表与判定（唯一真源；界面与闸都从这里取，不许各自写死）
