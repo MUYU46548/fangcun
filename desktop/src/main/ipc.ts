@@ -767,6 +767,17 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // ── 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）──────
+  // 只落一份派单文件；**不 spawn DSH、不碰 DSH 配置** —— 那是插件在自己的进程里做的。
+  // 方寸连 DSH 装没装都只是只读探测（`services/dshPlugin.ts`），不能在主进程里去启动它。
+  guardedHandle('context:dispatchDsh', (_event, projectId: string) => {
+    try {
+      return contextPack.dispatchToDsh(String(projectId || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
   // ── 开工简报（2026-11-16 · 治病①「没有记忆」的入口）─────────────────────
   // 卡 `最高优先级ai-施工的五种病…` 的验收线：跑一轮新入口，agent 必须能答对
   // 「上次做到哪 / 这次先做什么 / 有哪些规矩别犯」，且输出 <= 8KB。

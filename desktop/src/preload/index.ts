@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('tegula', {
   /** agent 上下文包（2026-10-22）：把项目现状拼成一段可粘贴的 Markdown，只读 */
   contextPack: (projectId: string, opts?: any) => ipcRenderer.invoke('context:pack', projectId, opts),
   contextPackFile: (projectId: string) => ipcRenderer.invoke('context:packFile', projectId),
+  /** 派给 DSH（2026-11-17）：只落一份派单文件，插件看见就会在 DSH 里开新会话 */
+  dispatchDsh: (projectId: string) => ipcRenderer.invoke('context:dispatchDsh', projectId),
   /** 开工简报（2026-11-16 · 治病①）：上次做到哪 / 这次先做什么 / 有哪些规矩别犯。只读 */
   brief: (projectId: string) => ipcRenderer.invoke('brief:get', projectId),
   briefFile: (projectId: string) => ipcRenderer.invoke('brief:write', projectId),

@@ -4178,6 +4178,43 @@ async function copyContextPack(p: any): Promise<void> {
 }
 
 /**
+ * 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
+ *
+ * 与 `copyContextPack` 的区别**不是话术，是它真的会派出去**：
+ *   方寸只落一份派单文件（`<数据根>/.dispatch-dsh/`），插件在 DSH 进程里看见就用它开新会话。
+ *
+ * 为什么不做成"方寸直接启动 DSH"：方寸连 DSH 装没装都只在只读探测，
+ * 主进程去 spawn 一个 GUI 应用会踩一串环境坑（PATH / 单实例锁 / 谁来收结果）。
+ * **让插件做**：它本来就在 DSH 里跑着，天然知道 profile、也知道干完怎么回写方寸。
+ *
+ * 缺什么要当场说出来（与上下文包同一口径）：包里缺契约/方针/决策，
+ * agent 就会以为"这项目没这些规矩"，那比不给它包更危险。
+ */
+async function dispatchToDsh(p: any): Promise<void> {
+  if (!p?.id) return
+  const tegula = (window as any).tegula
+  // 老版本（没这个通道）要说清楚，不许静默失败
+  if (typeof tegula?.dispatchDsh !== 'function') {
+    showToast('这个版本还没有「派给 DSH」通道 —— 请更新方寸后再试', 'error')
+    return
+  }
+  try {
+    const r: any = await tegula.dispatchDsh(p.id)
+    if (!r || r.ok === false) {
+      showToast(`派不出去：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    showToast(`已派给 DSH：“${p.name || p.id}”的上下文包（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话`, 'ok')
+    // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
+    if (Array.isArray(r.missing) && r.missing.length) {
+      showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
+    }
+  } catch (e: any) {
+    showToast('派送异常：' + (e?.message || e), 'error')
+  }
+}
+
+/**
  * 复制开工简报（2026-11-16 · 治病①「没有记忆」的入口）。
  *
  * 它回答三个问题：**上次做到哪 / 这次先做什么 / 有哪些规矩别犯**。
@@ -7747,7 +7784,7 @@ const projectsCtl = reactive({
   // 使命草稿（2026-11-14 · P1-2）：方针弹窗里「从 README 取一句」
   draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
-  openAiPlan, openAiDoc, openPlans, copyContextPack, copyBrief, switchView,
+  openAiPlan, openAiDoc, openPlans, copyContextPack, dispatchToDsh, copyBrief, switchView,
   tripBoardCtl,
 })
 

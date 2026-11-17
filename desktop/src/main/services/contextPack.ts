@@ -268,3 +268,83 @@ export function writeContextPackFile(projectId: string): { ok: boolean; path?: s
     return { ok: false, error: String(e?.message || e) }
   }
 }
+
+/** 「派给 DSH」的派单目录（数据根下的 `.dispatch-dsh/`，不属于任何项目仓库） */
+export function dispatchDir(): string {
+  const { getDataDir } = require('../data') as { getDataDir: () => string }
+  return path.join(getDataDir(), '.dispatch-dsh')
+}
+
+export interface DispatchResult {
+  ok: boolean
+  error?: string
+  /** 派单文件绝对路径 */
+  path?: string
+  projectId?: string
+  chars?: number
+  /** 上下文包里缺了哪几处（缺了要当场说，别让 agent 以为"这项目没这些规矩"） */
+  missing?: string[]
+  at?: string
+}
+
+/**
+ * 把某个项目的上下文包**派给 DSH**（2026-11-17）。
+ *
+ * 暮雨原话：「管子现在就做，它是其他一切的前提。」
+ *
+ * ## 为什么是"写文件"而不是"直接调 DSH"
+ *
+ * 三方各有硬边界，只有文件能同时满足：
+ *   ① 方寸**不 import DSH 的任何东西**（它连 DSH 有没有装都只是只读探测）；
+ *   ② 插件**不 import 方寸代码**（`test/plugin.test.mjs ③` 钉着）；
+ *   ③ 两边都不能把上万字的上下文包塞进命令行参数。
+ *
+ * 所以：**方寸写一份派单文件，插件看见就消费**。跨进程只经文件，谁也不用知道对方的内部。
+ *
+ * ## 为什么是"一次一份"，不是队列
+ *
+ * 队列要处理排序、去重、失败重试、堆积清理 —— 那是另一个子系统。
+ * 而「派给 DSH」是**人在界面上点一次的即时动作**，同时点两次的语义本来就是"最后一次算"。
+ * 所以：**同名覆盖**，插件消费后**删掉**。简单到不会坏。
+ *
+ * ⚠ 不在这里调 `exec` / `spawn` 去戳 DSH —— 方寸不知道 DSH 在不在、是哪个 profile。
+ *   那是插件的活（它在 DSH 进程里，天然知道）。
+ */
+export function dispatchToDsh(projectId: string): DispatchResult {
+  const pid = String(projectId || '').trim()
+  if (!pid) return { ok: false, error: '没给项目 id' }
+
+  const r = buildContextPack(pid)
+  if (!r.ok) return { ok: false, error: r.error || '上下文包没生成出来' }
+
+  try {
+    const dir = dispatchDir()
+    fs.mkdirSync(dir, { recursive: true })
+    const at = new Date().toISOString()
+    // 文件名带时间戳 + 项目：插件按时间戳挑最新的一份，人能一眼看出是什么时候派的
+    const stamp = at.replace(/[-:T]/g, '').slice(0, 14)
+    const p = path.join(dir, `dispatch-${String(r.projectId)}-${stamp}.md`)
+    const body = [
+      `<!-- fangcun-dispatch v1`,
+      `project: ${String(r.projectId)}`,
+      `projectName: ${String(r.projectName || '')}`,
+      `at: ${at}`,
+      `chars: ${r.chars}`,
+      `missing: ${(r.missing || []).join('|')}`,
+      `-->`,
+      '',
+      String(r.text),
+    ].join('\n')
+    fs.writeFileSync(p, body, 'utf-8')
+    return {
+      ok: true,
+      path: p,
+      projectId: String(r.projectId),
+      chars: r.chars,
+      missing: r.missing || [],
+      at,
+    }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}

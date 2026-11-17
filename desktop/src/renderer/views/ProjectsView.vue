@@ -364,6 +364,15 @@
                    拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.copyContextPack(ctl.pvCurrent)"
                       title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</Button>
+              <!-- 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
+                   与「复制上下文包」的区别不是话术，是**它真的会派出去**：
+                     ① 方寸把上下文包落成文件（`context:packFile`，只在数据根的 docs/ 下）
+                     ② 插件（dsh-fangcun）看见这个「派单」文件，在 DSH 里开一个新会话并带上它
+                   为什么不直接跨进程传文本：两边只经**文件**交接，插件不必 import 方寸代码
+                   （那是插件的硬边界），方寸也不必知道 DSH 的 API。
+                   判据：点完 DSH 里**真的冒出一个新会话**，不是"复制到剪贴板"换个名字。 -->
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.dispatchToDsh(ctl.pvCurrent)"
+                      title="把这份上下文包派给 DSH：DSH 里会新开一个会话，已经带着项目背景 —— 你只需要说接下来干什么">🧠 派给 DSH</Button>
               <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <Button v-if="ctl.pvCurrent.repo" class="oact" variant="ghost" size="tool"
