@@ -160,7 +160,7 @@
       <div v-if="logDiscard_" class="relay-discard" role="alertdialog" aria-live="polite">
         <span class="rd-text">⚠ 这次的改动还没保存，关掉就没了：<b>{{ logDirtyNames().join('、') || '表单改动' }}</b></span>
         <span class="rd-acts">
-          <button class="ghost" @click="logDiscard_ = false">继续填写</button>
+          <Button variant="ghost" size="tool" @click="logDiscard_ = false">继续填写</Button>
           <button class="danger" @click="discardLogEdit">丢弃并关闭</button>
         </span>
       </div>
@@ -196,13 +196,13 @@
         </div>
       </div>
       <div class="acts">
-        <button class="ghost" @click="closeLogEditor">取消</button>
-        <button v-if="logEdit_.id" class="ghost" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</button>
-        <button v-if="logEdit_.id" class="ghost" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</button>
+        <Button variant="ghost" size="tool" @click="closeLogEditor">取消</Button>
+        <Button variant="ghost" size="tool" v-if="logEdit_.id" title="只复制日志 ID —— 贴给 AI 用来定位这一条" @click="copyId(logEdit_.id)">⧉ ID</Button>
+        <Button variant="ghost" size="tool" v-if="logEdit_.id" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(logEdit_.id)">📋 复制为提示词</Button>
         <button v-if="logEdit_.id && !logCompleting && !logArchiveMode" class="danger" title="彻底删除这条日志（不可撤销）" @click="destroyLogItem(logEdit_.id); closeLogNow()">彻底删除</button>
         <!-- 2026-10-17 用户报障：完成/归档弹窗此前唯一的确认按钮不保存表单字段——补“保存修改”：
              只存内容、不碰状态。改完其实不想完成/归档的人有路可走，不用在“确认完成”和“丢弃”里二选一。 -->
-        <button v-if="logCompleting || logArchiveMode" class="ghost" title="只保存表单里改的内容，不改变完成/归档状态" @click="saveLogFieldsOnly">保存修改</button>
+        <Button variant="ghost" size="tool" v-if="logCompleting || logArchiveMode" title="只保存表单里改的内容，不改变完成/归档状态" @click="saveLogFieldsOnly">保存修改</Button>
         <!-- 主按钮 dirty 感知（2026-10-17）：表单改过了就别叫“确认完成”，叫“保存并完成”——
              字面即承诺：点了它内容会先落盘（回写在 saveLogEdit 完成分支）。 -->
         <button class="pri" @click="saveLogEdit">{{ logCompleting ? (logEditDirty() ? '保存并完成' : '确认完成') : logArchiveMode ? (logEditDirty() ? '保存并归档' : '确认归档') : logEdit_.id ? '保存' : '创建' }}</button>

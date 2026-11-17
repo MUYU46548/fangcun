@@ -24,10 +24,10 @@
           <span class="qn-ttl">问卷</span>
           <span class="qn-sub">{{ pendingDecks.length }} 卷待答 · {{ doneDecks.length }} 卷已处理 · 说清“你想要什么”，不触发任何开发<template v-if="bank && bank.total"> · 题库 {{ bank.total }} 题（已答 {{ bank.answered }}<template v-if="bank.open">，待答 {{ bank.open }}</template>）</template></span>
           <span class="qn-grow"></span>
-          <button class="ghost" title="把出卷提示词复制给 agent —— 它按 qn_propose 出卷，出完就出现在这个列表里"
-            @click="copyAuthorPrompt">🧾 让 agent 出问卷</button>
-          <button class="ghost" @click="openDir">📂 问卷目录</button>
-          <button class="ghost" @click="$emit('close')">关闭</button>
+          <Button variant="ghost" size="tool" title="把出卷提示词复制给 agent —— 它按 qn_propose 出卷，出完就出现在这个列表里"
+            @click="copyAuthorPrompt">🧾 让 agent 出问卷</Button>
+          <Button variant="ghost" size="tool" @click="openDir">📂 问卷目录</Button>
+          <Button variant="ghost" size="tool" @click="$emit('close')">关闭</Button>
         </div>
         <div class="qn-body">
           <div v-if="!decks.length" class="qn-empty">
@@ -55,7 +55,7 @@
             <input class="qn-search" v-model="q" placeholder="搜卷名 / 标题 / 项目 / 题面…（输入即搜）" />
             <span class="qn-search-tip" v-if="searchBusy">搜索中…</span>
             <span class="qn-search-tip" v-else-if="q">命中 {{ searchRows.length }} 卷</span>
-            <button class="ghost" v-if="q" @click="q = ''">清空</button>
+            <Button variant="ghost" size="tool" v-if="q" @click="q = ''">清空</Button>
           </div>
           <!-- 搜索态：平铺结果 + 说清「哪一段命中了」，不用再猜为什么这卷在列表里 -->
           <div v-if="q" class="qn-decks">
@@ -76,16 +76,16 @@
             <!-- 题库 ↔ 卷（0.7.0 P11）：卷多了以后，用户真正要问的两句话 ——
                  “这条结论是从哪卷来的”“哪条答了却还没落地”—— 得有个地方能一眼查。 -->
             <div class="qn-hint">
-              <button class="ghost" :disabled="bankBusy" @click="toggleBank">
+              <Button variant="ghost" size="tool" :disabled="bankBusy" @click="toggleBank">
                 📚 {{ showBank ? '收起题库' : '题库（哪条结论来自哪卷）' }}
-              </button>
-              <button class="ghost" @click="toggleBatch">{{ batchMode ? '退出多选' : '☑ 多选卷' }}</button>
+              </Button>
+              <Button variant="ghost" size="tool" @click="toggleBatch">{{ batchMode ? '退出多选' : '☑ 多选卷' }}</Button>
               <span class="qn-search-tip" v-if="bankMsg">{{ bankMsg }}</span>
             </div>
             <div v-if="batchMode" class="qn-hint">
               <span class="qn-search-tip">已选 {{ batchSel.length }} 卷</span>
-              <button class="ghost" :disabled="batchBusy || !batchSel.length" @click="runBatch('archive')">📦 归档所选卷</button>
-              <button class="ghost" :disabled="batchBusy || !batchSel.length" @click="runBatch('void')">⌫ 作废所选卷…</button>
+              <Button variant="ghost" size="tool" :disabled="batchBusy || !batchSel.length" @click="runBatch('archive')">📦 归档所选卷</Button>
+              <Button variant="ghost" size="tool" :disabled="batchBusy || !batchSel.length" @click="runBatch('void')">⌫ 作废所选卷…</Button>
               <span class="qn-search-tip" v-if="batchMsg">{{ batchMsg }}</span>
             </div>
             <div v-if="showBank" class="qn-bank">
@@ -120,23 +120,23 @@
             <!-- 归档候选（2026-11-11）：已批准 ≥30 天 + 没有任何卡引用，才够格收起。
                  两个条件都在数据层判；这里只说清“为什么不能” —— 藏起来不等于删掉。 -->
             <div v-if="archivable.length" class="qn-hint">
-              <button class="ghost" :disabled="archiveBusy" @click="archiveAllCandidates">
+              <Button variant="ghost" size="tool" :disabled="archiveBusy" @click="archiveAllCandidates">
                 📦 把 {{ archivable.length }} 卷已批准 ≥30 天、无卡引用的卷移入历史卷
-              </button>
+              </Button>
               <span class="qn-search-tip" v-if="archiveMsg">{{ archiveMsg }}</span>
             </div>
             <div v-if="archivableBlocked.length" class="qn-search-tip">
               {{ archivableBlocked.length }} 卷够天数但先不动：{{ archivableBlocked.slice(0, 3).map((b) => b.deck + '（' + b.why + '）').join('；') }}
             </div>
             <div v-if="doneDecks.length" class="qn-hint">
-              <button class="ghost" @click="showDone = !showDone">
+              <Button variant="ghost" size="tool" @click="showDone = !showDone">
                 {{ showDone ? '▴ 收起已处理' : '▾ 展开已处理' }}（{{ doneDecks.length }} 卷 · 已批准 / 已作废 / 已被取代）
-              </button>
+              </Button>
             </div>
             <div v-if="archivedDecks.length" class="qn-hint">
-              <button class="ghost" @click="showArchived = !showArchived">
+              <Button variant="ghost" size="tool" @click="showArchived = !showArchived">
                 {{ showArchived ? '▴ 收起历史卷' : '▾ 历史卷' }}（{{ archivedDecks.length }} 卷 · 不进列表，但仍参与裁决）
-              </button>
+              </Button>
             </div>
             <div v-if="visibleDecks.length || (showArchived && archivedDecks.length)" class="qn-decks">
               <button v-for="d in (showArchived ? [...visibleDecks, ...archivedDecks] : visibleDecks)" :key="d.deck" class="qn-deck"
@@ -173,7 +173,7 @@
             <button :class="{ on: view === 'one' }" @click="view = 'one'">一次一题</button>
             <button :class="{ on: view === 'all' }" @click="view = 'all'">整卷</button>
           </div>
-          <button class="ghost" @click="$emit('close')">关闭</button>
+          <Button variant="ghost" size="tool" @click="$emit('close')">关闭</Button>
         </div>
         <div class="qn-bar"><i :style="{ width: (total ? answeredCount / total * 100 : 0) + '%' }"></i></div>
 
@@ -183,13 +183,13 @@
           <b>⚠ 卷面 {{ issues.length }} 处要补</b>
           <span class="qw-names">{{ issueSummary }}</span>
           <span class="qw-hint">补代价 / 补验收线 / 拆批都是出卷人的活 —— 你只答，不替 agent 改题</span>
-          <button class="ghost" @click="openPrompt('rewrite')">打包成补代价</button>
+          <Button variant="ghost" size="tool" @click="openPrompt('rewrite')">打包成补代价</Button>
         </div>
         <div v-if="voidedAt" class="qn-void">
           <b>⚠ 这卷已作废（{{ voidedAt.slice(0, 10) }}）</b>
           <span class="qw-names">{{ voidReason || '未写原因' }}</span>
           <span class="qw-hint">作废的答案不再作数、也不会再落决策卡</span>
-          <button class="ghost" @click="doReopen">恢复这卷</button>
+          <Button variant="ghost" size="tool" @click="doReopen">恢复这卷</Button>
         </div>
 
         <div class="qn-cols">
@@ -224,7 +224,7 @@
                 <b>预埋 {{ parked.length }} 项</b>
                 <span class="xe-sub">现在答不了 —— 不是遗漏，是等条件。条件到了 agent 会把它变成正式题。</span>
                 <span class="qn-grow"></span>
-                <button class="ghost" @click="extra = ''">收起</button>
+                <Button variant="ghost" size="tool" @click="extra = ''">收起</Button>
               </div>
               <table class="xe-tb">
                 <thead>
@@ -245,7 +245,7 @@
                 <b>看一眼 · 入口总表</b>
                 <span class="xe-sub">全卷共用 —— 答题时不用懂名词，照着看就行。</span>
                 <span class="qn-grow"></span>
-                <button class="ghost" @click="extra = ''">收起</button>
+                <Button variant="ghost" size="tool" @click="extra = ''">收起</Button>
               </div>
               <table class="xe-tb">
                 <thead><tr><th>名字</th><th>一句话</th><th>入口</th></tr></thead>
@@ -266,8 +266,8 @@
                   ? '粘给 agent：它只重写被反问的那几题，不重发整卷'
                   : '粘给 agent：把已定的翻成可验收的小步，没定的标成待定' }}</span>
                 <span class="qn-grow"></span>
-                <button class="ghost" @click="copyPrompt">⧉ 复制</button>
-                <button class="ghost" @click="extra = ''">收起</button>
+                <Button variant="ghost" size="tool" @click="copyPrompt">⧉ 复制</Button>
+                <Button variant="ghost" size="tool" @click="extra = ''">收起</Button>
               </div>
               <pre class="xe-pre">{{ promptText }}</pre>
             </div>
@@ -277,7 +277,7 @@
                 <b>事后校验 · {{ auditable.length }} 条</b>
                 <span class="xe-sub">只列“有答案 + 有验收线”的题 —— 没有验收线就没有判据，硬列出来只能自欺</span>
                 <span class="qn-grow"></span>
-                <button class="ghost" @click="extra = ''">收起</button>
+                <Button variant="ghost" size="tool" @click="extra = ''">收起</Button>
               </div>
               <div v-if="!auditable.length" class="qn-empty">
                 这卷还没有可校验的答案（跳过 / 否决 / 反问 / 作废都不算答案）。
@@ -330,13 +330,13 @@
                   <button class="undo" @click="reset(q.id)">撤销这次操作</button>
                 </div>
                 <div class="qn-acts">
-                  <button class="ghost" @click="mark(q.id, 'skip')">跳过</button>
+                  <Button variant="ghost" size="tool" @click="mark(q.id, 'skip')">跳过</Button>
                   <button class="danger" @click="mark(q.id, 'reject')">否决</button>
                   <button class="ask" @click="startEdit(q.id, 'askback')">❗ 反问…</button>
-                  <button class="ghost" @click="startEdit(q.id, 'amend')">改一句…</button>
-                  <button class="ghost" @click="mark(q.id, 'self')"
-                    title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</button>
-                  <button class="ghost" v-if="answers[q.id] && answers[q.id].kind !== 'void'" @click="startVoid(q.id)">⌫ 作废…</button>
+                  <Button variant="ghost" size="tool" @click="startEdit(q.id, 'amend')">改一句…</Button>
+                  <Button variant="ghost" size="tool" @click="mark(q.id, 'self')"
+                    title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</Button>
+                  <Button variant="ghost" size="tool" v-if="answers[q.id] && answers[q.id].kind !== 'void'" @click="startVoid(q.id)">⌫ 作废…</Button>
                 </div>
                 <div v-if="editing && editing.id === q.id" class="qn-edit" :class="{ ask: editing.kind === 'askback' }">
                   <div class="qe-hint">{{ editing.kind === 'askback'
@@ -346,7 +346,7 @@
                       : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
                   <textarea v-model="editText" rows="2" @input="onEditInput"></textarea>
                   <div class="qe-row">
-                    <button class="ghost" @click="cancelEdit">取消</button>
+                    <Button variant="ghost" size="tool" @click="cancelEdit">取消</Button>
                     <button class="pri" @click="commitEdit">确定</button>
                   </div>
                 </div>
@@ -411,7 +411,7 @@
                     : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
                 <textarea v-model="editText" rows="3" @input="onEditInput"></textarea>
                 <div class="qe-row">
-                  <button class="ghost" @click="cancelEdit">取消</button>
+                  <Button variant="ghost" size="tool" @click="cancelEdit">取消</Button>
                   <button class="pri" @click="commitEdit">确定</button>
                 </div>
               </div>
@@ -428,41 +428,41 @@
           <b>作废这卷？</b>
           <span class="qw-hint">答案不作数、决策卡一并撤下；原因必填 —— 三个月后只有这句话能解释</span>
           <input v-model="voidDraft" class="au-in" placeholder="作废原因（必填）" />
-          <button class="ghost" @click="voidOpen = false">取消</button>
+          <Button variant="ghost" size="tool" @click="voidOpen = false">取消</Button>
           <button class="danger" :disabled="voidBusy" @click="doVoidDeck">确认作废</button>
         </div>
 
         <!-- 底栏 -->
         <div class="qn-ft">
           <template v-if="extra">
-            <button class="ghost" @click="extra = ''">← 返回题目</button>
+            <Button variant="ghost" size="tool" @click="extra = ''">← 返回题目</Button>
             <span class="qn-grow"></span>
             <span class="qn-ft-note">{{ extra === 'prompt' ? '复制后粘给 agent 就行' : '这不是题目 —— 不用答，看看就好' }}</span>
           </template>
           <template v-else-if="!summary">
-            <button class="ghost" @click="mark(curId, 'skip')">跳过</button>
+            <Button variant="ghost" size="tool" @click="mark(curId, 'skip')">跳过</Button>
             <button class="danger" @click="mark(curId, 'reject')">否决</button>
             <button class="ask" @click="startEdit(curId, 'askback')">❗ 反问…</button>
-            <button class="ghost" @click="startEdit(curId, 'amend')">改一句…</button>
-            <button class="ghost" @click="mark(curId, 'self')"
-              title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</button>
-            <button class="ghost" v-if="answers[curId] && answers[curId].kind !== 'void'" @click="startVoid(curId)">⌫ 作废…</button>
+            <Button variant="ghost" size="tool" @click="startEdit(curId, 'amend')">改一句…</Button>
+            <Button variant="ghost" size="tool" @click="mark(curId, 'self')"
+              title="这题以后不用再问方寸 —— 进题库黑名单，永不复问">你自判</Button>
+            <Button variant="ghost" size="tool" v-if="answers[curId] && answers[curId].kind !== 'void'" @click="startVoid(curId)">⌫ 作废…</Button>
             <span class="qn-grow"></span>
-            <button class="ghost" @click="prev" :disabled="idx === 0">← 上一题</button>
+            <Button variant="ghost" size="tool" @click="prev" :disabled="idx === 0">← 上一题</Button>
             <button class="pri" @click="next">{{ idx === total - 1 ? '答完了 · 看结果' : '下一题 →' }}</button>
           </template>
           <template v-else>
-            <button class="ghost" @click="summary = false">← 回去改</button>
-            <button class="ghost" @click="copyMd">⧉ 复制 md</button>
-            <button class="ghost" v-if="approved" @click="downloadMd">⬇ 导出</button>
+            <Button variant="ghost" size="tool" @click="summary = false">← 回去改</Button>
+            <Button variant="ghost" size="tool" @click="copyMd">⧉ 复制 md</Button>
+            <Button variant="ghost" size="tool" v-if="approved" @click="downloadMd">⬇ 导出</Button>
             <!-- 出口（2026-11-05）：有反问只能「重出题」；反问清零了才给「出施工单」。
                  为什么不给两个都显示：问题还没定时出的单必然是错的（问卷不是施工单）。 -->
             <button v-if="askCount" class="ask" :disabled="promptBusy" @click="openPrompt('rewrite')">
               ❗ 打包成重出题（{{ askCount }}）
             </button>
-            <button v-else class="ghost" :disabled="promptBusy" @click="openPrompt('build')">
+            <Button variant="ghost" size="tool" v-else :disabled="promptBusy" @click="openPrompt('build')">
               📋 生成施工单提示词
-            </button>
+            </Button>
             <select v-if="cardOptions.length && approved && !voidedAt && !cardDone" v-model="cardProject" class="qn-sel"
               title="落卡落到哪个项目；默认按卷名自动认">
               <option value="">自动（按卷名）</option>
@@ -472,13 +472,13 @@
               title="把这些答案落成 task-data 里的任务卡 —— 没卡就没人施工">
               {{ cardDone ? `✓ 已落 ${cardDone.created} 张` : '🗂 落成任务卡' }}
             </Button>
-            <button v-if="voidedAt" class="ghost" @click="doReopen">恢复这卷</button>
+            <Button variant="ghost" size="tool" v-if="voidedAt" @click="doReopen">恢复这卷</Button>
             <button v-else class="danger" @click="voidOpen = !voidOpen">⌫ 作废这卷</button>
             <!-- 历史卷（2026-11-11）：已批准、没人再引用了才能收起。收起不影响裁决 ——
                  决策卡、验收线照旧生效，只是列表里不再占位。 -->
-            <button v-if="approved && !voidedAt && !archivedAt" class="ghost" @click="archiveOne(deck.deck)"
-              title="已批准 ≥30 天且没有任何卡引用时才可以收起">📦 移入历史卷</button>
-            <button v-if="archivedAt" class="ghost" @click="unarchiveOne(deck.deck)">↩ 放回列表</button>
+            <Button variant="ghost" size="tool" v-if="approved && !voidedAt && !archivedAt" @click="archiveOne(deck.deck)"
+              title="已批准 ≥30 天且没有任何卡引用时才可以收起">📦 移入历史卷</Button>
+            <Button variant="ghost" size="tool" v-if="archivedAt" @click="unarchiveOne(deck.deck)">↩ 放回列表</Button>
             <span class="qn-grow"></span>
             <span v-if="approved" class="qn-ok" :title="'落盘存的是 UTC（' + approved + '），这里按你所在时区显示'">已落库 · {{ localStamp(approved) }}</span>
             <button v-if="!approved" class="pri" :disabled="busy" @click="approve">✓ 批准并落库</button>

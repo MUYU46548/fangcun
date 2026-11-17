@@ -422,7 +422,7 @@
     <!-- Archive hint -->
     <div v-if="curView === 'archive' && showArchiveHint" class="archive-hint">
       <span>📋 归档视图：这里只显示已经移进归档文件夹（<code>task-data/archive/</code>）的任务 —— 算不算归档，只看文件在不在这儿，不看任务状态。归档只能由你亲自决定，方寸不会自动执行。</span>
-      <button @click="closeArchiveHint">知道了</button>
+      <Button variant="ghost" size="tool" @click="closeArchiveHint">知道了</Button>
     </div>
 
 
