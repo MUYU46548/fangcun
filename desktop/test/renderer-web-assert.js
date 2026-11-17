@@ -8003,6 +8003,48 @@
         check('  ★ 帮助**不在页签行里重复出现**（入口唯一：顶栏“?”）',
           !$$('nav#views .vbtn').some((b) => (b.textContent || '').indexOf('帮助') >= 0),
           $$('nav#views .vbtn').map((b) => b.textContent.trim()).join('/'))
+        // ══ 2026-11-17：左目录「滚得到」的机器判据 ══════════════════════════════
+        // 由来：2026-11-16 窄屏截图目检**断言过**「900×700 下目录最后两节被底部统计行压住，
+        //   **滚到底也看不到**」，并据此改了 CSS。2026-11-17 用 DOM 几何实测复核：
+        //   目录可滚余量 231px、滚到底后最后一节 bottom=478 而目录可视区下沿 491 —— **在可视区内**。
+        //   也就是说「滚到底也看不到」这句是错的（截图带 --hide-scrollbars，滚动条不出现，
+        //   看起来像被截断）。**看图得出的结论必须被量一次**，否则改的是不存在的问题。
+        //
+        // 所以这里钉两条**不变量**，而不是钉某个像素值或某条 CSS：
+        //   ① 目录必须真的可滚（scrollHeight > clientHeight ⇒ overflow 真的生成了可滚区）
+        //   ② 滚到底之后，最后一节必须整体落在目录可视区内（不许被 footer 或裁切压住）
+        // 这样无论以后布局怎么改（三栏、两栏、换高度公式），只要"滚不到最后一节"就红。
+        {
+          const tocEl = $('.help-view .help-toc')
+          const items = $$('.help-view .help-toc-item')
+          if (!tocEl || !items.length) {
+            check('★★ 左目录存在且有条目（滚得到的前提）', false,
+              'toc=' + !!tocEl + ' items=' + items.length)
+          } else {
+            const scrollable = tocEl.scrollHeight - tocEl.clientHeight
+            // ⚠ 光有"余量 > 0"不够（2026-11-17 反例自证抓到）：`overflow-y: visible` 时
+            //   scrollHeight 照样大于 clientHeight（内容本来就高），但那**不是能滚**，
+            //   是溢出被画到框外。所以必须同时看计算值的 overflow-y 真的是 auto/scroll。
+            const ovY = (getComputedStyle(tocEl).overflowY || '').trim()
+            check('★★ 左目录真的可滚（既要有滚动余量，overflow-y 也得真是 auto/scroll）',
+              scrollable > 0 && (ovY === 'auto' || ovY === 'scroll'),
+              `scrollHeight=${tocEl.scrollHeight} clientHeight=${tocEl.clientHeight} ` +
+              `余量=${scrollable} overflowY=${ovY}`)
+            // 滚到底，再量最后一节是否在目录可视区内
+            tocEl.scrollTop = 1e6
+            await waitFor(() => Math.round(tocEl.scrollTop) > 0, 1500, 'toc scrolled')
+            const last = items[items.length - 1]
+            const lr = last.getBoundingClientRect()
+            const tr = tocEl.getBoundingClientRect()
+            check('★★ 目录滚到底后最后一节完整落在可视区内（不许被 footer / 裁切压住）',
+              lr.bottom <= tr.bottom + 1 && lr.top >= tr.top - 1,
+              `last.bottom=${Math.round(lr.bottom)} toc.bottom=${Math.round(tr.bottom)} ` +
+              `last.top=${Math.round(lr.top)} toc.top=${Math.round(tr.top)}`)
+            // 复位，免得影响后面「点目录切章」等断言
+            tocEl.scrollTop = 0
+            await waitFor(() => Math.round(tocEl.scrollTop) === 0, 1500, 'toc reset')
+          }
+        }
         // 返回：帮助是走 navigateTo 进的，所以“← 返回”应当能把我们送回看板
         const back = $('.nav-back')
         if (back) {
