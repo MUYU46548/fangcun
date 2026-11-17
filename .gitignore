@@ -100,3 +100,5 @@ clean-release.bat
 scripts/clean-release-dirs.ps1
 # 写侧留痕（2026-11-11）：与 mcp-usage.jsonl 同级的使用数据，不入库
 .mcp-writes.jsonl
+# ESLint 扫描产物（A1a 出账用，1.4MB，不入库）
+.fe-lint.json
