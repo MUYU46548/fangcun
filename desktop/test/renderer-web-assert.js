@@ -8045,6 +8045,46 @@
             await waitFor(() => Math.round(tocEl.scrollTop) === 0, 1500, 'toc reset')
           }
         }
+        // ══ 2026-11-17：手册三栏「宽度对齐 + 有承载面」的机器判据 ═══════════════
+        // 由来（暮雨原话）：「help 屏挺丑的说实话，毫无美感。但凡底下加个白底衬托一下都不会这么丑。」
+        //
+        // 实测（1440×900）抓到的**不是审美问题，是元素没撑开**：
+        //   pagehead 733px / shell 1000px / foot 191px —— 三块各不一样宽，
+        //   底栏只剩左下角一小条；正文 `background` 透明，与 `body` 同色 = 字飘在灰底上。
+        // 根因：`<main id="board" class="help-view">` 让看板的 `align-items: flex-start`
+        // 套到了这个纵向单栏页上。
+        //
+        // 钉两条不变量（不钉像素、不钉具体 CSS，换布局也不该红）：
+        //   ① 页头 / 主体 / 底栏**同宽**（单栏文档面就该一样宽；差 >2px 就是没撑开）
+        //   ② 正文有**独立底色**（不等于页面底色）—— 这就是"白底衬托"的机器版本
+        {
+          const head = $('.help-view .help-head')
+          const shell = $('.help-view .help-shell')
+          const foot = $('.help-view .help-foot')
+          if (!head || !shell || !foot) {
+            check('★★ 手册页头 / 主体 / 底栏三块都在（宽度对齐的前提）', false,
+              `head=${!!head} shell=${!!shell} foot=${!!foot}`)
+          } else {
+            const w = (el) => Math.round(el.getBoundingClientRect().width)
+            const [wh, ws, wf] = [w(head), w(shell), w(foot)]
+            const maxDiff = Math.max(wh, ws, wf) - Math.min(wh, ws, wf)
+            check('★★ 页头 / 主体 / 底栏同宽（差 >2px = 元素没撑开，底栏会缩成左下角一小条）',
+              maxDiff <= 2, `head=${wh} shell=${ws} foot=${wf} 差=${maxDiff}`)
+
+            // ② 正文必须有独立底色：与页面底色不同才算"有承载面"
+            const content = $('.help-view .help-content')
+            if (!content) {
+              check('★★ 正文有独立底色（不许与页面底色同色 = 字飘在灰底上）', false, '没有 .help-content')
+            } else {
+              const pageBG = getComputedStyle($('.help-view')).backgroundColor
+              const cardBG = getComputedStyle(content).backgroundColor
+              const transparent = !cardBG || /^rgba?\(0,\s*0,\s*0,\s*0\)$/.test(cardBG)
+              check('★★ 正文有独立底色（不许与页面底色同色 / 不许透明 —— 这就是"白底衬托"）',
+                !transparent && cardBG !== pageBG,
+                `页面=${pageBG} 正文=${cardBG}`)
+            }
+          }
+        }
         // 返回：帮助是走 navigateTo 进的，所以“← 返回”应当能把我们送回看板
         const back = $('.nav-back')
         if (back) {

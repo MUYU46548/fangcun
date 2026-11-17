@@ -776,6 +776,17 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    （2026-10-22 截图目检抓到的：标题/输入框/答案卡左边缘差 70px）。
    block 下子块天然 100% 宽、左边缘一定齐 —— 这一页是单栏阅读面，不需要 flex。 */
 #board.ask-view { display: block; overflow-x: hidden; }
+/* ⚠ 2026-11-17 真 bug（暮雨：「help 屏挺丑的…底下加个白底衬托一下都不会这么丑」）：
+   `<main id="board" class="help-view">` 让**看板的横排规则**（`#board { align-items: flex-start }`）
+   套到了帮助手册这个纵向单栏页上。后果实测（1440×900）：页头宽 733 / 主体宽 1000 / 底栏宽 191 ——
+   三块宽度各不相同，底栏只剩左下角一小条，正文直接裸在灰底上。
+   **这不是审美偏好，是元素没撑开。** 该页是单栏文档面，子块取满宽才对：
+   与下面 `ask-view` / `pv` 同一个道理，显式改回来。
+   `help-view` 自己那条全局规则（`display:flex; flex-direction:column`）在 2762 行，两处不冲突：
+   这里管"取多宽"，那里管"怎么排"。
+   顺带把 `#board` 的 14px 内边距**底部去掉**：那 14px 让底栏下方永远留一条灰边，
+   "底栏托底"就成了悬空。左右上保留（与顶栏拉开），底部交给底栏自己贴到底。 */
+#board.help-view { align-items: stretch; padding-bottom: 0; }
 /* scrollbar-gutter: stable —— 2026-10-31 第 2 条（切项目/切摆法宽度不许跳）。
    `#board` 内容是纵向滚动的：条目多时出现滚动条会把内容区挤窄 ~17px，
    切到条目少的项目滚动条又消失 → 整页宽度忽宽忽窄。预留滚动条槽位，宽度恒定。 */

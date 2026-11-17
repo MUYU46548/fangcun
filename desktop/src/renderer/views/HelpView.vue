@@ -151,17 +151,25 @@ watch(filtered, (list) => {
 
 .help-shell {
   flex: 1; display: flex; min-height: 0;
+  /* ⚠ 2026-11-17：这里曾写 `margin-right: 14px` 想做"右留白"，结果 shell 比
+     页头/底栏窄 14px（实测 head=736 shell=722 foot=736）—— 层次不齐比没留白更难看。
+     右留白改由**正文卡与右侧 14px 的 margin** 承担（见 .help-content），
+     shell 自己与页头/底栏同宽。 */
 }
 
-/* ── 左目录 ── */
+/* ── 左目录 ──
+   2026-11-17：与正文同一套"承载面"规则（白卡 + 边距），三栏这才像一块界面，
+   而不是"一列淡紫 + 一片透明"。`background: var(--card)` 与 `.help-content` 一致。 */
 .help-toc {
   width: 240px; flex-shrink: 0; overflow-y: auto;
-  /* ⚠ 2026-11-16 窄屏目检抓到的真缺陷：900×700 下底部「共 11 节」那行把目录最后两节压住，
-     目录滚到底也看不到。`min-height: 0` 是 flex 子项能真正滚动的前提
-     （默认 `min-height: auto` 会让内容撑破而不滚）。 */
+  /* ⚠ 2026-11-16 旧注释里那条"滚到底也看不到"已于 11-17 实测推翻（见 README）；
+     但 `min-height: 0` 这条**仍然要留**：它才是 flex 子项能真正滚动的前提。 */
   min-height: 0;
-  padding: 10px; border-right: 1px solid var(--border);
-  background: var(--tint);
+  margin: 14px 0 14px 14px;
+  padding: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 .help-search {
   width: 100%; box-sizing: border-box;
@@ -187,13 +195,26 @@ watch(filtered, (list) => {
 }
 .help-none { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 6px; }
 
-/* ── 中正文 ── */
+/* ── 中正文 ──
+   ⚠ 2026-11-17（暮雨：「毫无美感…底下加个白底衬托一下都不会这么丑」）：
+   原来正文**直接贴在页面灰底上**（`background` 透明，与 `body` 同色），
+   文字像飘在半空，左边目录有淡紫底、右边什么都没有，整页没有"承载面"。
+   现在给正文一块白卡：与全站"白卡浮在灰底上"的层次规则一致（看板列卡同一条），
+   并且撑满 shell 高度，让底栏与三栏同宽收口，不再只剩左下角一小条。 */
 .help-content {
   flex: 1; min-width: 0; overflow-y: auto;
-  padding: 18px 26px 26px;
-  /* 正文自己再收一道宽度：三栏下 880 会撞到右栏，实测 760 更舒服 */
-  max-width: 760px;
+  margin: 14px 14px 14px 14px;
+  padding: 22px 30px 26px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  /* ⚠ 2026-11-17：原来这里写 `max-width: 760px`。三栏对齐修好之后，这一条变成
+     "白卡只有 760 宽、右边 382px 全是裸灰底" —— 比改之前更空。
+     **行长限制应该落在文字上，不该落在卡上**：卡铺满（承载面完整），
+     文字块自己收在 68ch（中文约 40 字/行，比 760px 硬宽度更贴近"能读"的本意）。 */
 }
+/* 正文内容块限行宽：卡可以宽，字不必跟着排满 */
+.help-content > * { max-width: 68ch; }
 .help-content h4 {
   margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--accent);
   padding-bottom: 0; border-bottom: none;
@@ -235,9 +256,14 @@ watch(filtered, (list) => {
    保留这个元素是给以后真往里放东西时有个锚点（现在它是 0 宽度的占位容器）。 */
 .help-rail { flex: 0 0 0; width: 0; }
 
+/* ── 底栏 ──
+   ⚠ 2026-11-17：原来这里是 `background: var(--tint)`（淡紫）且**只有 191px 宽**
+   （根因是 `#board` 的 `align-items: flex-start`，已在 app.css 改回 stretch）。
+   两处都不对：一小条淡紫贴在左下角，既不成"底"，也没把内容托住 ——
+   暮雨说的「底下加个白底衬托」就是指这里。现在：满宽 + 白底 + 上边一条分隔线。 */
 .help-foot {
   display: flex; justify-content: space-between;
-  padding: 8px 18px; font-size: 11px; color: var(--muted);
-  border-top: 1px solid var(--border); background: var(--tint);
+  padding: 10px 20px; font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--border); background: var(--card);
 }
 </style>
