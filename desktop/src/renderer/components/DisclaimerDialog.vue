@@ -23,7 +23,6 @@ import {
   DISCLAIMER_VERSION,
   DISCLAIMER_SHORT_SECTIONS,
   DISCLAIMER_FULL_SECTIONS,
-  ackDisclaimer,
 } from '../disclaimer'
 
 const props = defineProps<{
@@ -62,14 +61,38 @@ watch(() => props.open, async (v) => {
   first?.focus()
 })
 
+/**
+ * 同意：只发事件，**写服务端由 App.vue 统一做**（2026-11-18）。
+ * 本组件不再自己写 localStorage —— 那正是旧版的病灶：主进程从来不知道用户同意过。
+ * 签不成就别关弹窗（App 收到失败会保留弹窗并提示原因）。
+ */
 function onAgree(): void {
-  const at = ackDisclaimer()
-  emit('ack', at)
+  emit('ack')
 }
 
-/** 不同意 = 退出软件。走 window.close()：触发主进程 before-quit 钩子（存盘确认照常工作） */
-function onExit(): void {
-  window.close()
+/**
+ * 不同意 = 退出软件。
+ *
+ * ⚠ 2026-11-17（卡 p0-1「『不同意并退出』永远退不掉」）：
+ *   原来这里是 `window.close()` —— **退不掉**。主进程在 close 事件里
+ *   `preventDefault()` 把它改成 `hide()`（"关窗≠退出、常驻托盘"是设计，本身没错），
+ *   于是点完只是窗口消失、进程还在托盘里。用户看到的就是"退不掉"。
+ *
+ *   现在走主进程的真退出通道 `quitForReal`（置位 isQuitting → destroy → quit）。
+ *   保留 `window.close()` 作为**兜底**：通道不可用（比如旧 preload）时至少别什么都不做。
+ */
+async function onExit(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula?.quitForReal?.()
+    if (r && r.ok === false) {
+      // 通道在但失败：照常尝试 window.close()，并留下痕迹（不许静默）
+      console.warn('[免责声明] 真退出通道失败：', r.error)
+      window.close()
+    }
+  } catch (e) {
+    console.warn('[免责声明] 真退出通道不可用，退回 window.close()：', e)
+    window.close()
+  }
 }
 
 /** 只有 view 模式允许点遮罩关闭；强制模式点遮罩什么也不发生 */

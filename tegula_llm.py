@@ -20,7 +20,99 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Generator, Optional
+
+# ---------------------------------------------------------------------------
+# 许可协议总闸（2026-11-18）
+# ---------------------------------------------------------------------------
+# 审计：docs/审计-AI调用入口与授权闸-20261118.md。
+# 与桌面端同一个数据根、同一份 config/license_ack.json；版本/正文指纹是
+# desktop/src/shared/license.ts 的镜像（desktop/test/license-gate.cjs 会比对）。
+# 未确认 = 不调用任何模型；测试旁路 FANGCUN_LICENSE_ACK=1（生产路径不设）。
+LICENSE_VERSION = "1.5"
+LICENSE_CONTENT_SHA = "093a06f44a6c"
+ENV_BYPASS = "FANGCUN_LICENSE_ACK"
+
+
+def _license_root() -> Path:
+    """与桌面端共用数据根：环境变量 → 桌面 data-dir.json → 仓库根 → tegula.core。"""
+    env = os.environ.get("FANGCUN_DATA_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        for name in ("方寸", "Fangcun"):
+            p = Path(appdata) / name / "data-dir.json"
+            try:
+                if p.exists():
+                    d = str(json.loads(p.read_text(encoding="utf-8")).get("dir") or "").strip()
+                    if d:
+                        return Path(d).expanduser().resolve()
+            except Exception:  # noqa: BLE001
+                pass
+    here = Path(__file__).resolve().parent
+    # dev：本文件就在仓库根，桌面端数据根也是它
+    if (here / "registry.yaml").exists() or (here / "task-data").exists():
+        return here
+    # 打包态：Electron userData（productName=方寸）与 Python 旧默认（Fangcun）都认；
+    # 先找有同意记录的，避免两边各看各的“未确认”。
+    if appdata:
+        for name in ("方寸", "Fangcun"):
+            cand = Path(appdata) / name
+            if (cand / "config" / "license_ack.json").exists() or (cand / "registry.yaml").exists():
+                return cand.resolve()
+    try:
+        from tegula.core import DATA_DIR  # type: ignore
+        return Path(DATA_DIR).expanduser().resolve()
+    except Exception:  # noqa: BLE001
+        return here
+
+
+def _norm_version(v: Any) -> str:
+    s = str(v if v is not None else "").strip()
+    return s[:-2] if s.endswith(".0") and s.count(".") == 1 else s
+
+
+def license_state() -> dict[str, Any]:
+    """当前许可状态；字段与桌面端 `main/license.ts` 同形。"""
+    root = _license_root()
+    file = root / "config" / "license_ack.json"
+    raw = None
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            raw = data
+    except Exception:  # noqa: BLE001
+        raw = None
+    bypass = str(os.environ.get(ENV_BYPASS) or "").strip() == "1"
+    stale = False
+    if raw:
+        v_ok = _norm_version(raw.get("version")) == _norm_version(LICENSE_VERSION)
+        s_ok = str(raw.get("sha") or "").strip() == LICENSE_CONTENT_SHA
+        stale = not (v_ok and s_ok)
+    return {
+        "acked": bool(bypass or (raw and not stale)),
+        "bypass": bypass,
+        "stale": stale,
+        "ack": ({k: raw.get(k) for k in ("version", "sha", "at", "source")} if raw else None),
+        "required": {"version": LICENSE_VERSION, "sha": LICENSE_CONTENT_SHA},
+        "root": str(root),
+    }
+
+
+def assert_licensed(action: str = "调用模型") -> None:
+    st = license_state()
+    if st["acked"]:
+        return
+    msg = (
+        "未确认许可协议（免责与知情声明）—— 按设计，确认之前方寸不调用任何模型（%s）。\n"
+        "怎么继续：打开方寸桌面端，在首启弹窗里滚到底部、勾选并点“我已阅读并同意”；"
+        "确认一次即可（条款改版才会重新弹）。\n"
+        "不想同意：点“不同意并退出”，方寸不会调用任何模型、也不会花你的钱。"
+        % action
+    )
+    raise LLMError(msg, 403)
 
 __all__ = [
     "chat",
@@ -31,6 +123,7 @@ __all__ = [
     "LLMError",
     "LLMConfig",
     "get_config",
+    "license_state",
 ]
 
 
@@ -107,6 +200,8 @@ def _request(
     cfg: LLMConfig,
     stream: bool = False,
 ) -> urllib.request.addinfourl | bytes:
+    # 许可协议总闸：所有 HTTP 调用的唯一咽喉；未确认一律不联网。
+    assert_licensed("调用模型")
     data = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",

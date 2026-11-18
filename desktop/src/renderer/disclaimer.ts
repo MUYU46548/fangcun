@@ -1,6 +1,9 @@
 /**
  * 免责与知情声明 —— **应用内展示的单一事实源**（2026-10-16，暮雨第 1 条）。
  *
+ * ⚠ 2026-11-18：版本号主源在 `../shared/license`（主进程闸读它）；这里是**镜像**，
+ *   改文案时两处一起抬，`desktop/test/license-gate.cjs` 会比对（drift 会红）。
+ *
  * 为什么单独一个文件（而不是把文案写死在组件里）：
  *   ① 文案要能独立改：作者划线改字时只动这个文件，组件一行不用碰；
  *   ② 版本号与确认记录绑在一起 —— 改了文案就把 `DISCLAIMER_VERSION` 抬一格，
@@ -15,11 +18,11 @@
  *   免责声明，主要是涉及到钱是非多”。所以短版把**会花钱的那一节（AI / BYOK）**放在
  *   最前面能看见的位置，而不是埋在第七段。
  *
- * ⚠ 为什么确认记录走 localStorage 而不是 `prefs.json`（项目里 UI 偏好的真身）：
- *   它不是一个"界面偏好"，而是一次**安装实例上的合规确认**——换台机器、换个浏览器 profile
- *   就该重新确认一次。跟着 `userData/prefs.json` 走反而会让"换了数据目录还继承着已同意"。
- *   与另一款自有产品口径一致（那边也是 localStorage）。localStorage 不可用时按"已确认"处理，
- *   绝不因为存储不可用就把用户挡在软件外面。
+ * ⚠ 2026-11-18：确认记录已改到**服务端**（`main/license.ts` 写
+ *   `<dataDir>/config/license_ack.json`）。localStorage 只留作显示缓存，
+ *   **不再作为“能不能调模型”的判据** —— 审计发现旧写法只有前端知道用户同意过，
+ *   主进程 / MCP / CLI 一处都不读。新代码请用 `fetchLicenseState()` / `ackLicense()`；
+ *   `hasAckedDisclaimer` / `ackDisclaimer` 仅为兼容旧调用保留。
  */
 
 export const DISCLAIMER_VERSION = '1.5'
@@ -43,6 +46,7 @@ export interface DisclaimerSection {
  * 只留"不同意就别用"的那几条硬话：数据在你本机、AI 会花钱、备份可能失败、
  * 只读不越界、责任限制。细节去完整版。
  */
+// === LICENSE-CONTENT-BEGIN ===
 export const DISCLAIMER_SHORT_SECTIONS: DisclaimerSection[] = [
   {
     title: '一、这是什么',
@@ -201,6 +205,8 @@ export const DISCLAIMER_FULL_SECTIONS: DisclaimerSection[] = [
   },
 ]
 
+// === LICENSE-CONTENT-END ===
+
 /** 本机是否已就**当前版本**确认过（版本抬格后自动视为未确认） */
 export function hasAckedDisclaimer(): boolean {
   try {
@@ -226,11 +232,68 @@ export function ackedDisclaimerAt(): string {
   }
 }
 
-/** 记下本次确认（返回写入的时间串） */
+/** 记下本次确认（返回写入的时间串；旧 localStorage 兼容，不再作为判据） */
 export function ackDisclaimer(): string {
   const at = new Date().toISOString()
   try {
     localStorage.setItem(DISCLAIMER_ACK_KEY, JSON.stringify({ v: DISCLAIMER_VERSION, at }))
   } catch { /* 存储不可用就只在本次会话里认了，不阻塞使用 */ }
   return at
+}
+
+// ── 服务端闸的渲染层入口（2026-11-18）──────────────────────────────────
+// 判据在主进程 `main/license.ts`；这里只负责问/签。IPC 不可用（浏览器预览）时
+// 返回 null —— 由 App 决定“服务不可达 ≠ 没同意”，不把故障冒充成授权。
+
+export interface LicenseState {
+  ok?: boolean
+  acked?: boolean
+  bypass?: boolean
+  stale?: boolean
+  ack?: { version?: string; sha?: string; at?: string; source?: string } | null
+  required?: { version?: string; sha?: string }
+  error?: string
+  /** true = 没有主进程 IPC，用旧 localStorage 记录做的“预览兼容”结果（真桌面端不会出现） */
+  fallback?: boolean
+}
+
+function licenseApi(): any {
+  return (window as any).tegula
+}
+
+/** 读服务端状态；没有 IPC 时退回旧 localStorage 显示缓存（仅浏览器预览/旧 preload）。 */
+export async function fetchLicenseState(): Promise<LicenseState | null> {
+  const api = licenseApi()
+  if (!api || typeof api.licenseStatus !== 'function') {
+    // 浏览器预览没有主进程闸。这里只让 UI 能继续走旧测试/预览；
+    // 真桌面端一定有 IPC，判据始终在主进程（main/license.ts）。
+    const acked = hasAckedDisclaimer()
+    return {
+      ok: true,
+      acked,
+      ack: acked ? { at: ackedDisclaimerAt(), version: DISCLAIMER_VERSION } : null,
+      fallback: true,
+    }
+  }
+  try {
+    return (await api.licenseStatus()) as LicenseState
+  } catch (e) {
+    // IPC 在但读取失败：fail-closed，让 App 弹窗；不要冒充“未连接”
+    return { ok: false, acked: false, error: (e as Error)?.message || '许可状态读取失败' }
+  }
+}
+
+/** 写同意（只由桌面端渲染层调用；主进程决定版本与正文指纹）。 */
+export async function ackLicense(): Promise<LicenseState | null> {
+  const api = licenseApi()
+  if (!api || typeof api.licenseAck !== 'function') {
+    // 预览兼容：没有 IPC 时写旧 localStorage（不影响真桌面端的服务端判据）。
+    const at = ackDisclaimer()
+    return { ok: true, acked: true, ack: { at, version: DISCLAIMER_VERSION }, fallback: true }
+  }
+  try {
+    return (await api.licenseAck()) as LicenseState
+  } catch (e) {
+    return { ok: false, acked: false, error: (e as Error)?.message || '许可确认失败' }
+  }
 }

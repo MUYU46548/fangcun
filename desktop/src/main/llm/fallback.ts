@@ -14,6 +14,8 @@
  *  ③ **全挂要说人话**：返回里带 `attempts`（谁失败了、为什么）+ `skipped`（哪条压根没配齐）。
  */
 import { chatDetailed, type ChatOptions } from './chat'
+import { assertLicensed } from '../license'
+import { getDataDir } from '../data'
 import { appendTrace } from './trace'
 import { effectiveChannels } from './channels'
 import {
@@ -67,6 +69,17 @@ export async function chatWithFallback(
   content: any,
   opts: FallbackOptions = {},
 ): Promise<FallbackResult> {
+  // 许可协议总闸（2026-11-18）：在降级链**之前**判一次。
+  // 否则未确认会被当成“某条通道失败”，换三条通道各试一遍，最后给一句
+  // “没有可用通道”—— 用户根本看不出是没同意协议。
+  try {
+    assertLicensed(getDataDir(), '调用模型')
+  } catch (e) {
+    return {
+      ok: false, text: '', attempts: [], note: '', skipped: [],
+      error: (e as Error).message,
+    }
+  }
   const src = (opts.channels || effectiveChannels)()
   const plan = buildChain(src.channels, src.primaryId)
   const trace = opts.appendTrace || appendTrace

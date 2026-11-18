@@ -31,6 +31,13 @@ todos/
 # 想法（2026-10-22）：与 todos 同类，是使用数据不入库。
 # 2026-10-23 补：加功能时忘了同步这里，`git status` 一直挂着 `?? ideas/`。
 ideas/
+# 记忆（2026-11-17）：与 ideas/task-data 同类，是使用数据不入库。
+# 这里存的是事故/决定/偏好/教训的原文 —— 含真实项目名与本机路径，绝不能进公开仓库。
+# ⚠ 这条是**建目录时同一轮就加上**的（不再重犯 ideas/ 那个"忘同步"的坑）。
+# ⚠ 但 README.md（schema 规范）要入库：数据不入库 ≠ 能力没有文档。
+#   git 的规矩：父目录被 ignore 后 `!` 救不回文件，所以要用 `memory/*` 而不是 `memory/`。
+memory/*
+!memory/README.md
 notifications/
 policies/
 project-status.md
@@ -102,3 +109,7 @@ scripts/clean-release-dirs.ps1
 .mcp-writes.jsonl
 # ESLint 扫描产物（A1a 出账用，1.4MB，不入库）
 .fe-lint.json
+
+# 许可协议同意记录（2026-11-18）：每个数据根一份，不随仓库走
+license_ack.json
+config/license_ack.json

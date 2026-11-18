@@ -1,4 +1,6 @@
 import { LLMConfig, LLMError, getConfig, isMaskedKey } from './config'
+import { assertLicensed } from '../license'
+import { getDataDir } from '../data'
 import { appendTrace, traceFilePath } from './trace'
 import { findPrice, costOf } from '../../shared/pricing'
 import { parseAmount, formatAmount } from '../../shared/balance'
@@ -268,6 +270,9 @@ export async function chatDetailed(
   content: string | ChatMessage[],
   options: ChatOptions = {}
 ): Promise<{ text: string; usage: ChatUsage; finish: string }> {
+  // 许可协议总闸（2026-11-18）：未确认就先抛，**在配置检查之前** ——
+  // 否则用户会先看到“没配 key”，误以为配好 key 就能用。
+  assertLicensed(getDataDir(), '调用模型')
   const cfg = resolveConfig(options)
   if (!cfg.apiKey) {
     throw new LLMError('未配置 API Key，请在设置 → 模型通道中填写后重试')
@@ -359,6 +364,7 @@ export async function* streamChat(
   content: string | ChatMessage[],
   options: ChatOptions = {}
 ): AsyncGenerator<string> {
+  assertLicensed(getDataDir(), '调用模型（流式）')
   const cfg = resolveConfig(options)
   if (!cfg.apiKey) {
     throw new LLMError('未配置 API Key，请在“LLM 配置”中填写后重试')
@@ -520,6 +526,7 @@ export function explainError(status: number, body: string): string {
  * 任何阶段失败都返回完整证据（URL / 状态码 / 响应体），不吞错。
  */
 export async function pingConnection(options: ChatOptions = {}): Promise<PingResult> {
+  assertLicensed(getDataDir(), '测试模型连接')
   const cfg = resolveConfig(options)
   const steps: PingStep[] = []
   const ep = resolveEndpoints(cfg.baseUrl)
