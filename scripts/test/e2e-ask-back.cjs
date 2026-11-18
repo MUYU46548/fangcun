@@ -75,11 +75,46 @@ function load() {
     path.join(tmp, 'src', 'main', 'llm', 'askBack.js'),
     path.join(tmp, 'main', 'llm', 'askBack.js'),
   ]
-  for (const f of cands) if (fs.existsSync(f)) return require(f)
+  for (const f of cands) if (fs.existsSync(f)) {
+    // ⚠ 2026-11-17：这里必须**登记待清理**，不能只把路径返回去。
+    //   原实现每次实跑都 mkdtempSync 一个目录然后不删 —— 实测 %TEMP% 下已积 33 个
+    //   `fc-askback-*`。同一个形状本仓上过一次大课（渲染 profile 单份 482MB / 一个月 53.8GB）。
+    //   清理失败不算失败（下次清扫带走），但**不许静默留下**：失败要在退出时说一句。
+    scheduleCleanup(tmp)
+    return require(f)
+  }
+  scheduleCleanup(tmp)
   console.log('!! 编译产物没找到，最后一次错误：' + lastErr.slice(0, 400))
   console.log('   临时目录内容：' + (fs.readdirSync(tmp).join(',') || '(空)'))
   return null
 }
+
+/**
+ * 临时目录清理队列（2026-11-17）。
+ *
+ * 照抄 `e2e-renderer-web.cjs` 的三件套：**登记 → 退出时统一删 → 删不掉要说出来**。
+ * 为什么不在这里当场 rmSync：编译出来的 .js 正被 `require` 持有，Windows 上删目录会 EBUSY；
+ * 退出时进程释放句柄后再删才删得掉（这也是渲染那套用 `process.on('exit')` 而不是立即删的原因）。
+ */
+const CLEANUP = []
+function scheduleCleanup(dir) {
+  if (!dir) return
+  CLEANUP.push(dir)
+}
+process.on('exit', () => {
+  let failed = 0
+  for (const d of CLEANUP) {
+    try {
+      if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true })
+    } catch { failed++ }
+  }
+  if (failed) {
+    // 不许静默留下：删不掉就点名，下次清扫带走
+    console.log(`（有 ${failed} 个临时目录没删掉，下次清扫带走：${CLEANUP.slice(0, failed).join(', ')}）`)
+  } else if (CLEANUP.length) {
+    console.log(`（已清理 ${CLEANUP.length} 个临时目录）`)
+  }
+})
 
 function main() {
   console.log('=== 一、文件与接口 ===')

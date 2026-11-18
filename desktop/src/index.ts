@@ -9,6 +9,7 @@ import { registerPlanRunIpcHandlers } from './main/plan-run-ipc'
 import { registerMirrorIpcHandlers } from './main/mirror-ipc'
 import { registerWasteIpcHandlers } from './main/waste-ipc'
 import { registeredChannels } from './main/guarded-ipc'
+import { isQuitting, markQuitting } from './main/quitGate'
 import { getPref } from './main/services/prefs'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
@@ -72,7 +73,9 @@ const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-let isQuitting = false
+// 退出闸（`isQuitting`）已移到 `main/quitGate.ts`：
+// 渲染层那条 `app:quitForReal` 要置位**同一个**状态，留在本文件的模块级变量它够不着 ——
+// 那正是「不同意并退出永远退不掉」的原始形态（见 quitGate.ts 头注释）。
 /** 渲染进程崩过一次就自动重载一次（2026-10-30 白屏事故的兜底） */
 let rendererRecovered = false
 
@@ -314,7 +317,7 @@ function createWindow(): void {
   mainWindow.webContents.on('unresponsive', () => {
     appLog.warn('window', '窗口无响应')
     // 2026-10-30 白屏/卡死：渲染层卡住时用户只能退出重进。这里补一次自动重载兜底。
-    if (!rendererRecovered && !isQuitting) {
+    if (!rendererRecovered && !isQuitting()) {
       rendererRecovered = true
       appLog.warn('window', '窗口无响应超过阈值，1s 后自动重载一次')
       setTimeout(() => {
@@ -355,7 +358,7 @@ function createWindow(): void {
   mainWindow.on('show', () => syncSkillsSoon('show'))
 
   mainWindow.on('close', (event) => {
-    if (!isQuitting) {
+    if (!isQuitting()) {
       event.preventDefault()
       mainWindow?.hide()
     }
@@ -374,7 +377,7 @@ function createTray(): void {
     {
       label: '退出',
       click: () => {
-        isQuitting = true
+        markQuitting()
         app.quit()
       },
     },

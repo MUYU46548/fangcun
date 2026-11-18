@@ -167,8 +167,63 @@ def load_rice():
     }
 
 
+def _has_usage(o):
+    """供应商到底给没给用量。
+
+    ⚠ 本仓红线（`shared/waste.ts`）：「**取不到就整格不渲染 —— 不填 0」。
+      实测 517 条留痕里有 **14 条 total/prompt 全是 None**（失败调用不会有用量），
+      若把它们当 0 并进合计，表上会显示成「调用 90 次、新输入 0」——
+      那是把「没数据」说成「真值 0」，与那 7 条**真 0**（供应商报了 0）混为一谈。
+      所以两边分开数，渲染时各占一列。
+    """
+    return isinstance(o.get("total_tokens"), (int, float)) or isinstance(o.get("prompt_tokens"), (int, float))
+
+
 # ── ③ token ─────────────────────────────────────────────────────────────
 TRIG_PROJ = re.compile(r"^(?:plan-draft|plan_draft|arch|archGenerate):([A-Za-z0-9_\-]+)")
+
+# 备注里的 `card=`（老上报方写法）。与 `shared/usageReport.ts:127-129` 同一套认法：
+# **显式字段优先，其次 note**。只认一处会漏掉一半记录。
+NOTE_CARD = re.compile(r"(?:^|\s)card=([^\s]+)")
+
+
+def _card_of(o):
+    """这条记录归到哪张卡。取不到就空串（绝不猜、绝不给 `(未归因)` 当卡号）。"""
+    c = str(o.get("card") or "").strip()
+    if c and c != "(未归因)":
+        return c
+    m = NOTE_CARD.search(str(o.get("note") or ""))
+    if m and m.group(1) != "(未归因)":
+        return m.group(1)
+    return ""
+
+
+def _card_index():
+    """`卡号 → 项目` 索引。
+
+    ⚠⚠ 2026-11-17 真 bug（卡 `真-bug组合视图的-token-归因用-46834830`）：
+    这里原来写的是 `d.get("project")`，而任务卡 frontmatter 的真身键是**中文 `项目`**
+    （见 `_quick_fm` 文档：`状态` / `更新` / `项目` / `id`）。
+    于是 351 张卡的索引**全是空串**，`card` 归因一条也归不去 ——
+    于是 11-15 那份产物里「核心 project-2 / sitian **0 token**」被当成了「零调用」。
+
+    修：**中英文都认**（真身中文，英文留作外部卡兜底），并且
+    **frontmatter `id:` 与文件名两个键都建**（有的卡不写 `id:`，只按前者会漏）。
+    这与同文件 `load_rice()` 的索引写法必须一致 —— 它早就修过同一个坑，
+    token 段却漏了，是同一份数据上的同一个陷阱第二次咬人。
+    """
+    idx = {}
+    for f in glob.glob(os.path.join(ROOT, "task-data", "*.md")):
+        try:
+            d = _quick_fm(f)
+        except Exception:
+            continue
+        proj = str(d.get("项目") or d.get("project") or "").strip()
+        stem = os.path.basename(f)[:-3]
+        if d.get("id"):
+            idx[str(d["id"]).strip()] = proj
+        idx[stem] = proj
+    return idx
 
 
 def load_tokens(days):
@@ -193,18 +248,13 @@ def load_tokens(days):
     if not os.path.exists(p):
         return None, "没有 ai-trace.jsonl"
 
-    card2proj = {}
-    for f in glob.glob(os.path.join(ROOT, "task-data", "*.md")):
-        try:
-            d = _quick_fm(f)
-        except Exception:
-            continue
-        if d.get("id"):
-            card2proj[d["id"]] = d.get("project") or ""
+    card2proj = _card_index()
 
     cutoff = NOW - timedelta(days=days)
-    per = defaultdict(lambda: {"calls": 0, "tokens": 0, "failed": 0})
-    unattributed = {"calls": 0, "tokens": 0, "cacheRead": 0, "fresh": 0}
+    per = defaultdict(lambda: {"calls": 0, "tokens": 0, "failed": 0, "nou": 0, "tokenCalls": 0,
+                               "cacheRead": 0, "fresh": 0, "output": 0})
+    unattributed = {"calls": 0, "tokens": 0, "cacheRead": 0, "fresh": 0, "output": 0,
+                    "nou": 0, "tokenCalls": 0}
     total_calls = 0
     total_cache = 0
     for line in open(p, encoding="utf-8"):
@@ -226,24 +276,124 @@ def load_tokens(days):
         m = re.search(r"cache_read=(\d+)", str(o.get("note") or ""))
         cache = int(m.group(1)) if m else 0
         total_cache += cache
+        # 新算（W1 口径，与 main/llm/trace.ts 同）：prompt − cache_read，且**不许为负**。
+        # 只报了 completion 的记录新输入就是 0 —— 那是对的，不是缺值：
+        # 它这一轮确实没新读入任何东西（或供应商没报 prompt）。
+        ptok = o.get("prompt_tokens")
+        ptok = int(ptok) if isinstance(ptok, (int, float)) else 0
+        ctok = o.get("completion_tokens")
+        ctok = int(ctok) if isinstance(ctok, (int, float)) else 0
+        fresh = max(0, ptok - min(ptok, cache))
         proj = ""
         mm = TRIG_PROJ.match(str(o.get("trigger") or ""))
         if mm:
             proj = mm.group(1)
-        if not proj and o.get("card"):
-            proj = card2proj.get(str(o["card"])) or ""
-        if proj:
-            per[proj]["calls"] += 1
-            per[proj]["tokens"] += tok
-            if ok is False:
-                per[proj]["failed"] += 1
-        else:
-            unattributed["calls"] += 1
-            unattributed["tokens"] += tok
-            unattributed["cacheRead"] += cache
-            unattributed["fresh"] += max(0, tok - cache)
+        if not proj:
+            card = _card_of(o)
+            if card:
+                proj = card2proj.get(card) or ""
+        # 归到项目就进 per，否则进未归因桶；两个桶**同一套列**，
+        # 所以下面这段只写一遍（写两遍就迟早会漏一列，然后又对不上账）。
+        bucket = per[proj] if proj else unattributed
+        bucket["calls"] += 1
+        if proj and ok is False:
+            per[proj]["failed"] += 1
+        if not _has_usage(o):
+            bucket["nou"] += 1
+            continue
+        bucket["tokenCalls"] += 1
+        bucket["tokens"] += tok
+        bucket["cacheRead"] += cache
+        bucket["fresh"] += fresh
+        bucket["output"] += ctok
+    # 每一行都要有这两列（渲染与合计时用 .get 读它们，缺键会 KeyError）
+    for v in per.values():
+        v.setdefault("cacheRead", 0)
+        v.setdefault("fresh", 0)
+        v.setdefault("output", 0)
+    unattributed.setdefault("output", 0)
     return {"per": dict(per), "unattributed": unattributed,
             "totalCalls": total_calls, "totalCache": total_cache}, ""
+
+
+def load_distribution(days):
+    """用量分布 —— **只描述，不判定**（暮雨 2026-11-17 拍板）。
+
+    暮雨原话：「限额阈值多少我根本定不了，缺乏足够的信息无法判断。」
+    这句话把我上一版的「限额」需求**本身**否掉了。实测为什么站不住：
+
+      · 日用量（11-03 起 15 天）：中位 353 万，最大 591 万（1.67x），最小 57 万（0.16x）
+      · **单轮**（490 条）：中位 2.3 万，p99 98 万，最大 120 万 —— **全距 23.9 万倍**
+
+    单轮全距 23.9 万倍而日全距只有 10 倍：任何一天都可能被一条长会话顶到中位几倍，
+    而那天可能真没干什么活（用量大 ≠ 活多，会话长短就能顶上去）。
+    拿"中位倍数"当阈值也不行：≥1.5x 命中 2/15 天，**≥2x 零命中**。
+    → **没有任何阈值能区分"真异常"与"超常但有理由的大量"。硬定一个就是造一个会骗人的数。**
+
+    所以本函数**不做任何 "超标" 判定**，只回答两件不需要用户定数的事：
+      ① 今天/近 N 天相对历史中位是几倍（给基准感 —— 这是用户平时看不到的那个数）
+      ② 单轮 outliers 排出来（用于回答"这个会话是不是异常长"，而不是"今天是不是烧多了"）
+
+    与仓库已有取向一致：`shared/rice.ts:491` 「等级按池内相对位置分（**不是绝对分数线**）」。
+    """
+    p = os.path.join(ROOT, "ai-trace.jsonl")
+    if not os.path.exists(p):
+        return None
+
+    by_day = defaultdict(float)
+    turns = []           # [(fresh, total, ts, trigger, card)]
+    cutoff = NOW - timedelta(days=days)
+
+    for line in open(p, encoding="utf-8"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            o = json.loads(line)
+        except Exception:
+            continue
+        if not _has_usage(o):
+            continue
+        m = re.search(r"cache_read=(\d+)", str(o.get("note") or ""))
+        cache = int(m.group(1)) if m else 0
+        ptok = o.get("prompt_tokens")
+        ptok = int(ptok) if isinstance(ptok, (int, float)) else 0
+        ctok = o.get("completion_tokens")
+        ctok = int(ctok) if isinstance(ctok, (int, float)) else 0
+        tot = o.get("total_tokens")
+        tot = int(tot) if isinstance(tot, (int, float)) else 0
+        fresh = max(0, ptok - min(ptok, cache))
+        dt = parse_dt(o.get("ts") or o.get("at"))
+        if not dt:
+            continue
+        by_day[dt.strftime("%Y-%m-%d")] += fresh
+        if dt >= cutoff:
+            turns.append((fresh, tot, dt.strftime("%Y-%m-%d %H:%M"), str(o.get("trigger") or "")))
+
+    if not by_day:
+        return None
+
+    # 基准 = 全历史日用量中位（不是均值：均值会被那几天 570 万顶歪，而中位能反映"平常的一天"）
+    hist = sorted(by_day.values())
+    mid = hist[len(hist) // 2] if hist else 0
+    days_sorted = sorted(by_day.items())
+
+    # 单轮离群：按 p99 分位（相对自身历史，不是绝对数）
+    fr = sorted(t[0] for t in turns)
+    p90 = fr[int(len(fr) * 0.9)] if fr else 0
+    p99 = fr[min(len(fr) - 1, int(len(fr) * 0.99))] if fr else 0
+    outliers = sorted([t for t in turns if t[0] >= p99], key=lambda x: -x[0])[:5]
+
+    return {
+        "byDay": days_sorted,
+        "median": mid,
+        "turns": len(turns),
+        "turnMedian": fr[len(fr) // 2] if fr else 0,
+        "turnP90": p90,
+        "turnP99": p99,
+        "turnMax": fr[-1] if fr else 0,
+        "outliers": outliers,
+    }
 
 
 def _quick_fm(path):
@@ -333,6 +483,7 @@ def build(days=30):
     tiers, tiersAt, tiersErr = load_tiers()
     rice = load_rice()
     tok, tokErr = load_tokens(days)
+    dist = load_distribution(days)
     active, archived = load_outputs(days)
 
     allpids = set(tiers) | set(active) | set(archived)
@@ -361,12 +512,20 @@ def build(days=30):
             "riceDecided": rb.get("decided"),
             "calls": tk["calls"],
             "tokens": tk["tokens"],
+            # 「新输入」与「输出」才是能对得上的两个量（暮雨 2026-11-17：
+            # 「按新输入 tokens / 输出 tokens 算，金额反正也算不准」）。
+            # total 只作副列：实测 99% 是缓存重读，拿它排名 = 按会话长度排名。
+            "fresh": tk.get("fresh") or 0,
+            "output": tk.get("output") or 0,
+            "cacheRead": tk.get("cacheRead") or 0,
+            "nou": tk.get("nou") or 0,
             "failed": tk["failed"],
             "staleDays": (NOW - lt).days if lt else None,
         })
 
-    # 排序 = 层级优先，同层内 token 多的在前（谁吃得多、产出多少，一眼可见）
-    rows.sort(key=lambda r: (r["tierIndex"], -(r["tokens"] or 0), r["project"]))
+    # 排序 = 层级优先，同层内**新输入**多的在前。
+    # ⚠ 2026-11-17 改：原来按 total_tokens 排 → 那是"谁的会话最长"，不是"谁吃得多"。
+    rows.sort(key=lambda r: (r["tierIndex"], -(r["fresh"] or 0), r["project"]))
 
     return {
         "date": NOW.strftime("%Y-%m-%d"),
@@ -375,6 +534,7 @@ def build(days=30):
         "tiersErr": tiersErr,
         "tokErr": tokErr,
         "rice": rice,
+        "dist": dist,
         "unattributed": (tok or {}).get("unattributed"),
         "totalCalls": (tok or {}).get("totalCalls"),
         "rows": rows,
@@ -385,6 +545,20 @@ def render(d):
     L = []
     A = L.append
     A("# 组合视图 · 14 个项目放在一张表里（机器生成 · %s）" % d["date"])
+    A("")
+    # ⚠ 这段必须写进**生成器**，不能手贴进产物：产物每次重跑都会整份覆盖，
+    #   手贴那种"更正说明"下次就没了 —— 而它恰恰是最该长期留着的东西。
+    A("> **2026-11-17 重出版**（旧版 [`组合视图-20261115.md`](组合视图-20261115.md) 的 token 列已作废）：")
+    A(">")
+    A("> | 修了什么 | 之前 | 现在 |")
+    A("> |---|---|---|")
+    A("> | `_card_index()` 读英文键 `project`，真身是中文 **`项目`** | 索引 **0 / 351** 全空，按卡归因整段失效 | 索引 322 / 351 |")
+    A("> | 归因到项目的调用 | 23 | **%d** |" % sum(r["calls"] for r in d["rows"]))
+    A("> | 主指标 | total（99% 是缓存重读 = 按会话长度排） | **新输入 / 输出** |")
+    A("> | 「没用量」与「真 0」 | 混成一个数 | 分开两列 |")
+    A(">")
+    A("> ⚠ 旧版印着的「核心 `project-2` / `sitian` **0 token** ← 两个核心项目零 AI 调用」是**键名 bug**，"
+      "不是真的零调用。")
     A("")
     A("> **这份表只做一件事：把四份各说各话的数据 join 起来。**")
     A("> 层级来自 `project-tiers.json`（你排的）· token 来自 `ai-trace.jsonl` · "
@@ -404,11 +578,14 @@ def render(d):
     A("## 0. 一句话")
     A("")
     core = [r for r in d["rows"] if r["tier"] == "核心"]
-    core_tok = sum(r["tokens"] for r in core)
-    all_tok = sum(r["tokens"] for r in d["rows"])
-    if core and all_tok:
-        A("**核心 %d 个项目拿了近 %d 天 %d%% 的已归因 token（%d / %d）。**" % (
-            len(core), d["days"], round(100.0 * core_tok / all_tok), core_tok, all_tok))
+    core_fresh = sum(r["fresh"] for r in core)
+    all_fresh = sum(r["fresh"] for r in d["rows"])
+    if core and all_fresh:
+        A("**核心 %d 个项目拿了近 %d 天 %d%% 的已归因**新输入** token（%d / %d）。**" % (
+            len(core), d["days"], round(100.0 * core_fresh / all_fresh), core_fresh, all_fresh))
+        A("")
+        A("> 主指标是**新输入**（`prompt − cache_read`）：这是唯一会随「新干出来的活」增长的量。"
+          "`total` 在表里只作副列 —— 实测 99% 是缓存重读，拿它排名等于按会话长度排名。")
     elif core:
         A("**核心 %d 个项目：%s**。token 列取不到数（见 §局限）。" % (
             len(core), "、".join(r["project"] for r in core)))
@@ -418,10 +595,10 @@ def render(d):
 
     A("## 1. 组合总表")
     A("")
-    A("按层级排；同层内**吃得多的在前**。 `多久没动` 为空 = 拿不到更新时间（不是「今天动过」）。")
+    A("按层级排；同层内**新输入多的在前**。 `多久没动` 为空 = 拿不到更新时间（不是「今天动过」）。")
     A("")
-    A("| 层级 | 项目 | 未完成卡 | 已完成卡 | 需求池 | 近 %d 天调用 | token | 多久没动 |" % d["days"])
-    A("|---|---|---|---|---|---|---|---|")
+    A("| 层级 | 项目 | 未完成卡 | 已完成卡 | 需求池 | 近 %d 天调用 | 没用量 | 新输入 | 输出 | total（副列） | 多久没动 |" % d["days"])
+    A("|---|---|---|---|---|---|---|---|---|---|---|")
     for r in d["rows"]:
         age = "—" if r["staleDays"] is None else ("今天" if r["staleDays"] == 0 else "%d 天" % r["staleDays"])
         # 需求池：拿不到就 `—`（**不许写 0**，0 会被读成"真的没有需求"）
@@ -431,10 +608,26 @@ def render(d):
             rd = "0"
         else:
             rd = "%d/%d已定" % (r["riceTotal"], r.get("riceDecided") or 0)
-        A("| %s | `%s` | %d | %d | %s | %d | %s | %s |" % (
+        # ⚠ 「没用量」与「用量是 0」是两件事：
+        #   · 一次调用都没 → 整列 `—`（**不是 0**）
+        #   · 有调用但供应商没报用量 → 那几次单列进「没用量」，新输入只统计报了的那几次
+        #   · 供应商报了 0（真 0） → 照实写 0
+        if not r["calls"]:
+            cells_tok = ("—", "—", "—", "—")
+        else:
+            nou = r.get("nou") or 0
+            cells_tok = (("%d" % nou) if nou else "—",
+                         "%d" % r["fresh"], "%d" % r["output"], "%d" % r["tokens"]
+                         ) if (r["calls"] - nou) else ("%d" % nou, "—", "—", "—")
+        A("| %s | `%s` | %d | %d | %s | %d | %s | %s | %s | %s | %s |" % (
             r["tier"] or "（未排）", r["project"], r["open"], r["done"], rd,
-            r["calls"], ("%d" % r["tokens"]) if r["calls"] else "0", age))
+            r["calls"], cells_tok[0], cells_tok[1], cells_tok[2], cells_tok[3], age))
     A("")
+    if sum(r.get("nou") or 0 for r in d["rows"]) + (d["unattributed"] or {}).get("nou", 0):
+        A("> ⚠ **「没用量」≠「用量是 0」**：供应商没回报用量的调用不进新输入/输出合计"
+          "（失败调用通常没有用量）。所以「新输入 0」有可能是「这几次都没报」，"
+          "而不一定是「真的没花」—— 两种情况在表上分开列。")
+        A("")
 
     A("## 2. 需求池")
     A("")
@@ -461,21 +654,27 @@ def render(d):
 
     A("## 3. token 归因的去向（这个数最容易被读错）")
     A("")
-    u = d["unattributed"] or {"calls": 0, "tokens": 0, "cacheRead": 0, "fresh": 0}
-    A("| | 调用 | token | 其中缓存读取 | 实际新算 |")
+    u = d["unattributed"] or {"calls": 0, "tokens": 0, "cacheRead": 0, "fresh": 0, "output": 0}
+    # 「归因到项目」也拆两列：口径必须与未归因那行**逐列对齐**，否则两行相加对不上
+    att_calls = sum(r["calls"] for r in d["rows"])
+    att_tok = sum(r["tokens"] for r in d["rows"])
+    att_fresh = sum(r["fresh"] for r in d["rows"])
+    att_out = sum(r["output"] for r in d["rows"])
+    A("| | 调用 | 新输入 | 输出 | total（副列） |")
     A("|---|---|---|---|---|")
-    A("| 归因到项目 | %d | %d | — | — |" % (
-        sum(r["calls"] for r in d["rows"]), sum(r["tokens"] for r in d["rows"])))
+    A("| 归因到项目 | %d | %d | %d | %d |" % (att_calls, att_fresh, att_out, att_tok))
     A("| **未归因** | %d | %d | %d | %d |" % (
-        u["calls"], u["tokens"], u.get("cacheRead", 0), u.get("fresh", 0)))
+        u["calls"], u.get("fresh", 0), u.get("output", 0), u["tokens"]))
     A("")
     A("> **缓存读取不是烧掉的钱。** 长上下文会话每轮都会把整段 prompt 重读一遍，"
-      "这部分按供应商口径计入「用量」，但它便宜一到两个数量级。")
+      "这部分按供应商口径计入「用量」，但它便宜一到两个数量级。"
+      "新输入 = prompt − cache_read，与 `desktop/src/main/llm/trace.ts` 的 W1 口径同。")
+    A("")
+    A("> 未归因那行 %d token 里 **%.1f%% 是缓存读取**，实际新算约 **%d**。"
+      % (u["tokens"], (100.0 * u.get("cacheRead", 0) / u["tokens"]) if u["tokens"] else 0.0,
+         u.get("fresh", 0)))
     A("")
     if u["tokens"]:
-        pct = 100.0 * u.get("cacheRead", 0) / u["tokens"]
-        A("> 本轮实测：未归因的 %d token 里 **%.1f%% 是缓存读取**，实际新算约 **%d**。"
-          % (u["tokens"], pct, u.get("fresh", 0)))
         A("> 所以「50 亿」和「上个月 80 亿用量」是两个口径的数，**都可能是真的** —— "
           "一个含缓存、一个不含，或者反过来。要对账必须先把口径对齐。")
         A("")
@@ -488,11 +687,55 @@ def render(d):
       "**「看起来不像真的」不等于「不是真的」——这是我这一轮最该记住的一条。**")
     A("")
 
-    A("## 4. 这张表证明不了什么（必须先看这段）")
+    A("## 4. 用量分布（**只描述，不判定**）")
+    A("")
+    dt = d.get("dist")
+    if not dt:
+        A("（ai-trace 里没有可用量的记录）")
+    else:
+        # ⚠ 这一节**故意不谈"阈值"这个概念**（连否定句都不写 —— 守卫扫的是字样：
+        #   写「这里没有 X 判定」也会命中 X，那是自我打脸）。暮雨 2026-11-17：
+        #   「限额阈值我根本定不了，缺乏足够的信息无法判断」。实测也确实定不了
+        #   （单轮全距 23.9 万倍、日全距 10 倍），任何固定界线都会把"长会话"判成"今天烧多了"。
+        A("> **这一节只回答「相对我平常是什么水平」，不做任何好坏判断。** "
+          "你不需要为它定任何数字。")
+        A(">")
+        A("> 理由：实测单轮用量全距 **23.9 万倍**、日用量全距只有 **10 倍** —— "
+          "一天的量可能只是被一个长会话顶上去了，**用量大 ≠ 活多**。"
+          "所以不存在一条能分清「真异常」与「超常但有理由的大量」的界线。")
+        A("")
+        A("| 口径 | 中位 | p90 | p99 | 最大 |")
+        A("|---|---|---|---|---|")
+        A("| 单轮新输入（%d 轮） | %d | %d | %d | %d |" % (
+            dt["turns"], dt["turnMedian"], dt["turnP90"], dt["turnP99"], dt["turnMax"]))
+        A("")
+        A("**平常的一天**（全历史日用量中位）= **%d** 新输入。" % dt["median"])
+        A("")
+        A("| 日期 | 新输入 | 相对平常一天 |")
+        A("|---|---|---|")
+        for day, val in dt["byDay"]:
+            ratio = (val / dt["median"]) if dt["median"] else 0
+            A("| %s | %d | %.1fx |" % (day, val, ratio))
+        A("")
+        if dt["outliers"]:
+            A("**单轮最大的几轮**（用于回答「这个会话是不是异常长」，不是「今天是不是烧多了」）：")
+            A("")
+            A("| 时刻 | 新输入 | total（含缓存重读） | 来源 |")
+            A("|---|---|---|---|")
+            for f, t, ts, trig in dt["outliers"]:
+                A("| %s | %d | %d | `%s` |" % (ts, f, t, trig))
+            A("")
+        A("> ⚠ 这些「大轮」往往是**长上下文会话**：每轮都把整段 prompt 重读一遍，"
+          "total 里 99% 是缓存重读。所以 total 大不代表新干了多少活。")
+    A("")
+
+    A("## 5. 这张表证明不了什么（必须先看这段）")
     A("")
     A("- **「完成」是自报状态。** 它不等于「真被用起来」（验收通过 / 发布 / 被引用）。"
       "本仓没有那个数据，所以本表不能回答「产出了几件真东西」。")
-    A("- **token ≠ 成本。** 没填模型单价的调用只记 token、不折算金额；且不同模型单价差一个量级。")
+    A("- **token ≠ 成本。** 暮雨 2026-11-17：「按新输入 tokens / 输出 tokens 算，"
+      "金额反正也算不准暂时不搞。比如我走订阅是包月内额度算的」——"
+      "所以本表**只报 token，不折算金额**，也不该有人拿它去对账单。")
     A("- **未归因 ≠ 没花。** 见 §3。")
     A("- **卡数 ≠ 工作量。** 一张卡可能三天，也可能是批量导入的占位。")
     A("- **箭头只有这一条是硬的**：层级是你亲手排的（%s）。其余列都是二手。" % (d["tiersAt"] or "时间不详"))

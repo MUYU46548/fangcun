@@ -322,6 +322,48 @@ def verify_release(repo, ver, slug, tag):
 
 # ── 入口 ───────────────────────────────────────────────────────────────
 
+def check_promises(repo):
+    """「提了没做」收工闸（2026-11-17 · 暮雨：「防止东西提了没做的机制，有了吗？」）
+
+    为什么挂在发版前置：这套清点**早就有了**（inventory-unfinished + audit-log-nextsteps），
+    但从来没有一个"真会被执行"的地方去跑它 —— 报表再准，没人看等于没有机制。
+    发版是少数几个**一定会被执行**的节点，所以放这里。
+
+    ⚠ 设计上**只警告不阻断**（返回 E_OK，只往 lines 里塞提示）：
+       欠账不该阻止发版（那会把流程卡死，逼人绕过闸），但必须在人眼前过一遍。
+       真阻断的关口是"验收签字"，那是用户的手，不是我的。
+    """
+    lines = []
+    script = os.path.join(repo, "scripts", "check-promises.py")
+    if not os.path.isfile(script):
+        return E_OK, ["（没有 scripts/check-promises.py，跳过欠账体检）"]
+    try:
+        p = subprocess.run([sys.executable, script, "--json"], cwd=repo,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=300)
+        data = json.loads(p.stdout or "{}")
+    except Exception as e:                                    # noqa: BLE001
+        return E_OK, [f"欠账体检跑不起来（{type(e).__name__}: {e}）—— 不等于没有欠账"]
+    inv = data.get("inventory") or {}
+    ns = data.get("nextSteps") or {}
+    lines.append(
+        "欠账底数：未完成卡 %s · 日志下一步 %s · 计划卡 %s · 合计 %s"
+        % (inv.get("未完成卡", "?"), inv.get("日志下一步", "?"),
+           inv.get("计划卡待办", "?"), inv.get("合计", "?"))
+    )
+    undisposed = ns.get("仍未接")
+    if undisposed:
+        lines.append(
+            f"⚠ 日志「下一步」仍有 {undisposed} 条没逐条处置（这就是“提了没做”）"
+            "—— 发版不拦，但请知道它还在"
+        )
+    problems = data.get("problems") or []
+    for pr in problems:
+        if "读坏了" in pr or "解析失败" in pr:
+            lines.append("⚠ 欠账体检自身读数可疑：" + pr)
+    return E_OK, lines
+
+
 def main(argv):
     if len(argv) < 2:
         log("用法: python scripts/release-precheck.py <repo_root> <version> [--move-tag]")
@@ -359,6 +401,10 @@ def main(argv):
             c, diag = check_tag(repo, tag, head, move_tag)
             lines += diag
             rc = rc or c
+        # ③ 欠账体检（2026-11-17）：只警告不阻断 —— 说明见 check_promises 注释
+        c, diag = check_promises(repo)
+        lines += diag
+        rc = rc or c
         head = "发版前置体检"
 
     for line in lines:

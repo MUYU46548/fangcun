@@ -229,6 +229,148 @@ const after = fingerprint()
   check('★ 确实有能归因的（防这条断言永远绿）', attributable > 0, `可归=${attributable}`)
 }
 
+// ── ⑨ 按卡归因必须真的能归（2026-11-17 补 · 卡 46834830）───────────────
+//
+// 起因：`load_tokens()` 用英文键 `d.get("project")` 读任务卡 frontmatter，
+// 而真身键是**中文 `项目`**（见脚本自己的 `_quick_fm` 文档）。
+// 于是 351 张卡的索引**全是空串**，按卡归因一条都归不去 ——
+// 而 11-15 那份产物里「核心 project-2 / sitian **0 token**」被读成了「零调用」。
+//
+// **为什么 ①–⑧ 全绿也没抓到**：它们钉的是只读性、需求池真身对账、层级可见、
+// 未归因单列 —— **没有一条检查按卡归因的非零性**。
+// 输出照样成型、行数照样对、exit code 0。这正是本文件开头骂的那个病。
+{
+  // 真身：能建出 `卡号 → 项目` 索引的卡数（中文键；英文兜底）
+  const c2p = new Map()
+  const td = path.join(ROOT, 'task-data')
+  for (const f of fs.readdirSync(td).filter((x) => x.endsWith('.md'))) {
+    const raw = fs.readFileSync(path.join(td, f), 'utf-8')
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)
+    const fm = m ? m[1] : ''
+    const proj = ((/^项目:[ \t]*(.*)$/m.exec(fm) || [])[1] || '').trim()
+    const id = ((/^id:[ \t]*(.*)$/m.exec(fm) || [])[1] || '').trim()
+    if (proj) {
+      if (id) c2p.set(id, proj)
+      c2p.set(f.replace(/\.md$/, ''), proj)
+    }
+  }
+  check('★ 真身里确实有卡能归到项目（否则下面两条没有意义）',
+    c2p.size > 0, `可归卡片=${c2p.size}`)
+
+  // 报告里「归因到项目」的调用数
+  const sec3 = md.slice(md.indexOf('## 3. token 归因'), md.indexOf('## 4. '))
+  const att = /^\| 归因到项目 \| (\d+) \|/m.exec(sec3)
+  const attCalls = att ? Number(att[1]) : -1
+
+  // 「只可能来自 card 的归因」= trigger 不是 plan-draft/arch 那几种、但 card 可归的记录。
+  // ⚠ 这条是反例⑦逼出来的：只断言「归因调用数 > 0」时，**按卡整段断掉也能过**
+  //   —— 因为 `plan-draft:<项目id>` 那条 trigger 路径还会剩 23 条，
+  //   23 > 0 照样绿。必须把「只靠 card 才能归」的那部分单独量出来。
+  const TRIG_PROJ = /^(?:plan-draft|plan_draft|arch|archGenerate):([A-Za-z0-9_-]+)/
+  const trace = path.join(ROOT, 'ai-trace.jsonl')
+  let cardOnly = 0
+  if (fs.existsSync(trace)) {
+    for (const line of fs.readFileSync(trace, 'utf-8').split('\n')) {
+      if (!line.trim().startsWith('{')) continue
+      let o
+      try { o = JSON.parse(line) } catch { continue }
+      if (!String(o.trigger || '').startsWith('external')) continue
+      if (TRIG_PROJ.test(String(o.trigger || ''))) continue   // 这条靠 trigger 就能归，不算 card 的功劳
+      const card = String(o.card || '') || ((/(?:^|\s)card=([^\s]+)/.exec(String(o.note || '')) || [])[1] || '')
+      if (card && card !== '(未归因)' && c2p.has(card)) cardOnly++
+    }
+  }
+  check('★ 真身里存在「只能靠 card 归因」的记录（前提）',
+    cardOnly > 0, `只靠 card=${cardOnly}`)
+  check('★★ 按卡归因真的能归（防"键名读错 → 归因整段失效"）',
+    cardOnly === 0 || attCalls >= cardOnly,
+    `只靠 card 的可归=${cardOnly}，报告归因调用=${attCalls < 0 ? '—' : attCalls}`)
+  check('★★ 归因调用数必须 > 0（连一条都归不到 = 整段没接上）',
+    attCalls > 0, att ? `归因调用=${att[1]}` : '没匹配到「归因到项目」行')
+}
+
+// ── ⑩ 主指标必须是「新输入 / 输出」，不是 total（2026-11-17 · 暮雨定口径）──
+//
+// 暮雨 2026-11-17：「按新输入 tokens / 输出 tokens 算，金额反正也算不准暂时不搞。
+// 比如我走订阅是包月内额度算的」。
+// 而 total 里 99% 是缓存重读 —— 拿它排名就是按「谁的会话最长」排名。
+{
+  const sec1 = md.slice(md.indexOf('## 1. 组合总表'), md.indexOf('## 2. 需求池'))
+  // ⚠ 只看表头行本身（`| 层级 | ...`）。原来用 `sec1.includes('新输入')` ——
+  //   整个 §1 里还有「按层级排；同层内**新输入多的在前**」这句说明文字，
+  //   于是把表头里的「新输入」改名后这句照样命中，断言**永远绿**（反例⑧ 抓到的）。
+  const header = (sec1.split('\n').find((l) => l.startsWith('| 层级 |')) || '')
+  const cols = header.split('|').map((x) => x.trim())
+  check('★★ 总表有「新输入」与「输出」两列',
+    cols.includes('新输入') && cols.includes('输出'),
+    header ? `实际表头=${cols.filter(Boolean).join(' / ')}` : '没找到表头行')
+  check('★ total 被降为副列（表头写明）',
+    cols.some((c) => c.startsWith('total（副列）')), `表头=${cols.filter(Boolean).join(' / ')}`)
+  check('★★ 局限段写明「金额不算」而不是默默省略',
+    md.includes('金额') && md.includes('不折算金额'),
+    '局限段没说金额口径')
+}
+
+// ── ⑪「没用量」不许被写成 0（2026-11-17 补）──────────────────────────────
+//
+// 本仓红线（`shared/waste.ts`）：「取不到就整格不渲染 —— 不填 0」。
+// 实测 517 条留痕里 14 条 total/prompt 全是 None（失败调用没有用量），
+// 而 7 条是供应商**真报了 0**。两者混在一起算，表上就是
+// 「调用 90 次、新输入 0」—— 把「没数据」说成「真值 0」。
+{
+  const sec1 = md.slice(md.indexOf('## 1. 组合总表'), md.indexOf('## 2. 需求池'))
+  const header = (sec1.split('\n').find((l) => l.startsWith('| 层级 |')) || '')
+  const cols = header.split('|').map((x) => x.trim())
+  check('★★ 总表有「没用量」列（没用量 ≠ 用量是 0）',
+    cols.includes('没用量'), header ? `表头=${cols.filter(Boolean).join(' / ')}` : '没找到表头行')
+
+  const rows = sec1.split('\n').filter((l) => /^\| .*`[^`]+`/.test(l))
+  // 每行：['', 层级, 项目, 未完成, 已完成, 需求池, 调用, 没用量, 新输入, 输出, total, 多久没动, '']
+  const zeroCall = []   // 零调用 → 用量列必须都是 —
+  const nouOnly = []    // 有调用但全没用量 → 新输入必须 —，不能写 0
+  for (const l of rows) {
+    const c = l.split('|').map((x) => x.trim())
+    if (c.length < 12) continue
+    const name = c[2]
+    if (c[6] === '0' && (c[8] !== '—' || c[9] !== '—')) zeroCall.push(`${name}(${c[8]}/${c[9]})`)
+    if (c[7] !== '—' && Number(c[7]) === Number(c[6]) && c[8] !== '—') nouOnly.push(name)
+  }
+  check('★★ 零调用的项目，用量列写 `—` 而不是 0',
+    zeroCall.length === 0, `写错 ${zeroCall.length} 行：${zeroCall.slice(0, 3).join(',')}`)
+  check('★★ 有调用但全没用量时，新输入写 `—`（不许拿 0 顶）',
+    nouOnly.length === 0, `写错 ${nouOnly.length} 行：${nouOnly.slice(0, 3).join(',')}`)
+  check('★ 确实存在「有调用但没用量」的行（防这条断言永远绿）',
+    rows.some((l) => { const c = l.split('|').map((x) => x.trim()); return c.length >= 12 && c[7] !== '—' }),
+    '没有任何行填了「没用量」')
+}
+
+// ── ⑫ 用量分布：只描述，不判定（暮雨 2026-11-17 拍板）────────────────────
+//
+// 暮雨：「限额阈值多少我根本定不了，缺乏足够的信息无法判断。」
+// → 「限额」改成「相对历史对比」。节内**不许出现任何"超标/超阈值/告警"字样**：
+//   实测单轮用量全距 23.9 万倍、日用量全距 10 倍，任何固定阈值都会把长会话判成烧多了。
+// 这条断言存在的意义：以后谁想在产物里偷偷加回一个"超标"判定，会当场红。
+{
+  const i4 = md.indexOf('## 4. 用量分布')
+  const i5 = md.indexOf('## 5. ')
+  check('★★ 有「用量分布」一节', i4 >= 0 && i5 > i4, `i4=${i4} i5=${i5}`)
+  if (i4 >= 0 && i5 > i4) {
+    const sec4 = md.slice(i4, i5)
+    // ⚠ 只查**声明性**字样，不查正文里出现的「长会话」等词
+    const banned = ['超标', '超阈值', '告警', '限额', '超过预算']
+    const hit = banned.filter((w) => sec4.includes(w))
+    check('★★ 用量分布节内不许有任何"超标/限额"判定（基准不存在，造一个就是骗人）',
+      hit.length === 0, `出现了：${hit.join('、')}`)
+    check('★★ 必须写明「不需要你定任何数字」（否则用户又得凭空拍一个）',
+      sec4.includes('不需要') && sec4.includes('定任何数字'), '没写这句')
+    check('★ 必须有「相对平常一天」的倍数（这是用户平时看不到的基准感）',
+      /相对平常一天/.test(sec4) && /[0-9]+\.[0-9]x/.test(sec4), '缺倍数列')
+    check('★ 必须说明单轮离群 ≠ 烧多了（长上下文会话）',
+      sec4.includes('长上下文') || sec4.includes('缓存重读'),
+      '没解释单轮 total 为什么大')
+  }
+}
+
 console.log('')
 if (failures.length) { console.log('失败明细：'); failures.forEach((x) => console.log('  · ' + x)) }
 console.log(`RESULT ${pass} / ${fail}`)

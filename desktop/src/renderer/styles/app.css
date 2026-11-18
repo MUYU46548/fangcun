@@ -2128,6 +2128,51 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   font-size: 12px; color: var(--ink); cursor: pointer; }
 #smodal .views-pick-item.off { color: var(--muted); }
 #smodal .views-pick-item input { accent-color: var(--accent); font-family: inherit; cursor: pointer; }
+/* 三套预设（2026-11-18）：一行按钮 + 当前是什么，与下面那排复选框是两个动作，不混着放 */
+#smodal .views-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; }
+#smodal .views-cur { font-size: 11.5px; color: var(--muted); margin-left: 4px; }
+
+/* ── 顶部工具栏 · 拖拽画布（2026-11-18）────────────────────────────────
+   暮雨：「单独弄个小画布，打开自定义模式让玩家自己拖，可以保存可以取消。」
+   版式：上下两个投放区（顶栏 / 更多），块是 .vl-item。z-index 70 —— 高于 .overlay(60)、
+   低于通知与 toast(9999)，所以拖的时候不会被顶栏压住，也不会盖掉提示条。 */
+.vl-shell { position: fixed; inset: 0; background: rgba(60,65,80,0.42); z-index: 70;
+  display: flex; align-items: center; justify-content: center; padding: 24px; }
+.vl-box { background: var(--card, #fff); border-radius: 12px; box-shadow: var(--el-3, 0 8px 28px rgba(0,0,0,.18));
+  width: min(760px, 96vw); max-height: 88vh; overflow: auto; padding: 18px 20px 14px; display: flex;
+  flex-direction: column; gap: 12px; }
+.vl-head h3 { margin: 0 0 4px; font-size: 15px; }
+.vl-sub { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.vl-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vl-cur { font-size: 11.5px; color: var(--muted); flex: 1 1 200px; }
+.vl-zones { display: flex; flex-direction: column; gap: 10px; }
+.vl-zone { border: 1px dashed var(--border, #d8dbe4); border-radius: 10px; padding: 8px 10px 10px;
+  background: var(--tint, #f7f8fa); transition: background-color .12s, border-color .12s; }
+.vl-zone.over { border-color: var(--accent, #4b6ef5); background: var(--tint-2, #eef1fd); }
+.vl-zone-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.vl-zone-head b { font-size: 12.5px; }
+.vl-count { font-size: 11.5px; color: var(--muted); }
+.vl-count.bad { color: var(--danger, #c0392b); font-weight: 700; }
+.vl-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; align-content: flex-start; }
+.vl-item { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px 0 6px;
+  border-radius: 8px; border: 1px solid var(--border, #d8dbe4); background: #fff; font-size: 12px;
+  cursor: grab; user-select: none; }
+.vl-item.off { background: transparent; border-style: dashed; color: var(--muted); }
+.vl-item.dragging { opacity: .45; }
+.vl-item.over { border-color: var(--accent, #4b6ef5); box-shadow: 0 0 0 2px var(--tint-2, #eef1fd); }
+.vl-item:hover { border-color: var(--accent, #4b6ef5); }
+/* 拖动把手：**不用字符**（2026-11-18 截图实测：`⠿` 在这套字体里没有字形，
+   渲染成 `##` 一坨 —— 用户看到的是"两个井号"，不是"可以拖"）。
+   所以用小圆点阵（CSS 画），任何字体下都长一样。 */
+.vl-grip { flex: none; width: 6px; height: 12px; opacity: .55;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.2px);
+  background-size: 3px 3px; background-position: 0 0; }
+.vl-name { white-space: nowrap; }
+.vl-empty { font-size: 11.5px; color: var(--muted); padding: 8px 2px; }
+.vl-msg { font-size: 12px; color: var(--muted); }
+.vl-msg.bad { color: var(--danger, #c0392b); font-weight: 600; }
+.vl-foot { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.vl-grow { flex: 1; }
 #views .refresh-all { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
   padding: 0 8px; }
 #views .refresh-all .ico-glyph { display: inline-block; font-size: 12px; }
@@ -4405,3 +4450,129 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
   color: var(--ink); font-size: 12px; line-height: 1.55; resize: vertical; }
 .pd-edit-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ══ 记忆页（2026-11-17）══════════════════════════════════════════════════
+   新块一律用自己的 .mem-* 类名，**不套 .idea-***
+   —— 套旧类会让既有断言（$$('.idea').length === N）凭空变红，而界面看起来正常。
+   样式用分组选择器共享，不复用类名（AGENTS.md 踩坑第 2 条）。 */
+.memory-view { display: block; padding: 18px 22px 40px; }
+.mem-wrap { max-width: 1080px; }
+.mem-head { margin-bottom: 14px; }
+.mem-lead { font-size: 20px; font-weight: 650; color: var(--ink); letter-spacing: .01em; }
+.mem-lead-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+
+.mem-search {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--line-2); border-radius: 10px; background: var(--tint-3);
+}
+.mem-q {
+  flex: 1 1 260px; min-width: 180px; max-width: 420px;
+  padding: 6px 10px; font-size: 12.5px;
+  border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--card); color: var(--ink);
+}
+.mem-q:focus { outline: none; border-color: var(--brand, #6d5bd0); }
+.mem-sel {
+  padding: 6px 8px; font-size: 12.5px;
+  border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--card); color: var(--ink);
+}
+.mem-chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
+
+.mem-stat {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 12px; font-size: 12px; color: var(--muted);
+}
+.mem-stat b { color: var(--ink); font-weight: 650; }
+.mem-sep { opacity: .5; }
+.mem-types { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.mem-tag {
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--tint-3); border: 1px solid var(--line-2);
+  font-size: 11px; color: var(--muted);
+}
+
+.mem-empty {
+  margin-top: 18px; padding: 22px 18px; text-align: center;
+  font-size: 13px; line-height: 1.8; color: var(--muted);
+  border: 1px dashed var(--line-2); border-radius: 10px; background: var(--tint-3);
+}
+
+.mem-item {
+  margin-top: 12px; padding: 13px 15px;
+  border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--card);
+}
+.mem-i-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mem-badge {
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 18px;
+  background: var(--tint-3); border: 1px solid var(--line-2); color: var(--muted);
+}
+.mem-badge.is-incident { background: #fdecec; border-color: #f3c2c2; color: #a33; }
+.mem-badge.is-rule { background: #eaf6ee; border-color: #bfe3ca; color: #2c6b3f; }
+.mem-badge.is-lesson { background: #fff5e6; border-color: #f0d3a8; color: #8a5a12; }
+.mem-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.mem-impact {
+  margin-left: auto; padding: 1px 7px; border-radius: 6px;
+  font-size: 11px; font-weight: 600;
+}
+.mem-impact.imp-critical { background: #fdecec; color: #a33; }
+.mem-impact.imp-high { background: #fff1e6; color: #9a5418; }
+.mem-impact.imp-mid { background: #fff8e0; color: #8a6d12; }
+.mem-impact.imp-low { background: var(--tint-3); color: var(--muted); }
+
+.mem-i-sub {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  margin-top: 7px; font-size: 11.5px; color: var(--muted);
+}
+.mem-when { font-variant-numeric: tabular-nums; }
+.mem-proj { padding: 1px 6px; border-radius: 5px; background: var(--tint-3); border: 1px solid var(--line-2); }
+.mem-chip {
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--tint-3); border: 1px solid var(--line-2); font-size: 10.5px;
+}
+.mem-revoked { padding: 1px 6px; border-radius: 5px; background: #f2f2f4; color: #888; font-size: 10.5px; }
+
+.mem-sum { margin-top: 8px; font-size: 12.5px; line-height: 1.75; color: var(--ink); opacity: .88; }
+.mem-i-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 9px; }
+.mem-file { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; opacity: .8; }
+.mem-body {
+  margin-top: 10px; padding: 12px 14px; max-height: 420px; overflow: auto;
+  border: 1px solid var(--line-2); border-radius: 8px; background: var(--tint-3);
+  font-size: 12px; line-height: 1.75; color: var(--ink);
+  font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── 记忆页 · 写入（2026-11-18 暮雨：“记忆页必须开放写，不然出问题用户想改都改不了”）──
+   ⚠ 与读取同一批 .mem-* 前缀，但类名各自新起（.mem-edit*）——
+      断言常按 class 数"这一页有几块"，套旧类会让既有断言凭空变红（MEMORY 第 2 条）。 */
+.mem-empty-act { margin-top: 10px; }
+.mem-edit-mask { position: fixed; inset: 0; background: rgba(60,65,80,0.42); z-index: 70;
+  display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow: auto; }
+.mem-edit { width: min(720px, 96vw); background: var(--card, #fff); border-radius: 12px;
+  box-shadow: var(--el-3, 0 8px 28px rgba(0,0,0,.18)); padding: 18px 20px 14px;
+  display: flex; flex-direction: column; gap: 10px; }
+.mem-edit h3 { margin: 0; font-size: 15px; }
+.mem-edit-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.mem-edit-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.mem-edit-row > label { flex: 1 1 160px; }
+/* ⚠ label 用 column 时，`类型<b>*</b>` 里的 `<b>` 会被当成**独立一行**顶下去
+   （2026-11-18 截图实测：星号掉到第二行、标签与控件之间空一格）。
+   所以标签文字包一层 `.mem-lb`，星号跟它同一行；label 本身只管"上下堆叠"。 */
+.mem-edit label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.mem-lb { display: inline-flex; align-items: baseline; gap: 2px; }
+.mem-edit label b { color: var(--danger, #c0392b); }
+.mem-edit-wide { width: 100%; }
+.mem-inp { height: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; font-size: 12px; color: var(--ink); font-family: inherit; width: 100%; }
+/* 下拉框也吃满一列宽：不设的话宽度跟着内容变，三列参差不齐（2026-11-18 截图实测） */
+.mem-edit select.mem-sel { height: 28px; padding: 0 6px; border-radius: 8px; width: 100%;
+  border: 1px solid var(--border); background: #fff; font-size: 12px; color: var(--ink); font-family: inherit; }
+.mem-ta { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: #fff; font-size: 12.5px; line-height: 1.7; color: var(--ink);
+  font-family: ui-monospace, Consolas, monospace; resize: vertical; }
+.mem-inp:focus, .mem-ta:focus, .mem-sel:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.mem-edit-err { font-size: 12px; color: var(--danger, #c0392b); font-weight: 600; }
+.mem-edit-acts { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }

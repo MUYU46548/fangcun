@@ -117,7 +117,7 @@ const {
                 <!-- 2026-09-26 用户第 1、2 条：不再要人选下拉（“必须逐字核对，很难受”），
                      点一下就导出**最新一份备份**；落盘**只有一个 zip**。 -->
                 <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkExportTo"
-                  title="把最新一份备份复制到所选目录 —— 落盘只有一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</Button>
+                  title="把最新一份备份复制到所选目录 —— 只存成一个 zip 文件；一份备份都没有时才现打一份">📤 导出备份（一个 zip）</Button>
                 <!-- restic 脚本（2026-10-11 用户拍板走“方案 A”）：方寸只生成脚本 + 说明，
                      定时你自己挂 —— 零维护、零鉴权、**不经手你的仓库密码**。 -->
                 <Button variant="ghost" size="tool" :disabled="bkBusy" @click="bkCopyResticScript"
@@ -248,7 +248,7 @@ const {
               </div>
               <div v-if="bkSize && bkSize.omitted.length" class="bk-dim">
                 按当前设置会跳过 {{ bkSize.omitted.length }} 个文件（省 {{ bkMB(bkSize.omittedBytes) }}）——
-                清单逐条记进备份包的 manifest.json，不静默丢。
+                清单逐条记进备份包的 manifest.json，不会偷偷漏掉。
               </div>
             </div>
   

@@ -231,7 +231,7 @@ export function detectMcpTargets(): McpTarget[] {
       detected: !!patch,
       evidence: patch || profilesDir,
       configPath: patch,
-      howTo: '把配置段原样追加到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是“按 id 覆盖”，id 不存在会被静默跳过，2026-10-03 实测），落盘后热加载生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
+      howTo: '把配置段原样追加到 cordis.patch.yml 顶层数组末尾 —— 它是 insert: 形式（裸行在 DSH 里是“按 id 覆盖”，id 不存在会被直接跳过、不给任何提示，2026-10-03 实测），存完立即生效、无需重启。技能卡复制到 ~/.dsh/skills/<名>/SKILL.md（目录不存在先建）。',
     })
   }
 

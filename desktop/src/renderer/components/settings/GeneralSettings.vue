@@ -1,13 +1,14 @@
 <!--
-  设置 · 通用（2026-10-30 App.vue 拆分第七刀）：版本与更新 / 外观主题 / 外观形态 / 念头上限 / 顶栏页签。状态仍留在 App，经 provide("fc-settings") 共享。
+  设置 · 通用（2026-10-30 App.vue 拆分第七刀）：版本与更新 / 外观主题 / 外观形态 / 念头上限 / 顶部工具栏。状态仍留在 App，经 provide("fc-settings") 共享。
 -->
 <script setup lang="ts">
 import { inject } from 'vue'
+import Button from '../ui/Button.vue'
 
 defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
-  appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, collapsedViews, VIEWS_MIN_VISIBLE, onViewVisibleChange, resetCollapsedViews,
+  appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName, onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
 } = ctx
 </script>
 
@@ -74,7 +75,7 @@ const {
           <div class="sect" v-show="active">
             <h4>念头长度上限</h4>
             <div class="hint">
-              “想法池”里单条念头最多能写多少<b>字符</b>（含标点与换行）。超了会明确报错，不会静默截断。
+              “想法池”里单条念头最多能写多少<b>字符</b>（含标点与换行）。超了会明确报错，不会悄悄截断。
               默认 {{ IDEA_TEXT_DEFAULT }}，最大 {{ IDEA_TEXT_HARD_MAX }}。
             </div>
             <div class="slider-row">
@@ -89,19 +90,27 @@ const {
           <div class="sect" v-show="active">
             <h4>顶栏页签</h4>
             <div class="hint">
-              勾上 = 顶栏直接显示；取消 = 收进顶栏的“更多 ▾”。
-              <b>至少留 {{ VIEWS_MIN_VISIBLE }} 个在外面</b> —— 否则工具会被藏没。
+              现在有三套工作区预设，还能自己拖。勾上 = 顶栏直接显示；取消 = 收进顶栏的“更多 ▾”。
+              <b>下限 {{ VIEWS_MIN_VISIBLE }} 个、上限 {{ VIEWS_MAX_VISIBLE }} 个</b> —— 收光了找不到工具，放满了页面被挤爆。
+            </div>
+            <div class="views-presets">
+              <Button v-for="p in VIEW_PRESETS" :key="'vpres-' + p.id" size="tool"
+                :variant="viewLayout.preset === p.id ? 'primary' : 'ghost'"
+                :title="p.desc" @click="applyViewPreset(p.id)">{{ p.label }}</Button>
+              <Button size="tool" variant="ghost" title="打开拖拽画布：排序 + 显示/收起，能保存能取消"
+                @click="openViewLayout">▦ 自定义（拖拽）…</Button>
+              <span class="views-cur">当前：{{ curLayoutName }}</span>
             </div>
             <div class="views-pick">
               <label v-for="v in views" :key="'vp-' + v.id" class="views-pick-item"
-                :class="{ off: collapsedViews.includes(v.id) }">
-                <input type="checkbox" :checked="!collapsedViews.includes(v.id)"
+                :class="{ off: viewLayout.hidden.includes(v.id) }">
+                <input type="checkbox" :checked="!viewLayout.hidden.includes(v.id)"
                   @change="onViewVisibleChange(v.id, $event)" />
                 <span>{{ v.label }}</span>
               </label>
             </div>
             <div class="sect-btns">
-              <button class="ghost font-[inherit]" @click="resetCollapsedViews">恢复默认（收 启动台 / 技能 / 服务）</button>
+              <Button variant="ghost" size="tool" @click="resetCollapsedViews">恢复默认（日常工作区）</Button>
             </div>
           </div>
 </template>

@@ -269,7 +269,11 @@ export function writeContextPackFile(projectId: string): { ok: boolean; path?: s
   }
 }
 
-/** 「派给 DSH」的派单目录（数据根下的 `.dispatch-dsh/`，不属于任何项目仓库） */
+/** 「发送给 DSH」的派单目录（数据根下的 `.dispatch-dsh/`，不属于任何项目仓库）
+ *
+ * ⚠ 文案口径：UI 上是「发送给 DSH」（暮雨 2026-11-17：「🧠 派给 DSH 按钮太丑了，
+ *   改成『发送给DSH』都能让人看懂」）。目录名与函数名 `dispatchDir` / `dispatchToDsh`
+ *   是内部标识，沿用旧名，不跟着改。 */
 export function dispatchDir(): string {
   const { getDataDir } = require('../data') as { getDataDir: () => string }
   return path.join(getDataDir(), '.dispatch-dsh')
@@ -285,10 +289,36 @@ export interface DispatchResult {
   /** 上下文包里缺了哪几处（缺了要当场说，别让 agent 以为"这项目没这些规矩"） */
   missing?: string[]
   at?: string
+  /** 派单用途（2026-11-17 暮雨：以后直接在 DSH 里派活做规划） */
+  kind?: DispatchKind
 }
 
 /**
- * 把某个项目的上下文包**派给 DSH**（2026-11-17）。
+ * 派单用途。
+ *
+ * 暮雨 2026-11-17 定案：「规划功能几乎要全部重做……现在定死了 DSH 绑方寸，
+ * **以后可以直接在 DSH 里派活做规划**。」
+ *
+ * 所以同一根管子上要跑两种活，而它们对模型的要求完全不同：
+ *   · `work` 开工：**改代码/改卡**（0.6.0 只有这一种）；
+ *   · `plan` 规划：**产出可机检的判据**，不许直接开干。
+ *
+ * ⚠ 缺省 `work`：老派单文件没有这个字段，行为必须与 0.6.0 完全一致。
+ */
+export const DISPATCH_KINDS = ['work', 'plan'] as const
+export type DispatchKind = typeof DISPATCH_KINDS[number]
+
+export function normalizeDispatchKind(raw: unknown): DispatchKind {
+  const k = String(raw ?? '').trim().toLowerCase()
+  return (DISPATCH_KINDS as readonly string[]).includes(k) ? (k as DispatchKind) : 'work'
+}
+
+/**
+ * 把某个项目的上下文包**发送给 DSH**（2026-11-17）。
+ *
+ * ⚠ 文案口径：UI 上是「发送给 DSH」，不是「派给 DSH」。
+ *   暮雨 2026-11-17：「🧠 派给 DSH 按钮太丑了，改成『发送给DSH』都能让人看懂」。
+ *   函数名 `dispatchToDsh` 与 IPC 通道 `context:dispatchDsh` 是内部标识，沿用旧名。
  *
  * 暮雨原话：「管子现在就做，它是其他一切的前提。」
  *
@@ -304,15 +334,19 @@ export interface DispatchResult {
  * ## 为什么是"一次一份"，不是队列
  *
  * 队列要处理排序、去重、失败重试、堆积清理 —— 那是另一个子系统。
- * 而「派给 DSH」是**人在界面上点一次的即时动作**，同时点两次的语义本来就是"最后一次算"。
+ * 而「发送给 DSH」是**人在界面上点一次的即时动作**，同时点两次的语义本来就是"最后一次算"。
  * 所以：**同名覆盖**，插件消费后**删掉**。简单到不会坏。
  *
  * ⚠ 不在这里调 `exec` / `spawn` 去戳 DSH —— 方寸不知道 DSH 在不在、是哪个 profile。
  *   那是插件的活（它在 DSH 进程里，天然知道）。
+ *
+ * @param kind `work`（默认，马上干活）或 `plan`（做规划，产出机检判据）。
+ *             认不出的值回落 `work` —— 不许静默升级成 plan，那会让模型莫名被要求写判据。
  */
-export function dispatchToDsh(projectId: string): DispatchResult {
+export function dispatchToDsh(projectId: string, kindRaw?: unknown): DispatchResult {
   const pid = String(projectId || '').trim()
   if (!pid) return { ok: false, error: '没给项目 id' }
+  const kind = normalizeDispatchKind(kindRaw)
 
   const r = buildContextPack(pid)
   if (!r.ok) return { ok: false, error: r.error || '上下文包没生成出来' }
@@ -321,7 +355,8 @@ export function dispatchToDsh(projectId: string): DispatchResult {
     const dir = dispatchDir()
     fs.mkdirSync(dir, { recursive: true })
     const at = new Date().toISOString()
-    // 文件名带时间戳 + 项目：插件按时间戳挑最新的一份，人能一眼看出是什么时候派的
+    // 文件名带时间戳 + 项目：插件按时间戳挑最新的一份，人能一眼看出是什么时候派的。
+    // kind 不进文件名 —— 文件名要短；用途在头部，人和插件都读得到。
     const stamp = at.replace(/[-:T]/g, '').slice(0, 14)
     const p = path.join(dir, `dispatch-${String(r.projectId)}-${stamp}.md`)
     const body = [
@@ -329,6 +364,7 @@ export function dispatchToDsh(projectId: string): DispatchResult {
       `project: ${String(r.projectId)}`,
       `projectName: ${String(r.projectName || '')}`,
       `at: ${at}`,
+      `kind: ${kind}`,
       `chars: ${r.chars}`,
       `missing: ${(r.missing || []).join('|')}`,
       `-->`,
@@ -343,6 +379,7 @@ export function dispatchToDsh(projectId: string): DispatchResult {
       chars: r.chars,
       missing: r.missing || [],
       at,
+      kind,
     }
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) }

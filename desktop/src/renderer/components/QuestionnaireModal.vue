@@ -480,7 +480,7 @@
               title="已批准 ≥30 天且没有任何卡引用时才可以收起">📦 移入历史卷</Button>
             <Button variant="ghost" size="tool" v-if="archivedAt" @click="unarchiveOne(deck.deck)">↩ 放回列表</Button>
             <span class="qn-grow"></span>
-            <span v-if="approved" class="qn-ok" :title="'落盘存的是 UTC（' + approved + '），这里按你所在时区显示'">已落库 · {{ localStamp(approved) }}</span>
+            <span v-if="approved" class="qn-ok" :title="'存下来的是 UTC（' + approved + '），这里按你所在时区显示'">已落库 · {{ localStamp(approved) }}</span>
             <button v-if="!approved" class="pri" :disabled="busy" @click="approve">✓ 批准并落库</button>
             <button v-else class="pri" @click="$emit('close')">关闭</button>
           </template>

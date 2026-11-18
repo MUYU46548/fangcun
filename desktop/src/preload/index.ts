@@ -3,6 +3,29 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('tegula', {
   selfCheck: () => ipcRenderer.invoke('selfCheck'),
   getDataDir: () => ipcRenderer.invoke('getDataDir'),
+
+  /**
+   * 真退出（2026-11-17 · 卡 p0-1「不同意并退出」永远退不掉）。
+   *
+   * ⚠ 别用 `window.close()` 代替它：主进程在 close 事件里把它防抖成 `hide()`
+   *   （"关窗≠退出、常驻托盘"是设计），所以 window.close() 只会让窗口消失、进程留在托盘。
+   *   这条通道由主进程置位 isQuitting 再 quit，是唯一真能退出的路。
+   */
+  quitForReal: () => ipcRenderer.invoke('app:quitForReal'),
+
+  // 许可协议总闸（2026-11-18）：渲染层只能读/签，不能替别人签 —— IPC 不出主窗口。
+  licenseStatus: () => ipcRenderer.invoke('license:status'),
+  licenseAck: () => ipcRenderer.invoke('license:ack'),
+
+  // 记忆层（2026-11-17）：检索 / 读原文 / 概览 / 重建索引。只读为主，写走 agent 落盘。
+  memorySearch: (q: any) => ipcRenderer.invoke('memorySearch', q),
+  memoryRead: (file: string) => ipcRenderer.invoke('memoryRead', file),
+  memoryOverview: () => ipcRenderer.invoke('memoryOverview'),
+  memoryRebuild: () => ipcRenderer.invoke('memoryRebuild'),
+  // 写入（2026-11-18）：记忆是用户资产，他自己也得能改 —— 不该只有 agent 能落盘
+  memoryCreate: (input: any) => ipcRenderer.invoke('memoryCreate', input),
+  memoryUpdate: (file: string, input: any) => ipcRenderer.invoke('memoryUpdate', file, input),
+  memorySetStatus: (file: string, status: string) => ipcRenderer.invoke('memorySetStatus', file, status),
   
   // Tasks
   loadTasks: (view = 'active') => ipcRenderer.invoke('loadTasks', view),
@@ -66,8 +89,13 @@ contextBridge.exposeInMainWorld('tegula', {
   /** agent 上下文包（2026-10-22）：把项目现状拼成一段可粘贴的 Markdown，只读 */
   contextPack: (projectId: string, opts?: any) => ipcRenderer.invoke('context:pack', projectId, opts),
   contextPackFile: (projectId: string) => ipcRenderer.invoke('context:packFile', projectId),
-  /** 派给 DSH（2026-11-17）：只落一份派单文件，插件看见就会在 DSH 里开新会话 */
-  /** 派给 DSH：`kind` = 'work'（默认，马上干活）| 'plan'（做规划，产出机检判据） */
+  /**
+   * 发送给 DSH（2026-11-17）：只落一份派单文件，插件看见就会在 DSH 里开新会话。
+   * `kind` = 'work'（默认，马上干活）| 'plan'（做规划，产出机检判据）。
+   *
+   * ⚠ 文案口径：UI 上是「发送给 DSH」；暮雨 2026-11-17：「🧠 派给 DSH 按钮太丑了，
+   *   改成『发送给DSH』都能让人看懂」。方法名 `dispatchDsh` 是内部标识，沿用旧名。
+   */
   dispatchDsh: (projectId: string, kind?: 'work' | 'plan') => ipcRenderer.invoke('context:dispatchDsh', projectId, kind),
   /** 开工简报（2026-11-16 · 治病①）：上次做到哪 / 这次先做什么 / 有哪些规矩别犯。只读 */
   brief: (projectId: string) => ipcRenderer.invoke('brief:get', projectId),

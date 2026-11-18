@@ -212,7 +212,7 @@
             <span class="lg-box-count">{{ log.attached.length }} 条</span>
             <span v-if="logGroupStat(log)" class="lg-box-stat">{{ logGroupStat(log) }}</span>
             <span class="lg-box-grow"></span>
-            <Button v-if="log.status !== 'archived'" class="lg-bind" variant="ghost" size="tool" title="改绑定：把同一轮的其它日志加进来 / 踢出去（关系会落盘）"
+            <Button v-if="log.status !== 'archived'" class="lg-bind" variant="ghost" size="tool" title="改绑定：把同一轮的其它日志加进来 / 踢出去（绑定关系会存下来）"
               @click="openLogAttach(log)">改绑定</Button>
             <Button v-if="log.status !== 'archived'" class="lg-done" variant="ghost" size="tool"
               title="主日志 + 全部附属一起完成（已完成/已归档的跳过；保留天数用默认值）"
@@ -305,7 +305,7 @@
                不再要求“先点多选 → 再找批量栏”。有组时“全组完成 / 开工单”收进下面的
                附属框头（那里才是组的地盘），卡上只留一个“绑定 / 改绑定”入口。 -->
           <Button v-if="!logHasGroup(log) && !logGroupParent.get(log.id) && log.status !== 'archived'" class="log-bind-btn" variant="ghost" size="tool"
-            title="把同一轮的其它日志绑到这条主日志下面（绑定关系会落盘，下次还在）"
+            title="把同一轮的其它日志绑到这条主日志下面（绑定关系会存下来，下次还在）"
             @click="openLogAttach(log)">🔗 绑定附属</Button>
           <!-- 卡 004（2026-10-08 拍板=双向）：日志 → 待办。
                2026-10-09 用户第 1 条：先开确认框（可顺手勾“归档源”）；同一条只转一次（待办记 fromLog 防重）。 -->

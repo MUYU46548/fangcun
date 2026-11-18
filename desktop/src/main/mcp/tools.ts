@@ -19,6 +19,9 @@ import { renderIntakeSection } from '../../shared/intake'
 import { checkIntake } from '../services/intake'
 // agent 直接要点架构图（2026-11-02）：与界面按钮同一个服务，不另写一套生成
 import { archForProject } from '../services/projectArch'
+// 记忆层（2026-11-17）：暮雨「方寸要管记忆，当 DSH 的记忆层」。
+// 读口直接读源文件；写口只写 memory/，**永远不碰 task-data/**（塞进去会被 parseTask 当任务卡扫）。
+import { searchMemory, readMemory, memoryOverview, MEMORY_TYPES, MEMORY_STATUSES } from '../services/memory'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
 import { gateForDeck } from '../data/qnGate'
@@ -142,7 +145,13 @@ export const MCP_TOOLS: MCPTool[] = [
       + '输入是该项目未结卡的「方案 + 结果记录原文」和已完成卡标题 —— '
       + '所以它能看见哪张卡已写好施工方案、哪张自报了没做的部分。'
       + '输出是 2–5 张阶段卡（P0/P1…）+ 每条的机器判据 + 依据引用，落 plans/_drafts，状态恒“待裁决”。'
-      + '引不出真实依据的条目会被丢弃并计入 dropped，不会编造。',
+      + '引不出真实依据的条目会被丢弃并计入 dropped，不会编造。'
+      // 2026-11-17 暮雨定案：「规划功能几乎要全部重做……以后可以直接在 DSH 里派活做规划」。
+      // 所以本工具**不再是规划的正路**（它那套"宪法页 + 七道并列否决"正在重做）。
+      // 但它**不删**（暮雨：「所有功能都要，我从不嫌重」）—— 保留可用，只是别默认推荐。
+      + '\n\n⚠ 2026-11-17 起：这不是规划的正路。正路是「方寸派单 → DSH 里的 agent 做规划」'
+      + '（用 dispatchToDsh 写一份 kind=plan 的派单）。本工具保留可用，但它那套闸正在重做，'
+      + '对新项目大概率会因为「必须先有已批准问卷」而直接拒。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -161,7 +170,12 @@ export const MCP_TOOLS: MCPTool[] = [
       + '把 JSON 交给方寸，方寸跑**同一套闸**（宪法页 / 本轮先问 / 判据现状体检 / 依据必须真实）再落 plans/_drafts。'
       + '**不调模型、不花 token、秒回**。JSON 形状与 plan_draft 要求完全一致：'
       + '{"constitution":[{kind,text,cites}],"asks":[{ask,why}],"asksNote":"","stages":[{id,title,what,approach,copy,criteria,cites}]}。'
-      + '没带卷 / 卷没答完 / 宪法缺失 / 判据现状已满足 → 拒（零写入）。',
+      + '没带卷 / 卷没答完 / 宪法缺失 / 判据现状已满足 → 拒（零写入）。'
+      // 2026-11-17 暮雨定案：「规划功能几乎要全部重做……以后可以直接在 DSH 里派活做规划」。
+      // 本工具**保留可用**（暮雨：「所有功能都要」），但**不再是规划的正路**。
+      + '\n\n⚠ 2026-11-17 起：这不是规划的正路。正路 = 写一份 `kind=plan` 的派单交给 DSH 里的 agent'
+      + '（方寸：dispatchToDsh(project, "plan")）；规划在那边做，方寸只负责打包项目现实 + 事后机检 + 记账。'
+      + '本工具保留可用，但那套「宪法页 + 七道并列否决」正在重做，对新项目大概率会被「必须先有已批准问卷」直接拒。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -383,6 +397,35 @@ export const MCP_TOOLS: MCPTool[] = [
       type: 'object',
       properties: { project: { type: 'string', description: 'Project id, e.g. fangcun-base' } },
       required: ['project'],
+    },
+  },
+  {
+    name: 'memory_search',
+    description: 'READ-ONLY. Search 方寸记忆 (memory/*.md): past incidents, lessons and cross-project 纪律. '
+      + 'It answers "what happened / which rule was bought with a real loss / which applies across projects", '
+      + 'NOT "what to do next" (that is a task card). Returns pointers plus a short summary — '
+      + 'use memory_read to get the verbatim text. Revoked entries are excluded unless includeRevoked is true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Full-text keyword; searches title/summary/tags and the original text' },
+        type: { type: 'string', description: `One of: ${MEMORY_TYPES.join(' / ')}` },
+        scope: { type: 'string', description: '适用范围, e.g. 跨项目' },
+        project: { type: 'string', description: 'Project id, e.g. dsh-fangcun' },
+        includeRevoked: { type: 'boolean', description: 'Include 已撤销 entries (default false)' },
+        limit: { type: 'integer', description: 'Max rows (default 50)' },
+      },
+    },
+  },
+  {
+    name: 'memory_read',
+    description: 'READ-ONLY. Read one memory entry verbatim by its `file` path from memory_search '
+      + '(e.g. memory/incidents/xxx.md). Refuses any path outside memory/. '
+      + 'The original text is never summarized — the details ARE the value.',
+    inputSchema: {
+      type: 'object',
+      properties: { file: { type: 'string', description: 'Relative path from memory_search, e.g. memory/lessons/x.md' } },
+      required: ['file'],
     },
   },
   {
@@ -1031,6 +1074,12 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false, error: gate.error, gate,
           hint: '先出卷 → 等用户答完并批准 → 再带 deck 提交草案。没问过就出计划 = 把猜测当结论。',
+          // 2026-11-17：被这道闸拦下的人/agent 十有八九不是"忘了出卷"，
+          // 而是"这个项目根本没有卷"。把那时的正路直接给他，别让他去建一份只为过关的卷。
+          maybeNoDeck: '若这个项目本来就没有（也不该有）澄清问卷 —— 那说明该走**派单**那条路：',
+          howToPlanNow: `方寸派单：dispatchToDsh("${proj}", "plan") → DSH 里开一个规划会话，`
+            + '规划在那边做（它能直接读仓库），方寸只负责打包项目现实 + 事后按判据机检 + 记账。'
+            + '这条正路**不需要任何问卷**。',
         }, null, 2) }], isError: true }
       }
       let payload: any = args.draft
@@ -1546,6 +1595,49 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
             ? `这张地图不能信了（${(drift && drift.stale ? drift.reason : '没写日期或超过 90 天')}）—— 动手前先跟用户核一遍，或照实际代码改它（改走 smap_propose）。`
             : '五节齐全，结构地图是近 90 天内核过的。'),
       }, null, 2) }] }
+    }
+
+    case 'memory_search': {
+      // 记忆层（2026-11-17）：读口直接读源文件，不走索引 —— 索引是派生数据，源才是真相。
+      const r = searchMemory({
+        q: String(args.q || '').trim() || undefined,
+        type: String(args.type || '').trim() || undefined,
+        scope: String(args.scope || '').trim() || undefined,
+        project: String(args.project || '').trim() || undefined,
+        includeRevoked: args.includeRevoked === true,
+        limit: Number(args.limit) || undefined,
+      })
+      const ov = memoryOverview()
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        total: r.total,
+        returned: r.rows.length,
+        truncated: r.total > r.rows.length,
+        // 空库要说清是「还没录」而不是「筛出来没有」——混着说会让人以为记忆是空的
+        hint: r.total === 0 ? (ov.total === 0
+          ? '记忆库还没有任何条目 —— 这不是“筛出来没有”，是还没录过。'
+          : `筛出来 0 条（库中共 ${ov.total} 条）。放宽条件试试 includeRevoked=true 或去掉 type。`) : '',
+        overview: { total: ov.total, effective: ov.effective, revoked: ov.revoked, byType: ov.byType },
+        items: r.rows.map((x) => ({
+          id: x.id, type: x.type, scope: x.scope, project: x.project, time: x.time,
+          status: x.status, impact: x.impact, title: x.title, summary: x.summary,
+          file: x.file, tags: x.tags,
+        })),
+        next: '要原文用 memory_read({file})。检索只给指针与摘要 —— 记忆可能很长，一股脑塞进上下文没意义。',
+      }, null, 2) }] }
+    }
+
+    case 'memory_read': {
+      const r = readMemory(String(args.file || ''))
+      if (!r.ok) {
+        // 拒绝要说清为什么，不许静默返回空
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: r.error || '读不到',
+          hint: '只接受 memory_search 返回的 file（必须以 memory/ 开头，且不含 ..）。',
+        }, null, 2) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: String(r.text || '') }] }
     }
 
     case 'stage_plan_get': {

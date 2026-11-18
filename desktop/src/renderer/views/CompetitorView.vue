@@ -25,6 +25,9 @@
     </div>
 
     <div class="cp-err" v-if="error">{{ error }}</div>
+    <!-- 成功也要出声（2026-11-17 暮雨：「点生成采集任务单一点反应都没有」）——
+         只报失败不报成功时，「做成了」与「点了没生效」在屏幕上完全一样。 -->
+    <div class="cp-ok" v-if="msg">{{ msg }}</div>
 
     <!-- 汇总一行：登记了几个 / 有几个已有采集结果 -->
     <div class="cp-stat" v-if="ok">
@@ -114,6 +117,7 @@ import Button from '../components/ui/Button.vue'
 const busy = ref(false)
 const ok = ref(false)
 const error = ref('')
+const msg = ref('')
 const rows = ref<any[]>([])
 const dir = ref('')
 const writing = ref('')
@@ -153,6 +157,7 @@ async function reload(): Promise<void> {
 async function writeTask(r: any): Promise<void> {
   writing.value = r.projectId
   error.value = ''
+  msg.value = ''
   try {
     const api: any = (window as any).tegula
     const res = await api.competitorWriteTask(r.projectId)
@@ -162,6 +167,15 @@ async function writeTask(r: any): Promise<void> {
     }
     // 成败以"重新读一遍看到 taskFile"为准，不做乐观更新
     await reload()
+    // ⚠ 2026-11-17 暮雨：「点生成采集任务单一 **一点反应都没有**，我也不知道到底有没有点到。
+    //   我除了狂点几十下还能怎么办？」
+    //   原实现成功后**一声不响**：按钮从"生成中…"变回来，页面上什么都没变（任务单在磁盘上、
+    //   不在这一页的视觉里），于是"点成功了"和"点了没生效"长得一模一样。
+    //   所以成功必须说清三件事：生成了、落在哪、下一步交给谁。
+    const p = String(res.path || '')
+    msg.value = p
+      ? `任务单已生成：${p} —— 把它发给 agent 去采，采完放回同目录这里就会列出来`
+      : '任务单已生成（主进程没返回路径）'
   } catch (e: any) {
     error.value = '生成异常：' + (e?.message || e)
   } finally {
@@ -183,8 +197,26 @@ async function openReport(r: any, fileName: string): Promise<void> {
   }
 }
 
-function openUrl(u: string): void {
-  try { (window as any).tegula?.openExternal?.(u) } catch { /* 打不开就留原文，不编 */ }
+/**
+ * 点竞品地址：交给系统默认浏览器打开。
+ *
+ * ⚠ 2026-11-17：这里原本写的是 `tegula.openExternal(url)` —— **那条通道 preload 根本没暴露**，
+ *   于是这个链接点了完全没反应（`check-ipc-parity` 的僵尸按钮断言当场抓出来）。
+ *   正确的通道是 `openFile`（主进程 `validateAndOpenFile`）：它自己解析相对路径、
+ *   拒绝直接运行可执行文件（10-30 白屏那条教训），失败还会把原因回给界面。
+ *   所以这里必须走 `openFile`，并且**把失败说出来** —— 不许静默吞掉。
+ */
+async function openUrl(u: string): Promise<void> {
+  const url = String(u || '').trim()
+  if (!url) return
+  try {
+    const r: any = await (window as any).tegula?.openFile?.(url)
+    if (r && r.ok === false) {
+      error.value = `打不开这个地址：${r.error || '系统拒绝了'}${r.hint ? '（' + r.hint + '）' : ''}`
+    }
+  } catch (e: any) {
+    error.value = '打不开这个地址：' + (e?.message || e)
+  }
 }
 
 onMounted(reload)
@@ -207,6 +239,14 @@ onMounted(reload)
 .cp-err {
   margin: 8px 0 12px; padding: 8px 10px; border-radius: 6px;
   border: 1px solid var(--danger); color: var(--danger);
+  background: var(--card); font-size: 12px;
+}
+/* 成功提示与失败提示同一套尺寸，只有颜色令牌不同 —— 不新造版式（暮雨反复说过“做出来又是丑的”）。
+   ⚠ 令牌是 `--success` 不是 `--ok`：写成 `var(--ok, var(--border))` 时它**不报错**，
+     只会静静退成边框色 —— 屏幕上"成功"和"普通说明"长得一样，等于没做（本仓栽过的同类）。 */
+.cp-ok {
+  margin: 8px 0 12px; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--success); color: var(--success);
   background: var(--card); font-size: 12px;
 }
 .cp-stat { font-size: 13px; margin-bottom: 10px; }

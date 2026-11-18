@@ -25,7 +25,7 @@
            现在直说"能改 + 会留痕"，用户不必再复制出来新建一条。 -->
       <div class="hint log-closed-hint" v-if="logEdit_.id && logEdit_.status && logEdit_.status !== 'active'">
         这条已{{ logEdit_.status === 'completed' ? '完成' : '归档' }}。<b>内容仍然可以改</b>（改完点保存即可）；
-        改动会在卡面留一个“✎ 改过”戳，不是静默篡改。点错保存就按左下“🕘 历史版本”挑一版恢复。
+        改动会在卡面留一个“✎ 改过”戳，不是偷偷改掉。点错保存就按左下“🕘 历史版本”挑一版恢复。
       </div>
       <label>标题</label>
       <input v-model="logEdit_.title" placeholder="日志标题" />

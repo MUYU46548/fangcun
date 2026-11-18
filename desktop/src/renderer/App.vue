@@ -282,8 +282,8 @@
             </button>
             <div class="more-sep"></div>
             <button class="more-opt more-set" @click="openViewsSetting">
-              <span class="more-tick">⚙</span>
-              <span class="more-txt">顶栏页签设置…</span>
+              <span class="more-tick">▦</span>
+              <span class="more-txt">顶栏工作区…</span>
             </button>
           </PopoverContent>
         </PopoverPortal>
@@ -312,6 +312,11 @@
           <span v-if="!batchMode">☑ 任务多选</span>
           <span v-else>☑ <i style="color:#fff">{{ selectedBatch.length || 0 }}</i></span>
         </button>
+        <!-- ⚠ 2026-11-18 实测（截图目检）：**不要**再往这一行右侧加一枚独立按钮。
+             第一稿加过「▦ 日常」，结果这一行已经排满 13 个页签 + 新建/快速记/备份/通知/日志/多选/⚙/刷新，
+             它被挤到视口外（截图里根本看不见）—— 又是"加了个入口等于没加"。
+             入口留在「更多 ▾」里（那条菜单永远可见），设置页也有一个。
+             ↑ 教训记在这里，别再手滑把 ⚙ 也一起注释掉（本轮已犯过一次，39 条断言全红）。 -->
         <Button variant="ghost" size="tool" @click="showSettings">⚙</Button>
         <!-- 重读全部数据（2026-10-25 暮雨：“顶栏加一个真的『重读全部数据』，而且要明确写"刷新"，
              不然用户会以为是第二个同步按钮”）。
@@ -527,6 +532,11 @@
          一旦给它加上这些，它就又变成待办了（那正是"放不下"的原因）。 -->
     <IdeasView v-else-if="curView === 'ideas'" :ctl="ideasCtl" />
 
+    <!-- 记忆（2026-11-17）· 暮雨：“界面和 MCP 工具必做”
+         只读：写走 agent 落盘。界面上不给“新建记忆” —— 一给就会诱导写摘要，
+         而摘要恰好破坏这条记忆的价值（原文逐字才是价值本体）。 -->
+    <MemoryView v-else-if="curView === 'memory'" />
+
     <!-- 待办（2026-10-23 拆成组件 · 拆分计划第 1 批第 10 块）。
          数据与动作在 composables/useTodos.ts，模板在 views/TodosView.vue；
          `#board.todos-view` 这层壳由组件根元素带着（视图互斥与几何断言都按它选）。 -->
@@ -666,6 +676,10 @@
     <!-- Log edit modal -->
     <!-- Policy edit modal -->
     <PolicyEditModal v-if="policyEdit_" :ctl="policyCtl" />
+
+    <!-- 顶部工具栏工作区（2026-11-18）：三套预设 + 可拖拽自定义画布（保存/取消/上下限） -->
+    <ViewLayoutModal v-if="viewLayoutOpen" :layout="viewLayout" :views="views" :presets="VIEW_PRESETS"
+      @save="onViewLayoutSave" @close="closeViewLayout" @reset="onViewLayoutReset" />
 
     <!-- 结构地图一览（029）：**这是“结构地图在哪”的答案**。
          列出每个登记项目的状态 + 最后核实日期，点一行直接进方针卡改。 -->
@@ -815,6 +829,9 @@ import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
 import { readUiPref, saveUiPref } from './prefs'
+// 顶部工具栏工作区（2026-11-18）：布局算法是纯函数，放 shared 里好断言
+// ⚠ import 必须单行（模板绑定守卫的正则不跨行）
+import { DEFAULT_HIDDEN, MAX_VISIBLE, MIN_VISIBLE, PRESETS as VIEW_PRESETS, applyPreset, defaultLayout, describeLayout, normalizeLayout, resolveOrder, splitVisible, toggleVisible, type ViewLayout } from '../shared/viewLayout'
 import { makeDirtyGuard, snapOf } from './dirtyGuard'
 import { useTodos } from './composables/useTodos'
 import { useNotifications } from './composables/useNotifications'
@@ -844,6 +861,7 @@ import AboutModal from './components/AboutModal.vue'
 import QuickAddModal from './components/QuickAddModal.vue'
 import LogProjectPicker from './components/LogProjectPicker.vue'
 import PolicyEditModal from './components/PolicyEditModal.vue'
+import ViewLayoutModal from './components/ViewLayoutModal.vue'
 import CalAssignModal from './components/CalAssignModal.vue'
 import MigrateModal from './components/MigrateModal.vue'
 import TodoEditModal from './components/TodoEditModal.vue'
@@ -882,6 +900,7 @@ import TrashView from './views/TrashView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import AskView from './views/AskView.vue'
 import IdeasView from './views/IdeasView.vue'
+import MemoryView from './views/MemoryView.vue'
 import LaunchpadView from './views/LaunchpadView.vue'
 import { localPriority, priorityLabel } from '../shared/priority'
 import { buildBlockerIndex, boardCardMeta, openOnly } from '../shared/boardCards'
@@ -931,7 +950,7 @@ import AppCardMenu from './components/AppCardMenu.vue'
 // 首次强制同意确认的免责声明，主要是涉及到钱是非多”）—— 文案在 ./disclaimer.ts（单一事实源），
 // 弹窗本体在 components/ 下（那儿才准用 utilities）。
 import DisclaimerDialog from './components/DisclaimerDialog.vue'
-import { hasAckedDisclaimer, ackedDisclaimerAt } from './disclaimer'
+import { fetchLicenseState, ackLicense } from './disclaimer'
 
 const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
 type Status = typeof STATUSES[number]
@@ -1428,14 +1447,16 @@ async function syncBoardPrefs(): Promise<void> {
     } else {
       saveUiPref('fc_appearance', appearance.value)
     }
-    // 顶栏折叠的页签（2026-10-25）：只认真实存在的页签 id；真身里若写成"几乎全收起来"，
-    // 同样撞“至少留 7 个”这道护栏 → 回落默认（不然一次手改就能把工具全藏了）。
-    if (Array.isArray(p?.fc_views_collapsed)) {
-      const known = new Set(views.map(v => v.id))
-      const clean = Array.from(new Set(p.fc_views_collapsed.map((x: unknown) => String(x)).filter((id: string) => known.has(id))))
-      collapsedViews.value = (views.length - clean.length) >= VIEWS_MIN_VISIBLE ? clean : [...DEFAULT_COLLAPSED_VIEWS]
+    // 顶部工具栏工作区（2026-11-18）：新键 `fc_view_layout` 优先；
+    // 没有就退回老键 `fc_views_collapsed`（升级上来的用户只有它，不该被抹成默认）。
+    // 无论是哪种来源，都过一遍 normalizeLayout —— 手改坏的 id / 越界数量当场夹回来。
+    if (p?.fc_view_layout || Array.isArray(p?.fc_views_collapsed)) {
+      const next = normalizeLayout(p?.fc_view_layout, views.map(v => v.id), p?.fc_views_collapsed)
+      if (JSON.stringify(next) !== JSON.stringify(viewLayout.value)) viewLayout.value = next
+      // 迁移：从老键读出来的，立刻补写成新键（否则下次还得再走一次兼容分支）
+      if (!p?.fc_view_layout) saveUiPref(VIEW_LAYOUT_KEY, toPlain(next))
     } else {
-      saveUiPref(VIEWS_COLLAPSED_KEY, collapsedViews.value)
+      saveUiPref(VIEW_LAYOUT_KEY, toPlain(viewLayout.value))
     }
     // 念头长度上限（2026-10-25）：真身优先；手改出来的越界值当场夹回量程，再补写回去
     // —— 不夹的话设置页滑块会显示一个拉不到的数，用户以为坏了。
@@ -1633,7 +1654,9 @@ const viewOptions = computed<Array<{ v: string; label: string; hint: string }>>(
     { v: 'tier', label: '▥ 梯度榜', hint: '手动把项目拖进不同档位（核心/次优先/排队/搁置…）；只给自己看，不改看板与一屏' },
     // 2026-10-27 REV-008 一期 R4：让状态不一致的地方可见（2026-10-30 暮雨第 1 条改名：
     // “对不上”不是人话，统一叫“状态提醒”）
-    { v: 'mismatch', label: '⚠ 状态提醒', hint: '项目状态和仓库实际进度不一致、卡里写的文件已不存在、完成却没写怎么验收；只提醒，不阻挡' },
+    // 2026-11-17（暮雨第 2 次提，同一句话）：「给我说中文」—— label 早改对了，**hint 正文里还留着
+    //   “不一致”**。这次连正文一起改成人话，并由 check-ui-copy 的黑话词表钉住（否则下次还会写回去）。
+    { v: 'mismatch', label: '⚠ 状态提醒', hint: '这几处该对一下：项目状态说的和仓库里实际的不一样、卡里提到的文件已经没了、标了完成却没写怎么验收；只提醒，不阻挡' },
     // 2026-10-28：需求矩阵（RICE）—— 散点 + 表格；分数只存四个原始分，总分现算
     { v: 'rice', label: '▦ 需求优先级矩阵', hint: '只排先后，不替你做决定：横轴“要做几天”、纵轴“优先级分”，气泡越大用得越多；改一格立即重排，“采纳 / 砍掉”你点。' },
     // 2026-10-31（0.6.0 P1）：作战计划 —— 第 8 种摆法，裁决第一次有地方发生
@@ -2278,6 +2301,9 @@ const views = [
   // 想法（2026-10-22 · 暮雨：“随手记一个念头，之后决定做/不做/搁置，现有待办/日志/任务都放不下”）
   // 页面紧挨“待办”：两者是同一件事的两个阶段（念头 → 要做的事）
   { id: 'ideas', label: '想法' },
+  // 记忆（2026-11-17）：放"想法"旁边 —— 两者都是"不发生就没了"的东西，
+  // 但想法是"还没做"，记忆是"已经发生过"。别混成一类。
+  { id: 'memory', label: '记忆' },
   { id: 'logs', label: '日志' },
   { id: 'projects', label: '项目' },
   { id: 'blockers', label: '阻塞' },
@@ -2295,24 +2321,41 @@ const views = [
     但 `curViewLabel` 与视图分支都按 id 查表，所以它必须在这里。 */
 const ALL_VIEWS = [...views, { id: 'help', label: '帮助手册' }]
 
-// ── 顶栏“更多”：低频页签折叠（2026-10-25 暮雨）──────────────────────────
-// 原话：“帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来，
+// ── 顶栏“更多”：低频页签折叠（2026-10-25 暮雨 → 2026-11-18 升级成工作区）─────────
+// 原话（10-25）：“帮我搞个更多菜单，该折叠的就折叠。我认为"技能""服务""启动台"都可以收起来，
 //        至少对我而言是低频功能。或者后续改成用户可以自己设置哪些功能折叠，最少维持 7 个功能按钮在场。”
+// 原话（11-18）：“依然很臃肿……提供 2-3 种预设工作区……另外留一个自定义模式，让用户自己排序或折叠
+//        （有最少按钮和最多按钮限制）……做个可视化拖拽排序……单独弄个小画布，可以保存可以取消。”
 //
-// 所以两件都做了：① 默认收三个低频页签；② 设置里可自己勾（含“至少 7 个在场”这道护栏）。
-// ⚠ 当前视图若在被折叠里，“更多”按钮显示它的名字并高亮 —— 不能让人"不知道自己现在在哪一页"。
+// 所以现在有**两层**：① 三套预设一键换（日常/专注/全量）；② 自定义画布能拖能点、能保存能取消。
+// 布局算法全在 `../shared/viewLayout`（纯函数，Node 里可直接断言），这里只做接线。
+// ⚠ 老键 `fc_views_collapsed` 仍然读：升级上来的用户只有它，不该被抹成默认。
+const VIEW_LAYOUT_KEY = 'fc_view_layout'
+/** @deprecated 老键，只读不写（读取时作为 legacy 传进 normalizeLayout） */
 const VIEWS_COLLAPSED_KEY = 'fc_views_collapsed'
 /** 顶栏至少留几个页签在外面（暮雨定的下限，也是护栏） */
-const VIEWS_MIN_VISIBLE = 7
-/** 默认收起：他点名的三个低频功能 */
-const DEFAULT_COLLAPSED_VIEWS = ['launchpad', 'skills', 'services']
+const VIEWS_MIN_VISIBLE = MIN_VISIBLE
+/** 顶栏最多几个（2026-11-18 新增上限：再多就挤爆页面） */
+const VIEWS_MAX_VISIBLE = MAX_VISIBLE
+/** 默认收起：他点名的三个低频功能（页签 16 个、上限 13 —— 收 3 个正好 13，与 10-25 起的观感一致） */
 
-const collapsedViews = ref<string[]>(readUiPref<string[]>(VIEWS_COLLAPSED_KEY, DEFAULT_COLLAPSED_VIEWS))
+const viewLayout = ref<ViewLayout>(normalizeLayout(
+  readUiPref<unknown>(VIEW_LAYOUT_KEY, null),
+  views.map(v => v.id),
+  readUiPref<unknown>(VIEWS_COLLAPSED_KEY, DEFAULT_HIDDEN),
+))
 const moreOpen = ref(false)
-/** 顶栏上直接显示的页签 */
-const visibleViews = computed(() => views.filter(v => !collapsedViews.value.includes(v.id)))
+/** 自定义画布开着没有 */
+const viewLayoutOpen = ref(false)
+/** 页签的表（`views` 是数组，画布要按 id 查名字） */
+const viewSeq = computed(() => resolveOrder(viewLayout.value, views.map(v => v.id)))
+const viewSplit = computed(() => splitVisible(viewLayout.value, views.map(v => v.id)))
+/** 顶栏上直接显示的页签（按用户排的顺序） */
+const visibleViews = computed(() =>
+  viewSplit.value.visible.map(id => views.find(v => v.id === id)!).filter(Boolean))
 /** 收在“更多”里的页签 */
-const moreViews = computed(() => views.filter(v => collapsedViews.value.includes(v.id)))
+const moreViews = computed(() =>
+  viewSplit.value.hidden.map(id => views.find(v => v.id === id)!).filter(Boolean))
 /** 当前停在被折叠的页签里？（决定“更多”按钮显不显示它的名字） */
 const curViewInMore = computed(() => moreViews.value.some(v => v.id === curView.value))
 
@@ -2322,41 +2365,79 @@ function pickMoreView(id: string): void {
 }
 
 /**
- * 勾/取消勾一个页签在顶栏的可见性。
- * 护栏：收起来之后顶栏至少还得有 `VIEWS_MIN_VISIBLE` 个 —— 否则"折叠"会把工具藏没。
+ * 把一套布局落盘。**只在用户按了保存/预设时才调** ——
+ * 画布里拖到一半反悔按取消，不产生任何写入（那就该真的没有痕迹）。
  */
-function onViewVisibleChange(id: string, ev: Event): void {
-  const wantVisible = (ev.target as HTMLInputElement).checked
-  const next = wantVisible
-    ? collapsedViews.value.filter(x => x !== id)
-    : Array.from(new Set([...collapsedViews.value, id]))
-  const visibleCount = views.length - next.length
-  if (visibleCount < VIEWS_MIN_VISIBLE) {
-    // 说清为什么不行 + 现在几个 —— 直接拒绝，不改状态（复选框由 :checked 回弹）
-    showToast(`顶栏至少留 ${VIEWS_MIN_VISIBLE} 个页签（收起后就只剩 ${visibleCount} 个）—— 先放回几个再收`, 'error')
-    return
-  }
-  collapsedViews.value = next
-  saveUiPref(VIEWS_COLLAPSED_KEY, next)
+function commitViewLayout(next: ViewLayout): void {
+  const clean = normalizeLayout(next, views.map(v => v.id))
+  viewLayout.value = clean
+  saveUiPref(VIEW_LAYOUT_KEY, toPlain(clean))
+}
+
+function openViewLayout(): void {
+  moreOpen.value = false
+  viewLayoutOpen.value = true
+}
+
+function closeViewLayout(): void {
+  viewLayoutOpen.value = false
+}
+
+/** 画布按了「保存」 */
+function onViewLayoutSave(next: ViewLayout): void {
+  commitViewLayout(next)
+  viewLayoutOpen.value = false
+  showToast(`顶部工具栏已换：${describeLayout(next)}（顶栏 ${views.length - next.hidden.length} 个）`, 'success')
+}
+
+/** 画布按了「恢复默认（日常）」—— 只是把草稿换掉，仍要按保存 */
+function onViewLayoutReset(): void {
+  viewLayoutOpen.value = false
+  commitViewLayout(defaultLayout())
+  showToast('已恢复默认：日常工作区', 'success')
+}
+
+/** 直接套一套预设（设置页与「更多」菜单里的快捷入口都走这里） */
+function applyViewPreset(id: string): void {
+  const r = applyPreset(id, views.map(v => v.id))
+  if (!r.ok) { showToast(r.error, 'error'); return }
+  commitViewLayout(r.layout)
+  showToast(`已切到「${describeLayout(r.layout)}」工作区`, 'success')
 }
 
 /**
- * 从“更多”菜单直达 设置 → 通用 → 顶栏页签。
+ * 勾/取消勾一个页签在顶栏的可见性（设置页那排复选框仍保留 —— 它比画布快）。
+ * 护栏：顶上至少 `MIN_VISIBLE`、至多 `MAX_VISIBLE`。
+ */
+function onViewVisibleChange(id: string, ev: Event): void {
+  const wantVisible = (ev.target as HTMLInputElement).checked
+  const cur = viewLayout.value.hidden.includes(id)
+  // 状态没变（复选框被 :checked 回弹）就不折腾
+  if (wantVisible === !cur) return
+  const r = toggleVisible(viewLayout.value, id, views.map(v => v.id))
+  if (!r.ok) {
+    // 说清为什么不行 + 现在几个 —— 直接拒绝，不改状态（复选框由 :checked 回弹）
+    showToast(r.error, 'error')
+    return
+  }
+  commitViewLayout(r.layout)
+}
+
+/**
+ * 从“更多”菜单直达画布。
  * 2026-10-25：原来那段说明是**纯文本**摆在菜单底部（把浮层撑长，暮雨否掉）；
- * 改成菜单项后它至少真能点 —— 顺带把“勾哪些收起”这件事带到用户眼前。
+ * 2026-11-18：那条菜单项现在打开的是**拖拽画布**，不再是设置页里的一排复选框。
  */
 function openViewsSetting(): void {
-  moreOpen.value = false
-  settingsTab.value = 'general'
-  saveUiPref('fc_settings_tab', 'general')
-  showSettings()
+  openViewLayout()
 }
 
 function resetCollapsedViews(): void {
-  collapsedViews.value = [...DEFAULT_COLLAPSED_VIEWS]
-  saveUiPref(VIEWS_COLLAPSED_KEY, collapsedViews.value)
-  showToast('已恢复默认：收起“启动台 / 技能 / 服务”', 'success')
+  commitViewLayout(defaultLayout())
+  showToast('已恢复默认：日常工作区', 'success')
 }
+/** 当前工作区叫什么（顶栏画布按钮与设置页共用一份文案） */
+const curLayoutName = computed(() => describeLayout(viewLayout.value))
 /** 关于页等地方显示中文页签名 —— 直接把 curView（active/projects…）印给用户是术语 */
 const curViewLabel = computed(() => ALL_VIEWS.find(v => v.id === curView.value)?.label || curView.value)
 
@@ -2833,6 +2914,14 @@ function loadViewData(v: string) {
   } else if (v === 'ideas') {
     // 进页面就取：想法是这一页的全部内容，不加载等于开出一张白纸
     loadIdeas()
+  } else if (v === 'memory') {
+    // 记忆页（2026-11-17）：数据由组件自己 onMounted 拉（views/MemoryView.vue，只读 4 条通道）。
+    // ⚠ 这里必须**显式**列出来。漏了它会掉到最后的 else → `loadAll()` 白跑一遍全量扫描
+    //   （365 张卡 ≈ 130ms 同步 IO），而记忆页**一个字段都用不上**它。
+    //   2026-11-17 实测：暮雨报「点记忆页几乎整个方寸卡死，狂点好几下才进去」——
+    //   一半是 policy:driftAll 冻住主进程（见 services/structureDrift.ts 文件头），
+    //   另一半就是这个白跑：垫在真正的 memorySearch 前面，让"点一下"看起来像没反应。
+    //   （同 help / decisions / services 那几条教训：显式列出来，别掉到 else。）
   } else if (v === 'logs') {
     loadLogs()
   } else if (v === 'ask') {
@@ -4182,9 +4271,14 @@ async function copyContextPack(p: any): Promise<void> {
 }
 
 /**
- * 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
+ * 把项目的上下文包**发送给 DSH**（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
  *
- * 与 `copyContextPack` 的区别**不是话术，是它真的会派出去**：
+ * ⚠ 文案口径：**UI 上是「发送给 DSH」，不是「派给 DSH」**。
+ * 暮雨 2026-11-17 定过：「🧠 派给 DSH 按钮太丑了，改成『发送给DSH』都能让人看懂」。
+ * 本文档注释与 `renderer/views/ProjectsView.vue`、`test/renderer-web-assert.js` 说的是同一件事。
+ * （`context:dispatchDsh` 这个 IPC 通道名是内部标识，沿用旧名，不改。）
+ *
+ * 与 `copyContextPack` 的区别**不是话术，是它真的会发出去**：
  *   方寸只落一份派单文件（`<数据根>/.dispatch-dsh/`），插件在 DSH 进程里看见就用它开新会话。
  *
  * 为什么不做成"方寸直接启动 DSH"：方寸连 DSH 装没装都只在只读探测，
@@ -4193,28 +4287,34 @@ async function copyContextPack(p: any): Promise<void> {
  *
  * 缺什么要当场说出来（与上下文包同一口径）：包里缺契约/方针/决策，
  * agent 就会以为"这项目没这些规矩"，那比不给它包更危险。
+ *
+ * @param kind `work`（默认，让 agent 开工干活）| `plan`（让 agent 做规划）
+ *
+ * 2026-11-17 暮雨定案：「以后可以直接在 DSH 里派活做规划」——
+ * 所以这一步多了 `plan` 用例。不给 kind 时行为与之前**逐字一致**（work）。
  */
-async function dispatchToDsh(p: any): Promise<void> {
+async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<void> {
   if (!p?.id) return
   const tegula = (window as any).tegula
   // 老版本（没这个通道）要说清楚，不许静默失败
   if (typeof tegula?.dispatchDsh !== 'function') {
-    showToast('这个版本还没有「派给 DSH」通道 —— 请更新方寸后再试', 'error')
+    showToast('这个版本还没有「发送给 DSH」通道 —— 请更新方寸后再试', 'error')
     return
   }
   try {
-    const r: any = await tegula.dispatchDsh(p.id)
+    const r: any = await tegula.dispatchDsh(p.id, kind)
     if (!r || r.ok === false) {
-      showToast(`派不出去：${(r && r.error) || '未知原因'}`, 'error')
+      showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
       return
     }
-    showToast(`已派给 DSH：“${p.name || p.id}”的上下文包（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话`, 'ok')
+    const what = kind === 'plan' ? '规划任务' : '上下文包'
+    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话`, 'ok')
     // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
     }
   } catch (e: any) {
-    showToast('派送异常：' + (e?.message || e), 'error')
+    showToast('发送异常：' + (e?.message || e), 'error')
   }
 }
 
@@ -4501,8 +4601,16 @@ async function loadPolicyMap() {
       exists[p.id] = !!pol
       filled[p.id] = !!(pol && (pol.mission || pol.goal || pol.scenario || pol.boundary))
       const mapText = String((pol && pol.structureMap) || '')
-      // 只有**真填过**才算有：骨架里那行“（待填 —— …）”不算内容
-      hasMap[p.id] = !!mapText.trim() && !/最后核实[：:]\s*（待填/.test(mapText)
+      // 只有**真填过**才算有内容。
+      // ⚠ 2026-11-18 修正：原来只认 `（待填` 那种骨架 —— 但 11-16 有一次批量保存给
+      //   13 份「- 模块清单：待填」的空壳**盖上了当天的日期章**，于是这个正则失灵：
+      //   界面上 13 个空项目显示成"结构地图已核实"，而 MCP 侧照样判它们缺。
+      //   现在与主进程（`mcp/tools.ts` 的 `模块清单：待填`）**同一口径**：
+      //   只要模块清单/主数据流还是"待填"或空冒号，就不算有内容。
+      hasMap[p.id] = !!mapText.trim()
+        && !/最后核实[：:]\s*（待填/.test(mapText)
+        && !/-\s*模块清单[：:]\s*(待填)?\s*$/m.test(mapText)
+        && !/-\s*主数据流[：:]\s*(待填)?\s*$/m.test(mapText)
       verified[p.id] = extractVerified(mapText)
       // 有日期的项目才值得算“结构大改”（没日期的已经是 stale，不必再问 git）
       if (verified[p.id]) driftRows.push({ project: p.id, repo: String((p as any).repo || ''), since: verified[p.id] })
@@ -7405,15 +7513,34 @@ let pendingAfterDisclaimer: (() => void) | null = null
 
 function openDisclaimer(mode = 'view'): void {
   disclaimerMode.value = mode
-  disclaimerAckedAt.value = ackedDisclaimerAt()
+  // 2026-11-18：确认时间以**服务端记录**为准；读不到就留空，不猜。
+  void fetchLicenseState().then((st) => {
+    if (st && st.ok && st.ack && st.ack.at) disclaimerAckedAt.value = st.ack.at
+  })
   disclaimerOpen.value = true
 }
 
-function onDisclaimerAck(): void {
+/**
+ * 同意：先写服务端，成功才关弹窗（2026-11-18）。
+ * 失败（IPC 不可用 / 写盘失败）必须留在弹窗上并说原因 —— 没签成不能放行。
+ */
+async function onDisclaimerAck(): Promise<void> {
+  const r = await ackLicense()
+  if (!r || r.ok !== true) {
+    // ⚠ 这里必须是 `showToast`。2026-11-18 有人写成了 `say(...)` —— 全项目没有这个函数，
+    //   `tsc` 因为 App.vue 走 vite 不参与主进程那份 tsc，**编译期不报**，
+    //   是 `check-template-bindings` 的"调用了但未定义"那条当场抓出来的。
+    //   后果会是：点同意若落盘失败，界面**静默无提示**、弹窗还开着，用户不知道发生了什么。
+    showToast('确认没有落地：' + (r?.error || 'IPC 通道不可用'), 'error')
+    return
+  }
+  if (r.ack && r.ack.at) disclaimerAckedAt.value = r.ack.at
   disclaimerOpen.value = false
   const fn = pendingAfterDisclaimer
   pendingAfterDisclaimer = null
   if (fn) fn()
+  // 确认前首屏可能被闸挡成空；这里补一次，免得用户看到“同意完了还是空的”。
+  void loadAll()
 }
 
 /** 免责确认之后才跑的引导（目前只有首次运行向导） */
@@ -7853,7 +7980,8 @@ provide('fc-settings', {
   disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme,
   APPEARANCE_LIST, appearance, setAppearance,
   IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange,
-  views, collapsedViews, VIEWS_MIN_VISIBLE, onViewVisibleChange, resetCollapsedViews,
+  views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName,
+  onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
   appLogFile, openAppLogDir, copyAppLogPath, showAppLogFromSettings, purgeLogs, openDisclaimer,
   diagSelf, diagSkills, diagActivity, diagBusy, runSelfCheck, checkSkillsCopies, loadDiagActivity, relativeTime,
   addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
@@ -7873,14 +8001,24 @@ onMounted(() => {
   // 点通知回到具体对象（2026-10-29 dsh-notify 借鉴 #2）；preload 没这个通道时静默跳过，不留僵尸监听
   try { offNotifyFocus = (window as any).tegula?.onNotifyFocus?.((pp: any) => { void onNotifyFocus(pp) }) || null } catch { offNotifyFocus = null }
   // ⚠ 免责声明优先于一切引导：没同意之前不弹数据目录向导（先同意再用）。
-  //   同意后由 onDisclaimerAck 接着跑 bootAfterDisclaimer()。
-  if (!hasAckedDisclaimer()) {
+  //   2026-11-18：判据改问**主进程**（服务端记录），localStorage 只当显示缓存。
+  //   服务不可达（返回 null）≠ 没同意：不弹协议，各 AI 入口会被主进程闸住并说明原因。
+  void (async () => {
+    const st = await fetchLicenseState()
+    if (st && st.ok === true && st.acked) {
+      disclaimerAckedAt.value = (st.ack && st.ack.at) || ''
+      bootAfterDisclaimer()
+      return
+    }
+    if (st === null) {
+      // IPC 不存在/失败：老 preload 或浏览器预览，照常启动；真调用会被主进程拒。
+      bootAfterDisclaimer()
+      return
+    }
     disclaimerMode.value = 'first-run'
     disclaimerOpen.value = true
     pendingAfterDisclaimer = bootAfterDisclaimer
-  } else {
-    bootAfterDisclaimer()
-  }
+  })()
   loadTaskMeta()
   loadAll()
   // 014：与主进程 prefs.json 对齐 Agent 预设（localStorage 只当缓存，换 origin 不该丢资产）

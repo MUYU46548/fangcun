@@ -29,7 +29,7 @@
         <!-- 维护机制说清楚（2026-10-03 用户问“方寸自带 skill 后续如何保持更新和维护？”）：
              答案就在这一行 —— 随版本分发 + 启动自动同步 + 手动目标用指纹对账。 -->
         <span class="skills-hint skills-maint">
-          技能随方寸版本分发：<b>升级方寸后启动会自动把新版同步到 Hermes / DSH</b>（哈希不一致就重装）；
+          技能随方寸版本分发：<b>升级方寸后启动会自动把新版同步到 Hermes / DSH</b>（装着的版本和方寸自带的不一样就重装）；
           WorkBuddy 这类只能手动导入的，用卡片上的“真源指纹”对照你拖进去的那份是不是同一版。
         </span>
         <button class="skills-btn primary" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</button>

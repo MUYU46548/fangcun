@@ -527,11 +527,13 @@
           check('★★ 点“更多”弹出被收起的页签', !!pop, pop ? '' : '(没有 .more-pop)')
           const rows = pop ? $$('.more-pop .more-opt') : []
           const labels = rows.map((b) => ((b.querySelector('.more-txt') || b).textContent || '').trim())
-          check('★★ 菜单 = 三个页签 + 一条设置入口（四行，不多不少）',
-            labels.length === 4
+          // 2026-11-18：菜单项数量不再是写死的 4 —— 收起几个就是几行 + 一条工作区入口。
+          // 判据改成"**没编也没漏**"：三个点名低频都在，最后一条是工作区入口。
+          check('★★ 菜单 = 被收起的页签 + 一条工作区入口（不多不少，最后一条是入口）',
+            rows.length >= 4
             && ['技能', '服务', '启动台'].every((t) => labels.some((x) => x.indexOf(t) >= 0))
-            && labels[3].indexOf('设置') >= 0,
-            JSON.stringify(labels))
+            && labels[labels.length - 1].indexOf('工作区') >= 0,
+            JSON.stringify(labels) + '（收起 ' + (rows.length - 1) + ' 个）')
 
           // ── 形状（2026-10-25 第二轮，暮雨拿系统菜单截图对比后否掉第一版）─────────
           // 原话：“收起页签太丑了，底下那坨文本把框挤长而且完全没必要。”
@@ -562,8 +564,8 @@
           check('★★ 浮层不臃肿（整体高度 <= 160px；旧版光那段说明就占两行）',
               ph > 0 && ph <= 160, 'height=' + ph.toFixed(1))
             const rowHs = rows.map((b) => b.getBoundingClientRect().height)
-            check('  四行等高（28px ± 2），不像一排输入框',
-              rowHs.length === 4 && rowHs.every((h) => Math.abs(h - 28) <= 2),
+            check('  菜单行等高（28px ± 2），不像一排输入框',
+              rowHs.length > 0 && rowHs.every((h) => Math.abs(h - 28) <= 2),
               JSON.stringify(rowHs.map((h) => Math.round(h))))
           }
 
@@ -587,28 +589,38 @@
           }
 
           // 最后一条：底部那句话改成的菜单项**真能点**（纯文本换成一个入口，不是删了了事）
+          // 2026-11-18：这条现在打开的是**顶部工具栏工作区**画布（三套预设 + 拖拽），不再是设置页。
           const moreBtn2 = $('#views .more-btn')
           if (moreBtn2) {
             moreBtn2.click()
             await sleep(450)
-            const setOpt = $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('顶栏页签设置') >= 0)
-            check('★★ “顶栏页签设置…”是一条真菜单项（不是干巴巴的说明文字）', !!setOpt,
+            const setOpt = $$('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('工作区') >= 0)
+            check('★★ “顶栏工作区…”是一条真菜单项（不是干巴巴的说明文字）', !!setOpt,
               $$('.more-pop .more-opt').map((b) => (b.textContent || '').trim()).join(' | '))
             if (setOpt) {
+              const prefsBefore = window.__fcTest.callCount('prefsSet')
               setOpt.click()
               await sleep(900)
-              check('★★ 点它 → 设置打开且停在“通用”（能直接勾页签）',
-                !!$('#smodal') && $('.sect:not([style*="display: none"]) h4') !== null)
-              const generalOn = $$('#smodal .sect').some((x) => {
-                const h = x.querySelector('h4')
-                const vis = x.offsetParent !== null
-                return vis && h && (h.textContent || '').indexOf('顶栏页签') >= 0
-              })
-              check('★★ 停的那一页里真能看到“顶栏页签”小节', generalOn)
-              const closeS = $$('#smodal button').find((b) => (b.textContent || '').trim() === '关闭')
-              if (closeS) closeS.click()
+              check('★★ 点它 → 打开工作区画布（三套预设 + 两个投放区）',
+                !!$('.vl-shell') && $$('.vl-shell .vl-presets button').length >= 3
+                && $$('.vl-shell .vl-zone').length === 2,
+                '.vl-shell=' + !!$('.vl-shell') + ' 预设=' + $$('.vl-shell .vl-presets button').length
+                + ' 区=' + $$('.vl-shell .vl-zone').length)
+              const zones = $$('.vl-shell .vl-zone')
+              const onCount = zones[0] ? zones[0].querySelectorAll('.vl-item').length : -1
+              const offCount = zones[1] ? zones[1].querySelectorAll('.vl-item').length : -1
+              check('★★ 画布上排 = 当前顶栏那几块（数量对得上，不是空画布）',
+                onCount >= 7 && offCount >= 1, '上排 ' + onCount + ' 块 / 下排 ' + offCount + ' 块')
+              const footBtns = $$('.vl-shell .vl-foot button').map((b) => (b.textContent || '').trim())
+              check('★ 画布底部有「保存 / 取消」两个按钮（能保存能取消）',
+                footBtns.some((t) => t === '保存') && footBtns.some((t) => t === '取消'),
+                footBtns.join('|'))
+              const cancelBtn = $$('.vl-shell .vl-foot button').find((b) => (b.textContent || '').trim() === '取消')
+              if (cancelBtn) cancelBtn.click()
               await sleep(500)
-              check('  收尾：设置已关闭（不污染后面的断言）', !$('#smodal'))
+              check('★★ 点「取消」关掉画布且**不写偏好**（打开看一眼不该留痕迹）',
+                !$('.vl-shell') && window.__fcTest.callCount('prefsSet') === prefsBefore,
+                'prefsSet 前 ' + prefsBefore + ' 后 ' + window.__fcTest.callCount('prefsSet'))
             }
           }
         }
@@ -802,6 +814,21 @@
         check('★★ 顶栏只占一行：屏宽放得下筛选控件时必须同排（放不下时整行换行 = 既定行为，不算回归）',
           !!barGeom && (barGeom.ctrlsSameRow || barGeom.barClient < barGeom.need),
           barGeom ? `barClient=${barGeom.barClient} need≈${barGeom.need} ctrlsSameRow=${barGeom.ctrlsSameRow}` : 'no bar')
+
+        // ── 页签行（#views）也**不许横向溢出**（2026-11-18 截图目检抓出来的）──────
+        // 真事：我往这一行右侧加了一枚「▦ 日常」按钮，`#bar` 没溢出、DOM 断言全绿，
+        // 但它在 1440 宽下被挤到**视口外**——截图里根本看不见，等于"加了个入口等于没加"。
+        // 判据：整行可滚动宽度不许超过可视宽度（多一枚按钮就该挤掉一个页签，而不是跑出屏幕）。
+        check('★★ 页签行不横向溢出（新加按钮不许把自己挤出视口）', (() => {
+          const nav = $('#views')
+          if (!nav) return false
+          return nav.scrollWidth <= nav.clientWidth + 1
+        })(), (() => {
+          const nav = $('#views')
+          if (!nav) return 'no #views'
+          const over = nav.scrollWidth - nav.clientWidth
+          return `scroll=${nav.scrollWidth} client=${nav.clientWidth}` + (over > 1 ? ` → 溢出 ${over}px` : '')
+        })())
 
         // ⚠ 下面两条是"用成熟原语"换来的行为（2026-10-11：改用 reka-ui 的 Popover）——
         //   上一版手搓的遮罩只能关"点遮罩"，Esc 与焦点归还得自己写。既然换成库，就把这两条
@@ -5772,7 +5799,9 @@
       { name: 'task-trash-b.md', id: 'task-trash-b', title: '回收站多选：乙', status: '待办', project: 'demo', bytes: 1024, mtime: Date.now() },
     ])
     clickText('看板'); await sleep(400)
-    check('能切到“回收站”页签（多选断言）', clickText('回收站'))
+    // ⚠ 必须走 openViewTab（AGENTS.md 坑 #4）：页签可能被收在「更多」里，
+    //   直接 clickText 点不到 → 连带后面整段回收站断言全挂，而界面其实完全正常。
+    check('能切到“回收站”页签（多选断言）', await openViewTab('回收站'))
     check('回收站 2 项渲染出来', await waitFor(() => $$('.trash-view .trash-item').length === 2, 4000, 'trash seed'),
       'items=' + $$('.trash-view .trash-item').length)
     check('默认非批量：无批量栏、动作按钮可见', $$('.trash-view .batch-bar').length === 0 &&
@@ -5856,7 +5885,7 @@
       { name: 'task-trash-c.md', id: 'task-trash-c', title: '回收站多选：丙', status: '待办', project: '', bytes: 512, mtime: Date.now() },
       { name: 'task-trash-d.md', id: 'task-trash-d', title: '回收站多选：丁', status: '待办', project: '', bytes: 256, mtime: Date.now() },
     ])
-    clickText('看板'); await sleep(400); clickText('回收站'); await sleep(500)
+    clickText('看板'); await sleep(400); await openViewTab('回收站'); await sleep(500)
     if (trashBatchBtn()) trashBatchBtn().click()
     await sleep(250)
     const selAllT = $$('.trash-view .batch-bar button').find(b => (b.textContent || '').trim() === '全选')
@@ -5883,7 +5912,7 @@
         { name: 'old-2.md', id: 'old-2', title: '很老的乙', status: '完成', project: '', bytes: 100, mtime: ago(60) },
         { name: 'new-1.md', id: 'new-1', title: '很新的丙', status: '待办', project: '', bytes: 100, mtime: ago(2) },
       ])
-      clickText('看板'); await sleep(300); clickText('回收站'); await sleep(600)
+      clickText('看板'); await sleep(300); await openViewTab('回收站'); await sleep(600)
       const openBtn = $$('.trash-view button').find((b) => (b.textContent || '').indexOf('按日期清理') >= 0)
       check('★ 回收站有“按日期清理”入口', !!openBtn)
       if (openBtn) openBtn.click()
@@ -5919,7 +5948,7 @@
         { name: 'pv-1.md', id: 'pv-1', title: '预览用甲', status: '待办', project: 'demo', bytes: 777, mtime: '2026-09-20T00:00:00.000Z' },
         { name: 'pv-2.2.md', id: 'pv-2', title: '预览用乙', status: '完成', project: '', bytes: 100, mtime: '2026-09-19T00:00:00.000Z' },
       ])
-      clickText('看板'); await sleep(300); clickText('回收站'); await sleep(600)
+      clickText('看板'); await sleep(300); await openViewTab('回收站'); await sleep(600)
       check('前置：两张卡都在（否则下一条会在空列表上假绿）',
         await waitFor(() => $$('.trash-view .trash-item').length === 2, 3000, '2 张卡'),
         'n=' + $$('.trash-view .trash-item').length)
@@ -6700,6 +6729,12 @@
     // ⚠ 这是“通用”类的**小节清单 + 顺序**（产品事实，不是夹具数量）。
     //   2026-10-25 加了“念头长度上限”，旧断言写死 length===2 当场变红 —— 它挡对了：
     //   万一哪天分类隔离失效、别类小节漏出来，这条也会同样响。加小节时同步这张清单。
+    // ⚠ 2026-11-18：这里以前**依赖一个副作用** —— 「更多 → 顶栏页签设置」会把设置页
+    //   一并切到“通用”并落盘，于是这段碰到时正好停在通用。入口现在改成直接开工作区画布、
+    //   不再碰设置页，那个副作用就不存在了。断言要验的是“分类隔离”，所以**自己点一次通用**，
+    //   而不是等别人替它把状态摆好（依赖副作用 = 别人一改就假红）。
+    clickNav('通用')
+    await sleep(300)
     const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签']
     check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
@@ -9537,6 +9572,110 @@
       if (closeS) closeS.click()
       await sleep(300)
       window.__fcTest.setStructureDrift({})
+    }
+
+    // ══ 记忆页 · 写入（2026-11-18 暮雨：“记忆页必须开放写，不然出问题用户想改都改不了”）══
+    // 这一页此前**一条渲染层断言都没有** —— 只读的时候没人管还行，
+    // 一旦开放写，"按钮在不在 / 点它走没走通道 / 缺字段拦不拦"就必须钉在真 DOM 上。
+    {
+      check('能切到“记忆”页签', await openViewTab('记忆'))
+      await sleep(400)
+      check('记忆页渲染出来', await waitFor(() => !!$('.memory-view'), 4000, '记忆视图'))
+
+      const rows0 = $$('.memory-view .mem-item')
+      check('记忆条目渲染出来（夹具 3 条）', rows0.length >= 2, 'n=' + rows0.length)
+
+      const newBtn = $$('.memory-view button').find((b) => (b.textContent || '').indexOf('记一条') >= 0)
+      check('★★ 检索行上有「＋ 记一条」入口（开放写的唯一承诺就是这个按钮）', !!newBtn,
+        $$('.memory-view button').map((b) => (b.textContent || '').trim()).slice(0, 8).join('|'))
+
+      // 每条都有编辑 / 撤销两个出口
+      const firstItem = $('.memory-view .mem-item')
+      const itemBtns = firstItem ? $$('.memory-view .mem-item')[0].querySelectorAll('button') : []
+      const btnTexts = Array.prototype.slice.call(itemBtns).map((b) => (b.textContent || '').trim())
+      check('★★ 每条记忆都有「✏ 编辑」出口（记错了得能自己改）',
+        btnTexts.some((t) => t.indexOf('编辑') >= 0), btnTexts.join('|'))
+      check('★★ 撤销用的是「撤销这条」而不是「删除」（撤销≠删除，文件不动）',
+        btnTexts.some((t) => t.indexOf('撤销') >= 0 || t.indexOf('恢复') >= 0), btnTexts.join('|'))
+      check('★ 页面上**没有**「删除」这种说法（记忆是历史，删掉就是篡改）',
+        !$$('.memory-view button').some((b) => (b.textContent || '').trim() === '删除'))
+
+      // 打开新建框
+      if (newBtn) {
+        newBtn.click()
+        await sleep(350)
+        check('★★ 点「记一条」打开编辑框', !!$('.memory-view .mem-edit'), '.mem-edit=' + !!$('.memory-view .mem-edit'))
+        const labels = $$('.memory-view .mem-edit label').map((l) => (l.textContent || '').trim())
+        check('★★ 四个必填项都在（类型 / 标题 / 原文 / 来源）',
+          ['类型', '标题', '原文', '来源'].every((k) => labels.some((t) => t.indexOf(k) >= 0)),
+          JSON.stringify(labels))
+        const ta = $('.memory-view .mem-edit .mem-ta')
+        check('★ 正文是**大文本框**（原文逐字，不是一行摘要输入框）',
+          !!ta && ta.tagName === 'TEXTAREA' && Number(ta.rows) >= 6,
+          ta ? ta.tagName + ' rows=' + ta.rows : 'no textarea')
+
+        // 空着点保存 → 必须**拒**并点名缺什么，且**不许**发 IPC
+        const n0 = window.__fcTest.callCount('memoryCreate')
+        const saveBtn = $$('.memory-view .mem-edit button').find((b) => (b.textContent || '').indexOf('存下') >= 0)
+          || $$('.memory-view .mem-edit button').find((b) => (b.textContent || '').indexOf('保存') >= 0)
+        check('★ 编辑框里有保存按钮', !!saveBtn)
+        if (saveBtn) {
+          saveBtn.click()
+          await sleep(300)
+          const errTxt = ($('.memory-view .mem-edit-err') || {}).textContent || ''
+          check('★★ 四件没填齐就点保存 → 当场拒绝并点名缺哪个（不是默默不存）',
+            errTxt.length > 0 && /标题|原文|来源/.test(errTxt), errTxt.slice(0, 80))
+          check('★★ 被拒时**没有发 IPC**（前端拦住，不会让主进程白跑一趟）',
+            window.__fcTest.callCount('memoryCreate') === n0,
+            'memoryCreate 调用 ' + (window.__fcTest.callCount('memoryCreate') - n0) + ' 次')
+        }
+
+        // 填齐 → 真调 memoryCreate
+        // ⚠ 不要按下标猜输入框：`.mem-inp` 有**三个**（项目 / 标题 / 来源），
+        //   第一版写 `inputs[0]` 当成标题，实际填进了"项目"，于是保存被前端拦下、
+        //   memoryCreate 一次都没发（当场被这条断言抓出来）。按 placeholder 认。
+        const allInps = $$('.memory-view .mem-edit .mem-inp')
+        const titleIn = allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('这条记忆') >= 0)
+          || allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('一句话') >= 0)
+          || allInps[1]
+        const sourceIn = allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('来源') >= 0)
+          || allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('谁说的') >= 0)
+          || allInps[2]
+        {
+          titleIn.value = '渲染层建的一条'
+          titleIn.dispatchEvent(new Event('input', { bubbles: true }))
+          sourceIn.value = 'e2e-renderer-web'
+          sourceIn.dispatchEvent(new Event('input', { bubbles: true }))
+          ta.value = '这是逐字原文，不该被摘要。'
+          ta.dispatchEvent(new Event('input', { bubbles: true }))
+          await sleep(120)
+          if (saveBtn) saveBtn.click()
+          check('★★ 填齐后保存 → 真调 memoryCreate（不是只弹个 toast）',
+            await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'memoryCreate'), 4000, 'memoryCreate'),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memoryCreate').map((c) => c.args)))
+          const sent = window.__fcTest.calls().filter((c) => c.name === 'memoryCreate').pop()
+          const payload = sent && sent.args && sent.args[0] ? sent.args[0] : {}
+          check('★★ 传过去的正文是**原样的整段**（不摘要、不截断）',
+            String(payload.body || '') === '这是逐字原文，不该被摘要。', JSON.stringify(payload.body))
+          check('★ 传过去带上了来源（说不清来源的记忆没人敢信）',
+            String(payload.source || '') === 'e2e-renderer-web', String(payload.source))
+          await sleep(500)
+          check('★ 存完编辑框关掉', !$('.memory-view .mem-edit'))
+        }
+      }
+
+      // 撤销这条：真调 memorySetStatus，且传的是「已撤销」
+      window.__fcTest.reset()
+      const revBtn = $$('.memory-view .mem-item button').find((b) => (b.textContent || '').indexOf('撤销') >= 0)
+      check('★ 撤销按钮在（前置）', !!revBtn)
+      if (revBtn) {
+        revBtn.click()
+        check('★★ 点「撤销这条」真调 memorySetStatus(已撤销)（撤销≠删除，走的是状态通道）',
+          await waitFor(() => window.__fcTest.calls().some(
+            (c) => c.name === 'memorySetStatus' && (c.args || [])[1] === '已撤销'
+          ), 4000, 'memorySetStatus'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memorySetStatus').map((c) => c.args)))
+      }
     }
 
     check('渲染层没有未捕获错误（顶部错误条为空）', $$('.errbar').length === 0,

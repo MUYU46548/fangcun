@@ -20,6 +20,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -344,7 +345,13 @@ def main():
     with open(PRECHECK, encoding="utf-8") as f:
         pre_src = f.read().replace("\r\n", "\n")
     check("★ 守卫：pack.cjs 输出到 desktop/pkg",
-          "path.join(DESKTOP, 'pkg')" in pack_src, "")
+          # ⚠ 2026-11-17：`pack.cjs` 加了 `FC_PKG_OUT` 覆盖（`path.join(DESKTOP, process.env.FC_PKG_OUT || 'pkg')`），
+          #   断言原来写死 `path.join(DESKTOP, 'pkg')` → 实现升级了、守卫没跟 → 假红。
+          #   现在：**要么是原来那样写死，要么是"DESKTOP + 默认 'pkg'"** ——
+          #   既保住"输出必须落 desktop 下、默认就是 pkg"，又不因为加了环境变量覆盖就误判。
+          ("path.join(DESKTOP, 'pkg')" in pack_src) or
+          (re.search(r"path\.join\(\s*DESKTOP\s*,[^)]*'pkg'", pack_src) is not None),
+          "")
     check("★ 守卫：publish-release.sh 从 desktop/pkg 取件",
           "desktop/pkg" in sh, "")
     n_pkg = pre_src.count('"desktop", "pkg"')

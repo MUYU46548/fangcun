@@ -11,11 +11,15 @@ import * as tasks from './data/tasks'
 import * as todosService from './services/todos'
 import * as ideasService from './services/ideas'
 import * as logsService from './services/logs'
+// 记忆层（2026-11-17）：界面读口。写口暂不开 —— 原文逐字录入靠 agent 落盘，
+// 界面上「新建记忆」会诱导随手写摘要，那正好破坏这条记忆的价值。
+import * as memoryService from './services/memory'
 import * as notificationsService from './services/notifications'
 import * as notifierService from './services/notifier'
 import * as path from 'path'
 import * as fs from 'fs'
 import { registerLlmIpcHandlers } from './llm-ipc'
+import { registerLicenseIpcHandlers } from './license-ipc'
 // 使命草稿（2026-11-14 · 长 Loop P1-2）：从项目 README 抽一句话当建议，人点头才写
 import { draftMissionFromReadme } from '../shared/missionDraft'
 import { registerDecisionIpcHandlers } from './decision-ipc'
@@ -46,6 +50,8 @@ import type { McpEntryId } from './services/mcpConnect'
 import { linkHermesMcp } from './services/hermesLink'
 import { detectDshPlugin } from './services/dshPlugin'
 import { guardedHandle } from './guarded-ipc'
+// 退出闸（2026-11-17 · 卡 p0-1）：「不同意并退出」要真退，必须置位与 close 钩子**同一个**状态
+import { markQuitting } from './quitGate'
 import { readSummary as readUsageSummary, taskToNeverReadInput } from './mcp/usage'
 // MCP 写口闸 + 写侧留痕（2026-11-11 卡《MCP 写口无闸》）—— 设置页与清单都读这一层
 import * as writeGate from './mcp/writeGate'
@@ -91,6 +97,8 @@ export function registerIpcHandlers(): void {
   
   // Register LLM handlers
   registerLlmIpcHandlers()
+  // 许可协议闸（2026-11-18）：服务端记录 + 渲染层签字面
+  registerLicenseIpcHandlers()
   // 决策卡（拍板记录，2026-10-12）——独立于 LLM 的本地 CRUD，与 Python CLI 同文件
   registerDecisionIpcHandlers()
   registerQuestionnaireIpcHandlers()
@@ -127,6 +135,38 @@ export function registerIpcHandlers(): void {
 
   // 解析失败的任务文件：以前是静默跳过（任务"人间蒸发"），现在交给界面显性提示
   guardedHandle('parseErrors', () => data.getParseErrors())
+
+  // ── 记忆层（2026-11-17）────────────────────────────────────────
+  // 只读为主：检索 / 读原文 / 概览。写走 agent 落盘（见 services/memory.ts 顶部注释）。
+  guardedHandle('memorySearch', (_event, q: any) => {
+    // ⚠ 这里**不要** defer 成异步：MCP 分发器整体 async 过一次，
+    //   所有工具返回 Promise → e2e-mcp-context 39 条全红（本仓踩过）。
+    const r = memoryService.searchMemory(q || {})
+    const ov = memoryService.memoryOverview()
+    return { ...r, overview: ov }
+  })
+  guardedHandle('memoryRead', (_event, file: string) => memoryService.readMemory(file))
+  guardedHandle('memoryOverview', () => memoryService.memoryOverview())
+  // 索引是派生数据：源文件改了之后重算（界面上的"刷新"走这条）
+  guardedHandle('memoryRebuild', () => memoryService.rebuildIndex())
+  // ── 记忆写入（2026-11-18 暮雨：“记忆页必须开放写，不然出问题用户想改都改不了”）──
+  // 三件事都**只碰 `memory/`**（与读同一道 realpath 闸），且都不进 task-data/（台账红线）。
+  guardedHandle('memoryCreate', (_event, input: any) => {
+    const r = memoryService.createMemory(input || {})
+    // 写完重建索引：索引是派生数据，不重建的话新条目在"按类型筛选"里要等下次
+    if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 索引失败不影响这条已经写进去 */ } }
+    return r
+  })
+  guardedHandle('memoryUpdate', (_event, file: string, input: any) => {
+    const r = memoryService.updateMemory(file, input || {})
+    if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
+    return r
+  })
+  guardedHandle('memorySetStatus', (_event, file: string, status: string) => {
+    const r = memoryService.setMemoryStatus(file, status)
+    if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
+    return r
+  })
 
   guardedHandle('getTask', (_event, id: string) => {
     const task = tasks.readTask(id)
@@ -692,25 +732,20 @@ export function registerIpcHandlers(): void {
 
   /**
    * 结构地图「结构大改」批量判定（2026-11-08）：渲染层把 [{project, repo, since}] 传进来，
-   * 主进程逐个问 git（带 10 分钟缓存），返回每个项目的 stale + 理由。
+   * 主进程问 git（带 10 分钟缓存），返回每个项目的 stale + 理由。
    * 为什么批量：一次 IPC 走完，不在渲染层串 12 个往返。
+   *
+   * ⚠ 2026-11-17：这条通道此前用**同步** spawn git —— 16 个项目 × 5 次 ≈ **4.7 秒**，
+   *   且在主进程里同步跑，事件循环整个冻住。暮雨报的「刷新要 5000ms 以上」「点记忆页
+   *   几乎整个方寸卡死，狂点好几下才进去」都是它：冻住期间所有 IPC 只能排队。
+   *   现在走 `structureDriftAllAsync`（异步 runGit + 并发 4），判定口径未变。
+   *   别改回同步版 —— `e2e-structure-drift.cjs` 有断言钉住"产品路径不许同步 spawn git"。
    */
-  guardedHandle('policy:driftAll', (_event, items: any[]) => {
+  guardedHandle('policy:driftAll', async (_event, items: any[]) => {
     try {
-      const { structureDrift } = require('./services/structureDrift')
-      const list = Array.isArray(items) ? items.slice(0, 60) : []
-      const out = list.map((it: any) => {
-        const project = String(it?.project || '')
-        const repo = String(it?.repo || '')
-        const since = String(it?.since || '')
-        try {
-          const r = structureDrift(repo, since)
-          return { project, status: r.status, stale: r.stale, reason: r.reason }
-        } catch (e: any) {
-          return { project, status: 'error', stale: false, reason: String(e && e.message || e) }
-        }
-      })
-      return { ok: true, rows: out }
+      const { structureDriftAllAsync } = require('./services/structureDrift')
+      const rows = await structureDriftAllAsync(Array.isArray(items) ? items : [])
+      return { ok: true, rows }
     } catch (e: any) { return { ok: false, error: e.message, rows: [] } }
   })
 
@@ -768,12 +803,17 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  // ── 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）──────
+  // ── 发送给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）──────
+  // ⚠ 文案口径：UI 上是「发送给 DSH」。暮雨 2026-11-17：「🧠 派给 DSH 按钮太丑了，
+  //   改成『发送给DSH』都能让人看懂」。通道名 `context:dispatchDsh` 是内部标识，沿用旧名。
   // 只落一份派单文件；**不 spawn DSH、不碰 DSH 配置** —— 那是插件在自己的进程里做的。
   // 方寸连 DSH 装没装都只是只读探测（`services/dshPlugin.ts`），不能在主进程里去启动它。
-  guardedHandle('context:dispatchDsh', (_event, projectId: string) => {
+  //
+  // 2026-11-17 暮雨定案：「以后可以直接在 DSH 里派活**做规划**」→ 加 `kind` 参数。
+  // 老调用方不传 = `work`，行为与 0.6.0 完全一致（零破坏）。
+  guardedHandle('context:dispatchDsh', (_event, projectId: string, kind?: string) => {
     try {
-      return contextPack.dispatchToDsh(String(projectId || ''))
+      return contextPack.dispatchToDsh(String(projectId || ''), kind)
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -1331,6 +1371,33 @@ export function registerIpcHandlers(): void {
     } catch (e: any) {
       appLog.error('applog', `打开日志目录异常：${dir}`, e?.stack || e)
       return { ok: false, error: e?.message || String(e), dir }
+    }
+  })
+
+  // ── 真退出通道（2026-11-17 · 卡 p0-1「不同意并退出」永远退不掉）──────────
+  //
+  // 暮雨原话（`log_20261109134505_ev63qw`）：「『不同意并退出』永远退不掉」。
+  // 真因：免责声明点「不同意」走渲染层 `window.close()`，而**主进程在 close 事件里
+  //   `preventDefault()` 把它改成 `hide()`**（"关窗≠退出、常驻托盘"是设计，本身没错）。
+  //   于是"不同意"= 窗口消失、进程还在托盘 —— 用户看到的就是"退不掉"。
+  //
+  // ⚠ 顺序不能反：必须先 markQuitting() 再 destroy/quit —— close 钩子判的就是那个闸。
+  //   反了等于什么都没做（与"点了没反应"同一种形状）。
+  // ⚠ 这条通道注册在 `main/ipc.ts` 而不是 `src/index.ts`：`check-ipc-parity` 的主进程
+  //   注册扫描只认 `src/main/`。第一版写在 index.ts 里，守卫当场报「僵尸通道」——
+  //   那不是误报，它抓的正是"preload 暴露了但某条路径没注册"。
+  guardedHandle('app:quitForReal', async () => {
+    try {
+      markQuitting()
+      const { BrowserWindow, app } = require('electron') as typeof import('electron')
+      // 先销毁窗口：只发 quit 的话 close 钩子仍可能抢先把它 hide 掉
+      try {
+        for (const w of BrowserWindow.getAllWindows()) w.destroy()
+      } catch { /* 已经没了就算了 */ }
+      app.quit()
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message || e) }
     }
   })
 }

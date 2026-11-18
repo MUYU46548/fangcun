@@ -216,7 +216,7 @@ function submitReject(): void {
     <div class="archd-foot">
       <div class="archd-foot-text">
         节点只来自真实存在的目录；连线只来自真实的 import / IPC 计数 —— 没有证据的地方不画箭头，也不编模块。
-        <b>导出前必须过校验并点“通过”</b>：没签字的图不落盘。
+        <b>导出前必须过校验并点“通过”</b>：没签字的图不会导出。
       </div>
       <div class="archd-foot-acts">
         <template v-if="!rejecting">

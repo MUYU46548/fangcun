@@ -62,6 +62,38 @@ function walk(dir, out = []) {
 }
 
 /**
+ * 黑话豁免（2026-11-17）。
+ *
+ * 登记规则与 `check-ui-freeze` 的 ALLOW 一致：**登记了必须逐条打印出来**，
+ * SKIP 不是绿 —— 它只是"这条我有意放行，理由在下面"。
+ *
+ * 什么时候该登记：这个词在这个**具体位置**里是准确的人话，换掉反而更含混。
+ *   · 例：架构图驳回理由的 placeholder「有一条线对不上」——
+ *     指的是"图上画的连线与真实 import 不符"，读者一眼明白；
+ *     换成"有一条连线不一致"也还是那个意思，而"对不上"在这里更直白。
+ * 什么时候**不该**登记：只是因为改起来麻烦 → 那就去改。
+ */
+const JARGON_ALLOW = [
+  {
+    // ⚠ `rel(f)` 是相对 **REPO** 的（`desktop/src/renderer/…`），不是相对 `SRC`。
+    //   第一版写成了 `renderer/...` → 豁免没命中 → 断言照样红。
+    //   这就是"豁免表必须被验证真的生效"的理由：写错了它只会静静地不工作。
+    file: 'desktop/src/renderer/components/ArchDiagram.vue',
+    snippet: '有一条线对不上',
+    why: '2026-11-17 · 架构图驳回理由的 placeholder：指的是"画的连线与真实 import 不符"，'
+      + '在这个语境里"对不上"就是最直白的说法，换成术语反而更绕',
+  },
+  {
+    file: 'desktop/src/renderer/components/settings/AgentSettings.vue',
+    snippet: '账户口径',
+    why: '2026-11-17 · 设置页余额说明里的「账户口径」是**该页已有的一个分区名**'
+      + '（月报表 token 口径 vs 账户真钱口径），两边同名才认得出是同一件事；'
+      + '单独把这一处改成"账户余额"会让两处对不上',
+  },
+]
+const jAllowed = []
+
+/**
  * 界面文案行：只查这几类位置。
  * ⚠ `placeholder=` 只在 .vue 属性里出现，命中 `placeholder="` 即可。
  */
@@ -206,6 +238,81 @@ function main() {
     tickHits.length === 0, tickHits.slice(0, 6).join(' | '))
   check('★★ 界面文案里不许出现开发者个人名“暮雨”（改用“用户”）',
     personalHits.length === 0, personalHits.slice(0, 6).join(' | '))
+
+  // ── E. 黑话词表（2026-11-17 · 卡 p0-1 第 5 条）──────────────────────
+  //
+  // 暮雨原话：「什么叫"对不上"？给我说中文！哪怕叫"状态提醒"都行，
+  //            "对不上"在世界上几十亿人类中没有一个人能看懂。」
+  //
+  // 这条他提了**两次**（第一次修了界面那处，但**没有任何东西在守**，
+  // 所以下一个 agent 顺手又能写回去）。这里补的就是"守"。
+  //
+  // 词表只收**真的会让人读不懂**的：不是所有技术词都收
+  //   （`判据` `阻塞` 这些在方寸的语境里读者已经认了，硬禁会把守卫变成刁难人的规矩）。
+  //
+  // ⚠ 排除两类误伤：
+  //   ① 注释（`//` / `<!--`）—— 注释里讨论"这个黑话不好"是解释，不是文案；
+  //   ② 明确带上下文的（比如架构图里"有一条线对不上"，指图画错了，那是人话）——
+  //      用 `UI_JARGON_ALLOW` 逐条登记，登记了必须打印出来（登记 ≠ 藏起来）。
+  // ⚠ 词表**只收暮雨原文点名过的**，或者等价于"读者完全猜不出是什么"的。
+  //
+  //   第一版我还收了「口径」—— 结果一跑就红 6 条，全是余额说明与分层报告里
+  //   「账户口径 / 分层口径来自…」。那些位置里「口径」指的是"按什么算法统计"，
+  //   读者在**那一屏的上下文里**看得懂，硬改成"统计方式"反而更长更绕。
+  //   → 词表收窄。**守卫不该变成刁难人的规矩**（本仓同一条教训吃过几次）。
+  const JARGON = [
+    { re: /对不上/, why: '「对不上」—— 暮雨原文：「在几十亿人类中没有一个人能看懂」；说清哪个数和什么不符，或干脆叫「状态提醒」' },
+    { re: /不一致/, why: '「不一致」—— 说明白哪两样、差在哪' },
+    { re: /异步/, why: '「异步」—— 用户视角是"要等一下"，写"正在处理/稍等"即可' },
+    { re: /幂等/, why: '「幂等」—— 写"重复点也不会重复建"这种效果话' },
+    { re: /落盘/, why: '「落盘」—— 写"保存到文件 / 存下来"' },
+    { re: /静默/, why: '「静默」—— 写"没有任何提示"' },
+  ]
+  const jHits = []
+  for (const f of files) {
+    let raw = ''
+    try { raw = fs.readFileSync(f, 'utf-8') } catch { continue }
+    const isVue = f.endsWith('.vue')
+    // 只取"会给用户看"的那两段：Vue 的 <template>；非 Vue 走 UI_LINE_RE（同 B/C）
+    const regions = []
+    if (isVue) {
+      const s = raw.indexOf('<template>')
+      const e = raw.lastIndexOf('\n</template>')
+      if (s >= 0 && e > s) regions.push({ text: stripHtmlComments(raw.slice(s, e)), off: raw.slice(0, s).split('\n').length - 1 })
+    }
+    raw.split('\n').forEach((line, i) => {
+      if (UI_LINE_RE.test(line)) regions.push({ text: line, off: i, oneLine: true })
+    })
+    for (const rg of regions) {
+      const text = rg.oneLine ? String(rg.text) : rg.text
+      text.split('\n').forEach((line, i) => {
+        const t = line.trim()
+        if (!t) return
+        // 注释不算文案
+        if (/^\/\//.test(t) || /^\*/.test(t) || /^\/\*/.test(t)) return
+        for (const j of JARGON) {
+          if (!j.re.test(t)) continue
+          const at = `${rel(f)}:${rg.oneLine ? rg.off + 1 : rg.off + i + 1}`
+          const allow = JARGON_ALLOW.find((a) => (a.file === rel(f) && t.includes(a.snippet || '\u0000')) || a.at === at)
+          if (allow) {
+            jAllowed.push(`${at}  “${t.slice(0, 70)}”  —— ${allow.why || ''}`)
+            continue
+          }
+          jHits.push(`${at}  “${t.slice(0, 80)}”  —— ${j.why}`)
+        }
+      })
+    }
+  }
+  for (const a of jAllowed) console.log('SKIP  ' + a)
+  check('★★ 界面文案里没有"没一个人能看懂"的黑话（对不上 / 不一致 / 幂等 / 落盘 …）',
+    jHits.length === 0, jHits.slice(0, 6).join(' | '))
+
+  // 反例自证：词表本身得是活的（否则"零命中"可能只是正则写坏了）
+  check('黑话词表自证：「对不上」在词表里抓得住',
+    JARGON.some((j) => j.re.test('这两个数对不上')) && JARGON.some((j) => j.re.test('状态对不上')))
+  check('黑话词表自证：正常文案不误伤',
+    !JARGON.some((j) => j.re.test('这张卡还没写完')) && !JARGON.some((j) => j.re.test('点这里保存')))
+
 
   // ── 反例自证：剥注释逻辑本身是有效的（注释里的 ** 不该被算进来）──────
   const probe = stripHtmlComments('<!-- **这是注释** -->\n<b>**这是文案**</b>')

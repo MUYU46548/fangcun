@@ -245,12 +245,21 @@ function main() {
   // 截图要拍**主界面**，不能被首启强制弹窗挡住 → 只给截图用这份 seed。
   // ⚠ 主断言流程**刻意不 seed**：那里要真跑一遍"首启必须强制弹"（见 renderer-web-assert.js
   //   开头那一节）。谁要往主流程加 seed，先想清楚是不是把那条断言废掉了。
-  // ⚠ 版本号从 single source（disclaimer.ts）现读、不在这里写死 —— 写死会随声明改版分叉，
+  // ⚠ 版本号从 single source 现读、不在这里写死 —— 写死会随声明改版分叉，
   //   表现为"截图里突然又弹出免责框"而没人知道为什么。
+  // 2026-11-18：版本号从 `renderer/disclaimer.ts` **挪到了** `shared/license.ts`
+  //   （主进程那一侧的闸要读同一份常量）。所以两处都认。仍读不到才算坏 ——
+  //   而且是**先在两处找，找不到再报错**，别让"挪了个位置"直接打挂整个 harness。
   const dmSrc = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'disclaimer.ts'), 'utf-8')
-  const dmVer = (dmSrc.match(/DISCLAIMER_VERSION\s*=\s*'([^']+)'/) || [])[1]
+  let dmVer = (dmSrc.match(/DISCLAIMER_VERSION\s*=\s*'([^']+)'/) || [])[1]
   if (!dmVer) {
-    console.error('FAIL  从 disclaimer.ts 读不到 DISCLAIMER_VERSION —— 截图的"已同意"预置会失效')
+    try {
+      const lsrc = fs.readFileSync(path.join(DESKTOP, 'src', 'shared', 'license.ts'), 'utf-8')
+      dmVer = (lsrc.match(/LICENSE_VERSION\s*=\s*'([^']+)'/) || [])[1]
+    } catch { /* 下面统一报错 */ }
+  }
+  if (!dmVer) {
+    console.error('FAIL  从 disclaimer.ts 与 shared/license.ts 都读不到版本号 —— 截图的"已同意"预置会失效')
     process.exit(1)
   }
   const ACK_SEED = "try{localStorage.setItem('fc_disclaimer_ack',JSON.stringify({v:'" + dmVer + "',at:'2026-10-16T00:00:00.000Z'}))}catch(e){}\n"
@@ -269,6 +278,88 @@ function main() {
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
 
+  // ── 源码守卫：打分表 hover 不许改布局属性（2026-11-17 · 卡 p0-1 第 4 条）────────
+  //
+  // 暮雨原话：「打分与排序行 hover 时画面剧烈抖动 —— 截图只能截一帧所以无法体现，
+  //           但不代表问题不存在」。
+  //
+  // 为什么在**这一侧**（Node 读源码）而不是在浏览器里量矩形：那两版都失败过，
+  // 记在这里免得第三次重走：
+  //   ① 派发 `new MouseEvent('mouseenter')` 再量矩形 → **永远绿**。CSS `:hover` 由真实
+  //      指针位置驱动，派发事件只让 Vue 监听器跑了，`:hover` 没命中 → 注入了抖动也照样绿。
+  //   ② 想从 `document.styleSheets` / 同步 XHR 读打包后的 CSS 来构造探针 → **永远红**。
+  //      产物是 `file://` 外链 CSS，跨源读被安全策略挡住（SecurityError / 读不到原文）。
+  //
+  // 正解：**抖动的唯一来源是 `:hover` 改了参与布局的属性**（padding / border-width /
+  //   margin / line-height / font-size / display / position / transform …）。
+  //   只改 background / color / box-shadow / outline 不会动布局。
+  //   所以直接判规则体。注入 `padding` 或 `border-top` 时**精确变红**。
+  //
+  // ⚠ 规则体里正常会出现的**非布局**属性必须放行（background / color / box-shadow / outline）。
+  let window_guard = { ok: false, detail: '' }
+  {
+    const ricePath = path.join(DESKTOP, 'src', 'renderer', 'views', 'RiceMatrixView.vue')
+    let src = ''
+    try { src = fs.readFileSync(ricePath, 'utf-8') } catch { src = '' }
+    // 只取 <style> 段（模板里的 class 名不算）
+    const styleAt = src.indexOf('<style')
+    const styleText = styleAt >= 0 ? src.slice(styleAt) : ''
+    const bodies = []
+    const re = /tbody\s+tr[^{}\n]*:hover[^{}]*\{([^}]*)\}/g
+    let m
+    while ((m = re.exec(styleText))) bodies.push(m[1].trim())
+    const LAYOUT = /(^|[\s;{])(padding|margin|border-width|border-top|border-bottom|border-left|border-right|line-height|font-size|font-weight|width|height|min-height|min-width|display|position|top|left|right|bottom|transform|letter-spacing)\s*:/i
+    const bad = bodies.filter((b) => LAYOUT.test(b))
+    const guardOk = bodies.length > 0 && bad.length === 0
+    window_guard = {
+      ok: guardOk,
+      detail: bodies.length === 0
+        ? '一条 tbody tr:hover 规则都没找到（选择器写法变了？那就同步改这条断言，别让它恒真）'
+        : (bad.length
+          ? `${bodies.length} 条 hover 规则里有 ${bad.length} 条动了布局属性：` + bad.slice(0, 3).map((b) => b.slice(0, 70)).join(' | ')
+          : `${bodies.length} 条 hover 规则只改颜色/阴影，不含任何布局属性`),
+    }
+  }
+
+  // ⚠ 结果要传给断言（断言在浏览器里跑）。做法：把它拼进 seed —— seed 会在
+  //   preload 与 bundle **之前**执行，所以断言里读得到。
+  const HOVER_GUARD_SEED = `window.__fcHoverNoLayout = ${window_guard.ok ? 'true' : 'false'};`
+    + `window.__fcHoverDetail = ${JSON.stringify(window_guard.detail)};\n`
+
+
+  //
+  // 为什么要**在这一侧**再加一条（DOM 断言已经有一条了）：
+  //   DOM 那条是"点了走哪条路"，它有效 —— 但注入回退实测时，`window.close()` 会把
+  //   **无头浏览器的窗口一起关掉**，整个 harness 跟着挂（表现为 `CDP 兜底超时 300s`）。
+  //   那是个**正确但不体面**的失败：判红判对了，却要说 300 秒才知道，还看不出原因。
+  //   这条守卫在起浏览器**之前**、用几毫秒把话说明白。
+  //
+  // ⚠ 先剥注释再扫：这段代码的注释里大量讨论 `window.close()`（是解释，不是调用）。
+  {
+    const ddPath = path.join(DESKTOP, 'src', 'renderer', 'components', 'DisclaimerDialog.vue')
+    let src = ''
+    try { src = fs.readFileSync(ddPath, 'utf-8') } catch { src = '' }
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    // "onExit 这个函数体里不许调用 window.close()" —— 兜底分支允许（通道不可用时）
+    const m = /function\s+onExit\s*\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(code)
+    const body = m ? m[1] : ''
+    const hasQuit = /quitForReal/.test(body)
+    // 兜底里允许出现 window.close()，但**只能出现在 catch / 通道失败之后**
+    const closeInFallback = /catch[\s\S]*window\.close\(\)/.test(body) || /ok === false[\s\S]*window\.close\(\)/.test(body)
+    const bad = body && (!hasQuit || (!closeInFallback && /window\.close\(\)/.test(body)))
+    if (bad || !body) {
+      console.log('FAIL  源码守卫：「不同意并退出」必须走 quitForReal，不许直接 window.close()')
+      console.log('      （window.close() 会被主进程 close 钩子防抖成 hide → 进程留在托盘 = 退不掉；')
+      console.log('        这就是「不同意并退出」永远退不掉的原始 bug。兜底调用只许出现在 catch 里。）')
+      console.log('      文件：desktop/src/renderer/components/DisclaimerDialog.vue')
+      console.log('RESULT 0 / 1')
+      process.exit(1)
+    }
+  }
+
   // ── --shots：给"没装桌面会话"的人留一份可看的真机截图（不是小样，是真产物）──
   //    用法 `node scripts/test/e2e-renderer-web.cjs --shots[=输出目录]`
   //    每个页签各拍两种摆法；顺便也是"两种摆法都能无错渲染"的冒烟。
@@ -283,6 +374,10 @@ function main() {
     fs.mkdirSync(outDir, { recursive: true })
     const CASES_ALL = [
       ['看板', '列视图', 'board-cols'],
+      // 2026-11-18：顶部工具栏工作区（三套预设 + 拖拽画布）。暮雨这次的原话是
+      // “依然很臃肿……做个可视化拖拽排序……单独弄个小画布” —— 新界面必须留图，
+      // 否则就是"改了界面但没人看过"（施工纪律 R1，也是他反复说"你经常不知道界面长什么样就乱改"）。
+      ['看板', '列视图', 'view-layout', 'vlayout'],
       // 2026-10-25：顶栏“更多”菜单展开态 —— 低频页签（启动台/技能/服务）收在这里
       ['看板', '列视图', 'top-more', 'moremenu'],
       // 2026-10-27 暮雨截图抓到的 bug：**日志页**上菜单被 sticky 栏压住只露半截。
@@ -299,6 +394,12 @@ function main() {
       // "DOM 断言全绿、看起来却坏了"的恰恰是它（网格/色档/ID 芯片）。补一张，目检用。
       ['看板', '信息卡墙', 'board-cards'],
       ['待办', '清单', 'todo-list'],
+      // 2026-11-17：记忆页（暮雨「界面和 MCP 工具必做」）。新界面必须在 CASES_ALL 里补用例 ——
+      // 否则 --shots 拍不到它，等于"改了界面但没人看过"（施工纪律 R1）。
+      ['记忆', '', 'memory-view'],
+      // 2026-11-18：记忆页的写入框（暮雨“记忆页必须开放写”）。要看的是：
+      // 四个必填项都在、正文是大文本框、底部保存/取消在视线内。
+      ['记忆', '', 'memory-edit', 'memedit'],
       ['待办', '卡片网格', 'todo-grid'],
       // 没有视图切换器的页签：view 传空，driver 只会切页签
       ['日历', '', 'calendar'],
@@ -1056,6 +1157,21 @@ function main() {
   if (mBtn) mBtn.click()
   await sleep(600)
 ` : ''}
+  ${extra === 'vlayout' ? `
+  // 2026-11-18：顶部工具栏工作区画布 —— 从“更多”里点「顶栏工作区…」打开。
+  const mBtn2 = document.querySelector('#views .more-btn')
+  if (mBtn2) mBtn2.click()
+  await sleep(500)
+  const wsOpt = all('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf('工作区') >= 0)
+  if (wsOpt) wsOpt.click()
+  await sleep(900)
+` : ''}
+  ${extra === 'memedit' ? `
+  // 2026-11-18：记忆页的“记一条”编辑框
+  const nb = all('.memory-view button').find((b) => (b.textContent || '').indexOf('记一条') >= 0)
+  if (nb) nb.click()
+  await sleep(700)
+` : ''}
   ${extra === '2026-09-30' ? `
   // 日历“改法 A”的展开态：点开 9-30 那格的“+N 条”，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)
@@ -1112,6 +1228,8 @@ function main() {
     try { return String(JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf-8')).version || '') } catch { return '' }
   })()
   const seedVer = 'window.__FC_VER=' + JSON.stringify(pkgVer) + ';\n'
+    // 源码守卫结果（hover 抖动）：拼进 seed，断言里读 window.__fcHoverNoLayout
+    + HOVER_GUARD_SEED
   fs.writeFileSync(harnessPath, harness(fs.readFileSync(ASSERT, 'utf-8'), seedVer), 'utf-8')
   console.log('== 渲染层 DOM 断言（无头浏览器）==')
   console.log('browser:', browser)

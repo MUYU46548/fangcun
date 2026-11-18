@@ -22,7 +22,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getTaskDir } from './index'
-import { proposeStage, type PlanDoc, type PlanStage, type ProposeStageResult } from './plans'
+import { proposeStage, readPlan, type PlanDoc, type PlanStage, type ProposeStageResult } from './plans'
 import {
   applyPatch, diffStage, editNote, isSepRow, missingOf, validateStage,
   type EditSummary, type StagePatch,
@@ -266,6 +266,45 @@ export function proposeFromDraft(input: ProposeFromDraftInput): ProposeStageResu
   // 提议人里带上“改过哪几块”：计划卡落地后仍看得见这格是提成时改的（留痕不是发版说明的事）
   const baseAgent = String(input?.agent || '方寸·草案入口')
   const agent = edit.count ? `${baseAgent}（${editNote(edit)}）` : baseAgent
+
+  /**
+   * 阶段号怎么定（2026-11-18，两稿）。
+   *
+   * 病根：草案的格号**永远**是 P0/P1/…（生成器不看目标计划卡），而提成时若沿用草案号，
+   * `proposeStage` 的自动续号（max+1）就永远用不上 → 5 份草案点十次都是同一句
+   * "阶段 P0 已存在"（`4-份-…-草案与…` 那张卡说的就是这个）。
+   *
+   * ⚠ 但**不能因此就一律不传**（第一稿就是这么写的，被 4 条断言当场按住）：
+   *   一律自动续号会让「同一格连点两次」变成两条一模一样的阶段卡 —— 那是把
+   *   "防重复提成"这道唯一的闸拆掉了，比原来更糟。
+   *
+   * 所以分辨两件事：
+   *   ① **同一格被再提一次** → 拒（按内容判：标题 + 判据全同 = 同一格）
+   *   ② **撞号但内容不同**（典型的"草案从 P0 起、计划卡也已有 P0"）→ 自动接到最大号后面
+   */
+  const planDoc = readPlan(planFile)
+  /** 撞号了吗？撞号 = 计划卡里已有同号但**内容不同**的一格 */
+  let collided = false
+  if (planDoc) {
+    const sameContent = (s: PlanStage): boolean => {
+      if (String(s.title || '').trim() !== String(stage.title || '').trim()) return false
+      const a = (s.criteria || []).map((x) => String(x).trim()).join('\u0001')
+      const b = (stage.criteria || []).map((x) => String(x).trim()).join('\u0001')
+      return a === b
+    }
+    // ① 这一格已经在计划卡里了（不管占的是哪个号）→ 拒，别造重复
+    const dup = planDoc.stages.find(sameContent)
+    if (dup) {
+      return {
+        ok: false,
+        error: `这一格已经在计划卡里了（${dup.id}「${String(dup.title || '').trim()}」）—— 同一格不用再提一次；要改它请在界面上用「改一句」`,
+        planFile, draft: draft.file, edit,
+      }
+    }
+    // ② 撞号（同号但内容不同）→ 后面不传 stageId，让 proposeStage 自动接最大号
+    collided = planDoc.stages.some((s) => String(s.id || '').toUpperCase() === stageId)
+  }
+
   return {
     ...proposeStage({
       file: planFile,
@@ -275,7 +314,9 @@ export function proposeFromDraft(input: ProposeFromDraftInput): ProposeStageResu
       criteria: stage.criteria,
       copyRows: stage.copyRows,
       copyHasHeader: true,
-      stageId: stage.id,
+      // 没撞号 → 沿用草案的号（老行为，一格一格按草案编号落地）；
+      // 撞号 → 省略 stageId，由 proposeStage 的 nextStageId 接在最大号后面。
+      ...(collided ? {} : { stageId: stage.id }),
       deck: String(input?.deck || ''),
       agent,
       now: input?.now,

@@ -25,6 +25,12 @@ Module._resolveFilename = function (request, ...args) {
 const ROOT = mkTmpPath('fc-llm-fb-')
 process.env.FC_TEST_USERDATA = path.join(ROOT, 'userdata')
 fs.mkdirSync(process.env.FC_TEST_USERDATA, { recursive: true })
+// ⚠ 许可协议总闸（2026-11-18 起）：`chatWithFallback` 第一件事就是 `assertLicensed(getDataDir())`，
+//   没确认就**直接返回"未确认许可协议"**、一次通道都不试。
+//   这套测的是**降级链**（429 切备用 / 400 直接停 / 全挂怎么说），不是许可闸本身 ——
+//   所以必须显式放行，否则 10 条断言全部变成"都在问同一件事"（实测就是这么红的）。
+//   ⚠ 用环境变量而不是去写同意文件：这是**测试进程内**的一次性放行，不碰任何真实数据根。
+process.env.FANGCUN_LICENSE_ACK = '1'
 
 const REPO = path.resolve(__dirname, '../..')
 const DIST = path.join(REPO, 'desktop', 'dist')

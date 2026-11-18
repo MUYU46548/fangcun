@@ -364,15 +364,25 @@
                    拼成一段可直接粘给 agent 的 Markdown。只读，不改任何东西。 -->
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.copyContextPack(ctl.pvCurrent)"
                       title="复制一段现成的项目上下文，直接粘给本地 agent —— 它不用再从零翻你的仓库">📋 复制上下文包</Button>
-              <!-- 派给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
-                   与「复制上下文包」的区别不是话术，是**它真的会派出去**：
+              <!-- 发送给 DSH（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
+                   与「复制上下文包」的区别不是话术，是**它真的会发出去**：
                      ① 方寸把上下文包落成文件（`context:packFile`，只在数据根的 docs/ 下）
                      ② 插件（dsh-fangcun）看见这个「派单」文件，在 DSH 里开一个新会话并带上它
                    为什么不直接跨进程传文本：两边只经**文件**交接，插件不必 import 方寸代码
                    （那是插件的硬边界），方寸也不必知道 DSH 的 API。
-                   判据：点完 DSH 里**真的冒出一个新会话**，不是"复制到剪贴板"换个名字。 -->
+                   判据：点完 DSH 里**真的冒出一个新会话**，不是"复制到剪贴板"换个名字。
+                   ⚠ 卡片上的文字是「发送给 DSH」，注释里也用这四个字，别再写成「派给」。 -->
+              <!-- 2026-11-17 暮雨：「🧠 派给 DSH 按钮太丑了，改成『发送给DSH』都能让人看懂」。
+                   去掉 emoji：它不解释任何事，只占位。文字必须自己说清动作。 -->
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.dispatchToDsh(ctl.pvCurrent)"
-                      title="把这份上下文包派给 DSH：DSH 里会新开一个会话，已经带着项目背景 —— 你只需要说接下来干什么">🧠 派给 DSH</Button>
+                      title="把这份上下文包发送给 DSH：DSH 里会新开一个会话，已经带着项目背景 —— 你只需要说接下来干什么">发送给 DSH</Button>
+              <!-- 做规划（2026-11-17 · 暮雨定案：「以后可以直接在 DSH 里派活做规划」）。
+                   与上一个按钮**同一根管子**，只是派单用途不同（kind=plan）：
+                   work 让 agent 动手，plan 让 agent 先产出「带机检判据」的计划。
+                   为什么分成两个按钮而不是一个下拉：这是两件不同的事，
+                   塞进下拉等于把"我要干什么"藏起来 —— 而这个按钮的意义就是一眼看懂。 -->
+              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.dispatchToDsh(ctl.pvCurrent, 'plan')"
+                      title="让 DSH 里的 agent 给这个项目做规划：它直接读仓库，产出 2–5 个阶段、每条带可机检的判据存回方寸">让 DSH 做规划</Button>
               <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <Button v-if="ctl.pvCurrent.repo" class="oact" variant="ghost" size="tool"

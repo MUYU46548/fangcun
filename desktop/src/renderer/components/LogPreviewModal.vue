@@ -53,7 +53,14 @@
       </div>
 
       <div class="acts">
-        <button class="ghost font-[inherit]" @click="openLogFromPreview">✏️ 编辑</button>
+        <!-- ⚠ 2026-11-17 暮雨：「按钮颜色消失，看不清，好像整个按钮都消失了。」
+             真因不是配色，是**这个按钮压根没穿衣服**：
+             它是这一行里唯一手搓的 `<button class="ghost">`（另两枚是基座 Button）。
+             而全局有 `.acts button { border: 0; padding: 6px 14px; … }`（特异性 0,1,1），
+             压过了兜底规则 `:where(button.ghost){ border: 1px solid … ; background:#fff }`（0,1,0）。
+             于是它变成**透明底 + 无边框** —— 在白色弹窗上就是"看不见"。
+             改法：用基座 Button（与旁边两枚同源），class 冲突整类消失。 -->
+        <Button variant="ghost" size="tool" @click="openLogFromPreview">✏️ 编辑</Button>
         <Button variant="ghost" size="tool" @click="copyLogAsPrompt(logPreview.id)">📋 复制</Button>
         <Button variant="ghost" size="tool" @click="logPreview = null">关闭</Button>
       </div>

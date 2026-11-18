@@ -99,7 +99,7 @@
                 <Button class="trip-mini" variant="ghost" size="sm" :disabled="!r.repo" @click.stop="tripInitContract(r)"
                         title="方寸直接在这个项目文件夹里建好“立项契约.md”（文件已存在就不动它）">📝 建契约文件</Button>
                 <Button class="trip-mini" variant="ghost" size="sm" @click.stop="tripCopyContract(r)"
-                        title="只复制文字，你自己挑地方落盘">复制模板</Button>
+                        title="只复制文字，你自己挑地方粘贴">复制模板</Button>
                 <Button class="trip-mini" variant="ghost" size="sm" :disabled="!r.repo" @click.stop="tripOpenRepo(r)"
                         title="打开该项目的文件夹">📁 打开项目文件夹</Button>
                 <span class="trip-dim-sm">建好后打开它填内容（也可以让 AI 填）</span>

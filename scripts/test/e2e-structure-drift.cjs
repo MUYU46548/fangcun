@@ -127,6 +127,78 @@ check('核实日早于首个提交 → status=no-base（并说明“地图写成
   JSON.stringify(drift.structureDrift(TMP, '2025-12-01', { fresh: true })))
 
 console.log('')
-console.log(`通过 ${PASS} / 失败 ${FAILS.length}`)
-if (FAILS.length) { console.log('失败项：'); FAILS.forEach((f) => console.log(' - ' + f)); process.exit(1) }
-console.log(`RESULT ${PASS} / 0`)
+// ── 6. 异步版（2026-11-17）：产品路径不许再同步 spawn git ────────────────
+// 暮雨报「刷新要 5000ms 以上」「点记忆页几乎整个方寸卡死，狂点好几下才进去」。
+// 根因不在界面：`policy:driftAll` 用 `execFileSync` 同步问 git，16 个项目 × 5 次 ≈ 3.5–4.7 秒，
+// **在主进程里**跑，事件循环整个冻住 —— 期间任何 IPC（点页签、读记忆）都只能排队。
+// 这一节钉两件事：① 异步版判定必须与同步版逐字段一致（不能"为了不卡就改了口径"）；
+//                ② 产品路径（ipc.ts 的 driftAll）不许再出现同步 spawn。
+// ⚠ 上面那个分号不能省：不加时下一行会被 ASI 拼成 `console.log('')(async …)()`
+//   → `TypeError: console.log(...) is not a function`（实测踩到）。
+;(async () => {
+  console.log('---- 6. 异步版：与同步版判定一致，且产品路径不再同步 spawn ----')
+
+  // ① 判定一致：同一个真仓库，两条腿结论必须逐字段相同
+  drift.clearStructureDriftCache()
+  const syncR = drift.structureDrift(TMP, MAPDAY, { fresh: true })
+  drift.clearStructureDriftCache()
+  const asyncR = await drift.structureDriftAsync(TMP, MAPDAY, { fresh: true })
+  check('★★ 异步版与同步版判定完全一致（stale / reason / files / newDirs / removedDirs）',
+    syncR.stale === asyncR.stale && syncR.reason === asyncR.reason
+    && syncR.files === asyncR.files
+    && JSON.stringify(syncR.newDirs) === JSON.stringify(asyncR.newDirs)
+    && JSON.stringify(syncR.removedDirs) === JSON.stringify(asyncR.removedDirs),
+    JSON.stringify({ sync: syncR.reason, async: asyncR.reason }))
+
+  // 同一个兜底态也要一致（不存在的仓库 → no-repo，两边同话术）
+  drift.clearStructureDriftCache()
+  const sNo = drift.structureDrift(path.join(TMP, 'nope'), '2026-01-01', { fresh: true })
+  drift.clearStructureDriftCache()
+  const aNo = await drift.structureDriftAsync(path.join(TMP, 'nope'), '2026-01-01', { fresh: true })
+  check('★ 兜底态（仓库不存在）两边 status 与话术一致',
+    sNo.status === aNo.status && sNo.reason === aNo.reason,
+    JSON.stringify({ sync: sNo, async: aNo }))
+
+  // ② 异步版缓存同样生效（第二轮不跑 git）
+  drift.clearStructureDriftCache()
+  const w1 = await drift.structureDriftAsync(TMP, MAPDAY)
+  const w2 = await drift.structureDriftAsync(TMP, MAPDAY)
+  check('★ 异步版第二次命中缓存（cached=true）—— 日常刷新不该每次都跑 git',
+    w1.cached !== true && w2.cached === true, JSON.stringify([w1.cached, w2.cached]))
+
+  // ③ 批量版形状（policy:driftAll 的返回契约）
+  drift.clearStructureDriftCache()
+  const batch = await drift.structureDriftAllAsync([
+    { project: 'p-ok', repo: TMP, since: MAPDAY },
+    { project: 'p-missing', repo: path.join(TMP, 'nope'), since: '2026-01-01' },
+  ])
+  check('★ 批量版逐条返回 {project,status,stale,reason}，且顺序与入参一致',
+    batch.length === 2 && batch[0].project === 'p-ok' && batch[1].project === 'p-missing'
+    && typeof batch[0].stale === 'boolean' && typeof batch[0].reason === 'string',
+    JSON.stringify(batch))
+  check('★ 批量版一条坏掉不拖垮另一条（各自 status）',
+    batch[0].status === 'ok' && batch[1].status === 'no-repo',
+    JSON.stringify(batch.map((b) => b.status)))
+
+  // ④ 源码守卫：产品路径不许同步 spawn git
+  //    判据：ipc.ts 的 driftAll 分支里不许出现同步版 structureDrift( / execFileSync。
+  //    ⚠ 先剥注释再扫 —— 注释里写着"别改回同步版"是解释，不是调用（本仓同类守卫栽过）。
+  const ipcSrc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'ipc.ts'), 'utf-8')
+  const stripComments = (s) => s
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+  const ipc = stripComments(ipcSrc)
+  const at = ipc.indexOf("guardedHandle('policy:driftAll'")
+  const body = at < 0 ? '' : ipc.slice(at, ipc.indexOf('guardedHandle(', at + 20))
+  check('★★ 源码守卫：policy:driftAll 走异步版（structureDriftAllAsync）',
+    body.length > 0 && /structureDriftAllAsync/.test(body), body.slice(0, 200))
+  check('★★ 源码守卫：policy:driftAll 里没有同步 structureDrift( / execFileSync / spawnSync',
+    body.length > 0 && !/[^c]structureDrift\(/.test(body.replace(/structureDriftAllAsync/g, 'X'))
+    && !/execFileSync|spawnSync/.test(body), body.slice(0, 300))
+
+  console.log('')
+  console.log(`通过 ${PASS} / 失败 ${FAILS.length}`)
+  if (FAILS.length) { console.log('失败项：'); FAILS.forEach((f) => console.log(' - ' + f)); process.exit(1) }
+  console.log(`RESULT ${PASS} / 0`)
+})()
+

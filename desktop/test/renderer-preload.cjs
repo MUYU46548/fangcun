@@ -21,6 +21,30 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 记忆层（2026-11-17）· 夹具默认给**真形状的三条**：
+  // 一条事故、一条纪律、一条已撤销。为什么不全空 —— 空数组会让
+  // "列表渲染出来了吗"和"筛选生效了吗"永远无法区分（本仓栽过）。
+  memory: [
+    {
+      id: 'inc-20261117-01', type: '事故', scope: '', project: 'dsh-fangcun',
+      time: '2026-11-17T17:52:00+08:00', status: '有效', impact: '高',
+      title: '强杀宿主进程打断施工轮次', summary: '两次 Stop-Process -Force，第二次打断正在跑的轮次。',
+      file: 'memory/incidents/a.md', tags: ['强杀进程'],
+    },
+    {
+      id: 'lesson-20261117-01', type: '纪律', scope: '跨项目', project: '跨项目',
+      time: '2026-11-17T18:15:00+08:00', status: '有效', impact: '高',
+      title: '施工纪律（跨项目）', summary: '征询不等于授权；越急越要先锁范围。',
+      file: 'memory/lessons/b.md', tags: ['纪律'],
+    },
+    {
+      id: 'inc-20261009-01', type: '教训', scope: '', project: 'rosa-chuangzuo',
+      time: '2026-10-09T00:00:00+08:00', status: '已撤销', impact: '中',
+      title: '一条已撤销的教训', summary: '这条用来验证「默认不返回已撤销」。',
+      file: 'memory/incidents/c.md', tags: [],
+    },
+  ],
+  memoryOverview: { total: 3, effective: 2, revoked: 1, byType: { 事故: 1, 纪律: 1, 教训: 1 } },
   // 层厚度（2026-11-16 · 骨架继承试点第一批）：横比 + 单项目报告。
   // 默认给**一个真形状**的最小夹具 —— 空数组会让"表渲染出来了吗"永远无法区分。
   layerBoard: [
@@ -747,6 +771,15 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: false, message: '（夹具：没有真 git）' }
   },
   /**
+   * 发送给 DSH（2026-11-17）：**必须 rec**。
+   * 判据是「点按钮真调到通道没有」+「kind 有没有传对」——
+   * 不 rec 就永远 calls=0，把"按钮接线了"误报成"装饰按钮"（本文件上方那条纪律）。
+   */
+  dispatchDsh: (projectId, kind) => {
+    rec('dispatchDsh', [projectId, kind])
+    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: 1234, missing: [], at: '2026-11-17T00:00:00.000Z', kind: kind || 'work' }
+  },
+  /**
    * 同步阶段流（2026-10-25 卡 004）：与真 preload 同名同形状，返回退订函数。
    * ⚠ 假桩必须与真桩同步（少一条 → 视图里 onSyncProgress 是 undefined，
    *   `syncPhase` 永远空 → 断言会看到“同步中”，把"没接线"误当成"降级正确"）。
@@ -922,6 +955,107 @@ contextBridge.exposeInMainWorld('tegula', {
     for (const i of store.ideas) out[i.status] += 1
     return out
   },
+
+  // 记忆层（2026-11-17）· 假 preload 必须与真实现同步登记 ——
+  // 否则界面断言测的是"假契约"，新通道过 cloneGuard 时也没人看守（AGENTS.md 踩坑第 1 条）。
+  memorySearch: (q) => {
+    rec('memorySearch', [q])
+    const rows = (store.memory || []).filter((r) => {
+      if (!q) return true
+      if (!q.includeRevoked && r.status === '已撤销') return false
+      if (q.type && !String(r.type).includes(q.type)) return false
+      if (q.q) {
+        const hay = `${r.title} ${r.summary} ${r.id}`.toLowerCase()
+        if (!hay.includes(String(q.q).toLowerCase())) return false
+      }
+      return true
+    })
+    return { ok: true, total: rows.length, rows, returned: rows.length, overview: store.memoryOverview || { total: rows.length, effective: rows.length, revoked: 0, byType: {} } }
+  },
+  memoryRead: (file) => {
+    rec('memoryRead', [file])
+    // 假桩也要有真硬闸：只认 memory/，否则断言测不出越界被拒
+    if (!String(file || '').startsWith('memory/') || String(file).includes('..')) {
+      return { ok: false, error: '只能读 memory/ 下的文件' }
+    }
+    const hit = (store.memory || []).find((r) => r.file === file)
+    return hit ? { ok: true, text: `---\nid: ${hit.id}\n---\n\n# ${hit.title}\n\n${hit.summary || ''}` } : { ok: false, error: 'not found' }
+  },
+  memoryOverview: () => {
+    rec('memoryOverview')
+    return store.memoryOverview || { total: 0, effective: 0, revoked: 0, byType: {}, hint: '记忆库还没有任何条目' }
+  },
+  memoryRebuild: () => {
+    rec('memoryRebuild')
+    return { count: (store.memory || []).length, path: 'memory/index.jsonl' }
+  },
+  // 写入（2026-11-18）· 桩必须**真动 store**，不能只 return ok()：
+  // 只返回 ok 的桩会让"写进去了没有"这条断言永远绿（本仓 MEMORY 第十节的老坑）。
+  memoryCreate: (input) => {
+    rec('memoryCreate', [input])
+    cloneGuard('memoryCreate', [input])
+    const i = input || {}
+    if (!String(i.type || '').trim()) return { ok: false, error: '类型不能空' }
+    if (!String(i.title || '').trim()) return { ok: false, error: '标题不能空' }
+    if (!String(i.body || '').trim()) return { ok: false, error: '原文不能空' }
+    if (!String(i.source || '').trim()) return { ok: false, error: '来源不能空' }
+    const file = `memory/2026-11/mem-20261118-${String((store.memory || []).length + 1).padStart(2, '0')}.md`
+    store.memory = store.memory || []
+    store.memory.push({
+      id: `mem-20261118-${String(store.memory.length + 1).padStart(2, '0')}`,
+      type: i.type, scope: i.scope || '', project: i.project || '', time: '2026-11-18T00:00:00Z',
+      status: i.status || '有效', impact: i.impact || '', title: i.title,
+      summary: String(i.body).slice(0, 120), file, source: i.source, tags: i.tags || [],
+    })
+    store.memoryOverview = {
+      total: store.memory.length,
+      effective: store.memory.filter((r) => r.status !== '已撤销').length,
+      revoked: store.memory.filter((r) => r.status === '已撤销').length,
+      byType: {},
+    }
+    return { ok: true, file }
+  },
+  memoryUpdate: (file, input) => {
+    rec('memoryUpdate', [file, input])
+    cloneGuard('memoryUpdate', [file, input])
+    if (!String(file || '').startsWith('memory/')) return { ok: false, error: '只能改 memory/ 下的文件' }
+    const hit = (store.memory || []).find((r) => r.file === file)
+    if (!hit) return { ok: false, error: 'not found' }
+    if (!String((input || {}).body || '').trim()) return { ok: false, error: '原文不能空' }
+    hit.title = (input || {}).title || hit.title
+    hit.type = (input || {}).type || hit.type
+    hit.summary = String((input || {}).body).slice(0, 120)
+    return { ok: true, file }
+  },
+  memorySetStatus: (file, status) => {
+    rec('memorySetStatus', [file, status])
+    cloneGuard('memorySetStatus', [file, status])
+    const hit = (store.memory || []).find((r) => r.file === file)
+    if (!hit) return { ok: false, error: 'not found' }
+    if (status !== '有效' && status !== '已撤销') return { ok: false, error: '状态只能是 有效 / 已撤销' }
+    hit.status = status
+    store.memoryOverview = {
+      total: (store.memory || []).length,
+      effective: (store.memory || []).filter((r) => r.status !== '已撤销').length,
+      revoked: (store.memory || []).filter((r) => r.status === '已撤销').length,
+      byType: {},
+    }
+    return { ok: true, file }
+  },
+
+  /**
+   * 真退出（2026-11-17 · 卡 p0-1「不同意并退出」永远退不掉）。
+   *
+   * ⚠ 假桩必须记一笔 —— 这是这条修复**唯一**能被断言的方式：
+   *   真退出会杀掉进程，e2e 里不可能真退；能验的只有"点『不同意』时到底走了哪条路"。
+   *   走 `window.close()` = 被主进程防抖成 hide = 退不掉（这就是原 bug）。
+   *   所以断言要问的是：`quitForReal` 有没有被调用（而不是 window.close 有没有被调用）。
+   */
+  quitForReal: () => {
+    rec('quitForReal')
+    return { ok: true }
+  },
+
   ideasAdd: (text) => {
     rec('ideasAdd', [text])
     const t = String(text || '').trim()

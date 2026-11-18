@@ -814,7 +814,7 @@ async function copyKickoff(it: RiceItem): Promise<void> {
 
           <p class="rice-mx-note">
             四个象限按池子中间值切分，只看<b>相对位置</b>；P0 / P1 / P2 按<b>池内排名</b>划分（P0 = 最靠前的 20%）。
-            两者不一致时以 P 级为准 —— 象限解释为什么，分数决定先后。
+            两者冲突时以 P 级为准 —— 象限解释为什么，分数决定先后。
           </p>
         </div>
       </section>
