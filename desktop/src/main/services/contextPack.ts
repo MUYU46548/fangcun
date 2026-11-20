@@ -291,6 +291,66 @@ export interface DispatchResult {
   at?: string
   /** 派单用途（2026-11-17 暮雨：以后直接在 DSH 里派活做规划） */
   kind?: DispatchKind
+  /** 冷却中：这次**没有写任何文件**（renderer 拿它区分"失败"与"等一会儿"） */
+  cooling?: boolean
+  /** 冷却还剩多少毫秒（拒绝时给出，renderer 拿它起倒计时） */
+  leftMs?: number
+  /** 本进程的冷却时长（成功时给出。renderer 照它显示，不许自己另写一个数） */
+  cooldownMs?: number
+}
+
+/**
+ * 派单冷却（2026-11-20 · 暮雨）：
+ * 「规划类派活类任务的按钮有没有冷却机制？比如点一次倒计时 10s，
+ *   防止用户狂点开一堆会话浪费钱。」
+ *
+ * **没有冷却时是什么样**：点一次 = 写一份派单文件；插件每 8 秒消费最新一份并
+ * `agents.create` + `followup`，也就是真的开一个模型会话、烧一份上万字的上下文。
+ * 连点 N 次就是 N 个会话 —— 钱是按会话烧的，手滑一次就翻倍。
+ *
+ * 冷却按**项目**算，不按按钮算：同一个项目的「发送给 DSH」和「让 DSH 做规划」
+ * 走的是同一根管子、开的是同一种会话，10 秒内只该有一份。不同项目互不影响 ——
+ * 那是有意的两次操作，不是手滑。
+ *
+ * ⚠ 这一层只管**界面手滑**。真正防滥用的闸（agent 不能直调、插件消费前要用户确认、
+ *   单发/日上限/审计）在卡「派单防滥用…」里，别把这里当安全边界。
+ */
+export const DISPATCH_COOLDOWN_MS = 10_000
+
+/** 上次成功派单的时刻（ms）。只在主进程内存里 —— 重启后清零是对的：
+ *  重启前的派单文件已经落盘，冷却不该跨进程假装还知道。 */
+const lastDispatchAt = new Map<string, number>()
+
+/** 距离冷却结束还有多少毫秒（0 = 可以派）。纯读，不改状态。 */
+export function dispatchCooldownLeft(projectId: string, now: number = Date.now()): number {
+  const pid = String(projectId || '').trim()
+  if (!pid) return 0
+  const at = lastDispatchAt.get(pid) || 0
+  const left = at + DISPATCH_COOLDOWN_MS - now
+  return left > 0 ? left : 0
+}
+
+/**
+ * 把同一个项目**还没被插件消费**的旧派单删掉，只留这次写的那份。
+ *
+ * 为什么必须清：插件每 8 秒消费**最新一份**。如果 DSH 没开着，用户每 10 秒点一次
+ * 就会堆一份；等 DSH 一开，插件会一份一份全开成会话 —— 那些都是旧点击的幽灵，
+ * 用户早就不记得自己点过，但钱照烧。
+ *
+ * 只删**同一个项目**的：别的项目的派单是另一次操作，不动。
+ * 删不掉就留着（Windows 上可能正被插件读着）—— 少删一份比删错一份强。
+ */
+function pruneStaleDispatches(dir: string, projectId: string, keepName: string): void {
+  let names: string[] = []
+  try { names = fs.readdirSync(dir) } catch { return }
+  const prefix = `dispatch-${projectId}-`
+  for (const name of names) {
+    if (name === keepName || !name.startsWith(prefix)) continue
+    // 文件名：dispatch-<项目 id>-<14 位时间戳>.md。用"剩余部分正好是时间戳"判定，
+    // 不用正则抓 `.+-(\d{14})` —— 那会把 `a` 项目的文件当成 `a-b` 项目的（前缀包含）。
+    if (!/^\d{14}\.md$/.test(name.slice(prefix.length))) continue
+    try { fs.unlinkSync(path.join(dir, name)) } catch { /* 正被插件读着就下次再说 */ }
+  }
 }
 
 /**
@@ -342,11 +402,27 @@ export function normalizeDispatchKind(raw: unknown): DispatchKind {
  *
  * @param kind `work`（默认，马上干活）或 `plan`（做规划，产出机检判据）。
  *             认不出的值回落 `work` —— 不许静默升级成 plan，那会让模型莫名被要求写判据。
+ * @param now 模拟时刻（只给测试/回放用）。真实调用不传 = 现在。
+ *            冷却判定与文件头 `at` 都用它，测试才不用真等 10 秒。
  */
-export function dispatchToDsh(projectId: string, kindRaw?: unknown): DispatchResult {
+export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number = Date.now()): DispatchResult {
   const pid = String(projectId || '').trim()
   if (!pid) return { ok: false, error: '没给项目 id' }
   const kind = normalizeDispatchKind(kindRaw)
+
+  // ① 冷却闸：先判，不建包、不写文件。手滑连点在这里就被挡住，
+  //    不会先烧掉上万字的上下文包再被拒。
+  const left = dispatchCooldownLeft(pid, now)
+  if (left > 0) {
+    return {
+      ok: false,
+      cooling: true,
+      leftMs: left,
+      error: `冷却中：还要 ${Math.ceil(left / 1000)} 秒才能再派（防连点开一堆会话）`,
+      projectId: pid,
+      kind,
+    }
+  }
 
   const r = buildContextPack(pid)
   if (!r.ok) return { ok: false, error: r.error || '上下文包没生成出来' }
@@ -354,7 +430,7 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown): DispatchRes
   try {
     const dir = dispatchDir()
     fs.mkdirSync(dir, { recursive: true })
-    const at = new Date().toISOString()
+    const at = new Date(now).toISOString()
     // 文件名带时间戳 + 项目：插件按时间戳挑最新的一份，人能一眼看出是什么时候派的。
     // kind 不进文件名 —— 文件名要短；用途在头部，人和插件都读得到。
     const stamp = at.replace(/[-:T]/g, '').slice(0, 14)
@@ -372,6 +448,9 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown): DispatchRes
       String(r.text),
     ].join('\n')
     fs.writeFileSync(p, body, 'utf-8')
+    // 新的一落盘就清掉同项目的旧派单（同一项目同时只留一份"待消费"）。
+    pruneStaleDispatches(dir, String(r.projectId), path.basename(p))
+    lastDispatchAt.set(String(r.projectId), now)
     return {
       ok: true,
       path: p,
@@ -380,6 +459,7 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown): DispatchRes
       missing: r.missing || [],
       at,
       kind,
+      cooldownMs: DISPATCH_COOLDOWN_MS,
     }
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) }

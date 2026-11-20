@@ -230,6 +230,22 @@ async function dispatchClickOnlySection(shot) {
   const args = await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'dispatchDsh').map(c => c.args))`)
   check('★★ 派单闸 · 真点一次「发送给 DSH」才产生一份派单（demo / kind=work）',
     clicked && fired && /"demo"/.test(String(args)) && /"work"/.test(String(args)), String(args))
+
+  // ── 冷却闸（2026-11-20）：第一下之后按钮禁用 + 倒计时，连点不再派 ──────────
+  // 找按钮用 title（不依赖文字：冷却中文字会变成“冷却中 9s”）。
+  const WORK_BTN = `[...document.querySelectorAll('.oacts button')].find(x => (x.getAttribute('title') || '').indexOf('把这份上下文包发送给 DSH') >= 0)`
+  const coolingText = await waitFor(
+    `(() => { const b = ${WORK_BTN}; return !!b && /冷却中\\s*\\d+s/.test(b.textContent || '') })()`,
+    3000, '按钮出现冷却倒计时')
+  check('★ 派单闸 · 首点之后按钮显示冷却倒计时（不是静默忽略第二次点击）', coolingText)
+  const disabled = await js(`(() => { const b = ${WORK_BTN}; return !!b && b.disabled })()`)
+  check('★ 派单闸 · 冷却期内按钮真的禁用（不靠用户自觉）', disabled)
+
+  const secondClick = await js(`(() => { const b = ${WORK_BTN}; if (!b) return false; b.click(); return true })()`)
+  await sleep(300)
+  const after = await js(`window.__fcTest.callCount('dispatchDsh')`)
+  check('★★ 派单闸 · 冷却期内连点不再产生第二份派单（防止开一堆会话烧钱）',
+    secondClick && after === 1, 'calls=' + after)
 }
 
 async function main() {

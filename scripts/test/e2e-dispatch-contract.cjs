@@ -18,6 +18,15 @@
  *
  * 于是新增 `kind`（work / plan）。这个字段**必须两边同时认**，所以本守卫的核心就是它。
  *
+ * ## 2026-11-20 追加：冷却闸 + 不堆积旧派单
+ *
+ * 暮雨：「规划类派活类任务的按钮有没有冷却机制？比如点一次倒计时 10s，
+ * 防止用户狂点开一堆会话浪费钱。」
+ *
+ * 点一次 = 插件开一个会话。所以方寸侧必须：① 同一项目 10 秒内只允许一份；
+ * ② 新派单落盘时清掉同项目还没被消费的旧派单（否则 DSH 关着时点几次，
+ * 一开 DSH 就一份一份全开成会话）。这一节把两条都钉住。
+ *
  * 运行：node scripts/test/e2e-dispatch-contract.cjs
  */
 const fs = require('fs')
@@ -82,8 +91,20 @@ if (pluginKindsMatch) {
     fs.writeFileSync(path.join(tmp, 'registry.yaml'), [
       'members: []',
       'projects:',
-      '  - id: fc-dispatch-demo',
-      '    name: 契约夹具',
+      '  - id: fc-dispatch-demo-a',
+      '    name: 契约夹具 A',
+      '    tasks: ""',
+      '    repo: ""',
+      '    tools: []',
+      '    sources: []',
+      '  - id: fc-dispatch-demo-b',
+      '    name: 契约夹具 B',
+      '    tasks: ""',
+      '    repo: ""',
+      '    tools: []',
+      '    sources: []',
+      '  - id: fc-dispatch-demo-c',
+      '    name: 契约夹具 C',
       '    tasks: ""',
       '    repo: ""',
       '    tools: []',
@@ -95,9 +116,13 @@ if (pluginKindsMatch) {
     check('★★ 能建出一个可用的临时数据根', false, String(e && e.message || e))
   }
   try {
-    const r = cp.dispatchToDsh('fc-dispatch-demo', 'plan')
+    // 2026-11-20：三个项目的**第一次**派单都用同一个模拟时刻，互不触发对方的冷却。
+    const T0 = Date.parse('2026-11-17T00:00:00.000Z')
+    const r = cp.dispatchToDsh('fc-dispatch-demo-a', 'plan', T0)
     check('★ plan 派单写得出来', !!r && r.ok === true, JSON.stringify(r))
     check('★ 返回值里 kind=plan', r && r.kind === 'plan', String(r && r.kind))
+    check('★ 成功时回传冷却时长（renderer 照它显示，不自己写死）',
+      r && r.cooldownMs === cp.DISPATCH_COOLDOWN_MS, String(r && r.cooldownMs))
 
     if (r && r.ok && r.path && fs.existsSync(r.path)) {
       const txt = fs.readFileSync(r.path, 'utf-8')
@@ -113,18 +138,47 @@ if (pluginKindsMatch) {
       check('★★ 文件头里有 `kind: plan`（**不是只写在返回值里** —— 插件只读文件）',
         meta.kind === 'plan', `实际 kind=${JSON.stringify(meta.kind)}`)
       check('★ project 在头部（插件靠它判断"这是不是派单"）',
-        meta.project === 'fc-dispatch-demo', String(meta.project))
+        meta.project === 'fc-dispatch-demo-a', String(meta.project))
     }
 
     // 缺省 = work（老调用方不传第二个参数，行为必须与 0.6.0 一致）
-    const r2 = cp.dispatchToDsh('fc-dispatch-demo')
+    const r2 = cp.dispatchToDsh('fc-dispatch-demo-b', undefined, T0)
     check('★★ 不传 kind 时缺省 work（0.6.0 老调用方零破坏）',
       r2 && r2.kind === 'work', String(r2 && r2.kind))
 
     // 乱写的值回落 work，不许静默升级成 plan
-    const r3 = cp.dispatchToDsh('fc-dispatch-demo', '随便什么')
+    const r3 = cp.dispatchToDsh('fc-dispatch-demo-c', '随便什么', T0)
     check('★★ 认不出的 kind 回落 work（不许静默变成 plan）',
       r3 && r3.kind === 'work', String(r3 && r3.kind))
+
+    // ── ④ 冷却闸（2026-11-20）──────────────────────────────────────────
+    check('★ 冷却时长是 10 秒（暮雨口径）', cp.DISPATCH_COOLDOWN_MS === 10_000,
+      String(cp.DISPATCH_COOLDOWN_MS))
+    const r4 = cp.dispatchToDsh('fc-dispatch-demo-a', 'plan', T0 + 1_000)
+    check('★★ 同一项目 10 秒内再派 → 被拒（不是只靠界面禁用）',
+      r4 && r4.ok === false && r4.cooling === true, JSON.stringify(r4))
+    check('★ 拒绝时带 leftMs（renderer 拿它起倒计时）',
+      r4 && r4.leftMs > 0 && r4.leftMs <= cp.DISPATCH_COOLDOWN_MS, String(r4 && r4.leftMs))
+    check('★ 冷却按项目算：另一个项目同一时刻照常能派（上一步 r2 已成功）',
+      r2 && r2.ok === true)
+    check('★ 纯函数口径：t+10s 之后可派（不用真等 10 秒）',
+      cp.dispatchCooldownLeft('fc-dispatch-demo-a', T0 + 10_000) === 0,
+      String(cp.dispatchCooldownLeft('fc-dispatch-demo-a', T0 + 10_000)))
+
+    // 冷却到期后再派：同项目旧的未消费派单必须被清掉，只留这次这份。
+    const dir = path.join(tmp, '.dispatch-dsh')
+    const listA = () => fs.readdirSync(dir).filter((n) => n.startsWith('dispatch-fc-dispatch-demo-a-'))
+    const before = listA()
+    const r5 = cp.dispatchToDsh('fc-dispatch-demo-a', 'plan', T0 + 10_000)
+    check('★ 冷却到期后可以再派', r5 && r5.ok === true, JSON.stringify(r5))
+    const after = listA()
+    check('★★ 新派单落盘时清掉同项目旧派单（同一项目最多一份待消费 —— 否则开 DSH 时一份份全开成会话）',
+      before.length === 1 && after.length === 1 && after[0] !== before[0],
+      `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`)
+    check('★ 清理只碰本项目：另外两个项目的派单还在',
+      fs.readdirSync(dir).filter((n) => n.startsWith('dispatch-fc-dispatch-demo-b-')).length === 1
+      && fs.readdirSync(dir).filter((n) => n.startsWith('dispatch-fc-dispatch-demo-c-')).length === 1,
+      JSON.stringify(fs.readdirSync(dir)))
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ }
   }

@@ -4271,6 +4271,59 @@ async function copyContextPack(p: any): Promise<void> {
 }
 
 /**
+ * 派单按钮冷却（2026-11-20 · 暮雨）：
+ * 「规划类派活类任务的按钮有没有冷却机制？比如点一次倒计时 10s，
+ *   防止用户狂点开一堆会话浪费钱。」
+ *
+ * 为什么必须有：点一次 = 一份派单文件 = 插件每 8 秒消费一份 = DSH 里真开一个
+ * 模型会话（还带着上万字上下文）。连点 N 次就是 N 个会话，钱按会话烧。
+ *
+ * ⚠ 这一层只管**按钮手滑**；真正防滥用（agent 不能直调、插件消费前要用户确认、
+ *   日上限）在卡「派单防滥用…」里。冷却时长以主进程返回值 `cooldownMs` 为准 ——
+ *   两边各写一个数，迟早一个 10 秒一个 30 秒，界面就在说假话。
+ */
+const dispatchCooldownUntil = reactive<Record<string, number>>({})
+const dispatchSending = reactive<Record<string, boolean>>({})
+const dispatchClock = ref(Date.now())
+let dispatchClockTimer: ReturnType<typeof setInterval> | null = null
+
+/** 冷却还剩几秒（0 = 可点）。模板调用它会跟着 dispatchClock 每 500ms 刷新。 */
+function dispatchCoolLeft(p: any): number {
+  const pid = String(p?.id || '')
+  if (!pid) return 0
+  const left = (dispatchCooldownUntil[pid] || 0) - dispatchClock.value
+  return left > 0 ? Math.ceil(left / 1000) : 0
+}
+
+/** 这一单的 IPC 还没回来（连点时除了冷却，这一条也要挡）。 */
+function dispatchSendingNow(p: any): boolean {
+  return !!dispatchSending[String(p?.id || '')]
+}
+
+/** 按钮上写什么：发送中… / 冷却中 Ns / 原来的字。 */
+function dispatchButtonText(p: any, idle: string): string {
+  if (dispatchSendingNow(p)) return '发送中…'
+  const left = dispatchCoolLeft(p)
+  return left > 0 ? `冷却中 ${left}s` : idle
+}
+
+/** 给冷却计时器上弦（只在真的派出去之后调用）。 */
+function armDispatchCooldown(pid: string, ms: number): void {
+  const wait = Math.max(0, Number(ms) || 0)
+  if (!pid || wait <= 0) return
+  dispatchCooldownUntil[pid] = Date.now() + wait
+  dispatchClock.value = Date.now()
+  if (dispatchClockTimer) return
+  dispatchClockTimer = setInterval(() => {
+    dispatchClock.value = Date.now()
+    const alive = Object.keys(dispatchCooldownUntil)
+      .some((k) => dispatchCooldownUntil[k] > dispatchClock.value)
+    if (alive) return
+    if (dispatchClockTimer) { clearInterval(dispatchClockTimer); dispatchClockTimer = null }
+  }, 500)
+}
+
+/**
  * 把项目的上下文包**发送给 DSH**（2026-11-17 · 暮雨：「管子现在就做，它是其他一切的前提」）。
  *
  * ⚠ 文案口径：**UI 上是「发送给 DSH」，不是「派给 DSH」**。
@@ -4292,29 +4345,55 @@ async function copyContextPack(p: any): Promise<void> {
  *
  * 2026-11-17 暮雨定案：「以后可以直接在 DSH 里派活做规划」——
  * 所以这一步多了 `plan` 用例。不给 kind 时行为与之前**逐字一致**（work）。
+ *
+ * 2026-11-20 加冷却：冷却内直接 return，**连 IPC 都不发**；主进程也有一道同样的闸
+ * （渲染层状态丢了 —— 热重载、重开窗口 —— 时以它为准）。
  */
 async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<void> {
   if (!p?.id) return
+  const pid = String(p.id)
   const tegula = (window as any).tegula
   // 老版本（没这个通道）要说清楚，不许静默失败
   if (typeof tegula?.dispatchDsh !== 'function') {
     showToast('这个版本还没有「发送给 DSH」通道 —— 请更新方寸后再试', 'error')
     return
   }
+  // ① 冷却 / 在途：都是"别再发第二单"，说法分开（一个是等，一个是刚发出去还没回）
+  const left = dispatchCoolLeft(p)
+  if (left > 0) {
+    showToast(`「${p.name || pid}」还在冷却：${left} 秒后才能再派 —— 防连点开一堆会话`, 'error')
+    return
+  }
+  if (dispatchSending[pid]) {
+    showToast('上一单还在发送，别连点 —— 一次只开一个会话', 'error')
+    return
+  }
+  dispatchSending[pid] = true
   try {
-    const r: any = await tegula.dispatchDsh(p.id, kind)
+    const r: any = await tegula.dispatchDsh(pid, kind)
     if (!r || r.ok === false) {
+      // 主进程的冷却闸（渲染层状态与它不一致时以它为准，并据此起倒计时）
+      if (r && r.cooling && Number(r.leftMs) > 0) {
+        armDispatchCooldown(pid, Number(r.leftMs))
+        showToast(`还在冷却：${Math.ceil(Number(r.leftMs) / 1000)} 秒后才能再派 —— 防连点开一堆会话`, 'error')
+        return
+      }
       showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
       return
     }
     const what = kind === 'plan' ? '规划任务' : '上下文包'
-    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话`, 'ok')
+    // 倒计时长度以主进程为准（见函数头注释）
+    const coolSec = Math.max(1, Math.round((Number(r.cooldownMs) || 10_000) / 1000))
+    armDispatchCooldown(pid, Number(r.cooldownMs) || 10_000)
+    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话；${coolSec} 秒内不会重发`, 'ok')
     // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
     }
   } catch (e: any) {
     showToast('发送异常：' + (e?.message || e), 'error')
+  } finally {
+    dispatchSending[pid] = false
   }
 }
 
@@ -7915,7 +7994,10 @@ const projectsCtl = reactive({
   // 使命草稿（2026-11-14 · P1-2）：方针弹窗里「从 README 取一句」
   draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
-  openAiPlan, openAiDoc, openPlans, copyContextPack, dispatchToDsh, copyBrief, switchView,
+  openAiPlan, openAiDoc, openPlans, copyContextPack, dispatchToDsh,
+  // 派单按钮冷却（2026-11-20）：模板只读这三样，不自己算时间
+  dispatchButtonText, dispatchCoolLeft, dispatchSendingNow,
+  copyBrief, switchView,
   tripBoardCtl,
 })
 
@@ -8093,6 +8175,8 @@ onUnmounted(() => {
   if (offNotifyFocus) { try { offNotifyFocus() } catch { /* ignore */ } ; offNotifyFocus = null }
   if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
   if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }
+  // 派单冷却计时器（2026-11-20）：只在有冷却时跑，组件卸载时别漏
+  if (dispatchClockTimer) { clearInterval(dispatchClockTimer); dispatchClockTimer = null }
   document.removeEventListener('keydown', onShortcutKeydown)
   window.removeEventListener('fc-app-error', onAppError as EventListener)
   window.removeEventListener('dragend', dragResetAll)
