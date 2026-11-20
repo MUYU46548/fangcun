@@ -26,6 +26,7 @@ import { loadDecisions } from '../data/decisions'
 import { getPolicy } from './policies'
 import { readContractFile, repoOfProject } from './tripBoard'
 import * as logs from './logs'
+import { ensureDispatchSecret, newDispatchNonce, signDispatch } from './dispatchSign'
 
 export interface ContextPack {
   ok: boolean
@@ -460,12 +461,31 @@ export function dispatchMessageToDsh(
     const stamp = at.replace(/[-:T]/g, '').slice(0, 14)
     const p = path.join(dir, `dispatch-${String(r.projectId)}-${stamp}.md`)
     const bodyText = pre ? `${pre}\n\n---\n\n${String(r.text)}` : String(r.text)
+    // 2026-11-20（父卡「派单防滥用」）：GUI 派单必须带签名 ——
+    // 密钥只在 userData，agent 直接往数据根写文件没有签名，插件会拒收。
+    // 签名覆盖 source/project/at/kind/nonce/chars/missing/body，改一个字都对不上。
+    const source = 'gui'
+    const nonce = newDispatchNonce()
+    let secret = ''
+    let sig = ''
+    try {
+      secret = ensureDispatchSecret()
+      sig = signDispatch(secret, {
+        source, project: String(r.projectId), at, kind, nonce,
+        chars: bodyText.length, missing: r.missing || [], body: bodyText,
+      })
+    } catch (e: any) {
+      return { ok: false, error: '派单签名失败（不会写无签名派单）：' + String(e?.message || e) }
+    }
     const body = [
       `<!-- fangcun-dispatch v1`,
       `project: ${String(r.projectId)}`,
       `projectName: ${String(r.projectName || '')}`,
       `at: ${at}`,
       `kind: ${kind}`,
+      `source: ${source}`,
+      `nonce: ${nonce}`,
+      `sig: ${sig}`,
       `chars: ${bodyText.length}`,
       `missing: ${(r.missing || []).join('|')}`,
       `-->`,

@@ -31,6 +31,7 @@ import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
 import * as contextPack from './services/contextPack'
+import { configureDispatchSecretDir } from './services/dispatchSign'
 import * as brief from './services/brief'
 import * as prefs from './services/prefs'
 import * as projectTiers from './services/projectTiers'
@@ -94,6 +95,10 @@ function readReadmeOf(repo: string): { md: string; sourceFile: string } | null {
 export function registerIpcHandlers(): void {
   // Initialize paths
   data.initPaths()
+
+  // 派单签名密钥落点（2026-11-20）：只在 userData，不在数据根 ——
+  // 插件按同一路径校验；agent 只写数据根时拿不到这把钥匙。
+  try { configureDispatchSecretDir(app.getPath('userData')) } catch { /* 读不到就退回 APPDATA 探测 */ }
   
   // Register LLM handlers
   registerLlmIpcHandlers()

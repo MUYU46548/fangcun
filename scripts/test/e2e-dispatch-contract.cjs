@@ -36,6 +36,9 @@ const path = require('path')
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 const PLUGIN = path.join(REPO, '..', 'dsh-fangcun', 'lib', 'dispatch.js')
+// 签名密钥落到临时文件，别碰真 userData（2026-11-20）
+const SECRET_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-dispatch-secret-'))
+process.env.FC_DISPATCH_SECRET_PATH = path.join(SECRET_DIR, 'dispatch-secret')
 
 let pass = 0, fail = 0
 const failures = []
@@ -60,6 +63,7 @@ if (!fs.existsSync(cpPath) || !fs.existsSync(PLUGIN)) {
 
 // ── ② 两边认的 kind 取值域必须逐字一致 ──────────────────────────────────
 const cp = require(cpPath)
+const sign = require(path.join(DIST, 'services', 'dispatchSign.js'))
 let plugin = null
 try {
   // 插件是 ESM，这里用 createRequire 骗不过去 —— 直接读源码抽常量（不看行为，只看声明）
@@ -139,6 +143,24 @@ if (pluginKindsMatch) {
         meta.kind === 'plan', `实际 kind=${JSON.stringify(meta.kind)}`)
       check('★ project 在头部（插件靠它判断"这是不是派单"）',
         meta.project === 'fc-dispatch-demo-a', String(meta.project))
+      // 2026-11-20：GUI 派单必须带 source/nonce/sig；插件只认签名有效的
+      check('★★ 头部有 source=gui / nonce / sig（agent 手写文件没有这三行）',
+        meta.source === 'gui' && /^[0-9a-f]{32}$/.test(String(meta.nonce || ''))
+        && /^[0-9a-f]{64}$/.test(String(meta.sig || '')),
+        JSON.stringify({ source: meta.source, nonce: meta.nonce, sig: meta.sig }))
+      const bodyText = txt.slice(head.index + head[0].length).replace(/^(?:[ \t]*\r?\n)+/, '')
+      const canonical = {
+        source: meta.source, project: meta.project, at: meta.at, kind: meta.kind,
+        nonce: meta.nonce, chars: Number(meta.chars),
+        missing: String(meta.missing || '').split('|').filter(Boolean), body: bodyText,
+      }
+      const secret = fs.readFileSync(process.env.FC_DISPATCH_SECRET_PATH, 'utf-8').trim()
+      check('★★ 签名验证通过（密钥与插件同一口径）',
+        sign.verifyDispatch(secret, canonical, meta.sig))
+      check('★★ 改一个字签名就对不上（正文被篡改会被拒）',
+        sign.verifyDispatch(secret, { ...canonical, body: bodyText + '\n篡改' }, meta.sig) === false)
+      check('★ 换一把密钥也过不了',
+        sign.verifyDispatch('0'.repeat(64), canonical, meta.sig) === false)
     }
 
     // 缺省 = work（老调用方不传第二个参数，行为必须与 0.6.0 一致）

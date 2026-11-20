@@ -4389,8 +4389,8 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     const go = await costAsk({
       title: kind === 'plan' ? `让 DSH 做规划：${p.name || pid}` : `发送给 DSH：${p.name || pid}`,
       detail: kind === 'plan'
-        ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。'
-        : '这会写一份上下文包派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型开工，可能产生真实费用。',
+        ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。DSH 插件默认：同一时间最多 10 个、不冷却、每日不限（可在插件设置里调）。'
+        : '这会写一份上下文包派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型开工，可能产生真实费用。DSH 插件默认：同一时间最多 10 个、不冷却、每日不限（可在插件设置里调）。',
       confirmText: kind === 'plan' ? '继续（会开 DSH 规划会话）' : '继续（会开 DSH 会话）',
     })
     if (!go) return
@@ -4409,7 +4409,7 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     // 倒计时长度以主进程为准（见函数头注释）
     const coolSec = Math.max(1, Math.round((Number(r.cooldownMs) || 10_000) / 1000))
     armDispatchCooldown(pid, Number(r.cooldownMs) || 10_000)
-    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话；${coolSec} 秒内不会重发`, 'ok')
+    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话；${coolSec} 秒内不会重发（若被 DSH 限流，去插件设置看原因）`, 'ok')
     // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
