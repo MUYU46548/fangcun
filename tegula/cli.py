@@ -1437,56 +1437,28 @@ def cmd_archify(args):
 
 
 # ---------- AI 规划写回层（2026-10-12，方案卡：AI 规划功能 2.5 天主体） ----------
-# 函数体内延迟 import：cli 冷启动不加载 LLM 层；也规避模块级循环 import 的任何可能。
-# 红线见 tegula_writeback.py 模块头：AI 卡只落“待审批”，项目说明只落笔记（契约只读）。
+# 2026-11-20 暮雨：BYOK 退场，方寸不再调模型。命令名/参数保留（agent 脚本不会找不到），
+# 但不再 import tegula_writeback / tegula_llm，也不产生任何模型调用。
+def _byok_retired(cmd: str) -> int:
+    print(
+        f"{cmd} 已退役：方寸不再自己调模型。请在 DSH 桌面版里做，"
+        f"或用 MCP/CLI 的任务接口把结果写回。",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_ai_plan(args):
-    from tegula_writeback import plan_to_draft
-    r = plan_to_draft(args.goal, args.项目 or "", args.model or None)
-    if r.get("ok"):
-        print(f"已落 {r['count']} 张待审批任务卡（来源 ai-planning，GUI 里确认后转待办）：")
-        for tid in r["created"]:
-            print(f"  {tid}")
-    else:
-        print(f"失败：{r.get('error')}", file=sys.stderr)
-    return 0 if r.get("ok") else 1
+    return _byok_retired("ai-plan")
 
 
 def cmd_ai_brief(args):
-    from tegula_writeback import draft_project_brief
-    r = draft_project_brief(args.项目 or "", args.model or None)
-    if r.get("ok"):
-        print(f"项目说明草稿已落笔记 {r['note_id']}（方寸侧为草稿，非权威契约——点头后由各线 agent 落各 repo）")
-    else:
-        print(f"失败：{r.get('error')}", file=sys.stderr)
-    return 0 if r.get("ok") else 1
+    return _byok_retired("ai-brief")
 
 
 def cmd_ai_doc(args):
-    """文档一键转任务（2026-10-17 四件补立项之二）：读文档→AI 拆→待审批卡。"""
-    from tegula_writeback import doc_to_drafts
-    text = ""
-    if getattr(args, "file", ""):
-        try:
-            import io as _io
-            text = _io.open(args.file, encoding="utf-8", errors="replace").read()
-        except OSError as e:
-            print(f"读不了文件：{e}", file=sys.stderr)
-            return 1
-    if not text.strip() and not sys.stdin.isatty():
-        text = sys.stdin.read()
-    if not text.strip():
-        print("缺文档：给 --file 路径，或用管道喂 stdin", file=sys.stderr)
-        return 2
-    r = doc_to_drafts(text, args.项目 or "", args.model or None, max_cards=args.max)
-    if r.get("ok"):
-        print(f"已落 {r['count']} 张待审批任务卡（来源 ai-doc，GUI 里确认后转待办）：")
-        for tid in r["created"]:
-            print(f"  {tid}")
-        for s in r.get("skipped", []):
-            print(f"  跳过：{s}")
-    else:
-        print(f"失败：{r.get('error')}", file=sys.stderr)
-    return 0 if r.get("ok") else 1
+    """文档一键转任务：入口保留，模型调用已退役。"""
+    return _byok_retired("ai-doc")
 
 
 def cmd_arch_profile(args):
@@ -1497,22 +1469,7 @@ def cmd_arch_profile(args):
     if err:
         print(f"失败：{err}", file=sys.stderr)
         return 1
-    # AI 解读：有 key 才调；产出以“追加章节”拼接——骨架 100% 保真在前，
-    # AI 增值在后；失败/超短静默退化骨架版（档案可用性不押在 AI 上）。
-    try:
-        import tegula_llm as _llm
-        if _llm.get_config().api_key:
-            interp = _llm.chat(
-                md, system=(
-                    "你是方寸项目管理系统的架构档案员。输入是一份项目分层档案骨架"
-                    "（目录树/契约节名/任务分布）。输出一份“分层解读”markdown："
-                    "模块划分与各层职责、入口与关键文件、依赖与技术债风险、当前欠账。"
-                    "只依据骨架里的事实，不编造不存在的文件；不重复罗列目录树本身。"),
-                trigger="arch.profile", temperature=0.2, max_tokens=3000)
-            if interp and len(interp.strip()) > 200:
-                md = md.rstrip() + "\n\n## AI 解读\n\n" + interp.strip() + "\n"
-    except Exception:
-        pass  # 骨架版兜底（含 LLMError/网络失败）
+    # 2026-11-20 BYOK 退场：骨架必出；不再追加 AI 解读（模型全走 DSH）。
     title = md.splitlines()[0].lstrip("# ").strip() if md.splitlines() else f"项目分层档案 · {args.id}"
     ok, nid = api_note_create(f"{title}（{_dt.date.today().isoformat()}）", md)
     if ok:
@@ -2661,23 +2618,23 @@ def main():
     sy_skills.add_argument("--go", action="store_true", help="人工确认后安装/覆盖")
     sy_skills.set_defaults(func=cmd_sync_skills)
 
-    # 2026-10-12：AI 规划写回层（LLM 输出落方寸：待审批卡 / 笔记，详见 tegula_writeback.py）
-    ap = sub.add_parser("ai-plan", help="AI 拆解目标 → 待审批任务卡（需 TEGULA_LLM_* 环境变量）")
-    ap.add_argument("goal", help="目标描述，如“把注册页迁移到新组件库”")
-    ap.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认 fangcun-base）")
-    ap.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    # 2026-11-20：BYOK 退场；命令名/参数保留，调用只返回“去 DSH”的提示，不调模型。
+    ap = sub.add_parser("ai-plan", help="已退役（不调模型）；入口保留，返回 DSH 提示")
+    ap.add_argument("goal", help="目标描述（保留给旧脚本）")
+    ap.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（保留）")
+    ap.add_argument("--model", default="", help="已忽略（BYOK 退役）")
     ap.set_defaults(func=cmd_ai_plan)
-    ab = sub.add_parser("ai-brief", help="AI 起草四栏项目说明 → 笔记（方寸侧草稿，契约真源在各 repo）")
+    ab = sub.add_parser("ai-brief", help="已退役（不调模型）；入口保留，返回 DSH 提示")
     ab.add_argument("--项目", "--project", dest="项目", required=True, help="项目 id")
-    ab.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
+    ab.add_argument("--model", default="", help="已忽略（BYOK 退役）")
     ab.set_defaults(func=cmd_ai_brief)
-    ad = sub.add_parser("ai-doc", help="文档一键转任务：读文档→AI 拆→待审批任务卡（来源 ai-doc，GUI 审批转正）")
-    ad.add_argument("--file", default="", help="文档路径（md/txt）；缺省读 stdin")
-    ad.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（默认不挂）")
-    ad.add_argument("--model", default="", help="覆盖 TEGULA_LLM_MODEL")
-    ad.add_argument("--max", type=int, default=20, help="最多拆几张卡（默认 20）")
+    ad = sub.add_parser("ai-doc", help="已退役（不调模型）；入口保留，返回 DSH 提示")
+    ad.add_argument("--file", default="", help="文档路径（保留给旧脚本）")
+    ad.add_argument("--项目", "--project", dest="项目", default="", help="挂到哪个项目（保留）")
+    ad.add_argument("--model", default="", help="已忽略（BYOK 退役）")
+    ad.add_argument("--max", type=int, default=20, help="保留参数")
     ad.set_defaults(func=cmd_ai_doc)
-    arp = sub.add_parser("arch-profile", help="项目分层档案：registry 档案+repo 目录树+契约骨架+任务分布（骨架零 AI 必出，配了模型通道则追加 AI 解读）")
+    arp = sub.add_parser("arch-profile", help="项目分层档案：registry 档案+repo 目录树+契约骨架+任务分布（骨架必出，不再追加 AI 解读）")
     arp.add_argument("id", help="项目 id（registry.yaml 里的 id，如 fangcun-base）")
     arp.set_defaults(func=cmd_arch_profile)
     pb = sub.add_parser("project-brief", help="项目上下文一键包：契约+方针+在途任务+决策卡+进度聚合 → 一份 Markdown（喂 agent）")
