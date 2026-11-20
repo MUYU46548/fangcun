@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.15.0
+version: 1.16.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -92,7 +92,7 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **37** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **47** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -101,10 +101,11 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `search_tasks` | Full-text search across task titles, bodies, and tags |
 | `get_task` | Get a single task by ID |
 | `create_task` | Create a new task |
-| `arch_generate` | 让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。 |
-| `plan_draft` | 让方寸**给自己起草一份作战计划草案**（BYOK，会真调模型并产生花销）。 |
+| `arch_generate` | 让方寸给某个已登记项目**生成架构图**（只读扫描，零模型）。 |
+| `plan_draft` | ⚠ 2026-11-20 起 BYOK 已退役：方寸不再自己调模型，本工具保留名称/参数以兼容旧脚本，调用会返回「请在 DSH 桌面版里做规划」的提示，不花 token、不写草案。 |
+| `plan_submit` | agent 当大脑、方寸当闸（2026-11-10，暮雨拍板方向）：agent 自己把草案想好，把 JSON 交给方寸，方寸跑**同一套闸**（宪法页 / 本轮先问 / 判据现状体检 / 依据必须真实）再落 plans/… |
 | `intake_task` | 收卡（ADR-003 一期）：把交付物 + 卡上判据交进方寸，**先机检再落卡**。 |
-| `usage_report` | Report AI usage from an external client (e.g. |
+| `usage_report` | Report AI usage from an external client (e.g. DSH / Hermes) into the Fangcun ledger. |
 | `never_read` | List open tasks that NO agent has read in the last N days (source: mcp-usage.jsonl). |
 | `update_task` | Update a task |
 | `move_status` | Move a task to a different status |
@@ -121,17 +122,27 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `gate_list` | List all acceptance gates |
 | `decision_list` | READ-ONLY. |
 | `project_charter` | READ-ONLY. |
+| `memory_search` | READ-ONLY. |
+| `memory_read` | READ-ONLY. |
+| `memory_core` | READ-ONLY. |
+| `memory_write` | PROPOSE a 方寸 memory entry for user approval. |
+| `memory_briefing` | READ-ONLY. |
 | `stage_plan_get` | READ-ONLY. |
-| `stage_plan_propose` | Propose a NEW stage card into task-data/plans/<file>.md (lands as 待裁决). |
-| `qn_list` | List questionnaires (问卷): questions / answered / approved. |
-| `qn_propose` | Write a NEW questionnaire deck for the user to answer (选项缺代价 / 题目缺验收线一律拒收). |
+| `stage_plan_propose` | Propose a NEW stage card into task-data/plans/<file>.md. |
+| `qn_list` | List questionnaires (问卷) with how many questions, how many already answered, and whether each was approved |
+| `qn_bank_import` | Bulk-load questions into the project 题库 as 待答 (the queue). |
+| `qn_propose` | Write a NEW questionnaire deck (task-data/questionnaires/<deck>.md) for the user to answer. |
 | `smap_propose` | Propose a NEW version of the project 结构地图 as a 「待审批」 task card. |
 | `smap_apply` | Apply an APPROVED 结构地图 proposal card into policies/<project>.md. |
 | `list_logs` | List execution logs (方寸执行日志). |
 | `search_logs` | Full-text search across log titles, contents and project names |
-| `get_log` | Get one execution log by ID (e.g. |
-| `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r |
-| `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, |
+| `get_log` | Get one execution log by ID (e.g. log_20260929052313_ddimzo): content, next steps, status, links, plus relay c… |
+| `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r… |
+| `app_mode` | 当前运行态：客户端态（成品，数据在 userData）还是开发态（源码仓库），以及判断依据。 |
+| `mission_draft` | 从项目仓库的 README 起草「使命」建议 |
+| `audit_declare` | 开工前声明：这轮打算读哪些卡 / 文件、改哪些东西。 |
+| `audit_check` | 交付时核对：把这轮**实际做了什么**报上来，方寸拿它跟开工声明、以及 MCP 侧客观读记录对账。 |
+| `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, computed RICE scor… |
 | `rice_pool_upsert` | Upsert RICE initial scores into the requirement pool (idempotent). |
 
 <!-- MCP-TOOLS:END -->
@@ -341,22 +352,21 @@ intake_task {
 ⚠ `cmd:` 判据在收卡时**不跑**（跑测试套件归“待验收”阶段人点自检），传了也是"未判定"，会挡住"全过"。
 ⚠ 判据别写“效果更好”“体验流畅”这类话——那不是判据，收卡机检会判不了，卡的结论就是空话。
 
-**⑥ 要架构图：用 `arch_generate`（2026-11-02 新增）**
+**⑥ 要架构图：用 `arch_generate`（2026-11-02 新增；2026-11-20 起改为纯扫描）**
 
-需要某个项目的架构图（谁连着谁、入口在哪）→ 调方寸，不要自己在对话里画：
+需要某个项目的结构图（谁连着谁、入口在哪）→ 调方寸，不要自己在对话里画：
 
 ```
-arch_generate { project: "fangcun-base", max_attempts: 2 }
+arch_generate { project: "fangcun-base" }
 ```
 
-- 方寸走**它自己的**生成链路：AI 按扫描事实画 → 每条节点/连线检查证据 → 不过按意见重画 → 仍不过降级扫描图；
-- 返回 `source`：`ai` = 模型画且过审；`scan` = 降级扫描图（`reason` 写为什么，例如没配模型）；
-- 返回 `issues`（哪条被拒、为什么）与 `notes`（不阻断的修正，例如标签被丢弃）；
-- **会调用用户在方寸设置里配的模型（BYOK），每次调用产生花销**；返回体里带 `usage`，别重复计费；
-- 图上的文件数/连线数一律来自扫描事实 —— 模型编不出数字，你也别替它编。
+- **方寸不再自带模型调用**（2026-11-20 D-152）：这个工具只做**只读扫描**，
+  节点来自真实目录 / 入口 / 依赖，连线来自真实 import / IPC，`source` 恒为 `scan`；
+- 不花 token、不产生花销 —— 要 AI 解读请**在 DSH 这边**基于扫描结果自己写；
+- `max_attempts` 参数已废弃（扫描一次就出），传了也只是忽略；
+- 图上的文件数/连线数一律来自扫描事实 —— 你也不要替它编。
 
-⚠ 想看**已经画好的**图（不花钱）用 `arch:get` 那条界面通道，或直接读 `arch_generate` 上一次的结果；
-⚠ 不要为了"先看看"就调 `arch_generate` —— 那是一次真实模型调用。
+⚠ 想看**已经画好的**图（同样不花钱）直接把上一次结果贴出来，别重复调。
 
 **不知道数据根** → `get_data_dir`，**不要**在文件系统里猜（数据根可能被用户改到别处）。
 

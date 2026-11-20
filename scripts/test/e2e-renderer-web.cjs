@@ -263,6 +263,12 @@ function main() {
     process.exit(1)
   }
   const ACK_SEED = "try{localStorage.setItem('fc_disclaimer_ack',JSON.stringify({v:'" + dmVer + "',at:'2026-10-16T00:00:00.000Z'}))}catch(e){}\n"
+  // 2026-11-20：截图里也要有**真实版本号**。`window.__FC_VER` 由本脚本从 desktop/package.json 读到再注入
+  //（不写死）。否则技能页那句“自动同步 ✓ … v0.0.0”会被原样拍进交付截图 —— 那是假事实，
+  // 而且越看越像“同步没跑过”。主断言流程稍后也会再注入一次，两处取的是同一个真源。
+  const VER_SEED = 'window.__FC_VER=' + JSON.stringify((() => {
+    try { return String(JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf-8')).version || '') } catch { return '' }
+  })()) + ';\n'
 
   // ⚠ seed 必须在 preload 之前执行：preload 那个 IIFE 是**立刻**创建 window.tegula 的，
   //   桩在创建时就要读 `window.__FC_VER`（放后面读到的就是 undefined → v0.0.0，2026-11-06 实测）。
@@ -400,6 +406,11 @@ function main() {
       // 2026-11-18：记忆页的写入框（暮雨“记忆页必须开放写”）。要看的是：
       // 四个必填项都在、正文是大文本框、底部保存/取消在视线内。
       ['记忆', '', 'memory-edit', 'memedit'],
+      // 2026-11-20（暮雨：“技能页签又丑又乱，需要美化”/“插件完全可以从技能分立出去单干”）：
+      // 技能页重排 + 插件页单开。这两页**默认都收在「更多」里**（17 个页签、顶栏只放 13 个），
+      // 所以动线是：开更多 → 点页签 —— 也顺带证明“收起来的东西点得到”。
+      ['看板', '列视图', 'skills-page', 'skills'],
+      ['看板', '列视图', 'plugins-page', 'plugins'],
       ['待办', '卡片网格', 'todo-grid'],
       // 没有视图切换器的页签：view 传空，driver 只会切页签
       ['日历', '', 'calendar'],
@@ -1182,6 +1193,16 @@ function main() {
   if (ms) ms.scrollIntoView({ block: 'center' })
   await sleep(500)
 ` : ''}
+  ${extra === 'skills' || extra === 'plugins' ? `
+  // 2026-11-20：技能页 / 插件页都在「更多」里 —— 先开更多再点页签（见 CASES_ALL 那段注释）。
+  {
+    const mb0 = document.querySelector('#views .more-btn')
+    if (mb0) { mb0.click(); await sleep(400) }
+    const lab = ${JSON.stringify(extra === 'skills' ? '技能' : '插件')}
+    const opt = all('.more-pop .more-opt').find((b) => (b.textContent || '').indexOf(lab) >= 0)
+    if (opt) { opt.click(); await sleep(900) }
+  }
+` : ''}
   ${extra === '2026-09-30' ? `
   // 日历“改法 A”的展开态：点开 9-30 那格的“+N 条”，截图里要能看到"铺满整格"的样子
   const cells = all('main.calendar-view .calcell').filter(c => (c.textContent || '').indexOf('日历密度样例一') >= 0)
@@ -1192,7 +1213,7 @@ function main() {
     const next = () => {
       if (n >= CASES.length) return done()
       const [page, view, name, extra, vtBudget] = CASES[n++]
-      fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED), 'utf-8')
+      fs.writeFileSync(harnessPath, harness(driver(page, view, extra), ACK_SEED + VER_SEED), 'utf-8')
       const shotProf = mkProfile('fc-shot-')
       const png = path.join(outDir, name + '.png')
       // ⚠ 先删旧图再拍：判据是“这张图是**这次**拍出来的”，不是“目录里有这么个文件”。

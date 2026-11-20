@@ -24,18 +24,52 @@ const CARDS = [
 const BEGIN = '<!-- MCP-TOOLS:BEGIN -->'
 const END = '<!-- MCP-TOOLS:END -->'
 
-/** 从 tools.ts 里按出现顺序抽 `name: 'x'` + 紧随的 description 首句。 */
+/**
+ * 取一条描述的首句（2026-11-20 修）。
+ *
+ * 原写法 `desc.split(/(?<=[.;])\s|—/)[0]` 有两个毛病，实测都会露在卡上：
+ *   ① **中文句号后面没有空格** → 中文描述从来切不断，只能靠 110 字硬截，
+ *      于是表里出现「…本工具保留名称/参数以兼容旧脚本，」这种**断在半句**的行；
+ *   ② 硬截之后不留任何标记 → 读的人分不清"这句话就这么短"还是"被截了"。
+ * 现在：中文 。； / 英文句号（后跟空白）都认；真超长才截，截了补 `…`。
+ */
+function firstSentence(desc) {
+  const d = desc.replace(/\s+/g, ' ').trim()
+  // `e.g.` / `i.e.` 里的点在英文描述里很常见 —— 不先遮住，首句就会断在 "client (e.g." 上
+  const shield = d.replace(/\be\.g\./gi, 'e-g').replace(/\bi\.e\./gi, 'i-e')
+  const cut = shield.search(/[。；]|\.(?=\s)/)
+  let s = cut >= 0 ? shield.slice(0, cut + 1) : shield
+  s = s.replace(/e-g/g, 'e.g.').replace(/i-e/g, 'i.e.')
+  // 破折号前半句就够用（后半句通常是补充说明）
+  const dash = s.split('—')[0].trim()
+  if (dash.length >= 8) s = dash
+  if (s.length > 110) s = s.slice(0, 110).replace(/[，,：:；;、\s]+$/, '') + '…'
+  return s
+}
+
+/**
+ * 从 tools.ts 里按出现顺序抽 `name: 'x'` + 紧随的 description 首句。
+ *
+ * ⚠ 2026-11-20 修的第二处（比首句切分更要紧）：tools.ts 的描述**是字符串拼接**
+ *   （`'第一段，' + '第二段。'` 跨好几行），旧正则只吃第一个字面量 ——
+ *   于是卡上好几行都是「…兼容旧脚本，」这样的**半句**，而 `--check` 报"已是最新"，
+ *   因为两边确实一致：一致地残缺。现在把整段表达式里的所有字面量拼起来再取首句。
+ */
 function readTools() {
   const src = fs.readFileSync(TOOLS_TS, 'utf-8')
   const out = []
-  const re = /\{\s*\n\s*name:\s*'([a-z_]+)',\s*\n\s*description:\s*\n?(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/g
+  const re = /\{\s*\n\s*name:\s*'([a-z_]+)',\s*\n\s*description:\s*\n?([\s\S]*?)\n\s*inputSchema:/g
   let m
   while ((m = re.exec(src))) {
     const name = m[1]
-    const desc = (m[2] || m[3] || '').replace(/\\'/g, "'").replace(/\s+/g, ' ').trim()
-    // 首句：到第一个句号/分号/破折号为止，最长 110 字
-    const first = desc.split(/(?<=[.;])\s|—/)[0].slice(0, 110)
-    out.push({ name, first })
+    // 行注释不是描述（tools.ts 里常在拼接中间写一段 `// 2026-11-17 …`）
+    const expr = m[2].replace(/\/\/[^\n]*/g, '')
+    const parts = []
+    const lit = /'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g
+    let s
+    while ((s = lit.exec(expr))) parts.push(s[1] !== undefined ? s[1] : s[2])
+    const desc = (parts.length ? parts.join('') : expr).replace(/\\'/g, "'").replace(/\\n/g, ' ')
+    out.push({ name, first: firstSentence(desc) })
     if (out.length > 200) break
   }
   return out

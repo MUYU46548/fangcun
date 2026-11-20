@@ -48,13 +48,15 @@ function compile() {
 
 const V = compile()
 
-/** 与 App.vue 的 `views` 表同序的 15 个页签（这里独立写一份，防"实现改了测试跟着改"的自证循环） */
+/** 与 App.vue 的 `views` 表同序的 17 个页签（这里独立写一份，防"实现改了测试跟着改"的自证循环） */
 const ALL = ['active', 'ask', 'todos', 'ideas', 'memory', 'logs', 'projects', 'blockers',
-  'roadmap', 'calendar', 'archive', 'trash', 'launchpad', 'decisions', 'skills', 'services']
+  'roadmap', 'calendar', 'archive', 'trash', 'launchpad', 'decisions', 'skills',
+  // 2026-11-20：插件单开一页（技能页瘦身的另一半）
+  'plugins', 'services']
 
 console.log('=== 一、常量口径 ===')
 check('★ 下限是 7（2026-10-25 暮雨定的那条，不许悄悄改）', V.MIN_VISIBLE === 7, String(V.MIN_VISIBLE))
-check('★ 上限是 15（2026-11-18；15 = 页签 16 个里至少留 1 个在「更多」里）',
+check('★ 上限是 15（2026-11-18；15 = 页签 17 个里至少留 2 个在「更多」里）',
   V.MAX_VISIBLE === 15, String(V.MAX_VISIBLE))
 check('★ 上限 > 下限（写反了就是"怎么配都不合法"）', V.MAX_VISIBLE > V.MIN_VISIBLE)
 check('★★ 上限不许低于默认布局的可见数 —— 否则默认值自己就越界（第一稿就是这样被抓出来的）',
@@ -83,8 +85,8 @@ console.log('\n=== 三、normalizeLayout：坏数据不许毁掉用户成果 ===
   check('★★ 默认布局自己就合法（可见数在 [MIN, MAX] 内）—— 默认值越界等于每次启动都在替用户做决定',
     ALL.length - d.hidden.length >= V.MIN_VISIBLE && ALL.length - d.hidden.length <= V.MAX_VISIBLE,
     '可见 ' + (ALL.length - d.hidden.length) + '，hidden=' + JSON.stringify(d.hidden))
-  check('★★ 默认收起的一定包含暮雨 10-25 点名的那三个低频（启动台/技能/服务）',
-    ['launchpad', 'skills', 'services'].every((x) => d.hidden.includes(x)),
+  check('★★ 默认收起的一定包含暮雨 10-25 点名的那三个低频（启动台/技能/服务）+ 2026-11-20 新加的插件页',
+    ['launchpad', 'skills', 'plugins', 'services'].every((x) => d.hidden.includes(x)),
     JSON.stringify(d.hidden))
   check('★★ 默认布局里「回收站」仍在外面 —— 2026-11-18 只在页签涨到 16 时多收了「归档」，不动别的高频页',
     !d.hidden.includes('trash') && !d.hidden.includes('decisions') && !d.hidden.includes('roadmap'),

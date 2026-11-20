@@ -1937,6 +1937,9 @@ contextBridge.exposeInMainWorld('tegula', {
       absPath: `${dir}/${id}/SKILL.md`,
       exists: true, bytes: 1234, installed, outdated: !installed,
       hash: 'a'.repeat(32), body,
+      // 2026-11-20：SKILL.md frontmatter 的 description（卡片上一句话）。
+      // 一条有、一条空 —— 两种情况都要能断言（空的那条界面必须说“没写”，不能拿 id 硬编）。
+      desc: id === 'fangcun-bridge' ? '方寸（tegula）↔ 任意 agent 接线卡' : '',
       prompt: `请把方寸（tegula）的“${id}”这个技能装到你自己身上：\n- 技能文件（绝对路径）：${dir}/${id}/SKILL.md`,
     })
     return ok({

@@ -6571,6 +6571,17 @@
       && (($('.skills-view .skill-hash') || {}).textContent || '').trim().length > 0,
       (($('.skills-view .skill-hash') || {}).textContent || '(无)'))
 
+    // 2026-11-20：卡片上要有一句话说明（暮雨：“一页两张卡却读不出该装哪个”）。
+    // 判据是**两种都真**：写了的原样显示，没写的必须说“没写”，不许拿 id 硬编一句假描述。
+    {
+      const descs = $$('.skills-view .skills-list .skill-card .skill-desc').map((e) => (e.textContent || '').trim())
+      check('★ 每张技能卡都有一句 description（取自 SKILL.md 的 frontmatter）',
+        descs.length === skillCards.length && descs.every((x) => x.length > 0), JSON.stringify(descs))
+      check('★ 真源没写 description 时明说“没写”（不拿 id 编一句假话）',
+        descs.some((x) => x.indexOf('接线卡') >= 0) && descs.some((x) => x.indexOf('没写 description') >= 0),
+        JSON.stringify(descs))
+    }
+
     // 装卡区
     const agentRows = $$('.skills-view .agent-row')
     const rowOf = (name) => agentRows.find((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf(name) >= 0)
@@ -6599,10 +6610,21 @@
         await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'skillsInstallTo' && c.args && c.args[0] === 'dsh'), 4000, 'installTo(dsh)'),
         'calls=' + JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'skillsInstallTo').map((c) => c.args)))
     }
+    // ── 2026-11-20：插件独立页签（暮雨：“插件的分量已经很重了，完全可以从技能分立出去单干”）
+    //   「接入 MCP」与「DSH 插件」两块整块搬到 views/PluginsView.vue。
+    //   所以下面几段断言只换前缀（.skills-view → .plugins-view），**口径一个字不动** ——
+    //   搬家的风险恰恰是"搬走一半"：技能页还留着一截、插件页读的是空壳，两边都不报错。
+    check('★★ 技能页不再留“接入 MCP / DSH 插件”（搬家必须搬干净）',
+      !$('.plugins-view .mcp-connect') && !$('.plugins-view .dsh-plugin'),
+      'mcp=' + !!$('.plugins-view .mcp-connect') + ' dsh=' + !!$('.plugins-view .dsh-plugin'))
+    check('★ 能切到“插件”页签', await openViewTab('插件'))
+    await sleep(500)
+    check('★ 插件页渲染出来（.plugins-view 在）', await waitFor(() => !!$('.plugins-view'), 4000, '插件视图'))
+
     // ── MCP 接入材料区（2026-10-23 补：这块此前**一条断言都没有**）────────────
     // 为什么会漏：假 preload 里连 `mcpInfo` 都没有 → `typeof t.mcpInfo !== 'function'` 恒真 →
     // 这一区在任何测试里都是空的。拆组件时把它搬坏了也不会有人知道。
-    const mcpBox = $('.skills-view .mcp-connect')
+    const mcpBox = $('.plugins-view .mcp-connect')
     check('★ MCP 接入区渲染出来（不是停在“检测中…”）', !!mcpBox
       && !mcpBox.querySelector('.skills-agent'), mcpBox ? (mcpBox.textContent || '').slice(0, 40) : '(没有 .mcp-connect)')
     const mcpRows = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.agent-row')) : []
@@ -6613,7 +6635,7 @@
     // 2026-11-06 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”
     //   此前这一区只有一个“已检测到”（= 本机装了这个软件），对“方寸到底接没接上”一个字都没说。
     //   现在多一枚徽章：配置文件里**真有 fangcun 条目**才说“方寸已接入”。
-    const mcpLinkBadges = $$('.skills-view .mcp-connect .agent-link')
+    const mcpLinkBadges = $$('.plugins-view .mcp-connect .agent-link')
       .map((e) => ({ t: (e.textContent || '').trim(), title: e.getAttribute('title') || '' }))
     check('★ MCP 区渲染“方寸已接入”徽章（配置文件里真有 fangcun 才说，不是“装了软件就算接入”）',
       mcpLinkBadges.some((x) => x.t === '方寸已接入') && mcpLinkBadges.some((x) => /fangcun 条目/.test(x.title)),
@@ -6687,7 +6709,7 @@
     //   这块以前在界面上**根本不存在** —— 插件装没装、自带通道通不通、patch 里那条旧手工桥
     //   指向哪，全要靠人去翻 ~/.dsh。这里钉在真渲染出来的 DOM 上。
     {
-      const box = $('.skills-view .dsh-plugin')
+      const box = $('.plugins-view .dsh-plugin')
       check('★ 技能页有「DSH 插件」这一块（此前界面上完全没有这个对象）', !!box,
         box ? (box.textContent || '').replace(/\s+/g, ' ').slice(0, 80) : '没有 .dsh-plugin')
       const txt = (box ? box.textContent : '') || ''
@@ -6699,10 +6721,14 @@
         /第 38 行/.test(txt) && /dsh-mcp-client/.test(txt) && /开发目录/.test(txt),
         txt.replace(/\s+/g, ' ').slice(0, 200))
       check('★ 徽章用的是既有的 agent-link 样式（不新造一套）',
-        $$('.skills-view .dsh-plugin .agent-link').length >= 1)
+        $$('.plugins-view .dsh-plugin .agent-link').length >= 1)
     }
 
     await sleep(300)
+
+    // 自动同步那条留在**技能页**（它讲的是技能副本更没更新），所以切回去再验。
+    await openViewTab('技能')
+    await sleep(500)
 
     // ══ 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？完全断链吗？”）══════
     // 这一块存在的理由就是"不能和成功长得一样"：方寸常驻托盘，升级后旧进程不退，

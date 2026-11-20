@@ -66,7 +66,7 @@ export const PRESETS: ViewPreset[] = [
   {
     id: 'daily',
     label: '日常',
-    desc: '默认：高频页签在外，启动台 / 技能 / 服务收进「更多」',
+    desc: '默认：高频页签在外，启动台 / 技能 / 插件 / 服务收进「更多」',
     visible: ['active', 'ask', 'todos', 'ideas', 'memory', 'logs', 'projects', 'blockers',
       'roadmap', 'calendar', 'archive', 'trash', 'decisions'],
   },
@@ -85,10 +85,14 @@ export const PRESETS: ViewPreset[] = [
 ]
 
 /**
- * 老默认（2026-10-25）：只收 启动台 / 技能 / 服务。
- * 现在它**就是**「日常」预设 —— 保留这个名字是为了让"从老键迁移"读得懂。
+ * 默认收起：2026-10-25 暮雨点名的三个低频（启动台 / 技能 / 服务）+ 2026-11-20 新加的「插件」。
+ *
+ * 名字里的 LEGACY 是历史（它最初只服务老键 `fc_views_collapsed`），现在**同时**是
+ * App.vue 初始化时"没存过布局"的兜底值 —— 所以必须与 `defaultLayout()` 算出的是同一批，
+ * 否则"新装的人"看到 13 个页签，"点了恢复默认的人"却看到 14 个（两套默认）。
+ * `.e2e-view-layout` 里那条「defaultLayout() 与第一套预设收起的是同一批」守的就是这件事。
  */
-export const LEGACY_DEFAULT_HIDDEN = ['launchpad', 'skills', 'services']
+export const LEGACY_DEFAULT_HIDDEN = ['launchpad', 'skills', 'plugins', 'services']
 
 /**
  * 新用户的默认布局 = 第一套预设「日常」那 8 个。
@@ -115,7 +119,11 @@ export function defaultLayout(): ViewLayout {
  *   加页签时漏改这里会当场红（而不是悄悄少一个）。
  */
 export const ALL_DEFAULT_IDS = ['active', 'ask', 'todos', 'ideas', 'memory', 'logs', 'projects',
-  'blockers', 'roadmap', 'calendar', 'archive', 'trash', 'launchpad', 'decisions', 'skills', 'services']
+  'blockers', 'roadmap', 'calendar', 'archive', 'trash', 'launchpad', 'decisions', 'skills',
+  // 2026-11-20：插件单开一页（暮雨：“完全可以从技能分立出去单干”）。
+  // 它**不进任何预设的可见列表** —— 顶栏本来就挤（同一次反馈里他又说了一遍），
+  // 新页默认落在「更多」里，要用时点一次就有；想常驻也可以自己拖进工作区。
+  'plugins', 'services']
 
 /** 老用户从老键迁移时的兜底：把老的三个 + 回收站一起收，保证不越上限 */
 export const DEFAULT_HIDDEN = LEGACY_DEFAULT_HIDDEN

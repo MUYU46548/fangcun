@@ -496,6 +496,10 @@
     <SkillsView v-else-if="curView === 'skills'"
       :toast="showToast" :copy="copyWithToast" :pulse="dragPulse" :drag-alive="dragAlive" />
 
+    <!-- 插件（2026-11-20）：DSH 插件 + MCP 接入材料。整页只读、只给材料，
+         数据由组件自己 onMounted 拉（两条通道：mcpDshPlugin / mcpInfo）。 -->
+    <PluginsView v-else-if="curView === 'plugins'" :toast="showToast" :app-version="appVersion" />
+
     <!-- 服务 / 端口（2026-09-26 卡 006）：用户选的是 A 档 —— 只读监控 + 冲突预警，绝不杀进程 -->
     <!-- 服务/端口（2026-10-23 拆成组件 · 拆分计划第 1 批第 5 块）。
          它自己 onMounted 加载；toast 由本文件注入（提示条是全站状态，不归这一页）。 -->
@@ -906,6 +910,9 @@ import CalendarView from './views/CalendarView.vue'
 import BoardView from './views/BoardView.vue'
 import ServicesView from './views/ServicesView.vue'
 import SkillsView from './views/SkillsView.vue'
+// 插件（2026-11-20 · 暮雨：“插件的分量已经很重了，我觉得完全可以从技能分立出去单干”）——
+// DSH 插件状态 + MCP 接入材料从技能页整块搬走，技能页只剩“提示词”。
+import PluginsView from './views/PluginsView.vue'
 import RoadmapView from './views/RoadmapView.vue'
 import TrashView from './views/TrashView.vue'
 // 视图刀（2026-11-03）：项目页 / 问答 / 念头 / 启动台四块模板各自成组件。
@@ -2329,6 +2336,9 @@ const views = [
   { id: 'launchpad', label: '启动台' },
   { id: 'decisions', label: '决策' },
   { id: 'skills', label: '技能' },
+  // 插件（2026-11-20）：紧挨“技能”放 —— 两者最容易被混为一谈，摆在一起才好对照
+  // （技能 = 提示词，复制过去 agent 自己装；插件 = 常驻通道，装错了是“连不上”）。
+  { id: 'plugins', label: '插件' },
   { id: 'services', label: '服务' },
 ]
 /** 视图表（含**非页签**视图）—— 2026-10-12：`help` 只走顶栏“?”入口，
@@ -2946,6 +2956,9 @@ function loadViewData(v: string) {
     // 列表本身由组件 onMounted 拉（views/TrashView.vue）
   } else if (v === 'skills') {
     // 数据由组件自己 onMounted 拉（views/SkillsView.vue）—— 这里显式空着，别掉到 else 白跑 loadAll
+  } else if (v === 'plugins') {
+    // 数据由组件自己 onMounted 拉（views/PluginsView.vue，两条通道 mcpDshPlugin / mcpInfo）
+    // —— 同上，显式列出来，别掉到 else 白跑一次全量扫描。
   } else if (v === 'services') {
     // 数据由组件自己 onMounted 拉（views/ServicesView.vue）—— 这里显式空着，别掉到 else 白跑 loadAll
   } else if (v === 'help') {

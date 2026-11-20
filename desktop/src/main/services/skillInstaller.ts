@@ -454,6 +454,13 @@ export interface SkillUiItem {
   hash: string
   /** SKILL.md 全文（供“复制全文”用；超过 200KB 时截断并标注） */
   body: string
+  /**
+   * SKILL.md frontmatter 里的 `description`（2026-11-20 加）。
+   *
+   * 为什么要它：卡片上只有 id（`fangcun-bridge`）时，用户（与 agent）都得先点开才知道这个技能是干什么的，
+   * 一页两张卡却读不出「该装哪个」。**只取真源里写的那句**，没有就空串交给界面说“没写”，不替它编。
+   */
+  desc: string
   /** 可复制给任何 agent 的安装提示词（agent 自己判断装哪儿） */
   prompt: string
 }
@@ -494,6 +501,21 @@ function buildInstallPrompt(it: { id: string; target: string; absPath: string })
     '',
     '说明：技能本质只是模块化提示词，不是插件。',
   ].join('\n')
+}
+
+/**
+ * 从 SKILL.md 的 frontmatter 里取 `description`（2026-11-20）。
+ *
+ * 只认**文件开头**的 `---` 块（正文里出现同名字样不算），取不到就返回空串 ——
+ * 界面据此显示“SKILL.md 里没写 description”，而不是拿 id 硬编一句话（编出来的是假描述）。
+ */
+function skillDescription(body: string): string {
+  if (!body) return ''
+  const fm = body.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!fm) return ''
+  const line = fm[1].match(/^description:\s*(.+)$/m)
+  if (!line) return ''
+  return String(line[1] || '').trim().replace(/^['"]|['"]$/g, '')
 }
 
 /** 面板数据源：manifest + 磁盘实况 + Hermes 侧安装状态 */
@@ -554,6 +576,7 @@ export function listSkillsForUi(): SkillsUiPayload {
       outdated: exists && (!installed || fileMd5Safe(dest) !== hash),
       hash,
       body,
+      desc: skillDescription(body),
       prompt: buildInstallPrompt({ id, target: String(e?.target || 'All'), absPath }),
     })
   }

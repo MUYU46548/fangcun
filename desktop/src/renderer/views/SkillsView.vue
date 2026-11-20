@@ -1,18 +1,19 @@
 <!--
-  技能安装专区（2026-10-23 拆成组件 · 拆分计划第 1 批第 6 块）
+  技能（2026-11-20 重排 · 暮雨：“技能页签该大改了，过时内容一堆……又丑又乱，需要美化”）
 
-  为什么这块能整块搬：模板 157 行 + 脚本 366 行全部只服务这一页
-  （技能清单 / 装到 Hermes / 导入外部技能 / 装到别的 agent / MCP 接入材料），
-  **零弹窗、零跨视图状态**。和 services 那块的处置一样：整块搬，不切两半。
+  ## 这一页现在只回答三件事
+    ① 方寸自带哪几个技能、各自什么状态（装没装 / 是不是旧版）；
+    ② 想装到哪去（Hermes / DSH 可直装，其余 agent 给文件由它自己装）；
+    ③ 上次自动同步到底跑没跑、是不是已经过期。
+  「DSH 插件」与「接入 MCP」**已搬到独立的「插件」页**（views/PluginsView.vue）——
+  它们是常驻通道，不是提示词，混在这里会让两件事都读不清（也是这一页“又丑又乱”的主因）。
 
-  ⚠ 四个注入项，都不是数据而是“本页没有的能力”：
+  ⚠ 四个注入项都不是数据，而是“本页没有的能力”：
     toast        —— 提示条是全站状态，不归这一页；
     copy         —— 复制要走主进程剪贴板 + 统一 toast（copyWithToast），19 处共用；
     pulse        —— 拖拽心跳（全局拖拽遮罩靠它兜底，见 App.vue“心跳兜底”那段）；
     dragAlive    —— 同上：拖拽是不是真的还在进行，遮罩必须跟它一起消失。
-
-  最后两项必须由父组件给：心跳状态是 todo/log/skills 三个投放区**共用**的，
-  在这一页自己造一份，就会出现"那边拖完这边遮罩还留着"。
+  最后两项必须由父组件给：心跳状态是 todo/log/skills 三个投放区**共用**的。
 -->
 <template>
     <main id="board" class="skills-view"
@@ -23,24 +24,44 @@
           <div>松手即导入 —— 支持文件夹、.zip（内含 SKILL.md）或 .md（带 YAML 的 name + description）</div>
         </div>
       </div>
-      <div class="skills-header">
-        <h3>技能安装专区</h3>
-        <span class="skills-hint">技能本质只是模块化提示词，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。</span>
-        <!-- 维护机制说清楚（2026-10-03 用户问“方寸自带 skill 后续如何保持更新和维护？”）：
-             答案就在这一行 —— 随版本分发 + 启动自动同步 + 手动目标用指纹对账。 -->
-        <span class="skills-hint skills-maint">
-          技能随方寸版本分发：<b>升级方寸后启动会自动把新版同步到 Hermes / DSH</b>（装着的版本和方寸自带的不一样就重装）；
-          WorkBuddy 这类只能手动导入的，用卡片上的“真源指纹”对照你拖进去的那份是不是同一版。
-        </span>
-        <button class="skills-btn primary" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</button>
-        <button class="skills-btn primary" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</button>
-        <button class="skills-btn" @click="importSkillViaPicker('folder')" title="选一个技能文件夹（内有 SKILL.md）导入">📁 导入文件夹…</button>
-        <button class="skills-btn" @click="openSkillsDir('resources')" title="打开随包分发的技能目录">📂 技能目录</button>
-        <button class="skills-btn" @click="openSkillsDir('hermes')" title="打开 Hermes 侧的技能目录">📂 Hermes 目录</button>
-        <button class="skills-btn" @click="loadSkills()">刷新</button>
+
+      <!-- ── 页头：一句话说清“这是什么”，动作分主次两行 ─────────────────── -->
+      <header class="sk-head">
+        <div class="sk-head-main">
+          <h3>技能</h3>
+          <p class="sk-head-sub">
+            技能本质只是<strong>模块化提示词</strong>，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。
+            要装的是<strong>常驻通道</strong>（DSH 插件 / MCP），去左边的「插件」页。
+          </p>
+        </div>
+        <div class="sk-head-acts">
+          <Button variant="primary" size="tool" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</Button>
+          <Button variant="outline" size="tool" @click="importSkillViaPicker('folder')" title="选一个技能文件夹（内有 SKILL.md）导入">📁 导入文件夹…</Button>
+          <Button variant="outline" size="tool" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</Button>
+          <Button variant="outline" size="tool" @click="openSkillsDir('resources')" title="打开随包分发的技能目录">📂 技能目录</Button>
+          <Button variant="outline" size="tool" @click="openSkillsDir('hermes')" title="打开 Hermes 侧的技能目录">📂 Hermes 目录</Button>
+          <Button variant="outline" size="tool" @click="loadSkills()">刷新</Button>
+        </div>
+      </header>
+
+      <!-- ── 概览条：三个数先说结论，再往下看细节 ───────────────────────── -->
+      <div class="sk-sum">
+        <div class="sk-sum-cell">
+          <span class="sk-sum-k">自带技能</span>
+          <span class="sk-sum-v">{{ skillsList.length }} 个</span>
+        </div>
+        <div class="sk-sum-cell">
+          <span class="sk-sum-k">清单版本</span>
+          <span class="sk-sum-v">{{ skillsManifestVersion || '—' }}</span>
+        </div>
+        <div v-for="t in targetSummary" :key="t.id" class="sk-sum-cell"
+             :class="{ 'is-warn': t.present && t.ok < t.total, 'is-off': !t.present }">
+          <span class="sk-sum-k">{{ t.name }}</span>
+          <span class="sk-sum-v">{{ t.present ? `${t.ok} / ${t.total} 最新` : '不在场' }}</span>
+        </div>
       </div>
 
-      <!-- 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？”）——
+      <!-- ── 自动同步的实况（2026-11-05 暮雨：“更新后无法自动更新技能吗？”）──
            此前这一页只有一句静态承诺“升级后启动会自动同步”，但**没有任何地方能看到它到底跑没跑**。
            方寸常驻托盘，升级后旧进程不退，新实例被顶掉 → 那句承诺实际上没执行，
            而界面上与成功时长得一模一样。现在把上次同步的时间/版本/结果摊在这儿，
@@ -58,209 +79,142 @@
           </template>
           <template v-else>还没有同步记录 —— 点右边同步一次</template>
         </span>
-        <button class="skills-btn" :disabled="skillsSyncBusy" @click="syncSkillsNow()"
+        <Button variant="outline" size="tool" :disabled="skillsSyncBusy" @click="syncSkillsNow()"
           title="不用重启、不用退托盘：现在就比对一遍并装掉差异">
           {{ skillsSyncBusy ? '同步中…' : '现在同步' }}
-        </button>
+        </Button>
       </div>
 
-      <!-- 外部导入的技能（2026-09-26 卡 005）：跟自发布技能分开列，账本互不污染 -->
-      <div v-if="skillsImported.length" class="skills-imported">
-        <div class="skills-imported-title">
-          已导入的技能（外部）
-          <span class="skills-imported-hint">直接丢进来的技能包，落在 {{ skillsHermesDir }}；不进方寸的 manifest，可单独移除</span>
+      <!-- 维护机制说清楚（2026-10-03 用户问“方寸自带 skill 后续如何保持更新和维护？”）
+           答案就在这段里 —— 但它是“读一次就够”的背景知识，默认收起，不占第一屏。 -->
+      <details class="sk-note">
+        <summary>技能是怎么随方寸一起更新的？</summary>
+        <div class="sk-note-body">
+          技能随方寸版本分发：<strong>升级方寸后启动会自动把新版同步到 Hermes / DSH</strong>
+          （装着的版本和方寸自带的不一样就重装）；只能手动导入的 agent，用卡片上的“真源指纹”
+          对照你拖进去的那份是不是同一版。
         </div>
-        <div v-for="im in skillsImported" :key="im.name" class="skill-card imported">
-          <div class="skill-main">
-            <span class="skill-id">{{ im.name }}</span>
-            <span class="skill-badge">外部导入</span>
-            <span class="skill-ver" v-if="im.version">v{{ im.version }}</span>
-            <span class="skill-files">{{ im.files }} 个文件 · {{ Math.max(1, Math.round(im.bytes / 1024)) }} KB</span>
-          </div>
-          <div class="skill-desc">{{ im.description || '(SKILL.md 里没写 description)' }}</div>
-          <div class="skill-path" :title="im.dir">{{ im.dir }}</div>
-          <div class="skill-actions">
-            <button class="skills-btn" @click="revealSkillPath(im.dir)" title="在资源管理器里亮出 SKILL.md（装到别的 agent 用）">📂 显示 SKILL.md</button>
-            <button class="skills-btn danger" @click="removeImportedSkill(im)" title="只删这一个目录（带导入标记才允许删）">🗑 移除</button>
-          </div>
-        </div>
-      </div>
+      </details>
 
       <div v-if="skillsError" class="skills-error">{{ skillsError }}</div>
-      <div v-else-if="skillsLoading" class="empty-state"><div class="empty-text">读取中…</div></div>
+      <div v-else-if="skillsLoading" class="plg-empty">读取中…</div>
       <div v-else-if="!skillsList.length" class="empty-state">
         <div class="empty-icon">🧩</div>
         <div class="empty-text">没找到技能清单 — 检查 skills/manifest.json 是否随包分发</div>
       </div>
       <template v-else>
-        <div class="skills-meta">
-          清单版本 {{ skillsManifestVersion || '—' }} · 更新于 {{ skillsUpdated || '—' }}
-          <span class="skills-dir" :title="skillsDir">真源：{{ skillsDir }}</span>
-        </div>
-        <div v-if="skillsUnlisted.length" class="skills-warn">
-          有 {{ skillsUnlisted.length }} 个技能目录没登记进 manifest（会漏装）：{{ skillsUnlisted.join('、') }}
-        </div>
-        <div class="skills-list">
-          <div v-for="sk in skillsList" :key="sk.id" class="skill-card">
-            <div class="skill-main">
-              <span class="skill-id">{{ sk.id }}</span>
-              <span class="skill-target">{{ sk.target }}</span>
-              <span class="skill-ver">v{{ sk.version || '—' }}</span>
-              <span class="skill-state" :class="'skill-' + skillStateClass(sk)">{{ skillStateText(sk) }}</span>
-            </div>
-            <div class="skill-targets" v-if="skillsTargets.length">
-              <span class="skill-targets-label">装到：</span>
-              <span v-for="t in skillsTargets" :key="t.id" class="skill-tgt"
-                    :class="'skill-tgt-' + targetSkillState(t, sk)" :title="skillTargetTitle(t, sk)">
-                {{ t.name }}{{ targetStateText(t, sk) }}
-              </span>
-              <span class="skill-hash" :title="'真源 md5（WorkBuddy 这类只能手动导入的 agent，拿它对照装进去的那份是不是这一版）：' + (sk.hash || '')">真源指纹 {{ (sk.hash || '').slice(0, 8) || '—' }}</span>
-            </div>
-            <div class="skill-path" :title="sk.absPath">{{ sk.absPath }}</div>
-            <div class="skill-actions">
-              <button class="skills-btn primary" @click="copySkillPrompt(sk)">📋 复制安装提示词</button>
-              <button class="skills-btn" @click="copySkillBody(sk)">📄 复制 SKILL.md 全文</button>
-              <button class="skills-btn" @click="revealSkillPath(sk.absPath)" title="在资源管理器里亮出这个技能的 SKILL.md —— 装到 WorkBuddy 这类只能手动导入的 agent 时用它">📂 显示 SKILL.md</button>
-            </div>
+        <!-- ── ① 方寸自带（随包分发，靠 manifest 登记）────────────────── -->
+        <section class="sk-sec">
+          <div class="sk-sec-h">
+            <h4>方寸自带</h4>
+            <span class="sk-sec-sub">
+              真源：<span class="skills-dir" :title="skillsDir">{{ skillsDir }}</span>
+            </span>
+            <span class="sk-sec-meta">更新于 {{ skillsUpdated || '—' }}</span>
           </div>
-        </div>
-        <div class="skills-agents">
-          <div class="skills-agents-title">
-            装到别的 agent（不只有 Hermes）
-            <span class="skills-agents-sub">本机实际检测到的才列出来；方寸只往 Hermes / DSH 直装（这两家的落点实测过），其余只给文件 —— 别人的目录不猜、不写</span>
+          <div v-if="skillsUnlisted.length" class="skills-warn">
+            有 {{ skillsUnlisted.length }} 个技能目录没登记进 manifest（会漏装）：{{ skillsUnlisted.join('、') }}
+          </div>
+          <div class="skills-list">
+            <article v-for="sk in skillsList" :key="sk.id" class="skill-card">
+              <div class="skill-main">
+                <span class="skill-id">{{ sk.id }}</span>
+                <span class="skill-state" :class="'skill-' + skillStateClass(sk)">{{ skillStateText(sk) }}</span>
+                <span class="skill-ver">v{{ sk.version || '—' }}</span>
+              </div>
+              <p class="skill-desc">{{ sk.desc || '(SKILL.md 里没写 description)' }}</p>
+              <div class="skill-targets" v-if="skillsTargets.length">
+                <span class="skill-targets-label">装到：</span>
+                <span v-for="t in skillsTargets" :key="t.id" class="skill-tgt"
+                      :class="'skill-tgt-' + targetSkillState(t, sk)" :title="skillTargetTitle(t, sk)">
+                  {{ t.name }}{{ targetStateText(t, sk) }}
+                </span>
+                <span class="skill-hash" :title="'真源 md5（只能手动导入的 agent，拿它对照装进去的那份是不是这一版）：' + (sk.hash || '')">真源指纹 {{ (sk.hash || '').slice(0, 8) || '—' }}</span>
+              </div>
+              <div class="skill-path" :title="sk.absPath">{{ sk.absPath }}</div>
+              <div class="skill-actions">
+                <Button variant="primary" size="tool" @click="copySkillPrompt(sk)">📋 复制安装提示词</Button>
+                <Button variant="outline" size="tool" @click="copySkillBody(sk)">📄 复制 SKILL.md 全文</Button>
+                <Button variant="outline" size="tool" @click="revealSkillPath(sk.absPath)"
+                  title="在资源管理器里亮出这个技能的 SKILL.md —— 装到只能手动导入的 agent 时用它">📂 显示 SKILL.md</Button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ── ② 外部导入（跟自发布技能分开列，账本互不污染）────────── -->
+        <section v-if="skillsImported.length" class="sk-sec">
+          <div class="sk-sec-h">
+            <h4>已导入的技能（外部）</h4>
+            <span class="sk-sec-sub">直接丢进来的技能包，落在 {{ skillsHermesDir }}；不进方寸的 manifest，可单独移除</span>
+          </div>
+          <div class="skills-imported">
+            <article v-for="im in skillsImported" :key="im.name" class="skill-card imported">
+              <div class="skill-main">
+                <span class="skill-id">{{ im.name }}</span>
+                <span class="skill-badge">外部导入</span>
+                <span class="skill-ver" v-if="im.version">v{{ im.version }}</span>
+                <span class="skill-files">{{ im.files }} 个文件 · {{ Math.max(1, Math.round(im.bytes / 1024)) }} KB</span>
+              </div>
+              <div class="skill-desc">{{ im.description || '(SKILL.md 里没写 description)' }}</div>
+              <div class="skill-path" :title="im.dir">{{ im.dir }}</div>
+              <div class="skill-actions">
+                <Button variant="outline" size="tool" @click="revealSkillPath(im.dir)" title="在资源管理器里亮出 SKILL.md（装到别的 agent 用）">📂 显示 SKILL.md</Button>
+                <Button variant="danger" size="tool" @click="removeImportedSkill(im)" title="只删这一个目录（带导入标记才允许删）">🗑 移除</Button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ── ③ 装到别的 agent（不只有 Hermes）──────────────────────── -->
+        <section class="sk-sec">
+          <div class="sk-sec-h">
+            <h4>装到别的 agent（不只有 Hermes）</h4>
+            <span class="sk-sec-sub">本机实际检测到的才列出来；方寸只往 Hermes / DSH 直装（这两家的落点实测过），其余只给文件 —— 别人的目录不猜、不写</span>
           </div>
           <!-- 三态而不是两态（2026-10-23）：原来只有“有数据 / 检测中…”两种，于是**通道不存在**时
                会永远停在“检测中…”—— 那不是检测中，是根本读不到（界面说假话）。
                现在：读失败 → 明说；还在读 → 检测中；读到了但为空 → 本机没检测到。 -->
-          <div v-if="agentsError" class="skills-error">{{ agentsError }}</div>
-          <div v-else-if="agentsLoading && !agentTargets.length" class="skills-agent">检测中…</div>
-          <div v-else-if="!agentTargets.length" class="skills-agent">本机没检测到可装的 agent —— 不是“还在检测”</div>
-          <div v-for="a in agentTargets" :key="a.id" class="agent-row" :class="{ 'agent-off': !a.detected }">
-            <div class="agent-line1">
-              <span class="agent-name">{{ a.name }}</span>
-              <span class="agent-mode" :class="a.mode === 'installable' ? 'can' : 'manual'">
-                {{ a.mode === 'installable' ? '可直装' : '给文件手动导入' }}
-              </span>
-              <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
-              <!-- Hermes 的安装入口在顶部（同一个动作不摆两遍）；其余可直装目标在本行给自己装 -->
-              <span v-if="a.detected && a.mode === 'installable' && a.id === 'hermes'" class="agent-note">
-                装入口在顶部“⚡ 装到 Hermes”
-              </span>
-              <button v-if="a.detected && a.mode === 'installable' && a.id !== 'hermes'"
-                      class="skills-btn primary" @click="installToTarget(a)">⚡ 装到 {{ a.name }}</button>
-              <button v-if="a.detected && a.mode !== 'installable'" class="skills-btn" @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</button>
-              <!-- 清单为空时**不渲染**这个按钮：传空串过去只会拿到一句"没有可显示的技能路径"，
-                   是"点了就报错"的那类死按钮（主进程侧也已单独兜底）。 -->
-              <button v-if="a.detected && a.mode !== 'installable' && skillsList.length"
-                class="skills-btn" @click="revealSkillPath(skillsList[0].absPath)">
-                📂 显示一份 SKILL.md
-              </button>
-              <span v-if="a.detected && a.linkText" class="agent-link" :class="'agent-link-' + a.linkClass"
-                    :title="a.linkDetail">{{ a.linkText }}</span>
-            </div>
-            <div class="agent-evidence" :title="a.evidence">{{ a.evidence }}</div>
-            <div class="agent-howto">{{ a.howTo }}</div>
-          </div>
-        </div>
-
-        <!-- MCP 接入材料（2026-10-02 卡 002 · A 路线）
-             口径：方寸只出材料（按本机路径生成的配置段 + 复制 + 打开目标文件），
-             **不写任何外部应用的文件** —— 粘贴与保存由用户完成。 -->
-        <div class="skills-agents mcp-connect">
-          <div class="skills-agents-title">
-            接入 MCP（读写方寸任务数据）
-            <span class="skills-agents-sub">按本机安装路径生成配置段；方寸只给材料 —— 粘贴保存由你完成。两枚徽章是两个问题：<b>已检测到</b>=本机装了这个软件，<b>方寸已接入</b>=它的配置文件里真有 fangcun 条目（只读探测，注释里写着的 fangcun 不算）</span>
-          </div>
-          <div class="mcp-entry-pick">
-            <span class="mcp-entry-label">入口：</span>
-            <template v-for="e in mcpEntries" :key="e.id">
-              <button class="skills-btn" :class="{ primary: e.id === mcpEntry }"
-                :disabled="!e.available" @click="mcpEntry = e.id"
-                :title="e.available ? e.usage : e.detail">
-                {{ e.label }}{{ e.available ? '' : '（不可用）' }}
-              </button>
-            </template>
-            <span v-if="mcpEntryDetail" class="mcp-entry-note">{{ mcpEntryDetail }}</span>
-          </div>
-          <div v-if="mcpInfoError" class="skills-error">{{ mcpInfoError }}</div>
-          <div v-else-if="mcpLoading && !mcpTargets.length" class="skills-agent">检测中…</div>
-          <div v-else-if="!mcpTargets.length" class="skills-agent">本机没检测到可接入的目标 —— 不是“还在检测”</div>
-          <div v-for="m in mcpTargets" :key="m.id" class="agent-row" :class="{ 'agent-off': !m.detected }">
-            <div class="agent-line1">
-              <span class="agent-name">{{ m.name }}</span>
-              <span class="agent-state">{{ m.detected ? '已检测到' : '没检测到' }}</span>
-              <!-- “已检测到”= 这台机器装了这个软件；“方寸已接入”= 它的配置文件里真有 fangcun 条目。
-                   2026-11-06 暮雨：“方寸已有专属 DSH 插件，但技能页签中完全无体现。”——
-                   DSH 的 `- id: mcp-fangcun` 就在 cordis.patch.yml 里，旧界面只写“已检测到”，
-                   这句话对"接没接上"一个字都没回答。落点不可知（WorkBuddy）时整枚徽章不渲染。 -->
-              <span v-if="m.detected && m.linked !== undefined" class="agent-link"
-                    :class="'agent-link-' + (m.linked ? 'linked' : 'none')" :title="m.linkedDetail || ''">
-                {{ m.linked ? '方寸已接入' : '方寸未接入' }}
-              </span>
-              <!-- 2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接。”
-                   这是方寸**唯一**会写别人配置文件的按钮，且目标写死为 Hermes（见 hermesLink.ts）。
-                   已接入时不渲染 —— 幂等，不给一个“再点一次”的空动作。 -->
-              <button v-if="m.id === 'hermes' && m.detected && m.configPath && m.linked !== true"
-                      class="skills-btn primary" @click="linkHermesInto(m)"
-                      title="把 fangcun 那条写进 Hermes 的 mcp_servers（先备份，只加不删，写后自证）">⚡ 接入到 Hermes</button>
-              <button class="skills-btn primary" @click="copyMcpSnippet(m)"
-                title="生成按本机安装路径的配置段并复制">📋 复制配置段</button>
-              <button class="skills-btn" @click="copyMcpSelfInstall(m)"
-                title="生成一段贴给它的自装指令（技能卡路径 + 配置段 + 自检步骤），由它自己动手 —— 耗它自己的 token，方寸零写入">🤖 让它自装</button>
-              <button v-if="m.configPath" class="skills-btn" @click="openMcpConfig(m)"
-                title="打开对方的配置文件，粘贴后保存">📂 打开配置文件</button>
-            </div>
-            <div class="agent-evidence" :title="m.evidence">{{ m.evidence }}</div>
-            <div class="agent-howto">{{ m.howTo }}</div>
-          </div>
-        </div>
-
-        <!-- DSH 侧的方寸插件（2026-11-06 暮雨：“依然未体现 DSH 插件相关，
-             且 DSH 插件应该自带把方寸接入的功能”）。
-             事实：`dsh-fangcun` 是个真 npm 包，装进 DSH profile 的 bundles 就会加载，
-             它自己直连方寸的命名管道 —— 根本不需要在 cordis.patch.yml 里抄 command/args/env。
-             而 patch 里那条早期的手工桥（mcp-fangcun + dsh-mcp-client）还留着、
-             还指向开发版 electron.exe：dev 一清就断。这两件事以前方寸一个字都没说。 -->
-        <div class="skills-agents dsh-plugin">
-          <div class="skills-agents-title">
-            DSH 插件（方寸自己的插件，自带接入）
-            <span class="skills-agents-sub">只读：插件装没装 / 自带通道通不通 / patch 里那条旧手工桥指向哪。方寸不改 DSH 任何配置</span>
-          </div>
-          <div v-if="dshErr" class="skills-error">{{ dshErr }}</div>
-          <div v-else-if="dshLoading && !dshStatus" class="skills-agent">读取中…</div>
-          <div v-else-if="!dshStatus" class="skills-agent">读不到 DSH 状态 —— 不是“没装 DSH”</div>
-          <template v-else>
-            <div class="agent-row">
+          <div class="skills-agents">
+            <div v-if="agentsError" class="skills-error">{{ agentsError }}</div>
+            <div v-else-if="agentsLoading && !agentTargets.length" class="plg-empty">检测中…</div>
+            <div v-else-if="!agentTargets.length" class="plg-empty">本机没检测到可装的 agent —— 不是“还在检测”</div>
+            <div v-for="a in agentTargets" :key="a.id" class="agent-row" :class="{ 'agent-off': !a.detected }">
               <div class="agent-line1">
-                <span class="agent-name">DSH 插件</span>
-                <span class="agent-state">{{ dshStatus.installed ? '已装 DSH' : '没装 DSH' }}</span>
-                <span v-for="p in dshStatus.plugins" :key="p.name" class="agent-link"
-                      :class="'agent-link-' + (p.bundled ? 'linked' : 'none')"
-                      :title="'装法：' + p.spec + (p.linkedDir ? '（' + p.linkedDir + '）' : '') + ' · profile：' + dshStatus.profile">
-                  {{ p.name }} {{ p.version || '(版本未知)' }}{{ p.bundled ? '' : '（未进 bundles）' }}
+                <span class="agent-name">{{ a.name }}</span>
+                <span class="agent-mode" :class="a.mode === 'installable' ? 'can' : 'manual'">
+                  {{ a.mode === 'installable' ? '可直装' : '给文件手动导入' }}
                 </span>
+                <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
+                <!-- Hermes 的安装入口在页头（同一个动作不摆两遍）；其余可直装目标在本行给自己装 -->
+                <span v-if="a.detected && a.mode === 'installable' && a.id === 'hermes'" class="agent-note">
+                  装入口在顶部“⚡ 装到 Hermes”
+                </span>
+                <Button v-if="a.detected && a.mode === 'installable' && a.id !== 'hermes'"
+                        variant="primary" size="tool" @click="installToTarget(a)">⚡ 装到 {{ a.name }}</Button>
+                <Button v-if="a.detected && a.mode !== 'installable'" variant="outline" size="tool"
+                        @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</Button>
+                <!-- 清单为空时**不渲染**这个按钮：传空串过去只会拿到一句“没有可显示的技能路径”，
+                     是“点了就报错”的那类死按钮（主进程侧也已单独兜底）。 -->
+                <Button v-if="a.detected && a.mode !== 'installable' && skillsList.length"
+                  variant="outline" size="tool" @click="revealSkillPath(skillsList[0].absPath)">
+                  📂 显示一份 SKILL.md
+                </Button>
+                <span v-if="a.detected && a.linkText" class="agent-link" :class="'agent-link-' + a.linkClass"
+                      :title="a.linkDetail">{{ a.linkText }}</span>
               </div>
-              <div class="agent-evidence">{{ dshStatus.summary }}</div>
-              <div class="agent-howto">
-                自带通道：{{ dshStatus.pipe.path }} ——
-                <b>{{ dshStatus.pipe.alive ? '通' : '不通' }}</b>
-                （插件自己直连，不用在 cordis.patch.yml 里写 command / args / env）
-              </div>
-              <div v-if="dshStatus.legacy" class="agent-howto">
-                ⚠ patch 第 {{ dshStatus.legacy.line }} 行还有一条旧的手工桥：{{ dshStatus.legacy.plugin }}，
-                command 指向 {{ dshStatus.legacy.command }} ——
-                {{ dshStatus.legacy.commandExists ? '文件存在' : '文件不存在（这条其实连不上）' }}{{ dshStatus.legacy.isDevPath ? '，且是开发目录' : '' }}。
-                插件已自带接入，这条可以删掉（方寸不代改 DSH 配置）。
-              </div>
+              <div class="agent-evidence" :title="a.evidence">{{ a.evidence }}</div>
+              <div class="agent-howto">{{ a.howTo }}</div>
             </div>
-          </template>
-        </div>
+          </div>
+        </section>
       </template>
     </main>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import Button from '../components/ui/Button.vue'
 
 /**
  * toast 的 type 只开放三种 —— 组件里出现的都是这三种。typo 会在编译期报错，
@@ -291,6 +245,8 @@ interface SkillUiRow {
   installed: boolean
   outdated: boolean
   hash: string
+  /** SKILL.md frontmatter 的 description（主进程从真源取；空串 = 真没写） */
+  desc?: string
   body?: string
   prompt: string
 }
@@ -324,9 +280,9 @@ const skillsDragging = ref(false)
  * 自动同步的留痕（2026-11-05 暮雨：“更新后无法自动更新技能吗？是完全断链吗？”）。
  *
  * 结论不是断链，但**看不出来**：同步只在建窗时跑一次，升级后旧进程还在托盘，
- * 新实例被单实例锁顶掉 —— 于是"没同步"和"同步了"在界面上长得一模一样。
+ * 新实例被单实例锁顶掉 —— 于是“没同步”和“同步了”在界面上长得一模一样。
  * 所以这里把它摆出来：上次什么时候、哪个版本、结果如何；版本对不上就直接报陈旧，
- * 并给一个"现在同步"按钮（不用重启、不用退托盘）。
+ * 并给一个“现在同步”按钮（不用重启、不用退托盘）。
  */
 interface SkillSyncRow {
   at: string
@@ -341,6 +297,13 @@ const skillsSyncStale = ref(false)
 const skillsSyncStaleReason = ref('')
 const skillsSyncVersion = ref('')
 const skillsSyncBusy = ref(false)
+
+/** 概览条：每个可直装目标「N / 总数 最新」（不在场的明说不在场，不写 0/0） */
+const targetSummary = computed(() => skillsTargets.value.map((t) => {
+  const total = skillsList.value.length
+  const ok = skillsList.value.filter((sk) => targetSkillState(t, sk) === 'ok').length
+  return { id: t.id, name: t.name, present: t.present, total, ok }
+}))
 
 function syncTimeText(at: string): string {
   if (!at) return '—'
@@ -451,7 +414,7 @@ function skillTargetTitle(t: SkillTargetRow, sk: SkillUiRow): string {
   switch (targetSkillState(t, sk)) {
     case 'absent': return `${base}\n本机没有 ${t.name} —— 不给它造目录，也不往里写`
     case 'idle': return `${base}\n技能副本不在（用上面的“⚡ 装到 ${t.name}”）`
-    case 'warn': return `${base}\n磁盘上那份与真源不一致 —— 重装即更新（不是"已存在就永远跳过"）`
+    case 'warn': return `${base}\n磁盘上那份与真源不一致 —— 重装即更新（不是“已存在就永远跳过”）`
     default: return `${base}\n副本与真源逐字节一致`
   }
 }
@@ -577,7 +540,7 @@ async function removeImportedSkill(im: { name: string; dir: string }): Promise<v
  *
  * 事实（本机查过）：本机只有 ~/.hermes/skills 与 ~/.config/opencode，没有 .claude/.codex/.cursor；
  * WorkBuddy 是打包过的 Electron 应用，技能目录不在 %APPDATA%\WorkBuddy（空的）——**我们不能猜、不能瞎写**。
- * 所以：能直装的只有 Hermes；其余的给“显示 SKILL.md + 打开对方”，用户拖一下即可。
+ * 所以：能直装的只有 Hermes / DSH；其余的给“显示 SKILL.md + 打开对方”，用户拖一下即可。
  */
 interface AgentTargetUi {
   id: string; name: string; mode: 'installable' | 'manual'
@@ -655,151 +618,6 @@ async function openAgentTarget(a: AgentTargetUi): Promise<void> {
   else props.toast(`打开失败：${(r && r.message) || '未知原因'}`, 'error')
 }
 
-// ── MCP 接入材料（2026-10-02 卡 002 · A 路线）─────────────────────────
-// 方寸只出材料：配置段按本机安装路径动态生成 + 复制 + 打开目标文件。
-// 不写任何外部应用的文件 —— 粘贴保存是用户的手。
-interface McpEntryUi { id: string; label: string; available: boolean; detail: string; usage: string }
-interface McpTargetUi {
-  id: string; name: string; detected: boolean; evidence: string; configPath?: string; howTo: string
-  /** 配置文件里有没有 fangcun 条目（undefined = 落点不可知，不渲染徽章） */
-  linked?: boolean; linkedDetail?: string
-}
-const mcpEntries = ref<McpEntryUi[]>([])
-const mcpTargets = ref<McpTargetUi[]>([])
-const mcpEntry = ref<string>('A')
-const mcpInfoError = ref('')
-/** 同 agentsLoading：区分“还在读”与“读到了但为空” */
-const mcpLoading = ref(true)
-
-// ── DSH 侧的方寸插件（2026-11-06）─────────────────────────────────────
-// 一个只读块：插件（dsh-fangcun）装没装、自带通道通不通、patch 里那条旧手工桥指向哪。
-interface DshPluginRowUi {
-  name: string; bundled: boolean; version: string; spec: string; linkedDir?: string; selfConnect: string
-}
-interface DshPluginUi {
-  dshHome: string; installed: boolean; profile: string; profileDir: string
-  plugins: DshPluginRowUi[]
-  pipe: { path: string; alive: boolean }
-  legacy?: { line: number; plugin: string; command: string; commandExists: boolean; isDevPath: boolean }
-  summary: string
-}
-const dshStatus = ref<DshPluginUi | null>(null)
-const dshLoading = ref(true)
-const dshErr = ref('')
-
-async function loadDshPlugin(): Promise<void> {
-  dshLoading.value = true
-  dshErr.value = ''
-  try {
-    const t: any = window.tegula
-    if (typeof t.mcpDshPlugin !== 'function') {
-      dshStatus.value = null
-      dshErr.value = '当前主进程没有“DSH 插件状态”这个通道（旧版本）—— 这一块读不到'
-      return
-    }
-    const r: any = await t.mcpDshPlugin()
-    if (r && r.ok) dshStatus.value = r as DshPluginUi
-    else { dshStatus.value = null; dshErr.value = (r && r.message) || '读取 DSH 插件状态失败' }
-  } catch (e: any) {
-    dshStatus.value = null
-    dshErr.value = '读取 DSH 插件状态失败：' + (e?.message || e)
-  } finally {
-    dshLoading.value = false
-  }
-}
-
-const mcpEntryDetail = computed(() => {
-  const e = mcpEntries.value.find(x => x.id === mcpEntry.value)
-  if (!e) return ''
-  return e.available ? e.usage : e.detail
-})
-
-async function loadMcpInfo(): Promise<void> {
-  mcpLoading.value = true
-  try {
-    const t: any = window.tegula
-    if (typeof t.mcpInfo !== 'function') {
-      // ⚠ 这里原来是 `mcpInfoError.value = ''` —— 于是通道不存在时界面永远停在“检测中…”。
-      //   那不是检测中，是根本读不到。必须说出来。
-      mcpEntries.value = []
-      mcpTargets.value = []
-      mcpInfoError.value = '当前主进程没有“MCP 接入信息”这个通道（旧版本）—— 这一块读不到'
-      return
-    }
-    const r: any = await t.mcpInfo()
-    if (r && r.ok) {
-      mcpEntries.value = r.entries || []
-      mcpTargets.value = r.targets || []
-      // 默认选第一个可用入口（A 不可用时落到 B，别让用户对着死按钮点）
-      const firstOk = (r.entries || []).find((e: any) => e.available)
-      if (firstOk && !(r.entries || []).some((e: any) => e.id === mcpEntry.value && e.available)) {
-        mcpEntry.value = firstOk.id
-      }
-      mcpInfoError.value = ''
-    } else {
-      mcpInfoError.value = (r && r.message) || '读取 MCP 接入信息失败'
-    }
-  } catch (e: any) {
-    mcpInfoError.value = '读取 MCP 接入信息失败：' + (e?.message || e)
-  } finally {
-    mcpLoading.value = false
-  }
-}
-
-async function copyMcpSnippet(m: McpTargetUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.mcpSnippet !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
-  const r: any = await t.mcpSnippet(m.id, mcpEntry.value)
-  if (!r || !r.ok) { props.toast(`生成失败：${(r && r.message) || '未知原因'}`, 'error'); return }
-  // 走主进程剪贴板（file:// 起源下 navigator.clipboard 会静默 reject）
-  const c: any = await t.clipboardWriteText(r.snippet)
-  if (c && c.ok !== false) props.toast(`已复制 ${m.name} 的配置段 —— 打开对方配置文件粘贴保存即可`, 'success')
-  else props.toast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
-}
-
-/** 卡006（2026-10-03）：自装指令 —— A 路线第三渠道。复制一段贴给目标 agent 的完整指令，
- *  技能卡复制与配置写入全部由对方现地完成（耗它自己的 token，方寸仍零写入）。 */async function copyMcpSelfInstall(m: McpTargetUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.mcpSelfInstall !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
-  const r: any = await t.mcpSelfInstall(m.id, mcpEntry.value)
-  if (!r || !r.ok) { props.toast(`生成失败：${(r && r.message) || '未知原因'}`, 'error'); return }
-  const c: any = await t.clipboardWriteText(r.prompt)
-  if (c && c.ok !== false) props.toast(`已复制给 ${m.name} 的自装指令 —— 打开对方粘贴，让它自己装`, 'success')
-  else props.toast(`复制失败：${(c && (c.error || c.message)) || '剪贴板不可用'}`, 'error')
-}
-
-/**
- * 接入 Hermes（2026-11-06 暮雨：“Hermes 要接，而且应该通过方寸去接”）。
- *
- * 与“复制配置段 / 让它自装”的区别：这一步**真的会改** Hermes 的 config.yaml。
- * 所以先确认（把路径、只加不删、先备份三件事说清），再调主进程；
- * 主进程侧另有四条纪律（备份 / 文本插入 / 原子写 / 写后自证），见 hermesLink.ts。
- */
-async function linkHermesInto(m: McpTargetUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.mcpLinkHermes !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
-  const where = m.configPath || '（未检测到配置文件）'
-  const yes = confirm(
-    '这一步会修改 Hermes 的配置文件：\n' + where + '\n\n'
-    + '只往 mcp_servers 下加一条 fangcun（缩进 2），其它内容一个字不动；\n'
-    + '写之前先备份成同目录 config.yaml.bak-fangcun-<时间戳>，写完会把新增块抠掉与原文逐字节比对。\n\n'
-    + '继续吗？'
-  )
-  if (!yes) { props.toast('已取消，Hermes 的配置文件没有改动', 'info'); return }
-  const r: any = await t.mcpLinkHermes(mcpEntry.value)
-  if (r && r.ok) props.toast(r.message || '已接入 Hermes', r.changed ? 'success' : 'info')
-  else props.toast('接入失败：' + ((r && (r.message || r.error)) || '未知原因'), 'error')
-  await loadMcpInfo()
-}
-
-async function openMcpConfig(m: McpTargetUi): Promise<void> {
-  const t: any = window.tegula
-  if (typeof t.mcpOpenConfig !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
-  const r: any = await t.mcpOpenConfig(m.id)
-  if (r && r.ok) props.toast(r.message || `已打开 ${m.name} 的配置文件`, 'success')
-  else props.toast(`打开失败：${(r && r.message) || '未知原因'}`, 'error')
-}
-
 /** 在资源管理器里亮出某个技能目录/文件的 SKILL.md（主进程只允许技能目录内的路径） */
 async function revealSkillPath(dirOrFile: string): Promise<void> {
   const t: any = window.tegula
@@ -819,15 +637,11 @@ async function openSkillsDir(which: string): Promise<void> {
 /** 投放遮罩：吃全局心跳 —— 拖拽收场（按 Esc / 松手在窗口外）拿不到事件时也要自己消失 */
 const skillsDropMaskVisible = computed(() => skillsDragging.value && props.dragAlive)
 
-// 进页面就加载三份：技能清单 / 别的 agent 的检测结果 / MCP 接入材料。
-// ⚠ 三份都是这一页的全部内容，缺哪个界面上就有一块是空的（"装到别的 agent" 会永远停在“检测中…”）。
+// 进页面就加载：技能清单 / 别的 agent 的检测结果 / 自动同步留痕。
+// ⚠ 三份都是这一页的全部内容，缺哪个界面上就有一块是空的。
 onMounted(() => {
   void loadSkills()
   void loadAgents()
-  void loadMcpInfo()
-  // 第四份：自动同步的留痕（2026-11-05）。缺了这一块，"技能是不是最新"就没有任何答案。
   void loadSkillSync()
-  // 第五份：DSH 侧的方寸插件状态（2026-11-06）。缺了它，"方寸已有专属 DSH 插件"在界面上不存在。
-  void loadDshPlugin()
 })
 </script>
