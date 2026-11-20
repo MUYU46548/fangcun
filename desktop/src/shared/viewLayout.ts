@@ -59,14 +59,14 @@ export interface ViewPreset {
  * ⚠ 设计口径（2026-11-18 · 第二稿，被自己的测试纠正过一次）：
  *   第一稿把「日常」写成 8 个并当默认 —— 那等于**顺手改了用户每天看到的那一行**，
  *   与"用户只说要能自己调"是两回事（本仓教训 #9：只修他提的那个症状）。
- *   所以「日常」= **现有观感的原样**（收 启动台/技能/服务 三个，与 10-25 一致），
+ *   所以「日常」= **现有观感的原样**（收 启动台/技能/服务 三个），
  *   想更简就点「专注」—— 那才是"收敛"的那一套，由用户自己选。
  */
 export const PRESETS: ViewPreset[] = [
   {
     id: 'daily',
     label: '日常',
-    desc: '默认：只收启动台 / 技能 / 服务 三个低频页（与 10-25 起的观感一致）',
+    desc: '默认：高频页签在外，启动台 / 技能 / 服务收进「更多」',
     visible: ['active', 'ask', 'todos', 'ideas', 'memory', 'logs', 'projects', 'blockers',
       'roadmap', 'calendar', 'archive', 'trash', 'decisions'],
   },

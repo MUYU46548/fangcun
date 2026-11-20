@@ -25,7 +25,10 @@ contextBridge.exposeInMainWorld('tegula', {
   // 写入（2026-11-18）：记忆是用户资产，他自己也得能改 —— 不该只有 agent 能落盘
   memoryCreate: (input: any) => ipcRenderer.invoke('memoryCreate', input),
   memoryUpdate: (file: string, input: any) => ipcRenderer.invoke('memoryUpdate', file, input),
-  memorySetStatus: (file: string, status: string) => ipcRenderer.invoke('memorySetStatus', file, status),
+  memorySetStatus: (file: string, status: string, reason?: string) => ipcRenderer.invoke('memorySetStatus', file, status, reason || ''),
+  // 导入 / 一键整理（2026-11-20）：都落待审批，重复跳过
+  memoryImport: (input: any) => ipcRenderer.invoke('memoryImport', input),
+  memoryOrganize: (input: any) => ipcRenderer.invoke('memoryOrganize', input),
   
   // Tasks
   loadTasks: (view = 'active') => ipcRenderer.invoke('loadTasks', view),

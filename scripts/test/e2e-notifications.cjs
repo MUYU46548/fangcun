@@ -497,6 +497,10 @@ function main() {
     !notif.listNotifications().some(n => n.type === 'task-timeout'))
 
   // ══ B11. 超期清理（2026-10-08 用户拍板：error 永不清，已读 info/warning 30 天）
+  // ⚠ 先清干净：上一段（B10c）的 scanOnce 可能顺手产出了别的通知（结构地图过期 / 技能漂移…），
+  //   会混进下面「清理后只剩 error 一条」的计数里。这条断言要验的是 cleanupExpired 本身，
+  //   不是"整轮别的地方不产通知" —— 不清就变成了拿别人的产出去判它，红了也说明不了问题（2026-11-19 实测 2≠1）。
+  notif.clearAll()
   notif._setExpiryForTest(-1000)
   const oldWarn = notif.pushNotification({ type: 'task-stalled', level: 'warning', title: '旧 warning', sourceId: 'x', key: 'x' })
   const oldInfo = notif.pushNotification({ type: 'update-downloaded', level: 'info', title: '旧 info', sourceId: 'y', key: 'y' })

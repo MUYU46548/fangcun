@@ -162,11 +162,14 @@ export function registerIpcHandlers(): void {
     if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
     return r
   })
-  guardedHandle('memorySetStatus', (_event, file: string, status: string) => {
-    const r = memoryService.setMemoryStatus(file, status)
+  guardedHandle('memorySetStatus', (_event, file: string, status: string, reason?: string) => {
+    const r = memoryService.setMemoryStatus(file, status, reason || '')
     if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
     return r
   })
+  // 导入 / 一键整理（2026-11-20 问卷 M5 A + M1 B）：两条都只落「待审批」
+  guardedHandle('memoryImport', (_event, input: any) => memoryService.importMemories(input || {}))
+  guardedHandle('memoryOrganize', (_event, input: any) => memoryService.organizeMemories(input || {}))
 
   guardedHandle('getTask', (_event, id: string) => {
     const task = tasks.readTask(id)

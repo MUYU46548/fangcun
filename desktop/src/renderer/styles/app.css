@@ -1653,6 +1653,26 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .arr-t { flex: 1 1 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .arr-c em, .arr-t em { margin-left: 5px; font-style: normal; font-size: 11px; color: var(--muted); }
 .ask-report-empty { font-size: 12px; color: var(--muted); }
+/* 成本用量概览（2026-11-19）：参考 11-17 两张图 —— 大数 + 每日柱 + 外推；
+   只画本机实测，不编订阅限额、不按 token 估钱。类名独立，避开旧报表断言。 */
+.usage-dash { margin: 10px 0 8px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--card); }
+.usage-dash-h { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.usage-dash-h em { font-style: normal; font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 8px; }
+.usage-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .usage-cards { grid-template-columns: 1fr; } }
+.usage-card { min-width: 0; padding: 9px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); }
+.uc-label { font-size: 11px; color: var(--muted); }
+.uc-big { margin: 3px 0 2px; font-size: 24px; line-height: 1.15; font-weight: 700;
+  color: var(--ink); font-variant-numeric: tabular-nums; }
+.uc-sub { font-size: 11px; line-height: 1.6; color: var(--muted); font-variant-numeric: tabular-nums; }
+.uc-sub em { display: block; font-style: normal; color: var(--muted); }
+.uc-note { margin-top: 6px; font-size: 10.5px; line-height: 1.55; color: var(--muted); }
+.uc-spark { display: flex; align-items: flex-end; gap: 2px; height: 34px; margin-top: 7px; }
+.uc-spark i { flex: 1 1 0; min-width: 2px; max-width: 12px; border-radius: 2px 2px 0 0;
+  background: var(--accent); opacity: .82; }
+.uc-spark.calls i { background: var(--warning); }
 /* 月报表里的金额（2026-10-25 卡 005）：没有金额时写“未折算”而不是 0 元 */
 .arr-cost { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
 .arr-cost em { margin-left: 5px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--muted); }
@@ -2230,7 +2250,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .blockers-header h3 { font-size: 16px; font-weight: 700; }
 .blockers-count { font-size: 12px; color: var(--muted); }
 /* 作战计划（0.6.0 P1）：三块缺一即红；三个动作恰好三个 */
-.plan-view { padding: 14px 4px 40px; max-width: 1080px; }
+.plan-view { width: 100%; max-width: 1080px; margin: 0 auto; padding: 14px 4px 40px; }
 .plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .plan-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
 .plan-sub { font-size: 11.5px; color: var(--muted); }
@@ -4221,7 +4241,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .tier-grow { flex: 1; }
 .tier-count { font-size: 12px; color: var(--muted); }
 .tier-btn { height: 26px; padding: 0 10px; font-size: 12px; }
-.tier-rows { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+.tier-rows { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 900px; margin: 0 auto; }
 .tier-row { display: flex; align-items: stretch; gap: 10px; border: 1px solid var(--border);
   border-radius: 10px; overflow: hidden; background: #fff; min-height: 52px; }
 .tier-row.over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
@@ -4245,7 +4265,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .tier-chip.orphan { border-style: dashed; color: var(--muted); }
 .tier-empty { font-size: 11.5px; color: var(--muted); }
 .tier-pool { border-style: dashed; }
-.tier-note { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.8; max-width: 900px; }
+.tier-note { width: 100%; max-width: 900px; margin: 12px auto 0; font-size: 11.5px; color: var(--muted); line-height: 1.8; }
 .services-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
 .services-header h3 { font-size: 16px; font-weight: 700; }
 .services-stats { font-size: 12px; color: var(--muted); }
@@ -4455,8 +4475,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
    新块一律用自己的 .mem-* 类名，**不套 .idea-***
    —— 套旧类会让既有断言（$$('.idea').length === N）凭空变红，而界面看起来正常。
    样式用分组选择器共享，不复用类名（AGENTS.md 踩坑第 2 条）。 */
-.memory-view { display: block; padding: 18px 22px 40px; }
-.mem-wrap { max-width: 1080px; }
+/* ⚠ `#board` 是 ID 选择器（display:flex），只写 `.memory-view { display:block }` 会被它压掉：
+   记忆页缩成内容宽度、右边留一大片 —— 2026-11-20 用户圈图报的就是这个。
+   用 `#board.memory-view`（ID+class）才压得住；内容块再 margin:auto 居中。 */
+#board.memory-view { display: block; }
+.memory-view { padding: 18px 22px 40px; }
+.mem-wrap { width: 100%; max-width: 1080px; margin: 0 auto; }
 .mem-head { margin-bottom: 14px; }
 .mem-lead { font-size: 20px; font-weight: 650; color: var(--ink); letter-spacing: .01em; }
 .mem-lead-sub { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
@@ -4534,7 +4558,41 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
   background: var(--tint-3); border: 1px solid var(--line-2); font-size: 10.5px;
 }
 .mem-revoked { padding: 1px 6px; border-radius: 5px; background: #f2f2f4; color: #888; font-size: 10.5px; }
+.mem-pending { padding: 1px 6px; border-radius: 5px; background: #fff4e0; color: #8a5a12; font-size: 10.5px; }
+.mem-pending-count {
+  margin-left: 1px; padding: 0 5px; border-radius: 999px;
+  background: #fff1d6; color: #8a5a12; font-size: 10px; font-weight: 650;
+}
 
+.mem-pref { display: flex; align-items: flex-start; gap: 6px; margin: 3px 0; line-height: 1.6; }
+.mem-pref input { margin-top: 3px; }
+.mem-off { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid #f0d3a8; background: #fff8ec;
+  color: #8a5a12; font-size: 12.5px; line-height: 1.6; }
+.mem-off b { color: #8a5a12; }
+.mem-off > button { margin-left: auto; }
+.mem-legacy { padding: 1px 6px; border-radius: 5px; background: #f2f2f4; color: #888; font-size: 10.5px; }
+.mem-pin { padding: 1px 6px; border-radius: 5px; background: #eaf6ee; border: 1px solid #bfe3ca; color: #2c6b3f; font-size: 10.5px; }
+.mem-conf, .mem-imp-num { font-variant-numeric: tabular-nums; opacity: .85; }
+.mem-count { align-self: flex-end; font-size: 10.5px; color: var(--muted); }
+.mem-num { width: 90px; }
+.mem-ta-claim { min-height: 52px; }
+.mem-detail { margin-top: 8px; }
+.mem-detail-claim { font-size: 13.5px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.mem-notice { margin-top: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--tint); color: var(--ink); font-size: 12.5px; line-height: 1.6; }
+.mem-organize { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--tint-3); font-size: 12.5px; }
+.mem-organize > div { flex: 1 1 420px; line-height: 1.7; }
+.mem-organize b { margin-right: 6px; }
+.mem-pack { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--tint-3); }
+.mem-pack-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 12.5px; }
+.mem-pack-head b { font-size: 13px; }
+.mem-pack .mem-ta { width: 100%; }
+.mem-pack .mem-edit-acts { margin-top: 8px; }
+.mem-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 12px; }
+.mem-batch b { color: var(--accent); }
+.mem-batch-confirm { color: var(--danger-text); }
+.mem-import { max-width: 760px; }
+.mem-pin-chk { margin-top: 2px; align-self: flex-start; }
 .mem-sum { margin-top: 8px; font-size: 12.5px; line-height: 1.75; color: var(--ink); opacity: .88; }
 .mem-i-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 9px; }
 .mem-file { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; opacity: .8; }

@@ -611,6 +611,37 @@
               const offCount = zones[1] ? zones[1].querySelectorAll('.vl-item').length : -1
               check('★★ 画布上排 = 当前顶栏那几块（数量对得上，不是空画布）',
                 onCount >= 7 && offCount >= 1, '上排 ' + onCount + ' 块 / 下排 ' + offCount + ' 块')
+
+              // 预设 = 出厂定死；只有自定义能拖/点
+              {
+                const firstItem = zones[0] && zones[0].querySelector('.vl-item')
+                check('★★ 预设锁定：打开时 data-custom=false，块不可拖',
+                  $('.vl-box') && $('.vl-box').getAttribute('data-custom') === 'false'
+                    && firstItem && firstItem.getAttribute('draggable') !== 'true',
+                  'custom=' + ($('.vl-box') || {}).getAttribute('data-custom')
+                    + ' draggable=' + (firstItem && firstItem.getAttribute('draggable')))
+                const customBtn = $$('.vl-shell .vl-presets button')
+                  .find((b) => (b.textContent || '').trim() === '自定义')
+                if (customBtn) {
+                  customBtn.click()
+                  await sleep(180)
+                  check('★★ 点「自定义」后才允许拖（data-custom=true）',
+                    $('.vl-box') && $('.vl-box').getAttribute('data-custom') === 'true')
+                  const before = [...zones[0].querySelectorAll('.vl-item')].map((x) => x.getAttribute('data-view'))
+                  const items = zones[0].querySelectorAll('.vl-item')
+                  if (items.length >= 2) {
+                    items[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true }))
+                    items[1].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }))
+                    items[1].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true }))
+                    await sleep(220)
+                    const after = [...zones[0].querySelectorAll('.vl-item')].map((x) => x.getAttribute('data-view'))
+                    check('★★ 自定义里同区拖拽真改顺序（不是只折叠；此前 moveView 传错 allIds）',
+                      after[0] === before[1] && after[1] === before[0],
+                      JSON.stringify({ before: before.slice(0, 3), after: after.slice(0, 3) }))
+                  }
+                }
+              }
+
               const footBtns = $$('.vl-shell .vl-foot button').map((b) => (b.textContent || '').trim())
               check('★ 画布底部有「保存 / 取消」两个按钮（能保存能取消）',
                 footBtns.some((t) => t === '保存') && footBtns.some((t) => t === '取消'),
@@ -6735,7 +6766,7 @@
     //   而不是等别人替它把状态摆好（依赖副作用 = 别人一改就假红）。
     clickNav('通用')
     await sleep(300)
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签']
+    const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
     check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
@@ -7852,6 +7883,30 @@
           && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
         check('★ 没给用量数字的那次明说“只计数”（不拿字符数折算 token）',
           rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
+
+        // ── 成本用量概览（2026-11-19）：参考 11-17 两张图，不是每月两根柱 ──
+        check('★★ 成本用量概览在花销页（data-usage-chart）',
+          await waitFor(() => !!$('#board.ask-view [data-usage-chart]'), 3000, 'usage-chart'))
+        {
+          const cards = $$('#board.ask-view [data-ucard]')
+          const dayBars = $$('#board.ask-view [data-uday="tokens"]')
+          const callBars = $$('#board.ask-view [data-uday="calls"]')
+          check('★★ 三张卡：token / 调用 / 预测（不是每月两根柱）',
+            cards.length === 3
+              && !!$('#board.ask-view [data-ucard="tokens"]')
+              && !!$('#board.ask-view [data-ucard="calls"]')
+              && !!$('#board.ask-view [data-ucard="forecast"]'),
+            String(cards.length))
+          check('★★ 每日柱按天数出现（夹具 3 天），不是按月份',
+            dayBars.length === 3 && callBars.length === 3,
+            JSON.stringify({ day: dayBars.length, calls: callBars.length }))
+          const uc = (($('#board.ask-view [data-usage-chart]') || {}).textContent || '').replace(/\s+/g, ' ')
+          check('★ 明说不是限额、不编订阅额度、不按 token 估钱',
+            uc.indexOf('不是限额') >= 0 && uc.indexOf('不编额度') >= 0
+              && uc.indexOf('不按 token 估钱') >= 0, uc.slice(0, 160))
+          check('★ 本月大数来自真数据（新输入 70 + 输出 40 = 110）',
+            uc.indexOf('110') >= 0, uc.slice(0, 120))
+        }
 
         // ── 逐笔金额（2026-10-25 卡 005 B 档）────────────────────────────────
         // 有金额就写“≈ ¥X”并带上"还有几笔没折算"；一笔都没有就写“未折算”。
@@ -9606,11 +9661,12 @@
         await sleep(350)
         check('★★ 点「记一条」打开编辑框', !!$('.memory-view .mem-edit'), '.mem-edit=' + !!$('.memory-view .mem-edit'))
         const labels = $$('.memory-view .mem-edit label').map((l) => (l.textContent || '').trim())
-        check('★★ 四个必填项都在（类型 / 标题 / 原文 / 来源）',
-          ['类型', '标题', '原文', '来源'].every((k) => labels.some((t) => t.indexOf(k) >= 0)),
+        check('★★ 四个必填项都在（类型 / 一句话 / 原文 / 来源）',
+          ['类型', '一句话', '原文', '来源'].every((k) => labels.some((t) => t.indexOf(k) >= 0)),
           JSON.stringify(labels))
-        const ta = $('.memory-view .mem-edit .mem-ta')
-        check('★ 正文是**大文本框**（原文逐字，不是一行摘要输入框）',
+        const tas = $$('.memory-view .mem-edit .mem-ta')
+        const ta = tas.find((x) => Number(x.rows) >= 6) || tas[1]
+        check('★ 证据是**大文本框**（原文逐字，不是一行摘要输入框）',
           !!ta && ta.tagName === 'TEXTAREA' && Number(ta.rows) >= 6,
           ta ? ta.tagName + ' rows=' + ta.rows : 'no textarea')
 
@@ -9624,26 +9680,23 @@
           await sleep(300)
           const errTxt = ($('.memory-view .mem-edit-err') || {}).textContent || ''
           check('★★ 四件没填齐就点保存 → 当场拒绝并点名缺哪个（不是默默不存）',
-            errTxt.length > 0 && /标题|原文|来源/.test(errTxt), errTxt.slice(0, 80))
+            errTxt.length > 0 && /claim|证据|来源/.test(errTxt), errTxt.slice(0, 80))
           check('★★ 被拒时**没有发 IPC**（前端拦住，不会让主进程白跑一趟）',
             window.__fcTest.callCount('memoryCreate') === n0,
             'memoryCreate 调用 ' + (window.__fcTest.callCount('memoryCreate') - n0) + ' 次')
         }
 
-        // 填齐 → 真调 memoryCreate
-        // ⚠ 不要按下标猜输入框：`.mem-inp` 有**三个**（项目 / 标题 / 来源），
-        //   第一版写 `inputs[0]` 当成标题，实际填进了"项目"，于是保存被前端拦下、
-        //   memoryCreate 一次都没发（当场被这条断言抓出来）。按 placeholder 认。
+        // 填齐 → 真调 memoryCreate（v2：claim + 证据）
+        // ⚠ 不按占位符猜输入框：claim 是 textarea，证据是另一个更大的 textarea；
+        //   第一版按 `.mem-inp` 找标题，实际填进了"项目"，于是保存被前端拦下。
         const allInps = $$('.memory-view .mem-edit .mem-inp')
-        const titleIn = allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('这条记忆') >= 0)
-          || allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('一句话') >= 0)
-          || allInps[1]
         const sourceIn = allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('来源') >= 0)
           || allInps.find((x) => (x.getAttribute('placeholder') || '').indexOf('谁说的') >= 0)
-          || allInps[2]
+          || allInps[allInps.length - 1]
+        const claimTa = tas.find((x) => Number(x.rows) < 6) || tas[0]
         {
-          titleIn.value = '渲染层建的一条'
-          titleIn.dispatchEvent(new Event('input', { bubbles: true }))
+          claimTa.value = '渲染层建的一条'
+          claimTa.dispatchEvent(new Event('input', { bubbles: true }))
           sourceIn.value = 'e2e-renderer-web'
           sourceIn.dispatchEvent(new Event('input', { bubbles: true }))
           ta.value = '这是逐字原文，不该被摘要。'
@@ -9655,12 +9708,148 @@
             JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memoryCreate').map((c) => c.args)))
           const sent = window.__fcTest.calls().filter((c) => c.name === 'memoryCreate').pop()
           const payload = sent && sent.args && sent.args[0] ? sent.args[0] : {}
-          check('★★ 传过去的正文是**原样的整段**（不摘要、不截断）',
-            String(payload.body || '') === '这是逐字原文，不该被摘要。', JSON.stringify(payload.body))
+          check('★★ 传过去的 claim 是**原样的一句话**（不摘要、不截断）',
+            String(payload.claim || '') === '渲染层建的一条', JSON.stringify(payload.claim))
+          check('★★ 传过去的证据是**原样的整段**（不摘要、不截断）',
+            String(payload.evidence || '') === '这是逐字原文，不该被摘要。', JSON.stringify(payload.evidence))
           check('★ 传过去带上了来源（说不清来源的记忆没人敢信）',
             String(payload.source || '') === 'e2e-renderer-web', String(payload.source))
           await sleep(500)
           check('★ 存完编辑框关掉', !$('.memory-view .mem-edit'))
+        }
+      }
+
+      // 待审批（2026-11-19）：agent 提案默认不可见；勾上后通过/驳回
+      //
+      // 判据不是"界面上有个复选框"，而是：**默认看不见 → 勾上看得见 → 点通过真走状态通道**。
+      {
+        const pendingTitle = '用户通过前不算数'
+        const pendingRow = () => $$('.memory-view .mem-item').find(
+          (x) => (x.textContent || '').includes(pendingTitle))
+        check('★★ 待审批默认不出现在记忆列表里', !pendingRow(),
+          $$('.memory-view .mem-item').map((x) => (x.textContent || '').slice(0, 24)).join('|'))
+        const chkLabel = $$('.memory-view .mem-chk').find((l) => /显示待审批|含待审批/.test(l.textContent || ''))
+        const chk = chkLabel && chkLabel.querySelector('input')
+        check('★ 检索行有「显示待审批」开关', !!chk)
+        if (chk) {
+          chk.click()
+          await sleep(600)
+          const pr = pendingRow()
+          check('★★ 勾上后待审批条目出现', !!pr,
+            $$('.memory-view .mem-item').map((x) => (x.textContent || '').slice(0, 24)).join('|'))
+          const pbtns = pr
+            ? Array.prototype.slice.call(pr.querySelectorAll('button')).map((b) => (b.textContent || '').trim())
+            : []
+          check('★★ 待审批行有「通过 / 驳回」两个出口',
+            pbtns.some((t) => t.indexOf('通过') >= 0) && pbtns.some((t) => t.indexOf('驳回') >= 0),
+            pbtns.join('|'))
+          const passBtn = pr
+            ? Array.prototype.slice.call(pr.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('通过') >= 0)
+            : null
+          window.__fcTest.reset()
+          if (passBtn) {
+            passBtn.click()
+            check('★★ 点「通过」真调 memorySetStatus(有效)（agent 不能自批，用户点才行）',
+              await waitFor(() => window.__fcTest.calls().some(
+                (c) => c.name === 'memorySetStatus' && (c.args || [])[1] === '有效'
+              ), 4000, 'memorySetStatus(有效)'),
+              JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memorySetStatus').map((c) => c.args)))
+          }
+          await sleep(500)
+          const after = pendingRow()
+          check('★★ 通过后「待审批」徽章消失（真的转正，不是只关掉提示）',
+            !after || !after.querySelector('.mem-pending'),
+            after ? (after.textContent || '').slice(0, 80) : 'row gone')
+          chk.click()
+          await sleep(500)
+          check('★★ 通过后默认检索也能看见它（不再需要勾「含待审批」）', !!pendingRow(),
+            $$('.memory-view .mem-item').map((x) => (x.textContent || '').slice(0, 24)).join('|'))
+        }
+      }
+
+      // 导入 / 一键整理（2026-11-20 问卷 M5 A / M1 B）
+      {
+        window.__fcTest.reset()
+        const impBtn = $$('.memory-view button').find((b) => (b.textContent || '').trim() === '导入')
+        check('★ 记忆页有「导入」入口', !!impBtn)
+        if (impBtn) {
+          impBtn.click()
+          await sleep(300)
+          check('★★ 点「导入」打开导入框', !!$('.memory-view .mem-import'))
+          const srcIn = $$('.memory-view .mem-import .mem-inp')
+            .find((x) => (x.getAttribute('placeholder') || '').indexOf('旧笔记') >= 0)
+          const ta = $('.memory-view .mem-import .mem-ta')
+          if (srcIn && ta) {
+            srcIn.value = 'e2e 导入'
+            srcIn.dispatchEvent(new Event('input', { bubbles: true }))
+            ta.value = '[{"claim":"导入的","evidence":"原文","source":"e2e 导入"}]'
+            ta.dispatchEvent(new Event('input', { bubbles: true }))
+            await sleep(100)
+            const go = $$('.memory-view .mem-import button')
+              .find((b) => (b.textContent || '').indexOf('导入为待审批') >= 0)
+            if (go) go.click()
+            check('★★ 导入按钮真调 memoryImport（不是只弹提示）',
+              await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'memoryImport'), 4000, 'memoryImport'),
+              JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memoryImport').map((c) => c.args)))
+            const call = window.__fcTest.calls().filter((c) => c.name === 'memoryImport').pop()
+            check('★ 导入把整段文本和来源一起交给主进程',
+              !!call && String((call.args[0] || {}).text || '').includes('导入的')
+                && (call.args[0] || {}).source === 'e2e 导入',
+              JSON.stringify(call && call.args))
+            await sleep(600)
+            const batch = $('.memory-view .mem-batch')
+            check('★ 导入后出现批量条（这一页有待审批）', !!batch,
+              (($('.memory-view') || {}).textContent || '').slice(0, 200))
+            const passAll = $$('.memory-view .mem-batch button')
+              .find((b) => (b.textContent || '').trim() === '全部通过')
+            if (passAll) {
+              passAll.click()
+              await sleep(200)
+              const confirm = $$('.memory-view .mem-batch button')
+                .find((b) => (b.textContent || '').trim() === '确认')
+              if (confirm) confirm.click()
+              check('★★ 批量通过真逐条走 memorySetStatus(有效)',
+                await waitFor(() => window.__fcTest.calls().some(
+                  (c) => c.name === 'memorySetStatus' && (c.args || [])[1] === '有效'
+                ), 4000, 'memorySetStatus'),
+                JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memorySetStatus').map((c) => c.args)))
+            }
+          }
+        }
+        await sleep(300)
+      }
+      {
+        window.__fcTest.reset()
+        const orgBtn = $$('.memory-view button').find((b) => (b.textContent || '').trim() === '一键整理')
+        check('★ 记忆页有「一键整理」入口', !!orgBtn)
+        if (orgBtn) {
+          orgBtn.click()
+          await sleep(250)
+          check('★★ 点「一键整理」先出确认条（不会直接花模型钱）', !!$('.memory-view .mem-organize'))
+          const go = $$('.memory-view .mem-organize button')
+            .find((b) => (b.textContent || '').indexOf('生成整理包') >= 0)
+          if (go) go.click()
+          check('★★ 确认后真调 memoryOrganize',
+            await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'memoryOrganize'), 4000, 'memoryOrganize'),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'memoryOrganize').map((c) => c.args)))
+          await sleep(500)
+          const pack = $('.memory-view .mem-pack')
+          check('★★ 整理结果是一份给 DSH 的整理包（不是模型吐的草稿）', !!pack,
+            (($('.memory-view') || {}).textContent || '').slice(-240))
+          const packTa = $('.memory-view .mem-pack .mem-ta')
+          check('★★ 整理包里写着 memory_write + 待审批',
+            !!packTa && /memory_write/.test(packTa.value || '') && /待审批/.test(packTa.value || ''),
+            packTa ? String(packTa.value).slice(0, 160) : 'no textarea')
+          const copy = pack
+            ? Array.prototype.slice.call(pack.querySelectorAll('button'))
+              .find((b) => (b.textContent || '').indexOf('复制整理包') >= 0)
+            : null
+          if (copy) copy.click()
+          check('★ 复制整理包走主进程剪贴板通道（不是裸 navigator.clipboard）',
+            await waitFor(() => window.__fcTest.calls().some(
+              (c) => c.name === 'clipboardWriteText' && /memory_write/.test(String((c.args || [])[0] || ''))
+            ), 4000, 'clipboardWriteText'),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'clipboardWriteText').map((c) => String((c.args || [])[0] || '').slice(0, 80))))
         }
       }
 

@@ -91,6 +91,51 @@
           AI 花销 · 按自然月
           <em class="ask-report-src">数据源：本机 AI 调用留痕（外部客户端经 MCP 上报的另计，不混算）</em>
         </div>
+        <div class="usage-dash" data-usage-chart v-if="currentValue">
+          <div class="usage-dash-h">
+            用量概览
+            <em>本机 AI 留痕 · 只算供应商报了 usage 的调用 · 口径：实测，不按 token 估钱</em>
+          </div>
+          <div class="usage-cards">
+            <div class="usage-card" data-ucard="tokens">
+              <div class="uc-label">本月 TOKEN（新输入 + 输出）</div>
+              <div class="uc-big">{{ fmtTok(currentTokens) }}</div>
+              <div class="uc-sub">
+                新输入 {{ fmtTok(currentValue.new_input_tokens) }} · 输出 {{ fmtTok(currentValue.completion_tokens) }}
+                <em v-if="currentValue.cache_read_tokens">缓存重读 {{ fmtTok(currentValue.cache_read_tokens) }} 不计</em>
+              </div>
+              <div class="uc-spark" aria-label="每日 token 柱">
+                <i v-for="d in currentDays" :key="'t' + d.date" data-uday="tokens"
+                  :style="{ height: dayPct(d) }"
+                  :title="d.date + ' · ' + fmtTok(dayMain(d)) + ' tokens'"></i>
+              </div>
+            </div>
+            <div class="usage-card" data-ucard="calls">
+              <div class="uc-label">本月调用</div>
+              <div class="uc-big">{{ currentValue.calls }}</div>
+              <div class="uc-sub">
+                成功 {{ currentValue.ok }} · 失败 {{ currentValue.fail }}
+                <em>{{ currentValue.token_calls }} 次带 token</em>
+              </div>
+              <div class="uc-spark calls" aria-label="每日调用柱">
+                <i v-for="d in currentDays" :key="'c' + d.date" data-uday="calls"
+                  :style="{ height: callsPct(d) }"
+                  :title="d.date + ' · ' + d.calls + ' 次'"></i>
+              </div>
+            </div>
+            <div class="usage-card" data-ucard="forecast">
+              <div class="uc-label">按当前速度（不是限额）</div>
+              <div class="uc-big">{{ fmtTok(projectedTokens) }}</div>
+              <div class="uc-sub">
+                预计本月 · 已过 {{ elapsedDays }} 天 · 日均 {{ fmtTok(avgDaily) }}
+              </div>
+              <div class="uc-note">
+                方寸读不到你的订阅 5 小时/周/月配额，不编额度；
+                只给本机实测与按已用天数外推。
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="ask-report-row" v-for="m in ctl.usageMonths" :key="m.month">
           <span class="arr-m">{{ m.month }}</span>
           <span class="arr-c">{{ m.calls }} 次<em v-if="m.fail">（失败 {{ m.fail }}）</em></span>
@@ -191,7 +236,7 @@
 
 <script setup lang="ts">
 import Button from '../components/ui/Button.vue'
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 
 /**
  * 问答页（2026-11-03 · App.vue 拆分「视图刀」）
@@ -203,6 +248,40 @@ const props = defineProps<{ ctl: any }>()
 const ctl = props.ctl
 /** 拆分守卫反查锚点 */
 const askCtl = ctl
+
+// 用量概览（参考 2026-11-17 的两张图）：本月大数 + 每日柱 + 按当前速度外推。
+// 只画本机实测；方寸拿不到订阅的 5h/周/月限额，**不编额度**。
+const currentValue = computed(() => ((ctl.usageMonths || [])[0] || null) as any)
+const currentDays = computed(() => ((currentValue.value && currentValue.value.days) || []) as any[])
+const dayMain = (d: any) => (Number(d && d.new_input_tokens) || 0) + (Number(d && d.completion_tokens) || 0)
+const currentTokens = computed(() => (currentValue.value ? dayMain(currentValue.value) : 0))
+const maxDay = computed(() => Math.max(1, ...currentDays.value.map(dayMain)))
+const dayPct = (d: any) => `${Math.max(2, Math.min(100, dayMain(d) / maxDay.value * 100))}%`
+const maxCalls = computed(() => Math.max(1, ...currentDays.value.map((d) => Number(d.calls) || 0)))
+const callsPct = (d: any) => `${Math.max(2, Math.min(100, (Number(d.calls) || 0) / maxCalls.value * 100))}%`
+const elapsedDays = computed(() => {
+  const m = currentValue.value && currentValue.value.month
+  if (!m) return 0
+  const [y, mo] = String(m).split('-').map(Number)
+  const now = new Date()
+  if (now.getFullYear() === y && now.getMonth() + 1 === mo) return now.getDate()
+  return new Date(y, mo, 0).getDate()
+})
+const avgDaily = computed(() => currentTokens.value / Math.max(1, elapsedDays.value))
+const projectedTokens = computed(() => {
+  const m = currentValue.value && currentValue.value.month
+  if (!m) return 0
+  const [y, mo] = String(m).split('-').map(Number)
+  const dim = new Date(y, mo, 0).getDate()
+  return Math.round(avgDaily.value * dim)
+})
+const fmtTok = (v: any) => {
+  const n = Number(v) || 0
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+  return n.toLocaleString()
+}
 
 onMounted(() => { void ctl.initAsk() })
 </script>

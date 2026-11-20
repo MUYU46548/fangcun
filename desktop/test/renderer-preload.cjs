@@ -28,23 +28,45 @@ const store = {
     {
       id: 'inc-20261117-01', type: '事故', scope: '', project: 'dsh-fangcun',
       time: '2026-11-17T17:52:00+08:00', status: '有效', impact: '高',
+      claim: '强杀宿主进程打断施工轮次：先盘点在跑轮次、报 PID 与理由、等用户点头。',
       title: '强杀宿主进程打断施工轮次', summary: '两次 Stop-Process -Force，第二次打断正在跑的轮次。',
+      confidence: 0.95, importance: 5, pinned: false, legacy: false,
+      evidence: '两次 Stop-Process -Force；第二次打断用户正在跑的施工轮次。',
       file: 'memory/incidents/a.md', tags: ['强杀进程'],
     },
     {
       id: 'lesson-20261117-01', type: '纪律', scope: '跨项目', project: '跨项目',
       time: '2026-11-17T18:15:00+08:00', status: '有效', impact: '高',
+      claim: '用户问「可不可以」不是让你开工；没有命令式动词就不产生写操作。',
       title: '施工纪律（跨项目）', summary: '征询不等于授权；越急越要先锁范围。',
+      confidence: 0.95, importance: 5, pinned: true, legacy: false,
+      evidence: '「可不可以 / 要不要 / 能不能」是问判断，不是叫你开工。',
       file: 'memory/lessons/b.md', tags: ['纪律'],
     },
     {
       id: 'inc-20261009-01', type: '教训', scope: '', project: 'rosa-chuangzuo',
       time: '2026-10-09T00:00:00+08:00', status: '已撤销', impact: '中',
+      claim: '一条已撤销的教训：默认检索不返回它，但文件还在。',
       title: '一条已撤销的教训', summary: '这条用来验证「默认不返回已撤销」。',
+      confidence: 0.8, importance: 3, pinned: false, legacy: false,
+      evidence: '这条用来验证「默认不返回已撤销」。',
       file: 'memory/incidents/c.md', tags: [],
     },
+    {
+      id: 'mem-20261119-01', type: '事故', scope: '', project: 'fangcun-base',
+      time: '2026-11-19T08:00:00+08:00', status: '待审批', impact: '高',
+      claim: 'agent 提案：用户通过前不算数。',
+      title: 'agent 提案：待审批的一条', summary: '用户通过前不算数。',
+      confidence: 0.7, importance: 4, pinned: false, legacy: false,
+      evidence: '用户通过前不算数。',
+      file: 'memory/incidents/d.md', tags: ['待审批'],
+    },
   ],
-  memoryOverview: { total: 3, effective: 2, revoked: 1, byType: { 事故: 1, 纪律: 1, 教训: 1 } },
+  memoryOverview: {
+    total: 4, effective: 2, pending: 1, revoked: 1,
+    claims: 4, legacy: 0, evidence: 0, pinned: 1, coreChars: 671, coreBudget: 800,
+    byType: { 事故: 2, 纪律: 1, 教训: 1 },
+  },
   // 层厚度（2026-11-16 · 骨架继承试点第一批）：横比 + 单项目报告。
   // 默认给**一个真形状**的最小夹具 —— 空数组会让"表渲染出来了吗"永远无法区分。
   layerBoard: [
@@ -963,9 +985,10 @@ contextBridge.exposeInMainWorld('tegula', {
     const rows = (store.memory || []).filter((r) => {
       if (!q) return true
       if (!q.includeRevoked && r.status === '已撤销') return false
+      if (!q.includePending && r.status === '待审批') return false
       if (q.type && !String(r.type).includes(q.type)) return false
       if (q.q) {
-        const hay = `${r.title} ${r.summary} ${r.id}`.toLowerCase()
+        const hay = `${r.claim || ''} ${r.title || ''} ${r.summary || ''} ${r.id} ${(r.tags || []).join(' ')}`.toLowerCase()
         if (!hay.includes(String(q.q).toLowerCase())) return false
       }
       return true
@@ -979,11 +1002,16 @@ contextBridge.exposeInMainWorld('tegula', {
       return { ok: false, error: '只能读 memory/ 下的文件' }
     }
     const hit = (store.memory || []).find((r) => r.file === file)
-    return hit ? { ok: true, text: `---\nid: ${hit.id}\n---\n\n# ${hit.title}\n\n${hit.summary || ''}` } : { ok: false, error: 'not found' }
+    return hit ? {
+      ok: true,
+      text: `---\nid: ${hit.id}\n---\n\n## 记忆\n\n${hit.claim || hit.title}\n\n## 证据\n\n${hit.evidence || hit.summary || ''}\n`,
+      claim: hit.claim || hit.title,
+      evidence: hit.evidence || hit.summary || '',
+    } : { ok: false, error: 'not found' }
   },
   memoryOverview: () => {
     rec('memoryOverview')
-    return store.memoryOverview || { total: 0, effective: 0, revoked: 0, byType: {}, hint: '记忆库还没有任何条目' }
+    return store.memoryOverview || { total: 0, effective: 0, pending: 0, revoked: 0, byType: {}, hint: '记忆库还没有任何条目' }
   },
   memoryRebuild: () => {
     rec('memoryRebuild')
@@ -995,25 +1023,33 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('memoryCreate', [input])
     cloneGuard('memoryCreate', [input])
     const i = input || {}
+    const claim = String(i.claim || i.title || '').trim()
+    const evidence = String(i.evidence || i.body || '').trim()
     if (!String(i.type || '').trim()) return { ok: false, error: '类型不能空' }
-    if (!String(i.title || '').trim()) return { ok: false, error: '标题不能空' }
-    if (!String(i.body || '').trim()) return { ok: false, error: '原文不能空' }
+    if (!claim) return { ok: false, error: 'claim/标题不能空' }
+    if (!evidence) return { ok: false, error: '证据/原文不能空' }
     if (!String(i.source || '').trim()) return { ok: false, error: '来源不能空' }
-    const file = `memory/2026-11/mem-20261118-${String((store.memory || []).length + 1).padStart(2, '0')}.md`
+    const id = `mem-20261118-${String((store.memory || []).length + 1).padStart(2, '0')}`
+    const file = `memory/claims/${id}.md`
     store.memory = store.memory || []
     store.memory.push({
-      id: `mem-20261118-${String(store.memory.length + 1).padStart(2, '0')}`,
-      type: i.type, scope: i.scope || '', project: i.project || '', time: '2026-11-18T00:00:00Z',
-      status: i.status || '有效', impact: i.impact || '', title: i.title,
-      summary: String(i.body).slice(0, 120), file, source: i.source, tags: i.tags || [],
+      id, type: i.type, scope: i.scope || '', project: i.project || '', time: '2026-11-18T00:00:00+08:00',
+      status: i.status || '有效', impact: i.impact || '', claim, title: claim, summary: claim,
+      evidence, confidence: Number.isFinite(Number(i.confidence)) ? Number(i.confidence) : 0.7,
+      importance: Number(i.importance) || 3, pinned: i.pinned === true, legacy: false,
+      file, source: i.source, tags: i.tags || [],
     })
     store.memoryOverview = {
       total: store.memory.length,
-      effective: store.memory.filter((r) => r.status !== '已撤销').length,
+      effective: store.memory.filter((r) => r.status === '有效').length,
+      pending: store.memory.filter((r) => r.status === '待审批').length,
       revoked: store.memory.filter((r) => r.status === '已撤销').length,
+      claims: store.memory.length, legacy: 0, evidence: 0,
+      pinned: store.memory.filter((r) => r.pinned && r.status === '有效').length,
+      coreChars: 0, coreBudget: 800,
       byType: {},
     }
-    return { ok: true, file }
+    return { ok: true, file, id, claim }
   },
   memoryUpdate: (file, input) => {
     rec('memoryUpdate', [file, input])
@@ -1021,26 +1057,82 @@ contextBridge.exposeInMainWorld('tegula', {
     if (!String(file || '').startsWith('memory/')) return { ok: false, error: '只能改 memory/ 下的文件' }
     const hit = (store.memory || []).find((r) => r.file === file)
     if (!hit) return { ok: false, error: 'not found' }
-    if (!String((input || {}).body || '').trim()) return { ok: false, error: '原文不能空' }
-    hit.title = (input || {}).title || hit.title
-    hit.type = (input || {}).type || hit.type
-    hit.summary = String((input || {}).body).slice(0, 120)
-    return { ok: true, file }
+    const i = input || {}
+    const claim = String(i.claim || i.title || hit.claim || hit.title || '').trim()
+    const evidence = String(i.evidence || i.body || hit.evidence || hit.summary || '').trim()
+    if (!claim) return { ok: false, error: 'claim/标题不能空' }
+    if (!evidence) return { ok: false, error: '证据/原文不能空' }
+    hit.claim = claim
+    hit.title = claim
+    hit.summary = claim
+    hit.evidence = evidence
+    hit.type = i.type || hit.type
+    hit.project = i.project !== undefined ? i.project : hit.project
+    hit.confidence = Number.isFinite(Number(i.confidence)) ? Number(i.confidence) : hit.confidence
+    hit.importance = Number(i.importance) || hit.importance
+    hit.pinned = i.pinned === true ? true : (i.pinned === false ? false : hit.pinned)
+    hit.source = i.source || hit.source
+    return { ok: true, file, id: hit.id, claim }
   },
-  memorySetStatus: (file, status) => {
-    rec('memorySetStatus', [file, status])
-    cloneGuard('memorySetStatus', [file, status])
+  memorySetStatus: (file, status, reason) => {
+    rec('memorySetStatus', [file, status, reason || ''])
+    cloneGuard('memorySetStatus', [file, status, reason || ''])
     const hit = (store.memory || []).find((r) => r.file === file)
     if (!hit) return { ok: false, error: 'not found' }
-    if (status !== '有效' && status !== '已撤销') return { ok: false, error: '状态只能是 有效 / 已撤销' }
+    if (status !== '有效' && status !== '已撤销' && status !== '待审批') {
+      return { ok: false, error: '状态只能是 有效 / 已撤销 / 待审批' }
+    }
     hit.status = status
+    if (status === '已撤销' && reason) hit.approvalNote = String(reason)
     store.memoryOverview = {
       total: (store.memory || []).length,
-      effective: (store.memory || []).filter((r) => r.status !== '已撤销').length,
+      effective: (store.memory || []).filter((r) => r.status === '有效').length,
+      pending: (store.memory || []).filter((r) => r.status === '待审批').length,
       revoked: (store.memory || []).filter((r) => r.status === '已撤销').length,
+      claims: (store.memory || []).length, legacy: 0, evidence: 0,
+      pinned: (store.memory || []).filter((r) => r.pinned && r.status === '有效').length,
+      coreChars: 0, coreBudget: 800,
       byType: {},
     }
     return { ok: true, file }
+  },
+  // 导入 / 一键整理（2026-11-20）：桩只记账 + 返回结果；真身落盘在 memory.ts
+  memoryImport: (input) => {
+    rec('memoryImport', [input])
+    cloneGuard('memoryImport', [input])
+    const id = 'mem-import-01'
+    const file = 'memory/claims/mem-import-01.md'
+    store.memory = store.memory || []
+    if (!store.memory.some((r) => r.id === id)) {
+      store.memory.push({
+        id, type: '教训', scope: '', project: '', time: '2026-11-20T00:00:00+08:00',
+        status: '待审批', impact: '', claim: '导入的', title: '导入的', summary: '导入的',
+        confidence: 0.7, importance: 3, pinned: false, source: 'e2e 导入', evidence: '原文',
+        file, tags: [], legacy: false,
+      })
+    }
+    store.memoryOverview = {
+      total: store.memory.length,
+      effective: store.memory.filter((r) => r.status === '有效').length,
+      pending: store.memory.filter((r) => r.status === '待审批').length,
+      revoked: store.memory.filter((r) => r.status === '已撤销').length,
+      claims: store.memory.length, legacy: 0, evidence: 0,
+      pinned: store.memory.filter((r) => r.pinned && r.status === '有效').length,
+      coreChars: 0, coreBudget: 800, byType: {},
+    }
+    return { ok: true, imported: 1, skipped: 0, errors: [], files: [file] }
+  },
+  memoryOrganize: (input) => {
+    rec('memoryOrganize', [input])
+    cloneGuard('memoryOrganize', [input])
+    return {
+      ok: true, mode: 'handoff', count: 2,
+      sources: [
+        { id: 'log:demo', project: 'demo', title: '测试日志', text: '用户说：先读文件再改。' },
+        { id: 'task:demo', project: '', title: '测试任务', text: '结论：先报路径。' },
+      ],
+      prompt: '[source: log:demo] 测试日志\n用户说：先读文件再改。\n\n请用 memory_write 逐条写入；只能落待审批。',
+    }
   },
 
   /**
@@ -2560,8 +2652,14 @@ contextBridge.exposeInMainWorld('tegula', {
     return {
       months: [
         // 金额三态各来一条（2026-10-25 卡 005）：十月有金额且 1 笔未折算；九月纯未折算
-        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }] },
-        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, external_calls: 0, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }] },
+        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, new_input_tokens: 70, cache_read_tokens: 20, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }], days: [
+          { date: '2026-10-01', calls: 1, new_input_tokens: 30, completion_tokens: 10, total_tokens: 30 },
+          { date: '2026-10-02', calls: 1, new_input_tokens: 25, completion_tokens: 20, total_tokens: 45 },
+          { date: '2026-10-03', calls: 1, new_input_tokens: 15, completion_tokens: 10, total_tokens: 35 },
+        ] },
+        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, new_input_tokens: 8, cache_read_tokens: 2, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, external_calls: 0, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }], days: [
+          { date: '2026-09-01', calls: 1, new_input_tokens: 8, completion_tokens: 5, total_tokens: 500 },
+        ] },
       ],
     }
   },

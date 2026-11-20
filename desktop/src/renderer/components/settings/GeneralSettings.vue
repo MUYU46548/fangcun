@@ -2,7 +2,7 @@
   设置 · 通用（2026-10-30 App.vue 拆分第七刀）：版本与更新 / 外观主题 / 外观形态 / 念头上限 / 顶部工具栏。状态仍留在 App，经 provide("fc-settings") 共享。
 -->
 <script setup lang="ts">
-import { inject } from 'vue'
+import { inject, onMounted, ref } from 'vue'
 import Button from '../ui/Button.vue'
 
 defineProps<{ active: boolean }>()
@@ -10,6 +10,39 @@ const ctx: any = inject('fc-settings')
 const {
   appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName, onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
 } = ctx
+
+// ── 记忆开关（2026-11-20）────────────────────────────────────────────
+// 真身 prefs.json；缺省开（键不存在 = 开）。只关 agent 的自动读写，
+// 记忆页照常可看可管 —— 否则用户想静音只能删数据。
+const memoryEnabled = ref(true)
+const memoryInjectCore = ref(true)
+const memoryBriefing = ref(true)
+const memoryMsg = ref('')
+
+async function loadMemoryPrefs(): Promise<void> {
+  try {
+    const p: any = await (window as any).tegula.prefsGet()
+    memoryEnabled.value = p?.memoryEnabled !== false
+    memoryInjectCore.value = p?.memoryInjectCore !== false
+    memoryBriefing.value = p?.memoryBriefing !== false
+  } catch { /* 读不到偏好按开处理；不挡设置页 */ }
+}
+
+async function saveMemoryPrefs(): Promise<void> {
+  memoryMsg.value = '存…'
+  try {
+    const r: any = await (window as any).tegula.prefsSetMany({
+      memoryEnabled: memoryEnabled.value,
+      memoryInjectCore: memoryInjectCore.value,
+      memoryBriefing: memoryBriefing.value,
+    })
+    memoryMsg.value = r?.ok === false ? ('没存进去：' + (r?.error || '未知原因')) : '已保存（立即生效）'
+  } catch (e: any) {
+    memoryMsg.value = '没存进去：' + (e?.message || e)
+  }
+}
+
+onMounted(loadMemoryPrefs)
 </script>
 
 <template>
@@ -112,5 +145,25 @@ const {
             <div class="sect-btns">
               <Button variant="ghost" size="tool" @click="resetCollapsedViews">恢复默认（日常工作区）</Button>
             </div>
+          </div>
+          <!-- 记忆开关（2026-11-20）：一个总开关 + 两个子开关。
+               只影响 agent 的自动读写；记忆页照常可看可管。默认开（键不存在 = 开）。 -->
+          <div class="sect" v-show="active">
+            <h4>记忆</h4>
+            <div class="hint">
+              记忆是方寸的可选功能。这里只控制 <b>agent 会不会自动读记忆</b>；
+              关掉后数据还在，记忆页照常能看、能改。
+            </div>
+            <label class="chk mem-pref"><input type="checkbox" v-model="memoryEnabled" @change="saveMemoryPrefs" />
+              启用记忆（默认开）
+            </label>
+            <label class="chk mem-pref"><input type="checkbox" v-model="memoryInjectCore" :disabled="!memoryEnabled" @change="saveMemoryPrefs" />
+              开工时自动带上常读记忆（最多 800 字）
+            </label>
+            <label class="chk mem-pref"><input type="checkbox" v-model="memoryBriefing" :disabled="!memoryEnabled" @change="saveMemoryPrefs" />
+              开工时按项目给一份提醒（最多 5 条）
+            </label>
+            <div class="hint">「开工常读」是在记忆页勾了「开工时常读」的那几条；这里不用逐条挑。</div>
+            <div class="hint" v-if="memoryMsg">{{ memoryMsg }}</div>
           </div>
 </template>

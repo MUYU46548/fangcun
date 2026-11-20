@@ -21,7 +21,8 @@ import { checkIntake } from '../services/intake'
 import { archForProject } from '../services/projectArch'
 // 记忆层（2026-11-17）：暮雨「方寸要管记忆，当 DSH 的记忆层」。
 // 读口直接读源文件；写口只写 memory/，**永远不碰 task-data/**（塞进去会被 parseTask 当任务卡扫）。
-import { searchMemory, readMemory, memoryOverview, MEMORY_TYPES, MEMORY_STATUSES } from '../services/memory'
+import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET } from '../services/memory'
+import { getPref } from '../services/prefs'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
 import { gateForDeck } from '../data/qnGate'
@@ -68,6 +69,28 @@ function reworkOf(fm: any): { is_rework: boolean; reason: string } {
 }
 
 // ── Tool Definitions ────────────────────────────────────────────────────
+
+/**
+ * 记忆开关（2026-11-20）：缺省开（`!== false`），关掉后 agent 的五个出口都说"已关闭"。
+ *
+ * ⚠ 只关 agent 的自动读写；记忆页（IPC）照常能用 —— 否则用户想静音只能删数据。
+ * ⚠ 读 prefs 失败（纯 Node 测试没有 electron app）按"开"处理，不把测试/启动搞挂。
+ */
+function memoryOff(): MCPToolResult | null {
+  let enabled = true
+  try { enabled = getPref('memoryEnabled') !== false } catch { enabled = true }
+  if (enabled) return null
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify({
+        ok: true,
+        enabled: false,
+        hint: '记忆已关闭（方寸 → 设置 → 通用 → 记忆）。关掉 ≠ 没有记忆：数据还在，记忆页照常可看可管。',
+      }, null, 2),
+    }],
+  }
+}
 
 export const MCP_TOOLS: MCPTool[] = [
   {
@@ -403,29 +426,100 @@ export const MCP_TOOLS: MCPTool[] = [
     name: 'memory_search',
     description: 'READ-ONLY. Search 方寸记忆 (memory/*.md): past incidents, lessons and cross-project 纪律. '
       + 'It answers "what happened / which rule was bought with a real loss / which applies across projects", '
-      + 'NOT "what to do next" (that is a task card). Returns pointers plus a short summary — '
-      + 'use memory_read to get the verbatim text. Revoked entries are excluded unless includeRevoked is true.',
+      + 'NOT "what to do next" (that is a task card). Results are ranked by relevance × confidence × importance '
+      + '× freshness × usage, and each row carries only the one-line claim (never the full evidence) — '
+      + 'use memory_read for the verbatim evidence. Revoked entries are excluded unless includeRevoked is true; '
+      + 'pending agent proposals are excluded unless includePending is true (they are not effective yet).',
     inputSchema: {
       type: 'object',
       properties: {
-        q: { type: 'string', description: 'Full-text keyword; searches title/summary/tags and the original text' },
+        q: { type: 'string', description: 'Full-text keyword; ranked over claim / tags / evidence, and the id (e.g. D5)' },
         type: { type: 'string', description: `One of: ${MEMORY_TYPES.join(' / ')}` },
         scope: { type: 'string', description: '适用范围, e.g. 跨项目' },
         project: { type: 'string', description: 'Project id, e.g. dsh-fangcun' },
         includeRevoked: { type: 'boolean', description: 'Include 已撤销 entries (default false)' },
-        limit: { type: 'integer', description: 'Max rows (default 50)' },
+        includePending: { type: 'boolean', description: 'Include 待审批 agent proposals (default false)' },
+        limit: { type: 'integer', description: 'Max rows (default 10, max 50) — each row is a one-line claim + metadata, never the full evidence' },
       },
     },
   },
   {
     name: 'memory_read',
-    description: 'READ-ONLY. Read one memory entry verbatim by its `file` path from memory_search '
-      + '(e.g. memory/incidents/xxx.md). Refuses any path outside memory/. '
-      + 'The original text is never summarized — the details ARE the value.',
+    description: 'READ-ONLY. Read one memory entry by its `file` path from memory_search '
+      + '(e.g. memory/claims/xxx.md). Refuses any path outside memory/. Returns the verbatim evidence; '
+      + 'pass `anchor` (e.g. "D5") to read only that section of a long evidence file — '
+      + 'a missing anchor is an error, never a silent full-file dump.',
     inputSchema: {
       type: 'object',
-      properties: { file: { type: 'string', description: 'Relative path from memory_search, e.g. memory/lessons/x.md' } },
+      properties: {
+        file: { type: 'string', description: 'Relative path from memory_search, e.g. memory/claims/x.md' },
+        maxChars: {
+          type: 'integer',
+          description: 'Max characters returned (default 8000, max 200000). Truncation is reported, never silent.',
+        },
+        anchor: {
+          type: 'string',
+          description: 'Optional section heading inside the evidence file, e.g. D5 or 事故经过; not found → error.',
+        },
+      },
       required: ['file'],
+    },
+  },
+  {
+    name: 'memory_core',
+    description: 'READ-ONLY. Fixed core memory (memory/core.md): the small, generated block of pinned claims '
+      + 'that is safe to inject into every session (hard cap 800 chars). Full evidence is NEVER injected; use '
+      + 'memory_search / memory_read on demand. This is the only memory content fangcun_context auto-injects — '
+      + 'a generated core, not a dynamic top-N of all memories. If the memory switch is off, it returns '
+      + 'enabled:false with a clear hint instead of pretending the core is missing.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'memory_write',
+    description: 'PROPOSE a 方寸 memory entry for user approval. Writes ONLY under memory/ and ALWAYS lands as '
+      + '状态: 待审批 — the user must approve it in the 记忆 page; you cannot make it effective, and default '
+      + 'memory_search will not return it. Use when the user explicitly asks to record an incident/lesson, '
+      + 'or when a lesson was bought with a real loss. One memory = one claim (1–2 sentences, ≤200 chars) '
+      + 'plus verbatim evidence; never summarize away the details. `claim`+`evidence` are the v2 fields; '
+      + '`title`/`body` are accepted as legacy aliases. Only one entry per claim — if a similar one exists, '
+      + 'report it to the user instead of duplicating.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: [...MEMORY_TYPES], description: '事故 / 教训 / 纪律 / 决定 / 偏好' },
+        claim: { type: 'string', description: 'One-sentence memory (≤200 chars, ideally ≤120) — the only text that gets recalled. One claim per entry.' },
+        evidence: { type: 'string', description: 'Verbatim original text / verified facts. Required (or pass legacy `body`); do not summarize.' },
+        source: { type: 'string', description: 'Where it came from: user quote / incident / file path. Required — untraceable memory is rumor.' },
+        confidence: { type: 'number', description: '0–1; agent proposals are capped at 0.8. Default 0.7.' },
+        importance: { type: 'integer', description: '1–5; 5 = irreversible loss / safety. Default 3.' },
+        project: { type: 'string', description: 'Project id, or 跨项目 (default: empty = cross-project-ish)' },
+        scope: { type: 'string', description: '适用范围, e.g. 跨项目' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
+        pinned: { type: 'boolean', description: 'Pin into the generated core (only a few; ≤8).' },
+        supersedes: { type: 'string', description: 'Optional id of the memory this one replaces; on approval the old one becomes 已撤销 + 被取代.' },
+        evidencePath: { type: 'string', description: 'Optional pointer to a long evidence file under memory/ (e.g. memory/lessons/施工纪律-跨项目.md).' },
+        evidenceAnchor: { type: 'string', description: 'Optional section heading in that evidence file (e.g. D5).' },
+        title: { type: 'string', description: 'Legacy alias for `claim` (deprecated).' },
+        body: { type: 'string', description: 'Legacy alias for `evidence` (deprecated).' },
+        impact: { type: 'string', description: 'Legacy label 严重/高/中/低 (prefer numeric `importance`).' },
+      },
+      required: ['type', 'source'],
+    },
+  },
+  {
+    name: 'memory_briefing',
+    description: 'READ-ONLY. Bounded briefing of EFFECTIVE memories relevant to one project: entries whose '
+      + '`项目` is that project or 跨项目, ranked by importance / freshness / usage. Pending agent proposals '
+      + 'and revoked entries are excluded. Returns one-line claims + metadata only — use memory_read for the '
+      + 'verbatim evidence. Call it before starting work on a project; it is how past incidents/lessons enter '
+      + 'the current context (default 5 claims, ≤800 chars).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
+        limit: { type: 'integer', description: 'Max rows (default 5, max 20)' },
+      },
+      required: ['project'],
     },
   },
   {
@@ -627,78 +721,15 @@ export const MCP_TOOLS: MCPTool[] = [
       required: ['id'],
     },
   },
-  // ── 日志写口（2026-10-29 暮雨第 7 条）────────────────────────────────
-  // 此前 MCP 只有读日志三件：agent 想建/改/归档日志只能让用户在界面上点。
-  // 四条写工具与桌面版同一套 services/logs，不存在第二套写路径。
-  {
-    name: 'create_log',
-    description: 'Create an execution log (方寸执行日志). ⚠ ONLY when the user explicitly asks for a log — '
-      + 'it is the user\'s private context notebook, NOT the place to report work. '
-      + 'Requires userAsked: true, otherwise the call is rejected. '
-      + 'To close out work use update_task (+ move_status → 待验收) instead.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        userAsked: { type: 'boolean', description: 'Must be true — set it only when the user explicitly asked you to write a log' },
-        title: { type: 'string', description: 'Log title (required)' },
-        project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
-        content: { type: 'string', description: 'What was done (Markdown; the body of the log)' },
-        nextSteps: { type: 'string', description: 'What the next agent should do' },
-        taskId: { type: 'string', description: 'Single related task id (legacy field)' },
-        taskIds: { type: 'array', items: { type: 'string' }, description: 'Related task ids' },
-        priority: { type: 'string', description: '高 | 中 | 低 (leave empty for unmarked)' },
-        agentName: { type: 'string', description: 'Who wrote it (agent name)' },
-        continueFrom: { type: 'string', description: 'Previous log id this one continues (接力)' },
-      },
-      required: ['title'],
-    },
-  },
-  {
-    name: 'update_log',
-    description: 'Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). Lifecycle fields (status) are NOT here — use set_log_status. Content edits leave an "edited" stamp on the card.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Log ID' },
-        title: { type: 'string' },
-        content: { type: 'string' },
-        nextSteps: { type: 'string' },
-        project: { type: 'string' },
-        taskIds: { type: 'array', items: { type: 'string' }, description: 'Pass [] to clear the links' },
-        priority: { type: 'string', description: '高 | 中 | 低 | empty to clear' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'set_log_status',
-    description:
-      'Mark a log as running (进行中) or idle (取消进行中). That is ALL an agent may do to a log. '
-      + 'Logs are execution records, NOT acceptance items: there is no request_close / cancel_close. '
-      + 'When the work is done, move the linked TASK to 待验收 with move_status — 完成 / 驳回 stay user-only sign-off. '
-      + 'complete / archive / reopen on a log are USER-ONLY and are rejected here.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Log ID' },
-        action: { type: 'string', description: 'running | idle' },
-        note: { type: 'string', description: 'Optional note appended to the log' },
-      },
-      required: ['id', 'action'],
-    },
-  },
-  {
-    name: 'attach_log_files',
-    description: 'Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. Files are COPIED into the data dir under docs/执行日志/_attachments/<logId>/ — the source is untouched. Returns each attachment with its absolute path.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Log ID' },
-        paths: { type: 'array', items: { type: 'string' }, description: 'Absolute local file paths' },
-      },
-      required: ['id', 'paths'],
-    },
-  },
+  // ── 日志写口：agent 零写权限（2026-11-19 暮雨拍板）────────────────────
+  // 原话：「AI 自动写日志我记得已经禁了（因为很乱，日志本来就是用户自己存上下文的地方，
+  //        AI 自己写让人搞不懂哪些没做）」。
+  // 查实三处漏：① create_log 的 `userAsked` 是模型自己填的，闸只证明了"模型说用户同意"；
+  // ② update_log 当时没有任何闸（6dzpgc 就是 05:07 被它从 3.6K 改成 17K 的）；
+  // ③ 05:18 的 4pxuly 连 create_log 审计都没有 —— 走的是 CLI 旁路。
+  // 所以 agent 面**不再提供任何日志写工具**（建 / 改 / 状态 / 挂附件全部移除），
+  // 只保留读：list_logs / search_logs / get_log / inject_logs。
+  // 写入只允许在方寸界面（logs:create / update / complete / archive / destroy）。
   {
     name: 'inject_logs',
     description: 'Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same round). Use this when a work order must carry a main log plus side logs (e.g. progress notices from parallel work) — injecting only the main log loses the other half. Read-only.',
@@ -1598,6 +1629,8 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     }
 
     case 'memory_search': {
+      const off = memoryOff()
+      if (off) return off
       // 记忆层（2026-11-17）：读口直接读源文件，不走索引 —— 索引是派生数据，源才是真相。
       const r = searchMemory({
         q: String(args.q || '').trim() || undefined,
@@ -1605,6 +1638,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         scope: String(args.scope || '').trim() || undefined,
         project: String(args.project || '').trim() || undefined,
         includeRevoked: args.includeRevoked === true,
+        includePending: args.includePending === true,
         limit: Number(args.limit) || undefined,
       })
       const ov = memoryOverview()
@@ -1612,32 +1646,156 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         ok: true,
         total: r.total,
         returned: r.rows.length,
-        truncated: r.total > r.rows.length,
+        truncated: r.truncated,
+        dropped: r.dropped,
+        chars: r.chars,
+        legacy: r.legacy,
         // 空库要说清是「还没录」而不是「筛出来没有」——混着说会让人以为记忆是空的
         hint: r.total === 0 ? (ov.total === 0
           ? '记忆库还没有任何条目 —— 这不是“筛出来没有”，是还没录过。'
-          : `筛出来 0 条（库中共 ${ov.total} 条）。放宽条件试试 includeRevoked=true 或去掉 type。`) : '',
-        overview: { total: ov.total, effective: ov.effective, revoked: ov.revoked, byType: ov.byType },
+          : (ov.pending > 0 && !args.includePending
+            ? `筛出来 0 条；另有 ${ov.pending} 条待审批（默认不返回）。要看待审批用 includePending=true，或让用户在记忆页通过。`
+            : `筛出来 0 条（库中共 ${ov.total} 条）。放宽条件试试 includeRevoked=true / includePending=true 或去掉 type。`)) : '',
+        overview: {
+          total: ov.total, effective: ov.effective, pending: ov.pending, revoked: ov.revoked,
+          claims: ov.claims, legacy: ov.legacy, evidence: ov.evidence, pinned: ov.pinned, byType: ov.byType,
+        },
         items: r.rows.map((x) => ({
           id: x.id, type: x.type, scope: x.scope, project: x.project, time: x.time,
-          status: x.status, impact: x.impact, title: x.title, summary: x.summary,
+          status: x.status, impact: x.impact, claim: x.claim, title: x.claim, summary: x.claim,
+          confidence: x.confidence, importance: x.importance, score: x.score,
+          evidencePath: x.evidencePath, legacy: x.legacy,
           file: x.file, tags: x.tags,
         })),
-        next: '要原文用 memory_read({file})。检索只给指针与摘要 —— 记忆可能很长，一股脑塞进上下文没意义。',
+        next: '要原文/证据用 memory_read({file})；长证据带 anchor（如 D5）只取那一节。检索只给 claim，不塞正文。',
       }, null, 2) }] }
     }
 
     case 'memory_read': {
-      const r = readMemory(String(args.file || ''))
+      const off = memoryOff()
+      if (off) return off
+      const r = readMemory(String(args.file || ''), Number(args.maxChars) || 8000, String(args.anchor || ''))
       if (!r.ok) {
         // 拒绝要说清为什么，不许静默返回空
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false,
           error: r.error || '读不到',
-          hint: '只接受 memory_search 返回的 file（必须以 memory/ 开头，且不含 ..）。',
+          hint: '只接受 memory_search 返回的 file（必须以 memory/ 开头，且不含 ..）。anchor 找不到会报错，不会没有任何提示地返回全文。',
         }, null, 2) }], isError: true }
       }
-      return { content: [{ type: 'text', text: String(r.text || '') }] }
+      let text = String(r.text || '')
+      if (r.truncated) {
+        // 截断必须明说：静默少给会让模型以为"原文就这些"
+        text += `\n\n[已截断：原文 ${r.chars} 字符，只返回前 ${text.length} 字符。`
+          + '要更多用 maxChars（上限 200000）；仍不够就直接读文件。]'
+      }
+      return { content: [{ type: 'text', text }] }
+    }
+
+    case 'memory_core': {
+      const off = memoryOff()
+      if (off) {
+        const ov = memoryOverview()
+        // 老插件只认 text/chars/budget/archived/truncated；给一行明说，别让它以为 core.md 没写
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: true,
+          enabled: false,
+          text: '（记忆开关已关闭）',
+          chars: 0,
+          budget: MEMORY_CORE_BUDGET,
+          archived: ov.effective,
+          truncated: false,
+          missing: false,
+          pinnedCount: 0,
+          hint: '记忆已关闭（方寸 → 设置 → 通用 → 记忆）。关掉 ≠ 没有记忆：数据还在，记忆页照常可看可管。',
+        }, null, 2) }] }
+      }
+      const c = memoryCore()
+      const ov = memoryOverview()
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: c.ok,
+        enabled: true,
+        text: c.text,
+        chars: c.chars,
+        budget: c.budget,
+        truncated: c.truncated,
+        missing: c.missing,
+        updatedAt: c.updatedAt,
+        pinnedCount: c.pinnedCount,
+        generated: c.generated,
+        archived: ov.effective,
+        hint: c.missing
+          ? '固定核心还没生成（memory/core.md）；归档里有记忆，按需用 memory_search / memory_read，不要全量注入。'
+          : (c.truncated
+            ? `核心超过 ${c.budget} 字，已截断 —— 请减少钉住条目或精简 core.manual.md，不要把完整事故塞进来。`
+            : '这是生成的核心（钉住 claim，≤800 字）。完整证据用 memory_search 找指针、memory_read 取正文；不会自动注入。'),
+      }, null, 2) }] }
+    }
+
+    case 'memory_write': {
+      const off = memoryOff()
+      if (off) return off
+      // 2026-11-19：agent 唯一写入口。**永远落「待审批」**，不能自批自收。
+      const r = createMemory({
+        type: String(args.type || '').trim(),
+        claim: String(args.claim || args.title || '').trim(),
+        evidence: String(args.evidence || args.body || ''),
+        source: String(args.source || '').trim(),
+        confidence: args.confidence !== undefined ? Number(args.confidence) : undefined,
+        importance: args.importance !== undefined ? Number(args.importance) : undefined,
+        pinned: args.pinned === true,
+        project: String(args.project || '').trim(),
+        scope: String(args.scope || '').trim(),
+        impact: String(args.impact || '').trim(),
+        supersedes: String(args.supersedes || '').trim(),
+        code: String(args.code || '').trim(),
+        evidencePath: String(args.evidencePath || '').trim(),
+        evidenceAnchor: String(args.evidenceAnchor || '').trim(),
+        tags: Array.isArray(args.tags) ? args.tags.map((x: any) => String(x)) : [],
+      }, { pending: true })
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: r.error,
+          duplicate: r.duplicate || undefined,
+          hint: r.duplicate
+            ? '已有类似记忆。把它报给用户，让用户决定是否取代；不要换个说法再写一条。'
+            : 'claim 与证据都必填；一条只讲一件事。',
+        }, null, 2) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        file: r.file,
+        id: r.id,
+        claim: r.claim,
+        status: '待审批',
+        hint: '已落「待审批」。用户在记忆页点「通过」后才算有效；默认 memory_search 不会返回它。',
+      }, null, 2) }] }
+    }
+
+    case 'memory_briefing': {
+      const off = memoryOff()
+      if (off) return off
+      const project = String(args.project || '').trim()
+      if (!project) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false, error: '需要 project', hint: '传项目 id，例如 fangcun-base。',
+        }, null, 2) }], isError: true }
+      }
+      const b = memoryBriefing(project, Number(args.limit) || 5)
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        project: b.project,
+        total: b.total,
+        returned: b.returned,
+        truncated: b.truncated,
+        dropped: b.dropped,
+        chars: b.chars,
+        items: b.items,
+        hint: b.total === 0
+          ? '这个项目还没有有效记忆（不是读不到）。'
+          : '要原文/证据用 memory_read({file})；简报只给 claim，不塞正文。',
+      }, null, 2) }] }
     }
 
     case 'stage_plan_get': {
@@ -1982,107 +2140,11 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
       }, null, 2) }] }
     }
 
-    // ── 日志写口（2026-10-29 暮雨第 7 条）──────────────────────────────
-    // 事实核对：MCP 此前**只有读日志三件**（list/search/get），写口一个都没有 ——
-    // 所以 agent 说"我改不了它的状态，只能在界面上点"是对的。
-    // 补齐四条：建 / 改 / 状态流转 / 挂附件。语义与主进程 IPC 完全同源（都调 services/logs），
-    // 不新开第二套写路径。
-    case 'create_log': {
-      // 2026-11-08 暮雨第 3 条：“为什么 AI 还在未经我同意的情况下擅自写日志（那些内容本来应该写任务）？”
-      // 2026-11-03 的口径早就写在技能卡里（“执行日志是用户自己记上下文的私人笔记，agent 不写”），
-      // 但**只在文档里拦不住** —— 工具在，模型就会用。这里改成工具层硬拦：
-      // 不带 userAsked: true 一律拒绝，并把 AI 该走的出口直接写在错误里。
-      if (args.userAsked !== true) {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false,
-          error: '执行日志是用户自己记上下文的私人笔记，AI 不主动写（2026-11-03 用户拍板）。',
-          howTo: '干完活的收口动作是 update_task（把做了什么/判据写进卡正文）+ move_status → 待验收。'
-            + '只有用户明确说“记一条日志”时，才带 userAsked: true 再调本工具。',
-          suggested: ['update_task', 'intake_task', 'move_status'],
-        }) }], isError: true }
-      }
-      const r = logs.createLog(
-        String(args.title || '').trim(),
-        String(args.project || '').trim(),
-        String(args.content || ''),
-        args.taskId ? String(args.taskId) : undefined,
-        {
-          nextSteps: args.nextSteps ? String(args.nextSteps) : '',
-          taskIds: Array.isArray(args.taskIds) ? args.taskIds.map((x: any) => String(x)) : [],
-          priority: args.priority ? String(args.priority) : '',
-          agentName: args.agentName ? String(args.agentName) : '',
-          continueFrom: args.continueFrom ? String(args.continueFrom) : '',
-        },
-      )
-      if (!r.ok || !r.data) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '创建失败' }) }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({
-        ok: true, id: r.data.id, title: r.data.title, project: r.data.project,
-        status: logs.logStatusText(r.data), created: r.data.created,
-        hint: '后面用 attach_log_files 挂附件；日志只记过程 —— 本轮做完把关联任务移到“待验收”（move_status），完成/驳回由用户点。',
-      }) }] }
-    }
-
-    case 'update_log': {
-      const id = String(args.id || '')
-      const r = logs.updateLog(id, {
-        ...(args.title !== undefined ? { title: String(args.title) } : {}),
-        ...(args.content !== undefined ? { content: String(args.content) } : {}),
-        ...(args.nextSteps !== undefined ? { nextSteps: String(args.nextSteps) } : {}),
-        ...(args.project !== undefined ? { project: String(args.project) } : {}),
-        ...(args.taskIds !== undefined ? { taskIds: Array.isArray(args.taskIds) ? args.taskIds.map((x: any) => String(x)) : [] } : {}),
-        ...(args.priority !== undefined ? { priority: String(args.priority) } : {}),
-      })
-      if (!r.ok || !r.data) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '更新失败' }) }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: r.data.id, status: logs.logStatusText(r.data) }) }] }
-    }
-
-    case 'set_log_status': {
-      const id = String(args.id || '')
-      const action = String(args.action || '')
-      // 2026-11-01 暮雨：“日志有被滥用的迹象……它们不是应该进任务看板的待验收吗？”
-      // 对。**签字对象是任务卡，不是日志**：日志只记过程，AI 干完把任务移到“待验收”。
-      // 所以 request_close / cancel_close 这套“日志收口”彻底取消；完成/归档/退回仍是用户点。
-      if (action === 'request_close' || action === 'cancel_close') {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false,
-          error: '日志不再有“等你确认”：收口属于任务卡，不属于日志。'
-            + '请用 move_status 把关联任务移到“待验收”，日志只记过程；完成/驳回由用户点。',
-          allowed: ['running', 'idle'],
-        }) }], isError: true }
-      }
-      if (action === 'complete' || action === 'archive' || action === 'reopen') {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false,
-          error: `“${action}”只能由用户在界面点：完成/归档/退回是签字，不是干活。`
-            + 'AI 的收口动作只有一个：move_status 把关联任务移到“待验收”。',
-          allowed: ['running', 'idle'],
-        }) }], isError: true }
-      }
-      let r: any
-      if (action === 'running') {
-        r = logs.setLogRunning(id, true)
-      } else if (action === 'idle') {
-        r = logs.setLogRunning(id, false)
-      } else {
-        return { content: [{ type: 'text', text: `Unknown action: ${action} (running | idle)` }], isError: true }
-      }
-      if (!r || !r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r?.error || '状态没改成功' }) }], isError: true }
-      return { content: [{ type: 'text', text: JSON.stringify({
-        ok: true, id,
-        status: r.data ? logs.logStatusText(r.data) : action,
-      }) }] }
-    }
-
-    case 'attach_log_files': {
-      const id = String(args.id || '')
-      const paths = (Array.isArray(args.paths) ? args.paths : []).map((p: any) => String(p || '')).filter(Boolean)
-      if (!paths.length) return { content: [{ type: 'text', text: 'paths 不能为空（传本机绝对路径）' }], isError: true }
-      const r = logs.addAttachments(id, paths)
-      if (!r.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: r.error || '挂附件失败' }) }], isError: true }
-      // 回传挂上之后的绝对路径 —— 让 agent 下次能直接读回来核对
-      const atts = (r.data?.attachments || []).map((rel: string) => ({ rel, abs: logs.resolveAttachment(rel) || '' }))
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, count: atts.length, attachments: atts }) }] }
-    }
+    // ── 日志写口已对 agent 关闭（2026-11-19）────────────────────────────
+    // 原来的 create_log / update_log / set_log_status / attach_log_files 四个 case 已删除。
+    // 别在这里补回来：执行日志是用户自己存上下文的私人笔记，AI 只读不写；
+    // 写入只走界面 IPC（logs:create / logs:update / logs:complete / logs:archive / logs:destroy）。
+    // 收工回写仍走 update_task + move_status → 待验收。
 
     // ── 多日志一起灌（2026-10-29 暮雨第 6 条：“主日志带多条副日志一起进开工单”）──
     // 真实用法长出来的需求：一条主日志讲这一轮干了什么，另几条是并行通道的进度通知；

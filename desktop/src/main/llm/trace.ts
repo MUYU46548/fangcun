@@ -443,6 +443,14 @@ export interface MonthUsage {
   /** 其中**外部上报**的笔数（DSH / Hermes 等别的客户端自己报的，不是方寸实测） */
   external_calls: number
   byTrigger: Array<{ trigger: string; calls: number; total_tokens: number }>
+  /** 按天（本地自然日）：只给趋势图/预测用，不替代月度汇总 */
+  days: Array<{
+    date: string
+    calls: number
+    new_input_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  }>
 }
 
 /**
@@ -471,7 +479,10 @@ export function usageByMonth(months = 3): MonthUsage[] {
   const zero = parseAmount('0') ?? 0n
 
   // 累加期用一个内部类型带 BigInt 和；出参时摘掉（MonthUsage 里不该有 bigint，过不了 IPC 克隆）
-  type MonthAcc = MonthUsage & { _costSum: bigint; _extCalls: number; _unattrCalls: number }
+  type DayAcc = { date: string; calls: number; new_input_tokens: number; completion_tokens: number; total_tokens: number }
+  type MonthAcc = MonthUsage & {
+    _costSum: bigint; _extCalls: number; _unattrCalls: number; _days: Map<string, DayAcc>
+  }
   const map = new Map<string, MonthAcc>()
   for (const x of r.records) {
     const m = monthKey(String(x.ts || ''))
@@ -481,7 +492,7 @@ export function usageByMonth(months = 3): MonthUsage[] {
       prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
       cache_read_tokens: 0, new_input_tokens: 0, unattributed_pct: 0,
       cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 0, external_calls: 0,
-      byTrigger: [], _costSum: zero, _extCalls: 0, _unattrCalls: 0,
+      byTrigger: [], days: [], _costSum: zero, _extCalls: 0, _unattrCalls: 0, _days: new Map(),
     }
     cur.calls++
     if (x.origin === 'external') cur.external_calls++
@@ -514,6 +525,26 @@ export function usageByMonth(months = 3): MonthUsage[] {
         cur.unpriced_calls++
       }
     }
+    // 按天累计（趋势图/预测用）：时间戳认不出就当这天不存在，不替它编日期
+    const ts = parseTs(String(x.ts || ''))
+    if (Number.isFinite(ts)) {
+      const dt = new Date(ts)
+      const dayKey = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+      let day = cur._days.get(dayKey)
+      if (!day) {
+        day = { date: dayKey, calls: 0, new_input_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        cur._days.set(dayKey, day)
+      }
+      day.calls++
+      if (hasTok(x)) {
+        if (typeof x.prompt_tokens === 'number' && Number.isFinite(x.prompt_tokens)) {
+          const p = num(x.prompt_tokens)
+          day.new_input_tokens += p - Math.min(p, cacheReadOf(x))
+        }
+        day.completion_tokens += num(x.completion_tokens)
+        day.total_tokens += num(x.total_tokens)
+      }
+    }
     const g = String(x.trigger || '(未记录)')
     const t = cur.byTrigger.find((y) => y.trigger === g)
     if (t) { t.calls++; t.total_tokens += num(x.total_tokens) }
@@ -525,12 +556,13 @@ export function usageByMonth(months = 3): MonthUsage[] {
     .sort((a, b) => b.month.localeCompare(a.month))
     .slice(0, limit)
     .map((m) => {
-      const { _costSum, _extCalls, _unattrCalls, ...rest } = m as MonthAcc
+      const { _costSum, _extCalls, _unattrCalls, _days, ...rest } = m as MonthAcc
       return {
         ...rest,
         unattributed_pct: _extCalls ? Math.round((_unattrCalls / _extCalls) * 1000) / 10 : 0,
         cost: formatAmount(_costSum, 8),
         byTrigger: m.byTrigger.sort((a, b) => b.calls - a.calls),
+        days: [..._days.values()].sort((a, b) => a.date.localeCompare(b.date)),
       }
     })
 }

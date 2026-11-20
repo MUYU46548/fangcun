@@ -59,9 +59,14 @@ child.stderr.on('data', (d) => {
 })
 
 child.on('close', (code) => {
+  // 2026-11-19（卡「施工当前真点击 e2e…」）：**SKIP 不再是"不算失败"**。
+  // 理由：这一层是唯一能证明"按钮在、点下去有反应"的东西；它一跳过，
+  // 上层所有"机器判据"就都是空转，而 SKIP 还退出 0 —— 假绿。
+  // 起不来就是起不来：红，并说清怎么修（桌面会话 / npm run build / electron 可执行文件）。
   if (/RESULT SKIP/.test(out)) {
-    console.log('\n渲染层 e2e 已跳过（环境无法加载页面）—— 不算失败，但也没验证到。')
-    process.exit(0)
+    console.log('\nFAIL  渲染层 e2e 被跳过：本机开不起来 ≠ 通过（SKIP 判失败）')
+    console.log('      检查：① 是否在真实桌面会话里跑；② 是否已 npm run build；③ electron 可执行文件是否存在。')
+    process.exit(1)
   }
   const m = out.match(/RESULT (\d+) \/ (\d+)/)
   if (!m) {
@@ -71,7 +76,15 @@ child.on('close', (code) => {
     console.log('      tail: ' + out.trim().split('\n').slice(-4).join(' ⏎ '))
     process.exit(1)
   }
-  console.log(`\n渲染层 e2e 汇总：${m[1]} / ${m[2]}`)
+  // 真点击数：没有 `CLICKS n`，或 n == 0，都说明这次"只读了 DOM，没点"。
+  // 那正是本套断言存在的意义（按钮在 ≠ 点得动），所以当失败处理。
+  const c = out.match(/CLICKS (\d+)/)
+  const clicks = c ? Number(c[1]) : -1
+  if (clicks <= 0) {
+    console.log('\nFAIL  渲染层 e2e 没有真点击（CLICKS ' + (clicks < 0 ? '缺失' : clicks) + '）')
+    process.exit(1)
+  }
+  console.log(`\n渲染层 e2e 汇总：${m[1]} / ${m[2]} · 真点击 ${clicks} 次`)
   process.exit(code === null ? 1 : code)
 })
 

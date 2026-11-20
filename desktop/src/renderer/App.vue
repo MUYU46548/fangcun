@@ -2337,7 +2337,7 @@ const VIEWS_COLLAPSED_KEY = 'fc_views_collapsed'
 const VIEWS_MIN_VISIBLE = MIN_VISIBLE
 /** 顶栏最多几个（2026-11-18 新增上限：再多就挤爆页面） */
 const VIEWS_MAX_VISIBLE = MAX_VISIBLE
-/** 默认收起：他点名的三个低频功能（页签 16 个、上限 13 —— 收 3 个正好 13，与 10-25 起的观感一致） */
+/** 默认收起：他点名的三个低频功能（页签 16 个、上限 13 —— 收 3 个正好 13） */
 
 const viewLayout = ref<ViewLayout>(normalizeLayout(
   readUiPref<unknown>(VIEW_LAYOUT_KEY, null),

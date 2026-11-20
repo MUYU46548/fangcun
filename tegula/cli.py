@@ -60,10 +60,9 @@ from tegula.core import (
     api_notes_for_task, api_note_import_file,
     _LOGS_DIR, _ensure_logs_dir, _gen_log_id, _parse_log, _render_log,
     _log_path, _read_log, _write_log,
-    api_log_create, api_log_get, api_log_list, api_log_update,
-    api_log_complete, api_log_archive, api_log_destroy,
-    api_log_search, api_log_link_task, api_log_unlink_task,
-    api_log_inject, api_log_cleanup,
+    api_log_get, api_log_list,
+    api_log_search,
+    api_log_inject,
     aggregate_roadmap, get_roadmap_cached, mcp_get_roadmap,
     _record_roadmap_snapshot, get_roadmap_trend,
     _detect_parallel_opportunities, _suggest_milestones, get_roadmap_full,
@@ -2078,14 +2077,20 @@ def cmd_note(args):
 
 
 def cmd_log(args):
-    """执行日志管理 CLI。"""
-    if args.log_cmd == "create":
-        ok, msg = api_log_create(args.project, args.title, args.content or "", args.task)
-        if ok:
-            print(f"已创建执行日志: {msg}")
-        else:
-            print(f"创建失败: {msg}")
-    elif args.log_cmd == "get":
+    """执行日志管理 CLI。
+
+    ⚠ 2026-11-19 暮雨拍板：**执行日志是用户自己存上下文的私人笔记，AI 不许写**。
+    CLI 是 agent 也能跑的面，所以这里**只留读口**（get / list / search / inject）；
+    建 / 改 / 完成 / 归档 / 销毁 / 关联全部拒绝 —— 写入只在方寸界面里做。
+    （历史现场：`log_20261119050455_6dzpgc` 是 AI 用 create_log 写的，
+      `4pxuly` 连 MCP 审计都没有，走的就是 CLI 旁路。）
+    """
+    if args.log_cmd not in ("get", "list", "search", "inject"):
+        print("拒绝：执行日志只能由用户在方寸界面里写（AI / CLI 一律只读）。")
+        print("      日志是用户自己存上下文的私人笔记，不是 agent 汇报工作的地方。")
+        print("      收工回写请把结果写进任务卡正文，并把卡移到「待验收」。")
+        sys.exit(1)
+    if args.log_cmd == "get":
         entry = api_log_get(args.id)
         if entry:
             fm = entry["fm"]
@@ -2110,30 +2115,6 @@ def cmd_log(args):
         print(f"执行日志 ({len(logs)}):")
         for l in logs:
             print(f"  {l['id']} | {l['status']:<8} | {l['project']:<16} | {l['title']}")
-    elif args.log_cmd == "edit":
-        ok, msg = api_log_update(args.id, args.title, args.content, args.next_steps)
-        if ok:
-            print(f"已更新 {args.id}")
-        else:
-            print(f"更新失败: {msg}")
-    elif args.log_cmd == "complete":
-        ok, msg = api_log_complete(args.id, args.retain_days, args.note)
-        if ok:
-            print(f"已完成 {args.id}（保留 {args.retain_days or '默认7'} 天）")
-        else:
-            print(f"完成失败: {msg}")
-    elif args.log_cmd == "archive":
-        ok, msg = api_log_archive(args.id, args.note)
-        if ok:
-            print(f"已归档 {args.id}")
-        else:
-            print(f"归档失败: {msg}")
-    elif args.log_cmd == "destroy":
-        ok, msg = api_log_destroy(args.id)
-        if ok:
-            print(f"已销毁 {args.id}")
-        else:
-            print(f"销毁失败: {msg}")
     elif args.log_cmd == "search":
         results = api_log_search(args.query)
         if not results:
@@ -2142,32 +2123,12 @@ def cmd_log(args):
         print(f"搜索结果 ({len(results)}):")
         for r in results:
             print(f"  {r['id']} | {r['status']:<8} | {r['project']:<16} | {r['title']}")
-    elif args.log_cmd == "link":
-        ok, msg = api_log_link_task(args.id, args.task_id)
-        if ok:
-            print(f"已关联 {args.id} -> {args.task_id}")
-        else:
-            print(f"关联失败: {msg}")
-    elif args.log_cmd == "unlink":
-        ok, msg = api_log_unlink_task(args.id, args.task_id)
-        if ok:
-            print(f"已取消关联 {args.id} <- {args.task_id}")
-        else:
-            print(f"取消关联失败: {msg}")
     elif args.log_cmd == "inject":
         text = api_log_inject(args.id)
         if text:
             print(text)
         else:
             print("日志不存在")
-    elif args.log_cmd == "cleanup":
-        archived = api_log_cleanup()
-        if archived:
-            print(f"已归档 {len(archived)} 条超期日志:")
-            for aid in archived:
-                print(f"  {aid}")
-        else:
-            print("无超期日志")
 
 
 def cmd_export_tasks(args):
@@ -2620,8 +2581,8 @@ def main():
     nt_import.add_argument("--task", default=None, help="关联的任务 ID")
     nt_import.set_defaults(func=cmd_note)
 
-    # 执行日志 CLI
-    lg = sub.add_parser("log", help="执行日志：高频工作记录/暂存/销毁")
+    # 执行日志 CLI（2026-11-19 起只读：写动作只在方寸界面；agent 不许写日志）
+    lg = sub.add_parser("log", help="执行日志：只读（get/list/search/inject）—— 写入只在方寸界面")
     lg_sub = lg.add_subparsers(dest="log_cmd")
     lg_create = lg_sub.add_parser("create", help="创建执行日志")
     lg_create.add_argument("--project", required=True, help="项目 id")

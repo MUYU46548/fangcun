@@ -455,6 +455,9 @@ function main() {
       // 2026-10-25：念头长度上限滑块（暮雨第 3 条跟进）—— 拍“拉到 15000”的成品态，
       // 目检就两件事：滑块位置对得上数值、数值与轨道在同一行不换行不溢出。
       ['设置', '', 'settings-idea-limit', 'idealimit'],
+      // 2026-11-20：记忆开关（默认开）—— 拍「通用」底部的记忆小节，目检三件事：
+      // 总开关在、两个子开关在、说明写清"只影响 agent 自动读写"。
+      ['设置', '', 'settings-memory', 'memset'],
       // 2026-10-25：新建日志弹窗的附件区（暮雨第 4 / 7 条）—— 要点：按钮不再置灰、
       // 有“Ctrl+V 粘图”提示、粘一张图后出现“待挂 1 个”的虚线胶囊。
       ['日志', '', 'log-new-attach', 'lognew'],
@@ -1171,6 +1174,13 @@ function main() {
   const nb = all('.memory-view button').find((b) => (b.textContent || '').indexOf('记一条') >= 0)
   if (nb) nb.click()
   await sleep(700)
+` : ''}
+  ${extra === 'memset' ? `
+  // 2026-11-20：滚到设置页「记忆」小节（总开关 + 两个子开关）
+  const secs = Array.prototype.slice.call(document.querySelectorAll('#smodal .sect'))
+  const ms = secs.find((s) => (s.textContent || '').indexOf('启用记忆') >= 0)
+  if (ms) ms.scrollIntoView({ block: 'center' })
+  await sleep(500)
 ` : ''}
   ${extra === '2026-09-30' ? `
   // 日历“改法 A”的展开态：点开 9-30 那格的“+N 条”，截图里要能看到"铺满整格"的样子

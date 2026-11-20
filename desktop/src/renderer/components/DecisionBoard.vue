@@ -382,7 +382,7 @@ onMounted(refresh)
 </script>
 
 <template>
-  <div class="flex flex-col gap-3.5">
+  <div class="mx-auto flex w-full max-w-[1080px] flex-col gap-3.5">
     <!-- 页头：标题 + 状态筛选（reka-ui Tabs 当分段控件用）+ 刷新 -->
     <div class="flex flex-wrap items-center gap-2.5">
       <h3 class="mr-1 text-[16px] font-bold tracking-[0.2px]">决策记录</h3>
@@ -514,7 +514,7 @@ onMounted(refresh)
       <Button variant="primary" size="md" :disabled="busy || !newContent.trim()" @click="add">记下</Button>
     </Card>
 
-    <div class="flex max-w-[900px] flex-col gap-2.5">
+    <div class="mx-auto flex w-full max-w-[900px] flex-col gap-2.5">
       <div
         v-if="!filtered.length"
         class="flex flex-col items-center gap-2 py-11 text-[12.5px] text-[var(--ui-muted-foreground)]"

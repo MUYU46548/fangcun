@@ -18,12 +18,12 @@
 -->
 <template>
   <div class="vl-shell" @mousedown.self="$emit('close')">
-    <div class="vl-box" role="dialog" aria-label="顶部工具栏工作区">
+    <div class="vl-box" role="dialog" aria-label="顶部工具栏工作区" :data-custom="isCustom">
       <div class="vl-head">
         <h3>顶部工具栏：选个工作区</h3>
         <span class="vl-sub">
-          拖一块就能换个位置 —— 上下两个区之间拖 = 显示还是收起，同一个区里拖 = 改顺序。
-          也可以直接点它（点一下在两个区之间来回搬）。
+          预设是出厂定死的；点「自定义」后才能拖顺序 / 决定折叠。
+          自定义里：上下两区之间拖 = 显示还是收起，同一个区里拖 = 改顺序；也可以直接点一块来回搬。
         </span>
       </div>
 
@@ -40,7 +40,7 @@
         <Button
           :variant="draft.preset === 'custom' ? 'primary' : 'ghost'"
           size="tool"
-          title="自己拖出来的那套（拖动任何一块之后就会切到这里）"
+          title="从当前这套开始改；点它之后才能拖顺序 / 折叠"
           @click="draft.preset = 'custom'"
         >自定义</Button>
         <span class="vl-cur">{{ presets.find((x) => x.id === draft.preset)?.desc || '你自己拖出来的顺序' }}</span>
@@ -49,7 +49,8 @@
       <div class="vl-zones">
         <!-- 上：顶栏 -->
         <div class="vl-zone" :class="{ over: dropZone === 'on' }"
-          @dragover.prevent="onDragOver('on')" @dragleave="onDragLeave('on')" @drop.prevent="onDrop('on', -1)">
+          @dragover.prevent="isCustom && onDragOver('on')" @dragleave="onDragLeave('on')"
+          @drop.prevent="isCustom && onDrop('on', -1)">
           <div class="vl-zone-head">
             <b>顶栏</b>
             <span class="vl-count" :class="{ bad: !withinMax }">
@@ -62,13 +63,13 @@
               :key="'on-' + id"
               class="vl-item"
               :class="{ dragging: dragId === id, over: dropZone === 'on' && dropIndex === i }"
-              draggable="true"
+              :draggable="isCustom"
               :data-view="id"
-              @dragstart="onDragStart(id)"
+              @dragstart="isCustom && onDragStart(id)"
               @dragend="onDragEnd"
-              @dragover.prevent.stop="onDragOver('on', i)"
-              @drop.prevent.stop="onDrop('on', i)"
-              @click="toggleItem(id)"
+              @dragover.prevent.stop="isCustom && onDragOver('on', i)"
+              @drop.prevent.stop="isCustom && onDrop('on', i)"
+              @click="isCustom && toggleItem(id)"
             >
               <span class="vl-grip" aria-hidden="true"></span>
               <span class="vl-name">{{ labelOf(id) }}</span>
@@ -79,7 +80,8 @@
 
         <!-- 下：更多 -->
         <div class="vl-zone" :class="{ over: dropZone === 'off' }"
-          @dragover.prevent="onDragOver('off')" @dragleave="onDragLeave('off')" @drop.prevent="onDrop('off', -1)">
+          @dragover.prevent="isCustom && onDragOver('off')" @dragleave="onDragLeave('off')"
+          @drop.prevent="isCustom && onDrop('off', -1)">
           <div class="vl-zone-head">
             <b>收进「更多 ▾」</b>
             <span class="vl-count">{{ offIds.length }} 个 · 点顶栏的「更多」才看得到</span>
@@ -90,13 +92,13 @@
               :key="'off-' + id"
               class="vl-item off"
               :class="{ dragging: dragId === id, over: dropZone === 'off' && dropIndex === i }"
-              draggable="true"
+              :draggable="isCustom"
               :data-view="id"
-              @dragstart="onDragStart(id)"
+              @dragstart="isCustom && onDragStart(id)"
               @dragend="onDragEnd"
-              @dragover.prevent.stop="onDragOver('off', i)"
-              @drop.prevent.stop="onDrop('off', i)"
-              @click="toggleItem(id)"
+              @dragover.prevent.stop="isCustom && onDragOver('off', i)"
+              @drop.prevent.stop="isCustom && onDrop('off', i)"
+              @click="isCustom && toggleItem(id)"
             >
               <span class="vl-grip" aria-hidden="true"></span>
               <span class="vl-name">{{ labelOf(id) }}</span>
@@ -151,11 +153,17 @@ const draft = ref<ViewLayout>({
 const split = computed(() => splitVisible(draft.value, allIds.value))
 const onIds = computed(() => split.value.visible)
 const offIds = computed(() => split.value.hidden)
+/** 预设是出厂定死的；只有自定义能拖顺序/改折叠。 */
+const isCustom = computed(() => draft.value.preset === 'custom')
 
 const withinMin = computed(() => onIds.value.length >= MIN_VISIBLE)
 const withinMax = computed(() => onIds.value.length <= MAX_VISIBLE)
 
 const hintText = computed(() => {
+  if (!isCustom.value) {
+    const p = props.presets.find((x) => x.id === draft.value.preset)
+    return `「${p?.label || '预设'}」是出厂定死的：顺序和折叠都固定。要改顺序或折叠，先点「自定义」。`
+  }
   if (!withinMax.value) return `顶栏放了 ${onIds.value.length} 个，超过上限 ${MAX_VISIBLE} —— 收几个再说（再放就挤爆了）`
   if (!withinMin.value) return `顶栏只剩 ${onIds.value.length} 个，少于下限 ${MIN_VISIBLE} —— 都收起来就找不到工具了`
   return `顶栏 ${onIds.value.length} 个（限 ${MIN_VISIBLE}–${MAX_VISIBLE}）· 收起 ${offIds.value.length} 个 —— 满意就按保存`
@@ -179,6 +187,7 @@ const dropZone = ref<'' | 'on' | 'off'>('')
 const dropIndex = ref(-1)
 
 function onDragStart(id: string): void {
+  if (!isCustom.value) return
   dragId.value = id
 }
 function onDragEnd(): void {
@@ -202,6 +211,7 @@ function onDragLeave(zone: 'on' | 'off'): void {
  *   跨区拖动会插到差一位的位置（这类偏移在界面上表现为"拖过去了但位置怪怪的"）。
  */
 function onDrop(zone: 'on' | 'off', index: number): void {
+  if (!isCustom.value) return
   const id = dragId.value
   if (!id) return
   const seq = split.value.visible.concat(split.value.hidden) // 仅用于计算目标下标
@@ -215,18 +225,31 @@ function onDrop(zone: 'on' | 'off', index: number): void {
     if (split.value.visible.length <= MIN_VISIBLE) { dragId.value = ''; dropZone.value = ''; return }
     hide.add(id)
   }
-  // 目标区（落点区）里的顺序：拿另一区的块做"插到谁前面"的锚点
-  const zoneIds = (wantOn ? split.value.visible : split.value.hidden).filter((x) => x !== id)
+  // 目标区（落点区）里的顺序：拿落点块做锚点。
+  // ⚠ 不能拿 zoneIds[index]：zoneIds 已经剔掉被拖块，同区往后拖会整体错一位，
+  //   表现是"拖了但插到隔壁"（2026-11-19 暮雨真机：排序干脆没反应）。
+  const zoneFull = wantOn ? split.value.visible : split.value.hidden
+  const targetId = index >= 0 ? zoneFull[index] : ''
+  if (targetId && targetId === id) {
+    dragId.value = ''; dropZone.value = ''; dropIndex.value = -1
+    return
+  }
   const rest = seq.filter((x) => x !== id)
   let anchorIndex: number
-  if (index >= 0 && zoneIds[index]) {
-    anchorIndex = rest.indexOf(zoneIds[index])
+  if (targetId && targetId !== id) {
+    anchorIndex = rest.indexOf(targetId)
+    // 同区里从前往后拖：要落在目标块**后面**，才等于"换到它的位置"
+    if (zoneFull.includes(id) && zoneFull.indexOf(id) < index) anchorIndex += 1
   } else {
-    // 落到空区/末尾 = 放在目标区最后一个元素之后
+    // 落到空区/末尾/自己身上 = 放在目标区最后一个元素之后（自己身上等于不动）
+    const zoneIds = zoneFull.filter((x) => x !== id)
     const last = zoneIds[zoneIds.length - 1]
     anchorIndex = last ? rest.indexOf(last) + 1 : rest.length
   }
-  draft.value = moveView({ ...draft.value, hidden: [...hide] }, id, anchorIndex, rest)
+  // ⚠ 这里必须传**完整 seq**（含被拖的 id），不能传 rest：
+  //   moveView 内部先在 allIds 里找 dragId 的下标；传 rest 它会找不到 → 直接原样返回，
+  //   界面表现就是"拖了半天排序没反应"（2026-11-19 暮雨真机测出来的 bug）。
+  draft.value = moveView({ ...draft.value, hidden: [...hide] }, id, anchorIndex, seq)
   dragId.value = ''
   dropZone.value = ''
   dropIndex.value = -1
@@ -234,6 +257,7 @@ function onDrop(zone: 'on' | 'off', index: number): void {
 
 /** 点一下 = 在两个区之间搬（鼠标拖不动时的兜底，也是最快的单手操作） */
 function toggleItem(id: string): void {
+  if (!isCustom.value) return
   const hide = new Set(draft.value.hidden)
   const visibleCount = split.value.visible.length
   if (hide.has(id)) {

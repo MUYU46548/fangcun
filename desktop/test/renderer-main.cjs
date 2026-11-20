@@ -164,9 +164,88 @@ async function addTodoViaModal(title, opts = {}) {
   return true
 }
 
+/**
+ * 真点击计数器（2026-11-19）。
+ *
+ * 为什么要有它：这套 e2e 的价值全在"真点"，但此前**没有任何一个数**能回答
+ * "这次到底点了几下" —— 有人把点击换成读 DOM 也会全绿。
+ * 现在包住 `HTMLElement.prototype.click` 记账，跑完打印 `CLICKS n`；
+ * `scripts/test/e2e-renderer.cjs` 断言 n > 0，n == 0 直接判失败。
+ */
+async function installClickCounter() {
+  return await js(`(() => {
+    if (window.__fcClickCount != null) return true
+    window.__fcClickCount = 0
+    window.__fcClickLog = []
+    const orig = HTMLElement.prototype.click
+    HTMLElement.prototype.click = function () {
+      try {
+        window.__fcClickCount++
+        const el = this
+        const t = (el.textContent || '').trim().slice(0, 24)
+        window.__fcClickLog.push((el.tagName || '?') + (el.id ? '#' + el.id : '') + (t ? ':' + t : ''))
+        if (window.__fcClickLog.length > 400) window.__fcClickLog.shift()
+      } catch (e) { /* 计数不许影响点击本身 */ }
+      return orig.apply(this, arguments)
+    }
+    return true
+  })()`)
+}
+
+/**
+ * 派单闸（2026-11-19 · 卡「施工当前真点击 e2e…」）。
+ *
+ * 判据（只有两条，别加戏）：
+ *   ① **没有用户点击 → 不产生派单**（会话数 0）；
+ *   ② 真点一次「发送给 DSH」→ 才产生一份（项目 demo / kind=work）。
+ *
+ * 只读假 preload 的记账 `__fcTest.calls()`，不碰真实 `.dispatch-dsh/`，
+ * 也不假装 DSH 那边开了会话 —— 那是插件的活，本环境验不到。
+ */
+async function dispatchClickOnlySection(shot) {
+  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '项目'); if (b) b.click(); return !!b })()`)
+  await sleep(800)
+  // 上一段可能把项目页停在作战计划/梯度榜；切回项目墙，卡片才在
+  await js(`(() => { const b = [...document.querySelectorAll('.vsb')].find(x => (x.textContent || '').indexOf('项目墙') >= 0); if (b) b.click(); return !!b })()`)
+  await sleep(400)
+
+  const boot = await js(`window.__fcTest.callCount('dispatchDsh')`)
+  check('★ 派单闸 · 进项目页（零点击）没有产生任何派单', boot === 0, 'calls=' + boot)
+
+  const opened = await js(`(() => { const t = document.querySelector('.pvgrid .tile'); if (!t) return false; t.click(); return true })()`)
+  const hasBtn = await waitFor(`[...document.querySelectorAll('.oacts button')].some(b => (b.textContent || '').trim() === '发送给 DSH')`,
+    5000, '发送给 DSH 按钮')
+  check('★ 派单闸 · 项目详情里有「发送给 DSH」按钮（不是只存在源码里）', opened && hasBtn)
+
+  const idle = await js(`window.__fcTest.callCount('dispatchDsh')`)
+  check('★ 派单闸 · 只打开详情、没点按钮 —— 仍然没有派单（会话数 0）', idle === 0, 'calls=' + idle)
+
+  if (shot) await shot('05-派单闸-发送给DSH')
+  const clicked = await js(`(() => {
+    const b = [...document.querySelectorAll('.oacts button')].find(x => (x.textContent || '').trim() === '发送给 DSH')
+    if (!b) return false
+    b.click(); return true
+  })()`)
+  const fired = await waitFor(`window.__fcTest.callCount('dispatchDsh') === 1`, 5000, '派单被调用一次')
+  const args = await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'dispatchDsh').map(c => c.args))`)
+  check('★★ 派单闸 · 真点一次「发送给 DSH」才产生一份派单（demo / kind=work）',
+    clicked && fired && /"demo"/.test(String(args)) && /"work"/.test(String(args)), String(args))
+}
+
 async function main() {
   console.log('== 渲染层真实点击 e2e ==')
   console.log('index:', INDEX)
+
+  // 反例自证桩（2026-11-19）：这一层最危险的退化不是"红"，是**跳过后还退出 0**。
+  // 用 `FC_E2E_FORCE_SKIP=1` 可以故意走"环境起不来"的分支，
+  // 由 `node scripts/test/e2e-renderer.cjs` 必须回非零来证明 SKIP 已判失败。
+  // ⚠ 只在 FC_E2E_RENDERER=1（runner 拉起）时生效，单独跑 electron 不受影响。
+  if (process.env.FC_E2E_RENDERER === '1' && process.env.FC_E2E_FORCE_SKIP === '1') {
+    console.log('SKIP  自证桩：FC_E2E_FORCE_SKIP=1 —— 故意走"环境不可用"分支')
+    console.log('RESULT SKIP')
+    app.exit(0)
+    return
+  }
 
   win = new BrowserWindow({
     show: false,
@@ -208,6 +287,31 @@ async function main() {
   check('渲染层已挂载', mounted)
   const hasApi = await js(`typeof window.tegula === 'object' && typeof window.tegula.todosCreate === 'function'`)
   check('preload 暴露了待办 API', hasApi)
+
+  // 计数器必须在所有"真点击"之前装；装完先断零，再往下跑。
+  await installClickCounter()
+  const clickStart = await js(`window.__fcClickCount`)
+  check('★ 真点击 · 点击计数器已装上（本轮结果可数）', clickStart === 0, 'clicks=' + clickStart)
+
+  // 派单闸的另一半：**启动后零点击**时不许有任何派单。
+  const bootDispatch = await js(`window.__fcTest.callCount('dispatchDsh')`)
+  check('★ 派单闸 · 启动后零点击：没有产生任何派单（会话数 0）', bootDispatch === 0, 'calls=' + bootDispatch)
+
+  // `FC_E2E_ONLY=dispatch`：只跑派单闸那 5 条（给 scripts/test/e2e-dispatch-click-only.cjs 用）。
+  // 不复制第二套 electron 主文件 —— 加载/免责声明/夹具这一堆只该有一份。
+  if (process.env.FC_E2E_ONLY === 'dispatch') {
+    await dispatchClickOnlySection(null)
+    console.log(`\n通过 ${pass} / 失败 ${fail}`)
+    if (fail) {
+      console.log('\n失败项：')
+      for (const f of failures) console.log(' -', f)
+    }
+    const n = await js(`window.__fcClickCount || 0`)
+    console.log(`CLICKS ${n}`)
+    console.log(`RESULT ${pass} / ${fail}`)
+    app.exit(fail ? 1 : 0)
+    return
+  }
 
   const navOk = await waitFor(`[...document.querySelectorAll('.vbtn')].some(b => b.textContent.trim() === '待办')`,
     6000, '页签渲染')
@@ -328,9 +432,16 @@ async function main() {
         .every(h => String(disp).indexOf(h) >= 0),
       String(disp).slice(0, 120))
     const names = await js(`JSON.stringify(window.__fcTest.calls().map(c => c.name))`)
-    check('★ 零智能不派发：只写剪贴板，没碰任何执行/派发通道',
-      String(names).indexOf('clipboardWriteText') >= 0
-      && !/dispatch|execute|spawn|run|launch/i.test(String(names)), String(names))
+    // 2026-11-19：这条以前用 `/dispatch|execute|spawn|run|launch/i` 一把抓，结果
+    // `questionnaireDispatchContext`（只把澄清卷的闸与已落档验收线读出来拼文本，
+    // 主进程侧零写入、不产生会话）被误判成"派发通道" → 常红。
+    // 改成正向允许名单：**只许**剪贴板 + 那个只读的文本拼装；出现任何别的通道就红。
+    const callNames = JSON.parse(String(names))
+    const ALLOWED = ['clipboardWriteText', 'questionnaireDispatchContext']
+    const bad = callNames.filter((n) => ALLOWED.indexOf(n) < 0)
+    check('★ 零智能不派发：只写剪贴板 / 只读澄清卷拼文本，没碰任何执行/派发通道',
+      callNames.indexOf('clipboardWriteText') >= 0 && bad.length === 0,
+      'calls=' + names + (bad.length ? ' 越界=' + bad.join(',') : ''))
   }
 
   // ── 7.5 看板密度方案 B（2026-09-28 用户挑定）────────────────────────
@@ -2653,10 +2764,36 @@ async function main() {
     await sleep(800)
     const expanded = await js(`(() => {
       const done = document.querySelector('.plan-stage.done')
-      return done ? { blocks: done.querySelectorAll('.plan-block').length } : null
+      if (!done) return null
+      return {
+        blocks: done.querySelectorAll('.plan-block').length,
+        hint: (done.querySelector('.plan-fold-hint') || {}).textContent || '',
+      }
     })()`)
-    check('★★ 作战计划 · 点「展开已完成」真能展开（折叠不是把内容藏死）',
-      expandBtn && expanded && expanded.blocks >= 3, JSON.stringify(expanded))
+    // 2026-11-14 起折叠是**两个维度**：`showDone`（完成了没）与 `foldKey`（这一张展开没）。
+    // 「展开已完成」只负责让已完成阶段回到"可点开"的状态，单张仍默认收起 ——
+    // 所以这里要么已经直接出三块，要么再点一下它的折叠条出三块；**两者都算内容可达**。
+    // 旧断言只认第一种，把产品的第二层折叠当成"藏死"，从 11-14 起常红。
+    let blocksNow = expanded ? expanded.blocks : 0
+    let stageOpened = false
+    if (blocksNow < 3) {
+      // 第二层折叠的展开条：文案是阶段自己的 `what` 摘要（不是固定"技术方案"），
+      // 所以按元素找，别按文案找 —— 按文案找过一次，永远点不到。
+      stageOpened = await js(`(() => {
+        const done = document.querySelector('.plan-stage.done')
+        const h = done && done.querySelector('.plan-fold-hint')
+        if (!h) return false
+        h.click(); return true
+      })()`)
+      await sleep(700)
+      blocksNow = await js(`(() => {
+        const d = document.querySelector('.plan-stage.done')
+        return d ? d.querySelectorAll('.plan-block').length : 0
+      })()`)
+    }
+    check('★★ 作战计划 · 点「展开已完成」后，已完成阶段的内容真能打开（不是藏死）',
+      !!expandBtn && (blocksNow >= 3),
+      JSON.stringify({ expanded, stageOpened, blocksNow }))
     await shot('04-作战计划-已完成折叠')
     // ⚠ 摆法是持久化偏好：不切回项目墙，后面「项目卡片 / 12 页签遮罩」那批断言
     //    会跑在作战计划页上，凭空红一片（2026-11-08 实测：连红 4 条）
@@ -2713,13 +2850,30 @@ async function main() {
       JSON.stringify({ clickedChip, smapClosed }))
   }
 
+  // ── 派单闸（2026-11-19 · 卡「施工当前真点击 e2e…」）────────────────────
+  //    放在最后：它会把页面带去项目详情，避免影响前面按项目墙布局的断言。
+  await dispatchClickOnlySection(shot)
+
   check('渲染层无未捕获错误', rendererErrors.length === 0, rendererErrors.slice(0, 3).join(' | '))
+
+  const clickTotal = await js(`window.__fcClickCount || 0`)
+  check('★ 真点击 · 本轮确实点了 DOM（不是只读 DOM 冒充点击）', clickTotal > 0, 'clicks=' + clickTotal)
+  // 卡上的两条最低要求：**点过项目页按钮、点过任务卡动作**。这里从点击日志里认，
+  // 不靠"跑了整套所以应该点过"这种推断。
+  const clickLog = JSON.parse(String(await js(`JSON.stringify(window.__fcClickLog || [])`)))
+  check('★ 真点击 · 点过任务卡动作（右键菜单项）',
+    clickLog.some((x) => /置顶|复制为派工单|指派时间/.test(String(x))),
+    clickLog.slice(-8).join(' | '))
+  check('★ 真点击 · 点过项目页按钮（发送给 DSH）',
+    clickLog.some((x) => /发送给 DSH/.test(String(x))),
+    clickLog.slice(-8).join(' | '))
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')
     for (const f of failures) console.log(' -', f)
   }
+  console.log(`CLICKS ${clickTotal}`)
   console.log(`RESULT ${pass} / ${fail}`)
   app.exit(fail ? 1 : 0)
 }

@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
 description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.14.0
+version: 1.15.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -130,10 +130,6 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `list_logs` | List execution logs (方寸执行日志). |
 | `search_logs` | Full-text search across log titles, contents and project names |
 | `get_log` | Get one execution log by ID (e.g. |
-| `create_log` | Create an execution log (方寸执行日志). |
-| `update_log` | Edit an existing execution log (title / content / nextSteps / project / taskIds / priority). |
-| `set_log_status` | Mark a log as running (进行中) or idle (取消进行中). |
-| `attach_log_files` | Attach local files (screenshots, reports) to an execution log by ABSOLUTE path. |
 | `inject_logs` | Bundle several logs into ONE hand-off text (main log first, the rest marked as parallel channels of the same r |
 | `rice_pool_list` | Read the requirement pool (task-data/rice-pool.md): every item with its R/I/C/E raw scores, |
 | `rice_pool_upsert` | Upsert RICE initial scores into the requirement pool (idempotent). |
@@ -145,12 +141,13 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 > **2026-10-30 用户拍板（硬规则）：完成是签字，不是干活。**
 > **2026-11-01 追加：签字对象是任务卡，不是日志。**
 > **2026-11-03 追加（用户原话）：执行日志是用户自己记上下文用的私人笔记，agent 不写。**
-> 干完活要记的是**看板任务**（`update_task` / `intake_task`），不是 `create_log`。
-> 本卡下文老口径已按这条改掉；`create_log` / `attach_log_files` / `update_log`
-> 只在用户**明确说“记一条日志”**时才用。
+> **2026-11-19 收紧：日志写口已从 agent 面全部移除**（MCP 的 `create_log` / `update_log` /
+> `set_log_status` / `attach_log_files`、插件的 `fangcun_log_write`、CLI 的 `tegula log` 写动作）。
+> 日志对 agent **只读**（`list_logs` / `search_logs` / `get_log` / `inject_logs`）；
+> 新建 / 编辑 / 状态 / 附件 / 删除 / 归档**只在方寸界面做**。
+> 干完活要记的是**看板任务**（`update_task` / `intake_task`），不是日志。
 > - 任务卡：agent 最多移到“待验收”；`move_status` 传“完成 / 驳回”会被**硬拒**。
-> - 执行日志：只记过程，agent 只能 `running / idle`；`complete / archive / reopen` 会被**硬拒**。
->   **没有 `request_close` 这套“等你确认”** —— 日志页不该堆待验收队列。
+> - 执行日志：只读；连 `running / idle` 也只能用户在界面改。
 > - 收工动作 = 把关联任务移到“待验收”（`move_status`），不是给日志打标记。
 > - 决策：`decision_record` 已从 MCP 移除；拍板只在方寸界面“需求矩阵”页由用户点。
 > 越权不是"会被批评"，是接口直接报错 —— 看到 `只能由用户` 就停手，别换条路绕。
@@ -288,7 +285,7 @@ update_task   { id: "<任务 id>", fields: { body: "<做了什么 + 判据 + 没
 move_status   { id: "<任务 id>", status: "待验收" }              # 收口：卡进待验收，等用户签字
 intake_task   { title, project, deliverable, criteria, agent }    # 有交付物时用它落卡（先机检）
 ```
-⚠ **不写执行日志**：日志是用户自己记上下文的私人笔记（`create_log` 只在用户明确要求时用）。
+⚠ **不写执行日志**：日志是用户自己记上下文的私人笔记，2026-11-19 起 agent **没有任何日志写口**（只读）。
 ⚠ 收工别先问用户“要不要记一条”——要记的是**任务卡**，直接写进卡里。
 ⚠ **不要**把 `complete` 当成收工的最后一步：它会被拒，而且那本来就是用户的签字。
 
