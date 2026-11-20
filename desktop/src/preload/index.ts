@@ -361,9 +361,8 @@ contextBridge.exposeInMainWorld('tegula', {
   llmDecide: (dp: any, model?: string) => ipcRenderer.invoke('llm:decideDP', dp, model),
   llmReview: (projectId?: string, model?: string) => ipcRenderer.invoke('llm:quarterlyReview', projectId, model),
   llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
-  // AI 规划写回层（2026-10-12）：LLM 输出直接落“待审批”卡，用户点头才转正
-  llmPlanToDraft: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:planToDraft', goal, projectId, model),
-  llmDraftProjectBrief: (projectId: string, model?: string) => ipcRenderer.invoke('llm:draftProjectBrief', projectId, model),
+  // AI 规划写回层（2026-10-12 → 2026-11-20 删除）：整条退役，别再加回来。
+  // 规划走 dispatchDsh(project, 'plan')；这里只剩仍在用的文档拆卡 / 出单 / 模糊问答。
   /** 模糊问答（2026-10-22 · 03 任务一）：事实包在主进程拼，模型只许引用事实 */
   llmAsk: (question: string, model?: string) => ipcRenderer.invoke('llm:ask', question, model),
   /** 出单（2026-10-22 · 03 任务三）：一次调用出一批待审批卡 */

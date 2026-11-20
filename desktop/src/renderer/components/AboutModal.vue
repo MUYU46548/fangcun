@@ -12,7 +12,7 @@
       <p class="about-intro">
         把“任务收口 + 方针载体”做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
         agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，AI 不能背着你往里塞东西。
-        会花钱的只有 AI 问答与出单，且必须走你自己的 API（BYOK），不配就一分不花。
+        会花钱的只有 AI 问答、出单、文档拆卡与架构图 AI，且必须走你自己配的模型通道（BYOK），不配就一分不花。
       </p>
       <div class="about-rows">
         <div><span class="k">版本</span><span class="v">{{ ctl.appVersion || '读取中…' }}</span></div>

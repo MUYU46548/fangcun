@@ -5,7 +5,7 @@ import { getPrices, setPrices } from './llm/prices'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
-import { planToDraft, draftProjectBrief, docToDrafts, planBatch } from './llm/writeback'
+import { docToDrafts, planBatch } from './llm/writeback'
 import { askWithLlm } from './llm/ask-llm'
 import { usageStats, usageByMonth } from './llm/trace'
 
@@ -150,15 +150,11 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  // ── AI 规划写回层（2026-10-12，方案卡：AI 规划功能；详见 llm/writeback.ts）──
-  // 红线：AI 卡只落“待审批”，转正唯一路径是用户点头；source=ai-planning 审计可查。
-  guardedHandle('llm:planToDraft', async (_event: any, goal: string, projectId?: string, model?: string) => {
-    return planToDraft(goal, projectId || '', model)
-  })
-
-  guardedHandle('llm:draftProjectBrief', async (_event: any, projectId: string, model?: string) => {
-    return draftProjectBrief(projectId, model)
-  })
+  // ── AI 规划写回层（2026-10-12 → 2026-11-20 删除）──────────────────────
+  // 暮雨：AI 规划「生成的都是垃圾，一点用都没有」；BYOK 以后逐步取消、全走 DSH。
+  // `llm:planToDraft` / `llm:draftProjectBrief` 两个口已删（连 preload 一起）。
+  // `planToDraft()` 本体还在：出单（planBatch）复用它，出单属于下一批 BYOK 退役项。
+  // 规划的正路是项目页「让 DSH 做规划」→ contextPack.dispatchToDsh(project, 'plan')。
 
   // 模糊问答（2026-10-22 · 03 任务一）：**只有结构化答不了时才走到这里**。
   // 事实包由 services/ask.buildContext() 现拼，模型只在这段事实里找答案；usage 原样回传。
