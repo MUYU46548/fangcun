@@ -4288,6 +4288,21 @@
         .find((b) => (b.textContent || '').trim() === '完成')
       if (doneA) doneA.click()
       await waitFor(() => !!$('#log-edit-modal'), 3000, 'complete modal')
+      // 2026-11-20（暮雨第 2 次报）：日志编辑框里「取消 / ID / 复制为提示词」不能像纯文字。
+      // 判据：次要按钮的 computed border 宽度 >=1px 且 solid（不是只写在 class 里）。
+      const ghostFooter = $$('#log-edit-modal .acts button').filter((b) => {
+        const t = (b.textContent || '').trim()
+        return t === '取消' || t.indexOf('ID') >= 0 || t.indexOf('复制为提示词') >= 0
+      })
+      check('★★ 日志编辑框的次要按钮有可见边框（取消 / ID / 复制为提示词）',
+        ghostFooter.length >= 1 && ghostFooter.every((b) => {
+          const s = getComputedStyle(b)
+          return parseFloat(s.borderTopWidth || '0') >= 1 && s.borderTopStyle === 'solid'
+        }),
+        ghostFooter.map((b) => {
+          const s = getComputedStyle(b)
+          return (b.textContent || '').trim() + '=' + s.borderTopWidth + '/' + s.borderTopStyle
+        }).join(' | '))
       const confirmDone = $$('#log-edit-modal .acts button').find((b) => (b.textContent || '').trim() === '确认完成')
       if (confirmDone) confirmDone.click()
       await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'logsComplete'), 4000, 'logsComplete')

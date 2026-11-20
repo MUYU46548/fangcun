@@ -144,7 +144,7 @@ const props = defineProps<{
 
 <template>
   <!-- type="button"：默认值是 submit，放进表单会意外提交 —— 组件不该有这种副作用 -->
-  <button type="button" :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)">
+  <button type="button" :data-variant="props.variant" :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)">
     <slot />
   </button>
 </template>

@@ -1281,6 +1281,19 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .acts .no { background: #c2706f; color: #fff; }
 .acts .danger { background: #d98a8a; color: #fff; }
 .acts .ghost { background: #eee; color: #333; }
+/* 2026-11-20 暮雨第 2 次报「按钮颜色消失」：`.acts button { border: 0 }` 把
+   次要按钮的边框也一起抹了 —— 基座 Button 的 ghost/outline 明明写了 border，
+   特异性却输给这一条；日志编辑框里「取消 / ID / 复制为提示词」于是像纯文字。
+   这里只给**次要按钮**把边框加回来：raw `.ghost` 与基座 `data-variant=ghost|outline`；
+   主按钮/危险按钮仍是实底，不加框。 */
+.acts button.ghost,
+.acts button[data-variant="ghost"],
+.acts button[data-variant="outline"] {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
+}
+.acts button[data-variant="ghost"] { border-color: var(--ui-border); background: var(--ui-card); color: var(--ui-foreground); }
 
 /* Preview modal */
 .meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
