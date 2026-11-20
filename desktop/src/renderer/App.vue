@@ -239,6 +239,17 @@
       </span>
     </header>
 
+    <!-- 记忆待审批 · 置顶高亮（2026-11-20）：
+         跨页签常驻；有新待审批就出现，点「去审批」直接切到记忆页并筛待审批。 -->
+    <div v-if="memPending > 0 && !memBannerClosed" class="mem-top-banner" role="status">
+      <span class="mem-top-badge">待审批 {{ memPending }}</span>
+      <b>有 {{ memPending }} 条记忆待审批</b>
+      <span v-if="memPendingLatest" class="mem-top-latest">最新：{{ memPendingLatest.claim }}</span>
+      <span class="mem-top-grow"></span>
+      <Button variant="primary" size="tool" @click="goMemoryPending">去审批</Button>
+      <Button variant="ghost" size="tool" @click="dismissMemoryBanner">稍后</Button>
+    </div>
+
     <!-- View tabs -->
     <!-- ⚠ 2026-10-12“看”与“做”分两层（暮雨圈选 丙）：
          顶栏只留**看与筛**（搜索/筛选/分组/排序/折叠）；**写操作与全局图标搬到这一行右端** ——
@@ -252,7 +263,7 @@
         :class="{ on: curView === v.id }"
         @click="switchView(v.id)"
       >
-        {{ v.label }}
+        {{ v.label }}<span v-if="v.id === 'memory' && memPending" class="vbadge" :title="memPending + ' 条记忆待审批'">{{ memPending }}</span>
       </button>
       <!-- 更多（2026-10-25 暮雨：“帮我搞个更多菜单，该折叠的就折叠”）——
            默认收起“启动台 / 技能 / 服务”三个低频页签；它们在设置里可自己勾（至少留 7 个在外面）。
@@ -535,7 +546,7 @@
     <!-- 记忆（2026-11-17）· 暮雨：“界面和 MCP 工具必做”
          只读：写走 agent 落盘。界面上不给“新建记忆” —— 一给就会诱导写摘要，
          而摘要恰好破坏这条记忆的价值（原文逐字才是价值本体）。 -->
-    <MemoryView v-else-if="curView === 'memory'" />
+    <MemoryView v-else-if="curView === 'memory'" :focus-pending="memFocusNonce" />
 
     <!-- 待办（2026-10-23 拆成组件 · 拆分计划第 1 批第 10 块）。
          数据与动作在 composables/useTodos.ts，模板在 views/TodosView.vue；
@@ -2175,6 +2186,8 @@ const notifications = useNotifications({
   },
   // 结构地图该核实 → 打开地图弹窗（那里逐项目一行，「最后核实」日期就在行上）
   openStructMap: () => { void openStructMap() },
+  // 记忆待审批 → 记忆页 + 待审批筛选（2026-11-20）
+  openMemoryPending: () => { goMemoryPending() },
 })
 const {
   NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncFilter, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncTargetOf, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
@@ -6053,6 +6066,50 @@ async function refreshQnPending(): Promise<void> {
     qnPending.value = list.filter((d: any) => !d.approved && d.total > 0).length
   } catch { qnPending.value = 0 }
 }
+// ── 记忆待审批 · 置顶 / 角标 / 系统通知（2026-11-20）──────────────────────
+const memPending = ref(0)
+const memPendingLatest = ref<any>(null)
+const memBannerClosed = ref(false)
+/** 点「去审批」时自增，MemoryView 监听它并切到“待审批”筛选 */
+const memFocusNonce = ref(0)
+/** 上次通知过的最新待审批文件；同一份不重复弹 */
+const memNotifyKey = ref('')
+let memPollTimer: any = null
+
+async function loadMemoryPending(): Promise<void> {
+  try {
+    const ov: any = await (window as any).tegula?.memoryOverview?.()
+    const n = Number(ov?.pending) || 0
+    const latest = ov?.pendingLatest || null
+    const prev = memPending.value
+    const prevKey = memNotifyKey.value
+    memPending.value = n
+    memPendingLatest.value = latest
+    if (n > 0 && (n > prev || (n === prev && latest?.file && latest.file !== prevKey))) {
+      memBannerClosed.value = false
+      const key = String(latest?.file || `count-${n}`)
+      if (n > prev || key !== prevKey) {
+        memNotifyKey.value = key
+        try {
+          const pref: any = await (window as any).tegula?.prefsGet?.()
+          if (pref?.memoryNotify !== false) await (window as any).tegula?.memoryNotifyPending?.()
+        } catch { /* 通知通道失败不挡界面 */ }
+      }
+    }
+    if (n === 0) { memNotifyKey.value = ''; memBannerClosed.value = false }
+  } catch { /* 记忆服务不可用不挡主界面 */ }
+}
+
+function goMemoryPending(): void {
+  memBannerClosed.value = false
+  memFocusNonce.value++
+  switchView('memory')
+}
+
+function dismissMemoryBanner(): void {
+  // 只关这一次；有新待审批会重新出现（不写偏好，不当成"永远不再提醒"）
+  memBannerClosed.value = true
+}
 const archBusy = ref(false)
 /**
  * 生成已耗时（秒）—— 只报**真数字**，不编百分比（模型不回传进度，编一个就是假成功）。
@@ -8068,6 +8125,8 @@ async function onNotifyFocus(p: any): Promise<void> {
   const type = String(p?.type || '')
   const id = String(p?.sourceId || '')
   if (type === 'todo-due') { switchView('todos'); return }
+  // 记忆待审批（2026-11-20）：点系统通知 → 记忆页 + 待审批筛选
+  if (type === 'memory-pending') { goMemoryPending(); return }
   // 问卷待答（2026-11-11）：点通知直接打开问卷页并定位到那一卷 —— 只把窗口拉起来等于没做
   if (type === 'questionnaire-pending') { qnFocusDeck.value = id; qnOpen.value = true; return }
   if (type === 'parse-error') { showToast('任务文件解析失败：' + id, 'error'); return }
@@ -8102,6 +8161,9 @@ provide('fc-settings', {
 onMounted(() => {
   // 问卷角标（2026-11-05）：启动时问一次“有没有没批准的卷”，有就在顶栏按钮上挂个数字
   void refreshQnPending()
+  // 记忆待审批（2026-11-20）：启动拉一次，之后每 10 秒看有没有新的；有新才通知
+  void loadMemoryPending()
+  memPollTimer = setInterval(() => { void loadMemoryPending() }, 10000)
   // 测试专用（假 preload 才有 __fcTest）：清空撤销栈。多级栈之后，
   // “撤一步 → 条子消失”不再天然成立，e2e 需要一个"从零开始"的按钮。
   const fcTest = (window as any).__fcTest
@@ -8203,6 +8265,7 @@ onMounted(() => {
 let offNotifyFocus: null | (() => void) = null
 
 onUnmounted(() => {
+  if (memPollTimer) { clearInterval(memPollTimer); memPollTimer = null }
   if (offNotifyFocus) { try { offNotifyFocus() } catch { /* ignore */ } ; offNotifyFocus = null }
   if (dragTimer) { clearTimeout(dragTimer); dragTimer = null }
   if (cardTipTimer) { clearTimeout(cardTipTimer); cardTipTimer = null }

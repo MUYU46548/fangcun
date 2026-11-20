@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('tegula', {
   // 导入 / 一键整理（2026-11-20）：都落待审批，重复跳过
   memoryImport: (input: any) => ipcRenderer.invoke('memoryImport', input),
   memoryOrganize: (input: any) => ipcRenderer.invoke('memoryOrganize', input),
+  /** 批量改分类/标签/参数（不碰正文与状态） */
+  memoryBatchUpdate: (files: string[], patch: any) => ipcRenderer.invoke('memoryBatchUpdate', files, patch),
+  /** 有新待审批 → 通知中心/系统通知（主进程自己算 count，不信渲染层） */
+  memoryNotifyPending: () => ipcRenderer.invoke('memoryNotifyPending'),
   
   // Tasks
   loadTasks: (view = 'active') => ipcRenderer.invoke('loadTasks', view),

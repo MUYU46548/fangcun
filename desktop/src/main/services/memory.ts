@@ -358,6 +358,10 @@ export interface MemoryQuery {
   scope?: string
   project?: string
   q?: string
+  /** 直接按状态筛（优先于下面两个 include 开关）：有效 / 待审批 / 已撤销 */
+  status?: string
+  /** true = 只要没有项目归属的（通用 / 全局） */
+  global?: boolean
   /** 含已撤销；默认只看有效 */
   includeRevoked?: boolean
   /** 含待审批（agent 提案）；默认不返回 */
@@ -381,11 +385,17 @@ export function searchMemory(q: MemoryQuery = {}): {
 } {
   const all = scanEntries()
   const hit = all.filter((r) => {
-    if (!q.includeRevoked && r.status === '已撤销') return false
-    if (!q.includePending && r.status === '待审批') return false
+    // 2026-11-20：显式 status 优先 —— 否则「看已撤销」会被 includeRevoked=false 先筛掉
+    if (q.status) {
+      if (r.status !== q.status) return false
+    } else {
+      if (!q.includeRevoked && r.status === '已撤销') return false
+      if (!q.includePending && r.status === '待审批') return false
+    }
     if (q.type && !String(r.type).includes(q.type)) return false
     if (q.scope && !String(r.scope).includes(q.scope) && q.scope !== r.project) return false
     if (q.project && q.project !== r.project) return false
+    if (q.global === true && String(r.project || '').trim()) return false
     return true
   })
   const ranked = rankMemories(hit, {
@@ -655,7 +665,21 @@ function escapeRegExp(s: string): string {
 export function memoryOverview() {
   const rows = scanEntries()
   const byType: Record<string, number> = {}
-  for (const r of rows) byType[r.type || '(未标类型)'] = (byType[r.type || '(未标类型)'] || 0) + 1
+  const byProject: Record<string, number> = {}
+  const byStatus: Record<string, number> = {}
+  for (const r of rows) {
+    byType[r.type || '(未标类型)'] = (byType[r.type || '(未标类型)'] || 0) + 1
+    const proj = String(r.project || '').trim() || '通用 / 全局'
+    byProject[proj] = (byProject[proj] || 0) + 1
+    const st = String(r.status || '(未标状态)')
+    byStatus[st] = (byStatus[st] || 0) + 1
+  }
+  const pendingRows = rows
+    .filter((r) => r.status === '待审批')
+    .sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')))
+  const pendingLatest = pendingRows[0]
+    ? { file: pendingRows[0].file, claim: pendingRows[0].claim, project: pendingRows[0].project || '', time: pendingRows[0].time || '' }
+    : null
   const core = memoryCore()
   return {
     total: rows.length,
@@ -669,6 +693,13 @@ export function memoryOverview() {
     coreChars: core.chars,
     coreBudget: core.budget,
     byType,
+    /** 项目 → 条数；空项目记在「通用 / 全局」 */
+    byProject,
+    byStatus,
+    /** 可按项目筛选的清单（不含全局） */
+    projects: Object.keys(byProject).filter((p) => p !== '通用 / 全局').sort((a, b) => a.localeCompare(b, 'zh')),
+    /** 最新一条待审批（置顶条/系统通知用；不给就不编） */
+    pendingLatest,
     dir: memoryDir(),
     hint: rows.length
       ? ''
@@ -1123,6 +1154,82 @@ export function setMemoryStatus(file: string, status: string, reason = ''): Memo
     } catch { /* 取代链修不上不影响本条通过；memoryCheck 会报 */ }
   }
   return res
+}
+
+// ── 批量改字段（2026-11-20）────────────────────────────────────────────
+// 暮雨：「强化记忆条目可筛选性和批量编辑性（如按项目分类、全局类）」。
+// 只改 frontmatter 的**分类/标签/参数**，一个字都不碰 `## 记忆` / `## 证据` 正文；
+// 也不改状态（通过/驳回走 memorySetStatus，语义分开）。
+export interface MemoryBatchPatch {
+  type?: string
+  /** 空串 = 改成通用 / 全局 */
+  project?: string
+  scope?: string
+  /** 空数组 = 清空标签 */
+  tags?: string[]
+  importance?: number
+  confidence?: number
+  pinned?: boolean
+}
+
+export interface MemoryBatchResult {
+  ok: boolean
+  updated: number
+  failed: Array<{ file: string; error: string }>
+  error?: string
+}
+
+export function batchUpdateMemory(files: string[], raw: MemoryBatchPatch = {}): MemoryBatchResult {
+  const list = (Array.isArray(files) ? files : []).map((f) => String(f || '').trim()).filter(Boolean)
+  if (!list.length) return { ok: false, updated: 0, failed: [], error: '没选条目' }
+  if (list.length > 500) return { ok: false, updated: 0, failed: [], error: '一次最多改 500 条' }
+  const keys: Array<keyof MemoryBatchPatch> = ['type', 'project', 'scope', 'tags', 'importance', 'confidence', 'pinned']
+  if (!keys.some((k) => raw[k] !== undefined)) {
+    return { ok: false, updated: 0, failed: [], error: '没有要改的字段' }
+  }
+
+  const root = path.resolve(memoryDir())
+  const failed: Array<{ file: string; error: string }> = []
+  let updated = 0
+  for (const file of list) {
+    const gate = readMemory(file, 200000)
+    if (!gate.ok) { failed.push({ file, error: gate.error || '读不到' }); continue }
+    const rel = String(file).replace(/\\/g, '/')
+    const full = path.resolve(path.join(getDataDir(), rel))
+    if (!full.startsWith(root + path.sep)) { failed.push({ file, error: '路径逃出了 memory/（拒绝）' }); continue }
+    const updates: Record<string, string> = {}
+    if (raw.type !== undefined) {
+      const t = normType(raw.type)
+      if (!t) { failed.push({ file, error: `类型必须是：${MEMORY_TYPES.join(' / ')}` }); continue }
+      updates['类型'] = t
+    }
+    if (raw.project !== undefined) updates['项目'] = oneLine(raw.project)
+    if (raw.scope !== undefined) updates['适用范围'] = oneLine(raw.scope)
+    if (raw.tags !== undefined) {
+      const tags = (Array.isArray(raw.tags) ? raw.tags : []).map((x) => String(x).trim()).filter(Boolean)
+      updates.tags = tags.length ? `[${tags.map((t) => `'${t.replace(/'/g, "''")}'`).join(', ')}]` : '[]'
+    }
+    if (raw.importance !== undefined) updates['重要度'] = String(importanceOf(raw.importance))
+    if (raw.confidence !== undefined) {
+      const n = Number(raw.confidence)
+      if (!Number.isFinite(n)) { failed.push({ file, error: '可信度不是数字' }); continue }
+      updates['可信度'] = String(clamp(Math.round(n * 100) / 100, 0, 1))
+    }
+    if (raw.pinned !== undefined) updates['钉住'] = raw.pinned ? 'true' : 'false'
+    try {
+      const next = patchFrontmatter(String(gate.text || ''), updates)
+      if (next !== gate.text) atomicWrite(full, next)
+      updated++
+    } catch (e: any) {
+      failed.push({ file, error: String(e?.message || e) })
+    }
+  }
+  return {
+    ok: failed.length === 0,
+    updated,
+    failed,
+    error: failed.length ? `${failed.length} 条没改成：${failed[0].error}` : undefined,
+  }
 }
 
 // ── 导入 / 一键整理（2026-11-20 问卷 M5 A + M1 B）────────────────────────

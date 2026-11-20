@@ -125,6 +125,25 @@ function push(input: notifications.PushInput): boolean {
  * 为什么必须在主进程弹：方寸关窗只是**缩进托盘**，窗口不可见时渲染层的设置页文案、
  * toast 全都看不到。只改渲染层状态 = 用户永远不知道新版本已经下好了（原 bug 就是这样）。
  */
+/**
+ * 有新记忆待审批 → 进通知中心 + （窗口不在前台时）弹系统通知（2026-11-20）。
+ *
+ * 去重 key = 最新那条待审批文件的路径：同一批不重复弹；新的一条来了才再通知。
+ * 点通知 → `notify:focus` type=memory-pending，渲染层切到记忆页并筛「待审批」。
+ */
+export function notifyMemoryPending(count: number, latestClaim: string, latestFile: string): boolean {
+  if (!Number.isFinite(Number(count)) || Number(count) <= 0) return false
+  return push({
+    type: 'memory-pending',
+    level: 'warning',
+    title: `有 ${Number(count)} 条记忆待审批`,
+    body: latestClaim ? `最新：${latestClaim}` : '打开记忆页处理',
+    sourceId: 'memory',
+    key: String(latestFile || `count-${Number(count)}`),
+    osNotify: true,
+  })
+}
+
 export function notifyUpdateReady(version: string): boolean {
   return push({
     type: 'update-downloaded',

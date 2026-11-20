@@ -189,6 +189,8 @@ const store = {
   // ⚠ `process` 只在 Electron preload 里有；headless 浏览器里没有，必须 typeof 守卫。
   prefs: {
     costConfirm: typeof process !== 'undefined' && !!process.env && process.env.FC_E2E_COST_CONFIRM === '1',
+    // 记忆待审批通知：默认关，避免既有 e2e 被系统通知/角标带偏；专测里再打开
+    memoryNotify: false,
   },
   // 项目梯度榜（2026-10-25）：分档 + 每档项目 id，落 task-data/project-tiers.json。
   // ⚠ 假 preload 必须与真 preload 同步（少一条 API，视图 onMounted 直接抛，
@@ -403,6 +405,38 @@ let seq = 0
 const nextId = (p) => `${p}-${Date.now()}-${(seq++).toString(36)}`
 
 const ok = (extra) => Object.assign({ ok: true }, extra || {})
+
+/** 记忆概览（夹具版）：字段与 memory.ts#memoryOverview 对齐，byProject/projects/pendingLatest 都给真形状 */
+function memOverview() {
+  const rows = store.memory || []
+  const byType = {}
+  const byProject = {}
+  const byStatus = {}
+  for (const r of rows) {
+    byType[r.type || '(未标类型)'] = (byType[r.type || '(未标类型)'] || 0) + 1
+    const p = String(r.project || '').trim() || '通用 / 全局'
+    byProject[p] = (byProject[p] || 0) + 1
+    const st = String(r.status || '(未标状态)')
+    byStatus[st] = (byStatus[st] || 0) + 1
+  }
+  const pending = rows.filter((r) => r.status === '待审批')
+    .sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')))
+  return {
+    total: rows.length,
+    effective: rows.filter((r) => r.status === '有效').length,
+    pending: rows.filter((r) => r.status === '待审批').length,
+    revoked: rows.filter((r) => r.status === '已撤销').length,
+    claims: rows.length, legacy: 0, evidence: 0,
+    pinned: rows.filter((r) => r.pinned && r.status === '有效').length,
+    coreChars: 0, coreBudget: 800,
+    byType, byProject, byStatus,
+    projects: Object.keys(byProject).filter((p) => p !== '通用 / 全局').sort(),
+    pendingLatest: pending[0]
+      ? { file: pending[0].file, claim: pending[0].claim, project: pending[0].project || '', time: pending[0].time || '' }
+      : null,
+    hint: rows.length ? '' : '记忆库还没有任何条目',
+  }
+}
 
 /**
  * 结构化克隆校验 —— 复刻真机 contextBridge 的**第一跳**语义。
@@ -994,16 +1028,23 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('memorySearch', [q])
     const rows = (store.memory || []).filter((r) => {
       if (!q) return true
-      if (!q.includeRevoked && r.status === '已撤销') return false
-      if (!q.includePending && r.status === '待审批') return false
+      // 2026-11-20：显式 status 优先（否则「看已撤销」会被 includeRevoked 先筛掉）
+      if (q.status) {
+        if (r.status !== q.status) return false
+      } else {
+        if (!q.includeRevoked && r.status === '已撤销') return false
+        if (!q.includePending && r.status === '待审批') return false
+      }
       if (q.type && !String(r.type).includes(q.type)) return false
+      if (q.project && r.project !== q.project) return false
+      if (q.global === true && String(r.project || '').trim()) return false
       if (q.q) {
         const hay = `${r.claim || ''} ${r.title || ''} ${r.summary || ''} ${r.id} ${(r.tags || []).join(' ')}`.toLowerCase()
         if (!hay.includes(String(q.q).toLowerCase())) return false
       }
       return true
     })
-    return { ok: true, total: rows.length, rows, returned: rows.length, overview: store.memoryOverview || { total: rows.length, effective: rows.length, revoked: 0, byType: {} } }
+    return { ok: true, total: rows.length, rows, returned: rows.length, overview: memOverview() }
   },
   memoryRead: (file) => {
     rec('memoryRead', [file])
@@ -1021,7 +1062,7 @@ contextBridge.exposeInMainWorld('tegula', {
   },
   memoryOverview: () => {
     rec('memoryOverview')
-    return store.memoryOverview || { total: 0, effective: 0, pending: 0, revoked: 0, byType: {}, hint: '记忆库还没有任何条目' }
+    return memOverview()
   },
   memoryRebuild: () => {
     rec('memoryRebuild')
@@ -1084,8 +1125,7 @@ contextBridge.exposeInMainWorld('tegula', {
     hit.source = i.source || hit.source
     return { ok: true, file, id: hit.id, claim }
   },
-  memorySetStatus: (file, status, reason) => {
-    rec('memorySetStatus', [file, status, reason || ''])
+  memorySetStatus: (file, status, reason) => {    rec('memorySetStatus', [file, status, reason || ''])
     cloneGuard('memorySetStatus', [file, status, reason || ''])
     const hit = (store.memory || []).find((r) => r.file === file)
     if (!hit) return { ok: false, error: 'not found' }
@@ -1105,6 +1145,32 @@ contextBridge.exposeInMainWorld('tegula', {
       byType: {},
     }
     return { ok: true, file }
+  },
+  // 2026-11-20：批量改分类/标签/参数（不碰 claim/证据/状态）
+  memoryBatchUpdate: (files, patch) => {
+    rec('memoryBatchUpdate', [files, patch])
+    cloneGuard('memoryBatchUpdate', [files, patch])
+    const list = Array.isArray(files) ? files : []
+    let updated = 0
+    const failed = []
+    for (const file of list) {
+      const hit = (store.memory || []).find((r) => r.file === file)
+      if (!hit) { failed.push({ file, error: 'not found' }); continue }
+      if (patch && patch.type !== undefined) hit.type = patch.type
+      if (patch && patch.project !== undefined) hit.project = patch.project
+      if (patch && patch.scope !== undefined) hit.scope = patch.scope
+      if (patch && patch.tags !== undefined) hit.tags = Array.isArray(patch.tags) ? patch.tags.slice() : []
+      if (patch && patch.importance !== undefined) hit.importance = patch.importance
+      if (patch && patch.confidence !== undefined) hit.confidence = patch.confidence
+      if (patch && patch.pinned !== undefined) hit.pinned = patch.pinned
+      updated++
+    }
+    return { ok: failed.length === 0, updated, failed }
+  },
+  memoryNotifyPending: () => {
+    rec('memoryNotifyPending')
+    const ov = memOverview()
+    return { ok: true, created: false, count: ov.pending, latest: ov.pendingLatest }
   },
   // 导入 / 一键整理（2026-11-20）：桩只记账 + 返回结果；真身落盘在 memory.ts
   memoryImport: (input) => {

@@ -9652,6 +9652,62 @@
       await sleep(400)
       check('记忆页渲染出来', await waitFor(() => !!$('.memory-view'), 4000, '记忆视图'))
 
+      // ── 2026-11-20：项目/全局筛选、置顶待审批条、批量入口、提醒开关 ──
+      check('★★ 有跨页置顶的「记忆待审批」高亮条', !!$('.mem-top-banner'),
+        (($('.mem-top-banner') || {}).textContent || '').slice(0, 80))
+      check('★ 记忆页签上有待审批角标', !!$('#views .vbadge'))
+      const memSels = $$('.memory-view .mem-sel')
+      const projSel = memSels.find((s) => (s.getAttribute('title') || '').indexOf('按项目筛') >= 0)
+      check('★★ 有「项目」筛选，且带「通用 / 全局」选项',
+        !!projSel && Array.prototype.some.call(projSel.options, (o) => o.value === '__global__'),
+        projSel ? Array.prototype.map.call(projSel.options, (o) => o.value).join('|') : 'no select')
+      if (projSel) {
+        const n0 = window.__fcTest.callCount('memorySearch')
+        projSel.value = 'fangcun-base'
+        projSel.dispatchEvent(new Event('change', { bubbles: true }))
+        await waitFor(() => window.__fcTest.callCount('memorySearch') > n0, 3000, 'memorySearch(project)')
+        const last = window.__fcTest.calls().filter((c) => c.name === 'memorySearch').pop()
+        check('★★ 选项目真把 project 传给主进程（不是只改界面）',
+          !!last && (last.args[0] || {}).project === 'fangcun-base', JSON.stringify(last && last.args))
+        projSel.value = '__global__'
+        projSel.dispatchEvent(new Event('change', { bubbles: true }))
+        await waitFor(() => {
+          const a = window.__fcTest.calls().filter((c) => c.name === 'memorySearch').pop()
+          return !!a && (a.args[0] || {}).global === true
+        }, 3000, 'memorySearch(global)')
+        check('★★ 选「通用 / 全局」真传 global=true', true)
+        projSel.value = ''
+        projSel.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(250)
+      }
+      const statusSel = memSels.find((s) => (s.getAttribute('title') || '').indexOf('按状态筛') >= 0)
+      check('★★ 有「状态」筛选（待审批/有效/已撤销）', !!statusSel)
+      if (statusSel) {
+        statusSel.value = '待审批'
+        statusSel.dispatchEvent(new Event('change', { bubbles: true }))
+        const hit = await waitFor(() => {
+          const a = window.__fcTest.calls().filter((c) => c.name === 'memorySearch').pop()
+          return !!a && (a.args[0] || {}).status === '待审批'
+        }, 3000, 'memorySearch(status)')
+        check('★★ 选「待审批」真按状态筛（includePending 不开也看得见）', hit)
+        statusSel.value = ''
+        statusSel.dispatchEvent(new Event('change', { bubbles: true }))
+        await sleep(300)
+      }
+      const notifyChkLbl = $$('.memory-view .mem-chk').find((l) => /待审批提醒/.test(l.textContent || ''))
+      const notifyChk = notifyChkLbl && notifyChkLbl.querySelector('input')
+      check('★ 检索行有「待审批提醒」开关', !!notifyChk)
+      if (notifyChk) {
+        const n0 = window.__fcTest.callCount('prefsSet')
+        notifyChk.click()
+        await waitFor(() => window.__fcTest.callCount('prefsSet') > n0, 3000, 'prefsSet(memoryNotify)')
+        const ps = window.__fcTest.calls().filter((c) => c.name === 'prefsSet').pop()
+        check('★★ 提醒开关真写 prefs.memoryNotify', !!ps && ps.args[0] === 'memoryNotify' && ps.args[1] === true,
+          JSON.stringify(ps && ps.args))
+        notifyChk.click()
+        await sleep(150)
+      }
+
       const rows0 = $$('.memory-view .mem-item')
       check('记忆条目渲染出来（夹具 3 条）', rows0.length >= 2, 'n=' + rows0.length)
 
@@ -9758,6 +9814,21 @@
           check('★★ 待审批行有「通过 / 驳回」两个出口',
             pbtns.some((t) => t.indexOf('通过') >= 0) && pbtns.some((t) => t.indexOf('驳回') >= 0),
             pbtns.join('|'))
+          // 2026-11-20：待审批条目编辑时给「保存并通过」，不用先存再回去点通过
+          const editBtn = pr
+            ? Array.prototype.slice.call(pr.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('编辑') >= 0)
+            : null
+          if (editBtn) {
+            editBtn.click()
+            await sleep(350)
+            check('★★ 待审批条目编辑框里有「保存并通过」',
+              !!$('.memory-view .mem-edit-pending')
+              && $$('.memory-view .mem-edit button').some((b) => (b.textContent || '').indexOf('保存并通过') >= 0),
+              $$('.memory-view .mem-edit button').map((b) => (b.textContent || '').trim()).join('|'))
+            const cancelEdit = $$('.memory-view .mem-edit button').find((b) => (b.textContent || '').trim() === '取消')
+            if (cancelEdit) cancelEdit.click()
+            await sleep(250)
+          }
           const passBtn = pr
             ? Array.prototype.slice.call(pr.querySelectorAll('button')).find((b) => (b.textContent || '').indexOf('通过') >= 0)
             : null
@@ -9815,6 +9886,40 @@
             const batch = $('.memory-view .mem-batch')
             check('★ 导入后出现批量条（这一页有待审批）', !!batch,
               (($('.memory-view') || {}).textContent || '').slice(0, 200))
+            // 2026-11-20：多选 + 批量改字段（项目/全局）
+            const picks = $$('.memory-view .mem-pick input')
+            check('★ 每条有多选勾选框（批量操作的前提）', picks.length >= 1, 'picks=' + picks.length)
+            if (picks.length) {
+              for (const p of picks) {
+                p.checked = true
+                p.dispatchEvent(new Event('change', { bubbles: true }))
+              }
+              await sleep(150)
+              const beBtn = $$('.memory-view .mem-batch button')
+                .find((b) => (b.textContent || '').indexOf('批量改字段') >= 0)
+              check('★★ 选中后出现「批量改字段」入口', !!beBtn)
+              if (beBtn) {
+                beBtn.click()
+                await sleep(250)
+                check('★★ 批量改字段弹窗打开', !!$('.mem-batch-edit'))
+                const modeSel = $('.mem-batch-edit select')
+                if (modeSel) {
+                  modeSel.value = 'global'
+                  modeSel.dispatchEvent(new Event('change', { bubbles: true }))
+                }
+                await sleep(100)
+                const apply = $$('.mem-batch-edit button')
+                  .find((b) => (b.textContent || '').indexOf('应用到选中的') >= 0)
+                if (apply) apply.click()
+                const hit = await waitFor(() => window.__fcTest.callCount('memoryBatchUpdate') > 0, 4000, 'memoryBatchUpdate')
+                const bargs = hit
+                  ? window.__fcTest.calls().filter((c) => c.name === 'memoryBatchUpdate').pop().args
+                  : null
+                check('★★ 批量改字段真调 memoryBatchUpdate，带文件 + project 空（全局）',
+                  hit && Array.isArray(bargs[0]) && bargs[0].length > 0 && bargs[1] && bargs[1].project === '',
+                  JSON.stringify(bargs && { n: bargs[0].length, patch: bargs[1] }))
+              }
+            }
             const passAll = $$('.memory-view .mem-batch button')
               .find((b) => (b.textContent || '').trim() === '全部通过')
             if (passAll) {

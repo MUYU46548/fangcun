@@ -25,12 +25,29 @@
           <option value="">全部类型</option>
           <option v-for="t in types" :key="t" :value="t">{{ t }}</option>
         </select>
+        <!-- 2026-11-20：按项目 / 全局筛；「通用 / 全局」= 没有项目归属 -->
+        <select class="mem-sel" v-model="projectFilter" @change="load()" title="按项目筛；「通用 / 全局」= 没有项目归属">
+          <option value="">全部项目</option>
+          <option value="__global__">通用 / 全局</option>
+          <option v-for="p in projectOptions" :key="'mp-' + p" :value="p">{{ p }}</option>
+        </select>
+        <select class="mem-sel" v-model="statusFilter" @change="load()" title="按状态筛；选「默认」时按下面两个开关走">
+          <option value="">默认（有效）</option>
+          <option value="待审批">待审批</option>
+          <option value="有效">有效</option>
+          <option value="已撤销">已撤销</option>
+        </select>
+        <Button size="tool" variant="ghost" @click="quickType('事故')"
+          title="只看事故（最近各项目事故频发；再点「全部类型」恢复）">事故</Button>
         <label class="mem-chk" title="已撤销的记忆默认不显示；打开可以看到它们">
           <input type="checkbox" v-model="includeRevoked" @change="load()" /> 显示已撤销
         </label>
         <label class="mem-chk" title="AI 起草的条目要先经你通过；打开可以看到还没通过的">
           <input type="checkbox" v-model="includePending" @change="load()" /> 显示待审批
           <b v-if="overview && overview.pending" class="mem-pending-count">{{ overview.pending }}</b>
+        </label>
+        <label class="mem-chk" title="有新待审批记忆时：除了置顶条，还发系统通知（窗口不在前台时）">
+          <input type="checkbox" v-model="memoryNotify" @change="saveNotify" /> 待审批提醒
         </label>
         <Button size="tool" variant="ghost" :disabled="busy" @click="load()">{{ busy ? '查…' : '搜索' }}</Button>
         <Button size="tool" variant="ghost" :disabled="busy" @click="rebuild()" title="重新读一遍记忆文件；改了磁盘上的文件后点这里">刷新列表</Button>
@@ -42,8 +59,17 @@
 
       <div v-if="notice" class="mem-notice">{{ notice }}</div>
 
-      <div v-if="pendingVisible.length" class="mem-batch">
-        <span>这一页有 <b>{{ pendingVisible.length }}</b> 条待审批</span>
+      <div v-if="pendingVisible.length || selectedFiles.length" class="mem-batch">
+        <label class="mem-chk" title="勾上后整页条目一起选中；再点取消">
+          <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" /> 全选本页
+        </label>
+        <span>已选 <b>{{ selectedFiles.length }}</b> 条 · 这一页有 <b>{{ pendingVisible.length }}</b> 条待审批</span>
+        <Button size="tool" variant="primary" :disabled="!selectedFiles.length || batchBusy" @click="approveSelected">通过选中</Button>
+        <Button size="tool" variant="ghost" :disabled="!selectedFiles.length || batchBusy"
+          @click="askReject(selectedFiles, '选中的 ' + selectedFiles.length + ' 条')">驳回选中</Button>
+        <Button size="tool" variant="ghost" :disabled="!selectedFiles.length || batchBusy" @click="openBatchEdit">批量改字段</Button>
+        <Button size="tool" variant="ghost" :disabled="!selectedFiles.length || batchBusy" @click="selectedFiles = []">清空选择</Button>
+        <span class="mem-sep">·</span>
         <Button size="tool" variant="primary" :disabled="batchBusy" @click="batchAsk = '有效'">全部通过</Button>
         <Button size="tool" variant="ghost" :disabled="batchBusy" @click="batchAsk = '已撤销'">全部驳回</Button>
         <template v-if="batchAsk">
@@ -111,6 +137,9 @@
       <!-- 结果 -->
       <div class="mem-item" v-for="r in rows" :key="r.file">
         <div class="mem-i-h">
+          <label class="mem-pick" title="选中后可批量通过 / 驳回 / 改项目分类">
+            <input type="checkbox" :value="r.file" v-model="selectedFiles" />
+          </label>
           <span class="mem-badge" :class="'is-' + badgeKey(r.type)">{{ r.type || '—' }}</span>
           <span class="mem-title">{{ r.claim || r.title || r.file }}</span>
           <span class="mem-impact" v-if="r.importance" :class="'imp-' + impactKey(r.importance)">
@@ -151,8 +180,12 @@
 
     <!-- 新建 / 编辑（2026-11-18 开放写；2026-11-20 改成 claim + 证据） -->
     <div v-if="editing" class="mem-edit-mask" @mousedown.self="cancelEdit">
-      <div class="mem-edit">
+      <div class="mem-edit" tabindex="-1"
+        @keydown.ctrl.enter.prevent="saveEdit(false)" @keydown.esc="cancelEdit">
         <h3>{{ formFile ? '改这一条记忆' : '记一条记忆' }}</h3>
+        <div v-if="formFile && formStatus === '待审批'" class="mem-edit-pending">
+          待审批 · 通过前可以改；点「保存并通过」= 一次完成修改 + 转正。
+        </div>
         <div class="mem-edit-hint">
           <b>一句话</b>：以后搜索和开工提示只看这句，要能单独看懂。
           <b>原文</b>：贴当时的事实或原话，越长越好，不用压缩。
@@ -195,8 +228,88 @@
         <div v-if="editErr" class="mem-edit-err">{{ editErr }}</div>
         <div class="mem-edit-acts">
           <Button variant="ghost" size="tool" @click="cancelEdit">取消</Button>
-          <Button variant="primary" size="tool" :disabled="editBusy" @click="saveEdit">
+          <Button v-if="formFile && formStatus === '待审批'" variant="primary" size="tool" :disabled="editBusy"
+            @click="saveEdit(true)">保存并通过</Button>
+          <Button variant="primary" size="tool" :disabled="editBusy" @click="saveEdit(false)">
             {{ editBusy ? '存…' : (formFile ? '保存修改' : '存下这一条') }}
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量改字段（2026-11-20）：只改分类/标签/参数，不碰正文与状态 -->
+    <div v-if="batchEditAsk" class="mem-edit-mask" @mousedown.self="batchEditAsk = false">
+      <div class="mem-edit mem-batch-edit">
+        <h3>批量改 {{ selectedFiles.length }} 条</h3>
+        <div class="mem-edit-hint">
+          只改分类 / 标签 / 参数，<b>不碰一句话和原文</b>，也不改状态。留「不改」的字段保持原样。
+        </div>
+        <div class="mem-edit-row">
+          <label><span class="mem-lb">项目</span>
+            <select v-model="batchForm.projectMode" class="mem-sel">
+              <option value="keep">不改</option>
+              <option value="set">改成…</option>
+              <option value="global">清空 → 通用 / 全局</option>
+            </select>
+          </label>
+          <label v-if="batchForm.projectMode === 'set'"><span class="mem-lb">目标项目</span>
+            <input v-model="batchForm.project" class="mem-inp" placeholder="例：fangcun-base" />
+          </label>
+          <label><span class="mem-lb">类型</span>
+            <select v-model="batchForm.type" class="mem-sel">
+              <option value="">不改</option>
+              <option v-for="t in types" :key="'bt-' + t" :value="t">{{ t }}</option>
+            </select>
+          </label>
+          <label><span class="mem-lb">重要度</span>
+            <select v-model="batchForm.importance" class="mem-sel">
+              <option value="">不改</option>
+              <option v-for="n in [5, 4, 3, 2, 1]" :key="'bi-' + n" :value="String(n)">{{ importanceLabel(n) }}（{{ n }}）</option>
+            </select>
+          </label>
+        </div>
+        <div class="mem-edit-row">
+          <label><span class="mem-lb">标签</span>
+            <select v-model="batchForm.tagsMode" class="mem-sel">
+              <option value="keep">不改</option>
+              <option value="set">改成…</option>
+              <option value="clear">清空</option>
+            </select>
+          </label>
+          <label v-if="batchForm.tagsMode === 'set'"><span class="mem-lb">标签（逗号分隔）</span>
+            <input v-model="batchForm.tags" class="mem-inp" placeholder="例：事故,强杀进程" />
+          </label>
+          <label><span class="mem-lb">常读</span>
+            <select v-model="batchForm.pinned" class="mem-sel">
+              <option value="keep">不改</option>
+              <option value="true">设为常读</option>
+              <option value="false">取消常读</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="batchEditErr" class="mem-edit-err">{{ batchEditErr }}</div>
+        <div class="mem-edit-acts">
+          <Button variant="ghost" size="tool" :disabled="batchEditBusy" @click="batchEditAsk = false">取消</Button>
+          <Button variant="primary" size="tool" :disabled="batchEditBusy" @click="applyBatchEdit">
+            {{ batchEditBusy ? '改…' : '应用到选中的 ' + selectedFiles.length + ' 条' }}
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 驳回（2026-11-20）：理由写进审批备注；文件不删 -->
+    <div v-if="rejectAsk" class="mem-edit-mask" @mousedown.self="closeReject">
+      <div class="mem-edit mem-reject">
+        <h3>驳回 {{ rejectLabel }}</h3>
+        <div class="mem-edit-hint">驳回 = 标「已撤销」，文件不删；理由会写进「审批备注」。</div>
+        <label class="mem-edit-wide"><span class="mem-lb">理由（可空）</span>
+          <textarea v-model="rejectReason" class="mem-ta" rows="3"
+            placeholder="例：证据不足 / 这条已经被后来的决定推翻"></textarea>
+        </label>
+        <div class="mem-edit-acts">
+          <Button variant="ghost" size="tool" :disabled="rejectBusy" @click="closeReject">取消</Button>
+          <Button variant="primary" size="tool" :disabled="rejectBusy" @click="runReject">
+            {{ rejectBusy ? '驳回中…' : '确认驳回' }}
           </Button>
         </div>
       </div>
@@ -242,8 +355,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import Button from '../components/ui/Button.vue'
+
+/** App 的置顶条「去审批」传进来的非零序号：切到「待审批」筛选 */
+const props = defineProps<{ focusPending?: number }>()
 
 /**
  * 记忆页（2026-11-17 建；2026-11-18 开放写；2026-11-20 v2：claim + evidence）
@@ -291,6 +407,37 @@ const organizePrompt = ref('')
 const pendingVisible = computed(() => rows.value.filter((r) => r.status === '待审批'))
 const batchAsk = ref('')
 const batchBusy = ref(false)
+/** 2026-11-20：项目 / 状态筛选 + 多选 */
+const projectFilter = ref('')
+const statusFilter = ref('')
+const selectedFiles = ref<string[]>([])
+const memoryNotify = ref(true)
+const projectOptions = computed<string[]>(() => {
+  const bp = (overview.value && overview.value.byProject) || {}
+  return Object.keys(bp).filter((p) => p !== '通用 / 全局').sort((a, b) => a.localeCompare(b, 'zh'))
+})
+const allVisibleSelected = computed(() =>
+  rows.value.length > 0 && rows.value.every((r) => selectedFiles.value.includes(r.file))
+)
+/** 批量改字段 */
+const batchEditAsk = ref(false)
+const batchEditBusy = ref(false)
+const batchEditErr = ref('')
+const batchForm = ref({
+  projectMode: 'keep' as 'keep' | 'set' | 'global',
+  project: '',
+  type: '',
+  tagsMode: 'keep' as 'keep' | 'set' | 'clear',
+  tags: '',
+  importance: '',
+  pinned: 'keep' as 'keep' | 'true' | 'false',
+})
+/** 驳回理由弹窗 */
+const rejectAsk = ref(false)
+const rejectFiles = ref<string[]>([])
+const rejectLabel = ref('')
+const rejectReason = ref('')
+const rejectBusy = ref(false)
 
 // ── 写入态 ──────────────────────────────────────────────────────────
 const editing = ref(false)
@@ -298,6 +445,8 @@ const editBusy = ref(false)
 const editErr = ref('')
 /** 正在改的那条；空 = 新建 */
 const formFile = ref('')
+/** 正在改的那条原本的状态：待审批时给「保存并通过」 */
+const formStatus = ref('')
 const form = ref({
   type: '教训', claim: '', evidence: '', source: '', project: '',
   confidence: 0.7, importance: 3, pinned: false,
@@ -312,6 +461,7 @@ function resetForm(): void {
 
 function openNew(): void {
   formFile.value = ''
+  formStatus.value = ''
   resetForm()
   editErr.value = ''
   editing.value = true
@@ -421,6 +571,7 @@ async function openEdit(r: any): Promise<void> {
     const text = String(res.text || '')
     const isV2 = !r.legacy && String(res.claim || '').trim()
     formFile.value = r.file
+    formStatus.value = String(r.status || '')
     form.value = {
       type: r.type || types.value[0] || '教训',
       claim: isV2 ? String(res.claim || '') : String(r.claim || r.title || ''),
@@ -442,9 +593,11 @@ function cancelEdit(): void {
   editing.value = false
   editErr.value = ''
   formFile.value = ''
+  formStatus.value = ''
 }
 
-async function saveEdit(): Promise<void> {
+async function saveEdit(approve = false): Promise<void> {
+  const file = formFile.value
   const f = form.value
   const missing: string[] = []
   if (!String(f.type).trim()) missing.push('类型')
@@ -463,16 +616,25 @@ async function saveEdit(): Promise<void> {
   editErr.value = ''
   try {
     const api: any = (window as any).tegula
-    const r: any = formFile.value
-      ? await api.memoryUpdate(formFile.value, { ...f })
+    const r: any = file
+      ? await api.memoryUpdate(file, { ...f })
       : await api.memoryCreate({ ...f })
     if (!r?.ok) {
       editErr.value = '没存进去：' + (r?.error || '未知原因')
         + (r?.duplicate ? `（已有：${r.duplicate.claim}）` : '')
       return
     }
+    // 编辑待审批条目：存完顺手转正（一次点击完成「改 + 通过」）
+    if (approve && file) {
+      const s: any = await api.memorySetStatus(file, '有效', '编辑后通过')
+      if (!s?.ok) {
+        editErr.value = '改动已保存，但转正失败：' + (s?.error || '未知原因')
+        return
+      }
+    }
     editing.value = false
     formFile.value = ''
+    formStatus.value = ''
     await load()
   } catch (e: any) {
     editErr.value = '保存失败：' + (e?.message || e)
@@ -483,12 +645,13 @@ async function saveEdit(): Promise<void> {
 
 /** 撤销 / 恢复：只改状态，文件不动（撤销≠删除，所以能恢复） */
 async function setStatus(r: any, status: string): Promise<void> {
-  let reason = ''
+  // 驳回待审批：先让他写一句理由（不再用原生 prompt 打断），再统一走 reject 弹窗
   if (r.status === '待审批' && status === '已撤销') {
-    reason = window.prompt('驳回理由（可空，会写进这条的「审批备注」）：') || ''
+    askReject([r.file], '这一条')
+    return
   }
   try {
-    const res: any = await (window as any).tegula.memorySetStatus(r.file, status, reason)
+    const res: any = await (window as any).tegula.memorySetStatus(r.file, status, '')
     if (!res?.ok) { alert('没改成：' + (res?.error || '未知原因')); return }
     await load()
   } catch (e: any) {
@@ -506,6 +669,7 @@ async function loadPrefs() {
   try {
     const p: any = await (window as any).tegula.prefsGet()
     memoryEnabled.value = p?.memoryEnabled !== false
+    memoryNotify.value = p?.memoryNotify !== false
   } catch { /* 读不到偏好就按开处理，不挡页面 */ }
 }
 
@@ -525,8 +689,11 @@ async function load() {
     const r: any = await (window as any).tegula.memorySearch({
       q: q.value.trim() || undefined,
       type: typeFilter.value || undefined,
-      includeRevoked: includeRevoked.value,
-      includePending: includePending.value,
+      project: projectFilter.value && projectFilter.value !== '__global__' ? projectFilter.value : undefined,
+      global: projectFilter.value === '__global__' || undefined,
+      status: statusFilter.value || undefined,
+      includeRevoked: includeRevoked.value || !!statusFilter.value,
+      includePending: includePending.value || !!statusFilter.value,
     })
     rows.value = r?.rows || []
     overview.value = r?.overview || null
@@ -534,12 +701,145 @@ async function load() {
       const keys = Object.keys(overview.value.byType)
       if (keys.length) types.value = keys
     }
+    // 筛掉已不在当前结果里的选中项（避免"看不见的条目被批量改"）
+    const visible = new Set((r?.rows || []).map((x: any) => String(x.file)))
+    selectedFiles.value = selectedFiles.value.filter((f) => visible.has(f))
+    // 当前项目筛选已不存在（项目被清空/改名）→ 回到全部
+    if (projectFilter.value && projectFilter.value !== '__global__'
+      && overview.value?.projects && !overview.value.projects.includes(projectFilter.value)) {
+      projectFilter.value = ''
+    }
   } catch (e: any) {
     rows.value = []
     overview.value = null
     alert('查询失败：' + (e?.message || e))
   } finally {
     busy.value = false
+  }
+}
+
+/** 事故快捷筛（最近各项目事故频发）：再点一次恢复全部 */
+function quickType(t: string): void {
+  typeFilter.value = typeFilter.value === t ? '' : t
+  void load()
+}
+
+/** 全选本页 / 取消全选 */
+function toggleAllVisible(): void {
+  if (allVisibleSelected.value) {
+    const visible = new Set(rows.value.map((r) => String(r.file)))
+    selectedFiles.value = selectedFiles.value.filter((f) => !visible.has(f))
+  } else {
+    const set = new Set(selectedFiles.value)
+    for (const r of rows.value) set.add(String(r.file))
+    selectedFiles.value = Array.from(set)
+  }
+}
+
+/** 通过选中的（逐条走 memorySetStatus，不删文件） */
+async function approveSelected(): Promise<void> {
+  const files = selectedFiles.value.slice()
+  if (!files.length || batchBusy.value) return
+  batchBusy.value = true
+  let ok = 0
+  try {
+    for (const file of files) {
+      try {
+        const r: any = await (window as any).tegula.memorySetStatus(file, '有效', '批量通过')
+        if (r?.ok) ok++
+      } catch { /* 单条失败不打断整批 */ }
+    }
+    notice.value = `已通过 ${ok}/${files.length} 条（只改状态，文件不删）。`
+    selectedFiles.value = []
+    await load()
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function openBatchEdit(): void {
+  batchEditErr.value = ''
+  batchForm.value = {
+    projectMode: 'keep', project: '', type: '', tagsMode: 'keep', tags: '', importance: '', pinned: 'keep',
+  }
+  batchEditAsk.value = true
+}
+
+/** 批量改分类/标签/参数：只动 frontmatter，不碰正文/状态 */
+async function applyBatchEdit(): Promise<void> {
+  const f = batchForm.value
+  const patch: any = {}
+  if (f.projectMode === 'global') patch.project = ''
+  else if (f.projectMode === 'set') {
+    if (!f.project.trim()) { batchEditErr.value = '目标项目为空；要清空请选「清空 → 通用 / 全局」'; return }
+    patch.project = f.project.trim()
+  }
+  if (f.type) patch.type = f.type
+  if (f.tagsMode === 'clear') patch.tags = []
+  else if (f.tagsMode === 'set') patch.tags = f.tags.split(/[,，]/).map((x) => x.trim()).filter(Boolean)
+  if (f.importance) patch.importance = Number(f.importance)
+  if (f.pinned !== 'keep') patch.pinned = f.pinned === 'true'
+  if (!Object.keys(patch).length) { batchEditErr.value = '没有要改的字段'; return }
+  batchEditBusy.value = true
+  batchEditErr.value = ''
+  try {
+    const r: any = await (window as any).tegula.memoryBatchUpdate(selectedFiles.value.slice(), patch)
+    if (!r?.ok) {
+      batchEditErr.value = r?.error || '批量改失败'
+      if (r?.updated) await load()
+      return
+    }
+    notice.value = `已改 ${r.updated || 0} 条的字段（正文与状态没动）。`
+    batchEditAsk.value = false
+    selectedFiles.value = []
+    await load()
+  } catch (e: any) {
+    batchEditErr.value = '批量改失败：' + (e?.message || e)
+  } finally {
+    batchEditBusy.value = false
+  }
+}
+
+function askReject(files: string[], label: string): void {
+  const list = (files || []).slice()
+  if (!list.length) return
+  rejectFiles.value = list
+  rejectLabel.value = label || `这 ${list.length} 条`
+  rejectReason.value = ''
+  rejectAsk.value = true
+}
+
+function closeReject(): void {
+  if (rejectBusy.value) return
+  rejectAsk.value = false
+}
+
+async function runReject(): Promise<void> {
+  const files = rejectFiles.value.slice()
+  if (!files.length || rejectBusy.value) return
+  rejectBusy.value = true
+  let ok = 0
+  try {
+    for (const file of files) {
+      try {
+        const r: any = await (window as any).tegula.memorySetStatus(file, '已撤销', rejectReason.value.trim() || '批量驳回')
+        if (r?.ok) ok++
+      } catch { /* 单条失败不打断整批 */ }
+    }
+    notice.value = `已驳回 ${ok}/${files.length} 条（标已撤销，文件不删）。`
+    rejectAsk.value = false
+    selectedFiles.value = []
+    await load()
+  } finally {
+    rejectBusy.value = false
+  }
+}
+
+async function saveNotify(): Promise<void> {
+  try {
+    await (window as any).tegula.prefsSet('memoryNotify', memoryNotify.value)
+  } catch (e: any) {
+    notice.value = '提醒开关没存上：' + (e?.message || e)
   }
 }
 
@@ -593,4 +893,13 @@ onMounted(async () => {
   await loadPrefs()
   await load()
 })
+
+watch(() => props.focusPending, (v) => {
+  if (!v) return
+  statusFilter.value = '待审批'
+  includePending.value = true
+  includeRevoked.value = false
+  projectFilter.value = ''
+  void load()
+}, { immediate: true })
 </script>

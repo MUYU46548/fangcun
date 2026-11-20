@@ -171,6 +171,23 @@ export function registerIpcHandlers(): void {
   guardedHandle('memoryImport', (_event, input: any) => memoryService.importMemories(input || {}))
   guardedHandle('memoryOrganize', (_event, input: any) => memoryService.organizeMemories(input || {}))
 
+  // 2026-11-20：记忆批量归类/改字段（只动 frontmatter 分类，不碰正文/状态）。
+  guardedHandle('memoryBatchUpdate', (_event, files: any, patch: any) => {
+    const r = memoryService.batchUpdateMemory(Array.isArray(files) ? files : [], patch || {})
+    if (r.updated) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
+    return r
+  })
+
+  // 有新记忆待审批 → 通知中心 + 系统通知（渲染层轮询到 pending 增加时调）。
+  // 主进程自己算 count/latest，不信渲染层传的数字。
+  guardedHandle('memoryNotifyPending', () => {
+    const ov = memoryService.memoryOverview()
+    if (!ov.pending) return { ok: true, created: false, count: 0 }
+    const latest = ov.pendingLatest || null
+    const created = notifierService.notifyMemoryPending(ov.pending, latest?.claim || '', latest?.file || '')
+    return { ok: true, created, count: ov.pending, latest }
+  })
+
   guardedHandle('getTask', (_event, id: string) => {
     const task = tasks.readTask(id)
     return task ? flattenTask(task) : null

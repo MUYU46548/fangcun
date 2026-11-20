@@ -4677,3 +4677,35 @@ button[data-cost]::after {
 .mem-inp:focus, .mem-ta:focus, .mem-sel:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .mem-edit-err { font-size: 12px; color: var(--danger, #c0392b); font-weight: 600; }
 .mem-edit-acts { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
+
+/* ── 记忆待审批 · 置顶高亮 / 页签角标（2026-11-20）────────────────────
+   不是弹窗：跨页常驻、不挡操作；点「去审批」切到记忆页并筛待审批。 */
+.mem-top-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 12.5px; line-height: 1.5;
+  color: #6b4a05; background: #fff4d6;
+  border-bottom: 1px solid #e8c46a;
+  box-shadow: 0 1px 0 rgba(0,0,0,.03);
+}
+.mem-top-badge {
+  display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px;
+  background: #b7791f; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.mem-top-latest {
+  max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #8a6410;
+}
+.mem-top-grow { flex: 1 1 20px; }
+.vbadge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; margin-left: 5px; padding: 0 4px;
+  border-radius: 999px; background: #c0392b; color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 16px;
+}
+.mem-pick { display: inline-flex; align-items: center; margin-right: 2px; cursor: pointer; }
+.mem-edit-pending {
+  padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.6;
+  color: #6b4a05; background: #fff4d6; border: 1px solid #e8c46a;
+}
+.mem-batch-edit, .mem-reject { max-width: 760px; }
+

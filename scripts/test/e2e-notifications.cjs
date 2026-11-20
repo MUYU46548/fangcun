@@ -61,6 +61,23 @@ function main() {
   check('数据目录已绑定', data.getDataDir() === TEST_ROOT, data.getDataDir())
   notifier._setSuppressOsNotify(true)
 
+  // 2026-11-20：记忆待审批通知（去重键 = 最新待审批文件；同一份不重复弹）
+  const memN1 = notifier.notifyMemoryPending(2, '第一条待审批', 'memory/claims/m1.md')
+  const memRow = notif.listNotifications().find((n) => n.type === 'memory-pending')
+  check('★★ 记忆待审批 → 通知中心有记录（type=memory-pending）', memN1 === true && !!memRow,
+    JSON.stringify({ created: memN1, row: memRow && memRow.type }))
+  check('★ 通知标题带条数、正文带最新 claim、级别 warning',
+    !!memRow && /2 条/.test(memRow.title) && /第一条待审批/.test(String(memRow.body))
+    && memRow.level === 'warning', JSON.stringify(memRow && { t: memRow.title, b: memRow.body, l: memRow.level }))
+  const memN2 = notifier.notifyMemoryPending(2, '第一条待审批', 'memory/claims/m1.md')
+  check('★★ 同一最新文件再推 → created=false（不重复轰炸）', memN2 === false)
+  const memN3 = notifier.notifyMemoryPending(3, '第二条待审批', 'memory/claims/m2.md')
+  check('★★ 新的待审批文件 → 再通知一次', memN3 === true)
+  const memRows = notif.listNotifications().filter((n) => n.type === 'memory-pending')
+  check('★ 两条不同 key 各留一条（同 key 不堆积）', memRows.length === 2, String(memRows.length))
+  // 这段只为验记忆通知；清干净，后面的计数断言仍按空库起算
+  notif.clearAll()
+
   // ══ A. 存储层 ════════════════════════════════════════════════════════
 
   // A1. 幂等推送

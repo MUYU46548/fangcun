@@ -24,6 +24,8 @@ export interface UseNotificationsOptions {
   openPlanDrafts?: (projectId?: string) => void
   /** 打开「结构地图」弹窗（2026-11-11 结构地图久未核实通知用） */
   openStructMap?: () => void
+  /** 打开记忆页并筛「待审批」（2026-11-20 记忆待审批通知用） */
+  openMemoryPending?: () => void
 }
 
 export function useNotifications(ctx: UseNotificationsOptions) {
@@ -56,6 +58,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'deck-askback': { icon: 'approve', label: '问卷有反问', glyph: '❗' },
     'deck-undelivered': { icon: 'task', label: '已批准未落卡', glyph: '🗂' },
     'skill-drift': { icon: 'storage', label: '技能副本落后', glyph: '🧩' },
+    // 2026-11-20：agent 起草的记忆等你点头；不点就永远是“待审批”
+    'memory-pending': { icon: 'approve', label: '记忆待审批', glyph: '🧠' },
   }
   const ncOpen = ref(false)
   const ncReady = ref(false)
@@ -175,6 +179,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (t === 'deck-askback') return '去处理反问'
     if (t === 'deck-undelivered') return '去问卷页落卡'
     if (t === 'skill-drift') return '去重新安装技能'
+    if (t === 'memory-pending') return '去记忆页审批'
     return null
   }
 
@@ -204,6 +209,12 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (t === 'questionnaire-pending') {
       if (ctx.openQuestionnaire) ctx.openQuestionnaire(String(n.sourceId || ''))
       else ctx.toast('这个版本还没有问卷入口，请升级方寸', 'error')
+      return
+    }
+    // 2026-11-20：记忆待审批 → 记忆页并筛待审批
+    if (t === 'memory-pending') {
+      if (ctx.openMemoryPending) ctx.openMemoryPending()
+      else ctx.navigateTo('memory')
       return
     }
     if (t === 'parse-error') { ctx.showParseErrors(); return }
