@@ -7053,53 +7053,7 @@ function showSettings() {
   // ⚠ 合入（2026-10-12）：这一行是外部整包加的，与上面三条**并列不冲突** ——
   //   两边都是"打开设置页时进门就刷"的条目，合并时保留全部四条（缺谁谁就"界面说假话"）。
   //   这条纪律本身就是从"懒加载导致界面说假话"那几次事故里来的（见 MEMORY 第 5.8 条）。
-  llmLoad()
   idleLoad()  // 挂机提醒（2026-10-17）：同纪律，进门就刷，别显示上一次的旧值
-}
-
-// ── 模型通道（BYOK，逐步退役中）：配置界面暂留 ──────────────────────────
-// 2026-11-20 D-155：等最后一个 BYOK 功能下线再删（D-149/D-150/D-151/D-152 未全部落地前不能删）。
-// AI 规划已删；文档拆卡 / 出单 / 模糊问答 / 架构图 AI 仍在用这条通道，按问卷 D 系列逐项收。
-// 后端 llm:getConfig/setConfig/resetConfig/testConnection 四通道就绪。
-// 密钥防线在主进程（掩码/空白视为未修改不写盘），UI 侧掩码同样不回传，双保险。
-const llmCfg = ref<{ baseUrl: string; model: string; apiKey: string; timeout: number }>({
-  baseUrl: '', model: '', apiKey: '', timeout: 60,
-})
-const llmKeyHint = ref('')
-const llmTesting = ref(false)
-const llmSaving = ref(false)
-const llmResetting = ref(false)
-/** 最近一次调用（状态条用）。数据来自 ai-trace 的 llm:usageStats.last —— 不额外读文件。
- *  一次都没跑过时是 null，状态条显示“还没跑过调用”，不拿 0 糊一个数字。 */
-const llmLastCall = ref<{
-  ts: string; model: string; trigger: string
-  total_tokens: number | null; duration_ms: number; ok: boolean
-} | null>(null)
-/** 待确认的预设（2026-10-27）：点了会**覆盖已有端点/模型**，必须先确认再应用。 */
-const llmPresetPending = ref<{ kind: LlmPresetKind; baseUrl: string; model: string } | null>(null)
-
-type LlmPresetKind = 'deepseek' | 'mimo-api' | 'mimo-plan'
-/** 预设数据集中在这里 —— 以前三个分支各写一遍 baseUrl/model/toast，改一处容易漏两处。 */
-const LLM_PRESETS: Record<LlmPresetKind, { baseUrl: string; model: string; toast: string; level: 'info' | 'error' }> = {
-  deepseek: {
-    baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat',
-    toast: '已填 DeepSeek 官方端点与模型名——Key 在你手里，填好测试连接', level: 'info',
-  },
-  'mimo-api': {
-    baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
-    toast: '已填小米“按量付费”端点——Key 用 sk- 开头那串（控制台 API Keys 里复制）', level: 'info',
-  },
-  'mimo-plan': {
-    baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.6-flash',
-    toast: '已填 Token Plan 端点——⚠ 小米条款限编程工具内使用，方寸属应用后端，建议改用按量付费', level: 'error',
-  },
-}
-
-/** 从 URL 取主机名（状态条/确认条显示用）；解析失败就原样返回，不抛错 */
-function llmHostOf(url: string): string {
-  const s = String(url || '').trim()
-  if (!s) return '（空）'
-  try { return new URL(s).host || s } catch { return s }
 }
 
 /** ai-trace 的 ts 有两种历史格式（带 Z / 不带 Z，见主进程 parseTs 注释）。
@@ -7113,135 +7067,6 @@ function fmtShort(ts: string): string {
   const d = new Date(t)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-async function loadLlmLastCall() {
-  try {
-    const r: any = await window.tegula.llmUsageStats?.(30)
-    llmLastCall.value = r?.last || null
-  } catch {
-    llmLastCall.value = null
-  }
-}
-
-async function llmLoad() {
-  try {
-    const r: any = await window.tegula.llmGetConfig()
-    if (r?.ok !== false && r) {
-      llmCfg.value = {
-        baseUrl: r.baseUrl || '',
-        model: r.model || '',
-        apiKey: r.hasApiKey ? '***' : '',
-        timeout: r.timeout || 60,
-      }
-      llmKeyHint.value = r.apiKeyHint || ''
-    }
-  } catch (e: any) {
-    showToast(`读取模型配置失败：${e?.message || e}`, 'error')
-  }
-  // 状态条要的“最近一次调用”与配置解耦：配置读失败也照样显示用量
-  void loadLlmLastCall()
-}
-
-/** 预设：只填**有据可查**的端点与模型名（官方文档写明的那几个），密钥一律不预填。
- *
- *  小米的两套凭证（2026-10-18 暮雨第 3 条）：
- *   · 按量付费：https://api.xiaomimimo.com/v1，Key 形如 sk-xxxxx；
- *   · Token Plan：https://token-plan-cn.xiaomimimo.com/v1（另有 sgp / ams 集群），Key 形如 tp-/ttp-。
- *  两者**端点与密钥都不能互换**（拿 Plan 的 key 打按量付费端点 = 401）。
- *  ⚠ 按小米条款，Token Plan 额度仅限编程工具内使用，禁止用于应用后端 —— 方寸属后者，
- *    所以按钮虽然给了，提示里明确劝退；默认推荐按量付费。
- *  ⚠ 模型名用官方文档的**小写连字符**写法（mimo-v2.6-flash）：以前这里填的是
- *    `MiMo-V2.6-Flash`，与接口返回的 model id 对不上，用户"一键填完还是失败"。
- */
-function applyLlmPreset(kind: LlmPresetKind) {
-  const preset = LLM_PRESETS[kind]
-  if (!preset) return
-  const cur = llmCfg.value
-  // 2026-10-27（暮雨：“真正缺的是二次确认”）：预设会**直接盖掉已填的端点与模型名**，
-  // 此前一点就没、也没法撤销。现在：已经有配置且与预设不同 → 先弹确认条，不直接写。
-  // 配置是空的时候不问 —— 那不叫覆盖，那叫填空。
-  const hasCfg = !!(cur.baseUrl.trim() || cur.model.trim())
-  const differs = cur.baseUrl.trim() !== preset.baseUrl || cur.model.trim() !== preset.model
-  if (hasCfg && differs) {
-    llmPresetPending.value = { kind, baseUrl: preset.baseUrl, model: preset.model }
-    return
-  }
-  commitLlmPreset(kind)
-}
-
-/** 确认条上的“覆盖”：真正写入（预设只动端点与模型名，API Key 一律不碰） */
-function confirmLlmPreset() {
-  const p = llmPresetPending.value
-  if (!p) return
-  llmPresetPending.value = null
-  commitLlmPreset(p.kind)
-}
-
-function commitLlmPreset(kind: LlmPresetKind) {
-  const preset = LLM_PRESETS[kind]
-  llmCfg.value.baseUrl = preset.baseUrl
-  llmCfg.value.model = preset.model
-  showToast(preset.toast, preset.level)
-}
-
-async function llmTest() {
-  if (llmTesting.value) return
-  llmTesting.value = true
-  try {
-    const cfg = { ...llmCfg.value }
-    if (cfg.apiKey === '***') delete (cfg as any).apiKey
-    const r: any = await window.tegula.llmTestConnection(cfg)
-    if (r?.ok) {
-      showToast(`连接成功：${r.model || llmCfg.value.model || '(默认模型)'}${r.latencyMs != null ? ` · ${r.latencyMs}ms` : ''}`, 'success')
-    } else {
-      showToast(`连接失败：${r?.error || '未知错误（看主进程日志）'}`, 'error')
-    }
-  } catch (e: any) {
-    showToast(`测试异常：${e?.message || e}`, 'error')
-  } finally {
-    llmTesting.value = false
-  }
-}
-
-async function llmSave() {
-  if (llmSaving.value) return
-  llmSaving.value = true
-  try {
-    const cfg: Record<string, unknown> = {
-      baseUrl: llmCfg.value.baseUrl.trim(),
-      model: llmCfg.value.model.trim(),
-      timeout: llmCfg.value.timeout,
-    }
-    // 掩码/空 = 没改密钥，不回传（主进程还有 isMaskedKey 防线）
-    const key = llmCfg.value.apiKey.trim()
-    if (key && key !== '***') cfg.apiKey = key
-    const r: any = await window.tegula.llmSetConfig(cfg)
-    if (r?.ok !== false) {
-      showToast('模型通道已保存（本机 llm-config.json）', 'success')
-      await llmLoad()
-    } else {
-      showToast(r?.error || '保存失败', 'error')
-    }
-  } catch (e: any) {
-    showToast(`保存异常：${e?.message || e}`, 'error')
-  } finally {
-    llmSaving.value = false
-  }
-}
-
-async function llmReset() {
-  if (llmResetting.value) return
-  llmResetting.value = true
-  try {
-    await window.tegula.llmResetConfig()
-    showToast('已重置（密钥保留——想换钥匙直接改填新值保存）', 'info')
-    await llmLoad()
-  } catch (e: any) {
-    showToast(`重置异常：${e?.message || e}`, 'error')
-  } finally {
-    llmResetting.value = false
-  }
 }
 
 // ── 决策卡（2026-10-12 AI 规划包第 3 件；2026-10-14 整块切到组件）──────────
@@ -8152,7 +7977,7 @@ provide('fc-settings', {
   onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
   appLogFile, openAppLogDir, copyAppLogPath, showAppLogFromSettings, purgeLogs, openDisclaimer,
   diagSelf, diagSkills, diagActivity, diagBusy, runSelfCheck, checkSkillsCopies, loadDiagActivity, relativeTime,
-  addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
+  addAgentPreset, addPriceRow, agentPresets, fmtShort, idleCfg, idleSave, idleSaving, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
   copyPolicyText, openPolicyEdit, openProjectInSettings, policyMap, projects,
   // 花钱动作确认（2026-11-20）：设置 → 通用 用这个开关
   costConfirm, setCostConfirm,
@@ -8206,9 +8031,7 @@ onMounted(() => {
   })
   // 版本号（设置页首区块显示）
   loadAppVersion()
-  // 模型通道配置（2026-10-16）：启动就读一次 —— 文档拆卡等 BYOK 入口靠它判断配没配，
-  // 只在打开设置页时才读的话，没进过设置页的用户会一直看到"还没配"（界面说假话）。
-  void llmLoad()
+  // 2026-11-20 BYOK 退场：不再启动时读模型通道；文档拆卡等入口直接走 DSH 派单。
   // 花钱确认偏好（2026-11-20）：设置 → 通用 的开关也读同一份
   void costConfirmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新

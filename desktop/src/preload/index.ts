@@ -158,11 +158,6 @@ contextBridge.exposeInMainWorld('tegula', {
   mirrorGet: (taskId: string) => ipcRenderer.invoke('mirror:get', taskId),
   /** 跨渠道 token 对比（0.6.0 第 2 批）：只读，只比 token */
   channelsGet: (opts?: { days?: number; channels?: string[] }) => ipcRenderer.invoke('channels:get', opts),
-  /** BYOK 多通道配置（2026-11-02）：主通道 + 备用通道；密钥只回掩码，永远不回原值 */
-  llmChannelsList: () => ipcRenderer.invoke('llm-channels:list'),
-  llmChannelsUpsert: (input: { id?: string; label?: string; baseUrl?: string; apiKey?: string; model?: string; enabled?: boolean }) =>
-    ipcRenderer.invoke('llm-channels:upsert', input),
-  llmChannelsRemove: (id: string) => ipcRenderer.invoke('llm-channels:remove', id),
   /** 大附件（2026-10-30 卡 004）：只列不删；删除是用户点、主进程校验路径在附件目录内 */
   backupBigAttachments: (minMb?: number) => ipcRenderer.invoke('backup:bigAttachments', minMb),
   backupDeleteAttachment: (rel: string) => ipcRenderer.invoke('backup:deleteAttachment', rel),
@@ -347,34 +342,16 @@ contextBridge.exposeInMainWorld('tegula', {
   // Services / Workbench
   // `scanServices` 死通道已删（2026-10-11，卡 20261006-002 E 组）：服务页走 servicesAdd/Remove/Open，
   // 端口清单来自 `ports:*`；MCP 侧直接调 `services.scanServices()` 函数、不走 IPC。
-  // LLM
-  llmGetConfig: () => ipcRenderer.invoke('llm:getConfig'),
+  // LLM：只保留用量/单价（BYOK 配置与模型调用已退役）
   // 2026-10-17 暮雨第 10 条“花销可见”：累计 token / 次数（数据源 = ai-trace.jsonl）
   llmUsageStats: (days?: number) => ipcRenderer.invoke('llm:usageStats', days),
   /** 月度花销（2026-10-22 · 03 任务三）：按自然月切，不是滚动 30 天 */
   llmUsageMonthly: (months?: number) => ipcRenderer.invoke('llm:usageMonthly', months),
-  /**
-   * 账户口径（2026-10-25 卡 005）：余额差值。
-   * `balanceStatus` 纯读不联网（进页面就能显示口径）；`balanceObserve` 才真去查一次。
-   */
-  llmBalanceStatus: () => ipcRenderer.invoke('llm:balanceStatus'),
-  llmBalanceObserve: () => ipcRenderer.invoke('llm:balanceObserve'),
   /** 模型单价（2026-10-25 卡 005 B 档）：元/百万 tokens，用户自己填；空表 = 一律未折算 */
   llmGetPrices: () => ipcRenderer.invoke('llm:getPrices'),
   llmSetPrices: (rows: any) => ipcRenderer.invoke('llm:setPrices', rows),
-  llmSetConfig: (cfg: any) => ipcRenderer.invoke('llm:setConfig', cfg),
-  llmResetConfig: () => ipcRenderer.invoke('llm:resetConfig'),
-  llmTestConnection: (cfg?: any) => ipcRenderer.invoke('llm:testConnection', cfg),
-  llmChat: (content: string, options: any) => ipcRenderer.invoke('llm:chat', content, options),
-  llmAudit: (projectId: string, model?: string) => ipcRenderer.invoke('llm:auditProject', projectId, model),
-  llmDecompose: (goal: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:decomposeGoal', goal, projectId, model),
-  llmDecide: (dp: any, model?: string) => ipcRenderer.invoke('llm:decideDP', dp, model),
-  llmReview: (projectId?: string, model?: string) => ipcRenderer.invoke('llm:quarterlyReview', projectId, model),
-  llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
-  // AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 / D-150 删除）：
-  // 桌面 GUI 不再调模型。规划走 dispatchDsh(project, 'plan')；
-  // 文档拆卡 / 出单走 dispatchMessageDsh（只落派单文件，由 DSH 干活）。
-  // MCP 的 plan_draft 是另一条（D-153 弱支持保留）。
+  // GUI 自调用模型的通道（config/balance/chat/planning）已按 2026-11-20 暮雨口径删除；
+  // MCP/CLI 入口保留为“BYOK 已退役，请去 DSH”的提示版。
   // 决策卡（2026-10-12）：与 Python CLI 同文件（task-data/decisions.md）
   decisionList: () => ipcRenderer.invoke('decision:list'),
   decisionAdd: (input: any) => ipcRenderer.invoke('decision:add', input),

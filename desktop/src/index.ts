@@ -4,7 +4,6 @@ import * as fs from 'fs'
 import { registerIpcHandlers } from './main/ipc'
 import { registerBackupIpcHandlers } from './main/backup-ipc'
 import { registerPlanIpcHandlers } from './main/plan-ipc'
-import { registerLlmChannelIpcHandlers } from './main/channel-ipc'
 import { registerPlanRunIpcHandlers } from './main/plan-run-ipc'
 import { registerMirrorIpcHandlers } from './main/mirror-ipc'
 import { registerWasteIpcHandlers } from './main/waste-ipc'
@@ -223,7 +222,7 @@ function createWindow(): void {
   // 作战计划 · 跑判据 / 推进（0.6.0 P4）：执行器只在这个文件里，打开卡不会跑命令
   registerPlanRunIpcHandlers()
   // BYOK 多通道（0.6.0 第 2 批）：主通道 + 备用通道的增删查（密钥只回掩码）
-  registerLlmChannelIpcHandlers()
+  // 2026-11-20 BYOK 退场：llm-channels 口已删（方寸不再配置模型通道）。
   // 投入产出账（0.6.0 P5）：只读
   registerWasteIpcHandlers()
   // 计划与实际的对照镜（卡 20261027-004 阶段一）：只读取两段原文，零加工

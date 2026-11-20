@@ -60,19 +60,6 @@ export function useAsk(deps: AskDeps) {
   const chanDays = ref(30)
   const chanPick = ref('')
   const chanReadError = ref('')
-  /** 账户口径（2026-10-25 卡 005）：只读状态，真正的余额请求在 refreshBalance 里按需发 */
-  const balanceStatus = ref<any>(null)
-  const balanceObserving = ref(false)
-
-  async function loadBalanceStatus(): Promise<void> {
-    try {
-      const r: any = await (window as any).tegula.llmBalanceStatus()
-      balanceStatus.value = r || null
-    } catch {
-      // 旧主进程没有这条通道 → 不显示这块（不报假）
-      balanceStatus.value = null
-    }
-  }
 
   /** 端点 id → 人话品牌名（界面上别直接摆 `deepseek` 这种内部 id） */
   function providerLabel(p: string): string {
@@ -91,20 +78,6 @@ export function useAsk(deps: AskDeps) {
     if (dot < 0) return raw
     const frac = (raw.slice(dot + 1) + '0000').slice(0, 4).replace(/0+$/, '')
     return frac ? `${raw.slice(0, dot)}.${frac}` : raw.slice(0, dot)
-  }
-
-  async function refreshBalance(): Promise<void> {
-    if (balanceObserving.value) return
-    balanceObserving.value = true
-    try {
-      const r: any = await (window as any).tegula.llmBalanceObserve()
-      if (r?.status) balanceStatus.value = r.status
-      showToast(r?.message || (r?.ok ? '已查一次余额' : '查余额失败'), r?.ok ? 'success' : 'error')
-    } catch (e: any) {
-      showToast('查余额失败：' + (e?.message || e), 'error')
-    } finally {
-      balanceObserving.value = false
-    }
   }
 
   async function loadUsageMonths(): Promise<void> {
@@ -291,7 +264,7 @@ export function useAsk(deps: AskDeps) {
   async function initAsk(): Promise<void> {
     if (!askPresets.value.length) await loadAskPresets()
     // 月报表每次都重读：花销是会变的数，界面上的旧数比没有数更误导
-    await Promise.all([loadUsageMonths(), loadChannels(), loadBalanceStatus()])
+    await Promise.all([loadUsageMonths(), loadChannels()])
   }
 
   return {
@@ -300,7 +273,7 @@ export function useAsk(deps: AskDeps) {
     correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
     batchBusy, runBatch,
     usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,
-    balanceStatus, providerLabel, balanceObserving, refreshBalance, fmtCost,
+    fmtCost,
     initAsk,
   }
 }

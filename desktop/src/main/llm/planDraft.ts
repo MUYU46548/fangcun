@@ -25,9 +25,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { atomicWrite, getTaskDir } from '../data'
 import { appendTrace } from './trace'
-import { chatWithFallback } from './fallback'
 import { inspectJson, jsonRetryNudge, type JsonFailKind } from '../../shared/jsonRepair'
-import { getConfig } from './config'
 import type { WasteLedger } from '../../shared/waste'
 import { parseCheckLine } from '../../shared/checkSpec'
 import { contentScaleGate, type CoreVerdict } from '../../shared/contentScale'
@@ -735,34 +733,24 @@ const DEFAULT_SYSTEM_TRIGGER = 'plan-draft'
  *      让思考与正文都放得下；chatDetailed 遇到 length 截断也会自动翻倍。
  *   ② 一次带思考的生成实测 30–90s，而 llm-config 的超时是 60s → 生成口单独给 240s。
  */
-async function callLlmOnce(prompt: string, sys: string, project: string): Promise<{ text: string; usage?: DraftUsage; model?: string }> {
-  const r = await chatWithFallback(prompt, {
-    system: sys, trigger: `${DEFAULT_SYSTEM_TRIGGER}:${project}`,
-    // noTrace：花销由 generatePlanDraft 统一写一条（带 total_tokens）—— 否则一次生成记两条，账对不上。
-    noTrace: true,
-    maxTokens: 32768,
-    timeout: 240,
-  })
-  if (!r?.ok) throw new Error(r?.error || r?.note || '模型调用失败（所有通道都试过了）')
-  return {
-    text: String(r.text || ''),
-    usage: {
-      promptTokens: r.usage?.promptTokens ?? undefined,
-      completionTokens: r.usage?.completionTokens ?? undefined,
-      totalTokens: r.usage?.totalTokens ?? undefined,
-    },
-    model: String(r.model || getConfig().model || ''),
-  }
-}
-
 /**
  * 起草一份计划草案。
- * 测试用 `deps.callLlm` 注入一段假模型输出；正式路径走 `chatDetailed`（BYOK）。
+ *
+ * 2026-11-20 暮雨：BYOK 退场 —— 方寸不再自己调模型。
+ * 现在只认 `deps.callLlm`（`plan_submit` 用 agent 给的草案走同一条纯闸）；
+ * 没有注入就明确返回“去 DSH 做”，绝不回落到任何本地模型通道。
  */
 export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDeps = {}): Promise<PlanDraftResult> {
   const allowed = allowedCitations(input)
   if (!allowed.length) {
     return { ok: false, error: '没有可引用的依据（现有卡 / 投入产出账 / git 事实都为空）—— 起草器不编依据', allowed }
+  }
+  if (typeof deps.callLlm !== 'function') {
+    return {
+      ok: false,
+      error: 'BYOK 已退役：plan_draft 不再由方寸调模型。请在 DSH 桌面版里做规划，或用 plan_submit 交 agent 写好的草案。',
+      allowed,
+    }
   }
   const { system, user } = buildPlanDraftPrompt(input)
   const nowIso = String(deps.now || new Date().toISOString())
@@ -775,10 +763,8 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
     try { (deps.appendTrace || appendTrace)(rec) } catch { /* 留痕失败不挡生成 */ }
   }
   try {
-    // 2026-11-02 BYOK 多通道：走降级链（主通道挂了自动换备用，失败与降级都留痕）。
-    // 降级只改"用哪条通道发"，不改"产出只落待裁决"这条语义。
-    const call = deps.callLlm || ((p: string, s: string) => callLlmOnce(p, s, input.project))
-    const r = await call(user, system)
+    // 只走注入的 agent 草案；BYOK 本地通道已退役。
+    const r = await deps.callLlm(user, system)
     text = String(r?.text || '')
     usage = r?.usage || undefined
     model = String(r?.model || '')
@@ -802,9 +788,7 @@ export async function generatePlanDraft(input: PlanDraftInput, deps: PlanDraftDe
     const kind = parsed.kind || 'not_json'
     const nudge = jsonRetryNudge(kind)
     try {
-      const r2 = await (deps.callLlm
-        ? deps.callLlm(user + '\n\n' + nudge, system)
-        : callLlmOnce(user + '\n\n' + nudge, system, input.project))
+      const r2 = await deps.callLlm(user + '\n\n' + nudge, system)
       retried = true
       const t2 = String(r2?.text || '')
       if (r2?.model) model = String(r2.model)

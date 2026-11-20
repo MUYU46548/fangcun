@@ -1,26 +1,15 @@
-import { ipcMain } from 'electron'
+/**
+ * LLM 用量 / 单价 IPC（2026-11-20 BYOK 退场后仅保留只读账本）。
+ *
+ * 已删：模型通道配置、测试连接、余额、chat、审计/拆解/复盘/路线图。
+ * GUI 里能点到的东西全部走 DSH 派单（`context:dispatchDsh` / `context:dispatchMessage`）；
+ * MCP / CLI 的入口另在 `mcp/tools.ts` 与 `tegula/cli.py` 保留为提示版。
+ */
 import { guardedHandle } from './guarded-ipc'
-import { getBalanceStatus, observeBalance } from './llm/balance'
 import { getPrices, setPrices } from './llm/prices'
-import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
-import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
-import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
 import { usageStats, usageByMonth } from './llm/trace'
 
-/** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
-function toFailure(e: unknown, fallbackUrl = '') {
-  const err = e as LLMError
-  return {
-    ok: false as const,
-    error: err?.message || String(e),
-    status: err?.code ?? null,
-    body: err?.body ?? '',
-    url: err?.url || fallbackUrl,
-  }
-}
-
 export function registerLlmIpcHandlers(): void {
-  // ── LLM Config ────────────────────────────────────────────────────
   // 2026-10-17 暮雨第 10 条“花销可见”：把 ai-trace.jsonl 里的 token 汇总算出个准数。
   // ⚠ 只统计**供应商真报了 usage** 的调用；没报的单独计次数，绝不拿字符数折算成 token。
   guardedHandle('llm:usageStats', (_event: any, days?: number) => {
@@ -34,123 +23,7 @@ export function registerLlmIpcHandlers(): void {
     return { months: usageByMonth(Number.isFinite(n) && n > 0 ? Math.min(n, 24) : 3) }
   })
 
-  // ── 账户口径（2026-10-25 卡 005）：余额差值，不是价格表 ────────────────
-  // 暮雨给的参考实现点破了关键：准的办法是**不经过价格表** —— 官方余额接口的下降额
-  // 就是真花掉的钱。`balance:status` 只读（不联网），`balance:observe` 才真去查一次。
   // 单价表（2026-10-25 卡 005 B 档）：用户自己填，方寸不预置任何默认价。
-  guardedHandle('llm:balanceStatus', () => getBalanceStatus())
   guardedHandle('llm:getPrices', () => getPrices())
   guardedHandle('llm:setPrices', (_e: any, rows: unknown) => setPrices(rows))
-  guardedHandle('llm:balanceObserve', () => observeBalance())
-
-  guardedHandle('llm:getConfig', () => {
-    // 密钥只出掩码 + 提示串，原值永不过 IPC
-    return getConfigForRenderer()
-  })
-
-  guardedHandle('llm:setConfig', (_event, cfg: Partial<LLMConfig>) => {
-    try {
-      // setConfig 内部已忽略掩码/空 apiKey，不会把 '***' 写盘
-      const updated = setConfig(cfg)
-      return {
-        ok: true,
-        config: { ...updated, apiKey: updated.apiKey ? '***' : '' },
-        hasApiKey: !!updated.apiKey,
-      }
-    } catch (e) {
-      return { ok: false, error: (e as Error).message }
-    }
-  })
-
-  guardedHandle('llm:resetConfig', () => {
-    try {
-      resetConfig()
-      return { ok: true }
-    } catch (e) {
-      return { ok: false, error: (e as Error).message }
-    }
-  })
-
-  // ── 连接诊断（不改配置，失败原因全量回显） ─────────────────────────
-  guardedHandle('llm:testConnection', async (_event, cfg?: Partial<LLMConfig>) => {
-    try {
-      const base = getConfig()
-      const options: ChatOptions = {
-        baseUrl: cfg?.baseUrl || base.baseUrl,
-        // 掩码/空 → 用磁盘上的真实密钥
-        apiKey: cfg?.apiKey,
-        model: cfg?.model || base.model,
-        timeout: Math.min(cfg?.timeout || base.timeout, 30),
-      }
-      const result = await pingConnection(options)
-      return { ok: result.ok, ...result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  // ── Chat ──────────────────────────────────────────────────────────
-  guardedHandle('llm:chat', async (_event, content: string, options: ChatOptions) => {
-    try {
-      const result = await chat(content, { ...options, trigger: options.trigger || 'desktop.chat' })
-      // 调用刚结束就观测一次余额：差值更能归到"这一次"（轮询式 60s 反而更糊）。
-      // ⚠ fire-and-forget：查余额失败绝不能影响已经拿到的回答。
-      void observeBalance().catch(() => { /* 已在服务里落日志 */ })
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  // ── Planning ──────────────────────────────────────────────────────
-  guardedHandle('llm:auditProject', async (_event, projectId: string, model?: string) => {
-    try {
-      const result = await auditProject(projectId, model)
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  guardedHandle('llm:decomposeGoal', async (_event: any, goal: string, projectId?: string, model?: string) => {
-    try {
-      const result = await decomposeGoal(goal, projectId, model)
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  guardedHandle('llm:decideDP', async (_event: any, dp: any, model?: string) => {
-    try {
-      const result = await decideDP(dp, model)
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  guardedHandle('llm:quarterlyReview', async (_event: any, projectId?: string, model?: string) => {
-    try {
-      const result = await quarterlyReview(projectId, model)
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  guardedHandle('llm:generateRoadmap', async (_event: any, goal?: string, projectId?: string, model?: string) => {
-    try {
-      const result = await generateRoadmap(goal, projectId, model)
-      return { ok: true, content: result }
-    } catch (e) {
-      return toFailure(e)
-    }
-  })
-
-  // ── AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 / D-150 删除）──────
-  // 定案：桌面 GUI 全走 DSH 调用，不再用方寸内置模型做规划/拆卡/出单。
-  // `llm:planToDraft` / `llm:draftProjectBrief` / `llm:docToDrafts` / `llm:planBatch`
-  // 四个口全删（连 preload 一起）；文档拆卡与出单改成 `context:dispatchMessage`。
-  // MCP 的 `plan_draft` 走 `llm/planDraft.ts`，是另一条（D-153 弱支持保留），不在本文件。
 }

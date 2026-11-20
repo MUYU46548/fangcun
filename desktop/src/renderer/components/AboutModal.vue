@@ -11,8 +11,8 @@
       </div>
       <p class="about-intro">
         把“任务收口 + 方针载体”做在一处：任务卡、执行日志、项目方针、决策记录都是本机 Markdown 明文，
-        agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，AI 不能背着你往里塞东西。
-        会花钱的只有出单与文档拆卡，且必须走你自己配的模型通道（BYOK），不配就一分不花。架构图只做源码扫描，不调模型。
+        agent 通过 MCP 读写同一份台账 —— <b>你点头才算数</b>，agent 不能背着你往里塞东西。
+        模型能力全走 DSH 桌面版；方寸不保存 Key/端点、自己不调模型。用量与成本页照常保留。
       </p>
       <div class="about-rows">
         <div><span class="k">版本</span><span class="v">{{ ctl.appVersion || '读取中…' }}</span></div>

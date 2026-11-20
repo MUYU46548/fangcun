@@ -198,36 +198,6 @@
         </div>
         <div v-else class="chan-empty">{{ ctl.chanReport.emptyText }}</div>
       </div>
-
-      <!-- 账户口径（2026-10-25 卡 005）：这一行**不是估算**，是官方余额接口的差值。
-           暮雨给的参考实现点破了关键 —— 准的办法是不经过价格表：价格怎么变，
-           余额下降额都是真花掉的钱。代价（粒度粗、要充值不混进消费）也写在这里。 -->
-      <div class="ask-acc" v-if="ctl.balanceStatus">
-        <div class="ask-report-h">
-          账户口径 · 余额差值
-          <em class="ask-report-src">
-            {{ ctl.balanceStatus.supported ? '来自供应商余额接口，不是按 token 估算' : '这一口径不可用' }}
-          </em>
-        </div>
-        <template v-if="ctl.balanceStatus.supported">
-          <div class="ask-acc-row">
-            <span class="arr-m">{{ ctl.providerLabel(ctl.balanceStatus.provider) }}</span>
-            <span class="arr-c">观测 {{ ctl.balanceStatus.observations }} 次</span>
-            <span class="arr-t">
-              已观测消费 <b>{{ ctl.balanceStatus.spent }} {{ ctl.balanceStatus.currency }}</b>
-              <em v-if="Number(ctl.balanceStatus.recharged) > 0">· 另有充值 {{ ctl.balanceStatus.recharged }}</em>
-            </span>
-          </div>
-          <div class="ask-acc-note">
-            <span v-if="ctl.balanceStatus.note">{{ ctl.balanceStatus.note }}</span>
-            <span v-else>这是账户真实扣款（两次观测之间的差额），<b>归不到具体某一次调用</b>；逐笔要看上面的 token。</span>
-            <button class="ghost ask-acc-btn" :disabled="ctl.balanceObserving" @click="ctl.refreshBalance">
-              {{ ctl.balanceObserving ? '查…' : '⟳ 立刻查一次' }}
-            </button>
-          </div>
-        </template>
-        <div class="ask-acc-note" v-else>{{ ctl.balanceStatus.reason }}</div>
-      </div>
     </main>
 </template>
 

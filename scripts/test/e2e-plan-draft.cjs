@@ -285,9 +285,11 @@ async function main() {
     const read = (p) => fs.readFileSync(path.join(REPO, p), 'utf-8')
     const SRC = read('desktop/src/main/llm/planDraft.ts')
     check('★ 草案只落 _drafts（不覆盖正式计划卡）', /plans', '_drafts'/.test(SRC) && /_drafts/.test(SRC))
-    // 2026-11-02：改成走降级链 —— 主通道挂了自动换备用（chatWithFallback 内部仍调 chatDetailed）
-    check('★ 走既有 BYOK 降级链（chatWithFallback + noTrace，自己写带 total_tokens 的留痕）',
-      /chatWithFallback\(/.test(SRC) && /noTrace: true/.test(SRC) && /total_tokens/.test(SRC))
+    // 2026-11-20：BYOK 退场 —— 生成口不再回落任何本地模型通道
+    check('★ 生成口不再走 BYOK（源码里没有 chatWithFallback / getConfig）',
+      !/chatWithFallback|getConfig/.test(SRC) && /total_tokens/.test(SRC))
+    check('★★ 没注入 callLlm 时明确提示去 DSH（不再回落 BYOK）',
+      /BYOK 已退役/.test(SRC) && /typeof deps\.callLlm !== 'function'/.test(SRC))
     check('★ 生成器没有"通过/冻结"能力（源码里没有 advanceStage / writePlanVerdict）',
       !/advanceStage|writePlanVerdict/.test(SRC))
     check('★ 状态只写“待裁决”（源码里不写 `状态: 已冻结`）', !/状态:\s*已冻结/.test(SRC))
@@ -295,8 +297,8 @@ async function main() {
       /allowedCitations/.test(SRC) && /!allow\.has\(c\)/.test(SRC))
     check('★★ 三条新硬闸在源码里（宪法 / 先问 / 判据现状体检）',
       /validateConstitution/.test(SRC) && /asksNote/.test(SRC) && /evaluateCriteriaNow/.test(SRC))
-    check('★★ 生成口超时放宽到 240s（实测 58.7s / 配置 60s，卡边界）',
-      /timeout: 240/.test(SRC))
+    check('★★ 生成口不再有 240s 的模型调用超时（BYOK 已退役）',
+      !/timeout: 240/.test(SRC))
     check('★ 草案自我介绍不再硬编码“按产品定义 + 投入产出账…”（写真正进过上下文的来源）',
       /srcs\.join/.test(SRC) && !/方寸按“产品定义 \+ 投入产出账 \+ 现有卡与 git 事实”起草/.test(SRC))
     // 2026-11-10：agent 当大脑、方寸当闸 —— plan_submit 必须复用同一条管道与同一个闸

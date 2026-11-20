@@ -1,96 +1,49 @@
 /**
- * 模型通道预设（2026-10-18 暮雨第 3 条）
+ * BYOK 退场守卫（2026-11-20 暮雨：全走 DSH，界面不再配 Key/端点）。
  *
- * 背景：小米有**两套凭证**，端点与 Key 都不能互换 ——
- *   · 按量付费  https://api.xiaomimimo.com/v1            Key: sk-xxxxx
- *   · Token Plan https://token-plan-cn.xiaomimimo.com/v1  Key: tp-xxxxx / ttp-xxxxx
- * 此前方寸的“MiMo 模型建议”只填模型名、不填端点，而且模型名写成 `MiMo-V2.6-Flash`
- * （与接口的 model id 大小写不一致）—— 用户"一键填完还是连不上"，只能自己去翻文档。
- *
- * 本测试钉死三件事：
- *  ① 两个端点都在，且各自带对 Key 前缀提示（防止又合并成一个"通用 MiMo"按钮）；
- *  ② Token Plan 必须写明“仅限编程工具、别用于应用后端”—— 小米条款白纸黑字；
- *  ③ 预设**永不预填密钥**（BYOK 红线：方寸不预置任何钥匙）。
- *
- * 运行：node scripts/test/e2e-llm-presets.cjs
+ * 原文件钉的是“小米两套端点/预设/Key 前缀”—— 这些入口已删。现在钉的是**删除真的落地**：
+ * App.vue / AgentSettings / preload / llm-ipc 都不能再出现模型通道配置，
+ * 同时用量/单价/DSH 派单入口必须还在。
  */
 const fs = require('fs')
 const path = require('path')
 
-const APP = path.join(__dirname, '../../desktop/src/renderer/App.vue')
-const CFG = path.join(__dirname, '../../desktop/src/main/llm/config.ts')
-
-let pass = 0
-let fail = 0
+const REPO = path.resolve(__dirname, '..', '..')
+const read = (p) => fs.readFileSync(path.join(REPO, p), 'utf-8')
+let pass = 0, fail = 0
 const failures = []
 function check(name, cond, detail = '') {
   if (cond) { pass++; console.log(`PASS  ${name}`) }
-  else { fail++; failures.push(`${name}${detail ? ' :: ' + detail : ''}`); console.log(`FAIL  ${name}${detail ? '  → ' + detail : ''}`) }
+  else { fail++; failures.push(name + (detail ? ' :: ' + detail : '')); console.log(`FAIL  ${name}${detail ? '  → ' + detail : ''}`) }
 }
 
-function main() {
-  // 本机 core.autocrlf=true → 统一成 LF 再扫，避免字符窗口断言被回车符撑破
-  const app = fs.readFileSync(APP, 'utf-8').split('\r\n').join('\n')
-  const cfg = fs.readFileSync(CFG, 'utf-8').split('\r\n').join('\n')
-  // 2026-11-02：预设数据 2026-10-27 已从三处各写一遍 llmCfg.value.xxx 收成 LLM_PRESETS 常量表（App.vue），
-  // 按钮搬进拆分后的 AgentSettings.vue。旧断言查的是已不存在的写法，从那次重构起就一直红着。
-  const SET = fs.readFileSync(path.join(path.dirname(APP), 'components/settings/AgentSettings.vue'), 'utf-8').split('\r\n').join('\n')
-  const both = app + '\n' + SET
+console.log('== BYOK 退场 · 模型配置入口 ==')
+const app = read('desktop/src/renderer/App.vue')
+const agent = read('desktop/src/renderer/components/settings/AgentSettings.vue')
+const preload = read('desktop/src/preload/index.ts')
+const ipc = read('desktop/src/main/llm-ipc.ts')
+const planDraft = read('desktop/src/main/llm/planDraft.ts')
 
-  // ── ① 两个端点 ────────────────────────────────────────────────────
-  check('★ 有“按量付费”端点 api.xiaomimimo.com/v1', /baseUrl: 'https:\/\/api\.xiaomimimo\.com\/v1'/.test(app))
-  check('★ 有“Token Plan”端点 token-plan-cn.xiaomimimo.com/v1', /baseUrl: 'https:\/\/token-plan-cn\.xiaomimimo\.com\/v1'/.test(app))
-  check('★ 两个预设是两个不同按钮（不是又合并成一个"MiMo 建议"）',
-    /applyLlmPreset\('mimo-api'\)/.test(both) && /applyLlmPreset\('mimo-plan'\)/.test(both))
-  check('★ 预设收三种 kind（预设表的类型只允许这三个）',
-    /type LlmPresetKind = 'deepseek' \| 'mimo-api' \| 'mimo-plan'/.test(app))
+check('App.vue 不再有 LLM_PRESETS / llmCfg / llmGetConfig / llmTestConnection',
+  !/LLM_PRESETS|llmCfg|llmGetConfig|llmSetConfig|llmTestConnection|llmResetConfig/.test(app))
+check('AgentSettings 不再有模型通道 / Base URL / API Key / 备用通道',
+  !/<h4>模型通道|Base URL|API Key|llmChannels|llmCfg|applyLlmPreset/.test(agent))
+check('AgentSettings 仍保留单价 / 用量 / 挂机 / MCP 写口',
+  /模型单价/.test(agent) && /AI 用量/.test(agent) && /挂机提醒/.test(agent) && /MCP 写口/.test(agent))
+check('preload 不再暴露模型配置 / 通道 / chat 口',
+  !/llmGetConfig|llmSetConfig|llmTestConnection|llmChannelsList|llmChannelsUpsert|llmChannelsRemove|llmChat/.test(preload))
+check('llm-ipc 不再注册 config/chat/planning 通道',
+  !/llm:getConfig|llm:setConfig|llm:testConnection|llm:chat|llm:auditProject|llm:decomposeGoal|llm:decideDP/.test(ipc))
+check('llm-ipc 仍保留用量 / 单价',
+  /llm:usageStats/.test(ipc) && /llm:getPrices/.test(ipc) && /llm:setPrices/.test(ipc))
+check('planDraft 不再 import chatWithFallback / getConfig',
+  !/chatWithFallback|from '\.\/config'|getConfig/.test(planDraft))
+check('DSH 派单入口仍在（App.vue）',
+  /dispatchToDsh|dispatchMessageDsh/.test(app))
+check('免责声明已抬到 v1.6（BYOK 退场版）',
+  /DISCLAIMER_VERSION = '1\.6'/.test(read('desktop/src/renderer/disclaimer.ts')))
 
-  // ── ② 模型名大小写（接口 id 是小写连字符）─────────────────────────
-  check('★ 预设里写的是 mimo-v2.6-flash（小写）', /model: 'mimo-v2\.6-flash'/.test(app))
-  // 只剥注释再查"旧写法残留"：这段字符串本身在注释里讲历史（说明为什么改），
-  // 注释里出现旧名是合法的，代码/模板里出现才是 bug。
-  const appCode = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
-  check('★ 全仓库不再有 MiMo-V2.6-Flash 这种"看着像但不是 id"的写法',
-    !/MiMo-V2\.6-Flash/.test(appCode))
-
-  // ── ③ Token Plan 条款必须写在界面上，而不是只写在文档里 ─────────────
-  check('★★ Token Plan 窗口提示了“仅限编程工具 / 别用于应用后端”',
-    /Token Plan[^<]{0,80}仅限编程工具/.test(app.replace(/\s+/g, ' ')) || /仅限编程工具内使用/.test(app))
-  check('★ 预设 toast 也对 Plan 给了明确劝退（不是静默填完就走）',
-    /建议改用按量付费/.test(app))
-
-  // ── ④ Key 前缀提示（换错 Key 是 401 的头号原因）────────────────────
-  check('★ 按量付费提示了 sk- 开头的 Key', /sk- 开头那串/.test(app))
-  check('★ Token Plan 提示了 tp- 开头的 Key', /tp-<\/code> 开头/.test(app) || /tp-/.test(app))
-
-  // ── ⑤ BYOK 红线：预设绝不碰密钥 ──────────────────────────────────
-  const presetBody = (app.match(/function applyLlmPreset[\s\S]*?\n\}/) || [''])[0]
-  check('★★ 预设函数里一次都没有写 apiKey（方寸不预置任何钥匙）', !!presetBody && !/apiKey/.test(presetBody), presetBody.slice(0, 120))
-  check('★ 主进程默认配置仍是未配置态（baseUrl 空串）',
-    /baseUrl: '',/.test(cfg) && /model: '',/.test(cfg))
-
-  // ── ⑤b 空串可清空（2026-10-18 纸面小修）：setConfig 不再把空串当"未修改" ──
-  const setBody = (cfg.match(/export function setConfig[\s\S]*?\n\}/) || [''])[0]
-  check('★ setConfig 允许显式空串清空 baseUrl（用户能清掉端点，不再只能整体重置）',
-    /if \(typeof cfg\.baseUrl === 'string'\)/.test(setBody)
-      && !/typeof cfg\.baseUrl === 'string' && cfg\.baseUrl\.trim\(\)/.test(setBody))
-  check('★ setConfig 同样允许清空 model（同语义对称）',
-    /if \(typeof cfg\.model === 'string'\)/.test(setBody)
-      && !/typeof cfg\.model === 'string' && cfg\.model\.trim\(\)/.test(setBody))
-  check('★ 掩码防线未松动（isMaskedKey 分支仍在，空串清空不波及密钥）',
-    /!isMaskedKey\(cfg\.apiKey\)/.test(setBody))
-
-  // ── ⑥ 反例自证：正则不是永远为真 ─────────────────────────────────
-  check('（反例）把端点写错时上面的测试会红 —— 正则对错误域名不成立',
-    !/llmCfg\.value\.baseUrl = 'https:\/\/api\.xiaomimimo\.com\.cn\/v1'/.test(app))
-
-  console.log(`\n通过 ${pass} / 失败 ${fail}`)
-  if (fail) {
-    console.log('\n失败项：')
-    for (const f of failures) console.log(' -', f)
-  }
-  console.log(`RESULT ${pass} / ${fail}`)
-  process.exit(fail ? 1 : 0)
-}
-
-main()
+console.log('')
+console.log(`RESULT ${pass} / ${fail}`)
+if (fail) { console.log('\n失败项：'); for (const x of failures) console.log('  · ' + x) }
+process.exit(fail ? 1 : 0)

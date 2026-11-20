@@ -63,10 +63,6 @@
           </Button>
         </div>
       </div>
-      <!-- 模型通道（BYOK · 逐步退役中）：AI 规划已于 2026-11-20 删除；文档拆卡 / 出单 /
-           模糊问答 / 架构图 AI 仍在用这条通道。暮雨定调：以后逐步取消 BYOK、全走 DSH。
-           后端 12 条 LLM 通道 10-06 起就绪，这是配置界面第一次装。
-           密钥只存本机（llm-config.json，0600），回显永远只有掩码；不预填任何默认端点（含国外）。 -->
       <AgentSettings :active="ctl.settingsTab === 'agent'" />
       <ProjectSettings :active="ctl.settingsTab === 'projects'" />
       <!-- 备份与恢复：已切到 components/settings/BackupSettings.vue（拆分第六刀）

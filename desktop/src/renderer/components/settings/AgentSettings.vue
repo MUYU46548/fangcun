@@ -1,22 +1,14 @@
 <!--
-  设置 · Agent（2026-10-30 App.vue 拆分第八刀）：模型通道（BYOK）/ 模型单价 / 挂机提醒 / Agent 预设。状态经 provide("fc-settings") 共享。
+  设置 · Agent（2026-10-30 App.vue 拆分第八刀）：模型单价 / 挂机提醒 / Agent 预设 / MCP 写口。BYOK 配置与模型调用已按 2026-11-20 暮雨口径删除。
 -->
 <script setup lang="ts">
-import { inject, onMounted, reactive, ref, watch } from 'vue'
+import { inject, reactive, ref, watch } from 'vue'
 
 const props = defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
-  addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
+  addAgentPreset, addPriceRow, agentPresets, idleCfg, idleSave, idleSaving, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
 } = ctx
-
-// ── 备用通道 / 降级链（0.6.0 第 2 批 · 2026-11-02）──────────────────────
-// 为什么不放进 fc-settings：这一块只在本页用，塞进全局 provide 会让 ctx 再多七个字段。
-const llmChannels = ref<any[]>([])
-const chanBusy = ref(false)
-const chanMsg = ref('')
-const chanMsgBad = ref(false)
-const chanForm = reactive({ label: '', baseUrl: '', model: '', apiKey: '' })
 
 // ── MCP 写口（2026-11-11 · 卡《MCP 写口无闸》）────────────────────────────
 // 暮雨原话：“哪怕是另一款自有产品也必须开 agent 模式放开解锁才能 agent 直接调用”。
@@ -100,162 +92,9 @@ watch(() => props.active, (v) => { if (v) loadWriteGate() }, { immediate: true }
 
 // ────────────────────────────────────────────────────────────────────────
 
-async function loadChannels(): Promise<void> {
-  try {
-    const r: any = await (window as any).tegula.llmChannelsList()
-    llmChannels.value = r?.ok ? (r.channels || []) : []
-  } catch {
-    llmChannels.value = []
-  }
-}
-
-async function addChannel(): Promise<void> {
-  if (chanBusy.value) return
-  if (!chanForm.baseUrl.trim() || !chanForm.model.trim()) {
-    chanMsg.value = '端点地址和模型名都要填 —— 只填一半的通道会被降级链跳过'
-    chanMsgBad.value = true
-    return
-  }
-  chanBusy.value = true
-  chanMsg.value = ''
-  try {
-    const r: any = await (window as any).tegula.llmChannelsUpsert({
-      label: chanForm.label, baseUrl: chanForm.baseUrl, model: chanForm.model, apiKey: chanForm.apiKey,
-    })
-    if (!r?.ok) { chanMsg.value = '没存成：' + (r?.error || '未知错误'); chanMsgBad.value = true; return }
-    llmChannels.value = r.channels || []
-    chanForm.label = ''; chanForm.baseUrl = ''; chanForm.model = ''; chanForm.apiKey = ''
-    chanMsg.value = '已加一条备用通道 —— 主通道失败时会自动切到它'
-    chanMsgBad.value = false
-  } finally {
-    chanBusy.value = false
-  }
-}
-
-async function removeChannel(id: string): Promise<void> {
-  if (chanBusy.value) return
-  chanBusy.value = true
-  chanMsg.value = ''
-  try {
-    const r: any = await (window as any).tegula.llmChannelsRemove(id)
-    if (!r?.ok) { chanMsg.value = '没删成：' + (r?.error || '未知错误'); chanMsgBad.value = true; return }
-    llmChannels.value = r.channels || []
-    chanMsg.value = '已删掉这条备用通道'
-    chanMsgBad.value = false
-  } finally {
-    chanBusy.value = false
-  }
-}
-
-onMounted(loadChannels)
 </script>
 
 <template>
-    <div class="sect" v-show="active">
-      <h4>✨ 模型通道（BYOK · 逐步退役中）</h4>
-      <div class="hint">「文档拆卡」等 AI 入口走这里（AI 规划已于 2026-11-20 删除；方寸以后逐步取消 BYOK、全走 DSH）。密钥只存本机、回显只有掩码；每次调用的 token 与耗时随结果提示。</div>
-
-      <!-- 状态条（2026-10-27）：此前界面上**完全看不出配没配好** —— 用户得自己比对四个输入框
-           猜上一次到底通没通。这里直接摊开“配没配 + 上次什么时候用过、花了多少”。
-           数据来自 ai-trace（llm:usageStats 的 last 字段），不额外读文件。 -->
-      <div class="llm-status" :class="llmCfg.baseUrl ? 'on' : 'off'">
-        <span class="llm-status-dot"></span>
-        <span v-if="!llmCfg.baseUrl">未配置 —— 填好下面三项，点“测试连接”确认再保存</span>
-        <span v-else-if="llmLastCall">
-          已配置 · {{ llmHostOf(llmCfg.baseUrl) }} · 最近一次 {{ fmtShort(llmLastCall.ts) }}，
-          <template v-if="llmLastCall.total_tokens != null">{{ llmLastCall.total_tokens }} tokens / </template>
-          {{ (llmLastCall.duration_ms / 1000).toFixed(1) }} 秒<template v-if="!llmLastCall.ok">（失败）</template>
-        </span>
-        <span v-else>已配置 · {{ llmHostOf(llmCfg.baseUrl) }} · 还没跑过调用</span>
-      </div>
-
-      <div class="llm-presets">
-        <button class="ghost font-[inherit]" @click="applyLlmPreset('deepseek')">DeepSeek 一键填</button>
-        <button class="ghost font-[inherit]" @click="applyLlmPreset('mimo-api')">MiMo 按量付费</button>
-        <button class="ghost font-[inherit]" @click="applyLlmPreset('mimo-plan')">MiMo Token Plan</button>
-      </div>
-
-      <!-- 覆盖确认条（2026-10-27）：预设会**直接盖掉已填的端点/模型**，此前一点就没、无法撤销。
-           照 relay-discard 那套（不用原生 confirm，用户已踩过两次“防护未生效”）：
-           对话框内条子 + 必须点“覆盖”才生效。API Key 预设一律不碰。 -->
-      <div v-if="llmPresetPending" class="llm-overwrite" role="alertdialog" aria-live="polite">
-        <span class="lo-text">
-          ⚠ 会覆盖当前配置：<b>{{ llmHostOf(llmCfg.baseUrl) }} · {{ llmCfg.model || '（空）' }}</b>
-          → <b>{{ llmHostOf(llmPresetPending.baseUrl) }} · {{ llmPresetPending.model }}</b>（API Key 不动）
-        </span>
-        <span class="lo-acts">
-          <button class="ghost font-[inherit]" @click="llmPresetPending = null">取消</button>
-          <button class="danger font-[inherit]" @click="confirmLlmPreset()">覆盖</button>
-        </span>
-      </div>
-
-      <div class="llm-grid">
-        <div>
-          <label>Base URL（API 端点）</label>
-          <input class="font-[inherit]" v-model="llmCfg.baseUrl" placeholder="如 https://api.deepseek.com（OpenAI 兼容）" />
-        </div>
-        <div class="llm-row2">
-          <div>
-            <label>模型名</label>
-            <input class="font-[inherit]" v-model="llmCfg.model" placeholder="如 deepseek-chat / mimo-v2.6-flash" />
-          </div>
-          <div>
-            <label>超时（秒）</label>
-            <input class="font-[inherit]" type="number" min="10" step="10" v-model.number="llmCfg.timeout" />
-          </div>
-        </div>
-        <div>
-          <label>API Key（保存后回显为掩码；修改就重填）</label>
-          <input class="font-[inherit]" v-model="llmCfg.apiKey" :placeholder="llmKeyHint ? `已存：${llmKeyHint}（改填新值才覆盖）` : '粘贴你的密钥'" />
-        </div>
-      </div>
-
-      <div class="sect-btns">
-        <button class="ghost font-[inherit]" :disabled="llmTesting" @click="llmTest">{{ llmTesting ? '测试中…' : '测试连接' }}</button>
-        <button class="pri font-[inherit]" :disabled="llmSaving" @click="llmSave">{{ llmSaving ? '保存中…' : '保存' }}</button>
-        <button class="ghost font-[inherit]" :disabled="llmResetting" @click="llmReset">重置（保留密钥）</button>
-      </div>
-
-      <!-- 备用通道 / 降级链（0.6.0 第 2 批 · 2026-11-02）
-           主通道失败自动换下一条；但 **400 类请求错不换**（换通道也是同样的错，白烧一次额度）。
-           密钥只回掩码；主通道在 llm-config.json，这里管的是 llm-channels.json。 -->
-      <div class="lb-block">
-        <div class="lb-head">
-          <b>备用通道（降级链）</b>
-          <span class="lb-hint">主通道失败自动切下一条；请求本身不合法（400）不会切。密钥只回掩码。</span>
-        </div>
-        <div class="lb-row" v-for="c in llmChannels" :key="c.id" :data-lb-chan="c.id">
-          <span class="lb-name">{{ c.label }}<em v-if="c.primary" class="lb-tag">主</em></span>
-          <span class="lb-url">{{ c.baseUrl || '（未填端点）' }}</span>
-          <span class="lb-model">{{ c.model || '（未填模型）' }}</span>
-          <span class="lb-key">{{ c.hasApiKey ? c.keyHint : '没密钥' }}</span>
-          <button v-if="!c.primary" class="ghost lb-del font-[inherit]" :disabled="chanBusy"
-            @click="removeChannel(c.id)">删</button>
-        </div>
-        <div class="lb-form">
-          <input class="lb-in font-[inherit]" v-model="chanForm.label" placeholder="名字（如 备用·小米）" />
-          <input class="lb-in font-[inherit]" v-model="chanForm.baseUrl" placeholder="端点 https://…/v1" />
-          <input class="lb-in font-[inherit]" v-model="chanForm.model" placeholder="模型名" />
-          <input class="lb-in font-[inherit]" v-model="chanForm.apiKey" placeholder="密钥（留空=不改）" />
-          <button class="ghost lb-add font-[inherit]" :disabled="chanBusy" @click="addChannel">加一条</button>
-        </div>
-        <div class="lb-msg" :class="{ bad: chanMsgBad }" v-if="chanMsg">{{ chanMsg }}</div>
-      </div>
-
-      <!-- 小米两个端点（2026-10-18 暮雨第 3 条）：按量付费与 Token Plan 的 Base URL / Key 都不同，
-           控制台各自一键复制。这里把两个都摆出来，并说清哪条适用方寸 —— 别让用户拿 Plan 的 key
-           去连按量付费端点（必 401，且报错还看不出是端点错了）。
-           2026-10-27：改成折叠。这段只对"想用小米"的人有用，却常驻挡在所有输入框上方 ——
-           暮雨配的是第三方中转站，每次都要跨过一段与他无关的说明。 -->
-      <details class="llm-mimo">
-        <summary>用小米 MiMo？看两套凭证的区别</summary>
-        <div class="hint">
-          小米有<b>两套凭证</b>，不能混用：按量付费 = <code>api.xiaomimimo.com/v1</code> + <code>sk-</code> 开头的 Key；
-          Token Plan = <code>token-plan-cn.xiaomimimo.com/v1</code> + <code>tp-</code> 开头的 Key（控制台各自一键复制）。
-          按小米条款，<b>Token Plan 仅限编程工具内使用，不要用于方寸这类应用后端</b>；给方寸用请选按量付费。
-        </div>
-      </details>
-    </div>
     <!-- 模型单价（可选，2026-10-25 卡 005 B 档）——**空表就是"一律未折算"**。
          为什么不内置默认价：暮雨原话“单价表从哪里来？每家都不一样，还随时可能变”。
          内置常量过半年就是谎话，而且不会报错，只会安静地算错。 -->
@@ -263,8 +102,7 @@ onMounted(loadChannels)
       <h4>模型单价（可选）</h4>
       <div class="hint">
         单位：<b>元 / 百万 tokens</b>。填了才会在月度报表里折算金额，并标“按你填的单价”；
-        <b>不填就是“未折算”</b> —— 方寸不内置任何默认价。
-        <br>DeepSeek / OpenRouter 这类<b>有官方余额接口</b>的端点优先看“账户口径”，那条不需要单价。
+        <b>不填就是“未折算”</b> —— 方寸不内置任何默认价，也不再配置任何模型通道。
       </div>
       <div class="price-head" v-if="priceRows.length">
         <span class="price-model">模型名</span>
@@ -290,12 +128,12 @@ onMounted(loadChannels)
       </div>
     </div>
     <!-- AI 用量（2026-10-17 暮雨第 10 条：“说花销可见，但我看不到啊”）。
-         数据源是方寸自己的调用留痕 ai-trace.jsonl（主进程 llm:usageStats 汇总）。
+         数据源是 ai-trace.jsonl（主进程 llm:usageStats 汇总；BYOK 退场后主要是 external:dsh 上报）。
          ⚠ 只算**供应商真报了 usage** 的调用；没报的单列次数，不拿字符数折算成 token（不编数）。 -->
     <div class="sect" v-show="active">
       <h4>💰 AI 用量（花销可见）</h4>
       <div class="hint">
-        统计来自方寸自己的调用留痕。只累加<b>供应商真的返回了 token 用量</b>的调用 ——
+        统计来自 ai-trace；BYOK 退场后主要是 DSH 上报，历史记录保留。只累加<b>供应商真的返回了 token 用量</b>的调用 ——
         老记录只有字符数，会单列成“未计 token”的次数，不折算、不估算。
       </div>
       <div class="sect-btns">
