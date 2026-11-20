@@ -366,35 +366,116 @@ def collect_plans():
     return out, extra
 
 
-# ── 手写段落（模块级三引号：避免内层引号把代码绊住）────────────────────
-# ⚠ 这一节是**手写**的，所以它最容易写错 —— 而它一错，整份清单就在"没有人能机检的地方"说假话。
-# 2026-11-15 复核实测改掉三条（都改成了可数的说法，不再凭印象）：
-#   ① 「8 张结构地图卡」→ 真身 **14 张**（`task-data/结构地图更新--*.md` 实数，每项目一张但
-#      fangcun-base 有两张：11-08 那张和 11-12 那张并存着，都没签字）；
-#   ② 「8 份草案躺 3–13 天，离能用只差一次点击」→ **假**。逐格比对判据后：4 份早提成了
-#      （判据逐条相同），4 份与计划卡 P0–P4 重号、**提成会被 `proposeStage` 拒绝**（点不动）；
-#   ③ 「剩 10 个项目没有计划卡」→ 注册表 13 个活跃项目，有计划卡的 4 个，**剩 9 个**。
-SECTION6 = """\
+# ── §6 手写段落（只留"算不出来"的判断；能算的一律现算）──────────────────
+#
+# ⚠ 2026-11-20 实测：这一节原来整段写死，**三处已经说过时了**，而且错得一模一样 ——
+#   **数的是文件名 / 印象，不是卡的状态**：
+#     · 「14 张结构地图卡全在等人点头」→ 实为 13 张「完成」+ 1 张「驳回」（旧版作废），一张都不欠；
+#     · 「结构地图仍是最后核实 2026-10-17」→ `policies/fangcun-base.md` 早就是 2026-11-12；
+#     · 「AI 规划零单」→ 首单 2026-11-11 真跑过（卡自己的结果记录写着），产物还提成了 P8–P11。
+#   暮雨的原话是「各项目依然记不住东西」—— 这就是它的形态：**人写的段落会漂，而且没有闸**。
+#   所以现在：能算的现算（`hand_facts()`），算不出来就明说"读不到"，绝不凭印象补一句。
+
+def _read_text(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _front_field(txt, key):
+    """只认文件开头那段 YAML frontmatter 里的一个字段"""
+    m = re.match(r"^---\s*\n([\s\S]*?)\n---", txt or "")
+    if not m:
+        return ""
+    m2 = re.search(r"^" + re.escape(key) + r":\s*(.*)$", m.group(1), re.M)
+    return (m2.group(1) or "").strip() if m2 else ""
+
+
+def hand_facts():
+    """§6 里"能被算"的那几条。返回 dict[键] = 一行 Markdown。"""
+    f = {}
+
+    # ① 结构地图提议卡：按**状态**数（不按文件名数 —— 上一版就是数文件名，把"已签完"说成"全在等人"）
+    cnt = Counter()
+    for p in sorted(glob.glob(os.path.join(ROOT, "task-data", "结构地图更新--*.md"))):
+        cnt[_front_field(_read_text(p), "状态") or "(无状态)"] += 1
+    if cnt:
+        total = sum(cnt.values())
+        parts = "、".join(f"「{k}」{v}" for k, v in cnt.most_common())
+        waiting = cnt.get("待审批", 0) + cnt.get("待办", 0)
+        if waiting:
+            f["smap"] = (f"- **结构地图提议卡 {total} 张：{parts}** —— 还在等人签字的 **{waiting} 张**。"
+                         f"（`smap_apply` 只认「完成」的卡；其余是历史，别当欠账）")
+        else:
+            f["smap"] = (f"- **结构地图提议卡 {total} 张：{parts}** —— **一张都不在等人签字**（都处置过了）。"
+                         f"`smap_apply` 只认「完成」的卡，处置过的不该再算欠账")
+    else:
+        f["smap"] = "- **结构地图提议卡**：一个文件都没读到 —— 这不是「没有」，是路径变了，先查 `task-data/结构地图更新--*.md`"
+
+    # ② 结构地图的最后核实日期：从 policies 现读
+    dates = {}
+    for p in sorted(glob.glob(os.path.join(ROOT, "policies", "*.md"))):
+        m = re.search(r"最后核实[：:]\s*(\d{4}-\d{2}-\d{2})", _read_text(p))
+        if m:
+            dates[os.path.splitext(os.path.basename(p))[0]] = m.group(1)
+    if dates:
+        fb = dates.get("fangcun-base", "")
+        oldest = min(dates.values())
+        f["verified"] = (f"- **结构地图最后核实**：fangcun-base = **{fb or '未写'}**；"
+                         f"全部 policies 里最早的是 **{oldest}**（超过 90 天 agent 会看到「已过期」标记）")
+    else:
+        f["verified"] = "- **结构地图最后核实**：policies/ 里一个“最后核实”都没读到 —— 先查这个目录"
+
+    # ③ AI 首单：读那张卡自己的状态与结果记录（别再凭"状态=待办"就断言没跑过）
+    order = _read_text(os.path.join(ROOT, "task-data", "task-20261025-009.md"))
+    if order:
+        st = _front_field(order, "状态") or "(无状态)"
+        ran = "已出 0.7.0 规划" in order or "真出了 0.7.0 规划" in order
+        if ran:
+            f["order"] = (f"- **AI 首单：跑过了**（卡 `task-20261025-009` 的结果记录里就写着“真出了 0.7.0 规划”），"
+                          f"产物是 `task-data/plans/_drafts/fangcun-base-2026-11-11.md`，P8–P11 已提成进计划卡；"
+                          f"它现在状态是「{st}」—— **缺的是一次处置，不是一次施工**")
+        else:
+            f["order"] = (f"- **AI 首单：卡在「{st}」，结果记录里没有“已出 0.7.0 规划”** —— "
+                          f"要么真没跑，要么跑完没记账（后者更麻烦：记账的地方不止一处）")
+    else:
+        f["order"] = "- **AI 首单**：读不到 `task-data/task-20261025-009.md` —— 这张卡不在原处了，先确认它去哪了"
+
+    # ④ 草案现状：顶层还剩几份、作废目录里有几份（别再拿"8 份"说事）
+    live = glob.glob(os.path.join(ROOT, "task-data", "plans", "_drafts", "*.md"))
+    voided = glob.glob(os.path.join(ROOT, "task-data", "plans", "_drafts", "_void-*", "*.md"))
+    f["drafts"] = (f"- **草案（`_drafts/`）**：还在一级的 **{len(live)} 份**，作废区里 **{len(voided)} 份**"
+                   f"（作废 = 移到 `_drafts/_void-<日期>/`，可逆、不删）。"
+                   f"⚠ 重号的四份（11-02 / 11-10 三个版本）**已经作废**，别再按“提成必被拒”去处理它们")
+    return f
+
+
+SECTION6_STATIC = """\
 - **规划能力仍是雏形**：`方寸` 的作战计划 P0–P11 **全部「完成」**，但注册表 13 个活跃项目里
   **只有 4 个有计划卡**（fangcun-base / sitian / project-3 / memory-sanctuary），**剩 9 个没有** ——
   而它们不是「方寸不会写」，是**没有已批准的裁决卷**（闸在卷上，不在能力上）。
 - **判据这个概念仍然要人解释**：已做「每条一句人话」，但它仍是技术概念；
   要彻底不需要解释，得动「作战计划」这个产品形态本身 —— 那是决策，不是改样式。
 - **每个项目的前端都很差**（暮雨原话，第三次提）：本轮只消了具体那两处，没有整体重做视觉。
-- **AI 规划零单**：REV-009 已把方向改成「生成式智能（agent 级）」，
-  但**一次真单都没跑通到落卡**（`task-20261025-009` 至今仍是「待办」）。
 - **13 个项目没有图标**（`p2-1-品牌资产…`）：这是各项目自己的活 —— 契约写明方寸对 repo 只读。
 - **处置过不等于核实过**：711 条已逐条处置里，`非本项目` 占 308（41%）、`已转卡` 224。
   这个比例本身值得怀疑 —— 一条内容被反复归成「不是这个项目的」，可能是归类口径太松。
-  判据：随机抽 20 条 `非本项目` 复核，若超过 5 条其实相关，就是口径松了。
-- **14 张「结构地图更新」卡全部在等人点头**（`task-data/结构地图更新--*.md` 实数；
-  fangcun-base 有两张并存：11-08 与 11-12 各一张，都还停在「待办」）。
-  `smap_apply` 要求卡是「完成」才肯写 —— 所以它们**卡在签字，不是卡在施工**。
-  实测印证：`policies/fangcun-base.md` 的结构地图**至今仍是「最后核实：2026-10-17」**。
-- **`_drafts/` 里 8 份草案不是「都只差一次点击」**（见 §4 的对账）：
-  4 份的每一格**早已提成进计划卡**（判据逐条相同，草案只是没删）；
-  4 份（fangcun-base 11-02 / 11-10 三个版本）的 P0–P4 与计划卡重号，**提成会被拒**。
-  真正「点一下就能往前走」的，是 §4 里标「草案待提成」的那几行，不是这个文件数。""".split("\n")
+  判据：随机抽 20 条 `非本项目` 复核，若超过 5 条其实相关，就是口径松了。""".split("\n")
+
+
+def section6_lines():
+    """§6 的最终行：**先摆现算的事实，再摆判断**（判断没有闸，所以越少越好）。"""
+    facts = hand_facts()
+    out = []
+    # 事实在前：这四条以前是手写的，全漂了
+    for k in ("smap", "verified", "order", "drafts"):
+        if k in facts:
+            out.append(facts[k])
+    out.append("")
+    out.extend(SECTION6_STATIC)
+    return out
 
 SECTION7 = """\
 **不要从「最老的那张卡」开始。** 顺序建议按「卡住别人的程度」：
@@ -614,9 +695,9 @@ def build():
     A("")
 
     # ── 手写 ──
-    A("## 6. 脚本读不出来的那部分（我手写，因此**不保证全**）")
+    A("## 6. 脚本读不出来的那部分（事实现算 + 我写的判断）")
     A("")
-    for line in SECTION6:
+    for line in section6_lines():
         A(line)
     A("")
     A("---")
