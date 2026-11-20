@@ -1,7 +1,7 @@
 ---
 name: skill-management-policy
-description: Hermes skill 管理纪律——分类、写权限、分区策略、建议通道。所有会话开工必读。
-version: 1.1.0
+description: Hermes 侧 skill 管理纪律——分类、写权限、分区策略、建议通道。仅在涉及 Hermes skill 管理时读，不要求每个会话开工必读（2026-11-20 改口径：方寸主用时是 DSH，这条在 DSH 侧没有对应机制）。
+version: 1.2.0
 author: muyu
 license: MIT
 metadata:
