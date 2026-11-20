@@ -1,10 +1,6 @@
 /**
- * Fangcun Desktop — AI 写回层（TS 侧，BYOK 逐步退役中）
+ * Fangcun Desktop — AI 规划写回层（TS 侧）
  * 2026-10-12 ｜ 方案卡：AI 规划功能（与 Python 侧 tegula_writeback.py 同语义、双栈各表）
- *
- * ⚠ 2026-11-20：**目标拆解 / 项目说明起草**两个入口已整条删除（AI 规划弹窗退役）。
- *   本文件只剩「文档拆卡」与「出单」两条 BYOK 入口，按卡「BYOK 退役…」逐项收。
- *   规划的正路是 DSH 派单（`contextPack.dispatchToDsh(project, 'plan')`），不是这里。
  *
  * 为什么有这个文件：
  *   planning.ts 的五个功能（audit/decompose/decideDP/quarterly/roadmap）只返回字符串——
@@ -15,7 +11,8 @@
  *   1. 不侵入 planning.ts——仅复用其上下文组装 helper（getProjectSummary 等）。
  *   2. AI 卡一律“待审批”，绝不直接进“待办”——转正唯一路径是用户点头。
  *   3. source=ai-planning + 标签 ai-draft，审计一条过滤全捞出。
- *   4. 解析失败不丢内容：原文兜底落一张草稿卡，错误信息里带卡 id。
+ *   4. 项目说明草稿落“待审批”卡（方寸侧草稿；契约真源在各 repo，方寸只读 REV-002）。
+ *   5. 解析失败不丢内容：原文兜底落一张草稿卡，错误信息里带卡 id。
  */
 
 import { chatDetailed, ChatUsage, emptyUsage, usageLabel } from './chat'
@@ -65,6 +62,17 @@ const PLAN_SYSTEM = `你是方寸项目管理系统 AI 顾问。你正在执行�
 - 每张卡独立可验收：标题 15 字内动宾短语；方案 2-6 条具体步骤；验收标准必填（怎么确认修好了，具体到可观察结果）
 - 用户消息里会给现有任务列表——重复的不要生成
 - 数量 3-8 张，宁少勿滥；优先级默认"中"`
+
+const BRIEF_SYSTEM = `你是方寸项目管理系统 AI 档案员。你正在执行“项目说明起草”。
+
+输出要求（务必严格遵守）：
+- 只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏
+- 格式：{"现状": "…", "目标": "…", "不做": "…", "欠着什么": "…"}
+
+各栏要求：
+- 每栏 2-4 句白话，只依据给到的任务数据，不编造
+- "不做"写明确边界（明确排除的范围）
+- "欠着什么"写已知的未决事项（挂在哪些任务上）`
 
 const DOC_SYSTEM = `你是方寸项目管理系统的任务拆解助手。你正在执行“文档一键转任务”。
 
@@ -209,7 +217,82 @@ export async function planToDraft(
   return { ok: true, created, usage }
 }
 
-// ── 对外入口 2：文档一键转任务 → 待审批卡（2026-10-17 用户拍板四件补立项之二）──
+// ── 对外入口 2：四栏项目说明草稿 → 待审批卡 ─────────────────────────────
+
+export async function draftProjectBrief(
+  projectId: string,
+  model?: string,
+): Promise<{ ok: true; taskId: string; usage: ChatUsage } | { ok: false; error: string; usage: ChatUsage }> {
+  const pid = (projectId || '').trim()
+  if (!pid) return { ok: false, error: '缺项目 id', usage: emptyUsage }
+
+  const data = getProjectSummary(pid)
+  if (data.error) return { ok: false, error: data.error, usage: emptyUsage }
+
+  const projName = data.project?.name || pid
+  let userMsg = `项目：${projName}（${pid}）\n\n当前项目任务：\n${
+    data.tasks.length ? formatTasksForAudit(data.tasks) : '（还没有任务卡）'
+  }`
+  // 决策卡注入（批次第 6 项）：四栏起草前先看清已拍板的事——“不做”栏有据可依
+  const decBlock = decisionsBlock(pid)
+  if (decBlock) userMsg += `\n\n${decBlock}`
+
+  let text: string
+  let usage: ChatUsage = emptyUsage
+  try {
+    const r = await chatDetailed(userMsg, { model, system: BRIEF_SYSTEM, trigger: 'desktop.draftProjectBrief', temperature: 0.3, maxTokens: 2000 })
+    text = r.text
+    usage = r.usage
+  } catch (e: any) {
+    return { ok: false, error: `LLM 调用失败：${e?.message || e}`, usage }
+  }
+
+  let brief: Record<string, string>
+  try {
+    brief = extractJson(text) as Record<string, string>
+  } catch {
+    const rescue = createTask({
+      title: `AI 说明草稿失败存档（${projName}）`,
+      project: pid,
+      status: '草稿',
+      tags: ['ai-draft', '解析失败'],
+      body: `## 方案\n- [ ] 人工检查原文\n\n## 结果记录\n\n## 附言\n${text}`,
+    })
+    if (rescue) markAiSource(rescue)
+    return { ok: false, error: `JSON 解析失败——原文已存草稿卡 ${rescue.id}${usageLabel(usage)}`, usage }
+  }
+
+  const missing = ['现状', '目标', '不做', '欠着什么'].filter(k => !brief[k])
+  if (missing.length) return { ok: false, error: `四栏缺：${missing.join('、')}${usageLabel(usage)}`, usage }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const task = createTask({
+    title: `[AI 起草] ${projName} 项目说明草稿（${today}）`,
+    project: pid,
+    status: '待审批',
+    tags: ['ai-draft', '项目说明'],
+    body: [
+      `## 方案`,
+      `- [ ] 过目四栏，改错的留对的`,
+      `- [ ] 点头后由各线 agent 把终版落进该项目 repo 的立项契约（方寸侧是草稿，不是权威契约）`,
+      '',
+      `## 结果记录`,
+      '',
+      `## 附言`,
+      `**现状**：${brief['现状']}`,
+      '',
+      `**目标**：${brief['目标']}`,
+      '',
+      `**不做**：${brief['不做']}`,
+      '',
+      `**欠着什么**：${brief['欠着什么']}`,
+    ].join('\n'),
+  })
+  markAiSource(task)
+  return { ok: true, taskId: task.id, usage }
+}
+
+// ── 对外入口 3：文档一键转任务 → 待审批卡（2026-10-17 用户拍板四件补立项之二）──
 
 /** 文档卡正文：同 renderDraftBody 结构，附言注明“文档拆卡”来源与说明 */
 function renderDocBody(card: DraftCard, docHint: string): string {
@@ -298,7 +381,7 @@ export async function docToDrafts(
   return { ok: true, created, usage }
 }
 
-// ── 对外入口 3：从台账出下一批（2026-10-22 · 施工方案 03 任务三“阶段性出单”）──
+// ── 对外入口 4：从台账出下一批（2026-10-22 · 施工方案 03 任务三“阶段性出单”）──
 /**
  * 给一个项目**出下一批施工任务卡**。
  *
