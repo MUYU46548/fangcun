@@ -5,8 +5,6 @@ import { getPrices, setPrices } from './llm/prices'
 import { getConfig, getConfigForRenderer, setConfig, resetConfig, LLMConfig, LLMError } from './llm/config'
 import { chat, streamChat, pingConnection, ChatOptions } from './llm/chat'
 import { auditProject, decomposeGoal, decideDP, quarterlyReview, generateRoadmap } from './llm/planning'
-import { docToDrafts, planBatch } from './llm/writeback'
-import { askWithLlm } from './llm/ask-llm'
 import { usageStats, usageByMonth } from './llm/trace'
 
 /** 把 LLMError 的完整证据（状态码/响应体/URL）带到渲染层，便于用户自查 */
@@ -150,25 +148,9 @@ export function registerLlmIpcHandlers(): void {
     }
   })
 
-  // ── AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 删除）────────────────
-  // 定案：桌面 GUI 全走 DSH 调用，不再用方寸内置模型做规划。
-  // `llm:planToDraft` / `llm:draftProjectBrief` 两个口已删（连 preload 一起）。
-  // `planToDraft()` 本体还在：出单（planBatch）复用它；D-150 要把出单也改成 DSH 派单。
+  // ── AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 / D-150 删除）──────
+  // 定案：桌面 GUI 全走 DSH 调用，不再用方寸内置模型做规划/拆卡/出单。
+  // `llm:planToDraft` / `llm:draftProjectBrief` / `llm:docToDrafts` / `llm:planBatch`
+  // 四个口全删（连 preload 一起）；文档拆卡与出单改成 `context:dispatchMessage`。
   // MCP 的 `plan_draft` 走 `llm/planDraft.ts`，是另一条（D-153 弱支持保留），不在本文件。
-
-  // 模糊问答（2026-10-22 · 03 任务一）：**只有结构化答不了时才走到这里**。
-  // 事实包由 services/ask.buildContext() 现拼，模型只在这段事实里找答案；usage 原样回传。
-  guardedHandle('llm:ask', async (_event: any, question: string, model?: string) => {
-    return askWithLlm(question, model)
-  })
-
-  // 出单（2026-10-22 · 03 任务三）：从台账（三字段）+ 决策卡派生下一批任务卡，
-  // 一次调用 = 一批，产出**只落“待审批”**（用户点头才转正）。复用 planToDraft 的落卡机制。
-  guardedHandle('llm:planBatch', async (_event: any, projectId: string, model?: string) => {
-    return planBatch(projectId, model)
-  })
-
-  guardedHandle('llm:docToDrafts', async (_event: any, docText: string, projectId?: string, model?: string, maxCards?: number) => {
-    return docToDrafts(docText, projectId || '', model, maxCards || 20)
-  })
 }

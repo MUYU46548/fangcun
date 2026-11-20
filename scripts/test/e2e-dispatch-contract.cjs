@@ -179,6 +179,24 @@ if (pluginKindsMatch) {
       fs.readdirSync(dir).filter((n) => n.startsWith('dispatch-fc-dispatch-demo-b-')).length === 1
       && fs.readdirSync(dir).filter((n) => n.startsWith('dispatch-fc-dispatch-demo-c-')).length === 1,
       JSON.stringify(fs.readdirSync(dir)))
+
+    // ── ⑤ 带任务书的派单（2026-11-20 · D-150：文档拆卡 / 出单）─────────────
+    check('★ 方寸导出 dispatchMessageToDsh', typeof cp.dispatchMessageToDsh === 'function')
+    const T1 = T0 + 20_000
+    const rm = cp.dispatchMessageToDsh('fc-dispatch-demo-b', 'work', '【这次要做的事】测试任务书：拆成待审批卡', T1)
+    check('★★ 带任务书的派单写得出来', rm && rm.ok === true, JSON.stringify(rm))
+    check('★ 带任务书时 kind 仍是 work（插件按它开工作会话）', rm && rm.kind === 'work')
+    if (rm && rm.ok && rm.path && fs.existsSync(rm.path)) {
+      const txt = fs.readFileSync(rm.path, 'utf-8')
+      const body = txt.slice(txt.indexOf('-->') + 3).replace(/^\s+/, '')
+      check('★★ 任务书排在上下文包**前面**（DSH 一进来先看到这次要做的事）',
+        body.startsWith('【这次要做的事】'), body.slice(0, 80))
+      check('★ 任务书整段在文件里（不是只回传在返回值里）',
+        txt.indexOf('测试任务书：拆成待审批卡') >= 0)
+    }
+    const rm2 = cp.dispatchMessageToDsh('fc-dispatch-demo-b', 'work', '再派一次', T1 + 1_000)
+    check('★★ 带任务书的派单同样受 10 秒冷却闸（不是绕过冷却的后门）',
+      rm2 && rm2.ok === false && rm2.cooling === true, JSON.stringify(rm2))
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ }
   }

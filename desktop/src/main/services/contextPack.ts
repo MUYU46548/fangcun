@@ -406,9 +406,33 @@ export function normalizeDispatchKind(raw: unknown): DispatchKind {
  *            冷却判定与文件头 `at` 都用它，测试才不用真等 10 秒。
  */
 export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number = Date.now()): DispatchResult {
+  return dispatchMessageToDsh(projectId, kindRaw, '', now)
+}
+
+/**
+ * 带一段「这次要做的事」的派单（2026-11-20 · D-150）。
+ *
+ * 为什么要有它：文档拆卡 / 出单不再调方寸自己的模型（问卷 D2 选 B：都改成 DSH 派单），
+ * 但这两件事**不是**通用的“开工”或“做规划”——它们需要一句明确的任务书：
+ *   · 文档拆卡：把下面这份文档拆成≤20 张待审批卡；
+ *   · 出单：从台账+决策卡派生下一批 3-8 张待审批卡。
+ * DSH 插件仍按 `kind=work` 开会话；`prefix` 会放在上下文包**前面**，agent 一进来先看到它。
+ *
+ * ⚠ 不是“自由文本派单口”：prefix 由界面固定生成（不是 agent 传入），
+ *   冷却/旧派单清理/文件头格式与 `dispatchToDsh` 完全同一套。
+ *
+ * @param prefix 这次要做的事（Markdown）。空串 = 与 `dispatchToDsh` 逐字一致。
+ */
+export function dispatchMessageToDsh(
+  projectId: string,
+  kindRaw: unknown,
+  prefix: string,
+  now: number = Date.now(),
+): DispatchResult {
   const pid = String(projectId || '').trim()
   if (!pid) return { ok: false, error: '没给项目 id' }
   const kind = normalizeDispatchKind(kindRaw)
+  const pre = String(prefix || '').trim()
 
   // ① 冷却闸：先判，不建包、不写文件。手滑连点在这里就被挡住，
   //    不会先烧掉上万字的上下文包再被拒。
@@ -435,17 +459,18 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number 
     // kind 不进文件名 —— 文件名要短；用途在头部，人和插件都读得到。
     const stamp = at.replace(/[-:T]/g, '').slice(0, 14)
     const p = path.join(dir, `dispatch-${String(r.projectId)}-${stamp}.md`)
+    const bodyText = pre ? `${pre}\n\n---\n\n${String(r.text)}` : String(r.text)
     const body = [
       `<!-- fangcun-dispatch v1`,
       `project: ${String(r.projectId)}`,
       `projectName: ${String(r.projectName || '')}`,
       `at: ${at}`,
       `kind: ${kind}`,
-      `chars: ${r.chars}`,
+      `chars: ${bodyText.length}`,
       `missing: ${(r.missing || []).join('|')}`,
       `-->`,
       '',
-      String(r.text),
+      bodyText,
     ].join('\n')
     fs.writeFileSync(p, body, 'utf-8')
     // 新的一落盘就清掉同项目的旧派单（同一项目同时只留一份"待消费"）。
@@ -455,7 +480,7 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number 
       ok: true,
       path: p,
       projectId: String(r.projectId),
-      chars: r.chars,
+      chars: bodyText.length,
       missing: r.missing || [],
       at,
       kind,

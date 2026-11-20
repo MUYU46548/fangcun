@@ -806,6 +806,11 @@ contextBridge.exposeInMainWorld('tegula', {
     rec('dispatchDsh', [projectId, kind])
     return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: 1234, missing: [], at: '2026-11-17T00:00:00.000Z', kind: kind || 'work' }
   },
+  /** 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改走这里；必须 rec 真任务书。 */
+  dispatchMessageDsh: (projectId, kind, message) => {
+    rec('dispatchMessageDsh', [projectId, kind, message])
+    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: String(message || '').length + 1234, missing: [], at: '2026-11-20T00:00:00.000Z', kind: kind || 'work' }
+  },
   /**
    * 同步阶段流（2026-10-25 卡 004）：与真 preload 同名同形状，返回退订函数。
    * ⚠ 假桩必须与真桩同步（少一条 → 视图里 onSyncProgress 是 undefined，
@@ -2518,19 +2523,7 @@ contextBridge.exposeInMainWorld('tegula', {
     p[args.field] = args.before
     return { ok: true }
   },
-  // 出单（2026-10-22 · 03 任务三）：一次调用出一批待审批卡
-  llmPlanBatch: (pid) => {
-    rec('llmPlanBatch', [pid])
-    return {
-      ok: true,
-      created: [{ id: 'ai-batch-1', title: '夹具出单卡一' }, { id: 'ai-batch-2', title: '夹具出单卡二' }],
-      usage: { totalTokens: 999 },
-    }
-  },
-  llmAsk: (q) => {
-    rec('llmAsk', [q])
-    return { ok: true, text: '（AI 回答夹具）事实里没有这一项。', usage: { totalTokens: 321 }, facts_chars: 987 }
-  },
+  // 出单（2026-11-20 D-150）：已改走 dispatchMessageDsh，不再有 llmPlanBatch。
   // 2026-10-22 · 施工单包 06：项目三字段读写。
   // ⚠ 桩必须**真改 store 并记账** —— 断言要验"保存后详情页显示新值""撤销真写回旧值"，
   //   桩若只 return ok() 而不动 store，两条断言都会恒绿（MEMORY 第十节的老坑）。
@@ -2752,27 +2745,20 @@ contextBridge.exposeInMainWorld('tegula', {
     store.archGraph = RESULT.graph
     return RESULT
   },
-  // AI 生成图（2026-11-02）：点一下才调模型。默认走"过审"；store.archScanOnly=true 换成降级分支。
+  // 架构图（2026-11-02 → 2026-11-20 D-152）：只读扫描，零模型；不再有 AI 分支。
   archGenerate: (projectId) => {
     cloneGuard('archGenerate', [projectId])
     rec('archGenerate', [projectId])
     const build = () => {
       if (!projectId) return { ok: false, error: '没给项目 id' }
       const g = store.archGraph || { title: '演示项目 · 架构图', subtitle: '', text: '', nodes: [], edges: [], missing: [], evidence: [], scannedFiles: 0, truncated: false }
-      if (store.archScanOnly) {
-        return {
-          ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
-          reason: '没配模型（缺 端点地址 / 密钥）—— 先出扫描图，配好模型再重画',
-          graph: { ...g, subtitle: '没配模型（缺 端点地址 / 密钥）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
-        }
-      }
       return {
-        ok: true, source: 'ai', attempts: 1, issues: [], notes: [], usage: { totalTokens: 456 }, model: 'mock-model',
-        graph: { ...g, subtitle: 'AI 生成 · 逐条证据审计', text: '这是 **AI 生成图**（每个节点/连线都过了证据审计） · ' + g.text },
+        ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
+        reason: '全走 DSH：方寸只出扫描图（AI 解读请在 DSH 里做）',
+        graph: { ...g, subtitle: '静态扫描（零模型）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
       }
     }
-    // 2026-11-05：`__fcTest.holdArch(true)` 时挂 1.4 秒 —— 真机上一次生成要十几秒，
-    // 假桩同步返回的话"生成中横幅 / 关闭确认"这两块**一帧都量不到**。
+    // `__fcTest.holdArch(true)` 时挂 1.4 秒 —— 让"扫描中横幅 / 关闭确认"这两块能测到
     if (store.archHold) return new Promise((res) => setTimeout(() => res(build()), 1400))
     return build()
   },

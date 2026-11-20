@@ -78,16 +78,16 @@ const FAKE_DRAFT = {
 }
 
 ;(async () => {
-  console.log('== ① 没配模型：零调用直接降级，并自报"扫描图" ==')
+  console.log('== ① 未注入 callLlm（生产路径 / D-152）：零调用，只出扫描图 ==')
   let calls = 0
   const noCfg = await generateArchGraph(FACTS, {
-    // 不注入 callLlm → 走真实配置检查；测试 userData 是空目录 → 未配置
+    // 不注入 callLlm → 生产路径：方寸不再自带模型调用，只出扫描图
   })
   check('★ 降级为扫描图', noCfg.source === 'scan' && noCfg.ok === true, JSON.stringify({ s: noCfg.source, ok: noCfg.ok }))
-  check('★★ 原因写明没配模型', /没配模型/.test(String(noCfg.reason)), String(noCfg.reason))
+  check('★★ 原因写明全走 DSH / 只出扫描图', /全走 DSH|只出扫描图/.test(String(noCfg.reason)), String(noCfg.reason))
   check('★★ 图上有节点（扫描图照样能看）', noCfg.graph.nodes.length > 0, String(noCfg.graph.nodes.length))
   check('★★ 文案自报"扫描图，不是生成图"', /扫描图/.test(noCfg.graph.text) && /不是生成图/.test(noCfg.graph.text), noCfg.graph.text)
-  check('★ 没配模型时一次调用都没发', calls === 0)
+  check('★ 未注入时一次调用都没发（生产路径零模型）', calls === 0)
 
   console.log('\n== ② 注入 callLlm 返回合法草稿 → AI 图 ==')
   const okRes = await generateArchGraph(FACTS, {

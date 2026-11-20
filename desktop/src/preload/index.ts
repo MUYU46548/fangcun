@@ -100,6 +100,12 @@ contextBridge.exposeInMainWorld('tegula', {
    *   改成『发送给DSH』都能让人看懂」。方法名 `dispatchDsh` 是内部标识，沿用旧名。
    */
   dispatchDsh: (projectId: string, kind?: 'work' | 'plan') => ipcRenderer.invoke('context:dispatchDsh', projectId, kind),
+  /**
+   * 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改成 DSH 派单。
+   * `message` = 界面固定生成的任务书（不是 agent 自由文本）；方寸只落文件，不调模型。
+   */
+  dispatchMessageDsh: (projectId: string, kind: 'work' | 'plan', message: string) =>
+    ipcRenderer.invoke('context:dispatchMessage', projectId, kind, message),
   /** 开工简报（2026-11-16 · 治病①）：上次做到哪 / 这次先做什么 / 有哪些规矩别犯。只读 */
   brief: (projectId: string) => ipcRenderer.invoke('brief:get', projectId),
   briefFile: (projectId: string) => ipcRenderer.invoke('brief:write', projectId),
@@ -361,13 +367,10 @@ contextBridge.exposeInMainWorld('tegula', {
   llmDecide: (dp: any, model?: string) => ipcRenderer.invoke('llm:decideDP', dp, model),
   llmReview: (projectId?: string, model?: string) => ipcRenderer.invoke('llm:quarterlyReview', projectId, model),
   llmRoadmap: (goal?: string, projectId?: string, model?: string) => ipcRenderer.invoke('llm:generateRoadmap', goal, projectId, model),
-  // AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 删除）：桌面 GUI 不再调模型。
-  // 规划走 dispatchDsh(project, 'plan')；MCP 的 plan_draft 是另一条（D-153 弱支持保留）。
-  /** 模糊问答（2026-10-22 · 03 任务一）：事实包在主进程拼，模型只许引用事实 */
-  llmAsk: (question: string, model?: string) => ipcRenderer.invoke('llm:ask', question, model),
-  /** 出单（2026-10-22 · 03 任务三）：一次调用出一批待审批卡 */
-  llmPlanBatch: (projectId: string, model?: string) => ipcRenderer.invoke('llm:planBatch', projectId, model),
-  llmDocToDrafts: (docText: string, projectId?: string, model?: string, maxCards?: number) => ipcRenderer.invoke('llm:docToDrafts', docText, projectId, model, maxCards),
+  // AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 / D-150 删除）：
+  // 桌面 GUI 不再调模型。规划走 dispatchDsh(project, 'plan')；
+  // 文档拆卡 / 出单走 dispatchMessageDsh（只落派单文件，由 DSH 干活）。
+  // MCP 的 plan_draft 是另一条（D-153 弱支持保留）。
   // 决策卡（2026-10-12）：与 Python CLI 同文件（task-data/decisions.md）
   decisionList: () => ipcRenderer.invoke('decision:list'),
   decisionAdd: (input: any) => ipcRenderer.invoke('decision:add', input),

@@ -147,16 +147,15 @@ export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'arch_generate',
     description:
-      '让方寸给某个已登记项目**生成架构图**（AI 画 + 逐条证据审计）。'
-      + '模型只能引用扫描事实里真实存在的目录 / 入口 / 依赖 / import / IPC / 端口；'
-      + '指不回证据的节点与连线一律拒收，并会把“哪条不过、为什么”写进 issues；'
-      + '审计不过的会按意见自动重画（默认 2 次），仍不过或无模型时**降级为扫描图**，'
-      + '`source` 会如实写 ai 或 scan。会调用你在方寸设置里配的模型（BYOK），每次调用产生花销。',
+      '让方寸给某个已登记项目**生成架构图**（只读扫描，零模型）。'
+      + '节点只能来自真实目录 / 入口 / 依赖，连线只能来自真实 import / IPC / 端口计数；'
+      + '2026-11-20 D-152 起方寸不再自带模型调用 —— 只出扫描图（`source` 恒为 `scan`），不花 token；'
+      + '要 AI 解读请在 DSH 里做。',
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: '项目 id 或项目名（registry 里登记的）' },
-        max_attempts: { type: 'number', description: '最多重画几次（默认 2，上限 3）' },
+        max_attempts: { type: 'number', description: '已废弃（扫描图一次出）；保留参数仅为兼容旧调用方' },
       },
       required: ['project'],
     },
@@ -1161,8 +1160,8 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     }
 
     case 'arch_generate': {
-      // 让 agent 直接要点图（0.6.0）。与界面按钮走同一个服务：AI 画 → 审计 → 不过重画 → 降级。
-      // ⚠ 这里会真调模型（花钱），所以返回体里必须带 usage —— REV-005 边界③“花销每次可见”。
+      // 2026-11-20 D-152：只出扫描图，不再调模型（不产生 usage）。
+      // 要 AI 解读走 DSH；这里只把真实目录/import 摊开。
       const want = String(args.project || '').trim()
       if (!want) {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '要给 project（项目 id 或名字）' }) }], isError: true }
@@ -1192,9 +1191,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
             },
             issues: r.audit ? r.audit.issues : [],
             notes: r.audit ? r.audit.notes : [],
-            next: r.source === 'ai'
-              ? '生成图：每个节点/连线都指回了证据，可以直接用'
-              : '降级扫描图：' + (r.reason || '没配模型') + ' —— 想拿生成图，先让用户配好模型再调一次',
+            next: '扫描图（零模型）：节点/连线全部来自真实目录与 import；要 AI 解读请在 DSH 里做',
           }, null, 2),
         }],
       }))

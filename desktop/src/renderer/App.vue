@@ -2237,8 +2237,8 @@ const ask = useAsk({ projects, loadAll, showToast, offerUndo, aiUsageTail, costA
 // 显式解构：`askCtl` 要给 `views/AskView.vue` 当 prop，而拆分守卫是按源码文本数键的
 // （展开 `...ask` 它看不见 —— 会把这些键全判成“控制器里没有”）。
 const {
-  askQ, askBusy, askAns, askGroups, askLlmBusy, askLlmAns, askLlmErr, askLlmMeta,
-  runAsk, askQuick, askToLlm,
+  askQ, askBusy, askAns, askGroups,
+  runAsk, askQuick, askToDshPackage,
   correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
   batchBusy, runBatch,
   usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,
@@ -6097,21 +6097,15 @@ function applyArchFilter(): void {
 }
 
 /** AI 生成图（2026-11-02）。三条口径与主进程一致：
- *  · 点一下才调模型（打开面板不花钱）；
- *  · 回来必须自报来源：ai = 模型画且过审 / scan = 降级扫描图；
- *  · 降级不是错误，是"这次没画成"，要说清为什么（没配模型 / 审计没过）。 */
+ *  · 点一下只读扫描（零模型，D-152）；打开面板不花钱，点它也不调模型；
+ *  · 回来必须自报来源：scan = 扫描图；
+ *  · 降级不是错误，是"这次没画成"，要说清为什么（全走 DSH / 审计没过）。 */
 async function generateSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id || archBusy.value) return
-  if (!(await costAsk({
-    title: 'AI 生成架构图',
-    detail: '这会调用你在设置里配的模型通道画一版架构图，按你自己的 API 计费；没过审会自动降级成扫描图。',
-    confirmText: '继续（会调用模型）',
-  }))) return
   archBusy.value = true
-  // ⚠ 保留「生成中…」这个词：e2e-renderer-web 从 0.6.0 起就认它，
-  //   进度事件来了会替换成更具体的一句话，但第一帧不能把老判据弄丢
-  archPhase.value = '生成中…'
+  // 扫描是本地只读，通常 1–3 秒；进度事件仍可把阶段写到按钮上
+  archPhase.value = '扫描中…'
   // 进度订阅只挂一次（重开面板不再叠加监听）；按当前项目过滤，避免 A 的进度串到 B
   if (!archProgressOff) {
     archProgressOff = (window as any).tegula.onArchProgress((p: any) => {
@@ -6133,6 +6127,9 @@ async function generateSelfArch(): Promise<void> {
       showToast('已取消 —— 没有生成任何图，也没写文件' + gone, 'info')
     } else if (r.source === 'ai') {
       showToast(`AI 生成图：${r.attempts || 1} 次过审${r.repaired ? '（输出被截断，按完整节点收尾）' : ''}` + gone, 'success')
+    } else if (String(r.reason || '').indexOf('全走 DSH') >= 0) {
+      // D-152：生产路径的正常态 —— 不是失败，是"方寸只出扫描图"
+      showToast('已按源码重扫：这是扫描图（零模型，方寸不再调模型）' + gone, 'success')
     } else {
       // 失败要说清"坏在哪一步"，不是笼统一句"生成失败"（11-03 驳回）
       const k = String(r.failKind || '')
@@ -6542,14 +6539,6 @@ function openProjectInSettings(p: Project) {
 // 整条退役：项目页「✨ AI 规划」入口、弹窗、`llm:planToDraft` /
 // `llm:draftProjectBrief` 两个 IPC 一起删了 —— 不做“只删界面、后端留个口”的半截退役。
 // 规划正路：项目页「让 DSH 做规划」（派单通道 `context:dispatchDsh`）。
-// 下面两个函数留给**文档拆卡**（AiDocModal 还在用；D-150 要把它改成 DSH 派单）。
-
-/** 文档拆卡里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
-function gotoLlmSettings(): void {
-  selectSettingsTab('agent')
-  showSettings()
-}
-
 /** 花销可见（方案红线）：把主进程回传的 usage 拼成人话，null 全缺返回空串不凑数 */
 function aiUsageTail(u: any): string {
   if (!u) return ''
@@ -6560,14 +6549,13 @@ function aiUsageTail(u: any): string {
   return parts.length ? ` · tokens ${parts.join('/')}` : ''
 }
 
-// ── 文档拆卡 UI（2026-10-17 四件补立项之二）──────────────────────────────
-// 红线全在主进程（llm/writeback.ts docToDrafts）：待审批+ai-doc 来源+超长硬拒+上限 20 张。
+// ── 文档拆卡 UI（2026-10-17 四件补立项之二；2026-11-20 D-150 改 DSH 派单）──
+// 方寸不再调自己的模型：只把「任务书 + 文档原文」写成派单，DSH 里开会话去拆。
 const aiDocForm = ref<{ id: string; name: string; doc: string } | null>(null)
 const aiDocBusy = ref(false)
 
 function openAiDoc(p: any) {
   aiDocForm.value = { id: p.id, name: p.name || p.id, doc: '' }
-  void llmLoad()  // 文档拆卡：没配模型通道时当场指路，别让用户白粘一段长文
 }
 
 function closeAiDoc() {
@@ -6575,26 +6563,36 @@ function closeAiDoc() {
   aiDocForm.value = null
 }
 
-/** 粘贴文档 → AI 拆成待审批卡。成功即关窗，看板筛“待审批”看到琥珀色卡。 */
-async function runDocToDrafts() {
+/** 粘贴文档 → 写一份 DSH 派单（D-150）。成功即关窗；DSH 里会冒出新会话。 */
+async function runDocToDsh() {
   const f = aiDocForm.value
   if (!f || aiDocBusy.value || !f.doc.trim()) return
   if (!(await costAsk({
     title: '文档拆卡',
-    detail: '这会调用你在设置里配的模型通道，把这份文档拆成“待审批”卡，按你自己的 API 计费。',
-    confirmText: '继续（会调用模型）',
+    detail: '这会写一份派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型拆卡，可能产生真实费用。',
+    confirmText: '继续（会开 DSH 会话）',
   }))) return
   aiDocBusy.value = true
   try {
-    const r: any = await window.tegula.llmDocToDrafts(f.doc.trim(), f.id)
+    const msg = [
+      '【这次要做的事】把下面这份文档拆成最多 20 张“待审批”任务卡。',
+      '每张卡写清：标题、优先级（高/中/低）、标签、方案、结果记录里的验收判据；',
+      '背景、感想、已完成事项跳过；不要重复项目里已有的未完成卡；',
+      '用 fangcun_write 落成“待审批”，不要设完成/驳回。',
+      '',
+      '【文档原文开始】',
+      f.doc.trim(),
+      '【文档原文结束】',
+    ].join('\n')
+    const r: any = await window.tegula.dispatchMessageDsh(f.id, 'work', msg)
     if (r?.ok) {
-      showToast(`已拆 ${r.created?.length ?? 0} 张“待审批”卡——过目后转正${aiUsageTail(r.usage)}`, 'success')
+      showToast(`已把文档拆卡任务发给 DSH（${r.chars || 0} 字派单）—— DSH 里会冒出新会话`, 'success')
       aiDocForm.value = null
     } else {
-      showToast(r?.error || '拆卡失败——先到设置页确认模型通道', 'error')
+      showToast(r?.error || '派单失败', 'error')
     }
   } catch (e: any) {
-    showToast(`拆卡失败：${e?.message || e}`, 'error')
+    showToast(`派单失败：${e?.message || e}`, 'error')
   } finally {
     aiDocBusy.value = false
   }
@@ -7937,12 +7935,11 @@ const projCtl = reactive({
   closeProjForm, confirmNewProject,
 })
 
-/** 文档拆卡（模型通道配置；AI 规划已于 2026-11-20 按 D-149 删除） */
+/** 文档拆卡（2026-11-20 D-150：只写 DSH 派单，不再调模型通道） */
 const aiDocCtl = reactive({
   get aiDocForm() { return aiDocForm.value },
   get aiDocBusy() { return aiDocBusy.value },
-  get llmCfg() { return llmCfg.value },
-  closeAiDoc, runDocToDrafts, gotoLlmSettings,
+  closeAiDoc, runDocToDsh,
 })
 
 /** 规划管理 */
@@ -8053,8 +8050,8 @@ const launchpadCtl = reactive({
 
 /** 问答页（领域刀）：整块逻辑在 composables/useAsk.ts，这里只把返回的那一坨包一层 */
 const askCtl = reactive({
-  askQ, askBusy, askAns, askGroups, askLlmBusy, askLlmAns, askLlmErr, askLlmMeta,
-  runAsk, askQuick, askToLlm,
+  askQ, askBusy, askAns, askGroups,
+  runAsk, askQuick, askToDshPackage,
   correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
   batchBusy, runBatch,
   usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,

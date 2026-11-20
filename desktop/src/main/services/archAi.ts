@@ -15,8 +15,6 @@
  *  · 不信任草稿里的任何数字：图上的文件数 / 连线条数一律从扫描事实取（见 `draftToGraph`）；
  *  · 无 AI（未配置 / 调用失败）**仍然出图**，但 `source` 必须是 `scan`，文案写明"这是扫描图，不是生成图"。
  */
-import { getConfig, isMaskedKey } from '../llm/config'
-import { chatWithFallback } from '../llm/fallback'
 import { appendTrace } from '../llm/trace'
 import { buildArchGraph, type ArchGraph, type ArchScanFacts } from '../../shared/archGraph'
 import { inspectJson, jsonRetryNudge, type JsonFailKind } from '../../shared/jsonRepair'
@@ -31,17 +29,6 @@ import {
 
 export const ARCH_TRIGGER = 'desktop.archGenerate'
 export const DEFAULT_MAX_ATTEMPTS = 2
-
-/**
- * 输出上限（2026-11-05，暮雨第 2 条“架构图 AI 生成失败”的真因）
- *
- * 原来写死 2048 —— 而架构图的 JSON 要带 evidence 数组，方寸自己这种规模一次就要
- * 4000+ 字符。`ai-trace.jsonl` 里两次 `desktop.archGenerate` 全是
- * `JSON 解析失败：Expected ',' or ']' ... at position 4387`：**输出被 max_tokens 截断**，
- * 断在数组中间，于是每次都以"降级为扫描图"收场。用户看到的是"AI 生成失败"，
- * 真实原因却是"话没说完就被掐了"。
- */
-export const ARCH_MAX_TOKENS = 4096
 
 /** 喂给模型的证据条数上限（原来 160：清单太长，模型总想多画，输出必然撑爆） */
 export const ARCH_EVIDENCE_LIMIT = 80
@@ -197,22 +184,12 @@ export function parseArchDraft(text: string): {
   return { draft: null, error: shape.message, kind: shape.kind }
 }
 
-function configProblem(): string {
-  let cfg: any
-  try {
-    cfg = getConfig()
-  } catch {
-    return '读不到模型配置'
-  }
-  const lack: string[] = []
-  if (!cfg?.baseUrl) lack.push('端点地址')
-  if (!cfg?.model) lack.push('模型名')
-  if (isMaskedKey(cfg?.apiKey)) lack.push('密钥')
-  return lack.length ? `没配模型（缺 ${lack.join(' / ')}）` : ''
-}
-
 /**
  * 生成一张架构图。**永不放任失败**：任何一步出问题都退到扫描图，并说明为什么。
+ *
+ * ⚠ 2026-11-20 D-152：方寸不再自带模型调用。**生产路径（不传 callLlm）只出扫描图**；
+ *   `opts.callLlm` 只保留给 e2e（注入假模型验纯逻辑），桌面/MCP 都不会传。
+ *   要 AI 解读，走 DSH（派单/会话），不在方寸进程里发请求。
  */
 export async function generateArchGraph(
   facts: ArchScanFacts,
@@ -237,30 +214,17 @@ export async function generateArchGraph(
     }
   }
 
-  // 没配模型 → 零调用直接降级（与 P6 起草器同一条闸：不偷偷发请求）
-  // ⚠ 注入了 callLlm 就跳过配置检查：那是测试/自检路径，配置由调用方负责。
-  const injected = typeof opts.callLlm === 'function'
-  const lack = injected ? '' : configProblem()
-  if (lack) return fallback(`${lack} —— 先出扫描图，配好模型再重画`, { failKind: 'no_model' })
+  // D-152：没有注入 callLlm（生产路径）就零调用，直接出扫描图。
+  // 注入路径只给测试用 —— 它不读配置、不发 HTTP，由调用方负责。
+  const call = opts.callLlm
+  if (!call) {
+    return fallback('全走 DSH：方寸只出扫描图（AI 解读请在 DSH 里做）', { failKind: 'no_model' })
+  }
 
   const maxAttempts = Math.max(1, Number(opts.maxAttempts) || DEFAULT_MAX_ATTEMPTS)
   const nowIso = String(opts.now || new Date().toISOString())
   // 2026-11-02 BYOK 多通道：主通道挂了自动换备用；降级话术写进 note，失败逐次留痕。
-  const call = opts.callLlm || (async (prompt: string, system: string) => {
-    const r = await chatWithFallback(prompt, {
-      system, trigger: ARCH_TRIGGER, noTrace: true, maxTokens: ARCH_MAX_TOKENS, temperature: 0,
-    })
-    if (!r.ok) throw new Error(r.error || r.note || '模型调用失败（所有通道都试过了）')
-    return {
-      text: r.text,
-      usage: {
-        promptTokens: r.usage?.promptTokens,
-        completionTokens: r.usage?.completionTokens,
-        totalTokens: r.usage?.totalTokens,
-      },
-      model: String(r.model || getConfig().model || ''),
-    }
-  })
+  // 2026-11-20 D-152 起这里只剩注入路径，不再读 llm-config、不再发真实请求。
 
   let feedback = ''
   let lastAudit: ArchAuditResult | undefined

@@ -87,7 +87,7 @@ onMounted(loadMemoryPrefs)
               <input type="checkbox" :checked="costConfirm" @change="onCostConfirmChange" />
               调用 DSH / 模型前弹窗确认（防止新手误触）
             </label>
-            <div class="hint">默认开。关掉后所有「发送给 DSH / 让 DSH 做规划 / 文档拆卡 / 让 AI 答 / 出单 / AI 生成图」不再弹窗，但仍带金色 ¥ 角标。</div>
+            <div class="hint">默认开。关掉后所有「发送给 DSH / 让 DSH 做规划 / 文档拆卡 / 出单」不再弹窗，但仍带金色 ¥ 角标。</div>
           </div>
           <!-- 2026-09-29 用户第 4 条：多主题外观（参考另一款自有产品的色板与摆法） -->
           <div class="sect" v-show="active">

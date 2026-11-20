@@ -822,6 +822,17 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改成 DSH 派单，
+  // 不再调方寸自己的模型（llm:docToDrafts / llm:planBatch 已删）。
+  // 任务书由界面固定生成，不是 agent 传的自由文本；冷却/清理与上面同一条链路。
+  guardedHandle('context:dispatchMessage', (_event, projectId: string, kind: string, message: string) => {
+    try {
+      return contextPack.dispatchMessageToDsh(String(projectId || ''), kind, String(message || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
   // ── 开工简报（2026-11-16 · 治病①「没有记忆」的入口）─────────────────────
   // 卡 `最高优先级ai-施工的五种病…` 的验收线：跑一轮新入口，agent 必须能答对
   // 「上次做到哪 / 这次先做什么 / 有哪些规矩别犯」，且输出 <= 8KB。

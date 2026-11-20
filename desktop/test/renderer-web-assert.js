@@ -7759,30 +7759,34 @@
           check('★★ needsLlm=false 的答案**不给**“交给 AI”按钮（能结构化答就别敞着成本口子）',
             !$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'))
         }
-        const llmBefore = window.__fcTest.callCount('llmAsk')
+        const clipBefore = window.__fcTest.callCount('clipboardWriteText')
         const askIn = $('#board.ask-view .ask-in')
         askIn.value = '你觉得这个方向对不对'
         askIn.dispatchEvent(new Event('input', { bubbles: true }))
         await sleep(80)
         $('#board.ask-view .ask-go').click()
-        check('★ 含糊句 → 出现“交给 AI 答（会花 token）”按钮',
-          await waitFor(() => !!$('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)'), 4000, 'llm btn'),
+        check('★ 含糊句 → 出现“打包给 DSH（不调模型）”按钮',
+          await waitFor(() => {
+            const b = $('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)')
+            return !!b && (b.textContent || '').indexOf('打包给 DSH') >= 0
+          }, 4000, 'package btn'),
           (($('#board.ask-view .ask-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 50))
-        check('★★ 光问不点 → **一次模型都没调**（结构化答不了也不许偷偷烧钱）',
-          window.__fcTest.callCount('llmAsk') === llmBefore, String(window.__fcTest.callCount('llmAsk')))
-        const llmBtn = $('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)')
-        if (llmBtn) {
-          llmBtn.click()
-          check('★★ 点“交给 AI 答”才真调 llmAsk', await waitFor(() => window.__fcTest.callCount('llmAsk') > llmBefore, 4000, 'llmAsk'))
-          const lastLlm = window.__fcTest.calls().filter((c) => c.name === 'llmAsk').pop()
-          check('  传给 AI 的是**同一个问题串**（不是 chip 的 label）',
-            !!lastLlm && lastLlm.args[0] === '你觉得这个方向对不对', JSON.stringify(lastLlm && lastLlm.args))
-          check('★ AI 回答连同**花销**一起显示（03 单：花销每次可见）',
-            await waitFor(() => {
-              const t = ($('#board.ask-view .ask-llm-ans') || {}).textContent || ''
-              return t.indexOf('AI 回答夹具') >= 0 && t.indexOf('321') >= 0
-            }, 4000, 'llm ans'),
-            (($('#board.ask-view .ask-llm-ans') || {}).textContent || '').replace(/\s+/g, ' ').slice(0, 60))
+        check('★★ 光问不点 → 一次模型/剪贴板都没动（不再偷偷烧钱）',
+          window.__fcTest.callCount('llmAsk') === 0 && window.__fcTest.callCount('clipboardWriteText') === clipBefore,
+          'llm=' + window.__fcTest.callCount('llmAsk') + ' clip=' + window.__fcTest.callCount('clipboardWriteText'))
+        const pkgBtn = $('#board.ask-view .ask-llm-btn:not(.ask-batch-btn)')
+        if (pkgBtn) {
+          pkgBtn.click()
+          check('★★ 点「打包给 DSH」只写剪贴板，**不调** llm:ask（D-151）',
+            await waitFor(() => window.__fcTest.callCount('clipboardWriteText') > clipBefore, 4000, 'clipboardWriteText')
+            && window.__fcTest.callCount('llmAsk') === 0)
+          const lastCopy = window.__fcTest.calls().filter((c) => c.name === 'clipboardWriteText').pop()
+          const pkgText = String((lastCopy && lastCopy.args && lastCopy.args[0]) || '')
+          check('★★ 包里带原问题 + 结构化事实 + 来源（不是一句空话）',
+            pkgText.indexOf('你觉得这个方向对不对') >= 0
+            && pkgText.indexOf('结构化事实') >= 0
+            && pkgText.indexOf('来源') >= 0,
+            pkgText.slice(0, 160))
         }
         // ── 随纠（2026-10-22 · 03 任务二）：从答案直接改这个项目的方向 ──────
         // 判据：有项目才有入口；一句话 → 真调 correctApply（参数齐全且不填表单）；
@@ -7847,7 +7851,7 @@
           const a = (window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args[0] || {}
           return a.projectId === 'demo' && a.field === '路线图' && a.before === '跑通第一单' && a.decisionId === 'dec-e2e-1'
         })(), JSON.stringify((window.__fcTest.calls().filter((c) => c.name === 'correctUndo').pop() || {}).args))
-        // ── 出单（2026-10-22 · 03 任务三）：从台账派生下一批待审批卡 ──────────
+        // ── 出单（2026-10-22 · 03 任务三；2026-11-20 D-150 改 DSH 派单）──────
         check('★ 有项目的答案 → 出现“出下一批任务卡”入口（标了会花 token）', await (async () => {
           // 上一步改完撤销后 askQ 还是“演示项目到哪了”，答案带 projectId
           return waitFor(() => {
@@ -7856,19 +7860,21 @@
             return !!btn && (btn.textContent || '').indexOf('会计费') >= 0
           }, 4000, '出单入口')
         })())
-        check('★★ 点出单 → 真调 llmPlanBatch，项目 id 传对；toast 说清出了几张 + 花销', await (async () => {
+        check('★★ 点出单 → 走 dispatchMessageDsh（不再调 llmPlanBatch），项目 id 与任务书都对；toast 说清已派给 DSH', await (async () => {
           const btn = $$('#board.ask-view .ask-foot button')
             .find((b) => (b.textContent || '').indexOf('出下一批') >= 0)
           if (!btn) return false
-          const n0 = window.__fcTest.callCount('llmPlanBatch')
+          const n0 = window.__fcTest.callCount('dispatchMessageDsh')
           btn.click()
-          const hit = await waitFor(() => window.__fcTest.callCount('llmPlanBatch') > n0, 4000, 'llmPlanBatch')
+          const hit = await waitFor(() => window.__fcTest.callCount('dispatchMessageDsh') > n0, 4000, 'dispatchMessageDsh')
           if (!hit) return false
-          const a = (window.__fcTest.calls().filter((c) => c.name === 'llmPlanBatch').pop() || {}).args
-          if (!a || a[0] !== 'demo') return false
+          const a = (window.__fcTest.calls().filter((c) => c.name === 'dispatchMessageDsh').pop() || {}).args
+          if (!a || a[0] !== 'demo' || a[1] !== 'work') return false
+          const msg = String(a[2] || '')
+          if (msg.indexOf('3-8 张') < 0 || msg.indexOf('待审批') < 0) return false
           return waitFor(() => {
             const t = ($('#toast') || {}).textContent || ''
-            return t.indexOf('2 张') >= 0 && t.indexOf('待审批') >= 0 && t.indexOf('999') >= 0
+            return t.indexOf('已把出单任务发给 DSH') >= 0
           }, 4000, '出单 toast')
         })(), (($('#toast') || {}).textContent || '').slice(0, 60))
 
@@ -9134,25 +9140,18 @@
         (($('.archd-side') || {}).textContent || '').indexOf('src/main/index.ts') >= 0,
         (($('.archd-side') || {}).textContent || '').slice(0, 100))
 
-      // ── AI 生成图（0.6.0 · 2026-11-02）：点一下才调模型，回来必须自报来源 ──
-      // 判据：① 按钮在；② 点了真走 arch:generate；③ 生成图和扫描图在界面上必须说得出区别。
-      const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('AI 生成图') >= 0)
-      check('★ 面板里有“AI 生成图”按钮（打开面板不花钱，点它才调模型）', !!genBtn,
+      // ── 架构图（2026-11-02 → 2026-11-20 D-152）：只读扫描、零模型，自报"扫描图" ──
+      // 判据：① 按钮在；② 点了真走 arch:generate；③ 结果必须说清是扫描图（不许冒充 AI）。
+      const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('重新扫描') >= 0)
+      check('★ 面板里有“重新扫描”按钮（零模型；打开/点击都不花钱）', !!genBtn,
         $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
       window.__fcTest.reset()
       if (genBtn) { genBtn.click() }
       check('★★ 点了真走 arch:generate IPC', await waitFor(() => window.__fcTest.callCount('archGenerate') > 0, 5000, 'archGenerate'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'archGenerate').map((c) => c.args)))
-      check('★★ 生成图自报“AI 生成图”（不冒充扫描结果）',
-        await waitFor(() => /AI 生成图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
+      check('★★ 结果自报“扫描图”（零模型，不再有 AI 生成图）',
+        await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
         (($('.archd-text') || {}).textContent || '').slice(0, 90))
-      // 降级分支：没配模型 / 审计没过 → 必须写"扫描图，不是生成图"
-      window.__fcTest.setArchScanOnly(true)
-      if (genBtn) { genBtn.click() }
-      check('★★ 降级时自报“扫描图，不是生成图”（不许拿扫描图冒充生成图）',
-        await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'scan text'),
-        (($('.archd-text') || {}).textContent || '').slice(0, 90))
-      window.__fcTest.setArchScanOnly(false)
 
       // ── 生成中：耗时要可见 + 关掉要付什么代价（2026-11-05 暮雨第 2 条）────────────
       // 原话：“生成过程可能耗时很长（没其他提示，挂着窗口干等），用户等不及会点关闭，是否有影响？”
@@ -9161,25 +9160,25 @@
       //      ③ 继续等之后警告收起；④ 生成结束后横幅自己消失。
       {
         window.__fcTest.holdArch(true)
-        const genBtn2 = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('AI 生成图') >= 0)
+        const genBtn2 = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('重新扫描') >= 0)
         if (genBtn2) genBtn2.click()
         await sleep(400)
         const busyBar = $('.archd-busybar')
-        check('★★ 生成中有横幅，且写的是**真计时**（“已等 N 秒”，不编百分比）',
+        check('★★ 扫描中有横幅，且写的是**真计时**（“已等 N 秒”，不编百分比）',
           !!busyBar && /已等\s*\d+\s*秒/.test(busyBar.textContent || ''),
           busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '没有 .archd-busybar')
-        check('★ 横幅里说清“关掉不会中断调用，但结果看不到”（用户问的就是这个）',
+        check('★ 横幅里说清“关掉不会中断扫描，但结果看不到”',
           !!busyBar && /不会中断/.test(busyBar.textContent || '') && /看不到/.test(busyBar.textContent || ''),
           busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 140) : '')
-        check('★ 生成按钮上是“生成中… Ns”（不是只写“生成中”，用户看不出等了多久）',
-          $$('#arch-modal button').some((b) => /生成中…\s*\d+s/.test(b.textContent || '')),
+        check('★ 扫描按钮上是“扫描中… Ns”（不是只写“扫描中”，用户看不出等了多久）',
+          $$('#arch-modal button').some((b) => /扫描中…\s*\d+s/.test(b.textContent || '')),
           $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
 
         // ── 2026-11-07（修 11-03 驳回）：进度要说清"第几次 / 在干嘛"，且能取消 ──
-        window.__fcTest.emitArchProgress({ phase: 'audit', attempt: 2, maxAttempts: 2, text: '第 2 次：审计证据…' })
+        window.__fcTest.emitArchProgress({ phase: 'audit', attempt: 2, maxAttempts: 2, text: '第 2 次：扫描证据…' })
         await sleep(160)
         check('★★ 进度事件推到按钮上（不是只转个圈）',
-          $$('#arch-modal button').some((b) => /第 2 次：审计证据/.test(b.textContent || '')),
+          $$('#arch-modal button').some((b) => /第 2 次：扫描证据/.test(b.textContent || '')),
           $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
         const cancelBefore = window.__fcTest.callCount('archCancel')
         const cancelBtn = $$('#arch-modal button').find((b) => (b.textContent || '').trim() === '取消')
@@ -9195,10 +9194,10 @@
         if (closeBtn) closeBtn.click()
         await sleep(250)
         const warn = $('.archd-closewarn')
-        check('★★ 生成中点“关闭”→ **不直接关**，先把代价说清楚',
+        check('★★ 扫描中点“关闭”→ **不直接关**，先把代价说清楚',
           !!warn && !!$('#arch-modal'), warn ? (warn.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '没有警告条')
-        check('★ 警告里点名“白花”（不是模糊的“确定要关闭吗”）',
-          !!warn && /白花/.test(warn.textContent || ''), warn ? (warn.textContent || '').slice(0, 60) : '')
+        check('★ 警告里点名“白做/白花”（不是模糊的“确定要关闭吗”）',
+          !!warn && /白做|白花/.test(warn.textContent || ''), warn ? (warn.textContent || '').slice(0, 60) : '')
 
         const keepWaiting = $$('.archd-closewarn button').find((b) => (b.textContent || '').indexOf('继续等') >= 0)
         check('★ 警告里给“继续等”出口（不是只有关或不关两条死路）', !!keepWaiting)
@@ -9211,7 +9210,7 @@
           for (let i = 0; i < 30; i++) { await sleep(200); if (!$('.archd-busybar')) return true }
           return false
         })()
-        check('★★ 生成结束后横幅自己消失（不许永久挂在那儿）', goneBusy,
+        check('★★ 扫描结束后横幅自己消失（不许永久挂在那儿）', goneBusy,
           $('.archd-busybar') ? (($('.archd-busybar') || {}).textContent || '').slice(0, 60) : '已消失')
         window.__fcTest.holdArch(false)
       }

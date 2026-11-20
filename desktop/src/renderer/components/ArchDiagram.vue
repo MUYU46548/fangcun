@@ -110,17 +110,17 @@ function submitReject(): void {
       <!-- 上次生成结果（关窗/切页回来也查得到"上次怎么了"）——
            11-03 驳回原话："点关闭是否有影响？" 现在答案是：结果落盘，重开就看得到。 -->
       <span v-if="lastRun && !busy" class="archd-last" :class="{ bad: lastRun.source !== 'ai' && !lastRun.cancelled }">
-        {{ lastRun.cancelled ? '上次：已取消' : lastRun.source === 'ai' ? '上次：生成成功' : '上次：降级为扫描图' }}
+        {{ lastRun.cancelled ? '上次：已取消' : lastRun.source === 'ai' ? '上次：生成成功' : '上次：扫描图' }}
         <template v-if="lastRun.reason">· {{ lastRun.reason }}</template>
         <template v-if="lastRun.ms">· {{ Math.round((lastRun.ms || 0) / 1000) }}s</template>
       </span>
-      <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次生成：不会再发下一次调用，也不会写任何图" @click="emit('cancel')">
+      <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次扫描：不会再发下一次请求，也不会写任何图" @click="emit('cancel')">
         取消
       </button>
-      <Button class="archd-gen font-[inherit]" data-cost variant="ghost" size="tool" :disabled="busy"
-        title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型，可能产生费用）"
+      <Button class="archd-gen font-[inherit]" variant="ghost" size="tool" :disabled="busy"
+        title="只读扫源码重画一版：节点 = 真实目录、连线 = 真实 import / IPC 计数；不走模型（D-152 全走 DSH）"
         @click="emit('generate')">
-        {{ busy ? `${phase || '生成中…'} ${elapsed || 0}s` : '✦ AI 生成图' }}
+        {{ busy ? `${phase || '扫描中…'} ${elapsed || 0}s` : '⟳ 重新扫描' }}
       </Button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
@@ -136,11 +136,11 @@ function submitReject(): void {
          同时把“能不能关”写在这儿，省得他点关闭之后才发现结果没了。 -->
     <div v-if="busy" class="archd-busybar">
       <span class="archd-busybar-dot"></span>
-      <span>正在让模型画图… 已等 <b>{{ elapsed || 0 }}</b> 秒（通常 10–60 秒；慢模型可能更久）</span>
-      <span class="archd-busybar-note">现在关掉面板不会中断这次调用 —— token 照花，但结果你看不到</span>
+      <span>正在只读扫描源码… 已等 <b>{{ elapsed || 0 }}</b> 秒（通常 1–3 秒；零模型，不发外部请求）</span>
+      <span class="archd-busybar-note">现在关掉面板不会中断这次扫描 —— 但结果你看不到</span>
     </div>
     <div v-if="closeWarn" class="archd-closewarn">
-      <span>还在生成（已 {{ elapsed || 0 }} 秒）。<b>现在关掉 = 这次模型调用白花</b>，图也看不到。</span>
+      <span>还在扫描（已 {{ elapsed || 0 }} 秒）。<b>现在关掉 = 这次扫描白做</b>，图也看不到。</span>
       <button class="ghost font-[inherit]" @click="closeWarn = false">继续等</button>
       <button class="danger font-[inherit]" @click="emit('close')">仍然关闭</button>
     </div>

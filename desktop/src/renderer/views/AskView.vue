@@ -24,7 +24,8 @@
         <div class="ask-hint">
           这一页不花钱：答案都从台账现算。点上面任一个，或者自己写一句。
           <br />
-          <b>“让 AI 答”什么时候出现？</b>只有结构化真算不出来的时候（比如“这事该怎么办”这类要判断的问题）——
+          <b>“打包给 DSH”什么时候出现？</b>只有结构化真算不出来的时候（比如“这事该怎么办”这类要判断的问题）——
+          方寸不再调自己的模型，只把问题 + 台账事实打包复制，你粘到 DSH 里用你配的模型回答。
           出现就一定给，不出现就是这题已经答完了，不用猜。
         </div>
       </div>
@@ -40,8 +41,8 @@
         </div>
         <div class="ask-foot">
           <span class="ask-src" v-if="ctl.askAns.source">来源：{{ ctl.askAns.source }}</span>
-          <Button class="ask-llm-btn" data-cost variant="ghost" size="tool" v-if="ctl.askAns.needsLlm" :disabled="ctl.askLlmBusy" @click="ctl.askToLlm()">
-            {{ ctl.askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
+          <Button class="ask-llm-btn" variant="ghost" size="tool" v-if="ctl.askAns.needsLlm" @click="ctl.askToDshPackage()">
+            📋 打包给 DSH（不调模型）
           </Button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
                一次调用 = 一批；产出只落“待审批”（点头才转正）。这是全应用**第二处**会
@@ -74,11 +75,7 @@
           </template>
         </div>
 
-        <div class="ask-llm-ans" v-if="ctl.askLlmAns">
-          <div class="ala-h">AI 的回答<em class="ala-meta" v-if="ctl.askLlmMeta">{{ ctl.askLlmMeta }}</em></div>
-          <div class="ala-t">{{ ctl.askLlmAns }}</div>
-        </div>
-        <div class="ask-llm-err" v-if="ctl.askLlmErr">{{ ctl.askLlmErr }}</div>
+        <!-- D-151（2026-11-20）：方寸不再调自己的模型答模糊题；按钮只打包给 DSH，不调 llm:ask。 -->
       </div>
 
 

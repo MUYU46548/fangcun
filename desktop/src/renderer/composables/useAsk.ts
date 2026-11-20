@@ -30,10 +30,6 @@ export function useAsk(deps: AskDeps) {
   const askBusy = ref(false)
   const askAns = ref<any>(null)
   const askPresets = ref<Array<{ label: string; q: string }>>([])
-  const askLlmBusy = ref(false)
-  const askLlmAns = ref('')
-  const askLlmErr = ref('')
-  const askLlmMeta = ref('')
 
   /** 常用问题由**主进程**给（界面不许自己写一份文案 —— 两边一漂移就成了两套问题集） */
   async function loadAskPresets(): Promise<void> {
@@ -141,9 +137,6 @@ export function useAsk(deps: AskDeps) {
     const q = askQ.value.trim()
     if (!q || askBusy.value) return
     askBusy.value = true
-    askLlmAns.value = ''
-    askLlmErr.value = ''
-    askLlmMeta.value = ''
     try {
       const r: any = await window.tegula.askQuery(q)
       if (!r || r.ok === false) {
@@ -165,32 +158,43 @@ export function useAsk(deps: AskDeps) {
     void runAsk()
   }
 
-  /** 只有用户点了这个按钮才会花 token —— 主进程那边把事实包一起发过去，模型没机会自由发挥 */
-  async function askToLlm(): Promise<void> {
-    if (!askAns.value || askLlmBusy.value) return
+  /**
+   * 结构化答不了时：**打包给 DSH**，不再调方寸模型（D-151 / 2026-11-20）。
+   *
+   * 判据：按钮点了只写剪贴板；`llm:ask` 已退役，主进程零调用。
+   * 包里必须带：原问题、项目、方寸算出的结构化事实（标明"不是结论"）、来源；
+   * 不把"方寸的结构化答案"冒充成 DSH 的答案。
+   */
+  async function askToDshPackage(): Promise<void> {
+    const a = askAns.value
     const q = askQ.value.trim()
-    if (!q) return
-    if (!(await costAsk({
-      title: '让 AI 答这道题',
-      detail: '这会调用你在设置里配的模型通道，按你自己的 API 计费；方寸不预置端点、不代收费用。',
-      confirmText: '继续（会调用模型）',
-    }))) return
-    askLlmBusy.value = true
-    askLlmErr.value = ''
-    askLlmAns.value = ''
-    askLlmMeta.value = ''
+    if (!a || !q) return
+    const pid = String(a.projectId || '').trim()
+    const lines = (Array.isArray(a.lines) ? a.lines : []).map((l: any) => `- ${l}`)
+    const rows = (Array.isArray(a.rows) ? a.rows : [])
+      .map((r: any) => `- ${r.k}：${r.v}${r.sub ? `（${r.sub}）` : ''}`)
+    const md = [
+      '【方寸转给 DSH 的问题】',
+      `问题：${q}`,
+      pid ? `项目：${pid}` : '项目：（未指定）',
+      '',
+      '方寸按台账算出的结构化事实（**不是结论**，别把它当答案）：',
+      a.title ? `- 结论：${a.title}` : '',
+      ...lines,
+      ...rows,
+      a.source ? `- 来源：${a.source}` : '- 来源：方寸结构化查询（未点名项目，按全局台账算）',
+      '',
+      '请用你在 DSH 里配置的模型回答；方寸不再调用自己的模型（llm:ask 已退役）。',
+    ].filter((x) => x !== '').join('\n')
     try {
-      const r: any = await window.tegula.llmAsk(q)
+      const r: any = await (window as any).tegula.clipboardWriteText(md)
       if (!r || r.ok === false) {
-        askLlmErr.value = 'AI 没答上来：' + (r?.error || '未知原因')
+        showToast('复制失败：' + (r?.error || '未知原因'), 'error')
         return
       }
-      askLlmAns.value = String(r.text || '')
-      askLlmMeta.value = `事实 ${r.facts_chars || 0} 字${aiUsageTail(r.usage)}`
+      showToast(`已复制给 DSH 的问题包（${md.length} 字）—— 粘到 DSH 会话里即可`, 'success')
     } catch (e: any) {
-      askLlmErr.value = 'AI 调用异常：' + (e?.message || e)
-    } finally {
-      askLlmBusy.value = false
+      showToast('复制失败：' + (e?.message || e), 'error')
     }
   }
 
@@ -251,27 +255,31 @@ export function useAsk(deps: AskDeps) {
     }
   }
 
-  // 出单（2026-10-22 · 03 任务三）：从台账派生下一批卡。一次调用 = 一批，绝不循环。
+  // 出单（2026-10-22 · 03 任务三；2026-11-20 D-150 改 DSH 派单）：
+  // 不再调方寸模型；只写一份任务书 + 上下文包，DSH 里开会话去派生待审批卡。
   const batchBusy = ref(false)
   async function runBatch(): Promise<void> {
     const pid = askAns.value && askAns.value.projectId
     if (!pid || batchBusy.value) return
     if (!(await costAsk({
       title: '出下一批任务卡',
-      detail: '这会调用你在设置里配的模型通道，从台账派生一批“待审批”卡，按你自己的 API 计费。',
-      confirmText: '继续（会调用模型）',
+      detail: '这会写一份派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型出卡，可能产生真实费用。',
+      confirmText: '继续（会开 DSH 会话）',
     }))) return
     batchBusy.value = true
     try {
-      const r: any = await window.tegula.llmPlanBatch(pid)
+      const msg = [
+        '【这次要做的事】从下面的项目台账和已拍板决策出发，产出下一批 3-8 张“待审批”任务卡。',
+        '每张卡写清：标题、优先级（高/中/低）、标签、方案、结果记录里的验收判据；',
+        '不要重复已有未完成卡；写不出判据的条目不要写；',
+        '用 fangcun_write 落成“待审批”，不要设完成/驳回。',
+      ].join('\n')
+      const r: any = await window.tegula.dispatchMessageDsh(pid, 'work', msg)
       if (!r || r.ok === false) {
         showToast(`没出成：${(r && r.error) || '未知原因'}`, 'error')
         return
       }
-      const n = (r.created || []).length
-      showToast(`已出 ${n} 张“待审批”卡 —— 看板筛待审批过目后转正${aiUsageTail(r.usage)}`, 'success')
-      // 让看板立刻能看到琥珀色草稿卡（否则用户以为没成）
-      await loadAll()
+      showToast(`已把出单任务发给 DSH（${r.chars || 0} 字派单）—— DSH 里会冒出新会话；落卡后筛待审批`, 'success')
     } catch (e: any) {
       showToast('出单异常：' + (e?.message || e), 'error')
     } finally {
@@ -287,8 +295,8 @@ export function useAsk(deps: AskDeps) {
   }
 
   return {
-    askQ, askBusy, askAns, askLlmBusy, askLlmAns, askLlmErr, askLlmMeta, askGroups,
-    runAsk, askQuick, askToLlm,
+    askQ, askBusy, askAns, askGroups,
+    runAsk, askQuick, askToDshPackage,
     correctOpen, correctText, correctBusy, correctErr, openCorrect, closeCorrect, runCorrect,
     batchBusy, runBatch,
     usageMonths, chanReport, chanDays, chanPick, chanReadError, loadChannels,
