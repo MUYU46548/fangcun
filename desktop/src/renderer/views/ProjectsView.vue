@@ -344,9 +344,9 @@
               <div class="ms-suggest-item" v-for="(o, i) in ctl.pvParallelMine" :key="'pp' + i">· {{ o.reason }}</div>
             </div>
             <div class="oacts">
-              <!-- AI 规划（写回层 UI 入口，2026-10-12）：只产“待审批”草稿，点头才转正。
-                   12 条 LLM 通道后端 10-06 起就绪，界面入口今天才装——“电路铺好了开关没装”的补开关。 -->
-              <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openAiPlan(ctl.pvCurrent)">✨ AI 规划</Button>
+              <!-- AI 规划入口已于 2026-11-20 按 D-149 删除：全走 DSH 调用；MCP 的 plan_draft
+                   保留作其他平台弱支持（D-153）。规划请用下方的「让 DSH 做规划」。
+                   ⚠ 别再接受“没坏就留着”的说法 —— 它产出的是任务清单，不是规划。 -->
               <Button class="oact" variant="ghost" size="tool" @click.stop="ctl.openAiDoc(ctl.pvCurrent)">📄 文档拆卡</Button>
               <!-- 规划管理（2026-10-16 第 1 项）：四条规划通道后端 10-11 起就绪、界面今天接——
                    “电路铺好了开关没装”的第二排开关。非 AI：手工建规划+决策点选卡留痕。 -->

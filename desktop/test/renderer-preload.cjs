@@ -2869,9 +2869,8 @@ contextBridge.exposeInMainWorld('tegula', {
   llmSetConfig: () => ok(),
   llmResetConfig: () => ok(),
   llmTestConnection: () => ok(),
-  // AI 规划写回层（2026-10-12）：e2e 不真调 LLM，桩返回成功+假 usage（“花销可见”链路可断言）
-  llmPlanToDraft: () => ({ ok: true, created: [{ id: 'task-e2e-draft-1', title: 'e2e 假草稿' }], usage: { promptTokens: 120, completionTokens: 80, totalTokens: 200 } }),
-  llmDraftProjectBrief: () => ({ ok: true, taskId: 'task-e2e-brief-1', usage: { promptTokens: 100, completionTokens: 60, totalTokens: 160 } }),
+  // AI 规划写回层（2026-10-12 → 2026-11-20 按 D-149 删除）：桩随通道一起删了。
+  // 规划走 dispatchDsh(project, 'plan')；MCP plan_draft 是另一条（D-153 弱支持保留）。
   // 决策卡（2026-10-12）：本地 CRUD 桩，假数据供视图用例断言
   // ⚠ 2026-10-14：三条各自带上“项目”（含一条刻意留空）—— 项目筛选与项目字段的断言靠它
   decisionList: () => { rec('decisionList'); return { ok: true, items: [

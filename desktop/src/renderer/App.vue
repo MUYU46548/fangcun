@@ -716,16 +716,13 @@
     <!-- New project modal -->
     <ProjectNewModal v-if="projForm" :ctl="projCtl" />
 
-    <!-- ══ AI 规划弹窗（写回层 UI，2026-10-12）：项目详情“✨ AI 规划”的入口。
-         两个动作走 12 条 LLM 通道的后两条（llm:planToDraft / llm:draftProjectBrief）：
-         拆目标 →“待审批”任务卡；起草说明 → 四栏草稿卡。转正必须人工，AI 不直接进待办。
-         ⚠ 合入时改了一处：遮罩关闭手势原为 `@click.self` → 改 `@mousedown.self`。
-           这里有个文本输入框（goal），`@click.self` 会在"拖选文字、光标滑出弹窗"时
-           被当成点了遮罩，**把还没提交的草稿一起关掉**（2026-10-11 真机踩过，守卫第 ⑨ 类也拦它）。 -->
-    <AiPlanModal v-if="aiPlanForm" :ctl="aiPlanCtl" />
+    <!-- ══ AI 规划弹窗已删（2026-11-20 · D-149）：全走 DSH 调用，桌面 GUI 不再调模型。
+         MCP 的 plan_draft 保留作其他平台弱支持（D-153），与这里无关。
+         规划的正路：项目页「让 DSH 做规划」。 -->
 
     <!-- ══ 文档拆卡弹窗（2026-10-17 四件补立项之二）：粘贴文档全文 → AI 拆成待审批卡。
-         同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同“待审批+ai-doc 审计”红线。 -->
+         同 mousedown.self 守卫（textarea 拖选滑出遮罩不误关）；同“待审批+ai-doc 审计”红线。
+         ⚠ 2026-11-20 D-150：下一步改成 DSH 派单（不再调方寸模型），别顺手删。 -->
     <AiDocModal v-if="aiDocForm" :ctl="aiDocCtl" />
 
     <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情“🗂 规划”的入口。
@@ -878,7 +875,6 @@ import LogAttachModal from './components/LogAttachModal.vue'
 import TaskEditModal from './components/TaskEditModal.vue'
 import SMapModal from './components/SMapModal.vue'
 import ProjectNewModal from './components/ProjectNewModal.vue'
-import AiPlanModal from './components/AiPlanModal.vue'
 import AiDocModal from './components/AiDocModal.vue'
 import QuestionnaireModal from './components/QuestionnaireModal.vue'
 import PlansModal from './components/PlansModal.vue'
@@ -6520,29 +6516,18 @@ function openProjectInSettings(p: Project) {
   showToast(`已打开项目详情：${p.name || p.id}`, 'info')
 }
 
-// ── AI 规划写回层 UI（2026-10-12）───────────────────────────────────────
-// 红线全在主进程（llm/writeback.ts）：草稿一律“待审批”、source=ai-planning、
-// 解析失败兜底卡。UI 侧只补两件事：入口按钮（.oacts“✨ AI 规划”）+ 调用中不许关弹窗。
-const aiPlanForm = ref<{ id: string; name: string; goal: string } | null>(null)
-const aiPlanBusy = ref(false)
+// ── AI 规划弹窗已删（2026-11-20 · D-149）────────────────────────────────
+// 定案：全走 DSH 调用，桌面 GUI 不再用方寸内置模型做规划；MCP 的 plan_draft
+// 保留作其他平台弱支持（D-153），不在本文件里。
+// 整条退役：项目页「✨ AI 规划」入口、弹窗、`llm:planToDraft` /
+// `llm:draftProjectBrief` 两个 IPC 一起删了 —— 不做“只删界面、后端留个口”的半截退役。
+// 规划正路：项目页「让 DSH 做规划」（派单通道 `context:dispatchDsh`）。
+// 下面两个函数留给**文档拆卡**（AiDocModal 还在用；D-150 要把它改成 DSH 派单）。
 
-function openAiPlan(p: any) {
-  aiPlanForm.value = { id: p.id, name: p.name || p.id, goal: '' }
-  // 顺手刷新模型通道配置：弹窗里要靠它判断“配了没”（没配就当场指路）——
-  // 只在设置页 load 的话，用户从没进过设置页时这里会一直说"还没配"（界面说假话）。
-  void llmLoad()
-}
-
-/** “AI 规划”里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
+/** 文档拆卡里那条指路：把人直接送到设置页的 Agent 分类（模型通道就在那一格） */
 function gotoLlmSettings(): void {
-  aiPlanForm.value = null          // 先关掉自己，别叠两层遮罩
   selectSettingsTab('agent')
   showSettings()
-}
-
-function closeAiPlan() {
-  if (aiPlanBusy.value) return // AI 跑着不许关——误触丢结果比多等几秒更伤
-  aiPlanForm.value = null
 }
 
 /** 花销可见（方案红线）：把主进程回传的 usage 拼成人话，null 全缺返回空串不凑数 */
@@ -6555,46 +6540,6 @@ function aiUsageTail(u: any): string {
   return parts.length ? ` · tokens ${parts.join('/')}` : ''
 }
 
-/** 拆目标 → 待审批任务卡。成功即关窗，看板筛“待审批”就能看到琥珀色草稿卡。 */
-async function runPlanToDraft() {
-  const f = aiPlanForm.value
-  if (!f || aiPlanBusy.value || !f.goal.trim()) return
-  aiPlanBusy.value = true
-  try {
-    const r: any = await window.tegula.llmPlanToDraft(f.goal.trim(), f.id)
-    if (r?.ok) {
-      showToast(`草稿已落“待审批”（看板筛琥珀色可见）——过目后转正${aiUsageTail(r.usage)}`, 'success')
-      aiPlanForm.value = null
-    } else {
-      showToast(r?.error || 'AI 规划失败——先到设置页确认模型通道', 'error')
-    }
-  } catch (e: any) {
-    showToast(`AI 规划失败：${e?.message || e}`, 'error')
-  } finally {
-    aiPlanBusy.value = false
-  }
-}
-
-/** 起草项目说明 → 四栏草稿卡（现状/目标/不做/欠着什么），素材取项目现有任务卡聚合。 */
-async function runDraftBrief() {
-  const f = aiPlanForm.value
-  if (!f || aiPlanBusy.value) return
-  aiPlanBusy.value = true
-  try {
-    const r: any = await window.tegula.llmDraftProjectBrief(f.id)
-    if (r?.ok) {
-      showToast(`项目说明草稿已落“待审批”——过目后转正${aiUsageTail(r.usage)}`, 'success')
-      aiPlanForm.value = null
-    } else {
-      showToast(r?.error || '起草失败——先到设置页确认模型通道', 'error')
-    }
-  } catch (e: any) {
-    showToast(`起草失败：${e?.message || e}`, 'error')
-  } finally {
-    aiPlanBusy.value = false
-  }
-}
-
 // ── 文档拆卡 UI（2026-10-17 四件补立项之二）──────────────────────────────
 // 红线全在主进程（llm/writeback.ts docToDrafts）：待审批+ai-doc 来源+超长硬拒+上限 20 张。
 const aiDocForm = ref<{ id: string; name: string; doc: string } | null>(null)
@@ -6602,7 +6547,7 @@ const aiDocBusy = ref(false)
 
 function openAiDoc(p: any) {
   aiDocForm.value = { id: p.id, name: p.name || p.id, doc: '' }
-  void llmLoad()  // 同 AI 规划：没配模型通道时当场指路，别让用户白粘一段长文
+  void llmLoad()  // 文档拆卡：没配模型通道时当场指路，别让用户白粘一段长文
 }
 
 function closeAiDoc() {
@@ -7032,8 +6977,10 @@ function showSettings() {
   idleLoad()  // 挂机提醒（2026-10-17）：同纪律，进门就刷，别显示上一次的旧值
 }
 
-// ── 模型通道（AI 规划用，2026-10-12）：BYOK 配置界面 ────────────────────
-// 后端 llm:getConfig/setConfig/resetConfig/testConnection 四通道就绪，UI 第一次装。
+// ── 模型通道（BYOK，逐步退役中）：配置界面暂留 ──────────────────────────
+// 2026-11-20 D-155：等最后一个 BYOK 功能下线再删（D-149/D-150/D-151/D-152 未全部落地前不能删）。
+// AI 规划已删；文档拆卡 / 出单 / 模糊问答 / 架构图 AI 仍在用这条通道，按问卷 D 系列逐项收。
+// 后端 llm:getConfig/setConfig/resetConfig/testConnection 四通道就绪。
 // 密钥防线在主进程（掩码/空白视为未修改不写盘），UI 侧掩码同样不回传，双保险。
 const llmCfg = ref<{ baseUrl: string; model: string; apiKey: string; timeout: number }>({
   baseUrl: '', model: '', apiKey: '', timeout: 60,
@@ -7901,13 +7848,7 @@ const projCtl = reactive({
   closeProjForm, confirmNewProject,
 })
 
-/** AI 规划 / 文档拆卡（同一个模型通道配置） */
-const aiPlanCtl = reactive({
-  get aiPlanForm() { return aiPlanForm.value },
-  get aiPlanBusy() { return aiPlanBusy.value },
-  get llmCfg() { return llmCfg.value },
-  closeAiPlan, runPlanToDraft, runDraftBrief, gotoLlmSettings,
-})
+/** 文档拆卡（模型通道配置；AI 规划已于 2026-11-20 按 D-149 删除） */
 const aiDocCtl = reactive({
   get aiDocForm() { return aiDocForm.value },
   get aiDocBusy() { return aiDocBusy.value },
@@ -7994,7 +7935,7 @@ const projectsCtl = reactive({
   // 使命草稿（2026-11-14 · P1-2）：方针弹窗里「从 README 取一句」
   draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
-  openAiPlan, openAiDoc, openPlans, copyContextPack, dispatchToDsh,
+  openAiDoc, openPlans, copyContextPack, dispatchToDsh,
   // 派单按钮冷却（2026-11-20）：模板只读这三样，不自己算时间
   dispatchButtonText, dispatchCoolLeft, dispatchSendingNow,
   copyBrief, switchView,
@@ -8115,7 +8056,7 @@ onMounted(() => {
   })
   // 版本号（设置页首区块显示）
   loadAppVersion()
-  // 模型通道配置（2026-10-16）：启动就读一次 —— “AI 规划”弹窗要靠它判断配没配，
+  // 模型通道配置（2026-10-16）：启动就读一次 —— 文档拆卡等 BYOK 入口靠它判断配没配，
   // 只在打开设置页时才读的话，没进过设置页的用户会一直看到"还没配"（界面说假话）。
   void llmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
