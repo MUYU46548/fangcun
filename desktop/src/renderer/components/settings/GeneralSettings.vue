@@ -9,7 +9,14 @@ defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
   appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName, onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
+  costConfirm, setCostConfirm,
 } = ctx
+
+/** 花钱确认开关（2026-11-20）：真身 prefs.json 的 costConfirm；默认开 */
+function onCostConfirmChange(e: Event): void {
+  const v = !!(e.target as HTMLInputElement | null)?.checked
+  void setCostConfirm(v)
+}
 
 // ── 记忆开关（2026-11-20）────────────────────────────────────────────
 // 真身 prefs.json；缺省开（键不存在 = 开）。只关 agent 的自动读写，
@@ -71,6 +78,16 @@ onMounted(loadMemoryPrefs)
               <input type="checkbox" v-model="disableGpu" @change="onDisableGpuChange" />
               禁用硬件加速（界面若出现卡顿/点不动的兜底，需重启生效）
             </label>
+          </div>
+          <!-- 花钱动作确认（2026-11-20 · 暮雨）：默认开；关掉后按钮仍带金色 ¥ 角标，
+               但不再弹窗。弹窗里勾「以后不再提示」也会把这里关掉。 -->
+          <div class="sect" v-show="active">
+            <h4>花钱动作前确认</h4>
+            <label class="chk" title="调用 DSH 或模型前先弹窗说明可能产生的费用；关掉后不再拦，但按钮仍有 ¥ 角标">
+              <input type="checkbox" :checked="costConfirm" @change="onCostConfirmChange" />
+              调用 DSH / 模型前弹窗确认（防止新手误触）
+            </label>
+            <div class="hint">默认开。关掉后所有「发送给 DSH / 让 DSH 做规划 / 文档拆卡 / 让 AI 答 / 出单 / AI 生成图」不再弹窗，但仍带金色 ¥ 角标。</div>
           </div>
           <!-- 2026-09-29 用户第 4 条：多主题外观（参考另一款自有产品的色板与摆法） -->
           <div class="sect" v-show="active">

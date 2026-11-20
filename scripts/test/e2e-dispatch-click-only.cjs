@@ -112,6 +112,15 @@ check('静态守卫 · 没有任何"无人点击"的派单调用点', badSites.l
 const preloadSrc = fs.readFileSync(path.join(DESKTOP, 'test', 'renderer-preload.cjs'), 'utf8')
 check('静态守卫 · 假 preload 记账 dispatchDsh（运行时断言才不是纸面事实）', /rec\('dispatchDsh'/.test(preloadSrc))
 
+// 2026-11-20：花钱动作的视觉提示（不是只写在文案里）
+const projSrc = fs.readFileSync(path.join(RENDERER, 'views', 'ProjectsView.vue'), 'utf8')
+check('静态守卫 · 两个 DSH 花钱按钮都带 data-cost（金色 ¥ 角标靠它生效）',
+  (projSrc.match(/data-cost/g) || []).length >= 2,
+  `出现 ${(projSrc.match(/data-cost/g) || []).length} 次`)
+const cssSrc = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'styles', 'app.css'), 'utf8')
+check('静态守卫 · app.css 有 button[data-cost] 的描边 + ¥ 角标规则',
+  /button\[data-cost\]/.test(cssSrc) && /button\[data-cost\]::after/.test(cssSrc))
+
 const mainSrc = fs.readFileSync(MAIN, 'utf8')
 check('静态守卫 · renderer-main 同时有「零点击不派单」与「真点一次才派单」两条断言',
   /启动后零点击/.test(mainSrc) && /真点一次「发送给 DSH」/.test(mainSrc))
@@ -132,7 +141,7 @@ if (!fs.existsSync(INDEX)) {
 }
 
 const args = ['--no-sandbox', '--disable-gpu', MAIN, '--hidden']
-const env = { ...process.env, FC_E2E_RENDERER: '1', FC_E2E_ONLY: 'dispatch', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' }
+const env = { ...process.env, FC_E2E_RENDERER: '1', FC_E2E_ONLY: 'dispatch', FC_E2E_COST_CONFIRM: '1', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' }
 delete env.ELECTRON_RUN_AS_NODE
 
 const child = spawn(ELECTRON, args, { cwd: DESKTOP, stdio: ['ignore', 'pipe', 'pipe'], env })

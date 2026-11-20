@@ -22,7 +22,7 @@
       </div>
       <div class="acts">
         <Button variant="ghost" size="tool" :disabled="ctl.aiDocBusy" @click="ctl.closeAiDoc()">取消</Button>
-        <button class="pri" :disabled="ctl.aiDocBusy || !ctl.aiDocForm.doc.trim()" @click="ctl.runDocToDrafts()">
+        <button class="pri" data-cost :disabled="ctl.aiDocBusy || !ctl.aiDocForm.doc.trim()" @click="ctl.runDocToDrafts()">
           {{ ctl.aiDocBusy ? 'AI 拆卡中…' : '📄 拆成任务卡' }}</button>
       </div>
     </div>

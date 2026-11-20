@@ -18,10 +18,12 @@ interface AskDeps {
   showToast: (msg: string, type?: string) => void
   offerUndo: (label: string, fn: () => Promise<void>) => void
   aiUsageTail: (u: any) => string
+  /** 花钱动作确认（2026-11-20）：返回 true 才继续；由 App 统一弹窗 */
+  costAsk: (opts: { title: string; detail: string; confirmText?: string }) => Promise<boolean>
 }
 
 export function useAsk(deps: AskDeps) {
-  const { projects, loadAll, showToast, offerUndo, aiUsageTail } = deps
+  const { projects, loadAll, showToast, offerUndo, aiUsageTail, costAsk } = deps
 
   // ── 结构化问答 ────────────────────────────────────────────────────────
   const askQ = ref('')
@@ -168,6 +170,11 @@ export function useAsk(deps: AskDeps) {
     if (!askAns.value || askLlmBusy.value) return
     const q = askQ.value.trim()
     if (!q) return
+    if (!(await costAsk({
+      title: '让 AI 答这道题',
+      detail: '这会调用你在设置里配的模型通道，按你自己的 API 计费；方寸不预置端点、不代收费用。',
+      confirmText: '继续（会调用模型）',
+    }))) return
     askLlmBusy.value = true
     askLlmErr.value = ''
     askLlmAns.value = ''
@@ -249,6 +256,11 @@ export function useAsk(deps: AskDeps) {
   async function runBatch(): Promise<void> {
     const pid = askAns.value && askAns.value.projectId
     if (!pid || batchBusy.value) return
+    if (!(await costAsk({
+      title: '出下一批任务卡',
+      detail: '这会调用你在设置里配的模型通道，从台账派生一批“待审批”卡，按你自己的 API 计费。',
+      confirmText: '继续（会调用模型）',
+    }))) return
     batchBusy.value = true
     try {
       const r: any = await window.tegula.llmPlanBatch(pid)

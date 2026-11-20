@@ -184,7 +184,12 @@ const store = {
   ],
   // UI 偏好真身（userData/prefs.json）。空对象 = 首次运行，界面走默认值 ——
   // 多视图的"旧视图永远是默认"这条断言就是靠它成立。
-  prefs: {},
+  // 2026-11-20：花钱确认。默认关，避免所有既有 e2e 都被弹窗挡住；
+  // `e2e-dispatch-click-only` 用 FC_E2E_COST_CONFIRM=1 启动，专门验"先弹窗再派单"。
+  // ⚠ `process` 只在 Electron preload 里有；headless 浏览器里没有，必须 typeof 守卫。
+  prefs: {
+    costConfirm: typeof process !== 'undefined' && !!process.env && process.env.FC_E2E_COST_CONFIRM === '1',
+  },
   // 项目梯度榜（2026-10-25）：分档 + 每档项目 id，落 task-data/project-tiers.json。
   // ⚠ 假 preload 必须与真 preload 同步（少一条 API，视图 onMounted 直接抛，
   //   断言只会看到一片“读取失败”）—— 这条今天已经踩第二次了。

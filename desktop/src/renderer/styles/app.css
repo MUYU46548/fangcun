@@ -2980,6 +2980,49 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #proj-new-modal code { background: #eee; padding: 0 4px; border-radius: 3px; }
 .req { color: var(--danger); }
 
+/* ── 花钱动作（2026-11-20）─────────────────────────────────────────────
+   暮雨：所有会调外部 agent / 产生真实费用的按钮要有特别视觉提示。
+   做法：`button[data-cost]` 金色描边 + 右上角 ¥ 角标；**不改按钮文字**
+   （e2e 仍按原文字找按钮），也不新增手搓 class（check-ui-freeze 不扫属性）。 */
+button[data-cost] {
+  position: relative;
+  border-color: var(--warning) !important;
+  box-shadow: inset 0 0 0 1px var(--warning), 0 0 0 3px rgba(152, 107, 32, 0.12) !important;
+}
+button[data-cost]::after {
+  content: '¥';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 7px;
+  background: var(--warning);
+  color: #fff;
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 700;
+  pointer-events: none;
+}
+/* 确认弹窗（复用 .overlay / .hint / .chk / .acts；只给容器定尺寸） */
+#cost-confirm-modal {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  width: 460px;
+  max-width: 92vw;
+  box-shadow: var(--shadow);
+}
+#cost-confirm-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+#cost-confirm-modal .hint { font-size: 11.5px; color: var(--muted); line-height: 1.65; margin-top: 8px; }
+#cost-confirm-modal .hint.hint-warn {
+  background: #fff8e6; border: 1px solid #f0dfae; border-radius: 8px;
+  padding: 7px 10px; color: #7a5a12;
+}
+#cost-confirm-modal .chk { display: block; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+
 /* Policy（方针区） */
 .policy-list { display: flex; flex-direction: column; gap: 4px; }
 .policy-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }

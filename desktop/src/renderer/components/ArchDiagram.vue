@@ -117,8 +117,8 @@ function submitReject(): void {
       <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次生成：不会再发下一次调用，也不会写任何图" @click="emit('cancel')">
         取消
       </button>
-      <Button class="archd-gen font-[inherit]" variant="ghost" size="tool" :disabled="busy"
-        title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型）"
+      <Button class="archd-gen font-[inherit]" data-cost variant="ghost" size="tool" :disabled="busy"
+        title="让模型画一版：每个节点/连线都要指回真实证据，指不回的一律拒收；没过审或没配模型会自动降级成扫描图（会调用你在设置里配的模型，可能产生费用）"
         @click="emit('generate')">
         {{ busy ? `${phase || '生成中…'} ${elapsed || 0}s` : '✦ AI 生成图' }}
       </Button>

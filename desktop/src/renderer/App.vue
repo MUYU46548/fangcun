@@ -725,6 +725,11 @@
          ⚠ 2026-11-20 D-150：下一步改成 DSH 派单（不再调方寸模型），别顺手删。 -->
     <AiDocModal v-if="aiDocForm" :ctl="aiDocCtl" />
 
+    <!-- ══ 花钱动作确认（2026-11-20）：调用 DSH / 模型前先讲清"可能产生真实费用"。
+         可在弹窗里勾"不再提示"，也可在 设置 → 通用 里重新打开。
+         视觉上这类按钮另带 `data-cost`（金色边 + ¥ 角标，见 app.css）。 -->
+    <CostConfirmModal v-if="costAskForm" :ctl="costAskCtl" />
+
     <!-- ══ 规划管理弹窗（2026-10-16 第 1 项）：项目详情“🗂 规划”的入口。
          接 createPlan/listPlans/getPlan/decidePlanPoint 四条通道。
          决策点选定即留痕（选项+时间落任务文件）；再点其他选项=改选，留痕覆盖（decidedAt 刷新）。 -->
@@ -876,6 +881,7 @@ import TaskEditModal from './components/TaskEditModal.vue'
 import SMapModal from './components/SMapModal.vue'
 import ProjectNewModal from './components/ProjectNewModal.vue'
 import AiDocModal from './components/AiDocModal.vue'
+import CostConfirmModal from './components/CostConfirmModal.vue'
 import QuestionnaireModal from './components/QuestionnaireModal.vue'
 import PlansModal from './components/PlansModal.vue'
 import AppEditModal from './components/AppEditModal.vue'
@@ -2227,7 +2233,7 @@ watch(curView, (val) => {
 // ── 随问（2026-10-22 · 03 任务一/二/三；2026-11-03 整块搬进 useAsk）────────
 // 结构化问答 / 随纠 / 出单 / 月报表 / 跨渠道 token / 余额口径全在 composable，
 // 这里只把依赖传进去；模板在 views/AskView.vue，进门由它自己 onMounted 拉一次。
-const ask = useAsk({ projects, loadAll, showToast, offerUndo, aiUsageTail })
+const ask = useAsk({ projects, loadAll, showToast, offerUndo, aiUsageTail, costAsk })
 // 显式解构：`askCtl` 要给 `views/AskView.vue` 当 prop，而拆分守卫是按源码文本数键的
 // （展开 `...ask` 它看不见 —— 会把这些键全判成“控制器里没有”）。
 const {
@@ -4366,6 +4372,15 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
   }
   dispatchSending[pid] = true
   try {
+    // 花钱动作确认（2026-11-20）：首次/每次可关。默认开，勾"不再提示"或设置里关。
+    const go = await costAsk({
+      title: kind === 'plan' ? `让 DSH 做规划：${p.name || pid}` : `发送给 DSH：${p.name || pid}`,
+      detail: kind === 'plan'
+        ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。'
+        : '这会写一份上下文包派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型开工，可能产生真实费用。',
+      confirmText: kind === 'plan' ? '继续（会开 DSH 规划会话）' : '继续（会开 DSH 会话）',
+    })
+    if (!go) return
     const r: any = await tegula.dispatchDsh(pid, kind)
     if (!r || r.ok === false) {
       // 主进程的冷却闸（渲染层状态与它不一致时以它为准，并据此起倒计时）
@@ -6088,6 +6103,11 @@ function applyArchFilter(): void {
 async function generateSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id || archBusy.value) return
+  if (!(await costAsk({
+    title: 'AI 生成架构图',
+    detail: '这会调用你在设置里配的模型通道画一版架构图，按你自己的 API 计费；没过审会自动降级成扫描图。',
+    confirmText: '继续（会调用模型）',
+  }))) return
   archBusy.value = true
   // ⚠ 保留「生成中…」这个词：e2e-renderer-web 从 0.6.0 起就认它，
   //   进度事件来了会替换成更具体的一句话，但第一帧不能把老判据弄丢
@@ -6559,6 +6579,11 @@ function closeAiDoc() {
 async function runDocToDrafts() {
   const f = aiDocForm.value
   if (!f || aiDocBusy.value || !f.doc.trim()) return
+  if (!(await costAsk({
+    title: '文档拆卡',
+    detail: '这会调用你在设置里配的模型通道，把这份文档拆成“待审批”卡，按你自己的 API 计费。',
+    confirmText: '继续（会调用模型）',
+  }))) return
   aiDocBusy.value = true
   try {
     const r: any = await window.tegula.llmDocToDrafts(f.doc.trim(), f.id)
@@ -7248,6 +7273,70 @@ function importTasksFromFile() {
   input.click()
 }
 
+
+// ── 花钱动作确认（2026-11-20）──────────────────────────────────────────
+// 暮雨：「所有会调用外部agent产生真实费用的按钮，能否增加特别的视觉提示？
+//       首次点击弹窗提示（可在设置中关闭，防止新手误触）。」
+// 这里管弹窗与偏好；视觉上的 `data-cost` 在 app.css（金色边 + ¥ 角标）。
+// 口径：默认**每次**点都拦一下（只提示一次防不住第二次误触）；弹窗里勾"不再提示"
+// 或 设置 → 通用 关掉。它是提示，不是授权 —— 点"继续"仍走原有冷却/确认链路。
+const costConfirm = ref(true)
+/** null = 没有待确认的花钱动作；非 null 时弹窗显示（Promise 挂起等用户点） */
+const costAskForm = ref<{
+  title: string
+  detail: string
+  confirmText: string
+  noMore: boolean
+  resolve: (v: boolean) => void
+} | null>(null)
+
+async function costConfirmLoad(): Promise<void> {
+  try {
+    const p: any = await window.tegula.prefsGet()
+    costConfirm.value = p?.costConfirm !== false
+  } catch { /* 读不到偏好按开：宁可多问一句 */ }
+}
+
+async function setCostConfirm(v: boolean): Promise<void> {
+  costConfirm.value = !!v
+  try {
+    await window.tegula.prefsSet('costConfirm', !!v)
+  } catch (e: any) {
+    showToast('保存失败：' + (e?.message || e), 'error')
+  }
+}
+
+/** 用户点了取消/继续：先关窗，再 resolve；勾了"不再提示"且点了继续 → 顺手关掉偏好 */
+function finishCostAsk(ok: boolean): void {
+  const f = costAskForm.value
+  if (!f) return
+  costAskForm.value = null
+  if (ok && f.noMore) void setCostConfirm(false)
+  f.resolve(!!ok)
+}
+
+/**
+ * 花钱前的确认闸：返回 true = 继续；false = 取消。
+ * 偏好关 / 已有弹窗（防叠）时直接返回，不阻塞。
+ */
+function costAsk(opts: { title: string; detail: string; confirmText?: string }): Promise<boolean> {
+  if (!costConfirm.value) return Promise.resolve(true)
+  if (costAskForm.value) return Promise.resolve(false)
+  return new Promise<boolean>((resolve) => {
+    costAskForm.value = {
+      title: opts.title,
+      detail: opts.detail,
+      confirmText: opts.confirmText || '继续（可能计费）',
+      noMore: false,
+      resolve,
+    }
+  })
+}
+
+const costAskCtl = reactive({
+  get costAskForm() { return costAskForm.value },
+  finishCostAsk,
+})
 
 // ── Toast ───────────────────────────────────────────────────────────────
 
@@ -8009,6 +8098,8 @@ provide('fc-settings', {
   diagSelf, diagSkills, diagActivity, diagBusy, runSelfCheck, checkSkillsCopies, loadDiagActivity, relativeTime,
   addAgentPreset, addPriceRow, agentPresets, applyLlmPreset, confirmLlmPreset, fmtShort, idleCfg, idleSave, idleSaving, llmCfg, llmHostOf, llmKeyHint, llmLastCall, llmPresetPending, llmReset, llmResetting, llmSave, llmSaving, llmTest, llmTesting, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
   copyPolicyText, openPolicyEdit, openProjectInSettings, policyMap, projects,
+  // 花钱动作确认（2026-11-20）：设置 → 通用 用这个开关
+  costConfirm, setCostConfirm,
 })
 
 onMounted(() => {
@@ -8059,6 +8150,8 @@ onMounted(() => {
   // 模型通道配置（2026-10-16）：启动就读一次 —— 文档拆卡等 BYOK 入口靠它判断配没配，
   // 只在打开设置页时才读的话，没进过设置页的用户会一直看到"还没配"（界面说假话）。
   void llmLoad()
+  // 花钱确认偏好（2026-11-20）：设置 → 通用 的开关也读同一份
+  void costConfirmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
   const t: any = (window as any).tegula || {}
   if (typeof t.onUpdateAvailable === 'function') {

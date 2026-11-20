@@ -221,12 +221,31 @@ async function dispatchClickOnlySection(shot) {
   check('★ 派单闸 · 只打开详情、没点按钮 —— 仍然没有派单（会话数 0）', idle === 0, 'calls=' + idle)
 
   if (shot) await shot('05-派单闸-发送给DSH')
+  // 花钱确认（2026-11-20）：FC_E2E_COST_CONFIRM=1 时假 prefs 打开它。
+  // 单独跑（e2e-dispatch-click-only）必须验"先弹窗、确认前不派单、继续后才派"；
+  // 全量 renderer e2e 不设这个 env，走原来的"点一下就派"，免得别的段被弹窗挡住。
+  const costEnabled = process.env.FC_E2E_COST_CONFIRM === '1'
   const clicked = await js(`(() => {
     const b = [...document.querySelectorAll('.oacts button')].find(x => (x.textContent || '').trim() === '发送给 DSH')
     if (!b) return false
     b.click(); return true
   })()`)
-  const fired = await waitFor(`window.__fcTest.callCount('dispatchDsh') === 1`, 5000, '派单被调用一次')
+  let continued = true
+  if (costEnabled) {
+    const askShown = await waitFor(`!!document.querySelector('#cost-confirm-modal')`, 4000, '花钱确认弹窗')
+    const beforeConfirm = await js(`window.__fcTest.callCount('dispatchDsh')`)
+    check('★★ 花钱确认 · 点「发送给 DSH」先弹确认，确认前**没有**真派单',
+      clicked && askShown && beforeConfirm === 0, 'calls=' + beforeConfirm)
+    continued = await js(`(() => {
+      const b = [...document.querySelectorAll('#cost-confirm-modal button')].find(x => (x.textContent || '').indexOf('继续') >= 0)
+      if (!b) return false
+      b.click(); return true
+    })()`)
+  }
+  const fired = await waitFor(`window.__fcTest.callCount('dispatchDsh') === 1`, 5000, '确认后派单被调用一次')
+  if (costEnabled) {
+    check('★★ 花钱确认 · 点「继续」后才真派单（不是只弹窗不办事）', continued && fired)
+  }
   const args = await js(`JSON.stringify(window.__fcTest.calls().filter(c => c.name === 'dispatchDsh').map(c => c.args))`)
   check('★★ 派单闸 · 真点一次「发送给 DSH」才产生一份派单（demo / kind=work）',
     clicked && fired && /"demo"/.test(String(args)) && /"work"/.test(String(args)), String(args))

@@ -40,13 +40,13 @@
         </div>
         <div class="ask-foot">
           <span class="ask-src" v-if="ctl.askAns.source">来源：{{ ctl.askAns.source }}</span>
-          <Button class="ask-llm-btn" variant="ghost" size="tool" v-if="ctl.askAns.needsLlm" :disabled="ctl.askLlmBusy" @click="ctl.askToLlm()">
+          <Button class="ask-llm-btn" data-cost variant="ghost" size="tool" v-if="ctl.askAns.needsLlm" :disabled="ctl.askLlmBusy" @click="ctl.askToLlm()">
             {{ ctl.askLlmBusy ? 'AI 正在答…' : '让 AI 答（这次会计费）' }}
           </Button>
           <!-- 出单（2026-10-22 · 03 任务三）：从台账 + 决策卡派生下一批任务卡。
                一次调用 = 一批；产出只落“待审批”（点头才转正）。这是全应用**第二处**会
                为规划花 token 的入口（另一处是上面的模糊问答）。 -->
-          <Button class="ask-llm-btn ask-batch-btn" variant="ghost" size="tool" v-if="ctl.askAns.projectId" :disabled="ctl.batchBusy" @click="ctl.runBatch()">
+          <Button class="ask-llm-btn ask-batch-btn" data-cost variant="ghost" size="tool" v-if="ctl.askAns.projectId" :disabled="ctl.batchBusy" @click="ctl.runBatch()">
             {{ ctl.batchBusy ? '正在出…' : '📋 出下一批任务卡（会计费）' }}
           </Button>
         </div>

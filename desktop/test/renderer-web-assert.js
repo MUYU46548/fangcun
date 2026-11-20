@@ -6766,11 +6766,27 @@
     //   而不是等别人替它把状态摆好（依赖副作用 = 别人一改就假红）。
     clickNav('通用')
     await sleep(300)
-    const GENERAL_SECTS = ['版本与更新', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
+    const GENERAL_SECTS = ['版本与更新', '花钱动作前确认', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
     check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
       JSON.stringify(sectTitles()))
+    // 花钱动作确认（2026-11-20）：开关真身在 prefs.costConfirm，不是只画个勾
+    {
+      const lbl = $$('label.chk').find((l) => (l.textContent || '').indexOf('调用 DSH / 模型前弹窗确认') >= 0)
+      const inp = lbl ? lbl.querySelector('input[type="checkbox"]') : null
+      check('★ 通用里有「花钱动作前确认」开关（默认假 prefs 是关的）', !!inp && inp.checked === false)
+      if (inp) {
+        inp.checked = true
+        inp.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★★ 打开开关真写 prefs.costConfirm=true',
+        await waitFor(() => window.__fcTest.prefs().costConfirm === true, 3000, 'prefs.costConfirm'))
+      if (inp) {
+        inp.checked = false
+        inp.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+    }
     // “梯度榜”是**项目页的一种摆法**，不是独立顶级页签（2026-10-25 暮雨：
     // “放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级”）
     check('★ 顶栏没有独立“优先级”页签（它在项目页里）',
