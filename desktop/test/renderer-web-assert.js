@@ -6625,8 +6625,12 @@
     // 为什么会漏：假 preload 里连 `mcpInfo` 都没有 → `typeof t.mcpInfo !== 'function'` 恒真 →
     // 这一区在任何测试里都是空的。拆组件时把它搬坏了也不会有人知道。
     const mcpBox = $('.plugins-view .mcp-connect')
-    check('★ MCP 接入区渲染出来（不是停在“检测中…”）', !!mcpBox
-      && !mcpBox.querySelector('.skills-agent'), mcpBox ? (mcpBox.textContent || '').slice(0, 40) : '(没有 .mcp-connect)')
+    // ⚠ 2026-11-20：判据别再盯 `.skills-agent`（那个“检测中…”标记在重排里被 `.plg-empty` 取代了）——
+    //   盯一个**已经不再渲染**的 class 等于恒真。改成盯“真有入口选择器 + 真有目标行 + 文案里没有检测中”。
+    check('★ MCP 接入区渲染出来（有入口选择 + 真目标行，不是停在“检测中…”）',
+      !!mcpBox && !!mcpBox.querySelector('.mcp-entry-pick')
+      && !!mcpBox.querySelector('.agent-row') && !/检测中…/.test(mcpBox.textContent || ''),
+      mcpBox ? (mcpBox.textContent || '').replace(/\s+/g, ' ').slice(0, 60) : '(没有 .mcp-connect)')
     const mcpRows = mcpBox ? Array.prototype.slice.call(mcpBox.querySelectorAll('.agent-row')) : []
     check('★ MCP 区按本机检测结果列目标（检测到的 + 没检测到的都在，没检测到的标灰）',
       mcpRows.length === 3 && mcpRows.some((r) => r.className.indexOf('agent-off') >= 0),

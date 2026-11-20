@@ -4423,8 +4423,6 @@ button[data-cost]::after {
 /* 空/错误态（两页共用一句人话，不用再各写一套） */
 .plg-empty { font-size: 12.5px; color: var(--muted); line-height: 1.6; padding: 4px 0; }
 
-.skills-hint { font-size: 12.5px; color: var(--muted); flex: 1 1 260px; }
-/* 维护机制说明（2026-10-03）：单独占一行、比普通 hint 稍亮，因为它是"我该怎么维护"的答案 */
 /* 问卷入口（2026-11-05）：和 ⌂ / ? 同一组，所以字体跟随 .nav；角标只在有待答时出现 */
 .qn-entry { font-size: 12px; font-weight: 600; }
 .qn-entry .qn-badge {
@@ -4432,9 +4430,6 @@ button[data-cost]::after {
   padding: 0 4px; border-radius: 999px; background: var(--accent); color: #fff;
   font-size: 9.5px; font-weight: 700; text-align: center; vertical-align: 1px;
 }
-
-.skills-hint.skills-maint { flex-basis: 100%; font-size: 12px; line-height: 1.6; }
-.skills-hint.skills-maint b { color: var(--ink); }
 /* 自动同步实况（2026-11-05）：一面"它到底跑没跑"的镜子。
    stale（版本对不上）时整条换成警示底色 —— 这一条存在的意义就是不能和"成功"长得一样。 */
 .skills-sync {
@@ -4475,11 +4470,6 @@ button[data-cost]::after {
 }
 .skills-dropmask-icon { font-size: 28px; margin-bottom: 6px; }
 .skills-imported { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 10px; align-items: start; }
-.skills-imported-title {
-  font-size: 13px; font-weight: 600; margin-bottom: 8px;
-  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-}
-.skills-imported-hint { font-size: 11.5px; font-weight: 400; color: var(--muted); }
 .skill-card.imported { border-left: 3px solid var(--accent); }
 .skill-badge {
   font-size: 11px; padding: 1px 7px; border-radius: 999px;
@@ -4516,7 +4506,7 @@ button[data-cost]::after {
 .skill-card:hover { border-color: var(--accent-soft); }
 .skill-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .skill-id { font-weight: 600; }
-.skill-target, .skill-ver { font-size: 12px; color: var(--muted); }
+.skill-ver { font-size: 12px; color: var(--muted); }
 .skill-state { font-size: 12px; border-radius: 999px; padding: 2px 9px; border: 1px solid transparent; }
 .skill-good { color: var(--ok-text); background: var(--badge-ok-bg); border-color: #c5e7d0; }
 .skill-warn { color: var(--warn-text); background: #fff8e6; border-color: #f0dfb8; }
@@ -4534,12 +4524,9 @@ button[data-cost]::after {
   background: var(--card); border: 1px solid var(--border); border-radius: 12px;
   padding: 4px 15px; display: flex; flex-direction: column;
 }
-.skills-agents-title { font-size: 13px; font-weight: 700; }
-.skills-agent { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
-.skills-agent code {
-  font-family: ui-monospace, Consolas, monospace;
-  background: #f3f1f6; border-radius: 4px; padding: 1px 5px;
-}
+/* ⚠ `.skills-advisor-*` / `.skills-agent*` 那组样式已随 2026-11-20 的重排退休：
+   空态与“检测中”统一成 `.plg-empty`（两页共用一句人话），旧的 `.skills-agent` 标记不再渲染。
+   留着规则等于给已删除的形态打掩护（check-ui-freeze 的同类教训）。 */
 /* MCP 接入材料区（卡 002 · A 路线）：2026-11-20 搬到插件页，外层给 .plg-card */
 .mcp-connect { margin-top: 0; padding-top: 10px; }
 .mcp-entry-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 4px; }
