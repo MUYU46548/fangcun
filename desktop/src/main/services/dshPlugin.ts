@@ -258,7 +258,9 @@ function detectDshVersion(home: string): { version: string; from: string } {
     path.join(la, 'DeepSeek Harness', 'resources', 'app.asar'),
   ]
   for (const p of candidates) {
-    if (!isFile(p)) continue
+    // ⚠ 不要先 `isFile(p)`：Electron 的 asar 补丁会把 `app.asar` 本体 stat 成**目录**，
+    // 这个预检在打包后的程序里恒为 false（2026-11-21 真机：上一版就死在这一行）。
+    // `readAsarPackage` 用 original-fs，路径不存在 / 不是合法 asar 都会返回 null，不需要预检。
     const pkg = readAsarPackage(p)
     if (pkg?.version) return { version: pkg.version, from: p }
   }
