@@ -1323,6 +1323,51 @@
       }
     }
 
+    // ══ 多选批量拖拽（2026-11-21 · 交接下一刀 #3）════════════════════════
+    // 此前选中 3 张后拖一张，只动被拖那张；现在拖其中一张 = 整组一起走。
+    {
+      const saved = window.__fcTest.tasks()
+      const mk = (id, title) => ({
+        id, title, status: '待办', priority: '中', project: 'demo', tags: [], body: '',
+        fm: { id, title, status: '待办', priority: '中', project: 'demo' },
+        path: 'C:/mock/task-data/' + id + '.md',
+      })
+      window.__fcTest.setTasks([mk('drag-multi-1', '多选拖拽 A'), mk('drag-multi-2', '多选拖拽 B'), mk('drag-multi-3', '多选拖拽 C')])
+      clickText('看板'); await sleep(400)
+      const bm = $$('#views .batch-mode-btn').find((b) => (b.textContent || '').indexOf('任务多选') >= 0)
+      if (bm) { bm.click(); await sleep(350) }
+      const cards = $$('#board .col[data-status="待办"] .card[data-id]')
+      check('  多选拖拽前置：待办列有 3 张卡', cards.length === 3, 'cards=' + cards.length)
+      if (cards.length === 3) {
+        cards[0].click(); await sleep(120); cards[1].click(); await sleep(200)
+        const chosen = $$('#board .card.selected').map((c) => c.getAttribute('data-id'))
+        check('  已勾选 2 张（组拖的前置）', chosen.length === 2, JSON.stringify(chosen))
+        const target = $('#board .col[data-status="进行中"]')
+        let dt = null
+        try { dt = new DataTransfer() } catch (e) { /* ignore */ }
+        if (dt && target) {
+          window.__fcTest.reset()
+          cards[0].dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }))
+          target.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
+          target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+        }
+        check('★★ 拖选中集里的一张 = 整组一次 batchEdit（不是只 moveStatus 被拖那张）',
+          await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'batchEdit'
+            && Array.isArray(c.args[0]) && c.args[0].length === 2
+            && c.args[1] && c.args[1].status === '进行中'), 4000, 'batchEdit group'),
+          JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'batchEdit').map((c) => c.args)))
+        check('★ 整组拖拽不退化成一单一单 moveStatus',
+          !window.__fcTest.calls().some((c) => c.name === 'moveStatus'), '')
+      }
+      if ($('.batch-bar')) {
+        const cancel = $$('.batch-bar button').find((b) => (b.textContent || '').trim() === '取消')
+        if (cancel) cancel.click()
+        await sleep(200)
+      }
+      window.__fcTest.setTasks(saved)
+      clickText('看板'); await sleep(300)
+    }
+
     // ══ 看板 · 分区头整组勾选（2026-10-25 暮雨第 11 条）══════════════════
     // 原话：“一堆空草稿想全部归档，发现不能一键选所有草稿，只能一个个点”。
     // 判据：点某分区的组选框 = 只选中该组；其他组不受影响；再点一次 = 只取消该组。

@@ -2021,6 +2021,8 @@ const wizardCanNext = computed(() => {
 
 watch(searchIncludeArchive, v => { saveUiPref('fc_include_archive', v); loadAll() })
 const draggingId = ref<string | null>(null)
+/** 多选拖拽（2026-11-21）：选中 N 张后拖其中一张，N 张一起走；单选时就是 [id] */
+const draggingIds = ref<string[]>([])
 const dragoverCol = ref<string | null>(null)
 const previewTask = ref<Task | null>(null)
 
@@ -6626,6 +6628,11 @@ async function rejectTask() {
 
 function onDragStart(e: DragEvent, id: string) {
   draggingId.value = id
+  // 2026-11-21：多选态拖其中一张 = 整组一起走（此前只动被拖那张）。
+  // 只在“批量模式 + 被拖的这张确实在选中集里 + 选中多于一张”时成组；否则维持单选。
+  draggingIds.value = (batchMode.value && selectedBatch.value.includes(id) && selectedBatch.value.length > 1)
+    ? [...selectedBatch.value]
+    : [id]
   // 拖拽一开始就把悬停浮层收掉：否则它会挂在屏幕上跟着拖（浮层只在 hover 里生成，
   // 但拖拽期间鼠标会离开卡、也可能不触发 mouseleave，干脆在这里主动清一次）
   onCardLeave()
@@ -6649,17 +6656,40 @@ function onDragOver(e: DragEvent, status: string) {
 async function onDrop(e: DragEvent, status: string) {
   e.preventDefault()
   const id = draggingId.value || e.dataTransfer?.getData('text/plain')
-  if (id) {
-    const snap = snapOfTask(id)
-    const title = String(tasks.value.find((x: any) => x.id === id)?.title || id)
+  const ids = draggingIds.value.length ? [...draggingIds.value] : (id ? [String(id)] : [])
+  const primary = id ? String(id) : (ids[0] || '')
+  if (ids.length > 1) {
+    // 多选拖拽（2026-11-21）：一次 batchEdit 把整组移到目标列；可整体撤销。
+    const snaps = ids.map((x) => ({ id: x, snap: snapOfTask(x) })).filter((x) => x.snap)
     try {
-      const result = await window.tegula.moveStatus(id, status)
+      const result: any = await window.tegula.batchEdit(ids, { status })
+      const fails = Array.isArray(result?.fails) ? result.fails : []
+      if (fails.length === 0) {
+        showToast(`已移动 ${ids.length} 张到“${status}”`, 'success')
+      } else {
+        showToast(`已移动 ${ids.length - fails.length} 张，${fails.length} 张失败`, 'error')
+      }
+      if (snaps.length) {
+        offerUndo(`把 ${ids.length} 张拖到“${status}”`, async () => {
+          for (const s of snaps) await restoreTaskSnap(s.id, s.snap)
+          showToast('已撤回：整组回到拖拽前', 'success')
+        })
+      }
+      selectedBatch.value = []
+    } catch (err) {
+      showToast(`批量移动失败: ${err}`, 'error')
+    }
+  } else if (primary) {
+    const snap = snapOfTask(primary)
+    const title = String(tasks.value.find((x: any) => x.id === primary)?.title || primary)
+    try {
+      const result = await window.tegula.moveStatus(primary, status)
       if (result.ok) {
         showToast(`已移动到“${status}”`, 'success')
         // 拖拽最容易手滑跨列：可撤（2026-10-30 暮雨第 5 条）
         if (snap && snap.status !== status) {
           offerUndo(`“${title}”拖到“${status}”`, async () => {
-            await restoreTaskSnap(id, snap)
+            await restoreTaskSnap(primary, snap)
             showToast(`已撤回：回到“${snap.status}”`, 'success')
           })
         }
@@ -6671,8 +6701,9 @@ async function onDrop(e: DragEvent, status: string) {
     }
   }
   draggingId.value = null
+  draggingIds.value = []
   dragoverCol.value = null
-  loadAll()
+  void loadAll()
 }
 
 // ── Batch mode ──────────────────────────────────────────────────────────
