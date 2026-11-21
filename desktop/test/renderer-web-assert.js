@@ -6234,6 +6234,40 @@
       }
       check('  切回“全部类型”两条都回来', await waitFor(() => $$('.nc-item').length === 2, 3000, 'type reset'))
     }
+    // 2026-11-21：分类订阅（持久化 + 关掉的类型不进未读计数）
+    {
+      const subBtn = $('.nc-sub-toggle')
+      check('★ 通知中心有「订阅」入口', !!subBtn, subBtn ? '' : '(没有 .nc-sub-toggle)')
+      if (subBtn) { subBtn.click(); await sleep(250) }
+      const row = $$('.nc-sub-item').find((l) => /没人接手|任务没动静/.test(l.textContent || ''))
+      const box = row ? row.querySelector('input[type="checkbox"]') : null
+      check('★★ 订阅面板列出类型（任务没动静可勾掉）', !!box && box.checked === true,
+        row ? (row.textContent || '').trim() : '(没有这一项)')
+      if (box) {
+        box.checked = false
+        box.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★★ 关掉一类后列表立刻不再显示它（不是只改勾）',
+        await waitFor(() => $$('.nc-item').length === 1, 3000, 'hidden item'))
+      check('★★ 关掉的类型不进未读计数（面板头角标消失）', !$('.nc-count'),
+        'count=' + (($('.nc-count') || {}).textContent || '(无)'))
+      check('★★ 关掉的类型写进 prefs.ncHiddenTypes（跨重启真身）',
+        await waitFor(() => Array.isArray(window.__fcTest.prefs().ncHiddenTypes)
+          && window.__fcTest.prefs().ncHiddenTypes.includes('task-stalled'), 3000, 'prefs ncHiddenTypes'),
+        JSON.stringify(window.__fcTest.prefs().ncHiddenTypes))
+      if (box) {
+        box.checked = true
+        box.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★ 恢复后两条都回来，且 prefs 里移除该类',
+        await waitFor(() => $$('.nc-item').length === 2
+          && !(window.__fcTest.prefs().ncHiddenTypes || []).includes('task-stalled'), 3000, 'restore'),
+        JSON.stringify(window.__fcTest.prefs().ncHiddenTypes))
+      if ($('.nc-sub-toggle') && $('.nc-sub-panel')) {
+        $('.nc-sub-toggle').click()
+        await sleep(150)
+      }
+    }
     check('★ 能跳的行带 title 提示 + 行尾箭头（不再是死按钮）',
       $$('.nc-item.go').length === 2 && $$('.nc-go').length === 2 &&
       (($$('.nc-item')[0] || {}).getAttribute?.('title') === '跳到这个任务'),

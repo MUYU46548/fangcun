@@ -66,28 +66,47 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncOpen = ref(false)
   const ncReady = ref(false)
   const ncLoading = ref(false)
-  const ncUnread = ref(0)
+  const ncUnreadRaw = ref(0)
   const ncItems = ref<any[]>([])
   const ncFilter = ref<'all' | 'unread' | 'read'>('unread')
   // 2026-11-21：按类型筛（“没用的通知一堆”的最小出口）。空串 = 全部类型。
   const ncType = ref('')
+  // 2026-11-21：分类订阅 —— 关掉的类型不进未读计数，历史仍保留，可随时恢复。
+  const ncHidden = ref<string[]>([])
+  const ncSubOpen = ref(false)
   let ncTimer: number | null = null
   let ncChangeOff: (() => void) | null = null
 
   const ncCounts = computed(() => {
-    const unread = ncItems.value.filter(n => !n.read).length
-    return { all: ncItems.value.length, unread, read: ncItems.value.length - unread }
+    const active = ncItems.value.filter(n => !ncHidden.value.includes(n.type))
+    const unread = active.filter(n => !n.read).length
+    const hidden = ncItems.value.length - active.length
+    return { all: active.length, unread, read: active.length - unread, hidden }
+  })
+  /** 未读数：订阅关掉的类型不算 —— 否则“关了还在角标上”等于没关 */
+  const ncUnread = computed(() => {
+    const hiddenUnread = ncItems.value.filter(n => !n.read && ncHidden.value.includes(n.type)).length
+    return Math.max(0, ncUnreadRaw.value - hiddenUnread)
+  })
+  /** 订阅清单：所有已知类型（没有的也列出来，用户可以先关掉以后再出现的类型） */
+  const ncAllTypes = computed(() => {
+    const m = new Map<string, number>()
+    for (const n of ncItems.value) m.set(n.type, (m.get(n.type) || 0) + 1)
+    return Object.keys(NC_TYPE_META)
+      .map((id) => ({ id, n: m.get(id) || 0, label: NC_TYPE_META[id].label }))
+      .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
   })
   /** 类型筛选项：只列当前通知里真出现过的类型，带条数（不造空选项） */
   const ncTypes = computed(() => {
     const m = new Map<string, number>()
-    for (const n of ncItems.value) m.set(n.type, (m.get(n.type) || 0) + 1)
+    for (const n of ncItems.value) if (!ncHidden.value.includes(n.type)) m.set(n.type, (m.get(n.type) || 0) + 1)
     return [...m.entries()]
       .map(([id, n]) => ({ id, n, label: NC_TYPE_META[id]?.label || id }))
       .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
   })
   const ncVisible = computed(() => {
     return ncItems.value.filter(n => {
+      if (ncHidden.value.includes(n.type)) return false
       if (ncFilter.value === 'unread' && n.read) return false
       if (ncFilter.value === 'read' && !n.read) return false
       if (ncType.value && n.type !== ncType.value) return false
@@ -121,7 +140,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
         (window as any).tegula.notificationsUnreadCount(),
       ])
       ncItems.value = list || []
-      ncUnread.value = unread || 0
+      ncUnreadRaw.value = unread || 0
     } catch { /* IPC 失败静默，ncReady 已做入口探测 */ }
     // 状态与静音是**增强项**：通道缺失时保持"未知"，不能让整块面板挂掉
     try {
@@ -172,6 +191,38 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   }
   function ncSetType(t: string): void {
     ncType.value = String(t || '')
+  }
+
+  // ── 分类订阅（2026-11-21）────────────────────────────────────────────
+  async function ncLoadHidden(): Promise<void> {
+    try {
+      const p: any = await (window as any).tegula.prefsGet()
+      const raw = Array.isArray(p?.ncHiddenTypes) ? p.ncHiddenTypes : []
+      ncHidden.value = raw.map((x: any) => String(x)).filter((x: string) => !!NC_TYPE_META[x])
+    } catch { /* 读不到偏好按“全订阅”处理，不挡面板 */ }
+  }
+
+  async function ncSaveHidden(): Promise<void> {
+    try {
+      const r: any = await (window as any).tegula.prefsSetMany({ ncHiddenTypes: [...ncHidden.value] })
+      if (r && r.ok === false) ctx.toast('订阅没存进去：' + (r.error || '未知原因'), 'error')
+    } catch (e: any) {
+      ctx.toast('订阅没存进去：' + (e?.message || e), 'error')
+    }
+  }
+
+  async function ncToggleType(id: string, on: boolean): Promise<void> {
+    const t = String(id || '')
+    if (!NC_TYPE_META[t]) return
+    if (on) ncHidden.value = ncHidden.value.filter((x) => x !== t)
+    else if (!ncHidden.value.includes(t)) ncHidden.value = [...ncHidden.value, t]
+    await ncSaveHidden()
+  }
+
+  async function ncResetSubs(): Promise<void> {
+    ncHidden.value = []
+    await ncSaveHidden()
+    ctx.toast('已恢复全部通知类型', 'success')
   }
 
   /**
@@ -272,7 +323,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
       try {
         await (window as any).tegula.notificationsMarkRead(n.id)
         n.read = true
-        ncUnread.value = Math.max(0, ncUnread.value - 1)
+        ncUnreadRaw.value = Math.max(0, ncUnread.value - 1)
       } catch { /* ignore */ }
     }
     await ncJump(n)
@@ -281,7 +332,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   async function ncToggleRead(n: any): Promise<void> {
     try {
       await (window as any).tegula.notificationsMarkRead(n.id)
-      if (!n.read) { n.read = true; ncUnread.value = Math.max(0, ncUnread.value - 1) }
+      if (!n.read) { n.read = true; ncUnreadRaw.value = Math.max(0, ncUnread.value - 1) }
     } catch { /* ignore */ }
   }
 
@@ -357,18 +408,20 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     document.addEventListener('mousedown', onDocumentClick)
     document.addEventListener('keydown', onKeydown)
     ncLoad()
+    // 订阅偏好是面板增强项：读不到就按“全订阅”，不挡通知本身
+    void ncLoadHidden()
     // 2026-11-21：主进程每次落盘变更都推一次；面板开着就重拉列表，
     // 关着就只刷新未读数（别为一条已读去拉 300 条）。
     if (typeof t.onNotificationsChanged === 'function') {
       ncChangeOff = t.onNotificationsChanged(() => {
-        if (ncOpen.value) { void ncLoad(); return }
-        t.notificationsUnreadCount().then((c: number) => { ncUnread.value = c || 0 }).catch(() => {})
+        if (ncOpen.value || ncHidden.value.length) { void ncLoad(); return }
+        t.notificationsUnreadCount().then((c: number) => { ncUnreadRaw.value = c || 0 }).catch(() => {})
       })
     }
     // 兜底轮询：事件丢了/老 preload 也能收敛。面板开着拉列表，关着只拉计数。
     ncTimer = window.setInterval(() => {
       if (ncOpen.value) { void ncLoad(); return }
-      (window as any).tegula.notificationsUnreadCount().then((c: number) => { ncUnread.value = c || 0 }).catch(() => {})
+      (window as any).tegula.notificationsUnreadCount().then((c: number) => { ncUnreadRaw.value = c || 0 }).catch(() => {})
     }, 15_000)
   }
 
@@ -380,6 +433,6 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   })
 
   return {
-    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
+    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncHidden, ncSubOpen, ncAllTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncToggleType, ncResetSubs, ncLoadHidden, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
   }
 }

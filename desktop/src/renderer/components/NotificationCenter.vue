@@ -40,6 +40,30 @@
           <option value="">全部类型</option>
           <option v-for="t in ncTypes" :key="t.id" :value="t.id">{{ t.label }}（{{ t.n }}）</option>
         </select>
+        <!-- 2026-11-21：分类订阅开关（持久化到 prefs） -->
+        <Button class="nc-sub-toggle" variant="ghost" size="sm" :class="{ on: ncSubOpen }" title="选择要接收哪些类型的通知" @click="ncSubOpen = !ncSubOpen">
+          订阅<span v-if="ncHidden.length" class="n">{{ ncHidden.length }}</span>
+        </Button>
+      </div>
+
+      <div v-if="ncSubOpen" class="nc-sub-panel">
+        <div class="nc-sub-head">
+          通知分类订阅
+          <span>关掉的类型不进入未读计数；历史仍保留，随时可恢复</span>
+        </div>
+        <div class="nc-sub-grid">
+          <label v-for="t in ncAllTypes" :key="t.id" class="nc-sub-item" :class="{ off: ncHidden.includes(t.id) }">
+            <input type="checkbox" :checked="!ncHidden.includes(t.id)"
+              @change="ncToggleType(t.id, ($event.target as HTMLInputElement).checked)" />
+            <span class="lbl">{{ t.label }}</span>
+            <span class="n">{{ t.n }}</span>
+          </label>
+        </div>
+        <div class="nc-sub-foot">
+          <span v-if="ncHidden.length">已关 {{ ncHidden.length }} 类 · {{ ncCounts.hidden }} 条不计数</span>
+          <span v-else>全部类型都接收</span>
+          <Button variant="ghost" size="sm" @click="ncResetSubs">全部恢复</Button>
+        </div>
       </div>
 
       <div class="nc-list">
@@ -85,6 +109,10 @@
         <span>被忽略 {{ ncMuted.length }} 条（7 天后自动恢复）</span>
         <Button variant="ghost" size="sm" @click="ncUnmuteAll">全部恢复 →</Button>
       </div>
+      <div v-if="ncHidden.length" class="nc-muted">
+        <span>已关 {{ ncHidden.length }} 类通知（{{ ncCounts.hidden }} 条不计入未读）</span>
+        <Button variant="ghost" size="sm" @click="ncSubOpen = true">管理订阅 →</Button>
+      </div>
       <footer class="nc-foot">
         <div class="stat">共 <b>{{ ncCounts.all }}</b> 条 · 未读 <b>{{ ncCounts.unread }}</b> 条</div>
         <!-- P0-4：扫描器状态 —— "停摆"与"扫不到"此前在界面上长得一模一样 -->
@@ -112,6 +140,9 @@ const ncLoading = toRef(ctl, 'ncLoading')
 const ncFilter = toRef(ctl, 'ncFilter')
 const ncType = toRef(ctl, 'ncType')
 const ncTypes = toRef(ctl, 'ncTypes')
+const ncHidden = toRef(ctl, 'ncHidden')
+const ncSubOpen = toRef(ctl, 'ncSubOpen')
+const ncAllTypes = toRef(ctl, 'ncAllTypes')
 const ncCounts = toRef(ctl, 'ncCounts')
 const ncVisible = toRef(ctl, 'ncVisible')
 const ncMuted = toRef(ctl, 'ncMuted')
@@ -120,7 +151,7 @@ const ncStatusText = toRef(ctl, 'ncStatusText')
 
 // ── 动作 ────────────────────────────────────────────────────────────────
 const {
-  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncSetType, ncTargetOf, ncClickItem,
+  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncSetType, ncToggleType, ncResetSubs, ncTargetOf, ncClickItem,
   ncRelTime, ncToggleRead, ncDelete, ncUnmuteAll, ncClearAll,
 } = ctl
 </script>
