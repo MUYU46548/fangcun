@@ -432,6 +432,9 @@ function main() {
       ['想法', '', 'ideas'],
       ['问答', '', 'ask'],
       ['问答', '', 'ask-answer', 'askans'],
+      // 2026-11-21：token 预算环 + 近 14 天柱（暮雨“自设预算可以图像化”）。
+      // 这张要拍**设了预算**的形态：环、百分比、14 根柱都在画面里。
+      ['问答', '', 'ask-budget', 'askbudget'],
       // 2026-10-25 卡 005：账户口径（余额差值）—— 截图要同时看见“月报表(token)”和
       // “账户口径(真钱)”两块，并且能读到“归不到具体某一次调用”那句。
       ['问答', '', 'ask-account', 'askacc'],
@@ -936,6 +939,24 @@ function main() {
   const sect = document.querySelector('#smodal .llm-status')
   if (sect) sect.scrollIntoView({ block: 'start' })
   await sleep(300)
+` : ''}
+  ${extra === 'askbudget' ? `
+  // 2026-11-21：token 预算 —— 先补两根“今天/昨天”的用量让柱形有内容，再填 200 保存
+  if (window.__fcTest && window.__fcTest.setUsageRecent) window.__fcTest.setUsageRecent(true)
+  clickText('待办'); await sleep(250); clickText('问答'); await sleep(900)
+  await sleep(300)
+  const bi = document.querySelector('#board.ask-view [data-usage-budget] .ub-in')
+  if (bi) {
+    bi.value = '200'
+    bi.dispatchEvent(new Event('input', { bubbles: true }))
+    await sleep(80)
+    const bsave = all('#board.ask-view [data-usage-budget] button').find((b) => (b.textContent || '').trim() === '保存')
+    if (bsave) bsave.click()
+    await sleep(400)
+  }
+  const ubel = document.querySelector('#board.ask-view [data-usage-budget]')
+  if (ubel) ubel.scrollIntoView({ block: 'center' })
+  await sleep(400)
 ` : ''}
   ${extra === 'askacc' ? `
   // 滚到页面底部：账户口径块在月报表下面

@@ -21,6 +21,9 @@ const FIX_MMDD = FIX_DEADLINE.slice(5)
 
 const store = {
   todos: [],
+  // 2026-11-21：截图/断言要看到“近 14 天有柱”时先 setUsageRecent(true)；
+  // 默认 false，旧的“每天 3 根柱”断言不受影响。
+  usageRecent: false,
   // 记忆层（2026-11-17）· 夹具默认给**真形状的三条**：
   // 一条事故、一条纪律、一条已撤销。为什么不全空 —— 空数组会让
   // "列表渲染出来了吗"和"筛选生效了吗"永远无法区分（本仓栽过）。
@@ -2751,10 +2754,19 @@ contextBridge.exposeInMainWorld('tegula', {
     }
     const curMonth = ym(0)
     const prevMonth = ym(-1)
+    const recent = []
+    if (store.usageRecent) {
+      for (const off of [1, 0]) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - off)
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        if (key.indexOf(curMonth + '-') !== 0) continue
+        recent.push({ date: key, calls: 1, new_input_tokens: off ? 20 : 30, completion_tokens: off ? 10 : 15, total_tokens: off ? 30 : 45 })
+      }
+    }
     return {
       months: [
         // 金额三态各来一条（2026-10-25 卡 005）：本月有金额且 1 笔未折算；上月纯未折算
-        { month: curMonth, calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, new_input_tokens: 70, cache_read_tokens: 20, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }], days: [
+        { month: curMonth, calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, new_input_tokens: 70, cache_read_tokens: 20, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }], days: [...recent,
           { date: `${curMonth}-01`, calls: 1, new_input_tokens: 30, completion_tokens: 10, total_tokens: 30 },
           { date: `${curMonth}-02`, calls: 1, new_input_tokens: 25, completion_tokens: 20, total_tokens: 45 },
           { date: `${curMonth}-03`, calls: 1, new_input_tokens: 15, completion_tokens: 10, total_tokens: 35 },
@@ -3048,6 +3060,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
     rec('setSkillSync')
     return JSON.parse(JSON.stringify(store.skillSync))
   },
+  /** 2026-11-21：给“近 14 天柱”补两根今天的柱（截图/目检用；默认关，旧断言不受影响） */
+  setUsageRecent: (v) => { store.usageRecent = v !== false; return store.usageRecent },
   resetPlanDocs: () => {
     const p0 = PLAN_DOCS[0].stages.find(s => s.id === 'P0')
     if (p0) { p0.status = '已冻结'; p0.verdict = '通过 · 2026-10-29'; p0.rejectReason = '' }
